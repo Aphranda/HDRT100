@@ -42,6 +42,8 @@ add_executable(${PROJECT_NAME}
         components/ota_manager/src/ota_ao.c
         components/ota_manager/src/ota_fb.c
         components/ota_manager/src/ota_crc32.c
+        components/ota_manager/src/ota_image.c
+        components/ota_manager/src/ota_metadata.c
         components/sync_io/src/sync_io.c
         components/sync_config_ui/src/sync_config_ui.c
         drivers/mcu/spi/src/drv_spi.c

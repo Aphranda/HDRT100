@@ -6,12 +6,13 @@
 
 #include "drv_flash.h"
 #include "ota_ao_private.h"
+#include "ota_crc32.h"
 #include "ota_error.h"
+#include "ota_image.h"
+#include "ota_metadata.h"
 #include "ota_partition.h"
 #include "ota_vector.h"
 #include "sync_io.h"
-
-uint32_t ota_crc32_update(uint32_t crc, const uint8_t *data, size_t length);
 
 static void ota_fb_set_state(struct ota_ao_context *context, ota_state_t state)
 {
@@ -188,6 +189,22 @@ static void ota_fb_handle_end(struct ota_ao_context *context)
 
     if (context->vector.crc32_running != context->vector.crc32_expected) {
         ota_fb_set_error(context, OTA_ERR_CRC);
+        return;
+    }
+
+    if (!ota_image_validate_app_vector(context->target_offset,
+                                       context->vector.expected_size,
+                                       OTA_DEFAULT_APP_RUN_OFFSET)) {
+        ota_fb_set_error(context, OTA_ERR_VECTOR);
+        return;
+    }
+
+    ota_fb_set_state(context, OTA_STATE_MARK_PENDING);
+
+    if (!ota_metadata_mark_pending(context->target_slot,
+                                   context->vector.expected_size,
+                                   context->vector.crc32_expected)) {
+        ota_fb_set_error(context, OTA_ERR_METADATA);
         return;
     }
 

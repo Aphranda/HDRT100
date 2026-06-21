@@ -680,7 +680,7 @@ Trigger 域可以拒绝 OTA：
 ```text
 App 接收 OTA 包
   -> 写 inactive/staging 区
-  -> App 校验 CRC/header
+  -> App 校验 raw bin CRC 和向量表
   -> 写 metadata pending
   -> Bootloader 校验向量表和镜像
   -> 启动或搬运 App
@@ -691,7 +691,7 @@ Bootloader 负责：
 
 - 读取 metadata 双副本。
 - 选择启动 Slot。
-- 校验 image header、CRC 和 App 向量表。
+- 校验 raw bin CRC 和 App 向量表。
 - 设置 VTOR/MSP 并跳转 App，或搬运 staging 到固定运行区。
 - 处理 pending、commit、rollback。
 
@@ -728,7 +728,7 @@ App 负责：
 7. SCPI 的 OTA 命令只写事件，不直接改 OTA 状态。
 8. `app_run_once()` 中加入 `system_manager_service()` 和各 AO service。
 9. 增加 `drivers/mcu/flash/`。
-10. 增加 OTA metadata 和镜像 header。
+10. 增加 OTA metadata 和 raw bin 校验。
 11. 拆出 Bootloader 工程。
 12. 接入 SD 卡和 FatFs 后扩展离线 OTA。
 

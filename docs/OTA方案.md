@@ -60,7 +60,7 @@ OtaAO                       # OTA 主动对象：事件队列、预算、资源�
 OtaFB                       # OTA 主流程 ECC 状态机
   ├─ FlashJobFB             # Flash 擦除/写入/读回校验分步任务
   ├─ MetadataFB             # metadata 双副本读写和选择
-  ├─ ImageVerifyFB          # header/CRC/向量表校验
+  ├─ ImageVerifyFB          # raw bin CRC/向量表校验
   └─ BootHandoffFB          # pending/commit/rollback 交接
   ↓
 OtaVector                   # OTA 状态摘要、进度、错误码
@@ -73,12 +73,12 @@ drv_flash / bootloader
 | 模块 | 职责 | 禁止事项 |
 |---|---|---|
 | `middleware/scpi_port` | 解析 SCPI 命令，投递 OTA 事件，返回状态快照 | 不直接擦写 Flash，不直接改 OTA 状态 |
-| `storage_manager` | 后续从 SD 卡读取 `.ota` 文件流，投递数据块事件 | 不解析 Bootloader metadata |
+| `storage_manager` | 后续从 SD 卡读取标准 `.bin` 固件流，投递数据块事件 | 不解析 Bootloader metadata |
 | `OtaAO` | 接收事件、申请资源、限时调度内部 FB | 不直接暴露内部状态指针 |
 | `OtaFB` | OTA 主状态转移、错误归因、进度发布 | 不直接调用 Pico SDK Flash API |
 | `FlashJobFB` | 将擦除、写入、读回校验拆成可调度小任务 | 不跨越分区边界 |
 | `MetadataFB` | 双副本 metadata 读写、sequence、CRC | 不覆盖最后一个有效副本 |
-| `ImageVerifyFB` | 镜像头、CRC、board id、向量表校验 | 不执行跳转 |
+| `ImageVerifyFB` | raw bin CRC 和 App 向量表校验 | 不执行跳转 |
 | `Bootloader` | 启动选择、最终镜像校验、跳转/搬运、回滚 | 第一版不读 SD，不跑 SCPI/UI |
 
 ## OtaVector 设计
@@ -182,7 +182,7 @@ OTA 主状态机采用表驱动 ECC。表项只描述状态、事件、条件和
 | `RECEIVING` | `DATA_BLOCK` | 块连续且边界合法 | 创建写入/读回校验 job，更新 received | `RECEIVING` |
 | `RECEIVING` | `END` | 接收大小等于 expected | 创建整镜像校验任务 | `VERIFYING` |
 | `RECEIVING` | `ABORT` | 任意 | 释放资源，保留 confirmed slot | `ABORTED` |
-| `VERIFYING` | `FLASH_JOB_DONE` | CRC/header/向量表通过 | 写 metadata pending | `MARK_PENDING` |
+| `VERIFYING` | `FLASH_JOB_DONE` | raw bin CRC 和向量表通过 | 写 metadata pending | `MARK_PENDING` |
 | `VERIFYING` | `FLASH_JOB_FAILED` | 校验失败 | 释放资源，记录错误 | `FAILED` |
 | `MARK_PENDING` | `FLASH_JOB_DONE` | metadata 写入并读回通过 | 发布 ready | `READY_TO_REBOOT` |
 | `READY_TO_REBOOT` | `BOOT` | 用户确认或策略允许 | 设置重启请求 | `READY_TO_REBOOT` |
@@ -333,7 +333,7 @@ commit 后：
 | `OTA_ERR_BUSY` | 资源忙或系统不允许 OTA |
 | `OTA_ERR_INVALID_STATE` | 当前状态不接受该事件 |
 | `OTA_ERR_IMAGE_TOO_LARGE` | 镜像超过 slot 大小 |
-| `OTA_ERR_BAD_HEADER` | OTA header 无效 |
+| `OTA_ERR_BAD_HEADER` | 镜像格式错误或保留错误码 |
 | `OTA_ERR_BOARD_MISMATCH` | board id 不匹配 |
 | `OTA_ERR_VERSION_REJECTED` | 版本策略拒绝 |
 | `OTA_ERR_FLASH_ERASE` | Flash 擦除失败 |
@@ -372,11 +372,31 @@ drivers/mcu/flash/
   inc/drv_flash.h
   src/drv_flash.c
 
-tools/ota_packager/
-  ota_packager.py
+tools/ota_bin_info/
+  ota_bin_info.py
 
 tools/ota_send/
   ota_send.py
+```
+
+标准 `.bin` 信息查询示例：
+
+```powershell
+python tools/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin
+```
+
+`SYST:OTA:BEGIN <size>,<crc32>` 中的 `size` 和 `crc32` 对应标准 raw firmware `.bin` 文件本身。设备端 `END` 阶段会校验整包 CRC 和 App 向量表。
+
+在线发送示例：
+
+```powershell
+python tools/ota_send/ota_send.py COM7 build/RP2350_TRIG.bin --block-size 512
+```
+
+无硬件时可先验证发送计划：
+
+```powershell
+python tools/ota_send/ota_send.py COM7 build/RP2350_TRIG.bin --dry-run
 ```
 
 Bootloader 阶段新增：
@@ -444,7 +464,7 @@ SD 卡不参与基本启动链路，但作为大容量维护介质。
 OTA 相关文件：
 
 ```text
-/update/rp2350_trig_x.y.z.ota
+/update/rp2350_trig_x.y.z.bin
 /update/last_result.txt
 ```
 
@@ -484,7 +504,7 @@ W25Q32 inactive App Slot
 ### 离线升级：SD 卡 OTA 包
 
 ```text
-SD 卡 /update/*.ota
+SD 卡 /update/*.bin
   ↓
 storage_manager 扫描和读取
   ↓
@@ -628,42 +648,19 @@ Metadata 写入规则：
 
 ## OTA 镜像格式
 
-不直接传输 UF2，使用项目自定义 OTA 镜像：
+当前不使用自定义 `.ota` 后缀，也不传输 UF2。OTA 传输格式采用标准 raw firmware `.bin`：
 
 ```text
-rp2350_trig_x.y.z.ota
-├─ ota_image_header_t
+rp2350_trig_x.y.z.bin
 └─ app raw binary
-```
-
-建议头部：
-
-```c
-typedef struct {
-    uint32_t magic;
-    uint16_t header_version;
-    uint16_t header_size;
-    uint32_t board_id;
-    uint32_t image_version;
-    uint32_t image_size;
-    uint32_t load_offset;
-    uint32_t entry_offset;
-    uint32_t crc32;
-    uint8_t  sha256[32];
-    uint32_t flags;
-    uint32_t header_crc32;
-} ota_image_header_t;
 ```
 
 第一阶段必须校验：
 
-- magic。
-- header size。
-- board id。
-- image size。
-- slot 边界。
-- CRC32。
-- header CRC32。
+- `.bin` 文件大小。
+- `.bin` 文件 CRC32。
+- Slot 边界。
+- App 向量表。
 
 第二阶段增强：
 
@@ -709,7 +706,7 @@ OTA 期间建议：
 
 流程：
 
-1. 用户把 `.ota` 文件放入 SD 卡 `/update/`。
+1. 用户把 `.bin` 文件放入 SD 卡 `/update/`。
 2. App 启动后或收到 SCPI 命令后扫描 `/update/`。
 3. 选择最新且 board id 匹配的 OTA 包。
 4. `storage_manager` 读取文件流，并向 `OtaAO` 投递数据块事件。
@@ -724,7 +721,7 @@ OTA 期间建议：
 | 命令 | 说明 |
 |---|---|
 | `MMEM:CAT? "/update"` | 列出升级目录。 |
-| `SYST:OTA:FILE "<path>"` | 从 SD 卡指定文件执行 OTA。 |
+| `SYST:OTA:FILE "<path>"` | 从 SD 卡指定 `.bin` 文件执行 OTA。 |
 | `SYST:OTA:FILE?` | 查询当前选中的 OTA 文件。 |
 
 ## SPI 总线策略
@@ -755,7 +752,7 @@ components/storage_manager/
 drivers/mcu/flash/
 drivers/external/sd_card/
 middleware/fatfs_port/
-tools/ota_packager/
+tools/ota_bin_info/
 tools/ota_send/
 ```
 
@@ -768,8 +765,8 @@ tools/ota_send/
 - `drivers/external/sd_card/`：SD 卡 SPI 模式底层驱动。
 - `middleware/fatfs_port/`：FatFs 或等价文件系统适配。
 - `middleware/scpi_port/`：增加 OTA 命令，只负责传输和命令入口。
-- `tools/ota_packager/`：将 App binary 打包为 `.ota`。
-- `tools/ota_send/`：通过 USB CDC SCPI 发送 `.ota`。
+- `tools/ota_bin_info/`：输出标准 `.bin` 的 size 和 CRC32。
+- `tools/ota_send/`：通过 USB CDC SCPI 发送标准 `.bin`。
 
 ## Flash 写入注意事项
 
@@ -789,13 +786,13 @@ tools/ota_send/
 - W25Q32 分区宏和文档固化。
 - `drivers/mcu/flash/` 最小擦写封装。
 - `components/ota_manager/` 的 `OtaAO/OtaFB` 状态机。
-- OTA header 和 CRC32 校验。
+- raw `.bin` CRC32 和 App 向量表校验。
 - SCPI `SYST:OTA:*` 基础命令。
 - App 写 inactive Slot。
 - Metadata 双副本。
 - 最小 Bootloader：读 metadata、选 Slot、校验、跳转、回滚。
 - App commit。
-- PC 端 `ota_packager.py` 和 `ota_send.py`。
+- PC 端 `ota_bin_info.py` 和 `ota_send.py`。
 
 暂不做：
 
@@ -811,7 +808,7 @@ tools/ota_send/
 
 - 接入 SD 卡 SPI 模式。
 - 接入 FatFs。
-- 支持从 `/update/*.ota` 离线升级。
+- 支持从 `/update/*.bin` 离线升级。
 - 支持日志写 SD 卡。
 - 支持配置导入导出。
 - 增加 SCPI 文件管理命令。
@@ -842,7 +839,7 @@ tools/ota_send/
 ## 推荐落地顺序
 
 1. 增加分区常量和 App 大小检查。
-2. 增加 OTA 镜像格式和 `ota_packager.py`。
+2. 增加 raw `.bin` 校验流程和 `ota_bin_info.py`。
 3. 增加 `drivers/mcu/flash/`。
 4. 增加 `components/ota_manager/`，先落地 `OtaVector/OtaAO/OtaFB`。
 5. 增加 SCPI `SYST:OTA:*` 接收命令，命令只投递事件。

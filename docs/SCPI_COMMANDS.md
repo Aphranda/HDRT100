@@ -72,8 +72,8 @@ OTA 命令遵循 `docs/OTA方案.md` 中的 `OtaAO + OtaFB + OtaVector` 设计�
 |---|---|
 | `SYST:OTA:STAT?` | 查询 OTA 状态摘要：状态、目标 slot、错误码、最近结果。 |
 | `SYST:OTA:PROG?` | 查询 OTA 进度：已接收字节、期望字节、千分比进度。 |
-| `SYST:OTA:BEGIN <size>,<crc32>` | 开始 OTA 传输，投递 `OTA_EVENT_BEGIN`。 |
-| `SYST:OTA:DATA #<block>` | 发送 OTA 二进制块，投递 `OTA_EVENT_DATA_BLOCK`。 |
+| `SYST:OTA:BEGIN <size>,<crc32>` | 开始 OTA 传输，`size/crc32` 对应标准 raw firmware `.bin`。 |
+| `SYST:OTA:DATA #<block>` | 发送 `.bin` 二进制块，投递 `OTA_EVENT_DATA_BLOCK`。 |
 | `SYST:OTA:END` | 结束传输并请求校验，投递 `OTA_EVENT_END`。 |
 | `SYST:OTA:ABOR` | 中止当前 OTA，投递 `OTA_EVENT_ABORT`。 |
 | `SYST:OTA:BOOT` | 镜像 ready 后请求重启进入 pending slot。 |

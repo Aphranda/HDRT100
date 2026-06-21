@@ -127,6 +127,8 @@ build/RP2350_TRIG.uf2
   based on Active Objects, a lightweight IEC 61499-inspired function block
   subset, time-synchronized vectors, table-driven state machines, event
   dispatch, and resource arbitration.
+- `docs/TASK_PROGRESS.md`: task progress log for goals, completed work,
+  verification results, remaining work, and next steps.
 
 ## Expansion Rules
 
