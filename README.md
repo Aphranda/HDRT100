@@ -123,6 +123,10 @@ build/RP2350_TRIG.uf2
   subsystem.
 - `docs/SCPI_COMMANDS.md`: basic SCPI command list for trigger configuration.
 - `docs/OTA方案.md`: A/B OTA upgrade design for the W25Q32 4 MB QSPI Flash.
+- `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`: product architecture plan
+  based on Active Objects, a lightweight IEC 61499-inspired function block
+  subset, time-synchronized vectors, table-driven state machines, event
+  dispatch, and resource arbitration.
 
 ## Expansion Rules
 
