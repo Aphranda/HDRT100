@@ -12,6 +12,20 @@
         "PROJECT_ENABLE_USB_STDIO": "ON",
         "PROJECT_ENABLE_UART_STDIO": "OFF",
         "PROJECT_WARNINGS_AS_ERRORS": "ON",
+        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF"
+      }
+    },
+    {
+      "name": "pico2-validation",
+      "displayName": "Pico 2 Validation",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-validation",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PICO_BOARD": "pico2",
+        "PROJECT_ENABLE_USB_STDIO": "ON",
+        "PROJECT_ENABLE_UART_STDIO": "OFF",
+        "PROJECT_WARNINGS_AS_ERRORS": "ON",
         "PROJECT_ENABLE_OTA_FAULT_INJECTION": "ON"
       }
     },
@@ -34,6 +48,10 @@
     {
       "name": "pico2-release",
       "configurePreset": "pico2-release"
+    },
+    {
+      "name": "pico2-validation",
+      "configurePreset": "pico2-validation"
     },
     {
       "name": "pico2-debug-uart",

@@ -105,6 +105,13 @@ cmake --preset pico2-release
 cmake --build --preset pico2-release
 ```
 
+Validation build with destructive OTA fault-injection commands:
+
+```powershell
+cmake --preset pico2-validation
+cmake --build --preset pico2-validation
+```
+
 Manual build:
 
 ```powershell
@@ -174,8 +181,8 @@ python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin `
 
 OTA fault-injection SCPI commands are available only when the CMake cache option
 `PROJECT_ENABLE_OTA_FAULT_INJECTION=ON` is enabled. They are intended for
-development validation, not production firmware. The release preset currently
-enables the option so the OTA failure paths can be verified on the bench.
+development validation, not production firmware. Use the `pico2-validation`
+preset for bench validation. The `pico2-release` preset disables these commands.
 
 ```text
 SYST:OTA:INJ:COPY?      # query fault flags

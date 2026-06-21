@@ -198,6 +198,19 @@ static bool bootloader_app_vector_is_valid(uint32_t vector_offset)
     return (vector[1] & 1u) != 0u;
 }
 
+static bool bootloader_active_app_is_valid(const ota_metadata_t *metadata)
+{
+    if (metadata != NULL &&
+        metadata->active_slot == (uint32_t)BOOTLOADER_ACTIVE_SLOT &&
+        metadata->slot_a_size != 0u) {
+        return bootloader_validate_slot(BOOTLOADER_ACTIVE_SLOT,
+                                        metadata->slot_a_size,
+                                        metadata->slot_a_crc32);
+    }
+
+    return bootloader_app_vector_is_valid(BOOTLOADER_APP_VECTOR_OFFSET);
+}
+
 static void bootloader_jump_to_app(uint32_t vector_offset)
 {
     const uint32_t vector_addr = DRV_FLASH_XIP_BASE + vector_offset;
@@ -216,11 +229,13 @@ static void bootloader_jump_to_app(uint32_t vector_offset)
 int main(void)
 {
     ota_metadata_t metadata;
+    bool metadata_loaded = false;
     if (ota_metadata_load(&metadata)) {
+        metadata_loaded = true;
         (void)bootloader_apply_pending_image(&metadata);
     }
 
-    if (bootloader_app_vector_is_valid(BOOTLOADER_APP_VECTOR_OFFSET)) {
+    if (bootloader_active_app_is_valid(metadata_loaded ? &metadata : NULL)) {
         bootloader_jump_to_app(BOOTLOADER_APP_VECTOR_OFFSET);
     }
 

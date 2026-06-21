@@ -238,6 +238,18 @@ static void ota_fb_handle_boot(struct ota_ao_context *context)
 
 static void ota_fb_handle_commit(struct ota_ao_context *context)
 {
+    ota_metadata_t metadata;
+    if (!ota_metadata_load(&metadata)) {
+        ota_fb_set_error(context, OTA_ERR_METADATA);
+        return;
+    }
+
+    if (metadata.pending_slot != (uint32_t)OTA_SLOT_NONE ||
+        metadata.last_boot_result != (uint32_t)OTA_BOOT_RESULT_APPLIED) {
+        ota_fb_set_error(context, OTA_ERR_INVALID_STATE);
+        return;
+    }
+
     if (!ota_metadata_confirm_active()) {
         ota_fb_set_error(context, OTA_ERR_METADATA);
         return;

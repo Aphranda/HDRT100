@@ -43,6 +43,96 @@
 
 ## 任务记录
 
+### TASK-20260622-006 - OTA 未处理评审项归档
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 将 OTA 代码评审中尚未处理的风险项写入待办，避免后续遗漏。
+- 完成内容：
+  - 在 `docs/OTA_TODO.md` 中补充 Bootloader copy transaction 状态设计待办。
+  - 补充 copy-to-active 失败时不应在 Slot A 可能损坏时直接清 pending 的待办。
+  - 补充从 copy-to-active 演进到真正 A/B 启动或 active 备份/scratch 恢复机制的评估项。
+  - 补充 metadata v3 扩展字段独立 CRC 或扩展区版本/CRC 的待办。
+  - 补充 metadata schema 迁移规则待办。
+  - 补充 SCPI OTA 写命令返回语义、同步等待模式、错误时序测试和 release 注入命令不可用验证。
+- 验证结果：
+  - 文档更新完成，未改动代码，未执行编译。
+- 还需完成：
+  - 后续按 `docs/OTA_TODO.md` 优先级逐项实现和验证。
+- 关联文件：
+  - `docs/OTA_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 优先设计 copy-to-active 掉电恢复策略，再推进 manifest/metadata 扩展 CRC 和 SCPI 交互语义完善。
+
+### TASK-20260622-005 - OTA 评审后优先级优化
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 根据 OTA 代码评审结果，优先修复低风险但影响工业可靠性的状态约束和启动校验问题。
+- 完成内容：
+  - `SYST:OTA:COMM` 增加前置条件保护：
+    - metadata 必须可读取。
+    - `pending_slot` 必须为 `OTA_SLOT_NONE`。
+    - Bootloader 最近结果必须为 `OTA_BOOT_RESULT_APPLIED`。
+    - 不满足条件时返回 `OTA_ERR_INVALID_STATE`，避免误清 pending 或误写 `APPLIED` 审计。
+  - Bootloader 普通启动前增加 active App 完整性校验：
+    - metadata 中 `active_slot == OTA_SLOT_A` 且 `slot_a_size != 0` 时，使用 Slot A size/CRC 校验。
+    - metadata 不完整时，保留最小向量校验作为首烧/历史状态兼容路径。
+  - `docs/OTA_TODO.md` 标记上述两项保护已完成，保留 copy-to-active 真实掉电恢复为 P0 待办。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 编译通过，生成 `build/RP2350_TRIG_FACTORY.uf2`，factory blocks 为 `315`。
+  - `cmake --build --preset pico2-validation` 编译通过，生成 `build-validation/RP2350_TRIG_FACTORY.uf2`，factory blocks 为 `324`。
+  - 当前板端只读查询正常：
+    - `SYST:FW:BUILD? -> "20260621163006"`
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,1`
+    - `SYST:OTA:RES? -> 0,"NONE","APPLIED",1,74040,3505617050`
+- 还需完成：
+  - 本轮未重新烧录新构建产物，因此上述保护目前完成编译验证，尚未完成板端实机验证。
+  - copy-to-active 掉电恢复策略仍需后续设计和台架验证。
+- 关联文件：
+  - `components/ota_manager/src/ota_fb.c`
+  - `bootloader/src/bootloader_main.c`
+  - `docs/OTA_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 下次烧录 release factory 后，验证错误时序下的 `SYST:OTA:COMM` 不会清 pending，并验证 Bootloader active App CRC 校验路径。
+
+### TASK-20260622-004 - OTA 异常注入工业化收口
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 异常注入路径验证完成后，按工业产品交付要求收口构建配置，避免调试/破坏性命令进入量产固件。
+  - 将真实掉电验证写入后续待办，后续具备台架条件后再验证。
+- 完成内容：
+  - 将 `PROJECT_ENABLE_OTA_FAULT_INJECTION` 的 CMake 默认值改为 `OFF`。
+  - `pico2-release` preset 显式关闭 `PROJECT_ENABLE_OTA_FAULT_INJECTION`。
+  - 新增 `pico2-validation` preset，使用独立 `build-validation/` 目录并开启 `PROJECT_ENABLE_OTA_FAULT_INJECTION`，用于异常注入和台架验证。
+  - 保留 `pico2-debug-uart` 开启异常注入，用于调试构建。
+  - README 增加 validation 构建命令，并明确 release 构建不包含异常注入 SCPI。
+  - SCPI 文档明确 `SYST:OTA:INJ:*` 仅存在于 validation/debug 构建，不开放给最终用户。
+  - 新增 `docs/OTA_TODO.md`，记录发布构建隔离、掉电恢复验证、manifest/兼容性、发布验证报告和自动化工具待办。
+- 验证结果：
+  - `cmake --preset pico2-release` 配置通过。
+  - `cmake --build --preset pico2-release` 编译通过，生成 `build/RP2350_TRIG_FACTORY.uf2`，factory blocks 为 `314`，符合 release 移除异常注入代码后的体积变化。
+  - `cmake --preset pico2-validation` 配置通过。
+  - `cmake --build --preset pico2-validation` 编译通过，生成 `build-validation/RP2350_TRIG_FACTORY.uf2`，factory blocks 为 `324`，保留异常注入验证代码。
+- 还需完成：
+  - 后续具备可控电源或继电器台架后，执行真实掉电恢复验证。
+- 关联文件：
+  - `CMakeLists.txt`
+  - `CMakePresets.json`
+  - `README.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/OTA_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 使用 `pico2-release` 作为客户/量产固件构建入口；使用 `pico2-validation` 作为异常注入和掉电台架验证入口。
+
 ### TASK-20260622-003 - OTA 故障注入接口与剩余路径验证
 
 - 状态：完成
