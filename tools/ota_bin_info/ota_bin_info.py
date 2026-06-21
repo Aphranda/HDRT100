@@ -23,7 +23,7 @@ def main() -> int:
     print(f"input={args.input}")
     print(f"size={len(data)}")
     print(f"crc32=0x{image_crc:08X}")
-    print(f"scpi_begin=SYST:OTA:BEGIN {len(data)},0x{image_crc:08X}")
+    print(f"scpi_begin=SYST:OTA:BEGIN {len(data)},{image_crc}")
     return 0
 
 

@@ -139,9 +139,9 @@ bool lcd_st7789_init(const lcd_st7789_config_t *config)
     const uint8_t madctl = lcd_madctl_for_rotation(s_lcd.rotation);
     lcd_write_cmd_data(LCD_CMD_MADCTL, &madctl, 1);
 
+    s_initialized = true;
     lcd_st7789_clear(LCD_ST7789_RGB565_BLACK);
     lcd_st7789_set_backlight(true);
-    s_initialized = true;
     return true;
 }
 

@@ -34,6 +34,8 @@ project(RP2350_TRIG C CXX ASM)
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 add_executable(${PROJECT_NAME}
         application/src/main.c
         application/src/app.c
@@ -154,5 +156,59 @@ endif()
 
 target_compile_options(${PROJECT_NAME} PRIVATE ${PROJECT_WARNING_FLAGS})
 
-pico_add_extra_outputs(${PROJECT_NAME})
+pico_set_linker_script(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_app_slot_a.ld)
 
+pico_add_dis_output(${PROJECT_NAME})
+if(PICO_32BIT)
+    pico_add_hex_output(${PROJECT_NAME})
+endif()
+pico_add_bin_output(${PROJECT_NAME})
+pico_add_map_output(${PROJECT_NAME})
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+        PICO_TARGET_NAME="${PROJECT_NAME}"
+)
+
+add_executable(RP2350_TRIG_BOOT
+        bootloader/src/bootloader_main.c
+        components/ota_manager/src/ota_crc32.c
+        components/ota_manager/src/ota_image.c
+        components/ota_manager/src/ota_metadata.c
+        drivers/mcu/flash/src/drv_flash.c
+)
+
+pico_set_program_name(RP2350_TRIG_BOOT "RP2350_TRIG_BOOT")
+pico_set_program_version(RP2350_TRIG_BOOT "0.1.0")
+
+pico_enable_stdio_uart(RP2350_TRIG_BOOT OFF)
+pico_enable_stdio_usb(RP2350_TRIG_BOOT OFF)
+
+target_include_directories(RP2350_TRIG_BOOT PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/bootloader/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
+        ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/flash/inc
+)
+
+target_link_libraries(RP2350_TRIG_BOOT
+        pico_stdlib
+        hardware_flash
+)
+
+target_compile_options(RP2350_TRIG_BOOT PRIVATE ${PROJECT_WARNING_FLAGS})
+
+pico_set_linker_script(RP2350_TRIG_BOOT ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_bootloader.ld)
+
+pico_add_extra_outputs(RP2350_TRIG_BOOT)
+
+add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_FACTORY.uf2
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
+                ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_FACTORY.uf2
+                ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_BOOT.bin@0x10000000
+                ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG.bin@0x10040000
+        DEPENDS RP2350_TRIG_BOOT ${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
+        VERBATIM
+)
+
+add_custom_target(RP2350_TRIG_FACTORY ALL
+        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_FACTORY.uf2
+)

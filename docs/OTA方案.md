@@ -25,12 +25,10 @@
 
 ## 推荐结论
 
-当前版本推荐采用：
+当前版本采用：
 
 ```text
-W25Q32 内部 A/B 双 App Slot
-  +
-固定 Bootloader
+W25Q32 固定 Bootloader + Slot A 运行区 + Slot B 暂存区
   +
 OTA Metadata 双副本
   +
@@ -41,12 +39,56 @@ SD 卡离线升级包缓存
 
 核心原则：
 
-- W25Q32 只保存 Bootloader、A/B App、Metadata、关键配置和少量保留区。
+- W25Q32 保存 Bootloader、Slot A App 运行镜像、Slot B OTA 暂存镜像、Metadata、关键配置和少量保留区。
 - SD 卡保存大文件：离线 OTA 包、日志、资源、采样摘要、测试报告。
 - Bootloader 不依赖 SD 卡启动，避免可插拔介质影响基本可恢复能力。
-- App 可以从 SD 卡读取 OTA 包，再写入 W25Q32 inactive Slot。
+- App 可以从 SCPI 或 SD 卡读取标准 raw `.bin`，写入 W25Q32 Slot B。
+- App 固定链接到 Slot A 地址 `0x10040000`，Slot B 只作为 staging 区。Bootloader 校验 Slot B 后复制到 Slot A，再跳转 Slot A。
 - SCPI 和 SD 卡只是传输/缓存入口，真正升级流程由 `OtaAO + OtaFB + OtaVector` 统一管理。
 - OTA 按 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 的 HAOFV 架构落地：Active Object 管运行，轻量 IEC 61499 功能块管逻辑，Vector Blackboard 管数据，Resource Arbiter 管互锁。
+
+## 当前可执行流程
+
+### 首次烧录
+
+首次烧录必须使用 factory image，它包含 Bootloader 和 Slot A App：
+
+```text
+build/RP2350_TRIG_FACTORY.uf2
+```
+
+不再使用 `build/RP2350_TRIG.uf2` 作为主产物。Slot A App 链接地址不是 Flash 起始地址，因此它不能作为普通 UF2 单独拖拽烧录。
+
+### 在线 OTA
+
+OTA 发送标准 raw firmware `.bin`：
+
+```powershell
+python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin
+```
+
+发送过程：
+
+```text
+SYST:OTA:BEGIN <size>,<crc32-decimal>
+SYST:OTA:DATA #<block>
+SYST:OTA:END
+SYST:OTA:BOOT
+```
+
+状态预期：
+
+```text
+IDLE -> CHECK_PERMISSION -> ERASE_SLOT -> RECEIVING -> VERIFYING -> MARK_PENDING -> READY_TO_REBOOT
+```
+
+`SYST:OTA:BOOT` 会触发 watchdog reboot。复位后 Bootloader 会读取 pending metadata，校验 Slot B，复制到 Slot A，清除 pending，然后跳转 Slot A。
+
+### 当前限制
+
+- 当前 Bootloader 已具备 Slot B 到 Slot A 的 copy-to-active 升级路径。
+- 当前只实现最小确认策略：复制成功后直接标记 Slot A confirmed。
+- 后续仍需增强启动后 App 自检确认、失败回滚、升级计数、掉电恢复和签名校验。
 
 ## HAOFV 架构下的 OTA 细化设计
 

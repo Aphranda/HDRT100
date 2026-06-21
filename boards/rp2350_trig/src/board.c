@@ -37,6 +37,7 @@ static bool board_init_spi(void)
 
 static bool board_init_i2c(void)
 {
+#if BOARD_I2C_ENABLED
     const drv_i2c_config_t config = {
         .instance = BOARD_I2C_PORT,
         .sda_pin = BOARD_I2C_SDA_PIN,
@@ -45,6 +46,9 @@ static bool board_init_i2c(void)
     };
 
     return drv_i2c_init(&config);
+#else
+    return true;
+#endif
 }
 
 static bool board_init_uart(void)

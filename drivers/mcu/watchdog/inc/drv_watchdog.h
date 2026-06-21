@@ -5,5 +5,6 @@
 
 void drv_watchdog_enable(uint32_t timeout_ms);
 void drv_watchdog_feed(void);
+void drv_watchdog_reboot(uint32_t delay_ms);
 
 #endif

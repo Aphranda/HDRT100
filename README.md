@@ -89,6 +89,15 @@ Keep dependencies one-way. Lower layers should not include application headers.
 
 ## Build
 
+The supported build entry is still CMake. Python scripts are used by CMake and
+by the OTA workflow; do not use them as a replacement for the firmware build.
+
+Required host tools:
+
+- CMake and Ninja.
+- Pico SDK toolchain and `picotool`.
+- Python 3 available in `PATH` or discoverable by CMake.
+
 Preset build:
 
 ```powershell
@@ -103,11 +112,61 @@ cmake -S . -B build -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON
 cmake --build build
 ```
 
-The firmware artifact is generated as:
+During the build, CMake automatically runs:
 
 ```text
-build/RP2350_TRIG.uf2
+tools/uf2_join/uf2_join.py
 ```
+
+This script combines:
+
+```text
+build/RP2350_TRIG_BOOT.bin@0x10000000
+build/RP2350_TRIG.bin@0x10040000
+```
+
+into:
+
+```text
+build/RP2350_TRIG_FACTORY.uf2
+```
+
+Normally you should not call `uf2_join.py` manually. If you must reproduce the
+factory image command by hand:
+
+```powershell
+python tools/uf2_join/uf2_join.py build/RP2350_TRIG_FACTORY.uf2 `
+  build/RP2350_TRIG_BOOT.bin@0x10000000 `
+  build/RP2350_TRIG.bin@0x10040000
+```
+
+The build generates a factory image and an OTA application image:
+
+```text
+build/RP2350_TRIG_FACTORY.uf2  # first-time UF2 flash: bootloader + Slot A app
+build/RP2350_TRIG.bin          # OTA payload sent by SCPI USB CDC
+build/RP2350_TRIG_BOOT.uf2     # bootloader-only image for recovery/debug
+```
+
+First-time programming should use `RP2350_TRIG_FACTORY.uf2`. After that, use
+the OTA `.bin` through SCPI:
+
+```powershell
+python tools/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin
+python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin
+```
+
+After `SYST:OTA:STAT?` reports `READY_TO_REBOOT`, send `SYST:OTA:BOOT` or use
+the OTA sender's boot flow once enabled.
+
+Python script roles:
+
+| Script | When to use | Purpose |
+|---|---|---|
+| `tools/uf2_join/uf2_join.py` | Normally only via CMake | Generate the first-time factory UF2 from Bootloader + Slot A App binaries. |
+| `tools/ota_bin_info/ota_bin_info.py` | Before OTA or release notes | Print `.bin` size, CRC32, and the matching `SYST:OTA:BEGIN` command. |
+| `tools/ota_send/ota_send.py` | Runtime OTA over USB CDC | Send the standard raw App `.bin` to the board through SCPI. |
+| `tools/ota_packager/ota_packager.py` | Legacy/reference only | Older package helper; current OTA flow uses standard raw `.bin`, not a custom `.ota` suffix. |
 
 ## Key Configuration Files
 

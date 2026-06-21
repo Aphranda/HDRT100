@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "drv_flash.h"
+#include "drv_watchdog.h"
 #include "ota_ao_private.h"
 #include "ota_crc32.h"
 #include "ota_error.h"
@@ -42,6 +43,11 @@ static void ota_fb_update_progress(struct ota_ao_context *context)
     context->vector.progress_permille = (uint32_t)progress;
 }
 
+static uint32_t ota_fb_align_up_u32(uint32_t value, uint32_t alignment)
+{
+    return (value + alignment - 1u) & ~(alignment - 1u);
+}
+
 static bool ota_fb_trigger_is_idle(void)
 {
     sync_io_status_t status;
@@ -72,7 +78,7 @@ static void ota_fb_handle_begin(struct ota_ao_context *context, const ota_event_
 
     context->target_slot = OTA_SLOT_B;
     context->target_offset = OTA_DEFAULT_TARGET_SLOT_OFFSET;
-    context->target_size = OTA_DEFAULT_TARGET_SLOT_SIZE;
+    context->target_size = ota_fb_align_up_u32(event->payload.begin.size, DRV_FLASH_SECTOR_SIZE);
     context->erase_offset = 0u;
 
     context->vector.target_slot = (uint32_t)context->target_slot;
@@ -219,6 +225,16 @@ static void ota_fb_handle_abort(struct ota_ao_context *context)
     ota_fb_set_state(context, OTA_STATE_ABORTED);
 }
 
+static void ota_fb_handle_boot(struct ota_ao_context *context)
+{
+    if (context->vector.state != (uint32_t)OTA_STATE_READY_TO_REBOOT) {
+        ota_fb_set_error(context, OTA_ERR_INVALID_STATE);
+        return;
+    }
+
+    drv_watchdog_reboot(50u);
+}
+
 void ota_fb_execute(ota_ao_context_t *context, const ota_event_t *event)
 {
     if (context == NULL || event == NULL) {
@@ -242,6 +258,9 @@ void ota_fb_execute(ota_ao_context_t *context, const ota_event_t *event)
         break;
     case OTA_EVENT_ABORT:
         ota_fb_handle_abort(context);
+        break;
+    case OTA_EVENT_BOOT:
+        ota_fb_handle_boot(context);
         break;
     default:
         break;

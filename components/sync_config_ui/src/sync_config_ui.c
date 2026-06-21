@@ -64,8 +64,8 @@ static void draw_toggle(u8g2_t *u8g2, uint8_t x, uint8_t y, const char *label, b
 
 static bool mono_pixel_is_set(uint16_t x, uint16_t y)
 {
-    const size_t byte_index = ((size_t)y * UI_WIDTH + x) >> 3u;
-    const uint8_t bit_mask = (uint8_t)(1u << (x & 7u));
+    const size_t byte_index = ((size_t)(y >> 3u) * UI_WIDTH) + x;
+    const uint8_t bit_mask = (uint8_t)(1u << (y & 7u));
     return (s_ui.mono_buffer[byte_index] & bit_mask) != 0u;
 }
 

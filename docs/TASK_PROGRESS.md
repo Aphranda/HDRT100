@@ -43,6 +43,249 @@
 
 ## 任务记录
 
+### TASK-20260621-016 - OTA BOOT 复位闭环实机验证
+
+- 状态：进行中
+- 日期：2026-06-21
+- 任务目标：
+  - 在 watchdog reboot 修正后，验证 `SYST:OTA:BOOT` 是否能真正触发复位，并让设备重新启动回 App。
+- 完成内容：
+  - 重新首烧最新 `build/RP2350_TRIG_FACTORY.uf2` 后，通过 `COM4` 确认设备在线。
+  - 初始查询结果为 `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`。
+  - 初始 OTA 状态为 `"IDLE",2,"NONE",0`。
+  - 执行 `python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
+  - OTA payload 大小为 `69448` 字节，CRC32 为 `0x261061CB`。
+  - OTA 状态正常经过 `CHECK_PERMISSION`、`ERASE_SLOT`、`RECEIVING`，最终进入 `"READY_TO_REBOOT",2,"NONE",2`。
+  - 发送 `SYST:OTA:BOOT` 后，USB CDC 立即断开，PC 端读串口返回设备错误，说明复位动作已经触发。
+  - 等待重新枚举后，`COM4` 恢复响应。
+- 验证结果：
+  - 复位后 `*IDN?` 正常返回 `RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`。
+  - 复位后 `SYST:OTA:STAT?` 返回 `"IDLE",2,"NONE",0`。
+  - 复位后 `SYST:OTA:RES?` 返回 `0,"NONE"`。
+  - OTA 传输、pending 标记、BOOT 复位、重新枚举、App 重新运行已实机跑通。
+  - 当前 `SYST:OTA:SLOT?` 仍是占位查询，只返回 AO 默认目标 slot，尚不能作为严格 active/pending/confirmed slot 审计依据。
+- 还需完成：
+  - 完善 metadata 查询接口，使 `SYST:OTA:SLOT?` 返回真实 active、pending、confirmed 状态。
+  - 增加 App 自检后的 `COMMIT` 机制。
+  - 增加 Bootloader copy 结果、失败原因和 rollback 结果的可查询记录。
+  - 增加构建版本号或固件 build id，用于 OTA 前后确认确实切换到新镜像。
+- 关联文件：
+  - `drivers/mcu/watchdog/src/drv_watchdog.c`
+  - `components/ota_manager/src/ota_fb.c`
+  - `bootloader/src/bootloader_main.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 补齐 OTA 审计查询和 App commit/rollback 闭环，使 OTA 从“可升级”提升到“可审计、可回滚”的工业化状态。
+
+### TASK-20260621-015 - OTA 传输成功与 BOOT 复位链路修正
+
+- 状态：进行中
+- 日期：2026-06-21
+- 任务目标：
+  - 在重新首烧 factory 镜像后，验证 OTA 传输和 `SYST:OTA:BOOT` 进入 Bootloader 的闭环。
+- 完成内容：
+  - 首烧后通过 `COM4` 确认 `*IDN?` 正常返回。
+  - 确认 OTA 初始状态为 `"IDLE",2,"NONE",0`。
+  - 执行 `python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
+  - OTA 镜像大小为 `69440` 字节，CRC32 为 `0x52A3DF79`。
+  - 设备从 `CHECK_PERMISSION`、`ERASE_SLOT` 正常进入 `RECEIVING`。
+  - 传输结束后状态进入 `"READY_TO_REBOOT",2,"NONE",2`。
+  - 发送 `SYST:OTA:BOOT` 后，设备仍保持 `READY_TO_REBOOT`，未发生 USB 断开和复位。
+  - 定位到 `drv_watchdog_reboot()` 调用 `watchdog_reboot()` 后立即返回，主循环继续喂狗，可能覆盖短延时复位窗口。
+  - 修改 `drivers/mcu/watchdog/src/drv_watchdog.c`，在请求 watchdog reboot 后关闭中断并进入 `tight_loop_contents()` 等待复位。
+- 验证结果：
+  - OTA 传输、Flash 写入、CRC 校验、向量表校验和 pending metadata 写入均已实机通过。
+  - `SYST:OTA:BOOT` 复位动作在当前板端旧固件中未生效。
+  - `cmake --build --preset pico2-release` 编译通过，并已重新生成 `build/RP2350_TRIG_FACTORY.uf2`。
+  - 新的 watchdog reboot 修正尚未完成板端首烧后的硬件验证。
+- 还需完成：
+  - 重新传统烧录最新 `build/RP2350_TRIG_FACTORY.uf2`。
+  - 再次执行 OTA 发送。
+  - 再发送 `SYST:OTA:BOOT`，确认 USB 重新枚举和 Bootloader copy-to-active。
+  - 重启后查询 `*IDN?`、`SYST:OTA:STAT?`、`SYST:OTA:SLOT?`、`SYST:OTA:RES?`。
+- 关联文件：
+  - `drivers/mcu/watchdog/src/drv_watchdog.c`
+  - `tools/ota_send/ota_send.py`
+  - `components/ota_manager/src/ota_fb.c`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 首烧最新 factory 镜像，复测 `SYST:OTA:BOOT` 是否能真正触发 Bootloader 升级。
+
+### TASK-20260621-014 - OTA 擦除等待优化与实机状态恢复
+
+- 状态：进行中
+- 日期：2026-06-21
+- 任务目标：
+  - 解决 OTA `BEGIN` 后长期停留在 `ERASE_SLOT`，导致 PC 端发送脚本超时退出的问题。
+- 完成内容：
+  - 实机确认 LCD 界面已正常显示，说明 factory 镜像显示链路已可运行。
+  - 使用 `COM4` 执行 `python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
+  - 发现板端长时间返回 `"ERASE_SLOT",2,"NONE",1`，脚本默认 15 s 超时退出。
+  - 定位原因为 App 侧 OTA 每次擦除完整 Slot B，而不是按本次 `.bin` 镜像大小擦除。
+  - 修改 `components/ota_manager/src/ota_fb.c`，将擦除范围改为 `BEGIN` 镜像大小按 4 KB sector 向上对齐。
+  - 修改 `tools/ota_send/ota_send.py`，将默认 `BEGIN` 等待时间从 15 s 提高到 60 s。
+  - 对当前板端发送 `SYST:OTA:ABOR`，将上一次未完成 OTA 从 `RECEIVING` 恢复到 `ABORTED`。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 编译通过。
+  - 已重新生成 `build/RP2350_TRIG_FACTORY.uf2`。
+  - 当前板端状态已恢复为 `"ABORTED",2,"ABORTED",3`。
+  - 由于板端尚未重新烧录新 factory 镜像，本次快速擦除优化还未完成硬件闭环验证。
+- 还需完成：
+  - 重新传统烧录 `build/RP2350_TRIG_FACTORY.uf2`。
+  - 再次运行 `python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
+  - 发送 `SYST:OTA:BOOT`，验证 USB 重新枚举、Bootloader 复制 Slot B 到 Slot A、App 正常重启。
+- 关联文件：
+  - `components/ota_manager/src/ota_fb.c`
+  - `tools/ota_send/ota_send.py`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 首烧更新后的 factory 镜像后，复测完整 OTA 升级闭环。
+
+### TASK-20260621-013 - OTA READY_TO_REBOOT 实机验证
+
+- 状态：进行中
+- 日期：2026-06-21
+- 任务目标：
+  - 使用 `COM4` 验证 Slot A 链接后的 OTA 镜像能否完成传输、写入、校验并进入可重启状态。
+- 完成内容：
+  - 构建确认 `build/RP2350_TRIG.bin`。
+  - 通过 `COM4` 查询板端在线，初始 OTA 状态为 `"IDLE",2,"NONE",0`。
+  - 使用 `tools/ota_send/ota_send.py` 发送 `build/RP2350_TRIG.bin`。
+  - OTA 传输完成，最终状态进入 `"READY_TO_REBOOT",2,"NONE",2`。
+  - 向量表校验已通过，上一轮 `VECTOR` 失败问题已解决。
+- 验证结果：
+  - `SYST:OTA:PROG?` 传输过程达到完整镜像进度。
+  - `SYST:OTA:STAT?` 最终返回 `READY_TO_REBOOT`。
+  - 发送 `SYST:OTA:BOOT` 后状态仍为 `READY_TO_REBOOT`，说明当前运行固件尚未包含新增 BOOT 事件复位处理，或尚未使用 factory Bootloader 首烧。
+- 还需完成：
+  - 先传统烧录 `build/RP2350_TRIG_FACTORY.uf2`，使 Bootloader 和 Slot A App 同时生效。
+  - 再次通过 OTA 发送 `build/RP2350_TRIG.bin`。
+  - 再发送 `SYST:OTA:BOOT`，验证 Bootloader 从 Slot B 复制到 Slot A 并启动。
+- 关联文件：
+  - `tools/ota_send/ota_send.py`
+  - `components/ota_manager/src/ota_fb.c`
+  - `bootloader/src/bootloader_main.c`
+  - `build/RP2350_TRIG_FACTORY.uf2`
+  - `build/RP2350_TRIG.bin`
+- 下一步：
+  - 执行 factory 首烧后复测完整 OTA reboot/复制闭环。
+
+### TASK-20260621-012 - README Python 构建脚本说明
+
+- 状态：完成
+- 日期：2026-06-21
+- 任务目标：
+  - 在 README 中说明当前工程使用 Python 脚本参与构建和 OTA 的正确操作方式。
+- 完成内容：
+  - 明确固件构建入口仍然是 CMake，Python 脚本不是替代构建入口。
+  - 补充 CMake 自动调用 `tools/uf2_join/uf2_join.py` 生成 factory UF2 的过程。
+  - 补充手动复现 `uf2_join.py` 的命令。
+  - 补充 `ota_bin_info.py`、`ota_send.py`、`ota_packager.py` 的使用场景说明。
+  - 明确首次烧录使用 `RP2350_TRIG_FACTORY.uf2`，后续 OTA 使用 `RP2350_TRIG.bin`。
+- 验证结果：
+  - 文档更新完成。
+- 还需完成：
+  - 后续 OTA 发送工具支持自动发送 `SYST:OTA:BOOT` 后，再同步更新 README。
+- 关联文件：
+  - `README.md`
+  - `tools/uf2_join/uf2_join.py`
+  - `tools/ota_bin_info/ota_bin_info.py`
+  - `tools/ota_send/ota_send.py`
+- 下一步：
+  - 进行 factory 首烧和完整 OTA 实机验证。
+
+### TASK-20260621-011 - OTA Bootloader 与 Slot A 启动布局
+
+- 状态：进行中
+- 日期：2026-06-21
+- 任务目标：
+  - 解决 OTA `VECTOR` 校验失败，使固件具备真正升级启动路径。
+- 完成内容：
+  - 新增 Bootloader 目标 `RP2350_TRIG_BOOT`。
+  - 新增 App Slot A 链接脚本，将主 App 链接到 `0x10040000`。
+  - 新增 Bootloader 链接脚本，将 Bootloader 固定在 `0x10000000..0x1003FFFF`。
+  - Bootloader 支持读取 metadata、校验 Slot B、复制 Slot B 到 Slot A、清 pending、跳转 Slot A。
+  - 新增 factory 首烧包 `build/RP2350_TRIG_FACTORY.uf2`，包含 Bootloader 和 Slot A App。
+  - OTA App 继续输出标准 raw `.bin`，用于 SCPI OTA 发送。
+  - `SYST:OTA:BOOT` 现在会触发 watchdog reboot，进入 Bootloader 执行 pending 升级。
+  - 新增 `tools/uf2_join/uf2_join.py` 生成多地址 UF2 factory image。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 编译通过。
+  - `build/RP2350_TRIG.elf.map` 确认 App `__vectors = 0x10040000`。
+  - `build/RP2350_TRIG.bin` 前 16 字节确认 reset handler 指向 Slot A 地址。
+  - 已生成 `build/RP2350_TRIG_FACTORY.uf2`。
+  - 当前尚未完成板端 factory 首烧和完整 OTA reboot 实测。
+- 还需完成：
+  - 烧录 `RP2350_TRIG_FACTORY.uf2`。
+  - 通过 `COM4` 发送 `RP2350_TRIG.bin`，确认 OTA END 后进入 `READY_TO_REBOOT`。
+  - 发送 `SYST:OTA:BOOT`，确认 Bootloader 复制并启动新 App。
+  - 后续增加 App 自检确认、失败回滚、签名校验和掉电恢复。
+- 关联文件：
+  - `bootloader/`
+  - `linker/rp2350_bootloader.ld`
+  - `linker/rp2350_app_slot_a.ld`
+  - `tools/uf2_join/uf2_join.py`
+  - `CMakeLists.txt`
+  - `components/ota_manager/src/ota_fb.c`
+  - `drivers/mcu/watchdog/`
+- 下一步：
+  - 执行 factory 首烧和完整 OTA 实机验证。
+
+### TASK-20260621-010 - OTA USB CDC 实机传输验证
+
+- 状态：进行中
+- 日期：2026-06-21
+- 任务目标：
+  - 使用 `COM4` 验证当前 OTA USB CDC/SCPI 传输、分块写入、进度查询和结束校验链路。
+- 完成内容：
+  - 修正 `tools/ota_send/ota_send.py`，将 `SYST:OTA:BEGIN` 的 CRC 参数改为十进制，避免当前 SCPI 参数解析拒绝 `0x...`。
+  - 增加 BEGIN 后等待 `RECEIVING` 状态的逻辑，避免目标槽擦除期间提前发送数据。
+  - 增加日志行过滤，降低健康日志与 SCPI 响应共用 USB CDC 时的干扰。
+  - 同步修正 `tools/ota_bin_info/ota_bin_info.py` 输出的 `scpi_begin` 示例。
+  - 通过 `COM4` 实测发送 `build/RP2350_TRIG.bin`，大小 `69400` 字节，CRC32 `0x77CEA7A5`。
+- 验证结果：
+  - 板端进入 `RECEIVING` 状态。
+  - `SYST:OTA:PROG?` 最终返回 `69400,69400,1000`，证明整包接收/写入流程完成。
+  - `SYST:OTA:STAT?` 最终返回 `"FAILED",2,"VECTOR",4`。
+  - 当前失败点为 OTA END 后的 App 向量表校验，不是 USB CDC 传输或分块写入失败。
+- 还需完成：
+  - 增加真正的 Bootloader。
+  - 将 App 链接到 OTA Slot 运行地址，或明确实现 Bootloader copy-to-active 方案。
+  - 完成 pending/boot/commit/rollback 闭环后再验证 `READY_TO_REBOOT`。
+- 关联文件：
+  - `tools/ota_send/ota_send.py`
+  - `tools/ota_bin_info/ota_bin_info.py`
+  - `components/ota_manager/src/ota_fb.c`
+  - `components/ota_manager/src/ota_image.c`
+  - `components/ota_manager/inc/ota_partition.h`
+- 下一步：
+  - 实现 Bootloader 与 OTA App 链接布局，解决 `VECTOR` 校验失败。
+
+### TASK-20260621-009 - LCD 麻点显示问题修正
+
+- 状态：进行中
+- 日期：2026-06-21
+- 任务目标：
+  - 修正 UF2 烧录后 LCD 显示随机麻点的问题，恢复同步触发配置页的正常显示。
+- 完成内容：
+  - 修正 U8G2 单色帧缓存读取方式，从错误的横向 bit-packed 索引改为 U8G2 垂直页索引。
+  - 增加 `BOARD_I2C_ENABLED` 开关，默认关闭 I2C 初始化，避免 GPIO8/9 与 LCD DC/CS 冲突。
+  - 调整 ST7789 初始化状态标志，确保清屏阶段走正常 LCD 写入路径。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 编译通过。
+  - 当前仅完成编译验证，尚未完成重新烧录后的板端显示验证。
+- 还需完成：
+  - 重新烧录 `build/RP2350_TRIG.uf2`，确认 LCD 是否恢复正常。
+  - 若仍有麻点，继续增加 LCD 纯色测试页，用于区分 SPI/LCD 初始化问题和 UI 渲染问题。
+- 关联文件：
+  - `components/sync_config_ui/src/sync_config_ui.c`
+  - `boards/rp2350_trig/inc/board_config.h`
+  - `boards/rp2350_trig/src/board.c`
+  - `drivers/external/lcd/src/lcd_st7789.c`
+- 下一步：
+  - 进行板端复测，根据显示结果决定是否加入启动自检色条。
+
 ### TASK-20260621-008 - OTA 标准 bin 发送工具
 
 - 状态：进行中
