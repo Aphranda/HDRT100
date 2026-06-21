@@ -5,6 +5,7 @@
 #include "osal.h"
 #include "project_config.h"
 #include "sync_config_ui.h"
+#include "sync_io.h"
 
 static uint32_t s_last_tick_ms;
 
@@ -12,6 +13,16 @@ bool app_init(void)
 {
     s_last_tick_ms = board_uptime_ms();
     LOG_INFO("app", "application initialized");
+
+    const sync_io_config_t sync_io_config = {
+        .capture_sample_hz = 1000000u,
+        .sync_clock_hz = 1000000u,
+    };
+
+    if (!sync_io_init(&sync_io_config)) {
+        diagnostics_mark_fault("sync_io", "sync IO initialization failed");
+        return false;
+    }
 
     if (!sync_config_ui_init()) {
         diagnostics_mark_fault("ui", "sync config UI initialization failed");

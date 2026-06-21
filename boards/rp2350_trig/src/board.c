@@ -1,6 +1,5 @@
 #include "board.h"
 
-#include "blink.pio.h"
 #include "board_config.h"
 #include "diagnostics.h"
 #include "drv_i2c.h"
@@ -9,7 +8,6 @@
 #include "drv_watchdog.h"
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
-#include "hardware/pio.h"
 #include "lcd_st7789.h"
 #include "project_config.h"
 
@@ -79,24 +77,12 @@ static bool board_init_lcd(void)
     return lcd_st7789_init(&config);
 }
 
-static void board_init_pio_status(void)
-{
-    const uint offset = (uint)pio_add_program(BOARD_PIO, &blink_program);
-
-    blink_program_init(BOARD_PIO, BOARD_PIO_SM, offset, BOARD_STATUS_LED_PIN);
-    pio_sm_set_enabled(BOARD_PIO, BOARD_PIO_SM, true);
-
-    const uint32_t blink_hz = 2u;
-    BOARD_PIO->txf[BOARD_PIO_SM] = (clock_get_hz(clk_sys) / (2u * blink_hz)) - 3u;
-}
-
 bool board_init(void)
 {
     diagnostics_init();
 
     const bool ok = board_init_status_led() && board_init_spi() && board_init_i2c() && board_init_lcd();
     board_init_uart();
-    board_init_pio_status();
 
     if (!ok) {
         diagnostics_mark_fault("board", "board initialization failed");

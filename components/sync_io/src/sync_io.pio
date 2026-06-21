@@ -1,0 +1,96 @@
+.program sync_capture_4bit
+.wrap_target
+    in pins, 4
+.wrap
+
+.program sync_pulse
+.wrap_target
+    pull block
+    out x, 32
+    set pins, 1
+delay_high:
+    jmp x-- delay_high
+    set pins, 0
+.wrap
+
+.program sync_clock
+.wrap_target
+    set pins, 1
+    set pins, 0
+.wrap
+
+.program sync_aux_output
+.wrap_target
+    pull block
+    out pins, 1
+.wrap
+
+% c-sdk {
+
+static inline void sync_capture_4bit_program_init(PIO pio,
+                                                  uint sm,
+                                                  uint offset,
+                                                  uint base_pin,
+                                                  uint pin_count,
+                                                  float clkdiv)
+{
+    for (uint pin = base_pin; pin < base_pin + pin_count; pin++) {
+        pio_gpio_init(pio, pin);
+    }
+    pio_sm_set_consecutive_pindirs(pio, sm, base_pin, pin_count, false);
+
+    pio_sm_config c = sync_capture_4bit_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, base_pin);
+    sm_config_set_in_shift(&c, false, true, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&c, clkdiv);
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void sync_pulse_program_init(PIO pio,
+                                           uint sm,
+                                           uint offset,
+                                           uint pin)
+{
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    pio_sm_config c = sync_pulse_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, pin, 1);
+    sm_config_set_out_shift(&c, true, false, 32);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0);
+}
+
+static inline void sync_clock_program_init(PIO pio,
+                                           uint sm,
+                                           uint offset,
+                                           uint pin,
+                                           float clkdiv)
+{
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    pio_sm_config c = sync_clock_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, pin, 1);
+    sm_config_set_clkdiv(&c, clkdiv);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0);
+}
+
+static inline void sync_aux_output_program_init(PIO pio,
+                                                uint sm,
+                                                uint offset,
+                                                uint pin)
+{
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    pio_sm_config c = sync_aux_output_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, pin, 1);
+    sm_config_set_out_shift(&c, true, false, 32);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0);
+}
+
+%}

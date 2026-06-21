@@ -17,6 +17,7 @@ RP2350_TRIG/
 │     └─ src/
 ├─ components/                  # Reusable project components
 │  └─ diagnostics/              # Logging, heartbeat, fault latch
+│  └─ sync_io/                   # PIO-based sync trigger IO driver
 │  └─ sync_config_ui/            # U8G2-based sync trigger config screen
 ├─ drivers/
 │  ├─ mcu/                      # MCU peripheral drivers
@@ -116,6 +117,10 @@ build/RP2350_TRIG.uf2
   instances.
 - `CMakePresets.json`: release and debug build presets.
 - `docs/RELEASE_CHECKLIST.md`: release gate template.
+- `docs/PIO_RESOURCE_PLAN.md`: sync trigger PIO, state-machine, and GPIO
+  allocation.
+- `docs/SYNC_TRIGGER_TODO.md`: remaining work for the production trigger
+  subsystem.
 
 ## Expansion Rules
 
@@ -150,3 +155,10 @@ The current UI path uses U8G2 as a monochrome composition layer and flushes the
 result through the native RGB565 ST7789 driver. The sync trigger configuration
 page lives in `components/sync_config_ui/` and uses U8G2's built-in button
 drawing API for the action controls.
+
+## Sync Trigger IO
+
+The synchronous trigger IO driver lives in `components/sync_io/`. It currently
+initializes the reserved PIO resources at boot and exposes interfaces for
+4-bit input capture, deterministic pulse output, synchronous clock output, and
+four `pio2` auxiliary IO channels.

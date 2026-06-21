@@ -39,6 +39,7 @@ add_executable(${PROJECT_NAME}
         application/src/app.c
         boards/rp2350_trig/src/board.c
         components/diagnostics/src/diagnostics.c
+        components/sync_io/src/sync_io.c
         components/sync_config_ui/src/sync_config_ui.c
         drivers/mcu/spi/src/drv_spi.c
         drivers/mcu/i2c/src/drv_i2c.c
@@ -81,7 +82,7 @@ add_executable(${PROJECT_NAME}
 pico_set_program_name(${PROJECT_NAME} "RP2350_TRIG")
 pico_set_program_version(${PROJECT_NAME} "0.1.0")
 
-pico_generate_pio_header(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/blink.pio)
+pico_generate_pio_header(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_io.pio)
 
 pico_enable_stdio_uart(${PROJECT_NAME} ${PROJECT_ENABLE_UART_STDIO})
 pico_enable_stdio_usb(${PROJECT_NAME} ${PROJECT_ENABLE_USB_STDIO})
@@ -90,6 +91,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/application/include
         ${CMAKE_CURRENT_LIST_DIR}/boards/rp2350_trig/include
         ${CMAKE_CURRENT_LIST_DIR}/components/diagnostics/include
+        ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/include
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_config_ui/include
         ${CMAKE_CURRENT_LIST_DIR}/config
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/spi/include
