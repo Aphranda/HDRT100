@@ -1,0 +1,41 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "pico2-release",
+      "displayName": "Pico 2 Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PICO_BOARD": "pico2",
+        "PROJECT_ENABLE_USB_STDIO": "ON",
+        "PROJECT_ENABLE_UART_STDIO": "OFF",
+        "PROJECT_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "pico2-debug-uart",
+      "displayName": "Pico 2 Debug UART",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PICO_BOARD": "pico2",
+        "PROJECT_ENABLE_USB_STDIO": "ON",
+        "PROJECT_ENABLE_UART_STDIO": "ON",
+        "PROJECT_WARNINGS_AS_ERRORS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "pico2-release",
+      "configurePreset": "pico2-release"
+    },
+    {
+      "name": "pico2-debug-uart",
+      "configurePreset": "pico2-debug-uart"
+    }
+  ]
+}

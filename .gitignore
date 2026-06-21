@@ -1,0 +1,84 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+out/
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+*.ninja
+.ninja_*
+
+# Pico SDK / embedded firmware outputs
+*.elf
+*.uf2
+*.bin
+*.hex
+*.map
+*.dis
+*.list
+*.lst
+*.sym
+*.axf
+*.o
+*.obj
+*.a
+*.lib
+*.d
+
+# Generated code and local SDK helpers
+generated/
+*.pio.h
+
+# Local reference packs and vendor example dumps
+DOC/
+
+# Logs and runtime dumps
+*.log
+*.trace
+*.dump
+*.core
+
+# Editor and IDE local state
+.vscode/.cmake/
+.vscode/.cache/
+.idea/
+*.code-workspace
+
+# OS and filesystem noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+~$*
+
+# Python/tooling caches used by local scripts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Nested third-party repository metadata
+third_party/u8g2/
+third_party/**/.git/
+third_party/**/.github/
+
+# Keep intentional project files
+!CMakePresets.json
+!README.md
+!docs/
+!tools/
+!third_party/**/README*
+!third_party/**/LICENSE*
+!third_party/u8g2/README.integration.md
