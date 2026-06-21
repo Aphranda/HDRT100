@@ -13,6 +13,8 @@
 | `SYST:ERR?` | 查询下一条 SCPI 错误。 |
 | `SYST:ERR:COUN?` | 查询 SCPI 错误数量。 |
 | `SYST:VERS?` | 查询 SCPI 标准版本。 |
+| `SYST:FW:VERS?` | 查询固件语义版本，返回 `major,minor,patch`。 |
+| `SYST:FW:BUILD?` | 查询固件 build id，由构建脚本生成 UTC 时间戳，每次构建刷新。 |
 
 ## 触发输出
 
@@ -72,20 +74,34 @@ OTA 命令遵循 `docs/OTA方案.md` 中的 `OtaAO + OtaFB + OtaVector` 设计�
 |---|---|
 | `SYST:OTA:STAT?` | 查询 OTA 状态摘要：状态、目标 slot、错误码、最近结果。 |
 | `SYST:OTA:PROG?` | 查询 OTA 进度：已接收字节、期望字节、千分比进度。 |
-| `SYST:OTA:BEGIN <size>,<crc32>` | 开始 OTA 传输，`size/crc32` 对应标准 raw firmware `.bin`。 |
-| `SYST:OTA:DATA #<block>` | 发送 `.bin` 二进制块，投递 `OTA_EVENT_DATA_BLOCK`。 |
-| `SYST:OTA:END` | 结束传输并请求校验，投递 `OTA_EVENT_END`。 |
-| `SYST:OTA:ABOR` | 中止当前 OTA，投递 `OTA_EVENT_ABORT`。 |
-| `SYST:OTA:BOOT` | 镜像 ready 后请求重启进入 pending slot。 |
-| `SYST:OTA:COMM` | App 自检通过后确认当前固件。 |
-| `SYST:OTA:SLOT?` | 查询 active、pending、confirmed slot。 |
-| `SYST:OTA:RES?` | 查询最近一次 OTA 结果和错误码。 |
+| `SYST:OTA:BEGIN <size>,<crc32>` | 开始 OTA 传输，`size/crc32` 对应标准 raw firmware `.bin`，接受后返回 `"OK"`。 |
+| `SYST:OTA:DATA #<block>` | 发送 `.bin` 二进制块，投递 `OTA_EVENT_DATA_BLOCK`，为保证吞吐当前不逐块返回 ACK。 |
+| `SYST:OTA:END` | 结束传输并请求校验，投递 `OTA_EVENT_END`，接受后返回 `"OK"`。 |
+| `SYST:OTA:ABOR` | 中止当前 OTA，投递 `OTA_EVENT_ABORT`，接受后返回 `"OK"`。 |
+| `SYST:OTA:BOOT` | 镜像 ready 后请求重启进入 pending slot，接受后返回 `"OK"` 并触发复位。 |
+| `SYST:OTA:COMM` | App 自检通过后确认当前固件，写入 confirmed metadata，接受后返回 `"OK"`。 |
+| `SYST:OTA:SLOT?` | 查询 `active,pending,confirmed,boot_attempts,rollback_count`。 |
+| `SYST:OTA:RES?` | 查询 `app_result,app_error,boot_result,boot_source_slot,boot_size,boot_crc32`。 |
 
 第一阶段建议 `SYST:OTA:DATA` 单块 256 B 或 512 B。OTA 期间应暂停周期日志，避免日志与 SCPI binary block 混用同一 USB CDC 通道。
+
+## OTA 故障注入
+
+以下命令仅在 CMake 选项 `PROJECT_ENABLE_OTA_FAULT_INJECTION=ON` 时编译，用于研发验证和产测调试，量产固件应关闭。命令会擦写 OTA metadata 或强制 Bootloader 失败，不应开放给最终用户。
+
+| 命令 | 说明 |
+|---|---|
+| `SYST:OTA:INJ:COPY` | 设置下一次 Bootloader Slot B -> Slot A 复制失败注入标志。需要已烧入支持该功能的 Bootloader。 |
+| `SYST:OTA:INJ:COPY?` | 查询当前 OTA 故障注入标志，`0` 表示未开启。 |
+| `SYST:OTA:INJ:CLEAR` | 清除 OTA 故障注入标志。 |
+| `SYST:OTA:INJ:MCOR <0|1>` | 擦除指定 metadata 副本，用于验证双副本容错。 |
+| `SYST:OTA:INJ:MREP` | 从当前有效 metadata 重新写入双副本，用于恢复 metadata 冗余。 |
+
+复制失败注入的期望结果：OTA payload 已进入 `READY_TO_REBOOT` 后发送 `SYST:OTA:BOOT`，Bootloader 应记录 `COPY_FAILED`，清除 pending，保留旧 App 运行，`rollback_count` 增加。
 
 ## 当前限制
 
 - SCPI 当前接入的是底层 `sync_io`，还不是完整 `sync_trigger` 状态机。
 - 日志和 SCPI 响应目前共用 stdio 通道，后续产品化应拆分控制通道和日志通道，或在 SCPI 会话期间关闭周期日志。
 - `SAMP:RATE` 当前会直接启动采样，但尚未接入 DMA 环形缓冲。
-- OTA 命令目前仍处于方案阶段，后续实现时必须通过 `OtaAO` 投递事件，不允许 SCPI 直接调用 Flash 擦写 API。
+- OTA 命令已接入 `OtaAO/OtaFB/OtaVector`，SCPI 只投递事件和读取快照，不直接调用 Flash 擦写 API。

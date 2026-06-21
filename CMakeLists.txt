@@ -25,6 +25,7 @@ set(PICO_BOARD pico2 CACHE STRING "Board type")
 set(PROJECT_ENABLE_USB_STDIO ON CACHE BOOL "Enable stdio over USB CDC")
 set(PROJECT_ENABLE_UART_STDIO OFF CACHE BOOL "Enable stdio over default UART")
 set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors")
+set(PROJECT_ENABLE_OTA_FAULT_INJECTION ON CACHE BOOL "Enable destructive OTA validation SCPI commands")
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
@@ -36,9 +37,22 @@ pico_sdk_init()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+set(PROJECT_BUILD_INFO_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.h)
+set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.c)
+
+add_custom_target(project_build_info
+        ALL
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/build_info/gen_build_info.py
+                ${PROJECT_BUILD_INFO_HEADER}
+                ${PROJECT_BUILD_INFO_SOURCE}
+        BYPRODUCTS ${PROJECT_BUILD_INFO_HEADER} ${PROJECT_BUILD_INFO_SOURCE}
+        VERBATIM
+)
+
 add_executable(${PROJECT_NAME}
         application/src/main.c
         application/src/app.c
+        ${PROJECT_BUILD_INFO_SOURCE}
         boards/rp2350_trig/src/board.c
         components/diagnostics/src/diagnostics.c
         components/ota_manager/src/ota_ao.c
@@ -125,6 +139,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/third_party/scpi-parser/libscpi/inc
         ${CMAKE_CURRENT_LIST_DIR}/third_party/u8g2/csrc
         ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
 target_link_libraries(${PROJECT_NAME}
@@ -141,8 +156,11 @@ target_link_libraries(${PROJECT_NAME}
 target_compile_definitions(${PROJECT_NAME} PRIVATE
         PROJECT_ENABLE_USB_STDIO=$<BOOL:${PROJECT_ENABLE_USB_STDIO}>
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
+        PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
         SCPI_USER_CONFIG=1
 )
+
+add_dependencies(${PROJECT_NAME} project_build_info)
 
 set(PROJECT_WARNING_FLAGS
         -Wall
@@ -191,6 +209,10 @@ target_include_directories(RP2350_TRIG_BOOT PRIVATE
 target_link_libraries(RP2350_TRIG_BOOT
         pico_stdlib
         hardware_flash
+)
+
+target_compile_definitions(RP2350_TRIG_BOOT PRIVATE
+        PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
 )
 
 target_compile_options(RP2350_TRIG_BOOT PRIVATE ${PROJECT_WARNING_FLAGS})

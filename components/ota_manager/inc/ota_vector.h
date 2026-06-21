@@ -23,6 +23,7 @@ typedef enum {
     OTA_RESULT_IMAGE_STAGED,
     OTA_RESULT_ABORTED,
     OTA_RESULT_FAILED,
+    OTA_RESULT_COMMITTED,
 } ota_result_t;
 
 typedef struct {

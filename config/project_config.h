@@ -3,6 +3,12 @@
 
 #include <stdint.h>
 
+#if __has_include("project_build_info.h")
+#include "project_build_info.h"
+#else
+static const char g_project_build_id[] = "dev";
+#endif
+
 #define PROJECT_NAME "RP2350_TRIG"
 #define PROJECT_VERSION_MAJOR 0u
 #define PROJECT_VERSION_MINOR 1u
@@ -11,6 +17,14 @@
 #define PROJECT_LOOP_PERIOD_MS 100u
 #define PROJECT_HEALTH_LOG_PERIOD_MS 1000u
 #define PROJECT_WATCHDOG_TIMEOUT_MS 3000u
+
+#ifndef PROJECT_ENABLE_HEALTH_LOG
+#define PROJECT_ENABLE_HEALTH_LOG 0
+#endif
+
+#ifndef PROJECT_ENABLE_OTA_FAULT_INJECTION
+#define PROJECT_ENABLE_OTA_FAULT_INJECTION 0
+#endif
 
 #define BOARD_SPI_BAUD_HZ 10000000u
 #define BOARD_UART_BAUD_HZ 115200u

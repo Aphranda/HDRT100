@@ -26,6 +26,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--block-size", type=int, default=DEFAULT_BLOCK_SIZE)
     parser.add_argument("--timeout", type=float, default=2.0)
     parser.add_argument("--begin-timeout", type=float, default=DEFAULT_BEGIN_TIMEOUT_S)
+    parser.add_argument("--corrupt-crc", action="store_true", help="send an intentionally wrong CRC32")
+    parser.add_argument("--corrupt-vector", action="store_true", help="corrupt the reset handler vector in memory")
+    parser.add_argument("--abort-after-blocks", type=int, default=0, help="abort after sending this many data blocks")
+    parser.add_argument("--expect-final-state", default="READY_TO_REBOOT", help="expected final OTA state text")
     parser.add_argument("--dry-run", action="store_true", help="print transfer plan without opening the port")
     parser.add_argument("--no-verify-query", action="store_true", help="skip STAT?/PROG? query commands")
     return parser.parse_args()
@@ -49,12 +53,23 @@ def is_log_line(line: str) -> bool:
     return line.startswith("[") or line.startswith("progress=[")
 
 
+def is_ack_line(line: str) -> bool:
+    return line == '"OK"'
+
+
+def normalize_scpi_line(line: str) -> str:
+    while line.startswith('"OK"'):
+        line = line[len('"OK"') :].strip()
+    return line
+
+
 def read_scpi_line(serial_port) -> str:
     while True:
         line = read_line(serial_port)
         if not line:
             return ""
-        if not is_log_line(line):
+        line = normalize_scpi_line(line)
+        if line and not is_log_line(line) and not is_ack_line(line):
             return line
 
 
@@ -89,7 +104,30 @@ def validate_block_size(block_size: int) -> None:
         raise ValueError("block size must be 256 or 512 for current device firmware")
 
 
-def send_image(args: argparse.Namespace, image: bytes, image_crc: int) -> None:
+def parse_ota_state(response: str) -> str:
+    if response.startswith('"'):
+        end = response.find('"', 1)
+        if end > 1:
+            return response[1:end]
+
+    return response.split(",", 1)[0]
+
+
+def corrupt_vector(image: bytes) -> bytes:
+    if len(image) < 8:
+        raise ValueError("image too small to corrupt vector")
+
+    data = bytearray(image)
+    data[4:8] = (0).to_bytes(4, byteorder="little")
+    return bytes(data)
+
+
+def query_final_status(serial_port, delay_s: float = 0.1) -> str:
+    time.sleep(delay_s)
+    return query(serial_port, "SYST:OTA:STAT?")
+
+
+def send_image(args: argparse.Namespace, image: bytes, image_crc: int) -> str:
     try:
         import serial
     except ImportError as exc:
@@ -108,15 +146,24 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int) -> None:
             ser.write(scpi_block(chunk))
             ser.write(b"\n")
 
+            sent_blocks = (offset // args.block_size) + 1
+            if args.abort_after_blocks and sent_blocks >= args.abort_after_blocks:
+                write_line(ser, "SYST:OTA:ABOR")
+                final_status = query_final_status(ser)
+                if not args.no_verify_query:
+                    print(final_status)
+                return final_status
+
             if not args.no_verify_query and ((offset // args.block_size) % 16 == 0):
                 response = query(ser, "SYST:OTA:PROG?")
                 if response:
                     print(f"progress={response}")
 
         write_line(ser, "SYST:OTA:END")
+        final_status = query_final_status(ser)
         if not args.no_verify_query:
-            time.sleep(0.1)
-            print(query(ser, "SYST:OTA:STAT?"))
+            print(final_status)
+        return final_status
 
 
 def main() -> int:
@@ -124,21 +171,36 @@ def main() -> int:
     validate_block_size(args.block_size)
 
     image = args.image.read_bytes()
+    if args.corrupt_vector:
+        image = corrupt_vector(image)
+
     image_crc = crc32(image)
+    send_crc = image_crc ^ 0xFFFFFFFF if args.corrupt_crc else image_crc
     block_count = (len(image) + args.block_size - 1) // args.block_size
 
     print(f"port={args.port}")
     print(f"image={args.image}")
     print(f"size={len(image)}")
     print(f"crc32=0x{image_crc:08X}")
+    if args.corrupt_crc:
+        print(f"send_crc32=0x{send_crc:08X}")
+    if args.corrupt_vector:
+        print("corrupt_vector=reset_handler_zero")
+    if args.abort_after_blocks:
+        print(f"abort_after_blocks={args.abort_after_blocks}")
     print(f"block_size={args.block_size}")
     print(f"block_count={block_count}")
-    print(f"begin=SYST:OTA:BEGIN {len(image)},{image_crc}")
+    print(f"begin=SYST:OTA:BEGIN {len(image)},{send_crc}")
 
     if args.dry_run:
         return 0
 
-    send_image(args, image, image_crc)
+    final_status = send_image(args, image, send_crc)
+    final_state = parse_ota_state(final_status)
+    if final_state != args.expect_final_state:
+        print(f"unexpected_final_state={final_state}, expected={args.expect_final_state}", file=sys.stderr)
+        return 2
+
     return 0
 
 

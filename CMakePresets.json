@@ -11,7 +11,8 @@
         "PICO_BOARD": "pico2",
         "PROJECT_ENABLE_USB_STDIO": "ON",
         "PROJECT_ENABLE_UART_STDIO": "OFF",
-        "PROJECT_WARNINGS_AS_ERRORS": "ON"
+        "PROJECT_WARNINGS_AS_ERRORS": "ON",
+        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "ON"
       }
     },
     {
@@ -24,7 +25,8 @@
         "PICO_BOARD": "pico2",
         "PROJECT_ENABLE_USB_STDIO": "ON",
         "PROJECT_ENABLE_UART_STDIO": "ON",
-        "PROJECT_WARNINGS_AS_ERRORS": "ON"
+        "PROJECT_WARNINGS_AS_ERRORS": "ON",
+        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "ON"
       }
     }
   ],

@@ -88,6 +88,26 @@ static bool scpi_port_read_u32(scpi_t *context, uint32_t *value)
     return SCPI_ParamUInt32(context, value, TRUE) == TRUE;
 }
 
+static scpi_result_t scpi_port_result_ok(scpi_t *context)
+{
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_firmware_version_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, PROJECT_VERSION_MAJOR);
+    SCPI_ResultUInt32(context, PROJECT_VERSION_MINOR);
+    SCPI_ResultUInt32(context, PROJECT_VERSION_PATCH);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_firmware_build_q(scpi_t *context)
+{
+    SCPI_ResultText(context, g_project_build_id);
+    return SCPI_RES_OK;
+}
+
 static scpi_result_t scpi_cmd_trigger_width(scpi_t *context)
 {
     uint32_t value;
@@ -298,7 +318,7 @@ static scpi_result_t scpi_cmd_ota_begin(scpi_t *context)
         },
     };
 
-    return ota_ao_post_event(&event) ? SCPI_RES_OK : SCPI_RES_ERR;
+    return ota_ao_post_event(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_ota_data(scpi_t *context)
@@ -325,57 +345,114 @@ static scpi_result_t scpi_cmd_ota_data(scpi_t *context)
     return ota_ao_post_event(&event) ? SCPI_RES_OK : SCPI_RES_ERR;
 }
 
-static scpi_result_t scpi_cmd_ota_simple_event(ota_event_type_t type)
+static scpi_result_t scpi_cmd_ota_simple_event_ack(scpi_t *context, ota_event_type_t type)
 {
     const ota_event_t event = {
         .type = type,
     };
 
-    return ota_ao_post_event(&event) ? SCPI_RES_OK : SCPI_RES_ERR;
+    return ota_ao_post_event(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_ota_end(scpi_t *context)
 {
     (void)context;
-    return scpi_cmd_ota_simple_event(OTA_EVENT_END);
+    return scpi_cmd_ota_simple_event_ack(context, OTA_EVENT_END);
 }
 
 static scpi_result_t scpi_cmd_ota_abort(scpi_t *context)
 {
-    (void)context;
-    return scpi_cmd_ota_simple_event(OTA_EVENT_ABORT);
+    return scpi_cmd_ota_simple_event_ack(context, OTA_EVENT_ABORT);
 }
 
 static scpi_result_t scpi_cmd_ota_boot(scpi_t *context)
 {
-    (void)context;
-    return scpi_cmd_ota_simple_event(OTA_EVENT_BOOT);
+    return scpi_cmd_ota_simple_event_ack(context, OTA_EVENT_BOOT);
 }
 
 static scpi_result_t scpi_cmd_ota_commit(scpi_t *context)
 {
-    (void)context;
-    return scpi_cmd_ota_simple_event(OTA_EVENT_COMMIT);
+    return scpi_cmd_ota_simple_event_ack(context, OTA_EVENT_COMMIT);
 }
 
 static scpi_result_t scpi_cmd_ota_slot_q(scpi_t *context)
 {
-    ota_vector_t vector;
-    ota_ao_get_vector(&vector);
-    SCPI_ResultUInt32(context, vector.target_slot);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
+    ota_metadata_t metadata;
+    if (!ota_ao_get_metadata(&metadata)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, metadata.active_slot);
+    SCPI_ResultUInt32(context, metadata.pending_slot);
+    SCPI_ResultUInt32(context, metadata.confirmed_slot);
+    SCPI_ResultUInt32(context, metadata.boot_attempts);
+    SCPI_ResultUInt32(context, metadata.rollback_count);
     return SCPI_RES_OK;
 }
 
 static scpi_result_t scpi_cmd_ota_result_q(scpi_t *context)
 {
     ota_vector_t vector;
+    ota_metadata_t metadata;
     ota_ao_get_vector(&vector);
+
     SCPI_ResultUInt32(context, vector.last_result);
     SCPI_ResultText(context, ota_error_to_string(vector.error_code));
+    if (ota_ao_get_metadata(&metadata)) {
+        SCPI_ResultText(context, ota_metadata_boot_result_to_string(metadata.last_boot_result));
+        SCPI_ResultUInt32(context, metadata.last_boot_source_slot);
+        SCPI_ResultUInt32(context, metadata.last_boot_size);
+        SCPI_ResultUInt32(context, metadata.last_boot_crc32);
+    } else {
+        SCPI_ResultText(context, "METADATA_LOAD_FAILED");
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+    }
     return SCPI_RES_OK;
 }
+
+#if PROJECT_ENABLE_OTA_FAULT_INJECTION
+static scpi_result_t scpi_cmd_ota_inject_copy(scpi_t *context)
+{
+    return ota_metadata_set_fault_injection(OTA_FAULT_INJECT_COPY_FAIL) ?
+               scpi_port_result_ok(context) :
+               SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_ota_inject_clear(scpi_t *context)
+{
+    return ota_metadata_set_fault_injection(OTA_FAULT_INJECT_NONE) ?
+               scpi_port_result_ok(context) :
+               SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_ota_inject_copy_q(scpi_t *context)
+{
+    ota_metadata_t metadata;
+    if (!ota_ao_get_metadata(&metadata)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, metadata.fault_injection_flags);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_ota_inject_metadata_corrupt(scpi_t *context)
+{
+    uint32_t copy_index;
+    if (!scpi_port_read_u32(context, &copy_index)) {
+        return SCPI_RES_ERR;
+    }
+
+    return ota_metadata_corrupt_copy(copy_index) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context)
+{
+    return ota_metadata_repair_copies() ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+#endif
 
 static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "*CLS", .callback = SCPI_CoreCls},
@@ -394,6 +471,8 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:ERRor[:NEXT]?", .callback = SCPI_SystemErrorNextQ},
     {.pattern = "SYSTem:ERRor:COUNt?", .callback = SCPI_SystemErrorCountQ},
     {.pattern = "SYSTem:VERSion?", .callback = SCPI_SystemVersionQ},
+    {.pattern = "SYSTem:FW:VERSion?", .callback = scpi_cmd_firmware_version_q},
+    {.pattern = "SYSTem:FW:BUILD?", .callback = scpi_cmd_firmware_build_q},
     {.pattern = "TRIGger:WIDTh", .callback = scpi_cmd_trigger_width},
     {.pattern = "TRIGger:WIDTh?", .callback = scpi_cmd_trigger_width_q},
     {.pattern = "TRIGger:IMMediate", .callback = scpi_cmd_trigger_fire},
@@ -422,6 +501,13 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:OTA:COMMit", .callback = scpi_cmd_ota_commit},
     {.pattern = "SYSTem:OTA:SLOT?", .callback = scpi_cmd_ota_slot_q},
     {.pattern = "SYSTem:OTA:RESult?", .callback = scpi_cmd_ota_result_q},
+#if PROJECT_ENABLE_OTA_FAULT_INJECTION
+    {.pattern = "SYSTem:OTA:INJect:COPY", .callback = scpi_cmd_ota_inject_copy},
+    {.pattern = "SYSTem:OTA:INJect:CLEar", .callback = scpi_cmd_ota_inject_clear},
+    {.pattern = "SYSTem:OTA:INJect:COPY?", .callback = scpi_cmd_ota_inject_copy_q},
+    {.pattern = "SYSTem:OTA:INJect:MCORrupt", .callback = scpi_cmd_ota_inject_metadata_corrupt},
+    {.pattern = "SYSTem:OTA:INJect:MREPair", .callback = scpi_cmd_ota_inject_metadata_repair},
+#endif
     SCPI_CMD_LIST_END,
 };
 

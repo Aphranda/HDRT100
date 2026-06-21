@@ -59,7 +59,8 @@ static void ota_fb_handle_begin(struct ota_ao_context *context, const ota_event_
 {
     if (context->vector.state != (uint32_t)OTA_STATE_IDLE &&
         context->vector.state != (uint32_t)OTA_STATE_ABORTED &&
-        context->vector.state != (uint32_t)OTA_STATE_FAILED) {
+        context->vector.state != (uint32_t)OTA_STATE_FAILED &&
+        context->vector.state != (uint32_t)OTA_STATE_COMMITTED) {
         ota_fb_set_error(context, OTA_ERR_INVALID_STATE);
         return;
     }
@@ -235,6 +236,17 @@ static void ota_fb_handle_boot(struct ota_ao_context *context)
     drv_watchdog_reboot(50u);
 }
 
+static void ota_fb_handle_commit(struct ota_ao_context *context)
+{
+    if (!ota_metadata_confirm_active()) {
+        ota_fb_set_error(context, OTA_ERR_METADATA);
+        return;
+    }
+
+    context->vector.last_result = (uint32_t)OTA_RESULT_COMMITTED;
+    ota_fb_set_state(context, OTA_STATE_COMMITTED);
+}
+
 void ota_fb_execute(ota_ao_context_t *context, const ota_event_t *event)
 {
     if (context == NULL || event == NULL) {
@@ -261,6 +273,9 @@ void ota_fb_execute(ota_ao_context_t *context, const ota_event_t *event)
         break;
     case OTA_EVENT_BOOT:
         ota_fb_handle_boot(context);
+        break;
+    case OTA_EVENT_COMMIT:
+        ota_fb_handle_commit(context);
         break;
     default:
         break;

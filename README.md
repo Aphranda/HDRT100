@@ -116,6 +116,7 @@ During the build, CMake automatically runs:
 
 ```text
 tools/uf2_join/uf2_join.py
+tools/build_info/gen_build_info.py
 ```
 
 This script combines:
@@ -148,6 +149,9 @@ build/RP2350_TRIG.bin          # OTA payload sent by SCPI USB CDC
 build/RP2350_TRIG_BOOT.uf2     # bootloader-only image for recovery/debug
 ```
 
+`tools/build_info/gen_build_info.py` generates the firmware build id source on
+each build, so `SYST:FW:BUILD?` changes when a new OTA payload is produced.
+
 First-time programming should use `RP2350_TRIG_FACTORY.uf2`. After that, use
 the OTA `.bin` through SCPI:
 
@@ -156,14 +160,56 @@ python tools/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin
 python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin
 ```
 
+For negative-path validation, the sender can intentionally corrupt the announced
+CRC and assert the expected final state:
+
+```powershell
+python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin `
+  --corrupt-crc --expect-final-state FAILED
+python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin `
+  --corrupt-vector --expect-final-state FAILED
+python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin `
+  --abort-after-blocks 8 --expect-final-state ABORTED
+```
+
+OTA fault-injection SCPI commands are available only when the CMake cache option
+`PROJECT_ENABLE_OTA_FAULT_INJECTION=ON` is enabled. They are intended for
+development validation, not production firmware. The release preset currently
+enables the option so the OTA failure paths can be verified on the bench.
+
+```text
+SYST:OTA:INJ:COPY?      # query fault flags
+SYST:OTA:INJ:COPY       # force next Bootloader copy to fail
+SYST:OTA:INJ:CLEAR      # clear fault flags
+SYST:OTA:INJ:MCOR 0     # erase metadata copy 0
+SYST:OTA:INJ:MCOR 1     # erase metadata copy 1
+SYST:OTA:INJ:MREP       # repair metadata dual copies
+```
+
+`SYST:OTA:INJ:COPY` requires a factory image that contains the matching
+Bootloader. If only the App was updated by OTA, the App-side SCPI command may be
+present while the old Bootloader still ignores the injection flag.
+
 After `SYST:OTA:STAT?` reports `READY_TO_REBOOT`, send `SYST:OTA:BOOT` or use
 the OTA sender's boot flow once enabled.
+
+After the board re-enumerates, query the OTA audit state:
+
+```text
+SYST:FW:VERS?
+SYST:FW:BUILD?
+SYST:OTA:STAT?
+SYST:OTA:SLOT?   # active,pending,confirmed,boot_attempts,rollback_count
+SYST:OTA:RES?    # app_result,app_error,boot_result,boot_source_slot,boot_size,boot_crc32
+SYST:OTA:COMM    # confirm the running image after application self-test
+```
 
 Python script roles:
 
 | Script | When to use | Purpose |
 |---|---|---|
 | `tools/uf2_join/uf2_join.py` | Normally only via CMake | Generate the first-time factory UF2 from Bootloader + Slot A App binaries. |
+| `tools/build_info/gen_build_info.py` | Normally only via CMake | Generate the firmware build id used by `SYST:FW:BUILD?`. |
 | `tools/ota_bin_info/ota_bin_info.py` | Before OTA or release notes | Print `.bin` size, CRC32, and the matching `SYST:OTA:BEGIN` command. |
 | `tools/ota_send/ota_send.py` | Runtime OTA over USB CDC | Send the standard raw App `.bin` to the board through SCPI. |
 | `tools/ota_packager/ota_packager.py` | Legacy/reference only | Older package helper; current OTA flow uses standard raw `.bin`, not a custom `.ota` suffix. |

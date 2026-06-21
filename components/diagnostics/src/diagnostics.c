@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "pico/stdlib.h"
+#include "project_config.h"
 
 static bool s_fault_latched;
 
@@ -44,6 +45,7 @@ void diagnostics_log(diag_level_t level, const char *module, const char *fmt, ..
 
 void diagnostics_heartbeat(uint32_t period_ms)
 {
+#if PROJECT_ENABLE_HEALTH_LOG
     static uint32_t last_ms;
     const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
 
@@ -51,6 +53,9 @@ void diagnostics_heartbeat(uint32_t period_ms)
         last_ms = now_ms;
         LOG_INFO("health", "alive fault=%u", s_fault_latched ? 1u : 0u);
     }
+#else
+    (void)period_ms;
+#endif
 }
 
 void diagnostics_mark_fault(const char *module, const char *reason)

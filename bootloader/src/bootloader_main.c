@@ -18,36 +18,6 @@
 
 typedef void (*app_entry_t)(void);
 
-static bool bootloader_metadata_store(const ota_metadata_t *metadata)
-{
-    if (metadata == NULL) {
-        return false;
-    }
-
-    const uint32_t copy_index = metadata->sequence % OTA_METADATA_COPY_COUNT;
-    const uint32_t offset = OTA_METADATA_OFFSET + (copy_index * DRV_FLASH_SECTOR_SIZE);
-    uint8_t page[DRV_FLASH_PAGE_SIZE];
-
-    if (!drv_flash_erase(offset, DRV_FLASH_SECTOR_SIZE)) {
-        return false;
-    }
-
-    const uint8_t *src = (const uint8_t *)metadata;
-    uint32_t written = 0u;
-    while (written < sizeof(*metadata)) {
-        memset(page, 0xFF, sizeof(page));
-        const uint32_t remain = (uint32_t)sizeof(*metadata) - written;
-        const uint32_t chunk = remain > sizeof(page) ? (uint32_t)sizeof(page) : remain;
-        memcpy(page, &src[written], chunk);
-        if (!drv_flash_program(offset + written, page, sizeof(page))) {
-            return false;
-        }
-        written += (uint32_t)sizeof(page);
-    }
-
-    return true;
-}
-
 static bool bootloader_validate_slot(ota_slot_t slot, uint32_t image_size, uint32_t image_crc32)
 {
     const uint32_t slot_offset = ota_partition_slot_offset(slot);
@@ -106,42 +76,99 @@ static bool bootloader_copy_slot(ota_slot_t source, ota_slot_t destination, uint
     return true;
 }
 
+static bool bootloader_store_result(ota_metadata_t *metadata,
+                                    ota_boot_result_t result,
+                                    ota_slot_t source_slot,
+                                    bool clear_pending)
+{
+    metadata->last_boot_result = (uint32_t)result;
+    metadata->last_boot_source_slot = (uint32_t)source_slot;
+    metadata->last_boot_size = (source_slot == OTA_SLOT_B) ? metadata->slot_b_size : metadata->slot_a_size;
+    metadata->last_boot_crc32 = (source_slot == OTA_SLOT_B) ? metadata->slot_b_crc32 : metadata->slot_a_crc32;
+
+    if (clear_pending) {
+        metadata->pending_slot = (uint32_t)OTA_SLOT_NONE;
+        metadata->boot_attempts = 0u;
+        if (result != OTA_BOOT_RESULT_APPLIED && result != OTA_BOOT_RESULT_NO_PENDING) {
+            metadata->rollback_count++;
+        }
+    }
+
+    metadata->sequence++;
+    metadata->metadata_crc32 = ota_metadata_crc32(metadata);
+    return ota_metadata_store(metadata);
+}
+
 static bool bootloader_apply_pending_image(ota_metadata_t *metadata)
 {
-    if (metadata == NULL || metadata->pending_slot != (uint32_t)BOOTLOADER_STAGING_SLOT) {
+    if (metadata == NULL) {
+        return false;
+    }
+
+    if (metadata->pending_slot == (uint32_t)OTA_SLOT_NONE) {
+        return false;
+    }
+
+    if (metadata->pending_slot != (uint32_t)BOOTLOADER_STAGING_SLOT) {
+        (void)bootloader_store_result(metadata,
+                                      OTA_BOOT_RESULT_NO_PENDING,
+                                      (ota_slot_t)metadata->pending_slot,
+                                      true);
         return false;
     }
 
     if (metadata->slot_b_size == 0u ||
         metadata->boot_attempts >= BOOTLOADER_MAX_BOOT_ATTEMPTS) {
-        metadata->pending_slot = (uint32_t)OTA_SLOT_NONE;
-        metadata->rollback_count++;
-        metadata->sequence++;
-        metadata->metadata_crc32 = ota_metadata_crc32(metadata);
-        (void)bootloader_metadata_store(metadata);
+        (void)bootloader_store_result(metadata,
+                                      OTA_BOOT_RESULT_MAX_ATTEMPTS,
+                                      BOOTLOADER_STAGING_SLOT,
+                                      true);
         return false;
     }
 
     metadata->boot_attempts++;
     metadata->sequence++;
     metadata->metadata_crc32 = ota_metadata_crc32(metadata);
-    (void)bootloader_metadata_store(metadata);
+    (void)ota_metadata_store(metadata);
 
     if (!bootloader_validate_slot(BOOTLOADER_STAGING_SLOT,
                                   metadata->slot_b_size,
                                   metadata->slot_b_crc32)) {
+        (void)bootloader_store_result(metadata,
+                                      OTA_BOOT_RESULT_STAGE_VALIDATE_FAILED,
+                                      BOOTLOADER_STAGING_SLOT,
+                                      true);
         return false;
     }
+
+#if PROJECT_ENABLE_OTA_FAULT_INJECTION
+    if ((metadata->fault_injection_flags & OTA_FAULT_INJECT_COPY_FAIL) != 0u) {
+        metadata->fault_injection_flags &= ~OTA_FAULT_INJECT_COPY_FAIL;
+        (void)bootloader_store_result(metadata,
+                                      OTA_BOOT_RESULT_COPY_FAILED,
+                                      BOOTLOADER_STAGING_SLOT,
+                                      true);
+        return false;
+    }
+#endif
 
     if (!bootloader_copy_slot(BOOTLOADER_STAGING_SLOT,
                               BOOTLOADER_ACTIVE_SLOT,
                               metadata->slot_b_size)) {
+        (void)bootloader_store_result(metadata,
+                                      OTA_BOOT_RESULT_COPY_FAILED,
+                                      BOOTLOADER_STAGING_SLOT,
+                                      true);
         return false;
     }
 
     if (!bootloader_validate_slot(BOOTLOADER_ACTIVE_SLOT,
                                   metadata->slot_b_size,
                                   metadata->slot_b_crc32)) {
+        (void)bootloader_store_result(metadata,
+                                      OTA_BOOT_RESULT_ACTIVE_VALIDATE_FAILED,
+                                      BOOTLOADER_STAGING_SLOT,
+                                      true);
         return false;
     }
 
@@ -151,9 +178,10 @@ static bool bootloader_apply_pending_image(ota_metadata_t *metadata)
     metadata->boot_attempts = 0u;
     metadata->slot_a_size = metadata->slot_b_size;
     metadata->slot_a_crc32 = metadata->slot_b_crc32;
-    metadata->sequence++;
-    metadata->metadata_crc32 = ota_metadata_crc32(metadata);
-    return bootloader_metadata_store(metadata);
+    return bootloader_store_result(metadata,
+                                   OTA_BOOT_RESULT_APPLIED,
+                                   BOOTLOADER_STAGING_SLOT,
+                                   false);
 }
 
 static bool bootloader_app_vector_is_valid(uint32_t vector_offset)
