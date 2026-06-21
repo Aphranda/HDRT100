@@ -285,7 +285,7 @@ drivers/
     sd_card/
 
 bootloader/
-  include/
+  inc/
   src/
 
 third_party/

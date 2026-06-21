@@ -9,11 +9,11 @@ OS adaptation, middleware, and third-party modules can grow independently.
 ```text
 RP2350_TRIG/
 ├─ application/                 # Product application and main loop
-│  ├─ include/
+│  ├─ inc/
 │  └─ src/
 ├─ boards/
 │  └─ rp2350_trig/              # Board support package for this hardware
-│     ├─ include/
+│     ├─ inc/
 │     └─ src/
 ├─ components/                  # Reusable project components
 │  └─ diagnostics/              # Logging, heartbeat, fault latch
@@ -30,7 +30,7 @@ RP2350_TRIG/
 ├─ platform/
 │  └─ rp2350_pico_sdk/          # Pico SDK adaptation area
 ├─ osal/                        # OS abstraction layer
-│  ├─ include/
+│  ├─ inc/
 │  └─ port/
 │     └─ baremetal/
 ├─ middleware/                  # Integrated middleware wrappers
@@ -113,7 +113,7 @@ build/RP2350_TRIG.uf2
 
 - `config/project_config.h`: firmware version, loop periods, watchdog timeout,
   and product-level constants.
-- `boards/rp2350_trig/include/board_config.h`: board pin map and peripheral
+- `boards/rp2350_trig/inc/board_config.h`: board pin map and peripheral
   instances.
 - `CMakePresets.json`: release and debug build presets.
 - `docs/RELEASE_CHECKLIST.md`: release gate template.

@@ -351,7 +351,7 @@ commit 后：
 
 ```text
 components/ota_manager/
-  include/
+  inc/
     ota_ao.h
     ota_event.h
     ota_fb.h
@@ -369,7 +369,7 @@ components/ota_manager/
     ota_crc32.c
 
 drivers/mcu/flash/
-  include/drv_flash.h
+  inc/drv_flash.h
   src/drv_flash.c
 
 tools/ota_packager/
@@ -383,7 +383,7 @@ Bootloader 阶段新增：
 
 ```text
 bootloader/
-  include/
+  inc/
     boot_metadata.h
     boot_slot.h
     boot_handoff.h

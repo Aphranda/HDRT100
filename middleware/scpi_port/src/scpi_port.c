@@ -4,13 +4,14 @@
 #include <string.h>
 
 #include "diagnostics.h"
+#include "ota_ao.h"
 #include "pico/error.h"
 #include "pico/stdio.h"
 #include "project_config.h"
 #include "scpi/scpi.h"
 #include "sync_io.h"
 
-#define SCPI_PORT_INPUT_BUFFER_LENGTH 256u
+#define SCPI_PORT_INPUT_BUFFER_LENGTH 768u
 #define SCPI_PORT_ERROR_QUEUE_SIZE    16
 #define SCPI_PORT_IDN_VENDOR          "RP2350_TRIG"
 #define SCPI_PORT_IDN_MODEL           "SYNC_TRIGGER"
@@ -258,6 +259,124 @@ static scpi_result_t scpi_cmd_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static scpi_result_t scpi_cmd_ota_status_q(scpi_t *context)
+{
+    ota_vector_t vector;
+    ota_ao_get_vector(&vector);
+    SCPI_ResultText(context, ota_state_to_string((ota_state_t)vector.state));
+    SCPI_ResultUInt32(context, vector.target_slot);
+    SCPI_ResultText(context, ota_error_to_string(vector.error_code));
+    SCPI_ResultUInt32(context, vector.last_result);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_ota_progress_q(scpi_t *context)
+{
+    ota_vector_t vector;
+    ota_ao_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.received_size);
+    SCPI_ResultUInt32(context, vector.expected_size);
+    SCPI_ResultUInt32(context, vector.progress_permille);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_ota_begin(scpi_t *context)
+{
+    uint32_t size;
+    uint32_t crc32;
+    if (!scpi_port_read_u32(context, &size) || !scpi_port_read_u32(context, &crc32)) {
+        return SCPI_RES_ERR;
+    }
+
+    const ota_event_t event = {
+        .type = OTA_EVENT_BEGIN,
+        .payload.begin = {
+            .size = size,
+            .crc32 = crc32,
+            .image_version = 0u,
+            .flags = 0u,
+        },
+    };
+
+    return ota_ao_post_event(&event) ? SCPI_RES_OK : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_ota_data(scpi_t *context)
+{
+    const char *data = NULL;
+    size_t length = 0u;
+    if (SCPI_ParamArbitraryBlock(context, &data, &length, TRUE) != TRUE) {
+        return SCPI_RES_ERR;
+    }
+
+    if (length == 0u || length > OTA_EVENT_MAX_DATA_SIZE) {
+        return SCPI_RES_ERR;
+    }
+
+    const ota_event_t event = {
+        .type = OTA_EVENT_DATA_BLOCK,
+        .payload.data = {
+            .data = (const uint8_t *)data,
+            .length = (uint32_t)length,
+            .block_index = 0u,
+        },
+    };
+
+    return ota_ao_post_event(&event) ? SCPI_RES_OK : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_ota_simple_event(ota_event_type_t type)
+{
+    const ota_event_t event = {
+        .type = type,
+    };
+
+    return ota_ao_post_event(&event) ? SCPI_RES_OK : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_ota_end(scpi_t *context)
+{
+    (void)context;
+    return scpi_cmd_ota_simple_event(OTA_EVENT_END);
+}
+
+static scpi_result_t scpi_cmd_ota_abort(scpi_t *context)
+{
+    (void)context;
+    return scpi_cmd_ota_simple_event(OTA_EVENT_ABORT);
+}
+
+static scpi_result_t scpi_cmd_ota_boot(scpi_t *context)
+{
+    (void)context;
+    return scpi_cmd_ota_simple_event(OTA_EVENT_BOOT);
+}
+
+static scpi_result_t scpi_cmd_ota_commit(scpi_t *context)
+{
+    (void)context;
+    return scpi_cmd_ota_simple_event(OTA_EVENT_COMMIT);
+}
+
+static scpi_result_t scpi_cmd_ota_slot_q(scpi_t *context)
+{
+    ota_vector_t vector;
+    ota_ao_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.target_slot);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_ota_result_q(scpi_t *context)
+{
+    ota_vector_t vector;
+    ota_ao_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.last_result);
+    SCPI_ResultText(context, ota_error_to_string(vector.error_code));
+    return SCPI_RES_OK;
+}
+
 static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "*CLS", .callback = SCPI_CoreCls},
     {.pattern = "*ESE", .callback = SCPI_CoreEse},
@@ -293,6 +412,16 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "OUTPut:CLOCk:STATe", .callback = scpi_cmd_clock_state},
     {.pattern = "OUTPut:CLOCk:STATe?", .callback = scpi_cmd_clock_state_q},
     {.pattern = "STATus:SYNC?", .callback = scpi_cmd_status_q},
+    {.pattern = "SYSTem:OTA:STATus?", .callback = scpi_cmd_ota_status_q},
+    {.pattern = "SYSTem:OTA:PROGress?", .callback = scpi_cmd_ota_progress_q},
+    {.pattern = "SYSTem:OTA:BEGIN", .callback = scpi_cmd_ota_begin},
+    {.pattern = "SYSTem:OTA:DATA", .callback = scpi_cmd_ota_data},
+    {.pattern = "SYSTem:OTA:END", .callback = scpi_cmd_ota_end},
+    {.pattern = "SYSTem:OTA:ABORt", .callback = scpi_cmd_ota_abort},
+    {.pattern = "SYSTem:OTA:BOOT", .callback = scpi_cmd_ota_boot},
+    {.pattern = "SYSTem:OTA:COMMit", .callback = scpi_cmd_ota_commit},
+    {.pattern = "SYSTem:OTA:SLOT?", .callback = scpi_cmd_ota_slot_q},
+    {.pattern = "SYSTem:OTA:RESult?", .callback = scpi_cmd_ota_result_q},
     SCPI_CMD_LIST_END,
 };
 

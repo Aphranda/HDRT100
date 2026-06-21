@@ -39,11 +39,15 @@ add_executable(${PROJECT_NAME}
         application/src/app.c
         boards/rp2350_trig/src/board.c
         components/diagnostics/src/diagnostics.c
+        components/ota_manager/src/ota_ao.c
+        components/ota_manager/src/ota_fb.c
+        components/ota_manager/src/ota_crc32.c
         components/sync_io/src/sync_io.c
         components/sync_config_ui/src/sync_config_ui.c
         drivers/mcu/spi/src/drv_spi.c
         drivers/mcu/i2c/src/drv_i2c.c
         drivers/mcu/uart/src/drv_uart.c
+        drivers/mcu/flash/src/drv_flash.c
         drivers/mcu/watchdog/src/drv_watchdog.c
         drivers/external/lcd/src/lcd_st7789.c
         middleware/scpi_port/src/scpi_port.c
@@ -98,20 +102,22 @@ pico_enable_stdio_uart(${PROJECT_NAME} ${PROJECT_ENABLE_UART_STDIO})
 pico_enable_stdio_usb(${PROJECT_NAME} ${PROJECT_ENABLE_USB_STDIO})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}/application/include
-        ${CMAKE_CURRENT_LIST_DIR}/boards/rp2350_trig/include
-        ${CMAKE_CURRENT_LIST_DIR}/components/diagnostics/include
-        ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/include
-        ${CMAKE_CURRENT_LIST_DIR}/components/sync_config_ui/include
+        ${CMAKE_CURRENT_LIST_DIR}/application/inc
+        ${CMAKE_CURRENT_LIST_DIR}/boards/rp2350_trig/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/diagnostics/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/sync_config_ui/inc
         ${CMAKE_CURRENT_LIST_DIR}/config
-        ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/spi/include
-        ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/i2c/include
-        ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/uart/include
-        ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/watchdog/include
-        ${CMAKE_CURRENT_LIST_DIR}/drivers/external/lcd/include
-        ${CMAKE_CURRENT_LIST_DIR}/middleware/scpi_port/include
-        ${CMAKE_CURRENT_LIST_DIR}/middleware/u8g2_port/include
-        ${CMAKE_CURRENT_LIST_DIR}/osal/include
+        ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/spi/inc
+        ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/i2c/inc
+        ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/uart/inc
+        ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/flash/inc
+        ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/watchdog/inc
+        ${CMAKE_CURRENT_LIST_DIR}/drivers/external/lcd/inc
+        ${CMAKE_CURRENT_LIST_DIR}/middleware/scpi_port/inc
+        ${CMAKE_CURRENT_LIST_DIR}/middleware/u8g2_port/inc
+        ${CMAKE_CURRENT_LIST_DIR}/osal/inc
         ${CMAKE_CURRENT_LIST_DIR}/third_party/scpi-parser/libscpi/inc
         ${CMAKE_CURRENT_LIST_DIR}/third_party/u8g2/csrc
         ${CMAKE_CURRENT_BINARY_DIR}
@@ -125,6 +131,7 @@ target_link_libraries(${PROJECT_NAME}
         hardware_watchdog
         hardware_pio
         hardware_clocks
+        hardware_flash
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE

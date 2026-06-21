@@ -2,6 +2,7 @@
 
 #include "board.h"
 #include "diagnostics.h"
+#include "ota_ao.h"
 #include "osal.h"
 #include "project_config.h"
 #include "scpi_port.h"
@@ -30,6 +31,11 @@ bool app_init(void)
         return false;
     }
 
+    if (!ota_ao_init()) {
+        diagnostics_mark_fault("ota", "OTA initialization failed");
+        return false;
+    }
+
     if (!sync_config_ui_init()) {
         diagnostics_mark_fault("ui", "sync config UI initialization failed");
         return false;
@@ -44,6 +50,7 @@ void app_run_once(void)
     const uint32_t now_ms = board_uptime_ms();
 
     scpi_port_service();
+    ota_ao_service(500u);
 
     if ((uint32_t)(now_ms - s_last_tick_ms) >= PROJECT_LOOP_PERIOD_MS) {
         s_last_tick_ms = now_ms;

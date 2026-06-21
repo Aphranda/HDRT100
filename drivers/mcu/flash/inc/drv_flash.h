@@ -1,0 +1,20 @@
+#ifndef DRV_FLASH_H
+#define DRV_FLASH_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#define DRV_FLASH_TOTAL_SIZE_BYTES (4u * 1024u * 1024u)
+#define DRV_FLASH_SECTOR_SIZE      4096u
+#define DRV_FLASH_PAGE_SIZE        256u
+#define DRV_FLASH_XIP_BASE         0x10000000u
+
+bool drv_flash_is_range_valid(uint32_t flash_offset, size_t length);
+bool drv_flash_is_erased(uint32_t flash_offset, size_t length);
+bool drv_flash_erase(uint32_t flash_offset, size_t length);
+bool drv_flash_program(uint32_t flash_offset, const uint8_t *data, size_t length);
+bool drv_flash_read(uint32_t flash_offset, void *data, size_t length);
+const uint8_t *drv_flash_xip_ptr(uint32_t flash_offset);
+
+#endif
