@@ -46,7 +46,17 @@ add_executable(${PROJECT_NAME}
         drivers/mcu/uart/src/drv_uart.c
         drivers/mcu/watchdog/src/drv_watchdog.c
         drivers/external/lcd/src/lcd_st7789.c
+        middleware/scpi_port/src/scpi_port.c
         middleware/u8g2_port/src/u8g2_port.c
+        third_party/scpi-parser/libscpi/src/error.c
+        third_party/scpi-parser/libscpi/src/expression.c
+        third_party/scpi-parser/libscpi/src/fifo.c
+        third_party/scpi-parser/libscpi/src/ieee488.c
+        third_party/scpi-parser/libscpi/src/lexer.c
+        third_party/scpi-parser/libscpi/src/minimal.c
+        third_party/scpi-parser/libscpi/src/parser.c
+        third_party/scpi-parser/libscpi/src/units.c
+        third_party/scpi-parser/libscpi/src/utils.c
         third_party/u8g2/csrc/u8g2_arc.c
         third_party/u8g2/csrc/u8g2_bitmap.c
         third_party/u8g2/csrc/u8g2_box.c
@@ -99,8 +109,10 @@ target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/uart/include
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/watchdog/include
         ${CMAKE_CURRENT_LIST_DIR}/drivers/external/lcd/include
+        ${CMAKE_CURRENT_LIST_DIR}/middleware/scpi_port/include
         ${CMAKE_CURRENT_LIST_DIR}/middleware/u8g2_port/include
         ${CMAKE_CURRENT_LIST_DIR}/osal/include
+        ${CMAKE_CURRENT_LIST_DIR}/third_party/scpi-parser/libscpi/inc
         ${CMAKE_CURRENT_LIST_DIR}/third_party/u8g2/csrc
         ${CMAKE_CURRENT_BINARY_DIR}
 )
@@ -118,6 +130,7 @@ target_link_libraries(${PROJECT_NAME}
 target_compile_definitions(${PROJECT_NAME} PRIVATE
         PROJECT_ENABLE_USB_STDIO=$<BOOL:${PROJECT_ENABLE_USB_STDIO}>
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
+        SCPI_USER_CONFIG=1
 )
 
 set(PROJECT_WARNING_FLAGS

@@ -121,6 +121,8 @@ build/RP2350_TRIG.uf2
   allocation.
 - `docs/SYNC_TRIGGER_TODO.md`: remaining work for the production trigger
   subsystem.
+- `docs/SCPI_COMMANDS.md`: basic SCPI command list for trigger configuration.
+- `docs/OTA方案.md`: A/B OTA upgrade design for the W25Q32 4 MB QSPI Flash.
 
 ## Expansion Rules
 
@@ -142,8 +144,10 @@ The board LCD uses the SPI TFT signals listed in `IO约束.md`:
 - `GPIO9`: LCD CS
 - `GPIO10`: SPI SCK
 - `GPIO11`: SPI MOSI
-- `GPIO12`: SPI MISO
 - `GPIO25`: LCD backlight
+
+The LCD is write-only on this board and does not use SPI MISO. `GPIO12` is
+available as the shared SPI MISO signal for the TF/SD card interface.
 
 The native RGB565 LCD driver is located at `drivers/external/lcd/` and currently
 targets the board's 240x135 ST7789-compatible SPI panel.

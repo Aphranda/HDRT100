@@ -45,8 +45,9 @@ trigger PIO state machines. The board status LED is driven as a normal GPIO.
 
 ## GPIO Assignment
 
-The cleanest contiguous free GPIO bank on this board is `GPIO16..GPIO24`.
-These pins are reserved as the synchronous trigger high-speed IO zone.
+The cleanest free GPIO groups on the external connectors are `GPIO16..GPIO23`
+on the J2/J1 trigger side and `GPIO26..GPIO29` on the J1 auxiliary side. These
+pins are reserved as the synchronous trigger high-speed IO zone.
 
 | GPIO | Direction | Signal | PIO owner | Notes |
 |---:|---|---|---|---|
@@ -58,10 +59,13 @@ These pins are reserved as the synchronous trigger high-speed IO zone.
 | 21 | Output | `PULSE_OUT` | `pio1/sm2` | Secondary programmable pulse or burst output. |
 | 22 | Output | `SYNC_CLK_OUT` | `pio1/sm1` | Reference or divided synchronous clock. |
 | 23 | Output | `MARKER_OUT` | `pio1/sm3` | Scope/debug marker output. |
-| 24 | Bidirectional | `AUX0_IO` | `pio2/sm0` | Auxiliary timing or protocol pin. |
-| 26 | Bidirectional | `AUX1_IO` | `pio2/sm1` | Auxiliary timing or protocol pin; also ADC-capable. |
-| 27 | Bidirectional | `AUX2_IO` | `pio2/sm2` | Auxiliary timing or protocol pin; also ADC-capable. |
-| 28 | Bidirectional | `AUX3_IO` | `pio2/sm3` | Auxiliary timing or protocol pin; also ADC-capable. |
+| 26 | Bidirectional | `AUX0_IO` | `pio2/sm0` | Auxiliary timing or protocol pin; also ADC-capable. |
+| 27 | Bidirectional | `AUX1_IO` | `pio2/sm1` | Auxiliary timing or protocol pin; also ADC-capable. |
+| 28 | Bidirectional | `AUX2_IO` | `pio2/sm2` | Auxiliary timing or protocol pin; also ADC-capable. |
+| 29 | Bidirectional | `AUX3_IO` | `pio2/sm3` | Auxiliary timing or protocol pin; also ADC-capable. |
+
+`GPIO24` is left as a spare external GPIO for future board-level functions or
+debug use.
 
 ## Practical Performance Targets
 
@@ -85,7 +89,8 @@ trace length, load, probe capacitance, and firmware DMA configuration.
 - Do not allocate `pio0`, `pio1`, or `pio2` state machines outside the sync
   trigger subsystem without updating this document.
 - Keep LED heartbeat and UI timing on GPIO/software timers, not PIO.
-- Keep LCD on SPI; do not reuse `GPIO8..GPIO12` or `GPIO25` for sync timing.
+- Keep LCD on SPI; do not reuse `GPIO8..GPIO11` or `GPIO25` for sync timing.
+- Keep `GPIO12..GPIO15` reserved for the TF/SD card interface.
 - Keep high-speed sync IO on contiguous pins where possible so PIO `in pins,n`
   and `out pins,n` instructions remain efficient.
 - Put PIO programs under `drivers/mcu/pio/` or the owning sync component, then

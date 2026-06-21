@@ -10,7 +10,7 @@
 - [x] 实现 `GPIO21` 第二路脉冲输出。
 - [x] 实现 `GPIO22` 同步时钟输出。
 - [x] 实现 `GPIO23` Marker 脉冲输出。
-- [x] 实现 `GPIO24/GPIO26/GPIO27/GPIO28` 四路 `pio2` 辅助 IO。
+- [x] 实现 `GPIO26/GPIO27/GPIO28/GPIO29` 四路 `pio2` 辅助 IO。
 - [x] 状态灯不再占用 PIO 资源。
 
 ## P0 - 核心触发行为

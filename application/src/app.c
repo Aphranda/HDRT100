@@ -4,6 +4,7 @@
 #include "diagnostics.h"
 #include "osal.h"
 #include "project_config.h"
+#include "scpi_port.h"
 #include "sync_config_ui.h"
 #include "sync_io.h"
 
@@ -24,6 +25,11 @@ bool app_init(void)
         return false;
     }
 
+    if (!scpi_port_init()) {
+        diagnostics_mark_fault("scpi", "SCPI initialization failed");
+        return false;
+    }
+
     if (!sync_config_ui_init()) {
         diagnostics_mark_fault("ui", "sync config UI initialization failed");
         return false;
@@ -36,6 +42,8 @@ bool app_init(void)
 void app_run_once(void)
 {
     const uint32_t now_ms = board_uptime_ms();
+
+    scpi_port_service();
 
     if ((uint32_t)(now_ms - s_last_tick_ms) >= PROJECT_LOOP_PERIOD_MS) {
         s_last_tick_ms = now_ms;
