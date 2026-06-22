@@ -39,6 +39,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 set(PROJECT_BUILD_INFO_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.h)
 set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.c)
+set(PROJECT_OTA_METADATA_SIZE 0x010000)
 
 add_custom_target(project_build_info
         ALL
@@ -222,12 +223,23 @@ pico_set_linker_script(RP2350_TRIG_BOOT ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_
 pico_add_extra_outputs(RP2350_TRIG_BOOT)
 
 add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/make_fill_bin.py
+                ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin
+                ${PROJECT_OTA_METADATA_SIZE}
+                --byte 0xFF
+        DEPENDS ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/make_fill_bin.py
+        VERBATIM
+)
+
+add_custom_command(
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_FACTORY.uf2
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
                 ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_FACTORY.uf2
                 ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_BOOT.bin@0x10000000
                 ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG.bin@0x10040000
-        DEPENDS RP2350_TRIG_BOOT ${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
+                ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin@0x10340000
+        DEPENDS RP2350_TRIG_BOOT ${PROJECT_NAME} ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
         VERBATIM
 )
 

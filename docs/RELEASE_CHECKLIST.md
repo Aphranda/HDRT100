@@ -15,8 +15,12 @@ Use this checklist for each firmware release candidate.
 
 - `cmake --preset pico2-release`
 - `cmake --build --preset pico2-release`
+- `python tools/release_check/release_check.py --preset pico2-release --build-dir build`
 - No compiler warnings from project code.
-- `build/RP2350_TRIG.uf2` generated.
+- `build/RP2350_TRIG_FACTORY.uf2` generated.
+- `build/RP2350_TRIG.bin` generated.
+- Release build does not contain `SYST:OTA:INJ:*`.
+- Periodic health log default is disabled.
 - Map file reviewed for unexpected memory growth.
 
 ## Hardware Gate
@@ -37,4 +41,3 @@ Use this checklist for each firmware release candidate.
 - Test report archived.
 - Board serial number or traceability ID recorded.
 - Known limitations recorded.
-

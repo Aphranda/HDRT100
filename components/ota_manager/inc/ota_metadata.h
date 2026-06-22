@@ -23,6 +23,16 @@ typedef enum {
     OTA_BOOT_RESULT_ACTIVE_VALIDATE_FAILED,
 } ota_boot_result_t;
 
+typedef enum {
+    OTA_COPY_TXN_NONE = 0,
+    OTA_COPY_TXN_STARTED,
+    OTA_COPY_TXN_ERASED_ACTIVE,
+    OTA_COPY_TXN_PROGRAMMING,
+    OTA_COPY_TXN_VERIFYING,
+    OTA_COPY_TXN_DONE,
+    OTA_COPY_TXN_FAILED,
+} ota_copy_txn_state_t;
+
 typedef struct {
     uint32_t magic;
     uint32_t version;
@@ -44,6 +54,15 @@ typedef struct {
     uint32_t last_boot_crc32;
     uint32_t metadata_crc32;
     uint32_t fault_injection_flags;
+    uint32_t copy_txn_state;
+    uint32_t copy_source_slot;
+    uint32_t copy_destination_slot;
+    uint32_t copy_size;
+    uint32_t copy_crc32;
+    uint32_t copy_written;
+    uint32_t copy_attempts;
+    uint32_t copy_last_error;
+    uint32_t metadata_ext_crc32;
 } ota_metadata_t;
 
 bool ota_metadata_load(ota_metadata_t *metadata);
@@ -51,9 +70,20 @@ bool ota_metadata_store(const ota_metadata_t *metadata);
 bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size, uint32_t image_crc32);
 bool ota_metadata_confirm_active(void);
 bool ota_metadata_set_fault_injection(uint32_t flags);
+bool ota_metadata_begin_copy_transaction(ota_slot_t source,
+                                         ota_slot_t destination,
+                                         uint32_t image_size,
+                                         uint32_t image_crc32);
+bool ota_metadata_update_copy_transaction(uint32_t state,
+                                          uint32_t written,
+                                          uint32_t last_error);
+bool ota_metadata_finish_copy_transaction(void);
+bool ota_metadata_fail_copy_transaction(uint32_t last_error);
+bool ota_metadata_clear_copy_transaction(void);
 bool ota_metadata_corrupt_copy(uint32_t copy_index);
 bool ota_metadata_repair_copies(void);
 const char *ota_metadata_boot_result_to_string(uint32_t result);
 uint32_t ota_metadata_crc32(const ota_metadata_t *metadata);
+uint32_t ota_metadata_ext_crc32(const ota_metadata_t *metadata);
 
 #endif

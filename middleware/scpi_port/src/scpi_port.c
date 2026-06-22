@@ -412,6 +412,24 @@ static scpi_result_t scpi_cmd_ota_result_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static scpi_result_t scpi_cmd_ota_transaction_q(scpi_t *context)
+{
+    ota_metadata_t metadata;
+    if (!ota_ao_get_metadata(&metadata)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, metadata.copy_txn_state);
+    SCPI_ResultUInt32(context, metadata.copy_source_slot);
+    SCPI_ResultUInt32(context, metadata.copy_destination_slot);
+    SCPI_ResultUInt32(context, metadata.copy_size);
+    SCPI_ResultUInt32(context, metadata.copy_crc32);
+    SCPI_ResultUInt32(context, metadata.copy_written);
+    SCPI_ResultUInt32(context, metadata.copy_attempts);
+    SCPI_ResultUInt32(context, metadata.copy_last_error);
+    return SCPI_RES_OK;
+}
+
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
 static scpi_result_t scpi_cmd_ota_inject_copy(scpi_t *context)
 {
@@ -501,6 +519,8 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:OTA:COMMit", .callback = scpi_cmd_ota_commit},
     {.pattern = "SYSTem:OTA:SLOT?", .callback = scpi_cmd_ota_slot_q},
     {.pattern = "SYSTem:OTA:RESult?", .callback = scpi_cmd_ota_result_q},
+    {.pattern = "SYSTem:OTA:TXN?", .callback = scpi_cmd_ota_transaction_q},
+    {.pattern = "SYSTem:OTA:TRANsaction?", .callback = scpi_cmd_ota_transaction_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:OTA:INJect:COPY", .callback = scpi_cmd_ota_inject_copy},
     {.pattern = "SYSTem:OTA:INJect:CLEar", .callback = scpi_cmd_ota_inject_clear},

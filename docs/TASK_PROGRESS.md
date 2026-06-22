@@ -9,6 +9,8 @@
 - 只记录已经进入工程方案或代码实现的正式任务，不记录临时讨论。
 - 如果任务只完成了阶段性目标，状态应为 `进行中`，不能写成 `完成`。
 - 如果任务依赖后续硬件验证，需要在验证结果中明确写出“仅完成编译验证”或“未做硬件验证”。
+- 每次代码更新后必须执行构建、烧录和板端基础查询验证；如因硬件不在场无法烧录，必须明确记录未完成烧录验证。
+- 需要烧录固件前必须提前告知用户烧录对象、原因和预期影响；若需要用户按 BOOTSEL、断电或复位，必须停下来等待用户操作。
 - 任务记录追加在“任务记录”章节顶部，保持最新任务在最前面。
 
 ## 状态定义
@@ -42,6 +44,408 @@
 ```
 
 ## 任务记录
+
+### TASK-20260622-016 - 移除 validation 慢速 copy
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 移除为人工断电验证临时加入的 validation 慢速 Bootloader copy，恢复出厂异常注入验证版本的 OTA 执行效率。
+- 完成内容：
+  - 删除 `BOOTLOADER_VALIDATION_COPY_DELAY_MS`。
+  - 删除 Bootloader copy 循环中仅 validation 生效的 `sleep_ms()` 页间延时。
+  - 保留 copy transaction 状态记录和异常注入接口。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-validation` 通过。
+  - 提前告知后烧录 `build-validation\RP2350_TRIG_FACTORY.uf2`，`picotool load -f -v -x` 烧录和 Flash verify 通过。
+  - validation 固件板端查询通过：
+    - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
+    - `SYST:FW:BUILD? -> "20260622155210"`
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:INJ:COPY? -> 0`
+- 还需完成：
+  - 后续如需要更精确的断电阶段控制，应通过外部电源/继电器台架触发，不再拖慢 validation 固件主流程。
+- 关联文件：
+  - `bootloader/inc/bootloader_config.h`
+  - `bootloader/src/bootloader_main.c`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 继续 P0 metadata 写入掉电/双副本选择验证，或补充外部断电台架脚本接口。
+
+### TASK-20260622-015 - Bootloader copy 过程真实断电验证
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 验证 Bootloader Slot B -> Slot A copy-to-active 过程中发生真实断电时，重启后是否能恢复到可启动状态，并最终完成 `APPLIED`。
+- 完成内容：
+  - 为 validation 构建增加 Bootloader copy 页间延时：`BOOTLOADER_VALIDATION_COPY_DELAY_MS = 50 ms`，仅在 `PROJECT_ENABLE_OTA_FAULT_INJECTION=ON` 时生效，便于人工真实断电命中 copy 窗口。
+  - 提前告知并烧录 `build-validation\RP2350_TRIG_FACTORY.uf2`，用于断电验证。
+  - 使用 `tools/ota_send/ota_send.py` 下发 `build-validation\RP2350_TRIG.bin` 到 Slot B。
+  - 进入 `READY_TO_REBOOT` 后发送 `SYST:OTA:BOOT`，提示用户真实断电并重新上电。
+  - 上电后查询 metadata、Bootloader result 和 transaction。
+  - 执行 `SYST:OTA:COMM` 完成确认。
+  - 补跑 release 构建和 release gate，确认慢速 copy 只存在于 validation 构建。
+  - 更新 `docs/OTA_TODO.md`，标记 Bootloader copy 过程中掉电恢复验证完成。
+- 验证结果：
+  - `cmake --build --preset pico2-validation` 通过。
+  - `picotool load -f -v -x build-validation\RP2350_TRIG_FACTORY.uf2` 烧录和 Flash verify 通过。
+  - validation 基础查询：
+    - `SYST:FW:BUILD? -> "20260622154138"`
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:INJ:COPY? -> 0`
+  - `python tools/ota_send/ota_send.py COM4 build-validation\RP2350_TRIG.bin --block-size 512 --expect-final-state READY_TO_REBOOT` 执行通过。
+  - 用户在 Bootloader copy 期间真实断电并重新上电后查询：
+    - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
+    - `SYST:FW:BUILD? -> "20260622154138"`
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,72040,2276820728`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - `SYST:OTA:COMM` 返回 `"OK"`。
+  - `COMM` 后查询：
+    - `SYST:OTA:STAT? -> "COMMITTED",1,"NONE",5`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 5,"NONE","APPLIED",1,72040,2276820728`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - `cmake --build --preset pico2-release` 通过。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过，release 固件仍不包含 OTA 注入命令。
+- 还需完成：
+  - 验证 OTA metadata 写入过程中掉电，重启后从双副本选择有效副本。
+  - 继续评估真正 A/B 启动或 active 备份/scratch 恢复机制。
+- 关联文件：
+  - `bootloader/inc/bootloader_config.h`
+  - `bootloader/src/bootloader_main.c`
+  - `docs/OTA_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 进入 metadata 写入掉电/双副本选择验证，或补充 release 验证报告模板。
+
+### TASK-20260622-014 - OTA 接收中复位恢复验证
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 验证 OTA 接收未完成、未执行 `END`、未写 pending metadata 时发生复位，重启后是否仍运行旧 App，且 metadata 不进入 pending。
+- 完成内容：
+  - 发送 `SYST:OTA:BEGIN`，等待设备进入 `RECEIVING`。
+  - 仅发送前 24 个 512 字节数据块，共 12288 字节，不发送 `SYST:OTA:END`。
+  - 复位前确认：
+    - `SYST:OTA:PROG? -> 12288,71376,172`
+    - `SYST:OTA:STAT? -> "RECEIVING",2,"NONE",1`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - 用户按复位键后重新查询状态。
+  - 更新 `docs/OTA_TODO.md`，标记 OTA 接收过程中复位/掉电恢复验证完成。
+- 验证结果：
+  - 复位后 USB CDC 正常枚举为 `COM4`。
+  - 复位后查询：
+    - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","APPLIED",1,71376,3850453673`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - 结论：未完成接收不会写 pending，重启后保留旧 App，transaction 为空。
+  - 说明：本次使用复位键验证 MCU 复位恢复；真实电源掉电下 Flash 半写风险将继续在 Bootloader copy 阶段用断电验证覆盖。
+- 还需完成：
+  - 继续验证 Bootloader Slot B -> Slot A copy 过程中真实断电恢复。
+  - 继续验证 metadata 写入过程中掉电的双副本选择。
+- 关联文件：
+  - `docs/OTA_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 进入 Bootloader copy 过程断电验证，需要在 copy 期间真实断电。
+
+### TASK-20260622-013 - OTA COMM 前断电验证
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 验证 Bootloader 已完成 copy-to-active 并记录 `APPLIED` 后、App 执行 `SYST:OTA:COMM` 前发生断电时，重启后状态是否可审计且允许继续确认。
+- 完成内容：
+  - 通过 `tools/ota_send/ota_send.py` 将 `build\RP2350_TRIG.bin` 写入 Slot B，并进入 `READY_TO_REBOOT`。
+  - 发送 `SYST:OTA:BOOT`，Bootloader 完成 Slot B -> Slot A 复制。
+  - 在未执行 `SYST:OTA:COMM` 前，由用户手动断电并重新上电。
+  - 上电后查询 metadata 和 transaction 状态。
+  - 验证通过后执行 `SYST:OTA:COMM` 完成确认。
+  - 更新 `docs/OTA_TODO.md`，标记 `COMM` 前掉电验证完成。
+- 验证结果：
+  - 断电前 Bootloader 应用后查询：
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,71376,3850453673`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - 用户手动断电并重新上电后查询：
+    - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
+    - `SYST:FW:BUILD? -> "20260622152902"`
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,71376,3850453673`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - `SYST:OTA:COMM` 返回 `"OK"`。
+  - `COMM` 后查询：
+    - `SYST:OTA:STAT? -> "COMMITTED",1,"NONE",5`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 5,"NONE","APPLIED",1,71376,3850453673`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+- 还需完成：
+  - 继续验证 OTA 接收过程中断电、Bootloader copy 过程中断电和 metadata 写入过程中断电。
+- 关联文件：
+  - `docs/OTA_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 验证 OTA 接收未完成时断电，确认重启后仍运行旧 App 且 metadata 不进入 pending。
+
+### TASK-20260622-012 - OTA 正常闭环验证
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 在 Bootloader copy transaction 接入后，验证一次完整正常 OTA 流程，确认 Slot B staging、Bootloader copy-to-active、`APPLIED`、`COMM` 和 transaction 清零均正常。
+- 完成内容：
+  - 使用 `tools/ota_send/ota_send.py` 通过 `COM4` 下发 `build\RP2350_TRIG.bin`。
+  - OTA payload 写入 Slot B 后进入 `READY_TO_REBOOT`。
+  - 发送 `SYST:OTA:BOOT`，触发 Bootloader 从 Slot B 复制到 Slot A。
+  - Bootloader 重启后 App 正常枚举为 `COM4`。
+  - 查询确认 pending 已清、Bootloader 结果为 `APPLIED`、copy transaction 已清零。
+  - 执行 `SYST:OTA:COMM`，确认当前固件。
+  - 更新 `docs/OTA_TODO.md`，标记正常 OTA 闭环验证完成。
+- 验证结果：
+  - `python tools/ota_send/ota_send.py COM4 build\RP2350_TRIG.bin --block-size 512 --expect-final-state READY_TO_REBOOT` 执行通过。
+  - `READY_TO_REBOOT` 前查询：
+    - `SYST:OTA:STAT? -> "READY_TO_REBOOT",2,"NONE",2`
+    - `SYST:OTA:SLOT? -> 1,2,1,0,0`
+    - `SYST:OTA:RES? -> 2,"NONE","NONE",2,71376,3850453673`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - `SYST:OTA:BOOT` 返回 `"OK"` 后，设备重启并重新枚举为 `COM4`。
+  - Bootloader 应用后查询：
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,71376,3850453673`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - `SYST:OTA:COMM` 返回 `"OK"`。
+  - `COMM` 后查询：
+    - `SYST:OTA:STAT? -> "COMMITTED",1,"NONE",5`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 5,"NONE","APPLIED",1,71376,3850453673`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+- 还需完成：
+  - 继续执行手动断电验证：copy 前、active 擦除后、programming 中、verifying 中、`COMM` 前。
+  - 验证异常路径下 pending 保留和 transaction 失败状态是否符合预期。
+- 关联文件：
+  - `tools/ota_send/ota_send.py`
+  - `docs/OTA_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 配合用户手动断电，验证 Bootloader Slot B -> Slot A copy 过程中的恢复能力。
+
+### TASK-20260622-011 - Bootloader copy transaction 接入
+
+- 状态：进行中
+- 日期：2026-06-22
+- 任务目标：
+  - 继续处理 OTA P0 掉电恢复，实现 Bootloader Slot B -> Slot A 复制流程的 copy transaction 持久化，避免复制失败或中途掉电时错误清除 pending。
+- 完成内容：
+  - Bootloader copy-to-active 流程接入 copy transaction 字段。
+  - 复制开始前写入 `OTA_COPY_TXN_STARTED`。
+  - 擦除 active Slot A 后写入 `OTA_COPY_TXN_ERASED_ACTIVE`。
+  - 写入阶段写入 `OTA_COPY_TXN_PROGRAMMING`，并按 64 KB 粒度更新 `copy_written`。
+  - 校验 active Slot A 前写入 `OTA_COPY_TXN_VERIFYING`。
+  - Slot A 校验通过后写入 `OTA_COPY_TXN_DONE`，之后才清 pending 并记录 `APPLIED`。
+  - 复制失败、Slot B 校验失败、Slot A 校验失败和最大尝试次数路径不再直接清 pending，保留 metadata 中的失败结果和 transaction 信息。
+  - 新增 `SYST:OTA:TXN?` 查询命令，返回 `state,source,destination,size,crc32,written,attempts,last_error`，用于断电验证和现场审计。
+  - 修复成功收尾的 metadata 提交顺序：清 transaction、清 pending、记录 `APPLIED` 合并到同一次 metadata 写入，减少 `COMM` 前掉电审计空窗。
+  - 修复 `DONE` 恢复路径优先级：如果 transaction 已到 `DONE` 且 Slot A 校验通过，应优先完成 `APPLIED`，不被最大尝试次数拦截。
+  - 重复烧录后确认设备能从短暂停留 Bootloader/BOOT 状态恢复到 App USB CDC。
+  - 更新 `docs/OTA_TODO.md` 和 `docs/SCPI_COMMANDS.md`。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-validation` 通过。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `picotool load -f -v -x build\RP2350_TRIG_FACTORY.uf2` 烧录和 Flash verify 通过；后续修复后再次重复烧录也通过。
+  - 烧录后 USB CDC 枚举为 `COM4`。
+  - 板端 SCPI 基础查询通过：
+    - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
+    - `SYST:FW:BUILD? -> "20260622152902"`
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - 当前已完成烧录和基础板端验证，尚未执行真实断电验证；用户后续会手动进行断电操作。
+- 还需完成：
+  - 烧录 validation 或 release factory 后，通过 `SYST:OTA:TXN?` 验证正常 OTA 的 transaction 状态是否最终清零。
+  - 在用户手动断电配合下，分别验证 copy 前、active 擦除后、programming 中、verifying 中断电恢复。
+  - 如果需要更强安全性，继续评估真正 A/B 启动或 active 备份/scratch 恢复机制。
+- 关联文件：
+  - `bootloader/src/bootloader_main.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `docs/OTA_TODO.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 烧录并执行一次正常 OTA 闭环，确认 `SYST:OTA:TXN?` 在完成后返回空 transaction；然后进入手动断电验证。
+
+### TASK-20260622-010 - Factory 烧录清理 OTA metadata
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 修复手动烧录 factory 固件后，旧 OTA metadata 保留导致 Bootloader 校验新 Slot A 失败、设备不跳转 App 的问题。
+- 完成内容：
+  - 定位问题：factory UF2 只写 Bootloader 和 Slot A，不覆盖 `0x10340000` 对应的 OTA metadata 分区；旧 metadata 中保存的 Slot A size/CRC 与新烧录 App 不一致，Bootloader 校验失败后停留在 Bootloader，表现为 LCD 黑屏、USB CDC 不枚举。
+  - 新增 `tools/uf2_join/make_fill_bin.py`，用于生成指定大小和填充值的二进制块。
+  - 修改 factory UF2 生成流程，额外加入 `ota_metadata_clear.bin@0x10340000`，大小 64 KB，内容为 `0xFF`，用于 factory 烧录时清理 OTA metadata 分区。
+  - 重新生成并烧录 `build/RP2350_TRIG_FACTORY.uf2`。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过，生成包含 metadata 清理块的新 factory UF2，blocks 为 `570`。
+  - `picotool load -f -v -x build\RP2350_TRIG_FACTORY.uf2` 烧录和 verify 通过。
+  - 烧录后 USB CDC 恢复枚举为 `COM4`。
+  - SCPI 基础查询通过：
+    - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
+    - `SYST:FW:VERS? -> 0,1,0`
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`
+  - release 固件中 `SYST:OTA:INJ:COPY?` 不响应，符合异常注入命令不编译进 release 的预期。
+- 还需完成：
+  - 将 README 中 factory UF2 说明补充为“会清理 OTA metadata，适合传统完整烧录；OTA 升级不要清 metadata”。
+  - 后续 Bootloader copy transaction 接入后，继续验证旧 metadata/新 factory/OTA 三种路径的兼容性。
+- 关联文件：
+  - `CMakeLists.txt`
+  - `tools/uf2_join/make_fill_bin.py`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 继续处理 P0：Bootloader copy-to-active 流程接入 transaction 状态机。
+
+### TASK-20260622-009 - OTA metadata copy transaction 字段/API
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 实现 OTA copy-to-active 掉电恢复所需的 metadata transaction 字段和 API，为后续 Bootloader 分阶段持久化 copy 状态打基础。
+- 完成内容：
+  - `ota_metadata_t` 增加 copy transaction 字段：state、source、destination、size、crc、written、attempts、last_error。
+  - 新增 `ota_copy_txn_state_t`，定义 `NONE/STARTED/ERASED_ACTIVE/PROGRAMMING/VERIFYING/DONE/FAILED`。
+  - 新增 `metadata_ext_crc32`，用于保护 v3 扩展区字段；原 `metadata_crc32` 仍保持 v2 前缀 CRC，兼容旧 metadata 基础识别。
+  - 新增 metadata API：
+    - `ota_metadata_ext_crc32()`
+    - `ota_metadata_begin_copy_transaction()`
+    - `ota_metadata_update_copy_transaction()`
+    - `ota_metadata_finish_copy_transaction()`
+    - `ota_metadata_fail_copy_transaction()`
+    - `ota_metadata_clear_copy_transaction()`
+  - `ota_metadata_store()` 写入前自动刷新前缀 CRC 和扩展 CRC，避免调用方直接修改 metadata 后漏算 CRC。
+  - v2 metadata 和旧 v3 metadata 加载后会升级扩展字段默认值，并补齐扩展 CRC。
+  - 清理 Bootloader 中两处手工设置旧 CRC 的代码，改为依赖 metadata store 的统一 CRC 更新。
+  - 更新 `docs/OTA_TODO.md` 和 `docs/OTA_COPY_TRANSACTION_DESIGN.md`。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-validation` 通过。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过，release 固件仍未包含 OTA 故障注入命令。
+- 还需完成：
+  - 将 Bootloader Slot B -> Slot A copy 流程接入 transaction API，按阶段写入 `STARTED/ERASED_ACTIVE/PROGRAMMING/VERIFYING/DONE/FAILED`。
+  - copy-to-active 失败时保留 pending 和可恢复信息，不再在 Slot A 可能损坏时直接清 pending。
+  - 扩展 SCPI 查询 copy transaction 状态，便于上位机和产测回溯。
+- 关联文件：
+  - `components/ota_manager/inc/ota_metadata.h`
+  - `components/ota_manager/src/ota_metadata.c`
+  - `bootloader/src/bootloader_main.c`
+  - `docs/OTA_TODO.md`
+  - `docs/OTA_COPY_TRANSACTION_DESIGN.md`
+- 下一步：
+  - 继续处理 P0：Bootloader copy-to-active 流程使用 transaction 状态实现可恢复拷贝。
+
+### TASK-20260622-008 - OTA copy transaction 掉电恢复设计
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 处理 `docs/OTA_TODO.md` 中 P0 掉电恢复设计项，明确当前 copy-to-active OTA 在掉电场景下的恢复策略。
+- 完成内容：
+  - 新增 `docs/OTA_COPY_TRANSACTION_DESIGN.md`。
+  - 梳理当前 4 MB Flash 分区约束：
+    - Bootloader 256 KB。
+    - Slot A 1.5 MB。
+    - Slot B 1.5 MB。
+    - Metadata 64 KB。
+    - Product config 64 KB。
+    - Scratch 640 KB。
+  - 定义 copy transaction 状态：
+    - `OTA_COPY_TXN_NONE`
+    - `OTA_COPY_TXN_STARTED`
+    - `OTA_COPY_TXN_ERASED_ACTIVE`
+    - `OTA_COPY_TXN_PROGRAMMING`
+    - `OTA_COPY_TXN_VERIFYING`
+    - `OTA_COPY_TXN_DONE`
+    - `OTA_COPY_TXN_FAILED`
+  - 定义建议 metadata 扩展字段，包括 copy source/destination/size/crc/written/attempts/last_error 和 `metadata_ext_crc32`。
+  - 明确恢复规则：
+    - copy 过程中掉电后，如果 Slot B 仍有效，应重新擦除 Slot A 并完整复制。
+    - 不依赖断点续写，降低 page/sector 边界和部分写入复杂度。
+    - 只有 Slot A 校验通过并达到 `COPY_DONE` 后，才允许清 pending 并记录 `APPLIED`。
+    - Slot B 无效时不应误报 `APPLIED`，也不应跳转损坏的 Slot A。
+  - 在 `docs/OTA_TODO.md` 中标记 Bootloader copy transaction 状态设计完成。
+  - README 增加 `docs/OTA_COPY_TRANSACTION_DESIGN.md` 索引。
+- 验证结果：
+  - 文档设计完成，未改动代码，未执行编译。
+- 还需完成：
+  - 按设计实现 metadata copy transaction 字段和 API。
+  - 修改 Bootloader copy-to-active 流程，避免 copy 失败时错误清 pending。
+  - 使用 validation 固件和真实掉电台架验证各 transaction 阶段恢复行为。
+- 关联文件：
+  - `docs/OTA_COPY_TRANSACTION_DESIGN.md`
+  - `docs/OTA_TODO.md`
+  - `README.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 实现 copy transaction metadata/API，或继续评估真正 A/B 启动方案。
+
+### TASK-20260622-007 - OTA 发布门禁检查脚本
+
+- 状态：完成
+- 日期：2026-06-22
+- 任务目标：
+  - 处理 `docs/OTA_TODO.md` 中 P0 发布构建隔离待办，增加自动化 release 检查，避免异常注入或调试日志进入量产固件。
+- 完成内容：
+  - 新增 `tools/release_check/release_check.py`。
+  - 检查 `pico2-release` preset 必须关闭 `PROJECT_ENABLE_OTA_FAULT_INJECTION`。
+  - 检查 `pico2-release` preset 必须关闭 UART stdio。
+  - 检查 `PROJECT_ENABLE_HEALTH_LOG` 默认值为 `0`。
+  - 检查 `PROJECT_ENABLE_OTA_FAULT_INJECTION` fallback 默认值为 `0`。
+  - 检查 release 必需产物存在：
+    - `build/RP2350_TRIG_FACTORY.uf2`
+    - `build/RP2350_TRIG.bin`
+    - `build/RP2350_TRIG_BOOT.uf2`
+    - `build/RP2350_TRIG.elf.map`
+  - 扫描 release App/Bootloader 二进制，检查不包含 `SYSTem:OTA:INJect` 或 `SYST:OTA:INJ` 字符串。
+  - README 增加 release gate check 命令。
+  - `docs/RELEASE_CHECKLIST.md` 更新 release 检查命令和当前实际产物名。
+  - `docs/OTA_TODO.md` 标记发布前注入命令检查、周期日志检查、产物命名规则和 release 检查脚本待办完成。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 编译通过，生成 `build/RP2350_TRIG_FACTORY.uf2`，factory blocks 为 `315`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build` 执行通过。
+  - release check 确认：
+    - `pico2-release` 关闭 OTA fault injection。
+    - `pico2-release` 关闭 UART stdio。
+    - `PROJECT_ENABLE_HEALTH_LOG` 默认关闭。
+    - `PROJECT_ENABLE_OTA_FAULT_INJECTION` fallback 默认关闭。
+    - 必需 release 产物均存在。
+    - `RP2350_TRIG.bin`、`RP2350_TRIG.elf`、`RP2350_TRIG_BOOT.elf` 中未发现 OTA 注入命令字符串。
+- 还需完成：
+  - 后续发布流程可进一步增加 CRC/SHA 归档和 release report 生成。
+- 关联文件：
+  - `tools/release_check/release_check.py`
+  - `README.md`
+  - `docs/RELEASE_CHECKLIST.md`
+  - `docs/OTA_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 继续推进 P0 掉电恢复策略设计，或推进 P1 manifest/兼容性校验。
 
 ### TASK-20260622-006 - OTA 未处理评审项归档
 

@@ -105,6 +105,12 @@ cmake --preset pico2-release
 cmake --build --preset pico2-release
 ```
 
+Release gate check after building:
+
+```powershell
+python tools/release_check/release_check.py --preset pico2-release --build-dir build
+```
+
 Validation build with destructive OTA fault-injection commands:
 
 ```powershell
@@ -220,6 +226,7 @@ Python script roles:
 | `tools/ota_bin_info/ota_bin_info.py` | Before OTA or release notes | Print `.bin` size, CRC32, and the matching `SYST:OTA:BEGIN` command. |
 | `tools/ota_send/ota_send.py` | Runtime OTA over USB CDC | Send the standard raw App `.bin` to the board through SCPI. |
 | `tools/ota_packager/ota_packager.py` | Legacy/reference only | Older package helper; current OTA flow uses standard raw `.bin`, not a custom `.ota` suffix. |
+| `tools/release_check/release_check.py` | Before release packaging | Verify release preset safety switches, required artifacts, and absence of OTA fault-injection command strings. |
 
 ## Key Configuration Files
 
@@ -235,6 +242,11 @@ Python script roles:
   subsystem.
 - `docs/SCPI_COMMANDS.md`: basic SCPI command list for trigger configuration.
 - `docs/OTA方案.md`: A/B OTA upgrade design for the W25Q32 4 MB QSPI Flash.
+- `docs/OTA_COPY_TRANSACTION_DESIGN.md`: copy-to-active OTA transaction
+  design for power-loss recovery within the current flash partition layout.
+- `docs/OTA_TODO.md`: OTA productization backlog for release gating,
+  power-loss recovery, manifest compatibility, validation reports, and
+  automation.
 - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`: product architecture plan
   based on Active Objects, a lightweight IEC 61499-inspired function block
   subset, time-synchronized vectors, table-driven state machines, event

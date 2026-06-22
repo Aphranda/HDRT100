@@ -1,5 +1,6 @@
 #include "ota_metadata.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #include "drv_flash.h"
@@ -9,6 +10,8 @@
 #define OTA_METADATA_COPY_A_OFFSET OTA_METADATA_OFFSET
 #define OTA_METADATA_COPY_B_OFFSET (OTA_METADATA_OFFSET + OTA_METADATA_COPY_SIZE)
 #define OTA_METADATA_VERSION_V2   2u
+#define OTA_METADATA_EXT_OFFSET   offsetof(ota_metadata_t, fault_injection_flags)
+#define OTA_METADATA_EXT_SIZE     (sizeof(ota_metadata_t) - OTA_METADATA_EXT_OFFSET)
 
 typedef struct {
     uint32_t magic;
@@ -48,6 +51,66 @@ uint32_t ota_metadata_crc32(const ota_metadata_t *metadata)
     return ota_crc32_compute((const uint8_t *)&copy, sizeof(ota_metadata_v2_t));
 }
 
+uint32_t ota_metadata_ext_crc32(const ota_metadata_t *metadata)
+{
+    if (metadata == NULL) {
+        return 0u;
+    }
+
+    ota_metadata_t copy = *metadata;
+    copy.metadata_ext_crc32 = 0u;
+    return ota_crc32_compute(((const uint8_t *)&copy) + OTA_METADATA_EXT_OFFSET,
+                             OTA_METADATA_EXT_SIZE);
+}
+
+static void ota_metadata_update_crc(ota_metadata_t *metadata)
+{
+    if (metadata == NULL) {
+        return;
+    }
+
+    metadata->metadata_crc32 = ota_metadata_crc32(metadata);
+    metadata->metadata_ext_crc32 = ota_metadata_ext_crc32(metadata);
+}
+
+static bool ota_copy_txn_state_is_valid(uint32_t state)
+{
+    return state <= (uint32_t)OTA_COPY_TXN_FAILED;
+}
+
+static void ota_metadata_clear_copy_transaction_fields(ota_metadata_t *metadata)
+{
+    metadata->copy_txn_state = (uint32_t)OTA_COPY_TXN_NONE;
+    metadata->copy_source_slot = (uint32_t)OTA_SLOT_NONE;
+    metadata->copy_destination_slot = (uint32_t)OTA_SLOT_NONE;
+    metadata->copy_size = 0u;
+    metadata->copy_crc32 = 0u;
+    metadata->copy_written = 0u;
+    metadata->copy_attempts = 0u;
+    metadata->copy_last_error = 0u;
+}
+
+static bool ota_metadata_legacy_extension_tail_is_empty(const ota_metadata_t *metadata)
+{
+    const uint8_t *ext = ((const uint8_t *)metadata) + offsetof(ota_metadata_t, copy_txn_state);
+    const size_t ext_size = sizeof(ota_metadata_t) - offsetof(ota_metadata_t, copy_txn_state);
+
+    for (size_t i = 0u; i < ext_size; i++) {
+        if (ext[i] != 0u && ext[i] != 0xFFu) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static void ota_metadata_init_extension_defaults(ota_metadata_t *metadata)
+{
+    metadata->fault_injection_flags = OTA_FAULT_INJECT_NONE;
+    ota_metadata_clear_copy_transaction_fields(metadata);
+    metadata->metadata_ext_crc32 = 0u;
+}
+
 static uint32_t ota_metadata_v2_crc32(const ota_metadata_v2_t *metadata)
 {
     if (metadata == NULL) {
@@ -73,7 +136,20 @@ static bool ota_metadata_is_valid(const ota_metadata_t *metadata)
         return false;
     }
 
-    return ota_metadata_crc32(metadata) == metadata->metadata_crc32;
+    if (ota_metadata_crc32(metadata) != metadata->metadata_crc32) {
+        return false;
+    }
+
+    if (metadata->metadata_ext_crc32 == 0u ||
+        metadata->metadata_ext_crc32 == 0xFFFFFFFFu) {
+        return ota_metadata_legacy_extension_tail_is_empty(metadata);
+    }
+
+    if (!ota_copy_txn_state_is_valid(metadata->copy_txn_state)) {
+        return false;
+    }
+
+    return ota_metadata_ext_crc32(metadata) == metadata->metadata_ext_crc32;
 }
 
 static bool ota_metadata_v2_is_valid(const ota_metadata_v2_t *metadata)
@@ -112,8 +188,8 @@ static void ota_metadata_from_v2(const ota_metadata_v2_t *old_metadata,
     metadata->last_boot_source_slot = old_metadata->last_boot_source_slot;
     metadata->last_boot_size = old_metadata->last_boot_size;
     metadata->last_boot_crc32 = old_metadata->last_boot_crc32;
-    metadata->metadata_crc32 = ota_metadata_crc32(metadata);
-    metadata->fault_injection_flags = OTA_FAULT_INJECT_NONE;
+    ota_metadata_init_extension_defaults(metadata);
+    ota_metadata_update_crc(metadata);
 }
 
 static void ota_metadata_set_default(ota_metadata_t *metadata)
@@ -126,24 +202,25 @@ static void ota_metadata_set_default(ota_metadata_t *metadata)
     metadata->confirmed_slot = (uint32_t)OTA_SLOT_A;
     metadata->pending_slot = (uint32_t)OTA_SLOT_NONE;
     metadata->last_boot_result = (uint32_t)OTA_BOOT_RESULT_NONE;
-    metadata->fault_injection_flags = OTA_FAULT_INJECT_NONE;
-    metadata->metadata_crc32 = ota_metadata_crc32(metadata);
+    ota_metadata_init_extension_defaults(metadata);
+    ota_metadata_update_crc(metadata);
 }
 
 static void ota_metadata_upgrade_if_needed(ota_metadata_t *metadata)
 {
-    if (metadata->version == OTA_METADATA_VERSION) {
+    if (metadata->version == OTA_METADATA_VERSION &&
+        metadata->metadata_ext_crc32 != 0u &&
+        metadata->metadata_ext_crc32 != 0xFFFFFFFFu) {
         return;
     }
 
     metadata->version = OTA_METADATA_VERSION;
-    metadata->last_boot_result = (uint32_t)OTA_BOOT_RESULT_NONE;
-    metadata->last_boot_source_slot = (uint32_t)OTA_SLOT_NONE;
-    metadata->last_boot_size = 0u;
-    metadata->last_boot_crc32 = 0u;
-    metadata->fault_injection_flags = OTA_FAULT_INJECT_NONE;
+    if (metadata->last_boot_source_slot > (uint32_t)OTA_SLOT_B) {
+        metadata->last_boot_source_slot = (uint32_t)OTA_SLOT_NONE;
+    }
+    ota_metadata_init_extension_defaults(metadata);
     metadata->sequence++;
-    metadata->metadata_crc32 = ota_metadata_crc32(metadata);
+    ota_metadata_update_crc(metadata);
 }
 
 bool ota_metadata_load(ota_metadata_t *metadata)
@@ -198,7 +275,10 @@ bool ota_metadata_store(const ota_metadata_t *metadata)
         return false;
     }
 
-    const uint32_t copy_index = metadata->sequence % OTA_METADATA_COPY_COUNT;
+    ota_metadata_t stored_metadata = *metadata;
+    ota_metadata_update_crc(&stored_metadata);
+
+    const uint32_t copy_index = stored_metadata.sequence % OTA_METADATA_COPY_COUNT;
     const uint32_t offset = ota_metadata_copy_offset(copy_index);
     uint8_t page[DRV_FLASH_PAGE_SIZE];
 
@@ -206,13 +286,13 @@ bool ota_metadata_store(const ota_metadata_t *metadata)
         return false;
     }
 
-    const uint8_t *src = (const uint8_t *)metadata;
+    const uint8_t *src = (const uint8_t *)&stored_metadata;
     uint32_t written = 0u;
-    while (written < sizeof(*metadata)) {
+    while (written < sizeof(stored_metadata)) {
         memset(page, 0xFF, sizeof(page));
-        const uint32_t chunk = ((sizeof(*metadata) - written) > sizeof(page)) ?
+        const uint32_t chunk = ((sizeof(stored_metadata) - written) > sizeof(page)) ?
                                    sizeof(page) :
-                                   (uint32_t)(sizeof(*metadata) - written);
+                                   (uint32_t)(sizeof(stored_metadata) - written);
         memcpy(page, &src[written], chunk);
         if (!drv_flash_program(offset + written, page, sizeof(page))) {
             return false;
@@ -225,7 +305,7 @@ bool ota_metadata_store(const ota_metadata_t *metadata)
         return false;
     }
 
-    return memcmp(&readback, metadata, sizeof(*metadata)) == 0;
+    return memcmp(&readback, &stored_metadata, sizeof(stored_metadata)) == 0;
 }
 
 bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size, uint32_t image_crc32)
@@ -253,7 +333,7 @@ bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size, uint32_t im
         return false;
     }
 
-    metadata.metadata_crc32 = ota_metadata_crc32(&metadata);
+    ota_metadata_update_crc(&metadata);
     return ota_metadata_store(&metadata);
 }
 
@@ -276,7 +356,7 @@ bool ota_metadata_confirm_active(void)
     metadata.last_boot_crc32 = (metadata.active_slot == (uint32_t)OTA_SLOT_A) ?
                                    metadata.slot_a_crc32 :
                                    metadata.slot_b_crc32;
-    metadata.metadata_crc32 = ota_metadata_crc32(&metadata);
+    ota_metadata_update_crc(&metadata);
     return ota_metadata_store(&metadata);
 }
 
@@ -289,7 +369,114 @@ bool ota_metadata_set_fault_injection(uint32_t flags)
 
     metadata.sequence++;
     metadata.fault_injection_flags = flags;
-    metadata.metadata_crc32 = ota_metadata_crc32(&metadata);
+    ota_metadata_update_crc(&metadata);
+    return ota_metadata_store(&metadata);
+}
+
+bool ota_metadata_begin_copy_transaction(ota_slot_t source,
+                                         ota_slot_t destination,
+                                         uint32_t image_size,
+                                         uint32_t image_crc32)
+{
+    if (source == OTA_SLOT_NONE ||
+        destination == OTA_SLOT_NONE ||
+        source == destination ||
+        image_size == 0u) {
+        return false;
+    }
+
+    ota_metadata_t metadata;
+    if (!ota_metadata_load(&metadata)) {
+        return false;
+    }
+
+    metadata.sequence++;
+    metadata.copy_txn_state = (uint32_t)OTA_COPY_TXN_STARTED;
+    metadata.copy_source_slot = (uint32_t)source;
+    metadata.copy_destination_slot = (uint32_t)destination;
+    metadata.copy_size = image_size;
+    metadata.copy_crc32 = image_crc32;
+    metadata.copy_written = 0u;
+    metadata.copy_attempts++;
+    metadata.copy_last_error = 0u;
+    ota_metadata_update_crc(&metadata);
+    return ota_metadata_store(&metadata);
+}
+
+bool ota_metadata_update_copy_transaction(uint32_t state,
+                                          uint32_t written,
+                                          uint32_t last_error)
+{
+    if (!ota_copy_txn_state_is_valid(state) ||
+        state == (uint32_t)OTA_COPY_TXN_NONE) {
+        return false;
+    }
+
+    ota_metadata_t metadata;
+    if (!ota_metadata_load(&metadata)) {
+        return false;
+    }
+
+    if (metadata.copy_txn_state == (uint32_t)OTA_COPY_TXN_NONE ||
+        written > metadata.copy_size) {
+        return false;
+    }
+
+    metadata.sequence++;
+    metadata.copy_txn_state = state;
+    metadata.copy_written = written;
+    metadata.copy_last_error = last_error;
+    ota_metadata_update_crc(&metadata);
+    return ota_metadata_store(&metadata);
+}
+
+bool ota_metadata_finish_copy_transaction(void)
+{
+    ota_metadata_t metadata;
+    if (!ota_metadata_load(&metadata)) {
+        return false;
+    }
+
+    if (metadata.copy_txn_state == (uint32_t)OTA_COPY_TXN_NONE) {
+        return false;
+    }
+
+    metadata.sequence++;
+    metadata.copy_txn_state = (uint32_t)OTA_COPY_TXN_DONE;
+    metadata.copy_written = metadata.copy_size;
+    metadata.copy_last_error = 0u;
+    ota_metadata_update_crc(&metadata);
+    return ota_metadata_store(&metadata);
+}
+
+bool ota_metadata_fail_copy_transaction(uint32_t last_error)
+{
+    ota_metadata_t metadata;
+    if (!ota_metadata_load(&metadata)) {
+        return false;
+    }
+
+    if (metadata.copy_txn_state == (uint32_t)OTA_COPY_TXN_NONE) {
+        return false;
+    }
+
+    metadata.sequence++;
+    metadata.copy_txn_state = (uint32_t)OTA_COPY_TXN_FAILED;
+    metadata.copy_last_error = last_error;
+    ota_metadata_update_crc(&metadata);
+    return ota_metadata_store(&metadata);
+}
+
+bool ota_metadata_clear_copy_transaction(void)
+{
+    ota_metadata_t metadata;
+    if (!ota_metadata_load(&metadata)) {
+        return false;
+    }
+
+    metadata.sequence++;
+    ota_metadata_clear_copy_transaction_fields(&metadata);
+    ota_metadata_update_crc(&metadata);
     return ota_metadata_store(&metadata);
 }
 
@@ -310,13 +497,13 @@ bool ota_metadata_repair_copies(void)
     }
 
     metadata.sequence++;
-    metadata.metadata_crc32 = ota_metadata_crc32(&metadata);
+    ota_metadata_update_crc(&metadata);
     if (!ota_metadata_store(&metadata)) {
         return false;
     }
 
     metadata.sequence++;
-    metadata.metadata_crc32 = ota_metadata_crc32(&metadata);
+    ota_metadata_update_crc(&metadata);
     return ota_metadata_store(&metadata);
 }
 
