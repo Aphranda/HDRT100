@@ -25,9 +25,28 @@
 - [x] `SYST:OTA:COMM` 前掉电，重启后应保留可审计状态，允许重新确认或按策略处理。
 - [ ] 使用可控电源或继电器台架执行重复掉电测试，并记录循环次数和失败率。
 
+## P0 - A/B 直接切换演进
+
+- [x] 输出 A/B 直接切换设计文档，明确 copy-to-active 到 direct A/B 的迁移路线。
+- [x] 增加 Slot B App 链接脚本和 `RP2350_TRIG_B.bin` 构建产物。
+- [x] metadata 增加 `boot_mode`、`previous_slot`、`boot_generation`、`boot_capabilities` 等 A/B 扩展字段。
+- [x] Bootloader 支持按 `active_slot` 直接跳转 Slot A 或 Slot B。
+- [x] OTA 接收目标从固定 Slot B 改为 inactive slot。
+- [x] 增加 `SYST:OTA:MODE?`、`SYST:OTA:TARG?`、`SYST:OTA:CAP?`。
+- [x] 更新 `ota_send.py`，根据目标 slot 自动选择 A/B 镜像。
+- [x] 完成 direct A/B 正常双向升级验证。
+- [x] 完成 direct A/B 未确认回滚验证。
+- [x] 完成 direct A/B 断电恢复验证。
+- [x] 实现统一 OTA package：一个文件包含 Slot A/Slot B 镜像，由下位机根据当前模式和目标 slot 选择写入镜像。
+- [x] 验证统一 OTA package 在 `DIRECT_AB` 模式下可 A->B、B->A 双向升级并确认。
+- [x] 验证统一 OTA package 在 release 默认 `COPY_TO_ACTIVE` 模式下可选择 Slot A 链接镜像并完成 copy-to-active。
+- [ ] 评估 release 默认启用 `DIRECT_AB` 的出厂条件和迁移策略。
+
 ## P1 - 镜像完整性与兼容性
 
-- [ ] OTA payload 增加 manifest，包含产品型号、硬件版本、App 版本、build id、镜像大小、CRC32、SHA-256。
+- [x] OTA payload 增加基础 manifest/package header，包含包大小、镜像 slot、偏移、大小、CRC32 和运行地址。
+- [ ] OTA package manifest 扩展产品型号、硬件版本、App 版本、build id、SHA-256。
+- [ ] 验证统一 OTA package 负向路径：整包 CRC 错误、镜像 CRC 错误、App 向量错误、包头 magic/version/size 错误、slot/run_offset 不匹配。
 - [ ] 增加 `min_bootloader_version`，App 在 OTA 开始前检查 Bootloader 能力。
 - [ ] 增加 `SYST:BOOT:VERS?` 或等效命令，查询 Bootloader 版本。
 - [ ] 增加 `SYST:OTA:CAP?`，查询当前设备支持的 OTA 能力。
@@ -45,6 +64,7 @@
 ## P1 - 发布验证报告
 
 - [ ] 新增 OTA validation report 模板，记录正常升级、CRC 错误、向量错误、中止、metadata 单副本损坏、copy 失败和掉电测试结果。
+- [ ] 在 OTA validation report 中增加统一 package 专项：正常升级、A/B 自动选择、COPY_TO_ACTIVE 兼容、负向包验证、失败后旧固件保持运行。
 - [ ] 将每次 release 的 `.uf2`、`.bin`、map 文件、build id、CRC/SHA 和验证报告一起归档。
 - [ ] 明确异常注入固件不能作为客户交付物。
 

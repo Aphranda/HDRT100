@@ -11,6 +11,7 @@
 #include "ota_error.h"
 #include "ota_image.h"
 #include "ota_metadata.h"
+#include "ota_package.h"
 #include "ota_partition.h"
 #include "ota_vector.h"
 #include "sync_io.h"
@@ -48,6 +49,39 @@ static uint32_t ota_fb_align_up_u32(uint32_t value, uint32_t alignment)
     return (value + alignment - 1u) & ~(alignment - 1u);
 }
 
+static void ota_fb_reset_transfer_context(struct ota_ao_context *context)
+{
+    context->target_size = 0u;
+    context->target_run_offset = OTA_DEFAULT_APP_RUN_OFFSET;
+    context->erase_offset = 0u;
+    context->package_mode = false;
+    context->package_header_received = false;
+    context->package_received_size = 0u;
+    context->selected_image_offset = 0u;
+    context->selected_image_size = 0u;
+    context->selected_image_crc32 = 0u;
+    context->selected_image_crc32_running = 0u;
+    context->selected_image_received_size = 0u;
+}
+
+static ota_slot_t ota_fb_select_target_slot(const ota_metadata_t *metadata)
+{
+    if (metadata == NULL ||
+        metadata->boot_mode != (uint32_t)OTA_BOOT_MODE_DIRECT_AB) {
+        return OTA_SLOT_B;
+    }
+
+    if (metadata->active_slot == (uint32_t)OTA_SLOT_A) {
+        return OTA_SLOT_B;
+    }
+
+    if (metadata->active_slot == (uint32_t)OTA_SLOT_B) {
+        return OTA_SLOT_A;
+    }
+
+    return OTA_SLOT_B;
+}
+
 static bool ota_fb_trigger_is_idle(void)
 {
     sync_io_status_t status;
@@ -65,10 +99,19 @@ static void ota_fb_handle_begin(struct ota_ao_context *context, const ota_event_
         return;
     }
 
+    const bool package_mode = (event->payload.begin.flags & OTA_BEGIN_FLAG_PACKAGE) != 0u;
+    const uint32_t max_size = package_mode ?
+                                  (OTA_PACKAGE_HEADER_SIZE + OTA_SLOT_A_SIZE + OTA_SLOT_B_SIZE) :
+                                  OTA_APP_SIZE_FAIL_THRESHOLD;
+
     if (event->payload.begin.size == 0u ||
-        event->payload.begin.size > OTA_DEFAULT_TARGET_SLOT_SIZE ||
-        event->payload.begin.size > OTA_APP_SIZE_FAIL_THRESHOLD) {
+        event->payload.begin.size > max_size) {
         ota_fb_set_error(context, OTA_ERR_IMAGE_TOO_LARGE);
+        return;
+    }
+
+    if (package_mode && event->payload.begin.size <= OTA_PACKAGE_HEADER_SIZE) {
+        ota_fb_set_error(context, OTA_ERR_BAD_HEADER);
         return;
     }
 
@@ -77,10 +120,36 @@ static void ota_fb_handle_begin(struct ota_ao_context *context, const ota_event_
         return;
     }
 
-    context->target_slot = OTA_SLOT_B;
-    context->target_offset = OTA_DEFAULT_TARGET_SLOT_OFFSET;
-    context->target_size = ota_fb_align_up_u32(event->payload.begin.size, DRV_FLASH_SECTOR_SIZE);
-    context->erase_offset = 0u;
+    ota_metadata_t metadata;
+    if (!ota_metadata_load(&metadata)) {
+        ota_fb_set_error(context, OTA_ERR_METADATA);
+        return;
+    }
+
+    context->target_slot = ota_fb_select_target_slot(&metadata);
+    context->target_offset = ota_partition_slot_offset(context->target_slot);
+    context->target_run_offset = (metadata.boot_mode == (uint32_t)OTA_BOOT_MODE_DIRECT_AB) ?
+                                     context->target_offset :
+                                     OTA_DEFAULT_APP_RUN_OFFSET;
+    const uint32_t target_slot_size = ota_partition_slot_size(context->target_slot);
+    if (context->target_offset == 0u ||
+        target_slot_size == 0u ||
+        (!package_mode && event->payload.begin.size > target_slot_size)) {
+        ota_fb_set_error(context, OTA_ERR_IMAGE_TOO_LARGE);
+        return;
+    }
+
+    ota_fb_reset_transfer_context(context);
+    context->package_mode = package_mode;
+    context->target_slot = ota_fb_select_target_slot(&metadata);
+    context->target_offset = ota_partition_slot_offset(context->target_slot);
+    context->target_run_offset = (metadata.boot_mode == (uint32_t)OTA_BOOT_MODE_DIRECT_AB) ?
+                                     context->target_offset :
+                                     OTA_DEFAULT_APP_RUN_OFFSET;
+    context->target_size = package_mode ? 0u :
+                               ota_fb_align_up_u32(event->payload.begin.size, DRV_FLASH_SECTOR_SIZE);
+    context->selected_image_size = package_mode ? 0u : event->payload.begin.size;
+    context->selected_image_crc32 = package_mode ? 0u : event->payload.begin.crc32;
 
     context->vector.target_slot = (uint32_t)context->target_slot;
     context->vector.expected_size = event->payload.begin.size;
@@ -93,7 +162,7 @@ static void ota_fb_handle_begin(struct ota_ao_context *context, const ota_event_
     context->vector.last_result = (uint32_t)OTA_RESULT_ACCEPTED;
     ota_fb_update_progress(context);
 
-    ota_fb_set_state(context, OTA_STATE_CHECK_PERMISSION);
+    ota_fb_set_state(context, package_mode ? OTA_STATE_RECEIVING : OTA_STATE_CHECK_PERMISSION);
 }
 
 static void ota_fb_handle_tick(struct ota_ao_context *context)
@@ -154,6 +223,115 @@ static void ota_fb_handle_data(struct ota_ao_context *context, const ota_event_t
         return;
     }
 
+    if (context->package_mode && !context->package_header_received) {
+        if (context->vector.received_size != 0u ||
+            event->payload.data.length != OTA_PACKAGE_HEADER_SIZE) {
+            ota_fb_set_error(context, OTA_ERR_BAD_HEADER);
+            return;
+        }
+
+        ota_package_manifest_t manifest;
+        if (!ota_package_parse_header(event->payload.data.data,
+                                      event->payload.data.length,
+                                      &manifest) ||
+            manifest.package_size != context->vector.expected_size ||
+            (manifest.package_crc32 != 0u &&
+             manifest.package_crc32 != context->vector.crc32_expected)) {
+            ota_fb_set_error(context, OTA_ERR_BAD_HEADER);
+            return;
+        }
+
+        const ota_slot_t package_image_slot =
+            (context->target_run_offset == OTA_SLOT_A_OFFSET) ? OTA_SLOT_A : context->target_slot;
+        const ota_package_image_t *selected =
+            ota_package_find_image(&manifest, package_image_slot);
+        const uint32_t target_slot_size = ota_partition_slot_size(context->target_slot);
+        if (selected == NULL ||
+            selected->size > target_slot_size ||
+            selected->run_offset != context->target_run_offset) {
+            ota_fb_set_error(context,
+                             selected == NULL ? OTA_ERR_BAD_HEADER : OTA_ERR_IMAGE_TOO_LARGE);
+            return;
+        }
+
+        context->selected_image_offset = selected->offset;
+        context->selected_image_size = selected->size;
+        context->selected_image_crc32 = selected->crc32;
+        context->selected_image_crc32_running = 0u;
+        context->selected_image_received_size = 0u;
+        context->target_size = ota_fb_align_up_u32(selected->size, DRV_FLASH_SECTOR_SIZE);
+        context->package_header_received = true;
+
+        context->vector.crc32_running =
+            ota_crc32_update(context->vector.crc32_running,
+                             event->payload.data.data,
+                             event->payload.data.length);
+        context->vector.received_size += event->payload.data.length;
+        context->vector.programmed_size = 0u;
+        context->vector.last_result = (uint32_t)OTA_RESULT_ACCEPTED;
+        ota_fb_update_progress(context);
+        ota_fb_set_state(context, OTA_STATE_CHECK_PERMISSION);
+        return;
+    }
+
+    if (context->package_mode) {
+        const uint32_t block_start = context->vector.received_size;
+        const uint32_t block_end = block_start + event->payload.data.length;
+        const uint32_t image_start = context->selected_image_offset;
+        const uint32_t image_end = context->selected_image_offset + context->selected_image_size;
+
+        context->vector.crc32_running =
+            ota_crc32_update(context->vector.crc32_running,
+                             event->payload.data.data,
+                             event->payload.data.length);
+        context->vector.received_size += event->payload.data.length;
+
+        if (block_end > image_start && block_start < image_end) {
+            const uint32_t copy_start = block_start > image_start ? block_start : image_start;
+            const uint32_t copy_end = block_end < image_end ? block_end : image_end;
+            const uint32_t copy_length = copy_end - copy_start;
+            const uint32_t chunk_offset = copy_start - block_start;
+            const uint32_t image_write_offset = copy_start - image_start;
+            const bool is_image_final =
+                (image_write_offset + copy_length) == context->selected_image_size;
+
+            if (!is_image_final && (copy_length % DRV_FLASH_PAGE_SIZE) != 0u) {
+                ota_fb_set_error(context, OTA_ERR_BAD_ARGUMENT);
+                return;
+            }
+
+            uint8_t page_buffer[OTA_EVENT_MAX_DATA_SIZE + DRV_FLASH_PAGE_SIZE];
+            const uint32_t program_length =
+                (copy_length + DRV_FLASH_PAGE_SIZE - 1u) & ~(DRV_FLASH_PAGE_SIZE - 1u);
+
+            if (program_length > sizeof(page_buffer)) {
+                ota_fb_set_error(context, OTA_ERR_BAD_ARGUMENT);
+                return;
+            }
+
+            memset(page_buffer, 0xFF, program_length);
+            memcpy(page_buffer, &event->payload.data.data[chunk_offset], copy_length);
+
+            if (!drv_flash_program(context->target_offset + image_write_offset,
+                                   page_buffer,
+                                   program_length)) {
+                ota_fb_set_error(context, OTA_ERR_FLASH_PROGRAM);
+                return;
+            }
+
+            context->selected_image_crc32_running =
+                ota_crc32_update(context->selected_image_crc32_running,
+                                 &event->payload.data.data[chunk_offset],
+                                 copy_length);
+            context->selected_image_received_size += copy_length;
+            context->vector.programmed_size = context->selected_image_received_size;
+        }
+
+        context->vector.last_result = (uint32_t)OTA_RESULT_ACCEPTED;
+        ota_fb_update_progress(context);
+        return;
+    }
+
     const uint32_t write_offset = context->target_offset + context->vector.received_size;
     uint8_t page_buffer[OTA_EVENT_MAX_DATA_SIZE + DRV_FLASH_PAGE_SIZE];
     const uint32_t program_length =
@@ -192,6 +370,13 @@ static void ota_fb_handle_end(struct ota_ao_context *context)
         return;
     }
 
+    if (context->package_mode &&
+        (!context->package_header_received ||
+         context->selected_image_received_size != context->selected_image_size)) {
+        ota_fb_set_error(context, OTA_ERR_READBACK);
+        return;
+    }
+
     ota_fb_set_state(context, OTA_STATE_VERIFYING);
 
     if (context->vector.crc32_running != context->vector.crc32_expected) {
@@ -199,9 +384,15 @@ static void ota_fb_handle_end(struct ota_ao_context *context)
         return;
     }
 
+    if (context->package_mode &&
+        context->selected_image_crc32_running != context->selected_image_crc32) {
+        ota_fb_set_error(context, OTA_ERR_CRC);
+        return;
+    }
+
     if (!ota_image_validate_app_vector(context->target_offset,
-                                       context->vector.expected_size,
-                                       OTA_DEFAULT_APP_RUN_OFFSET)) {
+                                       context->selected_image_size,
+                                       context->target_run_offset)) {
         ota_fb_set_error(context, OTA_ERR_VECTOR);
         return;
     }
@@ -209,8 +400,8 @@ static void ota_fb_handle_end(struct ota_ao_context *context)
     ota_fb_set_state(context, OTA_STATE_MARK_PENDING);
 
     if (!ota_metadata_mark_pending(context->target_slot,
-                                   context->vector.expected_size,
-                                   context->vector.crc32_expected)) {
+                                   context->selected_image_size,
+                                   context->selected_image_crc32)) {
         ota_fb_set_error(context, OTA_ERR_METADATA);
         return;
     }

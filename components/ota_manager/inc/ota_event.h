@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define OTA_EVENT_MAX_DATA_SIZE 512u
+#define OTA_BEGIN_FLAG_PACKAGE  0x00000001u
 
 typedef enum {
     OTA_EVENT_BEGIN = 0,

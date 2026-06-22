@@ -23,8 +23,39 @@ static bool bootloader_store_result(ota_metadata_t *metadata,
                                     ota_boot_result_t result,
                                     ota_slot_t source_slot,
                                     bool clear_pending);
+static bool bootloader_app_vector_is_valid(uint32_t vector_offset);
 
-static bool bootloader_validate_slot(ota_slot_t slot, uint32_t image_size, uint32_t image_crc32)
+static bool bootloader_slot_is_valid(ota_slot_t slot)
+{
+    return slot == OTA_SLOT_A || slot == OTA_SLOT_B;
+}
+
+static uint32_t bootloader_metadata_slot_size(const ota_metadata_t *metadata, ota_slot_t slot)
+{
+    if (metadata == NULL) {
+        return 0u;
+    }
+
+    return (slot == OTA_SLOT_A) ? metadata->slot_a_size :
+           (slot == OTA_SLOT_B) ? metadata->slot_b_size :
+                                  0u;
+}
+
+static uint32_t bootloader_metadata_slot_crc32(const ota_metadata_t *metadata, ota_slot_t slot)
+{
+    if (metadata == NULL) {
+        return 0u;
+    }
+
+    return (slot == OTA_SLOT_A) ? metadata->slot_a_crc32 :
+           (slot == OTA_SLOT_B) ? metadata->slot_b_crc32 :
+                                  0u;
+}
+
+static bool bootloader_validate_slot_at_run_offset(ota_slot_t slot,
+                                                   uint32_t image_size,
+                                                   uint32_t image_crc32,
+                                                   uint32_t run_flash_offset)
 {
     const uint32_t slot_offset = ota_partition_slot_offset(slot);
     const uint32_t slot_size = ota_partition_slot_size(slot);
@@ -33,7 +64,7 @@ static bool bootloader_validate_slot(ota_slot_t slot, uint32_t image_size, uint3
         return false;
     }
 
-    if (!ota_image_validate_app_vector(slot_offset, image_size, OTA_SLOT_A_OFFSET)) {
+    if (!ota_image_validate_app_vector(slot_offset, image_size, run_flash_offset)) {
         return false;
     }
 
@@ -43,6 +74,39 @@ static bool bootloader_validate_slot(ota_slot_t slot, uint32_t image_size, uint3
     }
 
     return ota_crc32_compute(image, image_size) == image_crc32;
+}
+
+static bool bootloader_validate_slot_as_slot_a(ota_slot_t slot,
+                                               uint32_t image_size,
+                                               uint32_t image_crc32)
+{
+    return bootloader_validate_slot_at_run_offset(slot,
+                                                  image_size,
+                                                  image_crc32,
+                                                  OTA_SLOT_A_OFFSET);
+}
+
+static bool bootloader_validate_slot_direct(const ota_metadata_t *metadata, ota_slot_t slot)
+{
+    const uint32_t image_size = bootloader_metadata_slot_size(metadata, slot);
+    const uint32_t image_crc32 = bootloader_metadata_slot_crc32(metadata, slot);
+    return bootloader_validate_slot_at_run_offset(slot,
+                                                  image_size,
+                                                  image_crc32,
+                                                  ota_partition_slot_offset(slot));
+}
+
+static bool bootloader_direct_slot_is_bootable(const ota_metadata_t *metadata, ota_slot_t slot)
+{
+    if (!bootloader_slot_is_valid(slot)) {
+        return false;
+    }
+
+    if (bootloader_metadata_slot_size(metadata, slot) != 0u) {
+        return bootloader_validate_slot_direct(metadata, slot);
+    }
+
+    return bootloader_app_vector_is_valid(ota_partition_slot_offset(slot));
 }
 
 static bool bootloader_copy_transaction_matches(const ota_metadata_t *metadata)
@@ -225,9 +289,9 @@ static bool bootloader_apply_pending_image(ota_metadata_t *metadata)
 
     if (metadata->copy_txn_state == (uint32_t)OTA_COPY_TXN_DONE &&
         bootloader_copy_transaction_matches(metadata) &&
-        bootloader_validate_slot(BOOTLOADER_ACTIVE_SLOT,
-                                 metadata->slot_b_size,
-                                 metadata->slot_b_crc32)) {
+        bootloader_validate_slot_as_slot_a(BOOTLOADER_ACTIVE_SLOT,
+                                           metadata->slot_b_size,
+                                           metadata->slot_b_crc32)) {
         metadata->active_slot = (uint32_t)BOOTLOADER_ACTIVE_SLOT;
         metadata->confirmed_slot = (uint32_t)BOOTLOADER_ACTIVE_SLOT;
         metadata->pending_slot = (uint32_t)OTA_SLOT_NONE;
@@ -260,9 +324,9 @@ static bool bootloader_apply_pending_image(ota_metadata_t *metadata)
     metadata->sequence++;
     (void)ota_metadata_store(metadata);
 
-    if (!bootloader_validate_slot(BOOTLOADER_STAGING_SLOT,
-                                  metadata->slot_b_size,
-                                  metadata->slot_b_crc32)) {
+    if (!bootloader_validate_slot_as_slot_a(BOOTLOADER_STAGING_SLOT,
+                                            metadata->slot_b_size,
+                                            metadata->slot_b_crc32)) {
         (void)bootloader_store_copy_failure(metadata,
                                             OTA_BOOT_RESULT_STAGE_VALIDATE_FAILED,
                                             0u);
@@ -296,9 +360,9 @@ static bool bootloader_apply_pending_image(ota_metadata_t *metadata)
         return false;
     }
 
-    if (!bootloader_validate_slot(BOOTLOADER_ACTIVE_SLOT,
-                                  metadata->slot_b_size,
-                                  metadata->slot_b_crc32)) {
+    if (!bootloader_validate_slot_as_slot_a(BOOTLOADER_ACTIVE_SLOT,
+                                            metadata->slot_b_size,
+                                            metadata->slot_b_crc32)) {
         (void)bootloader_store_copy_failure(metadata,
                                             OTA_BOOT_RESULT_ACTIVE_VALIDATE_FAILED,
                                             metadata->slot_b_size);
@@ -325,6 +389,132 @@ static bool bootloader_apply_pending_image(ota_metadata_t *metadata)
                                    false);
 }
 
+static bool bootloader_apply_direct_ab_pending(ota_metadata_t *metadata)
+{
+    if (metadata == NULL ||
+        metadata->pending_slot == (uint32_t)OTA_SLOT_NONE) {
+        return false;
+    }
+
+    const ota_slot_t pending_slot = (ota_slot_t)metadata->pending_slot;
+    const ota_slot_t active_slot = (ota_slot_t)metadata->active_slot;
+
+    if (!bootloader_slot_is_valid(pending_slot) ||
+        !bootloader_slot_is_valid(active_slot)) {
+        (void)bootloader_store_result(metadata,
+                                      OTA_BOOT_RESULT_NO_PENDING,
+                                      pending_slot,
+                                      true);
+        return false;
+    }
+
+    if (metadata->boot_attempts >= BOOTLOADER_MAX_BOOT_ATTEMPTS) {
+        (void)bootloader_store_result(metadata,
+                                      OTA_BOOT_RESULT_MAX_ATTEMPTS,
+                                      pending_slot,
+                                      true);
+        return false;
+    }
+
+    if (!bootloader_validate_slot_direct(metadata, pending_slot)) {
+        (void)bootloader_store_result(metadata,
+                                      OTA_BOOT_RESULT_STAGE_VALIDATE_FAILED,
+                                      pending_slot,
+                                      true);
+        return false;
+    }
+
+    metadata->previous_slot = metadata->active_slot;
+    metadata->active_slot = metadata->pending_slot;
+    metadata->pending_slot = (uint32_t)OTA_SLOT_NONE;
+    metadata->boot_attempts++;
+    metadata->boot_generation++;
+
+    return bootloader_store_result(metadata,
+                                   OTA_BOOT_RESULT_APPLIED,
+                                   pending_slot,
+                                   false);
+}
+
+static ota_slot_t bootloader_select_direct_rollback_slot(const ota_metadata_t *metadata)
+{
+    if (metadata == NULL) {
+        return OTA_SLOT_NONE;
+    }
+
+    const ota_slot_t confirmed_slot = (ota_slot_t)metadata->confirmed_slot;
+    if (bootloader_slot_is_valid(confirmed_slot) &&
+        bootloader_direct_slot_is_bootable(metadata, confirmed_slot)) {
+        return confirmed_slot;
+    }
+
+    const ota_slot_t previous_slot = (ota_slot_t)metadata->previous_slot;
+    if (bootloader_slot_is_valid(previous_slot) &&
+        bootloader_direct_slot_is_bootable(metadata, previous_slot)) {
+        return previous_slot;
+    }
+
+    return OTA_SLOT_NONE;
+}
+
+static bool bootloader_direct_rollback(ota_metadata_t *metadata,
+                                       ota_boot_result_t reason,
+                                       ota_slot_t failed_slot)
+{
+    if (metadata == NULL) {
+        return false;
+    }
+
+    const ota_slot_t rollback_slot = bootloader_select_direct_rollback_slot(metadata);
+    if (rollback_slot == OTA_SLOT_NONE) {
+        return false;
+    }
+
+    metadata->active_slot = (uint32_t)rollback_slot;
+    metadata->previous_slot = (uint32_t)failed_slot;
+    metadata->pending_slot = (uint32_t)OTA_SLOT_NONE;
+    metadata->boot_attempts = 0u;
+    metadata->rollback_count++;
+    metadata->last_boot_result = (uint32_t)reason;
+    metadata->last_boot_source_slot = (uint32_t)failed_slot;
+    metadata->last_boot_size = bootloader_metadata_slot_size(metadata, failed_slot);
+    metadata->last_boot_crc32 = bootloader_metadata_slot_crc32(metadata, failed_slot);
+    metadata->sequence++;
+    return ota_metadata_store(metadata);
+}
+
+static bool bootloader_prepare_direct_active_boot(ota_metadata_t *metadata)
+{
+    if (metadata == NULL) {
+        return false;
+    }
+
+    const ota_slot_t active_slot = (ota_slot_t)metadata->active_slot;
+    if (!bootloader_slot_is_valid(active_slot)) {
+        return false;
+    }
+
+    if (metadata->active_slot == metadata->confirmed_slot) {
+        return true;
+    }
+
+    if (metadata->boot_attempts >= BOOTLOADER_MAX_BOOT_ATTEMPTS) {
+        return bootloader_direct_rollback(metadata,
+                                          OTA_BOOT_RESULT_MAX_ATTEMPTS,
+                                          active_slot);
+    }
+
+    if (!bootloader_validate_slot_direct(metadata, active_slot)) {
+        return bootloader_direct_rollback(metadata,
+                                          OTA_BOOT_RESULT_ACTIVE_VALIDATE_FAILED,
+                                          active_slot);
+    }
+
+    metadata->boot_attempts++;
+    metadata->sequence++;
+    return ota_metadata_store(metadata);
+}
+
 static bool bootloader_app_vector_is_valid(uint32_t vector_offset)
 {
     uint32_t vector[2];
@@ -344,12 +534,21 @@ static bool bootloader_active_app_is_valid(const ota_metadata_t *metadata)
     if (metadata != NULL &&
         metadata->active_slot == (uint32_t)BOOTLOADER_ACTIVE_SLOT &&
         metadata->slot_a_size != 0u) {
-        return bootloader_validate_slot(BOOTLOADER_ACTIVE_SLOT,
-                                        metadata->slot_a_size,
-                                        metadata->slot_a_crc32);
+        return bootloader_validate_slot_as_slot_a(BOOTLOADER_ACTIVE_SLOT,
+                                                  metadata->slot_a_size,
+                                                  metadata->slot_a_crc32);
     }
 
     return bootloader_app_vector_is_valid(BOOTLOADER_APP_VECTOR_OFFSET);
+}
+
+static bool bootloader_direct_active_app_is_valid(const ota_metadata_t *metadata)
+{
+    if (metadata == NULL) {
+        return false;
+    }
+
+    return bootloader_direct_slot_is_bootable(metadata, (ota_slot_t)metadata->active_slot);
 }
 
 static void bootloader_jump_to_app(uint32_t vector_offset)
@@ -371,9 +570,21 @@ int main(void)
 {
     ota_metadata_t metadata;
     bool metadata_loaded = false;
+    bool direct_pending_applied = false;
     if (ota_metadata_load(&metadata)) {
         metadata_loaded = true;
-        (void)bootloader_apply_pending_image(&metadata);
+        if (metadata.boot_mode == (uint32_t)OTA_BOOT_MODE_DIRECT_AB) {
+            direct_pending_applied = bootloader_apply_direct_ab_pending(&metadata);
+        } else {
+            (void)bootloader_apply_pending_image(&metadata);
+        }
+    }
+
+    if (metadata_loaded &&
+        metadata.boot_mode == (uint32_t)OTA_BOOT_MODE_DIRECT_AB &&
+        (direct_pending_applied || bootloader_prepare_direct_active_boot(&metadata)) &&
+        bootloader_direct_active_app_is_valid(&metadata)) {
+        bootloader_jump_to_app(ota_partition_slot_offset((ota_slot_t)metadata.active_slot));
     }
 
     if (bootloader_active_app_is_valid(metadata_loaded ? &metadata : NULL)) {

@@ -137,6 +137,7 @@ This script combines:
 ```text
 build/RP2350_TRIG_BOOT.bin@0x10000000
 build/RP2350_TRIG.bin@0x10040000
+build/ota_metadata_clear.bin@0x10340000
 ```
 
 into:
@@ -151,7 +152,8 @@ factory image command by hand:
 ```powershell
 python tools/uf2_join/uf2_join.py build/RP2350_TRIG_FACTORY.uf2 `
   build/RP2350_TRIG_BOOT.bin@0x10000000 `
-  build/RP2350_TRIG.bin@0x10040000
+  build/RP2350_TRIG.bin@0x10040000 `
+  build/ota_metadata_clear.bin@0x10340000
 ```
 
 The build generates a factory image and an OTA application image:
@@ -159,19 +161,50 @@ The build generates a factory image and an OTA application image:
 ```text
 build/RP2350_TRIG_FACTORY.uf2  # first-time UF2 flash: bootloader + Slot A app
 build/RP2350_TRIG.bin          # OTA payload sent by SCPI USB CDC
+build/RP2350_TRIG_B.bin        # Slot B linked image for direct A/B validation
+build/RP2350_TRIG_UPDATE.pkg   # unified OTA package containing Slot A + Slot B apps
 build/RP2350_TRIG_BOOT.uf2     # bootloader-only image for recovery/debug
 ```
 
 `tools/build_info/gen_build_info.py` generates the firmware build id source on
 each build, so `SYST:FW:BUILD?` changes when a new OTA payload is produced.
 
-First-time programming should use `RP2350_TRIG_FACTORY.uf2`. After that, use
-the OTA `.bin` through SCPI:
+First-time programming should use `RP2350_TRIG_FACTORY.uf2`. Product OTA should
+use the unified package so the host sends one file and the device selects the
+correct internal image:
+
+```powershell
+python tools/ota_packager/ota_packager.py `
+  --image-a build/RP2350_TRIG.bin `
+  --image-b build/RP2350_TRIG_B.bin `
+  -o build/RP2350_TRIG_UPDATE.pkg
+python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG_UPDATE.pkg
+```
+
+The sender auto-detects the unified package header and uses
+`SYST:OTA:PBEGIN <size>,<crc32>`. In `COPY_TO_ACTIVE` mode the device selects the
+Slot A linked image and stages it in Slot B. In `DIRECT_AB` mode the device
+selects the image matching the inactive target slot.
+
+Raw `.bin` OTA remains supported for compatibility and bench work:
 
 ```powershell
 python tools/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin
 python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin
 ```
+
+For direct A/B validation, query the target slot and let the sender choose the
+matching linked image:
+
+```powershell
+python tools/ota_send/ota_send.py COM4 --auto-target `
+  --image-a build-validation/RP2350_TRIG.bin `
+  --image-b build-validation/RP2350_TRIG_B.bin
+```
+
+`SYST:OTA:MODE <0|1>` is available only in validation builds. Release builds
+keep `SYST:OTA:MODE?`, `SYST:OTA:TARG?`, and `SYST:OTA:CAP?` as read-only
+queries.
 
 For negative-path validation, the sender can intentionally corrupt the announced
 CRC and assert the expected final state:
@@ -224,8 +257,8 @@ Python script roles:
 | `tools/uf2_join/uf2_join.py` | Normally only via CMake | Generate the first-time factory UF2 from Bootloader + Slot A App binaries. |
 | `tools/build_info/gen_build_info.py` | Normally only via CMake | Generate the firmware build id used by `SYST:FW:BUILD?`. |
 | `tools/ota_bin_info/ota_bin_info.py` | Before OTA or release notes | Print `.bin` size, CRC32, and the matching `SYST:OTA:BEGIN` command. |
-| `tools/ota_send/ota_send.py` | Runtime OTA over USB CDC | Send the standard raw App `.bin` to the board through SCPI. |
-| `tools/ota_packager/ota_packager.py` | Legacy/reference only | Older package helper; current OTA flow uses standard raw `.bin`, not a custom `.ota` suffix. |
+| `tools/ota_send/ota_send.py` | Runtime OTA over USB CDC | Send a unified OTA package or a standard raw App `.bin`; packages are auto-detected and sent with `SYST:OTA:PBEGIN`. |
+| `tools/ota_packager/ota_packager.py` | Release OTA packaging | Build one unified package from Slot A and Slot B linked `.bin` files. |
 | `tools/release_check/release_check.py` | Before release packaging | Verify release preset safety switches, required artifacts, and absence of OTA fault-injection command strings. |
 
 ## Key Configuration Files

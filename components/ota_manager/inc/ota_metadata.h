@@ -13,6 +13,14 @@
 #define OTA_FAULT_INJECT_NONE      0x00000000u
 #define OTA_FAULT_INJECT_COPY_FAIL 0x00000001u
 
+#define OTA_BOOT_CAP_COPY_TO_ACTIVE 0x00000001u
+#define OTA_BOOT_CAP_DIRECT_AB      0x00000002u
+
+typedef enum {
+    OTA_BOOT_MODE_COPY_TO_ACTIVE = 0,
+    OTA_BOOT_MODE_DIRECT_AB,
+} ota_boot_mode_t;
+
 typedef enum {
     OTA_BOOT_RESULT_NONE = 0,
     OTA_BOOT_RESULT_APPLIED,
@@ -63,12 +71,18 @@ typedef struct {
     uint32_t copy_attempts;
     uint32_t copy_last_error;
     uint32_t metadata_ext_crc32;
+    uint32_t boot_mode;
+    uint32_t previous_slot;
+    uint32_t boot_generation;
+    uint32_t boot_capabilities;
+    uint32_t metadata_ab_crc32;
 } ota_metadata_t;
 
 bool ota_metadata_load(ota_metadata_t *metadata);
 bool ota_metadata_store(const ota_metadata_t *metadata);
 bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size, uint32_t image_crc32);
 bool ota_metadata_confirm_active(void);
+bool ota_metadata_set_boot_mode(ota_boot_mode_t mode);
 bool ota_metadata_set_fault_injection(uint32_t flags);
 bool ota_metadata_begin_copy_transaction(ota_slot_t source,
                                          ota_slot_t destination,
@@ -85,5 +99,6 @@ bool ota_metadata_repair_copies(void);
 const char *ota_metadata_boot_result_to_string(uint32_t result);
 uint32_t ota_metadata_crc32(const ota_metadata_t *metadata);
 uint32_t ota_metadata_ext_crc32(const ota_metadata_t *metadata);
+uint32_t ota_metadata_ab_crc32(const ota_metadata_t *metadata);
 
 #endif

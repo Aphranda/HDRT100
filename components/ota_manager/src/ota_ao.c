@@ -23,6 +23,24 @@ static uint32_t s_queue_head;
 static uint32_t s_queue_tail;
 static uint32_t s_queue_count;
 
+static ota_slot_t ota_ao_target_slot_from_metadata(const ota_metadata_t *metadata)
+{
+    if (metadata == NULL ||
+        metadata->boot_mode != (uint32_t)OTA_BOOT_MODE_DIRECT_AB) {
+        return OTA_SLOT_B;
+    }
+
+    if (metadata->active_slot == (uint32_t)OTA_SLOT_A) {
+        return OTA_SLOT_B;
+    }
+
+    if (metadata->active_slot == (uint32_t)OTA_SLOT_B) {
+        return OTA_SLOT_A;
+    }
+
+    return OTA_SLOT_B;
+}
+
 static bool ota_ao_queue_push(const ota_event_t *event)
 {
     if (s_queue_count >= OTA_AO_QUEUE_LENGTH) {
@@ -144,20 +162,22 @@ bool ota_ao_init(void)
     s_ota_context.vector.state = (uint32_t)OTA_STATE_IDLE;
     s_ota_context.vector.target_slot = (uint32_t)OTA_SLOT_B;
     s_ota_context.vector.error_code = (uint32_t)OTA_ERR_NONE;
+    s_ota_context.target_slot = OTA_SLOT_B;
 
     ota_metadata_t metadata;
     if (ota_metadata_load(&metadata)) {
+        s_ota_context.target_slot = ota_ao_target_slot_from_metadata(&metadata);
         s_ota_context.vector.target_slot = metadata.pending_slot != (uint32_t)OTA_SLOT_NONE ?
                                                metadata.pending_slot :
-                                               metadata.active_slot;
+                                               (uint32_t)s_ota_context.target_slot;
         s_ota_context.vector.expected_size = metadata.slot_b_size;
         s_ota_context.vector.crc32_expected = metadata.slot_b_crc32;
         s_ota_context.vector.boot_flags_summary = metadata.last_boot_result;
     }
 
-    s_ota_context.target_slot = OTA_SLOT_B;
-    s_ota_context.target_offset = OTA_DEFAULT_TARGET_SLOT_OFFSET;
-    s_ota_context.target_size = OTA_DEFAULT_TARGET_SLOT_SIZE;
+    s_ota_context.target_offset = ota_partition_slot_offset(s_ota_context.target_slot);
+    s_ota_context.target_size = ota_partition_slot_size(s_ota_context.target_slot);
+    s_ota_context.target_run_offset = OTA_DEFAULT_APP_RUN_OFFSET;
 
     LOG_INFO("ota", "OTA AO initialized");
     return true;

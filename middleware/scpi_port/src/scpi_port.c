@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "diagnostics.h"
+#include "drv_watchdog.h"
 #include "ota_ao.h"
 #include "pico/error.h"
 #include "pico/stdio.h"
@@ -107,6 +108,15 @@ static scpi_result_t scpi_cmd_firmware_build_q(scpi_t *context)
     SCPI_ResultText(context, g_project_build_id);
     return SCPI_RES_OK;
 }
+
+#if PROJECT_ENABLE_OTA_FAULT_INJECTION
+static scpi_result_t scpi_cmd_boot_reset(scpi_t *context)
+{
+    scpi_result_t result = scpi_port_result_ok(context);
+    drv_watchdog_reboot(50u);
+    return result;
+}
+#endif
 
 static scpi_result_t scpi_cmd_trigger_width(scpi_t *context)
 {
@@ -321,6 +331,27 @@ static scpi_result_t scpi_cmd_ota_begin(scpi_t *context)
     return ota_ao_post_event(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
 }
 
+static scpi_result_t scpi_cmd_ota_package_begin(scpi_t *context)
+{
+    uint32_t size;
+    uint32_t crc32;
+    if (!scpi_port_read_u32(context, &size) || !scpi_port_read_u32(context, &crc32)) {
+        return SCPI_RES_ERR;
+    }
+
+    const ota_event_t event = {
+        .type = OTA_EVENT_BEGIN,
+        .payload.begin = {
+            .size = size,
+            .crc32 = crc32,
+            .image_version = 0u,
+            .flags = OTA_BEGIN_FLAG_PACKAGE,
+        },
+    };
+
+    return ota_ao_post_event(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
 static scpi_result_t scpi_cmd_ota_data(scpi_t *context)
 {
     const char *data = NULL;
@@ -430,6 +461,88 @@ static scpi_result_t scpi_cmd_ota_transaction_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static const char *scpi_ota_boot_mode_to_string(uint32_t mode)
+{
+    switch ((ota_boot_mode_t)mode) {
+    case OTA_BOOT_MODE_COPY_TO_ACTIVE:
+        return "COPY_TO_ACTIVE";
+    case OTA_BOOT_MODE_DIRECT_AB:
+        return "DIRECT_AB";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+static uint32_t scpi_ota_next_target_slot(const ota_metadata_t *metadata)
+{
+    if (metadata == NULL) {
+        return (uint32_t)OTA_SLOT_NONE;
+    }
+
+    if (metadata->boot_mode != (uint32_t)OTA_BOOT_MODE_DIRECT_AB) {
+        return (uint32_t)OTA_SLOT_B;
+    }
+
+    if (metadata->active_slot == (uint32_t)OTA_SLOT_A) {
+        return (uint32_t)OTA_SLOT_B;
+    }
+
+    if (metadata->active_slot == (uint32_t)OTA_SLOT_B) {
+        return (uint32_t)OTA_SLOT_A;
+    }
+
+    return (uint32_t)OTA_SLOT_B;
+}
+
+static scpi_result_t scpi_cmd_ota_mode_q(scpi_t *context)
+{
+    ota_metadata_t metadata;
+    if (!ota_ao_get_metadata(&metadata)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultText(context, scpi_ota_boot_mode_to_string(metadata.boot_mode));
+    SCPI_ResultUInt32(context, metadata.boot_mode);
+    return SCPI_RES_OK;
+}
+
+#if PROJECT_ENABLE_OTA_FAULT_INJECTION
+static scpi_result_t scpi_cmd_ota_mode(scpi_t *context)
+{
+    uint32_t mode;
+    if (!scpi_port_read_u32(context, &mode) ||
+        mode > (uint32_t)OTA_BOOT_MODE_DIRECT_AB) {
+        return SCPI_RES_ERR;
+    }
+
+    return ota_metadata_set_boot_mode((ota_boot_mode_t)mode) ?
+               scpi_port_result_ok(context) :
+               SCPI_RES_ERR;
+}
+#endif
+
+static scpi_result_t scpi_cmd_ota_target_q(scpi_t *context)
+{
+    ota_metadata_t metadata;
+    if (!ota_ao_get_metadata(&metadata)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, scpi_ota_next_target_slot(&metadata));
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_ota_capability_q(scpi_t *context)
+{
+    ota_metadata_t metadata;
+    if (!ota_ao_get_metadata(&metadata)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, metadata.boot_capabilities);
+    return SCPI_RES_OK;
+}
+
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
 static scpi_result_t scpi_cmd_ota_inject_copy(scpi_t *context)
 {
@@ -491,6 +604,9 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:VERSion?", .callback = SCPI_SystemVersionQ},
     {.pattern = "SYSTem:FW:VERSion?", .callback = scpi_cmd_firmware_version_q},
     {.pattern = "SYSTem:FW:BUILD?", .callback = scpi_cmd_firmware_build_q},
+#if PROJECT_ENABLE_OTA_FAULT_INJECTION
+    {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
+#endif
     {.pattern = "TRIGger:WIDTh", .callback = scpi_cmd_trigger_width},
     {.pattern = "TRIGger:WIDTh?", .callback = scpi_cmd_trigger_width_q},
     {.pattern = "TRIGger:IMMediate", .callback = scpi_cmd_trigger_fire},
@@ -512,6 +628,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:OTA:STATus?", .callback = scpi_cmd_ota_status_q},
     {.pattern = "SYSTem:OTA:PROGress?", .callback = scpi_cmd_ota_progress_q},
     {.pattern = "SYSTem:OTA:BEGIN", .callback = scpi_cmd_ota_begin},
+    {.pattern = "SYSTem:OTA:PBEGIN", .callback = scpi_cmd_ota_package_begin},
     {.pattern = "SYSTem:OTA:DATA", .callback = scpi_cmd_ota_data},
     {.pattern = "SYSTem:OTA:END", .callback = scpi_cmd_ota_end},
     {.pattern = "SYSTem:OTA:ABORt", .callback = scpi_cmd_ota_abort},
@@ -521,7 +638,11 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:OTA:RESult?", .callback = scpi_cmd_ota_result_q},
     {.pattern = "SYSTem:OTA:TXN?", .callback = scpi_cmd_ota_transaction_q},
     {.pattern = "SYSTem:OTA:TRANsaction?", .callback = scpi_cmd_ota_transaction_q},
+    {.pattern = "SYSTem:OTA:MODE?", .callback = scpi_cmd_ota_mode_q},
+    {.pattern = "SYSTem:OTA:TARGet?", .callback = scpi_cmd_ota_target_q},
+    {.pattern = "SYSTem:OTA:CAPability?", .callback = scpi_cmd_ota_capability_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
+    {.pattern = "SYSTem:OTA:MODE", .callback = scpi_cmd_ota_mode},
     {.pattern = "SYSTem:OTA:INJect:COPY", .callback = scpi_cmd_ota_inject_copy},
     {.pattern = "SYSTem:OTA:INJect:CLEar", .callback = scpi_cmd_ota_inject_clear},
     {.pattern = "SYSTem:OTA:INJect:COPY?", .callback = scpi_cmd_ota_inject_copy_q},

@@ -45,6 +45,414 @@
 
 ## 任务记录
 
+### TASK-20260623-008 - OTA 统一升级包实现与实机验证
+
+- 状态：完成
+- 日期：2026-06-23
+- 任务目标：
+  - 实现一个统一 OTA 升级文件，内部同时包含 Slot A/Slot B App 镜像，由下位机根据当前 OTA 模式和目标 slot 自行选择写入镜像。
+  - 保留 raw `.bin` OTA 兼容路径，同时让产品升级流程优先使用统一 package。
+- 完成内容：
+  - 新增 `ota_package` 包头格式和解析逻辑，固定 512 B header，记录 package size、镜像 slot、payload offset、image size、CRC32 和 run offset。
+  - 新增 `SYST:OTA:PBEGIN <size>,<crc32>`，用于明确启动统一 package OTA；原 `SYST:OTA:BEGIN` 仍用于 raw `.bin`。
+  - OTA 接收状态机支持 package 流式解析：首块解析 header，选择目标镜像，复用现有分步擦除，再只写入被选中的内部镜像。
+  - `tools/ota_packager/ota_packager.py` 生成统一包，包内 A/B payload 按 512 B 对齐，避免镜像从非 Flash page 边界开始。
+  - `tools/ota_send/ota_send.py` 自动识别统一包魔数并使用 `PBEGIN`，raw `.bin` 仍使用 `BEGIN`。
+  - 修复 package 在 `COPY_TO_ACTIVE` 模式下的镜像选择：staging 目标仍是 Slot B，但应写入 Slot A 链接镜像，供 Bootloader copy-to-active。
+  - 更新 README、SCPI 命令文档和 OTA 待办。
+- 验证结果：
+  - `python -m py_compile tools\ota_packager\ota_packager.py tools\ota_send\ota_send.py` 通过。
+  - `cmake --build --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-validation` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build` 通过。
+  - 烧录 `build-validation\RP2350_TRIG_FACTORY.uf2`，切换 `DIRECT_AB` 后发送 `build-validation\RP2350_TRIG_UPDATE.pkg`，完成 A->B OTA：`READY_TO_REBOOT`，重启后 `SYST:OTA:SLOT? -> 2,0,1,1,0`，`COMM` 后 confirmed=2。
+  - 使用同一个统一包完成 B->A OTA：`READY_TO_REBOOT`，重启后 `SYST:OTA:SLOT? -> 1,0,2,1,0`，`COMM` 后 confirmed=1。
+  - 烧录 `build\RP2350_TRIG_FACTORY.uf2`，在 release 默认 `COPY_TO_ACTIVE` 模式下发送 `build\RP2350_TRIG_UPDATE.pkg`，Bootloader 应用成功：`SYST:OTA:RES? -> 0,"NONE","APPLIED",2,73104,4134771432`，`COMM` 后 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`。
+  - release 隔离保持有效：`SYST:OTA:MODE 1` 和 `SYST:OTA:INJ:COPY?` 在 release 固件中无可用响应。
+- 还需完成：
+  - package manifest 扩展产品型号、硬件版本、App 版本、build id、SHA-256 和 `min_bootloader_version`。
+  - 增加 `SYST:BOOT:VERS?` 或等效 Bootloader 能力查询。
+  - 为统一 package 增加 CRC 错误、向量错误、错误包头、错误 slot/run_offset 的负向自动化验证。
+  - 评估 release 默认启用 `DIRECT_AB` 的出厂条件和迁移策略。
+- 关联文件：
+  - `components/ota_manager/inc/ota_package.h`
+  - `components/ota_manager/src/ota_package.c`
+  - `components/ota_manager/src/ota_fb.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/ota_packager/ota_packager.py`
+  - `tools/ota_send/ota_send.py`
+  - `README.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/OTA_TODO.md`
+- 下一步：
+  - 补齐统一 package 的产品兼容字段和负向测试脚本，再进入 release 默认 `DIRECT_AB` 迁移评估。
+
+### TASK-20260623-007 - A/B 直接切换阶段 7：真实断电恢复验证
+
+- 状态：完成
+- 日期：2026-06-23
+- 任务目标：
+  - 验证 direct A/B 在真实断电场景下的恢复能力，包括 pending 已写入但 Bootloader 未应用、未确认 active slot 连续断电、回滚后继续升级。
+- 完成内容：
+  - 构建 release 和 validation 固件。
+  - 烧录 `build-validation\RP2350_TRIG_FACTORY.uf2`，进入 validation 环境。
+  - 切换 `SYST:OTA:MODE 1`，启用 `DIRECT_AB`。
+  - 使用 `ota_send.py --auto-target` 发送 Slot B 镜像。
+  - 在 `READY_TO_REBOOT` 状态下进行真实断电/上电。
+  - 在未确认 Slot B 状态下连续真实断电/上电，验证 `boot_attempts` 增长和最终回滚。
+  - 回滚后再次执行 direct A/B OTA 到 Slot B 并 `COMM`，验证系统可恢复正常升级能力。
+  - 最后烧录 `build\RP2350_TRIG_FACTORY.uf2` 恢复 release 状态，并验证 release 隔离。
+  - 更新 `docs/OTA_TODO.md` 和 `docs/OTA_AB_SWITCH_DESIGN.md`。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-validation` 通过。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - release/validation Slot A/B reset handler 离线检查均通过。
+  - validation 初始状态：
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+  - 切换 direct A/B：
+    - `SYST:OTA:MODE 1 -> "OK"`
+    - `SYST:OTA:MODE? -> "DIRECT_AB",1`
+    - `SYST:OTA:TARG? -> 2`
+  - Slot B OTA：
+    - `build-validation\RP2350_TRIG_B.bin`
+    - size `73064`
+    - CRC32 `0x2202443C`
+    - 最终 `READY_TO_REBOOT`
+  - `READY_TO_REBOOT` 后真实断电，上电后 Bootloader 正确应用 pending Slot B：
+    - `SYST:OTA:SLOT? -> 2,0,1,1,0`
+    - `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,73064,570573884`
+    - `SYST:OTA:TARG? -> 1`
+  - 未确认 Slot B 状态下真实断电恢复：
+    - 第二次上电：`SYST:OTA:SLOT? -> 2,0,1,2,0`
+    - 第三次上电：`SYST:OTA:SLOT? -> 2,0,1,3,0`
+    - 第四次上电回滚：`SYST:OTA:SLOT? -> 1,0,1,0,1`
+    - 回滚审计：`SYST:OTA:RES? -> 0,"NONE","MAX_ATTEMPTS",2,73064,570573884`
+  - 回滚后恢复性升级通过：
+    - 再次 `ota_send.py --auto-target` 写入 Slot B，最终 `READY_TO_REBOOT`。
+    - `SYST:OTA:BOOT` 后：`SYST:OTA:SLOT? -> 2,0,1,1,1`
+    - `SYST:OTA:COMM -> "OK"`
+    - commit 后：`SYST:OTA:SLOT? -> 2,0,2,0,1`
+  - release 恢复和隔离验证通过：
+    - 烧录 `build\RP2350_TRIG_FACTORY.uf2`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:CAP? -> 1`
+    - `SYST:OTA:INJ:COPY? -> <timeout>`
+    - `SYST:OTA:MODE 1 -> <timeout>`
+    - `SYST:BOOT:RES -> <timeout>`
+- 还需完成：
+  - OTA metadata 写入过程中掉电，重启后从双副本选择有效副本。
+  - 使用可控电源或继电器台架执行重复掉电测试并记录循环次数和失败率。
+  - 增加 manifest、`min_bootloader_version` 和发布验证报告模板。
+  - 评估 release 默认启用 `DIRECT_AB` 的出厂条件和迁移策略。
+- 关联文件：
+  - `docs/OTA_TODO.md`
+  - `docs/OTA_AB_SWITCH_DESIGN.md`
+  - `tools/ota_send/ota_send.py`
+  - `bootloader/src/bootloader_main.c`
+- 下一步：
+  - 处理 metadata 写入中掉电的双副本选择验证，或先补 OTA validation report/manifest 兼容性约束。
+
+### TASK-20260623-006 - A/B 直接切换阶段 6：未确认回滚验证
+
+- 状态：完成
+- 日期：2026-06-23
+- 任务目标：
+  - 完成 direct A/B 未确认固件的 Bootloader 自动回滚验证，确保新 Slot 未执行 `COMM` 时不会永久占用 active slot。
+- 完成内容：
+  - Bootloader 增加 direct A/B 未确认启动管理：
+    - `active_slot != confirmed_slot` 时识别为试运行状态。
+    - 每次未确认复位启动增加 `boot_attempts`。
+    - 达到 `BOOTLOADER_MAX_BOOT_ATTEMPTS` 后回滚到 `confirmed_slot`，清零 `boot_attempts`，增加 `rollback_count`。
+  - 增加回滚目标选择逻辑，优先使用 `confirmed_slot`，其次使用 `previous_slot`。
+  - 修复 factory 首烧 Slot A 没有 `slot_a_size/slot_a_crc32` 时无法回滚的问题：
+    - 有 size/CRC 的 slot 执行 CRC 强校验。
+    - 无 size/CRC 的 factory 初始 slot 允许退化到向量表校验。
+  - validation 构建新增 `SYST:BOOT:RES`，通过 watchdog 触发系统复位，用于回滚/断电类验证；release 构建不包含该命令。
+  - 更新 `docs/OTA_TODO.md`、`docs/OTA_AB_SWITCH_DESIGN.md`、`docs/SCPI_COMMANDS.md`。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-validation` 通过。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - release/validation Slot A/B reset handler 离线检查均通过。
+  - 已多次提前告知烧录对象、原因和预期影响，并烧录 `build-validation\RP2350_TRIG_FACTORY.uf2` 验证 Bootloader 更新。
+  - 初次验证发现 `SYST:OTA:BOOT` 在非 `READY_TO_REBOOT` 状态只会使 App OTA 状态进入 `FAILED/INVALID_STATE`，不能作为复位测试工具；随后新增 `SYST:BOOT:RES`。
+  - 第二次验证发现 `boot_attempts` 可增长到 3 但不回滚，原因是 factory 初始 Slot A 缺少 size/CRC metadata；随后增加向量表 fallback。
+  - 最终 direct A/B 未确认回滚验证通过：
+    - Slot A 默认启动，切换 `SYST:OTA:MODE 1 -> "OK"`。
+    - `ota_send.py --auto-target` 自动选择 `build-validation\RP2350_TRIG_B.bin`，OTA payload `73064` 字节，CRC32 `0x552C4137`。
+    - `SYST:OTA:BOOT` 后进入未确认 Slot B：
+      - `SYST:OTA:SLOT? -> 2,0,1,1,0`
+      - `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,73064,1428963639`
+    - 第一次 `SYST:BOOT:RES` 后：
+      - `SYST:OTA:SLOT? -> 2,0,1,2,0`
+    - 第二次 `SYST:BOOT:RES` 后：
+      - `SYST:OTA:SLOT? -> 2,0,1,3,0`
+    - 第三次 `SYST:BOOT:RES` 后回滚成功：
+      - `SYST:OTA:SLOT? -> 1,0,1,0,1`
+      - `SYST:OTA:RES? -> 0,"NONE","MAX_ATTEMPTS",2,73064,1428963639`
+      - `SYST:OTA:TARG? -> 2`
+  - 回滚后再次执行 direct A/B OTA 到 Slot B 并 `COMM`，系统可恢复稳定：
+    - `SYST:OTA:SLOT? -> 2,0,2,0,1`
+    - `SYST:OTA:RES? -> 5,"NONE","APPLIED",2,73064,1428963639`
+  - 已烧录 `build\RP2350_TRIG_FACTORY.uf2` 做 release 隔离验证：
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:CAP? -> 1`
+    - `SYST:OTA:INJ:COPY? -> <timeout>`
+    - `SYST:OTA:MODE 1 -> <timeout>`
+    - `SYST:BOOT:RES -> <timeout>`
+- 还需完成：
+  - direct A/B 断电恢复验证，包括 pending 应用前、pending 应用后未确认、metadata 写入期间等关键窗口。
+  - 使用可控电源或继电器台架执行重复掉电测试并统计失败率。
+  - 增加 manifest/min_bootloader_version，避免镜像和 Bootloader 能力不匹配。
+  - 评估 release 默认启用 `DIRECT_AB` 的出厂条件和迁移策略。
+- 关联文件：
+  - `bootloader/src/bootloader_main.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `docs/OTA_TODO.md`
+  - `docs/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/SCPI_COMMANDS.md`
+- 下一步：
+  - 开始 direct A/B 断电恢复验证，优先验证 pending 应用前后和未确认状态下的真实断电/复位行为。
+
+### TASK-20260623-005 - A/B 直接切换阶段 5：受控启用与双向实机验证
+
+- 状态：完成
+- 日期：2026-06-23
+- 任务目标：
+  - 增加 direct A/B 受控启用能力，并完成 Slot A -> Slot B -> Slot A 的双向直接切换实机验证。
+- 完成内容：
+  - 新增 `ota_metadata_set_boot_mode()`，可切换 `COPY_TO_ACTIVE` / `DIRECT_AB`，切换时清理 pending 和 copy transaction。
+  - validation 构建新增 `SYST:OTA:MODE <0|1>` 写命令；release 构建仅保留 `SYST:OTA:MODE?` 查询。
+  - `tools/ota_send/ota_send.py` 新增 `--auto-target --image-a --image-b`，可查询 `SYST:OTA:TARG?` 后自动选择 Slot A/B 镜像。
+  - 更新 README、`docs/SCPI_COMMANDS.md`、`docs/OTA_AB_SWITCH_DESIGN.md`、`docs/OTA_TODO.md`。
+- 验证结果：
+  - `python -m py_compile tools\ota_send\ota_send.py` 通过。
+  - `python tools\ota_send\ota_send.py COM4 build\RP2350_TRIG.bin --dry-run` 通过。
+  - `cmake --build --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-validation` 通过。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - 离线向量表检查通过：
+    - release Slot A/B reset handler 均在对应 slot 范围。
+    - validation Slot A/B reset handler 均在对应 slot 范围。
+  - 已提前告知烧录对象、原因和预期影响，并烧录 `build-validation\RP2350_TRIG_FACTORY.uf2`。
+  - validation 默认查询：
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:TARG? -> 2`
+    - `SYST:OTA:CAP? -> 1`
+    - `SYST:OTA:INJ:COPY? -> 0`
+  - 执行 `SYST:OTA:MODE 1 -> "OK"` 后：
+    - `SYST:OTA:MODE? -> "DIRECT_AB",1`
+    - `SYST:OTA:TARG? -> 2`
+    - `SYST:OTA:CAP? -> 3`
+  - Slot A -> Slot B direct A/B 验证：
+    - `ota_send.py --auto-target` 自动选择 `build-validation\RP2350_TRIG_B.bin`。
+    - OTA payload `73016` 字节，CRC32 `0xAA093BA3`，最终 `READY_TO_REBOOT`。
+    - `SYST:OTA:BOOT` 后重启，`SYST:OTA:SLOT? -> 2,0,1,1,0`。
+    - `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,73016,2852731811`。
+    - `SYST:OTA:TARG? -> 1`。
+    - `SYST:OTA:COMM -> "OK"` 后 `SYST:OTA:SLOT? -> 2,0,2,0,0`。
+  - Slot B -> Slot A direct A/B 验证：
+    - `ota_send.py --auto-target` 自动选择 `build-validation\RP2350_TRIG.bin`。
+    - OTA payload `73000` 字节，CRC32 `0x482C509C`，最终 `READY_TO_REBOOT`。
+    - `SYST:OTA:BOOT` 后重启，`SYST:OTA:SLOT? -> 1,0,2,1,0`。
+    - `SYST:OTA:RES? -> 0,"NONE","APPLIED",1,73000,1210863772`。
+    - `SYST:OTA:TARG? -> 2`。
+    - `SYST:OTA:COMM -> "OK"` 后 `SYST:OTA:SLOT? -> 1,0,1,0,0`。
+- 还需完成：
+  - direct A/B 未确认回滚验证。
+  - direct A/B 断电恢复验证。
+  - 评估 release 默认启用 `DIRECT_AB` 的出厂条件和迁移策略。
+  - 后续增加 manifest/min_bootloader_version，避免 A/B 镜像和 Bootloader 能力不匹配。
+- 关联文件：
+  - `components/ota_manager/inc/ota_metadata.h`
+  - `components/ota_manager/src/ota_metadata.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/ota_send/ota_send.py`
+  - `README.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/OTA_TODO.md`
+- 下一步：
+  - 做 direct A/B 未确认回滚和断电恢复验证；当前板端运行 validation 固件且 metadata 为 `DIRECT_AB`。
+
+### TASK-20260623-004 - A/B 直接切换阶段 4：App 动态 OTA target
+
+- 状态：完成
+- 日期：2026-06-23
+- 任务目标：
+  - 将 App 侧 OTA 接收目标从固定 Slot B 扩展为受 `boot_mode` 控制的动态目标，为 direct A/B 切换准备写入 inactive slot 的能力。
+- 完成内容：
+  - `ota_ao_context_t` 增加 `target_run_offset`，区分写入地址和镜像运行地址。
+  - `COPY_TO_ACTIVE` 模式继续写 Slot B，并按 Slot A 运行地址校验向量表。
+  - `DIRECT_AB` 模式按 `active_slot` 选择 inactive slot，并按目标 slot 运行地址校验向量表。
+  - `SYST:OTA:STAT?` 在空闲状态下显示下一次 OTA 目标 slot，与 `SYST:OTA:TARG?` 对齐。
+  - 更新 `docs/OTA_AB_SWITCH_DESIGN.md` 和 `docs/OTA_TODO.md`。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-validation` 通过。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - 离线向量表检查通过，Slot A/B reset handler 均位于对应 slot 范围。
+  - 已提前告知烧录对象、原因和预期影响，并烧录 `build/RP2350_TRIG_FACTORY.uf2`。
+  - 板端 COM4 基础查询通过：
+    - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
+    - `SYST:FW:BUILD? -> "20260622162157"`
+    - `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:TARG? -> 2`
+    - `SYST:OTA:CAP? -> 1`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:INJ:COPY? -> <timeout>`。
+  - 执行正常 copy-to-active OTA 回归：
+    - `tools/ota_send/ota_send.py COM4 build\RP2350_TRIG.bin` 传输完成，最终 `READY_TO_REBOOT`。
+    - `SYST:OTA:BOOT` 后重启，`SYST:OTA:RES? -> 0,"NONE","APPLIED",2,71976,456434118`。
+    - `SYST:OTA:COMM -> "OK"`。
+    - 最终 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`。
+- 还需完成：
+  - 增加受控方式切换 `boot_mode = DIRECT_AB`。
+  - 上位机 OTA 工具按 `SYST:OTA:TARG?` 自动选择 Slot A/B 镜像。
+  - 完成 direct A/B 正常升级、未确认回滚和断电恢复验证。
+- 关联文件：
+  - `components/ota_manager/src/ota_ao.c`
+  - `components/ota_manager/src/ota_ao_private.h`
+  - `components/ota_manager/src/ota_fb.c`
+  - `docs/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/OTA_TODO.md`
+- 下一步：
+  - 增加 direct A/B 受控启用接口和工具侧目标镜像选择能力。
+
+### TASK-20260623-003 - A/B 直接切换阶段 3：Bootloader direct A/B 分支
+
+- 状态：完成
+- 日期：2026-06-23
+- 任务目标：
+  - 在不改变默认启动策略的前提下，让 Bootloader 具备按 `active_slot` 直接跳转 Slot A 或 Slot B 的能力。
+- 完成内容：
+  - 将 Bootloader 镜像校验拆分为“按 Slot A 运行地址校验”和“按目标 slot 运行地址校验”。
+  - 保留 `COPY_TO_ACTIVE` 默认路径：Slot B 镜像仍按 Slot A 运行地址校验后复制到 Slot A。
+  - 新增 `DIRECT_AB` 分支：校验 `pending_slot`、更新 `previous_slot/active_slot/boot_generation`，并按 `active_slot` 跳转。
+  - 新增 direct active slot 校验逻辑，支持 Slot A 或 Slot B 作为 active app。
+  - 更新 `docs/OTA_AB_SWITCH_DESIGN.md` 和 `docs/OTA_TODO.md`。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-validation` 通过。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - 离线向量表检查通过：
+    - `build/RP2350_TRIG.bin` reset handler 位于 Slot A 范围。
+    - `build/RP2350_TRIG_B.bin` reset handler 位于 Slot B 范围。
+  - 已提前告知烧录对象、原因和预期影响，并烧录 `build/RP2350_TRIG_FACTORY.uf2`。
+  - 板端 COM4 查询通过：
+    - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
+    - `SYST:FW:BUILD? -> "20260622161657"`
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:TARG? -> 2`
+    - `SYST:OTA:CAP? -> 1`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:INJ:COPY? -> <timeout>`，符合 release 不编译异常注入命令预期。
+- 还需完成：
+  - App 侧 OTA 接收目标从固定 Slot B 改为按 `boot_mode/active_slot` 选择 inactive slot。
+  - 增加受控方式切换 `boot_mode = DIRECT_AB`，并只在完整链路具备后声明 direct A/B capability。
+  - 完成 direct A/B 正常升级、未确认回滚和断电恢复验证。
+- 关联文件：
+  - `bootloader/src/bootloader_main.c`
+  - `docs/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/OTA_TODO.md`
+- 下一步：
+  - 实现 App 侧动态 OTA target，并继续保持默认 `COPY_TO_ACTIVE` 行为可验证。
+
+### TASK-20260623-002 - A/B 直接切换阶段 2：metadata 与 SCPI 查询
+
+- 状态：完成
+- 日期：2026-06-23
+- 任务目标：
+  - 为后续 direct A/B 启动增加 metadata 基础字段和对外查询接口，同时保持当前 copy-to-active 默认行为不变。
+- 完成内容：
+  - 在 OTA metadata 中追加 `boot_mode`、`previous_slot`、`boot_generation`、`boot_capabilities`、`metadata_ab_crc32`。
+  - 新增 A/B 扩展区 CRC，旧 copy transaction 扩展 CRC 的字段位置和覆盖范围保持稳定。
+  - 默认 `boot_mode = COPY_TO_ACTIVE`，`boot_capabilities = COPY_TO_ACTIVE`。
+  - 新增 `SYST:OTA:MODE?`、`SYST:OTA:TARG?`、`SYST:OTA:CAP?`。
+  - 更新 `docs/OTA_AB_SWITCH_DESIGN.md`、`docs/SCPI_COMMANDS.md`、`docs/OTA_TODO.md`。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-validation` 通过。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - 离线向量表检查通过：
+    - `build/RP2350_TRIG.bin` reset handler 位于 `0x10040000..0x101BFFFF`。
+    - `build/RP2350_TRIG_B.bin` reset handler 位于 `0x101C0000..0x1033FFFF`。
+  - 已提前告知烧录对象、原因和预期影响，并烧录 `build/RP2350_TRIG_FACTORY.uf2`。
+  - 板端 COM4 查询通过：
+    - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
+    - `SYST:FW:BUILD? -> "20260622161038"`
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:TARG? -> 2`
+    - `SYST:OTA:CAP? -> 1`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:INJ:COPY? -> <timeout>`，符合 release 不编译异常注入命令预期。
+- 还需完成：
+  - Bootloader 支持按 `active_slot` 直接跳转 Slot A 或 Slot B。
+  - OTA 接收目标从固定 Slot B 改为 inactive slot。
+  - 上位机 OTA 工具按 `SYST:OTA:TARG?` 选择 A/B 镜像。
+  - direct A/B 正常升级、未确认回滚和断电恢复验证。
+- 关联文件：
+  - `components/ota_manager/inc/ota_metadata.h`
+  - `components/ota_manager/src/ota_metadata.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `docs/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/OTA_TODO.md`
+- 下一步：
+  - 实现 Bootloader direct A/B 分支能力，但默认仍保持 `COPY_TO_ACTIVE`。
+
+### TASK-20260623-001 - A/B 直接切换阶段 1：双 slot 构建骨架
+
+- 状态：完成
+- 日期：2026-06-23
+- 任务目标：
+  - 启动从 copy-to-active 演进到真正 A/B 直接切换的实施工作，先建立 Slot A/Slot B 双镜像构建能力，并保持现有 factory 默认启动行为不变。
+- 完成内容：
+  - 新增 `docs/OTA_AB_SWITCH_DESIGN.md`，明确 direct A/B 的目标流程、metadata、Bootloader、SCPI、工具链和迁移策略。
+  - 新增 `linker/rp2350_app_slot_b.ld`，Slot B App 链接地址为 `0x101C0000`。
+  - 重构 `CMakeLists.txt`，抽出 `PROJECT_APP_SOURCES` 和 `project_configure_app_target()`，避免 A/B App target 配置漂移。
+  - 新增 `RP2350_TRIG_B` App target，生成 `RP2350_TRIG_B.bin/.elf/.map/.dis/.hex`。
+  - 保留 `RP2350_TRIG` 作为 Slot A 默认 App target，factory UF2 仍只烧 Bootloader、Slot A App 和 metadata clear，不改变当前启动路径。
+  - 更新 `docs/OTA_TODO.md`，新增 A/B 直接切换演进待办。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-validation` 通过。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - release 构建生成：
+    - `build\RP2350_TRIG.bin`
+    - `build\RP2350_TRIG_B.bin`
+  - 离线向量表检查通过：
+    - `RP2350_TRIG.bin` reset handler 位于 `0x10040000..0x100516D0`。
+    - `RP2350_TRIG_B.bin` reset handler 位于 `0x101C0000..0x101D16E0`。
+  - 提前告知后烧录 `build\RP2350_TRIG_FACTORY.uf2`，`picotool load -f -v -x` 烧录和 Flash verify 通过。
+  - 板端默认 Slot A 启动验证通过：
+    - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
+    - `SYST:FW:BUILD? -> "20260622160253"`
+    - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:INJ:COPY? -> <timeout>`，符合 release 固件不包含异常注入命令的预期。
+- 还需完成：
+  - metadata 增加 A/B boot mode、previous slot、boot generation 和 capability 字段。
+  - Bootloader 支持按 active slot 直接跳转。
+  - App OTA target 动态选择 inactive slot。
+- 关联文件：
+  - `CMakeLists.txt`
+  - `linker/rp2350_app_slot_b.ld`
+  - `docs/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/OTA_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 实现 metadata A/B 扩展字段和基础查询能力，默认仍保持 `COPY_TO_ACTIVE`。
+
 ### TASK-20260622-016 - 移除 validation 慢速 copy
 
 - 状态：完成

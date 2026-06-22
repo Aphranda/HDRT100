@@ -50,7 +50,7 @@ add_custom_target(project_build_info
         VERBATIM
 )
 
-add_executable(${PROJECT_NAME}
+set(PROJECT_APP_SOURCES
         application/src/main.c
         application/src/app.c
         ${PROJECT_BUILD_INFO_SOURCE}
@@ -61,6 +61,7 @@ add_executable(${PROJECT_NAME}
         components/ota_manager/src/ota_crc32.c
         components/ota_manager/src/ota_image.c
         components/ota_manager/src/ota_metadata.c
+        components/ota_manager/src/ota_package.c
         components/sync_io/src/sync_io.c
         components/sync_config_ui/src/sync_config_ui.c
         drivers/mcu/spi/src/drv_spi.c
@@ -112,15 +113,20 @@ add_executable(${PROJECT_NAME}
         osal/port/baremetal/osal_baremetal.c
 )
 
-pico_set_program_name(${PROJECT_NAME} "RP2350_TRIG")
-pico_set_program_version(${PROJECT_NAME} "0.1.0")
+add_executable(${PROJECT_NAME}
+        ${PROJECT_APP_SOURCES}
+)
 
-pico_generate_pio_header(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_io.pio)
+function(project_configure_app_target target_name app_name linker_script)
+    pico_set_program_name(${target_name} ${app_name})
+    pico_set_program_version(${target_name} "0.1.0")
 
-pico_enable_stdio_uart(${PROJECT_NAME} ${PROJECT_ENABLE_UART_STDIO})
-pico_enable_stdio_usb(${PROJECT_NAME} ${PROJECT_ENABLE_USB_STDIO})
+    pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_io.pio)
 
-target_include_directories(${PROJECT_NAME} PRIVATE
+    pico_enable_stdio_uart(${target_name} ${PROJECT_ENABLE_UART_STDIO})
+    pico_enable_stdio_usb(${target_name} ${PROJECT_ENABLE_USB_STDIO})
+
+    target_include_directories(${target_name} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/application/inc
         ${CMAKE_CURRENT_LIST_DIR}/boards/rp2350_trig/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/diagnostics/inc
@@ -141,9 +147,9 @@ target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/third_party/u8g2/csrc
         ${CMAKE_CURRENT_BINARY_DIR}
         ${CMAKE_CURRENT_BINARY_DIR}/generated
-)
+    )
 
-target_link_libraries(${PROJECT_NAME}
+    target_link_libraries(${target_name}
         pico_stdlib
         hardware_spi
         hardware_i2c
@@ -152,16 +158,29 @@ target_link_libraries(${PROJECT_NAME}
         hardware_pio
         hardware_clocks
         hardware_flash
-)
+    )
 
-target_compile_definitions(${PROJECT_NAME} PRIVATE
+    target_compile_definitions(${target_name} PRIVATE
         PROJECT_ENABLE_USB_STDIO=$<BOOL:${PROJECT_ENABLE_USB_STDIO}>
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
         SCPI_USER_CONFIG=1
-)
+        PICO_TARGET_NAME="${target_name}"
+    )
 
-add_dependencies(${PROJECT_NAME} project_build_info)
+    add_dependencies(${target_name} project_build_info)
+
+    target_compile_options(${target_name} PRIVATE ${PROJECT_WARNING_FLAGS})
+
+    pico_set_linker_script(${target_name} ${linker_script})
+
+    pico_add_dis_output(${target_name})
+    if(PICO_32BIT)
+        pico_add_hex_output(${target_name})
+    endif()
+    pico_add_bin_output(${target_name})
+    pico_add_map_output(${target_name})
+endfunction()
 
 set(PROJECT_WARNING_FLAGS
         -Wall
@@ -173,18 +192,20 @@ if(PROJECT_WARNINGS_AS_ERRORS)
     list(APPEND PROJECT_WARNING_FLAGS -Werror)
 endif()
 
-target_compile_options(${PROJECT_NAME} PRIVATE ${PROJECT_WARNING_FLAGS})
+project_configure_app_target(
+        ${PROJECT_NAME}
+        "RP2350_TRIG"
+        ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_app_slot_a.ld
+)
 
-pico_set_linker_script(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_app_slot_a.ld)
+add_executable(RP2350_TRIG_B
+        ${PROJECT_APP_SOURCES}
+)
 
-pico_add_dis_output(${PROJECT_NAME})
-if(PICO_32BIT)
-    pico_add_hex_output(${PROJECT_NAME})
-endif()
-pico_add_bin_output(${PROJECT_NAME})
-pico_add_map_output(${PROJECT_NAME})
-target_compile_definitions(${PROJECT_NAME} PRIVATE
-        PICO_TARGET_NAME="${PROJECT_NAME}"
+project_configure_app_target(
+        RP2350_TRIG_B
+        "RP2350_TRIG_B"
+        ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_app_slot_b.ld
 )
 
 add_executable(RP2350_TRIG_BOOT

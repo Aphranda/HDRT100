@@ -75,6 +75,7 @@ OTA 命令遵循 `docs/OTA方案.md` 中的 `OtaAO + OtaFB + OtaVector` 设计�
 | `SYST:OTA:STAT?` | 查询 OTA 状态摘要：状态、目标 slot、错误码、最近结果。 |
 | `SYST:OTA:PROG?` | 查询 OTA 进度：已接收字节、期望字节、千分比进度。 |
 | `SYST:OTA:BEGIN <size>,<crc32>` | 开始 OTA 传输，`size/crc32` 对应标准 raw firmware `.bin`，接受后返回 `"OK"`。 |
+| `SYST:OTA:PBEGIN <size>,<crc32>` | 开始统一 OTA package 传输，包内包含 Slot A/Slot B 两个 App 镜像；下位机根据当前 OTA 模式和 target slot 自行选择写入镜像。 |
 | `SYST:OTA:DATA #<block>` | 发送 `.bin` 二进制块，投递 `OTA_EVENT_DATA_BLOCK`，为保证吞吐当前不逐块返回 ACK。 |
 | `SYST:OTA:END` | 结束传输并请求校验，投递 `OTA_EVENT_END`，接受后返回 `"OK"`。 |
 | `SYST:OTA:ABOR` | 中止当前 OTA，投递 `OTA_EVENT_ABORT`，接受后返回 `"OK"`。 |
@@ -83,6 +84,11 @@ OTA 命令遵循 `docs/OTA方案.md` 中的 `OtaAO + OtaFB + OtaVector` 设计�
 | `SYST:OTA:SLOT?` | 查询 `active,pending,confirmed,boot_attempts,rollback_count`。 |
 | `SYST:OTA:RES?` | 查询 `app_result,app_error,boot_result,boot_source_slot,boot_size,boot_crc32`。 |
 | `SYST:OTA:TXN?` | 查询 Bootloader copy transaction：`state,source,destination,size,crc32,written,attempts,last_error`。 |
+| `SYST:OTA:MODE?` | 查询当前 OTA 启动模式：`"COPY_TO_ACTIVE",0` 或 `"DIRECT_AB",1`。 |
+| `SYST:OTA:TARG?` | 查询下一次 OTA 写入目标 slot，当前 copy-to-active 默认返回 `2`。 |
+| `SYST:OTA:CAP?` | 查询当前固件声明的 OTA 能力位，`bit0=COPY_TO_ACTIVE`，`bit1=DIRECT_AB`。 |
+
+统一 OTA package 由 `tools/ota_packager/ota_packager.py` 生成，`tools/ota_send/ota_send.py` 会自动识别包头并发送 `SYST:OTA:PBEGIN`。package 首部固定 512 B，payload 中 Slot A/Slot B 镜像按 512 B 对齐，保证流式写入时满足 Flash page 编程约束。
 
 第一阶段建议 `SYST:OTA:DATA` 单块 256 B 或 512 B。OTA 期间应暂停周期日志，避免日志与 SCPI binary block 混用同一 USB CDC 通道。
 
@@ -97,6 +103,8 @@ OTA 命令遵循 `docs/OTA方案.md` 中的 `OtaAO + OtaFB + OtaVector` 设计�
 | `SYST:OTA:INJ:CLEAR` | 清除 OTA 故障注入标志。 |
 | `SYST:OTA:INJ:MCOR <0|1>` | 擦除指定 metadata 副本，用于验证双副本容错。 |
 | `SYST:OTA:INJ:MREP` | 从当前有效 metadata 重新写入双副本，用于恢复 metadata 冗余。 |
+| `SYST:OTA:MODE <0|1>` | 切换 OTA 启动模式，`0=COPY_TO_ACTIVE`，`1=DIRECT_AB`。仅用于 direct A/B 台架验证。 |
+| `SYST:BOOT:RES` | 通过 watchdog 触发系统复位。仅用于 validation 固件验证 Bootloader 回滚路径。 |
 
 复制失败注入的期望结果：OTA payload 已进入 `READY_TO_REBOOT` 后发送 `SYST:OTA:BOOT`，Bootloader 应记录 `COPY_FAILED`，清除 pending，保留旧 App 运行，`rollback_count` 增加。
 
