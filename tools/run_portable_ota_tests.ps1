@@ -29,8 +29,15 @@ $testPrograms = @(
         Sources = @((Join-Path $tests "test_portable_ota_metadata.c")) + $commonSources
     },
     @{
+        Name = "test_portable_ota_image"
+        Sources = @((Join-Path $tests "test_portable_ota_image.c")) + $commonSources + @(
+            (Join-Path $src "pota_image.c")
+        )
+    },
+    @{
         Name = "test_portable_ota_core"
         Sources = @((Join-Path $tests "test_portable_ota_core.c")) + $commonSources + @(
+            (Join-Path $src "pota_image.c"),
             (Join-Path $src "pota_core.c")
         )
     }

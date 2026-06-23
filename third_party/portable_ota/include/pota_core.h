@@ -13,6 +13,7 @@ typedef struct {
     uint32_t target_offset;
     uint32_t target_run_offset;
     uint32_t target_erase_size;
+    uint32_t target_erase_offset;
     uint32_t selected_image_offset;
     uint32_t selected_image_size;
     uint32_t selected_image_crc32;
@@ -28,6 +29,7 @@ typedef struct {
 
 bool pota_init(pota_context_t *context, const pota_platform_t *platform);
 pota_error_t pota_begin(pota_context_t *context, const pota_begin_t *begin);
+pota_error_t pota_service(pota_context_t *context, uint32_t budget_us);
 pota_error_t pota_write(pota_context_t *context, const uint8_t *data, uint32_t size);
 pota_error_t pota_end(pota_context_t *context);
 pota_error_t pota_abort(pota_context_t *context);

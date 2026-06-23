@@ -114,3 +114,36 @@
   Bootloader apply、App commit 和 package 负向矩阵验证。
 - [x] Step 2A 最终安全状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`，无 pending，
   confirmed Slot A 保持运行。
+- [x] Step 2B：产品侧 CRC32 委托到 `middleware/portable_ota_port`，
+  App 和 Bootloader 共用 `third_party/portable_ota/src/pota_crc32.c`。
+- [x] Step 2B 构建闭环：`build-portable-boot-crc` 构建通过，
+  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`。
+- [x] Step 2B Bootloader 影响验证：用 `picotool` 烧录 factory，
+  COM4 上完成统一 package 正常 OTA、`SYST:OTA:BOOT`、Bootloader
+  `APPLIED`、App `COMM`。
+- [x] Step 2B 负向矩阵复测：整包 CRC、镜像 CRC、App 向量、包头
+  magic/version/size、slot、run_offset 均按预期失败。
+- [x] Step 2B 最终安全状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`，无 pending；
+  最后一次审计保留 `FAILED/IMAGE_TOO_LARGE`，Bootloader 最近成功结果为
+  `APPLIED`。
+- [x] Step 2C：产品侧 App 向量校验委托到 `middleware/portable_ota_port`，
+  App 和 Bootloader 共用 `third_party/portable_ota/src/pota_image.c`。
+- [x] Step 2C 构建闭环：新增 portable image vector 单测，
+  `build-portable-image` 构建通过，`release_check=OK`。
+- [x] Step 2C Bootloader 影响验证：用 `picotool` 烧录 factory，
+  COM4 上完成统一 package 正常 OTA、`SYST:OTA:BOOT`、Bootloader
+  `APPLIED`、App `COMM`。
+- [x] Step 2C 负向矩阵复测：`image-vector` 精准返回 `FAILED/VECTOR`，
+  其余整包 CRC、镜像 CRC、包头、slot、run_offset 均按预期失败。
+- [x] Step 2C 最终安全状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`，无 pending；
+  最后一次审计保留 `FAILED/IMAGE_TOO_LARGE`。
+- [x] Step 2D：补齐 `pota_core` 产品语义差异：package header CRC 早期拒绝、
+  `pota_service()` 分段擦除、最终块页对齐 padding、非最终非页对齐块拒绝。
+- [x] Step 2D 闭环：portable OTA ARM GCC compile/object-build gate 通过；
+  本步未切换产品固件路径，因此不重复板端烧录。
+- [x] Step 2E：增加 middleware core adapter，映射 `pota_status_t`/error/result
+  到现有 `ota_vector_t`/SCPI 语义。
+- [x] Step 2F：将产品 `ota_fb` BEGIN/TICK/DATA/END/ABORT 迁移到
+  `pota_core`，并执行完整烧录、正向 OTA、负向矩阵闭环。
+- [x] Step 2F 最终安全状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`，无 pending；
+  状态/错误映射保持原有 SCPI 期望。

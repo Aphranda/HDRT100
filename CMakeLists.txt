@@ -42,8 +42,10 @@ set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_buil
 set(PROJECT_OTA_METADATA_SIZE 0x010000)
 
 set(PROJECT_PORTABLE_OTA_ADAPTER_SOURCES
-        middleware/portable_ota_port/src/portable_ota_port.c
+        middleware/portable_ota_port/src/portable_ota_crc_port.c
+        middleware/portable_ota_port/src/portable_ota_image_port.c
         third_party/portable_ota/src/pota_crc32.c
+        third_party/portable_ota/src/pota_image.c
 )
 
 add_custom_target(project_build_info
@@ -67,6 +69,10 @@ set(PROJECT_APP_SOURCES
         components/ota_manager/src/ota_image.c
         components/ota_manager/src/ota_metadata.c
         components/ota_manager/src/ota_package.c
+        ${PROJECT_PORTABLE_OTA_ADAPTER_SOURCES}
+        middleware/portable_ota_port/src/portable_ota_core_port.c
+        middleware/portable_ota_port/src/portable_ota_port.c
+        third_party/portable_ota/src/pota_core.c
         third_party/portable_ota/src/pota_package.c
         components/sync_io/src/sync_io.c
         components/sync_config_ui/src/sync_config_ui.c
@@ -76,7 +82,6 @@ set(PROJECT_APP_SOURCES
         drivers/mcu/flash/src/drv_flash.c
         drivers/mcu/watchdog/src/drv_watchdog.c
         drivers/external/lcd/src/lcd_st7789.c
-        middleware/portable_ota_port/src/portable_ota_port.c
         middleware/scpi_port/src/scpi_port.c
         middleware/u8g2_port/src/u8g2_port.c
         third_party/scpi-parser/libscpi/src/error.c
@@ -192,7 +197,13 @@ endfunction()
 
 set_source_files_properties(
         middleware/portable_ota_port/src/portable_ota_port.c
+        middleware/portable_ota_port/src/portable_ota_core_port.c
+        middleware/portable_ota_port/src/portable_ota_crc_port.c
+        middleware/portable_ota_port/src/portable_ota_image_port.c
+        third_party/portable_ota/src/pota_core.c
         third_party/portable_ota/src/pota_package.c
+        third_party/portable_ota/src/pota_crc32.c
+        third_party/portable_ota/src/pota_image.c
         PROPERTIES
         INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include"
 )
@@ -228,6 +239,7 @@ add_executable(RP2350_TRIG_BOOT
         components/ota_manager/src/ota_crc32.c
         components/ota_manager/src/ota_image.c
         components/ota_manager/src/ota_metadata.c
+        ${PROJECT_PORTABLE_OTA_ADAPTER_SOURCES}
         drivers/mcu/flash/src/drv_flash.c
 )
 
@@ -240,6 +252,7 @@ pico_enable_stdio_usb(RP2350_TRIG_BOOT OFF)
 target_include_directories(RP2350_TRIG_BOOT PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/bootloader/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
+        ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/flash/inc
 )
 

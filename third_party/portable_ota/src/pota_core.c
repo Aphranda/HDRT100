@@ -67,20 +67,83 @@ static void pota_yield_or_delay(const pota_context_t *context)
     }
 }
 
-static pota_error_t pota_erase_target(pota_context_t *context)
+static void pota_schedule_erase(pota_context_t *context)
 {
-    if (context->target_erase_size == 0u) {
+    context->target_erase_offset = 0u;
+    context->status.programmed_size = 0u;
+    context->status.state = (uint32_t)POTA_STATE_CHECK_PERMISSION;
+}
+
+static pota_error_t pota_erase_one_step(pota_context_t *context)
+{
+    const uint32_t remaining = context->target_erase_size - context->target_erase_offset;
+    const uint32_t erase_size = remaining > context->platform.info.flash_sector_size ?
+                                    context->platform.info.flash_sector_size :
+                                    remaining;
+
+    if (erase_size == 0u) {
+        context->status.programmed_size = 0u;
+        context->status.state = (uint32_t)POTA_STATE_RECEIVING;
         return POTA_ERR_NONE;
     }
-    context->status.state = (uint32_t)POTA_STATE_ERASE_SLOT;
-    if (!context->platform.ops.flash_erase(context->target_offset, context->target_erase_size)) {
+
+    if (!context->platform.ops.flash_erase(context->target_offset + context->target_erase_offset,
+                                           erase_size)) {
         pota_set_failed(context, POTA_ERR_FLASH_ERASE);
         return POTA_ERR_FLASH_ERASE;
     }
+
+    context->target_erase_offset += erase_size;
+    context->status.programmed_size = context->target_erase_offset;
     pota_feed_watchdog(context);
     pota_yield_or_delay(context);
-    context->status.programmed_size = 0u;
-    context->status.state = (uint32_t)POTA_STATE_RECEIVING;
+    if (context->target_erase_offset >= context->target_erase_size) {
+        context->status.programmed_size = 0u;
+        context->status.state = (uint32_t)POTA_STATE_RECEIVING;
+    }
+    return POTA_ERR_NONE;
+}
+
+static pota_error_t pota_program_target(pota_context_t *context,
+                                        uint32_t image_offset,
+                                        const uint8_t *data,
+                                        uint32_t size,
+                                        bool is_final)
+{
+    if (data == NULL || size == 0u ||
+        size > POTA_MAX_DATA_BLOCK_SIZE ||
+        context->platform.info.flash_page_size == 0u ||
+        context->platform.info.flash_page_size > POTA_MAX_FLASH_PAGE_SIZE) {
+        pota_set_failed(context, POTA_ERR_BAD_ARGUMENT);
+        return POTA_ERR_BAD_ARGUMENT;
+    }
+
+    const uint32_t program_size = pota_align_up(size, context->platform.info.flash_page_size);
+    if (!is_final && program_size != size) {
+        pota_set_failed(context, POTA_ERR_BAD_ARGUMENT);
+        return POTA_ERR_BAD_ARGUMENT;
+    }
+
+    if (program_size == size) {
+        if (!context->platform.ops.flash_program(context->target_offset + image_offset,
+                                                 data,
+                                                 size)) {
+            pota_set_failed(context, POTA_ERR_FLASH_PROGRAM);
+            return POTA_ERR_FLASH_PROGRAM;
+        }
+        return POTA_ERR_NONE;
+    }
+
+    uint8_t program_buffer[POTA_MAX_DATA_BLOCK_SIZE + POTA_MAX_FLASH_PAGE_SIZE];
+    memset(program_buffer, 0xFF, program_size);
+    memcpy(program_buffer, data, size);
+    if (!context->platform.ops.flash_program(context->target_offset + image_offset,
+                                             program_buffer,
+                                             program_size)) {
+        pota_set_failed(context, POTA_ERR_FLASH_PROGRAM);
+        return POTA_ERR_FLASH_PROGRAM;
+    }
+
     return POTA_ERR_NONE;
 }
 
@@ -120,7 +183,12 @@ pota_error_t pota_begin(pota_context_t *context, const pota_begin_t *begin)
     context->package_header_received = false;
     context->target_slot = pota_select_target_slot(context);
     const pota_partition_t *partition = pota_partition_for_slot(context, context->target_slot);
-    if (partition == NULL || begin->size > partition->size + POTA_PACKAGE_HEADER_SIZE) {
+    const uint32_t max_size = begin->package_mode ?
+                                  (POTA_PACKAGE_HEADER_SIZE +
+                                   context->platform.info.slot_a.size +
+                                   context->platform.info.slot_b.size) :
+                                  partition != NULL ? partition->size : 0u;
+    if (partition == NULL || begin->size > max_size) {
         pota_set_failed(context, POTA_ERR_IMAGE_TOO_LARGE);
         return POTA_ERR_IMAGE_TOO_LARGE;
     }
@@ -135,7 +203,10 @@ pota_error_t pota_begin(pota_context_t *context, const pota_begin_t *begin)
     context->target_erase_size = begin->package_mode ? 0u :
                                      pota_align_up(begin->size, context->platform.info.flash_sector_size);
 
-    context->status.state = POTA_STATE_RECEIVING;
+    context->target_erase_offset = 0u;
+    context->status.state = begin->package_mode ?
+                                (uint32_t)POTA_STATE_RECEIVING :
+                                (uint32_t)POTA_STATE_CHECK_PERMISSION;
     context->status.target_slot = (uint32_t)context->target_slot;
     context->status.expected_size = begin->size;
     context->status.received_size = 0u;
@@ -144,10 +215,28 @@ pota_error_t pota_begin(pota_context_t *context, const pota_begin_t *begin)
     context->status.crc32_running = 0u;
     context->status.error_code = (uint32_t)POTA_ERR_NONE;
     context->status.last_result = (uint32_t)POTA_RESULT_ACCEPTED;
-    if (!begin->package_mode) {
-        return pota_erase_target(context);
-    }
     return POTA_ERR_NONE;
+}
+
+pota_error_t pota_service(pota_context_t *context, uint32_t budget_us)
+{
+    (void)budget_us;
+
+    if (context == NULL) {
+        return POTA_ERR_BAD_ARGUMENT;
+    }
+
+    switch ((pota_state_t)context->status.state) {
+    case POTA_STATE_CHECK_PERMISSION:
+        context->status.state = (uint32_t)POTA_STATE_ERASE_SLOT;
+        return POTA_ERR_NONE;
+
+    case POTA_STATE_ERASE_SLOT:
+        return pota_erase_one_step(context);
+
+    default:
+        return POTA_ERR_NONE;
+    }
 }
 
 pota_error_t pota_write(pota_context_t *context, const uint8_t *data, uint32_t size)
@@ -176,7 +265,10 @@ pota_error_t pota_write(pota_context_t *context, const uint8_t *data, uint32_t s
             .bootloader_version = context->platform.info.bootloader_version,
         };
         pota_error_t error = pota_package_parse_header(data, size, &constraints, &manifest);
-        if (error != POTA_ERR_NONE || manifest.package_size != context->status.expected_size) {
+        if (error != POTA_ERR_NONE ||
+            manifest.package_size != context->status.expected_size ||
+            (manifest.package_crc32 != 0u &&
+             manifest.package_crc32 != context->status.crc32_expected)) {
             pota_set_failed(context, error == POTA_ERR_NONE ? POTA_ERR_BAD_HEADER : error);
             return (pota_error_t)context->status.error_code;
         }
@@ -198,12 +290,9 @@ pota_error_t pota_write(pota_context_t *context, const uint8_t *data, uint32_t s
         context->selected_image_size = image->size;
         context->selected_image_crc32 = image->crc32;
         context->target_erase_size = pota_align_up(image->size, context->platform.info.flash_sector_size);
+        context->target_erase_offset = 0u;
         context->package_header_received = true;
-
-        pota_error_t erase_error = pota_erase_target(context);
-        if (erase_error != POTA_ERR_NONE) {
-            return erase_error;
-        }
+        pota_schedule_erase(context);
     }
 
     context->status.crc32_running = pota_crc32_update(context->status.crc32_running, data, size);
@@ -211,9 +300,12 @@ pota_error_t pota_write(pota_context_t *context, const uint8_t *data, uint32_t s
 
     if (!context->package_mode) {
         const uint32_t write_offset = context->target_offset + context->status.programmed_size;
-        if (!context->platform.ops.flash_program(write_offset, data, size)) {
-            pota_set_failed(context, POTA_ERR_FLASH_PROGRAM);
-            return POTA_ERR_FLASH_PROGRAM;
+        const bool is_final = context->status.received_size == context->status.expected_size;
+        (void)write_offset;
+        pota_error_t program_error =
+            pota_program_target(context, context->status.programmed_size, data, size, is_final);
+        if (program_error != POTA_ERR_NONE) {
+            return program_error;
         }
         context->status.programmed_size += size;
         pota_feed_watchdog(context);
@@ -234,12 +326,17 @@ pota_error_t pota_write(pota_context_t *context, const uint8_t *data, uint32_t s
             const uint32_t copy_length = copy_end - copy_start;
             const uint32_t data_offset = copy_start - block_start;
             const uint32_t image_offset = copy_start - image_start;
+            const bool is_image_final =
+                (image_offset + copy_length) == context->selected_image_size;
 
-            if (!context->platform.ops.flash_program(context->target_offset + image_offset,
-                                                     &data[data_offset],
-                                                     copy_length)) {
-                pota_set_failed(context, POTA_ERR_FLASH_PROGRAM);
-                return POTA_ERR_FLASH_PROGRAM;
+            pota_error_t program_error =
+                pota_program_target(context,
+                                    image_offset,
+                                    &data[data_offset],
+                                    copy_length,
+                                    is_image_final);
+            if (program_error != POTA_ERR_NONE) {
+                return program_error;
             }
 
             context->selected_image_crc32_running =

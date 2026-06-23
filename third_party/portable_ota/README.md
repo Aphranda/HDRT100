@@ -15,8 +15,9 @@ Portable:
 
 - package manifest parsing.
 - CRC32.
+- App vector-table validation helper.
 - common OTA states, errors, results, and slot identifiers.
-- App-side begin/write/end/abort/commit API shape.
+- App-side begin/service/write/end/abort/commit API shape.
 - redundant metadata structure and helper declarations.
 
 Platform-specific:
@@ -34,7 +35,9 @@ Platform-specific:
 ```text
 transport receives file
   -> pota_begin()
+  -> pota_service() until erase is complete when state is CHECK_PERMISSION/ERASE_SLOT
   -> pota_write() for each block
+  -> pota_service() again after a package header schedules target erase
   -> pota_end()
   -> platform reboot
   -> Bootloader applies pending image
@@ -56,15 +59,16 @@ include/pota_types.h
 include/pota_platform.h
 include/pota_package.h
 include/pota_metadata.h
+include/pota_image.h
 include/pota_core.h
 src/pota_crc32.c
 src/pota_package.c
+src/pota_image.c
+src/pota_metadata.c
 src/pota_core.c
 ```
 
-This first version is a reusable foundation, not a drop-in replacement for the
-current RP2350_TRIG OTA implementation. The recommended migration is to adopt
-the package parser and types first, then move metadata and the App-side state
-machine behind an RP2350 adapter once parity tests pass. The same boundary is
-intended to support later RP2350 RTOS and STM32 RTOS ports without changing the
-package format or validation chain.
+The current RP2350_TRIG product integration keeps all direct `pota_*` use in
+`middleware/portable_ota_port`. Product OTA modules call the middleware adapter
+so the same core library can later be reused by RP2350 RTOS and STM32 RTOS
+ports without changing the package format or validation chain.
