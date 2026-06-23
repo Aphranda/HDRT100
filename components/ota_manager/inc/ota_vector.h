@@ -46,5 +46,6 @@ typedef struct {
 
 const char *ota_state_to_string(ota_state_t state);
 const char *ota_error_to_string(uint32_t error_code);
+const char *ota_result_to_string(ota_result_t result);
 
 #endif

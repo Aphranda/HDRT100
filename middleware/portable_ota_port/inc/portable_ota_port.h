@@ -28,5 +28,43 @@ bool portable_ota_port_core_service(uint32_t budget_us, ota_vector_t *vector);
 bool portable_ota_port_core_write(const uint8_t *data, uint32_t length, ota_vector_t *vector);
 bool portable_ota_port_core_end(ota_vector_t *vector);
 bool portable_ota_port_core_abort(ota_vector_t *vector);
+const char *portable_ota_port_state_to_string(ota_state_t state);
+const char *portable_ota_port_error_to_string(uint32_t error_code);
+const char *portable_ota_port_result_to_string(ota_result_t result);
+const char *portable_ota_port_boot_result_to_string(uint32_t result);
+uint32_t portable_ota_port_metadata_crc32(const ota_metadata_t *metadata);
+uint32_t portable_ota_port_metadata_ext_crc32(const ota_metadata_t *metadata);
+uint32_t portable_ota_port_metadata_ab_crc32(const ota_metadata_t *metadata);
+void portable_ota_port_metadata_update_crc(ota_metadata_t *metadata);
+bool portable_ota_port_metadata_is_valid(const ota_metadata_t *metadata);
+bool portable_ota_port_metadata_copy_txn_state_is_valid(uint32_t state);
+bool portable_ota_port_metadata_boot_mode_is_valid(uint32_t mode);
+bool portable_ota_port_metadata_slot_or_none_is_valid(uint32_t slot);
+void portable_ota_port_metadata_clear_copy_transaction_fields(ota_metadata_t *metadata);
+void portable_ota_port_metadata_init_extension_defaults(ota_metadata_t *metadata);
+void portable_ota_port_metadata_set_default(ota_metadata_t *metadata);
+void portable_ota_port_metadata_upgrade_if_needed(ota_metadata_t *metadata);
+bool portable_ota_port_metadata_mark_pending(ota_metadata_t *metadata,
+                                             ota_slot_t slot,
+                                             uint32_t image_size,
+                                             uint32_t image_crc32);
+bool portable_ota_port_metadata_confirm_active(ota_metadata_t *metadata);
+bool portable_ota_port_metadata_set_boot_mode(ota_metadata_t *metadata, ota_boot_mode_t mode);
+bool portable_ota_port_metadata_set_fault_injection(ota_metadata_t *metadata, uint32_t flags);
+bool portable_ota_port_metadata_begin_copy_transaction(ota_metadata_t *metadata,
+                                                       ota_slot_t source,
+                                                       ota_slot_t destination,
+                                                       uint32_t image_size,
+                                                       uint32_t image_crc32);
+bool portable_ota_port_metadata_update_copy_transaction(ota_metadata_t *metadata,
+                                                        uint32_t state,
+                                                        uint32_t written,
+                                                        uint32_t last_error);
+bool portable_ota_port_metadata_finish_copy_transaction(ota_metadata_t *metadata);
+bool portable_ota_port_metadata_fail_copy_transaction(ota_metadata_t *metadata,
+                                                      uint32_t last_error);
+bool portable_ota_port_metadata_clear_copy_transaction(ota_metadata_t *metadata);
+const ota_metadata_t *portable_ota_port_metadata_select_newest(const ota_metadata_t *copies,
+                                                               size_t copy_count);
 
 #endif

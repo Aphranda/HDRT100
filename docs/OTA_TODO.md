@@ -147,3 +147,56 @@
   `pota_core`，并执行完整烧录、正向 OTA、负向矩阵闭环。
 - [x] Step 2F 最终安全状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`，无 pending；
   状态/错误映射保持原有 SCPI 期望。
+- [x] Step 3A：新增 `include/pota.h` 一站式头文件和 `pota_session`
+  会话门面，产品 middleware core adapter 改为调用 `pota_session_*`。
+- [x] Step 3B 闭环：`build-portable-session` 构建通过，
+  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
+  COM4 上完成 factory 烧录、正向 OTA、Bootloader `APPLIED`、App `COMM`
+  和完整负向矩阵。
+- [x] Step 3B 最终安全状态：`SYST:FW:BUILD? -> "20260623101235"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:RES? ->
+  4,"IMAGE_TOO_LARGE","APPLIED",1,75024,895520178`。
+- [x] Step 3C：新增 `pota_strings`，将 OTA state/error/result 和
+  Bootloader result 文本 helper 下沉到 `third_party/portable_ota`；
+  产品侧 `ota_state_to_string()`、`ota_error_to_string()` 和
+  `ota_metadata_boot_result_to_string()` 改为 middleware 包装。
+- [x] Step 3C 闭环：`build-portable-strings` 构建通过，
+  portable strings 单测纳入 ARM GCC compile/object-build gate，
+  `release_check=OK`；COM4 上完成 factory 烧录、正向 OTA、Bootloader
+  `APPLIED`、App `COMM`。
+- [x] Step 3C 负向矩阵复测：整包 CRC、镜像 CRC、App 向量、包头
+  magic/version/size、slot、run_offset 均按预期输出原有 SCPI 文本。
+- [x] Step 3C 最终安全状态：`SYST:FW:BUILD? -> "20260623102556"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:RES? ->
+  4,"IMAGE_TOO_LARGE","APPLIED",1,75224,2315388268`。
+- [x] Step 3D：将 metadata v3 schema、基础 CRC、扩展区 CRC、A/B CRC、
+  默认值初始化、copy transaction 字段清理、状态/slot 合法性判断和
+  newest-copy 选择逻辑下沉到 `third_party/portable_ota`。
+- [x] Step 3D 产品接入：新增 `portable_ota_metadata_port.c`，通过字段布局
+  static assert 保证 `ota_metadata_t` 与 `pota_metadata_t` 兼容；产品侧
+  flash 双副本读写、v2 旧格式迁移和 RP2350 offset 策略仍保留在
+  `components/ota_manager/src/ota_metadata.c`。
+- [x] Step 3D 闭环：`build-portable-metadata` 构建通过，
+  portable metadata v3 单测纳入 ARM GCC compile/object-build gate，
+  `release_check=OK`；COM4 上完成 factory 烧录、正向 OTA、Bootloader
+  `APPLIED`、App `COMM`。
+- [x] Step 3D 负向矩阵复测：整包 CRC、镜像 CRC、App 向量、包头
+  magic/version/size、slot、run_offset 均按预期失败，且未留下 pending。
+- [x] Step 3D 最终安全状态：`SYST:FW:BUILD? -> "20260623104609"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:RES? ->
+  4,"IMAGE_TOO_LARGE","APPLIED",1,75240,3624267205`。
+- [x] Step 3E：将 `mark_pending`、`confirm_active`、`set_boot_mode`、
+  `set_fault_injection` 和 copy transaction 状态更新等内存 metadata
+  mutation helper 下沉到 `third_party/portable_ota`。
+- [x] Step 3E 产品接入：产品 `ota_metadata_*` 公开 API 保持不变，
+  内部收敛为 `load -> portable mutation -> store`；RP2350 flash 双副本
+  存储策略仍留在产品层。
+- [x] Step 3E 闭环：`build-portable-metadata-mutation` 构建通过，
+  portable metadata mutation 单测纳入 ARM GCC compile/object-build gate，
+  `release_check=OK`；COM4 上完成 factory 烧录、正向 OTA、Bootloader
+  `APPLIED`、App `COMM`。
+- [x] Step 3E 负向矩阵复测：整包 CRC、镜像 CRC、App 向量、包头
+  magic/version/size、slot、run_offset 均按预期失败，且未留下 pending。
+- [x] Step 3E 最终安全状态：`SYST:FW:BUILD? -> "20260623112832"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:RES? ->
+  4,"IMAGE_TOO_LARGE","APPLIED",1,75160,3242593473`。

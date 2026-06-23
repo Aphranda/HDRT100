@@ -44,8 +44,12 @@ set(PROJECT_OTA_METADATA_SIZE 0x010000)
 set(PROJECT_PORTABLE_OTA_ADAPTER_SOURCES
         middleware/portable_ota_port/src/portable_ota_crc_port.c
         middleware/portable_ota_port/src/portable_ota_image_port.c
+        middleware/portable_ota_port/src/portable_ota_metadata_port.c
+        middleware/portable_ota_port/src/portable_ota_strings_port.c
         third_party/portable_ota/src/pota_crc32.c
         third_party/portable_ota/src/pota_image.c
+        third_party/portable_ota/src/pota_metadata.c
+        third_party/portable_ota/src/pota_strings.c
 )
 
 add_custom_target(project_build_info
@@ -73,6 +77,7 @@ set(PROJECT_APP_SOURCES
         middleware/portable_ota_port/src/portable_ota_core_port.c
         middleware/portable_ota_port/src/portable_ota_port.c
         third_party/portable_ota/src/pota_core.c
+        third_party/portable_ota/src/pota_session.c
         third_party/portable_ota/src/pota_package.c
         components/sync_io/src/sync_io.c
         components/sync_config_ui/src/sync_config_ui.c
@@ -200,10 +205,15 @@ set_source_files_properties(
         middleware/portable_ota_port/src/portable_ota_core_port.c
         middleware/portable_ota_port/src/portable_ota_crc_port.c
         middleware/portable_ota_port/src/portable_ota_image_port.c
+        middleware/portable_ota_port/src/portable_ota_metadata_port.c
+        middleware/portable_ota_port/src/portable_ota_strings_port.c
         third_party/portable_ota/src/pota_core.c
+        third_party/portable_ota/src/pota_session.c
         third_party/portable_ota/src/pota_package.c
         third_party/portable_ota/src/pota_crc32.c
         third_party/portable_ota/src/pota_image.c
+        third_party/portable_ota/src/pota_metadata.c
+        third_party/portable_ota/src/pota_strings.c
         PROPERTIES
         INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include"
 )

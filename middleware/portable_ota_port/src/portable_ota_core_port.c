@@ -3,13 +3,13 @@
 #include "drv_flash.h"
 #include "ota_error.h"
 #include "ota_partition.h"
-#include "pota_core.h"
+#include "pota.h"
 
 #define PORTABLE_OTA_PRODUCT_ID "RP2350_TRIG"
 #define PORTABLE_OTA_HARDWARE_ID "rp2350_trig"
 #define PORTABLE_OTA_BOOTLOADER_VERSION POTA_PACK_VERSION(0u, 1u, 0u)
 
-static pota_context_t s_core;
+static pota_session_t s_session;
 
 static bool portable_core_flash_erase(uint32_t offset, uint32_t size)
 {
@@ -122,7 +122,7 @@ static void portable_core_copy_status(ota_vector_t *vector)
     }
 
     pota_status_t status;
-    pota_get_status(&s_core, &status);
+    pota_session_get_status(&s_session, &status);
     vector->state = status.state;
     vector->target_slot = status.target_slot;
     vector->expected_size = status.expected_size;
@@ -176,7 +176,7 @@ bool portable_ota_port_core_begin(const ota_metadata_t *metadata,
                                   ota_vector_t *vector)
 {
     const pota_platform_t platform = portable_core_make_platform(metadata);
-    if (!pota_init(&s_core, &platform)) {
+    if (!pota_session_init(&s_session, &platform)) {
         return false;
     }
 
@@ -186,35 +186,35 @@ bool portable_ota_port_core_begin(const ota_metadata_t *metadata,
         .package_mode = package_mode,
     };
 
-    const pota_error_t error = pota_begin(&s_core, &begin);
+    const pota_error_t error = pota_session_begin(&s_session, &begin);
     portable_core_copy_status(vector);
     return error == POTA_ERR_NONE;
 }
 
 bool portable_ota_port_core_service(uint32_t budget_us, ota_vector_t *vector)
 {
-    const pota_error_t error = pota_service(&s_core, budget_us);
+    const pota_error_t error = pota_session_service(&s_session, budget_us);
     portable_core_copy_status(vector);
     return error == POTA_ERR_NONE;
 }
 
 bool portable_ota_port_core_write(const uint8_t *data, uint32_t length, ota_vector_t *vector)
 {
-    const pota_error_t error = pota_write(&s_core, data, length);
+    const pota_error_t error = pota_session_write(&s_session, data, length);
     portable_core_copy_status(vector);
     return error == POTA_ERR_NONE;
 }
 
 bool portable_ota_port_core_end(ota_vector_t *vector)
 {
-    const pota_error_t error = pota_end(&s_core);
+    const pota_error_t error = pota_session_end(&s_session);
     portable_core_copy_status(vector);
     return error == POTA_ERR_NONE;
 }
 
 bool portable_ota_port_core_abort(ota_vector_t *vector)
 {
-    const pota_error_t error = pota_abort(&s_core);
+    const pota_error_t error = pota_session_abort(&s_session);
     portable_core_copy_status(vector);
     return error == POTA_ERR_NONE;
 }

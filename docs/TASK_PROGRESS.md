@@ -45,6 +45,85 @@
 
 ## 任务记录
 
+### TASK-20260623-009 - Portable OTA 第三方库迁移阶段验证
+
+- 状态：进行中
+- 日期：2026-06-23
+- 任务目标：
+  - 将当前 OTA 公共能力逐步迁入 `third_party/portable_ota`，让 OTA 像 `scpi_parser` 一样以第三方库形式被产品工程调用。
+  - 保持 RP2350 当前 release 默认 `COPY_TO_ACTIVE` 行为不变，并为后续 RP2350 RTOS、STM32 RTOS 复用打基础。
+  - 每个迁移步骤完成后执行构建、烧录、正向 OTA、Bootloader apply/commit 和负向矩阵闭环验证。
+- 完成内容：
+  - 新增 `third_party/portable_ota` 会话门面：`pota.h`、`pota_session.h/.c`，产品 middleware core adapter 改为通过 `pota_session_*` 调用 portable core。
+  - 新增 `pota_strings.h/.c`，将 OTA state/error/result 和 Bootloader result 文本 helper 下沉到 portable OTA；产品专属兼容文本通过 `portable_ota_strings_port.c` 保留在 middleware。
+  - 将 package parser、CRC32、App vector validation、App 侧 core receive/write/end/abort 流程迁入 portable OTA，并通过 middleware adapter 接入当前产品。
+  - 将 metadata v3 schema、基础 CRC、扩展区 CRC、A/B CRC、默认值初始化、copy transaction 字段清理、状态/slot 合法性判断和 newest-copy 选择逻辑下沉到 portable OTA。
+  - 将 `mark_pending`、`confirm_active`、`set_boot_mode`、`set_fault_injection` 和 copy transaction 状态更新等内存 metadata mutation helper 下沉到 portable OTA。
+  - 新增 `portable_ota_metadata_port.c`，用字段布局 static assert 保证 `ota_metadata_t` 与 `pota_metadata_t` 兼容。
+  - 产品侧 `ota_metadata_*` 公开 API 保持不变，内部收敛为 `load -> portable mutation -> store`。
+  - 产品侧仍保留 RP2350 相关职责：flash 双副本 offset、erase/program/read、v2 旧格式迁移、Bootloader apply/rollback 策略。
+  - 更新 `third_party/portable_ota/README.md`、`docs/OTA_TODO.md`、`docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `cmake -S . -B build-portable-session -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - `cmake --build build-portable-session` 通过，`release_check=OK`。
+  - `build-portable-session\RP2350_TRIG_FACTORY.uf2` 已用 `picotool` 烧录；COM4 上完成正向统一 package OTA、Bootloader `APPLIED`、App `COMM` 和完整负向矩阵。
+  - `cmake -S . -B build-portable-strings -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - `cmake --build build-portable-strings` 通过，`release_check=OK`；烧录后正向 OTA、Bootloader `APPLIED`、App `COMM`、负向矩阵全部通过。
+  - `cmake -S . -B build-portable-metadata -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - `cmake --build build-portable-metadata` 通过，`release_check=OK`。
+  - `build-portable-metadata\RP2350_TRIG_FACTORY.uf2` 已用 `picotool` 烧录；baseline：
+    - `SYST:FW:BUILD? -> "20260623104609"`
+    - `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`
+  - 正向 OTA 通过：`READY_TO_REBOOT`，Bootloader apply 后 `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,75240,3624267205`，`SYST:OTA:COMM -> "OK"` 后 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`。
+  - `cmake -S . -B build-portable-metadata-mutation -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - `cmake --build build-portable-metadata-mutation` 通过，`release_check=OK`。
+  - `build-portable-metadata-mutation\RP2350_TRIG_FACTORY.uf2` 已用 `picotool` 烧录；baseline：
+    - `SYST:FW:BUILD? -> "20260623112832"`
+    - `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`
+  - mutation helper 正向 OTA 通过：`READY_TO_REBOOT`，Bootloader apply 后 `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,75160,3242593473`，`SYST:OTA:COMM -> "OK"` 后 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`。
+  - 负向矩阵全部通过：
+    - 整包 CRC -> `"FAILED",2,"CRC",4`
+    - 镜像 CRC -> `"FAILED",2,"CRC",4`
+    - App 向量 -> `"FAILED",2,"VECTOR",4`
+    - header magic/version/size -> `"FAILED",2,"BAD_HEADER",4`
+    - slot -> `"FAILED",2,"BAD_HEADER",4`
+    - run-offset -> `"FAILED",2,"IMAGE_TOO_LARGE",4`
+  - 最终安全状态：
+    - `SYST:FW:BUILD? -> "20260623112832"`
+    - `SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75160,3242593473`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+- 还需完成：
+  - 将 Bootloader 侧 `bootloader_store_result()`、direct A/B apply/rollback 更新、copy-to-active transaction 更新等内存 metadata mutation 继续下沉到 portable OTA。
+  - 保持 Bootloader 层只负责平台 flash、镜像校验、watchdog reset 和 slot jump 策略。
+  - 后续在 RP2350 RTOS 化时增加 OTA task/queue/flash service/watchdog feed 适配。
+  - 后续移植到 STM32 RTOS 时复用 package、core、metadata、strings 和验证矩阵。
+- 关联文件：
+  - `third_party/portable_ota/include/pota.h`
+  - `third_party/portable_ota/include/pota_session.h`
+  - `third_party/portable_ota/include/pota_strings.h`
+  - `third_party/portable_ota/include/pota_metadata.h`
+  - `third_party/portable_ota/src/pota_session.c`
+  - `third_party/portable_ota/src/pota_strings.c`
+  - `third_party/portable_ota/src/pota_metadata.c`
+  - `middleware/portable_ota_port/inc/portable_ota_port.h`
+  - `middleware/portable_ota_port/src/portable_ota_core_port.c`
+  - `middleware/portable_ota_port/src/portable_ota_strings_port.c`
+  - `middleware/portable_ota_port/src/portable_ota_metadata_port.c`
+  - `components/ota_manager/src/ota_metadata.c`
+  - `tests/unit/test_portable_ota_metadata.c`
+  - `docs/OTA_TODO.md`
+  - `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`
+  - `third_party/portable_ota/README.md`
+- 下一步：
+  - 继续迁移 Bootloader 侧 metadata mutation helper，并按同样闭环执行 portable gate、fresh build、release_check、factory 烧录、正向 OTA、commit 和负向矩阵。
+
 ### TASK-20260623-008 - OTA 统一升级包实现与实机验证
 
 - 状态：完成

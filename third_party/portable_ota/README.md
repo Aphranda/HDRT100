@@ -9,6 +9,9 @@ The library deliberately does not include transport code. A product may feed it
 from SCPI, UART, CAN, Ethernet, USB, SD card, an RTOS transport task, or a
 factory test fixture.
 
+All repository text files should be read as UTF-8. This matters for the Chinese
+project documents under `docs/` and for validation reports copied between PCs.
+
 ## Library Boundary
 
 Portable:
@@ -17,12 +20,16 @@ Portable:
 - CRC32.
 - App vector-table validation helper.
 - common OTA states, errors, results, and slot identifiers.
+- common state/error/result text helpers.
 - App-side begin/service/write/end/abort/commit API shape.
-- redundant metadata structure and helper declarations.
+- one-shot session facade for simple product integration.
+- redundant metadata v3 structure, CRC helpers, default initializer,
+  transaction helpers, and newest-copy selector.
 
 Platform-specific:
 
 - flash erase/program/read.
+- metadata copy storage layout and write policy.
 - cache and interrupt coordination.
 - RTOS locking, task ownership, and queueing policy.
 - reboot and boot partition selection.
@@ -34,16 +41,23 @@ Platform-specific:
 
 ```text
 transport receives file
-  -> pota_begin()
-  -> pota_service() until erase is complete when state is CHECK_PERMISSION/ERASE_SLOT
-  -> pota_write() for each block
-  -> pota_service() again after a package header schedules target erase
-  -> pota_end()
+  -> pota_session_init()
+  -> pota_session_begin()
+  -> pota_session_service() until erase is complete when state is CHECK_PERMISSION/ERASE_SLOT
+  -> pota_session_write() for each block
+  -> pota_session_service() again after a package header schedules target erase
+  -> pota_session_end()
   -> platform reboot
   -> Bootloader applies pending image
   -> App self-test
-  -> pota_commit()
+  -> pota_session_commit()
 ```
+
+Products that want lower-level ownership may call `pota_begin()`,
+`pota_service()`, `pota_write()`, `pota_end()`, and `pota_abort()` directly.
+For new RP2350 RTOS and STM32 RTOS ports, start from `include/pota.h` and the
+session facade unless there is a concrete reason to own the core context
+manually.
 
 ## Migration Rule
 
@@ -61,11 +75,16 @@ include/pota_package.h
 include/pota_metadata.h
 include/pota_image.h
 include/pota_core.h
+include/pota_session.h
+include/pota_strings.h
+include/pota.h
 src/pota_crc32.c
 src/pota_package.c
 src/pota_image.c
 src/pota_metadata.c
 src/pota_core.c
+src/pota_session.c
+src/pota_strings.c
 ```
 
 The current RP2350_TRIG product integration keeps all direct `pota_*` use in

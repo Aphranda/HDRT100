@@ -649,3 +649,402 @@ Pass/fail:
   and mark-pending flow now run through portable core.
 - Pass. Existing SCPI state/error/result contract stayed compatible with the
   validation tool and negative-path expectations.
+
+### Step 3A/3B: Portable Session Facade And Product Adapter Switch
+
+Goal:
+
+- Make the third-party library easier to integrate by providing a single
+  `pota.h` include and a `pota_session` facade.
+- Keep the product middleware as the only direct caller of `pota_*` APIs.
+- Preserve the current App SCPI behavior while reducing product-side ownership
+  of the core OTA context.
+
+Code scope:
+
+- Added `third_party/portable_ota/include/pota.h`.
+- Added `third_party/portable_ota/include/pota_session.h` and
+  `third_party/portable_ota/src/pota_session.c`.
+- Added `tests/unit/test_portable_ota_session.c`.
+- `middleware/portable_ota_port/src/portable_ota_core_port.c` now owns a
+  `pota_session_t` and calls `pota_session_*` instead of direct `pota_core`
+  functions.
+- `tools/run_portable_ota_tests.ps1` builds the new session test.
+
+Build and release gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+cmake -S . -B build-portable-session -G Ninja `
+  -DPICO_BOARD=pico2 `
+  -DPROJECT_WARNINGS_AS_ERRORS=ON `
+  -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF
+cmake --build build-portable-session
+python tools\release_check\release_check.py `
+  --preset pico2-release `
+  --build-dir build-portable-session
+```
+
+Actual result:
+
+- Portable OTA tests passed the ARM GCC compile/object-build gate. Host
+  execution was skipped because no host C compiler was found.
+- `cmake --build build-portable-session` passed.
+- Release gate passed with `release_check=OK`.
+- Generated unified package:
+  `build-portable-session\RP2350_TRIG_UPDATE.pkg`,
+  size `150816`, package CRC32 `0xC56EDF69`, build id
+  `20260623101235`.
+
+Hardware validation:
+
+- Factory flashed with `picotool`:
+  `build-portable-session\RP2350_TRIG_FACTORY.uf2`.
+- Initial state after factory:
+  `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`,
+  `SYST:FW:BUILD? -> "20260623101235"`,
+  `SYST:BOOT:VERS? -> 0,1,0`,
+  `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`,
+  `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`.
+- Positive package:
+  `python tools\ota_send\ota_send.py COM4 build-portable-session\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT`.
+- Boot/apply/commit:
+  `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,75024,895520178`,
+  `SYST:OTA:COMM -> "OK"`,
+  `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`.
+- Negative package matrix after session facade migration:
+  transport CRC -> `"FAILED",2,"CRC",4`;
+  image CRC -> `"FAILED",2,"CRC",4`;
+  image vector -> `"FAILED",2,"VECTOR",4`;
+  header magic -> `"FAILED",2,"BAD_HEADER",4`;
+  header version -> `"FAILED",2,"BAD_HEADER",4`;
+  header size -> `"FAILED",2,"BAD_HEADER",4`;
+  image slot -> `"FAILED",2,"BAD_HEADER",4`;
+  run offset -> `"FAILED",2,"IMAGE_TOO_LARGE",4`.
+- Final safe state:
+  `SYST:FW:BUILD? -> "20260623101235"`,
+  `SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`,
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75024,895520178`,
+  `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`.
+
+Pass/fail:
+
+- Pass. Product firmware now consumes the portable core through the session
+  facade while preserving the existing validation behavior.
+- Pass. The session facade is now the recommended integration entry point for
+  future RP2350 RTOS and STM32 RTOS ports.
+
+### Step 3C: Portable Text Helpers
+
+Goal:
+
+- Move OTA state, error, OTA result, and Bootloader result text helpers into
+  the reusable library.
+- Keep product-specific compatibility aliases in middleware so current SCPI
+  output remains unchanged.
+- Make status reporting easier for future RTOS products without copying switch
+  statements into each application.
+
+Code scope:
+
+- Added `third_party/portable_ota/include/pota_strings.h` and
+  `third_party/portable_ota/src/pota_strings.c`.
+- Added `tests/unit/test_portable_ota_strings.c`.
+- `include/pota.h` now includes `pota_strings.h`.
+- Added `middleware/portable_ota_port/src/portable_ota_strings_port.c`.
+- `components/ota_manager/src/ota_ao.c` delegates
+  `ota_state_to_string()`, `ota_error_to_string()`, and
+  `ota_result_to_string()` to middleware.
+- `components/ota_manager/src/ota_metadata.c` delegates
+  `ota_metadata_boot_result_to_string()` to middleware.
+- `CMakeLists.txt` links `pota_strings.c` and the middleware strings adapter
+  into App, Slot B, and Bootloader builds.
+
+Build and release gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+cmake -S . -B build-portable-strings -G Ninja `
+  -DPICO_BOARD=pico2 `
+  -DPROJECT_WARNINGS_AS_ERRORS=ON `
+  -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF
+cmake --build build-portable-strings
+python tools\release_check\release_check.py `
+  --preset pico2-release `
+  --build-dir build-portable-strings
+```
+
+Actual result:
+
+- Portable OTA tests passed the ARM GCC compile/object-build gate. Host
+  execution was skipped because no host C compiler was found.
+- `cmake --build build-portable-strings` passed.
+- Release gate passed with `release_check=OK`.
+- Generated unified package:
+  `build-portable-strings\RP2350_TRIG_UPDATE.pkg`,
+  size `151016`, package CRC32 `0xD1C12D2E`, build id
+  `20260623102556`.
+
+Hardware validation:
+
+- Factory flashed with `picotool`:
+  `build-portable-strings\RP2350_TRIG_FACTORY.uf2`.
+- Initial state after factory:
+  `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`,
+  `SYST:FW:BUILD? -> "20260623102556"`,
+  `SYST:BOOT:VERS? -> 0,1,0`,
+  `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`,
+  `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`,
+  `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`.
+- Positive package:
+  `python tools\ota_send\ota_send.py COM4 build-portable-strings\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT`.
+- Boot/apply/commit:
+  `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,75224,2315388268`,
+  `SYST:OTA:COMM -> "OK"`,
+  `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`.
+- Negative package matrix after text-helper migration:
+  transport CRC -> `"FAILED",2,"CRC",4`;
+  image CRC -> `"FAILED",2,"CRC",4`;
+  image vector -> `"FAILED",2,"VECTOR",4`;
+  header magic -> `"FAILED",2,"BAD_HEADER",4`;
+  header version -> `"FAILED",2,"BAD_HEADER",4`;
+  header size -> `"FAILED",2,"BAD_HEADER",4`;
+  image slot -> `"FAILED",2,"BAD_HEADER",4`;
+  run offset -> `"FAILED",2,"IMAGE_TOO_LARGE",4`.
+- Final safe state:
+  `SYST:FW:BUILD? -> "20260623102556"`,
+  `SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`,
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75224,2315388268`,
+  `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`.
+
+Pass/fail:
+
+- Pass. Common text helpers now live in the portable library.
+- Pass. Product middleware preserves legacy SCPI aliases such as
+  `BOARD_MISMATCH`, `VERSION_REJECTED`, `BOOT_ROLLBACK`, and `QUEUE_FULL`.
+- Pass. Status, error, and Bootloader result text stayed compatible with the
+  existing validation scripts and negative-path expectations.
+
+### Step 3D: Portable Metadata V3 Helpers
+
+Goal:
+
+- Move reusable metadata v3 schema logic into `third_party/portable_ota`.
+- Keep RP2350 flash layout, dual-copy storage offsets, erase/program policy,
+  and legacy v2 flash-read migration in the product layer.
+- Preserve the current on-flash metadata format so the App and Bootloader
+  remain compatible.
+
+Code scope:
+
+- Expanded `third_party/portable_ota/include/pota_metadata.h` to match the
+  current product metadata v3 schema, including SHA placeholders, copy
+  transaction fields, A/B fields, and three CRC fields.
+- Reworked `third_party/portable_ota/src/pota_metadata.c` to provide:
+  base metadata CRC, extension CRC, A/B CRC, CRC update, validity checks,
+  default initialization, extension defaults, copy transaction clearing,
+  boot-mode/slot/transaction-state validation, upgrade helper, and newest-copy
+  selection.
+- Extended `tests/unit/test_portable_ota_metadata.c` for v3 CRC coverage,
+  default metadata, invalid transaction state, invalid previous slot, and copy
+  transaction clearing.
+- Added `middleware/portable_ota_port/src/portable_ota_metadata_port.c` with
+  compile-time layout checks between `ota_metadata_t` and `pota_metadata_t`.
+- `components/ota_manager/src/ota_metadata.c` now delegates portable metadata
+  logic through middleware while retaining RP2350 flash read/write and v2
+  migration code.
+- `CMakeLists.txt` links `pota_metadata.c` and the middleware metadata adapter
+  into App, Slot B, and Bootloader builds.
+
+Build and release gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+cmake -S . -B build-portable-metadata -G Ninja `
+  -DPICO_BOARD=pico2 `
+  -DPROJECT_WARNINGS_AS_ERRORS=ON `
+  -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF
+cmake --build build-portable-metadata
+python tools\release_check\release_check.py `
+  --preset pico2-release `
+  --build-dir build-portable-metadata
+```
+
+Actual result:
+
+- Portable OTA tests passed the ARM GCC compile/object-build gate. Host
+  execution was skipped because no host C compiler was found.
+- `cmake --build build-portable-metadata` passed.
+- Release gate passed with `release_check=OK`.
+- Generated unified package:
+  `build-portable-metadata\RP2350_TRIG_UPDATE.pkg`,
+  size `151032`, package CRC32 `0xBA3FCA5E`, build id
+  `20260623104609`.
+
+Hardware validation:
+
+- Factory flashed with `picotool`:
+  `build-portable-metadata\RP2350_TRIG_FACTORY.uf2`.
+- Initial state after factory:
+  `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`,
+  `SYST:FW:BUILD? -> "20260623104609"`,
+  `SYST:BOOT:VERS? -> 0,1,0`,
+  `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`,
+  `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`,
+  `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`,
+  `SYST:OTA:CAP? -> 1`.
+- Positive package:
+  `python tools\ota_send\ota_send.py COM4 build-portable-metadata\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT`.
+- Boot/apply/commit:
+  `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,75240,3624267205`,
+  `SYST:OTA:COMM -> "OK"`,
+  `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`.
+- Negative package matrix after metadata helper migration:
+  transport CRC -> `"FAILED",2,"CRC",4`;
+  image CRC -> `"FAILED",2,"CRC",4`;
+  image vector -> `"FAILED",2,"VECTOR",4`;
+  header magic -> `"FAILED",2,"BAD_HEADER",4`;
+  header version -> `"FAILED",2,"BAD_HEADER",4`;
+  header size -> `"FAILED",2,"BAD_HEADER",4`;
+  image slot -> `"FAILED",2,"BAD_HEADER",4`;
+  run offset -> `"FAILED",2,"IMAGE_TOO_LARGE",4`.
+- Final safe state:
+  `SYST:FW:BUILD? -> "20260623104609"`,
+  `SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`,
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75240,3624267205`,
+  `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`,
+  `SYST:OTA:CAP? -> 1`.
+
+Pass/fail:
+
+- Pass. Portable metadata helpers now own the reusable v3 schema logic.
+- Pass. App and Bootloader both validated the migrated metadata helpers through
+  factory boot, pending metadata write, Bootloader apply, App commit, and
+  negative package rejection.
+- Pass. The final state confirms no pending metadata remains after negative
+  package failures.
+
+Next migration boundary:
+
+- Move higher-level metadata mutations such as mark-pending, confirm-active,
+  boot-mode changes, and copy-transaction state transitions into portable
+  helpers that operate on an in-memory metadata object.
+- Keep platform storage as a port responsibility: load selected copy, call the
+  portable mutation helper, then store the updated copy through the platform
+  flash policy.
+
+### Step 3E: Portable Metadata Mutation Helpers
+
+Goal:
+
+- Move reusable in-memory metadata mutation rules into `third_party/portable_ota`.
+- Keep product public APIs stable while reducing product metadata logic to
+  `load -> portable mutation -> store`.
+- Preserve RP2350 flash dual-copy storage and legacy v2 migration in the
+  product layer.
+
+Code scope:
+
+- Added portable mutation helpers in `pota_metadata.h/.c`:
+  `pota_metadata_mark_pending()`, `pota_metadata_confirm_active()`,
+  `pota_metadata_set_boot_mode()`, `pota_metadata_set_fault_injection()`,
+  `pota_metadata_begin_copy_transaction()`,
+  `pota_metadata_update_copy_transaction()`,
+  `pota_metadata_finish_copy_transaction()`,
+  `pota_metadata_fail_copy_transaction()`, and
+  `pota_metadata_clear_copy_transaction()`.
+- Extended `tests/unit/test_portable_ota_metadata.c` to cover pending writes,
+  active confirmation, boot-mode capability changes, fault injection flags, and
+  copy transaction start/update/finish/fail/clear paths.
+- Exposed the mutation helpers through
+  `middleware/portable_ota_port/src/portable_ota_metadata_port.c`.
+- `components/ota_manager/src/ota_metadata.c` now keeps the existing
+  `ota_metadata_*` public API but delegates mutation logic to middleware.
+
+Build and release gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+cmake -S . -B build-portable-metadata-mutation -G Ninja `
+  -DPICO_BOARD=pico2 `
+  -DPROJECT_WARNINGS_AS_ERRORS=ON `
+  -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF
+cmake --build build-portable-metadata-mutation
+python tools\release_check\release_check.py `
+  --preset pico2-release `
+  --build-dir build-portable-metadata-mutation
+```
+
+Actual result:
+
+- Portable OTA tests passed the ARM GCC compile/object-build gate. Host
+  execution was skipped because no host C compiler was found.
+- `cmake --build build-portable-metadata-mutation` passed.
+- Release gate passed with `release_check=OK`.
+- Generated unified package:
+  `build-portable-metadata-mutation\RP2350_TRIG_UPDATE.pkg`,
+  size `150952`, package CRC32 `0x6C7A89E5`, build id
+  `20260623112832`.
+
+Hardware validation:
+
+- Factory flashed with `picotool`:
+  `build-portable-metadata-mutation\RP2350_TRIG_FACTORY.uf2`.
+- Initial state after factory:
+  `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`,
+  `SYST:FW:BUILD? -> "20260623112832"`,
+  `SYST:BOOT:VERS? -> 0,1,0`,
+  `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`,
+  `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`,
+  `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`,
+  `SYST:OTA:CAP? -> 1`.
+- Positive package:
+  `python tools\ota_send\ota_send.py COM4 build-portable-metadata-mutation\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT`.
+- Boot/apply/commit:
+  `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,75160,3242593473`,
+  `SYST:OTA:COMM -> "OK"`,
+  `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`.
+- Negative package matrix after mutation helper migration:
+  transport CRC -> `"FAILED",2,"CRC",4`;
+  image CRC -> `"FAILED",2,"CRC",4`;
+  image vector -> `"FAILED",2,"VECTOR",4`;
+  header magic -> `"FAILED",2,"BAD_HEADER",4`;
+  header version -> `"FAILED",2,"BAD_HEADER",4`;
+  header size -> `"FAILED",2,"BAD_HEADER",4`;
+  image slot -> `"FAILED",2,"BAD_HEADER",4`;
+  run offset -> `"FAILED",2,"IMAGE_TOO_LARGE",4`.
+- Final safe state:
+  `SYST:FW:BUILD? -> "20260623112832"`,
+  `SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`,
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`,
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75160,3242593473`,
+  `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`,
+  `SYST:OTA:CAP? -> 1`.
+
+Pass/fail:
+
+- Pass. Portable OTA now owns common in-memory metadata mutation rules.
+- Pass. Product metadata APIs remain stable while product implementation is
+  reduced to platform storage plus legacy migration.
+- Pass. `mark_pending` and `confirm_active` were exercised by positive OTA,
+  Bootloader apply, and App commit; failure paths did not leave pending
+  metadata behind.
+
+Next migration boundary:
+
+- Move remaining Bootloader-side in-memory metadata mutations, such as
+  `bootloader_store_result()`, direct A/B apply/rollback updates, and
+  copy-to-active transaction updates, into portable helpers.
+- Keep Bootloader flash operations, image validation, watchdog reset, and slot
+  jump policy platform-specific.
