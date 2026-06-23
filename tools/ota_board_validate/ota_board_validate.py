@@ -86,6 +86,14 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def timeout_output_to_text(output: str | bytes | None) -> str:
+    if output is None:
+        return ""
+    if isinstance(output, bytes):
+        return output.decode("utf-8", errors="replace")
+    return output
+
+
 def run_command(name: str, command: list[str], out_dir: Path, timeout: float | None = None) -> tuple[int, Path]:
     log_path = out_dir / "logs" / f"{name}.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,19 +102,27 @@ def run_command(name: str, command: list[str], out_dir: Path, timeout: float | N
         log.write(f"$ {' '.join(command)}\n")
         log.write(f"started={started}\n\n")
         log.flush()
-        process = subprocess.run(
-            command,
-            cwd=ROOT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=timeout,
-        )
-        log.write(process.stdout)
-        log.write(f"\nexit_code={process.returncode}\n")
-    return process.returncode, log_path
+        try:
+            process = subprocess.run(
+                command,
+                cwd=ROOT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout,
+            )
+            log.write(process.stdout)
+            log.write(f"\nexit_code={process.returncode}\n")
+            return process.returncode, log_path
+        except subprocess.TimeoutExpired as exc:
+            log.write(timeout_output_to_text(exc.stdout))
+            log.write(timeout_output_to_text(exc.stderr))
+            log.write(f"\ntimeout=true\n")
+            log.write(f"timeout_s={timeout}\n")
+            log.write("\nexit_code=124\n")
+            return 124, log_path
 
 
 def wait_for_serial(port: str, timeout_s: float = 15.0) -> None:

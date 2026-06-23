@@ -45,6 +45,90 @@
 
 ## 任务记录
 
+### TASK-20260624-008 - README 顶层架构入口优化
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 将 HAOFV 架构作为项目顶层架构入口加入 README，避免新成员只看到目录结构而不了解系统设计边界。
+- 完成内容：
+  - 在 `README.md` 的前半部分新增 `Architecture` 章节。
+  - 增加 HAOFV 分层图：SCPI/UI/SD/Bootloader Result、Active Object、IEC 61499-style Function Block、Vector Blackboard、Hardware Service Layer、PIO/DMA/IRQ 硬实时旁路。
+  - 明确 Active Object、Function Block、Vector Blackboard、Resource Arbiter 和硬实时路径的职责。
+  - 更新 Key Configuration Files 中 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 和 `docs/OTA_RTOS_PORTING_PLAN.md` 的描述。
+- 验证结果：
+  - 文档更新完成，未涉及代码编译和板端烧录。
+- 还需完成：
+  - 后续新增 system_manager、system_vector、event_bus、function_block 等组件时，同步 README 的目录结构和架构说明。
+- 关联文件：
+  - `README.md`
+  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/OTA_RTOS_PORTING_PLAN.md`
+- 下一步：
+  - 继续 OTA 收口或按 FreeRTOS 移植方案进入 OSAL/RTOS 准备阶段。
+
+### TASK-20260624-007 - HAOFV 对齐的 FreeRTOS 移植方案
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 基于 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`，输出符合 HAOFV 架构的 FreeRTOS 移植方案。
+  - 明确 FreeRTOS 与 Active Object、Function Block、Vector Blackboard、Resource Arbiter、PIO/DMA/IRQ 硬实时路径之间的职责边界。
+- 完成内容：
+  - 更新 `docs/OTA_RTOS_PORTING_PLAN.md` 为中文 FreeRTOS 移植总方案。
+  - 明确 FreeRTOS 只作为调度器和同步原语，不替代 HAOFV 架构边界。
+  - 定义 `task_system`、`task_trigger`、`task_ota`、`task_io_frontend`、`task_storage`、`task_diag` 的推荐任务模型和优先级。
+  - 补充 Vector Blackboard 在 RTOS 下的同步节拍、事件入口规则、OSAL 扩展接口和 Resource Arbiter 的 FreeRTOS 实现方式。
+  - 保留旧版 OTA RTOS adapter 的关键约束和验证门禁，并纳入新的 HAOFV 分层。
+- 验证结果：
+  - 文档更新完成，未涉及代码编译和板端烧录。
+- 还需完成：
+  - 后续按方案逐步引入 FreeRTOS、扩展 OSAL，并在每次代码更新后执行构建、烧录和 OTA 一键验证。
+- 关联文件：
+  - `docs/OTA_RTOS_PORTING_PLAN.md`
+  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+- 下一步：
+  - OTA 收口后进入 FreeRTOS Step 1：引入 FreeRTOS Kernel、CMake 开关和 `osal/port/freertos/`。
+
+### TASK-20260624-006 - OTA 评审建议修复与板端回归
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 根据 OTA 代码评审建议，修复一键板端验证脚本超时无总结文件的问题。
+  - 增加 portable OTA flash page/sector 几何参数防护，避免非 2 的幂配置导致对齐计算静默错误。
+  - 明确 `portable_ota_core_port.c` 在 Bootloader/App 两种编译模式下的职责边界。
+- 完成内容：
+  - `tools/ota_board_validate/ota_board_validate.py` 的 `run_command()` 捕获 `subprocess.TimeoutExpired`，写入已有 stdout/stderr、`timeout=true`、`timeout_s` 和 `exit_code=124`，保证验证失败时仍保留 step log 并进入 `summary.json` 汇总。
+  - `third_party/portable_ota/src/pota_core.c` 新增 flash geometry 校验：`flash_page_size` 和 `flash_sector_size` 必须为 2 的幂，且 page size 不超过 `POTA_MAX_FLASH_PAGE_SIZE`。
+  - `tests/unit/test_portable_ota_core.c` 增加非法 page/sector 几何参数拒绝测试，确认无 erase/program/mark_pending 副作用。
+  - `middleware/portable_ota_port/src/portable_ota_core_port.c` 增加 `PORTABLE_OTA_PORT_ENABLE_SESSION` 编译模式说明。
+- 验证结果：
+  - `python -m py_compile tools\ota_board_validate\ota_board_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `cmake -S . -B build-ota-review-fix -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - `cmake --build build-ota-review-fix` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`：
+    - build id：`20260623170811`
+    - package size：`153624`
+    - package CRC32：`0x41129F94`
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-ota-review-fix` 通过。
+  - `python tools\ota_board_validate\ota_board_validate.py COM4 build-ota-review-fix` 通过，输出目录：`build-ota-review-fix\ota_validation_20260624_010858`。
+  - 板端一键验证通过：factory 烧录、baseline 查询、正向 OTA、Bootloader `APPLIED`、App `COMM`、完整负向矩阵和最终安全态均 PASS。
+  - 最终安全态：
+    - `SYST:FW:BUILD? -> "20260623170811"`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76296,4281433435`
+- 还需完成：
+  - Bootloader copy transaction 当前仍是可靠失败/重试模型，不是按 `copy_written` 断点续拷；是否升级为真正续拷另行评估。
+- 关联文件：
+  - `tools/ota_board_validate/ota_board_validate.py`
+  - `third_party/portable_ota/src/pota_core.c`
+  - `tests/unit/test_portable_ota_core.c`
+  - `middleware/portable_ota_port/src/portable_ota_core_port.c`
+- 下一步：
+  - 继续 Step 4F：评估 `portable_ota_metadata_port.c` 是否只保留布局断言和平台存储绑定，避免 middleware 层再次膨胀。
+
 ### TASK-20260624-005 - Portable OTA port 文件合并与一键验证脚本
 
 - 状态：完成

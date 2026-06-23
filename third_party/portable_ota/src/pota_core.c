@@ -9,6 +9,18 @@ static uint32_t pota_align_up(uint32_t value, uint32_t alignment)
     return (value + alignment - 1u) & ~(alignment - 1u);
 }
 
+static bool pota_is_power_of_two(uint32_t value)
+{
+    return value != 0u && (value & (value - 1u)) == 0u;
+}
+
+static bool pota_flash_geometry_is_valid(const pota_context_t *context)
+{
+    return pota_is_power_of_two(context->platform.info.flash_page_size) &&
+           pota_is_power_of_two(context->platform.info.flash_sector_size) &&
+           context->platform.info.flash_page_size <= POTA_MAX_FLASH_PAGE_SIZE;
+}
+
 static const pota_partition_t *pota_partition_for_slot(const pota_context_t *context,
                                                        pota_slot_t slot)
 {
@@ -114,8 +126,7 @@ static pota_error_t pota_program_target(pota_context_t *context,
 {
     if (data == NULL || size == 0u ||
         size > POTA_MAX_DATA_BLOCK_SIZE ||
-        context->platform.info.flash_page_size == 0u ||
-        context->platform.info.flash_page_size > POTA_MAX_FLASH_PAGE_SIZE) {
+        !pota_flash_geometry_is_valid(context)) {
         pota_core_set_failed(context, POTA_ERR_BAD_ARGUMENT);
         return POTA_ERR_BAD_ARGUMENT;
     }
@@ -177,8 +188,7 @@ pota_error_t pota_core_begin_action(pota_context_t *context, const void *argumen
         return POTA_ERR_BAD_ARGUMENT;
     }
     if (!pota_required_ops_are_present(context) ||
-        context->platform.info.flash_sector_size == 0u ||
-        context->platform.info.flash_page_size == 0u) {
+        !pota_flash_geometry_is_valid(context)) {
         pota_core_set_failed(context, POTA_ERR_BAD_ARGUMENT);
         return POTA_ERR_BAD_ARGUMENT;
     }

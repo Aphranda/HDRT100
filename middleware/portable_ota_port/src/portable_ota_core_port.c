@@ -9,6 +9,12 @@
 #define PORTABLE_OTA_HARDWARE_ID "rp2350_trig"
 #define PORTABLE_OTA_BOOTLOADER_VERSION POTA_PACK_VERSION(0u, 1u, 0u)
 
+/*
+ * PORTABLE_OTA_PORT_ENABLE_SESSION=0 keeps only bootloader-safe base adapters:
+ * CRC, string conversion, and product error mapping.
+ * PORTABLE_OTA_PORT_ENABLE_SESSION=1 enables the app-side OTA session path that
+ * erases/programs flash and updates pending-slot metadata.
+ */
 #ifndef PORTABLE_OTA_PORT_ENABLE_SESSION
 #define PORTABLE_OTA_PORT_ENABLE_SESSION 0
 #endif

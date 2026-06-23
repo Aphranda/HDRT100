@@ -268,12 +268,25 @@
   Bootloader 只编译 CRC/字符串基础适配，App 编译完整 OTA session 接收路径。
 - [x] Step 4E：新增 `tools/ota_board_validate/ota_board_validate.py` 一键板端验证
   脚本，从生成的 `summary.json`、查询文件和 per-step log 判断验证是否正常。
+- [x] Step 4E 加固：`ota_board_validate.py` 捕获外部命令超时，保证失败时仍输出
+  step log 和 `summary.json`，避免台架长时间运行后丢失失败证据。
+- [x] Step 4E 加固：`pota_core` 增加 flash page/sector 2 的幂校验，并补充
+  非法几何参数单测，避免对齐计算静默错误。
+- [x] Step 4E 加固：`portable_ota_core_port.c` 明确
+  `PORTABLE_OTA_PORT_ENABLE_SESSION` 的 Bootloader/App 编译职责边界。
 - [x] Step 4E 闭环：`build-portable-port-merge` 构建通过，
   portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
   一键脚本完成 factory 烧录、baseline、正向 OTA、Bootloader `APPLIED`、
   App `COMM`、完整负向矩阵和最终安全状态验证。
+- [x] Step 4E 加固闭环：`build-ota-review-fix` 构建通过，
+  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
+  一键脚本完成 factory 烧录、正向 OTA、Bootloader `APPLIED`、App `COMM`、
+  完整负向矩阵和最终安全状态验证。
 - [x] Step 4E 最终安全状态：`SYST:FW:BUILD? -> "20260623165039"`，
   `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
   `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,3771490588`。
+- [x] Step 4E 加固最终安全状态：`SYST:FW:BUILD? -> "20260623170811"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76296,4281433435`。
 - [ ] Step 4F：评估 `portable_ota_metadata_port.c` 是否只做布局断言宏化；
   剩余 image/core/platform 绑定不为减少行数强行下沉。

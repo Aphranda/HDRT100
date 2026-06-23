@@ -18,6 +18,43 @@ Get-Content -Path README.md -Encoding UTF8
 Avoid relying on the console default code page when editing or validating
 documentation, because garbled text can hide real checklist changes.
 
+## Architecture
+
+The top-level software architecture is the Hybrid Active Object Function Block
+Vector Architecture, abbreviated as HAOFV. The full design is documented in
+`docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`.
+
+```text
+SCPI / UI / SD / Bootloader Result
+        ↓
+Active Object Layer
+        ↓
+IEC 61499-style Function Block Layer
+        ↓
+Time-Synchronized Vector Blackboard
+        ↓
+Hardware Service Layer
+
+Hard Real-Time Side Path:
+PIO / DMA / IRQ
+```
+
+The design rules are:
+
+- Active Objects own domain execution, event queues, lifecycle, and public APIs.
+- Lightweight IEC 61499-style Function Blocks own domain logic and ECC state
+  transitions.
+- Vector Blackboards store system facts, summaries, progress, resource state,
+  and diagnostics snapshots.
+- Resource Arbiter owns shared resources such as Flash, SPI, USB, PIO, DMA,
+  LCD, and SD.
+- PIO/DMA/IRQ own hard real-time capture and trigger output; RTOS tasks or the
+  bare-metal main loop only manage configuration, state, and diagnostics.
+
+Future FreeRTOS support must be added as an OSAL port and task runtime for
+Active Objects. It must not replace the HAOFV boundaries or move hard real-time
+edge generation into ordinary RTOS tasks. See `docs/OTA_RTOS_PORTING_PLAN.md`.
+
 ## Directory Layout
 
 ```text
@@ -342,6 +379,10 @@ time.
 - `boards/rp2350_trig/inc/board_config.h`: board pin map and peripheral
   instances.
 - `CMakePresets.json`: release and debug build presets.
+- `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`: top-level HAOFV product
+  architecture based on Active Objects, lightweight IEC 61499-style function
+  blocks, time-synchronized vectors, table-driven state machines, event
+  dispatch, and resource arbitration.
 - `docs/RELEASE_CHECKLIST.md`: release gate template.
 - `docs/PIO_RESOURCE_PLAN.md`: sync trigger PIO, state-machine, and GPIO
   allocation.
@@ -354,10 +395,6 @@ time.
 - `docs/OTA_TODO.md`: OTA productization backlog for release gating,
   power-loss recovery, manifest compatibility, validation reports, and
   automation.
-- `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`: product architecture plan
-  based on Active Objects, a lightweight IEC 61499-inspired function block
-  subset, time-synchronized vectors, table-driven state machines, event
-  dispatch, and resource arbitration.
 - `docs/PORTABLE_OTA_ARCHITECTURE.md`: portable OTA design and validation
   guide for reusing the proven package, metadata, Bootloader, and negative-path
   validation flow on RP2350 and STM32 RTOS products.
@@ -366,8 +403,8 @@ time.
 - `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`: staged plan for hardening
   `portable_ota` first, then migrating the current project with closed-loop
   validation at each step.
-- `docs/OTA_RTOS_PORTING_PLAN.md`: migration plan for moving the proven OTA
-  behavior into future RP2350 RTOS and STM32 RTOS products.
+- `docs/OTA_RTOS_PORTING_PLAN.md`: HAOFV-aligned FreeRTOS migration plan and
+  OTA RTOS adapter requirements.
 - `docs/TASK_PROGRESS.md`: task progress log for goals, completed work,
   verification results, remaining work, and next steps.
 

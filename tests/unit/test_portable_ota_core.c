@@ -525,6 +525,49 @@ static int test_package_header_crc_mismatch(void)
     return failed;
 }
 
+static int test_invalid_flash_geometry_rejected(void)
+{
+    reset_mock();
+
+    uint8_t image[64];
+    fill_image(image, sizeof(image), 0x90u);
+
+    const pota_begin_t begin = {
+        .size = sizeof(image),
+        .crc32 = pota_crc32_compute(image, sizeof(image)),
+        .package_mode = false,
+    };
+    int failed = 0;
+
+    pota_context_t context;
+    pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
+    platform.info.flash_page_size = 24u;
+    (void)pota_init(&context, &platform);
+    failed += expect_error("invalid page geometry begin",
+                           pota_begin(&context, &begin),
+                           POTA_ERR_BAD_ARGUMENT);
+
+    if (s_erase_count != 0u || s_program_count != 0u || s_pending_slot != POTA_SLOT_NONE) {
+        (void)printf("invalid page geometry had side effects\n");
+        failed++;
+    }
+
+    reset_mock();
+    platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
+    platform.info.flash_sector_size = 384u;
+    (void)pota_init(&context, &platform);
+    failed += expect_error("invalid sector geometry begin",
+                           pota_begin(&context, &begin),
+                           POTA_ERR_BAD_ARGUMENT);
+
+    if (s_erase_count != 0u || s_program_count != 0u || s_pending_slot != POTA_SLOT_NONE) {
+        (void)printf("invalid sector geometry had side effects\n");
+        failed++;
+    }
+
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -536,5 +579,6 @@ int main(void)
     failed += test_vector_failure();
     failed += test_metadata_failure();
     failed += test_package_header_crc_mismatch();
+    failed += test_invalid_flash_geometry_rejected();
     return failed == 0 ? 0 : 1;
 }
