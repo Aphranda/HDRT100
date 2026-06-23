@@ -46,7 +46,7 @@
 
 - [x] OTA payload 增加基础 manifest/package header，包含包大小、镜像 slot、偏移、大小、CRC32 和运行地址。
 - [x] OTA package manifest 扩展产品型号、硬件版本、App 版本、build id、payload SHA-256 和 `min_bootloader_version`。
-- [ ] 验证统一 OTA package 负向路径：整包 CRC 错误、镜像 CRC 错误、App 向量错误、包头 magic/version/size 错误、slot/run_offset 不匹配。
+- [x] 验证统一 OTA package 负向路径：整包 CRC 错误、镜像 CRC 错误、App 向量错误、包头 magic/version/size 错误、slot/run_offset 不匹配。
 - [x] 增加 `min_bootloader_version`，App 在 OTA package 首块解析时检查 Bootloader 能力。
 - [x] 增加 `SYST:BOOT:VERS?` 或等效命令，查询 Bootloader 版本。
 - [x] 增加 `SYST:OTA:CAP?`，查询当前设备支持的 OTA 能力。
@@ -60,6 +60,36 @@
 - [ ] 对 `END/BOOT/COMM` 增加可选同步等待模式或专用查询，减少上位机误把入队成功当成执行成功。
 - [ ] 增加错误时序测试：`READY_TO_REBOOT` 前发送 `COMM`、无 pending 发送 `BOOT`、接收过程中重复 `BEGIN`。
 - [ ] release 固件中验证 `SYST:OTA:INJ:*` 返回 SCPI 错误或不可识别。
+
+## 统一 OTA package 负向验证记录
+
+验证环境：
+
+- 日期：2026-06-23
+- 固件：`build-codex-release\RP2350_TRIG_FACTORY.uf2`
+- package：`build-codex-release\RP2350_TRIG_UPDATE.pkg`
+- 端口：`COM4`
+- 模式：release 默认 `COPY_TO_ACTIVE`
+- 初始状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`
+
+验证命令和结果：
+
+| 场景 | 命令参数 | 期望 | 实测 |
+|---|---|---|---|
+| 整包 CRC 错误 | `--corrupt-crc` | `FAILED/CRC` | `"FAILED",2,"CRC",4` |
+| 镜像 CRC 错误 | `--package-negative image-crc` | `FAILED/CRC` | `"FAILED",2,"CRC",4` |
+| App 向量错误 | `--package-negative image-vector` | `FAILED/VECTOR` | `"FAILED",2,"VECTOR",4` |
+| 包头 magic 错误 | `--package-negative header-magic` | `FAILED/BAD_HEADER` | `"FAILED",2,"BAD_HEADER",4` |
+| 包头 version 错误 | `--package-negative header-version` | `FAILED/BAD_HEADER` | `"FAILED",2,"BAD_HEADER",4` |
+| 包头 package size 错误 | `--package-negative header-size` | `FAILED/BAD_HEADER` | `"FAILED",2,"BAD_HEADER",4` |
+| image slot 错误 | `--package-negative slot` | `FAILED/BAD_HEADER` | `"FAILED",2,"BAD_HEADER",4` |
+| image run_offset 不匹配 | `--package-negative run-offset` | `FAILED/IMAGE_TOO_LARGE` | `"FAILED",2,"IMAGE_TOO_LARGE",4` |
+
+验证后状态：
+
+- `SYST:OTA:SLOT? -> 1,0,1,0,0`
+- `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,74056,3774081352`
+- 无 pending，旧 confirmed Slot A 保持运行。
 
 ## P1 - 发布验证报告
 

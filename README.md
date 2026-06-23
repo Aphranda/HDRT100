@@ -232,6 +232,17 @@ python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin `
   --abort-after-blocks 8 --expect-final-state ABORTED
 ```
 
+Unified package negative-path validation is also supported:
+
+```powershell
+python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG_UPDATE.pkg `
+  --corrupt-crc --expect-final-state FAILED --expect-error CRC
+python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG_UPDATE.pkg `
+  --package-negative image-vector --expect-final-state FAILED --expect-error VECTOR
+python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG_UPDATE.pkg `
+  --package-negative header-magic --expect-final-state FAILED --expect-error BAD_HEADER
+```
+
 OTA fault-injection SCPI commands are available only when the CMake cache option
 `PROJECT_ENABLE_OTA_FAULT_INJECTION=ON` is enabled. They are intended for
 development validation, not production firmware. Use the `pico2-validation`
@@ -300,6 +311,13 @@ Python script roles:
   based on Active Objects, a lightweight IEC 61499-inspired function block
   subset, time-synchronized vectors, table-driven state machines, event
   dispatch, and resource arbitration.
+- `docs/PORTABLE_OTA_ARCHITECTURE.md`: portable OTA design and validation
+  guide for reusing the proven package, metadata, Bootloader, and negative-path
+  validation flow on RP2350 and STM32 RTOS products.
+- `docs/OTA_OPEN_SOURCE_COMPARISON.md`: comparison with MCUboot, ESP-IDF OTA,
+  Mender MCU, and STM32 X-CUBE-SBSFU for the RP2350/STM32 RTOS scope.
+- `docs/OTA_RTOS_PORTING_PLAN.md`: migration plan for moving the proven OTA
+  behavior into future RP2350 RTOS and STM32 RTOS products.
 - `docs/TASK_PROGRESS.md`: task progress log for goals, completed work,
   verification results, remaining work, and next steps.
 

@@ -14,6 +14,9 @@ DEFAULT_BLOCK_SIZE = 512
 DEFAULT_BEGIN_TIMEOUT_S = 60.0
 PACKAGE_MAGIC = 0x474B5054
 PACKAGE_HEADER_SIZE = 512
+PACKAGE_VERSION = 2
+PACKAGE_IMAGE_TABLE_OFFSET = 192
+PACKAGE_IMAGE_ENTRY_SIZE = 32
 
 
 def crc32(data: bytes) -> int:
@@ -33,8 +36,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--begin-timeout", type=float, default=DEFAULT_BEGIN_TIMEOUT_S)
     parser.add_argument("--corrupt-crc", action="store_true", help="send an intentionally wrong CRC32")
     parser.add_argument("--corrupt-vector", action="store_true", help="corrupt the reset handler vector in memory")
+    parser.add_argument(
+        "--package-negative",
+        choices=(
+            "image-crc",
+            "image-vector",
+            "header-magic",
+            "header-version",
+            "header-size",
+            "slot",
+            "run-offset",
+        ),
+        help="mutate a unified OTA package to exercise negative paths",
+    )
     parser.add_argument("--abort-after-blocks", type=int, default=0, help="abort after sending this many data blocks")
     parser.add_argument("--expect-final-state", default="READY_TO_REBOOT", help="expected final OTA state text")
+    parser.add_argument("--expect-error", help="expected OTA error text from SYST:OTA:STAT?")
     parser.add_argument("--dry-run", action="store_true", help="print transfer plan without opening the port")
     parser.add_argument("--no-verify-query", action="store_true", help="skip STAT?/PROG? query commands")
     return parser.parse_args()
@@ -132,7 +149,7 @@ def wait_for_receiving(serial_port, timeout_s: float) -> None:
             if "RECEIVING" in response:
                 return
             if "FAILED" in response or "ABORTED" in response:
-                raise RuntimeError(f"device rejected OTA begin: {response}")
+                return
         time.sleep(0.1)
 
     raise TimeoutError(f"device did not enter RECEIVING state, last response: {last_response}")
@@ -155,12 +172,85 @@ def parse_ota_state(response: str) -> str:
     return response.split(",", 1)[0]
 
 
+def parse_csv_text_field(response: str, index: int) -> str:
+    fields: list[str] = []
+    current: list[str] = []
+    in_quote = False
+    for char in response:
+        if char == '"':
+            in_quote = not in_quote
+            continue
+        if char == "," and not in_quote:
+            fields.append("".join(current).strip())
+            current = []
+            continue
+        current.append(char)
+    fields.append("".join(current).strip())
+    if index >= len(fields):
+        return ""
+    return fields[index]
+
+
+def parse_ota_error(response: str) -> str:
+    return parse_csv_text_field(response, 2)
+
+
+def read_u32(data: bytes | bytearray, offset: int) -> int:
+    return int.from_bytes(data[offset : offset + 4], byteorder="little")
+
+
+def write_u32(data: bytearray, offset: int, value: int) -> None:
+    data[offset : offset + 4] = (value & 0xFFFFFFFF).to_bytes(4, byteorder="little")
+
+
 def corrupt_vector(image: bytes) -> bytes:
     if len(image) < 8:
         raise ValueError("image too small to corrupt vector")
 
     data = bytearray(image)
     data[4:8] = (0).to_bytes(4, byteorder="little")
+    return bytes(data)
+
+
+def package_image_entry_offset(index: int) -> int:
+    return PACKAGE_IMAGE_TABLE_OFFSET + index * PACKAGE_IMAGE_ENTRY_SIZE
+
+
+def selected_package_image_index(package: bytes) -> int:
+    image_count = read_u32(package, 20)
+    if image_count == 0:
+        raise ValueError("package has no image entries")
+    return 0
+
+
+def mutate_package(package: bytes, mutation: str) -> bytes:
+    if not is_unified_package(package):
+        raise ValueError("--package-negative requires a unified OTA package")
+
+    data = bytearray(package)
+    image_index = selected_package_image_index(package)
+    image_entry = package_image_entry_offset(image_index)
+    image_offset = read_u32(data, image_entry + 4)
+
+    if mutation == "image-crc":
+        write_u32(data, image_entry + 12, read_u32(data, image_entry + 12) ^ 0xFFFFFFFF)
+    elif mutation == "image-vector":
+        data[image_offset + 4 : image_offset + 8] = (0).to_bytes(4, byteorder="little")
+        image_size = read_u32(data, image_entry + 8)
+        write_u32(data, image_entry + 12, crc32(data[image_offset : image_offset + image_size]))
+    elif mutation == "header-magic":
+        write_u32(data, 0, PACKAGE_MAGIC ^ 0xFFFFFFFF)
+    elif mutation == "header-version":
+        write_u32(data, 4, PACKAGE_VERSION + 1)
+    elif mutation == "header-size":
+        write_u32(data, 12, len(data) + PACKAGE_HEADER_SIZE)
+    elif mutation == "slot":
+        write_u32(data, image_entry, 99)
+    elif mutation == "run-offset":
+        write_u32(data, image_entry + 16, read_u32(data, image_entry + 16) ^ 0x00180000)
+    else:
+        raise ValueError(f"unsupported package mutation: {mutation}")
+
     return bytes(data)
 
 
@@ -197,7 +287,14 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int, package_m
             ser.write(b"\n")
 
             if package_mode and offset == 0:
-                wait_for_receiving(ser, args.begin_timeout)
+                first_block_status = query_final_status(ser)
+                if first_block_status:
+                    if not args.no_verify_query:
+                        print(first_block_status)
+                    if "FAILED" in first_block_status or "ABORTED" in first_block_status:
+                        return first_block_status
+                    if "RECEIVING" not in first_block_status:
+                        wait_for_receiving(ser, args.begin_timeout)
 
             sent_blocks = (offset // args.block_size) + 1
             if args.abort_after_blocks and sent_blocks >= args.abort_after_blocks:
@@ -225,10 +322,13 @@ def main() -> int:
 
     image_path = select_image_path(args)
     image = image_path.read_bytes()
+    package_mode = is_unified_package(image)
+    if args.package_negative:
+        image = mutate_package(image, args.package_negative)
+        package_mode = True
     if args.corrupt_vector:
         image = corrupt_vector(image)
 
-    package_mode = is_unified_package(image)
     image_crc = crc32(image)
     send_crc = image_crc ^ 0xFFFFFFFF if args.corrupt_crc else image_crc
     block_count = (len(image) + args.block_size - 1) // args.block_size
@@ -241,6 +341,8 @@ def main() -> int:
         print(f"send_crc32=0x{send_crc:08X}")
     if args.corrupt_vector:
         print("corrupt_vector=reset_handler_zero")
+    if args.package_negative:
+        print(f"package_negative={args.package_negative}")
     if args.abort_after_blocks:
         print(f"abort_after_blocks={args.abort_after_blocks}")
     print(f"block_size={args.block_size}")
@@ -260,6 +362,11 @@ def main() -> int:
     if final_state != args.expect_final_state:
         print(f"unexpected_final_state={final_state}, expected={args.expect_final_state}", file=sys.stderr)
         return 2
+    if args.expect_error:
+        final_error = parse_ota_error(final_status)
+        if final_error != args.expect_error:
+            print(f"unexpected_error={final_error}, expected={args.expect_error}", file=sys.stderr)
+            return 3
 
     return 0
 

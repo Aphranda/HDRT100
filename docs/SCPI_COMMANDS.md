@@ -94,6 +94,19 @@ OTA 命令遵循 `docs/OTA方案.md` 中的 `OtaAO + OtaFB + OtaVector` 设计�
 
 第一阶段建议 `SYST:OTA:DATA` 单块 256 B 或 512 B。OTA 期间应暂停周期日志，避免日志与 SCPI binary block 混用同一 USB CDC 通道。
 
+`tools/ota_send/ota_send.py` 支持统一 package 负向验证参数：
+
+| 参数 | 说明 | 期望错误 |
+|---|---|---|
+| `--corrupt-crc` | 故意发送错误的 `PBEGIN` 整包 CRC。 | `CRC` |
+| `--package-negative image-crc` | 修改被选中镜像的 header CRC。 | `CRC` |
+| `--package-negative image-vector` | 破坏被选中镜像 reset vector，并同步更新镜像 CRC。 | `VECTOR` |
+| `--package-negative header-magic` | 破坏 package magic。 | `BAD_HEADER` |
+| `--package-negative header-version` | 破坏 package version。 | `BAD_HEADER` |
+| `--package-negative header-size` | 破坏 package size。 | `BAD_HEADER` |
+| `--package-negative slot` | 破坏被选中镜像 slot 字段。 | `BAD_HEADER` |
+| `--package-negative run-offset` | 破坏被选中镜像 run offset。 | `IMAGE_TOO_LARGE` |
+
 ## OTA 故障注入
 
 以下命令仅在 CMake 选项 `PROJECT_ENABLE_OTA_FAULT_INJECTION=ON` 时编译，用于研发验证和产测调试，量产固件应关闭。命令会擦写 OTA metadata 或强制 Bootloader 失败，不应开放给最终用户。当前工程使用 `pico2-validation` 构建开启这些命令，`pico2-release` 构建关闭这些命令。
