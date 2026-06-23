@@ -19,6 +19,11 @@ Get-Content -Path tools\README.md -Encoding UTF8
 - `release_check/release_check.py`: release gate. It verifies release preset
   safety switches, required artifacts, and absence of OTA fault-injection
   command strings in release artifacts.
+- `ota_board_validate/ota_board_validate.py`: one-command board validation
+  runner. It runs `release_check`, optionally flashes the factory UF2, queries
+  baseline SCPI state, sends a positive OTA package, triggers `BOOT/COMM`, runs
+  the negative package matrix, and writes `summary.json`, `summary.txt`, serial
+  query files, and per-step logs under a validation output directory.
 - `run_portable_ota_tests.ps1`: portable OTA library gate. It builds or runs
   `third_party/portable_ota` unit tests. If no host C compiler exists, it falls
   back to ARM GCC compile/object-build checks and reports that host execution
@@ -36,6 +41,23 @@ Get-Content -Path tools\README.md -Encoding UTF8
 ## OTA Board Validation Loop
 
 Run COM-port tests serially; only one process may own the USB CDC port.
+
+Preferred full validation:
+
+```powershell
+python tools\ota_board_validate\ota_board_validate.py COM4 build-portable-port-merge
+Get-Content -Encoding UTF8 build-portable-port-merge\ota_validation_*\summary.txt
+```
+
+Useful options:
+
+```powershell
+python tools\ota_board_validate\ota_board_validate.py COM4 build-portable-port-merge --skip-flash
+python tools\ota_board_validate\ota_board_validate.py COM4 build-portable-port-merge --skip-negative
+python tools\ota_board_validate\ota_board_validate.py COM4 build-portable-port-merge --out-dir build-portable-port-merge\validation_manual
+```
+
+The legacy manual sequence is kept below for debugging individual steps.
 
 ```powershell
 python tools\release_check\release_check.py --preset pico2-release --build-dir build-portable-migration

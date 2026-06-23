@@ -148,8 +148,7 @@ static void ota_fb_handle_commit(struct ota_ao_context *context)
         return;
     }
 
-    if (metadata.pending_slot != (uint32_t)OTA_SLOT_NONE ||
-        metadata.last_boot_result != (uint32_t)OTA_BOOT_RESULT_APPLIED) {
+    if (!portable_ota_port_metadata_can_confirm_active(&metadata)) {
         ota_fb_set_error(context, OTA_ERR_INVALID_STATE);
         return;
     }

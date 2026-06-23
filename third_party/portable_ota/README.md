@@ -70,19 +70,23 @@ has a closed-loop validation record. The detailed sequence lives in
 
 ```text
 include/pota_types.h
+include/pota_compat.h
 include/pota_platform.h
 include/pota_package.h
 include/pota_metadata.h
 include/pota_image.h
+include/pota_operation.h
 include/pota_core.h
 include/pota_session.h
 include/pota_strings.h
 include/pota.h
 src/pota_crc32.c
+src/pota_compat.c
 src/pota_package.c
 src/pota_image.c
 src/pota_metadata.c
 src/pota_core.c
+src/pota_operation.c
 src/pota_session.c
 src/pota_strings.c
 ```

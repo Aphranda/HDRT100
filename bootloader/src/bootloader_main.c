@@ -12,6 +12,7 @@
 #include "ota_metadata.h"
 #include "ota_partition.h"
 #include "pico/stdlib.h"
+#include "portable_ota_port.h"
 
 #define RP2350_SRAM_BASE 0x20000000u
 #define RP2350_SRAM_END  0x20082000u
@@ -130,37 +131,21 @@ static bool bootloader_store_copy_transaction(ota_metadata_t *metadata,
         return false;
     }
 
-    metadata->copy_txn_state = (uint32_t)state;
-    metadata->copy_source_slot = (uint32_t)BOOTLOADER_STAGING_SLOT;
-    metadata->copy_destination_slot = (uint32_t)BOOTLOADER_ACTIVE_SLOT;
-    metadata->copy_size = metadata->slot_b_size;
-    metadata->copy_crc32 = metadata->slot_b_crc32;
-    metadata->copy_written = written;
-    metadata->copy_last_error = last_error;
-    metadata->sequence++;
-
+    bool ok = false;
     if (state == OTA_COPY_TXN_STARTED) {
-        metadata->copy_attempts++;
+        ok = portable_ota_port_metadata_begin_copy_transaction(metadata,
+                                                              BOOTLOADER_STAGING_SLOT,
+                                                              BOOTLOADER_ACTIVE_SLOT,
+                                                              metadata->slot_b_size,
+                                                              metadata->slot_b_crc32);
+    } else {
+        ok = portable_ota_port_metadata_update_copy_transaction(metadata,
+                                                               (uint32_t)state,
+                                                               written,
+                                                               last_error);
     }
 
-    return ota_metadata_store(metadata);
-}
-
-static bool bootloader_clear_copy_transaction(ota_metadata_t *metadata)
-{
-    if (metadata == NULL) {
-        return false;
-    }
-
-    metadata->copy_txn_state = (uint32_t)OTA_COPY_TXN_NONE;
-    metadata->copy_source_slot = (uint32_t)OTA_SLOT_NONE;
-    metadata->copy_destination_slot = (uint32_t)OTA_SLOT_NONE;
-    metadata->copy_size = 0u;
-    metadata->copy_crc32 = 0u;
-    metadata->copy_written = 0u;
-    metadata->copy_attempts = 0u;
-    metadata->copy_last_error = 0u;
-    return true;
+    return ok ? ota_metadata_store(metadata) : false;
 }
 
 static bool bootloader_store_copy_failure(ota_metadata_t *metadata,
@@ -252,20 +237,13 @@ static bool bootloader_store_result(ota_metadata_t *metadata,
                                     ota_slot_t source_slot,
                                     bool clear_pending)
 {
-    metadata->last_boot_result = (uint32_t)result;
-    metadata->last_boot_source_slot = (uint32_t)source_slot;
-    metadata->last_boot_size = (source_slot == OTA_SLOT_B) ? metadata->slot_b_size : metadata->slot_a_size;
-    metadata->last_boot_crc32 = (source_slot == OTA_SLOT_B) ? metadata->slot_b_crc32 : metadata->slot_a_crc32;
-
-    if (clear_pending) {
-        metadata->pending_slot = (uint32_t)OTA_SLOT_NONE;
-        metadata->boot_attempts = 0u;
-        if (result != OTA_BOOT_RESULT_APPLIED && result != OTA_BOOT_RESULT_NO_PENDING) {
-            metadata->rollback_count++;
-        }
+    if (!portable_ota_port_metadata_record_boot_result(metadata,
+                                                       result,
+                                                       source_slot,
+                                                       clear_pending)) {
+        return false;
     }
 
-    metadata->sequence++;
     return ota_metadata_store(metadata);
 }
 
@@ -292,17 +270,12 @@ static bool bootloader_apply_pending_image(ota_metadata_t *metadata)
         bootloader_validate_slot_as_slot_a(BOOTLOADER_ACTIVE_SLOT,
                                            metadata->slot_b_size,
                                            metadata->slot_b_crc32)) {
-        metadata->active_slot = (uint32_t)BOOTLOADER_ACTIVE_SLOT;
-        metadata->confirmed_slot = (uint32_t)BOOTLOADER_ACTIVE_SLOT;
-        metadata->pending_slot = (uint32_t)OTA_SLOT_NONE;
-        metadata->boot_attempts = 0u;
-        metadata->slot_a_size = metadata->slot_b_size;
-        metadata->slot_a_crc32 = metadata->slot_b_crc32;
-        (void)bootloader_clear_copy_transaction(metadata);
-        return bootloader_store_result(metadata,
-                                       OTA_BOOT_RESULT_APPLIED,
-                                       BOOTLOADER_STAGING_SLOT,
-                                       false);
+        if (!portable_ota_port_metadata_apply_copy_to_active_done(metadata,
+                                                                  BOOTLOADER_STAGING_SLOT,
+                                                                  BOOTLOADER_ACTIVE_SLOT)) {
+            return false;
+        }
+        return ota_metadata_store(metadata);
     }
 
     if (metadata->slot_b_size == 0u ||
@@ -320,9 +293,9 @@ static bool bootloader_apply_pending_image(ota_metadata_t *metadata)
         return false;
     }
 
-    metadata->boot_attempts++;
-    metadata->sequence++;
-    (void)ota_metadata_store(metadata);
+    if (portable_ota_port_metadata_increment_boot_attempts(metadata)) {
+        (void)ota_metadata_store(metadata);
+    }
 
     if (!bootloader_validate_slot_as_slot_a(BOOTLOADER_STAGING_SLOT,
                                             metadata->slot_b_size,
@@ -376,17 +349,12 @@ static bool bootloader_apply_pending_image(ota_metadata_t *metadata)
         return false;
     }
 
-    metadata->active_slot = (uint32_t)BOOTLOADER_ACTIVE_SLOT;
-    metadata->confirmed_slot = (uint32_t)BOOTLOADER_ACTIVE_SLOT;
-    metadata->pending_slot = (uint32_t)OTA_SLOT_NONE;
-    metadata->boot_attempts = 0u;
-    metadata->slot_a_size = metadata->slot_b_size;
-    metadata->slot_a_crc32 = metadata->slot_b_crc32;
-    (void)bootloader_clear_copy_transaction(metadata);
-    return bootloader_store_result(metadata,
-                                   OTA_BOOT_RESULT_APPLIED,
-                                   BOOTLOADER_STAGING_SLOT,
-                                   false);
+    if (!portable_ota_port_metadata_apply_copy_to_active_done(metadata,
+                                                              BOOTLOADER_STAGING_SLOT,
+                                                              BOOTLOADER_ACTIVE_SLOT)) {
+        return false;
+    }
+    return ota_metadata_store(metadata);
 }
 
 static bool bootloader_apply_direct_ab_pending(ota_metadata_t *metadata)
@@ -424,16 +392,10 @@ static bool bootloader_apply_direct_ab_pending(ota_metadata_t *metadata)
         return false;
     }
 
-    metadata->previous_slot = metadata->active_slot;
-    metadata->active_slot = metadata->pending_slot;
-    metadata->pending_slot = (uint32_t)OTA_SLOT_NONE;
-    metadata->boot_attempts++;
-    metadata->boot_generation++;
-
-    return bootloader_store_result(metadata,
-                                   OTA_BOOT_RESULT_APPLIED,
-                                   pending_slot,
-                                   false);
+    if (!portable_ota_port_metadata_apply_direct_ab_pending(metadata, pending_slot)) {
+        return false;
+    }
+    return ota_metadata_store(metadata);
 }
 
 static ota_slot_t bootloader_select_direct_rollback_slot(const ota_metadata_t *metadata)
@@ -470,16 +432,12 @@ static bool bootloader_direct_rollback(ota_metadata_t *metadata,
         return false;
     }
 
-    metadata->active_slot = (uint32_t)rollback_slot;
-    metadata->previous_slot = (uint32_t)failed_slot;
-    metadata->pending_slot = (uint32_t)OTA_SLOT_NONE;
-    metadata->boot_attempts = 0u;
-    metadata->rollback_count++;
-    metadata->last_boot_result = (uint32_t)reason;
-    metadata->last_boot_source_slot = (uint32_t)failed_slot;
-    metadata->last_boot_size = bootloader_metadata_slot_size(metadata, failed_slot);
-    metadata->last_boot_crc32 = bootloader_metadata_slot_crc32(metadata, failed_slot);
-    metadata->sequence++;
+    if (!portable_ota_port_metadata_rollback_direct_ab(metadata,
+                                                       reason,
+                                                       failed_slot,
+                                                       rollback_slot)) {
+        return false;
+    }
     return ota_metadata_store(metadata);
 }
 
@@ -510,8 +468,9 @@ static bool bootloader_prepare_direct_active_boot(ota_metadata_t *metadata)
                                           active_slot);
     }
 
-    metadata->boot_attempts++;
-    metadata->sequence++;
+    if (!portable_ota_port_metadata_increment_boot_attempts(metadata)) {
+        return false;
+    }
     return ota_metadata_store(metadata);
 }
 

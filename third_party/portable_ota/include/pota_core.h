@@ -27,6 +27,11 @@ typedef struct {
     bool package_mode;
 } pota_begin_t;
 
+typedef struct {
+    const uint8_t *data;
+    uint32_t size;
+} pota_write_t;
+
 bool pota_init(pota_context_t *context, const pota_platform_t *platform);
 pota_error_t pota_begin(pota_context_t *context, const pota_begin_t *begin);
 pota_error_t pota_service(pota_context_t *context, uint32_t budget_us);
@@ -35,5 +40,13 @@ pota_error_t pota_end(pota_context_t *context);
 pota_error_t pota_abort(pota_context_t *context);
 pota_error_t pota_commit(pota_context_t *context);
 void pota_get_status(const pota_context_t *context, pota_status_t *status);
+
+void pota_core_set_failed(pota_context_t *context, pota_error_t error);
+pota_error_t pota_core_begin_action(pota_context_t *context, const void *argument);
+pota_error_t pota_core_service_action(pota_context_t *context, const void *argument);
+pota_error_t pota_core_write_action(pota_context_t *context, const void *argument);
+pota_error_t pota_core_end_action(pota_context_t *context, const void *argument);
+pota_error_t pota_core_abort_action(pota_context_t *context, const void *argument);
+pota_error_t pota_core_commit_action(pota_context_t *context, const void *argument);
 
 #endif

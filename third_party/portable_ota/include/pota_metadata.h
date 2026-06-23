@@ -88,6 +88,7 @@ bool pota_metadata_mark_pending(pota_metadata_t *metadata,
                                 pota_slot_t slot,
                                 uint32_t image_size,
                                 uint32_t image_crc32);
+bool pota_metadata_can_confirm_active(const pota_metadata_t *metadata);
 bool pota_metadata_confirm_active(pota_metadata_t *metadata);
 bool pota_metadata_set_boot_mode(pota_metadata_t *metadata, pota_boot_mode_t mode);
 bool pota_metadata_set_fault_injection(pota_metadata_t *metadata, uint32_t flags);
@@ -103,6 +104,20 @@ bool pota_metadata_update_copy_transaction(pota_metadata_t *metadata,
 bool pota_metadata_finish_copy_transaction(pota_metadata_t *metadata);
 bool pota_metadata_fail_copy_transaction(pota_metadata_t *metadata, uint32_t last_error);
 bool pota_metadata_clear_copy_transaction(pota_metadata_t *metadata);
+bool pota_metadata_record_boot_result(pota_metadata_t *metadata,
+                                      pota_boot_result_t result,
+                                      pota_slot_t source_slot,
+                                      bool clear_pending);
+bool pota_metadata_apply_copy_to_active_done(pota_metadata_t *metadata,
+                                             pota_slot_t staging_slot,
+                                             pota_slot_t active_slot);
+bool pota_metadata_apply_direct_ab_pending(pota_metadata_t *metadata,
+                                           pota_slot_t pending_slot);
+bool pota_metadata_rollback_direct_ab(pota_metadata_t *metadata,
+                                      pota_boot_result_t reason,
+                                      pota_slot_t failed_slot,
+                                      pota_slot_t rollback_slot);
+bool pota_metadata_increment_boot_attempts(pota_metadata_t *metadata);
 const pota_metadata_t *pota_metadata_select_newest(const pota_metadata_t *copies,
                                                    size_t copy_count);
 

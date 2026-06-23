@@ -118,14 +118,23 @@ int main(void)
                            pota_metadata_mark_pending(&pending, POTA_SLOT_NONE, 4096u, 0u));
 
     pending.active_slot = (uint32_t)POTA_SLOT_B;
+    pending.pending_slot = (uint32_t)POTA_SLOT_NONE;
+    pending.last_boot_result = (uint32_t)POTA_BOOT_RESULT_APPLIED;
     pending.slot_b_size = 4096u;
     pending.slot_b_crc32 = 0xA5A5A5A5u;
     pota_metadata_update_crc(&pending);
+    failed += expect_true("can confirm active", pota_metadata_can_confirm_active(&pending));
     failed += expect_true("confirm active", pota_metadata_confirm_active(&pending));
     failed += expect_true("confirmed metadata valid", pota_metadata_is_valid(&pending));
     failed += expect_u32("confirmed slot", pending.confirmed_slot, (uint32_t)POTA_SLOT_B);
     failed += expect_u32("confirm clears pending", pending.pending_slot, (uint32_t)POTA_SLOT_NONE);
     failed += expect_u32("confirm boot result", pending.last_boot_result, (uint32_t)POTA_BOOT_RESULT_APPLIED);
+
+    pota_metadata_t blocked_confirm = defaults;
+    failed += expect_false("cannot confirm without applied result",
+                           pota_metadata_can_confirm_active(&blocked_confirm));
+    failed += expect_false("confirm rejects without applied result",
+                           pota_metadata_confirm_active(&blocked_confirm));
 
     pota_metadata_t mode = defaults;
     mode.pending_slot = (uint32_t)POTA_SLOT_B;
@@ -178,6 +187,60 @@ int main(void)
     failed += expect_true("clear copy transaction", pota_metadata_clear_copy_transaction(&copy));
     failed += expect_true("copy metadata valid", pota_metadata_is_valid(&copy));
     failed += expect_u32("copy cleared", copy.copy_txn_state, (uint32_t)POTA_COPY_TXN_NONE);
+
+    pota_metadata_t boot = defaults;
+    boot.slot_b_size = 12288u;
+    boot.slot_b_crc32 = 0xBEEFBEEFu;
+    failed += expect_true("copy-to-active done",
+                          pota_metadata_apply_copy_to_active_done(&boot, POTA_SLOT_B, POTA_SLOT_A));
+    failed += expect_true("copy-to-active metadata valid", pota_metadata_is_valid(&boot));
+    failed += expect_u32("copy-to-active active", boot.active_slot, (uint32_t)POTA_SLOT_A);
+    failed += expect_u32("copy-to-active confirmed", boot.confirmed_slot, (uint32_t)POTA_SLOT_A);
+    failed += expect_u32("copy-to-active slot a size", boot.slot_a_size, 12288u);
+    failed += expect_u32("copy-to-active result", boot.last_boot_result, (uint32_t)POTA_BOOT_RESULT_APPLIED);
+    failed += expect_u32("copy-to-active source", boot.last_boot_source_slot, (uint32_t)POTA_SLOT_B);
+
+    pota_metadata_t direct = defaults;
+    direct.boot_mode = (uint32_t)POTA_BOOT_MODE_DIRECT_AB;
+    direct.active_slot = (uint32_t)POTA_SLOT_A;
+    direct.confirmed_slot = (uint32_t)POTA_SLOT_A;
+    direct.pending_slot = (uint32_t)POTA_SLOT_B;
+    direct.slot_b_size = 16384u;
+    direct.slot_b_crc32 = 0x1234ABCDu;
+    pota_metadata_update_crc(&direct);
+    failed += expect_true("direct pending apply",
+                          pota_metadata_apply_direct_ab_pending(&direct, POTA_SLOT_B));
+    failed += expect_true("direct pending metadata valid", pota_metadata_is_valid(&direct));
+    failed += expect_u32("direct active", direct.active_slot, (uint32_t)POTA_SLOT_B);
+    failed += expect_u32("direct previous", direct.previous_slot, (uint32_t)POTA_SLOT_A);
+    failed += expect_u32("direct pending cleared", direct.pending_slot, (uint32_t)POTA_SLOT_NONE);
+    failed += expect_u32("direct boot attempts", direct.boot_attempts, 1u);
+    failed += expect_u32("direct boot generation", direct.boot_generation, 1u);
+
+    failed += expect_true("direct increment boot attempts",
+                          pota_metadata_increment_boot_attempts(&direct));
+    failed += expect_u32("direct boot attempts incremented", direct.boot_attempts, 2u);
+
+    failed += expect_true("direct rollback",
+                          pota_metadata_rollback_direct_ab(&direct,
+                                                           POTA_BOOT_RESULT_MAX_ATTEMPTS,
+                                                           POTA_SLOT_B,
+                                                           POTA_SLOT_A));
+    failed += expect_true("direct rollback metadata valid", pota_metadata_is_valid(&direct));
+    failed += expect_u32("rollback active", direct.active_slot, (uint32_t)POTA_SLOT_A);
+    failed += expect_u32("rollback previous", direct.previous_slot, (uint32_t)POTA_SLOT_B);
+    failed += expect_u32("rollback attempts", direct.boot_attempts, 0u);
+    failed += expect_u32("rollback count", direct.rollback_count, 1u);
+    failed += expect_u32("rollback result", direct.last_boot_result, (uint32_t)POTA_BOOT_RESULT_MAX_ATTEMPTS);
+
+    failed += expect_true("record boot result clear pending",
+                          pota_metadata_record_boot_result(&direct,
+                                                           POTA_BOOT_RESULT_STAGE_VALIDATE_FAILED,
+                                                           POTA_SLOT_B,
+                                                           true));
+    failed += expect_true("record boot result metadata valid", pota_metadata_is_valid(&direct));
+    failed += expect_u32("record clears pending", direct.pending_slot, (uint32_t)POTA_SLOT_NONE);
+    failed += expect_u32("record rollback count", direct.rollback_count, 2u);
 
     const pota_metadata_t *selected = pota_metadata_select_newest(copies, 3u);
     if (selected != &copies[1]) {

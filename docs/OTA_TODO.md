@@ -200,3 +200,80 @@
 - [x] Step 3E 最终安全状态：`SYST:FW:BUILD? -> "20260623112832"`，
   `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:RES? ->
   4,"IMAGE_TOO_LARGE","APPLIED",1,75160,3242593473`。
+- [x] Step 3F：将 Bootloader 侧 boot result、copy-to-active 完成落账、
+  direct A/B pending apply、direct rollback 和 boot_attempts 增量等内存
+  metadata mutation helper 下沉到 `third_party/portable_ota`。
+- [x] Step 3F 闭环：`build-portable-boot-metadata` 构建通过，
+  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
+  COM4 上完成 factory 烧录、正向 OTA、Bootloader `APPLIED`、App `COMM`。
+- [x] Step 3F 负向矩阵复测：整包 CRC、镜像 CRC、App 向量、包头
+  magic/version/size、slot、run_offset 均按预期失败，且未留下 pending。
+- [x] Step 3F 最终安全状态：`SYST:FW:BUILD? -> "20260623153304"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75160,4118687324`。
+- [x] Step 3G：将 App `COMM` 前置确认语义下沉到 portable metadata helper，
+  新增 `pota_metadata_can_confirm_active()`，并让 `pota_metadata_confirm_active()`
+  自身强制要求无 pending 且最近 Bootloader 结果为 `APPLIED`。
+- [x] Step 3G 构建闭环：`build-portable-commit-helper` 构建通过，
+  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`。
+- [x] Step 3G 板端闭环：COM4 上完成 factory 烧录、统一 package 正常 OTA、
+  Bootloader `APPLIED`、App `COMM` 和完整负向矩阵。
+- [x] Step 3G 最终安全状态：`SYST:FW:BUILD? -> "20260623154727"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75200,947176610`。
+- [x] Portable OTA 当前迁移阶段收口：除 `middleware/portable_ota_port` 和单元测试外，
+  产品层没有直接 include/call `pota_*`；剩余 Bootloader flash copy、slot jump、
+  watchdog、SCPI 查询和同步触发空闲检查保留为 RP2350 产品/平台职责。
+- [x] Step 4A：新增 `pota_operation` 操作向量表，将 App 侧
+  `BEGIN/SERVICE/WRITE/END/ABORT/COMMIT` 的允许状态和 action 分发下沉到
+  `third_party/portable_ota`。
+- [x] Step 4A 闭环：`build-portable-operation` 构建通过，
+  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
+  COM4 上完成 factory 烧录、统一 package 正常 OTA、Bootloader `APPLIED`、
+  App `COMM` 和完整负向矩阵。
+- [x] Step 4A 最终安全状态：`SYST:FW:BUILD? -> "20260623160856"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75520,1153533388`。
+- [x] Step 4B：新增 `pota_compat` 表驱动兼容映射 helper；
+  `portable_ota_core_port.c` 和 `portable_ota_strings_port.c` 删除大段错误/结果映射
+  switch，仅保留 RP2350 产品扩展错误文本表。
+- [x] Step 4B 闭环：`build-portable-compat` 构建通过，
+  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
+  COM4 上完成 factory 烧录、统一 package 正常 OTA、Bootloader `APPLIED`、
+  App `COMM` 和完整负向矩阵。
+- [x] Step 4B 最终安全状态：`SYST:FW:BUILD? -> "20260623161835"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,1672559948`。
+- [x] Step 4C：为 package manifest/image 布局增加编译期 static assert，
+  将 `portable_ota_port.c` 中的逐字段 manifest 拷贝改为受布局断言保护的
+  `memcpy()`，并删除重复 slot 映射函数。
+- [x] Step 4C 闭环：`build-portable-package-layout` 构建通过，
+  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
+  COM4 上完成 factory 烧录、统一 package 正常 OTA、Bootloader `APPLIED`、
+  App `COMM` 和完整负向矩阵。
+- [x] Step 4C 最终安全状态：`SYST:FW:BUILD? -> "20260623162853"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,1062244197`。
+- [x] Step 4D：新增 `pota_package_find_image_index()`，将 package image
+  slot 查找规则下沉到 portable 库；middleware 仅根据 index 返回产品结构体指针。
+- [x] Step 4D 闭环：`build-portable-package-index` 构建通过，
+  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
+  COM4 上完成 factory 烧录、统一 package 正常 OTA、Bootloader `APPLIED`、
+  App `COMM` 和完整负向矩阵。
+- [x] Step 4D 最终安全状态：`SYST:FW:BUILD? -> "20260623163652"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,888718805`。
+- [x] Step 4E：合并 `portable_ota_crc_port.c` 和 `portable_ota_strings_port.c`
+  到 `portable_ota_core_port.c`；通过 `PORTABLE_OTA_PORT_ENABLE_SESSION` 让
+  Bootloader 只编译 CRC/字符串基础适配，App 编译完整 OTA session 接收路径。
+- [x] Step 4E：新增 `tools/ota_board_validate/ota_board_validate.py` 一键板端验证
+  脚本，从生成的 `summary.json`、查询文件和 per-step log 判断验证是否正常。
+- [x] Step 4E 闭环：`build-portable-port-merge` 构建通过，
+  portable OTA ARM GCC compile/object-build gate 通过，`release_check=OK`；
+  一键脚本完成 factory 烧录、baseline、正向 OTA、Bootloader `APPLIED`、
+  App `COMM`、完整负向矩阵和最终安全状态验证。
+- [x] Step 4E 最终安全状态：`SYST:FW:BUILD? -> "20260623165039"`，
+  `SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，
+  `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,3771490588`。
+- [ ] Step 4F：评估 `portable_ota_metadata_port.c` 是否只做布局断言宏化；
+  剩余 image/core/platform 绑定不为减少行数强行下沉。

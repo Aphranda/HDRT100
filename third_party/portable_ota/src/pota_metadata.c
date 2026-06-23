@@ -271,11 +271,21 @@ bool pota_metadata_mark_pending(pota_metadata_t *metadata,
     return true;
 }
 
-bool pota_metadata_confirm_active(pota_metadata_t *metadata)
+bool pota_metadata_can_confirm_active(const pota_metadata_t *metadata)
 {
     if (metadata == NULL ||
         (metadata->active_slot != (uint32_t)POTA_SLOT_A &&
          metadata->active_slot != (uint32_t)POTA_SLOT_B)) {
+        return false;
+    }
+
+    return metadata->pending_slot == (uint32_t)POTA_SLOT_NONE &&
+           metadata->last_boot_result == (uint32_t)POTA_BOOT_RESULT_APPLIED;
+}
+
+bool pota_metadata_confirm_active(pota_metadata_t *metadata)
+{
+    if (!pota_metadata_can_confirm_active(metadata)) {
         return false;
     }
 
@@ -413,6 +423,156 @@ bool pota_metadata_clear_copy_transaction(pota_metadata_t *metadata)
 
     metadata->sequence++;
     pota_metadata_clear_copy_transaction_fields(metadata);
+    pota_metadata_update_crc(metadata);
+    return true;
+}
+
+static uint32_t pota_metadata_slot_size(const pota_metadata_t *metadata, pota_slot_t slot)
+{
+    if (metadata == NULL) {
+        return 0u;
+    }
+
+    return (slot == POTA_SLOT_A) ? metadata->slot_a_size :
+           (slot == POTA_SLOT_B) ? metadata->slot_b_size :
+                                   0u;
+}
+
+static uint32_t pota_metadata_slot_crc32(const pota_metadata_t *metadata, pota_slot_t slot)
+{
+    if (metadata == NULL) {
+        return 0u;
+    }
+
+    return (slot == POTA_SLOT_A) ? metadata->slot_a_crc32 :
+           (slot == POTA_SLOT_B) ? metadata->slot_b_crc32 :
+                                   0u;
+}
+
+static bool pota_metadata_slot_is_valid(pota_slot_t slot)
+{
+    return slot == POTA_SLOT_A || slot == POTA_SLOT_B;
+}
+
+bool pota_metadata_record_boot_result(pota_metadata_t *metadata,
+                                      pota_boot_result_t result,
+                                      pota_slot_t source_slot,
+                                      bool clear_pending)
+{
+    if (metadata == NULL || !pota_metadata_slot_or_none_is_valid((uint32_t)source_slot)) {
+        return false;
+    }
+
+    metadata->sequence++;
+    metadata->last_boot_result = (uint32_t)result;
+    metadata->last_boot_source_slot = (uint32_t)source_slot;
+    metadata->last_boot_size = pota_metadata_slot_size(metadata, source_slot);
+    metadata->last_boot_crc32 = pota_metadata_slot_crc32(metadata, source_slot);
+
+    if (clear_pending) {
+        metadata->pending_slot = (uint32_t)POTA_SLOT_NONE;
+        metadata->boot_attempts = 0u;
+        if (result != POTA_BOOT_RESULT_APPLIED &&
+            result != POTA_BOOT_RESULT_NO_PENDING) {
+            metadata->rollback_count++;
+        }
+    }
+
+    pota_metadata_update_crc(metadata);
+    return true;
+}
+
+bool pota_metadata_apply_copy_to_active_done(pota_metadata_t *metadata,
+                                             pota_slot_t staging_slot,
+                                             pota_slot_t active_slot)
+{
+    if (metadata == NULL ||
+        !pota_metadata_slot_is_valid(staging_slot) ||
+        !pota_metadata_slot_is_valid(active_slot)) {
+        return false;
+    }
+
+    const uint32_t staging_size = pota_metadata_slot_size(metadata, staging_slot);
+    const uint32_t staging_crc32 = pota_metadata_slot_crc32(metadata, staging_slot);
+    if (staging_size == 0u) {
+        return false;
+    }
+
+    metadata->active_slot = (uint32_t)active_slot;
+    metadata->confirmed_slot = (uint32_t)active_slot;
+    metadata->pending_slot = (uint32_t)POTA_SLOT_NONE;
+    metadata->boot_attempts = 0u;
+
+    if (active_slot == POTA_SLOT_A) {
+        metadata->slot_a_size = staging_size;
+        metadata->slot_a_crc32 = staging_crc32;
+    } else {
+        metadata->slot_b_size = staging_size;
+        metadata->slot_b_crc32 = staging_crc32;
+    }
+
+    pota_metadata_clear_copy_transaction_fields(metadata);
+    return pota_metadata_record_boot_result(metadata,
+                                            POTA_BOOT_RESULT_APPLIED,
+                                            staging_slot,
+                                            false);
+}
+
+bool pota_metadata_apply_direct_ab_pending(pota_metadata_t *metadata,
+                                           pota_slot_t pending_slot)
+{
+    if (metadata == NULL ||
+        !pota_metadata_slot_is_valid(pending_slot) ||
+        !pota_metadata_slot_is_valid((pota_slot_t)metadata->active_slot) ||
+        metadata->pending_slot != (uint32_t)pending_slot) {
+        return false;
+    }
+
+    metadata->previous_slot = metadata->active_slot;
+    metadata->active_slot = metadata->pending_slot;
+    metadata->pending_slot = (uint32_t)POTA_SLOT_NONE;
+    metadata->boot_attempts++;
+    metadata->boot_generation++;
+
+    return pota_metadata_record_boot_result(metadata,
+                                            POTA_BOOT_RESULT_APPLIED,
+                                            pending_slot,
+                                            false);
+}
+
+bool pota_metadata_rollback_direct_ab(pota_metadata_t *metadata,
+                                      pota_boot_result_t reason,
+                                      pota_slot_t failed_slot,
+                                      pota_slot_t rollback_slot)
+{
+    if (metadata == NULL ||
+        !pota_metadata_slot_is_valid(failed_slot) ||
+        !pota_metadata_slot_is_valid(rollback_slot)) {
+        return false;
+    }
+
+    metadata->sequence++;
+    metadata->active_slot = (uint32_t)rollback_slot;
+    metadata->previous_slot = (uint32_t)failed_slot;
+    metadata->pending_slot = (uint32_t)POTA_SLOT_NONE;
+    metadata->boot_attempts = 0u;
+    metadata->rollback_count++;
+    metadata->last_boot_result = (uint32_t)reason;
+    metadata->last_boot_source_slot = (uint32_t)failed_slot;
+    metadata->last_boot_size = pota_metadata_slot_size(metadata, failed_slot);
+    metadata->last_boot_crc32 = pota_metadata_slot_crc32(metadata, failed_slot);
+    pota_metadata_update_crc(metadata);
+    return true;
+}
+
+bool pota_metadata_increment_boot_attempts(pota_metadata_t *metadata)
+{
+    if (metadata == NULL) {
+        return false;
+    }
+
+    metadata->sequence++;
+    metadata->boot_attempts++;
     pota_metadata_update_crc(metadata);
     return true;
 }

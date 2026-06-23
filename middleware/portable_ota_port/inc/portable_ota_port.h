@@ -48,6 +48,7 @@ bool portable_ota_port_metadata_mark_pending(ota_metadata_t *metadata,
                                              ota_slot_t slot,
                                              uint32_t image_size,
                                              uint32_t image_crc32);
+bool portable_ota_port_metadata_can_confirm_active(const ota_metadata_t *metadata);
 bool portable_ota_port_metadata_confirm_active(ota_metadata_t *metadata);
 bool portable_ota_port_metadata_set_boot_mode(ota_metadata_t *metadata, ota_boot_mode_t mode);
 bool portable_ota_port_metadata_set_fault_injection(ota_metadata_t *metadata, uint32_t flags);
@@ -64,6 +65,20 @@ bool portable_ota_port_metadata_finish_copy_transaction(ota_metadata_t *metadata
 bool portable_ota_port_metadata_fail_copy_transaction(ota_metadata_t *metadata,
                                                       uint32_t last_error);
 bool portable_ota_port_metadata_clear_copy_transaction(ota_metadata_t *metadata);
+bool portable_ota_port_metadata_record_boot_result(ota_metadata_t *metadata,
+                                                   ota_boot_result_t result,
+                                                   ota_slot_t source_slot,
+                                                   bool clear_pending);
+bool portable_ota_port_metadata_apply_copy_to_active_done(ota_metadata_t *metadata,
+                                                          ota_slot_t staging_slot,
+                                                          ota_slot_t active_slot);
+bool portable_ota_port_metadata_apply_direct_ab_pending(ota_metadata_t *metadata,
+                                                        ota_slot_t pending_slot);
+bool portable_ota_port_metadata_rollback_direct_ab(ota_metadata_t *metadata,
+                                                   ota_boot_result_t reason,
+                                                   ota_slot_t failed_slot,
+                                                   ota_slot_t rollback_slot);
+bool portable_ota_port_metadata_increment_boot_attempts(ota_metadata_t *metadata);
 const ota_metadata_t *portable_ota_port_metadata_select_newest(const ota_metadata_t *copies,
                                                                size_t copy_count);
 

@@ -1,9 +1,11 @@
 #ifndef POTA_H
 #define POTA_H
 
+#include "pota_compat.h"
 #include "pota_core.h"
 #include "pota_image.h"
 #include "pota_metadata.h"
+#include "pota_operation.h"
 #include "pota_package.h"
 #include "pota_platform.h"
 #include "pota_session.h"

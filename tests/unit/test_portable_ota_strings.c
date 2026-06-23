@@ -1,4 +1,5 @@
 #include "pota_strings.h"
+#include "pota_compat.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -32,6 +33,29 @@ int main(void)
     failed += expect_text("boot applied", pota_boot_result_to_string(POTA_BOOT_RESULT_APPLIED), "APPLIED");
     failed += expect_text("boot copy failed", pota_boot_result_to_string(POTA_BOOT_RESULT_COPY_FAILED), "COPY_FAILED");
     failed += expect_text("boot unknown", pota_boot_result_to_string((pota_boot_result_t)99u), "UNKNOWN");
+
+    static const pota_compat_map_entry_t error_aliases[] = {
+        {POTA_ERR_PRODUCT_MISMATCH, 100u},
+        {POTA_ERR_HARDWARE_MISMATCH, 100u},
+    };
+    static const pota_compat_text_entry_t texts[] = {
+        {100u, "BOARD_MISMATCH"},
+    };
+
+    if (pota_compat_error_to_product(POTA_ERR_PRODUCT_MISMATCH,
+                                     error_aliases,
+                                     2u,
+                                     999u) != 100u) {
+        printf("compat product mismatch alias failed\n");
+        failed++;
+    }
+    if (pota_compat_error_to_product(POTA_ERR_CRC, NULL, 0u, 999u) != (uint32_t)POTA_ERR_CRC) {
+        printf("compat default crc mapping failed\n");
+        failed++;
+    }
+    failed += expect_text("compat text alias",
+                          pota_compat_text_u32(100u, texts, 1u, "UNKNOWN"),
+                          "BOARD_MISMATCH");
 
     return failed == 0 ? 0 : 1;
 }

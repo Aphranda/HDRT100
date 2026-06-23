@@ -45,9 +45,287 @@
 
 ## 任务记录
 
+### TASK-20260624-005 - Portable OTA port 文件合并与一键验证脚本
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 将 `portable_ota_crc_port.c` 和 `portable_ota_strings_port.c` 合并到 `portable_ota_core_port.c`，减少 `middleware/portable_ota_port/src` 的机械薄包装文件数量。
+  - 增加常规 OTA 板端验证一键脚本，验证结果从脚本生成的临时文件和 `summary.json` 判定，避免人工读取滚动终端输出。
+- 完成内容：
+  - `portable_ota_port_crc32_update()`、`portable_ota_port_crc32_compute()` 已合并进 `portable_ota_core_port.c`。
+  - `portable_ota_port_state_to_string()`、`portable_ota_port_error_to_string()`、`portable_ota_port_result_to_string()`、`portable_ota_port_boot_result_to_string()` 已合并进 `portable_ota_core_port.c`。
+  - 删除 `middleware/portable_ota_port/src/portable_ota_crc_port.c` 和 `middleware/portable_ota_port/src/portable_ota_strings_port.c`。
+  - 在 `portable_ota_core_port.c` 中增加 `PORTABLE_OTA_PORT_ENABLE_SESSION` 条件编译：App target 启用 session/core OTA 接收路径，Bootloader 只编译 CRC/字符串等基础适配，避免 Bootloader 链入 App OTA session 依赖。
+  - 更新 `CMakeLists.txt`，共享 adapter 源列表统一使用 `portable_ota_core_port.c`，App target 定义 `PORTABLE_OTA_PORT_ENABLE_SESSION=1`。
+  - 新增 `tools/ota_board_validate/ota_board_validate.py`，自动执行 release check、factory 烧录、baseline 查询、正向 OTA、Bootloader apply、App commit、负向矩阵和最终安全状态查询。
+  - 更新 `tools/README.md`，记录一键验证脚本用法和输出目录。
+- 验证结果：
+  - `python -m py_compile tools\ota_board_validate\ota_board_validate.py` 通过。
+  - `python tools\ota_board_validate\ota_board_validate.py --help` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `cmake -S . -B build-portable-port-merge -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - `cmake --build build-portable-port-merge` 通过，App A、App B 和 Bootloader 均链接成功；生成 `RP2350_TRIG_UPDATE.pkg`：
+    - build id：`20260623165039`
+    - package size：`153064`
+    - package CRC32：`0xF1251F80`
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-portable-port-merge` 通过。
+  - 手工烧录 `build-portable-port-merge\RP2350_TRIG_FACTORY.uf2` 后，baseline 正常：
+    - `SYST:FW:BUILD? -> "20260623165039"`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - 手工正向 OTA、Bootloader apply、App commit 通过：
+    - OTA 接收达到 `READY_TO_REBOOT`
+    - `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,76248,3771490588`
+    - `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`
+  - 一键脚本完整闭环通过：
+    - 命令：`python tools\ota_board_validate\ota_board_validate.py COM4 build-portable-port-merge`
+    - 输出目录：`build-portable-port-merge\ota_validation_20260624_005532`
+    - `summary.json` 中所有步骤 `passed=true`
+    - 最终安全状态：`SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`，`SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+- 还需完成：
+  - 后续可将 `docs/TASK_PROGRESS.md` 和 `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md` 的闭环记录引用一键脚本输出目录，减少手写验证记录。
+  - 后续如做掉电测试，可在 `ota_board_validate.py` 上扩展电源控制 hook。
+- 关联文件：
+  - `CMakeLists.txt`
+  - `middleware/portable_ota_port/src/portable_ota_core_port.c`
+  - `tools/ota_board_validate/ota_board_validate.py`
+  - `tools/README.md`
+- 下一步：
+  - 继续评估 `portable_ota_metadata_port.c` 的布局断言和 wrapper 是否需要宏化；不建议为了减少行数破坏产品 API 边界。
+
+### TASK-20260624-004 - Portable OTA Step 4D：package image index helper 下沉
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 将 package image 查找规则进一步下沉到 `third_party/portable_ota`，使 `middleware/portable_ota_port` 不再维护自己的 slot 查找循环。
+  - 保持产品侧 `ota_package_find_image()` 返回产品结构体指针的 API 不变，避免产品层直接暴露 `pota_*` 类型。
+- 完成内容：
+  - 新增 `pota_package_find_image_index()`，由 portable 库返回匹配 slot 的 image index。
+  - `pota_package_find_image()` 复用新的 index helper，库内只保留一份查找规则。
+  - `portable_ota_port_find_package_image()` 改为复制 layout-compatible manifest 后调用 `pota_package_find_image_index()`，再返回产品侧 `manifest->images[index]`。
+  - 扩展 `test_portable_ota_package.c`，覆盖 index helper 命中、未命中和 `index == NULL` 场景。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `cmake -S . -B build-portable-package-index -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - `cmake --build build-portable-package-index` 通过，生成 `RP2350_TRIG_UPDATE.pkg`：
+    - build id：`20260623163652`
+    - package size：`153064`
+    - package CRC32：`0xAAEFE1DA`
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-portable-package-index` 通过。
+  - `build-portable-package-index\RP2350_TRIG_FACTORY.uf2` 已用 `picotool` 烧录；baseline：
+    - `SYST:FW:BUILD? -> "20260623163652"`
+    - `SYST:BOOT:VERS? -> 0,1,0`
+    - `SYST:BOOT:CAP? -> 1`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - 正向统一 package OTA 通过：`READY_TO_REBOOT`，Bootloader apply 后 `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,76248,888718805`，`SYST:OTA:COMM` 后 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`。
+  - 负向矩阵全部通过，错误文本保持兼容：
+    - 整包 CRC -> `"FAILED",2,"CRC",4`
+    - 镜像 CRC -> `"FAILED",2,"CRC",4`
+    - App 向量 -> `"FAILED",2,"VECTOR",4`
+    - header magic/version/size -> `"FAILED",2,"BAD_HEADER",4`
+    - slot -> `"FAILED",2,"BAD_HEADER",4`
+    - run-offset -> `"FAILED",2,"IMAGE_TOO_LARGE",4`
+  - 最终安全状态：
+    - `SYST:FW:BUILD? -> "20260623163652"`
+    - `SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,888718805`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+- 还需完成：
+  - `portable_ota_crc_port.c` 当前只是端口边界转发，暂不建议继续下沉到产品层直接调用 `pota_crc32_*`。
+  - `portable_ota_metadata_port.c` 主要是产品类型到 portable 类型的边界 wrapper，后续若要瘦身，应优先考虑宏生成或更清晰的布局断言，而不是破坏产品 API。
+- 关联文件：
+  - `third_party/portable_ota/include/pota_package.h`
+  - `third_party/portable_ota/src/pota_package.c`
+  - `middleware/portable_ota_port/src/portable_ota_port.c`
+  - `tests/unit/test_portable_ota_package.c`
+- 下一步：
+  - 评估剩余 wrapper 是否已经到达合理边界；如继续优化，优先做验证自动化脚本，而不是为了减少行数破坏分层。
+
+### TASK-20260624-003 - Portable OTA Step 4C：package manifest wrapper 瘦身
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 继续按 HAOFV 的“规则下沉、middleware 薄适配”原则，减少 `portable_ota_port.c` 中 package manifest 的机械字段复制和重复 slot 映射。
+  - 保持产品侧 `ota_package_*` API、SCPI 行为、统一 package 格式和 Bootloader/App 升级链路不变。
+- 完成内容：
+  - 在 `middleware/portable_ota_port/src/portable_ota_port.c` 增加 package 常量、slot 枚举值、manifest/image 结构体大小和字段 offset 的 `_Static_assert`。
+  - 将 `portable_ota_port_copy_manifest()` 的逐字段复制替换为布局断言保护下的 `memcpy()`。
+  - 删除 `portable_ota_port_to_pota_slot()`，slot 值通过编译期断言保证与 `pota_slot_t` 兼容。
+  - 保留产品公开类型和返回指针语义，避免产品层直接依赖 `pota_*` 类型。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `cmake -S . -B build-portable-package-layout -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - 首次产品构建因 enum 类型直接比较触发 `-Werror=enum-compare` 停止，已改为 `(uint32_t)` 显式比较后复测通过。
+  - `cmake --build build-portable-package-layout` 通过，生成 `RP2350_TRIG_UPDATE.pkg`：
+    - build id：`20260623162853`
+    - package size：`153064`
+    - package CRC32：`0x4D19FB6D`
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-portable-package-layout` 通过。
+  - `build-portable-package-layout\RP2350_TRIG_FACTORY.uf2` 已用 `picotool` 烧录；baseline：
+    - `SYST:FW:BUILD? -> "20260623162853"`
+    - `SYST:BOOT:VERS? -> 0,1,0`
+    - `SYST:BOOT:CAP? -> 1`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - 正向统一 package OTA 通过：`READY_TO_REBOOT`，Bootloader apply 后 `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,76248,1062244197`，`SYST:OTA:COMM` 后 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`。
+  - 负向矩阵全部通过，错误文本保持兼容：
+    - 整包 CRC -> `"FAILED",2,"CRC",4`
+    - 镜像 CRC -> `"FAILED",2,"CRC",4`
+    - App 向量 -> `"FAILED",2,"VECTOR",4`
+    - header magic/version/size -> `"FAILED",2,"BAD_HEADER",4`
+    - slot -> `"FAILED",2,"BAD_HEADER",4`
+    - run-offset -> `"FAILED",2,"IMAGE_TOO_LARGE",4`
+  - 最终安全状态：
+    - `SYST:FW:BUILD? -> "20260623162853"`
+    - `SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,1062244197`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+- 还需完成：
+  - 继续评估是否需要在 `portable_ota` 增加 `find_image_index` 之类 API，以进一步消除 middleware 中最后的产品类型查找循环。
+  - 继续扫描 CRC wrapper、metadata wrapper 和 core port 中是否还有适合下沉为库内表/API 的机械逻辑。
+- 关联文件：
+  - `middleware/portable_ota_port/src/portable_ota_port.c`
+  - `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`
+  - `docs/OTA_TODO.md`
+- 下一步：
+  - 执行下一轮 wrapper 扫描，优先处理低风险的 package index helper 或确认 CRC wrapper 保留为端口边界。
+
+### TASK-20260624-002 - Portable OTA Step 4B：兼容映射表下沉
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 将 `portable_ota_core_port.c` 和 `portable_ota_strings_port.c` 中的状态/错误/结果映射 switch 收敛为库内表驱动 compat helper。
+  - 进一步减少 middleware 对 OTA 公共语义映射的承载，使其更接近 `u8g2_port` 的薄适配形态。
+- 完成内容：
+  - 新增 `pota_compat.h/.c`，提供 `pota_compat_map_u32()`、portable/product 错误和结果映射、文本别名查询。
+  - `portable_ota_core_port.c` 改为通过 `pota_compat_error_to_product()` 和 `pota_compat_result_to_product()` 映射状态向量。
+  - `portable_ota_strings_port.c` 删除大段 switch，仅保留产品扩展错误文本表。
+  - `pota.h`、CMake、portable OTA 测试脚本和 `third_party/portable_ota/README.md` 已接入 `pota_compat`。
+  - 扩展 portable strings 单测，覆盖 compat alias/default/text helper。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `cmake -S . -B build-portable-compat -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - `cmake --build build-portable-compat` 通过，生成 `RP2350_TRIG_UPDATE.pkg`：
+    - build id：`20260623161835`
+    - package size：`153064`
+    - package CRC32：`0x794AE547`
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-portable-compat` 通过。
+  - `build-portable-compat\RP2350_TRIG_FACTORY.uf2` 已用 `picotool` 烧录；baseline：
+    - `SYST:FW:BUILD? -> "20260623161835"`
+    - `SYST:BOOT:VERS? -> 0,1,0`
+    - `SYST:BOOT:CAP? -> 1`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - 正向统一 package OTA 通过：`READY_TO_REBOOT`，Bootloader apply 后 `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,76248,1672559948`，`SYST:OTA:COMM` 后 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`。
+  - 负向矩阵全部通过，错误文本保持兼容：
+    - 整包 CRC -> `"FAILED",2,"CRC",4`
+    - 镜像 CRC -> `"FAILED",2,"CRC",4`
+    - App 向量 -> `"FAILED",2,"VECTOR",4`
+    - header magic/version/size -> `"FAILED",2,"BAD_HEADER",4`
+    - slot -> `"FAILED",2,"BAD_HEADER",4`
+    - run-offset -> `"FAILED",2,"IMAGE_TOO_LARGE",4`
+  - 最终安全状态：
+    - `SYST:FW:BUILD? -> "20260623161835"`
+    - `SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,76248,1672559948`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+- 还需完成：
+  - 继续评估 CRC、package manifest、metadata wrapper 是否还能安全下沉或合并。
+  - 后续若继续瘦身，应优先保证 App/Bootloader 共用路径仍通过完整负向矩阵。
+- 关联文件：
+  - `third_party/portable_ota/include/pota_compat.h`
+  - `third_party/portable_ota/src/pota_compat.c`
+  - `middleware/portable_ota_port/src/portable_ota_core_port.c`
+  - `middleware/portable_ota_port/src/portable_ota_strings_port.c`
+  - `tests/unit/test_portable_ota_strings.c`
+  - `CMakeLists.txt`
+  - `tools/run_portable_ota_tests.ps1`
+- 下一步：
+  - 扫描剩余 middleware wrapper，优先处理 package manifest/CRC 的机械转发。
+
+### TASK-20260624-001 - Portable OTA Step 4A：操作向量表下沉
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 参照 HAOFV 架构，将 OTA 公共事件/状态允许规则下沉为库内操作向量表，减少 middleware 对状态迁移规则的承载。
+  - 保持 `pota_begin/service/write/end/abort/commit` 外部 API 和 RP2350 release 行为不变。
+- 完成内容：
+  - 新增 `pota_operation.h/.c`，定义 `pota_operation_entry_t` 操作表。
+  - 将 `BEGIN/SERVICE/WRITE/END/ABORT/COMMIT` 的允许状态和 action 分发收敛到 `pota_operation_execute()`。
+  - `pota_core.c` 保留具体执行动作，公共 API 先进入 operation table，再执行对应 action。
+  - `pota.h`、CMake、portable OTA 测试脚本和 `third_party/portable_ota/README.md` 已接入 `pota_operation`。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `cmake -S . -B build-portable-operation -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - `cmake --build build-portable-operation` 通过，生成 `RP2350_TRIG_UPDATE.pkg`：
+    - build id：`20260623160856`
+    - package size：`151824`
+    - package CRC32：`0x90A34D98`
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-portable-operation` 通过，release 中无 OTA fault-injection 命令。
+  - `build-portable-operation\RP2350_TRIG_FACTORY.uf2` 已用 `picotool` 烧录；baseline：
+    - `SYST:FW:BUILD? -> "20260623160856"`
+    - `SYST:BOOT:VERS? -> 0,1,0`
+    - `SYST:BOOT:CAP? -> 1`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - 正向统一 package OTA 通过：`READY_TO_REBOOT`，Bootloader apply 后 `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,75520,1153533388`，copy transaction 清零，`SYST:OTA:COMM` 后 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`。
+  - 负向矩阵全部通过：
+    - 整包 CRC -> `"FAILED",2,"CRC",4`
+    - 镜像 CRC -> `"FAILED",2,"CRC",4`
+    - App 向量 -> `"FAILED",2,"VECTOR",4`
+    - header magic/version/size -> `"FAILED",2,"BAD_HEADER",4`
+    - slot -> `"FAILED",2,"BAD_HEADER",4`
+    - run-offset -> `"FAILED",2,"IMAGE_TOO_LARGE",4`
+  - 最终安全状态：
+    - `SYST:FW:BUILD? -> "20260623160856"`
+    - `SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75520,1153533388`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+- 还需完成：
+  - 继续将 middleware 中的状态/错误/结果映射 switch 下沉为库内表驱动 helper。
+  - 后续评估合并/删除 CRC、package manifest 和 metadata 机械 wrapper，使 `middleware/portable_ota_port` 更接近 `u8g2_port` 的薄适配形态。
+- 关联文件：
+  - `third_party/portable_ota/include/pota_operation.h`
+  - `third_party/portable_ota/src/pota_operation.c`
+  - `third_party/portable_ota/include/pota_core.h`
+  - `third_party/portable_ota/src/pota_core.c`
+  - `third_party/portable_ota/include/pota.h`
+  - `CMakeLists.txt`
+  - `tools/run_portable_ota_tests.ps1`
+  - `third_party/portable_ota/README.md`
+- 下一步：
+  - 执行 Step 4B：将 middleware 状态/错误/结果映射 switch 收敛为库内映射表/compat helper。
+
 ### TASK-20260623-009 - Portable OTA 第三方库迁移阶段验证
 
-- 状态：进行中
+- 状态：完成
 - 日期：2026-06-23
 - 任务目标：
   - 将当前 OTA 公共能力逐步迁入 `third_party/portable_ota`，让 OTA 像 `scpi_parser` 一样以第三方库形式被产品工程调用。
@@ -59,9 +337,13 @@
   - 将 package parser、CRC32、App vector validation、App 侧 core receive/write/end/abort 流程迁入 portable OTA，并通过 middleware adapter 接入当前产品。
   - 将 metadata v3 schema、基础 CRC、扩展区 CRC、A/B CRC、默认值初始化、copy transaction 字段清理、状态/slot 合法性判断和 newest-copy 选择逻辑下沉到 portable OTA。
   - 将 `mark_pending`、`confirm_active`、`set_boot_mode`、`set_fault_injection` 和 copy transaction 状态更新等内存 metadata mutation helper 下沉到 portable OTA。
+  - 将 Bootloader 侧 boot result、copy-to-active 完成落账、direct A/B pending apply、direct rollback 和 boot_attempts 增量等内存 metadata mutation helper 下沉到 portable OTA。
+  - 将 App `COMM` 前置确认语义下沉为 `pota_metadata_can_confirm_active()`，`pota_metadata_confirm_active()` 自身也强制要求无 pending 且最近 Bootloader 结果为 `APPLIED`。
+  - 完成剩余耦合扫描：除 `middleware/portable_ota_port` 和单元测试外，产品层没有直接 include/call `pota_*`；剩余 Bootloader flash copy、slot jump、watchdog、SCPI 查询和同步触发空闲检查均属于 RP2350 产品/平台职责。
+  - 修复 `tools/run_portable_ota_tests.ps1` 的 ARM GCC fallback，使其不依赖另一台电脑的硬编码用户目录。
   - 新增 `portable_ota_metadata_port.c`，用字段布局 static assert 保证 `ota_metadata_t` 与 `pota_metadata_t` 兼容。
   - 产品侧 `ota_metadata_*` 公开 API 保持不变，内部收敛为 `load -> portable mutation -> store`。
-  - 产品侧仍保留 RP2350 相关职责：flash 双副本 offset、erase/program/read、v2 旧格式迁移、Bootloader apply/rollback 策略。
+  - 产品侧仍保留 RP2350 相关职责：flash 双副本 offset、erase/program/read、v2 旧格式迁移、Bootloader flash copy、镜像校验、watchdog reset 和 slot jump。
   - 更新 `third_party/portable_ota/README.md`、`docs/OTA_TODO.md`、`docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`。
 - 验证结果：
   - `powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
@@ -99,9 +381,67 @@
     - `SYST:OTA:SLOT? -> 1,0,1,0,0`
     - `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75160,3242593473`
     - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+  - `cmake -S . -B build-portable-boot-metadata -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - `cmake --build build-portable-boot-metadata` 通过，`release_check=OK`。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `build-portable-boot-metadata\RP2350_TRIG_FACTORY.uf2` 已用 `picotool` 烧录；baseline：
+    - `SYST:FW:BUILD? -> "20260623153304"`
+    - `SYST:BOOT:VERS? -> 0,1,0`
+    - `SYST:BOOT:CAP? -> 1`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`
+  - Bootloader metadata mutation helper 正向 OTA 通过：`READY_TO_REBOOT`，Bootloader apply 后 `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,75160,4118687324`，copy transaction 清零 `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，`SYST:OTA:COMM` 后 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`。
+  - Bootloader metadata mutation helper 负向矩阵全部通过：
+    - 整包 CRC -> `"FAILED",2,"CRC",4`
+    - 镜像 CRC -> `"FAILED",2,"CRC",4`
+    - App 向量 -> `"FAILED",2,"VECTOR",4`
+    - header magic/version/size -> `"FAILED",2,"BAD_HEADER",4`
+    - slot -> `"FAILED",2,"BAD_HEADER",4`
+    - run-offset -> `"FAILED",2,"IMAGE_TOO_LARGE",4`
+  - 最终安全状态：
+    - `SYST:FW:BUILD? -> "20260623153304"`
+    - `SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75160,4118687324`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+  - `cmake -S . -B build-portable-commit-helper -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
+  - `cmake --build build-portable-commit-helper` 通过，生成 `RP2350_TRIG_UPDATE.pkg`：
+    - build id：`20260623154727`
+    - package size：`150992`
+    - package CRC32：`0x2571CE76`
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-portable-commit-helper` 通过，release 中无 OTA fault-injection 命令。
+  - `build-portable-commit-helper\RP2350_TRIG_FACTORY.uf2` 已用 `picotool` 烧录；baseline：
+    - `SYST:FW:BUILD? -> "20260623154727"`
+    - `SYST:BOOT:VERS? -> 0,1,0`
+    - `SYST:BOOT:CAP? -> 1`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
+    - `SYST:OTA:STAT? -> "IDLE",2,"NONE",0`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+  - App commit helper 正向 OTA 通过：`READY_TO_REBOOT`，Bootloader apply 后 `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,75200,947176610`，copy transaction 清零 `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`，`SYST:OTA:COMM` 后 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`。
+  - App commit helper 负向矩阵全部通过：
+    - 整包 CRC -> `"FAILED",2,"CRC",4`
+    - 镜像 CRC -> `"FAILED",2,"CRC",4`
+    - App 向量 -> `"FAILED",2,"VECTOR",4`
+    - header magic/version/size -> `"FAILED",2,"BAD_HEADER",4`
+    - slot -> `"FAILED",2,"BAD_HEADER",4`
+    - run-offset -> `"FAILED",2,"IMAGE_TOO_LARGE",4`
+  - Step 3G 最终安全状态：
+    - `SYST:FW:BUILD? -> "20260623154727"`
+    - `SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`
+    - `SYST:OTA:SLOT? -> 1,0,1,0,0`
+    - `SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,75200,947176610`
+    - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
+    - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
 - 还需完成：
-  - 将 Bootloader 侧 `bootloader_store_result()`、direct A/B apply/rollback 更新、copy-to-active transaction 更新等内存 metadata mutation 继续下沉到 portable OTA。
-  - 保持 Bootloader 层只负责平台 flash、镜像校验、watchdog reset 和 slot jump 策略。
+  - Portable OTA 第三方库迁移阶段已收口；以下内容进入下一阶段产品化/平台化任务，不再作为本轮迁移阻塞项。
+  - 增加 OTA validation report 自动生成和归档流程。
+  - 建立 metadata schema 迁移规则，后续新增字段必须保持旧 Bootloader/App 可判定兼容性。
+  - 增加签名校验和 anti-rollback 策略。
   - 后续在 RP2350 RTOS 化时增加 OTA task/queue/flash service/watchdog feed 适配。
   - 后续移植到 STM32 RTOS 时复用 package、core、metadata、strings 和验证矩阵。
 - 关联文件：
@@ -116,13 +456,15 @@
   - `middleware/portable_ota_port/src/portable_ota_core_port.c`
   - `middleware/portable_ota_port/src/portable_ota_strings_port.c`
   - `middleware/portable_ota_port/src/portable_ota_metadata_port.c`
+  - `bootloader/src/bootloader_main.c`
   - `components/ota_manager/src/ota_metadata.c`
   - `tests/unit/test_portable_ota_metadata.c`
+  - `tools/run_portable_ota_tests.ps1`
   - `docs/OTA_TODO.md`
   - `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`
   - `third_party/portable_ota/README.md`
 - 下一步：
-  - 继续迁移 Bootloader 侧 metadata mutation helper，并按同样闭环执行 portable gate、fresh build、release_check、factory 烧录、正向 OTA、commit 和负向矩阵。
+  - 转入 OTA validation report 自动化、metadata schema 迁移规则、安全签名/anti-rollback 设计，或开始 RP2350 RTOS owner task 迁移。
 
 ### TASK-20260623-008 - OTA 统一升级包实现与实机验证
 

@@ -42,14 +42,14 @@ set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_buil
 set(PROJECT_OTA_METADATA_SIZE 0x010000)
 
 set(PROJECT_PORTABLE_OTA_ADAPTER_SOURCES
-        middleware/portable_ota_port/src/portable_ota_crc_port.c
+        middleware/portable_ota_port/src/portable_ota_core_port.c
         middleware/portable_ota_port/src/portable_ota_image_port.c
         middleware/portable_ota_port/src/portable_ota_metadata_port.c
-        middleware/portable_ota_port/src/portable_ota_strings_port.c
         third_party/portable_ota/src/pota_crc32.c
         third_party/portable_ota/src/pota_image.c
         third_party/portable_ota/src/pota_metadata.c
         third_party/portable_ota/src/pota_strings.c
+        third_party/portable_ota/src/pota_compat.c
 )
 
 add_custom_target(project_build_info
@@ -74,9 +74,9 @@ set(PROJECT_APP_SOURCES
         components/ota_manager/src/ota_metadata.c
         components/ota_manager/src/ota_package.c
         ${PROJECT_PORTABLE_OTA_ADAPTER_SOURCES}
-        middleware/portable_ota_port/src/portable_ota_core_port.c
         middleware/portable_ota_port/src/portable_ota_port.c
         third_party/portable_ota/src/pota_core.c
+        third_party/portable_ota/src/pota_operation.c
         third_party/portable_ota/src/pota_session.c
         third_party/portable_ota/src/pota_package.c
         components/sync_io/src/sync_io.c
@@ -182,6 +182,7 @@ function(project_configure_app_target target_name app_name linker_script)
         PROJECT_ENABLE_USB_STDIO=$<BOOL:${PROJECT_ENABLE_USB_STDIO}>
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
+        PORTABLE_OTA_PORT_ENABLE_SESSION=1
         SCPI_USER_CONFIG=1
         PICO_TARGET_NAME="${target_name}"
     )
@@ -203,17 +204,17 @@ endfunction()
 set_source_files_properties(
         middleware/portable_ota_port/src/portable_ota_port.c
         middleware/portable_ota_port/src/portable_ota_core_port.c
-        middleware/portable_ota_port/src/portable_ota_crc_port.c
         middleware/portable_ota_port/src/portable_ota_image_port.c
         middleware/portable_ota_port/src/portable_ota_metadata_port.c
-        middleware/portable_ota_port/src/portable_ota_strings_port.c
         third_party/portable_ota/src/pota_core.c
+        third_party/portable_ota/src/pota_operation.c
         third_party/portable_ota/src/pota_session.c
         third_party/portable_ota/src/pota_package.c
         third_party/portable_ota/src/pota_crc32.c
         third_party/portable_ota/src/pota_image.c
         third_party/portable_ota/src/pota_metadata.c
         third_party/portable_ota/src/pota_strings.c
+        third_party/portable_ota/src/pota_compat.c
         PROPERTIES
         INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include"
 )

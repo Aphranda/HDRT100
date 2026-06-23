@@ -108,6 +108,11 @@ bool portable_ota_port_metadata_mark_pending(ota_metadata_t *metadata,
                                       image_crc32);
 }
 
+bool portable_ota_port_metadata_can_confirm_active(const ota_metadata_t *metadata)
+{
+    return pota_metadata_can_confirm_active(portable_metadata_const(metadata));
+}
+
 bool portable_ota_port_metadata_confirm_active(ota_metadata_t *metadata)
 {
     return pota_metadata_confirm_active(portable_metadata_mutable(metadata));
@@ -162,6 +167,49 @@ bool portable_ota_port_metadata_fail_copy_transaction(ota_metadata_t *metadata,
 bool portable_ota_port_metadata_clear_copy_transaction(ota_metadata_t *metadata)
 {
     return pota_metadata_clear_copy_transaction(portable_metadata_mutable(metadata));
+}
+
+bool portable_ota_port_metadata_record_boot_result(ota_metadata_t *metadata,
+                                                   ota_boot_result_t result,
+                                                   ota_slot_t source_slot,
+                                                   bool clear_pending)
+{
+    return pota_metadata_record_boot_result(portable_metadata_mutable(metadata),
+                                            (pota_boot_result_t)result,
+                                            (pota_slot_t)source_slot,
+                                            clear_pending);
+}
+
+bool portable_ota_port_metadata_apply_copy_to_active_done(ota_metadata_t *metadata,
+                                                          ota_slot_t staging_slot,
+                                                          ota_slot_t active_slot)
+{
+    return pota_metadata_apply_copy_to_active_done(portable_metadata_mutable(metadata),
+                                                   (pota_slot_t)staging_slot,
+                                                   (pota_slot_t)active_slot);
+}
+
+bool portable_ota_port_metadata_apply_direct_ab_pending(ota_metadata_t *metadata,
+                                                        ota_slot_t pending_slot)
+{
+    return pota_metadata_apply_direct_ab_pending(portable_metadata_mutable(metadata),
+                                                 (pota_slot_t)pending_slot);
+}
+
+bool portable_ota_port_metadata_rollback_direct_ab(ota_metadata_t *metadata,
+                                                   ota_boot_result_t reason,
+                                                   ota_slot_t failed_slot,
+                                                   ota_slot_t rollback_slot)
+{
+    return pota_metadata_rollback_direct_ab(portable_metadata_mutable(metadata),
+                                            (pota_boot_result_t)reason,
+                                            (pota_slot_t)failed_slot,
+                                            (pota_slot_t)rollback_slot);
+}
+
+bool portable_ota_port_metadata_increment_boot_attempts(ota_metadata_t *metadata)
+{
+    return pota_metadata_increment_boot_attempts(portable_metadata_mutable(metadata));
 }
 
 const ota_metadata_t *portable_ota_port_metadata_select_newest(const ota_metadata_t *copies,

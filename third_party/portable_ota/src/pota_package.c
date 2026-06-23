@@ -111,15 +111,30 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
 const pota_package_image_t *pota_package_find_image(const pota_package_manifest_t *manifest,
                                                     pota_slot_t slot)
 {
-    if (manifest == NULL) {
+    uint32_t index = 0u;
+    if (!pota_package_find_image_index(manifest, slot, &index)) {
         return NULL;
+    }
+
+    return &manifest->images[index];
+}
+
+bool pota_package_find_image_index(const pota_package_manifest_t *manifest,
+                                   pota_slot_t slot,
+                                   uint32_t *index)
+{
+    if (manifest == NULL) {
+        return false;
     }
 
     for (uint32_t i = 0u; i < manifest->image_count; i++) {
         if (manifest->images[i].slot == (uint32_t)slot) {
-            return &manifest->images[i];
+            if (index != NULL) {
+                *index = i;
+            }
+            return true;
         }
     }
 
-    return NULL;
+    return false;
 }

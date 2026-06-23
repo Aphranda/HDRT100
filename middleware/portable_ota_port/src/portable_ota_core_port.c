@@ -9,7 +9,71 @@
 #define PORTABLE_OTA_HARDWARE_ID "rp2350_trig"
 #define PORTABLE_OTA_BOOTLOADER_VERSION POTA_PACK_VERSION(0u, 1u, 0u)
 
+#ifndef PORTABLE_OTA_PORT_ENABLE_SESSION
+#define PORTABLE_OTA_PORT_ENABLE_SESSION 0
+#endif
+
+static const pota_compat_text_entry_t s_product_error_texts[] = {
+    {OTA_ERR_BOARD_MISMATCH, "BOARD_MISMATCH"},
+    {OTA_ERR_VERSION_REJECTED, "VERSION_REJECTED"},
+    {OTA_ERR_BOOT_ROLLBACK, "BOOT_ROLLBACK"},
+    {OTA_ERR_QUEUE_FULL, "QUEUE_FULL"},
+};
+
+uint32_t portable_ota_port_crc32_update(uint32_t crc, const uint8_t *data, size_t length)
+{
+    return pota_crc32_update(crc, data, length);
+}
+
+uint32_t portable_ota_port_crc32_compute(const uint8_t *data, size_t length)
+{
+    return pota_crc32_compute(data, length);
+}
+
+const char *portable_ota_port_state_to_string(ota_state_t state)
+{
+    return pota_state_to_string((pota_state_t)state);
+}
+
+const char *portable_ota_port_error_to_string(uint32_t error_code)
+{
+    const char *alias =
+        pota_compat_text_u32(error_code,
+                             s_product_error_texts,
+                             sizeof(s_product_error_texts) / sizeof(s_product_error_texts[0]),
+                             NULL);
+    if (alias != NULL) {
+        return alias;
+    }
+
+    const pota_error_t error = pota_compat_product_to_error(error_code,
+                                                            NULL,
+                                                            0u,
+                                                            (pota_error_t)UINT32_MAX);
+    return pota_error_to_string(error);
+}
+
+const char *portable_ota_port_result_to_string(ota_result_t result)
+{
+    const pota_result_t portable_result =
+        pota_compat_product_to_result((uint32_t)result, NULL, 0u, (pota_result_t)UINT32_MAX);
+    return pota_result_to_string(portable_result);
+}
+
+const char *portable_ota_port_boot_result_to_string(uint32_t result)
+{
+    return pota_boot_result_to_string((pota_boot_result_t)result);
+}
+
+#if PORTABLE_OTA_PORT_ENABLE_SESSION
+
 static pota_session_t s_session;
+
+static const pota_compat_map_entry_t s_product_error_aliases[] = {
+    {POTA_ERR_PRODUCT_MISMATCH, OTA_ERR_BOARD_MISMATCH},
+    {POTA_ERR_HARDWARE_MISMATCH, OTA_ERR_BOARD_MISMATCH},
+    {POTA_ERR_BOOTLOADER_TOO_OLD, OTA_ERR_VERSION_REJECTED},
+};
 
 static bool portable_core_flash_erase(uint32_t offset, uint32_t size)
 {
@@ -40,60 +104,19 @@ static bool portable_core_validate_vector(uint32_t slot_offset,
 
 static uint32_t portable_core_map_error(uint32_t error)
 {
-    switch ((pota_error_t)error) {
-    case POTA_ERR_NONE:
-        return (uint32_t)OTA_ERR_NONE;
-    case POTA_ERR_BUSY:
-        return (uint32_t)OTA_ERR_BUSY;
-    case POTA_ERR_INVALID_STATE:
-        return (uint32_t)OTA_ERR_INVALID_STATE;
-    case POTA_ERR_IMAGE_TOO_LARGE:
-        return (uint32_t)OTA_ERR_IMAGE_TOO_LARGE;
-    case POTA_ERR_BAD_HEADER:
-        return (uint32_t)OTA_ERR_BAD_HEADER;
-    case POTA_ERR_PRODUCT_MISMATCH:
-    case POTA_ERR_HARDWARE_MISMATCH:
-        return (uint32_t)OTA_ERR_BOARD_MISMATCH;
-    case POTA_ERR_BOOTLOADER_TOO_OLD:
-        return (uint32_t)OTA_ERR_VERSION_REJECTED;
-    case POTA_ERR_FLASH_ERASE:
-        return (uint32_t)OTA_ERR_FLASH_ERASE;
-    case POTA_ERR_FLASH_PROGRAM:
-        return (uint32_t)OTA_ERR_FLASH_PROGRAM;
-    case POTA_ERR_READBACK:
-        return (uint32_t)OTA_ERR_READBACK;
-    case POTA_ERR_CRC:
-        return (uint32_t)OTA_ERR_CRC;
-    case POTA_ERR_VECTOR:
-        return (uint32_t)OTA_ERR_VECTOR;
-    case POTA_ERR_METADATA:
-        return (uint32_t)OTA_ERR_METADATA;
-    case POTA_ERR_ABORTED:
-        return (uint32_t)OTA_ERR_ABORTED;
-    case POTA_ERR_BAD_ARGUMENT:
-    default:
-        return (uint32_t)OTA_ERR_BAD_ARGUMENT;
-    }
+    return pota_compat_error_to_product((pota_error_t)error,
+                                        s_product_error_aliases,
+                                        sizeof(s_product_error_aliases) /
+                                            sizeof(s_product_error_aliases[0]),
+                                        (uint32_t)OTA_ERR_BAD_ARGUMENT);
 }
 
 static uint32_t portable_core_map_result(uint32_t result)
 {
-    switch ((pota_result_t)result) {
-    case POTA_RESULT_NONE:
-        return (uint32_t)OTA_RESULT_NONE;
-    case POTA_RESULT_ACCEPTED:
-        return (uint32_t)OTA_RESULT_ACCEPTED;
-    case POTA_RESULT_IMAGE_STAGED:
-        return (uint32_t)OTA_RESULT_IMAGE_STAGED;
-    case POTA_RESULT_COMMITTED:
-        return (uint32_t)OTA_RESULT_COMMITTED;
-    case POTA_RESULT_FAILED:
-        return (uint32_t)OTA_RESULT_FAILED;
-    case POTA_RESULT_ABORTED:
-        return (uint32_t)OTA_RESULT_ABORTED;
-    default:
-        return (uint32_t)OTA_RESULT_FAILED;
-    }
+    return pota_compat_result_to_product((pota_result_t)result,
+                                         NULL,
+                                         0u,
+                                         (uint32_t)OTA_RESULT_FAILED);
 }
 
 static pota_boot_mode_t portable_core_boot_mode_from_metadata(const ota_metadata_t *metadata)
@@ -218,3 +241,5 @@ bool portable_ota_port_core_abort(ota_vector_t *vector)
     portable_core_copy_status(vector);
     return error == POTA_ERR_NONE;
 }
+
+#endif

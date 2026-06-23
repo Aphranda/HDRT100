@@ -1,5 +1,7 @@
 #include "pota_core.h"
 
+#include "pota_operation.h"
+
 #include <string.h>
 
 static uint32_t pota_align_up(uint32_t value, uint32_t alignment)
@@ -27,7 +29,7 @@ static pota_slot_t pota_select_target_slot(const pota_context_t *context)
     return context->platform.info.active_slot == POTA_SLOT_A ? POTA_SLOT_B : POTA_SLOT_A;
 }
 
-static void pota_set_failed(pota_context_t *context, pota_error_t error)
+void pota_core_set_failed(pota_context_t *context, pota_error_t error)
 {
     context->status.state = POTA_STATE_FAILED;
     context->status.error_code = (uint32_t)error;
@@ -89,7 +91,7 @@ static pota_error_t pota_erase_one_step(pota_context_t *context)
 
     if (!context->platform.ops.flash_erase(context->target_offset + context->target_erase_offset,
                                            erase_size)) {
-        pota_set_failed(context, POTA_ERR_FLASH_ERASE);
+        pota_core_set_failed(context, POTA_ERR_FLASH_ERASE);
         return POTA_ERR_FLASH_ERASE;
     }
 
@@ -114,13 +116,13 @@ static pota_error_t pota_program_target(pota_context_t *context,
         size > POTA_MAX_DATA_BLOCK_SIZE ||
         context->platform.info.flash_page_size == 0u ||
         context->platform.info.flash_page_size > POTA_MAX_FLASH_PAGE_SIZE) {
-        pota_set_failed(context, POTA_ERR_BAD_ARGUMENT);
+        pota_core_set_failed(context, POTA_ERR_BAD_ARGUMENT);
         return POTA_ERR_BAD_ARGUMENT;
     }
 
     const uint32_t program_size = pota_align_up(size, context->platform.info.flash_page_size);
     if (!is_final && program_size != size) {
-        pota_set_failed(context, POTA_ERR_BAD_ARGUMENT);
+        pota_core_set_failed(context, POTA_ERR_BAD_ARGUMENT);
         return POTA_ERR_BAD_ARGUMENT;
     }
 
@@ -128,7 +130,7 @@ static pota_error_t pota_program_target(pota_context_t *context,
         if (!context->platform.ops.flash_program(context->target_offset + image_offset,
                                                  data,
                                                  size)) {
-            pota_set_failed(context, POTA_ERR_FLASH_PROGRAM);
+            pota_core_set_failed(context, POTA_ERR_FLASH_PROGRAM);
             return POTA_ERR_FLASH_PROGRAM;
         }
         return POTA_ERR_NONE;
@@ -140,7 +142,7 @@ static pota_error_t pota_program_target(pota_context_t *context,
     if (!context->platform.ops.flash_program(context->target_offset + image_offset,
                                              program_buffer,
                                              program_size)) {
-        pota_set_failed(context, POTA_ERR_FLASH_PROGRAM);
+        pota_core_set_failed(context, POTA_ERR_FLASH_PROGRAM);
         return POTA_ERR_FLASH_PROGRAM;
     }
 
@@ -165,18 +167,20 @@ pota_error_t pota_begin(pota_context_t *context, const pota_begin_t *begin)
     if (context == NULL || begin == NULL || begin->size == 0u) {
         return POTA_ERR_BAD_ARGUMENT;
     }
+    return pota_operation_execute(context, POTA_OPERATION_BEGIN, begin);
+}
+
+pota_error_t pota_core_begin_action(pota_context_t *context, const void *argument)
+{
+    const pota_begin_t *begin = (const pota_begin_t *)argument;
+    if (context == NULL || begin == NULL || begin->size == 0u) {
+        return POTA_ERR_BAD_ARGUMENT;
+    }
     if (!pota_required_ops_are_present(context) ||
         context->platform.info.flash_sector_size == 0u ||
         context->platform.info.flash_page_size == 0u) {
-        pota_set_failed(context, POTA_ERR_BAD_ARGUMENT);
+        pota_core_set_failed(context, POTA_ERR_BAD_ARGUMENT);
         return POTA_ERR_BAD_ARGUMENT;
-    }
-    if (context->status.state != (uint32_t)POTA_STATE_IDLE &&
-        context->status.state != (uint32_t)POTA_STATE_FAILED &&
-        context->status.state != (uint32_t)POTA_STATE_ABORTED &&
-        context->status.state != (uint32_t)POTA_STATE_COMMITTED) {
-        pota_set_failed(context, POTA_ERR_INVALID_STATE);
-        return POTA_ERR_INVALID_STATE;
     }
 
     context->package_mode = begin->package_mode;
@@ -189,7 +193,7 @@ pota_error_t pota_begin(pota_context_t *context, const pota_begin_t *begin)
                                    context->platform.info.slot_b.size) :
                                   partition != NULL ? partition->size : 0u;
     if (partition == NULL || begin->size > max_size) {
-        pota_set_failed(context, POTA_ERR_IMAGE_TOO_LARGE);
+        pota_core_set_failed(context, POTA_ERR_IMAGE_TOO_LARGE);
         return POTA_ERR_IMAGE_TOO_LARGE;
     }
 
@@ -220,7 +224,15 @@ pota_error_t pota_begin(pota_context_t *context, const pota_begin_t *begin)
 
 pota_error_t pota_service(pota_context_t *context, uint32_t budget_us)
 {
-    (void)budget_us;
+    if (context == NULL) {
+        return POTA_ERR_BAD_ARGUMENT;
+    }
+    return pota_operation_execute(context, POTA_OPERATION_SERVICE, &budget_us);
+}
+
+pota_error_t pota_core_service_action(pota_context_t *context, const void *argument)
+{
+    (void)argument;
 
     if (context == NULL) {
         return POTA_ERR_BAD_ARGUMENT;
@@ -244,18 +256,29 @@ pota_error_t pota_write(pota_context_t *context, const uint8_t *data, uint32_t s
     if (context == NULL || data == NULL || size == 0u) {
         return POTA_ERR_BAD_ARGUMENT;
     }
-    if (context->status.state != (uint32_t)POTA_STATE_RECEIVING) {
-        pota_set_failed(context, POTA_ERR_INVALID_STATE);
-        return POTA_ERR_INVALID_STATE;
+    const pota_write_t write = {
+        .data = data,
+        .size = size,
+    };
+    return pota_operation_execute(context, POTA_OPERATION_WRITE, &write);
+}
+
+pota_error_t pota_core_write_action(pota_context_t *context, const void *argument)
+{
+    const pota_write_t *write = (const pota_write_t *)argument;
+    if (context == NULL || write == NULL || write->data == NULL || write->size == 0u) {
+        return POTA_ERR_BAD_ARGUMENT;
     }
+    const uint8_t *data = write->data;
+    const uint32_t size = write->size;
     if (context->status.received_size + size > context->status.expected_size) {
-        pota_set_failed(context, POTA_ERR_IMAGE_TOO_LARGE);
+        pota_core_set_failed(context, POTA_ERR_IMAGE_TOO_LARGE);
         return POTA_ERR_IMAGE_TOO_LARGE;
     }
 
     if (context->package_mode && !context->package_header_received) {
         if (context->status.received_size != 0u || size != POTA_PACKAGE_HEADER_SIZE) {
-            pota_set_failed(context, POTA_ERR_BAD_HEADER);
+            pota_core_set_failed(context, POTA_ERR_BAD_HEADER);
             return POTA_ERR_BAD_HEADER;
         }
         pota_package_manifest_t manifest;
@@ -269,7 +292,7 @@ pota_error_t pota_write(pota_context_t *context, const uint8_t *data, uint32_t s
             manifest.package_size != context->status.expected_size ||
             (manifest.package_crc32 != 0u &&
              manifest.package_crc32 != context->status.crc32_expected)) {
-            pota_set_failed(context, error == POTA_ERR_NONE ? POTA_ERR_BAD_HEADER : error);
+            pota_core_set_failed(context, error == POTA_ERR_NONE ? POTA_ERR_BAD_HEADER : error);
             return (pota_error_t)context->status.error_code;
         }
 
@@ -282,7 +305,7 @@ pota_error_t pota_write(pota_context_t *context, const uint8_t *data, uint32_t s
         if (image == NULL || partition == NULL ||
             image->size > partition->size ||
             image->run_offset != context->target_run_offset) {
-            pota_set_failed(context, image == NULL ? POTA_ERR_BAD_HEADER : POTA_ERR_IMAGE_TOO_LARGE);
+            pota_core_set_failed(context, image == NULL ? POTA_ERR_BAD_HEADER : POTA_ERR_IMAGE_TOO_LARGE);
             return (pota_error_t)context->status.error_code;
         }
 
@@ -359,22 +382,31 @@ pota_error_t pota_end(pota_context_t *context)
     if (context == NULL) {
         return POTA_ERR_BAD_ARGUMENT;
     }
+    return pota_operation_execute(context, POTA_OPERATION_END, NULL);
+}
+
+pota_error_t pota_core_end_action(pota_context_t *context, const void *argument)
+{
+    (void)argument;
+    if (context == NULL) {
+        return POTA_ERR_BAD_ARGUMENT;
+    }
     if (context->status.received_size != context->status.expected_size) {
-        pota_set_failed(context, POTA_ERR_READBACK);
+        pota_core_set_failed(context, POTA_ERR_READBACK);
         return POTA_ERR_READBACK;
     }
     if (context->status.crc32_running != context->status.crc32_expected) {
-        pota_set_failed(context, POTA_ERR_CRC);
+        pota_core_set_failed(context, POTA_ERR_CRC);
         return POTA_ERR_CRC;
     }
     if (context->package_mode) {
         if (!context->package_header_received ||
             context->selected_image_received_size != context->selected_image_size) {
-            pota_set_failed(context, POTA_ERR_READBACK);
+            pota_core_set_failed(context, POTA_ERR_READBACK);
             return POTA_ERR_READBACK;
         }
         if (context->selected_image_crc32_running != context->selected_image_crc32) {
-            pota_set_failed(context, POTA_ERR_CRC);
+            pota_core_set_failed(context, POTA_ERR_CRC);
             return POTA_ERR_CRC;
         }
     }
@@ -383,7 +415,7 @@ pota_error_t pota_end(pota_context_t *context)
     if (!context->platform.ops.validate_vector(context->target_offset,
                                                context->selected_image_size,
                                                context->target_run_offset)) {
-        pota_set_failed(context, POTA_ERR_VECTOR);
+        pota_core_set_failed(context, POTA_ERR_VECTOR);
         return POTA_ERR_VECTOR;
     }
 
@@ -391,7 +423,7 @@ pota_error_t pota_end(pota_context_t *context)
     if (!context->platform.ops.mark_pending(context->target_slot,
                                             context->selected_image_size,
                                             context->selected_image_crc32)) {
-        pota_set_failed(context, POTA_ERR_METADATA);
+        pota_core_set_failed(context, POTA_ERR_METADATA);
         return POTA_ERR_METADATA;
     }
 
@@ -402,6 +434,15 @@ pota_error_t pota_end(pota_context_t *context)
 
 pota_error_t pota_abort(pota_context_t *context)
 {
+    if (context == NULL) {
+        return POTA_ERR_BAD_ARGUMENT;
+    }
+    return pota_operation_execute(context, POTA_OPERATION_ABORT, NULL);
+}
+
+pota_error_t pota_core_abort_action(pota_context_t *context, const void *argument)
+{
+    (void)argument;
     if (context == NULL) {
         return POTA_ERR_BAD_ARGUMENT;
     }
@@ -416,8 +457,17 @@ pota_error_t pota_commit(pota_context_t *context)
     if (context == NULL || context->platform.ops.confirm_active == NULL) {
         return POTA_ERR_BAD_ARGUMENT;
     }
+    return pota_operation_execute(context, POTA_OPERATION_COMMIT, NULL);
+}
+
+pota_error_t pota_core_commit_action(pota_context_t *context, const void *argument)
+{
+    (void)argument;
+    if (context == NULL || context->platform.ops.confirm_active == NULL) {
+        return POTA_ERR_BAD_ARGUMENT;
+    }
     if (!context->platform.ops.confirm_active()) {
-        pota_set_failed(context, POTA_ERR_METADATA);
+        pota_core_set_failed(context, POTA_ERR_METADATA);
         return POTA_ERR_METADATA;
     }
     context->status.state = (uint32_t)POTA_STATE_COMMITTED;

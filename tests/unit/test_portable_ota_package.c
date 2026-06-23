@@ -76,6 +76,15 @@ int main(void)
         (void)printf("find_image: unexpected result\n");
         failed++;
     }
+    uint32_t image_index = 99u;
+    if (!pota_package_find_image_index(&manifest, POTA_SLOT_A, &image_index) ||
+        image_index != 0u ||
+        !pota_package_find_image_index(&manifest, POTA_SLOT_B, NULL) ||
+        pota_package_find_image_index(&manifest, POTA_SLOT_NONE, &image_index)) {
+        (void)printf("find_image_index: unexpected result index=%lu\n",
+                     (unsigned long)image_index);
+        failed++;
+    }
 
     make_valid_header(header);
     write_le32(header, 0u, 0u);

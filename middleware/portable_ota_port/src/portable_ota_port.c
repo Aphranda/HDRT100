@@ -6,44 +6,66 @@
 #include "pota_package.h"
 #include "project_config.h"
 
-static pota_slot_t portable_ota_port_to_pota_slot(ota_slot_t slot)
-{
-    if (slot == OTA_SLOT_A) {
-        return POTA_SLOT_A;
-    }
-    if (slot == OTA_SLOT_B) {
-        return POTA_SLOT_B;
-    }
-    return POTA_SLOT_NONE;
-}
-
-static void portable_ota_port_copy_manifest(ota_package_manifest_t *destination,
-                                            const pota_package_manifest_t *source)
-{
-    destination->magic = source->magic;
-    destination->version = source->version;
-    destination->header_size = source->header_size;
-    destination->package_size = source->package_size;
-    destination->package_crc32 = source->package_crc32;
-    destination->image_count = source->image_count;
-    memcpy(destination->product_id, source->product_id, sizeof(destination->product_id));
-    memcpy(destination->hardware_id, source->hardware_id, sizeof(destination->hardware_id));
-    destination->app_version_major = source->app_version_major;
-    destination->app_version_minor = source->app_version_minor;
-    destination->app_version_patch = source->app_version_patch;
-    destination->min_bootloader_version = source->min_bootloader_version;
-    memcpy(destination->build_id, source->build_id, sizeof(destination->build_id));
-    memcpy(destination->payload_sha256, source->payload_sha256, sizeof(destination->payload_sha256));
-
-    for (uint32_t i = 0u; i < OTA_PACKAGE_IMAGE_COUNT; i++) {
-        destination->images[i].slot = source->images[i].slot;
-        destination->images[i].offset = source->images[i].offset;
-        destination->images[i].size = source->images[i].size;
-        destination->images[i].crc32 = source->images[i].crc32;
-        destination->images[i].run_offset = source->images[i].run_offset;
-        destination->images[i].flags = source->images[i].flags;
-    }
-}
+_Static_assert(OTA_PACKAGE_MAGIC == POTA_PACKAGE_MAGIC, "OTA package magic mismatch");
+_Static_assert(OTA_PACKAGE_VERSION == POTA_PACKAGE_VERSION, "OTA package version mismatch");
+_Static_assert(OTA_PACKAGE_HEADER_SIZE == POTA_PACKAGE_HEADER_SIZE, "OTA package header size mismatch");
+_Static_assert(OTA_PACKAGE_IMAGE_COUNT == POTA_PACKAGE_MAX_IMAGES, "OTA package image count mismatch");
+_Static_assert(OTA_PACKAGE_TEXT_FIELD_SIZE == POTA_TEXT_FIELD_SIZE, "OTA package text field size mismatch");
+_Static_assert(OTA_PACKAGE_SHA256_SIZE == POTA_SHA256_SIZE, "OTA package SHA256 size mismatch");
+_Static_assert((uint32_t)OTA_SLOT_NONE == (uint32_t)POTA_SLOT_NONE, "OTA none slot mismatch");
+_Static_assert((uint32_t)OTA_SLOT_A == (uint32_t)POTA_SLOT_A, "OTA slot A mismatch");
+_Static_assert((uint32_t)OTA_SLOT_B == (uint32_t)POTA_SLOT_B, "OTA slot B mismatch");
+_Static_assert(sizeof(ota_package_image_t) == sizeof(pota_package_image_t),
+               "OTA package image layout size mismatch");
+_Static_assert(offsetof(ota_package_image_t, slot) == offsetof(pota_package_image_t, slot),
+               "OTA package image slot offset mismatch");
+_Static_assert(offsetof(ota_package_image_t, offset) == offsetof(pota_package_image_t, offset),
+               "OTA package image offset offset mismatch");
+_Static_assert(offsetof(ota_package_image_t, size) == offsetof(pota_package_image_t, size),
+               "OTA package image size offset mismatch");
+_Static_assert(offsetof(ota_package_image_t, crc32) == offsetof(pota_package_image_t, crc32),
+               "OTA package image crc32 offset mismatch");
+_Static_assert(offsetof(ota_package_image_t, run_offset) == offsetof(pota_package_image_t, run_offset),
+               "OTA package image run offset mismatch");
+_Static_assert(offsetof(ota_package_image_t, flags) == offsetof(pota_package_image_t, flags),
+               "OTA package image flags offset mismatch");
+_Static_assert(sizeof(ota_package_manifest_t) == sizeof(pota_package_manifest_t),
+               "OTA package manifest layout size mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, magic) == offsetof(pota_package_manifest_t, magic),
+               "OTA package manifest magic offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, version) == offsetof(pota_package_manifest_t, version),
+               "OTA package manifest version offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, header_size) == offsetof(pota_package_manifest_t, header_size),
+               "OTA package manifest header size offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, package_size) == offsetof(pota_package_manifest_t, package_size),
+               "OTA package manifest package size offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, package_crc32) == offsetof(pota_package_manifest_t, package_crc32),
+               "OTA package manifest package crc32 offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, image_count) == offsetof(pota_package_manifest_t, image_count),
+               "OTA package manifest image count offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, product_id) == offsetof(pota_package_manifest_t, product_id),
+               "OTA package manifest product id offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, hardware_id) == offsetof(pota_package_manifest_t, hardware_id),
+               "OTA package manifest hardware id offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, app_version_major) ==
+                   offsetof(pota_package_manifest_t, app_version_major),
+               "OTA package manifest app major offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, app_version_minor) ==
+                   offsetof(pota_package_manifest_t, app_version_minor),
+               "OTA package manifest app minor offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, app_version_patch) ==
+                   offsetof(pota_package_manifest_t, app_version_patch),
+               "OTA package manifest app patch offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, min_bootloader_version) ==
+                   offsetof(pota_package_manifest_t, min_bootloader_version),
+               "OTA package manifest bootloader version offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, build_id) == offsetof(pota_package_manifest_t, build_id),
+               "OTA package manifest build id offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, payload_sha256) ==
+                   offsetof(pota_package_manifest_t, payload_sha256),
+               "OTA package manifest sha256 offset mismatch");
+_Static_assert(offsetof(ota_package_manifest_t, images) == offsetof(pota_package_manifest_t, images),
+               "OTA package manifest images offset mismatch");
 
 bool portable_ota_port_parse_package_header(const uint8_t *data,
                                             uint32_t length,
@@ -69,7 +91,7 @@ bool portable_ota_port_parse_package_header(const uint8_t *data,
         return false;
     }
 
-    portable_ota_port_copy_manifest(manifest, &portable_manifest);
+    memcpy(manifest, &portable_manifest, sizeof(*manifest));
     return true;
 }
 
@@ -80,12 +102,14 @@ const ota_package_image_t *portable_ota_port_find_package_image(const ota_packag
         return NULL;
     }
 
-    const pota_slot_t portable_slot = portable_ota_port_to_pota_slot(slot);
-    for (uint32_t i = 0u; i < manifest->image_count; i++) {
-        if (manifest->images[i].slot == (uint32_t)portable_slot) {
-            return &manifest->images[i];
-        }
+    pota_package_manifest_t portable_manifest;
+    memcpy(&portable_manifest, manifest, sizeof(portable_manifest));
+
+    uint32_t image_index = 0u;
+    if (!pota_package_find_image_index(&portable_manifest, (pota_slot_t)slot, &image_index) ||
+        image_index >= OTA_PACKAGE_IMAGE_COUNT) {
+        return NULL;
     }
 
-    return NULL;
+    return &manifest->images[image_index];
 }
