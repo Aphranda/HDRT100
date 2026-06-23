@@ -3,6 +3,8 @@
 
 #include "pota_types.h"
 
+#include <stddef.h>
+
 #define POTA_METADATA_MAGIC   0x504F5441u
 #define POTA_METADATA_VERSION 1u
 
@@ -58,5 +60,7 @@ typedef struct {
 
 uint32_t pota_metadata_crc32(const pota_metadata_t *metadata);
 bool pota_metadata_is_valid(const pota_metadata_t *metadata);
+const pota_metadata_t *pota_metadata_select_newest(const pota_metadata_t *copies,
+                                                   size_t copy_count);
 
 #endif

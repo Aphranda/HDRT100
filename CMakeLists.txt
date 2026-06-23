@@ -41,6 +41,11 @@ set(PROJECT_BUILD_INFO_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/project_buil
 set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.c)
 set(PROJECT_OTA_METADATA_SIZE 0x010000)
 
+set(PROJECT_PORTABLE_OTA_ADAPTER_SOURCES
+        middleware/portable_ota_port/src/portable_ota_port.c
+        third_party/portable_ota/src/pota_crc32.c
+)
+
 add_custom_target(project_build_info
         ALL
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/build_info/gen_build_info.py
@@ -62,6 +67,7 @@ set(PROJECT_APP_SOURCES
         components/ota_manager/src/ota_image.c
         components/ota_manager/src/ota_metadata.c
         components/ota_manager/src/ota_package.c
+        third_party/portable_ota/src/pota_package.c
         components/sync_io/src/sync_io.c
         components/sync_config_ui/src/sync_config_ui.c
         drivers/mcu/spi/src/drv_spi.c
@@ -70,6 +76,7 @@ set(PROJECT_APP_SOURCES
         drivers/mcu/flash/src/drv_flash.c
         drivers/mcu/watchdog/src/drv_watchdog.c
         drivers/external/lcd/src/lcd_st7789.c
+        middleware/portable_ota_port/src/portable_ota_port.c
         middleware/scpi_port/src/scpi_port.c
         middleware/u8g2_port/src/u8g2_port.c
         third_party/scpi-parser/libscpi/src/error.c
@@ -140,6 +147,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/flash/inc
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/watchdog/inc
         ${CMAKE_CURRENT_LIST_DIR}/drivers/external/lcd/inc
+        ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/scpi_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/u8g2_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/osal/inc
@@ -181,6 +189,13 @@ function(project_configure_app_target target_name app_name linker_script)
     pico_add_bin_output(${target_name})
     pico_add_map_output(${target_name})
 endfunction()
+
+set_source_files_properties(
+        middleware/portable_ota_port/src/portable_ota_port.c
+        third_party/portable_ota/src/pota_package.c
+        PROPERTIES
+        INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include"
+)
 
 set(PROJECT_WARNING_FLAGS
         -Wall

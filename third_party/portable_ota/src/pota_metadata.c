@@ -24,3 +24,24 @@ bool pota_metadata_is_valid(const pota_metadata_t *metadata)
 
     return pota_metadata_crc32(metadata) == metadata->metadata_crc32;
 }
+
+const pota_metadata_t *pota_metadata_select_newest(const pota_metadata_t *copies,
+                                                   size_t copy_count)
+{
+    if (copies == NULL || copy_count == 0u) {
+        return NULL;
+    }
+
+    const pota_metadata_t *selected = NULL;
+    for (size_t i = 0u; i < copy_count; i++) {
+        const pota_metadata_t *candidate = &copies[i];
+        if (!pota_metadata_is_valid(candidate)) {
+            continue;
+        }
+        if (selected == NULL || candidate->sequence > selected->sequence) {
+            selected = candidate;
+        }
+    }
+
+    return selected;
+}

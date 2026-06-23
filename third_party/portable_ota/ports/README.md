@@ -80,6 +80,8 @@ Important details:
 - Define product id and hardware id.
 - Define Bootloader semantic version and capability bits.
 - Define slot offsets, sizes, and run offsets.
+- Define whether `flash_program()` accepts arbitrary byte lengths or requires
+  adapter-side padding to the MCU page/program granularity.
 - Prove metadata can survive one corrupted copy.
 - Prove old confirmed image remains bootable after failed update.
 - Prove rollback when a new image never commits.

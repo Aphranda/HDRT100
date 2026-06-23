@@ -42,6 +42,13 @@ transport receives file
   -> pota_commit()
 ```
 
+## Migration Rule
+
+The current RP2350 SDK firmware is the behavioral reference. Improve this
+library in small steps, then migrate the product firmware only after each step
+has a closed-loop validation record. The detailed sequence lives in
+`../../docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`.
+
 ## Files
 
 ```text

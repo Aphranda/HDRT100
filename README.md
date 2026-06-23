@@ -4,6 +4,20 @@ Industrial firmware template for an RP2350 / Pico 2 based product. The project
 uses a medium-size embedded layout so application code, board support, drivers,
 OS adaptation, middleware, and third-party modules can grow independently.
 
+## Text Encoding
+
+All project source files, Markdown documents, and Python scripts should be read
+and written as UTF-8. On Windows PowerShell, prefer explicit UTF-8 reads when
+checking Chinese documents:
+
+```powershell
+Get-Content -Path docs\OTA_TODO.md -Encoding UTF8
+Get-Content -Path README.md -Encoding UTF8
+```
+
+Avoid relying on the console default code page when editing or validating
+documentation, because garbled text can hide real checklist changes.
+
 ## Directory Layout
 
 ```text
@@ -34,6 +48,7 @@ RP2350_TRIG/
 │  └─ port/
 │     └─ baremetal/
 ├─ middleware/                  # Integrated middleware wrappers
+│  └─ portable_ota_port/         # Product adapter for third_party/portable_ota
 │  └─ u8g2_port/                # Project glue for U8G2
 ├─ third_party/                 # Unmodified upstream third-party source
 │  └─ u8g2/                     # Upstream U8G2 source tree
@@ -65,6 +80,10 @@ current port is bare metal. A future FreeRTOS port should be added under
 
 `middleware/` contains project integration code for protocol stacks, file
 systems, USB classes, and bootloader clients.
+
+`middleware/portable_ota_port/` is the product adapter for
+`third_party/portable_ota`. Product components should depend on this adapter
+instead of including `pota_*` headers directly.
 
 `third_party/` is reserved for unmodified upstream libraries. Project adapters
 belong in `middleware/`, `components/`, or `platform/`.
@@ -277,16 +296,44 @@ SYST:OTA:RES?    # app_result,app_error,boot_result,boot_source_slot,boot_size,b
 SYST:OTA:COMM    # confirm the running image after application self-test
 ```
 
-Python script roles:
+Closed-loop validation tools:
 
 | Script | When to use | Purpose |
 |---|---|---|
-| `tools/uf2_join/uf2_join.py` | Normally only via CMake | Generate the first-time factory UF2 from Bootloader + Slot A App binaries. |
-| `tools/build_info/gen_build_info.py` | Normally only via CMake | Generate the firmware build id used by `SYST:FW:BUILD?`. |
-| `tools/ota_bin_info/ota_bin_info.py` | Before OTA or release notes | Print `.bin` size, CRC32, and the matching `SYST:OTA:BEGIN` command. |
-| `tools/ota_send/ota_send.py` | Runtime OTA over USB CDC | Send a unified OTA package or a standard raw App `.bin`; packages are auto-detected and sent with `SYST:OTA:PBEGIN`. |
-| `tools/ota_packager/ota_packager.py` | Release OTA packaging | Build one unified package from Slot A and Slot B linked `.bin` files. |
-| `tools/release_check/release_check.py` | Before release packaging | Verify release preset safety switches, required artifacts, and absence of OTA fault-injection command strings. |
+| `tools/ota_send/ota_send.py` | Board OTA validation | Main closed-loop OTA sender over USB CDC SCPI. Sends raw `.bin` or unified `.pkg`, asserts final state with `--expect-final-state`, asserts error text with `--expect-error`, and supports package mutations with `--package-negative`. |
+| `tools/release_check/release_check.py` | Release gate | Verifies release preset safety switches, required artifacts, and absence of OTA fault-injection command strings in release artifacts. |
+| `tools/run_portable_ota_tests.ps1` | Portable OTA library gate | Builds or runs `third_party/portable_ota` unit tests. If no host C compiler is available, it falls back to ARM GCC compile/object-build checks and reports that host execution was skipped. |
+| `tools/ota_packager/ota_packager.py` | Release OTA packaging | Builds one unified package from Slot A and Slot B linked `.bin` files. CMake normally invokes this automatically. |
+| `tools/ota_bin_info/ota_bin_info.py` | Raw `.bin` bench work | Prints `.bin` size, CRC32, and the matching `SYST:OTA:BEGIN` command. |
+| `tools/uf2_join/uf2_join.py` | Factory image generation | Generates the first-time factory UF2 from Bootloader + Slot A App binaries. CMake normally invokes this automatically. |
+| `tools/build_info/gen_build_info.py` | Build metadata | Generates the firmware build id used by `SYST:FW:BUILD?`. CMake normally invokes this automatically. |
+
+Recommended OTA board validation loop:
+
+```powershell
+python tools\release_check\release_check.py --preset pico2-release --build-dir build-portable-migration
+python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDATE.pkg `
+  --expect-final-state READY_TO_REBOOT
+python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDATE.pkg `
+  --corrupt-crc --expect-final-state FAILED --expect-error CRC
+python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDATE.pkg `
+  --package-negative image-crc --expect-final-state FAILED --expect-error CRC
+python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDATE.pkg `
+  --package-negative image-vector --expect-final-state FAILED --expect-error VECTOR
+python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDATE.pkg `
+  --package-negative header-magic --expect-final-state FAILED --expect-error BAD_HEADER
+python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDATE.pkg `
+  --package-negative header-version --expect-final-state FAILED --expect-error BAD_HEADER
+python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDATE.pkg `
+  --package-negative header-size --expect-final-state FAILED --expect-error BAD_HEADER
+python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDATE.pkg `
+  --package-negative slot --expect-final-state FAILED --expect-error BAD_HEADER
+python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDATE.pkg `
+  --package-negative run-offset --expect-final-state FAILED --expect-error IMAGE_TOO_LARGE
+```
+
+Run OTA board tests serially. Only one process may own the USB CDC COM port at a
+time.
 
 ## Key Configuration Files
 
@@ -316,6 +363,9 @@ Python script roles:
   validation flow on RP2350 and STM32 RTOS products.
 - `docs/OTA_OPEN_SOURCE_COMPARISON.md`: comparison with MCUboot, ESP-IDF OTA,
   Mender MCU, and STM32 X-CUBE-SBSFU for the RP2350/STM32 RTOS scope.
+- `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`: staged plan for hardening
+  `portable_ota` first, then migrating the current project with closed-loop
+  validation at each step.
 - `docs/OTA_RTOS_PORTING_PLAN.md`: migration plan for moving the proven OTA
   behavior into future RP2350 RTOS and STM32 RTOS products.
 - `docs/TASK_PROGRESS.md`: task progress log for goals, completed work,

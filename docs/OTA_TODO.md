@@ -105,3 +105,12 @@
 - [x] release 检查脚本纳入 Slot B 镜像和统一 OTA package 产物。
 - [ ] 增加串口回归脚本，批量执行 `SYST:FW:*`、`SYST:OTA:*` 基础查询。
 - [ ] 增加掉电台架控制脚本接口，支持随机或指定阶段断电。
+
+## Portable OTA 迁移验证记录
+
+- [x] Step 2A：产品侧 package parser 委托到 `third_party/portable_ota`。
+- [x] Step 2A 构建闭环：`build-portable-migration` 构建通过，`release_check=OK`。
+- [x] Step 2A 板端闭环：COM4 上完成 factory 烧录、统一 package 正常 OTA、
+  Bootloader apply、App commit 和 package 负向矩阵验证。
+- [x] Step 2A 最终安全状态：`SYST:OTA:SLOT? -> 1,0,1,0,0`，无 pending，
+  confirmed Slot A 保持运行。

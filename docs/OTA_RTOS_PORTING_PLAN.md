@@ -2,6 +2,9 @@
 
 This plan limits the reusable OTA scope to RP2350 and STM32 RTOS products. The
 current RP2350 SDK firmware is the golden reference for behavior and validation.
+The step-by-step library hardening and product migration sequence is tracked in
+`docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`; this document focuses on the RTOS
+adapter shape and validation gates.
 
 ## Target Architecture
 
