@@ -13,6 +13,8 @@ from pathlib import Path
 REQUIRED_ARTIFACTS = (
     "RP2350_TRIG_FACTORY.uf2",
     "RP2350_TRIG.bin",
+    "RP2350_TRIG_B.bin",
+    "RP2350_TRIG_UPDATE.pkg",
     "RP2350_TRIG_BOOT.uf2",
     "RP2350_TRIG.elf.map",
 )

@@ -19,6 +19,8 @@ Use this checklist for each firmware release candidate.
 - No compiler warnings from project code.
 - `build/RP2350_TRIG_FACTORY.uf2` generated.
 - `build/RP2350_TRIG.bin` generated.
+- `build/RP2350_TRIG_B.bin` generated.
+- `build/RP2350_TRIG_UPDATE.pkg` generated.
 - Release build does not contain `SYST:OTA:INJ:*`.
 - Periodic health log default is disabled.
 - Map file reviewed for unexpected memory growth.
@@ -38,6 +40,8 @@ Use this checklist for each firmware release candidate.
 - Programming method documented.
 - Recovery method documented.
 - Firmware artifact archived with checksum.
+- Unified OTA package manifest reviewed: product id, hardware id, App version,
+  build id, payload SHA-256, and minimum Bootloader version.
 - Test report archived.
 - Board serial number or traceability ID recorded.
 - Known limitations recorded.

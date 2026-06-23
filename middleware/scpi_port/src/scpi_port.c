@@ -109,6 +109,25 @@ static scpi_result_t scpi_cmd_firmware_build_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static scpi_result_t scpi_cmd_bootloader_version_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, PROJECT_BOOTLOADER_VERSION_MAJOR);
+    SCPI_ResultUInt32(context, PROJECT_BOOTLOADER_VERSION_MINOR);
+    SCPI_ResultUInt32(context, PROJECT_BOOTLOADER_VERSION_PATCH);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_bootloader_capability_q(scpi_t *context)
+{
+    ota_metadata_t metadata;
+    if (!ota_ao_get_metadata(&metadata)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, metadata.boot_capabilities);
+    return SCPI_RES_OK;
+}
+
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
 static scpi_result_t scpi_cmd_boot_reset(scpi_t *context)
 {
@@ -604,6 +623,8 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:VERSion?", .callback = SCPI_SystemVersionQ},
     {.pattern = "SYSTem:FW:VERSion?", .callback = scpi_cmd_firmware_version_q},
     {.pattern = "SYSTem:FW:BUILD?", .callback = scpi_cmd_firmware_build_q},
+    {.pattern = "SYSTem:BOOT:VERSion?", .callback = scpi_cmd_bootloader_version_q},
+    {.pattern = "SYSTem:BOOT:CAPability?", .callback = scpi_cmd_bootloader_capability_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
 #endif

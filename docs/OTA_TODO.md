@@ -45,11 +45,11 @@
 ## P1 - 镜像完整性与兼容性
 
 - [x] OTA payload 增加基础 manifest/package header，包含包大小、镜像 slot、偏移、大小、CRC32 和运行地址。
-- [ ] OTA package manifest 扩展产品型号、硬件版本、App 版本、build id、SHA-256。
+- [x] OTA package manifest 扩展产品型号、硬件版本、App 版本、build id、payload SHA-256 和 `min_bootloader_version`。
 - [ ] 验证统一 OTA package 负向路径：整包 CRC 错误、镜像 CRC 错误、App 向量错误、包头 magic/version/size 错误、slot/run_offset 不匹配。
-- [ ] 增加 `min_bootloader_version`，App 在 OTA 开始前检查 Bootloader 能力。
-- [ ] 增加 `SYST:BOOT:VERS?` 或等效命令，查询 Bootloader 版本。
-- [ ] 增加 `SYST:OTA:CAP?`，查询当前设备支持的 OTA 能力。
+- [x] 增加 `min_bootloader_version`，App 在 OTA package 首块解析时检查 Bootloader 能力。
+- [x] 增加 `SYST:BOOT:VERS?` 或等效命令，查询 Bootloader 版本。
+- [x] 增加 `SYST:OTA:CAP?`，查询当前设备支持的 OTA 能力。
 - [ ] 后续需要安全升级时，增加签名校验。
 - [x] metadata v3 扩展字段增加独立 CRC 或扩展区版本/CRC，避免尾部字段不受保护。
 - [ ] 建立 metadata schema 迁移规则，后续新增字段必须保持旧 Bootloader/App 可判定兼容性。
@@ -72,5 +72,6 @@
 
 - [ ] `tools/ota_send/ota_send.py` 增加可选自动 boot/commit 流程。
 - [x] 增加 release 检查脚本，自动确认 release preset 中故障注入关闭。
+- [x] release 检查脚本纳入 Slot B 镜像和统一 OTA package 产物。
 - [ ] 增加串口回归脚本，批量执行 `SYST:FW:*`、`SYST:OTA:*` 基础查询。
 - [ ] 增加掉电台架控制脚本接口，支持随机或指定阶段断电。

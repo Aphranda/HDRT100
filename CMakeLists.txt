@@ -264,6 +264,23 @@ add_custom_command(
         VERBATIM
 )
 
+add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_UPDATE.pkg
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
+                --image-a ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG.bin
+                --image-b ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_B.bin
+                --app-version 0.1.0
+                --build-id-file ${PROJECT_BUILD_INFO_SOURCE}
+                --min-bootloader-version 0.1.0
+                -o ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_UPDATE.pkg
+        DEPENDS ${PROJECT_NAME} RP2350_TRIG_B project_build_info ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
+        VERBATIM
+)
+
 add_custom_target(RP2350_TRIG_FACTORY ALL
         DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_FACTORY.uf2
+)
+
+add_custom_target(RP2350_TRIG_UPDATE ALL
+        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_UPDATE.pkg
 )

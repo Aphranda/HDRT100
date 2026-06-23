@@ -105,6 +105,11 @@ cmake --preset pico2-release
 cmake --build --preset pico2-release
 ```
 
+CMake build directories are machine-local. If the source tree is moved between
+computers or drive letters, remove or reconfigure `build/`, `build-validation/`,
+and `build-debug/` before building, because `CMakeCache.txt` stores absolute
+source, SDK, and toolchain paths.
+
 Release gate check after building:
 
 ```powershell
@@ -168,15 +173,21 @@ build/RP2350_TRIG_BOOT.uf2     # bootloader-only image for recovery/debug
 
 `tools/build_info/gen_build_info.py` generates the firmware build id source on
 each build, so `SYST:FW:BUILD?` changes when a new OTA payload is produced.
+The build also generates `RP2350_TRIG_UPDATE.pkg` from the Slot A and Slot B
+linked App binaries.
 
 First-time programming should use `RP2350_TRIG_FACTORY.uf2`. Product OTA should
 use the unified package so the host sends one file and the device selects the
-correct internal image:
+correct internal image. CMake generates the package automatically; to reproduce
+it by hand:
 
 ```powershell
 python tools/ota_packager/ota_packager.py `
   --image-a build/RP2350_TRIG.bin `
   --image-b build/RP2350_TRIG_B.bin `
+  --app-version 0.1.0 `
+  --build-id-file build/generated/project_build_info.c `
+  --min-bootloader-version 0.1.0 `
   -o build/RP2350_TRIG_UPDATE.pkg
 python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG_UPDATE.pkg
 ```
@@ -184,7 +195,10 @@ python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG_UPDATE.pkg
 The sender auto-detects the unified package header and uses
 `SYST:OTA:PBEGIN <size>,<crc32>`. In `COPY_TO_ACTIVE` mode the device selects the
 Slot A linked image and stages it in Slot B. In `DIRECT_AB` mode the device
-selects the image matching the inactive target slot.
+selects the image matching the inactive target slot. The package header records
+product id, hardware id, App version, build id, payload SHA-256, per-image CRC32,
+and `min_bootloader_version`; the device rejects product, hardware, and minimum
+Bootloader mismatches before erasing the target slot.
 
 Raw `.bin` OTA remains supported for compatibility and bench work:
 
@@ -244,6 +258,8 @@ After the board re-enumerates, query the OTA audit state:
 ```text
 SYST:FW:VERS?
 SYST:FW:BUILD?
+SYST:BOOT:VERS?
+SYST:BOOT:CAP?
 SYST:OTA:STAT?
 SYST:OTA:SLOT?   # active,pending,confirmed,boot_attempts,rollback_count
 SYST:OTA:RES?    # app_result,app_error,boot_result,boot_source_slot,boot_size,boot_crc32

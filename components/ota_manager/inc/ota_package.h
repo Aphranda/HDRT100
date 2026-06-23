@@ -7,9 +7,16 @@
 #include "ota_partition.h"
 
 #define OTA_PACKAGE_MAGIC       0x474B5054u
-#define OTA_PACKAGE_VERSION     1u
+#define OTA_PACKAGE_VERSION     2u
 #define OTA_PACKAGE_HEADER_SIZE 512u
 #define OTA_PACKAGE_IMAGE_COUNT 2u
+#define OTA_PACKAGE_TEXT_FIELD_SIZE 32u
+#define OTA_PACKAGE_SHA256_SIZE 32u
+
+#define OTA_PACKAGE_BOOTLOADER_VERSION(major, minor, patch) \
+    ((((uint32_t)(major) & 0xFFu) << 16u) | \
+     (((uint32_t)(minor) & 0xFFu) << 8u) | \
+     ((uint32_t)(patch) & 0xFFu))
 
 typedef struct {
     uint32_t slot;
@@ -27,6 +34,14 @@ typedef struct {
     uint32_t package_size;
     uint32_t package_crc32;
     uint32_t image_count;
+    char product_id[OTA_PACKAGE_TEXT_FIELD_SIZE];
+    char hardware_id[OTA_PACKAGE_TEXT_FIELD_SIZE];
+    uint32_t app_version_major;
+    uint32_t app_version_minor;
+    uint32_t app_version_patch;
+    uint32_t min_bootloader_version;
+    char build_id[OTA_PACKAGE_TEXT_FIELD_SIZE];
+    uint8_t payload_sha256[OTA_PACKAGE_SHA256_SIZE];
     ota_package_image_t images[OTA_PACKAGE_IMAGE_COUNT];
 } ota_package_manifest_t;
 

@@ -15,6 +15,8 @@
 | `SYST:VERS?` | 查询 SCPI 标准版本。 |
 | `SYST:FW:VERS?` | 查询固件语义版本，返回 `major,minor,patch`。 |
 | `SYST:FW:BUILD?` | 查询固件 build id，由构建脚本生成 UTC 时间戳，每次构建刷新。 |
+| `SYST:BOOT:VERS?` | 查询当前 App 声明的 Bootloader 兼容版本，返回 `major,minor,patch`。 |
+| `SYST:BOOT:CAP?` | 查询当前 metadata 中记录的 Bootloader/OTA 能力位，`bit0=COPY_TO_ACTIVE`，`bit1=DIRECT_AB`。 |
 
 ## 触发输出
 
@@ -88,7 +90,7 @@ OTA 命令遵循 `docs/OTA方案.md` 中的 `OtaAO + OtaFB + OtaVector` 设计�
 | `SYST:OTA:TARG?` | 查询下一次 OTA 写入目标 slot，当前 copy-to-active 默认返回 `2`。 |
 | `SYST:OTA:CAP?` | 查询当前固件声明的 OTA 能力位，`bit0=COPY_TO_ACTIVE`，`bit1=DIRECT_AB`。 |
 
-统一 OTA package 由 `tools/ota_packager/ota_packager.py` 生成，`tools/ota_send/ota_send.py` 会自动识别包头并发送 `SYST:OTA:PBEGIN`。package 首部固定 512 B，payload 中 Slot A/Slot B 镜像按 512 B 对齐，保证流式写入时满足 Flash page 编程约束。
+统一 OTA package 由 `tools/ota_packager/ota_packager.py` 生成，`tools/ota_send/ota_send.py` 会自动识别包头并发送 `SYST:OTA:PBEGIN`。package 首部固定 512 B，包含产品型号、硬件版本、App 版本、build id、payload SHA-256、最小 Bootloader 版本、每个镜像的 slot/offset/size/CRC32/run offset。payload 中 Slot A/Slot B 镜像按 512 B 对齐，保证流式写入时满足 Flash page 编程约束。设备在擦除目标 slot 前会拒绝产品型号、硬件版本和最小 Bootloader 版本不匹配的 package。
 
 第一阶段建议 `SYST:OTA:DATA` 单块 256 B 或 512 B。OTA 期间应暂停周期日志，避免日志与 SCPI binary block 混用同一 USB CDC 通道。
 
