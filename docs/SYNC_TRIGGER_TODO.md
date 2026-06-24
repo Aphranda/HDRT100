@@ -73,6 +73,14 @@
 - [ ] 标注文档中哪些 API 可在 IRQ 上下文、任务上下文、UI/控制上下文调用。
 - [ ] 增加非实时任务调度预算表，避免 UI 或日志影响触发服务。
 
+## P2 - 编码器协议兼容
+
+- [ ] BiSS-B (≤10 MHz) — 单 PIO SM: CLK 输出 + DATA 输入采样 + START 检测, ~15 指令, 可行
+- [ ] BiSS-C (100 MHz) — PIO 不可行 (仅 1.5 clk_sys 周期/bit), 需外部 FPGA/ASIC (iC-MU 等)
+- [ ] EnDat 2.1 (≤2 MHz) — 双 PIO SM: CLK 生成 + 半双工 DATA + 命令组装, ~25-30 指令, 可行
+- [ ] EnDat 2.2 (≤16 MHz) — 临界, 2.3 clk_sys 周期/bit @150MHz, 需实验验证
+- [ ] 协议模式作为 HAOFV `TRIG_MODE_BISS` / `TRIG_MODE_ENDAT` 落地
+
 ## P3 - 验证
 
 - [ ] 增加使用信号源和示波器的台架测试计划。

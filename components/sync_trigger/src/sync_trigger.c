@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "board_config.h"
+#include "hardware/pio.h"
 #include "osal.h"
 #include "resource_arbiter.h"
 #include "sync_io.h"
@@ -100,11 +102,24 @@ void sync_trigger_service(void)
 
     if (!ao_dequeue(&event)) {
         /* 无事件时仍同步 ARM 态 PIO 状态 */
-        if (s_ao.vector.state == TRIG_STATE_SEQ_ARMED) {
+        if (s_ao.vector.state == TRIG_STATE_SEQ_ARMED ||
+            s_ao.vector.state == TRIG_STATE_ENC_ARMED) {
             trig_event_t svc_event;
             memset(&svc_event, 0, sizeof(svc_event));
             svc_event.type = TRIG_EVENT_DMA_ROLLOVER;
             trigger_fb_execute(&s_ao.vector, &svc_event);
+        }
+
+        /* ENC_ARMED: 检查 PIO IRQ0 (Z 脉冲=圈数+1) */
+        if (s_ao.vector.state == TRIG_STATE_ENC_ARMED &&
+            s_ao.vector.enc_z_enabled) {
+            if (pio_interrupt_get(BOARD_SYNC_PIO_WAVE, 0)) {
+                pio_interrupt_clear(BOARD_SYNC_PIO_WAVE, 0);
+                trig_event_t z_event;
+                memset(&z_event, 0, sizeof(z_event));
+                z_event.type = TRIG_EVENT_ENC_Z_PULSE;
+                trigger_fb_execute(&s_ao.vector, &z_event);
+            }
         }
         ao_refresh_from_io();
         return;

@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "board_config.h"
 #include "resource_arbiter.h"
 #include "sync_io.h"
 
@@ -81,6 +82,41 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
         break;
     case TRIG_EVENT_SET_SAFE_STATE:
         vector->safe_state = (trig_safe_state_t)event->payload.value;
+        break;
+    /* ── ENC_COUNT ── */
+    case TRIG_EVENT_SET_ENC_TARGET:
+        vector->enc_target = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_ENC_PINS:
+        vector->enc_a_pin = event->payload.value & 0xFFu;
+        vector->enc_b_pin = (event->payload.value >> 8) & 0xFFu;
+        vector->enc_z_pin = (event->payload.value >> 16) & 0xFFu;
+        break;
+    case TRIG_EVENT_ENC_Z_PULSE:
+        vector->enc_rev_count++;
+        break;
+    /* ── PCNT ── */
+    case TRIG_EVENT_SET_PCNT_DECODE:
+        vector->enc_decode = (trig_pcnt_decode_t)event->payload.value;
+        break;
+    case TRIG_EVENT_SET_PCNT_DIR:
+        vector->enc_dir = (trig_pcnt_dir_t)event->payload.value;
+        break;
+    case TRIG_EVENT_SET_PCNT_FILTER:
+        vector->enc_filter_ns = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_PCNT_GATE:
+        vector->enc_gate_enabled = (event->payload.value != 0u);
+        break;
+    case TRIG_EVENT_SET_PCNT_CMP:
+        vector->enc_cmp_pulse_ns = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_PCNT_PRESET:
+        vector->enc_preset = event->payload.value;
+        break;
+    case TRIG_EVENT_PCNT_CLEAR:
+        vector->enc_count = 0u;
+        vector->enc_total += vector->enc_count;
         break;
     case TRIG_EVENT_RESET:
         sync_io_stop_clock();
@@ -226,6 +262,90 @@ static fb_result_t fb_seq_armed_reject(trigger_vector_t *vector,
     return FB_IGNORED;
 }
 
+/* ── ENC_COUNT 配置 ── */
+
+static fb_result_t fb_idle_configure_enc(trigger_vector_t *vector,
+                                          const trig_event_t *event)
+{
+    (void)event;
+
+    if (vector->enc_target == 0u) {
+        vector->error_code = 10u;
+        return FB_ERROR;
+    }
+    if (vector->enc_a_pin < 16u || vector->enc_b_pin < 16u) {
+        vector->error_code = 11u;   /* invalid encoder pins */
+        return FB_ERROR;
+    }
+
+    vector->active_mode = TRIG_MODE_ENC_COUNT;
+    vector->enc_count = 0u;
+    vector->state = TRIG_STATE_ENC_CONFIGURED;
+    vector->supported_modes |= (1u << TRIG_MODE_ENC_COUNT);
+    vector->error_code = 0u;
+    return FB_OK;
+}
+
+/* ── ENC_CONFIGURED → ARM ── */
+
+static fb_result_t fb_enc_configured_arm(trigger_vector_t *vector,
+                                          const trig_event_t *event)
+{
+    (void)event;
+
+    if (!resource_arbiter_acquire(
+            RESOURCE_ARBITER_RESOURCE_PIO1)) {
+        vector->error_code = 2u;
+        return FB_ERROR;
+    }
+
+    if (!sync_io_enc_count_arm(vector->enc_target,
+                                BOARD_SYNC_INPUT_BASE_PIN,  /* 固定 GPIO16, 4-pin 组 */
+                                BOARD_SYNC_TRIG_OUT_PIN)) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO1);
+        vector->error_code = 3u;
+        return FB_ERROR;
+    }
+
+    vector->enc_count = 0u;
+    vector->state = TRIG_STATE_ENC_ARMED;
+    vector->error_code = 0u;
+    return FB_OK;
+}
+
+/* ── ENC_ARMED → 周期服务 ── */
+
+static fb_result_t fb_enc_armed_service(trigger_vector_t *vector,
+                                         const trig_event_t *event)
+{
+    (void)event;
+
+    if (!sync_io_enc_count_is_running()) {
+        vector->state = TRIG_STATE_FAULT;
+        vector->error_code = 4u;
+        return FB_ERROR;
+    }
+
+    vector->enc_count = sync_io_enc_count_get_count();
+    vector->enc_total = vector->enc_count + vector->enc_rev_count * vector->enc_target;
+    return FB_OK;
+}
+
+/* ── ENC_ARMED → DISARM ── */
+
+static fb_result_t fb_enc_armed_disarm(trigger_vector_t *vector,
+                                        const trig_event_t *event)
+{
+    (void)event;
+
+    sync_io_enc_count_disarm();
+    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO1);
+
+    vector->state = TRIG_STATE_IDLE;
+    vector->error_code = 0u;
+    return FB_OK;
+}
+
 /* ── FAULT → 清除 ── */
 
 static fb_result_t fb_fault_clear(trigger_vector_t *vector,
@@ -256,10 +376,20 @@ typedef struct {
 static const ecc_entry_t s_ecc_table[] = {
     /* IDLE */
     { TRIG_STATE_IDLE, TRIG_EVENT_CONFIGURE_SEQ,    fb_idle_configure_seq },
+    { TRIG_STATE_IDLE, TRIG_EVENT_CONFIGURE_ENC,    fb_idle_configure_enc },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_SOURCE_PIN,   fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_EDGE,         fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_GATE,         fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_SAFE_STATE,   fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_ENC_TARGET,   fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_ENC_PINS,     fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_PCNT_DECODE,  fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_PCNT_DIR,     fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_PCNT_FILTER,  fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_PCNT_GATE,    fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_PCNT_CMP,     fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_PCNT_PRESET,  fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_PCNT_CLEAR,       fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_RESET,             fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_TRIGGER_WIDTH, fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_FIRE_TRIGGER,      fb_instant_cmd },
@@ -306,6 +436,28 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_FAULT, TRIG_EVENT_CLEAR_FAULT, fb_fault_clear },
     { TRIG_STATE_FAULT, TRIG_EVENT_DISARM,      fb_fault_clear },
     { TRIG_STATE_FAULT, TRIG_EVENT_RESET,       fb_fault_clear },
+
+    /* ENC_CONFIGURED */
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_ARM,              fb_enc_configured_arm },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_DISARM,           fb_enc_armed_disarm },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_CONFIGURE_ENC,    fb_idle_configure_enc },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_ENC_TARGET,   fb_instant_cmd },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_ENC_PINS,     fb_instant_cmd },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_PCNT_DECODE,  fb_instant_cmd },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_PCNT_DIR,     fb_instant_cmd },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_PCNT_FILTER,  fb_instant_cmd },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_PCNT_GATE,    fb_instant_cmd },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_PCNT_CMP,     fb_instant_cmd },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_PCNT_PRESET,  fb_instant_cmd },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_RESET,           fb_instant_cmd },
+
+    /* ENC_ARMED */
+    { TRIG_STATE_ENC_ARMED, TRIG_EVENT_DISARM,           fb_enc_armed_disarm },
+    { TRIG_STATE_ENC_ARMED, TRIG_EVENT_DMA_ROLLOVER,     fb_enc_armed_service },
+    { TRIG_STATE_ENC_ARMED, TRIG_EVENT_ENC_Z_PULSE,      fb_instant_cmd },
+    { TRIG_STATE_ENC_ARMED, TRIG_EVENT_PCNT_CLEAR,       fb_instant_cmd },
+    { TRIG_STATE_ENC_ARMED, TRIG_EVENT_SET_ENC_TARGET,   fb_instant_cmd },
+    { TRIG_STATE_ENC_ARMED, TRIG_EVENT_RESET,            fb_enc_armed_disarm },
 };
 #define TRIG_ECC_TABLE_COUNT \
     (sizeof(s_ecc_table) / sizeof(s_ecc_table[0]))
@@ -327,6 +479,16 @@ bool trigger_fb_init(trigger_vector_t *vector)
     vector->edge = TRIG_EDGE_RISING;
     vector->gate_enabled = false;
     vector->safe_state = TRIG_SAFE_ZERO;
+    vector->enc_a_pin = 16u;
+    vector->enc_b_pin = 17u;
+    vector->enc_z_pin = 19u;
+    vector->enc_decode = TRIG_PCNT_DECODE_QUAD_1X;
+    vector->enc_dir = TRIG_PCNT_DIR_CW;
+    vector->enc_z_enabled = true;
+    vector->enc_gate_enabled = false;
+    vector->enc_filter_ns = 0u;
+    vector->enc_preset = 0u;
+    vector->enc_cmp_pulse_ns = 67u;   /* ~10 PIO cycles */
     vector->trigger_width_us = 10u;
     vector->pulse_width_us = 10u;
     vector->marker_width_us = 10u;

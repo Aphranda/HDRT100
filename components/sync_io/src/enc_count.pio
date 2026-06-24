@@ -1,0 +1,85 @@
+; enc_count.pio — 编码器计数触发 (HAOFV 实时面)
+; 1x 解码, CW 方向, Z 递增圈数 (IRQ 通知 CPU)
+;
+; Pin 组 (in_pin_base=16, 4-pin contiguous):
+;   offset 0: GPIO16 = A
+;   offset 1: GPIO17 = B
+;   offset 2: GPIO18 = EXT_CLK (未使用)
+;   offset 3: GPIO19 = Z
+;
+; Pins (set_pin_base=20): TRIG_OUT
+;
+; Registers: X=剩余位置计数, Y=临时提取, OSR/ISR=采样移位
+;
+; Z: 每 Z=1 → PIO IRQ0 → CPU 管理面 rev_count++
+; 触发: X--→0 → TRIG_OUT 脉冲 → pull 下一目标
+;
+; clk_sys=150MHz: ~15 周期/步 ≈ 100ns, ~10MHz max
+
+.program enc_count
+    pull
+    mov x, osr
+
+.wrap_target
+    wait 0 pin, 0
+    wait 1 pin, 0
+
+    in pins, 4             ; ISR = Z, EXT, B, A (bits 3:0)
+    mov osr, isr
+
+    out null, 1            ; 移出 A (bit 0)
+    out y, 1               ; y = B  (bit 1)
+    jmp y--, no_count      ; B=1 → CCW, 跳过
+
+    jmp x--, check_z       ; CW: X--
+    jmp fire               ; X==0 → 触发!
+
+no_count:
+    jmp check_z_entry
+
+check_z:
+    mov osr, isr
+check_z_entry:
+    out null, 3            ; 移出 A, B, EXT (bits 0,1,2)
+    out y, 1               ; y = Z (bit 3)
+    jmp y--, loop_continue ; Z=0 → 继续
+    ; Z=1: IRQ → CPU rev_count++
+    irq 0
+
+loop_continue:
+.wrap
+
+fire:
+    set pins, 1
+    set y, 9               ; ~67ns pulse
+fire_wait:
+    jmp y--, fire_wait
+    set pins, 0
+    pull
+    mov x, osr
+
+% c-sdk {
+
+static inline void enc_count_program_init(PIO pio, uint sm, uint offset,
+                                           uint in_pin_base,
+                                           uint output_pin,
+                                           float clkdiv)
+{
+    for (uint i = 0u; i < 4u; i++) {
+        pio_gpio_init(pio, in_pin_base + i);
+        gpio_set_dir(in_pin_base + i, GPIO_IN);
+        gpio_pull_down(in_pin_base + i);
+    }
+
+    pio_gpio_init(pio, output_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, output_pin, 1, true);
+
+    pio_sm_config c = enc_count_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, in_pin_base);
+    sm_config_set_set_pins(&c, output_pin, 1);
+    sm_config_set_clkdiv(&c, clkdiv);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0);
+}
+
+%}

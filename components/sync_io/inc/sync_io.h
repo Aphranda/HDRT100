@@ -67,4 +67,13 @@ uint32_t sync_io_seq_step_get_index(void);
 uint32_t sync_io_seq_step_get_rollover_count(void);
 bool sync_io_seq_step_is_running(void);
 
+/* ── ENC_COUNT 编码器计数触发 ── */
+
+bool sync_io_enc_count_arm(uint32_t target,
+                           uint32_t in_pin_base,
+                           uint32_t output_pin);
+void sync_io_enc_count_disarm(void);
+uint32_t sync_io_enc_count_get_count(void);
+bool sync_io_enc_count_is_running(void);
+
 #endif

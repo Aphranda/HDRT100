@@ -581,3 +581,123 @@ uint32_t sync_io_seq_step_get_rollover_count(void)
 {
     return s_seq_step.rollover_count;
 }
+
+/* ── ENC_COUNT 编码器计数触发 ── */
+
+#include "enc_count.pio.h"
+
+typedef struct {
+    bool running;
+    uint sm;
+    uint offset;
+    uint target;
+    uint in_pin_base;
+    volatile uint32_t fire_count;
+} sync_io_enc_count_t;
+
+static sync_io_enc_count_t s_enc;
+
+bool sync_io_enc_count_arm(uint32_t target,
+                           uint32_t in_pin_base,
+                           uint32_t output_pin)
+{
+    if (!s_sync_io.initialized || target == 0u) {
+        return false;
+    }
+
+    if (s_enc.running) {
+        sync_io_enc_count_disarm();
+    }
+
+    if (!pio_can_add_program(BOARD_SYNC_PIO_WAVE, &enc_count_program)) {
+        LOG_ERROR("sync_io", "enc_count: not enough PIO instruction space");
+        return false;
+    }
+
+    s_enc.offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE,
+                                          &enc_count_program);
+    s_enc.sm = BOARD_SYNC_OUTPUT_SM;
+    s_enc.target = target;
+    s_enc.in_pin_base = in_pin_base;
+
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_enc.sm, false);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, s_enc.sm);
+    pio_sm_restart(BOARD_SYNC_PIO_WAVE, s_enc.sm);
+
+    enc_count_program_init(BOARD_SYNC_PIO_WAVE,
+                           s_enc.sm,
+                           s_enc.offset,
+                           BOARD_SYNC_INPUT_BASE_PIN,   /* 固定 GPIO16 起始的 4-pin 组 */
+                           output_pin,
+                           1.0f);
+
+    /* TX FIFO: 首字 = 目标值, 每次触发后由 DMA 补填 */
+    pio_sm_put(BOARD_SYNC_PIO_WAVE, s_enc.sm, target);
+
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_enc.sm, true);
+
+    s_enc.fire_count = 0u;
+    s_enc.running = true;
+
+    LOG_INFO("sync_io", "enc_count armed: target=%lu pins=A%lu/B%lu/Z%lu",
+             (unsigned long)target,
+             (unsigned long)(in_pin_base + 0),
+             (unsigned long)(in_pin_base + 1),
+             (unsigned long)(in_pin_base + 2));
+
+    return true;
+}
+
+void sync_io_enc_count_disarm(void)
+{
+    if (!s_enc.running) {
+        return;
+    }
+
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_enc.sm, false);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, s_enc.sm);
+    pio_sm_set_pins(BOARD_SYNC_PIO_WAVE, s_enc.sm, 0);
+
+    /* 释放 4-pin 组 */
+    for (uint i = 0u; i < 4u; i++) {
+        gpio_set_function(s_enc.in_pin_base + i, GPIO_FUNC_SIO);
+        gpio_set_dir(s_enc.in_pin_base + i, GPIO_IN);
+        gpio_pull_down(s_enc.in_pin_base + i);
+    }
+
+    pio_remove_program(BOARD_SYNC_PIO_WAVE, &enc_count_program,
+                       s_enc.offset);
+
+    s_enc.running = false;
+    LOG_INFO("sync_io", "enc_count disarmed: fire_count=%lu",
+             (unsigned long)s_enc.fire_count);
+}
+
+uint32_t sync_io_enc_count_get_count(void)
+{
+    if (!s_enc.running) {
+        return 0u;
+    }
+
+    /* 通过 pio_sm_exec 注入指令读取 X 寄存器 */
+    pio_sm_exec(BOARD_SYNC_PIO_WAVE, s_enc.sm,
+                pio_encode_mov(pio_isr, pio_x));
+    pio_sm_exec(BOARD_SYNC_PIO_WAVE, s_enc.sm,
+                pio_encode_push(false, false));
+
+    if (pio_sm_is_rx_fifo_empty(BOARD_SYNC_PIO_WAVE, s_enc.sm)) {
+        return 0u;   /* 不应发生, 但防御 */
+    }
+
+    const uint32_t remaining = pio_sm_get(BOARD_SYNC_PIO_WAVE, s_enc.sm);
+
+    if (remaining > s_enc.target) {
+        return 0u;
+    }
+    return s_enc.target - remaining;
+}
+
+bool sync_io_enc_count_is_running(void)
+{
+    return s_enc.running;
+}

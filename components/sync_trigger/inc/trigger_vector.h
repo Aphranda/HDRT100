@@ -13,8 +13,34 @@ typedef enum {
     TRIG_MODE_GATE_LEVEL,
     TRIG_MODE_ARM_SINGLE,
     TRIG_MODE_FREE_BURST,
+    TRIG_MODE_ENC_COUNT = 2,   /* 编码器计数触发 */
     TRIG_MODE_COUNT,
 } trig_mode_t;
+
+/* ── 脉冲计数解码模式 ── */
+
+typedef enum {
+    TRIG_PCNT_DECODE_SINGLE   = 0,  /* 单脉冲 (A↑ 计数) */
+    TRIG_PCNT_DECODE_QUAD_1X  = 1,  /* 正交 1x (A↑ + B 方向) */
+    TRIG_PCNT_DECODE_QUAD_2X  = 2,  /* 正交 2x (A↑↓ + B 方向) */
+    TRIG_PCNT_DECODE_UP_DOWN  = 3,  /* 上下计数 (A=UP, B=DOWN) */
+} trig_pcnt_decode_t;
+
+/* ── 脉冲计数方向 ── */
+
+typedef enum {
+    TRIG_PCNT_DIR_CW   = 0,  /* 仅正向 */
+    TRIG_PCNT_DIR_CCW  = 1,  /* 仅反向 */
+    TRIG_PCNT_DIR_BOTH = 2,  /* 双向 */
+} trig_pcnt_dir_t;
+
+/* ── 旧编码器解码别名 ── */
+
+typedef enum {
+    TRIG_ENC_DECODE_1X = TRIG_PCNT_DECODE_QUAD_1X,
+    TRIG_ENC_DECODE_2X = TRIG_PCNT_DECODE_QUAD_2X,
+    TRIG_ENC_DECODE_4X = 4,  /* 预留 */
+} trig_enc_decode_t;
 
 /* ── 触发边沿 ── */
 
@@ -36,6 +62,8 @@ typedef enum {
     TRIG_STATE_IDLE            = 0,
     TRIG_STATE_SEQ_CONFIGURED,
     TRIG_STATE_SEQ_ARMED,
+    TRIG_STATE_ENC_CONFIGURED,
+    TRIG_STATE_ENC_ARMED,
     TRIG_STATE_FAULT,
 } trig_state_t;
 
@@ -64,6 +92,19 @@ typedef enum {
     TRIG_EVENT_SET_CLOCK_FREQ,
     TRIG_EVENT_SET_CLOCK_STATE,
     TRIG_EVENT_RESET,
+    /* ENC_COUNT 事件 */
+    TRIG_EVENT_CONFIGURE_ENC,          /* enc_target + pins → 写配置 */
+    TRIG_EVENT_SET_ENC_TARGET,         /* 只更新目标值 */
+    TRIG_EVENT_SET_ENC_PINS,           /* 更新 A/B/Z 引脚 */
+    TRIG_EVENT_ENC_Z_PULSE,            /* PIO IRQ: Z 脉冲到达 (内部事件) */
+    /* PCNT 脉冲计数事件 */
+    TRIG_EVENT_SET_PCNT_DECODE,        /* 解码模式 */
+    TRIG_EVENT_SET_PCNT_DIR,           /* 计数方向 */
+    TRIG_EVENT_SET_PCNT_FILTER,        /* 数字滤波窗口 */
+    TRIG_EVENT_SET_PCNT_GATE,          /* 门控使能 */
+    TRIG_EVENT_SET_PCNT_CMP,           /* 比较器配置 */
+    TRIG_EVENT_SET_PCNT_PRESET,        /* 预设计数值 */
+    TRIG_EVENT_PCNT_CLEAR,             /* 清零计数 */
 } trig_event_type_t;
 
 /* ── TriggerVector ── */
@@ -87,6 +128,25 @@ typedef struct {
     uint32_t      seq_length;
     uint32_t      seq_index;
     uint32_t      seq_output_width;
+
+    /* ENC_COUNT / PCNT 配置 */
+    uint32_t         enc_target;       /* 目标位置计数值 (比较器0 阈值) */
+    uint32_t         enc_count;        /* 当前位置计数 (PIO 维护, AO 快照) */
+    uint32_t         enc_rev_count;    /* 圈数计数器 (Z 脉冲累计, CPU 管理面更新) */
+    trig_pcnt_decode_t enc_decode;     /* 解码模式: SINGLE/QUAD_1X/QUAD_2X/UP_DOWN */
+    trig_pcnt_dir_t  enc_dir;          /* 计数方向: CW/CCW/BOTH */
+    bool             enc_z_enabled;    /* Z 相使能 */
+    bool             enc_gate_enabled; /* 门控使能 (硬件 GATE_IN) */
+    uint32_t         enc_filter_ns;    /* 数字滤波窗口 (ns), 0=禁用 */
+    uint32_t         enc_preset;       /* 预设计数值 (CLEAR 后加载) */
+    uint32_t         enc_total;        /* 总累计 (永不复位) */
+    uint32_t         enc_frequency_hz; /* 当前频率 (管理面计算) */
+    uint32_t         enc_cmp_fire_count; /* 比较器触发次数 */
+    uint32_t         enc_filter_reject;  /* 滤波器拒绝脉冲数 */
+    uint32_t         enc_cmp_pulse_ns;   /* 比较器触发脉冲宽度 (ns) */
+    uint32_t         enc_a_pin;        /* A/UP 相 GPIO (默认 16) */
+    uint32_t         enc_b_pin;        /* B/DOWN 相 GPIO (默认 17) */
+    uint32_t         enc_z_pin;        /* Z 相 GPIO (默认 19, 0=禁用) */
 
     /* 运行态 (HAOFV: TriggerFB ECC 写, PIO/DMA 硬件更新 seq_index) */
     trig_state_t  state;
