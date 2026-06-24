@@ -3,13 +3,18 @@
 #include "board_config.h"
 #include "diagnostics.h"
 #include "hardware/clocks.h"
+#include "hardware/dma.h"
 #include "hardware/gpio.h"
+#include "hardware/irq.h"
 #include "hardware/pio.h"
+#include "seq_step.pio.h"
 #include "sync_io.pio.h"
 
-#define SYNC_IO_DEFAULT_CAPTURE_HZ 1000000u
-#define SYNC_IO_DEFAULT_CLOCK_HZ   1000000u
-#define SYNC_IO_MIN_HZ             1u
+#define SYNC_IO_DEFAULT_CAPTURE_HZ  1000000u
+#define SYNC_IO_DEFAULT_CLOCK_HZ    1000000u
+#define SYNC_IO_MIN_HZ              1u
+#define SYNC_IO_SEQ_STEP_DMA_CH     0u
+#define SYNC_IO_SEQ_STEP_DMA_IRQ    DMA_IRQ_0
 
 typedef struct {
     bool initialized;
@@ -26,6 +31,22 @@ typedef struct {
 } sync_io_context_t;
 
 static sync_io_context_t s_sync_io;
+
+/* ── SEQ_STEP 状态 ── */
+
+typedef struct {
+    bool running;
+    bool has_gate;
+    uint seq_sm;
+    uint seq_offset;
+    uint dma_ch;
+    uint seq_length;
+    uint seq_width;
+    volatile uint32_t rollover_count;
+    volatile bool dma_done;
+} sync_io_seq_step_t;
+
+static sync_io_seq_step_t s_seq_step;
 
 static const uint s_aux_pins[SYNC_IO_AUX_COUNT] = {
     BOARD_SYNC_AUX0_PIN,
@@ -397,4 +418,166 @@ void sync_io_get_status(sync_io_status_t *status)
     status->capture_sample_hz = s_sync_io.capture_sample_hz;
     status->sync_clock_hz = s_sync_io.sync_clock_hz;
     status->dropped_capture_words = s_sync_io.dropped_capture_words;
+}
+
+/* ── SEQ_STEP 编码序列步进 ── */
+
+static void sync_io_seq_step_dma_handler(void)
+{
+    dma_hw->ints0 = 1u << s_seq_step.dma_ch;
+    s_seq_step.dma_done = true;
+    s_seq_step.rollover_count++;
+    /* ring-buffer DMA 自动回绕，无需手动重置读地址 */
+}
+
+bool sync_io_seq_step_arm(const uint32_t *seq_table,
+                          uint32_t seq_length,
+                          uint32_t seq_width,
+                          uint32_t trigger_pin,
+                          sync_io_edge_t edge,
+                          bool gate_enabled)
+{
+    if (!s_sync_io.initialized ||
+        seq_table == NULL ||
+        seq_length == 0u ||
+        seq_length > 256u ||
+        seq_width == 0u ||
+        seq_width > 8u) {
+        return false;
+    }
+
+    if (s_seq_step.running) {
+        sync_io_seq_step_disarm();
+    }
+
+    /* ── PIO 程序选择 ── */
+
+    const pio_program_t *prog = gate_enabled
+        ? &seq_step_gated_program
+        : &seq_step_program;
+
+    if (!pio_can_add_program(BOARD_SYNC_PIO_WAVE, prog)) {
+        LOG_ERROR("sync_io", "seq_step: not enough PIO instruction space");
+        return false;
+    }
+
+    s_seq_step.seq_offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE, prog);
+    s_seq_step.seq_sm = BOARD_SYNC_OUTPUT_SM;
+    s_seq_step.has_gate = gate_enabled;
+
+    /* 停旧 SM，清 FIFO */
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm, false);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm);
+    pio_sm_restart(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm);
+
+    /* ── PIO 初始化（HAOFV 实时面配置, ARM 时一次性完成）── */
+
+    seq_step_program_init_ex(BOARD_SYNC_PIO_WAVE,
+                              s_seq_step.seq_sm,
+                              s_seq_step.seq_offset,
+                              trigger_pin,
+                              BOARD_SYNC_OUTPUT_BASE_PIN,
+                              seq_width,
+                              1.0f,
+                              gate_enabled,
+                              (int)edge);
+
+    /* ── DMA 配置: SRAM seq_table → PIO TX FIFO, ring-buffer ── */
+
+    s_seq_step.dma_ch = SYNC_IO_SEQ_STEP_DMA_CH;
+    dma_channel_unclaim(s_seq_step.dma_ch);
+
+    s_seq_step.seq_length = seq_length;
+    s_seq_step.seq_width = seq_width;
+
+    dma_channel_config dma_cfg = dma_channel_get_default_config(s_seq_step.dma_ch);
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&dma_cfg, true);
+    channel_config_set_write_increment(&dma_cfg, false);
+    channel_config_set_dreq(&dma_cfg,
+                            DREQ_PIO1_TX0 + s_seq_step.seq_sm);
+    channel_config_set_ring(&dma_cfg, false,
+                            (uint)(sizeof(uint32_t) * seq_length));
+    dma_channel_configure(s_seq_step.dma_ch,
+                          &dma_cfg,
+                          &BOARD_SYNC_PIO_WAVE->txf[s_seq_step.seq_sm],
+                          seq_table,
+                          seq_length,
+                          true);   /* 立即启动, ring-buffer 持续循环 */
+
+    /* ── DMA 完成中断（每次回绕触发一次）── */
+
+    s_seq_step.rollover_count = 0u;
+    s_seq_step.dma_done = false;
+
+    irq_set_exclusive_handler(SYNC_IO_SEQ_STEP_DMA_IRQ,
+                              sync_io_seq_step_dma_handler);
+    dma_channel_set_irq0_enabled(s_seq_step.dma_ch, true);
+    irq_set_enabled(SYNC_IO_SEQ_STEP_DMA_IRQ, true);
+
+    /* ── 启动 PIO ── */
+
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm, true);
+
+    s_seq_step.running = true;
+
+    LOG_INFO("sync_io", "seq_step armed: length=%lu width=%lu",
+             (unsigned long)seq_length, (unsigned long)seq_width);
+
+    return true;
+}
+
+void sync_io_seq_step_disarm(void)
+{
+    if (!s_seq_step.running) {
+        return;
+    }
+
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm, false);
+    irq_set_enabled(SYNC_IO_SEQ_STEP_DMA_IRQ, false);
+    dma_channel_set_irq0_enabled(s_seq_step.dma_ch, false);
+    dma_channel_abort(s_seq_step.dma_ch);
+
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm);
+    pio_sm_set_pins(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm, 0);
+
+    /* 恢复为默认输出低 */
+    for (uint pin = 0u; pin < s_seq_step.seq_width; pin++) {
+        gpio_set_function(BOARD_SYNC_OUTPUT_BASE_PIN + pin, GPIO_FUNC_SIO);
+        gpio_set_dir(BOARD_SYNC_OUTPUT_BASE_PIN + pin, GPIO_OUT);
+        gpio_put(BOARD_SYNC_OUTPUT_BASE_PIN + pin, false);
+    }
+
+    const pio_program_t *prog_to_remove = s_seq_step.has_gate
+        ? &seq_step_gated_program
+        : &seq_step_program;
+    pio_remove_program(BOARD_SYNC_PIO_WAVE, prog_to_remove,
+                       s_seq_step.seq_offset);
+
+    s_seq_step.running = false;
+    LOG_INFO("sync_io", "seq_step disarmed: rollover_count=%lu",
+             (unsigned long)s_seq_step.rollover_count);
+}
+
+uint32_t sync_io_seq_step_get_index(void)
+{
+    if (!s_seq_step.running) {
+        return 0u;
+    }
+
+    const uint32_t remaining = dma_hw->ch[s_seq_step.dma_ch].transfer_count
+                               & 0xFFFFu;
+    const uint32_t idx = s_seq_step.seq_length - remaining;
+
+    return (idx >= s_seq_step.seq_length) ? 0u : idx;
+}
+
+bool sync_io_seq_step_is_running(void)
+{
+    return s_seq_step.running;
+}
+
+uint32_t sync_io_seq_step_get_rollover_count(void)
+{
+    return s_seq_step.rollover_count;
 }

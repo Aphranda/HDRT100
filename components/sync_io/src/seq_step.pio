@@ -1,0 +1,122 @@
+; seq_step.pio — 编码序列步进 (HAOFV 实时面)
+; 管理面 (TriggerFB) 在 ARM 时配置，运行时 PIO 自主闭环
+;
+; 支持:
+;   - 上升沿/下降沿触发 (ARM 时通过指令极性交换选择)
+;   - 可选 GATE_IN 门控 (ARM 时选择 seq_step 或 seq_step_gated)
+;   - 触发源 IO 可配置 (sm_config_set_in_pins 动态绑定)
+;
+; clk_sys=150MHz:
+;   seq_step:       3 指令 ≈ 20ns 延迟
+;   seq_step_gated: 4 指令 ≈ 27ns 延迟
+
+; ── 无门控版本 (3 指令) ──
+.program seq_step
+.wrap_target
+    wait 0 pin, 0             ; ① 等低 (极性可在 ARM 时交换)
+    wait 1 pin, 0             ; ② 等上升沿
+    out pins, 4               ; ③ 输出编码, auto-pull
+.wrap
+
+; ── 带门控版本 (4 指令) ──
+.program seq_step_gated
+.wrap_target
+    wait 1 pin, 3             ; ① 等待 GATE_IN 使能 (offset 3 from in_pin_base)
+    wait 0 pin, 0             ; ② 等低
+    wait 1 pin, 0             ; ③ 等上升沿
+    out pins, 4               ; ④ 输出编码
+.wrap
+
+% c-sdk {
+
+/* ── 触发边沿 ── */
+enum seq_step_edge {
+    SEQ_STEP_EDGE_RISING  = 0,
+    SEQ_STEP_EDGE_FALLING = 1,
+};
+
+/* ── 通用初始化 ── */
+static inline void seq_step_program_init_common(PIO pio, uint sm, uint offset,
+                                                 uint trigger_in_pin,
+                                                 uint output_base_pin,
+                                                 uint output_width, float clkdiv,
+                                                 bool has_gate)
+{
+    uint in_pin_base = trigger_in_pin;
+    if (has_gate && in_pin_base > 16u) {
+        in_pin_base = 16u;  /* GATE 在 GPIO19=offset3, 需要 base=16 */
+    }
+
+    /* 输入引脚 */
+    pio_gpio_init(pio, trigger_in_pin);
+    gpio_set_dir(trigger_in_pin, GPIO_IN);
+    gpio_pull_down(trigger_in_pin);
+
+    if (has_gate) {
+        for (uint p = 0u; p < 4u; p++) {
+            pio_gpio_init(pio, in_pin_base + p);
+            gpio_set_dir(in_pin_base + p, GPIO_IN);
+            gpio_pull_down(in_pin_base + p);
+        }
+    }
+
+    /* 输出引脚 */
+    for (uint pin = output_base_pin; pin < output_base_pin + output_width; pin++) {
+        pio_gpio_init(pio, pin);
+    }
+    pio_sm_set_consecutive_pindirs(pio, sm, output_base_pin, output_width, true);
+
+    pio_sm_config c = has_gate
+        ? seq_step_gated_program_get_default_config(offset)
+        : seq_step_program_get_default_config(offset);
+
+    sm_config_set_in_pins(&c, in_pin_base);
+    sm_config_set_out_pins(&c, output_base_pin, output_width);
+    sm_config_set_out_shift(&c, true, true, (uint)output_width);
+    sm_config_set_clkdiv(&c, clkdiv);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0);
+}
+
+/* ── 边沿极性交换 (ARM 时, PIO 启动前调用) ──
+   将 wait 0/1 的极性交换, 实现下降沿触发.
+   seq_step:       指令 [0]=wait 0 pin,0  [1]=wait 1 pin,0  → 交换
+   seq_step_gated: 指令 [1]=wait 0 pin,0  [2]=wait 1 pin,0  → 交换
+*/
+static inline void seq_step_swap_edge_polarity(PIO pio, uint offset, bool has_gate)
+{
+    uint swap_a = has_gate ? 1u : 0u;
+    uint swap_b = has_gate ? 2u : 1u;
+
+    uint16_t *instr = (uint16_t *)&pio->instr_mem[offset];
+    uint16_t tmp = instr[swap_a];
+    instr[swap_a] = instr[swap_b];
+    instr[swap_b] = tmp;
+}
+
+/* ── 旧兼容接口 ── */
+static inline void seq_step_program_init(PIO pio, uint sm, uint offset,
+                                          uint trigger_in_pin,
+                                          uint output_base_pin,
+                                          uint output_width, float clkdiv)
+{
+    seq_step_program_init_common(pio, sm, offset, trigger_in_pin,
+                                  output_base_pin, output_width, clkdiv, false);
+}
+
+/* ── 新版接口 ── */
+static inline void seq_step_program_init_ex(PIO pio, uint sm, uint offset,
+                                             uint trigger_in_pin,
+                                             uint output_base_pin,
+                                             uint output_width, float clkdiv,
+                                             bool has_gate, int edge)
+{
+    seq_step_program_init_common(pio, sm, offset, trigger_in_pin,
+                                  output_base_pin, output_width, clkdiv, has_gate);
+
+    if (edge == SEQ_STEP_EDGE_FALLING) {
+        seq_step_swap_edge_polarity(pio, offset, has_gate);
+    }
+}
+
+%}

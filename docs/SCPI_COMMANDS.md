@@ -62,6 +62,25 @@
 | `OUTP:CLOC:STAT OFF` | 停止同步时钟输出。 |
 | `OUTP:CLOC:STAT?` | 查询同步时钟输出状态。 |
 
+## SEQ_STEP 编码序列步进模式
+
+触发输入每个上升沿使编码输出步进到下一序列值。详细设计见 `docs/TRIGGER_SEQ_STEP_MODE.md`。
+
+| 命令 | 说明 |
+|---|---|
+| `TRIG:MODE <0\|1>` | 设置触发模式，`0=IDLE`，`1=SEQ_STEP`。 |
+| `TRIG:MODE?` | 查询当前触发模式和模式号。 |
+| `TRIG:SEQ:LENG <1..256>` | 设置编码序列长度。 |
+| `TRIG:SEQ:LENG?` | 查询序列长度。 |
+| `TRIG:SEQ:WIDT <1..8>` | 设置编码输出位宽。 |
+| `TRIG:SEQ:WIDT?` | 查询编码位宽。 |
+| `TRIG:SEQ:INDE?` | 查询当前步进索引。 |
+| `TRIG:SEQ:DATA <binary_block>` | 写入编码表（二进制块，长度=4×seq_length）。 |
+| `TRIG:SEQ:DATA?` | 回读编码表。 |
+| `TRIG:ARM` | 加载 PIO + DMA，进入 SEQ_ARMED。 |
+| `TRIG:DISA` | 停止 PIO + DMA，回到 IDLE。 |
+| `STAT:TRIG?` | 触发域摘要：模式、状态、seq_index、rollover_count、error_code。 |
+
 ## 状态查询
 
 | 命令 | 说明 |

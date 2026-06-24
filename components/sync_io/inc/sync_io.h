@@ -49,4 +49,22 @@ bool sync_io_aux_write(sync_io_aux_channel_t channel, bool level);
 bool sync_io_aux_read(sync_io_aux_channel_t channel, bool *level);
 void sync_io_get_status(sync_io_status_t *status);
 
+/* ── SEQ_STEP 编码序列步进 ── */
+
+typedef enum {
+    SYNC_IO_EDGE_RISING  = 0,
+    SYNC_IO_EDGE_FALLING = 1,
+} sync_io_edge_t;
+
+bool sync_io_seq_step_arm(const uint32_t *seq_table,
+                          uint32_t seq_length,
+                          uint32_t seq_width,
+                          uint32_t trigger_pin,
+                          sync_io_edge_t edge,
+                          bool gate_enabled);
+void sync_io_seq_step_disarm(void);
+uint32_t sync_io_seq_step_get_index(void);
+uint32_t sync_io_seq_step_get_rollover_count(void);
+bool sync_io_seq_step_is_running(void);
+
 #endif

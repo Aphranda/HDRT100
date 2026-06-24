@@ -304,6 +304,260 @@ static scpi_result_t scpi_cmd_clock_state_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* ── SEQ_STEP 模式命令 ── */
+
+static uint32_t        s_seq_table_buf[TRIG_SEQ_TABLE_MAX];
+static uint32_t        s_seq_table_len;
+static uint32_t        s_seq_table_width;
+
+static const char *scpi_trig_mode_to_string(trig_mode_t mode)
+{
+    switch (mode) {
+    case TRIG_MODE_IDLE:     return "IDLE";
+    case TRIG_MODE_SEQ_STEP: return "SEQ_STEP";
+    default:                 return "UNKNOWN";
+    }
+}
+
+static scpi_result_t scpi_cmd_trigger_mode(scpi_t *context)
+{
+    uint32_t mode;
+    if (!scpi_port_read_u32(context, &mode) ||
+        mode >= (uint32_t)TRIG_MODE_COUNT) {
+        return SCPI_RES_ERR;
+    }
+
+    if (mode == (uint32_t)TRIG_MODE_SEQ_STEP) {
+        s_seq_table_len = (s_seq_table_len > 0u) ? s_seq_table_len : 1u;
+        s_seq_table_width = (s_seq_table_width > 0u) ? s_seq_table_width : 4u;
+
+        const trig_event_t event = {
+            .type = TRIG_EVENT_CONFIGURE_SEQ,
+            .payload.seq_config = {
+                .seq_table  = s_seq_table_buf,
+                .seq_length = s_seq_table_len,
+                .seq_width  = s_seq_table_width,
+            },
+        };
+        return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+    }
+
+    /* TRIG_MODE_IDLE */
+    return SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_trigger_mode_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultText(context, scpi_trig_mode_to_string(vector.active_mode));
+    SCPI_ResultUInt32(context, (uint32_t)vector.active_mode);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_trigger_seq_length(scpi_t *context)
+{
+    uint32_t value;
+    if (!scpi_port_read_u32(context, &value) ||
+        value == 0u || value > TRIG_SEQ_TABLE_MAX) {
+        return SCPI_RES_ERR;
+    }
+    s_seq_table_len = value;
+    return scpi_port_result_ok(context);
+}
+
+static scpi_result_t scpi_cmd_trigger_seq_length_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.seq_length);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_trigger_seq_width(scpi_t *context)
+{
+    uint32_t value;
+    if (!scpi_port_read_u32(context, &value) ||
+        value == 0u || value > TRIG_SEQ_WIDTH_MAX) {
+        return SCPI_RES_ERR;
+    }
+    s_seq_table_width = value;
+    return scpi_port_result_ok(context);
+}
+
+static scpi_result_t scpi_cmd_trigger_seq_width_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.seq_output_width);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_trigger_seq_index_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.seq_index);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_trigger_seq_data(scpi_t *context)
+{
+    const char *data = NULL;
+    size_t length = 0u;
+    if (SCPI_ParamArbitraryBlock(context, &data, &length, TRUE) != TRUE) {
+        return SCPI_RES_ERR;
+    }
+
+    if (length == 0u || length > sizeof(s_seq_table_buf)) {
+        return SCPI_RES_ERR;
+    }
+
+    const size_t word_count = length / sizeof(uint32_t);
+    if (word_count == 0u || (length % sizeof(uint32_t)) != 0u) {
+        return SCPI_RES_ERR;
+    }
+
+    memcpy(s_seq_table_buf, data, length);
+    s_seq_table_len = (uint32_t)word_count;
+
+    return scpi_port_result_ok(context);
+}
+
+static scpi_result_t scpi_cmd_trigger_seq_data_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+
+    /* 逐字输出序列表 */
+    for (uint32_t i = 0u; i < vector.seq_length; i++) {
+        SCPI_ResultUInt32(context, vector.seq_table[i]);
+    }
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_trigger_arm(scpi_t *context)
+{
+    const trig_event_t event = { .type = TRIG_EVENT_ARM };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_trigger_disarm(scpi_t *context)
+{
+    const trig_event_t event = { .type = TRIG_EVENT_DISARM };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_trigger_source(scpi_t *context)
+{
+    uint32_t pin;
+    if (!scpi_port_read_u32(context, &pin)) {
+        return SCPI_RES_ERR;
+    }
+    /* 有效源: GPIO16-19, GPIO26-29 */
+    if ((pin < 16u || pin > 19u) && (pin < 26u || pin > 29u)) {
+        return SCPI_RES_ERR;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_SET_SOURCE_PIN,
+        .payload.value = pin,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_trigger_source_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.trigger_source_pin);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_trigger_edge(scpi_t *context)
+{
+    uint32_t edge;
+    if (!scpi_port_read_u32(context, &edge) || edge > 1u) {
+        return SCPI_RES_ERR;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_SET_EDGE,
+        .payload.value = edge,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_trigger_edge_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultText(context, vector.edge == TRIG_EDGE_RISING ? "RISING" : "FALLING");
+    SCPI_ResultUInt32(context, (uint32_t)vector.edge);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_trigger_gate(scpi_t *context)
+{
+    scpi_bool_t enable;
+    if (SCPI_ParamBool(context, &enable, TRUE) != TRUE) {
+        return SCPI_RES_ERR;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_SET_GATE,
+        .payload.value = enable ? 1u : 0u,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_trigger_gate_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultBool(context, vector.gate_enabled ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_trigger_safe(scpi_t *context)
+{
+    uint32_t safe;
+    if (!scpi_port_read_u32(context, &safe) || safe > 1u) {
+        return SCPI_RES_ERR;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_SET_SAFE_STATE,
+        .payload.value = safe,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_trigger_safe_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultText(context, vector.safe_state == TRIG_SAFE_ZERO ? "ZERO" : "ONE");
+    SCPI_ResultUInt32(context, (uint32_t)vector.safe_state);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_trigger_status_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+
+    SCPI_ResultText(context, scpi_trig_mode_to_string(vector.active_mode));
+    SCPI_ResultUInt32(context, (uint32_t)vector.state);
+    SCPI_ResultUInt32(context, vector.trigger_source_pin);
+    SCPI_ResultUInt32(context, vector.seq_index);
+    SCPI_ResultUInt32(context, vector.trigger_count);
+    SCPI_ResultUInt32(context, vector.output_count);
+    SCPI_ResultUInt32(context, vector.rollover_count);
+    SCPI_ResultUInt32(context, vector.error_code);
+    return SCPI_RES_OK;
+}
+
 static scpi_result_t scpi_cmd_status_q(scpi_t *context)
 {
     sync_trigger_summary_t summary;
@@ -655,6 +909,26 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "OUTPut:CLOCk:STATe", .callback = scpi_cmd_clock_state},
     {.pattern = "OUTPut:CLOCk:STATe?", .callback = scpi_cmd_clock_state_q},
     {.pattern = "STATus:SYNC?", .callback = scpi_cmd_status_q},
+    {.pattern = "TRIGger:SOURce", .callback = scpi_cmd_trigger_source},
+    {.pattern = "TRIGger:SOURce?", .callback = scpi_cmd_trigger_source_q},
+    {.pattern = "TRIGger:EDGE", .callback = scpi_cmd_trigger_edge},
+    {.pattern = "TRIGger:EDGE?", .callback = scpi_cmd_trigger_edge_q},
+    {.pattern = "TRIGger:GATE", .callback = scpi_cmd_trigger_gate},
+    {.pattern = "TRIGger:GATE?", .callback = scpi_cmd_trigger_gate_q},
+    {.pattern = "TRIGger:SAFE", .callback = scpi_cmd_trigger_safe},
+    {.pattern = "TRIGger:SAFE?", .callback = scpi_cmd_trigger_safe_q},
+    {.pattern = "TRIGger:MODE", .callback = scpi_cmd_trigger_mode},
+    {.pattern = "TRIGger:MODE?", .callback = scpi_cmd_trigger_mode_q},
+    {.pattern = "TRIGger:SEQ:LENGth", .callback = scpi_cmd_trigger_seq_length},
+    {.pattern = "TRIGger:SEQ:LENGth?", .callback = scpi_cmd_trigger_seq_length_q},
+    {.pattern = "TRIGger:SEQ:WIDTh", .callback = scpi_cmd_trigger_seq_width},
+    {.pattern = "TRIGger:SEQ:WIDTh?", .callback = scpi_cmd_trigger_seq_width_q},
+    {.pattern = "TRIGger:SEQ:INDex?", .callback = scpi_cmd_trigger_seq_index_q},
+    {.pattern = "TRIGger:SEQ:DATA", .callback = scpi_cmd_trigger_seq_data},
+    {.pattern = "TRIGger:SEQ:DATA?", .callback = scpi_cmd_trigger_seq_data_q},
+    {.pattern = "TRIGger:ARM", .callback = scpi_cmd_trigger_arm},
+    {.pattern = "TRIGger:DISarm", .callback = scpi_cmd_trigger_disarm},
+    {.pattern = "STATus:TRIGger?", .callback = scpi_cmd_trigger_status_q},
     {.pattern = "SYSTem:OTA:STATus?", .callback = scpi_cmd_ota_status_q},
     {.pattern = "SYSTem:OTA:PROGress?", .callback = scpi_cmd_ota_progress_q},
     {.pattern = "SYSTem:OTA:BEGIN", .callback = scpi_cmd_ota_begin},
