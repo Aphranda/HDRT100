@@ -93,7 +93,9 @@ bool board_init(void)
         return false;
     }
 
+#if !PROJECT_USE_FREERTOS
     drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
+#endif
 
     LOG_INFO("board", "%s v%u.%u.%u boot",
              PROJECT_NAME,
@@ -109,7 +111,9 @@ bool board_init(void)
 
 void board_service(void)
 {
+#if !PROJECT_USE_FREERTOS
     drv_watchdog_feed();
+#endif
 }
 
 void board_status_led_set(bool on)

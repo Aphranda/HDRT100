@@ -53,7 +53,7 @@ The design rules are:
 
 Future FreeRTOS support must be added as an OSAL port and task runtime for
 Active Objects. It must not replace the HAOFV boundaries or move hard real-time
-edge generation into ordinary RTOS tasks. See `docs/OTA_RTOS_PORTING_PLAN.md`.
+edge generation into ordinary RTOS tasks. See `docs/RTOS_PORTING_PLAN.md`.
 
 ## Directory Layout
 
@@ -403,7 +403,7 @@ time.
 - `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`: staged plan for hardening
   `portable_ota` first, then migrating the current project with closed-loop
   validation at each step.
-- `docs/OTA_RTOS_PORTING_PLAN.md`: HAOFV-aligned FreeRTOS migration plan and
+- `docs/RTOS_PORTING_PLAN.md`: HAOFV-aligned FreeRTOS migration plan and
   OTA RTOS adapter requirements.
 - `docs/TASK_PROGRESS.md`: task progress log for goals, completed work,
   verification results, remaining work, and next steps.

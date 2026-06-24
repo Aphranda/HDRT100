@@ -19,6 +19,10 @@
 #define PORTABLE_OTA_PORT_ENABLE_SESSION 0
 #endif
 
+#if PORTABLE_OTA_PORT_ENABLE_SESSION
+#include "resource_arbiter.h"
+#endif
+
 static const pota_compat_text_entry_t s_product_error_texts[] = {
     {OTA_ERR_BOARD_MISMATCH, "BOARD_MISMATCH"},
     {OTA_ERR_VERSION_REJECTED, "VERSION_REJECTED"},
@@ -83,22 +87,46 @@ static const pota_compat_map_entry_t s_product_error_aliases[] = {
 
 static bool portable_core_flash_erase(uint32_t offset, uint32_t size)
 {
-    return drv_flash_erase(offset, size);
+    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_FLASH)) {
+        return false;
+    }
+
+    const bool ok = drv_flash_erase(offset, size);
+    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_FLASH);
+    return ok;
 }
 
 static bool portable_core_flash_program(uint32_t offset, const void *data, uint32_t size)
 {
-    return drv_flash_program(offset, data, size);
+    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_FLASH)) {
+        return false;
+    }
+
+    const bool ok = drv_flash_program(offset, data, size);
+    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_FLASH);
+    return ok;
 }
 
 static bool portable_core_mark_pending(pota_slot_t slot, uint32_t image_size, uint32_t image_crc32)
 {
-    return ota_metadata_mark_pending((ota_slot_t)slot, image_size, image_crc32);
+    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_FLASH)) {
+        return false;
+    }
+
+    const bool ok = ota_metadata_mark_pending((ota_slot_t)slot, image_size, image_crc32);
+    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_FLASH);
+    return ok;
 }
 
 static bool portable_core_confirm_active(void)
 {
-    return ota_metadata_confirm_active();
+    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_FLASH)) {
+        return false;
+    }
+
+    const bool ok = ota_metadata_confirm_active();
+    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_FLASH);
+    return ok;
 }
 
 static bool portable_core_validate_vector(uint32_t slot_offset,

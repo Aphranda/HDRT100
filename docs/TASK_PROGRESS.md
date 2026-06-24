@@ -45,6 +45,231 @@
 
 ## 任务记录
 
+### TASK-20260624-013 - LCD 运行时看板首轮落地与 RTOS 闭环回归
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 暂停 Trigger 功能继续扩展，先把独立 `task_ui` 下的 LCD/U8G2 界面从静态占位页推进到可读的运行时状态看板。
+  - 按 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 的边界实现 UI：只读取 Trigger/OTA/Resource Arbiter/Diagnostics 的摘要快照，不直接介入业务控制。
+  - 补齐 UI 周期刷新闭环，避免 LCD 只在初始化时渲染一次而后续状态停留在首帧。
+- 完成内容：
+  - `components/sync_config_ui/src/sync_config_ui.c` 重构为三栏工业风运行时看板，分别展示：
+    - `SYSTEM`：在线/故障、运行时间、版本、仲裁模式、锁占用、Trigger 活动摘要。
+    - `TRIGGER`：初始化状态、IO 状态、采集/时钟运行态、同步输出使能、三类脉宽、丢词计数。
+    - `OTA`：状态、进度、收包体量、目标槽位、结果、错误、上次 Boot 结果、序列号和最近事件。
+  - UI 渲染内部新增轻量格式化逻辑，把 Hz、us、进度、资源锁和 build id 压缩成适合 240x135 LCD 的短文本。
+  - `application/src/app.c` 为 `app_ui_service()` 增加 `250 ms` 周期脏标记刷新机制，保持 `task_ui` 独立运行且在资源忙时自动重试。
+- 验证结果：
+  - `cmake --build --preset pico2-rtos-smoke` 通过。
+  - 新一轮 RTOS smoke 产物生成成功：
+    - build id：`20260624122046`
+    - package size：`181572`
+    - package CRC32：`0xC7BAF75D`
+  - 已烧录 `build-rtos-smoke/RP2350_TRIG_FACTORY.uf2` 到 `COM4`，随后执行：
+    - `python tools\ota_board_validate\ota_board_validate.py COM4 build-rtos-smoke --skip-release-check --out-dir build-rtos-smoke\ota_validation_rtos_smoke_8`
+  - 板端闭环通过：
+    - factory flash、baseline query、positive OTA、boot commit、负向矩阵、final safe state 全部 PASS
+    - baseline：`SYST:FW:BUILD? -> "20260624122046"`，`SYST:OTA:STAT? -> "IDLE",2,"NONE",0`
+    - final safe state：`SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`，`SYST:OTA:RES? -> 4,"IMAGE_TOO_LARGE","APPLIED",1,90420,1898005837`
+    - validation 输出目录：`build-rtos-smoke/ota_validation_rtos_smoke_8`
+- 还需完成：
+  - 为 LCD 看板补入真实页面/菜单模型和按键事件入口，把当前 dashboard 演进成正式 `UiAO/UiFB` 页面表。
+  - 后续将通讯、触发和本地输入事件进一步统一成“只投递 UI/Domain event”的收口方式。
+  - 如需对 LCD 视觉细节继续打磨，建议下一步引入页面状态枚举、焦点/光标、高亮区域和可操作项定义。
+- 关联文件：
+  - `application/src/app.c`
+  - `components/sync_config_ui/src/sync_config_ui.c`
+  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+- 下一步：
+  - 继续把 LCD 从“运行时总览”推进到“总览 + 菜单/配置页”双层结构，并给未来独立通讯任务、触发任务和本地按键输入预留 UI 事件槽位。
+
+### TASK-20260624-012 - Trigger SCPI 事件收口与双路径验证
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 把 Trigger 相关 SCPI 控制命令从直接调用 `sync_io` 收口到 `sync_trigger` 事件接口，形成 `SCPI -> task_io_frontend -> sync_trigger_post_event() -> task_trigger -> sync_io` 的最小 HAOFV 控制链。
+  - 在保持 RTOS OTA 闭环稳定的同时，补做 Trigger SCPI 真机 smoke，并确认共享代码没有破坏 baremetal release 路径。
+- 完成内容：
+  - `components/sync_trigger/` 新增轻量事件模型和本地环形队列，支持 `RESET`、宽度设置、采样启停、时钟启停和三类立即触发命令的事件投递。
+  - `components/sync_trigger/src/sync_trigger.c` 增加配置快照、事件消费和 `sync_io` 执行逻辑；查询命令改为读取 `sync_trigger_summary_t` 快照，而非直接访问底层 `sync_io`。
+  - `middleware/scpi_port/src/scpi_port.c` 中 `TRIGger:* / PULSe:* / MARKer:* / SAMPle:* / OUTPut:CLOCk:* / STATus:SYNC?` 全部切换到 `sync_trigger` 事件/快照路径，SCPI 不再直接驱动 `sync_io`。
+  - `osal/port/baremetal/osal_baremetal.c` 将临界区实现升级为可嵌套的 `save_and_disable_interrupts()/restore_interrupts()` 版本，顺手修复干净 baremetal gate 下暴露的旧问题。
+- 验证结果：
+  - `cmake --build --preset pico2-rtos-smoke` 通过。
+  - 新一轮 RTOS smoke 产物生成成功：
+    - build id：`20260624115850`
+    - package size：`177228`
+    - package CRC32：`0x9A3EDD8D`
+  - `python tools\ota_board_validate\ota_board_validate.py COM4 build-rtos-smoke --skip-release-check --out-dir build-rtos-smoke\ota_validation_rtos_smoke_7` 通过：
+    - factory flash、baseline query、positive OTA、boot commit、8 个负向 OTA 用例和 final safe state 全部 PASS
+    - validation 输出目录：`build-rtos-smoke/ota_validation_rtos_smoke_7`
+  - 板端 Trigger SCPI smoke 通过，输出文件：`build-rtos-smoke/trigger_validation_rtos_smoke_1.json`
+    - `TRIGger:WIDTh? -> 25`
+    - `PULSe:WIDTh? -> 40`
+    - `MARKer:WIDTh? -> 55`
+    - `SAMPle:RATE? -> 2000000`，`SAMPle:STATe? -> 1`
+    - `OUTPut:CLOCk:FREQuency? -> 123456`，`OUTPut:CLOCk:STATe?` 启停均正常
+    - `TRIGger:IMMediate / PULSe:IMMediate / MARKer:IMMediate` 发送后系统状态保持正常
+  - 新建干净 baremetal gate 并通过：
+    - `cmake -S . -B build-baremetal-trigger-gate -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF -DPROJECT_USE_FREERTOS=OFF`
+    - `cmake --build build-baremetal-trigger-gate`
+    - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-baremetal-trigger-gate`
+    - baremetal build id：`20260624120417`
+    - package size：`156824`
+    - package CRC32：`0xE7841C0B`
+- 还需完成：
+  - 继续把 `sync_trigger` 从“命令转发 AO”推进到正式 TriggerAO/TriggerFB，加入触发状态、统计、门控和故障模型。
+  - 引入 `system_vector / system_manager`，让 Trigger/OTA/UI/资源仲裁的快照与模式控制进入统一系统主线。
+  - 后续把 U8G2 配置页绑定到真实的 `sync_trigger` 参数和状态快照。
+- 关联文件：
+  - `components/sync_trigger/inc/sync_trigger.h`
+  - `components/sync_trigger/src/sync_trigger.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `osal/port/baremetal/osal_baremetal.c`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SYNC_TRIGGER_TODO.md`
+- 下一步：
+  - 进入 TriggerAO/TriggerFB 的第一轮正式建模，先补 `IDLE / ARMED / TRIGGERED / BUSY / FAULT` 状态和基础统计，再让 UI 与 SCPI 都只面对 Trigger 域快照。
+
+### TASK-20260624-011 - RTOS Step 4/8 最小资源仲裁落地与 Trigger 任务预留
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 按 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 和 `docs/RTOS_PORTING_PLAN.md` 继续把 RTOS 骨架往工业化任务结构推进：先落最小 `resource_arbiter`，再预留独立 `task_trigger` 容器，同时保持当前 OTA 闭环稳定可回归。
+  - 在不触碰 PIO/DMA/IRQ 硬实时旁路的前提下，把 Trigger 控制面从“未来规划”推进到“已有独立任务骨架”，并把 LCD/SPI 与 OTA/Flash 的共享资源边界显式化。
+- 完成内容：
+  - 新增 `components/resource_arbiter/`，定义 `FLASH / SPI0 / LCD / SD / USB / PIO / DMA` 资源位、最小模式快照和资源申请/释放接口。
+  - `components/ota_manager/src/ota_fb.c` 将 OTA 开始前的 Trigger 冲突检查收口到 `resource_arbiter`，不再只在 OTA 功能块内做临时判断。
+  - `middleware/portable_ota_port/src/portable_ota_core_port.c` 在 app 侧 OTA session 路径中为 `flash_erase`、`flash_program`、`mark_pending` 和 `confirm_active` 增加 `FLASH` 资源申请与释放。
+  - `components/sync_config_ui/src/sync_config_ui.c` 在 LCD flush 路径增加 `SPI0 + LCD` 资源申请与释放；若当前资源不可用，UI task 保持 dirty，不丢弃本轮渲染请求。
+  - 新增 `components/sync_trigger/`，以轻量 `TriggerAO` 预留骨架封装 `sync_io` 运行态摘要，并周期性向 `resource_arbiter` 发布 capture/clock 活动态。
+  - `application/src/main.c` 新增独立 `task_trigger`，优先级按 RTOS 规划预留；`task_io_frontend / task_trigger / task_ota / task_ui` 在 `app_is_ready()` 前统一等待，避免多任务启动顺序依赖。
+  - `application/src/app.c` 新增 `app_trigger_service()` 和 `app_is_ready()`，并把 baremetal 主循环同步补齐 `trigger` service。
+- 验证结果：
+  - `cmake --build --preset pico2-rtos-smoke` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-rtos-step1` 通过，确认当前正式 release 路径仍保持 baremetal。
+  - 新一轮 RTOS smoke 产物生成成功：
+    - build id：`20260624115016`
+    - package size：`175516`
+    - package CRC32：`0xF3C9455F`
+  - `python tools\ota_board_validate\ota_board_validate.py COM4 build-rtos-smoke --skip-release-check --out-dir build-rtos-smoke\ota_validation_rtos_smoke_6` 通过：
+    - factory flash、baseline query、positive OTA、boot commit、8 个负向 OTA 用例和 final safe state 全部 PASS
+    - validation 输出目录：`build-rtos-smoke/ota_validation_rtos_smoke_6`
+- 还需完成：
+  - 继续把当前 `sync_trigger` 从运行态摘要骨架推进为正式 TriggerAO/TriggerFB，逐步把 SCPI 入口从直调 `sync_io` 收口到触发事件投递。
+  - 将 `resource_arbiter` 继续扩展到 `SD / USB / diagnostics` 等共享路径，并补齐后续 `task_storage` 所需的 `SPI0 + SD` 串行化。
+  - 进入下一阶段的系统级收口：引入 `system_vector / system_manager`，把模式切换、资源快照和域摘要发布从临时组件推进到正式 HAOFV 主干。
+- 关联文件：
+  - `application/src/app.c`
+  - `application/src/main.c`
+  - `components/resource_arbiter/inc/resource_arbiter.h`
+  - `components/resource_arbiter/src/resource_arbiter.c`
+  - `components/sync_trigger/inc/sync_trigger.h`
+  - `components/sync_trigger/src/sync_trigger.c`
+  - `components/sync_config_ui/src/sync_config_ui.c`
+  - `components/ota_manager/src/ota_fb.c`
+  - `middleware/portable_ota_port/src/portable_ota_core_port.c`
+  - `docs/RTOS_PORTING_PLAN.md`
+- 下一步：
+  - 优先把 Trigger 相关 SCPI 控制收口到 `sync_trigger` 事件接口，再开始引入 `system_vector / system_manager`，让 `resource_arbiter` 不只是一个资源锁组件，而是正式进入 HAOFV 的系统控制主线。
+
+### TASK-20260624-010 - RTOS Step 3 事件总线最小收口与闭环验证
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 按 `docs/RTOS_PORTING_PLAN.md` 的 Step 3，在保持当前 RTOS smoke 多任务骨架可回归的前提下，引入正式事件投递边界，把 OTA 事件入口从 AO 内部私有环形队列收口到独立 `event_bus` 组件。
+  - 按 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 继续对齐 HAOFV：外部入口只投递事件，不直接修改域状态；同时保留 `task_ui` 独立任务，为后续 U8G2/LCD 独立演进预留容器。
+- 完成内容：
+  - 新增 `components/event_bus/`，提供 `event_bus_init()`、`event_bus_post_ota_event()` 和 `event_bus_try_recv_ota_event()`，以最小 OTA 专用 mailbox 形式收口当前事件总线。
+  - `components/event_bus/src/event_bus.c` 使用固定长度环形缓冲区，并通过 `osal_critical_enter/exit()` 保护投递与消费路径；`OTA_EVENT_DATA_BLOCK` 在总线侧复制 payload，避免直接依赖外部缓冲区生命周期。
+  - `application/src/app.c` 在 `app_init()` 中先初始化 `event_bus`，再初始化 `ota_ao`，初始化失败时纳入 diagnostics fault。
+  - `components/ota_manager/src/ota_ao.c` 改为通过 `event_bus` 接收和消费 OTA 事件，外部入口不再触碰 AO 内部私有队列。
+  - `application/src/main.c` 中的通讯入口任务正式更名为 `task_io_frontend`，与 HAOFV 中“输入前端只解析意图、只投递事件”的职责命名保持一致。
+  - `CMakeLists.txt` 接入 `components/event_bus/src/event_bus.c` 和对应头文件目录，纳入 RTOS smoke 构建。
+- 验证结果：
+  - `cmake --build --preset pico2-rtos-smoke` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-rtos-step1` 通过，确认当前 release 路径仍保持 baremetal。
+  - 新一轮 RTOS smoke 产物生成成功：
+    - build id：`20260624043003`
+    - package size：`173564`
+    - package CRC32：`0xB9D7C9A6`
+  - `python tools\ota_board_validate\ota_board_validate.py COM4 build-rtos-smoke --skip-release-check --out-dir build-rtos-smoke\ota_validation_rtos_smoke_5` 通过：
+    - factory flash、baseline query、positive OTA、boot commit、8 个负向 OTA 用例和 final safe state 全部 PASS
+    - validation 输出目录：`build-rtos-smoke/ota_validation_rtos_smoke_5`
+- 还需完成：
+  - 将当前 OTA 专用 `event_bus` 继续演进为更正式的 AO mailbox / event bus 抽象，为 `task_trigger`、`task_ui` 和后续通讯任务复用预留统一接口。
+  - 进入 Step 4，开始落地 `Resource Arbiter` 的 RTOS 实现，优先覆盖 `FLASH`、`SPI0`、`LCD`、`SD` 等共享资源，为 LCD/U8G2 独立任务和后续 SD/通讯扩展打基础。
+  - 按当前任务预留继续拆出 `task_trigger`，保持触发控制面与 PIO/DMA/IRQ 硬实时旁路的清晰边界。
+- 关联文件：
+  - `application/src/main.c`
+  - `application/src/app.c`
+  - `components/event_bus/inc/event_bus.h`
+  - `components/event_bus/src/event_bus.c`
+  - `components/ota_manager/src/ota_ao.c`
+  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/RTOS_PORTING_PLAN.md`
+- 下一步：
+  - 继续 `docs/RTOS_PORTING_PLAN.md` 的 Step 4/Step 8，优先补齐 RTOS 版资源仲裁与 `task_trigger` 预留骨架，再把通讯、UI、触发三类输入都统一纳入“只投递事件”的结构。
+
+### TASK-20260624-009 - FreeRTOS Step 1 工程入口与 OSAL 骨架
+
+- 状态：完成
+- 日期：2026-06-24
+- 任务目标：
+  - 按 `docs/RTOS_PORTING_PLAN.md` 的 Step 1/Step 2，在不改变当前裸机 release 行为的前提下，引入 FreeRTOS 构建开关、OSAL FreeRTOS port 骨架和最小单任务入口，并完成板端闭环验证。
+  - 保持 HAOFV 边界：FreeRTOS 只作为 Active Object 运行容器和同步原语来源，不让业务层直接依赖 FreeRTOS API。
+- 完成内容：
+  - `CMakeLists.txt` 新增 `PROJECT_USE_FREERTOS` 和 `PROJECT_FREERTOS_KERNEL_DIR`，默认 `OFF`；release 路径继续使用 `osal/port/baremetal/osal_baremetal.c`。
+  - `PROJECT_USE_FREERTOS=ON` 时切换到 `osal/port/freertos/osal_freertos.c`，并要求 `third_party/freertos/FreeRTOS-Kernel` 存在，否则 CMake 明确报错。
+  - `CMakePresets.json` 显式让 release、validation、debug-uart 保持 `PROJECT_USE_FREERTOS=OFF`，并新增 `pico2-rtos-smoke` 作为后续 RTOS 最小编译入口。
+  - `osal/inc/osal.h` 扩展 kernel/task/delay/tick 最小接口；baremetal port 提供兼容实现。
+  - 新增 `osal/port/freertos/osal_freertos.c`，封装 `xTaskCreate()`、`vTaskStartScheduler()`、`vTaskDelay()` 和 tick 查询。
+  - `osal_freertos.c` 在 scheduler 启动前让 delay/tick 退回 Pico SDK 时间源，并补充 malloc failed、stack overflow 和 assert hook。
+  - 新增 `config/freertos/FreeRTOSConfig.h` 最小配置，显式补齐 RP2350 Armv8-M port 需要的 `configRUN_FREERTOS_SECURE_ONLY`、`configNUMBER_OF_CORES`、`configSUPPORT_PICO_SYNC_INTEROP` 和 `configSUPPORT_PICO_TIME_INTEROP`。
+  - 拉取 `third_party/freertos/FreeRTOS-Kernel` 及 RP2350 community port 子模块，并切换到 Pico SDK 官方 `FreeRTOS_Kernel_import.cmake` 导入方式。
+  - `application/src/main.c` 增加 `PROJECT_USE_FREERTOS` 条件路径：RTOS 模式创建 `task_system`，并把 `app_bringup()` 放入任务上下文执行；system task 栈提升到 `2048` words；裸机路径保持原有循环。
+  - 按 HAOFV 任务预留方向，把 RTOS smoke 骨架进一步拆分为 `task_system`、`task_comm`、`task_ota` 和 `task_ui`，避免把后续通讯、OTA、LCD/U8G2 逻辑继续塞回单一 system task。
+  - `application/src/app.c` 拆分 `app_comm_service()`、`app_ota_service()`、`app_ui_service()` 和 `app_diag_service()`，让业务服务面与任务容器边界一一对应。
+  - `components/ota_manager/src/ota_ao.c` 为内部事件环形队列补充 `osal_critical_enter/exit()` 保护，允许 `task_comm` 投递 OTA 事件、`task_ota` 独立消费。
+  - `boards/rp2350_trig/src/board.c` 在 RTOS smoke 下临时关闭硬件 watchdog enable/feed，避免早期 RTOS 故障被反复复位掩盖。
+  - `tools/release_check/release_check.py` 增加检查：当前 `pico2-release` 必须保持 `PROJECT_USE_FREERTOS=OFF`，直到 RTOS release 等价验证完成。
+  - 修正 `README.md` 中 RTOS 方案文件名引用为 `docs/RTOS_PORTING_PLAN.md`。
+- 验证结果：
+  - `cmake -S . -B build-rtos-step1 -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF -DPROJECT_USE_FREERTOS=OFF` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-rtos-step1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `cmake --preset pico2-rtos-smoke` 与 `cmake --build --preset pico2-rtos-smoke` 通过，生成 RTOS smoke 产物：
+    - build id：`20260624040656`
+    - package size：`173468`
+    - package CRC32：`0xB126D849`
+  - `python tools\ota_board_validate\ota_board_validate.py COM4 build-rtos-smoke --skip-release-check --out-dir build-rtos-smoke\ota_validation_rtos_smoke_3` 通过：
+    - factory flash、baseline query、positive OTA、boot commit、8 个负向 OTA 用例和 final safe state 全部 PASS
+    - validation 输出目录：`build-rtos-smoke/ota_validation_rtos_smoke_3`
+  - 任务骨架拆分后复测 `python tools\ota_board_validate\ota_board_validate.py COM4 build-rtos-smoke --skip-release-check --out-dir build-rtos-smoke\ota_validation_rtos_smoke_4` 继续通过：
+    - `task_comm + task_ota + task_ui + task_system` 组合下，factory flash、baseline query、positive OTA、boot commit、8 个负向 OTA 用例和 final safe state 全部 PASS
+    - validation 输出目录：`build-rtos-smoke/ota_validation_rtos_smoke_4`
+- 还需完成：
+  - 进入 Step 3 的下一阶段：把当前按任务拆开的 service 骨架进一步收口为正式 RTOS event bus / mailbox，并把 `task_comm` 演进为 `task_io_frontend`。
+  - 按架构预留继续拆出独立 `task_trigger`，让触发控制面与硬实时 PIO/DMA/IRQ 旁路形成正式边界。
+  - 在 RTOS release 等价验证完成前，继续保持 `pico2-release` 默认为 baremetal。
+- 关联文件：
+  - `CMakeLists.txt`
+  - `CMakePresets.json`
+  - `application/src/main.c`
+  - `osal/inc/osal.h`
+  - `osal/port/baremetal/osal_baremetal.c`
+  - `osal/port/freertos/osal_freertos.c`
+  - `config/freertos/FreeRTOSConfig.h`
+  - `tools/release_check/release_check.py`
+  - `README.md`
+  - `third_party/freertos/FreeRTOS-Kernel/`
+- 下一步：
+  - 进入 `docs/RTOS_PORTING_PLAN.md` 的 Step 3：保持当前 `system / comm / ota / ui` 多任务 smoke 可回归的前提下，引入正式 RTOS 版 event bus / mailbox，并把通讯入口演进为 `task_io_frontend`。
+
 ### TASK-20260624-008 - README 顶层架构入口优化
 
 - 状态：完成

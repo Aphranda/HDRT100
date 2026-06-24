@@ -92,6 +92,7 @@ FreeRTOS 只进入 App 固件。
 | `task_trigger` | `TriggerAO` | 触发域配置、状态机、安全检查，硬实时仍在 PIO/DMA |
 | `task_ota` | `OtaAO` | OTA 事件、portable OTA core、metadata、flash job |
 | `task_io_frontend` | SCPI/UI 输入入口 | 解析外部意图，只投递事件，不直接改状态 |
+| `task_ui` | `UiAO` | LCD/U8G2 页面渲染、按键/UI 事件汇聚、SPI 显示访问 |
 | `task_storage` | `StorageAO` | SD/FatFs、离线升级文件读取 |
 | `task_diag` | `DiagnosticsAO` | 健康状态、错误码、运行统计 |
 
@@ -103,6 +104,7 @@ FreeRTOS 只进入 App 固件。
 | `task_system` | 4 | 资源仲裁、模式切换、系统向量发布 |
 | `task_ota` | 3 | Flash 写入分步执行，受系统模式限制 |
 | `task_io_frontend` | 3 | SCPI/UI 输入，禁止长阻塞 |
+| `task_ui` | 2 | 显示刷新与本地 UI 状态汇总，受 `SPI0/LCD` 互锁约束 |
 | `task_storage` | 2 | SD 文件访问，可阻塞但必须有超时 |
 | `task_diag` | 1 | 低频诊断 |
 | idle | 0 | 空闲、低功耗、后台统计 |
@@ -330,6 +332,7 @@ log(level, message)
 
 - baremetal release 构建和 OTA 一键验证仍通过。
 - FreeRTOS 最小 target 可编译。
+- RP2350 板端可以完成 RTOS smoke factory flash、SCPI baseline、正向 OTA、boot commit 和负向矩阵验证。
 
 ### Step 2 - 单任务运行当前 App
 
@@ -352,6 +355,11 @@ while (1) {
 }
 ```
 
+实现经验：
+
+- RP2350 FreeRTOS smoke 的 `app_bringup()` 更稳妥的做法是放入 `task_system` 内执行，而不是在 `main()` 中先完成全部 bring-up 再启动 scheduler。
+- 在早期 RTOS 板端调试阶段，建议临时关闭 board watchdog enable/feed，并在 `configASSERT`、malloc failed、stack overflow hook 中保留可观测故障态；待任务拆分稳定后再恢复正式 watchdog 策略。
+
 验证：
 
 - LCD 正常。
@@ -361,17 +369,18 @@ while (1) {
 ### Step 3 - RTOS 版 Event Bus
 
 - 当前事件 API 不变。
-- 底层切换为 FreeRTOS queue。
+- 先以独立 `event_bus` / mailbox 组件收口各 AO 的事件入口，再逐步切换到底层 FreeRTOS queue。
 - ISR 事件使用 FromISR 或 OSAL ISR 包装。
 
 验证：
 
 - SCPI/UI 只投递事件，不直接改状态。
 - OTA begin/data/end/boot/comm 语义不变。
+- RTOS smoke 一键 OTA 闭环继续通过。
 
 ### Step 4 - RTOS 版 Resource Arbiter
 
-- 底层实现 mutex/event group。
+- 先以轻量 `resource_arbiter` 组件落地共享资源位和最小申请/释放接口，再逐步演进到底层 mutex/event group。
 - 对外资源申请 API 不变。
 - 先覆盖 `FLASH`、`SPI0`、`USB`、`LCD`、`SD`。
 
@@ -379,17 +388,19 @@ while (1) {
 
 - LCD 刷新和 SD 访问互斥。
 - OTA 期间拒绝 Trigger 运行态冲突操作。
+- RTOS smoke 一键 OTA 闭环继续通过。
 
 ### Step 5 - 拆出 `task_io_frontend`
 
 - SCPI 解析独立运行。
 - 查询类命令读 Vector snapshot。
-- 控制类命令投递事件。
+- 控制类命令投递事件；当前 Trigger SCPI 已切到 `sync_trigger` 事件接口。
 
 验证：
 
 - SCPI 响应稳定。
 - OTA 指令语义不变。
+- Trigger SCPI 配置/启停/立即触发真机 smoke 通过。
 
 ### Step 6 - 拆出 `task_ota`
 
@@ -407,7 +418,7 @@ while (1) {
 
 ### Step 7 - 拆出 UI 和 Storage
 
-- `task_ui` 或 `task_io_frontend` 初期合并运行 LCD/按键。
+- `task_ui` 独立运行 LCD/U8G2 渲染和按键/UI 事件聚合，不再与 `task_io_frontend` 合并。
 - `task_storage` 管理 SD/FatFs 和离线 OTA 文件读取。
 - `LCD` 与 `SD` 通过 `SPI0` 互锁。
 
@@ -418,7 +429,7 @@ while (1) {
 
 ### Step 8 - 拆出 `task_trigger`
 
-- 只迁移触发控制面。
+- 先以独立 `task_trigger` 运行 `sync_trigger` 运行态摘要和仲裁发布骨架，再逐步迁移完整触发控制面。
 - PIO/DMA/IRQ 继续硬实时执行。
 - IRQ 通过 queue/notification 上报事件。
 

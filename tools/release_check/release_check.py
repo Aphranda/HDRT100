@@ -69,6 +69,12 @@ def check_preset(root: Path, preset_name: str, failures: list[str]) -> None:
     else:
         ok(f"{preset_name} disables UART stdio")
 
+    use_freertos = str(cache_variables.get("PROJECT_USE_FREERTOS", "")).upper()
+    if use_freertos != "OFF":
+        fail(f"{preset_name} must set PROJECT_USE_FREERTOS=OFF until RTOS release equivalence is validated", failures)
+    else:
+        ok(f"{preset_name} keeps FreeRTOS disabled")
+
 
 def find_project_config_define(config_text: str, name: str) -> str | None:
     pattern = re.compile(rf"^\s*#define\s+{re.escape(name)}\s+(.+?)\s*$", re.MULTILINE)

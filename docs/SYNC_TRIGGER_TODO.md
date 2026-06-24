@@ -15,7 +15,7 @@
 
 ## P0 - 核心触发行为
 
-- [ ] 新增 `components/sync_trigger/`，作为 `components/sync_io/` 上层的触发业务控制组件。
+- [x] 新增 `components/sync_trigger/`，作为 `components/sync_io/` 上层的触发业务控制组件。
 - [ ] 定义触发状态：`IDLE`、`ARMED`、`TRIGGERED`、`BUSY`、`FAULT`。
 - [ ] 定义触发配置结构体：模式、边沿、极性、延时、脉宽、重复次数、burst 间隔。
 - [ ] 实现软件 ARM/DISARM 接口。

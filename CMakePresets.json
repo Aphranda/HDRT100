@@ -12,7 +12,8 @@
         "PROJECT_ENABLE_USB_STDIO": "ON",
         "PROJECT_ENABLE_UART_STDIO": "OFF",
         "PROJECT_WARNINGS_AS_ERRORS": "ON",
-        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF"
+        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
+        "PROJECT_USE_FREERTOS": "OFF"
       }
     },
     {
@@ -26,7 +27,8 @@
         "PROJECT_ENABLE_USB_STDIO": "ON",
         "PROJECT_ENABLE_UART_STDIO": "OFF",
         "PROJECT_WARNINGS_AS_ERRORS": "ON",
-        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "ON"
+        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "ON",
+        "PROJECT_USE_FREERTOS": "OFF"
       }
     },
     {
@@ -40,7 +42,23 @@
         "PROJECT_ENABLE_USB_STDIO": "ON",
         "PROJECT_ENABLE_UART_STDIO": "ON",
         "PROJECT_WARNINGS_AS_ERRORS": "ON",
-        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "ON"
+        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "ON",
+        "PROJECT_USE_FREERTOS": "OFF"
+      }
+    },
+    {
+      "name": "pico2-rtos-smoke",
+      "displayName": "Pico 2 FreeRTOS Smoke",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-rtos-smoke",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PICO_BOARD": "pico2",
+        "PROJECT_ENABLE_USB_STDIO": "ON",
+        "PROJECT_ENABLE_UART_STDIO": "OFF",
+        "PROJECT_WARNINGS_AS_ERRORS": "ON",
+        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
+        "PROJECT_USE_FREERTOS": "ON"
       }
     }
   ],
@@ -56,6 +74,10 @@
     {
       "name": "pico2-debug-uart",
       "configurePreset": "pico2-debug-uart"
+    },
+    {
+      "name": "pico2-rtos-smoke",
+      "configurePreset": "pico2-rtos-smoke"
     }
   ]
 }

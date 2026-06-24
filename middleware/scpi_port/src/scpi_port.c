@@ -10,7 +10,7 @@
 #include "pico/stdio.h"
 #include "project_config.h"
 #include "scpi/scpi.h"
-#include "sync_io.h"
+#include "sync_trigger.h"
 
 #define SCPI_PORT_INPUT_BUFFER_LENGTH 768u
 #define SCPI_PORT_ERROR_QUEUE_SIZE    16
@@ -22,15 +22,6 @@
 static scpi_t s_scpi_context;
 static char s_scpi_input_buffer[SCPI_PORT_INPUT_BUFFER_LENGTH];
 static scpi_error_t s_scpi_error_queue[SCPI_PORT_ERROR_QUEUE_SIZE];
-
-static scpi_port_config_t s_scpi_config = {
-    .trigger_width_us = 10u,
-    .pulse_width_us = 10u,
-    .marker_width_us = 10u,
-    .capture_sample_hz = 1000000u,
-    .sync_clock_hz = 1000000u,
-    .sync_clock_enabled = false,
-};
 
 static size_t scpi_port_write(scpi_t *context, const char *data, size_t len)
 {
@@ -66,16 +57,11 @@ static scpi_result_t scpi_port_control(scpi_t *context, scpi_ctrl_name_t ctrl, s
 static scpi_result_t scpi_port_reset(scpi_t *context)
 {
     (void)context;
-    s_scpi_config.trigger_width_us = 10u;
-    s_scpi_config.pulse_width_us = 10u;
-    s_scpi_config.marker_width_us = 10u;
-    s_scpi_config.capture_sample_hz = 1000000u;
-    s_scpi_config.sync_clock_hz = 1000000u;
-    s_scpi_config.sync_clock_enabled = false;
+    const sync_trigger_event_t event = {
+        .type = SYNC_TRIGGER_EVENT_RESET,
+    };
 
-    sync_io_stop_clock();
-    sync_io_stop_capture();
-    return SCPI_RES_OK;
+    return sync_trigger_post_event(&event) ? SCPI_RES_OK : SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_core_tst_q(scpi_t *context)
@@ -93,6 +79,21 @@ static scpi_result_t scpi_port_result_ok(scpi_t *context)
 {
     SCPI_ResultText(context, "OK");
     return SCPI_RES_OK;
+}
+
+static void scpi_port_get_trigger_summary(sync_trigger_summary_t *summary)
+{
+    sync_trigger_get_summary(summary);
+}
+
+static bool scpi_port_post_trigger_event(sync_trigger_event_type_t type, uint32_t value)
+{
+    const sync_trigger_event_t event = {
+        .type = type,
+        .value = value,
+    };
+
+    return sync_trigger_post_event(&event);
 }
 
 static scpi_result_t scpi_cmd_firmware_version_q(scpi_t *context)
@@ -144,20 +145,25 @@ static scpi_result_t scpi_cmd_trigger_width(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    s_scpi_config.trigger_width_us = value;
-    return SCPI_RES_OK;
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_SET_TRIGGER_WIDTH, value) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_trigger_width_q(scpi_t *context)
 {
-    SCPI_ResultUInt32(context, s_scpi_config.trigger_width_us);
+    sync_trigger_summary_t summary;
+    scpi_port_get_trigger_summary(&summary);
+    SCPI_ResultUInt32(context, summary.trigger_width_us);
     return SCPI_RES_OK;
 }
 
 static scpi_result_t scpi_cmd_trigger_fire(scpi_t *context)
 {
     (void)context;
-    return sync_io_fire_pulse_us(s_scpi_config.trigger_width_us) ? SCPI_RES_OK : SCPI_RES_ERR;
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_FIRE_TRIGGER, 0u) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_pulse_width(scpi_t *context)
@@ -167,20 +173,25 @@ static scpi_result_t scpi_cmd_pulse_width(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    s_scpi_config.pulse_width_us = value;
-    return SCPI_RES_OK;
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_SET_PULSE_WIDTH, value) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_pulse_width_q(scpi_t *context)
 {
-    SCPI_ResultUInt32(context, s_scpi_config.pulse_width_us);
+    sync_trigger_summary_t summary;
+    scpi_port_get_trigger_summary(&summary);
+    SCPI_ResultUInt32(context, summary.pulse_width_us);
     return SCPI_RES_OK;
 }
 
 static scpi_result_t scpi_cmd_pulse_fire(scpi_t *context)
 {
     (void)context;
-    return sync_io_fire_pulse_out_us(s_scpi_config.pulse_width_us) ? SCPI_RES_OK : SCPI_RES_ERR;
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_FIRE_PULSE, 0u) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_marker_width(scpi_t *context)
@@ -190,20 +201,25 @@ static scpi_result_t scpi_cmd_marker_width(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    s_scpi_config.marker_width_us = value;
-    return SCPI_RES_OK;
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_SET_MARKER_WIDTH, value) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_marker_width_q(scpi_t *context)
 {
-    SCPI_ResultUInt32(context, s_scpi_config.marker_width_us);
+    sync_trigger_summary_t summary;
+    scpi_port_get_trigger_summary(&summary);
+    SCPI_ResultUInt32(context, summary.marker_width_us);
     return SCPI_RES_OK;
 }
 
 static scpi_result_t scpi_cmd_marker_fire(scpi_t *context)
 {
     (void)context;
-    return sync_io_fire_marker_us(s_scpi_config.marker_width_us) ? SCPI_RES_OK : SCPI_RES_ERR;
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_FIRE_MARKER, 0u) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_sample_rate(scpi_t *context)
@@ -213,13 +229,16 @@ static scpi_result_t scpi_cmd_sample_rate(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    s_scpi_config.capture_sample_hz = value;
-    return sync_io_start_capture(value) ? SCPI_RES_OK : SCPI_RES_ERR;
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_SET_SAMPLE_RATE, value) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_sample_rate_q(scpi_t *context)
 {
-    SCPI_ResultUInt32(context, s_scpi_config.capture_sample_hz);
+    sync_trigger_summary_t summary;
+    scpi_port_get_trigger_summary(&summary);
+    SCPI_ResultUInt32(context, summary.capture_sample_hz);
     return SCPI_RES_OK;
 }
 
@@ -230,19 +249,17 @@ static scpi_result_t scpi_cmd_sample_state(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    if (state) {
-        return sync_io_start_capture(s_scpi_config.capture_sample_hz) ? SCPI_RES_OK : SCPI_RES_ERR;
-    }
-
-    sync_io_stop_capture();
-    return SCPI_RES_OK;
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_SET_SAMPLE_STATE,
+                                        state ? 1u : 0u) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_sample_state_q(scpi_t *context)
 {
-    sync_io_status_t status;
-    sync_io_get_status(&status);
-    SCPI_ResultBool(context, status.capture_running ? TRUE : FALSE);
+    sync_trigger_summary_t summary;
+    scpi_port_get_trigger_summary(&summary);
+    SCPI_ResultBool(context, summary.capture_running ? TRUE : FALSE);
     return SCPI_RES_OK;
 }
 
@@ -253,17 +270,16 @@ static scpi_result_t scpi_cmd_clock_freq(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    s_scpi_config.sync_clock_hz = value;
-    if (s_scpi_config.sync_clock_enabled) {
-        return sync_io_start_clock(value) ? SCPI_RES_OK : SCPI_RES_ERR;
-    }
-
-    return SCPI_RES_OK;
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_SET_CLOCK_FREQ, value) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_clock_freq_q(scpi_t *context)
 {
-    SCPI_ResultUInt32(context, s_scpi_config.sync_clock_hz);
+    sync_trigger_summary_t summary;
+    scpi_port_get_trigger_summary(&summary);
+    SCPI_ResultUInt32(context, summary.sync_clock_hz);
     return SCPI_RES_OK;
 }
 
@@ -274,37 +290,30 @@ static scpi_result_t scpi_cmd_clock_state(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    if (state) {
-        if (!sync_io_start_clock(s_scpi_config.sync_clock_hz)) {
-            return SCPI_RES_ERR;
-        }
-        s_scpi_config.sync_clock_enabled = true;
-        return SCPI_RES_OK;
-    }
-
-    sync_io_stop_clock();
-    s_scpi_config.sync_clock_enabled = false;
-    return SCPI_RES_OK;
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_SET_CLOCK_STATE,
+                                        state ? 1u : 0u) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_clock_state_q(scpi_t *context)
 {
-    sync_io_status_t status;
-    sync_io_get_status(&status);
-    SCPI_ResultBool(context, status.sync_clock_running ? TRUE : FALSE);
+    sync_trigger_summary_t summary;
+    scpi_port_get_trigger_summary(&summary);
+    SCPI_ResultBool(context, summary.sync_clock_running ? TRUE : FALSE);
     return SCPI_RES_OK;
 }
 
 static scpi_result_t scpi_cmd_status_q(scpi_t *context)
 {
-    sync_io_status_t status;
-    sync_io_get_status(&status);
-    SCPI_ResultBool(context, status.initialized ? TRUE : FALSE);
-    SCPI_ResultBool(context, status.capture_running ? TRUE : FALSE);
-    SCPI_ResultBool(context, status.sync_clock_running ? TRUE : FALSE);
-    SCPI_ResultUInt32(context, status.capture_sample_hz);
-    SCPI_ResultUInt32(context, status.sync_clock_hz);
-    SCPI_ResultUInt32(context, status.dropped_capture_words);
+    sync_trigger_summary_t summary;
+    scpi_port_get_trigger_summary(&summary);
+    SCPI_ResultBool(context, summary.io_initialized ? TRUE : FALSE);
+    SCPI_ResultBool(context, summary.capture_running ? TRUE : FALSE);
+    SCPI_ResultBool(context, summary.sync_clock_running ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, summary.capture_sample_hz);
+    SCPI_ResultUInt32(context, summary.sync_clock_hz);
+    SCPI_ResultUInt32(context, summary.dropped_capture_words);
     return SCPI_RES_OK;
 }
 
@@ -728,5 +737,13 @@ void scpi_port_get_config(scpi_port_config_t *config)
         return;
     }
 
-    *config = s_scpi_config;
+    sync_trigger_summary_t summary;
+    scpi_port_get_trigger_summary(&summary);
+
+    config->trigger_width_us = summary.trigger_width_us;
+    config->pulse_width_us = summary.pulse_width_us;
+    config->marker_width_us = summary.marker_width_us;
+    config->capture_sample_hz = summary.capture_sample_hz;
+    config->sync_clock_hz = summary.sync_clock_hz;
+    config->sync_clock_enabled = summary.sync_clock_enabled;
 }

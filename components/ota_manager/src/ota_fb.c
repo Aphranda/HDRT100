@@ -7,6 +7,7 @@
 #include "ota_package.h"
 #include "ota_partition.h"
 #include "portable_ota_port.h"
+#include "resource_arbiter.h"
 #include "sync_io.h"
 
 static void ota_fb_bump_sequence(struct ota_ao_context *context)
@@ -27,11 +28,13 @@ static void ota_fb_set_error(struct ota_ao_context *context, ota_error_t error)
     ota_fb_set_state(context, OTA_STATE_FAILED);
 }
 
-static bool ota_fb_trigger_is_idle(void)
+static bool ota_fb_ota_is_permitted(void)
 {
     sync_io_status_t status;
     sync_io_get_status(&status);
-    return !status.capture_running && !status.sync_clock_running;
+    resource_arbiter_publish_trigger_activity(status.capture_running,
+                                              status.sync_clock_running);
+    return resource_arbiter_can_begin_ota();
 }
 
 static bool ota_fb_state_accepts_begin(const struct ota_ao_context *context)
@@ -71,7 +74,7 @@ static void ota_fb_handle_begin(struct ota_ao_context *context, const ota_event_
         return;
     }
 
-    if (!ota_fb_trigger_is_idle()) {
+    if (!ota_fb_ota_is_permitted()) {
         ota_fb_set_error(context, OTA_ERR_BUSY);
         return;
     }

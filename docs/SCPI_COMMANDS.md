@@ -1,6 +1,6 @@
 # SCPI 基础命令
 
-当前 SCPI 服务通过 Pico SDK `stdio` 通道接入，默认使用 USB CDC。命令以 `\n` 或 `\r\n` 结束。
+当前 SCPI 服务通过 Pico SDK `stdio` 通道接入，默认使用 USB CDC。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
 ## 标准命令
 
@@ -125,7 +125,6 @@ OTA 命令遵循 `docs/OTA方案.md` 中的 `OtaAO + OtaFB + OtaVector` 设计�
 
 ## 当前限制
 
-- SCPI 当前接入的是底层 `sync_io`，还不是完整 `sync_trigger` 状态机。
 - 日志和 SCPI 响应目前共用 stdio 通道，后续产品化应拆分控制通道和日志通道，或在 SCPI 会话期间关闭周期日志。
 - `SAMP:RATE` 当前会直接启动采样，但尚未接入 DMA 环形缓冲。
 - OTA 命令已接入 `OtaAO/OtaFB/OtaVector`，SCPI 只投递事件和读取快照，不直接调用 Flash 擦写 API。

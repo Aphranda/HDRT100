@@ -26,6 +26,7 @@ set(PROJECT_ENABLE_USB_STDIO ON CACHE BOOL "Enable stdio over USB CDC")
 set(PROJECT_ENABLE_UART_STDIO OFF CACHE BOOL "Enable stdio over default UART")
 set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors")
 set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA validation SCPI commands")
+set(PROJECT_USE_FREERTOS OFF CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
@@ -40,6 +41,25 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(PROJECT_BUILD_INFO_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.h)
 set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.c)
 set(PROJECT_OTA_METADATA_SIZE 0x010000)
+set(PROJECT_FREERTOS_KERNEL_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/freertos/FreeRTOS-Kernel CACHE PATH "FreeRTOS-Kernel source directory")
+set(PROJECT_OSAL_SOURCES osal/port/baremetal/osal_baremetal.c)
+set(PROJECT_APP_EXTRA_LIBS)
+
+if(PROJECT_USE_FREERTOS)
+    if(NOT EXISTS ${PROJECT_FREERTOS_KERNEL_DIR}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake)
+        message(FATAL_ERROR
+            "PROJECT_USE_FREERTOS=ON requires FreeRTOS-Kernel at "
+            "${PROJECT_FREERTOS_KERNEL_DIR}. Keep the option OFF for the "
+            "current baremetal release path, or add the kernel source under "
+            "third_party/freertos/FreeRTOS-Kernel.")
+    endif()
+
+    set(PROJECT_OSAL_SOURCES osal/port/freertos/osal_freertos.c)
+    set(FREERTOS_KERNEL_PATH ${PROJECT_FREERTOS_KERNEL_DIR})
+    set(FREERTOS_CONFIG_FILE_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/config/freertos)
+    include(${PROJECT_FREERTOS_KERNEL_DIR}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake)
+    list(APPEND PROJECT_APP_EXTRA_LIBS FreeRTOS-Kernel FreeRTOS-Kernel-Heap4)
+endif()
 
 set(PROJECT_PORTABLE_OTA_ADAPTER_SOURCES
         middleware/portable_ota_port/src/portable_ota_core_port.c
@@ -67,6 +87,7 @@ set(PROJECT_APP_SOURCES
         ${PROJECT_BUILD_INFO_SOURCE}
         boards/rp2350_trig/src/board.c
         components/diagnostics/src/diagnostics.c
+        components/event_bus/src/event_bus.c
         components/ota_manager/src/ota_ao.c
         components/ota_manager/src/ota_fb.c
         components/ota_manager/src/ota_crc32.c
@@ -79,6 +100,8 @@ set(PROJECT_APP_SOURCES
         third_party/portable_ota/src/pota_operation.c
         third_party/portable_ota/src/pota_session.c
         third_party/portable_ota/src/pota_package.c
+        components/resource_arbiter/src/resource_arbiter.c
+        components/sync_trigger/src/sync_trigger.c
         components/sync_io/src/sync_io.c
         components/sync_config_ui/src/sync_config_ui.c
         drivers/mcu/spi/src/drv_spi.c
@@ -127,7 +150,7 @@ set(PROJECT_APP_SOURCES
         third_party/u8g2/csrc/u8x8_string.c
         third_party/u8g2/csrc/u8x8_u8toa.c
         third_party/u8g2/csrc/u8x8_u16toa.c
-        osal/port/baremetal/osal_baremetal.c
+        ${PROJECT_OSAL_SOURCES}
 )
 
 add_executable(${PROJECT_NAME}
@@ -147,7 +170,10 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/application/inc
         ${CMAKE_CURRENT_LIST_DIR}/boards/rp2350_trig/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/diagnostics/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/event_bus/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/resource_arbiter/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/sync_trigger/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_config_ui/inc
         ${CMAKE_CURRENT_LIST_DIR}/config
@@ -161,6 +187,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/middleware/scpi_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/u8g2_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/osal/inc
+        ${CMAKE_CURRENT_LIST_DIR}/config/freertos
         ${CMAKE_CURRENT_LIST_DIR}/third_party/scpi-parser/libscpi/inc
         ${CMAKE_CURRENT_LIST_DIR}/third_party/u8g2/csrc
         ${CMAKE_CURRENT_BINARY_DIR}
@@ -176,12 +203,14 @@ function(project_configure_app_target target_name app_name linker_script)
         hardware_pio
         hardware_clocks
         hardware_flash
+        ${PROJECT_APP_EXTRA_LIBS}
     )
 
     target_compile_definitions(${target_name} PRIVATE
         PROJECT_ENABLE_USB_STDIO=$<BOOL:${PROJECT_ENABLE_USB_STDIO}>
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
+        PROJECT_USE_FREERTOS=$<BOOL:${PROJECT_USE_FREERTOS}>
         PORTABLE_OTA_PORT_ENABLE_SESSION=1
         SCPI_USER_CONFIG=1
         PICO_TARGET_NAME="${target_name}"

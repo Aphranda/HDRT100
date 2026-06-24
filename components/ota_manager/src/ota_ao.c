@@ -4,6 +4,7 @@
 
 #include "board.h"
 #include "diagnostics.h"
+#include "event_bus.h"
 #include "ota_ao_private.h"
 #include "ota_error.h"
 #include "ota_fb.h"
@@ -11,18 +12,7 @@
 #include "ota_partition.h"
 #include "portable_ota_port.h"
 
-#define OTA_AO_QUEUE_LENGTH 4u
-
-typedef struct {
-    ota_event_t event;
-    uint8_t data[OTA_EVENT_MAX_DATA_SIZE];
-} ota_queued_event_t;
-
 static struct ota_ao_context s_ota_context;
-static ota_queued_event_t s_queue[OTA_AO_QUEUE_LENGTH];
-static uint32_t s_queue_head;
-static uint32_t s_queue_tail;
-static uint32_t s_queue_count;
 
 static ota_slot_t ota_ao_target_slot_from_metadata(const ota_metadata_t *metadata)
 {
@@ -40,43 +30,6 @@ static ota_slot_t ota_ao_target_slot_from_metadata(const ota_metadata_t *metadat
     }
 
     return OTA_SLOT_B;
-}
-
-static bool ota_ao_queue_push(const ota_event_t *event)
-{
-    if (s_queue_count >= OTA_AO_QUEUE_LENGTH) {
-        return false;
-    }
-
-    ota_queued_event_t *queued = &s_queue[s_queue_tail];
-    queued->event = *event;
-
-    if (event->type == OTA_EVENT_DATA_BLOCK) {
-        if (event->payload.data.data == NULL ||
-            event->payload.data.length == 0u ||
-            event->payload.data.length > OTA_EVENT_MAX_DATA_SIZE) {
-            return false;
-        }
-
-        memcpy(queued->data, event->payload.data.data, event->payload.data.length);
-        queued->event.payload.data.data = queued->data;
-    }
-
-    s_queue_tail = (s_queue_tail + 1u) % OTA_AO_QUEUE_LENGTH;
-    s_queue_count++;
-    return true;
-}
-
-static bool ota_ao_queue_pop(ota_event_t *event)
-{
-    if (s_queue_count == 0u) {
-        return false;
-    }
-
-    *event = s_queue[s_queue_head].event;
-    s_queue_head = (s_queue_head + 1u) % OTA_AO_QUEUE_LENGTH;
-    s_queue_count--;
-    return true;
 }
 
 const char *ota_state_to_string(ota_state_t state)
@@ -97,10 +50,6 @@ const char *ota_result_to_string(ota_result_t result)
 bool ota_ao_init(void)
 {
     memset(&s_ota_context, 0, sizeof(s_ota_context));
-    memset(s_queue, 0, sizeof(s_queue));
-    s_queue_head = 0u;
-    s_queue_tail = 0u;
-    s_queue_count = 0u;
 
     s_ota_context.vector.timestamp_ms = board_uptime_ms();
     s_ota_context.vector.state = (uint32_t)OTA_STATE_IDLE;
@@ -129,11 +78,7 @@ bool ota_ao_init(void)
 
 bool ota_ao_post_event(const ota_event_t *event)
 {
-    if (event == NULL) {
-        return false;
-    }
-
-    if (!ota_ao_queue_push(event)) {
+    if (!event_bus_post_ota_event(event)) {
         s_ota_context.vector.error_code = (uint32_t)OTA_ERR_QUEUE_FULL;
         return false;
     }
@@ -148,7 +93,7 @@ void ota_ao_service(uint32_t budget_us)
     s_ota_context.vector.timestamp_ms = board_uptime_ms();
 
     ota_event_t event;
-    if (ota_ao_queue_pop(&event)) {
+    if (event_bus_try_recv_ota_event(&event)) {
         ota_fb_execute(&s_ota_context, &event);
         return;
     }
