@@ -53,12 +53,12 @@ static uint32_t read_raw_trigger_count(uint32_t *rollover_out)
     return rollover * seq_len + seq_idx;
 }
 
-/* DMA 字数 → 触发边沿数 */
-static uint32_t words_to_edges(uint32_t words)
+/* trigger_count 和 read_raw_trigger_count 已为边沿计数值,
+ * 无需额外转换. */
+static uint32_t words_to_edges(uint32_t raw_count)
 {
-    trigger_vector_t v;
-    sync_trigger_get_vector(&v);
-    return words * (32u / v.seq_output_width);
+    (void)raw_count;
+    return raw_count;
 }
 
 /* ── 公共接口 ── */

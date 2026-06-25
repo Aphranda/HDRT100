@@ -59,17 +59,17 @@ static inline void seq_step_program_init_common(PIO pio, uint sm, uint offset,
         }
     }
 
-    /* 输入引脚 */
+    /* 输入引脚 (gpio_set_dir 在 PIO 模式下无效, 必须用 PIO pindirs) */
     pio_gpio_init(pio, trigger_in_pin);
-    gpio_set_dir(trigger_in_pin, GPIO_IN);
     gpio_pull_down(trigger_in_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, trigger_in_pin, 1, false);
 
     if (has_gate) {
         for (uint p = 0u; p < 4u; p++) {
             pio_gpio_init(pio, in_pin_base + p);
-            gpio_set_dir(in_pin_base + p, GPIO_IN);
             gpio_pull_down(in_pin_base + p);
         }
+        pio_sm_set_consecutive_pindirs(pio, sm, in_pin_base, 4, false);
     }
 
     /* 输出引脚 */

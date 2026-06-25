@@ -67,9 +67,9 @@ static inline void enc_count_program_init(PIO pio, uint sm, uint offset,
 {
     for (uint i = 0u; i < 4u; i++) {
         pio_gpio_init(pio, in_pin_base + i);
-        gpio_set_dir(in_pin_base + i, GPIO_IN);
         gpio_pull_down(in_pin_base + i);
     }
+    pio_sm_set_consecutive_pindirs(pio, sm, in_pin_base, 4, false);
 
     pio_gpio_init(pio, output_pin);
     pio_sm_set_consecutive_pindirs(pio, sm, output_pin, 1, true);
