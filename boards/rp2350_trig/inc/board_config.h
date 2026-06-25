@@ -3,6 +3,10 @@
 
 #include "hardware/i2c.h"
 #include "hardware/pio.h"
+
+/* Overclock: RP2350 default 150 MHz. 250 MHz very safe (67% boost).
+ * 300 MHz community-verified. >300 needs voltage bump (silicon lottery). */
+#define BOARD_SYS_CLOCK_HZ  250000000u
 #include "hardware/spi.h"
 #include "hardware/uart.h"
 

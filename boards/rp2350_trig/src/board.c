@@ -9,6 +9,7 @@
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "lcd_st7789.h"
+#include "pico/stdlib.h"
 #include "project_config.h"
 
 static bool s_led_state;
@@ -83,6 +84,9 @@ static bool board_init_lcd(void)
 
 bool board_init(void)
 {
+    /* Overclock before any peripheral init (USB stays 48 MHz) */
+    set_sys_clock_hz(BOARD_SYS_CLOCK_HZ, true);
+
     diagnostics_init();
 
     const bool ok = board_init_status_led() && board_init_spi() && board_init_i2c() && board_init_lcd();
