@@ -64,7 +64,7 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
                           bool gate_enabled);
 void sync_io_seq_step_disarm(void);
 uint32_t sync_io_seq_step_get_index(void);
-uint32_t sync_io_seq_step_get_rollover_count(void);
+uint64_t sync_io_seq_step_get_rollover_count(void);
 bool sync_io_seq_step_is_running(void);
 
 /* ── ENC_COUNT 编码器计数触发 ── */

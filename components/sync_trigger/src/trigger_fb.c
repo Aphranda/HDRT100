@@ -226,7 +226,7 @@ static fb_result_t fb_seq_armed_service(trigger_vector_t *vector,
 
     /* 当前 SEQ_STEP 表项与触发边沿 1:1, seq_idx 即已执行步数. */
     vector->trigger_count =
-        vector->rollover_count * vector->seq_length + vector->seq_index;
+        (uint32_t)(vector->rollover_count * vector->seq_length + vector->seq_index);
     vector->output_count = vector->trigger_count;
 
     return FB_OK;

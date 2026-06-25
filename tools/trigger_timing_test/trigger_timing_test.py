@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("port", help="USB CDC serial port, e.g. COM4")
-    p.add_argument("--seq-len", type=int, default=128,
+    p.add_argument("--seq-len", type=int, default=256,
                    help="SEQ_STEP sequence length in output steps (default: 128)")
     p.add_argument("--seq-width", type=int, default=4,
                    help="Output bit width (default: 4)")

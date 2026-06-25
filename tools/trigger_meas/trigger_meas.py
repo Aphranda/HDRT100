@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
                    help="Single gate override.  Runs N times at this gate (see --runs).")
     p.add_argument("--runs", type=int, default=1,
                    help="Repeat each gate measurement N times (default: 1)")
-    p.add_argument("--seq-len", type=int, default=64,
+    p.add_argument("--seq-len", type=int, default=256,
                    help="SEQ_STEP sequence length (default: 64)")
     p.add_argument("--seq-width", type=int, default=4,
                    help="SEQ_STEP output width in bits (default: 4)")
@@ -96,7 +96,7 @@ class MeasTool:
         except Exception:
             pass
 
-    def arm(self, seq_len: int = 64, seq_width: int = 4):
+    def arm(self, seq_len: int = 256, seq_width: int = 4):
         self.scpi("*RST")             # reset SCPI state first
         self.scpi("TRIG:DIS")
         self.drain(0.02)

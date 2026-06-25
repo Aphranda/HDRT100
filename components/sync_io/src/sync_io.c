@@ -44,7 +44,7 @@ typedef struct {
     uint seq_length;
     uint seq_width;
     uintptr_t seq_table_addr;
-    volatile uint32_t rollover_count;
+    volatile uint64_t rollover_count;
     volatile bool dma_done;
 } sync_io_seq_step_t;
 
@@ -629,7 +629,7 @@ bool sync_io_seq_step_is_running(void)
     return s_seq_step.running;
 }
 
-uint32_t sync_io_seq_step_get_rollover_count(void)
+uint64_t sync_io_seq_step_get_rollover_count(void)
 {
     return s_seq_step.rollover_count;
 }

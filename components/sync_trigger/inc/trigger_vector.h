@@ -158,7 +158,7 @@ typedef struct {
     uint32_t      trigger_count;        /* 接受的有效触发总数 */
     uint32_t      output_count;         /* 总输出步数 */
     uint32_t      missed_count;         /* BUSY 期间丢失的触发 */
-    uint32_t      rollover_count;       /* DMA 回绕次数 */
+    uint64_t      rollover_count;       /* DMA 回绕次数 (64-bit) */
     uint32_t      error_code;
 
     /* 即时脉冲参数（兼容旧命令） */
