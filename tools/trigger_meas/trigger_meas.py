@@ -60,46 +60,60 @@ def parse_args() -> argparse.Namespace:
 
 class MeasTool:
     def __init__(self, port: str):
-        self.ser = serial.Serial(port, 115200, timeout=3.0)
+        self.ser = serial.Serial(port, 115200, timeout=0.5)
 
-    def scpi(self, cmd: str, delay: float = 0.3) -> str:
+    def _read_response(self, timeout: float | None = None) -> str:
+        """Read SCPI response, skipping log lines starting with '['."""
+        if timeout is not None:
+            self.ser.timeout = timeout
+        try:
+            for _ in range(32):  # max 32 lines to skip logs
+                raw = self.ser.readline()
+                if not raw:
+                    return ""  # timeout
+                line = raw.decode(errors="replace").strip()
+                if not line or line.startswith("["):
+                    continue
+                return line
+        finally:
+            if timeout is not None:
+                self.ser.timeout = 0.5  # restore default
+        return ""
+
+    def scpi(self, cmd: str, delay: float = 0.02) -> str:
+        self.ser.reset_input_buffer()
         self.ser.write((cmd + "\n").encode())
+        if "MEAS:FREQ?" in cmd:
+            time.sleep(delay)
+            return self._read_response(timeout=delay + 0.5)
         time.sleep(delay)
-        resp = []
-        for _ in range(8):
-            raw = self.ser.readline()
-            if not raw:
-                break
-            line = raw.decode(errors="replace").strip()
-            if not line:
-                continue
-            if line.startswith("["):
-                continue
-            resp.append(line)
-        return resp[0] if resp else ""
+        return self._read_response()
 
-    def drain(self, wait: float = 0.5):
+    def drain(self, wait: float = 0.05):
         time.sleep(wait)
-        self.ser.read(self.ser.in_waiting or 1)
+        try:
+            self.ser.reset_input_buffer()
+        except Exception:
+            pass
 
     def arm(self, seq_len: int = 64, seq_width: int = 4):
-        self.scpi("TRIG:DIS", 0.5)
-        self.drain(0.3)
+        self.scpi("*RST")             # reset SCPI state first
+        self.scpi("TRIG:DIS")
+        self.drain(0.02)
         self.scpi(f"TRIG:SEQ:LENG {seq_len}")
         self.scpi(f"TRIG:SEQ:WIDT {seq_width}")
         self.scpi("TRIG:MODE 1")
-        self.drain(0.4)
+        self.drain(0.02)
         result = self.scpi("TRIG:ARM")
         if "OK" not in result:
             raise RuntimeError(f"ARM failed: {result}")
-        self.drain(0.2)
 
     def disarm(self):
-        self.scpi("TRIG:DIS", 0.5)
+        self.scpi("TRIG:DIS")
 
     def measure_freq(self, gate_ms: int) -> int:
         """Run internal frequency measurement.  Returns Hz, or 0 if no signal."""
-        raw = self.scpi(f"MEAS:FREQ? {gate_ms}", delay=gate_ms / 1000.0 + 0.4)
+        raw = self.scpi(f"MEAS:FREQ? {gate_ms}", delay=gate_ms / 1000.0 + 0.1)
         try:
             return int(raw)
         except ValueError:
@@ -138,7 +152,7 @@ def detect_signal(tool: MeasTool) -> dict | None:
 
     # Phase 1: is anything happening at all?
     s0 = tool.get_stat()
-    time.sleep(0.25)
+    time.sleep(0.05)
     s1 = tool.get_stat()
 
     if s0.get("trigger_count", 0) == s1.get("trigger_count", 0):
@@ -284,7 +298,7 @@ def main():
 
     tool = MeasTool(args.port)
     try:
-        tool.drain(0.5)
+        tool.drain(0.1)
         tool.arm(args.seq_len, args.seq_width)
         summary = run_measurements(tool, gates, args.runs,
                                    args.seq_len, args.seq_width)

@@ -123,8 +123,10 @@ typedef struct {
     bool          gate_enabled;         /* GATE_IN 门控使能 */
     trig_safe_state_t safe_state;       /* IDLE/FAULT 时输出安全态 */
 
-    /* SEQ_STEP 配置 (HAOFV: TriggerFB 在 IDLE→SEQ_CONFIGURED 时写入) */
-    uint32_t      seq_table[TRIG_SEQ_TABLE_MAX];
+    /* SEQ_STEP 配置 (HAOFV: TriggerFB 在 IDLE→SEQ_CONFIGURED 时写入)
+     * seq_table 必须对齐到 1024 字节 — DMA ring buffer 硬件要求
+     * 地址对齐到 ring_size (最大 256×4=1024 bytes) */
+    uint32_t      seq_table[TRIG_SEQ_TABLE_MAX] __attribute__((aligned(1024)));
     uint32_t      seq_length;
     uint32_t      seq_index;
     uint32_t      seq_output_width;

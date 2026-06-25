@@ -2570,6 +2570,39 @@
 - 下一步：
   - 将 OTA 作为第一个 HAOFV 架构落地模块。
 
+### TASK-20260626-015 - SEQ_STEP 高频触发稳定性修复与 Python 工具优化
+
+- 状态：完成
+- 日期：2026-06-26
+- 任务目标：
+  - 修复 SEQ_STEP 模式在高频信号（100 kHz ~ 1 MHz）下，长 gate 测量失败、第二次运行 NO SIGNAL 或卡死的问题。
+  - 优化 Python 触发测量工具的通信延迟，从 ~12s 降到 ~6s。
+  - 修复 ARM/DISARM 循环中 DMA、PIO、GPIO 状态残留导致后续 ARM 失败的问题。
+- 完成内容：
+  - **Bug 1 — DMA 通道管理错误**：`sync_io_seq_step_arm()` 中 `dma_channel_unclaim(SYNC_IO_SEQ_STEP_DMA_CH)` 在未事先 claim 的情况下调用。修复：改为 `dma_channel_abort()` 确保通道硬件空闲。
+  - **Bug 2 — ISR 安装晚于 DMA 启动**：原代码先启动 DMA 后安装 IRQ handler。修复：ISR 安装移到 `dma_channel_configure` 之前。
+  - **Bug 3 — Disarm 后 GPIO16 残留在 PIO1 模式**：disarm 只恢复输出引脚未恢复触发输入。修复：增加 GPIO16 到 SIO 输入 + pull-down 恢复。
+  - **Bug 4 — ARM 前缺少强制状态清理**：DMA INTS0/NVIC/PIO FIFO 残留标志未清除。修复：ARM 开头无条件 abort DMA、停止 PIO SM、清除 FIFO、清零 `dma_hw->ints0`。
+  - **Bug 5 — Python SCPI 超时 3s**：`readline()` 超时过长。修复：默认 0.3s，测量命令动态 `gate+0.5s`；`reset_input_buffer()` 清残留；`*RST` 前置。
+  - **Bug 6 — Python 延迟参数过度保守**：`scpi()` 0.3s / `drain()` 0.5s。修复：降至 0.02s / 0.05s。
+  - **Bug 7 — DMA Ring Buffer 不兼容 RP2350（根因）**：`channel_config_set_ring()` 对 `seq_table` 的地址对齐要求与 RP2350 实际行为不匹配，长 gate 下多次回绕后 DMA 读到错误地址，传递垃圾数据导致 PIO 停顿死锁。修复：**去掉 DMA ring buffer，改为 ISR 中手动重置 `read_addr` 到 `seq_table_addr`，再写 `al1_transfer_count_trig` 重启传输**。同时 `seq_table` 加 `__attribute__((aligned(1024)))` 确保地址对齐。
+  - **尝试过的无效方案（已回退）**：DMA 自链 (`CHAIN_TO` self) — RP2350 上自链会写入 `TRANS_COUNT=0`，不可用。
+- 验证结果：
+  - `cmake --build build-baremetal-trigger-gate` 通过，build id `20260625165357`。
+  - **100 kHz 全 6 gate 通过**：18ppm，EXCELLENT。
+  - **1 MHz 全 6 gate 通过**：18ppm，EXCELLENT。
+  - 回环测试 GPIO22→GPIO16 验证 PIO 触发链路正确。
+  - Python 工具总耗时从 ~12s 降到 ~6s。
+- 关联文件：
+  - `components/sync_io/src/sync_io.c` — DMA 手动 reset、清理逻辑
+  - `components/sync_trigger/inc/trigger_vector.h` — `seq_table` 1024 字节对齐
+  - `tools/trigger_meas/trigger_meas.py` — SCPI 超时/延迟优化
+  - `docs/TASK_PROGRESS.md` — 本记录
+- 关键经验：
+  - RP2350 DMA ring buffer 对地址对齐有硬性要求，若缓冲区不在软件控制范围内（如 struct 成员），不要依赖 ring buffer。
+  - ISR 中手动 `read_addr` + `al1_transfer_count_trig` 组合比 ring buffer 更可靠、可调试。
+  - DMA 自链 (`CHAIN_TO` self) 在 RP2350 上写入 `TRANS_COUNT=0`，不可用于环回重启。
+
 ### TASK-20260621-001 - 同步触发系统当前基线
 
 - 状态：进行中

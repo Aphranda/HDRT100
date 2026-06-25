@@ -43,6 +43,7 @@ typedef struct {
     uint dma_ch;
     uint seq_length;
     uint seq_width;
+    uintptr_t seq_table_addr;
     volatile uint32_t rollover_count;
     volatile bool dma_done;
 } sync_io_seq_step_t;
@@ -441,10 +442,11 @@ static void sync_io_seq_step_dma_handler(void)
     const uint32_t ints = dma_hw->ints0;
     dma_hw->ints0 = ints;   /* 清除本次触发的中断位 */
 
-    /* SEQ_STEP: 每轮回绕后重启 DMA (al1 原子写: count + trigger) */
+    /* SEQ_STEP: 手动重置读地址 + 重启传输 */
     if ((ints & (1u << s_seq_step.dma_ch)) && s_seq_step.running) {
-        s_seq_step.dma_done = true;
         s_seq_step.rollover_count++;
+        /* 重置读指针到序列表开头 (不用 ring buffer) */
+        dma_hw->ch[s_seq_step.dma_ch].read_addr = s_seq_step.seq_table_addr;
         dma_hw->ch[s_seq_step.dma_ch].al1_transfer_count_trig =
             s_seq_step.seq_length;
     }
@@ -473,9 +475,20 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
         return false;
     }
 
+    /* ── 强制重置: 确保 DMA/PIO 处于干净状态 ── */
     if (s_seq_step.running) {
         sync_io_seq_step_disarm();
+    } else {
+        /* 即使 running==false，也清理可能的残留状态 */
+        dma_channel_abort(SYNC_IO_SEQ_STEP_DMA_CH);
+        pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, false);
+        pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM);
     }
+
+    /* 清除 DMA IRQ0 所有残留中断 */
+    dma_hw->ints0 = dma_hw->ints0;
+    irq_set_enabled(SYNC_IO_SEQ_STEP_DMA_IRQ, false);
+    dma_channel_set_irq0_enabled(SYNC_IO_SEQ_STEP_DMA_CH, false);
 
     /* GATE 模式要求触发源在 GPIO16-19 范围内
      * (GATE_IN 固定 GPIO19 = in_pin_base 16 的 offset 3) */
@@ -521,28 +534,13 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
     /* ── DMA 配置: SRAM seq_table → PIO TX FIFO, ring-buffer ── */
 
     s_seq_step.dma_ch = SYNC_IO_SEQ_STEP_DMA_CH;
-    dma_channel_unclaim(s_seq_step.dma_ch);
+    dma_channel_abort(s_seq_step.dma_ch);
 
     s_seq_step.seq_length = seq_length;
     s_seq_step.seq_width = seq_width;
+    s_seq_step.seq_table_addr = (uintptr_t)seq_table;
 
-    dma_channel_config dma_cfg = dma_channel_get_default_config(s_seq_step.dma_ch);
-    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
-    channel_config_set_read_increment(&dma_cfg, true);
-    channel_config_set_write_increment(&dma_cfg, false);
-    channel_config_set_dreq(&dma_cfg,
-                            DREQ_PIO1_TX0 + s_seq_step.seq_sm);
-    channel_config_set_ring(&dma_cfg, false,
-                            (uint)(sizeof(uint32_t) * seq_length));
-    dma_channel_configure(s_seq_step.dma_ch,
-                          &dma_cfg,
-                          &BOARD_SYNC_PIO_WAVE->txf[s_seq_step.seq_sm],
-                          seq_table,
-                          seq_length,
-                          true);   /* 立即启动, ring-buffer 持续循环 */
-
-    /* ── DMA 完成中断（每次回绕触发一次）── */
-
+    /* ── 先安装 ISR，再启动 DMA（避免回绕时中断丢失）── */
     s_seq_step.rollover_count = 0u;
     s_seq_step.dma_done = false;
 
@@ -550,6 +548,20 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
                               sync_io_seq_step_dma_handler);
     dma_channel_set_irq0_enabled(s_seq_step.dma_ch, true);
     irq_set_enabled(SYNC_IO_SEQ_STEP_DMA_IRQ, true);
+
+    dma_channel_config dma_cfg = dma_channel_get_default_config(s_seq_step.dma_ch);
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&dma_cfg, true);
+    channel_config_set_write_increment(&dma_cfg, false);
+    channel_config_set_dreq(&dma_cfg,
+                            DREQ_PIO1_TX0 + s_seq_step.seq_sm);
+    /* 不用 DMA ring buffer — ISR 中手动重置 read_addr */
+    dma_channel_configure(s_seq_step.dma_ch,
+                          &dma_cfg,
+                          &BOARD_SYNC_PIO_WAVE->txf[s_seq_step.seq_sm],
+                          seq_table,
+                          seq_length,
+                          true);   /* 立即启动, 自链持续循环 */
 
     /* ── 启动 PIO ── */
 
@@ -577,12 +589,16 @@ void sync_io_seq_step_disarm(void)
     pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm);
     pio_sm_set_pins(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm, 0);
 
-    /* 恢复为默认输出低 */
+    /* 恢复 GPIO 到默认 SIO 状态 */
     for (uint pin = 0u; pin < s_seq_step.seq_width; pin++) {
         gpio_set_function(BOARD_SYNC_OUTPUT_BASE_PIN + pin, GPIO_FUNC_SIO);
         gpio_set_dir(BOARD_SYNC_OUTPUT_BASE_PIN + pin, GPIO_OUT);
         gpio_put(BOARD_SYNC_OUTPUT_BASE_PIN + pin, false);
     }
+    /* 恢复输入引脚到 SIO (避免下次 ARM 时残留 PIO 状态) */
+    gpio_set_function(BOARD_SYNC_TRIG_IN_PIN, GPIO_FUNC_SIO);
+    gpio_set_dir(BOARD_SYNC_TRIG_IN_PIN, GPIO_IN);
+    gpio_pull_down(BOARD_SYNC_TRIG_IN_PIN);
 
     const pio_program_t *prog_to_remove = s_seq_step.has_gate
         ? &seq_step_gated_program
