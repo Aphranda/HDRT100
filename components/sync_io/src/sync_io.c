@@ -14,6 +14,7 @@
 #define SYNC_IO_DEFAULT_CLOCK_HZ    1000000u
 #define SYNC_IO_MIN_HZ              1u
 #define SYNC_IO_SEQ_STEP_DMA_CH     0u
+#define SYNC_IO_ENC_COUNT_DMA_CH    1u
 #define SYNC_IO_SEQ_STEP_DMA_IRQ    DMA_IRQ_0
 
 typedef struct {
@@ -420,14 +421,40 @@ void sync_io_get_status(sync_io_status_t *status)
     status->dropped_capture_words = s_sync_io.dropped_capture_words;
 }
 
+/* ── 前向声明（ENC_COUNT 结构体定义在 SEQ_STEP 之后）── */
+typedef struct {
+    bool running;
+    uint sm;
+    uint offset;
+    uint target;
+    uint in_pin_base;
+    uint dma_ch;
+    volatile uint32_t fire_count;
+    volatile uint32_t dma_restart_count;
+} sync_io_enc_count_t;
+static sync_io_enc_count_t s_enc;
+
 /* ── SEQ_STEP 编码序列步进 ── */
 
 static void sync_io_seq_step_dma_handler(void)
 {
-    dma_hw->ints0 = 1u << s_seq_step.dma_ch;
-    s_seq_step.dma_done = true;
-    s_seq_step.rollover_count++;
-    /* ring-buffer DMA 自动回绕，无需手动重置读地址 */
+    const uint32_t ints = dma_hw->ints0;
+    dma_hw->ints0 = ints;   /* 清除本次触发的中断位 */
+
+    /* SEQ_STEP: 每轮回绕后重启 DMA (al1 原子写: count + trigger) */
+    if ((ints & (1u << s_seq_step.dma_ch)) && s_seq_step.running) {
+        s_seq_step.dma_done = true;
+        s_seq_step.rollover_count++;
+        dma_hw->ch[s_seq_step.dma_ch].al1_transfer_count_trig =
+            s_seq_step.seq_length;
+    }
+
+    /* ENC_COUNT: 每次触发后补填 TX FIFO */
+    if ((ints & (1u << s_enc.dma_ch)) && s_enc.running) {
+        s_enc.fire_count++;
+        s_enc.dma_restart_count++;
+        dma_hw->ch[s_enc.dma_ch].al1_transfer_count_trig = 1u;
+    }
 }
 
 bool sync_io_seq_step_arm(const uint32_t *seq_table,
@@ -448,6 +475,15 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
 
     if (s_seq_step.running) {
         sync_io_seq_step_disarm();
+    }
+
+    /* GATE 模式要求触发源在 GPIO16-19 范围内
+     * (GATE_IN 固定 GPIO19 = in_pin_base 16 的 offset 3) */
+    if (gate_enabled && (trigger_pin < 16u || trigger_pin > 19u)) {
+        LOG_ERROR("sync_io",
+                  "seq_step: gate mode requires trigger_pin in GPIO16..GPIO19, "
+                  "got %lu", (unsigned long)trigger_pin);
+        return false;
     }
 
     /* ── PIO 程序选择 ── */
@@ -586,17 +622,6 @@ uint32_t sync_io_seq_step_get_rollover_count(void)
 
 #include "enc_count.pio.h"
 
-typedef struct {
-    bool running;
-    uint sm;
-    uint offset;
-    uint target;
-    uint in_pin_base;
-    volatile uint32_t fire_count;
-} sync_io_enc_count_t;
-
-static sync_io_enc_count_t s_enc;
-
 bool sync_io_enc_count_arm(uint32_t target,
                            uint32_t in_pin_base,
                            uint32_t output_pin)
@@ -631,12 +656,42 @@ bool sync_io_enc_count_arm(uint32_t target,
                            output_pin,
                            1.0f);
 
-    /* TX FIFO: 首字 = 目标值, 每次触发后由 DMA 补填 */
+    /* TX FIFO: 首字 = 目标值, 后续由 DMA 从 &s_enc.target 持续补填 */
     pio_sm_put(BOARD_SYNC_PIO_WAVE, s_enc.sm, target);
+
+    /* ── DMA 配置: &s_enc.target → PIO TX FIFO, DREQ 节拍 ── */
+    s_enc.dma_ch = SYNC_IO_ENC_COUNT_DMA_CH;
+    dma_channel_unclaim(s_enc.dma_ch);
+
+    {
+        dma_channel_config dma_cfg =
+            dma_channel_get_default_config(s_enc.dma_ch);
+        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+        channel_config_set_read_increment(&dma_cfg, false);
+        channel_config_set_write_increment(&dma_cfg, false);
+        channel_config_set_dreq(&dma_cfg,
+                                DREQ_PIO1_TX0 + s_enc.sm);
+        dma_channel_configure(s_enc.dma_ch,
+                              &dma_cfg,
+                              &BOARD_SYNC_PIO_WAVE->txf[s_enc.sm],
+                              &s_enc.target,
+                              0xFFFFFFFFu,   /* 极长 transfer_count, 耗尽后 IRQ 重启 */
+                              true);
+    }
+
+    dma_channel_set_irq0_enabled(s_enc.dma_ch, true);
+
+    /* 确保 DMA IRQ 已安装（可能已由 SEQ_STEP 安装） */
+    if (!irq_is_enabled(SYNC_IO_SEQ_STEP_DMA_IRQ)) {
+        irq_set_exclusive_handler(SYNC_IO_SEQ_STEP_DMA_IRQ,
+                                  sync_io_seq_step_dma_handler);
+        irq_set_enabled(SYNC_IO_SEQ_STEP_DMA_IRQ, true);
+    }
 
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_enc.sm, true);
 
     s_enc.fire_count = 0u;
+    s_enc.dma_restart_count = 0u;
     s_enc.running = true;
 
     LOG_INFO("sync_io", "enc_count armed: target=%lu pins=A%lu/B%lu/Z%lu",
@@ -655,6 +710,10 @@ void sync_io_enc_count_disarm(void)
     }
 
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_enc.sm, false);
+
+    dma_channel_set_irq0_enabled(s_enc.dma_ch, false);
+    dma_channel_abort(s_enc.dma_ch);
+
     pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, s_enc.sm);
     pio_sm_set_pins(BOARD_SYNC_PIO_WAVE, s_enc.sm, 0);
 
@@ -669,8 +728,9 @@ void sync_io_enc_count_disarm(void)
                        s_enc.offset);
 
     s_enc.running = false;
-    LOG_INFO("sync_io", "enc_count disarmed: fire_count=%lu",
-             (unsigned long)s_enc.fire_count);
+    LOG_INFO("sync_io", "enc_count disarmed: fire_count=%lu dma_restarts=%lu",
+             (unsigned long)s_enc.fire_count,
+             (unsigned long)s_enc.dma_restart_count);
 }
 
 uint32_t sync_io_enc_count_get_count(void)

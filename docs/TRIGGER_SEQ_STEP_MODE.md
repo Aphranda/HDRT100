@@ -146,9 +146,9 @@ SEQ_STEPPING 不作为一个 AO 持续轮询态。ARM 之后 SEQ_ARMED 就是 st
 ```
 
 - `wait 0/1` 保证对完整上升沿响应，不误触发毛刺后的残留高电平
-- `autopull=ON, pull_threshold=4`：每输出 4 bit 自动从 TX FIFO 拉下一个 32-bit word
-- 一 word 走 32/4 = 8 步，FIFO 深度 8 → 最多 64 步缓冲
-- DMA 在 FIFO 快空时自动补填，ping-pong 可覆盖无限长序列表
+- `autopull=ON, pull_threshold=seq_width`：每次步进输出后自动从 TX FIFO 拉下一个 32-bit 表项
+- 当前实现为 1 个 32-bit 表项对应 1 次触发步进，表项低 `seq_width` bit 作为输出编码
+- DMA 在 FIFO 快空时自动补填，连续模式由 DMA 重装载/回绕策略保证
 
 ## 时序
 

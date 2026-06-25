@@ -115,8 +115,8 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
         vector->enc_preset = event->payload.value;
         break;
     case TRIG_EVENT_PCNT_CLEAR:
-        vector->enc_count = 0u;
-        vector->enc_total += vector->enc_count;
+        vector->enc_total += vector->enc_count;   /* 先累计本次清零前的值 */
+        vector->enc_count = 0u;                    /* 再清零 */
         break;
     case TRIG_EVENT_RESET:
         sync_io_stop_clock();
@@ -221,15 +221,12 @@ static fb_result_t fb_seq_armed_service(trigger_vector_t *vector,
         return FB_ERROR;
     }
 
-    const uint32_t prev_rollover = vector->rollover_count;
     vector->seq_index = sync_io_seq_step_get_index();
     vector->rollover_count = sync_io_seq_step_get_rollover_count();
 
-    /* 通过回绕次数增量推算触发计数: 每轮回绕 = seq_length 次触发 */
-    if (vector->rollover_count > prev_rollover) {
-        const uint32_t roll_delta = vector->rollover_count - prev_rollover;
-        vector->trigger_count += roll_delta * vector->seq_length;
-    }
+    /* 当前 SEQ_STEP 表项与触发边沿 1:1, seq_idx 即已执行步数. */
+    vector->trigger_count =
+        vector->rollover_count * vector->seq_length + vector->seq_index;
     vector->output_count = vector->trigger_count;
 
     return FB_OK;

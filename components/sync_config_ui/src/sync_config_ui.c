@@ -433,8 +433,8 @@ static void draw_trigger_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 
 static void draw_ota_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 {
-    char progress_buffer[12];
-    char rx_buffer[16];
+    char progress_buffer[16];    /* "%lu.%lu%%" 最大 ~14 chars */
+    char rx_buffer[24];           /* "X.XM/X.XM" 最大 ~18 chars */
     char error_buffer[12];
     char seq_buffer[12];
     char event_buffer[12];

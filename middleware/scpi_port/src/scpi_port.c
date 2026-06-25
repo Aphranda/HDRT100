@@ -11,6 +11,7 @@
 #include "project_config.h"
 #include "scpi/scpi.h"
 #include "sync_trigger.h"
+#include "trigger_measure.h"
 
 #define SCPI_PORT_INPUT_BUFFER_LENGTH 768u
 #define SCPI_PORT_ERROR_QUEUE_SIZE    16
@@ -1059,6 +1060,34 @@ static scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context)
 }
 #endif
 
+/* ── 触发测量 (同步自检) ── */
+
+static scpi_result_t scpi_cmd_meas_freq_q(scpi_t *context)
+{
+    uint32_t gate_ms = 1000u;
+    scpi_port_read_u32(context, &gate_ms);
+    if (gate_ms < 10u || gate_ms > 60000u) {
+        gate_ms = 1000u;
+    }
+    const uint32_t freq_hz = trigger_measure_quick_freq_hz(gate_ms);
+    SCPI_ResultUInt32(context, freq_hz);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_meas_report_q(scpi_t *context)
+{
+    trigger_measure_report_t report;
+    if (!trigger_measure_get_report(&report)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, report.freq_hz);
+    SCPI_ResultUInt32(context, report.period_ns);
+    SCPI_ResultUInt32(context, report.trigger_count);
+    SCPI_ResultUInt32(context, report.elapsed_us);
+    SCPI_ResultUInt32(context, report.jitter_est_ppm);
+    return SCPI_RES_OK;
+}
+
 static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "*CLS", .callback = SCPI_CoreCls},
     {.pattern = "*ESE", .callback = SCPI_CoreEse},
@@ -1165,6 +1194,8 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:OTA:INJect:MCORrupt", .callback = scpi_cmd_ota_inject_metadata_corrupt},
     {.pattern = "SYSTem:OTA:INJect:MREPair", .callback = scpi_cmd_ota_inject_metadata_repair},
 #endif
+    {.pattern = "MEASure:FREQuency?", .callback = scpi_cmd_meas_freq_q},
+    {.pattern = "MEASure:REPort?", .callback = scpi_cmd_meas_report_q},
     SCPI_CMD_LIST_END,
 };
 

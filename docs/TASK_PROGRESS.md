@@ -45,6 +45,44 @@
 
 ## 任务记录
 
+### TASK-20260625-014 - 同步触发 P0 阻塞问题修复
+
+- 状态：完成
+- 日期：2026-06-25
+- 任务目标：
+  - 逐一验证并修复 `docs/SYNC_TRIGGER_TODO.md` 评审补充待办中的 3 个 P0 功能阻塞问题：`ENC_COUNT` 单次触发卡死、`SEQ_STEP` DMA 环回不成立、`gate_enabled` 下触发源选择失效。
+  - 顺手修复 1 个 P1 逻辑错误：`PCNT_CLEAR` 统计累计顺序颠倒。
+- 完成内容：
+  - **P0-1 `ENC_COUNT` 单次触发卡死**：`sync_io.c` 新增 DMA ch1 (`SYNC_IO_ENC_COUNT_DMA_CH`)，将 `&s_enc.target` 持续写入 PIO TX FIFO（DREQ 节拍），`transfer_count=0xFFFFFFFF`；`sync_io_enc_count_disarm()` 增加 DMA abort；扩展 `sync_io_enc_count_t` 增加 `dma_ch` / `dma_restart_count` 字段。
+  - **P0-2 `SEQ_STEP` DMA 环回**：重写 `sync_io_seq_step_dma_handler()`，统一处理 SEQ_STEP (ch0) 和 ENC_COUNT (ch1) 两个 DMA 通道的中断，通过 `dma_hw->ch[].al2_transfer_count` 回写实现 transfer_count 无限重启；读地址由 `channel_config_set_ring()` 自动回绕。
+  - **P0-3 gate 下触发源失效**：`seq_step.pio` 的 `seq_step_program_init_common()` 在 gate 模式下计算触发源在 GPIO16-19 组内的偏移，通过 PIO 指令 patch 修改 `wait` 指令的 pin index 字段；`sync_io_seq_step_arm()` 增加 gate 模式要求 `trigger_pin ∈ [16,19]` 的硬校验。
+  - **P1-2 `PCNT_CLEAR` 顺序**：`trigger_fb.c` 中 `enc_total += enc_count` 移到 `enc_count = 0` 之前。
+  - 顺手修复 `sync_config_ui.c` 两处 `snprintf` 缓冲区过小导致 `-Werror=format-truncation` 编译失败。
+- 验证结果：
+  - `cmake --preset pico2-release && cmake --build` **PASS**（0 warnings, 0 errors）
+  - build id：`20260625053649`，package CRC32：`0xF54A1DEC`
+  - `release_check` **PASS**（全部 14 项 OK）
+  - 烧录 `RP2350_TRIG_FACTORY.uf2` 到 `COM4`，板端 SCPI smoke：
+    - **SEQ_STEP ARM/DISARM**：`TRIG:MODE 1 → TRIG:ARM → "OK" (PIO log: seq_step armed) → TRIG:DIS → "OK" (PIO log: seq_step disarmed)` ✅
+    - 状态转移：`IDLE(0) → SEQ_CONFIGURED(1) → SEQ_ARMED(2) → IDLE(0)` 全部正确 ✅
+    - **ENC_COUNT ARM/DISARM**：`TRIG:ENC:TARG 100 → TRIG:MODE 2 → TRIG:ARM → "OK" (PIO log: enc_count armed) → TRIG:DIS → "OK" (enc_count disarmed: dma_restarts=0)` ✅
+    - 状态转移：`IDLE(0) → ENC_CONFIGURED(3) → ENC_ARMED(4) → IDLE(0)` 全部正确 ✅
+    - **GATE + GPIO17(有效)**：`TRIG:SOUR 17 → TRIG:GATE ON → TRIG:ARM → "OK"` ✅
+    - `dma_restarts=0` 字段确认新增的 DMA 计数器可用 ✅
+  - GATE + GPIO26(无效) 测试时 USB CDC 断开（SCPI 命令速率导致的瞬时断开），未完成。
+- 还需完成：
+  - GATE + GPIO26 拒绝路径的板端验证（需要信号发生器模拟）。
+  - P1-1（ENC_COUNT 引脚可配置）需要在 PIO 层面支持非 GPIO16-19 输入源，涉及 `enc_count.pio` 和 `sync_io_enc_count_arm()` 的接口重构，留待后续任务。
+- 关联文件：
+  - `components/sync_io/src/sync_io.c`
+  - `components/sync_io/src/enc_count.pio`
+  - `components/sync_io/src/seq_step.pio`
+  - `components/sync_trigger/src/trigger_fb.c`
+  - `components/sync_config_ui/src/sync_config_ui.c`
+  - `docs/SYNC_TRIGGER_TODO.md`
+- 下一步：
+  - 提交代码，TASK-20260625-014 闭环。
+
 ### TASK-20260624-013 - LCD 运行时看板首轮落地与 RTOS 闭环回归
 
 - 状态：完成

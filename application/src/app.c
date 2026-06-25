@@ -11,6 +11,7 @@
 #include "sync_config_ui.h"
 #include "sync_trigger.h"
 #include "sync_io.h"
+#include "trigger_measure.h"
 
 #define APP_UI_REFRESH_PERIOD_MS 250u
 
@@ -85,6 +86,7 @@ void app_comm_service(void)
 void app_trigger_service(void)
 {
     sync_trigger_service();
+    trigger_measure_service();   /* 同步自检: 门控测量非阻塞服务 */
 }
 
 void app_ota_service(void)

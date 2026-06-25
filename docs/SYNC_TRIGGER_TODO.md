@@ -2,6 +2,37 @@
 
 本文档用于跟踪同步触发系统从当前 PIO IO 驱动，完善到工业产品级触发子系统所需的剩余工作。
 
+## 评审补充待办（2026-06-25）
+
+### P0 - 功能阻塞问题
+
+- [x] 修复 `ENC_COUNT` 单次触发后卡死。 (2026-06-25)
+  修复：新增 DMA ch1 (`&s_enc.target` → PIO TX FIFO, DREQ 节拍), `transfer_count=0xFFFFFFFF`,
+  IRQ handler 在耗尽时自动重启。DMA 在 `disarm` 时 abort。
+  
+- [x] 修复 `SEQ_STEP` DMA 连续环回不成立的问题。 (2026-06-25)
+  修复：`sync_io_seq_step_dma_handler()` 现在向 `dma_hw->ch[].al2_transfer_count` 回写
+  `seq_length`，使 ring-wrap 后的读地址继续被 DMA 使用。ring-buffer 读地址自动回绕，
+  transfer_count 由 IRQ 重启。
+
+- [x] 修复 `gate_enabled` 下 `SEQ_STEP` 触发源选择失效。 (2026-06-25)
+  修复：`seq_step_program_init_common()` 在 gate 模式下计算触发源在 GPIO16-19 组内的偏移量，
+  将 `seq_step_gated` 的 wait 指令 pin index 打到正确位置。`sync_io_seq_step_arm()` 增加校验：
+  gate 模式要求 `trigger_pin` ∈ [16,19]，否则返回 false。
+
+### P1 - 行为与接口一致性问题
+
+- [ ] 让 `ENC_COUNT` 引脚配置真正生效。
+  现状：`enc_a_pin`、`enc_b_pin`、`enc_z_pin` 和 SCPI 接口表面可配，但 ARM 仍固定使用 `GPIO16..GPIO19`。
+  处理方向：要么实现真实可配置引脚，要么在实现到位前收窄公开 API 和文档承诺。
+
+- [x] 修复 `PCNT_CLEAR` 统计累计逻辑。 (2026-06-25 已修复)
+  修复：`enc_total += enc_count` 现在在 `enc_count = 0` 之前执行，确保清零前的值被累计。
+
+- [ ] 对齐文档与实现。
+  现状：文档中关于 DMA 回填、连续循环、可配置引脚、低 CPU 介入的描述，部分超前于当前代码实现。
+  规则：未落地行为保持待办状态，不提前标记为已实现。
+
 ## 当前基线
 
 - [x] 为同步触发系统预留全部 RP2350 PIO 状态机资源。

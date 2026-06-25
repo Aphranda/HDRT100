@@ -103,6 +103,7 @@ set(PROJECT_APP_SOURCES
         components/resource_arbiter/src/resource_arbiter.c
         components/sync_trigger/src/sync_trigger.c
         components/sync_trigger/src/trigger_fb.c
+        components/sync_trigger/src/trigger_measure.c
         components/sync_io/src/sync_io.c
         components/sync_config_ui/src/sync_config_ui.c
         drivers/mcu/spi/src/drv_spi.c

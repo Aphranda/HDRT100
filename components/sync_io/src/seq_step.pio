@@ -43,8 +43,20 @@ static inline void seq_step_program_init_common(PIO pio, uint sm, uint offset,
                                                  bool has_gate)
 {
     uint in_pin_base = trigger_in_pin;
-    if (has_gate && in_pin_base > 16u) {
-        in_pin_base = 16u;  /* GATE 在 GPIO19=offset3, 需要 base=16 */
+    uint trigger_offset = 0u;
+
+    if (has_gate) {
+        /* GATE 固定在 GPIO19 (in_pin_base=16 的 offset 3).
+         * 触发源必须在 GPIO16-19 范围内, 通过指令 patch 选择偏移. */
+        if (trigger_in_pin >= 16u && trigger_in_pin <= 19u) {
+            in_pin_base    = 16u;
+            trigger_offset = trigger_in_pin - 16u;
+        } else {
+            /* 触发源不在 GPIO16-19: 仍绑定 in_pin_base=trigger_in_pin,
+             * 但 GATE at offset 3 将指向错误引脚; 调用方需校验并拒绝. */
+            in_pin_base    = trigger_in_pin;
+            trigger_offset = 0u;
+        }
     }
 
     /* 输入引脚 */
@@ -76,6 +88,14 @@ static inline void seq_step_program_init_common(PIO pio, uint sm, uint offset,
     sm_config_set_clkdiv(&c, clkdiv);
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_pins(pio, sm, 0);
+
+    /* gate 模式下, 将 wait 指令的 pin index 打到正确的触发偏移 */
+    if (has_gate && trigger_offset != 0u) {
+        uint16_t *instr = (uint16_t *)&pio->instr_mem[offset];
+        /* seq_step_gated: instr[1]=wait 0 pin,0  instr[2]=wait 1 pin,0 */
+        instr[1] = (instr[1] & 0xFFE0u) | (trigger_offset & 0x1Fu);
+        instr[2] = (instr[2] & 0xFFE0u) | (trigger_offset & 0x1Fu);
+    }
 }
 
 /* ── 边沿极性交换 (ARM 时, PIO 启动前调用) ──
