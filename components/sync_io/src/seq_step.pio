@@ -86,6 +86,7 @@ static inline void seq_step_program_init_common(PIO pio, uint sm, uint offset,
     sm_config_set_out_pins(&c, output_base_pin, output_width);
     sm_config_set_out_shift(&c, true, true, (uint)output_width);
     sm_config_set_clkdiv(&c, clkdiv);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);  /* 8->1 TX FIFO: 减少重启间隙下溢 */
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_pins(pio, sm, 0);
 

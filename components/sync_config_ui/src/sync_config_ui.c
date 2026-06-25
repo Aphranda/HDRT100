@@ -385,8 +385,8 @@ static void draw_system_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
              (unsigned long)PROJECT_VERSION_PATCH);
 
     draw_card(u8g2, 4, UI_CARD_Y, 72, UI_CARD_H, "SYSTEM");
-    u8g2_SetFont(u8g2, u8g2_font_6x10_tf);
-    u8g2_DrawStr(u8g2, 10, 37, snapshot->fault_active ? "FAULT" : "ONLINE");
+    u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
+    u8g2_DrawStr(u8g2, 10, 40, snapshot->fault_active ? "FAULT" : "ONLINE");
     draw_kv_line(u8g2, 9, 50, 62, "UP", uptime_buffer);
     draw_kv_line(u8g2, 9, 60, 62, "VER", version_buffer);
     draw_kv_line(u8g2, 9, 70, 62, "MODE", arbiter_mode_to_short(snapshot->arbiter.mode));
@@ -413,22 +413,14 @@ static void draw_trigger_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     snprintf(drop_buffer, sizeof(drop_buffer), "%lu", (unsigned long)snapshot->trigger.dropped_capture_words);
 
     draw_card(u8g2, 82, UI_CARD_Y, 76, UI_CARD_H, "TRIGGER");
-    draw_kv_line(u8g2, 87, 34, 66, "INIT", snapshot->trigger.initialized ? "OK" : "WAIT");
-    draw_kv_line(u8g2, 87, 44, 66, "IO", snapshot->trigger.io_initialized ? "OK" : "WAIT");
-    draw_kv_line(u8g2, 87, 54, 66, "CAP", bool_to_run_stop(snapshot->trigger.capture_running));
-    draw_kv_line(u8g2, 87, 64, 66, "CLK", bool_to_run_stop(snapshot->trigger.sync_clock_running));
-    draw_kv_line(u8g2, 87, 74, 66, "SYNC", bool_to_on_off(snapshot->trigger.sync_clock_enabled));
-    draw_kv_line(u8g2, 87, 84, 66, "TRIG", trigger_width_buffer);
-    draw_kv_line(u8g2, 87, 94, 66, "PULS", pulse_width_buffer);
-    draw_kv_line(u8g2, 87, 104, 66, "MARK", marker_width_buffer);
-    draw_kv_line(u8g2, 87, 114, 66, "DROP", drop_buffer);
-
-    u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
-    u8g2_DrawStr(u8g2, 86, 123, sample_rate_buffer);
-    u8g2_DrawStr(u8g2,
-                 (u8g2_uint_t)(155u - u8g2_GetStrWidth(u8g2, clock_rate_buffer)),
-                 123,
-                 clock_rate_buffer);
+    draw_kv_line(u8g2, 87, 40, 66, "INIT", snapshot->trigger.initialized ? "OK" : "WAIT");
+    draw_kv_line(u8g2, 87, 50, 66, "IO", snapshot->trigger.io_initialized ? "OK" : "WAIT");
+    draw_kv_line(u8g2, 87, 60, 66, "CAP", bool_to_run_stop(snapshot->trigger.capture_running));
+    draw_kv_line(u8g2, 87, 70, 66, "CLK", bool_to_run_stop(snapshot->trigger.sync_clock_running));
+    draw_kv_line(u8g2, 87, 80, 66, "SYNC", bool_to_on_off(snapshot->trigger.sync_clock_enabled));
+    draw_kv_line(u8g2, 87, 90, 66, "TRIG", trigger_width_buffer);
+    draw_kv_line(u8g2, 87, 100, 66, "PULS", pulse_width_buffer);
+    draw_kv_line(u8g2, 87, 110, 66, "DROP", drop_buffer);
 }
 
 static void draw_ota_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
@@ -449,15 +441,15 @@ static void draw_ota_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     snprintf(event_buffer, sizeof(event_buffer), "%lu", (unsigned long)snapshot->ota.last_event);
 
     draw_card(u8g2, 164, UI_CARD_Y, 72, UI_CARD_H, "OTA");
-    draw_kv_line(u8g2, 169, 34, 62, "STATE", ota_state_to_short_label((ota_state_t)snapshot->ota.state));
-    draw_kv_line(u8g2, 169, 44, 62, "PROG", progress_buffer);
-    draw_kv_line(u8g2, 169, 54, 62, "RX", rx_buffer);
-    draw_kv_line(u8g2, 169, 64, 62, "SLOT", ota_slot_to_short_label(snapshot->ota.target_slot));
-    draw_kv_line(u8g2, 169, 74, 62, "RES", ota_result_to_short_label((ota_result_t)snapshot->ota.last_result));
-    draw_kv_line(u8g2, 169, 84, 62, "ERR", error_buffer);
+    draw_kv_line(u8g2, 169, 40, 62, "STATE", ota_state_to_short_label((ota_state_t)snapshot->ota.state));
+    draw_kv_line(u8g2, 169, 49, 62, "PROG", progress_buffer);
+    draw_kv_line(u8g2, 169, 58, 62, "RX", rx_buffer);
+    draw_kv_line(u8g2, 169, 67, 62, "SLOT", ota_slot_to_short_label(snapshot->ota.target_slot));
+    draw_kv_line(u8g2, 169, 76, 62, "RES", ota_result_to_short_label((ota_result_t)snapshot->ota.last_result));
+    draw_kv_line(u8g2, 169, 85, 62, "ERR", error_buffer);
     draw_kv_line(u8g2, 169, 94, 62, "BOOT", ota_boot_result_to_short_label(snapshot->ota.boot_flags_summary));
-    draw_kv_line(u8g2, 169, 104, 62, "SEQ", seq_buffer);
-    draw_kv_line(u8g2, 169, 114, 62, "EVT", event_buffer);
+    draw_kv_line(u8g2, 169, 103, 62, "SEQ", seq_buffer);
+    draw_kv_line(u8g2, 169, 112, 62, "EVT", event_buffer);
 }
 
 static void draw_footer(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
