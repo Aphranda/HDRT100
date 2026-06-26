@@ -664,6 +664,51 @@ SCPI/UI/Button
   -> sync_io / PIO / DMA
 ```
 
+Trigger 域的应用层接口必须使用稳定语义通道，而不是把任意 GPIO 暴露给 SCPI/UI：
+
+```text
+Input semantics:
+  TRIG_IN
+  ARM_IN
+  EXT_CLK_IN
+  GATE_IN
+
+Output semantics:
+  TRIG_OUT
+  PULSE_OUT
+  SYNC_CLK_OUT
+  MARKER_OUT
+```
+
+GPIO16..GPIO23 的实际映射属于 board profile 和 `sync_io` 的职责。`TriggerAO`、
+`TriggerFB`、SCPI 和 UI 只能表达“使用 ARM_IN 作为 arm qualifier”、
+“打开 SYNC_CLK_OUT”这类语义意图，不能把产品功能设计成任意 GPIO 交叉开关。
+需要暴露原始 GPIO 的命令只能作为开发诊断或板级 profile 配置，并且必须经过
+资源仲裁。
+
+产品接口分为主触发口和 AUX 功能口：
+
+| 接口 | 角色 | 语义 |
+|---|---|---|
+| 主输入 IN0..IN3 / GPIO16..19 | 模式本地高速输入 | `TRIG_IN`、`GATE_IN`、编码器 A/B/Z、后续计数/采样输入 |
+| 主输出 OUT0..OUT3 / GPIO20..23 | 模式本地高速输出 | `TRIG_OUT`、`PULSE_OUT`、`SEQ_OUT[3:0]` |
+| AUX0..AUX3 / GPIO26..29 | 跨模式框架功能 | `ARM_IN`、`EXT_CLK_IN`、`SYNC_CLK_OUT`、`MARKER_OUT` |
+
+这样主输入/输出更加纯粹：触发模式可以独占主口做硬实时闭环，框架层
+ARM、参考时钟、同步输出和状态标记不再与编码器 B/Z 或序列 bit2/bit3 抢通道。
+
+当前统一物理 IO 下，语义通道会被触发模式和 AUX 功能口共同约束：
+
+| 模式 | 应用层资源约束 |
+|---|---|
+| `SEQ_STEP` | OUT0..OUT3 被序列输出总线独占；独立主总线输出应返回 busy 或在 ARM 前关闭。`ARM_IN` 位于 AUX0，后续可作为管理面/资格输入接入。`SYNC_CLK_OUT`/`MARKER_OUT` 产品目标位于 AUX2/AUX3，不应占用序列输出总线。 |
+| `ENC_COUNT` | IN0/IN1/IN3 分别作为 A/B/Z；`ARM_IN` 位于 AUX0，因此不再与 B 相冲突。`GATE_IN` 如果仍定义在 IN3，则与 Z 相冲突，需要未来单独仲裁或迁移。 |
+| `IDLE` | 语义输出可由即时命令使用；语义输入只做采样/诊断或配置预览。 |
+
+当前固件仍有部分旧实现把 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 绑定在
+GPIO17/18/22/23。产品化迁移应把这些框架功能搬到 AUX0..AUX3，并保留
+`GPIO26..29` 编码器输入组作为开发诊断复用，而不是量产默认模式。
+
 Trigger 域可以拒绝 OTA：
 
 ```text

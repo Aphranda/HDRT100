@@ -45,6 +45,140 @@
 
 ## 任务记录
 
+### TASK-20260626-020 - AUX 功能接口产品约束
+
+- 状态：完成
+- 日期：2026-06-26
+- 任务目标：
+  - 将跨模式框架功能信号约束到 AUX 接口，使主输入/输出口更加纯粹。
+  - 明确主触发口只承载高速触发、编码器、门控和序列输出；AUX 口承载 `ARM_IN`、`EXT_CLK_IN`、`SYNC_CLK_OUT`、`MARKER_OUT`。
+- 完成内容：
+  - `docs/PIO_RESOURCE_PLAN.md` 将产品 AUX 功能接口定义为：
+    - AUX0/GPIO26 = `ARM_IN`
+    - AUX1/GPIO27 = `EXT_CLK_IN`
+    - AUX2/GPIO28 = `SYNC_CLK_OUT`
+    - AUX3/GPIO29 = `MARKER_OUT`
+  - 将主口 `GPIO16..GPIO23` 约束为模式本地高速 IO：`SEQ_STEP` 和 `ENC_COUNT` 可独占主输入/输出口，跨模式功能不再抢主口通道。
+  - `docs/SCPI_COMMANDS.md` 更新语义 IO 表和互斥说明：`TRIG:ENC:APIN 26` 属于开发诊断复用，会占用 AUX 功能接口，量产默认仍使用 `16` 组。
+  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 补充主触发口 + AUX 功能口的架构分层，明确上层语义接口不再绑定到主口 GPIO17/18/22/23。
+  - `docs/SYNC_TRIGGER_TODO.md` 新增代码迁移待办：将 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 从旧路径迁移到 AUX0..AUX3，并实现 AUX owner/arbiter。
+  - `boards/rp2350_trig/inc/board_config.h` 新增产品 AUX 语义别名宏，不改变当前运行行为。
+- 验证结果：
+  - `cmake --build build-codex-trigger-enc` 通过。
+  - build id：`20260626063043`，package CRC32：`0x4BB3CB99`。
+  - 本次只新增 AUX 语义别名宏和文档约束，未迁移运行路径，未烧录。
+- 还需完成：
+  - 迁移当前固件旧路径：`BOARD_SYNC_ARM_IN_PIN`、`BOARD_SYNC_EXT_CLK_IN_PIN`、`BOARD_SYNC_SYNC_CLK_OUT_PIN`、`BOARD_SYNC_MARKER_OUT_PIN` 仍指向 GPIO17/18/22/23。
+  - 为 AUX 功能接口增加资源仲裁，确保开发诊断 `TRIG:ENC:APIN 26` 与 AUX 产品功能互斥。
+- 关联文件：
+  - `docs/PIO_RESOURCE_PLAN.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+  - `boards/rp2350_trig/inc/board_config.h`
+- 下一步：
+  - 按 AUX 语义别名迁移 `sync_io` 的 `SYNC_CLK_OUT/MARKER_OUT` 输出路径，再接入 `ARM_IN` 管理面资格输入。
+
+### TASK-20260626-019 - 触发应用层语义接口约束
+
+- 状态：完成
+- 日期：2026-06-26
+- 任务目标：
+  - 将触发系统的应用层接口从具体 GPIO 中抽象出来，约束为稳定语义通道，例如 `ARM_IN`、`TRIG_IN`、`GATE_IN`、`SYNC_CLK_OUT`。
+  - 明确不同触发模式 armed 后对语义输入/输出的独占关系，避免 SCPI/UI 后续继续暴露任意 GPIO 路由。
+- 完成内容：
+  - `docs/PIO_RESOURCE_PLAN.md` 新增 Framework/Application Interface Contract，定义输入 `TRIG_IN/ARM_IN/EXT_CLK_IN/GATE_IN` 和输出 `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT` 的语义、物理通道和 GPIO 映射。
+  - 明确 `ARM_IN` 是应用层外部 ARM 资格/请求，不属于当前 `SEQ_STEP` PIO 实时循环；在 `ENC_COUNT` 量产映射中 IN1 被 B 相占用，因此 `ARM_IN` 不可作为独立资格信号。
+  - 明确 `SEQ_STEP` armed 时 OUT0..OUT3 被序列总线独占，独立 `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT` 命令应 busy 或在 ARM 前关闭。
+  - 明确 `ENC_COUNT` armed 时 IN0/IN1/IN3 被 A/B/Z 独占，OUT0 被比较触发独占；`GATE_IN` 在 IN3 被 Z 相占用时不可作为独立门控。
+  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 补充 Trigger 域上层接口规则：SCPI/UI/TriggerAO 使用语义通道，GPIO 映射归 board profile 和 `sync_io`。
+  - `docs/SCPI_COMMANDS.md` 增加应用层语义 IO 与资源互斥说明。
+  - `docs/SYNC_TRIGGER_TODO.md` 标记语义接口约束完成，并新增后续代码仲裁待办。
+- 验证结果：
+  - 文档约束更新完成；本任务未改固件代码，未重新构建或烧录。
+- 还需完成：
+  - 在代码中实现语义 IO 资源 owner/arbiter：armed 状态下对冲突 SCPI 命令返回 busy 或 unavailable。
+  - 后续真正接入 `ARM_IN` 时，需要按该契约处理与 `ENC_COUNT` B 相的硬件通道冲突。
+- 关联文件：
+  - `docs/PIO_RESOURCE_PLAN.md`
+  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 按语义 IO 契约补 `sync_trigger`/SCPI 层资源仲裁，优先拦截 `SEQ_STEP` armed 后的独立输出和同步时钟冲突。
+
+### TASK-20260626-018 - 统一触发物理 IO 定义
+
+- 状态：完成
+- 日期：2026-06-26
+- 任务目标：
+  - 明确不同触发模式使用相同的物理输入/输出通道，方便硬件统一增加施密特触发器、输入保护/隔离和输出驱动器。
+  - 收敛 `ENC_COUNT` 可选 `GPIO26..GPIO29` 输入组的定位，避免被误解为量产默认接线。
+- 完成内容：
+  - `docs/PIO_RESOURCE_PLAN.md` 新增统一物理 IO 策略：产品高速触发接口固定为 `GPIO16..GPIO19` 输入和 `GPIO20..GPIO23` 输出。
+  - 明确不同模式只改变逻辑含义，不改变正常产品外部接线：
+    - `SEQ_STEP`：IN0=`TRIG_IN`，IN3=`GATE_IN`，OUT0..3=`SEQ_OUT[3:0]`。
+    - `ENC_COUNT`：IN0=A，IN1=B，IN3=Z，OUT0=`TRIG_OUT`。
+  - `docs/SYNC_TRIGGER_TODO.md` 标记统一物理 IO 定义完成，并注明 `GPIO26..GPIO29` 仅作为 AUX/开发验证扩展。
+  - `docs/SCPI_COMMANDS.md` 更新 `TRIG:ENC:APIN <16|26>` 说明：量产默认使用 `16`，`26` 为开发验证扩展。
+- 验证结果：
+  - 文档约束更新完成；本任务未改代码，未重新构建或烧录。
+- 还需完成：
+  - 后续新增触发模式时必须先检查是否能映射到统一物理 IO 层；如需要新增物理通道，应同步更新硬件前端和 PIO 资源规划。
+- 关联文件：
+  - `docs/PIO_RESOURCE_PLAN.md`
+  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/SCPI_COMMANDS.md`
+- 下一步：
+  - 若要继续代码闭环，优先在统一物理 IO 约束下实现电平触发模式或完善 `ARM_IN` 管理面语义。
+
+### TASK-20260626-017 - ENC_COUNT 引脚配置闭环与触发文档同步
+
+- 状态：完成
+- 日期：2026-06-26
+- 任务目标：
+  - 按 `docs/SYNC_TRIGGER_TODO.md` 逐项收敛触发待办，先闭环 P1 行为一致性问题：`ENC_COUNT` 引脚配置表面可配但 ARM 仍固定使用 `GPIO16..GPIO19`。
+  - 顺手修正 `ENC_COUNT` DMA 启动前使用 `dma_channel_unclaim()` 清理通道的风险，与 SEQ_STEP 高频稳定性修复保持一致。
+  - 同步更新触发 TODO 和 SCPI 文档，避免公开接口说明与实现脱节。
+- 完成内容：
+  - `trigger_fb.c` 新增 ENC 输入组合法性校验，当前支持 `GPIO16..GPIO19` 与 `GPIO26..GPIO29` 两组 4-pin 输入组；A=base、B=base+1、Z=base+3。
+  - `fb_enc_configured_arm()` 改为使用 TriggerVector 下发的 `enc_a_pin` 作为 `sync_io_enc_count_arm()` 的输入组基脚，不再硬编码 `BOARD_SYNC_INPUT_BASE_PIN`。
+  - `sync_io_enc_count_arm()` 改为把传入的 `in_pin_base` 下发到 `enc_count_program_init()`，并将 DMA 清理从 `dma_channel_unclaim()` 改为 `dma_channel_abort()`。
+  - `TRIG:ENC:APIN <16|26>` 改为选择 ENC 输入组基脚，并自动派生 B/Z；新增 `TRIG:ENC:APIN?` 返回当前 A/B/Z 实际 GPIO。
+  - 更新 `docs/SYNC_TRIGGER_TODO.md`，将 `ENC_COUNT` 引脚配置和 ENC DMA 清理标记闭环。
+  - 更新 `docs/SCPI_COMMANDS.md`，补齐 ENC_COUNT、PCNT 参数和触发测量命令说明。
+  - 更新 `trigger_vector.h` 中过时的 DMA ring buffer 注释，说明当前使用 ISR 手动复位 `read_addr`。
+- 验证结果：
+  - 旧构建目录 `build-baremetal-trigger-gate` 因 CMake cache 记录旧 `D:/OneDrive/...` 路径，无法在当前 `E:/...` 工作区直接复用；已改用新干净构建目录验证。
+  - `cmake -S . -B build-codex-trigger-enc -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF -DPROJECT_USE_FREERTOS=OFF` 通过。
+  - `cmake --build build-codex-trigger-enc` 通过。
+  - build id：`20260626040831`，package CRC32：`0xB575E2A0`。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build-codex-trigger-enc` 通过，`release_check=OK`。
+  - 已烧录 `build-codex-trigger-enc/RP2350_TRIG_FACTORY.uf2` 到板端；picotool 自动请求设备进入 BOOTSEL，烧录完成后自动回到 application mode。
+  - 板端 COM4 SCPI smoke 通过：
+    - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
+    - `SYST:FW:BUILD? -> "20260626040831"`
+    - 默认 `TRIG:ENC:APIN? -> 16,17,19`
+    - `TRIG:ENC:APIN 26 -> "OK"` 后 `TRIG:ENC:APIN? -> 26,27,29`
+    - `TRIG:ENC:TARG 100 -> "OK"`，`TRIG:MODE 2 -> "OK"`，`STAT:TRIG? -> "ENC_COUNT",3,16,0,100,0,0,0,0`
+    - `TRIG:ARM -> "OK"`，板端日志确认 `enc_count armed: target=100 pins=A26/B27/Z29`，`STAT:TRIG? -> "ENC_COUNT",4,16,0,100,0,0,0,0`
+    - `TRIG:DIS -> "OK"`，板端日志确认 `enc_count disarmed: fire_count=0 dma_restarts=0`，`STAT:TRIG? -> "ENC_COUNT",0,16,0,100,0,0,0,0`
+    - `TRIG:ENC:APIN 16 -> "OK"` 后 `TRIG:ENC:APIN? -> 16,17,19`
+- 还需完成：
+  - 使用真实编码器或信号源对 `GPIO26..GPIO29` 输入组做板端计数验证。
+  - 若未来需要任意非连续 A/B/Z 引脚组合，需要重写/生成 `enc_count.pio` 的 pin mapping，而不是只配置 base pin。
+- 关联文件：
+  - `components/sync_trigger/src/trigger_fb.c`
+  - `components/sync_io/src/sync_io.c`
+  - `components/sync_trigger/inc/trigger_vector.h`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/SCPI_COMMANDS.md`
+- 下一步：
+  - 继续按 `docs/SYNC_TRIGGER_TODO.md` 处理 P0/P1 未闭环项，优先建议做 `ARM_IN` 接入或电平触发模式。
+
 ### TASK-20260625-014 - 同步触发 P0 阻塞问题修复
 
 - 状态：完成
@@ -2569,6 +2703,35 @@
   - `README.md`
 - 下一步：
   - 将 OTA 作为第一个 HAOFV 架构落地模块。
+
+### TASK-20260626-016 - 系统超频、UI 优化与多轮验证
+
+- 状态：完成
+- 日期：2026-06-26
+- 任务目标：
+  - clk_sys 150→250 MHz 超频，提升 PIO 采样率和测频精度。
+  - 修复 LCD 卡片内容与标题字体重叠。
+  - LCD 顶栏显示触发模式/状态、引脚、边沿、实时计数。
+  - 10 轮连续稳定性验证（250 MHz + 10 MHz 信号）。
+- 完成内容：
+  - `board_config.h` 新增 `BOARD_SYS_CLOCK_HZ 250000000u`，`board.c` 在 `board_init()` 首行调用 `set_sys_clock_hz()`。
+  - PIO 上限 50→83 MHz，seq_step 延迟 20→12 ns。
+  - `sync_config_ui.c`：SYSTEM/TRIGGER/OTA 三栏卡片内容首行 y 坐标全部上调 6px（34→40），消除与标题区（y+9 基线 5x8 字体）的重叠。SYSTEM 卡片第一行从 6x10 改为 5x8。
+  - OTA 卡片内容行距从 10px 压缩到 9px，最后一笔 y=112 不超出卡片底边（y=114）。
+  - 顶栏 `draw_header()` 改用大字（6x13B）显示触发模式+状态（如 "SEQ ARM"），第二行显示源引脚+边沿+实时触发计数。
+- 验证结果：
+  - `cmake --build build-baremetal-trigger-gate` 0 errors 0 warnings。
+  - 250 MHz 下 USB CDC 正常，`*IDN?` 响应正确。
+  - 10 MHz 信号 10 轮连续测试全过：
+    - 150 MHz: spread 167–426 ppm, stdev 653–1654 Hz
+    - **250 MHz: spread 73–220 ppm, stdev 328–922 Hz（~50% 提升）**
+    - 9/10 GOOD + 1/10 EXCELLENT，零 NO SIGNAL。
+  - LCD 不再有标题重叠，顶栏实时显示触发状态。
+- 关联文件：
+  - `boards/rp2350_trig/inc/board_config.h`
+  - `boards/rp2350_trig/src/board.c`
+  - `components/sync_config_ui/src/sync_config_ui.c`
+  - `docs/SYNC_TRIGGER_TODO.md`
 
 ### TASK-20260626-015 - SEQ_STEP 高频触发稳定性修复与 Python 工具优化
 

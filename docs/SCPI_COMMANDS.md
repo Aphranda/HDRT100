@@ -56,15 +56,46 @@
 
 | 命令 | 说明 |
 |---|---|
-| `OUTP:CLOC:FREQ <Hz>` | 设置 `GPIO22/SYNC_CLK_OUT` 输出频率。 |
+| `OUTP:CLOC:FREQ <Hz>` | 设置 `SYNC_CLK_OUT` 输出频率。产品目标映射为 AUX2/GPIO28；当前固件仍在旧路径 GPIO22，需迁移。 |
 | `OUTP:CLOC:FREQ?` | 查询同步时钟频率。 |
 | `OUTP:CLOC:STAT ON` | 启动同步时钟输出。 |
 | `OUTP:CLOC:STAT OFF` | 停止同步时钟输出。 |
 | `OUTP:CLOC:STAT?` | 查询同步时钟输出状态。 |
 
+## 应用层语义 IO 与资源互斥
+
+SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切换任意 GPIO。量产默认映射为：
+
+| 语义通道 | 产品物理通道 | GPIO | 说明 |
+|---|---|---:|---|
+| `TRIG_IN` | IN0 | 16 | 主触发、脉冲计数或编码器 A 相输入。 |
+| `ARM_IN` | AUX0 | 26 | 外部 ARM 资格/请求；产品目标放在 AUX，避免与 `ENC_COUNT` B 相冲突。当前固件尚未接入 TriggerFB。 |
+| `EXT_CLK_IN` | AUX1 | 27 | 外部参考/采样时钟预留；产品目标放在 AUX，避免污染主输入组。 |
+| `GATE_IN` | IN3 | 19 | 外部门控/抑制；在 `ENC_COUNT` 中由 Z 相占用。 |
+| `TRIG_OUT` | OUT0 | 20 | 主确定性触发输出。 |
+| `PULSE_OUT` | OUT1 | 21 | 第二路脉冲或 `SEQ_STEP` bit1。 |
+| `SYNC_CLK_OUT` | AUX2 | 28 | 同步时钟；产品目标放在 AUX，避免与 `SEQ_STEP` bit2 冲突。当前固件仍在旧路径 GPIO22。 |
+| `MARKER_OUT` | AUX3 | 29 | Marker/debug/status；产品目标放在 AUX，避免与 `SEQ_STEP` bit3 冲突。当前固件仍在旧路径 GPIO23。 |
+
+资源互斥规则：
+
+| 状态/模式 | SCPI 约束 |
+|---|---|
+| `SEQ_STEP` armed | 主输出总线 OUT0..OUT3 被序列引擎独占；`TRIG:IMM`、`PULS:IMM` 这类主总线即时输出应返回 busy 或在 ARM 前关闭。产品迁移后 `SYNC_CLK_OUT`/`MARKER_OUT` 使用 AUX2/AUX3，可独立于序列总线。 |
+| `ENC_COUNT` armed | IN0/IN1/IN3 被 A/B/Z 独占；AUX0=`ARM_IN` 可作为未来独立资格输入。IN3=`GATE_IN` 与 Z 相仍冲突。OUT0 被比较触发占用。 |
+| `IDLE` | 即时脉冲、同步时钟和 Marker 命令可以使用各自语义输出。 |
+
+`TRIG:ENC:APIN <16|26>` 中的 `26` 组属于开发/诊断级复用，会占用 AUX0..AUX3；
+产品默认仍应使用 `16` 组。后续新增 SCPI/UI 配置应优先使用 `TRIG_IN`、
+`ARM_IN`、`SYNC_CLK_OUT` 等语义名，而不是直接公开任意 GPIO。
+
 ## SEQ_STEP 编码序列步进模式
 
 触发输入每个上升沿使编码输出步进到下一序列值。详细设计见 `docs/TRIGGER_SEQ_STEP_MODE.md`。
+
+产品硬件默认固定使用统一主触发 IO：输入 `GPIO16..GPIO19`，输出 `GPIO20..GPIO23`。
+这些通道只承载模式相关的高速输入/输出；跨模式功能信号如 `ARM_IN`、`EXT_CLK_IN`、
+`SYNC_CLK_OUT`、`MARKER_OUT` 约束在 AUX0..AUX3。
 
 | 命令 | 说明 |
 |---|---|
@@ -81,11 +112,57 @@
 | `TRIG:DISA` | 停止 PIO + DMA，回到 IDLE。 |
 | `STAT:TRIG?` | 触发域摘要：模式、状态、seq_index、rollover_count、error_code。 |
 
+## ENC_COUNT 编码器计数触发模式
+
+编码器 A 相上升沿计数，达到目标计数后在 `GPIO20/TRIG_OUT` 输出触发脉冲。详细设计见 `docs/TRIGGER_ENC_COUNT_MODE.md`。
+
+| 命令 | 说明 |
+|---|---|
+| `TRIG:MODE 2` | 设置触发模式为 `ENC_COUNT`。 |
+| `TRIG:ENC:TARG <N>` | 设置目标计数值，`N > 0`。 |
+| `TRIG:ENC:TARG?` | 查询目标计数值。 |
+| `TRIG:ENC:COUN?` | 查询当前计数快照。 |
+| `TRIG:ENC:APIN <16\|26>` | 选择编码器输入组基脚。产品默认 `16` = A/B/Z `GPIO16/GPIO17/GPIO19`；`26` = A/B/Z `GPIO26/GPIO27/GPIO29` 仅作为开发诊断复用，会占用 AUX 功能接口。 |
+| `TRIG:ENC:APIN?` | 查询当前 A/B/Z 实际 GPIO，返回 `A,B,Z`。 |
+| `TRIG:ENC:REV?` | 查询 Z 脉冲累计圈数。 |
+
+当前 `enc_count.pio` 使用 4-pin 连续输入组采样：A=base、B=base+1、base+2 保留、Z=base+3。因此暂不支持任意非连续 A/B/Z 引脚组合。为保持主输入输出纯粹并保留 AUX 功能接口，量产配置应使用 `TRIG:ENC:APIN 16`。
+
+## PCNT 参数接口
+
+以下命令当前写入 TriggerVector/PCNT 配置快照，其中部分能力仍是后续 PIO 增强预留项。
+
+| 命令 | 说明 |
+|---|---|
+| `TRIG:PCNT:DEC <0..3>` | 设置解码模式：`0=SINGLE`，`1=QUAD1X`，`2=QUAD2X`，`3=UPDOWN`。 |
+| `TRIG:PCNT:DEC?` | 查询解码模式。 |
+| `TRIG:PCNT:DIR <0..2>` | 设置方向：`0=CW`，`1=CCW`，`2=BOTH`。 |
+| `TRIG:PCNT:DIR?` | 查询方向配置。 |
+| `TRIG:PCNT:FILT <ns>` | 设置滤波窗口配置值。 |
+| `TRIG:PCNT:FILT?` | 查询滤波窗口配置值。 |
+| `TRIG:PCNT:GATE <ON\|OFF>` | 设置 PCNT 门控配置位。 |
+| `TRIG:PCNT:GATE?` | 查询 PCNT 门控配置位。 |
+| `TRIG:PCNT:CMP <ns>` | 设置比较器触发脉冲宽度配置值。 |
+| `TRIG:PCNT:CMP?` | 查询比较器触发脉冲宽度配置值。 |
+| `TRIG:PCNT:PRES <value>` | 设置预设计数值。 |
+| `TRIG:PCNT:PRES?` | 查询预设计数值。 |
+| `TRIG:PCNT:CLE` | 清零当前 PCNT 计数，并先累计到 `enc_total`。 |
+| `TRIG:PCNT:TOT?` | 查询累计计数。 |
+| `TRIG:PCNT:FREQ?` | 查询频率快照字段。 |
+
+## 触发测量
+
+| 命令 | 说明 |
+|---|---|
+| `MEAS:FREQ? <gate_ms>` | 使用 MCU 内部门控读取 SEQ_STEP 硬件计数，返回频率 Hz。`gate_ms` 建议 10..60000。 |
+| `MEAS:REP?` | 查询最近一次非阻塞测量报告；当前主要供内部工具使用。 |
+
 ## 状态查询
 
 | 命令 | 说明 |
 |---|---|
 | `STAT:SYNC?` | 返回同步 IO 状态：初始化状态、采样状态、时钟状态、采样率、时钟频率、采样溢出计数。 |
+| `STAT:TRIG?` | 返回触发域状态：模式、状态、源引脚、seq_index、enc_target、enc_count、trigger_count、rollover_count、error_code。 |
 
 ## OTA 维护
 

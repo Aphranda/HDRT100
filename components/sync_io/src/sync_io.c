@@ -668,7 +668,7 @@ bool sync_io_enc_count_arm(uint32_t target,
     enc_count_program_init(BOARD_SYNC_PIO_WAVE,
                            s_enc.sm,
                            s_enc.offset,
-                           BOARD_SYNC_INPUT_BASE_PIN,   /* 固定 GPIO16 起始的 4-pin 组 */
+                           in_pin_base,
                            output_pin,
                            1.0f);
 
@@ -677,7 +677,7 @@ bool sync_io_enc_count_arm(uint32_t target,
 
     /* ── DMA 配置: &s_enc.target → PIO TX FIFO, DREQ 节拍 ── */
     s_enc.dma_ch = SYNC_IO_ENC_COUNT_DMA_CH;
-    dma_channel_unclaim(s_enc.dma_ch);
+    dma_channel_abort(s_enc.dma_ch);
 
     {
         dma_channel_config dma_cfg =
@@ -714,7 +714,7 @@ bool sync_io_enc_count_arm(uint32_t target,
              (unsigned long)target,
              (unsigned long)(in_pin_base + 0),
              (unsigned long)(in_pin_base + 1),
-             (unsigned long)(in_pin_base + 2));
+             (unsigned long)(in_pin_base + 3));
 
     return true;
 }

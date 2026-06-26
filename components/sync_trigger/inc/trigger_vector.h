@@ -124,8 +124,8 @@ typedef struct {
     trig_safe_state_t safe_state;       /* IDLE/FAULT 时输出安全态 */
 
     /* SEQ_STEP 配置 (HAOFV: TriggerFB 在 IDLE→SEQ_CONFIGURED 时写入)
-     * seq_table 必须对齐到 1024 字节 — DMA ring buffer 硬件要求
-     * 地址对齐到 ring_size (最大 256×4=1024 bytes) */
+     * seq_table 保持 1024 字节对齐，便于 DMA/调试工具稳定观察。
+     * 当前 DMA 连续循环不使用 ring buffer，而是在 ISR 中手动复位 read_addr。 */
     uint32_t      seq_table[TRIG_SEQ_TABLE_MAX] __attribute__((aligned(1024)));
     uint32_t      seq_length;
     uint32_t      seq_index;

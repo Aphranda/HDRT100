@@ -23,15 +23,40 @@
 
 ### P1 - 行为与接口一致性问题
 
-- [ ] 让 `ENC_COUNT` 引脚配置真正生效。
-  现状：`enc_a_pin`、`enc_b_pin`、`enc_z_pin` 和 SCPI 接口表面可配，但 ARM 仍固定使用 `GPIO16..GPIO19`。
-  处理方向：要么实现真实可配置引脚，要么在实现到位前收窄公开 API 和文档承诺。
+- [x] 让 `ENC_COUNT` 引脚配置真正生效。 (2026-06-26)
+  修复：`sync_io_enc_count_arm()` 不再固定使用 `GPIO16..GPIO19`，而是使用 TriggerVector
+  下发的 `enc_a_pin` 作为 4-pin 输入组基脚。SCPI `TRIG:ENC:APIN <16|26>` 选择输入组：
+  `16` 对应 A/B/Z=`GPIO16/GPIO17/GPIO19`，`26` 对应 A/B/Z=`GPIO26/GPIO27/GPIO29`。
+  量产默认固定使用 `GPIO16..GPIO19`，`GPIO26..GPIO29` 仅作为 AUX/开发验证扩展输入组。
+  由于当前 `enc_count.pio` 使用连续 4-pin 组采样，暂不公开任意非连续 A/B/Z 引脚组合。
+  板端验证：烧录 build `20260626040831` 后，`TRIG:ENC:APIN 26` + `TRIG:ARM`
+  日志确认 `enc_count armed: target=100 pins=A26/B27/Z29`。
 
 - [x] 修复 `PCNT_CLEAR` 统计累计逻辑。 (2026-06-25 已修复)
   修复：`enc_total += enc_count` 现在在 `enc_count = 0` 之前执行，确保清零前的值被累计。
 
 - [x] 对齐文档与实现。 (2026-06-26 已更新)
   本文档已更新，反映最新实现状态（ISR 手动 read_addr 复位、64-bit 计数、无锁原子快照等）。
+
+- [x] 清理 `ENC_COUNT` DMA 通道启动前的残留状态。 (2026-06-26)
+  修复：将 `sync_io_enc_count_arm()` 中的 DMA 通道清理从 `dma_channel_unclaim()` 改为
+  `dma_channel_abort()`，与 SEQ_STEP 的高频稳定性修复保持一致，避免未 claim 通道上的未定义管理行为。
+
+- [x] 明确不同触发模式共用统一物理 IO 定义。 (2026-06-26)
+  产品硬件层固定为 `GPIO16..GPIO19` 四路输入和 `GPIO20..GPIO23` 四路输出，便于统一增加
+  施密特触发器、保护/隔离和输出驱动器。不同模式只改变逻辑含义，不要求用户改接线：
+  `SEQ_STEP` 使用 IN0=`TRIG_IN`、IN3=`GATE_IN`、OUT0..3=`SEQ_OUT[3:0]`；
+  `ENC_COUNT` 使用 IN0=A、IN1=B、IN3=Z、OUT0=`TRIG_OUT`。
+  `GPIO26..GPIO29` 作为 AUX 功能接口，不作为量产编码器默认接线。
+
+- [x] 约束框架/应用层触发语义接口。 (2026-06-26)
+  应用层、SCPI、UI、TriggerVector 默认只使用稳定语义通道：
+  输入 `TRIG_IN/ARM_IN/EXT_CLK_IN/GATE_IN`，输出
+  `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT`。GPIO 映射归 board profile
+  和 `sync_io` 管理，原始 GPIO 选择只作为开发诊断或板级配置。产品目标进一步约束为：
+  主输入/输出口保持纯触发/编码器/序列输出用途；AUX0..AUX3 固定承载跨模式功能
+  `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT`。这样 `ARM_IN` 不再与 `ENC_COUNT` B 相冲突，
+  `SYNC_CLK_OUT/MARKER_OUT` 不再与 `SEQ_STEP` bit2/bit3 冲突。当前固件旧路径仍需迁移。
 
 ## 当前基线
 
@@ -68,7 +93,9 @@
 - [ ] 实现高电平有效、低电平有效的电平触发模式。
 
 - [ ] 将 `ARM_IN` 接入触发状态机。
-  现状：GPIO17 已定义 `BOARD_SYNC_ARM_IN_PIN`，只做了 pull-down，未接入 TriggerFB。
+  现状：旧宏 `BOARD_SYNC_ARM_IN_PIN` 仍定义为 GPIO17，且只做了 pull-down，未接入 TriggerFB。
+  产品约束：`ARM_IN` 应迁移到 AUX0/GPIO26，作为应用层外部 ARM 资格/请求，不占用主输入组；
+  因此后续可与 `ENC_COUNT` B 相并存。
 
 - [x] 将 `GATE_IN` 接入触发条件判定。 (2026-06-25，基础版)
   已实现：`seq_step_gated` PIO 程序（4 指令），TriggerFB 中 `gate_enabled` 开关，
@@ -95,10 +122,13 @@
 - [ ] 为关键内部事件增加同步 Marker 脉冲输出。
 
 - [ ] 增加 `EXT_CLK_IN` 外部时钟输入模式。
-  现状：GPIO18 已定义 `BOARD_SYNC_EXT_CLK_IN_PIN`，只做了 pull-down。
+  现状：旧宏 `BOARD_SYNC_EXT_CLK_IN_PIN` 仍定义为 GPIO18，只做了 pull-down。
+  产品约束：`EXT_CLK_IN` 应迁移到 AUX1/GPIO27，避免占用主输入组 IN2。
 
 - [x] 增加 `SYNC_CLK_OUT` 输出时钟分频配置。 (2026-06-25)
   SCPI: `OUTP:CLOC:FREQ <Hz>`，PIO `sync_clock` 程序（2 指令）实现。
+  当前实现仍输出到旧 GPIO22。产品约束：`SYNC_CLK_OUT` 应迁移到 AUX2/GPIO28，
+  避免与 `SEQ_STEP` OUT2/bit2 冲突。
 
 - [ ] 处理输出忙状态下多个触发源同时到来的冲突策略。
 
@@ -145,6 +175,17 @@
 
 - [ ] 增加编译期检查，避免引脚冲突和 PIO 状态机冲突。
 
+- [ ] 增加应用层语义 IO 资源仲裁。
+  按 `docs/PIO_RESOURCE_PLAN.md` 的接口契约，在代码中拒绝模式 armed 后的语义通道冲突：
+  `SEQ_STEP` 独占主 OUT0..OUT3，`ENC_COUNT` 独占主 IN0/IN1/IN3 和 OUT0；
+  AUX0..AUX3 作为 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 的跨模式功能口，
+  需要独立 owner/arbiter。`TRIG:ENC:APIN 26` 作为开发诊断复用时必须占用并锁定 AUX 功能接口。
+
+- [ ] 将 AUX 功能接口落实到代码。
+  产品目标：AUX0/GPIO26=`ARM_IN`，AUX1/GPIO27=`EXT_CLK_IN`，AUX2/GPIO28=`SYNC_CLK_OUT`，
+  AUX3/GPIO29=`MARKER_OUT`。需要迁移 board 宏、`sync_io` 初始化、SCPI 输出时钟/marker 路径，
+  并保留 `TRIG:ENC:APIN 26` 为互斥的开发诊断模式。
+
 ## P2 - UI 和配置
 
 - [x] 将 U8G2 配置页绑定到真实的 `sync_trigger` 参数。 (2026-06-24)
@@ -182,9 +223,10 @@
 ## P2 - 编码器协议兼容
 
 - [ ] BiSS-B (≤10 MHz) — 单 PIO SM: CLK 输出 + DATA 输入采样 + START 检测, ~15 指令, 可行
-- [ ] BiSS-C (100 MHz) — PIO 不可行 (仅 1.5 clk_sys 周期/bit), 需外部 FPGA/ASIC (iC-MU 等)
+- [ ] BiSS-C (100 MHz) — PIO 不可行 (仅 1.5 clk_sys 周期/bit @ 150MHz), 需外部 FPGA/ASIC (iC-MU 等)
+  - 250 MHz 下 2.5 周期/bit，仍然不可行
 - [ ] EnDat 2.1 (≤2 MHz) — 双 PIO SM: CLK 生成 + 半双工 DATA + 命令组装, ~25-30 指令, 可行
-- [ ] EnDat 2.2 (≤16 MHz) — 临界, 2.3 clk_sys 周期/bit @150MHz, 需实验验证
+- [ ] EnDat 2.2 (≤16 MHz) — 临界, 2.3 周期/bit @150MHz, **250MHz 下 3.9 周期/bit 可行**
 - [ ] 协议模式作为 HAOFV `TRIG_MODE_BISS` / `TRIG_MODE_ENDAT` 落地
 
 ## P3 - 验证
@@ -193,13 +235,19 @@
   回环测试（GPIO22→GPIO16）、10 MHz 外部信号源连续 10 轮验证通过。
 
 - [x] 测量默认 `clk_sys` 下的输入到输出延迟。 (2026-06-26)
-  PIO `seq_step` 3 指令 @ 150 MHz ≈ 20 ns 输入到输出延迟。
+  PIO `seq_step` 3 指令 @ 150 MHz ≈ 20 ns。@ 250 MHz ≈ 12 ns。
 
 - [x] 测量不同代表性脉宽下的输出脉宽误差。 (2026-06-25)
-  验证 `sync_pulse` PIO 程序输出精度（clk_sys/1 分辨率 ≈6.67 ns）。
+  验证 `sync_pulse` PIO 程序输出精度（clk_sys/1 分辨率：6.67ns@150M, 4ns@250M）。
 
 - [x] 测量启用 DMA 后的最大稳定输入采样率。 (2026-06-26)
-  已测 10 MHz 连续稳定。理论 PIO 极限 ~50 MHz，推荐实用上限 ~30 MHz。
+  - @150 MHz: 10 MHz 连续 10 轮稳定，理论 50 MHz，推荐 ~30 MHz
+  - @250 MHz: 10 MHz 连续 10 轮稳定，理论 83 MHz，推荐 ~50 MHz
+
+- [x] **系统时钟超频验证** (2026-06-26)
+  - clk_sys 150→250 MHz，PIO 上限 50→83 MHz
+  - 10 MHz 信号 10 轮对比：spread 降 ~40%（167-426→73-220 ppm），stdev 降 ~50%
+  - USB CDC 保持 48 MHz 正常通信，LCD/SPI 正常
 
 - [ ] 测量最大稳定输出 burst 频率。
 

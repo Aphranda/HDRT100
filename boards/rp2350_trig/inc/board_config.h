@@ -85,4 +85,13 @@
 #define BOARD_SYNC_AUX3_PIN 29u
 #define BOARD_SYNC_AUX_PIN_COUNT 4u
 
+/* Product AUX semantic aliases.
+ * Current low-level trigger paths still use the legacy BOARD_SYNC_* pins above.
+ * Product migration should move framework-level ARM/EXT_CLK/SYNC/MARKER
+ * functions to these AUX aliases so the main trigger IO remains mode-pure. */
+#define BOARD_SYNC_AUX_ARM_IN_PIN      BOARD_SYNC_AUX0_PIN
+#define BOARD_SYNC_AUX_EXT_CLK_IN_PIN  BOARD_SYNC_AUX1_PIN
+#define BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN BOARD_SYNC_AUX2_PIN
+#define BOARD_SYNC_AUX_MARKER_OUT_PIN  BOARD_SYNC_AUX3_PIN
+
 #endif

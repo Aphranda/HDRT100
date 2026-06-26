@@ -584,17 +584,27 @@ static scpi_result_t scpi_cmd_enc_count_q(scpi_t *context)
 static scpi_result_t scpi_cmd_enc_a_pin(scpi_t *context)
 {
     uint32_t pin;
-    if (!scpi_port_read_u32(context, &pin) || pin < 16u || pin > 29u) {
+    if (!scpi_port_read_u32(context, &pin) || (pin != 16u && pin != 26u)) {
         return SCPI_RES_ERR;
     }
 
-    trigger_vector_t v;
-    sync_trigger_get_vector(&v);
+    /* enc_count.pio samples a 4-pin group:
+     * A=base, B=base+1, offset2 spare, Z=base+3. */
     const trig_event_t ev = {
         .type = TRIG_EVENT_SET_ENC_PINS,
-        .payload.value = pin | (v.enc_b_pin << 8) | (v.enc_z_pin << 16),
+        .payload.value = pin | ((pin + 1u) << 8) | ((pin + 3u) << 16),
     };
     return sync_trigger_post(&ev) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_enc_a_pin_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.enc_a_pin);
+    SCPI_ResultUInt32(context, vector.enc_b_pin);
+    SCPI_ResultUInt32(context, vector.enc_z_pin);
+    return SCPI_RES_OK;
 }
 
 static scpi_result_t scpi_cmd_enc_rev_q(scpi_t *context)
@@ -1153,6 +1163,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "TRIGger:ENC:TARGet?", .callback = scpi_cmd_enc_target_q},
     {.pattern = "TRIGger:ENC:COUNt?", .callback = scpi_cmd_enc_count_q},
     {.pattern = "TRIGger:ENC:APIN", .callback = scpi_cmd_enc_a_pin},
+    {.pattern = "TRIGger:ENC:APIN?", .callback = scpi_cmd_enc_a_pin_q},
     {.pattern = "TRIGger:ENC:REVolution?", .callback = scpi_cmd_enc_rev_q},
     {.pattern = "TRIGger:PCNT:DECode", .callback = scpi_cmd_pcnt_decode},
     {.pattern = "TRIGger:PCNT:DECode?", .callback = scpi_cmd_pcnt_decode_q},

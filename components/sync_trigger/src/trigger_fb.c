@@ -21,6 +21,20 @@ typedef enum {
 typedef fb_result_t (*fb_handler_t)(trigger_vector_t *vector,
                                     const trig_event_t *event);
 
+static bool fb_valid_enc_pin_group(const trigger_vector_t *vector)
+{
+    if (vector == NULL) {
+        return false;
+    }
+
+    if (vector->enc_a_pin != 16u && vector->enc_a_pin != 26u) {
+        return false;
+    }
+
+    return vector->enc_b_pin == (vector->enc_a_pin + 1u) &&
+           vector->enc_z_pin == (vector->enc_a_pin + 3u);
+}
+
 /* ── 即时脉冲处理器（IDLE / SEQ_CONFIGURED / FAULT 状态共用）── */
 
 static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
@@ -270,7 +284,7 @@ static fb_result_t fb_idle_configure_enc(trigger_vector_t *vector,
         vector->error_code = 10u;
         return FB_ERROR;
     }
-    if (vector->enc_a_pin < 16u || vector->enc_b_pin < 16u) {
+    if (!fb_valid_enc_pin_group(vector)) {
         vector->error_code = 11u;   /* invalid encoder pins */
         return FB_ERROR;
     }
@@ -297,7 +311,7 @@ static fb_result_t fb_enc_configured_arm(trigger_vector_t *vector,
     }
 
     if (!sync_io_enc_count_arm(vector->enc_target,
-                                BOARD_SYNC_INPUT_BASE_PIN,  /* 固定 GPIO16, 4-pin 组 */
+                                vector->enc_a_pin,
                                 BOARD_SYNC_TRIG_OUT_PIN)) {
         resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO1);
         vector->error_code = 3u;
