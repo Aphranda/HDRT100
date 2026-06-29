@@ -45,6 +45,57 @@
 
 ## 任务记录
 
+### TASK-20260629-002 - A0-A3 分布式触发业务流程细化
+
+- 状态：完成
+- 日期：2026-06-29
+- 任务目标：
+  - 将分布式 DPLL/CAL_RING 方案从抽象多板同步，细化为转台、DUT、馈源和网分四类板卡的实际测试流程。
+  - 明确转台 TTL 位置脉冲如何转换为位置触发事件，A1/A2 如何完成链路切换，A3 如何触发网分并等待 `REDY/READY` 后推进下一轮。
+- 完成内容：
+  - `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md` 新增 A0-A3 业务拓扑：A0=转台板卡/Master，A1=DUT/SP8T，A2=馈源极化，A3=网分触发与 READY 回读。
+  - 将 AUX 环路更新为 A0→A1→A2→A3→A0。
+  - 新增一轮测试状态机：`WAIT_POS`、`DISTRIBUTE_POS`、`DUT_SWITCH`、`FEED_SWITCH`、`VNA_TRIGGER`、`WAIT_VNA_READY`、`ROUND_DONE`。
+  - 新增业务帧建议：`SYNC`、`POS_TRIG`、`A1_DONE`、`A2_DONE`、`MEAS_DONE`、`FAULT`。
+  - 更新 `docs/SYNC_TRIGGER_TODO.md`，补充 A0-A3 角色和状态机待办。
+- 验证结果：
+  - 本任务只更新文档，未改固件代码，未重新构建或烧录。
+- 还需完成：
+  - 在代码中实现 A0-A3 role profile、业务帧解析、超时处理和 `REDY/READY` 捕获。
+- 关联文件：
+  - `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md`
+  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 先实现 A0 单板 TTL 位置脉冲捕获与 `sequence_id/position_count` 生成，再接 A1/A2/A3 环路转发。
+
+### TASK-20260629-001 - 分布式 DPLL 同步触发实施方案
+
+- 状态：完成
+- 日期：2026-06-29
+- 任务目标：
+  - 阅读 `DOC/相控阵测试系统分布式触发方案技术报告0614.html`，将其中 DPLL、DC 时间轴、预约触发和 T2_i 回读思想映射为当前 RP2350 多板原型可实施方案。
+  - 明确 AUX 两路一进一出、RS-485/RS-422 差分物理层、PIO/CPU 分工、虚拟 DC 时钟、DPLL 闭环和分阶段验收边界。
+- 完成内容：
+  - 新增 `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md`，定义多板 `CAL_RING` 拓扑：AUX0/GPIO26=`CAL_IN`，AUX3/GPIO29=`CAL_OUT`。
+  - 明确 RS-485/RS-422 芯片只作为点对点单向差分收发器使用，`DE`/`RE` 常使能，不做共享总线仲裁。
+  - 明确 PIO 负责边沿捕获、固定延迟转发、短窗口相对计时和本地预约触发；CPU/上位机负责 64-bit 虚拟 DC 时间轴、DPLL、残差剔除和补偿表。
+  - 给出 12.5 Mbps、16.667 Mbps、20.833 Mbps、25 Mbps 四档 PIO 友好短帧速率，以及 Phase 0 到 Phase 4 的实施和验收计划。
+  - 更新 `docs/SYNC_TRIGGER_TODO.md`，新增分布式 DPLL / CAL_RING 待办。
+  - 更新 `README.md` 文档索引。
+- 验证结果：
+  - 本任务只新增和更新文档，未改固件代码，未重新构建或烧录。
+- 还需完成：
+  - 选定高速 RS-485/RS-422 收发器并完成单段回环电气验证。
+  - 实现 `CAL_RING` PIO 原型、AUX owner/arbiter、虚拟 DC 状态和本地预约触发队列。
+- 关联文件：
+  - `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md`
+  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+  - `README.md`
+- 下一步：
+  - 进入 Phase 0/1：硬件单段回环验证和多板 CAL_RING 脉冲环路原型。
+
 ### TASK-20260626-020 - AUX 功能接口产品约束
 
 - 状态：完成

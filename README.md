@@ -389,6 +389,9 @@ time.
 - `docs/SYNC_TRIGGER_TODO.md`: remaining work for the production trigger
   subsystem.
 - `docs/SCPI_COMMANDS.md`: basic SCPI command list for trigger configuration.
+- `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md`: implementable A0-A3 RP2350
+  distributed DPLL, virtual DC clock, AUX calibration ring, and local scheduled
+  trigger plan.
 - `docs/OTA方案.md`: A/B OTA upgrade design for the W25Q32 4 MB QSPI Flash.
 - `docs/OTA_COPY_TRANSACTION_DESIGN.md`: copy-to-active OTA transaction
   design for power-loss recovery within the current flash partition layout.

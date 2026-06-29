@@ -58,6 +58,37 @@
   `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT`。这样 `ARM_IN` 不再与 `ENC_COUNT` B 相冲突，
   `SYNC_CLK_OUT/MARKER_OUT` 不再与 `SEQ_STEP` bit2/bit3 冲突。当前固件旧路径仍需迁移。
 
+## 分布式 DPLL / CAL_RING 待办（2026-06-29）
+
+- [ ] 新增 `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md` 对应的 `CAL_RING` 原型任务。
+  使用 AUX0/GPIO26 作为 `CAL_IN`，AUX3/GPIO29 作为 `CAL_OUT`，通过高速
+  RS-485/RS-422 收发器组成 A0→A1→A2→A3→A0 点对点单向环路。
+
+- [ ] 定义 A0-A3 业务角色和状态机。
+  A0 转台板卡接收转台 TTL 位置脉冲并生成位置触发；A1 DUT 板卡切换 SP8T；
+  A2 馈源板卡切换馈源极化；A3 网分板卡在 A1/A2 切换完成后触发网分并等待
+  `REDY/READY`，完成后返回 `MEAS_DONE` 推进下一轮。
+
+- [ ] 为 AUX 功能接口增加 owner/arbiter。
+  启用 `CAL_RING` 时禁止 `TRIG:ENC:APIN 26`，并阻止 `ARM_IN/MARKER_OUT`
+  产品功能同时占用 `pio2/sm0` 和 `pio2/sm3`。
+
+- [ ] 新增 PIO 校准环路程序。
+  第一阶段只做边沿捕获、固定延迟转发和 `sequence_id` 短帧；时间戳采用
+  PIO 相对窗口计数或采样索引，再由 CPU 扩展到虚拟 DC 时间轴。
+
+- [ ] 新增虚拟 DC 时间轴状态。
+  CPU 维护 `offset_tick/rate_q32/dc_locked/late_count/last_seq`，PIO 只做
+  短窗口倒计时和本地到点输出。
+
+- [ ] 新增本地预约触发队列。
+  主节点或上位机下发未来 `T_fire_i`，从节点提前装载 PIO `delta_ticks`；
+  late frame 只计数和告警，不在临界路径补救触发。
+
+- [ ] 新增 DPLL 残差统计。
+  区分 `e_pll`（角度到时间预测，微秒级）和 `e_act`（设备动作残差，纳秒/百纳秒级），
+  不混用验收指标。
+
 ## 当前基线
 
 - [x] 为同步触发系统预留全部 RP2350 PIO 状态机资源。
