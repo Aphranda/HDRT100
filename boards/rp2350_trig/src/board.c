@@ -22,6 +22,18 @@ static bool board_init_status_led(void)
     return true;
 }
 
+static bool board_init_key2(void)
+{
+    gpio_init(BOARD_KEY2_PIN);
+    gpio_set_dir(BOARD_KEY2_PIN, GPIO_IN);
+#if BOARD_KEY2_ACTIVE_LOW
+    gpio_pull_up(BOARD_KEY2_PIN);
+#else
+    gpio_pull_down(BOARD_KEY2_PIN);
+#endif
+    return true;
+}
+
 static bool board_init_spi(void)
 {
     const drv_spi_config_t config = {
@@ -89,7 +101,7 @@ bool board_init(void)
 
     diagnostics_init();
 
-    const bool ok = board_init_status_led() && board_init_spi() && board_init_i2c() && board_init_lcd();
+    const bool ok = board_init_status_led() && board_init_key2() && board_init_spi() && board_init_i2c() && board_init_lcd();
     board_init_uart();
 
     if (!ok) {
@@ -129,6 +141,16 @@ void board_status_led_set(bool on)
 void board_status_led_toggle(void)
 {
     board_status_led_set(!s_led_state);
+}
+
+bool board_key2_is_pressed(void)
+{
+    const bool level = gpio_get(BOARD_KEY2_PIN) != 0;
+#if BOARD_KEY2_ACTIVE_LOW
+    return !level;
+#else
+    return level;
+#endif
 }
 
 uint32_t board_uptime_ms(void)

@@ -14,18 +14,25 @@
 #include "trigger_measure.h"
 
 #define APP_UI_REFRESH_PERIOD_MS 250u
+#define APP_UI_KEY_DEBOUNCE_MS 35u
 
 static uint32_t s_last_tick_ms;
 static uint32_t s_last_ui_refresh_ms;
+static uint32_t s_last_ui_key_change_ms;
 static bool s_app_ready;
 static bool s_ui_dirty;
+static bool s_ui_key_sample;
+static bool s_ui_key_stable;
 
 bool app_init(void)
 {
     s_last_tick_ms = board_uptime_ms();
     s_last_ui_refresh_ms = s_last_tick_ms;
+    s_last_ui_key_change_ms = s_last_tick_ms;
     s_app_ready = false;
     s_ui_dirty = false;
+    s_ui_key_sample = false;
+    s_ui_key_stable = false;
     LOG_INFO("app", "application initialized");
 
     const sync_io_config_t sync_io_config = {
@@ -97,6 +104,21 @@ void app_ota_service(void)
 void app_ui_service(void)
 {
     const uint32_t now_ms = board_uptime_ms();
+    const bool key_sample = board_key2_is_pressed();
+
+    if (key_sample != s_ui_key_sample) {
+        s_ui_key_sample = key_sample;
+        s_last_ui_key_change_ms = now_ms;
+    }
+
+    if ((uint32_t)(now_ms - s_last_ui_key_change_ms) >= APP_UI_KEY_DEBOUNCE_MS &&
+        s_ui_key_stable != s_ui_key_sample) {
+        s_ui_key_stable = s_ui_key_sample;
+        if (s_ui_key_stable) {
+            sync_config_ui_key_next();
+            s_ui_dirty = true;
+        }
+    }
 
     if ((uint32_t)(now_ms - s_last_ui_refresh_ms) >= APP_UI_REFRESH_PERIOD_MS) {
         s_ui_dirty = true;

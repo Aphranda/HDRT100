@@ -4,7 +4,7 @@
 #define configUSE_PREEMPTION                    1
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION 0
 #define configUSE_TICKLESS_IDLE                 0
-#define configCPU_CLOCK_HZ                      150000000UL
+#define configCPU_CLOCK_HZ                      250000000UL
 #define configTICK_RATE_HZ                      1000
 #define configMAX_PRIORITIES                    8
 #define configMINIMAL_STACK_SIZE                256

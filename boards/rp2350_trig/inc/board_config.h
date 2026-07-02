@@ -12,6 +12,9 @@
 
 #define BOARD_STATUS_LED_PIN 3u
 
+#define BOARD_KEY2_PIN 2u
+#define BOARD_KEY2_ACTIVE_LOW 1
+
 #define BOARD_SPI_PORT spi1
 #define BOARD_SPI_CLK_PIN 10u
 #define BOARD_SPI_MOSI_PIN 11u

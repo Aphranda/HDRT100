@@ -37,6 +37,15 @@ Get-Content -Path tools\README.md -Encoding UTF8
   automatically.
 - `build_info/gen_build_info.py`: generates firmware build id source used by
   `SYST:FW:BUILD?`. CMake normally invokes this automatically.
+- `rp2350_tk_toolbox.py`: Tkinter bench GUI for common tool operations. It wraps
+  release build/check, OTA send/board validation, trigger SCPI controls,
+  frequency measurement, timing tests, and ad-hoc SCPI commands.
+
+Launch the GUI from the repository root:
+
+```powershell
+python tools\rp2350_tk_toolbox.py
+```
 
 ## OTA Board Validation Loop
 

@@ -69,6 +69,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--picotool", type=Path, default=default_picotool)
     parser.add_argument("--begin-timeout", type=float, default=90.0)
     parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--post-flash-settle", type=float, default=3.0,
+                        help="seconds to wait after factory flashing before baseline serial queries")
     parser.add_argument("--skip-flash", action="store_true")
     parser.add_argument("--skip-release-check", action="store_true")
     parser.add_argument("--skip-negative", action="store_true")
@@ -269,6 +271,7 @@ def main() -> int:
         failed = failed or not passed
         if failed and not args.keep_going:
             return finish(summary, out_dir)
+        time.sleep(args.post_flash_settle)
 
     baseline_path = out_dir / "baseline.txt"
     baseline = query_serial(args.port, QUERY_COMMANDS, baseline_path)
