@@ -71,6 +71,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--post-flash-settle", type=float, default=3.0,
                         help="seconds to wait after factory flashing before baseline serial queries")
+    parser.add_argument("--expected-mode", choices=("COPY_TO_ACTIVE", "DIRECT_AB"), default="DIRECT_AB",
+                        help="expected release OTA boot mode")
     parser.add_argument("--skip-flash", action="store_true")
     parser.add_argument("--skip-release-check", action="store_true")
     parser.add_argument("--skip-negative", action="store_true")
@@ -212,6 +214,27 @@ def contains_file(path: Path, *needles: str) -> bool:
     return all(needle in text for needle in needles)
 
 
+def parse_csv_uints(response: str, count: int) -> list[int] | None:
+    parts = response.split(",")
+    if len(parts) < count:
+        return None
+    values: list[int] = []
+    try:
+        for part in parts[:count]:
+            values.append(int(part.strip(), 0))
+    except ValueError:
+        return None
+    return values
+
+
+def mode_response(mode: str) -> str:
+    return '"DIRECT_AB",1' if mode == "DIRECT_AB" else '"COPY_TO_ACTIVE",0'
+
+
+def inactive_slot(active_slot: int) -> int:
+    return 2 if active_slot == 1 else 1
+
+
 def append_step(summary: dict, name: str, passed: bool, artifact: Path | None = None, detail: str = "") -> None:
     summary["steps"].append(
         {
@@ -275,16 +298,22 @@ def main() -> int:
 
     baseline_path = out_dir / "baseline.txt"
     baseline = query_serial(args.port, QUERY_COMMANDS, baseline_path)
+    baseline_slot = parse_csv_uints(baseline.get("SYST:OTA:SLOT?", ""), 5)
+    baseline_active = baseline_slot[0] if baseline_slot is not None else 0
+    expected_mode = mode_response(args.expected_mode)
     baseline_passed = (
-        baseline.get("SYST:OTA:MODE?") == '"COPY_TO_ACTIVE",0'
+        baseline.get("SYST:OTA:MODE?") == expected_mode
         and baseline.get("SYST:OTA:TXN?") == "0,0,0,0,0,0,0,0"
+        and baseline_active in (1, 2)
         and (args.skip_flash or baseline.get("SYST:OTA:STAT?") == '"IDLE",2,"NONE",0')
+        and (args.skip_flash or baseline.get("SYST:OTA:SLOT?") == "1,0,1,0,0")
     )
     append_step(summary, "baseline_query", baseline_passed, baseline_path)
     failed = failed or not baseline_passed
     if failed and not args.keep_going:
         return finish(summary, out_dir)
 
+    expected_ota_target = inactive_slot(baseline_active) if args.expected_mode == "DIRECT_AB" else 2
     code, positive_log = run_command(
         "positive_ota",
         [
@@ -302,7 +331,7 @@ def main() -> int:
         out_dir,
         timeout=240.0,
     )
-    positive_passed = code == 0 and contains_file(positive_log, '"READY_TO_REBOOT",2,"NONE",2')
+    positive_passed = code == 0 and contains_file(positive_log, f'"READY_TO_REBOOT",{expected_ota_target},"NONE",2')
     append_step(summary, "positive_ota", positive_passed, positive_log)
     failed = failed or not positive_passed
     if failed and not args.keep_going:
@@ -310,9 +339,14 @@ def main() -> int:
 
     boot_path = out_dir / "boot_commit.txt"
     boot_results = run_boot_commit(args.port, boot_path)
+    expected_committed_active = inactive_slot(baseline_active) if args.expected_mode == "DIRECT_AB" else 1
+    expected_committed_slot = f"{expected_committed_active},0,{expected_committed_active},0,0"
+    expected_next_target = inactive_slot(expected_committed_active) if args.expected_mode == "DIRECT_AB" else 2
+    expected_committed_stat = f'"COMMITTED",{expected_next_target},"NONE",5'
     boot_passed = (
         '"APPLIED"' in boot_results.get("SYST:OTA:RES?", "")
-        and boot_results.get("after:SYST:OTA:STAT?") == '"COMMITTED",2,"NONE",5'
+        and boot_results.get("after:SYST:OTA:STAT?") == expected_committed_stat
+        and boot_results.get("after:SYST:OTA:SLOT?") == expected_committed_slot
         and boot_results.get("after:SYST:OTA:TXN?") == "0,0,0,0,0,0,0,0"
     )
     append_step(summary, "boot_commit", boot_passed, boot_path)
@@ -342,7 +376,7 @@ def main() -> int:
                 out_dir,
                 timeout=240.0,
             )
-            passed = code == 0 and contains_file(log, '"FAILED",2,', f'"{expected_error}"')
+            passed = code == 0 and contains_file(log, f'"FAILED",{expected_next_target},', f'"{expected_error}"')
             append_step(summary, f"negative_{name}", passed, log)
             failed = failed or not passed
             if failed and not args.keep_going:
@@ -350,11 +384,15 @@ def main() -> int:
 
     final_path = out_dir / "final.txt"
     final = query_serial(args.port, ["SYST:FW:BUILD?", "SYST:OTA:STAT?", "SYST:OTA:SLOT?", "SYST:OTA:RES?", "SYST:OTA:TXN?", "SYST:OTA:MODE?"], final_path)
-    expected_final_stat = '"FAILED",2,"IMAGE_TOO_LARGE",4' if not args.skip_negative else '"COMMITTED",2,"NONE",5'
+    expected_final_stat = (
+        f'"FAILED",{expected_next_target},"IMAGE_TOO_LARGE",4'
+        if not args.skip_negative
+        else expected_committed_stat
+    )
     final_passed = (
-        final.get("SYST:OTA:SLOT?") == "1,0,1,0,0"
+        final.get("SYST:OTA:SLOT?") == expected_committed_slot
         and final.get("SYST:OTA:TXN?") == "0,0,0,0,0,0,0,0"
-        and final.get("SYST:OTA:MODE?") == '"COPY_TO_ACTIVE",0'
+        and final.get("SYST:OTA:MODE?") == expected_mode
         and final.get("SYST:OTA:STAT?") == expected_final_stat
     )
     append_step(summary, "final_safe_state", final_passed, final_path)

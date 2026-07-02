@@ -30,6 +30,10 @@ Get-Content -Path tools\README.md -Encoding UTF8
   was skipped.
 - `ota_packager/ota_packager.py`: builds a unified OTA package from Slot A and
   Slot B linked App binaries. CMake normally invokes this automatically.
+- `sd_fs_build/sd_fs_build.py`: builds the SD-card filesystem staging tree under
+  `build/sdcard/`, copies the unified OTA package to `/update/`, keeps raw `.bin`
+  compatibility payloads under `/update/compat/`, writes `manifest.json`, and
+  creates `build/RP2350_TRIG_SDCARD.zip`.
 - `ota_bin_info/ota_bin_info.py`: prints raw `.bin` size, CRC32, and
   `SYST:OTA:BEGIN` parameters for bench work.
 - `uf2_join/uf2_join.py`: generates the first-time factory UF2 from Bootloader,
@@ -46,6 +50,16 @@ Launch the GUI from the repository root:
 ```powershell
 python tools\rp2350_tk_toolbox.py
 ```
+
+Build SD-card contents after a release build:
+
+```powershell
+python tools\sd_fs_build\sd_fs_build.py --build-dir build --output-dir build\sdcard
+```
+
+Copy the contents of `build\sdcard\` to the root of a FAT32 SD card. The
+default offline OTA file is `/update/RP2350_TRIG_UPDATE.pkg`; raw `.bin` files
+are kept only for compatibility under `/update/compat/`.
 
 ## OTA Board Validation Loop
 

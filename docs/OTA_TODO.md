@@ -40,7 +40,19 @@
 - [x] 实现统一 OTA package：一个文件包含 Slot A/Slot B 镜像，由下位机根据当前模式和目标 slot 选择写入镜像。
 - [x] 验证统一 OTA package 在 `DIRECT_AB` 模式下可 A->B、B->A 双向升级并确认。
 - [x] 验证统一 OTA package 在 release 默认 `COPY_TO_ACTIVE` 模式下可选择 Slot A 链接镜像并完成 copy-to-active。
-- [ ] 评估 release 默认启用 `DIRECT_AB` 的出厂条件和迁移策略。
+- [x] 评估 release 默认启用 `DIRECT_AB` 的出厂条件和迁移策略。
+
+Direct A/B release 默认验证记录：
+
+- 日期：2026-07-02
+- 构建：`pico2-release`
+- build id：`20260702135950`
+- 默认模式：`SYST:OTA:MODE? -> "DIRECT_AB",1`
+- 初始 slot：`SYST:OTA:SLOT? -> 1,0,1,0,0`
+- 正向 OTA：统一 package A -> B，`BOOT` 后 `SYST:OTA:SLOT? -> 2,0,1,1,0`
+- `COMM` 后：`SYST:OTA:SLOT? -> 2,0,2,0,0`
+- 负向矩阵：整包 CRC、镜像 CRC、App 向量、包头 magic/version/size、slot、run_offset 均按预期失败。
+- 最终安全状态：`SYST:OTA:SLOT? -> 2,0,2,0,0`，无 pending，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`。
 
 ## P1 - 镜像完整性与兼容性
 

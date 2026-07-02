@@ -101,7 +101,7 @@ else:
 
 如果 active slot 校验失败，则尝试 rollback 到 `confirmed_slot` 或 `previous_slot`。
 
-当前状态：Bootloader 已具备 `DIRECT_AB` 分支和按 `active_slot` 跳转能力，但默认 metadata 仍为 `COPY_TO_ACTIVE`，尚未开放量产默认切换。
+当前状态：Bootloader 已具备 `DIRECT_AB` 分支和按 `active_slot` 跳转能力。新 release/factory 构建对空白 metadata 默认启用 `DIRECT_AB`；已有 metadata 保持原 boot mode，不通过普通 OTA 静默迁移。
 
 ### 阶段 4：OTA target 动态选择
 
@@ -117,7 +117,7 @@ active = Slot B -> target = Slot A
 
 使用双链接镜像时，上位机必须发送与目标 slot 匹配的 bin。
 
-当前状态：App 侧已实现动态 target 选择；默认 `COPY_TO_ACTIVE` 回归验证通过。
+当前状态：App 侧已实现动态 target 选择；`DIRECT_AB` 作为新 factory 默认路径验证通过，`COPY_TO_ACTIVE` 兼容路径保留。
 
 ### 阶段 5：confirm / rollback
 
@@ -181,7 +181,7 @@ validation 固件支持 `SYST:OTA:MODE <0|1>` 切换 `COPY_TO_ACTIVE` / `DIRECT_
 
 ## 迁移策略
 
-1. 当前 release 继续使用 `copy-to-active`。
-2. validation 固件先支持 A/B 直接启动试验，当前已完成 Slot A -> Slot B -> Slot A 双向直接切换验证。
-3. 新出厂设备验证稳定后默认启用 `DIRECT_AB`。
+1. 新出厂 release/factory 默认启用 `DIRECT_AB`。
+2. `COPY_TO_ACTIVE` 分支继续保留，用于已有 metadata 仍处于旧模式的设备。
+3. validation 固件继续支持 `SYST:OTA:MODE <0|1>` 做 A/B 与 copy-to-active 台架验证。
 4. 旧设备通过 factory 刷新或维护流程迁移，不通过普通 OTA 强制切换 boot mode。

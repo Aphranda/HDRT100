@@ -42,7 +42,7 @@ SD 卡离线升级包缓存
 - W25Q32 保存 Bootloader、Slot A App 运行镜像、Slot B OTA 暂存镜像、Metadata、关键配置和少量保留区。
 - SD 卡保存大文件：离线 OTA 包、日志、资源、采样摘要、测试报告。
 - Bootloader 不依赖 SD 卡启动，避免可插拔介质影响基本可恢复能力。
-- App 可以从 SCPI 或 SD 卡读取标准 raw `.bin`，写入 W25Q32 Slot B。
+- App 可以从 SCPI 或 SD 卡读取统一 `.pkg` 包，按当前 OTA 模式选择内部镜像；raw `.bin` 仅保留兼容/台架用途。
 - App 固定链接到 Slot A 地址 `0x10040000`，Slot B 只作为 staging 区。Bootloader 校验 Slot B 后复制到 Slot A，再跳转 Slot A。
 - SCPI 和 SD 卡只是传输/缓存入口，真正升级流程由 `OtaAO + OtaFB + OtaVector` 统一管理。
 - OTA 按 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 的 HAOFV 架构落地：Active Object 管运行，轻量 IEC 61499 功能块管逻辑，Vector Blackboard 管数据，Resource Arbiter 管互锁。
@@ -115,7 +115,7 @@ drv_flash / bootloader
 | 模块 | 职责 | 禁止事项 |
 |---|---|---|
 | `middleware/scpi_port` | 解析 SCPI 命令，投递 OTA 事件，返回状态快照 | 不直接擦写 Flash，不直接改 OTA 状态 |
-| `storage_manager` | 后续从 SD 卡读取标准 `.bin` 固件流，投递数据块事件 | 不解析 Bootloader metadata |
+| `storage_manager` | 后续从 SD 卡读取统一 `.pkg` 或兼容 `.bin` 固件流，投递数据块事件 | 不解析 Bootloader metadata |
 | `OtaAO` | 接收事件、申请资源、限时调度内部 FB | 不直接暴露内部状态指针 |
 | `OtaFB` | OTA 主状态转移、错误归因、进度发布 | 不直接调用 Pico SDK Flash API |
 | `FlashJobFB` | 将擦除、写入、读回校验拆成可调度小任务 | 不跨越分区边界 |
@@ -506,13 +506,15 @@ SD 卡不参与基本启动链路，但作为大容量维护介质。
 OTA 相关文件：
 
 ```text
-/update/rp2350_trig_x.y.z.bin
+/update/RP2350_TRIG_UPDATE.pkg
+/update/compat/rp2350_trig_x.y.z.bin
 /update/last_result.txt
 ```
 
 SD 卡用途边界：
 
-- 可以保存 OTA 包。
+- 可以保存统一 OTA `.pkg` 包。
+- 可以保留 raw `.bin` 兼容升级文件。
 - 可以保存较大 UI/日志/数据文件。
 - 不能作为唯一 App 存储。
 - 不能作为唯一 metadata 存储。
@@ -546,7 +548,7 @@ W25Q32 inactive App Slot
 ### 离线升级：SD 卡 OTA 包
 
 ```text
-SD 卡 /update/*.bin
+SD 卡 /update/*.pkg
   ↓
 storage_manager 扫描和读取
   ↓
@@ -748,9 +750,9 @@ OTA 期间建议：
 
 流程：
 
-1. 用户把 `.bin` 文件放入 SD 卡 `/update/`。
+1. 用户把统一 `.pkg` 文件放入 SD 卡 `/update/`。
 2. App 启动后或收到 SCPI 命令后扫描 `/update/`。
-3. 选择最新且 board id 匹配的 OTA 包。
+3. 优先选择最新且 board id 匹配的 `.pkg` 包；兼容模式可从 `/update/compat/` 选择 raw `.bin`。
 4. `storage_manager` 读取文件流，并向 `OtaAO` 投递数据块事件。
 5. 写入 inactive Slot。
 6. 校验通过后设置 pending。
@@ -763,7 +765,7 @@ OTA 期间建议：
 | 命令 | 说明 |
 |---|---|
 | `MMEM:CAT? "/update"` | 列出升级目录。 |
-| `SYST:OTA:FILE "<path>"` | 从 SD 卡指定 `.bin` 文件执行 OTA。 |
+| `SYST:OTA:FILE "<path>"` | 从 SD 卡指定 `.pkg` 或兼容 `.bin` 文件执行 OTA。 |
 | `SYST:OTA:FILE?` | 查询当前选中的 OTA 文件。 |
 
 ## SPI 总线策略
@@ -850,7 +852,7 @@ tools/ota_send/
 
 - 接入 SD 卡 SPI 模式。
 - 接入 FatFs。
-- 支持从 `/update/*.bin` 离线升级。
+- 支持从 `/update/*.pkg` 离线升级，并保留 `/update/compat/*.bin` 兼容路径。
 - 支持日志写 SD 卡。
 - 支持配置导入导出。
 - 增加 SCPI 文件管理命令。

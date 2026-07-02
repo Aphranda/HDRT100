@@ -26,7 +26,17 @@ set(PROJECT_ENABLE_USB_STDIO ON CACHE BOOL "Enable stdio over USB CDC")
 set(PROJECT_ENABLE_UART_STDIO OFF CACHE BOOL "Enable stdio over default UART")
 set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors")
 set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA validation SCPI commands")
+set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
 set(PROJECT_USE_FREERTOS OFF CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
+set_property(CACHE PROJECT_OTA_DEFAULT_BOOT_MODE PROPERTY STRINGS COPY_TO_ACTIVE DIRECT_AB)
+
+if(PROJECT_OTA_DEFAULT_BOOT_MODE STREQUAL "DIRECT_AB")
+    set(PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB ON)
+elseif(PROJECT_OTA_DEFAULT_BOOT_MODE STREQUAL "COPY_TO_ACTIVE")
+    set(PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB OFF)
+else()
+    message(FATAL_ERROR "PROJECT_OTA_DEFAULT_BOOT_MODE must be COPY_TO_ACTIVE or DIRECT_AB")
+endif()
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
@@ -42,6 +52,7 @@ set(PROJECT_BUILD_INFO_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/project_buil
 set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.c)
 set(PROJECT_OTA_METADATA_SIZE 0x010000)
 set(PROJECT_FREERTOS_KERNEL_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/freertos/FreeRTOS-Kernel CACHE PATH "FreeRTOS-Kernel source directory")
+set(PROJECT_FATFS_SOURCE_DIR ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source CACHE PATH "FatFs source directory")
 set(PROJECT_OSAL_SOURCES osal/port/baremetal/osal_baremetal.c)
 set(PROJECT_APP_EXTRA_LIBS)
 
@@ -101,6 +112,7 @@ set(PROJECT_APP_SOURCES
         third_party/portable_ota/src/pota_session.c
         third_party/portable_ota/src/pota_package.c
         components/resource_arbiter/src/resource_arbiter.c
+        components/storage_manager/src/storage_manager.c
         components/sync_trigger/src/sync_trigger.c
         components/sync_trigger/src/trigger_fb.c
         components/sync_trigger/src/trigger_measure.c
@@ -112,6 +124,12 @@ set(PROJECT_APP_SOURCES
         drivers/mcu/flash/src/drv_flash.c
         drivers/mcu/watchdog/src/drv_watchdog.c
         drivers/external/lcd/src/lcd_st7789.c
+        drivers/external/sd_card/src/sd_card.c
+        middleware/fatfs_port/src/fatfs_port.c
+        middleware/fatfs_port/src/fatfs_diskio.c
+        ${PROJECT_FATFS_SOURCE_DIR}/ff.c
+        ${PROJECT_FATFS_SOURCE_DIR}/ffsystem.c
+        ${PROJECT_FATFS_SOURCE_DIR}/ffunicode.c
         middleware/scpi_port/src/scpi_port.c
         middleware/u8g2_port/src/u8g2_port.c
         third_party/scpi-parser/libscpi/src/error.c
@@ -177,6 +195,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/components/event_bus/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/resource_arbiter/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/storage_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_trigger/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_config_ui/inc
@@ -187,6 +206,9 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/flash/inc
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/watchdog/inc
         ${CMAKE_CURRENT_LIST_DIR}/drivers/external/lcd/inc
+        ${CMAKE_CURRENT_LIST_DIR}/drivers/external/sd_card/inc
+        ${CMAKE_CURRENT_LIST_DIR}/middleware/fatfs_port/inc
+        ${PROJECT_FATFS_SOURCE_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/scpi_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/u8g2_port/inc
@@ -215,6 +237,7 @@ function(project_configure_app_target target_name app_name linker_script)
         PROJECT_ENABLE_USB_STDIO=$<BOOL:${PROJECT_ENABLE_USB_STDIO}>
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
+        PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>
         PROJECT_USE_FREERTOS=$<BOOL:${PROJECT_USE_FREERTOS}>
         PORTABLE_OTA_PORT_ENABLE_SESSION=1
         SCPI_USER_CONFIG=1
@@ -299,6 +322,7 @@ target_include_directories(RP2350_TRIG_BOOT PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/flash/inc
+        ${CMAKE_CURRENT_LIST_DIR}/config
 )
 
 target_link_libraries(RP2350_TRIG_BOOT
@@ -308,6 +332,7 @@ target_link_libraries(RP2350_TRIG_BOOT
 
 target_compile_definitions(RP2350_TRIG_BOOT PRIVATE
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
+        PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>
 )
 
 target_compile_options(RP2350_TRIG_BOOT PRIVATE ${PROJECT_WARNING_FLAGS})

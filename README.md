@@ -225,6 +225,8 @@ build/RP2350_TRIG.bin          # OTA payload sent by SCPI USB CDC
 build/RP2350_TRIG_B.bin        # Slot B linked image for direct A/B validation
 build/RP2350_TRIG_UPDATE.pkg   # unified OTA package containing Slot A + Slot B apps
 build/RP2350_TRIG_BOOT.uf2     # bootloader-only image for recovery/debug
+build/sdcard/                  # SD-card filesystem staging tree
+build/RP2350_TRIG_SDCARD.zip   # zipped SD-card filesystem contents
 ```
 
 `tools/build_info/gen_build_info.py` generates the firmware build id source on
@@ -249,9 +251,12 @@ python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG_UPDATE.pkg
 ```
 
 The sender auto-detects the unified package header and uses
-`SYST:OTA:PBEGIN <size>,<crc32>`. In `COPY_TO_ACTIVE` mode the device selects the
-Slot A linked image and stages it in Slot B. In `DIRECT_AB` mode the device
-selects the image matching the inactive target slot. The package header records
+`SYST:OTA:PBEGIN <size>,<crc32>`. New release/factory builds default blank
+metadata to `DIRECT_AB`, so the device selects the image matching the inactive
+target slot and boots that slot directly after `SYST:OTA:BOOT`. The legacy
+`COPY_TO_ACTIVE` path remains supported for devices whose metadata is already in
+that mode; in that mode the device selects the Slot A linked image and stages it
+in Slot B before the Bootloader copies it to Slot A. The package header records
 product id, hardware id, App version, build id, payload SHA-256, per-image CRC32,
 and `min_bootloader_version`; the device rejects product, hardware, and minimum
 Bootloader mismatches before erasing the target slot.
@@ -262,6 +267,16 @@ Raw `.bin` OTA remains supported for compatibility and bench work:
 python tools/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin
 python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin
 ```
+
+SD-card maintenance media can be staged from the release artifacts:
+
+```powershell
+python tools/sd_fs_build/sd_fs_build.py --build-dir build --output-dir build/sdcard
+```
+
+The generated SD root uses `/update/RP2350_TRIG_UPDATE.pkg` as the default
+offline OTA payload. Raw `.bin` images are copied to `/update/compat/` only for
+compatibility.
 
 For direct A/B validation, query the target slot and let the sender choose the
 matching linked image:

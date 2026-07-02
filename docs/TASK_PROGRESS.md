@@ -45,6 +45,76 @@
 
 ## 任务记录
 
+### TASK-20260702-001 - SD 卡基础系统、独立界面与后续 TODO
+
+- 状态：进行中
+- 日期：2026-07-02
+- 任务目标：
+  - 按 HAOFV 架构把 SD 卡纳入正式管理域：底层只负责 SPI/FatFs，`storage_manager` 发布快照，SCPI/UI 只读快照或投递事件。
+  - 建立 SD 卡文件系统 staging 工具、板端 SD/FatFs 最小访问链路、SCPI 查询/目录枚举和独立 LCD 页面。
+  - 记录 SD 卡后续工作清单，为离线 OTA、日志、配置、资源和采样文件管理继续推进。
+- 完成内容：
+  - 新增 `tools/sd_fs_build/sd_fs_build.py`，生成 `build/sdcard/` 和 `build/RP2350_TRIG_SDCARD.zip`，默认离线 OTA 包路径规划为 `/update/RP2350_TRIG_UPDATE.pkg`。
+  - 新增 `drivers/external/sd_card/`，实现 SD SPI 模式最小驱动，支持卡初始化、类型识别、容量信息和 block 访问。
+  - 新增 `middleware/fatfs_port/`，接入 Pico SDK bundled FatFs source，并通过 `fatfs_diskio.c` 连接 SD block driver。
+  - 新增 `components/storage_manager/`，封装 SD 探测、FatFs mount、目录枚举和 `storage_manager_vector_t` 快照。
+  - `application/src/app.c` 接入 `storage_manager_init()` 和 `storage_manager_service()`。
+  - SCPI 增加 SD/存储查询：
+    - `SYST:SD:STAT?`
+    - `SYST:SD:INFO?`
+    - `SYST:STOR:STAT?`
+    - `MMEM:CAT?`
+    - `MMEM:CAT? "/update"`
+  - LCD/U8G2 增加独立 SD 页面，显示 `SD CARD / MEDIA / FILESYS` 三块信息：状态、卡存在、类型、容量、block、FatFs、mount、probe。
+  - UI 顶部 tab 改为滚动式 tabview 风格：固定 3 个可见槽位、当前页圆角 active pill、底部 indicator、左右 overflow hint 和 KEY2 切页扫光动画。
+  - 保持 HAOFV 边界：UI 只调用 `storage_manager_get_vector()` 读取快照，不直接操作 SD/FatFs/驱动状态。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build` 通过，`release_check=OK`。
+  - 使用统一包 `build\RP2350_TRIG_UPDATE.pkg` 完成 OTA 快速闭环：
+    - 验证目录：`build\ota_validation_tab_open_source_style_quick`
+    - build id：`20260702153535`
+    - `SYST:OTA:MODE? -> "DIRECT_AB",1`
+    - 最终状态：`SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`
+  - 板端 SD 查询通过：
+    - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+    - `SYST:SD:INFO? -> "CARD_READY","SDHC_SDXC",1,61085696,30542848,1,1,1`
+    - `SYST:STOR:STAT? -> "CARD_READY",1,1,"OK",0`
+    - `MMEM:CAT? -> "OK","image.ub,4486744,FILE;BOOT.BIN,2230264,FILE;System Volume Information,0,DIR;"`
+    - `MMEM:CAT? "/update" -> "NO_PATH","OPEN_FAILED:5"`，当前插入卡未创建 `/update`，属于介质内容未准备，不是挂载失败。
+- 当前归纳：
+  - SD 卡已完成“可识别、可挂载、可查询、可枚举、可显示”的最小闭环。
+  - 当前还没有实现“从 SD 文件读取统一 OTA 包并投递 OTA 数据块事件”的离线 OTA 数据面。
+  - Bootloader 仍不读取 SD/FatFs，符合当前架构约束；离线 OTA 第一版应由 App 读取 SD 包，再走现有 `OtaAO/OtaFB/OtaVector` 流程。
+  - LCD 与 SD 共享 SPI0，当前 UI 刷新和 SD 访问已具备 Resource Arbiter 边界，但后续大文件读取仍需要更严格的分片、超时和让步策略。
+- SD 卡后续 TODO：
+  - 将 `tools/sd_fs_build/sd_fs_build.py` 生成的 `build/sdcard/` 实际写入 SD 卡，补齐 `/update/RP2350_TRIG_UPDATE.pkg`，复测 `MMEM:CAT? "/update"`。
+  - 增加离线 OTA 命令，例如 `SYST:OTA:FILE "<path>"`：从 FatFs 分块读取 `.pkg`，转换为现有 OTA begin/data/end 事件；SCPI/UI/SD 入口不得直接改 OTA 状态。
+  - 增加文件筛选和校验：只接受统一 `.pkg` 作为默认 release OTA 包，raw `.bin` 保留兼容/台架路径；读取前检查 magic、size、CRC/header。
+  - 增强 `storage_manager`：路径规范化、根目录和 `/update` 快速状态、文件大小查询、目录项数量限制、错误码压缩、热插拔重探测。
+  - 增强 Resource Arbiter：SD 读文件期间持有 `SPI0 + SD`，OTA 写 Flash 时持有 `FLASH`，离线 OTA 分片阶段避免长期阻塞 LCD 和 SCPI。
+  - 增加 SD UI 第二阶段：显示 `/update` 是否存在、默认包是否存在、包大小/版本/CRC、最近一次 SD 错误和离线 OTA 进度。
+  - 增加日志/报告目录写入能力：`/logs`、`/reports`、`/config`、`/capture` 的安全写入、临时文件命名、写完 rename、容量不足处理。
+  - 增加多卡兼容验证：空卡、无卡、FAT32 卡、SDHC/SDXC 卡、无 `/update`、坏路径、长文件名、拔卡后恢复。
+  - 更新 `docs/SCPI_COMMANDS.md`、`README.md` 和 `docs/OTA方案.md`，把已实现命令和后续 `SYST:OTA:FILE` 流程写清楚。
+  - 在 `tools/rp2350_tk_toolbox.py` 中继续扩展 SD 操作区：构建 SD 文件系统、打开 staging 目录、查询 SD 状态、列目录、触发离线 OTA。
+- 关联文件：
+  - `tools/sd_fs_build/sd_fs_build.py`
+  - `drivers/external/sd_card/inc/sd_card.h`
+  - `drivers/external/sd_card/src/sd_card.c`
+  - `middleware/fatfs_port/inc/fatfs_port.h`
+  - `middleware/fatfs_port/src/fatfs_port.c`
+  - `middleware/fatfs_port/src/fatfs_diskio.c`
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `components/sync_config_ui/src/sync_config_ui.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/rp2350_tk_toolbox.py`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 先准备一张带 `/update/RP2350_TRIG_UPDATE.pkg` 的 SD 卡，验证目录枚举和默认包识别；随后实现 `SYST:OTA:FILE "<path>"` 的 App 侧离线 OTA 数据流。
+
 ### TASK-20260629-002 - A0-A3 分布式触发业务流程细化
 
 - 状态：完成

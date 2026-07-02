@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include "pota.h"
+#include "project_config.h"
 
 #define PORTABLE_OTA_STATIC_ASSERT(name, condition) \
     typedef char portable_ota_static_assert_##name[(condition) ? 1 : -1]
@@ -90,6 +91,10 @@ void portable_ota_port_metadata_init_extension_defaults(ota_metadata_t *metadata
 void portable_ota_port_metadata_set_default(ota_metadata_t *metadata)
 {
     pota_metadata_set_default(portable_metadata_mutable(metadata));
+#if PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB
+    (void)pota_metadata_set_boot_mode(portable_metadata_mutable(metadata),
+                                      POTA_BOOT_MODE_DIRECT_AB);
+#endif
 }
 
 void portable_ota_port_metadata_upgrade_if_needed(ota_metadata_t *metadata)

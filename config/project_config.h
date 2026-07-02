@@ -35,6 +35,10 @@ static const char g_project_build_id[] = "dev";
 #define PROJECT_ENABLE_OTA_FAULT_INJECTION 0
 #endif
 
+#ifndef PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB
+#define PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB 1
+#endif
+
 #define BOARD_SPI_BAUD_HZ 10000000u
 #define BOARD_UART_BAUD_HZ 115200u
 

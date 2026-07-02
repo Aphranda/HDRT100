@@ -10,6 +10,7 @@
 #include "pico/stdio.h"
 #include "project_config.h"
 #include "scpi/scpi.h"
+#include "storage_manager.h"
 #include "sync_trigger.h"
 #include "trigger_measure.h"
 
@@ -1028,6 +1029,62 @@ static scpi_result_t scpi_cmd_ota_capability_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static scpi_result_t scpi_cmd_storage_status_q(scpi_t *context)
+{
+    (void)storage_manager_probe();
+
+    storage_manager_vector_t vector;
+    storage_manager_get_vector(&vector);
+    SCPI_ResultText(context, storage_manager_state_string(vector.state));
+    SCPI_ResultBool(context, vector.card_present ? TRUE : FALSE);
+    SCPI_ResultBool(context, vector.fs_mounted ? TRUE : FALSE);
+    SCPI_ResultText(context, sd_card_status_string(vector.card_status));
+    SCPI_ResultUInt32(context, vector.storage_error);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_storage_info_q(scpi_t *context)
+{
+    (void)storage_manager_probe();
+
+    storage_manager_vector_t vector;
+    storage_manager_get_vector(&vector);
+    SCPI_ResultText(context, storage_manager_state_string(vector.state));
+    SCPI_ResultText(context, sd_card_type_string(vector.card_type));
+    SCPI_ResultBool(context, vector.high_capacity ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, vector.block_count);
+    SCPI_ResultUInt32(context, vector.capacity_kib);
+    SCPI_ResultBool(context, vector.fatfs_available ? TRUE : FALSE);
+    SCPI_ResultBool(context, vector.fs_mounted ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, vector.probe_count);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_mmem_catalog_q(scpi_t *context)
+{
+    const char *path = NULL;
+    size_t path_len = 0u;
+    (void)SCPI_ParamCharacters(context, &path, &path_len, FALSE);
+    char path_buffer[96];
+    if (path != NULL && path_len > 0u) {
+        if (path_len >= sizeof(path_buffer)) {
+            return SCPI_RES_ERR;
+        }
+        memcpy(path_buffer, path, path_len);
+        path_buffer[path_len] = '\0';
+    } else {
+        (void)snprintf(path_buffer, sizeof(path_buffer), "/");
+    }
+
+    char catalog[384];
+    const bool ok = storage_manager_catalog(path_buffer, catalog, sizeof(catalog));
+    storage_manager_vector_t vector;
+    storage_manager_get_vector(&vector);
+    SCPI_ResultText(context, ok ? "OK" : storage_manager_state_string(vector.state));
+    SCPI_ResultText(context, catalog);
+    return SCPI_RES_OK;
+}
+
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
 static scpi_result_t scpi_cmd_ota_inject_copy(scpi_t *context)
 {
@@ -1197,6 +1254,10 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:OTA:MODE?", .callback = scpi_cmd_ota_mode_q},
     {.pattern = "SYSTem:OTA:TARGet?", .callback = scpi_cmd_ota_target_q},
     {.pattern = "SYSTem:OTA:CAPability?", .callback = scpi_cmd_ota_capability_q},
+    {.pattern = "SYSTem:SD:STATus?", .callback = scpi_cmd_storage_status_q},
+    {.pattern = "SYSTem:SD:INFO?", .callback = scpi_cmd_storage_info_q},
+    {.pattern = "SYSTem:STORage:STATus?", .callback = scpi_cmd_storage_status_q},
+    {.pattern = "MMEMory:CATalog?", .callback = scpi_cmd_mmem_catalog_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:OTA:MODE", .callback = scpi_cmd_ota_mode},
     {.pattern = "SYSTem:OTA:INJect:COPY", .callback = scpi_cmd_ota_inject_copy},

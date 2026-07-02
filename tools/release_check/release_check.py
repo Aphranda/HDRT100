@@ -75,6 +75,12 @@ def check_preset(root: Path, preset_name: str, failures: list[str]) -> None:
     else:
         ok(f"{preset_name} keeps FreeRTOS disabled")
 
+    default_boot_mode = str(cache_variables.get("PROJECT_OTA_DEFAULT_BOOT_MODE", "")).upper()
+    if default_boot_mode != "DIRECT_AB":
+        fail(f"{preset_name} must set PROJECT_OTA_DEFAULT_BOOT_MODE=DIRECT_AB", failures)
+    else:
+        ok(f"{preset_name} defaults OTA boot mode to DIRECT_AB")
+
 
 def find_project_config_define(config_text: str, name: str) -> str | None:
     pattern = re.compile(rf"^\s*#define\s+{re.escape(name)}\s+(.+?)\s*$", re.MULTILINE)
@@ -96,6 +102,12 @@ def check_project_config(root: Path, failures: list[str]) -> None:
         fail("PROJECT_ENABLE_OTA_FAULT_INJECTION fallback default must be 0", failures)
     else:
         ok("OTA fault injection fallback default is disabled")
+
+    direct_ab_default = find_project_config_define(config_text, "PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB")
+    if direct_ab_default != "1":
+        fail("PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB fallback default must be 1", failures)
+    else:
+        ok("OTA fallback default boot mode is DIRECT_AB")
 
 
 def check_artifacts(root: Path, build_dir: Path, failures: list[str]) -> None:

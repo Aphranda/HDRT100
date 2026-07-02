@@ -22,7 +22,10 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BUILD_DIR = ROOT / "build"
 DEFAULT_PACKAGE = DEFAULT_BUILD_DIR / "RP2350_TRIG_UPDATE.pkg"
 DEFAULT_FACTORY = DEFAULT_BUILD_DIR / "RP2350_TRIG_FACTORY.uf2"
+DEFAULT_SD_DIR = DEFAULT_BUILD_DIR / "sdcard"
 PYTHON = sys.executable
+PACKAGE_MAGIC = 0x474B5054
+PACKAGE_HEADER_SIZE = 512
 
 STATUS_COMMANDS = [
     "*IDN?",
@@ -35,6 +38,8 @@ STATUS_COMMANDS = [
     "SYST:OTA:SLOT?",
     "SYST:OTA:RES?",
     "SYST:OTA:TXN?",
+    "SYST:SD:STAT?",
+    "SYST:SD:INFO?",
     "STAT:TRIG?",
     "STAT:SYNC?",
 ]
@@ -168,6 +173,7 @@ class ToolboxApp:
         self.build_dir_var = StringVar(value=str(DEFAULT_BUILD_DIR))
         self.package_var = StringVar(value=str(DEFAULT_PACKAGE))
         self.factory_var = StringVar(value=str(DEFAULT_FACTORY))
+        self.sd_dir_var = StringVar(value=str(DEFAULT_SD_DIR))
         self.timeout_var = StringVar(value="8")
         self.skip_flash_var = BooleanVar(value=True)
         self.skip_negative_var = BooleanVar(value=True)
@@ -261,7 +267,7 @@ class ToolboxApp:
         notebook.add(frame, text="OTA")
         frame.columnconfigure(1, weight=1)
 
-        ttk.Label(frame, text="Package").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="Unified Package").grid(row=0, column=0, sticky="w")
         ttk.Entry(frame, textvariable=self.package_var).grid(row=0, column=1, sticky="ew", padx=4)
         ttk.Button(frame, text="Browse", command=self.browse_package).grid(row=0, column=2)
 
@@ -269,34 +275,39 @@ class ToolboxApp:
         ttk.Entry(frame, textvariable=self.factory_var).grid(row=1, column=1, sticky="ew", padx=4)
         ttk.Button(frame, text="Browse", command=self.browse_factory).grid(row=1, column=2)
 
-        ttk.Label(frame, text="Timeout").grid(row=2, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=self.timeout_var, width=8).grid(row=2, column=1, sticky="w", padx=4)
+        ttk.Label(frame, text="SD FS Dir").grid(row=2, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.sd_dir_var).grid(row=2, column=1, sticky="ew", padx=4)
+        ttk.Button(frame, text="Browse", command=self.browse_sd_dir).grid(row=2, column=2)
+
+        ttk.Label(frame, text="Timeout").grid(row=3, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.timeout_var, width=8).grid(row=3, column=1, sticky="w", padx=4)
 
         ttk.Checkbutton(frame, text="Skip factory flash in validation", variable=self.skip_flash_var).grid(
-            row=3, column=0, columnspan=3, sticky="w", pady=(6, 0)
+            row=4, column=0, columnspan=3, sticky="w", pady=(6, 0)
         )
         ttk.Checkbutton(frame, text="Skip negative OTA tests", variable=self.skip_negative_var).grid(
-            row=4, column=0, columnspan=3, sticky="w"
+            row=5, column=0, columnspan=3, sticky="w"
         )
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        buttons.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(10, 0))
         for i in range(2):
             buttons.columnconfigure(i, weight=1)
         ttk.Button(buttons, text="Build Release", command=self.build_release).grid(row=0, column=0, sticky="ew", padx=2, pady=2)
         ttk.Button(buttons, text="Release Check", command=self.release_check).grid(row=0, column=1, sticky="ew", padx=2, pady=2)
         ttk.Button(buttons, text="Send OTA Package", command=self.send_ota).grid(row=1, column=0, sticky="ew", padx=2, pady=2)
         ttk.Button(buttons, text="Full Board Validate", command=self.board_validate).grid(row=1, column=1, sticky="ew", padx=2, pady=2)
+        ttk.Button(buttons, text="Build SD FS", command=self.build_sd_fs).grid(row=2, column=0, sticky="ew", padx=2, pady=2)
         ttk.Button(buttons, text="OTA BOOT", command=lambda: self.scpi_one("SYST:OTA:BOOT")).grid(
-            row=2, column=0, sticky="ew", padx=2, pady=2
-        )
-        ttk.Button(buttons, text="OTA COMMIT", command=lambda: self.scpi_one("SYST:OTA:COMM")).grid(
             row=2, column=1, sticky="ew", padx=2, pady=2
         )
-        ttk.Button(buttons, text="OTA ABORT", command=lambda: self.scpi_one("SYST:OTA:ABOR")).grid(
+        ttk.Button(buttons, text="OTA COMMIT", command=lambda: self.scpi_one("SYST:OTA:COMM")).grid(
             row=3, column=0, sticky="ew", padx=2, pady=2
         )
-        ttk.Button(buttons, text="OTA Status", command=self.query_status).grid(row=3, column=1, sticky="ew", padx=2, pady=2)
+        ttk.Button(buttons, text="OTA ABORT", command=lambda: self.scpi_one("SYST:OTA:ABOR")).grid(
+            row=3, column=1, sticky="ew", padx=2, pady=2
+        )
+        ttk.Button(buttons, text="OTA Status", command=self.query_status).grid(row=4, column=0, columnspan=2, sticky="ew", padx=2, pady=2)
 
     def _build_trigger_tab(self, notebook: ttk.Notebook) -> None:
         frame = ttk.Frame(notebook, padding=8)
@@ -393,9 +404,10 @@ class ToolboxApp:
             self.build_dir_var.set(path)
             self.package_var.set(str(Path(path) / "RP2350_TRIG_UPDATE.pkg"))
             self.factory_var.set(str(Path(path) / "RP2350_TRIG_FACTORY.uf2"))
+            self.sd_dir_var.set(str(Path(path) / "sdcard"))
 
     def browse_package(self) -> None:
-        path = filedialog.askopenfilename(initialdir=str(ROOT), filetypes=[("OTA package", "*.pkg"), ("Binary", "*.bin"), ("All", "*.*")])
+        path = filedialog.askopenfilename(initialdir=str(ROOT), filetypes=[("Unified OTA package", "*.pkg"), ("All", "*.*")])
         if path:
             self.package_var.set(path)
 
@@ -403,6 +415,11 @@ class ToolboxApp:
         path = filedialog.askopenfilename(initialdir=str(ROOT), filetypes=[("UF2", "*.uf2"), ("All", "*.*")])
         if path:
             self.factory_var.set(path)
+
+    def browse_sd_dir(self) -> None:
+        path = filedialog.askdirectory(initialdir=str(ROOT))
+        if path:
+            self.sd_dir_var.set(path)
 
     def build_release(self) -> None:
         self.run_command("build", ["cmake", "--build", "--preset", "pico2-release"])
@@ -420,9 +437,39 @@ class ToolboxApp:
             ],
         )
 
+    def build_sd_fs(self) -> None:
+        build_dir = self.build_dir_var.get()
+        if not self._require_path(build_dir, "build directory"):
+            return
+        package = self.package_var.get()
+        factory = self.factory_var.get()
+        if not self._require_path(package, "OTA package"):
+            return
+        if not self._require_unified_package(package):
+            return
+        if not self._require_path(factory, "factory UF2"):
+            return
+        self.run_command(
+            "sd_fs_build",
+            [
+                PYTHON,
+                "tools/sd_fs_build/sd_fs_build.py",
+                "--build-dir",
+                build_dir,
+                "--output-dir",
+                self.sd_dir_var.get(),
+                "--package",
+                package,
+                "--factory",
+                factory,
+            ],
+        )
+
     def send_ota(self) -> None:
         package = self.package_var.get()
         if not self._require_path(package, "OTA package"):
+            return
+        if not self._require_unified_package(package):
             return
         self.run_command(
             "ota_send",
@@ -453,6 +500,8 @@ class ToolboxApp:
         package = self.package_var.get()
         factory = self.factory_var.get()
         if package:
+            if not self._require_unified_package(package):
+                return
             command.extend(["--package", package])
         if factory:
             command.extend(["--factory", factory])
@@ -593,6 +642,23 @@ class ToolboxApp:
     def _require_path(self, path_text: str, label: str) -> bool:
         if not path_text or not Path(path_text).exists():
             messagebox.showerror("Missing path", f"{label} does not exist:\n{path_text}")
+            return False
+        return True
+
+    def _require_unified_package(self, path_text: str) -> bool:
+        path = Path(path_text)
+        try:
+            header = path.read_bytes()[:PACKAGE_HEADER_SIZE]
+        except OSError as exc:
+            messagebox.showerror("Package read failed", f"Cannot read OTA package:\n{path}\n\n{exc}")
+            return False
+        if len(header) < PACKAGE_HEADER_SIZE or int.from_bytes(header[0:4], byteorder="little") != PACKAGE_MAGIC:
+            messagebox.showerror(
+                "Invalid OTA package",
+                "OTA operations in this GUI expect the unified package:\n"
+                "RP2350_TRIG_UPDATE.pkg\n\n"
+                f"Selected file is not a unified package:\n{path}",
+            )
             return False
         return True
 

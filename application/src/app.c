@@ -8,6 +8,7 @@
 #include "project_config.h"
 #include "resource_arbiter.h"
 #include "scpi_port.h"
+#include "storage_manager.h"
 #include "sync_config_ui.h"
 #include "sync_trigger.h"
 #include "sync_io.h"
@@ -62,6 +63,11 @@ bool app_init(void)
 
     if (!ota_ao_init()) {
         diagnostics_mark_fault("ota", "OTA initialization failed");
+        return false;
+    }
+
+    if (!storage_manager_init()) {
+        diagnostics_mark_fault("storage", "storage manager initialization failed");
         return false;
     }
 
@@ -144,11 +150,17 @@ void app_diag_service(void)
     }
 }
 
+static void app_storage_service(void)
+{
+    storage_manager_service(250u);
+}
+
 void app_run_once(void)
 {
     app_comm_service();
     app_trigger_service();
     app_ota_service();
+    app_storage_service();
     app_ui_service();
     app_diag_service();
     osal_delay_ms(1u);

@@ -12,6 +12,7 @@
 #include "ota_ao.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
+#include "storage_manager.h"
 #include "sync_trigger.h"
 #include "u8g2.h"
 #include "u8g2_port.h"
@@ -29,12 +30,14 @@ typedef enum {
     UI_PAGE_OVERVIEW = 0,
     UI_PAGE_TRIGGER,
     UI_PAGE_OTA,
+    UI_PAGE_SD,
     UI_PAGE_COUNT,
 } ui_page_t;
 
 typedef struct {
     sync_trigger_summary_t trigger;
     ota_vector_t ota;
+    storage_manager_vector_t storage;
     resource_arbiter_snapshot_t arbiter;
     bool fault_active;
     uint32_t uptime_ms;
@@ -45,7 +48,9 @@ typedef struct {
     uint8_t mono_buffer[UI_MONO_BUFFER_SIZE];
     uint16_t line_buffer[UI_FLUSH_PIXELS];
     ui_page_t page;
+    ui_page_t previous_page;
     uint32_t frame;
+    uint8_t tab_anim;
     bool boot_splash_active;
     bool initialized;
 } sync_config_ui_t;
@@ -82,6 +87,8 @@ static const char *ui_page_to_label(ui_page_t page)
         return "TRG";
     case UI_PAGE_OTA:
         return "OTA";
+    case UI_PAGE_SD:
+        return "SD";
     default:
         return "UNK";
     }
@@ -299,6 +306,29 @@ static void format_size_compact(char *buffer, size_t buffer_size, uint32_t size_
     snprintf(buffer, buffer_size, "%luB", (unsigned long)size_bytes);
 }
 
+static void format_kib_compact(char *buffer, size_t buffer_size, uint32_t size_kib)
+{
+    if (size_kib >= (1024u * 1024u)) {
+        const uint32_t whole_gib = size_kib / (1024u * 1024u);
+        const uint32_t frac_gib = (size_kib % (1024u * 1024u)) / (1024u * 102u);
+        snprintf(buffer, buffer_size, "%lu.%luGiB",
+                 (unsigned long)whole_gib,
+                 (unsigned long)frac_gib);
+        return;
+    }
+
+    if (size_kib >= 1024u) {
+        const uint32_t whole_mib = size_kib / 1024u;
+        const uint32_t frac_mib = (size_kib % 1024u) / 102u;
+        snprintf(buffer, buffer_size, "%lu.%luMiB",
+                 (unsigned long)whole_mib,
+                 (unsigned long)frac_mib);
+        return;
+    }
+
+    snprintf(buffer, buffer_size, "%luKiB", (unsigned long)size_kib);
+}
+
 static void format_rx_progress(char *buffer, size_t buffer_size, uint32_t received_size, uint32_t expected_size)
 {
     char rx_buffer[12];
@@ -386,6 +416,7 @@ static void capture_snapshot(ui_snapshot_t *snapshot)
     memset(snapshot, 0, sizeof(*snapshot));
     sync_trigger_get_summary(&snapshot->trigger);
     ota_ao_get_vector(&snapshot->ota);
+    storage_manager_get_vector(&snapshot->storage);
     resource_arbiter_get_snapshot(&snapshot->arbiter);
     snapshot->fault_active = diagnostics_has_fault();
     snapshot->uptime_ms = board_uptime_ms();
@@ -508,25 +539,90 @@ static void draw_status_dot(u8g2_t *u8g2, uint8_t x, uint8_t y, bool active, boo
 
 static void draw_page_tabs(u8g2_t *u8g2)
 {
+    enum {
+        TAB_VISIBLE_COUNT = 3u,
+        TAB_X = 81u,
+        TAB_Y = 1u,
+        TAB_SLOT_W = 31u,
+        TAB_H = 11u,
+        TAB_INDICATOR_W = 18u,
+    };
     static const ui_page_t pages[] = {
         UI_PAGE_OVERVIEW,
         UI_PAGE_TRIGGER,
         UI_PAGE_OTA,
+        UI_PAGE_SD,
     };
-    static const uint8_t x_positions[] = { 97u, 126u, 155u };
+    uint8_t first_page = 0u;
+    const uint8_t active_page = (uint8_t)s_ui.page;
+    const uint8_t previous_page = (uint8_t)s_ui.previous_page;
+    const uint8_t page_count = (uint8_t)(sizeof(pages) / sizeof(pages[0]));
+    const uint8_t visible_count = TAB_VISIBLE_COUNT;
+    const int16_t direction = active_page >= previous_page ? 1 : -1;
+    const int16_t slide = s_ui.tab_anim > 0u ? (int16_t)(direction * (int16_t)(s_ui.tab_anim / 2u)) : 0;
+    uint8_t active_slot = 0u;
+    uint8_t active_x;
+    uint8_t indicator_x;
+
+    if (page_count > visible_count) {
+        if (active_page == 0u) {
+            first_page = 0u;
+        } else if (active_page >= (uint8_t)(page_count - 1u)) {
+            first_page = (uint8_t)(page_count - visible_count);
+        } else {
+            first_page = (uint8_t)(active_page - 1u);
+        }
+    }
+
+    if (active_page >= first_page) {
+        active_slot = (uint8_t)(active_page - first_page);
+        if (active_slot >= visible_count) {
+            active_slot = (uint8_t)(visible_count - 1u);
+        }
+    }
+    active_x = (uint8_t)(TAB_X + (active_slot * TAB_SLOT_W));
+    indicator_x = (uint8_t)(active_x + ((TAB_SLOT_W - TAB_INDICATOR_W) / 2u));
 
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
-    for (size_t i = 0u; i < (sizeof(pages) / sizeof(pages[0])); i++) {
-        const uint8_t x = x_positions[i];
-        if (s_ui.page == pages[i]) {
-            u8g2_DrawBox(u8g2, x, 2u, 24u, 9u);
+    u8g2_DrawRFrame(u8g2,
+                    TAB_X,
+                    TAB_Y,
+                    (u8g2_uint_t)(TAB_SLOT_W * visible_count),
+                    TAB_H,
+                    2u);
+
+    for (uint8_t i = 0u; i < visible_count && (uint8_t)(first_page + i) < page_count; i++) {
+        int16_t x = (int16_t)(TAB_X + 1u + (i * TAB_SLOT_W) + slide);
+        const ui_page_t page = pages[first_page + i];
+        const uint8_t label_width = (uint8_t)u8g2_GetStrWidth(u8g2, ui_page_to_label(page));
+        const int16_t label_x = x + (int16_t)((TAB_SLOT_W - label_width) / 2u);
+
+        if (s_ui.page == page) {
+            u8g2_DrawRBox(u8g2, (u8g2_uint_t)x, 2u, (u8g2_uint_t)(TAB_SLOT_W - 2u), 9u, 2u);
             u8g2_SetDrawColor(u8g2, 0);
-            u8g2_DrawStr(u8g2, (u8g2_uint_t)(x + 4u), 9u, ui_page_to_label(pages[i]));
+            u8g2_DrawStr(u8g2, (u8g2_uint_t)label_x, 9u, ui_page_to_label(page));
+            if (s_ui.tab_anim > 0u) {
+                const uint8_t sweep = (uint8_t)((8u - s_ui.tab_anim) * 2u);
+                u8g2_DrawBox(u8g2, (u8g2_uint_t)(x + 5u + sweep), 10u, 5u, 1u);
+            }
             u8g2_SetDrawColor(u8g2, 1);
         } else {
-            u8g2_DrawFrame(u8g2, x, 2u, 24u, 9u);
-            u8g2_DrawStr(u8g2, (u8g2_uint_t)(x + 4u), 9u, ui_page_to_label(pages[i]));
+            if (i > 0u) {
+                u8g2_DrawVLine(u8g2, (u8g2_uint_t)(TAB_X + (i * TAB_SLOT_W)), 3u, 7u);
+            }
+            u8g2_DrawStr(u8g2, (u8g2_uint_t)label_x, 9u, ui_page_to_label(page));
         }
+    }
+
+    u8g2_DrawBox(u8g2, indicator_x, 11u, TAB_INDICATOR_W, 1u);
+
+    if (first_page > 0u) {
+        const uint8_t pulse = (uint8_t)(1u + ((s_ui.frame >> 1u) & 1u));
+        u8g2_DrawTriangle(u8g2, 76u, 6u, 79u, (int16_t)(4u - pulse), 79u, (int16_t)(8u + pulse));
+    }
+    if ((uint8_t)(first_page + visible_count) < page_count) {
+        const uint8_t pulse = (uint8_t)(1u + ((s_ui.frame >> 1u) & 1u));
+        u8g2_DrawTriangle(u8g2, 177u, 6u, 174u, (int16_t)(4u - pulse), 174u, (int16_t)(8u + pulse));
     }
 }
 
@@ -544,7 +640,7 @@ static void draw_header(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
              "%s %s",
              trigger_mode_to_short(snapshot->trigger.active_mode),
              trigger_state_to_short(snapshot->trigger.state));
-    draw_fit_str(u8g2, 7u, 13u, 86u, title_buffer);
+    draw_fit_str(u8g2, 7u, 13u, 70u, title_buffer);
     draw_page_tabs(u8g2);
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
     snprintf(title_buffer,
@@ -554,7 +650,7 @@ static void draw_header(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
              edge_to_short(snapshot->trigger.edge),
              (unsigned long)snapshot->trigger.trigger_count);
     draw_fit_str(u8g2, 8u, 20u, 154u, title_buffer);
-    draw_fit_str(u8g2, 184u, 11u, 38u, snapshot->fault_active ? "FAULT" : "READY");
+    draw_fit_str(u8g2, 204u, 11u, 18u, snapshot->fault_active ? "FLT" : "OK");
     draw_status_dot(u8g2,
                     229u,
                     8u,
@@ -639,7 +735,7 @@ static void draw_ota_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     draw_kv_line(u8g2, 169, 42, 62, "STATE", ota_state_to_short_label((ota_state_t)snapshot->ota.state));
     draw_kv_line(u8g2, 169, 51, 62, "PROG", progress_buffer);
     draw_kv_line(u8g2, 169, 60, 62, "RX", rx_buffer);
-    draw_kv_line(u8g2, 169, 69, 62, "SLOT", ota_slot_to_short_label(snapshot->ota.target_slot));
+    draw_kv_line(u8g2, 169, 69, 62, "TARG", ota_slot_to_short_label(snapshot->ota.target_slot));
     draw_kv_line(u8g2, 169, 78, 62, "RES", ota_result_to_short_label((ota_result_t)snapshot->ota.last_result));
     draw_kv_line(u8g2, 169, 87, 62, "ERR", error_buffer);
     draw_kv_line(u8g2, 169, 96, 62, "BOOT", ota_boot_result_to_short_label(snapshot->ota.boot_flags_summary));
@@ -754,7 +850,7 @@ static void draw_ota_page(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     draw_progress_bar(u8g2, 12u, 58u, 214u, 8u, snapshot->ota.progress_permille);
 
     draw_card(u8g2, 4u, 76u, 112u, 42u, "PACKAGE");
-    draw_kv_line(u8g2, 10u, 97u, 100u, "SLOT", ota_slot_to_short_label(snapshot->ota.target_slot));
+    draw_kv_line(u8g2, 10u, 97u, 100u, "TARG", ota_slot_to_short_label(snapshot->ota.target_slot));
     draw_kv_line(u8g2, 10u, 106u, 100u, "RX", rx_buffer);
     copy_compact_error(value_buffer, sizeof(value_buffer), snapshot->ota.error_code);
     draw_kv_line(u8g2, 10u, 115u, 100u, "ERR", value_buffer);
@@ -766,6 +862,42 @@ static void draw_ota_page(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     draw_kv_line(u8g2, 130u, 115u, 100u, "SEQ", value_buffer);
 }
 
+static void draw_sd_page(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
+{
+    char value_buffer[32];
+    char capacity_buffer[16];
+    char block_buffer[16];
+    char probe_buffer[16];
+    const storage_manager_vector_t *storage = &snapshot->storage;
+    const bool ready = storage->state == STORAGE_MANAGER_STATE_CARD_READY;
+    const bool blink = ((snapshot->uptime_ms / 250u) & 1u) != 0u;
+
+    format_kib_compact(capacity_buffer, sizeof(capacity_buffer), storage->capacity_kib);
+    snprintf(block_buffer, sizeof(block_buffer), "%lu", (unsigned long)storage->block_count);
+    snprintf(probe_buffer, sizeof(probe_buffer), "%lu", (unsigned long)storage->probe_count);
+
+    draw_card(u8g2, 4u, 24u, 232u, 42u, "SD CARD");
+    u8g2_SetFont(u8g2, u8g2_font_6x13B_tf);
+    snprintf(value_buffer,
+             sizeof(value_buffer),
+             "%s %s",
+             storage_manager_state_string(storage->state),
+             sd_card_status_string(storage->card_status));
+    draw_fit_str(u8g2, 12u, 51u, 196u, value_buffer);
+    draw_status_dot(u8g2, 224u, 45u, ready, blink && storage->card_present);
+    draw_kv_line(u8g2, 12u, 62u, 216u, "CARD", storage->card_present ? "PRESENT" : "ABSENT");
+
+    draw_card(u8g2, 4u, 70u, 112u, 48u, "MEDIA");
+    draw_kv_line(u8g2, 10u, 91u, 100u, "TYPE", sd_card_type_string(storage->card_type));
+    draw_kv_line(u8g2, 10u, 101u, 100u, "CAP", capacity_buffer);
+    draw_kv_line(u8g2, 10u, 111u, 100u, "BLK", block_buffer);
+
+    draw_card(u8g2, 124u, 70u, 112u, 48u, "FILESYS");
+    draw_kv_line(u8g2, 130u, 91u, 100u, "FATFS", storage->fatfs_available ? "YES" : "NO");
+    draw_kv_line(u8g2, 130u, 101u, 100u, "MOUNT", storage->fs_mounted ? "YES" : "NO");
+    draw_kv_line(u8g2, 130u, 111u, 100u, "PROBE", probe_buffer);
+}
+
 static void draw_body(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 {
     switch (s_ui.page) {
@@ -774,6 +906,9 @@ static void draw_body(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
         break;
     case UI_PAGE_OTA:
         draw_ota_page(u8g2, snapshot);
+        break;
+    case UI_PAGE_SD:
+        draw_sd_page(u8g2, snapshot);
         break;
     case UI_PAGE_OVERVIEW:
     default:
@@ -809,6 +944,8 @@ static uint16_t themed_background(uint16_t x, uint16_t y)
             return rgb565(24, 35, 30);
         case UI_PAGE_OTA:
             return rgb565(35, 26, 39);
+        case UI_PAGE_SD:
+            return rgb565(20, 38, 32);
         case UI_PAGE_OVERVIEW:
         default:
             return rgb565(13, 36, 47);
@@ -822,6 +959,9 @@ static uint16_t themed_background(uint16_t x, uint16_t y)
     }
     if (s_ui.page == UI_PAGE_OTA) {
         return (y < 70u) ? rgb565(22, 24, 38) : rgb565(28, 25, 34);
+    }
+    if (s_ui.page == UI_PAGE_SD) {
+        return (y < 68u) ? rgb565(15, 34, 31) : rgb565(20, 31, 30);
     }
     if (x < 76u) {
         return rgb565(18, 30, 36);
@@ -853,6 +993,8 @@ static uint16_t themed_foreground(uint16_t x, uint16_t y)
             return rgb565(138, 238, 156);
         case UI_PAGE_OTA:
             return rgb565(211, 166, 255);
+        case UI_PAGE_SD:
+            return rgb565(124, 235, 189);
         case UI_PAGE_OVERVIEW:
         default:
             return rgb565(115, 232, 222);
@@ -872,6 +1014,12 @@ static uint16_t themed_foreground(uint16_t x, uint16_t y)
             return rgb565(114, 218, 255);
         }
         return rgb565(234, 224, 246);
+    }
+    if (s_ui.page == UI_PAGE_SD) {
+        if (y > 46u && y < 56u) {
+            return rgb565(247, 212, 104);
+        }
+        return rgb565(217, 239, 226);
     }
     if ((x > 169u && x < 232u && y > 21u && y < 113u) ||
         (x > 80u && x < 158u && y > 21u && y < 83u)) {
@@ -968,6 +1116,7 @@ bool sync_config_ui_init(void)
     u8g2_port_setup_240x136(&s_ui.u8g2, s_ui.mono_buffer);
     u8g2_SetFontMode(&s_ui.u8g2, 1);
     s_ui.page = UI_PAGE_OVERVIEW;
+    s_ui.previous_page = UI_PAGE_OVERVIEW;
     s_ui.initialized = true;
     run_boot_splash();
     return true;
@@ -979,7 +1128,9 @@ void sync_config_ui_key_next(void)
         return;
     }
 
+    s_ui.previous_page = s_ui.page;
     s_ui.page = (ui_page_t)(((uint32_t)s_ui.page + 1u) % (uint32_t)UI_PAGE_COUNT);
+    s_ui.tab_anim = 8u;
 }
 
 bool sync_config_ui_render(void)
@@ -999,6 +1150,9 @@ bool sync_config_ui_render(void)
 
     u8g2_t *u8g2 = &s_ui.u8g2;
     s_ui.frame++;
+    if (s_ui.tab_anim > 0u) {
+        s_ui.tab_anim--;
+    }
 
     u8g2_ClearBuffer(u8g2);
     draw_header(u8g2, &snapshot);
