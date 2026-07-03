@@ -45,6 +45,338 @@
 
 ## 任务记录
 
+### TASK-20260704-008 - SD_TODO HAOFV 与 Git-like 深度融合重构
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 将 Git-like Pack/Ref 版本模型深度融合进 HAOFV 架构，而不是作为 SD 文件系统的附加技巧。
+  - 再次重构 `docs/SD_TODO.md`，让 System Pack、Pack/Ref、StorageAO/StorageFB/StorageVector、事务和实现路线形成一条主线。
+- 完成内容：
+  - 将文档标题调整为 `SD 卡 System Pack 规划与待办`。
+  - 将 HAOFV 分层扩展为：
+    - `StorageAO`
+    - `StorageFB`
+    - `PackFB`
+    - `RefFB`
+    - `SnapshotFB`
+    - `StorageVector`
+    - `Resource Arbiter`
+    - `FatFs Port / sd_card driver`
+  - 将 Git-like 模型提前为核心章节 `System Pack 与 Git-like 模型`，明确它服务于可追溯、可回滚、可审计和现场部署。
+  - 将 `/packs + /refs` 合并进主文件架构，而不是后置规划。
+  - 重新整理章节顺序：先讲定位和 HAOFV，再讲 System Pack/Pack/Ref，再讲文件格式、对象模型、Vector、状态机、事件、事务、安全、OTA、工具、实现路线。
+  - 将实现路线重排为：
+    - P0A：固定目录与 Manifest。
+    - P0B：Vector 快照。
+    - P0C：脉冲异常追溯。
+    - P1A：Pack/Ref。
+    - P1B：Profile/Calibration。
+    - P1C：Mission/Recipe。
+    - P1D：离线 OTA。
+    - P2A：报告、产测、工具。
+    - P2B：长稳与掉电恢复。
+  - 明确 Pack/Ref 对 HAOFV 的影响必须通过 StorageAO 事件链路进入 TriggerAO/OtaAO/DiagnosticsAO，不能绕过域边界。
+- 验证结果：
+  - 本任务只重构规划文档，未修改固件代码，未执行构建或烧录。
+- 还需完成：
+  - 后续 P0A 从 `tools/sd_fs_build/sd_fs_build.py` 开始，实现固定目录、`manifest.json` 和 `manifest.idx`。
+  - 后续再在 `storage_manager` 中引入 `StorageAO/StorageFB` 最小 job 框架。
+- 关联文件：
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 先实现 SD System Pack staging 生成，再进行板端 manifest scan 和路径白名单。
+
+### TASK-20260704-007 - SD Git-like System Pack 版本模型分析
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 分析 Git 思想对 SD System Pack 的系统意义，明确哪些能力适合固件端采用、哪些应留给 PC 工具、哪些不做。
+  - 将 Git-like 版本模型纳入 SD 文件系统规划，用于配置回滚、校准追溯、任务包部署和脉冲异常定位。
+- 完成内容：
+  - 在 `docs/SD_TODO.md` 新增“Git-like System Pack 版本模型”章节。
+  - 明确固件端只采用轻量子集：
+    - `pack` 对应 Git commit，表示一组 profile/mission/cal/update 文件的不可变组合。
+    - `ref` 指向 `active/previous/factory/candidate`。
+    - `hash` 用于内容校验和追溯，固件以 CRC32 起步，PC 工具可使用 SHA256。
+    - `checkout` 只允许在 BOOT/IDLE/MAINTENANCE 或 ARM 前执行。
+    - `rollback` 支持退回 previous/factory，但第一版不自动回滚。
+  - 明确不实现完整 Git：
+    - 不做 branch/merge。
+    - 不做三方冲突解决。
+    - 不做 object database 或 packfile。
+    - 不在固件端做文本 diff。
+  - 规划 `/packs/pack_xxxxxx/` 和 `/refs/*.ref` 目录模型。
+  - 定义 `active.ref`、`previous.ref`、`factory.ref`、`candidate.ref` 的 line-oriented 格式和事务切换规则。
+  - 要求 snapshot/report 记录 active pack id/hash、profile/mission/calibration hash 和 firmware build id，方便异常追溯。
+  - 将实现路线新增为 `P1B - Git-like Pack/Ref`，原 Mission/Recipe 和离线 OTA 顺延为 P1C/P1D。
+- 验证结果：
+  - 本任务只更新规划文档，未修改固件代码，未执行构建或烧录。
+- 还需完成：
+  - 后续 PC 工具生成 pack/ref，并支持 pack check/diff。
+  - 后续 StorageAO 支持 ref 查询、candidate 校验和 ARM 前 checkout。
+- 关联文件：
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - P0 仍先完成固定目录、manifest、snapshot/trace；P1 再引入 `/packs + /refs` 版本模型。
+
+### TASK-20260704-006 - SD_TODO 文档结构重构
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 根据评审结果重构 `docs/SD_TODO.md`，避免继续以追加清单方式堆叠内容。
+  - 将 SD 卡规划整理成稳定的 HAOFV 设计规范、文件系统约束、实现路线和验证矩阵。
+- 完成内容：
+  - 将 `docs/SD_TODO.md` 整体重构为 22 个清晰章节：
+    - 系统定位。
+    - HAOFV 分层。
+    - Storage 事件。
+    - StorageVector。
+    - StorageFB 状态机。
+    - SD 文件架构。
+    - Manifest。
+    - 文件格式。
+    - 数据分级与对象模型。
+    - 命名、序号与事务。
+    - 路径、安全、完整性。
+    - 错误模型。
+    - 容量、配额、保留。
+    - 热插拔与失效处理。
+    - SD 离线 OTA 约束。
+    - 调度与资源预算。
+    - PC 工具链。
+    - 实现路线。
+    - 当前基线。
+    - 当前验证记录。
+    - 架构边界。
+    - 关联文件。
+  - 完善评审提出的关键问题：
+    - `manifest.json` 与 `manifest.idx` 分离，第一版固件只解析 line-oriented `manifest.idx`。
+    - 明确单调序号来源和扫描失败处理。
+    - 明确 `.tmp`、`.idx`、`index.json/index.bak` 的事务与恢复规则。
+    - 将 Vector 中的完整路径改为 id/hash 摘要，完整路径由 StorageAO 内部保存。
+    - 明确 SD->OTA 使用 bounce buffer 和 event_bus/OtaAO payload copy，避免悬垂指针。
+    - 将旧 `/config`、`/capture` 映射到 `/profile + /mission`、`/traces + /reports`，不再作为新根目录。
+    - 将架构边界修正为“App 侧 System Pack/持久化观测介质”。
+- 验证结果：
+  - 本任务只重构文档，未修改固件代码，未执行构建或烧录。
+- 还需完成：
+  - 按新结构更新 `tools/sd_fs_build/sd_fs_build.py`，生成完整目录、`manifest.json` 和 `manifest.idx`。
+  - 在 `storage_manager` 中实现 P0A：manifest scan、路径白名单、文件信息查询和 required 文件检查。
+- 关联文件：
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 进入 P0A 实现：先改 SD staging 工具，再让板端 StorageAO 能扫描 `manifest.idx` 并发布 System Pack 摘要。
+
+### TASK-20260704-005 - HAOFV 文件系统深度设计
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 从 HAOFV 角度深化 SD 文件系统设计，避免只停留在目录命名和文件格式层面。
+  - 明确 StorageAO 如何把 SD 卡作为持久化对象空间管理，同时不破坏 Trigger/PIO/DMA 硬实时路径。
+- 完成内容：
+  - 在 `docs/SD_TODO.md` 新增“HAOFV 文件系统深度设计”章节。
+  - 定义数据分级：
+    - L0 RAM Vector / 反射内存。
+    - L1 RAM trace ring。
+    - L2 snapshot/trace/report 证据文件。
+    - L3 profile/mission/cal/update 系统包。
+    - L4 manifest/factory/logs 工具产物。
+  - 定义 `storage_object_t` 文件对象模型和对象类型，包括 manifest、profile、mission、sequence、calibration、snapshot、trace、report、log、OTA package 和 factory plan/result。
+  - 定义文件生命周期：static、append-only、generated、volatile-temp、index。
+  - 定义轻量事务流程：`.tmp` 写入、flush/sync、close、rename、idx 完整性标志和启动清理规则。
+  - 规划索引与查询策略：manifest 作为输入索引，snapshots/traces/reports 后续维护 index，第一阶段优先维护最近路径摘要。
+  - 规划容量、配额与保留策略，避免 trace/log 填满 SD 卡。
+  - 定义路径规范化、安全白名单、schema/product 兼容策略、错误模型和热插拔状态机。
+  - 明确 HAOFV 调度约束：SCPI/UI 只投递事件，UI render 不访问 FatFs，ISR 不调用 StorageAO/FatFs，Storage job 必须分片。
+  - 规划 PC 工具链：`sd_fs_build`、`sd_pack_check`、`sd_trace_decode` 和 TK toolbox SD 页面。
+- 验证结果：
+  - 本任务只更新规划文档，未修改固件代码，未执行构建或烧录。
+- 还需完成：
+  - 将该设计落地到 `tools/sd_fs_build/sd_fs_build.py`。
+  - 在 `storage_manager` 中实现路径规范化、manifest scan、required 文件检查和 StorageVector 扩展。
+  - 实现 snapshot 原子写入和 trace `.bin/.idx` 成对落盘。
+- 关联文件：
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 从最小落地顺序 1-3 开始：生成固定目录/manifest，板端扫描 manifest，补路径白名单与文件信息查询。
+
+### TASK-20260704-004 - SD System Pack 文件架构定义
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 为 SD 卡 System Pack 定义稳定文件架构，支撑后续配置加载、校准补偿、Vector 快照、脉冲异常 trace、报告、离线 OTA 和产测。
+  - 让 PC 工具、SCPI、UI、StorageAO 和后续 trace 解析工具使用统一目录和命名规则。
+- 完成内容：
+  - 在 `docs/SD_TODO.md` 新增“SD 文件架构定义”章节。
+  - 定义根目录结构：
+    - `/manifest.json`
+    - `/profile`
+    - `/mission`
+    - `/cal`
+    - `/snapshots`
+    - `/traces`
+    - `/reports`
+    - `/logs`
+    - `/update`
+    - `/factory`
+  - 定义各目录职责、写入者和读取者，明确跨域配置仍需经 `StorageAO -> TriggerAO/OtaAO/DiagnosticsAO` 事件链路。
+  - 定义 `/manifest.json` 第一版字段，包括 magic、schema、product_id、hardware_id、features、defaults 和 files。
+  - 定义文件命名规则：目录小写、自动生成文件使用单调序号、默认 OTA 包固定为 `/update/RP2350_TRIG_UPDATE.pkg`。
+  - 定义原子写入规则：`.tmp -> flush/sync -> close -> rename`，`.tmp` 不视为有效证据。
+  - 定义 snapshot JSON 第一版摘要格式和 trace binary 第一版头/事件记录格式。
+- 验证结果：
+  - 本任务只更新规划文档，未修改固件代码，未执行构建或烧录。
+- 还需完成：
+  - 更新 `tools/sd_fs_build/sd_fs_build.py`，按该文件架构生成 SD staging tree、manifest 和默认目录。
+  - 在 `storage_manager` 中实现 manifest scan、路径规范化和默认文件存在性检查。
+  - 后续实现 snapshot JSON 写入和 trace binary 落盘。
+- 关联文件：
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 先改 SD staging 工具生成完整目录和 manifest，再让板端 `StorageAO` 识别 manifest 并把摘要发布到 `StorageVector`。
+
+### TASK-20260704-003 - HAOFV SD 卡后续功能路线图
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 使用 HAOFV 架构重新规划 SD 卡后续功能，避免 SD 卡只停留在离线 OTA 或普通文件系统能力。
+  - 明确 SD 卡作为 `StorageAO` 管理的 System Pack、持久化观测层、配置/校准/证据载体的分阶段路线。
+- 完成内容：
+  - 在 `docs/SD_TODO.md` 新增“HAOFV 后续功能路线图”。
+  - 明确 SD 相关分层职责：
+    - `SCPI / UI / SD file input` 只表达意图。
+    - `StorageAO` 负责事件队列、执行预算、文件 job 调度和跨域事件投递。
+    - `StorageFB` 负责 mount、catalog、read/write、snapshot dump、trace dump、manifest scan 等状态机。
+    - `StorageVector` 只保存当前事实和 job 摘要，不保存大块数据。
+    - `Resource Arbiter` 串行化 `SPI0 + SD`、`SPI0 + LCD`、`FLASH`。
+  - 规划后续 Storage 事件入口：
+    - `STORAGE_EVENT_PROBE`
+    - `STORAGE_EVENT_CATALOG`
+    - `STORAGE_EVENT_SCAN_SYSTEM_PACK`
+    - `STORAGE_EVENT_LOAD_PROFILE`
+    - `STORAGE_EVENT_LOAD_CALIBRATION`
+    - `STORAGE_EVENT_WRITE_SNAPSHOT`
+    - `STORAGE_EVENT_WRITE_TRACE`
+    - `STORAGE_EVENT_WRITE_REPORT`
+    - `STORAGE_EVENT_OFFLINE_OTA`
+    - `STORAGE_EVENT_ABORT_JOB`
+  - 规划 `StorageVector` 扩展字段、`StorageFB` 状态机、文件格式策略、调度预算和资源仲裁规则。
+  - 将 SD 后续功能拆成 P0A/P0B/P0C/P1A/P1B/P1C/P2A/P2B：
+    - P0A：System Pack 基线。
+    - P0B：Vector 快照。
+    - P0C：脉冲异常追溯。
+    - P1A：Profile/Calibration 加载。
+    - P1B：Mission/Recipe。
+    - P1C：离线 OTA。
+    - P2A：报告与产测。
+    - P2B：长稳与掉电恢复。
+- 验证结果：
+  - 本任务只更新规划文档，未修改固件代码，未执行构建或烧录。
+- 还需完成：
+  - 先落地 P0A：manifest、目录规范、路径规范化、文件信息查询和默认包识别。
+  - 再落地 P0B/P0C：boot/arm/fault snapshot 和 RAM trace ring。
+- 关联文件：
+  - `docs/SD_TODO.md`
+  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 从 `StorageAO + StorageFB + StorageVector` 的最小 job 框架开始实现，优先支持 snapshot 写入和最近 fault 追溯查询。
+
+### TASK-20260704-002 - SD System Pack 与脉冲异常追溯定位
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 基于 HAOFV 架构重新评估 SD 卡在触发系统中的角色，明确它不只是离线 OTA 介质。
+  - 将 SD 卡定位为 App 侧 System Pack 和持久化观测层，用于保存任务配置、校准补偿、Vector 快照、脉冲异常 trace、日志和报告。
+  - 特别强化脉冲异常时的可追溯能力，使系统能快速定位异常发生前后的配置、状态和事件序列。
+- 完成内容：
+  - 更新 `docs/SD_TODO.md` 顶部系统定位：SD 卡作为 `StorageAO` 管理的持久化观测层，不进入 PIO/DMA/IRQ 硬实时触发闭环。
+  - 明确三层数据关系：
+    - RAM Vector / 反射内存保存当前实时事实。
+    - RAM trace ring 保存最近事件与脉冲异常现场。
+    - SD System Pack 保存历史事实、任务包、校准包和证据包。
+  - 规划 SD 根目录从单一维护介质扩展为：
+    - `/profile`
+    - `/mission`
+    - `/cal`
+    - `/snapshots`
+    - `/traces`
+    - `/reports`
+    - `/logs`
+    - `/update`
+    - `/factory`
+  - 新增 P0 待办“Vector 快照与脉冲异常追溯”，覆盖 boot snapshot、ARM 前 snapshot、fault snapshot、RAM trace ring、trace 落盘、pulse anomaly report 和最近一次故障查询命令。
+  - 明确 ARM 后硬实时阶段不得等待 SD/FatFs；脉冲异常先写 RAM trace ring，DISARM 或 FAULT 后由 `StorageAO` 分片写入 SD。
+- 验证结果：
+  - 本任务为架构定位和 TODO 文档更新，未修改固件代码，未执行构建或烧录。
+- 还需完成：
+  - 定义 snapshot JSON 字段和 trace 二进制格式。
+  - 在 Trigger/Diagnostics 域加入轻量 RAM trace ring。
+  - 在 StorageAO 中实现分片落盘和临时文件 + sync + rename 写入策略。
+  - 增加 SCPI/UI 查询最近 snapshot、trace、pulse fault report 的入口。
+- 关联文件：
+  - `docs/SD_TODO.md`
+  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 先实现最小 boot/arm/fault snapshot，再实现脉冲异常 RAM trace ring 和 DISARM/FAULT 后批量落盘。
+
+### TASK-20260704-001 - U8G2 滚动 Tab 动画与顶部遮挡微调
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 在保留 U8G2 和 baremetal release 默认配置的前提下，让顶部 tab 栏更灵动，并修正 tab、标题、边框之间的遮挡风险。
+  - 解决 KEY2/GPIO2 切换页面时“页面内容先变化、tab 后滑动”和滑动不够丝滑的问题。
+  - 继续保持 HAOFV 边界：UI 读取状态快照或投递页面事件，不直接修改 OTA、SD、FatFs 等底层状态。
+- 完成内容：
+  - 顶部 tab 改为 3 槽滚动窗口，只显示 `OVR/TRG/OTA/SD` 中连续 3 个页面，其余页面通过左右 overflow hint 表示。
+  - 增加 `target_page`、`previous_page`、`tab_from_first`、`tab_to_first` 和 `tab_anim` 状态，页面 body 在 tab 动画结束后再提交，避免切页早于滑动。
+  - 增加 `sync_config_ui_needs_render()`，动画期间驱动 UI 连续刷新，不再受普通 250 ms 刷新节奏限制。
+  - 将 tab 动画步数收敛为 `UI_TAB_ANIM_STEPS 4u`，降低拖沓感。
+  - 滑动窗口使用 `u8g2_SetClipWindow()` 裁剪，active frame 和底部 indicator 在槽位间插值滑动；即使最后一页不需要窗口滚动，也保持 active 指示器移动速度一致。
+  - 动画期间忽略重复 KEY2 切页，避免快速按键导致 `page/target_page` 状态交错。
+  - 检查并微调顶部布局：左侧标题最大宽度从 `70` 收窄到 `66`，给左侧 overflow 箭头留出安全间距，降低字体与箭头/边框贴合风险。
+- 验证结果：
+  - `cmake --build --preset pico2-release` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build` 通过，`release_check=OK`。
+  - release 检查确认：
+    - FreeRTOS 默认关闭。
+    - OTA 默认模式为 `DIRECT_AB`。
+    - 统一 OTA 包 `build\RP2350_TRIG_UPDATE.pkg` 存在。
+  - 使用当前统一包完成板端 OTA 快速闭环：
+    - 验证目录：`build\ota_validation_tab_width_tweak_quick`
+    - 旧 build id：`20260703162947`
+    - 新 build id：`20260703163458`
+    - `SYST:OTA:MODE? -> "DIRECT_AB",1`
+    - 最终状态：`SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`
+    - 最终 slot：`SYST:OTA:SLOT? -> 1,0,1,0,0`
+- 还需完成：
+  - 继续做实机肉眼观察：确认不同页面标题、tab 文字、左右箭头、右侧状态字段在 LCD 上没有贴边或闪烁残影。
+  - 如后续页面继续增加，需要重新评估 `TAB_SLOT_W`、`TAB_X`、右侧状态字段起点和标题宽度。
+  - SD 页面第二阶段增加 `/update` 默认包状态、包大小、离线 OTA 进度后，需要再次检查 SD 页面长文本裁剪。
+- 关联文件：
+  - `components/sync_config_ui/src/sync_config_ui.c`
+  - `components/sync_config_ui/inc/sync_config_ui.h`
+  - `application/src/app.c`
+  - `tools/release_check/release_check.py`
+  - `tools/ota_board_validate/ota_board_validate.py`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 回到 SD 卡系统闭环：准备带 `/update/RP2350_TRIG_UPDATE.pkg` 的 SD 卡，复测 `MMEM:CAT? "/update"`，再实现 App 侧 `SYST:OTA:FILE "<path>"` 离线 OTA 数据流。
+
 ### TASK-20260702-001 - SD 卡基础系统、独立界面与后续 TODO
 
 - 状态：进行中
