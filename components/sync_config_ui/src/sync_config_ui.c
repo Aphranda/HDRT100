@@ -25,6 +25,7 @@
 #define UI_CARD_Y 22u
 #define UI_CARD_H 92u
 #define UI_FOOTER_Y 124u
+#define UI_TAB_ANIM_STEPS 4u
 
 typedef enum {
     UI_PAGE_OVERVIEW = 0,
@@ -48,8 +49,11 @@ typedef struct {
     uint8_t mono_buffer[UI_MONO_BUFFER_SIZE];
     uint16_t line_buffer[UI_FLUSH_PIXELS];
     ui_page_t page;
+    ui_page_t target_page;
     ui_page_t previous_page;
     uint32_t frame;
+    uint8_t tab_from_first;
+    uint8_t tab_to_first;
     uint8_t tab_anim;
     bool boot_splash_active;
     bool initialized;
@@ -537,6 +541,17 @@ static void draw_status_dot(u8g2_t *u8g2, uint8_t x, uint8_t y, bool active, boo
     }
 }
 
+static uint8_t tab_first_for_page(uint8_t active_page, uint8_t page_count, uint8_t visible_count)
+{
+    if (page_count <= visible_count || active_page == 0u) {
+        return 0u;
+    }
+    if (active_page >= (uint8_t)(page_count - 1u)) {
+        return (uint8_t)(page_count - visible_count);
+    }
+    return (uint8_t)(active_page - 1u);
+}
+
 static void draw_page_tabs(u8g2_t *u8g2)
 {
     enum {
@@ -553,35 +568,43 @@ static void draw_page_tabs(u8g2_t *u8g2)
         UI_PAGE_OTA,
         UI_PAGE_SD,
     };
-    uint8_t first_page = 0u;
-    const uint8_t active_page = (uint8_t)s_ui.page;
+    const uint8_t active_page = (uint8_t)(s_ui.tab_anim > 0u ? s_ui.target_page : s_ui.page);
     const uint8_t previous_page = (uint8_t)s_ui.previous_page;
     const uint8_t page_count = (uint8_t)(sizeof(pages) / sizeof(pages[0]));
     const uint8_t visible_count = TAB_VISIBLE_COUNT;
-    const int16_t direction = active_page >= previous_page ? 1 : -1;
-    const int16_t slide = s_ui.tab_anim > 0u ? (int16_t)(direction * (int16_t)(s_ui.tab_anim / 2u)) : 0;
-    uint8_t active_slot = 0u;
-    uint8_t active_x;
-    uint8_t indicator_x;
+    const uint8_t target_first = tab_first_for_page(active_page, page_count, visible_count);
+    const uint8_t from_first = s_ui.tab_anim > 0u ? s_ui.tab_from_first : target_first;
+    const uint8_t to_first = s_ui.tab_anim > 0u ? s_ui.tab_to_first : target_first;
+    const int16_t first_delta = (int16_t)to_first - (int16_t)from_first;
+    const uint8_t progress = s_ui.tab_anim > 0u ? (uint8_t)(UI_TAB_ANIM_STEPS - s_ui.tab_anim + 1u) :
+                                                   UI_TAB_ANIM_STEPS;
+    const int16_t scroll_offset = (int16_t)(-first_delta * (int16_t)TAB_SLOT_W * (int16_t)progress /
+                                            (int16_t)UI_TAB_ANIM_STEPS);
+    const uint8_t draw_first = from_first < to_first ? from_first : to_first;
+    uint8_t draw_last = (uint8_t)((from_first > to_first ? from_first : to_first) + visible_count);
+    uint8_t active_slot = active_page >= to_first ? (uint8_t)(active_page - to_first) : 0u;
+    uint8_t previous_slot = previous_page >= from_first ? (uint8_t)(previous_page - from_first) : 0u;
+    int16_t active_x;
+    int16_t indicator_x;
 
-    if (page_count > visible_count) {
-        if (active_page == 0u) {
-            first_page = 0u;
-        } else if (active_page >= (uint8_t)(page_count - 1u)) {
-            first_page = (uint8_t)(page_count - visible_count);
-        } else {
-            first_page = (uint8_t)(active_page - 1u);
-        }
+    if (draw_last > page_count) {
+        draw_last = page_count;
     }
-
-    if (active_page >= first_page) {
-        active_slot = (uint8_t)(active_page - first_page);
-        if (active_slot >= visible_count) {
-            active_slot = (uint8_t)(visible_count - 1u);
-        }
+    if (active_slot >= visible_count) {
+        active_slot = (uint8_t)(visible_count - 1u);
     }
-    active_x = (uint8_t)(TAB_X + (active_slot * TAB_SLOT_W));
-    indicator_x = (uint8_t)(active_x + ((TAB_SLOT_W - TAB_INDICATOR_W) / 2u));
+    if (previous_slot >= visible_count) {
+        previous_slot = (uint8_t)(visible_count - 1u);
+    }
+    if (s_ui.tab_anim > 0u) {
+        const int16_t start_x = (int16_t)(TAB_X + 1u + (previous_slot * TAB_SLOT_W));
+        const int16_t end_x = (int16_t)(TAB_X + 1u + (active_slot * TAB_SLOT_W));
+        active_x = (int16_t)(start_x + (((end_x - start_x) * (int16_t)progress) /
+                                        (int16_t)UI_TAB_ANIM_STEPS));
+    } else {
+        active_x = (int16_t)(TAB_X + 1u + (active_slot * TAB_SLOT_W));
+    }
+    indicator_x = (int16_t)(active_x + ((TAB_SLOT_W - TAB_INDICATOR_W) / 2u));
 
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
     u8g2_DrawRFrame(u8g2,
@@ -590,37 +613,62 @@ static void draw_page_tabs(u8g2_t *u8g2)
                     (u8g2_uint_t)(TAB_SLOT_W * visible_count),
                     TAB_H,
                     2u);
+    u8g2_SetClipWindow(u8g2,
+                       TAB_X,
+                       TAB_Y,
+                       (u8g2_uint_t)(TAB_X + (TAB_SLOT_W * visible_count)),
+                       (u8g2_uint_t)(TAB_Y + TAB_H + 1u));
 
-    for (uint8_t i = 0u; i < visible_count && (uint8_t)(first_page + i) < page_count; i++) {
-        int16_t x = (int16_t)(TAB_X + 1u + (i * TAB_SLOT_W) + slide);
-        const ui_page_t page = pages[first_page + i];
+    for (uint8_t page_index = draw_first; page_index < draw_last; page_index++) {
+        const int16_t x = (int16_t)(TAB_X + 1u +
+                                    (((int16_t)page_index - (int16_t)from_first) * (int16_t)TAB_SLOT_W) +
+                                    scroll_offset);
+        const ui_page_t page = pages[page_index];
         const uint8_t label_width = (uint8_t)u8g2_GetStrWidth(u8g2, ui_page_to_label(page));
         const int16_t label_x = x + (int16_t)((TAB_SLOT_W - label_width) / 2u);
+        const bool visible = x >= (int16_t)(TAB_X - 2u) &&
+                             x <= (int16_t)(TAB_X + ((visible_count - 1u) * TAB_SLOT_W) + 2u);
 
-        if (s_ui.page == page) {
+        if (!visible) {
+            continue;
+        }
+
+        if (s_ui.tab_anim == 0u && s_ui.page == page) {
             u8g2_DrawRBox(u8g2, (u8g2_uint_t)x, 2u, (u8g2_uint_t)(TAB_SLOT_W - 2u), 9u, 2u);
             u8g2_SetDrawColor(u8g2, 0);
             u8g2_DrawStr(u8g2, (u8g2_uint_t)label_x, 9u, ui_page_to_label(page));
-            if (s_ui.tab_anim > 0u) {
-                const uint8_t sweep = (uint8_t)((8u - s_ui.tab_anim) * 2u);
-                u8g2_DrawBox(u8g2, (u8g2_uint_t)(x + 5u + sweep), 10u, 5u, 1u);
-            }
             u8g2_SetDrawColor(u8g2, 1);
         } else {
-            if (i > 0u) {
-                u8g2_DrawVLine(u8g2, (u8g2_uint_t)(TAB_X + (i * TAB_SLOT_W)), 3u, 7u);
+            if (page_index > from_first) {
+                const int16_t separator_x = (int16_t)(TAB_X +
+                                                      (((int16_t)page_index - (int16_t)from_first) *
+                                                       (int16_t)TAB_SLOT_W) +
+                                                      scroll_offset);
+                if (separator_x > (int16_t)TAB_X &&
+                    separator_x < (int16_t)(TAB_X + (visible_count * TAB_SLOT_W))) {
+                    u8g2_DrawVLine(u8g2, (u8g2_uint_t)separator_x, 3u, 7u);
+                }
             }
             u8g2_DrawStr(u8g2, (u8g2_uint_t)label_x, 9u, ui_page_to_label(page));
         }
     }
 
-    u8g2_DrawBox(u8g2, indicator_x, 11u, TAB_INDICATOR_W, 1u);
+    if (s_ui.tab_anim > 0u &&
+        active_x >= (int16_t)TAB_X &&
+        active_x <= (int16_t)(TAB_X + (visible_count * TAB_SLOT_W) - TAB_SLOT_W)) {
+        u8g2_DrawRFrame(u8g2, (u8g2_uint_t)active_x, 2u, (u8g2_uint_t)(TAB_SLOT_W - 2u), 9u, 2u);
+    }
+    if (indicator_x >= (int16_t)TAB_X &&
+        indicator_x <= (int16_t)(TAB_X + (visible_count * TAB_SLOT_W) - TAB_INDICATOR_W)) {
+        u8g2_DrawBox(u8g2, (u8g2_uint_t)indicator_x, 11u, TAB_INDICATOR_W, 1u);
+    }
+    u8g2_SetMaxClipWindow(u8g2);
 
-    if (first_page > 0u) {
+    if (to_first > 0u) {
         const uint8_t pulse = (uint8_t)(1u + ((s_ui.frame >> 1u) & 1u));
         u8g2_DrawTriangle(u8g2, 76u, 6u, 79u, (int16_t)(4u - pulse), 79u, (int16_t)(8u + pulse));
     }
-    if ((uint8_t)(first_page + visible_count) < page_count) {
+    if ((uint8_t)(to_first + visible_count) < page_count) {
         const uint8_t pulse = (uint8_t)(1u + ((s_ui.frame >> 1u) & 1u));
         u8g2_DrawTriangle(u8g2, 177u, 6u, 174u, (int16_t)(4u - pulse), 174u, (int16_t)(8u + pulse));
     }
@@ -640,7 +688,7 @@ static void draw_header(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
              "%s %s",
              trigger_mode_to_short(snapshot->trigger.active_mode),
              trigger_state_to_short(snapshot->trigger.state));
-    draw_fit_str(u8g2, 7u, 13u, 70u, title_buffer);
+    draw_fit_str(u8g2, 7u, 13u, 66u, title_buffer);
     draw_page_tabs(u8g2);
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
     snprintf(title_buffer,
@@ -1116,7 +1164,10 @@ bool sync_config_ui_init(void)
     u8g2_port_setup_240x136(&s_ui.u8g2, s_ui.mono_buffer);
     u8g2_SetFontMode(&s_ui.u8g2, 1);
     s_ui.page = UI_PAGE_OVERVIEW;
+    s_ui.target_page = UI_PAGE_OVERVIEW;
     s_ui.previous_page = UI_PAGE_OVERVIEW;
+    s_ui.tab_from_first = 0u;
+    s_ui.tab_to_first = 0u;
     s_ui.initialized = true;
     run_boot_splash();
     return true;
@@ -1127,10 +1178,19 @@ void sync_config_ui_key_next(void)
     if (!s_ui.initialized) {
         return;
     }
+    if (s_ui.tab_anim > 0u || s_ui.page != s_ui.target_page) {
+        return;
+    }
 
     s_ui.previous_page = s_ui.page;
-    s_ui.page = (ui_page_t)(((uint32_t)s_ui.page + 1u) % (uint32_t)UI_PAGE_COUNT);
-    s_ui.tab_anim = 8u;
+    s_ui.tab_from_first = tab_first_for_page((uint8_t)s_ui.previous_page,
+                                             (uint8_t)UI_PAGE_COUNT,
+                                             3u);
+    s_ui.target_page = (ui_page_t)(((uint32_t)s_ui.page + 1u) % (uint32_t)UI_PAGE_COUNT);
+    s_ui.tab_to_first = tab_first_for_page((uint8_t)s_ui.target_page,
+                                           (uint8_t)UI_PAGE_COUNT,
+                                           3u);
+    s_ui.tab_anim = UI_TAB_ANIM_STEPS;
 }
 
 bool sync_config_ui_render(void)
@@ -1150,8 +1210,9 @@ bool sync_config_ui_render(void)
 
     u8g2_t *u8g2 = &s_ui.u8g2;
     s_ui.frame++;
-    if (s_ui.tab_anim > 0u) {
-        s_ui.tab_anim--;
+    if (s_ui.tab_anim == 0u && s_ui.page != s_ui.target_page) {
+        s_ui.page = s_ui.target_page;
+        s_ui.previous_page = s_ui.page;
     }
 
     u8g2_ClearBuffer(u8g2);
@@ -1160,7 +1221,15 @@ bool sync_config_ui_render(void)
     draw_footer(u8g2, &snapshot);
 
     flush_to_lcd();
+    if (s_ui.tab_anim > 0u) {
+        s_ui.tab_anim--;
+    }
     resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
                              RESOURCE_ARBITER_RESOURCE_LCD);
     return true;
+}
+
+bool sync_config_ui_needs_render(void)
+{
+    return s_ui.initialized && (s_ui.tab_anim > 0u || s_ui.page != s_ui.target_page);
 }

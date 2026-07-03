@@ -129,13 +129,16 @@ void app_ui_service(void)
     if ((uint32_t)(now_ms - s_last_ui_refresh_ms) >= APP_UI_REFRESH_PERIOD_MS) {
         s_ui_dirty = true;
     }
+    if (sync_config_ui_needs_render()) {
+        s_ui_dirty = true;
+    }
 
     if (!s_ui_dirty) {
         return;
     }
 
     if (sync_config_ui_render()) {
-        s_ui_dirty = false;
+        s_ui_dirty = sync_config_ui_needs_render();
         s_last_ui_refresh_ms = now_ms;
     }
 }
