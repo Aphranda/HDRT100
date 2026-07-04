@@ -223,6 +223,67 @@ static const char *ota_boot_result_to_short_label(uint32_t result)
     }
 }
 
+static const char *storage_manifest_to_short(storage_manager_manifest_status_t status)
+{
+    switch (status) {
+    case STORAGE_MANAGER_MANIFEST_OK:
+        return "OK";
+    case STORAGE_MANAGER_MANIFEST_NOT_FOUND:
+        return "NOIDX";
+    case STORAGE_MANAGER_MANIFEST_INVALID:
+        return "BAD";
+    case STORAGE_MANAGER_MANIFEST_SCHEMA_UNSUPPORTED:
+        return "SCHEMA";
+    case STORAGE_MANAGER_MANIFEST_PRODUCT_MISMATCH:
+        return "PROD";
+    case STORAGE_MANAGER_MANIFEST_HARDWARE_MISMATCH:
+        return "HW";
+    case STORAGE_MANAGER_MANIFEST_REQUIRED_MISSING:
+        return "MISS";
+    case STORAGE_MANAGER_MANIFEST_IO_ERROR:
+        return "IO";
+    case STORAGE_MANAGER_MANIFEST_PATH_DENIED:
+        return "DENY";
+    case STORAGE_MANAGER_MANIFEST_UNKNOWN:
+    default:
+        return "UNK";
+    }
+}
+
+static const char *storage_job_to_short(storage_manager_job_type_t type)
+{
+    switch (type) {
+    case STORAGE_MANAGER_JOB_TYPE_FILE_INFO:
+        return "INFO";
+    case STORAGE_MANAGER_JOB_TYPE_SNAPSHOT_WRITE:
+        return "SNAP";
+    case STORAGE_MANAGER_JOB_TYPE_MANIFEST_SCAN:
+        return "MAN";
+    case STORAGE_MANAGER_JOB_TYPE_FAULT_EVIDENCE:
+        return "FAULT";
+    case STORAGE_MANAGER_JOB_TYPE_NONE:
+    default:
+        return "NONE";
+    }
+}
+
+static const char *storage_job_state_to_short(storage_manager_job_state_t state)
+{
+    switch (state) {
+    case STORAGE_MANAGER_JOB_STATE_QUEUED:
+        return "QUEUE";
+    case STORAGE_MANAGER_JOB_STATE_RUNNING:
+        return "RUN";
+    case STORAGE_MANAGER_JOB_STATE_DONE:
+        return "DONE";
+    case STORAGE_MANAGER_JOB_STATE_FAILED:
+        return "FAIL";
+    case STORAGE_MANAGER_JOB_STATE_IDLE:
+    default:
+        return "IDLE";
+    }
+}
+
 static void copy_compact_error(char *buffer, size_t buffer_size, uint32_t error_code)
 {
     const char *error = ota_error_to_string(error_code);
@@ -914,15 +975,32 @@ static void draw_sd_page(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 {
     char value_buffer[32];
     char capacity_buffer[16];
-    char block_buffer[16];
-    char probe_buffer[16];
+    char manifest_buffer[24];
+    char job_buffer[24];
+    char fault_buffer[24];
     const storage_manager_vector_t *storage = &snapshot->storage;
     const bool ready = storage->state == STORAGE_MANAGER_STATE_CARD_READY;
     const bool blink = ((snapshot->uptime_ms / 250u) & 1u) != 0u;
+    const bool manifest_ok = storage->manifest_status == STORAGE_MANAGER_MANIFEST_OK &&
+                             storage->manifest_missing_count == 0u;
 
     format_kib_compact(capacity_buffer, sizeof(capacity_buffer), storage->capacity_kib);
-    snprintf(block_buffer, sizeof(block_buffer), "%lu", (unsigned long)storage->block_count);
-    snprintf(probe_buffer, sizeof(probe_buffer), "%lu", (unsigned long)storage->probe_count);
+    snprintf(manifest_buffer,
+             sizeof(manifest_buffer),
+             "%s %lu/%lu",
+             storage_manifest_to_short(storage->manifest_status),
+             (unsigned long)storage->manifest_missing_count,
+             (unsigned long)storage->manifest_required_count);
+    snprintf(job_buffer,
+             sizeof(job_buffer),
+             "%s %s",
+             storage_job_to_short(storage->current_job_type),
+             storage_job_state_to_short(storage->current_job_state));
+    snprintf(fault_buffer,
+             sizeof(fault_buffer),
+             "S%lu T%lu",
+             (unsigned long)storage->last_fault_snapshot_id,
+             (unsigned long)storage->last_fault_trace_id);
 
     draw_card(u8g2, 4u, 24u, 232u, 42u, "SD CARD");
     u8g2_SetFont(u8g2, u8g2_font_6x13B_tf);
@@ -933,17 +1011,27 @@ static void draw_sd_page(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
              sd_card_status_string(storage->card_status));
     draw_fit_str(u8g2, 12u, 51u, 196u, value_buffer);
     draw_status_dot(u8g2, 224u, 45u, ready, blink && storage->card_present);
-    draw_kv_line(u8g2, 12u, 62u, 216u, "CARD", storage->card_present ? "PRESENT" : "ABSENT");
+    snprintf(value_buffer,
+             sizeof(value_buffer),
+             "%s %s %s",
+             storage->card_present ? "CARD" : "NOCRD",
+             storage->fs_mounted ? "MNT" : "NOMNT",
+             capacity_buffer);
+    draw_kv_line(u8g2, 12u, 62u, 216u, "MEDIA", value_buffer);
 
-    draw_card(u8g2, 4u, 70u, 112u, 48u, "MEDIA");
-    draw_kv_line(u8g2, 10u, 91u, 100u, "TYPE", sd_card_type_string(storage->card_type));
-    draw_kv_line(u8g2, 10u, 101u, 100u, "CAP", capacity_buffer);
-    draw_kv_line(u8g2, 10u, 111u, 100u, "BLK", block_buffer);
+    draw_card(u8g2, 4u, 70u, 112u, 48u, "SYSTEM PACK");
+    draw_kv_line(u8g2, 10u, 91u, 100u, "MAN", manifest_buffer);
+    draw_kv_line(u8g2, 10u, 101u, 100u, "OTA", manifest_ok ? "DEFAULT" : "CHECK");
+    draw_kv_line(u8g2, 10u, 111u, 100u, "JOB", job_buffer);
 
-    draw_card(u8g2, 124u, 70u, 112u, 48u, "FILESYS");
-    draw_kv_line(u8g2, 130u, 91u, 100u, "FATFS", storage->fatfs_available ? "YES" : "NO");
-    draw_kv_line(u8g2, 130u, 101u, 100u, "MOUNT", storage->fs_mounted ? "YES" : "NO");
-    draw_kv_line(u8g2, 130u, 111u, 100u, "PROBE", probe_buffer);
+    draw_card(u8g2, 124u, 70u, 112u, 48u, "EVIDENCE");
+    snprintf(value_buffer, sizeof(value_buffer), "%lu", (unsigned long)storage->last_snapshot_id);
+    draw_kv_line(u8g2, 130u, 91u, 100u, "SNAP", value_buffer);
+    draw_kv_line(u8g2, 130u, 101u, 100u, "FAULT", fault_buffer);
+    snprintf(value_buffer, sizeof(value_buffer), "%lu/%lu",
+             (unsigned long)storage->storage_error,
+             (unsigned long)storage->job_error);
+    draw_kv_line(u8g2, 130u, 111u, 100u, "ERR", value_buffer);
 }
 
 static void draw_body(u8g2_t *u8g2, const ui_snapshot_t *snapshot)

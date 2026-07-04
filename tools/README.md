@@ -32,8 +32,24 @@ Get-Content -Path tools\README.md -Encoding UTF8
   Slot B linked App binaries. CMake normally invokes this automatically.
 - `sd_fs_build/sd_fs_build.py`: builds the SD-card filesystem staging tree under
   `build/sdcard/`, copies the unified OTA package to `/update/`, keeps raw `.bin`
-  compatibility payloads under `/update/compat/`, writes `manifest.json`, and
-  creates `build/RP2350_TRIG_SDCARD.zip`.
+  compatibility payloads under `/update/compat/`, writes `manifest.json` and
+  firmware-readable `manifest.idx`, and creates `build/RP2350_TRIG_SDCARD.zip`.
+- `sd_board_validate/sd_board_validate.py`: board-side SD validation over SCPI.
+  It does not flash firmware; it checks `SYST:SD:*`, `SYST:STOR:*`, root and
+  key directory catalogs, path-denial behavior, boot/arm/fault snapshot
+  behavior, StorageAO `MANIFEST_SCAN`, `FILE_INFO`, `SNAPSHOT_WRITE`, and
+  `FAULT_EVIDENCE` job completion, fault trace `.bin/.idx`, fault report
+  behavior, and reads back the latest fault trace via `MMEM:READ?` for decoder
+  checks. The decoded trace must include
+  management-plane trigger configuration events and `sync_io.seq_runtime`;
+  flashing remains a separate picotool/script step. The tool writes
+  `summary.*`, `queries.txt`, and `trace_readback\` under
+  `build/sd_validation_*`.
+- `sd_trace_decode/sd_trace_decode.py`: offline decoder for SD trace `.bin`
+  files. It verifies header, event CRC, and optional `.idx` metadata, then
+  emits JSON or CSV with decoded domain/event/severity names and details such
+  as trigger state transitions, source/edge/gate/safe configuration changes,
+  SyncIO runtime flags, rollover progress, and trace file CRC checks.
 - `ota_bin_info/ota_bin_info.py`: prints raw `.bin` size, CRC32, and
   `SYST:OTA:BEGIN` parameters for bench work.
 - `uf2_join/uf2_join.py`: generates the first-time factory UF2 from Bootloader,
@@ -54,12 +70,42 @@ python tools\rp2350_tk_toolbox.py
 Build SD-card contents after a release build:
 
 ```powershell
-python tools\sd_fs_build\sd_fs_build.py --build-dir build --output-dir build\sdcard
+python tools\sd_fs_build\sd_fs_build.py --build-dir build --output-dir build\sdcard --clean
 ```
 
 Copy the contents of `build\sdcard\` to the root of a FAT32 SD card. The
-default offline OTA file is `/update/RP2350_TRIG_UPDATE.pkg`; raw `.bin` files
-are kept only for compatibility under `/update/compat/`.
+firmware reads `/manifest.idx`; `/manifest.json` is for PC tools and inspection.
+The default offline OTA file is `/update/RP2350_TRIG_UPDATE.pkg`; raw `.bin`
+files are kept only for compatibility under `/update/compat/`.
+
+Validate SD-card behavior after firmware is already flashed and the prepared SD
+card is inserted:
+
+```powershell
+python tools\sd_board_validate\sd_board_validate.py COM4
+Get-Content -Encoding UTF8 build\sd_validation_*\summary.txt
+```
+
+Keep flashing separate from SD validation. A flashing script or picotool command
+should only load the UF2; `sd_board_validate.py` should only verify the running
+firmware through SCPI.
+
+When fault trace validation runs, the tool writes the latest board-generated
+trace files and decoder output under `trace_readback\`:
+
+```powershell
+Get-ChildItem build\sd_validation_*\trace_readback
+Get-Content -Encoding UTF8 build\sd_validation_*\trace_readback\decoded_fault_trace.json
+```
+
+Decode a copied SD trace after validation or field capture:
+
+```powershell
+python tools\sd_trace_decode\sd_trace_decode.py traces\fault\fault_000001.bin `
+  --idx traces\fault\fault_000001.idx `
+  --output build\fault_000001_trace.json
+python tools\sd_trace_decode\sd_trace_decode.py traces\fault\fault_000001.bin --csv
+```
 
 ## OTA Board Validation Loop
 

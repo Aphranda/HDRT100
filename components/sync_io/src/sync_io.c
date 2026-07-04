@@ -8,6 +8,7 @@
 #include "hardware/irq.h"
 #include "hardware/pio.h"
 #include "seq_step.pio.h"
+#include "storage_manager.h"
 #include "sync_io.pio.h"
 
 #define SYNC_IO_DEFAULT_CAPTURE_HZ  1000000u
@@ -16,6 +17,35 @@
 #define SYNC_IO_SEQ_STEP_DMA_CH     0u
 #define SYNC_IO_ENC_COUNT_DMA_CH    1u
 #define SYNC_IO_SEQ_STEP_DMA_IRQ    DMA_IRQ_0
+#define SYNC_IO_TRACE_DOMAIN        3u
+#define SYNC_IO_TRACE_INFO          1u
+#define SYNC_IO_TRACE_WARN          2u
+#define SYNC_IO_TRACE_ERROR         3u
+
+typedef enum {
+    SYNC_IO_TRACE_INIT_OK           = 10u,
+    SYNC_IO_TRACE_INIT_FAIL         = 11u,
+    SYNC_IO_TRACE_CAPTURE_START     = 20u,
+    SYNC_IO_TRACE_CAPTURE_STOP      = 21u,
+    SYNC_IO_TRACE_CAPTURE_DROP      = 22u,
+    SYNC_IO_TRACE_CAPTURE_FAIL      = 23u,
+    SYNC_IO_TRACE_PULSE_FIFO_FULL   = 30u,
+    SYNC_IO_TRACE_PULSE_INVALID     = 31u,
+    SYNC_IO_TRACE_CLOCK_START       = 40u,
+    SYNC_IO_TRACE_CLOCK_STOP        = 41u,
+    SYNC_IO_TRACE_CLOCK_FAIL        = 42u,
+    SYNC_IO_TRACE_SEQ_ARM_FAIL      = 50u,
+    SYNC_IO_TRACE_SEQ_ARMED         = 51u,
+    SYNC_IO_TRACE_SEQ_DISARM        = 52u,
+    SYNC_IO_TRACE_SEQ_GATE_INVALID  = 53u,
+    SYNC_IO_TRACE_SEQ_PIO_NO_SPACE  = 54u,
+    SYNC_IO_TRACE_SEQ_RUNTIME       = 55u,
+    SYNC_IO_TRACE_ENC_ARM_FAIL      = 60u,
+    SYNC_IO_TRACE_ENC_ARMED         = 61u,
+    SYNC_IO_TRACE_ENC_DISARM        = 62u,
+    SYNC_IO_TRACE_ENC_PIO_NO_SPACE  = 63u,
+    SYNC_IO_TRACE_ENC_RUNTIME       = 64u,
+} sync_io_trace_event_t;
 
 typedef struct {
     bool initialized;
@@ -32,6 +62,38 @@ typedef struct {
 } sync_io_context_t;
 
 static sync_io_context_t s_sync_io;
+
+static void sync_io_trace(sync_io_trace_event_t event_id,
+                          uint8_t severity,
+                          uint32_t arg0,
+                          uint32_t arg1)
+{
+    storage_manager_trace_event(SYNC_IO_TRACE_DOMAIN,
+                                (uint16_t)event_id,
+                                severity,
+                                arg0,
+                                arg1);
+}
+
+static uint32_t sync_io_pack_runtime_flags(bool running,
+                                           bool pio_enabled,
+                                           bool dma_busy,
+                                           bool dma_irq_enabled,
+                                           bool tx_fifo_empty,
+                                           bool tx_fifo_full)
+{
+    return (running ? (1u << 0) : 0u) |
+           (pio_enabled ? (1u << 1) : 0u) |
+           (dma_busy ? (1u << 2) : 0u) |
+           (dma_irq_enabled ? (1u << 3) : 0u) |
+           (tx_fifo_empty ? (1u << 4) : 0u) |
+           (tx_fifo_full ? (1u << 5) : 0u);
+}
+
+static bool sync_io_sm_is_enabled(PIO pio, uint sm)
+{
+    return (pio->ctrl & (1u << sm)) != 0u;
+}
 
 /* ── SEQ_STEP 状态 ── */
 
@@ -122,6 +184,7 @@ bool sync_io_init(const sync_io_config_t *config)
         !pio_can_add_program(BOARD_SYNC_PIO_WAVE, &sync_clock_program) ||
         !pio_can_add_program(BOARD_SYNC_PIO_AUX, &sync_aux_output_program)) {
         LOG_ERROR("sync_io", "not enough PIO instruction memory");
+        sync_io_trace(SYNC_IO_TRACE_INIT_FAIL, SYNC_IO_TRACE_ERROR, 1u, 0u);
         return false;
     }
 
@@ -134,6 +197,7 @@ bool sync_io_init(const sync_io_config_t *config)
         !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX1_SM, "aux1") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX2_SM, "aux2") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX3_SM, "aux3")) {
+        sync_io_trace(SYNC_IO_TRACE_INIT_FAIL, SYNC_IO_TRACE_ERROR, 2u, 0u);
         return false;
     }
 
@@ -197,6 +261,10 @@ bool sync_io_init(const sync_io_config_t *config)
     LOG_INFO("sync_io", "initialized capture=%luHz clock=%luHz",
              (unsigned long)capture_hz,
              (unsigned long)clock_hz);
+    sync_io_trace(SYNC_IO_TRACE_INIT_OK,
+                  SYNC_IO_TRACE_INFO,
+                  capture_hz,
+                  clock_hz);
 
     return true;
 }
@@ -204,6 +272,7 @@ bool sync_io_init(const sync_io_config_t *config)
 bool sync_io_start_capture(uint32_t sample_hz)
 {
     if (!s_sync_io.initialized) {
+        sync_io_trace(SYNC_IO_TRACE_CAPTURE_FAIL, SYNC_IO_TRACE_ERROR, sample_hz, 1u);
         return false;
     }
 
@@ -221,6 +290,7 @@ bool sync_io_start_capture(uint32_t sample_hz)
 
     s_sync_io.capture_sample_hz = sample_hz;
     s_sync_io.capture_running = true;
+    sync_io_trace(SYNC_IO_TRACE_CAPTURE_START, SYNC_IO_TRACE_INFO, sample_hz, 0u);
     return true;
 }
 
@@ -232,6 +302,10 @@ void sync_io_stop_capture(void)
 
     pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, false);
     s_sync_io.capture_running = false;
+    sync_io_trace(SYNC_IO_TRACE_CAPTURE_STOP,
+                  SYNC_IO_TRACE_INFO,
+                  s_sync_io.capture_sample_hz,
+                  s_sync_io.dropped_capture_words);
 }
 
 size_t sync_io_read_capture_words(uint32_t *buffer, size_t max_words)
@@ -248,6 +322,10 @@ size_t sync_io_read_capture_words(uint32_t *buffer, size_t max_words)
 
     if (pio_sm_is_rx_fifo_full(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM)) {
         s_sync_io.dropped_capture_words++;
+        sync_io_trace(SYNC_IO_TRACE_CAPTURE_DROP,
+                      SYNC_IO_TRACE_WARN,
+                      s_sync_io.dropped_capture_words,
+                      (uint32_t)count);
     }
 
     return count;
@@ -256,10 +334,18 @@ size_t sync_io_read_capture_words(uint32_t *buffer, size_t max_words)
 static bool sync_io_fire_pulse_on_sm(uint sm, uint32_t high_cycles)
 {
     if (!s_sync_io.initialized || high_cycles == 0u) {
+        sync_io_trace(SYNC_IO_TRACE_PULSE_INVALID,
+                      SYNC_IO_TRACE_WARN,
+                      sm,
+                      high_cycles);
         return false;
     }
 
     if (pio_sm_is_tx_fifo_full(BOARD_SYNC_PIO_WAVE, sm)) {
+        sync_io_trace(SYNC_IO_TRACE_PULSE_FIFO_FULL,
+                      SYNC_IO_TRACE_WARN,
+                      sm,
+                      high_cycles);
         return false;
     }
 
@@ -308,6 +394,10 @@ bool sync_io_fire_pulse_out_us(uint32_t high_us)
 bool sync_io_start_clock(uint32_t frequency_hz)
 {
     if (!s_sync_io.initialized || frequency_hz == 0u) {
+        sync_io_trace(SYNC_IO_TRACE_CLOCK_FAIL,
+                      SYNC_IO_TRACE_WARN,
+                      frequency_hz,
+                      s_sync_io.initialized ? 0u : 1u);
         return false;
     }
 
@@ -320,6 +410,7 @@ bool sync_io_start_clock(uint32_t frequency_hz)
 
     s_sync_io.sync_clock_hz = frequency_hz;
     s_sync_io.clock_running = true;
+    sync_io_trace(SYNC_IO_TRACE_CLOCK_START, SYNC_IO_TRACE_INFO, frequency_hz, 0u);
     return true;
 }
 
@@ -332,6 +423,10 @@ void sync_io_stop_clock(void)
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_CLOCK_SM, false);
     pio_sm_set_pins(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_CLOCK_SM, 0);
     s_sync_io.clock_running = false;
+    sync_io_trace(SYNC_IO_TRACE_CLOCK_STOP,
+                  SYNC_IO_TRACE_INFO,
+                  s_sync_io.sync_clock_hz,
+                  0u);
 }
 
 bool sync_io_fire_marker_cycles(uint32_t high_cycles)
@@ -472,6 +567,10 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
         seq_length > 256u ||
         seq_width == 0u ||
         seq_width > 8u) {
+        sync_io_trace(SYNC_IO_TRACE_SEQ_ARM_FAIL,
+                      SYNC_IO_TRACE_ERROR,
+                      seq_length,
+                      seq_width);
         return false;
     }
 
@@ -496,6 +595,10 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
         LOG_ERROR("sync_io",
                   "seq_step: gate mode requires trigger_pin in GPIO16..GPIO19, "
                   "got %lu", (unsigned long)trigger_pin);
+        sync_io_trace(SYNC_IO_TRACE_SEQ_GATE_INVALID,
+                      SYNC_IO_TRACE_ERROR,
+                      trigger_pin,
+                      0u);
         return false;
     }
 
@@ -507,6 +610,10 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
 
     if (!pio_can_add_program(BOARD_SYNC_PIO_WAVE, prog)) {
         LOG_ERROR("sync_io", "seq_step: not enough PIO instruction space");
+        sync_io_trace(SYNC_IO_TRACE_SEQ_PIO_NO_SPACE,
+                      SYNC_IO_TRACE_ERROR,
+                      gate_enabled ? 1u : 0u,
+                      seq_length);
         return false;
     }
 
@@ -571,6 +678,24 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
 
     LOG_INFO("sync_io", "seq_step armed: length=%lu width=%lu",
              (unsigned long)seq_length, (unsigned long)seq_width);
+    sync_io_trace(SYNC_IO_TRACE_SEQ_ARMED,
+                  SYNC_IO_TRACE_INFO,
+                  seq_length,
+                  ((seq_width & 0xFFu) << 24) |
+                      ((trigger_pin & 0xFFu) << 8) |
+                      ((uint32_t)edge & 0xFFu) |
+                      (gate_enabled ? (1u << 16) : 0u));
+    sync_io_seq_step_runtime_t runtime;
+    sync_io_seq_step_get_runtime(&runtime);
+    sync_io_trace(SYNC_IO_TRACE_SEQ_RUNTIME,
+                  SYNC_IO_TRACE_INFO,
+                  sync_io_pack_runtime_flags(runtime.running,
+                                             runtime.pio_enabled,
+                                             runtime.dma_busy,
+                                             runtime.dma_irq_enabled,
+                                             runtime.tx_fifo_empty,
+                                             runtime.tx_fifo_full),
+                  runtime.transfer_count & 0xFFFFu);
 
     return true;
 }
@@ -609,6 +734,10 @@ void sync_io_seq_step_disarm(void)
     s_seq_step.running = false;
     LOG_INFO("sync_io", "seq_step disarmed: rollover_count=%lu",
              (unsigned long)s_seq_step.rollover_count);
+    sync_io_trace(SYNC_IO_TRACE_SEQ_DISARM,
+                  SYNC_IO_TRACE_INFO,
+                  (uint32_t)s_seq_step.rollover_count,
+                  s_seq_step.seq_length);
 }
 
 uint32_t sync_io_seq_step_get_index(void)
@@ -634,6 +763,33 @@ uint64_t sync_io_seq_step_get_rollover_count(void)
     return s_seq_step.rollover_count;
 }
 
+void sync_io_seq_step_get_runtime(sync_io_seq_step_runtime_t *runtime)
+{
+    if (runtime == NULL) {
+        return;
+    }
+
+    runtime->running = s_seq_step.running;
+    runtime->pio_enabled = false;
+    runtime->dma_busy = false;
+    runtime->dma_irq_enabled = false;
+    runtime->tx_fifo_empty = true;
+    runtime->tx_fifo_full = false;
+    runtime->transfer_count = 0u;
+    runtime->rollover_count_low32 = (uint32_t)s_seq_step.rollover_count;
+
+    if (!s_seq_step.running) {
+        return;
+    }
+
+    runtime->pio_enabled = sync_io_sm_is_enabled(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm);
+    runtime->dma_busy = dma_channel_is_busy(s_seq_step.dma_ch);
+    runtime->dma_irq_enabled = (dma_hw->inte0 & (1u << s_seq_step.dma_ch)) != 0u;
+    runtime->tx_fifo_empty = pio_sm_is_tx_fifo_empty(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm);
+    runtime->tx_fifo_full = pio_sm_is_tx_fifo_full(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm);
+    runtime->transfer_count = dma_hw->ch[s_seq_step.dma_ch].transfer_count;
+}
+
 /* ── ENC_COUNT 编码器计数触发 ── */
 
 #include "enc_count.pio.h"
@@ -643,6 +799,10 @@ bool sync_io_enc_count_arm(uint32_t target,
                            uint32_t output_pin)
 {
     if (!s_sync_io.initialized || target == 0u) {
+        sync_io_trace(SYNC_IO_TRACE_ENC_ARM_FAIL,
+                      SYNC_IO_TRACE_ERROR,
+                      target,
+                      s_sync_io.initialized ? 0u : 1u);
         return false;
     }
 
@@ -652,6 +812,10 @@ bool sync_io_enc_count_arm(uint32_t target,
 
     if (!pio_can_add_program(BOARD_SYNC_PIO_WAVE, &enc_count_program)) {
         LOG_ERROR("sync_io", "enc_count: not enough PIO instruction space");
+        sync_io_trace(SYNC_IO_TRACE_ENC_PIO_NO_SPACE,
+                      SYNC_IO_TRACE_ERROR,
+                      target,
+                      in_pin_base);
         return false;
     }
 
@@ -715,6 +879,21 @@ bool sync_io_enc_count_arm(uint32_t target,
              (unsigned long)(in_pin_base + 0),
              (unsigned long)(in_pin_base + 1),
              (unsigned long)(in_pin_base + 3));
+    sync_io_trace(SYNC_IO_TRACE_ENC_ARMED,
+                  SYNC_IO_TRACE_INFO,
+                  target,
+                  ((in_pin_base & 0xFFu) << 8) | (output_pin & 0xFFu));
+    sync_io_enc_count_runtime_t runtime;
+    sync_io_enc_count_get_runtime(&runtime);
+    sync_io_trace(SYNC_IO_TRACE_ENC_RUNTIME,
+                  SYNC_IO_TRACE_INFO,
+                  sync_io_pack_runtime_flags(runtime.running,
+                                             runtime.pio_enabled,
+                                             runtime.dma_busy,
+                                             runtime.dma_irq_enabled,
+                                             runtime.tx_fifo_empty,
+                                             runtime.tx_fifo_full),
+                  runtime.transfer_count & 0xFFFFu);
 
     return true;
 }
@@ -747,6 +926,10 @@ void sync_io_enc_count_disarm(void)
     LOG_INFO("sync_io", "enc_count disarmed: fire_count=%lu dma_restarts=%lu",
              (unsigned long)s_enc.fire_count,
              (unsigned long)s_enc.dma_restart_count);
+    sync_io_trace(SYNC_IO_TRACE_ENC_DISARM,
+                  SYNC_IO_TRACE_INFO,
+                  s_enc.fire_count,
+                  s_enc.dma_restart_count);
 }
 
 uint32_t sync_io_enc_count_get_count(void)
@@ -776,4 +959,31 @@ uint32_t sync_io_enc_count_get_count(void)
 bool sync_io_enc_count_is_running(void)
 {
     return s_enc.running;
+}
+
+void sync_io_enc_count_get_runtime(sync_io_enc_count_runtime_t *runtime)
+{
+    if (runtime == NULL) {
+        return;
+    }
+
+    runtime->running = s_enc.running;
+    runtime->pio_enabled = false;
+    runtime->dma_busy = false;
+    runtime->dma_irq_enabled = false;
+    runtime->tx_fifo_empty = true;
+    runtime->tx_fifo_full = false;
+    runtime->transfer_count = 0u;
+    runtime->dma_restart_count = s_enc.dma_restart_count;
+
+    if (!s_enc.running) {
+        return;
+    }
+
+    runtime->pio_enabled = sync_io_sm_is_enabled(BOARD_SYNC_PIO_WAVE, s_enc.sm);
+    runtime->dma_busy = dma_channel_is_busy(s_enc.dma_ch);
+    runtime->dma_irq_enabled = (dma_hw->inte0 & (1u << s_enc.dma_ch)) != 0u;
+    runtime->tx_fifo_empty = pio_sm_is_tx_fifo_empty(BOARD_SYNC_PIO_WAVE, s_enc.sm);
+    runtime->tx_fifo_full = pio_sm_is_tx_fifo_full(BOARD_SYNC_PIO_WAVE, s_enc.sm);
+    runtime->transfer_count = dma_hw->ch[s_enc.dma_ch].transfer_count;
 }

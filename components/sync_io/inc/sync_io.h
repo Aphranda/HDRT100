@@ -19,6 +19,28 @@ typedef struct {
     uint32_t dropped_capture_words;
 } sync_io_status_t;
 
+typedef struct {
+    bool running;
+    bool pio_enabled;
+    bool dma_busy;
+    bool dma_irq_enabled;
+    bool tx_fifo_empty;
+    bool tx_fifo_full;
+    uint32_t transfer_count;
+    uint32_t rollover_count_low32;
+} sync_io_seq_step_runtime_t;
+
+typedef struct {
+    bool running;
+    bool pio_enabled;
+    bool dma_busy;
+    bool dma_irq_enabled;
+    bool tx_fifo_empty;
+    bool tx_fifo_full;
+    uint32_t transfer_count;
+    uint32_t dma_restart_count;
+} sync_io_enc_count_runtime_t;
+
 typedef enum {
     SYNC_IO_AUX0 = 0,
     SYNC_IO_AUX1,
@@ -66,6 +88,7 @@ void sync_io_seq_step_disarm(void);
 uint32_t sync_io_seq_step_get_index(void);
 uint64_t sync_io_seq_step_get_rollover_count(void);
 bool sync_io_seq_step_is_running(void);
+void sync_io_seq_step_get_runtime(sync_io_seq_step_runtime_t *runtime);
 
 /* ── ENC_COUNT 编码器计数触发 ── */
 
@@ -75,5 +98,6 @@ bool sync_io_enc_count_arm(uint32_t target,
 void sync_io_enc_count_disarm(void);
 uint32_t sync_io_enc_count_get_count(void);
 bool sync_io_enc_count_is_running(void);
+void sync_io_enc_count_get_runtime(sync_io_enc_count_runtime_t *runtime);
 
 #endif

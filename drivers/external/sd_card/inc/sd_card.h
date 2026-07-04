@@ -42,6 +42,7 @@ typedef struct {
 bool sd_card_init(const sd_card_config_t *config);
 sd_card_status_t sd_card_probe(sd_card_info_t *info);
 sd_card_status_t sd_card_read_blocks(uint32_t sector, uint32_t count, uint8_t *buffer);
+sd_card_status_t sd_card_write_blocks(uint32_t sector, uint32_t count, const uint8_t *buffer);
 void sd_card_get_info(sd_card_info_t *info);
 const char *sd_card_status_string(sd_card_status_t status);
 const char *sd_card_type_string(sd_card_type_t type);

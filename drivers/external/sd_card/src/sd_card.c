@@ -13,11 +13,14 @@
 #define SD_CMD9_SEND_CSD 9u
 #define SD_CMD16_SET_BLOCKLEN 16u
 #define SD_CMD17_READ_SINGLE_BLOCK 17u
+#define SD_CMD24_WRITE_BLOCK 24u
 #define SD_CMD55_APP_CMD 55u
 #define SD_CMD58_READ_OCR 58u
 #define SD_ACMD41_SEND_OP_COND 41u
 #define SD_INIT_TIMEOUT_MS 1200u
 #define SD_READY_TIMEOUT_US 100000u
+#define SD_DATA_RESPONSE_MASK 0x1Fu
+#define SD_DATA_RESPONSE_ACCEPTED 0x05u
 
 typedef struct {
     bool initialized;
@@ -279,6 +282,53 @@ sd_card_status_t sd_card_read_blocks(uint32_t sector, uint32_t count, uint8_t *b
             return sd_finish_probe(&s_sd.info, SD_CARD_STATUS_BAD_RESPONSE);
         }
         const sd_card_status_t status = sd_read_data_block(buffer + (i * 512u), 512u);
+        if (status != SD_CARD_STATUS_OK) {
+            return sd_finish_probe(&s_sd.info, status);
+        }
+    }
+    sd_select(false);
+    return SD_CARD_STATUS_OK;
+}
+
+static sd_card_status_t sd_write_data_block(const uint8_t *buffer)
+{
+    if (!sd_wait_ready(SD_READY_TIMEOUT_US)) {
+        return SD_CARD_STATUS_TIMEOUT;
+    }
+
+    (void)sd_xfer(SD_TOKEN_START_BLOCK);
+    for (size_t i = 0u; i < 512u; i++) {
+        (void)sd_xfer(buffer[i]);
+    }
+    (void)sd_xfer(SD_DUMMY_BYTE);
+    (void)sd_xfer(SD_DUMMY_BYTE);
+
+    const uint8_t data_response = (uint8_t)(sd_xfer(SD_DUMMY_BYTE) & SD_DATA_RESPONSE_MASK);
+    if (data_response != SD_DATA_RESPONSE_ACCEPTED) {
+        return SD_CARD_STATUS_BAD_RESPONSE;
+    }
+
+    return sd_wait_ready(SD_READY_TIMEOUT_US) ? SD_CARD_STATUS_OK : SD_CARD_STATUS_TIMEOUT;
+}
+
+sd_card_status_t sd_card_write_blocks(uint32_t sector, uint32_t count, const uint8_t *buffer)
+{
+    if (!s_sd.initialized || buffer == NULL || count == 0u) {
+        return SD_CARD_STATUS_BAD_RESPONSE;
+    }
+    if (!s_sd.info.present || s_sd.info.status != SD_CARD_STATUS_OK) {
+        return SD_CARD_STATUS_NOT_INITIALIZED;
+    }
+
+    sd_select(true);
+    for (uint32_t i = 0u; i < count; i++) {
+        const uint32_t current_sector = sector + i;
+        const uint32_t address = s_sd.info.high_capacity ? current_sector : current_sector * 512u;
+        const uint8_t response = sd_command(SD_CMD24_WRITE_BLOCK, address, 0x01u);
+        if (response != 0u) {
+            return sd_finish_probe(&s_sd.info, SD_CARD_STATUS_BAD_RESPONSE);
+        }
+        const sd_card_status_t status = sd_write_data_block(buffer + (i * 512u));
         if (status != SD_CARD_STATUS_OK) {
             return sd_finish_probe(&s_sd.info, status);
         }

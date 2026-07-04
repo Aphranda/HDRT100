@@ -45,11 +45,13 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
-    (void)pdrv;
-    (void)buff;
-    (void)sector;
-    (void)count;
-    return RES_WRPRT;
+    if (pdrv != FATFS_PORT_SD_PDRV || buff == NULL || count == 0u) {
+        return RES_PARERR;
+    }
+
+    return sd_card_write_blocks((uint32_t)sector, (uint32_t)count, buff) == SD_CARD_STATUS_OK ?
+               RES_OK :
+               RES_ERROR;
 }
 
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)

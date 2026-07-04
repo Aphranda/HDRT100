@@ -273,6 +273,26 @@ static fb_result_t fb_seq_armed_reject(trigger_vector_t *vector,
     return FB_IGNORED;
 }
 
+static fb_result_t fb_force_fault(trigger_vector_t *vector,
+                                  const trig_event_t *event)
+{
+    if (sync_io_seq_step_is_running()) {
+        sync_io_seq_step_disarm();
+        resource_arbiter_release(
+            RESOURCE_ARBITER_RESOURCE_PIO1 |
+            RESOURCE_ARBITER_RESOURCE_DMA);
+    }
+    if (sync_io_enc_count_is_running()) {
+        sync_io_enc_count_disarm();
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO1);
+    }
+
+    vector->state = TRIG_STATE_FAULT;
+    vector->error_code = event->payload.value != 0u ? event->payload.value : 100u;
+    vector->fault_timestamp_ms = 0u;
+    return FB_ERROR;
+}
+
 /* ── ENC_COUNT 配置 ── */
 
 static fb_result_t fb_idle_configure_enc(trigger_vector_t *vector,
@@ -412,6 +432,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_SAMPLE_STATE,  fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_CLOCK_FREQ,    fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_CLOCK_STATE,   fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_FAULT,             fb_force_fault },
 
     /* SEQ_CONFIGURED */
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_ARM,              fb_seq_configured_arm },
@@ -432,6 +453,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_SAMPLE_STATE, fb_instant_cmd },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_CLOCK_FREQ,   fb_instant_cmd },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_CLOCK_STATE,  fb_instant_cmd },
+    { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_FAULT,            fb_force_fault },
 
     /* SEQ_ARMED */
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_DISARM,           fb_seq_armed_disarm },
@@ -442,6 +464,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FIRE_PULSE,       fb_seq_armed_reject },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FIRE_MARKER,      fb_seq_armed_reject },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_RESET,            fb_seq_armed_disarm },
+    { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FAULT,            fb_force_fault },
 
     /* FAULT */
     { TRIG_STATE_FAULT, TRIG_EVENT_CLEAR_FAULT, fb_fault_clear },
@@ -461,6 +484,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_PCNT_CMP,     fb_instant_cmd },
     { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_PCNT_PRESET,  fb_instant_cmd },
     { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_RESET,           fb_instant_cmd },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_FAULT,           fb_force_fault },
 
     /* ENC_ARMED */
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_DISARM,           fb_enc_armed_disarm },
@@ -469,6 +493,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_PCNT_CLEAR,       fb_instant_cmd },
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_SET_ENC_TARGET,   fb_instant_cmd },
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_RESET,            fb_enc_armed_disarm },
+    { TRIG_STATE_ENC_ARMED, TRIG_EVENT_FAULT,            fb_force_fault },
 };
 #define TRIG_ECC_TABLE_COUNT \
     (sizeof(s_ecc_table) / sizeof(s_ecc_table[0]))

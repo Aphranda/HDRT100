@@ -1,0 +1,899 @@
+# SD 卡任务进度追踪与回溯
+
+本文档用于记录 RP2350_TRIG SD 卡 System Pack 功能的正式实现进度。每完成一个阶段，都应追加任务记录，说明目标、完成内容、验证结果、剩余工作和下一步计划，便于后续回溯 SD 设计决策、烧录闭环和板端证据。
+
+## 记录规则
+
+- 每个正式 SD 任务使用独立编号：`SD-TASK-YYYYMMDD-NNN`。
+- 每条记录必须写明任务目标、完成内容、验证结果、剩余工作。
+- 最新记录追加在“任务记录”章节顶部。
+- 如果只完成代码或工具实现，状态应写为 `进行中`，不能写成 `完成`。
+- 只要修改固件代码，必须执行构建、烧录和板端基础查询验证；如未完成烧录，必须明确记录。
+- SD 验证工具只负责板端 SCPI 验证，不负责烧录；烧录动作单独记录命令、固件和影响。
+- 每次板端验证至少记录：固件 build id、`SYST:SD:STAT?`、关键 SD 功能查询、负向路径验证。
+- 如果 SD 卡内容需要人工复制或刷新，必须记录卡根目录预期内容和验证目录。
+
+## 状态定义
+
+| 状态 | 含义 |
+|---|---|
+| `完成` | 当前 SD 子任务目标已经达成，并完成必要构建、烧录和板端验证。 |
+| `进行中` | 已完成阶段性工作，但还未完成烧录或板端闭环。 |
+| `阻塞` | 当前无法继续，需要硬件、卡内容、资料或用户操作。 |
+| `暂停` | 暂时不推进，但不是技术阻塞。 |
+
+## 记录模板
+
+```markdown
+### SD-TASK-YYYYMMDD-NNN - 任务标题
+
+- 状态：进行中 / 完成 / 阻塞 / 暂停
+- 日期：YYYY-MM-DD
+- 任务目标：
+  - ...
+- 完成内容：
+  - ...
+- 验证结果：
+  - ...
+- 还需完成：
+  - ...
+- 关联文件：
+  - `path/to/file`
+- 下一步：
+  - ...
+```
+
+## 当前目标
+
+P0A/P0B 横向收口：严格按 HAOFV 边界继续将 SD 同步查询/写入迁移为 StorageAO job。当前已完成 FILE_INFO、MANIFEST_SCAN、SNAPSHOT_WRITE、FAULT_EVIDENCE job 闭环、`MMEM:CAT?` 第 0 页分页包装，以及 SD UI 的 manifest/System Pack/evidence/error 摘要显示；下一步优先评估 `MMEM:CAT:PAGE?`、`MMEM:READ?` 的 job 化或小预算分片策略。Trigger/PIO/DMA 硬实时面不得新增 SD、FatFs、日志、trace 写入或非确定性操作。
+
+## 任务记录
+
+### SD-TASK-20260704-019 - SD UI System Pack 与 Evidence 摘要
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 让 SD LCD 页面显示 manifest/System Pack 状态、默认 OTA 包可用性、StorageAO job 状态和 SD 错误摘要。
+  - 在 UI 上显示最近 snapshot 与 fault evidence 摘要，便于现场不接 PC 时确认 SD 证据链。
+  - 严格保持 UI 只读取 `StorageVector`，不在 UI 刷新路径调用 SD/FatFs 或影响 PIO/DMA/IRQ 实时路径。
+- 完成内容：
+  - `draw_sd_page()` 从原 `MEDIA/FILESYS` 基础状态页扩展为 `SD CARD`、`SYSTEM PACK`、`EVIDENCE` 三块摘要。
+  - 新增 manifest/job/job state 短标签转换，UI 显示 `MAN`、`OTA`、`JOB`、`SNAP`、`FAULT`、`ERR`。
+  - `SYSTEM PACK` 通过 manifest 状态与 missing/required 计数显示 P0 兼容 pack 就绪度；manifest OK 且 required 缺失为 0 时显示默认 OTA 入口 `DEFAULT`，否则显示 `CHECK`。
+  - `EVIDENCE` 显示最近 snapshot id、fault snapshot id、fault trace id、storage_error/job_error 摘要。
+  - 未新增 SD/FatFs/trace/log 调用，UI 仍只消费 `storage_manager_vector_t` 快照。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `cmake --build build-sd-verify` 通过，build id：`20260704111900`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已单独烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`；验证脚本未负责烧录。
+  - 验证目录：`build-sd-verify\sd_validation_sd_ui_summary_final`
+  - `SYST:FW:BUILD? -> "20260704111900"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260704044222",4,0`
+  - `MAN:SYST:STOR:JOB? -> "DONE",1,"MANIFEST_SCAN","/manifest.idx",4,"MANIFEST",3822083274,0`
+  - `SNAP:SYST:STOR:JOB? -> "DONE",3,"SNAPSHOT_WRITE","/snapshots/boot/boot_000051.json",51,"SNAPSHOT",3411723520,0`
+  - `ARM:SYST:STOR:JOB? -> "DONE",4,"SNAPSHOT_WRITE","/snapshots/arm/arm_000026.json",26,"SNAPSHOT",4226853552,0`
+  - `FAULT:SYST:STOR:JOB? -> "DONE",5,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000023.json",23,"FAULT_EVIDENCE",3669567201,0`
+  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",25,"/snapshots/fault/fault_000025.json",278314619,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",24,"/traces/fault/fault_000024.bin",1191542912,41,0`
+  - `trace_readback\decoded_fault_trace.json` 校验：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`，解码事件数 `41`。
+- 还需完成：
+  - `MMEM:CAT:PAGE?` 和 `MMEM:READ?` 仍是同步诊断/验证接口；后续需决定迁移为 StorageAO job，或记录并实现严格的小预算分片边界。
+  - P1 Pack/Ref 尚未实现，当前 UI 的 `SYSTEM PACK` 表示 P0 manifest/required/default OTA 兼容入口状态。
+- 关联文件：
+  - `components/sync_config_ui/src/sync_config_ui.c`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 按优先级处理 `MMEM:READ?`：先明确最大 128 字节诊断读回是否保留同步小块边界，或新增 StorageAO `READ_CHUNK` job。
+
+### SD-TASK-20260704-018 - P0A MMEM:CAT 兼容分页包装
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 收口旧 `MMEM:CAT?` 接口，避免继续在 SCPI 回调内做无界目录枚举。
+  - 保持旧命令的 `status,entries` 返回形态，用于兼容诊断和基础目录检查。
+  - 明确长目录可靠枚举入口为 `MMEM:CAT:PAGE?`。
+- 完成内容：
+  - `scpi_cmd_mmem_catalog_q()` 改为调用 `storage_manager_catalog_page(path, 0, 16, ...)`。
+  - 当目录还有后续页时，兼容输出不以完整 `;` 结束，保留现有工具对“目录不完整”的识别。
+  - `docs/SCPI_COMMANDS.md` 将 `MMEM:CAT?` 标记为兼容诊断目录枚举，说明可靠长目录枚举必须使用分页命令。
+  - `docs/SD_TODO.md` 勾选 `MMEM:CAT?` 分页包装待办。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `cmake --build build-sd-verify` 通过，build id：`20260704105758`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已单独烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`；验证脚本未负责烧录。
+  - 验证目录：`build-sd-verify\sd_validation_cat_wrapper`
+  - `SYST:FW:BUILD? -> "20260704105758"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `MMEM:CAT? -> "OK","System Volume Information,0,DIR;cal,0,DIR;factory,0,DIR;logs,0,DIR;mission,0,DIR;profile,0,DIR;reports,0,DIR;snapshots,0,DIR;traces,0,DIR;update,0,DIR;manifest.idx,592,FILE;manifest.json,5907,FILE;README.txt,443,FILE;"`
+  - `MMEM:CAT? "/snapshots/boot" -> "OK","boot_000001.json,455,FILE;...;boot_000015.json,45"`，长目录保持不完整诊断信号。
+  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",40,4 -> "OK","/traces/fault",40,4,0,1,0,"fault_000021.bin,692,FILE;fault_000021.idx,145,FILE;fault_000022.bin,692,FILE;fault_000022.idx,145,FILE;"`
+  - `FAULT:SYST:STOR:JOB? -> "DONE",5,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000021.json",21,"FAULT_EVIDENCE",1800965119,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",22,"/traces/fault/fault_000022.bin",2322388590,41,0`
+  - `trace_readback\decoded_fault_trace.json` 校验：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`，解码事件数 `41`。
+- 还需完成：
+  - `MMEM:CAT:PAGE?` 和 `MMEM:READ?` 仍是同步诊断/验证接口；后续可按风险决定是否迁移为 StorageAO job 或进一步分片。
+  - SD UI 仍需显示 manifest/pack 状态、默认 OTA 包存在性和 SD 错误摘要。
+- 关联文件：
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 评估 `MMEM:READ?` 的同步读回是否需要 job 化；若保持诊断接口，则在文档中明确最大 128 字节、小块读、非 hot path 的使用边界。
+
+### SD-TASK-20260704-017 - P0B/P0C ARM 与 Fault Evidence Job 收口
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 清理 `TRIG:ARM` / `TRIG:FAULT` SCPI 回调内直接同步写 SD 的剩余路径。
+  - `TRIG:ARM` 复用 StorageAO `SNAPSHOT_WRITE` job 写入 arm snapshot。
+  - `TRIG:FAULT` 新增 StorageAO `FAULT_EVIDENCE` job，在 Storage service 上下文串行生成 fault snapshot、fault trace 和 fault report。
+- 完成内容：
+  - 新增 `STORAGE_MANAGER_JOB_TYPE_FAULT_EVIDENCE` 和 `storage_manager_post_fault_evidence_job()`。
+  - `storage_manager_service_job()` 增加 fault evidence job 执行，结果 path 指向最新 `/reports/fault/pulse_fault_*.json`，size 返回 report id。
+  - `TRIG:ARM` 改为投递 `SNAPSHOT_WRITE("arm")` job，兼容等待后再投递 ARM 事件。
+  - `TRIG:FAULT` 改为投递 `FAULT_EVIDENCE` job，兼容等待后再投递 FAULT 事件。
+  - `SYST:STOR:JOB?` 对 fault evidence job 返回 kind=`FAULT_EVIDENCE`。
+  - `sd_board_validate.py` 增加 `ARM:SYST:STOR:JOB?` 与 `FAULT:SYST:STOR:JOB?` 断言。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `cmake --build build-sd-verify` 通过，build id：`20260704103011`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已单独烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`；验证脚本未负责烧录。
+  - 验证目录：`build-sd-verify\sd_validation_fault_evidence_job`
+  - `SYST:FW:BUILD? -> "20260704103011"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `MAN:SYST:STOR:JOB? -> "DONE",1,"MANIFEST_SCAN","/manifest.idx",4,"MANIFEST",3822083274,0`
+  - `SNAP:SYST:STOR:JOB? -> "DONE",3,"SNAPSHOT_WRITE","/snapshots/boot/boot_000045.json",45,"SNAPSHOT",3022438463,0`
+  - `ARM:SYST:STOR:JOB? -> "DONE",4,"SNAPSHOT_WRITE","/snapshots/arm/arm_000023.json",23,"SNAPSHOT",63830725,0`
+  - `FAULT:SYST:STOR:JOB? -> "DONE",5,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000020.json",20,"FAULT_EVIDENCE",3140488566,0`
+  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",22,"/snapshots/fault/fault_000022.json",3261021448,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",21,"/traces/fault/fault_000021.bin",4000700503,41,0`
+  - `FAULT:SYST:FAULT:LAST? -> "OK",20,"/reports/fault/pulse_fault_000020.json",3140488566,22,21,0`
+  - `trace_readback\decoded_fault_trace.json` 校验：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`，解码事件数 `41`，包含 `sync_io.seq_runtime`。
+- 还需完成：
+  - `MMEM:CAT?`、`MMEM:CAT:PAGE?`、`MMEM:READ?` 仍是同步诊断/验证接口，需要继续明确兼容边界或迁移为 job/小预算分片。
+  - SD UI 仍需显示 manifest/pack 状态、默认 OTA 包存在性和 SD 错误摘要。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+  - `tools/README.md`
+- 下一步：
+  - 收口 `MMEM:CAT?` 旧接口：优先将其定位为兼容诊断接口或改为分页包装，避免长目录同步枚举。
+
+### SD-TASK-20260704-016 - P0A Manifest Scan Job 兼容闭环
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 将 `SYST:SD:MAN?` 背后的 `/manifest.idx` 扫描迁移为 StorageAO `MANIFEST_SCAN` job。
+  - 保持旧查询返回字段兼容：manifest status、schema、product_id、hardware_id、build_id、required_count、missing_count 不变。
+  - 扩展 SD 板端验证工具，在 `FILE_INFO` job 覆盖最近 job 前捕获并断言 `MANIFEST_SCAN` 结果。
+- 完成内容：
+  - `storage_manager_job_type_t` 新增 `STORAGE_MANAGER_JOB_TYPE_MANIFEST_SCAN`。
+  - 新增 `storage_manager_post_manifest_scan_job()`；固定扫描 `/manifest.idx`，实际 FatFs 读取仍在 `storage_manager_service()` 中执行。
+  - `SYST:SD:MAN?` 改为投递 manifest job，并通过兼容等待层返回原 manifest 摘要。
+  - `SYST:STOR:JOB?` 对 manifest job 返回 type=`MANIFEST_SCAN`、kind=`MANIFEST`、path=`/manifest.idx`，size 字段返回 `manifest_required_count`。
+  - `sd_board_validate.py` 在 baseline `SYST:SD:MAN?` 后立即查询 `SYST:STOR:JOB?`，断言 `DONE/MANIFEST_SCAN/MANIFEST/error=0`。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `cmake --build build-sd-verify` 通过，build id：`20260704101832`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已单独烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`；验证脚本未负责烧录。
+  - 验证目录：`build-sd-verify\sd_validation_manifest_job`
+  - `SYST:FW:BUILD? -> "20260704101832"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260704044222",4,0`
+  - `MAN:SYST:STOR:JOB? -> "DONE",1,"MANIFEST_SCAN","/manifest.idx",4,"MANIFEST",3822083274,0`
+  - `SYST:STOR:JOB:INFO "/manifest.idx" -> "OK",2`
+  - `SYST:STOR:JOB? -> "DONE",2,"FILE_INFO","/manifest.idx",592,"FILE",3822083274,0`
+  - `SYST:SNAP:WRIT "boot" -> "OK"`
+  - `SNAP:SYST:STOR:JOB? -> "DONE",3,"SNAPSHOT_WRITE","/snapshots/boot/boot_000043.json",43,"SNAPSHOT",2422842693,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",20,"/traces/fault/fault_000020.bin",4015636484,41,0`
+  - `trace_readback\decoded_fault_trace.json` 校验：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`，解码事件数 `41`，包含 `sync_io.seq_runtime`。
+- 还需完成：
+  - `MMEM:CAT?`、`MMEM:CAT:PAGE?`、`MMEM:READ?` 仍是同步诊断/验证接口，需要继续评估 job 化或严格分片预算。
+  - `TRIG:ARM` 和 `TRIG:FAULT` 路径仍有同步 snapshot/trace/report 写入；后续需优先把非 hot path 后处理收敛到 StorageAO job。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+  - `tools/README.md`
+- 下一步：
+  - 按优先级评估 `MMEM:CAT:PAGE?` 和 `MMEM:READ?`：先确定是 StorageAO job 还是小预算分片状态机，再保持板端闭环验证。
+
+### SD-TASK-20260704-015 - P0B Snapshot Write Job 兼容闭环
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 将手动 `SYST:SNAP:WRITe` 从 SCPI 回调内直接同步写入，迁移为 StorageAO `SNAPSHOT_WRITE` job。
+  - 保持旧命令返回语义兼容：`SYST:SNAP:WRIT "boot"` 仍返回 `"OK"`，后续 `SYST:SNAP:LAST?` 仍可查询最新 snapshot。
+  - 扩展 SD 板端验证工具，确认 snapshot 写入背后最后完成的是 `SNAPSHOT_WRITE` job。
+- 完成内容：
+  - `storage_manager_job_type_t` 新增 `STORAGE_MANAGER_JOB_TYPE_SNAPSHOT_WRITE`。
+  - 新增 `storage_manager_post_snapshot_job()`；job 参数保存 snapshot kind，实际写入在 `storage_manager_service()` 中执行。
+  - `SYST:SNAP:WRITe` 改为投递 snapshot job，并短轮询 `storage_manager_service()` 等待兼容层完成。
+  - `SYST:STOR:JOB?` 对 snapshot job 返回 kind=`SNAPSHOT`，size 字段返回 snapshot sequence。
+  - `sd_board_validate.py` 在 `SYST:SNAP:WRIT "boot"` 后查询 `SYST:STOR:JOB?`，断言 `DONE/SNAPSHOT_WRITE/SNAPSHOT/error=0`，并确认 job path/sequence 与 `SYST:SNAP:LAST?` 一致。
+  - `sd_board_validate.py` 将 `/traces/fault` 分页验证上限从 8 页提高到 32 页，适配长期重复验证后 fault trace 文件增长。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `cmake --build build-sd-verify` 通过，build id：`20260704095853`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已单独烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`；验证脚本未负责烧录。因首次验证后最近 snapshot 留在 fault，重新烧录同一 UF2 让板卡干净启动后完成最终验证。
+  - 最终验证目录：`build-sd-verify\sd_validation_snapshot_job_final`
+  - `SYST:FW:BUILD? -> "20260704095853"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260704044222",4,0`
+  - `MMEM:READ? "/../",0,16 -> "PATH_DENIED","/../",0,16,0,0,0,5,""`
+  - `SYST:STOR:JOB:INFO "/manifest.idx" -> "OK",1`
+  - `SYST:STOR:JOB? -> "DONE",1,"FILE_INFO","/manifest.idx",592,"FILE",3822083274,0`
+  - `SYST:SNAP:WRIT "boot" -> "OK"`
+  - `SNAP:SYST:STOR:JOB? -> "DONE",2,"SNAPSHOT_WRITE","/snapshots/boot/boot_000041.json",41,"SNAPSHOT",3921968163,0`
+  - `SYST:SNAP:LAST? -> "OK","boot",41,"/snapshots/boot/boot_000041.json",3921968163,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",19,"/traces/fault/fault_000019.bin",5960260,41,0`
+  - `trace_readback\decoded_fault_trace.json` 校验：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`，解码事件数 `41`，包含 `sync_io.seq_runtime`。
+- 还需完成：
+  - `TRIG:ARM` 和 `TRIG:FAULT` 路径仍有同步 snapshot/trace/report 写入；后续需要按故障证据优先级逐步迁移，避免破坏现有 fault 闭环。
+  - 继续评估 `MMEM:CAT:PAGE?` 和 `MMEM:READ?` 的 job 化或分片执行策略。
+  - 将 manifest scan 迁移为 StorageAO job 或启动阶段分片状态机。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0A job 化：优先评估 `MMEM:CAT:PAGE?` 分页接口是否改为异步 job，或先把 manifest scan 收敛为 StorageAO job。
+
+### SD-TASK-20260704-014 - P0A StorageAO FILE_INFO Job 最小闭环
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 为 StorageAO 增加最小 job 框架，先覆盖 `FILE_INFO`，让 SCPI 只投递意图，FatFs 查询在 `storage_manager_service()` 中执行。
+  - 保持旧 `MMEM:INFO?` 兼容，不一次性替换现有验证链路。
+  - 扩展 SD 板端验证工具，确认 `SYST:STOR:JOB:INFO "/manifest.idx"` 能投递并完成。
+- 完成内容：
+  - `storage_manager_vector_t` 增加当前 job 摘要：job id、type、state、path hash、total/done bytes、error、path。
+  - 新增 `storage_manager_job_type_t`、`storage_manager_job_state_t`、`storage_manager_job_result_t`。
+  - 新增 `storage_manager_post_file_info_job()` 和 `storage_manager_get_job_result()`。
+  - `storage_manager_service()` 增加一槽 job 执行；`FILE_INFO` job 在 Storage service 上下文调用 `storage_manager_file_info()`。
+  - 新增 SCPI：
+    - `SYST:STOR:JOB:INFO "<path>"`：投递 FILE_INFO job，返回 `"OK",job_id`。
+    - `SYST:STOR:JOB?`：返回 `state,id,type,path,size,kind,path_hash,error`。
+  - `sd_board_validate.py` 增加 Storage job 正向验证：`/manifest.idx` 必须完成为 `DONE/FILE_INFO/FILE/error=0`。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `cmake --build build-sd-verify` 通过，build id：`20260704095033`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已单独烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`；验证脚本未负责烧录。
+  - 最终验证目录：`build-sd-verify\sd_validation_storage_job_file_info`
+  - `SYST:FW:BUILD? -> "20260704095033"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260704044222",4,0`
+  - `MMEM:READ? "/../",0,16 -> "PATH_DENIED","/../",0,16,0,0,0,5,""`
+  - `SYST:STOR:JOB:INFO "/manifest.idx" -> "OK",1`
+  - `SYST:STOR:JOB? -> "DONE",1,"FILE_INFO","/manifest.idx",592,"FILE",3822083274,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",16,"/traces/fault/fault_000016.bin",3559725173,41,0`
+  - `trace_readback\decoded_fault_trace.json` 校验：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`，解码事件数 `41`，包含 `sync_io.seq_runtime`。
+- 还需完成：
+  - 将 `SYST:SNAP:WRITe` 迁移为 StorageAO job，避免 SCPI 回调内同步写 snapshot。
+  - 继续评估 `MMEM:CAT:PAGE?` 和 `MMEM:READ?` 的 job 化或分片执行策略。
+  - 旧 `MMEM:INFO?` 仍保留为兼容诊断接口；后续可增加 async 查询别名或工具默认改用 job。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0B job 化：优先把手动 `SYST:SNAP:WRITe` 迁移为 StorageAO job，并保留旧命令返回/查询语义的兼容层。
+
+### SD-TASK-20260704-013 - P0C SyncIO Runtime 管理面采样与 HAOFV 实时边界收口
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 增加 SyncIO PIO/DMA runtime 状态的可解码观测，支撑 SEQ_STEP ARM 后确认 PIO enabled、DMA IRQ enabled、FIFO 状态和 transfer_count。
+  - 严格遵守 HAOFV：新增观测不得进入 PIO/DMA/IRQ 硬实时热路径，不得在 DMA IRQ 中写 trace/log/SD。
+  - 扩展 SD 板端验证工具，让实际 fault trace 解码后必须包含 `sync_io.seq_runtime`。
+- 完成内容：
+  - `sync_io.h` 新增 `sync_io_seq_step_runtime_t`、`sync_io_enc_count_runtime_t` 和 runtime 查询接口。
+  - `sync_io.c` 在 SEQ/ENC ARM 成功后的管理面路径记录一次 runtime trace：`sync_io.seq_runtime`、`sync_io.enc_runtime`。
+  - `sync_io.c` 的 DMA IRQ handler 保持为硬实时最小路径：只清 DMA IRQ、维护必要计数、重启 DMA transfer；不调用 `sync_io_trace()`、`storage_manager_trace_event()`、LOG 或 FatFs/SD。
+  - `sd_trace_decode.py` 增加 runtime 事件名和 flags 解码：`running`、`pio_enabled`、`dma_busy`、`dma_irq_enabled`、`tx_fifo_empty`、`tx_fifo_full`、`transfer_count_low16`。
+  - `sd_board_validate.py` 在 fault trace 读回解码后断言包含 `sync_io.seq_runtime`。
+  - `docs/SD_TODO.md` 补充 HAOFV 实时边界：硬实时 hot path 禁止新增 trace/log/storage 写入；runtime 观测必须走管理面采样或后处理。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `cmake --build build-sd-verify` 通过，build id：`20260704093710`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已单独烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`；验证脚本未负责烧录。
+  - 最终验证目录：`build-sd-verify\sd_validation_seq_runtime_trace_final`
+  - `SYST:FW:BUILD? -> "20260704093710"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260704044222",4,0`
+  - `MMEM:READ? "/../",0,16 -> "PATH_DENIED","/../",0,16,0,0,0,5,""`
+  - `TRIG:MODE 1 -> "OK"`、`SEQ:TRIG:MODE? -> "SEQ_STEP",1`、`TRIG:ARM -> "OK"`。
+  - `ARM:STAT:TRIG? -> "SEQ_STEP",2,16,0,0,0,0,0,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",15,"/traces/fault/fault_000015.bin",2447354312,41,0`
+  - `INFO:FAULT:SYST:TRAC:LAST? -> "OK","/traces/fault/fault_000015.bin",692,"FILE",2447354312,0`
+  - `INFO:FAULT:SYST:TRAC:IDX? -> "OK","/traces/fault/fault_000015.idx",145,"FILE",2375882506,0`
+  - `.bin` 通过 `MMEM:READ?` 分 6 块读回：`128 + 128 + 128 + 128 + 128 + 52 = 692` 字节，最后一块 `eof=1`。
+  - `.idx` 通过 `MMEM:READ?` 分 2 块读回：`128 + 17 = 145` 字节，最后一块 `eof=1`。
+  - `trace_readback\decoded_fault_trace.json` 校验：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`，解码事件数 `41` 与 `SYST:TRAC:LAST?` 一致。
+  - 解码结果包含 `sync_io.seq_armed`、`sync_io.seq_runtime`、`trigger.source_config`、`trigger.edge_config`、`trigger.gate_config`、`trigger.safe_config`。
+- 还需完成：
+  - `enc_runtime` 已有事件名和解码能力，仍需 ENC_COUNT 板端路径验证。
+  - 后续硬实时相关观测不得直接在 PIO/DMA/IRQ 热路径写 trace；应先评估是否可用管理面采样、硬件计数器、状态锁存或 DISARM/FAULT 后读回替代。
+  - 将 manifest scan、snapshot write、目录枚举/readback 继续迁移为 StorageAO job，减少 SCPI 同步路径。
+- 关联文件：
+  - `components/sync_io/inc/sync_io.h`
+  - `components/sync_io/src/sync_io.c`
+  - `tools/sd_trace_decode/sd_trace_decode.py`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0A/P0B 横向收口：优先把仍在 SCPI 回调内同步执行的 manifest scan、snapshot write、目录枚举/readback 迁移为 StorageAO job；同时为 ENC_COUNT runtime 增加独立板端验证。
+
+### SD-TASK-20260704-012 - P0C Trigger 配置 Trace 与解码断言
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 补齐 Trigger 管理面配置变更 trace，覆盖 source、edge、gate、safe。
+  - 为资源/底层 I/O 失败预留可解码 trace 事件名，支撑后续异常注入或真实故障定位。
+  - 扩展板端验证工具，让实际 fault trace 解码后必须包含新增配置事件。
+- 完成内容：
+  - `sync_trigger.c` 新增 trace 事件：`trigger.source_config`、`trigger.edge_config`、`trigger.gate_config`、`trigger.safe_config`。
+  - `sync_trigger.c` 新增错误细分事件：`trigger.resource_busy`、`trigger.io_arm_failed`、`trigger.io_lost`。
+  - 修正配置变更后误记 `trigger.event_ignored` 的判定：source/edge/gate/safe 变化会被视为有效进展。
+  - `sd_trace_decode.py` 增加新增事件名和 before/after 参数解码。
+  - `sd_board_validate.py` 在 ARM 前主动执行并恢复 `TRIG:SOUR`、`TRIG:EDGE`、`TRIG:GATE`、`TRIG:SAFE`，并在读回解码结果中断言四类配置事件存在。
+  - `docs/SD_TODO.md` 和 `tools/README.md` 记录新增覆盖范围。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`，build id：`20260704091842`。
+  - 最终验证目录：`build-sd-verify\sd_validation_trace_config_events_final`
+  - `SYST:FW:BUILD? -> "20260704091842"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `MMEM:READ? "/../",0,16 -> "PATH_DENIED","/../",0,16,0,0,0,5,""`
+  - `TRIG:SOUR 17/16`、`TRIG:EDGE 1/0`、`TRIG:GATE 1/0`、`TRIG:SAFE 1/0` 均返回 `"OK"`。
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",13,"/traces/fault/fault_000013.bin",1681786646,40,0`
+  - `INFO:FAULT:SYST:TRAC:LAST? -> "OK","/traces/fault/fault_000013.bin",676,"FILE",1681786646,0`
+  - `INFO:FAULT:SYST:TRAC:IDX? -> "OK","/traces/fault/fault_000013.idx",145,"FILE",2669924640,0`
+  - `.bin` 通过 `MMEM:READ?` 分 6 块读回：`128 + 128 + 128 + 128 + 128 + 36 = 676` 字节，最后一块 `eof=1`。
+  - `.idx` 通过 `MMEM:READ?` 分 2 块读回：`128 + 17 = 145` 字节，最后一块 `eof=1`。
+  - `trace_readback\decoded_fault_trace.json` 校验：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`，解码事件数 `40` 与 `SYST:TRAC:LAST?` 一致。
+  - 解码结果包含 `trigger.source_config`、`trigger.edge_config`、`trigger.gate_config`、`trigger.safe_config`，配置变更不再误标为 `trigger.event_ignored`。
+- 还需完成：
+  - 资源/底层 I/O 失败事件已有命名和记录入口，但仍需真实故障注入或硬件异常场景验证。
+  - 继续补齐硬实时 trigger edge/missed edge、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout。
+  - 继续评估 trace ring 容量和事件采样策略，避免高频事件挤出关键故障上下文。
+- 关联文件：
+  - `components/sync_trigger/src/sync_trigger.c`
+  - `tools/sd_trace_decode/sd_trace_decode.py`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `tools/README.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 继续 P0C-6：优先增加硬实时 edge/missed edge 与 DMA/PIO 异常状态的轻量采样，避免直接在 ISR 内做重型 SD 写入。
+
+### SD-TASK-20260704-011 - P0C Trace 文件读回与在线解码闭环
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 增加受限文件片段读取能力，让 SD 验证工具无需拔卡即可读回最新 fault trace `.bin/.idx`。
+  - 保持路径白名单、负向路径拒绝和烧录/验证脚本边界：验证脚本只做 SCPI 验证，不负责烧录。
+  - 将读回文件交给 `sd_trace_decode.py`，闭环校验真实 trace header、CRC、idx 和事件数量。
+- 完成内容：
+  - `fatfs_port_read_binary_range()` 增加 FatFs 二进制 range read。
+  - `storage_manager_read_file_range()` 复用 StorageManager 路径规范化、白名单和 SPI/SD 资源仲裁。
+  - 新增 SCPI：`MMEM:READ? "<path>",<offset>,<length>`，返回 `status,path,offset,requested,returned,eof,path_hash,error,hex`；固件端 length 上限为 128 字节。
+  - `sd_board_validate.py` 增加 `MMEM:READ?` 负向路径验证。
+  - `sd_board_validate.py` 在 fault 后拉取最新 `.bin/.idx` 到验证目录 `trace_readback/`，并调用 `decode_trace()` 校验 `magic_ok/schema_ok/size_ok/crc_ok/idx_ok`。
+  - `docs/SCPI_COMMANDS.md` 和 `docs/SD_TODO.md` 记录 `MMEM:READ?` 和 trace 在线解码闭环。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`，build id：`20260704090606`。
+  - 最终验证目录：`build-sd-verify\sd_validation_trace_readback`
+  - `SYST:FW:BUILD? -> "20260704090606"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `MMEM:READ? "/../",0,16 -> "PATH_DENIED","/../",0,16,0,0,0,5,""`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",11,"/traces/fault/fault_000011.bin",2584760620,16,0`
+  - `INFO:FAULT:SYST:TRAC:LAST? -> "OK","/traces/fault/fault_000011.bin",292,"FILE",2584760620,0`
+  - `INFO:FAULT:SYST:TRAC:IDX? -> "OK","/traces/fault/fault_000011.idx",145,"FILE",2914671742,0`
+  - `.bin` 通过 `MMEM:READ?` 分 3 块读回：`128 + 128 + 36 = 292` 字节，最后一块 `eof=1`。
+  - `.idx` 通过 `MMEM:READ?` 分 2 块读回：`128 + 17 = 145` 字节，最后一块 `eof=1`。
+  - `trace_readback\decoded_fault_trace.json` 校验：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`，解码事件数 `16` 与 `SYST:TRAC:LAST?` 一致。
+- 还需完成：
+  - `MMEM:READ?` 当前返回 hex 文本，适合小文件/验证闭环；若后续读取大包或长日志，应评估 SCPI definite block 或专用导出协议。
+  - 文件读取仍在 SCPI 回调同步执行，后续 StorageAO job 化时需迁移。
+  - 继续补齐更靠近硬实时侧的 trace 事件：trigger edge/missed edge、gate、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout。
+- 关联文件：
+  - `middleware/fatfs_port/inc/fatfs_port.h`
+  - `middleware/fatfs_port/src/fatfs_port.c`
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `tools/README.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0C-6：补齐硬实时/异常 trace 事件覆盖，优先从 trigger edge/missed edge、gate 和 DMA/PIO 异常状态开始。
+
+### SD-TASK-20260704-010 - P0A MMEM:CAT 分页目录枚举
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 增加分页目录枚举，避免 `MMEM:CAT?` 在 evidence 目录增长后输出截断。
+  - 让 SD 板端验证工具用分页方式枚举 `/traces/fault`，确认最新 fault trace `.bin/.idx` 可以通过目录浏览找到。
+  - 保持旧 `MMEM:CAT?` 兼容，同时将长目录可靠枚举迁移到分页接口。
+- 完成内容：
+  - `fatfs_port_catalog_page()` 增加 offset/limit 分页读取，返回 `returned_count/next_offset/complete/truncated`。
+  - `storage_manager_catalog_page()` 复用同一套路径白名单、资源仲裁和状态发布。
+  - 新增 SCPI：`MMEM:CAT:PAGE? "<path>",<offset>,<limit>`，返回 `status,path,offset,returned,next_offset,complete,truncated,entries`；固件端 limit 上限为 16。
+  - `sd_board_validate.py` 增加分页验证：按 `next_offset` 循环读取 `/traces/fault`，要求每页未截断，并在分页结果中找到最新 `.bin/.idx`。
+  - `sd_board_validate.py` 增加负向路径验证：`MMEM:CAT:PAGE? "/../",0,4` 必须被拒绝。
+  - `docs/SCPI_COMMANDS.md` 和 `docs/SD_TODO.md` 记录 `MMEM:CAT:PAGE?`。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`，build id：`20260704085428`。
+  - 最终验证目录：`build-sd-verify\sd_validation_mmem_cat_page`
+  - `SYST:FW:BUILD? -> "20260704085428"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `MMEM:CAT:PAGE? "/../",0,4 -> "PATH_DENIED","/../",0,0,0,0,0,"PATH_DENIED"`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",10,"/traces/fault/fault_000010.bin",1204488959,16,0`
+  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",0,4 -> "OK","/traces/fault",0,4,4,0,0,"fault_000001.bin,84,FILE;fault_000001.idx,142,FILE;fault_000002.bin,84,FILE;fault_000002.idx,142,FILE;"`
+  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",4,4 -> "OK","/traces/fault",4,4,8,0,0,"fault_000003.bin,196,FILE;fault_000003.idx,144,FILE;fault_000004.bin,292,FILE;fault_000004.idx,144,FILE;"`
+  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",8,4 -> "OK","/traces/fault",8,4,12,0,0,"fault_000005.bin,628,FILE;fault_000005.idx,144,FILE;fault_000006.bin,292,FILE;fault_000006.idx,144,FILE;"`
+  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",12,4 -> "OK","/traces/fault",12,4,16,0,0,"fault_000007.bin,292,FILE;fault_000007.idx,144,FILE;fault_000008.bin,292,FILE;fault_000008.idx,144,FILE;"`
+  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",16,4 -> "OK","/traces/fault",16,4,0,1,0,"fault_000009.bin,292,FILE;fault_000009.idx,144,FILE;fault_000010.bin,292,FILE;fault_000010.idx,145,FILE;"`
+  - 旧 `MMEM:CAT? "/traces/fault"` 仍会截断到 `fault_000008.bin,292,`，分页接口已能完整补齐该目录。
+- 还需完成：
+  - 旧 `MMEM:CAT?` 仍是兼容诊断接口，后续应明确标记为非长目录接口，或内部转为第一页包装。
+  - 当前分页仍在 SCPI 回调同步枚举 FatFs；后续 StorageAO job 化时需迁移。
+  - 实际 trace 内容仍需取卡复制后使用 `sd_trace_decode.py`，下一步应考虑受限只读导出能力。
+- 关联文件：
+  - `middleware/fatfs_port/inc/fatfs_port.h`
+  - `middleware/fatfs_port/src/fatfs_port.c`
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0C-5：评估并实现受限 trace 文件读取/导出闭环，让 `sd_board_validate.py` 能拉取最新 `.bin/.idx` 后调用 `sd_trace_decode.py` 校验真实 trace 内容。
+
+### SD-TASK-20260704-009 - P0A MMEM:INFO 文件信息查询与长目录验证稳定化
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 新增单文件/目录信息查询，解决 evidence 目录增长后 `MMEM:CAT?` 截断导致最新文件无法稳定确认的问题。
+  - 让 SD 板端验证工具使用 `MMEM:INFO?` 独立确认最新 snapshot、trace、report 文件存在、大小、类型和路径 hash。
+  - 验证 `MMEM:INFO?` 与现有路径白名单/负向路径策略一致。
+- 完成内容：
+  - `storage_manager_file_info_t` 和 `storage_manager_file_info()` 接入 StorageManager，复用 `storage_normalize_path()` 白名单与 `fatfs_port_file_info()`。
+  - 新增 SCPI：`MMEM:INFO? "<path>"`，返回 `status,path,size,kind,path_hash,error`。
+  - `sd_board_validate.py` 在 `SYST:SNAP:LAST?`、`SYST:TRAC:LAST?`、`SYST:FAULT:LAST?` 后查询对应 `MMEM:INFO?`，验证最新 boot/arm/fault snapshot、fault trace `.bin/.idx`、fault report。
+  - `sd_board_validate.py` 增加负向路径验证：`MMEM:INFO? "/../"` 必须被拒绝。
+  - `docs/SCPI_COMMANDS.md` 和 `docs/SD_TODO.md` 记录 `MMEM:INFO?`。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`，build id：`20260704082439`。
+  - 最终验证目录：`build-sd-verify\sd_validation_mmem_info_final`
+  - `SYST:FW:BUILD? -> "20260704082439"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `MMEM:CAT? "/../" -> "PATH_DENIED","PATH_DENIED"`
+  - `MMEM:INFO? "/../" -> "PATH_DENIED","/../",0,"UNKNOWN",0,5`
+  - `INFO:SYST:SNAP:LAST? -> "OK","/snapshots/boot/boot_000022.json",456,"FILE",107723194,0`
+  - `ARM:STAT:TRIG? -> "SEQ_STEP",2,16,0,0,0,0,0,0`
+  - `INFO:ARM:SYST:SNAP:LAST? -> "OK","/snapshots/arm/arm_000011.json",455,"FILE",2710839582,0`
+  - `INFO:FAULT:SYST:SNAP:LAST? -> "OK","/snapshots/fault/fault_000010.json",457,"FILE",61004011,0`
+  - `INFO:FAULT:SYST:TRAC:LAST? -> "OK","/traces/fault/fault_000009.bin",292,"FILE",636190657,0`
+  - `INFO:FAULT:SYST:TRAC:IDX? -> "OK","/traces/fault/fault_000009.idx",144,"FILE",1149853079,0`
+  - `INFO:FAULT:SYST:FAULT:LAST? -> "OK","/reports/fault/pulse_fault_000008.json",534,"FILE",3550549260,0`
+- 还需完成：
+  - `MMEM:CAT?` 本身仍会在长目录下截断，例如 `/traces/fault` 已截断到 `fault_000008.bin,292,`；后续需要分页、offset/limit 或最大条目控制。
+  - `MMEM:INFO?` 只能确认已知路径，不能替代目录浏览和上位机枚举。
+  - 后续仍需只读文件导出或 trace 内容读取能力，才能不用拔卡直接解码实际 `.bin`。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0A-3：实现 `MMEM:CAT?` 分页或 `MMEM:CAT:PAGE? "<path>",offset,limit` 等等价机制，保留白名单和截断标志。
+
+### SD-TASK-20260704-008 - P0C SyncIO 底层 Trace 与 SEQ_ARMED 验证
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 将 trace 继续下沉到 `sync_io` 管理面事件，覆盖 PIO/DMA arm/disarm 和底层失败路径。
+  - 让 SD 验证工具在 ARM 前配置最小 `SEQ_STEP`，确保板端验证真实进入 `SEQ_ARMED`，而不是只验证 IDLE 下的 ignored ARM。
+  - 修复验证工具对日志拼接 `"OK"` 和长目录截断的误判。
+- 完成内容：
+  - `sync_io.c` 增加 SyncIO trace domain：init、capture start/stop/drop/fail、pulse FIFO full/invalid、clock start/stop/fail、SEQ/ENC arm/disarm/fail、PIO instruction space failure、SEQ gate invalid。
+  - `sd_trace_decode.py` 增加 `sync_io` domain 和对应事件名。
+  - `sd_board_validate.py` 在 ARM snapshot 验证前执行 `TRIG:MODE 1`，查询 `TRIG:MODE?`，再执行 `TRIG:ARM` 并查询 `STAT:TRIG?`，确认 `SEQ_STEP` + state id `2` + error `0`。
+  - `sd_board_validate.py` 将默认 fault trace 事件数量断言提升到 `>= 12`。
+  - `sd_board_validate.py` 修复 `"OK"` 与日志同一行时的 ACK 解析问题。
+  - `sd_board_validate.py` 识别目录响应截断：当 `MMEM:CAT?` 结果未以完整 `;` 结尾时，不再用“最新文件名未出现在目录枚举”误判失败，改以 `SYST:SNAP:LAST? / SYST:TRAC:LAST? / SYST:FAULT:LAST?` 的路径和错误码为准。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py` 通过。
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`，build id：`20260704070426`。
+  - 验证中发现 ACK 行可能拼接日志：`TRIG:ARM -> "OK"[ ... sync_io seq_step armed ...]`，已修正工具解析。
+  - 验证中发现 `/snapshots/boot` 目录累积到 16+ 文件后 `MMEM:CAT?` 被截断，已修正工具误判；该问题升级为下一步 P0A-2。
+  - 最终验证目录：`build-sd-verify\sd_validation_sync_io_trace_final`
+  - `SYST:FW:BUILD? -> "20260704070426"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `MMEM:CAT? "/../" -> "PATH_DENIED","PATH_DENIED"`
+  - `TRIG:MODE 1 -> "OK"`
+  - `SEQ:TRIG:MODE? -> "SEQ_STEP",1`
+  - `TRIG:ARM -> "OK"`
+  - `ARM:STAT:TRIG? -> "SEQ_STEP",2,16,0,0,0,0,0,0`
+  - `ARM:SYST:SNAP:LAST? -> "OK","arm",9,"/snapshots/arm/arm_000009.json",3863456945,0`
+  - `TRIG:DISarm -> "OK"`
+  - `TRIG:FAULT -> "OK"`
+  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",8,"/snapshots/fault/fault_000008.json",1526830932,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",7,"/traces/fault/fault_000007.bin",87761659,16,0`
+  - `FAULT:SYST:FAULT:LAST? -> "OK",6,"/reports/fault/pulse_fault_000006.json",3554262358,8,7,0`
+  - `MMEM:CAT? "/traces/fault" -> "OK","fault_000001.bin,84,FILE;fault_000001.idx,142,FILE;fault_000002.bin,84,FILE;fault_000002.idx,142,FILE;fault_000003.bin,196,FILE;fault_000003.idx,144,FILE;fault_000004.bin,292,FILE;fault_000004.idx,144,FILE;fault_000005.bin,628,FILE;fault_000005.idx,144,FILE;fault_000006.bin,292,FILE;fault_000006.idx,144,FILE;fault_000007.bin,292,FILE;fault_000007.idx,144,FILE;"`
+- 还需完成：
+  - 硬实时 ISR 内仍未直接记录 trigger edge/missed edge、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY；下一轮应先解决目录分页，再继续补这些事件。
+  - `MMEM:CAT?` 当前仍可能截断，需要新增分页参数或文件信息查询命令，避免 evidence 目录增长后验证只能依赖 LAST 查询。
+  - 当前板端仍不能通过 SCPI 读取 trace `.bin` 内容；实际 `.bin` 解码仍需取卡复制或后续新增只读导出能力。
+- 关联文件：
+  - `components/sync_io/src/sync_io.c`
+  - `tools/sd_trace_decode/sd_trace_decode.py`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0A-2：实现目录分页/长度控制或 `MMEM:INFO? "<path>"` 文件信息查询，优先支撑 `/snapshots/*`、`/traces/*`、`/reports/*` 的重复验证。
+
+### SD-TASK-20260704-007 - P0C Trigger Trace 事件来源与离线解码工具
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 将 RAM trace ring 从 boot/arm/fault 维护事件扩展为真实 TriggerAO/TriggerFB 运行事件。
+  - 增加离线 trace 解码工具，解析 `/traces/*/*.bin` 和可选 `.idx`。
+  - 扩展 SD 板端验证工具，确认 fault trace 事件数量覆盖 ARM/DISARM/fault 流程。
+- 完成内容：
+  - `sync_trigger.c` 接入 trace event：AO init、queue post/full/null、TriggerFB execute、state change、error change、DMA rollover 进展、ENC Z pulse、event ignored。
+  - 队列满时递增 `missed_count`，并记录 `queue_full` warn trace。
+  - 内部周期 `DMA_ROLLOVER` 只在 rollover/seq 进展或状态/错误变化时记录，避免 64 条 ring 被空转服务刷掉。
+  - 新增 `tools/sd_trace_decode/sd_trace_decode.py`，校验 trace header、事件区 CRC、可选 `.idx`，输出 JSON/CSV，并解码 trigger domain/event/severity/state 名称。
+  - `sd_board_validate.py` 将默认 fault trace `event_count` 断言提升到 `>= 8`；跳过 ARM 验证时保留 `>= 3`。
+  - 更新 `tools/README.md` 和 `docs/SD_TODO.md`，记录 trace 解码工具和 P0C 当前覆盖范围。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_fs_build\sd_fs_build.py tools\sd_trace_decode\sd_trace_decode.py` 通过。
+  - 使用合成 trace 样本验证 `sd_trace_decode.py` JSON/CSV 输出，`magic_ok/schema_ok/size_ok/crc_ok/idx_ok` 均为 `true`。
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`。
+  - 验证目录：`build-sd-verify\sd_validation_trace_events`
+  - `SYST:FW:BUILD? -> "20260704065109"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `MMEM:CAT? "/../" -> "PATH_DENIED","PATH_DENIED"`
+  - `TRIG:ARM -> "OK"`
+  - `ARM:SYST:SNAP:LAST? -> "OK","arm",5,"/snapshots/arm/arm_000005.json",1042678525,0`
+  - `TRIG:DISarm -> "OK"`
+  - `TRIG:FAULT -> "OK"`
+  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",4,"/snapshots/fault/fault_000004.json",2288244712,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",3,"/traces/fault/fault_000003.bin",769731343,10,0`
+  - `FAULT:SYST:FAULT:LAST? -> "OK",2,"/reports/fault/pulse_fault_000002.json",53721354,4,3,0`
+  - `MMEM:CAT? "/traces/fault" -> "OK","fault_000001.bin,84,FILE;fault_000001.idx,142,FILE;fault_000002.bin,84,FILE;fault_000002.idx,142,FILE;fault_000003.bin,196,FILE;fault_000003.idx,144,FILE;"`
+- 还需完成：
+  - 继续补齐更靠近硬实时侧的 trigger edge/missed edge、gate、DMA overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout。
+  - 当前板端 SCPI 只能验证 trace 文件存在和 `event_count`，不能直接读取 `.bin` 内容；若要在线解码实际板端 trace，需要后续增加只读文件导出命令，或人工从 SD 卡复制文件后运行 `sd_trace_decode.py`。
+  - 后续将 snapshot/trace/report 同步写入进一步迁移为 StorageAO job，减少 SCPI 回调内直接写 SD。
+- 关联文件：
+  - `components/sync_trigger/src/sync_trigger.c`
+  - `tools/sd_trace_decode/sd_trace_decode.py`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `tools/README.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0C-4：补齐底层 I/O 和硬实时异常 trace，优先从 `sync_io` 的 DMA/PIO 状态和 resource acquire 失败路径开始。
+
+### SD-TASK-20260704-006 - P0C Fault Report 与最近故障查询
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 生成 `/reports/fault/pulse_fault_XXXXXX.json`。
+  - fault report 关联最近 fault snapshot 和 fault trace。
+  - 增加最近故障查询：`SYST:FAULT:LAST?`。
+  - 扩展 SD 板端验证工具，确认 report 文件存在且关联 id 正确。
+- 完成内容：
+  - `storage_manager_vector_t` 增加最近 fault report 摘要字段。
+  - 新增 `storage_manager_write_fault_report()`，使用单调序号和原子写入生成 fault report JSON。
+  - `TRIG:FAULT` 路径在 fault snapshot 和 fault trace 后写 fault report。
+  - 新增 SCPI：`SYST:FAULT:LAST?`。
+  - `sd_board_validate.py` 增加 report 查询、`/reports/fault` 枚举和 snapshot/trace id 关联校验。
+- 验证结果：
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`。
+  - 验证目录：`build-sd-verify\sd_validation_fault_report`
+  - `SYST:FW:BUILD? -> "20260704062947"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `TRIG:FAULT -> "OK"`
+  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",3,"/snapshots/fault/fault_000003.json",2155576283,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",2,"/traces/fault/fault_000002.bin",743090620,3,0`
+  - `FAULT:SYST:FAULT:LAST? -> "OK",1,"/reports/fault/pulse_fault_000001.json",4226756965,3,2,0`
+  - `MMEM:CAT? "/reports/fault" -> "OK","pulse_fault_000001.json,535,FILE;"`
+- 还需完成：
+  - 将更多真实运行事件写入 trace ring，而不是只记录 boot/arm/fault 维护事件。
+  - 增加 trace 解码工具，解析 `.bin + .idx` 为 JSON/CSV。
+  - 将 report 内容扩展为 TriggerVector/OtaVector/system pack 摘要。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0C-3：丰富 trace event 来源和增加 trace 解码工具。
+
+### SD-TASK-20260704-005 - P0C RAM Trace Ring 与 Fault Trace 落盘
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 增加 RAM trace ring，使用固定 16 字节事件记录。
+  - fault 触发后写 `/traces/fault/fault_XXXXXX.bin` 和 `.idx`。
+  - 增加最近 trace 查询：`SYST:TRAC:LAST?`。
+  - 扩展 SD 板端验证工具，确认 trace `.bin/.idx` 同时落盘。
+- 完成内容：
+  - `storage_manager` 增加 64 条 RAM trace ring，记录 `timestamp_ms/event_id/domain/severity/arg0/arg1`。
+  - 增加 trace binary header：`magic/schema/header_len/sequence/event_count/start_ms/end_ms/tick_hz/flags/crc32`。
+  - 增加 `storage_manager_trace_event()` 和 `storage_manager_write_trace()`。
+  - `TRIG:FAULT` 路径记录 fault trace event，并在 fault snapshot 后写 fault trace。
+  - `fatfs_port` 增加二进制原子写接口。
+  - 新增 SCPI：`SYST:TRAC:LAST?`。
+  - `sd_board_validate.py` 增加 fault trace 查询和 `/traces/fault` 目录验证。
+- 验证结果：
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`。
+  - 验证目录：`build-sd-verify\sd_validation_trace_fault`
+  - `SYST:FW:BUILD? -> "20260704060803"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `TRIG:FAULT -> "OK"`
+  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",2,"/snapshots/fault/fault_000002.json",2862191714,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",1,"/traces/fault/fault_000001.bin",1472477545,3,0`
+  - `MMEM:CAT? "/traces/fault" -> "OK","fault_000001.bin,84,FILE;fault_000001.idx,142,FILE;"`
+- 还需完成：
+  - 增加 `/reports/fault/pulse_fault_XXXXXX.json`，关联最近 snapshot 和 trace。
+  - 增加 `SYST:FAULT:LAST?` 最近故障查询。
+  - 将更多 TriggerFB ECC、DMA rollover、resource busy、READY timeout 等事件写入 trace ring。
+  - 后续实现 trace 解码工具。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/fatfs_port/inc/fatfs_port.h`
+  - `middleware/fatfs_port/src/fatfs_port.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0C-2：fault report JSON 和最近故障查询。
+
+### SD-TASK-20260704-004 - P0B Fault Snapshot 触发闭环
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 补齐 Trigger fault 事件处理，使 `TRIG_EVENT_FAULT` 能进入 `TRIG_STATE_FAULT`。
+  - 增加 fault snapshot 触发入口，验证 `/snapshots/fault/fault_XXXXXX.json` 写入闭环。
+  - 将 SD 验证工具扩展到 boot/arm/fault 三类 snapshot。
+- 完成内容：
+  - `trigger_fb.c` 增加 `fb_force_fault()`，在 idle/configured/armed 状态响应 `TRIG_EVENT_FAULT`；若已 armed，先释放 PIO/DMA 资源。
+  - 新增 SCPI 维护命令 `TRIG:FAULT`，用于触发 fault 并写入 fault snapshot。
+  - `sd_board_validate.py` 增加 fault snapshot 验证，检查 `TRIG:FAULT`、`SYST:SNAP:LAST?` 和 `/snapshots/fault`。
+  - `docs/SCPI_COMMANDS.md` 记录 `TRIG:FAULT`。
+- 验证结果：
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`。
+  - 验证目录：`build-sd-verify\sd_validation_snapshot_fault`
+  - `SYST:FW:BUILD? -> "20260704055042"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `AUTO:SYST:SNAP:LAST? -> "OK","boot",4,"/snapshots/boot/boot_000004.json",1822933722,0`
+  - `SYST:SNAP:WRIT "boot" -> "OK"`
+  - `TRIG:ARM -> "OK"`
+  - `ARM:SYST:SNAP:LAST? -> "OK","arm",2,"/snapshots/arm/arm_000002.json",3190325134,0`
+  - `TRIG:DISarm -> "OK"`
+  - `TRIG:FAULT -> "OK"`
+  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",1,"/snapshots/fault/fault_000001.json",3186974845,0`
+  - `MMEM:CAT? "/snapshots/fault" -> "OK","fault_000001.json,457,FILE;"`
+  - `FAULT:TRIG:DISarm -> "OK"`
+- 还需完成：
+  - 将真实 Trigger/Diagnostics fault 路径接入 fault snapshot，而不是只通过 `TRIG:FAULT` 维护命令验证。
+  - Snapshot JSON 加入 TriggerVector/OtaVector 摘要。
+  - 将同步 snapshot 写入迁移为 StorageAO job，避免 SCPI 回调内直接写 SD。
+- 关联文件：
+  - `components/sync_trigger/src/trigger_fb.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0C：RAM trace ring、fault trace `.bin/.idx` 和 pulse fault report。
+
+### SD-TASK-20260704-003 - P0B 自动 Boot 与 ARM 前 Snapshot
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 启动后自动尝试写入 boot snapshot，避免只能依赖手动 SCPI。
+  - 在 `TRIG:ARM` 前写入 arm snapshot，记录 ARM 前的 SD/manifest 摘要。
+  - 扩展独立 SD 验证工具，覆盖自动 boot snapshot 和 ARM 前 snapshot。
+- 完成内容：
+  - `storage_manager_service()` 增加启动后延迟一次的 boot snapshot 尝试。
+  - `TRIG:ARM` SCPI 回调在投递 ARM 事件前调用 `storage_manager_write_snapshot("arm")`；snapshot 失败不阻断 ARM。
+  - `tools/sd_board_validate/sd_board_validate.py` 增加自动 boot snapshot 检查、ARM snapshot 检查和 `/snapshots/arm` 目录枚举。
+- 验证结果：
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`。
+  - 验证目录：`build-sd-verify\sd_validation_snapshot_auto_arm`
+  - `SYST:FW:BUILD? -> "20260704053916"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `AUTO:SYST:SNAP:LAST? -> "OK","boot",2,"/snapshots/boot/boot_000002.json",3670955168,0`
+  - `SYST:SNAP:WRIT "boot" -> "OK"`
+  - `SYST:SNAP:LAST? -> "OK","boot",3,"/snapshots/boot/boot_000003.json",3786204305,0`
+  - `MMEM:CAT? "/snapshots/boot" -> "OK","boot_000001.json,455,FILE;boot_000002.json,454,FILE;boot_000003.json,455,FILE;"`
+  - `TRIG:ARM -> "OK"`
+  - `ARM:SYST:SNAP:LAST? -> "OK","arm",1,"/snapshots/arm/arm_000001.json",1380786553,0`
+  - `MMEM:CAT? "/snapshots/arm" -> "OK","arm_000001.json,454,FILE;"`
+- 还需完成：
+  - 将 fault snapshot 接入 Trigger/Diagnostics fault 路径。
+  - 后续将 boot/arm/fault snapshot 写入从同步调用进一步迁移为 StorageAO job，减少 SCPI/service 同步阻塞。
+  - Snapshot JSON 后续加入 TriggerVector/OtaVector 摘要，而不只记录 storage/manifest。
+- 关联文件：
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0B-3：fault snapshot 触发点；完成后再进入 P0C RAM trace ring。
+
+### SD-TASK-20260704-002 - P0B Vector Snapshot 最小写入闭环
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 增加 FatFs 原子文本写入能力：`.tmp -> sync -> close -> rename`。
+  - 增加 snapshot 序号扫描和单调分配，避免覆盖旧证据文件。
+  - 增加 StorageVector 最近 snapshot 摘要。
+  - 增加 SCPI 写入和查询入口：`SYST:SNAP:WRITe`、`SYST:SNAP:LAST?`。
+  - 扩展 `sd_board_validate.py`，让验证工具新增 snapshot 写入闭环，但仍不负责烧录。
+- 完成内容：
+  - 新增 `fatfs_port_write_text_file_atomic()`，按 `.tmp -> f_sync -> close -> rename` 写入文本文件。
+  - 新增 `fatfs_port_find_max_sequence()`，扫描目录现有 `<kind>_NNNNNN.json` 并分配下一序号。
+  - 新增 `fatfs_port_make_directory()`，snapshot 写入前自动确保 `/snapshots` 和 `/snapshots/<kind>` 存在。
+  - 新增 SD SPI 单块写入 `sd_card_write_blocks()`，FatFs `disk_write()` 从只读占位改为实际写 SD。
+  - 新增 `storage_manager_write_snapshot()`，第一版 JSON 记录 build id、uptime、storage 状态和 manifest 摘要。
+  - 扩展 `storage_manager_vector_t`，发布最近 snapshot kind、id、路径、路径哈希和错误码。
+  - 新增 SCPI：`SYST:SNAP:WRITe`、`SYST:SNAP:LAST?`。
+  - 扩展 `tools/sd_board_validate/sd_board_validate.py`，在独立验证工具中加入 boot snapshot 写入、查询和目录枚举验证。
+- 验证结果：
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`。
+  - 验证目录：`build-sd-verify\sd_validation_snapshot`
+  - `SYST:FW:BUILD? -> "20260704053008"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260704044222",4,0`
+  - `MMEM:CAT? "/../" -> "PATH_DENIED","PATH_DENIED"`
+  - `SYST:SNAP:WRIT "boot" -> "OK"`
+  - `SYST:SNAP:LAST? -> "OK","boot",1,"/snapshots/boot/boot_000001.json",1133809711,0`
+  - `MMEM:CAT? "/snapshots/boot" -> "OK","boot_000001.json,455,FILE;"`
+- 还需完成：
+  - 将 boot snapshot 接入启动后自动写入策略，避免每次只能手动 SCPI 触发。
+  - 将 ARM 前 snapshot 接入 `TRIGger:ARM` 前后事件路径。
+  - 将 fault snapshot 接入 Trigger/Diagnostics fault 路径。
+  - 验证 `arm/fault/run` kind 的目录创建、序号递增和旧文件不覆盖。
+- 关联文件：
+  - `middleware/fatfs_port/inc/fatfs_port.h`
+  - `middleware/fatfs_port/src/fatfs_port.c`
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0B-2：snapshot 自动触发点和多 kind 验证，再进入 P0C RAM trace ring。
+
+### SD-TASK-20260704-001 - P0A System Pack Manifest 识别闭环
+
+- 状态：完成
+- 日期：2026-07-04
+- 任务目标：
+  - 让固件从“能挂载和列目录”升级为“能识别并验证 RP2350_TRIG System Pack 根索引”。
+  - 固定 SD 根目录结构，生成 `manifest.json` 和固件可解析的 `manifest.idx`。
+  - 增加路径规范化、白名单和负向验证。
+  - 增加独立 SD 板端验证工具，脚本只做 SCPI 验证，不做烧录。
+- 完成内容：
+  - `tools/sd_fs_build/sd_fs_build.py` 生成 P0 固定目录、默认 `profile/mission/cal`、`manifest.json`、`manifest.idx` 和 zip。
+  - `storage_manager` 增加路径规范化和白名单根目录。
+  - `storage_manager` 扫描 `/manifest.idx`，解析 `magic/schema/product_id/hardware_id/build_id/default/required`。
+  - 检查 `required=` 文件存在性和 size，并发布 manifest 摘要到 `storage_manager_vector_t`。
+  - 新增 SCPI 查询：`SYST:SD:MAN?`。
+  - 新增 `tools/sd_board_validate/sd_board_validate.py`，覆盖 SD 状态、manifest、目录和路径拒绝验证。
+- 验证结果：
+  - 构建目录：`build-sd-verify`
+  - 验证目录：`build-sd-verify\sd_validation_manifest`
+  - `SYST:FW:BUILD? -> "20260704051143"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260704044222",4,0`
+  - `SYST:STOR:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `MMEM:CAT? "/update" -> "OK","last_result.txt,11,FILE;RP2350_TRIG_UPDATE.pkg,220280,FILE;compat,0,DIR;"`
+  - `MMEM:CAT? "/../" -> "PATH_DENIED","PATH_DENIED"`
+- 还需完成：
+  - `MMEM:CAT?` 后续改为 job 化或分页，避免长目录枚举停在 SCPI 回调内。
+  - SD UI 后续显示 manifest/pack 状态、默认 OTA 包存在性和 SD 错误摘要。
+- 关联文件：
+  - `tools/sd_fs_build/sd_fs_build.py`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/fatfs_port/inc/fatfs_port.h`
+  - `middleware/fatfs_port/src/fatfs_port.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 P0B：Vector snapshot 写入、最近 snapshot 查询和独立工具闭环。

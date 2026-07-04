@@ -16,10 +16,12 @@ SD System Pack        = 历史事实、任务包、校准包、证据包
 
 - SD 卡可以在 `BOOT`、`IDLE`、ARM 前、`DISARM` 后、`FAULT` 后读取或写入。
 - ARM 后硬实时阶段不得等待 SD/FatFs。
-- 实时异常只写 RAM trace ring，之后由 `StorageAO` 分片落盘。
+- 实时异常在硬实时热路径只做必要状态锁存；RAM trace ring 追加必须位于非 hot path 或已证明不影响实时性的管理面，之后由 `StorageAO` 分片落盘。
+- PIO/DMA/IRQ 硬实时热路径不得新增 SD、FatFs、日志、trace 写入或非确定性操作；只能保留维持实时输出必需的寄存器操作、计数器和状态锁存。
 - SCPI/UI/SD 文件输入都只能投递事件，不能直接修改 Trigger/Ota/Storage 域状态。
 - Vector 不保存大块数据；Vector 只记录 id、hash、size、CRC、进度和错误摘要。
 - 证据文件必须使用临时文件、索引和完整性标志，避免掉电后把半文件当成有效证据。
+- SD 根目录是长期兼容接口，后续新增 TRIG 模式不得通过新增模式专属根目录扩展；模式差异必须收敛到 versioned pack/profile/mission/cal 文件中。
 - 推荐介质：8GB 或 16GB FAT32 microSDHC。
 
 ## 2. HAOFV 分层
@@ -92,10 +94,11 @@ System Pack 规则：
 - 触发运行中不得切换 ref。
 - 脉冲异常不会自动回滚 pack，但 fault report 必须记录 active/previous pack 信息。
 - 是否回滚由显式 SCPI/PC 工具/人工动作决定。
+- 后续新增 TRIG mode 时，pack 是模式能力边界；旧固件遇到无法理解的新模式包必须拒绝 checkout，但仍允许目录查询、文件信息查询和证据导出。
 
 ## 4. SD 文件架构
 
-根目录固定小写。P0 可以使用根目录默认文件；P1 引入 `/packs + /refs` 后，根目录默认文件可作为 active pack 的兼容镜像。
+根目录固定小写。P0 目标是先稳定 `/manifest.idx + /profile + /mission + /cal + /update + /snapshots + /traces + /reports`；P1 引入 `/packs + /refs` 后，根目录默认文件可作为 active pack 的兼容镜像。
 
 ```text
 /
@@ -172,7 +175,58 @@ System Pack 规则：
 | `/update` | P0 兼容 OTA package 入口。 | StorageAO -> OtaAO |
 | `/factory` | 产测计划和结果。 | StorageAO / 产测工具 |
 
-旧规划中的 `/config` 映射为 `/profile + /mission`，`/capture` 映射为 `/traces + /reports`，后续不再新增独立根目录。
+旧规划中的 `/config` 映射为 `/profile + /mission`，`/capture` 映射为 `/traces + /reports`。P0 工具和固件默认不再生成或依赖 `/config`、`/capture`、`/resource`；如需兼容旧卡，只允许 PC 工具或维护命令以只读方式识别旧目录并给出迁移提示。
+
+### 4.1 TRIG 模式扩展兼容
+
+SD 文件系统必须把“新增 TRIG 模式”视为 System Pack 内容演进，而不是根目录协议演进。新增模式例如 gate-level、arm-single、free-burst、encoder/PCNT 扩展、A0-A3 测试流程，都应复用 `/profile`、`/mission`、`/cal`、`/packs`、`/refs`：
+
+- 不新增 `/seq_step`、`/enc_count`、`/free_burst` 等模式专属根目录；根目录只表达对象类型，不表达业务模式。
+- P0 兼容入口固定为 `/profile/active.json`、`/mission/recipe.json`、`/mission/sequence.bin`、`/mission/node_map.json`、`/cal/*`。P1 后这些文件可由 active pack 镜像到根目录兼容入口。
+- `/profile/active.json` 保存当前 active mode、通用触发参数、能力摘要和默认 mission/cal 引用；不保存大块序列表或模式私有二进制。
+- `/mission/recipe.json` 保存模式 recipe 和流程步骤；`/mission/sequence.bin` 保存高频/大块序列；`/mission/node_map.json` 保存 A0-A3 角色、I/O 映射和测试流程部署。
+- 模式私有的大块表，例如 burst pattern、DPLL/延迟补偿、复杂门控表，使用带 `magic/format_version/header_size/payload_size/crc32` 的二进制文件，放在 `/mission` 或 `/cal` 下，并由 manifest `required=` 引用。
+- 每个模式必须声明 `mode_id`、`mode_name`、`mode_schema`、`min_firmware` 和可选 `capability_flags`。旧固件可以忽略未知可选字段，但不得 ARM 未知必需模式。
+- schema 相同且只新增可选 key：旧固件可忽略未知 key 并继续应用已知字段。
+- 新增必需文件、改变模式语义或改变二进制 payload 格式：必须提高对应 `mode_schema` 或 pack/schema，并通过 `min_firmware` 阻止旧固件 checkout。
+- Trace/report 不按模式拆目录；新增模式只扩展 trace `domain/event_id`、decoder 事件名和 report JSON 字段，继续写入 `/traces/run|fault` 与 `/reports/run|fault`。
+- SD 验证工具必须覆盖“旧兼容入口 + active pack 入口”两种路径，确认新模式文件可枚举、可校验、可拒绝不兼容 schema。
+
+建议 profile 片段：
+
+```json
+{
+  "magic": "RP2350_TRIG_PROFILE",
+  "schema": 1,
+  "active_mode": {
+    "mode_id": 1,
+    "mode_name": "SEQ_STEP",
+    "mode_schema": 1,
+    "min_firmware": "0.1.0",
+    "capability_flags": ["sequence", "edge", "gate"]
+  },
+  "mission": "/mission/recipe.json",
+  "calibration": "/cal/board_cal.json"
+}
+```
+
+建议 mission recipe 片段：
+
+```json
+{
+  "magic": "RP2350_TRIG_MISSION",
+  "schema": 1,
+  "mode": "SEQ_STEP",
+  "mode_schema": 1,
+  "sequence": {
+    "path": "/mission/sequence.bin",
+    "format": "RP2350_TRIG_SEQUENCE",
+    "format_version": 1,
+    "crc32": "00000000"
+  },
+  "nodes": "/mission/node_map.json"
+}
+```
 
 ## 5. Manifest 与 Ref
 
@@ -191,7 +245,13 @@ default.profile=/profile/active.json
 default.mission=/mission/recipe.json
 default.calibration=/cal/board_cal.json
 default.ota_package=/update/RP2350_TRIG_UPDATE.pkg
+mode=SEQ_STEP
+mode_schema=1
+capability=sequence
+capability=edge
+capability=gate
 required=/profile/active.json,type=profile,crc32=00000000
+required=/mission/recipe.json,type=mission,crc32=00000000
 required=/update/RP2350_TRIG_UPDATE.pkg,type=ota_package,crc32=00000000
 ```
 
@@ -214,7 +274,16 @@ manifest_crc32=00000000
 - 未识别 key 忽略。
 - `schema/product_id/hardware_id` mismatch 必须拒绝应用。
 - `required=` 行用于存在性和可选 CRC 检查。
+- `mode/mode_schema/capability` 描述当前 pack 对 Trigger 的需求；未知必需模式或 schema 较新时不得 checkout。
+- 未识别的可选 key 必须忽略；未识别但被 `required=` 引用的对象必须按 schema/min_firmware 规则决定是否拒绝。
 - 复杂 hash、签名、版本矩阵由 PC 工具校验。
+
+生成约束：
+
+- `manifest.json` 和 `manifest.idx` 必须由同一次工具运行生成，二者的 product/hardware/schema/default/required 摘要必须一致。
+- P0 release 验收以 `manifest.idx` 为固件入口；只有 `manifest.json` 不能视为可 checkout 的 System Pack。
+- `sd_fs_build.py` 输出目录必须匹配第 4 节固定根目录；旧目录只能作为显式兼容选项输出。
+- 新增 TRIG mode 时，PC 工具必须同时更新 profile、mission、manifest、ref 摘要，并生成兼容性报告：最低固件版本、必需能力、必需文件、CRC/hash。
 
 ## 6. 文件格式
 
@@ -239,6 +308,12 @@ build_id/hash
 sequence
 crc32
 ```
+
+二进制通用约束：
+
+- 多字节整数统一 little-endian。
+- `crc32` 覆盖范围必须逐格式写清；默认覆盖 header 中 `crc32` 字段之后的有效 payload。
+- `header_size` 必须允许后续追加字段；未知 header 扩展字段跳过但不得影响 payload offset。
 
 Snapshot JSON 第一版保存摘要，不转储大块数组：
 
@@ -289,6 +364,8 @@ sequence:    uint32
 event_count: uint32
 start_ms:    uint32
 end_ms:      uint32
+tick_hz:     uint32
+flags:       uint32
 crc32:       uint32
 ```
 
@@ -303,14 +380,34 @@ arg0                 uint32
 arg1                 uint32
 ```
 
-1024 条事件约 16 KB，适合 RAM ring 和 SD 落盘。
+1024 条事件约 16 KB，适合后续 RAM ring 和 SD 落盘目标；P0 固件先使用 64 条 ring，优先验证格式、CRC、索引和 fault 落盘闭环。
+
+Trace 固定约束：
+
+- 第一版 `timestamp_us_or_tick` 使用单调 32-bit tick；`tick_hz` 写入 trace header。
+- timestamp wrap 由解码工具按事件顺序展开；固件报告中记录是否发生 wrap。
+- `crc32` 覆盖全部事件记录，不覆盖 `.idx`；`.idx` 记录 `.bin` 的 size、event_count、crc32 和完整性标志。
+
+P0 trace 已实现事件来源：
+
+- Storage domain：boot snapshot due。
+- Trigger domain：SCPI ARM/FAULT 维护事件、TriggerAO queue post/full/null、TriggerFB execute、state change、error change、DMA rollover 进展、ENC Z pulse、无状态变化的 ignored event。
+- SyncIO domain：init、capture start/stop/drop/fail、pulse FIFO full/invalid、clock start/stop/fail、SEQ/ENC arm/disarm/fail、PIO instruction space failure、SEQ gate invalid、SEQ/ENC ARM 成功后的管理面 runtime 采样。
+- P0 解码工具：`tools/sd_trace_decode/sd_trace_decode.py`，可校验 `.bin` 头、事件区 CRC 和可选 `.idx`，输出 JSON/CSV。
+
+Runtime 观测约束：
+
+- `sync_io.seq_runtime`、`sync_io.enc_runtime` 只允许在 ARM 成功后的管理面路径或 DISARM/FAULT 后读回路径记录。
+- runtime flags 可包含 `running`、`pio_enabled`、`dma_busy`、`dma_irq_enabled`、`tx_fifo_empty`、`tx_fifo_full` 和低 16 位 transfer count。
+- 不得在 DMA IRQ handler、PIO IRQ handler、PIO feeding loop 或固定周期硬实时路径中调用 `storage_manager_trace_event()`、LOG、FatFs 或 SD driver。
+- 如果后续需要 trigger edge/missed edge、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY 等观测，优先选择硬件计数器/状态锁存，随后由管理面或 FAULT/DISARM 后处理读出并落盘。
 
 ## 7. 数据分级与对象模型
 
 | 等级 | 数据类型 | 示例 | 存储策略 | 实时约束 |
 |---|---|---|---|---|
 | L0 当前事实 | RAM Vector / 反射内存 | TriggerVector、OtaVector、StorageVector | RAM 摘要 | 实时读，不写 SD |
-| L1 异常现场 | RAM trace ring | 脉冲异常、DMA overflow、READY timeout | RAM ring | ISR/实时侧只追加轻量事件 |
+| L1 异常现场 | RAM trace ring | 脉冲异常、DMA overflow、READY timeout | RAM ring | 硬实时侧只做必要状态锁存；trace 事件写入不得进入 PIO/DMA/IRQ hot path |
 | L2 证据文件 | snapshot/trace/report | fault snapshot、run trace、pulse report | SD | DISARM/FAULT 后写入 |
 | L3 系统包 | pack/profile/mission/cal/update | active pack、recipe、cal、OTA pkg | SD | ARM 前读取 |
 | L4 工具产物 | manifest/ref/factory/logs | manifest、ref、产测计划、日志 | SD | 可延迟、可失败 |
@@ -420,8 +517,10 @@ FAULT
 - `PACK_VALIDATING` 只校验 candidate，不影响 active。
 - `PACK_CHECKOUT` 只能在 `BOOT/IDLE/MAINTENANCE` 或 ARM 前执行。
 - `PACK_ROLLBACK` 只响应显式请求，第一版不自动触发。
-- `WRITE_TRACE/WRITE_REPORT` 可以在 `DISARM/FAULT` 后执行，ARM 后只写 RAM trace ring。
+- `WRITE_TRACE/WRITE_REPORT` 可以在 `DISARM/FAULT` 后执行；ARM 后禁止 SD 写入，硬实时面只锁存必要状态，RAM trace ring 追加也必须服从 PIO/DMA/IRQ hot path 约束。
 - 所有 `READING/WRITING/SYNCING` 都必须分片执行，单次 service 超预算后让出主循环。
+- P0 优先把 `PROBE/CATALOG/FILE_INFO/SCAN_MANIFEST` 收敛为 StorageAO job，SCPI/UI 只读取最近结果或投递请求；不得在 SCPI 回调内长时间同步 mount、枚举目录或读大文件。
+- StorageFB/StorageAO 不得被 PIO/DMA/IRQ handler 直接调用；硬实时面只发布最小状态，Storage 域在非实时上下文读取快照并生成证据。
 
 ## 10. Storage 事件
 
@@ -476,17 +575,30 @@ rename .tmp -> final
 publish StorageVector result
 ```
 
-Ref 切换事务：
+Ref 切换事务优化目标：
 
 ```text
 write candidate.ref.tmp
 flush/sync/close
 rename candidate.ref.tmp -> candidate.ref
 validate candidate pack
-rename active.ref -> previous.ref.tmp
-rename candidate.ref -> active.ref
+read current active.ref as previous payload
+write previous.ref.tmp
+write active.ref.tmp with candidate payload
+flush/sync/close both tmp files
+rename previous.ref -> previous.ref.bak if previous.ref exists
 rename previous.ref.tmp -> previous.ref
+rename active.ref -> active.ref.bak
+rename active.ref.tmp -> active.ref
+publish checkout done after active.ref re-read and validation succeeds
 ```
+
+事务约束：
+
+- 切换前必须完成 candidate pack 校验，校验失败不得改动 `active.ref`。
+- 不依赖覆盖式 rename；目标 final 已存在时先改名为 `.bak`，再 rename `.tmp`。
+- `active.ref` 被改名后到新 `active.ref` 成功落盘之间是唯一高风险窗口，启动恢复必须优先用 `active.ref.bak` 恢复旧 active，而不是自动提交 `active.ref.tmp`。
+- checkout 成功的判据是新 `active.ref` 重新读取并校验通过；只有此后才允许向 TriggerAO 投递配置更新事件。
 
 恢复规则：
 
@@ -494,9 +606,11 @@ rename previous.ref.tmp -> previous.ref
 - 自动生成文件默认不覆盖已有 final 文件；如果 final 已存在，必须重新分配 sequence。
 - trace `.bin` 先写，trace `.idx.tmp` 后写，`.idx` rename 成功后 trace 才视为完整。
 - `active.ref` 有效则继续使用 active。
-- `active.ref` 无效但 `previous.ref` 有效则退回 previous。
+- `active.ref` 缺失或无效但 `active.ref.bak` 有效时，先恢复 `active.ref.bak` 为 active；本次 checkout 视为未完成。
+- `active.ref` 和 `active.ref.bak` 都无效但 `previous.ref` 有效则退回 previous。
 - previous 也无效则尝试 factory。
 - factory 无效则 System Pack 不可用，但基本触发功能仍应可运行。
+- 启动清理 `.tmp/.bak` 前必须先完成 ref 解析；未被选中的 `*.ref.tmp` 只能删除或保留诊断，不得自动提升为 active。
 
 可重复更新的索引文件不直接覆盖：
 
@@ -544,6 +658,10 @@ rename index.tmp -> index.json
 - schema 相同：直接支持。
 - schema 较旧：兼容读取，必要时提示 upgrade。
 - schema 较新：拒绝应用到 Trigger/Ota，只允许目录查询。
+- mode_schema 相同：直接支持该模式的已知字段。
+- mode_schema 较旧：兼容读取，并可由 PC 工具升级 recipe/profile。
+- mode_schema 较新或 mode 未知：拒绝 ARM/checkout，只允许目录查询、`MMEM:INFO?`、`MMEM:READ?` 和 PC 工具导出。
+- optional capability 未知：忽略并记录 warning；required capability 未知：拒绝 checkout。
 - product_id/hardware_id 不匹配：拒绝加载。
 - `/update/*.pkg` 以 OTA package header 为准；manifest 只作为发现和预检查入口。
 
@@ -642,7 +760,8 @@ repeat
 - SD block 读写以 512 B 或小批量 sector 为单位分片。
 - LCD 刷新持有 `SPI0 + LCD`，SD 读写持有 `SPI0 + SD`，二者互斥。
 - LCD 需要刷新但 SD 正在读写时，LCD 跳过本轮并保持 dirty。
-- 脉冲异常实时采集只写 RAM trace ring；SD 落盘属于后处理。
+- 脉冲异常实时采集只做必要状态锁存；RAM trace ring 追加和 SD 落盘都属于非 hot path 后处理。
+- PIO/DMA/IRQ 的实时输出优先级高于所有 SD/trace/report 工作；任何新增观测点必须先证明不会拉长 IRQ、阻塞 DMA feeding 或改变 PIO 时序。
 
 ## 18. PC 工具链
 
@@ -672,51 +791,74 @@ tools/rp2350_tk_toolbox.py
 
 ### P0A - 固定目录与 Manifest
 
-- [ ] `sd_fs_build.py` 生成固定目录、`manifest.json`、`manifest.idx`。
-- [ ] 板端 StorageAO 扫描 `manifest.idx`。
-- [ ] 检查 required 文件存在性和可选 CRC。
-- [ ] 实现路径规范化、目录白名单和文件信息查询。
-- [ ] `MMEM:CAT?` 增加分页或输出长度限制。
-- [ ] SD UI 显示 manifest/pack 状态、默认 OTA 包存在性和 SD 错误摘要。
+- [x] `sd_fs_build.py` 迁移到第 4 节固定目录，默认生成 `/profile`、`/mission`、`/cal`、`/snapshots`、`/traces`、`/reports`、`/logs`、`/update`、`/factory`。
+- [x] `sd_fs_build.py` 生成同源 `manifest.json`、`manifest.idx`；旧 `/config`、`/capture`、`/resource` 只允许显式兼容选项。
+- [x] 板端 StorageAO 扫描 `manifest.idx`，结果发布到 StorageVector 摘要。
+- [x] 检查 required 文件存在性和可选 CRC。
+- [x] 实现路径规范化、目录白名单和文件信息查询；SCPI/UI/manifest/ref 路径共用同一入口。
+- [x] 增加 `MMEM:INFO? "<path>"`，用于 evidence 目录增长导致 `MMEM:CAT?` 截断时稳定确认单个文件存在、大小、类型和路径 hash。
+- [x] 增加 `MMEM:CAT:PAGE? "<path>",offset,limit`，返回 `next_offset/complete/truncated`，避免长目录一次性输出截断。
+- [x] 增加 `MMEM:READ? "<path>",offset,length` 受限文件片段读取，复用白名单路径策略，用于板端验证读回 trace `.bin/.idx`。
+- [x] 增加 StorageAO `FILE_INFO` job 最小闭环：`SYST:STOR:JOB:INFO "<path>"` 投递，`SYST:STOR:JOB?` 查询结果，FatFs 查询在 `storage_manager_service()` 中执行。
+- [x] 将 `SYST:SD:MAN?` 迁移为 StorageAO `MANIFEST_SCAN` job，旧 manifest 摘要字段保持兼容，`SYST:STOR:JOB?` 可验证 `DONE/MANIFEST_SCAN/MANIFEST/error=0`。
+- [x] 将 `MMEM:CAT?` 旧接口迁移为分页包装兼容诊断接口：内部只返回 `MMEM:CAT:PAGE?` 第 0 页最多 16 项；可靠长目录枚举必须使用分页命令。
+- [ ] 将目录枚举/readback 进一步收敛为 StorageAO job 或小预算分片，避免长期停留在同步路径。
+- [x] SD UI 显示 manifest/pack 状态、默认 OTA 包存在性和 SD 错误摘要。
 
 ### P0B - Vector 快照
 
-- [ ] 定义 snapshot JSON 固件结构体和序列分配。
-- [ ] 写入 boot snapshot：`/snapshots/boot/boot_XXXXXX.json`。
-- [ ] 写入 ARM 前 snapshot：`/snapshots/arm/arm_XXXXXX.json`。
-- [ ] 写入 fault snapshot：`/snapshots/fault/fault_XXXXXX.json`。
-- [ ] 增加最近 snapshot 查询：`SYST:SNAP:LAST?`。
-- [ ] UI 显示最近 fault snapshot id/hash。
+- [x] 定义 snapshot JSON 固件结构体和序列分配。
+- [x] 写入 boot snapshot：`/snapshots/boot/boot_XXXXXX.json`。
+- [x] 写入 ARM 前 snapshot：`/snapshots/arm/arm_XXXXXX.json`。
+- [x] 写入 fault snapshot：`/snapshots/fault/fault_XXXXXX.json`。
+- [x] 增加最近 snapshot 查询：`SYST:SNAP:LAST?`。
+- [x] 手动 `SYST:SNAP:WRITe` 迁移为 StorageAO `SNAPSHOT_WRITE` job，旧命令返回语义保持兼容。
+- [x] `TRIG:ARM` 的 arm snapshot 迁移为 StorageAO `SNAPSHOT_WRITE` job，SCPI 回调不直接执行 FatFs 写入。
+- [x] UI 显示最近 fault snapshot id/hash。
 
 ### P0C - 脉冲异常追溯
 
-- [ ] 增加 RAM trace ring，固定事件记录 16 字节。
-- [ ] 记录 trigger edge/missed edge、gate、DMA restart/overflow、PIO state、TriggerFB ECC、A0-A3 timeout、READY/REDY、resource timeout。
-- [ ] DISARM/FAULT 后写 `/traces/*/*.bin` 和 `.idx`。
-- [ ] 生成 `/reports/fault/pulse_fault_XXXXXX.json`。
-- [ ] 增加查询：`SYST:TRAC:LAST?`、`SYST:FAULT:LAST?`。
+- [x] 增加 RAM trace ring，固定事件记录 16 字节。
+- [x] 记录 TriggerAO queue post/full/null、TriggerFB execute、state change/error change、DMA rollover 进展、ENC Z pulse。
+- [x] 记录 Trigger 配置变更：source、edge、gate、safe，并在解码器中输出 before/after 细节。
+- [x] 增加 Trigger 资源/底层 I/O 失败 trace 事件名：resource busy、I/O arm failed、I/O lost。
+- [x] 记录 SyncIO 管理面事件：init、capture drop、pulse FIFO full、clock、SEQ/ENC arm/disarm/fail。
+- [x] 记录 SyncIO 管理面 runtime 采样：SEQ/ENC ARM 成功后输出 PIO enabled、DMA busy、DMA IRQ enabled、TX FIFO 和 transfer count 摘要。
+- [ ] 按 HAOFV 约束补齐 trigger edge/missed edge、gate、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout：不得在 PIO/DMA/IRQ hot path 写 trace/log/SD，必须使用管理面采样、状态锁存或 DISARM/FAULT 后处理。
+- [x] DISARM/FAULT 后写 `/traces/*/*.bin` 和 `.idx`。
+- [x] 生成 `/reports/fault/pulse_fault_XXXXXX.json`。
+- [x] 增加查询：`SYST:TRAC:LAST?`、`SYST:FAULT:LAST?`。
+- [x] 增加离线 trace 解码工具：`tools/sd_trace_decode/sd_trace_decode.py`。
+- [x] SD 板端验证工具通过 `MMEM:READ?` 读回最新 fault trace `.bin/.idx`，并调用解码器校验 header、CRC、idx 和事件数量。
+- [x] `TRIG:FAULT` 的 fault snapshot/trace/report 后处理迁移为 StorageAO `FAULT_EVIDENCE` job，SCPI 回调不直接执行 FatFs 写入。
 
 ### P1A - Pack/Ref
 
 - [ ] 增加 `/packs/pack_xxxxxx/` 和 `/refs/*.ref` 目录支持。
 - [ ] 支持 `active/previous/factory/candidate` ref 查询。
 - [ ] candidate pack 校验通过后才允许 checkout。
+- [ ] Pack manifest 增加 `mode/mode_schema/capability/min_firmware` 兼容性校验，未知必需模式不得 checkout。
+- [ ] 实现 Ref 切换事务和启动恢复：`active.ref.bak` 优先恢复旧 active，`*.ref.tmp` 不自动提升为 active。
 - [ ] checkout 成功后通过事件更新 TriggerAO 配置和校准。
 - [ ] snapshot/report 记录 active pack id/hash。
 - [ ] PC 工具生成 pack、ref、pack diff 和一致性检查。
+- [ ] PC 工具输出 pack 兼容性报告：固件最低版本、必需能力、必需文件、CRC/hash、是否可由 P0 兼容入口镜像。
 
 ### P1B - Profile/Calibration
 
 - [ ] 加载 active pack 或 P0 兼容路径中的 profile/cal。
 - [ ] 校验 schema/product/hardware/hash。
+- [ ] 解析 `active_mode.mode_id/mode_name/mode_schema/capability_flags`，未知必需 mode/capability 拒绝 ARM。
 - [ ] ARM 前把配置转换为 TriggerAO/TriggerVector 事件和摘要。
 - [ ] 拒绝 armed 状态下从 SD 重新加载关键配置。
 
 ### P1C - Mission/Recipe
 
 - [ ] 加载 active pack 或 P0 兼容路径中的 mission。
+- [ ] 定义 mode-neutral recipe 装载入口：`mode/mode_schema/sequence/nodes/calibration`，禁止新增模式专属根目录。
 - [ ] 加载 `/mission/sequence.bin`。
 - [ ] 加载 `/mission/node_map.json`，支持 A0-A3 角色与测试流程部署。
+- [ ] 针对新增 TRIG mode 增加 recipe 负向验证：未知 mode、mode_schema 较新、缺 required capability、CRC 错误。
 - [ ] 生成 run report。
 
 ### P1D - 离线 OTA
@@ -751,27 +893,62 @@ tools/rp2350_tk_toolbox.py
 - [x] SCPI 查询接入：`SYST:SD:STAT?`、`SYST:SD:INFO?`、`SYST:STOR:STAT?`、`MMEM:CAT?`、`MMEM:CAT? "/update"`。
 - [x] SD 卡文件系统 staging 工具接入：`tools/sd_fs_build/sd_fs_build.py`。
 - [x] SD 独立 LCD 页面接入，UI 只读取 `storage_manager_vector_t` 快照。
+- [x] SD UI 显示 manifest/System Pack、默认 OTA、StorageAO job、snapshot/fault evidence 和错误摘要。
 - [x] LCD 顶部 tab 改为 3 槽滚动式 tabview，KEY2/GPIO2 可切到 SD 页面。
 
 ## 21. 当前验证记录
 
-- 日期：2026-07-02
-- 构建：`pico2-release`
-- build id：`20260702153535`
-- OTA 包：`build/RP2350_TRIG_UPDATE.pkg`
-- 验证目录：`build/ota_validation_tab_open_source_style_quick`
-- 构建验证：
-  - `cmake --build --preset pico2-release` 通过。
-  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build` 通过，`release_check=OK`。
-- OTA 闭环：
-  - `SYST:OTA:MODE? -> "DIRECT_AB",1`
-  - `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`
-- SD 查询：
+本节只保存最新一次 SD 闭环验证摘要；历史验证记录写入 `docs/TASK_PROGRESS_SD.md`。
+
+- 日期：2026-07-04
+- 任务记录：`SD-TASK-20260704-019`
+- 构建目录：`build-sd-verify`
+- build id：`20260704111900`
+- 烧录固件：`build-sd-verify\RP2350_TRIG_FACTORY.uf2`
+- 验证目录：`build-sd-verify\sd_validation_sd_ui_summary_final`
+- 验证结果：`PASS`
+- 构建与 release gate：
+  - `cmake --build build-sd-verify` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已单独烧录 UF2；`sd_board_validate.py` 只做 SCPI 板端验证，不负责烧录。
+- SD 基础查询：
   - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
-  - `SYST:SD:INFO? -> "CARD_READY","SDHC_SDXC",1,61085696,30542848,1,1,1`
+  - `SYST:SD:INFO? -> "CARD_READY","SDHC_SDXC",1,62357504,31178752,1,1,1`
+  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260704044222",4,0`
   - `SYST:STOR:STAT? -> "CARD_READY",1,1,"OK",0`
-  - `MMEM:CAT? -> "OK","image.ub,4486744,FILE;BOOT.BIN,2230264,FILE;System Volume Information,0,DIR;"`
-  - `MMEM:CAT? "/update" -> "NO_PATH","OPEN_FAILED:5"`，当前插入卡未创建 `/update`，不是挂载失败。
+- 负向路径验证：
+  - `MMEM:CAT? "/../" -> "PATH_DENIED","PATH_DENIED"`
+  - `MMEM:INFO? "/../" -> "PATH_DENIED","/../",0,"UNKNOWN",0,5`
+  - `MMEM:CAT:PAGE? "/../",0,4 -> "PATH_DENIED","/../",0,0,0,0,0,"PATH_DENIED"`
+  - `MMEM:READ? "/../",0,16 -> "PATH_DENIED","/../",0,16,0,0,0,5,""`
+- StorageAO job 验证：
+  - `MAN:SYST:STOR:JOB? -> "DONE",1,"MANIFEST_SCAN","/manifest.idx",4,"MANIFEST",3822083274,0`
+  - `SYST:STOR:JOB:INFO "/manifest.idx" -> "OK",2`
+  - `SYST:STOR:JOB? -> "DONE",2,"FILE_INFO","/manifest.idx",592,"FILE",3822083274,0`
+  - `SYST:SNAP:WRIT "boot" -> "OK"`
+  - `SNAP:SYST:STOR:JOB? -> "DONE",3,"SNAPSHOT_WRITE","/snapshots/boot/boot_000051.json",51,"SNAPSHOT",3411723520,0`
+  - `ARM:SYST:STOR:JOB? -> "DONE",4,"SNAPSHOT_WRITE","/snapshots/arm/arm_000026.json",26,"SNAPSHOT",4226853552,0`
+  - `FAULT:SYST:STOR:JOB? -> "DONE",5,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000023.json",23,"FAULT_EVIDENCE",3669567201,0`
+- MMEM 目录兼容验证：
+  - `MMEM:CAT?` 已包装为第 0 页兼容诊断输出。
+  - `MMEM:CAT? "/snapshots/boot"` 在长目录下保持不完整输出信号，可靠枚举使用 `MMEM:CAT:PAGE?`。
+  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",44,4 -> "OK","/traces/fault",44,4,0,1,0,"fault_000023.bin,692,FILE;fault_000023.idx,145,FILE;fault_000024.bin,692,FILE;fault_000024.idx,145,FILE;"`
+- Snapshot / trace / report：
+  - `AUTO:SYST:SNAP:LAST? -> "OK","boot",50,"/snapshots/boot/boot_000050.json",3527075825,0`
+  - `SYST:SNAP:LAST? -> "OK","boot",51,"/snapshots/boot/boot_000051.json",3411723520,0`
+  - `ARM:SYST:SNAP:LAST? -> "OK","arm",26,"/snapshots/arm/arm_000026.json",4226853552,0`
+  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",25,"/snapshots/fault/fault_000025.json",278314619,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",24,"/traces/fault/fault_000024.bin",1191542912,41,0`
+  - `FAULT:SYST:FAULT:LAST? -> "OK",23,"/reports/fault/pulse_fault_000023.json",3669567201,25,24,0`
+- Trace 读回与解码：
+  - `.bin` 通过 `MMEM:READ?` 读回 `692/692` 字节。
+  - `.idx` 通过 `MMEM:READ?` 读回 `145/145` 字节。
+  - `trace_readback\decoded_fault_trace.json`：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`。
+  - 解码事件数 `41` 与 `SYST:TRAC:LAST?` 一致，包含 `sync_io.seq_runtime`。
+- HAOFV 实时性确认：
+  - SD UI 只读取 `StorageVector` 摘要，未在 UI 路径新增 SD/FatFs/trace/log 调用。
+  - runtime trace 只在 ARM 成功后的管理面路径记录。
+  - PIO/DMA/IRQ hot path 未加入 SD、FatFs、日志或 trace 写入。
 
 ## 22. 架构边界
 
