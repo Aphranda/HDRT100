@@ -57,6 +57,7 @@ EVENT_NAMES = {
     (2, 41): "trigger.io_arm_failed",
     (2, 42): "trigger.io_lost",
     (2, 43): "trigger.runtime_sample",
+    (2, 44): "trigger.resource_snapshot",
     (2, 100): "trigger.scpi_fault",
     (3, 10): "sync_io.init_ok",
     (3, 11): "sync_io.init_fail",
@@ -75,11 +76,20 @@ EVENT_NAMES = {
     (3, 53): "sync_io.seq_gate_invalid",
     (3, 54): "sync_io.seq_pio_no_space",
     (3, 55): "sync_io.seq_runtime",
+    (3, 56): "sync_io.seq_pio_state",
+    (3, 57): "sync_io.seq_dma_restart",
+    (3, 58): "sync_io.seq_dma_overflow",
     (3, 60): "sync_io.enc_arm_fail",
     (3, 61): "sync_io.enc_armed",
     (3, 62): "sync_io.enc_disarm",
     (3, 63): "sync_io.enc_pio_no_space",
     (3, 64): "sync_io.enc_runtime",
+    (3, 65): "sync_io.enc_pio_state",
+    (3, 66): "sync_io.enc_dma_restart",
+    (3, 67): "sync_io.enc_dma_overflow",
+    (3, 70): "sync_io.aux_snapshot",
+    (3, 71): "sync_io.ready_redy",
+    (3, 72): "sync_io.aux_timeout",
 }
 
 TRIGGER_STATE_NAMES = {
@@ -125,6 +135,43 @@ TRIGGER_EVENT_NAMES = {
     30: "SET_PCNT_PRESET",
     31: "PCNT_CLEAR",
     32: "RUNTIME_SAMPLE",
+}
+
+RESOURCE_ARBITER_MODE_NAMES = {
+    0: "BOOT",
+    1: "RUN",
+    2: "OTA",
+    3: "FAULT",
+}
+
+RESOURCE_NAMES = {
+    0: "FLASH",
+    1: "SPI0",
+    2: "USB",
+    3: "PIO0",
+    4: "PIO1",
+    5: "PIO2",
+    6: "DMA",
+    7: "LCD",
+    8: "SD",
+}
+
+AUX_CHANNEL_NAMES = {
+    0: "A0/CAL_IN",
+    1: "A1/EXT_CLK_IN",
+    2: "A2/SYNC_CLK_OUT",
+    3: "A3/CAL_OUT",
+}
+
+READY_SIGNAL_NAMES = {
+    0: "TRIG_IN",
+    1: "ARM_IN",
+    2: "EXT_CLK_IN",
+    3: "GATE_IN",
+    4: "AUX_ARM_IN",
+    5: "AUX_EXT_CLK_IN",
+    6: "AUX_SYNC_CLK_OUT",
+    7: "AUX_MARKER_OUT",
 }
 
 
@@ -176,6 +223,32 @@ def decode_runtime_flags(flags: int) -> dict[str, bool]:
         "tx_fifo_empty": bool(flags & (1 << 4)),
         "tx_fifo_full": bool(flags & (1 << 5)),
     }
+
+
+def decode_pio_state(value: int) -> dict[str, Any]:
+    return {
+        "sm": value & 0xFF,
+        "program_offset": (value >> 8) & 0xFF,
+        "pio_enabled": bool(value & (1 << 16)),
+        "tx_fifo_empty": bool(value & (1 << 17)),
+        "tx_fifo_full": bool(value & (1 << 18)),
+    }
+
+
+def decode_resource_mask(mask: int) -> list[str]:
+    names: list[str] = []
+    for bit, name in RESOURCE_NAMES.items():
+        if mask & (1 << bit):
+            names.append(name)
+    return names
+
+
+def decode_named_mask(mask: int, names_by_bit: dict[int, str]) -> list[str]:
+    names: list[str] = []
+    for bit, name in names_by_bit.items():
+        if mask & (1 << bit):
+            names.append(name)
+    return names
 
 
 def extended_timestamps(records: list[dict[str, Any]]) -> None:
@@ -251,9 +324,78 @@ def decode_event_details(record: dict[str, Any]) -> dict[str, Any]:
         details["seq_index_low16"] = (arg1 >> 16) & 0xFFFF
         details["trigger_count_low16"] = arg1 & 0xFFFF
 
+    if domain == 2 and event_id == 44:
+        requested_resources = arg0 & 0xFFFF
+        arbiter_mode = (arg0 >> 16) & 0xFF
+        active_resources = arg1
+        details["requested_resources"] = requested_resources
+        details["requested_resource_names"] = decode_resource_mask(requested_resources)
+        details["arbiter_mode"] = arbiter_mode
+        details["arbiter_mode_name"] = RESOURCE_ARBITER_MODE_NAMES.get(arbiter_mode, "UNKNOWN")
+        details["active_resources"] = active_resources
+        details["active_resource_names"] = decode_resource_mask(active_resources)
+
     if domain == 3 and event_id in (55, 64):
         details.update(decode_runtime_flags(arg0))
         details["transfer_count_low16"] = arg1 & 0xFFFF
+
+    if domain == 3 and event_id in (56, 65):
+        details.update(decode_pio_state(arg0))
+        details["transfer_count_low16"] = arg1 & 0xFFFF
+
+    if domain == 3 and event_id == 57:
+        details["rollover_count_low32"] = arg0
+        details["transfer_count_low16"] = arg1 & 0xFFFF
+
+    if domain == 3 and event_id == 58:
+        delta = (arg1 >> 16) & 0xFFFF
+        threshold = arg1 & 0xFFFF
+        details["rollover_count_low32"] = arg0
+        details["rollover_delta"] = delta
+        details["overflow_threshold"] = threshold
+        details["overflow_detected"] = delta > threshold
+
+    if domain == 3 and event_id == 66:
+        details["dma_restart_count"] = arg0
+        details["transfer_count_low16"] = arg1 & 0xFFFF
+
+    if domain == 3 and event_id == 67:
+        delta = (arg1 >> 16) & 0xFFFF
+        threshold = arg1 & 0xFFFF
+        details["dma_restart_count"] = arg0
+        details["restart_delta"] = delta
+        details["overflow_threshold"] = threshold
+        details["overflow_detected"] = delta > threshold
+
+    if domain == 3 and event_id == 70:
+        aux_level_mask = arg0 & 0xFF
+        aux_output_mode_mask = (arg0 >> 8) & 0xFF
+        details["aux_level_mask"] = aux_level_mask
+        details["aux_high"] = decode_named_mask(aux_level_mask, AUX_CHANNEL_NAMES)
+        details["aux_output_mode_mask"] = aux_output_mode_mask
+        details["aux_output_mode"] = decode_named_mask(aux_output_mode_mask, AUX_CHANNEL_NAMES)
+        details["aux_pins"] = {
+            "A0": arg1 & 0xFF,
+            "A1": (arg1 >> 8) & 0xFF,
+            "A2": (arg1 >> 16) & 0xFF,
+            "A3": (arg1 >> 24) & 0xFF,
+        }
+
+    if domain == 3 and event_id == 71:
+        ready_level_mask = arg0 & 0xFF
+        expected_ready_mask = arg1 & 0xFF
+        missing_ready_mask = (arg1 >> 8) & 0xFF
+        details["ready_level_mask"] = ready_level_mask
+        details["ready_high"] = decode_named_mask(ready_level_mask, READY_SIGNAL_NAMES)
+        details["expected_ready_mask"] = expected_ready_mask
+        details["expected_ready"] = decode_named_mask(expected_ready_mask, READY_SIGNAL_NAMES)
+        details["missing_ready_mask"] = missing_ready_mask
+        details["missing_ready"] = decode_named_mask(missing_ready_mask, READY_SIGNAL_NAMES)
+
+    if domain == 3 and event_id == 72:
+        details["timeout_latched_mask"] = arg0 & 0xFF
+        details["timeout_latched"] = decode_named_mask(arg0 & 0xFF, READY_SIGNAL_NAMES)
+        details["wait_ms"] = arg1
 
     return details
 

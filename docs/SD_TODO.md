@@ -391,7 +391,7 @@ Trace 固定约束：
 P0 trace 已实现事件来源：
 
 - Storage domain：boot snapshot due。
-- Trigger domain：SCPI ARM/FAULT 维护事件、TriggerAO queue post/full/null、TriggerFB execute、state change、error change、DMA rollover 进展、ENC Z pulse、无状态变化的 ignored event。
+- Trigger domain：SCPI ARM/FAULT 维护事件、TriggerAO queue post/full/null、TriggerFB execute、state change、error change、DMA rollover 进展、ENC Z pulse、资源申请快照、无状态变化的 ignored event。
 - SyncIO domain：init、capture start/stop/drop/fail、pulse FIFO full/invalid、clock start/stop/fail、SEQ/ENC arm/disarm/fail、PIO instruction space failure、SEQ gate invalid、SEQ/ENC ARM 成功后的管理面 runtime 采样。
 - P0 解码工具：`tools/sd_trace_decode/sd_trace_decode.py`，可校验 `.bin` 头、事件区 CRC 和可选 `.idx`，输出 JSON/CSV。
 
@@ -400,7 +400,7 @@ Runtime 观测约束：
 - `sync_io.seq_runtime`、`sync_io.enc_runtime` 只允许在 ARM 成功后的管理面路径或 DISARM/FAULT 后读回路径记录。
 - runtime flags 可包含 `running`、`pio_enabled`、`dma_busy`、`dma_irq_enabled`、`tx_fifo_empty`、`tx_fifo_full` 和低 16 位 transfer count。
 - 不得在 DMA IRQ handler、PIO IRQ handler、PIO feeding loop 或固定周期硬实时路径中调用 `storage_manager_trace_event()`、LOG、FatFs 或 SD driver。
-- 如果后续需要 trigger edge/missed edge、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY 等观测，优先选择硬件计数器/状态锁存，随后由管理面或 FAULT/DISARM 后处理读出并落盘。
+- 如果后续需要 trigger edge/missed edge、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout 等观测，优先选择硬件计数器/状态锁存，随后由管理面或 FAULT/DISARM 后处理读出并落盘。
 
 ## 7. 数据分级与对象模型
 
@@ -805,8 +805,12 @@ tools/rp2350_tk_toolbox.py
 - [x] 将 `MMEM:CAT?` 旧接口迁移为分页包装兼容诊断接口：内部只返回 `MMEM:CAT:PAGE?` 第 0 页最多 16 项；可靠长目录枚举必须使用分页命令。
 - [x] 将 `MMEM:CAT:PAGE?` 和 `MMEM:CAT?` 迁移为 StorageAO `CATALOG_PAGE` job，旧返回字段保持兼容，`SYST:STOR:JOB?` 可验证 `DONE/CATALOG_PAGE/CATALOG/error=0`。
 - [x] 增加 Pico 侧维护格式化入口 `SYST:SD:MKFS "ERASE"` 和 raw sector 读回诊断 `SYST:SD:RAW:READ?`，用于原始卡/主机不识别卡绕过 PC 侧格式化。
+- [x] 增加 Pico 侧非破坏性 System Pack 初始化入口 `SYST:SD:INIT`；已挂载 FAT32 卡缺 `/manifest.idx` 时自动创建最小目录、默认 profile/mission/cal、占位 `/update/RP2350_TRIG_UPDATE.pkg`、`manifest.json` 和 `manifest.idx`，`SYST:SD:MAN?` 会在 `NOT_FOUND` 时自动执行同一初始化后重扫。
+- [x] `MMEM:INFO?` 兼容查询迁移为 StorageAO `FILE_INFO` job；`MMEM:CAT*`、`MMEM:READ?`、`MMEM:INFO?`、`SYST:SD:MAN?`、`SYST:SD:INIT`、`SYST:SD:MKFS`、`SYST:SD:RAW:*` 和手动 `SYST:SNAP:WRITe` 在 Trigger armed 时拒绝执行，避免 ARM 后等待 SD/FatFs。
+- [x] `MANIFEST_SCAN`、`SYSTEM_INIT`、`FAULT_EVIDENCE` 与 boot snapshot 自动初始化路径拆成多轮 Storage service 推进；单个 FatFs 调用仍为同步边界，但不再在同一 service 周期连续执行多个 SD/FatFs 动作。
 - [ ] 使用已知可写 SD 卡复验 Pico 侧 MKFS；当前异常卡 `f_mkfs` 返回成功但 sector 0 读回仍全 0，判断为介质写入不落盘，不能作为 SD System Pack 闭环介质。
 - [x] 在有效 FAT32 SD 卡上完成 `FILE_READ + CATALOG_PAGE` 板端闭环复验：build id `20260706135037`，验证目录 `build-sd-goodcard\sd_validation_file_read_catalog_goodcard`，`READ:SYST:STOR:JOB?` 与 `PAGE:SYST:STOR:JOB?` 均为 `DONE/.../error=0`。
+- [x] 在新 FAT32 SD 卡上完成 Pico 侧自动构建最小 System Pack 闭环：build id `20260706152725`，验证目录 `build-sd-goodcard\sd_validation_auto_bootstrap_goodcard`，`SYST:SD:INIT -> "OK","OK",1,"20260706152725",4,0,0`，根目录自动生成 `/profile`、`/mission`、`/cal`、`/logs`、`/update`、`/factory`、`manifest.idx` 和 `manifest.json`。
 - [x] SD UI 显示 manifest/pack 状态、默认 OTA 包存在性和 SD 错误摘要。
 
 ### P0B - Vector 快照
@@ -818,6 +822,7 @@ tools/rp2350_tk_toolbox.py
 - [x] 增加最近 snapshot 查询：`SYST:SNAP:LAST?`。
 - [x] 手动 `SYST:SNAP:WRITe` 迁移为 StorageAO `SNAPSHOT_WRITE` job，旧命令返回语义保持兼容。
 - [x] `TRIG:ARM` 的 arm snapshot 迁移为 StorageAO `SNAPSHOT_WRITE` job，SCPI 回调不直接执行 FatFs 写入。
+- [x] `TRIG:FAULT` 改为先投递 Trigger fault，再投递 `FAULT_EVIDENCE` job；fault snapshot/trace/report 在 FAULT 后由 StorageAO 分轮后台生成，SCPI 回调不等待 SD。
 - [x] UI 显示最近 fault snapshot id/hash。
 
 ### P0C - 脉冲异常追溯
@@ -829,7 +834,12 @@ tools/rp2350_tk_toolbox.py
 - [x] 记录 SyncIO 管理面事件：init、capture drop、pulse FIFO full、clock、SEQ/ENC arm/disarm/fail。
 - [x] 记录 SyncIO 管理面 runtime 采样：SEQ/ENC ARM 成功后输出 PIO enabled、DMA busy、DMA IRQ enabled、TX FIFO 和 transfer count 摘要。
 - [x] 按 HAOFV 约束补齐 TriggerAO 管理面 `runtime_sample`：ARM 成功时记录 state/edge/gate 与进度摘要，后续只在进度、rollover、ENC Z 或错误变化时记录；不进入 PIO/DMA/IRQ hot path。
-- [ ] 按 HAOFV 约束补齐 DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout：不得在 PIO/DMA/IRQ hot path 写 trace/log/SD，必须使用管理面采样、状态锁存或 DISARM/FAULT 后处理。
+- [x] 按 HAOFV 约束补齐 SEQ PIO state 与 DMA restart 管理面观测：`sync_io.seq_pio_state`、`sync_io.seq_dma_restart` 已进入 fault trace 解码和板端验证，不进入 PIO/DMA/IRQ hot path。
+- [x] 按 HAOFV 约束补齐 resource timeout/资源申请失败第一阶段观测：`trigger.resource_snapshot` 在 ARM 成功和资源申请失败时记录 requested resources、active resources 和 arbiter mode；不等待资源、不改变非阻塞 acquire 语义、不进入 PIO/DMA/IRQ hot path。
+- [x] 按 HAOFV 约束补齐 DMA overflow 第一阶段管理面观测：`sync_io.seq_dma_overflow`、`sync_io.enc_dma_overflow` 由 runtime sample 对 restart/rollover 增量进行 baseline/异常锁存，不在 DMA IRQ hot path 写 trace/log/SD。
+- [x] 按 HAOFV 约束补齐 A0-A3 timeout、READY/REDY 第一阶段管理面观测：`sync_io.aux_snapshot`、`sync_io.ready_redy`、`sync_io.aux_timeout` 已进入 fault trace 解码和板端验证；当前只提供 AUX0..AUX3/READY/REDY 采样与 timeout latch 基线，不在 PIO/DMA/IRQ hot path 写 trace/log/SD。
+- [x] 将 expected READY mask 从 SyncIO 编译期常量收口为管理面 runtime 状态：默认 mask 仍为 `0`，后续 `/mission/node_map.json` loader 可通过 setter 接入，不需要在 SyncIO 底层硬编码 A0-A3 业务策略。
+- [ ] 后续加载 `/mission/node_map.json` 后，把 A0-A3 角色、期望 READY mask 和业务 timeout 策略接入运行时对象；不得在 SyncIO 底层硬编码业务角色策略。
 - [x] DISARM/FAULT 后写 `/traces/*/*.bin` 和 `.idx`。
 - [x] 生成 `/reports/fault/pulse_fault_XXXXXX.json`。
 - [x] 增加查询：`SYST:TRAC:LAST?`、`SYST:FAULT:LAST?`。
@@ -906,21 +916,22 @@ tools/rp2350_tk_toolbox.py
 本节只保存最新一次 SD 闭环验证摘要；历史验证记录写入 `docs/TASK_PROGRESS_SD.md`。
 
 - 日期：2026-07-06
-- 任务记录：`SD-TASK-20260706-025`
-- 构建目录：`build-sd-goodcard`
-- build id：`20260706140400`
-- 烧录固件：`build-sd-goodcard\RP2350_TRIG_FACTORY.uf2`
-- 验证目录：`build-sd-goodcard\sd_validation_runtime_sample_goodcard_final`
+- 任务记录：`SD-TASK-20260706-031`
+- 构建目录：`build-sd-ready-mask`
+- build id：`20260706162327`
+- 烧录固件：`build-sd-ready-mask\RP2350_TRIG_FACTORY.uf2`
+- 验证目录：`build-sd-ready-mask\sd_validation_ready_mask`
 - 验证结果：`PASS`
 - 构建与 release gate：
-  - `python -m py_compile tools\sd_trace_decode\sd_trace_decode.py tools\sd_board_validate\sd_board_validate.py tools\cmake_build_auto\cmake_build_auto.py` 通过。
-  - `cmake --build build-sd-goodcard` 通过。
-  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`release_check=OK`。
-  - 已单独烧录 UF2；`sd_board_validate.py` 只做 SCPI 板端验证，不负责烧录。
+  - `python -m py_compile tools\sd_trace_decode\sd_trace_decode.py tools\sd_board_validate\sd_board_validate.py` 通过。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-ready-mask` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-ready-mask` 通过，`release_check=OK`。
+  - 已使用 picotool 烧录 `build-sd-ready-mask\RP2350_TRIG_FACTORY.uf2`，Flash verify 三段均 OK；`sd_board_validate.py` 只做 SCPI 板端验证，不负责烧录。
 - SD 基础查询：
   - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
-  - `SYST:SD:INFO? -> "CARD_READY","SDHC_SDXC",1,62357504,31178752,1,1,1`
-  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260704044222",4,0`
+  - `SYST:SD:INFO? -> "CARD_READY","SDHC_SDXC",1,61067264,30533632,1,1,1`
+  - `SYST:SD:INIT -> "OK","OK",1,"20260706152725",4,0,0`
+  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260706152725",4,0`
   - `SYST:STOR:STAT? -> "CARD_READY",1,1,"OK",0`
 - 负向路径验证：
   - `MMEM:CAT? "/../" -> "PATH_DENIED","PATH_DENIED"`
@@ -928,9 +939,10 @@ tools/rp2350_tk_toolbox.py
   - `MMEM:CAT:PAGE? "/../",0,4 -> "PATH_DENIED","/../",0,0,0,0,0,"PATH_DENIED"`
   - `MMEM:READ? "/../",0,16 -> "PATH_DENIED","/../",0,16,0,0,0,5,""`
 - StorageAO job 验证：
-  - `MAN:SYST:STOR:JOB? -> "DONE",1,"MANIFEST_SCAN","/manifest.idx",4,"MANIFEST",3822083274,0`
-  - `SYST:STOR:JOB:INFO "/manifest.idx" -> "OK",11`
-  - `SYST:STOR:JOB? -> "DONE",11,"FILE_INFO","/manifest.idx",592,"FILE",3822083274,0`
+  - `INIT:SYST:STOR:JOB? -> "DONE",1,"SYSTEM_INIT","/manifest.idx",4,"MANIFEST",3822083274,0`
+  - `MAN:SYST:STOR:JOB? -> "DONE",2,"MANIFEST_SCAN","/manifest.idx",4,"MANIFEST",3822083274,0`
+  - `SYST:STOR:JOB:INFO "/manifest.idx" -> "OK"`
+  - `SYST:STOR:JOB? -> "DONE","FILE_INFO","/manifest.idx",...,"FILE",...,0`
   - `SYST:SNAP:WRIT "boot" -> "OK"`
   - `SNAP:SYST:STOR:JOB? -> "DONE",12,"SNAPSHOT_WRITE","/snapshots/boot/boot_000058.json",58,"SNAPSHOT",2528692015,0`
   - `ARM:SYST:STOR:JOB? -> "DONE",14,"SNAPSHOT_WRITE","/snapshots/arm/arm_000029.json",29,"SNAPSHOT",3137737441,0`
@@ -938,24 +950,27 @@ tools/rp2350_tk_toolbox.py
   - `PAGE:SYST:STOR:JOB? -> "DONE",30,"CATALOG_PAGE","/traces/fault",2,"CATALOG",1962968327,0`
   - `READ:SYST:STOR:JOB? -> "DONE",38,"FILE_READ","/traces/fault/fault_000027.idx",17,"READ",1583248467,0`
 - MMEM 目录兼容验证：
-  - `MMEM:CAT?` 已包装为第 0 页兼容诊断输出。
-  - `MMEM:CAT? "/snapshots/boot"` 在长目录下保持不完整输出信号，可靠枚举使用 `MMEM:CAT:PAGE?`。
-  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",52,4 -> "OK","/traces/fault",52,2,0,1,0,"fault_000027.bin,708,FILE;fault_000027.idx,145,FILE;"`
+  - 根目录由 Pico 侧非破坏性初始化生成：`profile`、`mission`、`cal`、`logs`、`update`、`factory`、`manifest.idx`、`manifest.json`。
+  - `MMEM:CAT? "/update" -> "OK","compat,0,DIR;RP2350_TRIG_UPDATE.pkg,88,FILE;"`
+  - `MMEM:CAT? "/profile" -> "OK","profiles,0,DIR;active.json,247,FILE;"`
+  - `MMEM:CAT? "/mission" -> "OK","recipe.json,215,FILE;node_map.json,273,FILE;"`
+  - `MMEM:CAT? "/cal" -> "OK","board_cal.json,230,FILE;"`
 - Snapshot / trace / report：
-  - `AUTO:SYST:SNAP:LAST? -> "OK","boot",57,"/snapshots/boot/boot_000057.json",2999736544,0`
-  - `SYST:SNAP:LAST? -> "OK","boot",58,"/snapshots/boot/boot_000058.json",2528692015,0`
-  - `ARM:SYST:SNAP:LAST? -> "OK","arm",29,"/snapshots/arm/arm_000029.json",3137737441,0`
-  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",28,"/snapshots/fault/fault_000028.json",1868619967,0`
-  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",27,"/traces/fault/fault_000027.bin",2049940397,42,0`
-  - `FAULT:SYST:FAULT:LAST? -> "OK",26,"/reports/fault/pulse_fault_000026.json",1745620374,28,27,0`
+  - `ARM:SYST:STOR:JOB? -> "DONE",17,"SNAPSHOT_WRITE","/snapshots/arm/arm_000009.json",9,"SNAPSHOT",3863456945,0`
+  - `FAULT:SYST:STOR:JOB? -> "DONE",20,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000009.json",9,"FAULT_EVIDENCE",775850829,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",9,"/traces/fault/fault_000009.bin",636190657,53,0`
+  - `MMEM:CAT? "/snapshots/fault" -> "OK","fault_000001.json,427,FILE;fault_000002.json,456,FILE;fault_000003.json,456,FILE;fault_000004.json,456,FILE;"`
+  - `MMEM:CAT? "/traces/fault" -> "OK","fault_000001.bin,740,FILE;fault_000001.idx,144,FILE;fault_000002.bin,740,FILE;fault_000002.idx,144,FILE;fault_000003.bin,756,FILE;fault_000003.idx,144,FILE;fault_000004.bin,772,FILE;fault_000004.idx,144,FILE;"`
+  - `MMEM:CAT? "/reports/fault" -> "OK","pulse_fault_000001.json,529,FILE;pulse_fault_000002.json,535,FILE;pulse_fault_000003.json,535,FILE;pulse_fault_000004.json,536,FILE;"`
 - Trace 读回与解码：
-  - `.bin` 通过 `MMEM:READ?` 读回 `708/708` 字节。
-  - `.idx` 通过 `MMEM:READ?` 读回 `145/145` 字节。
+  - `.bin` 通过 `MMEM:READ?` 读回 `884/884` 字节。
   - `trace_readback\decoded_fault_trace.json`：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`。
-  - 解码事件数 `42` 与 `SYST:TRAC:LAST?` 一致，包含 `sync_io.seq_runtime` 和 `trigger.runtime_sample`。
+  - 解码事件数 `53` 与 `SYST:TRAC:LAST?` 一致，包含 `sync_io.seq_runtime`、`sync_io.seq_pio_state`、`sync_io.seq_dma_restart`、`sync_io.seq_dma_overflow`、`sync_io.aux_snapshot`、`sync_io.ready_redy`、`sync_io.aux_timeout`、`trigger.runtime_sample` 和 `trigger.resource_snapshot`。
+  - `sync_io.aux_timeout` 当前为 baseline/latch 基础设施；真实期望 READY mask 仍等待 `/mission/node_map.json` runtime 提供，不在 SyncIO 底层硬编码 A0-A3 业务策略。
 - HAOFV 实时性确认：
+  - 新增 System Pack 初始化只在 Storage 管理面执行，不进入 PIO/DMA/IRQ hot path。
   - SD UI 只读取 `StorageVector` 摘要，未在 UI 路径新增 SD/FatFs/trace/log 调用。
-  - runtime trace 只在 ARM 成功后的管理面路径记录；后续采样仅在进度、rollover、ENC Z 或错误变化时追加。
+  - runtime trace、DMA overflow 和 AUX/READY/REDY baseline/异常锁存只在 ARM 成功后的管理面路径或后处理采样记录；DMA IRQ handler 仍只更新已有计数和 DMA 寄存器。
   - PIO/DMA/IRQ hot path 未加入 SD、FatFs、日志或 trace 写入。
 
 ## 22. 架构边界

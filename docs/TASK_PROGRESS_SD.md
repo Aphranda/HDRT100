@@ -45,9 +45,248 @@
 
 ## 当前目标
 
-P0A/P0B 横向收口已完成好卡闭环；P0C 已新增 TriggerAO 管理面 `runtime_sample` 观测，并通过 SD fault trace 读回解码验证。下一步继续按 HAOFV 补齐 DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout 等剩余观测；Trigger/PIO/DMA 硬实时面不得新增 SD、FatFs、日志、trace 写入或非确定性操作。
+P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏性 System Pack 自动初始化，P0C 已完成 SEQ PIO state、DMA restart、resource snapshot、DMA overflow、AUX/READY/REDY 第一阶段管理面观测闭环。下一步进入 `/mission/node_map.json` runtime，把 A0-A3 角色、期望 READY mask 和业务 timeout 策略从 System Pack 接入运行时对象；后续 SD 离线升级应优先复用 `tools/ota_board_validate`、`tools/ota_send`、`tools/ota_packager` 链路。Trigger/PIO/DMA 硬实时面不得新增 SD、FatFs、日志、trace 写入或非确定性操作。
 
 ## 任务记录
+
+### SD-TASK-20260706-031 - READY 期望 mask 运行时接入口
+
+- 状态：完成
+- 日期：2026-07-06
+- 任务目标：
+  - 为后续 `/mission/node_map.json` runtime 接入 A0-A3 期望 READY mask 提供低层边界。
+  - 移除 SyncIO 内部编译期 expected READY 常量，避免未来在底层 I/O 模块硬编码业务角色策略。
+  - 保持当前行为不变：默认 expected READY mask 仍为 `0`，AUX/READY/timeout trace 仍作为 baseline/latch 观测。
+- 完成内容：
+  - `sync_io` 增加 `sync_io_set_expected_ready_mask(uint32_t mask)` 和 `sync_io_get_expected_ready_mask()`。
+  - `sync_io_trace_aux_status_sample()` 改为读取 runtime expected READY mask；mask 变化时重置 wait baseline 和 timeout latch。
+  - mask 限制为 8 bit，匹配现有 READY/REDY trace 解码字段。
+  - 未新增 SD、FatFs、日志或 trace 写入到 PIO/DMA/IRQ hot path。
+- 验证结果：
+  - `python -m py_compile tools\sd_trace_decode\sd_trace_decode.py tools\sd_board_validate\sd_board_validate.py` 通过。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-ready-mask` 通过，`build_id=20260706162327`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-ready-mask` 通过，`release_check=OK`。
+  - 使用 `C:\Users\10447\.pico-sdk\picotool\2.2.0-a4\picotool\picotool.exe` 烧录 `build-sd-ready-mask\RP2350_TRIG_FACTORY.uf2`，Flash verify 三段均 OK，设备重启进应用。
+  - `python tools\sd_board_validate\sd_board_validate.py COM5 --out-dir build-sd-ready-mask\sd_validation_ready_mask` 通过，结果 `PASS`。
+  - `SYST:FW:BUILD? -> "20260706162327"`。
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`。
+  - `SYST:SD:INIT -> "OK","OK",1,"20260706152725",4,0,0`。
+  - `ARM:SYST:STOR:JOB? -> "DONE",17,"SNAPSHOT_WRITE","/snapshots/arm/arm_000009.json",9,"SNAPSHOT",3863456945,0`。
+  - `FAULT:SYST:STOR:JOB? -> "DONE",20,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000009.json",9,"FAULT_EVIDENCE",775850829,0`。
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",9,"/traces/fault/fault_000009.bin",636190657,53,0`。
+  - fault trace `.bin/.idx` 通过 `MMEM:READ?` 读回 `884/884` 与 `144/144` 字节；`magic_ok/schema_ok/size_ok/crc_ok/idx_ok` 均为 `true`。
+- 还需完成：
+  - 固件侧尚无正式 JSON 解析库或 mission runtime 对象；不要用临时字符串解析把 `/mission/node_map.json` 直接塞进底层 I/O。
+  - 下一步应先定义 mission/node_map 的固件可解析格式和 runtime vector，再由该层调用 `sync_io_set_expected_ready_mask()`。
+- 关联文件：
+  - `components/sync_io/inc/sync_io.h`
+  - `components/sync_io/src/sync_io.c`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 进入 mission/node_map runtime：优先确定解析边界、字段 schema、错误上报和 ARM 前加载时机。
+
+### SD-TASK-20260706-030 - P0C A0-A3 READY/REDY 管理面观测
+
+- 状态：完成
+- 日期：2026-07-06
+- 任务目标：
+  - 在不触碰 PIO/DMA/IRQ hot path 的前提下，补齐 A0-A3 AUX 与 READY/REDY 第一阶段可观测性。
+  - 将 AUX0..AUX3 电平/方向、READY/REDY 输入、timeout latch 基线纳入 fault trace 读回和解码闭环。
+  - 避免在 SyncIO 底层硬编码 A0-A3 业务角色或期望 READY 策略。
+- 完成内容：
+  - `sync_io` 增加管理面采样入口 `sync_io_trace_aux_status_sample(bool force)`。
+  - 新增 trace 事件：`sync_io.aux_snapshot`、`sync_io.ready_redy`、`sync_io.aux_timeout`。
+  - `sync_trigger` 在 ARM/runtime 管理面采样路径调用 AUX/READY 采样；未在 PIO/DMA/IRQ hot path 增加 SD、FatFs、日志或 trace 写入。
+  - `sd_trace_decode.py` 增加 AUX/READY/timeout 事件名和字段解码。
+  - `sd_board_validate.py` 将 `sync_io.aux_snapshot`、`sync_io.ready_redy`、`sync_io.aux_timeout` 纳入 fault trace 解码必需事件。
+- 验证结果：
+  - `python -m py_compile tools\sd_trace_decode\sd_trace_decode.py tools\sd_board_validate\sd_board_validate.py` 通过。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-a0-ready` 通过，`build_id=20260706161457`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-a0-ready` 通过，`release_check=OK`。
+  - 使用 `C:\Users\10447\.pico-sdk\picotool\2.2.0-a4\picotool\picotool.exe` 烧录 `build-sd-a0-ready\RP2350_TRIG_FACTORY.uf2`，Flash verify 三段均 OK，设备重启进应用。
+  - `python tools\sd_board_validate\sd_board_validate.py COM5 --out-dir build-sd-a0-ready\sd_validation_a0_ready` 通过，结果 `PASS`。
+  - `SYST:FW:BUILD? -> "20260706161457"`。
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`。
+  - `SYST:SD:INIT -> "OK","OK",1,"20260706152725",4,0,0`。
+  - `ARM:SYST:STOR:JOB? -> "DONE",17,"SNAPSHOT_WRITE","/snapshots/arm/arm_000008.json",8,"SNAPSHOT",3005877184,0`。
+  - `FAULT:SYST:STOR:JOB? -> "DONE",20,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000008.json",8,"FAULT_EVIDENCE",3550549260,0`。
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",8,"/traces/fault/fault_000008.bin",4024352766,53,0`。
+  - fault trace `.bin` 通过 `MMEM:READ?` 读回 `884/884` 字节；`magic_ok/schema_ok/size_ok/crc_ok/idx_ok` 均为 `true`。
+  - 解码结果包含 `sync_io.aux_snapshot`、`sync_io.ready_redy`、`sync_io.aux_timeout`。
+- 还需完成：
+  - `sync_io.aux_timeout` 当前是 baseline/latch 基础设施；expected READY runtime mask 默认仍为 `0`。真正 timeout 语义应由 `/mission/node_map.json` runtime 或未来配置层提供期望 READY mask。
+  - 后续需要加载 A0-A3 角色、I/O 映射和测试流程部署，再把业务 timeout 策略接入管理面 observer。
+- 关联文件：
+  - `components/sync_io/inc/sync_io.h`
+  - `components/sync_io/src/sync_io.c`
+  - `components/sync_trigger/src/sync_trigger.c`
+  - `tools/sd_trace_decode/sd_trace_decode.py`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+  - `tools/README.md`
+- 下一步：
+  - 进入 P1C/P1B 交界：优先实现 `/mission/node_map.json` runtime 加载和 A0-A3 角色/READY mask 的配置边界，再补真实业务 timeout 判定。
+
+### SD-TASK-20260706-029 - HAOFV SD 实时边界审查收口
+
+- 状态：完成
+- 日期：2026-07-06
+- 任务目标：
+  - 收口 SD 架构审查发现的 HAOFV 偏离点：`TRIG:FAULT` 不得在进入 fault 前等待 SD，ARM 后不得执行同步 SD/FatFs 维护或查询。
+  - 将复合 StorageAO job 拆成多轮 service 推进，降低单轮主循环内连续 FatFs 操作。
+  - 让 `MMEM:INFO?` 兼容查询也通过 StorageAO `FILE_INFO` job 执行。
+- 完成内容：
+  - `TRIG:FAULT` 改为先投递 Trigger fault，再投递 `FAULT_EVIDENCE` job；SCPI 回调不再等待 fault snapshot/trace/report 写入完成。
+  - `FAULT_EVIDENCE` job 拆成 snapshot、trace、report 三个 service 步骤；`MANIFEST_SCAN` 与 `SYSTEM_INIT` 的自动初始化/重扫也拆成多轮。
+  - boot 自动 manifest scan、System Pack 初始化、重扫、boot snapshot 改为多轮推进；`storage_manager_service(budget_us)` 在分阶段动作前检查预算，避免已超预算后继续推进下一步。
+  - `MMEM:INFO?` 从直接调用 `storage_manager_file_info()` 改为投递 `FILE_INFO` job 并通过兼容等待返回旧字段。
+  - `MMEM:CAT*`、`MMEM:READ?`、`MMEM:INFO?`、`SYST:SD:MAN?`、`SYST:SD:INIT`、`SYST:SD:MKFS`、`SYST:SD:RAW:*` 和手动 `SYST:SNAP:WRITe` 在 Trigger armed 时拒绝执行。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py` 通过。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-haofv-review` 通过，最终 `build_id=20260706160536`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-haofv-review` 通过，`release_check=OK`。
+  - 使用 `C:\Users\10447\.pico-sdk\picotool\2.2.0-a4\picotool\picotool.exe` 烧录 `build-sd-haofv-review\RP2350_TRIG_FACTORY.uf2`，Flash verify 三段均 OK，设备重启进应用。
+  - 首轮板端验证发现拆分后的 Storage job 停在 `RUNNING`，根因是 `storage_manager_service_job()` 只接受 `QUEUED`；已修复为 `QUEUED/RUNNING` 均可继续推进。
+  - 第二轮板端验证发现工具在 `SEQ_ARMED` 后立即执行 `MMEM:INFO?`，与新的 armed 态 SD 查询拒绝策略冲突；已调整 `sd_board_validate.py` 在 `TRIG:DISarm` 后再确认 ARM snapshot 文件。
+  - 最终执行 `python tools\sd_board_validate\sd_board_validate.py COM5 --out-dir build-sd-haofv-review\sd_validation_haofv_review_final`，结果 `PASS`。
+  - `SYST:FW:BUILD? -> "20260706160536"`。
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`。
+  - `SYST:SD:INIT -> "OK","OK",1,"20260706152725",4,0,0`。
+  - `ARM:SYST:STOR:JOB? -> "DONE",17,"SNAPSHOT_WRITE","/snapshots/arm/arm_000007.json",7,"SNAPSHOT",11279963,0`。
+  - `ARM:STAT:TRIG? -> "SEQ_STEP",2,16,0,0,0,0,0,0`。
+  - `INFO:ARM:SYST:SNAP:LAST? -> "OK","/snapshots/arm/arm_000007.json",454,"FILE",11279963,0`，该查询已移动到 DISARM 后执行。
+  - `FAULT:SYST:STOR:JOB? -> "DONE",20,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000007.json",7,"FAULT_EVIDENCE",3423103711,0`。
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",7,"/traces/fault/fault_000007.bin",87761659,50,0`。
+  - `FAULT:SYST:FAULT:LAST? -> "OK",7,"/reports/fault/pulse_fault_000007.json",3423103711,7,7,0`。
+- 还需完成：
+  - 进一步评估是否需要把单个 FatFs 文件操作继续拆到更细粒度，当前仍以同步 FatFs 调用作为不可抢占边界。
+- 关联文件：
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+  - `tools/sd_board_validate/sd_board_validate.py`
+- 下一步：
+  - 继续 P0C 剩余 A0-A3 timeout、READY/REDY 观测；新增观测仍必须通过管理面采样、状态锁存或 DISARM/FAULT 后处理完成。
+
+### SD-TASK-20260706-028 - P0C DMA Overflow 管理面观测
+
+- 状态：完成
+- 日期：2026-07-06
+- 任务目标：
+  - 在不向 DMA IRQ hot path 添加 trace/log/SD/FatFs 调用的前提下，为 DMA overflow/过快回绕补齐可解码观测事件。
+  - 复用已有 SEQ/ENC DMA restart 计数，在管理面采样时判断两次采样间的 restart/rollover 增量并锁存异常。
+  - 将新增观测纳入 SD fault trace 读回与解码闭环。
+- 完成内容：
+  - `sync_io.c` 新增 `sync_io.seq_dma_overflow` 和 `sync_io.enc_dma_overflow` 事件；IRQ 仍只递增已有计数，采样函数负责比较增量、记录 baseline 或 warn 级异常快照。
+  - `sd_trace_decode.py` 增加两个 DMA overflow 事件名和字段解码：`rollover_delta/restart_delta`、`overflow_threshold`、`overflow_detected`。
+  - `sd_board_validate.py` 将 `sync_io.seq_dma_overflow` 加入 fault trace 解码必需事件。
+  - `tools/README.md`、`docs/SD_TODO.md` 同步记录 DMA overflow 管理面观测边界。
+- 验证结果：
+  - `python -m py_compile tools\sd_trace_decode\sd_trace_decode.py tools\sd_board_validate\sd_board_validate.py` 通过。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`build_id=20260706154459`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`release_check=OK`。
+  - 第一次 picotool load 中途出现 `picoboot::connection_error`，未作为成功；重新 `reboot -f -u` 后再次烧录 `build-sd-goodcard\RP2350_TRIG_FACTORY.uf2`，Flash verify 三段均 OK，设备重启进应用。
+  - `python tools\sd_board_validate\sd_board_validate.py COM5 --out-dir build-sd-goodcard\sd_validation_dma_overflow_goodcard` 通过，结果 `PASS`。
+  - `SYST:FW:BUILD? -> "20260706154459"`。
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`。
+  - `SYST:SD:INIT -> "OK","OK",1,"20260706152725",4,0,0`，未调用主机盘删除/格式化。
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",4,"/traces/fault/fault_000004.bin",2170779522,46,0`。
+  - `trace_readback\decoded_fault_trace.json` 通过 `magic/schema/size/crc/idx` 校验，包含 `sync_io.seq_dma_overflow`；baseline 记录为 `rollover_delta=0`、`overflow_threshold=1`、`overflow_detected=false`。真实异常时同事件以 warn 级别记录并锁存。
+- 还需完成：
+  - 继续 P0C 剩余观测：A0-A3 timeout、READY/REDY。当前更适合先把 `/mission/node_map.json` 的 A0-A3 角色与测试流程加载为运行时对象，再增加 timeout/READY 观测。
+- 关联文件：
+  - `components/sync_io/src/sync_io.c`
+  - `tools/sd_trace_decode/sd_trace_decode.py`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+  - `tools/README.md`
+- 下一步：
+  - 进入 A0-A3/READY 观测前，先收口 node_map/mission runtime 对象边界，避免直接在 SCPI 或热路径里拼临时状态。
+
+### SD-TASK-20260706-027 - P0C Resource Snapshot 管理面观测
+
+- 状态：完成
+- 日期：2026-07-06
+- 任务目标：
+  - 在不改变 `resource_arbiter_acquire()` 非阻塞语义的前提下，为 Trigger ARM 资源路径增加可解码观测。
+  - 让 fault trace 能看到 ARM 请求的资源、当前占用资源和 arbiter mode，作为 resource timeout/资源占用异常的第一阶段证据。
+  - 保持 PIO/DMA/IRQ hot path 无 SD、FatFs、日志或 trace 写入。
+- 完成内容：
+  - `sync_trigger.c` 新增 `trigger.resource_snapshot` trace event：ARM 成功进入 `SEQ_ARMED/ENC_ARMED` 时记录 requested resources、active resources 和 arbiter mode；ARM 资源申请失败并产生 `trigger.resource_busy` 时记录同样快照。
+  - `sd_trace_decode.py` 增加 `trigger.resource_snapshot` 事件名和资源位解码，输出 `requested_resource_names`、`active_resource_names` 和 `arbiter_mode_name`。
+  - `sd_board_validate.py` 将 `trigger.resource_snapshot` 加入 fault trace 解码必需事件。
+  - `docs/SD_TODO.md`、`tools/README.md` 同步记录 resource snapshot 观测边界。
+- 验证结果：
+  - `python -m py_compile tools\sd_trace_decode\sd_trace_decode.py tools\sd_board_validate\sd_board_validate.py` 通过。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`build_id=20260706154108`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`release_check=OK`。
+  - 已使用 `C:\Users\10447\.pico-sdk\picotool\2.2.0-a4\picotool\picotool.exe` 单独烧录 `build-sd-goodcard\RP2350_TRIG_FACTORY.uf2`，Flash verify 通过。
+  - `python tools\sd_board_validate\sd_board_validate.py COM5 --out-dir build-sd-goodcard\sd_validation_resource_snapshot_goodcard` 通过，结果 `PASS`。
+  - `SYST:FW:BUILD? -> "20260706154108"`。
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`。
+  - `SYST:SD:INIT -> "OK","OK",1,"20260706152725",4,0,0`；Pico 侧非破坏性初始化 System Pack，未对主机盘执行删除或格式化。
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",3,"/traces/fault/fault_000003.bin",769731343,45,0`。
+  - `trace_readback\decoded_fault_trace.json` 包含 `trigger.resource_snapshot`，其中 requested/active resources 均为 `PIO1,DMA`，arbiter mode 为 `RUN`。
+- 还需完成：
+  - 继续 P0C 剩余观测：DMA overflow、A0-A3 timeout、READY/REDY。
+- 关联文件：
+  - `components/sync_trigger/src/sync_trigger.c`
+  - `tools/sd_trace_decode/sd_trace_decode.py`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+  - `tools/README.md`
+- 下一步：
+  - 进入 `SD-TASK-20260706-028`，补齐 DMA overflow 管理面观测。
+
+### SD-TASK-20260706-026 - FAT32 新卡 System Pack 自动初始化闭环
+
+- 状态：完成
+- 日期：2026-07-06
+- 任务目标：
+  - 验证一张新 FAT32 SD 卡插入 Pico 后，不格式化、不复制 PC staging tree，也能由固件自动构建最小 System Pack。
+  - 保留破坏性 `SYST:SD:MKFS "ERASE"` 作为维护命令，但本次验证不调用格式化、不对主机盘符做删除或格式化。
+  - 将自动初始化纳入 StorageAO job 和 `sd_board_validate.py` 闭环，同时保留 P0C 新增 `sync_io.seq_pio_state`、`sync_io.seq_dma_restart` trace 验证。
+- 完成内容：
+  - `storage_manager` 新增 `storage_manager_initialize_system_pack()`：当 FAT32 可挂载但 `/manifest.idx` 缺失时，创建 `/profile`、`/mission`、`/cal`、`/snapshots`、`/traces`、`/reports`、`/logs`、`/update`、`/factory` 等目录。
+  - Pico 侧生成默认 `/profile/active.json`、`/mission/recipe.json`、`/mission/node_map.json`、`/cal/board_cal.json`、占位 `/update/RP2350_TRIG_UPDATE.pkg`、`/manifest.json` 和 `/manifest.idx`；`manifest.idx` 最后写入，便于断电后下次继续补齐。
+  - 新增 StorageAO `SYSTEM_INIT` job 和 SCPI `SYST:SD:INIT`；`SYST:SD:MAN?` 在 manifest `NOT_FOUND` 时自动执行同一套非破坏性初始化并重扫。
+  - `sd_board_validate.py` 增加 `SYST:SD:INIT` 和 `INIT:SYST:STOR:JOB?` 断言。
+  - `docs/SCPI_COMMANDS.md`、`tools/README.md`、`docs/SD_TODO.md` 已同步记录。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\cmake_build_auto\cmake_build_auto.py` 通过。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-goodcard` 通过，build id：`20260706152725`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`release_check=OK`。
+  - 使用 `C:\Users\10447\.pico-sdk\picotool\2.2.0-a4\picotool\picotool.exe` 烧录 `build-sd-goodcard\RP2350_TRIG_FACTORY.uf2`，Flash verify 通过。
+  - 执行 `python tools\sd_board_validate\sd_board_validate.py COM5 --out-dir build-sd-goodcard\sd_validation_auto_bootstrap_goodcard`，结果 `PASS`。
+  - `SYST:FW:BUILD? -> "20260706152725"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `SYST:SD:INFO? -> "CARD_READY","SDHC_SDXC",1,61067264,30533632,1,1,1`
+  - `SYST:SD:INIT -> "OK","OK",1,"20260706152725",4,0,0`
+  - `INIT:SYST:STOR:JOB? -> "DONE",1,"SYSTEM_INIT","/manifest.idx",4,"MANIFEST",3822083274,0`
+  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260706152725",4,0`
+  - 根目录自动生成 `profile`、`mission`、`cal`、`logs`、`update`、`factory`、`manifest.idx`、`manifest.json`；`/update/RP2350_TRIG_UPDATE.pkg` 为 88 字节占位文件，仅用于 manifest/catalog 验证，离线 OTA 前必须替换为真实 release package。
+  - fault trace 读回解码通过：`.bin` 读回 `740/740` 字节，`magic_ok/schema_ok/size_ok/crc_ok/idx_ok` 均为 `true`，事件数 `44`，包含 `sync_io.seq_runtime`、`sync_io.seq_pio_state`、`sync_io.seq_dma_restart` 和 `trigger.runtime_sample`。
+- 还需完成：
+  - `SYST:SD:MKFS "ERASE"` 对“已知可写空卡”的破坏性格式化复验仍未执行；本次需求明确不需要格式化。
+  - 继续 P0C 剩余观测：DMA overflow、A0-A3 timeout、READY/REDY、resource timeout。
+  - 后续 SD 离线 OTA 不应使用占位包，需要结合 `tools/ota_board_validate`、`tools/ota_send`、`tools/ota_packager` 验证真实 package。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `tools/README.md`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 继续 P0C：优先补 DMA overflow 或 resource timeout 的管理面/后处理观测，并保持 PIO/DMA/IRQ hot path 无 SD、FatFs、日志或 trace 写入。
 
 ### SD-TASK-20260706-025 - P0C Trigger runtime_sample 管理面观测闭环
 

@@ -7,6 +7,7 @@
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 #include "hardware/pio.h"
+#include "osal.h"
 #include "seq_step.pio.h"
 #include "storage_manager.h"
 #include "sync_io.pio.h"
@@ -21,6 +22,8 @@
 #define SYNC_IO_TRACE_INFO          1u
 #define SYNC_IO_TRACE_WARN          2u
 #define SYNC_IO_TRACE_ERROR         3u
+#define SYNC_IO_DMA_OVERFLOW_DELTA_THRESHOLD 1u
+#define SYNC_IO_AUX_READY_TIMEOUT_MS 1000u
 
 typedef enum {
     SYNC_IO_TRACE_INIT_OK           = 10u,
@@ -40,11 +43,20 @@ typedef enum {
     SYNC_IO_TRACE_SEQ_GATE_INVALID  = 53u,
     SYNC_IO_TRACE_SEQ_PIO_NO_SPACE  = 54u,
     SYNC_IO_TRACE_SEQ_RUNTIME       = 55u,
+    SYNC_IO_TRACE_SEQ_PIO_STATE     = 56u,
+    SYNC_IO_TRACE_SEQ_DMA_RESTART   = 57u,
+    SYNC_IO_TRACE_SEQ_DMA_OVERFLOW  = 58u,
     SYNC_IO_TRACE_ENC_ARM_FAIL      = 60u,
     SYNC_IO_TRACE_ENC_ARMED         = 61u,
     SYNC_IO_TRACE_ENC_DISARM        = 62u,
     SYNC_IO_TRACE_ENC_PIO_NO_SPACE  = 63u,
     SYNC_IO_TRACE_ENC_RUNTIME       = 64u,
+    SYNC_IO_TRACE_ENC_PIO_STATE     = 65u,
+    SYNC_IO_TRACE_ENC_DMA_RESTART   = 66u,
+    SYNC_IO_TRACE_ENC_DMA_OVERFLOW  = 67u,
+    SYNC_IO_TRACE_AUX_SNAPSHOT      = 70u,
+    SYNC_IO_TRACE_READY_REDY        = 71u,
+    SYNC_IO_TRACE_AUX_TIMEOUT       = 72u,
 } sync_io_trace_event_t;
 
 typedef struct {
@@ -95,6 +107,19 @@ static bool sync_io_sm_is_enabled(PIO pio, uint sm)
     return (pio->ctrl & (1u << sm)) != 0u;
 }
 
+static uint32_t sync_io_pack_pio_state(uint sm,
+                                       uint32_t offset,
+                                       bool pio_enabled,
+                                       bool tx_fifo_empty,
+                                       bool tx_fifo_full)
+{
+    return (sm & 0xFFu) |
+           ((offset & 0xFFu) << 8) |
+           (pio_enabled ? (1u << 16) : 0u) |
+           (tx_fifo_empty ? (1u << 17) : 0u) |
+           (tx_fifo_full ? (1u << 18) : 0u);
+}
+
 /* ── SEQ_STEP 状态 ── */
 
 typedef struct {
@@ -111,6 +136,11 @@ typedef struct {
 } sync_io_seq_step_t;
 
 static sync_io_seq_step_t s_seq_step;
+static uint32_t s_seq_last_runtime_flags;
+static uint32_t s_seq_last_transfer_count;
+static uint32_t s_seq_last_rollover_low32;
+static bool s_seq_dma_overflow_latched;
+static bool s_seq_trace_sample_valid;
 
 static const uint s_aux_pins[SYNC_IO_AUX_COUNT] = {
     BOARD_SYNC_AUX0_PIN,
@@ -125,6 +155,13 @@ static const uint s_aux_sms[SYNC_IO_AUX_COUNT] = {
     BOARD_SYNC_AUX2_SM,
     BOARD_SYNC_AUX3_SM,
 };
+
+static uint32_t s_aux_last_snapshot;
+static uint32_t s_ready_last_snapshot;
+static uint32_t s_aux_wait_start_ms;
+static uint32_t s_aux_timeout_latched_mask;
+static uint32_t s_expected_ready_mask;
+static bool s_aux_trace_sample_valid;
 
 static float sync_io_clkdiv_for_instruction_rate(uint32_t instruction_hz)
 {
@@ -164,6 +201,40 @@ static void sync_io_configure_static_inputs(void)
 static bool sync_io_valid_aux_channel(sync_io_aux_channel_t channel)
 {
     return (uint)channel < (uint)SYNC_IO_AUX_COUNT;
+}
+
+static uint32_t sync_io_read_aux_level_mask(void)
+{
+    uint32_t mask = 0u;
+    for (uint channel = 0u; channel < (uint)SYNC_IO_AUX_COUNT; channel++) {
+        if (gpio_get(s_aux_pins[channel])) {
+            mask |= (1u << channel);
+        }
+    }
+    return mask;
+}
+
+static uint32_t sync_io_read_aux_mode_mask(void)
+{
+    uint32_t mask = 0u;
+    for (uint channel = 0u; channel < (uint)SYNC_IO_AUX_COUNT; channel++) {
+        if (s_sync_io.aux_modes[channel] == SYNC_IO_AUX_MODE_PIO_OUTPUT) {
+            mask |= (1u << channel);
+        }
+    }
+    return mask;
+}
+
+static uint32_t sync_io_read_ready_level_mask(void)
+{
+    return (gpio_get(BOARD_SYNC_TRIG_IN_PIN) ? (1u << 0) : 0u) |
+           (gpio_get(BOARD_SYNC_ARM_IN_PIN) ? (1u << 1) : 0u) |
+           (gpio_get(BOARD_SYNC_EXT_CLK_IN_PIN) ? (1u << 2) : 0u) |
+           (gpio_get(BOARD_SYNC_GATE_IN_PIN) ? (1u << 3) : 0u) |
+           (gpio_get(BOARD_SYNC_AUX_ARM_IN_PIN) ? (1u << 4) : 0u) |
+           (gpio_get(BOARD_SYNC_AUX_EXT_CLK_IN_PIN) ? (1u << 5) : 0u) |
+           (gpio_get(BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN) ? (1u << 6) : 0u) |
+           (gpio_get(BOARD_SYNC_AUX_MARKER_OUT_PIN) ? (1u << 7) : 0u);
 }
 
 bool sync_io_init(const sync_io_config_t *config)
@@ -517,6 +588,85 @@ void sync_io_get_status(sync_io_status_t *status)
     status->dropped_capture_words = s_sync_io.dropped_capture_words;
 }
 
+void sync_io_set_expected_ready_mask(uint32_t mask)
+{
+    const uint32_t sanitized = mask & 0xFFu;
+    if (s_expected_ready_mask != sanitized) {
+        s_aux_wait_start_ms = osal_uptime_ms();
+        s_aux_timeout_latched_mask = 0u;
+        s_aux_trace_sample_valid = false;
+    }
+    s_expected_ready_mask = sanitized;
+}
+
+uint32_t sync_io_get_expected_ready_mask(void)
+{
+    return s_expected_ready_mask;
+}
+
+void sync_io_trace_aux_status_sample(bool force)
+{
+    const uint32_t now_ms = osal_uptime_ms();
+    if (force) {
+        s_aux_wait_start_ms = now_ms;
+        s_aux_timeout_latched_mask = 0u;
+    }
+
+    const uint32_t aux_levels = sync_io_read_aux_level_mask();
+    const uint32_t aux_modes = sync_io_read_aux_mode_mask();
+    const uint32_t aux_snapshot = aux_levels | (aux_modes << 8);
+    const uint32_t ready_snapshot = sync_io_read_ready_level_mask();
+    const uint32_t expected_ready_mask = sync_io_get_expected_ready_mask();
+    const uint32_t missing_ready_mask = expected_ready_mask & ~ready_snapshot;
+    const bool aux_changed = !s_aux_trace_sample_valid ||
+                             aux_snapshot != s_aux_last_snapshot;
+    const bool ready_changed = !s_aux_trace_sample_valid ||
+                               ready_snapshot != s_ready_last_snapshot;
+
+    if (!s_aux_trace_sample_valid || missing_ready_mask == 0u) {
+        s_aux_wait_start_ms = now_ms;
+    }
+
+    const uint32_t wait_ms = now_ms - s_aux_wait_start_ms;
+    const bool timeout_now = missing_ready_mask != 0u &&
+                             wait_ms >= SYNC_IO_AUX_READY_TIMEOUT_MS;
+    const uint32_t new_timeout_mask = timeout_now
+        ? (missing_ready_mask & ~s_aux_timeout_latched_mask)
+        : 0u;
+
+    if (force || aux_changed) {
+        sync_io_trace(SYNC_IO_TRACE_AUX_SNAPSHOT,
+                      SYNC_IO_TRACE_INFO,
+                      aux_snapshot,
+                      BOARD_SYNC_AUX0_PIN |
+                          (BOARD_SYNC_AUX1_PIN << 8) |
+                          (BOARD_SYNC_AUX2_PIN << 16) |
+                          (BOARD_SYNC_AUX3_PIN << 24));
+    }
+
+    if (force || ready_changed || new_timeout_mask != 0u) {
+        sync_io_trace(SYNC_IO_TRACE_READY_REDY,
+                      new_timeout_mask != 0u ? SYNC_IO_TRACE_WARN : SYNC_IO_TRACE_INFO,
+                      ready_snapshot,
+                      (expected_ready_mask & 0xFFu) |
+                          ((missing_ready_mask & 0xFFu) << 8));
+    }
+
+    if (force || new_timeout_mask != 0u) {
+        if (new_timeout_mask != 0u) {
+            s_aux_timeout_latched_mask |= new_timeout_mask;
+        }
+        sync_io_trace(SYNC_IO_TRACE_AUX_TIMEOUT,
+                      new_timeout_mask != 0u ? SYNC_IO_TRACE_WARN : SYNC_IO_TRACE_INFO,
+                      s_aux_timeout_latched_mask,
+                      wait_ms);
+    }
+
+    s_aux_last_snapshot = aux_snapshot;
+    s_ready_last_snapshot = ready_snapshot;
+    s_aux_trace_sample_valid = true;
+}
+
 /* ── 前向声明（ENC_COUNT 结构体定义在 SEQ_STEP 之后）── */
 typedef struct {
     bool running;
@@ -529,6 +679,11 @@ typedef struct {
     volatile uint32_t dma_restart_count;
 } sync_io_enc_count_t;
 static sync_io_enc_count_t s_enc;
+static uint32_t s_enc_last_runtime_flags;
+static uint32_t s_enc_last_transfer_count;
+static uint32_t s_enc_last_dma_restart_count;
+static bool s_enc_dma_overflow_latched;
+static bool s_enc_trace_sample_valid;
 
 /* ── SEQ_STEP 编码序列步进 ── */
 
@@ -650,6 +805,8 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
     /* ── 先安装 ISR，再启动 DMA（避免回绕时中断丢失）── */
     s_seq_step.rollover_count = 0u;
     s_seq_step.dma_done = false;
+    s_seq_dma_overflow_latched = false;
+    s_seq_trace_sample_valid = false;
 
     irq_set_exclusive_handler(SYNC_IO_SEQ_STEP_DMA_IRQ,
                               sync_io_seq_step_dma_handler);
@@ -696,6 +853,7 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
                                              runtime.tx_fifo_empty,
                                              runtime.tx_fifo_full),
                   runtime.transfer_count & 0xFFFFu);
+    sync_io_seq_step_trace_runtime_sample(true);
 
     return true;
 }
@@ -790,6 +948,65 @@ void sync_io_seq_step_get_runtime(sync_io_seq_step_runtime_t *runtime)
     runtime->transfer_count = dma_hw->ch[s_seq_step.dma_ch].transfer_count;
 }
 
+void sync_io_seq_step_trace_runtime_sample(bool force)
+{
+    sync_io_seq_step_runtime_t runtime;
+    sync_io_seq_step_get_runtime(&runtime);
+
+    const uint32_t flags = sync_io_pack_runtime_flags(runtime.running,
+                                                      runtime.pio_enabled,
+                                                      runtime.dma_busy,
+                                                      runtime.dma_irq_enabled,
+                                                      runtime.tx_fifo_empty,
+                                                      runtime.tx_fifo_full);
+    const uint32_t transfer_count = runtime.transfer_count & 0xFFFFu;
+    const uint32_t rollover_low32 = runtime.rollover_count_low32;
+    const bool runtime_changed = !s_seq_trace_sample_valid ||
+                                 flags != s_seq_last_runtime_flags ||
+                                 transfer_count != s_seq_last_transfer_count;
+    const bool rollover_changed = !s_seq_trace_sample_valid ||
+                                  rollover_low32 != s_seq_last_rollover_low32;
+    const uint32_t rollover_delta = s_seq_trace_sample_valid
+        ? (uint32_t)(rollover_low32 - s_seq_last_rollover_low32)
+        : 0u;
+    const bool overflow_detected =
+        rollover_delta > SYNC_IO_DMA_OVERFLOW_DELTA_THRESHOLD;
+
+    if (force || runtime_changed) {
+        sync_io_trace(SYNC_IO_TRACE_SEQ_PIO_STATE,
+                      runtime.running ? SYNC_IO_TRACE_INFO : SYNC_IO_TRACE_WARN,
+                      sync_io_pack_pio_state(s_seq_step.seq_sm,
+                                             s_seq_step.seq_offset,
+                                             runtime.pio_enabled,
+                                             runtime.tx_fifo_empty,
+                                             runtime.tx_fifo_full),
+                      transfer_count);
+    }
+
+    if (force || rollover_changed) {
+        sync_io_trace(SYNC_IO_TRACE_SEQ_DMA_RESTART,
+                      SYNC_IO_TRACE_INFO,
+                      rollover_low32,
+                      transfer_count);
+    }
+
+    if (force || overflow_detected || s_seq_dma_overflow_latched) {
+        if (overflow_detected) {
+            s_seq_dma_overflow_latched = true;
+        }
+        sync_io_trace(SYNC_IO_TRACE_SEQ_DMA_OVERFLOW,
+                      overflow_detected ? SYNC_IO_TRACE_WARN : SYNC_IO_TRACE_INFO,
+                      rollover_low32,
+                      ((rollover_delta & 0xFFFFu) << 16) |
+                          (SYNC_IO_DMA_OVERFLOW_DELTA_THRESHOLD & 0xFFFFu));
+    }
+
+    s_seq_last_runtime_flags = flags;
+    s_seq_last_transfer_count = transfer_count;
+    s_seq_last_rollover_low32 = rollover_low32;
+    s_seq_trace_sample_valid = true;
+}
+
 /* ── ENC_COUNT 编码器计数触发 ── */
 
 #include "enc_count.pio.h"
@@ -872,6 +1089,8 @@ bool sync_io_enc_count_arm(uint32_t target,
 
     s_enc.fire_count = 0u;
     s_enc.dma_restart_count = 0u;
+    s_enc_dma_overflow_latched = false;
+    s_enc_trace_sample_valid = false;
     s_enc.running = true;
 
     LOG_INFO("sync_io", "enc_count armed: target=%lu pins=A%lu/B%lu/Z%lu",
@@ -894,6 +1113,7 @@ bool sync_io_enc_count_arm(uint32_t target,
                                              runtime.tx_fifo_empty,
                                              runtime.tx_fifo_full),
                   runtime.transfer_count & 0xFFFFu);
+    sync_io_enc_count_trace_runtime_sample(true);
 
     return true;
 }
@@ -986,4 +1206,63 @@ void sync_io_enc_count_get_runtime(sync_io_enc_count_runtime_t *runtime)
     runtime->tx_fifo_empty = pio_sm_is_tx_fifo_empty(BOARD_SYNC_PIO_WAVE, s_enc.sm);
     runtime->tx_fifo_full = pio_sm_is_tx_fifo_full(BOARD_SYNC_PIO_WAVE, s_enc.sm);
     runtime->transfer_count = dma_hw->ch[s_enc.dma_ch].transfer_count;
+}
+
+void sync_io_enc_count_trace_runtime_sample(bool force)
+{
+    sync_io_enc_count_runtime_t runtime;
+    sync_io_enc_count_get_runtime(&runtime);
+
+    const uint32_t flags = sync_io_pack_runtime_flags(runtime.running,
+                                                      runtime.pio_enabled,
+                                                      runtime.dma_busy,
+                                                      runtime.dma_irq_enabled,
+                                                      runtime.tx_fifo_empty,
+                                                      runtime.tx_fifo_full);
+    const uint32_t transfer_count = runtime.transfer_count & 0xFFFFu;
+    const uint32_t restart_count = runtime.dma_restart_count;
+    const bool runtime_changed = !s_enc_trace_sample_valid ||
+                                 flags != s_enc_last_runtime_flags ||
+                                 transfer_count != s_enc_last_transfer_count;
+    const bool restart_changed = !s_enc_trace_sample_valid ||
+                                 restart_count != s_enc_last_dma_restart_count;
+    const uint32_t restart_delta = s_enc_trace_sample_valid
+        ? (uint32_t)(restart_count - s_enc_last_dma_restart_count)
+        : 0u;
+    const bool overflow_detected =
+        restart_delta > SYNC_IO_DMA_OVERFLOW_DELTA_THRESHOLD;
+
+    if (force || runtime_changed) {
+        sync_io_trace(SYNC_IO_TRACE_ENC_PIO_STATE,
+                      runtime.running ? SYNC_IO_TRACE_INFO : SYNC_IO_TRACE_WARN,
+                      sync_io_pack_pio_state(s_enc.sm,
+                                             s_enc.offset,
+                                             runtime.pio_enabled,
+                                             runtime.tx_fifo_empty,
+                                             runtime.tx_fifo_full),
+                      transfer_count);
+    }
+
+    if (force || restart_changed) {
+        sync_io_trace(SYNC_IO_TRACE_ENC_DMA_RESTART,
+                      SYNC_IO_TRACE_INFO,
+                      restart_count,
+                      transfer_count);
+    }
+
+    if (force || overflow_detected || s_enc_dma_overflow_latched) {
+        if (overflow_detected) {
+            s_enc_dma_overflow_latched = true;
+        }
+        sync_io_trace(SYNC_IO_TRACE_ENC_DMA_OVERFLOW,
+                      overflow_detected ? SYNC_IO_TRACE_WARN : SYNC_IO_TRACE_INFO,
+                      restart_count,
+                      ((restart_delta & 0xFFFFu) << 16) |
+                          (SYNC_IO_DMA_OVERFLOW_DELTA_THRESHOLD & 0xFFFFu));
+    }
+
+    s_enc_last_runtime_flags = flags;
+    s_enc_last_transfer_count = transfer_count;
+    s_enc_last_dma_restart_count = restart_count;
+    s_enc_trace_sample_valid = true;
 }

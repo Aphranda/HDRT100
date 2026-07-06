@@ -33,6 +33,7 @@ BASELINE_COMMANDS = (
     "SYST:FW:BUILD?",
     "SYST:SD:STAT?",
     "SYST:SD:INFO?",
+    "SYST:SD:INIT",
     "SYST:SD:MAN?",
     "SYST:STOR:STAT?",
 )
@@ -48,6 +49,7 @@ CATALOG_COMMANDS = (
 
 STORAGE_JOB_INFO_KEY = 'SYST:STOR:JOB:INFO "/manifest.idx"'
 STORAGE_JOB_QUERY_PREFIX = "SYST:STOR:JOB?"
+INIT_JOB_QUERY_KEY = "INIT:SYST:STOR:JOB?"
 MANIFEST_JOB_QUERY_KEY = "MAN:SYST:STOR:JOB?"
 READ_JOB_QUERY_KEY = "READ:SYST:STOR:JOB?"
 CATALOG_JOB_QUERY_KEY = "PAGE:SYST:STOR:JOB?"
@@ -304,6 +306,9 @@ def run_queries(port: str,
         for command in commands:
             results[command] = query(ser, command, timeout_s)
             time.sleep(0.1)
+            if command == "SYST:SD:INIT":
+                results[INIT_JOB_QUERY_KEY] = query(ser, "SYST:STOR:JOB?", timeout_s)
+                time.sleep(0.1)
             if command == "SYST:SD:MAN?":
                 results[MANIFEST_JOB_QUERY_KEY] = query(ser, "SYST:STOR:JOB?", timeout_s)
                 time.sleep(0.1)
@@ -360,11 +365,12 @@ def run_queries(port: str,
             results["ARM:SYST:SNAP:LAST?"] = query(ser, "SYST:SNAP:LAST?", timeout_s)
             time.sleep(0.1)
             arm_path = path_from_response(results["ARM:SYST:SNAP:LAST?"], 3)
+            results["TRIG:DISarm"] = command_ack(ser, "TRIG:DISarm", timeout_s)
+            time.sleep(0.2)
             if arm_path:
                 results["INFO:ARM:SYST:SNAP:LAST?"] = query(ser, f"MMEM:INFO? {quote_path(arm_path)}", timeout_s)
                 time.sleep(0.1)
             results['MMEM:CAT? "/snapshots/arm"'] = query(ser, 'MMEM:CAT? "/snapshots/arm"', timeout_s)
-            results["TRIG:DISarm"] = command_ack(ser, "TRIG:DISarm", timeout_s)
         if validate_fault_snapshot:
             results["TRIG:FAULT"] = command_ack(ser, "TRIG:FAULT", timeout_s)
             time.sleep(0.2)
@@ -488,6 +494,28 @@ def main() -> int:
         expect(int(info[4], 0) > 0, failures, "SD capacity_kib is zero")
         expect(info[5] == "1", failures, "fatfs_available is not true")
         expect(info[6] == "1", failures, "fs_mounted is not true in info")
+
+    init_result = parse_csv_response(results["SYST:SD:INIT"])
+    expect(len(init_result) >= 7, failures, "SYST:SD:INIT returned too few fields")
+    if len(init_result) >= 7:
+        expect(init_result[0] == "OK", failures, f"SYST:SD:INIT status is {init_result[0]!r}, expected OK")
+        expect(init_result[1] == "OK", failures, f"SYST:SD:INIT manifest is {init_result[1]!r}, expected OK")
+        expect(init_result[2] == "1", failures, f"SYST:SD:INIT schema is {init_result[2]!r}, expected 1")
+        expect(init_result[3] not in ("", "<timeout>"), failures, "SYST:SD:INIT build_id is empty")
+        expect(int(init_result[4], 0) >= 4, failures, "SYST:SD:INIT required_count expected >= 4")
+        expect(init_result[5] == "0", failures, f"SYST:SD:INIT missing_count is {init_result[5]!r}, expected 0")
+        expect(init_result[6] == "0", failures, f"SYST:SD:INIT job error is {init_result[6]!r}, expected 0")
+
+    init_job = parse_csv_response(results.get(INIT_JOB_QUERY_KEY, ""))
+    expect(len(init_job) >= 8, failures, "INIT SYST:STOR:JOB? returned too few fields")
+    if len(init_job) >= 8:
+        expect(init_job[0] == "DONE", failures, f"init job state is {init_job[0]!r}, expected DONE")
+        expect(init_job[2] == "SYSTEM_INIT", failures, f"init job type is {init_job[2]!r}, expected SYSTEM_INIT")
+        expect(init_job[3] == "/manifest.idx", failures, f"init job path is {init_job[3]!r}, expected /manifest.idx")
+        expect(int(init_job[4], 0) >= 4, failures, "init job required_count expected >= 4")
+        expect(init_job[5] == "MANIFEST", failures, f"init job kind is {init_job[5]!r}, expected MANIFEST")
+        expect(int(init_job[6], 0) != 0, failures, "init job path hash is zero")
+        expect(init_job[7] == "0", failures, f"init job error is {init_job[7]!r}, expected 0")
 
     manifest = parse_csv_response(results["SYST:SD:MAN?"])
     expect(len(manifest) >= 7, failures, "SYST:SD:MAN? returned too few fields")
@@ -874,7 +902,14 @@ def main() -> int:
                             "trigger.gate_config",
                             "trigger.safe_config",
                             "trigger.runtime_sample",
+                            "trigger.resource_snapshot",
                             "sync_io.seq_runtime",
+                            "sync_io.seq_pio_state",
+                            "sync_io.seq_dma_restart",
+                            "sync_io.seq_dma_overflow",
+                            "sync_io.aux_snapshot",
+                            "sync_io.ready_redy",
+                            "sync_io.aux_timeout",
                         ):
                             expect(event_name in event_names,
                                    failures,

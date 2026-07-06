@@ -40,6 +40,7 @@ typedef enum {
     STORAGE_MANAGER_JOB_TYPE_SNAPSHOT_WRITE,
     STORAGE_MANAGER_JOB_TYPE_MANIFEST_SCAN,
     STORAGE_MANAGER_JOB_TYPE_FAULT_EVIDENCE,
+    STORAGE_MANAGER_JOB_TYPE_SYSTEM_INIT,
 } storage_manager_job_type_t;
 
 typedef enum {
@@ -150,6 +151,7 @@ bool storage_manager_read_file_range(const char *path,
                                      size_t buffer_size,
                                      storage_manager_file_read_t *read_info);
 bool storage_manager_scan_manifest(void);
+bool storage_manager_initialize_system_pack(void);
 bool storage_manager_raw_clear_prefix(uint32_t sector_count,
                                       uint32_t *cleared_count,
                                       sd_card_status_t *raw_status);
@@ -175,6 +177,7 @@ bool storage_manager_get_catalog_page_job_result(uint32_t job_id,
 bool storage_manager_post_snapshot_job(const char *kind, uint32_t *job_id);
 bool storage_manager_post_manifest_scan_job(uint32_t *job_id);
 bool storage_manager_post_fault_evidence_job(uint32_t *job_id);
+bool storage_manager_post_system_init_job(uint32_t *job_id);
 void storage_manager_get_job_result(storage_manager_job_result_t *result);
 bool storage_manager_write_snapshot(const char *kind);
 void storage_manager_trace_event(uint8_t domain,

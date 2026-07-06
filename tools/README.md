@@ -46,15 +46,19 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `CATALOG_PAGE`, `SNAPSHOT_WRITE`, and `FAULT_EVIDENCE` job completion, fault
   trace `.bin/.idx`, fault report behavior, and reads back the latest fault
   trace via `MMEM:READ?` for decoder checks. The decoded trace must include
-  management-plane trigger configuration events and `sync_io.seq_runtime`;
-  flashing remains a separate picotool/script step. The tool writes
+  management-plane trigger configuration events, Trigger resource snapshots,
+  `sync_io.seq_runtime`, SEQ PIO state, DMA restart, DMA overflow baseline,
+  and AUX/READY/REDY baseline/timeout latch events; flashing remains a
+  separate picotool/script step. The tool writes
   `summary.*`, `queries.txt`, and `trace_readback\` under
   `build/sd_validation_*`.
 - `sd_trace_decode/sd_trace_decode.py`: offline decoder for SD trace `.bin`
   files. It verifies header, event CRC, and optional `.idx` metadata, then
   emits JSON or CSV with decoded domain/event/severity names and details such
   as trigger state transitions, source/edge/gate/safe configuration changes,
-  SyncIO runtime flags, rollover progress, and trace file CRC checks.
+  Trigger resource snapshots, SyncIO runtime flags, rollover progress, DMA
+  overflow baseline/latched status, AUX0..AUX3 snapshots, READY/REDY masks,
+  timeout latch status, and trace file CRC checks.
 - `sd_raw_clear/sd_raw_clear.py`: destructive SD recovery helper. It sends
   `SYST:SD:RAW:CLEAR <sectors>,"ERASE"` over SCPI after `--yes`, clearing the
   first 1..64 sectors so a host can recreate the partition/FAT metadata.
@@ -62,6 +66,11 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `SYST:SD:MKFS "ERASE"` over SCPI after `--yes`, asking Pico to create a
   FAT/FAT32 filesystem on the inserted SD card, then reads raw sector 0 for
   write verification. It never formats or deletes a host PC drive.
+- A FAT32 card can also be initialized by firmware without formatting:
+  `SYST:SD:INIT` creates the minimum System Pack directories, default JSON
+  files, `/manifest.idx`, and `/manifest.json` if `/manifest.idx` is missing.
+  `SYST:SD:MAN?` runs the same non-destructive bootstrap automatically before
+  rescanning a mounted card with no manifest.
 - `ota_bin_info/ota_bin_info.py`: prints raw `.bin` size, CRC32, and
   `SYST:OTA:BEGIN` parameters for bench work.
 - `uf2_join/uf2_join.py`: generates the first-time factory UF2 from Bootloader,
@@ -97,6 +106,13 @@ Copy the contents of `build\sdcard\` to the root of a FAT32 SD card. The
 firmware reads `/manifest.idx`; `/manifest.json` is for PC tools and inspection.
 The default offline OTA file is `/update/RP2350_TRIG_UPDATE.pkg`; raw `.bin`
 files are kept only for compatibility under `/update/compat/`.
+
+For a new FAT32 card used only for board-side SD validation, copying the PC
+staging tree is no longer required. Insert the card and run `SYST:SD:INIT` or
+`SYST:SD:MAN?`; the firmware creates the minimum System Pack structure without
+formatting. The generated `/update/RP2350_TRIG_UPDATE.pkg` is only a placeholder
+for manifest/catalog validation and must be replaced by a real release package
+before offline OTA validation.
 
 Validate SD-card behavior after firmware is already flashed and the prepared SD
 card is inserted:

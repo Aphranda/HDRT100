@@ -36,6 +36,7 @@
 #define STORAGE_MANAGER_TRACE_TICK_HZ 1000u
 #define STORAGE_MANAGER_PRODUCT_ID "RP2350_TRIG"
 #define STORAGE_MANAGER_HARDWARE_ID "rp2350_trig"
+#define STORAGE_MANAGER_BOOTSTRAP_OTA_TEXT "RP2350_TRIG placeholder OTA package. Replace with a release package before offline OTA.\n"
 
 typedef struct __attribute__((packed)) {
     uint32_t timestamp_ms;
@@ -65,6 +66,10 @@ typedef struct {
     uint32_t offset;
     uint32_t length;
     uint32_t limit;
+    uint8_t step;
+    bool step_ok0;
+    bool step_ok1;
+    bool step_ok2;
     storage_manager_file_read_t read_info;
     storage_manager_catalog_page_t catalog_page;
     uint8_t read_buffer[STORAGE_MANAGER_FILE_READ_MAX_BYTES];
@@ -79,6 +84,7 @@ static uint32_t s_trace_next;
 static uint32_t s_trace_count;
 static storage_manager_job_t s_storage_job;
 static uint32_t s_next_job_id;
+static uint8_t s_boot_snapshot_step;
 
 static const char *const s_allowed_roots[] = {
     "/manifest.json",
@@ -96,9 +102,45 @@ static const char *const s_allowed_roots[] = {
     "/factory",
 };
 
+static const char *const s_system_pack_dirs[] = {
+    "/profile",
+    "/profile/profiles",
+    "/mission",
+    "/cal",
+    "/snapshots",
+    "/snapshots/boot",
+    "/snapshots/arm",
+    "/snapshots/fault",
+    "/snapshots/run",
+    "/traces",
+    "/traces/run",
+    "/traces/fault",
+    "/reports",
+    "/reports/run",
+    "/reports/fault",
+    "/reports/acceptance",
+    "/logs",
+    "/update",
+    "/update/compat",
+    "/factory",
+};
+
 static uint32_t storage_now_ms(void)
 {
     return to_ms_since_boot(get_absolute_time());
+}
+
+static uint64_t storage_now_us(void)
+{
+    return to_us_since_boot(get_absolute_time());
+}
+
+static bool storage_budget_elapsed(uint64_t start_us, uint32_t budget_us)
+{
+    if (budget_us == 0u) {
+        return false;
+    }
+    return (storage_now_us() - start_us) >= budget_us;
 }
 
 static uint32_t storage_hash_path(const char *path)
@@ -130,6 +172,7 @@ bool storage_manager_init(void)
     s_next_job_id = 1u;
     s_boot_snapshot_pending = true;
     s_boot_snapshot_due_ms = storage_now_ms() + STORAGE_MANAGER_BOOT_SNAPSHOT_DELAY_MS;
+    s_boot_snapshot_step = 0u;
     return true;
 }
 
@@ -159,7 +202,63 @@ static void storage_publish_job_result(void)
     s_storage_vector.job_error = s_storage_job.result.error;
     storage_copy_field(s_storage_vector.job_path,
                        sizeof(s_storage_vector.job_path),
-                       s_storage_job.result.path);
+                           s_storage_job.result.path);
+}
+
+static void storage_job_complete_manifest_scan(bool ok)
+{
+    s_storage_job.result.state = ok ? STORAGE_MANAGER_JOB_STATE_DONE :
+                                      STORAGE_MANAGER_JOB_STATE_FAILED;
+    s_storage_job.result.error = ok ? STORAGE_MANAGER_ERROR_NONE :
+                                      (uint32_t)s_storage_vector.manifest_status;
+    s_storage_job.result.size = s_storage_vector.manifest_required_count;
+    s_storage_job.result.is_dir = false;
+    storage_copy_field(s_storage_job.result.path,
+                       sizeof(s_storage_job.result.path),
+                       "/manifest.idx");
+    s_storage_job.result.path_hash = storage_hash_path(s_storage_job.result.path);
+    storage_publish_job_result();
+}
+
+static void storage_job_complete_fault_evidence(void)
+{
+    const bool snapshot_ok = s_storage_job.step_ok0;
+    const bool trace_ok = s_storage_job.step_ok1;
+    const bool report_ok = s_storage_job.step_ok2;
+    const bool ok = snapshot_ok && trace_ok && report_ok;
+
+    s_storage_job.result.state = ok ? STORAGE_MANAGER_JOB_STATE_DONE :
+                                      STORAGE_MANAGER_JOB_STATE_FAILED;
+    s_storage_job.result.error = STORAGE_MANAGER_ERROR_NONE;
+    if (!snapshot_ok && s_storage_vector.last_snapshot_error != STORAGE_MANAGER_ERROR_NONE) {
+        s_storage_job.result.error = s_storage_vector.last_snapshot_error;
+    } else if (!trace_ok && s_storage_vector.last_trace_error != STORAGE_MANAGER_ERROR_NONE) {
+        s_storage_job.result.error = s_storage_vector.last_trace_error;
+    } else if (!report_ok && s_storage_vector.last_fault_report_error != STORAGE_MANAGER_ERROR_NONE) {
+        s_storage_job.result.error = s_storage_vector.last_fault_report_error;
+    } else if (!ok) {
+        s_storage_job.result.error = s_storage_vector.storage_error;
+    }
+
+    s_storage_job.result.size = s_storage_vector.last_fault_report_id;
+    s_storage_job.result.is_dir = false;
+    if (s_storage_vector.last_fault_report_path[0] != '\0') {
+        storage_copy_field(s_storage_job.result.path,
+                           sizeof(s_storage_job.result.path),
+                           s_storage_vector.last_fault_report_path);
+        s_storage_job.result.path_hash = s_storage_vector.last_fault_report_path_hash;
+    } else if (s_storage_vector.last_trace_path[0] != '\0') {
+        storage_copy_field(s_storage_job.result.path,
+                           sizeof(s_storage_job.result.path),
+                           s_storage_vector.last_trace_path);
+        s_storage_job.result.path_hash = s_storage_vector.last_trace_path_hash;
+    } else {
+        storage_copy_field(s_storage_job.result.path,
+                           sizeof(s_storage_job.result.path),
+                           s_storage_vector.last_snapshot_path);
+        s_storage_job.result.path_hash = s_storage_vector.last_snapshot_path_hash;
+    }
+    storage_publish_job_result();
 }
 
 static bool storage_job_is_active(void)
@@ -429,6 +528,272 @@ static bool storage_manifest_check_required(const char *required_entry)
         return false;
     }
 
+    return true;
+}
+
+static fatfs_port_status_t storage_write_text_checked(const char *final_path,
+                                                      const char *tmp_path,
+                                                      const char *text)
+{
+    const fatfs_port_status_t status = fatfs_port_write_text_file_atomic(final_path, tmp_path, text);
+    if (status != FATFS_PORT_STATUS_OK) {
+        s_storage_vector.storage_error = status == FATFS_PORT_STATUS_RENAME_FAILED ?
+                                             STORAGE_MANAGER_ERROR_RENAME_FAILED :
+                                             STORAGE_MANAGER_ERROR_WRITE_FAILED;
+    }
+    return status;
+}
+
+static fatfs_port_status_t storage_write_text_if_missing(const char *final_path,
+                                                         const char *tmp_path,
+                                                         const char *text)
+{
+    fatfs_port_file_info_t info;
+    const fatfs_port_status_t info_status = fatfs_port_file_info(final_path, &info);
+    if (info_status == FATFS_PORT_STATUS_OK && !info.is_dir) {
+        return FATFS_PORT_STATUS_OK;
+    }
+    if (info_status != FATFS_PORT_STATUS_OK &&
+        info_status != FATFS_PORT_STATUS_PATH_NOT_FOUND) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_NO_FS;
+        return info_status;
+    }
+    return storage_write_text_checked(final_path, tmp_path, text);
+}
+
+static fatfs_port_status_t storage_make_system_pack_dirs(void)
+{
+    for (size_t i = 0u; i < sizeof(s_system_pack_dirs) / sizeof(s_system_pack_dirs[0]); i++) {
+        const fatfs_port_status_t status = fatfs_port_make_directory(s_system_pack_dirs[i]);
+        if (status != FATFS_PORT_STATUS_OK) {
+            return status;
+        }
+    }
+    return FATFS_PORT_STATUS_OK;
+}
+
+static uint32_t storage_crc32_text(const char *text)
+{
+    return ota_crc32_compute((const uint8_t *)text, strlen(text));
+}
+
+bool storage_manager_initialize_system_pack(void)
+{
+    if (!storage_manager_probe()) {
+        return false;
+    }
+
+    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                  RESOURCE_ARBITER_RESOURCE_SD)) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+        return false;
+    }
+
+    fatfs_port_file_info_t existing_manifest;
+    fatfs_port_status_t status = fatfs_port_file_info("/manifest.idx", &existing_manifest);
+    if (status == FATFS_PORT_STATUS_OK) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                 RESOURCE_ARBITER_RESOURCE_SD);
+        return true;
+    }
+    if (status != FATFS_PORT_STATUS_PATH_NOT_FOUND) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                 RESOURCE_ARBITER_RESOURCE_SD);
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_NO_FS;
+        return false;
+    }
+
+    status = storage_make_system_pack_dirs();
+    if (status != FATFS_PORT_STATUS_OK) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                 RESOURCE_ARBITER_RESOURCE_SD);
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
+        return false;
+    }
+
+    char profile[384];
+    int written = snprintf(profile,
+                           sizeof(profile),
+                           "{\n"
+                           "  \"magic\": \"RP2350_TRIG_PROFILE\",\n"
+                           "  \"schema\": 1,\n"
+                           "  \"product_id\": \"%s\",\n"
+                           "  \"hardware_id\": \"%s\",\n"
+                           "  \"build_id\": \"%s\",\n"
+                           "  \"source\": \"device-bootstrap\",\n"
+                           "  \"name\": \"default\",\n"
+                           "  \"trigger\": {\"mode\": \"IDLE\", \"armed\": false}\n"
+                           "}\n",
+                           STORAGE_MANAGER_PRODUCT_ID,
+                           STORAGE_MANAGER_HARDWARE_ID,
+                           g_project_build_id);
+    if (written <= 0 || (size_t)written >= sizeof(profile)) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                 RESOURCE_ARBITER_RESOURCE_SD);
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
+        return false;
+    }
+
+    char mission[320];
+    written = snprintf(mission,
+                       sizeof(mission),
+                       "{\n"
+                       "  \"magic\": \"RP2350_TRIG_MISSION\",\n"
+                       "  \"schema\": 1,\n"
+                       "  \"product_id\": \"%s\",\n"
+                       "  \"hardware_id\": \"%s\",\n"
+                       "  \"build_id\": \"%s\",\n"
+                       "  \"source\": \"device-bootstrap\",\n"
+                       "  \"name\": \"default\",\n"
+                       "  \"steps\": []\n"
+                       "}\n",
+                       STORAGE_MANAGER_PRODUCT_ID,
+                       STORAGE_MANAGER_HARDWARE_ID,
+                       g_project_build_id);
+    if (written <= 0 || (size_t)written >= sizeof(mission)) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                 RESOURCE_ARBITER_RESOURCE_SD);
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
+        return false;
+    }
+
+    char node_map[384];
+    written = snprintf(node_map,
+                       sizeof(node_map),
+                       "{\n"
+                       "  \"magic\": \"RP2350_TRIG_NODE_MAP\",\n"
+                       "  \"schema\": 1,\n"
+                       "  \"product_id\": \"%s\",\n"
+                       "  \"hardware_id\": \"%s\",\n"
+                       "  \"build_id\": \"%s\",\n"
+                       "  \"source\": \"device-bootstrap\",\n"
+                       "  \"nodes\": {\"A0\": \"unassigned\", \"A1\": \"unassigned\", \"A2\": \"unassigned\", \"A3\": \"unassigned\"}\n"
+                       "}\n",
+                       STORAGE_MANAGER_PRODUCT_ID,
+                       STORAGE_MANAGER_HARDWARE_ID,
+                       g_project_build_id);
+    if (written <= 0 || (size_t)written >= sizeof(node_map)) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                 RESOURCE_ARBITER_RESOURCE_SD);
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
+        return false;
+    }
+
+    char calibration[384];
+    written = snprintf(calibration,
+                       sizeof(calibration),
+                       "{\n"
+                       "  \"magic\": \"RP2350_TRIG_CAL\",\n"
+                       "  \"schema\": 1,\n"
+                       "  \"product_id\": \"%s\",\n"
+                       "  \"hardware_id\": \"%s\",\n"
+                       "  \"build_id\": \"%s\",\n"
+                       "  \"source\": \"device-bootstrap\",\n"
+                       "  \"board\": {\"timebase_ppm\": 0, \"trigger_delay_ns\": 0}\n"
+                       "}\n",
+                       STORAGE_MANAGER_PRODUCT_ID,
+                       STORAGE_MANAGER_HARDWARE_ID,
+                       g_project_build_id);
+    if (written <= 0 || (size_t)written >= sizeof(calibration)) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                 RESOURCE_ARBITER_RESOURCE_SD);
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
+        return false;
+    }
+
+    char manifest_idx[960];
+    written = snprintf(manifest_idx,
+                       sizeof(manifest_idx),
+                       "magic=RP2350_TRIG_SD\n"
+                       "schema=1\n"
+                       "product_id=%s\n"
+                       "hardware_id=%s\n"
+                       "pack_version=0.1.0\n"
+                       "min_firmware=0.1.0\n"
+                       "build_id=%s\n"
+                       "default.profile=/profile/active.json\n"
+                       "default.mission=/mission/recipe.json\n"
+                       "default.calibration=/cal/board_cal.json\n"
+                       "default.ota_package=/update/RP2350_TRIG_UPDATE.pkg\n"
+                       "required=/profile/active.json,type=profile,crc32=%08lX\n"
+                       "required=/mission/recipe.json,type=mission,crc32=%08lX\n"
+                       "required=/cal/board_cal.json,type=calibration,crc32=%08lX\n"
+                       "required=/update/RP2350_TRIG_UPDATE.pkg,type=ota_package,crc32=%08lX\n",
+                       STORAGE_MANAGER_PRODUCT_ID,
+                       STORAGE_MANAGER_HARDWARE_ID,
+                       g_project_build_id,
+                       (unsigned long)storage_crc32_text(profile),
+                       (unsigned long)storage_crc32_text(mission),
+                       (unsigned long)storage_crc32_text(calibration),
+                       (unsigned long)storage_crc32_text(STORAGE_MANAGER_BOOTSTRAP_OTA_TEXT));
+    if (written <= 0 || (size_t)written >= sizeof(manifest_idx)) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                 RESOURCE_ARBITER_RESOURCE_SD);
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
+        return false;
+    }
+
+    char manifest_json[768];
+    written = snprintf(manifest_json,
+                       sizeof(manifest_json),
+                       "{\n"
+                       "  \"schema_version\": 1,\n"
+                       "  \"source\": \"device-bootstrap\",\n"
+                       "  \"product_id\": \"%s\",\n"
+                       "  \"hardware_id\": \"%s\",\n"
+                       "  \"build_id\": \"%s\",\n"
+                       "  \"defaults\": {\n"
+                       "    \"profile\": \"/profile/active.json\",\n"
+                       "    \"mission\": \"/mission/recipe.json\",\n"
+                       "    \"node_map\": \"/mission/node_map.json\",\n"
+                       "    \"calibration\": \"/cal/board_cal.json\",\n"
+                       "    \"ota_default\": \"/update/RP2350_TRIG_UPDATE.pkg\"\n"
+                       "  },\n"
+                       "  \"note\": \"OTA package is a placeholder until replaced by PC tooling.\"\n"
+                       "}\n",
+                       STORAGE_MANAGER_PRODUCT_ID,
+                       STORAGE_MANAGER_HARDWARE_ID,
+                       g_project_build_id);
+    if (written <= 0 || (size_t)written >= sizeof(manifest_json)) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                 RESOURCE_ARBITER_RESOURCE_SD);
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
+        return false;
+    }
+
+    status = storage_write_text_if_missing("/profile/active.json", "/profile/active.tmp", profile);
+    if (status == FATFS_PORT_STATUS_OK) {
+        status = storage_write_text_if_missing("/mission/recipe.json", "/mission/recipe.tmp", mission);
+    }
+    if (status == FATFS_PORT_STATUS_OK) {
+        status = storage_write_text_if_missing("/mission/node_map.json", "/mission/node_map.tmp", node_map);
+    }
+    if (status == FATFS_PORT_STATUS_OK) {
+        status = storage_write_text_if_missing("/cal/board_cal.json", "/cal/board_cal.tmp", calibration);
+    }
+    if (status == FATFS_PORT_STATUS_OK) {
+        status = storage_write_text_if_missing("/update/RP2350_TRIG_UPDATE.pkg",
+                                               "/update/RP2350_TRIG_UPDATE.tmp",
+                                               STORAGE_MANAGER_BOOTSTRAP_OTA_TEXT);
+    }
+    if (status == FATFS_PORT_STATUS_OK) {
+        status = storage_write_text_if_missing("/manifest.json", "/manifest.tmp", manifest_json);
+    }
+    if (status == FATFS_PORT_STATUS_OK) {
+        status = storage_write_text_checked("/manifest.idx", "/manifest.idx.tmp", manifest_idx);
+    }
+
+    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                             RESOURCE_ARBITER_RESOURCE_SD);
+
+    if (status != FATFS_PORT_STATUS_OK) {
+        return false;
+    }
+
+    s_storage_vector.state = STORAGE_MANAGER_STATE_CARD_READY;
+    s_storage_vector.fs_mounted = true;
+    s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_NONE;
+    storage_reset_manifest_summary(STORAGE_MANAGER_MANIFEST_UNKNOWN);
     return true;
 }
 
@@ -1245,6 +1610,33 @@ bool storage_manager_post_manifest_scan_job(uint32_t *job_id)
     return true;
 }
 
+bool storage_manager_post_system_init_job(uint32_t *job_id)
+{
+    if (storage_job_is_active()) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+        return false;
+    }
+
+    memset(&s_storage_job, 0, sizeof(s_storage_job));
+    s_storage_job.result.id = s_next_job_id++;
+    if (s_next_job_id == 0u) {
+        s_next_job_id = 1u;
+    }
+    s_storage_job.result.type = STORAGE_MANAGER_JOB_TYPE_SYSTEM_INIT;
+    s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_QUEUED;
+    s_storage_job.result.error = STORAGE_MANAGER_ERROR_NONE;
+    s_storage_job.result.is_dir = false;
+    storage_copy_field(s_storage_job.result.path,
+                       sizeof(s_storage_job.result.path),
+                       "/manifest.idx");
+    s_storage_job.result.path_hash = storage_hash_path(s_storage_job.result.path);
+    storage_publish_job_result();
+    if (job_id != NULL) {
+        *job_id = s_storage_job.result.id;
+    }
+    return true;
+}
+
 bool storage_manager_post_fault_evidence_job(uint32_t *job_id)
 {
     if (storage_job_is_active()) {
@@ -1282,12 +1674,15 @@ void storage_manager_get_job_result(storage_manager_job_result_t *result)
 
 static void storage_manager_service_job(void)
 {
-    if (s_storage_job.result.state != STORAGE_MANAGER_JOB_STATE_QUEUED) {
+    if (s_storage_job.result.state != STORAGE_MANAGER_JOB_STATE_QUEUED &&
+        s_storage_job.result.state != STORAGE_MANAGER_JOB_STATE_RUNNING) {
         return;
     }
 
-    s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_RUNNING;
-    storage_publish_job_result();
+    if (s_storage_job.result.state == STORAGE_MANAGER_JOB_STATE_QUEUED) {
+        s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_RUNNING;
+        storage_publish_job_result();
+    }
 
     if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_FILE_INFO) {
         storage_manager_file_info_t info;
@@ -1390,59 +1785,71 @@ static void storage_manager_service_job(void)
     }
 
     if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_MANIFEST_SCAN) {
-        const bool ok = storage_manager_scan_manifest();
-        s_storage_job.result.state = ok ? STORAGE_MANAGER_JOB_STATE_DONE :
-                                          STORAGE_MANAGER_JOB_STATE_FAILED;
-        s_storage_job.result.error = ok ? STORAGE_MANAGER_ERROR_NONE :
-                                          (uint32_t)s_storage_vector.manifest_status;
-        s_storage_job.result.size = s_storage_vector.manifest_required_count;
-        s_storage_job.result.is_dir = false;
-        storage_copy_field(s_storage_job.result.path,
-                           sizeof(s_storage_job.result.path),
-                           "/manifest.idx");
-        s_storage_job.result.path_hash = storage_hash_path(s_storage_job.result.path);
-        storage_publish_job_result();
+        if (s_storage_job.step == 0u) {
+            const bool ok = storage_manager_scan_manifest();
+            if (ok || s_storage_vector.manifest_status != STORAGE_MANAGER_MANIFEST_NOT_FOUND) {
+                storage_job_complete_manifest_scan(ok);
+                return;
+            }
+            s_storage_job.step = 1u;
+            storage_publish_job_result();
+            return;
+        }
+
+        if (s_storage_job.step == 1u) {
+            s_storage_job.step_ok0 = storage_manager_initialize_system_pack();
+            s_storage_job.step = 2u;
+            storage_publish_job_result();
+            return;
+        }
+
+        const bool ok = s_storage_job.step_ok0 && storage_manager_scan_manifest();
+        storage_job_complete_manifest_scan(ok);
+        return;
+    }
+
+    if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_SYSTEM_INIT) {
+        if (s_storage_job.step == 0u) {
+            s_storage_job.step_ok0 = storage_manager_initialize_system_pack();
+            s_storage_job.step = 1u;
+            storage_publish_job_result();
+            return;
+        }
+
+        const bool ok = s_storage_job.step_ok0 && storage_manager_scan_manifest();
+        if (!ok && !s_storage_job.step_ok0) {
+            s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
+            s_storage_job.result.error = s_storage_vector.storage_error;
+            s_storage_job.result.size = s_storage_vector.manifest_required_count;
+            s_storage_job.result.is_dir = false;
+            storage_copy_field(s_storage_job.result.path,
+                               sizeof(s_storage_job.result.path),
+                               "/manifest.idx");
+            s_storage_job.result.path_hash = storage_hash_path(s_storage_job.result.path);
+            storage_publish_job_result();
+        } else {
+            storage_job_complete_manifest_scan(ok);
+        }
         return;
     }
 
     if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_FAULT_EVIDENCE) {
-        const bool snapshot_ok = storage_manager_write_snapshot("fault");
-        const bool trace_ok = storage_manager_write_trace("fault");
-        const bool report_ok = storage_manager_write_fault_report();
-        const bool ok = snapshot_ok && trace_ok && report_ok;
-
-        s_storage_job.result.state = ok ? STORAGE_MANAGER_JOB_STATE_DONE :
-                                          STORAGE_MANAGER_JOB_STATE_FAILED;
-        s_storage_job.result.error = STORAGE_MANAGER_ERROR_NONE;
-        if (!snapshot_ok && s_storage_vector.last_snapshot_error != STORAGE_MANAGER_ERROR_NONE) {
-            s_storage_job.result.error = s_storage_vector.last_snapshot_error;
-        } else if (!trace_ok && s_storage_vector.last_trace_error != STORAGE_MANAGER_ERROR_NONE) {
-            s_storage_job.result.error = s_storage_vector.last_trace_error;
-        } else if (!report_ok && s_storage_vector.last_fault_report_error != STORAGE_MANAGER_ERROR_NONE) {
-            s_storage_job.result.error = s_storage_vector.last_fault_report_error;
-        } else if (!ok) {
-            s_storage_job.result.error = s_storage_vector.storage_error;
+        if (s_storage_job.step == 0u) {
+            s_storage_job.step_ok0 = storage_manager_write_snapshot("fault");
+            s_storage_job.step = 1u;
+            storage_publish_job_result();
+            return;
         }
 
-        s_storage_job.result.size = s_storage_vector.last_fault_report_id;
-        s_storage_job.result.is_dir = false;
-        if (s_storage_vector.last_fault_report_path[0] != '\0') {
-            storage_copy_field(s_storage_job.result.path,
-                               sizeof(s_storage_job.result.path),
-                               s_storage_vector.last_fault_report_path);
-            s_storage_job.result.path_hash = s_storage_vector.last_fault_report_path_hash;
-        } else if (s_storage_vector.last_trace_path[0] != '\0') {
-            storage_copy_field(s_storage_job.result.path,
-                               sizeof(s_storage_job.result.path),
-                               s_storage_vector.last_trace_path);
-            s_storage_job.result.path_hash = s_storage_vector.last_trace_path_hash;
-        } else {
-            storage_copy_field(s_storage_job.result.path,
-                               sizeof(s_storage_job.result.path),
-                               s_storage_vector.last_snapshot_path);
-            s_storage_job.result.path_hash = s_storage_vector.last_snapshot_path_hash;
+        if (s_storage_job.step == 1u) {
+            s_storage_job.step_ok1 = storage_manager_write_trace("fault");
+            s_storage_job.step = 2u;
+            storage_publish_job_result();
+            return;
         }
-        storage_publish_job_result();
+
+        s_storage_job.step_ok2 = storage_manager_write_fault_report();
+        storage_job_complete_fault_evidence();
         return;
     }
 
@@ -2000,15 +2407,53 @@ bool storage_manager_write_fault_report(void)
 
 void storage_manager_service(uint32_t budget_us)
 {
-    (void)budget_us;
+    const uint64_t start_us = storage_now_us();
     if (s_boot_snapshot_pending &&
         (int32_t)(storage_now_ms() - s_boot_snapshot_due_ms) >= 0) {
-        s_boot_snapshot_pending = false;
-        if (s_storage_vector.manifest_status != STORAGE_MANAGER_MANIFEST_OK) {
-            (void)storage_manager_scan_manifest();
+        if (s_boot_snapshot_step == 0u) {
+            if (s_storage_vector.manifest_status == STORAGE_MANAGER_MANIFEST_OK) {
+                s_boot_snapshot_step = 3u;
+            } else if (!storage_manager_scan_manifest() &&
+                       s_storage_vector.manifest_status == STORAGE_MANAGER_MANIFEST_NOT_FOUND) {
+                s_boot_snapshot_step = 1u;
+            } else {
+                s_boot_snapshot_step = 3u;
+            }
+            return;
         }
+
+        if (storage_budget_elapsed(start_us, budget_us)) {
+            return;
+        }
+
+        if (s_boot_snapshot_step == 1u) {
+            (void)storage_manager_initialize_system_pack();
+            s_boot_snapshot_step = 2u;
+            return;
+        }
+
+        if (storage_budget_elapsed(start_us, budget_us)) {
+            return;
+        }
+
+        if (s_boot_snapshot_step == 2u) {
+            (void)storage_manager_scan_manifest();
+            s_boot_snapshot_step = 3u;
+            return;
+        }
+
+        if (storage_budget_elapsed(start_us, budget_us)) {
+            return;
+        }
+
+        s_boot_snapshot_pending = false;
         storage_manager_trace_event(1u, 1u, 1u, s_storage_vector.manifest_status, 0u);
         (void)storage_manager_write_snapshot("boot");
+        return;
+    }
+
+    if (storage_budget_elapsed(start_us, budget_us)) {
+        return;
     }
 
     storage_manager_service_job();
@@ -2064,6 +2509,7 @@ const char *storage_manager_job_type_string(storage_manager_job_type_t type)
     case STORAGE_MANAGER_JOB_TYPE_SNAPSHOT_WRITE: return "SNAPSHOT_WRITE";
     case STORAGE_MANAGER_JOB_TYPE_MANIFEST_SCAN: return "MANIFEST_SCAN";
     case STORAGE_MANAGER_JOB_TYPE_FAULT_EVIDENCE: return "FAULT_EVIDENCE";
+    case STORAGE_MANAGER_JOB_TYPE_SYSTEM_INIT: return "SYSTEM_INIT";
     default: return "UNKNOWN";
     }
 }

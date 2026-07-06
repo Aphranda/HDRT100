@@ -89,6 +89,10 @@ uint32_t sync_io_seq_step_get_index(void);
 uint64_t sync_io_seq_step_get_rollover_count(void);
 bool sync_io_seq_step_is_running(void);
 void sync_io_seq_step_get_runtime(sync_io_seq_step_runtime_t *runtime);
+void sync_io_seq_step_trace_runtime_sample(bool force);
+void sync_io_set_expected_ready_mask(uint32_t mask);
+uint32_t sync_io_get_expected_ready_mask(void);
+void sync_io_trace_aux_status_sample(bool force);
 
 /* ── ENC_COUNT 编码器计数触发 ── */
 
@@ -99,5 +103,6 @@ void sync_io_enc_count_disarm(void);
 uint32_t sync_io_enc_count_get_count(void);
 bool sync_io_enc_count_is_running(void);
 void sync_io_enc_count_get_runtime(sync_io_enc_count_runtime_t *runtime);
+void sync_io_enc_count_trace_runtime_sample(bool force);
 
 #endif

@@ -110,7 +110,7 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 | `TRIG:SEQ:DATA?` | 回读编码表。 |
 | `TRIG:ARM` | 加载 PIO + DMA，进入 SEQ_ARMED。 |
 | `TRIG:DISA` | 停止 PIO + DMA，回到 IDLE。 |
-| `TRIG:FAULT` | 维护/验证命令：强制触发 Trigger fault，并写入 fault snapshot。 |
+| `TRIG:FAULT` | 维护/验证命令：先强制触发 Trigger fault，再投递 StorageAO `FAULT_EVIDENCE` job 在 FAULT 后后台写入 snapshot/trace/report。 |
 | `STAT:TRIG?` | 触发域摘要：模式、状态、seq_index、rollover_count、error_code。 |
 
 ## ENC_COUNT 编码器计数触发模式
@@ -167,24 +167,25 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 ## SD / System Pack 维护
 
-SD 命令遵循 `docs/SD_TODO.md` 中的 `StorageAO + StorageFB + StorageVector` 设计。SCPI 只负责表达查询或维护意图，后续应逐步收敛到 StorageAO job；当前 P0A/P0B/P0C 已完成 `FILE_INFO`、`FILE_READ`、`CATALOG_PAGE`、`MANIFEST_SCAN`、`SNAPSHOT_WRITE` 和 `FAULT_EVIDENCE` job 闭环。
+SD 命令遵循 `docs/SD_TODO.md` 中的 `StorageAO + StorageFB + StorageVector` 设计。SCPI 只负责表达查询或维护意图，后续应逐步收敛到 StorageAO job；当前 P0A/P0B/P0C 已完成 `FILE_INFO`、`FILE_READ`、`CATALOG_PAGE`、`MANIFEST_SCAN`、`SYSTEM_INIT`、`SNAPSHOT_WRITE` 和 `FAULT_EVIDENCE` job 闭环。
 
 | 命令 | 说明 |
 |---|---|
 | `SYST:SD:STAT?` | 查询 SD 状态摘要：状态、card_present、fs_mounted、底层卡状态、storage_error。 |
 | `SYST:SD:INFO?` | 查询 SD 卡信息：状态、卡类型、high_capacity、block_count、capacity_kib、fatfs_available、fs_mounted、probe_count。 |
-| `SYST:SD:RAW:CLEAR <sectors>,"ERASE"` | 破坏性维护命令：绕过 FatFs 写零 SD 卡前 `sectors` 个 512B 扇区，当前固件最大 64；用于卡分区/FAT 元数据导致主机格式化卡死时清前缀。返回 `status,requested,cleared,raw_status,storage_error`。会破坏分区表/FAT，不用于正常 release 流程。 |
-| `SYST:SD:RAW:READ? <sector>` | 维护诊断命令：绕过 FatFs 读取单个 512B 扇区，并返回前 64 字节十六进制，用于确认 Pico 侧格式化或 raw 写入是否真实落卡。返回 `status,sector,raw_status,storage_error,hex64`。 |
-| `SYST:SD:MKFS "ERASE"` | 破坏性维护命令：由 Pico 通过 FatFs `f_mkfs` 在 SD 卡上创建 FAT/FAT32 文件系统，必须带确认字符串 `"ERASE"`。返回 `status,fatfs_status,storage_state,storage_error,block_count,capacity_kib,mkfs_result,mount_result`。只作用于 Pico 上的 SD 卡，不访问主机盘符。 |
-| `SYST:SD:MAN?` | 投递 StorageAO `MANIFEST_SCAN` job 扫描 `/manifest.idx`，兼容返回 manifest 状态、schema、product_id、hardware_id、build_id、required_count、missing_count。 |
+| `SYST:SD:RAW:CLEAR <sectors>,"ERASE"` | 破坏性维护命令：绕过 FatFs 写零 SD 卡前 `sectors` 个 512B 扇区，当前固件最大 64；用于卡分区/FAT 元数据导致主机格式化卡死时清前缀。返回 `status,requested,cleared,raw_status,storage_error`。会破坏分区表/FAT，不用于正常 release 流程；Trigger armed 时拒绝执行。 |
+| `SYST:SD:RAW:READ? <sector>` | 维护诊断命令：绕过 FatFs 读取单个 512B 扇区，并返回前 64 字节十六进制，用于确认 Pico 侧格式化或 raw 写入是否真实落卡。返回 `status,sector,raw_status,storage_error,hex64`；Trigger armed 时拒绝执行。 |
+| `SYST:SD:MKFS "ERASE"` | 破坏性维护命令：由 Pico 通过 FatFs `f_mkfs` 在 SD 卡上创建 FAT/FAT32 文件系统，必须带确认字符串 `"ERASE"`。返回 `status,fatfs_status,storage_state,storage_error,block_count,capacity_kib,mkfs_result,mount_result`。只作用于 Pico 上的 SD 卡，不访问主机盘符；Trigger armed 时拒绝执行。 |
+| `SYST:SD:INIT` | 非破坏性初始化命令：在已挂载 FAT32 卡上创建最小 System Pack 目录和默认文件；若 `/manifest.idx` 已存在则不覆盖。返回 `status,manifest_status,schema,build_id,required_count,missing_count,error`。不会格式化 SD 卡。 |
+| `SYST:SD:MAN?` | 投递 StorageAO `MANIFEST_SCAN` job 扫描 `/manifest.idx`；若 FAT32 卡可挂载但 `/manifest.idx` 缺失，会先执行同一套非破坏性 System Pack 初始化再重新扫描。兼容返回 manifest 状态、schema、product_id、hardware_id、build_id、required_count、missing_count；Trigger armed 时拒绝执行。 |
 | `SYST:STOR:STAT?` | `SYST:SD:STAT?` 的 Storage 域别名。 |
 | `SYST:STOR:JOB:INFO "<path>"` | 投递 StorageAO `FILE_INFO` job，返回 `"OK",job_id`；实际 FatFs 查询在 `storage_manager_service()` 中执行。 |
-| `SYST:STOR:JOB?` | 查询最近 Storage job：`state,id,type,path,size,kind,path_hash,error`；当前 type 包含 `FILE_INFO`、`FILE_READ`、`CATALOG_PAGE`、`MANIFEST_SCAN`、`SNAPSHOT_WRITE`、`FAULT_EVIDENCE`，manifest job 的 kind 为 `MANIFEST` 且 size 为 required_count，file read job 的 kind 为 `READ` 且 size 为本次返回字节数，catalog page job 的 kind 为 `CATALOG` 且 size 为本页返回条目数，fault evidence job 的 path 指向最新 fault report。 |
+| `SYST:STOR:JOB?` | 查询最近 Storage job：`state,id,type,path,size,kind,path_hash,error`；当前 type 包含 `FILE_INFO`、`FILE_READ`、`CATALOG_PAGE`、`MANIFEST_SCAN`、`SYSTEM_INIT`、`SNAPSHOT_WRITE`、`FAULT_EVIDENCE`，manifest/system-init job 的 kind 为 `MANIFEST` 且 size 为 required_count，file read job 的 kind 为 `READ` 且 size 为本次返回字节数，catalog page job 的 kind 为 `CATALOG` 且 size 为本页返回条目数，fault evidence job 的 path 指向最新 fault report。 |
 | `MMEM:CAT? ["<path>"]` | 兼容诊断目录枚举；内部投递 `CATALOG_PAGE` job 包装第 0 页，最多 16 项。长目录可能不完整，可靠枚举必须使用 `MMEM:CAT:PAGE?`。非法路径如 `/../` 应返回 `PATH_DENIED`。 |
-| `MMEM:CAT:PAGE? "<path>",<offset>,<limit>` | 投递 StorageAO `CATALOG_PAGE` job 分页枚举白名单路径目录，返回 `status,path,offset,returned,next_offset,complete,truncated,entries`；`limit` 固件端最大限制为 16。 |
-| `MMEM:INFO? "<path>"` | 查询白名单路径中的单个文件或目录信息，返回 `status,path,size,kind,path_hash,error`；用于长目录截断时稳定确认文件存在。 |
-| `MMEM:READ? "<path>",<offset>,<length>` | 投递 StorageAO `FILE_READ` job，受限读取白名单路径中的文件片段，兼容返回 `status,path,offset,requested,returned,eof,path_hash,error,hex`；`length` 固件端最大限制为 128 字节，当前用于 SD 验证工具读回 trace `.bin/.idx`。 |
-| `SYST:SNAP:WRIT ["boot"\|"arm"\|"fault"\|"run"]` | 投递 StorageAO `SNAPSHOT_WRITE` job 写入 snapshot JSON；省略 kind 时默认 `boot`。兼容层等待 job 完成后返回 `"OK"`。`TRIG:ARM` 内部同样通过 `SNAPSHOT_WRITE("arm")` 生成 ARM 前 snapshot。 |
+| `MMEM:CAT:PAGE? "<path>",<offset>,<limit>` | 投递 StorageAO `CATALOG_PAGE` job 分页枚举白名单路径目录，返回 `status,path,offset,returned,next_offset,complete,truncated,entries`；`limit` 固件端最大限制为 16；Trigger armed 时拒绝执行。 |
+| `MMEM:INFO? "<path>"` | 投递 StorageAO `FILE_INFO` job 查询白名单路径中的单个文件或目录信息，兼容返回 `status,path,size,kind,path_hash,error`；用于长目录截断时稳定确认文件存在；Trigger armed 时拒绝执行。 |
+| `MMEM:READ? "<path>",<offset>,<length>` | 投递 StorageAO `FILE_READ` job，受限读取白名单路径中的文件片段，兼容返回 `status,path,offset,requested,returned,eof,path_hash,error,hex`；`length` 固件端最大限制为 128 字节，当前用于 SD 验证工具读回 trace `.bin/.idx`；Trigger armed 时拒绝执行。 |
+| `SYST:SNAP:WRIT ["boot"\|"arm"\|"fault"\|"run"]` | 投递 StorageAO `SNAPSHOT_WRITE` job 写入 snapshot JSON；省略 kind 时默认 `boot`。兼容层等待 job 完成后返回 `"OK"`。`TRIG:ARM` 内部同样通过 `SNAPSHOT_WRITE("arm")` 生成 ARM 前 snapshot；手动命令在 Trigger armed 时拒绝执行。 |
 | `SYST:SNAP:LAST?` | 查询最近 snapshot 摘要：状态、kind、sequence、path、path_hash、error。 |
 | `SYST:TRAC:LAST?` | 查询最近 trace 摘要：状态、kind、sequence、path、path_hash、event_count、error。 |
 | `SYST:FAULT:LAST?` | 查询最近 fault report 摘要：状态、report_id、report_path、path_hash、snapshot_id、trace_id、error。 |
