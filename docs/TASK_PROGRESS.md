@@ -45,6 +45,33 @@
 
 ## 任务记录
 
+### TASK-20260707-001 - BiSS-C 收发一体三通桥方案
+
+- 状态：进行中
+- 日期：2026-07-07
+- 任务目标：
+  - 定义一种收发一体的小板架构：本地脉冲输入、BiSS-C/SSI-like 帧发送、BiSS-C/SSI-like 帧接收解析、本地触发脉冲输出。
+  - 明确“小板类似三通”的输入、输出、监听角色，避免把它误实现成单一编码器解析器。
+  - 为后续 `RX_PULSE -> TX_BISS -> RX_BISS -> TX_PULSE` 闭环实现提供 HAOFV 边界和验证路线。
+- 完成内容：
+  - 新增 `docs/BISSC_TAP_BRIDGE_DESIGN.md`，定义 BiSS-C 收发一体三通桥方案。
+  - 明确四类节点能力：`RX_PULSE`、`TX_BISS`、`RX_BISS`、`TX_PULSE`。
+  - 定义源端、目的端、透明监听端、代理桥端四种配置方式。
+  - 明确标准 BiSS-C 从站不能主动发送，`TX_BISS` 必须绑定到上游主站 clock polling。
+  - 更新 `docs/SYNC_TRIGGER_TODO.md`，将原 BiSS-C 泛化兼容项拆成 P0 原型、透明监听、从站发送、主站接收和高速能力评估。
+- 验证结果：
+  - 本任务只完成方案和 TODO 更新，未修改固件代码，未执行构建、烧录或板端验证。
+- 还需完成：
+  - 后续新增 `TRIG_MODE_BISS_BRIDGE`、角色枚举和 TriggerVector 字段。
+  - 后续实现低速固定帧 `SLAVE_TX` 与 `MASTER_RX`，完成双板闭环验证。
+  - 后续根据实测决定是否继续用 RP2350 PIO 提速，或引入 FPGA/CPLD/专用 BiSS 接口芯片。
+- 关联文件：
+  - `docs/BISSC_TAP_BRIDGE_DESIGN.md`
+  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 先做固件 P0 骨架：模式、角色、SCPI 配置、状态计数和低速固定帧接口。
+
 ### TASK-20260704-008 - SD_TODO HAOFV 与 Git-like 深度融合重构
 
 - 状态：完成

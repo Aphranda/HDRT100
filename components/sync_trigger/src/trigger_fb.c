@@ -35,6 +35,26 @@ static bool fb_valid_enc_pin_group(const trigger_vector_t *vector)
            vector->enc_z_pin == (vector->enc_a_pin + 3u);
 }
 
+static bool fb_valid_biss_config(const trigger_vector_t *vector)
+{
+    if (vector == NULL) {
+        return false;
+    }
+
+    if (vector->protocol != TRIG_PROTOCOL_BISS_C ||
+        vector->biss_role > TRIG_BISS_ROLE_BRIDGE_PROXY ||
+        vector->biss_clock_hz == 0u ||
+        vector->biss_frame_bits == 0u ||
+        vector->biss_frame_bits > 64u ||
+        vector->biss_position_bits == 0u ||
+        vector->biss_position_bits > 32u ||
+        vector->biss_position_bits > vector->biss_frame_bits) {
+        return false;
+    }
+
+    return true;
+}
+
 /* ── 即时脉冲处理器（IDLE / SEQ_CONFIGURED / FAULT 状态共用）── */
 
 static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
@@ -131,6 +151,31 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
     case TRIG_EVENT_PCNT_CLEAR:
         vector->enc_total += vector->enc_count;   /* 先累计本次清零前的值 */
         vector->enc_count = 0u;                    /* 再清零 */
+        break;
+    /* ── 协议触发 / BiSS-C 节点 ── */
+    case TRIG_EVENT_SET_BISS_ROLE:
+        vector->biss_role = (trig_biss_role_t)event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_DEVICE:
+        vector->biss_device_id = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_CLOCK:
+        vector->biss_clock_hz = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_FRAME_BITS:
+        vector->biss_frame_bits = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_POSITION_BITS:
+        vector->biss_position_bits = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_TARGET:
+        vector->biss_target = event->payload.value;
+        break;
+    case TRIG_EVENT_BISS_CRC_ERROR:
+        vector->biss_crc_error_count++;
+        break;
+    case TRIG_EVENT_BISS_TIMEOUT:
+        vector->biss_timeout_count++;
         break;
     case TRIG_EVENT_RESET:
         sync_io_stop_clock();
@@ -286,11 +331,102 @@ static fb_result_t fb_force_fault(trigger_vector_t *vector,
         sync_io_enc_count_disarm();
         resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO1);
     }
+    if (vector->state == TRIG_STATE_BISS_ARMED) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO2);
+    }
 
     vector->state = TRIG_STATE_FAULT;
     vector->error_code = event->payload.value != 0u ? event->payload.value : 100u;
     vector->fault_timestamp_ms = 0u;
     return FB_ERROR;
+}
+
+/* ── 协议触发 / BiSS-C 节点配置 ── */
+
+static fb_result_t fb_idle_configure_biss(trigger_vector_t *vector,
+                                           const trig_event_t *event)
+{
+    (void)event;
+
+    if (!fb_valid_biss_config(vector)) {
+        vector->error_code = 20u;  /* invalid protocol trigger config */
+        return FB_ERROR;
+    }
+
+    vector->active_mode = TRIG_MODE_PROTOCOL_TRIGGER;
+    vector->state = TRIG_STATE_BISS_CONFIGURED;
+    vector->supported_modes |= (1u << TRIG_MODE_PROTOCOL_TRIGGER);
+    vector->error_code = 0u;
+    return FB_OK;
+}
+
+static fb_result_t fb_biss_configured_arm(trigger_vector_t *vector,
+                                           const trig_event_t *event)
+{
+    (void)event;
+
+    if (!fb_valid_biss_config(vector)) {
+        vector->error_code = 20u;
+        return FB_ERROR;
+    }
+
+    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_PIO2)) {
+        vector->error_code = 2u;
+        return FB_ERROR;
+    }
+
+    vector->biss_pulse_in_count = 0u;
+    vector->biss_pulse_out_count = 0u;
+    vector->biss_tx_frame_count = 0u;
+    vector->biss_rx_frame_count = 0u;
+    vector->biss_crc_error_count = 0u;
+    vector->biss_timeout_count = 0u;
+    vector->trigger_count = 0u;
+    vector->output_count = 0u;
+    vector->state = TRIG_STATE_BISS_ARMED;
+    vector->error_code = 0u;
+    return FB_OK;
+}
+
+static fb_result_t fb_biss_armed_disarm(trigger_vector_t *vector,
+                                         const trig_event_t *event)
+{
+    (void)event;
+
+    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO2);
+    vector->state = TRIG_STATE_IDLE;
+    vector->error_code = 0u;
+    return FB_OK;
+}
+
+static fb_result_t fb_biss_armed_pulse_in(trigger_vector_t *vector,
+                                           const trig_event_t *event)
+{
+    const uint32_t pulse_delta = event->payload.value != 0u ? event->payload.value : 1u;
+
+    vector->biss_pulse_in_count += pulse_delta;
+    vector->biss_last_seq++;
+    vector->biss_last_position = vector->biss_pulse_in_count;
+    vector->biss_tx_frame_count++;
+    vector->trigger_count = vector->biss_pulse_in_count;
+    return FB_OK;
+}
+
+static fb_result_t fb_biss_armed_frame_rx(trigger_vector_t *vector,
+                                           const trig_event_t *event)
+{
+    vector->biss_last_position = event->payload.value;
+    vector->biss_rx_frame_count++;
+    vector->trigger_count = vector->biss_rx_frame_count;
+
+    if (vector->biss_target != 0u &&
+        vector->biss_last_position >= vector->biss_target) {
+        (void)sync_io_fire_pulse_us(vector->trigger_width_us);
+        vector->biss_pulse_out_count++;
+        vector->output_count = vector->biss_pulse_out_count;
+    }
+
+    return FB_OK;
 }
 
 /* ── ENC_COUNT 配置 ── */
@@ -373,6 +509,11 @@ static fb_result_t fb_runtime_sample(trigger_vector_t *vector,
         return fb_enc_armed_service(vector, event);
     }
 
+    if (vector->state == TRIG_STATE_BISS_ARMED) {
+        (void)event;
+        return FB_OK;
+    }
+
     return FB_IGNORED;
 }
 
@@ -404,6 +545,9 @@ static fb_result_t fb_fault_clear(trigger_vector_t *vector,
             RESOURCE_ARBITER_RESOURCE_PIO1 |
             RESOURCE_ARBITER_RESOURCE_DMA);
     }
+    if (vector->state == TRIG_STATE_BISS_ARMED) {
+        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO2);
+    }
 
     vector->state = TRIG_STATE_IDLE;
     vector->error_code = 0u;
@@ -422,6 +566,7 @@ static const ecc_entry_t s_ecc_table[] = {
     /* IDLE */
     { TRIG_STATE_IDLE, TRIG_EVENT_CONFIGURE_SEQ,    fb_idle_configure_seq },
     { TRIG_STATE_IDLE, TRIG_EVENT_CONFIGURE_ENC,    fb_idle_configure_enc },
+    { TRIG_STATE_IDLE, TRIG_EVENT_CONFIGURE_BISS,   fb_idle_configure_biss },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_SOURCE_PIN,   fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_EDGE,         fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_GATE,         fb_instant_cmd },
@@ -435,6 +580,12 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_PCNT_CMP,     fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_PCNT_PRESET,  fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_PCNT_CLEAR,       fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_ROLE,    fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_DEVICE,  fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CLOCK,   fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_FRAME_BITS, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_POSITION_BITS, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_TARGET,  fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_RESET,             fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_TRIGGER_WIDTH, fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_FIRE_TRIGGER,      fb_instant_cmd },
@@ -485,6 +636,29 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_FAULT, TRIG_EVENT_CLEAR_FAULT, fb_fault_clear },
     { TRIG_STATE_FAULT, TRIG_EVENT_DISARM,      fb_fault_clear },
     { TRIG_STATE_FAULT, TRIG_EVENT_RESET,       fb_fault_clear },
+
+    /* BISS_CONFIGURED */
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_ARM,                     fb_biss_configured_arm },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_DISARM,                  fb_biss_armed_disarm },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_CONFIGURE_BISS,          fb_idle_configure_biss },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_ROLE,           fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_DEVICE,         fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CLOCK,          fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_FRAME_BITS,     fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_POSITION_BITS,  fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_TARGET,         fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_RESET,                   fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_FAULT,                   fb_force_fault },
+
+    /* BISS_ARMED */
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_DISARM,         fb_biss_armed_disarm },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_RUNTIME_SAMPLE, fb_runtime_sample },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_BISS_PULSE_IN,  fb_biss_armed_pulse_in },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_BISS_FRAME_RX,  fb_biss_armed_frame_rx },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_BISS_CRC_ERROR, fb_instant_cmd },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_BISS_TIMEOUT,   fb_instant_cmd },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_RESET,          fb_biss_armed_disarm },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_FAULT,          fb_force_fault },
 
     /* ENC_CONFIGURED */
     { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_ARM,              fb_enc_configured_arm },
@@ -541,6 +715,19 @@ bool trigger_fb_init(trigger_vector_t *vector)
     vector->enc_filter_ns = 0u;
     vector->enc_preset = 0u;
     vector->enc_cmp_pulse_ns = 67u;   /* ~10 PIO cycles */
+    vector->protocol = TRIG_PROTOCOL_BISS_C;
+    vector->biss_role = TRIG_BISS_ROLE_TAP_MONITOR;
+    vector->biss_device_id = 0u;
+    vector->biss_clock_hz = 1000000u;
+    vector->biss_frame_bits = 48u;
+    vector->biss_position_bits = 32u;
+    vector->biss_target = 0u;
+    vector->biss_clk_in_pin = BOARD_SYNC_AUX0_PIN;
+    vector->biss_data_in_pin = BOARD_SYNC_AUX1_PIN;
+    vector->biss_clk_out_pin = BOARD_SYNC_AUX2_PIN;
+    vector->biss_data_out_pin = BOARD_SYNC_AUX3_PIN;
+    vector->biss_pulse_in_pin = BOARD_SYNC_TRIG_IN_PIN;
+    vector->biss_pulse_out_pin = BOARD_SYNC_TRIG_OUT_PIN;
     vector->trigger_width_us = 10u;
     vector->pulse_width_us = 10u;
     vector->marker_width_us = 10u;

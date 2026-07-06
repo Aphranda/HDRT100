@@ -253,9 +253,32 @@
 
 ## P2 - 编码器协议兼容
 
+- [ ] BiSS-C 收发一体三通桥 P0 原型。
+  目标不是单纯“编码器解析器”，而是 `RX_PULSE -> TX_BISS -> RX_BISS -> TX_PULSE`
+  的收发一体节点。每块小板都具备本地脉冲输入、BiSS-C/SSI-like 帧发送、
+  BiSS-C/SSI-like 帧接收解析和本地触发输出能力；通过角色配置切换为源端、
+  目的端、透明监听端或代理桥端。详细方案见 `docs/BISSC_TAP_BRIDGE_DESIGN.md`。
+  P0 先限定 1-5 MHz 低速 bring-up 和固定帧格式，不承诺 100 MHz。
+
+- [ ] BiSS-C 三通透明监听模式。
+  小板夹在既有主站和编码器之间，只监听 `CLK/DATA` 并解析 position/status/crc，
+  不驱动 DATA，不影响原始链路；按位置或状态生成旁路 `TRIG_OUT` 脉冲。
+
+- [ ] BiSS-C 从站发送模式。
+  本地 `PULSE_IN` 由 PIO/IRQ 锁存为 `seq_id/event_count/status`，在上游主站
+  时钟轮询时通过 DATA 返回固定事件帧。标准 BiSS-C 从站不能主动发送，
+  因此“发送”语义必须绑定到上游 clock polling。
+
+- [ ] BiSS-C 主站接收模式。
+  本板主动输出 `CLK_OUT`，采样远端 DATA，校验固定事件帧或编码器帧，
+  达到目标位置/事件号时通过现有 PIO pulse 输出 `TRIG_OUT`。
+
+- [ ] BiSS-C 高速能力评估。
+  RP2350 PIO 接近 100 MHz BiSS-C 时指令预算不足；250 MHz clk_sys 下每 bit
+  也只有 2.5 个系统周期。P0/P1 应先实测 1/5/10/20 MHz，若产品要求接近
+  100 MHz，需要定义 FPGA/CPLD 或专用 BiSS 接口芯片协处理方案。
+
 - [ ] BiSS-B (≤10 MHz) — 单 PIO SM: CLK 输出 + DATA 输入采样 + START 检测, ~15 指令, 可行
-- [ ] BiSS-C (100 MHz) — PIO 不可行 (仅 1.5 clk_sys 周期/bit @ 150MHz), 需外部 FPGA/ASIC (iC-MU 等)
-  - 250 MHz 下 2.5 周期/bit，仍然不可行
 - [ ] EnDat 2.1 (≤2 MHz) — 双 PIO SM: CLK 生成 + 半双工 DATA + 命令组装, ~25-30 指令, 可行
 - [ ] EnDat 2.2 (≤16 MHz) — 临界, 2.3 周期/bit @150MHz, **250MHz 下 3.9 周期/bit 可行**
 - [ ] 协议模式作为 HAOFV `TRIG_MODE_BISS` / `TRIG_MODE_ENDAT` 落地

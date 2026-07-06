@@ -109,7 +109,8 @@ static bool scpi_port_trigger_is_armed(void)
     trigger_vector_t vector;
     sync_trigger_get_vector(&vector);
     return vector.state == TRIG_STATE_SEQ_ARMED ||
-           vector.state == TRIG_STATE_ENC_ARMED;
+           vector.state == TRIG_STATE_ENC_ARMED ||
+           vector.state == TRIG_STATE_BISS_ARMED;
 }
 
 static scpi_result_t scpi_cmd_firmware_version_q(scpi_t *context)
@@ -329,10 +330,22 @@ static uint32_t        s_seq_table_width;
 static const char *scpi_trig_mode_to_string(trig_mode_t mode)
 {
     switch (mode) {
-    case TRIG_MODE_IDLE:     return "IDLE";
-    case TRIG_MODE_SEQ_STEP:  return "SEQ_STEP";
-    case TRIG_MODE_ENC_COUNT: return "ENC_COUNT";
-    default:                  return "UNKNOWN";
+    case TRIG_MODE_IDLE:             return "IDLE";
+    case TRIG_MODE_SEQ_STEP:         return "SEQ_STEP";
+    case TRIG_MODE_ENC_COUNT:        return "ENC_COUNT";
+    case TRIG_MODE_PROTOCOL_TRIGGER: return "PROTOCOL_TRIGGER";
+    default:                         return "UNKNOWN";
+    }
+}
+
+static const char *scpi_biss_role_to_string(trig_biss_role_t role)
+{
+    switch (role) {
+    case TRIG_BISS_ROLE_TAP_MONITOR:  return "TAP";
+    case TRIG_BISS_ROLE_SLAVE_TX:     return "SLAVE_TX";
+    case TRIG_BISS_ROLE_MASTER_RX:    return "MASTER_RX";
+    case TRIG_BISS_ROLE_BRIDGE_PROXY: return "BRIDGE";
+    default:                          return "UNKNOWN";
     }
 }
 
@@ -361,6 +374,11 @@ static scpi_result_t scpi_cmd_trigger_mode(scpi_t *context)
 
     if (mode == (uint32_t)TRIG_MODE_ENC_COUNT) {
         const trig_event_t event = { .type = TRIG_EVENT_CONFIGURE_ENC };
+        return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+    }
+
+    if (mode == (uint32_t)TRIG_MODE_PROTOCOL_TRIGGER) {
+        const trig_event_t event = { .type = TRIG_EVENT_CONFIGURE_BISS };
         return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
     }
 
@@ -648,6 +666,220 @@ static scpi_result_t scpi_cmd_enc_rev_q(scpi_t *context)
     trigger_vector_t vector;
     sync_trigger_get_vector(&vector);
     SCPI_ResultUInt32(context, vector.enc_rev_count);
+    return SCPI_RES_OK;
+}
+
+/* ── 协议触发 / BiSS-C 节点命令 ── */
+
+static scpi_result_t scpi_cmd_biss_role(scpi_t *context)
+{
+    uint32_t role;
+    if (!scpi_port_read_u32(context, &role) ||
+        role > (uint32_t)TRIG_BISS_ROLE_BRIDGE_PROXY) {
+        return SCPI_RES_ERR;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_SET_BISS_ROLE,
+        .payload.value = role,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_biss_role_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultText(context, scpi_biss_role_to_string(vector.biss_role));
+    SCPI_ResultUInt32(context, (uint32_t)vector.biss_role);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_device(scpi_t *context)
+{
+    uint32_t device_id;
+    if (!scpi_port_read_u32(context, &device_id)) {
+        return SCPI_RES_ERR;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_SET_BISS_DEVICE,
+        .payload.value = device_id,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_biss_device_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_device_id);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_clock(scpi_t *context)
+{
+    uint32_t clock_hz;
+    if (!scpi_port_read_u32(context, &clock_hz) || clock_hz == 0u) {
+        return SCPI_RES_ERR;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_SET_BISS_CLOCK,
+        .payload.value = clock_hz,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_biss_clock_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_clock_hz);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_frame_bits(scpi_t *context)
+{
+    uint32_t bits;
+    if (!scpi_port_read_u32(context, &bits) || bits == 0u || bits > 64u) {
+        return SCPI_RES_ERR;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_SET_BISS_FRAME_BITS,
+        .payload.value = bits,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_biss_frame_bits_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_frame_bits);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_position_bits(scpi_t *context)
+{
+    uint32_t bits;
+    if (!scpi_port_read_u32(context, &bits) || bits == 0u || bits > 32u) {
+        return SCPI_RES_ERR;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_SET_BISS_POSITION_BITS,
+        .payload.value = bits,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_biss_position_bits_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_position_bits);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_target(scpi_t *context)
+{
+    uint32_t target;
+    if (!scpi_port_read_u32(context, &target)) {
+        return SCPI_RES_ERR;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_SET_BISS_TARGET,
+        .payload.value = target,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_biss_target_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_target);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_pins_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_clk_in_pin);
+    SCPI_ResultUInt32(context, vector.biss_data_in_pin);
+    SCPI_ResultUInt32(context, vector.biss_clk_out_pin);
+    SCPI_ResultUInt32(context, vector.biss_data_out_pin);
+    SCPI_ResultUInt32(context, vector.biss_pulse_in_pin);
+    SCPI_ResultUInt32(context, vector.biss_pulse_out_pin);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_pulse_in(scpi_t *context)
+{
+    uint32_t delta = 1u;
+    (void)scpi_port_read_u32(context, &delta);
+    if (delta == 0u) {
+        delta = 1u;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_BISS_PULSE_IN,
+        .payload.value = delta,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_biss_frame_rx(scpi_t *context)
+{
+    uint32_t position;
+    if (!scpi_port_read_u32(context, &position)) {
+        return SCPI_RES_ERR;
+    }
+
+    const trig_event_t event = {
+        .type = TRIG_EVENT_BISS_FRAME_RX,
+        .payload.value = position,
+    };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_biss_crc_error(scpi_t *context)
+{
+    (void)context;
+    const trig_event_t event = { .type = TRIG_EVENT_BISS_CRC_ERROR };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_biss_timeout(scpi_t *context)
+{
+    (void)context;
+    const trig_event_t event = { .type = TRIG_EVENT_BISS_TIMEOUT };
+    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_biss_status_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultText(context, scpi_biss_role_to_string(vector.biss_role));
+    SCPI_ResultUInt32(context, (uint32_t)vector.biss_role);
+    SCPI_ResultUInt32(context, vector.biss_device_id);
+    SCPI_ResultUInt32(context, vector.biss_clock_hz);
+    SCPI_ResultUInt32(context, vector.biss_frame_bits);
+    SCPI_ResultUInt32(context, vector.biss_position_bits);
+    SCPI_ResultUInt32(context, vector.biss_target);
+    SCPI_ResultUInt32(context, vector.biss_last_position);
+    SCPI_ResultUInt32(context, vector.biss_last_seq);
+    SCPI_ResultUInt32(context, vector.biss_pulse_in_count);
+    SCPI_ResultUInt32(context, vector.biss_tx_frame_count);
+    SCPI_ResultUInt32(context, vector.biss_rx_frame_count);
+    SCPI_ResultUInt32(context, vector.biss_pulse_out_count);
+    SCPI_ResultUInt32(context, vector.biss_crc_error_count);
+    SCPI_ResultUInt32(context, vector.biss_timeout_count);
     return SCPI_RES_OK;
 }
 

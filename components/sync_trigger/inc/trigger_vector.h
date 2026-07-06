@@ -9,13 +9,28 @@
 typedef enum {
     TRIG_MODE_IDLE      = 0,
     TRIG_MODE_SEQ_STEP  = 1,
-    /* 预留 */
-    TRIG_MODE_GATE_LEVEL,
-    TRIG_MODE_ARM_SINGLE,
-    TRIG_MODE_FREE_BURST,
     TRIG_MODE_ENC_COUNT = 2,   /* 编码器计数触发 */
+    TRIG_MODE_PROTOCOL_TRIGGER = 3, /* 协议触发模式: AUX 作为协议节点 */
+    TRIG_MODE_BISS_BRIDGE = TRIG_MODE_PROTOCOL_TRIGGER, /* 兼容别名 */
+    /* 预留 */
+    TRIG_MODE_GATE_LEVEL = 4,
+    TRIG_MODE_ARM_SINGLE = 5,
+    TRIG_MODE_FREE_BURST = 6,
     TRIG_MODE_COUNT,
 } trig_mode_t;
+
+typedef enum {
+    TRIG_PROTOCOL_BISS_C = 0,
+} trig_protocol_t;
+
+/* ── BiSS-C 收发一体三通桥角色 ── */
+
+typedef enum {
+    TRIG_BISS_ROLE_TAP_MONITOR  = 0,  /* 只监听 CLK/DATA, 不驱动 DATA */
+    TRIG_BISS_ROLE_SLAVE_TX     = 1,  /* RX_PULSE -> 等主站 clock polling 时 TX_BISS */
+    TRIG_BISS_ROLE_MASTER_RX    = 2,  /* 主动 clock, RX_BISS -> TX_PULSE */
+    TRIG_BISS_ROLE_BRIDGE_PROXY = 3,  /* 显式代理桥, 后续允许转发/改写 */
+} trig_biss_role_t;
 
 /* ── 脉冲计数解码模式 ── */
 
@@ -65,6 +80,8 @@ typedef enum {
     TRIG_STATE_ENC_CONFIGURED,
     TRIG_STATE_ENC_ARMED,
     TRIG_STATE_FAULT,
+    TRIG_STATE_BISS_CONFIGURED,
+    TRIG_STATE_BISS_ARMED,
 } trig_state_t;
 
 /* ── 触发事件 ── */
@@ -105,6 +122,18 @@ typedef enum {
     TRIG_EVENT_SET_PCNT_CMP,           /* 比较器配置 */
     TRIG_EVENT_SET_PCNT_PRESET,        /* 预设计数值 */
     TRIG_EVENT_PCNT_CLEAR,             /* 清零计数 */
+    /* BiSS-C 收发一体三通桥事件 */
+    TRIG_EVENT_CONFIGURE_BISS,          /* 使用当前 BiSS 配置进入 BISS_CONFIGURED */
+    TRIG_EVENT_SET_BISS_ROLE,           /* TAP/SLAVE/MASTER/BRIDGE */
+    TRIG_EVENT_SET_BISS_DEVICE,         /* 产品/底板设备 id */
+    TRIG_EVENT_SET_BISS_CLOCK,          /* BiSS clock Hz */
+    TRIG_EVENT_SET_BISS_FRAME_BITS,     /* 固定帧位宽 */
+    TRIG_EVENT_SET_BISS_POSITION_BITS,  /* position/event_count 位宽 */
+    TRIG_EVENT_SET_BISS_TARGET,         /* 位置/事件触发阈值 */
+    TRIG_EVENT_BISS_PULSE_IN,           /* 软件注入: 本地脉冲输入已锁存 */
+    TRIG_EVENT_BISS_FRAME_RX,           /* 软件注入: 收到远端帧 position/event_count */
+    TRIG_EVENT_BISS_CRC_ERROR,          /* CRC 错误计数 */
+    TRIG_EVENT_BISS_TIMEOUT,            /* 帧/轮询超时计数 */
     TRIG_EVENT_RUNTIME_SAMPLE,         /* AO 管理面运行态采样, 不来自 PIO/DMA IRQ */
 } trig_event_type_t;
 
@@ -150,6 +179,32 @@ typedef struct {
     uint32_t         enc_a_pin;        /* A/UP 相 GPIO (默认 16) */
     uint32_t         enc_b_pin;        /* B/DOWN 相 GPIO (默认 17) */
     uint32_t         enc_z_pin;        /* Z 相 GPIO (默认 19, 0=禁用) */
+
+    /* 协议触发 / BiSS-C 节点配置与计数器
+     * P0 固定复用 AUX0..AUX3 作为 BiSS-C 逻辑线，不改底层硬件定义：
+     * AUX0=CLK_IN, AUX1=DATA_IN, AUX2=CLK_OUT, AUX3=DATA_OUT。
+     * 本地脉冲输入/输出继续使用主触发口 TRIG_IN/TRIG_OUT。 */
+    trig_protocol_t  protocol;
+    trig_biss_role_t biss_role;
+    uint32_t         biss_device_id;          /* 产品/底板设备 profile id */
+    uint32_t         biss_clock_hz;
+    uint32_t         biss_frame_bits;
+    uint32_t         biss_position_bits;
+    uint32_t         biss_target;
+    uint32_t         biss_last_position;
+    uint32_t         biss_last_seq;
+    uint32_t         biss_pulse_in_count;
+    uint32_t         biss_pulse_out_count;
+    uint32_t         biss_tx_frame_count;
+    uint32_t         biss_rx_frame_count;
+    uint32_t         biss_crc_error_count;
+    uint32_t         biss_timeout_count;
+    uint32_t         biss_clk_in_pin;
+    uint32_t         biss_data_in_pin;
+    uint32_t         biss_clk_out_pin;
+    uint32_t         biss_data_out_pin;
+    uint32_t         biss_pulse_in_pin;
+    uint32_t         biss_pulse_out_pin;
 
     /* 运行态 (HAOFV: TriggerFB ECC 写, PIO/DMA 硬件更新 seq_index) */
     trig_state_t  state;
