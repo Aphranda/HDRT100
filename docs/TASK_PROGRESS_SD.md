@@ -45,9 +45,50 @@
 
 ## 当前目标
 
-P0A/P0B 横向收口已完成好卡闭环：FILE_INFO、FILE_READ、CATALOG_PAGE、MANIFEST_SCAN、SNAPSHOT_WRITE、FAULT_EVIDENCE job 均已完成代码闭环、烧录和板端验证，`MMEM:CAT?` 第 0 页分页包装与 SD UI 的 manifest/System Pack/evidence/error 摘要显示可用。下一步按优先级进入 P0C 剩余 HAOFV 观测项，补齐 trigger edge/missed edge、gate、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout 的管理面观测；Trigger/PIO/DMA 硬实时面不得新增 SD、FatFs、日志、trace 写入或非确定性操作。
+P0A/P0B 横向收口已完成好卡闭环；P0C 已新增 TriggerAO 管理面 `runtime_sample` 观测，并通过 SD fault trace 读回解码验证。下一步继续按 HAOFV 补齐 DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout 等剩余观测；Trigger/PIO/DMA 硬实时面不得新增 SD、FatFs、日志、trace 写入或非确定性操作。
 
 ## 任务记录
+
+### SD-TASK-20260706-025 - P0C Trigger runtime_sample 管理面观测闭环
+
+- 状态：完成
+- 日期：2026-07-06
+- 任务目标：
+  - 在不触碰 PIO/DMA/IRQ hot path 的前提下，为 TriggerAO 增加 ARM 后运行态管理面采样事件。
+  - 让 fault trace 可同时看到 `trigger.runtime_sample` 与 `sync_io.seq_runtime`，便于关联 Trigger 配置、状态和底层 PIO/DMA 摘要。
+  - 更新离线解码器和板端验证脚本，使新增观测进入闭环验证。
+- 完成内容：
+  - `trigger_vector.h` 新增 `TRIG_EVENT_RUNTIME_SAMPLE`，作为 AO 管理面运行态采样事件，明确不来自 PIO/DMA IRQ。
+  - `trigger_fb.c` 新增 runtime sample 处理入口，复用 SEQ/ENC armed service 刷新 vector 摘要。
+  - `sync_trigger.c` 新增 trace event `trigger.runtime_sample`：ARM 成功时记录一次 state/edge/gate 与进度摘要；后续管理面轮询仅在进度、rollover、ENC Z 或错误变化时记录，避免刷满 trace ring。
+  - `sync_trigger_service()` 空闲 ARM 态采样由 `TRIG_EVENT_DMA_ROLLOVER` 改为 `TRIG_EVENT_RUNTIME_SAMPLE`，避免把普通管理面采样误标为 DMA rollover。
+  - `sd_trace_decode.py` 增加 `trigger.runtime_sample` 事件名和字段解码。
+  - `sd_board_validate.py` 将 `trigger.runtime_sample` 加入 fault trace 解码必需事件。
+- 验证结果：
+  - `python -m py_compile tools\sd_trace_decode\sd_trace_decode.py tools\sd_board_validate\sd_board_validate.py tools\cmake_build_auto\cmake_build_auto.py` 通过。
+  - `cmake --build build-sd-goodcard` 通过，build id：`20260706140400`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`release_check=OK`。
+  - 已单独烧录 `build-sd-goodcard\RP2350_TRIG_FACTORY.uf2`；验证脚本未执行烧录。
+  - 执行 `python tools\sd_board_validate\sd_board_validate.py COM4 --out-dir build-sd-goodcard\sd_validation_runtime_sample_goodcard_final`，结果 `PASS`。
+  - `SYST:FW:BUILD? -> "20260706140400"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",27,"/traces/fault/fault_000027.bin",2049940397,42,0`
+  - `PAGE:SYST:STOR:JOB? -> "DONE",30,"CATALOG_PAGE","/traces/fault",2,"CATALOG",1962968327,0`
+  - `READ:SYST:STOR:JOB? -> "DONE",38,"FILE_READ","/traces/fault/fault_000027.idx",17,"READ",1583248467,0`
+  - `trace_readback\decoded_fault_trace.json` 校验通过，事件数 `42`；解码事件包含 `sync_io.seq_runtime` 和 `trigger.runtime_sample`。
+- 还需完成：
+  - 继续补齐 DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout 等剩余观测。
+  - 所有后续观测仍必须使用管理面采样、状态锁存或 DISARM/FAULT 后处理，不得在 PIO/DMA/IRQ hot path 写 trace/log/SD。
+- 关联文件：
+  - `components/sync_trigger/inc/trigger_vector.h`
+  - `components/sync_trigger/src/trigger_fb.c`
+  - `components/sync_trigger/src/sync_trigger.c`
+  - `tools/sd_trace_decode/sd_trace_decode.py`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 按优先级继续 P0C：先补 DMA restart/overflow 与 PIO state 的管理面/后处理观测，再扩展 A0-A3 timeout、READY/REDY、resource timeout。
 
 ### SD-TASK-20260706-024 - 好卡 FILE_READ/CATALOG_PAGE 板端闭环
 

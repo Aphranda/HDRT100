@@ -828,7 +828,8 @@ tools/rp2350_tk_toolbox.py
 - [x] 增加 Trigger 资源/底层 I/O 失败 trace 事件名：resource busy、I/O arm failed、I/O lost。
 - [x] 记录 SyncIO 管理面事件：init、capture drop、pulse FIFO full、clock、SEQ/ENC arm/disarm/fail。
 - [x] 记录 SyncIO 管理面 runtime 采样：SEQ/ENC ARM 成功后输出 PIO enabled、DMA busy、DMA IRQ enabled、TX FIFO 和 transfer count 摘要。
-- [ ] 按 HAOFV 约束补齐 trigger edge/missed edge、gate、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout：不得在 PIO/DMA/IRQ hot path 写 trace/log/SD，必须使用管理面采样、状态锁存或 DISARM/FAULT 后处理。
+- [x] 按 HAOFV 约束补齐 TriggerAO 管理面 `runtime_sample`：ARM 成功时记录 state/edge/gate 与进度摘要，后续只在进度、rollover、ENC Z 或错误变化时记录；不进入 PIO/DMA/IRQ hot path。
+- [ ] 按 HAOFV 约束补齐 DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout：不得在 PIO/DMA/IRQ hot path 写 trace/log/SD，必须使用管理面采样、状态锁存或 DISARM/FAULT 后处理。
 - [x] DISARM/FAULT 后写 `/traces/*/*.bin` 和 `.idx`。
 - [x] 生成 `/reports/fault/pulse_fault_XXXXXX.json`。
 - [x] 增加查询：`SYST:TRAC:LAST?`、`SYST:FAULT:LAST?`。
@@ -905,15 +906,15 @@ tools/rp2350_tk_toolbox.py
 本节只保存最新一次 SD 闭环验证摘要；历史验证记录写入 `docs/TASK_PROGRESS_SD.md`。
 
 - 日期：2026-07-06
-- 任务记录：`SD-TASK-20260706-024`
+- 任务记录：`SD-TASK-20260706-025`
 - 构建目录：`build-sd-goodcard`
-- build id：`20260706135037`
+- build id：`20260706140400`
 - 烧录固件：`build-sd-goodcard\RP2350_TRIG_FACTORY.uf2`
-- 验证目录：`build-sd-goodcard\sd_validation_file_read_catalog_goodcard`
+- 验证目录：`build-sd-goodcard\sd_validation_runtime_sample_goodcard_final`
 - 验证结果：`PASS`
 - 构建与 release gate：
-  - `python -m py_compile tools\cmake_build_auto\cmake_build_auto.py tools\rp2350_tk_toolbox.py tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py tools\sd_raw_clear\sd_raw_clear.py tools\sd_mkfs\sd_mkfs.py` 通过。
-  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-goodcard` 通过。
+  - `python -m py_compile tools\sd_trace_decode\sd_trace_decode.py tools\sd_board_validate\sd_board_validate.py tools\cmake_build_auto\cmake_build_auto.py` 通过。
+  - `cmake --build build-sd-goodcard` 通过。
   - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`release_check=OK`。
   - 已单独烧录 UF2；`sd_board_validate.py` 只做 SCPI 板端验证，不负责烧录。
 - SD 基础查询：
@@ -931,30 +932,30 @@ tools/rp2350_tk_toolbox.py
   - `SYST:STOR:JOB:INFO "/manifest.idx" -> "OK",11`
   - `SYST:STOR:JOB? -> "DONE",11,"FILE_INFO","/manifest.idx",592,"FILE",3822083274,0`
   - `SYST:SNAP:WRIT "boot" -> "OK"`
-  - `SNAP:SYST:STOR:JOB? -> "DONE",12,"SNAPSHOT_WRITE","/snapshots/boot/boot_000054.json",54,"SNAPSHOT",3023034069,0`
-  - `ARM:SYST:STOR:JOB? -> "DONE",14,"SNAPSHOT_WRITE","/snapshots/arm/arm_000027.json",27,"SNAPSHOT",2066097569,0`
-  - `FAULT:SYST:STOR:JOB? -> "DONE",16,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000024.json",24,"FAULT_EVIDENCE",2490089130,0`
-  - `PAGE:SYST:STOR:JOB? -> "DONE",29,"CATALOG_PAGE","/traces/fault",2,"CATALOG",1962968327,0`
-  - `READ:SYST:STOR:JOB? -> "DONE",37,"FILE_READ","/traces/fault/fault_000025.idx",17,"READ",53071225,0`
+  - `SNAP:SYST:STOR:JOB? -> "DONE",12,"SNAPSHOT_WRITE","/snapshots/boot/boot_000058.json",58,"SNAPSHOT",2528692015,0`
+  - `ARM:SYST:STOR:JOB? -> "DONE",14,"SNAPSHOT_WRITE","/snapshots/arm/arm_000029.json",29,"SNAPSHOT",3137737441,0`
+  - `FAULT:SYST:STOR:JOB? -> "DONE",17,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000026.json",26,"FAULT_EVIDENCE",1745620374,0`
+  - `PAGE:SYST:STOR:JOB? -> "DONE",30,"CATALOG_PAGE","/traces/fault",2,"CATALOG",1962968327,0`
+  - `READ:SYST:STOR:JOB? -> "DONE",38,"FILE_READ","/traces/fault/fault_000027.idx",17,"READ",1583248467,0`
 - MMEM 目录兼容验证：
   - `MMEM:CAT?` 已包装为第 0 页兼容诊断输出。
   - `MMEM:CAT? "/snapshots/boot"` 在长目录下保持不完整输出信号，可靠枚举使用 `MMEM:CAT:PAGE?`。
-  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",48,4 -> "OK","/traces/fault",48,2,0,1,0,"fault_000025.bin,692,FILE;fault_000025.idx,145,FILE;"`
+  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",52,4 -> "OK","/traces/fault",52,2,0,1,0,"fault_000027.bin,708,FILE;fault_000027.idx,145,FILE;"`
 - Snapshot / trace / report：
-  - `AUTO:SYST:SNAP:LAST? -> "OK","boot",53,"/snapshots/boot/boot_000053.json",3841002822,0`
-  - `SYST:SNAP:LAST? -> "OK","boot",54,"/snapshots/boot/boot_000054.json",3023034069,0`
-  - `ARM:SYST:SNAP:LAST? -> "OK","arm",27,"/snapshots/arm/arm_000027.json",2066097569,0`
-  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",26,"/snapshots/fault/fault_000026.json",2452973852,0`
-  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",25,"/traces/fault/fault_000025.bin",1752507587,41,0`
-  - `FAULT:SYST:FAULT:LAST? -> "OK",24,"/reports/fault/pulse_fault_000024.json",2490089130,26,25,0`
+  - `AUTO:SYST:SNAP:LAST? -> "OK","boot",57,"/snapshots/boot/boot_000057.json",2999736544,0`
+  - `SYST:SNAP:LAST? -> "OK","boot",58,"/snapshots/boot/boot_000058.json",2528692015,0`
+  - `ARM:SYST:SNAP:LAST? -> "OK","arm",29,"/snapshots/arm/arm_000029.json",3137737441,0`
+  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",28,"/snapshots/fault/fault_000028.json",1868619967,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",27,"/traces/fault/fault_000027.bin",2049940397,42,0`
+  - `FAULT:SYST:FAULT:LAST? -> "OK",26,"/reports/fault/pulse_fault_000026.json",1745620374,28,27,0`
 - Trace 读回与解码：
-  - `.bin` 通过 `MMEM:READ?` 读回 `692/692` 字节。
+  - `.bin` 通过 `MMEM:READ?` 读回 `708/708` 字节。
   - `.idx` 通过 `MMEM:READ?` 读回 `145/145` 字节。
   - `trace_readback\decoded_fault_trace.json`：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`。
-  - 解码事件数 `41` 与 `SYST:TRAC:LAST?` 一致，包含 `sync_io.seq_runtime`。
+  - 解码事件数 `42` 与 `SYST:TRAC:LAST?` 一致，包含 `sync_io.seq_runtime` 和 `trigger.runtime_sample`。
 - HAOFV 实时性确认：
   - SD UI 只读取 `StorageVector` 摘要，未在 UI 路径新增 SD/FatFs/trace/log 调用。
-  - runtime trace 只在 ARM 成功后的管理面路径记录。
+  - runtime trace 只在 ARM 成功后的管理面路径记录；后续采样仅在进度、rollover、ENC Z 或错误变化时追加。
   - PIO/DMA/IRQ hot path 未加入 SD、FatFs、日志或 trace 写入。
 
 ## 22. 架构边界
