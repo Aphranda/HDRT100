@@ -56,6 +56,7 @@ EVENT_NAMES = {
     (2, 40): "trigger.resource_busy",
     (2, 41): "trigger.io_arm_failed",
     (2, 42): "trigger.io_lost",
+    (2, 43): "trigger.runtime_sample",
     (2, 100): "trigger.scpi_fault",
     (3, 10): "sync_io.init_ok",
     (3, 11): "sync_io.init_fail",
@@ -123,6 +124,7 @@ TRIGGER_EVENT_NAMES = {
     29: "SET_PCNT_CMP",
     30: "SET_PCNT_PRESET",
     31: "PCNT_CLEAR",
+    32: "RUNTIME_SAMPLE",
 }
 
 
@@ -238,6 +240,16 @@ def decode_event_details(record: dict[str, Any]) -> dict[str, Any]:
         details["before_state_name"] = TRIGGER_STATE_NAMES.get(arg0, "UNKNOWN")
         details["after_state"] = arg1
         details["after_state_name"] = TRIGGER_STATE_NAMES.get(arg1, "UNKNOWN")
+
+    if domain == 2 and event_id == 43:
+        state = arg0 & 0xFF
+        edge = (arg0 >> 8) & 0xFF
+        details["state"] = state
+        details["state_name"] = TRIGGER_STATE_NAMES.get(state, "UNKNOWN")
+        details["edge"] = edge
+        details["gate_enabled"] = bool(arg0 & (1 << 16))
+        details["seq_index_low16"] = (arg1 >> 16) & 0xFFFF
+        details["trigger_count_low16"] = arg1 & 0xFFFF
 
     if domain == 3 and event_id in (55, 64):
         details.update(decode_runtime_flags(arg0))

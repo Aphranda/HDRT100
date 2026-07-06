@@ -166,6 +166,16 @@ computers or drive letters, remove or reconfigure `build/`, `build-validation/`,
 and `build-debug/` before building, because `CMakeCache.txt` stores absolute
 source, SDK, and toolchain paths.
 
+For drive-letter switches such as `D:` and `E:`, the project helper can do this
+check automatically. It compares `CMakeCache.txt` against the current workspace,
+cleans only stale CMake metadata inside the selected build directory, then
+configures and builds with the requested preset:
+
+```powershell
+python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build
+python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-verify
+```
+
 Release gate check after building:
 
 ```powershell

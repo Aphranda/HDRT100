@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "fatfs_port.h"
 #include "sd_card.h"
 
 typedef enum {
@@ -34,6 +35,8 @@ typedef enum {
 typedef enum {
     STORAGE_MANAGER_JOB_TYPE_NONE = 0,
     STORAGE_MANAGER_JOB_TYPE_FILE_INFO,
+    STORAGE_MANAGER_JOB_TYPE_FILE_READ,
+    STORAGE_MANAGER_JOB_TYPE_CATALOG_PAGE,
     STORAGE_MANAGER_JOB_TYPE_SNAPSHOT_WRITE,
     STORAGE_MANAGER_JOB_TYPE_MANIFEST_SCAN,
     STORAGE_MANAGER_JOB_TYPE_FAULT_EVIDENCE,
@@ -147,7 +150,28 @@ bool storage_manager_read_file_range(const char *path,
                                      size_t buffer_size,
                                      storage_manager_file_read_t *read_info);
 bool storage_manager_scan_manifest(void);
+bool storage_manager_raw_clear_prefix(uint32_t sector_count,
+                                      uint32_t *cleared_count,
+                                      sd_card_status_t *raw_status);
+bool storage_manager_raw_read_sector(uint32_t sector, uint8_t *buffer, size_t buffer_size, sd_card_status_t *raw_status);
+bool storage_manager_format_volume(fatfs_port_status_t *format_status);
 bool storage_manager_post_file_info_job(const char *path, uint32_t *job_id);
+bool storage_manager_post_file_read_job(const char *path,
+                                        uint32_t offset,
+                                        uint32_t length,
+                                        uint32_t *job_id);
+bool storage_manager_get_file_read_job_result(uint32_t job_id,
+                                              storage_manager_file_read_t *read_info,
+                                              uint8_t *buffer,
+                                              size_t buffer_size);
+bool storage_manager_post_catalog_page_job(const char *path,
+                                           uint32_t offset,
+                                           uint32_t limit,
+                                           uint32_t *job_id);
+bool storage_manager_get_catalog_page_job_result(uint32_t job_id,
+                                                 storage_manager_catalog_page_t *page,
+                                                 char *buffer,
+                                                 size_t buffer_size);
 bool storage_manager_post_snapshot_job(const char *kind, uint32_t *job_id);
 bool storage_manager_post_manifest_scan_job(uint32_t *job_id);
 bool storage_manager_post_fault_evidence_job(uint32_t *job_id);

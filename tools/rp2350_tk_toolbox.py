@@ -422,7 +422,17 @@ class ToolboxApp:
             self.sd_dir_var.set(path)
 
     def build_release(self) -> None:
-        self.run_command("build", ["cmake", "--build", "--preset", "pico2-release"])
+        self.run_command(
+            "build",
+            [
+                PYTHON,
+                "tools/cmake_build_auto/cmake_build_auto.py",
+                "--preset",
+                "pico2-release",
+                "--build-dir",
+                self.build_dir_var.get(),
+            ],
+        )
 
     def release_check(self) -> None:
         self.run_command(

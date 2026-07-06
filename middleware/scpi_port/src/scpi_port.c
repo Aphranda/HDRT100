@@ -1084,6 +1084,89 @@ static scpi_result_t scpi_cmd_storage_info_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static scpi_result_t scpi_cmd_storage_raw_clear(scpi_t *context)
+{
+    uint32_t sector_count = 0u;
+    const char *confirm = NULL;
+    size_t confirm_len = 0u;
+    if (SCPI_ParamUInt32(context, &sector_count, TRUE) != TRUE ||
+        SCPI_ParamCharacters(context, &confirm, &confirm_len, TRUE) != TRUE ||
+        confirm == NULL ||
+        confirm_len != 5u ||
+        strncmp(confirm, "ERASE", 5u) != 0) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t cleared_count = 0u;
+    sd_card_status_t raw_status = SD_CARD_STATUS_BAD_RESPONSE;
+    const bool ok = storage_manager_raw_clear_prefix(sector_count, &cleared_count, &raw_status);
+    storage_manager_vector_t vector;
+    storage_manager_get_vector(&vector);
+
+    SCPI_ResultText(context, ok ? "OK" : "ERROR");
+    SCPI_ResultUInt32(context, sector_count);
+    SCPI_ResultUInt32(context, cleared_count);
+    SCPI_ResultText(context, sd_card_status_string(raw_status));
+    SCPI_ResultUInt32(context, vector.storage_error);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_storage_raw_read_q(scpi_t *context)
+{
+    uint32_t sector = 0u;
+    if (SCPI_ParamUInt32(context, &sector, TRUE) != TRUE) {
+        return SCPI_RES_ERR;
+    }
+
+    uint8_t data[512];
+    sd_card_status_t raw_status = SD_CARD_STATUS_BAD_RESPONSE;
+    const bool ok = storage_manager_raw_read_sector(sector, data, sizeof(data), &raw_status);
+    char hex[129];
+    if (ok) {
+        for (size_t i = 0u; i < 64u; i++) {
+            (void)snprintf(hex + (i * 2u), sizeof(hex) - (i * 2u), "%02X", data[i]);
+        }
+    } else {
+        hex[0] = '\0';
+    }
+
+    storage_manager_vector_t vector;
+    storage_manager_get_vector(&vector);
+    SCPI_ResultText(context, ok ? "OK" : "ERROR");
+    SCPI_ResultUInt32(context, sector);
+    SCPI_ResultText(context, sd_card_status_string(raw_status));
+    SCPI_ResultUInt32(context, vector.storage_error);
+    SCPI_ResultText(context, hex);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_storage_mkfs(scpi_t *context)
+{
+    const char *confirm = NULL;
+    size_t confirm_len = 0u;
+    if (SCPI_ParamCharacters(context, &confirm, &confirm_len, TRUE) != TRUE ||
+        confirm == NULL ||
+        confirm_len != 5u ||
+        strncmp(confirm, "ERASE", 5u) != 0) {
+        return SCPI_RES_ERR;
+    }
+
+    fatfs_port_status_t format_status = FATFS_PORT_STATUS_FORMAT_FAILED;
+    const bool ok = storage_manager_format_volume(&format_status);
+    storage_manager_vector_t vector;
+    storage_manager_get_vector(&vector);
+
+    SCPI_ResultText(context, ok ? "OK" : "ERROR");
+    SCPI_ResultText(context, fatfs_port_status_string(format_status));
+    SCPI_ResultText(context, storage_manager_state_string(vector.state));
+    SCPI_ResultUInt32(context, vector.storage_error);
+    SCPI_ResultUInt32(context, vector.block_count);
+    SCPI_ResultUInt32(context, vector.capacity_kib);
+    SCPI_ResultUInt32(context, fatfs_port_last_mkfs_result());
+    SCPI_ResultUInt32(context, fatfs_port_last_mount_result());
+    return SCPI_RES_OK;
+}
+
 static scpi_result_t scpi_cmd_storage_manifest_q(scpi_t *context)
 {
     uint32_t job_id = 0u;
@@ -1142,7 +1225,11 @@ static scpi_result_t scpi_cmd_storage_job_q(scpi_t *context)
     storage_manager_job_result_t job;
     storage_manager_get_job_result(&job);
     const char *kind = job.is_dir ? "DIR" : "FILE";
-    if (job.type == STORAGE_MANAGER_JOB_TYPE_SNAPSHOT_WRITE) {
+    if (job.type == STORAGE_MANAGER_JOB_TYPE_FILE_READ) {
+        kind = "READ";
+    } else if (job.type == STORAGE_MANAGER_JOB_TYPE_CATALOG_PAGE) {
+        kind = "CATALOG";
+    } else if (job.type == STORAGE_MANAGER_JOB_TYPE_SNAPSHOT_WRITE) {
         kind = "SNAPSHOT";
     } else if (job.type == STORAGE_MANAGER_JOB_TYPE_MANIFEST_SCAN) {
         kind = "MANIFEST";
@@ -1269,12 +1356,23 @@ static scpi_result_t scpi_cmd_mmem_catalog_q(scpi_t *context)
 
     char catalog[384];
     storage_manager_catalog_page_t page;
-    const bool ok = storage_manager_catalog_page(path_buffer,
-                                                 0u,
-                                                 SCPI_PORT_MMEM_PAGE_LIMIT_MAX,
-                                                 catalog,
-                                                 sizeof(catalog),
-                                                 &page);
+    uint32_t job_id = 0u;
+    bool ok = storage_manager_post_catalog_page_job(path_buffer,
+                                                    0u,
+                                                    SCPI_PORT_MMEM_PAGE_LIMIT_MAX,
+                                                    &job_id);
+    if (ok) {
+        ok = scpi_port_wait_storage_job(job_id);
+    }
+    if (ok) {
+        ok = storage_manager_get_catalog_page_job_result(job_id,
+                                                         &page,
+                                                         catalog,
+                                                         sizeof(catalog));
+    } else {
+        memset(&page, 0, sizeof(page));
+        catalog[0] = '\0';
+    }
     if (ok && !page.complete) {
         const size_t catalog_len = strlen(catalog);
         if (catalog_len > 0u && catalog[catalog_len - 1u] == ';') {
@@ -1283,6 +1381,9 @@ static scpi_result_t scpi_cmd_mmem_catalog_q(scpi_t *context)
     }
     storage_manager_vector_t vector;
     storage_manager_get_vector(&vector);
+    if (!ok && vector.state == STORAGE_MANAGER_STATE_PATH_DENIED) {
+        (void)snprintf(catalog, sizeof(catalog), "PATH_DENIED");
+    }
     SCPI_ResultText(context, ok ? "OK" : storage_manager_state_string(vector.state));
     SCPI_ResultText(context, catalog);
     return SCPI_RES_OK;
@@ -1342,14 +1443,28 @@ static scpi_result_t scpi_cmd_mmem_catalog_page_q(scpi_t *context)
 
     char catalog[384];
     storage_manager_catalog_page_t page;
-    const bool ok = storage_manager_catalog_page(path_buffer,
-                                                 offset,
-                                                 limit,
-                                                 catalog,
-                                                 sizeof(catalog),
-                                                 &page);
+    uint32_t job_id = 0u;
+    bool ok = storage_manager_post_catalog_page_job(path_buffer,
+                                                    offset,
+                                                    limit,
+                                                    &job_id);
+    if (ok) {
+        ok = scpi_port_wait_storage_job(job_id);
+    }
+    if (ok) {
+        ok = storage_manager_get_catalog_page_job_result(job_id,
+                                                         &page,
+                                                         catalog,
+                                                         sizeof(catalog));
+    } else {
+        memset(&page, 0, sizeof(page));
+        catalog[0] = '\0';
+    }
     storage_manager_vector_t vector;
     storage_manager_get_vector(&vector);
+    if (!ok && vector.state == STORAGE_MANAGER_STATE_PATH_DENIED) {
+        (void)snprintf(catalog, sizeof(catalog), "PATH_DENIED");
+    }
 
     SCPI_ResultText(context, ok ? "OK" : storage_manager_state_string(vector.state));
     SCPI_ResultText(context, ok ? page.path : path_buffer);
@@ -1405,11 +1520,19 @@ static scpi_result_t scpi_cmd_mmem_read_q(scpi_t *context)
     uint8_t data[SCPI_PORT_MMEM_READ_BYTES_MAX];
     char hex[(SCPI_PORT_MMEM_READ_BYTES_MAX * 2u) + 1u];
     storage_manager_file_read_t read_info;
-    const bool ok = storage_manager_read_file_range(path_buffer,
-                                                    offset,
-                                                    data,
-                                                    length,
-                                                    &read_info);
+    uint32_t job_id = 0u;
+    bool ok = storage_manager_post_file_read_job(path_buffer, offset, length, &job_id);
+    if (ok) {
+        ok = scpi_port_wait_storage_job(job_id);
+    }
+    if (ok) {
+        ok = storage_manager_get_file_read_job_result(job_id,
+                                                      &read_info,
+                                                      data,
+                                                      sizeof(data));
+    } else {
+        memset(&read_info, 0, sizeof(read_info));
+    }
     storage_manager_vector_t vector;
     storage_manager_get_vector(&vector);
     const uint32_t returned = ok ? read_info.returned : 0u;
@@ -1599,6 +1722,9 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:OTA:CAPability?", .callback = scpi_cmd_ota_capability_q},
     {.pattern = "SYSTem:SD:STATus?", .callback = scpi_cmd_storage_status_q},
     {.pattern = "SYSTem:SD:INFO?", .callback = scpi_cmd_storage_info_q},
+    {.pattern = "SYSTem:SD:RAW:CLEar", .callback = scpi_cmd_storage_raw_clear},
+    {.pattern = "SYSTem:SD:RAW:READ?", .callback = scpi_cmd_storage_raw_read_q},
+    {.pattern = "SYSTem:SD:MKFS", .callback = scpi_cmd_storage_mkfs},
     {.pattern = "SYSTem:SD:MANifest?", .callback = scpi_cmd_storage_manifest_q},
     {.pattern = "SYSTem:STORage:JOB:INFO", .callback = scpi_cmd_storage_job_info},
     {.pattern = "SYSTem:STORage:JOB?", .callback = scpi_cmd_storage_job_q},

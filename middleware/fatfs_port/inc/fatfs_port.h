@@ -13,6 +13,7 @@ typedef enum {
     FATFS_PORT_STATUS_READ_FAILED,
     FATFS_PORT_STATUS_WRITE_FAILED,
     FATFS_PORT_STATUS_RENAME_FAILED,
+    FATFS_PORT_STATUS_FORMAT_FAILED,
 } fatfs_port_status_t;
 
 typedef struct {
@@ -49,6 +50,9 @@ fatfs_port_status_t fatfs_port_read_binary_range(const char *path,
                                                  size_t *bytes_read,
                                                  uint32_t *file_size);
 fatfs_port_status_t fatfs_port_make_directory(const char *path);
+fatfs_port_status_t fatfs_port_format_volume(void);
+uint32_t fatfs_port_last_mkfs_result(void);
+uint32_t fatfs_port_last_mount_result(void);
 fatfs_port_status_t fatfs_port_write_text_file_atomic(const char *final_path,
                                                       const char *tmp_path,
                                                       const char *text);

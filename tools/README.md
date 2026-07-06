@@ -19,6 +19,11 @@ Get-Content -Path tools\README.md -Encoding UTF8
 - `release_check/release_check.py`: release gate. It verifies release preset
   safety switches, required artifacts, and absence of OTA fault-injection
   command strings in release artifacts.
+- `cmake_build_auto/cmake_build_auto.py`: CMake configure/build wrapper for
+  drive-letter moves. It checks `CMakeCache.txt`; if the cached source/build
+  path points at another workspace location such as `D:` versus `E:`, it removes
+  only stale CMake metadata in that build directory and reconfigures from the
+  selected preset before building.
 - `ota_board_validate/ota_board_validate.py`: one-command board validation
   runner. It runs `release_check`, optionally flashes the factory UF2, queries
   baseline SCPI state, sends a positive OTA package, triggers `BOOT/COMM`, runs
@@ -37,10 +42,10 @@ Get-Content -Path tools\README.md -Encoding UTF8
 - `sd_board_validate/sd_board_validate.py`: board-side SD validation over SCPI.
   It does not flash firmware; it checks `SYST:SD:*`, `SYST:STOR:*`, root and
   key directory catalogs, path-denial behavior, boot/arm/fault snapshot
-  behavior, StorageAO `MANIFEST_SCAN`, `FILE_INFO`, `SNAPSHOT_WRITE`, and
-  `FAULT_EVIDENCE` job completion, fault trace `.bin/.idx`, fault report
-  behavior, and reads back the latest fault trace via `MMEM:READ?` for decoder
-  checks. The decoded trace must include
+  behavior, StorageAO `MANIFEST_SCAN`, `FILE_INFO`, `FILE_READ`,
+  `CATALOG_PAGE`, `SNAPSHOT_WRITE`, and `FAULT_EVIDENCE` job completion, fault
+  trace `.bin/.idx`, fault report behavior, and reads back the latest fault
+  trace via `MMEM:READ?` for decoder checks. The decoded trace must include
   management-plane trigger configuration events and `sync_io.seq_runtime`;
   flashing remains a separate picotool/script step. The tool writes
   `summary.*`, `queries.txt`, and `trace_readback\` under
@@ -50,6 +55,13 @@ Get-Content -Path tools\README.md -Encoding UTF8
   emits JSON or CSV with decoded domain/event/severity names and details such
   as trigger state transitions, source/edge/gate/safe configuration changes,
   SyncIO runtime flags, rollover progress, and trace file CRC checks.
+- `sd_raw_clear/sd_raw_clear.py`: destructive SD recovery helper. It sends
+  `SYST:SD:RAW:CLEAR <sectors>,"ERASE"` over SCPI after `--yes`, clearing the
+  first 1..64 sectors so a host can recreate the partition/FAT metadata.
+- `sd_mkfs/sd_mkfs.py`: destructive SD format helper. It sends
+  `SYST:SD:MKFS "ERASE"` over SCPI after `--yes`, asking Pico to create a
+  FAT/FAT32 filesystem on the inserted SD card, then reads raw sector 0 for
+  write verification. It never formats or deletes a host PC drive.
 - `ota_bin_info/ota_bin_info.py`: prints raw `.bin` size, CRC32, and
   `SYST:OTA:BEGIN` parameters for bench work.
 - `uf2_join/uf2_join.py`: generates the first-time factory UF2 from Bootloader,
@@ -71,6 +83,14 @@ Build SD-card contents after a release build:
 
 ```powershell
 python tools\sd_fs_build\sd_fs_build.py --build-dir build --output-dir build\sdcard --clean
+```
+
+Build with automatic CMake cache repair when switching the workspace between
+drive letters:
+
+```powershell
+python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build
+python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-verify
 ```
 
 Copy the contents of `build\sdcard\` to the root of a FAT32 SD card. The

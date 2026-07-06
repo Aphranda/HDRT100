@@ -800,9 +800,13 @@ tools/rp2350_tk_toolbox.py
 - [x] 增加 `MMEM:CAT:PAGE? "<path>",offset,limit`，返回 `next_offset/complete/truncated`，避免长目录一次性输出截断。
 - [x] 增加 `MMEM:READ? "<path>",offset,length` 受限文件片段读取，复用白名单路径策略，用于板端验证读回 trace `.bin/.idx`。
 - [x] 增加 StorageAO `FILE_INFO` job 最小闭环：`SYST:STOR:JOB:INFO "<path>"` 投递，`SYST:STOR:JOB?` 查询结果，FatFs 查询在 `storage_manager_service()` 中执行。
+- [x] 将 `MMEM:READ?` 迁移为 StorageAO `FILE_READ` job，旧返回字段保持兼容，`SYST:STOR:JOB?` 可验证 `DONE/FILE_READ/READ/error=0`。
 - [x] 将 `SYST:SD:MAN?` 迁移为 StorageAO `MANIFEST_SCAN` job，旧 manifest 摘要字段保持兼容，`SYST:STOR:JOB?` 可验证 `DONE/MANIFEST_SCAN/MANIFEST/error=0`。
 - [x] 将 `MMEM:CAT?` 旧接口迁移为分页包装兼容诊断接口：内部只返回 `MMEM:CAT:PAGE?` 第 0 页最多 16 项；可靠长目录枚举必须使用分页命令。
-- [ ] 将目录枚举/readback 进一步收敛为 StorageAO job 或小预算分片，避免长期停留在同步路径。
+- [x] 将 `MMEM:CAT:PAGE?` 和 `MMEM:CAT?` 迁移为 StorageAO `CATALOG_PAGE` job，旧返回字段保持兼容，`SYST:STOR:JOB?` 可验证 `DONE/CATALOG_PAGE/CATALOG/error=0`。
+- [x] 增加 Pico 侧维护格式化入口 `SYST:SD:MKFS "ERASE"` 和 raw sector 读回诊断 `SYST:SD:RAW:READ?`，用于原始卡/主机不识别卡绕过 PC 侧格式化。
+- [ ] 使用已知可写 SD 卡复验 Pico 侧 MKFS；当前异常卡 `f_mkfs` 返回成功但 sector 0 读回仍全 0，判断为介质写入不落盘，不能作为 SD System Pack 闭环介质。
+- [x] 在有效 FAT32 SD 卡上完成 `FILE_READ + CATALOG_PAGE` 板端闭环复验：build id `20260706135037`，验证目录 `build-sd-goodcard\sd_validation_file_read_catalog_goodcard`，`READ:SYST:STOR:JOB?` 与 `PAGE:SYST:STOR:JOB?` 均为 `DONE/.../error=0`。
 - [x] SD UI 显示 manifest/pack 状态、默认 OTA 包存在性和 SD 错误摘要。
 
 ### P0B - Vector 快照
@@ -900,16 +904,17 @@ tools/rp2350_tk_toolbox.py
 
 本节只保存最新一次 SD 闭环验证摘要；历史验证记录写入 `docs/TASK_PROGRESS_SD.md`。
 
-- 日期：2026-07-04
-- 任务记录：`SD-TASK-20260704-019`
-- 构建目录：`build-sd-verify`
-- build id：`20260704111900`
-- 烧录固件：`build-sd-verify\RP2350_TRIG_FACTORY.uf2`
-- 验证目录：`build-sd-verify\sd_validation_sd_ui_summary_final`
+- 日期：2026-07-06
+- 任务记录：`SD-TASK-20260706-024`
+- 构建目录：`build-sd-goodcard`
+- build id：`20260706135037`
+- 烧录固件：`build-sd-goodcard\RP2350_TRIG_FACTORY.uf2`
+- 验证目录：`build-sd-goodcard\sd_validation_file_read_catalog_goodcard`
 - 验证结果：`PASS`
 - 构建与 release gate：
-  - `cmake --build build-sd-verify` 通过。
-  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - `python -m py_compile tools\cmake_build_auto\cmake_build_auto.py tools\rp2350_tk_toolbox.py tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py tools\sd_raw_clear\sd_raw_clear.py tools\sd_mkfs\sd_mkfs.py` 通过。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-goodcard` 通过。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`release_check=OK`。
   - 已单独烧录 UF2；`sd_board_validate.py` 只做 SCPI 板端验证，不负责烧录。
 - SD 基础查询：
   - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
@@ -923,23 +928,25 @@ tools/rp2350_tk_toolbox.py
   - `MMEM:READ? "/../",0,16 -> "PATH_DENIED","/../",0,16,0,0,0,5,""`
 - StorageAO job 验证：
   - `MAN:SYST:STOR:JOB? -> "DONE",1,"MANIFEST_SCAN","/manifest.idx",4,"MANIFEST",3822083274,0`
-  - `SYST:STOR:JOB:INFO "/manifest.idx" -> "OK",2`
-  - `SYST:STOR:JOB? -> "DONE",2,"FILE_INFO","/manifest.idx",592,"FILE",3822083274,0`
+  - `SYST:STOR:JOB:INFO "/manifest.idx" -> "OK",11`
+  - `SYST:STOR:JOB? -> "DONE",11,"FILE_INFO","/manifest.idx",592,"FILE",3822083274,0`
   - `SYST:SNAP:WRIT "boot" -> "OK"`
-  - `SNAP:SYST:STOR:JOB? -> "DONE",3,"SNAPSHOT_WRITE","/snapshots/boot/boot_000051.json",51,"SNAPSHOT",3411723520,0`
-  - `ARM:SYST:STOR:JOB? -> "DONE",4,"SNAPSHOT_WRITE","/snapshots/arm/arm_000026.json",26,"SNAPSHOT",4226853552,0`
-  - `FAULT:SYST:STOR:JOB? -> "DONE",5,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000023.json",23,"FAULT_EVIDENCE",3669567201,0`
+  - `SNAP:SYST:STOR:JOB? -> "DONE",12,"SNAPSHOT_WRITE","/snapshots/boot/boot_000054.json",54,"SNAPSHOT",3023034069,0`
+  - `ARM:SYST:STOR:JOB? -> "DONE",14,"SNAPSHOT_WRITE","/snapshots/arm/arm_000027.json",27,"SNAPSHOT",2066097569,0`
+  - `FAULT:SYST:STOR:JOB? -> "DONE",16,"FAULT_EVIDENCE","/reports/fault/pulse_fault_000024.json",24,"FAULT_EVIDENCE",2490089130,0`
+  - `PAGE:SYST:STOR:JOB? -> "DONE",29,"CATALOG_PAGE","/traces/fault",2,"CATALOG",1962968327,0`
+  - `READ:SYST:STOR:JOB? -> "DONE",37,"FILE_READ","/traces/fault/fault_000025.idx",17,"READ",53071225,0`
 - MMEM 目录兼容验证：
   - `MMEM:CAT?` 已包装为第 0 页兼容诊断输出。
   - `MMEM:CAT? "/snapshots/boot"` 在长目录下保持不完整输出信号，可靠枚举使用 `MMEM:CAT:PAGE?`。
-  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",44,4 -> "OK","/traces/fault",44,4,0,1,0,"fault_000023.bin,692,FILE;fault_000023.idx,145,FILE;fault_000024.bin,692,FILE;fault_000024.idx,145,FILE;"`
+  - `PAGE:MMEM:CAT:PAGE? "/traces/fault",48,4 -> "OK","/traces/fault",48,2,0,1,0,"fault_000025.bin,692,FILE;fault_000025.idx,145,FILE;"`
 - Snapshot / trace / report：
-  - `AUTO:SYST:SNAP:LAST? -> "OK","boot",50,"/snapshots/boot/boot_000050.json",3527075825,0`
-  - `SYST:SNAP:LAST? -> "OK","boot",51,"/snapshots/boot/boot_000051.json",3411723520,0`
-  - `ARM:SYST:SNAP:LAST? -> "OK","arm",26,"/snapshots/arm/arm_000026.json",4226853552,0`
-  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",25,"/snapshots/fault/fault_000025.json",278314619,0`
-  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",24,"/traces/fault/fault_000024.bin",1191542912,41,0`
-  - `FAULT:SYST:FAULT:LAST? -> "OK",23,"/reports/fault/pulse_fault_000023.json",3669567201,25,24,0`
+  - `AUTO:SYST:SNAP:LAST? -> "OK","boot",53,"/snapshots/boot/boot_000053.json",3841002822,0`
+  - `SYST:SNAP:LAST? -> "OK","boot",54,"/snapshots/boot/boot_000054.json",3023034069,0`
+  - `ARM:SYST:SNAP:LAST? -> "OK","arm",27,"/snapshots/arm/arm_000027.json",2066097569,0`
+  - `FAULT:SYST:SNAP:LAST? -> "OK","fault",26,"/snapshots/fault/fault_000026.json",2452973852,0`
+  - `FAULT:SYST:TRAC:LAST? -> "OK","fault",25,"/traces/fault/fault_000025.bin",1752507587,41,0`
+  - `FAULT:SYST:FAULT:LAST? -> "OK",24,"/reports/fault/pulse_fault_000024.json",2490089130,26,25,0`
 - Trace 读回与解码：
   - `.bin` 通过 `MMEM:READ?` 读回 `692/692` 字节。
   - `.idx` 通过 `MMEM:READ?` 读回 `145/145` 字节。

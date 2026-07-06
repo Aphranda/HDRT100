@@ -53,6 +53,7 @@ set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_buil
 set(PROJECT_OTA_METADATA_SIZE 0x010000)
 set(PROJECT_FREERTOS_KERNEL_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/freertos/FreeRTOS-Kernel CACHE PATH "FreeRTOS-Kernel source directory")
 set(PROJECT_FATFS_SOURCE_DIR ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source CACHE PATH "FatFs source directory")
+set(PROJECT_FATFS_CONFIGURED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/fatfs)
 set(PROJECT_OSAL_SOURCES osal/port/baremetal/osal_baremetal.c)
 set(PROJECT_APP_EXTRA_LIBS)
 
@@ -92,6 +93,19 @@ add_custom_target(project_build_info
         VERBATIM
 )
 
+file(MAKE_DIRECTORY ${PROJECT_FATFS_CONFIGURED_DIR})
+foreach(PROJECT_FATFS_SOURCE_FILE ff.c ffsystem.c ffunicode.c ff.h diskio.h)
+    configure_file(${PROJECT_FATFS_SOURCE_DIR}/${PROJECT_FATFS_SOURCE_FILE}
+                   ${PROJECT_FATFS_CONFIGURED_DIR}/${PROJECT_FATFS_SOURCE_FILE}
+                   COPYONLY)
+endforeach()
+file(READ ${PROJECT_FATFS_SOURCE_DIR}/ffconf.h PROJECT_FATFS_CONFIG_TEXT)
+string(REPLACE "#define FF_USE_MKFS\t\t0"
+               "#define FF_USE_MKFS\t\t1"
+               PROJECT_FATFS_CONFIG_TEXT
+               "${PROJECT_FATFS_CONFIG_TEXT}")
+file(WRITE ${PROJECT_FATFS_CONFIGURED_DIR}/ffconf.h "${PROJECT_FATFS_CONFIG_TEXT}")
+
 set(PROJECT_APP_SOURCES
         application/src/main.c
         application/src/app.c
@@ -127,9 +141,9 @@ set(PROJECT_APP_SOURCES
         drivers/external/sd_card/src/sd_card.c
         middleware/fatfs_port/src/fatfs_port.c
         middleware/fatfs_port/src/fatfs_diskio.c
-        ${PROJECT_FATFS_SOURCE_DIR}/ff.c
-        ${PROJECT_FATFS_SOURCE_DIR}/ffsystem.c
-        ${PROJECT_FATFS_SOURCE_DIR}/ffunicode.c
+        ${PROJECT_FATFS_CONFIGURED_DIR}/ff.c
+        ${PROJECT_FATFS_CONFIGURED_DIR}/ffsystem.c
+        ${PROJECT_FATFS_CONFIGURED_DIR}/ffunicode.c
         middleware/scpi_port/src/scpi_port.c
         middleware/u8g2_port/src/u8g2_port.c
         third_party/scpi-parser/libscpi/src/error.c
@@ -208,7 +222,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/drivers/external/lcd/inc
         ${CMAKE_CURRENT_LIST_DIR}/drivers/external/sd_card/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/fatfs_port/inc
-        ${PROJECT_FATFS_SOURCE_DIR}
+        ${PROJECT_FATFS_CONFIGURED_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/scpi_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/u8g2_port/inc

@@ -34,6 +34,7 @@ typedef enum {
     TRIG_TRACE_EVENT_RESOURCE_BUSY  = 40u,
     TRIG_TRACE_EVENT_IO_ARM_FAILED  = 41u,
     TRIG_TRACE_EVENT_IO_LOST        = 42u,
+    TRIG_TRACE_EVENT_RUNTIME_SAMPLE = 43u,
 } trig_trace_event_id_t;
 
 typedef struct {
@@ -187,6 +188,7 @@ static void ao_trace_after_execute(const trig_event_t *event,
                                  TRIG_TRACE_SEVERITY_INFO;
 
     if (event->type != TRIG_EVENT_DMA_ROLLOVER &&
+        event->type != TRIG_EVENT_RUNTIME_SAMPLE &&
         event->type != TRIG_EVENT_ENC_Z_PULSE) {
         storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
                                     TRIG_TRACE_EVENT_EXECUTE,
@@ -217,6 +219,26 @@ static void ao_trace_after_execute(const trig_event_t *event,
     ao_trace_config_changes(event, before);
     ao_trace_error_details(event, before);
 
+    if ((event->type == TRIG_EVENT_ARM ||
+         event->type == TRIG_EVENT_RUNTIME_SAMPLE) &&
+        (s_ao.vector.state == TRIG_STATE_SEQ_ARMED ||
+         s_ao.vector.state == TRIG_STATE_ENC_ARMED) &&
+        (event->type == TRIG_EVENT_ARM ||
+         progress_changed || rollover_changed || enc_z_changed || error_changed)) {
+        const uint32_t state_edge_gate =
+            ((uint32_t)s_ao.vector.state & 0xFFu) |
+            (((uint32_t)s_ao.vector.edge & 0xFFu) << 8) |
+            (s_ao.vector.gate_enabled ? (1u << 16) : 0u);
+        const uint32_t progress =
+            ((s_ao.vector.seq_index & 0xFFFFu) << 16) |
+            (s_ao.vector.trigger_count & 0xFFFFu);
+        storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
+                                    TRIG_TRACE_EVENT_RUNTIME_SAMPLE,
+                                    severity,
+                                    state_edge_gate,
+                                    progress);
+    }
+
     if (event->type == TRIG_EVENT_DMA_ROLLOVER && rollover_changed) {
         storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
                                     TRIG_TRACE_EVENT_DMA_ROLLOVER,
@@ -240,6 +262,7 @@ static void ao_trace_after_execute(const trig_event_t *event,
         !progress_changed &&
         !config_changed &&
         event->type != TRIG_EVENT_DMA_ROLLOVER &&
+        event->type != TRIG_EVENT_RUNTIME_SAMPLE &&
         event->type != TRIG_EVENT_ENC_Z_PULSE) {
         storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
                                     TRIG_TRACE_EVENT_EVENT_IGNORED,
@@ -369,7 +392,7 @@ void sync_trigger_service(void)
             s_ao.vector.state == TRIG_STATE_ENC_ARMED) {
             trig_event_t svc_event;
             memset(&svc_event, 0, sizeof(svc_event));
-            svc_event.type = TRIG_EVENT_DMA_ROLLOVER;
+            svc_event.type = TRIG_EVENT_RUNTIME_SAMPLE;
             ao_execute_traced(&svc_event);
         }
 

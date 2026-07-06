@@ -26,6 +26,9 @@
 #define STORAGE_MANAGER_MANIFEST_MAX_LINE 160u
 #define STORAGE_MANAGER_SNAPSHOT_MAX_BYTES 768u
 #define STORAGE_MANAGER_FAULT_REPORT_MAX_BYTES 1024u
+#define STORAGE_MANAGER_FILE_READ_MAX_BYTES 128u
+#define STORAGE_MANAGER_CATALOG_PAGE_MAX_BYTES 384u
+#define STORAGE_MANAGER_RAW_CLEAR_MAX_SECTORS 64u
 #define STORAGE_MANAGER_BOOT_SNAPSHOT_DELAY_MS 500u
 #define STORAGE_MANAGER_TRACE_RING_COUNT 64u
 #define STORAGE_MANAGER_TRACE_MAGIC 0x43525452u
@@ -59,6 +62,13 @@ typedef struct __attribute__((packed)) {
 typedef struct {
     storage_manager_job_result_t result;
     char argument[16];
+    uint32_t offset;
+    uint32_t length;
+    uint32_t limit;
+    storage_manager_file_read_t read_info;
+    storage_manager_catalog_page_t catalog_page;
+    uint8_t read_buffer[STORAGE_MANAGER_FILE_READ_MAX_BYTES];
+    char catalog_buffer[STORAGE_MANAGER_CATALOG_PAGE_MAX_BYTES];
 } storage_manager_job_t;
 
 static storage_manager_vector_t s_storage_vector;
@@ -733,6 +743,215 @@ bool storage_manager_read_file_range(const char *path,
     return true;
 }
 
+bool storage_manager_raw_clear_prefix(uint32_t sector_count,
+                                      uint32_t *cleared_count,
+                                      sd_card_status_t *raw_status)
+{
+    if (cleared_count != NULL) {
+        *cleared_count = 0u;
+    }
+    if (raw_status != NULL) {
+        *raw_status = SD_CARD_STATUS_BAD_RESPONSE;
+    }
+    if (sector_count == 0u || sector_count > STORAGE_MANAGER_RAW_CLEAR_MAX_SECTORS) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_PATH;
+        return false;
+    }
+
+    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                  RESOURCE_ARBITER_RESOURCE_SD)) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+        return false;
+    }
+
+    const sd_card_config_t config = {
+        .spi = BOARD_SD_SPI_PORT,
+        .sck_pin = BOARD_SD_SPI_CLK_PIN,
+        .mosi_pin = BOARD_SD_SPI_MOSI_PIN,
+        .miso_pin = BOARD_SD_SPI_MISO_PIN,
+        .cs_pin = BOARD_SD_SPI_CS_PIN,
+        .init_baud_hz = STORAGE_MANAGER_SD_INIT_BAUD_HZ,
+        .run_baud_hz = STORAGE_MANAGER_SD_RUN_BAUD_HZ,
+    };
+
+    sd_card_info_t info;
+    sd_card_status_t status = SD_CARD_STATUS_NOT_INITIALIZED;
+    if (sd_card_init(&config)) {
+        status = sd_card_probe(&info);
+    } else {
+        memset(&info, 0, sizeof(info));
+        status = SD_CARD_STATUS_NOT_INITIALIZED;
+    }
+
+    s_storage_vector.card_status = status;
+    s_storage_vector.card_present = info.present;
+    s_storage_vector.card_type = info.type;
+    s_storage_vector.high_capacity = info.high_capacity;
+    s_storage_vector.block_count = info.block_count;
+    s_storage_vector.capacity_kib = info.capacity_kib;
+    s_storage_vector.probe_count++;
+    s_storage_vector.last_probe_ms = storage_now_ms();
+
+    if (status == SD_CARD_STATUS_OK && info.present) {
+        uint8_t zero_sector[512];
+        memset(zero_sector, 0, sizeof(zero_sector));
+        for (uint32_t sector = 0u; sector < sector_count; sector++) {
+            status = sd_card_write_blocks(sector, 1u, zero_sector);
+            if (status != SD_CARD_STATUS_OK) {
+                break;
+            }
+            if (cleared_count != NULL) {
+                *cleared_count = sector + 1u;
+            }
+        }
+    }
+
+    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                             RESOURCE_ARBITER_RESOURCE_SD);
+
+    if (raw_status != NULL) {
+        *raw_status = status;
+    }
+    s_storage_vector.fs_mounted = false;
+    s_storage_vector.state = status == SD_CARD_STATUS_OK ?
+                                 STORAGE_MANAGER_STATE_NO_FILESYSTEM :
+                                 STORAGE_MANAGER_STATE_FAILED;
+    s_storage_vector.storage_error = status == SD_CARD_STATUS_OK ?
+                                         STORAGE_MANAGER_ERROR_NONE :
+                                         STORAGE_MANAGER_ERROR_CARD;
+    storage_reset_manifest_summary(STORAGE_MANAGER_MANIFEST_UNKNOWN);
+    return status == SD_CARD_STATUS_OK;
+}
+
+bool storage_manager_raw_read_sector(uint32_t sector,
+                                     uint8_t *buffer,
+                                     size_t buffer_size,
+                                     sd_card_status_t *raw_status)
+{
+    if (raw_status != NULL) {
+        *raw_status = SD_CARD_STATUS_BAD_RESPONSE;
+    }
+    if (buffer == NULL || buffer_size < 512u) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_PATH;
+        return false;
+    }
+
+    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                  RESOURCE_ARBITER_RESOURCE_SD)) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+        return false;
+    }
+
+    const sd_card_config_t config = {
+        .spi = BOARD_SD_SPI_PORT,
+        .sck_pin = BOARD_SD_SPI_CLK_PIN,
+        .mosi_pin = BOARD_SD_SPI_MOSI_PIN,
+        .miso_pin = BOARD_SD_SPI_MISO_PIN,
+        .cs_pin = BOARD_SD_SPI_CS_PIN,
+        .init_baud_hz = STORAGE_MANAGER_SD_INIT_BAUD_HZ,
+        .run_baud_hz = STORAGE_MANAGER_SD_RUN_BAUD_HZ,
+    };
+
+    sd_card_info_t info;
+    sd_card_status_t status = SD_CARD_STATUS_NOT_INITIALIZED;
+    if (sd_card_init(&config)) {
+        status = sd_card_probe(&info);
+    } else {
+        memset(&info, 0, sizeof(info));
+    }
+
+    s_storage_vector.card_status = status;
+    s_storage_vector.card_present = info.present;
+    s_storage_vector.card_type = info.type;
+    s_storage_vector.high_capacity = info.high_capacity;
+    s_storage_vector.block_count = info.block_count;
+    s_storage_vector.capacity_kib = info.capacity_kib;
+    s_storage_vector.probe_count++;
+    s_storage_vector.last_probe_ms = storage_now_ms();
+
+    if (status == SD_CARD_STATUS_OK && info.present) {
+        status = sd_card_read_blocks(sector, 1u, buffer);
+    }
+
+    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                             RESOURCE_ARBITER_RESOURCE_SD);
+
+    if (raw_status != NULL) {
+        *raw_status = status;
+    }
+    s_storage_vector.storage_error = status == SD_CARD_STATUS_OK ?
+                                         STORAGE_MANAGER_ERROR_NONE :
+                                         STORAGE_MANAGER_ERROR_CARD;
+    return status == SD_CARD_STATUS_OK;
+}
+
+bool storage_manager_format_volume(fatfs_port_status_t *format_status)
+{
+    if (format_status != NULL) {
+        *format_status = FATFS_PORT_STATUS_FORMAT_FAILED;
+    }
+
+    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                  RESOURCE_ARBITER_RESOURCE_SD)) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+        return false;
+    }
+
+    const sd_card_config_t config = {
+        .spi = BOARD_SD_SPI_PORT,
+        .sck_pin = BOARD_SD_SPI_CLK_PIN,
+        .mosi_pin = BOARD_SD_SPI_MOSI_PIN,
+        .miso_pin = BOARD_SD_SPI_MISO_PIN,
+        .cs_pin = BOARD_SD_SPI_CS_PIN,
+        .init_baud_hz = STORAGE_MANAGER_SD_INIT_BAUD_HZ,
+        .run_baud_hz = STORAGE_MANAGER_SD_RUN_BAUD_HZ,
+    };
+
+    sd_card_info_t info;
+    sd_card_status_t card_status = SD_CARD_STATUS_NOT_INITIALIZED;
+    if (sd_card_init(&config)) {
+        card_status = sd_card_probe(&info);
+    } else {
+        memset(&info, 0, sizeof(info));
+    }
+
+    s_storage_vector.card_status = card_status;
+    s_storage_vector.card_present = info.present;
+    s_storage_vector.card_type = info.type;
+    s_storage_vector.high_capacity = info.high_capacity;
+    s_storage_vector.block_count = info.block_count;
+    s_storage_vector.capacity_kib = info.capacity_kib;
+    s_storage_vector.fatfs_available = fatfs_port_is_available();
+    s_storage_vector.probe_count++;
+    s_storage_vector.last_probe_ms = storage_now_ms();
+
+    fatfs_port_status_t status = FATFS_PORT_STATUS_FORMAT_FAILED;
+    if (card_status == SD_CARD_STATUS_OK && info.present && s_storage_vector.fatfs_available) {
+        status = fatfs_port_format_volume();
+    }
+
+    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                             RESOURCE_ARBITER_RESOURCE_SD);
+
+    if (format_status != NULL) {
+        *format_status = status;
+    }
+
+    s_storage_vector.fs_mounted = status == FATFS_PORT_STATUS_OK;
+    if (card_status != SD_CARD_STATUS_OK || !info.present) {
+        s_storage_vector.state = STORAGE_MANAGER_STATE_FAILED;
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_CARD;
+    } else if (status == FATFS_PORT_STATUS_OK) {
+        s_storage_vector.state = STORAGE_MANAGER_STATE_CARD_READY;
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_NONE;
+    } else {
+        s_storage_vector.state = STORAGE_MANAGER_STATE_NO_FILESYSTEM;
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
+    }
+    storage_reset_manifest_summary(STORAGE_MANAGER_MANIFEST_UNKNOWN);
+    return status == FATFS_PORT_STATUS_OK;
+}
+
 bool storage_manager_post_file_info_job(const char *path, uint32_t *job_id)
 {
     if (storage_job_is_active()) {
@@ -774,6 +993,179 @@ bool storage_manager_post_file_info_job(const char *path, uint32_t *job_id)
     if (job_id != NULL) {
         *job_id = s_storage_job.result.id;
     }
+    return true;
+}
+
+bool storage_manager_post_file_read_job(const char *path,
+                                        uint32_t offset,
+                                        uint32_t length,
+                                        uint32_t *job_id)
+{
+    if (storage_job_is_active()) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+        return false;
+    }
+
+    memset(&s_storage_job, 0, sizeof(s_storage_job));
+    s_storage_job.result.id = s_next_job_id++;
+    if (s_next_job_id == 0u) {
+        s_next_job_id = 1u;
+    }
+    s_storage_job.result.type = STORAGE_MANAGER_JOB_TYPE_FILE_READ;
+    s_storage_job.offset = offset;
+    s_storage_job.length = length > STORAGE_MANAGER_FILE_READ_MAX_BYTES ?
+                               STORAGE_MANAGER_FILE_READ_MAX_BYTES :
+                               length;
+
+    if (s_storage_job.length == 0u) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_PATH;
+        s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
+        s_storage_job.result.error = STORAGE_MANAGER_ERROR_PATH;
+        storage_copy_field(s_storage_job.result.path,
+                           sizeof(s_storage_job.result.path),
+                           path != NULL ? path : "");
+        s_storage_job.result.path_hash = storage_hash_path(s_storage_job.result.path);
+        storage_publish_job_result();
+        if (job_id != NULL) {
+            *job_id = s_storage_job.result.id;
+        }
+        return true;
+    }
+
+    char normalized_path[STORAGE_MANAGER_MAX_PATH_LEN + 1u];
+    if (!storage_normalize_path(path, normalized_path, sizeof(normalized_path))) {
+        s_storage_vector.state = STORAGE_MANAGER_STATE_PATH_DENIED;
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_PATH_DENIED;
+        s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
+        s_storage_job.result.error = STORAGE_MANAGER_ERROR_PATH_DENIED;
+        storage_copy_field(s_storage_job.result.path,
+                           sizeof(s_storage_job.result.path),
+                           path != NULL ? path : "");
+        s_storage_job.result.path_hash = storage_hash_path(s_storage_job.result.path);
+        storage_publish_job_result();
+        if (job_id != NULL) {
+            *job_id = s_storage_job.result.id;
+        }
+        return true;
+    }
+
+    s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_QUEUED;
+    s_storage_job.result.error = STORAGE_MANAGER_ERROR_NONE;
+    storage_copy_field(s_storage_job.result.path,
+                       sizeof(s_storage_job.result.path),
+                       normalized_path);
+    s_storage_job.result.path_hash = storage_hash_path(normalized_path);
+    storage_publish_job_result();
+    if (job_id != NULL) {
+        *job_id = s_storage_job.result.id;
+    }
+    return true;
+}
+
+bool storage_manager_get_file_read_job_result(uint32_t job_id,
+                                              storage_manager_file_read_t *read_info,
+                                              uint8_t *buffer,
+                                              size_t buffer_size)
+{
+    if (read_info == NULL ||
+        s_storage_job.result.id != job_id ||
+        s_storage_job.result.type != STORAGE_MANAGER_JOB_TYPE_FILE_READ ||
+        s_storage_job.result.state != STORAGE_MANAGER_JOB_STATE_DONE) {
+        return false;
+    }
+
+    *read_info = s_storage_job.read_info;
+    if (buffer != NULL && buffer_size > 0u && s_storage_job.read_info.returned > 0u) {
+        const size_t copy_size = s_storage_job.read_info.returned < buffer_size ?
+                                     (size_t)s_storage_job.read_info.returned :
+                                     buffer_size;
+        memcpy(buffer, s_storage_job.read_buffer, copy_size);
+    }
+    return true;
+}
+
+bool storage_manager_post_catalog_page_job(const char *path,
+                                           uint32_t offset,
+                                           uint32_t limit,
+                                           uint32_t *job_id)
+{
+    if (storage_job_is_active()) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+        return false;
+    }
+
+    memset(&s_storage_job, 0, sizeof(s_storage_job));
+    s_storage_job.result.id = s_next_job_id++;
+    if (s_next_job_id == 0u) {
+        s_next_job_id = 1u;
+    }
+    s_storage_job.result.type = STORAGE_MANAGER_JOB_TYPE_CATALOG_PAGE;
+    s_storage_job.offset = offset;
+    s_storage_job.limit = limit;
+
+    if (limit == 0u) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_PATH;
+        s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
+        s_storage_job.result.error = STORAGE_MANAGER_ERROR_PATH;
+        storage_copy_field(s_storage_job.result.path,
+                           sizeof(s_storage_job.result.path),
+                           path != NULL ? path : "");
+        s_storage_job.result.path_hash = storage_hash_path(s_storage_job.result.path);
+        storage_publish_job_result();
+        if (job_id != NULL) {
+            *job_id = s_storage_job.result.id;
+        }
+        return true;
+    }
+
+    char normalized_path[STORAGE_MANAGER_MAX_PATH_LEN + 1u];
+    if (!storage_normalize_path(path, normalized_path, sizeof(normalized_path))) {
+        s_storage_vector.state = STORAGE_MANAGER_STATE_PATH_DENIED;
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_PATH_DENIED;
+        s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
+        s_storage_job.result.error = STORAGE_MANAGER_ERROR_PATH_DENIED;
+        storage_copy_field(s_storage_job.result.path,
+                           sizeof(s_storage_job.result.path),
+                           path != NULL ? path : "");
+        s_storage_job.result.path_hash = storage_hash_path(s_storage_job.result.path);
+        storage_copy_field(s_storage_job.catalog_buffer,
+                           sizeof(s_storage_job.catalog_buffer),
+                           "PATH_DENIED");
+        storage_publish_job_result();
+        if (job_id != NULL) {
+            *job_id = s_storage_job.result.id;
+        }
+        return true;
+    }
+
+    s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_QUEUED;
+    s_storage_job.result.error = STORAGE_MANAGER_ERROR_NONE;
+    s_storage_job.result.is_dir = true;
+    storage_copy_field(s_storage_job.result.path,
+                       sizeof(s_storage_job.result.path),
+                       normalized_path);
+    s_storage_job.result.path_hash = storage_hash_path(normalized_path);
+    storage_publish_job_result();
+    if (job_id != NULL) {
+        *job_id = s_storage_job.result.id;
+    }
+    return true;
+}
+
+bool storage_manager_get_catalog_page_job_result(uint32_t job_id,
+                                                 storage_manager_catalog_page_t *page,
+                                                 char *buffer,
+                                                 size_t buffer_size)
+{
+    if (page == NULL ||
+        s_storage_job.result.id != job_id ||
+        s_storage_job.result.type != STORAGE_MANAGER_JOB_TYPE_CATALOG_PAGE ||
+        s_storage_job.result.state != STORAGE_MANAGER_JOB_STATE_DONE) {
+        return false;
+    }
+
+    *page = s_storage_job.catalog_page;
+    storage_copy_field(buffer, buffer_size, s_storage_job.catalog_buffer);
     return true;
 }
 
@@ -914,6 +1306,59 @@ static void storage_manager_service_job(void)
             s_storage_job.result.error = s_storage_vector.storage_error;
             s_storage_job.result.size = 0u;
             s_storage_job.result.is_dir = false;
+            s_storage_job.result.path_hash = storage_hash_path(s_storage_job.result.path);
+        }
+        storage_publish_job_result();
+        return;
+    }
+
+    if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_FILE_READ) {
+        const bool ok = storage_manager_read_file_range(s_storage_job.result.path,
+                                                        s_storage_job.offset,
+                                                        s_storage_job.read_buffer,
+                                                        s_storage_job.length,
+                                                        &s_storage_job.read_info);
+        if (ok) {
+            s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_DONE;
+            s_storage_job.result.error = STORAGE_MANAGER_ERROR_NONE;
+            s_storage_job.result.size = s_storage_job.read_info.returned;
+            s_storage_job.result.is_dir = false;
+            s_storage_job.result.path_hash = s_storage_job.read_info.path_hash;
+            storage_copy_field(s_storage_job.result.path,
+                               sizeof(s_storage_job.result.path),
+                               s_storage_job.read_info.path);
+        } else {
+            s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
+            s_storage_job.result.error = s_storage_vector.storage_error;
+            s_storage_job.result.size = 0u;
+            s_storage_job.result.is_dir = false;
+            s_storage_job.result.path_hash = storage_hash_path(s_storage_job.result.path);
+        }
+        storage_publish_job_result();
+        return;
+    }
+
+    if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_CATALOG_PAGE) {
+        const bool ok = storage_manager_catalog_page(s_storage_job.result.path,
+                                                     s_storage_job.offset,
+                                                     s_storage_job.limit,
+                                                     s_storage_job.catalog_buffer,
+                                                     sizeof(s_storage_job.catalog_buffer),
+                                                     &s_storage_job.catalog_page);
+        if (ok) {
+            s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_DONE;
+            s_storage_job.result.error = STORAGE_MANAGER_ERROR_NONE;
+            s_storage_job.result.size = s_storage_job.catalog_page.returned_count;
+            s_storage_job.result.is_dir = true;
+            s_storage_job.result.path_hash = s_storage_job.catalog_page.path_hash;
+            storage_copy_field(s_storage_job.result.path,
+                               sizeof(s_storage_job.result.path),
+                               s_storage_job.catalog_page.path);
+        } else {
+            s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
+            s_storage_job.result.error = s_storage_vector.storage_error;
+            s_storage_job.result.size = 0u;
+            s_storage_job.result.is_dir = true;
             s_storage_job.result.path_hash = storage_hash_path(s_storage_job.result.path);
         }
         storage_publish_job_result();
@@ -1614,6 +2059,8 @@ const char *storage_manager_job_type_string(storage_manager_job_type_t type)
     switch (type) {
     case STORAGE_MANAGER_JOB_TYPE_NONE: return "NONE";
     case STORAGE_MANAGER_JOB_TYPE_FILE_INFO: return "FILE_INFO";
+    case STORAGE_MANAGER_JOB_TYPE_FILE_READ: return "FILE_READ";
+    case STORAGE_MANAGER_JOB_TYPE_CATALOG_PAGE: return "CATALOG_PAGE";
     case STORAGE_MANAGER_JOB_TYPE_SNAPSHOT_WRITE: return "SNAPSHOT_WRITE";
     case STORAGE_MANAGER_JOB_TYPE_MANIFEST_SCAN: return "MANIFEST_SCAN";
     case STORAGE_MANAGER_JOB_TYPE_FAULT_EVIDENCE: return "FAULT_EVIDENCE";

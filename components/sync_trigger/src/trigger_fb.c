@@ -362,6 +362,20 @@ static fb_result_t fb_enc_armed_service(trigger_vector_t *vector,
     return FB_OK;
 }
 
+static fb_result_t fb_runtime_sample(trigger_vector_t *vector,
+                                      const trig_event_t *event)
+{
+    if (vector->state == TRIG_STATE_SEQ_ARMED) {
+        return fb_seq_armed_service(vector, event);
+    }
+
+    if (vector->state == TRIG_STATE_ENC_ARMED) {
+        return fb_enc_armed_service(vector, event);
+    }
+
+    return FB_IGNORED;
+}
+
 /* ── ENC_ARMED → DISARM ── */
 
 static fb_result_t fb_enc_armed_disarm(trigger_vector_t *vector,
@@ -458,6 +472,7 @@ static const ecc_entry_t s_ecc_table[] = {
     /* SEQ_ARMED */
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_DISARM,           fb_seq_armed_disarm },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_DMA_ROLLOVER,     fb_seq_armed_service },
+    { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_RUNTIME_SAMPLE,   fb_runtime_sample },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_CONFIGURE_SEQ,    fb_seq_armed_reject },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_SET_TRIGGER_WIDTH, fb_seq_armed_reject },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FIRE_TRIGGER,     fb_seq_armed_reject },
@@ -489,6 +504,7 @@ static const ecc_entry_t s_ecc_table[] = {
     /* ENC_ARMED */
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_DISARM,           fb_enc_armed_disarm },
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_DMA_ROLLOVER,     fb_enc_armed_service },
+    { TRIG_STATE_ENC_ARMED, TRIG_EVENT_RUNTIME_SAMPLE,   fb_runtime_sample },
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_ENC_Z_PULSE,      fb_instant_cmd },
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_PCNT_CLEAR,       fb_instant_cmd },
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_SET_ENC_TARGET,   fb_instant_cmd },

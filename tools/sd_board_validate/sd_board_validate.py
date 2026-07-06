@@ -49,6 +49,8 @@ CATALOG_COMMANDS = (
 STORAGE_JOB_INFO_KEY = 'SYST:STOR:JOB:INFO "/manifest.idx"'
 STORAGE_JOB_QUERY_PREFIX = "SYST:STOR:JOB?"
 MANIFEST_JOB_QUERY_KEY = "MAN:SYST:STOR:JOB?"
+READ_JOB_QUERY_KEY = "READ:SYST:STOR:JOB?"
+CATALOG_JOB_QUERY_KEY = "PAGE:SYST:STOR:JOB?"
 
 
 def parse_args() -> argparse.Namespace:
@@ -401,6 +403,8 @@ def run_queries(port: str,
                         break
                     page_offset = next_offset
                     time.sleep(0.1)
+                results[CATALOG_JOB_QUERY_KEY] = query(ser, "SYST:STOR:JOB?", timeout_s)
+                time.sleep(0.1)
                 trace_size = file_info_size(results.get("INFO:FAULT:SYST:TRAC:LAST?", ""))
                 idx_size = file_info_size(results.get("INFO:FAULT:SYST:TRAC:IDX?", ""))
                 trace_dir = out_dir / "trace_readback"
@@ -426,6 +430,7 @@ def run_queries(port: str,
                     idx_out.parent.mkdir(parents=True, exist_ok=True)
                     idx_out.write_bytes(idx_data)
                     results["READBACK:FAULT:SYST:TRAC:IDX?"] = f"OK,{idx_path},{idx_size},{len(idx_data)},{idx_out}"
+                results[READ_JOB_QUERY_KEY] = query(ser, "SYST:STOR:JOB?", timeout_s)
             results["FAULT:SYST:FAULT:LAST?"] = query(ser, "SYST:FAULT:LAST?", timeout_s)
             time.sleep(0.1)
             fault_report_path = path_from_response(results["FAULT:SYST:FAULT:LAST?"], 2)
@@ -802,6 +807,23 @@ def main() -> int:
             expect(fault_trace_name.replace(".bin", ".idx") in paged_entries,
                    failures,
                    f"paged /traces/fault catalog missing {fault_trace_name.replace('.bin', '.idx')}")
+            catalog_job = parse_csv_response(results.get(CATALOG_JOB_QUERY_KEY, ""))
+            expect(len(catalog_job) >= 8,
+                   failures,
+                   "PAGE SYST:STOR:JOB? returned too few fields")
+            if len(catalog_job) >= 8:
+                expect(catalog_job[0] == "DONE",
+                       failures,
+                       f"catalog page job state is {catalog_job[0]!r}, expected DONE")
+                expect(catalog_job[2] == "CATALOG_PAGE",
+                       failures,
+                       f"catalog page job type is {catalog_job[2]!r}, expected CATALOG_PAGE")
+                expect(catalog_job[5] == "CATALOG",
+                       failures,
+                       f"catalog page job kind is {catalog_job[5]!r}, expected CATALOG")
+                expect(catalog_job[7] == "0",
+                       failures,
+                       f"catalog page job error is {catalog_job[7]!r}, expected 0")
             readback_bin = parse_csv_response(results.get("READBACK:FAULT:SYST:TRAC:LAST?", ""))
             readback_idx = parse_csv_response(results.get("READBACK:FAULT:SYST:TRAC:IDX?", ""))
             expect(len(readback_bin) >= 5 and readback_bin[0] == "OK",
@@ -810,6 +832,23 @@ def main() -> int:
             expect(len(readback_idx) >= 5 and readback_idx[0] == "OK",
                    failures,
                    "fault trace .idx was not read back over MMEM:READ?")
+            read_job = parse_csv_response(results.get(READ_JOB_QUERY_KEY, ""))
+            expect(len(read_job) >= 8,
+                   failures,
+                   "READ SYST:STOR:JOB? returned too few fields")
+            if len(read_job) >= 8:
+                expect(read_job[0] == "DONE",
+                       failures,
+                       f"READ job state is {read_job[0]!r}, expected DONE")
+                expect(read_job[2] == "FILE_READ",
+                       failures,
+                       f"READ job type is {read_job[2]!r}, expected FILE_READ")
+                expect(read_job[5] == "READ",
+                       failures,
+                       f"READ job kind is {read_job[5]!r}, expected READ")
+                expect(read_job[7] == "0",
+                       failures,
+                       f"READ job error is {read_job[7]!r}, expected 0")
             if len(readback_bin) >= 5 and len(readback_idx) >= 5:
                 expect(readback_bin[2] == readback_bin[3],
                        failures,
@@ -834,6 +873,7 @@ def main() -> int:
                             "trigger.edge_config",
                             "trigger.gate_config",
                             "trigger.safe_config",
+                            "trigger.runtime_sample",
                             "sync_io.seq_runtime",
                         ):
                             expect(event_name in event_names,

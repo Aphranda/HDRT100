@@ -105,6 +105,7 @@ typedef enum {
     TRIG_EVENT_SET_PCNT_CMP,           /* 比较器配置 */
     TRIG_EVENT_SET_PCNT_PRESET,        /* 预设计数值 */
     TRIG_EVENT_PCNT_CLEAR,             /* 清零计数 */
+    TRIG_EVENT_RUNTIME_SAMPLE,         /* AO 管理面运行态采样, 不来自 PIO/DMA IRQ */
 } trig_event_type_t;
 
 /* ── TriggerVector ── */

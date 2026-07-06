@@ -7,6 +7,8 @@
 
 static FATFS s_fatfs;
 static bool s_mounted;
+static FRESULT s_last_mount_result = FR_OK;
+static FRESULT s_last_mkfs_result = FR_OK;
 
 bool fatfs_port_is_available(void)
 {
@@ -20,6 +22,7 @@ fatfs_port_status_t fatfs_port_mount(void)
     }
 
     const FRESULT result = f_mount(&s_fatfs, "0:", 1);
+    s_last_mount_result = result;
     if (result != FR_OK) {
         s_mounted = false;
         return FATFS_PORT_STATUS_MOUNT_FAILED;
@@ -32,6 +35,7 @@ fatfs_port_status_t fatfs_port_mount(void)
 fatfs_port_status_t fatfs_port_unmount(void)
 {
     const FRESULT result = f_mount(NULL, "0:", 0);
+    s_last_mount_result = result;
     s_mounted = false;
     return result == FR_OK ? FATFS_PORT_STATUS_OK : FATFS_PORT_STATUS_MOUNT_FAILED;
 }
@@ -340,6 +344,38 @@ fatfs_port_status_t fatfs_port_make_directory(const char *path)
     return FATFS_PORT_STATUS_WRITE_FAILED;
 }
 
+fatfs_port_status_t fatfs_port_format_volume(void)
+{
+    uint8_t work_buffer[4096];
+    const MKFS_PARM options = {
+        .fmt = FM_FAT | FM_FAT32 | FM_SFD,
+        .n_fat = 0,
+        .align = 0,
+        .n_root = 0,
+        .au_size = 0,
+    };
+
+    (void)fatfs_port_unmount();
+
+    const FRESULT result = f_mkfs("0:", &options, work_buffer, sizeof(work_buffer));
+    s_last_mkfs_result = result;
+    if (result != FR_OK) {
+        return FATFS_PORT_STATUS_FORMAT_FAILED;
+    }
+
+    return fatfs_port_mount();
+}
+
+uint32_t fatfs_port_last_mkfs_result(void)
+{
+    return (uint32_t)s_last_mkfs_result;
+}
+
+uint32_t fatfs_port_last_mount_result(void)
+{
+    return (uint32_t)s_last_mount_result;
+}
+
 fatfs_port_status_t fatfs_port_write_text_file_atomic(const char *final_path,
                                                       const char *tmp_path,
                                                       const char *text)
@@ -515,6 +551,7 @@ const char *fatfs_port_status_string(fatfs_port_status_t status)
     case FATFS_PORT_STATUS_READ_FAILED: return "READ_FAILED";
     case FATFS_PORT_STATUS_WRITE_FAILED: return "WRITE_FAILED";
     case FATFS_PORT_STATUS_RENAME_FAILED: return "RENAME_FAILED";
+    case FATFS_PORT_STATUS_FORMAT_FAILED: return "FORMAT_FAILED";
     default: return "UNKNOWN";
     }
 }

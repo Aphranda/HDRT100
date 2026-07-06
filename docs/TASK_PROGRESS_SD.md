@@ -45,9 +45,224 @@
 
 ## 当前目标
 
-P0A/P0B 横向收口：严格按 HAOFV 边界继续将 SD 同步查询/写入迁移为 StorageAO job。当前已完成 FILE_INFO、MANIFEST_SCAN、SNAPSHOT_WRITE、FAULT_EVIDENCE job 闭环、`MMEM:CAT?` 第 0 页分页包装，以及 SD UI 的 manifest/System Pack/evidence/error 摘要显示；下一步优先评估 `MMEM:CAT:PAGE?`、`MMEM:READ?` 的 job 化或小预算分片策略。Trigger/PIO/DMA 硬实时面不得新增 SD、FatFs、日志、trace 写入或非确定性操作。
+P0A/P0B 横向收口已完成好卡闭环：FILE_INFO、FILE_READ、CATALOG_PAGE、MANIFEST_SCAN、SNAPSHOT_WRITE、FAULT_EVIDENCE job 均已完成代码闭环、烧录和板端验证，`MMEM:CAT?` 第 0 页分页包装与 SD UI 的 manifest/System Pack/evidence/error 摘要显示可用。下一步按优先级进入 P0C 剩余 HAOFV 观测项，补齐 trigger edge/missed edge、gate、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout 的管理面观测；Trigger/PIO/DMA 硬实时面不得新增 SD、FatFs、日志、trace 写入或非确定性操作。
 
 ## 任务记录
+
+### SD-TASK-20260706-024 - 好卡 FILE_READ/CATALOG_PAGE 板端闭环
+
+- 状态：完成
+- 日期：2026-07-06
+- 任务目标：
+  - 使用已知可挂载 FAT32/System Pack SD 卡，复验 `FILE_READ` 与 `CATALOG_PAGE` job 的真实板端闭环。
+  - 保持 `sd_board_validate.py` 只做 SCPI 验证和证据落盘，不负责烧录。
+  - 继续遵守 HAOFV：验证和文档更新不得向 PIO/DMA/IRQ hot path 增加 SD、FatFs、日志或 trace 写入。
+- 完成内容：
+  - 好卡插入后，旧固件非破坏性查询已确认 SD 可挂载：`SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`，根目录包含 System Pack 必需目录和 `manifest.idx/manifest.json/README.txt`。
+  - 重新使用干净构建目录 `build-sd-goodcard` 完成 release 构建，build id：`20260706135037`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`release_check=OK`。
+  - 已单独烧录 `build-sd-goodcard\RP2350_TRIG_FACTORY.uf2`；验证脚本未执行烧录。
+  - 执行 `python tools\sd_board_validate\sd_board_validate.py COM4 --out-dir build-sd-goodcard\sd_validation_file_read_catalog_goodcard`，结果 `PASS`。
+- 验证结果：
+  - `SYST:FW:BUILD? -> "20260706135037"`
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`
+  - `SYST:SD:INFO? -> "CARD_READY","SDHC_SDXC",1,62357504,31178752,1,1,1`
+  - `SYST:SD:MAN? -> "OK",1,"RP2350_TRIG","rp2350_trig","20260704044222",4,0`
+  - `MAN:SYST:STOR:JOB? -> "DONE",1,"MANIFEST_SCAN","/manifest.idx",4,"MANIFEST",3822083274,0`
+  - 负向路径保持拒绝：
+    - `MMEM:CAT? "/../" -> "PATH_DENIED","PATH_DENIED"`
+    - `MMEM:INFO? "/../" -> "PATH_DENIED","/../",0,"UNKNOWN",0,5`
+    - `MMEM:CAT:PAGE? "/../",0,4 -> "PATH_DENIED","/../",0,0,0,0,0,"PATH_DENIED"`
+    - `MMEM:READ? "/../",0,16 -> "PATH_DENIED","/../",0,16,0,0,0,5,""`
+  - `/traces/fault` 分页枚举完成后，`PAGE:SYST:STOR:JOB? -> "DONE",29,"CATALOG_PAGE","/traces/fault",2,"CATALOG",1962968327,0`。
+  - 最新 fault trace `.bin/.idx` 经 `MMEM:READ?` 分片读回，`.bin` 读回 `692/692` 字节，`.idx` 读回 `145/145` 字节。
+  - 读回后 `READ:SYST:STOR:JOB? -> "DONE",37,"FILE_READ","/traces/fault/fault_000025.idx",17,"READ",53071225,0`。
+  - `trace_readback\decoded_fault_trace.json` 校验通过：`magic_ok=true`、`schema_ok=true`、`size_ok=true`、`crc_ok=true`、`idx_ok=true`，事件数 `41`。
+- 还需完成：
+  - Pico 侧 MKFS 对“已知可写空卡”的复验仍未执行；当前好卡已有 FAT32/System Pack，未做破坏性格式化。
+  - 继续进入 P0C 剩余 HAOFV 观测项，所有新增观测必须通过管理面采样、状态锁存或 DISARM/FAULT 后处理完成。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SD_TODO.md`
+  - `docs/TASK_PROGRESS_SD.md`
+- 下一步：
+  - 优先补齐 P0C 管理面观测：trigger edge/missed edge、gate、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout。
+
+### SD-TASK-20260704-023 - Pico 侧 SD MKFS 与写入异常定位
+
+- 状态：进行中
+- 日期：2026-07-04
+- 任务目标：
+  - 让原始卡或主机不识别的 SD 卡可直接插入 Pico，由 Pico 侧执行格式化并创建文件系统。
+  - 不对主机 `C:`/`D:`/`E:` 等电脑盘符执行删除、格式化或写入恢复操作。
+  - 为当前 `NO_FS` 且主机不识别的卡补充 raw 读回诊断，判断是文件系统缺失还是卡写入异常。
+- 完成内容：
+  - 构建时复制 Pico SDK TinyUSB FatFs 到 `build-sd-verify\generated\fatfs`，只在构建副本中打开 `FF_USE_MKFS=1`，不修改 SDK 原文件。
+  - 新增 `fatfs_port_format_volume()`，通过 FatFs `f_mkfs` 创建 FAT/FAT32 文件系统，并在格式化后立即 mount。
+  - 新增 SCPI 维护命令 `SYST:SD:MKFS "ERASE"`；必须带确认字符串 `"ERASE"`，只作用于 Pico 上的 SD 卡。
+  - 新增只读诊断命令 `SYST:SD:RAW:READ? <sector>`，绕过 FatFs 读取单扇区前 64 字节。
+  - 新增 `tools/sd_mkfs/sd_mkfs.py`，要求 `--yes` 才发送格式化命令，并在格式化后自动读回 raw sector 0。
+- 验证结果：
+  - `python -m py_compile tools\sd_mkfs\sd_mkfs.py tools\sd_raw_clear\sd_raw_clear.py tools\cmake_build_auto\cmake_build_auto.py` 通过。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-verify` 多轮通过，最终 build id：`20260704153436`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`，picotool flash verify 通过，板端运行 `SYST:FW:BUILD? -> "20260704153436"`。
+  - `build-sd-verify\generated\fatfs\ffconf.h` 已确认 `FF_USE_MKFS 1`、`FF_FS_READONLY 0`。
+  - 当前卡格式化前仍为：
+    - `SYST:SD:STAT? -> "NO_FS",1,0,"OK",3`
+    - `SYST:SD:INFO? -> "NO_FS","SDHC_SDXC",1,3904512,1952256,1,0,4`
+  - 执行 `python tools\sd_mkfs\sd_mkfs.py COM5 --yes` 后：
+    - `SYST:SD:MKFS "ERASE" -> "ERROR","MOUNT_FAILED","NO_FS",6,3904512,1952256,0,13`
+    - 其中 `mkfs_result=0` 表示 FatFs 认为 `f_mkfs` 成功，`mount_result=13` 表示 mount 看到 `NO_FILESYSTEM`。
+  - Raw 读回显示格式化后扇区仍全 0：
+    - `SYST:SD:RAW:READ? 0 -> "OK",0,"OK",0,"0000...0000"`
+    - 抽查 sector `1,32,63,64,128,2048,8192` 前 64 字节同样全 0。
+  - 结论：当前卡不是单纯 `NO_FS`；更像 SD 卡/控制器写入没有真实落盘，或者写入路径被卡异常吞掉。Pico 能读容量和返回 raw read OK，但当前卡不适合作为继续 SD System Pack 闭环验证介质。
+- 还需完成：
+  - 换一张已知可写的原始/空白 SD 卡，插入 Pico 后重新执行 `tools\sd_mkfs\sd_mkfs.py COM5 --yes`。
+  - 若 `SYST:SD:MKFS` 返回 `"OK","OK","CARD_READY",0,...` 且 raw sector 0 非全 0，再继续实现/验证 Pico 侧写入 System Pack staging。
+  - 在有效文件系统恢复前，`SD-TASK-20260704-020/021/022` 仍不能标为完成。
+- 关联文件：
+  - `CMakeLists.txt`
+  - `middleware/fatfs_port/inc/fatfs_port.h`
+  - `middleware/fatfs_port/src/fatfs_port.c`
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_mkfs/sd_mkfs.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `tools/README.md`
+- 下一步：
+  - 使用可写 SD 卡复验 Pico 侧 MKFS；通过后继续补 Pico 侧 System Pack 文件写入工具链。
+
+### SD-TASK-20260704-021 - P0A CATALOG PAGE Job 收口与 SD NO_FS 复验阻断
+
+- 状态：进行中
+- 日期：2026-07-04
+- 任务目标：
+  - 在 `FILE_READ` job 后继续收口目录分页同步路径。
+  - 将 `MMEM:CAT:PAGE?` 和兼容 `MMEM:CAT?` 迁移为 StorageAO `CATALOG_PAGE` job。
+  - 更新板端验证工具，确认分页枚举后最近 job 为 `DONE/CATALOG_PAGE/CATALOG/error=0`。
+- 完成内容：
+  - `storage_manager_job_type_t` 新增 `STORAGE_MANAGER_JOB_TYPE_CATALOG_PAGE`。
+  - 新增 `storage_manager_post_catalog_page_job()` 和 `storage_manager_get_catalog_page_job_result()`；job 内部保存分页参数、分页结果和 384 字节 entries 缓冲。
+  - `storage_manager_service_job()` 新增 CATALOG_PAGE 分支，实际 FatFs 目录分页仍由既有 `storage_manager_catalog_page()` 执行，但调用上下文从 SCPI 回调迁移到 Storage service。
+  - `MMEM:CAT?` 改为投递 `CATALOG_PAGE("/",0,16)` 兼容包装；长目录不完整信号保持不变。
+  - `MMEM:CAT:PAGE?` 改为投递 `CATALOG_PAGE(path,offset,limit)`，旧返回字段保持兼容。
+  - `SYST:STOR:JOB?` 对 catalog page job 返回 type=`CATALOG_PAGE`、kind=`CATALOG`，size 字段返回本页 entries 数量。
+  - `sd_board_validate.py` 在 `/traces/fault` 分页枚举后断言最近 job 为 `DONE/CATALOG_PAGE/CATALOG/error=0`。
+  - `docs/SCPI_COMMANDS.md`、`docs/SD_TODO.md` 和 `tools/README.md` 已同步记录 `CATALOG_PAGE` job。
+- 验证结果：
+  - 已先烧录上一版 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`，build id：`20260704135435`。
+  - `sd_board_validate.py COM5 --out-dir build-sd-verify\sd_validation_file_read_job_final` 未通过，根因是 SD 文件系统未挂载：
+    - `SYST:FW:BUILD? -> "20260704135435"`
+    - `SYST:SD:STAT? -> "NO_FS",1,0,"OK",3`
+    - `SYST:SD:INFO? -> "NO_FS","SDHC_SDXC",1,3904512,1952256,1,0,4`
+    - `SYST:SD:MAN? -> "IO_ERROR",0,"","","",0,0`
+  - 应用重启后基础复验仍为 `NO_FS`：`build-sd-verify\sd_validation_file_read_job_reprobe`。
+  - 主机只枚举到 `C:` 和 `D:`，未看到可直接刷新内容的 SD 盘。
+  - 已重新生成 SD staging：`build-sd-verify\sdcard` 和 `build-sd-verify\RP2350_TRIG_SDCARD.zip`，build id：`20260704135435`。
+  - CATALOG_PAGE 代码实现后，`python -m py_compile tools\cmake_build_auto\cmake_build_auto.py tools\rp2350_tk_toolbox.py tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-verify` 通过，build id：`20260704140323`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`，板端确认 `SYST:FW:BUILD? -> "20260704140323"`。
+  - 最新板端 SD 状态仍为 `SYST:SD:STAT? -> "NO_FS",1,0,"OK",3`，`SYST:SD:INFO? -> "NO_FS","SDHC_SDXC",1,3904512,1952256,1,0,4`。
+  - 已重新生成 SD staging：`build-sd-verify\sdcard` 和 `build-sd-verify\RP2350_TRIG_SDCARD.zip`，build id：`20260704140323`。
+  - 未完成 `20260704140323` 版本的板端 CATALOG_PAGE 正向验证；当前 SD 卡 `NO_FS` 会导致该验证继续失败。
+- 还需完成：
+  - 将 FAT32 SD 卡根目录刷新为 `build-sd-verify\sdcard\` 内容，或更换为可挂载 FAT32 卡。
+  - 烧录/运行 build id `20260704140323` 后重新执行完整 `sd_board_validate.py`，确认 `READ:SYST:STOR:JOB?` 与 `PAGE:SYST:STOR:JOB?`。
+  - SD 文件系统恢复前，不应把 `SD-TASK-20260704-020/021` 标为完成。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `tools/README.md`
+- 下一步：
+  - 优先恢复 SD 卡 FAT32/System Pack 根目录并完成板端复验；之后进入 P0C 剩余观测项或 P1 Pack/Ref。
+
+### SD-TASK-20260704-022 - Pico SD 前缀扇区清除验证
+
+- 状态：进行中
+- 日期：2026-07-04
+- 任务目标：
+  - 在主机格式化软件读取 SD 卡卡死、板端仍能识别容量但 FatFs 为 `NO_FS` 的情况下，验证 Pico 是否能绕过 FatFs 清除 SD 前缀扇区。
+  - 提供受保护的维护命令和 PC 侧脚本，避免手工 SCPI 引号错误。
+- 完成内容：
+  - 新增 `storage_manager_raw_clear_prefix()`，不依赖 FatFs mount，直接通过 `sd_card_write_blocks()` 写零 SD 卡前 N 个 512B 扇区，固件限制最大 64。
+  - 新增 SCPI 维护命令 `SYST:SD:RAW:CLEAR <sectors>,"ERASE"`；必须带确认字符串 `"ERASE"`。
+  - 新增 `tools/sd_raw_clear/sd_raw_clear.py`，要求 `--yes` 才会发送破坏性清前缀命令。
+  - `docs/SCPI_COMMANDS.md` 和 `tools/README.md` 已标明该命令为破坏性维护命令。
+- 验证结果：
+  - `python -m py_compile tools\sd_raw_clear\sd_raw_clear.py` 通过。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-verify` 通过，build id：`20260704143747`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`，板端运行 `SYST:FW:BUILD? -> "20260704143747"`。
+  - 清除前：`SYST:SD:STAT? -> "NO_FS",1,0,"OK",3`，`SYST:SD:INFO? -> "NO_FS","SDHC_SDXC",1,3904512,1952256,1,0,4`。
+  - 执行：`python tools\sd_raw_clear\sd_raw_clear.py COM5 --sectors 64 --yes`。
+  - 清除结果：`SYST:SD:RAW:CLEAR 64,"ERASE" -> "OK",64,64,"OK",0`，说明 Pico 端已成功写零前 64 个扇区。
+  - 清除后板端仍为 `NO_FS`，这是预期现象；主机需要重新分区/格式化并复制 `build-sd-verify\sdcard\` 根内容。
+- 还需完成：
+  - 将 SD 卡插回主机，重新创建 FAT32 文件系统。
+  - 将 `build-sd-verify\sdcard\` 内容复制到 SD 根目录。
+  - 插回板子后重新执行完整 `sd_board_validate.py`，验证 `FILE_READ` 和 `CATALOG_PAGE` job。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/sd_raw_clear/sd_raw_clear.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `tools/README.md`
+- 下一步：
+  - 等主机端重新格式化/复制 SD 内容后继续板端 SD 闭环。
+
+### SD-TASK-20260704-020 - P0A MMEM READ Job 收口
+
+- 状态：进行中
+- 日期：2026-07-04
+- 任务目标：
+  - 将 `MMEM:READ?` 的 FatFs 小块读回从 SCPI 回调直接调用迁移为 StorageAO `FILE_READ` job。
+  - 保持旧 `MMEM:READ?` 返回字段兼容，继续支持 SD 验证工具读回 trace `.bin/.idx` 并离线解码。
+  - 让 `SYST:STOR:JOB?` 可验证最近读回 job 为 `DONE/FILE_READ/READ/error=0`。
+- 完成内容：
+  - `storage_manager_job_type_t` 新增 `STORAGE_MANAGER_JOB_TYPE_FILE_READ`。
+  - 新增 `storage_manager_post_file_read_job()` 和 `storage_manager_get_file_read_job_result()`，job 内部固定 128 字节读缓冲，路径白名单在投递时校验，FatFs 读取在 `storage_manager_service()` 中执行。
+  - `MMEM:READ?` 改为投递 `FILE_READ` job 并通过兼容等待层返回原 `status,path,offset,requested,returned,eof,path_hash,error,hex` 字段。
+  - `SYST:STOR:JOB?` 对 file read job 返回 type=`FILE_READ`、kind=`READ`，size 字段返回本次 returned 字节数。
+  - `sd_board_validate.py` 在 fault trace 读回后断言最近 job 为 `DONE/FILE_READ/READ/error=0`。
+  - 新增 `tools/cmake_build_auto/cmake_build_auto.py`，自动判断 `CMakeCache.txt` 是否指向当前工作区；D/E 盘路径切换时会清理 stale CMake 元数据并重新配置。
+  - `rp2350_tk_toolbox.py` 的 `Build Release` 改为调用自动构建脚本，GUI 选中旧构建目录时也能自动修复路径。
+  - `docs/SCPI_COMMANDS.md`、`docs/SD_TODO.md` 和 `tools/README.md` 已同步记录 `FILE_READ` job。
+- 验证结果：
+  - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - 初始 `cmake --build build-sd-verify` 失败：该目录的 CMake cache 记录旧 `E:\...` 源路径，当前工作区在 `D:\...`。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-verify --no-build` 自动识别 stale cache，清理 CMake 元数据并重新配置到当前 `D:\...` 工作区。
+  - 再次执行同一命令返回 `configure=skip cache matches current root`，确认 if 分支能识别 cache 已匹配。
+  - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-verify` 通过，build id：`20260704135435`。
+  - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
+  - 未执行 UF2 烧录和板端 SD SCPI 闭环；因此本记录保持 `进行中`。
+- 还需完成：
+  - 烧录 `build-sd-read-job\RP2350_TRIG_FACTORY.uf2` 并运行 `sd_board_validate.py`，确认 `READ:SYST:STOR:JOB? -> "DONE",...,"FILE_READ",...,"READ",...,0`。
+  - `MMEM:CAT:PAGE?` 仍是同步分页诊断接口，后续需决定迁移为 StorageAO job 或记录严格小预算边界。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/cmake_build_auto/cmake_build_auto.py`
+  - `tools/rp2350_tk_toolbox.py`
+  - `tools/sd_board_validate/sd_board_validate.py`
+  - `README.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/SD_TODO.md`
+  - `tools/README.md`
+- 下一步：
+  - 完成烧录和板端 `sd_board_validate.py` 闭环后，再处理 `MMEM:CAT:PAGE?` 的 job 化或小预算分片策略。
 
 ### SD-TASK-20260704-019 - SD UI System Pack 与 Evidence 摘要
 
