@@ -87,8 +87,8 @@ RP2350_TRIG/
 ├─ middleware/                  # Integrated middleware wrappers
 │  └─ portable_ota_port/         # Product adapter for third_party/portable_ota
 │  └─ u8g2_port/                # Project glue for U8G2
-├─ third_party/                 # Unmodified upstream third-party source
-│  └─ u8g2/                     # Upstream U8G2 source tree
+├─ third_party/                 # Unmodified upstream third-party source subsets
+│  └─ u8g2/                     # U8G2 source subset used by the firmware
 ├─ config/                      # Product configuration and feature switches
 ├─ tests/                       # Unit, integration, and HIL tests
 ├─ tools/                       # Flashing, packaging, production scripts
@@ -122,8 +122,8 @@ systems, USB classes, and bootloader clients.
 `third_party/portable_ota`. Product components should depend on this adapter
 instead of including `pota_*` headers directly.
 
-`third_party/` is reserved for unmodified upstream libraries. Project adapters
-belong in `middleware/`, `components/`, or `platform/`.
+`third_party/` is reserved for unmodified upstream libraries or source subsets.
+Project adapters belong in `middleware/`, `components/`, or `platform/`.
 
 ## Dependency Direction
 
@@ -454,8 +454,9 @@ time.
 - Add new MCU peripherals under `drivers/mcu/<peripheral>/`.
 - Add external chips under `drivers/external/<device>/`.
 - Add reusable services under `components/<component>/`.
-- Add third-party source under `third_party/<name>/` and keep local adapters
-  outside the third-party tree.
+- Add third-party source subsets under `third_party/<name>/`, keep local
+  adapters outside the third-party tree, and do not commit nested `.git`
+  metadata from upstream checkouts.
 - Add RTOS support as a new OSAL port, not by spreading RTOS APIs through
   application code.
 - Keep `DOC/` as reference material. Product firmware should not depend on files
@@ -477,8 +478,9 @@ available as the shared SPI MISO signal for the TF/SD card interface.
 The native RGB565 LCD driver is located at `drivers/external/lcd/` and currently
 targets the board's 240x135 ST7789-compatible SPI panel.
 
-U8G2 upstream source is placed under `third_party/u8g2/`. Project-specific glue
-is placed under `middleware/u8g2_port/`.
+The U8G2 source subset used by this firmware is placed under
+`third_party/u8g2/`. Project-specific glue is placed under
+`middleware/u8g2_port/`.
 
 The current UI path uses U8G2 as a monochrome composition layer and flushes the
 result through the native RGB565 ST7789 driver. The sync trigger configuration
