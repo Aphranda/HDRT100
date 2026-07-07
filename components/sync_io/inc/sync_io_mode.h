@@ -2,6 +2,7 @@
 #define SYNC_IO_MODE_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef enum {
@@ -35,5 +36,8 @@ typedef struct {
     bool (*is_running)(void);
 } sync_io_mode_ops_t;
 
-#endif
+const sync_io_mode_ops_t *sync_io_mode_get_ops(sync_io_mode_id_t id);
+const sync_io_mode_ops_t *sync_io_mode_get_by_index(size_t index);
+size_t sync_io_mode_count(void);
 
+#endif

@@ -6,6 +6,7 @@
 #include "board_config.h"
 #include "osal.h"
 #include "sync_io.h"
+#include "sync_io_mode_biss_tap.h"
 
 typedef struct {
     bool running;
@@ -77,7 +78,9 @@ bool biss_node_io_arm(const trigger_vector_t *vector)
         .sample_delay_cycles = vector->biss_active_sample_delay_cycles,
         .sample_edge = vector->biss_active_sample_edge,
     };
-    if (!sync_io_biss_tap_arm(&tap_config)) {
+    const sync_io_mode_ops_t *ops =
+        sync_io_mode_get_ops(SYNC_IO_MODE_ID_BISS_TAP);
+    if (ops == NULL || ops->arm == NULL || !ops->arm(&tap_config)) {
         return false;
     }
 
@@ -275,7 +278,11 @@ static void biss_node_io_check_timeout(trigger_vector_t *vector)
             vector->biss_sample_scan_index++;
             s_biss_node_io.profile.sample_delay_cycles = next;
             s_biss_node_io.tap_config.sample_delay_cycles = next;
-            (void)sync_io_biss_tap_arm(&s_biss_node_io.tap_config);
+            const sync_io_mode_ops_t *ops =
+                sync_io_mode_get_ops(SYNC_IO_MODE_ID_BISS_TAP);
+            if (ops != NULL && ops->arm != NULL) {
+                (void)ops->arm(&s_biss_node_io.tap_config);
+            }
         }
     }
 }

@@ -11,6 +11,31 @@ typedef struct {
 
 static resource_arbiter_context_t s_resource_arbiter;
 
+static bool resource_arbiter_owner_matches(const char *expected,
+                                           const char *actual)
+{
+    if (expected == NULL) {
+        return true;
+    }
+    return expected == actual ||
+           (actual != NULL && strcmp(expected, actual) == 0);
+}
+
+static const char *resource_arbiter_first_owner_locked(uint32_t resources)
+{
+    for (uint32_t bit = 0u; bit < 32u; ++bit) {
+        const uint32_t mask = 1u << bit;
+        if ((resources & mask) != 0u) {
+            const char *owner = s_resource_arbiter.snapshot.resource_owners[bit];
+            if (owner != NULL) {
+                return owner;
+            }
+        }
+    }
+
+    return NULL;
+}
+
 static void resource_arbiter_reset_locked(void)
 {
     memset(&s_resource_arbiter, 0, sizeof(s_resource_arbiter));
@@ -59,6 +84,11 @@ bool resource_arbiter_can_begin_ota(void)
 
 bool resource_arbiter_acquire(uint32_t resources)
 {
+    return resource_arbiter_acquire_owned(resources, NULL);
+}
+
+bool resource_arbiter_acquire_owned(uint32_t resources, const char *owner)
+{
     bool acquired = false;
 
     if (resources == 0u) {
@@ -70,12 +100,25 @@ bool resource_arbiter_acquire(uint32_t resources)
         resource_arbiter_reset_locked();
     }
 
-    if ((s_resource_arbiter.snapshot.active_resources & resources) == 0u) {
+    const uint32_t conflicts =
+        s_resource_arbiter.snapshot.active_resources & resources;
+    if (conflicts == 0u) {
         s_resource_arbiter.snapshot.active_resources |= resources;
+        for (uint32_t bit = 0u; bit < 32u; ++bit) {
+            const uint32_t mask = 1u << bit;
+            if ((resources & mask) != 0u) {
+                s_resource_arbiter.snapshot.resource_owners[bit] = owner;
+            }
+        }
         if ((resources & RESOURCE_ARBITER_RESOURCE_FLASH) != 0u) {
             s_resource_arbiter.snapshot.mode = RESOURCE_ARBITER_MODE_OTA;
         }
         acquired = true;
+    } else {
+        s_resource_arbiter.snapshot.last_conflict_resources = conflicts;
+        s_resource_arbiter.snapshot.last_conflict_owner = owner;
+        s_resource_arbiter.snapshot.last_conflict_holder =
+            resource_arbiter_first_owner_locked(conflicts);
     }
     osal_critical_exit();
 
@@ -83,6 +126,11 @@ bool resource_arbiter_acquire(uint32_t resources)
 }
 
 void resource_arbiter_release(uint32_t resources)
+{
+    resource_arbiter_release_owned(resources, NULL);
+}
+
+void resource_arbiter_release_owned(uint32_t resources, const char *owner)
 {
     if (resources == 0u) {
         return;
@@ -93,7 +141,16 @@ void resource_arbiter_release(uint32_t resources)
         resource_arbiter_reset_locked();
     }
 
-    s_resource_arbiter.snapshot.active_resources &= ~resources;
+    for (uint32_t bit = 0u; bit < 32u; ++bit) {
+        const uint32_t mask = 1u << bit;
+        if ((resources & mask) != 0u &&
+            resource_arbiter_owner_matches(
+                owner,
+                s_resource_arbiter.snapshot.resource_owners[bit])) {
+            s_resource_arbiter.snapshot.active_resources &= ~mask;
+            s_resource_arbiter.snapshot.resource_owners[bit] = NULL;
+        }
+    }
     if ((s_resource_arbiter.snapshot.active_resources &
          RESOURCE_ARBITER_RESOURCE_FLASH) == 0u &&
         s_resource_arbiter.snapshot.mode == RESOURCE_ARBITER_MODE_OTA) {

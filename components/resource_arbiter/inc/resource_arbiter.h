@@ -27,6 +27,10 @@ typedef enum {
 typedef struct {
     resource_arbiter_mode_t mode;
     uint32_t active_resources;
+    uint32_t last_conflict_resources;
+    const char *last_conflict_owner;
+    const char *last_conflict_holder;
+    const char *resource_owners[32];
     bool trigger_capture_running;
     bool trigger_clock_running;
 } resource_arbiter_snapshot_t;
@@ -35,7 +39,9 @@ bool resource_arbiter_init(void);
 void resource_arbiter_publish_trigger_activity(bool capture_running, bool clock_running);
 bool resource_arbiter_can_begin_ota(void);
 bool resource_arbiter_acquire(uint32_t resources);
+bool resource_arbiter_acquire_owned(uint32_t resources, const char *owner);
 void resource_arbiter_release(uint32_t resources);
+void resource_arbiter_release_owned(uint32_t resources, const char *owner);
 void resource_arbiter_get_snapshot(resource_arbiter_snapshot_t *snapshot);
 
 #endif

@@ -414,6 +414,9 @@ time.
 - `boards/rp2350_trig/inc/board_config.h`: board pin map and peripheral
   instances.
 - `CMakePresets.json`: release and debug build presets.
+- `docs/README.md`: documentation index and current domain hierarchy.
+- `docs/DOCS_NAMING_AND_STRUCTURE.md`: documentation naming, metadata,
+  hierarchy, cross-reference, and migration rules.
 - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`: top-level HAOFV product
   architecture based on Active Objects, lightweight IEC 61499-style function
   blocks, time-synchronized vectors, table-driven state machines, event

@@ -128,9 +128,12 @@ sync_io_hw_profile
 - [x] 硬件 profile 已建立。
 - [x] `ENC_COUNT` 固定 pinout 已收口。
 - [x] BiSS crossing 输出已切到 RJ45 trigger 语义入口。
-- [ ] `sync_io_mode.h` mode driver 接口落地。
-- [ ] `ENC_COUNT` mode wrapper 落地。
-- [ ] `SEQ_STEP` mode wrapper 拆分。
-- [ ] `BISS_TAP` 透传 mode 拆分。
-- [ ] 资源 owner 表和冲突错误码落地。
-
+- [x] `sync_io_mode.h` mode driver 接口落地。
+- [x] `ENC_COUNT` mode wrapper 落地。
+- [x] `ENC_COUNT` 进入 mode ops 查询表。
+- [x] `SEQ_STEP` mode wrapper 拆分。
+- [x] `BISS_TAP` RX mode wrapper 拆分。
+- [ ] `BISS_TAP` AUX2/AUX3 透传输出落地。
+- [x] 资源 owner 表基础能力落地。
+- [x] 资源冲突 SCPI 查询落地。
+- [ ] 资源冲突错误码和 UI 展示落地。

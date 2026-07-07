@@ -144,7 +144,10 @@ set(PROJECT_APP_SOURCES
         components/sync_trigger/src/trigger_fb.c
         components/sync_trigger/src/trigger_measure.c
         components/sync_io/src/sync_io.c
+        components/sync_io/src/sync_io_mode.c
+        components/sync_io/src/sync_io_mode_biss_tap.c
         components/sync_io/src/sync_io_mode_enc_count.c
+        components/sync_io/src/sync_io_mode_seq_step.c
         components/sync_config_ui/src/sync_config_ui.c
         drivers/mcu/spi/src/drv_spi.c
         drivers/mcu/i2c/src/drv_i2c.c

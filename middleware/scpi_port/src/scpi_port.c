@@ -10,6 +10,7 @@
 #include "pico/error.h"
 #include "pico/stdio.h"
 #include "project_config.h"
+#include "resource_arbiter.h"
 #include "scpi/scpi.h"
 #include "storage_manager.h"
 #include "sync_trigger.h"
@@ -89,6 +90,11 @@ static scpi_result_t scpi_port_result_ok(scpi_t *context)
 {
     SCPI_ResultText(context, "OK");
     return SCPI_RES_OK;
+}
+
+static const char *scpi_port_owner_or_dash(const char *owner)
+{
+    return owner != NULL ? owner : "-";
 }
 
 static void scpi_port_get_trigger_summary(sync_trigger_summary_t *summary)
@@ -234,6 +240,18 @@ static scpi_result_t scpi_cmd_core_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.core1_loop_count);
     SCPI_ResultUInt32(context, status.core0_last_ms);
     SCPI_ResultUInt32(context, status.core1_last_ms);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_resource_status_q(scpi_t *context)
+{
+    resource_arbiter_snapshot_t snapshot;
+    resource_arbiter_get_snapshot(&snapshot);
+
+    SCPI_ResultUInt32(context, snapshot.active_resources);
+    SCPI_ResultUInt32(context, snapshot.last_conflict_resources);
+    SCPI_ResultText(context, scpi_port_owner_or_dash(snapshot.last_conflict_owner));
+    SCPI_ResultText(context, scpi_port_owner_or_dash(snapshot.last_conflict_holder));
     return SCPI_RES_OK;
 }
 
@@ -2515,6 +2533,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:LOG:LEVel?", .callback = scpi_cmd_log_level_q},
     {.pattern = "SYSTem:LOG:STATus?", .callback = scpi_cmd_log_status_q},
     {.pattern = "SYSTem:CORE?", .callback = scpi_cmd_core_status_q},
+    {.pattern = "SYSTem:RESource?", .callback = scpi_cmd_resource_status_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
 #endif
