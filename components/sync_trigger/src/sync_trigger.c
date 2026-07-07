@@ -9,6 +9,7 @@
 #include "storage_manager.h"
 #include "sync_io.h"
 #include "trigger_fb.h"
+#include "trigger_resource_map.h"
 
 #define SYNC_TRIGGER_QUEUE_LENGTH  16u
 #define TRIG_TRACE_DOMAIN_TRIGGER  2u
@@ -36,6 +37,9 @@ typedef enum {
     TRIG_TRACE_EVENT_IO_LOST        = 42u,
     TRIG_TRACE_EVENT_RUNTIME_SAMPLE = 43u,
     TRIG_TRACE_EVENT_RESOURCE_SNAPSHOT = 44u,
+    TRIG_TRACE_EVENT_RESOURCE_RELEASE = 45u,
+    TRIG_TRACE_EVENT_BISS_TIMEOUT   = 46u,
+    TRIG_TRACE_EVENT_BISS_SCAN_STEP = 47u,
 } trig_trace_event_id_t;
 
 typedef struct {
@@ -59,6 +63,11 @@ typedef struct {
     trig_edge_t  edge;
     bool         gate_enabled;
     trig_safe_state_t safe_state;
+    uint32_t     active_resources;
+    uint32_t     biss_timeout_count;
+    uint32_t     biss_active_sample_delay_cycles;
+    uint32_t     biss_sample_scan_index;
+    uint32_t     biss_sample_scan_wrap_count;
 } sync_trigger_trace_sample_t;
 
 static sync_trigger_ao_t s_ao;
@@ -86,6 +95,16 @@ static void ao_trace_sample(sync_trigger_trace_sample_t *sample)
     sample->edge = s_ao.vector.edge;
     sample->gate_enabled = s_ao.vector.gate_enabled;
     sample->safe_state = s_ao.vector.safe_state;
+    sample->biss_timeout_count = s_ao.vector.biss_timeout_count;
+    sample->biss_active_sample_delay_cycles =
+        s_ao.vector.biss_active_sample_delay_cycles;
+    sample->biss_sample_scan_index = s_ao.vector.biss_sample_scan_index;
+    sample->biss_sample_scan_wrap_count =
+        s_ao.vector.biss_sample_scan_wrap_count;
+
+    resource_arbiter_snapshot_t snapshot;
+    resource_arbiter_get_snapshot(&snapshot);
+    sample->active_resources = snapshot.active_resources;
 }
 
 static void ao_trace_config_changes(const trig_event_t *event,
@@ -141,21 +160,7 @@ static uint32_t ao_trace_pack_resource_snapshot(uint32_t requested_resources,
 
 static uint32_t ao_trace_resources_for_state(trig_state_t state)
 {
-    switch (state) {
-    case TRIG_STATE_ENC_CONFIGURED:
-    case TRIG_STATE_ENC_ARMED:
-        return RESOURCE_ARBITER_RESOURCE_PIO1;
-    case TRIG_STATE_BISS_CONFIGURED:
-    case TRIG_STATE_BISS_ARMED:
-        return RESOURCE_ARBITER_RESOURCE_PIO2 |
-               RESOURCE_ARBITER_RESOURCE_AUX;
-    case TRIG_STATE_SEQ_CONFIGURED:
-    case TRIG_STATE_SEQ_ARMED:
-        return RESOURCE_ARBITER_RESOURCE_PIO1 |
-               RESOURCE_ARBITER_RESOURCE_DMA;
-    default:
-        return 0u;
-    }
+    return trigger_resource_map_for_state(state);
 }
 
 static void ao_trace_resource_snapshot(uint32_t requested_resources,
@@ -169,6 +174,51 @@ static void ao_trace_resource_snapshot(uint32_t requested_resources,
                                 ao_trace_pack_resource_snapshot(requested_resources,
                                                                 snapshot.mode),
                                 snapshot.active_resources);
+}
+
+static uint32_t ao_trace_pack_resource_release(trig_event_type_t event_type,
+                                               trig_state_t before_state,
+                                               uint32_t active_resources)
+{
+    return (active_resources & 0xFFFFu) |
+           (((uint32_t)before_state & 0xFFu) << 16) |
+           (((uint32_t)event_type & 0xFFu) << 24);
+}
+
+static bool ao_trace_event_can_release_resources(trig_event_type_t event_type)
+{
+    return event_type == TRIG_EVENT_RESET ||
+           event_type == TRIG_EVENT_FAULT ||
+           event_type == TRIG_EVENT_CLEAR_FAULT ||
+           event_type == TRIG_EVENT_DISARM;
+}
+
+static void ao_trace_resource_release(const trig_event_t *event,
+                                      const sync_trigger_trace_sample_t *before,
+                                      uint8_t severity)
+{
+    if (event == NULL || before == NULL ||
+        !ao_trace_event_can_release_resources(event->type)) {
+        return;
+    }
+
+    resource_arbiter_snapshot_t after;
+    resource_arbiter_get_snapshot(&after);
+
+    const uint32_t released_resources =
+        before->active_resources & ~after.active_resources;
+    if (released_resources == 0u) {
+        return;
+    }
+
+    storage_manager_trace_event(
+        TRIG_TRACE_DOMAIN_TRIGGER,
+        TRIG_TRACE_EVENT_RESOURCE_RELEASE,
+        severity,
+        ao_trace_pack_resource_release(event->type,
+                                       before->state,
+                                       before->active_resources),
+        released_resources);
 }
 
 static void ao_trace_error_details(const trig_event_t *event,
@@ -199,10 +249,20 @@ static void ao_trace_error_details(const trig_event_t *event,
                                     (uint32_t)s_ao.vector.state);
     }
 
-    if (event->type == TRIG_EVENT_DMA_ROLLOVER &&
+    if ((event->type == TRIG_EVENT_DMA_ROLLOVER ||
+         event->type == TRIG_EVENT_RUNTIME_SAMPLE) &&
         s_ao.vector.error_code == TRIG_ERROR_IO_LOST) {
         storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
                                     TRIG_TRACE_EVENT_IO_LOST,
+                                    TRIG_TRACE_SEVERITY_ERROR,
+                                    (uint32_t)before->state,
+                                    (uint32_t)s_ao.vector.state);
+    }
+
+    if (event->type == TRIG_EVENT_RUNTIME_SAMPLE &&
+        s_ao.vector.error_code == TRIG_ERROR_IO_ARM_FAILED) {
+        storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
+                                    TRIG_TRACE_EVENT_IO_ARM_FAILED,
                                     TRIG_TRACE_SEVERITY_ERROR,
                                     (uint32_t)before->state,
                                     (uint32_t)s_ao.vector.state);
@@ -224,6 +284,14 @@ static void ao_trace_after_execute(const trig_event_t *event,
     const bool progress_changed = before->seq_index != s_ao.vector.seq_index ||
                                   before->trigger_count != s_ao.vector.trigger_count ||
                                   before->enc_count != s_ao.vector.enc_count;
+    const bool biss_timeout_changed =
+        before->biss_timeout_count != s_ao.vector.biss_timeout_count;
+    const bool biss_scan_changed =
+        before->biss_active_sample_delay_cycles !=
+            s_ao.vector.biss_active_sample_delay_cycles ||
+        before->biss_sample_scan_index != s_ao.vector.biss_sample_scan_index ||
+        before->biss_sample_scan_wrap_count !=
+            s_ao.vector.biss_sample_scan_wrap_count;
     const bool config_changed = before->trigger_source_pin != s_ao.vector.trigger_source_pin ||
                                 before->edge != s_ao.vector.edge ||
                                 before->gate_enabled != s_ao.vector.gate_enabled ||
@@ -264,6 +332,30 @@ static void ao_trace_after_execute(const trig_event_t *event,
     }
     ao_trace_config_changes(event, before);
     ao_trace_error_details(event, before);
+    ao_trace_resource_release(event, before, severity);
+
+    if (event->type == TRIG_EVENT_RUNTIME_SAMPLE &&
+        before->state == TRIG_STATE_BISS_ARMED &&
+        biss_timeout_changed) {
+        storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
+                                    TRIG_TRACE_EVENT_BISS_TIMEOUT,
+                                    TRIG_TRACE_SEVERITY_WARN,
+                                    s_ao.vector.biss_active_sample_delay_cycles,
+                                    s_ao.vector.biss_timeout_count);
+    }
+
+    if (event->type == TRIG_EVENT_RUNTIME_SAMPLE &&
+        before->state == TRIG_STATE_BISS_ARMED &&
+        biss_scan_changed) {
+        storage_manager_trace_event(
+            TRIG_TRACE_DOMAIN_TRIGGER,
+            TRIG_TRACE_EVENT_BISS_SCAN_STEP,
+            severity,
+            ao_trace_pack_u16(s_ao.vector.biss_active_sample_delay_cycles,
+                              before->biss_active_sample_delay_cycles),
+            ao_trace_pack_u16(s_ao.vector.biss_sample_scan_index,
+                              s_ao.vector.biss_sample_scan_wrap_count));
+    }
 
     if ((event->type == TRIG_EVENT_ARM ||
          event->type == TRIG_EVENT_RUNTIME_SAMPLE) &&
@@ -337,6 +429,8 @@ static void ao_trace_after_execute(const trig_event_t *event,
         !rollover_changed &&
         !enc_z_changed &&
         !progress_changed &&
+        !biss_timeout_changed &&
+        !biss_scan_changed &&
         !config_changed &&
         event->type != TRIG_EVENT_DMA_ROLLOVER &&
         event->type != TRIG_EVENT_RUNTIME_SAMPLE &&

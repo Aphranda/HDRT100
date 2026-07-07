@@ -50,7 +50,7 @@ RP2350 提供 3 个 PIO block。每个 PIO block 有 4 个状态机和独立指�
 | `pio1` | `sm0` | `MAIN_OUTPUT` | 当前由主输出模式独占：即时 `TRIG_OUT`、`SEQ_STEP` 序列输出和 `ENC_COUNT` 比较触发都复用该 SM。 |
 | `pio1` | `sm1` | `MAIN_OUT2_LEGACY_CLOCK` | 当前旧路径用于 `GPIO22` 同步时钟输出；产品目标是释放为主口 OUT2/`SEQ_STEP` bit2，将 `SYNC_CLK_OUT` 迁移到 AUX2/`pio2/sm2`。 |
 | `pio1` | `sm2` | `MAIN_PULSE` | 当前用于 `GPIO21/PULSE_OUT` 第二路脉冲输出。代码宏名为 `BOARD_SYNC_GATE_SM`，实际用途是 pulse 输出，不是 `GATE_IN` 输入资格机。 |
-| `pio1` | `sm3` | `MAIN_OUT3_LEGACY_MARKER` | 当前旧路径用于 `GPIO23/MARKER_OUT`；产品目标是释放为主口 OUT3/`SEQ_STEP` bit3，将 `MARKER_OUT` 迁移到 AUX3/`pio2/sm3`。 |
+| `pio1` | `sm3` | `MAIN_OUT3_RJ45_TRIGGER` | 当前用于 `GPIO23/OUT3`，产品硬件语义为 `RJ45_TRIG_OUT`；旧 `MARK:*` 软件 marker 命令临时复用该 SM，产品目标是将 `MARKER_OUT` 迁移到 AUX3/`pio2/sm3`。 |
 | `pio2` | `sm0` | `AUX0_ARM` | 产品目标为 AUX0/GPIO26 `ARM_IN`；当前作为通用 AUX IO 初始化。 |
 | `pio2` | `sm1` | `AUX1_EXT_CLK` | 产品目标为 AUX1/GPIO27 `EXT_CLK_IN`；当前作为通用 AUX IO 初始化。 |
 | `pio2` | `sm2` | `AUX2_SYNC_CLK` | 产品目标为 AUX2/GPIO28 `SYNC_CLK_OUT`；当前作为通用 AUX IO 初始化，尚未承载同步时钟程序。 |
@@ -126,6 +126,7 @@ AUX 仍然可以按 persona 复用为 BiSS-C TAP、差分触发、校准或普�
 | `ARM_IN` | AUX0 | 26 | 外部 ARM 资格或 ARM 请求。 | 应用层资格信号，不属于主触发输入通道。 |
 | `EXT_CLK_IN` | AUX1 | 27 | 外部参考或采样时钟。 | 预留给显式外部时钟模式。 |
 | `GATE_IN` | IN3 | 19 | gate、inhibit 或捕获窗口资格。 | 仅在当前模式未占用 IN3 时可用；`ENC_COUNT` 使用 Z 相时会冲突。 |
+| `RJ45_TRIG_OUT` | OUT3 | 23 | RJ45 差分触发硬件输出。 | 硬件端口语义；BiSS crossing 和线缆触发输出使用该通道。 |
 | `TRIG_OUT` | OUT0 | 20 | 主确定性动作输出。 | 默认比较/触发输出。 |
 | `PULSE_OUT` | OUT1 | 21 | 第二路脉冲或 burst 输出。 | `SEQ_STEP` 将 OUT1 用作序列 bit1 时不可独立使用。 |
 | `SYNC_CLK_OUT` | AUX2 | 28 | 参考/分频同步时钟输出。 | 框架层同步输出，不应占用主输出总线。 |
@@ -141,7 +142,7 @@ AUX 仍然可以按 persona 复用为 BiSS-C TAP、差分触发、校准或普�
 
 原始 GPIO 选择命令只能作为 board profile 配置或开发诊断入口。产品 SCPI/UI 应优先使用语义通道，由 Trigger 资源仲裁器决定当前模式下请求是否可用。
 
-当前固件仍保留一些旧低层宏：`BOARD_SYNC_ARM_IN_PIN`=`GPIO17`、`BOARD_SYNC_EXT_CLK_IN_PIN`=`GPIO18`、`BOARD_SYNC_SYNC_CLK_OUT_PIN`=`GPIO22`、`BOARD_SYNC_MARKER_OUT_PIN`=`GPIO23`。硬件 pinout 已冻结，产品固件需要将这些运行路径迁移到 AUX 功能接口，或由资源仲裁器在冲突时拒绝命令。
+当前固件仍保留一些旧低层宏：`BOARD_SYNC_ARM_IN_PIN`=`GPIO17`、`BOARD_SYNC_EXT_CLK_IN_PIN`=`GPIO18`、`BOARD_SYNC_SYNC_CLK_OUT_PIN`=`GPIO22`、`BOARD_SYNC_MARKER_OUT_PIN`=`GPIO23`。硬件 pinout 已冻结，`GPIO23` 的硬件语义是 `RJ45_TRIG_OUT`；`MARKER_OUT` 是软件/框架层标记语义，产品固件需要将 marker 运行路径迁移到 AUX3，或由资源仲裁器在冲突时拒绝命令。
 
 ## 实用性能目标
 

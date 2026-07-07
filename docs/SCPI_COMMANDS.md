@@ -46,11 +46,16 @@ Last updated: 2026-07-07
 
 ## Marker 输出
 
+`MARK:*` 是软件 marker/debug/status 语义命令，不是 RJ45 触发硬件通道本身。
+当前固件为兼容旧路径仍从 `GPIO23/OUT3` 输出该脉冲；该物理脚在产品硬件中定义为
+`RJ45_TRIG_OUT`。产品目标是将 marker 迁移到 AUX3/GPIO29，避免与 RJ45 trigger
+和 `SEQ_STEP` bit3 共享主输出通道。
+
 | 命令 | 说明 |
 |---|---|
-| `MARK:WIDT <us>` | 设置 `GPIO23/MARKER_OUT` 脉宽，单位 us。 |
+| `MARK:WIDT <us>` | 设置软件 marker 脉宽，单位 us。当前旧路径输出到 `GPIO23/OUT3`。 |
 | `MARK:WIDT?` | 查询 `MARKER_OUT` 脉宽。 |
-| `MARK:IMM` | 立即输出一次 `MARKER_OUT` 脉冲。 |
+| `MARK:IMM` | 立即输出一次软件 marker 脉冲。 |
 
 ## 采样配置
 
@@ -82,6 +87,7 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 | `ARM_IN` | AUX0 | 26 | 外部 ARM 资格/请求；产品目标放在 AUX，避免与 `ENC_COUNT` B 相冲突。当前固件尚未接入 TriggerFB。 |
 | `EXT_CLK_IN` | AUX1 | 27 | 外部参考/采样时钟预留；产品目标放在 AUX，避免污染主输入组。 |
 | `GATE_IN` | IN3 | 19 | 外部门控/抑制；在 `ENC_COUNT` 中由 Z 相占用。 |
+| `RJ45_TRIG_OUT` | OUT3 | 23 | RJ45 差分触发硬件输出；当前 BiSS crossing 使用该硬件语义。 |
 | `TRIG_OUT` | OUT0 | 20 | 主确定性触发输出。 |
 | `PULSE_OUT` | OUT1 | 21 | 第二路脉冲或 `SEQ_STEP` bit1。 |
 | `SYNC_CLK_OUT` | AUX2 | 28 | 同步时钟；产品目标放在 AUX，避免与 `SEQ_STEP` bit2 冲突。当前固件仍在旧路径 GPIO22。 |

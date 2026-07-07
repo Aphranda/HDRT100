@@ -2,8 +2,6 @@
 
 #include <string.h>
 
-#include "hardware/pio.h"
-#include "board_config.h"
 #include "osal.h"
 #include "sync_io.h"
 #include "sync_io_mode_biss_tap.h"
@@ -107,13 +105,33 @@ bool biss_node_io_arm(const trigger_vector_t *vector)
 
 void biss_node_io_disarm(void)
 {
-    sync_io_biss_tap_disarm();
+    sync_io_biss_tap_mode_disarm();
     memset(&s_biss_node_io, 0, sizeof(s_biss_node_io));
 }
 
 bool biss_node_io_is_running(void)
 {
     return s_biss_node_io.running;
+}
+
+bool biss_node_io_get_tap_config(sync_io_biss_tap_config_t *config)
+{
+    if (config == NULL || !s_biss_node_io.running) {
+        return false;
+    }
+
+    *config = s_biss_node_io.tap_config;
+    return true;
+}
+
+void biss_node_io_sample_scan_rearm_succeeded(void)
+{
+    if (!s_biss_node_io.running) {
+        return;
+    }
+
+    s_biss_node_io.timeout_latched = false;
+    s_biss_node_io.last_frame_ms = osal_uptime_ms();
 }
 
 void biss_node_io_rx_irq_callback(void)
@@ -246,10 +264,10 @@ static bool biss_node_io_ingest_word(trigger_vector_t *vector, uint32_t word)
     return biss_node_io_process_frame(vector, frame);
 }
 
-static void biss_node_io_check_timeout(trigger_vector_t *vector)
+static biss_node_io_poll_result_t biss_node_io_check_timeout(trigger_vector_t *vector)
 {
     if (vector == NULL || s_biss_node_io.timeout_latched) {
-        return;
+        return BISS_NODE_IO_POLL_OK;
     }
 
     const uint32_t now_ms = osal_uptime_ms();
@@ -278,39 +296,46 @@ static void biss_node_io_check_timeout(trigger_vector_t *vector)
             vector->biss_sample_scan_index++;
             s_biss_node_io.profile.sample_delay_cycles = next;
             s_biss_node_io.tap_config.sample_delay_cycles = next;
-            const sync_io_mode_ops_t *ops =
-                sync_io_mode_get_ops(SYNC_IO_MODE_ID_BISS_TAP);
-            if (ops != NULL && ops->arm != NULL) {
-                (void)ops->arm(&s_biss_node_io.tap_config);
-            }
+            return BISS_NODE_IO_POLL_SCAN_STEP;
         }
     }
+
+    return BISS_NODE_IO_POLL_OK;
 }
 
-bool biss_node_io_poll(trigger_vector_t *vector)
+biss_node_io_poll_result_t biss_node_io_poll_runtime(trigger_vector_t *vector)
 {
     if (vector == NULL || !s_biss_node_io.running) {
-        return false;
+        return BISS_NODE_IO_POLL_IO_LOST;
     }
 
-    if (!sync_io_biss_tap_is_running()) {
-        return false;
+    if (!sync_io_biss_tap_mode_is_running()) {
+        return BISS_NODE_IO_POLL_IO_LOST;
     }
 
-    if (pio_sm_is_rx_fifo_full(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX0_SM)) {
+    if (sync_io_biss_tap_mode_rx_fifo_full()) {
         vector->biss_fifo_overflow_count++;
         biss_node_io_reset_frame_assembler();
     }
 
     uint32_t word;
-    while (sync_io_biss_tap_read_frame_word(&word)) {
+    while (sync_io_biss_tap_mode_read_frame_word(&word)) {
         (void)biss_node_io_ingest_word(vector, word);
     }
-    biss_node_io_check_timeout(vector);
+    const biss_node_io_poll_result_t timeout_result =
+        biss_node_io_check_timeout(vector);
+    if (timeout_result != BISS_NODE_IO_POLL_OK) {
+        return timeout_result;
+    }
 
     if (s_biss_node_io.rx_irq_pending) {
         s_biss_node_io.rx_irq_pending = false;
     }
 
-    return true;
+    return BISS_NODE_IO_POLL_OK;
+}
+
+bool biss_node_io_poll(trigger_vector_t *vector)
+{
+    return biss_node_io_poll_runtime(vector) == BISS_NODE_IO_POLL_OK;
 }

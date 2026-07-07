@@ -58,6 +58,9 @@ EVENT_NAMES = {
     (2, 42): "trigger.io_lost",
     (2, 43): "trigger.runtime_sample",
     (2, 44): "trigger.resource_snapshot",
+    (2, 45): "trigger.resource_release",
+    (2, 46): "trigger.biss_timeout",
+    (2, 47): "trigger.biss_scan_step",
     (2, 100): "trigger.scpi_fault",
     (3, 10): "sync_io.init_ok",
     (3, 11): "sync_io.init_fail",
@@ -378,6 +381,32 @@ def decode_event_details(record: dict[str, Any]) -> dict[str, Any]:
         details["arbiter_mode_name"] = RESOURCE_ARBITER_MODE_NAMES.get(arbiter_mode, "UNKNOWN")
         details["active_resources"] = active_resources
         details["active_resource_names"] = decode_resource_mask(active_resources)
+
+    if domain == 2 and event_id == 45:
+        trigger_event = (arg0 >> 24) & 0xFF
+        before_state = (arg0 >> 16) & 0xFF
+        active_resources = arg0 & 0xFFFF
+        released_resources = arg1
+        details["trigger_event"] = trigger_event
+        details["trigger_event_name"] = TRIGGER_EVENT_NAMES.get(trigger_event, "UNKNOWN")
+        details["before_state"] = before_state
+        details["before_state_name"] = TRIGGER_STATE_NAMES.get(before_state, "UNKNOWN")
+        details["active_resources"] = active_resources
+        details["active_resource_names"] = decode_resource_mask(active_resources)
+        details["released_resources"] = released_resources
+        details["released_resource_names"] = decode_resource_mask(released_resources)
+
+    if domain == 2 and event_id == 46:
+        details["active_sample_delay_cycles"] = arg0
+        details["timeout_count"] = arg1
+
+    if domain == 2 and event_id == 47:
+        after_delay, before_delay = split_u16_pair(arg0)
+        scan_index, scan_wrap_count = split_u16_pair(arg1)
+        details["before_sample_delay_cycles"] = before_delay
+        details["after_sample_delay_cycles"] = after_delay
+        details["sample_scan_index"] = scan_index
+        details["sample_scan_wrap_count"] = scan_wrap_count
 
     if domain == 3 and event_id in (55, 64):
         details.update(decode_runtime_flags(arg0))

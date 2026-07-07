@@ -10,8 +10,8 @@ typedef enum {
     TRIG_MODE_IDLE      = 0,
     TRIG_MODE_SEQ_STEP  = 1,
     TRIG_MODE_ENC_COUNT = 2,   /* 编码器计数触发 */
-    TRIG_MODE_PROTOCOL_TRIGGER = 3, /* 协议触发模式: AUX 作为协议节点 */
-    TRIG_MODE_BISS_BRIDGE = TRIG_MODE_PROTOCOL_TRIGGER, /* 兼容别名 */
+    TRIG_MODE_PROTOCOL_TRIGGER = 3, /* 协议触发模式: protocol + role 决定子语义 */
+    TRIG_MODE_BISS_BRIDGE = TRIG_MODE_PROTOCOL_TRIGGER, /* deprecated compatibility alias */
     /* 预留 */
     TRIG_MODE_GATE_LEVEL = 4,
     TRIG_MODE_ARM_SINGLE = 5,

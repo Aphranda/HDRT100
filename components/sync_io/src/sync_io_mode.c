@@ -15,6 +15,10 @@ const sync_io_mode_ops_t *sync_io_mode_get_ops(sync_io_mode_id_t id)
         return sync_io_enc_count_mode_ops();
     case SYNC_IO_MODE_ID_BISS_TAP:
         return sync_io_biss_tap_mode_ops();
+    case SYNC_IO_MODE_ID_NONE:
+    case SYNC_IO_MODE_ID_AUX_DIFF_TRIGGER:
+    case SYNC_IO_MODE_ID_SELF_CAL:
+        return NULL;
     default:
         return NULL;
     }

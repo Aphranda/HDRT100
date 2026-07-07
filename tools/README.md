@@ -59,7 +59,13 @@ Get-Content -Path tools\README.md -Encoding UTF8
   and AUX/READY/REDY baseline/timeout latch events; flashing remains a
   separate picotool/script step. The tool writes
   `summary.*`, `queries.txt`, and `trace_readback\` under
-  `build/sd_validation_*`.
+  `build/sd_validation_*`. Use `--validate-trigger-release` for SYNC_IO
+  release-path validation; it exercises armed SEQ_STEP `*RST` and `TRIG:FAULT`,
+  then requires decoded `trigger.resource_release` records for `PIO1`/`DMA`.
+  Use `--validate-resource-owner` for SYNC_IO owner-boundary validation; it
+  arms/disarms SEQ_STEP, ENC_COUNT, and BISS_TAP, then asserts `SYST:RES?`
+  contains the expected mode resources while armed and releases them after
+  disarm.
 - `sd_trace_decode/sd_trace_decode.py`: offline decoder for SD trace `.bin`
   files. It verifies header, event CRC, and optional `.idx` metadata, then
   emits JSON or CSV with decoded domain/event/severity names and details such
@@ -67,6 +73,12 @@ Get-Content -Path tools\README.md -Encoding UTF8
   Trigger resource snapshots, SyncIO runtime flags, rollover progress, DMA
   overflow baseline/latched status, AUX0..AUX3 snapshots, READY/REDY masks,
   timeout latch status, and trace file CRC checks.
+- `biss_board_validate/biss_board_validate.py`: board-side BiSS-C TAP smoke
+  validation over SCPI. It configures the TAP profile, confirms query state,
+  arms BiSS mode, optionally injects software frames for crossing checks, and
+  disarms. Use `--enable-scan --expect-scan-steps N --capture-trace` to validate
+  timeout sample-scan progress, fault trace readback, and decoded
+  `trigger.biss_timeout` / `trigger.biss_scan_step` events.
 - `sd_raw_clear/sd_raw_clear.py`: destructive SD recovery helper. It sends
   `SYST:SD:RAW:CLEAR <sectors>,"ERASE"` over SCPI after `--yes`, clearing the
   first 1..64 sectors so a host can recreate the partition/FAT metadata.

@@ -60,9 +60,12 @@ SCPI / UI / SD profile
 
 ```c
 TRIG_MODE_PROTOCOL_TRIGGER = 3
-TRIG_MODE_BISS_BRIDGE = TRIG_MODE_PROTOCOL_TRIGGER  /* 兼容别名 */
+TRIG_MODE_BISS_BRIDGE = TRIG_MODE_PROTOCOL_TRIGGER  /* deprecated 兼容别名 */
 TRIG_PROTOCOL_BISS_C = 0
 ```
+
+`TRIG_MODE_BISS_BRIDGE` 不再表达独立 mode 值；真实语义由
+`TRIG_MODE_PROTOCOL_TRIGGER + TRIG_PROTOCOL_BISS_C + trig_biss_role_t` 组合表示。
 
 BiSS-C role。数值必须与 `trigger_vector.h` 和 SD/profile 持久化保持一致：
 
@@ -682,7 +685,7 @@ P0 验收：
 
 ### P0 - HAOFV 骨架与 5MHz 位置触发
 
-- [ ] 将 mode 固定为 `TRIG_MODE_PROTOCOL_TRIGGER`，BiSS-C 作为 protocol subtype。
+- [x] 将 mode 固定为 `TRIG_MODE_PROTOCOL_TRIGGER`，BiSS-C 作为 protocol subtype。
 - [ ] 整理 TriggerVector 字段：position profile、sample phase、anchor、target、latency offset、统计。
 - [ ] 新增 `biss_protocol.h/.c`：配置校验、CRC6、position/event/cal profile pack/parse。
 - [ ] 新增 `biss_node_io` 骨架：PIO 资源申请、ARM/DISARM、FIFO/IRQ 回调。

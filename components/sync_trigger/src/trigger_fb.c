@@ -7,9 +7,11 @@
 #include "biss_protocol.h"
 #include "resource_arbiter.h"
 #include "sync_io.h"
+#include "sync_io_mode_biss_tap.h"
 #include "sync_io_hw_profile.h"
 #include "sync_io_mode_enc_count.h"
 #include "sync_io_mode_seq_step.h"
+#include "trigger_resource_map.h"
 
 /* ── 内部 ── */
 
@@ -20,9 +22,6 @@
 #define FB_OWNER_SEQ_STEP  "sync.seq_step"
 #define FB_OWNER_ENC_COUNT "sync.enc_count"
 #define FB_OWNER_BISS_TAP  "sync.biss_tap"
-
-#define FB_SEQ_RESOURCES (RESOURCE_ARBITER_RESOURCE_PIO1 | \
-                          RESOURCE_ARBITER_RESOURCE_DMA)
 
 typedef enum {
     FB_OK       = 0,
@@ -44,35 +43,62 @@ static bool fb_valid_enc_pin_group(const trigger_vector_t *vector)
                                      vector->enc_z_pin);
 }
 
-static uint32_t fb_enc_resources(const trigger_vector_t *vector)
+static uint32_t fb_seq_resources(void)
 {
-    (void)vector;
-    return RESOURCE_ARBITER_RESOURCE_PIO1;
+    return trigger_resource_map_for_mode(SYNC_IO_MODE_ID_SEQ_STEP);
+}
+
+static uint32_t fb_enc_resources(void)
+{
+    return trigger_resource_map_for_mode(SYNC_IO_MODE_ID_ENC_COUNT);
 }
 
 static uint32_t fb_biss_resources(void)
 {
-    return RESOURCE_ARBITER_RESOURCE_PIO2 |
-           RESOURCE_ARBITER_RESOURCE_AUX;
+    return trigger_resource_map_for_mode(SYNC_IO_MODE_ID_BISS_TAP);
+}
+
+static bool fb_biss_tap_is_running(void)
+{
+    const sync_io_mode_ops_t *ops =
+        sync_io_mode_get_ops(SYNC_IO_MODE_ID_BISS_TAP);
+    return ops != NULL && ops->is_running != NULL && ops->is_running();
 }
 
 static void fb_release_running_io(trigger_vector_t *vector)
 {
+    (void)vector;
+
     if (sync_io_seq_step_is_running()) {
         sync_io_seq_step_disarm();
     }
-    resource_arbiter_release_owned(FB_SEQ_RESOURCES, FB_OWNER_SEQ_STEP);
+    resource_arbiter_release_owned(fb_seq_resources(), FB_OWNER_SEQ_STEP);
 
     if (sync_io_enc_count_is_running()) {
         sync_io_enc_count_disarm();
     }
-    resource_arbiter_release_owned(fb_enc_resources(vector),
-                                   FB_OWNER_ENC_COUNT);
+    resource_arbiter_release_owned(fb_enc_resources(), FB_OWNER_ENC_COUNT);
 
-    if (biss_node_io_is_running() || sync_io_biss_tap_is_running()) {
+    if (biss_node_io_is_running() || fb_biss_tap_is_running()) {
         biss_node_io_disarm();
     }
     resource_arbiter_release_owned(fb_biss_resources(), FB_OWNER_BISS_TAP);
+}
+
+static fb_result_t fb_reset_all(trigger_vector_t *vector,
+                                const trig_event_t *event)
+{
+    (void)event;
+
+    sync_io_stop_clock();
+    sync_io_stop_capture();
+    fb_release_running_io(vector);
+
+    vector->state = TRIG_STATE_IDLE;
+    vector->active_mode = TRIG_MODE_IDLE;
+    vector->error_code = TRIG_ERROR_NONE;
+    vector->sync_clock_enabled = false;
+    return FB_OK;
 }
 
 static bool fb_valid_biss_config(const trigger_vector_t *vector)
@@ -317,10 +343,7 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
         vector->biss_timeout_count++;
         break;
     case TRIG_EVENT_RESET:
-        sync_io_stop_clock();
-        sync_io_stop_capture();
-        fb_release_running_io(vector);
-        break;
+        return fb_reset_all(vector, event);
     default:
         return FB_IGNORED;
     }
@@ -360,7 +383,9 @@ static fb_result_t fb_seq_configured_arm(trigger_vector_t *vector,
 {
     (void)event;
 
-    if (!resource_arbiter_acquire_owned(FB_SEQ_RESOURCES, FB_OWNER_SEQ_STEP)) {
+    const uint32_t resources = fb_seq_resources();
+    if (resources == 0u ||
+        !resource_arbiter_acquire_owned(resources, FB_OWNER_SEQ_STEP)) {
         vector->error_code = TRIG_ERROR_RESOURCE_CONFLICT;
         return FB_ERROR;
     }
@@ -377,7 +402,7 @@ static fb_result_t fb_seq_configured_arm(trigger_vector_t *vector,
         sync_io_mode_get_ops(SYNC_IO_MODE_ID_SEQ_STEP);
 
     if (ops == NULL || ops->arm == NULL || !ops->arm(&config)) {
-        resource_arbiter_release_owned(FB_SEQ_RESOURCES, FB_OWNER_SEQ_STEP);
+        resource_arbiter_release_owned(resources, FB_OWNER_SEQ_STEP);
         vector->error_code = TRIG_ERROR_IO_ARM_FAILED;
         return FB_ERROR;
     }
@@ -435,7 +460,7 @@ static fb_result_t fb_seq_armed_disarm(trigger_vector_t *vector,
     (void)event;
 
     sync_io_seq_step_disarm();
-    resource_arbiter_release_owned(FB_SEQ_RESOURCES, FB_OWNER_SEQ_STEP);
+    resource_arbiter_release_owned(fb_seq_resources(), FB_OWNER_SEQ_STEP);
 
     vector->state = TRIG_STATE_IDLE;
     vector->error_code = TRIG_ERROR_NONE;
@@ -492,7 +517,9 @@ static fb_result_t fb_biss_configured_arm(trigger_vector_t *vector,
         return FB_ERROR;
     }
 
-    if (!resource_arbiter_acquire_owned(fb_biss_resources(), FB_OWNER_BISS_TAP)) {
+    const uint32_t resources = fb_biss_resources();
+    if (resources == 0u ||
+        !resource_arbiter_acquire_owned(resources, FB_OWNER_BISS_TAP)) {
         vector->error_code = TRIG_ERROR_RESOURCE_CONFLICT;
         return FB_ERROR;
     }
@@ -503,7 +530,7 @@ static fb_result_t fb_biss_configured_arm(trigger_vector_t *vector,
     vector->biss_sample_scan_wrap_count = 0u;
 
     if (!biss_node_io_arm(vector)) {
-        resource_arbiter_release_owned(fb_biss_resources(), FB_OWNER_BISS_TAP);
+        resource_arbiter_release_owned(resources, FB_OWNER_BISS_TAP);
         vector->error_code = TRIG_ERROR_IO_ARM_FAILED;
         return FB_ERROR;
     }
@@ -558,6 +585,23 @@ static fb_result_t fb_biss_armed_frame_rx(trigger_vector_t *vector,
                FB_ERROR;
 }
 
+static bool fb_biss_apply_sample_scan_step(void)
+{
+    sync_io_biss_tap_config_t config;
+    if (!biss_node_io_get_tap_config(&config)) {
+        return false;
+    }
+
+    const sync_io_mode_ops_t *ops =
+        sync_io_mode_get_ops(SYNC_IO_MODE_ID_BISS_TAP);
+    if (ops == NULL || ops->arm == NULL || !ops->arm(&config)) {
+        return false;
+    }
+
+    biss_node_io_sample_scan_rearm_succeeded();
+    return true;
+}
+
 /* ── ENC_COUNT 配置 ── */
 
 static fb_result_t fb_idle_configure_enc(trigger_vector_t *vector,
@@ -589,8 +633,9 @@ static fb_result_t fb_enc_configured_arm(trigger_vector_t *vector,
 {
     (void)event;
 
-    const uint32_t resources = fb_enc_resources(vector);
-    if (!resource_arbiter_acquire_owned(resources, FB_OWNER_ENC_COUNT)) {
+    const uint32_t resources = fb_enc_resources();
+    if (resources == 0u ||
+        !resource_arbiter_acquire_owned(resources, FB_OWNER_ENC_COUNT)) {
         vector->error_code = TRIG_ERROR_RESOURCE_CONFLICT;
         return FB_ERROR;
     }
@@ -646,7 +691,22 @@ static fb_result_t fb_runtime_sample(trigger_vector_t *vector,
 
     if (vector->state == TRIG_STATE_BISS_ARMED) {
         (void)event;
-        if (!biss_node_io_poll(vector)) {
+        const biss_node_io_poll_result_t poll_result =
+            biss_node_io_poll_runtime(vector);
+        if (poll_result == BISS_NODE_IO_POLL_SCAN_STEP) {
+            if (!fb_biss_apply_sample_scan_step()) {
+                vector->state = TRIG_STATE_FAULT;
+                vector->error_code = TRIG_ERROR_IO_ARM_FAILED;
+                return FB_ERROR;
+            }
+            return FB_OK;
+        }
+        if (poll_result == BISS_NODE_IO_POLL_REARM_FAILED) {
+            vector->state = TRIG_STATE_FAULT;
+            vector->error_code = TRIG_ERROR_IO_ARM_FAILED;
+            return FB_ERROR;
+        }
+        if (poll_result != BISS_NODE_IO_POLL_OK) {
             vector->state = TRIG_STATE_FAULT;
             vector->error_code = TRIG_ERROR_IO_LOST;
             return FB_ERROR;
@@ -665,7 +725,7 @@ static fb_result_t fb_enc_armed_disarm(trigger_vector_t *vector,
     (void)event;
 
     sync_io_enc_count_disarm();
-    resource_arbiter_release_owned(fb_enc_resources(vector), FB_OWNER_ENC_COUNT);
+    resource_arbiter_release_owned(fb_enc_resources(), FB_OWNER_ENC_COUNT);
 
     vector->state = TRIG_STATE_IDLE;
     vector->error_code = TRIG_ERROR_NONE;
@@ -682,6 +742,7 @@ static fb_result_t fb_fault_clear(trigger_vector_t *vector,
     fb_release_running_io(vector);
 
     vector->state = TRIG_STATE_IDLE;
+    vector->active_mode = TRIG_MODE_IDLE;
     vector->error_code = TRIG_ERROR_NONE;
     return FB_OK;
 }
@@ -744,7 +805,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CRC_GATE, fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_LATENCY_OFFSET, fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_TARGET,  fb_instant_cmd },
-    { TRIG_STATE_IDLE, TRIG_EVENT_RESET,             fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_RESET,             fb_reset_all },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_TRIGGER_WIDTH, fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_FIRE_TRIGGER,      fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_PULSE_WIDTH,   fb_instant_cmd },
@@ -765,7 +826,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_EDGE,         fb_instant_cmd },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_GATE,         fb_instant_cmd },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_SAFE_STATE,   fb_instant_cmd },
-    { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_RESET,            fb_instant_cmd },
+    { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_RESET,            fb_reset_all },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_TRIGGER_WIDTH, fb_instant_cmd },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_FIRE_TRIGGER,     fb_instant_cmd },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_PULSE_WIDTH,  fb_instant_cmd },
@@ -787,13 +848,13 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FIRE_TRIGGER,     fb_seq_armed_reject },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FIRE_PULSE,       fb_seq_armed_reject },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FIRE_MARKER,      fb_seq_armed_reject },
-    { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_RESET,            fb_seq_armed_disarm },
+    { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_RESET,            fb_reset_all },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FAULT,            fb_force_fault },
 
     /* FAULT */
     { TRIG_STATE_FAULT, TRIG_EVENT_CLEAR_FAULT, fb_fault_clear },
     { TRIG_STATE_FAULT, TRIG_EVENT_DISARM,      fb_fault_clear },
-    { TRIG_STATE_FAULT, TRIG_EVENT_RESET,       fb_fault_clear },
+    { TRIG_STATE_FAULT, TRIG_EVENT_RESET,       fb_reset_all },
 
     /* BISS_CONFIGURED */
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_ARM,                     fb_biss_configured_arm },
@@ -831,7 +892,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CRC_GATE,        fb_instant_cmd },
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_LATENCY_OFFSET,  fb_instant_cmd },
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_TARGET,         fb_instant_cmd },
-    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_RESET,                   fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_RESET,                   fb_reset_all },
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_FAULT,                   fb_force_fault },
 
     /* BISS_ARMED */
@@ -873,7 +934,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_CRC_GATE, fb_seq_armed_reject },
     { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_LATENCY_OFFSET, fb_seq_armed_reject },
     { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_TARGET, fb_seq_armed_reject },
-    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_RESET,          fb_biss_armed_disarm },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_RESET,          fb_reset_all },
     { TRIG_STATE_BISS_ARMED, TRIG_EVENT_FAULT,          fb_force_fault },
 
     /* ENC_CONFIGURED */
@@ -888,7 +949,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_PCNT_GATE,    fb_instant_cmd },
     { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_PCNT_CMP,     fb_instant_cmd },
     { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_SET_PCNT_PRESET,  fb_instant_cmd },
-    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_RESET,           fb_instant_cmd },
+    { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_RESET,           fb_reset_all },
     { TRIG_STATE_ENC_CONFIGURED, TRIG_EVENT_FAULT,           fb_force_fault },
 
     /* ENC_ARMED */
@@ -898,7 +959,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_ENC_Z_PULSE,      fb_instant_cmd },
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_PCNT_CLEAR,       fb_instant_cmd },
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_SET_ENC_TARGET,   fb_instant_cmd },
-    { TRIG_STATE_ENC_ARMED, TRIG_EVENT_RESET,            fb_enc_armed_disarm },
+    { TRIG_STATE_ENC_ARMED, TRIG_EVENT_RESET,            fb_reset_all },
     { TRIG_STATE_ENC_ARMED, TRIG_EVENT_FAULT,            fb_force_fault },
 };
 #define TRIG_ECC_TABLE_COUNT \

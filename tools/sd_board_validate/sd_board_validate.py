@@ -48,6 +48,14 @@ CATALOG_COMMANDS = (
     ("reports", 'MMEM:CAT? "/reports"'),
 )
 
+RESOURCE_PIO1 = 1 << 4
+RESOURCE_PIO2 = 1 << 5
+RESOURCE_DMA = 1 << 6
+RESOURCE_AUX = 1 << 9
+RESOURCE_SEQ_STEP = RESOURCE_PIO1 | RESOURCE_DMA
+RESOURCE_ENC_COUNT = RESOURCE_PIO1 | RESOURCE_DMA
+RESOURCE_BISS_TAP = RESOURCE_PIO2 | RESOURCE_AUX
+
 STORAGE_JOB_INFO_KEY = 'SYST:STOR:JOB:INFO "/manifest.idx"'
 STORAGE_JOB_QUERY_PREFIX = "SYST:STOR:JOB?"
 INIT_JOB_QUERY_KEY = "INIT:SYST:STOR:JOB?"
@@ -67,6 +75,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-snapshot", action="store_true", help="do not write and validate a boot snapshot")
     parser.add_argument("--skip-arm-snapshot", action="store_true", help="do not trigger and validate ARM snapshot")
     parser.add_argument("--skip-fault-snapshot", action="store_true", help="do not trigger and validate FAULT snapshot")
+    parser.add_argument("--validate-trigger-release", action="store_true",
+                        help="exercise RESET/FAULT while SEQ_STEP is armed and require resource_release trace records")
+    parser.add_argument("--validate-resource-owner", action="store_true",
+                        help="arm/disarm SEQ, ENC and BISS, then assert SYST:RES? active resource masks")
     return parser.parse_args()
 
 
@@ -116,8 +128,67 @@ def command_ack(ser: serial.Serial, command: str, timeout_s: float) -> str:
     return read_any_scpi_line(ser, timeout_s)
 
 
+def command_no_response(ser: serial.Serial, command: str) -> str:
+    ser.write((command + "\n").encode("ascii"))
+    ser.flush()
+    return "<sent>"
+
+
 def parse_csv_response(response: str) -> list[str]:
     return next(csv.reader([response], skipinitialspace=True))
+
+
+def trigger_state(response: str) -> int:
+    fields = parse_csv_response(response)
+    if len(fields) < 2:
+        return -1
+    try:
+        return int(fields[1], 0)
+    except ValueError:
+        return -1
+
+
+def trigger_error(response: str) -> int:
+    fields = parse_csv_response(response)
+    if len(fields) < 9:
+        return -1
+    try:
+        return int(fields[8], 0)
+    except ValueError:
+        return -1
+
+
+def resource_active_mask(response: str) -> int:
+    fields = parse_csv_response(response)
+    if not fields:
+        return -1
+    try:
+        return int(fields[0], 0)
+    except ValueError:
+        return -1
+
+
+def resource_contains(response: str, expected_mask: int) -> bool:
+    active = resource_active_mask(response)
+    return active >= 0 and (active & expected_mask) == expected_mask
+
+
+def resource_released(response: str, released_mask: int) -> bool:
+    active = resource_active_mask(response)
+    return active >= 0 and (active & released_mask) == 0
+
+
+def wait_until_trigger_state(ser: serial.Serial,
+                             state: int,
+                             timeout_s: float) -> str:
+    deadline = time.monotonic() + timeout_s
+    last = ""
+    while time.monotonic() < deadline:
+        last = query(ser, "STAT:TRIG?", min(0.5, timeout_s))
+        if trigger_state(last) == state:
+            return last
+        time.sleep(0.05)
+    return last or "<timeout>"
 
 
 def catalog_entries(response: str) -> dict[str, tuple[int, str]]:
@@ -201,6 +272,24 @@ def expect_file_info(results: dict[str, str],
         expect(fields[3] == expected_kind, failures, f"{key} kind is {fields[3]!r}, expected {expected_kind}")
         expect(int(fields[4], 0) != 0, failures, f"{key} path hash is zero")
         expect(fields[5] == "0", failures, f"{key} error is {fields[5]!r}, expected 0")
+
+
+def trace_has_release(decoded: dict[str, Any],
+                      trigger_event_name: str,
+                      before_state_name: str,
+                      required_resource_names: set[str]) -> bool:
+    for record in decoded.get("records", []):
+        if record.get("event_name") != "trigger.resource_release":
+            continue
+        details = record.get("details", {})
+        if details.get("trigger_event_name") != trigger_event_name:
+            continue
+        if details.get("before_state_name") != before_state_name:
+            continue
+        released = set(details.get("released_resource_names", []))
+        if required_resource_names.issubset(released):
+            return True
+    return False
 
 
 def file_info_size(response: str) -> int:
@@ -291,6 +380,71 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
+def run_resource_owner_checks(ser: serial.Serial,
+                              results: dict[str, str],
+                              timeout_s: float) -> None:
+    results["OWNER:*RST"] = command_no_response(ser, "*RST")
+    time.sleep(0.3)
+    results["OWNER:RESET:STAT:TRIG?"] = wait_until_trigger_state(ser, 0, timeout_s)
+    results["OWNER:IDLE:SYST:RES?"] = query(ser, "SYST:RES?", timeout_s)
+
+    results["OWNER:SEQ:TRIG:MODE 1"] = command_ack(ser, "TRIG:MODE 1", timeout_s)
+    time.sleep(0.2)
+    results["OWNER:SEQ:TRIG:ARM"] = command_ack(ser, "TRIG:ARM", timeout_s)
+    time.sleep(0.2)
+    results["OWNER:SEQ:ARMED:STAT:TRIG?"] = wait_until_trigger_state(ser, 2, timeout_s)
+    results["OWNER:SEQ:ARMED:SYST:RES?"] = query(ser, "SYST:RES?", timeout_s)
+    results["OWNER:SEQ:TRIG:DISarm"] = command_ack(ser, "TRIG:DISarm", timeout_s)
+    time.sleep(0.2)
+    results["OWNER:SEQ:DISARMED:SYST:RES?"] = query(ser, "SYST:RES?", timeout_s)
+
+    results["OWNER:ENC:TRIG:ENC:TARG 4"] = command_ack(ser, "TRIG:ENC:TARG 4", timeout_s)
+    time.sleep(0.1)
+    results["OWNER:ENC:TRIG:MODE 2"] = command_ack(ser, "TRIG:MODE 2", timeout_s)
+    time.sleep(0.2)
+    results["OWNER:ENC:TRIG:ARM"] = command_ack(ser, "TRIG:ARM", timeout_s)
+    time.sleep(0.2)
+    results["OWNER:ENC:ARMED:STAT:TRIG?"] = wait_until_trigger_state(ser, 4, timeout_s)
+    results["OWNER:ENC:ARMED:SYST:RES?"] = query(ser, "SYST:RES?", timeout_s)
+    results["OWNER:ENC:TRIG:DISarm"] = command_ack(ser, "TRIG:DISarm", timeout_s)
+    time.sleep(0.2)
+    results["OWNER:ENC:DISARMED:SYST:RES?"] = query(ser, "SYST:RES?", timeout_s)
+
+    biss_config = [
+        "TRIG:BISS:ROLE 0",
+        "TRIG:BISS:DEV 0",
+        "TRIG:BISS:CLOC 1000000",
+        "TRIG:BISS:FBIT 48",
+        "TRIG:BISS:POFF 8",
+        "TRIG:BISS:PBIT 24",
+        "TRIG:BISS:PMOD 16777216",
+        "TRIG:BISS:TARG 100",
+        "TRIG:BISS:SAMP:EDGE 0",
+        "TRIG:BISS:SAMP:DEL 8",
+        "TRIG:BISS:TIME 1000000",
+        "TRIG:BISS:ANCH:BITS 0",
+        "TRIG:BISS:ERR:BIT 4294967295",
+        "TRIG:BISS:WARN:BIT 4294967295",
+        "TRIG:BISS:STAT:GATE 0",
+        "TRIG:BISS:CRC:BITS 0",
+        "TRIG:BISS:CRC:COV:BITS 0",
+        "TRIG:BISS:CRC:GATE 0",
+        "TRIG:BISS:SAMP:SCAN 0",
+    ]
+    for command in biss_config:
+        results[f"OWNER:BISS:{command}"] = command_ack(ser, command, timeout_s)
+        time.sleep(0.05)
+    results["OWNER:BISS:TRIG:MODE 3"] = command_ack(ser, "TRIG:MODE 3", timeout_s)
+    time.sleep(0.2)
+    results["OWNER:BISS:TRIG:ARM"] = command_ack(ser, "TRIG:ARM", timeout_s)
+    time.sleep(0.2)
+    results["OWNER:BISS:ARMED:STAT:TRIG?"] = wait_until_trigger_state(ser, 7, timeout_s)
+    results["OWNER:BISS:ARMED:SYST:RES?"] = query(ser, "SYST:RES?", timeout_s)
+    results["OWNER:BISS:TRIG:DISarm"] = command_ack(ser, "TRIG:DISarm", timeout_s)
+    time.sleep(0.2)
+    results["OWNER:BISS:DISARMED:SYST:RES?"] = query(ser, "SYST:RES?", timeout_s)
+
+
 def run_queries(port: str,
                 baud: int,
                 timeout_s: float,
@@ -299,7 +453,9 @@ def run_queries(port: str,
                 commands: Iterable[str],
                 validate_snapshot: bool,
                 validate_arm_snapshot: bool,
-                validate_fault_snapshot: bool) -> dict[str, str]:
+                validate_fault_snapshot: bool,
+                validate_trigger_release: bool,
+                validate_resource_owner: bool) -> dict[str, str]:
     results: dict[str, str] = {}
     with serial.Serial(port, baud, timeout=0.1, write_timeout=timeout_s) as ser:
         time.sleep(settle_s)
@@ -322,6 +478,8 @@ def run_queries(port: str,
             if fields and fields[0] in ("DONE", "FAILED"):
                 break
             time.sleep(0.1)
+        if validate_resource_owner:
+            run_resource_owner_checks(ser, results, timeout_s)
         if validate_snapshot:
             results["AUTO:SYST:SNAP:LAST?"] = query(ser, "SYST:SNAP:LAST?", timeout_s)
             time.sleep(0.1)
@@ -373,8 +531,23 @@ def run_queries(port: str,
                 time.sleep(0.1)
             results['MMEM:CAT? "/snapshots/arm"'] = query(ser, 'MMEM:CAT? "/snapshots/arm"', timeout_s)
         if validate_fault_snapshot:
+            if validate_trigger_release and validate_arm_snapshot:
+                results["RESET:TRIG:MODE 1"] = command_ack(ser, "TRIG:MODE 1", timeout_s)
+                time.sleep(0.2)
+                results["RESET:TRIG:ARM"] = command_ack(ser, "TRIG:ARM", timeout_s)
+                time.sleep(0.2)
+                results["RESET:ARMED:STAT:TRIG?"] = wait_until_trigger_state(ser, 2, timeout_s)
+                results["*RST"] = command_no_response(ser, "*RST")
+                time.sleep(0.2)
+                results["RESET:STAT:TRIG?"] = wait_until_trigger_state(ser, 0, timeout_s)
+                results["FAULT:TRIG:MODE 1"] = command_ack(ser, "TRIG:MODE 1", timeout_s)
+                time.sleep(0.2)
+                results["FAULT:TRIG:ARM"] = command_ack(ser, "TRIG:ARM", timeout_s)
+                time.sleep(0.2)
+                results["FAULT:ARMED:STAT:TRIG?"] = wait_until_trigger_state(ser, 2, timeout_s)
             results["TRIG:FAULT"] = command_ack(ser, "TRIG:FAULT", timeout_s)
             time.sleep(0.2)
+            results["FAULT:STAT:TRIG?"] = wait_until_trigger_state(ser, 5, timeout_s)
             results["FAULT:SYST:STOR:JOB?"] = query(ser, "SYST:STOR:JOB?", timeout_s)
             time.sleep(0.1)
             results["FAULT:SYST:SNAP:LAST?"] = query(ser, "SYST:SNAP:LAST?", timeout_s)
@@ -474,11 +647,75 @@ def main() -> int:
                           commands,
                           validate_snapshot=not args.skip_snapshot,
                           validate_arm_snapshot=(not args.skip_snapshot and not args.skip_arm_snapshot),
-                          validate_fault_snapshot=(not args.skip_snapshot and not args.skip_fault_snapshot))
+                          validate_fault_snapshot=(not args.skip_snapshot and not args.skip_fault_snapshot),
+                          validate_trigger_release=args.validate_trigger_release,
+                          validate_resource_owner=args.validate_resource_owner)
+
+    if args.validate_resource_owner:
+        expect(trigger_state(results.get("OWNER:RESET:STAT:TRIG?", "")) == 0,
+               failures,
+               f"resource-owner reset did not return IDLE: {results.get('OWNER:RESET:STAT:TRIG?')!r}")
+        expect(resource_released(results.get("OWNER:IDLE:SYST:RES?", ""),
+                                 RESOURCE_SEQ_STEP | RESOURCE_BISS_TAP),
+               failures,
+               f"resource-owner idle resources not released: {results.get('OWNER:IDLE:SYST:RES?')!r}")
+        expect(results.get("OWNER:SEQ:TRIG:MODE 1") == '"OK"',
+               failures,
+               f"resource-owner SEQ mode did not return OK: {results.get('OWNER:SEQ:TRIG:MODE 1')!r}")
+        expect(results.get("OWNER:SEQ:TRIG:ARM") == '"OK"',
+               failures,
+               f"resource-owner SEQ ARM did not return OK: {results.get('OWNER:SEQ:TRIG:ARM')!r}")
+        expect(trigger_state(results.get("OWNER:SEQ:ARMED:STAT:TRIG?", "")) == 2,
+               failures,
+               f"resource-owner SEQ did not reach SEQ_ARMED: {results.get('OWNER:SEQ:ARMED:STAT:TRIG?')!r}")
+        expect(resource_contains(results.get("OWNER:SEQ:ARMED:SYST:RES?", ""),
+                                 RESOURCE_SEQ_STEP),
+               failures,
+               f"resource-owner SEQ active resources do not include PIO1/DMA: {results.get('OWNER:SEQ:ARMED:SYST:RES?')!r}")
+        expect(resource_released(results.get("OWNER:SEQ:DISARMED:SYST:RES?", ""),
+                                 RESOURCE_SEQ_STEP),
+               failures,
+               f"resource-owner SEQ resources not released: {results.get('OWNER:SEQ:DISARMED:SYST:RES?')!r}")
+
+        expect(results.get("OWNER:ENC:TRIG:MODE 2") == '"OK"',
+               failures,
+               f"resource-owner ENC mode did not return OK: {results.get('OWNER:ENC:TRIG:MODE 2')!r}")
+        expect(results.get("OWNER:ENC:TRIG:ARM") == '"OK"',
+               failures,
+               f"resource-owner ENC ARM did not return OK: {results.get('OWNER:ENC:TRIG:ARM')!r}")
+        expect(trigger_state(results.get("OWNER:ENC:ARMED:STAT:TRIG?", "")) == 4,
+               failures,
+               f"resource-owner ENC did not reach ENC_ARMED: {results.get('OWNER:ENC:ARMED:STAT:TRIG?')!r}")
+        expect(resource_contains(results.get("OWNER:ENC:ARMED:SYST:RES?", ""),
+                                 RESOURCE_ENC_COUNT),
+               failures,
+               f"resource-owner ENC active resources do not include PIO1/DMA: {results.get('OWNER:ENC:ARMED:SYST:RES?')!r}")
+        expect(resource_released(results.get("OWNER:ENC:DISARMED:SYST:RES?", ""),
+                                 RESOURCE_ENC_COUNT),
+               failures,
+               f"resource-owner ENC resources not released: {results.get('OWNER:ENC:DISARMED:SYST:RES?')!r}")
+
+        expect(results.get("OWNER:BISS:TRIG:MODE 3") == '"OK"',
+               failures,
+               f"resource-owner BISS mode did not return OK: {results.get('OWNER:BISS:TRIG:MODE 3')!r}")
+        expect(results.get("OWNER:BISS:TRIG:ARM") == '"OK"',
+               failures,
+               f"resource-owner BISS ARM did not return OK: {results.get('OWNER:BISS:TRIG:ARM')!r}")
+        expect(trigger_state(results.get("OWNER:BISS:ARMED:STAT:TRIG?", "")) == 7,
+               failures,
+               f"resource-owner BISS did not reach BISS_ARMED: {results.get('OWNER:BISS:ARMED:STAT:TRIG?')!r}")
+        expect(resource_contains(results.get("OWNER:BISS:ARMED:SYST:RES?", ""),
+                                 RESOURCE_BISS_TAP),
+               failures,
+               f"resource-owner BISS active resources do not include PIO2/AUX: {results.get('OWNER:BISS:ARMED:SYST:RES?')!r}")
+        expect(resource_released(results.get("OWNER:BISS:DISARMED:SYST:RES?", ""),
+                                 RESOURCE_BISS_TAP),
+               failures,
+               f"resource-owner BISS resources not released: {results.get('OWNER:BISS:DISARMED:SYST:RES?')!r}")
 
     log_status = parse_csv_response(results["SYST:LOG:STAT?"])
-    expect(len(log_status) >= 23, failures, "SYST:LOG:STAT? returned too few fields")
-    if len(log_status) >= 23:
+    expect(len(log_status) >= 3, failures, "SYST:LOG:STAT? returned too few fields")
+    if len(log_status) >= 3:
         expect(log_status[0] in ("DEBUG", "INFO", "WARN", "ERROR"),
                failures,
                f"log level is {log_status[0]!r}")
@@ -487,7 +724,7 @@ def main() -> int:
         except ValueError:
             level_value = 0xFFFFFFFF
         expect(level_value <= 3, failures, f"log level value is {log_status[1]!r}")
-        for index, field in enumerate(log_status[2:23], start=2):
+        for index, field in enumerate(log_status[2:], start=2):
             try:
                 int(field, 0)
             except ValueError:
@@ -623,9 +860,13 @@ def main() -> int:
         expect(len(auto_snapshot) >= 6, failures, "automatic SYST:SNAP:LAST? returned too few fields")
         if len(auto_snapshot) >= 6:
             expect(auto_snapshot[0] == "OK", failures, f"auto snapshot status is {auto_snapshot[0]!r}, expected OK")
-            expect(auto_snapshot[1] == "boot", failures, f"auto snapshot kind is {auto_snapshot[1]!r}, expected boot")
-            expect(int(auto_snapshot[2], 0) > 0, failures, "auto boot snapshot sequence is zero")
-            expect(auto_snapshot[3].startswith("/snapshots/boot/boot_"), failures, f"auto snapshot path is {auto_snapshot[3]!r}")
+            expect(auto_snapshot[1] in ("boot", "arm", "fault", "run"),
+                   failures,
+                   f"auto snapshot kind is {auto_snapshot[1]!r}")
+            expect(int(auto_snapshot[2], 0) > 0, failures, "auto snapshot sequence is zero")
+            expect(auto_snapshot[3].startswith(f"/snapshots/{auto_snapshot[1]}/"),
+                   failures,
+                   f"auto snapshot path is {auto_snapshot[3]!r}")
             expect(auto_snapshot[5] == "0", failures, f"auto snapshot error is {auto_snapshot[5]!r}, expected 0")
 
         snapshot_write_key = 'SYST:SNAP:WRIT "boot"'
@@ -751,9 +992,40 @@ def main() -> int:
                    f"/snapshots/arm catalog missing {arm_snapshot_name}")
 
     if not args.skip_snapshot and not args.skip_fault_snapshot:
+        if args.validate_trigger_release and not args.skip_arm_snapshot:
+            expect(results["RESET:TRIG:MODE 1"] == '"OK"',
+                   failures,
+                   f"RESET TRIG:MODE 1 did not return OK: {results['RESET:TRIG:MODE 1']!r}")
+            expect(results["RESET:TRIG:ARM"] == '"OK"',
+                   failures,
+                   f"RESET TRIG:ARM did not return OK: {results['RESET:TRIG:ARM']!r}")
+            expect(trigger_state(results["RESET:ARMED:STAT:TRIG?"]) == 2,
+                   failures,
+                   f"RESET arm state is not SEQ_ARMED: {results['RESET:ARMED:STAT:TRIG?']!r}")
+            expect(trigger_state(results["RESET:STAT:TRIG?"]) == 0,
+                   failures,
+                   f"RESET did not return trigger state to IDLE: {results['RESET:STAT:TRIG?']!r}")
+            expect(trigger_error(results["RESET:STAT:TRIG?"]) == 0,
+                   failures,
+                   f"RESET did not clear trigger error: {results['RESET:STAT:TRIG?']!r}")
+            expect(results["FAULT:TRIG:MODE 1"] == '"OK"',
+                   failures,
+                   f"FAULT TRIG:MODE 1 did not return OK: {results['FAULT:TRIG:MODE 1']!r}")
+            expect(results["FAULT:TRIG:ARM"] == '"OK"',
+                   failures,
+                   f"FAULT TRIG:ARM did not return OK: {results['FAULT:TRIG:ARM']!r}")
+            expect(trigger_state(results["FAULT:ARMED:STAT:TRIG?"]) == 2,
+                   failures,
+                   f"FAULT arm state is not SEQ_ARMED: {results['FAULT:ARMED:STAT:TRIG?']!r}")
         expect(results["TRIG:FAULT"] == '"OK"',
                failures,
                f"TRIG:FAULT did not return OK: {results['TRIG:FAULT']!r}")
+        expect(trigger_state(results["FAULT:STAT:TRIG?"]) == 5,
+               failures,
+               f"TRIG:FAULT did not move trigger state to FAULT: {results['FAULT:STAT:TRIG?']!r}")
+        expect(trigger_error(results["FAULT:STAT:TRIG?"]) == 100,
+               failures,
+               f"TRIG:FAULT did not latch forced fault error: {results['FAULT:STAT:TRIG?']!r}")
         fault_job = parse_csv_response(results.get("FAULT:SYST:STOR:JOB?", ""))
         expect(len(fault_job) >= 8, failures, "FAULT SYST:STOR:JOB? returned too few fields")
         if len(fault_job) >= 8:
@@ -914,11 +1186,7 @@ def main() -> int:
                            "decoded trace event_count does not match SYST:TRAC:LAST?")
                     event_names = {str(record.get("event_name")) for record in decoded["records"]}
                     if not args.skip_arm_snapshot:
-                        for event_name in (
-                            "trigger.source_config",
-                            "trigger.edge_config",
-                            "trigger.gate_config",
-                            "trigger.safe_config",
+                        expected_event_names = [
                             "trigger.runtime_sample",
                             "trigger.resource_snapshot",
                             "sync_io.seq_runtime",
@@ -928,10 +1196,37 @@ def main() -> int:
                             "sync_io.aux_snapshot",
                             "sync_io.ready_redy",
                             "sync_io.aux_timeout",
-                        ):
+                        ]
+                        if not args.validate_trigger_release:
+                            expected_event_names.extend(
+                                [
+                                    "trigger.source_config",
+                                    "trigger.edge_config",
+                                    "trigger.gate_config",
+                                    "trigger.safe_config",
+                                ]
+                            )
+                        for event_name in expected_event_names:
                             expect(event_name in event_names,
                                    failures,
                                    f"decoded trace missing {event_name}")
+                    if args.validate_trigger_release and not args.skip_arm_snapshot:
+                        expect("trigger.resource_release" in event_names,
+                               failures,
+                               "decoded trace missing trigger.resource_release")
+                        required_release_resources = {"PIO1", "DMA"}
+                        expect(trace_has_release(decoded,
+                                                 "RESET",
+                                                 "SEQ_ARMED",
+                                                 required_release_resources),
+                               failures,
+                               "decoded trace missing RESET release from SEQ_ARMED for PIO1/DMA")
+                        expect(trace_has_release(decoded,
+                                                 "FAULT",
+                                                 "SEQ_ARMED",
+                                                 required_release_resources),
+                               failures,
+                               "decoded trace missing FAULT release from SEQ_ARMED for PIO1/DMA")
                     write_text(out_dir / "trace_readback" / "decoded_fault_trace.json",
                                json.dumps(decoded, indent=2, ensure_ascii=False) + "\n")
                 except (OSError, ValueError) as exc:

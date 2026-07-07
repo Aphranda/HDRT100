@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,9 @@ except ImportError as exc:  # pragma: no cover - bench dependency
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from tools.sd_trace_decode.sd_trace_decode import decode_trace  # noqa: E402
 
 BISS_STATUS_FIELDS = (
     "role_name",
@@ -72,6 +76,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scan-step", type=int, default=2)
     parser.add_argument("--skip-arm", action="store_true", help="only configure and query, do not arm PIO")
     parser.add_argument("--skip-inject", action="store_true", help="do not inject software position frames")
+    parser.add_argument("--scan-wait-s", type=float, default=0.0,
+                        help="seconds to wait for timeout sample-scan progress after ARM")
+    parser.add_argument("--expect-scan-steps", type=int, default=0,
+                        help="minimum sample_scan_index expected after --scan-wait-s")
+    parser.add_argument("--capture-trace", action="store_true",
+                        help="after scan validation, trigger fault evidence and decode latest fault trace")
     parser.add_argument(
         "--inject-positions",
         help="comma-separated positions injected after ARM; default brackets --target to force one crossing",
@@ -96,7 +106,9 @@ def read_scpi_line(ser: serial.Serial, timeout_s: float, *, accept_ack: bool) ->
         line = normalize_scpi_line(raw.decode("utf-8", errors="replace"))
         if is_log_or_empty(line):
             continue
-        if line == '"OK"' and not accept_ack:
+        if line == '"OK"' or line.startswith('"OK"['):
+            if accept_ack:
+                return '"OK"'
             continue
         return line
     return "<timeout>"
@@ -119,6 +131,61 @@ def parse_csv_response(response: str) -> list[str]:
         return next(csv.reader([response], skipinitialspace=True))
     except csv.Error:
         return []
+
+
+def quote_path(path: str) -> str:
+    return '"' + path.replace('"', '') + '"'
+
+
+def path_from_response(response: str, index: int) -> str:
+    fields = parse_csv_response(response)
+    return fields[index] if len(fields) > index else ""
+
+
+def file_info_size(response: str) -> int:
+    fields = parse_csv_response(response)
+    if len(fields) < 6 or fields[0] != "OK" or fields[3] != "FILE":
+        return 0
+    try:
+        return int(fields[2], 0)
+    except ValueError:
+        return 0
+
+
+def read_file_via_scpi(ser: serial.Serial,
+                       path: str,
+                       expected_size: int,
+                       timeout_s: float,
+                       results: dict[str, str],
+                       key_prefix: str,
+                       chunk_size: int = 128) -> bytes:
+    data = bytearray()
+    for _ in range(64):
+        if expected_size > 0 and len(data) >= expected_size:
+            break
+        command = f"MMEM:READ? {quote_path(path)},{len(data)},{chunk_size}"
+        response = query(ser, command, timeout_s)
+        results[f"{key_prefix}:{command}"] = response
+        fields = parse_csv_response(response)
+        if len(fields) < 9 or fields[0] != "OK":
+            break
+        try:
+            offset = int(fields[2], 0)
+            returned = int(fields[4], 0)
+        except ValueError:
+            break
+        if offset != len(data) or returned < 0:
+            break
+        if returned == 0:
+            break
+        chunk = bytes.fromhex(fields[8])
+        if len(chunk) != returned:
+            break
+        data.extend(chunk)
+        if fields[5] == "1":
+            break
+        time.sleep(0.05)
+    return bytes(data)
 
 
 def parse_biss_status(response: str) -> dict[str, str]:
@@ -188,6 +255,17 @@ def wait_until_biss_state(ser: serial.Serial, state: int, timeout_s: float) -> s
         "STAT:BISS?",
         timeout_s,
         lambda response: status_uint(parse_biss_status(response), "trigger_state") == state,
+    )
+
+
+def wait_until_biss_scan_index(ser: serial.Serial,
+                               expected_index: int,
+                               timeout_s: float) -> str:
+    return wait_until_query(
+        ser,
+        "STAT:BISS?",
+        timeout_s,
+        lambda response: status_uint(parse_biss_status(response), "sample_scan_index") >= expected_index,
     )
 
 
@@ -341,12 +419,79 @@ def run_serial(args: argparse.Namespace, out_dir: Path) -> dict[str, str]:
                 results["armed:wait:STAT:BISS?"] = wait_until_biss_state(ser, 7, args.timeout)
                 results["armed:STAT:BISS?"] = query(ser, "STAT:BISS?", args.timeout)
 
+                if args.expect_scan_steps > 0:
+                    wait_s = args.scan_wait_s if args.scan_wait_s > 0.0 else args.timeout
+                    results["scan:wait:STAT:BISS?"] = wait_until_biss_scan_index(
+                        ser,
+                        args.expect_scan_steps,
+                        wait_s,
+                    )
+
                 if not args.skip_inject:
                     for position in positions:
                         command = f"TRIG:BISS:FRAM {position}"
                         results[command] = command_ack(ser, command, args.timeout)
                         time.sleep(0.15)
                     results["injected:STAT:BISS?"] = query(ser, "STAT:BISS?", args.timeout)
+
+                if args.capture_trace:
+                    results["TRIG:FAULT"] = command_ack(ser, "TRIG:FAULT", args.timeout)
+                    time.sleep(0.3)
+                    for attempt in range(8):
+                        key = f"FAULT:SYST:STOR:JOB?:{attempt}"
+                        results[key] = query(ser, "SYST:STOR:JOB?", args.timeout)
+                        fields = parse_csv_response(results[key])
+                        if fields and fields[0] in ("DONE", "FAILED"):
+                            break
+                        time.sleep(0.1)
+                    results["FAULT:SYST:TRAC:LAST?"] = query(ser, "SYST:TRAC:LAST?", args.timeout)
+                    trace_path = path_from_response(results["FAULT:SYST:TRAC:LAST?"], 3)
+                    if trace_path:
+                        results["INFO:FAULT:SYST:TRAC:LAST?"] = query(
+                            ser,
+                            f"MMEM:INFO? {quote_path(trace_path)}",
+                            args.timeout,
+                        )
+                        idx_path = trace_path[:-4] + ".idx" if trace_path.endswith(".bin") else ""
+                        if idx_path:
+                            results["INFO:FAULT:SYST:TRAC:IDX?"] = query(
+                                ser,
+                                f"MMEM:INFO? {quote_path(idx_path)}",
+                                args.timeout,
+                            )
+                        trace_size = file_info_size(results.get("INFO:FAULT:SYST:TRAC:LAST?", ""))
+                        idx_size = file_info_size(results.get("INFO:FAULT:SYST:TRAC:IDX?", ""))
+                        trace_dir = out_dir / "trace_readback"
+                        if trace_size > 0:
+                            trace_data = read_file_via_scpi(
+                                ser,
+                                trace_path,
+                                trace_size,
+                                args.timeout,
+                                results,
+                                "READ:FAULT:SYST:TRAC:LAST?",
+                            )
+                            trace_out = trace_dir / Path(trace_path).name
+                            trace_out.parent.mkdir(parents=True, exist_ok=True)
+                            trace_out.write_bytes(trace_data)
+                            results["READBACK:FAULT:SYST:TRAC:LAST?"] = (
+                                f"OK,{trace_path},{trace_size},{len(trace_data)},{trace_out}"
+                            )
+                        if idx_path and idx_size > 0:
+                            idx_data = read_file_via_scpi(
+                                ser,
+                                idx_path,
+                                idx_size,
+                                args.timeout,
+                                results,
+                                "READ:FAULT:SYST:TRAC:IDX?",
+                            )
+                            idx_out = trace_dir / Path(idx_path).name
+                            idx_out.parent.mkdir(parents=True, exist_ok=True)
+                            idx_out.write_bytes(idx_data)
+                            results["READBACK:FAULT:SYST:TRAC:IDX?"] = (
+                                f"OK,{idx_path},{idx_size},{len(idx_data)},{idx_out}"
+                            )
 
                 results["TRIG:DISarm"] = command_ack(ser, "TRIG:DISarm", args.timeout)
                 time.sleep(0.3)
@@ -400,9 +545,28 @@ def validate_results(args: argparse.Namespace, results: dict[str, str]) -> list[
     expect(status_uint(armed, "active_sample_edge") == args.sample_edge,
            failures,
            "active sample edge did not freeze to requested edge")
-    expect(status_uint(armed, "active_sample_delay_cycles") == args.sample_delay,
-           failures,
-           "active sample delay did not freeze to requested delay")
+    if args.expect_scan_steps == 0:
+        expect(status_uint(armed, "active_sample_delay_cycles") == args.sample_delay,
+               failures,
+               "active sample delay did not freeze to requested delay")
+
+    if args.expect_scan_steps > 0:
+        expect(args.enable_scan,
+               failures,
+               "--expect-scan-steps requires --enable-scan")
+        scanned = parse_biss_status(results.get("scan:wait:STAT:BISS?", ""))
+        expect(status_uint(scanned, "trigger_state") == 7,
+               failures,
+               "BiSS state changed before scan validation completed")
+        expect(status_uint(scanned, "timeout_count") >= args.expect_scan_steps,
+               failures,
+               "timeout_count did not advance during sample scan")
+        expect(status_uint(scanned, "sample_scan_index") >= args.expect_scan_steps,
+               failures,
+               "sample_scan_index did not reach expected scan steps")
+        expect(status_uint(scanned, "active_sample_delay_cycles") != args.sample_delay,
+               failures,
+               "active sample delay did not change during sample scan")
 
     if not args.skip_inject:
         positions = inject_positions(args)
@@ -425,6 +589,68 @@ def validate_results(args: argparse.Namespace, results: dict[str, str]) -> list[
             expect(status_uint(injected, "pulse_out_count") >= armed_pulse + 1,
                    failures,
                    "software frame injection did not produce pulse_out_count")
+
+    if args.capture_trace:
+        expect(results.get("TRIG:FAULT") == '"OK"',
+               failures,
+               f"TRIG:FAULT did not return OK: {results.get('TRIG:FAULT')!r}")
+        fault_job_keys = sorted(k for k in results if k.startswith("FAULT:SYST:STOR:JOB?:"))
+        expect(bool(fault_job_keys), failures, "fault evidence job was not queried")
+        if fault_job_keys:
+            fault_job = parse_csv_response(results[fault_job_keys[-1]])
+            expect(len(fault_job) >= 8, failures, "fault evidence job returned too few fields")
+            if len(fault_job) >= 8:
+                expect(fault_job[0] == "DONE",
+                       failures,
+                       f"fault evidence job state is {fault_job[0]!r}, expected DONE")
+                expect(fault_job[2] == "FAULT_EVIDENCE",
+                       failures,
+                       f"fault evidence job type is {fault_job[2]!r}, expected FAULT_EVIDENCE")
+                expect(fault_job[7] == "0",
+                       failures,
+                       f"fault evidence job error is {fault_job[7]!r}, expected 0")
+        fault_trace = parse_csv_response(results.get("FAULT:SYST:TRAC:LAST?", ""))
+        expect(len(fault_trace) >= 7, failures, "FAULT SYST:TRAC:LAST? returned too few fields")
+        if len(fault_trace) >= 7:
+            expect(fault_trace[0] == "OK",
+                   failures,
+                   f"FAULT trace status is {fault_trace[0]!r}, expected OK")
+            expect(fault_trace[6] == "0",
+                   failures,
+                   f"FAULT trace error is {fault_trace[6]!r}, expected 0")
+        readback_bin = parse_csv_response(results.get("READBACK:FAULT:SYST:TRAC:LAST?", ""))
+        readback_idx = parse_csv_response(results.get("READBACK:FAULT:SYST:TRAC:IDX?", ""))
+        expect(len(readback_bin) >= 5 and readback_bin[0] == "OK",
+               failures,
+               "fault trace .bin was not read back over MMEM:READ?")
+        expect(len(readback_idx) >= 5 and readback_idx[0] == "OK",
+               failures,
+               "fault trace .idx was not read back over MMEM:READ?")
+        if len(readback_bin) >= 5 and len(readback_idx) >= 5:
+            expect(readback_bin[2] == readback_bin[3],
+                   failures,
+                   "fault trace .bin readback size does not match expected size")
+            expect(readback_idx[2] == readback_idx[3],
+                   failures,
+                   "fault trace .idx readback size does not match expected size")
+            try:
+                decoded = decode_trace(Path(readback_bin[4]), Path(readback_idx[4]))
+                checks = decoded["checks"]
+                for check_name in ("magic_ok", "schema_ok", "size_ok", "crc_ok", "idx_ok"):
+                    expect(bool(checks.get(check_name)),
+                           failures,
+                           f"trace decode check failed: {check_name}")
+                event_names = {str(record.get("event_name")) for record in decoded["records"]}
+                expect("trigger.biss_timeout" in event_names,
+                       failures,
+                       "decoded trace missing trigger.biss_timeout")
+                expect("trigger.biss_scan_step" in event_names,
+                       failures,
+                       "decoded trace missing trigger.biss_scan_step")
+                write_text(Path(readback_bin[4]).parent / "decoded_fault_trace.json",
+                           json.dumps(decoded, indent=2, ensure_ascii=False) + "\n")
+            except (OSError, ValueError) as exc:
+                failures.append(f"trace readback decode failed: {exc}")
 
     expect(results.get("TRIG:DISarm") == '"OK"',
            failures,

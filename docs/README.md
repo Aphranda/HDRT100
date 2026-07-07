@@ -30,6 +30,7 @@ Last updated: 2026-07-07
 | 领域 | 当前进度入口 | 规则 |
 |---|---|---|
 | BiSS-C | `BISSC_TASK_PROGRESS.md` | BiSS-C 新任务记录写入本文件。 |
+| SYNC_IO | `SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构闭环记录写入本文件。 |
 | SD | `SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
 | Documentation | `DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
 | 其他领域 | 新建或补齐 `<DOMAIN>_TASK_PROGRESS.md` | 后续新闭环记录优先建立领域进度文件，不再追加到全局历史文件。 |
@@ -72,6 +73,7 @@ Last updated: 2026-07-07
 | `TRIGGER_INDUSTRIAL_ENHANCEMENT_DESIGN.md` | 工业级触发增强方案。 |
 | `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` | 多板分布式 DPLL / CAL_RING 同步设计。 |
 | `SYNC_IO_ARCH_REVIEW_TODO.md` | SYNC_IO 架构评审待办，跟踪重构中途发现的架构债务。 |
+| `SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构任务进度和闭环验证记录。 |
 
 ## 04 BiSS-C
 

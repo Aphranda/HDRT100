@@ -143,6 +143,7 @@ set(PROJECT_APP_SOURCES
         components/sync_trigger/src/sync_trigger.c
         components/sync_trigger/src/trigger_fb.c
         components/sync_trigger/src/trigger_measure.c
+        components/sync_trigger/src/trigger_resource_map.c
         components/sync_io/src/sync_io.c
         components/sync_io/src/sync_io_mode.c
         components/sync_io/src/sync_io_mode_biss_tap.c
