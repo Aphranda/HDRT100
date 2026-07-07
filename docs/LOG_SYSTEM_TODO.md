@@ -1,5 +1,11 @@
 # LOG 系统 TODO
 
+Status: Active
+Domain: LOG
+Canonical: `docs/LOG_SYSTEM_TODO.md`
+Related: `docs/SCPI_COMMANDS.md`, `docs/SD_TODO.md`
+Last updated: 2026-07-07
+
 本文档跟踪 RP2350_TRIG 的统一 LOG/TRACE 体系。目标不是把所有信息都打印到 USB CDC，
 而是分层保留调试证据：串口 LOG 给人快速观察，二进制 TRACE 给机器稳定解码，
 SNAPSHOT/REPORT 给故障闭环归档。

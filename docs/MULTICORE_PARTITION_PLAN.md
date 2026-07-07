@@ -1,5 +1,11 @@
 # RP2350 双核分区方案
 
+Status: Active
+Domain: MULTICORE
+Canonical: `docs/MULTICORE_PARTITION_PLAN.md`
+Related: `docs/RTOS_PORTING_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/BISSC_TAP_BRIDGE_DESIGN.md`
+Last updated: 2026-07-07
+
 本文档定义 RP2350_TRIG 的双核演进边界。目标是把实时性要求高的触发域和
 管理/观测/存储域隔离，而不是简单把现有函数平均分到两个核心。
 

@@ -1,5 +1,11 @@
 # 同步触发系统待办事项
 
+Status: Active
+Domain: TRIGGER
+Canonical: `docs/SYNC_TRIGGER_TODO.md`
+Related: `docs/PIO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`
+Last updated: 2026-07-07
+
 本文档用于跟踪同步触发系统从当前 PIO IO 驱动，完善到工业产品级触发子系统所需的剩余工作。
 
 ## 评审补充待办（2026-06-25）

@@ -1,5 +1,11 @@
 # Portable OTA Architecture And Validation Guide
 
+Status: Active
+Domain: OTA
+Canonical: `docs/PORTABLE_OTA_ARCHITECTURE.md`
+Related: `docs/OTA方案.md`, `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`, `docs/OTA_OPEN_SOURCE_COMPARISON.md`
+Last updated: 2026-07-07
+
 This document extracts the current RP2350_TRIG OTA design into a reusable
 architecture for MCU-class RTOS products. The immediate product scope is
 RP2350 and STM32. The current RP2350 SDK implementation remains the golden

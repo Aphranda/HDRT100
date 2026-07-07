@@ -1,5 +1,11 @@
 # BiSS-C 实现 TODO
 
+Status: Active
+Domain: BISSC
+Canonical: `docs/BISSC_IMPLEMENTATION_TODO.md`
+Related: `docs/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/BISSC_TASK_PROGRESS.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`
+Last updated: 2026-07-07
+
 本文档跟踪 `docs/BISSC_TAP_BRIDGE_DESIGN.md` 之后的 `TRIG_PROTOCOL_BISS_C`
 实现步骤。P0 有意收敛为固定 profile 的串联 TAP bridge：原样透传 BiSS-C
 `CLK/DATA`，旁路接收 position/status，并按 crossing 输出触发。

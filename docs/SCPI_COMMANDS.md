@@ -1,5 +1,11 @@
 # SCPI 基础命令
 
+Status: Active
+Domain: SCPI
+Canonical: `docs/SCPI_COMMANDS.md`
+Related: `docs/PIO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/OTA方案.md`, `docs/SD_TODO.md`
+Last updated: 2026-07-07
+
 当前 SCPI 服务通过 Pico SDK `stdio` 通道接入，默认使用 USB CDC。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
 ## 标准命令

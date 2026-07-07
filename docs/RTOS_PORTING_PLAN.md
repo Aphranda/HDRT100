@@ -1,5 +1,11 @@
 # FreeRTOS 移植方案
 
+Status: Active
+Domain: RTOS
+Canonical: `docs/RTOS_PORTING_PLAN.md`
+Related: `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`, `docs/MULTICORE_PARTITION_PLAN.md`
+Last updated: 2026-07-07
+
 本文档定义 RP2350_TRIG 在 OTA 基本收口后引入 FreeRTOS 的迁移方案。移植必须服从
 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 中定义的 HAOFV 架构，FreeRTOS 只作为调度器和同步原语提供者，不替代 Active Object、Function Block、Vector Blackboard 和 Resource Arbiter 的边界。
 

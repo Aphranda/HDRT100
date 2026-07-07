@@ -1,5 +1,11 @@
 # HAOFV 架构实施指南
 
+Status: Active
+Domain: HAOFV
+Canonical: `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md`
+Related: `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/PIO_RESOURCE_PLAN.md`
+Last updated: 2026-07-07
+
 本文档是 `HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 的实施补充，提供具体代码示例、迁移步骤和实现细节。阅读本文档前应先通读主架构文档。
 
 **内容**：

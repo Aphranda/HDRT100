@@ -1,5 +1,11 @@
 # SYNC_IO 触发系统重构计划
 
+Status: Active
+Domain: SYNC_IO
+Canonical: `docs/SYNC_IO_REFACTOR_PLAN.md`
+Related: `docs/PIO_RESOURCE_PLAN.md`, `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`, `docs/SYNC_TRIGGER_TODO.md`
+Last updated: 2026-07-07
+
 ## 1. 背景
 
 当前硬件约束已经冻结，`SYNC_IO` 不再是可任意复用的 GPIO 池，而是一个固定硬件 profile：

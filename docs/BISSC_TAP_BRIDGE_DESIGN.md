@@ -1,5 +1,11 @@
 # BiSS-C 协议触发节点 HAOFV 方案
 
+Status: Active
+Domain: BISSC
+Canonical: `docs/BISSC_TAP_BRIDGE_DESIGN.md`
+Related: `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`, `docs/BISSC_IMPLEMENTATION_TODO.md`, `docs/BISSC_TASK_PROGRESS.md`
+Last updated: 2026-07-07
+
 本文档定义 `PROTOCOL_TRIGGER` 的第一种协议子类型：`TRIG_PROTOCOL_BISS_C`。BiSS-C 节点复用 AUX0..AUX3，不改底层硬件，用于三类能力：
 
 - 透明透传 BiSS-C 原链路，同时监听编码器位置，并按位置阈值输出触发脉冲。

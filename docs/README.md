@@ -17,6 +17,7 @@ Last updated: 2026-07-07
 | 文件 | 定位 |
 |---|---|
 | `DOCS_NAMING_AND_STRUCTURE.md` | 文档命名格式、层级关系、新增文件规则和迁移规则。 |
+| `DOCS_MIGRATION_TODO.md` | 文档体系迁移待办，跟踪元数据补齐、历史改名和索引维护。 |
 | `README.md` | 本索引文件，提供当前 `docs/` 文件归属。 |
 
 ## 01 系统架构

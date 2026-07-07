@@ -1,5 +1,11 @@
 # OTA 升级方案
 
+Status: Active
+Domain: OTA
+Canonical: `docs/OTA方案.md`
+Related: `docs/OTA_TODO.md`, `docs/OTA_AB_SWITCH_DESIGN.md`, `docs/OTA_COPY_TRANSACTION_DESIGN.md`, `docs/PORTABLE_OTA_ARCHITECTURE.md`
+Last updated: 2026-07-07
+
 本文档汇总当前硬件条件，并给出 RP2350_TRIG 的 OTA 工程方案。目标是让固件升级从“手动烧录”升级为“可回滚、可校验、可维护”的产品化流程。
 
 ## 已确认硬件条件

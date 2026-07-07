@@ -1,5 +1,11 @@
 # HAOFV 架构可移植性评估报告
 
+Status: Active
+Domain: HAOFV
+Canonical: `docs/HAOFV_PORTABILITY_EVALUATION.md`
+Related: `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`, `docs/RTOS_PORTING_PLAN.md`
+Last updated: 2026-07-07
+
 ## 文档信息
 
 | 项目 | 内容 |

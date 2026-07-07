@@ -1,5 +1,11 @@
 # BiSS-C TAP Bridge 与 SYNC_IO 外围电路设计
 
+Status: Frozen
+Domain: BISSC
+Canonical: `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
+Related: `docs/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/PIO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`
+Last updated: 2026-07-07
+
 本文档作为 RP2350_TRIG 后续硬件版本的原理图输入规格，统一定义 BiSS-C
 串联 TAP bridge、双 RJ45 线缆接口、SYNC_IO 触发输入输出、收发器选型、
 供电保护和验证要求。

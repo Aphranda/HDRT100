@@ -1,5 +1,11 @@
 # SD 卡 System Pack 规划与待办
 
+Status: Active
+Domain: SD
+Canonical: `docs/SD_TODO.md`
+Related: `docs/TASK_PROGRESS_SD.md`, `docs/SCPI_COMMANDS.md`, `docs/OTA方案.md`
+Last updated: 2026-07-07
+
 本文档定义 RP2350_TRIG 的 SD 卡系统。SD 卡不是简单 OTA 介质，而是 App 侧 **System Pack 介质 + 持久化观测层**，用于任务配置、校准补偿、Pack/Ref 版本管理、Vector/反射内存快照、脉冲异常 trace、运行报告、产测结果和离线 OTA。
 
 Bootloader 第一版不读取 SD/FatFs。SD 卡可插拔，文件系统和写入延迟都不适合进入最小启动链路，也不能进入 PIO/DMA/IRQ 硬实时触发闭环。

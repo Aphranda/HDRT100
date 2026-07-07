@@ -1,5 +1,11 @@
 # 任务进度追踪与回溯
 
+Status: Active
+Domain: Documentation
+Canonical: `docs/TASK_PROGRESS.md`
+Related: `docs/DOCS_MIGRATION_TODO.md`, `docs/BISSC_TASK_PROGRESS.md`, `docs/TASK_PROGRESS_SD.md`
+Last updated: 2026-07-07
+
 本文档用于记录 RP2350_TRIG 工程的正式任务进度。每完成一个正式任务后，都应追加一条记录，说明任务目标、完成内容、验证结果、剩余工作和下一步计划，便于后续回溯设计决策和工程状态。
 
 ## 记录规则

@@ -1,5 +1,11 @@
 # 融合型系统向量黑板与功能块架构方案
 
+Status: Active
+Domain: HAOFV
+Canonical: `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+Related: `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/PIO_RESOURCE_PLAN.md`
+Last updated: 2026-07-07
+
 本文档定义 RP2350_TRIG 后续产品化演进采用的软件架构。目标是在保持裸机/Pico SDK 工程轻量性的同时，融合 Active Object、轻量 IEC 61499 功能块、时间同步型系统向量黑板、资源仲裁和表驱动状态机，为 OTA、同步触发、SD 卡、LCD、SCPI、诊断、后续 RTOS 和更多硬件模块提供清晰边界。
 
 > **实施指南**：[HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md](HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md) 提供 ECC 表实现示例、GPIO 迁移步骤、Flash 异步 Job 代码和完整代码附录。

@@ -1,5 +1,11 @@
 # OTA A/B 直接切换设计
 
+Status: Active
+Domain: OTA
+Canonical: `docs/OTA_AB_SWITCH_DESIGN.md`
+Related: `docs/OTA方案.md`, `docs/OTA_COPY_TRANSACTION_DESIGN.md`, `docs/OTA_TODO.md`
+Last updated: 2026-07-07
+
 本文档定义 RP2350_TRIG 从当前 `copy-to-active` OTA 逐步演进到真正 A/B 直接启动的路线。目标是在不破坏当前可用 OTA 的前提下，先建立双 slot 镜像构建能力，再逐步切换 Bootloader、metadata、SCPI 和上位机工具。
 
 ## 当前状态

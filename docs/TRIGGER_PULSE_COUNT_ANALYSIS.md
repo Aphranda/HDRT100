@@ -1,5 +1,11 @@
 # 工业级脉冲计数 — 对标分析与增强方案
 
+Status: Active
+Domain: TRIGGER
+Canonical: `docs/TRIGGER_PULSE_COUNT_ANALYSIS.md`
+Related: `docs/TRIGGER_ENC_COUNT_MODE.md`, `docs/SYNC_TRIGGER_TODO.md`, `docs/PIO_RESOURCE_PLAN.md`
+Last updated: 2026-07-07
+
 对标 7 个开源脉冲计数实现，分析当前 ENC_COUNT 与工业级系统的差距，给出 HAOFV 对齐的增强路线。
 
 ## 对标项目

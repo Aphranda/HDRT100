@@ -1,5 +1,11 @@
 # BiSS-C 任务进度追踪与回溯
 
+Status: Active
+Domain: BISSC
+Canonical: `docs/BISSC_TASK_PROGRESS.md`
+Related: `docs/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/BISSC_IMPLEMENTATION_TODO.md`
+Last updated: 2026-07-07
+
 本文档用于记录 RP2350_TRIG 工程中 `TRIG_PROTOCOL_BISS_C` / BiSS-C TAP bridge
 功能的正式实现进度。每完成一个阶段，都应追加任务记录，说明目标、完成内容、
 验证结果、剩余工作和下一步计划，便于后续回溯 BiSS-C 设计决策、烧录闭环、

@@ -1,5 +1,11 @@
 # OTA Open Source Comparison For RP2350 And STM32 RTOS
 
+Status: Active
+Domain: OTA
+Canonical: `docs/OTA_OPEN_SOURCE_COMPARISON.md`
+Related: `docs/PORTABLE_OTA_ARCHITECTURE.md`, `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`, `docs/OTA方案.md`
+Last updated: 2026-07-07
+
 This note compares the current RP2350_TRIG OTA architecture with commonly used
 open-source or vendor-visible OTA stacks. The target scope is intentionally
 limited to RP2350 and STM32 RTOS products.

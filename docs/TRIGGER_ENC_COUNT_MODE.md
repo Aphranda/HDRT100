@@ -1,5 +1,11 @@
 # ENC_COUNT — 编码器计数触发模式
 
+Status: Active
+Domain: TRIGGER
+Canonical: `docs/TRIGGER_ENC_COUNT_MODE.md`
+Related: `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/SYNC_TRIGGER_TODO.md`, `docs/SCPI_COMMANDS.md`
+Last updated: 2026-07-07
+
 按 HAOFV 架构设计的第二种触发模式。接收电机编码器 A/B/Z 信号，硬件计数到目标值后输出触发脉冲。
 
 ## 信号模型

@@ -1,5 +1,11 @@
 # Release Checklist
 
+Status: Active
+Domain: RELEASE
+Canonical: `docs/RELEASE_CHECKLIST.md`
+Related: `docs/README.md`, `docs/DOCS_NAMING_AND_STRUCTURE.md`
+Last updated: 2026-07-07
+
 Use this checklist for each firmware release candidate.
 
 ## Inputs
