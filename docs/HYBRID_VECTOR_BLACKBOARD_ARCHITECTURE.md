@@ -983,7 +983,7 @@ GPIO16..GPIO23 的实际映射属于 board profile 和 `sync_io` 的职责。`Tr
 
 ### GPIO 迁移约束
 
-当前固件仍有旧实现把 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 绑定在 GPIO17/18/22/23。产品化迁移应把这些框架功能搬到 AUX0..AUX3，并保留 `GPIO26..29` 编码器输入组作为开发诊断复用（`TRIG:ENC:APIN 26`），量产默认仍使用 GPIO16 组。迁移步骤见实施指南。
+当前固件仍有旧实现把 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 绑定在 GPIO17/18/22/23。硬件冻结后，增量编码器固定使用 `SYNC_IO` 的 GPIO16/17/19；`GPIO26..29` 不再作为编码器输入组，而是固定两收两发 AUX 资源。产品化迁移应把框架功能收口到 AUX0..AUX3 的固定方向语义，或在冲突时由资源仲裁器拒绝命令。
 
 ### 触发模式扩展表
 

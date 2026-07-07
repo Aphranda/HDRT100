@@ -11,6 +11,7 @@
 #include "resource_arbiter.h"
 #include "biss_tap_rx.pio.h"
 #include "seq_step.pio.h"
+#include "sync_io_hw_profile.h"
 #include "storage_manager.h"
 #include "sync_io.pio.h"
 
@@ -61,6 +62,7 @@ typedef enum {
     SYNC_IO_TRACE_READY_REDY        = 71u,
     SYNC_IO_TRACE_AUX_TIMEOUT       = 72u,
     SYNC_IO_TRACE_AUX_BUSY          = 73u,
+    SYNC_IO_TRACE_AUX_DIRECTION     = 74u,
     SYNC_IO_TRACE_BISS_TAP_ARM      = 80u,
     SYNC_IO_TRACE_BISS_TAP_DISARM   = 81u,
     SYNC_IO_TRACE_BISS_TAP_FAIL     = 82u,
@@ -212,7 +214,20 @@ static void sync_io_configure_static_inputs(void)
 
 static bool sync_io_valid_aux_channel(sync_io_aux_channel_t channel)
 {
-    return (uint)channel < (uint)SYNC_IO_AUX_COUNT;
+    return sync_io_hw_aux_channel_valid((uint32_t)channel);
+}
+
+static bool sync_io_aux_mode_allowed(sync_io_aux_channel_t channel,
+                                     sync_io_aux_mode_t mode)
+{
+    const uint32_t index = (uint32_t)channel;
+    if (mode == SYNC_IO_AUX_MODE_INPUT) {
+        return sync_io_hw_aux_supports_input(index);
+    }
+    if (mode == SYNC_IO_AUX_MODE_PIO_OUTPUT) {
+        return sync_io_hw_aux_supports_output(index);
+    }
+    return false;
 }
 
 static bool sync_io_aux_resource_busy(void)
@@ -553,6 +568,11 @@ bool sync_io_fire_marker_us(uint32_t high_us)
     return sync_io_fire_pulse_us_on_sm(BOARD_SYNC_MARKER_SM, high_us);
 }
 
+bool sync_io_fire_rj45_trigger_us(uint32_t high_us)
+{
+    return sync_io_fire_pulse_us_on_sm(BOARD_SYNC_MARKER_SM, high_us);
+}
+
 bool sync_io_aux_set_mode(sync_io_aux_channel_t channel, sync_io_aux_mode_t mode)
 {
     if (!s_sync_io.initialized || !sync_io_valid_aux_channel(channel)) {
@@ -560,6 +580,14 @@ bool sync_io_aux_set_mode(sync_io_aux_channel_t channel, sync_io_aux_mode_t mode
     }
 
     const uint index = (uint)channel;
+    if (!sync_io_aux_mode_allowed(channel, mode)) {
+        sync_io_trace(SYNC_IO_TRACE_AUX_DIRECTION,
+                      SYNC_IO_TRACE_WARN,
+                      index,
+                      (uint32_t)mode);
+        return false;
+    }
+
     if (sync_io_aux_resource_busy()) {
         sync_io_trace(SYNC_IO_TRACE_AUX_BUSY,
                       SYNC_IO_TRACE_WARN,
@@ -610,7 +638,12 @@ bool sync_io_aux_write(sync_io_aux_channel_t channel, bool level)
         return false;
     }
 
-    if (s_sync_io.aux_modes[index] != SYNC_IO_AUX_MODE_PIO_OUTPUT) {
+    if (!sync_io_hw_aux_supports_output(index) ||
+        s_sync_io.aux_modes[index] != SYNC_IO_AUX_MODE_PIO_OUTPUT) {
+        sync_io_trace(SYNC_IO_TRACE_AUX_DIRECTION,
+                      SYNC_IO_TRACE_WARN,
+                      index,
+                      1u);
         return false;
     }
 
@@ -626,6 +659,14 @@ bool sync_io_aux_write(sync_io_aux_channel_t channel, bool level)
 bool sync_io_aux_read(sync_io_aux_channel_t channel, bool *level)
 {
     if (!s_sync_io.initialized || !sync_io_valid_aux_channel(channel) || level == NULL) {
+        return false;
+    }
+
+    if (!sync_io_hw_aux_supports_input((uint32_t)channel)) {
+        sync_io_trace(SYNC_IO_TRACE_AUX_DIRECTION,
+                      SYNC_IO_TRACE_WARN,
+                      (uint32_t)channel,
+                      0u);
         return false;
     }
 
@@ -1167,6 +1208,15 @@ bool sync_io_enc_count_arm(uint32_t target,
                       SYNC_IO_TRACE_ERROR,
                       target,
                       s_sync_io.initialized ? 0u : 1u);
+        return false;
+    }
+
+    if (in_pin_base != SYNC_IO_HW_ENC_A_PIN ||
+        output_pin != SYNC_IO_HW_TRIG_OUT_PIN) {
+        sync_io_trace(SYNC_IO_TRACE_ENC_ARM_FAIL,
+                      SYNC_IO_TRACE_ERROR,
+                      in_pin_base,
+                      output_pin);
         return false;
     }
 

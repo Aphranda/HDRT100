@@ -50,15 +50,15 @@ RP2350 提供 3 个 PIO block。每个 PIO block 有 4 个状态机和独立指�
 | 16 | 输入 | `TRIG_IN` | `pio0/sm0`, `pio0/sm2` | 主外部触发输入。 |
 | 17 | 输入 | `ENC_B_IN` / `MODE_IN1` | `pio0/sm3` | 主触发输入通道；产品映射中作为 `ENC_COUNT` B 相，也可作为后续模式本地输入。 |
 | 18 | 输入 | `MODE_IN2` | `pio0/sm1` | 主触发输入备用通道，保留给后续模式本地功能或编码器扩展。 |
-| 19 | 输入 | `GATE_IN` | `pio0/sm2` | 外部门控或抑制输入。 |
+| 19 | 输入 | `RJ45_TRIG_IN` / `GATE_IN` | `pio0/sm2` | 上行 RJ45 差分触发输入，也可在模式内解释为 gate 或 inhibit。 |
 | 20 | 输出 | `TRIG_OUT` | `pio1/sm0` | 主确定性触发输出。 |
 | 21 | 输出 | `PULSE_OUT` | `pio1/sm2` | 第二路可编程脉冲或 burst 输出。 |
 | 22 | 输出 | `MODE_OUT2` | `pio1/sm1` | 主触发输出通道；产品映射中作为 `SEQ_STEP` bit2。 |
-| 23 | 输出 | `MODE_OUT3` | `pio1/sm3` | 主触发输出通道；产品映射中作为 `SEQ_STEP` bit3。 |
-| 26 | 双向 | `AUX0_ARM_IN` | `pio2/sm0` | 产品 AUX 功能输入：外部 ARM 资格/请求。 |
-| 27 | 双向 | `AUX1_EXT_CLK_IN` | `pio2/sm1` | 产品 AUX 功能输入：外部参考或采样时钟。 |
-| 28 | 双向 | `AUX2_SYNC_CLK_OUT` | `pio2/sm2` | 产品 AUX 功能输出：参考/分频同步时钟。 |
-| 29 | 双向 | `AUX3_MARKER_OUT` | `pio2/sm3` | 产品 AUX 功能输出：marker、状态或调试时序。 |
+| 23 | 输出 | `RJ45_TRIG_OUT` / `MODE_OUT3` | `pio1/sm3` | 下行 RJ45 差分触发输出，也可在模式内解释为 `SEQ_STEP` bit3。 |
+| 26 | 输入 | `AUX0_ARM_IN` | `pio2/sm0` | 产品 AUX 固定接收：外部 ARM 资格/请求，也可在 BiSS persona 中作为 `BISS_CLK_IN`。 |
+| 27 | 输入 | `AUX1_EXT_CLK_IN` | `pio2/sm1` | 产品 AUX 固定接收：外部参考或采样时钟，也可在 BiSS persona 中作为 `BISS_DATA_IN`。 |
+| 28 | 输出 | `AUX2_SYNC_CLK_OUT` | `pio2/sm2` | 产品 AUX 固定发送：参考/分频同步时钟，也可在 BiSS persona 中作为 `BISS_CLK_OUT`。 |
+| 29 | 输出 | `AUX3_MARKER_OUT` | `pio2/sm3` | 产品 AUX 固定发送：marker、状态或调试时序，也可在 BiSS persona 中作为 `BISS_DATA_OUT`。 |
 
 `GPIO24` 保留为未来板级功能或调试备用 GPIO。
 
@@ -73,17 +73,20 @@ RP2350 提供 3 个 PIO block。每个 PIO block 有 4 个状态机和独立指�
 | IN0 | 16 | 输入 | 施密特/保护输入 | `SEQ_STEP` 触发输入 / `ENC_COUNT` A 相 |
 | IN1 | 17 | 输入 | 施密特/保护输入 | `ENC_COUNT` B 相 / 模式本地输入通道 |
 | IN2 | 18 | 输入 | 施密特/保护输入 | 模式本地输入通道 / 编码器备用 |
-| IN3 | 19 | 输入 | 施密特/保护输入 | `SEQ_STEP` gate 输入 / `ENC_COUNT` Z 相 |
+| IN3 | 19 | 输入 | RJ45 差分接收 / 施密特保护输入 | `RJ45_TRIG_IN` / `SEQ_STEP` gate 输入 / `ENC_COUNT` Z 相 |
 | OUT0 | 20 | 输出 | 线路驱动 | `TRIG_OUT` / `SEQ_STEP` bit0 |
 | OUT1 | 21 | 输出 | 线路驱动 | `PULSE_OUT` / `SEQ_STEP` bit1 |
 | OUT2 | 22 | 输出 | 线路驱动 | `SEQ_STEP` bit2 / 模式本地输出通道 |
-| OUT3 | 23 | 输出 | 线路驱动 | `SEQ_STEP` bit3 / 模式本地输出通道 |
+| OUT3 | 23 | 输出 | RJ45 差分驱动 / 线路驱动 | `RJ45_TRIG_OUT` / `SEQ_STEP` bit3 / 模式本地输出通道 |
 
 固件模式可以重新解释各通道的逻辑含义，但正常产品使用不应要求移动外部线缆。
 
 ## 量产 AUX 功能接口
 
 AUX 连接器是跨模式功能信号的稳定产品位置。主触发输入/输出口只承载模式本地的高速触发、编码器、门控和动作信号；AUX 口承载 ARM、参考时钟、同步输出、marker 等应跨触发模式保持稳定的框架层信号。
+
+产品硬件已经定型为两收两发：`AUX0/AUX1` 固定输入，`AUX2/AUX3` 固定输出。
+AUX 仍然可以按 persona 复用为 BiSS-C TAP、差分触发、校准或普通框架信号，但复用只改变固件语义和资源 ownership，不改变物理方向。
 
 | AUX 通道 | GPIO | 方向 | 产品语义功能 | 说明 |
 |---|---:|---|---|---|
@@ -92,7 +95,9 @@ AUX 连接器是跨模式功能信号的稳定产品位置。主触发输入/输
 | AUX2 | 28 | 输出 | `SYNC_CLK_OUT` | 参考/分频同步时钟输出。不再占用主口 OUT2。 |
 | AUX3 | 29 | 输出 | `MARKER_OUT` | Marker、状态或调试时序输出。不再占用主口 OUT3。 |
 
-将 `GPIO26..GPIO29` 作为备用 `ENC_COUNT` A/B/Z 输入组，只允许作为开发诊断便利。产品固件不应在启用 AUX 功能接口的同时启用该诊断映射。
+`GPIO26..GPIO29` 不再作为备用 `ENC_COUNT` A/B/Z 输入组整体使用。若确需开发诊断，
+只能临时复用 `AUX0/AUX1` 两个固定输入；`AUX2/AUX3` 是固定输出，不能作为编码器
+输入采样脚。
 
 ## 框架/应用层接口契约
 
@@ -121,7 +126,7 @@ AUX 连接器是跨模式功能信号的稳定产品位置。主触发输入/输
 
 原始 GPIO 选择命令只能作为 board profile 配置或开发诊断入口。产品 SCPI/UI 应优先使用语义通道，由 Trigger 资源仲裁器决定当前模式下请求是否可用。
 
-当前固件仍保留一些旧低层宏：`BOARD_SYNC_ARM_IN_PIN`=`GPIO17`、`BOARD_SYNC_EXT_CLK_IN_PIN`=`GPIO18`、`BOARD_SYNC_SYNC_CLK_OUT_PIN`=`GPIO22`、`BOARD_SYNC_MARKER_OUT_PIN`=`GPIO23`。产品 pinout 冻结前，需要将这些运行路径迁移到 AUX 功能接口。
+当前固件仍保留一些旧低层宏：`BOARD_SYNC_ARM_IN_PIN`=`GPIO17`、`BOARD_SYNC_EXT_CLK_IN_PIN`=`GPIO18`、`BOARD_SYNC_SYNC_CLK_OUT_PIN`=`GPIO22`、`BOARD_SYNC_MARKER_OUT_PIN`=`GPIO23`。硬件 pinout 已冻结，产品固件需要将这些运行路径迁移到 AUX 功能接口，或由资源仲裁器在冲突时拒绝命令。
 
 ## 实用性能目标
 

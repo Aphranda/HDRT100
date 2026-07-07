@@ -87,13 +87,13 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 |---|---|
 | `SEQ_STEP` armed | 主输出总线 OUT0..OUT3 被序列引擎独占；`TRIG:IMM`、`PULS:IMM` 这类主总线即时输出应返回 busy 或在 ARM 前关闭。产品迁移后 `SYNC_CLK_OUT`/`MARKER_OUT` 使用 AUX2/AUX3，可独立于序列总线。 |
 | `ENC_COUNT` armed | IN0/IN1/IN3 被 A/B/Z 独占；AUX0=`ARM_IN` 可作为未来独立资格输入。IN3=`GATE_IN` 与 Z 相仍冲突。OUT0 被比较触发占用。 |
-| `BISS_ARMED` | BiSS-C TAP 占用 `PIO2 + AUX0..AUX3`，`TRIG:ENC:APIN 26` 和 AUX framework 功能应返回 busy/执行错误。 |
+| `BISS_ARMED` | BiSS-C TAP 占用 `PIO2 + AUX0..AUX3`，AUX framework 功能应返回 busy/执行错误。 |
 | `IDLE` | 即时脉冲、同步时钟和 Marker 命令可以使用各自语义输出。 |
 
-`TRIG:ENC:APIN <16|26>` 中的 `26` 组属于开发/诊断级复用，会占用 AUX0..AUX3；
-产品默认仍应使用 `16` 组。BiSS 已配置或已 armed 时，`TRIG:ENC:APIN 26`
-会被拒绝。后续新增 SCPI/UI 配置应优先使用 `TRIG_IN`、
-`ARM_IN`、`SYNC_CLK_OUT` 等语义名，而不是直接公开任意 GPIO。
+硬件已经定型后，`TRIG:ENC:APIN` 只接受 `16`。历史开发诊断入口
+`TRIG:ENC:APIN 26` 已关闭，因为 AUX0/AUX1 是固定差分输入，AUX2/AUX3 是固定
+差分输出，不能作为连续 4-pin 编码器输入组。后续新增 SCPI/UI 配置应优先使用
+`TRIG_IN`、`ARM_IN`、`SYNC_CLK_OUT` 等语义名，而不是直接公开任意 GPIO。
 
 ## SEQ_STEP 编码序列步进模式
 
@@ -129,11 +129,13 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 | `TRIG:ENC:TARG <N>` | 设置目标计数值，`N > 0`。 |
 | `TRIG:ENC:TARG?` | 查询目标计数值。 |
 | `TRIG:ENC:COUN?` | 查询当前计数快照。 |
-| `TRIG:ENC:APIN <16\|26>` | 选择编码器输入组基脚。产品默认 `16` = A/B/Z `GPIO16/GPIO17/GPIO19`；`26` = A/B/Z `GPIO26/GPIO27/GPIO29` 仅作为开发诊断复用，会占用 AUX 功能接口。 |
+| `TRIG:ENC:APIN <16>` | 选择编码器输入组基脚。硬件固定为 `16` = A/B/Z `GPIO16/GPIO17/GPIO19`。其他值返回执行错误。 |
 | `TRIG:ENC:APIN?` | 查询当前 A/B/Z 实际 GPIO，返回 `A,B,Z`。 |
 | `TRIG:ENC:REV?` | 查询 Z 脉冲累计圈数。 |
 
-当前 `enc_count.pio` 使用 4-pin 连续输入组采样：A=base、B=base+1、base+2 保留、Z=base+3。因此暂不支持任意非连续 A/B/Z 引脚组合。为保持主输入输出纯粹并保留 AUX 功能接口，量产配置应使用 `TRIG:ENC:APIN 16`。
+当前 `enc_count.pio` 使用 4-pin 连续输入组采样：A=base、B=base+1、base+2 保留、
+Z=base+3。因此暂不支持任意非连续 A/B/Z 引脚组合。由于 AUX 硬件已经固定为两收
+两发，量产和调试都不再支持 `TRIG:ENC:APIN 26`。
 
 ## BiSS-C TAP 协议触发模式
 

@@ -7,6 +7,8 @@
 #include "biss_protocol.h"
 #include "resource_arbiter.h"
 #include "sync_io.h"
+#include "sync_io_hw_profile.h"
+#include "sync_io_mode_enc_count.h"
 
 /* ── 内部 ── */
 
@@ -29,22 +31,15 @@ static bool fb_valid_enc_pin_group(const trigger_vector_t *vector)
         return false;
     }
 
-    if (vector->enc_a_pin != 16u && vector->enc_a_pin != 26u) {
-        return false;
-    }
-
-    return vector->enc_b_pin == (vector->enc_a_pin + 1u) &&
-           vector->enc_z_pin == (vector->enc_a_pin + 3u);
+    return sync_io_hw_enc_pins_valid(vector->enc_a_pin,
+                                     vector->enc_b_pin,
+                                     vector->enc_z_pin);
 }
 
 static uint32_t fb_enc_resources(const trigger_vector_t *vector)
 {
-    uint32_t resources = RESOURCE_ARBITER_RESOURCE_PIO1;
-
-    if (vector != NULL && vector->enc_a_pin == 26u) {
-        resources |= RESOURCE_ARBITER_RESOURCE_AUX;
-    }
-    return resources;
+    (void)vector;
+    return RESOURCE_ARBITER_RESOURCE_PIO1;
 }
 
 static uint32_t fb_biss_resources(void)
@@ -154,16 +149,15 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
     case TRIG_EVENT_SET_ENC_PINS:
     {
         const uint32_t next_a_pin = event->payload.value & 0xFFu;
-        if (next_a_pin == 26u) {
-            if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_AUX)) {
-                vector->error_code = 2u;
-                return FB_ERROR;
-            }
-            resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_AUX);
+        const uint32_t next_b_pin = (event->payload.value >> 8) & 0xFFu;
+        const uint32_t next_z_pin = (event->payload.value >> 16) & 0xFFu;
+        if (!sync_io_hw_enc_pins_valid(next_a_pin, next_b_pin, next_z_pin)) {
+            vector->error_code = 11u;
+            return FB_ERROR;
         }
         vector->enc_a_pin = next_a_pin;
-        vector->enc_b_pin = (event->payload.value >> 8) & 0xFFu;
-        vector->enc_z_pin = (event->payload.value >> 16) & 0xFFu;
+        vector->enc_b_pin = next_b_pin;
+        vector->enc_z_pin = next_z_pin;
         break;
     }
     case TRIG_EVENT_ENC_Z_PULSE:
@@ -600,9 +594,13 @@ static fb_result_t fb_enc_configured_arm(trigger_vector_t *vector,
         return FB_ERROR;
     }
 
-    if (!sync_io_enc_count_arm(vector->enc_target,
-                                vector->enc_a_pin,
-                                BOARD_SYNC_TRIG_OUT_PIN)) {
+    const sync_io_enc_count_mode_config_t config = {
+        .target = vector->enc_target,
+        .in_pin_base = vector->enc_a_pin,
+        .output_pin = SYNC_IO_HW_TRIG_OUT_PIN,
+    };
+
+    if (!sync_io_enc_count_mode_arm(&config)) {
         resource_arbiter_release(resources);
         vector->error_code = 3u;
         return FB_ERROR;
@@ -929,9 +927,9 @@ bool trigger_fb_init(trigger_vector_t *vector)
     vector->edge = TRIG_EDGE_RISING;
     vector->gate_enabled = false;
     vector->safe_state = TRIG_SAFE_ZERO;
-    vector->enc_a_pin = 16u;
-    vector->enc_b_pin = 17u;
-    vector->enc_z_pin = 19u;
+    vector->enc_a_pin = SYNC_IO_HW_ENC_A_PIN;
+    vector->enc_b_pin = SYNC_IO_HW_ENC_B_PIN;
+    vector->enc_z_pin = SYNC_IO_HW_ENC_Z_PIN;
     vector->enc_decode = TRIG_PCNT_DECODE_QUAD_1X;
     vector->enc_dir = TRIG_PCNT_DIR_CW;
     vector->enc_z_enabled = true;
@@ -974,12 +972,12 @@ bool trigger_fb_init(trigger_vector_t *vector)
     vector->biss_crc_invert = 1u;
     vector->biss_crc_gate_policy = BISS_CRC_GATE_LATE_COUNT;
     vector->biss_target = 0u;
-    vector->biss_clk_in_pin = BOARD_SYNC_AUX0_PIN;
-    vector->biss_data_in_pin = BOARD_SYNC_AUX1_PIN;
-    vector->biss_clk_out_pin = BOARD_SYNC_AUX2_PIN;
-    vector->biss_data_out_pin = BOARD_SYNC_AUX3_PIN;
-    vector->biss_pulse_in_pin = BOARD_SYNC_TRIG_IN_PIN;
-    vector->biss_pulse_out_pin = BOARD_SYNC_TRIG_OUT_PIN;
+    vector->biss_clk_in_pin = SYNC_IO_HW_BISS_CLK_IN_PIN;
+    vector->biss_data_in_pin = SYNC_IO_HW_BISS_DATA_IN_PIN;
+    vector->biss_clk_out_pin = SYNC_IO_HW_BISS_CLK_OUT_PIN;
+    vector->biss_data_out_pin = SYNC_IO_HW_BISS_DATA_OUT_PIN;
+    vector->biss_pulse_in_pin = SYNC_IO_HW_RJ45_TRIG_IN_PIN;
+    vector->biss_pulse_out_pin = SYNC_IO_HW_RJ45_TRIG_OUT_PIN;
     vector->trigger_width_us = 10u;
     vector->pulse_width_us = 10u;
     vector->marker_width_us = 10u;

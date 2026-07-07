@@ -26,6 +26,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warning-bit", type=int, default=-1, help="-1 disables WRN bit")
     parser.add_argument("--crc-offset", type=int, default=-1, help="-1 disables CSV CRC field generation")
     parser.add_argument("--crc-bits", type=int, default=0)
+    parser.add_argument("--crc-cover-offset", type=int, default=0)
+    parser.add_argument("--crc-cover-bits", type=int, default=0)
+    parser.add_argument("--crc-polynomial", type=lambda value: int(value, 0), default=0x03)
+    parser.add_argument("--crc-init", type=lambda value: int(value, 0), default=0)
+    parser.add_argument("--crc-xor", type=lambda value: int(value, 0), default=0)
+    parser.add_argument("--crc-invert", action="store_true")
     return parser.parse_args()
 
 
@@ -41,6 +47,55 @@ def put_bits_msb(frame: int, frame_bits: int, offset: int, bits: int, value: int
     frame &= ~(mask << shift)
     frame |= (value & mask) << shift
     return frame
+
+
+def extract_bits_msb(frame: int, frame_bits: int, offset: int, bits: int) -> int:
+    if bits <= 0:
+        return 0
+    shift = frame_bits - offset - bits
+    mask = (1 << bits) - 1
+    return (frame >> shift) & mask
+
+
+def crc_compute_bits(value: int,
+                     bits: int,
+                     crc_bits: int,
+                     polynomial: int,
+                     init: int,
+                     xor_value: int,
+                     invert: bool) -> int:
+    if crc_bits <= 0:
+        return 0
+    mask = (1 << crc_bits) - 1
+    top_bit = 1 << (crc_bits - 1)
+    crc = init & mask
+    poly = polynomial & mask
+    for index in range(bits):
+        bit = ((value >> (bits - 1 - index)) & 1) != 0
+        feedback = bit ^ ((crc & top_bit) != 0)
+        crc = (crc << 1) & mask
+        if feedback:
+            crc ^= poly
+    crc ^= xor_value & mask
+    if invert:
+        crc = (~crc) & mask
+    return crc & mask
+
+
+def crc_compute_frame(args: argparse.Namespace, frame: int) -> int:
+    if args.crc_offset < 0 or args.crc_bits <= 0 or args.crc_cover_bits <= 0:
+        return 0
+    covered = extract_bits_msb(frame,
+                               args.frame_bits,
+                               args.crc_cover_offset,
+                               args.crc_cover_bits)
+    return crc_compute_bits(covered,
+                            args.crc_cover_bits,
+                            args.crc_bits,
+                            args.crc_polynomial,
+                            args.crc_init,
+                            args.crc_xor,
+                            args.crc_invert)
 
 
 def build_frame(args: argparse.Namespace, position: int) -> int:
@@ -61,6 +116,11 @@ def build_frame(args: argparse.Namespace, position: int) -> int:
         frame = put_bits_msb(frame, args.frame_bits, args.warning_bit, 1, 1)
     if args.crc_offset >= 0 and args.crc_bits > 0:
         frame = put_bits_msb(frame, args.frame_bits, args.crc_offset, args.crc_bits, 0)
+        frame = put_bits_msb(frame,
+                             args.frame_bits,
+                             args.crc_offset,
+                             args.crc_bits,
+                             crc_compute_frame(args, frame))
     return frame
 
 
@@ -128,6 +188,19 @@ def main() -> int:
         "frame_bits": args.frame_bits,
         "position_offset": args.position_offset,
         "position_bits": args.position_bits,
+        "anchor_offset": args.anchor_offset,
+        "anchor_bits": args.anchor_bits,
+        "anchor_value": args.anchor_value,
+        "error_bit": args.error_bit,
+        "warning_bit": args.warning_bit,
+        "crc_offset": args.crc_offset,
+        "crc_bits": args.crc_bits,
+        "crc_cover_offset": args.crc_cover_offset,
+        "crc_cover_bits": args.crc_cover_bits,
+        "crc_polynomial": args.crc_polynomial,
+        "crc_init": args.crc_init,
+        "crc_xor": args.crc_xor,
+        "crc_invert": args.crc_invert,
         "positions": positions,
         "frames_hex": [f"0x{frame:0{(args.frame_bits + 3) // 4}X}" for frame in frames],
         "csv": str(args.out),

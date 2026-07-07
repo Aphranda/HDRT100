@@ -13,6 +13,7 @@
 #include "scpi/scpi.h"
 #include "storage_manager.h"
 #include "sync_trigger.h"
+#include "sync_io_hw_profile.h"
 #include "trigger_measure.h"
 
 #define SCPI_PORT_INPUT_BUFFER_LENGTH 768u
@@ -743,25 +744,20 @@ static scpi_result_t scpi_cmd_enc_count_q(scpi_t *context)
 static scpi_result_t scpi_cmd_enc_a_pin(scpi_t *context)
 {
     uint32_t pin;
-    if (!scpi_port_read_u32(context, &pin) || (pin != 16u && pin != 26u)) {
+    if (!scpi_port_read_u32(context, &pin)) {
         return SCPI_RES_ERR;
     }
 
-    if (pin == 26u) {
-        trigger_vector_t vector;
-        sync_trigger_get_vector(&vector);
-        if (vector.state == TRIG_STATE_BISS_CONFIGURED ||
-            vector.state == TRIG_STATE_BISS_ARMED) {
-            scpi_port_push_exec_error(context, "BISS_AUX_BUSY");
-            return SCPI_RES_ERR;
-        }
+    if (pin != SYNC_IO_HW_ENC_A_PIN) {
+        scpi_port_push_exec_error(context, "HW_ENC_PIN_FIXED");
+        return SCPI_RES_ERR;
     }
 
-    /* enc_count.pio samples a 4-pin group:
-     * A=base, B=base+1, offset2 spare, Z=base+3. */
     const trig_event_t ev = {
         .type = TRIG_EVENT_SET_ENC_PINS,
-        .payload.value = pin | ((pin + 1u) << 8) | ((pin + 3u) << 16),
+        .payload.value = SYNC_IO_HW_ENC_A_PIN |
+                         (SYNC_IO_HW_ENC_B_PIN << 8) |
+                         (SYNC_IO_HW_ENC_Z_PIN << 16),
     };
     return sync_trigger_post(&ev) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
 }

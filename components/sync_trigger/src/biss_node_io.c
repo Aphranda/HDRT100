@@ -134,7 +134,7 @@ static void biss_node_io_commit_position(trigger_vector_t *vector,
                               position,
                               vector->biss_target,
                               vector->biss_position_modulo)) {
-        (void)sync_io_fire_pulse_us(vector->trigger_width_us);
+        (void)sync_io_fire_rj45_trigger_us(vector->trigger_width_us);
         vector->biss_pulse_out_count++;
         vector->biss_trigger_count++;
         vector->output_count = vector->biss_pulse_out_count;

@@ -31,6 +31,8 @@
   由于当前 `enc_count.pio` 使用连续 4-pin 组采样，暂不公开任意非连续 A/B/Z 引脚组合。
   板端验证：烧录 build `20260626040831` 后，`TRIG:ENC:APIN 26` + `TRIG:ARM`
   日志确认 `enc_count armed: target=100 pins=A26/B27/Z29`。
+  硬件冻结修订：AUX 已定型为 `AUX0/AUX1` 固定输入、`AUX2/AUX3` 固定输出，
+  因此 `TRIG:ENC:APIN 26` 已关闭。当前 `TRIG:ENC:APIN` 只接受 `16`。
 
 - [x] 修复 `PCNT_CLEAR` 统计累计逻辑。 (2026-06-25 已修复)
   修复：`enc_total += enc_count` 现在在 `enc_count = 0` 之前执行，确保清零前的值被累计。

@@ -74,6 +74,7 @@ bool sync_io_start_clock(uint32_t frequency_hz);
 void sync_io_stop_clock(void);
 bool sync_io_fire_marker_cycles(uint32_t high_cycles);
 bool sync_io_fire_marker_us(uint32_t high_us);
+bool sync_io_fire_rj45_trigger_us(uint32_t high_us);
 bool sync_io_aux_set_mode(sync_io_aux_channel_t channel, sync_io_aux_mode_t mode);
 bool sync_io_aux_write(sync_io_aux_channel_t channel, bool level);
 bool sync_io_aux_read(sync_io_aux_channel_t channel, bool *level);

@@ -2,7 +2,7 @@
 
 本文档定义 `PROTOCOL_TRIGGER` 的第一种协议子类型：`TRIG_PROTOCOL_BISS_C`。BiSS-C 节点复用 AUX0..AUX3，不改底层硬件，用于三类能力：
 
-- 透明监听编码器位置，并按位置阈值输出触发脉冲。
+- 透明透传 BiSS-C 原链路，同时监听编码器位置，并按位置阈值输出触发脉冲。
 - 板间传输轻量过程数据，例如位置、事件计数、状态和校准帧。
 - 在后续慢速阶段执行四板自校准，生成正式测试使用的延迟 offset。
 
@@ -12,6 +12,7 @@ P0 的正式测试目标收敛为：
 5 MHz BiSS-C
 fixed position profile
 PIO 最小可靠接收器：采样相位 + 帧锚点 + position/status 抽取
+PIO/硬件透传：CLK_IN -> CLK_OUT，DATA_IN -> DATA_OUT，不改写 BiSS-C 帧
 IRQ 快路径 crossing compare
 PIO 输出 TRIG_OUT
 ```
@@ -61,7 +62,7 @@ BiSS-C role。数值必须与 `trigger_vector.h` 和 SD/profile 持久化保持�
 
 | Value | Role | 行为 | 典型用途 |
 |---:|---|---|---|
-| `0` | `TAP_MONITOR` | 只监听上游 `CLK/DATA`，不驱动原链路。 | P0：透明监听编码器位置，旁路输出脉冲。 |
+| `0` | `TAP_MONITOR` | 串联在原链路中，原样透传 `CLK/DATA`，同时旁路监听 position/status；不得主动改写帧。 | P0：透明 TAP bridge，监听编码器位置并输出触发脉冲。 |
 | `1` | `SLAVE_TX` | 等上游 `CLK_IN`，返回本地事件/状态。 | P1：`RX_PULSE -> TX_BISS`。 |
 | `2` | `MASTER_RX` | 本板输出 `CLK_OUT`，读取编码器或远端节点。 | P1：独立读取编码器或双板闭环。 |
 | `3` | `BRIDGE_PROXY` | 显式代理桥，可转发/替换帧。 | P2：代理桥，P0 不改写帧。 |
@@ -77,8 +78,22 @@ BiSS-C role。数值必须与 `trigger_vector.h` 和 SD/profile 持久化保持�
 |---|---:|---|---|---|
 | `AUX0` | 26 | `BISS_CLK_IN` | 输入 | TAP/SLAVE 监听上游时钟；P1 SELF_CAL 用作校准输入。 |
 | `AUX1` | 27 | `BISS_DATA_IN` | 输入 | TAP/MASTER 采样下游数据。 |
-| `AUX2` | 28 | `BISS_CLK_OUT` | 输出 | MASTER/BRIDGE 输出时钟。 |
-| `AUX3` | 29 | `BISS_DATA_OUT` | 输出 | SLAVE/BRIDGE 返回数据或转发；P1 SELF_CAL 用作校准输出。 |
+| `AUX2` | 28 | `BISS_CLK_OUT` | 输出 | TAP 透传 `CLK_IN`；MASTER/BRIDGE 输出时钟。 |
+| `AUX3` | 29 | `BISS_DATA_OUT` | 输出 | TAP 透传 `DATA_IN`；SLAVE/BRIDGE 返回数据或转发；P1 SELF_CAL 用作校准输出。 |
+
+P0 `TAP_MONITOR` 是串联式透明桥，而不是只并联高阻探针：
+
+```text
+上游主站 CLK/MA  -> AUX0/BISS_CLK_IN  -> AUX2/BISS_CLK_OUT  -> 下游编码器
+下游编码器 DATA/SLO -> AUX1/BISS_DATA_IN -> AUX3/BISS_DATA_OUT -> 上游主站
+```
+
+透传规则：
+
+- `AUX2` 必须原样转发 `AUX0` 接收到的 `CLK/MA`。
+- `AUX3` 必须原样转发 `AUX1` 接收到的 `DATA/SLO`。
+- 本地 position/status 解码只从 `AUX0/AUX1` 旁路采样，不允许改变 `AUX2/AUX3` 上的帧内容。
+- 透传路径应优先用硬件直通或 PIO 固定延迟转发实现，延迟和 skew 必须纳入 latency offset 校准。
 
 主触发口保持：
 
@@ -89,10 +104,47 @@ BiSS-C role。数值必须与 `trigger_vector.h` 和 SD/profile 持久化保持�
 
 ARM 前资源检查：
 
-- AUX0..AUX3 未被 ENC 诊断输入组、ARM/EXT/SYNC/MARKER 或其他 AUX owner 占用。
-- TAP 模式禁止驱动 `DATA_OUT`。
+- AUX0..AUX3 未被 ARM/EXT/SYNC/MARKER、差分触发、校准或其他 AUX owner 占用。
+- TAP 模式只允许透明透传 `CLK_OUT/DATA_OUT`，禁止由管理面或本地协议栈改写 `DATA_OUT`。
 - MASTER_RX 必须确认外部没有其他主站驱动 `CLK`。
-- `TRIG:ENC:APIN 26` 与 BiSS-C AUX 模式冲突，必须拒绝。
+- 硬件冻结后 `TRIG:ENC:APIN 26` 已关闭；增量编码器固定走 `SYNC_IO`
+  `GPIO16/17/19`，不再占用 AUX。
+
+## RS-422 物理层候选器件
+
+`DOC\外围硬件手册` 中的 `AM26LV31E` / `AM26LV32E` 可以作为当前 BiSS-C
+点对点差分物理层候选。两者都是 3.3 V、TIA/EIA-422-B / ITU V.11 级别器件，
+适合固定方向的 RS-422-like 链路；它们不是半双工 RS-485 收发一体器件，因此不用于
+共享总线仲裁或多主驱动。
+
+| 器件 | 角色 | 手册关键信息 | 本项目用途 |
+|---|---|---|---|
+| `AM26LV32E` | 四路差分接收器 | 3.0..3.6 V 供电；最高 32 MHz；差分阈值约 ±200 mV；共模输入范围 ±7 V；开路 fail-safe 输出高；输出 VOH/VOL 兼容 3.3 V GPIO；传播延迟典型 16 ns、最大 26 ns。 | P0 TAP 的 `BISS_CLK_IN` / `BISS_DATA_IN` 差分转单端输入；P1 MASTER_RX 的 DATA 接收。 |
+| `AM26LV31E` | 四路差分驱动器 | 3.0..3.6 V 供电；最高 32 MHz；输入 VIH=2 V、VIL=0.8 V，兼容 RP2350 3.3 V GPIO；100 ohm 负载差分输出典型 2.6 V；传播延迟典型 8 ns、最大 12 ns；短路保护。 | P1 `BISS_CLK_OUT` / `BISS_DATA_OUT` 单端转差分输出；MASTER/SLAVE/BRIDGE 固定方向驱动。 |
+
+推荐连接：
+
+- `BISS_CLK_IN+/-`、`BISS_DATA_IN+/-` 在本板接收端进入 `AM26LV32E`，再接
+  `GPIO26` / `GPIO27`。
+- `GPIO28` / `GPIO29` 进入 `AM26LV31E`，再输出 `BISS_CLK_OUT+/-` /
+  `BISS_DATA_OUT+/-`。
+- P0 串联 TAP bridge 需要装配接收和转发路径：`CLK_IN` 原样转发到 `CLK_OUT`，
+  `DATA_IN` 原样转发到 `DATA_OUT`；不得让本地协议栈主动改写原链路 `CLK/DATA`。
+- P1/P2 若需要透明桥或代理桥，必须用明确的方向控制和原理图隔离，避免两个 driver
+  同时驱动同一对线。
+
+硬件设计约束：
+
+- 每组差分对按线缆阻抗在接收端放置终端电阻，优先预留 100 ohm / 120 ohm 可选位。
+- `AM26LV32E` 只声明 open-circuit fail-safe；断线、短路、空闲偏置和热插拔场景仍需预留
+  外部 bias / bypass 电阻位，并用示波器确认 idle 状态不会误触发。
+- 长线或跨设备连接应评估 TVS、共模扼流圈、数字隔离和隔离电源；不能只依赖器件
+  bus-pin ESD 指标覆盖系统级 EMC。
+- 31E + 32E 的典型单向传播延迟约 24 ns，最大约 38 ns，5 MHz bit cell 为 200 ns；
+  对 P0/P1 5 MHz 固定 profile 有可接受的初始余量，但 sample window、skew、线缆延迟和
+  温漂必须通过 1 MHz bring-up、5 MHz 示波器和逻辑发生器回放实测后冻结。
+- 若未来需要 20 MHz 以上复杂 profile、长线缆或更严格 jitter，应重新评估更高速 RS-422 /
+  LVDS 器件或 FPGA/CPLD/专用 BiSS 接口芯片。
 
 ## BiSS-C 协议边界
 
@@ -553,7 +605,7 @@ TRIG_STATE_BISS_CALIBRATING  /* P1+, do not insert before existing values */
 
 启用任意 BiSS role 时必须通过 resource arbiter 独占对应 AUX owner：
 
-- 与 `TRIG:ENC:APIN 26` 互斥。
+- 与其他 AUX persona 互斥；`TRIG:ENC:APIN 26` 已因硬件冻结关闭。
 - 与 AUX0=`ARM_IN`、AUX1=`EXT_CLK_IN`、AUX2=`SYNC_CLK_OUT`、AUX3=`MARKER_OUT` 的产品语义互斥。
 - 与其他占用 `pio2` 的协议/校准功能互斥。
 
@@ -644,6 +696,6 @@ P0 验收：
 
 ### P2 - 产品化
 
-- [ ] RS422/RS485 收发器、端接、隔离、失效旁路电路定义。
+- [ ] 以 `AM26LV31E` / `AM26LV32E` 为首版 RS-422 物理层候选，完成原理图级端接、偏置、隔离、保护和失效旁路电路定义。
 - [ ] 多编码器 profile 支持和设备描述慢速读取。
 - [ ] 若要求 20 MHz 以上复杂解码或接近 100 MHz，引入 FPGA/CPLD/专用 BiSS 接口。
