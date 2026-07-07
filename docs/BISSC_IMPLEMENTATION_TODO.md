@@ -10,6 +10,14 @@ Last updated: 2026-07-07
 实现步骤。P0 有意收敛为固定 profile 的串联 TAP bridge：原样透传 BiSS-C
 `CLK/DATA`，旁路接收 position/status，并按 crossing 输出触发。
 
+## 验收标准摘要
+
+| 优先级 | 验收标准 |
+|---|---|
+| P0 | 固定 profile TAP bridge 能在 1 MHz 回放/板端 smoke 中完成 profile 校验、采样、position/status 解析、crossing 触发、统计查询和 DISARM/FAULT 资源释放；串联透传路径必须证明 `CLK/DATA` 原样转发且不被本地触发逻辑改写。 |
+| P1 | 5 MHz 稳定性、CRC late/blocking 策略、timeout storm 策略、板间 SELF_CAL_RING 和 profile 持久化具备可重复验证记录，且所有新 role 在未实现时返回明确错误。 |
+| P2 | 原理图、收发器、端接/bias、电源保护、隔离、长线/EMC 和生产 HIL 测试闭环；SCPI 兼容性和 SD profile schema 冻结后才能进入产品发布门禁。 |
+
 ## P0 - 固定 Profile TAP Bridge
 
 ### P0.1 协议契约

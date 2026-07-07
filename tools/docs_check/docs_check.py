@@ -46,11 +46,7 @@ ALLOWED_SUFFIXES = {
 
 LEGACY_NAME_ALLOWLIST = {
     "README.md",
-    "OTA方案.md",
-    "HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md",
-    "HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md",
     "TASK_PROGRESS.md",
-    "TASK_PROGRESS_SD.md",
 }
 
 DOC_REF_RE = re.compile(r"docs[\\/][^\s`'\"<>)\]]+?\.md")

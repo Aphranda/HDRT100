@@ -3,7 +3,7 @@
 Status: Active
 Domain: SCPI
 Canonical: `docs/SCPI_COMMANDS.md`
-Related: `docs/PIO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/OTA方案.md`, `docs/SD_TODO.md`
+Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/OTA_SYSTEM_DESIGN.md`, `docs/SD_TODO.md`
 Last updated: 2026-07-07
 
 当前 SCPI 服务通过 Pico SDK `stdio` 通道接入，默认使用 USB CDC。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
@@ -103,7 +103,7 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 ## SEQ_STEP 编码序列步进模式
 
-触发输入每个上升沿使编码输出步进到下一序列值。详细设计见 `docs/TRIGGER_SEQ_STEP_MODE.md`。
+触发输入每个上升沿使编码输出步进到下一序列值。详细设计见 `docs/TRIGGER_SEQ_STEP_DESIGN.md`。
 
 产品硬件默认固定使用统一主触发 IO：输入 `GPIO16..GPIO19`，输出 `GPIO20..GPIO23`。
 这些通道只承载模式相关的高速输入/输出；跨模式功能信号如 `ARM_IN`、`EXT_CLK_IN`、
@@ -127,7 +127,7 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 ## ENC_COUNT 编码器计数触发模式
 
-编码器 A 相上升沿计数，达到目标计数后在 `GPIO20/TRIG_OUT` 输出触发脉冲。详细设计见 `docs/TRIGGER_ENC_COUNT_MODE.md`。
+编码器 A 相上升沿计数，达到目标计数后在 `GPIO20/TRIG_OUT` 输出触发脉冲。详细设计见 `docs/TRIGGER_ENC_COUNT_DESIGN.md`。
 
 | 命令 | 说明 |
 |---|---|
@@ -287,7 +287,7 @@ SD 命令遵循 `docs/SD_TODO.md` 中的 `StorageAO + StorageFB + StorageVector`
 
 ## OTA 维护
 
-OTA 命令遵循 `docs/OTA方案.md` 中的 `OtaAO + OtaFB + OtaVector` 设计。SCPI 只负责解析命令、投递 OTA 事件和读取状态快照，不直接擦写 Flash，不直接修改 OTA 状态。
+OTA 命令遵循 `docs/OTA_SYSTEM_DESIGN.md` 中的 `OtaAO + OtaFB + OtaVector` 设计。SCPI 只负责解析命令、投递 OTA 事件和读取状态快照，不直接擦写 Flash，不直接修改 OTA 状态。
 
 | 命令 | 说明 |
 |---|---|

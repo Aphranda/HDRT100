@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: OTA
-Canonical: `docs/PORTABLE_OTA_ARCHITECTURE.md`
-Related: `docs/OTA方案.md`, `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`, `docs/OTA_OPEN_SOURCE_COMPARISON.md`
+Canonical: `docs/OTA_PORTABLE_ARCHITECTURE.md`
+Related: `docs/OTA_SYSTEM_DESIGN.md`, `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`, `docs/OTA_OPEN_SOURCE_COMPARISON.md`
 Last updated: 2026-07-07
 
 This document extracts the current RP2350_TRIG OTA design into a reusable

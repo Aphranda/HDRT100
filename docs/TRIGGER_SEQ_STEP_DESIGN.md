@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: TRIGGER
-Canonical: `docs/TRIGGER_SEQ_STEP_MODE.md`
-Related: `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/SYNC_TRIGGER_TODO.md`, `docs/SCPI_COMMANDS.md`
+Canonical: `docs/TRIGGER_SEQ_STEP_DESIGN.md`
+Related: `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/TRIGGER_SYNC_TODO.md`, `docs/SCPI_COMMANDS.md`
 Last updated: 2026-07-07
 
 本文档按 HAOFV 架构定义 RP2350_TRIG 的第一个产品触发模式：外部触发脉冲驱动的编码序列步进输出。管理层使用表驱动模式向量，实时面由 PIO 自主闭环，CPU 零介入。

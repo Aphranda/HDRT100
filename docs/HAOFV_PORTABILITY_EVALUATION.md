@@ -3,7 +3,7 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/HAOFV_PORTABILITY_EVALUATION.md`
-Related: `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`, `docs/RTOS_PORTING_PLAN.md`
+Related: `docs/HAOFV_ARCHITECTURE.md`, `docs/RTOS_PORTING_PLAN.md`
 Last updated: 2026-07-07
 
 ## 文档信息

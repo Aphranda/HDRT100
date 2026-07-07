@@ -3,7 +3,7 @@
 Status: Active
 Domain: OTA
 Canonical: `docs/OTA_COPY_TRANSACTION_DESIGN.md`
-Related: `docs/OTA方案.md`, `docs/OTA_AB_SWITCH_DESIGN.md`, `docs/OTA_TODO.md`
+Related: `docs/OTA_SYSTEM_DESIGN.md`, `docs/OTA_AB_SWITCH_DESIGN.md`, `docs/OTA_TODO.md`
 Last updated: 2026-07-07
 
 本文档定义当前 copy-to-active OTA 方案的掉电恢复增强设计。目标是在不改变现有 4 MB Flash 分区的前提下，降低 Bootloader 从 Slot B 复制到 Slot A 过程中掉电或写入失败导致设备不可启动的风险。

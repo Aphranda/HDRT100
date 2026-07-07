@@ -3,7 +3,7 @@
 Status: Active
 Domain: OTA
 Canonical: `docs/OTA_OPEN_SOURCE_COMPARISON.md`
-Related: `docs/PORTABLE_OTA_ARCHITECTURE.md`, `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`, `docs/OTA方案.md`
+Related: `docs/OTA_PORTABLE_ARCHITECTURE.md`, `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`, `docs/OTA_SYSTEM_DESIGN.md`
 Last updated: 2026-07-07
 
 This note compares the current RP2350_TRIG OTA architecture with commonly used

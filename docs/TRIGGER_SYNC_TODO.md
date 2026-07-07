@@ -2,11 +2,19 @@
 
 Status: Active
 Domain: TRIGGER
-Canonical: `docs/SYNC_TRIGGER_TODO.md`
-Related: `docs/PIO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`
+Canonical: `docs/TRIGGER_SYNC_TODO.md`
+Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`
 Last updated: 2026-07-07
 
 本文档用于跟踪同步触发系统从当前 PIO IO 驱动，完善到工业产品级触发子系统所需的剩余工作。
+
+## 验收标准摘要
+
+| 优先级 | 验收标准 |
+|---|---|
+| P0 | 核心触发状态机、ARM/DISARM、边沿/电平触发、gate、统计和安全输出均可通过板端或 host 回归验证；任何模式不能在 armed 后产生资源冲突或卡死。 |
+| P1 | 延时、极性、脉宽、burst、marker、外部时钟、DMA 采样、时间戳和冲突策略有明确 SCPI/UI 语义与测量记录，且不破坏 PIO/DMA/IRQ 硬实时边界。 |
+| P2 | 错误码、自检、故障锁存、资源仲裁、AUX 功能接口、UI 配置、RTOS 上下文约束、协议兼容和长期验证矩阵闭环后，才能进入发布 checklist。 |
 
 ## 评审补充待办（2026-06-25）
 
@@ -68,7 +76,7 @@ Last updated: 2026-07-07
 
 ## 分布式 DPLL / CAL_RING 待办（2026-06-29）
 
-- [ ] 新增 `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md` 对应的 `CAL_RING` 原型任务。
+- [ ] 新增 `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` 对应的 `CAL_RING` 原型任务。
   使用 AUX0/GPIO26 作为 `CAL_IN`，AUX3/GPIO29 作为 `CAL_OUT`，通过高速
   RS-485/RS-422 收发器组成 A0→A1→A2→A3→A0 点对点单向环路。
 
@@ -215,7 +223,7 @@ Last updated: 2026-07-07
 - [ ] 增加编译期检查，避免引脚冲突和 PIO 状态机冲突。
 
 - [ ] 增加应用层语义 IO 资源仲裁。
-  按 `docs/PIO_RESOURCE_PLAN.md` 的接口契约，在代码中拒绝模式 armed 后的语义通道冲突：
+  按 `docs/SYNC_IO_RESOURCE_PLAN.md` 的接口契约，在代码中拒绝模式 armed 后的语义通道冲突：
   `SEQ_STEP` 独占主 OUT0..OUT3，`ENC_COUNT` 独占主 IN0/IN1/IN3 和 OUT0；
   AUX0..AUX3 作为 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 的跨模式功能口，
   需要独立 owner/arbiter。`TRIG:ENC:APIN 26` 作为开发诊断复用时必须占用并锁定 AUX 功能接口。

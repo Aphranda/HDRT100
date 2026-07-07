@@ -3,7 +3,7 @@
 Status: Active
 Domain: OTA
 Canonical: `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`
-Related: `docs/PORTABLE_OTA_ARCHITECTURE.md`, `docs/OTA_OPEN_SOURCE_COMPARISON.md`, `docs/OTA_TODO.md`
+Related: `docs/OTA_PORTABLE_ARCHITECTURE.md`, `docs/OTA_OPEN_SOURCE_COMPARISON.md`, `docs/OTA_TODO.md`
 Last updated: 2026-07-07
 
 This playbook defines the execution order for improving the reusable OTA

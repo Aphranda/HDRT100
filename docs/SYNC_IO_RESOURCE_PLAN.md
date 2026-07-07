@@ -2,11 +2,20 @@
 
 Status: Active
 Domain: SYNC_IO
-Canonical: `docs/PIO_RESOURCE_PLAN.md`
+Canonical: `docs/SYNC_IO_RESOURCE_PLAN.md`
 Related: `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`, `docs/SCPI_COMMANDS.md`
 Last updated: 2026-07-07
 
 本文档为同步触发系统预留 RP2350 的 PIO、状态机和高速 IO 资源。目标是把确定性的输入捕获、触发判定和输出生成，与 UI、日志、存储、通信等非实时服务隔离开。
+
+## 冻结状态与适用范围
+
+| 项目 | 当前结论 |
+|---|---|
+| 文档状态 | `Active`。PIO/SM/DMA ownership 仍随固件实现演进；外部高速 IO pinout 和 AUX 两收两发方向按当前产品目标冻结。 |
+| 适用硬件 | RP2350_TRIG 当前开发板和后续以 `GPIO16..23` 主触发口、`GPIO26..29` AUX 口为基础的硬件版本。 |
+| 冻结约束 | `GPIO16..19` 为主输入组，`GPIO20..23` 为主输出组；`AUX0/AUX1` 固定输入，`AUX2/AUX3` 固定输出；非同步功能不得占用 PIO 状态机。 |
+| 未决项 | 旧 `BOARD_SYNC_*` 宏仍需迁移到 AUX 语义通道；`ARM_IN`、`EXT_CLK_IN`、`SYNC_CLK_OUT`、`MARKER_OUT` 运行路径需要由资源仲裁器统一拒绝或迁移。 |
 
 ## 硬件资源预算
 

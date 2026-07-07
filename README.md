@@ -22,7 +22,7 @@ documentation, because garbled text can hide real checklist changes.
 
 The top-level software architecture is the Hybrid Active Object Function Block
 Vector Architecture, abbreviated as HAOFV. The full design is documented in
-`docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`.
+`docs/HAOFV_ARCHITECTURE.md`.
 
 ```text
 SCPI / UI / SD / Bootloader Result
@@ -415,28 +415,28 @@ time.
   instances.
 - `CMakePresets.json`: release and debug build presets.
 - `docs/README.md`: documentation index and current domain hierarchy.
-- `docs/DOCS_NAMING_AND_STRUCTURE.md`: documentation naming, metadata,
+- `docs/DOCS_NAMING_STRUCTURE_PLAN.md`: documentation naming, metadata,
   hierarchy, cross-reference, and migration rules.
-- `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`: top-level HAOFV product
+- `docs/HAOFV_ARCHITECTURE.md`: top-level HAOFV product
   architecture based on Active Objects, lightweight IEC 61499-style function
   blocks, time-synchronized vectors, table-driven state machines, event
   dispatch, and resource arbitration.
 - `docs/RELEASE_CHECKLIST.md`: release gate template.
-- `docs/PIO_RESOURCE_PLAN.md`: sync trigger PIO, state-machine, and GPIO
+- `docs/SYNC_IO_RESOURCE_PLAN.md`: sync trigger PIO, state-machine, and GPIO
   allocation.
-- `docs/SYNC_TRIGGER_TODO.md`: remaining work for the production trigger
+- `docs/TRIGGER_SYNC_TODO.md`: remaining work for the production trigger
   subsystem.
 - `docs/SCPI_COMMANDS.md`: basic SCPI command list for trigger configuration.
-- `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md`: implementable A0-A3 RP2350
+- `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`: implementable A0-A3 RP2350
   distributed DPLL, virtual DC clock, AUX calibration ring, and local scheduled
   trigger plan.
-- `docs/OTA方案.md`: A/B OTA upgrade design for the W25Q32 4 MB QSPI Flash.
+- `docs/OTA_SYSTEM_DESIGN.md`: A/B OTA upgrade design for the W25Q32 4 MB QSPI Flash.
 - `docs/OTA_COPY_TRANSACTION_DESIGN.md`: copy-to-active OTA transaction
   design for power-loss recovery within the current flash partition layout.
 - `docs/OTA_TODO.md`: OTA productization backlog for release gating,
   power-loss recovery, manifest compatibility, validation reports, and
   automation.
-- `docs/PORTABLE_OTA_ARCHITECTURE.md`: portable OTA design and validation
+- `docs/OTA_PORTABLE_ARCHITECTURE.md`: portable OTA design and validation
   guide for reusing the proven package, metadata, Bootloader, and negative-path
   validation flow on RP2350 and STM32 RTOS products.
 - `docs/OTA_OPEN_SOURCE_COMPARISON.md`: comparison with MCUboot, ESP-IDF OTA,

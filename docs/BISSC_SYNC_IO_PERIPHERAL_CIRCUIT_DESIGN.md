@@ -3,7 +3,7 @@
 Status: Frozen
 Domain: BISSC
 Canonical: `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
-Related: `docs/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/PIO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`
+Related: `docs/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`
 Last updated: 2026-07-07
 
 本文档作为 RP2350_TRIG 后续硬件版本的原理图输入规格，统一定义 BiSS-C
@@ -13,6 +13,15 @@ Last updated: 2026-07-07
 本文档中的 RJ45 只作为 Cat5e/Cat6 四对双绞线连接器使用，不是 Ethernet，
 不运行 Ethernet / PoE 协议。连接器和外壳丝印必须明确标注
 `NON-ETHERNET / NO POE`。
+
+## 冻结状态与适用范围
+
+| 项目 | 当前结论 |
+|---|---|
+| 文档状态 | `Frozen`。本文档作为后续硬件版本原理图输入规格，只允许勘误、补充验证记录和消除冲突。 |
+| 适用硬件 | RP2350_TRIG 后续 BiSS-C / SYNC_IO 扩展硬件版本；默认使用双 RJ45、三颗 `THVD1452` 和固定方向 AUX 两收两发。 |
+| 冻结约束 | RJ45 不承载 Ethernet/PoE；`DIFF0`、`DIFF1`、`TRIG_DIFF` 独立；`AUX0/AUX1` 固定接收，`AUX2/AUX3` 固定发送；首版不使用普通模拟开关做高速差分运行时切换。 |
+| 未决项 | 串联 TAP bridge 真实硬件透传、5 MHz sample window、SYNC_IO 隔离版本、12 V 取电/透传策略和长线 EMC 仍需按验证计划闭环。 |
 
 ## 最终架构结论
 

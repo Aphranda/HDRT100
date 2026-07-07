@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: OTA
-Canonical: `docs/OTA方案.md`
-Related: `docs/OTA_TODO.md`, `docs/OTA_AB_SWITCH_DESIGN.md`, `docs/OTA_COPY_TRANSACTION_DESIGN.md`, `docs/PORTABLE_OTA_ARCHITECTURE.md`
+Canonical: `docs/OTA_SYSTEM_DESIGN.md`
+Related: `docs/OTA_TODO.md`, `docs/OTA_AB_SWITCH_DESIGN.md`, `docs/OTA_COPY_TRANSACTION_DESIGN.md`, `docs/OTA_PORTABLE_ARCHITECTURE.md`
 Last updated: 2026-07-07
 
 本文档汇总当前硬件条件，并给出 RP2350_TRIG 的 OTA 工程方案。目标是让固件升级从“手动烧录”升级为“可回滚、可校验、可维护”的产品化流程。
@@ -51,7 +51,7 @@ SD 卡离线升级包缓存
 - App 可以从 SCPI 或 SD 卡读取统一 `.pkg` 包，按当前 OTA 模式选择内部镜像；raw `.bin` 仅保留兼容/台架用途。
 - App 固定链接到 Slot A 地址 `0x10040000`，Slot B 只作为 staging 区。Bootloader 校验 Slot B 后复制到 Slot A，再跳转 Slot A。
 - SCPI 和 SD 卡只是传输/缓存入口，真正升级流程由 `OtaAO + OtaFB + OtaVector` 统一管理。
-- OTA 按 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 的 HAOFV 架构落地：Active Object 管运行，轻量 IEC 61499 功能块管逻辑，Vector Blackboard 管数据，Resource Arbiter 管互锁。
+- OTA 按 `docs/HAOFV_ARCHITECTURE.md` 的 HAOFV 架构落地：Active Object 管运行，轻量 IEC 61499 功能块管逻辑，Vector Blackboard 管数据，Resource Arbiter 管互锁。
 
 ## 当前可执行流程
 

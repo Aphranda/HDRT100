@@ -10,6 +10,14 @@ Last updated: 2026-07-07
 而是分层保留调试证据：串口 LOG 给人快速观察，二进制 TRACE 给机器稳定解码，
 SNAPSHOT/REPORT 给故障闭环归档。
 
+## 验收标准摘要
+
+| 优先级 | 验收标准 |
+|---|---|
+| P0 | portable_log 核心、RP2350 port、diagnostics 封装、等级过滤、统计、SCPI 控制和 host/ARM 单测可回归；板端验证记录必须包含 `SYST:LOG:STAT?` 与关键 fault trace 解码结果。 |
+| P1 | domain/event id、域级过滤、限速、ring buffer service flush、StorageAO 文本落盘和验证工具统一收集形成闭环；OTA 传输期间日志策略不会干扰 binary block。 |
+| P2 | release/validation/factory 默认等级、fault evidence bundle、trace schema 迁移、产测 HIL 模板、磨损评估和敏感信息策略进入发布门禁。 |
+
 ## 开源参考和本项目取舍
 
 - `rxi/log.c`：借鉴“小型 C99 单文件核心、等级过滤、回调输出、可选锁”的形态，但本项目不直接引入文件指针、ANSI color 或桌面 stderr 依赖。

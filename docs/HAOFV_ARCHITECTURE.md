@@ -2,13 +2,13 @@
 
 Status: Active
 Domain: HAOFV
-Canonical: `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
-Related: `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/PIO_RESOURCE_PLAN.md`
+Canonical: `docs/HAOFV_ARCHITECTURE.md`
+Related: `docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`
 Last updated: 2026-07-07
 
 本文档定义 RP2350_TRIG 后续产品化演进采用的软件架构。目标是在保持裸机/Pico SDK 工程轻量性的同时，融合 Active Object、轻量 IEC 61499 功能块、时间同步型系统向量黑板、资源仲裁和表驱动状态机，为 OTA、同步触发、SD 卡、LCD、SCPI、诊断、后续 RTOS 和更多硬件模块提供清晰边界。
 
-> **实施指南**：[HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md](HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md) 提供 ECC 表实现示例、GPIO 迁移步骤、Flash 异步 Job 代码和完整代码附录。
+> **实施指南**：[HAOFV_IMPLEMENTATION_PLAYBOOK.md](HAOFV_IMPLEMENTATION_PLAYBOOK.md) 提供 ECC 表实现示例、GPIO 迁移步骤、Flash 异步 Job 代码和完整代码附录。
 
 ## 架构名称
 
@@ -614,7 +614,7 @@ typedef struct {
 | 域 | 错误码范围 | 示例 |
 |---|---|---|
 | 通用 | 0 | `NONE` |
-| OTA | 1-99 | 见 `docs/OTA方案.md` 15 种 OTA 错误码 |
+| OTA | 1-99 | 见 `docs/OTA_SYSTEM_DESIGN.md` 15 种 OTA 错误码 |
 | Trigger | 100-199 | 1=非法参数, 2=资源忙, 3=PIO/DMA 配置失败, 10=ENC target=0, 11=非法编码器引脚 |
 | Flash | 200-299 | 擦除/写入/读回校验失败 |
 | Storage | 300-399 | SD 卡挂载/读写/文件系统错误 |

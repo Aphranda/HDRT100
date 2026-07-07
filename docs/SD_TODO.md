@@ -3,12 +3,20 @@
 Status: Active
 Domain: SD
 Canonical: `docs/SD_TODO.md`
-Related: `docs/TASK_PROGRESS_SD.md`, `docs/SCPI_COMMANDS.md`, `docs/OTA方案.md`
+Related: `docs/SD_TASK_PROGRESS.md`, `docs/SCPI_COMMANDS.md`, `docs/OTA_SYSTEM_DESIGN.md`
 Last updated: 2026-07-07
 
 本文档定义 RP2350_TRIG 的 SD 卡系统。SD 卡不是简单 OTA 介质，而是 App 侧 **System Pack 介质 + 持久化观测层**，用于任务配置、校准补偿、Pack/Ref 版本管理、Vector/反射内存快照、脉冲异常 trace、运行报告、产测结果和离线 OTA。
 
 Bootloader 第一版不读取 SD/FatFs。SD 卡可插拔，文件系统和写入延迟都不适合进入最小启动链路，也不能进入 PIO/DMA/IRQ 硬实时触发闭环。
+
+## 验收标准摘要
+
+| 优先级 | 验收标准 |
+|---|---|
+| P0 | 新 FAT32 卡可自动 bootstrap 最小 System Pack；StorageAO job 覆盖文件查询、分页目录、manifest scan、snapshot、trace 和 fault evidence；所有 SD/FatFs 操作保持在管理面，硬实时路径不等待 SD。 |
+| P1 | Pack/Ref、profile/cal、mission/recipe、离线 OTA 和 schema/capability 校验形成事务化流程；ARM 前能把 SD 配置转换为事件和摘要，armed 状态拒绝关键配置热加载。 |
+| P2 | 报告、产测、工具、多卡兼容、热插拔、长稳和掉电恢复具备可重复验证矩阵；release 归档包含 SD image、manifest 和报告模板。 |
 
 ## 1. 核心定位
 
@@ -919,7 +927,7 @@ tools/rp2350_tk_toolbox.py
 
 ## 21. 当前验证记录
 
-本节只保存最新一次 SD 闭环验证摘要；历史验证记录写入 `docs/TASK_PROGRESS_SD.md`。
+本节只保存最新一次 SD 闭环验证摘要；历史验证记录写入 `docs/SD_TASK_PROGRESS.md`。
 
 - 日期：2026-07-06
 - 任务记录：`SD-TASK-20260706-031`
@@ -1001,6 +1009,6 @@ tools/rp2350_tk_toolbox.py
 - `components/sync_config_ui/src/sync_config_ui.c`
 - `middleware/scpi_port/src/scpi_port.c`
 - `tools/rp2350_tk_toolbox.py`
-- `docs/OTA方案.md`
-- `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+- `docs/OTA_SYSTEM_DESIGN.md`
+- `docs/HAOFV_ARCHITECTURE.md`
 - `docs/TASK_PROGRESS.md`

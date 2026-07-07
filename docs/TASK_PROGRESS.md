@@ -3,7 +3,7 @@
 Status: Active
 Domain: Documentation
 Canonical: `docs/TASK_PROGRESS.md`
-Related: `docs/DOCS_MIGRATION_TODO.md`, `docs/BISSC_TASK_PROGRESS.md`, `docs/TASK_PROGRESS_SD.md`
+Related: `docs/DOCS_MIGRATION_TODO.md`, `docs/BISSC_TASK_PROGRESS.md`, `docs/SD_TASK_PROGRESS.md`
 Last updated: 2026-07-07
 
 本文档用于记录 RP2350_TRIG 工程的正式任务进度。每完成一个正式任务后，都应追加一条记录，说明任务目标、完成内容、验证结果、剩余工作和下一步计划，便于后续回溯设计决策和工程状态。
@@ -64,7 +64,7 @@ Last updated: 2026-07-07
   - 明确四类节点能力：`RX_PULSE`、`TX_BISS`、`RX_BISS`、`TX_PULSE`。
   - 定义源端、目的端、透明监听端、代理桥端四种配置方式。
   - 明确标准 BiSS-C 从站不能主动发送，`TX_BISS` 必须绑定到上游主站 clock polling。
-  - 更新 `docs/SYNC_TRIGGER_TODO.md`，将原 BiSS-C 泛化兼容项拆成 P0 原型、透明监听、从站发送、主站接收和高速能力评估。
+  - 更新 `docs/TRIGGER_SYNC_TODO.md`，将原 BiSS-C 泛化兼容项拆成 P0 原型、透明监听、从站发送、主站接收和高速能力评估。
 - 验证结果：
   - 本任务只完成方案和 TODO 更新，未修改固件代码，未执行构建、烧录或板端验证。
 - 还需完成：
@@ -73,7 +73,7 @@ Last updated: 2026-07-07
   - 后续根据实测决定是否继续用 RP2350 PIO 提速，或引入 FPGA/CPLD/专用 BiSS 接口芯片。
 - 关联文件：
   - `docs/BISSC_TAP_BRIDGE_DESIGN.md`
-  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 先做固件 P0 骨架：模式、角色、SCPI 配置、状态计数和低速固定帧接口。
@@ -321,7 +321,7 @@ Last updated: 2026-07-07
   - 再落地 P0B/P0C：boot/arm/fault snapshot 和 RAM trace ring。
 - 关联文件：
   - `docs/SD_TODO.md`
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/HAOFV_ARCHITECTURE.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 从 `StorageAO + StorageFB + StorageVector` 的最小 job 框架开始实现，优先支持 snapshot 写入和最近 fault 追溯查询。
@@ -361,7 +361,7 @@ Last updated: 2026-07-07
   - 增加 SCPI/UI 查询最近 snapshot、trace、pulse fault report 的入口。
 - 关联文件：
   - `docs/SD_TODO.md`
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/HAOFV_ARCHITECTURE.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 先实现最小 boot/arm/fault snapshot，再实现脉冲异常 RAM trace ring 和 DISARM/FAULT 后批量落盘。
@@ -461,7 +461,7 @@ Last updated: 2026-07-07
   - 增加 SD UI 第二阶段：显示 `/update` 是否存在、默认包是否存在、包大小/版本/CRC、最近一次 SD 错误和离线 OTA 进度。
   - 增加日志/报告目录写入能力：`/logs`、`/reports`、`/config`、`/capture` 的安全写入、临时文件命名、写完 rename、容量不足处理。
   - 增加多卡兼容验证：空卡、无卡、FAT32 卡、SDHC/SDXC 卡、无 `/update`、坏路径、长文件名、拔卡后恢复。
-  - 更新 `docs/SCPI_COMMANDS.md`、`README.md` 和 `docs/OTA方案.md`，把已实现命令和后续 `SYST:OTA:FILE` 流程写清楚。
+  - 更新 `docs/SCPI_COMMANDS.md`、`README.md` 和 `docs/OTA_SYSTEM_DESIGN.md`，把已实现命令和后续 `SYST:OTA:FILE` 流程写清楚。
   - 在 `tools/rp2350_tk_toolbox.py` 中继续扩展 SD 操作区：构建 SD 文件系统、打开 staging 目录、查询 SD 状态、列目录、触发离线 OTA。
 - 关联文件：
   - `tools/sd_fs_build/sd_fs_build.py`
@@ -488,18 +488,18 @@ Last updated: 2026-07-07
   - 将分布式 DPLL/CAL_RING 方案从抽象多板同步，细化为转台、DUT、馈源和网分四类板卡的实际测试流程。
   - 明确转台 TTL 位置脉冲如何转换为位置触发事件，A1/A2 如何完成链路切换，A3 如何触发网分并等待 `REDY/READY` 后推进下一轮。
 - 完成内容：
-  - `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md` 新增 A0-A3 业务拓扑：A0=转台板卡/Master，A1=DUT/SP8T，A2=馈源极化，A3=网分触发与 READY 回读。
+  - `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` 新增 A0-A3 业务拓扑：A0=转台板卡/Master，A1=DUT/SP8T，A2=馈源极化，A3=网分触发与 READY 回读。
   - 将 AUX 环路更新为 A0→A1→A2→A3→A0。
   - 新增一轮测试状态机：`WAIT_POS`、`DISTRIBUTE_POS`、`DUT_SWITCH`、`FEED_SWITCH`、`VNA_TRIGGER`、`WAIT_VNA_READY`、`ROUND_DONE`。
   - 新增业务帧建议：`SYNC`、`POS_TRIG`、`A1_DONE`、`A2_DONE`、`MEAS_DONE`、`FAULT`。
-  - 更新 `docs/SYNC_TRIGGER_TODO.md`，补充 A0-A3 角色和状态机待办。
+  - 更新 `docs/TRIGGER_SYNC_TODO.md`，补充 A0-A3 角色和状态机待办。
 - 验证结果：
   - 本任务只更新文档，未改固件代码，未重新构建或烧录。
 - 还需完成：
   - 在代码中实现 A0-A3 role profile、业务帧解析、超时处理和 `REDY/READY` 捕获。
 - 关联文件：
-  - `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md`
-  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
+  - `docs/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 先实现 A0 单板 TTL 位置脉冲捕获与 `sequence_id/position_count` 生成，再接 A1/A2/A3 环路转发。
@@ -512,11 +512,11 @@ Last updated: 2026-07-07
   - 阅读 `DOC/相控阵测试系统分布式触发方案技术报告0614.html`，将其中 DPLL、DC 时间轴、预约触发和 T2_i 回读思想映射为当前 RP2350 多板原型可实施方案。
   - 明确 AUX 两路一进一出、RS-485/RS-422 差分物理层、PIO/CPU 分工、虚拟 DC 时钟、DPLL 闭环和分阶段验收边界。
 - 完成内容：
-  - 新增 `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md`，定义多板 `CAL_RING` 拓扑：AUX0/GPIO26=`CAL_IN`，AUX3/GPIO29=`CAL_OUT`。
+  - 新增 `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`，定义多板 `CAL_RING` 拓扑：AUX0/GPIO26=`CAL_IN`，AUX3/GPIO29=`CAL_OUT`。
   - 明确 RS-485/RS-422 芯片只作为点对点单向差分收发器使用，`DE`/`RE` 常使能，不做共享总线仲裁。
   - 明确 PIO 负责边沿捕获、固定延迟转发、短窗口相对计时和本地预约触发；CPU/上位机负责 64-bit 虚拟 DC 时间轴、DPLL、残差剔除和补偿表。
   - 给出 12.5 Mbps、16.667 Mbps、20.833 Mbps、25 Mbps 四档 PIO 友好短帧速率，以及 Phase 0 到 Phase 4 的实施和验收计划。
-  - 更新 `docs/SYNC_TRIGGER_TODO.md`，新增分布式 DPLL / CAL_RING 待办。
+  - 更新 `docs/TRIGGER_SYNC_TODO.md`，新增分布式 DPLL / CAL_RING 待办。
   - 更新 `README.md` 文档索引。
 - 验证结果：
   - 本任务只新增和更新文档，未改固件代码，未重新构建或烧录。
@@ -524,8 +524,8 @@ Last updated: 2026-07-07
   - 选定高速 RS-485/RS-422 收发器并完成单段回环电气验证。
   - 实现 `CAL_RING` PIO 原型、AUX owner/arbiter、虚拟 DC 状态和本地预约触发队列。
 - 关联文件：
-  - `docs/DISTRIBUTED_DPLL_SYNC_DESIGN.md`
-  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
+  - `docs/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
   - `README.md`
 - 下一步：
@@ -539,15 +539,15 @@ Last updated: 2026-07-07
   - 将跨模式框架功能信号约束到 AUX 接口，使主输入/输出口更加纯粹。
   - 明确主触发口只承载高速触发、编码器、门控和序列输出；AUX 口承载 `ARM_IN`、`EXT_CLK_IN`、`SYNC_CLK_OUT`、`MARKER_OUT`。
 - 完成内容：
-  - `docs/PIO_RESOURCE_PLAN.md` 将产品 AUX 功能接口定义为：
+  - `docs/SYNC_IO_RESOURCE_PLAN.md` 将产品 AUX 功能接口定义为：
     - AUX0/GPIO26 = `ARM_IN`
     - AUX1/GPIO27 = `EXT_CLK_IN`
     - AUX2/GPIO28 = `SYNC_CLK_OUT`
     - AUX3/GPIO29 = `MARKER_OUT`
   - 将主口 `GPIO16..GPIO23` 约束为模式本地高速 IO：`SEQ_STEP` 和 `ENC_COUNT` 可独占主输入/输出口，跨模式功能不再抢主口通道。
   - `docs/SCPI_COMMANDS.md` 更新语义 IO 表和互斥说明：`TRIG:ENC:APIN 26` 属于开发诊断复用，会占用 AUX 功能接口，量产默认仍使用 `16` 组。
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 补充主触发口 + AUX 功能口的架构分层，明确上层语义接口不再绑定到主口 GPIO17/18/22/23。
-  - `docs/SYNC_TRIGGER_TODO.md` 新增代码迁移待办：将 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 从旧路径迁移到 AUX0..AUX3，并实现 AUX owner/arbiter。
+  - `docs/HAOFV_ARCHITECTURE.md` 补充主触发口 + AUX 功能口的架构分层，明确上层语义接口不再绑定到主口 GPIO17/18/22/23。
+  - `docs/TRIGGER_SYNC_TODO.md` 新增代码迁移待办：将 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 从旧路径迁移到 AUX0..AUX3，并实现 AUX owner/arbiter。
   - `boards/rp2350_trig/inc/board_config.h` 新增产品 AUX 语义别名宏，不改变当前运行行为。
 - 验证结果：
   - `cmake --build build-codex-trigger-enc` 通过。
@@ -557,10 +557,10 @@ Last updated: 2026-07-07
   - 迁移当前固件旧路径：`BOARD_SYNC_ARM_IN_PIN`、`BOARD_SYNC_EXT_CLK_IN_PIN`、`BOARD_SYNC_SYNC_CLK_OUT_PIN`、`BOARD_SYNC_MARKER_OUT_PIN` 仍指向 GPIO17/18/22/23。
   - 为 AUX 功能接口增加资源仲裁，确保开发诊断 `TRIG:ENC:APIN 26` 与 AUX 产品功能互斥。
 - 关联文件：
-  - `docs/PIO_RESOURCE_PLAN.md`
+  - `docs/SYNC_IO_RESOURCE_PLAN.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
-  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
   - `boards/rp2350_trig/inc/board_config.h`
 - 下一步：
@@ -574,23 +574,23 @@ Last updated: 2026-07-07
   - 将触发系统的应用层接口从具体 GPIO 中抽象出来，约束为稳定语义通道，例如 `ARM_IN`、`TRIG_IN`、`GATE_IN`、`SYNC_CLK_OUT`。
   - 明确不同触发模式 armed 后对语义输入/输出的独占关系，避免 SCPI/UI 后续继续暴露任意 GPIO 路由。
 - 完成内容：
-  - `docs/PIO_RESOURCE_PLAN.md` 新增 Framework/Application Interface Contract，定义输入 `TRIG_IN/ARM_IN/EXT_CLK_IN/GATE_IN` 和输出 `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT` 的语义、物理通道和 GPIO 映射。
+  - `docs/SYNC_IO_RESOURCE_PLAN.md` 新增 Framework/Application Interface Contract，定义输入 `TRIG_IN/ARM_IN/EXT_CLK_IN/GATE_IN` 和输出 `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT` 的语义、物理通道和 GPIO 映射。
   - 明确 `ARM_IN` 是应用层外部 ARM 资格/请求，不属于当前 `SEQ_STEP` PIO 实时循环；在 `ENC_COUNT` 量产映射中 IN1 被 B 相占用，因此 `ARM_IN` 不可作为独立资格信号。
   - 明确 `SEQ_STEP` armed 时 OUT0..OUT3 被序列总线独占，独立 `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT` 命令应 busy 或在 ARM 前关闭。
   - 明确 `ENC_COUNT` armed 时 IN0/IN1/IN3 被 A/B/Z 独占，OUT0 被比较触发独占；`GATE_IN` 在 IN3 被 Z 相占用时不可作为独立门控。
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 补充 Trigger 域上层接口规则：SCPI/UI/TriggerAO 使用语义通道，GPIO 映射归 board profile 和 `sync_io`。
+  - `docs/HAOFV_ARCHITECTURE.md` 补充 Trigger 域上层接口规则：SCPI/UI/TriggerAO 使用语义通道，GPIO 映射归 board profile 和 `sync_io`。
   - `docs/SCPI_COMMANDS.md` 增加应用层语义 IO 与资源互斥说明。
-  - `docs/SYNC_TRIGGER_TODO.md` 标记语义接口约束完成，并新增后续代码仲裁待办。
+  - `docs/TRIGGER_SYNC_TODO.md` 标记语义接口约束完成，并新增后续代码仲裁待办。
 - 验证结果：
   - 文档约束更新完成；本任务未改固件代码，未重新构建或烧录。
 - 还需完成：
   - 在代码中实现语义 IO 资源 owner/arbiter：armed 状态下对冲突 SCPI 命令返回 busy 或 unavailable。
   - 后续真正接入 `ARM_IN` 时，需要按该契约处理与 `ENC_COUNT` B 相的硬件通道冲突。
 - 关联文件：
-  - `docs/PIO_RESOURCE_PLAN.md`
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/SYNC_IO_RESOURCE_PLAN.md`
+  - `docs/HAOFV_ARCHITECTURE.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 按语义 IO 契约补 `sync_trigger`/SCPI 层资源仲裁，优先拦截 `SEQ_STEP` armed 后的独立输出和同步时钟冲突。
@@ -603,19 +603,19 @@ Last updated: 2026-07-07
   - 明确不同触发模式使用相同的物理输入/输出通道，方便硬件统一增加施密特触发器、输入保护/隔离和输出驱动器。
   - 收敛 `ENC_COUNT` 可选 `GPIO26..GPIO29` 输入组的定位，避免被误解为量产默认接线。
 - 完成内容：
-  - `docs/PIO_RESOURCE_PLAN.md` 新增统一物理 IO 策略：产品高速触发接口固定为 `GPIO16..GPIO19` 输入和 `GPIO20..GPIO23` 输出。
+  - `docs/SYNC_IO_RESOURCE_PLAN.md` 新增统一物理 IO 策略：产品高速触发接口固定为 `GPIO16..GPIO19` 输入和 `GPIO20..GPIO23` 输出。
   - 明确不同模式只改变逻辑含义，不改变正常产品外部接线：
     - `SEQ_STEP`：IN0=`TRIG_IN`，IN3=`GATE_IN`，OUT0..3=`SEQ_OUT[3:0]`。
     - `ENC_COUNT`：IN0=A，IN1=B，IN3=Z，OUT0=`TRIG_OUT`。
-  - `docs/SYNC_TRIGGER_TODO.md` 标记统一物理 IO 定义完成，并注明 `GPIO26..GPIO29` 仅作为 AUX/开发验证扩展。
+  - `docs/TRIGGER_SYNC_TODO.md` 标记统一物理 IO 定义完成，并注明 `GPIO26..GPIO29` 仅作为 AUX/开发验证扩展。
   - `docs/SCPI_COMMANDS.md` 更新 `TRIG:ENC:APIN <16|26>` 说明：量产默认使用 `16`，`26` 为开发验证扩展。
 - 验证结果：
   - 文档约束更新完成；本任务未改代码，未重新构建或烧录。
 - 还需完成：
   - 后续新增触发模式时必须先检查是否能映射到统一物理 IO 层；如需要新增物理通道，应同步更新硬件前端和 PIO 资源规划。
 - 关联文件：
-  - `docs/PIO_RESOURCE_PLAN.md`
-  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/SYNC_IO_RESOURCE_PLAN.md`
+  - `docs/TRIGGER_SYNC_TODO.md`
   - `docs/SCPI_COMMANDS.md`
 - 下一步：
   - 若要继续代码闭环，优先在统一物理 IO 约束下实现电平触发模式或完善 `ARM_IN` 管理面语义。
@@ -625,7 +625,7 @@ Last updated: 2026-07-07
 - 状态：完成
 - 日期：2026-06-26
 - 任务目标：
-  - 按 `docs/SYNC_TRIGGER_TODO.md` 逐项收敛触发待办，先闭环 P1 行为一致性问题：`ENC_COUNT` 引脚配置表面可配但 ARM 仍固定使用 `GPIO16..GPIO19`。
+  - 按 `docs/TRIGGER_SYNC_TODO.md` 逐项收敛触发待办，先闭环 P1 行为一致性问题：`ENC_COUNT` 引脚配置表面可配但 ARM 仍固定使用 `GPIO16..GPIO19`。
   - 顺手修正 `ENC_COUNT` DMA 启动前使用 `dma_channel_unclaim()` 清理通道的风险，与 SEQ_STEP 高频稳定性修复保持一致。
   - 同步更新触发 TODO 和 SCPI 文档，避免公开接口说明与实现脱节。
 - 完成内容：
@@ -633,7 +633,7 @@ Last updated: 2026-07-07
   - `fb_enc_configured_arm()` 改为使用 TriggerVector 下发的 `enc_a_pin` 作为 `sync_io_enc_count_arm()` 的输入组基脚，不再硬编码 `BOARD_SYNC_INPUT_BASE_PIN`。
   - `sync_io_enc_count_arm()` 改为把传入的 `in_pin_base` 下发到 `enc_count_program_init()`，并将 DMA 清理从 `dma_channel_unclaim()` 改为 `dma_channel_abort()`。
   - `TRIG:ENC:APIN <16|26>` 改为选择 ENC 输入组基脚，并自动派生 B/Z；新增 `TRIG:ENC:APIN?` 返回当前 A/B/Z 实际 GPIO。
-  - 更新 `docs/SYNC_TRIGGER_TODO.md`，将 `ENC_COUNT` 引脚配置和 ENC DMA 清理标记闭环。
+  - 更新 `docs/TRIGGER_SYNC_TODO.md`，将 `ENC_COUNT` 引脚配置和 ENC DMA 清理标记闭环。
   - 更新 `docs/SCPI_COMMANDS.md`，补齐 ENC_COUNT、PCNT 参数和触发测量命令说明。
   - 更新 `trigger_vector.h` 中过时的 DMA ring buffer 注释，说明当前使用 ISR 手动复位 `read_addr`。
 - 验证结果：
@@ -660,17 +660,17 @@ Last updated: 2026-07-07
   - `components/sync_io/src/sync_io.c`
   - `components/sync_trigger/inc/trigger_vector.h`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/TRIGGER_SYNC_TODO.md`
   - `docs/SCPI_COMMANDS.md`
 - 下一步：
-  - 继续按 `docs/SYNC_TRIGGER_TODO.md` 处理 P0/P1 未闭环项，优先建议做 `ARM_IN` 接入或电平触发模式。
+  - 继续按 `docs/TRIGGER_SYNC_TODO.md` 处理 P0/P1 未闭环项，优先建议做 `ARM_IN` 接入或电平触发模式。
 
 ### TASK-20260625-014 - 同步触发 P0 阻塞问题修复
 
 - 状态：完成
 - 日期：2026-06-25
 - 任务目标：
-  - 逐一验证并修复 `docs/SYNC_TRIGGER_TODO.md` 评审补充待办中的 3 个 P0 功能阻塞问题：`ENC_COUNT` 单次触发卡死、`SEQ_STEP` DMA 环回不成立、`gate_enabled` 下触发源选择失效。
+  - 逐一验证并修复 `docs/TRIGGER_SYNC_TODO.md` 评审补充待办中的 3 个 P0 功能阻塞问题：`ENC_COUNT` 单次触发卡死、`SEQ_STEP` DMA 环回不成立、`gate_enabled` 下触发源选择失效。
   - 顺手修复 1 个 P1 逻辑错误：`PCNT_CLEAR` 统计累计顺序颠倒。
 - 完成内容：
   - **P0-1 `ENC_COUNT` 单次触发卡死**：`sync_io.c` 新增 DMA ch1 (`SYNC_IO_ENC_COUNT_DMA_CH`)，将 `&s_enc.target` 持续写入 PIO TX FIFO（DREQ 节拍），`transfer_count=0xFFFFFFFF`；`sync_io_enc_count_disarm()` 增加 DMA abort；扩展 `sync_io_enc_count_t` 增加 `dma_ch` / `dma_restart_count` 字段。
@@ -699,7 +699,7 @@ Last updated: 2026-07-07
   - `components/sync_io/src/seq_step.pio`
   - `components/sync_trigger/src/trigger_fb.c`
   - `components/sync_config_ui/src/sync_config_ui.c`
-  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/TRIGGER_SYNC_TODO.md`
 - 下一步：
   - 提交代码，TASK-20260625-014 闭环。
 
@@ -709,7 +709,7 @@ Last updated: 2026-07-07
 - 日期：2026-06-24
 - 任务目标：
   - 暂停 Trigger 功能继续扩展，先把独立 `task_ui` 下的 LCD/U8G2 界面从静态占位页推进到可读的运行时状态看板。
-  - 按 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 的边界实现 UI：只读取 Trigger/OTA/Resource Arbiter/Diagnostics 的摘要快照，不直接介入业务控制。
+  - 按 `docs/HAOFV_ARCHITECTURE.md` 的边界实现 UI：只读取 Trigger/OTA/Resource Arbiter/Diagnostics 的摘要快照，不直接介入业务控制。
   - 补齐 UI 周期刷新闭环，避免 LCD 只在初始化时渲染一次而后续状态停留在首帧。
 - 完成内容：
   - `components/sync_config_ui/src/sync_config_ui.c` 重构为三栏工业风运行时看板，分别展示：
@@ -738,7 +738,7 @@ Last updated: 2026-07-07
 - 关联文件：
   - `application/src/app.c`
   - `components/sync_config_ui/src/sync_config_ui.c`
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/HAOFV_ARCHITECTURE.md`
 - 下一步：
   - 继续把 LCD 从“运行时总览”推进到“总览 + 菜单/配置页”双层结构，并给未来独立通讯任务、触发任务和本地按键输入预留 UI 事件槽位。
 
@@ -787,7 +787,7 @@ Last updated: 2026-07-07
   - `middleware/scpi_port/src/scpi_port.c`
   - `osal/port/baremetal/osal_baremetal.c`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/TRIGGER_SYNC_TODO.md`
 - 下一步：
   - 进入 TriggerAO/TriggerFB 的第一轮正式建模，先补 `IDLE / ARMED / TRIGGERED / BUSY / FAULT` 状态和基础统计，再让 UI 与 SCPI 都只面对 Trigger 域快照。
 
@@ -796,7 +796,7 @@ Last updated: 2026-07-07
 - 状态：完成
 - 日期：2026-06-24
 - 任务目标：
-  - 按 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 和 `docs/RTOS_PORTING_PLAN.md` 继续把 RTOS 骨架往工业化任务结构推进：先落最小 `resource_arbiter`，再预留独立 `task_trigger` 容器，同时保持当前 OTA 闭环稳定可回归。
+  - 按 `docs/HAOFV_ARCHITECTURE.md` 和 `docs/RTOS_PORTING_PLAN.md` 继续把 RTOS 骨架往工业化任务结构推进：先落最小 `resource_arbiter`，再预留独立 `task_trigger` 容器，同时保持当前 OTA 闭环稳定可回归。
   - 在不触碰 PIO/DMA/IRQ 硬实时旁路的前提下，把 Trigger 控制面从“未来规划”推进到“已有独立任务骨架”，并把 LCD/SPI 与 OTA/Flash 的共享资源边界显式化。
 - 完成内容：
   - 新增 `components/resource_arbiter/`，定义 `FLASH / SPI0 / LCD / SD / USB / PIO / DMA` 资源位、最小模式快照和资源申请/释放接口。
@@ -840,7 +840,7 @@ Last updated: 2026-07-07
 - 日期：2026-06-24
 - 任务目标：
   - 按 `docs/RTOS_PORTING_PLAN.md` 的 Step 3，在保持当前 RTOS smoke 多任务骨架可回归的前提下，引入正式事件投递边界，把 OTA 事件入口从 AO 内部私有环形队列收口到独立 `event_bus` 组件。
-  - 按 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 继续对齐 HAOFV：外部入口只投递事件，不直接修改域状态；同时保留 `task_ui` 独立任务，为后续 U8G2/LCD 独立演进预留容器。
+  - 按 `docs/HAOFV_ARCHITECTURE.md` 继续对齐 HAOFV：外部入口只投递事件，不直接修改域状态；同时保留 `task_ui` 独立任务，为后续 U8G2/LCD 独立演进预留容器。
 - 完成内容：
   - 新增 `components/event_bus/`，提供 `event_bus_init()`、`event_bus_post_ota_event()` 和 `event_bus_try_recv_ota_event()`，以最小 OTA 专用 mailbox 形式收口当前事件总线。
   - `components/event_bus/src/event_bus.c` 使用固定长度环形缓冲区，并通过 `osal_critical_enter/exit()` 保护投递与消费路径；`OTA_EVENT_DATA_BLOCK` 在总线侧复制 payload，避免直接依赖外部缓冲区生命周期。
@@ -868,7 +868,7 @@ Last updated: 2026-07-07
   - `components/event_bus/inc/event_bus.h`
   - `components/event_bus/src/event_bus.c`
   - `components/ota_manager/src/ota_ao.c`
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/HAOFV_ARCHITECTURE.md`
   - `docs/RTOS_PORTING_PLAN.md`
 - 下一步：
   - 继续 `docs/RTOS_PORTING_PLAN.md` 的 Step 4/Step 8，优先补齐 RTOS 版资源仲裁与 `task_trigger` 预留骨架，再把通讯、UI、触发三类输入都统一纳入“只投递事件”的结构。
@@ -938,15 +938,15 @@ Last updated: 2026-07-07
   - 在 `README.md` 的前半部分新增 `Architecture` 章节。
   - 增加 HAOFV 分层图：SCPI/UI/SD/Bootloader Result、Active Object、IEC 61499-style Function Block、Vector Blackboard、Hardware Service Layer、PIO/DMA/IRQ 硬实时旁路。
   - 明确 Active Object、Function Block、Vector Blackboard、Resource Arbiter 和硬实时路径的职责。
-  - 更新 Key Configuration Files 中 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 和 `docs/OTA_RTOS_PORTING_PLAN.md` 的描述。
+  - 更新 Key Configuration Files 中 `docs/HAOFV_ARCHITECTURE.md` 和 `docs/RTOS_PORTING_PLAN.md` 的描述。
 - 验证结果：
   - 文档更新完成，未涉及代码编译和板端烧录。
 - 还需完成：
   - 后续新增 system_manager、system_vector、event_bus、function_block 等组件时，同步 README 的目录结构和架构说明。
 - 关联文件：
   - `README.md`
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
-  - `docs/OTA_RTOS_PORTING_PLAN.md`
+  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/RTOS_PORTING_PLAN.md`
 - 下一步：
   - 继续 OTA 收口或按 FreeRTOS 移植方案进入 OSAL/RTOS 准备阶段。
 
@@ -955,10 +955,10 @@ Last updated: 2026-07-07
 - 状态：完成
 - 日期：2026-06-24
 - 任务目标：
-  - 基于 `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`，输出符合 HAOFV 架构的 FreeRTOS 移植方案。
+  - 基于 `docs/HAOFV_ARCHITECTURE.md`，输出符合 HAOFV 架构的 FreeRTOS 移植方案。
   - 明确 FreeRTOS 与 Active Object、Function Block、Vector Blackboard、Resource Arbiter、PIO/DMA/IRQ 硬实时路径之间的职责边界。
 - 完成内容：
-  - 更新 `docs/OTA_RTOS_PORTING_PLAN.md` 为中文 FreeRTOS 移植总方案。
+  - 更新 `docs/RTOS_PORTING_PLAN.md` 为中文 FreeRTOS 移植总方案。
   - 明确 FreeRTOS 只作为调度器和同步原语，不替代 HAOFV 架构边界。
   - 定义 `task_system`、`task_trigger`、`task_ota`、`task_io_frontend`、`task_storage`、`task_diag` 的推荐任务模型和优先级。
   - 补充 Vector Blackboard 在 RTOS 下的同步节拍、事件入口规则、OSAL 扩展接口和 Resource Arbiter 的 FreeRTOS 实现方式。
@@ -968,8 +968,8 @@ Last updated: 2026-07-07
 - 还需完成：
   - 后续按方案逐步引入 FreeRTOS、扩展 OSAL，并在每次代码更新后执行构建、烧录和 OTA 一键验证。
 - 关联文件：
-  - `docs/OTA_RTOS_PORTING_PLAN.md`
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/RTOS_PORTING_PLAN.md`
+  - `docs/HAOFV_ARCHITECTURE.md`
 - 下一步：
   - OTA 收口后进入 FreeRTOS Step 1：引入 FreeRTOS Kernel、CMake 开关和 `osal/port/freertos/`。
 
@@ -3027,7 +3027,7 @@ Last updated: 2026-07-07
   - 增加发送完成后的状态判定和失败退出码。
 - 关联文件：
   - `tools/ota_send/ota_send.py`
-  - `docs/OTA方案.md`
+  - `docs/OTA_SYSTEM_DESIGN.md`
 - 下一步：
   - 执行 dry-run，并在硬件连接后做实传验证。
 
@@ -3057,9 +3057,9 @@ Last updated: 2026-07-07
   - `components/ota_manager/src/ota_image.c`
   - `components/ota_manager/src/ota_fb.c`
   - `tools/ota_bin_info/ota_bin_info.py`
-  - `docs/OTA方案.md`
+  - `docs/OTA_SYSTEM_DESIGN.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/HAOFV_ARCHITECTURE.md`
 - 下一步：
   - 实现 `ota_send.py` 或 Bootloader 最小启动链路。
 
@@ -3093,7 +3093,7 @@ Last updated: 2026-07-07
   - `components/ota_manager/src/ota_metadata.c`
   - `components/ota_manager/src/ota_fb.c`
   - `tools/ota_bin_info/ota_bin_info.py`
-  - `docs/OTA方案.md`
+  - `docs/OTA_SYSTEM_DESIGN.md`
 - 下一步：
   - 实现 Bootloader 最小启动链路和 metadata 回滚策略。
 
@@ -3115,8 +3115,8 @@ Last updated: 2026-07-07
 - 关联文件：
   - `CMakeLists.txt`
   - `README.md`
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
-  - `docs/OTA方案.md`
+  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/OTA_SYSTEM_DESIGN.md`
 - 下一步：
   - 后续新增模块默认使用 `inc/` 和 `src/`。
 
@@ -3164,7 +3164,7 @@ Last updated: 2026-07-07
 - 还需完成：
   - 按方案逐步实现代码。
 - 关联文件：
-  - `docs/OTA方案.md`
+  - `docs/OTA_SYSTEM_DESIGN.md`
   - `docs/SCPI_COMMANDS.md`
 - 下一步：
   - 实现 OTA App 侧骨架。
@@ -3185,7 +3185,7 @@ Last updated: 2026-07-07
 - 还需完成：
   - 后续新增模块按该架构逐步落地。
 - 关联文件：
-  - `docs/HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md`
+  - `docs/HAOFV_ARCHITECTURE.md`
   - `README.md`
 - 下一步：
   - 将 OTA 作为第一个 HAOFV 架构落地模块。
@@ -3217,7 +3217,7 @@ Last updated: 2026-07-07
   - `boards/rp2350_trig/inc/board_config.h`
   - `boards/rp2350_trig/src/board.c`
   - `components/sync_config_ui/src/sync_config_ui.c`
-  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/TRIGGER_SYNC_TODO.md`
 
 ### TASK-20260626-015 - SEQ_STEP 高频触发稳定性修复与 Python 工具优化
 
@@ -3260,8 +3260,8 @@ Last updated: 2026-07-07
   - 建立 RP2350 同步触发系统的 PIO IO 基线，并记录后续工业化待办。
 - 完成内容：
   - 完成 `components/sync_io/` 的 PIO 输入采样、主触发输出、第二路脉冲输出、同步时钟、Marker 和 AUX IO。
-  - 输出 `docs/PIO_RESOURCE_PLAN.md`。
-  - 输出 `docs/SYNC_TRIGGER_TODO.md`。
+  - 输出 `docs/SYNC_IO_RESOURCE_PLAN.md`。
+  - 输出 `docs/TRIGGER_SYNC_TODO.md`。
 - 验证结果：
   - 工程编译通过。
   - 未完成示波器和信号源台架验证。
@@ -3271,7 +3271,7 @@ Last updated: 2026-07-07
   - 触发延时、burst、统计、错误码和硬件验证。
 - 关联文件：
   - `components/sync_io/`
-  - `docs/PIO_RESOURCE_PLAN.md`
-  - `docs/SYNC_TRIGGER_TODO.md`
+  - `docs/SYNC_IO_RESOURCE_PLAN.md`
+  - `docs/TRIGGER_SYNC_TODO.md`
 - 下一步：
   - 在 OTA 基础稳定后，回到 `sync_trigger` 上层状态机实现。

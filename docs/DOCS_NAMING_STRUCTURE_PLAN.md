@@ -2,7 +2,7 @@
 
 Status: Active
 Domain: Documentation
-Canonical: `docs/DOCS_NAMING_AND_STRUCTURE.md`
+Canonical: `docs/DOCS_NAMING_STRUCTURE_PLAN.md`
 Related: `docs/README.md`, `docs/DOCS_MIGRATION_TODO.md`
 Last updated: 2026-07-07
 
@@ -67,7 +67,7 @@ LOG_RUNTIME_CORE_DESIGN.md
 | `DOCS` | 文档体系、命名规则和索引。 |
 
 历史文件名不一定完全符合上述前缀，例如
-`HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` 和 `OTA方案.md`。这些文件在迁移前仍按
+`HAOFV_ARCHITECTURE.md` 和 `OTA_SYSTEM_DESIGN.md`。这些文件在迁移前仍按
 `docs/README.md` 中的索引作为当前有效文档处理。
 
 ## 类型后缀
@@ -200,11 +200,25 @@ Last updated: YYYY-MM-DD
 
 设计文档中可以保留简短的“未决问题”，但不应把大量任务过程堆在设计正文里。
 
+新任务进度路由：
+
+| 领域 | 进度入口 |
+|---|---|
+| BiSS-C | `BISSC_TASK_PROGRESS.md` |
+| SD | `SD_TASK_PROGRESS.md` |
+| 文档治理 | `DOCS_MIGRATION_TODO.md` |
+| 其他领域 | 优先新建或补齐 `<DOMAIN>_TASK_PROGRESS.md` |
+
+`TASK_PROGRESS.md` 只作为全局历史文件保留。除跨域总览或迁移前历史修正外，
+新任务不再默认追加到 `TASK_PROGRESS.md`。
+
 ## 交叉引用规则
 
 - 从仓库根 README 引用文档时，使用 `docs/<FILE>.md`。
 - 从 `docs/` 内部文档引用同目录文件时，优先使用 `<FILE>.md`。
 - 需要强调绝对仓库路径时，使用 `docs/<FILE>.md`。
+- 元数据字段 `Canonical` / `Related`、历史任务记录中的“涉及文件”和迁移记录表，
+  可以保留 `docs/<FILE>.md`，用于表达仓库路径而不是导航链接。
 - 文件改名或移动时，必须用全文搜索确认引用已经同步更新。
 - 禁止只在一个文档中写“见前文/见上文”而不提供文件名。
 
@@ -221,7 +235,7 @@ python tools\docs_check\docs_check.py
 python tools\docs_check\docs_check.py --strict-names
 ```
 
-默认检查用于当前仓库：元数据、索引覆盖、冲突标记、`docs/*.md` 引用有效性必须通过；
+默认检查用于当前仓库：元数据、索引覆盖、冲突标记、`docs/` 下 Markdown 引用有效性必须通过；
 历史命名不规范文件只给 warning。新增文件评审时应使用 `--strict-names`，确保不再引入
 新的历史债务。
 
@@ -231,10 +245,11 @@ python tools\docs_check\docs_check.py --strict-names
 
 | 当前文件 | 建议方向 | 处理策略 |
 |---|---|---|
-| `OTA方案.md` | `OTA_SYSTEM_DESIGN.md` 或 `OTA_ARCHITECTURE.md` | 历史引用较多，后续单独迁移。 |
-| `HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` | 保持当前文件名或迁移到 `HAOFV_ARCHITECTURE.md` | 作为 HAOFV 主文档，短期不建议改名。 |
+| `OTA方案.md` | 已迁移为 `OTA_SYSTEM_DESIGN.md` | 2026-07-07 已完成中文历史文件名迁移并同步引用。 |
+| `HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` | 已迁移为 `HAOFV_ARCHITECTURE.md` | 2026-07-07 已完成 HAOFV 主文档短名迁移并同步引用。 |
+| `HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md` | 已迁移为 `HAOFV_IMPLEMENTATION_PLAYBOOK.md` | 2026-07-07 已将实施补充迁移为 playbook。 |
 | `TASK_PROGRESS.md` | 保留全局历史；新进度使用 `<DOMAIN>_TASK_PROGRESS.md` | 不继续把所有域进度堆到全局文件。 |
-| `TASK_PROGRESS_SD.md` | `SD_TASK_PROGRESS.md` | 后续可小批量改名并同步引用。 |
+| `TASK_PROGRESS_SD.md` | 已迁移为 `SD_TASK_PROGRESS.md` | 2026-07-07 已完成小批量改名并同步引用。 |
 
 迁移优先级：
 

@@ -3,10 +3,18 @@
 Status: Active
 Domain: OTA
 Canonical: `docs/OTA_TODO.md`
-Related: `docs/OTA方案.md`, `docs/OTA_AB_SWITCH_DESIGN.md`, `docs/OTA_COPY_TRANSACTION_DESIGN.md`
+Related: `docs/OTA_SYSTEM_DESIGN.md`, `docs/OTA_AB_SWITCH_DESIGN.md`, `docs/OTA_COPY_TRANSACTION_DESIGN.md`
 Last updated: 2026-07-07
 
 本文档记录 OTA 从当前验证版推进到工业产品发布版所需的剩余工作。
+
+## 验收标准摘要
+
+| 优先级 | 验收标准 |
+|---|---|
+| P0 | release/validation 构建隔离可检查；正常升级、掉电恢复、direct A/B 双向升级、未确认回滚、统一 package 和 release 默认模式均有板端记录；任何失败路径不得破坏可启动旧固件。 |
+| P1 | 镜像完整性、metadata schema 兼容、SCPI 异步语义、错误时序和发布验证报告形成固定模板；上位机不能把命令入队成功误判为 OTA 最终成功。 |
+| P2 | 安全升级、签名、长期兼容、产测归档和客户交付物策略纳入 release checklist，并能随每次发布复用。 |
 
 ## P0 - 发布构建隔离
 
