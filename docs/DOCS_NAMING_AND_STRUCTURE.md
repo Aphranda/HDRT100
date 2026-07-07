@@ -214,6 +214,17 @@ Last updated: YYYY-MM-DD
 rg -n "docs/|docs\\|<OLD_FILE>|<NEW_FILE>" README.md docs -g "*.md"
 ```
 
+自动检查建议：
+
+```powershell
+python tools\docs_check\docs_check.py
+python tools\docs_check\docs_check.py --strict-names
+```
+
+默认检查用于当前仓库：元数据、索引覆盖、冲突标记、`docs/*.md` 引用有效性必须通过；
+历史命名不规范文件只给 warning。新增文件评审时应使用 `--strict-names`，确保不再引入
+新的历史债务。
+
 ## 历史文件迁移建议
 
 下表只记录建议方向，不代表当前已经改名。

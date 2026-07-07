@@ -17,7 +17,7 @@ Last updated: 2026-07-07
   `docs/README.md` 和 `docs/DOCS_NAMING_AND_STRUCTURE.md`。
 - [x] P0-04 核心主文档补齐元数据：至少覆盖 HAOFV、PIO、SYNC_IO、BiSS-C、
   OTA、SD、SCPI、Release。
-- [ ] P0-05 新增文档强制遵守命名规则：新文件使用
+- [x] P0-05 新增文档强制遵守命名规则：新文件使用
   `<DOMAIN>_<SUBJECT>_<TYPE>.md`，并加入 `docs/README.md`。
 
 ## P1 应该完成
@@ -49,7 +49,7 @@ Last updated: 2026-07-07
   `HAOFV_ARCHITECTURE.md`。
 - [ ] P2-04 当某个领域文档超过 12 个且引用稳定后，再评估是否引入
   `docs/<domain>/` 子目录。
-- [ ] P2-05 增加脚本化检查：文件名、元数据、索引覆盖和 Markdown 引用扫描。
+- [x] P2-05 增加脚本化检查：文件名、元数据、索引覆盖和 Markdown 引用扫描。
 
 ## 迁移约束
 

@@ -19,6 +19,10 @@ Get-Content -Path tools\README.md -Encoding UTF8
 - `release_check/release_check.py`: release gate. It verifies release preset
   safety switches, required artifacts, and absence of OTA fault-injection
   command strings in release artifacts.
+- `docs_check/docs_check.py`: documentation gate. It checks Markdown metadata,
+  `docs/README.md` index coverage, conflict markers, broken `docs/*.md`
+  references, and filename conformance. Existing legacy names warn by default;
+  use `--strict-names` for new-file enforcement.
 - `cmake_build_auto/cmake_build_auto.py`: CMake configure/build wrapper for
   drive-letter moves. It checks `CMakeCache.txt`; if the cached source/build
   path points at another workspace location such as `D:` versus `E:`, it removes
@@ -90,6 +94,13 @@ Launch the GUI from the repository root:
 
 ```powershell
 python tools\rp2350_tk_toolbox.py
+```
+
+Check documentation hygiene:
+
+```powershell
+python tools\docs_check\docs_check.py
+python tools\docs_check\docs_check.py --strict-names
 ```
 
 Build SD-card contents after a release build:
