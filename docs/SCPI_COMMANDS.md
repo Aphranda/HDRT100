@@ -257,7 +257,7 @@ P0 profile mutation 在 `BISS_ARMED` 状态下会返回错误；应先 `TRIG:DIS
 | 命令 | 说明 |
 |---|---|
 | `STAT:SYNC?` | 返回同步 IO 状态：初始化状态、采样状态、时钟状态、采样率、时钟频率、采样溢出计数。 |
-| `STAT:TRIG?` | 返回触发域状态：模式、状态、源引脚、seq_index、enc_target、enc_count、trigger_count、rollover_count、error_code。 |
+| `STAT:TRIG?` | 返回触发域状态：模式、状态、源引脚、seq_index、enc_target、enc_count、trigger_count、rollover_count、error_code。`error_code` 当前稳定值：`0=NONE`、`1=INVALID_SEQ_CONFIG`、`2=RESOURCE_CONFLICT`、`3=IO_ARM_FAILED`、`4=IO_LOST`、`10=INVALID_ENC_TARGET`、`11=INVALID_ENC_PINS`、`20=INVALID_BISS_CONFIG`、`100=FORCED_FAULT`。 |
 | `SYST:RES?` | 返回资源仲裁摘要：`active_resources,last_conflict_resources,request_owner,holder_owner`。用于调试触发模式、AUX persona、PIO/DMA/SD/OTA 等资源冲突。 |
 
 ## SD / System Pack 维护

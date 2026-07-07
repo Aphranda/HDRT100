@@ -71,6 +71,7 @@ Last updated: 2026-07-07
 | `TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析。 |
 | `TRIGGER_INDUSTRIAL_ENHANCEMENT_DESIGN.md` | 工业级触发增强方案。 |
 | `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` | 多板分布式 DPLL / CAL_RING 同步设计。 |
+| `SYNC_IO_ARCH_REVIEW_TODO.md` | SYNC_IO 架构评审待办，跟踪重构中途发现的架构债务。 |
 
 ## 04 BiSS-C
 

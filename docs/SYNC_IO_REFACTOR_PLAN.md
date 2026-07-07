@@ -128,6 +128,8 @@ sync_io_hw_profile
 - 单核路径与双核路径使用同一 mode driver 表。
 - 板端闭环验证脚本可以自动覆盖 `SEQ_STEP`、`ENC_COUNT`、`BISS_TAP`。
 - 日志能还原一次触发链路的配置、资源、arm、事件、disarm 全过程。
+- 调试 LOG 遵循 `docs/LOG_SYSTEM_TODO.md`：只记录低频生命周期和可恢复异常，
+  硬实时路径使用 trace、计数器或故障证据，不直接输出文本日志。
 
 ## 6. 当前迁移清单
 
@@ -139,7 +141,7 @@ sync_io_hw_profile
 - [x] `ENC_COUNT` 进入 mode ops 查询表。
 - [x] `SEQ_STEP` mode wrapper 拆分。
 - [x] `BISS_TAP` RX mode wrapper 拆分。
-- [ ] `BISS_TAP` AUX2/AUX3 透传输出落地。
+- [x] `BISS_TAP` AUX2/AUX3 透传输出落地。
 - [x] 资源 owner 表基础能力落地。
 - [x] 资源冲突 SCPI 查询落地。
-- [ ] 资源冲突错误码和 UI 展示落地。
+- [x] 资源冲突错误码和 UI 展示落地。

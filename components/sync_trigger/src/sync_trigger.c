@@ -139,6 +139,25 @@ static uint32_t ao_trace_pack_resource_snapshot(uint32_t requested_resources,
            (((uint32_t)mode & 0xFFu) << 16);
 }
 
+static uint32_t ao_trace_resources_for_state(trig_state_t state)
+{
+    switch (state) {
+    case TRIG_STATE_ENC_CONFIGURED:
+    case TRIG_STATE_ENC_ARMED:
+        return RESOURCE_ARBITER_RESOURCE_PIO1;
+    case TRIG_STATE_BISS_CONFIGURED:
+    case TRIG_STATE_BISS_ARMED:
+        return RESOURCE_ARBITER_RESOURCE_PIO2 |
+               RESOURCE_ARBITER_RESOURCE_AUX;
+    case TRIG_STATE_SEQ_CONFIGURED:
+    case TRIG_STATE_SEQ_ARMED:
+        return RESOURCE_ARBITER_RESOURCE_PIO1 |
+               RESOURCE_ARBITER_RESOURCE_DMA;
+    default:
+        return 0u;
+    }
+}
+
 static void ao_trace_resource_snapshot(uint32_t requested_resources,
                                        uint8_t severity)
 {
@@ -159,11 +178,9 @@ static void ao_trace_error_details(const trig_event_t *event,
         return;
     }
 
-    if (event->type == TRIG_EVENT_ARM && s_ao.vector.error_code == 2u) {
-        const uint32_t requested_resources =
-            (before->state == TRIG_STATE_ENC_CONFIGURED) ?
-                RESOURCE_ARBITER_RESOURCE_PIO1 :
-                (RESOURCE_ARBITER_RESOURCE_PIO1 | RESOURCE_ARBITER_RESOURCE_DMA);
+    if (event->type == TRIG_EVENT_ARM &&
+        s_ao.vector.error_code == TRIG_ERROR_RESOURCE_CONFLICT) {
+        const uint32_t requested_resources = ao_trace_resources_for_state(before->state);
         storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
                                     TRIG_TRACE_EVENT_RESOURCE_BUSY,
                                     TRIG_TRACE_SEVERITY_ERROR,
@@ -173,7 +190,8 @@ static void ao_trace_error_details(const trig_event_t *event,
                                    TRIG_TRACE_SEVERITY_ERROR);
     }
 
-    if (event->type == TRIG_EVENT_ARM && s_ao.vector.error_code == 3u) {
+    if (event->type == TRIG_EVENT_ARM &&
+        s_ao.vector.error_code == TRIG_ERROR_IO_ARM_FAILED) {
         storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
                                     TRIG_TRACE_EVENT_IO_ARM_FAILED,
                                     TRIG_TRACE_SEVERITY_ERROR,
@@ -181,7 +199,8 @@ static void ao_trace_error_details(const trig_event_t *event,
                                     (uint32_t)s_ao.vector.state);
     }
 
-    if (event->type == TRIG_EVENT_DMA_ROLLOVER && s_ao.vector.error_code == 4u) {
+    if (event->type == TRIG_EVENT_DMA_ROLLOVER &&
+        s_ao.vector.error_code == TRIG_ERROR_IO_LOST) {
         storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
                                     TRIG_TRACE_EVENT_IO_LOST,
                                     TRIG_TRACE_SEVERITY_ERROR,
@@ -249,7 +268,8 @@ static void ao_trace_after_execute(const trig_event_t *event,
     if ((event->type == TRIG_EVENT_ARM ||
          event->type == TRIG_EVENT_RUNTIME_SAMPLE) &&
         (s_ao.vector.state == TRIG_STATE_SEQ_ARMED ||
-         s_ao.vector.state == TRIG_STATE_ENC_ARMED) &&
+         s_ao.vector.state == TRIG_STATE_ENC_ARMED ||
+         s_ao.vector.state == TRIG_STATE_BISS_ARMED) &&
         (event->type == TRIG_EVENT_ARM ||
          progress_changed || rollover_changed || enc_z_changed || error_changed)) {
         const uint32_t state_edge_gate =
@@ -267,13 +287,11 @@ static void ao_trace_after_execute(const trig_event_t *event,
     }
 
     if (event->type == TRIG_EVENT_ARM &&
-        s_ao.vector.error_code == 0u &&
+        s_ao.vector.error_code == TRIG_ERROR_NONE &&
         (s_ao.vector.state == TRIG_STATE_SEQ_ARMED ||
-         s_ao.vector.state == TRIG_STATE_ENC_ARMED)) {
-        const uint32_t requested_resources =
-            (s_ao.vector.state == TRIG_STATE_ENC_ARMED) ?
-                RESOURCE_ARBITER_RESOURCE_PIO1 :
-                (RESOURCE_ARBITER_RESOURCE_PIO1 | RESOURCE_ARBITER_RESOURCE_DMA);
+         s_ao.vector.state == TRIG_STATE_ENC_ARMED ||
+         s_ao.vector.state == TRIG_STATE_BISS_ARMED)) {
+        const uint32_t requested_resources = ao_trace_resources_for_state(s_ao.vector.state);
         ao_trace_resource_snapshot(requested_resources,
                                    TRIG_TRACE_SEVERITY_INFO);
     }
@@ -289,6 +307,12 @@ static void ao_trace_after_execute(const trig_event_t *event,
          event->type == TRIG_EVENT_RUNTIME_SAMPLE) &&
         s_ao.vector.state == TRIG_STATE_ENC_ARMED) {
         sync_io_enc_count_trace_runtime_sample(false);
+        sync_io_trace_aux_status_sample(event->type == TRIG_EVENT_ARM);
+    }
+
+    if ((event->type == TRIG_EVENT_ARM ||
+         event->type == TRIG_EVENT_RUNTIME_SAMPLE) &&
+        s_ao.vector.state == TRIG_STATE_BISS_ARMED) {
         sync_io_trace_aux_status_sample(event->type == TRIG_EVENT_ARM);
     }
 
@@ -468,7 +492,8 @@ void sync_trigger_service(void)
 #endif
         /* 无事件时仍同步 ARM 态 PIO 状态 */
         if (s_ao.vector.state == TRIG_STATE_SEQ_ARMED ||
-            s_ao.vector.state == TRIG_STATE_ENC_ARMED) {
+            s_ao.vector.state == TRIG_STATE_ENC_ARMED ||
+            s_ao.vector.state == TRIG_STATE_BISS_ARMED) {
             trig_event_t svc_event;
             memset(&svc_event, 0, sizeof(svc_event));
             svc_event.type = TRIG_EVENT_RUNTIME_SAMPLE;

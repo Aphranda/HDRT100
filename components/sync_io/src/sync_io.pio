@@ -25,6 +25,16 @@ delay_high:
     out pins, 1
 .wrap
 
+.program sync_passthrough_1bit
+.wrap_target
+passthrough_loop:
+    jmp pin input_high
+    set pins, 0
+    jmp passthrough_loop
+input_high:
+    set pins, 1
+.wrap
+
 % c-sdk {
 
 static inline void sync_capture_4bit_program_init(PIO pio,
@@ -89,6 +99,26 @@ static inline void sync_aux_output_program_init(PIO pio,
     pio_sm_config c = sync_aux_output_program_get_default_config(offset);
     sm_config_set_out_pins(&c, pin, 1);
     sm_config_set_out_shift(&c, true, false, 32);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0);
+}
+
+static inline void sync_passthrough_1bit_program_init(PIO pio,
+                                                      uint sm,
+                                                      uint offset,
+                                                      uint input_pin,
+                                                      uint output_pin,
+                                                      float clkdiv)
+{
+    pio_gpio_init(pio, input_pin);
+    pio_gpio_init(pio, output_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, input_pin, 1, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, output_pin, 1, true);
+
+    pio_sm_config c = sync_passthrough_1bit_program_get_default_config(offset);
+    sm_config_set_jmp_pin(&c, input_pin);
+    sm_config_set_set_pins(&c, output_pin, 1);
+    sm_config_set_clkdiv(&c, clkdiv);
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_pins(pio, sm, 0);
 }

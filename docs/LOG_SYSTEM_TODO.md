@@ -37,10 +37,37 @@ SNAPSHOT/REPORT 给故障闭环归档。
 - [x] 增加 SCPI 控制面：`SYST:LOG:LEV`、`SYST:LOG:LEV?`、`SYST:LOG:STAT?`。
 - [x] 将 LOG 等级名称、跨层等级映射和统计拷贝改为表驱动，符合 HAOFV “表负责规则、流程负责执行”的约束。
 - [x] 完善 `portable_log` 长期演进基础：可选锁回调、emit 成功语义、截断计数、输出失败计数和边界单测。
-- [ ] 更新板端验证工具，在 smoke 开始前查询并记录 `SYST:LOG:STAT?`。
+- [x] 更新板端验证工具，在 smoke 开始前查询并记录 `SYST:LOG:STAT?`。
 - [ ] 为 BiSS ARM/timeout/sample scan 增加可解码 trace 事件名，不新增硬实时热路径写入。
 - [ ] 补齐 `sd_trace_decode.py` 中 BiSS trigger state/event 名称。
 - [ ] 增加一条 fault trace 验证：故障证据必须能解码出最近一次 BiSS ARM 或 BiSS I/O 失败线索。
+
+## 调试 LOG 使用规范
+
+### 选择哪条观测路径
+
+| 场景 | 使用 | 禁止 |
+|---|---|---|
+| 人工观察启动、配置、arm/disarm、初始化失败 | `LOG_INFO/WARN/ERROR` | 在 PIO/DMA/IRQ 热路径中打印。 |
+| 需要机器稳定解码的状态变化、资源冲突、I/O 失败 | `storage_manager_trace_event()` | 只写文本 LOG 后依赖人工 grep。 |
+| 故障闭环、现场复盘、发布验证证据 | snapshot + trace + report | 在 SCPI 回调或 IRQ 中直接写 FatFs。 |
+| 高频运行态、采样窗口、计数器变化 | 计数器锁存 + 管理面周期 trace | 每次事件都输出 USB CDC 文本。 |
+
+### 文本 LOG 规则
+
+- 模块名使用稳定短名，例如 `app`、`sync_io`、`trigger`、`biss`、`storage`、`ota`、`sd`、`ui`。
+- `DEBUG` 只用于临时 bring-up 或可长期保留但默认过滤的细节；release 默认不得依赖 `DEBUG` 才能判断健康状态。
+- `INFO` 只记录低频生命周期事件：init ok、mode arm/disarm、配置 profile 切换、验证入口。
+- `WARN` 记录可恢复异常：参数被拒绝、资源忙、队列接近满、超时后恢复。
+- `ERROR` 记录进入 fault、初始化失败、不可恢复 I/O 失败；同一错误应有 trace 或 fault evidence 佐证。
+- 日志文本保持单行、短字段、无大块十六进制 dump；需要二进制证据时写 trace 或受限 `MMEM:READ?`。
+- 调试会话开始和结束应记录 `SYST:LOG:STAT?`，确认 filtered、truncated、emit_failed 和 queue_dropped 是否异常。
+
+### 与 SCPI/OTA 共通道约束
+
+- USB CDC 当前同时承载 SCPI 和文本 LOG；调试脚本必须忽略以 `[` 开头的 LOG 行。
+- OTA binary block、长时间 SD 读写和产测自动化期间，建议把日志等级提高到 `WARN` 或 `ERROR`。
+- 周期 heartbeat 类 LOG 必须受 `PROJECT_ENABLE_HEALTH_LOG` 和运行期等级过滤控制。
 
 ## P1 - 分域、限速和持久化
 

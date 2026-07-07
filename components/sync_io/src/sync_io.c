@@ -66,6 +66,7 @@ typedef enum {
     SYNC_IO_TRACE_BISS_TAP_ARM      = 80u,
     SYNC_IO_TRACE_BISS_TAP_DISARM   = 81u,
     SYNC_IO_TRACE_BISS_TAP_FAIL     = 82u,
+    SYNC_IO_TRACE_BISS_TAP_FORWARD  = 83u,
 } sync_io_trace_event_t;
 
 typedef struct {
@@ -76,6 +77,7 @@ typedef struct {
     uint pulse_offset;
     uint clock_offset;
     uint aux_offset;
+    uint aux_passthrough_offset;
     uint biss_tap_offset;
     uint32_t capture_sample_hz;
     uint32_t sync_clock_hz;
@@ -310,6 +312,7 @@ bool sync_io_init(const sync_io_config_t *config)
         !pio_can_add_program(BOARD_SYNC_PIO_WAVE, &sync_pulse_program) ||
         !pio_can_add_program(BOARD_SYNC_PIO_WAVE, &sync_clock_program) ||
         !pio_can_add_program(BOARD_SYNC_PIO_AUX, &sync_aux_output_program) ||
+        !pio_can_add_program(BOARD_SYNC_PIO_AUX, &sync_passthrough_1bit_program) ||
         !pio_can_add_program(BOARD_SYNC_PIO_AUX, &biss_tap_rx_program)) {
         LOG_ERROR("sync_io", "not enough PIO instruction memory");
         sync_io_trace(SYNC_IO_TRACE_INIT_FAIL, SYNC_IO_TRACE_ERROR, 1u, 0u);
@@ -333,6 +336,8 @@ bool sync_io_init(const sync_io_config_t *config)
     s_sync_io.pulse_offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE, &sync_pulse_program);
     s_sync_io.clock_offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE, &sync_clock_program);
     s_sync_io.aux_offset = (uint)pio_add_program(BOARD_SYNC_PIO_AUX, &sync_aux_output_program);
+    s_sync_io.aux_passthrough_offset =
+        (uint)pio_add_program(BOARD_SYNC_PIO_AUX, &sync_passthrough_1bit_program);
     s_sync_io.biss_tap_offset = (uint)pio_add_program(BOARD_SYNC_PIO_AUX, &biss_tap_rx_program);
 
     sync_io_configure_static_inputs();
@@ -679,8 +684,14 @@ bool sync_io_biss_tap_arm(const sync_io_biss_tap_config_t *config)
     if (!s_sync_io.initialized || config == NULL ||
         config->frame_bits == 0u ||
         config->frame_bits > 64u ||
+        config->clk_pin != SYNC_IO_HW_BISS_CLK_IN_PIN ||
+        config->data_pin != SYNC_IO_HW_BISS_DATA_IN_PIN ||
         config->clk_pin == config->data_pin ||
-        config->sample_edge > 1u) {
+        config->sample_edge > 1u ||
+        !sync_io_hw_aux_supports_input(SYNC_IO_AUX0) ||
+        !sync_io_hw_aux_supports_input(SYNC_IO_AUX1) ||
+        !sync_io_hw_aux_supports_output(SYNC_IO_AUX2) ||
+        !sync_io_hw_aux_supports_output(SYNC_IO_AUX3)) {
         sync_io_trace(SYNC_IO_TRACE_BISS_TAP_FAIL,
                       SYNC_IO_TRACE_ERROR,
                       config != NULL ? config->frame_bits : 0u,
@@ -695,6 +706,12 @@ bool sync_io_biss_tap_arm(const sync_io_biss_tap_config_t *config)
     pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM, false);
     pio_sm_clear_fifos(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM);
     pio_sm_restart(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX2_SM, false);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX2_SM);
+    pio_sm_restart(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX2_SM);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX3_SM, false);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX3_SM);
+    pio_sm_restart(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX3_SM);
 
     biss_tap_rx_program_init(BOARD_SYNC_PIO_AUX,
                              SYNC_IO_BISS_TAP_SM,
@@ -705,7 +722,23 @@ bool sync_io_biss_tap_arm(const sync_io_biss_tap_config_t *config)
                              config->sample_delay_cycles,
                              (int)config->sample_edge,
                              1.0f);
+
+    sync_passthrough_1bit_program_init(BOARD_SYNC_PIO_AUX,
+                                       BOARD_SYNC_AUX2_SM,
+                                       s_sync_io.aux_passthrough_offset,
+                                       SYNC_IO_HW_BISS_CLK_IN_PIN,
+                                       SYNC_IO_HW_BISS_CLK_OUT_PIN,
+                                       1.0f);
+    sync_passthrough_1bit_program_init(BOARD_SYNC_PIO_AUX,
+                                       BOARD_SYNC_AUX3_SM,
+                                       s_sync_io.aux_passthrough_offset,
+                                       SYNC_IO_HW_BISS_DATA_IN_PIN,
+                                       SYNC_IO_HW_BISS_DATA_OUT_PIN,
+                                       1.0f);
+
     pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM, true);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX2_SM, true);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX3_SM, true);
 
     s_sync_io.biss_tap_running = true;
     s_sync_io.biss_tap_frame_bits = config->frame_bits;
@@ -713,12 +746,27 @@ bool sync_io_biss_tap_arm(const sync_io_biss_tap_config_t *config)
     s_sync_io.biss_tap_data_pin = config->data_pin;
     sync_io_mark_aux_channel_input(config->clk_pin);
     sync_io_mark_aux_channel_input(config->data_pin);
+    s_sync_io.aux_modes[SYNC_IO_AUX2] = SYNC_IO_AUX_MODE_PIO_OUTPUT;
+    s_sync_io.aux_modes[SYNC_IO_AUX3] = SYNC_IO_AUX_MODE_PIO_OUTPUT;
 
     sync_io_trace(SYNC_IO_TRACE_BISS_TAP_ARM,
                   SYNC_IO_TRACE_INFO,
                   config->frame_bits,
                   (config->sample_edge & 0xFFu) |
                       ((config->sample_delay_cycles & 0xFFu) << 8));
+    sync_io_trace(SYNC_IO_TRACE_BISS_TAP_FORWARD,
+                  SYNC_IO_TRACE_INFO,
+                  SYNC_IO_HW_BISS_CLK_IN_PIN | (SYNC_IO_HW_BISS_CLK_OUT_PIN << 8),
+                  SYNC_IO_HW_BISS_DATA_IN_PIN | (SYNC_IO_HW_BISS_DATA_OUT_PIN << 8));
+    LOG_INFO("sync_io",
+             "biss_tap armed: bits=%lu edge=%lu delay=%lu pass=%lu>%lu,%lu>%lu",
+             (unsigned long)config->frame_bits,
+             (unsigned long)config->sample_edge,
+             (unsigned long)config->sample_delay_cycles,
+             (unsigned long)SYNC_IO_HW_BISS_CLK_IN_PIN,
+             (unsigned long)SYNC_IO_HW_BISS_CLK_OUT_PIN,
+             (unsigned long)SYNC_IO_HW_BISS_DATA_IN_PIN,
+             (unsigned long)SYNC_IO_HW_BISS_DATA_OUT_PIN);
     return true;
 }
 
@@ -731,13 +779,24 @@ void sync_io_biss_tap_disarm(void)
     pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM, false);
     pio_sm_clear_fifos(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM);
     pio_sm_restart(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX2_SM, false);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX2_SM);
+    pio_sm_restart(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX2_SM);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX3_SM, false);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX3_SM);
+    pio_sm_restart(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX3_SM);
     sync_io_restore_aux_channel_input(s_sync_io.biss_tap_clk_pin);
     sync_io_restore_aux_channel_input(s_sync_io.biss_tap_data_pin);
+    sync_io_restore_aux_channel_input(SYNC_IO_HW_BISS_CLK_OUT_PIN);
+    sync_io_restore_aux_channel_input(SYNC_IO_HW_BISS_DATA_OUT_PIN);
 
     sync_io_trace(SYNC_IO_TRACE_BISS_TAP_DISARM,
                   SYNC_IO_TRACE_INFO,
                   s_sync_io.biss_tap_frame_bits,
                   0u);
+    LOG_INFO("sync_io",
+             "biss_tap disarmed: bits=%lu",
+             (unsigned long)s_sync_io.biss_tap_frame_bits);
     s_sync_io.biss_tap_running = false;
     s_sync_io.biss_tap_frame_bits = 0u;
     s_sync_io.biss_tap_clk_pin = 0u;

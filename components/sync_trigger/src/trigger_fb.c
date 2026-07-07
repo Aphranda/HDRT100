@@ -56,6 +56,25 @@ static uint32_t fb_biss_resources(void)
            RESOURCE_ARBITER_RESOURCE_AUX;
 }
 
+static void fb_release_running_io(trigger_vector_t *vector)
+{
+    if (sync_io_seq_step_is_running()) {
+        sync_io_seq_step_disarm();
+    }
+    resource_arbiter_release_owned(FB_SEQ_RESOURCES, FB_OWNER_SEQ_STEP);
+
+    if (sync_io_enc_count_is_running()) {
+        sync_io_enc_count_disarm();
+    }
+    resource_arbiter_release_owned(fb_enc_resources(vector),
+                                   FB_OWNER_ENC_COUNT);
+
+    if (biss_node_io_is_running() || sync_io_biss_tap_is_running()) {
+        biss_node_io_disarm();
+    }
+    resource_arbiter_release_owned(fb_biss_resources(), FB_OWNER_BISS_TAP);
+}
+
 static bool fb_valid_biss_config(const trigger_vector_t *vector)
 {
     if (vector == NULL) {
@@ -160,7 +179,7 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
         const uint32_t next_b_pin = (event->payload.value >> 8) & 0xFFu;
         const uint32_t next_z_pin = (event->payload.value >> 16) & 0xFFu;
         if (!sync_io_hw_enc_pins_valid(next_a_pin, next_b_pin, next_z_pin)) {
-            vector->error_code = 11u;
+            vector->error_code = TRIG_ERROR_INVALID_ENC_PINS;
             return FB_ERROR;
         }
         vector->enc_a_pin = next_a_pin;
@@ -300,19 +319,7 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
     case TRIG_EVENT_RESET:
         sync_io_stop_clock();
         sync_io_stop_capture();
-        if (sync_io_seq_step_is_running()) {
-            sync_io_seq_step_disarm();
-            resource_arbiter_release_owned(FB_SEQ_RESOURCES, FB_OWNER_SEQ_STEP);
-        }
-        if (sync_io_enc_count_is_running()) {
-            sync_io_enc_count_disarm();
-            resource_arbiter_release_owned(fb_enc_resources(vector),
-                                           FB_OWNER_ENC_COUNT);
-        }
-        if (vector->state == TRIG_STATE_BISS_ARMED) {
-            biss_node_io_disarm();
-            resource_arbiter_release_owned(fb_biss_resources(), FB_OWNER_BISS_TAP);
-        }
+        fb_release_running_io(vector);
         break;
     default:
         return FB_IGNORED;
@@ -330,7 +337,7 @@ static fb_result_t fb_idle_configure_seq(trigger_vector_t *vector,
         event->payload.seq_config.seq_length > TRIG_SEQ_TABLE_MAX ||
         event->payload.seq_config.seq_width == 0u ||
         event->payload.seq_config.seq_width > TRIG_SEQ_WIDTH_MAX) {
-        vector->error_code = 1u;
+        vector->error_code = TRIG_ERROR_INVALID_SEQ_CONFIG;
         return FB_ERROR;
     }
 
@@ -342,7 +349,7 @@ static fb_result_t fb_idle_configure_seq(trigger_vector_t *vector,
     vector->active_mode = TRIG_MODE_SEQ_STEP;
     vector->seq_index = 0u;
     vector->state = TRIG_STATE_SEQ_CONFIGURED;
-    vector->error_code = 0u;
+    vector->error_code = TRIG_ERROR_NONE;
     return FB_OK;
 }
 
@@ -354,7 +361,7 @@ static fb_result_t fb_seq_configured_arm(trigger_vector_t *vector,
     (void)event;
 
     if (!resource_arbiter_acquire_owned(FB_SEQ_RESOURCES, FB_OWNER_SEQ_STEP)) {
-        vector->error_code = 2u;
+        vector->error_code = TRIG_ERROR_RESOURCE_CONFLICT;
         return FB_ERROR;
     }
 
@@ -371,14 +378,14 @@ static fb_result_t fb_seq_configured_arm(trigger_vector_t *vector,
 
     if (ops == NULL || ops->arm == NULL || !ops->arm(&config)) {
         resource_arbiter_release_owned(FB_SEQ_RESOURCES, FB_OWNER_SEQ_STEP);
-        vector->error_code = 3u;
+        vector->error_code = TRIG_ERROR_IO_ARM_FAILED;
         return FB_ERROR;
     }
 
     vector->seq_index = 0u;
     vector->rollover_count = 0u;
     vector->state = TRIG_STATE_SEQ_ARMED;
-    vector->error_code = 0u;
+    vector->error_code = TRIG_ERROR_NONE;
     return FB_OK;
 }
 
@@ -404,7 +411,7 @@ static fb_result_t fb_seq_armed_service(trigger_vector_t *vector,
 
     if (!sync_io_seq_step_is_running()) {
         vector->state = TRIG_STATE_FAULT;
-        vector->error_code = 4u;
+        vector->error_code = TRIG_ERROR_IO_LOST;
         vector->fault_timestamp_ms = 0u;  /* TODO: osal_tick_ms() */
         return FB_ERROR;
     }
@@ -431,7 +438,7 @@ static fb_result_t fb_seq_armed_disarm(trigger_vector_t *vector,
     resource_arbiter_release_owned(FB_SEQ_RESOURCES, FB_OWNER_SEQ_STEP);
 
     vector->state = TRIG_STATE_IDLE;
-    vector->error_code = 0u;
+    vector->error_code = TRIG_ERROR_NONE;
     return FB_OK;
 }
 
@@ -448,22 +455,10 @@ static fb_result_t fb_seq_armed_reject(trigger_vector_t *vector,
 static fb_result_t fb_force_fault(trigger_vector_t *vector,
                                   const trig_event_t *event)
 {
-    if (sync_io_seq_step_is_running()) {
-        sync_io_seq_step_disarm();
-        resource_arbiter_release_owned(FB_SEQ_RESOURCES, FB_OWNER_SEQ_STEP);
-    }
-    if (sync_io_enc_count_is_running()) {
-        sync_io_enc_count_disarm();
-        resource_arbiter_release_owned(fb_enc_resources(vector),
-                                       FB_OWNER_ENC_COUNT);
-    }
-    if (vector->state == TRIG_STATE_BISS_ARMED) {
-        biss_node_io_disarm();
-        resource_arbiter_release_owned(fb_biss_resources(), FB_OWNER_BISS_TAP);
-    }
+    fb_release_running_io(vector);
 
     vector->state = TRIG_STATE_FAULT;
-    vector->error_code = event->payload.value != 0u ? event->payload.value : 100u;
+    vector->error_code = event->payload.value != 0u ? event->payload.value : TRIG_ERROR_FORCED_FAULT;
     vector->fault_timestamp_ms = 0u;
     return FB_ERROR;
 }
@@ -476,14 +471,14 @@ static fb_result_t fb_idle_configure_biss(trigger_vector_t *vector,
     (void)event;
 
     if (!fb_valid_biss_config(vector)) {
-        vector->error_code = 20u;  /* invalid protocol trigger config */
+        vector->error_code = TRIG_ERROR_INVALID_BISS_CONFIG;
         return FB_ERROR;
     }
 
     vector->active_mode = TRIG_MODE_PROTOCOL_TRIGGER;
     vector->state = TRIG_STATE_BISS_CONFIGURED;
     vector->supported_modes |= (1u << TRIG_MODE_PROTOCOL_TRIGGER);
-    vector->error_code = 0u;
+    vector->error_code = TRIG_ERROR_NONE;
     return FB_OK;
 }
 
@@ -493,12 +488,12 @@ static fb_result_t fb_biss_configured_arm(trigger_vector_t *vector,
     (void)event;
 
     if (!fb_valid_biss_config(vector)) {
-        vector->error_code = 20u;
+        vector->error_code = TRIG_ERROR_INVALID_BISS_CONFIG;
         return FB_ERROR;
     }
 
     if (!resource_arbiter_acquire_owned(fb_biss_resources(), FB_OWNER_BISS_TAP)) {
-        vector->error_code = 2u;
+        vector->error_code = TRIG_ERROR_RESOURCE_CONFLICT;
         return FB_ERROR;
     }
 
@@ -509,7 +504,7 @@ static fb_result_t fb_biss_configured_arm(trigger_vector_t *vector,
 
     if (!biss_node_io_arm(vector)) {
         resource_arbiter_release_owned(fb_biss_resources(), FB_OWNER_BISS_TAP);
-        vector->error_code = 3u;
+        vector->error_code = TRIG_ERROR_IO_ARM_FAILED;
         return FB_ERROR;
     }
 
@@ -526,7 +521,7 @@ static fb_result_t fb_biss_configured_arm(trigger_vector_t *vector,
     vector->trigger_count = 0u;
     vector->output_count = 0u;
     vector->state = TRIG_STATE_BISS_ARMED;
-    vector->error_code = 0u;
+    vector->error_code = TRIG_ERROR_NONE;
     return FB_OK;
 }
 
@@ -538,7 +533,7 @@ static fb_result_t fb_biss_armed_disarm(trigger_vector_t *vector,
     biss_node_io_disarm();
     resource_arbiter_release_owned(fb_biss_resources(), FB_OWNER_BISS_TAP);
     vector->state = TRIG_STATE_IDLE;
-    vector->error_code = 0u;
+    vector->error_code = TRIG_ERROR_NONE;
     return FB_OK;
 }
 
@@ -571,11 +566,11 @@ static fb_result_t fb_idle_configure_enc(trigger_vector_t *vector,
     (void)event;
 
     if (vector->enc_target == 0u) {
-        vector->error_code = 10u;
+        vector->error_code = TRIG_ERROR_INVALID_ENC_TARGET;
         return FB_ERROR;
     }
     if (!fb_valid_enc_pin_group(vector)) {
-        vector->error_code = 11u;   /* invalid encoder pins */
+        vector->error_code = TRIG_ERROR_INVALID_ENC_PINS;
         return FB_ERROR;
     }
 
@@ -583,7 +578,7 @@ static fb_result_t fb_idle_configure_enc(trigger_vector_t *vector,
     vector->enc_count = 0u;
     vector->state = TRIG_STATE_ENC_CONFIGURED;
     vector->supported_modes |= (1u << TRIG_MODE_ENC_COUNT);
-    vector->error_code = 0u;
+    vector->error_code = TRIG_ERROR_NONE;
     return FB_OK;
 }
 
@@ -596,7 +591,7 @@ static fb_result_t fb_enc_configured_arm(trigger_vector_t *vector,
 
     const uint32_t resources = fb_enc_resources(vector);
     if (!resource_arbiter_acquire_owned(resources, FB_OWNER_ENC_COUNT)) {
-        vector->error_code = 2u;
+        vector->error_code = TRIG_ERROR_RESOURCE_CONFLICT;
         return FB_ERROR;
     }
 
@@ -610,13 +605,13 @@ static fb_result_t fb_enc_configured_arm(trigger_vector_t *vector,
 
     if (ops == NULL || ops->arm == NULL || !ops->arm(&config)) {
         resource_arbiter_release_owned(resources, FB_OWNER_ENC_COUNT);
-        vector->error_code = 3u;
+        vector->error_code = TRIG_ERROR_IO_ARM_FAILED;
         return FB_ERROR;
     }
 
     vector->enc_count = 0u;
     vector->state = TRIG_STATE_ENC_ARMED;
-    vector->error_code = 0u;
+    vector->error_code = TRIG_ERROR_NONE;
     return FB_OK;
 }
 
@@ -629,7 +624,7 @@ static fb_result_t fb_enc_armed_service(trigger_vector_t *vector,
 
     if (!sync_io_enc_count_is_running()) {
         vector->state = TRIG_STATE_FAULT;
-        vector->error_code = 4u;
+        vector->error_code = TRIG_ERROR_IO_LOST;
         return FB_ERROR;
     }
 
@@ -653,7 +648,7 @@ static fb_result_t fb_runtime_sample(trigger_vector_t *vector,
         (void)event;
         if (!biss_node_io_poll(vector)) {
             vector->state = TRIG_STATE_FAULT;
-            vector->error_code = 4u;
+            vector->error_code = TRIG_ERROR_IO_LOST;
             return FB_ERROR;
         }
         return FB_OK;
@@ -673,7 +668,7 @@ static fb_result_t fb_enc_armed_disarm(trigger_vector_t *vector,
     resource_arbiter_release_owned(fb_enc_resources(vector), FB_OWNER_ENC_COUNT);
 
     vector->state = TRIG_STATE_IDLE;
-    vector->error_code = 0u;
+    vector->error_code = TRIG_ERROR_NONE;
     return FB_OK;
 }
 
@@ -684,17 +679,10 @@ static fb_result_t fb_fault_clear(trigger_vector_t *vector,
 {
     (void)event;
 
-    if (sync_io_seq_step_is_running()) {
-        sync_io_seq_step_disarm();
-        resource_arbiter_release_owned(FB_SEQ_RESOURCES, FB_OWNER_SEQ_STEP);
-    }
-    if (vector->state == TRIG_STATE_BISS_ARMED) {
-        biss_node_io_disarm();
-        resource_arbiter_release_owned(fb_biss_resources(), FB_OWNER_BISS_TAP);
-    }
+    fb_release_running_io(vector);
 
     vector->state = TRIG_STATE_IDLE;
-    vector->error_code = 0u;
+    vector->error_code = TRIG_ERROR_NONE;
     return FB_OK;
 }
 

@@ -31,6 +31,7 @@ from tools.sd_trace_decode.sd_trace_decode import decode_trace  # noqa: E402
 BASELINE_COMMANDS = (
     "*IDN?",
     "SYST:FW:BUILD?",
+    "SYST:LOG:STAT?",
     "SYST:SD:STAT?",
     "SYST:SD:INFO?",
     "SYST:SD:INIT",
@@ -474,6 +475,23 @@ def main() -> int:
                           validate_snapshot=not args.skip_snapshot,
                           validate_arm_snapshot=(not args.skip_snapshot and not args.skip_arm_snapshot),
                           validate_fault_snapshot=(not args.skip_snapshot and not args.skip_fault_snapshot))
+
+    log_status = parse_csv_response(results["SYST:LOG:STAT?"])
+    expect(len(log_status) >= 23, failures, "SYST:LOG:STAT? returned too few fields")
+    if len(log_status) >= 23:
+        expect(log_status[0] in ("DEBUG", "INFO", "WARN", "ERROR"),
+               failures,
+               f"log level is {log_status[0]!r}")
+        try:
+            level_value = int(log_status[1], 0)
+        except ValueError:
+            level_value = 0xFFFFFFFF
+        expect(level_value <= 3, failures, f"log level value is {log_status[1]!r}")
+        for index, field in enumerate(log_status[2:23], start=2):
+            try:
+                int(field, 0)
+            except ValueError:
+                failures.append(f"SYST:LOG:STAT? field {index} is not numeric: {field!r}")
 
     status = parse_csv_response(results["SYST:SD:STAT?"])
     expect(len(status) >= 5, failures, "SYST:SD:STAT? returned too few fields")

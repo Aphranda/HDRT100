@@ -84,6 +84,18 @@ typedef enum {
     TRIG_STATE_BISS_ARMED,
 } trig_state_t;
 
+typedef enum {
+    TRIG_ERROR_NONE = 0,
+    TRIG_ERROR_INVALID_SEQ_CONFIG = 1,
+    TRIG_ERROR_RESOURCE_CONFLICT = 2,
+    TRIG_ERROR_IO_ARM_FAILED = 3,
+    TRIG_ERROR_IO_LOST = 4,
+    TRIG_ERROR_INVALID_ENC_TARGET = 10,
+    TRIG_ERROR_INVALID_ENC_PINS = 11,
+    TRIG_ERROR_INVALID_BISS_CONFIG = 20,
+    TRIG_ERROR_FORCED_FAULT = 100,
+} trig_error_code_t;
+
 /* ── 触发事件 ── */
 
 typedef enum {

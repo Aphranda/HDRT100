@@ -785,10 +785,14 @@ static void draw_system_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 {
     char uptime_buffer[12];
     char lock_buffer[12];
+    char conflict_buffer[12];
     char version_buffer[12];
 
     format_uptime(uptime_buffer, sizeof(uptime_buffer), snapshot->uptime_ms);
     format_resource_summary(lock_buffer, sizeof(lock_buffer), snapshot->arbiter.active_resources);
+    format_resource_summary(conflict_buffer,
+                            sizeof(conflict_buffer),
+                            snapshot->arbiter.last_conflict_resources);
     snprintf(version_buffer,
              sizeof(version_buffer),
              "%lu.%lu.%lu",
@@ -805,7 +809,7 @@ static void draw_system_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     draw_kv_line(u8g2, 9, 82, 62, "LOCK", lock_buffer);
     draw_kv_line(u8g2, 9, 92, 62, "CAP", bool_to_run_stop(snapshot->arbiter.trigger_capture_running));
     draw_kv_line(u8g2, 9, 102, 62, "CLK", bool_to_run_stop(snapshot->arbiter.trigger_clock_running));
-    draw_kv_line(u8g2, 9, 112, 62, "FLT", snapshot->fault_active ? "YES" : "NO");
+    draw_kv_line(u8g2, 9, 112, 62, "CNF", conflict_buffer);
 }
 
 static void draw_trigger_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)

@@ -90,6 +90,10 @@ EVENT_NAMES = {
     (3, 70): "sync_io.aux_snapshot",
     (3, 71): "sync_io.ready_redy",
     (3, 72): "sync_io.aux_timeout",
+    (3, 80): "sync_io.biss_tap_arm",
+    (3, 81): "sync_io.biss_tap_disarm",
+    (3, 82): "sync_io.biss_tap_fail",
+    (3, 83): "sync_io.biss_tap_forward",
 }
 
 TRIGGER_STATE_NAMES = {
@@ -99,6 +103,8 @@ TRIGGER_STATE_NAMES = {
     3: "ENC_CONFIGURED",
     4: "ENC_ARMED",
     5: "FAULT",
+    6: "BISS_CONFIGURED",
+    7: "BISS_ARMED",
 }
 
 TRIGGER_EVENT_NAMES = {
@@ -134,7 +140,44 @@ TRIGGER_EVENT_NAMES = {
     29: "SET_PCNT_CMP",
     30: "SET_PCNT_PRESET",
     31: "PCNT_CLEAR",
-    32: "RUNTIME_SAMPLE",
+    32: "CONFIGURE_BISS",
+    33: "SET_BISS_ROLE",
+    34: "SET_BISS_DEVICE",
+    35: "SET_BISS_CLOCK",
+    36: "SET_BISS_FRAME_BITS",
+    37: "SET_BISS_POSITION_OFFSET",
+    38: "SET_BISS_POSITION_BITS",
+    39: "SET_BISS_POSITION_MODULO",
+    40: "SET_BISS_SAMPLE_EDGE",
+    41: "SET_BISS_SAMPLE_DELAY",
+    42: "SET_BISS_SAMPLE_SCAN",
+    43: "SET_BISS_SAMPLE_SCAN_START",
+    44: "SET_BISS_SAMPLE_SCAN_END",
+    45: "SET_BISS_SAMPLE_SCAN_STEP",
+    46: "SET_BISS_TIMEOUT",
+    47: "SET_BISS_ANCHOR_OFFSET",
+    48: "SET_BISS_ANCHOR_BITS",
+    49: "SET_BISS_ANCHOR_MASK",
+    50: "SET_BISS_ANCHOR_VALUE",
+    51: "SET_BISS_ERROR_BIT",
+    52: "SET_BISS_WARNING_BIT",
+    53: "SET_BISS_STATUS_GATE",
+    54: "SET_BISS_CRC_OFFSET",
+    55: "SET_BISS_CRC_BITS",
+    56: "SET_BISS_CRC_COVER_OFFSET",
+    57: "SET_BISS_CRC_COVER_BITS",
+    58: "SET_BISS_CRC_POLYNOMIAL",
+    59: "SET_BISS_CRC_INIT",
+    60: "SET_BISS_CRC_XOR",
+    61: "SET_BISS_CRC_INVERT",
+    62: "SET_BISS_CRC_GATE",
+    63: "SET_BISS_LATENCY_OFFSET",
+    64: "SET_BISS_TARGET",
+    65: "BISS_PULSE_IN",
+    66: "BISS_FRAME_RX",
+    67: "BISS_CRC_ERROR",
+    68: "BISS_TIMEOUT",
+    69: "RUNTIME_SAMPLE",
 }
 
 RESOURCE_ARBITER_MODE_NAMES = {
@@ -154,13 +197,14 @@ RESOURCE_NAMES = {
     6: "DMA",
     7: "LCD",
     8: "SD",
+    9: "AUX",
 }
 
 AUX_CHANNEL_NAMES = {
-    0: "A0/CAL_IN",
-    1: "A1/EXT_CLK_IN",
-    2: "A2/SYNC_CLK_OUT",
-    3: "A3/CAL_OUT",
+    0: "A0/BISS_CLK_IN",
+    1: "A1/BISS_DATA_IN",
+    2: "A2/BISS_CLK_OUT",
+    3: "A3/BISS_DATA_OUT",
 }
 
 READY_SIGNAL_NAMES = {
@@ -396,6 +440,24 @@ def decode_event_details(record: dict[str, Any]) -> dict[str, Any]:
         details["timeout_latched_mask"] = arg0 & 0xFF
         details["timeout_latched"] = decode_named_mask(arg0 & 0xFF, READY_SIGNAL_NAMES)
         details["wait_ms"] = arg1
+
+    if domain == 3 and event_id == 80:
+        details["frame_bits"] = arg0
+        details["sample_edge"] = arg1 & 0xFF
+        details["sample_delay_cycles"] = (arg1 >> 8) & 0xFF
+
+    if domain == 3 and event_id == 81:
+        details["frame_bits"] = arg0
+
+    if domain == 3 and event_id == 82:
+        details["frame_bits"] = arg0
+        details["sample_edge"] = arg1
+
+    if domain == 3 and event_id == 83:
+        details["clk_in_pin"] = arg0 & 0xFF
+        details["clk_out_pin"] = (arg0 >> 8) & 0xFF
+        details["data_in_pin"] = arg1 & 0xFF
+        details["data_out_pin"] = (arg1 >> 8) & 0xFF
 
     return details
 

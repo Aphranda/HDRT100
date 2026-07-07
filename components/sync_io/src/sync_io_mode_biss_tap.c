@@ -23,7 +23,9 @@ bool sync_io_biss_tap_mode_validate(const sync_io_biss_tap_mode_config_t *config
     }
 
     return sync_io_hw_aux_supports_input(0u) &&
-           sync_io_hw_aux_supports_input(1u);
+           sync_io_hw_aux_supports_input(1u) &&
+           sync_io_hw_aux_supports_output(2u) &&
+           sync_io_hw_aux_supports_output(3u);
 }
 
 bool sync_io_biss_tap_mode_arm(const sync_io_biss_tap_mode_config_t *config)
@@ -51,6 +53,7 @@ const sync_io_mode_ops_t *sync_io_biss_tap_mode_ops(void)
         .id = SYNC_IO_MODE_ID_BISS_TAP,
         .name = "biss_tap",
         .resources = SYNC_IO_MODE_RESOURCE_AUX_RX |
+                     SYNC_IO_MODE_RESOURCE_AUX_TX |
                      SYNC_IO_MODE_RESOURCE_PIO_AUX,
         .validate = sync_io_biss_tap_mode_validate_void,
         .arm = sync_io_biss_tap_mode_arm_void,
@@ -60,4 +63,3 @@ const sync_io_mode_ops_t *sync_io_biss_tap_mode_ops(void)
 
     return &ops;
 }
-
