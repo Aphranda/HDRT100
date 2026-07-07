@@ -73,7 +73,7 @@ typedef struct {
     trig_enc_decode_t enc_decode;      /* 解码模式 */
     bool           enc_z_reset;        /* Z 脉冲复位使能 */
 
-    /* 引脚配置 (默认: A=16, B=17, Z=19) */
+    /* 引脚配置 (默认: A=16, B=17, Z=18) */
     uint32_t       enc_a_pin;
     uint32_t       enc_b_pin;
     uint32_t       enc_z_pin;
@@ -179,7 +179,7 @@ fire_wait:
 |---|---|
 | PIO | pio1/sm0 (可与 SEQ_STEP 共享, 互斥使用) |
 | DMA | 1 通道: SRAM[target_count] → PIO TX FIFO |
-| GPIO | A(16), B(17), Z(19), TRIG_OUT(20) |
+| GPIO | A(16), B(17), Z(18), TRIG_OUT(20) |
 | CPU | **零** (ARM 后) |
 
 ## SCPI 命令
@@ -189,9 +189,9 @@ TRIGger:MODE ENC_COUNT          ; mode=2
 TRIGger:ENC:TARGet <N>          ; 目标计数值
 TRIGger:ENC:TARGet?
 TRIGger:ENC:COUNt?              ; 当前计数值 (只读快照)
-TRIGger:ENC:APIN <16..29>       ; A 相 GPIO
-TRIGger:ENC:BPIN <16..29>       ; B 相 GPIO
-TRIGger:ENC:ZPIN <16..29>       ; Z 相 GPIO (0=禁用)
+TRIGger:ENC:APIN <16>           ; A 相 GPIO，固定派生 A/B/Z=16/17/18
+TRIGger:ENC:BPIN?               ; B 相 GPIO，当前固定 17
+TRIGger:ENC:ZPIN?               ; Z 相 GPIO，当前固定 18
 TRIGger:ENC:ZPIN?
 TRIGger:ENC:ZRESet <ON|OFF>     ; Z 复位使能
 TRIGger:ENC:ZRESet?

@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/HAOFV_ARCHITECTURE.md`
 Related: `docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 本文档定义 RP2350_TRIG 后续产品化演进采用的软件架构。目标是在保持裸机/Pico SDK 工程轻量性的同时，融合 Active Object、轻量 IEC 61499 功能块、时间同步型系统向量黑板、资源仲裁和表驱动状态机，为 OTA、同步触发、SD 卡、LCD、SCPI、诊断、后续 RTOS 和更多硬件模块提供清晰边界。
 
@@ -965,8 +965,8 @@ SCPI/UI/Button
 Trigger 域的应用层接口必须使用稳定语义通道，而不是把任意 GPIO 暴露给 SCPI/UI：
 
 ```text
-Input semantics:   TRIG_IN / ARM_IN / EXT_CLK_IN / GATE_IN
-Output semantics:  TRIG_OUT / PULSE_OUT / SYNC_CLK_OUT / MARKER_OUT
+Input semantics:   TRIG_IN / RJ45_TRIG_IN / ARM_IN / EXT_CLK_IN / GATE_IN
+Output semantics:  TRIG_OUT / PULSE_OUT / RJ45_TRIG_OUT / SYNC_CLK_OUT
 ```
 
 GPIO16..GPIO23 的实际映射属于 board profile 和 `sync_io` 的职责。`TriggerAO`、`TriggerFB`、SCPI 和 UI 只能表达语义意图，不能把产品功能设计成任意 GPIO 交叉开关。
@@ -975,28 +975,28 @@ GPIO16..GPIO23 的实际映射属于 board profile 和 `sync_io` 的职责。`Tr
 
 | 接口 | 角色 | 语义 |
 |---|---|---|
-| 主输入 IN0..IN3 / GPIO16..19 | 模式本地高速输入 | `TRIG_IN`、`GATE_IN`、编码器 A/B/Z、后续计数/采样输入 |
-| 主输出 OUT0..OUT3 / GPIO20..23 | 模式本地高速输出 | `TRIG_OUT`、`PULSE_OUT`、`SEQ_OUT[3:0]` |
-| AUX0..AUX3 / GPIO26..29 | 跨模式框架功能 | `ARM_IN`、`EXT_CLK_IN`、`SYNC_CLK_OUT`、`MARKER_OUT` |
+| 主输入 IN0..IN3 / GPIO16..19 | 模式本地高速输入 | `TRIG_IN`、`RJ45_TRIG_IN`、`GATE_IN`、编码器 A/B/Z（仅 IN0..IN2）、后续计数/采样输入 |
+| 主输出 OUT0..OUT3 / GPIO20..23 | 模式本地高速输出 | `TRIG_OUT`、`PULSE_OUT`、`RJ45_TRIG_OUT`、`SEQ_OUT[3:0]` |
+| AUX0..AUX3 / GPIO26..29 | 跨模式框架功能 | `ARM_IN`、`EXT_CLK_IN`、`SYNC_CLK_OUT`、`AUX3_TX/BISS_DATA_OUT` |
 
 ### 模式资源约束
 
 | 模式 | 应用层资源约束 |
 |---|---|
-| `SEQ_STEP` | OUT0..OUT3 被序列输出总线独占；独立主总线输出应返回 busy 或在 ARM 前关闭。`ARM_IN` 位于 AUX0。`SYNC_CLK_OUT`/`MARKER_OUT` 位于 AUX2/AUX3，不占用序列输出总线。 |
-| `ENC_COUNT` | IN0/IN1/IN3 分别作为 A/B/Z；`ARM_IN` 位于 AUX0，不再与 B 相冲突。`GATE_IN` 如果仍定义在 IN3，则与 Z 相冲突，需单独仲裁或迁移。 |
+| `SEQ_STEP` | OUT0..OUT3 被序列输出总线独占；独立主总线输出应返回 busy 或在 ARM 前关闭。`ARM_IN` 位于 AUX0。`SYNC_CLK_OUT` 位于 AUX2，不占用序列输出总线。历史 `MARK:*` 命令兼容到 OUT3/RJ45，armed 时应拒绝。 |
+| `ENC_COUNT` | IN0/IN1/IN2 分别作为 A/B/Z；IN3 的硬件定义是 `RJ45_TRIG_IN`，不被 ENC 软件定义占用。`ARM_IN` 位于 AUX0，不再与 B 相冲突。 |
 | `IDLE` | 语义输出可由即时命令使用；语义输入只做采样/诊断或配置预览。 |
 
 ### GPIO 迁移约束
 
-当前固件仍有旧实现把 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 绑定在 GPIO17/18/22/23。硬件冻结后，增量编码器固定使用 `SYNC_IO` 的 GPIO16/17/19；`GPIO26..29` 不再作为编码器输入组，而是固定两收两发 AUX 资源。产品化迁移应把框架功能收口到 AUX0..AUX3 的固定方向语义，或在冲突时由资源仲裁器拒绝命令。
+当前固件仍有旧实现把 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT` 绑定在 GPIO17/18/22。硬件冻结后，增量编码器固定使用 `SYNC_IO` 的 GPIO16/17/18；`GPIO19` 固定为 `RJ45_TRIG_IN`；`GPIO26..29` 不再作为编码器输入组，而是固定两收两发 AUX 资源。`GPIO23/OUT3` 的硬件定义是 `RJ45_TRIG_OUT`；历史 `MARK:*` 命令只能作为该硬件输出的兼容入口，不再代表独立 `MARKER_OUT`。
 
 ### 触发模式扩展表
 
 | 模式 | 输入占用 | 输出占用 | PIO | CPU | 状态 |
 |---|---|---|---|---|---|
 | `SEQ_STEP` (mode=1) | IN0 + 可选 IN3 | OUT0-3 | pio1/sm0 + DMA | ARM 后为零 | ✅ |
-| `ENC_COUNT` (mode=2) | IN0/IN1/IN3 | OUT0 | pio1/sm0 + DMA | ARM 后为零 | ✅ |
+| `ENC_COUNT` (mode=2) | IN0/IN1/IN2 | OUT0 | pio1/sm0 + DMA | ARM 后为零 | ✅ |
 | `GATE_LEVEL` (mode=3) | IN0 + IN3 | OUT0 | pio0/sm2 + pio1/sm0 | ARM 后为零 | 规划 |
 | `ARM_SINGLE` (mode=4) | AUX0 | OUT0 | pio2/sm0 + pio1/sm0 | 每次触发 IRQ | 规划 |
 | `FREE_BURST` (mode=5) | IN0 | OUT0-1 | pio1/sm0/sm2 | ARM 后为零 | 规划 |

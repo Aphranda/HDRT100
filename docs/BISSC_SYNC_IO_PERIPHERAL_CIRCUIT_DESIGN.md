@@ -4,7 +4,7 @@ Status: Frozen
 Domain: BISSC
 Canonical: `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
 Related: `docs/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 本文档作为 RP2350_TRIG 后续硬件版本的原理图输入规格，统一定义 BiSS-C
 串联 TAP bridge、双 RJ45 线缆接口、SYNC_IO 触发输入输出、收发器选型、
@@ -139,14 +139,14 @@ GPIO29 / BISS_DATA_OUT
 | `AUX0` | `GPIO26` | 上行 RJ45 -> RP2350 | `BISS_CLK_IN` | `DIFF_A_IN` / 外部时钟输入 | `ARM_IN` / `EXT_CLK_IN` |
 | `AUX1` | `GPIO27` | 下行 RJ45 -> RP2350 | `BISS_DATA_IN` | `DIFF_B_IN` / 远端触发输入 | `EXT_REF_IN` / 诊断输入 |
 | `AUX2` | `GPIO28` | RP2350 -> 下行 RJ45 | `BISS_CLK_OUT` | `DIFF_A_OUT` / 同步时钟输出 | `SYNC_CLK_OUT` |
-| `AUX3` | `GPIO29` | RP2350 -> 上行 RJ45 | `BISS_DATA_OUT` | `DIFF_B_OUT` / marker 输出 | `MARKER_OUT` |
+| `AUX3` | `GPIO29` | RP2350 -> 上行 RJ45 | `BISS_DATA_OUT` | `DIFF_B_OUT` / 辅助输出 | `AUX3_TX` |
 
 可支持的 persona：
 
 - `BISS_TAP_BRIDGE`：`AUX0 -> AUX2` 透传 `CLK/MA`，`AUX1 -> AUX3`
   透传 `DATA/SLO`，同时旁路解析 position/status。
 - `DIFF_TRIGGER_AUX`：把 `AUX0/AUX1` 作为两路差分输入，把 `AUX2/AUX3`
-  作为两路差分输出，用于板间同步、marker、外部 arm 或快速触发。
+  作为两路差分输出，用于板间同步、外部 arm 或快速触发。
 - `RS485_HD_AUX`：复用同一组两收两发资源承载半双工 RS-485 相关实验或派生版本；
   首版未冻结方向控制和总线装配矩阵前，不作为默认产品运行模式。
 - `SELF_CAL_AUX`：把某一路差分输入和输出组成固定延迟校准环，用于测量线缆和节点
@@ -157,7 +157,7 @@ GPIO29 / BISS_DATA_OUT
 - 任意 persona 启用时必须独占 `AUX0..AUX3` 及对应 `THVD1452_*` 控制脚。
 - Persona 复用只改变固件语义和资源 ownership，不表示 `AUX0/AUX1` 可变成输出，
   也不表示 `AUX2/AUX3` 可变成输入。
-- `BISS_TAP_BRIDGE` 下不能再把 AUX2/AUX3 当普通 marker 输出使用。
+- `BISS_TAP_BRIDGE` 下不能再把 AUX2/AUX3 当普通辅助输出使用。
 - `DIFF_TRIGGER_AUX` 下不能同时运行 BiSS-C TAP 解码，除非固件显式实现并验证
   该复合模式。
 - Persona 切换只能发生在 DISARM / 安全态；FAST_RT_TEST 中禁止改变收发器 enable、
@@ -188,9 +188,8 @@ GPIO23 / SYNC_IO OUT3 / RJ45_TRIG_OUT
 - 触发输出应由 PIO 或硬实时路径产生，不经过 SCPI、日志、SD 或普通任务。
 - 若现场需要同一方向上的双向触发，应增加连接器或重新分配线对，不在首版
   `TRIG_DIFF` 上做半双工抢占。
-- 产品 pinout 中 `GPIO23/OUT3` 已固定为 `RJ45_TRIG_OUT`。当前固件旧路径中的
-  `BOARD_SYNC_MARKER_OUT_PIN = GPIO23` 必须迁移到 AUX3 或在该硬件版本禁用，
-  不能与 RJ45 触发输出同时驱动。
+- 产品 pinout 中 `GPIO23/OUT3` 已固定为 `RJ45_TRIG_OUT`。`MARK:*` 只能作为
+  历史兼容命令触发同一硬件输出；不再定义独立 `MARKER_OUT` 硬件路径。
 
 ## SYNC_IO 外部触发口
 
@@ -200,8 +199,8 @@ GPIO23 / SYNC_IO OUT3 / RJ45_TRIG_OUT
 |---|---:|---|---|---|
 | `IN0` | `GPIO16` | 输入 | `SMA_IN0` | `TRIG_IN` / `ENC_COUNT` A 相 / `SEQ_STEP` 触发 |
 | `IN1` | `GPIO17` | 输入 | `SMA_IN1` | `ENC_COUNT` B 相 / 模式本地输入 |
-| `IN2` | `GPIO18` | 输入 | `SMA_IN2` | 模式本地输入 / 编码器备用 |
-| `IN3` | `GPIO19` | 输入 | `UPSTREAM_RJ45.TRIG_DIFF` | `RJ45_TRIG_IN` / `GATE_IN` / `ENC_COUNT` Z 相 |
+| `IN2` | `GPIO18` | 输入 | `SMA_IN2` | `ENC_COUNT` Z 相 / 模式本地输入 |
+| `IN3` | `GPIO19` | 输入 | `UPSTREAM_RJ45.TRIG_DIFF` | `RJ45_TRIG_IN` / `GATE_IN` |
 | `OUT0` | `GPIO20` | 输出 | `SMA_OUT0` | `TRIG_OUT` / `SEQ_STEP` bit0 |
 | `OUT1` | `GPIO21` | 输出 | `SMA_OUT1` | `PULSE_OUT` / `SEQ_STEP` bit1 |
 | `OUT2` | `GPIO22` | 输出 | `SMA_OUT2` | `SEQ_STEP` bit2 / 模式本地输出 |
@@ -411,12 +410,12 @@ GPIO24 -> THVD1452_TRIG_DE / ISO_PWR_EN / 全局收发器使能
 
 硬件定型后，以下冲突必须在固件 bring-up 阶段消除：
 
-- `GPIO23/OUT3` 是 `RJ45_TRIG_OUT`，旧 `MARKER_OUT` 运行路径必须迁移到
-  `AUX3/GPIO29` 或由资源仲裁器拒绝。
+- `GPIO23/OUT3` 是 `RJ45_TRIG_OUT`，旧 `MARKER_OUT` 运行路径必须收敛为
+  `RJ45_TRIG_OUT` 兼容入口，不能再迁移或声明为 AUX3 独立硬件信号。
 - `GPIO22/OUT2` 是 `SMA_OUT2`，旧 `SYNC_CLK_OUT` 运行路径应迁移到
   `AUX2/GPIO28` 或在主输出总线被占用时返回 busy。
 - `BISS_TAP_BRIDGE` 启用后，`AUX0/AUX1` 只作为接收采样，`AUX2/AUX3`
-  只作为固定延迟转发输出；普通 AUX marker/sync 功能必须被锁定。
+  只作为固定延迟转发输出；普通 AUX sync/辅助输出功能必须被锁定。
 - 资源仲裁器需要区分 `BISS_TAP_BRIDGE`、`DIFF_TRIGGER_AUX`、`RS485_HD_AUX`
   和普通 `SYNC_IO` ownership，禁止在 armed 状态切换 persona。
 - SCPI/UI 应显示当前硬件 persona、收发器 enable 状态、端接/bias 装配版本和
@@ -438,7 +437,7 @@ GPIO24 -> THVD1452_TRIG_DE / ISO_PWR_EN / 全局收发器使能
 - [ ] 固件已实现并验证 `AUX0 -> AUX2`、`AUX1 -> AUX3` 固定延迟转发。
 - [ ] 上行 `TRIG_DIFF` 只输入，下行 `TRIG_DIFF` 只输出。
 - [ ] 3 路 SMA 输入、3 路 SMA 输出和 1 入 1 出 RJ45 触发映射与固件 GPIO 一致。
-- [ ] `GPIO23` 旧 `MARKER_OUT` 路径已迁移/禁用，不会与 `RJ45_TRIG_OUT` 冲突。
+- [ ] `GPIO23` 旧 `MARKER_OUT` 路径已收敛为 `RJ45_TRIG_OUT` 兼容入口，不会与硬件定义冲突。
 - [ ] `GPIO22` 旧 `SYNC_CLK_OUT` 路径已迁移/仲裁，不会与 `SMA_OUT2` 冲突。
 - [ ] 0 ohm / 焊桥 / 跳帽矩阵不会同时把 receiver 接到两个不同差分对。
 - [ ] 接收端端接 100 ohm 默认，120 ohm 兼容位预留。

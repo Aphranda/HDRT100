@@ -22,7 +22,7 @@ TriggerFB 和底层 `sync_io_*_arm()` 中重复 acquire。
 | 优先级 | 验收标准                                                                                                                                           |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | P0     | ECC reset/fault 语义一致；BiSS timeout/sample-scan 可恢复且有 trace；资源 owner 边界唯一且表驱动；所有物理 mode arm 统一通过 mode ops/dispatcher。 |
-| P1     | RJ45 trigger 语义独立于 marker；胶水函数宏化消除重复；SM/IRQ 共享关系显式记录；未实现 mode 在查询接口中正确过滤。                                  |
+| P1     | RJ45 trigger 硬件语义收口，历史 marker 命令兼容到 RJ45_TRIG；胶水函数宏化消除重复；SM/IRQ 共享关系显式记录；未实现 mode 在查询接口中正确过滤。                                  |
 | P2     | 双核验证通过；闭环自检脚本覆盖全 mode；长期兼容命令返回稳定错误码。                                                                                |
 
 ---
@@ -36,7 +36,7 @@ TriggerFB 和底层 `sync_io_*_arm()` 中重复 acquire。
 | 3    | P0-02 resource owner 边界      | 先固定资源归属规则，再移动 mode arm 实现，避免双重 acquire。               |
 | 4    | P0-03 BiSS TAP 物理 arm 边界   | BiSS 已涉及 AUX RX/TX、timeout、sample scan，最能检验 HAOFV 分层。         |
 | 5    | P0-04 sync_io.c 拆分           | 在行为和 owner 边界稳定后，再搬迁 SEQ/ENC/BISS 实现。                      |
-| 6    | P1 维护性改进                  | RJ45/marker、SM/IRQ 表、胶水函数、预留 mode 查询等可在 P0 行为闭环后处理。 |
+| 6    | P1 维护性改进                  | RJ45 trigger 兼容层、SM/IRQ 表、胶水函数、预留 mode 查询等可在 P0 行为闭环后处理。 |
 
 ---
 
@@ -164,17 +164,17 @@ DMA channel mask 和 IRQ mask；Trigger resource map 从该表派生 PIO/DMA 粗
 
 闭环记录：见 `SYNC_IO_TASK_PROGRESS.md` 中 `SYNC_IO-TASK-20260708-007`。
 
-### P1-02 RJ45 trigger 输出语义独立于 marker
+### P1-02 RJ45 trigger 输出语义收口
 
-**现状：** RJ45 trigger 是硬件层端口语义，marker 是软件/模式层标记语义。当前固件仍复用
-`pio1/sm3` 和 `GPIO23/OUT3` 兼容旧 marker 命令，但已增加 `BOARD_SYNC_RJ45_TRIG_*`
-和 `BOARD_SYNC_RJ45_TRIGGER_SM` 别名，BiSS crossing 继续走 `sync_io_fire_rj45_trigger_us()`。
+**现状：** RJ45 trigger 是硬件层端口语义，硬件定义优先级最高。当前固件使用
+`pio1/sm3` 和 `GPIO23/OUT3` 作为唯一 `RJ45_TRIG_OUT` 运行路径；旧 `MARK:*`
+命令只作为兼容入口触发同一硬件输出，不再定义独立 marker 物理信号。
 
 **对应 Plan：** `SYNC_IO_REFACTOR_PLAN.md` P1-4
 
 - [x] 给 RJ45 trigger 分配独立语义名；当前 P1 不重排 PIO SM
-- [x] 如果不能独立 SM，在文档和注释中明确当前固件临时复用 `pio1/sm3`
-- [x] 更新 SCPI `MARK:*` 命令文档，说明 marker 是软件命令，当前旧路径复用 OUT3/RJ45 物理输出
+- [x] 在代码和文档中明确 `pio1/sm3` 是 `RJ45_TRIG_OUT` owner
+- [x] 更新 SCPI `MARK:*` 命令文档，说明其为 deprecated 兼容入口，实际输出为 `RJ45_TRIG_OUT`
 
 ### P1-03 mode wrapper 的 void* 胶水函数宏化
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/TRIGGER_SYNC_TODO.md`
 Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 本文档用于跟踪同步触发系统从当前 PIO IO 驱动，完善到工业产品级触发子系统所需的剩余工作。
 
@@ -13,7 +13,7 @@ Last updated: 2026-07-07
 | 优先级 | 验收标准 |
 |---|---|
 | P0 | 核心触发状态机、ARM/DISARM、边沿/电平触发、gate、统计和安全输出均可通过板端或 host 回归验证；任何模式不能在 armed 后产生资源冲突或卡死。 |
-| P1 | 延时、极性、脉宽、burst、marker、外部时钟、DMA 采样、时间戳和冲突策略有明确 SCPI/UI 语义与测量记录，且不破坏 PIO/DMA/IRQ 硬实时边界。 |
+| P1 | 延时、极性、脉宽、burst、RJ45 trigger 兼容输出、外部时钟、DMA 采样、时间戳和冲突策略有明确 SCPI/UI 语义与测量记录，且不破坏 PIO/DMA/IRQ 硬实时边界。 |
 | P2 | 错误码、自检、故障锁存、资源仲裁、AUX 功能接口、UI 配置、RTOS 上下文约束、协议兼容和长期验证矩阵闭环后，才能进入发布 checklist。 |
 
 ## 评审补充待办（2026-06-25）
@@ -38,15 +38,16 @@ Last updated: 2026-07-07
 ### P1 - 行为与接口一致性问题
 
 - [x] 让 `ENC_COUNT` 引脚配置真正生效。 (2026-06-26)
-  修复：`sync_io_enc_count_arm()` 不再固定使用 `GPIO16..GPIO19`，而是使用 TriggerVector
-  下发的 `enc_a_pin` 作为 4-pin 输入组基脚。SCPI `TRIG:ENC:APIN <16|26>` 选择输入组：
-  `16` 对应 A/B/Z=`GPIO16/GPIO17/GPIO19`，`26` 对应 A/B/Z=`GPIO26/GPIO27/GPIO29`。
-  量产默认固定使用 `GPIO16..GPIO19`，`GPIO26..GPIO29` 仅作为 AUX/开发验证扩展输入组。
-  由于当前 `enc_count.pio` 使用连续 4-pin 组采样，暂不公开任意非连续 A/B/Z 引脚组合。
+  修复：`sync_io_enc_count_arm()` 不再固定使用旧散落配置，而是使用 TriggerVector
+  下发的 `enc_a_pin` 作为 3-pin 输入组基脚。SCPI `TRIG:ENC:APIN <16>` 选择输入组：
+  `16` 对应 A/B/Z=`GPIO16/GPIO17/GPIO18`。
+  量产默认固定使用 `GPIO16..GPIO18`，`GPIO19` 保留为 `RJ45_TRIG_IN`。
+  由于当前 `enc_count.pio` 使用连续 3-pin 组采样，暂不公开任意非连续 A/B/Z 引脚组合。
   板端验证：烧录 build `20260626040831` 后，`TRIG:ENC:APIN 26` + `TRIG:ARM`
   日志确认 `enc_count armed: target=100 pins=A26/B27/Z29`。
   硬件冻结修订：AUX 已定型为 `AUX0/AUX1` 固定输入、`AUX2/AUX3` 固定输出，
-  因此 `TRIG:ENC:APIN 26` 已关闭。当前 `TRIG:ENC:APIN` 只接受 `16`。
+  因此 `TRIG:ENC:APIN 26` 已关闭。当前 `TRIG:ENC:APIN` 只接受 `16`，并派生
+  A/B/Z=`GPIO16/GPIO17/GPIO18`。
 
 - [x] 修复 `PCNT_CLEAR` 统计累计逻辑。 (2026-06-25 已修复)
   修复：`enc_total += enc_count` 现在在 `enc_count = 0` 之前执行，确保清零前的值被累计。
@@ -61,18 +62,19 @@ Last updated: 2026-07-07
 - [x] 明确不同触发模式共用统一物理 IO 定义。 (2026-06-26)
   产品硬件层固定为 `GPIO16..GPIO19` 四路输入和 `GPIO20..GPIO23` 四路输出，便于统一增加
   施密特触发器、保护/隔离和输出驱动器。不同模式只改变逻辑含义，不要求用户改接线：
-  `SEQ_STEP` 使用 IN0=`TRIG_IN`、IN3=`GATE_IN`、OUT0..3=`SEQ_OUT[3:0]`；
-  `ENC_COUNT` 使用 IN0=A、IN1=B、IN3=Z、OUT0=`TRIG_OUT`。
+  `SEQ_STEP` 使用 IN0=`TRIG_IN`、IN3=`GATE_IN/RJ45_TRIG_IN`、OUT0..3=`SEQ_OUT[3:0]`；
+  `ENC_COUNT` 使用 IN0=A、IN1=B、IN2=Z、OUT0=`TRIG_OUT`。
   `GPIO26..GPIO29` 作为 AUX 功能接口，不作为量产编码器默认接线。
 
 - [x] 约束框架/应用层触发语义接口。 (2026-06-26)
   应用层、SCPI、UI、TriggerVector 默认只使用稳定语义通道：
   输入 `TRIG_IN/ARM_IN/EXT_CLK_IN/GATE_IN`，输出
-  `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT`。GPIO 映射归 board profile
+  `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/RJ45_TRIG_OUT`。GPIO 映射归 board profile
   和 `sync_io` 管理，原始 GPIO 选择只作为开发诊断或板级配置。产品目标进一步约束为：
   主输入/输出口保持纯触发/编码器/序列输出用途；AUX0..AUX3 固定承载跨模式功能
-  `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT`。这样 `ARM_IN` 不再与 `ENC_COUNT` B 相冲突，
-  `SYNC_CLK_OUT/MARKER_OUT` 不再与 `SEQ_STEP` bit2/bit3 冲突。当前固件旧路径仍需迁移。
+  `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT` 和协议辅助输出。这样 `ARM_IN` 不再与 `ENC_COUNT` B 相冲突，
+  `SYNC_CLK_OUT` 不再与 `SEQ_STEP` bit2 冲突。`RJ45_TRIG_OUT` 固定为 GPIO23/OUT3；历史
+  `MARK:*` 命令仅作为兼容入口，不再定义独立 marker 硬件信号。
 
 ## 分布式 DPLL / CAL_RING 待办（2026-06-29）
 
@@ -86,8 +88,8 @@ Last updated: 2026-07-07
   `REDY/READY`，完成后返回 `MEAS_DONE` 推进下一轮。
 
 - [ ] 为 AUX 功能接口增加 owner/arbiter。
-  启用 `CAL_RING` 时禁止 `TRIG:ENC:APIN 26`，并阻止 `ARM_IN/MARKER_OUT`
-  产品功能同时占用 `pio2/sm0` 和 `pio2/sm3`。
+  启用 `CAL_RING` 时禁止 `TRIG:ENC:APIN 26`，并阻止 `ARM_IN/AUX3_TX`
+  这类历史配置同时占用 `pio2/sm0` 和 `pio2/sm3`。
 
 - [ ] 新增 PIO 校准环路程序。
   第一阶段只做边沿捕获、固定延迟转发和 `sequence_id` 短帧；时间戳采用
@@ -112,7 +114,7 @@ Last updated: 2026-07-07
 - [x] 实现 `GPIO20` 主触发脉冲输出。
 - [x] 实现 `GPIO21` 第二路脉冲输出。
 - [x] 实现 `GPIO22` 同步时钟输出。
-- [x] 实现 `GPIO23` Marker 脉冲输出。
+- [x] 实现 `GPIO23/RJ45_TRIG_OUT` 脉冲输出；`MARK:*` 是兼容命令。
 - [x] 实现 `GPIO26/GPIO27/GPIO28/GPIO29` 四路 `pio2` 辅助 IO。
 - [x] 状态灯不再占用 PIO 资源。
 
@@ -155,18 +157,18 @@ Last updated: 2026-07-07
 ## P1 - 时序和输出功能
 
 - [x] 实现输入触发后的延时输出。 (2026-06-25)
-  通过 `sync_io_fire_pulse_us()` / `sync_io_fire_pulse_out_us()` / `sync_io_fire_marker_us()`，
+  通过 `sync_io_fire_pulse_us()` / `sync_io_fire_pulse_out_us()` / `sync_io_fire_rj45_trigger_us()`，
   PIO `sync_pulse` 程序（5 指令）实现硬件精确定时。
 
 - [x] 实现可配置输出极性。 (2026-06-25)
   `TRIG_SAFE_ZERO` / `TRIG_SAFE_ONE` 安全输出态，SCPI `TRIG:SAFE 0/1`。
 
-- [x] 实现 `TRIG_OUT`、`PULSE_OUT`、`MARKER_OUT` 的可配置脉宽。 (2026-06-25)
-  SCPI: `TRIG:WIDT` / `PULS:WIDT` / `MARK:WIDT`，µs 精度。
+- [x] 实现 `TRIG_OUT`、`PULSE_OUT`、`RJ45_TRIG_OUT` 兼容输出的可配置脉宽。 (2026-06-25)
+  SCPI: `TRIG:WIDT` / `PULS:WIDT` / `MARK:WIDT`，µs 精度；`MARK:*` 输出到 `RJ45_TRIG_OUT`。
 
 - [ ] 实现 burst 输出：重复次数和脉冲间隔。
 
-- [ ] 为关键内部事件增加同步 Marker 脉冲输出。
+- [ ] 为关键内部事件增加 RJ45 trigger 兼容脉冲输出。
 
 - [ ] 增加 `EXT_CLK_IN` 外部时钟输入模式。
   现状：旧宏 `BOARD_SYNC_EXT_CLK_IN_PIN` 仍定义为 GPIO18，只做了 pull-down。
@@ -224,14 +226,14 @@ Last updated: 2026-07-07
 
 - [ ] 增加应用层语义 IO 资源仲裁。
   按 `docs/SYNC_IO_RESOURCE_PLAN.md` 的接口契约，在代码中拒绝模式 armed 后的语义通道冲突：
-  `SEQ_STEP` 独占主 OUT0..OUT3，`ENC_COUNT` 独占主 IN0/IN1/IN3 和 OUT0；
-  AUX0..AUX3 作为 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 的跨模式功能口，
+  `SEQ_STEP` 独占主 OUT0..OUT3，`ENC_COUNT` 独占主 IN0/IN1/IN2 和 OUT0；
+  AUX0..AUX3 作为 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT` 和协议辅助输出的跨模式功能口，
   需要独立 owner/arbiter。`TRIG:ENC:APIN 26` 作为开发诊断复用时必须占用并锁定 AUX 功能接口。
 
 - [ ] 将 AUX 功能接口落实到代码。
   产品目标：AUX0/GPIO26=`ARM_IN`，AUX1/GPIO27=`EXT_CLK_IN`，AUX2/GPIO28=`SYNC_CLK_OUT`，
-  AUX3/GPIO29=`MARKER_OUT`。需要迁移 board 宏、`sync_io` 初始化、SCPI 输出时钟/marker 路径，
-  并保留 `TRIG:ENC:APIN 26` 为互斥的开发诊断模式。
+  AUX3/GPIO29=`AUX3_TX/BISS_DATA_OUT`。需要迁移 board 宏和 `sync_io` 输出时钟路径；
+  `MARK:*` 不迁移到 AUX3，只作为 `RJ45_TRIG_OUT` 兼容入口。
 
 ## P2 - UI 和配置
 

@@ -8,7 +8,10 @@
 
 /* Frozen product hardware profile:
  * - GPIO16..19: fixed SYNC_IO input group.
+ * - GPIO18: fixed ENC_COUNT Z software input.
+ * - GPIO19: fixed RJ45_TRIG_IN hardware input; gate is mode semantics.
  * - GPIO20..23: fixed SYNC_IO output group.
+ * - GPIO23: fixed RJ45_TRIG_OUT hardware output; MARK:* is compatibility.
  * - GPIO26..29: AUX is fixed as two RX + two TX, reused by firmware persona.
  */
 
@@ -22,10 +25,11 @@
 #define SYNC_IO_HW_TRIG_OUT_PIN      BOARD_SYNC_TRIG_OUT_PIN
 #define SYNC_IO_HW_RJ45_TRIG_IN_PIN  BOARD_SYNC_RJ45_TRIG_IN_PIN
 #define SYNC_IO_HW_RJ45_TRIG_OUT_PIN BOARD_SYNC_RJ45_TRIG_OUT_PIN
+#define SYNC_IO_HW_RJ45_TRIG_IN_SM   BOARD_SYNC_RJ45_TRIG_IN_SM
 
 #define SYNC_IO_HW_ENC_A_PIN  BOARD_SYNC_INPUT_BASE_PIN
 #define SYNC_IO_HW_ENC_B_PIN  (BOARD_SYNC_INPUT_BASE_PIN + 1u)
-#define SYNC_IO_HW_ENC_Z_PIN  (BOARD_SYNC_INPUT_BASE_PIN + 3u)
+#define SYNC_IO_HW_ENC_Z_PIN  (BOARD_SYNC_INPUT_BASE_PIN + 2u)
 
 #define SYNC_IO_HW_AUX0_PIN BOARD_SYNC_AUX0_PIN
 #define SYNC_IO_HW_AUX1_PIN BOARD_SYNC_AUX1_PIN

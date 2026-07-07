@@ -1,11 +1,11 @@
 ; enc_count.pio — 编码器计数触发 (HAOFV 实时面)
 ; 1x 解码, CW 方向, Z 递增圈数 (IRQ 通知 CPU)
 ;
-; Pin 组 (in_pin_base=16, 4-pin contiguous):
+; Pin 组 (in_pin_base=16, 3-pin contiguous):
 ;   offset 0: GPIO16 = A
 ;   offset 1: GPIO17 = B
-;   offset 2: GPIO18 = EXT_CLK (未使用)
-;   offset 3: GPIO19 = Z
+;   offset 2: GPIO18 = Z
+; GPIO19 is RJ45_TRIG_IN and is not owned by ENC_COUNT.
 ;
 ; Pins (set_pin_base=20): TRIG_OUT
 ;
@@ -24,7 +24,7 @@
     wait 0 pin, 0
     wait 1 pin, 0
 
-    in pins, 4             ; ISR = Z, EXT, B, A (bits 3:0)
+    in pins, 3             ; ISR = Z, B, A (bits 2:0)
     mov osr, isr
 
     out null, 1            ; 移出 A (bit 0)
@@ -40,8 +40,8 @@ no_count:
 check_z:
     mov osr, isr
 check_z_entry:
-    out null, 3            ; 移出 A, B, EXT (bits 0,1,2)
-    out y, 1               ; y = Z (bit 3)
+    out null, 2            ; 移出 A, B (bits 0,1)
+    out y, 1               ; y = Z (bit 2)
     jmp y--, loop_continue ; Z=0 → 继续
     ; Z=1: IRQ → CPU rev_count++
     irq 0
@@ -65,11 +65,11 @@ static inline void enc_count_program_init(PIO pio, uint sm, uint offset,
                                            uint output_pin,
                                            float clkdiv)
 {
-    for (uint i = 0u; i < 4u; i++) {
+    for (uint i = 0u; i < 3u; i++) {
         pio_gpio_init(pio, in_pin_base + i);
         gpio_pull_down(in_pin_base + i);
     }
-    pio_sm_set_consecutive_pindirs(pio, sm, in_pin_base, 4, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, in_pin_base, 3, false);
 
     pio_gpio_init(pio, output_pin);
     pio_sm_set_consecutive_pindirs(pio, sm, output_pin, 1, true);

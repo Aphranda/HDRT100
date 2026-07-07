@@ -114,8 +114,8 @@ typedef enum {
     TRIG_EVENT_FIRE_TRIGGER,
     TRIG_EVENT_SET_PULSE_WIDTH,
     TRIG_EVENT_FIRE_PULSE,
-    TRIG_EVENT_SET_MARKER_WIDTH,
-    TRIG_EVENT_FIRE_MARKER,
+    TRIG_EVENT_SET_MARKER_WIDTH, /* deprecated: RJ45_TRIG_OUT compatibility width */
+    TRIG_EVENT_FIRE_MARKER,      /* deprecated: fires RJ45_TRIG_OUT */
     TRIG_EVENT_SET_SAMPLE_RATE,
     TRIG_EVENT_SET_SAMPLE_STATE,
     TRIG_EVENT_SET_CLOCK_FREQ,
@@ -216,7 +216,7 @@ typedef struct {
     uint32_t         enc_cmp_pulse_ns;   /* 比较器触发脉冲宽度 (ns) */
     uint32_t         enc_a_pin;        /* A/UP 相 GPIO (默认 16) */
     uint32_t         enc_b_pin;        /* B/DOWN 相 GPIO (默认 17) */
-    uint32_t         enc_z_pin;        /* Z 相 GPIO (默认 19, 0=禁用) */
+    uint32_t         enc_z_pin;        /* Z 相 GPIO (默认 18, 0=禁用) */
 
     /* 协议触发 / BiSS-C 节点配置与计数器
      * P0 固定复用 AUX0..AUX3 作为 BiSS-C 逻辑线，不改底层硬件定义：
@@ -296,7 +296,7 @@ typedef struct {
     /* 即时脉冲参数（兼容旧命令） */
     uint32_t      trigger_width_us;
     uint32_t      pulse_width_us;
-    uint32_t      marker_width_us;
+    uint32_t      marker_width_us; /* deprecated: RJ45_TRIG_OUT compatibility width */
     uint32_t      capture_sample_hz;
     uint32_t      sync_clock_hz;
     bool          sync_clock_enabled;

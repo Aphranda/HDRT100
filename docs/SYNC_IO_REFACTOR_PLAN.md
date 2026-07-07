@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/SYNC_IO_REFACTOR_PLAN.md`
 Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`, `docs/TRIGGER_SYNC_TODO.md`
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 ## 1. 背景
 
@@ -20,7 +20,7 @@ Last updated: 2026-07-07
 | `GPIO27/AUX1` | 差分 RX，BiSS `DATA_IN` |
 | `GPIO28/AUX2` | 差分 TX，BiSS `CLK_OUT` |
 | `GPIO29/AUX3` | 差分 TX，BiSS `DATA_OUT` |
-| `ENC_COUNT` | 固定 `A/B/Z = GPIO16/GPIO17/GPIO19` |
+| `ENC_COUNT` | 固定 `A/B/Z = GPIO16/GPIO17/GPIO18` |
 
 因此触发系统需要从“函数直接操作 pin/PIO”重构为“硬件约束 profile + 资源仲裁 + 模式驱动”的结构。这样可以同时支撑：
 
@@ -58,7 +58,7 @@ sync_io_hw_profile
 1. 建立硬件 profile 单一入口。
    - 所有固定 pinout 使用 `components/sync_io/inc/sync_io_hw_profile.h`。
    - `TRIG:ENC:APIN` 只允许 `16`。
-   - `ENC_COUNT` 固定使用 `GPIO16/GPIO17/GPIO19`。
+   - `ENC_COUNT` 固定使用 `GPIO16/GPIO17/GPIO18`。
    - AUX 固定为两收两发：`AUX0/1` 输入，`AUX2/3` 输出。
 
 2. 建立 mode driver 表驱动接口。
@@ -73,7 +73,8 @@ sync_io_hw_profile
 
 4. 明确 RJ45 触发输出语义。
    - BiSS target crossing 输出使用 `GPIO23/RJ45_TRIG_OUT`。
-   - 当前内部仍复用 marker PIO SM，需要在 P1 拆成独立语义名或纳入资源仲裁。
+   - `MARK:*` 只作为历史兼容命令，实际输出同样使用 `GPIO23/RJ45_TRIG_OUT`；
+     不再定义独立 `MARKER_OUT` 硬件信号。
 
 ### P0 验收
 
@@ -100,7 +101,7 @@ sync_io_hw_profile
 
 4. 整理 RJ45 trigger mode。
    - 将旧 `MARKER_OUT` 命名迁移到 `RJ45_TRIG_OUT` 语义。
-   - 若仍需要 marker 功能，作为输出模式之一，而不是底层固定名称。
+   - 舍弃独立 marker 硬件定义；历史 `MARK:*` 命令作为 RJ45 trigger 兼容入口保留。
 
 ### P1 验收
 

@@ -284,7 +284,7 @@ static uint32_t sync_io_read_ready_level_mask(void)
            (gpio_get(BOARD_SYNC_AUX_ARM_IN_PIN) ? (1u << 4) : 0u) |
            (gpio_get(BOARD_SYNC_AUX_EXT_CLK_IN_PIN) ? (1u << 5) : 0u) |
            (gpio_get(BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN) ? (1u << 6) : 0u) |
-           (gpio_get(BOARD_SYNC_AUX_MARKER_OUT_PIN) ? (1u << 7) : 0u);
+           (gpio_get(BOARD_SYNC_AUX3_OUT_PIN) ? (1u << 7) : 0u);
 }
 
 bool sync_io_init(const sync_io_config_t *config)
@@ -315,7 +315,7 @@ bool sync_io_init(const sync_io_config_t *config)
         !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, "output") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_CLOCK_SM, "clock") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, "pulse") ||
-        !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_MARKER_SM, "marker") ||
+        !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM, "rj45_trigger") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX0_SM, "aux0") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX1_SM, "aux1") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX2_SM, "aux2") ||
@@ -358,9 +358,9 @@ bool sync_io_init(const sync_io_config_t *config)
                             sync_io_clkdiv_for_instruction_rate(clock_hz * 2u));
 
     sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
-                            BOARD_SYNC_MARKER_SM,
+                            BOARD_SYNC_RJ45_TRIGGER_SM,
                             s_sync_io.pulse_offset,
-                            BOARD_SYNC_MARKER_OUT_PIN);
+                            BOARD_SYNC_RJ45_TRIG_OUT_PIN);
 
     for (uint channel = 0u; channel < (uint)SYNC_IO_AUX_COUNT; channel++) {
         sync_aux_output_program_init(BOARD_SYNC_PIO_AUX,
@@ -378,7 +378,7 @@ bool sync_io_init(const sync_io_config_t *config)
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, true);
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, true);
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_CLOCK_SM, false);
-    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_MARKER_SM, true);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM, true);
 
     s_sync_io.capture_sample_hz = capture_hz;
     s_sync_io.sync_clock_hz = clock_hz;
@@ -557,12 +557,12 @@ void sync_io_stop_clock(void)
 
 bool sync_io_fire_marker_cycles(uint32_t high_cycles)
 {
-    return sync_io_fire_pulse_on_sm(BOARD_SYNC_MARKER_SM, high_cycles);
+    return sync_io_fire_pulse_on_sm(BOARD_SYNC_RJ45_TRIGGER_SM, high_cycles);
 }
 
 bool sync_io_fire_marker_us(uint32_t high_us)
 {
-    return sync_io_fire_pulse_us_on_sm(BOARD_SYNC_MARKER_SM, high_us);
+    return sync_io_fire_rj45_trigger_us(high_us);
 }
 
 bool sync_io_fire_rj45_trigger_us(uint32_t high_us)

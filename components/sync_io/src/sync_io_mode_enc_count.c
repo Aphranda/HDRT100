@@ -51,7 +51,7 @@ bool sync_io_enc_count_mode_validate(const sync_io_enc_count_mode_config_t *conf
     return config->in_pin_base == SYNC_IO_HW_ENC_A_PIN &&
            sync_io_hw_enc_pins_valid(config->in_pin_base,
                                      config->in_pin_base + 1u,
-                                     config->in_pin_base + 3u) &&
+                                     config->in_pin_base + 2u) &&
            config->output_pin == SYNC_IO_HW_TRIG_OUT_PIN;
 }
 
@@ -167,7 +167,7 @@ bool sync_io_enc_count_arm(uint32_t target,
              (unsigned long)target,
              (unsigned long)(in_pin_base + 0u),
              (unsigned long)(in_pin_base + 1u),
-             (unsigned long)(in_pin_base + 3u));
+             (unsigned long)(in_pin_base + 2u));
     sync_io_core_trace(SYNC_IO_TRACE_ENC_ARMED,
                        SYNC_IO_TRACE_INFO,
                        target,
@@ -204,7 +204,7 @@ void sync_io_enc_count_disarm(void)
     pio_sm_clear_fifos(BOARD_SYNC_PIO_WAVE, s_enc.sm);
     pio_sm_set_pins(BOARD_SYNC_PIO_WAVE, s_enc.sm, 0);
 
-    for (uint i = 0u; i < 4u; i++) {
+    for (uint i = 0u; i < 3u; i++) {
         gpio_set_function(s_enc.in_pin_base + i, GPIO_FUNC_SIO);
         gpio_set_dir(s_enc.in_pin_base + i, GPIO_IN);
         gpio_pull_down(s_enc.in_pin_base + i);

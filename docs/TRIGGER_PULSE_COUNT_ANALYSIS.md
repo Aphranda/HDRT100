@@ -128,7 +128,7 @@ typedef struct {
     /* ── 输入配置 ── */
     uint32_t   ch_a_pin;          /* A / UP 引脚 (默认 16) */
     uint32_t   ch_b_pin;          /* B / DOWN 引脚 (默认 17) */
-    uint32_t   ch_z_pin;          /* Z 引脚 (默认 19, 0=禁用) */
+    uint32_t   ch_z_pin;          /* Z 引脚 (默认 18, 0=禁用) */
     uint32_t   ch_gate_pin;       /* 门控引脚 (0=禁用) */
     trig_pcnt_decode_t decode;    /* 解码: SINGLE/QUAD_1X/2X/4X/UP_DOWN/PULSE_DIR */
     uint32_t   filter_ns;         /* 数字滤波窗口 (ns), 0=禁用 */

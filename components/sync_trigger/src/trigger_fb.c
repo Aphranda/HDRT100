@@ -155,7 +155,7 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
         vector->marker_width_us = event->payload.value;
         break;
     case TRIG_EVENT_FIRE_MARKER:
-        (void)sync_io_fire_marker_us(vector->marker_width_us);
+        (void)sync_io_fire_rj45_trigger_us(vector->marker_width_us);
         break;
     case TRIG_EVENT_SET_SAMPLE_RATE:
         vector->capture_sample_hz = event->payload.value;

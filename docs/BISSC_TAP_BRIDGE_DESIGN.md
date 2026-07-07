@@ -113,11 +113,11 @@ P0 `TAP_MONITOR` 是串联式透明桥，而不是只并联高阻探针：
 
 ARM 前资源检查：
 
-- AUX0..AUX3 未被 ARM/EXT/SYNC/MARKER、差分触发、校准或其他 AUX owner 占用。
+- AUX0..AUX3 未被 ARM/EXT/SYNC、差分触发、校准或其他 AUX owner 占用。
 - TAP 模式只允许透明透传 `CLK_OUT/DATA_OUT`，禁止由管理面或本地协议栈改写 `DATA_OUT`。
 - MASTER_RX 必须确认外部没有其他主站驱动 `CLK`。
 - 硬件冻结后 `TRIG:ENC:APIN 26` 已关闭；增量编码器固定走 `SYNC_IO`
-  `GPIO16/17/19`，不再占用 AUX。
+  `GPIO16/17/18`，不再占用 AUX 或 RJ45 触发输入。
 
 ## RS-422 物理层候选器件
 
@@ -615,7 +615,7 @@ TRIG_STATE_BISS_CALIBRATING  /* P1+, do not insert before existing values */
 启用任意 BiSS role 时必须通过 resource arbiter 独占对应 AUX owner：
 
 - 与其他 AUX persona 互斥；`TRIG:ENC:APIN 26` 已因硬件冻结关闭。
-- 与 AUX0=`ARM_IN`、AUX1=`EXT_CLK_IN`、AUX2=`SYNC_CLK_OUT`、AUX3=`MARKER_OUT` 的产品语义互斥。
+- 与 AUX0=`ARM_IN`、AUX1=`EXT_CLK_IN`、AUX2=`SYNC_CLK_OUT`、AUX3=`AUX3_TX/BISS_DATA_OUT` 的产品语义互斥。
 - 与其他占用 `pio2` 的协议/校准功能互斥。
 
 ## SCPI 草案

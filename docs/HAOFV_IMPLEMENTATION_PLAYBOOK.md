@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`
 Related: `docs/HAOFV_ARCHITECTURE.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 本文档是 `HAOFV_ARCHITECTURE.md` 的实施补充，提供具体代码示例、迁移步骤和实现细节。阅读本文档前应先通读主架构文档。
 
@@ -126,56 +126,109 @@ fb_result_t fb_ecc_execute(fb_context_t *ctx, const fb_event_t *event,
 
 ---
 
-## 2. GPIO 迁移路径与兼容代码
+## 2. 固定 SYNC_IO 硬件定义与模式引用
 
-### 2.1 迁移状态
+本项目的 SYNC_IO 不是可运行时重映射的 GPIO 池。硬件定义优先级最高，应先在
+board profile 中写死 12 个 PIO state machine、固定 GPIO、方向和语义名；上层模式
+只能引用这些定义，不能再通过兼容宏把硬件目标改来改去。
 
-| 信号 | 旧 GPIO (当前代码) | 目标 GPIO (产品) | 迁移状态 |
-|---|---|---|---|
-| `ARM_IN` | GPIO17 | GPIO26 (AUX0) | ❌ 未迁移 |
-| `EXT_CLK_IN` | GPIO18 | GPIO27 (AUX1) | ❌ 未迁移 |
-| `SYNC_CLK_OUT` | GPIO22 | GPIO28 (AUX2) | ❌ 未迁移 |
-| `MARKER_OUT` | GPIO23 | GPIO29 (AUX3) | ❌ 未迁移 |
+### 2.1 12 个 PIO State Machine 固定定义
 
-### 2.2 迁移步骤
+| PIO | SM | 固定名称 | 固定/保留职责 |
+|---|---:|---|---|
+| `pio0` | `sm0` | `CAPTURE` | `GPIO16..19` 4 bit 输入采样。 |
+| `pio0` | `sm1` | `TIMESTAMP_RESERVED` | 预留给时间戳、捕获 strobe 或外部参考输入处理。 |
+| `pio0` | `sm2` | `RJ45_TRIGGER_IN` | 固定对应 `GPIO19/RJ45_TRIG_IN`；gate/inhibit 是模式层解释。 |
+| `pio0` | `sm3` | `ARM_RESERVED` | 预留给硬件 ARM/DISARM 握手和捕获窗口控制。 |
+| `pio1` | `sm0` | `MAIN_OUTPUT` | 主确定性输出；`TRIG_OUT`、`SEQ_STEP`、`ENC_COUNT` 互斥复用。 |
+| `pio1` | `sm1` | `MAIN_OUT2_LEGACY_CLOCK` | 当前旧同步时钟路径；目标释放为 OUT2/模式本地输出。 |
+| `pio1` | `sm2` | `MAIN_PULSE` | `GPIO21/PULSE_OUT` 第二路脉冲输出。 |
+| `pio1` | `sm3` | `MAIN_OUT3_RJ45_TRIGGER` | `GPIO23/RJ45_TRIG_OUT`；`MARK:*` 仅为历史兼容入口。 |
+| `pio2` | `sm0` | `AUX0_ARM` | `GPIO26/AUX0` 固定输入；`ARM_IN` 或 BiSS `CLK_IN` persona。 |
+| `pio2` | `sm1` | `AUX1_EXT_CLK` | `GPIO27/AUX1` 固定输入；`EXT_CLK_IN` 或 BiSS `DATA_IN` persona。 |
+| `pio2` | `sm2` | `AUX2_SYNC_CLK` | `GPIO28/AUX2` 固定输出；`SYNC_CLK_OUT` 或 BiSS `CLK_OUT` persona。 |
+| `pio2` | `sm3` | `AUX3_TX` | `GPIO29/AUX3` 固定输出；BiSS `DATA_OUT` 或 AUX TX persona。 |
 
-```
-阶段 1：新增 AUX 语义别名宏 (✅ 已完成)
-  board_config.h 新增 BOARD_AUX_ARM_IN_PIN=26,
-  BOARD_AUX_EXT_CLK_IN_PIN=27,
-  BOARD_AUX_SYNC_CLK_OUT_PIN=28,
-  BOARD_AUX_MARKER_OUT_PIN=29
+### 2.2 Board Profile 写死定义
 
-阶段 2：迁移 sync_io 输出路径
-  SYNC_CLK_OUT: pio1/sm1 → pio2/sm2, GPIO22 → GPIO28
-  MARKER_OUT:   pio1/sm3 → pio2/sm3, GPIO23 → GPIO29
-
-阶段 3：接入 ARM_IN 管理面
-  pio2/sm0 配置为 ARM_IN 资格输入
-  TriggerFB 增加 AUX owner/arbiter
-
-阶段 4：释放主输出总线
-  GPIO22/23 变为纯主输出总线 OUT2/OUT3
-  GPIO17/18 用于 ENC_COUNT 模式内主输入组
-```
-
-### 2.3 向后兼容代码
+`board_config.h` 和 `sync_io_hw_profile.h` 应表达同一套固定硬件事实。示例：
 
 ```c
-// board_config.h 中的兼容层
-// 产品 pinout 冻结后移除此兼容层，防止配置漂移
-#if defined(BOARD_REV_A)  // 旧版开发板
-  #define BOARD_SYNC_CLK_OUT_PIN  22
-  #define BOARD_MARKER_OUT_PIN    23
-  #define BOARD_ARM_IN_PIN        17
-  #define BOARD_EXT_CLK_IN_PIN    18
-#else  // 新版量产板 (默认)
-  #define BOARD_SYNC_CLK_OUT_PIN  28  // AUX2
-  #define BOARD_MARKER_OUT_PIN    29  // AUX3
-  #define BOARD_ARM_IN_PIN        26  // AUX0
-  #define BOARD_EXT_CLK_IN_PIN    27  // AUX1
-#endif
+#define BOARD_SYNC_PIO_FAST pio0
+#define BOARD_SYNC_PIO_WAVE pio1
+#define BOARD_SYNC_PIO_AUX  pio2
+
+#define BOARD_SYNC_CAPTURE_SM    0u
+#define BOARD_SYNC_TIMESTAMP_SM  1u
+#define BOARD_SYNC_RJ45_TRIG_IN_SM 2u
+#define BOARD_SYNC_QUALIFIER_SM    BOARD_SYNC_RJ45_TRIG_IN_SM
+#define BOARD_SYNC_ARM_SM        3u
+
+#define BOARD_SYNC_OUTPUT_SM 0u
+#define BOARD_SYNC_CLOCK_SM  1u
+#define BOARD_SYNC_GATE_SM   2u
+#define BOARD_SYNC_MARKER_SM 3u
+
+#define BOARD_SYNC_AUX0_SM 0u
+#define BOARD_SYNC_AUX1_SM 1u
+#define BOARD_SYNC_AUX2_SM 2u
+#define BOARD_SYNC_AUX3_SM 3u
+
+#define BOARD_SYNC_INPUT_BASE_PIN  16u
+#define BOARD_SYNC_OUTPUT_BASE_PIN 20u
+#define BOARD_SYNC_TRIG_IN_PIN     16u
+#define BOARD_SYNC_RJ45_TRIG_IN_PIN  19u
+#define BOARD_SYNC_GATE_IN_PIN       BOARD_SYNC_RJ45_TRIG_IN_PIN
+#define BOARD_SYNC_TRIG_OUT_PIN    20u
+#define BOARD_SYNC_PULSE_OUT_PIN   21u
+#define BOARD_SYNC_RJ45_TRIG_OUT_PIN 23u
+
+#define BOARD_SYNC_AUX0_PIN 26u
+#define BOARD_SYNC_AUX1_PIN 27u
+#define BOARD_SYNC_AUX2_PIN 28u
+#define BOARD_SYNC_AUX3_PIN 29u
+
+#define BOARD_SYNC_AUX_ARM_IN_PIN       BOARD_SYNC_AUX0_PIN
+#define BOARD_SYNC_AUX_EXT_CLK_IN_PIN   BOARD_SYNC_AUX1_PIN
+#define BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN BOARD_SYNC_AUX2_PIN
+#define BOARD_SYNC_AUX3_OUT_PIN         BOARD_SYNC_AUX3_PIN
+
+/* Deprecated compatibility aliases only. They must not redefine hardware. */
+#define BOARD_SYNC_RJ45_TRIGGER_SM BOARD_SYNC_MARKER_SM
+#define BOARD_SYNC_MARKER_OUT_PIN  BOARD_SYNC_RJ45_TRIG_OUT_PIN
 ```
+
+规则：
+
+- `GPIO16..19` 是固定主输入组；`ENC_COUNT` 软件定义为 A/B/Z=`16/17/18`。
+- `GPIO19` 的硬件语义是 `RJ45_TRIG_IN`；`GATE_IN` 是模式层解释。
+- `pio0/sm2` 的硬件 owner 是 `RJ45_TRIGGER_IN`；资格判定、gate/inhibit 不能重新定义该 SM 的硬件归属。
+- `GPIO20..23` 是固定主输出组；`GPIO23` 的硬件语义是 `RJ45_TRIG_OUT`。
+- `GPIO26..29` 是固定 AUX 两收两发；AUX0/1 输入，AUX2/3 输出。
+- `MARKER_OUT` 不再作为独立硬件定义；历史 `MARK:*` 命令只能兼容到 `RJ45_TRIG_OUT`。
+
+### 2.3 分模式引用规则
+
+| 模式/功能 | 引用的固定资源 | 说明 |
+|---|---|---|
+| `IDLE` 即时 `TRIG:IMM` | `pio1/sm0`, `GPIO20/TRIG_OUT` | 只在主输出总线未被 mode 占用时允许。 |
+| `IDLE` 即时 `PULS:IMM` | `pio1/sm2`, `GPIO21/PULSE_OUT` | 第二路脉冲输出，armed 冲突时应拒绝。 |
+| `MARK:*` 兼容命令 | `pio1/sm3`, `GPIO23/RJ45_TRIG_OUT` | deprecated 兼容入口，不代表独立 marker 硬件。 |
+| `SEQ_STEP` | `pio1/sm0`, `GPIO16..19`, `GPIO20..23`, DMA | 独占主输入/输出总线；IN3 硬件为 `RJ45_TRIG_IN`，模式内可解释为 gate/inhibit。 |
+| `ENC_COUNT` | `pio1/sm0`, A/B/Z=`GPIO16/GPIO17/GPIO18`, OUT=`GPIO20`, DMA | ENC 软件定义固定为 3-pin A/B/Z，不占用 `GPIO19/RJ45_TRIG_IN`，不再支持 `TRIG:ENC:APIN 26`。 |
+| `BISS_TAP` | `pio2/sm0/sm2/sm3`, AUX0..AUX3 | AUX0->AUX2 透传 `CLK`，AUX1->AUX3 透传 `DATA`，独占 AUX persona。 |
+| `SYNC_CLK_OUT` 目标路径 | `pio2/sm2`, `GPIO28/AUX2` | 当前旧 `GPIO22` 路径需要后续迁移或在冲突时拒绝。 |
+| `ARM_IN` 目标路径 | `pio2/sm0`, `GPIO26/AUX0` | 作为管理面资格输入，不占用主输入组。 |
+| `EXT_CLK_IN` 目标路径 | `pio2/sm1`, `GPIO27/AUX1` | 作为外部参考/采样时钟输入。 |
+
+### 2.4 迁移策略
+
+迁移不再改变硬件定义，只改变“哪个功能开始引用已冻结的定义”：
+
+1. 先把 board profile 和 `sync_io_hw_profile.h` 固定为上述硬件事实。
+2. mode driver 通过 `sync_io_mode_ops_t.resources` 和 `.hw` 声明固定资源占用。
+3. TriggerFB 在 ARM 前按 mode ops 派生资源 owner；底层 `sync_io_*_arm()` 不重复 acquire。
+4. 旧 SCPI/UI 字段若必须保留，只能作为 deprecated alias，最终仍引用固定硬件语义。
 
 ---
 

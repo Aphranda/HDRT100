@@ -72,6 +72,8 @@ bool sync_io_fire_pulse_out_cycles(uint32_t high_cycles);
 bool sync_io_fire_pulse_out_us(uint32_t high_us);
 bool sync_io_start_clock(uint32_t frequency_hz);
 void sync_io_stop_clock(void);
+/* Deprecated compatibility aliases: legacy marker commands pulse
+ * RJ45_TRIG_OUT; marker is not a separate product hardware signal. */
 bool sync_io_fire_marker_cycles(uint32_t high_cycles);
 bool sync_io_fire_marker_us(uint32_t high_us);
 bool sync_io_fire_rj45_trigger_us(uint32_t high_us);

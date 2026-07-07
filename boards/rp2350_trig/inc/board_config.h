@@ -55,7 +55,10 @@
 
 #define BOARD_SYNC_CAPTURE_SM 0u
 #define BOARD_SYNC_TIMESTAMP_SM 1u
-#define BOARD_SYNC_QUALIFIER_SM 2u
+#define BOARD_SYNC_RJ45_TRIG_IN_SM 2u
+/* Mode-level alias: pio0/sm2 owns the RJ45_TRIG_IN hardware channel;
+ * qualifier/gate/inhibit are software interpretations of that input. */
+#define BOARD_SYNC_QUALIFIER_SM BOARD_SYNC_RJ45_TRIG_IN_SM
 #define BOARD_SYNC_ARM_SM 3u
 
 #define BOARD_SYNC_OUTPUT_SM 0u
@@ -73,17 +76,21 @@
 #define BOARD_SYNC_TRIG_IN_PIN 16u
 #define BOARD_SYNC_ARM_IN_PIN 17u
 #define BOARD_SYNC_EXT_CLK_IN_PIN 18u
-#define BOARD_SYNC_GATE_IN_PIN 19u
+#define BOARD_SYNC_RJ45_TRIG_IN_PIN 19u
+/* Mode-level alias: IN3 can be interpreted as gate/inhibit by software,
+ * but the hardware connector definition is RJ45_TRIG_IN. */
+#define BOARD_SYNC_GATE_IN_PIN BOARD_SYNC_RJ45_TRIG_IN_PIN
 
 #define BOARD_SYNC_OUTPUT_BASE_PIN 20u
 #define BOARD_SYNC_OUTPUT_PIN_COUNT 4u
 #define BOARD_SYNC_TRIG_OUT_PIN 20u
 #define BOARD_SYNC_PULSE_OUT_PIN 21u
 #define BOARD_SYNC_SYNC_CLK_OUT_PIN 22u
-#define BOARD_SYNC_MARKER_OUT_PIN 23u
-#define BOARD_SYNC_RJ45_TRIG_IN_PIN BOARD_SYNC_GATE_IN_PIN
 #define BOARD_SYNC_RJ45_TRIG_OUT_PIN 23u
 #define BOARD_SYNC_RJ45_TRIGGER_SM BOARD_SYNC_MARKER_SM
+/* Deprecated compatibility alias: marker output is no longer a separate
+ * physical product signal; legacy MARK:* commands pulse RJ45_TRIG_OUT. */
+#define BOARD_SYNC_MARKER_OUT_PIN BOARD_SYNC_RJ45_TRIG_OUT_PIN
 
 #define BOARD_SYNC_AUX0_PIN 26u
 #define BOARD_SYNC_AUX1_PIN 27u
@@ -93,11 +100,11 @@
 
 /* Product AUX semantic aliases.
  * Current low-level trigger paths still use the legacy BOARD_SYNC_* pins above.
- * Product migration should move framework-level ARM/EXT_CLK/SYNC/MARKER
- * functions to these AUX aliases so the main trigger IO remains mode-pure. */
+ * Product migration should move framework-level ARM/EXT_CLK/SYNC functions
+ * to these AUX aliases so the main trigger IO remains mode-pure. */
 #define BOARD_SYNC_AUX_ARM_IN_PIN      BOARD_SYNC_AUX0_PIN
 #define BOARD_SYNC_AUX_EXT_CLK_IN_PIN  BOARD_SYNC_AUX1_PIN
 #define BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN BOARD_SYNC_AUX2_PIN
-#define BOARD_SYNC_AUX_MARKER_OUT_PIN  BOARD_SYNC_AUX3_PIN
+#define BOARD_SYNC_AUX3_OUT_PIN        BOARD_SYNC_AUX3_PIN
 
 #endif

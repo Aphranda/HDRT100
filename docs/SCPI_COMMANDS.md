@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/SCPI_COMMANDS.md`
 Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/OTA_SYSTEM_DESIGN.md`, `docs/SD_TODO.md`
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 当前 SCPI 服务通过 Pico SDK `stdio` 通道接入，默认使用 USB CDC。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -44,18 +44,17 @@ Last updated: 2026-07-07
 | `PULS:WIDT?` | 查询 `PULSE_OUT` 脉宽。 |
 | `PULS:IMM` | 立即输出一次 `PULSE_OUT` 脉冲。 |
 
-## Marker 输出
+## RJ45 触发兼容输出
 
-`MARK:*` 是软件 marker/debug/status 语义命令，不是 RJ45 触发硬件通道本身。
-当前固件为兼容旧路径仍从 `GPIO23/OUT3` 输出该脉冲；该物理脚在产品硬件中定义为
-`RJ45_TRIG_OUT`。产品目标是将 marker 迁移到 AUX3/GPIO29，避免与 RJ45 trigger
-和 `SEQ_STEP` bit3 共享主输出通道。
+`MARK:*` 是历史兼容命令。当前硬件定义以 `RJ45_TRIG_OUT=GPIO23/OUT3` 为准，
+不再定义独立 `MARKER_OUT` 物理信号；`MARK:*` 输出的脉冲等价于一次
+`RJ45_TRIG_OUT` 兼容触发。
 
 | 命令 | 说明 |
 |---|---|
-| `MARK:WIDT <us>` | 设置软件 marker 脉宽，单位 us。当前旧路径输出到 `GPIO23/OUT3`。 |
-| `MARK:WIDT?` | 查询 `MARKER_OUT` 脉宽。 |
-| `MARK:IMM` | 立即输出一次软件 marker 脉冲。 |
+| `MARK:WIDT <us>` | 设置兼容触发脉宽，单位 us；输出到 `GPIO23/RJ45_TRIG_OUT`。 |
+| `MARK:WIDT?` | 查询兼容触发脉宽。 |
+| `MARK:IMM` | 立即从 `GPIO23/RJ45_TRIG_OUT` 输出一次兼容触发脉冲。 |
 
 ## 采样配置
 
@@ -84,23 +83,23 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 | 语义通道 | 产品物理通道 | GPIO | 说明 |
 |---|---|---:|---|
 | `TRIG_IN` | IN0 | 16 | 主触发、脉冲计数或编码器 A 相输入。 |
+| `RJ45_TRIG_IN` | IN3 | 19 | RJ45 差分触发硬件输入；模式内也可解释为 gate/inhibit。 |
 | `ARM_IN` | AUX0 | 26 | 外部 ARM 资格/请求；产品目标放在 AUX，避免与 `ENC_COUNT` B 相冲突。当前固件尚未接入 TriggerFB。 |
 | `EXT_CLK_IN` | AUX1 | 27 | 外部参考/采样时钟预留；产品目标放在 AUX，避免污染主输入组。 |
-| `GATE_IN` | IN3 | 19 | 外部门控/抑制；在 `ENC_COUNT` 中由 Z 相占用。 |
+| `GATE_IN` | IN3 | 19 | 模式层门控/抑制解释；底层硬件通道是 `RJ45_TRIG_IN`。 |
 | `RJ45_TRIG_OUT` | OUT3 | 23 | RJ45 差分触发硬件输出；当前 BiSS crossing 使用该硬件语义。 |
 | `TRIG_OUT` | OUT0 | 20 | 主确定性触发输出。 |
 | `PULSE_OUT` | OUT1 | 21 | 第二路脉冲或 `SEQ_STEP` bit1。 |
 | `SYNC_CLK_OUT` | AUX2 | 28 | 同步时钟；产品目标放在 AUX，避免与 `SEQ_STEP` bit2 冲突。当前固件仍在旧路径 GPIO22。 |
-| `MARKER_OUT` | AUX3 | 29 | Marker/debug/status；产品目标放在 AUX，避免与 `SEQ_STEP` bit3 冲突。当前固件仍在旧路径 GPIO23。 |
 
 资源互斥规则：
 
 | 状态/模式 | SCPI 约束 |
 |---|---|
-| `SEQ_STEP` armed | 主输出总线 OUT0..OUT3 被序列引擎独占；`TRIG:IMM`、`PULS:IMM` 这类主总线即时输出应返回 busy 或在 ARM 前关闭。产品迁移后 `SYNC_CLK_OUT`/`MARKER_OUT` 使用 AUX2/AUX3，可独立于序列总线。 |
-| `ENC_COUNT` armed | IN0/IN1/IN3 被 A/B/Z 独占；AUX0=`ARM_IN` 可作为未来独立资格输入。IN3=`GATE_IN` 与 Z 相仍冲突。OUT0 被比较触发占用。 |
+| `SEQ_STEP` armed | 主输出总线 OUT0..OUT3 被序列引擎独占；`TRIG:IMM`、`PULS:IMM`、`MARK:IMM` 这类主总线即时输出应返回 busy 或在 ARM 前关闭。 |
+| `ENC_COUNT` armed | IN0/IN1/IN2 被 A/B/Z 独占；AUX0=`ARM_IN` 可作为未来独立资格输入。IN3=`RJ45_TRIG_IN/GATE_IN` 不被 ENC 软件定义占用。OUT0 被比较触发占用。 |
 | `BISS_ARMED` | BiSS-C TAP 占用 `PIO2 + AUX0..AUX3`，AUX framework 功能应返回 busy/执行错误。 |
-| `IDLE` | 即时脉冲、同步时钟和 Marker 命令可以使用各自语义输出。 |
+| `IDLE` | 即时脉冲、同步时钟和 RJ45 trigger 兼容命令可以使用各自语义输出。 |
 
 硬件已经定型后，`TRIG:ENC:APIN` 只接受 `16`。历史开发诊断入口
 `TRIG:ENC:APIN 26` 已关闭，因为 AUX0/AUX1 是固定差分输入，AUX2/AUX3 是固定
@@ -113,7 +112,8 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 产品硬件默认固定使用统一主触发 IO：输入 `GPIO16..GPIO19`，输出 `GPIO20..GPIO23`。
 这些通道只承载模式相关的高速输入/输出；跨模式功能信号如 `ARM_IN`、`EXT_CLK_IN`、
-`SYNC_CLK_OUT`、`MARKER_OUT` 约束在 AUX0..AUX3。
+`SYNC_CLK_OUT` 等框架辅助输出约束在 AUX0..AUX3；`MARK:*` 不再代表独立 AUX marker，
+而是 `RJ45_TRIG_OUT` 兼容入口。
 
 | 命令 | 说明 |
 |---|---|
@@ -141,12 +141,12 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 | `TRIG:ENC:TARG <N>` | 设置目标计数值，`N > 0`。 |
 | `TRIG:ENC:TARG?` | 查询目标计数值。 |
 | `TRIG:ENC:COUN?` | 查询当前计数快照。 |
-| `TRIG:ENC:APIN <16>` | 选择编码器输入组基脚。硬件固定为 `16` = A/B/Z `GPIO16/GPIO17/GPIO19`。其他值返回执行错误。 |
+| `TRIG:ENC:APIN <16>` | 选择编码器输入组基脚。硬件固定为 `16` = A/B/Z `GPIO16/GPIO17/GPIO18`。其他值返回执行错误。 |
 | `TRIG:ENC:APIN?` | 查询当前 A/B/Z 实际 GPIO，返回 `A,B,Z`。 |
 | `TRIG:ENC:REV?` | 查询 Z 脉冲累计圈数。 |
 
-当前 `enc_count.pio` 使用 4-pin 连续输入组采样：A=base、B=base+1、base+2 保留、
-Z=base+3。因此暂不支持任意非连续 A/B/Z 引脚组合。由于 AUX 硬件已经固定为两收
+当前 `enc_count.pio` 使用 3-pin 连续输入组采样：A=base、B=base+1、Z=base+2。
+因此暂不支持任意非连续 A/B/Z 引脚组合。由于 AUX 硬件已经固定为两收
 两发，量产和调试都不再支持 `TRIG:ENC:APIN 26`。
 
 ## BiSS-C TAP 协议触发模式

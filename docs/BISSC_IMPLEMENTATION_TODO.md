@@ -51,7 +51,7 @@ Last updated: 2026-07-07
 
 - [x] 如果现有 PIO2-only 资源位过粗，为 BiSS AUX 使用增加 resource arbiter bit 或 owner tag。
 - [x] 硬件冻结后关闭 `TRIG:ENC:APIN 26`；增量编码器固定使用 `SYNC_IO`
-      `GPIO16/17/19`，AUX0..AUX3 保留给 BiSS/AUX persona。
+      `GPIO16/17/18`，AUX0..AUX3 保留给 BiSS/AUX persona，GPIO19 保留为 RJ45_TRIG_IN。
 - [x] 当 BiSS 占用相同 AUX 引脚时，拒绝 AUX framework 功能。
 - [x] 在 DISARM、FAULT 和 RESET 时释放所有 BiSS 资源。
 

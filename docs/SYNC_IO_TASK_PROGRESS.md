@@ -111,7 +111,7 @@ Last updated: 2026-07-08
 - 目标：按 HAOFV 分层完成 `SYNC_IO_ARCH_REVIEW_TODO.md` P1-01 到 P1-05，保持 TriggerFB 为唯一 owner 边界，不把资源 acquire 下沉到 mode driver。
 - 完成：`sync_io_mode_ops_t` 增加 `hw` 元数据，记录 PIO instance、SM mask、DMA channel mask 和 IRQ mask；SEQ_STEP/ENC_COUNT 显式声明共享 `pio1/sm0` 和 `DMA_IRQ_0`，BiSS TAP 声明 `pio2/sm0,2,3`。
 - 完成：`trigger_resource_map` 从 mode `.resources` 和 `.hw` 共同派生 `resource_arbiter` mask；`sync_io_core_dma_irq_handler()` 增加 SEQ/ENC 不能同时运行的 ISR 入口断言。
-- 完成：RJ45 trigger 按硬件层语义增加 `BOARD_SYNC_RJ45_TRIG_IN_PIN`、`BOARD_SYNC_RJ45_TRIG_OUT_PIN` 和 `BOARD_SYNC_RJ45_TRIGGER_SM`；marker 保持软件/模式层语义，当前旧路径临时复用 OUT3 的事实写入 SCPI 和资源规划文档。
+- 完成：RJ45 trigger 按硬件层语义增加 `BOARD_SYNC_RJ45_TRIG_IN_PIN`、`BOARD_SYNC_RJ45_TRIG_OUT_PIN` 和 `BOARD_SYNC_RJ45_TRIGGER_SM`；硬件定义优先，历史 `MARK:*` 兼容命令输出到 `RJ45_TRIG_OUT`，不再定义独立 marker 物理信号。
 - 完成：`SYNC_IO_MODE_VOID_DISPATCH()` 宏替代三个 mode wrapper 中重复的 `const void*` 转 typed config 胶水函数。
 - 完成：预留 mode (`AUX_DIFF_TRIGGER`、`SELF_CAL`) 在 `sync_io_mode_get_ops()` 中显式返回 NULL，`sync_io_mode_get_by_index()` 只枚举已实现 mode。
 - 完成：`TRIG_MODE_BISS_BRIDGE` 保留为 deprecated 兼容别名；真实语义使用 `TRIG_MODE_PROTOCOL_TRIGGER + protocol + biss_role`，Bridge 是 BiSS role 子角色。
@@ -120,6 +120,40 @@ Last updated: 2026-07-08
 - 验证：`picotool load -f build-codex-sync-refactor\RP2350_TRIG_FACTORY.uf2` 烧录通过；`picotool verify -f build-codex-sync-refactor\RP2350_TRIG_FACTORY.uf2` Flash verify 通过。
 - 验证：`python tools\sd_board_validate\sd_board_validate.py COM5 --validate-resource-owner --validate-trigger-release --out-dir build-codex-sync-refactor\sd_validation_p1_sync_arch` 通过，覆盖 mode resource map、SEQ/ENC/BISS owner 和 RESET/FAULT release。
 - 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_p1_sync_arch` 通过，确认 BiSS TAP 和 RJ45 trigger 语义入口未回退。
-- 风险：P1 仍未把 marker 物理输出迁移到 AUX3；本次只完成语义拆分和文档约束，实际迁移属于后续 AUX framework 输出路径改造。
-- 后续：进入 P2 或 AUX 输出迁移任务时，优先把 `MARKER_OUT` 从旧 `GPIO23/OUT3` 移到 AUX3，并让 `MARK:*` 命令在 RJ45/SEQ 占用 OUT3 时不再共享主输出路径。
+- 风险：历史 ABI 中仍保留 `MARK:*` / `marker_width_us` 名称；这些名称只表示 RJ45 trigger 兼容入口，不表示独立硬件输出。
+- 后续：如需继续清理，可在 SCPI/UI 层新增正式 `RJ45:*` 命令，再把 `MARK:*` 标记为 deprecated 兼容命令。
 - 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/inc/sync_io_mode.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io_mode_*.c`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_resource_map.c`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`，`docs/SYNC_IO_RESOURCE_PLAN.md`，`docs/SCPI_COMMANDS.md`。
+
+### SYNC_IO-TASK-20260708-008 - RJ45_TRIG 硬件定义优先收口
+
+- 目标：按硬件定义优先原则，舍弃独立 `MARKER_OUT` 物理信号，将历史 `MARK:*` 命令收敛为 `RJ45_TRIG_OUT` 兼容入口，避免 `pio1/sm3` 误驱动 AUX3/GPIO29。
+- 完成：`BOARD_SYNC_MARKER_OUT_PIN` 改为 deprecated alias，指向 `BOARD_SYNC_RJ45_TRIG_OUT_PIN`；`BOARD_SYNC_AUX3_OUT_PIN` 只表示 AUX3 固定输出，不再承载 marker 语义。
+- 完成：`sync_io_init()` 使用 `BOARD_SYNC_RJ45_TRIGGER_SM` + `BOARD_SYNC_RJ45_TRIG_OUT_PIN` 初始化 `pio1/sm3`；旧 `sync_io_fire_marker_*()` 保留为 RJ45 trigger 兼容函数。
+- 完成：TriggerFB 的 `TRIG_EVENT_FIRE_MARKER` 直接调用 `sync_io_fire_rj45_trigger_us()`；`trigger_vector.h` 和 `sync_trigger.h` 对历史 marker event/field 增加 deprecated RJ45 compat 注释。
+- 完成：同步更新 `SYNC_IO_REFACTOR_PLAN.md`、`SYNC_IO_RESOURCE_PLAN.md`、`SCPI_COMMANDS.md`、`SYNC_IO_ARCH_REVIEW_TODO.md`、HAOFV 文档、BiSS 硬件约束文档和 Trigger 待办，明确 AUX3 不再是 marker 目标。
+- 验证：`cmake --build build-codex-sync-refactor` 通过，生成 build id `20260707170752` 的 factory/update 产物。
+- 验证：`python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\biss_board_validate\biss_board_validate.py` 通过。
+- 验证：`picotool reboot -f -u` 后 `picotool load -x build-codex-sync-refactor\RP2350_TRIG_FACTORY.uf2` 烧录并启动应用成功。
+- 验证：`python tools\sd_board_validate\sd_board_validate.py COM5 --validate-resource-owner --validate-trigger-release --out-dir build-codex-sync-refactor\sd_validation_rj45_hw_definition` 通过，`summary.txt` 为 `PASS`。
+- 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_rj45_hw_definition` 通过，确认 BiSS TAP 与 RJ45 trigger 语义入口未回退。
+- 风险：SCPI/UI/TriggerVector 仍保留 `MARK:*` / `marker_width_us` 历史命名；短期作为 ABI 兼容保留，后续可新增正式 `RJ45:*` 命令再逐步 deprecated。
+- 后续：如继续清理命名，应先增加 `RJ45:*` SCPI/UI 入口和状态字段，再保留 `MARK:*` 作为兼容别名，不改动 `GPIO23/RJ45_TRIG_OUT` 硬件定义。
+- 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io.h`，`components/sync_io/src/sync_io.c`，`components/sync_trigger/inc/sync_trigger.h`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_fb.c`，`docs/SYNC_IO_REFACTOR_PLAN.md`，`docs/SYNC_IO_RESOURCE_PLAN.md`，`docs/SCPI_COMMANDS.md`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`，`docs/SYNC_IO_TASK_PROGRESS.md`，`docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，`docs/BISSC_TAP_BRIDGE_DESIGN.md`，`docs/HAOFV_ARCHITECTURE.md`，`docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`，`docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`，`docs/TRIGGER_SYNC_TODO.md`。
+
+### SYNC_IO-TASK-20260708-009 - ENC_COUNT 3-pin 软件定义收口
+
+- 目标：按硬件定义优先原则固定 `GPIO19/RJ45_TRIG_IN`，将 ENC_COUNT 软件定义收口为 A/B/Z=`GPIO16/GPIO17/GPIO18`，避免 ENC 再占用 IN3。
+- 完成：`SYNC_IO_HW_ENC_Z_PIN` 改为 `BOARD_SYNC_INPUT_BASE_PIN + 2`；`sync_io_hw_enc_pins_valid()`、TriggerVector 默认值和 `TRIG:ENC:APIN` 事件载荷均使用 A=16、B=17、Z=18。
+- 完成：`enc_count.pio` 从 4-pin 采样改为 3-pin contiguous 采样，Z 从 bit2 提取；PIO init/disarm 只初始化和释放 GPIO16..18，不再触碰 GPIO19。
+- 完成：`sync_io_enc_count_mode_validate()` 只接受 `in_pin_base=16` 且 Z=`base+2`；`TRIG:ENC:APIN 26` 继续作为关闭能力返回执行错误。
+- 完成：同步更新 HAOFV、SYNC_IO、SCPI、BiSS 和 Trigger 文档，明确 `GPIO19` 是 `RJ45_TRIG_IN`，`GATE_IN` 只是模式层解释，ENC Z 不再使用 IN3。
+- 验证：`cmake --build build-codex-sync-refactor` 通过，生成 build id `20260707172833` 的 factory/update 产物。
+- 验证：`python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\biss_board_validate\biss_board_validate.py` 通过。
+- 验证：`git diff --check boards/rp2350_trig/inc/board_config.h components/sync_io/inc/sync_io_hw_profile.h components/sync_io/src/enc_count.pio components/sync_io/src/sync_io_mode_enc_count.c components/sync_trigger/inc/trigger_vector.h docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md docs/HAOFV_ARCHITECTURE.md docs/SCPI_COMMANDS.md docs/SYNC_IO_RESOURCE_PLAN.md docs/SYNC_IO_REFACTOR_PLAN.md docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md docs/BISSC_TAP_BRIDGE_DESIGN.md docs/BISSC_IMPLEMENTATION_TODO.md docs/TRIGGER_SYNC_TODO.md docs/TRIGGER_ENC_COUNT_DESIGN.md docs/TRIGGER_PULSE_COUNT_ANALYSIS.md` 通过，仅有既有 CRLF warning。
+- 验证：`picotool reboot -f -u` 后 `picotool load -x build-codex-sync-refactor\RP2350_TRIG_FACTORY.uf2` 烧录并启动应用成功；板端 `SYST:FW:BUILD?` 返回 `"20260707172833"`。
+- 验证：`python tools\sd_board_validate\sd_board_validate.py COM5 --validate-resource-owner --validate-trigger-release --out-dir build-codex-sync-refactor\sd_validation_enc_3pin_pinout_final` 通过，`summary.txt` 为 `PASS`。
+- 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_enc_3pin_pinout_final` 通过，确认 BiSS TAP 未被 ENC pinout 调整回退。
+- 验证：板端 `TRIG:ENC:APIN?` 返回 `16,17,18`；执行 `TRIG:ENC:APIN 26` 后 `SYST:ERR?` 返回 `-200,"Execution error"`，再次查询仍为 `16,17,18`。
+- 风险：`docs/TASK_PROGRESS.md` 中仍保留迁移前历史记录的旧 ENC 16/17/19 描述；按文档规则该文件作为全局历史保留，不作为当前硬件约束入口。
+- 后续：如继续推进 P2 自检，应在板端闭环脚本中增加 ENC A/B/Z loopback 或外部回放验证，覆盖真实 A/B/Z 脉冲输入，而不仅是 SCPI 配置与资源 owner 断言。
+- 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/src/enc_count.pio`，`components/sync_io/src/sync_io_mode_enc_count.c`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_fb.c`，`docs/SYNC_IO_REFACTOR_PLAN.md`，`docs/SYNC_IO_RESOURCE_PLAN.md`，`docs/SCPI_COMMANDS.md`，`docs/HAOFV_ARCHITECTURE.md`，`docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`，`docs/SYNC_IO_TASK_PROGRESS.md`。
