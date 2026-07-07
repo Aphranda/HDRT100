@@ -28,6 +28,7 @@ set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors
 set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA validation SCPI commands")
 set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
 set(PROJECT_USE_FREERTOS OFF CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
+set(PROJECT_USE_MULTICORE OFF CACHE BOOL "Run realtime trigger service on RP2350 core1 in baremetal builds")
 set_property(CACHE PROJECT_OTA_DEFAULT_BOOT_MODE PROPERTY STRINGS COPY_TO_ACTIVE DIRECT_AB)
 
 if(PROJECT_OTA_DEFAULT_BOOT_MODE STREQUAL "DIRECT_AB")
@@ -36,6 +37,10 @@ elseif(PROJECT_OTA_DEFAULT_BOOT_MODE STREQUAL "COPY_TO_ACTIVE")
     set(PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB OFF)
 else()
     message(FATAL_ERROR "PROJECT_OTA_DEFAULT_BOOT_MODE must be COPY_TO_ACTIVE or DIRECT_AB")
+endif()
+
+if(PROJECT_USE_MULTICORE AND PROJECT_USE_FREERTOS)
+    message(FATAL_ERROR "PROJECT_USE_MULTICORE=ON is only supported for baremetal builds in this phase")
 endif()
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
@@ -56,6 +61,10 @@ set(PROJECT_FATFS_SOURCE_DIR ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source CACHE
 set(PROJECT_FATFS_CONFIGURED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/fatfs)
 set(PROJECT_OSAL_SOURCES osal/port/baremetal/osal_baremetal.c)
 set(PROJECT_APP_EXTRA_LIBS)
+
+if(PROJECT_USE_MULTICORE)
+    list(APPEND PROJECT_APP_EXTRA_LIBS pico_multicore)
+endif()
 
 if(PROJECT_USE_FREERTOS)
     if(NOT EXISTS ${PROJECT_FREERTOS_KERNEL_DIR}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake)
@@ -260,6 +269,7 @@ function(project_configure_app_target target_name app_name linker_script)
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
         PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>
         PROJECT_USE_FREERTOS=$<BOOL:${PROJECT_USE_FREERTOS}>
+        PROJECT_USE_MULTICORE=$<BOOL:${PROJECT_USE_MULTICORE}>
         PORTABLE_OTA_PORT_ENABLE_SESSION=1
         SCPI_USER_CONFIG=1
         PICO_TARGET_NAME="${target_name}"

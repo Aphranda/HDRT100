@@ -338,37 +338,54 @@ static void ao_execute_traced(const trig_event_t *event)
 
 static bool ao_enqueue(const trig_event_t *event)
 {
+    bool posted = false;
+    uint32_t queue_count = 0u;
+
+    osal_critical_enter();
     if (s_ao.queue_count >= SYNC_TRIGGER_QUEUE_LENGTH) {
         s_ao.vector.missed_count++;
+        queue_count = s_ao.queue_count;
+        osal_critical_exit();
         storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
                                     TRIG_TRACE_EVENT_QUEUE_FULL,
                                     TRIG_TRACE_SEVERITY_WARN,
                                     event != NULL ? (uint32_t)event->type : 0xFFFFFFFFu,
-                                    s_ao.queue_count);
+                                    queue_count);
         return false;
     }
 
     s_ao.queue[s_ao.queue_tail] = *event;
     s_ao.queue_tail = (s_ao.queue_tail + 1u) % SYNC_TRIGGER_QUEUE_LENGTH;
     s_ao.queue_count++;
+    queue_count = s_ao.queue_count;
+    posted = true;
+    osal_critical_exit();
+
     storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
                                 TRIG_TRACE_EVENT_QUEUE_POST,
                                 TRIG_TRACE_SEVERITY_INFO,
                                 (uint32_t)event->type,
-                                s_ao.queue_count);
-    return true;
+                                queue_count);
+    return posted;
 }
 
 static bool ao_dequeue(trig_event_t *event)
 {
+    bool received = false;
+
+    osal_critical_enter();
     if (s_ao.queue_count == 0u) {
-        return false;
+        goto exit;
     }
 
     *event = s_ao.queue[s_ao.queue_head];
     s_ao.queue_head = (s_ao.queue_head + 1u) % SYNC_TRIGGER_QUEUE_LENGTH;
     s_ao.queue_count--;
-    return true;
+    received = true;
+
+exit:
+    osal_critical_exit();
+    return received;
 }
 
 /* ── sync_io 状态同步 ── */
@@ -378,10 +395,12 @@ static void ao_refresh_from_io(void)
     sync_io_status_t status;
     sync_io_get_status(&status);
 
+    osal_critical_enter();
     s_ao.vector.io_initialized = status.initialized;
     s_ao.vector.capture_running = status.capture_running;
     s_ao.vector.sync_clock_running = status.sync_clock_running;
     s_ao.vector.dropped_capture_words = status.dropped_capture_words;
+    osal_critical_exit();
 
     resource_arbiter_publish_trigger_activity(status.capture_running,
                                               status.sync_clock_running);
@@ -440,6 +459,13 @@ void sync_trigger_service(void)
     trig_event_t event;
 
     if (!ao_dequeue(&event)) {
+#if PROJECT_USE_MULTICORE
+        if (s_ao.vector.state != TRIG_STATE_SEQ_ARMED &&
+            s_ao.vector.state != TRIG_STATE_ENC_ARMED &&
+            s_ao.vector.state != TRIG_STATE_BISS_ARMED) {
+            return;
+        }
+#endif
         /* 无事件时仍同步 ARM 态 PIO 状态 */
         if (s_ao.vector.state == TRIG_STATE_SEQ_ARMED ||
             s_ao.vector.state == TRIG_STATE_ENC_ARMED) {

@@ -1,13 +1,26 @@
 #include "osal.h"
 
 #include "hardware/sync.h"
+#if PROJECT_USE_MULTICORE
+#include "hardware/sync/spin_lock.h"
+#include "pico/platform.h"
+#endif
 #include "pico/stdlib.h"
 
+#if PROJECT_USE_MULTICORE
+static spin_lock_t *s_osal_lock;
+static uint32_t s_osal_irq_state[2];
+static uint32_t s_osal_critical_depth[2];
+#else
 static uint32_t s_osal_irq_state;
 static uint32_t s_osal_critical_depth;
+#endif
 
 bool osal_kernel_init(void)
 {
+#if PROJECT_USE_MULTICORE
+    s_osal_lock = spin_lock_instance(PICO_SPINLOCK_ID_OS1);
+#endif
     return true;
 }
 
@@ -26,14 +39,33 @@ void osal_kernel_start(void)
 
 void osal_critical_enter(void)
 {
+#if PROJECT_USE_MULTICORE
+    const uint core = get_core_num();
+    if (s_osal_critical_depth[core] == 0u) {
+        s_osal_irq_state[core] = spin_lock_blocking(s_osal_lock);
+    }
+    s_osal_critical_depth[core]++;
+#else
     if (s_osal_critical_depth == 0u) {
         s_osal_irq_state = save_and_disable_interrupts();
     }
     s_osal_critical_depth++;
+#endif
 }
 
 void osal_critical_exit(void)
 {
+#if PROJECT_USE_MULTICORE
+    const uint core = get_core_num();
+    if (s_osal_critical_depth[core] == 0u) {
+        return;
+    }
+
+    s_osal_critical_depth[core]--;
+    if (s_osal_critical_depth[core] == 0u) {
+        spin_unlock(s_osal_lock, s_osal_irq_state[core]);
+    }
+#else
     if (s_osal_critical_depth == 0u) {
         return;
     }
@@ -42,6 +74,7 @@ void osal_critical_exit(void)
     if (s_osal_critical_depth == 0u) {
         restore_interrupts(s_osal_irq_state);
     }
+#endif
 }
 
 void osal_delay_ms(uint32_t delay_ms)

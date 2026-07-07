@@ -2,6 +2,9 @@
 #include "board.h"
 #include "diagnostics.h"
 #include "osal.h"
+#if PROJECT_USE_MULTICORE
+#include "pico/multicore.h"
+#endif
 #include "pico/stdlib.h"
 
 static void app_blink_fault_forever(void)
@@ -105,6 +108,20 @@ static void task_ui(void *context)
 }
 #endif
 
+#if PROJECT_USE_MULTICORE && !PROJECT_USE_FREERTOS
+static void core1_realtime_entry(void)
+{
+    while (!app_is_ready()) {
+        tight_loop_contents();
+    }
+
+    while (true) {
+        app_realtime_run_once();
+        tight_loop_contents();
+    }
+}
+#endif
+
 int main(void)
 {
 #if PROJECT_USE_FREERTOS
@@ -175,9 +192,17 @@ int main(void)
     (void)osal_kernel_init();
     (void)app_bringup();
 
+#if PROJECT_USE_MULTICORE
+    multicore_launch_core1(core1_realtime_entry);
+#endif
+
     while (true) {
         board_service();
+#if PROJECT_USE_MULTICORE
+        app_management_run_once();
+#else
         app_run_once();
+#endif
     }
 #endif
 }

@@ -16,6 +16,7 @@
 
 #define APP_UI_REFRESH_PERIOD_MS 250u
 #define APP_UI_KEY_DEBOUNCE_MS 35u
+#define APP_LOG_SERVICE_BYTES 256u
 
 static uint32_t s_last_tick_ms;
 static uint32_t s_last_ui_refresh_ms;
@@ -147,6 +148,8 @@ void app_diag_service(void)
 {
     const uint32_t now_ms = board_uptime_ms();
 
+    diagnostics_service(APP_LOG_SERVICE_BYTES);
+
     if ((uint32_t)(now_ms - s_last_tick_ms) >= PROJECT_LOOP_PERIOD_MS) {
         s_last_tick_ms = now_ms;
         diagnostics_heartbeat(PROJECT_HEALTH_LOG_PERIOD_MS);
@@ -160,6 +163,7 @@ static void app_storage_service(void)
 
 void app_run_once(void)
 {
+    diagnostics_record_core0_loop();
     app_comm_service();
     app_trigger_service();
     app_ota_service();
@@ -167,4 +171,21 @@ void app_run_once(void)
     app_ui_service();
     app_diag_service();
     osal_delay_ms(1u);
+}
+
+void app_management_run_once(void)
+{
+    diagnostics_record_core0_loop();
+    app_comm_service();
+    app_ota_service();
+    app_storage_service();
+    app_ui_service();
+    app_diag_service();
+    osal_delay_ms(1u);
+}
+
+void app_realtime_run_once(void)
+{
+    diagnostics_record_core1_loop();
+    app_trigger_service();
 }

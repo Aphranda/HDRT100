@@ -211,6 +211,28 @@ static scpi_result_t scpi_cmd_log_status_q(scpi_t *context)
     for (uint32_t i = 0u; i < (uint32_t)DIAG_LEVEL_COUNT; i++) {
         SCPI_ResultUInt32(context, status.dropped_count[i]);
     }
+    for (uint32_t i = 0u; i < (uint32_t)DIAG_LEVEL_COUNT; i++) {
+        SCPI_ResultUInt32(context, status.truncated_count[i]);
+    }
+    for (uint32_t i = 0u; i < (uint32_t)DIAG_LEVEL_COUNT; i++) {
+        SCPI_ResultUInt32(context, status.emit_failed_count[i]);
+    }
+    SCPI_ResultUInt32(context, status.queue_dropped_count);
+    SCPI_ResultUInt32(context, status.queue_bytes);
+    SCPI_ResultUInt32(context, status.queue_high_watermark);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_core_status_q(scpi_t *context)
+{
+    diagnostics_core_status_t status;
+    diagnostics_get_core_status(&status);
+
+    SCPI_ResultBool(context, status.core1_enabled ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.core0_loop_count);
+    SCPI_ResultUInt32(context, status.core1_loop_count);
+    SCPI_ResultUInt32(context, status.core0_last_ms);
+    SCPI_ResultUInt32(context, status.core1_last_ms);
     return SCPI_RES_OK;
 }
 
@@ -2496,6 +2518,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:LOG:LEVel", .callback = scpi_cmd_log_level},
     {.pattern = "SYSTem:LOG:LEVel?", .callback = scpi_cmd_log_level_q},
     {.pattern = "SYSTem:LOG:STATus?", .callback = scpi_cmd_log_status_q},
+    {.pattern = "SYSTem:CORE?", .callback = scpi_cmd_core_status_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
 #endif
@@ -2536,6 +2559,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "TRIGger:SEQ:DATA?", .callback = scpi_cmd_trigger_seq_data_q},
     {.pattern = "TRIGger:ARM", .callback = scpi_cmd_trigger_arm},
     {.pattern = "TRIGger:DISarm", .callback = scpi_cmd_trigger_disarm},
+    {.pattern = "TRIGger:DISAble", .callback = scpi_cmd_trigger_disarm},
     {.pattern = "TRIGger:FAULT", .callback = scpi_cmd_trigger_fault},
     {.pattern = "TRIGger:ENC:TARGet", .callback = scpi_cmd_enc_target},
     {.pattern = "TRIGger:ENC:TARGet?", .callback = scpi_cmd_enc_target_q},

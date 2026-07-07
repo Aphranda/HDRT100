@@ -14,7 +14,8 @@
         "PROJECT_WARNINGS_AS_ERRORS": "ON",
         "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
         "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
-        "PROJECT_USE_FREERTOS": "OFF"
+        "PROJECT_USE_FREERTOS": "OFF",
+        "PROJECT_USE_MULTICORE": "OFF"
       }
     },
     {
@@ -30,7 +31,8 @@
         "PROJECT_WARNINGS_AS_ERRORS": "ON",
         "PROJECT_ENABLE_OTA_FAULT_INJECTION": "ON",
         "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
-        "PROJECT_USE_FREERTOS": "OFF"
+        "PROJECT_USE_FREERTOS": "OFF",
+        "PROJECT_USE_MULTICORE": "OFF"
       }
     },
     {
@@ -46,7 +48,8 @@
         "PROJECT_WARNINGS_AS_ERRORS": "ON",
         "PROJECT_ENABLE_OTA_FAULT_INJECTION": "ON",
         "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
-        "PROJECT_USE_FREERTOS": "OFF"
+        "PROJECT_USE_FREERTOS": "OFF",
+        "PROJECT_USE_MULTICORE": "OFF"
       }
     },
     {
@@ -62,7 +65,25 @@
         "PROJECT_WARNINGS_AS_ERRORS": "ON",
         "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
         "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
-        "PROJECT_USE_FREERTOS": "ON"
+        "PROJECT_USE_FREERTOS": "ON",
+        "PROJECT_USE_MULTICORE": "OFF"
+      }
+    },
+    {
+      "name": "pico2-multicore-smoke",
+      "displayName": "Pico 2 Multicore Smoke",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-multicore-smoke",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PICO_BOARD": "pico2",
+        "PROJECT_ENABLE_USB_STDIO": "ON",
+        "PROJECT_ENABLE_UART_STDIO": "OFF",
+        "PROJECT_WARNINGS_AS_ERRORS": "ON",
+        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
+        "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
+        "PROJECT_USE_FREERTOS": "OFF",
+        "PROJECT_USE_MULTICORE": "ON"
       }
     }
   ],
@@ -82,6 +103,10 @@
     {
       "name": "pico2-rtos-smoke",
       "configurePreset": "pico2-rtos-smoke"
+    },
+    {
+      "name": "pico2-multicore-smoke",
+      "configurePreset": "pico2-multicore-smoke"
     }
   ]
 }

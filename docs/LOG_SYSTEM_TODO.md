@@ -22,6 +22,7 @@ SNAPSHOT/REPORT 给故障闭环归档。
 - [x] 增加日志发出/丢弃计数，便于确认调试日志是否被过滤。
 - [x] 增加 SCPI 控制面：`SYST:LOG:LEV`、`SYST:LOG:LEV?`、`SYST:LOG:STAT?`。
 - [x] 将 LOG 等级名称、跨层等级映射和统计拷贝改为表驱动，符合 HAOFV “表负责规则、流程负责执行”的约束。
+- [x] 完善 `portable_log` 长期演进基础：可选锁回调、emit 成功语义、截断计数、输出失败计数和边界单测。
 - [ ] 更新板端验证工具，在 smoke 开始前查询并记录 `SYST:LOG:STAT?`。
 - [ ] 为 BiSS ARM/timeout/sample scan 增加可解码 trace 事件名，不新增硬实时热路径写入。
 - [ ] 补齐 `sd_trace_decode.py` 中 BiSS trigger state/event 名称。
@@ -32,6 +33,7 @@ SNAPSHOT/REPORT 给故障闭环归档。
 - [ ] 定义统一 domain/event id 分配表，避免 trigger/sync_io/storage/BiSS 事件号散落在源码里。
 - [ ] 为 LOG 增加 module/domain 级开关：全局最小等级 + 单域覆盖。
 - [ ] 增加周期日志限速策略，避免 health/debug 日志干扰 SCPI、OTA 和 binary block。
+- [x] 将 `portable_log_port` 从同步直写演进为 ring buffer + service flush，缩短 critical section 并为多 backend 做准备。
 - [ ] 增加 `/logs/run` 文本日志落盘 job，必须走 StorageAO，禁止在 SCPI 回调或 IRQ 中直接写 SD。
 - [ ] 增加 ring buffer 快照命令：查询最近 N 条文本 LOG 或 trace 摘要，避免必须拔卡。
 - [ ] 将板端验证工具统一收集 `queries.txt`、`log_status`、`trace_last`、`snapshot_last`。

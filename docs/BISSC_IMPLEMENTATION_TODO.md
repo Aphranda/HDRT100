@@ -69,6 +69,7 @@ position crossing 决策。2026-07-07 闭环验证中修复了 PIO `PIO_FIFO_JOI
 
 - [x] Host 单元测试：CRC6、profile validation、bit extraction、crossing 和 modulo wrap。
 - [x] 固件 smoke test：配置 TAP profile、ARM、软件帧 crossing、DISARM、查询统计；2026-07-07 使用 COM4 烧录 `build-biss-integration\RP2350_TRIG.elf` 后通过，结果归档在 `build\biss_validation_flash_loop_5`。
+- [x] 单核 factory 闭环验证：2026-07-07 烧录 `build-biss-integration\RP2350_TRIG_FACTORY.uf2`，build id `20260707081355`；`SYST:CORE?` 返回 `0,9908,0,16184,0`，确认 core1 关闭；SEQ_STEP `TRIG:MODE 1 -> TRIG:ARM -> TRIG:DISA` 通过且 `SYST:ERR? -> 0,"No error"`；BiSS board smoke `python tools\biss_board_validate\biss_board_validate.py COM4 --out-dir build-biss-integration\biss_validation_singlecore` 通过，结果归档在 `build-biss-integration\biss_validation_singlecore`。
 - [ ] 使用 PIO simulator 或逻辑发生器做 1 MHz 测试；已新增 `tools/biss_wavegen/biss_wavegen.py` 生成固定 CLK/DATA CSV，待接入逻辑发生器或 PIO 仿真。
 - [ ] 使用示波器在 5 MHz 下验证 sample window 和 `TRIG_OUT` latency。
 - [ ] TAP 透明性测试：确认不驱动上游 DATA/CLK。

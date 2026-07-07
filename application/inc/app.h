@@ -6,6 +6,8 @@
 bool app_init(void);
 bool app_is_ready(void);
 void app_run_once(void);
+void app_management_run_once(void);
+void app_realtime_run_once(void);
 void app_comm_service(void);
 void app_trigger_service(void);
 void app_ota_service(void);

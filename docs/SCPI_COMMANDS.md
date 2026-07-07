@@ -19,7 +19,8 @@
 | `SYST:BOOT:CAP?` | 查询当前 metadata 中记录的 Bootloader/OTA 能力位，`bit0=COPY_TO_ACTIVE`，`bit1=DIRECT_AB`。 |
 | `SYST:LOG:LEV <0..3>` | 设置文本日志最小输出等级：`0=DEBUG`、`1=INFO`、`2=WARN`、`3=ERROR`。默认 `INFO`。 |
 | `SYST:LOG:LEV?` | 查询当前文本日志最小输出等级，返回名称和值。 |
-| `SYST:LOG:STAT?` | 查询文本日志统计：当前等级、等级值、DEBUG/INFO/WARN/ERROR 发出计数、DEBUG/INFO/WARN/ERROR 丢弃计数。 |
+| `SYST:LOG:STAT?` | 查询文本日志统计：当前等级、等级值、DEBUG/INFO/WARN/ERROR 发出计数、过滤丢弃计数、截断计数、输出失败计数，以及队列丢弃数、当前队列字节数、队列高水位。 |
+| `SYST:CORE?` | 查询核心运行状态：core1 是否启用、core0/core1 循环计数、core0/core1 最近一次心跳毫秒时间戳。 |
 
 ## 触发输出
 
@@ -114,7 +115,7 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 | `TRIG:SEQ:DATA <binary_block>` | 写入编码表（二进制块，长度=4×seq_length）。 |
 | `TRIG:SEQ:DATA?` | 回读编码表。 |
 | `TRIG:ARM` | 加载 PIO + DMA，进入 SEQ_ARMED。 |
-| `TRIG:DISA` | 停止 PIO + DMA，回到 IDLE。 |
+| `TRIG:DISA` / `TRIG:DISarm` | 停止 PIO + DMA，回到 IDLE；兼容旧脚本中的 `TRIG:DIS` 缩写。 |
 | `TRIG:FAULT` | 维护/验证命令：先强制触发 Trigger fault，再投递 StorageAO `FAULT_EVIDENCE` job 在 FAULT 后后台写入 snapshot/trace/report。 |
 | `STAT:TRIG?` | 触发域摘要：模式、状态、seq_index、rollover_count、error_code。 |
 
@@ -138,7 +139,7 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 BiSS-C P0 阶段只实现 TAP monitor：监听 AUX0/AUX1 上的 CLK/DATA，按固定 profile 抽取 position，并在 crossing 命中后从 `TRIG_OUT` 输出触发。`TRIG:BISS:ROLE` 保留未来角色的数值兼容关系：`0=TAP`、`1=SLAVE`、`2=MASTER`、`3=BRIDGE`。当前只有 `0=TAP` 可配置和 ARM；非 TAP role 可写入用于兼容/显示，但 `TRIG:MODE 3` 或 `TRIG:ARM` 会返回执行错误，`STAT:BISS?` 中 role 状态返回 `NOT_IMPLEMENTED`。
 
-P0 profile mutation 在 `BISS_ARMED` 状态下会返回错误；应先 `TRIG:DISA`，修改 profile 后再 `TRIG:MODE 3` 和 `TRIG:ARM`。
+P0 profile mutation 在 `BISS_ARMED` 状态下会返回错误；应先 `TRIG:DISA` 或 `TRIG:DISarm`，修改 profile 后再 `TRIG:MODE 3` 和 `TRIG:ARM`。
 
 | 命令 | 说明 |
 |---|---|

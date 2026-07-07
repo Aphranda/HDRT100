@@ -14,3 +14,5 @@ adapter instead of including `pota_*` headers directly.
 stdio platform. Product components should include the middleware adapter or the
 diagnostics facade instead of including `portable_log.h` directly. Keep level
 mapping, backend routing, and future domain policy table-driven in this adapter.
+The current adapter queues completed log lines in a fixed ring buffer and flushes
+them from the diagnostics service loop.

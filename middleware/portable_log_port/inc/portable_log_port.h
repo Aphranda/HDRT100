@@ -17,9 +17,15 @@ typedef struct {
     portable_log_port_level_t min_level;
     uint32_t emitted_count[PORTABLE_LOG_PORT_LEVEL_COUNT];
     uint32_t dropped_count[PORTABLE_LOG_PORT_LEVEL_COUNT];
+    uint32_t truncated_count[PORTABLE_LOG_PORT_LEVEL_COUNT];
+    uint32_t emit_failed_count[PORTABLE_LOG_PORT_LEVEL_COUNT];
+    uint32_t queue_dropped_count;
+    uint32_t queue_bytes;
+    uint32_t queue_high_watermark;
 } portable_log_port_status_t;
 
 void portable_log_port_init(void);
+void portable_log_port_service(uint32_t max_bytes);
 void portable_log_port_write(portable_log_port_level_t level,
                              const char *module,
                              const char *fmt,

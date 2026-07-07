@@ -19,6 +19,20 @@ static bool portable_log_valid_level(portable_log_level_t level)
     return (uint32_t)level < (uint32_t)PORTABLE_LOG_LEVEL_COUNT;
 }
 
+static void portable_log_lock(portable_log_t *log)
+{
+    if (log->config.lock != NULL) {
+        log->config.lock(log->config.user);
+    }
+}
+
+static void portable_log_unlock(portable_log_t *log)
+{
+    if (log->config.unlock != NULL) {
+        log->config.unlock(log->config.user);
+    }
+}
+
 const char *portable_log_level_name(portable_log_level_t level)
 {
     if (!portable_log_valid_level(level) || s_level_table[level].level != level) {
@@ -32,6 +46,7 @@ bool portable_log_init(portable_log_t *log, const portable_log_config_t *config)
 {
     if (log == NULL || config == NULL ||
         config->emit == NULL ||
+        (config->lock == NULL) != (config->unlock == NULL) ||
         config->line_buffer == NULL ||
         config->line_buffer_size < 32u ||
         !portable_log_valid_level(config->min_level)) {
@@ -43,6 +58,8 @@ bool portable_log_init(portable_log_t *log, const portable_log_config_t *config)
     for (uint32_t i = 0u; i < (uint32_t)PORTABLE_LOG_LEVEL_COUNT; i++) {
         log->status.emitted_count[i] = 0u;
         log->status.dropped_count[i] = 0u;
+        log->status.truncated_count[i] = 0u;
+        log->status.emit_failed_count[i] = 0u;
     }
     log->initialized = true;
     return true;
@@ -74,7 +91,13 @@ void portable_log_get_status(const portable_log_t *log, portable_log_status_t *s
         return;
     }
 
+    if (log->config.lock != NULL) {
+        log->config.lock(log->config.user);
+    }
     *status = log->status;
+    if (log->config.unlock != NULL) {
+        log->config.unlock(log->config.user);
+    }
 }
 
 void portable_log_vwrite(portable_log_t *log,
@@ -87,8 +110,11 @@ void portable_log_vwrite(portable_log_t *log,
         return;
     }
 
+    portable_log_lock(log);
+
     if (level < log->status.min_level) {
         log->status.dropped_count[level]++;
+        portable_log_unlock(log);
         return;
     }
 
@@ -107,11 +133,15 @@ void portable_log_vwrite(portable_log_t *log,
                            portable_log_level_name(level),
                            safe_module);
     size_t used = 0u;
+    bool truncated = false;
     if (written > 0) {
         used = (size_t)written;
         if (used >= buffer_size) {
             used = buffer_size - 1u;
+            truncated = true;
         }
+    } else {
+        buffer[0] = '\0';
     }
 
     if (used < buffer_size) {
@@ -120,21 +150,34 @@ void portable_log_vwrite(portable_log_t *log,
             used += (size_t)written;
             if (used >= buffer_size) {
                 used = buffer_size - 1u;
+                truncated = true;
             }
+        } else if (written < 0) {
+            truncated = true;
         }
     }
 
     if (buffer_size >= 3u) {
         if (used + 2u >= buffer_size) {
             used = buffer_size - 3u;
+            truncated = true;
         }
         buffer[used++] = '\r';
         buffer[used++] = '\n';
         buffer[used] = '\0';
     }
 
-    log->status.emitted_count[level]++;
-    log->config.emit(log->config.user, buffer, used);
+    if (truncated) {
+        log->status.truncated_count[level]++;
+    }
+
+    if (log->config.emit(log->config.user, buffer, used)) {
+        log->status.emitted_count[level]++;
+    } else {
+        log->status.emit_failed_count[level]++;
+    }
+
+    portable_log_unlock(log);
 }
 
 void portable_log_write(portable_log_t *log,
