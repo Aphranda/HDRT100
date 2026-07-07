@@ -111,6 +111,8 @@ set(PROJECT_APP_SOURCES
         application/src/app.c
         ${PROJECT_BUILD_INFO_SOURCE}
         boards/rp2350_trig/src/board.c
+        third_party/portable_log/src/portable_log.c
+        middleware/portable_log_port/src/portable_log_port.c
         components/diagnostics/src/diagnostics.c
         components/event_bus/src/event_bus.c
         components/ota_manager/src/ota_ao.c
@@ -226,12 +228,14 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/drivers/external/sd_card/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/fatfs_port/inc
         ${PROJECT_FATFS_CONFIGURED_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_log_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/scpi_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/u8g2_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/osal/inc
         ${CMAKE_CURRENT_LIST_DIR}/config/freertos
         ${CMAKE_CURRENT_LIST_DIR}/third_party/scpi-parser/libscpi/inc
+        ${CMAKE_CURRENT_LIST_DIR}/third_party/portable_log/include
         ${CMAKE_CURRENT_LIST_DIR}/third_party/u8g2/csrc
         ${CMAKE_CURRENT_BINARY_DIR}
         ${CMAKE_CURRENT_BINARY_DIR}/generated

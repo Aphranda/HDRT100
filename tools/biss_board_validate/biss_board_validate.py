@@ -168,6 +168,55 @@ def status_uint(status: dict[str, str], field: str) -> int:
         return 0
 
 
+def wait_until_query(ser: serial.Serial,
+                     command: str,
+                     timeout_s: float,
+                     predicate) -> str:
+    deadline = time.monotonic() + timeout_s
+    last = ""
+    while time.monotonic() < deadline:
+        last = query(ser, command, min(0.5, timeout_s))
+        if predicate(last):
+            return last
+        time.sleep(0.05)
+    return last or "<timeout>"
+
+
+def wait_until_biss_state(ser: serial.Serial, state: int, timeout_s: float) -> str:
+    return wait_until_query(
+        ser,
+        "STAT:BISS?",
+        timeout_s,
+        lambda response: status_uint(parse_biss_status(response), "trigger_state") == state,
+    )
+
+
+def csv_field(response: str, index: int) -> str:
+    fields = parse_csv_response(response)
+    return fields[index] if index < len(fields) else ""
+
+
+def uint_response_matches(expected: int):
+    return lambda response: csv_field(response, 0) == str(expected)
+
+
+def write_and_confirm(ser: serial.Serial,
+                      results: dict[str, str],
+                      command: str,
+                      timeout_s: float,
+                      query_command: str | None = None,
+                      predicate=None) -> None:
+    results[command] = command_ack(ser, command, timeout_s)
+    time.sleep(0.05)
+    if query_command is not None and predicate is not None:
+        results[f"confirm:{query_command}:{command}"] = wait_until_query(
+            ser,
+            query_command,
+            timeout_s,
+            predicate,
+        )
+
+
 def configure_commands(args: argparse.Namespace) -> list[str]:
     commands = [
         "TRIG:BISS:ROLE 0",
@@ -186,6 +235,7 @@ def configure_commands(args: argparse.Namespace) -> list[str]:
         "TRIG:BISS:WARN:BIT 4294967295",
         "TRIG:BISS:STAT:GATE 0",
         "TRIG:BISS:CRC:BITS 0",
+        "TRIG:BISS:CRC:COV:BITS 0",
         "TRIG:BISS:CRC:GATE 0",
         f"TRIG:BISS:SAMP:SCAN {1 if args.enable_scan else 0}",
     ]
@@ -198,6 +248,39 @@ def configure_commands(args: argparse.Namespace) -> list[str]:
             ]
         )
     return commands
+
+
+def configure_steps(args: argparse.Namespace) -> list[tuple[str, str | None, object | None]]:
+    steps: list[tuple[str, str | None, object | None]] = [
+        ("TRIG:BISS:ROLE 0", "TRIG:BISS:ROLE?", lambda response: csv_field(response, 1) == "0"),
+        ("TRIG:BISS:DEV 0", "TRIG:BISS:DEV?", uint_response_matches(0)),
+        (f"TRIG:BISS:CLOC {args.clock_hz}", "TRIG:BISS:CLOC?", uint_response_matches(args.clock_hz)),
+        (f"TRIG:BISS:FBIT {args.frame_bits}", "TRIG:BISS:FBIT?", uint_response_matches(args.frame_bits)),
+        (f"TRIG:BISS:POFF {args.position_offset}", "TRIG:BISS:POFF?", uint_response_matches(args.position_offset)),
+        (f"TRIG:BISS:PBIT {args.position_bits}", "TRIG:BISS:PBIT?", uint_response_matches(args.position_bits)),
+        (f"TRIG:BISS:PMOD {args.position_modulo}", "TRIG:BISS:PMOD?", uint_response_matches(args.position_modulo)),
+        (f"TRIG:BISS:TARG {args.target}", "TRIG:BISS:TARG?", uint_response_matches(args.target)),
+        (f"TRIG:BISS:SAMP:EDGE {args.sample_edge}", "TRIG:BISS:SAMP:EDGE?", lambda response: csv_field(response, 1) == str(args.sample_edge)),
+        (f"TRIG:BISS:SAMP:DEL {args.sample_delay}", "TRIG:BISS:SAMP:DEL?", uint_response_matches(args.sample_delay)),
+        (f"TRIG:BISS:TIME {args.timeout_us}", "TRIG:BISS:TIME?", uint_response_matches(args.timeout_us)),
+        ("TRIG:BISS:ANCH:BITS 0", "TRIG:BISS:ANCH:BITS?", uint_response_matches(0)),
+        ("TRIG:BISS:ERR:BIT 4294967295", "TRIG:BISS:ERR:BIT?", uint_response_matches(4294967295)),
+        ("TRIG:BISS:WARN:BIT 4294967295", "TRIG:BISS:WARN:BIT?", uint_response_matches(4294967295)),
+        ("TRIG:BISS:STAT:GATE 0", "TRIG:BISS:STAT:GATE?", lambda response: csv_field(response, 1) == "0"),
+        ("TRIG:BISS:CRC:BITS 0", "TRIG:BISS:CRC:BITS?", uint_response_matches(0)),
+        ("TRIG:BISS:CRC:COV:BITS 0", "TRIG:BISS:CRC:COV:BITS?", uint_response_matches(0)),
+        ("TRIG:BISS:CRC:GATE 0", "TRIG:BISS:CRC:GATE?", lambda response: csv_field(response, 1) == "0"),
+        (f"TRIG:BISS:SAMP:SCAN {1 if args.enable_scan else 0}", "TRIG:BISS:SAMP:SCAN?", lambda response: csv_field(response, 1) == ("1" if args.enable_scan else "0")),
+    ]
+    if args.enable_scan:
+        steps.extend(
+            [
+                (f"TRIG:BISS:SAMP:SCAN:STAR {args.scan_start}", "TRIG:BISS:SAMP:SCAN:STAR?", uint_response_matches(args.scan_start)),
+                (f"TRIG:BISS:SAMP:SCAN:END {args.scan_end}", "TRIG:BISS:SAMP:SCAN:END?", uint_response_matches(args.scan_end)),
+                (f"TRIG:BISS:SAMP:SCAN:STEP {args.scan_step}", "TRIG:BISS:SAMP:SCAN:STEP?", uint_response_matches(args.scan_step)),
+            ]
+        )
+    return steps
 
 
 def query_commands() -> tuple[str, ...]:
@@ -224,45 +307,55 @@ def run_serial(args: argparse.Namespace, out_dir: Path) -> dict[str, str]:
     results: dict[str, str] = {}
     positions = inject_positions(args)
 
-    with serial.Serial(args.port, args.baud, timeout=0.1, write_timeout=args.timeout) as ser:
-        time.sleep(args.settle)
-        ser.reset_input_buffer()
-        ser.reset_output_buffer()
+    try:
+        with serial.Serial(args.port, args.baud, timeout=0.1, write_timeout=args.timeout) as ser:
+            time.sleep(args.settle)
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
 
-        results["pre:TRIG:DISA"] = command_ack(ser, "TRIG:DISA", args.timeout)
-        time.sleep(0.1)
-
-        for command in configure_commands(args):
-            results[command] = command_ack(ser, command, args.timeout)
-            time.sleep(0.05)
-
-        for command in query_commands():
-            results[command] = query(ser, command, args.timeout)
-            time.sleep(0.05)
-
-        results["TRIG:MODE 3"] = command_ack(ser, "TRIG:MODE 3", args.timeout)
-        time.sleep(0.1)
-        results["configured:TRIG:MODE?"] = query(ser, "TRIG:MODE?", args.timeout)
-        results["configured:STAT:BISS?"] = query(ser, "STAT:BISS?", args.timeout)
-
-        if not args.skip_arm:
-            results["TRIG:ARM"] = command_ack(ser, "TRIG:ARM", args.timeout)
+            results["pre:TRIG:DISarm"] = command_ack(ser, "TRIG:DISarm", args.timeout)
             time.sleep(0.2)
-            results["armed:STAT:BISS?"] = query(ser, "STAT:BISS?", args.timeout)
 
-            if not args.skip_inject:
-                for position in positions:
-                    command = f"TRIG:BISS:FRAM {position}"
-                    results[command] = command_ack(ser, command, args.timeout)
-                    time.sleep(0.05)
-                results["injected:STAT:BISS?"] = query(ser, "STAT:BISS?", args.timeout)
+            for command, query_command, predicate in configure_steps(args):
+                write_and_confirm(ser,
+                                  results,
+                                  command,
+                                  args.timeout,
+                                  query_command,
+                                  predicate)
 
-            results["TRIG:DISA"] = command_ack(ser, "TRIG:DISA", args.timeout)
-            time.sleep(0.1)
-            results["final:STAT:BISS?"] = query(ser, "STAT:BISS?", args.timeout)
+            for command in query_commands():
+                results[command] = query(ser, command, args.timeout)
+                time.sleep(0.05)
 
-    lines = [f"{command} -> {response}" for command, response in results.items()]
-    write_text(out_dir / "queries.txt", "\n".join(lines) + "\n")
+            results["TRIG:MODE 3"] = command_ack(ser, "TRIG:MODE 3", args.timeout)
+            results["configured:wait:STAT:BISS?"] = wait_until_biss_state(ser, 6, args.timeout)
+            results["configured:TRIG:MODE?"] = query(ser, "TRIG:MODE?", args.timeout)
+            results["configured:STAT:BISS?"] = query(ser, "STAT:BISS?", args.timeout)
+
+            if not args.skip_arm:
+                results["pre-arm:STAT:TRIG?"] = query(ser, "STAT:TRIG?", args.timeout)
+                results["pre-arm:STAT:BISS?"] = query(ser, "STAT:BISS?", args.timeout)
+                results["TRIG:ARM"] = command_ack(ser, "TRIG:ARM", args.timeout)
+                results["post-arm:STAT:TRIG?"] = query(ser, "STAT:TRIG?", args.timeout)
+                results["armed:wait:STAT:BISS?"] = wait_until_biss_state(ser, 7, args.timeout)
+                results["armed:STAT:BISS?"] = query(ser, "STAT:BISS?", args.timeout)
+
+                if not args.skip_inject:
+                    for position in positions:
+                        command = f"TRIG:BISS:FRAM {position}"
+                        results[command] = command_ack(ser, command, args.timeout)
+                        time.sleep(0.15)
+                    results["injected:STAT:BISS?"] = query(ser, "STAT:BISS?", args.timeout)
+
+                results["TRIG:DISarm"] = command_ack(ser, "TRIG:DISarm", args.timeout)
+                time.sleep(0.3)
+                results["final:STAT:BISS?"] = query(ser, "STAT:BISS?", args.timeout)
+    except (OSError, serial.SerialException) as exc:
+        results["exception"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        lines = [f"{command} -> {response}" for command, response in results.items()]
+        write_text(out_dir / "queries.txt", "\n".join(lines) + "\n")
     return results
 
 
@@ -275,6 +368,9 @@ def validate_results(args: argparse.Namespace, results: dict[str, str]) -> list[
     expect(results.get("TRIG:MODE 3") == '"OK"',
            failures,
            f"TRIG:MODE 3 did not return OK: {results.get('TRIG:MODE 3')!r}")
+    expect(status_uint(parse_biss_status(results.get("configured:STAT:BISS?", "")), "trigger_state") == 6,
+           failures,
+           "BiSS state after TRIG:MODE 3 is not BISS_CONFIGURED")
 
     initial = parse_biss_status(results.get("STAT:BISS?", ""))
     configured = parse_biss_status(results.get("configured:STAT:BISS?", ""))
@@ -330,9 +426,9 @@ def validate_results(args: argparse.Namespace, results: dict[str, str]) -> list[
                    failures,
                    "software frame injection did not produce pulse_out_count")
 
-    expect(results.get("TRIG:DISA") == '"OK"',
+    expect(results.get("TRIG:DISarm") == '"OK"',
            failures,
-           f"TRIG:DISA did not return OK: {results.get('TRIG:DISA')!r}")
+           f"TRIG:DISarm did not return OK: {results.get('TRIG:DISarm')!r}")
     final = parse_biss_status(results.get("final:STAT:BISS?", ""))
     expect(status_uint(final, "trigger_state") != 7, failures, "BiSS state is still armed after DISARM")
     return failures

@@ -9,10 +9,20 @@ typedef enum {
     DIAG_LEVEL_INFO,
     DIAG_LEVEL_WARN,
     DIAG_LEVEL_ERROR,
+    DIAG_LEVEL_COUNT,
 } diag_level_t;
+
+typedef struct {
+    diag_level_t min_level;
+    uint32_t emitted_count[DIAG_LEVEL_COUNT];
+    uint32_t dropped_count[DIAG_LEVEL_COUNT];
+} diagnostics_status_t;
 
 void diagnostics_init(void);
 void diagnostics_log(diag_level_t level, const char *module, const char *fmt, ...);
+bool diagnostics_set_min_level(diag_level_t level);
+diag_level_t diagnostics_get_min_level(void);
+void diagnostics_get_status(diagnostics_status_t *status);
 void diagnostics_heartbeat(uint32_t period_ms);
 void diagnostics_mark_fault(const char *module, const char *reason);
 bool diagnostics_has_fault(void);

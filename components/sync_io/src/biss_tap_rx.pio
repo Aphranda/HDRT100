@@ -20,8 +20,7 @@ sample_delay:
     in pins, 1              ; DATA pin is sm_config_set_in_pins()
     jmp x--, frame_continues
     push block              ; frame complete: push full or partial chunk
-    pull block
-    mov x, osr
+    mov x, osr              ; reload constant bits_per_frame - 1
     set y, 31
     jmp sample_loop
 frame_continues:
@@ -81,7 +80,6 @@ static inline void biss_tap_rx_program_init(PIO pio,
     pio_sm_config c = biss_tap_rx_program_get_default_config(offset);
     sm_config_set_in_pins(&c, data_pin);
     sm_config_set_in_shift(&c, false, false, 32u);
-    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
     sm_config_set_clkdiv(&c, clkdiv);
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_clear_fifos(pio, sm);

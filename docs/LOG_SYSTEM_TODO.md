@@ -1,0 +1,59 @@
+# LOG 系统 TODO
+
+本文档跟踪 RP2350_TRIG 的统一 LOG/TRACE 体系。目标不是把所有信息都打印到 USB CDC，
+而是分层保留调试证据：串口 LOG 给人快速观察，二进制 TRACE 给机器稳定解码，
+SNAPSHOT/REPORT 给故障闭环归档。
+
+## 开源参考和本项目取舍
+
+- `rxi/log.c`：借鉴“小型 C99 单文件核心、等级过滤、回调输出、可选锁”的形态，但本项目不直接引入文件指针、ANSI color 或桌面 stderr 依赖。
+- Zephyr logging：借鉴 frontend/backend 分离、运行期过滤、按后端扩展、后续限速/延迟输出的演进方向；当前 P0 只实现同步文本输出，避免提前引入 RTOS 队列。
+- Memfault embedded logging 实践：借鉴固定缓冲、保留机器可解码证据、故障包收集的思路；本项目把文本 LOG 和二进制 TRACE 分层，避免只依赖串口文本。
+- 结论：LOG 核心放在 `third_party/portable_log`，保持纯 C、平台无关；`middleware/portable_log_port` 负责 RP2350 时间戳、USB CDC 输出和后续 backend/ring buffer 适配；`components/diagnostics` 只保留故障锁存、health heartbeat 和业务诊断封装。
+
+## P0 - 可控串口日志和现有 Trace 收口
+
+- [x] 梳理现状：`diagnostics` 负责 USB CDC 文本日志，`storage_manager_trace_event()` 负责 16B 二进制 trace ring 和 SD 落盘。
+- [x] 抽出第三方库形态的 `third_party/portable_log`：核心只依赖 C 标准库和调用方提供的 buffer/time/emit 回调。
+- [x] 增加 `middleware/portable_log_port` 中间层接口，承接 RP2350 时间戳、USB CDC 输出和 `portable_log` 实例生命周期。
+- [x] 将 `components/diagnostics` 重构为诊断业务层，保持现有 `LOG_*` 宏和 SCPI 返回字段兼容。
+- [x] 增加 `portable_log` host/ARM 编译单元测试，覆盖过滤、发出/丢弃计数和格式化输出。
+- [x] 增加运行期日志等级过滤，默认 `INFO`，支持 `DEBUG/INFO/WARN/ERROR`。
+- [x] 增加日志发出/丢弃计数，便于确认调试日志是否被过滤。
+- [x] 增加 SCPI 控制面：`SYST:LOG:LEV`、`SYST:LOG:LEV?`、`SYST:LOG:STAT?`。
+- [x] 将 LOG 等级名称、跨层等级映射和统计拷贝改为表驱动，符合 HAOFV “表负责规则、流程负责执行”的约束。
+- [ ] 更新板端验证工具，在 smoke 开始前查询并记录 `SYST:LOG:STAT?`。
+- [ ] 为 BiSS ARM/timeout/sample scan 增加可解码 trace 事件名，不新增硬实时热路径写入。
+- [ ] 补齐 `sd_trace_decode.py` 中 BiSS trigger state/event 名称。
+- [ ] 增加一条 fault trace 验证：故障证据必须能解码出最近一次 BiSS ARM 或 BiSS I/O 失败线索。
+
+## P1 - 分域、限速和持久化
+
+- [ ] 定义统一 domain/event id 分配表，避免 trigger/sync_io/storage/BiSS 事件号散落在源码里。
+- [ ] 为 LOG 增加 module/domain 级开关：全局最小等级 + 单域覆盖。
+- [ ] 增加周期日志限速策略，避免 health/debug 日志干扰 SCPI、OTA 和 binary block。
+- [ ] 增加 `/logs/run` 文本日志落盘 job，必须走 StorageAO，禁止在 SCPI 回调或 IRQ 中直接写 SD。
+- [ ] 增加 ring buffer 快照命令：查询最近 N 条文本 LOG 或 trace 摘要，避免必须拔卡。
+- [ ] 将板端验证工具统一收集 `queries.txt`、`log_status`、`trace_last`、`snapshot_last`。
+- [ ] 为 OTA 传输期间定义静默策略：暂停周期 LOG，仅保留 ERROR 和二进制 trace 计数。
+
+## P2 - 产品化观测和故障包
+
+- [ ] 定义 release/validation/factory 三套日志默认等级和可用命令白名单。
+- [ ] 增加 fault evidence bundle：snapshot + trace + report + log tail 的一致索引。
+- [ ] 增加 trace schema 版本迁移策略和解码工具兼容性测试。
+- [ ] 增加产测 HIL 日志模板：电源、SD、OTA、BiSS、SEQ、ENC 每项都有固定证据字段。
+- [ ] 评估长期运行日志磨损：SD 写入频率、目录轮转、最大保留数量和低容量保护。
+- [ ] 增加敏感信息策略：序列号、校准参数、用户 profile 在日志中的脱敏/截断规则。
+
+## 实时边界
+
+- 硬实时 PIO/DMA/IRQ 路径不得调用 `printf`、`LOG_*`、FatFs、StorageAO job 或阻塞式 trace 写入。
+- IRQ 中只允许维护必要计数、锁存状态或投递极小事件；详细证据在管理面采样、DISARM 或 FAULT 后补齐。
+- USB CDC 与 SCPI 共通道，调试日志必须可降级或关闭，OTA binary block 期间必须避免周期文本日志。
+
+## HAOFV 约束
+
+- LOG 底层遵循表驱动：等级名称、跨层等级映射、后续 backend 策略和 domain 过滤策略都应由静态表描述。
+- LOG 流程代码只负责校验、查表、格式化和投递，不应散落 `switch`/`if` 决策树。
+- `third_party/portable_log` 只保存平台无关规则；RP2350 输出通道、时间戳和后续多 backend 策略放在 `middleware/portable_log_port`。

@@ -69,6 +69,8 @@ def frame_bits_msb(frame: int, frame_bits: int) -> list[int]:
 
 
 def append_sample(rows: list[dict[str, int]], sample_ns: int, clk: int, data: int, frame_index: int, bit_index: int) -> None:
+    if rows and sample_ns <= rows[-1]["time_ns"]:
+        sample_ns = rows[-1]["time_ns"] + 1
     rows.append(
         {
             "time_ns": sample_ns,

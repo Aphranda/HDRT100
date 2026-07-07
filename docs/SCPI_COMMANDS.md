@@ -17,6 +17,9 @@
 | `SYST:FW:BUILD?` | 查询固件 build id，由构建脚本生成 UTC 时间戳，每次构建刷新。 |
 | `SYST:BOOT:VERS?` | 查询当前 App 声明的 Bootloader 兼容版本，返回 `major,minor,patch`。 |
 | `SYST:BOOT:CAP?` | 查询当前 metadata 中记录的 Bootloader/OTA 能力位，`bit0=COPY_TO_ACTIVE`，`bit1=DIRECT_AB`。 |
+| `SYST:LOG:LEV <0..3>` | 设置文本日志最小输出等级：`0=DEBUG`、`1=INFO`、`2=WARN`、`3=ERROR`。默认 `INFO`。 |
+| `SYST:LOG:LEV?` | 查询当前文本日志最小输出等级，返回名称和值。 |
+| `SYST:LOG:STAT?` | 查询文本日志统计：当前等级、等级值、DEBUG/INFO/WARN/ERROR 发出计数、DEBUG/INFO/WARN/ERROR 丢弃计数。 |
 
 ## 触发输出
 

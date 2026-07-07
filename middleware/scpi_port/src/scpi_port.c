@@ -167,6 +167,53 @@ static scpi_result_t scpi_cmd_bootloader_capability_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static const char *scpi_diag_level_to_string(diag_level_t level)
+{
+    switch (level) {
+    case DIAG_LEVEL_DEBUG: return "DEBUG";
+    case DIAG_LEVEL_INFO:  return "INFO";
+    case DIAG_LEVEL_WARN:  return "WARN";
+    case DIAG_LEVEL_ERROR: return "ERROR";
+    default:               return "UNKNOWN";
+    }
+}
+
+static scpi_result_t scpi_cmd_log_level(scpi_t *context)
+{
+    uint32_t level;
+    if (!scpi_port_read_u32(context, &level) ||
+        level >= (uint32_t)DIAG_LEVEL_COUNT ||
+        !diagnostics_set_min_level((diag_level_t)level)) {
+        return SCPI_RES_ERR;
+    }
+
+    return scpi_port_result_ok(context);
+}
+
+static scpi_result_t scpi_cmd_log_level_q(scpi_t *context)
+{
+    const diag_level_t level = diagnostics_get_min_level();
+    SCPI_ResultText(context, scpi_diag_level_to_string(level));
+    SCPI_ResultUInt32(context, (uint32_t)level);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_log_status_q(scpi_t *context)
+{
+    diagnostics_status_t status;
+    diagnostics_get_status(&status);
+
+    SCPI_ResultText(context, scpi_diag_level_to_string(status.min_level));
+    SCPI_ResultUInt32(context, (uint32_t)status.min_level);
+    for (uint32_t i = 0u; i < (uint32_t)DIAG_LEVEL_COUNT; i++) {
+        SCPI_ResultUInt32(context, status.emitted_count[i]);
+    }
+    for (uint32_t i = 0u; i < (uint32_t)DIAG_LEVEL_COUNT; i++) {
+        SCPI_ResultUInt32(context, status.dropped_count[i]);
+    }
+    return SCPI_RES_OK;
+}
+
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
 static scpi_result_t scpi_cmd_boot_reset(scpi_t *context)
 {
@@ -2446,6 +2493,9 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:FW:BUILD?", .callback = scpi_cmd_firmware_build_q},
     {.pattern = "SYSTem:BOOT:VERSion?", .callback = scpi_cmd_bootloader_version_q},
     {.pattern = "SYSTem:BOOT:CAPability?", .callback = scpi_cmd_bootloader_capability_q},
+    {.pattern = "SYSTem:LOG:LEVel", .callback = scpi_cmd_log_level},
+    {.pattern = "SYSTem:LOG:LEVel?", .callback = scpi_cmd_log_level_q},
+    {.pattern = "SYSTem:LOG:STATus?", .callback = scpi_cmd_log_status_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
 #endif

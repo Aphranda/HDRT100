@@ -48,12 +48,13 @@
 - [x] 增加 1 MHz bring-up 用 sample delay scan mode。
 - [x] ARM 前冻结选定的 `sample_edge/sample_delay_cycles`。
 
-当前 `biss_tap_rx.pio` 已进入 CMake/pioasm 生成链；它只提供 TAP RX 最小采样循环和
+当前 `biss_tap_rx.pio` 已进入 CMake/pioasm 生成链；它提供 TAP RX 最小采样循环和
 RX FIFO frame word 输出骨架，并已接入 `sync_io_biss_tap_*` 与 `biss_node_io` 的 arm/poll
 路径；默认 48-bit 固定 profile 已具备 32-bit chunk 拼接、anchor/status/CRC gate 和
-position crossing 决策。帧间 timeout recovery 会重置半帧 assembler；启用 sample delay
-scan 后会在 timeout 后按配置范围推进 active delay 并重启 TAP PIO。该路径仍需硬件 bring-up
-验证采样窗口。
+position crossing 决策。2026-07-07 闭环验证中修复了 PIO `PIO_FIFO_JOIN_RX` 与
+`pio_sm_put_blocking()` seed 冲突导致 `TRIG:ARM` 卡死的问题；帧长 seed 保留在 OSR 中，
+每帧复用，不再在采样循环里重复阻塞 `pull`。帧间 timeout recovery 会重置半帧 assembler；
+启用 sample delay scan 后会在 timeout 后按配置范围推进 active delay 并重启 TAP PIO。
 
 ### P0.6 IRQ 快路径
 
@@ -67,7 +68,7 @@ scan 后会在 timeout 后按配置范围推进 active delay 并重启 TAP PIO�
 ### P0.7 验证
 
 - [x] Host 单元测试：CRC6、profile validation、bit extraction、crossing 和 modulo wrap。
-- [ ] 固件 smoke test：配置 TAP profile、ARM、DISARM、查询统计；已新增 `tools/biss_board_validate/biss_board_validate.py`，待板上执行并归档结果。
+- [x] 固件 smoke test：配置 TAP profile、ARM、软件帧 crossing、DISARM、查询统计；2026-07-07 使用 COM4 烧录 `build-biss-integration\RP2350_TRIG.elf` 后通过，结果归档在 `build\biss_validation_flash_loop_5`。
 - [ ] 使用 PIO simulator 或逻辑发生器做 1 MHz 测试；已新增 `tools/biss_wavegen/biss_wavegen.py` 生成固定 CLK/DATA CSV，待接入逻辑发生器或 PIO 仿真。
 - [ ] 使用示波器在 5 MHz 下验证 sample window 和 `TRIG_OUT` latency。
 - [ ] TAP 透明性测试：确认不驱动上游 DATA/CLK。
