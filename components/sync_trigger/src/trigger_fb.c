@@ -3,6 +3,8 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "biss_node_io.h"
+#include "biss_protocol.h"
 #include "resource_arbiter.h"
 #include "sync_io.h"
 
@@ -35,6 +37,22 @@ static bool fb_valid_enc_pin_group(const trigger_vector_t *vector)
            vector->enc_z_pin == (vector->enc_a_pin + 3u);
 }
 
+static uint32_t fb_enc_resources(const trigger_vector_t *vector)
+{
+    uint32_t resources = RESOURCE_ARBITER_RESOURCE_PIO1;
+
+    if (vector != NULL && vector->enc_a_pin == 26u) {
+        resources |= RESOURCE_ARBITER_RESOURCE_AUX;
+    }
+    return resources;
+}
+
+static uint32_t fb_biss_resources(void)
+{
+    return RESOURCE_ARBITER_RESOURCE_PIO2 |
+           RESOURCE_ARBITER_RESOURCE_AUX;
+}
+
 static bool fb_valid_biss_config(const trigger_vector_t *vector)
 {
     if (vector == NULL) {
@@ -42,14 +60,26 @@ static bool fb_valid_biss_config(const trigger_vector_t *vector)
     }
 
     if (vector->protocol != TRIG_PROTOCOL_BISS_C ||
-        vector->biss_role > TRIG_BISS_ROLE_BRIDGE_PROXY ||
-        vector->biss_clock_hz == 0u ||
-        vector->biss_frame_bits == 0u ||
-        vector->biss_frame_bits > 64u ||
-        vector->biss_position_bits == 0u ||
-        vector->biss_position_bits > 32u ||
-        vector->biss_position_bits > vector->biss_frame_bits) {
+        vector->biss_role != TRIG_BISS_ROLE_TAP_MONITOR ||
+        vector->biss_clock_hz == 0u) {
         return false;
+    }
+
+    biss_profile_t profile;
+    if (!biss_node_io_make_profile(vector, &profile)) {
+        return false;
+    }
+    if (biss_profile_validate(&profile) != BISS_PROFILE_OK) {
+        return false;
+    }
+
+    if (vector->biss_sample_scan_enabled != 0u) {
+        if (vector->biss_sample_scan_start_cycles >
+                vector->biss_sample_scan_end_cycles ||
+            vector->biss_sample_scan_step_cycles == 0u ||
+            vector->biss_sample_scan_end_cycles >= profile.pio_cycles_per_bit) {
+            return false;
+        }
     }
 
     return true;
@@ -122,10 +152,20 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
         vector->enc_target = event->payload.value;
         break;
     case TRIG_EVENT_SET_ENC_PINS:
-        vector->enc_a_pin = event->payload.value & 0xFFu;
+    {
+        const uint32_t next_a_pin = event->payload.value & 0xFFu;
+        if (next_a_pin == 26u) {
+            if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_AUX)) {
+                vector->error_code = 2u;
+                return FB_ERROR;
+            }
+            resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_AUX);
+        }
+        vector->enc_a_pin = next_a_pin;
         vector->enc_b_pin = (event->payload.value >> 8) & 0xFFu;
         vector->enc_z_pin = (event->payload.value >> 16) & 0xFFu;
         break;
+    }
     case TRIG_EVENT_ENC_Z_PULSE:
         vector->enc_rev_count++;
         break;
@@ -165,8 +205,86 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
     case TRIG_EVENT_SET_BISS_FRAME_BITS:
         vector->biss_frame_bits = event->payload.value;
         break;
+    case TRIG_EVENT_SET_BISS_POSITION_OFFSET:
+        vector->biss_position_offset = event->payload.value;
+        break;
     case TRIG_EVENT_SET_BISS_POSITION_BITS:
         vector->biss_position_bits = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_POSITION_MODULO:
+        vector->biss_position_modulo = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_SAMPLE_EDGE:
+        vector->biss_sample_edge = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_SAMPLE_DELAY:
+        vector->biss_sample_delay_cycles = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_SAMPLE_SCAN:
+        vector->biss_sample_scan_enabled = event->payload.value != 0u ? 1u : 0u;
+        break;
+    case TRIG_EVENT_SET_BISS_SAMPLE_SCAN_START:
+        vector->biss_sample_scan_start_cycles = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_SAMPLE_SCAN_END:
+        vector->biss_sample_scan_end_cycles = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_SAMPLE_SCAN_STEP:
+        vector->biss_sample_scan_step_cycles = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_TIMEOUT:
+        vector->biss_timeout_us = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_ANCHOR_OFFSET:
+        vector->biss_anchor_offset = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_ANCHOR_BITS:
+        vector->biss_anchor_bits = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_ANCHOR_MASK:
+        vector->biss_anchor_mask = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_ANCHOR_VALUE:
+        vector->biss_anchor_value = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_ERROR_BIT:
+        vector->biss_error_bit_offset = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_WARNING_BIT:
+        vector->biss_warning_bit_offset = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_STATUS_GATE:
+        vector->biss_status_gate_policy = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_CRC_OFFSET:
+        vector->biss_crc_offset = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_CRC_BITS:
+        vector->biss_crc_bits = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_CRC_COVER_OFFSET:
+        vector->biss_crc_cover_offset = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_CRC_COVER_BITS:
+        vector->biss_crc_cover_bits = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_CRC_POLYNOMIAL:
+        vector->biss_crc_polynomial = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_CRC_INIT:
+        vector->biss_crc_init = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_CRC_XOR:
+        vector->biss_crc_xor = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_CRC_INVERT:
+        vector->biss_crc_invert = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_CRC_GATE:
+        vector->biss_crc_gate_policy = event->payload.value;
+        break;
+    case TRIG_EVENT_SET_BISS_LATENCY_OFFSET:
+        vector->biss_latency_offset_ns = event->payload.value;
         break;
     case TRIG_EVENT_SET_BISS_TARGET:
         vector->biss_target = event->payload.value;
@@ -185,6 +303,14 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
             resource_arbiter_release(
                 RESOURCE_ARBITER_RESOURCE_PIO1 |
                 RESOURCE_ARBITER_RESOURCE_DMA);
+        }
+        if (sync_io_enc_count_is_running()) {
+            sync_io_enc_count_disarm();
+            resource_arbiter_release(fb_enc_resources(vector));
+        }
+        if (vector->state == TRIG_STATE_BISS_ARMED) {
+            biss_node_io_disarm();
+            resource_arbiter_release(fb_biss_resources());
         }
         break;
     default:
@@ -329,10 +455,11 @@ static fb_result_t fb_force_fault(trigger_vector_t *vector,
     }
     if (sync_io_enc_count_is_running()) {
         sync_io_enc_count_disarm();
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO1);
+        resource_arbiter_release(fb_enc_resources(vector));
     }
     if (vector->state == TRIG_STATE_BISS_ARMED) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO2);
+        biss_node_io_disarm();
+        resource_arbiter_release(fb_biss_resources());
     }
 
     vector->state = TRIG_STATE_FAULT;
@@ -370,8 +497,19 @@ static fb_result_t fb_biss_configured_arm(trigger_vector_t *vector,
         return FB_ERROR;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_PIO2)) {
+    if (!resource_arbiter_acquire(fb_biss_resources())) {
         vector->error_code = 2u;
+        return FB_ERROR;
+    }
+
+    vector->biss_active_sample_edge = vector->biss_sample_edge;
+    vector->biss_active_sample_delay_cycles = vector->biss_sample_delay_cycles;
+    vector->biss_sample_scan_index = 0u;
+    vector->biss_sample_scan_wrap_count = 0u;
+
+    if (!biss_node_io_arm(vector)) {
+        resource_arbiter_release(fb_biss_resources());
+        vector->error_code = 3u;
         return FB_ERROR;
     }
 
@@ -379,8 +517,12 @@ static fb_result_t fb_biss_configured_arm(trigger_vector_t *vector,
     vector->biss_pulse_out_count = 0u;
     vector->biss_tx_frame_count = 0u;
     vector->biss_rx_frame_count = 0u;
+    vector->biss_frame_error_count = 0u;
     vector->biss_crc_error_count = 0u;
+    vector->biss_status_block_count = 0u;
+    vector->biss_fifo_overflow_count = 0u;
     vector->biss_timeout_count = 0u;
+    vector->biss_trigger_count = 0u;
     vector->trigger_count = 0u;
     vector->output_count = 0u;
     vector->state = TRIG_STATE_BISS_ARMED;
@@ -393,7 +535,8 @@ static fb_result_t fb_biss_armed_disarm(trigger_vector_t *vector,
 {
     (void)event;
 
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO2);
+    biss_node_io_disarm();
+    resource_arbiter_release(fb_biss_resources());
     vector->state = TRIG_STATE_IDLE;
     vector->error_code = 0u;
     return FB_OK;
@@ -415,18 +558,9 @@ static fb_result_t fb_biss_armed_pulse_in(trigger_vector_t *vector,
 static fb_result_t fb_biss_armed_frame_rx(trigger_vector_t *vector,
                                            const trig_event_t *event)
 {
-    vector->biss_last_position = event->payload.value;
-    vector->biss_rx_frame_count++;
-    vector->trigger_count = vector->biss_rx_frame_count;
-
-    if (vector->biss_target != 0u &&
-        vector->biss_last_position >= vector->biss_target) {
-        (void)sync_io_fire_pulse_us(vector->trigger_width_us);
-        vector->biss_pulse_out_count++;
-        vector->output_count = vector->biss_pulse_out_count;
-    }
-
-    return FB_OK;
+    return biss_node_io_process_position(vector, event->payload.value) ?
+               FB_OK :
+               FB_ERROR;
 }
 
 /* ── ENC_COUNT 配置 ── */
@@ -460,8 +594,8 @@ static fb_result_t fb_enc_configured_arm(trigger_vector_t *vector,
 {
     (void)event;
 
-    if (!resource_arbiter_acquire(
-            RESOURCE_ARBITER_RESOURCE_PIO1)) {
+    const uint32_t resources = fb_enc_resources(vector);
+    if (!resource_arbiter_acquire(resources)) {
         vector->error_code = 2u;
         return FB_ERROR;
     }
@@ -469,7 +603,7 @@ static fb_result_t fb_enc_configured_arm(trigger_vector_t *vector,
     if (!sync_io_enc_count_arm(vector->enc_target,
                                 vector->enc_a_pin,
                                 BOARD_SYNC_TRIG_OUT_PIN)) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO1);
+        resource_arbiter_release(resources);
         vector->error_code = 3u;
         return FB_ERROR;
     }
@@ -511,6 +645,11 @@ static fb_result_t fb_runtime_sample(trigger_vector_t *vector,
 
     if (vector->state == TRIG_STATE_BISS_ARMED) {
         (void)event;
+        if (!biss_node_io_poll(vector)) {
+            vector->state = TRIG_STATE_FAULT;
+            vector->error_code = 4u;
+            return FB_ERROR;
+        }
         return FB_OK;
     }
 
@@ -525,7 +664,7 @@ static fb_result_t fb_enc_armed_disarm(trigger_vector_t *vector,
     (void)event;
 
     sync_io_enc_count_disarm();
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO1);
+    resource_arbiter_release(fb_enc_resources(vector));
 
     vector->state = TRIG_STATE_IDLE;
     vector->error_code = 0u;
@@ -546,7 +685,8 @@ static fb_result_t fb_fault_clear(trigger_vector_t *vector,
             RESOURCE_ARBITER_RESOURCE_DMA);
     }
     if (vector->state == TRIG_STATE_BISS_ARMED) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_PIO2);
+        biss_node_io_disarm();
+        resource_arbiter_release(fb_biss_resources());
     }
 
     vector->state = TRIG_STATE_IDLE;
@@ -584,7 +724,33 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_DEVICE,  fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CLOCK,   fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_FRAME_BITS, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_POSITION_OFFSET, fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_POSITION_BITS, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_POSITION_MODULO, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_SAMPLE_EDGE, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_SAMPLE_DELAY, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_SAMPLE_SCAN, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_SAMPLE_SCAN_START, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_SAMPLE_SCAN_END, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_SAMPLE_SCAN_STEP, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_TIMEOUT, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_ANCHOR_OFFSET, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_ANCHOR_BITS, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_ANCHOR_MASK, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_ANCHOR_VALUE, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_ERROR_BIT, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_WARNING_BIT, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_STATUS_GATE, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CRC_OFFSET, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CRC_BITS, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CRC_COVER_OFFSET, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CRC_COVER_BITS, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CRC_POLYNOMIAL, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CRC_INIT, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CRC_XOR, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CRC_INVERT, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_CRC_GATE, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_LATENCY_OFFSET, fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_BISS_TARGET,  fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_RESET,             fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_TRIGGER_WIDTH, fb_instant_cmd },
@@ -645,7 +811,33 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_DEVICE,         fb_instant_cmd },
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CLOCK,          fb_instant_cmd },
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_FRAME_BITS,     fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_POSITION_OFFSET, fb_instant_cmd },
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_POSITION_BITS,  fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_POSITION_MODULO, fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_SAMPLE_EDGE,     fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_SAMPLE_DELAY,    fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_SAMPLE_SCAN,      fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_SAMPLE_SCAN_START, fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_SAMPLE_SCAN_END,  fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_SAMPLE_SCAN_STEP, fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_TIMEOUT,         fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_ANCHOR_OFFSET,   fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_ANCHOR_BITS,     fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_ANCHOR_MASK,     fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_ANCHOR_VALUE,    fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_ERROR_BIT,       fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_WARNING_BIT,     fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_STATUS_GATE,     fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CRC_OFFSET,      fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CRC_BITS,        fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CRC_COVER_OFFSET, fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CRC_COVER_BITS,  fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CRC_POLYNOMIAL,  fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CRC_INIT,        fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CRC_XOR,         fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CRC_INVERT,      fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_CRC_GATE,        fb_instant_cmd },
+    { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_LATENCY_OFFSET,  fb_instant_cmd },
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_SET_BISS_TARGET,         fb_instant_cmd },
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_RESET,                   fb_instant_cmd },
     { TRIG_STATE_BISS_CONFIGURED, TRIG_EVENT_FAULT,                   fb_force_fault },
@@ -657,6 +849,38 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_BISS_ARMED, TRIG_EVENT_BISS_FRAME_RX,  fb_biss_armed_frame_rx },
     { TRIG_STATE_BISS_ARMED, TRIG_EVENT_BISS_CRC_ERROR, fb_instant_cmd },
     { TRIG_STATE_BISS_ARMED, TRIG_EVENT_BISS_TIMEOUT,   fb_instant_cmd },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_ROLE,  fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_DEVICE, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_CLOCK, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_FRAME_BITS, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_POSITION_OFFSET, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_POSITION_BITS, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_POSITION_MODULO, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_SAMPLE_EDGE, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_SAMPLE_DELAY, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_SAMPLE_SCAN, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_SAMPLE_SCAN_START, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_SAMPLE_SCAN_END, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_SAMPLE_SCAN_STEP, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_TIMEOUT, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_ANCHOR_OFFSET, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_ANCHOR_BITS, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_ANCHOR_MASK, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_ANCHOR_VALUE, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_ERROR_BIT, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_WARNING_BIT, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_STATUS_GATE, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_CRC_OFFSET, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_CRC_BITS, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_CRC_COVER_OFFSET, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_CRC_COVER_BITS, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_CRC_POLYNOMIAL, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_CRC_INIT, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_CRC_XOR, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_CRC_INVERT, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_CRC_GATE, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_LATENCY_OFFSET, fb_seq_armed_reject },
+    { TRIG_STATE_BISS_ARMED, TRIG_EVENT_SET_BISS_TARGET, fb_seq_armed_reject },
     { TRIG_STATE_BISS_ARMED, TRIG_EVENT_RESET,          fb_biss_armed_disarm },
     { TRIG_STATE_BISS_ARMED, TRIG_EVENT_FAULT,          fb_force_fault },
 
@@ -718,9 +942,37 @@ bool trigger_fb_init(trigger_vector_t *vector)
     vector->protocol = TRIG_PROTOCOL_BISS_C;
     vector->biss_role = TRIG_BISS_ROLE_TAP_MONITOR;
     vector->biss_device_id = 0u;
+    vector->biss_phase = 0u;
     vector->biss_clock_hz = 1000000u;
     vector->biss_frame_bits = 48u;
+    vector->biss_position_offset = 4u;
     vector->biss_position_bits = 32u;
+    vector->biss_position_modulo = UINT32_MAX;
+    vector->biss_anchor_offset = 0u;
+    vector->biss_anchor_bits = 2u;
+    vector->biss_anchor_mask = 0x3u;
+    vector->biss_anchor_value = 0x2u;
+    vector->biss_sample_edge = BISS_SAMPLE_EDGE_FALLING;
+    vector->biss_sample_delay_cycles = 25u;
+    vector->biss_sample_scan_enabled = 0u;
+    vector->biss_sample_scan_start_cycles = 0u;
+    vector->biss_sample_scan_end_cycles = 31u;
+    vector->biss_sample_scan_step_cycles = 1u;
+    vector->biss_active_sample_edge = vector->biss_sample_edge;
+    vector->biss_active_sample_delay_cycles = vector->biss_sample_delay_cycles;
+    vector->biss_timeout_us = 20u;
+    vector->biss_error_bit_offset = 36u;
+    vector->biss_warning_bit_offset = 37u;
+    vector->biss_status_gate_policy = BISS_STATUS_GATE_BLOCK_TRIGGER;
+    vector->biss_crc_offset = 38u;
+    vector->biss_crc_bits = 6u;
+    vector->biss_crc_cover_offset = 4u;
+    vector->biss_crc_cover_bits = 34u;
+    vector->biss_crc_polynomial = 0x03u;
+    vector->biss_crc_init = 0u;
+    vector->biss_crc_xor = 0u;
+    vector->biss_crc_invert = 1u;
+    vector->biss_crc_gate_policy = BISS_CRC_GATE_LATE_COUNT;
     vector->biss_target = 0u;
     vector->biss_clk_in_pin = BOARD_SYNC_AUX0_PIN;
     vector->biss_data_in_pin = BOARD_SYNC_AUX1_PIN;

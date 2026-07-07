@@ -127,6 +127,8 @@ set(PROJECT_APP_SOURCES
         third_party/portable_ota/src/pota_package.c
         components/resource_arbiter/src/resource_arbiter.c
         components/storage_manager/src/storage_manager.c
+        components/sync_trigger/src/biss_node_io.c
+        components/sync_trigger/src/biss_protocol.c
         components/sync_trigger/src/sync_trigger.c
         components/sync_trigger/src/trigger_fb.c
         components/sync_trigger/src/trigger_measure.c
@@ -198,6 +200,7 @@ function(project_configure_app_target target_name app_name linker_script)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_io.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/seq_step.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/enc_count.pio)
+    pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/biss_tap_rx.pio)
 
     pico_enable_stdio_uart(${target_name} ${PROJECT_ENABLE_UART_STDIO})
     pico_enable_stdio_usb(${target_name} ${PROJECT_ENABLE_USB_STDIO})

@@ -83,10 +83,12 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 |---|---|
 | `SEQ_STEP` armed | 主输出总线 OUT0..OUT3 被序列引擎独占；`TRIG:IMM`、`PULS:IMM` 这类主总线即时输出应返回 busy 或在 ARM 前关闭。产品迁移后 `SYNC_CLK_OUT`/`MARKER_OUT` 使用 AUX2/AUX3，可独立于序列总线。 |
 | `ENC_COUNT` armed | IN0/IN1/IN3 被 A/B/Z 独占；AUX0=`ARM_IN` 可作为未来独立资格输入。IN3=`GATE_IN` 与 Z 相仍冲突。OUT0 被比较触发占用。 |
+| `BISS_ARMED` | BiSS-C TAP 占用 `PIO2 + AUX0..AUX3`，`TRIG:ENC:APIN 26` 和 AUX framework 功能应返回 busy/执行错误。 |
 | `IDLE` | 即时脉冲、同步时钟和 Marker 命令可以使用各自语义输出。 |
 
 `TRIG:ENC:APIN <16|26>` 中的 `26` 组属于开发/诊断级复用，会占用 AUX0..AUX3；
-产品默认仍应使用 `16` 组。后续新增 SCPI/UI 配置应优先使用 `TRIG_IN`、
+产品默认仍应使用 `16` 组。BiSS 已配置或已 armed 时，`TRIG:ENC:APIN 26`
+会被拒绝。后续新增 SCPI/UI 配置应优先使用 `TRIG_IN`、
 `ARM_IN`、`SYNC_CLK_OUT` 等语义名，而不是直接公开任意 GPIO。
 
 ## SEQ_STEP 编码序列步进模式
@@ -128,6 +130,86 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 | `TRIG:ENC:REV?` | 查询 Z 脉冲累计圈数。 |
 
 当前 `enc_count.pio` 使用 4-pin 连续输入组采样：A=base、B=base+1、base+2 保留、Z=base+3。因此暂不支持任意非连续 A/B/Z 引脚组合。为保持主输入输出纯粹并保留 AUX 功能接口，量产配置应使用 `TRIG:ENC:APIN 16`。
+
+## BiSS-C TAP 协议触发模式
+
+BiSS-C P0 阶段只实现 TAP monitor：监听 AUX0/AUX1 上的 CLK/DATA，按固定 profile 抽取 position，并在 crossing 命中后从 `TRIG_OUT` 输出触发。`TRIG:BISS:ROLE` 保留未来角色的数值兼容关系：`0=TAP`、`1=SLAVE`、`2=MASTER`、`3=BRIDGE`。当前只有 `0=TAP` 可配置和 ARM；非 TAP role 可写入用于兼容/显示，但 `TRIG:MODE 3` 或 `TRIG:ARM` 会返回执行错误，`STAT:BISS?` 中 role 状态返回 `NOT_IMPLEMENTED`。
+
+P0 profile mutation 在 `BISS_ARMED` 状态下会返回错误；应先 `TRIG:DISA`，修改 profile 后再 `TRIG:MODE 3` 和 `TRIG:ARM`。
+
+| 命令 | 说明 |
+|---|---|
+| `TRIG:MODE 3` | 使用当前 BiSS profile 配置协议触发模式。P0 仅接受 `ROLE=0`。 |
+| `TRIG:BISS:ROLE <0..3>` | 设置 BiSS role：`0=TAP`、`1=SLAVE`、`2=MASTER`、`3=BRIDGE`。P0 仅实现 TAP。 |
+| `TRIG:BISS:ROLE?` | 查询 role 名称和数值。 |
+| `TRIG:BISS:DEV <id>` | 设置 profile/device id，供上位机区分固定 profile。 |
+| `TRIG:BISS:DEV?` | 查询 profile/device id。 |
+| `TRIG:BISS:CLOC <Hz>` | 设置 BiSS clock Hz，用于计算 PIO sample delay 合法范围。 |
+| `TRIG:BISS:CLOC?` | 查询 BiSS clock Hz。 |
+| `TRIG:BISS:FBIT <1..64>` | 设置固定帧位宽。 |
+| `TRIG:BISS:FBIT?` | 查询固定帧位宽。 |
+| `TRIG:BISS:POFF <0..63>` | 设置 position 起始 bit offset，MSB-first。 |
+| `TRIG:BISS:POFF?` | 查询 position 起始 bit offset。 |
+| `TRIG:BISS:PBIT <1..32>` | 设置 position 位宽。 |
+| `TRIG:BISS:PBIT?` | 查询 position 位宽。 |
+| `TRIG:BISS:PMOD <N>` | 设置 position crossing modulo，`N > 0`。 |
+| `TRIG:BISS:PMOD?` | 查询 position crossing modulo。 |
+| `TRIG:BISS:TARG <value>` | 设置 position crossing 触发阈值；`0` 表示软件路径不触发 crossing。 |
+| `TRIG:BISS:TARG?` | 查询 position crossing 触发阈值。 |
+| `TRIG:BISS:SAMP:EDGE <0\|1>` | 设置采样边沿：`0=RISING`，`1=FALLING`。 |
+| `TRIG:BISS:SAMP:EDGE?` | 查询采样边沿。 |
+| `TRIG:BISS:SAMP:DEL <cycles>` | 设置 PIO sample delay cycles，必须小于每 bit 的 PIO cycle 数。 |
+| `TRIG:BISS:SAMP:DEL?` | 查询 PIO sample delay cycles。 |
+| `TRIG:BISS:SAMP:SCAN <0\|1>` | 启用或关闭 timeout 后 sample delay scan。 |
+| `TRIG:BISS:SAMP:SCAN?` | 查询 sample delay scan 使能状态。 |
+| `TRIG:BISS:SAMP:SCAN:STAR <cycles>` | 设置 sample delay scan 起始 cycles。 |
+| `TRIG:BISS:SAMP:SCAN:STAR?` | 查询 sample delay scan 起始 cycles。 |
+| `TRIG:BISS:SAMP:SCAN:END <cycles>` | 设置 sample delay scan 结束 cycles。 |
+| `TRIG:BISS:SAMP:SCAN:END?` | 查询 sample delay scan 结束 cycles。 |
+| `TRIG:BISS:SAMP:SCAN:STEP <cycles>` | 设置 sample delay scan 步进 cycles，必须大于 0。 |
+| `TRIG:BISS:SAMP:SCAN:STEP?` | 查询 sample delay scan 步进 cycles。 |
+| `TRIG:BISS:TIME <us>` | 设置帧 timeout，单位 us，必须大于 0。 |
+| `TRIG:BISS:TIME?` | 查询帧 timeout。 |
+| `TRIG:BISS:ANCH:OFFS <0..63>` | 设置 anchor 起始 bit offset。 |
+| `TRIG:BISS:ANCH:OFFS?` | 查询 anchor 起始 bit offset。 |
+| `TRIG:BISS:ANCH:BITS <0..64>` | 设置 anchor bit width；`0` 表示关闭 anchor check。 |
+| `TRIG:BISS:ANCH:BITS?` | 查询 anchor bit width。 |
+| `TRIG:BISS:ANCH:MASK <value>` | 设置 anchor compare mask，当前 SCPI 写入低 32 bit。 |
+| `TRIG:BISS:ANCH:MASK?` | 查询 anchor compare mask。 |
+| `TRIG:BISS:ANCH:VAL <value>` | 设置 anchor expected value，当前 SCPI 写入低 32 bit。 |
+| `TRIG:BISS:ANCH:VAL?` | 查询 anchor expected value。 |
+| `TRIG:BISS:ERR:BIT <offset>` | 设置 ERR bit offset；`4294967295` 表示禁用。 |
+| `TRIG:BISS:ERR:BIT?` | 查询 ERR bit offset。 |
+| `TRIG:BISS:WARN:BIT <offset>` | 设置 WRN bit offset；`4294967295` 表示禁用。 |
+| `TRIG:BISS:WARN:BIT?` | 查询 WRN bit offset。 |
+| `TRIG:BISS:STAT:GATE <0..2>` | 设置状态位 gate：`0=IGNORE`，`1=COUNT_ONLY`，`2=BLOCK_TRIGGER`。 |
+| `TRIG:BISS:STAT:GATE?` | 查询状态位 gate。 |
+| `TRIG:BISS:CRC:OFFS <0..63>` | 设置 CRC 字段起始 bit offset。 |
+| `TRIG:BISS:CRC:OFFS?` | 查询 CRC 字段起始 bit offset。 |
+| `TRIG:BISS:CRC:BITS <0..16>` | 设置 CRC bit width；`0` 表示关闭 CRC check。 |
+| `TRIG:BISS:CRC:BITS?` | 查询 CRC bit width。 |
+| `TRIG:BISS:CRC:COV:OFFS <0..63>` | 设置 CRC 覆盖区域起始 bit offset。 |
+| `TRIG:BISS:CRC:COV:OFFS?` | 查询 CRC 覆盖区域起始 bit offset。 |
+| `TRIG:BISS:CRC:COV:BITS <0..64>` | 设置 CRC 覆盖区域 bit width。 |
+| `TRIG:BISS:CRC:COV:BITS?` | 查询 CRC 覆盖区域 bit width。 |
+| `TRIG:BISS:CRC:POLY <value>` | 设置 CRC polynomial，当前接受低 16 bit。 |
+| `TRIG:BISS:CRC:POLY?` | 查询 CRC polynomial。 |
+| `TRIG:BISS:CRC:INIT <value>` | 设置 CRC init，当前接受低 16 bit。 |
+| `TRIG:BISS:CRC:INIT?` | 查询 CRC init。 |
+| `TRIG:BISS:CRC:XOR <value>` | 设置 CRC final xor，当前接受低 16 bit。 |
+| `TRIG:BISS:CRC:XOR?` | 查询 CRC final xor。 |
+| `TRIG:BISS:CRC:INV <0\|1>` | 设置线上的 CRC 字段是否 invert。 |
+| `TRIG:BISS:CRC:INV?` | 查询 CRC invert 配置。 |
+| `TRIG:BISS:CRC:GATE <0\|1>` | 设置 CRC gate：`0=LATE_COUNT`，`1=BLOCK_TRIGGER`。 |
+| `TRIG:BISS:CRC:GATE?` | 查询 CRC gate。 |
+| `TRIG:BISS:LAT:OFFS <ns>` | 设置已测得的固定 latency offset，单位 ns。 |
+| `TRIG:BISS:LAT:OFFS?` | 查询固定 latency offset。 |
+| `TRIG:BISS:PINS?` | 查询 BiSS 语义引脚：`clk_in,data_in,clk_out,data_out,pulse_in,pulse_out`。 |
+| `TRIG:BISS:PULS [delta]` | 软件注入本地 pulse-in 事件，默认 delta=1，用于管理面测试。 |
+| `TRIG:BISS:FRAM <position>` | 软件注入收到的 position/event_count，用于管理面 crossing 测试。 |
+| `TRIG:BISS:CRC:ERR` | 软件注入 CRC error 计数。 |
+| `TRIG:BISS:TIME:INJ` | 软件注入 timeout 计数。 |
+| `STAT:BISS?` | 查询 BiSS 摘要：role 名称、role 数值、role 状态、trigger 状态、device、clock、frame bits、position offset/bits/modulo、target、last position、last seq、frame error、status block、CRC error、FIFO overflow、timeout、trigger、pulse-in、tx frame、rx frame、pulse-out、active sample edge、active sample delay、scan index、scan wrap。 |
 
 ## PCNT 参数接口
 

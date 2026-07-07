@@ -54,6 +54,14 @@ typedef enum {
     SYNC_IO_AUX_MODE_PIO_OUTPUT,
 } sync_io_aux_mode_t;
 
+typedef struct {
+    uint32_t clk_pin;
+    uint32_t data_pin;
+    uint32_t frame_bits;
+    uint32_t sample_delay_cycles;
+    uint32_t sample_edge;
+} sync_io_biss_tap_config_t;
+
 bool sync_io_init(const sync_io_config_t *config);
 bool sync_io_start_capture(uint32_t sample_hz);
 void sync_io_stop_capture(void);
@@ -69,6 +77,10 @@ bool sync_io_fire_marker_us(uint32_t high_us);
 bool sync_io_aux_set_mode(sync_io_aux_channel_t channel, sync_io_aux_mode_t mode);
 bool sync_io_aux_write(sync_io_aux_channel_t channel, bool level);
 bool sync_io_aux_read(sync_io_aux_channel_t channel, bool *level);
+bool sync_io_biss_tap_arm(const sync_io_biss_tap_config_t *config);
+void sync_io_biss_tap_disarm(void);
+bool sync_io_biss_tap_is_running(void);
+bool sync_io_biss_tap_read_frame_word(uint32_t *word);
 void sync_io_get_status(sync_io_status_t *status);
 
 /* ── SEQ_STEP 编码序列步进 ── */

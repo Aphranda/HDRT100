@@ -5,6 +5,7 @@
 
 #include "diagnostics.h"
 #include "drv_watchdog.h"
+#include "biss_protocol.h"
 #include "ota_ao.h"
 #include "pico/error.h"
 #include "pico/stdio.h"
@@ -111,6 +112,26 @@ static bool scpi_port_trigger_is_armed(void)
     return vector.state == TRIG_STATE_SEQ_ARMED ||
            vector.state == TRIG_STATE_ENC_ARMED ||
            vector.state == TRIG_STATE_BISS_ARMED;
+}
+
+static bool scpi_port_biss_is_armed(void)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    return vector.state == TRIG_STATE_BISS_ARMED;
+}
+
+static bool scpi_port_biss_role_supported(trig_biss_role_t role)
+{
+    return role == TRIG_BISS_ROLE_TAP_MONITOR;
+}
+
+static void scpi_port_push_exec_error(scpi_t *context, const char *info)
+{
+    SCPI_ErrorPushEx(context,
+                     SCPI_ERROR_EXECUTION_ERROR,
+                     (char *)info,
+                     info != NULL ? strlen(info) : 0u);
 }
 
 static scpi_result_t scpi_cmd_firmware_version_q(scpi_t *context)
@@ -378,6 +399,13 @@ static scpi_result_t scpi_cmd_trigger_mode(scpi_t *context)
     }
 
     if (mode == (uint32_t)TRIG_MODE_PROTOCOL_TRIGGER) {
+        trigger_vector_t vector;
+        sync_trigger_get_vector(&vector);
+        if (!scpi_port_biss_role_supported(vector.biss_role)) {
+            scpi_port_push_exec_error(context, "BISS_ROLE_NOT_IMPLEMENTED");
+            return SCPI_RES_ERR;
+        }
+
         const trig_event_t event = { .type = TRIG_EVENT_CONFIGURE_BISS };
         return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
     }
@@ -478,6 +506,14 @@ static scpi_result_t scpi_cmd_trigger_seq_data_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_arm(scpi_t *context)
 {
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    if (vector.state == TRIG_STATE_BISS_CONFIGURED &&
+        !scpi_port_biss_role_supported(vector.biss_role)) {
+        scpi_port_push_exec_error(context, "BISS_ROLE_NOT_IMPLEMENTED");
+        return SCPI_RES_ERR;
+    }
+
     const trig_event_t event = { .type = TRIG_EVENT_ARM };
     storage_manager_trace_event(2u, 10u, 1u, 0u, 0u);
     uint32_t job_id = 0u;
@@ -642,6 +678,16 @@ static scpi_result_t scpi_cmd_enc_a_pin(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
+    if (pin == 26u) {
+        trigger_vector_t vector;
+        sync_trigger_get_vector(&vector);
+        if (vector.state == TRIG_STATE_BISS_CONFIGURED ||
+            vector.state == TRIG_STATE_BISS_ARMED) {
+            scpi_port_push_exec_error(context, "BISS_AUX_BUSY");
+            return SCPI_RES_ERR;
+        }
+    }
+
     /* enc_count.pio samples a 4-pin group:
      * A=base, B=base+1, offset2 spare, Z=base+3. */
     const trig_event_t ev = {
@@ -671,19 +717,36 @@ static scpi_result_t scpi_cmd_enc_rev_q(scpi_t *context)
 
 /* ── 协议触发 / BiSS-C 节点命令 ── */
 
-static scpi_result_t scpi_cmd_biss_role(scpi_t *context)
+static scpi_result_t scpi_cmd_biss_set_u32(scpi_t *context,
+                                           trig_event_type_t type,
+                                           uint32_t min_value,
+                                           uint32_t max_value)
 {
-    uint32_t role;
-    if (!scpi_port_read_u32(context, &role) ||
-        role > (uint32_t)TRIG_BISS_ROLE_BRIDGE_PROXY) {
+    uint32_t value;
+    if (!scpi_port_read_u32(context, &value) ||
+        value < min_value ||
+        value > max_value) {
+        return SCPI_RES_ERR;
+    }
+
+    if (scpi_port_biss_is_armed()) {
+        scpi_port_push_exec_error(context, "BISS_ARMED");
         return SCPI_RES_ERR;
     }
 
     const trig_event_t event = {
-        .type = TRIG_EVENT_SET_BISS_ROLE,
-        .payload.value = role,
+        .type = type,
+        .payload.value = value,
     };
     return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_biss_role(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_ROLE,
+                                 (uint32_t)TRIG_BISS_ROLE_TAP_MONITOR,
+                                 (uint32_t)TRIG_BISS_ROLE_BRIDGE_PROXY);
 }
 
 static scpi_result_t scpi_cmd_biss_role_q(scpi_t *context)
@@ -697,16 +760,10 @@ static scpi_result_t scpi_cmd_biss_role_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_biss_device(scpi_t *context)
 {
-    uint32_t device_id;
-    if (!scpi_port_read_u32(context, &device_id)) {
-        return SCPI_RES_ERR;
-    }
-
-    const trig_event_t event = {
-        .type = TRIG_EVENT_SET_BISS_DEVICE,
-        .payload.value = device_id,
-    };
-    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_DEVICE,
+                                 0u,
+                                 UINT32_MAX);
 }
 
 static scpi_result_t scpi_cmd_biss_device_q(scpi_t *context)
@@ -719,16 +776,10 @@ static scpi_result_t scpi_cmd_biss_device_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_biss_clock(scpi_t *context)
 {
-    uint32_t clock_hz;
-    if (!scpi_port_read_u32(context, &clock_hz) || clock_hz == 0u) {
-        return SCPI_RES_ERR;
-    }
-
-    const trig_event_t event = {
-        .type = TRIG_EVENT_SET_BISS_CLOCK,
-        .payload.value = clock_hz,
-    };
-    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_CLOCK,
+                                 1u,
+                                 UINT32_MAX);
 }
 
 static scpi_result_t scpi_cmd_biss_clock_q(scpi_t *context)
@@ -741,16 +792,10 @@ static scpi_result_t scpi_cmd_biss_clock_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_biss_frame_bits(scpi_t *context)
 {
-    uint32_t bits;
-    if (!scpi_port_read_u32(context, &bits) || bits == 0u || bits > 64u) {
-        return SCPI_RES_ERR;
-    }
-
-    const trig_event_t event = {
-        .type = TRIG_EVENT_SET_BISS_FRAME_BITS,
-        .payload.value = bits,
-    };
-    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_FRAME_BITS,
+                                 1u,
+                                 BISS_PROFILE_MAX_FRAME_BITS);
 }
 
 static scpi_result_t scpi_cmd_biss_frame_bits_q(scpi_t *context)
@@ -761,18 +806,28 @@ static scpi_result_t scpi_cmd_biss_frame_bits_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static scpi_result_t scpi_cmd_biss_position_offset(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_POSITION_OFFSET,
+                                 0u,
+                                 BISS_PROFILE_MAX_FRAME_BITS - 1u);
+}
+
+static scpi_result_t scpi_cmd_biss_position_offset_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_position_offset);
+    return SCPI_RES_OK;
+}
+
 static scpi_result_t scpi_cmd_biss_position_bits(scpi_t *context)
 {
-    uint32_t bits;
-    if (!scpi_port_read_u32(context, &bits) || bits == 0u || bits > 32u) {
-        return SCPI_RES_ERR;
-    }
-
-    const trig_event_t event = {
-        .type = TRIG_EVENT_SET_BISS_POSITION_BITS,
-        .payload.value = bits,
-    };
-    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_POSITION_BITS,
+                                 1u,
+                                 BISS_PROFILE_MAX_POSITION_BITS);
 }
 
 static scpi_result_t scpi_cmd_biss_position_bits_q(scpi_t *context)
@@ -783,18 +838,434 @@ static scpi_result_t scpi_cmd_biss_position_bits_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static scpi_result_t scpi_cmd_biss_position_modulo(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_POSITION_MODULO,
+                                 1u,
+                                 UINT32_MAX);
+}
+
+static scpi_result_t scpi_cmd_biss_position_modulo_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_position_modulo);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_sample_edge(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_SAMPLE_EDGE,
+                                 (uint32_t)BISS_SAMPLE_EDGE_RISING,
+                                 (uint32_t)BISS_SAMPLE_EDGE_FALLING);
+}
+
+static scpi_result_t scpi_cmd_biss_sample_edge_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultText(context,
+                    vector.biss_sample_edge == (uint32_t)BISS_SAMPLE_EDGE_RISING ?
+                        "RISING" :
+                        "FALLING");
+    SCPI_ResultUInt32(context, vector.biss_sample_edge);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_sample_delay(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_SAMPLE_DELAY,
+                                 0u,
+                                 UINT32_MAX);
+}
+
+static scpi_result_t scpi_cmd_biss_sample_delay_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_sample_delay_cycles);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_sample_scan(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_SAMPLE_SCAN,
+                                 0u,
+                                 1u);
+}
+
+static scpi_result_t scpi_cmd_biss_sample_scan_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultBool(context, vector.biss_sample_scan_enabled ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, vector.biss_sample_scan_enabled);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_sample_scan_start(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_SAMPLE_SCAN_START,
+                                 0u,
+                                 UINT32_MAX);
+}
+
+static scpi_result_t scpi_cmd_biss_sample_scan_start_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_sample_scan_start_cycles);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_sample_scan_end(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_SAMPLE_SCAN_END,
+                                 0u,
+                                 UINT32_MAX);
+}
+
+static scpi_result_t scpi_cmd_biss_sample_scan_end_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_sample_scan_end_cycles);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_sample_scan_step(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_SAMPLE_SCAN_STEP,
+                                 1u,
+                                 UINT32_MAX);
+}
+
+static scpi_result_t scpi_cmd_biss_sample_scan_step_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_sample_scan_step_cycles);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_timeout_us(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_TIMEOUT,
+                                 1u,
+                                 UINT32_MAX);
+}
+
+static scpi_result_t scpi_cmd_biss_timeout_us_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_timeout_us);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_anchor_offset(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_ANCHOR_OFFSET,
+                                 0u,
+                                 BISS_PROFILE_MAX_FRAME_BITS - 1u);
+}
+
+static scpi_result_t scpi_cmd_biss_anchor_offset_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_anchor_offset);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_anchor_bits(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_ANCHOR_BITS,
+                                 0u,
+                                 BISS_PROFILE_MAX_FRAME_BITS);
+}
+
+static scpi_result_t scpi_cmd_biss_anchor_bits_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_anchor_bits);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_anchor_mask(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_ANCHOR_MASK,
+                                 0u,
+                                 UINT32_MAX);
+}
+
+static scpi_result_t scpi_cmd_biss_anchor_mask_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt64(context, vector.biss_anchor_mask);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_anchor_value(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_ANCHOR_VALUE,
+                                 0u,
+                                 UINT32_MAX);
+}
+
+static scpi_result_t scpi_cmd_biss_anchor_value_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt64(context, vector.biss_anchor_value);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_error_bit(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_ERROR_BIT,
+                                 0u,
+                                 UINT32_MAX);
+}
+
+static scpi_result_t scpi_cmd_biss_error_bit_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_error_bit_offset);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_warning_bit(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_WARNING_BIT,
+                                 0u,
+                                 UINT32_MAX);
+}
+
+static scpi_result_t scpi_cmd_biss_warning_bit_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_warning_bit_offset);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_status_gate(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_STATUS_GATE,
+                                 (uint32_t)BISS_STATUS_GATE_IGNORE,
+                                 (uint32_t)BISS_STATUS_GATE_BLOCK_TRIGGER);
+}
+
+static scpi_result_t scpi_cmd_biss_status_gate_q(scpi_t *context)
+{
+    static const char *const names[] = {
+        "IGNORE",
+        "COUNT_ONLY",
+        "BLOCK_TRIGGER",
+    };
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    const uint32_t policy = vector.biss_status_gate_policy;
+    SCPI_ResultText(context, policy <= (uint32_t)BISS_STATUS_GATE_BLOCK_TRIGGER ?
+                                 names[policy] :
+                                 "UNKNOWN");
+    SCPI_ResultUInt32(context, policy);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_crc_offset(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_CRC_OFFSET,
+                                 0u,
+                                 BISS_PROFILE_MAX_FRAME_BITS - 1u);
+}
+
+static scpi_result_t scpi_cmd_biss_crc_offset_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_crc_offset);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_crc_bits(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_CRC_BITS,
+                                 0u,
+                                 BISS_PROFILE_MAX_CRC_BITS);
+}
+
+static scpi_result_t scpi_cmd_biss_crc_bits_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_crc_bits);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_crc_cover_offset(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_CRC_COVER_OFFSET,
+                                 0u,
+                                 BISS_PROFILE_MAX_FRAME_BITS - 1u);
+}
+
+static scpi_result_t scpi_cmd_biss_crc_cover_offset_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_crc_cover_offset);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_crc_cover_bits(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_CRC_COVER_BITS,
+                                 0u,
+                                 BISS_PROFILE_MAX_FRAME_BITS);
+}
+
+static scpi_result_t scpi_cmd_biss_crc_cover_bits_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_crc_cover_bits);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_crc_polynomial(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_CRC_POLYNOMIAL,
+                                 0u,
+                                 0xFFFFu);
+}
+
+static scpi_result_t scpi_cmd_biss_crc_polynomial_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_crc_polynomial);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_crc_init(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_CRC_INIT,
+                                 0u,
+                                 0xFFFFu);
+}
+
+static scpi_result_t scpi_cmd_biss_crc_init_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_crc_init);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_crc_xor(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_CRC_XOR,
+                                 0u,
+                                 0xFFFFu);
+}
+
+static scpi_result_t scpi_cmd_biss_crc_xor_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_crc_xor);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_crc_invert(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_CRC_INVERT,
+                                 0u,
+                                 1u);
+}
+
+static scpi_result_t scpi_cmd_biss_crc_invert_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultBool(context, vector.biss_crc_invert ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_crc_gate(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_CRC_GATE,
+                                 (uint32_t)BISS_CRC_GATE_LATE_COUNT,
+                                 (uint32_t)BISS_CRC_GATE_BLOCK_TRIGGER);
+}
+
+static scpi_result_t scpi_cmd_biss_crc_gate_q(scpi_t *context)
+{
+    static const char *const names[] = {
+        "LATE_COUNT",
+        "BLOCK_TRIGGER",
+    };
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    const uint32_t policy = vector.biss_crc_gate_policy;
+    SCPI_ResultText(context, policy <= (uint32_t)BISS_CRC_GATE_BLOCK_TRIGGER ?
+                                 names[policy] :
+                                 "UNKNOWN");
+    SCPI_ResultUInt32(context, policy);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_biss_latency_offset(scpi_t *context)
+{
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_LATENCY_OFFSET,
+                                 0u,
+                                 UINT32_MAX);
+}
+
+static scpi_result_t scpi_cmd_biss_latency_offset_q(scpi_t *context)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultUInt32(context, vector.biss_latency_offset_ns);
+    return SCPI_RES_OK;
+}
+
 static scpi_result_t scpi_cmd_biss_target(scpi_t *context)
 {
-    uint32_t target;
-    if (!scpi_port_read_u32(context, &target)) {
-        return SCPI_RES_ERR;
-    }
-
-    const trig_event_t event = {
-        .type = TRIG_EVENT_SET_BISS_TARGET,
-        .payload.value = target,
-    };
-    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+    return scpi_cmd_biss_set_u32(context,
+                                 TRIG_EVENT_SET_BISS_TARGET,
+                                 0u,
+                                 UINT32_MAX);
 }
 
 static scpi_result_t scpi_cmd_biss_target_q(scpi_t *context)
@@ -854,7 +1325,7 @@ static scpi_result_t scpi_cmd_biss_crc_error(scpi_t *context)
     return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
 }
 
-static scpi_result_t scpi_cmd_biss_timeout(scpi_t *context)
+static scpi_result_t scpi_cmd_biss_timeout_inject(scpi_t *context)
 {
     (void)context;
     const trig_event_t event = { .type = TRIG_EVENT_BISS_TIMEOUT };
@@ -867,19 +1338,34 @@ static scpi_result_t scpi_cmd_biss_status_q(scpi_t *context)
     sync_trigger_get_vector(&vector);
     SCPI_ResultText(context, scpi_biss_role_to_string(vector.biss_role));
     SCPI_ResultUInt32(context, (uint32_t)vector.biss_role);
+    SCPI_ResultText(context,
+                    scpi_port_biss_role_supported(vector.biss_role) ?
+                        "OK" :
+                        "NOT_IMPLEMENTED");
+    SCPI_ResultUInt32(context, (uint32_t)vector.state);
     SCPI_ResultUInt32(context, vector.biss_device_id);
     SCPI_ResultUInt32(context, vector.biss_clock_hz);
     SCPI_ResultUInt32(context, vector.biss_frame_bits);
+    SCPI_ResultUInt32(context, vector.biss_position_offset);
     SCPI_ResultUInt32(context, vector.biss_position_bits);
+    SCPI_ResultUInt32(context, vector.biss_position_modulo);
     SCPI_ResultUInt32(context, vector.biss_target);
     SCPI_ResultUInt32(context, vector.biss_last_position);
     SCPI_ResultUInt32(context, vector.biss_last_seq);
+    SCPI_ResultUInt32(context, vector.biss_frame_error_count);
+    SCPI_ResultUInt32(context, vector.biss_status_block_count);
+    SCPI_ResultUInt32(context, vector.biss_crc_error_count);
+    SCPI_ResultUInt32(context, vector.biss_fifo_overflow_count);
+    SCPI_ResultUInt32(context, vector.biss_timeout_count);
+    SCPI_ResultUInt32(context, vector.biss_trigger_count);
     SCPI_ResultUInt32(context, vector.biss_pulse_in_count);
     SCPI_ResultUInt32(context, vector.biss_tx_frame_count);
     SCPI_ResultUInt32(context, vector.biss_rx_frame_count);
     SCPI_ResultUInt32(context, vector.biss_pulse_out_count);
-    SCPI_ResultUInt32(context, vector.biss_crc_error_count);
-    SCPI_ResultUInt32(context, vector.biss_timeout_count);
+    SCPI_ResultUInt32(context, vector.biss_active_sample_edge);
+    SCPI_ResultUInt32(context, vector.biss_active_sample_delay_cycles);
+    SCPI_ResultUInt32(context, vector.biss_sample_scan_index);
+    SCPI_ResultUInt32(context, vector.biss_sample_scan_wrap_count);
     return SCPI_RES_OK;
 }
 
@@ -2007,6 +2493,76 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "TRIGger:ENC:APIN", .callback = scpi_cmd_enc_a_pin},
     {.pattern = "TRIGger:ENC:APIN?", .callback = scpi_cmd_enc_a_pin_q},
     {.pattern = "TRIGger:ENC:REVolution?", .callback = scpi_cmd_enc_rev_q},
+    {.pattern = "TRIGger:BISS:ROLE", .callback = scpi_cmd_biss_role},
+    {.pattern = "TRIGger:BISS:ROLE?", .callback = scpi_cmd_biss_role_q},
+    {.pattern = "TRIGger:BISS:DEVice", .callback = scpi_cmd_biss_device},
+    {.pattern = "TRIGger:BISS:DEVice?", .callback = scpi_cmd_biss_device_q},
+    {.pattern = "TRIGger:BISS:CLOCk", .callback = scpi_cmd_biss_clock},
+    {.pattern = "TRIGger:BISS:CLOCk?", .callback = scpi_cmd_biss_clock_q},
+    {.pattern = "TRIGger:BISS:FBITs", .callback = scpi_cmd_biss_frame_bits},
+    {.pattern = "TRIGger:BISS:FBITs?", .callback = scpi_cmd_biss_frame_bits_q},
+    {.pattern = "TRIGger:BISS:POFFset", .callback = scpi_cmd_biss_position_offset},
+    {.pattern = "TRIGger:BISS:POFFset?", .callback = scpi_cmd_biss_position_offset_q},
+    {.pattern = "TRIGger:BISS:PBITs", .callback = scpi_cmd_biss_position_bits},
+    {.pattern = "TRIGger:BISS:PBITs?", .callback = scpi_cmd_biss_position_bits_q},
+    {.pattern = "TRIGger:BISS:PMODulo", .callback = scpi_cmd_biss_position_modulo},
+    {.pattern = "TRIGger:BISS:PMODulo?", .callback = scpi_cmd_biss_position_modulo_q},
+    {.pattern = "TRIGger:BISS:SAMPle:EDGE", .callback = scpi_cmd_biss_sample_edge},
+    {.pattern = "TRIGger:BISS:SAMPle:EDGE?", .callback = scpi_cmd_biss_sample_edge_q},
+    {.pattern = "TRIGger:BISS:SAMPle:DELay", .callback = scpi_cmd_biss_sample_delay},
+    {.pattern = "TRIGger:BISS:SAMPle:DELay?", .callback = scpi_cmd_biss_sample_delay_q},
+    {.pattern = "TRIGger:BISS:SAMPle:SCAN", .callback = scpi_cmd_biss_sample_scan},
+    {.pattern = "TRIGger:BISS:SAMPle:SCAN?", .callback = scpi_cmd_biss_sample_scan_q},
+    {.pattern = "TRIGger:BISS:SAMPle:SCAN:STARt", .callback = scpi_cmd_biss_sample_scan_start},
+    {.pattern = "TRIGger:BISS:SAMPle:SCAN:STARt?", .callback = scpi_cmd_biss_sample_scan_start_q},
+    {.pattern = "TRIGger:BISS:SAMPle:SCAN:END", .callback = scpi_cmd_biss_sample_scan_end},
+    {.pattern = "TRIGger:BISS:SAMPle:SCAN:END?", .callback = scpi_cmd_biss_sample_scan_end_q},
+    {.pattern = "TRIGger:BISS:SAMPle:SCAN:STEP", .callback = scpi_cmd_biss_sample_scan_step},
+    {.pattern = "TRIGger:BISS:SAMPle:SCAN:STEP?", .callback = scpi_cmd_biss_sample_scan_step_q},
+    {.pattern = "TRIGger:BISS:TIMEout", .callback = scpi_cmd_biss_timeout_us},
+    {.pattern = "TRIGger:BISS:TIMEout?", .callback = scpi_cmd_biss_timeout_us_q},
+    {.pattern = "TRIGger:BISS:ANCHor:OFFSet", .callback = scpi_cmd_biss_anchor_offset},
+    {.pattern = "TRIGger:BISS:ANCHor:OFFSet?", .callback = scpi_cmd_biss_anchor_offset_q},
+    {.pattern = "TRIGger:BISS:ANCHor:BITS", .callback = scpi_cmd_biss_anchor_bits},
+    {.pattern = "TRIGger:BISS:ANCHor:BITS?", .callback = scpi_cmd_biss_anchor_bits_q},
+    {.pattern = "TRIGger:BISS:ANCHor:MASK", .callback = scpi_cmd_biss_anchor_mask},
+    {.pattern = "TRIGger:BISS:ANCHor:MASK?", .callback = scpi_cmd_biss_anchor_mask_q},
+    {.pattern = "TRIGger:BISS:ANCHor:VALue", .callback = scpi_cmd_biss_anchor_value},
+    {.pattern = "TRIGger:BISS:ANCHor:VALue?", .callback = scpi_cmd_biss_anchor_value_q},
+    {.pattern = "TRIGger:BISS:ERRor:BIT", .callback = scpi_cmd_biss_error_bit},
+    {.pattern = "TRIGger:BISS:ERRor:BIT?", .callback = scpi_cmd_biss_error_bit_q},
+    {.pattern = "TRIGger:BISS:WARNing:BIT", .callback = scpi_cmd_biss_warning_bit},
+    {.pattern = "TRIGger:BISS:WARNing:BIT?", .callback = scpi_cmd_biss_warning_bit_q},
+    {.pattern = "TRIGger:BISS:STATus:GATE", .callback = scpi_cmd_biss_status_gate},
+    {.pattern = "TRIGger:BISS:STATus:GATE?", .callback = scpi_cmd_biss_status_gate_q},
+    {.pattern = "TRIGger:BISS:CRC:OFFSet", .callback = scpi_cmd_biss_crc_offset},
+    {.pattern = "TRIGger:BISS:CRC:OFFSet?", .callback = scpi_cmd_biss_crc_offset_q},
+    {.pattern = "TRIGger:BISS:CRC:BITS", .callback = scpi_cmd_biss_crc_bits},
+    {.pattern = "TRIGger:BISS:CRC:BITS?", .callback = scpi_cmd_biss_crc_bits_q},
+    {.pattern = "TRIGger:BISS:CRC:COVer:OFFSet", .callback = scpi_cmd_biss_crc_cover_offset},
+    {.pattern = "TRIGger:BISS:CRC:COVer:OFFSet?", .callback = scpi_cmd_biss_crc_cover_offset_q},
+    {.pattern = "TRIGger:BISS:CRC:COVer:BITS", .callback = scpi_cmd_biss_crc_cover_bits},
+    {.pattern = "TRIGger:BISS:CRC:COVer:BITS?", .callback = scpi_cmd_biss_crc_cover_bits_q},
+    {.pattern = "TRIGger:BISS:CRC:POLYnomial", .callback = scpi_cmd_biss_crc_polynomial},
+    {.pattern = "TRIGger:BISS:CRC:POLYnomial?", .callback = scpi_cmd_biss_crc_polynomial_q},
+    {.pattern = "TRIGger:BISS:CRC:INIT", .callback = scpi_cmd_biss_crc_init},
+    {.pattern = "TRIGger:BISS:CRC:INIT?", .callback = scpi_cmd_biss_crc_init_q},
+    {.pattern = "TRIGger:BISS:CRC:XOR", .callback = scpi_cmd_biss_crc_xor},
+    {.pattern = "TRIGger:BISS:CRC:XOR?", .callback = scpi_cmd_biss_crc_xor_q},
+    {.pattern = "TRIGger:BISS:CRC:INVert", .callback = scpi_cmd_biss_crc_invert},
+    {.pattern = "TRIGger:BISS:CRC:INVert?", .callback = scpi_cmd_biss_crc_invert_q},
+    {.pattern = "TRIGger:BISS:CRC:GATE", .callback = scpi_cmd_biss_crc_gate},
+    {.pattern = "TRIGger:BISS:CRC:GATE?", .callback = scpi_cmd_biss_crc_gate_q},
+    {.pattern = "TRIGger:BISS:LATency:OFFSet", .callback = scpi_cmd_biss_latency_offset},
+    {.pattern = "TRIGger:BISS:LATency:OFFSet?", .callback = scpi_cmd_biss_latency_offset_q},
+    {.pattern = "TRIGger:BISS:TARGet", .callback = scpi_cmd_biss_target},
+    {.pattern = "TRIGger:BISS:TARGet?", .callback = scpi_cmd_biss_target_q},
+    {.pattern = "TRIGger:BISS:PINs?", .callback = scpi_cmd_biss_pins_q},
+    {.pattern = "TRIGger:BISS:PULSe", .callback = scpi_cmd_biss_pulse_in},
+    {.pattern = "TRIGger:BISS:FRAMe", .callback = scpi_cmd_biss_frame_rx},
+    {.pattern = "TRIGger:BISS:CRC:ERRor", .callback = scpi_cmd_biss_crc_error},
+    {.pattern = "TRIGger:BISS:TIMEout:INJect", .callback = scpi_cmd_biss_timeout_inject},
+    {.pattern = "STATus:BISS?", .callback = scpi_cmd_biss_status_q},
     {.pattern = "TRIGger:PCNT:DECode", .callback = scpi_cmd_pcnt_decode},
     {.pattern = "TRIGger:PCNT:DECode?", .callback = scpi_cmd_pcnt_decode_q},
     {.pattern = "TRIGger:PCNT:DIRection", .callback = scpi_cmd_pcnt_dir},

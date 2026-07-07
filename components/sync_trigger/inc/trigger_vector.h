@@ -128,7 +128,33 @@ typedef enum {
     TRIG_EVENT_SET_BISS_DEVICE,         /* 产品/底板设备 id */
     TRIG_EVENT_SET_BISS_CLOCK,          /* BiSS clock Hz */
     TRIG_EVENT_SET_BISS_FRAME_BITS,     /* 固定帧位宽 */
+    TRIG_EVENT_SET_BISS_POSITION_OFFSET,/* position 起始 bit offset, MSB-first */
     TRIG_EVENT_SET_BISS_POSITION_BITS,  /* position/event_count 位宽 */
+    TRIG_EVENT_SET_BISS_POSITION_MODULO,/* position crossing modulo */
+    TRIG_EVENT_SET_BISS_SAMPLE_EDGE,     /* 0=rising, 1=falling */
+    TRIG_EVENT_SET_BISS_SAMPLE_DELAY,    /* PIO sample delay cycles */
+    TRIG_EVENT_SET_BISS_SAMPLE_SCAN,     /* 0=disabled, 1=enabled */
+    TRIG_EVENT_SET_BISS_SAMPLE_SCAN_START, /* scan 起始 delay cycles */
+    TRIG_EVENT_SET_BISS_SAMPLE_SCAN_END, /* scan 结束 delay cycles */
+    TRIG_EVENT_SET_BISS_SAMPLE_SCAN_STEP, /* scan 步进 cycles */
+    TRIG_EVENT_SET_BISS_TIMEOUT,         /* frame timeout us */
+    TRIG_EVENT_SET_BISS_ANCHOR_OFFSET,   /* anchor 起始 bit offset */
+    TRIG_EVENT_SET_BISS_ANCHOR_BITS,     /* anchor bit width */
+    TRIG_EVENT_SET_BISS_ANCHOR_MASK,     /* anchor compare mask, low 32 bits */
+    TRIG_EVENT_SET_BISS_ANCHOR_VALUE,    /* anchor expected value, low 32 bits */
+    TRIG_EVENT_SET_BISS_ERROR_BIT,       /* ERR bit offset, UINT32_MAX=disabled */
+    TRIG_EVENT_SET_BISS_WARNING_BIT,     /* WRN bit offset, UINT32_MAX=disabled */
+    TRIG_EVENT_SET_BISS_STATUS_GATE,     /* status gate policy */
+    TRIG_EVENT_SET_BISS_CRC_OFFSET,      /* CRC field offset */
+    TRIG_EVENT_SET_BISS_CRC_BITS,        /* CRC field width */
+    TRIG_EVENT_SET_BISS_CRC_COVER_OFFSET,/* CRC coverage start */
+    TRIG_EVENT_SET_BISS_CRC_COVER_BITS,  /* CRC coverage width */
+    TRIG_EVENT_SET_BISS_CRC_POLYNOMIAL,  /* CRC polynomial */
+    TRIG_EVENT_SET_BISS_CRC_INIT,        /* CRC initial value */
+    TRIG_EVENT_SET_BISS_CRC_XOR,         /* CRC final xor */
+    TRIG_EVENT_SET_BISS_CRC_INVERT,      /* CRC field inverted on wire */
+    TRIG_EVENT_SET_BISS_CRC_GATE,        /* CRC gate policy */
+    TRIG_EVENT_SET_BISS_LATENCY_OFFSET,  /* measured fixed latency ns */
     TRIG_EVENT_SET_BISS_TARGET,         /* 位置/事件触发阈值 */
     TRIG_EVENT_BISS_PULSE_IN,           /* 软件注入: 本地脉冲输入已锁存 */
     TRIG_EVENT_BISS_FRAME_RX,           /* 软件注入: 收到远端帧 position/event_count */
@@ -187,18 +213,56 @@ typedef struct {
     trig_protocol_t  protocol;
     trig_biss_role_t biss_role;
     uint32_t         biss_device_id;          /* 产品/底板设备 profile id */
+    uint32_t         biss_phase;              /* P0: 0=FAST_RT_TEST, P1+: SLOW_CTRL_SYNC */
     uint32_t         biss_clock_hz;
     uint32_t         biss_frame_bits;
+    uint32_t         biss_position_offset;
     uint32_t         biss_position_bits;
+    uint32_t         biss_position_modulo;
+    uint32_t         biss_anchor_offset;
+    uint32_t         biss_anchor_bits;
+    uint64_t         biss_anchor_mask;
+    uint64_t         biss_anchor_value;
+    uint32_t         biss_sample_edge;
+    uint32_t         biss_sample_delay_cycles;
+    uint32_t         biss_sample_scan_enabled;
+    uint32_t         biss_sample_scan_start_cycles;
+    uint32_t         biss_sample_scan_end_cycles;
+    uint32_t         biss_sample_scan_step_cycles;
+    uint32_t         biss_active_sample_edge;
+    uint32_t         biss_active_sample_delay_cycles;
+    uint32_t         biss_sample_scan_index;
+    uint32_t         biss_sample_scan_wrap_count;
+    uint32_t         biss_timeout_us;
+    uint32_t         biss_error_bit_offset;
+    uint32_t         biss_warning_bit_offset;
+    uint32_t         biss_status_gate_policy;
+    uint32_t         biss_crc_offset;
+    uint32_t         biss_crc_bits;
+    uint32_t         biss_crc_cover_offset;
+    uint32_t         biss_crc_cover_bits;
+    uint32_t         biss_crc_polynomial;
+    uint32_t         biss_crc_init;
+    uint32_t         biss_crc_xor;
+    uint32_t         biss_crc_invert;
+    uint32_t         biss_crc_gate_policy;
     uint32_t         biss_target;
+    uint32_t         biss_latency_offset_ns;
     uint32_t         biss_last_position;
     uint32_t         biss_last_seq;
     uint32_t         biss_pulse_in_count;
     uint32_t         biss_pulse_out_count;
     uint32_t         biss_tx_frame_count;
     uint32_t         biss_rx_frame_count;
+    uint32_t         biss_frame_error_count;
     uint32_t         biss_crc_error_count;
+    uint32_t         biss_status_block_count;
+    uint32_t         biss_fifo_overflow_count;
     uint32_t         biss_timeout_count;
+    uint32_t         biss_trigger_count;
+    uint32_t         biss_cal_round_trip_ns;
+    uint32_t         biss_cal_jitter_p99_ns;
+    uint32_t         biss_cal_valid;
     uint32_t         biss_clk_in_pin;
     uint32_t         biss_data_in_pin;
     uint32_t         biss_clk_out_pin;

@@ -1,0 +1,93 @@
+; biss_tap_rx.pio - BiSS-C TAP receiver skeleton
+; P0 scope:
+;   - TAP only: CLK/DATA are inputs, no upstream line is driven.
+;   - Wait for a selected CLK edge, sample DATA after a patched delay,
+;     shift a fixed frame into ISR, and push 32-bit chunks to RX FIFO.
+;   - Frames longer than 32 bits are emitted as MSB-first chunks; the final
+;     partial chunk is right-aligned in the RX word.
+
+.program biss_tap_rx
+    pull block
+    mov x, osr              ; X = bits_per_frame - 1
+    set y, 31               ; Y = bits_until_next_push - 1
+
+.wrap_target
+sample_loop:
+    wait 0 gpio, 0          ; patched: idle side of selected CLK edge
+    wait 1 gpio, 0          ; patched: active side of selected CLK edge
+sample_delay:
+    nop                     ; patched delay cycles, 0..31
+    in pins, 1              ; DATA pin is sm_config_set_in_pins()
+    jmp x--, frame_continues
+    push block              ; frame complete: push full or partial chunk
+    pull block
+    mov x, osr
+    set y, 31
+    jmp sample_loop
+frame_continues:
+    jmp y--, sample_loop
+    push block              ; 32-bit chunk complete, frame still continues
+    set y, 31
+    jmp sample_loop
+.wrap
+
+% c-sdk {
+
+#include "hardware/pio_instructions.h"
+
+enum biss_tap_rx_sample_edge {
+    BISS_TAP_RX_EDGE_RISING  = 0,
+    BISS_TAP_RX_EDGE_FALLING = 1,
+};
+
+static inline void biss_tap_rx_program_patch(PIO pio,
+                                             uint offset,
+                                             uint clk_pin,
+                                             uint sample_delay_cycles,
+                                             int sample_edge)
+{
+    uint16_t *instr = (uint16_t *)&pio->instr_mem[offset];
+    const bool active_high = sample_edge == BISS_TAP_RX_EDGE_RISING;
+    const uint delay = sample_delay_cycles > 31u ? 31u : sample_delay_cycles;
+
+    instr[3] = (uint16_t)pio_encode_wait_gpio(!active_high, clk_pin);
+    instr[4] = (uint16_t)pio_encode_wait_gpio(active_high, clk_pin);
+    instr[5] = (uint16_t)(pio_encode_nop() | pio_encode_delay(delay));
+}
+
+static inline void biss_tap_rx_program_init(PIO pio,
+                                            uint sm,
+                                            uint offset,
+                                            uint clk_pin,
+                                            uint data_pin,
+                                            uint frame_bits,
+                                            uint sample_delay_cycles,
+                                            int sample_edge,
+                                            float clkdiv)
+{
+    pio_gpio_init(pio, clk_pin);
+    pio_gpio_init(pio, data_pin);
+    gpio_pull_down(clk_pin);
+    gpio_pull_down(data_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, clk_pin, 1, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, data_pin, 1, false);
+
+    biss_tap_rx_program_patch(pio,
+                              offset,
+                              clk_pin,
+                              sample_delay_cycles,
+                              sample_edge);
+
+    pio_sm_config c = biss_tap_rx_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, data_pin);
+    sm_config_set_in_shift(&c, false, false, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&c, clkdiv);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_clear_fifos(pio, sm);
+
+    const uint32_t count = frame_bits == 0u ? 0u : (frame_bits - 1u);
+    pio_sm_put_blocking(pio, sm, count);
+}
+
+%}

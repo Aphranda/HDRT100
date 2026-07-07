@@ -8,6 +8,8 @@
 #include "hardware/irq.h"
 #include "hardware/pio.h"
 #include "osal.h"
+#include "resource_arbiter.h"
+#include "biss_tap_rx.pio.h"
 #include "seq_step.pio.h"
 #include "storage_manager.h"
 #include "sync_io.pio.h"
@@ -24,6 +26,7 @@
 #define SYNC_IO_TRACE_ERROR         3u
 #define SYNC_IO_DMA_OVERFLOW_DELTA_THRESHOLD 1u
 #define SYNC_IO_AUX_READY_TIMEOUT_MS 1000u
+#define SYNC_IO_BISS_TAP_SM BOARD_SYNC_AUX0_SM
 
 typedef enum {
     SYNC_IO_TRACE_INIT_OK           = 10u,
@@ -57,6 +60,10 @@ typedef enum {
     SYNC_IO_TRACE_AUX_SNAPSHOT      = 70u,
     SYNC_IO_TRACE_READY_REDY        = 71u,
     SYNC_IO_TRACE_AUX_TIMEOUT       = 72u,
+    SYNC_IO_TRACE_AUX_BUSY          = 73u,
+    SYNC_IO_TRACE_BISS_TAP_ARM      = 80u,
+    SYNC_IO_TRACE_BISS_TAP_DISARM   = 81u,
+    SYNC_IO_TRACE_BISS_TAP_FAIL     = 82u,
 } sync_io_trace_event_t;
 
 typedef struct {
@@ -67,10 +74,15 @@ typedef struct {
     uint pulse_offset;
     uint clock_offset;
     uint aux_offset;
+    uint biss_tap_offset;
     uint32_t capture_sample_hz;
     uint32_t sync_clock_hz;
     uint32_t dropped_capture_words;
     sync_io_aux_mode_t aux_modes[SYNC_IO_AUX_COUNT];
+    bool biss_tap_running;
+    uint32_t biss_tap_frame_bits;
+    uint32_t biss_tap_clk_pin;
+    uint32_t biss_tap_data_pin;
 } sync_io_context_t;
 
 static sync_io_context_t s_sync_io;
@@ -203,6 +215,35 @@ static bool sync_io_valid_aux_channel(sync_io_aux_channel_t channel)
     return (uint)channel < (uint)SYNC_IO_AUX_COUNT;
 }
 
+static bool sync_io_aux_resource_busy(void)
+{
+    resource_arbiter_snapshot_t snapshot;
+    resource_arbiter_get_snapshot(&snapshot);
+    return (snapshot.active_resources & RESOURCE_ARBITER_RESOURCE_AUX) != 0u;
+}
+
+static void sync_io_restore_aux_channel_input(uint pin)
+{
+    gpio_set_function(pin, GPIO_FUNC_SIO);
+    gpio_set_dir(pin, GPIO_IN);
+    gpio_pull_down(pin);
+
+    for (uint channel = 0u; channel < (uint)SYNC_IO_AUX_COUNT; channel++) {
+        if (s_aux_pins[channel] == pin) {
+            s_sync_io.aux_modes[channel] = SYNC_IO_AUX_MODE_INPUT;
+        }
+    }
+}
+
+static void sync_io_mark_aux_channel_input(uint pin)
+{
+    for (uint channel = 0u; channel < (uint)SYNC_IO_AUX_COUNT; channel++) {
+        if (s_aux_pins[channel] == pin) {
+            s_sync_io.aux_modes[channel] = SYNC_IO_AUX_MODE_INPUT;
+        }
+    }
+}
+
 static uint32_t sync_io_read_aux_level_mask(void)
 {
     uint32_t mask = 0u;
@@ -253,7 +294,8 @@ bool sync_io_init(const sync_io_config_t *config)
     if (!pio_can_add_program(BOARD_SYNC_PIO_FAST, &sync_capture_4bit_program) ||
         !pio_can_add_program(BOARD_SYNC_PIO_WAVE, &sync_pulse_program) ||
         !pio_can_add_program(BOARD_SYNC_PIO_WAVE, &sync_clock_program) ||
-        !pio_can_add_program(BOARD_SYNC_PIO_AUX, &sync_aux_output_program)) {
+        !pio_can_add_program(BOARD_SYNC_PIO_AUX, &sync_aux_output_program) ||
+        !pio_can_add_program(BOARD_SYNC_PIO_AUX, &biss_tap_rx_program)) {
         LOG_ERROR("sync_io", "not enough PIO instruction memory");
         sync_io_trace(SYNC_IO_TRACE_INIT_FAIL, SYNC_IO_TRACE_ERROR, 1u, 0u);
         return false;
@@ -276,6 +318,7 @@ bool sync_io_init(const sync_io_config_t *config)
     s_sync_io.pulse_offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE, &sync_pulse_program);
     s_sync_io.clock_offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE, &sync_clock_program);
     s_sync_io.aux_offset = (uint)pio_add_program(BOARD_SYNC_PIO_AUX, &sync_aux_output_program);
+    s_sync_io.biss_tap_offset = (uint)pio_add_program(BOARD_SYNC_PIO_AUX, &biss_tap_rx_program);
 
     sync_io_configure_static_inputs();
 
@@ -517,6 +560,14 @@ bool sync_io_aux_set_mode(sync_io_aux_channel_t channel, sync_io_aux_mode_t mode
     }
 
     const uint index = (uint)channel;
+    if (sync_io_aux_resource_busy()) {
+        sync_io_trace(SYNC_IO_TRACE_AUX_BUSY,
+                      SYNC_IO_TRACE_WARN,
+                      index,
+                      (uint32_t)mode);
+        return false;
+    }
+
     const uint sm = s_aux_sms[index];
     const uint pin = s_aux_pins[index];
 
@@ -551,6 +602,14 @@ bool sync_io_aux_write(sync_io_aux_channel_t channel, bool level)
     }
 
     const uint index = (uint)channel;
+    if (sync_io_aux_resource_busy()) {
+        sync_io_trace(SYNC_IO_TRACE_AUX_BUSY,
+                      SYNC_IO_TRACE_WARN,
+                      index,
+                      level ? 1u : 0u);
+        return false;
+    }
+
     if (s_sync_io.aux_modes[index] != SYNC_IO_AUX_MODE_PIO_OUTPUT) {
         return false;
     }
@@ -571,6 +630,94 @@ bool sync_io_aux_read(sync_io_aux_channel_t channel, bool *level)
     }
 
     *level = gpio_get(s_aux_pins[(uint)channel]) != 0;
+    return true;
+}
+
+bool sync_io_biss_tap_arm(const sync_io_biss_tap_config_t *config)
+{
+    if (!s_sync_io.initialized || config == NULL ||
+        config->frame_bits == 0u ||
+        config->frame_bits > 64u ||
+        config->clk_pin == config->data_pin ||
+        config->sample_edge > 1u) {
+        sync_io_trace(SYNC_IO_TRACE_BISS_TAP_FAIL,
+                      SYNC_IO_TRACE_ERROR,
+                      config != NULL ? config->frame_bits : 0u,
+                      config != NULL ? config->sample_edge : 0u);
+        return false;
+    }
+
+    if (s_sync_io.biss_tap_running) {
+        sync_io_biss_tap_disarm();
+    }
+
+    pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM, false);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM);
+    pio_sm_restart(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM);
+
+    biss_tap_rx_program_init(BOARD_SYNC_PIO_AUX,
+                             SYNC_IO_BISS_TAP_SM,
+                             s_sync_io.biss_tap_offset,
+                             config->clk_pin,
+                             config->data_pin,
+                             config->frame_bits,
+                             config->sample_delay_cycles,
+                             (int)config->sample_edge,
+                             1.0f);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM, true);
+
+    s_sync_io.biss_tap_running = true;
+    s_sync_io.biss_tap_frame_bits = config->frame_bits;
+    s_sync_io.biss_tap_clk_pin = config->clk_pin;
+    s_sync_io.biss_tap_data_pin = config->data_pin;
+    sync_io_mark_aux_channel_input(config->clk_pin);
+    sync_io_mark_aux_channel_input(config->data_pin);
+
+    sync_io_trace(SYNC_IO_TRACE_BISS_TAP_ARM,
+                  SYNC_IO_TRACE_INFO,
+                  config->frame_bits,
+                  (config->sample_edge & 0xFFu) |
+                      ((config->sample_delay_cycles & 0xFFu) << 8));
+    return true;
+}
+
+void sync_io_biss_tap_disarm(void)
+{
+    if (!s_sync_io.initialized || !s_sync_io.biss_tap_running) {
+        return;
+    }
+
+    pio_sm_set_enabled(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM, false);
+    pio_sm_clear_fifos(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM);
+    pio_sm_restart(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM);
+    sync_io_restore_aux_channel_input(s_sync_io.biss_tap_clk_pin);
+    sync_io_restore_aux_channel_input(s_sync_io.biss_tap_data_pin);
+
+    sync_io_trace(SYNC_IO_TRACE_BISS_TAP_DISARM,
+                  SYNC_IO_TRACE_INFO,
+                  s_sync_io.biss_tap_frame_bits,
+                  0u);
+    s_sync_io.biss_tap_running = false;
+    s_sync_io.biss_tap_frame_bits = 0u;
+    s_sync_io.biss_tap_clk_pin = 0u;
+    s_sync_io.biss_tap_data_pin = 0u;
+}
+
+bool sync_io_biss_tap_is_running(void)
+{
+    return s_sync_io.initialized && s_sync_io.biss_tap_running;
+}
+
+bool sync_io_biss_tap_read_frame_word(uint32_t *word)
+{
+    if (!s_sync_io.initialized ||
+        !s_sync_io.biss_tap_running ||
+        word == NULL ||
+        pio_sm_is_rx_fifo_empty(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM)) {
+        return false;
+    }
+
+    *word = pio_sm_get(BOARD_SYNC_PIO_AUX, SYNC_IO_BISS_TAP_SM);
     return true;
 }
 

@@ -473,6 +473,18 @@ static void format_resource_summary(char *buffer, size_t buffer_size, uint32_t r
         return;
     }
 
+    if ((resources & RESOURCE_ARBITER_RESOURCE_PIO2) != 0u &&
+        (resources & RESOURCE_ARBITER_RESOURCE_AUX) != 0u) {
+        snprintf(buffer, buffer_size, "PIO2+AUX");
+        return;
+    }
+
+    if ((resources & RESOURCE_ARBITER_RESOURCE_PIO1) != 0u &&
+        (resources & RESOURCE_ARBITER_RESOURCE_AUX) != 0u) {
+        snprintf(buffer, buffer_size, "PIO1+AUX");
+        return;
+    }
+
     snprintf(buffer, buffer_size, "0x%03lX", (unsigned long)resources);
 }
 

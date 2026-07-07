@@ -21,6 +21,7 @@ typedef enum {
     RESOURCE_ARBITER_RESOURCE_DMA = 1u << 6,
     RESOURCE_ARBITER_RESOURCE_LCD = 1u << 7,
     RESOURCE_ARBITER_RESOURCE_SD = 1u << 8,
+    RESOURCE_ARBITER_RESOURCE_AUX = 1u << 9,
 } resource_arbiter_resource_t;
 
 typedef struct {
