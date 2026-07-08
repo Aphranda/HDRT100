@@ -228,12 +228,32 @@ Last updated: 2026-07-08
   按 `docs/SYNC_IO_RESOURCE_PLAN.md` 的接口契约，在代码中拒绝模式 armed 后的语义通道冲突：
   `SEQ_STEP` 独占主 OUT0..OUT3，`ENC_COUNT` 独占主 IN0/IN1/IN2 和 OUT0；
   AUX0..AUX3 作为 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT` 和协议辅助输出的跨模式功能口，
-  需要独立 owner/arbiter。`TRIG:ENC:APIN 26` 作为开发诊断复用时必须占用并锁定 AUX 功能接口。
+  需要独立 owner/arbiter。当前 `ARM_IN/EXT_CLK_IN` 仍是语义占位，尚未接入 TriggerFB
+  业务逻辑；`SYNC_CLK_OUT` 仅有旧 GPIO22 输出时钟路径，AUX2/GPIO28 产品路径尚未实现。
+  历史开发诊断入口 `TRIG:ENC:APIN 26` 已关闭，但资源仲裁仍需覆盖所有可能重新引入
+  AUX persona 的路径，避免绕过 TriggerFB owner 边界。
+  迁移验收：
+  - `SEQ_STEP` armed 后，`TRIG:IMM`、`PULS:IMM`、`MARK:IMM` 等主输出即时命令返回 busy 或执行错误。
+  - `ENC_COUNT` armed 后，拒绝改写 A/B/Z 引脚、主输入组和 OUT0 相关配置。
+  - BiSS TAP / AUX persona armed 后，拒绝普通 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/AUX3_TX` 配置改写。
+  - 冲突路径统一设置 `TRIG_ERROR_RESOURCE_CONFLICT`，并记录 resource snapshot trace。
 
 - [ ] 将 AUX 功能接口落实到代码。
   产品目标：AUX0/GPIO26=`ARM_IN`，AUX1/GPIO27=`EXT_CLK_IN`，AUX2/GPIO28=`SYNC_CLK_OUT`，
   AUX3/GPIO29=`AUX3_TX/BISS_DATA_OUT`。需要迁移 board 宏和 `sync_io` 输出时钟路径；
   `MARK:*` 不迁移到 AUX3，只作为 `RJ45_TRIG_OUT` 兼容入口。
+  迁移债明细：
+  - 为 `BOARD_SYNC_AUX_ARM_IN_PIN` / GPIO26 实现 `ARM_IN` 资格/请求逻辑；旧
+    `BOARD_SYNC_ARM_IN_PIN` / GPIO17 目前只做 pull-down/诊断采样，不是可用 ARM 功能。
+  - 为 `BOARD_SYNC_AUX_EXT_CLK_IN_PIN` / GPIO27 实现 `EXT_CLK_IN` 外部参考/采样时钟逻辑；旧
+    `BOARD_SYNC_EXT_CLK_IN_PIN` / GPIO18 目前只做 pull-down/诊断采样，不是可用外部时钟功能。
+  - 将已有 `SYNC_CLK_OUT` 旧路径从 `BOARD_SYNC_SYNC_CLK_OUT_PIN` / GPIO22 / `pio1/sm1`
+    迁移到 `BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN` / GPIO28 / `pio2/sm2`；迁移前必须在
+    `SEQ_STEP` 占用 OUT2 时拒绝同步时钟输出。
+  - 保留 `BOARD_SYNC_MARKER_OUT_PIN` 仅作为 deprecated alias，继续指向
+    `GPIO23/RJ45_TRIG_OUT`，不得迁移到 AUX3/GPIO29。
+  - 为 `board_config.h` 与 `sync_io_hw_profile.h` 增加编译期断言，确保主口/AUX pinout、
+    方向掩码和 BiSS persona 映射一致。
 
 ## P2 - UI 和配置
 
