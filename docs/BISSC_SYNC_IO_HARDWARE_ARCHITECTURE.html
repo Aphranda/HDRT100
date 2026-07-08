@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BiSS-C TAP Bridge 与 SYNC_IO 硬件架构图</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f9fb;
+      --ink: #18212f;
+      --muted: #5c6878;
+      --line: #8a96a8;
+      --panel: #ffffff;
+      --panel-2: #eef3f8;
+      --rj45: #dcecff;
+      --rp: #e7f8ef;
+      --trx: #fff2d9;
+      --protect: #f1e9ff;
+      --power: #ffe8e5;
+      --sma: #e8f0ff;
+      --iso: #e9fbff;
+      --accent: #246bfe;
+      --clk: #0b70c9;
+      --data: #8f4ccf;
+      --trig: #d14b3d;
+      --pwr: #b65f00;
+      --ok: #23845f;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 1100px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    }
+
+    .page {
+      width: 1180px;
+      margin: 0 auto;
+      padding: 28px 28px 36px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: start;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .badge {
+      padding: 8px 12px;
+      border: 1px solid #cfd8e5;
+      border-radius: 6px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .sheet {
+      border: 1px solid #d7e0ec;
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 16px 40px rgb(34 50 84 / 10%);
+      overflow: hidden;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      background:
+        linear-gradient(#edf2f7 1px, transparent 1px),
+        linear-gradient(90deg, #edf2f7 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+
+    .block {
+      fill: var(--panel);
+      stroke: #748296;
+      stroke-width: 1.4;
+    }
+
+    .rj45 {
+      fill: var(--rj45);
+      stroke: #4d78aa;
+    }
+
+    .rp {
+      fill: var(--rp);
+      stroke: #2e8a65;
+    }
+
+    .trx {
+      fill: var(--trx);
+      stroke: #a5701e;
+    }
+
+    .protect {
+      fill: var(--protect);
+      stroke: #8063b5;
+    }
+
+    .power {
+      fill: var(--power);
+      stroke: #ad5149;
+    }
+
+    .sma {
+      fill: var(--sma);
+      stroke: #496fae;
+    }
+
+    .iso {
+      fill: var(--iso);
+      stroke: #3190a8;
+      stroke-dasharray: 8 5;
+    }
+
+    .title {
+      font-size: 17px;
+      font-weight: 700;
+      fill: var(--ink);
+    }
+
+    .rj-title {
+      font-size: 15px;
+    }
+
+    .label {
+      font-size: 12px;
+      fill: var(--ink);
+    }
+
+    .small {
+      font-size: 10.5px;
+      fill: var(--muted);
+    }
+
+    .pin {
+      font-size: 10.5px;
+      font-weight: 600;
+      fill: #324052;
+    }
+
+    .note {
+      font-size: 10.5px;
+      fill: #445266;
+    }
+
+    .warn {
+      fill: #a13728;
+      font-size: 10.5px;
+      font-weight: 700;
+    }
+
+    .wire {
+      fill: none;
+      stroke: var(--line);
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .wire-thin {
+      fill: none;
+      stroke: var(--line);
+      stroke-width: 1.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .clk {
+      stroke: var(--clk);
+    }
+
+    .data {
+      stroke: var(--data);
+    }
+
+    .trig {
+      stroke: var(--trig);
+    }
+
+    .pwr {
+      stroke: var(--pwr);
+    }
+
+    .logic {
+      stroke: var(--ok);
+    }
+
+    .dash {
+      stroke-dasharray: 7 5;
+    }
+
+    .connector-pin {
+      fill: #ffffff;
+      stroke: #7d8ba0;
+      stroke-width: 1;
+    }
+
+    .footer {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 18px;
+      padding: 18px;
+      border-top: 1px solid #d7e0ec;
+      background: #fbfcfe;
+    }
+
+    .card {
+      border: 1px solid #d7e0ec;
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px 16px;
+    }
+
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px 14px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .legend span {
+      display: inline-block;
+      width: 24px;
+      height: 3px;
+      margin-right: 7px;
+      vertical-align: middle;
+      border-radius: 2px;
+      background: var(--line);
+    }
+
+    .legend .clk-line {
+      background: var(--clk);
+    }
+
+    .legend .data-line {
+      background: var(--data);
+    }
+
+    .legend .trig-line {
+      background: var(--trig);
+    }
+
+    .legend .pwr-line {
+      background: var(--pwr);
+    }
+
+    .summary {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .summary code {
+      color: #1d4ed8;
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 11px;
+    }
+
+    @media print {
+      body {
+        min-width: auto;
+        background: #fff;
+      }
+
+      .page {
+        width: 100%;
+        padding: 0;
+      }
+
+      .sheet {
+        border: 0;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div>
+        <h1>BiSS-C TAP Bridge 与 SYNC_IO 硬件架构图</h1>
+        <p class="subtitle">
+          基于 <code>docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md</code> 的冻结方案绘制：
+          双 RJ45 串联透明桥、三颗 THVD1452、固定方向 AUX、4 入 4 出 SYNC_IO，以及外围保护、端接、隔离和 12 V 电源路径。
+        </p>
+      </div>
+      <div class="badge">Last updated: 2026-07-08</div>
+    </header>
+
+    <section class="sheet" aria-label="BiSS-C TAP Bridge 与 SYNC_IO 硬件架构图">
+      <svg viewBox="0 0 1124 980" role="img" aria-labelledby="diagram-title diagram-desc">
+        <title id="diagram-title">BiSS-C TAP Bridge 与 SYNC_IO 硬件架构图</title>
+        <desc id="diagram-desc">图中包含 UPSTREAM RJ45、DOWNSTREAM RJ45、THVD1452 CLK/DATA/TRIG 收发器、RP2350、SMA 输入输出、隔离选项、保护和 12 V 电源路径。</desc>
+
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#8a96a8"></path>
+          </marker>
+          <marker id="arrow-clk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#0b70c9"></path>
+          </marker>
+          <marker id="arrow-data" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#8f4ccf"></path>
+          </marker>
+          <marker id="arrow-trig" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#d14b3d"></path>
+          </marker>
+          <marker id="arrow-pwr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#b65f00"></path>
+          </marker>
+          <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#20304a" flood-opacity="0.12"></feDropShadow>
+          </filter>
+        </defs>
+
+        <rect x="22" y="22" width="1080" height="932" rx="8" fill="#ffffff" stroke="#d9e2ee"></rect>
+
+        <text x="42" y="52" class="title">主链路与外围电路</text>
+        <text x="42" y="72" class="small">RJ45 仅作为 Cat5e/Cat6 四对双绞线接口使用，非 Ethernet / 非 PoE。</text>
+
+        <g filter="url(#soft-shadow)">
+          <rect x="742" y="48" width="338" height="42" rx="6" fill="#fff8eb" stroke="#d6a452"></rect>
+          <text x="758" y="66" class="pin">冻结约束</text>
+          <text x="758" y="82" class="small">AUX1/AUX2 固定输入，AUX3/AUX4 固定输出；persona 只改变固件语义。</text>
+        </g>
+
+        <g filter="url(#soft-shadow)">
+          <rect x="464" y="114" width="196" height="370" rx="8" class="block rp"></rect>
+          <text x="528" y="142" class="title">U1 RP2350</text>
+          <text x="502" y="164" class="label">PIO / HARD_RT / persona owner</text>
+
+          <rect x="488" y="188" width="62" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="500" y="209" class="pin">IN0</text>
+          <rect x="488" y="228" width="62" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="500" y="249" class="pin">IN1</text>
+          <rect x="488" y="268" width="62" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="500" y="289" class="pin">IN2</text>
+          <rect x="488" y="308" width="62" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="500" y="329" class="pin">IN3</text>
+
+          <rect x="574" y="188" width="62" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="586" y="209" class="pin">OUT0</text>
+          <rect x="574" y="228" width="62" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="586" y="249" class="pin">OUT1</text>
+          <rect x="574" y="268" width="62" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="586" y="289" class="pin">OUT2</text>
+          <rect x="574" y="308" width="62" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="586" y="329" class="pin">OUT3</text>
+
+          <rect x="484" y="390" width="70" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="496" y="411" class="pin">AUX1</text>
+          <rect x="484" y="432" width="70" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="496" y="453" class="pin">AUX2</text>
+          <rect x="570" y="390" width="70" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="582" y="411" class="pin">AUX3</text>
+          <rect x="570" y="432" width="70" height="34" rx="5" fill="#ffffff" stroke="#83b69e"></rect>
+          <text x="582" y="453" class="pin">AUX4</text>
+        </g>
+
+        <g filter="url(#soft-shadow)">
+          <rect x="44" y="120" width="152" height="116" rx="8" class="block sma"></rect>
+          <text x="64" y="146" class="title rj-title">J3 SMA_IN</text>
+          <text x="64" y="168" class="small">IN0 GPIO16</text>
+          <text x="64" y="188" class="small">IN1 GPIO17</text>
+          <text x="64" y="208" class="small">IN2 GPIO18</text>
+
+          <rect x="230" y="136" width="136" height="84" rx="8" class="block protect"></rect>
+          <text x="252" y="164" class="title rj-title">输入调理</text>
+          <text x="252" y="188" class="small">50R / TVS / CMP</text>
+          <text x="252" y="206" class="small">Schmitt option</text>
+
+          <rect x="384" y="136" width="64" height="84" rx="8" class="block iso"></rect>
+          <text x="396" y="162" class="pin">U5</text>
+          <text x="394" y="182" class="small">ISO6440F</text>
+          <text x="394" y="202" class="small">IN0..IN3</text>
+
+          <rect x="676" y="136" width="64" height="84" rx="8" class="block iso"></rect>
+          <text x="688" y="162" class="pin">U6</text>
+          <text x="686" y="182" class="small">ISO6440F</text>
+          <text x="686" y="202" class="small">OUT0..OUT3</text>
+
+          <rect x="758" y="136" width="136" height="84" rx="8" class="block protect"></rect>
+          <text x="778" y="164" class="title rj-title">输出驱动</text>
+          <text x="778" y="188" class="small">TTL / series R</text>
+          <text x="778" y="206" class="small">TVS / industrial option</text>
+
+          <rect x="928" y="120" width="152" height="116" rx="8" class="block sma"></rect>
+          <text x="948" y="146" class="title rj-title">J4 SMA_OUT</text>
+          <text x="948" y="168" class="small">OUT0 GPIO20</text>
+          <text x="948" y="188" class="small">OUT1 GPIO21</text>
+          <text x="948" y="208" class="small">OUT2 GPIO22</text>
+        </g>
+
+        <path d="M196 178 H230" class="wire trig"></path>
+        <path d="M366 178 H384" class="wire trig"></path>
+        <path d="M448 178 H464" class="wire trig"></path>
+        <path d="M660 178 H676" class="wire trig"></path>
+        <path d="M740 178 H758" class="wire trig"></path>
+        <path d="M894 178 H928" class="wire trig"></path>
+        <text x="382" y="232" class="small">IN0..2 SMA + IN3 RJ45_TRIG</text>
+        <text x="642" y="232" class="small">OUT0..2 SMA + OUT3 RJ45_TRIG</text>
+
+        <g filter="url(#soft-shadow)">
+          <rect x="44" y="500" width="152" height="174" rx="8" class="block rj45"></rect>
+          <text x="64" y="526" class="title rj-title">J1 UPSTREAM_RJ45</text>
+          <text x="64" y="550" class="warn">NON-ETHERNET / NO POE</text>
+          <text x="64" y="576" class="small">1-2: DIFF0 CLK/MA in</text>
+          <text x="64" y="598" class="small">3-6: DIFF1 DATA/SLO out</text>
+          <text x="64" y="620" class="small">4-5: +12V / GND_RET</text>
+          <text x="64" y="642" class="small">7-8: TRIG_DIFF in</text>
+
+          <rect x="928" y="500" width="152" height="174" rx="8" class="block rj45"></rect>
+          <text x="946" y="526" class="title rj-title">J2 DOWNSTREAM_RJ45</text>
+          <text x="948" y="550" class="warn">NON-ETHERNET / NO POE</text>
+          <text x="948" y="576" class="small">1-2: DIFF0 CLK/MA out</text>
+          <text x="948" y="598" class="small">3-6: DIFF1 DATA/SLO in</text>
+          <text x="948" y="620" class="small">4-5: +12V / GND_RET</text>
+          <text x="948" y="642" class="small">7-8: TRIG_DIFF out</text>
+        </g>
+
+        <g filter="url(#soft-shadow)">
+          <rect x="230" y="504" width="120" height="44" rx="6" class="block protect"></rect>
+          <text x="252" y="531" class="pin">P1 CLK ESD/RT</text>
+          <rect x="230" y="568" width="120" height="44" rx="6" class="block protect"></rect>
+          <text x="250" y="595" class="pin">P2 DATA ESD/RT</text>
+          <rect x="230" y="632" width="120" height="44" rx="6" class="block protect"></rect>
+          <text x="250" y="659" class="pin">P3 TRIG ESD/RT</text>
+
+          <rect x="774" y="504" width="120" height="44" rx="6" class="block protect"></rect>
+          <text x="796" y="531" class="pin">P4 CLK ESD/RT</text>
+          <rect x="774" y="568" width="120" height="44" rx="6" class="block protect"></rect>
+          <text x="794" y="595" class="pin">P5 DATA ESD/RT</text>
+          <rect x="774" y="632" width="120" height="44" rx="6" class="block protect"></rect>
+          <text x="794" y="659" class="pin">P6 TRIG ESD/RT</text>
+        </g>
+
+        <g filter="url(#soft-shadow)">
+          <rect x="414" y="498" width="138" height="58" rx="8" class="block trx"></rect>
+          <text x="432" y="522" class="title rj-title">U2 THVD1452_CLK</text>
+          <text x="438" y="546" class="small">R->AUX1, D<-AUX3</text>
+
+          <rect x="572" y="562" width="138" height="58" rx="8" class="block trx"></rect>
+          <text x="588" y="586" class="title rj-title">U3 THVD1452_DATA</text>
+          <text x="596" y="610" class="small">R->AUX2, D<-AUX4</text>
+
+          <rect x="414" y="626" width="138" height="58" rx="8" class="block trx"></rect>
+          <text x="432" y="650" class="title rj-title">U4 THVD1452_TRIG</text>
+          <text x="430" y="674" class="small">R->U5 IN3, D<-U6 OUT3</text>
+        </g>
+
+        <path d="M196 526 H230" class="wire clk"></path>
+        <path d="M350 526 H414" class="wire clk"></path>
+        <path d="M552 526 H774" class="wire clk"></path>
+        <path d="M894 526 H928" class="wire clk"></path>
+        <text x="358" y="516" class="small">CLK/MA: J1 -> U2.R -> AUX1</text>
+        <text x="610" y="516" class="small">AUX3 -> U2.D -> J2</text>
+
+        <path d="M928 590 H894" class="wire data"></path>
+        <path d="M774 590 H710" class="wire data"></path>
+        <path d="M572 590 H350" class="wire data"></path>
+        <path d="M230 590 H196" class="wire data"></path>
+        <text x="714" y="580" class="small">DATA/SLO: J2 -> U3.R -> AUX2</text>
+        <text x="356" y="580" class="small">AUX4 -> U3.D -> J1</text>
+
+        <path d="M196 654 H230" class="wire trig"></path>
+        <path d="M350 654 H414" class="wire trig"></path>
+        <path d="M552 654 H774" class="wire trig"></path>
+        <path d="M894 654 H928" class="wire trig"></path>
+        <text x="356" y="644" class="small">TRIG_DIFF: J1 -> U4.R -> U5 IN3</text>
+        <text x="610" y="644" class="small">U6 OUT3 -> U4.D -> J2</text>
+
+        <path d="M519 424 V498" class="wire-thin clk"></path>
+        <path d="M605 424 V498" class="wire-thin clk"></path>
+        <path d="M519 466 V562" class="wire-thin data"></path>
+        <path d="M605 466 V562" class="wire-thin data"></path>
+        <path d="M416 220 V654 H414" class="wire-thin trig dash"></path>
+        <path d="M708 220 V654 H552" class="wire-thin trig dash"></path>
+        <text x="468" y="712" class="note">AUX1/GPIO26 输入，AUX2/GPIO27 输入；AUX3/GPIO28 输出，AUX4/GPIO29 输出。</text>
+        <text x="468" y="730" class="note">U5/U6 为固定方向 ISO6440F；DE 默认下拉禁用，/RE 默认接收安全态。</text>
+
+        <g filter="url(#soft-shadow)">
+          <rect x="44" y="780" width="180" height="44" rx="6" class="block power"></rect>
+          <text x="62" y="807" class="label">J1/J2 Pin 4/5 蓝对 12 V</text>
+
+          <rect x="268" y="780" width="190" height="44" rx="6" class="block power"></rect>
+          <text x="286" y="807" class="label">eFuse / 反接 MOSFET / TVS</text>
+
+          <rect x="502" y="780" width="190" height="44" rx="6" class="block power"></rect>
+          <text x="520" y="807" class="label">OR-ing / ideal diode</text>
+
+          <rect x="736" y="780" width="190" height="44" rx="6" class="block power"></rect>
+          <text x="754" y="807" class="label">DC/DC 12 V -> 5 V / 3.3 V</text>
+        </g>
+
+        <path d="M224 802 H268" class="wire pwr"></path>
+        <path d="M458 802 H502" class="wire pwr"></path>
+        <path d="M692 802 H736" class="wire pwr"></path>
+        <path d="M926 802 H1040" class="wire pwr dash"></path>
+        <text x="940" y="796" class="small">可选下行透传 / 注入，禁止硬并联</text>
+      </svg>
+
+      <div class="footer">
+        <div class="card">
+          <h2>图例</h2>
+          <ul class="legend">
+            <li><span class="clk-line"></span>CLK/MA</li>
+            <li><span class="data-line"></span>DATA/SLO</li>
+            <li><span class="trig-line"></span>TRIG / SYNC_IO</li>
+            <li><span class="pwr-line"></span>12 V 电源</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h2>关键检查点</h2>
+          <p class="summary">
+            <code>DIFF0</code>、<code>DIFF1</code>、<code>TRIG_DIFF</code> 独立；
+            串联桥必须重驱 <code>CLK/MA</code> 与 <code>DATA/SLO</code>；
+            <code>U5/U6</code> 使用两颗固定方向 <code>ISO6440F</code> 表达完整 4 入 4 出隔离；
+            <code>GPIO23/OUT3</code> 固定为 <code>RJ45_TRIG_OUT</code>；
+            保护、端接、隔离、收发器延迟和线缆延迟都进入 latency offset 标定。
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

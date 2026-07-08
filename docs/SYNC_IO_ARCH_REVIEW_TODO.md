@@ -241,19 +241,19 @@ deprecated 兼容入口，真实语义使用 `TRIG_MODE_PROTOCOL_TRIGGER + proto
 AUX0..AUX3 / `GPIO26..29` 承载跨模式语义和协议 persona。当前 `ARM_IN` 和
 `EXT_CLK_IN` 仍是语义占位：旧宏 `BOARD_SYNC_ARM_IN_PIN=GPIO17`、
 `BOARD_SYNC_EXT_CLK_IN_PIN=GPIO18` 只做 pull-down 和诊断采样，尚未接入 TriggerFB
-资格/外部时钟逻辑。`SYNC_CLK_OUT` 有旧实现，但运行在
-`BOARD_SYNC_SYNC_CLK_OUT_PIN=GPIO22` / `pio1/sm1`，产品目标 AUX2/GPIO28 / `pio2/sm2`
-路径尚未实现。`GPIO17/18` 已分别被 `ENC_COUNT` B/Z 相占用，`GPIO22` 是主输出
-OUT2 / `SEQ_STEP` bit2，不能长期承载框架层功能。
+资格/外部时钟逻辑。`SYNC_CLK_OUT` 已从旧
+`BOARD_SYNC_SYNC_CLK_OUT_PIN=GPIO22` / `pio1/sm1` 迁移到 AUX2/GPIO28 / `pio2/sm2`，
+并通过 `PIO2 + AUX` 资源仲裁与 BiSS/AUX persona 互斥。`GPIO17/18` 已分别被
+`ENC_COUNT` B/Z 相占用，不能长期承载框架层功能。
 
-**影响：** 上层语义已要求 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT` 不占用主触发口，但底层旧宏和
-部分运行路径仍可能让框架功能与 `SEQ_STEP` / `ENC_COUNT` 发生隐性冲突。
+**影响：** 上层语义已要求 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT` 不占用主触发口。当前
+`SYNC_CLK_OUT` 运行路径已收口；剩余风险集中在 `ARM_IN/EXT_CLK_IN` 旧低层宏和后续运行逻辑。
 
 - [ ] 在 AUX0/GPIO26 上实现 `ARM_IN` 资格/请求逻辑，并通过 TriggerFB/resource owner 管理
 - [ ] 在 AUX1/GPIO27 上实现 `EXT_CLK_IN` 外部参考/采样时钟逻辑，避免与主输入组冲突
-- [ ] 将已有 `SYNC_CLK_OUT` 从旧 GPIO22 / `pio1/sm1` 迁移到 AUX2/GPIO28 / `pio2/sm2`
-- [ ] 迁移完成前，在 `SEQ_STEP` armed 或 OUT2 被占用时拒绝 `SYNC_CLK_OUT` 启动命令
+- [x] 将已有 `SYNC_CLK_OUT` 从旧 GPIO22 / `pio1/sm1` 迁移到 AUX2/GPIO28 / `pio2/sm2`
+- [x] `SYNC_CLK_OUT` 启动失败时向 TriggerFB 回填资源冲突/IO arm 错误；AUX2 与 BiSS/AUX persona 由资源仲裁互斥
 - [ ] 保持 `MARK:*` deprecated 兼容入口固定输出到 GPIO23/RJ45_TRIG_OUT，不引入 AUX3 marker 语义
-- [ ] 为 board profile 与 `sync_io_hw_profile.h` 增加编译期断言，防止旧宏再次漂移
+- [x] 为 board profile 与 `sync_io_hw_profile.h` 增加编译期断言，防止旧宏再次漂移
 
 对应功能待办：见 `TRIGGER_SYNC_TODO.md` 中“增加应用层语义 IO 资源仲裁”和“将 AUX 功能接口落实到代码”。

@@ -989,7 +989,7 @@ GPIO16..GPIO23 的实际映射属于 board profile 和 `sync_io` 的职责。`Tr
 
 ### GPIO 迁移约束
 
-当前固件仍有旧实现把 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT` 绑定在 GPIO17/18/22。硬件冻结后，增量编码器固定使用 `SYNC_IO` 的 GPIO16/17/18；`GPIO19` 固定为 `RJ45_TRIG_IN`；`GPIO26..29` 不再作为编码器输入组，而是固定两收两发 AUX 资源。`GPIO23/OUT3` 的硬件定义是 `RJ45_TRIG_OUT`；历史 `MARK:*` 命令只能作为该硬件输出的兼容入口，不再代表独立 `MARKER_OUT`。
+当前固件中 `ARM_IN/EXT_CLK_IN` 的旧低层宏仍指向 GPIO17/18，只作为 pull-down/诊断采样占位；`SYNC_CLK_OUT` 已迁移到 AUX2/GPIO28。硬件冻结后，增量编码器固定使用 `SYNC_IO` 的 GPIO16/17/18；`GPIO19` 固定为 `RJ45_TRIG_IN`；`GPIO26..29` 不再作为编码器输入组，而是固定两收两发 AUX 资源。`GPIO23/OUT3` 的硬件定义是 `RJ45_TRIG_OUT`；历史 `MARK:*` 命令只能作为该硬件输出的兼容入口，不再代表独立 `MARKER_OUT`。
 
 ### 触发模式扩展表
 

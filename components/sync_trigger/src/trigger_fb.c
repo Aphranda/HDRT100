@@ -22,6 +22,8 @@
 #define FB_OWNER_SEQ_STEP  "sync.seq_step"
 #define FB_OWNER_ENC_COUNT "sync.enc_count"
 #define FB_OWNER_BISS_TAP  "sync.biss_tap"
+#define FB_SYNC_CLOCK_RESOURCES \
+    (RESOURCE_ARBITER_RESOURCE_PIO2 | RESOURCE_ARBITER_RESOURCE_AUX)
 
 typedef enum {
     FB_OK       = 0,
@@ -63,6 +65,44 @@ static bool fb_biss_tap_is_running(void)
     const sync_io_mode_ops_t *ops =
         sync_io_mode_get_ops(SYNC_IO_MODE_ID_BISS_TAP);
     return ops != NULL && ops->is_running != NULL && ops->is_running();
+}
+
+static trig_error_code_t fb_sync_clock_error_code(void)
+{
+    resource_arbiter_snapshot_t snapshot;
+    resource_arbiter_get_snapshot(&snapshot);
+    if ((snapshot.last_conflict_resources & FB_SYNC_CLOCK_RESOURCES) != 0u) {
+        return TRIG_ERROR_RESOURCE_CONFLICT;
+    }
+    return TRIG_ERROR_IO_ARM_FAILED;
+}
+
+static fb_result_t fb_start_sync_clock(trigger_vector_t *vector)
+{
+    if (vector == NULL) {
+        return FB_ERROR;
+    }
+    if (vector->sync_clock_hz == 0u) {
+        sync_io_status_t status;
+        sync_io_get_status(&status);
+        vector->sync_clock_enabled = status.sync_clock_running;
+        vector->sync_clock_hz = status.sync_clock_hz;
+        vector->error_code = TRIG_ERROR_IO_ARM_FAILED;
+        return FB_ERROR;
+    }
+
+    if (!sync_io_start_clock(vector->sync_clock_hz)) {
+        sync_io_status_t status;
+        sync_io_get_status(&status);
+        vector->sync_clock_enabled = status.sync_clock_running;
+        vector->sync_clock_hz = status.sync_clock_hz;
+        vector->error_code = fb_sync_clock_error_code();
+        return FB_ERROR;
+    }
+
+    vector->sync_clock_enabled = true;
+    vector->error_code = TRIG_ERROR_NONE;
+    return FB_OK;
 }
 
 static void fb_release_running_io(trigger_vector_t *vector)
@@ -151,11 +191,12 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
     case TRIG_EVENT_FIRE_PULSE:
         (void)sync_io_fire_pulse_out_us(vector->pulse_width_us);
         break;
-    case TRIG_EVENT_SET_MARKER_WIDTH:
+    case TRIG_EVENT_SET_RJ45_TRIGGER_WIDTH:
+        vector->rj45_trigger_width_us = event->payload.value;
         vector->marker_width_us = event->payload.value;
         break;
-    case TRIG_EVENT_FIRE_MARKER:
-        (void)sync_io_fire_rj45_trigger_us(vector->marker_width_us);
+    case TRIG_EVENT_FIRE_RJ45_TRIGGER:
+        (void)sync_io_fire_rj45_trigger_us(vector->rj45_trigger_width_us);
         break;
     case TRIG_EVENT_SET_SAMPLE_RATE:
         vector->capture_sample_hz = event->payload.value;
@@ -169,17 +210,28 @@ static fb_result_t fb_instant_cmd(trigger_vector_t *vector,
         }
         break;
     case TRIG_EVENT_SET_CLOCK_FREQ:
+    {
+        const uint32_t previous_hz = vector->sync_clock_hz;
         vector->sync_clock_hz = event->payload.value;
         if (vector->sync_clock_enabled) {
-            (void)sync_io_start_clock(vector->sync_clock_hz);
+            if (fb_start_sync_clock(vector) != FB_OK) {
+                if (vector->sync_clock_enabled) {
+                    vector->sync_clock_hz = previous_hz;
+                }
+                return FB_ERROR;
+            }
         }
         break;
+    }
     case TRIG_EVENT_SET_CLOCK_STATE:
-        vector->sync_clock_enabled = (event->payload.value != 0u);
-        if (vector->sync_clock_enabled) {
-            (void)sync_io_start_clock(vector->sync_clock_hz);
+        if (event->payload.value != 0u) {
+            if (fb_start_sync_clock(vector) != FB_OK) {
+                return FB_ERROR;
+            }
         } else {
             sync_io_stop_clock();
+            vector->sync_clock_enabled = false;
+            vector->error_code = TRIG_ERROR_NONE;
         }
         break;
     /* ── 触发源 / 边沿 / 门控 / 安全态 ── */
@@ -810,8 +862,8 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_IDLE, TRIG_EVENT_FIRE_TRIGGER,      fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_PULSE_WIDTH,   fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_FIRE_PULSE,        fb_instant_cmd },
-    { TRIG_STATE_IDLE, TRIG_EVENT_SET_MARKER_WIDTH,  fb_instant_cmd },
-    { TRIG_STATE_IDLE, TRIG_EVENT_FIRE_MARKER,       fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_SET_RJ45_TRIGGER_WIDTH, fb_instant_cmd },
+    { TRIG_STATE_IDLE, TRIG_EVENT_FIRE_RJ45_TRIGGER,      fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_SAMPLE_RATE,   fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_SAMPLE_STATE,  fb_instant_cmd },
     { TRIG_STATE_IDLE, TRIG_EVENT_SET_CLOCK_FREQ,    fb_instant_cmd },
@@ -831,8 +883,8 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_FIRE_TRIGGER,     fb_instant_cmd },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_PULSE_WIDTH,  fb_instant_cmd },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_FIRE_PULSE,       fb_instant_cmd },
-    { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_MARKER_WIDTH, fb_instant_cmd },
-    { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_FIRE_MARKER,      fb_instant_cmd },
+    { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_RJ45_TRIGGER_WIDTH, fb_instant_cmd },
+    { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_FIRE_RJ45_TRIGGER,      fb_instant_cmd },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_SAMPLE_RATE,  fb_instant_cmd },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_SAMPLE_STATE, fb_instant_cmd },
     { TRIG_STATE_SEQ_CONFIGURED, TRIG_EVENT_SET_CLOCK_FREQ,   fb_instant_cmd },
@@ -847,7 +899,7 @@ static const ecc_entry_t s_ecc_table[] = {
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_SET_TRIGGER_WIDTH, fb_seq_armed_reject },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FIRE_TRIGGER,     fb_seq_armed_reject },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FIRE_PULSE,       fb_seq_armed_reject },
-    { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FIRE_MARKER,      fb_seq_armed_reject },
+    { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FIRE_RJ45_TRIGGER, fb_seq_armed_reject },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_RESET,            fb_reset_all },
     { TRIG_STATE_SEQ_ARMED, TRIG_EVENT_FAULT,            fb_force_fault },
 
@@ -1035,6 +1087,7 @@ bool trigger_fb_init(trigger_vector_t *vector)
     vector->biss_pulse_out_pin = SYNC_IO_HW_RJ45_TRIG_OUT_PIN;
     vector->trigger_width_us = 10u;
     vector->pulse_width_us = 10u;
+    vector->rj45_trigger_width_us = 10u;
     vector->marker_width_us = 10u;
     vector->capture_sample_hz = 1000000u;
     vector->sync_clock_hz = 1000000u;

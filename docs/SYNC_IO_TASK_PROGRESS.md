@@ -157,3 +157,14 @@ Last updated: 2026-07-08
 - 风险：`docs/TASK_PROGRESS.md` 中仍保留迁移前历史记录的旧 ENC 16/17/19 描述；按文档规则该文件作为全局历史保留，不作为当前硬件约束入口。
 - 后续：如继续推进 P2 自检，应在板端闭环脚本中增加 ENC A/B/Z loopback 或外部回放验证，覆盖真实 A/B/Z 脉冲输入，而不仅是 SCPI 配置与资源 owner 断言。
 - 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/src/enc_count.pio`，`components/sync_io/src/sync_io_mode_enc_count.c`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_fb.c`，`docs/SYNC_IO_REFACTOR_PLAN.md`，`docs/SYNC_IO_RESOURCE_PLAN.md`，`docs/SCPI_COMMANDS.md`，`docs/HAOFV_ARCHITECTURE.md`，`docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`，`docs/SYNC_IO_TASK_PROGRESS.md`。
+
+### SYNC_IO-TASK-20260708-010 - SYNC_CLK_OUT AUX2 运行路径迁移
+
+- 目标：完成 P2-04 中 `SYNC_CLK_OUT` 从旧 GPIO22/`pio1/sm1` 到 AUX2/GPIO28/`pio2/sm2` 的运行路径迁移，保持硬件定义优先。
+- 完成：`BOARD_SYNC_SYNC_CLK_OUT_PIN` 解析到 `BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN`；新增 `BOARD_SYNC_MODE_OUT2_PIN` 表达 GPIO22 仍是主口 OUT2/模式本地输出。
+- 完成：`sync_io_start_clock()` 改用 `BOARD_SYNC_PIO_AUX`、`BOARD_SYNC_AUX2_SM`、`BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN`，并在启动期间持有 `PIO2 + AUX` 资源；停止时释放资源并恢复 AUX2 输入安全态。
+- 完成：TriggerFB 在 `OUTP:CLOC:*` 对应事件中检查 `sync_io_start_clock()` 结果，失败时同步真实 clock 状态并设置 `TRIG_ERROR_RESOURCE_CONFLICT` 或 `TRIG_ERROR_IO_ARM_FAILED`。
+- 完成：`sync_io_hw_profile.h` 增加主口、RJ45_TRIG_IN/OUT、ARM_IN、EXT_CLK_IN、SYNC_CLK_OUT、AUX3 和 deprecated marker alias 的编译期断言。
+- 验证：`cmake --build build-codex-rj45-interface` 通过，生成 factory/update 产物。
+- 风险：`ARM_IN`、`EXT_CLK_IN` 仍是语义占位，旧低层宏只做 pull-down/诊断采样；后续需要迁移到 AUX0/AUX1 并接入 TriggerFB 资格/外部时钟逻辑。
+- 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/src/sync_io.c`，`components/sync_trigger/src/trigger_fb.c`，`docs/SCPI_COMMANDS.md`，`docs/SYNC_IO_RESOURCE_PLAN.md`，`docs/TRIGGER_SYNC_TODO.md`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`，`docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，`docs/SYNC_IO_TASK_PROGRESS.md`。

@@ -114,8 +114,10 @@ typedef enum {
     TRIG_EVENT_FIRE_TRIGGER,
     TRIG_EVENT_SET_PULSE_WIDTH,
     TRIG_EVENT_FIRE_PULSE,
-    TRIG_EVENT_SET_MARKER_WIDTH, /* deprecated: RJ45_TRIG_OUT compatibility width */
-    TRIG_EVENT_FIRE_MARKER,      /* deprecated: fires RJ45_TRIG_OUT */
+    TRIG_EVENT_SET_RJ45_TRIGGER_WIDTH, /* GPIO23/RJ45_TRIG_OUT width */
+    TRIG_EVENT_FIRE_RJ45_TRIGGER,      /* fires GPIO23/RJ45_TRIG_OUT */
+    TRIG_EVENT_SET_MARKER_WIDTH = TRIG_EVENT_SET_RJ45_TRIGGER_WIDTH, /* deprecated alias */
+    TRIG_EVENT_FIRE_MARKER = TRIG_EVENT_FIRE_RJ45_TRIGGER,           /* deprecated alias */
     TRIG_EVENT_SET_SAMPLE_RATE,
     TRIG_EVENT_SET_SAMPLE_STATE,
     TRIG_EVENT_SET_CLOCK_FREQ,
@@ -296,6 +298,7 @@ typedef struct {
     /* 即时脉冲参数（兼容旧命令） */
     uint32_t      trigger_width_us;
     uint32_t      pulse_width_us;
+    uint32_t      rj45_trigger_width_us;
     uint32_t      marker_width_us; /* deprecated: RJ45_TRIG_OUT compatibility width */
     uint32_t      capture_sample_hz;
     uint32_t      sync_clock_hz;

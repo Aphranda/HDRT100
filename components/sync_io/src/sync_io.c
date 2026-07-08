@@ -22,6 +22,11 @@
 #define SYNC_IO_MIN_HZ              1u
 #define SYNC_IO_TRACE_DOMAIN        3u
 #define SYNC_IO_AUX_READY_TIMEOUT_MS 1000u
+#define SYNC_IO_CLOCK_OWNER         "sync.clock"
+#define SYNC_IO_CLOCK_RESOURCES     (RESOURCE_ARBITER_RESOURCE_PIO2 | RESOURCE_ARBITER_RESOURCE_AUX)
+#define SYNC_IO_CLOCK_PIO           BOARD_SYNC_PIO_AUX
+#define SYNC_IO_CLOCK_SM            BOARD_SYNC_AUX2_SM
+#define SYNC_IO_CLOCK_PIN           BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN
 
 typedef struct {
     bool initialized;
@@ -302,7 +307,7 @@ bool sync_io_init(const sync_io_config_t *config)
 
     if (!pio_can_add_program(BOARD_SYNC_PIO_FAST, &sync_capture_4bit_program) ||
         !pio_can_add_program(BOARD_SYNC_PIO_WAVE, &sync_pulse_program) ||
-        !pio_can_add_program(BOARD_SYNC_PIO_WAVE, &sync_clock_program) ||
+        !pio_can_add_program(SYNC_IO_CLOCK_PIO, &sync_clock_program) ||
         !pio_can_add_program(BOARD_SYNC_PIO_AUX, &sync_aux_output_program) ||
         !pio_can_add_program(BOARD_SYNC_PIO_AUX, &sync_passthrough_1bit_program) ||
         !pio_can_add_program(BOARD_SYNC_PIO_AUX, &biss_tap_rx_program)) {
@@ -313,7 +318,6 @@ bool sync_io_init(const sync_io_config_t *config)
 
     if (!sync_io_claim_sm(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, "capture") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, "output") ||
-        !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_CLOCK_SM, "clock") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, "pulse") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM, "rj45_trigger") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX0_SM, "aux0") ||
@@ -326,7 +330,7 @@ bool sync_io_init(const sync_io_config_t *config)
 
     s_sync_io.capture_offset = (uint)pio_add_program(BOARD_SYNC_PIO_FAST, &sync_capture_4bit_program);
     s_sync_io.pulse_offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE, &sync_pulse_program);
-    s_sync_io.clock_offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE, &sync_clock_program);
+    s_sync_io.clock_offset = (uint)pio_add_program(SYNC_IO_CLOCK_PIO, &sync_clock_program);
     s_sync_io.aux_offset = (uint)pio_add_program(BOARD_SYNC_PIO_AUX, &sync_aux_output_program);
     s_sync_io.aux_passthrough_offset =
         (uint)pio_add_program(BOARD_SYNC_PIO_AUX, &sync_passthrough_1bit_program);
@@ -351,12 +355,6 @@ bool sync_io_init(const sync_io_config_t *config)
                             s_sync_io.pulse_offset,
                             BOARD_SYNC_PULSE_OUT_PIN);
 
-    sync_clock_program_init(BOARD_SYNC_PIO_WAVE,
-                            BOARD_SYNC_CLOCK_SM,
-                            s_sync_io.clock_offset,
-                            BOARD_SYNC_SYNC_CLK_OUT_PIN,
-                            sync_io_clkdiv_for_instruction_rate(clock_hz * 2u));
-
     sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
                             BOARD_SYNC_RJ45_TRIGGER_SM,
                             s_sync_io.pulse_offset,
@@ -374,10 +372,17 @@ bool sync_io_init(const sync_io_config_t *config)
         s_sync_io.aux_modes[channel] = SYNC_IO_AUX_MODE_INPUT;
     }
 
+    sync_clock_program_init(SYNC_IO_CLOCK_PIO,
+                            SYNC_IO_CLOCK_SM,
+                            s_sync_io.clock_offset,
+                            SYNC_IO_CLOCK_PIN,
+                            sync_io_clkdiv_for_instruction_rate(clock_hz * 2u));
+    sync_io_core_restore_aux_channel_input(SYNC_IO_CLOCK_PIN);
+
     pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, false);
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, true);
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, true);
-    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_CLOCK_SM, false);
+    pio_sm_set_enabled(SYNC_IO_CLOCK_PIO, SYNC_IO_CLOCK_SM, false);
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM, true);
 
     s_sync_io.capture_sample_hz = capture_hz;
@@ -527,16 +532,34 @@ bool sync_io_start_clock(uint32_t frequency_hz)
         return false;
     }
 
-    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_CLOCK_SM, false);
-    pio_sm_set_clkdiv(BOARD_SYNC_PIO_WAVE,
-                      BOARD_SYNC_CLOCK_SM,
+    if (!s_sync_io.clock_running &&
+        !resource_arbiter_acquire_owned(SYNC_IO_CLOCK_RESOURCES, SYNC_IO_CLOCK_OWNER)) {
+        sync_io_trace(SYNC_IO_TRACE_CLOCK_FAIL,
+                      SYNC_IO_TRACE_WARN,
+                      frequency_hz,
+                      SYNC_IO_HW_SYNC_CLK_OUT_PIN);
+        return false;
+    }
+
+    pio_sm_set_enabled(SYNC_IO_CLOCK_PIO, SYNC_IO_CLOCK_SM, false);
+    sync_clock_program_init(SYNC_IO_CLOCK_PIO,
+                            SYNC_IO_CLOCK_SM,
+                            s_sync_io.clock_offset,
+                            SYNC_IO_CLOCK_PIN,
+                            sync_io_clkdiv_for_instruction_rate(frequency_hz * 2u));
+    pio_sm_set_clkdiv(SYNC_IO_CLOCK_PIO,
+                      SYNC_IO_CLOCK_SM,
                       sync_io_clkdiv_for_instruction_rate(frequency_hz * 2u));
-    pio_sm_restart(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_CLOCK_SM);
-    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_CLOCK_SM, true);
+    pio_sm_restart(SYNC_IO_CLOCK_PIO, SYNC_IO_CLOCK_SM);
+    pio_sm_set_enabled(SYNC_IO_CLOCK_PIO, SYNC_IO_CLOCK_SM, true);
 
     s_sync_io.sync_clock_hz = frequency_hz;
     s_sync_io.clock_running = true;
-    sync_io_trace(SYNC_IO_TRACE_CLOCK_START, SYNC_IO_TRACE_INFO, frequency_hz, 0u);
+    s_sync_io.aux_modes[(uint)SYNC_IO_AUX2] = SYNC_IO_AUX_MODE_PIO_OUTPUT;
+    sync_io_trace(SYNC_IO_TRACE_CLOCK_START,
+                  SYNC_IO_TRACE_INFO,
+                  frequency_hz,
+                  SYNC_IO_HW_SYNC_CLK_OUT_PIN);
     return true;
 }
 
@@ -545,14 +568,19 @@ void sync_io_stop_clock(void)
     if (!s_sync_io.initialized) {
         return;
     }
+    if (!s_sync_io.clock_running) {
+        return;
+    }
 
-    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_CLOCK_SM, false);
-    pio_sm_set_pins(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_CLOCK_SM, 0);
+    pio_sm_set_enabled(SYNC_IO_CLOCK_PIO, SYNC_IO_CLOCK_SM, false);
+    pio_sm_set_pins(SYNC_IO_CLOCK_PIO, SYNC_IO_CLOCK_SM, 0);
+    sync_io_core_restore_aux_channel_input(SYNC_IO_CLOCK_PIN);
     s_sync_io.clock_running = false;
+    resource_arbiter_release_owned(SYNC_IO_CLOCK_RESOURCES, SYNC_IO_CLOCK_OWNER);
     sync_io_trace(SYNC_IO_TRACE_CLOCK_STOP,
                   SYNC_IO_TRACE_INFO,
                   s_sync_io.sync_clock_hz,
-                  0u);
+                  SYNC_IO_HW_SYNC_CLK_OUT_PIN);
 }
 
 bool sync_io_fire_marker_cycles(uint32_t high_cycles)

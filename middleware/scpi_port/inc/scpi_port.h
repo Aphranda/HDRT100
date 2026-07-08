@@ -7,6 +7,7 @@
 typedef struct {
     uint32_t trigger_width_us;
     uint32_t pulse_width_us;
+    uint32_t rj45_trigger_width_us;
     uint32_t marker_width_us;
     uint32_t capture_sample_hz;
     uint32_t sync_clock_hz;

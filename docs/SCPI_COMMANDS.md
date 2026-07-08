@@ -44,17 +44,24 @@ Last updated: 2026-07-08
 | `PULS:WIDT?` | 查询 `PULSE_OUT` 脉宽。 |
 | `PULS:IMM` | 立即输出一次 `PULSE_OUT` 脉冲。 |
 
-## RJ45 触发兼容输出
+## RJ45 触发输出
 
-`MARK:*` 是历史兼容命令。当前硬件定义以 `RJ45_TRIG_OUT=GPIO23/OUT3` 为准，
-不再定义独立 `MARKER_OUT` 物理信号；`MARK:*` 输出的脉冲等价于一次
-`RJ45_TRIG_OUT` 兼容触发。
+当前硬件定义以 `RJ45_TRIG_IN=GPIO19/IN3` 和 `RJ45_TRIG_OUT=GPIO23/OUT3`
+为准，不再定义独立 `MARKER_OUT` 物理信号。新接口优先使用 `RJ45:TRIG:*`；
+`MARK:*` 是历史兼容命令，仍等价输出到 `RJ45_TRIG_OUT`。
 
 | 命令 | 说明 |
 |---|---|
+| `RJ45:TRIG:WIDT <us>` | 设置 `GPIO23/RJ45_TRIG_OUT` 脉宽，单位 us。 |
+| `RJ45:TRIG:WIDT?` | 查询 `RJ45_TRIG_OUT` 脉宽。 |
+| `RJ45:TRIG:IMM` | 立即从 `GPIO23/RJ45_TRIG_OUT` 输出一次触发脉冲。 |
+| `RJ45:TRIG:PINS?` | 查询 RJ45 触发硬件绑定，返回 `in_pin,out_pin`，当前为 `19,23`。 |
 | `MARK:WIDT <us>` | 设置兼容触发脉宽，单位 us；输出到 `GPIO23/RJ45_TRIG_OUT`。 |
 | `MARK:WIDT?` | 查询兼容触发脉宽。 |
 | `MARK:IMM` | 立即从 `GPIO23/RJ45_TRIG_OUT` 输出一次兼容触发脉冲。 |
+
+固件快照和新配置结构使用 `rj45_trigger_width_us` 作为主字段；历史
+`marker_width_us` 保留为同值镜像，仅用于旧 UI/脚本兼容。
 
 ## 采样配置
 
@@ -70,7 +77,7 @@ Last updated: 2026-07-08
 
 | 命令 | 说明 |
 |---|---|
-| `OUTP:CLOC:FREQ <Hz>` | 设置 `SYNC_CLK_OUT` 输出频率。产品目标映射为 AUX2/GPIO28；当前固件仍在旧路径 GPIO22，需迁移。 |
+| `OUTP:CLOC:FREQ <Hz>` | 设置 `SYNC_CLK_OUT` 输出频率。当前固件运行在 AUX2/GPIO28；若 AUX persona/BiSS 占用 `PIO2 + AUX`，启动会返回执行错误并置资源冲突。 |
 | `OUTP:CLOC:FREQ?` | 查询同步时钟频率。 |
 | `OUTP:CLOC:STAT ON` | 启动同步时钟输出。 |
 | `OUTP:CLOC:STAT OFF` | 停止同步时钟输出。 |
@@ -90,13 +97,13 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 | `RJ45_TRIG_OUT` | OUT3 | 23 | RJ45 差分触发硬件输出；当前 BiSS crossing 使用该硬件语义。 |
 | `TRIG_OUT` | OUT0 | 20 | 主确定性触发输出。 |
 | `PULSE_OUT` | OUT1 | 21 | 第二路脉冲或 `SEQ_STEP` bit1。 |
-| `SYNC_CLK_OUT` | AUX2 | 28 | 同步时钟；产品目标放在 AUX，避免与 `SEQ_STEP` bit2 冲突。当前固件仍在旧路径 GPIO22。 |
+| `SYNC_CLK_OUT` | AUX2 | 28 | 同步时钟；当前固件已放在 AUX，避免与 `SEQ_STEP` bit2 冲突，并通过资源仲裁与 BiSS/AUX persona 互斥。 |
 
 资源互斥规则：
 
 | 状态/模式 | SCPI 约束 |
 |---|---|
-| `SEQ_STEP` armed | 主输出总线 OUT0..OUT3 被序列引擎独占；`TRIG:IMM`、`PULS:IMM`、`MARK:IMM` 这类主总线即时输出应返回 busy 或在 ARM 前关闭。 |
+| `SEQ_STEP` armed | 主输出总线 OUT0..OUT3 被序列引擎独占；`TRIG:IMM`、`PULS:IMM`、`RJ45:TRIG:IMM`、`MARK:IMM` 这类主总线即时输出应返回 busy 或在 ARM 前关闭。 |
 | `ENC_COUNT` armed | IN0/IN1/IN2 被 A/B/Z 独占；AUX0=`ARM_IN` 可作为未来独立资格输入。IN3=`RJ45_TRIG_IN/GATE_IN` 不被 ENC 软件定义占用。OUT0 被比较触发占用。 |
 | `BISS_ARMED` | BiSS-C TAP 占用 `PIO2 + AUX0..AUX3`，AUX framework 功能应返回 busy/执行错误。 |
 | `IDLE` | 即时脉冲、同步时钟和 RJ45 trigger 兼容命令可以使用各自语义输出。 |
@@ -151,7 +158,7 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 ## BiSS-C TAP 协议触发模式
 
-BiSS-C P0 阶段只实现 TAP monitor：监听 AUX0/AUX1 上的 CLK/DATA，按固定 profile 抽取 position，并在 crossing 命中后从 `TRIG_OUT` 输出触发。`TRIG:BISS:ROLE` 保留未来角色的数值兼容关系：`0=TAP`、`1=SLAVE`、`2=MASTER`、`3=BRIDGE`。当前只有 `0=TAP` 可配置和 ARM；非 TAP role 可写入用于兼容/显示，但 `TRIG:MODE 3` 或 `TRIG:ARM` 会返回执行错误，`STAT:BISS?` 中 role 状态返回 `NOT_IMPLEMENTED`。
+BiSS-C P0 阶段只实现 TAP monitor：监听 AUX0/AUX1 上的 CLK/DATA，按固定 profile 抽取 position，并在 crossing 命中后从 `GPIO23/RJ45_TRIG_OUT` 输出触发。`TRIG:BISS:ROLE` 保留未来角色的数值兼容关系：`0=TAP`、`1=SLAVE`、`2=MASTER`、`3=BRIDGE`。当前只有 `0=TAP` 可配置和 ARM；非 TAP role 可写入用于兼容/显示，但 `TRIG:MODE 3` 或 `TRIG:ARM` 会返回执行错误，`STAT:BISS?` 中 role 状态返回 `NOT_IMPLEMENTED`。
 
 P0 profile mutation 在 `BISS_ARMED` 状态下会返回错误；应先 `TRIG:DISA` 或 `TRIG:DISarm`，修改 profile 后再 `TRIG:MODE 3` 和 `TRIG:ARM`。
 

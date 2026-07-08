@@ -816,17 +816,11 @@ static void draw_trigger_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 {
     char trigger_width_buffer[12];
     char pulse_width_buffer[12];
-    char marker_width_buffer[12];
-    char sample_rate_buffer[12];
-    char clock_rate_buffer[12];
-    char drop_buffer[12];
+    char rj45_width_buffer[12];
 
     format_duration_us(trigger_width_buffer, sizeof(trigger_width_buffer), snapshot->trigger.trigger_width_us);
     format_duration_us(pulse_width_buffer, sizeof(pulse_width_buffer), snapshot->trigger.pulse_width_us);
-    format_duration_us(marker_width_buffer, sizeof(marker_width_buffer), snapshot->trigger.marker_width_us);
-    format_freq_hz(sample_rate_buffer, sizeof(sample_rate_buffer), snapshot->trigger.capture_sample_hz);
-    format_freq_hz(clock_rate_buffer, sizeof(clock_rate_buffer), snapshot->trigger.sync_clock_hz);
-    snprintf(drop_buffer, sizeof(drop_buffer), "%lu", (unsigned long)snapshot->trigger.dropped_capture_words);
+    format_duration_us(rj45_width_buffer, sizeof(rj45_width_buffer), snapshot->trigger.rj45_trigger_width_us);
 
     draw_card(u8g2, 82, UI_CARD_Y, 76, UI_CARD_H, "TRIGGER");
     draw_kv_line(u8g2, 87, 42, 66, "INIT", snapshot->trigger.initialized ? "OK" : "WAIT");
@@ -836,7 +830,7 @@ static void draw_trigger_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     draw_kv_line(u8g2, 87, 82, 66, "SYNC", bool_to_on_off(snapshot->trigger.sync_clock_enabled));
     draw_kv_line(u8g2, 87, 92, 66, "TRIG", trigger_width_buffer);
     draw_kv_line(u8g2, 87, 102, 66, "PULS", pulse_width_buffer);
-    draw_kv_line(u8g2, 87, 112, 66, "DROP", drop_buffer);
+    draw_kv_line(u8g2, 87, 112, 66, "RJ45", rj45_width_buffer);
 }
 
 static void draw_ota_card(u8g2_t *u8g2, const ui_snapshot_t *snapshot)

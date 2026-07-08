@@ -412,8 +412,8 @@ GPIO24 -> THVD1452_TRIG_DE / ISO_PWR_EN / 全局收发器使能
 
 - `GPIO23/OUT3` 是 `RJ45_TRIG_OUT`，旧 `MARKER_OUT` 运行路径必须收敛为
   `RJ45_TRIG_OUT` 兼容入口，不能再迁移或声明为 AUX3 独立硬件信号。
-- `GPIO22/OUT2` 是 `SMA_OUT2`，旧 `SYNC_CLK_OUT` 运行路径应迁移到
-  `AUX2/GPIO28` 或在主输出总线被占用时返回 busy。
+- `GPIO22/OUT2` 是 `SMA_OUT2`；`SYNC_CLK_OUT` 固件运行路径已迁移到
+  `AUX2/GPIO28`，并通过 `PIO2 + AUX` 资源仲裁与 BiSS/AUX persona 互斥。
 - `BISS_TAP_BRIDGE` 启用后，`AUX0/AUX1` 只作为接收采样，`AUX2/AUX3`
   只作为固定延迟转发输出；普通 AUX sync/辅助输出功能必须被锁定。
 - 资源仲裁器需要区分 `BISS_TAP_BRIDGE`、`DIFF_TRIGGER_AUX`、`RS485_HD_AUX`
@@ -438,7 +438,7 @@ GPIO24 -> THVD1452_TRIG_DE / ISO_PWR_EN / 全局收发器使能
 - [ ] 上行 `TRIG_DIFF` 只输入，下行 `TRIG_DIFF` 只输出。
 - [ ] 3 路 SMA 输入、3 路 SMA 输出和 1 入 1 出 RJ45 触发映射与固件 GPIO 一致。
 - [ ] `GPIO23` 旧 `MARKER_OUT` 路径已收敛为 `RJ45_TRIG_OUT` 兼容入口，不会与硬件定义冲突。
-- [ ] `GPIO22` 旧 `SYNC_CLK_OUT` 路径已迁移/仲裁，不会与 `SMA_OUT2` 冲突。
+- [x] `GPIO22` 旧 `SYNC_CLK_OUT` 路径已迁移/仲裁，不会与 `SMA_OUT2` 冲突。
 - [ ] 0 ohm / 焊桥 / 跳帽矩阵不会同时把 receiver 接到两个不同差分对。
 - [ ] 接收端端接 100 ohm 默认，120 ohm 兼容位预留。
 - [ ] RS485-HD bias 网络预留，默认装配策略明确。
@@ -470,7 +470,7 @@ GPIO24 -> THVD1452_TRIG_DE / ISO_PWR_EN / 全局收发器使能
 
 1. 使用 100 ohm 端接，回放 5 MHz BiSS-C fixed profile。
 2. 扫描 `sample_delay_cycles`，记录稳定窗口。
-3. 测量 `CLK active edge -> receiver output -> TRIG_OUT` latency。
+3. 测量 `CLK active edge -> receiver output -> RJ45_TRIG_OUT` latency。
 4. 测量 `CLK_IN -> CLK_OUT` 与 `DATA_IN -> DATA_OUT` 的转发延迟和 skew。
 5. 记录 P99 jitter 和固定 latency offset。
 

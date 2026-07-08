@@ -418,7 +418,7 @@ DPLL:RELOCK
 - `GPIO26..GPIO29` 当前作为固定两收两发 AUX 功能接口；历史 `ENC_COUNT`
   开发诊断输入组 `TRIG:ENC:APIN 26` 已因硬件冻结关闭。
 - `pio2/sm0` 和 `pio2/sm3` 将被 CAL_RING 占用；`ARM_IN`、`AUX3_TX/BISS_DATA_OUT` 等 AUX persona 需要与 CAL_RING 做 owner/arbiter。
-- 现有 `SYNC_CLK_OUT` 运行路径仍有旧 GPIO22 路径，后续迁移到 AUX 时要避免与 CAL_RING 模式冲突；历史 `MARK:*` 命令兼容到 `GPIO23/RJ45_TRIG_OUT`，不迁移到 AUX。
+- `SYNC_CLK_OUT` 运行路径已迁移到 AUX2/GPIO28；后续 CAL_RING 模式必须通过 `PIO2 + AUX` 资源仲裁与该路径互斥。历史 `MARK:*` 命令兼容到 `GPIO23/RJ45_TRIG_OUT`，不迁移到 AUX。
 - PIO 不能直接读取系统 timer。所有 ns 级相对时间戳必须用 PIO 自身窗口计数、采样索引或外部 TDC 实现，再由 CPU 扩展到虚拟 DC。
 
 ## 风险与边界

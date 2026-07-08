@@ -102,6 +102,8 @@ sync_io_hw_profile
 4. 整理 RJ45 trigger mode。
    - 将旧 `MARKER_OUT` 命名迁移到 `RJ45_TRIG_OUT` 语义。
    - 舍弃独立 marker 硬件定义；历史 `MARK:*` 命令作为 RJ45 trigger 兼容入口保留。
+   - 软件层允许保留 deprecated alias，但新增接口、快照字段和 UI 展示优先使用
+     `RJ45_TRIG_IN/RJ45_TRIG_OUT` 硬件语义名。
 
 ### P1 验收
 
@@ -146,3 +148,5 @@ sync_io_hw_profile
 - [x] 资源 owner 表基础能力落地。
 - [x] 资源冲突 SCPI 查询落地。
 - [x] 资源冲突错误码和 UI 展示落地。
+- [x] RJ45 trigger canonical 接口落地：`RJ45:TRIG:*`、`rj45_trigger_width_us`
+      和 trace 解码主名使用硬件语义；`MARK:*` / `marker_width_us` 仅作兼容 alias。

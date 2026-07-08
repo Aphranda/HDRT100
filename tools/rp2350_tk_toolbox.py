@@ -187,7 +187,7 @@ class ToolboxApp:
         self.safe_var = StringVar(value="ZERO")
         self.trigger_width_var = IntVar(value=10)
         self.pulse_width_var = IntVar(value=10)
-        self.marker_width_var = IntVar(value=10)
+        self.rj45_trigger_width_var = IntVar(value=10)
         self.sample_rate_var = IntVar(value=1000000)
         self.clock_freq_var = IntVar(value=1000)
         self.clock_state_var = BooleanVar(value=False)
@@ -322,7 +322,7 @@ class ToolboxApp:
             ("Seq Width", ttk.Entry(frame, textvariable=self.seq_width_var)),
             ("Trigger Width us", ttk.Entry(frame, textvariable=self.trigger_width_var)),
             ("Pulse Width us", ttk.Entry(frame, textvariable=self.pulse_width_var)),
-            ("Marker Width us", ttk.Entry(frame, textvariable=self.marker_width_var)),
+            ("RJ45 Width us", ttk.Entry(frame, textvariable=self.rj45_trigger_width_var)),
             ("Sample Rate Hz", ttk.Entry(frame, textvariable=self.sample_rate_var)),
             ("Clock Freq Hz", ttk.Entry(frame, textvariable=self.clock_freq_var)),
             ("Safe State", ttk.Combobox(frame, textvariable=self.safe_var, values=["ZERO", "ONE"], state="readonly")),
@@ -345,7 +345,7 @@ class ToolboxApp:
         ttk.Button(buttons, text="DISARM", command=lambda: self.scpi_one("TRIG:DIS")).grid(row=0, column=2, sticky="ew", padx=2, pady=2)
         ttk.Button(buttons, text="Trigger Now", command=lambda: self.scpi_one("TRIG:IMM")).grid(row=1, column=0, sticky="ew", padx=2, pady=2)
         ttk.Button(buttons, text="Pulse Now", command=lambda: self.scpi_one("PULS:IMM")).grid(row=1, column=1, sticky="ew", padx=2, pady=2)
-        ttk.Button(buttons, text="Marker Now", command=lambda: self.scpi_one("MARK:IMM")).grid(row=1, column=2, sticky="ew", padx=2, pady=2)
+        ttk.Button(buttons, text="RJ45 Now", command=lambda: self.scpi_one("RJ45:TRIG:IMM")).grid(row=1, column=2, sticky="ew", padx=2, pady=2)
         ttk.Button(buttons, text="Trigger Status", command=lambda: self.scpi_one("STAT:TRIG?")).grid(
             row=2, column=0, sticky="ew", padx=2, pady=2
         )
@@ -593,7 +593,7 @@ class ToolboxApp:
             f"TRIG:SEQ:WIDT {self.seq_width_var.get()}",
             f"TRIG:WIDT {self.trigger_width_var.get()}",
             f"PULS:WIDT {self.pulse_width_var.get()}",
-            f"MARK:WIDT {self.marker_width_var.get()}",
+            f"RJ45:TRIG:WIDT {self.rj45_trigger_width_var.get()}",
             f"SAMP:RATE {self.sample_rate_var.get()}",
             f"OUTP:CLOC:FREQ {self.clock_freq_var.get()}",
             f"OUTP:CLOC:STAT {1 if self.clock_state_var.get() else 0}",

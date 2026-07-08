@@ -164,7 +164,9 @@ Last updated: 2026-07-08
   `TRIG_SAFE_ZERO` / `TRIG_SAFE_ONE` 安全输出态，SCPI `TRIG:SAFE 0/1`。
 
 - [x] 实现 `TRIG_OUT`、`PULSE_OUT`、`RJ45_TRIG_OUT` 兼容输出的可配置脉宽。 (2026-06-25)
-  SCPI: `TRIG:WIDT` / `PULS:WIDT` / `MARK:WIDT`，µs 精度；`MARK:*` 输出到 `RJ45_TRIG_OUT`。
+  SCPI: `TRIG:WIDT` / `PULS:WIDT` / `RJ45:TRIG:WIDT`，µs 精度；`MARK:*`
+  作为历史兼容别名仍输出到 `RJ45_TRIG_OUT`。`RJ45:TRIG:PINS?` 返回硬件绑定
+  `RJ45_TRIG_IN/RJ45_TRIG_OUT = GPIO19/GPIO23`。
 
 - [ ] 实现 burst 输出：重复次数和脉冲间隔。
 
@@ -176,8 +178,8 @@ Last updated: 2026-07-08
 
 - [x] 增加 `SYNC_CLK_OUT` 输出时钟分频配置。 (2026-06-25)
   SCPI: `OUTP:CLOC:FREQ <Hz>`，PIO `sync_clock` 程序（2 指令）实现。
-  当前实现仍输出到旧 GPIO22。产品约束：`SYNC_CLK_OUT` 应迁移到 AUX2/GPIO28，
-  避免与 `SEQ_STEP` OUT2/bit2 冲突。
+  当前实现已迁移到 AUX2/GPIO28 / `pio2/sm2`，避免与 `SEQ_STEP` OUT2/bit2 冲突；
+  启动时通过 `PIO2 + AUX` 资源仲裁与 BiSS/AUX persona 互斥。
 
 - [ ] 处理输出忙状态下多个触发源同时到来的冲突策略。
 
@@ -222,34 +224,39 @@ Last updated: 2026-07-08
 - [x] 定义启动、故障、看门狗复位时的安全输出默认状态。 (2026-06-25)
   默认 safe_state = TRIG_SAFE_ZERO，所有输入加 pull-down，输出复位到 SIO 低电平。
 
-- [ ] 增加编译期检查，避免引脚冲突和 PIO 状态机冲突。
+- [x] 增加编译期检查，避免引脚冲突和 PIO 状态机冲突。 (2026-07-08)
+  `sync_io_hw_profile.h` 已断言主口、RJ45_TRIG_IN/OUT、AUX0..AUX3、`SYNC_CLK_OUT`
+  和 deprecated `MARKER_OUT` alias 的硬件绑定。后续新增模式资源表时仍可继续扩展 SM/DMA 断言。
 
 - [ ] 增加应用层语义 IO 资源仲裁。
   按 `docs/SYNC_IO_RESOURCE_PLAN.md` 的接口契约，在代码中拒绝模式 armed 后的语义通道冲突：
   `SEQ_STEP` 独占主 OUT0..OUT3，`ENC_COUNT` 独占主 IN0/IN1/IN2 和 OUT0；
   AUX0..AUX3 作为 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT` 和协议辅助输出的跨模式功能口，
   需要独立 owner/arbiter。当前 `ARM_IN/EXT_CLK_IN` 仍是语义占位，尚未接入 TriggerFB
-  业务逻辑；`SYNC_CLK_OUT` 仅有旧 GPIO22 输出时钟路径，AUX2/GPIO28 产品路径尚未实现。
+  业务逻辑；`SYNC_CLK_OUT` 已迁移到 AUX2/GPIO28，并在启动失败时设置
+  `TRIG_ERROR_RESOURCE_CONFLICT` 或 `TRIG_ERROR_IO_ARM_FAILED`。
   历史开发诊断入口 `TRIG:ENC:APIN 26` 已关闭，但资源仲裁仍需覆盖所有可能重新引入
   AUX persona 的路径，避免绕过 TriggerFB owner 边界。
   迁移验收：
-  - `SEQ_STEP` armed 后，`TRIG:IMM`、`PULS:IMM`、`MARK:IMM` 等主输出即时命令返回 busy 或执行错误。
+  - `SEQ_STEP` armed 后，`TRIG:IMM`、`PULS:IMM`、`RJ45:TRIG:IMM`、`MARK:IMM`
+    等主输出即时命令返回 busy 或执行错误。
   - `ENC_COUNT` armed 后，拒绝改写 A/B/Z 引脚、主输入组和 OUT0 相关配置。
   - BiSS TAP / AUX persona armed 后，拒绝普通 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/AUX3_TX` 配置改写。
   - 冲突路径统一设置 `TRIG_ERROR_RESOURCE_CONFLICT`，并记录 resource snapshot trace。
 
 - [ ] 将 AUX 功能接口落实到代码。
   产品目标：AUX0/GPIO26=`ARM_IN`，AUX1/GPIO27=`EXT_CLK_IN`，AUX2/GPIO28=`SYNC_CLK_OUT`，
-  AUX3/GPIO29=`AUX3_TX/BISS_DATA_OUT`。需要迁移 board 宏和 `sync_io` 输出时钟路径；
+  AUX3/GPIO29=`AUX3_TX/BISS_DATA_OUT`。`SYNC_CLK_OUT` 的 board 宏和 `sync_io` 输出时钟路径
+  已完成迁移；`ARM_IN/EXT_CLK_IN` 仍待接入运行逻辑。
   `MARK:*` 不迁移到 AUX3，只作为 `RJ45_TRIG_OUT` 兼容入口。
   迁移债明细：
   - 为 `BOARD_SYNC_AUX_ARM_IN_PIN` / GPIO26 实现 `ARM_IN` 资格/请求逻辑；旧
     `BOARD_SYNC_ARM_IN_PIN` / GPIO17 目前只做 pull-down/诊断采样，不是可用 ARM 功能。
   - 为 `BOARD_SYNC_AUX_EXT_CLK_IN_PIN` / GPIO27 实现 `EXT_CLK_IN` 外部参考/采样时钟逻辑；旧
     `BOARD_SYNC_EXT_CLK_IN_PIN` / GPIO18 目前只做 pull-down/诊断采样，不是可用外部时钟功能。
-  - 将已有 `SYNC_CLK_OUT` 旧路径从 `BOARD_SYNC_SYNC_CLK_OUT_PIN` / GPIO22 / `pio1/sm1`
-    迁移到 `BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN` / GPIO28 / `pio2/sm2`；迁移前必须在
-    `SEQ_STEP` 占用 OUT2 时拒绝同步时钟输出。
+  - [x] 将已有 `SYNC_CLK_OUT` 旧路径从 `BOARD_SYNC_SYNC_CLK_OUT_PIN` / GPIO22 / `pio1/sm1`
+    迁移到 `BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN` / GPIO28 / `pio2/sm2`；当前通过
+    `PIO2 + AUX` 资源仲裁与 BiSS/AUX persona 互斥，不再占用 OUT2。
   - 保留 `BOARD_SYNC_MARKER_OUT_PIN` 仅作为 deprecated alias，继续指向
     `GPIO23/RJ45_TRIG_OUT`，不得迁移到 AUX3/GPIO29。
   - 为 `board_config.h` 与 `sync_io_hw_profile.h` 增加编译期断言，确保主口/AUX pinout、

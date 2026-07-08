@@ -348,6 +348,42 @@ static scpi_result_t scpi_cmd_marker_fire(scpi_t *context)
                SCPI_RES_ERR;
 }
 
+static scpi_result_t scpi_cmd_rj45_trigger_width(scpi_t *context)
+{
+    uint32_t value;
+    if (!scpi_port_read_u32(context, &value) || value == 0u) {
+        return SCPI_RES_ERR;
+    }
+
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_SET_RJ45_TRIGGER_WIDTH,
+                                        value) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_rj45_trigger_width_q(scpi_t *context)
+{
+    sync_trigger_summary_t summary;
+    scpi_port_get_trigger_summary(&summary);
+    SCPI_ResultUInt32(context, summary.rj45_trigger_width_us);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_rj45_trigger_fire(scpi_t *context)
+{
+    (void)context;
+    return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_FIRE_RJ45_TRIGGER, 0u) ?
+               SCPI_RES_OK :
+               SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_rj45_trigger_pins_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, SYNC_IO_HW_RJ45_TRIG_IN_PIN);
+    SCPI_ResultUInt32(context, SYNC_IO_HW_RJ45_TRIG_OUT_PIN);
+    return SCPI_RES_OK;
+}
+
 static scpi_result_t scpi_cmd_sample_rate(scpi_t *context)
 {
     uint32_t value;
@@ -2546,6 +2582,10 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "MARKer:WIDTh", .callback = scpi_cmd_marker_width},
     {.pattern = "MARKer:WIDTh?", .callback = scpi_cmd_marker_width_q},
     {.pattern = "MARKer:IMMediate", .callback = scpi_cmd_marker_fire},
+    {.pattern = "RJ45:TRIGger:WIDTh", .callback = scpi_cmd_rj45_trigger_width},
+    {.pattern = "RJ45:TRIGger:WIDTh?", .callback = scpi_cmd_rj45_trigger_width_q},
+    {.pattern = "RJ45:TRIGger:IMMediate", .callback = scpi_cmd_rj45_trigger_fire},
+    {.pattern = "RJ45:TRIGger:PINs?", .callback = scpi_cmd_rj45_trigger_pins_q},
     {.pattern = "SAMPle:RATE", .callback = scpi_cmd_sample_rate},
     {.pattern = "SAMPle:RATE?", .callback = scpi_cmd_sample_rate_q},
     {.pattern = "SAMPle:STATe", .callback = scpi_cmd_sample_state},
@@ -2775,6 +2815,7 @@ void scpi_port_get_config(scpi_port_config_t *config)
 
     config->trigger_width_us = summary.trigger_width_us;
     config->pulse_width_us = summary.pulse_width_us;
+    config->rj45_trigger_width_us = summary.rj45_trigger_width_us;
     config->marker_width_us = summary.marker_width_us;
     config->capture_sample_hz = summary.capture_sample_hz;
     config->sync_clock_hz = summary.sync_clock_hz;

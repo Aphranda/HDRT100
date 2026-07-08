@@ -141,7 +141,7 @@ board profile 中写死 12 个 PIO state machine、固定 GPIO、方向和语义
 | `pio0` | `sm2` | `RJ45_TRIGGER_IN` | 固定对应 `GPIO19/RJ45_TRIG_IN`；gate/inhibit 是模式层解释。 |
 | `pio0` | `sm3` | `ARM_RESERVED` | 预留给硬件 ARM/DISARM 握手和捕获窗口控制。 |
 | `pio1` | `sm0` | `MAIN_OUTPUT` | 主确定性输出；`TRIG_OUT`、`SEQ_STEP`、`ENC_COUNT` 互斥复用。 |
-| `pio1` | `sm1` | `MAIN_OUT2_LEGACY_CLOCK` | 当前旧同步时钟路径；目标释放为 OUT2/模式本地输出。 |
+| `pio1` | `sm1` | `MAIN_OUT2_RESERVED` | 已释放为 OUT2/模式本地输出；不再承载框架层 `SYNC_CLK_OUT`。 |
 | `pio1` | `sm2` | `MAIN_PULSE` | `GPIO21/PULSE_OUT` 第二路脉冲输出。 |
 | `pio1` | `sm3` | `MAIN_OUT3_RJ45_TRIGGER` | `GPIO23/RJ45_TRIG_OUT`；`MARK:*` 仅为历史兼容入口。 |
 | `pio2` | `sm0` | `AUX0_ARM` | `GPIO26/AUX0` 固定输入；`ARM_IN` 或 BiSS `CLK_IN` persona。 |
@@ -217,7 +217,7 @@ board profile 中写死 12 个 PIO state machine、固定 GPIO、方向和语义
 | `SEQ_STEP` | `pio1/sm0`, `GPIO16..19`, `GPIO20..23`, DMA | 独占主输入/输出总线；IN3 硬件为 `RJ45_TRIG_IN`，模式内可解释为 gate/inhibit。 |
 | `ENC_COUNT` | `pio1/sm0`, A/B/Z=`GPIO16/GPIO17/GPIO18`, OUT=`GPIO20`, DMA | ENC 软件定义固定为 3-pin A/B/Z，不占用 `GPIO19/RJ45_TRIG_IN`，不再支持 `TRIG:ENC:APIN 26`。 |
 | `BISS_TAP` | `pio2/sm0/sm2/sm3`, AUX0..AUX3 | AUX0->AUX2 透传 `CLK`，AUX1->AUX3 透传 `DATA`，独占 AUX persona。 |
-| `SYNC_CLK_OUT` 目标路径 | `pio2/sm2`, `GPIO28/AUX2` | 当前旧 `GPIO22` 路径需要后续迁移或在冲突时拒绝。 |
+| `SYNC_CLK_OUT` 路径 | `pio2/sm2`, `GPIO28/AUX2` | 当前固件已迁移；通过 `PIO2 + AUX` 资源仲裁与 BiSS/AUX persona 互斥。 |
 | `ARM_IN` 目标路径 | `pio2/sm0`, `GPIO26/AUX0` | 作为管理面资格输入，不占用主输入组。 |
 | `EXT_CLK_IN` 目标路径 | `pio2/sm1`, `GPIO27/AUX1` | 作为外部参考/采样时钟输入。 |
 

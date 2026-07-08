@@ -15,7 +15,7 @@ Last updated: 2026-07-08
 | 文档状态 | `Active`。PIO/SM/DMA ownership 仍随固件实现演进；外部高速 IO pinout 和 AUX 两收两发方向按当前产品目标冻结。 |
 | 适用硬件 | RP2350_TRIG 当前开发板和后续以 `GPIO16..23` 主触发口、`GPIO26..29` AUX 口为基础的硬件版本。 |
 | 冻结约束 | `GPIO16..19` 为主输入组，`GPIO20..23` 为主输出组；`AUX0/AUX1` 固定输入，`AUX2/AUX3` 固定输出；非同步功能不得占用 PIO 状态机。 |
-| 未决项 | 旧 `BOARD_SYNC_*` 宏仍需迁移到 AUX 语义通道；`ARM_IN`、`EXT_CLK_IN`、`SYNC_CLK_OUT` 运行路径需要由资源仲裁器统一拒绝或迁移。`MARKER_OUT` 不再作为独立硬件信号定义，历史 `MARK:*` 命令兼容到 `RJ45_TRIG_OUT`。 |
+| 未决项 | `ARM_IN`、`EXT_CLK_IN` 旧低层宏仍需迁移到 AUX 语义通道并接入运行逻辑；`SYNC_CLK_OUT` 已迁移到 AUX2/GPIO28 并由资源仲裁器与 BiSS/AUX persona 互斥。`MARKER_OUT` 不再作为独立硬件信号定义，历史 `MARK:*` 命令兼容到 `RJ45_TRIG_OUT`。 |
 
 ## 硬件资源预算
 
@@ -39,7 +39,7 @@ RP2350 提供 3 个 PIO block。每个 PIO block 有 4 个状态机和独立指�
 
 ## 状态机分配
 
-状态机分配同时记录当前实现和产品目标。当前固件里，部分主口功能仍走旧路径；产品化迁移时应按 AUX 功能接口收口。
+状态机分配同时记录当前实现和产品目标。当前固件里，`ARM_IN`、`EXT_CLK_IN` 仍需按 AUX 功能接口收口；`SYNC_CLK_OUT` 已迁移到 AUX2。
 
 | PIO | 状态机 | 名称 | 当前/目标功能 |
 |---|---:|---|---|
@@ -48,12 +48,12 @@ RP2350 提供 3 个 PIO block。每个 PIO block 有 4 个状态机和独立指�
 | `pio0` | `sm2` | `RJ45_TRIGGER_IN` | 固定对应 `GPIO19/RJ45_TRIG_IN`；可在模式层解释为 gate 或 inhibit，当前 `SEQ_STEP` gate 逻辑仍在 `pio1/sm0` 的模式程序内完成。 |
 | `pio0` | `sm3` | `ARM_RESERVED` | 预留给硬件 ARM/DISARM 握手和捕获窗口控制；当前 `ARM_IN` 尚未接入 TriggerFB/PIO。 |
 | `pio1` | `sm0` | `MAIN_OUTPUT` | 当前由主输出模式独占：即时 `TRIG_OUT`、`SEQ_STEP` 序列输出和 `ENC_COUNT` 比较触发都复用该 SM。 |
-| `pio1` | `sm1` | `MAIN_OUT2_LEGACY_CLOCK` | 当前旧路径用于 `GPIO22` 同步时钟输出；产品目标是释放为主口 OUT2/`SEQ_STEP` bit2，将 `SYNC_CLK_OUT` 迁移到 AUX2/`pio2/sm2`。 |
+| `pio1` | `sm1` | `MAIN_OUT2_RESERVED` | 释放为主口 OUT2/`SEQ_STEP` bit2 或后续模式本地输出；不再承载框架层 `SYNC_CLK_OUT`。 |
 | `pio1` | `sm2` | `MAIN_PULSE` | 当前用于 `GPIO21/PULSE_OUT` 第二路脉冲输出。代码宏名为 `BOARD_SYNC_GATE_SM`，实际用途是 pulse 输出，不是 `GATE_IN` 输入资格机。 |
 | `pio1` | `sm3` | `MAIN_OUT3_RJ45_TRIGGER` | 当前用于 `GPIO23/OUT3`，产品硬件语义为 `RJ45_TRIG_OUT`；旧 `MARK:*` 命令仅作为兼容入口复用该硬件触发输出。 |
 | `pio2` | `sm0` | `AUX0_ARM` | 产品目标为 AUX0/GPIO26 `ARM_IN`；当前作为通用 AUX IO 初始化。 |
 | `pio2` | `sm1` | `AUX1_EXT_CLK` | 产品目标为 AUX1/GPIO27 `EXT_CLK_IN`；当前作为通用 AUX IO 初始化。 |
-| `pio2` | `sm2` | `AUX2_SYNC_CLK` | 产品目标为 AUX2/GPIO28 `SYNC_CLK_OUT`；当前作为通用 AUX IO 初始化，尚未承载同步时钟程序。 |
+| `pio2` | `sm2` | `AUX2_SYNC_CLK` | 当前承载 AUX2/GPIO28 `SYNC_CLK_OUT`；BiSS persona armed 时同一物理输出解释为 `BISS_CLK_OUT`，两者由 `PIO2 + AUX` 资源互斥。 |
 | `pio2` | `sm3` | `AUX3_TX` | 产品目标为 AUX3/GPIO29 固定输出，BiSS persona 中作为 `BISS_DATA_OUT`；当前作为通用 AUX IO 初始化。 |
 
 ## GPIO 分配
@@ -141,7 +141,7 @@ AUX 仍然可以按 persona 复用为 BiSS-C TAP、差分触发、校准或普�
 
 原始 GPIO 选择命令只能作为 board profile 配置或开发诊断入口。产品 SCPI/UI 应优先使用语义通道，由 Trigger 资源仲裁器决定当前模式下请求是否可用。
 
-当前固件仍保留一些旧低层宏：`BOARD_SYNC_ARM_IN_PIN`=`GPIO17`、`BOARD_SYNC_EXT_CLK_IN_PIN`=`GPIO18`、`BOARD_SYNC_SYNC_CLK_OUT_PIN`=`GPIO22`。硬件 pinout 已冻结，`GPIO23` 的硬件语义是 `RJ45_TRIG_OUT`；`BOARD_SYNC_MARKER_OUT_PIN` 仅作为 deprecated 兼容别名指向 `GPIO23/RJ45_TRIG_OUT`，不再表示独立硬件信号。
+当前固件仍保留部分旧低层宏：`BOARD_SYNC_ARM_IN_PIN`=`GPIO17`、`BOARD_SYNC_EXT_CLK_IN_PIN`=`GPIO18` 仍只代表待迁移的旧诊断路径。`BOARD_SYNC_SYNC_CLK_OUT_PIN` 已解析到 `AUX2/GPIO28`。硬件 pinout 已冻结，`GPIO23` 的硬件语义是 `RJ45_TRIG_OUT`；`BOARD_SYNC_MARKER_OUT_PIN` 仅作为 deprecated 兼容别名指向 `GPIO23/RJ45_TRIG_OUT`，不再表示独立硬件信号。
 
 ## 实用性能目标
 
