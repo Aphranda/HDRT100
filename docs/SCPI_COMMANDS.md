@@ -3,10 +3,12 @@
 Status: Active
 Domain: SCPI
 Canonical: `docs/SCPI_COMMANDS.md`
-Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/OTA_SYSTEM_DESIGN.md`, `docs/SD_TODO.md`
-Last updated: 2026-07-08
+Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/OTA_SYSTEM_DESIGN.md`, `docs/SD_TODO.md`, `docs/SCPI_USB_INTERFACE_DESIGN.md`
+Last updated: 2026-07-21
 
-当前 SCPI 服务通过 Pico SDK `stdio` 通道接入，默认使用 USB CDC。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
+当前默认 SCPI 服务通过 Pico SDK `stdio` 通道接入，使用 USB CDC。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
+
+固件已增加可选 `PROJECT_ENABLE_USBTMC` 构建，用于启用 USBTMC/USB488 + SCPI 专业仪表接口。USBTMC 模式复用同一套 SCPI 命令表，当前调试阶段 USB 描述符按 `bus-powered` 申明；后续成品如确认自供电，再切换为 `self-powered`。USB 描述符、VISA 枚举和供电属性记录见 `docs/SCPI_USB_INTERFACE_DESIGN.md`。
 
 ## 标准命令
 

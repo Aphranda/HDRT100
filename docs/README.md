@@ -24,6 +24,7 @@ Last updated: 2026-07-07
 | SD | `SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
 | LOG | `LOG_SYSTEM_TODO.md` | 日志 core、诊断 trace、持久化和故障证据入口。 |
 | SCPI | `SCPI_COMMANDS.md` | SCPI 命令语义、兼容性和用户可调用接口入口。 |
+| USB | `SCPI_USB_INTERFACE_DESIGN.md` | USB CDC、USBTMC/USB488、VISA 枚举和供电描述符策略。 |
 
 ## 进度记录路由
 
@@ -109,6 +110,7 @@ Last updated: 2026-07-07
 |---|---|
 | `SCPI_COMMANDS.md` | SCPI 命令清单、语义和边界。 |
 | `LOG_SYSTEM_TODO.md` | 日志系统待办和演进方向。 |
+| `SCPI_USB_INTERFACE_DESIGN.md` | USB CDC/USBTMC 接口设计、描述符、bus-powered/self-powered 决策记录。 |
 
 ## 08 发布、验证与全局进度
 
