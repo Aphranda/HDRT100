@@ -1,5 +1,6 @@
 #include "scpi_port.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -30,6 +31,10 @@
 static scpi_t s_scpi_context;
 static char s_scpi_input_buffer[SCPI_PORT_INPUT_BUFFER_LENGTH];
 static scpi_error_t s_scpi_error_queue[SCPI_PORT_ERROR_QUEUE_SIZE];
+static char *s_scpi_capture_buffer;
+static size_t s_scpi_capture_capacity;
+static size_t s_scpi_capture_len;
+static bool s_scpi_capture_truncated;
 
 static bool scpi_port_wait_storage_job(uint32_t job_id);
 static bool scpi_port_trigger_is_armed(void);
@@ -37,6 +42,21 @@ static bool scpi_port_trigger_is_armed(void);
 static size_t scpi_port_write(scpi_t *context, const char *data, size_t len)
 {
     (void)context;
+    if (s_scpi_capture_buffer != NULL) {
+        const size_t space = s_scpi_capture_capacity > s_scpi_capture_len ?
+                             s_scpi_capture_capacity - s_scpi_capture_len :
+                             0u;
+        const size_t copy_len = len < space ? len : space;
+        if (copy_len > 0u) {
+            memcpy(&s_scpi_capture_buffer[s_scpi_capture_len], data, copy_len);
+            s_scpi_capture_len += copy_len;
+        }
+        if (copy_len < len) {
+            s_scpi_capture_truncated = true;
+        }
+        return len;
+    }
+
     for (size_t i = 0u; i < len; i++) {
         putchar_raw(data[i]);
     }
@@ -2802,6 +2822,36 @@ void scpi_port_service(void)
     if (count > 0u) {
         SCPI_Input(&s_scpi_context, buffer, (int)count);
     }
+}
+
+bool scpi_port_execute(const char *data,
+                       size_t len,
+                       char *response,
+                       size_t response_capacity,
+                       size_t *response_len)
+{
+    if (data == NULL || response_len == NULL ||
+        (response == NULL && response_capacity > 0u) ||
+        len > (size_t)INT_MAX) {
+        return false;
+    }
+
+    s_scpi_capture_buffer = response;
+    s_scpi_capture_capacity = response_capacity;
+    s_scpi_capture_len = 0u;
+    s_scpi_capture_truncated = false;
+
+    SCPI_Input(&s_scpi_context, data, (int)len);
+
+    *response_len = s_scpi_capture_len;
+    const bool ok = !s_scpi_capture_truncated;
+
+    s_scpi_capture_buffer = NULL;
+    s_scpi_capture_capacity = 0u;
+    s_scpi_capture_len = 0u;
+    s_scpi_capture_truncated = false;
+
+    return ok;
 }
 
 void scpi_port_get_config(scpi_port_config_t *config)

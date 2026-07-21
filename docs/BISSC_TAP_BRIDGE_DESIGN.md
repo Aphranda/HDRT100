@@ -6,7 +6,9 @@ Canonical: `docs/BISSC_TAP_BRIDGE_DESIGN.md`
 Related: `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`, `docs/BISSC_IMPLEMENTATION_TODO.md`, `docs/BISSC_TASK_PROGRESS.md`
 Last updated: 2026-07-08
 
-本文档定义 `PROTOCOL_TRIGGER` 的第一种协议子类型：`TRIG_PROTOCOL_BISS_C`。BiSS-C 节点复用 AUX0..AUX3，不改底层硬件，用于三类能力：
+本文档定义 `PROTOCOL_TRIGGER` 的第一种协议子类型：`TRIG_PROTOCOL_BISS_C`。
+同一 RJ45 / AUX 硬件还预留第二种协议子类型：`TRIG_PROTOCOL_HSPI_LIKE`。
+BiSS-C 节点复用 AUX0..AUX3，不改底层硬件，用于三类能力：
 
 - 透明透传 BiSS-C 原链路，同时监听编码器位置，并按位置阈值输出触发脉冲。
 - 板间传输轻量过程数据，例如位置、事件计数、状态和校准帧。
@@ -20,7 +22,7 @@ fixed position profile
 PIO 最小可靠接收器：采样相位 + 帧锚点 + position/status 抽取
 PIO/硬件透传：CLK_IN -> CLK_OUT，DATA_IN -> DATA_OUT，不改写 BiSS-C 帧
 IRQ 快路径 crossing compare
-PIO 输出 RJ45_TRIG_OUT
+PIO 输出 RJ45_FWD_TRIG_OUT
 ```
 
 ## HAOFV 定位
@@ -62,10 +64,14 @@ SCPI / UI / SD profile
 TRIG_MODE_PROTOCOL_TRIGGER = 3
 TRIG_MODE_BISS_BRIDGE = TRIG_MODE_PROTOCOL_TRIGGER  /* deprecated 兼容别名 */
 TRIG_PROTOCOL_BISS_C = 0
+TRIG_PROTOCOL_HSPI_LIKE = 1  /* planned: SCLK + MISO + MOSI/SYNC over RJ45 */
 ```
 
 `TRIG_MODE_BISS_BRIDGE` 不再表达独立 mode 值；真实语义由
 `TRIG_MODE_PROTOCOL_TRIGGER + TRIG_PROTOCOL_BISS_C + trig_biss_role_t` 组合表示。
+`TRIG_PROTOCOL_HSPI_LIKE` 复用同一套 RJ45 差分硬件，但协议语义改为
+`SCLK + MISO + MOSI/SYNC`；它与 BiSS-C TAP 互斥，后续由独立 HSPI profile 和
+PIO 程序实现。
 
 BiSS-C role。数值必须与 `trigger_vector.h` 和 SD/profile 持久化保持一致：
 
@@ -109,8 +115,8 @@ P0 `TAP_MONITOR` 是串联式透明桥，而不是只并联高阻探针：
 | 信号 | GPIO | 用途 |
 |---|---:|---|
 | `TRIG_IN` | 16 | 本地脉冲输入或测试 strobe。 |
-| `RJ45_TRIG_IN` | 19 | 上行 RJ45 触发输入；模式内可作为 gate/inhibit。 |
-| `RJ45_TRIG_OUT` | 23 | BiSS crossing 命中后输出触发脉冲。 |
+| `RJ45_FWD_TRIG_IN` | 19 | 上行 RJ45 前向触发输入；HSPI-like persona 可作为 `MOSI/SYNC` 输入。 |
+| `RJ45_FWD_TRIG_OUT` | 23 | 下行 RJ45 前向触发输出；BiSS crossing 命中或 HSPI-like `MOSI/SYNC` 输出。 |
 
 ARM 前资源检查：
 
@@ -361,7 +367,7 @@ CLK/DATA
        position/status extract
   -> RX FIFO: position/status/frame_tag
   -> IRQ fast crossing compare
-  -> RJ45_TRIG_OUT PIO pulse
+  -> RJ45_FWD_TRIG_OUT PIO pulse
 ```
 
 目标参数：
@@ -610,7 +616,7 @@ TRIG_STATE_BISS_CALIBRATING  /* P1+, do not insert before existing values */
 | BiSS MASTER clock/data | `pio2/sm1/sm2` | AUX1=`DATA_IN`, AUX2=`CLK_OUT` | P1：MASTER_RX 与 TAP 互斥。 |
 | BiSS SLAVE data out | `pio2/sm0` | AUX0=`CLK_IN`, AUX3=`DATA_OUT` | P1：上游时钟驱动移出 DATA。 |
 | SELF_CAL forward | `pio2/sm0/sm3` | AUX0=`CAL_IN`, AUX3=`CAL_OUT` | P1：慢速校准固定延迟转发。 |
-| RJ45_TRIG_OUT pulse | `pio1/sm3` | OUT3=`RJ45_TRIG_OUT` | 复用现有 `sync_pulse`，历史 `MARK:*` 只是兼容入口。 |
+| RJ45_FWD_TRIG_OUT pulse | `pio1/sm3` | OUT3=`RJ45_FWD_TRIG_OUT` | 复用现有 `sync_pulse`，历史 `MARK:*` 只是兼容入口。 |
 | 本地 pulse capture | `pio0/sm1` 或 `pio0/sm2` | IN0=`TRIG_IN` | P1：后续 RX_PULSE。 |
 
 启用任意 BiSS role 时必须通过 resource arbiter 独占对应 AUX owner：
@@ -668,7 +674,7 @@ P0：
 6. IRQ crossing compare：验证只在 crossing 时输出一次。
 7. modulo crossing：验证回绕点不误触发。
 8. TAP_MONITOR 透明接入：不驱动 DATA，不影响原主站。
-9. 延迟测量：`field_done/status_gate -> RJ45_TRIG_OUT` offset 与 jitter。
+9. 延迟测量：`field_done/status_gate -> RJ45_FWD_TRIG_OUT` offset 与 jitter。
 
 P0 验收：
 
@@ -691,7 +697,7 @@ P0 验收：
 - [ ] 新增 `biss_protocol.h/.c`：配置校验、CRC6、position/event/cal profile pack/parse。
 - [ ] 新增 `biss_node_io` 骨架：PIO 资源申请、ARM/DISARM、FIFO/IRQ 回调。
 - [ ] 实现 `TAP_MONITOR_RT` PIO fixed profile receiver：采样相位、锚点、position/status。
-- [ ] 实现 IRQ crossing compare + `RJ45_TRIG_OUT` PIO pulse。
+- [ ] 实现 IRQ crossing compare + `RJ45_FWD_TRIG_OUT` PIO pulse。
 - [ ] 实现 SCPI 配置和只读状态。
 - [ ] 实现手工/外部测量 latency offset 写入和查询。
 

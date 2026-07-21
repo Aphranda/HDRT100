@@ -23,6 +23,7 @@ endif()
 # ====================================================================================
 set(PICO_BOARD pico2 CACHE STRING "Board type")
 set(PROJECT_ENABLE_USB_STDIO ON CACHE BOOL "Enable stdio over USB CDC")
+set(PROJECT_ENABLE_USBTMC OFF CACHE BOOL "Enable USBTMC/USB488 SCPI device interface")
 set(PROJECT_ENABLE_UART_STDIO OFF CACHE BOOL "Enable stdio over default UART")
 set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors")
 set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA validation SCPI commands")
@@ -61,9 +62,19 @@ set(PROJECT_FATFS_SOURCE_DIR ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source CACHE
 set(PROJECT_FATFS_CONFIGURED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/fatfs)
 set(PROJECT_OSAL_SOURCES osal/port/baremetal/osal_baremetal.c)
 set(PROJECT_APP_EXTRA_LIBS)
+set(PROJECT_EFFECTIVE_USB_STDIO ${PROJECT_ENABLE_USB_STDIO})
+
+if(PROJECT_ENABLE_USBTMC AND PROJECT_ENABLE_USB_STDIO)
+    message(WARNING "PROJECT_ENABLE_USBTMC=ON disables Pico USB stdio CDC for the app targets")
+    set(PROJECT_EFFECTIVE_USB_STDIO OFF)
+endif()
 
 if(PROJECT_USE_MULTICORE)
     list(APPEND PROJECT_APP_EXTRA_LIBS pico_multicore)
+endif()
+
+if(PROJECT_ENABLE_USBTMC)
+    list(APPEND PROJECT_APP_EXTRA_LIBS tinyusb_device pico_unique_id)
 endif()
 
 if(PROJECT_USE_FREERTOS)
@@ -205,6 +216,12 @@ set(PROJECT_APP_SOURCES
         ${PROJECT_OSAL_SOURCES}
 )
 
+if(PROJECT_ENABLE_USBTMC)
+    list(APPEND PROJECT_APP_SOURCES
+        middleware/usbtmc_scpi_port/src/usbtmc_scpi_port.c
+    )
+endif()
+
 add_executable(${PROJECT_NAME}
         ${PROJECT_APP_SOURCES}
 )
@@ -219,7 +236,7 @@ function(project_configure_app_target target_name app_name linker_script)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/biss_tap_rx.pio)
 
     pico_enable_stdio_uart(${target_name} ${PROJECT_ENABLE_UART_STDIO})
-    pico_enable_stdio_usb(${target_name} ${PROJECT_ENABLE_USB_STDIO})
+    pico_enable_stdio_usb(${target_name} ${PROJECT_EFFECTIVE_USB_STDIO})
 
     target_include_directories(${target_name} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/application/inc
@@ -245,6 +262,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_log_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/scpi_port/inc
+        $<$<BOOL:${PROJECT_ENABLE_USBTMC}>:${CMAKE_CURRENT_LIST_DIR}/middleware/usbtmc_scpi_port/inc>
         ${CMAKE_CURRENT_LIST_DIR}/middleware/u8g2_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/osal/inc
         ${CMAKE_CURRENT_LIST_DIR}/config/freertos
@@ -269,7 +287,8 @@ function(project_configure_app_target target_name app_name linker_script)
     )
 
     target_compile_definitions(${target_name} PRIVATE
-        PROJECT_ENABLE_USB_STDIO=$<BOOL:${PROJECT_ENABLE_USB_STDIO}>
+        PROJECT_ENABLE_USB_STDIO=$<BOOL:${PROJECT_EFFECTIVE_USB_STDIO}>
+        PROJECT_ENABLE_USBTMC=$<BOOL:${PROJECT_ENABLE_USBTMC}>
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
         PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>

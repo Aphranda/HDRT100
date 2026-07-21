@@ -50,4 +50,19 @@ static const char g_project_build_id[] = "dev";
 #define PROJECT_ENABLE_UART_STDIO 0
 #endif
 
+#ifndef PROJECT_ENABLE_USBTMC
+#define PROJECT_ENABLE_USBTMC 0
+#endif
+
+#ifndef PROJECT_USB_VID
+#define PROJECT_USB_VID 0xCAFEu
+#endif
+
+#ifndef PROJECT_USB_PID_USBTMC
+#define PROJECT_USB_PID_USBTMC 0x4030u
+#endif
+
+#define PROJECT_USB_MANUFACTURER "RP2350_TRIG"
+#define PROJECT_USB_PRODUCT_USBTMC "RP2350_TRIG USBTMC"
+
 #endif

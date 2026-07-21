@@ -13,6 +13,9 @@
 #include "sync_trigger.h"
 #include "sync_io.h"
 #include "trigger_measure.h"
+#if PROJECT_ENABLE_USBTMC
+#include "usbtmc_scpi_port.h"
+#endif
 
 #define APP_UI_REFRESH_PERIOD_MS 250u
 #define APP_UI_KEY_DEBOUNCE_MS 35u
@@ -51,6 +54,13 @@ bool app_init(void)
         diagnostics_mark_fault("scpi", "SCPI initialization failed");
         return false;
     }
+
+#if PROJECT_ENABLE_USBTMC
+    if (!usbtmc_scpi_port_init()) {
+        diagnostics_mark_fault("usbtmc", "USBTMC initialization failed");
+        return false;
+    }
+#endif
 
     if (!resource_arbiter_init()) {
         diagnostics_mark_fault("resource_arbiter", "resource arbiter initialization failed");
@@ -94,6 +104,9 @@ bool app_is_ready(void)
 
 void app_comm_service(void)
 {
+#if PROJECT_ENABLE_USBTMC
+    usbtmc_scpi_port_service();
+#endif
     scpi_port_service();
 }
 

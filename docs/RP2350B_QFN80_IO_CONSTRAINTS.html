@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RP2350B QFN-80 IO 约束</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:"等线","Microsoft YaHei",sans-serif;background:#d0d0d0;display:flex;flex-direction:column;align-items:center;padding:20px;gap:24px;color:#1a1a1a}
+.page{background:#fff;width:1120px;height:630px;box-shadow:0 2px 8px rgba(0,0,0,.15);display:flex;flex-direction:column;overflow:hidden}
+.page-header{height:64px;padding:15px 44px 11px;display:flex;justify-content:space-between;align-items:center;border-bottom:8px solid #d0d6e4;flex:none}
+.brand{font-size:14px;color:#1f3864;font-weight:700}.logo{width:150px;height:30px;display:block;overflow:visible}.logo-lg{width:245px;height:48px}
+.main{flex:1;display:flex;flex-direction:column;justify-content:center;padding:14px 44px;min-height:0}
+.page-footer{height:43px;padding:9px 44px 12px;border-top:8px solid #d0d6e4;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:#999;flex:none}
+.h1{font-size:24px;font-weight:700;margin-bottom:4px}.sub{font-size:12px;color:#666;margin-bottom:12px}.h2{font-size:15px;font-weight:700;color:#1f3864;margin:10px 0 7px;padding-bottom:5px;border-bottom:2px solid #1f3864}
+table{width:100%;border-collapse:collapse;font-size:11px;border:1.5px solid #333}.tight{font-size:10px}thead th{background:#1f3864;color:#fff;font-weight:600;padding:6px 8px;text-align:left;border:1px solid #1a2e52}tbody td{padding:5px 8px;border:1px solid #bbb;line-height:1.32;vertical-align:middle}tbody tr:nth-child(even) td{background:#f2f6fc}.c{text-align:center}.b{font-weight:700}.mono{font-family:Consolas,"Courier New",monospace;font-weight:700}
+.cover{justify-content:center;text-align:center}.cover .page-header{justify-content:flex-end;padding-top:22px;height:78px}.cover-title{font-size:34px;font-weight:800;margin-bottom:12px}.cover-divider{width:80px;height:4px;background:#1f3864;margin:28px auto}.cover-sub{font-size:16px;color:#1f3864;margin-bottom:48px}.cover-info{font-size:14px;color:#666;line-height:2}
+.row{display:flex;gap:15px}.col{flex:1;min-width:0}.card{border:1px solid #d9dfe9;border-radius:6px;overflow:hidden;flex:1}.card-h{padding:8px 12px;background:#1f3864;color:#fff;font-size:12px;font-weight:700}.card-b{padding:10px 12px;background:#fafafa;font-size:11px;line-height:1.55}.card-b ul{list-style:none}.card-b li{padding:2px 0 2px 12px;position:relative}.card-b li:before{content:'›';position:absolute;left:0;color:#d60037;font-weight:700}
+.bands{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:12px 0}.band{padding:12px 8px;border-top:5px solid #1f3864;background:#f4f6fa;min-height:104px}.band strong{display:block;color:#1f3864;font-size:13px;margin-bottom:6px}.band span{font-size:10px;line-height:1.45;display:block}.blue{border-color:#1565c0}.green{border-color:#2e7d32}.orange{border-color:#e65100}.red{border-color:#d32f2f}.purple{border-color:#6a1b9a}.gray{border-color:#607d8b}
+.bar{margin-top:10px;padding:10px 16px;background:#1f3864;color:#fff;border-radius:4px;text-align:center;font-size:13px;font-weight:600}.note{font-size:10px;color:#777;margin-top:8px;line-height:1.45}.callout{padding:9px 13px;background:#eef3fb;border-left:4px solid #1f3864;font-size:11px;line-height:1.5;margin-top:9px}.warn{background:#fff5e6;border-left-color:#e65100}.good{background:#edf7ee;border-left-color:#2e7d32}
+.pio-grid{display:grid;grid-template-columns:1fr 70px 1.25fr;gap:10px;align-items:center}.pio{border:2px solid #1f3864;border-radius:6px;padding:12px}.pio h3{font-size:16px;color:#1f3864;margin-bottom:8px}.pins{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}.pin{background:#eef3fb;border:1px solid #b9c7de;padding:8px 3px;text-align:center;font-size:10px}.arrow{text-align:center;color:#1f3864;font-size:24px;font-weight:700}.check{columns:2;column-gap:28px;list-style:none;font-size:11px;line-height:1.52}.check li{break-inside:avoid;padding:5px 0 5px 22px;position:relative;border-bottom:1px solid #eee}.check li:before{content:'□';position:absolute;left:1px;color:#1f3864;font-size:15px;font-weight:700}
+@page{size:11.6667in 6.5625in;margin:0}
+@media print{body{background:#fff;padding:0;gap:0}.page{box-shadow:none;break-after:page;page-break-after:always}}
+@media(max-width:1140px){body{align-items:flex-start}.page{transform-origin:top left}}
+</style>
+</head>
+<body>
+
+<!-- P1 -->
+<div class="page cover">
+  <div class="page-header"><svg class="logo logo-lg" viewBox="4400 6500 18750 3520" aria-label="GTS"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg></div>
+  <div class="main">
+    <h1 class="cover-title">RP2350B QFN-80<br>IO 约束</h1>
+    <div class="cover-divider"></div>
+    <div class="cover-sub">48 GPIO · 三 PIO 并行 · 4I4O SYNC_IO · BiSS-C TAP Bridge</div>
+    <div class="cover-info">RP2350_TRIG 后续硬件版本<br>Draft &nbsp;|&nbsp; 2026 年 7 月</div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile</span><span>内部文件 &nbsp;|&nbsp; 1 / 9</span></div>
+</div>
+
+<!-- P2 -->
+<div class="page">
+  <div class="page-header"><span class="brand">IO 分区总览</span><svg class="logo" viewBox="4400 6500 18750 3520"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg></div>
+  <div class="main">
+    <div class="h1">48 路 GPIO 按功能域固定分区</div>
+    <div class="sub">高速实时域连续布置，管理与模拟域物理隔离，取消输入输出装配矩阵</div>
+    <div class="bands">
+      <div class="band blue"><strong>GPIO0..15</strong><span>UART × 2<br>按键 × 3<br>状态灯 × 3<br>TF / SPI1</span></div>
+      <div class="band green"><strong>GPIO16..19</strong><span>PIO0<br>SMA_IN1..4<br>连续四位输入</span></div>
+      <div class="band orange"><strong>GPIO20..23</strong><span>PIO1<br>SMA_OUT1..4<br>连续四位输出</span></div>
+      <div class="band red"><strong>GPIO24..32</strong><span>RJ45 Trigger<br>BiSS/AUX<br>ISO1452 DE</span></div>
+      <div class="band purple"><strong>GPIO33..39</strong><span>LCD / SPI0<br>FAULT<br>控制备用</span></div>
+      <div class="band gray"><strong>GPIO40..47</strong><span>ADC0..7<br>电源与温度<br>模拟诊断</span></div>
+    </div>
+    <div class="row">
+      <div class="card"><div class="card-h">固定方向</div><div class="card-b">SMA 固定 4 入 4 出；AUX0/1 固定接收，AUX2/3 固定发送；不通过固件反转隔离器方向。</div></div>
+      <div class="card"><div class="card-h">独立总线</div><div class="card-b">LCD 使用 SPI0，TF 卡使用 SPI1；频率、DMA 与故障域相互独立。</div></div>
+      <div class="card"><div class="card-h">安全默认态</div><div class="card-b">TF CS 默认高；ISO1452 DE 独立下拉；/RE 经 0 Ohm 固定接地。</div></div>
+    </div>
+    <div class="bar">核心结论：三个 PIO 的业务引脚均位于 GPIO0..31，可统一保持 <span class="mono">GPIO_BASE=0</span></div>
+  </div>
+  <div class="page-footer"><span>RP2350B QFN-80 IO 约束</span><span>内部文件 &nbsp;|&nbsp; 2 / 9</span></div>
+</div>
+
+<!-- P3 -->
+<div class="page">
+  <div class="page-header"><span class="brand">管理与存储接口</span><svg class="logo" viewBox="4400 6500 18750 3520"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg></div>
+  <div class="main">
+    <div class="h1">GPIO0..15：串口、按键、状态灯与 TF 卡</div>
+    <div class="sub">低速管理接口与存储总线集中在低编号 GPIO，不占用实时 PIO 区</div>
+    <table class="tight"><thead><tr><th class="c">GPIO</th><th>方向</th><th>分配</th><th>硬件约束</th></tr></thead><tbody>
+      <tr><td class="c b">0</td><td>输出</td><td class="mono">UART0_TX</td><td>连接 CH343 调试串口</td></tr>
+      <tr><td class="c b">1</td><td>输入</td><td class="mono">UART0_RX</td><td>连接 CH343 调试串口</td></tr>
+      <tr><td class="c b">2 / 6 / 7</td><td>输入</td><td class="mono">KEY1 / KEY2 / KEY3</td><td>低有效，外部 10 kOhm 上拉</td></tr>
+      <tr><td class="c b">3</td><td>输出</td><td class="mono">LED_SYSTEM</td><td>绿色；系统运行、启动、OTA</td></tr>
+      <tr><td class="c b">4 / 5</td><td>输出 / 输入</td><td class="mono">UART1_TX / UART1_RX</td><td>外部通信串口</td></tr>
+      <tr><td class="c b">8</td><td>输出</td><td class="mono">LED_ARM_TRIGGER</td><td>黄色；ARM 与触发事件</td></tr>
+      <tr><td class="c b">9</td><td>输出</td><td class="mono">LED_FAULT</td><td>红色；故障状态</td></tr>
+      <tr><td class="c b">10 / 11 / 12</td><td>出 / 出 / 入</td><td class="mono">TF_SPI1_SCK / MOSI / MISO</td><td>TF 卡独立 SPI1</td></tr>
+      <tr><td class="c b">13 / 14 / 15</td><td>入 / 出 / 可配置</td><td class="mono">CARD_DETECT / TF_CS / GPIO_SPARE0</td><td>GPIO15 已释放；CS 上电默认拉高</td></tr>
+    </tbody></table>
+    <div class="row" style="margin-top:10px">
+      <div class="card"><div class="card-h">三键输入</div><div class="card-b">使用外部上拉建立确定默认态，软件完成消抖，不与高速或启动专用信号复用。</div></div>
+      <div class="card"><div class="card-h">三灯状态</div><div class="card-b">建议低有效，限流 1 kOhm 至 2.2 kOhm；触发显示由软件延长 30 ms 至 100 ms。</div></div>
+    </div>
+  </div>
+  <div class="page-footer"><span>RP2350B QFN-80 IO 约束</span><span>内部文件 &nbsp;|&nbsp; 3 / 9</span></div>
+</div>
+
+<!-- P4 -->
+<div class="page">
+  <div class="page-header"><span class="brand">实时同步接口</span><svg class="logo" viewBox="4400 6500 18750 3520"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg></div>
+  <div class="main">
+    <div class="h1">GPIO16..25：固定 4I4O 与 RJ45 触发</div>
+    <div class="sub">连续输入与输出总线直接服务 PIO，取消 2I4O / 3I3O / 4I2O 装配差异</div>
+    <table><thead><tr><th class="c">GPIO</th><th>PIO</th><th>方向</th><th>分配</th><th>实现约束</th></tr></thead><tbody>
+      <tr><td class="c b">16</td><td>PIO0</td><td>输入</td><td class="mono">SMA_IN1</td><td rowspan="4">保持连续，支持<br><span class="mono">IN PINS, 4</span></td></tr>
+      <tr><td class="c b">17</td><td>PIO0</td><td>输入</td><td class="mono">SMA_IN2</td></tr>
+      <tr><td class="c b">18</td><td>PIO0</td><td>输入</td><td class="mono">SMA_IN3</td></tr>
+      <tr><td class="c b">19</td><td>PIO0</td><td>输入</td><td class="mono">SMA_IN4</td></tr>
+      <tr><td class="c b">20</td><td>PIO1</td><td>输出</td><td class="mono">SMA_OUT1</td><td rowspan="4">保持连续，支持<br><span class="mono">OUT PINS, 4</span></td></tr>
+      <tr><td class="c b">21</td><td>PIO1</td><td>输出</td><td class="mono">SMA_OUT2</td></tr>
+      <tr><td class="c b">22</td><td>PIO1</td><td>输出</td><td class="mono">SMA_OUT3</td></tr>
+      <tr><td class="c b">23</td><td>PIO1</td><td>输出</td><td class="mono">SMA_OUT4</td></tr>
+      <tr><td class="c b">24</td><td>PIO0</td><td>输入</td><td class="mono">RJ45_FWD_TRIG_IN</td><td>通信侧前向触发输入</td></tr>
+      <tr><td class="c b">25</td><td>PIO1</td><td>输出</td><td class="mono">RJ45_FWD_TRIG_OUT</td><td>通信侧前向触发输出</td></tr>
+    </tbody></table>
+    <div class="callout good"><b>硬件收敛：</b>删除交叉零欧姆矩阵；输入与输出隔离器固定方向。输出端仅保留 22 Ohm 至 33 Ohm 串联阻尼位置。</div>
+  </div>
+  <div class="page-footer"><span>RP2350B QFN-80 IO 约束</span><span>内部文件 &nbsp;|&nbsp; 4 / 9</span></div>
+</div>
+
+<!-- P5 -->
+<div class="page">
+  <div class="page-header"><span class="brand">BiSS / AUX 与 LCD</span><svg class="logo" viewBox="4400 6500 18750 3520"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg></div>
+  <div class="main">
+    <div class="h1">GPIO26..39：BiSS 转发、收发器控制与 LCD</div>
+    <div class="sub">AUX 固定两收两发，三颗 ISO1452 独立使能，LCD 独占 SPI0</div>
+    <div class="row">
+      <div class="col"><table class="tight"><thead><tr><th>GPIO</th><th>方向</th><th>分配</th></tr></thead><tbody>
+        <tr><td class="b">26</td><td>PIO2 输入</td><td class="mono">AUX0/BISS_CLK_IN</td></tr>
+        <tr><td class="b">27</td><td>PIO2 输入</td><td class="mono">AUX1/BISS_DATA_IN</td></tr>
+        <tr><td class="b">28</td><td>PIO2 输出</td><td class="mono">AUX2/BISS_CLK_OUT</td></tr>
+        <tr><td class="b">29</td><td>PIO2 输出</td><td class="mono">AUX3/BISS_DATA_OUT</td></tr>
+        <tr><td class="b">30</td><td>SIO 输出</td><td class="mono">UP_BISS_DE</td></tr>
+        <tr><td class="b">31</td><td>SIO 输出</td><td class="mono">DN_BISS_DE</td></tr>
+        <tr><td class="b">32</td><td>SIO 输出</td><td class="mono">TRIG_DE</td></tr>
+      </tbody></table></div>
+      <div class="col"><table class="tight"><thead><tr><th>GPIO</th><th>方向</th><th>分配</th></tr></thead><tbody>
+        <tr><td class="b">33</td><td>可配置</td><td class="mono">CONTROL_SPARE0</td></tr>
+        <tr><td class="b">34</td><td>输入/可配置</td><td class="mono">FAULT_IN/SPARE1</td></tr>
+        <tr><td class="b">35</td><td>输出</td><td class="mono">LCD_BL</td></tr>
+        <tr><td class="b">36</td><td>输出</td><td class="mono">LCD_DC</td></tr>
+        <tr><td class="b">37</td><td>输出</td><td class="mono">LCD_CS</td></tr>
+        <tr><td class="b">38</td><td>SPI0 输出</td><td class="mono">LCD_SPI0_SCK</td></tr>
+        <tr><td class="b">39</td><td>SPI0 输出</td><td class="mono">LCD_SPI0_MOSI</td></tr>
+      </tbody></table></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="card"><div class="card-h">DE 安全态</div><div class="card-b">三路 DE 独立控制并分别使用 10 kOhm 至 47 kOhm 下拉；PIO 与输出数据脚完成初始化后才允许使能。</div></div>
+      <div class="card"><div class="card-h">/RE 固定接收</div><div class="card-b"><span class="mono">/RE -> 0R -> GND</span>，每路保留测试点；正常 BiSS TAP 模式始终开启接收器。</div></div>
+      <div class="card"><div class="card-h">LCD 独立总线</div><div class="card-b">LCD 不使用 MISO。SPI0 与 TF 卡 SPI1 不共用 CLK，允许独立频率和 DMA。</div></div>
+    </div>
+  </div>
+  <div class="page-footer"><span>RP2350B QFN-80 IO 约束</span><span>内部文件 &nbsp;|&nbsp; 5 / 9</span></div>
+</div>
+
+<!-- P6 -->
+<div class="page">
+  <div class="page-header"><span class="brand">模拟监测与专用引脚</span><svg class="logo" viewBox="4400 6500 18750 3520"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg></div>
+  <div class="main">
+    <div class="h1">GPIO40..47：诊断型 ADC 资源</div>
+    <div class="sub">用于电源、温度和装配识别，不进入高速触发与 BiSS 实时路径</div>
+    <div class="row">
+      <div class="col"><table class="tight"><thead><tr><th>GPIO</th><th>ADC</th><th>分配</th><th>用途</th></tr></thead><tbody>
+        <tr><td class="b">40</td><td>ADC0</td><td class="mono">VIN_12V_MON</td><td>12 V 输入</td></tr>
+        <tr><td class="b">41</td><td>ADC1</td><td class="mono">VOUT_12V_MON</td><td>12 V 输出</td></tr>
+        <tr><td class="b">42</td><td>ADC2</td><td class="mono">VOUT_CURRENT_MON</td><td>下游电流</td></tr>
+        <tr><td class="b">43</td><td>ADC3</td><td class="mono">BOARD_TEMP_MON</td><td>板区温度</td></tr>
+        <tr><td class="b">44</td><td>ADC4</td><td class="mono">ANALOG_AUX0</td><td>低带宽模拟量</td></tr>
+        <tr><td class="b">45</td><td>ADC5</td><td class="mono">HW_ID_MON</td><td>硬件版本识别</td></tr>
+        <tr><td class="b">46 / 47</td><td>ADC6 / ADC7</td><td class="mono">ANALOG_SPARE0 / ANALOG_SPARE1</td><td>备用或测试点</td></tr>
+      </tbody></table></div>
+      <div class="col"><div class="h2">专用引脚</div><table class="tight"><thead><tr><th>引脚组</th><th>用途与约束</th></tr></thead><tbody>
+        <tr><td class="b">QSPI</td><td>W25Q128JV 16 MB；CSn 兼 BOOTSEL</td></tr>
+        <tr><td class="b">USB DP/DM</td><td>USB Full-Speed；90 Ohm 差分阻抗</td></tr>
+        <tr><td class="b">RUN</td><td>RESET 按键接 GND</td></tr>
+        <tr><td class="b">SWD</td><td>保留下载连接器或测试点</td></tr>
+        <tr><td class="b">XIN/XOUT</td><td>12 MHz 晶振；远离开关节点</td></tr>
+        <tr><td class="b">ADC_AVDD</td><td>模拟 3.3 V；滤波并就近去耦</td></tr>
+        <tr><td class="b">DVDD</td><td>1.1 V；每个电源脚就近 100 nF</td></tr>
+      </tbody></table></div>
+    </div>
+    <div class="callout warn"><b>隔离约束：</b>隔离侧电源不得直接接入 ADC。12 V 监测必须包含分压、RC 滤波及输入保护；电流监测使用专用检测放大器。</div>
+  </div>
+  <div class="page-footer"><span>RP2350B QFN-80 IO 约束</span><span>内部文件 &nbsp;|&nbsp; 6 / 9</span></div>
+</div>
+
+<!-- P7 -->
+<div class="page">
+  <div class="page-header"><span class="brand">ADC 前端电路</span><svg class="logo" viewBox="4400 6500 18750 3520"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg></div>
+  <div class="main">
+    <div class="h1">ADC 负责遥测，比较器负责硬件保护</div>
+    <div class="sub">前端按信号类型分别设计，不使用一套通用“电阻 + 驱动器”覆盖全部通道</div>
+    <table class="tight"><thead><tr><th>信号</th><th>推荐前端</th><th>关键约束</th></tr></thead><tbody>
+      <tr><td class="mono">VIN_12V_MON</td><td>47k/10k 分压 + 1k 串联 + 10nF..100nF</td><td>12 V ≈ 2.11 V；18 V ≈ 3.16 V，最终按故障电压复核</td></tr>
+      <tr><td class="mono">VOUT_12V_MON</td><td>同 VIN 检测；另设窗口比较器/eFuse</td><td>ADC 只测量，过压和欠压保护不依赖固件</td></tr>
+      <tr><td class="mono">VOUT_CURRENT_MON</td><td>RSHUNT + INA180/181 + 1k/10nF</td><td>过流关断使用 INA300 类比较器或 eFuse</td></tr>
+      <tr><td class="mono">BOARD_TEMP_MON</td><td>TMP235 类传感器 + 1k/10nF</td><td>靠近 ISO1452 或隔离 DC/DC，并就近 100nF 去耦</td></tr>
+      <tr><td class="mono">ANALOG_AUX0</td><td>ESD + 限流/分压 + 低漏电钳位 + RC</td><td>高源阻抗或精密测量时增加轨到轨运放缓冲</td></tr>
+      <tr><td class="mono">HW_ID_MON</td><td>固定电阻分压 + 100nF</td><td>各硬件版本的识别电压窗口不得重叠</td></tr>
+      <tr><td class="mono">ANALOG_SPARE0/1</td><td>预留 R/C/保护焊盘</td><td>未使用时不周期采样，也可改作数字 GPIO</td></tr>
+    </tbody></table>
+    <div class="row" style="margin-top:10px">
+      <div class="card"><div class="card-h">12 V 遥测</div><div class="card-b mono">12V -- 47k --+-- 1k -- ADC<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;10k&nbsp;&nbsp;10nF..100nF<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;GND&nbsp;&nbsp;&nbsp;&nbsp;GND</div></div>
+      <div class="card"><div class="card-h">电流检测与关断</div><div class="card-b mono">RSHUNT -> INA180 -> ADC<br>RSHUNT -> INA300/eFuse<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-> hardware shutdown<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-> GPIO34 FAULT_IN</div></div>
+      <div class="card"><div class="card-h">运放使用边界</div><div class="card-b">板内低速分压通常无需运放。高源阻抗、快速连续采样或精密测量时，使用 3.3 V 轨到轨、单位增益稳定运放。</div></div>
+    </div>
+    <div class="callout warn"><b>强制约束：</b>任何正常或故障状态下 ADC 输入均不得超出 GND..ADC_AVDD；隔离侧模拟量不得直接跨越隔离边界。</div>
+  </div>
+  <div class="page-footer"><span>RP2350B QFN-80 IO 约束</span><span>内部文件 &nbsp;|&nbsp; 7 / 9</span></div>
+</div>
+
+<!-- P8 -->
+<div class="page">
+  <div class="page-header"><span class="brand">PIO 并行架构</span><svg class="logo" viewBox="4400 6500 18750 3520"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg></div>
+  <div class="main">
+    <div class="h1">三个 PIO 独立运行，GPIO 输出所有权唯一</div>
+    <div class="sub">三个业务域互不复用输出引脚，统一落在 GPIO0..31 窗口</div>
+    <div class="pio-grid">
+      <div class="pio"><h3>PIO0 · 输入域</h3><div class="pins"><div class="pin">GPIO16<br>IN1</div><div class="pin">GPIO17<br>IN2</div><div class="pin">GPIO18<br>IN3</div><div class="pin">GPIO19<br>IN4</div><div class="pin">GPIO24<br>RJ45 IN</div></div></div>
+      <div class="arrow">→</div><div class="card"><div class="card-h">采集与触发判定</div><div class="card-b">连续四位输入、编码器/序列采集、RJ45 前向触发输入。输入可被观察，但不允许另一个外设驱动同一网络。</div></div>
+      <div class="pio"><h3>PIO1 · 输出域</h3><div class="pins"><div class="pin">GPIO20<br>OUT1</div><div class="pin">GPIO21<br>OUT2</div><div class="pin">GPIO22<br>OUT3</div><div class="pin">GPIO23<br>OUT4</div><div class="pin">GPIO25<br>RJ45 OUT</div></div></div>
+      <div class="arrow">→</div><div class="card"><div class="card-h">确定性脉冲输出</div><div class="card-b">连续四位模式输出与 RJ45 触发输出。GPIO 只能由 PIO1、SIO、PWM 等其中一个输出源驱动。</div></div>
+      <div class="pio"><h3>PIO2 · BiSS/AUX</h3><div class="pins"><div class="pin">GPIO26<br>CLK IN</div><div class="pin">GPIO27<br>DATA IN</div><div class="pin">GPIO28<br>CLK OUT</div><div class="pin">GPIO29<br>DATA OUT</div><div class="pin">DE<br>SIO</div></div></div>
+      <div class="arrow">→</div><div class="card"><div class="card-h">固定两收两发</div><div class="card-b">BiSS TAP 固定延迟转发及 AUX persona。DE 使用 SIO 管理，不消耗 PIO 指令空间。</div></div>
+    </div>
+    <div class="bar">运行期间禁止切换 PIO GPIO Base，也禁止把已分配输出切换到 SIO、PWM 或其他输出功能</div>
+  </div>
+  <div class="page-footer"><span>RP2350B QFN-80 IO 约束</span><span>内部文件 &nbsp;|&nbsp; 8 / 9</span></div>
+</div>
+
+<!-- P9 -->
+<div class="page">
+  <div class="page-header"><span class="brand">原理图评审清单</span><svg class="logo" viewBox="4400 6500 18750 3520"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg></div>
+  <div class="main">
+    <div class="h1">冻结前必须闭环的原理图检查项</div>
+    <div class="sub">检查结果应回填原理图评审记录，并与固件 board profile 一致</div>
+    <ul class="check">
+      <li>三个按键均有确定的上电默认电平。</li>
+      <li>三个状态 LED 不直接加载高速触发网络。</li>
+      <li>TF 卡使用 SPI1，LCD 使用 SPI0，网络名未误合并。</li>
+      <li>TF CS 在上电和复位阶段保持高电平。</li>
+      <li>SMA 固定 4 入 4 出，不再保留交叉装配短接风险。</li>
+      <li>GPIO16..19 与 GPIO20..23 均保持连续布线语义。</li>
+      <li>三颗 ISO1452 的 DE 独立下拉并独立控制。</li>
+      <li>三颗 ISO1452 的 /RE 经独立 0 Ohm 接地并有测试点。</li>
+      <li>GPIO40..47 模拟网络不跨越隔离边界。</li>
+      <li>12 V ADC 输入在故障条件下仍不超过 ADC_AVDD。</li>
+      <li>QSPI、USB、晶振和 VREG 开关节点满足布局约束。</li>
+      <li>BOOTSEL、RUN、SWD 均保留可访问的按键或测试点。</li>
+      <li>RJ45 自带 LED 仅表示电源或 Power Good，不占 GPIO。</li>
+      <li>固件 PIO、SPI、UART 与 ADC 定义和本表逐项一致。</li>
+    </ul>
+    <div class="callout good"><b>评审结论口径：</b>原理图、PCB 网络名、BOM 装配状态和固件 `board_config` 必须使用同一份引脚定义；任何引脚迁移都应同步更新 Markdown 与本 HTML。</div>
+  </div>
+  <div class="page-footer"><span>RP2350B QFN-80 IO 约束</span><span>内部文件 &nbsp;|&nbsp; 9 / 9</span></div>
+</div>
+
+</body>
+</html>

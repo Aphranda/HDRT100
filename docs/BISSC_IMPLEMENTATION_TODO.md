@@ -9,6 +9,8 @@ Last updated: 2026-07-07
 本文档跟踪 `docs/BISSC_TAP_BRIDGE_DESIGN.md` 之后的 `TRIG_PROTOCOL_BISS_C`
 实现步骤。P0 有意收敛为固定 profile 的串联 TAP bridge：原样透传 BiSS-C
 `CLK/DATA`，旁路接收 position/status，并按 crossing 输出触发。
+`TRIG_PROTOCOL_HSPI_LIKE` 已在设计文档中作为同一 RJ45 硬件的后续协议子类型预留；
+其 PIO、SCPI 和 profile 实现不属于本 BiSS-C P0 范围。
 
 ## 验收标准摘要
 
@@ -51,7 +53,8 @@ Last updated: 2026-07-07
 
 - [x] 如果现有 PIO2-only 资源位过粗，为 BiSS AUX 使用增加 resource arbiter bit 或 owner tag。
 - [x] 硬件冻结后关闭 `TRIG:ENC:APIN 26`；增量编码器固定使用 `SYNC_IO`
-      `GPIO16/17/18`，AUX0..AUX3 保留给 BiSS/AUX persona，GPIO19 保留为 RJ45_TRIG_IN。
+      `GPIO16/17/18`，AUX0..AUX3 保留给 BiSS/HSPI/AUX persona，GPIO19 保留为
+      `RJ45_FWD_TRIG_IN`。
 - [x] 当 BiSS 占用相同 AUX 引脚时，拒绝 AUX framework 功能。
 - [x] 在 DISARM、FAULT 和 RESET 时释放所有 BiSS 资源。
 
@@ -116,15 +119,16 @@ python tools\biss_board_validate\biss_board_validate.py COM4 --enable-scan
 ## P2 - 产品化
 
 - [ ] 按 `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` 完成 RJ45 四对线和 SYNC_IO 外围电路原理图评审。
-- [ ] 以 `THVD1452` 作为 P0/P1/P2 默认 RS-422/RS-485 收发器，满足串联 TAP bridge
-      的接收和透传驱动需求；`AM26LV32E` 接收-only 只作为并联高阻监听夹具备选。
+- [ ] 以三颗 `ISO1452` 作为 P0/P1/P2 默认隔离式 RS-422/RS-485 收发器，
+      按上行 BiSS、下行 BiSS 和 `FWD_TRIG_DIFF` 三个端口侧通道装配。
 - [ ] 完成 0 ohm / 焊桥 / 跳帽矩阵，支持 BiSS-C full-duplex 与双路 RS485-HD 两种装配。
-- [ ] 为 `DIFF0` / `DIFF1` / `TRIG_DIFF` 定义 100 ohm / 120 ohm 可选终端匹配。
+- [ ] 为 `DIFF0` / `DIFF1` / `FWD_TRIG_DIFF` 定义 100 ohm / 120 ohm 可选终端匹配。
 - [ ] 为 RS485-HD 定义外部 bias / bypass 预留位，验证 idle、断线、短路和冲突发送状态。
 - [ ] 完成 RJ45 12 V 输入限流、反接、TVS、滤波和 DC/DC 方案。
 - [ ] 为长线或跨设备场景评估 TVS、共模扼流圈、屏蔽层接地、数字隔离和隔离电源。
-- [ ] 为 `SYNC_IO` 本地高速脉冲口完成固定方向隔离原理图：完整 4 入 4 出版本使用
-  两颗 `ISO6440F`，精简 2 入 2 出版本可降级为一颗 `ISO6442F`。
+- [ ] 为 `SYNC_IO` 本地高速脉冲口完成固定方向隔离原理图：SMA 6 口装配矩阵使用
+  两颗 `ISO6440F` 或两颗 `ISO7740F`，按 `SMA_2I4O` / `SMA_3I3O` / `SMA_4I2O`
+  装配版本冻结。
 - [ ] 冻结 `SYNC_IO` 输入整形、输出驱动、默认低态、隔离电源和上电/掉电不误触发策略。
 - [ ] 通过 1 MHz 回放和 5 MHz 示波器测试确认收发器传播延迟、透传 skew、
       sample window、TAP bridge 透明性和差分触发 latency。
