@@ -129,6 +129,12 @@ add_custom_target(project_build_info
         VERBATIM
 )
 
+add_custom_target(project_scpi_usb_namespace_check
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/check_scpi_usb_namespace.py
+                --root ${CMAKE_CURRENT_LIST_DIR}
+        VERBATIM
+)
+
 file(MAKE_DIRECTORY ${PROJECT_FATFS_CONFIGURED_DIR})
 foreach(PROJECT_FATFS_SOURCE_FILE ff.c ffsystem.c ffunicode.c ff.h diskio.h)
     configure_file(${PROJECT_FATFS_SOURCE_DIR}/${PROJECT_FATFS_SOURCE_FILE}
@@ -235,6 +241,7 @@ set(PROJECT_APP_SOURCES
 
 if(PROJECT_ENABLE_USBTMC OR PROJECT_ENABLE_USB_RUNTIME_SWITCH)
     list(APPEND PROJECT_APP_SOURCES
+        middleware/scpi_port/src/scpi_usb_control.c
         middleware/usbtmc_scpi_port/src/usbtmc_scpi_port.c
     )
 endif()
@@ -320,6 +327,7 @@ function(project_configure_app_target target_name app_name linker_script)
     )
 
     add_dependencies(${target_name} project_build_info)
+    add_dependencies(${target_name} project_scpi_usb_namespace_check)
 
     target_compile_options(${target_name} PRIVATE ${PROJECT_WARNING_FLAGS})
 

@@ -50,7 +50,7 @@ table{width:100%;border-collapse:collapse;font-size:11px;border:1.5px solid #333
       <div class="band orange"><strong>GPIO20..23</strong><span>PIO1<br>SMA_OUT1..4<br>连续四位输出</span></div>
       <div class="band red"><strong>GPIO24..32</strong><span>RJ45 Trigger<br>BiSS/AUX<br>ISO1452 DE</span></div>
       <div class="band purple"><strong>GPIO33..39</strong><span>LCD / SPI0<br>FAULT<br>控制备用</span></div>
-      <div class="band gray"><strong>GPIO40..47</strong><span>ADC0..7<br>电源与温度<br>模拟诊断</span></div>
+      <div class="band gray"><strong>GPIO40..47</strong><span>ADC0..7<br>隔离侧温度 / ID<br>模拟诊断</span></div>
     </div>
     <div class="row">
       <div class="card"><div class="card-h">固定方向</div><div class="card-b">SMA 固定 4 入 4 出；AUX0/1 固定接收，AUX2/3 固定发送；不通过固件反转隔离器方向。</div></div>
@@ -149,16 +149,16 @@ table{width:100%;border-collapse:collapse;font-size:11px;border:1.5px solid #333
 <div class="page">
   <div class="page-header"><span class="brand">模拟监测与专用引脚</span><svg class="logo" viewBox="4400 6500 18750 3520"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg></div>
   <div class="main">
-    <div class="h1">GPIO40..47：诊断型 ADC 资源</div>
-    <div class="sub">用于电源、温度和装配识别，不进入高速触发与 BiSS 实时路径</div>
+    <div class="h1">GPIO40..47：隔离侧诊断型 ADC 资源</div>
+    <div class="sub">用于温度、装配识别和隔离侧低速模拟量，不跨越隔离边界</div>
     <div class="row">
       <div class="col"><table class="tight"><thead><tr><th>GPIO</th><th>ADC</th><th>分配</th><th>用途</th></tr></thead><tbody>
-        <tr><td class="b">40</td><td>ADC0</td><td class="mono">VIN_12V_MON</td><td>12 V 输入</td></tr>
-        <tr><td class="b">41</td><td>ADC1</td><td class="mono">VOUT_12V_MON</td><td>12 V 输出</td></tr>
-        <tr><td class="b">42</td><td>ADC2</td><td class="mono">VOUT_CURRENT_MON</td><td>下游电流</td></tr>
-        <tr><td class="b">43</td><td>ADC3</td><td class="mono">BOARD_TEMP_MON</td><td>板区温度</td></tr>
-        <tr><td class="b">44</td><td>ADC4</td><td class="mono">ANALOG_AUX0</td><td>低带宽模拟量</td></tr>
-        <tr><td class="b">45</td><td>ADC5</td><td class="mono">HW_ID_MON</td><td>硬件版本识别</td></tr>
+        <tr><td class="b">40</td><td>ADC0</td><td class="mono">BOARD_TEMP_MON</td><td>RP2350 / 板区温度</td></tr>
+        <tr><td class="b">41</td><td>ADC1</td><td class="mono">POWER_TEMP_MON</td><td>隔离 DC/DC 或 ISO1452 温度</td></tr>
+        <tr><td class="b">42</td><td>ADC2</td><td class="mono">HW_ID_MON</td><td>硬件版本识别</td></tr>
+        <tr><td class="b">43</td><td>ADC3</td><td class="mono">ANALOG_AUX0</td><td>隔离侧低带宽模拟量</td></tr>
+        <tr><td class="b">44</td><td>ADC4</td><td class="mono">ANALOG_AUX1</td><td>隔离侧低带宽模拟量</td></tr>
+        <tr><td class="b">45</td><td>ADC5</td><td class="mono">ISO_LOAD_CURRENT_MON</td><td>可选隔离侧负载电流</td></tr>
         <tr><td class="b">46 / 47</td><td>ADC6 / ADC7</td><td class="mono">ANALOG_SPARE0 / ANALOG_SPARE1</td><td>备用或测试点</td></tr>
       </tbody></table></div>
       <div class="col"><div class="h2">专用引脚</div><table class="tight"><thead><tr><th>引脚组</th><th>用途与约束</th></tr></thead><tbody>
@@ -171,7 +171,7 @@ table{width:100%;border-collapse:collapse;font-size:11px;border:1.5px solid #333
         <tr><td class="b">DVDD</td><td>1.1 V；每个电源脚就近 100 nF</td></tr>
       </tbody></table></div>
     </div>
-    <div class="callout warn"><b>隔离约束：</b>隔离侧电源不得直接接入 ADC。12 V 监测必须包含分压、RC 滤波及输入保护；电流监测使用专用检测放大器。</div>
+    <div class="callout warn"><b>隔离约束：</b>非隔离侧 12 V、5 V 和 PWR_RETURN 不得接入 RP2350 ADC。12 V 入口状态由 eFuse/PG/FAULT 经光耦或数字隔离送入 GPIO。</div>
   </div>
   <div class="page-footer"><span>RP2350B QFN-80 IO 约束</span><span>内部文件 &nbsp;|&nbsp; 6 / 9</span></div>
 </div>
@@ -180,23 +180,22 @@ table{width:100%;border-collapse:collapse;font-size:11px;border:1.5px solid #333
 <div class="page">
   <div class="page-header"><span class="brand">ADC 前端电路</span><svg class="logo" viewBox="4400 6500 18750 3520"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg></div>
   <div class="main">
-    <div class="h1">ADC 负责遥测，比较器负责硬件保护</div>
-    <div class="sub">前端按信号类型分别设计，不使用一套通用“电阻 + 驱动器”覆盖全部通道</div>
+    <div class="h1">ADC 负责隔离侧遥测，保护由硬件完成</div>
+    <div class="sub">前端按信号类型分别设计，12 V 入口保护和状态不依赖 ADC</div>
     <table class="tight"><thead><tr><th>信号</th><th>推荐前端</th><th>关键约束</th></tr></thead><tbody>
-      <tr><td class="mono">VIN_12V_MON</td><td>47k/10k 分压 + 1k 串联 + 10nF..100nF</td><td>12 V ≈ 2.11 V；18 V ≈ 3.16 V，最终按故障电压复核</td></tr>
-      <tr><td class="mono">VOUT_12V_MON</td><td>同 VIN 检测；另设窗口比较器/eFuse</td><td>ADC 只测量，过压和欠压保护不依赖固件</td></tr>
-      <tr><td class="mono">VOUT_CURRENT_MON</td><td>RSHUNT + INA180/181 + 1k/10nF</td><td>过流关断使用 INA300 类比较器或 eFuse</td></tr>
-      <tr><td class="mono">BOARD_TEMP_MON</td><td>TMP235 类传感器 + 1k/10nF</td><td>靠近 ISO1452 或隔离 DC/DC，并就近 100nF 去耦</td></tr>
-      <tr><td class="mono">ANALOG_AUX0</td><td>ESD + 限流/分压 + 低漏电钳位 + RC</td><td>高源阻抗或精密测量时增加轨到轨运放缓冲</td></tr>
+      <tr><td class="mono">BOARD_TEMP_MON</td><td>TMP235 类传感器 + 1k/10nF</td><td>靠近 RP2350 或板内代表性热区，并就近 100nF 去耦</td></tr>
+      <tr><td class="mono">POWER_TEMP_MON</td><td>TMP235/NTC + 1k/10nF</td><td>电气上位于 ISO_GND 侧，靠近隔离 DC/DC、LDO 或 ISO1452 热源</td></tr>
       <tr><td class="mono">HW_ID_MON</td><td>固定电阻分压 + 100nF</td><td>各硬件版本的识别电压窗口不得重叠</td></tr>
+      <tr><td class="mono">ANALOG_AUX0/1</td><td>ESD + 限流/分压 + 低漏电钳位 + RC</td><td>仅允许同隔离域低带宽模拟量；高源阻抗时增加轨到轨缓冲</td></tr>
+      <tr><td class="mono">ISO_LOAD_CURRENT_MON</td><td>ISO 侧 RSHUNT + INA180/181 + 1k/10nF</td><td>可选装配；12 V 入口过流仍由 eFuse 或比较器处理</td></tr>
       <tr><td class="mono">ANALOG_SPARE0/1</td><td>预留 R/C/保护焊盘</td><td>未使用时不周期采样，也可改作数字 GPIO</td></tr>
     </tbody></table>
     <div class="row" style="margin-top:10px">
-      <div class="card"><div class="card-h">12 V 遥测</div><div class="card-b mono">12V -- 47k --+-- 1k -- ADC<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;10k&nbsp;&nbsp;10nF..100nF<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;GND&nbsp;&nbsp;&nbsp;&nbsp;GND</div></div>
-      <div class="card"><div class="card-h">电流检测与关断</div><div class="card-b mono">RSHUNT -> INA180 -> ADC<br>RSHUNT -> INA300/eFuse<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-> hardware shutdown<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-> GPIO34 FAULT_IN</div></div>
-      <div class="card"><div class="card-h">运放使用边界</div><div class="card-b">板内低速分压通常无需运放。高源阻抗、快速连续采样或精密测量时，使用 3.3 V 轨到轨、单位增益稳定运放。</div></div>
+      <div class="card"><div class="card-h">隔离侧模拟量</div><div class="card-b mono">ISO_SIGNAL -- R --+-- 1k -- ADC<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;RC&nbsp;&nbsp;10nF..100nF<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ISO_GND&nbsp;ISO_GND</div></div>
+      <div class="card"><div class="card-h">12 V 状态</div><div class="card-b mono">12V_IN -> eFuse / PG / FLT<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-> opto / digital isolator<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-> RP2350 GPIO</div></div>
+      <div class="card"><div class="card-h">运放使用边界</div><div class="card-b">隔离侧板内低速分压通常无需运放。高源阻抗、快速连续采样或精密测量时，使用 3.3 V 轨到轨、单位增益稳定运放。</div></div>
     </div>
-    <div class="callout warn"><b>强制约束：</b>任何正常或故障状态下 ADC 输入均不得超出 GND..ADC_AVDD；隔离侧模拟量不得直接跨越隔离边界。</div>
+    <div class="callout warn"><b>强制约束：</b>任何正常或故障状态下 ADC 输入均不得超出 GND..ADC_AVDD；非隔离侧模拟量不得直接跨越隔离边界。</div>
   </div>
   <div class="page-footer"><span>RP2350B QFN-80 IO 约束</span><span>内部文件 &nbsp;|&nbsp; 7 / 9</span></div>
 </div>
@@ -235,8 +234,8 @@ table{width:100%;border-collapse:collapse;font-size:11px;border:1.5px solid #333
       <li>GPIO16..19 与 GPIO20..23 均保持连续布线语义。</li>
       <li>三颗 ISO1452 的 DE 独立下拉并独立控制。</li>
       <li>三颗 ISO1452 的 /RE 经独立 0 Ohm 接地并有测试点。</li>
-      <li>GPIO40..47 模拟网络不跨越隔离边界。</li>
-      <li>12 V ADC 输入在故障条件下仍不超过 ADC_AVDD。</li>
+      <li>GPIO40..47 模拟网络只位于 RP2350 ISO_GND 侧。</li>
+      <li>12 V 入口状态通过 eFuse/PG/FAULT 隔离输入，不接 ADC。</li>
       <li>QSPI、USB、晶振和 VREG 开关节点满足布局约束。</li>
       <li>BOOTSEL、RUN、SWD 均保留可访问的按键或测试点。</li>
       <li>RJ45 自带 LED 仅表示电源或 Power Good，不占 GPIO。</li>

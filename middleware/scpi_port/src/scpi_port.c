@@ -8,12 +8,13 @@
 #include "drv_watchdog.h"
 #include "biss_protocol.h"
 #include "ota_ao.h"
-#include "product_config.h"
+#include "pico/unique_id.h"
 #include "pico/error.h"
 #include "pico/stdio.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
 #include "scpi/scpi.h"
+#include "scpi_usb_control.h"
 #include "storage_manager.h"
 #include "sync_trigger.h"
 #include "sync_io_hw_profile.h"
@@ -32,6 +33,7 @@
 static scpi_t s_scpi_context;
 static char s_scpi_input_buffer[SCPI_PORT_INPUT_BUFFER_LENGTH];
 static scpi_error_t s_scpi_error_queue[SCPI_PORT_ERROR_QUEUE_SIZE];
+static char s_scpi_idn_serial[PICO_UNIQUE_BOARD_ID_SIZE_BYTES * 2u + 1u];
 static char *s_scpi_capture_buffer;
 static size_t s_scpi_capture_capacity;
 static size_t s_scpi_capture_len;
@@ -42,6 +44,7 @@ static void *s_scpi_stream_context;
 
 static bool scpi_port_wait_storage_job(uint32_t job_id);
 static bool scpi_port_trigger_is_armed(void);
+static void scpi_port_flush_output(void);
 
 static size_t scpi_port_write(scpi_t *context, const char *data, size_t len)
 {
@@ -74,13 +77,23 @@ static size_t scpi_port_write(scpi_t *context, const char *data, size_t len)
 static scpi_result_t scpi_port_flush(scpi_t *context)
 {
     (void)context;
+    scpi_port_flush_output();
+    return SCPI_RES_OK;
+}
+
+static void scpi_port_flush_output(void)
+{
     if (s_scpi_stream_flush != NULL) {
         s_scpi_stream_flush(s_scpi_stream_context);
-        return SCPI_RES_OK;
+        return;
     }
 
     stdio_flush();
-    return SCPI_RES_OK;
+}
+
+void scpi_port_flush_now(void)
+{
+    scpi_port_flush_output();
 }
 
 static int scpi_port_error(scpi_t *context, int_fast16_t error)
@@ -206,41 +219,6 @@ static scpi_result_t scpi_cmd_bootloader_capability_q(scpi_t *context)
     SCPI_ResultUInt32(context, metadata.boot_capabilities);
     return SCPI_RES_OK;
 }
-
-#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
-static scpi_result_t scpi_cmd_usb_mode_q(scpi_t *context)
-{
-    product_config_usb_mode_t mode;
-    if (!product_config_get_usb_mode(&mode)) {
-        return SCPI_RES_ERR;
-    }
-
-    SCPI_ResultText(context, product_config_usb_mode_to_string(mode));
-    return SCPI_RES_OK;
-}
-
-static scpi_result_t scpi_cmd_usb_mode(scpi_t *context)
-{
-    const char *text = NULL;
-    size_t length = 0u;
-    product_config_usb_mode_t mode;
-
-    if (SCPI_ParamCharacters(context, &text, &length, TRUE) != TRUE ||
-        !product_config_usb_mode_from_text(text, (uint32_t)length, &mode)) {
-        return SCPI_RES_ERR;
-    }
-
-    return product_config_set_usb_mode(mode) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
-}
-
-static scpi_result_t scpi_cmd_usb_boot(scpi_t *context)
-{
-    scpi_result_t result = scpi_port_result_ok(context);
-    scpi_port_flush(context);
-    drv_watchdog_reboot(50u);
-    return result;
-}
-#endif
 
 static const char *scpi_diag_level_to_string(diag_level_t level)
 {
@@ -2793,9 +2771,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:OTA:TARGet?", .callback = scpi_cmd_ota_target_q},
     {.pattern = "SYSTem:OTA:CAPability?", .callback = scpi_cmd_ota_capability_q},
 #if PROJECT_ENABLE_USB_RUNTIME_SWITCH
-    {.pattern = "SYSTem:USB:MODE?", .callback = scpi_cmd_usb_mode_q},
-    {.pattern = "SYSTem:USB:MODE", .callback = scpi_cmd_usb_mode},
-    {.pattern = "SYSTem:USB:BOOT", .callback = scpi_cmd_usb_boot},
+    SCPI_USB_CONTROL_COMMANDS,
 #endif
     {.pattern = "SYSTem:SD:STATus?", .callback = scpi_cmd_storage_status_q},
     {.pattern = "SYSTem:SD:INFO?", .callback = scpi_cmd_storage_info_q},
@@ -2838,14 +2814,15 @@ static scpi_interface_t s_scpi_interface = {
 
 bool scpi_port_init(void)
 {
+    pico_get_unique_board_id_string(s_scpi_idn_serial, sizeof(s_scpi_idn_serial));
     SCPI_Init(&s_scpi_context,
               s_scpi_commands,
               &s_scpi_interface,
               scpi_units_def,
               SCPI_PORT_IDN_VENDOR,
               SCPI_PORT_IDN_MODEL,
-              SCPI_PORT_IDN_SERIAL,
-              PROJECT_NAME,
+              s_scpi_idn_serial,
+              PROJECT_VERSION_STRING,
               s_scpi_input_buffer,
               sizeof(s_scpi_input_buffer),
               s_scpi_error_queue,

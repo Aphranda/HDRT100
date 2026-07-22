@@ -19,6 +19,7 @@ static const char g_project_build_id[] = "dev";
 #define PROJECT_VERSION_MAJOR 0u
 #define PROJECT_VERSION_MINOR 1u
 #define PROJECT_VERSION_PATCH 0u
+#define PROJECT_VERSION_STRING "0.1.0"
 
 #define PROJECT_BOOTLOADER_VERSION_MAJOR 0u
 #define PROJECT_BOOTLOADER_VERSION_MINOR 1u

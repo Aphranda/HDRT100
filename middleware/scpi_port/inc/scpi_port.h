@@ -22,6 +22,7 @@ bool scpi_port_init(void);
 void scpi_port_service(void);
 void scpi_port_feed(const char *data, size_t len);
 void scpi_port_set_stream(scpi_port_write_fn_t write_fn, scpi_port_flush_fn_t flush_fn, void *context);
+void scpi_port_flush_now(void);
 bool scpi_port_execute(const char *data,
                        size_t len,
                        char *response,

@@ -14,11 +14,32 @@ Last updated: 2026-07-22
 - 新增可选构建开关 `PROJECT_ENABLE_USBTMC`，用于启用 TinyUSB USBTMC/USB488 + SCPI 专业仪表接口。
 - `PROJECT_ENABLE_USBTMC=ON` 时，App 目标会关闭 Pico USB stdio CDC，避免 CDC 默认描述符与自定义 USBTMC 描述符抢同一个 USB device。
 - 调试阶段若需要同一份固件在 CDC / USBTMC 间切换，可启用 `PROJECT_ENABLE_USB_RUNTIME_SWITCH=ON`，并通过独立 Product Config 的 `SYST:USB:MODE` 持久化选择下次启动模式。
+- 开发期和产品期两条 USB 路径保持同步演进；当前开发调试可优先走 CDC，产品默认出口后续切到 USBTMC。
 - 这里的 USB mode 不是 OTA A/B 切换；A/B 只保留给升级镜像和回滚。
 - 当前调试阶段 USB 配置描述符按 `bus-powered` 申明，配置电流为 100 mA。
 - 后续成品硬件如果确认存在稳定自供电设计，再评估切换为 `self-powered` 描述符属性。
 - USBTMC 是设备类接口，不会像 BOOTSEL/UF2 那样挂载成磁盘；要刷 UF2 仍需进入 BOOTSEL，或先通过可用的重启路径切回 BOOTSEL。
 - `SYST:USB:MODE?` 返回 SCPI 字符串 `"CDC"` 或 `"USBTMC"`，脚本可直接按字符串内容判断当前模式。
+- `*IDN?` 当前格式为 `GTS,DTC100,<SERIAL>,0.1.0`，其中 `SERIAL` 使用板子唯一 ID，避免暴露板级/芯片命名。
+
+## 统一规则
+
+- SCPI 命令语义只维护一套，共享同一个 `middleware/scpi_port` 命令表。
+- CDC 和 USBTMC 只允许在传输层、描述符层、状态回传层有差异，不允许各自演化出两套业务命令树。
+- 新增业务命令默认先加入共享 SCPI 层；只有 transport 专属能力才允许进入 USB 入口层。
+- 任何需要同时改 CDC 和 USBTMC 行为的命令，必须先写入本文档并说明差异原因。
+- 如果某个命令只在单一 transport 上可用，必须明确标注为 transport-specific，不得伪装成通用 SCPI 业务命令。
+- `SYST:USB:*` 属于共享控制面，不是两套独立业务面；它只负责查询和切换当前 USB mode。
+- 运行态只允许一个 USB transport 生效，CDC 和 USBTMC 互斥，不允许同时运行。
+- 切换到另一种 mode 的标准动作是写入 `Product Config` 后重启，由启动阶段选择唯一生效的 transport。
+
+## 结构约束方案
+
+- `middleware/scpi_port/src/scpi_port.c` 只保留共享 SCPI 命令表和共享执行入口。
+- `SYST:USB:*` 统一下沉到独立的 USB 控制模块，避免它们在主命令表里散落生长。
+- USB 控制模块只负责 `Product Config`、重启和 USB mode 查询，不允许扩展成第二套业务命令树。
+- 构建阶段增加 namespace 检查，限制 `SYSTem:USB:` 只出现在 USB 控制模块和本文档中。
+- 后续如果出现新的 transport-specific 命令，先在这里登记，再实现代码。
 
 ## 构建开关
 
@@ -110,7 +131,7 @@ USB0::0xCAFE::0x4030::73E940D75B406BCD::INSTR
 PyVISA 直接打开该资源并查询通过：
 
 ```text
-*IDN? -> GTS,DTC100,0,RP2350_TRIG
+*IDN? -> GTS,DTC100,<SERIAL>,0.1.0
 SYST:ERR? -> 0,"No error"
 SYST:ERR:COUN? -> 0
 ```
@@ -123,7 +144,7 @@ SYST:ERR:COUN? -> 0
 - 烧录后 `PyVISA` 查询返回：
 
 ```text
-*IDN? -> GTS,DTC100,0,RP2350_TRIG
+*IDN? -> GTS,DTC100,<SERIAL>,0.1.0
 SYST:ERR? -> 0,"No error"
 SYST:ERR:COUN? -> 0
 ```
@@ -137,7 +158,7 @@ SYST:ERR:COUN? -> 0
 - 重启后 `PyVISA` smoke 通过：
 
 ```text
-*IDN? -> GTS,DTC100,0,RP2350_TRIG
+*IDN? -> GTS,DTC100,<SERIAL>,0.1.0
 SYST:ERR? -> 0,"No error"
 SYST:ERR:COUN? -> 0
 ```
@@ -146,7 +167,7 @@ SYST:ERR:COUN? -> 0
 
 - 通过 USBTMC 执行 `SYST:USB:MODE CDC`，随后 `SYST:USB:BOOT`。
 - 设备重新枚举为 `COM9`，Windows 识别为 `USB 串行设备`。
-- 串口侧 `*IDN?` 返回 `GTS,DTC100,0,RP2350_TRIG`。
+- 串口侧 `*IDN?` 返回 `GTS,DTC100,73E940D75B406BCD,0.1.0`。
 - 串口侧 `SYST:USB:MODE?` 返回 `"CDC"`。
 - 再通过串口执行 `SYST:USB:MODE USBTMC` 和 `SYST:USB:BOOT`，设备重新回到 USBTMC。
 - 回到 USBTMC 后，PyVISA 资源 `USB0::0xCAFE::0x4030::73E940D75B406BCD::INSTR` 重新可用，`*IDN?` 和 `SYST:USB:MODE?` 正常返回。
@@ -155,6 +176,9 @@ SYST:ERR:COUN? -> 0
 
 - [x] 用真实上位机执行 NI-VISA/PyVISA 枚举和 `*IDN?` smoke。
 - [x] 调试阶段验证 `PROJECT_ENABLE_USB_RUNTIME_SWITCH` 下的 CDC/USBTMC 双模式切换。
+- [ ] 把 `SYST:USB:*` 从 `scpi_port.c` 抽到独立 USB 控制模块。
+- [ ] 增加构建时 namespace 检查，阻止 `SYSTem:USB:` 在其他源码文件里扩散。
+- [ ] 把 USB 专属命令的注册点收敛到单一命令块，避免主命令表里出现分叉。
 - [ ] 替换正式 VID/PID 或建立产品 PID 分配规则。
 - [ ] 产品硬件定版后确认 `bus-powered` / `self-powered` 描述符属性。
 - [ ] 若成品切换为 `self-powered`，补充 VBUS sense、断电行为和主机 suspend/resume 验证记录。

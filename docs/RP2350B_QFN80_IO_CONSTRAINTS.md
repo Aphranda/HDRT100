@@ -97,25 +97,26 @@ ISO1452_TRIG_/RE    -> 0R -> GND
 LCD 不使用 MISO。LCD 使用 SPI0，TF 卡使用 SPI1，两套 SPI 时钟不共用，允许
 独立设置频率并使用 DMA。
 
-## GPIO40..47：模拟监测
+## GPIO40..47：隔离侧模拟诊断
 
 | GPIO | ADC | 分配 | 用途 |
 |---:|---:|---|---|
-| 40 | ADC0 | `VIN_12V_MON` | 12 V 输入电压监测。 |
-| 41 | ADC1 | `VOUT_12V_MON` | 12 V 输出电压监测。 |
-| 42 | ADC2 | `VOUT_CURRENT_MON` | 下游供电电流监测。 |
-| 43 | ADC3 | `BOARD_TEMP_MON` | 电源和收发器区域温度监测。 |
-| 44 | ADC4 | `ANALOG_AUX0` | 外部低带宽模拟量。 |
-| 45 | ADC5 | `HW_ID_MON` | 硬件版本识别电阻。 |
+| 40 | ADC0 | `BOARD_TEMP_MON` | RP2350 / 板区温度监测。 |
+| 41 | ADC1 | `POWER_TEMP_MON` | 隔离 DC/DC、LDO 或 ISO1452 附近温度监测。 |
+| 42 | ADC2 | `HW_ID_MON` | 硬件版本识别电阻。 |
+| 43 | ADC3 | `ANALOG_AUX0` | 隔离侧低带宽模拟量。 |
+| 44 | ADC4 | `ANALOG_AUX1` | 隔离侧低带宽模拟量。 |
+| 45 | ADC5 | `ISO_LOAD_CURRENT_MON` | 可选隔离侧负载电流监测；默认可 DNP。 |
 | 46 | ADC6 | `ANALOG_SPARE0` | 模拟备用或测试点。 |
 | 47 | ADC7 | `ANALOG_SPARE1` | 模拟备用或测试点。 |
 
 模拟约束：
 
-- 12 V 监测必须经过电阻分压、RC 滤波和输入保护。
+- ADC 只连接 RP2350 所在的 `ISO_GND` / `ISO_3V3` 参考域内信号。
 - 所有正常和故障条件下，ADC 输入必须保持在 GND 至 `ADC_AVDD` 范围内。
-- 电流检测使用专用电流检测放大器，不直接跨分流电阻连接 ADC。
-- 隔离侧电源不得直接连接 ADC，否则会破坏隔离边界。
+- 非隔离侧 `12V_IN`、`5V`、`PWR_RETURN` 不得通过分压或保护网络连接到 RP2350 ADC。
+- 12 V 入口健康状态由 eFuse、比较器或电源 PG 生成数字信号，再经光耦或数字隔离送入 RP2350 GPIO。
+- 隔离侧电流检测如需装配，使用同域电流检测放大器，不直接跨隔离边界连接 ADC。
 - ADC 走线远离 QSPI、SPI 时钟、`VREG_LX` 和功率电感。
 - RP2350 内部温度传感器不占用 GPIO40..47。
 
@@ -127,45 +128,45 @@ ADC 用于读取实际电压、电流和温度并记录趋势。过压、欠压�
 
 | ADC 信号 | 推荐前端 | 约束 |
 |---|---|---|
-| `VIN_12V_MON` | 47 kOhm/10 kOhm 分压 + 1 kOhm 串联 + 10 nF 至 100 nF RC | 12 V 对应约 2.11 V；约 18 V 对应 3.16 V。最终阻值按最大持续电压和故障电压复核。 |
-| `VOUT_12V_MON` | 同 `VIN_12V_MON` | 监测输出电压；输出保护仍由窗口比较器或 eFuse 独立完成。 |
-| `VOUT_CURRENT_MON` | 分流电阻 + INA180/INA181 电流检测放大器 + 1 kOhm/10 nF RC | 分流电阻按最大电流、压降和功耗选型；硬件过流关断使用 INA300 类比较器或 eFuse。 |
-| `BOARD_TEMP_MON` | TMP235 类模拟温度传感器 + 1 kOhm/10 nF RC | 传感器靠近 ISO1452 或隔离 DC/DC 热源，并就近放置 100 nF 电源去耦。 |
-| `ANALOG_AUX0` | ESD + 分压/限流 + 低漏电钳位 + RC；高源阻抗时增加轨到轨运放 | 外部接口必须按可能出现的负压、过压和 ESD 条件设计。 |
+| `BOARD_TEMP_MON` | TMP235 类模拟温度传感器 + 1 kOhm/10 nF RC | 靠近 RP2350 或板内代表性热区，并就近放置 100 nF 电源去耦。 |
+| `POWER_TEMP_MON` | TMP235/NTC 温度传感器 + 1 kOhm/10 nF RC | 电气上仍位于 `ISO_GND` 侧；只测隔离 DC/DC、LDO 或 ISO1452 附近温升。 |
 | `HW_ID_MON` | 固定电阻分压 + 100 nF | 不同硬件版本装配不同电阻，固件按互不重叠的电压窗口识别。 |
+| `ANALOG_AUX0/1` | ESD + 分压/限流 + 低漏电钳位 + RC；高源阻抗时增加轨到轨运放 | 仅允许同隔离域低带宽模拟量；外部接口必须按负压、过压和 ESD 条件设计。 |
+| `ISO_LOAD_CURRENT_MON` | ISO 侧分流电阻 + INA180/INA181 + 1 kOhm/10 nF RC | 仅在需要监测隔离侧外设负载时装配；不作为 12 V 入口保护依据。 |
 | `ANALOG_SPARE0/1` | 预留串联电阻、对地电容和保护器件焊盘 | 未使用时不得悬空进入周期采样；可配置为数字 GPIO。 |
 
-12 V 电压检测参考连接：
+隔离侧低速模拟输入参考连接：
 
 ```text
-12V ---- 47k ----+---- 1k ---- GPIO40/41 ADC
-                 |               |
-                10k          10nF..100nF
-                 |               |
-                GND             GND
+ISO_DOMAIN_SIGNAL ---- R_DIV / R_LIMIT ----+---- 1k ---- GPIO43/44 ADC
+                                           |               |
+                                      optional R/C      10nF..100nF
+                                           |               |
+                                        ISO_GND        ISO_GND
 ```
 
-该分压仅用于板内慢速遥测，通常不需要运放。若提高分压电阻阻值、信号源阻抗较高、
-需要更快连续采样或需要精密测量，应在分压和保护之后增加 3.3 V 单电源、轨到轨
-输入输出、单位增益稳定的运放缓冲器。
+该前端仅用于隔离侧板内慢速遥测，通常不需要运放。若提高分压电阻阻值、信号源
+阻抗较高、需要更快连续采样或需要精密测量，应在分压和保护之后增加 3.3 V
+单电源、轨到轨输入输出、单位增益稳定的运放缓冲器。
 
-输出电流检测参考连接：
+隔离侧可选负载电流检测参考连接：
 
 ```text
-12V_IN ---- RSHUNT ---- 12V_OUT
-               | |
-               +--- INA180/INA181 ---> 1k ---> GPIO42 ADC
+ISO_5V ---- RSHUNT ---- ISO_LOAD
+              | |
+              +--- INA180/INA181 ---> 1k ---> GPIO45 ADC
                                            |
                                           10nF
                                            |
-                                          GND
+                                        ISO_GND
 
-RSHUNT/12V_OUT ---> INA300 or eFuse ---> hardware shutdown
-                                      +-> GPIO34/FAULT_IN
+12V_IN/eFuse PGOOD or FAULT
+  -> optocoupler / digital isolator
+  -> RP2350 GPIO status input
 ```
 
-分流电阻功耗按 `P = I^2 * R` 计算，并留足温升和脉冲功率裕量。模拟测量输出与
-硬件关断路径必须相互独立，固件失效时仍应能够关闭故障电源。
+分流电阻功耗按 `P = I^2 * R` 计算，并留足温升和脉冲功率裕量。12 V 入口保护
+和过流关断必须由 eFuse、比较器或电源开关独立完成，固件 ADC 只做遥测。
 
 ## 专用引脚
 
@@ -202,5 +203,5 @@ PIO2: GPIO26..29 BiSS/AUX
 - [ ] TF 卡和 LCD 分别使用 SPI1 和 SPI0，网络名未误合并。
 - [ ] SMA 输入和输出均为固定方向，不再保留交叉装配短接风险。
 - [ ] 三颗 ISO1452 的 `DE` 独立下拉，`/RE` 经独立 0 Ohm 接地。
-- [ ] GPIO40..47 的模拟网络不会跨越隔离边界。
+- [ ] GPIO40..47 的模拟网络只位于 RP2350 `ISO_GND` 侧，不跨越隔离边界。
 - [ ] QSPI、USB、晶振、SWD、RUN 和电源专用引脚未计入普通 GPIO 分配。
