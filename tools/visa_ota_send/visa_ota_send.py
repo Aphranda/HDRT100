@@ -85,6 +85,38 @@ def wait_for_state(inst, wanted: str, timeout_s: float) -> str:
     raise TimeoutError(f"timed out waiting for {wanted}, last response: {last}")
 
 
+def wait_for_received_size(inst, expected_size: int, timeout_s: float) -> str:
+    deadline = time.monotonic() + timeout_s
+    last = ""
+    while time.monotonic() < deadline:
+        last = query(inst, "SYST:OTA:PROG?")
+        print(f"progress={last}")
+        try:
+            received = int(last.split(",", 1)[0].strip(), 0)
+        except (ValueError, IndexError):
+            received = -1
+        if received >= expected_size:
+            return last
+        if "FAILED" in last or "ABORTED" in last:
+            return last
+        time.sleep(0.1)
+    raise TimeoutError(f"timed out waiting for received_size={expected_size}, last response: {last}")
+
+
+def wait_for_state_leave(inst, state_name: str, timeout_s: float) -> str:
+    deadline = time.monotonic() + timeout_s
+    last = ""
+    while time.monotonic() < deadline:
+        last = query(inst, "SYST:OTA:STAT?")
+        print(f"status={last}")
+        if state_name not in last:
+            return last
+        if "FAILED" in last or "ABORTED" in last:
+            return last
+        time.sleep(0.1)
+    raise TimeoutError(f"timed out waiting for state to leave {state_name}, last response: {last}")
+
+
 def send_package(args: argparse.Namespace, package: bytes) -> str:
     package_crc = crc32(package)
     print(f"resource={args.resource}")
@@ -110,9 +142,27 @@ def send_package(args: argparse.Namespace, package: bytes) -> str:
             block_index = offset // args.block_size
             if args.inter_block_delay > 0.0:
                 time.sleep(args.inter_block_delay)
+
+            if block_index == 0:
+                first_block_status = query(inst, "SYST:OTA:STAT?")
+                print(f"status={first_block_status}")
+                if "FAILED" in first_block_status or "ABORTED" in first_block_status:
+                    return first_block_status
+                if "RECEIVING" in first_block_status:
+                    left_status = wait_for_state_leave(inst, "RECEIVING", args.begin_timeout)
+                    if "FAILED" in left_status or "ABORTED" in left_status:
+                        return left_status
+                resumed_status = wait_for_state(inst, "RECEIVING", args.begin_timeout)
+                if "FAILED" in resumed_status or "ABORTED" in resumed_status:
+                    return resumed_status
+
             if block_index == 0 or block_index % args.progress_every == 0:
                 progress = query(inst, "SYST:OTA:PROG?")
                 print(f"progress={progress}")
+
+        progress = wait_for_received_size(inst, len(package), args.begin_timeout)
+        if "FAILED" in progress or "ABORTED" in progress:
+            return progress
 
         write_line(inst, "SYST:OTA:END")
         final_status = wait_for_state(inst, "READY_TO_REBOOT", args.begin_timeout)

@@ -24,6 +24,8 @@ endif()
 set(PICO_BOARD pico2 CACHE STRING "Board type")
 set(PROJECT_ENABLE_USB_STDIO ON CACHE BOOL "Enable stdio over USB CDC")
 set(PROJECT_ENABLE_USBTMC OFF CACHE BOOL "Enable USBTMC/USB488 SCPI device interface")
+set(PROJECT_ENABLE_USB_RUNTIME_SWITCH OFF CACHE BOOL "Enable flash-configured USB CDC/USBTMC mode selection at boot")
+set(PROJECT_USB_DEFAULT_MODE CDC CACHE STRING "Default USB mode when product config is blank: CDC or USBTMC")
 set(PROJECT_ENABLE_UART_STDIO OFF CACHE BOOL "Enable stdio over default UART")
 set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors")
 set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA validation SCPI commands")
@@ -31,6 +33,7 @@ set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode 
 set(PROJECT_USE_FREERTOS OFF CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
 set(PROJECT_USE_MULTICORE OFF CACHE BOOL "Run realtime trigger service on RP2350 core1 in baremetal builds")
 set_property(CACHE PROJECT_OTA_DEFAULT_BOOT_MODE PROPERTY STRINGS COPY_TO_ACTIVE DIRECT_AB)
+set_property(CACHE PROJECT_USB_DEFAULT_MODE PROPERTY STRINGS CDC USBTMC)
 
 if(PROJECT_OTA_DEFAULT_BOOT_MODE STREQUAL "DIRECT_AB")
     set(PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB ON)
@@ -38,6 +41,14 @@ elseif(PROJECT_OTA_DEFAULT_BOOT_MODE STREQUAL "COPY_TO_ACTIVE")
     set(PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB OFF)
 else()
     message(FATAL_ERROR "PROJECT_OTA_DEFAULT_BOOT_MODE must be COPY_TO_ACTIVE or DIRECT_AB")
+endif()
+
+if(PROJECT_USB_DEFAULT_MODE STREQUAL "USBTMC")
+    set(PROJECT_USB_DEFAULT_MODE_USBTMC ON)
+elseif(PROJECT_USB_DEFAULT_MODE STREQUAL "CDC")
+    set(PROJECT_USB_DEFAULT_MODE_USBTMC OFF)
+else()
+    message(FATAL_ERROR "PROJECT_USB_DEFAULT_MODE must be CDC or USBTMC")
 endif()
 
 if(PROJECT_USE_MULTICORE AND PROJECT_USE_FREERTOS)
@@ -69,11 +80,16 @@ if(PROJECT_ENABLE_USBTMC AND PROJECT_ENABLE_USB_STDIO)
     set(PROJECT_EFFECTIVE_USB_STDIO OFF)
 endif()
 
+if(PROJECT_ENABLE_USB_RUNTIME_SWITCH)
+    message(STATUS "PROJECT_ENABLE_USB_RUNTIME_SWITCH=ON disables Pico USB stdio CDC and uses TinyUSB CDC/USBTMC")
+    set(PROJECT_EFFECTIVE_USB_STDIO OFF)
+endif()
+
 if(PROJECT_USE_MULTICORE)
     list(APPEND PROJECT_APP_EXTRA_LIBS pico_multicore)
 endif()
 
-if(PROJECT_ENABLE_USBTMC)
+if(PROJECT_ENABLE_USBTMC OR PROJECT_ENABLE_USB_RUNTIME_SWITCH)
     list(APPEND PROJECT_APP_EXTRA_LIBS tinyusb_device pico_unique_id)
 endif()
 
@@ -141,6 +157,7 @@ set(PROJECT_APP_SOURCES
         components/ota_manager/src/ota_image.c
         components/ota_manager/src/ota_metadata.c
         components/ota_manager/src/ota_package.c
+        components/product_config/src/product_config.c
         ${PROJECT_PORTABLE_OTA_ADAPTER_SOURCES}
         middleware/portable_ota_port/src/portable_ota_port.c
         third_party/portable_ota/src/pota_core.c
@@ -216,7 +233,7 @@ set(PROJECT_APP_SOURCES
         ${PROJECT_OSAL_SOURCES}
 )
 
-if(PROJECT_ENABLE_USBTMC)
+if(PROJECT_ENABLE_USBTMC OR PROJECT_ENABLE_USB_RUNTIME_SWITCH)
     list(APPEND PROJECT_APP_SOURCES
         middleware/usbtmc_scpi_port/src/usbtmc_scpi_port.c
     )
@@ -244,6 +261,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/components/diagnostics/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/event_bus/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/product_config/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/resource_arbiter/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/storage_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_trigger/inc
@@ -262,7 +280,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_log_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/scpi_port/inc
-        $<$<BOOL:${PROJECT_ENABLE_USBTMC}>:${CMAKE_CURRENT_LIST_DIR}/middleware/usbtmc_scpi_port/inc>
+        $<$<OR:$<BOOL:${PROJECT_ENABLE_USBTMC}>,$<BOOL:${PROJECT_ENABLE_USB_RUNTIME_SWITCH}>>:${CMAKE_CURRENT_LIST_DIR}/middleware/usbtmc_scpi_port/inc>
         ${CMAKE_CURRENT_LIST_DIR}/middleware/u8g2_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/osal/inc
         ${CMAKE_CURRENT_LIST_DIR}/config/freertos
@@ -289,6 +307,8 @@ function(project_configure_app_target target_name app_name linker_script)
     target_compile_definitions(${target_name} PRIVATE
         PROJECT_ENABLE_USB_STDIO=$<BOOL:${PROJECT_EFFECTIVE_USB_STDIO}>
         PROJECT_ENABLE_USBTMC=$<BOOL:${PROJECT_ENABLE_USBTMC}>
+        PROJECT_ENABLE_USB_RUNTIME_SWITCH=$<BOOL:${PROJECT_ENABLE_USB_RUNTIME_SWITCH}>
+        PROJECT_USB_DEFAULT_MODE_USBTMC=$<BOOL:${PROJECT_USB_DEFAULT_MODE_USBTMC}>
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
         PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>

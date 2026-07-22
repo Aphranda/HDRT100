@@ -58,8 +58,20 @@ static const char g_project_build_id[] = "dev";
 #define PROJECT_ENABLE_USBTMC 0
 #endif
 
+#ifndef PROJECT_ENABLE_USB_RUNTIME_SWITCH
+#define PROJECT_ENABLE_USB_RUNTIME_SWITCH 0
+#endif
+
+#ifndef PROJECT_USB_DEFAULT_MODE_USBTMC
+#define PROJECT_USB_DEFAULT_MODE_USBTMC 0
+#endif
+
 #ifndef PROJECT_USB_VID
 #define PROJECT_USB_VID 0xCAFEu
+#endif
+
+#ifndef PROJECT_USB_PID_CDC
+#define PROJECT_USB_PID_CDC 0x402Fu
 #endif
 
 #ifndef PROJECT_USB_PID_USBTMC
@@ -67,6 +79,8 @@ static const char g_project_build_id[] = "dev";
 #endif
 
 #define PROJECT_USB_MANUFACTURER PROJECT_VENDOR_NAME
-#define PROJECT_USB_PRODUCT_USBTMC "GTS DTC100"
+#define PROJECT_USB_PRODUCT "GTS DTC100"
+#define PROJECT_USB_PRODUCT_USBTMC PROJECT_USB_PRODUCT
+#define PROJECT_USB_PRODUCT_CDC PROJECT_USB_PRODUCT
 
 #endif

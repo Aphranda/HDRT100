@@ -15,8 +15,13 @@ typedef struct {
     bool sync_clock_enabled;
 } scpi_port_config_t;
 
+typedef size_t (*scpi_port_write_fn_t)(const char *data, size_t len, void *context);
+typedef void (*scpi_port_flush_fn_t)(void *context);
+
 bool scpi_port_init(void);
 void scpi_port_service(void);
+void scpi_port_feed(const char *data, size_t len);
+void scpi_port_set_stream(scpi_port_write_fn_t write_fn, scpi_port_flush_fn_t flush_fn, void *context);
 bool scpi_port_execute(const char *data,
                        size_t len,
                        char *response,

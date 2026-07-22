@@ -1,6 +1,8 @@
 #ifndef TUSB_CONFIG_H
 #define TUSB_CONFIG_H
 
+#include "project_config.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -44,6 +46,13 @@ extern "C" {
 #define CFG_TUD_USBTMC 1
 #define CFG_TUD_USBTMC_ENABLE_INT_EP 1
 #define CFG_TUD_USBTMC_ENABLE_488 1
+
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+#define CFG_TUD_CDC 1
+#define CFG_TUD_CDC_RX_BUFSIZE 64
+#define CFG_TUD_CDC_TX_BUFSIZE 64
+#define CFG_TUD_CDC_EP_BUFSIZE 64
+#endif
 
 #ifdef __cplusplus
 }

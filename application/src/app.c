@@ -5,6 +5,7 @@
 #include "event_bus.h"
 #include "ota_ao.h"
 #include "osal.h"
+#include "product_config.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
 #include "scpi_port.h"
@@ -13,7 +14,7 @@
 #include "sync_trigger.h"
 #include "sync_io.h"
 #include "trigger_measure.h"
-#if PROJECT_ENABLE_USBTMC
+#if PROJECT_ENABLE_USBTMC || PROJECT_ENABLE_USB_RUNTIME_SWITCH
 #include "usbtmc_scpi_port.h"
 #endif
 
@@ -55,9 +56,14 @@ bool app_init(void)
         return false;
     }
 
-#if PROJECT_ENABLE_USBTMC
+#if PROJECT_ENABLE_USBTMC || PROJECT_ENABLE_USB_RUNTIME_SWITCH
+    if (!product_config_init()) {
+        diagnostics_mark_fault("product_config", "product config initialization failed");
+        return false;
+    }
+
     if (!usbtmc_scpi_port_init()) {
-        diagnostics_mark_fault("usbtmc", "USBTMC initialization failed");
+        diagnostics_mark_fault("usb", "USB SCPI initialization failed");
         return false;
     }
 #endif
@@ -104,10 +110,12 @@ bool app_is_ready(void)
 
 void app_comm_service(void)
 {
-#if PROJECT_ENABLE_USBTMC
+#if PROJECT_ENABLE_USBTMC || PROJECT_ENABLE_USB_RUNTIME_SWITCH
     usbtmc_scpi_port_service();
 #endif
+#if !PROJECT_ENABLE_USB_RUNTIME_SWITCH
     scpi_port_service();
+#endif
 }
 
 void app_trigger_service(void)

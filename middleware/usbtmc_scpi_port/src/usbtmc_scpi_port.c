@@ -6,6 +6,7 @@
 #include "class/usbtmc/usbtmc.h"
 #include "class/usbtmc/usbtmc_device.h"
 #include "pico/unique_id.h"
+#include "product_config.h"
 #include "project_config.h"
 #include "scpi_port.h"
 #include "tusb.h"
@@ -19,9 +20,14 @@
 #define USBTMC_SCPI_INT_EP_IN 0x82u
 #define USBTMC_SCPI_INT_EP_SIZE 8u
 #define USBTMC_SCPI_INT_EP_INTERVAL 16u
+#define USB_CDC_NOTIF_EP_IN 0x82u
+#define USB_CDC_DATA_EP_OUT 0x01u
+#define USB_CDC_DATA_EP_IN 0x81u
+#define USB_CDC_NOTIF_EP_SIZE 8u
 
 #define IEEE4882_STB_MAV 0x10u
 
+static product_config_usb_mode_t s_usb_mode = PRODUCT_CONFIG_USB_MODE_USBTMC;
 static uint8_t s_command_buffer[USBTMC_SCPI_COMMAND_BUFFER_LENGTH];
 static size_t s_command_len;
 static char s_response_buffer[USBTMC_SCPI_RESPONSE_BUFFER_LENGTH];
@@ -30,6 +36,51 @@ static size_t s_response_offset;
 static bool s_response_ready;
 static bool s_bulk_in_requested;
 static uint8_t s_status_byte;
+
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+static size_t usb_cdc_scpi_write(const char *data, size_t len, void *context)
+{
+    (void)context;
+    if (data == NULL || len == 0u) {
+        return 0u;
+    }
+
+    if (tud_cdc_connected()) {
+        size_t written = 0u;
+        while (written < len) {
+            const uint32_t chunk = tud_cdc_write(&data[written], (uint32_t)(len - written));
+            if (chunk == 0u) {
+                tud_task();
+                continue;
+            }
+            written += chunk;
+        }
+    }
+
+    return len;
+}
+
+static void usb_cdc_scpi_flush(void *context)
+{
+    (void)context;
+    tud_cdc_write_flush();
+}
+
+static void usb_cdc_scpi_service(void)
+{
+    uint8_t buffer[64];
+
+    while (tud_cdc_available() > 0u) {
+        const uint32_t count = tud_cdc_read(buffer, sizeof(buffer));
+        if (count == 0u) {
+            break;
+        }
+        scpi_port_feed((const char *)buffer, count);
+    }
+
+    tud_cdc_write_flush();
+}
+#endif
 
 static const usbtmc_response_capabilities_488_t s_usbtmc_capabilities = {
     .USBTMC_status = USBTMC_STATUS_SUCCESS,
@@ -58,6 +109,19 @@ static const usbtmc_response_capabilities_488_t s_usbtmc_capabilities = {
 
 bool usbtmc_scpi_port_init(void)
 {
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+    if (!product_config_get_usb_mode(&s_usb_mode)) {
+        s_usb_mode = PRODUCT_CONFIG_USB_MODE_CDC;
+    }
+
+    if (s_usb_mode == PRODUCT_CONFIG_USB_MODE_CDC) {
+        scpi_port_set_stream(usb_cdc_scpi_write, usb_cdc_scpi_flush, NULL);
+    } else {
+        scpi_port_set_stream(NULL, NULL, NULL);
+    }
+#else
+    s_usb_mode = PRODUCT_CONFIG_USB_MODE_USBTMC;
+#endif
     tusb_init();
     return true;
 }
@@ -65,6 +129,11 @@ bool usbtmc_scpi_port_init(void)
 void usbtmc_scpi_port_service(void)
 {
     tud_task();
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+    if (s_usb_mode == PRODUCT_CONFIG_USB_MODE_CDC) {
+        usb_cdc_scpi_service();
+    }
+#endif
 }
 
 void tud_usbtmc_open_cb(uint8_t interface_id)
@@ -276,8 +345,32 @@ static tusb_desc_device_t const s_desc_device = {
     .bNumConfigurations = 0x01,
 };
 
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+static tusb_desc_device_t const s_desc_device_cdc = {
+    .bLength = sizeof(tusb_desc_device_t),
+    .bDescriptorType = TUSB_DESC_DEVICE,
+    .bcdUSB = USBTMC_SCPI_USB_BCD,
+    .bDeviceClass = 0xEF,
+    .bDeviceSubClass = 0x02,
+    .bDeviceProtocol = 0x01,
+    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+    .idVendor = PROJECT_USB_VID,
+    .idProduct = PROJECT_USB_PID_CDC,
+    .bcdDevice = USBTMC_SCPI_DEVICE_BCD,
+    .iManufacturer = 0x01,
+    .iProduct = 0x02,
+    .iSerialNumber = 0x03,
+    .bNumConfigurations = 0x01,
+};
+#endif
+
 uint8_t const *tud_descriptor_device_cb(void)
 {
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+    if (s_usb_mode == PRODUCT_CONFIG_USB_MODE_CDC) {
+        return (uint8_t const *)&s_desc_device_cdc;
+    }
+#endif
     return (uint8_t const *)&s_desc_device;
 }
 
@@ -306,9 +399,35 @@ static uint8_t const s_desc_fs_configuration[] = {
     TUD_USBTMC_DESC(ITF_NUM_USBTMC, 64),
 };
 
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+enum {
+    ITF_NUM_CDC,
+    ITF_NUM_CDC_DATA,
+    ITF_NUM_CDC_TOTAL,
+};
+
+#define CDC_CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN)
+
+static uint8_t const s_desc_fs_configuration_cdc[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_CDC_TOTAL, 0, CDC_CONFIG_TOTAL_LEN, 0x00, 100),
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC,
+                       4u,
+                       USB_CDC_NOTIF_EP_IN,
+                       USB_CDC_NOTIF_EP_SIZE,
+                       USB_CDC_DATA_EP_OUT,
+                       USB_CDC_DATA_EP_IN,
+                       64),
+};
+#endif
+
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index)
 {
     (void)index;
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+    if (s_usb_mode == PRODUCT_CONFIG_USB_MODE_CDC) {
+        return s_desc_fs_configuration_cdc;
+    }
+#endif
     return s_desc_fs_configuration;
 }
 
@@ -317,7 +436,7 @@ enum {
     STRID_MANUFACTURER,
     STRID_PRODUCT,
     STRID_SERIAL,
-    STRID_USBTMC_INTERFACE,
+    STRID_USB_INTERFACE,
 };
 
 static char const *const s_string_desc_arr[] = {
@@ -325,7 +444,7 @@ static char const *const s_string_desc_arr[] = {
     PROJECT_USB_MANUFACTURER,
     PROJECT_USB_PRODUCT_USBTMC,
     NULL,
-    "USBTMC USB488 SCPI",
+    NULL,
 };
 
 static uint16_t s_desc_str[33];
@@ -345,6 +464,12 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
         if (index == STRID_SERIAL) {
             pico_get_unique_board_id_string(serial, sizeof(serial));
             str = serial;
+        } else if (index == STRID_USB_INTERFACE) {
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+            str = s_usb_mode == PRODUCT_CONFIG_USB_MODE_CDC ? "CDC SCPI" : "USBTMC USB488 SCPI";
+#else
+            str = "USBTMC USB488 SCPI";
+#endif
         } else {
             if (index >= sizeof(s_string_desc_arr) / sizeof(s_string_desc_arr[0])) {
                 return NULL;

@@ -8,6 +8,7 @@
 #include "drv_watchdog.h"
 #include "biss_protocol.h"
 #include "ota_ao.h"
+#include "product_config.h"
 #include "pico/error.h"
 #include "pico/stdio.h"
 #include "project_config.h"
@@ -35,6 +36,9 @@ static char *s_scpi_capture_buffer;
 static size_t s_scpi_capture_capacity;
 static size_t s_scpi_capture_len;
 static bool s_scpi_capture_truncated;
+static scpi_port_write_fn_t s_scpi_stream_write;
+static scpi_port_flush_fn_t s_scpi_stream_flush;
+static void *s_scpi_stream_context;
 
 static bool scpi_port_wait_storage_job(uint32_t job_id);
 static bool scpi_port_trigger_is_armed(void);
@@ -57,6 +61,10 @@ static size_t scpi_port_write(scpi_t *context, const char *data, size_t len)
         return len;
     }
 
+    if (s_scpi_stream_write != NULL) {
+        return s_scpi_stream_write(data, len, s_scpi_stream_context);
+    }
+
     for (size_t i = 0u; i < len; i++) {
         putchar_raw(data[i]);
     }
@@ -66,6 +74,11 @@ static size_t scpi_port_write(scpi_t *context, const char *data, size_t len)
 static scpi_result_t scpi_port_flush(scpi_t *context)
 {
     (void)context;
+    if (s_scpi_stream_flush != NULL) {
+        s_scpi_stream_flush(s_scpi_stream_context);
+        return SCPI_RES_OK;
+    }
+
     stdio_flush();
     return SCPI_RES_OK;
 }
@@ -193,6 +206,41 @@ static scpi_result_t scpi_cmd_bootloader_capability_q(scpi_t *context)
     SCPI_ResultUInt32(context, metadata.boot_capabilities);
     return SCPI_RES_OK;
 }
+
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+static scpi_result_t scpi_cmd_usb_mode_q(scpi_t *context)
+{
+    product_config_usb_mode_t mode;
+    if (!product_config_get_usb_mode(&mode)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultText(context, product_config_usb_mode_to_string(mode));
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_usb_mode(scpi_t *context)
+{
+    const char *text = NULL;
+    size_t length = 0u;
+    product_config_usb_mode_t mode;
+
+    if (SCPI_ParamCharacters(context, &text, &length, TRUE) != TRUE ||
+        !product_config_usb_mode_from_text(text, (uint32_t)length, &mode)) {
+        return SCPI_RES_ERR;
+    }
+
+    return product_config_set_usb_mode(mode) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+}
+
+static scpi_result_t scpi_cmd_usb_boot(scpi_t *context)
+{
+    scpi_result_t result = scpi_port_result_ok(context);
+    scpi_port_flush(context);
+    drv_watchdog_reboot(50u);
+    return result;
+}
+#endif
 
 static const char *scpi_diag_level_to_string(diag_level_t level)
 {
@@ -2744,6 +2792,11 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:OTA:MODE?", .callback = scpi_cmd_ota_mode_q},
     {.pattern = "SYSTem:OTA:TARGet?", .callback = scpi_cmd_ota_target_q},
     {.pattern = "SYSTem:OTA:CAPability?", .callback = scpi_cmd_ota_capability_q},
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+    {.pattern = "SYSTem:USB:MODE?", .callback = scpi_cmd_usb_mode_q},
+    {.pattern = "SYSTem:USB:MODE", .callback = scpi_cmd_usb_mode},
+    {.pattern = "SYSTem:USB:BOOT", .callback = scpi_cmd_usb_boot},
+#endif
     {.pattern = "SYSTem:SD:STATus?", .callback = scpi_cmd_storage_status_q},
     {.pattern = "SYSTem:SD:INFO?", .callback = scpi_cmd_storage_info_q},
     {.pattern = "SYSTem:SD:RAW:CLEar", .callback = scpi_cmd_storage_raw_clear},
@@ -2822,6 +2875,22 @@ void scpi_port_service(void)
     if (count > 0u) {
         SCPI_Input(&s_scpi_context, buffer, (int)count);
     }
+}
+
+void scpi_port_feed(const char *data, size_t len)
+{
+    if (data == NULL || len == 0u) {
+        return;
+    }
+
+    SCPI_Input(&s_scpi_context, data, (int)len);
+}
+
+void scpi_port_set_stream(scpi_port_write_fn_t write_fn, scpi_port_flush_fn_t flush_fn, void *context)
+{
+    s_scpi_stream_write = write_fn;
+    s_scpi_stream_flush = flush_fn;
+    s_scpi_stream_context = context;
 }
 
 bool scpi_port_execute(const char *data,

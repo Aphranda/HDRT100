@@ -4,11 +4,12 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/SCPI_COMMANDS.md`
 Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/OTA_SYSTEM_DESIGN.md`, `docs/SD_TODO.md`, `docs/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 当前默认 SCPI 服务通过 Pico SDK `stdio` 通道接入，使用 USB CDC。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
 固件已增加可选 `PROJECT_ENABLE_USBTMC` 构建，用于启用 USBTMC/USB488 + SCPI 专业仪表接口。USBTMC 模式复用同一套 SCPI 命令表，当前调试阶段 USB 描述符按 `bus-powered` 申明；后续成品如确认自供电，再切换为 `self-powered`。USB 描述符、VISA 枚举和供电属性记录见 `docs/SCPI_USB_INTERFACE_DESIGN.md`。
+调试阶段如需同一份固件在 CDC / USBTMC 间切换，可启用 `PROJECT_ENABLE_USB_RUNTIME_SWITCH`，并通过 `SYST:USB:MODE` 写入 Product Config。这个切换不是 OTA A/B 机制，A/B 只保留给升级镜像和回滚。
 
 ## 标准命令
 
@@ -25,6 +26,9 @@ Last updated: 2026-07-21
 | `SYST:FW:BUILD?` | 查询固件 build id，由构建脚本生成 UTC 时间戳，每次构建刷新。 |
 | `SYST:BOOT:VERS?` | 查询当前 App 声明的 Bootloader 兼容版本，返回 `major,minor,patch`。 |
 | `SYST:BOOT:CAP?` | 查询当前 metadata 中记录的 Bootloader/OTA 能力位，`bit0=COPY_TO_ACTIVE`，`bit1=DIRECT_AB`。 |
+| `SYST:USB:MODE?` | 查询当前 USB mode，返回 SCPI 字符串 `"CDC"` 或 `"USBTMC"`。 |
+| `SYST:USB:MODE <CDC|USBTMC>` | 写入下次启动的 USB mode。 |
+| `SYST:USB:BOOT` | 立即重启，重启后按 Product Config 选择 USB mode。 |
 | `SYST:LOG:LEV <0..3>` | 设置文本日志最小输出等级：`0=DEBUG`、`1=INFO`、`2=WARN`、`3=ERROR`。默认 `INFO`。 |
 | `SYST:LOG:LEV?` | 查询当前文本日志最小输出等级，返回名称和值。 |
 | `SYST:LOG:STAT?` | 查询文本日志统计：当前等级、等级值、DEBUG/INFO/WARN/ERROR 发出计数、过滤丢弃计数、截断计数、输出失败计数，以及队列丢弃数、当前队列字节数、队列高水位。 |
