@@ -300,7 +300,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 接入资源互斥，BiSS 占用 AUX0..AUX3 时拒绝冲突路径。
   - DISARM、FAULT、RESET 释放 BiSS 资源。
 - 验证结果：
-  - `tools/run_biss_protocol_tests.ps1`：ARM GCC 编译通过；当前环境无 host C compiler，host 执行跳过。
+  - `tools/tests/run_biss_protocol_tests.ps1`：ARM GCC 编译通过；当前环境无 host C compiler，host 执行跳过。
   - 后续单核 factory + board smoke 已在 `BISSC-TASK-20260707-003` 中完成。
 - 还需完成：
   - 真实 PIO 输入采样尚未通过外部回放验证。
@@ -315,7 +315,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - `components/sync_io/src/sync_io.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `tests/unit/test_biss_protocol.c`
-  - `tools/run_biss_protocol_tests.ps1`
+  - `tools/tests/run_biss_protocol_tests.ps1`
 - 下一步：
   - 使用板端 smoke 和 CSV 回放逐步确认 PIO 采样路径，而不是只停留在软件注入路径。
 

@@ -798,7 +798,7 @@ tools/sd_pack_build/
 tools/sd_pack_check/
 tools/sd_pack_diff/
 tools/sd_trace_decode/
-tools/rp2350_tk_toolbox.py
+tools/bench/rp2350_tk_toolbox.py
 ```
 
 ## 19. 实现路线
@@ -1008,7 +1008,7 @@ tools/rp2350_tk_toolbox.py
 - `components/storage_manager/src/storage_manager.c`
 - `components/sync_config_ui/src/sync_config_ui.c`
 - `middleware/scpi_port/src/scpi_port.c`
-- `tools/rp2350_tk_toolbox.py`
+- `tools/bench/rp2350_tk_toolbox.py`
 - `docs/OTA_SYSTEM_DESIGN.md`
 - `docs/HAOFV_ARCHITECTURE.md`
 - `docs/TASK_PROGRESS.md`

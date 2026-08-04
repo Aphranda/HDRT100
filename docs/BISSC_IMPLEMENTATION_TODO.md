@@ -30,7 +30,7 @@ Last updated: 2026-07-07
 - [x] 实现 BiSS CRC6 helper，支持可配置 invert/xor 处理。
 - [x] 增加 host 单元测试，覆盖 CRC6 golden vector、非法 profile 和 bit 抽取。
 - [x] 增加 crossing helper 测试，覆盖单次阈值 crossing 和 modulo 回绕。
-- [x] 新增 `tools/run_biss_protocol_tests.ps1`，支持 host 执行和 ARM GCC 编译 fallback。
+- [x] 新增 `tools/tests/run_biss_protocol_tests.ps1`，支持 host 执行和 ARM GCC 编译 fallback。
 
 ### P0.2 TriggerVector / ECC 接线
 

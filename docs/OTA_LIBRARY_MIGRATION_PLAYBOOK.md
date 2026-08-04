@@ -200,12 +200,12 @@ Code files changed:
 - `tests/unit/test_portable_ota_package.c`
 - `tests/unit/test_portable_ota_metadata.c`
 - `tests/unit/test_portable_ota_core.c`
-- `tools/run_portable_ota_tests.ps1`
+- `tools/tests/run_portable_ota_tests.ps1`
 
 Build command:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 & 'C:\Users\Aphranda\.pico-sdk\toolchain\14_2_Rel1\bin\arm-none-eabi-gcc.exe' `
   -std=c11 -Wall -Wextra -Werror -Ithird_party\portable_ota\include `
   -fsyntax-only `
@@ -266,7 +266,7 @@ Migration scope:
 Build command:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-migration -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `
@@ -360,7 +360,7 @@ Code scope:
 Build and release gate:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake --build build-portable-boot-crc
 python tools\release_check\release_check.py `
   --preset pico2-release `
@@ -437,7 +437,7 @@ Code scope:
 - Added `third_party/portable_ota/include/pota_image.h` and
   `third_party/portable_ota/src/pota_image.c`.
 - Added `tests/unit/test_portable_ota_image.c` and included it in
-  `tools/run_portable_ota_tests.ps1`.
+  `tools/tests/run_portable_ota_tests.ps1`.
 - Added `middleware/portable_ota_port/src/portable_ota_image_port.c` to bind
   RP2350 SRAM range, XIP base, and `drv_flash_read()`.
 - `components/ota_manager/src/ota_image.c` now delegates to
@@ -448,7 +448,7 @@ Code scope:
 Build and release gate:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-image -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `
@@ -541,7 +541,7 @@ Code scope:
 Validation:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 ```
 
 Actual result:
@@ -590,7 +590,7 @@ Code scope:
 Build and release gate:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-core -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `
@@ -675,12 +675,12 @@ Code scope:
 - `middleware/portable_ota_port/src/portable_ota_core_port.c` now owns a
   `pota_session_t` and calls `pota_session_*` instead of direct `pota_core`
   functions.
-- `tools/run_portable_ota_tests.ps1` builds the new session test.
+- `tools/tests/run_portable_ota_tests.ps1` builds the new session test.
 
 Build and release gate:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-session -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `
@@ -772,7 +772,7 @@ Code scope:
 Build and release gate:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-strings -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `
@@ -871,7 +871,7 @@ Code scope:
 Build and release gate:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-metadata -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `
@@ -979,7 +979,7 @@ Code scope:
 Build and release gate:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-metadata-mutation -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `
@@ -1076,13 +1076,13 @@ Code changes:
   metadata fields directly for boot result, copy-to-active completion,
   direct A/B pending apply, direct rollback, or boot attempt increment.
 - Extended portable metadata unit tests for these Bootloader mutation cases.
-- Fixed `tools/run_portable_ota_tests.ps1` so the ARM GCC fallback can follow
+- Fixed `tools/tests/run_portable_ota_tests.ps1` so the ARM GCC fallback can follow
   the current machine instead of a hard-coded user profile.
 
 Build and release gate:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-boot-metadata -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `
@@ -1175,7 +1175,7 @@ Code changes:
 Build and release gate:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-commit-helper -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `
@@ -1269,7 +1269,7 @@ Code changes:
 Build and release gate:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-operation -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `
@@ -1359,7 +1359,7 @@ Code changes:
 Build and release gate:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-compat -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `
@@ -1450,7 +1450,7 @@ Code changes:
 Build and release gate:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1
 cmake -S . -B build-portable-package-layout -G Ninja `
   -DPICO_BOARD=pico2 `
   -DPROJECT_WARNINGS_AS_ERRORS=ON `

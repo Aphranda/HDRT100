@@ -374,7 +374,7 @@ Closed-loop validation tools:
 |---|---|---|
 | `tools/ota_send/ota_send.py` | Board OTA validation | Main closed-loop OTA sender over USB CDC SCPI. Sends raw `.bin` or unified `.pkg`, asserts final state with `--expect-final-state`, asserts error text with `--expect-error`, and supports package mutations with `--package-negative`. |
 | `tools/release_check/release_check.py` | Release gate | Verifies release preset safety switches, required artifacts, and absence of OTA fault-injection command strings in release artifacts. |
-| `tools/run_portable_ota_tests.ps1` | Portable OTA library gate | Builds or runs `third_party/portable_ota` unit tests. If no host C compiler is available, it falls back to ARM GCC compile/object-build checks and reports that host execution was skipped. |
+| `tools/tests/run_portable_ota_tests.ps1` | Portable OTA library gate | Builds or runs `third_party/portable_ota` unit tests. If no host C compiler is available, it falls back to ARM GCC compile/object-build checks and reports that host execution was skipped. |
 | `tools/ota_packager/ota_packager.py` | Release OTA packaging | Builds one unified package from Slot A and Slot B linked `.bin` files. CMake normally invokes this automatically. |
 | `tools/ota_bin_info/ota_bin_info.py` | Raw `.bin` bench work | Prints `.bin` size, CRC32, and the matching `SYST:OTA:BEGIN` command. |
 | `tools/uf2_join/uf2_join.py` | Factory image generation | Generates the first-time factory UF2 from Bootloader + Slot A App binaries. CMake normally invokes this automatically. |

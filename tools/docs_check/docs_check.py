@@ -47,6 +47,7 @@ ALLOWED_SUFFIXES = {
 LEGACY_NAME_ALLOWLIST = {
     "README.md",
     "TASK_PROGRESS.md",
+    "RP2350B_QFN80_IO_CONSTRAINTS.md",
 }
 
 DOC_REF_RE = re.compile(r"docs[\\/][^\s`'\"<>)\]]+?\.md")

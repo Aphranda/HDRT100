@@ -451,7 +451,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - 应用重启后基础复验仍为 `NO_FS`：`build-sd-verify\sd_validation_file_read_job_reprobe`。
   - 主机只枚举到 `C:` 和 `D:`，未看到可直接刷新内容的 SD 盘。
   - 已重新生成 SD staging：`build-sd-verify\sdcard` 和 `build-sd-verify\RP2350_TRIG_SDCARD.zip`，build id：`20260704135435`。
-  - CATALOG_PAGE 代码实现后，`python -m py_compile tools\cmake_build_auto\cmake_build_auto.py tools\rp2350_tk_toolbox.py tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - CATALOG_PAGE 代码实现后，`python -m py_compile tools\cmake_build_auto\cmake_build_auto.py tools\bench\rp2350_tk_toolbox.py tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
   - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-verify` 通过，build id：`20260704140323`。
   - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-sd-verify` 通过，`release_check=OK`。
   - 已烧录 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`，板端确认 `SYST:FW:BUILD? -> "20260704140323"`。
@@ -541,7 +541,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `components/storage_manager/src/storage_manager.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/cmake_build_auto/cmake_build_auto.py`
-  - `tools/rp2350_tk_toolbox.py`
+  - `tools/bench/rp2350_tk_toolbox.py`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `README.md`
   - `docs/SCPI_COMMANDS.md`

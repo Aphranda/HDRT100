@@ -1,7 +1,18 @@
 # Tools
 
-Place build, flashing, release packaging, production test, and diagnostics tools
-in this directory.
+Place build, flashing, release packaging, production test, and diagnostics
+tools in this directory.
+
+The current layout is grouped by function:
+
+- `tools/bench/`: bench GUI and ad-hoc trigger helpers
+- `tools/checks/`: repository guards and namespace checks
+- `tools/tests/`: host/ARM fallback test runners
+- feature-specific subdirectories such as `tools/ota_send/` and
+  `tools/sd_board_validate/`
+
+Legacy root-level wrappers remain in `tools/` for backward compatibility while
+the docs and scripts move over to the new paths.
 
 Read Markdown and Python files as UTF-8 on Windows:
 
@@ -33,11 +44,11 @@ Get-Content -Path tools\README.md -Encoding UTF8
   baseline SCPI state, sends a positive OTA package, triggers `BOOT/COMM`, runs
   the negative package matrix, and writes `summary.json`, `summary.txt`, serial
   query files, and per-step logs under a validation output directory.
-- `run_portable_ota_tests.ps1`: portable OTA library gate. It builds or runs
+- `tests/run_portable_ota_tests.ps1`: portable OTA library gate. It builds or runs
   `third_party/portable_ota` unit tests. If no host C compiler exists, it falls
   back to ARM GCC compile/object-build checks and reports that host execution
   was skipped.
-- `run_portable_log_tests.ps1`: portable LOG core gate. It builds or runs
+- `tests/run_portable_log_tests.ps1`: portable LOG core gate. It builds or runs
   `third_party/portable_log` unit tests. If no host C compiler exists, it falls
   back to ARM GCC compile/object-build checks and reports that host execution
   was skipped.
@@ -98,14 +109,14 @@ Get-Content -Path tools\README.md -Encoding UTF8
   automatically.
 - `build_info/gen_build_info.py`: generates firmware build id source used by
   `SYST:FW:BUILD?`. CMake normally invokes this automatically.
-- `rp2350_tk_toolbox.py`: Tkinter bench GUI for common tool operations. It wraps
+- `bench/rp2350_tk_toolbox.py`: Tkinter bench GUI for common tool operations. It wraps
   release build/check, OTA send/board validation, trigger SCPI controls,
   frequency measurement, timing tests, and ad-hoc SCPI commands.
 
 Launch the GUI from the repository root:
 
 ```powershell
-python tools\rp2350_tk_toolbox.py
+python tools\bench\rp2350_tk_toolbox.py
 ```
 
 Check documentation hygiene:

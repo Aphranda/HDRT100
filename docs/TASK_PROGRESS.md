@@ -51,6 +51,33 @@ Last updated: 2026-07-07
 
 ## 任务记录
 
+### TASK-20260801-001 - tools 目录分层迁移
+
+- 状态：进行中
+- 日期：2026-08-01
+- 任务目标：
+  - 将 `tools/` 根目录脚本继续按功能域拆分，减少根目录长期堆叠。
+  - 保留旧 CLI 入口兼容，避免历史命令和 CMake 集成在迁移期失效。
+- 完成内容：
+  - 新增 `tools/bench/`，迁入 `tools/bench/rp2350_tk_toolbox.py`。
+  - 新增 `tools/checks/`，迁入 `tools/checks/check_scpi_usb_namespace.py`，并更新 CMake 主调用路径。
+  - 新增 `tools/tests/`，迁入 `run_biss_protocol_tests.ps1`、`run_portable_log_tests.ps1`、`run_portable_ota_tests.ps1`。
+  - 在 `tools/` 根目录保留同名兼容包装，旧命令仍可转发到新路径。
+  - 更新 `tools/README.md`、根 `README.md` 和现有历史引用中的主路径。
+- 验证结果：
+  - `python -m py_compile tools\bench\rp2350_tk_toolbox.py tools\checks\check_scpi_usb_namespace.py tools\biss_board_validate\biss_board_validate.py tools\docs_check\docs_check.py` 通过。
+  - 当前只做目录迁移和轻量语法验证，未执行板端验证、CMake 构建或 PowerShell 测试运行。
+- 还需完成：
+  - 继续评审已有功能子目录是否需要二级归档，例如 OTA、SD、BiSS、Trigger 工具的 shared helper 收口。
+  - 后续逐步减少根目录兼容包装依赖，等文档和自动化命令全部稳定后再评估是否移除。
+- 关联文件：
+  - `tools/README.md`
+  - `README.md`
+  - `CMakeLists.txt`
+  - `docs/TASK_PROGRESS.md`
+- 下一步：
+  - 继续检查 `tools/` 子目录内部脚本复用关系，优先抽出重复的 SCPI、串口、路径处理 helper。
+
 ### TASK-20260707-001 - BiSS-C 收发一体三通桥方案
 
 - 状态：进行中
@@ -462,7 +489,7 @@ Last updated: 2026-07-07
   - 增加日志/报告目录写入能力：`/logs`、`/reports`、`/config`、`/capture` 的安全写入、临时文件命名、写完 rename、容量不足处理。
   - 增加多卡兼容验证：空卡、无卡、FAT32 卡、SDHC/SDXC 卡、无 `/update`、坏路径、长文件名、拔卡后恢复。
   - 更新 `docs/SCPI_COMMANDS.md`、`README.md` 和 `docs/OTA_SYSTEM_DESIGN.md`，把已实现命令和后续 `SYST:OTA:FILE` 流程写清楚。
-  - 在 `tools/rp2350_tk_toolbox.py` 中继续扩展 SD 操作区：构建 SD 文件系统、打开 staging 目录、查询 SD 状态、列目录、触发离线 OTA。
+  - 在 `tools/bench/rp2350_tk_toolbox.py` 中继续扩展 SD 操作区：构建 SD 文件系统、打开 staging 目录、查询 SD 状态、列目录、触发离线 OTA。
 - 关联文件：
   - `tools/sd_fs_build/sd_fs_build.py`
   - `drivers/external/sd_card/inc/sd_card.h`
@@ -474,7 +501,7 @@ Last updated: 2026-07-07
   - `components/storage_manager/src/storage_manager.c`
   - `components/sync_config_ui/src/sync_config_ui.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `tools/rp2350_tk_toolbox.py`
+  - `tools/bench/rp2350_tk_toolbox.py`
   - `docs/SD_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
@@ -899,7 +926,7 @@ Last updated: 2026-07-07
 - 验证结果：
   - `cmake -S . -B build-rtos-step1 -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF -DPROJECT_USE_FREERTOS=OFF` 通过。
   - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-rtos-step1` 通过。
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
   - `cmake --preset pico2-rtos-smoke` 与 `cmake --build --preset pico2-rtos-smoke` 通过，生成 RTOS smoke 产物：
     - build id：`20260624040656`
     - package size：`173468`
@@ -988,7 +1015,7 @@ Last updated: 2026-07-07
   - `middleware/portable_ota_port/src/portable_ota_core_port.c` 增加 `PORTABLE_OTA_PORT_ENABLE_SESSION` 编译模式说明。
 - 验证结果：
   - `python -m py_compile tools\ota_board_validate\ota_board_validate.py` 通过。
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
   - `cmake -S . -B build-ota-review-fix -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
   - `cmake --build build-ota-review-fix` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`：
     - build id：`20260623170811`
@@ -1030,7 +1057,7 @@ Last updated: 2026-07-07
 - 验证结果：
   - `python -m py_compile tools\ota_board_validate\ota_board_validate.py` 通过。
   - `python tools\ota_board_validate\ota_board_validate.py --help` 通过。
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
   - `cmake -S . -B build-portable-port-merge -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
   - `cmake --build build-portable-port-merge` 通过，App A、App B 和 Bootloader 均链接成功；生成 `RP2350_TRIG_UPDATE.pkg`：
     - build id：`20260623165039`
@@ -1075,7 +1102,7 @@ Last updated: 2026-07-07
   - `portable_ota_port_find_package_image()` 改为复制 layout-compatible manifest 后调用 `pota_package_find_image_index()`，再返回产品侧 `manifest->images[index]`。
   - 扩展 `test_portable_ota_package.c`，覆盖 index helper 命中、未命中和 `index == NULL` 场景。
 - 验证结果：
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
   - `cmake -S . -B build-portable-package-index -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
   - `cmake --build build-portable-package-index` 通过，生成 `RP2350_TRIG_UPDATE.pkg`：
     - build id：`20260623163652`
@@ -1130,7 +1157,7 @@ Last updated: 2026-07-07
   - 删除 `portable_ota_port_to_pota_slot()`，slot 值通过编译期断言保证与 `pota_slot_t` 兼容。
   - 保留产品公开类型和返回指针语义，避免产品层直接依赖 `pota_*` 类型。
 - 验证结果：
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
   - `cmake -S . -B build-portable-package-layout -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
   - 首次产品构建因 enum 类型直接比较触发 `-Werror=enum-compare` 停止，已改为 `(uint32_t)` 显式比较后复测通过。
   - `cmake --build build-portable-package-layout` 通过，生成 `RP2350_TRIG_UPDATE.pkg`：
@@ -1186,7 +1213,7 @@ Last updated: 2026-07-07
   - `pota.h`、CMake、portable OTA 测试脚本和 `third_party/portable_ota/README.md` 已接入 `pota_compat`。
   - 扩展 portable strings 单测，覆盖 compat alias/default/text helper。
 - 验证结果：
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
   - `cmake -S . -B build-portable-compat -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
   - `cmake --build build-portable-compat` 通过，生成 `RP2350_TRIG_UPDATE.pkg`：
     - build id：`20260623161835`
@@ -1227,7 +1254,7 @@ Last updated: 2026-07-07
   - `middleware/portable_ota_port/src/portable_ota_strings_port.c`
   - `tests/unit/test_portable_ota_strings.c`
   - `CMakeLists.txt`
-  - `tools/run_portable_ota_tests.ps1`
+  - `tools/tests/run_portable_ota_tests.ps1`
 - 下一步：
   - 扫描剩余 middleware wrapper，优先处理 package manifest/CRC 的机械转发。
 
@@ -1244,7 +1271,7 @@ Last updated: 2026-07-07
   - `pota_core.c` 保留具体执行动作，公共 API 先进入 operation table，再执行对应 action。
   - `pota.h`、CMake、portable OTA 测试脚本和 `third_party/portable_ota/README.md` 已接入 `pota_operation`。
 - 验证结果：
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
   - `cmake -S . -B build-portable-operation -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
   - `cmake --build build-portable-operation` 通过，生成 `RP2350_TRIG_UPDATE.pkg`：
     - build id：`20260623160856`
@@ -1285,7 +1312,7 @@ Last updated: 2026-07-07
   - `third_party/portable_ota/src/pota_core.c`
   - `third_party/portable_ota/include/pota.h`
   - `CMakeLists.txt`
-  - `tools/run_portable_ota_tests.ps1`
+  - `tools/tests/run_portable_ota_tests.ps1`
   - `third_party/portable_ota/README.md`
 - 下一步：
   - 执行 Step 4B：将 middleware 状态/错误/结果映射 switch 收敛为库内映射表/compat helper。
@@ -1307,13 +1334,13 @@ Last updated: 2026-07-07
   - 将 Bootloader 侧 boot result、copy-to-active 完成落账、direct A/B pending apply、direct rollback 和 boot_attempts 增量等内存 metadata mutation helper 下沉到 portable OTA。
   - 将 App `COMM` 前置确认语义下沉为 `pota_metadata_can_confirm_active()`，`pota_metadata_confirm_active()` 自身也强制要求无 pending 且最近 Bootloader 结果为 `APPLIED`。
   - 完成剩余耦合扫描：除 `middleware/portable_ota_port` 和单元测试外，产品层没有直接 include/call `pota_*`；剩余 Bootloader flash copy、slot jump、watchdog、SCPI 查询和同步触发空闲检查均属于 RP2350 产品/平台职责。
-  - 修复 `tools/run_portable_ota_tests.ps1` 的 ARM GCC fallback，使其不依赖另一台电脑的硬编码用户目录。
+  - 修复 `tools/tests/run_portable_ota_tests.ps1` 的 ARM GCC fallback，使其不依赖另一台电脑的硬编码用户目录。
   - 新增 `portable_ota_metadata_port.c`，用字段布局 static assert 保证 `ota_metadata_t` 与 `pota_metadata_t` 兼容。
   - 产品侧 `ota_metadata_*` 公开 API 保持不变，内部收敛为 `load -> portable mutation -> store`。
   - 产品侧仍保留 RP2350 相关职责：flash 双副本 offset、erase/program/read、v2 旧格式迁移、Bootloader flash copy、镜像校验、watchdog reset 和 slot jump。
   - 更新 `third_party/portable_ota/README.md`、`docs/OTA_TODO.md`、`docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`。
 - 验证结果：
-  - `powershell -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
   - `cmake -S . -B build-portable-session -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
   - `cmake --build build-portable-session` 通过，`release_check=OK`。
   - `build-portable-session\RP2350_TRIG_FACTORY.uf2` 已用 `picotool` 烧录；COM4 上完成正向统一 package OTA、Bootloader `APPLIED`、App `COMM` 和完整负向矩阵。
@@ -1350,7 +1377,7 @@ Last updated: 2026-07-07
     - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
   - `cmake -S . -B build-portable-boot-metadata -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
   - `cmake --build build-portable-boot-metadata` 通过，`release_check=OK`。
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
   - `build-portable-boot-metadata\RP2350_TRIG_FACTORY.uf2` 已用 `picotool` 烧录；baseline：
     - `SYST:FW:BUILD? -> "20260623153304"`
     - `SYST:BOOT:VERS? -> 0,1,0`
@@ -1426,7 +1453,7 @@ Last updated: 2026-07-07
   - `bootloader/src/bootloader_main.c`
   - `components/ota_manager/src/ota_metadata.c`
   - `tests/unit/test_portable_ota_metadata.c`
-  - `tools/run_portable_ota_tests.ps1`
+  - `tools/tests/run_portable_ota_tests.ps1`
   - `docs/OTA_TODO.md`
   - `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`
   - `third_party/portable_ota/README.md`

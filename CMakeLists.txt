@@ -130,7 +130,7 @@ add_custom_target(project_build_info
 )
 
 add_custom_target(project_scpi_usb_namespace_check
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/check_scpi_usb_namespace.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/checks/check_scpi_usb_namespace.py
                 --root ${CMAKE_CURRENT_LIST_DIR}
         VERBATIM
 )

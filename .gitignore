@@ -3,6 +3,9 @@ build/
 build-*/
 cmake-build-*/
 out/
+SIM/
+.tmp-edge-pdf/
+.tmp/
 
 # CMake generated files
 CMakeFiles/

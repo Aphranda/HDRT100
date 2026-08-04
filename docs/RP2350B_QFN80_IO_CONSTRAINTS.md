@@ -3,6 +3,9 @@
 Status: Draft
 Domain: Hardware / Board
 Target: RP2350B QFN-80
+Canonical: `docs/RP2350B_QFN80_IO_CONSTRAINTS.md`
+Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `IO约束.md`
+Last updated: 2026-08-01
 
 本文档定义 RP2350_TRIG 后续 RP2350B QFN-80 硬件版本的 GPIO 分配与使用约束。
 现有根目录 `IO约束.md` 仍用于 RP2350A 小系统板，不由本文档替代。
