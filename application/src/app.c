@@ -2,6 +2,7 @@
 
 #include "board.h"
 #include "diagnostics.h"
+#include "distributed_refmem.h"
 #include "event_bus.h"
 #include "ota_ao.h"
 #include "osal.h"
@@ -78,6 +79,11 @@ bool app_init(void)
         return false;
     }
 
+    if (!distributed_refmem_init()) {
+        diagnostics_mark_fault("refmem", "distributed refmem initialization failed");
+        return false;
+    }
+
     if (!ota_ao_init()) {
         diagnostics_mark_fault("ota", "OTA initialization failed");
         return false;
@@ -126,6 +132,11 @@ void app_scpi_service(void)
 #if !PROJECT_ENABLE_USB_RUNTIME_SWITCH
     scpi_port_service();
 #endif
+}
+
+void app_refmem_service(void)
+{
+    distributed_refmem_service();
 }
 
 void app_trigger_service(void)

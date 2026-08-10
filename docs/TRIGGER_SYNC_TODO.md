@@ -133,11 +133,16 @@ Last updated: 2026-08-10
   不得影响已经装载的触发边沿。
 
 - [ ] 建立模拟反射内存式 DistributedVectorTable。
-  四板维护同一张结构化向量表，产品化从 P0 起按 64 KB 完整表 layout 预留，避免后续扩容破坏
+  当前四板和后续模型节点维护同一张结构化向量表，产品化从 P0 起按 64 KB 完整表 layout 预留，避免后续扩容破坏
   协议、快照工具和日志格式。借鉴 PinProbe A1 的 RamVector 原则：命令是意图，IO/触发镜像是事实，
   状态是推导结果。每个节点只写自己的 NodeSlot/TriggerSlot/IoSlot，跨节点状态通过
   `RJ45_SYNC_RING` 的 `REFMEM_DELTA` 小帧同步；查询只读本地快照，slot stale 时返回 stale 标志，
   不临时阻塞跨板读取。反射内存不承载 PIO 边沿、OTA payload、SD 文件或波形数据。
+  2026-08-10: P0 本地骨架已完成并烧录验证，新增 `task_refmem_sync`、静态 64 KB
+  DistributedVectorTable 预算、8 个 NodeSlot、本节点 header/node heartbeat，以及
+  `SYST:REFM:STAT?` / `SYST:REFM:NODE? [node_id]` 快照查询。PinProbe A1 的 RamVector
+  只有 1024B，提醒这里的 64 KB 是协议预算，不是日志/波形/文件缓存。跨板 `REFMEM_DELTA`、
+  stale/CRC/owner 门禁仍在后续阶段。
 
 - [ ] 定义分布式系统产品化门禁。
   每次 RUN 必须有 epoch/run_id，并冻结 build_id、hw_profile、NodeRoleMap CRC、LoopPlan CRC、
@@ -152,6 +157,8 @@ Last updated: 2026-08-10
   DistributedVectorTable 本地快照；再建立 `task_loop_engine`、`task_vdc_sync`、
   `task_dpll` 空壳。每一步都必须构建、烧录、执行板端 smoke，并记录
   `SYST:RTOS:STAT?`、`SYST:CORE?` 和 `SYST:ERR?`。
+  2026-08-10: `task_refmem_sync` 小步已通过 build `20260810110636` 板端 smoke；
+  下一步进入 `task_loop_engine` 空壳。
 
 - [ ] 将当前裸机单核和裸机双核路径降级为 bring-up/smoke 路径。
   产品化 release 不能只依赖当前 `PROJECT_USE_FREERTOS=OFF` / `PROJECT_USE_MULTICORE=OFF`

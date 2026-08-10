@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "diagnostics.h"
+#include "distributed_refmem.h"
 #include "drv_watchdog.h"
 #include "biss_protocol.h"
 #include "ota_ao.h"
@@ -320,6 +321,46 @@ static scpi_result_t scpi_cmd_rtos_status_q(scpi_t *context)
         SCPI_ResultUInt32(context, task->priority);
     }
 
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context)
+{
+    distributed_refmem_status_t status;
+    distributed_refmem_get_status(&status);
+
+    SCPI_ResultUInt32(context, status.table_size);
+    SCPI_ResultUInt32(context, status.layout_version);
+    SCPI_ResultUInt32(context, status.table_seq);
+    SCPI_ResultUInt32(context, status.local_node_id);
+    SCPI_ResultUInt32(context, status.node_count);
+    SCPI_ResultUInt32(context, status.local_heartbeat);
+    SCPI_ResultUInt32(context, status.service_count);
+    SCPI_ResultUInt32(context, status.flags);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_refmem_node_q(scpi_t *context)
+{
+    distributed_refmem_status_t status;
+    distributed_refmem_node_snapshot_t node;
+    distributed_refmem_get_status(&status);
+    uint32_t node_id = status.local_node_id;
+
+    (void)SCPI_ParamUInt32(context, &node_id, FALSE);
+    if (!distributed_refmem_get_node(node_id, &node)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, node.node_id);
+    SCPI_ResultUInt32(context, node.state);
+    SCPI_ResultUInt32(context, node.heartbeat);
+    SCPI_ResultUInt32(context, node.slot_version);
+    SCPI_ResultUInt32(context, node.last_update_ms);
+    SCPI_ResultUInt32(context, node.stale_count);
+    SCPI_ResultUInt32(context, node.fault_code);
+    SCPI_ResultUInt32(context, node.flags);
+    SCPI_ResultUInt32(context, node.node_type);
     return SCPI_RES_OK;
 }
 
@@ -2697,6 +2738,8 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:LOG:STATus?", .callback = scpi_cmd_log_status_q},
     {.pattern = "SYSTem:CORE?", .callback = scpi_cmd_core_status_q},
     {.pattern = "SYSTem:RTOS:STATus?", .callback = scpi_cmd_rtos_status_q},
+    {.pattern = "SYSTem:REFMem:STATus?", .callback = scpi_cmd_refmem_status_q},
+    {.pattern = "SYSTem:REFMem:NODE?", .callback = scpi_cmd_refmem_node_q},
     {.pattern = "SYSTem:TRIGger:DBG?", .callback = scpi_cmd_trigger_debug_q},
     {.pattern = "SYSTem:RESource?", .callback = scpi_cmd_resource_status_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION

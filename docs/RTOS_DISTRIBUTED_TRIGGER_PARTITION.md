@@ -58,7 +58,7 @@ task_storage / task_ui / task_ota / task_diag
 - `task_usb_device` 只服务 USB 设备栈，不解析业务。
 - `task_scpi` 只解析命令、投递事件、查询快照，不推进扫描循环。
 - `task_loop_engine` 承载 A0 下位机编排，不依赖上位机逐点调度。
-- `task_refmem_sync` 维护四板同一张分布式向量表，不让各板状态各自漂移。
+- `task_refmem_sync` 维护同一张分布式向量表，不让真实板卡和模型节点状态各自漂移。
 - `core1_realtime` 承载 TriggerAO、PIO 装载、运行态采样、T2/READY 捕获和 late 判定。
 - FatFs、USB 文本输出、SCPI 解析、OTA flash job、LCD 刷新不得进入 core1。
 
@@ -153,9 +153,12 @@ A3 SCPI START
 
 ## 模拟反射内存
 
-四板系统需要维护同一张分布式向量表。这里的“模拟反射内存”不是硬件共享 RAM，
+当前四板系统需要维护同一张分布式向量表。这里的“模拟反射内存”不是硬件共享 RAM，
 而是用固定内存布局 + owner 写权限 + 版本号 + RJ45_SYNC_RING 小帧同步，实现各板对
 系统状态的同构镜像。
+表内节点维度按 8 个节点预留：A0/A1/A2/A3 是当前真实板卡，后续可挂接模型节点，
+例如模拟网分、模拟转台、模拟 DUT 或产测代理。上层只看统一的 node status、ACK、fault
+和 heartbeat 语义，不关心节点背后是真硬件还是仿真模型。
 
 核心定位：
 
@@ -174,20 +177,20 @@ DistributedVectorTable 从 P0 起就按产品化完整表布局实现，避免�
 |---|---:|---|---|---|
 | Header/Directory | 1 KB | magic、layout_version、table_size、slot offset、table_seq、epoch、crc32 | `task_refmem_sync` | 整表一致性、版本识别和工具解析入口 |
 | SystemSlot | 1 KB | system_mode、role_map_version、run_id、fault_latch、release gate | `task_system` | 全局模式和安全状态 |
-| Role/ConfigSlot | 2 KB | NodeRoleMap、hw_profile、persona、feature mask | `task_system` / config loader | 四板角色和硬件 profile |
+| Role/ConfigSlot | 2 KB | NodeRoleMap、hw_profile、persona、feature mask | `task_system` / config loader | 真实板卡和模型节点角色/hardware profile |
 | VdcSlot | 2 KB | offset、rate、lock_state、e_vdc、sync_seq、holdover 统计 | `task_vdc_sync` | 虚拟 DC 共同时间轴 |
 | LoopSlot | 4 KB | loop_state、scan_index、layer_index、next_fire_seq、LoopEngine 摘要 | `task_loop_engine` | A0 扫描编排摘要 |
 | DpllSlot | 2 KB | compare 捕获、角度预测、`T_fire_base`、`e_pll` 统计 | `task_dpll` | A0 转台/DPLL 状态 |
-| NodeSlot[4] | 4 KB | node_id、role、heartbeat、local_state、error_code、stale_count | 各节点 owner | 每块板只写自己的 node slot |
-| TriggerSlot[4] | 8 KB | armed、last_fire_seq、late_count、t2_count、ready_timeout、runtime counters | 各节点 core1 摘要由 core0 合并 | 实时触发状态摘要 |
-| IoSlot[4] | 8 KB | SMA/RJ45/BiSS 近端 IO 镜像、反序映射、边沿计数、健康状态 | 各节点 owner | 查询用事实镜像，不临时读硬件 |
+| NodeSlot[8] | 4 KB | node_id、node_type、role、heartbeat、local_state、error_code、stale_count | 各节点 owner | 8 个 512B slot；真实板卡和模型节点都占用 node slot |
+| TriggerSlot[8] | 8 KB | armed、last_fire_seq、late_count、t2_count、ready_timeout、runtime counters | 各节点 core1/模型摘要由 core0 合并 | 8 个 1KB 摘要；模型节点可发布模拟触发事实 |
+| IoSlot[8] | 8 KB | SMA/RJ45/BiSS 近端 IO 镜像、反序映射、边沿计数、健康状态 | 各节点 owner | 8 个 1KB 事实镜像，不临时读硬件 |
 | CalibrationSlot | 8 KB | `Δt_i`、SMA/RJ45 hop、设备 delay、温漂摘要、校准版本 | calibration owner | 只放当前生效摘要，完整历史在 storage |
 | StatisticsSlot | 8 KB | `e_vdc/e_act/e_pll` 窗口统计、CRC/seq/late 分布、p99/p999 | 各统计 owner | 查询和报告的快速摘要 |
 | AckCommandSlot | 4 KB | command_seq、ack_flags、nack_flags、busy_flags、原子命令槽 | 命令 owner + 各节点 ack | 配置/START/STOP 确认 |
 | FaultEvidenceSlot | 6 KB | fault_code、source_node、evidence_seq、first_ts、last_ts、关键证据 | `task_system/task_refmem_sync` | 故障归档入口 |
 | GatewaySlot | 2 KB | A3/VNA/host 状态、数据采集状态、上位机连接摘要 | `task_gateway_a3` | A3 网关状态 |
-| OtaStorageUiSlot | 4 KB | OTA、Storage、UI 摘要 | 对应 task owner | 维护和观测状态 |
-| TlvExtension | 4 KB | versioned TLV、未来扩展 | owner by type | 不改变主 slot offset 的小扩展区 |
+| OtaStorageUiSlot | 2 KB | OTA、Storage、UI 摘要 | 对应 task owner | 维护和观测状态 |
+| TlvExtension | 2 KB | versioned TLV、未来扩展 | owner by type | 不改变主 slot offset 的小扩展区 |
 
 合计 64 KB。链接脚本或配置区应按 64 KB 预留；如果 RP2350 SRAM 压力过大，可以把
 完整快照保存在 core0 SRAM，core1 只持有 TriggerSlot 相关轻量镜像和状态 ring。
@@ -206,6 +209,9 @@ PinProbe A1 的 RamVector 经验在这里保留三条原则：
 - 命令是意图：写命令槽不代表动作完成。
 - 镜像是事实：查询只读 DistributedVectorTable 快照。
 - 状态是推导：SystemManager/LoopEngine 基于事实镜像和 ACK 推导状态。
+- 表要紧凑：PinProbe A1 的 RamVector 只有 1024B，说明反射内存的关键不是大，
+  而是固定 layout、清楚 owner、查询快照和日志分离。RP2350 这里保留 64 KB 是产品化
+  协议预算，仍禁止承载日志、波形、OTA payload 或 SD 文件内容。
 
 ### Owner 写权限
 
@@ -538,15 +544,21 @@ core1 禁止：
 
 ### P0 - 任务边界固化
 
-- [ ] 将当前 `task_io_frontend` 拆为 `task_usb_device` 和 `task_scpi`。
-- [ ] 将 `app_comm_service()` 拆为 `app_usb_device_service()` 和 `app_scpi_service()`。
-- [ ] 让 `SYST:RTOS:STAT?` 显示拆分后的任务水位。
-- [ ] 保持当前 `TRIG:MODE 1 -> TRIG:ARM -> TRIG:DIS` 板端 smoke 通过。
+- [x] 将当前 `task_io_frontend` 拆为 `task_usb_device` 和 `task_scpi`。
+  2026-08-10: build `20260810104144` 已烧录验证，RTOS task list 显示 `usb_device` 和 `scpi`。
+- [x] 将 `app_comm_service()` 拆为 `app_usb_device_service()` 和 `app_scpi_service()`。
+  2026-08-10: 裸机路径保留 `app_comm_service()` wrapper，FreeRTOS 路径由两个任务直接调用。
+- [x] 让 `SYST:RTOS:STAT?` 显示拆分后的任务水位。
+  2026-08-10: `usb_device` used 32 words，`scpi` used 1166 words，heap min free 73584 bytes。
+- [x] 保持当前 `TRIG:MODE 1 -> TRIG:ARM -> TRIG:DIS` 板端 smoke 通过。
+  2026-08-10: `tools/multicore_board_validate` 5/5 PASS，结果归档 `build-rtos-multicore-smoke/validation_split_usb_scpi_step1`。
 - [ ] 建立 `task_loop_engine` 空壳，只计数和响应状态查询，不接业务。
 - [ ] 建立 `task_vdc_sync` 空壳，只维护 lock 状态和统计计数。
 - [ ] 建立 `task_dpll` 空壳，只维护 disabled/ready 状态。
-- [ ] 建立 `task_refmem_sync` 空壳，按 64 KB 完整布局维护本地 DistributedVectorTable header、node slot 和 heartbeat。
-- [ ] 增加本地 DistributedVectorTable snapshot 查询，先不做跨板同步。
+- [x] 建立 `task_refmem_sync` 空壳，按 64 KB 完整布局维护本地 DistributedVectorTable header、node slot 和 heartbeat。
+  2026-08-10: build `20260810110636` 已烧录验证，`SYST:RTOS:STAT?` 显示 `refmem_sync`，本地 heartbeat 持续增长；NodeSlot 预留 8 个节点。
+- [x] 增加本地 DistributedVectorTable snapshot 查询，先不做跨板同步。
+  2026-08-10: 已增加 `SYST:REFM:STAT?` / `SYST:REFM:NODE?`，返回 64 KB table、layout version、table_seq 和本节点 slot 快照。
 
 ### P1 - 反射内存与快照一致性
 
@@ -559,7 +571,8 @@ core1 禁止：
 - [ ] 实现 sequence lock 或双缓冲，避免字段半新半旧。
 - [ ] 实现命令槽原子 Take/Clear，执行动作保持在临界区外。
 - [ ] 将 core1 trigger status ring 合并到本节点 TriggerSlot 摘要。
-- [ ] 增加 `SYST:REFM:STAT?` / `SYST:REFM:NODE?` 诊断命令。
+- [x] 增加 `SYST:REFM:STAT?` / `SYST:REFM:NODE?` 诊断命令。
+  2026-08-10: P0 本地快照命令已接入，后续 stale/CRC/slot owner 完成后继续扩展字段语义。
 - [ ] 增加 `OK/STALE/MISSING/INVALID/FAULT` 节点新鲜度状态和 stale window 计数。
 
 ### P2 - 跨核通信
@@ -628,7 +641,7 @@ core1 禁止：
 - [ ] release preset 明确 RTOS + 双核产品化门禁；单核/裸机仅保留 bring-up 路径。
 - [ ] README、SCPI 命令文档、HIL 工具和生产测试流程同步更新。
 
-## 当前建议第一刀
+## 当前进度与下一刀
 
 近期 RTOS 规划按小步验证执行：
 
@@ -654,7 +667,7 @@ SYST:CORE? core1 heartbeat
 SYST:ERR? 错误队列确认
 ```
 
-下一步代码修改只做一件事：
+第一刀已经完成：
 
 ```text
 task_io_frontend
@@ -662,5 +675,38 @@ task_io_frontend
   -> task_scpi
 ```
 
-保持行为不变，先构建、烧录、板端验证，再继续加 `task_loop_engine` 空壳。这样可以把
-“串口/USB 活性”和“SCPI 解析栈水位”分开测量，避免后续业务控制继续堆到同一个任务里。
+板端验证结果：
+
+```text
+build_id: 20260810104144
+smoke:    identity/build_id/core_heartbeat/trigger_seq/error_queue 5/5 PASS
+rtos:     usb_device used 32 words, scpi used 1166 words, heap min free 73584 bytes
+```
+
+第二刀已经完成：
+
+```text
+add task_refmem_sync skeleton
+reserve local 64 KB DistributedVectorTable layout
+publish local header/node heartbeat snapshot
+```
+
+板端验证结果：
+
+```text
+build_id: 20260810110636
+smoke:    identity/build_id/core_heartbeat/trigger_seq/error_queue 5/5 PASS
+refmem:   SYST:REFM:STAT? -> 65536,1,<table_seq>,0,8,<heartbeat>,<service_count>,0
+refmem:   SYST:REFM:NODE? 7 -> 7,0,0,0,0,0,0,0,0
+rtos:     refmem_sync used 32 words, heap min free 65288 bytes
+```
+
+下一步代码修改只做一件事：
+
+```text
+add task_loop_engine skeleton
+publish loop engine counter/status snapshot
+do not connect real scan planning yet
+```
+
+下一刀仍不接跨板 RJ45 同步，不接真实 LoopEngine 业务，只验证任务边界、状态查询和板端 smoke。

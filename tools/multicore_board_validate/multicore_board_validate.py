@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from datetime import datetime
@@ -36,28 +37,40 @@ def _read_line(ser: serial.Serial, timeout_s: float) -> str:
     """Read one meaningful SCPI response line, skipping logs and empty lines."""
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        raw = ser.readline()
-        if not raw:
+        raw = bytearray()
+        while time.monotonic() < deadline:
+            ch = ser.read(1)
+            if not ch:
+                continue
+            raw.extend(ch)
+            if ch == b"\n":
+                break
+        if len(raw) == 0:
             continue
-        line = raw.decode("utf-8", errors="replace").strip()
+        line = bytes(raw).decode("utf-8", errors="replace").strip()
         maybe_log = line[1:] if line.startswith('"[') else line
         if not line or maybe_log.startswith("[") or maybe_log.startswith("log:"):
             continue
-        if line.startswith('"OK"') or line.startswith('OK"'):
+        if line.startswith('"OK"') or line.startswith('OK"') or line.startswith('"OK[') or line.startswith('OK['):
             return '"OK"'
+        line = re.sub(r'(?<!^)\[\s*\d+\]\s+(?:DBG|INF|WRN|ERR)\s+.*$', '', line).strip()
         return line
     return "<timeout>"
 
 
 def _cmd(ser: serial.Serial, command: str, timeout_s: float) -> str:
     """Send a command and read the ACK line."""
+    ser.reset_input_buffer()
     ser.write((command + "\n").encode("ascii"))
+    ser.flush()
     return _read_line(ser, timeout_s)
 
 
 def _query(ser: serial.Serial, command: str, timeout_s: float) -> str:
     """Send a query and read the response (no ACK)."""
+    ser.reset_input_buffer()
     ser.write((command + "\n").encode("ascii"))
+    ser.flush()
     return _read_line(ser, timeout_s)
 
 

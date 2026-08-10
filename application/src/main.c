@@ -107,6 +107,21 @@ static void task_scpi(void *context)
     }
 }
 
+static void task_refmem_sync(void *context)
+{
+    (void)context;
+
+    while (true) {
+        if (!app_is_ready()) {
+            osal_task_delay_ms(1u);
+            continue;
+        }
+
+        app_refmem_service();
+        osal_task_delay_ms(1u);
+    }
+}
+
 #if !PROJECT_USE_MULTICORE
 static void task_trigger(void *context)
 {
@@ -200,6 +215,13 @@ int main(void)
         .stack_words = 3072u,
         .priority = 3u,
     };
+    const osal_task_config_t refmem_task_config = {
+        .name = "refmem_sync",
+        .entry = task_refmem_sync,
+        .context = NULL,
+        .stack_words = 2048u,
+        .priority = 4u,
+    };
 #if !PROJECT_USE_MULTICORE
     const osal_task_config_t trigger_task_config = {
         .name = "trigger",
@@ -241,6 +263,10 @@ int main(void)
     }
     if (!osal_task_create(&scpi_task_config, NULL)) {
         diagnostics_mark_fault("rtos", "scpi task creation failed");
+        app_blink_fault_forever();
+    }
+    if (!osal_task_create(&refmem_task_config, NULL)) {
+        diagnostics_mark_fault("rtos", "refmem_sync task creation failed");
         app_blink_fault_forever();
     }
 #if !PROJECT_USE_MULTICORE

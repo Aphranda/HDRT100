@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -54,7 +55,16 @@ def is_log_line(line: str) -> bool:
     return not line or maybe_log.startswith("[") or maybe_log.startswith("log:")
 
 
+def trim_embedded_log(line: str) -> str:
+    match = re.search(r'(?<!^)\[\s*\d+\]\s+(?:DBG|INF|WRN|ERR)\s+', line)
+    if match is None:
+        return line
+    return line[:match.start()].strip()
+
+
 def strip_leading_ack(line: str) -> str:
+    if line.startswith('"OK[') or line.startswith('OK['):
+        return ""
     if line.startswith('"OK"'):
         return line[4:].strip()
     if line.startswith('OK"'):
@@ -62,25 +72,39 @@ def strip_leading_ack(line: str) -> str:
     return line
 
 
+def read_serial_line(ser: serial.Serial, deadline: float) -> str | None:
+    raw = bytearray()
+    while time.monotonic() < deadline:
+        ch = ser.read(1)
+        if not ch:
+            continue
+        raw.extend(ch)
+        if ch == b"\n":
+            break
+    if len(raw) == 0:
+        return None
+    return normalize_line(bytes(raw).decode("utf-8", errors="replace"))
+
+
 def read_response(ser: serial.Serial, command: str, timeout_s: float) -> str:
     deadline = time.monotonic() + timeout_s
     is_query = command.strip().endswith("?")
 
     while time.monotonic() < deadline:
-        raw = ser.readline()
-        if not raw:
+        line = read_serial_line(ser, deadline)
+        if line is None:
             continue
-        line = normalize_line(raw.decode("utf-8", errors="replace"))
         if is_log_line(line):
             continue
 
         if is_query:
+            line = trim_embedded_log(line)
             line = strip_leading_ack(line)
             if not line:
                 continue
             return line
 
-        if line.startswith('"OK"') or line.startswith('OK"'):
+        if line.startswith('"OK"') or line.startswith('OK"') or line.startswith('"OK[') or line.startswith('OK['):
             return '"OK"'
         return line
 
