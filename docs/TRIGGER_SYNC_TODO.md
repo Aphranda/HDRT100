@@ -158,7 +158,7 @@ Last updated: 2026-08-10
   `task_dpll` 空壳。每一步都必须构建、烧录、执行板端 smoke，并记录
   `SYST:RTOS:STAT?`、`SYST:CORE?` 和 `SYST:ERR?`。
   2026-08-10: `task_refmem_sync` 小步已通过 build `20260810110636` 板端 smoke；
-  下一步进入 `task_loop_engine` 空壳。
+  `task_loop_engine` 空壳已补入，下一步进入 `task_vdc_sync` 空壳。
 
 - [ ] 将当前裸机单核和裸机双核路径降级为 bring-up/smoke 路径。
   产品化 release 不能只依赖当前 `PROJECT_USE_FREERTOS=OFF` / `PROJECT_USE_MULTICORE=OFF`

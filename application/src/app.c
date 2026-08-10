@@ -30,6 +30,7 @@ static bool s_app_ready;
 static bool s_ui_dirty;
 static bool s_ui_key_sample;
 static bool s_ui_key_stable;
+static app_loop_engine_status_t s_loop_engine_status;
 
 bool app_init(void)
 {
@@ -40,6 +41,10 @@ bool app_init(void)
     s_ui_dirty = false;
     s_ui_key_sample = false;
     s_ui_key_stable = false;
+    s_loop_engine_status.ready = false;
+    s_loop_engine_status.service_count = 0u;
+    s_loop_engine_status.first_service_ms = 0u;
+    s_loop_engine_status.last_service_ms = s_last_tick_ms;
     LOG_INFO("app", "application initialized");
 
     const sync_io_config_t sync_io_config = {
@@ -105,6 +110,7 @@ bool app_init(void)
     }
     s_ui_dirty = true;
     s_app_ready = true;
+    s_loop_engine_status.ready = true;
 
     return true;
 }
@@ -137,6 +143,32 @@ void app_scpi_service(void)
 void app_refmem_service(void)
 {
     distributed_refmem_service();
+}
+
+void app_loop_engine_service(void)
+{
+    const uint32_t now_ms = board_uptime_ms();
+
+    osal_critical_enter();
+    if (s_loop_engine_status.service_count == 0u) {
+        s_loop_engine_status.first_service_ms = now_ms;
+    }
+    s_loop_engine_status.service_count++;
+    s_loop_engine_status.last_service_ms = now_ms;
+    s_loop_engine_status.ready = s_app_ready;
+    osal_critical_exit();
+}
+
+void app_loop_engine_get_status(app_loop_engine_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+
+    osal_critical_enter();
+    *status = s_loop_engine_status;
+    status->ready = s_app_ready;
+    osal_critical_exit();
 }
 
 void app_trigger_service(void)
@@ -207,6 +239,7 @@ void app_run_once(void)
 {
     diagnostics_record_core0_loop();
     app_comm_service();
+    app_loop_engine_service();
     app_trigger_service();
     app_ota_service();
     app_storage_service();
@@ -219,6 +252,7 @@ void app_management_run_once(void)
 {
     diagnostics_record_core0_loop();
     app_comm_service();
+    app_loop_engine_service();
     app_ota_service();
     app_storage_service();
     app_ui_service();

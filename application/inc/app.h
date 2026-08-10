@@ -2,6 +2,7 @@
 #define APP_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 bool app_init(void);
 bool app_is_ready(void);
@@ -12,6 +13,16 @@ void app_comm_service(void);
 void app_usb_device_service(void);
 void app_scpi_service(void);
 void app_refmem_service(void);
+
+typedef struct {
+    bool ready;
+    uint32_t service_count;
+    uint32_t first_service_ms;
+    uint32_t last_service_ms;
+} app_loop_engine_status_t;
+
+void app_loop_engine_service(void);
+void app_loop_engine_get_status(app_loop_engine_status_t *status);
 void app_trigger_service(void);
 void app_ota_service(void);
 void app_storage_service(void);

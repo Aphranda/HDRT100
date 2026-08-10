@@ -552,7 +552,8 @@ core1 禁止：
   2026-08-10: `usb_device` used 32 words，`scpi` used 1166 words，heap min free 73584 bytes。
 - [x] 保持当前 `TRIG:MODE 1 -> TRIG:ARM -> TRIG:DIS` 板端 smoke 通过。
   2026-08-10: `tools/multicore_board_validate` 5/5 PASS，结果归档 `build-rtos-multicore-smoke/validation_split_usb_scpi_step1`。
-- [ ] 建立 `task_loop_engine` 空壳，只计数和响应状态查询，不接业务。
+- [x] 建立 `task_loop_engine` 空壳，只计数和响应状态查询，不接业务。
+  2026-08-10: 已增加 `task_loop_engine` RTOS 任务、`LOOP:STAT?` / `STAT:LOOP?` 只读查询，以及本地 service_count/first_service_ms/last_service_ms 快照。
 - [ ] 建立 `task_vdc_sync` 空壳，只维护 lock 状态和统计计数。
 - [ ] 建立 `task_dpll` 空壳，只维护 disabled/ready 状态。
 - [x] 建立 `task_refmem_sync` 空壳，按 64 KB 完整布局维护本地 DistributedVectorTable header、node slot 和 heartbeat。
@@ -663,6 +664,7 @@ cmake build
 flash UF2
 board smoke
 SYST:RTOS:STAT? 水位记录
+LOOP:STAT? loop counter
 SYST:CORE? core1 heartbeat
 SYST:ERR? 错误队列确认
 ```
@@ -704,9 +706,9 @@ rtos:     refmem_sync used 32 words, heap min free 65288 bytes
 下一步代码修改只做一件事：
 
 ```text
-add task_loop_engine skeleton
-publish loop engine counter/status snapshot
-do not connect real scan planning yet
+add task_vdc_sync skeleton
+publish lock state and counter snapshot
+do not connect real DC convergence yet
 ```
 
-下一刀仍不接跨板 RJ45 同步，不接真实 LoopEngine 业务，只验证任务边界、状态查询和板端 smoke。
+下一刀仍不接跨板 RJ45 同步，不接真实虚拟 DC 收敛，只验证任务边界、状态查询和板端 smoke。

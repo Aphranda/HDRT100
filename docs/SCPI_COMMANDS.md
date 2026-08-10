@@ -34,6 +34,7 @@ Last updated: 2026-07-22
 | `SYST:LOG:STAT?` | 查询文本日志统计：当前等级、等级值、DEBUG/INFO/WARN/ERROR 发出计数、过滤丢弃计数、截断计数、输出失败计数，以及队列丢弃数、当前队列字节数、队列高水位。 |
 | `SYST:CORE?` | 查询核心运行状态：core1 是否启用、core0/core1 循环计数、core0/core1 最近一次心跳毫秒时间戳。 |
 | `SYST:RTOS:STAT?` | 查询 FreeRTOS heap 和任务栈水位。 |
+| `LOOP:STAT?` / `STAT:LOOP?` | 查询 `task_loop_engine` 的只读空壳状态：是否 ready、service_count、first_service_ms、last_service_ms。 |
 | `SYST:REFM:STAT?` | 查询本地 DistributedVectorTable P0 快照：`table_size,layout_version,table_seq,local_node_id,node_count,local_heartbeat,service_count,flags`。 |
 | `SYST:REFM:NODE? [node_id]` | 查询 NodeSlot P0 快照；省略 `node_id` 时查询本节点，当前预留 `0..7` 共 8 个节点，支持真实板卡和模型节点。返回 `node_id,state,heartbeat,slot_version,last_update_ms,stale_count,fault_code,flags,node_type`。 |
 
