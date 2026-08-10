@@ -49,6 +49,9 @@ Last updated: 2026-07-22
 | `SYST:REFM:NODE? [node_id]` | 查询 NodeSlot P0 快照；省略 `node_id` 时查询本节点，当前预留 `0..7` 共 8 个节点，支持真实板卡和模型节点。返回 `node_id,state,heartbeat,slot_version,last_update_ms,stale_count,fault_code,flags,node_type`。 |
 | `SYST:CORE:VECT?` | 查询 `CoreVectorOwnerTable` 快照：`version,table_seq,core_count,core0_vtor_owner,core1_vtor_owner,core0_irq_owner_mask,core1_irq_owner_mask,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags`。 |
 | `SYST:PROT:STAT?` | 查询 `RuntimeProtectionTable` 快照：`version,table_seq,ram_resident_required,flash_lockout_supported,flash_lockout_online,flash_lockout_requested,flash_lockout_acknowledged,park_state,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags`。 |
+| `SYST:MODE:TAB? [mode_id]` | 查询 `SystemModeTable` 条目；省略 `mode_id` 时查询 0。返回 `version,mode_count,current_mode,table_crc32,mode_id,run_allowed,ota_allowed,fault_allowed,name`。 |
+| `SYST:RESource:TAB? [resource_id]` | 查询 `ResourceArbiterTable` 条目；省略 `resource_id` 时查询 0。返回 `version,resource_count,current_mode,active_resources,last_conflict_resources,table_crc32,resource_id,mask,owner_mode,active,name,owner_name`。 |
+| `SYST:FAULT:TAB? [fault_id]` | 查询 `FaultCodeTable` 条目；省略 `fault_id` 时查询 0。返回 `version,fault_count,latched,table_crc32,fault_id,domain_id,severity,recoverable,sticky,name`。 |
 
 ## 触发输出
 

@@ -27,6 +27,9 @@
 #define APP_UI_REFRESH_PERIOD_MS 250u
 #define APP_UI_KEY_DEBOUNCE_MS 35u
 #define APP_LOG_SERVICE_BYTES 256u
+#define APP_SYSTEM_MODE_TABLE_VERSION 1u
+#define APP_RESOURCE_ARBITER_TABLE_VERSION 1u
+#define APP_FAULT_CODE_TABLE_VERSION 1u
 
 static uint32_t s_last_tick_ms;
 static uint32_t s_last_ui_refresh_ms;
@@ -59,6 +62,73 @@ typedef struct {
     uint32_t aux3_pin;
 } app_hw_profile_blob_t;
 
+static const app_system_mode_entry_t s_system_mode_template[4] = {
+    {
+        .mode_id = RESOURCE_ARBITER_MODE_BOOT,
+        .run_allowed = 0u,
+        .ota_allowed = 0u,
+        .fault_allowed = 1u,
+        .name = "BOOT",
+    },
+    {
+        .mode_id = RESOURCE_ARBITER_MODE_RUN,
+        .run_allowed = 1u,
+        .ota_allowed = 0u,
+        .fault_allowed = 1u,
+        .name = "RUN",
+    },
+    {
+        .mode_id = RESOURCE_ARBITER_MODE_OTA,
+        .run_allowed = 0u,
+        .ota_allowed = 1u,
+        .fault_allowed = 1u,
+        .name = "OTA",
+    },
+    {
+        .mode_id = RESOURCE_ARBITER_MODE_FAULT,
+        .run_allowed = 0u,
+        .ota_allowed = 0u,
+        .fault_allowed = 1u,
+        .name = "FAULT",
+    },
+};
+
+static const app_resource_arbiter_entry_t s_resource_arbiter_template[10] = {
+    { .resource_id = 0u, .mask = RESOURCE_ARBITER_RESOURCE_FLASH, .owner_mode = RESOURCE_ARBITER_MODE_OTA, .active = 0u, .name = "FLASH", .owner_name = "-" },
+    { .resource_id = 1u, .mask = RESOURCE_ARBITER_RESOURCE_SPI0, .owner_mode = RESOURCE_ARBITER_MODE_RUN, .active = 0u, .name = "SPI0", .owner_name = "-" },
+    { .resource_id = 2u, .mask = RESOURCE_ARBITER_RESOURCE_USB, .owner_mode = RESOURCE_ARBITER_MODE_RUN, .active = 0u, .name = "USB", .owner_name = "-" },
+    { .resource_id = 3u, .mask = RESOURCE_ARBITER_RESOURCE_PIO0, .owner_mode = RESOURCE_ARBITER_MODE_RUN, .active = 0u, .name = "PIO0", .owner_name = "-" },
+    { .resource_id = 4u, .mask = RESOURCE_ARBITER_RESOURCE_PIO1, .owner_mode = RESOURCE_ARBITER_MODE_RUN, .active = 0u, .name = "PIO1", .owner_name = "-" },
+    { .resource_id = 5u, .mask = RESOURCE_ARBITER_RESOURCE_PIO2, .owner_mode = RESOURCE_ARBITER_MODE_RUN, .active = 0u, .name = "PIO2", .owner_name = "-" },
+    { .resource_id = 6u, .mask = RESOURCE_ARBITER_RESOURCE_DMA, .owner_mode = RESOURCE_ARBITER_MODE_RUN, .active = 0u, .name = "DMA", .owner_name = "-" },
+    { .resource_id = 7u, .mask = RESOURCE_ARBITER_RESOURCE_LCD, .owner_mode = RESOURCE_ARBITER_MODE_RUN, .active = 0u, .name = "LCD", .owner_name = "-" },
+    { .resource_id = 8u, .mask = RESOURCE_ARBITER_RESOURCE_SD, .owner_mode = RESOURCE_ARBITER_MODE_RUN, .active = 0u, .name = "SD", .owner_name = "-" },
+    { .resource_id = 9u, .mask = RESOURCE_ARBITER_RESOURCE_AUX, .owner_mode = RESOURCE_ARBITER_MODE_RUN, .active = 0u, .name = "AUX", .owner_name = "-" },
+};
+
+static const app_fault_code_entry_t s_fault_code_template[20] = {
+    { .fault_id = 0u, .domain_id = 0u, .severity = 0u, .recoverable = 1u, .sticky = 0u, .name = "NONE" },
+    { .fault_id = 1u, .domain_id = 0u, .severity = 2u, .recoverable = 1u, .sticky = 1u, .name = "DIAG_FAULT_LATCHED" },
+    { .fault_id = 2u, .domain_id = 1u, .severity = 2u, .recoverable = 1u, .sticky = 1u, .name = "TRIG_INVALID_SEQ_CONFIG" },
+    { .fault_id = 3u, .domain_id = 1u, .severity = 2u, .recoverable = 1u, .sticky = 1u, .name = "TRIG_RESOURCE_CONFLICT" },
+    { .fault_id = 4u, .domain_id = 1u, .severity = 2u, .recoverable = 1u, .sticky = 1u, .name = "TRIG_IO_ARM_FAILED" },
+    { .fault_id = 5u, .domain_id = 1u, .severity = 2u, .recoverable = 1u, .sticky = 1u, .name = "TRIG_IO_LOST" },
+    { .fault_id = 10u, .domain_id = 1u, .severity = 1u, .recoverable = 1u, .sticky = 0u, .name = "TRIG_INVALID_ENC_TARGET" },
+    { .fault_id = 11u, .domain_id = 1u, .severity = 1u, .recoverable = 1u, .sticky = 0u, .name = "TRIG_INVALID_ENC_PINS" },
+    { .fault_id = 20u, .domain_id = 1u, .severity = 1u, .recoverable = 1u, .sticky = 0u, .name = "TRIG_INVALID_BISS_CONFIG" },
+    { .fault_id = 100u, .domain_id = 1u, .severity = 3u, .recoverable = 0u, .sticky = 1u, .name = "TRIG_FORCED_FAULT" },
+    { .fault_id = 200u, .domain_id = 2u, .severity = 1u, .recoverable = 1u, .sticky = 0u, .name = "OTA_BUSY" },
+    { .fault_id = 201u, .domain_id = 2u, .severity = 2u, .recoverable = 1u, .sticky = 1u, .name = "OTA_INVALID_STATE" },
+    { .fault_id = 202u, .domain_id = 2u, .severity = 2u, .recoverable = 0u, .sticky = 1u, .name = "OTA_IMAGE_TOO_LARGE" },
+    { .fault_id = 203u, .domain_id = 2u, .severity = 2u, .recoverable = 0u, .sticky = 1u, .name = "OTA_BAD_HEADER" },
+    { .fault_id = 204u, .domain_id = 2u, .severity = 3u, .recoverable = 0u, .sticky = 1u, .name = "OTA_FLASH_ERASE" },
+    { .fault_id = 205u, .domain_id = 2u, .severity = 3u, .recoverable = 0u, .sticky = 1u, .name = "OTA_FLASH_PROGRAM" },
+    { .fault_id = 300u, .domain_id = 3u, .severity = 1u, .recoverable = 1u, .sticky = 0u, .name = "STORAGE_PATH_DENIED" },
+    { .fault_id = 301u, .domain_id = 3u, .severity = 2u, .recoverable = 1u, .sticky = 1u, .name = "STORAGE_MANIFEST_INVALID" },
+    { .fault_id = 304u, .domain_id = 3u, .severity = 1u, .recoverable = 1u, .sticky = 0u, .name = "STORAGE_RESOURCE_BUSY" },
+    { .fault_id = 305u, .domain_id = 3u, .severity = 2u, .recoverable = 1u, .sticky = 1u, .name = "STORAGE_PATH_ERROR" },
+};
+
 static uint32_t app_crc32_text(const char *text)
 {
     return ota_crc32_compute((const uint8_t *)text, (uint32_t)strlen(text));
@@ -67,6 +137,106 @@ static uint32_t app_crc32_text(const char *text)
 static uint32_t app_crc32_blob(const void *data, size_t size)
 {
     return ota_crc32_compute((const uint8_t *)data, (uint32_t)size);
+}
+
+static uint32_t app_crc32_table_entry(const uint32_t *fields,
+                                      size_t field_count,
+                                      const char *name,
+                                      const char *owner)
+{
+    uint8_t buffer[160];
+    size_t used = 0u;
+
+    if (fields != NULL && field_count > 0u) {
+        const size_t field_bytes = field_count * sizeof(uint32_t);
+        if (field_bytes > sizeof(buffer)) {
+            return 0u;
+        }
+        memcpy(buffer, fields, field_bytes);
+        used = field_bytes;
+    }
+
+    if (name != NULL) {
+        const size_t len = strlen(name);
+        if (used + len > sizeof(buffer)) {
+            return 0u;
+        }
+        memcpy(&buffer[used], name, len);
+        used += len;
+    }
+
+    if (owner != NULL) {
+        if (used + 1u > sizeof(buffer)) {
+            return 0u;
+        }
+        buffer[used++] = '|';
+        const size_t len = strlen(owner);
+        if (used + len > sizeof(buffer)) {
+            return 0u;
+        }
+        memcpy(&buffer[used], owner, len);
+        used += len;
+    }
+
+    return app_crc32_blob(buffer, used);
+}
+
+static uint32_t app_system_mode_table_crc32(void)
+{
+    uint32_t crc = APP_SYSTEM_MODE_TABLE_VERSION;
+    for (uint32_t i = 0u; i < 4u; i++) {
+        const app_system_mode_entry_t *entry = &s_system_mode_template[i];
+        const uint32_t fields[] = {
+            entry->mode_id,
+            entry->run_allowed,
+            entry->ota_allowed,
+            entry->fault_allowed,
+        };
+        crc ^= app_crc32_table_entry(fields,
+                                     sizeof(fields) / sizeof(fields[0]),
+                                     entry->name,
+                                     NULL);
+    }
+    return crc;
+}
+
+static uint32_t app_resource_arbiter_table_crc32(void)
+{
+    uint32_t crc = APP_RESOURCE_ARBITER_TABLE_VERSION;
+    for (uint32_t i = 0u; i < 10u; i++) {
+        const app_resource_arbiter_entry_t *entry =
+            &s_resource_arbiter_template[i];
+        const uint32_t fields[] = {
+            entry->resource_id,
+            entry->mask,
+            entry->owner_mode,
+        };
+        crc ^= app_crc32_table_entry(fields,
+                                     sizeof(fields) / sizeof(fields[0]),
+                                     entry->name,
+                                     NULL);
+    }
+    return crc;
+}
+
+static uint32_t app_fault_code_table_crc32(void)
+{
+    uint32_t crc = APP_FAULT_CODE_TABLE_VERSION;
+    for (uint32_t i = 0u; i < 20u; i++) {
+        const app_fault_code_entry_t *entry = &s_fault_code_template[i];
+        const uint32_t fields[] = {
+            entry->fault_id,
+            entry->domain_id,
+            entry->severity,
+            entry->recoverable,
+            entry->sticky,
+        };
+        crc ^= app_crc32_table_entry(fields,
+                                     sizeof(fields) / sizeof(fields[0]),
+                                     entry->name,
+                                     NULL);
+    }
+    return crc;
 }
 
 bool app_init(void)
@@ -407,6 +577,61 @@ void app_config_gate_get_ack_status(app_config_ack_status_t *status)
     status->reason_table_crc32 = config_snapshot->nack_reason_crc32;
     status->config_crc32 = s_config_gate_status.config_crc32;
     osal_critical_exit();
+}
+
+void app_system_mode_get_table(app_system_mode_table_t *table)
+{
+    if (table == NULL) {
+        return;
+    }
+
+    resource_arbiter_snapshot_t snapshot;
+    resource_arbiter_get_snapshot(&snapshot);
+
+    table->version = APP_SYSTEM_MODE_TABLE_VERSION;
+    table->mode_count = 4u;
+    table->current_mode = (uint32_t)snapshot.mode;
+    table->table_crc32 = app_system_mode_table_crc32();
+    memcpy(table->mode, s_system_mode_template, sizeof(s_system_mode_template));
+}
+
+void app_resource_arbiter_get_table(app_resource_arbiter_table_t *table)
+{
+    if (table == NULL) {
+        return;
+    }
+
+    resource_arbiter_snapshot_t snapshot;
+    resource_arbiter_get_snapshot(&snapshot);
+
+    table->version = APP_RESOURCE_ARBITER_TABLE_VERSION;
+    table->resource_count = 10u;
+    table->current_mode = (uint32_t)snapshot.mode;
+    table->active_resources = snapshot.active_resources;
+    table->last_conflict_resources = snapshot.last_conflict_resources;
+    table->table_crc32 = app_resource_arbiter_table_crc32();
+    memcpy(table->resource, s_resource_arbiter_template, sizeof(s_resource_arbiter_template));
+
+    for (uint32_t i = 0u; i < table->resource_count; i++) {
+        app_resource_arbiter_entry_t *entry = &table->resource[i];
+        entry->active = (snapshot.active_resources & entry->mask) != 0u ? 1u : 0u;
+        entry->owner_name = snapshot.resource_owners[entry->resource_id] != NULL ?
+                            snapshot.resource_owners[entry->resource_id] :
+                            "-";
+    }
+}
+
+void app_fault_code_get_table(app_fault_code_table_t *table)
+{
+    if (table == NULL) {
+        return;
+    }
+
+    table->version = APP_FAULT_CODE_TABLE_VERSION;
+    table->fault_count = 20u;
+    table->latched = diagnostics_has_fault() ? 1u : 0u;
+    table->table_crc32 = app_fault_code_table_crc32();
+    memcpy(table->fault, s_fault_code_template, sizeof(s_fault_code_template));
 }
 
 void app_trigger_service(void)

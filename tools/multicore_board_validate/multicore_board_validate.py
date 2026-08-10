@@ -11,6 +11,7 @@ Checks:
 - SYST:CFG:ROLE?/LOOP?/ACT?/CAL? static distributed config queries
 - SYST:CFG:ACK?, SYST:CFG:NACK?, SYST:SCPI:RUN:ALLOW? ACK reason and RUN whitelist tables
 - SYST:CORE:VECT? and SYST:PROT:STAT? owner/protection table snapshots
+- SYST:MODE:TAB?, SYST:RESource:TAB?, SYST:FAULT:TAB? system/resource/fault tables
 - TRIG:MODE 1 -> ARM -> DISARM state progression
 - Error queue, LOG STAT, TRACE LAST
 """
@@ -419,6 +420,40 @@ def test_runtime_protection_tables(ser: serial.Serial, timeout: float) -> tuple[
     )
 
 
+def test_system_resource_fault_tables(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
+    mode = _query(ser, "SYST:MODE:TAB? 1", timeout)
+    mode_fields = _parse_ints(mode)
+    if len(mode_fields) < 8:
+        return False, f"SYST:MODE:TAB? unparseable: {mode}"
+    if mode_fields[0] != 1 or mode_fields[1] != 4 or mode_fields[4] != 1 or mode_fields[5] != 1:
+        return False, f"SYST:MODE:TAB? unexpected RUN row: {mode}"
+    if "RUN" not in mode:
+        return False, f"SYST:MODE:TAB? missing mode name: {mode}"
+
+    resource = _query(ser, "SYST:RESource:TAB? 0", timeout)
+    resource_fields = _parse_ints(resource)
+    if len(resource_fields) < 10:
+        return False, f"SYST:RESource:TAB? unparseable: {resource}"
+    if resource_fields[0] != 1 or resource_fields[1] != 10 or resource_fields[6] != 0:
+        return False, f"SYST:RESource:TAB? unexpected FLASH row: {resource}"
+    if "FLASH" not in resource:
+        return False, f"SYST:RESource:TAB? missing resource name: {resource}"
+
+    fault = _query(ser, "SYST:FAULT:TAB? 0", timeout)
+    fault_fields = _parse_ints(fault)
+    if len(fault_fields) < 9:
+        return False, f"SYST:FAULT:TAB? unparseable: {fault}"
+    if fault_fields[0] != 1 or fault_fields[1] < 16 or fault_fields[4] != 0:
+        return False, f"SYST:FAULT:TAB? unexpected NONE row: {fault}"
+    if "NONE" not in fault:
+        return False, f"SYST:FAULT:TAB? missing fault name: {fault}"
+
+    return True, (
+        f"mode_count={mode_fields[1]} resource_count={resource_fields[1]} "
+        f"fault_count={fault_fields[1]}"
+    )
+
+
 def test_error_queue(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
     resp = _query(ser, "SYST:ERR?", timeout)
     if "No error" in resp or "0" in resp:
@@ -455,6 +490,7 @@ ALL_TESTS = [
     ("config_snapshot_queries", test_config_snapshot_queries),
     ("ack_reason_and_run_policy", test_ack_reason_and_run_policy),
     ("runtime_protection_tables", test_runtime_protection_tables),
+    ("system_resource_fault_tables", test_system_resource_fault_tables),
     ("trigger_seq", test_trigger_seq),
     ("error_queue", test_error_queue),
     ("log_stat", test_log_stat),

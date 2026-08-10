@@ -81,6 +81,58 @@ typedef struct {
     uint32_t config_crc32;
 } app_config_ack_status_t;
 
+typedef struct {
+    uint32_t mode_id;
+    uint32_t run_allowed;
+    uint32_t ota_allowed;
+    uint32_t fault_allowed;
+    const char *name;
+} app_system_mode_entry_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t mode_count;
+    uint32_t current_mode;
+    uint32_t table_crc32;
+    app_system_mode_entry_t mode[4];
+} app_system_mode_table_t;
+
+typedef struct {
+    uint32_t resource_id;
+    uint32_t mask;
+    uint32_t owner_mode;
+    uint32_t active;
+    const char *name;
+    const char *owner_name;
+} app_resource_arbiter_entry_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t resource_count;
+    uint32_t current_mode;
+    uint32_t active_resources;
+    uint32_t last_conflict_resources;
+    uint32_t table_crc32;
+    app_resource_arbiter_entry_t resource[10];
+} app_resource_arbiter_table_t;
+
+typedef struct {
+    uint32_t fault_id;
+    uint32_t domain_id;
+    uint32_t severity;
+    uint32_t recoverable;
+    uint32_t sticky;
+    const char *name;
+} app_fault_code_entry_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t fault_count;
+    uint32_t latched;
+    uint32_t table_crc32;
+    app_fault_code_entry_t fault[20];
+} app_fault_code_table_t;
+
 void app_loop_engine_service(void);
 void app_loop_engine_get_status(app_loop_engine_status_t *status);
 void app_vdc_sync_service(void);
@@ -90,6 +142,9 @@ void app_dpll_get_status(app_dpll_status_t *status);
 void app_config_gate_service(void);
 void app_config_gate_get_status(app_config_gate_status_t *status);
 void app_config_gate_get_ack_status(app_config_ack_status_t *status);
+void app_system_mode_get_table(app_system_mode_table_t *table);
+void app_resource_arbiter_get_table(app_resource_arbiter_table_t *table);
+void app_fault_code_get_table(app_fault_code_table_t *table);
 void app_trigger_service(void);
 void app_ota_service(void);
 void app_storage_service(void);

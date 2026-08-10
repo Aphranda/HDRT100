@@ -51,6 +51,43 @@ Last updated: 2026-08-10
 
 ## 任务记录
 
+### TASK-20260810-005 - SystemMode / ResourceArbiter / FaultCode 表查询闭环
+
+- 状态：完成
+- 日期：2026-08-10
+- 任务目标：
+  - 按 `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 待办，建立 `SystemModeTable`、`ResourceArbiterTable` 和 `FaultCodeTable` 的只读查询接口。
+  - 让系统模式、资源占用和产品故障码进入统一可观测表，不再只停留在文档概念。
+  - 不引入新的模式切换 AO，先复用现有 `resource_arbiter` 和 `diagnostics` 状态。
+- 完成内容：
+  - `application` 新增三张表的快照结构和 getter。
+  - 新增 SCPI 查询 `SYST:MODE:TAB?`、`SYST:RESource:TAB?`、`SYST:FAULT:TAB?`。
+  - `ResourceArbiterTable` 接入当前 `resource_arbiter` mode、active_resources、last_conflict 和资源 owner。
+  - `FaultCodeTable` 汇总诊断、Trigger、OTA、Storage 的产品常见故障域。
+  - `tools/multicore_board_validate` 新增 `system_resource_fault_tables` 用例。
+  - `docs/SCPI_COMMANDS.md` 与 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 已同步更新。
+- 验证结果：
+  - `cmake --build --preset pico2-rtos-multicore-smoke` 通过，build id `20260810155455`。
+  - `cmake --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-release` 通过，build id `20260810155518`。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/docs_check/docs_check.py` 通过，仍有 6 个历史命名 warning。
+  - 已 OTA 烧录 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg` 到 COM5，并执行 `SYST:OTA:COMM`。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_system_tables_rerun` 通过，`15/15 PASS`。
+- 还需完成：
+  - 完整 `task_system` 模式切换 AO 和恢复动作表。
+  - 为共享表项补齐统一 `table_seq / owner / crc / stale / flags` 语义。
+  - 后续接入真实 RJ45 ACK delta 和节点新鲜度窗口。
+- 关联文件：
+  - `application/inc/app.h`
+  - `application/src/app.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+- 下一步：
+  - 收口共享表项 guard 字段或节点 stale window，再进入 RJ45 delta 原型。
+
 ### TASK-20260810-004 - ACK/NACK reason 与 RUN 白名单表闭环
 
 - 状态：完成

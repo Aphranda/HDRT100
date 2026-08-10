@@ -687,6 +687,90 @@ static scpi_result_t scpi_cmd_resource_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static scpi_result_t scpi_cmd_system_mode_table_q(scpi_t *context)
+{
+    app_system_mode_table_t table;
+    app_system_mode_get_table(&table);
+
+    uint32_t mode_id = 0u;
+    (void)SCPI_ParamUInt32(context, &mode_id, FALSE);
+    if (mode_id >= table.mode_count) {
+        return SCPI_RES_ERR;
+    }
+
+    const app_system_mode_entry_t *mode = &table.mode[mode_id];
+    SCPI_ResultUInt32(context, table.version);
+    SCPI_ResultUInt32(context, table.mode_count);
+    SCPI_ResultUInt32(context, table.current_mode);
+    SCPI_ResultUInt32(context, table.table_crc32);
+    SCPI_ResultUInt32(context, mode->mode_id);
+    SCPI_ResultUInt32(context, mode->run_allowed);
+    SCPI_ResultUInt32(context, mode->ota_allowed);
+    SCPI_ResultUInt32(context, mode->fault_allowed);
+    SCPI_ResultText(context, mode->name);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_resource_arbiter_table_q(scpi_t *context)
+{
+    app_resource_arbiter_table_t table;
+    app_resource_arbiter_get_table(&table);
+
+    uint32_t resource_id = 0u;
+    (void)SCPI_ParamUInt32(context, &resource_id, FALSE);
+    if (resource_id >= table.resource_count) {
+        return SCPI_RES_ERR;
+    }
+
+    const app_resource_arbiter_entry_t *resource = &table.resource[resource_id];
+    SCPI_ResultUInt32(context, table.version);
+    SCPI_ResultUInt32(context, table.resource_count);
+    SCPI_ResultUInt32(context, table.current_mode);
+    SCPI_ResultUInt32(context, table.active_resources);
+    SCPI_ResultUInt32(context, table.last_conflict_resources);
+    SCPI_ResultUInt32(context, table.table_crc32);
+    SCPI_ResultUInt32(context, resource->resource_id);
+    SCPI_ResultUInt32(context, resource->mask);
+    SCPI_ResultUInt32(context, resource->owner_mode);
+    SCPI_ResultUInt32(context, resource->active);
+    SCPI_ResultText(context, resource->name);
+    SCPI_ResultText(context, resource->owner_name);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context)
+{
+    app_fault_code_table_t table;
+    app_fault_code_get_table(&table);
+
+    uint32_t fault_id = 0u;
+    (void)SCPI_ParamUInt32(context, &fault_id, FALSE);
+    uint32_t index = 0u;
+    bool found = false;
+    for (; index < table.fault_count; index++) {
+        if (table.fault[index].fault_id == fault_id) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        return SCPI_RES_ERR;
+    }
+
+    const app_fault_code_entry_t *fault = &table.fault[index];
+    SCPI_ResultUInt32(context, table.version);
+    SCPI_ResultUInt32(context, table.fault_count);
+    SCPI_ResultUInt32(context, table.latched);
+    SCPI_ResultUInt32(context, table.table_crc32);
+    SCPI_ResultUInt32(context, fault->fault_id);
+    SCPI_ResultUInt32(context, fault->domain_id);
+    SCPI_ResultUInt32(context, fault->severity);
+    SCPI_ResultUInt32(context, fault->recoverable);
+    SCPI_ResultUInt32(context, fault->sticky);
+    SCPI_ResultText(context, fault->name);
+    return SCPI_RES_OK;
+}
+
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
 static scpi_result_t scpi_cmd_boot_reset(scpi_t *context)
 {
@@ -3306,6 +3390,9 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:PROTection:STATus?", .callback = scpi_cmd_runtime_protection_q},
     {.pattern = "SYSTem:TRIGger:DBG?", .callback = scpi_cmd_trigger_debug_q},
     {.pattern = "SYSTem:RESource?", .callback = scpi_cmd_resource_status_q},
+    {.pattern = "SYSTem:MODE:TABle?", .callback = scpi_cmd_system_mode_table_q},
+    {.pattern = "SYSTem:RESource:TABle?", .callback = scpi_cmd_resource_arbiter_table_q},
+    {.pattern = "SYSTem:FAULT:TABle?", .callback = scpi_cmd_fault_code_table_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
 #endif

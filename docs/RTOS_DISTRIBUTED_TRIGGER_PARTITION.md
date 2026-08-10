@@ -606,7 +606,8 @@ core1 禁止：
   2026-08-10: 已在 DistributedVectorTable header 中加入 core0/core1 VTOR owner、IRQ owner mask、entry table owner 和 guard 字段，并通过 `SYST:CORE:VECT?` 查询。
 - [x] 定义 `RuntimeProtectionTable`，把 RAM-resident section、flash lockout/park、entry table owner、realtime IRQ owner 写入表头或 slot 元素。
   2026-08-10: 已在 DistributedVectorTable header 中加入 RAM-resident、flash lockout/park 和 entry owner 状态，并通过 `SYST:PROT:STAT?` 查询。
-- [ ] 定义 `SystemModeTable`、`ResourceArbiterTable` 和 `FaultCodeTable` 的只读查询接口，作为产品门禁和诊断入口。
+- [x] 定义 `SystemModeTable`、`ResourceArbiterTable` 和 `FaultCodeTable` 的只读查询接口，作为产品门禁和诊断入口。
+  2026-08-10: 已新增 `SYST:MODE:TAB?`、`SYST:RESource:TAB?`、`SYST:FAULT:TAB?`，分别暴露系统模式、资源仲裁和产品故障码只读表。
 - [ ] 为所有共享表项统一补齐 `table_seq / slot_seq / owner / crc / stale / flags` 字段，保证反射内存口径一致。
 - [x] 增加 `SYST:REFM:STAT?` / `SYST:REFM:NODE?` 诊断命令。
   2026-08-10: P0 本地快照命令已接入，后续 stale/CRC/slot owner 完成后继续扩展字段语义。
@@ -639,7 +640,8 @@ core1 禁止：
   2026-08-10: `distributed_config_validate()` 已加入本地结构一致性检查；门禁通过时 `ack_flags=target_mask`、`nack_flags=0`，失败时 `gate_state=2`。
 - [x] 定义分布式命令 ACK/NACK 协议骨架：command_seq、target_mask、ack_flags、nack_flags、busy_flags、timeout_flags、nack_reason。
   2026-08-10: `SYST:CFG:ACK?` 暴露本地 command ACK 快照，`SYST:CFG:NACK? [reason_id]` 暴露 NACK reason 表。当前为本地配置门禁和表定义，真实跨板 ACK delta 同步仍放在 P4。
-- [ ] 把 `SystemModeTable` 和 `ResourceArbiterTable` 接到 `task_system`，让模式切换、资源占用和恢复动作都能通过统一查询返回。
+- [x] 把 `SystemModeTable` 和 `ResourceArbiterTable` 接到 `task_system`，让模式切换、资源占用和恢复动作都能通过统一查询返回。
+  2026-08-10: 当前先接入本地 `resource_arbiter` 快照和只读表查询；完整 `task_system` 模式切换 AO 仍留作后续演进。
 - [ ] 增加 `task_gateway_a3`，接收上位机配置、START/STOP 和数据查询。
 - [ ] 增加 `task_loop_engine` 的 A0 扫描状态机。
 - [x] 增加 RUN 态 SCPI 白名单和禁止命令错误码。
