@@ -1,0 +1,843 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>相控阵测试系统 RP 分布式触发方案技术报告</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body {
+    font-family:"等线","SimSun","Microsoft YaHei",sans-serif;
+    background:#d0d0d0;
+    display:flex; flex-direction:column; align-items:center; padding:20px; gap:24px;
+  }
+  @media print {
+    @page { size:1120px 630px; margin:0; }
+    body { background:#fff; padding:0; gap:0; }
+    .page { box-shadow:none; margin:0; width:1120px; min-height:630px; break-after:page; page-break-after:always; break-inside:avoid; page-break-inside:avoid; }
+  }
+  .page { background:#fff; width:1120px; min-height:630px; box-shadow:0 2px 8px rgba(0,0,0,.15); display:flex; flex-direction:column; }
+  .page-header { padding:16px 44px 12px; display:flex; justify-content:flex-end; align-items:center; border-bottom:8px solid #d0d6e4; min-height:60px; }
+  .page-header .logo { height:28px; width:auto; display:block; overflow:visible; }
+  .main { flex:1; display:flex; flex-direction:column; justify-content:center; padding:16px 44px; min-height:0; }
+  .page-footer { padding:10px 44px 14px; border-top:8px solid #d0d6e4; display:flex; justify-content:space-between; align-items:center; font-size:9px; color:#aaa; }
+  .page-num { font-size:10px; color:#999; }
+  .h1 { font-size:24px; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
+  .sub { font-size:13px; color:#666; margin-bottom:20px; }
+  .h2 { font-size:16px; font-weight:700; color:#1F3864; margin:16px 0 9px; padding-bottom:6px; border-bottom:2px solid #1F3864; }
+  .h2:first-of-type { margin-top:0; }
+  table { width:100%; border-collapse:collapse; font-size:12px; border:1.5px solid #333; margin-bottom:12px; }
+  thead th { background:#1F3864; color:#fff; font-size:12px; font-weight:600; padding:8px 10px; text-align:left; border:1px solid #1a2e52; }
+  thead th.c { text-align:center; }
+  tbody td { padding:7px 10px; border:1px solid #bbb; color:#1a1a1a; vertical-align:top; line-height:1.45; }
+  tbody tr:nth-child(even) td { background:#f2f6fc; }
+  td.c, th.c { text-align:center; }
+  td.b { font-weight:700; }
+  .dense .page-header { padding:10px 44px 6px; min-height:48px; }
+  .dense .main { padding:8px 44px; }
+  .dense .page-footer { padding:6px 44px 8px; }
+  .dense .h1 { font-size:20px; margin-bottom:1px; }
+  .dense .sub { font-size:11px; margin-bottom:10px; }
+  .dense .h2 { font-size:14px; margin:10px 0 4px; padding-bottom:3px; }
+  .dense table { font-size:10.5px; margin-bottom:7px; }
+  .dense thead th { font-size:10.5px; padding:5px 7px; }
+  .dense tbody td { padding:4px 7px; line-height:1.3; }
+  .row2 { display:flex; gap:20px; } .col2 { flex:1; min-width:0; }
+  .row3 { display:flex; gap:16px; } .col3 { flex:1; min-width:0; }
+  .row4 { display:flex; gap:12px; } .col4 { flex:1; min-width:0; }
+  .equal-cards .col2, .equal-cards .col3, .equal-cards .col4 { display:flex; }
+  .equal-cards .card { width:100%; display:flex; flex-direction:column; }
+  .equal-cards .card-b { flex:1; }
+  .card { border:1px solid #ddd; border-radius:6px; overflow:hidden; flex:1; }
+  .card-h { padding:10px 14px; font-size:13px; font-weight:700; color:#fff; display:flex; align-items:center; gap:8px; }
+  .card-b { padding:13px 14px; background:#fafafa; font-size:12px; line-height:1.58; }
+  .dense .card-h { padding:6px 10px; font-size:11px; }
+  .dense .card-b { padding:7px 9px; font-size:10px; line-height:1.36; }
+  .cr .card-h { background:#d32f2f; } .co .card-h { background:#e65100; } .cg .card-h { background:#2e7d32; } .cb .card-h { background:#1565c0; } .cp .card-h { background:#6a1b9a; }
+  .bar { margin-top:12px; padding:12px 20px; background:linear-gradient(90deg,#1F3864,#283593); color:#fff; border-radius:4px; text-align:center; font-size:13px; font-weight:600; }
+  .bar span { color:#ffcc80; font-size:16px; }
+  .tag-r,.tag-y,.tag-g,.tag-b { display:inline-block; color:#fff; padding:2px 9px; border-radius:3px; font-size:10px; font-weight:700; }
+  .tag-r { background:#d32f2f; } .tag-y { background:#f57c00; } .tag-g { background:#388e3c; } .tag-b { background:#1565c0; }
+  .hl { background:#e8f5e9; padding:1px 5px; border-radius:2px; color:#2e7d32; font-weight:700; }
+  .val { font-family:"Consolas","Courier New",monospace; font-weight:700; }
+  .note { font-size:10px; color:#888; margin-top:8px; line-height:1.45; }
+  .cover-page { justify-content:center; align-items:center; text-align:center; }
+  .cover-page .page-header { padding-top:48px; justify-content:flex-end; }
+  .cover-page .page-header .logo, .logo-lg { height:48px; width:auto; display:block; overflow:visible; }
+  .cover-title { font-size:32px; font-weight:800; color:#1a1a1a; margin-bottom:12px; line-height:1.25; }
+  .cover-divider { width:80px; height:4px; background:#1F3864; margin:30px auto; }
+  .cover-subtitle { font-size:16px; color:#1F3864; margin-bottom:60px; }
+  .cover-info { font-size:14px; color:#666; line-height:2; }
+  .big-number { font-size:44px; font-weight:800; color:#1F3864; text-align:center; line-height:1; }
+  .big-number-label { font-size:13px; color:#666; text-align:center; margin-top:5px; }
+  .principles { padding:12px 16px; background:linear-gradient(90deg,#e8eaf6,#f5f5f5); border-left:5px solid #1F3864; border-radius:4px; display:flex; gap:18px; justify-content:center; flex-wrap:wrap; }
+  .principles span { font-size:12px; font-weight:600; color:#1F3864; }
+  .img-wrap { text-align:center; margin-bottom:12px; border:1px solid #e0e0e0; border-radius:4px; padding:7px; background:#fafafa; }
+  .img-wrap svg { max-width:100%; max-height:330px; }
+  svg text { font-family:"等线","Microsoft YaHei",sans-serif; }
+  .flow { display:flex; align-items:flex-start; gap:0; padding:6px 0 14px; }
+  .step { flex:1; text-align:center; }
+  .step-num { width:38px; height:38px; border-radius:50%; background:#1F3864; color:#fff; font-size:15px; font-weight:700; display:flex; align-items:center; justify-content:center; margin:0 auto 7px; }
+  .step-title { font-size:12px; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
+  .step-desc { font-size:10.5px; color:#555; line-height:1.35; padding:0 4px; }
+  .arrow { display:flex; align-items:center; padding-top:7px; flex-shrink:0; }
+  .arrow-l { width:32px; height:3px; background:#1F3864; }
+  .arrow-h { width:0; height:0; border-top:6px solid transparent; border-bottom:6px solid transparent; border-left:11px solid #1F3864; }
+  .svg-defs { position:absolute; width:0; height:0; overflow:hidden; }
+</style>
+</head>
+<body>
+<svg class="svg-defs" aria-hidden="true" focusable="false" width="0" height="0">
+  <defs>
+<g id="gts-logo">
+<path fill="#D60037" fill-rule="nonzero" d="M7173.87 7805.86c65.71,49.76 152.92,-3.45 161.5,-85.48 34.14,-326.93 59.89,-778.58 -188.29,-867.15 -134.13,-47.88 -383.2,75.16 -647.9,276.41 -56.62,43.08 -58.44,137.1 -0.49,178.37 114.42,81.53 286.45,206.09 359.03,259.42 67.74,49.78 207.26,155.97 316.15,238.43z"/>
+  <path fill="#D60037" fill-rule="nonzero" d="M7010.48 8220.07c50.61,-15.73 89.1,44.99 53.52,84.38 -476,526.88 -1651.9,1775.4 -2028.19,1645.49 -295.42,-101.97 -217.57,-697.86 -167.67,-999.8 6.59,-39.95 38.12,-86.94 76.85,-98.98 300.73,-93.45 1586.52,-482.25 2065.49,-631.09z"/>
+  <path fill="#D60037" fill-rule="nonzero" d="M6289.45 9505.32c-45.04,49.87 -39.24,134.17 19.91,165.98 487.05,261.95 883.78,383.1 1180.58,206.51 339.14,-201.84 91.52,-1044.36 -91.35,-1494.25 -37.92,-93.31 -128.44,-95.32 -184.99,-20.01 -249.69,332.51 -548.72,726.2 -924.15,1141.77z"/>
+  <path fill="#D60037" fill-rule="nonzero" d="M6973.93 8073.83c88.35,-19.74 108.24,-132.68 33.57,-183.98 -760.56,-522.38 -1894.09,-1273.18 -2308.85,-988.78 -347.98,238.59 -54.33,1130.87 115.77,1565.41 18.63,47.61 69.13,74.43 118.96,63.29l2040.55 -455.94z"/>
+  <path fill="#000" fill-rule="nonzero" d="M9171.91 9327.15c-256.06,0 -459.29,-82.56 -609.64,-247.68 -150.37,-165.1 -225.55,-388.47 -225.55,-670.04 0,-287.18 78.19,-515.1 234.52,-683.81 156.33,-168.7 367.72,-253.07 634.14,-253.07 213.77,0 389.85,53.47 528.29,160.35 138.37,106.9 219.12,251.26 242.27,433.12l-367.33 0c-9.58,-76.57 -52.72,-143.74 -129.37,-201.61 -76.67,-57.83 -161.31,-86.75 -253.93,-86.75 -159.73,0 -284.72,55.26 -374.96,165.72 -90.24,110.51 -135.35,263.83 -135.35,460.05 0,199.45 43.3,351.2 129.86,455.31 86.57,104.07 213.26,156.11 380.02,156.11l-1.19 0c142.02,0 252.93,-54.22 332.73,-162.7 43.87,-61.43 76.2,-133.59 96.96,-216.58l0 -3.6 -414.07 0 0 -302.7 736.66 0 0 948.82 -245.28 0 -35.89 -227.36 -21.54 28.74c-123.64,165.12 -291.16,247.68 -502.55,247.68l1.2 0z"/>
+  <path fill="#000" fill-rule="nonzero" d="M11057 8494.38c-7.98,-78.18 -28.71,-139.2 -62.23,-183.06 -43.88,-58.22 -112.08,-87.35 -204.58,-87.35 -88.55,0 -155.98,33.93 -202.24,101.71 -28.72,43.08 -49.45,99.29 -62.22,168.7l531.27 0zm-262.03 818.41c-197.84,0 -350.41,-61.02 -457.67,-183.06 -107.3,-122.03 -160.94,-295.93 -160.94,-521.68 0,-208.2 54.65,-371.1 163.93,-488.76 109.26,-117.66 260.84,-176.5 454.68,-176.5 198.6,0 351.57,60.03 458.85,180.08 107.28,120.06 160.91,290.93 160.91,512.7 1.61,25.55 -0.39,51.43 -5.96,77.76l-886.62 0c7.97,102.91 30.71,179.89 68.2,230.92 47.87,63.84 127.63,95.72 239.3,95.72 51.85,0 99.92,-14.74 144.17,-44.27 44.28,-29.49 70.79,-64.99 79.59,-106.47l349.38 0c-29.52,132.41 -97.93,236.11 -205.21,311.09 -107.3,74.98 -241.5,112.47 -402.61,112.47z"/>
+  <path fill="#000" fill-rule="nonzero" d="M11604.85 7977.48l162.71 0 163.92 0 0 192.65c13.57,-23.13 28.32,-45.07 44.27,-65.82 84.55,-107.67 207.38,-161.52 368.53,-161.52 137.18,0 244.69,40.69 322.46,122.03 77.78,81.37 116.66,194.25 116.66,338.6l0 875.87 -171.1 0 -172.29 0 0 -813.65c0,-80.53 -17.37,-140.15 -52.06,-178.83 -34.68,-38.72 -87.92,-58.07 -159.74,-58.07 -90.14,0 -159.32,27.14 -207.57,81.35 -48.27,54.29 -72.4,132.46 -72.4,234.53l0 734.67 -171.09 0 -172.3 0 0 -1301.81z"/>
+  <path fill="#000" fill-rule="nonzero" d="M13843.63 8494.38c-7.99,-78.18 -28.72,-139.2 -62.22,-183.06 -43.9,-58.22 -112.07,-87.35 -204.6,-87.35 -88.55,0 -155.96,33.93 -202.22,101.71 -28.72,43.08 -49.45,99.29 -62.21,168.7l531.25 0zm-262.04 818.41c-197.83,0 -350.39,-61.02 -457.67,-183.06 -107.29,-122.03 -160.91,-295.93 -160.91,-521.68 0,-208.2 54.62,-371.1 163.9,-488.76 109.28,-117.66 260.84,-176.5 454.68,-176.5 198.6,0 351.58,60.03 458.87,180.08 107.26,120.06 160.92,290.93 160.92,512.7 1.59,25.55 -0.42,51.43 -5.98,77.76l-886.61 0c7.97,102.91 30.69,179.89 68.18,230.92 47.87,63.84 127.64,95.72 239.3,95.72 51.85,0 99.92,-14.74 144.2,-44.27 44.25,-29.49 70.77,-64.99 79.56,-106.47l349.39 0c-29.53,132.41 -97.92,236.11 -205.22,311.09 -107.29,74.98 -241.5,112.47 -402.61,112.47z"/>
+  <path fill="#000" fill-rule="nonzero" d="M14390.55 7977.48l162.7 0 163.93 0 0 233.32c11.98,-25.53 25.53,-50.23 40.7,-74.19 80.57,-129.21 184.63,-193.82 312.29,-193.82l77.77 1.2 0 350.57c-30.33,-3.19 -64.61,-4.78 -102.91,-4.78 -104.5,0 -182.45,25.92 -233.9,77.75 -51.46,51.87 -77.19,130.45 -77.19,235.74l0 676.02 -171.08 0 -172.31 0 0 -1301.81z"/>
+  <path fill="#000" fill-rule="nonzero" d="M16032.68 8798.3l0 -149.57c-39.89,22.33 -92.54,40.27 -157.94,53.84l-126.83 23.94c-59.84,11.17 -105.3,31.71 -136.41,61.6 -31.1,29.92 -46.65,67.61 -46.65,113.08 0,51.87 13.94,92.57 41.87,122.05 27.91,29.51 67.01,44.28 117.27,44.28 110.05,0 197.79,-38.69 263.21,-116.07 12.75,-15.13 23.53,-37.49 32.32,-67.02 8.75,-29.5 13.16,-58.2 13.16,-86.13zm-412.8 514.49c-120.44,0 -217.37,-34.49 -290.75,-103.48 -73.4,-69.02 -110.08,-159.77 -110.08,-272.22 0,-118.82 33.09,-213.97 99.32,-285.37 66.2,-71.38 162.72,-116.26 289.53,-134.61l226.14 -31.1c59.03,-7.99 108.08,-21.56 147.18,-40.68 16.74,-7.98 29.73,-22.32 38.89,-43.09 9.17,-20.72 12.57,-41.88 10.17,-63.4 -4.78,-36.68 -23.52,-65.42 -56.24,-86.17 -39.1,-24.7 -95.31,-37.08 -168.72,-37.08 -65.4,0 -116.44,15.97 -153.14,47.88 -36.69,31.9 -56.22,76.97 -58.62,135.19l-329.05 0c7.2,-152.32 59.03,-266.43 155.55,-342.21 96.51,-75.75 238.12,-113.65 424.76,-113.65 161.94,0 289.75,34.13 383.47,102.4 93.73,68.27 140.6,161.48 140.6,279.64l0 728.12c0,58.3 4.78,99.21 14.36,122.76 9.58,23.58 28.72,42.13 57.43,55.7l0 1.18 0 46.68 -185.46 0 -185.44 0 0 -1.18c-15.19,-52.66 -25.14,-104.11 -29.92,-154.35l-1.2 -2.42c-107.69,127.65 -247.28,191.46 -418.78,191.46z"/>
+  <polygon fill="#000" fill-rule="nonzero" points="16634.66,7520.42 16805.76,7520.42 16978.05,7520.42 16978.05,9279.28 16806.96,9279.28 16634.66,9279.28 "/>
+  <polygon fill="#000" fill-rule="nonzero" points="18393.51,7832.71 17862.26,7832.71 17862.26,7677.19 17862.26,7520.42 19292.09,7520.42 19292.09,7675.94 19292.09,7832.71 18760.84,7832.71 18760.84,9279.28 18577.78,9279.28 18393.51,9279.28 "/>
+  <path fill="#000" fill-rule="nonzero" d="M20018.43 8494.38c-7.98,-78.18 -28.72,-139.2 -62.21,-183.06 -43.9,-58.22 -112.08,-87.35 -204.6,-87.35 -88.54,0 -155.96,33.93 -202.22,101.71 -28.72,43.08 -49.48,99.29 -62.22,168.7l531.25 0zm-262.03 818.41c-197.84,0 -350.4,-61.02 -457.67,-183.06 -107.3,-122.03 -160.92,-295.93 -160.92,-521.68 0,-208.2 54.62,-371.1 163.91,-488.76 109.28,-117.66 260.83,-176.5 454.68,-176.5 198.6,0 351.56,60.03 458.86,180.08 107.26,120.06 160.92,290.93 160.92,512.7 1.59,25.55 -0.41,51.43 -5.98,77.76l-886.6 0c7.94,102.91 30.68,179.89 68.17,230.92 47.88,63.84 127.64,95.72 239.3,95.72 51.87,0 99.92,-14.74 144.18,-44.27 44.27,-29.49 70.81,-64.99 79.58,-106.47l349.39 0c-29.52,132.41 -97.91,236.11 -205.21,311.09 -107.3,74.98 -241.5,112.47 -402.61,112.47z"/>
+  <path fill="#000" fill-rule="nonzero" d="M21307.05 8367.53c0,-50.23 -20.77,-90.52 -62.27,-120.85 -41.51,-30.29 -96.58,-45.43 -165.21,-45.43 -66.26,0 -117.96,11.34 -155.05,34.08 -37.14,22.74 -55.69,54.45 -55.69,95.13 0,28.69 21.13,53.46 63.42,74.19 41.48,19.95 115.3,41.87 221.4,65.79 210.64,47.07 351.47,98.52 422.5,154.35 71.18,55.86 106.78,143.61 106.78,263.25 0,127.62 -51.67,230.31 -154.97,308.09 -103.31,77.77 -239.54,116.67 -408.67,116.67 -200.28,0 -354.43,-38.31 -462.55,-114.87 -108.09,-76.6 -165.72,-188.25 -172.91,-335.02l349.38 0c2.4,59.83 28.94,106.67 79.58,140.58 50.68,33.92 119.5,50.84 206.46,50.84 68.6,0 122.28,-11.74 160.99,-35.29 38.69,-23.5 58.04,-56.41 58.04,-98.72 0,-29.48 -18.74,-54.62 -56.21,-75.37 -37.49,-19.9 -103.33,-40.27 -197.46,-61.01 -220.2,-49.45 -367.39,-101.72 -441.58,-156.75 -74.08,-54.25 -111.11,-138.38 -111.11,-252.46 0,-129.23 48.03,-233.51 144.14,-312.88 96.08,-79.35 222.71,-119.06 379.81,-119.06 177.05,0 319.8,38.89 428.28,116.66 108.48,77.77 162.71,180.5 162.71,308.08l-339.81 0z"/>
+  <path fill="#000" fill-rule="nonzero" d="M22489.62 9286.48c-57.44,4.78 -128.03,7.16 -211.8,7.16 -121.27,0 -208.38,-21.71 -261.43,-65.2 -53.05,-43.47 -79.57,-114.67 -79.57,-213.59l0 -796.85 -180.66 0 0 -240.52 180.66 0 0 -350.57 343.39 0 0 350.57 209.41 0 0 240.52 -209.41 0 0 739.43c0,30.31 9,50.25 26.93,59.82 17.96,9.58 55.21,14.35 111.88,14.35l70.6 0 0 254.88z"/>
+ </g>
+  </defs>
+</svg>
+
+<!-- ===== P1 封面 ===== -->
+<div class="page cover-page">
+  <div class="page-header"></div>
+  <div class="main">
+    <h1 class="cover-title">相控阵测试系统<br>RP 分布式触发方案技术报告</h1>
+    <div class="cover-divider"></div>
+    <div class="cover-subtitle">RP2350B QFN-80 &nbsp;·&nbsp; PIO 硬实时 &nbsp;·&nbsp; RJ45_SYNC_RING &nbsp;·&nbsp; 虚拟 DC</div>
+    <div class="cover-info">前沿部 &nbsp;|&nbsp; 产线组 &nbsp;|&nbsp; RP2350_TRIG &nbsp;|&nbsp; 2026 年 8 月</div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">1 / 22</span></span></div>
+</div>
+
+<!-- ===== P2 目录 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">目 录</div>
+    <div class="row2" style="margin-top:14px;">
+      <div class="col2">
+        <div class="h2">Part 1 &nbsp; 方案概述</div>
+        <div style="font-size:12px; line-height:2.05; color:#333;">
+          P3 参数解释表<br>P4 系统需求与指标<br>P5 方案架构总览<br>P6 RP2350B IO 与网表约束<br>
+        </div>
+        <div class="h2">Part 2 &nbsp; 核心技术</div>
+        <div style="font-size:12px; line-height:2.05; color:#333;">
+          P7 四板业务拓扑<br>P8 RJ45_SYNC_RING 同步环<br>P9 虚拟 DC 时间模型<br>P10 本地预约触发执行<br>P11 DPLL 反馈调节<br>P12 T2 回读与闭环校准<br>
+        </div>
+      </div>
+      <div class="col2">
+        <div class="h2">Part 3 &nbsp; 工程实现</div>
+        <div style="font-size:12px; line-height:2.05; color:#333;">
+          P13 误差预算与指标推导<br>P14 RP2350 PIO 实时执行边界<br>P15 统一节点板硬件框图<br>P16 EMC、隔离与地桥策略<br>P17 操作与使用流程<br>P18 校准流程<br>
+        </div>
+        <div class="h2">Part 4 &nbsp; 落地计划</div>
+        <div style="font-size:12px; line-height:2.05; color:#333;">
+          P19 上位机配置接口<br>P20 实施路线图<br>P21 风险识别与应对措施<br>P22 总结结论与实施策略<br>
+        </div>
+      </div>
+    </div>
+    <div class="bar">新版报告以 <span>RP2350B_QFN80_IO_CONSTRAINTS + 2026-08-04 PCB 网表</span> 为准，不沿用旧 AUX0..AUX3 校准环路脚位</div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">2 / 22</span></span></div>
+</div>
+
+<!-- ===== P3 参数解释表 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">参数解释表</div>
+    <div class="sub">先定义时间基准、残差符号和 RP2350B 原型边界，再进入技术指标页</div>
+    <table>
+      <thead><tr><th class="c">参数</th><th>名称</th><th>定义/测量口径</th><th class="c">用途</th></tr></thead>
+      <tbody>
+        <tr><td class="c val">T_fire_base</td><td class="b">系统基准触发时刻</td><td>A0 下位机 DPLL 根据目标角度、转台反馈和预跑模型生成的未来虚拟 DC tick；上位机只配置参数。</td><td class="c">全局预约基准</td></tr>
+        <tr><td class="c val">T_fire_i</td><td class="b">第 i 板预约触发时刻</td><td><span class="val">T_fire_i=T_fire_base+Δt_i</span>。各板 CPU 换算成本地 <span class="val">delta_ticks</span>，PIO 到点输出。</td><td class="c">本地执行</td></tr>
+        <tr><td class="c val">Δt_i</td><td class="b">节点/设备补偿量</td><td>包含 SMA 通道、RJ45 链路、隔离/驱动、线缆、接收阈值、设备动作和期望相对 delay。</td><td class="c">末端对齐</td></tr>
+        <tr><td class="c val">T2_i</td><td class="b">设备完成回读时间戳</td><td>各板用 SMA 输入捕获 READY、完成脉冲或回环脉冲，由 PIO 窗口计数 + CPU 扩展为虚拟 DC 时间戳。</td><td class="c">闭环验收</td></tr>
+        <tr><td class="c val">e_vdc</td><td class="b">虚拟 DC 同步残差</td><td>由 RJ45_SYNC_RING 同步帧首沿统计，评价 A1/A2/A3 与 A0 虚拟时间轴是否一致。</td><td class="c">跨板时间基准</td></tr>
+        <tr><td class="c val">e_io</td><td class="b">通道校准残差</td><td>SMA 驱动、隔离器、线缆、接收阈值、温漂经交叉标定后剩余的固定/慢变残差。</td><td class="c">端口修正</td></tr>
+        <tr><td class="c val">e_q</td><td class="b">PIO 量化残差</td><td>RP2350B PIO 倒计时粒度，<span class="val">clk_sys=250MHz</span> 时 1 tick = 4 ns。</td><td class="c">执行粒度</td></tr>
+        <tr><td class="c val">e_pll</td><td class="b">DPLL 角度时间残差</td><td>目标角度映射到未来触发时间的预测误差，按微秒级验收，不与跨板同步混用。</td><td class="c">角度准确性</td></tr>
+        <tr><td class="c val">e_act</td><td class="b">设备动作残差</td><td><span class="val">e_act=T2_i-T_fire_base-Δt_i</span>，扣除补偿后评价 A1/A2/A3 设备动作是否对齐。</td><td class="c">最终同步验收</td></tr>
+        <tr><td class="c val">late_count</td><td class="b">过期预约计数</td><td>预约帧到达时剩余时间小于 <span class="val">t_margin_min</span>，本板拒绝触发并计数。</td><td class="c">队列安全</td></tr>
+      </tbody>
+    </table>
+    <div class="principles"><span>e_vdc 评价时间轴</span><span>e_q/e_io 评价本地执行</span><span>e_pll 评价角度预测</span><span>e_act 评价末端动作</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">3 / 22</span></span></div>
+</div>
+
+<!-- ===== P4 系统需求与指标 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">系统需求与核心指标</div>
+    <div class="sub">RP2350B 四板原型定位：百纳秒级分布式动作一致性 + 微秒级角度预测闭环</div>
+    <div class="row3 equal-cards">
+      <div class="col3"><div class="card cb"><div class="card-h">🎯 虚拟 DC</div><div class="card-b"><div class="big-number">≤100ns</div><div class="big-number-label">Demo P99 目标，由同步环实测</div></div></div></div>
+      <div class="col3"><div class="card cg"><div class="card-h">⚡ PIO 粒度</div><div class="card-b"><div class="big-number">4ns</div><div class="big-number-label">@250MHz，实际需计入 IO 延迟</div></div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">🔌 设备动作</div><div class="card-b"><div class="big-number">≤300ns</div><div class="big-number-label">首版 e_act P99.9 目标</div></div></div></div>
+    </div>
+    <table style="margin-top:12px;">
+      <thead><tr><th>验收层级</th><th class="c">Demo 目标</th><th class="c">优化目标</th><th>统计口径与边界</th></tr></thead>
+      <tbody>
+        <tr><td class="b">A. 虚拟 DC 同步残差 e_vdc</td><td class="c val">P99≤100ns<br>P99.9≤300ns</td><td class="c val">P99≤30-50ns</td><td>四板 RJ45_SYNC_RING 连续 1h 起步，统计同步帧边沿；不能从 RP2350 或收发器典型值外推。</td></tr>
+        <tr><td class="b">B. PIO 本地输出粒度 e_q</td><td class="c val">4ns @250MHz</td><td class="c val">保持 4ns<br>可相位/外部 TDC 优化</td><td>PIO 只做短窗口倒计时；CPU 维护 64-bit 时间，不能宣称 PIO 直接比较完整 DC 绝对时间。</td></tr>
+        <tr><td class="b">C. 通道校准残差 e_io</td><td class="c val">≤10ns</td><td class="c val">≤2.5ns</td><td>SMA 输出、输入回读、RJ45 hop、线缆和设备阈值经示波器/交叉测试标定。</td></tr>
+        <tr><td class="b">D. 设备动作残差 e_act</td><td class="c val">P99.9≤300ns</td><td class="c val">P99.9≤150ns</td><td>统一口径 <span class="val">T2_i-T_fire_base-Δt_i</span>。READY 缺失、late、CRC 错误不进入有效射频样本。</td></tr>
+        <tr><td class="b">E. DPLL 角度时间残差 e_pll</td><td class="c val">P99.9≤50µs</td><td class="c val">P99.9≤30µs</td><td>评价角度到时间映射，不写成纳秒级同步指标；需转台硬件在环验证。</td></tr>
+        <tr><td class="b">F. late 预约</td><td class="c val">正式采集=0</td><td class="c val">保持 0</td><td>通信抖动只影响是否 late；一旦 PIO 已装载，通信包抖动不进入边沿。</td></tr>
+      </tbody>
+    </table>
+    <div class="bar">指标分层原则：<span>虚拟时间轴、PIO 执行、角度预测、设备动作</span> 分开统计，不混用</div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">4 / 22</span></span></div>
+</div>
+
+<!-- ===== P5 方案架构总览 ===== -->
+<div class="page">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">方案架构总览</div>
+    <div class="sub">同一 RP2350B 节点板通过角色配置成为 A0 扫描/转台主控、A1 DUT、A2 馈源、A3 上位机网关/网分节点</div>
+    <div class="img-wrap">
+      <svg viewBox="0 0 1000 260">
+        <defs>
+          <marker id="arr" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0,0 10,4 0,8" fill="#1F3864"/></marker>
+        </defs>
+        <rect x="30" y="40" width="190" height="120" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+        <rect x="285" y="40" width="190" height="120" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+        <rect x="540" y="40" width="190" height="120" rx="10" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+        <rect x="795" y="40" width="170" height="120" rx="10" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="2"/>
+        <text x="125" y="72" text-anchor="middle" fill="#1565c0" font-weight="700" font-size="20">A0 转台主控</text>
+        <text x="125" y="102" text-anchor="middle" font-size="13">POS 捕获 / DPLL</text>
+        <text x="125" y="126" text-anchor="middle" font-size="13">生成 T_fire_base</text>
+        <text x="380" y="72" text-anchor="middle" fill="#2e7d32" font-weight="700" font-size="20">A1 DUT/链路</text>
+        <text x="380" y="102" text-anchor="middle" font-size="13">SP8T / 门控</text>
+        <text x="380" y="126" text-anchor="middle" font-size="13">T2_link 回读</text>
+        <text x="635" y="72" text-anchor="middle" fill="#e65100" font-weight="700" font-size="20">A2 馈源极化</text>
+        <text x="635" y="102" text-anchor="middle" font-size="13">极化 / 开关</text>
+        <text x="635" y="126" text-anchor="middle" font-size="13">T2_feed 回读</text>
+        <text x="880" y="72" text-anchor="middle" fill="#6a1b9a" font-weight="700" font-size="20">A3 PC / VNA</text>
+        <text x="880" y="102" text-anchor="middle" font-size="13">VNA_TRIG</text>
+        <text x="880" y="126" text-anchor="middle" font-size="13">READY/REDY 捕获</text>
+        <line x1="220" y1="100" x2="285" y2="100" stroke="#1F3864" stroke-width="4" marker-end="url(#arr)"/>
+        <line x1="475" y1="100" x2="540" y2="100" stroke="#1F3864" stroke-width="4" marker-end="url(#arr)"/>
+        <line x1="730" y1="100" x2="795" y2="100" stroke="#1F3864" stroke-width="4" marker-end="url(#arr)"/>
+        <path d="M880 160 C880 230 125 230 125 162" fill="none" stroke="#1F3864" stroke-width="4" marker-end="url(#arr)"/>
+        <text x="500" y="208" text-anchor="middle" fill="#1F3864" font-weight="700" font-size="14">RJ45_SYNC_RING：SYNC / FIRE_LOAD / DONE / MEAS_DONE / FAULT</text>
+        <text x="500" y="28" text-anchor="middle" fill="#666" font-size="13">业务触发不在环路上串行转发；各板提前装载，本地 PIO 到点输出 SMA 边沿</text>
+      </svg>
+    </div>
+    <table>
+      <thead><tr><th class="c">功能</th><th>机制</th><th class="c">实时边界</th><th>承载内容</th></tr></thead>
+      <tbody>
+        <tr><td class="b c">统一硬件</td><td>四块 RP2350B QFN-80 节点板</td><td class="c">角色由配置决定</td><td>A0/A1/A2/A3 使用同一 pin map、同一固件底座、不同业务 persona。</td></tr>
+        <tr><td class="b c">同步链路</td><td>GPIO26/27 RJ45_FWD_TRIG_OUT/IN</td><td class="c">帧首沿时间戳</td><td>同步帧、预约帧、状态回读、校准帧，点对点固定方向环。</td></tr>
+        <tr><td class="b c">本地触发</td><td>GPIO16..19 SMA_OUT1..4</td><td class="c">PIO 倒计时</td><td>设备触发、开关锁存、VNA TRIG、测试脉冲。</td></tr>
+        <tr><td class="b c">回读捕获</td><td>GPIO20..23 SMA_IN4..1</td><td class="c">PIO capture window</td><td>转台 Compare Out、设备 READY/T2、示波器回环。</td></tr>
+        <tr><td class="b c">位置接口</td><td>SMA 首版，BiSS 预留</td><td class="c">A0 捕获</td><td>先用 Compare Out 闭环；后续可接 BiSS/SSI/RS422 位置源。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">5 / 22</span></span></div>
+</div>
+
+<!-- ===== P6 IO 约束 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">RP2350B IO 与网表约束</div>
+    <div class="sub">以 `docs/PCB/Netlist_Schematic1_2026-08-04.tel` 为准，修正旧 AUX 方案和旧输入/输出方向</div>
+    <table>
+      <thead><tr><th class="c">GPIO</th><th>PIO</th><th>方向</th><th>网表信号</th><th>触发方案用途</th></tr></thead>
+      <tbody>
+        <tr><td class="c b">16</td><td>PIO1</td><td>输出</td><td class="val">SMA_OUT1</td><td>本地触发输出 1</td></tr>
+        <tr><td class="c b">17</td><td>PIO1</td><td>输出</td><td class="val">SMA_OUT2</td><td>本地触发输出 2</td></tr>
+        <tr><td class="c b">18</td><td>PIO1</td><td>输出</td><td class="val">SMA_OUT3</td><td>本地触发输出 3</td></tr>
+        <tr><td class="c b">19</td><td>PIO1</td><td>输出</td><td class="val">SMA_OUT4</td><td>本地触发输出 4</td></tr>
+        <tr><td class="c b">20</td><td>PIO0</td><td>输入</td><td class="val">SMA_IN4</td><td>回读/捕获输入 4，注意反序</td></tr>
+        <tr><td class="c b">21</td><td>PIO0</td><td>输入</td><td class="val">SMA_IN3</td><td>回读/捕获输入 3</td></tr>
+        <tr><td class="c b">22</td><td>PIO0</td><td>输入</td><td class="val">SMA_IN2</td><td>回读/捕获输入 2</td></tr>
+        <tr><td class="c b">23</td><td>PIO0</td><td>输入</td><td class="val">SMA_IN1</td><td>A0 默认转台 Compare Out</td></tr>
+        <tr><td class="c b">24/25</td><td>PIO2</td><td>入/出</td><td class="val">BISS_DATA1_IN / BISS_CLK1_OUT</td><td>BiSS/SSI 预留，不做同步主环</td></tr>
+        <tr><td class="c b">26/27</td><td>PIO1/PIO0</td><td>出/入</td><td class="val">RJ45_FWD_TRIG_OUT / IN</td><td>四板同步环主链路</td></tr>
+        <tr><td class="c b">28/29</td><td>PIO2</td><td>入/出</td><td class="val">BISS_CLK0_IN / BISS_DATA0_OUT</td><td>BiSS/协议辅助预留</td></tr>
+      </tbody>
+    </table>
+    <div class="row3 equal-cards">
+      <div class="col3"><div class="card cr"><div class="card-h">❗ 不能沿用旧表</div><div class="card-b">早期文档中 GPIO26..29 作为 AUX0..AUX3 的 CAL_RING 口径已失效。新版硬件 GPIO26/27 是 RJ45 触发，GPIO24/25/28/29 是 BiSS。</div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">⚠️ 输入反序</div><div class="card-b">PIO 读 GPIO20..23 得到物理顺序 IN4, IN3, IN2, IN1；固件必须按 pin map 解释或 bit reverse。</div></div></div>
+      <div class="col3"><div class="card cg"><div class="card-h">✅ ADC 已按网表修正</div><div class="card-b">GPIO43=BOARD_TEMP1，GPIO44=BOARD_CUR1/AMC1301，GPIO45=BOARD_CUR2 预留；不再写 HW_ID_MON/INA180。</div></div></div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">6 / 22</span></span></div>
+</div>
+
+<!-- ===== P7 四板业务拓扑 ===== -->
+<div class="page">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">四板业务拓扑</div>
+    <div class="sub">A0 只生成基准和调度；A1/A2/A3 在各自设备近端本地输出，不等待串行动作链</div>
+    <div class="row2">
+      <div class="col2">
+        <table>
+          <thead><tr><th>节点</th><th>业务角色</th><th>关键输入</th><th>关键输出</th></tr></thead>
+          <tbody>
+            <tr><td class="b c">A0</td><td>扫描主控 / 转台 / DPLL / ring origin</td><td>SMA_IN1 接 Compare Out；A3 转入配置/控制</td><td>RJ45 下发 SYNC/FIRE_LOAD；硬件内部自循环</td></tr>
+            <tr><td class="b c">A1</td><td>DUT / 链路 / SP8T</td><td>RJ45 同步预约；SMA_IN 捕获 DONE</td><td>SMA_OUT 切换 DUT/链路；RJ45 回传 A1_DONE</td></tr>
+            <tr><td class="b c">A2</td><td>馈源 / 极化 / 开关</td><td>RJ45 同步预约；SMA_IN 捕获 DONE</td><td>SMA_OUT 切换馈源/极化；RJ45 回传 A2_DONE</td></tr>
+            <tr><td class="b c">A3</td><td>上位机网关 / VNA / 网分</td><td>USB/USBTMC 配置；RJ45 预约；SMA_IN READY</td><td>转发配置/START/STOP；触发 VNA；回传数据状态</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col2">
+        <div class="card cb"><div class="card-h">业务时序原则</div><div class="card-b">
+          <b>并行预约：</b>A1/A2/A3 收到同一个 <span class="val">T_fire_base</span>，根据本节点 <span class="val">Δt_i</span> 到点动作。<br>
+          <b>DONE 不串行触发：</b>A1_DONE/A2_DONE 用于闭环验收和决定 A3 是否采样，不用于实时触发下一块板。<br>
+          <b>短线近端：</b>设备触发线只保留板到设备近端段，降低暗室/伺服环境长线耦合风险。<br>
+          <b>异常剔除：</b>late、CRC、READY 超窗、乱序样本不进入 DPLL 和射频有效结果。
+        </div></div>
+        <div class="card cg" style="margin-top:12px;"><div class="card-h">设备动作编排</div><div class="card-b">
+          每个角度点按同一个基准展开：<span class="val">DUT delay</span>、<span class="val">FEED delay</span>、<span class="val">VNA delay</span>。单点节拍由最慢设备建立时间决定，不再是多个设备串行等待之和。
+        </div></div>
+      </div>
+    </div>
+    <div class="bar">核心认知：<span>环路传预约和状态，SMA 输出真实边沿</span>；通信包到达时刻不直接变成业务触发时刻</div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">7 / 22</span></span></div>
+</div>
+
+<!-- ===== P8 RJ45_SYNC_RING ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">RJ45_SYNC_RING 同步环：实现方法</div>
+    <div class="sub">GPIO26 输出、GPIO27 输入，四段点对点固定方向差分链路；帧首沿作为时间戳基准</div>
+    <div class="img-wrap">
+      <svg viewBox="0 0 1000 210">
+        <defs><marker id="arr2" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0,0 10,4 0,8" fill="#1F3864"/></marker></defs>
+        <rect x="70" y="45" width="150" height="70" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/><text x="145" y="85" text-anchor="middle" font-size="18" font-weight="700">A0</text>
+        <rect x="315" y="45" width="150" height="70" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/><text x="390" y="85" text-anchor="middle" font-size="18" font-weight="700">A1</text>
+        <rect x="560" y="45" width="150" height="70" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="2"/><text x="635" y="85" text-anchor="middle" font-size="18" font-weight="700">A2</text>
+        <rect x="805" y="45" width="130" height="70" rx="8" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="2"/><text x="870" y="85" text-anchor="middle" font-size="18" font-weight="700">A3</text>
+        <line x1="220" y1="80" x2="315" y2="80" stroke="#1F3864" stroke-width="4" marker-end="url(#arr2)"/>
+        <line x1="465" y1="80" x2="560" y2="80" stroke="#1F3864" stroke-width="4" marker-end="url(#arr2)"/>
+        <line x1="710" y1="80" x2="805" y2="80" stroke="#1F3864" stroke-width="4" marker-end="url(#arr2)"/>
+        <path d="M870 115 C870 175 145 175 145 118" fill="none" stroke="#1F3864" stroke-width="4" marker-end="url(#arr2)"/>
+        <text x="500" y="154" text-anchor="middle" font-size="13" fill="#1F3864" font-weight="700">每段：GPIO26 → ISO1452/差分对 → GPIO27；固定方向、常态接收、初始化后使能驱动</text>
+      </svg>
+    </div>
+    <table>
+      <thead><tr><th>帧类型</th><th class="c">发送方</th><th>作用</th><th>进入实时链路的内容</th></tr></thead>
+      <tbody>
+        <tr><td class="b val">SYNC</td><td class="c">A0</td><td>虚拟 DC offset/rate 更新</td><td>首沿时间戳 + seq；payload 不决定边沿</td></tr>
+        <tr><td class="b val">FIRE_LOAD</td><td class="c">A0</td><td>未来预约触发装载</td><td>seq、T_fire_base、mask、pulse_width、CRC</td></tr>
+        <tr><td class="b val">A1_DONE / A2_DONE</td><td class="c">A1/A2</td><td>动作完成与状态确认</td><td>seq、T2_i、status、error_code</td></tr>
+        <tr><td class="b val">MEAS_DONE</td><td class="c">A3</td><td>VNA READY/REDY 已捕获</td><td>seq、T2_vna、valid/timeout</td></tr>
+        <tr><td class="b val">FAULT</td><td class="c">任意板</td><td>late、CRC、断线、超窗、互锁</td><td>只进入状态机和日志，不补救已过期触发</td></tr>
+      </tbody>
+    </table>
+    <div class="row3 equal-cards">
+      <div class="col3"><div class="card cg"><div class="card-h">推荐首版</div><div class="card-b">12.5 Mbps，20 cycles/bit @250MHz，先做 1e6 帧 CRC=0 和边沿分布统计。</div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">高速档</div><div class="card-b">20.833 Mbps，12 cycles/bit，适合 PIO 整周期时序，但对收发器和走线更敏感。</div></div></div>
+      <div class="col3"><div class="card cr"><div class="card-h">禁止事项</div><div class="card-b">不把多板挂成共享总线；不运行中切方向；不把 DONE 当作串行实时触发边沿。</div></div></div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">8 / 22</span></span></div>
+</div>
+
+<!-- ===== P9 虚拟 DC 时间模型 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">虚拟 DC 时间模型</div>
+    <div class="sub">RP2350B 没有 EtherCAT DC 硬件计数器；用本地 tick + offset/rate 建立可校准时间轴</div>
+    <div class="row2">
+      <div class="col2">
+        <div class="card cb"><div class="card-h">本地 tick</div><div class="card-b">
+          <span class="val">local_tick = clk_sys tick</span><br>
+          <span class="val">1 tick = 4 ns @250 MHz</span><br><br>
+          PIO 负责短窗口计数、边沿捕获和到点输出；CPU 扩展 64-bit 时间戳。
+        </div></div>
+        <div class="card cg" style="margin-top:12px;"><div class="card-h">虚拟 DC 映射</div><div class="card-b">
+          <span class="val">dc_tick = local_tick * rate_q32 + offset_tick</span><br><br>
+          <b>offset_tick</b> 修正相位；<b>rate_q32</b> 修正频率；A0 是 ring origin。
+        </div></div>
+      </div>
+      <div class="col2">
+        <table>
+          <thead><tr><th>变量</th><th>含义</th><th>更新方式</th></tr></thead>
+          <tbody>
+            <tr><td class="b val">offset_tick</td><td>本板到 A0 虚拟 DC 的相位偏移</td><td>SYNC 帧捕获边沿 + 多轮平均 / DPLL</td></tr>
+            <tr><td class="b val">rate_q32</td><td>本板本地时钟相对 A0 的频率修正</td><td>连续 SYNC 帧相位斜率估计，低带宽平滑</td></tr>
+            <tr><td class="b val">Δt_i</td><td>节点/通道/设备补偿量</td><td>出厂校准 + 现场交叉测试 + 慢速温漂修正</td></tr>
+            <tr><td class="b val">delta_ticks</td><td>PIO 短窗口倒计时</td><td>CPU 将未来 T_fire_i 换算为本地相对 tick</td></tr>
+            <tr><td class="b val">t_margin</td><td>预约装载提前量</td><td>必须大于队列、PIO 装载和通信抖动裕度</td></tr>
+          </tbody>
+        </table>
+        <div class="card co"><div class="card-h">实现边界</div><div class="card-b">
+          PIO 不能直接读取系统 timer，也不维护完整 64-bit DC。所有绝对时间比较由 CPU 转换成短窗口倒计时；过晚预约直接 late，不补发。
+        </div></div>
+      </div>
+    </div>
+    <div class="bar">时间轴不是芯片典型值，而是 <span>同步帧边沿 + 回环标定 + 长时间分布统计</span> 的工程结果</div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">9 / 22</span></span></div>
+</div>
+
+<!-- ===== P10 预约触发执行 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">本地预约触发执行</div>
+    <div class="sub">通信帧只装载未来计划；SMA 触发边沿由本板 PIO 到点产生，隔离 RTOS/USB/日志抖动</div>
+    <div class="flow">
+      <div class="step"><div class="step-num">1</div><div class="step-title">A0 捕获位置</div><div class="step-desc">SMA_IN1 捕获 Compare Out，扩展 seq/time</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-title">DPLL 预测</div><div class="step-desc">生成未来 T_fire_base，检查队列窗口</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-title">环路分发</div><div class="step-desc">FIRE_LOAD 传 seq、mask、脉宽、CRC</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-title">本地装载</div><div class="step-desc">换算 delta_ticks，装入 PIO local_fire</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">5</div><div class="step-title">到点输出</div><div class="step-desc">GPIO16..19 SMA_OUT 到点输出动作脉冲</div></div>
+    </div>
+    <table>
+      <thead><tr><th>状态</th><th>进入条件</th><th>处理规则</th><th>异常出口</th></tr></thead>
+      <tbody>
+        <tr><td class="b val">IDLE</td><td>未同步、未校准或未 ARM</td><td>输出安全电平，只允许配置和自检</td><td>自检失败进入 FAULT</td></tr>
+        <tr><td class="b val">SYNCING</td><td>RJ45 环路已连接</td><td>估计 offset/rate，统计 e_vdc</td><td>断线进入 HOLDOVER/FAULT</td></tr>
+        <tr><td class="b val">ARMED</td><td>同步锁定、互锁闭合</td><td>只接受未来预约帧</td><td>CRC/seq 错误计数</td></tr>
+        <tr><td class="b val">QUEUED</td><td>PIO 已装载 delta_ticks</td><td>等待本地倒计时，不受后续通信抖动影响</td><td>队列欠载进入 HOLDOVER</td></tr>
+        <tr><td class="b val">FIRING</td><td>倒计时到点</td><td>按 mask/pulse_width/polarity 输出 SMA 脉冲</td><td>输出互锁触发 FAULT</td></tr>
+        <tr><td class="b val">WAIT_T2</td><td>动作触发已完成</td><td>捕获 READY/T2 并回传 DONE</td><td>超窗样本无效</td></tr>
+      </tbody>
+    </table>
+    <div class="principles"><span>late 不补发</span><span>seq 必须连续</span><span>CRC 错误不执行</span><span>通信抖动不进入已装载边沿</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">10 / 22</span></span></div>
+</div>
+
+<!-- ===== P11 DPLL ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">DPLL 反馈调节与脉冲预测分发</div>
+    <div class="sub">DPLL 负责角度到时间映射；PIO 负责本地边沿。两者验收指标不能混用</div>
+    <table>
+      <thead><tr><th>离散模型</th><th>表达式</th><th>工程含义</th></tr></thead>
+      <tbody>
+        <tr><td class="b">目标触发序列</td><td class="val">t_k = t_0 + k·Δθ/ω</td><td>等角度脉冲在角速度 ω 下转为时间序列；A0 根据 Compare Out/编码器更新时间估计。</td></tr>
+        <tr><td class="b">状态量</td><td class="val">x=[φ, ω]</td><td>φ 表示角度/相位偏置，ω 表示速度估计；正式采集阶段只允许平滑微调。</td></tr>
+        <tr><td class="b">单节点残差</td><td class="val">e_i[k]=T_fb_i[k]-T_pred_i[k]</td><td>T_fb_i 来自 A1/A2/A3 的 T2/READY 回读；先剔除 late、missing、reorder、timeout。</td></tr>
+        <tr><td class="b">共模残差</td><td class="val">e_c[k]=Σw_i(e_i[k]-b_i[k])</td><td>w_i 由节点健康度和抖动方差给权；b_i 来自校准表和温漂模型。</td></tr>
+        <tr><td class="b">PI 更新</td><td class="val">phase += Kp·clamp(e_c)<br>freq += Ki·clamp(e_c)</td><td>Kp/Ki 通过转台硬件在环扫参冻结，不在报告中预承诺固定值。</td></tr>
+        <tr><td class="b">本地补偿</td><td class="val">Δt_i[k+1]=Δt_i[k]+γ·LPF(e_i-e_c)</td><td>只修正线缆、通道 skew 和温漂等慢变项，不回改已输出边沿。</td></tr>
+      </tbody>
+    </table>
+    <div class="row3 equal-cards">
+      <div class="col3"><div class="card cb"><div class="card-h">预跑段 -5°~-3°</div><div class="card-b">完成加速和匀速确认，不冻结预测结果；收集速度纹波、Compare Out 抖动、队列裕度。</div></div></div>
+      <div class="col3"><div class="card cg"><div class="card-h">确认段 -3°~0°</div><div class="card-b">统计 e_pll，确认虚拟 DC 锁定、队列装载深度、late_count=0、T2 回读有效率。</div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">正式采集 0°~360°</div><div class="card-b">滚动生成 T_fire_base[k]；异常样本不入环路；连续超限降速、停采或重锁。</div></div></div>
+    </div>
+    <div class="bar">DPLL 目标：<span>e_pll P99.9≤50µs</span>；设备同步目标另看 <span>e_act</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">11 / 22</span></span></div>
+</div>
+
+<!-- ===== P12 T2 回读 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">T2 回读与闭环校准</div>
+    <div class="sub">每个动作必须带序号回读，先验收“是否实际动作”，再让有效样本进入 DPLL 和补偿表</div>
+    <div class="row2">
+      <div class="col2">
+        <div class="card cb"><div class="card-h">SMA 输入捕获</div><div class="card-b">
+          A1/A2/A3 使用 GPIO20..23 捕获设备 READY、完成脉冲或输出回环。PIO 运行 capture_window，CPU 按窗口计数、loop_cycles 和通道校准扩展为虚拟 DC 时间戳。
+        </div></div>
+        <div class="card cg" style="margin-top:12px;"><div class="card-h">回读字段</div><div class="card-b">
+          <span class="val">seq</span>、<span class="val">node_id</span>、<span class="val">channel</span>、<span class="val">T2_i</span>、<span class="val">status</span>、<span class="val">error_code</span>、<span class="val">temperature</span>、<span class="val">late_count</span>。
+        </div></div>
+      </div>
+      <div class="col2">
+        <table>
+          <thead><tr><th>样本状态</th><th>是否进入环路</th><th>处理方式</th></tr></thead>
+          <tbody>
+            <tr><td class="b tag-g">VALID</td><td class="c">是</td><td>计算 e_i、e_act，可进入共模残差和慢速 Δt_i 更新。</td></tr>
+            <tr><td class="b tag-y">LATE</td><td class="c">否</td><td>本次预约过晚，禁止补救触发；记录队列和通信诊断。</td></tr>
+            <tr><td class="b tag-y">TIMEOUT</td><td class="c">否</td><td>READY/T2 超窗，动作有效性未知；本次射频样本无效。</td></tr>
+            <tr><td class="b tag-y">REORDER</td><td class="c">否</td><td>序号乱序或重复，不进入 DPLL，避免污染预测。</td></tr>
+            <tr><td class="b tag-r">FAULT</td><td class="c">否</td><td>互锁、CRC、断线或输出异常；锁存故障等待人工/上位机清除。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <table style="margin-top:10px;">
+      <thead><tr><th>残差</th><th>公式</th><th>用途</th><th>验收说明</th></tr></thead>
+      <tbody>
+        <tr><td class="b">单节点反馈残差</td><td class="val">e_i=T_fb_i-T_pred_i</td><td>DPLL 输入</td><td>先剔除异常，再按节点健康度加权。</td></tr>
+        <tr><td class="b">设备动作残差</td><td class="val">e_act=T2_i-T_fire_base-Δt_i</td><td>最终同步验收</td><td>A1/A2/A3 分别统计 P99/P99.9/p-p。</td></tr>
+        <tr><td class="b">本地慢变残差</td><td class="val">e_i-e_c</td><td>通道/温漂补偿</td><td>只低带宽更新，不允许正式采集突变。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">12 / 22</span></span></div>
+</div>
+
+<!-- ===== P13 误差预算 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">误差预算与指标推导</div>
+    <div class="sub">RP2350B 版预算按原型能力重写：不承诺 EtherCAT/Zynq 的 1ns DC 或亚 ns TDC</div>
+    <table>
+      <thead><tr><th>误差项</th><th class="c">符号</th><th class="c">RP2350B 取值</th><th>来源与计算</th></tr></thead>
+      <tbody>
+        <tr><td class="b">虚拟 DC 同步残差</td><td class="c val">e_vdc</td><td class="c val">P99≤100ns<br>P99.9≤300ns</td><td>四板同步帧边沿、hop 延迟、收发器 skew、本地时钟漂移和 offset/rate 滤波共同决定。</td></tr>
+        <tr><td class="b">PIO 量化残差</td><td class="c val">e_q</td><td class="c val">4ns</td><td>250MHz 下 1 tick=4ns；capture loop 若多周期，捕获分辨率按 loop_cycles 计算。</td></tr>
+        <tr><td class="b">输出通道残差</td><td class="c val">e_io</td><td class="c val">首版≤10ns<br>优化≤2.5ns</td><td>SMA 驱动、隔离器、串阻、线缆、接收阈值和温漂经标定后的剩余量。</td></tr>
+        <tr><td class="b">本地输出随机抖动</td><td class="c val">e_j</td><td class="c val">实测冻结</td><td>RP2350 PLL/PIO/IO、隔离器和外部驱动器噪声；不写 200ps FPGA 指标。</td></tr>
+        <tr><td class="b">DPLL 角度时间残差</td><td class="c val">e_pll</td><td class="c val">P99.9≤50µs</td><td>转台速度纹波、Compare Out 抖动、编码器量化、反馈延迟和环路带宽决定。</td></tr>
+        <tr><td class="b">设备内部不确定度</td><td class="c val">e_dev</td><td class="c val">设备相关</td><td>VNA 触发死区、开关锁存、链路门控响应；必须通过 T2_i 实测闭合。</td></tr>
+      </tbody>
+    </table>
+    <div class="row2">
+      <div class="col2"><div class="card cb"><div class="card-h">跨板预约触发估算</div><div class="card-b">
+        <span class="val">e_cross≈sqrt(e_vdc²+e_q²+e_io²+e_j²)</span><br>
+        首版预算量级为百 ns；P99.9 必须由统一统计口径的四板实测分布闭合，不能用混合门限 RSS 替代。
+      </div></div></div>
+      <div class="col2"><div class="card cg"><div class="card-h">近端硬触发估算</div><div class="card-b">
+        <span class="val">t_near=t_in+t_filter+t_pio+t_out+t_cable</span><br>
+        同板输入到输出典型 50-300ns，按 ≤1µs 验收；该指标不代表跨板同步误差。
+      </div></div></div>
+    </div>
+    <table style="margin-top:10px;">
+      <thead><tr><th>角度误差换算</th><th>计算式</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="b">速度误差引起时间误差</td><td class="val">δt≈T_pred·δω/ω</td><td>预测提前量越长、瞬时速度扰动越大，触发时间误差越大；需预跑 + DPLL 限制。</td></tr>
+        <tr><td class="b">时间误差转角度误差</td><td class="val">Δθ=ω·Δt</td><td>10°/s 下 50µs 对应 0.0005°，DPLL 不按纳秒级预测误差冻结。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">13 / 22</span></span></div>
+</div>
+
+<!-- ===== P14 PIO 执行 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">RP2350 PIO 实时执行边界</div>
+    <div class="sub">三组 PIO 按实际 pin map 分域：PIO0 输入捕获，PIO1 输出触发，PIO2 保留 BiSS/协议</div>
+    <table>
+      <thead><tr><th>PIO 职责</th><th>GPIO</th><th>核心动作</th><th>边界</th></tr></thead>
+      <tbody>
+        <tr><td class="b val">capture_window</td><td>GPIO20..23 + GPIO27</td><td>采样 SMA_IN 和 RJ45_IN，捕获边沿时 push 通道 bitmap 与窗口计数。</td><td>分辨率按 loop_cycles 标定，不等同于 1 tick。</td></tr>
+        <tr><td class="b val">local_fire</td><td>GPIO16..19</td><td>pull delta_ticks/mask/pulse_width/polarity，到点输出 SMA 脉冲。</td><td>CPU 必须提前装载；late 禁止补救。</td></tr>
+        <tr><td class="b val">ring_rx_tx</td><td>GPIO27 输入 / GPIO26 输出</td><td>同步环帧首沿时间戳、payload 解码、固定延迟转发或状态回传。</td><td>首版用 12.5Mbps；CRC 错误只进入诊断。</td></tr>
+        <tr><td class="b val">biss_reserved</td><td>GPIO24/25/28/29</td><td>BiSS/SSI/RS422 位置源或协议辅助。</td><td>不作为四板同步主链路，避免协议与触发混用。</td></tr>
+      </tbody>
+    </table>
+    <div class="row3 equal-cards">
+      <div class="col3"><div class="card cg"><div class="card-h">硬实时留给 PIO</div><div class="card-b">边沿捕获、短窗口倒计时、脉宽保持、通道 mask 输出全部在 PIO 中完成。</div></div></div>
+      <div class="col3"><div class="card cb"><div class="card-h">数学留给 A0 CPU</div><div class="card-b">64-bit 虚拟 DC、offset/rate、DPLL、异常剔除、补偿表、运行日志由 A0 下位机完成；上位机只配置和读取。</div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">DMA 用于持续流</div><div class="card-b">连续捕获、长序列输出和批量采样必须使用 DMA，避免 IRQ 把实时链路打爆。</div></div></div>
+    </div>
+    <div class="bar">实现红线：<span>触发模式 armed 后不得切换已分配 PIO 输出 GPIO 的 owner 或 GPIO base</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">14 / 22</span></span></div>
+</div>
+
+<!-- ===== P15 硬件框图 ===== -->
+<div class="page">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">统一节点板硬件框图</div>
+    <div class="sub">RP2350B 同时承载本地 PIO 触发、RJ45 同步环、SMA 设备触发/回读、BiSS 预留和管理接口</div>
+    <div class="img-wrap">
+      <svg viewBox="0 0 1000 360">
+        <rect x="390" y="75" width="220" height="150" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="3"/>
+        <text x="500" y="112" text-anchor="middle" fill="#1565c0" font-size="22" font-weight="700">RP2350B QFN-80</text>
+        <text x="500" y="144" text-anchor="middle" font-size="13">CPU: DPLL / 虚拟 DC / 队列</text>
+        <text x="500" y="168" text-anchor="middle" font-size="13">PIO0: 输入捕获</text>
+        <text x="500" y="190" text-anchor="middle" font-size="13">PIO1: 触发输出</text>
+        <text x="500" y="212" text-anchor="middle" font-size="13">PIO2: BiSS / 协议预留</text>
+        <rect x="80" y="45" width="220" height="70" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+        <text x="190" y="75" text-anchor="middle" font-weight="700" font-size="16">SMA_IN1..4</text>
+        <text x="190" y="98" text-anchor="middle" font-size="12">GPIO23..20 / 反序输入</text>
+        <rect x="80" y="160" width="220" height="70" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+        <text x="190" y="190" text-anchor="middle" font-weight="700" font-size="16">SMA_OUT1..4</text>
+        <text x="190" y="213" text-anchor="middle" font-size="12">GPIO16..19 / 本地触发</text>
+        <rect x="700" y="45" width="220" height="70" rx="8" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="2"/>
+        <text x="810" y="75" text-anchor="middle" font-weight="700" font-size="16">RJ45 Trigger</text>
+        <text x="810" y="98" text-anchor="middle" font-size="12">GPIO26 OUT / GPIO27 IN</text>
+        <rect x="700" y="160" width="220" height="70" rx="8" fill="#fce4ec" stroke="#c2185b" stroke-width="2"/>
+        <text x="810" y="190" text-anchor="middle" font-weight="700" font-size="16">BiSS / RS422</text>
+        <text x="810" y="213" text-anchor="middle" font-size="12">GPIO24/25/28/29</text>
+        <rect x="390" y="270" width="220" height="54" rx="8" fill="#f5f5f5" stroke="#607d8b" stroke-width="2"/>
+        <text x="500" y="292" text-anchor="middle" font-weight="700" font-size="15">USB / UART / TF / LCD / ADC</text>
+        <text x="500" y="313" text-anchor="middle" font-size="12">管理、日志、显示、遥测</text>
+        <line x1="300" y1="80" x2="390" y2="130" stroke="#1F3864" stroke-width="3"/>
+        <line x1="300" y1="195" x2="390" y2="185" stroke="#1F3864" stroke-width="3"/>
+        <line x1="610" y1="130" x2="700" y2="80" stroke="#1F3864" stroke-width="3"/>
+        <line x1="610" y1="185" x2="700" y2="195" stroke="#1F3864" stroke-width="3"/>
+        <line x1="500" y1="225" x2="500" y2="270" stroke="#1F3864" stroke-width="3"/>
+      </svg>
+    </div>
+    <table>
+      <thead><tr><th>硬件域</th><th>说明</th><th>约束</th></tr></thead>
+      <tbody>
+        <tr><td class="b">MCU 本地域 GND</td><td>RP2350、USB、CH343、RS485、LCD、TF、AMC1301 输出侧</td><td>ADC 只接本地域信号；USB ESD 和 CC 下拉参考 GND。</td></tr>
+        <tr><td class="b">线缆/功率域 FGND</td><td>12V 入口、功率级、RS422/BiSS/Trigger 线缆侧</td><td>通过隔离器或受控耦合件交互；默认不多点直流跨接。</td></tr>
+        <tr><td class="b">ISO1452 控制</td><td>TRIG/BiSS DE 与 /RE 分别由 GPIO 控制</td><td>复位和 bootloader 阶段驱动关闭；初始化完成后才使能。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">15 / 22</span></span></div>
+</div>
+
+<!-- ===== P16 EMC ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">EMC、隔离与地桥策略</div>
+    <div class="sub">RP2350B 方案用数字同步和近端触发缩短敏感线缆；GND/FGND 只允许受控单点策略</div>
+    <div class="row3 equal-cards">
+      <div class="col3"><div class="card cg"><div class="card-h">短线近端触发</div><div class="card-b">转台位置在 A0 捕获，DUT/馈源/VNA 在设备近端本地输出。避免把单端触发脉冲长距离穿越 SiC 伺服和暗室环境。</div></div></div>
+      <div class="col3"><div class="card cb"><div class="card-h">差分同步环</div><div class="card-b">RJ45 同步环采用固定方向差分链路，接收端端接，驱动/接收默认态明确，帧首沿时间戳可标定。</div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">单点地桥</div><div class="card-b">GND-FGND 仅一个受控 0R/DNP 或小电容位置；量产隔离默认 DNP，USB 调试供电旁路隔离需标注。</div></div></div>
+    </div>
+    <table style="margin-top:12px;">
+      <thead><tr><th>风险源</th><th>影响</th><th>设计措施</th><th>验证方式</th></tr></thead>
+      <tbody>
+        <tr><td class="b">伺服 PWM / 电机驱动</td><td>触发线共模、误触发、阈值漂移</td><td>SMA 短线、本地输出、差分同步、端接和屏蔽层策略</td><td>满负载旋转、长线、示波器统计误触发与边沿 jitter</td></tr>
+        <tr><td class="b">GND-FGND 多点耦合</td><td>地环路、隔离边界不可预测</td><td>C37 主跨接；C66/C67/C68/C69/C78/C84 默认 DNP 或 EMI 调试</td><td>BOM 装配状态、绝缘/EMI A/B 测试</td></tr>
+        <tr><td class="b">RJ45 线缆不对称</td><td>hop delay 偏差和温漂</td><td>每段点对点标定，记录线缆长度和方向</td><td>四板环路延迟分布、重启复现性</td></tr>
+        <tr><td class="b">ISO1452 默认态</td><td>上电误驱动或总线冲突</td><td>DE 下拉、/RE 默认接收、固件初始化顺序约束</td><td>上电/复位/bootloader 示波器打点</td></tr>
+        <tr><td class="b">ADC 跨域误接</td><td>隔离失效或 ADC 损坏</td><td>BOARD_CUR1 由 AMC1301 输出侧接 ADC；BOARD_CUR2 未接前端不采样</td><td>网表/ERC/实物阻抗与固件采样清单</td></tr>
+      </tbody>
+    </table>
+    <div class="bar">EMC 策略：<span>不分发模拟时钟，不长线传单端触发，不多点短接地</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">16 / 22</span></span></div>
+</div>
+
+<!-- ===== P17 操作流程 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">操作与使用流程</div>
+    <div class="sub">测试 RUN 态由四板硬件内部自循环；上位机只做配置、启动、停止、状态监控和数据采集/读取</div>
+    <div class="flow">
+      <div class="step"><div class="step-num">1</div><div class="step-title">上电自检</div><div class="step-desc">GPIO/PIO/DE/RE/TF/LCD/ADC 安全态检查</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-title">环路锁定</div><div class="step-desc">RJ45_SYNC_RING 连通，offset/rate 收敛</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-title">整机校准</div><div class="step-desc">SMA/RJ45/设备 T2 多轮测量，更新 Δt_i</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-title">预跑收敛</div><div class="step-desc">-5°~-3° 匀速确认，-3°~0° DPLL 收敛</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">5</div><div class="step-title">硬件自循环</div><div class="step-desc">0°~360° 内部编排、触发、T2 回读、缓存归档</div></div>
+    </div>
+    <table>
+      <thead><tr><th>操作入口</th><th>内容</th><th>不允许做的事</th></tr></thead>
+      <tbody>
+        <tr><td class="b">LCD / 按键</td><td>查看节点 ID、同步状态、ARM、触发计数、温度、错误码；确认告警。</td><td>不直接修改 DPLL 参数，不在 armed 中改 pin map。</td></tr>
+        <tr><td class="b">A3 USB / SCPI</td><td>上位机经网分近端 A3 配置测试计划、启动、停止、查询状态、导出日志和升级。</td><td>RUN 后不逐点推进扫描，不向已过期 T_fire 补发触发。</td></tr>
+        <tr><td class="b">TF 卡</td><td>保存扫描程序包、编排序列、断点、批次日志、T2 分布、late/CRC/seq 错误和环境事件。</td><td>正式运行前预读/窗口化缓存；文件读写不得阻塞 PIO 实时路径。</td></tr>
+        <tr><td class="b">上位机</td><td>编辑/下载配置包，执行 START/STOP，采集仪表数据，读取统计并生成测试报告。</td><td>不参与 RUN 态循环决策，不把主机调度抖动作为触发来源。</td></tr>
+      </tbody>
+    </table>
+    <div class="row3 equal-cards">
+      <div class="col3"><div class="card cg"><div class="card-h">正常</div><div class="card-b">DC LOCKED、QUEUE OK、late=0、READY 有效、e_act 在窗口内。</div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">降级</div><div class="card-b">短时同步丢失进入 HOLDOVER，停止后续预约输出，保留日志等待重锁。</div></div></div>
+      <div class="col3"><div class="card cr"><div class="card-h">故障</div><div class="card-b">互锁、CRC 连续错误、READY 超窗、输出异常，锁存 FAULT 并要求清除。</div></div></div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">17 / 22</span></span></div>
+</div>
+
+<!-- ===== P18 校准流程 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">校准流程</div>
+    <div class="sub">先标定端口与链路，再标定虚拟 DC，最后接入设备动作残差</div>
+    <table>
+      <thead><tr><th class="c">阶段</th><th>校准动作</th><th>输出参数</th><th>通过标准</th></tr></thead>
+      <tbody>
+        <tr><td class="b c">1</td><td>SMA_OUTx → SMA_INx 回环；确认 GPIO20..23 输入反序解释正确。</td><td class="val">Δt_sma[ch]</td><td>每个物理端口映射正确，重复测量分布稳定。</td></tr>
+        <tr><td class="b c">2</td><td>RJ45 单段 A0→A1、A1→A2、A2→A3、A3→A0 延迟测量。</td><td class="val">Δt_hop[n]</td><td>1e6 帧 CRC=0，hop delay 重启后可复现。</td></tr>
+        <tr><td class="b c">3</td><td>A0 周期 SYNC，A1/A2/A3 估计 offset/rate。</td><td class="val">offset_tick, rate_q32</td><td>e_vdc 进入 Demo 窗口；断线恢复可 HOLDOVER/RELOCK。</td></tr>
+        <tr><td class="b c">4</td><td>A1/A2/A3 分别接设备，测动作触发到 READY/T2。</td><td class="val">Δt_device[i]</td><td>READY 有效率、超窗率和动作残差形成分布。</td></tr>
+        <tr><td class="b c">5</td><td>转台硬件在环，-5°~0° 预跑和预测确认。</td><td class="val">DPLL init, e_pll</td><td>e_pll 达标且队列装载充足，才允许 0° 正式采集。</td></tr>
+      </tbody>
+    </table>
+    <div class="row2">
+      <div class="col2"><div class="card cb"><div class="card-h">校准记录字段</div><div class="card-b">
+        board_id、firmware_version、hardware_profile、cable_id、temperature、sma_delay、ring_hop_delay、device_delay、valid_window、timestamp、operator。
+      </div></div></div>
+      <div class="col2"><div class="card co"><div class="card-h">失败拦截</div><div class="card-b">
+        映射错误、CRC 错误、late 非零、READY 超窗、通道残差超限、温漂异常都不能进入正式采集。校准失败作为出厂和现场复测拦截项。
+      </div></div></div>
+    </div>
+    <div class="bar">校准不是一次性常数：<span>固定项写表，慢变项低带宽更新，异常项只记诊断</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">18 / 22</span></span></div>
+</div>
+
+<!-- ===== P19 上位机配置接口 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">软硬件分离、下位机编排与上位机接口</div>
+    <div class="sub">A0/四板在 RUN 态内部自循环；上位机仅通过配置面、控制面和数据面访问，不进入实时执行链路</div>
+    <div class="row2">
+      <div class="col2">
+        <table>
+          <thead><tr><th>配置对象</th><th>关键字段</th><th>RP2350B 四板映射</th></tr></thead>
+          <tbody>
+            <tr><td class="b">HostLink</td><td class="val">A3 CDC/USBTMC, session_id, fw_crc</td><td>上位机物理连接网分近端 A3；通信中断不影响已启动扫描。</td></tr>
+            <tr><td class="b">NodeRoleMap</td><td class="val">A0/A1/A2/A3, hw_profile</td><td>A0 扫描/时间主站；A1 链路；A2 极化；A3 上位机网关/VNA。</td></tr>
+            <tr><td class="b">ScanProgram</td><td class="val">program_id, version, crc, entry</td><td>IDLE/CONFIG 态下载；A0 在 TF/SD 中保存、校验、装载和断点续扫。</td></tr>
+            <tr><td class="b">LoopEngine</td><td class="val">level, node_loop, array_loop</td><td>A0 下位机执行多层扫描；机械位置外层，电子状态内层。</td></tr>
+            <tr><td class="b">Node / Array</td><td class="val">tree_node, state_count, repeat</td><td>支持不规则节点循环和规则数组循环；A0 展开当前窗口，不一次性占满 RAM。</td></tr>
+            <tr><td class="b">LayerAction</td><td class="val">layer_id, action_list, wait_rule</td><td>每层可联动零个或多个硬件动作，按同步设备或快速切换设备处理。</td></tr>
+            <tr><td class="b">ActionMap</td><td class="val">node, SMA_OUTx, SMA_INx, edge, delay</td><td>动作绑定实际 IO：GPIO16..19 输出、GPIO20..23 反序输入。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col2">
+        <table>
+          <thead><tr><th>命令组</th><th>项目化 SCPI 示例</th><th>作用</th></tr></thead>
+          <tbody>
+            <tr><td class="b">配置面</td><td class="val">PROG:LOAD #&lt;pkg&gt;<br>PROG:STORE "SD:/plan.bin"</td><td>仅 IDLE/CONFIG 可修改程序、角色、IO 映射和校准参数。</td></tr>
+            <tr><td class="b">循环编排</td><td class="val">LOOP:CONF NODE,ARRAY,LAYER<br>LOOP:STAT?</td><td>A0 配置节点循环、数组循环和层级状态机，不依赖上位机逐步调度。</td></tr>
+            <tr><td class="b">硬件联动</td><td class="val">LAYER:ACT 2,A1:LINK,A2:POL,A3:VNA<br>ACT:MAP?</td><td>多层硬件动作映射到各节点，支持 READY 等待、固定延时和超窗策略。</td></tr>
+            <tr><td class="b">控制面</td><td class="val">RUN:ARM / RUN:START<br>RUN:STOP / RUN:PAUSE</td><td>START 后 A0 自主运行；STOP/FAULT 才结束，USB 断开不作为停止条件。</td></tr>
+            <tr><td class="b">数据面</td><td class="val">DATA:ACQ? / STAT:LOOP?<br>TRACE:TS? / SYST:ERR:LAST?</td><td>异步读取仪表数据、进度和日志；采用缓存/快照，不阻塞扫描状态机。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="row3 equal-cards">
+      <div class="col3"><div class="card cg"><div class="card-h">A3 接入 / A0 执行</div><div class="card-b">上位机连接网分近端 A3；A3 转发配置和数据，A0 负责循环决策、队列生成、同步和故障处理。</div></div></div>
+      <div class="col3"><div class="card cb"><div class="card-h">下位机扫描引擎</div><div class="card-b">A0 支持节点循环、数组循环、多层硬件联动；大序列放 TF/SD，运行时窗口化读入 RAM。</div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">时间戳与断点</div><div class="card-b">每个位置记录关键时间戳、loop index、node/array state；异常保存断点，便于续扫和复测。</div></div></div>
+    </div>
+    <div class="bar">RUN 态原则：<span>无上位机逐点指令、无 SD 实时阻塞、无 USB 调度参与；四板硬件内部闭环自循环</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">19 / 22</span></span></div>
+</div>
+
+<!-- ===== P20 路线图 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">实施路线图</div>
+    <div class="sub">先证明新版 pin map 和同步环，再闭合 A3 网关、A0 扫描自循环、预约触发和设备回读</div>
+    <table>
+      <thead><tr><th class="c">阶段</th><th>硬件/固件动作</th><th>验证工具</th><th class="c">通过标准</th></tr></thead>
+      <tbody>
+        <tr><td class="b c">Phase 0<br>单板 IO</td><td>验证 GPIO16..19 输出、GPIO20..23 输入反序、GPIO26/27 RJ45、DE/RE 默认态。</td><td>示波器、回环线、端口映射脚本</td><td class="c">端口映射 100% 正确</td></tr>
+        <tr><td class="b c">Phase 1<br>同步环</td><td>A0→A1→A2→A3→A0 固定方向环，SYNC/FAULT/seq/CRC。</td><td>四板环路测试、1e6 帧统计</td><td class="c">CRC=0，延迟稳定</td></tr>
+        <tr><td class="b c">Phase 2<br>虚拟 DC</td><td>offset/rate 收敛，HOLDOVER/RELOCK，状态查询接口。</td><td>长时间日志、断线注入</td><td class="c">e_vdc 达 Demo 窗口</td></tr>
+        <tr><td class="b c">Phase 3<br>扫描引擎</td><td>A3 USB 网关；A0 TF 程序包、节点/数组循环、多层联动、断点续扫。</td><td>程序仿真、断网/掉卡注入</td><td class="c">无上位机逐点调度</td></tr>
+        <tr><td class="b c">Phase 4<br>预约与设备</td><td>A0 滚动 FIRE 队列；A1/A2/A3 PIO 动作、READY/T2 回读和 e_act 统计。</td><td>设备 HIL、统一示波器</td><td class="c">late=0，e_act 达标</td></tr>
+        <tr><td class="b c">Phase 5<br>整机闭环</td><td>接入转台 DPLL；START 后硬件自循环；上位机并行采集 VNA 数据。</td><td>转台/VNA HIL、长稳测试</td><td class="c">e_pll 达标且软硬件隔离</td></tr>
+      </tbody>
+    </table>
+    <div class="row4 equal-cards">
+      <div class="col4"><div class="card cb"><div class="card-h">W1</div><div class="card-b">单板 IO 与网表一致性闭环</div></div></div>
+      <div class="col4"><div class="card cg"><div class="card-h">W2</div><div class="card-b">两板/四板同步环稳定</div></div></div>
+      <div class="col4"><div class="card co"><div class="card-h">W3</div><div class="card-b">A3 网关、A0 扫描引擎和 TF 程序包</div></div></div>
+      <div class="col4"><div class="card cp"><div class="card-h">W4+</div><div class="card-b">预约触发、设备/DPLL 闭环和长稳</div></div></div>
+    </div>
+    <div class="bar">冻结顺序：<span>pin map → 同步环 → A3网关/A0扫描引擎 → 本地触发 → T2/e_act → DPLL/e_pll</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">20 / 22</span></span></div>
+</div>
+
+<!-- ===== P21 风险 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">风险识别与应对措施</div>
+    <div class="sub">按 IO 口径、同步链路、实时执行、设备接口和工程交付五类风险归口</div>
+    <table>
+      <thead><tr><th>风险项</th><th class="c">概率</th><th class="c">影响</th><th>应对措施</th></tr></thead>
+      <tbody>
+        <tr><td class="b">固件沿用旧 GPIO16..23 输入/输出表</td><td class="c">中</td><td class="c">高</td><td>编译期 pin map 断言；启动自检逐通道闪测；测试文档以 2026-08-04 网表为准。</td></tr>
+        <tr><td class="b">GPIO20..23 输入反序导致通道错配</td><td class="c">高</td><td class="c">高</td><td>驱动层统一 bit reverse 或通道表解释；每个 SMA 端口独立回环验收。</td></tr>
+        <tr><td class="b">RJ45 同步环延迟温漂或链路不稳定</td><td class="c">中</td><td class="c">高</td><td>单段 hop 标定、端接检查、12.5Mbps 起步、长时间统计、断线注入。</td></tr>
+        <tr><td class="b">RP2350 原型被误写成 FPGA/EtherCAT 指标</td><td class="c">中</td><td class="c">高</td><td>报告明确 e_vdc/e_q/e_act/e_pll 边界；亚 ns 和 &lt;10ns 跨板指标需升级硬件。</td></tr>
+        <tr><td class="b">设备 READY/T2 不可用或抖动大</td><td class="c">中</td><td class="c">中</td><td>ICD 前置定义 READY 极性、脉宽、超窗；无法回读则用示波器或设备日志替代闭合。</td></tr>
+        <tr><td class="b">DPLL 追随噪声导致失锁</td><td class="c">中</td><td class="c">高</td><td>正式采集降低带宽；异常样本剔除；连续超 50µs 降速、停采或重锁。</td></tr>
+        <tr><td class="b">GND-FGND 多点跨接影响隔离</td><td class="c">中</td><td class="c">中</td><td>单点 0R/DNP 策略；跨地电容默认装配状态写入 BOM；USB 调试供电标识旁路隔离。</td></tr>
+        <tr><td class="b">BOARD_CUR2 浮空 ADC 被周期采样</td><td class="c">中</td><td class="c">低</td><td>固件禁采未接前端 ADC；硬件版本由烧录配置/固件常量声明。</td></tr>
+      </tbody>
+    </table>
+    <div class="principles"><span>先冻结硬件口径</span><span>指标只按实测承诺</span><span>异常样本不入环路</span><span>射频指标独立验收</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">21 / 22</span></span></div>
+</div>
+
+<!-- ===== P22 总结 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">总结结论与实施策略</div>
+    <div class="sub">RP2350B 四板方案可作为百纳秒级分布式触发原型进入工程验证，但必须按新版网表和分层指标执行</div>
+    <table>
+      <thead><tr><th>结论项</th><th>RP2350B 方案口径</th><th>前置动作</th></tr></thead>
+      <tbody>
+        <tr><td class="b">硬件 pin map</td><td>GPIO16..19 输出，GPIO20..23 输入反序，GPIO26/27 RJ45，同步主环不使用旧 AUX0..AUX3。</td><td>固件、测试脚本、文档同步新版网表。</td></tr>
+        <tr><td class="b">同步机制</td><td>RJ45_SYNC_RING 建立虚拟 DC；同步帧首沿用于时间戳，payload 不直接产生业务边沿。</td><td>四板 1e6 帧、1h 起步、断线恢复统计。</td></tr>
+        <tr><td class="b">触发执行</td><td>A1/A2/A3 提前装载 PIO local_fire；SMA_OUT 到点输出；late 预约拒绝执行。</td><td>统一示波器回环，验证边沿残差和 late_count。</td></tr>
+        <tr><td class="b">闭环验收</td><td>用 T2_i 计算 e_act；DPLL 只评价 e_pll；射频结果独立验收。</td><td>ICD 定义 READY、极性、脉宽、最小间隔、超窗行为。</td></tr>
+        <tr><td class="b">指标承诺</td><td>首版 e_vdc P99≤100ns、e_act P99.9≤300ns、e_pll P99.9≤50µs。</td><td>所有指标以实测分布冻结，不用芯片典型值外推。</td></tr>
+      </tbody>
+    </table>
+    <div class="row3 equal-cards">
+      <div class="col3"><div class="card cg"><div class="card-h">✅ 保留</div><div class="card-b">
+        RP2350B PIO 硬实时、四板统一硬件、SMA 近端触发、RJ45 差分同步环、T2 回读、分层残差统计。
+      </div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">⚠️ 可选扩展</div><div class="card-b">
+        BiSS/SSI 位置源、外部 TDC、硬件参考时钟、光隔离同步链路、上位机离线参数整定/数据分析、自动校准工装。
+      </div></div></div>
+      <div class="col3"><div class="card cr"><div class="card-h">❌ 不承诺</div><div class="card-b">
+        EtherCAT DC 级硬同步、FPGA 亚 ns TDC、跨板 &lt;10ns 动作残差、阵元级射频相干指标。
+      </div></div></div>
+    </div>
+    <div class="bar">最终策略：<span>用 RP2350B 快速闭合四板触发原型；若指标要求进入 &lt;10ns 或亚 ns，升级 FPGA/TDC/EtherCAT DC 架构</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">22 / 22</span></span></div>
+</div>
+
+<script>
+  (() => {
+    const logo = `<svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>`;
+    const logoLg = `<svg class="logo logo-lg" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>`;
+    document.querySelectorAll(".page-header").forEach((header) => {
+      if (!header.hasChildNodes()) header.innerHTML = header.closest(".cover-page") ? logoLg : logo;
+    });
+  })();
+</script>
+</body>
+</html>
+
+

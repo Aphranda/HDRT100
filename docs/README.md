@@ -16,6 +16,7 @@ Last updated: 2026-07-07
 
 | 领域 | 当前 canonical 主文档 | 说明 |
 |---|---|---|
+| ARCH/PRODUCT | `ARCH_PRODUCT_ARCHITECTURE.md` | 面向产品的系统架构总纲，综合 HAOFV、RTOS 双核、分布式触发、OTA、SD 和诊断边界。 |
 | ARCH/HAOFV | `HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口。 |
 | SYNC_IO | `SYNC_IO_RESOURCE_PLAN.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TRIGGER | `TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
@@ -49,11 +50,16 @@ Last updated: 2026-07-07
 
 | 文件 | 定位 |
 |---|---|
+| `ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构总纲，统一产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
 | `HAOFV_ARCHITECTURE.md` | HAOFV 顶层产品架构主文档。 |
 | `HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施补充、示例和迁移说明。 |
 | `HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估。 |
 | `RTOS_PORTING_PLAN.md` | FreeRTOS/OSAL 迁移计划。 |
+| `RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md` | 0614 分布式触发报告的仓库内摘要入口。 |
+| `RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告，已从外部 DOC 迁入。 |
 | `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` | RTOS + 双核 AMP 下四板分布式触发任务划分与小步验证记录。 |
+| `RTOS_DISTRIBUTED_TRIGGER_0804_SUMMARY.md` | 0804 分布式触发报告的仓库内摘要入口。 |
+| `RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html` | 0804 RP 分布式触发完整原始报告，已从外部 DOC 迁入。 |
 | `MULTICORE_PARTITION_PLAN.md` | RP2350 双核分区计划。 |
 
 ## 02 硬件与资源约束
@@ -99,6 +105,7 @@ Last updated: 2026-07-07
 | `OTA_PORTABLE_ARCHITECTURE.md` | Portable OTA 架构和复用方案。 |
 | `OTA_OPEN_SOURCE_COMPARISON.md` | OTA 开源方案对比。 |
 | `OTA_LIBRARY_MIGRATION_PLAYBOOK.md` | Portable OTA 库化迁移 playbook。 |
+| `LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，作为当前 OTA/多机分发参考。 |
 
 ## 06 存储与 SD
 
@@ -121,6 +128,16 @@ Last updated: 2026-07-07
 |---|---|
 | `RELEASE_CHECKLIST.md` | 发布门禁检查表。 |
 | `TASK_PROGRESS.md` | 全局历史任务进度。新域建议使用 `<DOMAIN>_TASK_PROGRESS.md`。 |
+
+## 09 历史方案与外部资料迁入
+
+| 文件 | 定位 |
+|---|---|
+| `LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` | PinProbe A1 多机协同与 RAM 反射内存历史方案，当前分布式 Vector/命令槽设计复用其原则。 |
+| `LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，当前 OTA/SD/System Pack 方案可参考其分片、ACK 和本地校验边界。 |
+| `PinProbe A1控制箱 嵌入式整体方案与架构报告.html` | PinProbe A1 控制箱整体方案原始 HTML 报告。 |
+| `RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告。 |
+| `RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html` | 0804 RP 分布式触发完整原始报告。 |
 
 ## 快速查找规则
 

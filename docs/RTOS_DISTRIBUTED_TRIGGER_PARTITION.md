@@ -3,7 +3,7 @@
 Status: Draft
 Domain: RTOS
 Canonical: `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
-Related: `docs/RTOS_PORTING_PLAN.md`, `docs/MULTICORE_PARTITION_PLAN.md`, `docs/TRIGGER_SYNC_TODO.md`, `DOC/相控阵测试系统RP分布式触发方案技术报告0804.html`, `E:/OneDrive/4.Code/STM32/PinProbeA1/STM32F103RCT6_PinprobeA1/Doc/PinProbe A1控制箱 嵌入式整体方案与架构报告.html`
+Related: `docs/RTOS_PORTING_PLAN.md`, `docs/MULTICORE_PARTITION_PLAN.md`, `docs/TRIGGER_SYNC_TODO.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_SUMMARY.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-10
 
 本文档把《相控阵测试系统 RP 分布式触发方案技术报告 0804》落成 RP2350_TRIG
@@ -11,6 +11,13 @@ Last updated: 2026-08-10
 四板分布式触发系统中的控制面、实时控制面、数据面和诊断面固定成可实现边界。
 
 ## 设计输入
+
+完整原始资料已经从外部 `DOC/` 目录补入仓库，克隆后不再依赖 OneDrive 本地路径：
+
+- `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`：0804 RP 分布式触发完整报告。
+- `docs/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`：0614 分布式触发完整报告。
+- `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`：PinProbe A1 RAM 反射内存与多机协同历史方案。
+- `docs/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`：PinProbe A1 OTA 与 CAN 多机分发历史方案。
 
 0804 报告给出的系统边界如下：
 
@@ -61,6 +68,26 @@ task_storage / task_ui / task_ota / task_diag
 - `task_refmem_sync` 维护同一张分布式向量表，不让真实板卡和模型节点状态各自漂移。
 - `core1_realtime` 承载 TriggerAO、PIO 装载、运行态采样、T2/READY 捕获和 late 判定。
 - FatFs、USB 文本输出、SCPI 解析、OTA flash job、LCD 刷新不得进入 core1。
+
+## 双核区域隔离
+
+core0 和 core1 必须按区域隔离，而不是只按函数调用约定隔离。当前 linker 已经把
+core1 stack 放在 `SCRATCH_X`、core0 stack 放在 `SCRATCH_Y`，但 `.text/.rodata/.data`
+仍是同一 App 镜像共享区域。产品化目标需要进一步拆成三类区域：
+
+| 区域 | owner | 内容 | 访问规则 |
+|---|---|---|---|
+| core0 control region | core0 | FreeRTOS task、USB/SCPI、OTA、Storage、UI、诊断、配置门禁 | core0 可读写；core1 禁止直接调用 |
+| core1 realtime region | core1 | `core1_realtime`、TriggerAO/TriggerFB 快路径、PIO 装载、T2/READY 捕获、core1 私有状态 | core1 独占写；core0 只能通过 command queue 写意图 |
+| shared vector region | core0 + core1 | `trigger_command_queue`、`trigger_status_ring`、DistributedVectorTable 摘要、heartbeat、fault evidence | 固定 layout、owner 字段、sequence/CRC；禁止临时读硬件 |
+
+实现约束：
+
+- core1 的入口、flash lockout poll、实时循环和高频 Trigger 快路径应逐步收敛到 RAM-resident section，避免 core0 flash erase/program 期间继续从 XIP flash 取指。
+- core0 和 core1 应各自拥有独立的 VTOR/vector table；core1 的独立 RAM vector table/VTOR 是隔离入口和落实 flash lockout/park 的前提之一，而共享 RAM 一致性建议直接把 owner/sequence/CRC/seqlock 以及 RAM-resident section / flash lockout / park / entry table owner 做成表头或 slot 元素。
+- core1 私有状态不得放在普通全局大池中；需要显式 section 或独立结构体，查询只能读取 core0 合并后的 snapshot。
+- core0 需要写 flash、FatFs 或 USB 时，必须通过资源仲裁进入维护态；任何 flash erase/program 前都必须让 core1 park/lockout。
+- 共享区只传小载荷、版本号和摘要，不传 OTA payload、日志文本、波形或 SD 文件内容。
 
 ## 任务划分
 
@@ -523,6 +550,7 @@ core1 禁止：
 - USB CDC/USBTMC 输出。
 - SCPI 解析。
 - OTA flash job。
+- 任何直接触发 `flash_range_erase()` / `flash_range_program()` 的写 flash 路径；这类操作必须先由 core1 持续执行 `drv_flash_core1_lockout_poll()` 进入 park 再由 core0 写入。
 - LCD/SPI UI 刷新。
 - `printf`/阻塞日志格式化。
 - 无界等待、mutex 长持有、动态内存申请。
@@ -556,7 +584,8 @@ core1 禁止：
   2026-08-10: 已增加 `task_loop_engine` RTOS 任务、`LOOP:STAT?` / `STAT:LOOP?` 只读查询，以及本地 service_count/first_service_ms/last_service_ms 快照。
 - [x] 建立 `task_vdc_sync` 空壳，只维护 lock 状态和统计计数。
   2026-08-10: build `20260810124245` 已烧录验证，`VDC:STAT?` / `STAT:VDC?` 返回 ready、lock_state、service_count、first/last service ms 和 sync_seq，计数持续增长。
-- [ ] 建立 `task_dpll` 空壳，只维护 disabled/ready 状态。
+- [x] 建立 `task_dpll` 空壳，只维护 disabled/ready 状态。
+  2026-08-10: build `20260810124902` 已烧录验证，`DPLL:STAT?` / `STAT:DPLL?` 返回 ready、state、service_count、first/last service ms 和 update_seq，计数持续增长。
 - [x] 建立 `task_refmem_sync` 空壳，按 64 KB 完整布局维护本地 DistributedVectorTable header、node slot 和 heartbeat。
   2026-08-10: build `20260810110636` 已烧录验证，`SYST:RTOS:STAT?` 显示 `refmem_sync`，本地 heartbeat 持续增长；NodeSlot 预留 8 个节点。
 - [x] 增加本地 DistributedVectorTable snapshot 查询，先不做跨板同步。
@@ -573,6 +602,10 @@ core1 禁止：
 - [ ] 实现 sequence lock 或双缓冲，避免字段半新半旧。
 - [ ] 实现命令槽原子 Take/Clear，执行动作保持在临界区外。
 - [ ] 将 core1 trigger status ring 合并到本节点 TriggerSlot 摘要。
+- [ ] 定义 `CoreVectorOwnerTable`，统一记录 core0/core1 VTOR、IRQ owner、entry owner、park/lockout 状态和恢复原因码。
+- [ ] 定义 `RuntimeProtectionTable`，把 RAM-resident section、flash lockout/park、entry table owner、realtime IRQ owner 写入表头或 slot 元素。
+- [ ] 定义 `SystemModeTable`、`ResourceArbiterTable` 和 `FaultCodeTable` 的只读查询接口，作为产品门禁和诊断入口。
+- [ ] 为所有共享表项统一补齐 `table_seq / slot_seq / owner / crc / stale / flags` 字段，保证反射内存口径一致。
 - [x] 增加 `SYST:REFM:STAT?` / `SYST:REFM:NODE?` 诊断命令。
   2026-08-10: P0 本地快照命令已接入，后续 stale/CRC/slot owner 完成后继续扩展字段语义。
 - [ ] 增加 `OK/STALE/MISSING/INVALID/FAULT` 节点新鲜度状态和 stale window 计数。
@@ -583,15 +616,27 @@ core1 禁止：
 - [ ] 抽象 `trigger_status_ring`，core1 只写轻量事件，core0 负责格式化和落盘。
 - [ ] 增加跨核 doorbell 作为唤醒信号，业务 payload 仍走队列。
 - [ ] 为 TriggerVector snapshot 增加 sequence/version，避免查询读到撕裂状态。
+- [ ] 抽象 `core_ipc_contract`，统一定义 core0/core1 mailbox、doorbell、ack、timeout 和 reset 语义。
+- [ ] 实现 core1 park/lockout 握手和超时升级流程，确保 flash erase/program 前能确认 core1 已退出 XIP 取指。
 - [ ] 审计 `storage_manager_trace_event()`，禁止 core1 直接调用。
 - [ ] 为 core1 增加 stack/heartbeat/last_event 诊断字段。
+- [ ] 拆分 core0/core1/shared 三类内存区域，至少包括 core1 私有状态 section、共享 ring/vector section 和 linker map 检查。
+- [ ] 将 core1 入口、flash lockout poll 和实时快路径迁移到 RAM-resident section，确保 flash erase/program 期间 core1 不从 XIP flash 取指。
+- [ ] 评估 core1 独立 RAM vector table/VTOR；只承载必要 realtime IRQ，禁止 USB/SCPI/Storage/OTA IRQ 进入 core1。
+- [ ] 增加 linker map 断言，校验 core1 关键入口、lockout poll、status ring 和私有状态都落在预期 section。
 
 ### P3 - A0/A3 控制面
 
-- [ ] 定义 `NodeRoleMap` 存储和 SCPI 查询接口。
-- [ ] 定义 `LoopPlan`、`LayerAction`、`ActionMap` 的内存结构。
-- [ ] 定义 RUN 前配置一致性门禁：build_id、hw_profile、NodeRoleMap CRC、LoopPlan CRC、ActionMap CRC、Calibration CRC。
+- [x] 建立配置门禁骨架，公开 `SYST:CFG:STAT?` / `STAT:CFG?`，冻结 build_id/hw_profile/CRC/ACK 快照。
+  2026-08-10: build `20260810124902` 已烧录验证，`SYST:CFG:STAT?` 返回 build id、ready、gate_state、epoch、run_id、版本号、ACK/NACK/busy/timeout 位和 CRC 快照，service_count 持续增长。
+- [x] 定义 `NodeRoleMap` 存储和 SCPI 查询接口。
+  2026-08-10: `components/distributed_config/` 提供静态 `NodeRoleMap`，`SYST:CFG:ROLE? [node_id]` 可查询节点角色、persona、feature mask 和 IO base。
+- [x] 定义 `LoopPlan`、`LayerAction`、`ActionMap` 的内存结构。
+  2026-08-10: 静态 `LoopPlan` / `LayerAction` / `ActionMap` 已落地，`SYST:CFG:LOOP? [layer_id]` 和 `SYST:CFG:ACT? [action_id]` 可查询当前快照。
+- [x] 定义 RUN 前配置一致性门禁：build_id、hw_profile、NodeRoleMap CRC、LoopPlan CRC、ActionMap CRC、Calibration CRC。
+  2026-08-10: `distributed_config_validate()` 已加入本地结构一致性检查；门禁通过时 `ack_flags=target_mask`、`nack_flags=0`，失败时 `gate_state=2`。
 - [ ] 定义分布式命令 ACK/NACK 协议：command_seq、target_mask、ack_flags、nack_flags、busy_flags、timeout_flags、nack_reason。
+- [ ] 把 `SystemModeTable` 和 `ResourceArbiterTable` 接到 `task_system`，让模式切换、资源占用和恢复动作都能通过统一查询返回。
 - [ ] 增加 `task_gateway_a3`，接收上位机配置、START/STOP 和数据查询。
 - [ ] 增加 `task_loop_engine` 的 A0 扫描状态机。
 - [ ] 增加 RUN 态 SCPI 白名单和禁止命令错误码。
@@ -606,6 +651,7 @@ core1 禁止：
 - [ ] 实现 A3 本地镜像查询，slot stale 时返回 stale 标志而不是阻塞跨板查询。
 - [ ] 实现 ACK/NACK/busy_flags 位图同步。
 - [ ] 实现 `REFMEM_DELTA`、`FIRE_LOAD`、`DONE/MEAS_DONE` 全部携带 epoch/run_id 或可回溯上下文。
+- [ ] 定义 RJ45 帧级 `table_seq / slot_seq / owner / stale / crc` 头字段，统一反射内存和跨板同步的可追溯性。
 - [ ] 实现 VDC offset/rate 更新、LOCK/HOLDOVER/RELOCK。
 - [ ] 实现 ring hop delay 标定和 `e_vdc` 统计。
 - [ ] 增加四板 1e6 帧 CRC/seq/latency 验证工具。
@@ -619,6 +665,8 @@ core1 禁止：
 - [ ] 实现 GPIO20..23 反序输入捕获和通道映射。
 - [ ] 实现 T2/READY 捕获扩展到虚拟 DC 时间戳。
 - [ ] 实现 `e_act=T2_i-T_fire_base-Δt_i` 统计。
+- [ ] 把 TriggerFB 的 ECC 状态转移表冻结成产品版，至少覆盖 ARM、FIRE_LOAD、READY、T2、late、FAULT、DISARM。
+- [ ] 把 `TriggerActionTable` 接到触发路径，明确定义每种 role / mode / action 的装载时序和禁止条件。
 - [ ] 增加 SMA_OUTx -> SMA_INx 回环自动验证脚本。
 
 ### P6 - DPLL 与整机闭环
@@ -630,6 +678,7 @@ core1 禁止：
 - [ ] 定义 `INFO/WARN/HOLDOVER/FAULT/INTERLOCK` 故障等级和统一 fault evidence 字段。
 - [ ] A3 接入 VNA READY/MEAS_DONE 状态桥接。
 - [ ] 实现 START 后硬件自循环，主机不逐点推进。
+- [ ] 将 `FaultCodeTable` 和 `SafetyFB` 接到 DPLL/Trigger/OTA 三域，统一故障等级、锁存条件和恢复路径。
 - [ ] 完成转台/VNA HIL 长稳测试。
 
 ### P7 - 发布门禁
@@ -642,6 +691,8 @@ core1 禁止：
 - [ ] 验证上电、bootloader、看门狗、通信丢失和 FAULT 下的安全默认态。
 - [ ] release preset 明确 RTOS + 双核产品化门禁；单核/裸机仅保留 bring-up 路径。
 - [ ] README、SCPI 命令文档、HIL 工具和生产测试流程同步更新。
+- [ ] 给产品版发布门禁补一份固定测试矩阵：core0/core1 隔离、flash lockout、REFMEM delta、FIRE_LOAD/T2、OTA 事务、掉电恢复。
+- [ ] 给 `task_refmem_sync`、`task_vdc_sync`、`task_dpll`、`task_gateway_a3` 建立统一长稳回归用例和失败码映射。
 
 ## 当前进度与下一刀
 
@@ -706,7 +757,7 @@ refmem:   SYST:REFM:NODE? 7 -> 7,0,0,0,0,0,0,0,0
 rtos:     refmem_sync used 32 words, heap min free 65288 bytes
 ```
 
-下一步代码修改只做一件事：
+第三刀已经完成：
 
 ```text
 add task_dpll skeleton
@@ -714,7 +765,7 @@ publish disabled/ready state and counter snapshot
 do not connect turntable Compare Out or DPLL convergence yet
 ```
 
-第三刀已经完成：
+第四刀已经完成：
 
 ```text
 add task_vdc_sync skeleton
@@ -725,10 +776,16 @@ do not connect real DC convergence yet
 板端验证结果：
 
 ```text
-build_id: 20260810124245
-smoke:    identity/build_id/core_heartbeat/loop_status/vdc_status/trigger_seq/error_queue/log_stat/trace_last 9/9 PASS
+build_id: 20260810132729
+smoke:    identity/build_id/core_heartbeat/loop_status/vdc_status/dpll_status/config_gate_status/trigger_seq/error_queue/log_stat/trace_last 11/11 PASS
 vdc:      VDC:STAT? -> 1,0,<service_count>,<first_service_ms>,<last_service_ms>,<sync_seq>
-rtos:     task_count 9; vdc_sync used 32 words; ui still visible; heap min free 44584 bytes
+dpll:     DPLL:STAT? -> 1,0,<service_count>,<first_service_ms>,<last_service_ms>,<update_seq>
+cfg:      SYST:CFG:STAT? -> "20260810132729",1,1,60141,3550,13605,1848,2369500348,1,1,1,1,1,15,0,0,0,0,1484595822,2475547252,577814202,2954853378,2581941186,400340093,1187728286
+rtos:     task_count 11; vdc_sync/dpll/cfg_gate/ui still visible; heap min free 27968 bytes
 ```
 
-下一刀仍不接跨板 RJ45 同步，不接真实转台 DPLL，只验证任务边界、状态查询和板端 smoke。
+`components/distributed_config/` 已落地静态 `NodeRoleMap` / `LoopPlan` / `ActionMap` /
+`Calibration` 数据源和本地一致性检查，并通过 `SYST:CFG:ROLE?` / `SYST:CFG:LOOP?` /
+`SYST:CFG:ACT?` / `SYST:CFG:CAL?` 暴露只读快照。下一步继续补 `CoreVectorOwnerTable`、
+`RuntimeProtectionTable`、分布式 ACK/NACK 原因码和 RUN 态命令白名单，不接跨板 RJ45
+同步和真实转台 DPLL 收敛。

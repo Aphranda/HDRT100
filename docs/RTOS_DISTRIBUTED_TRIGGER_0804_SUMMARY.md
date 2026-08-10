@@ -1,0 +1,45 @@
+# 相控阵测试系统 RP 分布式触发方案 0804 摘要
+
+Status: Active
+Domain: RTOS
+Canonical: `docs/RTOS_DISTRIBUTED_TRIGGER_0804_SUMMARY.md`
+Related: `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+Last updated: 2026-08-10
+
+这是一份仓库内摘要，用来替代外部 `DOC/` 路径引用。完整原始报告已补入
+`docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`；本文只保留分布式触发的关键输入。
+
+## 关键边界
+
+- 四板节点固定为 A0/A1/A2/A3。
+- A0 负责扫描编排、DPLL、`T_fire_base` 和下位机时间主站。
+- A1 负责 DUT/链路/SP8T 近端触发动作。
+- A2 负责馈源/极化/开关近端触发动作。
+- A3 负责 USB/USBTMC/SCPI 网关和上位机接入。
+- PIO/DMA/IRQ 负责真实边沿和时间戳，RTOS task 只负责控制面、状态面和快照面。
+
+## 配置对象
+
+报告中的配置数据收敛为几类只读对象：
+
+- `NodeRoleMap`
+- `LoopPlan`
+- `LayerAction`
+- `ActionMap`
+- `Calibration`
+
+这些对象现在由 `components/distributed_config/` 提供静态快照，`SYST:CFG:STAT?` 读取的就是
+该快照的门禁状态。
+
+## 运行约束
+
+- `RUN` 后不依赖上位机逐点推进。
+- 配置、控制、数据三平面分离。
+- 命令是意图，快照是事实，统计是推导。
+- 真实边沿不能经过日志、SD、USB 或 SCPI 解析路径。
+
+## 文档入口
+
+- `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+- `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+- `docs/TRIGGER_SYNC_TODO.md`

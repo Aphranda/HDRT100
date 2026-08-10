@@ -1,0 +1,588 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PinProbe A1控制箱 嵌入式整体方案与架构报告</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body {
+    font-family:"等线","SimSun","Microsoft YaHei",sans-serif;
+    background:#d0d0d0;
+    display:flex; flex-direction:column; align-items:center; padding:20px; gap:24px;
+  }
+  @media print {
+    body { background:#fff; padding:0; gap:0; }
+    .page { box-shadow:none; margin:0; break-after:page; break-inside:avoid; page-break-after:always; page-break-inside:avoid; }
+  }
+  .page { background:#fff; width:1120px; min-height:630px; box-shadow:0 2px 8px rgba(0,0,0,.15); display:flex; flex-direction:column; }
+  .page-header { padding:16px 44px 12px; display:flex; justify-content:flex-end; align-items:center; border-bottom:8px solid #d0d6e4; }
+  .page-header img { height:28px; }
+  .main { flex:1; display:flex; flex-direction:column; justify-content:center; padding:16px 44px; }
+  .page-footer { padding:10px 44px 14px; border-top:8px solid #d0d6e4; display:flex; justify-content:space-between; align-items:center; font-size:9px; color:#aaa; }
+  .page-num { font-size:10px; color:#999; }
+  .h1 { font-size:24px; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
+  .sub { font-size:13px; color:#666; margin-bottom:20px; }
+  .h2 { font-size:16px; font-weight:700; color:#1F3864; margin:16px 0 10px; padding-bottom:6px; border-bottom:2px solid #1F3864; }
+  table { width:100%; border-collapse:collapse; font-size:12px; border:1.5px solid #333; margin-bottom:12px; }
+  thead th { background:#1F3864; color:#fff; font-size:12px; font-weight:600; padding:8px 10px; text-align:left; border:1px solid #1a2e52; }
+  tbody td { padding:7px 10px; border:1px solid #bbb; color:#1a1a1a; vertical-align:top; line-height:1.5; }
+  tbody tr:nth-child(even) td { background:#f2f6fc; }
+  td.b { font-weight:700; }
+  td.c { text-align:center; }
+  .row2 { display:flex; gap:20px; }
+  .row3 { display:flex; gap:16px; }
+  .col2, .col3 { flex:1; }
+  .card { border:1px solid #ddd; border-radius:6px; overflow:hidden; flex:1; }
+  .card-h { padding:10px 14px; font-size:13px; font-weight:700; color:#fff; }
+  .card-b { padding:13px 14px; background:#fafafa; font-size:12px; line-height:1.6; }
+  .card-b ul { list-style:none; padding:0; }
+  .card-b li { padding:4px 0; padding-left:14px; position:relative; }
+  .card-b li::before { content:'>'; position:absolute; left:0; font-size:10px; }
+  .cr .card-h { background:#d32f2f; } .cr li::before { color:#d32f2f; }
+  .co .card-h { background:#e65100; } .co li::before { color:#e65100; }
+  .cg .card-h { background:#2e7d32; } .cg li::before { color:#2e7d32; }
+  .cb .card-h { background:#1565c0; } .cb li::before { color:#1565c0; }
+  .flow { display:flex; align-items:flex-start; gap:0; padding:8px 0 18px; }
+  .step { flex:1; text-align:center; }
+  .step-num { width:40px; height:40px; border-radius:50%; background:#1F3864; color:#fff; font-size:16px; font-weight:700; display:flex; align-items:center; justify-content:center; margin:0 auto 8px; }
+  .step-title { font-size:13px; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
+  .step-desc { font-size:11px; color:#555; line-height:1.4; padding:0 6px; }
+  .step-time { display:inline-block; margin-top:4px; font-size:10px; color:#d84315; font-weight:600; background:#fff3e0; padding:1px 7px; border-radius:10px; }
+  .arrow { display:flex; align-items:center; padding-top:6px; flex-shrink:0; }
+  .arrow-l { width:32px; height:3px; background:#1F3864; }
+  .arrow-h { width:0; height:0; border-top:6px solid transparent; border-bottom:6px solid transparent; border-left:11px solid #1F3864; }
+  .bar { margin-top:12px; padding:12px 20px; background:linear-gradient(90deg,#1F3864,#283593); color:#fff; border-radius:4px; text-align:center; font-size:14px; font-weight:600; }
+  .bar span { color:#ffcc80; font-size:18px; }
+  .badges { display:flex; gap:12px; margin-top:8px; }
+  .badge { flex:1; text-align:center; padding:11px 10px; border-radius:5px; font-size:13px; font-weight:700; color:#fff; }
+  .badge .n { font-size:24px; display:block; }
+  .bo { background:#e65100; } .bg { background:#2e7d32; } .bb { background:#1565c0; } .bp { background:#6a1b9a; }
+  .tag-r, .tag-y, .tag-g, .tag-b { display:inline-block; color:#fff; padding:2px 10px; border-radius:3px; font-size:11px; font-weight:700; }
+  .tag-r { background:#d32f2f; } .tag-y { background:#f57c00; } .tag-g { background:#388e3c; } .tag-b { background:#1565c0; }
+  .principles { padding:14px 18px; background:linear-gradient(90deg,#e8eaf6,#f5f5f5); border-left:5px solid #1F3864; border-radius:4px; display:flex; gap:22px; justify-content:center; flex-wrap:wrap; }
+  .principles span { font-size:13px; font-weight:600; color:#1F3864; }
+  .conc { background:linear-gradient(90deg,#e8f5e9,#f1f8e9); border-left:4px solid #2e7d32; border-radius:4px; padding:12px 16px; margin-top:12px; }
+  .conc h3 { font-size:14px; color:#2e7d32; margin-bottom:5px; }
+  .conc p { font-size:12px; color:#333; line-height:1.55; }
+  .cover-page { justify-content:center; align-items:center; text-align:center; }
+  .cover-page .page-header { padding-top:48px; }
+  .cover-page .page-header img { height:48px; }
+  .cover-title { font-size:32px; font-weight:800; color:#1a1a1a; margin-bottom:12px; }
+  .cover-divider { width:80px; height:4px; background:#1F3864; margin:30px auto; }
+  .cover-subtitle { font-size:16px; color:#1F3864; margin-bottom:60px; }
+  .cover-info { font-size:14px; color:#666; line-height:2; }
+  .note { font-size:10px; color:#999; margin-top:8px; line-height:1.5; }
+  .val, code { font-family:"Consolas","Courier New",monospace; font-weight:700; }
+</style>
+</head>
+<body>
+
+<div class="page cover-page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS" style="height:48px;"></div>
+  <div class="main">
+    <h1 class="cover-title">PinProbe A1控制箱<br>嵌入式整体方案与架构报告</h1>
+    <div class="cover-divider"></div>
+    <div class="cover-subtitle">单机控制主线 · RamVector 数据总线 · 状态机安全逻辑 · 多机扩展路线</div>
+    <div class="cover-info">STM32F103RCT6 / FreeRTOS / SCPI + Modbus RTU / OTA Bootloader &nbsp;|&nbsp; 2026 年 6 月</div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">1 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">目 录</div>
+    <div class="row2" style="margin-top:18px;">
+      <div class="col2">
+        <div class="h2">Part 1 &nbsp; 项目定位</div>
+        <table>
+          <tbody>
+            <tr><td class="b">P3</td><td>项目目标与边界</td></tr>
+            <tr><td class="b">P4</td><td>总体方案与运行链路</td></tr>
+            <tr><td class="b">P5</td><td>软件框架与任务分工</td></tr>
+          </tbody>
+        </table>
+        <div class="h2">Part 2 &nbsp; 核心架构</div>
+        <table>
+          <tbody>
+            <tr><td class="b">P6</td><td>RamVector 黑板式数据总线</td></tr>
+            <tr><td class="b">P7</td><td>状态机与安全控制策略</td></tr>
+            <tr><td class="b">P8</td><td>IO 监视反馈闭环</td></tr>
+            <tr><td class="b">P9</td><td>通讯、诊断与持久化</td></tr>
+            <tr><td class="b">P10</td><td>AppLog 结构化诊断黑匣子</td></tr>
+            <tr><td class="b">P11</td><td>OTA 固件升级与 Bootloader 更新链路</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col2">
+        <div class="h2">Part 3 &nbsp; 价值评估</div>
+        <table>
+          <tbody>
+            <tr><td class="b">P12</td><td>核心优势总结</td></tr>
+            <tr><td class="b">P13</td><td>当前加固清单</td></tr>
+          </tbody>
+        </table>
+        <div class="h2">Part 4 &nbsp; 演进路线</div>
+        <table>
+          <tbody>
+            <tr><td class="b">P14</td><td>后续扩展方向</td></tr>
+            <tr><td class="b">P15</td><td>最终结论</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">2 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">项目目标与边界</div>
+    <div class="sub">当前阶段：单机箱体控制固件 &nbsp;|&nbsp; 后续阶段：CAN 多机协同</div>
+    <div class="row3">
+      <div class="card cb"><div class="card-h">项目定位</div><div class="card-b"><ul>
+        <li>控制 PinProbe A1 箱体的气缸、锁、LED、传感器和安全输入</li>
+        <li>对外提供 SCPI 调试/控制接口，内部通过 RS485 控制 BSM IO 板</li>
+        <li>用 FreeRTOS 将通讯、状态机、看门狗和诊断任务分离</li>
+        <li>以 RamVector 作为唯一状态与命令交换中心</li>
+      </ul></div></div>
+      <div class="card cg"><div class="card-h">当前已实现</div><div class="card-b"><ul>
+        <li>25ms 系统节拍驱动 ModBusTask 与 StateVectorTask</li>
+        <li>SCPI 命令写入 RamVector 命令槽，状态查询读取 IO 镜像</li>
+        <li>RS485 故障保护、门限位消抖、急停/激光防夹、风险模式</li>
+        <li>Flash 配置、POST 自检、固件版本/运行时间/日志查询</li>
+        <li>单机 OTA 接收、W25Q128 暂存、Bootloader 搬运与 App 确认</li>
+      </ul></div></div>
+      <div class="card co"><div class="card-h">明确不混入当前阶段</div><div class="card-b"><ul>
+        <li>CAN 多机同步仍属于后续阶段，不视为单机已落地功能</li>
+        <li>W25Q128 快照、CAN OTA 跨节点分发、跨节点仲裁按多机方案统一规划</li>
+        <li>波特率配置是出厂/维护动作，不作为运行期控制链路</li>
+        <li>旧 StateMachine.c 已废弃，只保留历史参考</li>
+      </ul></div></div>
+    </div>
+    <div class="bar">当前主线目标：把单机箱体控制做成 <span>低耦合、可诊断、可扩展</span> 的工业控制内核</div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">3 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">总体方案与运行链路</div>
+    <div class="sub">从上位机命令到物理 IO 的闭环路径 &nbsp;|&nbsp; 命令与观测解耦</div>
+    <div class="flow">
+      <div class="step"><div class="step-num">1</div><div class="step-title">SCPI 输入</div><div class="step-desc">USART1 DMA + IDLE<br>解析控制/查询命令</div><div class="step-time">10ms轮询</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-title">命令注入</div><div class="step-desc">写 RamVector<br>三通道命令槽</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-title">IO 采样</div><div class="step-desc">USART3 RS485<br>读输入/输出状态</div><div class="step-time">25ms节拍</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-title">状态决策</div><div class="step-desc">StateVector 读取镜像<br>判断状态与安全事件</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">5</div><div class="step-title">动作执行</div><div class="step-desc">CmdExec 翻译 VCMD<br>WriteIO 写 BSM 板</div></div>
+    </div>
+    <table>
+      <thead><tr><th style="width:160px;">链路段</th><th>设计选择</th><th>工程意义</th></tr></thead>
+      <tbody>
+        <tr><td class="b">控制入口</td><td>SCPI 只负责参数解析和命令发布</td><td>不会直接碰 RS485，避免和周期 IO 任务争总线</td></tr>
+        <tr><td class="b">数据交换</td><td>RamVector 存命令槽、IO 镜像、全局状态和节点状态</td><td>模块之间通过结构化内存通信，降低调用耦合</td></tr>
+        <tr><td class="b">执行出口</td><td>ModBusTask 独占 RS485，并在同一任务内执行命令</td><td>避免多任务同时操作 USART3，保持总线行为可预测</td></tr>
+        <tr><td class="b">反馈闭环</td><td>状态查询读 RamVector IO 镜像，不发起现场 IO 读取</td><td>查询轻量、确定，不影响实时控制节拍</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">4 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">软件框架与任务分工</div>
+    <div class="sub">FreeRTOS 任务模型 &nbsp;|&nbsp; 职责分离 &nbsp;|&nbsp; 固定节拍</div>
+    <table>
+      <thead><tr><th style="width:120px;">任务/模块</th><th style="width:120px;">周期/优先级</th><th>职责</th><th>关键文件</th></tr></thead>
+      <tbody>
+        <tr><td class="b">SCPITask</td><td>10ms / Low</td><td>处理 USART1 SCPI 命令、输出查询结果、泵送实时日志</td><td>main.c, scpi-def.c</td></tr>
+        <tr><td class="b">ModBusTask</td><td>25ms flag / Normal1</td><td>读取 BSM IO 输入/输出，更新 RamVector 镜像，执行命令槽</td><td>main.c, RS485.c, cmd_exec.c</td></tr>
+        <tr><td class="b">StateVectorTask</td><td>25ms flag / Normal</td><td>纯逻辑状态机，读取 IO 镜像并发布锁/气缸/LED 命令</td><td>state_vector.c</td></tr>
+        <tr><td class="b">WatchDogTask</td><td>500ms / Low</td><td>刷新独立看门狗，避免任务整体失控后长期挂死</td><td>freertos.c, iwdg.c</td></tr>
+        <tr><td class="b">defaultTask</td><td>1s / Normal</td><td>当前为集群健康监控占位，多机阶段扫描节点心跳</td><td>freertos.c</td></tr>
+        <tr><td class="b">SysTimer</td><td>25ms</td><td>统一唤醒 ModBusTask 与 StateVectorTask</td><td>freertos.c</td></tr>
+      </tbody>
+    </table>
+    <div class="badges">
+      <div class="badge bb"><span class="n">25ms</span>控制节拍</div>
+      <div class="badge bg"><span class="n">3</span>命令通道</div>
+      <div class="badge bo"><span class="n">1024B</span>RamVector</div>
+      <div class="badge bp"><span class="n">76</span>日志容量</div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">5 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">RamVector 黑板式数据总线</div>
+    <div class="sub">固定 1024B 内存布局 &nbsp;|&nbsp; 单机可用，多机预留 &nbsp;|&nbsp; 命令/状态/IO 解耦</div>
+    <div class="row2">
+      <div class="col2">
+        <table>
+          <thead><tr><th style="width:130px;">区域</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td class="b">帧头</td><td>magic、version、timestamp、crc32，为多机同步预留</td></tr>
+            <tr><td class="b">命令区</td><td>lock、cylinder、led 三个独立 CmdSlot，带优先级</td></tr>
+            <tr><td class="b">路由区</td><td>node_mask、source_node、ack_flags，多机阶段启用</td></tr>
+            <tr><td class="b">状态区</td><td>global_state、error_code、node_status[8]</td></tr>
+            <tr><td class="b">IO 镜像</td><td>io_state[8]，单机只用 index 0</td></tr>
+            <tr><td class="b">扩展区</td><td>ext_params[786]，给后续复杂参数和版本扩展留余量</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col2">
+        <div class="card cg"><div class="card-h">架构价值</div><div class="card-b"><ul>
+          <li>SCPI、状态机、执行层都围绕同一份数据表协作</li>
+          <li>命令是意图，IO 镜像是事实，状态是推导结果</li>
+          <li>单机阶段不需要复杂队列即可获得清晰模块边界</li>
+          <li>多机阶段可以直接把同一张表扩展为 CAN 同步载体</li>
+        </ul></div></div>
+        <div class="card co" style="margin-top:14px;"><div class="card-h">已识别加固点</div><div class="card-b"><ul>
+          <li>IO 镜像读取需要整帧快照，避免字段半新半旧</li>
+          <li>命令槽需要原子 Take/Clear，避免新命令被 Clear 覆盖</li>
+          <li>执行命令仍保持在临界区外，避免阻塞实时路径</li>
+        </ul></div></div>
+      </div>
+    </div>
+    <div class="bar">RamVector 是当前项目的核心边界：<span>外部命令、现场 IO、系统状态</span> 都在这里汇合</div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">6 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">状态机与安全控制策略</div>
+    <div class="sub">时间触发状态机 &nbsp;|&nbsp; IO 观测纠偏 &nbsp;|&nbsp; 安全事件优先</div>
+    <div class="flow">
+      <div class="step"><div class="step-num">I</div><div class="step-title">INIT</div><div class="step-desc">上电初始化<br>立即转锁定</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">L</div><div class="step-title">LOCK</div><div class="step-desc">断电/锁定<br>安全基线</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">D</div><div class="step-title">IDLE</div><div class="step-desc">解锁空闲<br>等待操作</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">R</div><div class="step-title">READY</div><div class="step-desc">黄灯准备<br>双按钮确认</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">M</div><div class="step-title">RUNNING</div><div class="step-desc">关门运行<br>限位/风险判定</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">C</div><div class="step-title">COMPLETE</div><div class="step-desc">动作完成<br>允许测试/开门</div></div>
+    </div>
+    <table>
+      <thead><tr><th style="width:150px;">安全机制</th><th>当前策略</th><th>价值</th></tr></thead>
+      <tbody>
+        <tr><td class="b">断电纠偏</td><td>power_out 断开时，非紧急/非初始化状态无条件回 LOCK</td><td>物理断电优先于软件状态，避免状态假象</td></tr>
+        <tr><td class="b">按钮确认</td><td>电源长按 300ms，关门 Ready 后双按钮 500ms，开门单按钮 200ms</td><td>降低误触发和夹手机率</td></tr>
+        <tr><td class="b">防夹保护</td><td>关门后段激光触发进入 EMERGENCY，红灯、锁定、开门释放</td><td>安全事件直接高优先级注入命令槽</td></tr>
+        <tr><td class="b">RS485 故障</td><td>连续失败 10 次后黄灯告警并停止自动操作，恢复后自动清除</td><td>IO 不可靠时拒绝继续做自动判断</td></tr>
+        <tr><td class="b">风险模式</td><td>限位异常场景下可用气压与学习时间辅助判定关门完成</td><td>现场传感器退化时提供受控兜底路径</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">7 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">IO 监视反馈闭环</div>
+    <div class="sub">状态机不盲信命令结果 &nbsp;|&nbsp; 每轮通过现场 IO 镜像纠偏</div>
+    <div class="flow">
+      <div class="step"><div class="step-num">1</div><div class="step-title">现场采样</div><div class="step-desc">BSM IO 板返回<br>输入/输出原始字节</div><div class="step-time">RS485</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-title">镜像更新</div><div class="step-desc">ModBusTask 写入<br>RamVector io_state[0]</div><div class="step-time">25ms</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-title">状态观测</div><div class="step-desc">StateVector 读取镜像<br>消抖并判断可靠性</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-title">命令发布</div><div class="step-desc">根据物理事实<br>Post Lock/Cylinder/LED</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">5</div><div class="step-title">执行反馈</div><div class="step-desc">CmdExec 写 IO 板<br>下一轮再读输出确认</div></div>
+    </div>
+    <table>
+      <thead><tr><th style="width:150px;">反馈环节</th><th>数据来源</th><th>判断/动作</th><th>工程意义</th></tr></thead>
+      <tbody>
+        <tr><td class="b">输入监视</td><td>raw_in_lo / raw_in_hi</td><td>读取限位、按钮、急停、激光、气压，并对限位/按钮做 3 次采样消抖</td><td>把机械触点抖动隔离在状态机入口</td></tr>
+        <tr><td class="b">输出反馈</td><td>raw_out_lo / raw_out_hi</td><td>通过气缸、锁、LED、电源输出位判断动作是否已经实际生效</td><td>状态不是单纯软件变量，而是被 IO 输出反馈校正</td></tr>
+        <tr><td class="b">通讯可信度</td><td>rs485_ok</td><td>IO 读取失败时跳过自动判断；连续失败达到阈值后黄灯告警</td><td>现场数据不可靠时不继续做危险判断</td></tr>
+        <tr><td class="b">状态纠偏</td><td>输入 + 输出组合</td><td>power_out 断开回 LOCK，门下限位进入 COMPLETE，关门输出生效进入 RUNNING</td><td>物理事实优先于历史软件状态</td></tr>
+        <tr><td class="b">动作闭环</td><td>命令槽 + 下一轮输出读取</td><td>本轮写命令，后续通过输出镜像确认动作路径</td><td>避免“发了命令就认为完成”的开环控制</td></tr>
+      </tbody>
+    </table>
+    <div class="bar">核心逻辑：<span>命令只是意图，IO 反馈才是事实</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">8 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">通讯、诊断与持久化</div>
+    <div class="sub">控制入口、现场总线、运行记录、配置存储四条线分离</div>
+    <div class="row2">
+      <div class="col2">
+        <table>
+          <thead><tr><th style="width:130px;">能力</th><th>实现</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="b">SCPI 控制台</td><td>USART1 + libscpi port</td><td>控制气缸/锁/LED，读取系统状态、IO、日志、版本、运行时间</td></tr>
+            <tr><td class="b">BSM IO 通讯</td><td>USART3 RS485 + Modbus 功能码 01/02/03/05</td><td>周期采样输入/输出，写单线圈执行动作</td></tr>
+            <tr><td class="b">DMA 接收</td><td>UART DMA 双缓冲 + IDLE 中断</td><td>降低串口接收阻塞，提高帧边界处理确定性</td></tr>
+            <tr><td class="b">AppLog</td><td>独立 RAM 日志区 0x2000A400</td><td>记录状态、动作、事件、IO，可实时 UART 输出或 SCPI 拉取</td></tr>
+            <tr><td class="b">Flash 配置</td><td>内部 Flash 最后一页 2KB</td><td>保存 IDN、急停类型、风险模式、波特率等配置，带 CRC 校验</td></tr>
+            <tr><td class="b">OTA 维护</td><td>SCPI + W25Q128 + Bootloader</td><td>128B binary block 接收固件，CRC 校验后复位进入 Bootloader 刷写 App 区</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col2">
+        <div class="card cb"><div class="card-h">上电初始化链路</div><div class="card-b"><ul>
+          <li>HAL、时钟、GPIO/DMA/UART/SPI/CAN/TIM/IWDG 初始化</li>
+          <li>开启 UART IDLE 和 DMA 中断，启动 USART1/USART3 DMA 接收</li>
+          <li>Flash_Init 加载配置，SCPI_Init 建立命令上下文</li>
+          <li>AppLog_Init 后执行 POST：RCC、Flash CRC、RS485、IO板型号</li>
+          <li>启动 FreeRTOS 调度器，由 SysTimer 驱动周期任务</li>
+        </ul></div></div>
+        <div class="conc">
+          <h3>诊断策略</h3>
+          <p>项目没有把诊断混入 RamVector，而是用独立 AppLog 记录“发生了什么”。RamVector 负责实时状态，AppLog 负责事后解释，两者边界清晰。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">9 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">AppLog 结构化诊断黑匣子</div>
+    <div class="sub">独立于 RamVector 的诊断面 &nbsp;|&nbsp; 固定 RAM 区 &nbsp;|&nbsp; SCPI 拉取 + 实时 UART</div>
+    <div class="row2">
+      <div class="col2">
+        <table>
+          <thead><tr><th style="width:140px;">设计点</th><th>实现方式</th><th>价值</th></tr></thead>
+          <tbody>
+            <tr><td class="b">独立内存段</td><td>scatter 固定 <span class="val">RW_APPLOG 0x2000A400</span>，大小 <span class="val">0x500</span></td><td>诊断数据不占用 RamVector，避免污染实时状态表</td></tr>
+            <tr><td class="b">固定记录格式</td><td>每条 <span class="val">16B</span>，含 tick、seq、node、level、module、event、arg</td><td>比 printf 字符串更省 RAM，也便于后续落盘或上传</td></tr>
+            <tr><td class="b">环形缓冲</td><td>容量 <span class="val">76</span> 条，满后覆盖最旧记录并累计 drop_count</td><td>不会因日志堆积阻塞控制链路</td></tr>
+            <tr><td class="b">双消费通道</td><td>SCPI read_index 与实时 realtime_index 分离</td><td>人工查询和实时串口输出互不抢同一个游标</td></tr>
+            <tr><td class="b">文本格式化</td><td>读取时再格式化为 STATE/ACTION/EVENT/IO 文本</td><td>运行期存结构体，输出期再转换，节省现场 RAM</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col2">
+        <div class="card cg"><div class="card-h">当前记录内容</div><div class="card-b"><ul>
+          <li>状态跳转：LOCK、IDLE、READY、RUNNING、EMERGENCY、COMPLETE</li>
+          <li>动作耗时：关门开始/完成、开门开始/完成、阶段里程碑</li>
+          <li>安全事件：RS485 故障、急停、激光防夹、风险模式、气压异常</li>
+          <li>命令来源：SCPI 锁、气缸、LED 操作，以及按钮触发</li>
+          <li>IO 快照：按需记录输入/输出原始字节变化</li>
+        </ul></div></div>
+        <div class="card cb" style="margin-top:14px;"><div class="card-h">访问方式</div><div class="card-b"><ul>
+          <li><span class="val">READ:LOG:NEXT?</span> 拉取下一条日志</li>
+          <li><span class="val">READ:LOG:ALL?</span> 拉取当前缓存全部日志</li>
+          <li><span class="val">READ:LOG:STATus?</span> 查看容量、待读数、丢弃计数、实时开关</li>
+          <li><span class="val">CONFigure:LOG:UART</span> 开关实时 UART 输出</li>
+          <li>UART 忙时实时输出直接跳过，不等待串口空闲</li>
+        </ul></div></div>
+      </div>
+    </div>
+    <div class="conc">
+      <h3>架构定位</h3>
+      <p>RamVector 回答“系统现在是什么状态”，AppLog 回答“系统为什么变成这个状态”。它是单机调试、现场验收、异常复盘和后续 Flash 故障日志的共同基础。</p>
+    </div>
+    <div class="note">注：实时 UART 是 best-effort 诊断输出，不承诺全量；需要完整读取时以 SCPI 拉取通道和 drop_count 为准。</div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">10 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">OTA 固件升级与 Bootloader 更新链路</div>
+    <div class="sub">App 接收与校验 &nbsp;|&nbsp; W25Q128 暂存 &nbsp;|&nbsp; Bootloader 刷写内部 Flash</div>
+    <div class="flow">
+      <div class="step"><div class="step-num">1</div><div class="step-title">GUI 选包</div><div class="step-desc">校验 App 向量表<br>计算 size / CRC32</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-title">SCPI 上传</div><div class="step-desc">USART1 binary block<br>128B 分块写入</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-title">外部暂存</div><div class="step-desc">W25Q128 Slot A<br>bitmap 记录缺块</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-title">提交标志</div><div class="step-desc">Manifest + Boot Flags<br>写入 OTA Area</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">5</div><div class="step-title">Bootloader</div><div class="step-desc">CRC/向量表校验<br>搬运到 App 区</div></div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">6</div><div class="step-title">App 确认</div><div class="step-desc">POST 通过后<br>CONFIRMED</div></div>
+    </div>
+    <table>
+      <thead><tr><th style="width:150px;">设计点</th><th>当前实现</th><th>工程意义</th></tr></thead>
+      <tbody>
+        <tr><td class="b">内部 Flash</td><td>Bootloader 常驻前段，App 从 <span class="val">0x08006000</span> 启动，配置页保持 <span class="val">0x0803F800</span></td><td>App 不自擦写自身，升级动作由更小的 Bootloader 控制</td></tr>
+        <tr><td class="b">W25Q128 分区</td><td>OTA Area 从 <span class="val">0x015000</span> 开始；Metadata A、Boot Flags、Control Log、Slot A/B 独立划分</td><td>OTA 与快照、事件日志分区隔离，降低互相覆盖风险</td></tr>
+        <tr><td class="b">传输协议</td><td><span class="val">SYSTem:OTA:BEGIN/DATA/END/VERify?/COMMit/ABORt/BOOT?</span>，DATA 使用 <span class="val">#3xxx</span> binary block</td><td>复用现有 SCPI 维护口，同时避免把固件数据塞进 RamVector</td></tr>
+        <tr><td class="b">完整性检查</td><td>App 侧按块写 W25Q128 并计算整包 CRC32；Bootloader 再次校验 Slot CRC 和向量表</td><td>传输完成和最终刷写前各校验一次，避免错误镜像进入 App 区</td></tr>
+        <tr><td class="b">上位机工具</td><td><span class="val">Tools/pinprobe_gui.py</span> 已集成 OTA 页，上传期间独占串口并暂停普通轮询</td><td>升级流程有可操作入口，可显示进度、速度、Boot 状态和失败阶段</td></tr>
+      </tbody>
+    </table>
+    <div class="row3">
+      <div class="card cg"><div class="card-h">已落地模块</div><div class="card-b"><ul>
+        <li><span class="val">Hardware/OTA</span> 定义 Manifest、Boot Flags、状态机和错误码</li>
+        <li><span class="val">Bootloader/Src/boot_main.c</span> 完成 Slot A 到 App 区的搬运与回读校验</li>
+        <li><span class="val">scpi-def.c</span> 暴露 OTA 状态、上传、校验、提交和中止命令</li>
+      </ul></div></div>
+      <div class="card co"><div class="card-h">关键边界</div><div class="card-b"><ul>
+        <li>App 只接收、暂存、校验和提交，不直接擦写运行中的 App 区</li>
+        <li>RamVector 不承载固件数据，只适合放 OTA 状态摘要和多机 ACK 位图</li>
+        <li>提交后通过 SRAM BootRequest 和 W25Q128 Boot Flags 交接给 Bootloader</li>
+      </ul></div></div>
+      <div class="card cb"><div class="card-h">后续扩展</div><div class="card-b"><ul>
+        <li>CAN 多机阶段由主节点分发已校验镜像，子节点仍本地校验后刷写</li>
+        <li>Slot B、失败回滚、签名校验和更大分块可按同一 Manifest 扩展</li>
+        <li>OTA 状态可映射到 RamVector 扩展区，供集群健康监控读取</li>
+      </ul></div></div>
+    </div>
+    <div class="bar">OTA 的核心原则：<span>App 管接收，W25Q128 管暂存，Bootloader 管刷写</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">11 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">核心优势总结</div>
+    <div class="sub">当前实现的工程价值 &nbsp;|&nbsp; 面向现场可靠运行</div>
+    <div class="row3">
+      <div class="card cg"><div class="card-h">1. 低耦合控制内核</div><div class="card-b"><ul>
+        <li>SCPI、状态机、RS485 执行层不直接互相驱动</li>
+        <li>RamVector 作为唯一共享数据平面</li>
+        <li>命令、事实、状态分区清楚，便于审查和扩展</li>
+      </ul></div></div>
+      <div class="card cg"><div class="card-h">2. 确定性时序</div><div class="card-b"><ul>
+        <li>25ms 统一节拍驱动关键控制路径</li>
+        <li>ModBusTask 独占现场总线，避免串口竞争</li>
+        <li>状态机不直接发 RS485，逻辑执行时间稳定</li>
+      </ul></div></div>
+      <div class="card cg"><div class="card-h">3. 安全优先级明确</div><div class="card-b"><ul>
+        <li>急停、激光、RS485 故障使用更高命令优先级</li>
+        <li>断电回 LOCK、按钮确认、限位消抖形成多层保护</li>
+        <li>风险模式可配置，不把兜底逻辑写死</li>
+      </ul></div></div>
+    </div>
+    <div class="row3" style="margin-top:14px;">
+      <div class="card cb"><div class="card-h">4. 现场可诊断</div><div class="card-b"><ul>
+        <li>POST 输出启动自检结果与复位原因</li>
+        <li>AppLog 记录状态跳转、动作耗时、关键事件</li>
+        <li>SCPI 可读取版本、运行时间、IO、日志状态</li>
+      </ul></div></div>
+      <div class="card cb"><div class="card-h">5. 配置可持久化</div><div class="card-b"><ul>
+        <li>Flash 配置带魔数、版本和 CRC 校验</li>
+        <li>IDN、急停类型、风险模式可通过 SCPI 配置</li>
+        <li>配置失效时可回默认值，不阻塞固件启动</li>
+      </ul></div></div>
+      <div class="card cb"><div class="card-h">6. 多机预留充分</div><div class="card-b"><ul>
+        <li>RamVector 已按 8 节点布局预留 node_status 和 io_state</li>
+        <li>CAN、SPI 外设初始化已在工程中存在</li>
+        <li>defaultTask 已留出集群健康监控位置</li>
+      </ul></div></div>
+    </div>
+    <div class="row3" style="margin-top:14px;">
+      <div class="card cb"><div class="card-h">7. OTA 维护闭环</div><div class="card-b"><ul>
+        <li>App 侧接收固件并写入 W25Q128 Slot A，不自擦写运行区</li>
+        <li>Bootloader 校验 Manifest、CRC 和向量表后再搬运到 App 区</li>
+        <li>GUI 已提供固件选择、上传、校验、提交和 Boot 状态观测入口</li>
+      </ul></div></div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">12 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">当前加固状态清单</div>
+    <div class="sub">不是重构方向，而是上线前的边界收紧</div>
+    <table>
+      <thead><tr><th style="width:70px;">优先级</th><th style="width:250px;">事项</th><th>原因</th><th style="width:210px;">涉及文件</th></tr></thead>
+      <tbody>
+        <tr><td class="c"><span class="tag-g">DONE</span></td><td class="b">气缸双线圈写入顺序加固</td><td>已改为先断对向线圈，再合目标线圈，避免短暂双输出窗口</td><td>BsmRelay.c</td></tr>
+        <tr><td class="c"><span class="tag-g">DONE</span></td><td class="b">RamVector IO 镜像整帧快照</td><td>状态机、SCPI、CmdExec 查询均读取局部副本，避免结构体字段半新半旧</td><td>ram_vector.c/h, state_vector.c, scpi-def.c</td></tr>
+        <tr><td class="c"><span class="tag-g">DONE</span></td><td class="b">命令槽原子 Take/Clear</td><td>“取命令并清槽”为原子事务，不扩展成队列，执行保持在临界区外</td><td>ram_vector.c/h, cmd_exec.c</td></tr>
+        <tr><td class="c"><span class="tag-g">DONE</span></td><td class="b">WriteIO 返回值汇总检查</td><td>不做重试、不增加等待；执行失败记录 IO_WRITE_FAIL 事件，提升可诊断性</td><td>BsmRelay.c, cmd_exec.c, app_log.c/h</td></tr>
+        <tr><td class="c"><span class="tag-g">DONE</span></td><td class="b">ReadIO 发送失败直接返回</td><td>读命令发送失败时不再等待 50ms 响应，减少无效超时并改善诊断</td><td>RS485.c, BsmRelay.c</td></tr>
+        <tr><td class="c"><span class="tag-b">P4</span></td><td class="b">清理废弃旧状态机接口</td><td>编译工程已不引用旧 StateMachine.c；后续可物理迁移历史文件，降低维护干扰</td><td>BsmRelay.c/h, StateMachine.c/h</td></tr>
+      </tbody>
+    </table>
+    <div class="conc">
+      <h3>加固原则</h3>
+      <p>当前架构不需要大改。执行器安全、共享数据一致性、失败可诊断三类边界已完成主线加固；后续重点转向 SCPI 错误覆盖、出厂测试和代码清理。</p>
+    </div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">13 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">后续扩展方向</div>
+    <div class="sub">按阶段推进：单机加固 → 产线诊断 → 多机协同 → 远程维护</div>
+    <table>
+      <thead><tr><th style="width:120px;">阶段</th><th style="width:190px;">目标</th><th>主要内容</th><th style="width:160px;">收益</th></tr></thead>
+      <tbody>
+        <tr><td class="b">阶段 1</td><td>单机上线加固</td><td>已完成气缸写入顺序、IO 快照、命令槽 Take/Clear、WriteIO/ReadIO 诊断</td><td>降低现场偶发风险</td></tr>
+        <tr><td class="b">阶段 2</td><td>产线测试模式</td><td>增加一键 IO/传感器/通讯自测，输出标准化验收结果，补充 SCPI 错误反馈覆盖</td><td>缩短装配和维修定位时间</td></tr>
+        <tr><td class="b">阶段 3</td><td>运行数据沉淀</td><td>将关键故障、动作计数、设备寿命累计迁移到 W25Q128 或备份区，并复用现有分区边界</td><td>支持预防性维护</td></tr>
+        <tr><td class="b">阶段 4</td><td>OTA 可靠性增强</td><td>完善 Slot B 回滚、掉电恢复、签名校验、分块严格校验和重复块读回比较</td><td>提升现场升级成功率</td></tr>
+        <tr><td class="b">阶段 5</td><td>CAN 多机协同</td><td>启用 node_id、node_status、heartbeat、version、CRC、ack_flags，完成 1~8 节点同步</td><td>从单机控制升级为集群控制</td></tr>
+        <tr><td class="b">阶段 6</td><td>CAN OTA 分发</td><td>主节点分发已校验镜像，子节点本地暂存、校验、READY 后统一 COMMIT</td><td>降低多箱维护成本</td></tr>
+        <tr><td class="b">阶段 7</td><td>PLC 标准化接入</td><td>对外主接口逐步从 SCPI 调试转向 Modbus RTU 从站，SCPI 保留为维护控制台</td><td>更贴近产线集成</td></tr>
+      </tbody>
+    </table>
+    <div class="principles"><span>先加固单机</span><span>再沉淀诊断</span><span>后启用多机</span><span>最后做远程维护</span></div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">14 / 15</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><img src="model/logo.png" alt="GTS"></div>
+  <div class="main">
+    <div class="h1">最终结论</div>
+    <div class="sub">当前项目的技术判断 &nbsp;|&nbsp; 保持主架构，做边界加固</div>
+    <div class="principles"><span>RamVector 作为主数据面</span><span>ModBusTask 独占现场总线</span><span>StateVector 保持纯逻辑</span><span>SCPI 保持调试入口</span></div>
+    <div class="conc" style="margin-top:18px;">
+      <h3>总体判断</h3>
+      <p>PinProbe A1 当前单机固件已经形成清晰的工业嵌入式控制框架：上位机命令、现场 IO、状态机、安全事件、配置与诊断分别有明确边界。项目的核心价值不在复杂抽象，而在用较少模块实现了可预测的控制闭环。</p>
+    </div>
+    <div class="row3" style="margin-top:16px;">
+      <div class="card cg"><div class="card-h">保留</div><div class="card-b"><ul>
+        <li>25ms 时间触发主节拍</li>
+        <li>RamVector 命令/状态/IO 模型</li>
+        <li>状态机按物理语义顺序展开</li>
+      </ul></div></div>
+      <div class="card co"><div class="card-h">加固</div><div class="card-b"><ul>
+        <li>执行器写入顺序</li>
+        <li>共享数据快照一致性</li>
+        <li>命令取清原子性和失败诊断</li>
+      </ul></div></div>
+      <div class="card cb"><div class="card-h">扩展</div><div class="card-b"><ul>
+        <li>出厂测试与验收自动化</li>
+        <li>W25Q128 日志/快照与 CAN OTA 分发</li>
+        <li>CAN 反射内存式多机协同</li>
+      </ul></div></div>
+    </div>
+    <div class="bar">推荐路线：<span>不重构主架构</span>，沿当前边界逐项加固，再进入多机阶段</div>
+  </div>
+  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">15 / 15</span></span></div>
+</div>
+
+</body>
+</html>
+
+
