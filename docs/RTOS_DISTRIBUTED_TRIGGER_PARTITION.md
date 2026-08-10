@@ -26,6 +26,7 @@ Last updated: 2026-08-10
 - A1 是 DUT/链路/SP8T 近端触发节点。
 - A2 是馈源/极化/开关近端触发节点。
 - A3 是上位机网关/VNA/网分近端节点，承担 USB/USBTMC/SCPI 接入。
+- A3 是唯一外部 COM 入口；A0/A1/A2/A4 作为内部 BiSSC 组网节点，不再按“每块板一个 COM”建模。
 - `RJ45_SYNC_RING` 传递 SYNC、FIRE_LOAD、DONE、MEAS_DONE、FAULT 和状态，不串行传递业务触发边沿。
 - 各板提前装载本地预约，PIO 到点输出 SMA 边沿。
 - PIO/DMA/IRQ 负责硬实时边沿、短窗口倒计时、捕获和时间戳；RTOS task 不直接产生精确边沿。
@@ -685,8 +686,8 @@ core1 禁止：
 - [ ] A3 接入 VNA READY/MEAS_DONE 状态桥接。
 - [ ] 实现 START 后硬件自循环，主机不逐点推进。
 - [ ] 将 `FaultCodeTable` 和 `SafetyFB` 接到 DPLL/Trigger/OTA 三域，统一故障等级、锁存条件和恢复路径。
-- [x] 定义五板 HIL 回环验证脚本入口。
-  2026-08-11: 新增 `tools/distributed_loopback_validate/distributed_loopback_validate.py`，默认拓扑为 5 块物理板：1 块 `SIM` 同时模拟转台和 VNA，4 块触发节点通常为 `A0..A3`；若现场把模拟板标为 `A4`，可通过 `--sim-role A4` 表达。当前脚本完成拓扑校验和五板 SCPI preflight，真实 RJ45/FIRE_LOAD/T2 闭环待固件协议落地后扩展。
+- [x] 定义 BiSS 组网 HIL 回环验证脚本入口。
+  2026-08-11: 新增 `tools/distributed_loopback_validate/distributed_loopback_validate.py`，默认拓扑为 A3 单外部 COM + 内部 BiSSC 组网；A4 作为内部模拟板角色，脚本只打开 A3 串口并做 SCPI preflight，真实内部帧级闭环待固件协议落地后扩展。
 - [ ] 完成转台/VNA HIL 长稳测试。
 
 ### P7 - 发布门禁
@@ -699,7 +700,7 @@ core1 禁止：
 - [ ] 验证上电、bootloader、看门狗、通信丢失和 FAULT 下的安全默认态。
 - [ ] release preset 明确 RTOS + 双核产品化门禁；单核/裸机仅保留 bring-up 路径。
 - [ ] README、SCPI 命令文档、HIL 工具和生产测试流程同步更新。
-  2026-08-11: 五板 HIL preflight 工具已建立，后续还需补生产测试流程和真实闭环验收矩阵。
+  2026-08-11: BiSS 组网 HIL preflight 工具已建立，后续还需补生产测试流程和真实闭环验收矩阵。
 - [ ] 给产品版发布门禁补一份固定测试矩阵：core0/core1 隔离、flash lockout、REFMEM delta、FIRE_LOAD/T2、OTA 事务、掉电恢复。
 - [ ] 给 `task_refmem_sync`、`task_vdc_sync`、`task_dpll`、`task_gateway_a3` 建立统一长稳回归用例和失败码映射。
 

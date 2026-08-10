@@ -128,13 +128,14 @@ Last updated: 2026-07-07
 |---|---|
 | `RELEASE_CHECKLIST.md` | 发布门禁检查表。 |
 | `TASK_PROGRESS.md` | 全局历史任务进度。新域建议使用 `<DOMAIN>_TASK_PROGRESS.md`。 |
+| `BISSC_NETWORK_LOOPBACK_PLAYBOOK.md` | 2026-08-11 BiSS 组网 preflight 处理流程和跨电脑继续工作交接记录。 |
 
 ### 验证工具入口
 
 | 工具 | 定位 |
 |---|---|
 | `tools/multicore_board_validate/multicore_board_validate.py` | 单板 RTOS + multicore + 表查询 smoke。 |
-| `tools/distributed_loopback_validate/distributed_loopback_validate.py` | 五板分布式回环 HIL preflight：一块模拟板同时承担转台和 VNA，另外四块为触发节点。 |
+| `tools/distributed_loopback_validate/distributed_loopback_validate.py` | BiSS 组网 HIL preflight：A3 是唯一外部 COM 入口，其他板作为内部 peer 通过 BiSSC 组网。 |
 
 ## 09 历史方案与外部资料迁入
 

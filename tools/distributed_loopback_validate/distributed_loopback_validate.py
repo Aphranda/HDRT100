@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
-"""Validate the five-board distributed loopback bench over SCPI USB CDC.
+"""Validate the BiSS network bench through the single A3 USB CDC control port.
 
-Default topology:
-- 5 physical RP2350_TRIG boards.
-- One simulator board represents both turntable and VNA.
-- Remaining boards are distributed trigger nodes, typically A0..A3.
+Topology model:
+- A3 is the only external COM/USB CDC entry point.
+- A0, A1, A2 and A4 are logical peer roles on the internal BiSS network.
+- A4 is the bench-side simulator role that represents turntable + VNA.
 
-The simulator may be named SIM or a normal node name such as A4:
+The current firmware still exposes the four-node distributed config map from A0
+through A3, so the script only queries the A3 control board over SCPI and keeps
+the peer roles as topology metadata.
+
+Example:
 
   python tools/distributed_loopback_validate/distributed_loopback_validate.py \
-      --board A0=COM5 --board A1=COM6 --board A2=COM7 --board A3=COM8 \
-      --board SIM=COM9 --sim-role SIM --dry-run
+      --a3-port COM5 \
+      --peer A0 --peer A1 --peer A2 --peer A4 \
+      --sim-role A4 --dry-run
 
-  python tools/distributed_loopback_validate/distributed_loopback_validate.py \
-      --board A0=COM5 --board A1=COM6 --board A2=COM7 --board A3=COM8 \
-      --board A4=COM9 --sim-role A4
-
-Current scope is bench preflight: topology validation plus per-board SCPI health
-queries. Real RJ45 REFMEM_DELTA/FIRE_LOAD/T2 loop closure will be added after
-the firmware protocol exists.
+Current scope is bench preflight: topology validation plus A3 SCPI health
+queries. Real internal BiSSC frame closure will be added after the firmware
+protocol exists.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ import json
 import re
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -39,23 +40,30 @@ except ImportError as exc:  # pragma: no cover - bench dependency
 
 
 ROOT = Path(__file__).resolve().parents[2]
+CONTROL_ROLE = "A3"
+PEER_ROLES = ("A0", "A1", "A2", "A4")
+ROLE_QUERY_IDS = (0, 1, 2, 3)
 DEFAULT_TESTS = (
     "*IDN?",
     "SYST:FW:BUILD?",
     "SYST:CORE?",
     "SYST:CFG:STAT?",
     "SYST:CFG:ACK?",
+    "SYST:CFG:ROLE? 0",
+    "SYST:CFG:ROLE? 1",
+    "SYST:CFG:ROLE? 2",
+    "SYST:CFG:ROLE? 3",
     "SYST:MODE:TAB? 1",
     "SYST:RESource:TAB? 0",
     "SYST:FAULT:TAB? 0",
 )
-KNOWN_NODE_ROLES = {"A0", "A1", "A2", "A3", "A4", "SIM"}
 
 
 @dataclass(frozen=True)
-class BoardSpec:
+class NodeSpec:
     role: str
-    port: str
+    transport: str
+    port: str | None
     simulator: bool
 
 
@@ -69,7 +77,7 @@ def is_log_line(line: str) -> bool:
 
 
 def trim_embedded_log(line: str) -> str:
-    match = re.search(r'(?<!^)\[\s*\d+\]\s+(?:DBG|INF|WRN|ERR)\s+', line)
+    match = re.search(r"(?<!^)\[\s*\d+\]\s+(?:DBG|INF|WRN|ERR)\s+", line)
     if match is None:
         return line
     return line[:match.start()].strip()
@@ -139,33 +147,38 @@ def parse_csv_ints(response: str) -> list[int]:
     return out
 
 
-def parse_board(value: str) -> tuple[str, str]:
-    if "=" not in value:
-        raise argparse.ArgumentTypeError("board must use ROLE=PORT syntax")
-    role, port = value.split("=", 1)
-    role = role.strip().upper()
-    port = port.strip()
-    if not role or not port:
-        raise argparse.ArgumentTypeError("board role and port must be non-empty")
-    if role not in KNOWN_NODE_ROLES:
-        raise argparse.ArgumentTypeError(f"unsupported role {role!r}; expected one of {sorted(KNOWN_NODE_ROLES)}")
-    return role, port
+def parse_peer(value: str) -> str:
+    role = value.strip().upper()
+    if role not in PEER_ROLES:
+        raise argparse.ArgumentTypeError(
+            f"unsupported peer role {role!r}; expected one of {PEER_ROLES}"
+        )
+    return role
+
+
+def parse_sim_role(value: str) -> str:
+    role = value.strip().upper()
+    if role not in PEER_ROLES:
+        raise argparse.ArgumentTypeError(
+            f"unsupported simulator role {role!r}; expected one of {PEER_ROLES}"
+        )
+    return role
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--board", action="append", type=parse_board, required=True,
-                        help="board mapping ROLE=PORT; repeat exactly five times")
-    parser.add_argument("--sim-role", default="SIM",
-                        help="role name of the board that simulates turntable and VNA")
-    parser.add_argument("--expected-boards", type=int, default=5,
-                        help="physical board count expected on the bench")
+    parser.add_argument("--a3-port", required=True, help="USB CDC serial port for A3 control board")
+    parser.add_argument("--peer", action="append", type=parse_peer, required=True,
+                        help="internal BiSS peer role; repeat exactly four times")
+    parser.add_argument("--sim-role", default="A4",
+                        type=parse_sim_role,
+                        help="peer role that simulates turntable and VNA")
     parser.add_argument("--baud", type=int, default=115200,
                         help="ignored by USB CDC on most hosts")
     parser.add_argument("--timeout", type=float, default=5.0,
                         help="per-command timeout")
     parser.add_argument("--settle", type=float, default=1.5,
-                        help="seconds to wait after opening each port")
+                        help="seconds to wait after opening the port")
     parser.add_argument("--out-dir", type=Path,
                         help="directory for JSON summary and transcript")
     parser.add_argument("--dry-run", action="store_true",
@@ -173,57 +186,41 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_specs(args: argparse.Namespace) -> list[BoardSpec]:
-    sim_role = args.sim_role.strip().upper()
-    role_to_port: dict[str, str] = {}
-    port_to_role: dict[str, str] = {}
+def build_topology(args: argparse.Namespace) -> list[NodeSpec]:
+    peer_roles = [role.upper() for role in args.peer]
+    if len(peer_roles) != 4:
+        raise SystemExit(f"expected exactly four --peer entries, got {len(peer_roles)}")
+    if len(set(peer_roles)) != 4:
+        raise SystemExit(f"duplicate peer role in {peer_roles}")
+    if set(peer_roles) != set(PEER_ROLES):
+        raise SystemExit(f"expected peer roles {PEER_ROLES}, got {tuple(peer_roles)}")
+    if args.sim_role not in peer_roles:
+        raise SystemExit(f"--sim-role {args.sim_role} is not present in peer roles {peer_roles}")
 
-    if len(args.board) != args.expected_boards:
-        raise SystemExit(f"expected {args.expected_boards} --board entries, got {len(args.board)}")
-
-    for role, port in args.board:
-        port_key = port.upper()
-        if role in role_to_port:
-            raise SystemExit(f"duplicate board role: {role}")
-        if port_key in port_to_role:
-            raise SystemExit(f"duplicate serial port: {port} used by {role} and {port_to_role[port_key]}")
-        role_to_port[role] = port
-        port_to_role[port_key] = role
-
-    if sim_role not in role_to_port:
-        raise SystemExit(f"--sim-role {sim_role} is not present in --board mappings")
-
-    if args.expected_boards != 5:
-        raise SystemExit("this script currently validates the five-board bench only")
-
-    return [
-        BoardSpec(role=role, port=port, simulator=(role == sim_role))
-        for role, port in sorted(role_to_port.items())
-    ]
+    topology = [NodeSpec(role=CONTROL_ROLE, port=args.a3_port, transport="usbcdc", simulator=False)]
+    for role in PEER_ROLES:
+        topology.append(NodeSpec(role=role, port=None, transport="biss", simulator=(role == args.sim_role)))
+    return topology
 
 
-def validate_topology(specs: list[BoardSpec]) -> list[str]:
+def validate_topology(specs: list[NodeSpec]) -> list[str]:
     notes: list[str] = []
-    sim_count = sum(1 for spec in specs if spec.simulator)
-    if sim_count != 1:
-        raise SystemExit(f"expected exactly one simulator board, got {sim_count}")
+    control = next(spec for spec in specs if spec.role == CONTROL_ROLE)
+    notes.append(f"control={control.role} transport={control.transport} port={control.port}")
+
+    peers = [spec.role for spec in specs if spec.role != CONTROL_ROLE]
+    notes.append(f"peer_roles={','.join(peers)} transport=biss")
 
     simulator = next(spec for spec in specs if spec.simulator)
     notes.append(f"simulator={simulator.role} capabilities=turntable+vna")
-
-    trigger_nodes = [spec.role for spec in specs if not spec.simulator]
-    if len(trigger_nodes) != 4:
-        raise SystemExit(f"expected four non-simulator trigger nodes, got {trigger_nodes}")
-    notes.append(f"trigger_nodes={','.join(trigger_nodes)}")
-
-    if "A0" not in {spec.role for spec in specs}:
-        notes.append("warning=A0 missing; loop origin must be assigned before live RJ45 tests")
+    notes.append("firmware_role_map=A0..A3; A4 is bench-side simulator role")
     return notes
 
 
-def validate_board(spec: BoardSpec, args: argparse.Namespace) -> dict:
+def validate_control_board(spec: NodeSpec, args: argparse.Namespace) -> dict:
     records: list[dict[str, str]] = []
     passed = True
+
     with serial.Serial(spec.port, args.baud, timeout=0.2) as ser:
         time.sleep(args.settle)
         for command in DEFAULT_TESTS:
@@ -236,20 +233,26 @@ def validate_board(spec: BoardSpec, args: argparse.Namespace) -> dict:
     core = parse_csv_ints(checks.get("SYST:CORE?", ""))
     cfg = parse_csv_ints(checks.get("SYST:CFG:STAT?", ""))
     ack = parse_csv_ints(checks.get("SYST:CFG:ACK?", ""))
-    mode = parse_csv_ints(checks.get("SYST:MODE:TAB? 1", ""))
+    role_rows = {idx: parse_csv_ints(checks.get(f"SYST:CFG:ROLE? {idx}", "")) for idx in ROLE_QUERY_IDS}
 
     if len(core) < 5 or core[0] != 1:
         passed = False
-    if len(cfg) < 24 or cfg[1] != 1:
+    if len(cfg) < 24 or cfg[1] != 1 or cfg[12] != 0x0F:
         passed = False
-    if len(ack) < 12 or ack[2] == 0 or ack[10] == 0:
+    if len(ack) < 12 or ack[2] != 0x0F or ack[10] == 0 or ack[11] == 0:
         passed = False
-    if len(mode) < 8 or mode[4] != 1 or mode[5] != 1:
-        passed = False
+
+    for idx, fields in role_rows.items():
+        if len(fields) < 8:
+            passed = False
+            continue
+        if idx == 3 and (fields[6] != 3 or fields[7] != 3):
+            passed = False
 
     return {
         "role": spec.role,
         "port": spec.port,
+        "transport": spec.transport,
         "simulator": spec.simulator,
         "passed": passed,
         "records": records,
@@ -263,8 +266,10 @@ def write_outputs(out_dir: Path, summary: dict) -> None:
     summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
 
     lines: list[str] = []
-    for board in summary["boards"]:
-        lines.append(f"[{board['role']} {board['port']}] {'PASS' if board['passed'] else 'FAIL'}")
+    for board in summary["nodes"]:
+        port = board.get("port") or ""
+        lines.append(f"[{board['role']} {board.get('transport', '')} {port}] "
+                     f"{'PASS' if board['passed'] else 'FAIL'}")
         for record in board.get("records", []):
             lines.append(f"> {record['command']}")
             lines.append(f"< {record['response']}")
@@ -275,52 +280,55 @@ def write_outputs(out_dir: Path, summary: dict) -> None:
 
 def main() -> int:
     args = parse_args()
-    specs = build_specs(args)
-    notes = validate_topology(specs)
+    topology = build_topology(args)
+    notes = validate_topology(topology)
 
     if args.out_dir is not None:
         out_dir = args.out_dir.resolve()
     else:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_dir = ROOT / "build-distributed-loopback" / f"five_board_{ts}"
+        out_dir = ROOT / "build-biss-network" / f"preflight_{ts}"
 
     print("Topology:")
-    for spec in specs:
+    for spec in topology:
         marker = " simulator(turntable+vna)" if spec.simulator else ""
-        print(f"  {spec.role}: {spec.port}{marker}")
+        port_text = f" {spec.port}" if spec.port else ""
+        print(f"  {spec.role}:{port_text} transport={spec.transport}{marker}")
     for note in notes:
         print(f"  {note}")
 
     if args.dry_run:
         summary = {
-            "title": "Five-board distributed loopback preflight",
+            "title": "BiSS network bench preflight",
             "timestamp": datetime.now().isoformat(),
             "dry_run": True,
             "notes": notes,
-            "boards": [asdict(spec) | {"passed": True, "records": []} for spec in specs],
+            "nodes": [asdict(spec) | {"passed": True, "records": []} for spec in topology],
             "overall": "PASS",
         }
         write_outputs(out_dir, summary)
         print("Result: topology PASS (dry-run)")
         return 0
 
-    boards = [validate_board(spec, args) for spec in specs]
-    passed = sum(1 for board in boards if board["passed"])
-    total = len(boards)
+    control = next(spec for spec in topology if spec.role == CONTROL_ROLE)
+    node_result = validate_control_board(control, args)
+
+    passed = 1 if node_result["passed"] else 0
+    total = 1
     overall = "PASS" if passed == total else "FAIL"
 
     summary = {
-        "title": "Five-board distributed loopback preflight",
+        "title": "BiSS network bench preflight",
         "timestamp": datetime.now().isoformat(),
         "dry_run": False,
         "notes": notes,
-        "boards": boards,
+        "nodes": [node_result] + [asdict(spec) | {"passed": True, "records": []} for spec in topology if spec.role != CONTROL_ROLE],
         "passed": passed,
         "total": total,
         "overall": overall,
     }
     write_outputs(out_dir, summary)
-    print(f"Result: {passed}/{total} boards passed")
+    print(f"Result: {passed}/{total} control boards passed")
     return 0 if overall == "PASS" else 1
 
 

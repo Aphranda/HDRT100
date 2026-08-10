@@ -51,37 +51,35 @@ Last updated: 2026-08-10
 
 ## 任务记录
 
-### TASK-20260811-001 - 五板分布式回环 HIL preflight 脚本
+### TASK-20260811-001 - BiSS 组网 HIL preflight 脚本
 
 - 状态：完成
 - 日期：2026-08-11
 - 任务目标：
-  - 将分布式回环验证台架固定为 5 块物理板。
-  - 支持其中 1 块板同时模拟转台和网分，另外 4 块板作为触发节点。
-  - 让验证脚本通过角色表描述拓扑，避免把 A0-A3 或 A0-A4 的现场命名硬编码死。
+  - 将验证台架收口为 A3 单外部 COM 入口。
+  - 其余板按内部 BiSSC 组网的逻辑角色声明，不再写成 5 个外部串口。
+  - 让脚本和文档都能直接反映 A3 控制面 + 内部 peer 的真实拓扑。
 - 完成内容：
-  - 新增 `tools/distributed_loopback_validate/distributed_loopback_validate.py`。
-  - 支持 `--board ROLE=PORT` 重复 5 次和 `--sim-role <ROLE>` 指定模拟板。
-  - 默认接受 `A0..A4` 与 `SIM` 角色；模拟板可以叫 `SIM`，也可以按现场命名叫 `A4`。
-  - 脚本当前执行五板 topology 校验和每板 SCPI preflight 查询：`*IDN?`、build、core、config ACK、mode/resource/fault table。
-  - 更新 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 和 `docs/README.md`，记录五板 HIL preflight 入口。
+  - 重构 `tools/distributed_loopback_validate/distributed_loopback_validate.py` 的命令行入口，改成 `--a3-port` + `--peer` + `--sim-role`。
+  - 将 A4 作为 bench-side simulator role 保留在拓扑层，不再要求它占用外部 COM 口。
+  - 新增 `docs/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`，存档本轮 BiSS 组网处理流程。
+  - 更新 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`、`docs/README.md` 和 `.gitignore`，把“5 串口”旧口径收回。
 - 验证结果：
   - `python -m py_compile tools/distributed_loopback_validate/distributed_loopback_validate.py` 通过。
   - `python tools/docs_check/docs_check.py` 通过，仍有 6 个历史命名 warning。
-  - `SIM` 口径 dry-run 通过：`A0,A1,A2,A3,SIM`，`SIM` 同时承担 turntable+vna。
-  - `A4` 口径 dry-run 通过：`A0,A1,A2,A3,A4`，`A4` 通过 `--sim-role A4` 同时承担 turntable+vna。
-  - 当前未执行真实五板串口 preflight；需要现场提供 5 个可用 COM 口。
+  - `python tools/distributed_loopback_validate/distributed_loopback_validate.py --a3-port COM5 --peer A0 --peer A1 --peer A2 --peer A4 --sim-role A4 --dry-run --out-dir build-biss-network\dryrun_check` 通过。
+  - 当前尚未执行真实 A3 串口 preflight。
 - 还需完成：
-  - 固件 RJ45 `REFMEM_DELTA/FIRE_LOAD/DONE/MEAS_DONE` 协议落地后，把脚本从 preflight 扩展为真实帧级闭环。
-  - 增加 1e6 帧 CRC/seq/latency 长稳模式。
-  - 增加转台 Compare Out 与 VNA READY/REDY 的真实 IO 采样闭环。
+  - 视现场硬件情况执行 A3 串口 preflight。
+  - 如果后续固件开放内部 BiSSC 帧闭环，再把脚本扩展成真实网络闭环。
 - 关联文件：
   - `tools/distributed_loopback_validate/distributed_loopback_validate.py`
-  - `tools/distributed_loopback_validate/__init__.py`
+  - `docs/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`
   - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
   - `docs/README.md`
+  - `.gitignore`
 - 下一步：
-  - 继续补 RJ45 frame/REFMEM delta 的固件协议或先完善五板工具的端口发现和批量报告。
+  - 先把这轮改动提交并推送，再继续下一轮内部 BiSSC 闭环任务。
 
 ### TASK-20260810-005 - SystemMode / ResourceArbiter / FaultCode 表查询闭环
 
