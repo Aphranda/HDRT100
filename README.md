@@ -447,6 +447,9 @@ time.
   validation at each step.
 - `docs/RTOS_PORTING_PLAN.md`: HAOFV-aligned FreeRTOS migration plan and
   OTA RTOS adapter requirements.
+- `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`: product RTOS + dual-core
+  partition for the four-board distributed trigger system, including the
+  simulated reflective-memory DistributedVectorTable.
 - `docs/TASK_PROGRESS.md`: task progress log for goals, completed work,
   verification results, remaining work, and next steps.
 

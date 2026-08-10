@@ -9,6 +9,8 @@ void app_run_once(void);
 void app_management_run_once(void);
 void app_realtime_run_once(void);
 void app_comm_service(void);
+void app_usb_device_service(void);
+void app_scpi_service(void);
 void app_trigger_service(void);
 void app_ota_service(void);
 void app_storage_service(void);

@@ -3,7 +3,7 @@
 Status: Active
 Domain: RTOS
 Canonical: `docs/RTOS_PORTING_PLAN.md`
-Related: `docs/HAOFV_ARCHITECTURE.md`, `docs/MULTICORE_PARTITION_PLAN.md`
+Related: `docs/HAOFV_ARCHITECTURE.md`, `docs/MULTICORE_PARTITION_PLAN.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 Last updated: 2026-07-07
 
 本文档定义 RP2350_TRIG 在 OTA 基本收口后引入 FreeRTOS 的迁移方案。移植必须服从

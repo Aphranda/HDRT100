@@ -3,7 +3,7 @@
 Status: Active
 Domain: TRIGGER
 Canonical: `docs/TRIGGER_SYNC_TODO.md`
-Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/MULTICORE_PARTITION_PLAN.md`
+Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/MULTICORE_PARTITION_PLAN.md`
 Last updated: 2026-08-10
 
 本文档用于跟踪同步触发系统从当前 PIO IO 驱动，完善到工业产品级触发子系统所需的剩余工作。
@@ -131,6 +131,27 @@ Last updated: 2026-08-10
   处理、late/CRC/fault 快速判定；`task_control_system` 绑定控制核，承载 RUN/PROG/NODE/RING/DC
   SCPI 命令面、程序包管理、角色配置、日志和 UI。正式采集进入 `RUN` 后，上位机和控制核抖动
   不得影响已经装载的触发边沿。
+
+- [ ] 建立模拟反射内存式 DistributedVectorTable。
+  四板维护同一张结构化向量表，产品化从 P0 起按 64 KB 完整表 layout 预留，避免后续扩容破坏
+  协议、快照工具和日志格式。借鉴 PinProbe A1 的 RamVector 原则：命令是意图，IO/触发镜像是事实，
+  状态是推导结果。每个节点只写自己的 NodeSlot/TriggerSlot/IoSlot，跨节点状态通过
+  `RJ45_SYNC_RING` 的 `REFMEM_DELTA` 小帧同步；查询只读本地快照，slot stale 时返回 stale 标志，
+  不临时阻塞跨板读取。反射内存不承载 PIO 边沿、OTA payload、SD 文件或波形数据。
+
+- [ ] 定义分布式系统产品化门禁。
+  每次 RUN 必须有 epoch/run_id，并冻结 build_id、hw_profile、NodeRoleMap CRC、LoopPlan CRC、
+  ActionMap CRC 和 Calibration CRC 的一致性检查。CONFIG/ARM/START/STOP 必须具备
+  command_seq、target_mask、ack/nack/busy/timeout 位图；节点状态必须区分
+  OK/STALE/MISSING/INVALID/FAULT。RUN 中失锁或 stale 的首版策略为停止后续预约，进入
+  HOLDOVER 或 FAULT，不补发过期触发。故障证据和 RUN 摘要必须可落盘复盘。
+
+- [ ] 按小步验证推进 RTOS 任务拆分。
+  近期顺序为：固化当前 RTOS+core1 TriggerFB 基线；拆 `task_io_frontend` 为
+  `task_usb_device` + `task_scpi`；建立 `task_refmem_sync` 空壳和 64 KB
+  DistributedVectorTable 本地快照；再建立 `task_loop_engine`、`task_vdc_sync`、
+  `task_dpll` 空壳。每一步都必须构建、烧录、执行板端 smoke，并记录
+  `SYST:RTOS:STAT?`、`SYST:CORE?` 和 `SYST:ERR?`。
 
 - [ ] 将当前裸机单核和裸机双核路径降级为 bring-up/smoke 路径。
   产品化 release 不能只依赖当前 `PROJECT_USE_FREERTOS=OFF` / `PROJECT_USE_MULTICORE=OFF`

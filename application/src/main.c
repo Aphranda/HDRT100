@@ -77,7 +77,7 @@ static void task_system(void *context)
     }
 }
 
-static void task_io_frontend(void *context)
+static void task_usb_device(void *context)
 {
     (void)context;
 
@@ -87,7 +87,22 @@ static void task_io_frontend(void *context)
             continue;
         }
 
-        app_comm_service();
+        app_usb_device_service();
+        osal_task_delay_ms(1u);
+    }
+}
+
+static void task_scpi(void *context)
+{
+    (void)context;
+
+    while (true) {
+        if (!app_is_ready()) {
+            osal_task_delay_ms(1u);
+            continue;
+        }
+
+        app_scpi_service();
         osal_task_delay_ms(1u);
     }
 }
@@ -171,9 +186,16 @@ int main(void)
         .stack_words = 2048u,
         .priority = 4u,
     };
-    const osal_task_config_t io_frontend_task_config = {
-        .name = "io_frontend",
-        .entry = task_io_frontend,
+    const osal_task_config_t usb_device_task_config = {
+        .name = "usb_device",
+        .entry = task_usb_device,
+        .context = NULL,
+        .stack_words = 1536u,
+        .priority = 4u,
+    };
+    const osal_task_config_t scpi_task_config = {
+        .name = "scpi",
+        .entry = task_scpi,
         .context = NULL,
         .stack_words = 3072u,
         .priority = 3u,
@@ -213,8 +235,12 @@ int main(void)
         diagnostics_mark_fault("rtos", "system task creation failed");
         app_blink_fault_forever();
     }
-    if (!osal_task_create(&io_frontend_task_config, NULL)) {
-        diagnostics_mark_fault("rtos", "io_frontend task creation failed");
+    if (!osal_task_create(&usb_device_task_config, NULL)) {
+        diagnostics_mark_fault("rtos", "usb_device task creation failed");
+        app_blink_fault_forever();
+    }
+    if (!osal_task_create(&scpi_task_config, NULL)) {
+        diagnostics_mark_fault("rtos", "scpi task creation failed");
         app_blink_fault_forever();
     }
 #if !PROJECT_USE_MULTICORE

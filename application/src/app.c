@@ -110,9 +110,19 @@ bool app_is_ready(void)
 
 void app_comm_service(void)
 {
+    app_usb_device_service();
+    app_scpi_service();
+}
+
+void app_usb_device_service(void)
+{
 #if PROJECT_ENABLE_USBTMC || PROJECT_ENABLE_USB_RUNTIME_SWITCH
     usbtmc_scpi_port_service();
 #endif
+}
+
+void app_scpi_service(void)
+{
 #if !PROJECT_ENABLE_USB_RUNTIME_SWITCH
     scpi_port_service();
 #endif
