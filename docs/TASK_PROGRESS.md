@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/TASK_PROGRESS.md`
 Related: `docs/DOCS_MIGRATION_TODO.md`, `docs/BISSC_TASK_PROGRESS.md`, `docs/SD_TASK_PROGRESS.md`
-Last updated: 2026-07-07
+Last updated: 2026-08-10
 
 本文档用于记录 RP2350_TRIG 工程的正式任务进度。每完成一个正式任务后，都应追加一条记录，说明任务目标、完成内容、验证结果、剩余工作和下一步计划，便于后续回溯设计决策和工程状态。
 
@@ -50,6 +50,43 @@ Last updated: 2026-07-07
 ```
 
 ## 任务记录
+
+### TASK-20260810-001 - HAOFV RTOS + 双核 AMP smoke 收口
+
+- 状态：进行中
+- 日期：2026-08-10
+- 任务目标：
+  - 在不改变当前 DEMO 板 IO 定义的前提下，完成 RTOS + 双核 AMP 基础工作。
+  - 产品化方向固定为一个控制核和一个实时核：core0 运行 FreeRTOS 管理任务，core1 运行 TriggerAO/TriggerFB 状态机。
+  - 保持 HAOFV 边界：FreeRTOS 只作为控制核调度器，PIO/DMA/IRQ 仍负责硬实时边沿。
+- 完成内容：
+  - 新增 `pico2-rtos-multicore-smoke` 构建入口，允许 `PROJECT_USE_FREERTOS=ON` 与 `PROJECT_USE_MULTICORE=ON` 同时打开。
+  - RTOS + 双核 AMP 路径中，core0 不再创建 `task_trigger`，避免 core0/core1 两个执行上下文同时推进 TriggerAO。
+  - core1 通过 `multicore_launch_core1()` 启动，等待 app ready 后循环执行 `app_realtime_run_once()`。
+  - FreeRTOS 多核路径的 `osal_critical_enter/exit()` 改用 RP2350 spinlock，保护跨核共享区。
+  - `storage_manager_trace_event()` 和 trace ring 读取路径纳入临界区，降低 core0/core1 读写撕裂风险。
+  - 同步更新 HAOFV、RTOS 和双核分区文档，明确 core1 是 TriggerAO/TriggerFB 的受限实时运行容器。
+- 验证结果：
+  - `cmake --preset pico2-rtos-multicore-smoke` 通过。
+  - `cmake --build --preset pico2-rtos-multicore-smoke` 通过。
+  - `cmake --preset pico2-rtos-smoke` 与 `cmake --build --preset pico2-rtos-smoke` 通过。
+  - release 等价检查通过，正式 release 仍保持 `PROJECT_USE_FREERTOS=OFF`、`PROJECT_USE_MULTICORE=OFF`。
+  - 当前尚未完成 DEMO 板端 RTOS + 双核 AMP smoke 验证。
+- 还需完成：
+  - 在 DEMO 板上烧录 `pico2-rtos-multicore-smoke` 产物，确认 `SYST:CORE?` 返回 core1 enabled，并且 core1 loop count 持续增长。
+  - 验证 `TRIG:MODE 1 -> TRIG:ARM -> TRIG:DISA` 在 core1 状态机路径下可正常推进。
+  - 增加板端双核验证脚本，覆盖 `*IDN?`、`SYST:CORE?`、Trigger arm/disarm、LOG/TRACE 基础行为。
+- 关联文件：
+  - `CMakeLists.txt`
+  - `CMakePresets.json`
+  - `application/src/main.c`
+  - `osal/port/freertos/osal_freertos.c`
+  - `components/storage_manager/src/storage_manager.c`
+  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/RTOS_PORTING_PLAN.md`
+  - `docs/MULTICORE_PARTITION_PLAN.md`
+- 下一步：
+  - 优先做 DEMO 板端双核 smoke，确认 core1 心跳、TriggerAO/TriggerFB 状态推进和 trace 行为，再决定是否进入更完整的 RTOS 双核 HIL 验证。
 
 ### TASK-20260801-001 - tools 目录分层迁移
 

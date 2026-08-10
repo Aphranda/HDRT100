@@ -121,6 +121,11 @@ Last updated: 2026-08-10
   TriggerVector、trace ring、事件队列、资源仲裁快照必须使用 RP2350 spin lock 或 RTOS-aware
   critical section，不能只依赖单核关中断。
 
+- [ ] 将 TriggerAO 跨核交互收口为通用 mailbox/doorbell 模式。
+  P0 先用 Pico SDK `queue_t` 替换 TriggerAO 手写共享队列，保持非阻塞投递和 core1 轮询消费；
+  P1 再增加 doorbell/FIFO 只做唤醒，不承载业务 payload；P2 将同一 mailbox 抽象推广给
+  StorageAO/OtaAO/UiAO，控制核与实时核之间只传事件和快照，不直接互调业务函数。
+
 - [ ] 为分布式触发定义产品化任务/优先级模型。
   `task_realtime_trigger` 绑定实时核，承载 `ring_rx_tx` 服务、`local_fire` 装载、capture/T2
   处理、late/CRC/fault 快速判定；`task_control_system` 绑定控制核，承载 RUN/PROG/NODE/RING/DC

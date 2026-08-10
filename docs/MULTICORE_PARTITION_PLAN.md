@@ -41,13 +41,16 @@ C 循环直接产生精确边沿。
   `PROJECT_USE_MULTICORE=ON`；该路径不是 FreeRTOS SMP，而是 core0 运行 FreeRTOS
   管理任务，core1 运行受限实时循环。
 - core0 完成 `stdio_init_all()`、`board_init()`、`app_init()` 后启动 core1。
-- core1 等待 app ready，然后只循环执行 `app_trigger_service()`。
+- core1 等待 app ready，然后只循环执行 `app_realtime_run_once()`，其内部推进 `Trigger` 状态机并记录 core1 心跳。
 - core0 循环执行 `board_service()`、SCPI、OTA、Storage、UI、Diagnostics/LOG。
 - FreeRTOS SMP 仍不启用；后续如需 SMP 必须单独验证。
 
 ## 跨核共享规则
 
-- 共享队列、LOG ring、事件总线和 Vector snapshot 必须走 OSAL critical。
+- 跨核业务命令必须通过 mailbox/event queue 投递，优先使用 Pico SDK `queue_t` 或后续 OSAL mailbox
+  封装；`multicore_fifo`/doorbell 只允许作为唤醒信号，不承载复杂业务 payload。
+- 共享队列、LOG ring、事件总线和 Vector snapshot 必须走 OSAL critical 或 SDK/OSAL 提供的
+  multicore-safe primitive。
 - 双核裸机模式下，OSAL critical 必须使用 RP2350 spin lock，而不是只关本核中断。
 - SCPI/UI/OTA/Storage 不允许直接修改触发域内部状态，只能投递事件或读快照。
 - core1 不允许执行 FatFs、SCPI、USB CDC 文本输出、OTA flash job 或阻塞式 SD 访问。

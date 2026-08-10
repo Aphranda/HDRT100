@@ -373,6 +373,7 @@ Closed-loop validation tools:
 | Script | When to use | Purpose |
 |---|---|---|
 | `tools/ota_send/ota_send.py` | Board OTA validation | Main closed-loop OTA sender over USB CDC SCPI. Sends raw `.bin` or unified `.pkg`, asserts final state with `--expect-final-state`, asserts error text with `--expect-error`, and supports package mutations with `--package-negative`. |
+| `tools/scpi_query/scpi_query.py` | Bench SCPI checks | Sends one or more SCPI commands over USB CDC, filters shared-stream diagnostic logs, closes the serial port on exit, and can save a UTF-8 transcript with `--out`. |
 | `tools/release_check/release_check.py` | Release gate | Verifies release preset safety switches, required artifacts, and absence of OTA fault-injection command strings in release artifacts. |
 | `tools/tests/run_portable_ota_tests.ps1` | Portable OTA library gate | Builds or runs `third_party/portable_ota` unit tests. If no host C compiler is available, it falls back to ARM GCC compile/object-build checks and reports that host execution was skipped. |
 | `tools/ota_packager/ota_packager.py` | Release OTA packaging | Builds one unified package from Slot A and Slot B linked `.bin` files. CMake normally invokes this automatically. |

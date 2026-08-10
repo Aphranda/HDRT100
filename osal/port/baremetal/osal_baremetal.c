@@ -19,7 +19,11 @@ static uint32_t s_osal_critical_depth;
 bool osal_kernel_init(void)
 {
 #if PROJECT_USE_MULTICORE
-    s_osal_lock = spin_lock_instance(PICO_SPINLOCK_ID_OS1);
+    const int lock_num = spin_lock_claim_unused(false);
+    if (lock_num < 0) {
+        return false;
+    }
+    s_osal_lock = spin_lock_instance((uint)lock_num);
 #endif
     return true;
 }
@@ -95,4 +99,21 @@ uint32_t osal_uptime_ms(void)
 uint32_t osal_tick_ms(void)
 {
     return osal_uptime_ms();
+}
+
+uint32_t osal_task_get_stats(osal_task_stats_t *stats, uint32_t max_count)
+{
+    (void)stats;
+    (void)max_count;
+    return 0u;
+}
+
+void osal_heap_get_status(uint32_t *free_bytes, uint32_t *minimum_ever_free_bytes)
+{
+    if (free_bytes != NULL) {
+        *free_bytes = 0u;
+    }
+    if (minimum_ever_free_bytes != NULL) {
+        *minimum_ever_free_bytes = 0u;
+    }
 }

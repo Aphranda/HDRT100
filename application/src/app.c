@@ -177,7 +177,7 @@ void app_diag_service(void)
     }
 }
 
-static void app_storage_service(void)
+void app_storage_service(void)
 {
     storage_manager_service(250u);
 }
@@ -208,5 +208,9 @@ void app_management_run_once(void)
 void app_realtime_run_once(void)
 {
     diagnostics_record_core1_loop();
+#if PROJECT_USE_MULTICORE
+    sync_trigger_service();
+#else
     app_trigger_service();
+#endif
 }

@@ -46,5 +46,9 @@ void sync_trigger_service(void);
 /* 快照查询 */
 void sync_trigger_get_summary(sync_trigger_summary_t *summary);
 void sync_trigger_get_vector(trigger_vector_t *vector);
+void sync_trigger_get_debug(uint32_t *stage,
+                            uint32_t *event_type,
+                            uint32_t *state,
+                            uint32_t *error_code);
 
 #endif

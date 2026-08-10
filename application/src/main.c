@@ -126,6 +126,21 @@ static void task_ota(void *context)
     }
 }
 
+static void task_storage(void *context)
+{
+    (void)context;
+
+    while (true) {
+        if (!app_is_ready()) {
+            osal_task_delay_ms(1u);
+            continue;
+        }
+
+        app_storage_service();
+        osal_task_delay_ms(1u);
+    }
+}
+
 static void task_ui(void *context)
 {
     (void)context;
@@ -160,7 +175,7 @@ int main(void)
         .name = "io_frontend",
         .entry = task_io_frontend,
         .context = NULL,
-        .stack_words = 1024u,
+        .stack_words = 3072u,
         .priority = 3u,
     };
 #if !PROJECT_USE_MULTICORE
@@ -179,11 +194,18 @@ int main(void)
         .stack_words = 1536u,
         .priority = 3u,
     };
+    const osal_task_config_t storage_task_config = {
+        .name = "storage",
+        .entry = task_storage,
+        .context = NULL,
+        .stack_words = 3072u,
+        .priority = 2u,
+    };
     const osal_task_config_t ui_task_config = {
         .name = "ui",
         .entry = task_ui,
         .context = NULL,
-        .stack_words = 1536u,
+        .stack_words = 2048u,
         .priority = 2u,
     };
 
@@ -203,6 +225,10 @@ int main(void)
 #endif
     if (!osal_task_create(&ota_task_config, NULL)) {
         diagnostics_mark_fault("rtos", "ota task creation failed");
+        app_blink_fault_forever();
+    }
+    if (!osal_task_create(&storage_task_config, NULL)) {
+        diagnostics_mark_fault("rtos", "storage task creation failed");
         app_blink_fault_forever();
     }
     if (!osal_task_create(&ui_task_config, NULL)) {

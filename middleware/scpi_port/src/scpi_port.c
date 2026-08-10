@@ -8,6 +8,7 @@
 #include "drv_watchdog.h"
 #include "biss_protocol.h"
 #include "ota_ao.h"
+#include "osal.h"
 #include "pico/unique_id.h"
 #include "pico/error.h"
 #include "pico/stdio.h"
@@ -41,6 +42,9 @@ static bool s_scpi_capture_truncated;
 static scpi_port_write_fn_t s_scpi_stream_write;
 static scpi_port_flush_fn_t s_scpi_stream_flush;
 static void *s_scpi_stream_context;
+static volatile uint32_t s_scpi_trigger_debug_stage;
+static volatile uint32_t s_scpi_trigger_debug_mode;
+static volatile uint32_t s_scpi_trigger_debug_posted;
 
 static bool scpi_port_wait_storage_job(uint32_t job_id);
 static bool scpi_port_trigger_is_armed(void);
@@ -286,6 +290,54 @@ static scpi_result_t scpi_cmd_core_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.core1_loop_count);
     SCPI_ResultUInt32(context, status.core0_last_ms);
     SCPI_ResultUInt32(context, status.core1_last_ms);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_rtos_status_q(scpi_t *context)
+{
+    uint32_t heap_free = 0u;
+    uint32_t heap_min_free = 0u;
+    osal_task_stats_t task_stats[8];
+    const uint32_t task_count =
+        osal_task_get_stats(task_stats,
+                            (uint32_t)(sizeof(task_stats) / sizeof(task_stats[0])));
+
+    osal_heap_get_status(&heap_free, &heap_min_free);
+    SCPI_ResultUInt32(context, heap_free);
+    SCPI_ResultUInt32(context, heap_min_free);
+    SCPI_ResultUInt32(context, task_count);
+
+    for (uint32_t i = 0u; i < task_count; i++) {
+        const osal_task_stats_t *task = &task_stats[i];
+        const uint32_t used_words = task->stack_words > task->stack_free_words ?
+                                    task->stack_words - task->stack_free_words :
+                                    0u;
+
+        SCPI_ResultText(context, task->name != NULL ? task->name : "-");
+        SCPI_ResultUInt32(context, task->stack_words);
+        SCPI_ResultUInt32(context, task->stack_free_words);
+        SCPI_ResultUInt32(context, used_words);
+        SCPI_ResultUInt32(context, task->priority);
+    }
+
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_trigger_debug_q(scpi_t *context)
+{
+    uint32_t sync_stage = 0u;
+    uint32_t sync_event = 0u;
+    uint32_t sync_state = 0u;
+    uint32_t sync_error = 0u;
+    sync_trigger_get_debug(&sync_stage, &sync_event, &sync_state, &sync_error);
+
+    SCPI_ResultUInt32(context, s_scpi_trigger_debug_stage);
+    SCPI_ResultUInt32(context, s_scpi_trigger_debug_mode);
+    SCPI_ResultUInt32(context, s_scpi_trigger_debug_posted);
+    SCPI_ResultUInt32(context, sync_stage);
+    SCPI_ResultUInt32(context, sync_event);
+    SCPI_ResultUInt32(context, sync_state);
+    SCPI_ResultUInt32(context, sync_error);
     return SCPI_RES_OK;
 }
 
@@ -542,11 +594,15 @@ static const char *scpi_biss_role_to_string(trig_biss_role_t role)
 
 static scpi_result_t scpi_cmd_trigger_mode(scpi_t *context)
 {
+    s_scpi_trigger_debug_stage = 100u;
     uint32_t mode;
     if (!scpi_port_read_u32(context, &mode) ||
         mode >= (uint32_t)TRIG_MODE_COUNT) {
+        s_scpi_trigger_debug_stage = 101u;
         return SCPI_RES_ERR;
     }
+    s_scpi_trigger_debug_stage = 102u;
+    s_scpi_trigger_debug_mode = mode;
 
     if (mode == (uint32_t)TRIG_MODE_SEQ_STEP) {
         s_seq_table_len = (s_seq_table_len > 0u) ? s_seq_table_len : 1u;
@@ -560,24 +616,38 @@ static scpi_result_t scpi_cmd_trigger_mode(scpi_t *context)
                 .seq_width  = s_seq_table_width,
             },
         };
-        return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+        s_scpi_trigger_debug_stage = 110u;
+        const bool posted = sync_trigger_post(&event);
+        s_scpi_trigger_debug_posted = posted ? 1u : 0u;
+        s_scpi_trigger_debug_stage = 111u;
+        return posted ? scpi_port_result_ok(context) : SCPI_RES_ERR;
     }
 
     if (mode == (uint32_t)TRIG_MODE_ENC_COUNT) {
         const trig_event_t event = { .type = TRIG_EVENT_CONFIGURE_ENC };
-        return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+        s_scpi_trigger_debug_stage = 120u;
+        const bool posted = sync_trigger_post(&event);
+        s_scpi_trigger_debug_posted = posted ? 1u : 0u;
+        s_scpi_trigger_debug_stage = 121u;
+        return posted ? scpi_port_result_ok(context) : SCPI_RES_ERR;
     }
 
     if (mode == (uint32_t)TRIG_MODE_PROTOCOL_TRIGGER) {
         trigger_vector_t vector;
+        s_scpi_trigger_debug_stage = 130u;
         sync_trigger_get_vector(&vector);
         if (!scpi_port_biss_role_supported(vector.biss_role)) {
+            s_scpi_trigger_debug_stage = 131u;
             scpi_port_push_exec_error(context, "BISS_ROLE_NOT_IMPLEMENTED");
             return SCPI_RES_ERR;
         }
 
         const trig_event_t event = { .type = TRIG_EVENT_CONFIGURE_BISS };
-        return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+        s_scpi_trigger_debug_stage = 132u;
+        const bool posted = sync_trigger_post(&event);
+        s_scpi_trigger_debug_posted = posted ? 1u : 0u;
+        s_scpi_trigger_debug_stage = 133u;
+        return posted ? scpi_port_result_ok(context) : SCPI_RES_ERR;
     }
 
     /* TRIG_MODE_IDLE */
@@ -676,21 +746,28 @@ static scpi_result_t scpi_cmd_trigger_seq_data_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_arm(scpi_t *context)
 {
+    s_scpi_trigger_debug_stage = 200u;
     trigger_vector_t vector;
     sync_trigger_get_vector(&vector);
+    s_scpi_trigger_debug_stage = 201u;
     if (vector.state == TRIG_STATE_BISS_CONFIGURED &&
         !scpi_port_biss_role_supported(vector.biss_role)) {
+        s_scpi_trigger_debug_stage = 202u;
         scpi_port_push_exec_error(context, "BISS_ROLE_NOT_IMPLEMENTED");
         return SCPI_RES_ERR;
     }
 
     const trig_event_t event = { .type = TRIG_EVENT_ARM };
+#if !PROJECT_USE_MULTICORE
     storage_manager_trace_event(2u, 10u, 1u, 0u, 0u);
     uint32_t job_id = 0u;
-    if (storage_manager_post_snapshot_job("arm", &job_id)) {
-        (void)scpi_port_wait_storage_job(job_id);
-    }
-    return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+    (void)storage_manager_post_snapshot_job("arm", &job_id);
+#endif
+    s_scpi_trigger_debug_stage = 210u;
+    const bool posted = sync_trigger_post(&event);
+    s_scpi_trigger_debug_posted = posted ? 1u : 0u;
+    s_scpi_trigger_debug_stage = 211u;
+    return posted ? scpi_port_result_ok(context) : SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_trigger_disarm(scpi_t *context)
@@ -2195,7 +2272,11 @@ static scpi_result_t scpi_cmd_storage_job_q(scpi_t *context)
 static bool scpi_port_wait_storage_job(uint32_t job_id)
 {
     for (uint32_t i = 0u; i < SCPI_PORT_STORAGE_JOB_WAIT_LOOPS; i++) {
+#if PROJECT_USE_FREERTOS
+        osal_task_delay_ms(1u);
+#else
         storage_manager_service(250u);
+#endif
         storage_manager_job_result_t job;
         storage_manager_get_job_result(&job);
         if (job.id != job_id) {
@@ -2615,6 +2696,8 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:LOG:LEVel?", .callback = scpi_cmd_log_level_q},
     {.pattern = "SYSTem:LOG:STATus?", .callback = scpi_cmd_log_status_q},
     {.pattern = "SYSTem:CORE?", .callback = scpi_cmd_core_status_q},
+    {.pattern = "SYSTem:RTOS:STATus?", .callback = scpi_cmd_rtos_status_q},
+    {.pattern = "SYSTem:TRIGger:DBG?", .callback = scpi_cmd_trigger_debug_q},
     {.pattern = "SYSTem:RESource?", .callback = scpi_cmd_resource_status_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},

@@ -2,8 +2,10 @@
 
 #include <string.h>
 
+#include "board.h"
 #include "board_config.h"
 #include "hardware/pio.h"
+#include "pico/util/queue.h"
 #include "osal.h"
 #include "resource_arbiter.h"
 #include "storage_manager.h"
@@ -44,10 +46,8 @@ typedef enum {
 
 typedef struct {
     trigger_vector_t vector;
-    trig_event_t     queue[SYNC_TRIGGER_QUEUE_LENGTH];
-    uint32_t         queue_head;
-    uint32_t         queue_tail;
-    uint32_t         queue_count;
+    queue_t          queue;
+    trig_event_t     queue_storage[SYNC_TRIGGER_QUEUE_LENGTH + 1u];
 } sync_trigger_ao_t;
 
 typedef struct {
@@ -71,7 +71,13 @@ typedef struct {
 } sync_trigger_trace_sample_t;
 
 static sync_trigger_ao_t s_ao;
+static volatile uint32_t s_sync_debug_stage;
+static volatile uint32_t s_sync_debug_event_type;
+static volatile uint32_t s_sync_debug_state;
+static volatile uint32_t s_sync_debug_error_code;
+static uint32_t s_runtime_sample_last_ms;
 
+#if !PROJECT_USE_MULTICORE
 static uint32_t ao_trace_pack_u16(uint32_t high, uint32_t low)
 {
     return ((high & 0xFFFFu) << 16) | (low & 0xFFFFu);
@@ -451,60 +457,74 @@ static void ao_execute_traced(const trig_event_t *event)
     trigger_fb_execute(&s_ao.vector, event);
     ao_trace_after_execute(event, &before);
 }
+#endif
 
 /* ── 事件队列 ── */
 
 static bool ao_enqueue(const trig_event_t *event)
 {
-    bool posted = false;
-    uint32_t queue_count = 0u;
-
-    osal_critical_enter();
-    if (s_ao.queue_count >= SYNC_TRIGGER_QUEUE_LENGTH) {
-        s_ao.vector.missed_count++;
-        queue_count = s_ao.queue_count;
-        osal_critical_exit();
-        storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
-                                    TRIG_TRACE_EVENT_QUEUE_FULL,
-                                    TRIG_TRACE_SEVERITY_WARN,
-                                    event != NULL ? (uint32_t)event->type : 0xFFFFFFFFu,
-                                    queue_count);
+    if (event == NULL) {
         return false;
     }
 
-    s_ao.queue[s_ao.queue_tail] = *event;
-    s_ao.queue_tail = (s_ao.queue_tail + 1u) % SYNC_TRIGGER_QUEUE_LENGTH;
-    s_ao.queue_count++;
-    queue_count = s_ao.queue_count;
-    posted = true;
-    osal_critical_exit();
+    s_sync_debug_stage = 10u;
+    s_sync_debug_event_type = (uint32_t)event->type;
+    s_sync_debug_state = (uint32_t)s_ao.vector.state;
+    s_sync_debug_error_code = (uint32_t)s_ao.vector.error_code;
 
+    if (!queue_try_add(&s_ao.queue, event)) {
+        osal_critical_enter();
+        s_ao.vector.missed_count++;
+        osal_critical_exit();
+        s_sync_debug_stage = 12u;
+        s_sync_debug_state = (uint32_t)s_ao.vector.state;
+        s_sync_debug_error_code = (uint32_t)s_ao.vector.error_code;
+#if !PROJECT_USE_MULTICORE
+        storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
+                                    TRIG_TRACE_EVENT_QUEUE_FULL,
+                                    TRIG_TRACE_SEVERITY_WARN,
+                                    (uint32_t)event->type,
+                                    queue_get_level(&s_ao.queue));
+#endif
+        return false;
+    }
+
+    const uint32_t queue_count = queue_get_level(&s_ao.queue);
+
+    s_sync_debug_stage = 11u;
+    s_sync_debug_state = (uint32_t)s_ao.vector.state;
+    s_sync_debug_error_code = (uint32_t)s_ao.vector.error_code;
+#if !PROJECT_USE_MULTICORE
     storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
                                 TRIG_TRACE_EVENT_QUEUE_POST,
                                 TRIG_TRACE_SEVERITY_INFO,
                                 (uint32_t)event->type,
                                 queue_count);
-    return posted;
+#else
+    (void)queue_count;
+#endif
+    return true;
 }
 
-static bool ao_dequeue(trig_event_t *event)
+#if PROJECT_USE_MULTICORE
+static void ao_execute_realtime(const trig_event_t *event)
 {
-    bool received = false;
-
-    osal_critical_enter();
-    if (s_ao.queue_count == 0u) {
-        goto exit;
+    if (event == NULL) {
+        return;
     }
 
-    *event = s_ao.queue[s_ao.queue_head];
-    s_ao.queue_head = (s_ao.queue_head + 1u) % SYNC_TRIGGER_QUEUE_LENGTH;
-    s_ao.queue_count--;
-    received = true;
-
-exit:
+    s_sync_debug_stage = 20u;
+    s_sync_debug_event_type = (uint32_t)event->type;
+    s_sync_debug_state = (uint32_t)s_ao.vector.state;
+    s_sync_debug_error_code = (uint32_t)s_ao.vector.error_code;
+    osal_critical_enter();
+    trigger_fb_execute(&s_ao.vector, event);
     osal_critical_exit();
-    return received;
+    s_sync_debug_stage = 21u;
+    s_sync_debug_state = (uint32_t)s_ao.vector.state;
+    s_sync_debug_error_code = (uint32_t)s_ao.vector.error_code;
 }
+#endif
 
 /* ── sync_io 状态同步 ── */
 
@@ -529,13 +549,23 @@ static void ao_refresh_from_io(void)
 bool sync_trigger_init(void)
 {
     memset(&s_ao, 0, sizeof(s_ao));
+    lock_init(&s_ao.queue.core, next_striped_spin_lock_num());
+    s_ao.queue.data = (uint8_t *)s_ao.queue_storage;
+    s_ao.queue.wptr = 0u;
+    s_ao.queue.rptr = 0u;
+    s_ao.queue.element_size = sizeof(trig_event_t);
+    s_ao.queue.element_count = SYNC_TRIGGER_QUEUE_LENGTH;
     trigger_fb_init(&s_ao.vector);
+#if PROJECT_USE_MULTICORE
+    s_ao.vector.io_initialized = true;
+#else
     ao_refresh_from_io();
     storage_manager_trace_event(TRIG_TRACE_DOMAIN_TRIGGER,
                                 TRIG_TRACE_EVENT_AO_INIT,
                                 TRIG_TRACE_SEVERITY_INFO,
                                 (uint32_t)s_ao.vector.state,
                                 0u);
+#endif
     return true;
 }
 
@@ -546,7 +576,7 @@ bool sync_trigger_post_event(const sync_trigger_event_t *event)
                                     TRIG_TRACE_EVENT_QUEUE_NULL,
                                     TRIG_TRACE_SEVERITY_WARN,
                                     0u,
-                                    s_ao.queue_count);
+                                    queue_get_level(&s_ao.queue));
         return false;
     }
 
@@ -565,7 +595,7 @@ bool sync_trigger_post(const trig_event_t *event)
                                     TRIG_TRACE_EVENT_QUEUE_NULL,
                                     TRIG_TRACE_SEVERITY_WARN,
                                     0u,
-                                    s_ao.queue_count);
+                                    queue_get_level(&s_ao.queue));
         return false;
     }
 
@@ -575,23 +605,25 @@ bool sync_trigger_post(const trig_event_t *event)
 void sync_trigger_service(void)
 {
     trig_event_t event;
-
-    if (!ao_dequeue(&event)) {
-#if PROJECT_USE_MULTICORE
-        if (s_ao.vector.state != TRIG_STATE_SEQ_ARMED &&
-            s_ao.vector.state != TRIG_STATE_ENC_ARMED &&
-            s_ao.vector.state != TRIG_STATE_BISS_ARMED) {
-            return;
-        }
-#endif
+    if (!queue_try_remove(&s_ao.queue, &event)) {
         /* 无事件时仍同步 ARM 态 PIO 状态 */
         if (s_ao.vector.state == TRIG_STATE_SEQ_ARMED ||
             s_ao.vector.state == TRIG_STATE_ENC_ARMED ||
             s_ao.vector.state == TRIG_STATE_BISS_ARMED) {
+            const uint32_t now_ms = board_uptime_ms();
+            if (now_ms == s_runtime_sample_last_ms) {
+                return;
+            }
+            s_runtime_sample_last_ms = now_ms;
+
             trig_event_t svc_event;
             memset(&svc_event, 0, sizeof(svc_event));
             svc_event.type = TRIG_EVENT_RUNTIME_SAMPLE;
+#if PROJECT_USE_MULTICORE
+            ao_execute_realtime(&svc_event);
+#else
             ao_execute_traced(&svc_event);
+#endif
         }
 
         /* ENC_ARMED: 检查 PIO IRQ0 (Z 脉冲=圈数+1) */
@@ -602,14 +634,22 @@ void sync_trigger_service(void)
                 trig_event_t z_event;
                 memset(&z_event, 0, sizeof(z_event));
                 z_event.type = TRIG_EVENT_ENC_Z_PULSE;
+#if PROJECT_USE_MULTICORE
+                ao_execute_realtime(&z_event);
+#else
                 ao_execute_traced(&z_event);
+#endif
             }
         }
         ao_refresh_from_io();
         return;
     }
 
+#if PROJECT_USE_MULTICORE
+    ao_execute_realtime(&event);
+#else
     ao_execute_traced(&event);
+#endif
     ao_refresh_from_io();
 }
 
@@ -633,4 +673,23 @@ void sync_trigger_get_vector(trigger_vector_t *vector)
     osal_critical_enter();
     *vector = s_ao.vector;
     osal_critical_exit();
+}
+
+void sync_trigger_get_debug(uint32_t *stage,
+                            uint32_t *event_type,
+                            uint32_t *state,
+                            uint32_t *error_code)
+{
+    if (stage != NULL) {
+        *stage = s_sync_debug_stage;
+    }
+    if (event_type != NULL) {
+        *event_type = s_sync_debug_event_type;
+    }
+    if (state != NULL) {
+        *state = s_sync_debug_state;
+    }
+    if (error_code != NULL) {
+        *error_code = s_sync_debug_error_code;
+    }
 }

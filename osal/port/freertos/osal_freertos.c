@@ -14,6 +14,18 @@ struct osal_task_control_block {
     TaskHandle_t native_handle;
 };
 
+#define OSAL_TASK_REGISTRY_MAX 8u
+
+typedef struct {
+    const char *name;
+    TaskHandle_t handle;
+    uint32_t stack_words;
+    uint32_t priority;
+} osal_task_registry_entry_t;
+
+static osal_task_registry_entry_t s_osal_task_registry[OSAL_TASK_REGISTRY_MAX];
+static uint32_t s_osal_task_registry_count;
+
 #if PROJECT_USE_MULTICORE
 static spin_lock_t *s_osal_lock;
 static uint32_t s_osal_irq_state[2];
@@ -23,7 +35,11 @@ static uint32_t s_osal_critical_depth[2];
 bool osal_kernel_init(void)
 {
 #if PROJECT_USE_MULTICORE
-    s_osal_lock = spin_lock_instance(PICO_SPINLOCK_ID_OS1);
+    const int lock_num = spin_lock_claim_unused(false);
+    if (lock_num < 0) {
+        return false;
+    }
+    s_osal_lock = spin_lock_instance((uint)lock_num);
 #endif
     return true;
 }
@@ -47,6 +63,14 @@ bool osal_task_create(const osal_task_config_t *config, osal_task_handle_t *hand
 
     if (handle != NULL) {
         *handle = (osal_task_handle_t)native_handle;
+    }
+    if (s_osal_task_registry_count < OSAL_TASK_REGISTRY_MAX) {
+        osal_task_registry_entry_t *entry =
+            &s_osal_task_registry[s_osal_task_registry_count++];
+        entry->name = config->name != NULL ? config->name : "osal";
+        entry->handle = native_handle;
+        entry->stack_words = config->stack_words;
+        entry->priority = config->priority;
     }
     return true;
 }
@@ -113,6 +137,42 @@ uint32_t osal_tick_ms(void)
     }
 
     return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+}
+
+uint32_t osal_task_get_stats(osal_task_stats_t *stats, uint32_t max_count)
+{
+    const uint32_t count = s_osal_task_registry_count < max_count ?
+                           s_osal_task_registry_count :
+                           max_count;
+
+    if (stats == NULL) {
+        return s_osal_task_registry_count;
+    }
+
+    for (uint32_t i = 0u; i < count; i++) {
+        const osal_task_registry_entry_t *entry = &s_osal_task_registry[i];
+        stats[i].name = entry->name;
+        stats[i].stack_words = entry->stack_words;
+        stats[i].priority = entry->priority;
+#if INCLUDE_uxTaskGetStackHighWaterMark
+        stats[i].stack_free_words =
+            (uint32_t)uxTaskGetStackHighWaterMark(entry->handle);
+#else
+        stats[i].stack_free_words = 0u;
+#endif
+    }
+
+    return count;
+}
+
+void osal_heap_get_status(uint32_t *free_bytes, uint32_t *minimum_ever_free_bytes)
+{
+    if (free_bytes != NULL) {
+        *free_bytes = (uint32_t)xPortGetFreeHeapSize();
+    }
+    if (minimum_ever_free_bytes != NULL) {
+        *minimum_ever_free_bytes = (uint32_t)xPortGetMinimumEverFreeHeapSize();
+    }
 }
 
 void vApplicationMallocFailedHook(void)
