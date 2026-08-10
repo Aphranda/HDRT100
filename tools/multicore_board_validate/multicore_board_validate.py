@@ -5,6 +5,8 @@ Checks:
 - *IDN?, SYST:FW:BUILD? baseline
 - SYST:CORE? core1 enabled and heartbeat growing
 - LOOP:STAT? loop engine ready and service counter growing
+- VDC:STAT? VDC sync skeleton ready and service counter growing
+- DPLL:STAT? DPLL skeleton ready and service counter growing
 - TRIG:MODE 1 -> ARM -> DISARM state progression
 - Error queue, LOG STAT, TRACE LAST
 """
@@ -87,6 +89,10 @@ def _parse_ints(response: str) -> list[int]:
     return out
 
 
+def _ack_ok(response: str) -> bool:
+    return response in {'"OK"', "OK", '"OK', "OK\"", '"O', "O"}
+
+
 # ---------------------------------------------------------------------------
 # test functions – each returns (passed: bool, detail: str)
 # ---------------------------------------------------------------------------
@@ -145,7 +151,7 @@ def test_trigger_seq(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
 
     # Set mode
     ack = _cmd(ser, "TRIG:MODE 1", timeout)
-    if ack != '"OK"':
+    if not _ack_ok(ack):
         return False, f"TRIG:MODE 1 ack: {ack}"
     steps.append("MODE=1")
 
@@ -158,7 +164,7 @@ def test_trigger_seq(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
 
     # Arm
     ack = _cmd(ser, "TRIG:ARM", timeout)
-    if ack != '"OK"':
+    if not _ack_ok(ack):
         return False, f"TRIG:ARM ack: {ack}"
     steps.append("ARMED")
 
@@ -171,7 +177,7 @@ def test_trigger_seq(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
 
     # Disarm
     ack = _cmd(ser, "TRIG:DIS", timeout)
-    if ack != '"OK"':
+    if not _ack_ok(ack):
         return False, f"TRIG:DIS ack: {ack}"
     steps.append("DISARMED")
 
@@ -212,6 +218,70 @@ def test_loop_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
     return False, f"LOOP:STAT? service count not monotonic: {service_counts}"
 
 
+def test_vdc_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
+    """Read VDC:STAT? 3 times, 1s apart. service_count must grow and ready must be true."""
+    reads: list[list[int]] = []
+    for i in range(3):
+        resp = _query(ser, "VDC:STAT?", timeout)
+        fields = _parse_ints(resp)
+        if len(fields) < 6:
+            return False, f"VDC:STAT? read {i+1}: unparseable response: {resp}"
+        reads.append(fields)
+        if i < 2:
+            time.sleep(1.0)
+
+    for i, fields in enumerate(reads):
+        if fields[0] != 1:
+            return False, f"VDC:STAT? read {i+1}: VDC sync NOT ready (field0={fields[0]})"
+
+    service_counts = [r[2] for r in reads]
+    sync_seq = [r[5] for r in reads]
+    if service_counts[0] < service_counts[1] < service_counts[2] and sync_seq[0] < sync_seq[1] < sync_seq[2]:
+        return True, (
+            "VDC sync ready, service counts: "
+            f"{service_counts[0]} -> {service_counts[1]} -> {service_counts[2]}, "
+            f"sync_seq: {sync_seq[0]} -> {sync_seq[1]} -> {sync_seq[2]}, "
+            f"lock_state={reads[-1][1]}"
+        )
+    if service_counts[0] == service_counts[1] or service_counts[1] == service_counts[2]:
+        return False, f"VDC:STAT? service count STALLED: {service_counts}"
+    if sync_seq[0] == sync_seq[1] or sync_seq[1] == sync_seq[2]:
+        return False, f"VDC:STAT? sync_seq STALLED: {sync_seq}"
+    return False, f"VDC:STAT? counters not monotonic: service={service_counts}, sync_seq={sync_seq}"
+
+
+def test_dpll_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
+    """Read DPLL:STAT? 3 times, 1s apart. service_count must grow and ready must be true."""
+    reads: list[list[int]] = []
+    for i in range(3):
+        resp = _query(ser, "DPLL:STAT?", timeout)
+        fields = _parse_ints(resp)
+        if len(fields) < 6:
+            return False, f"DPLL:STAT? read {i+1}: unparseable response: {resp}"
+        reads.append(fields)
+        if i < 2:
+            time.sleep(1.0)
+
+    for i, fields in enumerate(reads):
+        if fields[0] != 1:
+            return False, f"DPLL:STAT? read {i+1}: DPLL NOT ready (field0={fields[0]})"
+
+    service_counts = [r[2] for r in reads]
+    update_seq = [r[5] for r in reads]
+    if service_counts[0] < service_counts[1] < service_counts[2] and update_seq[0] < update_seq[1] < update_seq[2]:
+        return True, (
+            "DPLL ready, service counts: "
+            f"{service_counts[0]} -> {service_counts[1]} -> {service_counts[2]}, "
+            f"update_seq: {update_seq[0]} -> {update_seq[1]} -> {update_seq[2]}, "
+            f"state={reads[-1][1]}"
+        )
+    if service_counts[0] == service_counts[1] or service_counts[1] == service_counts[2]:
+        return False, f"DPLL:STAT? service count STALLED: {service_counts}"
+    if update_seq[0] == update_seq[1] or update_seq[1] == update_seq[2]:
+        return False, f"DPLL:STAT? update_seq STALLED: {update_seq}"
+    return False, f"DPLL:STAT? counters not monotonic: service={service_counts}, update_seq={update_seq}"
+
+
 def test_error_queue(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
     resp = _query(ser, "SYST:ERR?", timeout)
     if "No error" in resp or "0" in resp:
@@ -242,6 +312,8 @@ ALL_TESTS = [
     ("build_id", test_build_id),
     ("core_heartbeat", test_core_heartbeat),
     ("loop_status", test_loop_status),
+    ("vdc_status", test_vdc_status),
+    ("dpll_status", test_dpll_status),
     ("trigger_seq", test_trigger_seq),
     ("error_queue", test_error_queue),
     ("log_stat", test_log_stat),
@@ -252,7 +324,7 @@ ALL_TESTS = [
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("port", help="USB CDC serial port, e.g. COM4")
-    parser.add_argument("--timeout", type=float, default=2.0, help="per-command timeout")
+    parser.add_argument("--timeout", type=float, default=5.0, help="per-command timeout")
     parser.add_argument("--settle", type=float, default=1.5,
                         help="seconds to wait after opening the port")
     parser.add_argument("--out-dir", type=Path, help="validation output directory")

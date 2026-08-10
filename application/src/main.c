@@ -137,6 +137,36 @@ static void task_loop_engine(void *context)
     }
 }
 
+static void task_vdc_sync(void *context)
+{
+    (void)context;
+
+    while (true) {
+        if (!app_is_ready()) {
+            osal_task_delay_ms(1u);
+            continue;
+        }
+
+        app_vdc_sync_service();
+        osal_task_delay_ms(1u);
+    }
+}
+
+static void task_dpll(void *context)
+{
+    (void)context;
+
+    while (true) {
+        if (!app_is_ready()) {
+            osal_task_delay_ms(1u);
+            continue;
+        }
+
+        app_dpll_service();
+        osal_task_delay_ms(1u);
+    }
+}
+
 #if !PROJECT_USE_MULTICORE
 static void task_trigger(void *context)
 {
@@ -244,6 +274,20 @@ int main(void)
         .stack_words = 3072u,
         .priority = 3u,
     };
+    const osal_task_config_t vdc_sync_task_config = {
+        .name = "vdc_sync",
+        .entry = task_vdc_sync,
+        .context = NULL,
+        .stack_words = 2048u,
+        .priority = 4u,
+    };
+    const osal_task_config_t dpll_task_config = {
+        .name = "dpll",
+        .entry = task_dpll,
+        .context = NULL,
+        .stack_words = 2048u,
+        .priority = 3u,
+    };
 #if !PROJECT_USE_MULTICORE
     const osal_task_config_t trigger_task_config = {
         .name = "trigger",
@@ -293,6 +337,14 @@ int main(void)
     }
     if (!osal_task_create(&loop_engine_task_config, NULL)) {
         diagnostics_mark_fault("rtos", "loop_engine task creation failed");
+        app_blink_fault_forever();
+    }
+    if (!osal_task_create(&vdc_sync_task_config, NULL)) {
+        diagnostics_mark_fault("rtos", "vdc_sync task creation failed");
+        app_blink_fault_forever();
+    }
+    if (!osal_task_create(&dpll_task_config, NULL)) {
+        diagnostics_mark_fault("rtos", "dpll task creation failed");
         app_blink_fault_forever();
     }
 #if !PROJECT_USE_MULTICORE

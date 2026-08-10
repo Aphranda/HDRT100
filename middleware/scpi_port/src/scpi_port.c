@@ -299,7 +299,7 @@ static scpi_result_t scpi_cmd_rtos_status_q(scpi_t *context)
 {
     uint32_t heap_free = 0u;
     uint32_t heap_min_free = 0u;
-    osal_task_stats_t task_stats[8];
+    osal_task_stats_t task_stats[12];
     const uint32_t task_count =
         osal_task_get_stats(task_stats,
                             (uint32_t)(sizeof(task_stats) / sizeof(task_stats[0])));
@@ -374,6 +374,34 @@ static scpi_result_t scpi_cmd_loop_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.service_count);
     SCPI_ResultUInt32(context, status.first_service_ms);
     SCPI_ResultUInt32(context, status.last_service_ms);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_vdc_status_q(scpi_t *context)
+{
+    app_vdc_sync_status_t status;
+    app_vdc_sync_get_status(&status);
+
+    SCPI_ResultBool(context, status.ready ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.lock_state);
+    SCPI_ResultUInt32(context, status.service_count);
+    SCPI_ResultUInt32(context, status.first_service_ms);
+    SCPI_ResultUInt32(context, status.last_service_ms);
+    SCPI_ResultUInt32(context, status.sync_seq);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_dpll_status_q(scpi_t *context)
+{
+    app_dpll_status_t status;
+    app_dpll_get_status(&status);
+
+    SCPI_ResultBool(context, status.ready ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.state);
+    SCPI_ResultUInt32(context, status.service_count);
+    SCPI_ResultUInt32(context, status.first_service_ms);
+    SCPI_ResultUInt32(context, status.last_service_ms);
+    SCPI_ResultUInt32(context, status.update_seq);
     return SCPI_RES_OK;
 }
 
@@ -2753,6 +2781,10 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:RTOS:STATus?", .callback = scpi_cmd_rtos_status_q},
     {.pattern = "LOOP:STATus?", .callback = scpi_cmd_loop_status_q},
     {.pattern = "STATus:LOOP?", .callback = scpi_cmd_loop_status_q},
+    {.pattern = "VDC:STATus?", .callback = scpi_cmd_vdc_status_q},
+    {.pattern = "STATus:VDC?", .callback = scpi_cmd_vdc_status_q},
+    {.pattern = "DPLL:STATus?", .callback = scpi_cmd_dpll_status_q},
+    {.pattern = "STATus:DPLL?", .callback = scpi_cmd_dpll_status_q},
     {.pattern = "SYSTem:REFMem:STATus?", .callback = scpi_cmd_refmem_status_q},
     {.pattern = "SYSTem:REFMem:NODE?", .callback = scpi_cmd_refmem_node_q},
     {.pattern = "SYSTem:TRIGger:DBG?", .callback = scpi_cmd_trigger_debug_q},

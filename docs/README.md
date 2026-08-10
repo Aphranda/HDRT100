@@ -53,6 +53,7 @@ Last updated: 2026-07-07
 | `HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施补充、示例和迁移说明。 |
 | `HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估。 |
 | `RTOS_PORTING_PLAN.md` | FreeRTOS/OSAL 迁移计划。 |
+| `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` | RTOS + 双核 AMP 下四板分布式触发任务划分与小步验证记录。 |
 | `MULTICORE_PARTITION_PLAN.md` | RP2350 双核分区计划。 |
 
 ## 02 硬件与资源约束
@@ -69,6 +70,7 @@ Last updated: 2026-07-07
 |---|---|
 | `SYNC_IO_REFACTOR_PLAN.md` | SYNC_IO 硬件 profile + 多模式重构计划。 |
 | `TRIGGER_SYNC_TODO.md` | 触发系统生产化待办。 |
+| `RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md` | RP2350B 四板分布式触发方案。 |
 | `TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计。 |
 | `TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计。 |
 | `TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析。 |

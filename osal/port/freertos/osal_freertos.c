@@ -14,7 +14,7 @@ struct osal_task_control_block {
     TaskHandle_t native_handle;
 };
 
-#define OSAL_TASK_REGISTRY_MAX 8u
+#define OSAL_TASK_REGISTRY_MAX 12u
 
 typedef struct {
     const char *name;

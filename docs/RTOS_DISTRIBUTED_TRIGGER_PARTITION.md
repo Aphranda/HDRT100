@@ -554,7 +554,8 @@ core1 禁止：
   2026-08-10: `tools/multicore_board_validate` 5/5 PASS，结果归档 `build-rtos-multicore-smoke/validation_split_usb_scpi_step1`。
 - [x] 建立 `task_loop_engine` 空壳，只计数和响应状态查询，不接业务。
   2026-08-10: 已增加 `task_loop_engine` RTOS 任务、`LOOP:STAT?` / `STAT:LOOP?` 只读查询，以及本地 service_count/first_service_ms/last_service_ms 快照。
-- [ ] 建立 `task_vdc_sync` 空壳，只维护 lock 状态和统计计数。
+- [x] 建立 `task_vdc_sync` 空壳，只维护 lock 状态和统计计数。
+  2026-08-10: build `20260810124245` 已烧录验证，`VDC:STAT?` / `STAT:VDC?` 返回 ready、lock_state、service_count、first/last service ms 和 sync_seq，计数持续增长。
 - [ ] 建立 `task_dpll` 空壳，只维护 disabled/ready 状态。
 - [x] 建立 `task_refmem_sync` 空壳，按 64 KB 完整布局维护本地 DistributedVectorTable header、node slot 和 heartbeat。
   2026-08-10: build `20260810110636` 已烧录验证，`SYST:RTOS:STAT?` 显示 `refmem_sync`，本地 heartbeat 持续增长；NodeSlot 预留 8 个节点。
@@ -652,10 +653,11 @@ core1 禁止：
 | 2 | 拆 `task_io_frontend` 为 `task_usb_device` + `task_scpi` | USB/CDC/USBTMC 活性正常；`SYST:RTOS:STAT?` 显示两任务水位 |
 | 3 | 建立 `task_refmem_sync` 空壳 | 本地 64 KB DistributedVectorTable header/node heartbeat 可查询 |
 | 4 | 建立 `task_loop_engine` 空壳 | A0/A3 控制面入口存在，但不接真实扫描 |
-| 5 | 建立 `task_vdc_sync` / `task_dpll` 空壳 | lock/dpll 状态和计数器可查询 |
-| 6 | 接入 epoch/config CRC/ACK 门禁 | CONFIG/ARM/START 有 accepted 与完成态区分 |
-| 7 | 接入 RJ45 `REFMEM_DELTA` | 多板 slot delta、stale、ACK 位图同步 |
-| 8 | 接入 `FIRE_LOAD` / T2 闭环 | 分布式预约触发进入产品化路径 |
+| 5 | 建立 `task_vdc_sync` 空壳 | lock 状态和计数器可查询 |
+| 6 | 建立 `task_dpll` 空壳 | dpll 状态和计数器可查询 |
+| 7 | 接入 epoch/config CRC/ACK 门禁 | CONFIG/ARM/START 有 accepted 与完成态区分 |
+| 8 | 接入 RJ45 `REFMEM_DELTA` | 多板 slot delta、stale、ACK 位图同步 |
+| 9 | 接入 `FIRE_LOAD` / T2 闭环 | 分布式预约触发进入产品化路径 |
 
 每一步必须执行：
 
@@ -665,6 +667,7 @@ flash UF2
 board smoke
 SYST:RTOS:STAT? 水位记录
 LOOP:STAT? loop counter
+VDC:STAT? VDC counter
 SYST:CORE? core1 heartbeat
 SYST:ERR? 错误队列确认
 ```
@@ -706,9 +709,26 @@ rtos:     refmem_sync used 32 words, heap min free 65288 bytes
 下一步代码修改只做一件事：
 
 ```text
+add task_dpll skeleton
+publish disabled/ready state and counter snapshot
+do not connect turntable Compare Out or DPLL convergence yet
+```
+
+第三刀已经完成：
+
+```text
 add task_vdc_sync skeleton
 publish lock state and counter snapshot
 do not connect real DC convergence yet
 ```
 
-下一刀仍不接跨板 RJ45 同步，不接真实虚拟 DC 收敛，只验证任务边界、状态查询和板端 smoke。
+板端验证结果：
+
+```text
+build_id: 20260810124245
+smoke:    identity/build_id/core_heartbeat/loop_status/vdc_status/trigger_seq/error_queue/log_stat/trace_last 9/9 PASS
+vdc:      VDC:STAT? -> 1,0,<service_count>,<first_service_ms>,<last_service_ms>,<sync_seq>
+rtos:     task_count 9; vdc_sync used 32 words; ui still visible; heap min free 44584 bytes
+```
+
+下一刀仍不接跨板 RJ45 同步，不接真实转台 DPLL，只验证任务边界、状态查询和板端 smoke。
