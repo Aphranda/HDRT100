@@ -66,6 +66,21 @@ typedef struct {
     uint32_t config_crc32;
 } app_config_gate_status_t;
 
+typedef struct {
+    uint32_t version;
+    uint32_t command_seq;
+    uint32_t target_mask;
+    uint32_t ack_flags;
+    uint32_t nack_flags;
+    uint32_t busy_flags;
+    uint32_t timeout_flags;
+    uint32_t last_nack_reason;
+    uint32_t last_nack_node;
+    uint32_t reason_count;
+    uint32_t reason_table_crc32;
+    uint32_t config_crc32;
+} app_config_ack_status_t;
+
 void app_loop_engine_service(void);
 void app_loop_engine_get_status(app_loop_engine_status_t *status);
 void app_vdc_sync_service(void);
@@ -74,6 +89,7 @@ void app_dpll_service(void);
 void app_dpll_get_status(app_dpll_status_t *status);
 void app_config_gate_service(void);
 void app_config_gate_get_status(app_config_gate_status_t *status);
+void app_config_gate_get_ack_status(app_config_ack_status_t *status);
 void app_trigger_service(void);
 void app_ota_service(void);
 void app_storage_service(void);

@@ -9,6 +9,7 @@ Checks:
 - DPLL:STAT? DPLL skeleton ready and service counter growing
 - SYST:CFG:STAT? config gate static snapshot ready and service counter growing
 - SYST:CFG:ROLE?/LOOP?/ACT?/CAL? static distributed config queries
+- SYST:CFG:ACK?, SYST:CFG:NACK?, SYST:SCPI:RUN:ALLOW? ACK reason and RUN whitelist tables
 - SYST:CORE:VECT? and SYST:PROT:STAT? owner/protection table snapshots
 - TRIG:MODE 1 -> ARM -> DISARM state progression
 - Error queue, LOG STAT, TRACE LAST
@@ -358,6 +359,41 @@ def test_config_snapshot_queries(ser: serial.Serial, timeout: float) -> tuple[bo
     return True, ", ".join(checks)
 
 
+def test_ack_reason_and_run_policy(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
+    ack = _parse_ints(_query(ser, "SYST:CFG:ACK?", timeout))
+    if len(ack) < 12:
+        return False, f"SYST:CFG:ACK? unparseable: {ack}"
+    if ack[0] != 1 or ack[2] != 15 or ack[3] != 15 or ack[4] != 0:
+        return False, f"SYST:CFG:ACK? unexpected flags: {ack}"
+    if ack[7] != 0 or ack[9] < 6 or ack[10] == 0 or ack[11] == 0:
+        return False, f"SYST:CFG:ACK? missing reason/config CRC: {ack}"
+
+    reason = _query(ser, "SYST:CFG:NACK? 5", timeout)
+    reason_fields = _parse_ints(reason)
+    if len(reason_fields) < 7:
+        return False, f"SYST:CFG:NACK? unparseable: {reason}"
+    if reason_fields[0] != 1 or reason_fields[2] != 5 or reason_fields[6] != 1005:
+        return False, f"SYST:CFG:NACK? unexpected flash lockout reason: {reason}"
+    if "FLASH_LOCKOUT_UNREADY" not in reason:
+        return False, f"SYST:CFG:NACK? missing reason name: {reason}"
+
+    policy = _query(ser, "SYST:SCPI:RUN:ALLOW? 3", timeout)
+    policy_fields = _parse_ints(policy)
+    if len(policy_fields) < 10:
+        return False, f"SYST:SCPI:RUN:ALLOW? unparseable: {policy}"
+    if (policy_fields[0] != 1 or policy_fields[1] < 7 or policy_fields[2] != 1 or
+            policy_fields[3] == 0 or policy_fields[4] != 3 or policy_fields[6] != 0 or
+            policy_fields[9] != 2401):
+        return False, f"SYST:SCPI:RUN:ALLOW? unexpected trigger config policy: {policy}"
+    if "TRIG/PULS/MARK" not in policy:
+        return False, f"SYST:SCPI:RUN:ALLOW? missing policy pattern: {policy}"
+
+    return True, (
+        f"ack_seq={ack[1]} reason_crc={ack[10]} "
+        f"policy_crc={policy_fields[3]} forbid={policy_fields[9]}"
+    )
+
+
 def test_runtime_protection_tables(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
     core_vector = _parse_ints(_query(ser, "SYST:CORE:VECT?", timeout))
     if len(core_vector) < 13:
@@ -417,6 +453,7 @@ ALL_TESTS = [
     ("dpll_status", test_dpll_status),
     ("config_gate_status", test_config_gate_status),
     ("config_snapshot_queries", test_config_snapshot_queries),
+    ("ack_reason_and_run_policy", test_ack_reason_and_run_policy),
     ("runtime_protection_tables", test_runtime_protection_tables),
     ("trigger_seq", test_trigger_seq),
     ("error_queue", test_error_queue),

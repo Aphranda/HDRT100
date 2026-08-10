@@ -51,6 +51,45 @@ Last updated: 2026-08-10
 
 ## 任务记录
 
+### TASK-20260810-004 - ACK/NACK reason 与 RUN 白名单表闭环
+
+- 状态：完成
+- 日期：2026-08-10
+- 任务目标：
+  - 把分布式命令 ACK/NACK 原因码从文档概念落成可查询表。
+  - 把 RUN 态 SCPI 白名单从待办落成可查询策略表，并给高风险写入口加统一拒绝码。
+  - 保持现有 `SYST:CFG:STAT?` 兼容，不打断已有板端 smoke。
+- 完成内容：
+  - `components/distributed_config/` 新增 NACK reason table 和 SCPI RUN policy table，包含 CRC。
+  - `application` 新增 ACK 快照查询，暴露 command seq、ack/nack/busy/timeout 和 reason table CRC。
+  - `middleware/scpi_port` 新增 `SYST:CFG:ACK?`、`SYST:CFG:NACK?`、`SYST:SCPI:RUN:ALLOW?`。
+  - 触发、采样、时钟、BiSS、PCNT、Storage 和 OTA 的关键写入口接入统一 RUN 态拒绝码。
+  - `tools/multicore_board_validate` 新增 ACK reason / RUN policy 验证。
+  - `docs/SCPI_COMMANDS.md` 与 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 已同步更新。
+- 验证结果：
+  - `cmake --build --preset pico2-rtos-multicore-smoke` 通过，build id `20260810153737`。
+  - `cmake --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-release` 通过，build id `20260810153757`。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/docs_check/docs_check.py` 通过，仍有 6 个历史命名 warning。
+  - 已 OTA 烧录 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg` 到 COM5，并执行 `SYST:OTA:COMM`。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_ack_run_policy` 通过，`14/14 PASS`。
+- 还需完成：
+  - 真实跨板 RJ45 ACK delta 位图同步。
+  - SystemMode / ResourceArbiter 的完整查询表。
+  - 更细的入口级白名单和长命令拦截。
+- 关联文件：
+  - `components/distributed_config/inc/distributed_config.h`
+  - `components/distributed_config/src/distributed_config.c`
+  - `application/inc/app.h`
+  - `application/src/app.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+- 下一步：
+  - 收口 SystemMode / ResourceArbiter 查询表，再决定是否进入跨板 ACK delta。
+
 ### TASK-20260810-003 - CoreVectorOwnerTable 与 RuntimeProtectionTable 闭环
 
 - 状态：完成

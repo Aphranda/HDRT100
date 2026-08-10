@@ -194,6 +194,25 @@ static void scpi_port_push_exec_error(scpi_t *context, const char *info)
                      info != NULL ? strlen(info) : 0u);
 }
 
+static bool scpi_port_reject_if_run_forbidden(scpi_t *context, uint32_t class_id)
+{
+    if (!scpi_port_trigger_is_armed()) {
+        return false;
+    }
+
+    if (distributed_config_scpi_run_class_allowed(class_id, false)) {
+        return false;
+    }
+
+    char error_text[32];
+    snprintf(error_text,
+             sizeof(error_text),
+             "RUN_STATE_DENIED:%lu",
+             (unsigned long)distributed_config_scpi_run_class_forbid_code(class_id));
+    scpi_port_push_exec_error(context, error_text);
+    return true;
+}
+
 static scpi_result_t scpi_cmd_firmware_version_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, PROJECT_VERSION_MAJOR);
@@ -482,6 +501,75 @@ static scpi_result_t scpi_cmd_config_gate_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static scpi_result_t scpi_cmd_config_ack_q(scpi_t *context)
+{
+    app_config_ack_status_t status;
+    app_config_gate_get_ack_status(&status);
+
+    SCPI_ResultUInt32(context, status.version);
+    SCPI_ResultUInt32(context, status.command_seq);
+    SCPI_ResultUInt32(context, status.target_mask);
+    SCPI_ResultUInt32(context, status.ack_flags);
+    SCPI_ResultUInt32(context, status.nack_flags);
+    SCPI_ResultUInt32(context, status.busy_flags);
+    SCPI_ResultUInt32(context, status.timeout_flags);
+    SCPI_ResultUInt32(context, status.last_nack_reason);
+    SCPI_ResultUInt32(context, status.last_nack_node);
+    SCPI_ResultUInt32(context, status.reason_count);
+    SCPI_ResultUInt32(context, status.reason_table_crc32);
+    SCPI_ResultUInt32(context, status.config_crc32);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_config_nack_reason_q(scpi_t *context)
+{
+    uint32_t reason_id = 0u;
+    (void)SCPI_ParamUInt32(context, &reason_id, FALSE);
+
+    const distributed_config_nack_reason_entry_t *reason;
+    if (!distributed_config_get_nack_reason(reason_id, &reason)) {
+        return SCPI_RES_ERR;
+    }
+
+    const distributed_config_nack_reason_table_t *table =
+        distributed_config_get_nack_reason_table();
+    SCPI_ResultUInt32(context, table->version);
+    SCPI_ResultUInt32(context, table->reason_count);
+    SCPI_ResultUInt32(context, reason->reason_id);
+    SCPI_ResultUInt32(context, reason->severity);
+    SCPI_ResultUInt32(context, reason->retryable);
+    SCPI_ResultUInt32(context, reason->blocking);
+    SCPI_ResultUInt32(context, reason->detail_code);
+    SCPI_ResultText(context, reason->name);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_scpi_run_allow_q(scpi_t *context)
+{
+    uint32_t index = 0u;
+    (void)SCPI_ParamUInt32(context, &index, FALSE);
+
+    const distributed_config_scpi_run_policy_entry_t *entry;
+    if (!distributed_config_get_scpi_run_policy(index, &entry)) {
+        return SCPI_RES_ERR;
+    }
+
+    const distributed_config_scpi_run_policy_table_t *table =
+        distributed_config_get_scpi_run_policy_table();
+    SCPI_ResultUInt32(context, table->version);
+    SCPI_ResultUInt32(context, table->entry_count);
+    SCPI_ResultUInt32(context, table->enforced);
+    SCPI_ResultUInt32(context, table->policy_crc32);
+    SCPI_ResultUInt32(context, entry->index);
+    SCPI_ResultUInt32(context, entry->class_id);
+    SCPI_ResultUInt32(context, entry->run_allowed);
+    SCPI_ResultUInt32(context, entry->query_allowed);
+    SCPI_ResultUInt32(context, entry->write_allowed);
+    SCPI_ResultUInt32(context, entry->forbidden_error_code);
+    SCPI_ResultText(context, entry->pattern);
+    return SCPI_RES_OK;
+}
+
 static scpi_result_t scpi_cmd_config_role_q(scpi_t *context)
 {
     const distributed_config_role_map_t *role_map = distributed_config_get_role_map();
@@ -610,6 +698,12 @@ static scpi_result_t scpi_cmd_boot_reset(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_width(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t value;
     if (!scpi_port_read_u32(context, &value) || value == 0u) {
         return SCPI_RES_ERR;
@@ -630,7 +724,12 @@ static scpi_result_t scpi_cmd_trigger_width_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_fire(scpi_t *context)
 {
-    (void)context;
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_FIRE_TRIGGER, 0u) ?
                SCPI_RES_OK :
                SCPI_RES_ERR;
@@ -638,6 +737,12 @@ static scpi_result_t scpi_cmd_trigger_fire(scpi_t *context)
 
 static scpi_result_t scpi_cmd_pulse_width(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t value;
     if (!scpi_port_read_u32(context, &value) || value == 0u) {
         return SCPI_RES_ERR;
@@ -658,7 +763,12 @@ static scpi_result_t scpi_cmd_pulse_width_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_pulse_fire(scpi_t *context)
 {
-    (void)context;
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_FIRE_PULSE, 0u) ?
                SCPI_RES_OK :
                SCPI_RES_ERR;
@@ -666,6 +776,12 @@ static scpi_result_t scpi_cmd_pulse_fire(scpi_t *context)
 
 static scpi_result_t scpi_cmd_marker_width(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t value;
     if (!scpi_port_read_u32(context, &value) || value == 0u) {
         return SCPI_RES_ERR;
@@ -686,7 +802,12 @@ static scpi_result_t scpi_cmd_marker_width_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_marker_fire(scpi_t *context)
 {
-    (void)context;
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_FIRE_MARKER, 0u) ?
                SCPI_RES_OK :
                SCPI_RES_ERR;
@@ -694,6 +815,12 @@ static scpi_result_t scpi_cmd_marker_fire(scpi_t *context)
 
 static scpi_result_t scpi_cmd_rj45_trigger_width(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t value;
     if (!scpi_port_read_u32(context, &value) || value == 0u) {
         return SCPI_RES_ERR;
@@ -715,7 +842,12 @@ static scpi_result_t scpi_cmd_rj45_trigger_width_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_rj45_trigger_fire(scpi_t *context)
 {
-    (void)context;
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     return scpi_port_post_trigger_event(SYNC_TRIGGER_EVENT_FIRE_RJ45_TRIGGER, 0u) ?
                SCPI_RES_OK :
                SCPI_RES_ERR;
@@ -730,6 +862,12 @@ static scpi_result_t scpi_cmd_rj45_trigger_pins_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_sample_rate(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t value;
     if (!scpi_port_read_u32(context, &value) || value == 0u) {
         return SCPI_RES_ERR;
@@ -750,6 +888,12 @@ static scpi_result_t scpi_cmd_sample_rate_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_sample_state(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     scpi_bool_t state;
     if (SCPI_ParamBool(context, &state, TRUE) != TRUE) {
         return SCPI_RES_ERR;
@@ -771,6 +915,12 @@ static scpi_result_t scpi_cmd_sample_state_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_clock_freq(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t value;
     if (!scpi_port_read_u32(context, &value) || value == 0u) {
         return SCPI_RES_ERR;
@@ -791,6 +941,12 @@ static scpi_result_t scpi_cmd_clock_freq_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_clock_state(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     scpi_bool_t state;
     if (SCPI_ParamBool(context, &state, TRUE) != TRUE) {
         return SCPI_RES_ERR;
@@ -840,6 +996,12 @@ static const char *scpi_biss_role_to_string(trig_biss_role_t role)
 
 static scpi_result_t scpi_cmd_trigger_mode(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     s_scpi_trigger_debug_stage = 100u;
     uint32_t mode;
     if (!scpi_port_read_u32(context, &mode) ||
@@ -911,6 +1073,12 @@ static scpi_result_t scpi_cmd_trigger_mode_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_seq_length(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t value;
     if (!scpi_port_read_u32(context, &value) ||
         value == 0u || value > TRIG_SEQ_TABLE_MAX) {
@@ -930,6 +1098,12 @@ static scpi_result_t scpi_cmd_trigger_seq_length_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_seq_width(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t value;
     if (!scpi_port_read_u32(context, &value) ||
         value == 0u || value > TRIG_SEQ_WIDTH_MAX) {
@@ -957,6 +1131,12 @@ static scpi_result_t scpi_cmd_trigger_seq_index_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_seq_data(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     const char *data = NULL;
     size_t length = 0u;
     if (SCPI_ParamArbitraryBlock(context, &data, &length, TRUE) != TRUE) {
@@ -992,6 +1172,12 @@ static scpi_result_t scpi_cmd_trigger_seq_data_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_arm(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     s_scpi_trigger_debug_stage = 200u;
     trigger_vector_t vector;
     sync_trigger_get_vector(&vector);
@@ -1040,6 +1226,12 @@ static scpi_result_t scpi_cmd_trigger_fault(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_source(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t pin;
     if (!scpi_port_read_u32(context, &pin)) {
         return SCPI_RES_ERR;
@@ -1066,6 +1258,12 @@ static scpi_result_t scpi_cmd_trigger_source_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_edge(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t edge;
     if (!scpi_port_read_u32(context, &edge) || edge > 1u) {
         return SCPI_RES_ERR;
@@ -1089,6 +1287,12 @@ static scpi_result_t scpi_cmd_trigger_edge_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_gate(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     scpi_bool_t enable;
     if (SCPI_ParamBool(context, &enable, TRUE) != TRUE) {
         return SCPI_RES_ERR;
@@ -1111,6 +1315,12 @@ static scpi_result_t scpi_cmd_trigger_gate_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_trigger_safe(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t safe;
     if (!scpi_port_read_u32(context, &safe) || safe > 1u) {
         return SCPI_RES_ERR;
@@ -1136,6 +1346,12 @@ static scpi_result_t scpi_cmd_trigger_safe_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_enc_target(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t target;
     if (!scpi_port_read_u32(context, &target) || target == 0u) {
         return SCPI_RES_ERR;
@@ -1166,6 +1382,12 @@ static scpi_result_t scpi_cmd_enc_count_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_enc_a_pin(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t pin;
     if (!scpi_port_read_u32(context, &pin)) {
         return SCPI_RES_ERR;
@@ -1210,6 +1432,12 @@ static scpi_result_t scpi_cmd_biss_set_u32(scpi_t *context,
                                            uint32_t min_value,
                                            uint32_t max_value)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t value;
     if (!scpi_port_read_u32(context, &value) ||
         value < min_value ||
@@ -1779,6 +2007,12 @@ static scpi_result_t scpi_cmd_biss_pins_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_biss_pulse_in(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t delta = 1u;
     (void)scpi_port_read_u32(context, &delta);
     if (delta == 0u) {
@@ -1794,6 +2028,12 @@ static scpi_result_t scpi_cmd_biss_pulse_in(scpi_t *context)
 
 static scpi_result_t scpi_cmd_biss_frame_rx(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t position;
     if (!scpi_port_read_u32(context, &position)) {
         return SCPI_RES_ERR;
@@ -1808,14 +2048,24 @@ static scpi_result_t scpi_cmd_biss_frame_rx(scpi_t *context)
 
 static scpi_result_t scpi_cmd_biss_crc_error(scpi_t *context)
 {
-    (void)context;
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     const trig_event_t event = { .type = TRIG_EVENT_BISS_CRC_ERROR };
     return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
 }
 
 static scpi_result_t scpi_cmd_biss_timeout_inject(scpi_t *context)
 {
-    (void)context;
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     const trig_event_t event = { .type = TRIG_EVENT_BISS_TIMEOUT };
     return sync_trigger_post(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
 }
@@ -1867,6 +2117,12 @@ static void scpi_post_pcnt_event(trig_event_type_t type, uint32_t value)
 
 static scpi_result_t scpi_cmd_pcnt_decode(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t v;
     if (!scpi_port_read_u32(context, &v) || v > 3u) return SCPI_RES_ERR;
     scpi_post_pcnt_event(TRIG_EVENT_SET_PCNT_DECODE, v);
@@ -1891,6 +2147,12 @@ static scpi_result_t scpi_cmd_pcnt_decode_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_pcnt_dir(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t v;
     if (!scpi_port_read_u32(context, &v) || v > 2u) return SCPI_RES_ERR;
     scpi_post_pcnt_event(TRIG_EVENT_SET_PCNT_DIR, v);
@@ -1908,6 +2170,12 @@ static scpi_result_t scpi_cmd_pcnt_dir_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_pcnt_filter(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t v;
     if (!scpi_port_read_u32(context, &v)) return SCPI_RES_ERR;
     scpi_post_pcnt_event(TRIG_EVENT_SET_PCNT_FILTER, v);
@@ -1923,6 +2191,12 @@ static scpi_result_t scpi_cmd_pcnt_filter_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_pcnt_gate(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     scpi_bool_t en;
     if (SCPI_ParamBool(context, &en, TRUE) != TRUE) return SCPI_RES_ERR;
     scpi_post_pcnt_event(TRIG_EVENT_SET_PCNT_GATE, en ? 1u : 0u);
@@ -1938,6 +2212,12 @@ static scpi_result_t scpi_cmd_pcnt_gate_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_pcnt_cmp(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t v;
     if (!scpi_port_read_u32(context, &v)) return SCPI_RES_ERR;
     scpi_post_pcnt_event(TRIG_EVENT_SET_PCNT_CMP, v);
@@ -1953,6 +2233,12 @@ static scpi_result_t scpi_cmd_pcnt_cmp_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_pcnt_preset(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t v;
     if (!scpi_port_read_u32(context, &v)) return SCPI_RES_ERR;
     scpi_post_pcnt_event(TRIG_EVENT_SET_PCNT_PRESET, v);
@@ -1968,6 +2254,12 @@ static scpi_result_t scpi_cmd_pcnt_preset_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_pcnt_clear(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
     scpi_post_pcnt_event(TRIG_EVENT_PCNT_CLEAR, 0u);
     return scpi_port_result_ok(context);
 }
@@ -2039,6 +2331,12 @@ static scpi_result_t scpi_cmd_ota_progress_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_ota_begin(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t size;
     uint32_t crc32;
     if (!scpi_port_read_u32(context, &size) || !scpi_port_read_u32(context, &crc32)) {
@@ -2060,6 +2358,12 @@ static scpi_result_t scpi_cmd_ota_begin(scpi_t *context)
 
 static scpi_result_t scpi_cmd_ota_package_begin(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+
     uint32_t size;
     uint32_t crc32;
     if (!scpi_port_read_u32(context, &size) || !scpi_port_read_u32(context, &crc32)) {
@@ -2081,6 +2385,12 @@ static scpi_result_t scpi_cmd_ota_package_begin(scpi_t *context)
 
 static scpi_result_t scpi_cmd_ota_data(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+
     const char *data = NULL;
     size_t length = 0u;
     if (SCPI_ParamArbitraryBlock(context, &data, &length, TRUE) != TRUE) {
@@ -2105,6 +2415,12 @@ static scpi_result_t scpi_cmd_ota_data(scpi_t *context)
 
 static scpi_result_t scpi_cmd_ota_simple_event_ack(scpi_t *context, ota_event_type_t type)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+
     const ota_event_t event = {
         .type = type,
     };
@@ -2303,7 +2619,9 @@ static scpi_result_t scpi_cmd_storage_info_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_storage_raw_clear(scpi_t *context)
 {
-    if (scpi_port_trigger_is_armed()) {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_STORAGE_MAINT)) {
         return SCPI_RES_ERR;
     }
 
@@ -2334,7 +2652,9 @@ static scpi_result_t scpi_cmd_storage_raw_clear(scpi_t *context)
 
 static scpi_result_t scpi_cmd_storage_raw_read_q(scpi_t *context)
 {
-    if (scpi_port_trigger_is_armed()) {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_STORAGE_MAINT)) {
         return SCPI_RES_ERR;
     }
 
@@ -2367,7 +2687,9 @@ static scpi_result_t scpi_cmd_storage_raw_read_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_storage_mkfs(scpi_t *context)
 {
-    if (scpi_port_trigger_is_armed()) {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_STORAGE_MAINT)) {
         return SCPI_RES_ERR;
     }
 
@@ -2398,7 +2720,9 @@ static scpi_result_t scpi_cmd_storage_mkfs(scpi_t *context)
 
 static scpi_result_t scpi_cmd_storage_init(scpi_t *context)
 {
-    if (scpi_port_trigger_is_armed()) {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_STORAGE_MAINT)) {
         return SCPI_RES_ERR;
     }
 
@@ -2430,7 +2754,9 @@ static scpi_result_t scpi_cmd_storage_init(scpi_t *context)
 
 static scpi_result_t scpi_cmd_storage_manifest_q(scpi_t *context)
 {
-    if (scpi_port_trigger_is_armed()) {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_STORAGE_MAINT)) {
         return SCPI_RES_ERR;
     }
 
@@ -2462,6 +2788,12 @@ static scpi_result_t scpi_cmd_storage_manifest_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_storage_job_info(scpi_t *context)
 {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_STORAGE_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+
     const char *path = NULL;
     size_t path_len = 0u;
     if (SCPI_ParamCharacters(context, &path, &path_len, TRUE) != TRUE ||
@@ -2540,7 +2872,9 @@ static bool scpi_port_wait_storage_job(uint32_t job_id)
 
 static scpi_result_t scpi_cmd_snapshot_write(scpi_t *context)
 {
-    if (scpi_port_trigger_is_armed()) {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_STORAGE_MAINT)) {
         return SCPI_RES_ERR;
     }
 
@@ -2615,7 +2949,9 @@ static scpi_result_t scpi_cmd_fault_last_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_mmem_catalog_q(scpi_t *context)
 {
-    if (scpi_port_trigger_is_armed()) {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_STORAGE_MAINT)) {
         return SCPI_RES_ERR;
     }
 
@@ -2670,7 +3006,9 @@ static scpi_result_t scpi_cmd_mmem_catalog_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_mmem_info_q(scpi_t *context)
 {
-    if (scpi_port_trigger_is_armed()) {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_STORAGE_MAINT)) {
         return SCPI_RES_ERR;
     }
 
@@ -2709,7 +3047,9 @@ static scpi_result_t scpi_cmd_mmem_info_q(scpi_t *context)
 
 static scpi_result_t scpi_cmd_mmem_catalog_page_q(scpi_t *context)
 {
-    if (scpi_port_trigger_is_armed()) {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_STORAGE_MAINT)) {
         return SCPI_RES_ERR;
     }
 
@@ -2789,7 +3129,9 @@ static void scpi_port_hex_encode(const uint8_t *data, size_t data_size, char *he
 
 static scpi_result_t scpi_cmd_mmem_read_q(scpi_t *context)
 {
-    if (scpi_port_trigger_is_armed()) {
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_STORAGE_MAINT)) {
         return SCPI_RES_ERR;
     }
 
@@ -2951,10 +3293,13 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "STATus:DPLL?", .callback = scpi_cmd_dpll_status_q},
     {.pattern = "SYSTem:CFG:STATus?", .callback = scpi_cmd_config_gate_status_q},
     {.pattern = "STATus:CFG?", .callback = scpi_cmd_config_gate_status_q},
+    {.pattern = "SYSTem:CFG:ACK?", .callback = scpi_cmd_config_ack_q},
+    {.pattern = "SYSTem:CFG:NACK?", .callback = scpi_cmd_config_nack_reason_q},
     {.pattern = "SYSTem:CFG:ROLE?", .callback = scpi_cmd_config_role_q},
     {.pattern = "SYSTem:CFG:LOOP?", .callback = scpi_cmd_config_loop_q},
     {.pattern = "SYSTem:CFG:ACTion?", .callback = scpi_cmd_config_action_q},
     {.pattern = "SYSTem:CFG:CALibration?", .callback = scpi_cmd_config_calibration_q},
+    {.pattern = "SYSTem:SCPI:RUN:ALLOW?", .callback = scpi_cmd_scpi_run_allow_q},
     {.pattern = "SYSTem:REFMem:STATus?", .callback = scpi_cmd_refmem_status_q},
     {.pattern = "SYSTem:REFMem:NODE?", .callback = scpi_cmd_refmem_node_q},
     {.pattern = "SYSTem:CORE:VECTor?", .callback = scpi_cmd_core_vector_q},

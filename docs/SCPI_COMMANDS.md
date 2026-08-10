@@ -42,6 +42,9 @@ Last updated: 2026-07-22
 | `SYST:CFG:LOOP? [layer_id]` | 查询静态 `LoopPlan` 层条目；省略 `layer_id` 时查询 0。返回 `version,node_loop_count,array_loop_count,layer_count,default_wait_rule,layer_id,node_id,action_id,wait_rule`。 |
 | `SYST:CFG:ACT? [action_id]` | 查询静态 `ActionMap` 条目；省略 `action_id` 时查询 0。返回 `version,action_count,action_id,node_id,sma_out_pin,sma_in_pin,edge,delay_us`。 |
 | `SYST:CFG:CAL? [node_id]` | 查询静态 `Calibration` 节点补偿；省略 `node_id` 时查询 0。返回 `version,node_count,node_id,delta_ns,sma_hop_ns,rj45_hop_ns,device_delay_ns,tempco_ppb,valid_window_ns`。 |
+| `SYST:CFG:ACK?` | 查询本地分布式命令 ACK 快照：`version,command_seq,target_mask,ack_flags,nack_flags,busy_flags,timeout_flags,last_nack_reason,last_nack_node,reason_count,reason_table_crc32,config_crc32`。当前为本地门禁骨架，尚未接真实 RJ45 ACK delta。 |
+| `SYST:CFG:NACK? [reason_id]` | 查询 NACK reason 表条目；省略 `reason_id` 时查询 0。返回 `version,reason_count,reason_id,severity,retryable,blocking,detail_code,name`。首版 reason 覆盖 `NONE`、配置 CRC、硬件 profile、节点 stale/fault 和 flash lockout 未就绪。 |
+| `SYST:SCPI:RUN:ALLOW? [index]` | 查询 RUN 态 SCPI 白名单策略表；省略 `index` 时查询 0。返回 `version,entry_count,enforced,policy_crc32,index,class_id,run_allowed,query_allowed,write_allowed,forbidden_error_code,pattern`。关键触发/采样/时钟/BiSS/Storage/OTA 写入口已按表拒绝，禁止码 `2401=RUN_STATE_DENIED`、`2402=RESOURCE_BUSY`。 |
 | `SYST:REFM:STAT?` | 查询本地 DistributedVectorTable P0 快照：`table_size,layout_version,table_seq,local_node_id,node_count,local_heartbeat,service_count,flags`。 |
 | `SYST:REFM:NODE? [node_id]` | 查询 NodeSlot P0 快照；省略 `node_id` 时查询本节点，当前预留 `0..7` 共 8 个节点，支持真实板卡和模型节点。返回 `node_id,state,heartbeat,slot_version,last_update_ms,stale_count,fault_code,flags,node_type`。 |
 | `SYST:CORE:VECT?` | 查询 `CoreVectorOwnerTable` 快照：`version,table_seq,core_count,core0_vtor_owner,core1_vtor_owner,core0_irq_owner_mask,core1_irq_owner_mask,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags`。 |

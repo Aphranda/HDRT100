@@ -379,6 +379,36 @@ void app_config_gate_get_status(app_config_gate_status_t *status)
     osal_critical_exit();
 }
 
+void app_config_gate_get_ack_status(app_config_ack_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+
+    const distributed_config_snapshot_t *config_snapshot = distributed_config_get_snapshot();
+    const distributed_config_nack_reason_table_t *reason_table =
+        distributed_config_get_nack_reason_table();
+
+    osal_critical_enter();
+    status->version = config_snapshot->config_version;
+    status->command_seq = s_config_gate_status.command_seq;
+    status->target_mask = s_config_gate_status.target_mask;
+    status->ack_flags = s_config_gate_status.ack_flags;
+    status->nack_flags = s_config_gate_status.nack_flags;
+    status->busy_flags = s_config_gate_status.busy_flags;
+    status->timeout_flags = s_config_gate_status.timeout_flags;
+    status->last_nack_reason = s_config_gate_status.nack_flags == 0u ?
+                               (uint32_t)DISTRIBUTED_CONFIG_NACK_NONE :
+                               (uint32_t)DISTRIBUTED_CONFIG_NACK_CONFIG_CRC_MISMATCH;
+    status->last_nack_node = s_config_gate_status.nack_flags == 0u ?
+                             UINT32_MAX :
+                             DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    status->reason_count = reason_table->reason_count;
+    status->reason_table_crc32 = config_snapshot->nack_reason_crc32;
+    status->config_crc32 = s_config_gate_status.config_crc32;
+    osal_critical_exit();
+}
+
 void app_trigger_service(void)
 {
     sync_trigger_service();

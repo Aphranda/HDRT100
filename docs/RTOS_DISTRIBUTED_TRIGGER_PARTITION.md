@@ -637,11 +637,13 @@ core1 禁止：
   2026-08-10: 静态 `LoopPlan` / `LayerAction` / `ActionMap` 已落地，`SYST:CFG:LOOP? [layer_id]` 和 `SYST:CFG:ACT? [action_id]` 可查询当前快照。
 - [x] 定义 RUN 前配置一致性门禁：build_id、hw_profile、NodeRoleMap CRC、LoopPlan CRC、ActionMap CRC、Calibration CRC。
   2026-08-10: `distributed_config_validate()` 已加入本地结构一致性检查；门禁通过时 `ack_flags=target_mask`、`nack_flags=0`，失败时 `gate_state=2`。
-- [ ] 定义分布式命令 ACK/NACK 协议：command_seq、target_mask、ack_flags、nack_flags、busy_flags、timeout_flags、nack_reason。
+- [x] 定义分布式命令 ACK/NACK 协议骨架：command_seq、target_mask、ack_flags、nack_flags、busy_flags、timeout_flags、nack_reason。
+  2026-08-10: `SYST:CFG:ACK?` 暴露本地 command ACK 快照，`SYST:CFG:NACK? [reason_id]` 暴露 NACK reason 表。当前为本地配置门禁和表定义，真实跨板 ACK delta 同步仍放在 P4。
 - [ ] 把 `SystemModeTable` 和 `ResourceArbiterTable` 接到 `task_system`，让模式切换、资源占用和恢复动作都能通过统一查询返回。
 - [ ] 增加 `task_gateway_a3`，接收上位机配置、START/STOP 和数据查询。
 - [ ] 增加 `task_loop_engine` 的 A0 扫描状态机。
-- [ ] 增加 RUN 态 SCPI 白名单和禁止命令错误码。
+- [x] 增加 RUN 态 SCPI 白名单和禁止命令错误码。
+  2026-08-10: `SYST:SCPI:RUN:ALLOW? [index]` 暴露 RUN 白名单策略表，关键触发/采样/时钟/BiSS/PCNT/Storage/OTA 写入口在 ARMED/RUN 态按表返回 `RUN_STATE_DENIED:2401` 或 `RESOURCE_BUSY:2402`。
 - [ ] 增加断点保存和恢复策略。
 
 ### P4 - RJ45_SYNC_RING、反射内存同步与虚拟 DC
