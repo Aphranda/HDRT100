@@ -31,6 +31,32 @@ static bool app_bringup(void)
     return true;
 }
 
+#if PROJECT_USE_MULTICORE
+static bool s_core1_started;
+
+static void core1_realtime_entry(void)
+{
+    while (!app_is_ready()) {
+        tight_loop_contents();
+    }
+
+    while (true) {
+        app_realtime_run_once();
+        tight_loop_contents();
+    }
+}
+
+static void app_start_realtime_core(void)
+{
+    if (s_core1_started) {
+        return;
+    }
+
+    multicore_launch_core1(core1_realtime_entry);
+    s_core1_started = true;
+}
+#endif
+
 #if PROJECT_USE_FREERTOS
 static void task_system(void *context)
 {
@@ -39,6 +65,10 @@ static void task_system(void *context)
     if (!app_bringup()) {
         app_blink_fault_forever();
     }
+
+#if PROJECT_USE_MULTICORE
+    app_start_realtime_core();
+#endif
 
     while (true) {
         board_service();
@@ -62,6 +92,7 @@ static void task_io_frontend(void *context)
     }
 }
 
+#if !PROJECT_USE_MULTICORE
 static void task_trigger(void *context)
 {
     (void)context;
@@ -72,10 +103,13 @@ static void task_trigger(void *context)
             continue;
         }
 
+#if !PROJECT_USE_MULTICORE
         app_trigger_service();
+#endif
         osal_task_delay_ms(1u);
     }
 }
+#endif
 
 static void task_ota(void *context)
 {
@@ -108,20 +142,6 @@ static void task_ui(void *context)
 }
 #endif
 
-#if PROJECT_USE_MULTICORE && !PROJECT_USE_FREERTOS
-static void core1_realtime_entry(void)
-{
-    while (!app_is_ready()) {
-        tight_loop_contents();
-    }
-
-    while (true) {
-        app_realtime_run_once();
-        tight_loop_contents();
-    }
-}
-#endif
-
 int main(void)
 {
 #if PROJECT_USE_FREERTOS
@@ -143,6 +163,7 @@ int main(void)
         .stack_words = 1024u,
         .priority = 3u,
     };
+#if !PROJECT_USE_MULTICORE
     const osal_task_config_t trigger_task_config = {
         .name = "trigger",
         .entry = task_trigger,
@@ -150,6 +171,7 @@ int main(void)
         .stack_words = 1024u,
         .priority = 5u,
     };
+#endif
     const osal_task_config_t ota_task_config = {
         .name = "ota",
         .entry = task_ota,
@@ -173,10 +195,12 @@ int main(void)
         diagnostics_mark_fault("rtos", "io_frontend task creation failed");
         app_blink_fault_forever();
     }
+#if !PROJECT_USE_MULTICORE
     if (!osal_task_create(&trigger_task_config, NULL)) {
         diagnostics_mark_fault("rtos", "trigger task creation failed");
         app_blink_fault_forever();
     }
+#endif
     if (!osal_task_create(&ota_task_config, NULL)) {
         diagnostics_mark_fault("rtos", "ota task creation failed");
         app_blink_fault_forever();
@@ -193,7 +217,7 @@ int main(void)
     (void)app_bringup();
 
 #if PROJECT_USE_MULTICORE
-    multicore_launch_core1(core1_realtime_entry);
+    app_start_realtime_core();
 #endif
 
     while (true) {

@@ -3,8 +3,8 @@
 Status: Active
 Domain: TRIGGER
 Canonical: `docs/TRIGGER_SYNC_TODO.md`
-Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`
-Last updated: 2026-07-08
+Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/MULTICORE_PARTITION_PLAN.md`
+Last updated: 2026-08-10
 
 本文档用于跟踪同步触发系统从当前 PIO IO 驱动，完善到工业产品级触发子系统所需的剩余工作。
 
@@ -106,6 +106,36 @@ Last updated: 2026-07-08
 - [ ] 新增 DPLL 残差统计。
   区分 `e_pll`（角度到时间预测，微秒级）和 `e_act`（设备动作残差，纳秒/百纳秒级），
   不混用验收指标。
+
+## 产品化运行时架构待办（2026-08-10）
+
+- [ ] 产品化固件切换到 RTOS + 双核运行模型。
+  目标架构为一个控制核和一个实时核：控制核负责 SCPI/USBTMC/CDC、A3 网关、SD/StorageAO、
+  OTA、UI、日志落盘、故障归档和慢速配置面；实时核负责 TriggerAO、分布式同步环服务、
+  虚拟 DC 状态维护、预约触发队列装载、PIO/DMA/IRQ 状态采样和 READY/T2 捕获闭环。
+  PIO/DMA/IRQ 仍是硬实时边沿执行层，RTOS task 和 C 循环只做控制面，不直接产生精确边沿。
+
+- [ ] 建立 RTOS 双核 AMP 边界和跨核通信门禁。
+  控制核不能直接改写触发域内部状态，只能通过 mailbox/event queue 投递命令；实时核不能执行
+  FatFs、USB 文本输出、SCPI 解析、OTA flash job、LCD 刷新或任何无界阻塞操作。跨核共享的
+  TriggerVector、trace ring、事件队列、资源仲裁快照必须使用 RP2350 spin lock 或 RTOS-aware
+  critical section，不能只依赖单核关中断。
+
+- [ ] 为分布式触发定义产品化任务/优先级模型。
+  `task_realtime_trigger` 绑定实时核，承载 `ring_rx_tx` 服务、`local_fire` 装载、capture/T2
+  处理、late/CRC/fault 快速判定；`task_control_system` 绑定控制核，承载 RUN/PROG/NODE/RING/DC
+  SCPI 命令面、程序包管理、角色配置、日志和 UI。正式采集进入 `RUN` 后，上位机和控制核抖动
+  不得影响已经装载的触发边沿。
+
+- [ ] 将当前裸机单核和裸机双核路径降级为 bring-up/smoke 路径。
+  产品化 release 不能只依赖当前 `PROJECT_USE_FREERTOS=OFF` / `PROJECT_USE_MULTICORE=OFF`
+  默认路径；RTOS 双核闭环通过前可以继续作为硬件验证固件使用，但不能作为四板分布式触发
+  量产架构冻结依据。
+
+- [ ] 增加 RTOS 双核 HIL 验收矩阵。
+  至少覆盖：启动后两核 alive 计数持续增长、SCPI baseline、单板 SMA/RJ45 IO 映射验证、
+  四板 ring 1e6 帧 CRC/乱序/断线故障注入、`FIRE_LOAD` late_count、READY/T2 捕获、
+  SD/OTA/UI 并发压力下实时核无阻塞、24h 长稳和看门狗故障证据落盘。
 
 ## 当前基线
 

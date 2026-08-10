@@ -95,7 +95,7 @@ FreeRTOS 只进入 App 固件。
 | FreeRTOS Task | 承载对象 | 职责 |
 |---|---|---|
 | `task_system` | `SystemManagerAO` | 系统模式、资源仲裁、Vector 快照发布 |
-| `task_trigger` | `TriggerAO` | 触发域配置、状态机、安全检查，硬实时仍在 PIO/DMA |
+| `task_trigger` | `TriggerAO` | 触发域配置、状态机、安全检查，硬实时仍在 PIO/DMA；单核 RTOS 路径使用 |
 | `task_ota` | `OtaAO` | OTA 事件、portable OTA core、metadata、flash job |
 | `task_io_frontend` | SCPI/UI 输入入口 | 解析外部意图，只投递事件，不直接改状态 |
 | `task_ui` | `UiAO` | LCD/U8G2 页面渲染、按键/UI 事件汇聚、SPI 显示访问 |
@@ -160,6 +160,11 @@ notify SystemManager if resource/state changed
 | `SystemVector.system_mode` | 只能 `system_manager` 写 |
 | `resource_locks` | 只能 `resource_arbiter` 写 |
 | 查询快照 | 任意入口可读，不可直接写 |
+
+RTOS + 双核 AMP 路径中，core0 运行 FreeRTOS 管理任务，core1 作为 TriggerAO
+运行容器负责状态机推进。此时不创建 core0 `task_trigger`，避免两个执行上下文同时
+消费 Trigger 事件队列或执行 TriggerFB ECC。SCPI/UI/Storage/OTA 仍通过事件投递
+进入 TriggerAO，TriggerVector 只允许 TriggerAO owner 写入。
 
 ## 事件入口规则
 

@@ -5,10 +5,37 @@ Domain: Hardware / Board
 Target: RP2350B QFN-80
 Canonical: `docs/RP2350B_QFN80_IO_CONSTRAINTS.md`
 Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `IO约束.md`
-Last updated: 2026-08-01
+Last updated: 2026-08-04
 
-本文档定义 RP2350_TRIG 后续 RP2350B QFN-80 硬件版本的 GPIO 分配与使用约束。
+本文档定义 RP2350_TRIG RP2350B QFN-80 硬件版本的实际 GPIO 分配与使用约束。
+本版本以 `docs/PCB/Netlist_Schematic1_2026-08-04.tel` 为准；部分 PIO 引脚为
+方便布线已偏离早期规划表，固件必须按本文档的 pin map 实现。
 现有根目录 `IO约束.md` 仍用于 RP2350A 小系统板，不由本文档替代。
+
+## GND / FGND 地域与可选地桥
+
+当前网表约定：
+
+- `GND`：RP2350、USB、CH343、RS485 及本地诊断所在的 MCU 侧地。
+- `FGND`：12 V 电源入口、功率级及 RS422/BiSS/Trigger 线缆侧地。
+- `C37`：GND 与 FGND 之间的高频耦合电容，不构成直流地连接。
+
+为兼容调试和非隔离派生版本，可预留一个单点装配位：
+
+```text
+GND ---- R_GND_FGND 0R / DNP ---- FGND
+```
+
+约束：
+
+- 只允许一个受控地桥位置，优先靠近电源/隔离边界，不能在连接器、USB 屏蔽
+  和 RS422 接口处分散增加 0R。
+- 量产隔离配置默认 `DNP`；安装 0R 后，GND 与 FGND 直流相通，ISO1452
+  的系统级隔离不再成立。
+- USB 调试供电若需要外部 `VCC5V` 回流，可使用独立的 `DBG_GND_LINK`
+  装配位；它和量产隔离配置互斥，并必须在装配记录中标明。
+- 装配 0R 后仍需检查 U20/U25、ESD/TVS、连接器屏蔽和安装孔，确认没有
+  第二条未受控的 GND-FGND 直流路径。
 
 ## GPIO0..15：串口、按键、指示灯和 TF 卡
 
@@ -27,46 +54,48 @@ Last updated: 2026-08-01
 | 10 | 输出 | `TF_SPI1_SCK` | TF 卡独立 SPI 时钟。 |
 | 11 | 输出 | `TF_SPI1_MOSI` | TF 卡独立 SPI 数据输出。 |
 | 12 | 输入 | `TF_SPI1_MISO` | TF 卡独立 SPI 数据输入。 |
-| 13 | 输入 | `TF_CARD_DETECT` | 按卡座检测脚极性配置上拉。 |
-| 14 | 输出 | `TF_CS` | 软件控制片选，上电默认拉高。 |
-| 15 | 可配置 | `GPIO_SPARE0` | TF 卡 SPI 模式不使用 DAT2，本引脚释放为备用 GPIO。 |
+| 13 | 输出 | `UART1_DE` | RS485 收发器 DE/RE 控制，默认接收。 |
+| 14 | 输入 | `TF_CARD_DETECT` | 按卡座检测脚极性配置上拉。 |
+| 15 | 输出 | `TF_CS` | 软件控制片选，上电默认拉高。 |
 
 三个状态 LED 建议使用低有效连接，串联 1 kOhm 至 2.2 kOhm 限流电阻，工作
 电流控制在约 1 mA 至 3 mA。触发显示由软件延长 30 ms 至 100 ms，不得把 LED
 直接并联到高速触发信号。
 
-## GPIO16..25：同步 IO 和 RJ45 触发
+## GPIO16..29：同步 IO、RJ45 触发和 BiSS
 
 | GPIO | PIO | 方向 | 分配 |
 |---:|---|---|---|
-| 16 | PIO0 | 输入 | `SMA_IN1` |
-| 17 | PIO0 | 输入 | `SMA_IN2` |
-| 18 | PIO0 | 输入 | `SMA_IN3` |
-| 19 | PIO0 | 输入 | `SMA_IN4` |
-| 20 | PIO1 | 输出 | `SMA_OUT1` |
-| 21 | PIO1 | 输出 | `SMA_OUT2` |
-| 22 | PIO1 | 输出 | `SMA_OUT3` |
-| 23 | PIO1 | 输出 | `SMA_OUT4` |
-| 24 | PIO0 | 输入 | `RJ45_FWD_TRIG_IN` |
-| 25 | PIO1 | 输出 | `RJ45_FWD_TRIG_OUT` |
+| 16 | PIO1 | 输出 | `SMA_OUT1` |
+| 17 | PIO1 | 输出 | `SMA_OUT2` |
+| 18 | PIO1 | 输出 | `SMA_OUT3` |
+| 19 | PIO1 | 输出 | `SMA_OUT4` |
+| 20 | PIO0 | 输入 | `SMA_IN4` |
+| 21 | PIO0 | 输入 | `SMA_IN3` |
+| 22 | PIO0 | 输入 | `SMA_IN2` |
+| 23 | PIO0 | 输入 | `SMA_IN1` |
+| 24 | PIO2 | 输入 | `BISS_DATA1_IN` |
+| 25 | PIO2 | 输出 | `BISS_CLK1_OUT` |
+| 26 | PIO1 | 输出 | `RJ45_FWD_TRIG_OUT` |
+| 27 | PIO0 | 输入 | `RJ45_FWD_TRIG_IN` |
+| 28 | PIO2 | 输入 | `BISS_CLK0_IN` |
+| 29 | PIO2 | 输出 | `BISS_DATA0_OUT` |
 
 约束：
 
 - SMA 固定为 4 路输入和 4 路输出。
 - 删除原 `2I4O`、`3I3O`、`4I2O` 零欧姆交叉装配矩阵。
-- GPIO16..19 保持连续，支持 PIO `IN PINS, 4`。
-- GPIO20..23 保持连续，支持 PIO `OUT PINS, 4`。
+- GPIO16..19 保持连续输出，支持 PIO `OUT PINS, 4`。
+- GPIO20..23 保持连续输入，但逻辑顺序为 `IN4, IN3, IN2, IN1`；固件读取
+  `IN PINS, 4` 后必须按 pin map 解释或做 bit reverse。
 - 输入和输出隔离器保持固定方向，不通过固件反转物理方向。
-- GPIO 输出端可保留 22 Ohm 至 33 Ohm 串联阻尼电阻。
+- GPIO 输出端串联阻尼电阻应靠近驱动源；PIO 输入串联阻尼电阻应靠近隔离器
+  或接收器输出端。
 
-## GPIO26..32：BiSS/AUX 和收发器控制
+## GPIO30..32：ISO1452 收发器控制
 
 | GPIO | 控制器 | 方向 | 分配 |
 |---:|---|---|---|
-| 26 | PIO2 | 输入 | `AUX0/BISS_CLK_IN` |
-| 27 | PIO2 | 输入 | `AUX1/BISS_DATA_IN` |
-| 28 | PIO2 | 输出 | `AUX2/BISS_CLK_OUT` |
-| 29 | PIO2 | 输出 | `AUX3/BISS_DATA_OUT` |
 | 30 | SIO | 输出 | `ISO1452_UP_BISS_DE` |
 | 31 | SIO | 输出 | `ISO1452_DN_BISS_DE` |
 | 32 | SIO | 输出 | `ISO1452_TRIG_DE` |
@@ -75,22 +104,24 @@ Last updated: 2026-08-01
 Bootloader 和固件初始化阶段必须保持驱动器关闭。PIO 和输出数据脚初始化完成后，
 固件才允许使能对应驱动器。
 
-三颗 ISO1452 的 `/RE` 固定为接收使能，并通过独立 0 Ohm 电阻接地：
+三颗 ISO1452 的 `/RE` 由 RP2350 GPIO 控制，用于调试和派生版本配置。默认策略为
+接收使能；每路 `/RE` 必须有确定的上电默认态，推荐下拉到 RP2350 所在的 `GND`：
 
 ```text
-ISO1452_UP_BISS_/RE -> 0R -> GND
-ISO1452_DN_BISS_/RE -> 0R -> GND
-ISO1452_TRIG_/RE    -> 0R -> GND
+GPIO42 -> ISO1452_UP_BISS_/RE
+GPIO40 -> ISO1452_DN_BISS_/RE
+GPIO41 -> ISO1452_TRIG_/RE
 ```
 
-每路 `/RE` 应保留测试点，便于样机诊断和派生版本修改。
+每路 `/RE` 应保留测试点，便于样机诊断和派生版本修改。`DE` 的下拉电阻必须接
+RP2350 控制侧 `GND`，不得接线缆侧 `FGND`。
 
 ## GPIO33..39：LCD 和备用控制
 
 | GPIO | 方向 | 分配 |
 |---:|---|---|
-| 33 | 可配置 | `CONTROL_SPARE0` |
-| 34 | 输入/可配置 | `FAULT_IN/CONTROL_SPARE1` |
+| 33 | 输入 | `FAULT_IN` |
+| 34 | 输出 | `LCD_RST` |
 | 35 | 输出 | `LCD_BL` |
 | 36 | 输出 | `LCD_DC` |
 | 37 | 输出 | `LCD_CS` |
@@ -100,26 +131,29 @@ ISO1452_TRIG_/RE    -> 0R -> GND
 LCD 不使用 MISO。LCD 使用 SPI0，TF 卡使用 SPI1，两套 SPI 时钟不共用，允许
 独立设置频率并使用 DMA。
 
-## GPIO40..47：隔离侧模拟诊断
+## GPIO40..47：收发器控制与本地域模拟诊断
 
 | GPIO | ADC | 分配 | 用途 |
 |---:|---:|---|---|
-| 40 | ADC0 | `BOARD_TEMP_MON` | RP2350 / 板区温度监测。 |
-| 41 | ADC1 | `POWER_TEMP_MON` | 隔离 DC/DC、LDO 或 ISO1452 附近温度监测。 |
-| 42 | ADC2 | `HW_ID_MON` | 硬件版本识别电阻。 |
-| 43 | ADC3 | `ANALOG_AUX0` | 隔离侧低带宽模拟量。 |
-| 44 | ADC4 | `ANALOG_AUX1` | 隔离侧低带宽模拟量。 |
-| 45 | ADC5 | `ISO_LOAD_CURRENT_MON` | 可选隔离侧负载电流监测；默认可 DNP。 |
-| 46 | ADC6 | `ANALOG_SPARE0` | 模拟备用或测试点。 |
-| 47 | ADC7 | `ANALOG_SPARE1` | 模拟备用或测试点。 |
+| 40 | - | `DN_BISS_RE` | ISO1452 DN_BISS 接收使能控制。 |
+| 41 | - | `TRIG_RE` | ISO1452 TRIG 接收使能控制。 |
+| 42 | - | `UP_BISS_RE` | ISO1452 UP_BISS 接收使能控制。 |
+| 43 | ADC3 | `BOARD_TEMP1` | 板区温度监测。 |
+| 44 | ADC4 | `BOARD_CUR1` | 外部 12 V 输出电流监测，AMC1301 隔离放大器输出。 |
+| 45 | ADC5 | `BOARD_CUR2` | 第二路电流/模拟监测预留；当前网表未连接前端。 |
+| 46 | ADC6 | `ANA_SPARE0` | 模拟备用或测试点。 |
+| 47 | ADC7 | `ANA_SPARE1` | 模拟备用或测试点。 |
 
 模拟约束：
 
-- ADC 只连接 RP2350 所在的 `ISO_GND` / `ISO_3V3` 参考域内信号。
+- ADC 只连接 RP2350 所在的 `GND` / `VDDISO_3V3` 参考域内信号。
 - 所有正常和故障条件下，ADC 输入必须保持在 GND 至 `ADC_AVDD` 范围内。
 - 非隔离侧 `12V_IN`、`5V`、`PWR_RETURN` 不得通过分压或保护网络连接到 RP2350 ADC。
 - 12 V 入口健康状态由 eFuse、比较器或电源 PG 生成数字信号，再经光耦或数字隔离送入 RP2350 GPIO。
-- 隔离侧电流检测如需装配，使用同域电流检测放大器，不直接跨隔离边界连接 ADC。
+- `BOARD_CUR1` 使用 AMC1301 隔离放大器输出，ADC 侧 `VDD/GND/OUT` 必须与 RP2350 ADC
+  同域；被测侧参考 `FGND`，不得通过普通分压或非隔离放大器直接送入 RP2350 ADC。
+- `BOARD_CUR2` 当前网表只连接到 RP2350 ADC5，未连接硬件前端；固件不得周期性采样该
+  浮空脚，除非后续装配或改版明确接入同域模拟前端。
 - ADC 走线远离 QSPI、SPI 时钟、`VREG_LX` 和功率电感。
 - RP2350 内部温度传感器不占用 GPIO40..47。
 
@@ -131,17 +165,16 @@ ADC 用于读取实际电压、电流和温度并记录趋势。过压、欠压�
 
 | ADC 信号 | 推荐前端 | 约束 |
 |---|---|---|
-| `BOARD_TEMP_MON` | TMP235 类模拟温度传感器 + 1 kOhm/10 nF RC | 靠近 RP2350 或板内代表性热区，并就近放置 100 nF 电源去耦。 |
-| `POWER_TEMP_MON` | TMP235/NTC 温度传感器 + 1 kOhm/10 nF RC | 电气上仍位于 `ISO_GND` 侧；只测隔离 DC/DC、LDO 或 ISO1452 附近温升。 |
-| `HW_ID_MON` | 固定电阻分压 + 100 nF | 不同硬件版本装配不同电阻，固件按互不重叠的电压窗口识别。 |
+| `BOARD_TEMP1` | TMP235 类模拟温度传感器 + 1 kOhm/10 nF RC | 靠近 RP2350 或板内代表性热区，并就近放置 100 nF 电源去耦。 |
+| `BOARD_CUR1` | `VCC12V/C_OUT` 分流电阻 + AMC1301 + 1 kOhm/10 nF RC | AMC1301 输出侧供电、地和 ADC 同域；输入侧参考 `FGND`。 |
+| `BOARD_CUR2` | 当前不装硬件前端 | 固件初始化为未用 GPIO/ADC，不参与周期采样；后续若启用必须补充同域前端约束。 |
 | `ANALOG_AUX0/1` | ESD + 分压/限流 + 低漏电钳位 + RC；高源阻抗时增加轨到轨运放 | 仅允许同隔离域低带宽模拟量；外部接口必须按负压、过压和 ESD 条件设计。 |
-| `ISO_LOAD_CURRENT_MON` | ISO 侧分流电阻 + INA180/INA181 + 1 kOhm/10 nF RC | 仅在需要监测隔离侧外设负载时装配；不作为 12 V 入口保护依据。 |
 | `ANALOG_SPARE0/1` | 预留串联电阻、对地电容和保护器件焊盘 | 未使用时不得悬空进入周期采样；可配置为数字 GPIO。 |
 
 隔离侧低速模拟输入参考连接：
 
 ```text
-ISO_DOMAIN_SIGNAL ---- R_DIV / R_LIMIT ----+---- 1k ---- GPIO43/44 ADC
+ISO_DOMAIN_SIGNAL ---- R_DIV / R_LIMIT ----+---- 1k ---- GPIO43/44/45 ADC
                                            |               |
                                       optional R/C      10nF..100nF
                                            |               |
@@ -155,13 +188,13 @@ ISO_DOMAIN_SIGNAL ---- R_DIV / R_LIMIT ----+---- 1k ---- GPIO43/44 ADC
 隔离侧可选负载电流检测参考连接：
 
 ```text
-ISO_5V ---- RSHUNT ---- ISO_LOAD
-              | |
-              +--- INA180/INA181 ---> 1k ---> GPIO45 ADC
-                                           |
-                                          10nF
-                                           |
-                                        ISO_GND
+FGND-side current sense / shunt
+              |
+              +--- AMC1301 isolation amplifier ---> 1k ---> GPIO44 ADC
+                                                        |
+                                                       10nF
+                                                        |
+                                                       GND
 
 12V_IN/eFuse PGOOD or FAULT
   -> optocoupler / digital isolator
@@ -190,14 +223,15 @@ Power Good，不占用 RP2350 GPIO。
 ## PIO 资源约束
 
 ```text
-PIO0: GPIO16..19 SMA input + GPIO24 RJ45 trigger input
-PIO1: GPIO20..23 SMA output + GPIO25 RJ45 trigger output
-PIO2: GPIO26..29 BiSS/AUX
+PIO0 input:  GPIO20..23 SMA_IN4..1 + GPIO27 RJ45_FWD_TRIG_IN
+PIO1 output: GPIO16..19 SMA_OUT1..4 + GPIO26 RJ45_FWD_TRIG_OUT
+PIO2 BiSS:   GPIO24 DATA1_IN, GPIO25 CLK1_OUT, GPIO28 CLK0_IN, GPIO29 DATA0_OUT
 ```
 
 三个 PIO 的业务引脚均位于 GPIO0..31 窗口，可保持 `GPIO_BASE=0` 并同时运行。
 任何 GPIO 只能有一个输出驱动源。运行期间禁止切换对应 PIO 的 GPIO Base，也禁止
-将已经分配给 PIO 的输出 GPIO 切换到 SIO、PWM 或其他输出功能。
+将已经分配给 PIO 的输出 GPIO 切换到 SIO、PWM 或其他输出功能。固件中的 PIO
+位序、mask 和 persona 定义必须以本表为唯一依据。
 
 ## 原理图检查项
 
@@ -205,6 +239,10 @@ PIO2: GPIO26..29 BiSS/AUX
 - [ ] 三个状态 LED 不直接加载高速触发网络。
 - [ ] TF 卡和 LCD 分别使用 SPI1 和 SPI0，网络名未误合并。
 - [ ] SMA 输入和输出均为固定方向，不再保留交叉装配短接风险。
-- [ ] 三颗 ISO1452 的 `DE` 独立下拉，`/RE` 经独立 0 Ohm 接地。
-- [ ] GPIO40..47 的模拟网络只位于 RP2350 `ISO_GND` 侧，不跨越隔离边界。
+- [ ] 固件 PIO pin map 已按 GPIO16..29 实际布线更新，特别是 GPIO20..23 输入反序。
+- [ ] 三颗 ISO1452 的 `DE` 独立下拉，`/RE` 具有确定默认态。
+- [ ] GPIO40..47 的模拟/控制网络只位于 RP2350 `GND` 侧，不跨越 `FGND` 边界。
+- [ ] `BOARD_CUR2` 当前不参与周期 ADC 采样，未用 ADC 状态由固件明确初始化。
+- [ ] GND-FGND 只通过一个明确的 `0R/DNP` 装配位连接，且隔离版本默认不装。
+- [ ] USB 调试供电的地桥与量产隔离配置互斥，装配状态已记录。
 - [ ] QSPI、USB、晶振、SWD、RUN 和电源专用引脚未计入普通 GPIO 分配。

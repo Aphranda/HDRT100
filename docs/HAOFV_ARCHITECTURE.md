@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/HAOFV_ARCHITECTURE.md`
 Related: `docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`
-Last updated: 2026-07-08
+Last updated: 2026-08-10
 
 本文档定义 RP2350_TRIG 后续产品化演进采用的软件架构。目标是在保持裸机/Pico SDK 工程轻量性的同时，融合 Active Object、轻量 IEC 61499 功能块、时间同步型系统向量黑板、资源仲裁和表驱动状态机，为 OTA、同步触发、SD 卡、LCD、SCPI、诊断、后续 RTOS 和更多硬件模块提供清晰边界。
 
@@ -1121,13 +1121,20 @@ PIO/DMA/IRQ 是实时底座。
 
 | FreeRTOS Task | 承载对象 | 优先级 |
 |---|---|---|
-| `task_trigger` | `TriggerAO` | 5（最高） |
+| `task_trigger` | `TriggerAO` | 5（最高，单核 RTOS 路径） |
 | `task_system` | `SystemManagerAO` | 4 |
 | `task_ota` | `OtaAO` | 3 |
 | `task_io_frontend` | SCPI/UI 输入入口 | 3 |
 | `task_ui` | `UiAO` | 2 |
 | `task_storage` | `StorageAO` | 2 |
 | `task_diag` | `DiagnosticsAO` | 1 |
+
+产品化 RTOS + 双核 AMP 路径中，`TriggerAO` / `TriggerFB` 状态机不再由 core0
+上的 FreeRTOS `task_trigger` 承载，而是由 core1 实时核的受限循环承载。core0 上的
+SCPI/UI/Storage/OTA 只能投递 Trigger 事件或读取 TriggerVector 快照；core1 负责
+消费事件队列、执行 TriggerFB ECC 状态迁移、刷新 PIO/DMA 运行态和捕获 READY/T2
+相关状态。该路径仍遵守 HAOFV 分层：FreeRTOS 是控制核调度器，core1 是 TriggerAO
+运行容器，PIO/DMA/IRQ 是硬实时边沿执行层。
 
 ### 必须遵守的约束
 
@@ -1136,6 +1143,7 @@ PIO/DMA/IRQ 是实时底座。
 - 所有阻塞等待必须有 timeout
 - ISR 只投递事件或设置标志，不执行复杂业务
 - 硬实时路径（PIO/DMA/IRQ）不进入 RTOS 任务调度
+- RTOS + 双核 AMP 下，TriggerAO/TriggerFB 状态机归 core1；core0 不能直接改写触发域内部状态
 - Vector Blackboard 调度阶段和写权限规则在 RTOS 下保持不变
 - Flash 操作临界区内可能需要暂停 FreeRTOS 调度器
 

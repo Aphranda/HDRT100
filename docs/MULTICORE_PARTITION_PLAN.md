@@ -4,10 +4,24 @@ Status: Active
 Domain: MULTICORE
 Canonical: `docs/MULTICORE_PARTITION_PLAN.md`
 Related: `docs/RTOS_PORTING_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/BISSC_TAP_BRIDGE_DESIGN.md`
-Last updated: 2026-07-07
+Last updated: 2026-08-10
 
 本文档定义 RP2350_TRIG 的双核演进边界。目标是把实时性要求高的触发域和
 管理/观测/存储域隔离，而不是简单把现有函数平均分到两个核心。
+
+## 产品化目标
+
+产品化四板分布式触发固件目标为 RTOS + 双核 AMP 模型：一个控制核、一个实时核。
+RTOS 提供任务、同步原语、超时和观测边界；双核提供控制面与实时控制面的物理隔离。
+PIO/DMA/IRQ 仍负责硬实时边沿，实时核只负责提前装载、状态推进、快速故障判定和时间戳闭环。
+
+| 核心 | 产品化角色 | 职责 |
+|---|---|---|
+| control core | 控制核 | SCPI/USBTMC/CDC、A3 网关、SD/StorageAO、OTA、UI、日志落盘、故障归档、角色和程序包配置 |
+| realtime core | 实时核 | TriggerAO、RJ45_SYNC_RING 服务、虚拟 DC、预约触发队列、PIO/DMA/IRQ 状态采样、READY/T2 捕获 |
+
+产品化 release 不应只以裸机单核或裸机双核作为最终架构。当前裸机双核仍可用于 bring-up
+和跨核问题定位；RTOS 双核闭环通过前，release/validation 可以保持单核保守路径。
 
 ## 目标分区
 
@@ -23,10 +37,13 @@ C 循环直接产生精确边沿。
 
 - 默认 `PROJECT_USE_MULTICORE=OFF`，保持 release/validation 单核路径不变。
 - 裸机实验构建可打开 `PROJECT_USE_MULTICORE=ON`。
+- RTOS + 双核 AMP smoke 构建可同时打开 `PROJECT_USE_FREERTOS=ON` 和
+  `PROJECT_USE_MULTICORE=ON`；该路径不是 FreeRTOS SMP，而是 core0 运行 FreeRTOS
+  管理任务，core1 运行受限实时循环。
 - core0 完成 `stdio_init_all()`、`board_init()`、`app_init()` 后启动 core1。
 - core1 等待 app ready，然后只循环执行 `app_trigger_service()`。
 - core0 循环执行 `board_service()`、SCPI、OTA、Storage、UI、Diagnostics/LOG。
-- FreeRTOS 路径暂不启用 multicore；SMP 需要单独验证。
+- FreeRTOS SMP 仍不启用；后续如需 SMP 必须单独验证。
 
 ## 跨核共享规则
 

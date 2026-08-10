@@ -5,6 +5,7 @@
 
 #include "board_config.h"
 #include "fatfs_port.h"
+#include "osal.h"
 #include "ota_crc32.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
@@ -486,6 +487,7 @@ void storage_manager_trace_event(uint8_t domain,
                                  uint32_t arg0,
                                  uint32_t arg1)
 {
+    osal_critical_enter();
     storage_trace_record_t *record = &s_trace_ring[s_trace_next];
     record->timestamp_ms = storage_now_ms();
     record->event_id = event_id;
@@ -498,6 +500,7 @@ void storage_manager_trace_event(uint8_t domain,
     if (s_trace_count < STORAGE_MANAGER_TRACE_RING_COUNT) {
         s_trace_count++;
     }
+    osal_critical_exit();
 }
 
 static bool storage_manifest_check_required(const char *required_entry)
@@ -2187,16 +2190,19 @@ bool storage_manager_write_trace(const char *kind)
     }
 
     const uint32_t sequence = max_sequence + 1u;
-    const uint32_t event_count = s_trace_count;
-    const size_t event_bytes = (size_t)event_count * sizeof(storage_trace_record_t);
     uint8_t payload[sizeof(storage_trace_header_t) +
                     (STORAGE_MANAGER_TRACE_RING_COUNT * sizeof(storage_trace_record_t))];
     storage_trace_record_t ordered[STORAGE_MANAGER_TRACE_RING_COUNT];
 
+    osal_critical_enter();
+    const uint32_t event_count = s_trace_count;
     const uint32_t first = event_count == STORAGE_MANAGER_TRACE_RING_COUNT ? s_trace_next : 0u;
     for (uint32_t i = 0u; i < event_count; i++) {
         ordered[i] = s_trace_ring[(first + i) % STORAGE_MANAGER_TRACE_RING_COUNT];
     }
+    osal_critical_exit();
+
+    const size_t event_bytes = (size_t)event_count * sizeof(storage_trace_record_t);
 
     const uint32_t start_ms = event_count > 0u ? ordered[0].timestamp_ms : storage_now_ms();
     const uint32_t end_ms = event_count > 0u ? ordered[event_count - 1u].timestamp_ms : start_ms;

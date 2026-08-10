@@ -31,7 +31,7 @@ set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors
 set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA validation SCPI commands")
 set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
 set(PROJECT_USE_FREERTOS OFF CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
-set(PROJECT_USE_MULTICORE OFF CACHE BOOL "Run realtime trigger service on RP2350 core1 in baremetal builds")
+set(PROJECT_USE_MULTICORE OFF CACHE BOOL "Run realtime trigger service on RP2350 core1")
 set_property(CACHE PROJECT_OTA_DEFAULT_BOOT_MODE PROPERTY STRINGS COPY_TO_ACTIVE DIRECT_AB)
 set_property(CACHE PROJECT_USB_DEFAULT_MODE PROPERTY STRINGS CDC USBTMC)
 
@@ -52,7 +52,7 @@ else()
 endif()
 
 if(PROJECT_USE_MULTICORE AND PROJECT_USE_FREERTOS)
-    message(FATAL_ERROR "PROJECT_USE_MULTICORE=ON is only supported for baremetal builds in this phase")
+    message(STATUS "PROJECT_USE_FREERTOS=ON + PROJECT_USE_MULTICORE=ON uses AMP smoke mode: FreeRTOS on core0, realtime loop on core1")
 endif()
 
 # Pull in Raspberry Pi Pico SDK (must be before project)

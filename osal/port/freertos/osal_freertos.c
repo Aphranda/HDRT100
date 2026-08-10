@@ -2,6 +2,11 @@
 
 #include "board.h"
 #include "FreeRTOS.h"
+#if PROJECT_USE_MULTICORE
+#include "hardware/sync.h"
+#include "hardware/sync/spin_lock.h"
+#include "pico/platform.h"
+#endif
 #include "pico/stdlib.h"
 #include "task.h"
 
@@ -9,8 +14,17 @@ struct osal_task_control_block {
     TaskHandle_t native_handle;
 };
 
+#if PROJECT_USE_MULTICORE
+static spin_lock_t *s_osal_lock;
+static uint32_t s_osal_irq_state[2];
+static uint32_t s_osal_critical_depth[2];
+#endif
+
 bool osal_kernel_init(void)
 {
+#if PROJECT_USE_MULTICORE
+    s_osal_lock = spin_lock_instance(PICO_SPINLOCK_ID_OS1);
+#endif
     return true;
 }
 
@@ -44,12 +58,32 @@ void osal_kernel_start(void)
 
 void osal_critical_enter(void)
 {
+#if PROJECT_USE_MULTICORE
+    const uint core = get_core_num();
+    if (s_osal_critical_depth[core] == 0u) {
+        s_osal_irq_state[core] = spin_lock_blocking(s_osal_lock);
+    }
+    s_osal_critical_depth[core]++;
+#else
     taskENTER_CRITICAL();
+#endif
 }
 
 void osal_critical_exit(void)
 {
+#if PROJECT_USE_MULTICORE
+    const uint core = get_core_num();
+    if (s_osal_critical_depth[core] == 0u) {
+        return;
+    }
+
+    s_osal_critical_depth[core]--;
+    if (s_osal_critical_depth[core] == 0u) {
+        spin_unlock(s_osal_lock, s_osal_irq_state[core]);
+    }
+#else
     taskEXIT_CRITICAL();
+#endif
 }
 
 void osal_delay_ms(uint32_t delay_ms)
