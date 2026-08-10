@@ -11,6 +11,24 @@
 
 #define DISTRIBUTED_REFMEM_NODE_FLAG_VIRTUAL 0x00000001u
 
+#define DISTRIBUTED_REFMEM_OWNER_CORE0       0u
+#define DISTRIBUTED_REFMEM_OWNER_CORE1       1u
+#define DISTRIBUTED_REFMEM_OWNER_SHARED      2u
+
+#define DISTRIBUTED_REFMEM_IRQ_USB_MASK      0x00000001u
+#define DISTRIBUTED_REFMEM_IRQ_STORAGE_MASK  0x00000002u
+#define DISTRIBUTED_REFMEM_IRQ_OTA_MASK      0x00000004u
+#define DISTRIBUTED_REFMEM_IRQ_UI_MASK       0x00000008u
+#define DISTRIBUTED_REFMEM_IRQ_PIO_MASK      0x00000100u
+#define DISTRIBUTED_REFMEM_IRQ_DMA_MASK      0x00000200u
+#define DISTRIBUTED_REFMEM_IRQ_CAPTURE_MASK  0x00000400u
+#define DISTRIBUTED_REFMEM_IRQ_TIMER_MASK    0x00000800u
+
+#define DISTRIBUTED_REFMEM_PROT_RAM_RESIDENT_REQUIRED 0x00000001u
+#define DISTRIBUTED_REFMEM_PROT_FLASH_LOCKOUT_READY   0x00000002u
+#define DISTRIBUTED_REFMEM_PROT_CORE1_PARKED          0x00000004u
+#define DISTRIBUTED_REFMEM_PROT_ENTRY_OWNER_VALID     0x00000008u
+
 #define DISTRIBUTED_REFMEM_HEADER_SIZE      1024u
 #define DISTRIBUTED_REFMEM_SYSTEM_SIZE      1024u
 #define DISTRIBUTED_REFMEM_ROLE_SIZE        2048u
@@ -67,9 +85,46 @@ typedef struct {
     uint32_t node_type;
 } distributed_refmem_node_snapshot_t;
 
+typedef struct {
+    uint32_t table_seq;
+    uint32_t owner;
+    uint32_t crc32;
+    uint32_t stale;
+    uint32_t flags;
+} distributed_refmem_slot_guard_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t table_seq;
+    uint32_t core_count;
+    uint32_t core0_vtor_owner;
+    uint32_t core1_vtor_owner;
+    uint32_t core0_irq_owner_mask;
+    uint32_t core1_irq_owner_mask;
+    uint32_t entry_table_owner;
+    uint32_t flags;
+    distributed_refmem_slot_guard_t guard;
+} distributed_refmem_core_vector_snapshot_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t table_seq;
+    uint32_t ram_resident_required;
+    uint32_t flash_lockout_supported;
+    uint32_t flash_lockout_online;
+    uint32_t flash_lockout_requested;
+    uint32_t flash_lockout_acknowledged;
+    uint32_t park_state;
+    uint32_t entry_table_owner;
+    uint32_t flags;
+    distributed_refmem_slot_guard_t guard;
+} distributed_refmem_runtime_protection_snapshot_t;
+
 bool distributed_refmem_init(void);
 void distributed_refmem_service(void);
 void distributed_refmem_get_status(distributed_refmem_status_t *status);
 bool distributed_refmem_get_node(uint32_t node_id, distributed_refmem_node_snapshot_t *snapshot);
+void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot);
+void distributed_refmem_get_runtime_protection(distributed_refmem_runtime_protection_snapshot_t *snapshot);
 
 #endif

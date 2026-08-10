@@ -156,6 +156,7 @@ set(PROJECT_APP_SOURCES
         third_party/portable_log/src/portable_log.c
         middleware/portable_log_port/src/portable_log_port.c
         components/diagnostics/src/diagnostics.c
+        components/distributed_config/src/distributed_config.c
         components/distributed_refmem/src/distributed_refmem.c
         components/event_bus/src/event_bus.c
         components/ota_manager/src/ota_ao.c
@@ -267,6 +268,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/application/inc
         ${CMAKE_CURRENT_LIST_DIR}/boards/rp2350_trig/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/diagnostics/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/distributed_config/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/distributed_refmem/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/event_bus/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc

@@ -602,8 +602,10 @@ core1 禁止：
 - [ ] 实现 sequence lock 或双缓冲，避免字段半新半旧。
 - [ ] 实现命令槽原子 Take/Clear，执行动作保持在临界区外。
 - [ ] 将 core1 trigger status ring 合并到本节点 TriggerSlot 摘要。
-- [ ] 定义 `CoreVectorOwnerTable`，统一记录 core0/core1 VTOR、IRQ owner、entry owner、park/lockout 状态和恢复原因码。
-- [ ] 定义 `RuntimeProtectionTable`，把 RAM-resident section、flash lockout/park、entry table owner、realtime IRQ owner 写入表头或 slot 元素。
+- [x] 定义 `CoreVectorOwnerTable`，统一记录 core0/core1 VTOR、IRQ owner、entry owner、park/lockout 状态和恢复原因码。
+  2026-08-10: 已在 DistributedVectorTable header 中加入 core0/core1 VTOR owner、IRQ owner mask、entry table owner 和 guard 字段，并通过 `SYST:CORE:VECT?` 查询。
+- [x] 定义 `RuntimeProtectionTable`，把 RAM-resident section、flash lockout/park、entry table owner、realtime IRQ owner 写入表头或 slot 元素。
+  2026-08-10: 已在 DistributedVectorTable header 中加入 RAM-resident、flash lockout/park 和 entry owner 状态，并通过 `SYST:PROT:STAT?` 查询。
 - [ ] 定义 `SystemModeTable`、`ResourceArbiterTable` 和 `FaultCodeTable` 的只读查询接口，作为产品门禁和诊断入口。
 - [ ] 为所有共享表项统一补齐 `table_seq / slot_seq / owner / crc / stale / flags` 字段，保证反射内存口径一致。
 - [x] 增加 `SYST:REFM:STAT?` / `SYST:REFM:NODE?` 诊断命令。
@@ -789,3 +791,24 @@ rtos:     task_count 11; vdc_sync/dpll/cfg_gate/ui still visible; heap min free 
 `SYST:CFG:ACT?` / `SYST:CFG:CAL?` 暴露只读快照。下一步继续补 `CoreVectorOwnerTable`、
 `RuntimeProtectionTable`、分布式 ACK/NACK 原因码和 RUN 态命令白名单，不接跨板 RJ45
 同步和真实转台 DPLL 收敛。
+
+第五刀已经完成：
+
+```text
+add CoreVectorOwnerTable snapshot
+add RuntimeProtectionTable snapshot
+publish VTOR owner / IRQ owner / flash lockout / park fields through DistributedVectorTable header
+```
+
+板端验证结果：
+
+```text
+build_id: 20260810151918
+ota:      SYST:OTA:COMM -> "OK"; SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5
+corevec:  SYST:CORE:VECT? -> 1,<table_seq>,2,0,1,15,3840,2,0,2,<guard_crc>,0,0
+protect:  SYST:PROT:STAT? -> 1,<table_seq>,1,1,1,0,0,0,2,11,2,<guard_crc>,0,0
+smoke:    identity/build_id/core_heartbeat/loop_status/vdc_status/dpll_status/config_gate_status/config_snapshot_queries/runtime_protection_tables/trigger_seq/error_queue/log_stat/trace_last 13/13 PASS
+```
+
+下一步继续补分布式 ACK/NACK reason、RUN 态 SCPI 白名单和 SystemMode/ResourceArbiter
+查询表，不接跨板 RJ45 同步和真实转台 DPLL 收敛。

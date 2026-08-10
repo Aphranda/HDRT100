@@ -37,8 +37,15 @@ Last updated: 2026-07-22
 | `LOOP:STAT?` / `STAT:LOOP?` | 查询 `task_loop_engine` 的只读空壳状态：是否 ready、service_count、first_service_ms、last_service_ms。 |
 | `VDC:STAT?` / `STAT:VDC?` | 查询 `task_vdc_sync` 的只读空壳状态：是否 ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq。 |
 | `DPLL:STAT?` / `STAT:DPLL?` | 查询 `task_dpll` 的只读空壳状态：是否 ready、state、service_count、first_service_ms、last_service_ms、update_seq。 |
+| `SYST:CFG:STAT?` / `STAT:CFG?` | 查询配置门禁状态：build id、ready、gate_state、service_count、epoch、run_id、版本号、ACK/NACK/busy/timeout 位和 CRC 快照（build/hw/role/loop/action/calibration/config）。 |
+| `SYST:CFG:ROLE? [node_id]` | 查询静态 `NodeRoleMap` 条目；省略 `node_id` 时查询 0。返回 `version,node_count,target_mask,input_base_pin,output_base_pin,aux_base_pin,node_id,role,persona,feature_mask`。 |
+| `SYST:CFG:LOOP? [layer_id]` | 查询静态 `LoopPlan` 层条目；省略 `layer_id` 时查询 0。返回 `version,node_loop_count,array_loop_count,layer_count,default_wait_rule,layer_id,node_id,action_id,wait_rule`。 |
+| `SYST:CFG:ACT? [action_id]` | 查询静态 `ActionMap` 条目；省略 `action_id` 时查询 0。返回 `version,action_count,action_id,node_id,sma_out_pin,sma_in_pin,edge,delay_us`。 |
+| `SYST:CFG:CAL? [node_id]` | 查询静态 `Calibration` 节点补偿；省略 `node_id` 时查询 0。返回 `version,node_count,node_id,delta_ns,sma_hop_ns,rj45_hop_ns,device_delay_ns,tempco_ppb,valid_window_ns`。 |
 | `SYST:REFM:STAT?` | 查询本地 DistributedVectorTable P0 快照：`table_size,layout_version,table_seq,local_node_id,node_count,local_heartbeat,service_count,flags`。 |
 | `SYST:REFM:NODE? [node_id]` | 查询 NodeSlot P0 快照；省略 `node_id` 时查询本节点，当前预留 `0..7` 共 8 个节点，支持真实板卡和模型节点。返回 `node_id,state,heartbeat,slot_version,last_update_ms,stale_count,fault_code,flags,node_type`。 |
+| `SYST:CORE:VECT?` | 查询 `CoreVectorOwnerTable` 快照：`version,table_seq,core_count,core0_vtor_owner,core1_vtor_owner,core0_irq_owner_mask,core1_irq_owner_mask,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags`。 |
+| `SYST:PROT:STAT?` | 查询 `RuntimeProtectionTable` 快照：`version,table_seq,ram_resident_required,flash_lockout_supported,flash_lockout_online,flash_lockout_requested,flash_lockout_acknowledged,park_state,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags`。 |
 
 ## 触发输出
 
@@ -324,7 +331,7 @@ OTA 命令遵循 `docs/OTA_SYSTEM_DESIGN.md` 中的 `OtaAO + OtaFB + OtaVector` 
 | `SYST:OTA:END` | 结束传输并请求校验，投递 `OTA_EVENT_END`，接受后返回 `"OK"`。 |
 | `SYST:OTA:ABOR` | 中止当前 OTA，投递 `OTA_EVENT_ABORT`，接受后返回 `"OK"`。 |
 | `SYST:OTA:BOOT` | 镜像 ready 后请求重启进入 pending slot，接受后返回 `"OK"` 并触发复位。 |
-| `SYST:OTA:COMM` | App 自检通过后确认当前固件，写入 confirmed metadata，接受后返回 `"OK"`。 |
+| `SYST:OTA:COMM` | App 自检通过后确认当前固件，写入 confirmed metadata；该命令会触发 flash 写入，执行时必须先由 core1 进入 lockout/poll，接受后返回 `"OK"`。 |
 | `SYST:OTA:SLOT?` | 查询 `active,pending,confirmed,boot_attempts,rollback_count`。 |
 | `SYST:OTA:RES?` | 查询 `app_result,app_error,boot_result,boot_source_slot,boot_size,boot_crc32`。 |
 | `SYST:OTA:TXN?` | 查询 Bootloader copy transaction：`state,source,destination,size,crc32,written,attempts,last_error`。 |

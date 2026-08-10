@@ -51,6 +51,84 @@ Last updated: 2026-08-10
 
 ## 任务记录
 
+### TASK-20260810-003 - CoreVectorOwnerTable 与 RuntimeProtectionTable 闭环
+
+- 状态：完成
+- 日期：2026-08-10
+- 任务目标：
+  - 按产品架构和 `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 待办，把 core0/core1 隔离策略从文档概念落成可查询的表驱动快照。
+  - 将 `CoreVectorOwnerTable`、`RuntimeProtectionTable` 放入本地 DistributedVectorTable 表头/slot 语义中，覆盖 VTOR/IRQ owner、entry owner、RAM-resident 要求、flash lockout/park 状态。
+  - 扩展板端 smoke，验证新增表查询不破坏 RTOS + 双核 AMP 路径。
+- 完成内容：
+  - `distributed_refmem` header 增加 core vector owner、IRQ owner mask、runtime protection flags、guard owner/CRC/stale 字段。
+  - 新增 `distributed_refmem_get_core_vector()` 和 `distributed_refmem_get_runtime_protection()` 快照 API。
+  - `drv_flash` 增加 `drv_flash_get_lockout_status()`，暴露 core1 lockout online/request/ack 状态。
+  - 新增 SCPI 查询 `SYST:CORE:VECT?` 和 `SYST:PROT:STAT?`。
+  - `tools/multicore_board_validate` 增加 `runtime_protection_tables` 用例。
+- 验证结果：
+  - `cmake --build --preset pico2-rtos-multicore-smoke` 通过，生成 build id `20260810151918`。
+  - `cmake --preset pico2-release` 通过。
+  - `cmake --build --preset pico2-release` 通过，生成 build id `20260810151953`。
+  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过，`release_check=OK`。
+  - `python tools/docs_check/docs_check.py` 通过，剩余 6 个历史命名 warning。
+  - 已通过 OTA 烧录 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg` 到 COM5，`SYST:OTA:COMM` 后 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`。
+  - `SYST:CORE:VECT?` 返回 core_count=2、core1 owner=1、core1_irq_mask=3840、guard CRC 非 0。
+  - `SYST:PROT:STAT?` 返回 ram_resident_required=1、flash_lockout_supported=1、flash_lockout_online=1、entry_table_owner=2。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_core_vector_tables` 通过，`13/13 PASS`。
+- 还需完成：
+  - 继续实现分布式命令 ACK/NACK reason、RUN 态命令白名单和 SystemMode/ResourceArbiter 查询表。
+  - 后续将 core1 关键入口、lockout poll 和实时快路径迁移到显式 RAM-resident section，并增加 linker map 断言。
+- 关联文件：
+  - `components/distributed_refmem/inc/distributed_refmem.h`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `drivers/mcu/flash/inc/drv_flash.h`
+  - `drivers/mcu/flash/src/drv_flash.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+- 下一步：
+  - 收口分布式 ACK/NACK 原因码和 RUN 态 SCPI 白名单，不接真实 RJ45 跨板同步。
+
+### TASK-20260810-002 - 分布式触发配置源与外部 DOC 迁入闭环
+
+- 状态：完成
+- 日期：2026-08-10
+- 任务目标：
+  - 继续完善 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`，把 0804 分布式触发报告落到当前 RTOS + 双核 AMP 分区。
+  - 检查外部 `DOC/` 目录中被 Git 忽略或未迁入的关键资料，补入 `docs/`，保证克隆后不依赖 OneDrive 本地路径。
+  - 将报告中的只读配置对象先落成固件静态配置源，并完成编译、烧录和板端闭环验证。
+- 完成内容：
+  - 新增 `components/distributed_config/`，提供静态 `NodeRoleMap`、`LoopPlan`、`ActionMap`、`Calibration` 和聚合 CRC。
+  - `SYST:CFG:STAT?` 接入真实配置 CRC，新增尾部 `config_crc32` 字段，用于运行前配置门禁观测。
+  - 迁入完整报告 `docs/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` 与 `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`。
+  - 迁入 PinProbe A1 历史方案 `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` 与 `docs/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`。
+  - 更新 `docs/README.md`、`docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 和摘要入口，消除对外部 `DOC/` 路径的依赖。
+  - 调整 `.gitignore`，不再把关键文档目录作为整体忽略对象。
+- 验证结果：
+  - `cmake --preset pico2-rtos-multicore-smoke` 通过。
+  - `cmake --build build-rtos-multicore-smoke -j 8` 通过。
+  - 已通过 OTA 烧录 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg` 到 COM5 板卡。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_distributed_config` 通过，`11/11 PASS`。
+  - 重新烧录后的 build id 为 `20260810134805`，`SYST:CFG:STAT?` 返回完整 config gate 快照。
+  - `SYST:CFG:ROLE?`、`SYST:CFG:LOOP?`、`SYST:CFG:ACT?`、`SYST:CFG:CAL?` 已在板端 smoke 中通过。
+  - `SYST:OTA:COMM` 已完成最终确认；阻塞根因已定位并修复为 flash 写 metadata 时 core1 未进入 lockout，修复后 `COMM` 后 `SYST:OTA:STAT?` 正常返回 `"COMMITTED",1,"NONE",5`，core1 loop 计数继续增长。
+- 还需完成：
+  - 将静态配置快照继续扩展到完整 SCPI 查询和运行前一致性门禁。
+  - 后续接入真实跨板 RJ45 同步、DPLL 收敛和 `FIRE_LOAD/T2/e_act` 闭环验证。
+- 关联文件：
+  - `components/distributed_config/`
+  - `application/src/app.c`
+  - `application/inc/app.h`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`
+  - `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`
+  - `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`
+  - `docs/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`
+- 下一步：
+  - 继续扩展配置一致性门禁和跨板分布式触发闭环验证。
+
 ### TASK-20260810-001 - HAOFV RTOS + 双核 AMP smoke 收口
 
 - 状态：进行中
@@ -573,7 +651,7 @@ Last updated: 2026-08-10
 - 状态：完成
 - 日期：2026-06-29
 - 任务目标：
-  - 阅读 `DOC/相控阵测试系统分布式触发方案技术报告0614.html`，将其中 DPLL、DC 时间轴、预约触发和 T2_i 回读思想映射为当前 RP2350 多板原型可实施方案。
+  - 阅读 `docs/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md`，将其中 DPLL、DC 时间轴、预约触发和 T2_i 回读思想映射为当前 RP2350 多板原型可实施方案。
   - 明确 AUX 两路一进一出、RS-485/RS-422 差分物理层、PIO/CPU 分工、虚拟 DC 时钟、DPLL 闭环和分阶段验收边界。
 - 完成内容：
   - 新增 `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`，定义多板 `CAL_RING` 拓扑：AUX0/GPIO26=`CAL_IN`，AUX3/GPIO29=`CAL_OUT`。

@@ -1,6 +1,7 @@
 #include "app.h"
 #include "board.h"
 #include "diagnostics.h"
+#include "drv_flash.h"
 #include "osal.h"
 #if PROJECT_USE_MULTICORE
 #include "pico/multicore.h"
@@ -41,6 +42,7 @@ static void core1_realtime_entry(void)
     }
 
     while (true) {
+        drv_flash_core1_lockout_poll();
         app_realtime_run_once();
         tight_loop_contents();
     }
@@ -167,6 +169,21 @@ static void task_dpll(void *context)
     }
 }
 
+static void task_config_gate(void *context)
+{
+    (void)context;
+
+    while (true) {
+        if (!app_is_ready()) {
+            osal_task_delay_ms(1u);
+            continue;
+        }
+
+        app_config_gate_service();
+        osal_task_delay_ms(1u);
+    }
+}
+
 #if !PROJECT_USE_MULTICORE
 static void task_trigger(void *context)
 {
@@ -288,6 +305,13 @@ int main(void)
         .stack_words = 2048u,
         .priority = 3u,
     };
+    const osal_task_config_t config_gate_task_config = {
+        .name = "cfg_gate",
+        .entry = task_config_gate,
+        .context = NULL,
+        .stack_words = 2048u,
+        .priority = 3u,
+    };
 #if !PROJECT_USE_MULTICORE
     const osal_task_config_t trigger_task_config = {
         .name = "trigger",
@@ -345,6 +369,10 @@ int main(void)
     }
     if (!osal_task_create(&dpll_task_config, NULL)) {
         diagnostics_mark_fault("rtos", "dpll task creation failed");
+        app_blink_fault_forever();
+    }
+    if (!osal_task_create(&config_gate_task_config, NULL)) {
+        diagnostics_mark_fault("rtos", "cfg_gate task creation failed");
         app_blink_fault_forever();
     }
 #if !PROJECT_USE_MULTICORE

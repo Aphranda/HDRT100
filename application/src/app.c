@@ -1,14 +1,19 @@
 #include "app.h"
 
+#include <string.h>
+
 #include "board.h"
 #include "diagnostics.h"
+#include "distributed_config.h"
 #include "distributed_refmem.h"
 #include "event_bus.h"
+#include "ota_crc32.h"
 #include "ota_ao.h"
 #include "osal.h"
 #include "product_config.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
+#include "sync_io_hw_profile.h"
 #include "scpi_port.h"
 #include "storage_manager.h"
 #include "sync_config_ui.h"
@@ -33,6 +38,36 @@ static bool s_ui_key_stable;
 static app_loop_engine_status_t s_loop_engine_status;
 static app_vdc_sync_status_t s_vdc_sync_status;
 static app_dpll_status_t s_dpll_status;
+static app_config_gate_status_t s_config_gate_status;
+
+typedef struct {
+    uint32_t main_input_base_pin;
+    uint32_t main_input_pin_count;
+    uint32_t main_output_base_pin;
+    uint32_t main_output_pin_count;
+    uint32_t trig_in_pin;
+    uint32_t gate_in_pin;
+    uint32_t trig_out_pin;
+    uint32_t rj45_trig_in_pin;
+    uint32_t rj45_trig_out_pin;
+    uint32_t arm_in_pin;
+    uint32_t ext_clk_in_pin;
+    uint32_t sync_clk_out_pin;
+    uint32_t aux0_pin;
+    uint32_t aux1_pin;
+    uint32_t aux2_pin;
+    uint32_t aux3_pin;
+} app_hw_profile_blob_t;
+
+static uint32_t app_crc32_text(const char *text)
+{
+    return ota_crc32_compute((const uint8_t *)text, (uint32_t)strlen(text));
+}
+
+static uint32_t app_crc32_blob(const void *data, size_t size)
+{
+    return ota_crc32_compute((const uint8_t *)data, (uint32_t)size);
+}
 
 bool app_init(void)
 {
@@ -59,6 +94,30 @@ bool app_init(void)
     s_dpll_status.first_service_ms = 0u;
     s_dpll_status.last_service_ms = s_last_tick_ms;
     s_dpll_status.update_seq = 0u;
+    s_config_gate_status.ready = false;
+    s_config_gate_status.gate_state = 0u;
+    s_config_gate_status.service_count = 0u;
+    s_config_gate_status.first_service_ms = 0u;
+    s_config_gate_status.last_service_ms = s_last_tick_ms;
+    s_config_gate_status.epoch = s_last_tick_ms;
+    s_config_gate_status.run_id = 0u;
+    s_config_gate_status.config_version = 1u;
+    s_config_gate_status.calibration_version = 1u;
+    s_config_gate_status.loop_plan_version = 1u;
+    s_config_gate_status.action_map_version = 1u;
+    s_config_gate_status.command_seq = 1u;
+    s_config_gate_status.target_mask = 0x0Fu;
+    s_config_gate_status.ack_flags = 0u;
+    s_config_gate_status.nack_flags = 0u;
+    s_config_gate_status.busy_flags = 0u;
+    s_config_gate_status.timeout_flags = 0u;
+    s_config_gate_status.build_crc32 = 0u;
+    s_config_gate_status.hw_profile_crc32 = 0u;
+    s_config_gate_status.role_map_crc32 = 0u;
+    s_config_gate_status.loop_plan_crc32 = 0u;
+    s_config_gate_status.action_map_crc32 = 0u;
+    s_config_gate_status.calibration_crc32 = 0u;
+    s_config_gate_status.config_crc32 = 0u;
     LOG_INFO("app", "application initialized");
 
     const sync_io_config_t sync_io_config = {
@@ -103,6 +162,11 @@ bool app_init(void)
         return false;
     }
 
+    if (!distributed_config_init()) {
+        diagnostics_mark_fault("config", "distributed config initialization failed");
+        return false;
+    }
+
     if (!ota_ao_init()) {
         diagnostics_mark_fault("ota", "OTA initialization failed");
         return false;
@@ -127,6 +191,49 @@ bool app_init(void)
     s_loop_engine_status.ready = true;
     s_vdc_sync_status.ready = true;
     s_dpll_status.ready = true;
+    s_config_gate_status.build_crc32 = app_crc32_text(g_project_build_id);
+    const app_hw_profile_blob_t hw_profile = {
+        .main_input_base_pin = SYNC_IO_HW_MAIN_INPUT_BASE_PIN,
+        .main_input_pin_count = SYNC_IO_HW_MAIN_INPUT_PIN_COUNT,
+        .main_output_base_pin = SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN,
+        .main_output_pin_count = SYNC_IO_HW_MAIN_OUTPUT_PIN_COUNT,
+        .trig_in_pin = SYNC_IO_HW_TRIG_IN_PIN,
+        .gate_in_pin = SYNC_IO_HW_GATE_IN_PIN,
+        .trig_out_pin = SYNC_IO_HW_TRIG_OUT_PIN,
+        .rj45_trig_in_pin = SYNC_IO_HW_RJ45_TRIG_IN_PIN,
+        .rj45_trig_out_pin = SYNC_IO_HW_RJ45_TRIG_OUT_PIN,
+        .arm_in_pin = SYNC_IO_HW_ARM_IN_PIN,
+        .ext_clk_in_pin = SYNC_IO_HW_EXT_CLK_IN_PIN,
+        .sync_clk_out_pin = SYNC_IO_HW_SYNC_CLK_OUT_PIN,
+        .aux0_pin = SYNC_IO_HW_AUX0_PIN,
+        .aux1_pin = SYNC_IO_HW_AUX1_PIN,
+        .aux2_pin = SYNC_IO_HW_AUX2_PIN,
+        .aux3_pin = SYNC_IO_HW_AUX3_PIN,
+    };
+    s_config_gate_status.hw_profile_crc32 = app_crc32_blob(&hw_profile, sizeof(hw_profile));
+    const distributed_config_snapshot_t *config_snapshot = distributed_config_get_snapshot();
+    s_config_gate_status.config_version = config_snapshot->config_version;
+    s_config_gate_status.calibration_version = config_snapshot->calibration_version;
+    s_config_gate_status.loop_plan_version = config_snapshot->loop_plan_version;
+    s_config_gate_status.action_map_version = config_snapshot->action_map_version;
+    s_config_gate_status.target_mask = config_snapshot->target_mask;
+    s_config_gate_status.role_map_crc32 = config_snapshot->role_map_crc32;
+    s_config_gate_status.loop_plan_crc32 = config_snapshot->loop_plan_crc32;
+    s_config_gate_status.action_map_crc32 = config_snapshot->action_map_crc32;
+    s_config_gate_status.calibration_crc32 = config_snapshot->calibration_crc32;
+    s_config_gate_status.config_crc32 = config_snapshot->config_crc32;
+    const bool config_valid = distributed_config_validate();
+    s_config_gate_status.ack_flags = config_valid ? s_config_gate_status.target_mask : 0u;
+    s_config_gate_status.nack_flags = config_valid ? 0u : s_config_gate_status.target_mask;
+    s_config_gate_status.run_id = s_config_gate_status.build_crc32 ^
+                                  s_config_gate_status.hw_profile_crc32 ^
+                                  s_config_gate_status.config_crc32 ^
+                                  s_config_gate_status.epoch;
+    s_config_gate_status.ready = config_valid;
+    s_config_gate_status.gate_state = config_valid ? 1u : 2u;
+    if (!config_valid) {
+        diagnostics_mark_fault("config", "distributed config consistency check failed");
+    }
 
     return true;
 }
@@ -243,6 +350,35 @@ void app_dpll_get_status(app_dpll_status_t *status)
     osal_critical_exit();
 }
 
+void app_config_gate_service(void)
+{
+    const uint32_t now_ms = board_uptime_ms();
+
+    osal_critical_enter();
+    if (s_config_gate_status.service_count == 0u) {
+        s_config_gate_status.first_service_ms = now_ms;
+    }
+    s_config_gate_status.service_count++;
+    s_config_gate_status.last_service_ms = now_ms;
+    const bool gate_ready = s_app_ready &&
+                            s_config_gate_status.nack_flags == 0u &&
+                            s_config_gate_status.config_crc32 != 0u;
+    s_config_gate_status.ready = gate_ready;
+    s_config_gate_status.gate_state = gate_ready ? 1u : 2u;
+    osal_critical_exit();
+}
+
+void app_config_gate_get_status(app_config_gate_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+
+    osal_critical_enter();
+    *status = s_config_gate_status;
+    osal_critical_exit();
+}
+
 void app_trigger_service(void)
 {
     sync_trigger_service();
@@ -314,6 +450,7 @@ void app_run_once(void)
     app_loop_engine_service();
     app_vdc_sync_service();
     app_dpll_service();
+    app_config_gate_service();
     app_trigger_service();
     app_ota_service();
     app_storage_service();
@@ -329,6 +466,7 @@ void app_management_run_once(void)
     app_loop_engine_service();
     app_vdc_sync_service();
     app_dpll_service();
+    app_config_gate_service();
     app_ota_service();
     app_storage_service();
     app_ui_service();

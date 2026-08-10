@@ -158,8 +158,14 @@ Last updated: 2026-08-10
   `task_dpll` 空壳。每一步都必须构建、烧录、执行板端 smoke，并记录
   `SYST:RTOS:STAT?`、`SYST:CORE?` 和 `SYST:ERR?`。
   2026-08-10: `task_refmem_sync` 小步已通过 build `20260810110636` 板端 smoke；
-  `task_loop_engine` 和 `task_vdc_sync` 空壳已补入，`task_vdc_sync` 在 build
-  `20260810124245` 上完成 9/9 板端 smoke；下一步进入 `task_dpll` 空壳。
+  `task_loop_engine`、`task_vdc_sync` 和 `task_dpll` 空壳已补入，`task_vdc_sync` 在 build
+  `20260810124245` 上完成 9/9 板端 smoke，`task_dpll` 在 build `20260810124902`
+  上完成 10/10 板端 smoke；`SYST:CFG:STAT?` 门禁骨架已接入，
+  `components/distributed_config/` 静态 `NodeRoleMap` / `LoopPlan` / `ActionMap` /
+  `Calibration` 数据源已落地，20260810132729 上完成 11/11 板端 smoke。随后补入
+  `SYST:CFG:ROLE?` / `SYST:CFG:LOOP?` / `SYST:CFG:ACT?` / `SYST:CFG:CAL?` 查询和
+  `distributed_config_validate()` 本地一致性门禁；下一步是不接跨板 RJ45 同步和真实
+  转台 DPLL 收敛，只补分布式 ACK/NACK 原因码和 RUN 态命令白名单。
 
 - [ ] 将当前裸机单核和裸机双核路径降级为 bring-up/smoke 路径。
   产品化 release 不能只依赖当前 `PROJECT_USE_FREERTOS=OFF` / `PROJECT_USE_MULTICORE=OFF`

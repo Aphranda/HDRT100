@@ -7,7 +7,7 @@ Canonical: `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-04
 Related:
 
-- `DOC/相控阵测试系统分布式触发方案技术报告0614.html`
+- `docs/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md`
 - `docs/RP2350B_QFN80_IO_CONSTRAINTS.md`
 - `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
 - `docs/SYNC_IO_RESOURCE_PLAN.md`

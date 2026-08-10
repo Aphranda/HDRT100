@@ -7,6 +7,9 @@ Checks:
 - LOOP:STAT? loop engine ready and service counter growing
 - VDC:STAT? VDC sync skeleton ready and service counter growing
 - DPLL:STAT? DPLL skeleton ready and service counter growing
+- SYST:CFG:STAT? config gate static snapshot ready and service counter growing
+- SYST:CFG:ROLE?/LOOP?/ACT?/CAL? static distributed config queries
+- SYST:CORE:VECT? and SYST:PROT:STAT? owner/protection table snapshots
 - TRIG:MODE 1 -> ARM -> DISARM state progression
 - Error queue, LOG STAT, TRACE LAST
 """
@@ -282,6 +285,104 @@ def test_dpll_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
     return False, f"DPLL:STAT? counters not monotonic: service={service_counts}, update_seq={update_seq}"
 
 
+def test_config_gate_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
+    """Read SYST:CFG:STAT? 3 times, 1s apart. service_count must grow and CRCs must exist."""
+    reads: list[list[int]] = []
+    for i in range(3):
+        resp = _query(ser, "SYST:CFG:STAT?", timeout)
+        fields = _parse_ints(resp)
+        if len(fields) < 24:
+            return False, f"SYST:CFG:STAT? read {i+1}: unparseable response: {resp}"
+        reads.append(fields)
+        if i < 2:
+            time.sleep(1.0)
+
+    for i, fields in enumerate(reads):
+        if fields[0] != 1:
+            return False, f"SYST:CFG:STAT? read {i+1}: config gate NOT ready (field0={fields[0]})"
+        if fields[1] != 1:
+            return False, f"SYST:CFG:STAT? read {i+1}: gate_state not ready (field1={fields[1]})"
+        if fields[12] != 15:
+            return False, f"SYST:CFG:STAT? read {i+1}: target_mask unexpected (field12={fields[12]})"
+        if fields[13] != 15 or fields[14] != 0:
+            return False, f"SYST:CFG:STAT? read {i+1}: ACK/NACK unexpected (ack={fields[13]}, nack={fields[14]})"
+
+    service_counts = [r[2] for r in reads]
+    build_crcs = [r[17] for r in reads]
+    hw_crcs = [r[18] for r in reads]
+    config_crcs = [r[23] for r in reads]
+    if (service_counts[0] < service_counts[1] < service_counts[2] and
+            build_crcs[0] != 0 and hw_crcs[0] != 0 and config_crcs[0] != 0):
+        return True, (
+            "config gate ready, service counts: "
+            f"{service_counts[0]} -> {service_counts[1]} -> {service_counts[2]}, "
+            f"build_crc={build_crcs[0]}, hw_profile_crc={hw_crcs[0]}, "
+            f"config_crc={config_crcs[0]}, run_id={reads[-1][6]}"
+        )
+    if service_counts[0] == service_counts[1] or service_counts[1] == service_counts[2]:
+        return False, f"SYST:CFG:STAT? service count STALLED: {service_counts}"
+    return False, f"SYST:CFG:STAT? counters not monotonic: service={service_counts}"
+
+
+def test_config_snapshot_queries(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
+    checks: list[str] = []
+
+    role = _parse_ints(_query(ser, "SYST:CFG:ROLE? 3", timeout))
+    if len(role) < 10:
+        return False, f"SYST:CFG:ROLE? unparseable: {role}"
+    if role[0] != 1 or role[1] != 4 or role[2] != 15 or role[6] != 3 or role[7] != 3:
+        return False, f"SYST:CFG:ROLE? unexpected fields: {role}"
+    checks.append(f"role_node={role[6]}/role={role[7]}")
+
+    loop = _parse_ints(_query(ser, "SYST:CFG:LOOP? 3", timeout))
+    if len(loop) < 9:
+        return False, f"SYST:CFG:LOOP? unparseable: {loop}"
+    if loop[0] != 1 or loop[1] != 4 or loop[3] != 4 or loop[5] != 3 or loop[6] != 3:
+        return False, f"SYST:CFG:LOOP? unexpected fields: {loop}"
+    checks.append(f"loop_layer={loop[5]}/node={loop[6]}/action={loop[7]}")
+
+    action = _parse_ints(_query(ser, "SYST:CFG:ACT? 3", timeout))
+    if len(action) < 8:
+        return False, f"SYST:CFG:ACT? unparseable: {action}"
+    if action[0] != 1 or action[1] != 4 or action[2] != 3 or action[3] != 3:
+        return False, f"SYST:CFG:ACT? unexpected fields: {action}"
+    checks.append(f"action={action[2]}/delay_us={action[7]}")
+
+    calibration = _parse_ints(_query(ser, "SYST:CFG:CAL? 3", timeout))
+    if len(calibration) < 9:
+        return False, f"SYST:CFG:CAL? unparseable: {calibration}"
+    if calibration[0] != 1 or calibration[1] != 4 or calibration[2] != 3 or calibration[3] != 24000:
+        return False, f"SYST:CFG:CAL? unexpected fields: {calibration}"
+    checks.append(f"cal_node={calibration[2]}/delta_ns={calibration[3]}")
+
+    return True, ", ".join(checks)
+
+
+def test_runtime_protection_tables(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
+    core_vector = _parse_ints(_query(ser, "SYST:CORE:VECT?", timeout))
+    if len(core_vector) < 13:
+        return False, f"SYST:CORE:VECT? unparseable: {core_vector}"
+    if core_vector[0] != 1 or core_vector[2] != 2:
+        return False, f"SYST:CORE:VECT? unexpected version/core_count: {core_vector}"
+    if core_vector[3] != 0 or core_vector[4] != 1 or core_vector[7] != 2:
+        return False, f"SYST:CORE:VECT? owner map unexpected: {core_vector}"
+    if core_vector[6] == 0 or core_vector[10] == 0:
+        return False, f"SYST:CORE:VECT? missing realtime IRQ mask or guard CRC: {core_vector}"
+
+    protection = _parse_ints(_query(ser, "SYST:PROT:STAT?", timeout))
+    if len(protection) < 14:
+        return False, f"SYST:PROT:STAT? unparseable: {protection}"
+    if protection[0] != 1 or protection[2] != 1 or protection[3] != 1:
+        return False, f"SYST:PROT:STAT? protection flags unexpected: {protection}"
+    if protection[4] != 1 or protection[8] != 2 or protection[11] == 0:
+        return False, f"SYST:PROT:STAT? lockout/entry/guard unexpected: {protection}"
+
+    return True, (
+        f"core_vector seq={core_vector[1]} core1_irq_mask={core_vector[6]} "
+        f"prot_flags={protection[9]} lockout_online={protection[4]}"
+    )
+
+
 def test_error_queue(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
     resp = _query(ser, "SYST:ERR?", timeout)
     if "No error" in resp or "0" in resp:
@@ -314,6 +415,9 @@ ALL_TESTS = [
     ("loop_status", test_loop_status),
     ("vdc_status", test_vdc_status),
     ("dpll_status", test_dpll_status),
+    ("config_gate_status", test_config_gate_status),
+    ("config_snapshot_queries", test_config_snapshot_queries),
+    ("runtime_protection_tables", test_runtime_protection_tables),
     ("trigger_seq", test_trigger_seq),
     ("error_queue", test_error_queue),
     ("log_stat", test_log_stat),

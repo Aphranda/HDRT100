@@ -40,9 +40,6 @@ compile_commands.json
 generated/
 *.pio.h
 
-# Local reference packs and vendor example dumps
-DOC/
-
 # Logs and runtime dumps
 *.log
 *.trace

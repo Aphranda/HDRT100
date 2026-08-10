@@ -6,7 +6,7 @@ Canonical: `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
 Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/TRIGGER_SYNC_TODO.md`, `docs/MULTICORE_PARTITION_PLAN.md`
 Last updated: 2026-07-07
 
-本文档把 `DOC/相控阵测试系统分布式触发方案技术报告0614.html` 中的 DPLL、未来预约触发和反馈校准思想，收敛为当前 RP2350_TRIG 工程可以分阶段落地的多板原型方案。
+本文档把 `docs/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md` 中的 DPLL、未来预约触发和反馈校准思想，收敛为当前 RP2350_TRIG 工程可以分阶段落地的多板原型方案。
 
 目标不是传输大数据，而是在多块 RP2350 板之间建立可校准的虚拟 DC 时间轴，并让每块板在本地以 PIO 输出确定性触发边沿。
 

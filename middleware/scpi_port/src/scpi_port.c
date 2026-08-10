@@ -6,6 +6,7 @@
 
 #include "app.h"
 #include "diagnostics.h"
+#include "distributed_config.h"
 #include "distributed_refmem.h"
 #include "drv_watchdog.h"
 #include "biss_protocol.h"
@@ -365,6 +366,49 @@ static scpi_result_t scpi_cmd_refmem_node_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static scpi_result_t scpi_cmd_core_vector_q(scpi_t *context)
+{
+    distributed_refmem_core_vector_snapshot_t snapshot;
+    distributed_refmem_get_core_vector(&snapshot);
+
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.table_seq);
+    SCPI_ResultUInt32(context, snapshot.core_count);
+    SCPI_ResultUInt32(context, snapshot.core0_vtor_owner);
+    SCPI_ResultUInt32(context, snapshot.core1_vtor_owner);
+    SCPI_ResultUInt32(context, snapshot.core0_irq_owner_mask);
+    SCPI_ResultUInt32(context, snapshot.core1_irq_owner_mask);
+    SCPI_ResultUInt32(context, snapshot.entry_table_owner);
+    SCPI_ResultUInt32(context, snapshot.flags);
+    SCPI_ResultUInt32(context, snapshot.guard.owner);
+    SCPI_ResultUInt32(context, snapshot.guard.crc32);
+    SCPI_ResultUInt32(context, snapshot.guard.stale);
+    SCPI_ResultUInt32(context, snapshot.guard.flags);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_runtime_protection_q(scpi_t *context)
+{
+    distributed_refmem_runtime_protection_snapshot_t snapshot;
+    distributed_refmem_get_runtime_protection(&snapshot);
+
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.table_seq);
+    SCPI_ResultUInt32(context, snapshot.ram_resident_required);
+    SCPI_ResultUInt32(context, snapshot.flash_lockout_supported);
+    SCPI_ResultUInt32(context, snapshot.flash_lockout_online);
+    SCPI_ResultUInt32(context, snapshot.flash_lockout_requested);
+    SCPI_ResultUInt32(context, snapshot.flash_lockout_acknowledged);
+    SCPI_ResultUInt32(context, snapshot.park_state);
+    SCPI_ResultUInt32(context, snapshot.entry_table_owner);
+    SCPI_ResultUInt32(context, snapshot.flags);
+    SCPI_ResultUInt32(context, snapshot.guard.owner);
+    SCPI_ResultUInt32(context, snapshot.guard.crc32);
+    SCPI_ResultUInt32(context, snapshot.guard.stale);
+    SCPI_ResultUInt32(context, snapshot.guard.flags);
+    return SCPI_RES_OK;
+}
+
 static scpi_result_t scpi_cmd_loop_status_q(scpi_t *context)
 {
     app_loop_engine_status_t status;
@@ -402,6 +446,126 @@ static scpi_result_t scpi_cmd_dpll_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.first_service_ms);
     SCPI_ResultUInt32(context, status.last_service_ms);
     SCPI_ResultUInt32(context, status.update_seq);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_config_gate_status_q(scpi_t *context)
+{
+    app_config_gate_status_t status;
+    app_config_gate_get_status(&status);
+
+    SCPI_ResultText(context, g_project_build_id);
+    SCPI_ResultBool(context, status.ready ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.gate_state);
+    SCPI_ResultUInt32(context, status.service_count);
+    SCPI_ResultUInt32(context, status.first_service_ms);
+    SCPI_ResultUInt32(context, status.last_service_ms);
+    SCPI_ResultUInt32(context, status.epoch);
+    SCPI_ResultUInt32(context, status.run_id);
+    SCPI_ResultUInt32(context, status.config_version);
+    SCPI_ResultUInt32(context, status.calibration_version);
+    SCPI_ResultUInt32(context, status.loop_plan_version);
+    SCPI_ResultUInt32(context, status.action_map_version);
+    SCPI_ResultUInt32(context, status.command_seq);
+    SCPI_ResultUInt32(context, status.target_mask);
+    SCPI_ResultUInt32(context, status.ack_flags);
+    SCPI_ResultUInt32(context, status.nack_flags);
+    SCPI_ResultUInt32(context, status.busy_flags);
+    SCPI_ResultUInt32(context, status.timeout_flags);
+    SCPI_ResultUInt32(context, status.build_crc32);
+    SCPI_ResultUInt32(context, status.hw_profile_crc32);
+    SCPI_ResultUInt32(context, status.role_map_crc32);
+    SCPI_ResultUInt32(context, status.loop_plan_crc32);
+    SCPI_ResultUInt32(context, status.action_map_crc32);
+    SCPI_ResultUInt32(context, status.calibration_crc32);
+    SCPI_ResultUInt32(context, status.config_crc32);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_config_role_q(scpi_t *context)
+{
+    const distributed_config_role_map_t *role_map = distributed_config_get_role_map();
+    uint32_t node_id = 0u;
+    (void)SCPI_ParamUInt32(context, &node_id, FALSE);
+    if (node_id >= role_map->node_count) {
+        return SCPI_RES_ERR;
+    }
+
+    const distributed_config_role_entry_t *node = &role_map->node[node_id];
+    SCPI_ResultUInt32(context, role_map->version);
+    SCPI_ResultUInt32(context, role_map->node_count);
+    SCPI_ResultUInt32(context, role_map->target_mask);
+    SCPI_ResultUInt32(context, role_map->input_base_pin);
+    SCPI_ResultUInt32(context, role_map->output_base_pin);
+    SCPI_ResultUInt32(context, role_map->aux_base_pin);
+    SCPI_ResultUInt32(context, node->node_id);
+    SCPI_ResultUInt32(context, node->role);
+    SCPI_ResultUInt32(context, node->persona);
+    SCPI_ResultUInt32(context, node->feature_mask);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_config_loop_q(scpi_t *context)
+{
+    const distributed_config_loop_plan_t *loop_plan = distributed_config_get_loop_plan();
+    uint32_t layer_id = 0u;
+    (void)SCPI_ParamUInt32(context, &layer_id, FALSE);
+    if (layer_id >= loop_plan->layer_count) {
+        return SCPI_RES_ERR;
+    }
+
+    const distributed_config_layer_entry_t *layer = &loop_plan->layer[layer_id];
+    SCPI_ResultUInt32(context, loop_plan->version);
+    SCPI_ResultUInt32(context, loop_plan->node_loop_count);
+    SCPI_ResultUInt32(context, loop_plan->array_loop_count);
+    SCPI_ResultUInt32(context, loop_plan->layer_count);
+    SCPI_ResultUInt32(context, loop_plan->default_wait_rule);
+    SCPI_ResultUInt32(context, layer->layer_id);
+    SCPI_ResultUInt32(context, layer->node_id);
+    SCPI_ResultUInt32(context, layer->action_id);
+    SCPI_ResultUInt32(context, layer->wait_rule);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_config_action_q(scpi_t *context)
+{
+    const distributed_config_action_map_t *action_map = distributed_config_get_action_map();
+    uint32_t action_id = 0u;
+    (void)SCPI_ParamUInt32(context, &action_id, FALSE);
+    if (action_id >= action_map->action_count) {
+        return SCPI_RES_ERR;
+    }
+
+    const distributed_config_action_entry_t *action = &action_map->action[action_id];
+    SCPI_ResultUInt32(context, action_map->version);
+    SCPI_ResultUInt32(context, action_map->action_count);
+    SCPI_ResultUInt32(context, action->action_id);
+    SCPI_ResultUInt32(context, action->node_id);
+    SCPI_ResultUInt32(context, action->sma_out_pin);
+    SCPI_ResultUInt32(context, action->sma_in_pin);
+    SCPI_ResultUInt32(context, action->edge);
+    SCPI_ResultUInt32(context, action->delay_us);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_config_calibration_q(scpi_t *context)
+{
+    const distributed_config_calibration_t *calibration = distributed_config_get_calibration();
+    uint32_t node_id = 0u;
+    (void)SCPI_ParamUInt32(context, &node_id, FALSE);
+    if (node_id >= calibration->node_count) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, calibration->version);
+    SCPI_ResultUInt32(context, calibration->node_count);
+    SCPI_ResultUInt32(context, node_id);
+    SCPI_ResultUInt32(context, calibration->delta_ns[node_id]);
+    SCPI_ResultUInt32(context, calibration->sma_hop_ns);
+    SCPI_ResultUInt32(context, calibration->rj45_hop_ns);
+    SCPI_ResultUInt32(context, calibration->device_delay_ns);
+    SCPI_ResultUInt32(context, calibration->tempco_ppb);
+    SCPI_ResultUInt32(context, calibration->valid_window_ns);
     return SCPI_RES_OK;
 }
 
@@ -2785,8 +2949,16 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "STATus:VDC?", .callback = scpi_cmd_vdc_status_q},
     {.pattern = "DPLL:STATus?", .callback = scpi_cmd_dpll_status_q},
     {.pattern = "STATus:DPLL?", .callback = scpi_cmd_dpll_status_q},
+    {.pattern = "SYSTem:CFG:STATus?", .callback = scpi_cmd_config_gate_status_q},
+    {.pattern = "STATus:CFG?", .callback = scpi_cmd_config_gate_status_q},
+    {.pattern = "SYSTem:CFG:ROLE?", .callback = scpi_cmd_config_role_q},
+    {.pattern = "SYSTem:CFG:LOOP?", .callback = scpi_cmd_config_loop_q},
+    {.pattern = "SYSTem:CFG:ACTion?", .callback = scpi_cmd_config_action_q},
+    {.pattern = "SYSTem:CFG:CALibration?", .callback = scpi_cmd_config_calibration_q},
     {.pattern = "SYSTem:REFMem:STATus?", .callback = scpi_cmd_refmem_status_q},
     {.pattern = "SYSTem:REFMem:NODE?", .callback = scpi_cmd_refmem_node_q},
+    {.pattern = "SYSTem:CORE:VECTor?", .callback = scpi_cmd_core_vector_q},
+    {.pattern = "SYSTem:PROTection:STATus?", .callback = scpi_cmd_runtime_protection_q},
     {.pattern = "SYSTem:TRIGger:DBG?", .callback = scpi_cmd_trigger_debug_q},
     {.pattern = "SYSTem:RESource?", .callback = scpi_cmd_resource_status_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
