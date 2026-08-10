@@ -51,6 +51,38 @@ Last updated: 2026-08-10
 
 ## 任务记录
 
+### TASK-20260811-001 - 五板分布式回环 HIL preflight 脚本
+
+- 状态：完成
+- 日期：2026-08-11
+- 任务目标：
+  - 将分布式回环验证台架固定为 5 块物理板。
+  - 支持其中 1 块板同时模拟转台和网分，另外 4 块板作为触发节点。
+  - 让验证脚本通过角色表描述拓扑，避免把 A0-A3 或 A0-A4 的现场命名硬编码死。
+- 完成内容：
+  - 新增 `tools/distributed_loopback_validate/distributed_loopback_validate.py`。
+  - 支持 `--board ROLE=PORT` 重复 5 次和 `--sim-role <ROLE>` 指定模拟板。
+  - 默认接受 `A0..A4` 与 `SIM` 角色；模拟板可以叫 `SIM`，也可以按现场命名叫 `A4`。
+  - 脚本当前执行五板 topology 校验和每板 SCPI preflight 查询：`*IDN?`、build、core、config ACK、mode/resource/fault table。
+  - 更新 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 和 `docs/README.md`，记录五板 HIL preflight 入口。
+- 验证结果：
+  - `python -m py_compile tools/distributed_loopback_validate/distributed_loopback_validate.py` 通过。
+  - `python tools/docs_check/docs_check.py` 通过，仍有 6 个历史命名 warning。
+  - `SIM` 口径 dry-run 通过：`A0,A1,A2,A3,SIM`，`SIM` 同时承担 turntable+vna。
+  - `A4` 口径 dry-run 通过：`A0,A1,A2,A3,A4`，`A4` 通过 `--sim-role A4` 同时承担 turntable+vna。
+  - 当前未执行真实五板串口 preflight；需要现场提供 5 个可用 COM 口。
+- 还需完成：
+  - 固件 RJ45 `REFMEM_DELTA/FIRE_LOAD/DONE/MEAS_DONE` 协议落地后，把脚本从 preflight 扩展为真实帧级闭环。
+  - 增加 1e6 帧 CRC/seq/latency 长稳模式。
+  - 增加转台 Compare Out 与 VNA READY/REDY 的真实 IO 采样闭环。
+- 关联文件：
+  - `tools/distributed_loopback_validate/distributed_loopback_validate.py`
+  - `tools/distributed_loopback_validate/__init__.py`
+  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/README.md`
+- 下一步：
+  - 继续补 RJ45 frame/REFMEM delta 的固件协议或先完善五板工具的端口发现和批量报告。
+
 ### TASK-20260810-005 - SystemMode / ResourceArbiter / FaultCode 表查询闭环
 
 - 状态：完成

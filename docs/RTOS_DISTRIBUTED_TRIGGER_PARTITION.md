@@ -685,6 +685,8 @@ core1 禁止：
 - [ ] A3 接入 VNA READY/MEAS_DONE 状态桥接。
 - [ ] 实现 START 后硬件自循环，主机不逐点推进。
 - [ ] 将 `FaultCodeTable` 和 `SafetyFB` 接到 DPLL/Trigger/OTA 三域，统一故障等级、锁存条件和恢复路径。
+- [x] 定义五板 HIL 回环验证脚本入口。
+  2026-08-11: 新增 `tools/distributed_loopback_validate/distributed_loopback_validate.py`，默认拓扑为 5 块物理板：1 块 `SIM` 同时模拟转台和 VNA，4 块触发节点通常为 `A0..A3`；若现场把模拟板标为 `A4`，可通过 `--sim-role A4` 表达。当前脚本完成拓扑校验和五板 SCPI preflight，真实 RJ45/FIRE_LOAD/T2 闭环待固件协议落地后扩展。
 - [ ] 完成转台/VNA HIL 长稳测试。
 
 ### P7 - 发布门禁
@@ -697,6 +699,7 @@ core1 禁止：
 - [ ] 验证上电、bootloader、看门狗、通信丢失和 FAULT 下的安全默认态。
 - [ ] release preset 明确 RTOS + 双核产品化门禁；单核/裸机仅保留 bring-up 路径。
 - [ ] README、SCPI 命令文档、HIL 工具和生产测试流程同步更新。
+  2026-08-11: 五板 HIL preflight 工具已建立，后续还需补生产测试流程和真实闭环验收矩阵。
 - [ ] 给产品版发布门禁补一份固定测试矩阵：core0/core1 隔离、flash lockout、REFMEM delta、FIRE_LOAD/T2、OTA 事务、掉电恢复。
 - [ ] 给 `task_refmem_sync`、`task_vdc_sync`、`task_dpll`、`task_gateway_a3` 建立统一长稳回归用例和失败码映射。
 

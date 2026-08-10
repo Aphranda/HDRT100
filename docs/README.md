@@ -129,6 +129,13 @@ Last updated: 2026-07-07
 | `RELEASE_CHECKLIST.md` | 发布门禁检查表。 |
 | `TASK_PROGRESS.md` | 全局历史任务进度。新域建议使用 `<DOMAIN>_TASK_PROGRESS.md`。 |
 
+### 验证工具入口
+
+| 工具 | 定位 |
+|---|---|
+| `tools/multicore_board_validate/multicore_board_validate.py` | 单板 RTOS + multicore + 表查询 smoke。 |
+| `tools/distributed_loopback_validate/distributed_loopback_validate.py` | 五板分布式回环 HIL preflight：一块模拟板同时承担转台和 VNA，另外四块为触发节点。 |
+
 ## 09 历史方案与外部资料迁入
 
 | 文件 | 定位 |
