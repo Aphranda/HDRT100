@@ -11,8 +11,8 @@ Last updated: 2026-08-11
 ## 当前 Git 状态
 
 - 当前分支：`main`
-- 本轮新增提交：`8dbc8f0 feat: add five-board loopback preflight`
-- 该提交创建后，`git push origin main` 曾被工具审批层拒绝；拒绝原因是审批流断开，不是远端 Git 错误。
+- 本轮新增提交：`4e50128 feat: align BiSS network bench with A3-only control port`
+- 已推送到 `origin/main`。
 - 这轮已经把 HIL 口径收回到 A3 单外部 COM + 内部 BiSSC 组网。
 - 继续前应先执行：
 
@@ -22,7 +22,7 @@ git log -3 --oneline
 git push origin main
 ```
 
-如果远端还没有 `8dbc8f0`，应先推送；如果远端已有该提交，则继续下一轮待办。
+如果远端还没有 `4e50128`，应先推送；如果远端已有该提交，则继续下一轮待办。
 
 ## 本轮目标
 
