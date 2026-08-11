@@ -95,6 +95,10 @@ Get-Content -Path tools\README.md -Encoding UTF8
   disarms. Use `--enable-scan --expect-scan-steps N --capture-trace` to validate
   timeout sample-scan progress, fault trace readback, and decoded
   `trigger.biss_timeout` / `trigger.biss_scan_step` events.
+- `product_scpi_validate/product_scpi_validate.py`: product SCPI framework
+  validation over USB CDC. It generates its command list and fixed expected
+  responses from `scpi_product_commands.h/.c`, runs every product command, and
+  writes a transcript plus summary under `build/product_scpi_validation_*`.
 - `sd_raw_clear/sd_raw_clear.py`: destructive SD recovery helper. It sends
   `SYST:SD:RAW:CLEAR <sectors>,"ERASE"` over SCPI after `--yes`, clearing the
   first 1..64 sectors so a host can recreate the partition/FAT metadata.
