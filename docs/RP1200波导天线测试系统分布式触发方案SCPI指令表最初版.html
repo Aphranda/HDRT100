@@ -230,7 +230,7 @@
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">1 / 13</span></span>
+    <span>内部文件 | <span class="page-num">1 / 9</span></span>
   </div>
 </div>
 
@@ -291,7 +291,7 @@
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">2 / 13</span></span>
+    <span>内部文件 | <span class="page-num">2 / 9</span></span>
   </div>
 </div>
 
@@ -362,7 +362,7 @@ SYSTem:SCPI:RUN:ALLOW?</code></pre>
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">3 / 13</span></span>
+    <span>内部文件 | <span class="page-num">3 / 9</span></span>
   </div>
 </div>
 
@@ -424,7 +424,7 @@ CONFigure:SEQuence 1,2,3,4,5</code></pre>
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">4 / 13</span></span>
+    <span>内部文件 | <span class="page-num">4 / 9</span></span>
   </div>
 </div>
 
@@ -486,7 +486,7 @@ CONFigure:SEQuence 1,2,3,4,5</code></pre>
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">5 / 13</span></span>
+    <span>内部文件 | <span class="page-num">5 / 9</span></span>
   </div>
 </div>
 
@@ -558,7 +558,7 @@ SYSTem:FAULT:LAST?</code></pre>
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">6 / 13</span></span>
+    <span>内部文件 | <span class="page-num">6 / 9</span></span>
   </div>
 </div>
 
@@ -566,8 +566,8 @@ SYSTem:FAULT:LAST?</code></pre>
 <div class="page">
   <div class="page-header">
     <div>
-      <h1>校准指令</h1>
-      <div class="subtitle">CALibration 动作指令与链路维护入口</div>
+      <h1>校准与同步指令</h1>
+      <div class="subtitle">CALibration 业务域</div>
     </div>
     <svg class="brand" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg>
     <div class="doc-meta">
@@ -577,45 +577,38 @@ SYSTem:FAULT:LAST?</code></pre>
     </div>
   </div>
   <div class="main">
-<div class="section-title">校准边界</div>
-<div class="note-box">校准是快速短事务，只计算线缆或触发链路固定 delay。<code>CALibration:STARt</code> 必须明确输入端和输出端，响应前完成测量；失败不覆盖旧 staging 数据。</div>
-<div class="section-title">链路表维护</div>
+<div class="section-title">校准域</div>
 <table class="compact">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>CONFigure:CALibration:LINK:ADD</code></td><td><code>&lt;type&gt;,&lt;src_node&gt;,&lt;src_port&gt;,&lt;dst_node&gt;,&lt;dst_port&gt;,&lt;direction&gt;,&lt;enable&gt;,&lt;required&gt;</code></td><td><code>1</code></td><td>新增可校准链路；链路 key 已存在时返回 duplicate。</td></tr>
-<tr><td><code>CONFigure:CALibration:LINK:SET</code></td><td>同 ADD</td><td><code>1</code></td><td>修改链路属性；不修改已经保存的 delay 数据。</td></tr>
-<tr><td><code>CONFigure:CALibration:LINK:DELete</code></td><td><code>&lt;type&gt;,&lt;src_node&gt;,&lt;src_port&gt;,&lt;dst_node&gt;,&lt;dst_port&gt;[,DEL]</code></td><td><code>1</code></td><td>删除链路；带 <code>DEL</code> 时同时删除该链路校准数据。</td></tr>
-<tr><td><code>READ:CALibration:LINK?</code></td><td><code>[type,src_node,src_port,dst_node,dst_port]</code></td><td>link table</td><td>读取链路清单、方向、使能、必需标志和当前 delay 是否有效。</td></tr>
+<tr><td><code>CONFigure:CAL</code></td><td><code>&lt;domain&gt;,&lt;node&gt;,&lt;target&gt;,&lt;mode&gt;,&lt;value&gt;...</code></td><td><code>1</code></td><td>配置校准参数、补偿表或校准目标；<code>node</code> 用于明确 A0-A4 节点，<code>target</code> 用于指定端口或对象，<code>mode</code> 用于区分应用、保存和回滚</td></tr>
+<tr><td><code>CALibration:STARt</code></td><td><code>[domain,node]</code></td><td><code>1</code></td><td>按当前配置开始校准；<code>node</code> 省略时对全部节点执行</td></tr>
+<tr><td><code>READ:CAL:STATe?</code></td><td><code>[domain,node]</code></td><td>state block</td><td>读取校准状态、进度、完成标志和锁存错误</td></tr>
+<tr><td><code>READ:CAL:PARameter?</code></td><td><code>[domain,node]</code></td><td>param block</td><td>读取校准参数、补偿结果和节点映射</td></tr>
 </tbody>
 </table>
-<div class="section-title">校准动作</div>
+<div class="note-box">校准命令采用 <code>&lt;domain&gt;,&lt;node&gt;,&lt;target&gt;,&lt;mode&gt;,&lt;value&gt;...</code> 形式：<code>domain</code> 区分校准对象，<code>node</code> 明确 A0-A4 节点，<code>target</code> 指定端口或对象，<code>mode</code> 默认按 <code>APPLy</code>、<code>SAVe</code>、<code>ROLLback</code> 三种动作处理。<code>APPLy</code> 仅作用于运行态，<code>SAVe</code> 写入持久配置，<code>ROLLback</code> 恢复上次保存值且忽略后续参数。</div>
+<h4>校准对象</h4>
 <table class="compact">
-<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<thead><tr><th>域</th><th>节点</th><th>对象</th><th>参数/单位</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>CALibration:STARt</code></td><td><code>&lt;type&gt;,&lt;src_node&gt;,&lt;src_port&gt;,&lt;dst_node&gt;,&lt;dst_port&gt;</code></td><td>result block</td><td>快速测量指定输入/输出段，例如 <code>CALibration:STARt SMA,A0,OUT1,A1,IN1</code>。</td></tr>
-<tr><td><code>READ:CALibration:STATe?</code></td><td><code>[type,src_node,src_port,dst_node,dst_port]</code></td><td>state block</td><td>读取最近一次或指定链路校准状态；快速事务通常返回 DONE/FAIL。</td></tr>
-<tr><td><code>READ:CALibration:RESult?</code></td><td><code>[type,src_node,src_port,dst_node,dst_port]</code></td><td>result block</td><td>读取最近一次校准结果、delay、jitter、样本数和失败原因。</td></tr>
+<tr><td><code>SMA</code></td><td><code>A0..A4</code></td><td>端口对</td><td><code>A0,OUT1,A1,IN1,delay_ns</code></td><td>描述 A0-A4 节点间输入/输出直接关系，例如 A0,OUT1,A1,IN1</td></tr>
+<tr><td><code>NODE</code></td><td><code>A0..A4</code></td><td>节点驱动时间</td><td><code>A0,A1,delay_ns</code></td><td>描述 A0-A1 之间驱动时间，例如网分 TRIG/READY</td></tr>
+<tr><td><code>DEVICE</code></td><td><code>A0..A4</code></td><td>节点动作</td><td><code>A1,SP8T,delay_ns</code></td><td>SP8T、SP2T、VNA READY、设备完成 T2 等动作延迟</td></tr>
+<tr><td><code>TEMP</code></td><td><code>A0..A4</code></td><td>节点温漂</td><td><code>A2,ppm,temp_c</code></td><td>慢变温漂补偿参数</td></tr>
 </tbody>
 </table>
-<div class="section-title">执行约束</div>
-<table class="compact">
-<thead><tr><th>约束</th><th>规则</th><th>上位机处理</th></tr></thead>
-<tbody>
-<tr><td>运行状态</td><td>只允许在 <code>IDLE</code>、<code>STOPPED</code> 或 <code>CAL</code> 模式执行。</td><td>运行中拒绝时先 <code>TRIGger:STOP</code>，再重新校准。</td></tr>
-<tr><td>链路存在</td><td><code>CALibration:STARt</code> 的端口对必须已在 LINK 表中登记。</td><td>缺失时先执行 <code>CONFigure:CALibration:LINK:ADD</code>。</td></tr>
-<tr><td>失败保护</td><td>失败不覆盖旧 staging delay，只记录失败原因和原始计数。</td><td>读取 <code>READ:CALibration:RESult?</code> 后决定是否重测。</td></tr>
-<tr><td>同步影响</td><td>校准写入 staging；只有 <code>CALibration:ACTivate</code> 后才影响 SYNC。</td><td>激活后重新执行 <code>SYNC:CHECk</code>。</td></tr>
-</tbody>
-</table>
-<h4>典型校准流程</h4>
-<pre data-lang="scpi"><code>CONFigure:CALibration:LINK:ADD SMA,A0,OUT1,A1,IN1,BIDIR,1,1
-CALibration:STARt SMA,A0,OUT1,A1,IN1
-READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1</code></pre>
+<h4>示例</h4>
+<pre data-lang="scpi"><code>CONFigure:CAL SMA,A0,OUT1,A1,IN1,12.5
+READ:CAL:PARameter? SMA,A0
+CONFigure:CAL NODE,A0,A1,8.0
+CALibration:STARt SMA,A0
+READ:CAL:STATe? SMA,A0
+READ:CAL:PARameter? NODE,A0,A1</code></pre>
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">7 / 13</span></span>
+    <span>内部文件 | <span class="page-num">7 / 9</span></span>
   </div>
 </div>
 
@@ -623,8 +616,8 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1</code></pre>
 <div class="page">
   <div class="page-header">
     <div>
-      <h1>校准参数与流程</h1>
-      <div class="subtitle">校准对象、端口字段和 delay 表读写</div>
+      <h1>同步指令</h1>
+      <div class="subtitle">SYNC 业务域</div>
     </div>
     <svg class="brand" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg>
     <div class="doc-meta">
@@ -634,291 +627,49 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1</code></pre>
     </div>
   </div>
   <div class="main">
-<div class="section-title">校准对象</div>
-<table class="compact">
-<thead><tr><th>对象</th><th>端口格式</th><th>说明</th></tr></thead>
-<tbody>
-<tr><td><code>SMA</code></td><td><code>SMA,A0,OUT1,A1,IN1,delay_ns</code></td><td>A0..A4 节点之间 SMA 输入/输出触发链路 delay。</td></tr>
-<tr><td><code>NODE</code></td><td><code>NODE,A0,RJ45,A1,RJ45,delay_ns</code></td><td>RJ45 触发回传链路 delay；用于同步环 <code>A0-&gt;A1-&gt;A2-&gt;A3-&gt;A0</code>。</td></tr>
-<tr><td><code>DEVICE</code></td><td><code>DEVICE,A1,SP8T,READY,delay_ns</code></td><td>节点内部动作 delay，例如 SP8T、SP2T、VNA TRIG/READY、设备完成 T2。</td></tr>
-</tbody>
-</table>
-<div class="section-title">delay 参数表</div>
+<div class="section-title">同步域</div>
 <table class="compact">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>CONFigure:CALibration:PARameter:ADD</code></td><td><code>&lt;type&gt;,&lt;src_node&gt;,&lt;src_port&gt;,&lt;dst_node&gt;,&lt;dst_port&gt;,&lt;delay_ns&gt;,&lt;jitter_ns&gt;,&lt;count&gt;</code></td><td><code>1</code></td><td>新增 staging delay 数据；目标已存在时返回 duplicate。</td></tr>
-<tr><td><code>CONFigure:CALibration:PARameter:SET</code></td><td><code>&lt;type&gt;,&lt;src_node&gt;,&lt;src_port&gt;,&lt;dst_node&gt;,&lt;dst_port&gt;,&lt;delay_ns&gt;,&lt;jitter_ns&gt;,&lt;count&gt;</code></td><td><code>1</code></td><td>手动写入或覆盖 staging delay 数据。</td></tr>
-<tr><td><code>CONFigure:CALibration:PARameter:DELete</code></td><td><code>&lt;type&gt;,&lt;src_node&gt;,&lt;src_port&gt;,&lt;dst_node&gt;,&lt;dst_port&gt;</code></td><td><code>1</code></td><td>删除指定链路 delay；保留链路定义。</td></tr>
-<tr><td><code>READ:CALibration:PARameter?</code></td><td><code>[type,src_node,src_port,dst_node,dst_port]</code></td><td>delay table</td><td>输出端口表；表中 delay 为 ns，包含 jitter、样本数、CRC 和时间戳。</td></tr>
+<tr><td><code>CONFigure:SYNC</code></td><td><code>&lt;mode&gt;,&lt;target&gt;,&lt;param&gt;...</code></td><td><code>1</code></td><td>配置同步模式、锁定策略或环路参数；<code>mode</code> 与 <code>target</code> 共同决定参数解释</td></tr>
+<tr><td><code>READ:SYNC?</code></td><td><code>[field]</code></td><td>sync block</td><td>查询同步锁定状态、偏差、holdover 或重锁信息</td></tr>
 </tbody>
 </table>
-<div class="section-title">字段说明</div>
+<h4>同步模式</h4>
 <table class="compact">
-<thead><tr><th>字段</th><th>取值</th><th>说明</th></tr></thead>
+<thead><tr><th>模式</th><th>参数</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>type</code></td><td><code>SMA</code> / <code>NODE</code> / <code>DEVICE</code></td><td>校准对象类型。</td></tr>
-<tr><td><code>direction</code></td><td><code>FWD</code> / <code>REV</code> / <code>BIDIR</code> / <code>RING</code></td><td>链路方向；SYNC 使用的 NODE 链路必须与环路方向一致。</td></tr>
-<tr><td><code>required</code></td><td><code>0</code> / <code>1</code></td><td>标记该链路是否为运行门禁必需项。</td></tr>
-<tr><td><code>delay_ns</code></td><td>浮点 ns</td><td>链路固定传播/动作 delay；SYNC 和触发预约计算使用该值。</td></tr>
+<tr><td><code>LOCK</code></td><td><code>AUTO</code> / <code>MANUAL</code> / <code>HOLDOVER</code></td><td>设置锁定策略</td></tr>
+<tr><td><code>HOLDOVER</code></td><td><code>ENABLE</code> / <code>DISABLE</code></td><td>进入或退出保持状态</td></tr>
+<tr><td><code>RELOCK</code></td><td><code>timeout_ms</code></td><td>设置重锁等待时间</td></tr>
+<tr><td><code>PHASE</code></td><td><code>offset_ns</code> / <code>offset_deg</code></td><td>设置相位偏移补偿</td></tr>
+<tr><td><code>RATE</code></td><td><code>ppm</code></td><td>设置时钟速率修正</td></tr>
 </tbody>
 </table>
-<div class="section-title">返回字段</div>
+<h4>同步字段</h4>
 <table class="compact">
-<thead><tr><th>block</th><th>字段</th><th>说明</th></tr></thead>
+<thead><tr><th>字段</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>link table</code></td><td><code>type,src_node,src_port,dst_node,dst_port,direction,enable,required,has_delay</code></td><td>链路定义表，用于软件维护拓扑和校准入口。</td></tr>
-<tr><td><code>delay table</code></td><td><code>type,src_node,src_port,dst_node,dst_port,delay_ns,jitter_ns,count,crc,timestamp,valid</code></td><td>校准 delay 数据表，供 SYNC 和触发门禁引用。</td></tr>
-<tr><td><code>result block</code></td><td><code>state,type,src,dst,delay_ns,jitter_ns,count,error_code,reject_reason</code></td><td>最近一次测量结果；失败时 <code>delay_ns</code> 无效。</td></tr>
+<tr><td><code>LOCK</code></td><td>虚拟 DC 是否锁定</td></tr>
+<tr><td><code>OFFSET</code></td><td>本节点相对 A0 虚拟 DC 的相位偏移</td></tr>
+<tr><td><code>RATE</code></td><td>本节点本地时钟到虚拟 DC 的速率修正</td></tr>
+<tr><td><code>HOLDOVER</code></td><td>断线或短时失锁后的保持状态</td></tr>
+<tr><td><code>RELOCK</code></td><td>重锁计数、最近重锁时间和原因</td></tr>
 </tbody>
 </table>
+<h4>示例</h4>
+<pre data-lang="scpi"><code>CONFigure:SYNC LOCK,AUTO
+READ:SYNC?
+CONFigure:SYNC HOLDOVER,ENABLE
+READ:SYNC? HOLDOVER</code></pre>
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">8 / 13</span></span>
+    <span>内部文件 | <span class="page-num">8 / 9</span></span>
   </div>
 </div>
 
 <!-- P9 -->
-<div class="page">
-  <div class="page-header">
-    <div>
-      <h1>校准版本与质量</h1>
-      <div class="subtitle">staging / active、追溯信息和质量门限</div>
-    </div>
-    <svg class="brand" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg>
-    <div class="doc-meta">
-      <strong>2026-08-11</strong>
-      SCPI Reference<br>
-      DTC100 Distributed Trigger
-    </div>
-  </div>
-  <div class="main">
-<div class="section-title">保存、激活和回滚</div>
-<table class="compact">
-<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
-<tbody>
-<tr><td><code>CALibration:SAVE</code></td><td><code>&lt;cal_id&gt;[,scope]</code></td><td><code>1</code></td><td>保存 staging 校准表并生成 CRC；scope=ALL/SMA/NODE/DEVICE。</td></tr>
-<tr><td><code>CALibration:LOAD</code></td><td><code>&lt;cal_id&gt;</code></td><td><code>1</code></td><td>把指定校准表载入 staging，不立即影响 active 表。</td></tr>
-<tr><td><code>CALibration:ACTivate</code></td><td><code>&lt;cal_id&gt;</code></td><td><code>1</code></td><td>激活指定校准表；只允许在 IDLE 或 STOPPED 状态执行。</td></tr>
-<tr><td><code>CALibration:ROLLback</code></td><td></td><td><code>1</code></td><td>恢复到上一次 active 校准表。</td></tr>
-<tr><td><code>READ:CALibration:LIST?</code></td><td></td><td>cal list</td><td>读取已保存校准表的 <code>cal_id,crc,timestamp,scope,valid</code>。</td></tr>
-<tr><td><code>READ:CALibration:ACTive?</code></td><td></td><td>active block</td><td>读取 active / staging 校准表标识、CRC、保存状态和修改标志。</td></tr>
-</tbody>
-</table>
-<div class="section-title">追溯与质量</div>
-<table class="compact">
-<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
-<tbody>
-<tr><td><code>CONFigure:CALibration:META</code></td><td><code>&lt;cal_id&gt;,&lt;operator&gt;,&lt;fixture_id&gt;,&lt;cable_id&gt;,&lt;temperature_c&gt;,&lt;note&gt;</code></td><td><code>1</code></td><td>写入 staging 校准表追溯信息。</td></tr>
-<tr><td><code>READ:CALibration:META?</code></td><td><code>[cal_id]</code></td><td>meta block</td><td>读取校准表追溯信息。</td></tr>
-<tr><td><code>CONFigure:CALibration:LIMit</code></td><td><code>&lt;type&gt;,&lt;max_delay_ns&gt;,&lt;max_jitter_ns&gt;,&lt;min_count&gt;,&lt;max_age_s&gt;</code></td><td><code>1</code></td><td>配置校准质量门限。</td></tr>
-<tr><td><code>READ:CALibration:HEALth?</code></td><td><code>[type]</code></td><td>health table</td><td>读取缺失、过期、jitter 超限和可用于 SYNC 的 NODE 链路数量。</td></tr>
-</tbody>
-</table>
-<div class="section-title">生命周期与质量字段</div>
-<table class="compact">
-<thead><tr><th>项目</th><th>字段/状态</th><th>说明</th></tr></thead>
-<tbody>
-<tr><td>配置状态</td><td><code>staging,active,dirty,saved</code></td><td>所有 CONFigure 写入 staging；SAVE 后持久化；ACTivate 后成为 SYNC 可用 active。</td></tr>
-<tr><td>质量状态</td><td><code>OK,MISSING,EXPIRED,JITTER_HIGH,COUNT_LOW</code></td><td>health table 对每条 required 链路给出门禁结论。</td></tr>
-<tr><td>版本字段</td><td><code>cal_id,crc,timestamp,scope,operator,fixture_id,cable_id,temperature_c</code></td><td>用于报告追溯和现场复现。</td></tr>
-<tr><td>SYNC 依赖</td><td><code>valid_node_link_count,missing_node_link</code></td><td>同步环只接受 active 且方向匹配的 NODE delay。</td></tr>
-</tbody>
-</table>
-<h4>保存示例</h4>
-<pre data-lang="scpi"><code>CONFigure:CALibration:META FIELD_20260811,OP01,FIX_A,CABLE_SET_A,28.5,FIELD_CHECK
-CALibration:SAVE FIELD_20260811
-CALibration:ACTivate FIELD_20260811
-READ:CALibration:HEALth? NODE</code></pre>
-  </div>
-  <div class="page-footer">
-    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">9 / 13</span></span>
-  </div>
-</div>
-
-<!-- P10 -->
-<div class="page">
-  <div class="page-header">
-    <div>
-      <h1>同步指令</h1>
-      <div class="subtitle">SYNC 动作指令与运行读取入口</div>
-    </div>
-    <svg class="brand" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg>
-    <div class="doc-meta">
-      <strong>2026-08-11</strong>
-      SCPI Reference<br>
-      DTC100 Distributed Trigger
-    </div>
-  </div>
-  <div class="main">
-<div class="section-title">同步边界</div>
-<div class="note-box">同步基于 active 校准表，不重新测 delay。<code>SYNC:STARt</code> 只使用 active 同步配置，并要求最近一次 <code>SYNC:CHECk</code> 通过。</div>
-<div class="section-title">动作指令</div>
-<table class="compact">
-<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
-<tbody>
-<tr><td><code>SYNC:CHECk</code></td><td><code>[ACTive|STAGing]</code></td><td>check block</td><td>校验校准表、NODE 链路、CRC、时效、方向和拓扑；省略为 ACTive。</td></tr>
-<tr><td><code>SYNC:STARt</code></td><td></td><td><code>1</code></td><td>启动同步环、虚拟 DC 维护和运行门禁服务。</td></tr>
-<tr><td><code>SYNC:STOP</code></td><td></td><td><code>1</code></td><td>停止同步服务，退出锁定态。</td></tr>
-<tr><td><code>SYNC:RELock</code></td><td></td><td><code>1</code></td><td>清除当前 offset/rate 估计并重新锁定；不清除校准表和同步配置。</td></tr>
-<tr><td><code>SYNC:HOLDover</code></td><td><code>0|1</code></td><td><code>1</code></td><td>进入或退出保持态；保持态只允许已装载队列完成。</td></tr>
-</tbody>
-</table>
-<div class="section-title">读取指令</div>
-<table class="compact">
-<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
-<tbody>
-<tr><td><code>READ:SYNC:STATe?</code></td><td></td><td>state block</td><td>读取同步状态、锁定态、origin、seq、holdover 和 fault。</td></tr>
-<tr><td><code>READ:SYNC:PARameter?</code></td><td></td><td>param block</td><td>读取绑定校准表、环路、DPLL 和门禁参数。</td></tr>
-<tr><td><code>READ:SYNC:HEALth?</code></td><td></td><td>health block</td><td>读取 CRC、seq、drop、relock、e_vdc、late 和链路时效统计。</td></tr>
-<tr><td><code>READ:SYNC:NODE?</code></td><td><code>[node]</code></td><td>node block</td><td>读取单节点 offset、rate、last_seq、age 和链路健康度。</td></tr>
-<tr><td><code>READ:SYNC:LINK?</code></td><td><code>[src_node,dst_node]</code></td><td>link table</td><td>读取 NODE delay、hop 方向、required/enabled 状态和校验结果。</td></tr>
-</tbody>
-</table>
-<div class="section-title">同步状态机</div>
-<table class="compact">
-<thead><tr><th>状态</th><th>含义</th><th>允许动作</th></tr></thead>
-<tbody>
-<tr><td><code>IDLE</code></td><td>未启动同步或已停止。</td><td>允许配置、加载、检查和启动。</td></tr>
-<tr><td><code>CHECKED</code></td><td>active 配置和拓扑检查通过。</td><td>允许 <code>SYNC:STARt</code>。</td></tr>
-<tr><td><code>LOCKING</code></td><td>正在估计 offset/rate。</td><td>允许读取状态、健康度和维护 DPLL 调试。</td></tr>
-<tr><td><code>LOCKED</code></td><td>虚拟 DC 已锁定，满足运行门禁。</td><td>允许 TRIG RUN。</td></tr>
-<tr><td><code>HOLDOVER</code></td><td>短时失去同步帧，按保持策略运行。</td><td>不允许新增预约，只允许已装载队列完成。</td></tr>
-<tr><td><code>FAULT</code></td><td>CRC、seq、拓扑或门禁故障锁存。</td><td>读取证据后停止并清故障。</td></tr>
-</tbody>
-</table>
-  </div>
-  <div class="page-footer">
-    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">10 / 13</span></span>
-  </div>
-</div>
-
-<!-- P11 -->
-<div class="page">
-  <div class="page-header">
-    <div>
-      <h1>同步参数与流程</h1>
-      <div class="subtitle">配置字段、启动流程和状态字段</div>
-    </div>
-    <svg class="brand" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg>
-    <div class="doc-meta">
-      <strong>2026-08-11</strong>
-      SCPI Reference<br>
-      DTC100 Distributed Trigger
-    </div>
-  </div>
-  <div class="main">
-<div class="section-title">同步配置参数</div>
-<table class="compact">
-<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
-<tbody>
-<tr><td><code>CONFigure:SYNC:CALibration</code></td><td><code>&lt;cal_id&gt;,&lt;cal_crc&gt;,&lt;max_age_s&gt;</code></td><td><code>1</code></td><td>绑定同步使用的校准表到 staging 配置。</td></tr>
-<tr><td><code>CONFigure:SYNC:RING</code></td><td><code>&lt;origin&gt;,&lt;node_order&gt;,&lt;period_us&gt;,&lt;bitrate&gt;,&lt;timeout_ms&gt;,&lt;crc_limit&gt;</code></td><td><code>1</code></td><td>配置 RJ45_SYNC_RING；<code>node_order</code> 每一跳必须匹配同方向 NODE 校准链路。</td></tr>
-<tr><td><code>CONFigure:SYNC:DPLL</code></td><td><code>&lt;lock_window_ns&gt;,&lt;lock_count&gt;,&lt;holdover_ms&gt;,&lt;relock_ms&gt;,&lt;profile&gt;</code></td><td><code>1</code></td><td>配置虚拟 DC offset/rate 环路的锁定、保持和重锁判据。</td></tr>
-<tr><td><code>CONFigure:SYNC:GATE</code></td><td><code>&lt;required_lock&gt;,&lt;max_age_ms&gt;,&lt;max_evdc_p99_ns&gt;,&lt;allow_holdover&gt;</code></td><td><code>1</code></td><td>配置触发运行门禁。</td></tr>
-</tbody>
-</table>
-<div class="section-title">同步字段</div>
-<table class="compact">
-<thead><tr><th>字段组</th><th>字段</th><th>说明</th></tr></thead>
-<tbody>
-<tr><td><code>param</code></td><td><code>cal_id,cal_crc,max_age_s,origin,node_order,period_us,bitrate,lock_window_ns,holdover_ms,dpll_profile</code></td><td>同步使用的校准表、环路配置、DPLL profile 和锁定判据。</td></tr>
-<tr><td><code>health</code></td><td><code>crc_count,seq_error,drop_count,relock_count,evdc_p99_ns,evdc_p999_ns,late_count</code></td><td>同步环健康度、虚拟 DC 残差和运行门禁依据。</td></tr>
-<tr><td><code>node</code></td><td><code>node,offset_tick,rate_q32,last_seq,age_ms,link_delay_ns</code></td><td>单节点虚拟 DC 估计结果和校准链路 delay 使用值。</td></tr>
-<tr><td><code>check</code></td><td><code>check_state,cal_id,cal_crc,node_order,missing_link,expired_link,direction_mismatch,reject_reason</code></td><td>启动前定位缺失链路、过期校准表、方向错误和门禁拒绝原因。</td></tr>
-</tbody>
-</table>
-<div class="section-title">流程门禁</div>
-<table class="compact">
-<thead><tr><th>步骤</th><th>门禁条件</th><th>失败读取</th></tr></thead>
-<tbody>
-<tr><td>配置检查</td><td>cal_id 存在、CRC 匹配、未过期、NODE 链路方向匹配。</td><td><code>READ:SYNC:LINK?</code></td></tr>
-<tr><td>启动同步</td><td>最近一次 active <code>SYNC:CHECk</code> 通过。</td><td><code>READ:SYNC:CHECk?</code></td></tr>
-<tr><td>进入 LOCKED</td><td>连续 <code>lock_count</code> 次 e_vdc 落入 <code>lock_window_ns</code>。</td><td><code>READ:SYNC:HEALth?</code></td></tr>
-<tr><td>触发运行</td><td>required_lock=1 时必须 LOCKED，且 e_vdc、age、CRC 低于门限。</td><td><code>READ:SYNC:STATe?</code></td></tr>
-</tbody>
-</table>
-<h4>启动流程</h4>
-<pre data-lang="scpi"><code>CONFigure:SYNC:CALibration FIELD_20260811,3A91C027,86400
-CONFigure:SYNC:RING A0,A0&gt;A1&gt;A2&gt;A3&gt;A0,1000,12500000,20,0
-CONFigure:SYNC:DPLL 300,100,200,1000,LOW_JITTER
-CONFigure:SYNC:GATE 1,50,100,0
-SYNC:CHECk STAGing
-SYNC:SAVE FIELD_SYNC_20260811
-SYNC:ACTivate FIELD_SYNC_20260811
-SYNC:CHECk
-SYNC:STARt
-READ:SYNC:STATe?</code></pre>
-  </div>
-  <div class="page-footer">
-    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">11 / 13</span></span>
-  </div>
-</div>
-
-<!-- P12 -->
-<div class="page">
-  <div class="page-header">
-    <div>
-      <h1>同步版本与质量</h1>
-      <div class="subtitle">配置包、质量判据和 DPLL 调试边界</div>
-    </div>
-    <svg class="brand" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg>
-    <div class="doc-meta">
-      <strong>2026-08-11</strong>
-      SCPI Reference<br>
-      DTC100 Distributed Trigger
-    </div>
-  </div>
-  <div class="main">
-<div class="section-title">版本管理</div>
-<table class="compact">
-<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
-<tbody>
-<tr><td><code>SYNC:SAVE</code></td><td><code>&lt;sync_id&gt;[,scope]</code></td><td><code>1</code></td><td>保存 staging 同步配置并生成 CRC；scope=ALL/CAL/RING/DPLL/GATE/LIMIT。</td></tr>
-<tr><td><code>SYNC:LOAD</code></td><td><code>&lt;sync_id&gt;</code></td><td><code>1</code></td><td>载入同步配置包到 staging，不立即影响 active。</td></tr>
-<tr><td><code>SYNC:ACTivate</code></td><td><code>&lt;sync_id&gt;</code></td><td><code>1</code></td><td>激活同步配置包；只允许在 IDLE 或 STOPPED 状态执行。</td></tr>
-<tr><td><code>SYNC:ROLLback</code></td><td></td><td><code>1</code></td><td>恢复到上一次 active 同步配置包。</td></tr>
-<tr><td><code>READ:SYNC:LIST?</code></td><td></td><td>sync list</td><td>读取已保存配置包的 id、CRC、时间戳、scope 和 valid 标志。</td></tr>
-<tr><td><code>READ:SYNC:ACTive?</code></td><td></td><td>active block</td><td>读取 active/staging 配置、绑定校准表、CRC、修改标志和最近检查状态。</td></tr>
-</tbody>
-</table>
-<div class="section-title">质量判据和 DPLL</div>
-<table class="compact">
-<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
-<tbody>
-<tr><td><code>CONFigure:SYNC:LIMit</code></td><td><code>&lt;max_crc&gt;,&lt;max_seq&gt;,&lt;max_drop&gt;,&lt;max_relock&gt;,&lt;max_evdc_p99_ns&gt;,&lt;max_evdc_p999_ns&gt;,&lt;min_lock_count&gt;</code></td><td><code>1</code></td><td>配置同步质量门限。</td></tr>
-<tr><td><code>READ:SYNC:QUALity?</code></td><td><code>[sync_id]</code></td><td>quality block</td><td>读取质量结论、e_vdc 分布、错误计数、重锁计数、链路年龄和门禁拒绝原因。</td></tr>
-<tr><td><code>READ:SYNC:VERSion?</code></td><td></td><td>version block</td><td>读取同步配置版本、绑定校准版本、固件版本、硬件 profile 和最近激活时间。</td></tr>
-<tr><td><code>SYSTem:SYNC:DPLL:TUNE</code></td><td><code>&lt;bandwidth_hz&gt;,&lt;damping&gt;,&lt;max_slew_ppm&gt;</code></td><td><code>1</code></td><td>按等效传递函数参数覆盖虚拟环路滤波器，仅用于调试。</td></tr>
-<tr><td><code>SYSTem:SYNC:DPLL:COEFficient</code></td><td><code>&lt;kp_q31&gt;,&lt;ki_q31&gt;,&lt;max_slew_ppm&gt;</code></td><td><code>1</code></td><td>直接覆盖离散 PI 环路系数。</td></tr>
-<tr><td><code>SYSTem:SYNC:DPLL:OVERRide?</code></td><td></td><td>override block</td><td>读取调试覆盖是否生效、来源、允许状态、最近写入时间和清除原因。</td></tr>
-<tr><td><code>SYSTem:SYNC:DPLL:COEFficient?</code></td><td></td><td>coef block</td><td>读取当前环路滤波器系数、来源、限幅和生效状态。</td></tr>
-<tr><td><code>SYSTem:SYNC:DPLL:DEFAult</code></td><td></td><td><code>1</code></td><td>清除调试覆盖，恢复内置 profile。</td></tr>
-</tbody>
-</table>
-<div class="section-title">质量字段</div>
-<table class="compact">
-<thead><tr><th>字段</th><th>来源</th><th>说明</th></tr></thead>
-<tbody>
-<tr><td><code>e_vdc_p99_ns</code></td><td>虚拟 DC 环路</td><td>同步残差 P99，用于判断多节点同步是否稳定。</td></tr>
-<tr><td><code>crc_count / seq_error</code></td><td>RJ45_SYNC_RING</td><td>同步帧通信质量；超过门限进入 FAULT 或拒绝 TRIG RUN。</td></tr>
-<tr><td><code>relock_count</code></td><td>DPLL 状态机</td><td>重锁次数过多说明链路噪声、丢帧或环路参数不合适。</td></tr>
-<tr><td><code>gate_state</code></td><td>运行门禁</td><td>READY/BLOCKED；BLOCKED 时给出 reject_reason。</td></tr>
-</tbody>
-</table>
-<div class="note-box">DPLL 调试覆盖只允许在 IDLE、STOPPED 或 LOCKING 使用；正式 TRIG RUN 禁止修改。同步 DPLL 表示虚拟 DC offset/rate 环路，不等同于扫描角度预测 DPLL。</div>
-  </div>
-  <div class="page-footer">
-    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">12 / 13</span></span>
-  </div>
-</div>
-
-<!-- P13 -->
 <div class="page">
   <div class="page-header">
     <div>
@@ -954,7 +705,7 @@ READ:SYNC:STATe?</code></pre>
 <tr><td>运行 late 或 timeout</td><td>停止后读取 <code>READ:TRIGger:STATe?</code>、<code>SYSTem:FAULT:LAST?</code> 和 trace/snapshot</td></tr>
 <tr><td>故障锁存未清除</td><td>执行 <code>SYSTem:FAULT:CLEAr</code>，重新做门禁校验后再启动</td></tr>
 <tr><td>报告导出</td><td>按页读取 <code>SYSTem:LOG:PAGE?</code>、<code>SYSTem:TRACe:DATA?</code>、<code>SYSTem:SNAPshot:DATA?</code> 和 <code>SYSTem:T2:DATA?</code></td></tr>
-<tr><td>同步失锁</td><td>读取 <code>READ:SYNC:STATe?</code>、<code>READ:SYNC:HEALth?</code> 和 <code>READ:SYNC:LINK?</code>，确认 holdover、relock 和同步环健康度</td></tr>
+<tr><td>同步失锁</td><td>读取 <code>READ:SYNC?</code>，确认 holdover、relock 和同步环健康度</td></tr>
 </tbody>
 </table>
 <div class="section-title">指令域总览</div>
@@ -966,22 +717,21 @@ READ:SYNC:STATe?</code></pre>
 <tr><td><code>CONFigure</code></td><td>业务配置</td><td><code>CONFigure:TRIGger</code>、<code>CONFigure:SEQuence</code>、<code>CONFigure:SWITch#</code></td></tr>
 <tr><td><code>READ</code></td><td>业务读取</td><td><code>READ:TRIGger:PARameter?</code>、<code>READ:TRIGger:STATe?</code>、<code>READ:SWITch#?</code></td></tr>
 <tr><td><code>TRIGger</code></td><td>触发运行控制</td><td><code>TRIGger:MODE</code>、<code>TRIGger:START</code>、<code>TRIGger:STOP</code></td></tr>
-<tr><td><code>CALibration</code></td><td>校准域</td><td><code>CALibration:STARt</code>、<code>READ:CALibration:PARameter?</code></td></tr>
-<tr><td><code>SYNC</code></td><td>同步业务域</td><td><code>SYNC:STARt</code>、<code>READ:SYNC:STATe?</code></td></tr>
+<tr><td><code>CALibration</code></td><td>校准域</td><td><code>CONFigure:CAL</code>、<code>READ:CAL?</code></td></tr>
+<tr><td><code>SYNC</code></td><td>同步业务域</td><td><code>CONFigure:SYNC</code>、<code>READ:SYNC?</code></td></tr>
 </tbody>
 </table>
 <div class="section-title">修订记录</div>
 <table class="compact">
 <thead><tr><th>版本</th><th>日期</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>0.4</code></td><td>2026-08-11</td><td>基于最初版格式扩展校准三页和同步三页，补齐参数与流程、版本与质量管理。</td></tr>
 <tr><td><code>0.3</code></td><td>2026-08-11</td><td>拆分 CAL / SYNC 两页，并补齐序列映射、故障清除、日志分页导出</td></tr>
 </tbody>
 </table>
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
-    <span>内部文件 | <span class="page-num">13 / 13</span></span>
+    <span>内部文件 | <span class="page-num">9 / 9</span></span>
   </div>
 </div>
 
