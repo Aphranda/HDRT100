@@ -242,193 +242,240 @@ seq,node,channel,t2_tick,status,error_code,temperature
 
 反射内存用于维护多节点共同事实和摘要，不承载精确触发边沿，也不传大文件、波形、OTA payload 或 SD 内容。
 
-## 6. 校准功能
+## 6. 校准指令
 
-### 6.1 校准模型
+### 6.1 校准边界
 
-校准只计算线缆或链路固定 delay，是快速短事务。
+校准是快速短事务，只计算线缆或触发链路固定 delay。`CALibration:STARt` 必须明确输入端和输出端，响应前完成测量；失败不覆盖旧 staging 数据。
 
-```text
-配置链路
--> 快速测 delay
--> 写入 staging
--> 读取结果
--> 保存版本
--> 激活版本
--> SYNC 使用 active 表
-```
-
-`CALibration:STARt` 响应前完成计算，不设计长时间运行和取消流程。一次只允许一个 `CAL BUSY` 事务。失败时保留旧 staging 数据，并记录失败原因。
-
-### 6.2 校准链路表
+### 6.2 链路表维护
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
-| `CONFigure:CAL:LINK:ADD` | `<link_type>,<src_node>,<src_port>,<dst_node>,<dst_port>,<direction>,<enabled>,<required>` | `1` | 新增可校准链路；链路 key 已存在时返回 duplicate |
-| `CONFigure:CAL:LINK:SET` | `<link_type>,<src_node>,<src_port>,<dst_node>,<dst_port>,<direction>,<enabled>,<required>` | `1` | 修改链路属性；不修改已保存 delay 数据 |
-| `CONFigure:CAL:LINK:DELete` | `<link_type>,<src_node>,<src_port>,<dst_node>,<dst_port>[,DEL]` | `1` | 删除链路；带 `DEL` 时同时删除该链路校准数据 |
-| `READ:CAL:LINK?` | `[link_type,src_node,src_port,dst_node,dst_port]` | `link table` | 查询链路清单 |
+| `CONFigure:CALibration:LINK:ADD` | `<type>,<src_node>,<src_port>,<dst_node>,<dst_port>,<direction>,<enable>,<required>` | `1` | 新增可校准链路；链路 key 已存在时返回 duplicate |
+| `CONFigure:CALibration:LINK:SET` | 同 ADD | `1` | 修改链路属性；不修改已经保存的 delay 数据 |
+| `CONFigure:CALibration:LINK:DELete` | `<type>,<src_node>,<src_port>,<dst_node>,<dst_port>[,DEL]` | `1` | 删除链路；带 `DEL` 时同时删除该链路校准数据 |
+| `READ:CALibration:LINK?` | `[type,src_node,src_port,dst_node,dst_port]` | `link table` | 读取链路清单、方向、使能、必需标志和当前 delay 是否有效 |
 
-### 6.3 校准 delay 数据
-
-| 指令 | 参数 | 响应 | 说明 |
-|---|---|---|---|
-| `CONFigure:CAL:PARameter:ADD` | `<link_type>,<src_node>,<src_port>,<dst_node>,<dst_port>,<delay_ns>,<jitter_ns>,<sample_count>,<valid_window_ns>` | `1` | 新增校准 delay 数据 |
-| `CONFigure:CAL:PARameter:SET` | `<link_type>,<src_node>,<src_port>,<dst_node>,<dst_port>,<delay_ns>,<jitter_ns>,<sample_count>,<valid_window_ns>` | `1` | 修改或覆盖校准 delay 数据；写入 staging 表 |
-| `CONFigure:CAL:PARameter:DELete` | `<link_type>,<src_node>,<src_port>,<dst_node>,<dst_port>` | `1` | 删除指定链路校准数据；保留链路定义 |
-| `READ:CAL:PARameter?` | `[link_type,src_node,src_port,dst_node,dst_port]` | `delay table` | 读取校准 delay 表 |
-| `CALibration:STARt` | `<link_type>,<src_node>,<src_port>,<dst_node>,<dst_port>` | `result block` | 快速测量指定线缆或链路 delay；成功后写入 staging 表 |
-| `READ:CAL:STATe?` | `[link_type,src_node,src_port,dst_node,dst_port]` | `state block` | 读取指定链路或最近一次校准状态 |
-| `READ:CAL:RESult?` | `[link_type,src_node,src_port,dst_node,dst_port]` | `result block` | 读取最近一次校准结果 |
-
-`READ:CAL:RESult?` 字段：
-
-```text
-state,delay_ns,jitter_ns,sample_count,valid_window_ns,result
-```
-
-### 6.4 校准追溯信息
+### 6.3 校准动作
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
-| `CONFigure:CAL:META` | `<cal_id>,<operator>,<fixture_id>,<cable_id>,<temperature_c>,<note>` | `1` | 写入 staging 校准表追溯信息 |
-| `READ:CAL:META?` | `[cal_id]` | `meta block` | 读取校准表追溯信息 |
+| `CALibration:STARt` | `<type>,<src_node>,<src_port>,<dst_node>,<dst_port>` | `result block` | 快速测量指定输入/输出段，例如 `CALibration:STARt SMA,A0,OUT1,A1,IN1` |
+| `READ:CALibration:STATe?` | `[type,src_node,src_port,dst_node,dst_port]` | `state block` | 读取最近一次或指定链路校准状态；快速事务通常返回 DONE/FAIL |
+| `READ:CALibration:RESult?` | `[type,src_node,src_port,dst_node,dst_port]` | `result block` | 读取最近一次校准结果、delay、jitter、样本数和失败原因 |
 
-追溯字段至少包含：
+### 6.4 执行约束
 
-```text
-source,
-cal_id,
-timestamp,
-crc,
-operator,
-fixture_id,
-cable_id,
-temperature_c,
-firmware_version,
-hardware_profile
-```
-
-### 6.5 校准对象
-
-| 对象 | 参数/单位 | 说明 |
+| 约束 | 规则 | 上位机处理 |
 |---|---|---|
-| `SMA` | `SMA,A0,OUT1,A1,IN1,delay_ns` | A0..A4 节点间 SMA 输入/输出触发链路 delay |
-| `NODE` | `NODE,A0,RJ45,A1,RJ45,delay_ns` | RJ45_SYNC_RING 上节点间触发回传链路 delay |
-| `DEVICE` | `DEVICE,A1,SP8T,delay_ns` | SP8T、SP2T、VNA READY、设备完成 T2 等动作延迟 |
-| `TEMP` | `TEMP,A2,ppm,temp_c` | 节点温漂和慢变补偿参数 |
+| 运行状态 | 只允许在 `IDLE`、`STOPPED` 或 `CAL` 模式执行 | 运行中拒绝时先 `TRIGger:STOP`，再重新校准 |
+| 链路存在 | `CALibration:STARt` 的端口对必须已在 LINK 表中登记 | 缺失时先执行 `CONFigure:CALibration:LINK:ADD` |
+| 失败保护 | 失败不覆盖旧 staging delay，只记录失败原因和原始计数 | 读取 `READ:CALibration:RESult?` 后决定是否重测 |
+| 同步影响 | 校准写入 staging；只有 `CALibration:ACTivate` 后才影响 SYNC | 激活后重新执行 `SYNC:CHECk` |
 
-### 6.6 校准版本与质量
+### 6.5 拒绝原因
+
+| `reject_reason` | 含义 | 处理 |
+|---|---|---|
+| `RUNNING` | 系统处于 TRIG RUN 或正在输出预约边沿 | 停止触发后重试 |
+| `LINK_NOT_FOUND` | 指定端口对未登记到 LINK 表 | 先新增或修正 LINK |
+| `PORT_INVALID` | 节点、端口名或对象类型非法 | 按校准参数页检查端口枚举 |
+| `CAL_BUSY` | 已有校准短事务正在执行 | 稍后重试 |
+| `SIGNAL_TIMEOUT` | 指定输入端未捕获到回传边沿 | 检查线缆、方向和端口映射 |
+| `QUALITY_FAIL` | 抖动、样本数或 delay 超出门限 | 读取结果并决定重测或手动写入 |
+
+```scpi
+CONFigure:CALibration:LINK:ADD SMA,A0,OUT1,A1,IN1,BIDIR,1,1
+CALibration:STARt SMA,A0,OUT1,A1,IN1
+READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1
+```
+
+## 7. 校准参数与流程
+
+### 7.1 校准对象
+
+| 对象 | 端口格式 | 说明 |
+|---|---|---|
+| `SMA` | `SMA,A0,OUT1,A1,IN1,delay_ns` | A0..A4 节点之间 SMA 输入/输出触发链路 delay |
+| `NODE` | `NODE,A0,RJ45,A1,RJ45,delay_ns` | RJ45 触发回传链路 delay；用于同步环 `A0->A1->A2->A3->A0` |
+| `DEVICE` | `DEVICE,A1,SP8T,READY,delay_ns` | 节点内部动作 delay，例如 SP8T、SP2T、VNA TRIG/READY、设备完成 T2 |
+
+### 7.2 标准链路清单
+
+| 类型 | 标准链路 | 说明 |
+|---|---|---|
+| `NODE` | `A0,RJ45 -> A1,RJ45` | RJ45_SYNC_RING 第 1 跳，required=1 |
+| `NODE` | `A1,RJ45 -> A2,RJ45` | RJ45_SYNC_RING 第 2 跳，required=1 |
+| `NODE` | `A2,RJ45 -> A3,RJ45` | RJ45_SYNC_RING 第 3 跳，required=1 |
+| `NODE` | `A3,RJ45 -> A0,RJ45` | RJ45_SYNC_RING 回环，required=1 |
+| `SMA` | `A0,OUT# -> A1/2/3,IN#` | 触发脉冲外部线缆或近端 SMA 链路 |
+| `DEVICE` | `A1,SP8T,READY` / `A2,SP2T,READY` / `A3,VNA,READY` | 节点内部动作或仪表 READY/T2 delay |
+
+### 7.3 delay 参数表
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
-| `CALibration:SAVE` | `<cal_id>[,scope]` | `1` | 保存当前 staging 校准表并生成 CRC；scope=ALL/SMA/NODE/DEVICE/TEMP |
+| `CONFigure:CALibration:PARameter:ADD` | `<type>,<src_node>,<src_port>,<dst_node>,<dst_port>,<delay_ns>,<jitter_ns>,<count>` | `1` | 新增 staging delay 数据；目标已存在时返回 duplicate |
+| `CONFigure:CALibration:PARameter:SET` | `<type>,<src_node>,<src_port>,<dst_node>,<dst_port>,<delay_ns>,<jitter_ns>,<count>` | `1` | 手动写入或覆盖 staging delay 数据 |
+| `CONFigure:CALibration:PARameter:DELete` | `<type>,<src_node>,<src_port>,<dst_node>,<dst_port>` | `1` | 删除指定链路 delay；保留链路定义 |
+| `READ:CALibration:PARameter?` | `[type,src_node,src_port,dst_node,dst_port]` | `delay table` | 输出端口表；表中 delay 为 ns，包含 jitter、样本数、CRC 和时间戳 |
+
+### 7.4 字段说明
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `type` | `SMA` / `NODE` / `DEVICE` | 校准对象类型 |
+| `direction` | `FWD` / `REV` / `BIDIR` / `RING` | 链路方向；SYNC 使用的 NODE 链路必须与环路方向一致 |
+| `required` | `0` / `1` | 标记该链路是否为运行门禁必需项 |
+| `delay_ns` | 浮点 ns | 链路固定传播/动作 delay；SYNC 和触发预约计算使用该值 |
+
+### 7.5 返回字段
+
+| block | 字段 | 说明 |
+|---|---|---|
+| `link table` | `type,src_node,src_port,dst_node,dst_port,direction,enable,required,has_delay` | 链路定义表，用于软件维护拓扑和校准入口 |
+| `delay table` | `type,src_node,src_port,dst_node,dst_port,delay_ns,jitter_ns,count,crc,timestamp,valid` | 校准 delay 数据表，供 SYNC 和触发门禁引用 |
+| `result block` | `state,type,src,dst,delay_ns,jitter_ns,count,error_code,reject_reason` | 最近一次测量结果；失败时 `delay_ns` 无效 |
+
+## 8. 校准版本与质量
+
+### 8.1 保存、激活和回滚
+
+| 指令 | 参数 | 响应 | 说明 |
+|---|---|---|---|
+| `CALibration:SAVE` | `<cal_id>[,scope]` | `1` | 保存 staging 校准表并生成 CRC；scope=ALL/SMA/NODE/DEVICE |
 | `CALibration:LOAD` | `<cal_id>` | `1` | 把指定校准表载入 staging，不立即影响 active 表 |
 | `CALibration:ACTivate` | `<cal_id>` | `1` | 激活指定校准表；只允许在 IDLE 或 STOPPED 状态执行 |
 | `CALibration:ROLLback` |  | `1` | 恢复到上一次 active 校准表 |
-| `READ:CAL:LIST?` |  | `cal list` | 读取已保存校准表的 `cal_id,crc,timestamp,scope,valid` |
-| `READ:CAL:ACTive?` |  | `active block` | 读取 active / staging 校准表标识、CRC、保存状态和修改标志 |
-| `CONFigure:CAL:LIMit` | `<link_type>,<max_delay_ns>,<max_jitter_ns>,<min_sample_count>,<max_age_s>` | `1` | 配置校准质量门限 |
-| `READ:CAL:HEALth?` | `[link_type]` | `health table` | 读取缺失项、过期项、超 jitter 项和可用于 SYNC 的链路数量 |
+| `READ:CALibration:LIST?` |  | `cal list` | 读取已保存校准表的 `cal_id,crc,timestamp,scope,valid` |
+| `READ:CALibration:ACTive?` |  | `active block` | 读取 active / staging 校准表标识、CRC、保存状态和修改标志 |
 
-### 6.7 校准示例
+### 8.2 追溯与质量
+
+| 指令 | 参数 | 响应 | 说明 |
+|---|---|---|---|
+| `CONFigure:CALibration:META` | `<cal_id>,<operator>,<fixture_id>,<cable_id>,<temperature_c>,<note>` | `1` | 写入 staging 校准表追溯信息 |
+| `READ:CALibration:META?` | `[cal_id]` | `meta block` | 读取校准表追溯信息 |
+| `CONFigure:CALibration:LIMit` | `<type>,<max_delay_ns>,<max_jitter_ns>,<min_count>,<max_age_s>` | `1` | 配置校准质量门限 |
+| `READ:CALibration:HEALth?` | `[type]` | `health table` | 读取缺失、过期、jitter 超限和可用于 SYNC 的 NODE 链路数量 |
+
+### 8.3 生命周期与质量字段
+
+| 项目 | 字段/状态 | 说明 |
+|---|---|---|
+| 配置状态 | `staging,active,dirty,saved` | 所有 CONFigure 写入 staging；SAVE 后持久化；ACTivate 后成为 SYNC 可用 active |
+| 质量状态 | `OK,MISSING,EXPIRED,JITTER_HIGH,COUNT_LOW` | health table 对每条 required 链路给出门禁结论 |
+| 版本字段 | `cal_id,crc,timestamp,scope,operator,fixture_id,cable_id,temperature_c` | 用于报告追溯和现场复现 |
+| SYNC 依赖 | `valid_node_link_count,missing_node_link` | 同步环只接受 active 且方向匹配的 NODE delay |
+
+### 8.4 门禁规则
+
+| 场景 | 规则 | 影响 |
+|---|---|---|
+| TRIG RUN | 禁止 LINK/PARameter/META/SAVE/LOAD/ACTivate/ROLLback | 返回状态拒绝，避免运行中改变时间基准 |
+| SAVE | 只持久化 staging，不自动切换 active | 上位机必须显式 `CALibration:ACTivate` |
+| ACTivate | 切换 active 后清除最近一次 SYNC 检查结论 | 上位机必须重新 `SYNC:CHECk` |
+| ROLLback | 恢复上一次 active 校准表 | 同样要求重新同步检查 |
+| health fail | required 链路缺失、过期或超 jitter | 拒绝 `SYNC:STARt` 或拒绝 TRIG RUN |
 
 ```scpi
-CONFigure:CAL:LINK:ADD NODE,A0,RJ45,A1,RJ45,RING,1,1
-CALibration:STARt NODE,A0,RJ45,A1,RJ45
-READ:CAL:RESult? NODE,A0,RJ45,A1,RJ45
-CONFigure:CAL:META FIELD_20260811,OP01,FIX_A,CABLE_A0A1,28.5,FIELD_CHECK
+CONFigure:CALibration:META FIELD_20260811,OP01,FIX_A,CABLE_SET_A,28.5,FIELD_CHECK
 CALibration:SAVE FIELD_20260811
 CALibration:ACTivate FIELD_20260811
+READ:CALibration:HEALth? NODE
 ```
 
-## 7. 同步功能
+## 9. 同步指令
 
-### 7.1 同步模型
+### 9.1 同步边界
 
-同步基于校准。校准会把每个节点之间互联的触发脉冲链路 delay 测算出来，同步使用 active 校准表验证和维护 RJ45_SYNC_RING、虚拟 DC、DPLL 和 DC 时钟状态。
+同步基于 active 校准表，不重新测 delay。`SYNC:STARt` 只使用 active 同步配置，并要求最近一次 `SYNC:CHECk` 通过。
 
-同步域不重新测 delay，也不由业务上位机手工配置 `offset_tick` / `rate_q32` 或 DPLL 系数。
-
-技术边界：
-
-| 项 | 说明 |
-|---|---|
-| A0 | 虚拟 DC origin |
-| RJ45_SYNC_RING | 固定方向 A0 -> A1 -> A2 -> A3 -> A0 |
-| SYNC 帧首沿 | 用于时间戳和 offset/rate 估计 |
-| NODE delay | 来自 active 校准表 |
-| `e_vdc` | 虚拟 DC 同步残差 |
-| `e_pll` | 角度预测 DPLL 残差，不能与 `e_vdc` 混用 |
-
-### 7.2 同步配置
+### 9.2 动作指令
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
-| `CONFigure:SYNC:CAL` | `<cal_id>,<cal_crc>,<max_age_s>` | `1` | 绑定同步使用的校准表到 staging 同步配置 |
-| `CONFigure:SYNC:RING` | `<origin>,<node_order>,<period_us>,<bitrate>,<timeout_ms>,<crc_limit>` | `1` | 配置 RJ45_SYNC_RING；`node_order` 每一跳必须匹配同方向 NODE 校准链路 |
-| `CONFigure:SYNC:DPLL` | `<lock_window_ns>,<lock_count>,<holdover_ms>,<relock_ms>,<profile>` | `1` | 配置虚拟 DC 锁定、保持和重锁判据 |
-| `CONFigure:SYNC:GATE` | `<required_lock>,<max_age_ms>,<max_evdc_p99_ns>,<allow_holdover>` | `1` | 配置运行门禁 |
-
-首版 `allow_holdover=0`：HOLDOVER 只允许已装载队列完成，不接收新增预约。
-
-### 7.3 同步动作与读取
-
-| 指令 | 参数 | 响应 | 说明 |
-|---|---|---|---|
-| `SYNC:CHECk` | `[ACTive|STAGing]` | `check block` | 校验校准表、NODE 链路、CRC、链路时效和环路拓扑；省略为 ACTive |
-| `SYNC:STARt` |  | `1` | 通过 active 配置检查后启动同步环和虚拟 DC 维护 |
+| `SYNC:CHECk` | `[ACTive|STAGing]` | `check block` | 校验校准表、NODE 链路、CRC、时效、方向和拓扑；省略为 ACTive |
+| `SYNC:STARt` |  | `1` | 启动同步环、虚拟 DC 维护和运行门禁服务 |
 | `SYNC:STOP` |  | `1` | 停止同步服务，退出锁定态 |
-| `SYNC:RELock` |  | `1` | 清除当前 offset/rate 估计并重新锁定，校准表不清除 |
-| `SYNC:HOLDover` | `0|1` | `1` | 进入或退出保持态 |
-| `READ:SYNC:STATe?` |  | `state block` | 读取同步运行态、锁定态、origin、seq、holdover 和 fault |
+| `SYNC:RELock` |  | `1` | 清除当前 offset/rate 估计并重新锁定；不清除校准表和同步配置 |
+| `SYNC:HOLDover` | `0|1` | `1` | 进入或退出保持态；保持态只允许已装载队列完成 |
+
+### 9.3 读取指令
+
+| 指令 | 参数 | 响应 | 说明 |
+|---|---|---|---|
+| `READ:SYNC:STATe?` |  | `state block` | 读取同步状态、锁定态、origin、seq、holdover 和 fault |
 | `READ:SYNC:PARameter?` |  | `param block` | 读取绑定校准表、环路、DPLL 和门禁参数 |
 | `READ:SYNC:HEALth?` |  | `health block` | 读取 CRC、seq、drop、relock、e_vdc、late 和链路时效统计 |
-| `READ:SYNC:NODE?` | `[node]` | `node block` | 读取指定节点 offset/rate、last_seq、age 和链路健康度 |
-| `READ:SYNC:LINK?` | `[src_node,dst_node]` | `link check table` | 读取 NODE 校准 delay、hop 方向、required/enabled 状态和校验结果 |
-| `READ:SYNC:DPLL?` |  | `dpll block` | 读取当前 DPLL profile、等效带宽、阻尼、内部系数摘要和限幅状态 |
+| `READ:SYNC:NODE?` | `[node]` | `node block` | 读取单节点 offset、rate、last_seq、age 和链路健康度 |
+| `READ:SYNC:LINK?` | `[src_node,dst_node]` | `link table` | 读取 NODE delay、hop 方向、required/enabled 状态和校验结果 |
 | `READ:SYNC:CHECk?` |  | `check block` | 读取最近一次同步检查结果和拒绝原因 |
 
-### 7.4 同步字段
+### 9.4 同步状态机
+
+| 状态 | 含义 | 允许动作 |
+|---|---|---|
+| `IDLE` | 未启动同步或已停止 | 允许配置、加载、检查和启动 |
+| `CHECKED` | active 配置和拓扑检查通过 | 允许 `SYNC:STARt` |
+| `LOCKING` | 正在估计 offset/rate | 允许读取状态、健康度和维护 DPLL 调试 |
+| `LOCKED` | 虚拟 DC 已锁定，满足运行门禁 | 允许 TRIG RUN |
+| `HOLDOVER` | 短时失去同步帧，按保持策略运行 | 不允许新增预约，只允许已装载队列完成 |
+| `FAULT` | CRC、seq、拓扑或门禁故障锁存 | 读取证据后停止并清故障 |
+
+### 9.5 故障与恢复
+
+| 场景 | 状态变化 | 恢复动作 |
+|---|---|---|
+| NODE 链路缺失或方向错误 | `SYNC:CHECk` 返回失败，不进入 `CHECKED` | 读取 `READ:SYNC:LINK?`，修正校准表或 ring 顺序 |
+| CRC / seq 连续超限 | `LOCKED -> FAULT` | 停止触发，读取 `READ:SYNC:HEALth?` 和故障证据 |
+| 短时丢帧 | `LOCKED -> HOLDOVER` | 等待自动重锁或执行 `SYNC:RELock` |
+| e_vdc 超门限 | `LOCKED -> LOCKING/FAULT` | 读取质量数据，必要时调整 profile 或排查链路 |
+| 故障锁存 | `FAULT` | 读取日志、trace、snapshot 后执行 `SYSTem:FAULT:CLEAr` |
+
+## 10. 同步参数与流程
+
+### 10.1 同步配置参数
+
+| 指令 | 参数 | 响应 | 说明 |
+|---|---|---|---|
+| `CONFigure:SYNC:CALibration` | `<cal_id>,<cal_crc>,<max_age_s>` | `1` | 绑定同步使用的校准表到 staging 配置 |
+| `CONFigure:SYNC:RING` | `<origin>,<node_order>,<period_us>,<bitrate>,<timeout_ms>,<crc_limit>` | `1` | 配置 RJ45_SYNC_RING；`node_order` 每一跳必须匹配同方向 NODE 校准链路 |
+| `CONFigure:SYNC:DPLL` | `<lock_window_ns>,<lock_count>,<holdover_ms>,<relock_ms>,<profile>` | `1` | 配置虚拟 DC offset/rate 环路的锁定、保持和重锁判据 |
+| `CONFigure:SYNC:GATE` | `<required_lock>,<max_age_ms>,<max_evdc_p99_ns>,<allow_holdover>` | `1` | 配置触发运行门禁 |
+
+### 10.2 同步字段
 
 | 字段组 | 字段 | 说明 |
 |---|---|---|
-| `param` | `cal_id,cal_crc,max_age_s,origin_node,node_order,period_us,bitrate,lock_window_ns,holdover_ms,dpll_profile` | 同步使用的校准表、环路配置、DPLL profile 和锁定判据 |
+| `param` | `cal_id,cal_crc,max_age_s,origin,node_order,period_us,bitrate,lock_window_ns,holdover_ms,dpll_profile` | 同步使用的校准表、环路配置、DPLL profile 和锁定判据 |
 | `health` | `crc_count,seq_error,drop_count,relock_count,evdc_p99_ns,evdc_p999_ns,late_count` | 同步环健康度、虚拟 DC 残差和运行门禁依据 |
 | `node` | `node,offset_tick,rate_q32,last_seq,age_ms,link_delay_ns` | 单节点虚拟 DC 估计结果和校准链路 delay 使用值 |
-| `gate` | `required_lock,gate_state,max_age_ms,allow_holdover,reject_reason` | 同步门禁条件和拒绝原因 |
-| `dpll` | `profile,bandwidth_hz,damping,kp_q31,ki_q31,max_slew_ppm,coef_source` | 虚拟 DC DPLL 摘要 |
-| `check` | `check_state,target_config,cal_id,cal_crc,node_order,required_link_count,valid_link_count,missing_link,expired_link,direction_mismatch,crc_ok,topology_ok,gate_ok,reject_reason` | 启动前定位缺失链路、过期校准表、方向错误和门禁拒绝原因 |
+| `check` | `check_state,cal_id,cal_crc,node_order,missing_link,expired_link,direction_mismatch,reject_reason` | 启动前定位缺失链路、过期校准表、方向错误和门禁拒绝原因 |
 
-### 7.5 同步状态机
+### 10.3 拓扑检查字段
 
-| 状态 | 说明 | 上位机动作 |
+| 字段 | 含义 | 规则 |
 |---|---|---|
-| `IDLE` | 未启动同步或已停止 | 允许配置 CAL/RING/DPLL/GATE |
-| `CHECKED` | active 配置和拓扑校验通过 | 允许 `SYNC:STARt` |
-| `LOCKING` | 正在估计 offset/rate | 轮询 `READ:SYNC:STATe?` 和 `READ:SYNC:HEALth?` |
-| `LOCKED` | 虚拟 DC 已锁定且满足门禁 | 允许进入触发预约和正式采集 |
-| `HOLDOVER` | 短时失去同步帧 | 只允许已装载队列完成，不允许新增预约 |
-| `FAULT` | CRC、seq、链路时效或 e_vdc 超限 | 读取故障和日志，必要时重锁或清故障 |
+| `node_order` | 同步环顺序 | 首版固定 `A0>A1>A2>A3>A0` |
+| `required_link_count` | 必需 NODE 链路数量 | 四板环路应为 4 |
+| `valid_link_count` | active 校准表中有效同向链路数量 | 必须等于 required_link_count |
+| `missing_link` | 缺失链路列表 | 为空才允许启动 |
+| `direction_mismatch` | 方向错误列表 | A0->A1 与 A1->A0 不能混用 |
+| `expired_link` | 超过 max_age_s 的链路 | required 链路过期时拒绝启动 |
 
-### 7.6 同步版本与质量
+### 10.4 流程门禁
 
-| 指令 | 参数 | 响应 | 说明 |
-|---|---|---|---|
-| `SYNC:SAVE` | `<sync_id>[,scope]` | `1` | 保存当前 staging 同步配置并生成 CRC；scope=ALL/CAL/RING/DPLL/GATE/LIMIT |
-| `SYNC:LOAD` | `<sync_id>` | `1` | 把指定同步配置包载入 staging，不立即影响 active |
-| `SYNC:ACTivate` | `<sync_id>` | `1` | 激活指定同步配置包；只允许在 IDLE 或 STOPPED 状态执行 |
-| `SYNC:ROLLback` |  | `1` | 恢复到上一次 active 同步配置包 |
-| `READ:SYNC:LIST?` |  | `sync list` | 读取已保存同步配置包的 `sync_id,crc,timestamp,scope,valid` |
-| `READ:SYNC:ACTive?` |  | `active block` | 读取 active / staging 同步配置、绑定校准表、CRC、修改标志和最近检查状态 |
-| `READ:SYNC:VERSion?` |  | `version block` | 读取同步配置版本、绑定校准版本、固件版本、硬件 profile、生成时间和最近激活时间 |
-| `CONFigure:SYNC:LIMit` | `<max_crc_count>,<max_seq_error>,<max_drop_count>,<max_relock_count>,<max_evdc_p99_ns>,<max_evdc_p999_ns>,<min_lock_count>` | `1` | 配置同步质量门限 |
-| `READ:SYNC:QUALity?` | `[sync_id]` | `quality block` | 读取同步质量结论、e_vdc 分布、错误计数、重锁计数、链路年龄和门禁拒绝原因 |
-
-### 7.7 同步启动示例
+| 步骤 | 门禁条件 | 失败读取 |
+|---|---|---|
+| 配置检查 | cal_id 存在、CRC 匹配、未过期、NODE 链路方向匹配 | `READ:SYNC:LINK?` |
+| 启动同步 | 最近一次 active `SYNC:CHECk` 通过 | `READ:SYNC:CHECk?` |
+| 进入 LOCKED | 连续 `lock_count` 次 e_vdc 落入 `lock_window_ns` | `READ:SYNC:HEALth?` |
+| 触发运行 | required_lock=1 时必须 LOCKED，且 e_vdc、age、CRC 低于门限 | `READ:SYNC:STATe?` |
 
 ```scpi
-CONFigure:SYNC:CAL FIELD_20260811,3A91C027,86400
+CONFigure:SYNC:CALibration FIELD_20260811,3A91C027,86400
 CONFigure:SYNC:RING A0,A0>A1>A2>A3>A0,1000,12500000,20,0
 CONFigure:SYNC:DPLL 300,100,200,1000,LOW_JITTER
 CONFigure:SYNC:GATE 1,50,100,0
@@ -440,48 +487,56 @@ SYNC:STARt
 READ:SYNC:STATe?
 ```
 
-`SYNC:STARt` 只使用 active 配置，不接受未激活 staging 配置。`SYNC:CHECk STAGing` 只用于离线预检。
+## 11. 同步版本与质量
 
-## 8. DPLL 调试边界
-
-### 8.1 命名边界
-
-| 名称 | 含义 | 指标 |
-|---|---|---|
-| `SYNC:DPLL` | 虚拟 DC offset/rate 同步环路 | `e_vdc` |
-| 角度预测 DPLL | 转台角度到未来触发时间的预测环路 | `e_pll` |
-
-两者不能混用。同步 DPLL 不等于扫描角度 DPLL。
-
-### 8.2 调试接口
+### 11.1 版本管理
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
-| `SYSTem:SYNC:DPLL:TUNE` | `<bandwidth_hz>,<damping>,<max_slew_ppm>` | `1` | 按等效传递函数参数覆盖虚拟环路滤波器 |
+| `SYNC:SAVE` | `<sync_id>[,scope]` | `1` | 保存 staging 同步配置并生成 CRC；scope=ALL/CAL/RING/DPLL/GATE/LIMIT |
+| `SYNC:LOAD` | `<sync_id>` | `1` | 载入同步配置包到 staging，不立即影响 active |
+| `SYNC:ACTivate` | `<sync_id>` | `1` | 激活同步配置包；只允许在 IDLE 或 STOPPED 状态执行 |
+| `SYNC:ROLLback` |  | `1` | 恢复到上一次 active 同步配置包 |
+| `READ:SYNC:LIST?` |  | `sync list` | 读取已保存配置包的 id、CRC、时间戳、scope 和 valid 标志 |
+| `READ:SYNC:ACTive?` |  | `active block` | 读取 active/staging 配置、绑定校准表、CRC、修改标志和最近检查状态 |
+
+### 11.2 质量判据和 DPLL
+
+| 指令 | 参数 | 响应 | 说明 |
+|---|---|---|---|
+| `CONFigure:SYNC:LIMit` | `<max_crc>,<max_seq>,<max_drop>,<max_relock>,<max_evdc_p99_ns>,<max_evdc_p999_ns>,<min_lock_count>` | `1` | 配置同步质量门限 |
+| `READ:SYNC:QUALity?` | `[sync_id]` | `quality block` | 读取质量结论、e_vdc 分布、错误计数、重锁计数、链路年龄和门禁拒绝原因 |
+| `READ:SYNC:VERSion?` |  | `version block` | 读取同步配置版本、绑定校准版本、固件版本、硬件 profile 和最近激活时间 |
+| `SYSTem:SYNC:DPLL:TUNE` | `<bandwidth_hz>,<damping>,<max_slew_ppm>` | `1` | 按等效传递函数参数覆盖虚拟环路滤波器，仅用于调试 |
 | `SYSTem:SYNC:DPLL:COEFficient` | `<kp_q31>,<ki_q31>,<max_slew_ppm>` | `1` | 直接覆盖离散 PI 环路系数 |
 | `SYSTem:SYNC:DPLL:OVERRide?` |  | `override block` | 读取调试覆盖是否生效、来源、允许状态、最近写入时间和清除原因 |
 | `SYSTem:SYNC:DPLL:COEFficient?` |  | `coef block` | 读取当前环路滤波器系数、来源、限幅和生效状态 |
 | `SYSTem:SYNC:DPLL:DEFAult` |  | `1` | 清除调试覆盖，恢复内置 profile |
 
-产品运行只使用固件内置 profile：
+### 11.3 质量字段
 
-```text
-DEFAULT
-FAST_LOCK
-LOW_JITTER
-```
+| 字段 | 来源 | 说明 |
+|---|---|---|
+| `e_vdc_p99_ns` | 虚拟 DC 环路 | 同步残差 P99，用于判断多节点同步是否稳定 |
+| `crc_count / seq_error` | RJ45_SYNC_RING | 同步帧通信质量；超过门限进入 FAULT 或拒绝 TRIG RUN |
+| `relock_count` | DPLL 状态机 | 重锁次数过多说明链路噪声、丢帧或环路参数不合适 |
+| `gate_state` | 运行门禁 | READY/BLOCKED；BLOCKED 时给出 reject_reason |
 
-维护调试参数范围：
+### 11.4 DPLL 调试范围
 
-```text
-bandwidth_hz = 0.01 .. 20
-damping      = 0.3  .. 2.0
-max_slew_ppm = 1    .. 200
-```
+| 参数 | 范围 | 说明 |
+|---|---|---|
+| `profile` | `DEFAULT` / `FAST_LOCK` / `LOW_JITTER` | 业务配置只选择固件内置 profile |
+| `bandwidth_hz` | `0.01 .. 20` | 维护调试用等效环路带宽 |
+| `damping` | `0.3 .. 2.0` | 维护调试用阻尼系数 |
+| `max_slew_ppm` | `1 .. 200` | offset/rate 修正限幅 |
+| `coef_source` | `DEFAULT` / `PROFILE` / `OVERRIDE` | 当前系数来源 |
 
-DPLL 调试覆盖只允许在 `IDLE`、`STOPPED` 或 `LOCKING` 使用。正式 `TRIG RUN` 禁止修改。重启或执行 `SYSTem:SYNC:DPLL:DEFAult` 后清除覆盖。
+调试覆盖为易失态，不写入出厂默认 profile。重启或执行 `SYSTem:SYNC:DPLL:DEFAult` 后清除覆盖。
 
-## 9. 维护指令
+DPLL 调试覆盖只允许在 `IDLE`、`STOPPED` 或 `LOCKING` 使用；正式 `TRIG RUN` 禁止修改。同步 DPLL 表示虚拟 DC offset/rate 环路，不等同于扫描角度预测 DPLL。
+
+## 12. 维护指令
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
@@ -491,19 +546,19 @@ DPLL 调试覆盖只允许在 `IDLE`、`STOPPED` 或 `LOCKING` 使用。正式 `
 | `SYSTem:OTA:STATus?` |  | `OTA block` | 查询升级流程状态 |
 | `SYSTem:SD:STATus?` |  | `storage block` | 查询 SD、日志、snapshot 和报告写入状态 |
 
-### 9.1 错误处理速查
+### 12.1 错误处理速查
 
 | 场景 | 上位机处理 |
 |---|---|
 | 配置校验失败 | 读取 `SYSTem:CONFigure:NACK?` 和 `READ:SEQuence:CHECK?` |
 | 运行 late 或 timeout | 停止后读取 `READ:TRIGger:STATe?`、`SYSTem:FAULT:LAST?` 和 trace/snapshot |
 | 同步失锁 | 读取 `READ:SYNC:STATe?`、`READ:SYNC:HEALth?` 和 `READ:SYNC:LINK?` |
-| 校准失败 | 读取 `READ:CAL:STATe?` 和 `READ:CAL:RESult?`；失败不覆盖旧 staging 数据 |
+| 校准失败 | 读取 `READ:CALibration:STATe?` 和 `READ:CALibration:RESult?`；失败不覆盖旧 staging 数据 |
 | 报告导出 | 按页读取 `SYSTem:LOG:PAGE?`、`SYSTem:TRACe:DATA?`、`SYSTem:SNAPshot:DATA?` 和 `SYSTem:T2:DATA?` |
 
-## 10. 响应数据格式
+## 13. 响应数据格式
 
-### 10.1 文本 block
+### 13.1 文本 block
 
 | block | 字段 | 用途 |
 |---|---|---|
@@ -513,7 +568,7 @@ DPLL 调试覆盖只允许在 `IDLE`、`STOPPED` 或 `LOCKING` 使用。正式 `
 | `quality block` | `result,p99,p999,count,crc_error,seq_error,late_count,relock_count` | 同步和测试质量统计 |
 | `fault block` | `fault_code,source_node,first_ts,last_ts,evidence_seq,sticky,recoverable,text` | 故障锁存证据 |
 
-### 10.2 二进制 block
+### 13.2 二进制 block
 
 | 数据 | 格式 | 说明 |
 |---|---|---|
@@ -539,7 +594,7 @@ page_count,
 crc
 ```
 
-## 11. 产品化边界
+## 14. 产品化边界
 
 | 边界 | 规则 |
 |---|---|
@@ -550,7 +605,7 @@ crc
 | 上位机 | 上位机负责配置、启动、停止、读取状态和导出报告，不参与 RUN 态逐点实时决策 |
 | 反射内存 | 用于多节点共同事实和摘要，不承载精确触发边沿 |
 
-## 12. 保留项
+## 15. 保留项
 
 | 项目 | 说明 |
 |---|---|
@@ -559,15 +614,17 @@ crc
 | 高级同步 | 外部 TDC、硬件参考时钟、光隔离同步链路可作为后续增强 |
 | 报告系统 | run_id、配置 CRC、校准 CRC、同步 CRC、T2/e_act/e_vdc/e_pll 统计需要进入批次报告 |
 
-## 13. 修订记录
+## 16. 修订记录
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| `0.7` | 2026-08-11 | 根据对话决策完整回顾细化校准和同步：补拒绝原因、标准链路清单、校准门禁、同步故障恢复、拓扑检查字段和 DPLL 调试范围 |
+| `0.6` | 2026-08-11 | 按最初版页面架构扩展为校准三页和同步三页：校准指令、校准参数与流程、校准版本与质量、同步指令、同步参数与流程、同步版本与质量 |
 | `0.5` | 2026-08-11 | 按 `RP1200波导天线测试系统分布式触发方案SCPI指令表最初版.html` 复核格式和初始定义；回补设备信息、IEEE 488.2 完整基础指令、系统摘要查询、`SYSTem:REFM:*`、`READ:SEQuence:MAP?`，并将序列主模型恢复为自动展开状态表 + state_id 顺序引用 |
 | `0.4` | 2026-08-11 | 形成 Markdown 源文档；补齐业务配置、运行控制、校准短事务、校准追溯、SYNC staging/active、NODE 拓扑强校验、版本质量和 DPLL 调试边界 |
 | `0.3` | 2026-08-11 | 补齐校准和同步版本管理、质量判据、运行态保护、SYNC 检查字段、HOLDOVER 保守策略和 DPLL 调试边界 |
 
-## 14. 最初版复核记录
+## 17. 最初版复核记录
 
 复核基线：
 

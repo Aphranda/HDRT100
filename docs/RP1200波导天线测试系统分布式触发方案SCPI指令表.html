@@ -608,6 +608,18 @@ SYSTem:FAULT:LAST?</code></pre>
 <tr><td>同步影响</td><td>校准写入 staging；只有 <code>CALibration:ACTivate</code> 后才影响 SYNC。</td><td>激活后重新执行 <code>SYNC:CHECk</code>。</td></tr>
 </tbody>
 </table>
+<div class="section-title">拒绝原因</div>
+<table class="compact">
+<thead><tr><th>reject_reason</th><th>含义</th><th>处理</th></tr></thead>
+<tbody>
+<tr><td><code>RUNNING</code></td><td>系统处于 TRIG RUN。</td><td>停止触发后重试。</td></tr>
+<tr><td><code>LINK_NOT_FOUND</code></td><td>端口对未登记。</td><td>先新增或修正 LINK。</td></tr>
+<tr><td><code>PORT_INVALID</code></td><td>节点、端口或对象类型非法。</td><td>检查端口枚举。</td></tr>
+<tr><td><code>CAL_BUSY</code></td><td>已有校准短事务。</td><td>稍后重试。</td></tr>
+<tr><td><code>SIGNAL_TIMEOUT</code></td><td>未捕获回传边沿。</td><td>检查线缆、方向和映射。</td></tr>
+<tr><td><code>QUALITY_FAIL</code></td><td>质量超限。</td><td>读取结果后重测或手动写入。</td></tr>
+</tbody>
+</table>
 <h4>典型校准流程</h4>
 <pre data-lang="scpi"><code>CONFigure:CALibration:LINK:ADD SMA,A0,OUT1,A1,IN1,BIDIR,1,1
 CALibration:STARt SMA,A0,OUT1,A1,IN1
@@ -641,6 +653,18 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1</code></pre>
 <tr><td><code>SMA</code></td><td><code>SMA,A0,OUT1,A1,IN1,delay_ns</code></td><td>A0..A4 节点之间 SMA 输入/输出触发链路 delay。</td></tr>
 <tr><td><code>NODE</code></td><td><code>NODE,A0,RJ45,A1,RJ45,delay_ns</code></td><td>RJ45 触发回传链路 delay；用于同步环 <code>A0-&gt;A1-&gt;A2-&gt;A3-&gt;A0</code>。</td></tr>
 <tr><td><code>DEVICE</code></td><td><code>DEVICE,A1,SP8T,READY,delay_ns</code></td><td>节点内部动作 delay，例如 SP8T、SP2T、VNA TRIG/READY、设备完成 T2。</td></tr>
+</tbody>
+</table>
+<div class="section-title">标准链路清单</div>
+<table class="compact">
+<thead><tr><th>类型</th><th>标准链路</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>NODE</code></td><td><code>A0,RJ45-&gt;A1,RJ45</code></td><td>RJ45_SYNC_RING 第 1 跳，required=1。</td></tr>
+<tr><td><code>NODE</code></td><td><code>A1,RJ45-&gt;A2,RJ45</code></td><td>第 2 跳，required=1。</td></tr>
+<tr><td><code>NODE</code></td><td><code>A2,RJ45-&gt;A3,RJ45</code></td><td>第 3 跳，required=1。</td></tr>
+<tr><td><code>NODE</code></td><td><code>A3,RJ45-&gt;A0,RJ45</code></td><td>回环，required=1。</td></tr>
+<tr><td><code>SMA</code></td><td><code>A0,OUT#-&gt;A1/2/3,IN#</code></td><td>触发脉冲外部或近端 SMA 链路。</td></tr>
+<tr><td><code>DEVICE</code></td><td><code>SP8T/SP2T/VNA READY</code></td><td>节点内部动作或仪表 READY/T2 delay。</td></tr>
 </tbody>
 </table>
 <div class="section-title">delay 参数表</div>
@@ -726,6 +750,17 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1</code></pre>
 <tr><td>SYNC 依赖</td><td><code>valid_node_link_count,missing_node_link</code></td><td>同步环只接受 active 且方向匹配的 NODE delay。</td></tr>
 </tbody>
 </table>
+<div class="section-title">门禁规则</div>
+<table class="compact">
+<thead><tr><th>场景</th><th>规则</th><th>影响</th></tr></thead>
+<tbody>
+<tr><td>TRIG RUN</td><td>禁止 LINK/PARameter/META/SAVE/LOAD/ACTivate/ROLLback。</td><td>返回状态拒绝。</td></tr>
+<tr><td>SAVE</td><td>只持久化 staging，不自动切 active。</td><td>必须显式激活。</td></tr>
+<tr><td>ACTivate</td><td>切换 active 后清除最近 SYNC 检查结论。</td><td>必须重新 <code>SYNC:CHECk</code>。</td></tr>
+<tr><td>ROLLback</td><td>恢复上一次 active 校准表。</td><td>必须重新同步检查。</td></tr>
+<tr><td>health fail</td><td>required 链路缺失、过期或超 jitter。</td><td>拒绝 <code>SYNC:STARt</code>。</td></tr>
+</tbody>
+</table>
 <h4>保存示例</h4>
 <pre data-lang="scpi"><code>CONFigure:CALibration:META FIELD_20260811,OP01,FIX_A,CABLE_SET_A,28.5,FIELD_CHECK
 CALibration:SAVE FIELD_20260811
@@ -775,6 +810,7 @@ READ:CALibration:HEALth? NODE</code></pre>
 <tr><td><code>READ:SYNC:HEALth?</code></td><td></td><td>health block</td><td>读取 CRC、seq、drop、relock、e_vdc、late 和链路时效统计。</td></tr>
 <tr><td><code>READ:SYNC:NODE?</code></td><td><code>[node]</code></td><td>node block</td><td>读取单节点 offset、rate、last_seq、age 和链路健康度。</td></tr>
 <tr><td><code>READ:SYNC:LINK?</code></td><td><code>[src_node,dst_node]</code></td><td>link table</td><td>读取 NODE delay、hop 方向、required/enabled 状态和校验结果。</td></tr>
+<tr><td><code>READ:SYNC:CHECk?</code></td><td></td><td>check block</td><td>读取最近一次同步检查结果和拒绝原因。</td></tr>
 </tbody>
 </table>
 <div class="section-title">同步状态机</div>
@@ -787,6 +823,17 @@ READ:CALibration:HEALth? NODE</code></pre>
 <tr><td><code>LOCKED</code></td><td>虚拟 DC 已锁定，满足运行门禁。</td><td>允许 TRIG RUN。</td></tr>
 <tr><td><code>HOLDOVER</code></td><td>短时失去同步帧，按保持策略运行。</td><td>不允许新增预约，只允许已装载队列完成。</td></tr>
 <tr><td><code>FAULT</code></td><td>CRC、seq、拓扑或门禁故障锁存。</td><td>读取证据后停止并清故障。</td></tr>
+</tbody>
+</table>
+<div class="section-title">故障与恢复</div>
+<table class="compact">
+<thead><tr><th>场景</th><th>状态变化</th><th>恢复动作</th></tr></thead>
+<tbody>
+<tr><td>链路缺失/方向错误</td><td><code>CHECk</code> 失败。</td><td>读取 <code>READ:SYNC:LINK?</code>。</td></tr>
+<tr><td>CRC/seq 超限</td><td><code>LOCKED-&gt;FAULT</code></td><td>停止触发，读取 health 和故障证据。</td></tr>
+<tr><td>短时丢帧</td><td><code>LOCKED-&gt;HOLDOVER</code></td><td>等待重锁或执行 <code>SYNC:RELock</code>。</td></tr>
+<tr><td>e_vdc 超门限</td><td><code>LOCKED-&gt;LOCKING/FAULT</code></td><td>读取质量数据，排查链路或 profile。</td></tr>
+<tr><td>故障锁存</td><td><code>FAULT</code></td><td>读日志后 <code>SYSTem:FAULT:CLEAr</code>。</td></tr>
 </tbody>
 </table>
   </div>
@@ -829,6 +876,18 @@ READ:CALibration:HEALth? NODE</code></pre>
 <tr><td><code>health</code></td><td><code>crc_count,seq_error,drop_count,relock_count,evdc_p99_ns,evdc_p999_ns,late_count</code></td><td>同步环健康度、虚拟 DC 残差和运行门禁依据。</td></tr>
 <tr><td><code>node</code></td><td><code>node,offset_tick,rate_q32,last_seq,age_ms,link_delay_ns</code></td><td>单节点虚拟 DC 估计结果和校准链路 delay 使用值。</td></tr>
 <tr><td><code>check</code></td><td><code>check_state,cal_id,cal_crc,node_order,missing_link,expired_link,direction_mismatch,reject_reason</code></td><td>启动前定位缺失链路、过期校准表、方向错误和门禁拒绝原因。</td></tr>
+</tbody>
+</table>
+<div class="section-title">拓扑检查字段</div>
+<table class="compact">
+<thead><tr><th>字段</th><th>含义</th><th>规则</th></tr></thead>
+<tbody>
+<tr><td><code>node_order</code></td><td>同步环顺序。</td><td>首版固定 <code>A0&gt;A1&gt;A2&gt;A3&gt;A0</code>。</td></tr>
+<tr><td><code>required_link_count</code></td><td>必需 NODE 链路数量。</td><td>四板环路应为 4。</td></tr>
+<tr><td><code>valid_link_count</code></td><td>有效同向链路数量。</td><td>必须等于 required 数。</td></tr>
+<tr><td><code>missing_link</code></td><td>缺失链路列表。</td><td>为空才允许启动。</td></tr>
+<tr><td><code>direction_mismatch</code></td><td>方向错误列表。</td><td>A0-&gt;A1 与 A1-&gt;A0 不能混用。</td></tr>
+<tr><td><code>expired_link</code></td><td>过期链路。</td><td>required 过期时拒绝启动。</td></tr>
 </tbody>
 </table>
 <div class="section-title">流程门禁</div>
@@ -910,6 +969,17 @@ READ:SYNC:STATe?</code></pre>
 <tr><td><code>gate_state</code></td><td>运行门禁</td><td>READY/BLOCKED；BLOCKED 时给出 reject_reason。</td></tr>
 </tbody>
 </table>
+<div class="section-title">DPLL 调试范围</div>
+<table class="compact">
+<thead><tr><th>参数</th><th>范围</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>profile</code></td><td><code>DEFAULT</code> / <code>FAST_LOCK</code> / <code>LOW_JITTER</code></td><td>业务配置只选择内置 profile。</td></tr>
+<tr><td><code>bandwidth_hz</code></td><td><code>0.01 .. 20</code></td><td>维护调试环路带宽。</td></tr>
+<tr><td><code>damping</code></td><td><code>0.3 .. 2.0</code></td><td>维护调试阻尼系数。</td></tr>
+<tr><td><code>max_slew_ppm</code></td><td><code>1 .. 200</code></td><td>offset/rate 修正限幅。</td></tr>
+<tr><td><code>coef_source</code></td><td><code>DEFAULT/PROFILE/OVERRIDE</code></td><td>当前系数来源。</td></tr>
+</tbody>
+</table>
 <div class="note-box">DPLL 调试覆盖只允许在 IDLE、STOPPED 或 LOCKING 使用；正式 TRIG RUN 禁止修改。同步 DPLL 表示虚拟 DC offset/rate 环路，不等同于扫描角度预测 DPLL。</div>
   </div>
   <div class="page-footer">
@@ -974,7 +1044,8 @@ READ:SYNC:STATe?</code></pre>
 <table class="compact">
 <thead><tr><th>版本</th><th>日期</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>0.4</code></td><td>2026-08-11</td><td>基于最初版格式扩展校准三页和同步三页，补齐参数与流程、版本与质量管理。</td></tr>
+<tr><td><code>0.7</code></td><td>2026-08-11</td><td>根据对话决策完整回顾细化校准和同步：补拒绝原因、标准链路清单、校准门禁、同步故障恢复、拓扑检查字段和 DPLL 调试范围。</td></tr>
+<tr><td><code>0.6</code></td><td>2026-08-11</td><td>按最初版页面架构扩展为校准三页和同步三页：校准指令、校准参数与流程、校准版本与质量、同步指令、同步参数与流程、同步版本与质量。</td></tr>
 <tr><td><code>0.3</code></td><td>2026-08-11</td><td>拆分 CAL / SYNC 两页，并补齐序列映射、故障清除、日志分页导出</td></tr>
 </tbody>
 </table>
