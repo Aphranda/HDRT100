@@ -309,11 +309,27 @@ RUN 态规则：
 
 ## 时间与同步模型
 
-每块板维护本地 tick，控制面维护虚拟 DC：
+每块板维护本地 tick，控制面维护虚拟 DC。顺序上，本地晶振和 `local_tick`
+上电后先存在；BiSS-C/RJ45 同步帧提供跨节点边沿观测；DPLL 再根据本地时间戳、
+seq、CRC、链路 delay 和节点 age 估计 `offset/rate`，收敛后发布可用于运行门禁的
+虚拟 DC。DPLL 不直接产生物理时钟，也不替代各板晶振：
 
 ```text
+local oscillator -> local_tick
+BiSS-C/RJ45 sync edge -> timestamp by local_tick
+DPLL estimate -> rate_q32 + offset_tick
 dc_tick = local_tick * rate_q32 + offset_tick
 T_fire_i = T_fire_base + delta_t_i
+```
+
+状态顺序固定为：
+
+```text
+FREE_RUN  -> 只有本地 tick，可做本机维护和安全输出
+OBSERVED  -> 已收到有效同步帧，但 offset/rate 尚未稳定
+LOCKING   -> DPLL 正在收敛，统计 e_vdc
+LOCKED    -> 虚拟 DC 可作为 FIRE_LOAD/T2/e_act 的正式时间基准
+HOLDOVER  -> 短时失去观测，按策略只允许已装载队列完成
 ```
 
 职责分层：

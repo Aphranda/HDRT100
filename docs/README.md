@@ -58,9 +58,10 @@ Last updated: 2026-07-07
 | `RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md` | 0614 分布式触发报告的仓库内摘要入口。 |
 | `RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告，已从外部 DOC 迁入。 |
 | `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` | RTOS + 双核 AMP 下四板分布式触发任务划分与小步验证记录。 |
-| `RTOS_DISTRIBUTED_TRIGGER_0804_SUMMARY.md` | 0804 分布式触发报告的仓库内摘要入口。 |
+| `相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告的仓库内摘要入口。 |
 | `RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html` | 0804 RP 分布式触发完整原始报告，已从外部 DOC 迁入。 |
 | `MULTICORE_PARTITION_PLAN.md` | RP2350 双核分区计划。 |
+| `RP1200_DTC100_对话决策完整回顾.md` | RP1200 / DTC100 本轮对话决策总归档，作为产品级 SCPI 和同步/校准口径来源。 |
 
 ## 02 硬件与资源约束
 
@@ -119,6 +120,8 @@ Last updated: 2026-07-07
 | 文件 | 定位 |
 |---|---|
 | `SCPI_COMMANDS.md` | SCPI 命令清单、语义和边界。 |
+| `RP1200波导天线测试系统分布式触发方案SCPI指令表.md` | RP1200 / DTC100 产品级 SCPI 指令表 Markdown 源文档，面向上位机联调和协议冻结。 |
+| `RP1200波导天线测试系统分布式触发方案SCPI指令表.html` | RP1200 / DTC100 产品级 SCPI 指令表 HTML 版，当前与 Markdown 0.7 同步。 |
 | `LOG_SYSTEM_TODO.md` | 日志系统待办和演进方向。 |
 | `SCPI_USB_INTERFACE_DESIGN.md` | USB CDC/USBTMC 接口设计、描述符、bus-powered/self-powered 决策记录。 |
 
@@ -146,6 +149,7 @@ Last updated: 2026-07-07
 | `PinProbe A1控制箱 嵌入式整体方案与架构报告.html` | PinProbe A1 控制箱整体方案原始 HTML 报告。 |
 | `RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告。 |
 | `RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html` | 0804 RP 分布式触发完整原始报告。 |
+| `相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告仓库内摘要。 |
 
 ## 快速查找规则
 

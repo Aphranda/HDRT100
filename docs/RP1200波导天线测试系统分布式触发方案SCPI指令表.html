@@ -283,6 +283,7 @@
         <div class="cover-info-line">
           <span>A3 唯一外部入口</span>
           <span>USBTMC</span>
+          <span>版本 0.8</span>
           <span>2026-08-11</span>
         </div>
         <div class="cover-note">本文用于上位机前期开发和联调。系统指令使用 <code>SYSTem</code>，其中 <code>SYST</code> 为其短写；业务配置使用 <code>CONFigure</code>，业务查询使用 <code>READ</code>，触发运行使用 <code>TRIGger</code>，校准和同步按 <code>CALibration</code> / <code>SYNC</code> 独立分域。</div>
@@ -410,6 +411,10 @@
 <tbody>
 <tr><td><code>SYSTem:REFM:STAT?</code></td><td></td><td>表头摘要</td><td>查询 64 KB 反射内存总表状态</td></tr>
 <tr><td><code>SYSTem:REFM:NODE?</code></td><td><code>[node_id]</code></td><td>节点快照</td><td>查询指定节点状态；省略时查询本节点</td></tr>
+<tr><td><code>SYSTem:CORE:VECT?</code></td><td></td><td>core vector block</td><td>查询 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态</td></tr>
+<tr><td><code>SYSTem:PROT:STAT?</code></td><td></td><td>runtime protection block</td><td>查询 RAM-resident、flash lockout/park、entry owner 和保护状态</td></tr>
+<tr><td><code>VDC:STAT?</code> / <code>STATus:VDC?</code></td><td></td><td>vdc block</td><td>兼容开发验证查询：虚拟 DC 任务 ready、lock_state、service_count 和 sync_seq</td></tr>
+<tr><td><code>DPLL:STAT?</code> / <code>STATus:DPLL?</code></td><td></td><td>dpll block</td><td>兼容开发验证查询：转台/扫描 DPLL 任务 ready、state、service_count 和 update_seq</td></tr>
 <tr><td><code>SYSTem:CONFigure:STAT?</code></td><td></td><td>门禁摘要</td><td>查询配置门禁状态，确认是否允许进入运行</td></tr>
 <tr><td><code>SYSTem:CONFigure:ROLE?</code></td><td><code>[node_id]</code></td><td>角色条目</td><td>查询 NodeRoleMap</td></tr>
 <tr><td><code>SYSTem:CONFigure:LOOP?</code></td><td><code>[layer_id]</code></td><td>LoopPlan 条目</td><td>查询层级和数组循环编排</td></tr>
@@ -667,7 +672,7 @@ SYSTem:FAULT:LAST?</code></pre>
 <table class="compact">
 <thead><tr><th>约束</th><th>规则</th><th>上位机处理</th></tr></thead>
 <tbody>
-<tr><td>运行状态</td><td>只允许在 <code>IDLE</code>、<code>STOPPED</code> 或 <code>CAL</code> 模式执行。</td><td>运行中拒绝时先 <code>TRIGger:STOP</code>，再重新校准。</td></tr>
+<tr><td>运行状态</td><td>只允许在 <code>IDLE</code> 或 <code>CAL</code> 模式执行。</td><td>运行中拒绝时先 <code>TRIGger:STOP</code>，系统回到 <code>IDLE</code> 后再重新校准。</td></tr>
 <tr><td>链路存在</td><td><code>CALibration:STARt</code> 的端口对必须已在 LINK 表中登记。</td><td>缺失时先执行 <code>CONFigure:CALibration:LINK:ADD</code>。</td></tr>
 <tr><td>失败保护</td><td>失败不覆盖旧 staging delay，只记录失败原因和原始计数。</td><td>读取 <code>READ:CALibration:RESult?</code> 后决定是否重测。</td></tr>
 <tr><td>同步影响</td><td>校准写入 staging；只有 <code>CALibration:ACTivate</code> 后才影响 SYNC。</td><td>激活后重新执行 <code>SYNC:CHECk</code>。</td></tr>
@@ -716,7 +721,7 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1</code></pre>
 <thead><tr><th>对象</th><th>端口格式</th><th>说明</th></tr></thead>
 <tbody>
 <tr><td><code>SMA</code></td><td><code>SMA,A0,OUT1,A1,IN1,delay_ns</code></td><td>A0..A4 节点之间 SMA 输入/输出触发链路 delay。</td></tr>
-<tr><td><code>NODE</code></td><td><code>NODE,A0,RJ45,A1,RJ45,delay_ns</code></td><td>RJ45 触发回传链路 delay；用于同步环 <code>A0-&gt;A1-&gt;A2-&gt;A3-&gt;A0</code>。</td></tr>
+<tr><td><code>NODE</code></td><td><code>NODE,A0,RJ45,A1,RJ45,delay_ns</code></td><td>RJ45 触发回传链路 delay；产品同步环默认 <code>A0-&gt;A1-&gt;A2-&gt;A3-&gt;A0</code>。</td></tr>
 <tr><td><code>DEVICE</code></td><td><code>DEVICE,A1,SP8T,READY,delay_ns</code></td><td>稳态 DC 锁定后测得的设备动作/T2 delay，例如 SP8T、SP2T、VNA TRIG/READY。</td></tr>
 </tbody>
 </table>
@@ -729,6 +734,7 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1</code></pre>
 <tr><td><code>DEVICE</code></td><td><code>SP8T/SP2T/VNA READY</code></td><td>在虚拟 DC <code>LOCKED</code> 后标定设备 READY/T2，形成预测分发使用的动作补偿。</td></tr>
 </tbody>
 </table>
+<div class="note-box">A4 仅作为早期调试和 HIL 回环节点使用，可模拟转台和网分；启用 A4 调试拓扑时，NODE 环可扩展为 <code>A0-&gt;A1-&gt;A2-&gt;A3-&gt;A4-&gt;A0</code>，required hop 为 5。产品运行拓扑仍以 A0..A3 四板为默认，不要求现场保留 A4。</div>
 <div class="section-title">delay 参数表</div>
 <table class="compact">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
@@ -786,7 +792,7 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1</code></pre>
 <tbody>
 <tr><td><code>CALibration:SAVE</code></td><td><code>&lt;cal_id&gt;[,scope]</code></td><td><code>1</code></td><td>保存 staging 校准表并生成 CRC；scope=ALL/SMA/NODE/DEVICE。</td></tr>
 <tr><td><code>CALibration:LOAD</code></td><td><code>&lt;cal_id&gt;</code></td><td><code>1</code></td><td>把指定校准表载入 staging，不立即影响 active 表。</td></tr>
-<tr><td><code>CALibration:ACTivate</code></td><td><code>&lt;cal_id&gt;</code></td><td><code>1</code></td><td>激活指定校准表；只允许在 IDLE 或 STOPPED 状态执行。</td></tr>
+<tr><td><code>CALibration:ACTivate</code></td><td><code>&lt;cal_id&gt;</code></td><td><code>1</code></td><td>激活指定校准表；只允许在 IDLE 状态执行。</td></tr>
 <tr><td><code>CALibration:ROLLback</code></td><td></td><td><code>1</code></td><td>恢复到上一次 active 校准表。</td></tr>
 <tr><td><code>READ:CALibration:LIST?</code></td><td></td><td>cal list</td><td>读取已保存校准表的 <code>cal_id,crc,timestamp,scope,valid</code>。</td></tr>
 <tr><td><code>READ:CALibration:ACTive?</code></td><td></td><td>active block</td><td>读取 active / staging 校准表标识、CRC、保存状态和修改标志。</td></tr>
@@ -854,13 +860,13 @@ READ:CALibration:HEALth? NODE</code></pre>
   </div>
   <div class="main">
 <div class="section-title">同步边界</div>
-<div class="note-box">同步阶段的目标是让 DPLL 在 RJ45_SYNC_RING 上建立稳态虚拟 DC 时钟。active 校准表中的 NODE 链路 delay 只用于固定 hop 补偿和拓扑门禁；<code>SYNC:STARt</code> 不测 T2。只有虚拟 DC 进入 <code>LOCKED</code> 后，DEVICE/T2 校准才具备统一时间基准，后续预测分发使用稳态 DC + T2/动作补偿执行。</div>
+<div class="note-box">同步阶段的目标是让 DPLL 在 BiSS-C/RJ45_SYNC_RING 观测上建立稳态虚拟 DC。顺序是本地晶振和 <code>local_tick</code> 先存在，同步帧提供跨节点边沿观测，DPLL 再根据本地时间戳、seq、CRC、链路 delay 和节点 age 收敛 <code>offset/rate</code>。只有进入 <code>LOCKED</code> 后，虚拟 DC 才能作为正式 TRIG RUN 和 DEVICE/T2 校准的统一时间基准；<code>SYNC:STARt</code> 不测 T2。</div>
 <div class="section-title">动作指令</div>
 <table class="compact">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
 <tr><td><code>SYNC:CHECk</code></td><td><code>[ACTive|STAGing]</code></td><td>check block</td><td>校验校准表、NODE 链路、CRC、时效、方向和拓扑；省略为 ACTive。</td></tr>
-<tr><td><code>SYNC:STARt</code></td><td></td><td><code>1</code></td><td>启动同步环、虚拟 DC 维护和运行门禁服务。</td></tr>
+<tr><td><code>SYNC:STARt</code></td><td></td><td><code>1</code></td><td>启动同步环、边沿观测、DPLL 收敛和运行门禁服务。</td></tr>
 <tr><td><code>SYNC:STOP</code></td><td></td><td><code>1</code></td><td>停止同步服务，退出锁定态。</td></tr>
 <tr><td><code>SYNC:RELock</code></td><td></td><td><code>1</code></td><td>清除当前 offset/rate 估计并重新锁定；不清除校准表和同步配置。</td></tr>
 <tr><td><code>SYNC:HOLDover</code></td><td><code>0|1</code></td><td><code>1</code></td><td>进入或退出保持态；保持态只允许已装载队列完成。</td></tr>
@@ -870,10 +876,10 @@ READ:CALibration:HEALth? NODE</code></pre>
 <table class="compact">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>READ:SYNC:STATe?</code></td><td></td><td>state block</td><td>读取同步状态、锁定态、origin、seq、holdover 和 fault。</td></tr>
+<tr><td><code>READ:SYNC:STATe?</code></td><td></td><td>sync state block</td><td>读取同步状态、origin、seq、本地 tick、offset/rate、holdover 和 fault。</td></tr>
 <tr><td><code>READ:SYNC:PARameter?</code></td><td></td><td>param block</td><td>读取绑定校准表、环路、DPLL 和门禁参数。</td></tr>
 <tr><td><code>READ:SYNC:HEALth?</code></td><td></td><td>health block</td><td>读取 CRC、seq、drop、relock、e_vdc、late 和链路时效统计。</td></tr>
-<tr><td><code>READ:SYNC:NODE?</code></td><td><code>[node]</code></td><td>node block</td><td>读取单节点 offset、rate、last_seq、age 和链路健康度。</td></tr>
+<tr><td><code>READ:SYNC:NODE?</code></td><td><code>[node]</code></td><td>sync node block</td><td>读取单节点 local_tick、offset/rate、last_seq、age 和链路健康度。</td></tr>
 <tr><td><code>READ:SYNC:LINK?</code></td><td><code>[src_node,dst_node]</code></td><td>link table</td><td>读取 NODE delay、hop 方向、required/enabled 状态和校验结果。</td></tr>
 <tr><td><code>READ:SYNC:CHECk?</code></td><td></td><td>check block</td><td>读取最近一次同步检查结果和拒绝原因。</td></tr>
 </tbody>
@@ -884,7 +890,9 @@ READ:CALibration:HEALth? NODE</code></pre>
 <tbody>
 <tr><td><code>IDLE</code></td><td>未启动同步或已停止。</td><td>允许配置、加载、检查和启动。</td></tr>
 <tr><td><code>CHECKED</code></td><td>active 配置和拓扑检查通过。</td><td>允许 <code>SYNC:STARt</code>。</td></tr>
-<tr><td><code>LOCKING</code></td><td>正在估计 offset/rate。</td><td>允许读取状态、健康度和维护 DPLL 调试。</td></tr>
+<tr><td><code>FREE_RUN</code></td><td>只有本地晶振和 <code>local_tick</code>，尚未收到有效组网观测。</td><td>只允许维护查询和重新检查。</td></tr>
+<tr><td><code>OBSERVED</code></td><td>已收到有效 BiSS-C/RJ45 同步观测，但 offset/rate 尚未稳定。</td><td>自动进入 <code>LOCKING</code> 或按故障策略退出。</td></tr>
+<tr><td><code>LOCKING</code></td><td>DPLL 正在估计 offset/rate 并统计 e_vdc。</td><td>允许读取状态、健康度和维护 DPLL 调试。</td></tr>
 <tr><td><code>LOCKED</code></td><td>虚拟 DC 已锁定，满足运行门禁。</td><td>允许 TRIG RUN。</td></tr>
 <tr><td><code>HOLDOVER</code></td><td>短时失去同步帧，按保持策略运行。</td><td>不允许新增预约，只允许已装载队列完成。</td></tr>
 <tr><td><code>FAULT</code></td><td>CRC、seq、拓扑或门禁故障锁存。</td><td>读取证据后停止并清故障。</td></tr>
@@ -899,6 +907,17 @@ READ:CALibration:HEALth? NODE</code></pre>
 <tr><td>短时丢帧</td><td><code>LOCKED-&gt;HOLDOVER</code></td><td>等待重锁或执行 <code>SYNC:RELock</code>。</td></tr>
 <tr><td>e_vdc 超门限</td><td><code>LOCKED-&gt;LOCKING/FAULT</code></td><td>读取质量数据，排查链路或 profile。</td></tr>
 <tr><td>故障锁存</td><td><code>FAULT</code></td><td>读日志后 <code>SYSTem:FAULT:CLEAr</code>。</td></tr>
+</tbody>
+</table>
+<div class="section-title">CAL/SYNC/TRIG 门禁矩阵</div>
+<table class="compact">
+<thead><tr><th>当前状态</th><th>允许操作</th><th>拒绝操作</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>IDLE</code></td><td>配置、加载、保存、激活、<code>SYNC:CHECk</code>、<code>SYNC:STARt</code>、基础链路校准</td><td>无</td><td>改变时间基准的写操作必须回到 <code>IDLE</code> 后执行。</td></tr>
+<tr><td><code>CAL</code></td><td><code>CALibration:STARt</code>、<code>READ:CALibration:*?</code>、日志和故障查询</td><td><code>TRIGger:STARt</code>、active 切换</td><td>快速校准只写 staging，不切 active。</td></tr>
+<tr><td><code>SYNC FREE_RUN/OBSERVED/LOCKING</code></td><td><code>READ:SYNC:*?</code>、<code>SYNC:STOP</code>、<code>SYNC:RELock</code>、DPLL 调试覆盖</td><td><code>TRIGger:STARt</code>、active 切换</td><td>未锁定虚拟 DC 不能作为正式运行时间基准。</td></tr>
+<tr><td><code>SYNC LOCKED</code></td><td><code>TRIGger:STARt</code>、DEVICE/T2 测量、同步质量查询</td><td>active 切换、DPLL 调试覆盖</td><td>DEVICE/T2 可测量并写 staging，激活仍必须回 <code>IDLE</code>。</td></tr>
+<tr><td><code>TRIG RUN</code></td><td><code>READ:*?</code>、<code>TRIGger:STOP</code>、故障和分页数据读取</td><td>配置、校准、同步、DPLL 调试写入</td><td>上位机不逐点驱动 RUN 态。</td></tr>
 </tbody>
 </table>
   </div>
@@ -939,7 +958,7 @@ READ:CALibration:HEALth? NODE</code></pre>
 <tbody>
 <tr><td><code>param</code></td><td><code>cal_id, cal_crc</code><br><code>max_age_s, origin</code><br><code>node_order, period_us</code><br><code>bitrate, lock_window_ns</code><br><code>holdover_ms, dpll_profile</code></td><td>同步使用的校准表、环路配置、DPLL profile 和锁定判据。</td></tr>
 <tr><td><code>health</code></td><td><code>crc_count, seq_error</code><br><code>drop_count, relock_count</code><br><code>evdc_p99_ns, evdc_p999_ns</code><br><code>late_count</code></td><td>同步环健康度、虚拟 DC 残差和运行门禁依据。</td></tr>
-<tr><td><code>node</code></td><td><code>node, offset_tick</code><br><code>rate_q32, last_seq</code><br><code>age_ms, link_delay_ns</code></td><td>单节点虚拟 DC 估计结果和校准链路 delay 使用值。</td></tr>
+<tr><td><code>node</code></td><td><code>node, local_tick</code><br><code>offset_tick, rate_q32</code><br><code>last_seq, age_ms</code><br><code>link_delay_ns, lock_state</code></td><td>单节点本地 tick、DPLL 估计结果和校准链路 delay 使用值。</td></tr>
 <tr><td><code>check</code></td><td><code>check_state, cal_id</code><br><code>cal_crc, node_order</code><br><code>missing_link, expired_link</code><br><code>direction_mismatch, reject_reason</code></td><td>启动前定位缺失链路、过期校准表、方向错误和门禁拒绝原因。</td></tr>
 </tbody>
 </table>
@@ -947,8 +966,8 @@ READ:CALibration:HEALth? NODE</code></pre>
 <table class="compact">
 <thead><tr><th>字段</th><th>含义</th><th>规则</th></tr></thead>
 <tbody>
-<tr><td><code>node_order</code></td><td>同步环顺序。</td><td>首版固定 <code>A0&gt;A1&gt;A2&gt;A3&gt;A0</code>。</td></tr>
-<tr><td><code>required_link_count</code></td><td>必需 NODE 链路数量。</td><td>四板环路应为 4。</td></tr>
+<tr><td><code>node_order</code></td><td>同步环顺序。</td><td>产品默认 <code>A0&gt;A1&gt;A2&gt;A3&gt;A0</code>；调试 HIL 可为 <code>A0&gt;A1&gt;A2&gt;A3&gt;A4&gt;A0</code>。</td></tr>
+<tr><td><code>required_link_count</code></td><td>必需 NODE 链路数量。</td><td>产品四板环路为 4；A4 调试拓扑为 5。</td></tr>
 <tr><td><code>valid_link_count</code></td><td>有效同向链路数量。</td><td>必须等于 required 数。</td></tr>
 <tr><td><code>missing_link</code></td><td>缺失链路列表。</td><td>为空才允许启动。</td></tr>
 <tr><td><code>direction_mismatch</code></td><td>方向错误列表。</td><td>A0-&gt;A1 与 A1-&gt;A0 不能混用。</td></tr>
@@ -961,7 +980,8 @@ READ:CALibration:HEALth? NODE</code></pre>
 <tbody>
 <tr><td>配置检查</td><td>cal_id 存在、CRC 匹配、未过期、NODE 链路方向匹配。</td><td><code>READ:SYNC:LINK?</code></td></tr>
 <tr><td>启动同步</td><td>最近一次 active <code>SYNC:CHECk</code> 通过。</td><td><code>READ:SYNC:CHECk?</code></td></tr>
-<tr><td>进入 LOCKED</td><td>连续 <code>lock_count</code> 次 e_vdc 落入 <code>lock_window_ns</code>。</td><td><code>READ:SYNC:HEALth?</code></td></tr>
+<tr><td>进入 OBSERVED</td><td>至少收到一轮有效同步帧，seq/CRC 正常。</td><td><code>READ:SYNC:STATe?</code></td></tr>
+<tr><td>进入 LOCKED</td><td>连续 <code>lock_count</code> 次 e_vdc 落入 <code>lock_window_ns</code>，offset/rate 估计稳定。</td><td><code>READ:SYNC:HEALth?</code></td></tr>
 <tr><td>触发运行</td><td>required_lock=1 时必须 LOCKED，且 e_vdc、age、CRC 低于门限。</td><td><code>READ:SYNC:STATe?</code></td></tr>
 </tbody>
 </table>
@@ -1004,7 +1024,7 @@ READ:SYNC:STATe?</code></pre>
 <tbody>
 <tr><td><code>SYNC:SAVE</code></td><td><code>&lt;sync_id&gt;[,scope]</code></td><td><code>1</code></td><td>保存 staging 同步配置并生成 CRC；scope=ALL/CAL/RING/DPLL/GATE/LIMIT。</td></tr>
 <tr><td><code>SYNC:LOAD</code></td><td><code>&lt;sync_id&gt;</code></td><td><code>1</code></td><td>载入同步配置包到 staging，不立即影响 active。</td></tr>
-<tr><td><code>SYNC:ACTivate</code></td><td><code>&lt;sync_id&gt;</code></td><td><code>1</code></td><td>激活同步配置包；只允许在 IDLE 或 STOPPED 状态执行。</td></tr>
+<tr><td><code>SYNC:ACTivate</code></td><td><code>&lt;sync_id&gt;</code></td><td><code>1</code></td><td>激活同步配置包；只允许在 IDLE 状态执行。</td></tr>
 <tr><td><code>SYNC:ROLLback</code></td><td></td><td><code>1</code></td><td>恢复到上一次 active 同步配置包。</td></tr>
 <tr><td><code>READ:SYNC:LIST?</code></td><td></td><td>sync list</td><td>读取已保存配置包的 id、CRC、时间戳、scope 和 valid 标志。</td></tr>
 <tr><td><code>READ:SYNC:ACTive?</code></td><td></td><td>active block</td><td>读取 active/staging 配置、绑定校准表、CRC、修改标志和最近检查状态。</td></tr>
@@ -1047,7 +1067,7 @@ READ:SYNC:STATe?</code></pre>
 <tr><td><code>coef_source</code></td><td><code>DEFAULT/PROFILE/OVERRIDE</code></td><td>当前系数来源。</td></tr>
 </tbody>
 </table>
-<div class="note-box">校准质量门限和 DPLL 的调试覆盖均为易失态，不写入出厂默认 profile。同步质量门限统一由 CONFigure:SYNC:LIMit 管理；执行不带 key=value 的 profile 配置时清除同步门限临时覆盖。READ:CALibration:HEALth?、READ:SYNC:PARameter?、READ:SYNC:QUALity? 应返回 profile 展开值和 override 标志。DPLL 是实现稳态 DC 时钟的基础环路：它持续估计各节点相对 DC 的 offset/rate，并输出 LOCKING、LOCKED、HOLDOVER 等同步状态。T2/DEVICE 校准应在 DC LOCKED 后执行，用统一时间基准测得动作补偿；预测分发再使用稳态 DC + T2/动作补偿生成本地预约。调试覆盖只允许在 IDLE、STOPPED 或 LOCKING 使用；正式 TRIG RUN 禁止修改。同步 DPLL 不等同于扫描角度预测 DPLL。</div>
+<div class="note-box">校准质量门限和 DPLL 的调试覆盖均为易失态，不写入出厂默认 profile。同步质量门限统一由 CONFigure:SYNC:LIMit 管理；执行不带 key=value 的 profile 配置时清除同步门限临时覆盖。READ:CALibration:HEALth?、READ:SYNC:PARameter?、READ:SYNC:QUALity? 应返回 profile 展开值和 override 标志。DPLL 不产生物理时钟，而是把各节点本地晶振产生的 local_tick 映射到共同虚拟 DC；BiSS-C/RJ45 提供同步帧和边沿观测，DPLL 输出 FREE_RUN、OBSERVED、LOCKING、LOCKED、HOLDOVER 等同步状态。T2/DEVICE 校准应在 DC LOCKED 后执行；DPLL 调试覆盖只允许在 IDLE 或 LOCKING 使用，正式 TRIG RUN 禁止修改。同步 DPLL 不等同于扫描角度预测 DPLL。</div>
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
@@ -1094,6 +1114,16 @@ READ:SYNC:STATe?</code></pre>
 <tr><td>同步失锁</td><td>读取 <code>READ:SYNC:STATe?</code>、<code>READ:SYNC:HEALth?</code> 和 <code>READ:SYNC:LINK?</code>，确认 holdover、relock 和同步环健康度</td></tr>
 </tbody>
 </table>
+<div class="section-title">响应数据格式</div>
+<table class="compact">
+<thead><tr><th>block</th><th>字段</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td><code>sync state block</code></td><td><code>state,sync_id,cal_crc,node_order,origin,local_tick,dc_tick,offset_tick,rate_q32,last_seq,age_ms,holdover_ms,e_vdc_p99_ns,fault_code,reject_reason</code></td><td><code>READ:SYNC:STATe?</code> 固定字段；<code>local_tick</code> 是本地晶振 tick，<code>dc_tick</code> 是 DPLL 映射后的虚拟 DC。</td></tr>
+<tr><td><code>sync node block</code></td><td><code>node,role,local_tick,dc_tick,offset_tick,rate_q32,last_seq,age_ms,link_delay_ns,lock_state,crc_count,seq_error,stale,flags</code></td><td><code>READ:SYNC:NODE?</code> 固定字段；定位单节点观测、DPLL 估计和链路健康。</td></tr>
+<tr><td><code>core vector block</code></td><td><code>version,table_seq,core_count,core0_vtor_owner,core1_vtor_owner,core0_irq_owner_mask,core1_irq_owner_mask,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags</code></td><td>core0/core1 入口表、IRQ owner 和 guard 观测。</td></tr>
+<tr><td><code>runtime protection block</code></td><td><code>version,table_seq,ram_resident_required,flash_lockout_supported,flash_lockout_online,flash_lockout_requested,flash_lockout_acknowledged,park_state,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags</code></td><td>RAM-resident、flash lockout/park 和入口归属观测。</td></tr>
+</tbody>
+</table>
 <div class="section-title">指令域总览</div>
 <table class="compact">
 <thead><tr><th>域</th><th>用途</th><th>代表指令</th></tr></thead>
@@ -1107,11 +1137,21 @@ READ:SYNC:STATe?</code></pre>
 <tr><td><code>SYNC</code></td><td>同步业务域</td><td><code>SYNC:STARt</code>、<code>READ:SYNC:STATe?</code></td></tr>
 </tbody>
 </table>
+<div class="section-title">产品化边界</div>
+<table class="compact">
+<thead><tr><th>边界</th><th>规则</th></tr></thead>
+<tbody>
+<tr><td>同步</td><td>本地晶振先提供 <code>local_tick</code>，BiSS-C/RJ45 提供跨节点观测，同步 DPLL 收敛出稳态虚拟 DC。</td></tr>
+<tr><td>A4 调试节点</td><td>只用于早期软件调试和 HIL 回环，模拟网分与转台；产品运行不依赖 A4。</td></tr>
+<tr><td>外部位置源</td><td>外部 BiSS-C/SSI/RS422 编码器仅作为调试期通讯和位置源预留；当前产品同步不需要外部 BiSS-C 编码器。</td></tr>
+</tbody>
+</table>
 <div class="section-title">修订记录</div>
 <table class="compact">
 <thead><tr><th>版本</th><th>日期</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>0.7</code></td><td>2026-08-11</td><td>根据对话决策完整回顾细化校准和同步：补拒绝原因、标准链路清单、校准门禁、同步故障恢复、拓扑检查字段和 DPLL 调试范围。</td></tr>
+<tr><td><code>0.8</code></td><td>2026-08-11</td><td>根据独立评审细化指令表：明确 A4 调试节点边界、同步响应字段、统一 IDLE 状态、补 CAL/SYNC/TRIG 门禁矩阵、加入 core/vector/protection 诊断查询，并澄清外部 BiSS-C 仅为调试保留。</td></tr>
+<tr><td><code>0.7</code></td><td>2026-08-11</td><td>根据对话决策完整回顾细化校准和同步：补拒绝原因、标准链路清单、校准门禁、同步故障恢复、拓扑检查字段、DPLL 调试范围和虚拟 DC 收敛顺序。</td></tr>
 <tr><td><code>0.6</code></td><td>2026-08-11</td><td>按最初版页面架构扩展为校准三页和同步三页：校准指令、校准参数与流程、校准版本与质量、同步指令、同步参数与流程、同步版本与质量。</td></tr>
 <tr><td><code>0.3</code></td><td>2026-08-11</td><td>拆分 CAL / SYNC 两页，并补齐序列映射、故障清除、日志分页导出</td></tr>
 </tbody>

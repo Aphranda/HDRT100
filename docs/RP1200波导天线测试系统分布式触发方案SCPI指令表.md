@@ -1,10 +1,16 @@
 # RP1200波导天线测试系统分布式触发方案SCPI指令表
 
-版本：0.5  
-日期：2026-08-11  
-产品：DTC100 Distributed Trigger  
-接口：USBTMC / USB488  
-文档状态：Markdown 源文档，后续 HTML/PDF 由本文同步更新
+Status: Active
+Domain: SCPI
+Canonical: `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
+Related: `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/SCPI_COMMANDS.md`, `docs/RP1200_DTC100_对话决策完整回顾.md`
+Last updated: 2026-08-11
+
+版本：0.8
+日期：2026-08-11
+产品：DTC100 Distributed Trigger
+接口：USBTMC / USB488
+文档状态：Markdown 源文档，HTML 已同步到 0.8，后续 PDF 由本文同步导出
 
 ## 1. 文档约定
 
@@ -234,6 +240,10 @@ seq,node,channel,t2_tick,status,error_code,temperature
 | `SYSTem:CONFigure:NACK?` | `[reason_id]` | `reason block` | 读取 NACK reason 表，用于 UI 参数校验和故障提示 |
 | `SYSTem:REFM:STAT?` |  | `refmem block` | 读取 64KB 分布式向量表表头、版本、table_seq、节点心跳和 stale 状态 |
 | `SYSTem:REFM:NODE?` | `[node_id]` | `node block` | 读取指定节点镜像；省略时读取本节点 |
+| `SYSTem:CORE:VECT?` |  | `core vector block` | 读取 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态 |
+| `SYSTem:PROT:STAT?` |  | `runtime protection block` | 读取 RAM-resident、flash lockout/park、entry owner 和保护状态 |
+| `VDC:STAT?` / `STATus:VDC?` |  | `vdc block` | 兼容开发验证查询：读取虚拟 DC 任务 ready、lock_state、service_count 和 sync_seq |
+| `DPLL:STAT?` / `STATus:DPLL?` |  | `dpll block` | 兼容开发验证查询：读取转台/扫描 DPLL 任务 ready、state、service_count 和 update_seq |
 | `SYSTem:CONFigure:ROLE?` | `[node_id]` | `role block` | 查询 NodeRoleMap |
 | `SYSTem:CONFigure:LOOP?` | `[layer_id]` | `loop block` | 查询 LoopPlan 层级和数组循环编排 |
 | `SYSTem:CONFigure:ACT?` | `[action_id]` | `action block` | 查询 SP8T、SP2T、READY 等动作映射 |
@@ -265,7 +275,7 @@ seq,node,channel,t2_tick,status,error_code,temperature
 
 | 约束 | 规则 | 上位机处理 |
 |---|---|---|
-| 运行状态 | 只允许在 `IDLE`、`STOPPED` 或 `CAL` 模式执行 | 运行中拒绝时先 `TRIGger:STOP`，再重新校准 |
+| 运行状态 | 只允许在 `IDLE` 或 `CAL` 模式执行 | 运行中拒绝时先 `TRIGger:STOP`，系统回到 `IDLE` 后再重新校准 |
 | 链路存在 | `CALibration:STARt` 的端口对必须已在 LINK 表中登记 | 缺失时先执行 `CONFigure:CALibration:LINK:ADD` |
 | 失败保护 | 失败不覆盖旧 staging delay，只记录失败原因和原始计数 | 读取 `READ:CALibration:RESult?` 后决定是否重测 |
 | 同步影响 | 校准写入 staging；只有 `CALibration:ACTivate` 后才影响 SYNC | 激活后重新执行 `SYNC:CHECk` |
@@ -294,7 +304,7 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1
 | 对象 | 端口格式 | 说明 |
 |---|---|---|
 | `SMA` | `SMA,A0,OUT1,A1,IN1,delay_ns` | A0..A4 节点之间 SMA 输入/输出触发链路 delay |
-| `NODE` | `NODE,A0,RJ45,A1,RJ45,delay_ns` | RJ45 触发回传链路 delay；用于同步环 `A0->A1->A2->A3->A0` |
+| `NODE` | `NODE,A0,RJ45,A1,RJ45,delay_ns` | RJ45 触发回传链路 delay；产品同步环默认 `A0->A1->A2->A3->A0` |
 | `DEVICE` | `DEVICE,A1,SP8T,READY,delay_ns` | 稳态 DC 锁定后测得的设备动作/T2 delay，例如 SP8T、SP2T、VNA TRIG/READY |
 
 ### 7.2 标准链路清单
@@ -304,6 +314,10 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1
 | `NODE` | `A0,RJ45 -> A1,RJ45 -> A2,RJ45 -> A3,RJ45 -> A0,RJ45` | RJ45_SYNC_RING 完整环路，内部包含 4 个 required hop |
 | `SMA` | `<src_node>,OUT# -> <dst_node>,IN#` | SMA 触发链路按现场接线任意配置，不限定 A0 作为输出源 |
 | `DEVICE` | `A1,SP8T,READY` / `A2,SP2T,READY` / `A3,VNA,READY` | 在虚拟 DC `LOCKED` 后标定设备 READY/T2，形成预测分发使用的动作补偿 |
+
+A4 仅作为早期调试和 HIL 回环节点使用，可模拟转台和网分；当启用 A4 调试拓扑时，
+`NODE` 环可扩展为 `A0->A1->A2->A3->A4->A0`，required hop 为 5。
+产品运行拓扑仍以 A0..A3 四板为默认，不要求现场保留 A4。
 
 ### 7.3 delay 参数表
 
@@ -339,7 +353,7 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1
 |---|---|---|---|
 | `CALibration:SAVE` | `<cal_id>[,scope]` | `1` | 保存 staging 校准表并生成 CRC；scope=ALL/SMA/NODE/DEVICE |
 | `CALibration:LOAD` | `<cal_id>` | `1` | 把指定校准表载入 staging，不立即影响 active 表 |
-| `CALibration:ACTivate` | `<cal_id>` | `1` | 激活指定校准表；只允许在 IDLE 或 STOPPED 状态执行 |
+| `CALibration:ACTivate` | `<cal_id>` | `1` | 激活指定校准表；只允许在 IDLE 状态执行 |
 | `CALibration:ROLLback` |  | `1` | 恢复到上一次 active 校准表 |
 | `READ:CALibration:LIST?` |  | `cal list` | 读取已保存校准表的 `cal_id,crc,timestamp,scope,valid` |
 | `READ:CALibration:ACTive?` |  | `active block` | 读取 active / staging 校准表标识、CRC、保存状态和修改标志 |
@@ -386,14 +400,14 @@ READ:CALibration:HEALth? NODE
 
 ### 9.1 同步边界
 
-同步阶段的目标是让 DPLL 在 RJ45_SYNC_RING 上建立稳态虚拟 DC 时钟。active 校准表中的 NODE 链路 delay 只用于固定 hop 补偿和拓扑门禁；`SYNC:STARt` 不测 T2。只有虚拟 DC 进入 `LOCKED` 后，DEVICE/T2 校准才具备统一时间基准，后续预测分发使用稳态 DC + T2/动作补偿执行。
+同步阶段的目标是让 DPLL 在 BiSS-C/RJ45_SYNC_RING 观测上建立稳态虚拟 DC。时序上，本地晶振和 `local_tick` 先存在；同步帧只提供跨节点边沿观测；DPLL 根据本地时间戳、seq、CRC、链路 delay 和节点 age 估计 `offset/rate`，进入 `LOCKED` 后才形成可用于正式运行的共同虚拟 DC。active 校准表中的 NODE 链路 delay 只用于固定 hop 补偿和拓扑门禁；`SYNC:STARt` 不测 T2。只有虚拟 DC 进入 `LOCKED` 后，DEVICE/T2 校准才具备统一时间基准，后续预测分发使用稳态 DC + T2/动作补偿执行。
 
 ### 9.2 动作指令
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
 | `SYNC:CHECk` | `[ACTive|STAGing]` | `check block` | 校验校准表、NODE 链路、CRC、时效、方向和拓扑；省略为 ACTive |
-| `SYNC:STARt` |  | `1` | 启动同步环、虚拟 DC 维护和运行门禁服务 |
+| `SYNC:STARt` |  | `1` | 启动同步环、边沿观测、DPLL 收敛和运行门禁服务 |
 | `SYNC:STOP` |  | `1` | 停止同步服务，退出锁定态 |
 | `SYNC:RELock` |  | `1` | 清除当前 offset/rate 估计并重新锁定；不清除校准表和同步配置 |
 | `SYNC:HOLDover` | `0|1` | `1` | 进入或退出保持态；保持态只允许已装载队列完成 |
@@ -402,10 +416,10 @@ READ:CALibration:HEALth? NODE
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
-| `READ:SYNC:STATe?` |  | `state block` | 读取同步状态、锁定态、origin、seq、holdover 和 fault |
+| `READ:SYNC:STATe?` |  | `sync state block` | 读取同步状态、origin、seq、本地 tick、offset/rate、holdover 和 fault |
 | `READ:SYNC:PARameter?` |  | `param block` | 读取绑定校准表、环路、DPLL 和门禁参数 |
 | `READ:SYNC:HEALth?` |  | `health block` | 读取 CRC、seq、drop、relock、e_vdc、late 和链路时效统计 |
-| `READ:SYNC:NODE?` | `[node]` | `node block` | 读取单节点 offset、rate、last_seq、age 和链路健康度 |
+| `READ:SYNC:NODE?` | `[node]` | `sync node block` | 读取单节点 local_tick、offset/rate、last_seq、age 和链路健康度 |
 | `READ:SYNC:LINK?` | `[src_node,dst_node]` | `link table` | 读取 NODE delay、hop 方向、required/enabled 状态和校验结果 |
 | `READ:SYNC:CHECk?` |  | `check block` | 读取最近一次同步检查结果和拒绝原因 |
 
@@ -415,7 +429,9 @@ READ:CALibration:HEALth? NODE
 |---|---|---|
 | `IDLE` | 未启动同步或已停止 | 允许配置、加载、检查和启动 |
 | `CHECKED` | active 配置和拓扑检查通过 | 允许 `SYNC:STARt` |
-| `LOCKING` | 正在估计 offset/rate | 允许读取状态、健康度和维护 DPLL 调试 |
+| `FREE_RUN` | 只有本地晶振和 `local_tick`，尚未收到有效组网观测 | 只允许维护查询和重新检查 |
+| `OBSERVED` | 已收到有效 BiSS-C/RJ45 同步观测，但 offset/rate 尚未稳定 | 自动进入 `LOCKING` 或按故障策略退出 |
+| `LOCKING` | DPLL 正在估计 offset/rate 并统计 `e_vdc` | 允许读取状态、健康度和维护 DPLL 调试 |
 | `LOCKED` | 虚拟 DC 已锁定，满足运行门禁 | 允许 TRIG RUN |
 | `HOLDOVER` | 短时失去同步帧，按保持策略运行 | 不允许新增预约，只允许已装载队列完成 |
 | `FAULT` | CRC、seq、拓扑或门禁故障锁存 | 读取证据后停止并清故障 |
@@ -429,6 +445,17 @@ READ:CALibration:HEALth? NODE
 | 短时丢帧 | `LOCKED -> HOLDOVER` | 等待自动重锁或执行 `SYNC:RELock` |
 | e_vdc 超门限 | `LOCKED -> LOCKING/FAULT` | 读取质量数据，必要时调整 profile 或排查链路 |
 | 故障锁存 | `FAULT` | 读取日志、trace、snapshot 后执行 `SYSTem:FAULT:CLEAr` |
+
+### 9.6 CAL/SYNC/TRIG 门禁矩阵
+
+| 当前状态 | 允许操作 | 拒绝操作 | 说明 |
+|---|---|---|---|
+| `IDLE` | 配置、加载、保存、激活、`SYNC:CHECk`、`SYNC:STARt`、基础链路校准 | 无 | 所有会改变时间基准的写操作必须回到 `IDLE` 后执行 |
+| `CAL` | `CALibration:STARt`、`READ:CALibration:*?`、日志和故障查询 | `TRIGger:STARt`、`SYNC:ACTivate`、`CALibration:ACTivate` | 快速校准只写 staging，不切 active |
+| `SYNC FREE_RUN/OBSERVED/LOCKING` | `READ:SYNC:*?`、`SYNC:STOP`、`SYNC:RELock`、DPLL 调试覆盖 | `TRIGger:STARt`、校准/同步 active 切换 | 未锁定虚拟 DC 不能作为正式运行时间基准 |
+| `SYNC LOCKED` | `TRIGger:STARt`、DEVICE/T2 测量、同步质量查询 | 校准/同步 active 切换、DPLL 调试覆盖 | DEVICE/T2 可测量并写 staging，但激活仍必须回 `IDLE` |
+| `TRIG RUN` | `READ:*?`、`TRIGger:STOP`、故障和分页数据读取 | 配置、校准、同步、DPLL 调试写入 | 上位机不逐点驱动 RUN 态 |
+| `FAULT` | 故障证据读取、`SYSTem:FAULT:CLEAr`、`SYNC:STOP` | `TRIGger:STARt`、active 切换 | 清故障后回 `IDLE` 重新检查 |
 
 ## 10. 同步参数与流程
 
@@ -447,15 +474,15 @@ READ:CALibration:HEALth? NODE
 |---|---|---|
 | `param` | `cal_id, cal_crc`<br>`max_age_s, origin`<br>`node_order, period_us`<br>`bitrate, lock_window_ns`<br>`holdover_ms, dpll_profile` | 同步使用的校准表、环路配置、DPLL profile 和锁定判据 |
 | `health` | `crc_count, seq_error`<br>`drop_count, relock_count`<br>`evdc_p99_ns, evdc_p999_ns`<br>`late_count` | 同步环健康度、虚拟 DC 残差和运行门禁依据 |
-| `node` | `node, offset_tick`<br>`rate_q32, last_seq`<br>`age_ms, link_delay_ns` | 单节点虚拟 DC 估计结果和校准链路 delay 使用值 |
+| `node` | `node, local_tick`<br>`offset_tick, rate_q32`<br>`last_seq, age_ms`<br>`link_delay_ns, lock_state` | 单节点本地 tick、DPLL 估计结果和校准链路 delay 使用值 |
 | `check` | `check_state, cal_id`<br>`cal_crc, node_order`<br>`missing_link, expired_link`<br>`direction_mismatch, reject_reason` | 启动前定位缺失链路、过期校准表、方向错误和门禁拒绝原因 |
 
 ### 10.3 拓扑检查字段
 
 | 字段 | 含义 | 规则 |
 |---|---|---|
-| `node_order` | 同步环顺序 | 首版固定 `A0>A1>A2>A3>A0` |
-| `required_link_count` | 必需 NODE 链路数量 | 四板环路应为 4 |
+| `node_order` | 同步环顺序 | 产品默认 `A0>A1>A2>A3>A0`；调试 HIL 可为 `A0>A1>A2>A3>A4>A0` |
+| `required_link_count` | 必需 NODE 链路数量 | 产品四板环路为 4；A4 调试拓扑为 5 |
 | `valid_link_count` | active 校准表中有效同向链路数量 | 必须等于 required_link_count |
 | `missing_link` | 缺失链路列表 | 为空才允许启动 |
 | `direction_mismatch` | 方向错误列表 | A0->A1 与 A1->A0 不能混用 |
@@ -467,7 +494,8 @@ READ:CALibration:HEALth? NODE
 |---|---|---|
 | 配置检查 | cal_id 存在、CRC 匹配、未过期、NODE 链路方向匹配 | `READ:SYNC:LINK?` |
 | 启动同步 | 最近一次 active `SYNC:CHECk` 通过 | `READ:SYNC:CHECk?` |
-| 进入 LOCKED | 连续 `lock_count` 次 e_vdc 落入 `lock_window_ns` | `READ:SYNC:HEALth?` |
+| 进入 OBSERVED | 至少收到一轮有效同步帧，seq/CRC 正常 | `READ:SYNC:STATe?` |
+| 进入 LOCKED | 连续 `lock_count` 次 e_vdc 落入 `lock_window_ns`，offset/rate 估计稳定 | `READ:SYNC:HEALth?` |
 | 触发运行 | required_lock=1 时必须 LOCKED，且 e_vdc、age、CRC 低于门限 | `READ:SYNC:STATe?` |
 
 ```scpi
@@ -491,7 +519,7 @@ READ:SYNC:STATe?
 |---|---|---|---|
 | `SYNC:SAVE` | `<sync_id>[,scope]` | `1` | 保存 staging 同步配置并生成 CRC；scope=ALL/CAL/RING/DPLL/GATE/LIMIT |
 | `SYNC:LOAD` | `<sync_id>` | `1` | 载入同步配置包到 staging，不立即影响 active |
-| `SYNC:ACTivate` | `<sync_id>` | `1` | 激活同步配置包；只允许在 IDLE 或 STOPPED 状态执行 |
+| `SYNC:ACTivate` | `<sync_id>` | `1` | 激活同步配置包；只允许在 IDLE 状态执行 |
 | `SYNC:ROLLback` |  | `1` | 恢复到上一次 active 同步配置包 |
 | `READ:SYNC:LIST?` |  | `sync list` | 读取已保存配置包的 id、CRC、时间戳、scope 和 valid 标志 |
 | `READ:SYNC:ACTive?` |  | `active block` | 读取 active/staging 配置、绑定校准表、CRC、修改标志和最近检查状态 |
@@ -532,7 +560,7 @@ READ:SYNC:STATe?
 
 校准质量门限和 DPLL 的调试覆盖均为易失态，不写入出厂默认 profile。同步质量门限统一由 `CONFigure:SYNC:LIMit` 管理；执行不带 `key=value` 的 profile 配置时清除同步门限临时覆盖。`READ:CALibration:HEALth?`、`READ:SYNC:PARameter?`、`READ:SYNC:QUALity?` 应返回 profile 展开值和 override 标志。
 
-DPLL 是实现稳态 DC 时钟的基础环路：它持续估计各节点相对 DC 的 offset/rate，并输出 `LOCKING`、`LOCKED`、`HOLDOVER` 等同步状态。T2/DEVICE 校准应在 DC `LOCKED` 后执行，用统一时间基准测得动作补偿；预测分发再使用稳态 DC + T2/动作补偿生成本地预约。调试覆盖只允许在 `IDLE`、`STOPPED` 或 `LOCKING` 使用；正式 `TRIG RUN` 禁止修改。同步 DPLL 不等同于扫描角度预测 DPLL。
+DPLL 是实现稳态 DC 时钟的基础环路：它不产生物理时钟，而是把各节点本地晶振产生的 `local_tick` 映射到共同虚拟 DC。BiSS-C/RJ45 组网提供同步帧和边沿观测，DPLL 持续估计各节点相对 DC 的 offset/rate，并输出 `FREE_RUN`、`OBSERVED`、`LOCKING`、`LOCKED`、`HOLDOVER` 等同步状态。T2/DEVICE 校准应在 DC `LOCKED` 后执行，用统一时间基准测得动作补偿；预测分发再使用稳态 DC + T2/动作补偿生成本地预约。调试覆盖只允许在 `IDLE` 或 `LOCKING` 使用；正式 `TRIG RUN` 禁止修改。同步 DPLL 不等同于扫描角度预测 DPLL。
 
 ## 12. 维护指令
 
@@ -561,10 +589,16 @@ DPLL 是实现稳态 DC 时钟的基础环路：它持续估计各节点相对 D
 | block | 字段 | 用途 |
 |---|---|---|
 | `state block` | `state,sub_state,run_id,seq,progress,error_code,reject_reason` | 运行态、同步态、校准态通用状态读取 |
+| `sync state block` | `state,sync_id,cal_crc,node_order,origin,local_tick,dc_tick,offset_tick,rate_q32,last_seq,age_ms,holdover_ms,e_vdc_p99_ns,fault_code,reject_reason` | `READ:SYNC:STATe?` 固定字段；`local_tick` 是本地晶振 tick，`dc_tick` 是 DPLL 映射后的虚拟 DC |
+| `sync node block` | `node,role,local_tick,dc_tick,offset_tick,rate_q32,last_seq,age_ms,link_delay_ns,lock_state,crc_count,seq_error,stale,flags` | `READ:SYNC:NODE?` 固定字段；用于定位单节点观测、DPLL 估计和链路健康 |
 | `param block` | `id,crc,version,modified,field...` | 配置参数读取 |
 | `check block` | `check_state,target_config,crc_ok,topology_ok,gate_ok,reject_reason` | 启动前门禁和离线预检 |
 | `quality block` | `result,p99,p999,count,crc_error,seq_error,late_count,relock_count` | 同步和测试质量统计 |
 | `fault block` | `fault_code,source_node,first_ts,last_ts,evidence_seq,sticky,recoverable,text` | 故障锁存证据 |
+| `core vector block` | `version,table_seq,core_count,core0_vtor_owner,core1_vtor_owner,core0_irq_owner_mask,core1_irq_owner_mask,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags` | core0/core1 入口表、IRQ owner 和 guard 观测 |
+| `runtime protection block` | `version,table_seq,ram_resident_required,flash_lockout_supported,flash_lockout_online,flash_lockout_requested,flash_lockout_acknowledged,park_state,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags` | RAM-resident、flash lockout/park 和入口归属观测 |
+| `vdc block` | `ready,lock_state,service_count,first_service_ms,last_service_ms,sync_seq` | 开发验证兼容字段；产品上位机优先使用 `READ:SYNC:STATe?` |
+| `dpll block` | `ready,state,service_count,first_service_ms,last_service_ms,update_seq` | 开发验证兼容字段；用于扫描/转台 DPLL 任务观测 |
 
 ### 13.2 二进制 block
 
@@ -580,7 +614,7 @@ DPLL 是实现稳态 DC 时钟的基础环路：它持续估计各节点相对 D
 ```text
 #42048<2048 bytes payload>
 
-LOCKED,FIELD_SYNC_20260811,3A91C027,A0>A1>A2>A3>A0,0,0,42,18.6,73.2,0
+LOCKED,FIELD_SYNC_20260811,3A91C027,A0>A1>A2>A3>A0,A0,126400000,126398720,1280,4294967296,42,18,0,73,0,0
 ```
 
 所有分页数据必须包含：
@@ -597,18 +631,19 @@ crc
 | 边界 | 规则 |
 |---|---|
 | 校准 | NODE/SMA 基础链路校准提供固定 delay；DEVICE/T2 校准应在 DC `LOCKED` 后执行，形成预测分发用动作补偿 |
-| 同步 | 同步用 DPLL 建立稳态虚拟 DC 时钟；NODE 环路方向必须与 `node_order` 完全一致 |
-| DPLL | `SYNC:DPLL` 是实现稳态 DC 时钟的虚拟 offset/rate 环路；预测分发使用稳态 DC + T2/动作补偿，角度预测 DPLL 属于触发/扫描域 |
+| 同步 | 本地晶振先提供 `local_tick`，BiSS-C/RJ45 提供跨节点观测，同步 DPLL 收敛出稳态虚拟 DC；NODE 环路方向必须与 `node_order` 完全一致 |
+| DPLL | `SYNC:DPLL` 是实现虚拟 DC 的 offset/rate 收敛环路，不替代物理晶振；预测分发使用稳态 DC + T2/动作补偿，角度预测 DPLL 属于触发/扫描域 |
 | HOLDOVER | 首版为保守策略：只允许已装载队列完成，不接收新增预约 |
 | 上位机 | 上位机负责配置、启动、停止、读取状态和导出报告，不参与 RUN 态逐点实时决策 |
 | 反射内存 | 用于多节点共同事实和摘要，不承载精确触发边沿 |
+| A4 调试节点 | 只用于早期软件调试和 HIL 回环，模拟网分与转台；产品运行不依赖 A4 |
 
 ## 15. 保留项
 
 | 项目 | 说明 |
 |---|---|
 | 模型节点 | 分布式向量表按 8 节点预留，后续可加入模拟网分、模拟转台、模型 DUT 或产测代理 |
-| 外部位置源 | BiSS/SSI/RS422 位置源保留，不作为四板同步主环 |
+| 外部位置源 | 外部 BiSS-C/SSI/RS422 编码器仅作为调试期通讯和位置源预留；当前产品同步不需要外部 BiSS-C 编码器 |
 | 高级同步 | 外部 TDC、硬件参考时钟、光隔离同步链路可作为后续增强 |
 | 报告系统 | run_id、配置 CRC、校准 CRC、同步 CRC、T2/e_act/e_vdc/e_pll 统计需要进入批次报告 |
 
@@ -616,7 +651,8 @@ crc
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
-| `0.7` | 2026-08-11 | 根据对话决策完整回顾细化校准和同步：补拒绝原因、标准链路清单、校准门禁、同步故障恢复、拓扑检查字段和 DPLL 调试范围 |
+| `0.8` | 2026-08-11 | 根据独立评审细化指令表：明确 A4 调试节点边界、同步响应字段、统一 IDLE 状态、补 CAL/SYNC/TRIG 门禁矩阵、加入 core/vector/protection 诊断查询，并澄清外部 BiSS-C 仅为调试保留 |
+| `0.7` | 2026-08-11 | 根据对话决策完整回顾细化校准和同步：补拒绝原因、标准链路清单、校准门禁、同步故障恢复、拓扑检查字段、DPLL 调试范围和虚拟 DC 收敛顺序 |
 | `0.6` | 2026-08-11 | 按最初版页面架构扩展为校准三页和同步三页：校准指令、校准参数与流程、校准版本与质量、同步指令、同步参数与流程、同步版本与质量 |
 | `0.5` | 2026-08-11 | 按 `RP1200波导天线测试系统分布式触发方案SCPI指令表最初版.html` 复核格式和初始定义；回补设备信息、IEEE 488.2 完整基础指令、系统摘要查询、`SYSTem:REFM:*`、`READ:SEQuence:MAP?`，并将序列主模型恢复为自动展开状态表 + state_id 顺序引用 |
 | `0.4` | 2026-08-11 | 形成 Markdown 源文档；补齐业务配置、运行控制、校准短事务、校准追溯、SYNC staging/active、NODE 拓扑强校验、版本质量和 DPLL 调试边界 |

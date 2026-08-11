@@ -3,7 +3,7 @@
 Status: Draft
 Domain: RTOS
 Canonical: `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
-Related: `docs/RTOS_PORTING_PLAN.md`, `docs/MULTICORE_PARTITION_PLAN.md`, `docs/TRIGGER_SYNC_TODO.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_SUMMARY.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+Related: `docs/RTOS_PORTING_PLAN.md`, `docs/MULTICORE_PARTITION_PLAN.md`, `docs/TRIGGER_SYNC_TODO.md`, `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-10
 
 本文档把《RP1200波导天线 RP 分布式触发方案技术报告 0804》落成 RP2350_TRIG
@@ -328,6 +328,21 @@ RUN 态下，`task_loop_engine` 可以根据反射内存中的 ACK、stale、fau
 ## 分布式系统门禁
 
 四板分布式触发的产品化风险主要来自“各板认知不一致”。以下门禁必须先定义，再逐步实现。
+
+### 虚拟 DC 建立顺序
+
+虚拟 DC 不是 BiSS-C 线时钟直接产生，也不是 DPLL 替代本地晶振。产品化顺序固定为：
+
+```text
+local oscillator -> local_tick
+BiSS-C/RJ45 sync frame -> local timestamp observation
+DPLL -> offset/rate estimate
+LOCKED virtual DC -> FIRE_LOAD / T2 / e_act time base
+```
+
+也就是说，本地晶振和本地 tick 先存在；BiSS-C/RJ45 组网提供跨节点观测；DPLL
+在观测稳定后收敛出共同虚拟时间轴。`LOCKING` 前只能作为 provisional/free-run
+估计，不允许作为正式触发运行和 T2 统计的时间基准。
 
 ### 全局 Epoch 与版本
 

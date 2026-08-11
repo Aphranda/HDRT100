@@ -51,6 +51,38 @@ Last updated: 2026-08-10
 
 ## 任务记录
 
+### TASK-20260811-002 - RP1200 SCPI 指令表版本同步
+
+- 状态：完成
+- 日期：2026-08-11
+- 任务目标：
+  - 同步 `RP1200波导天线测试系统分布式触发方案SCPI指令表.md` 和 HTML 版的版本口径。
+  - 将 RP1200 / DTC100 产品级 SCPI 指令表补入文档索引。
+  - 固化虚拟 DC 的建立顺序：本地晶振先产生 `local_tick`，BiSS-C/RJ45 提供跨节点观测，DPLL 收敛出 `offset/rate` 和 `LOCKED` 虚拟 DC。
+- 完成内容：
+  - Markdown 顶部版本从 `0.5` 修正为 `0.7`，并标注 HTML 已同步到 0.7。
+  - HTML 封面补充 `版本 0.7`。
+  - `docs/README.md` 的 SCPI 文档入口补入 Markdown 源文档和 HTML 版。
+  - `docs/ARCH_PRODUCT_ARCHITECTURE.md`、`docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`、RP1200 SCPI 指令表和对话决策回顾已同步虚拟 DC 收敛顺序。
+  - `READ:SYNC:STATe?` 和 `READ:SYNC:NODE?` 的字段说明补入 `local_tick`、`offset/rate`、`lock_state`，同步状态机补入 `FREE_RUN` 和 `OBSERVED`。
+  - 补齐 RP1200 文档元数据、文档索引和 0804 摘要 Canonical，恢复 `docs_check` 通过。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，仍有 8 个历史命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 转换 warning。
+- 还需完成：
+  - 后续如生成 PDF，应以 Markdown 0.7 为源同步导出。
+  - 后续把产品级 SCPI 表和当前固件 `SCPI_COMMANDS.md` 做命令映射差异表。
+- 关联文件：
+  - `docs/ARCH_PRODUCT_ARCHITECTURE.md`
+  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/RP1200_DTC100_对话决策完整回顾.md`
+  - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
+  - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`
+  - `docs/README.md`
+  - `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`
+- 下一步：
+  - 继续把产品级 SCPI 表和当前固件 `SCPI_COMMANDS.md` 做命令映射差异表。
+
 ### TASK-20260811-001 - BiSS 组网 HIL preflight 脚本
 
 - 状态：完成
