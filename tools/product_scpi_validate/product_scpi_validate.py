@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate product SCPI framework commands over USB CDC.
+"""Validate product SCPI framework commands over USB CDC or USBTMC/VISA.
 
 The test list is generated from middleware/scpi_port/inc/scpi_product_commands.h
 and the expected fixed-response fields are generated from
