@@ -5,6 +5,7 @@ cmake-build-*/
 out/
 .tmp-edge-pdf/
 .tmp/
+DOC/
 
 # CMake generated files
 CMakeFiles/
@@ -130,12 +131,16 @@ third_party/scpi-parser/libscpi/src/**
 !third_party/scpi-parser/libscpi/src/error.c
 !third_party/scpi-parser/libscpi/src/expression.c
 !third_party/scpi-parser/libscpi/src/fifo.c
+!third_party/scpi-parser/libscpi/src/fifo_private.h
 !third_party/scpi-parser/libscpi/src/ieee488.c
 !third_party/scpi-parser/libscpi/src/lexer.c
+!third_party/scpi-parser/libscpi/src/lexer_private.h
 !third_party/scpi-parser/libscpi/src/minimal.c
 !third_party/scpi-parser/libscpi/src/parser.c
+!third_party/scpi-parser/libscpi/src/parser_private.h
 !third_party/scpi-parser/libscpi/src/units.c
 !third_party/scpi-parser/libscpi/src/utils.c
+!third_party/scpi-parser/libscpi/src/utils_private.h
 
 third_party/freertos/**
 !third_party/freertos/
