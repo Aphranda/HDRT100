@@ -625,9 +625,11 @@ core1 禁止：
 - [x] 定义 `SystemModeTable`、`ResourceArbiterTable` 和 `FaultCodeTable` 的只读查询接口，作为产品门禁和诊断入口。
   2026-08-10: 已新增 `SYST:MODE:TAB?`、`SYST:RESource:TAB?`、`SYST:FAULT:TAB?`，分别暴露系统模式、资源仲裁和产品故障码只读表。
 - [ ] 为所有共享表项统一补齐 `table_seq / slot_seq / owner / crc / stale / flags` 字段，保证反射内存口径一致。
+- [ ] 将 `table_seq / slot_seq / owner / crc / stale / flags` 统一纳入 CAL/SYNC 对外响应字段，至少覆盖 `link table`、`delay table`、`sync state block`、`sync node block`、`check block` 和 `quality block`。
 - [x] 增加 `SYST:REFM:STAT?` / `SYST:REFM:NODE?` 诊断命令。
   2026-08-10: P0 本地快照命令已接入，后续 stale/CRC/slot owner 完成后继续扩展字段语义。
 - [ ] 增加 `OK/STALE/MISSING/INVALID/FAULT` 节点新鲜度状态和 stale window 计数。
+- [ ] 将节点新鲜度状态纳入 `SYNC:CHECk`、`READ:SYNC:STATe?`、`READ:SYNC:NODE?` 和 TRIG RUN 门禁，明确 `STALE/MISSING/INVALID/FAULT` 的拒绝原因。
 
 ### P2 - 跨核通信
 
@@ -660,8 +662,9 @@ core1 禁止：
   2026-08-10: 当前先接入本地 `resource_arbiter` 快照和只读表查询；完整 `task_system` 模式切换 AO 仍留作后续演进。
 - [ ] 增加 `task_gateway_a3`，接收上位机配置、START/STOP 和数据查询。
 - [ ] 增加 `task_loop_engine` 的 A0 扫描状态机。
-- [x] 增加 RUN 态 SCPI 白名单和禁止命令错误码。
-  2026-08-10: `SYST:SCPI:RUN:ALLOW? [index]` 暴露 RUN 白名单策略表，关键触发/采样/时钟/BiSS/PCNT/Storage/OTA 写入口在 ARMED/RUN 态按表返回 `RUN_STATE_DENIED:2401` 或 `RESOURCE_BUSY:2402`。
+- [ ] 冻结测试/调试双上位机边界：最低 `TEST` 权限就是现场测试程序，必须覆盖 SCPI 指令表 P5-P7 现场测试业务页，包括 RUN 前装载测试 recipe、配置触发参数、扫描角度、角度脉冲、断点续测和 active sequence，执行 `SYNC:CHECk` 门禁，启动/暂停/继续/停止测试，RUN 中只从网分取数据并保留安全停止与只读状态，RUN 后读取 `SYSTem:RUN:*`、同步状态和故障摘要；`TEST` 的限制来自 IDLE/CONFIG/ARM/PAUSE/RUN 状态边界和 profile 开关，而不是把业务指令上提到 `DEBUG`。调试上位机按 `TEST < SERVICE < DEBUG < FACTORY` 四级单调继承权限开放不同调试功能，高级权限包含低级权限全部功能；`DEBUG+` 增加任意状态强控、外设联动、异常注入、状态机推进和越过常规现场流程的验证动作，用权限 profile + 状态策略表对任意状态下的查询、控制、排队和拒绝作出决策，但必须通过 core0 控制面、资源仲裁和 ACK 闭环，不能直接影响 core1 已装载边沿。
+- [x] 增加 RUN 态 SCPI 策略表和禁止命令错误码。
+  2026-08-10: `SYST:SCPI:RUN:ALLOW? [index]` 暴露 RUN 态策略表；命名保留 ALLOW，但语义为权限 profile 在 RUN 状态下的执行结果，关键触发/采样/时钟/BiSS/PCNT/Storage/OTA 写入口在 ARMED/RUN 态按表返回 `RUN_STATE_DENIED:2401` 或 `RESOURCE_BUSY:2402`。
 - [ ] 增加断点保存和恢复策略。
 
 ### P4 - RJ45_SYNC_RING、反射内存同步与虚拟 DC
@@ -672,6 +675,7 @@ core1 禁止：
 - [ ] 实现 slot delta 合并、slot_version、stale_count 和 CRC 检查。
 - [ ] 实现 A3 本地镜像查询，slot stale 时返回 stale 标志而不是阻塞跨板查询。
 - [ ] 实现 ACK/NACK/busy_flags 位图同步。
+- [ ] 将 CAL/SYNC 的 `SAVE/ACTivate/CHECk/STARt/STOP/RELock/HOLDover` 统一接入分布式 ACK 语义，SCPI 写命令只表示 accepted，完成态通过 `command_seq/target_mask/ack_flags/nack_flags/busy_flags/timeout_flags` 查询。
 - [ ] 实现 `REFMEM_DELTA`、`FIRE_LOAD`、`DONE/MEAS_DONE` 全部携带 epoch/run_id 或可回溯上下文。
 - [ ] 定义 RJ45 帧级 `table_seq / slot_seq / owner / stale / crc` 头字段，统一反射内存和跨板同步的可追溯性。
 - [ ] 实现 VDC offset/rate 更新、LOCK/HOLDOVER/RELOCK。
@@ -697,9 +701,11 @@ core1 禁止：
 - [ ] 实现 DPLL 角度预测状态机，输出 `T_fire_base`。
 - [ ] 区分 `e_pll` 和 `e_act`，统计口径不得混用。
 - [ ] 定义 HOLDOVER/RELOCK 策略：失锁、STALE、CRC 连错、RELOCK 后是否重新 ARM。
+- [ ] 固化保守 HOLDOVER/RELOCK 规则：RUN 中失锁或节点 stale 后停止新增 `FIRE_LOAD`；`SYNC:RELock` 只恢复 VDC 锁定，不自动恢复 RUN，必须重新通过 ARM/START 门禁。
 - [ ] 定义 `INFO/WARN/HOLDOVER/FAULT/INTERLOCK` 故障等级和统一 fault evidence 字段。
 - [ ] A3 接入 VNA READY/MEAS_DONE 状态桥接。
 - [ ] 实现 START 后硬件自循环，主机不逐点推进。
+- [ ] 实现 A0 角度脉冲外层循环：每收到一个转台目标角度脉冲推进 `angle_index`，完整执行一次 active sequence，并在扫描完成后锁存 RUN summary。
 - [ ] 将 `FaultCodeTable` 和 `SafetyFB` 接到 DPLL/Trigger/OTA 三域，统一故障等级、锁存条件和恢复路径。
 - [x] 定义 BiSS 组网 HIL 回环验证脚本入口。
   2026-08-11: 新增 `tools/distributed_loopback_validate/distributed_loopback_validate.py`，默认拓扑为 A3 单外部 COM + 内部 BiSSC 组网；A4 作为内部模拟板角色，脚本只打开 A3 串口并做 SCPI preflight，真实内部帧级闭环待固件协议落地后扩展。
@@ -717,6 +723,7 @@ core1 禁止：
 - [ ] README、SCPI 命令文档、HIL 工具和生产测试流程同步更新。
   2026-08-11: BiSS 组网 HIL preflight 工具已建立，后续还需补生产测试流程和真实闭环验收矩阵。
 - [ ] 给产品版发布门禁补一份固定测试矩阵：core0/core1 隔离、flash lockout、REFMEM delta、FIRE_LOAD/T2、OTA 事务、掉电恢复。
+- [ ] 给 CAL/SYNC 持久化路径补 flash/storage 资源仲裁验证：`CALibration:SAVE`、`SYNC:SAVE` 和配置落盘前必须确认系统处于 `IDLE/MAINT`，且 core1 已完成 park/lockout 或后端不触发 flash erase/program。
 - [ ] 给 `task_refmem_sync`、`task_vdc_sync`、`task_dpll`、`task_gateway_a3` 建立统一长稳回归用例和失败码映射。
 
 ## 当前进度与下一刀
@@ -812,7 +819,7 @@ rtos:     task_count 11; vdc_sync/dpll/cfg_gate/ui still visible; heap min free 
 `components/distributed_config/` 已落地静态 `NodeRoleMap` / `LoopPlan` / `ActionMap` /
 `Calibration` 数据源和本地一致性检查，并通过 `SYST:CFG:ROLE?` / `SYST:CFG:LOOP?` /
 `SYST:CFG:ACT?` / `SYST:CFG:CAL?` 暴露只读快照。下一步继续补 `CoreVectorOwnerTable`、
-`RuntimeProtectionTable`、分布式 ACK/NACK 原因码和 RUN 态命令白名单，不接跨板 RJ45
+`RuntimeProtectionTable`、分布式 ACK/NACK 原因码和 RUN 态命令策略表，不接跨板 RJ45
 同步和真实转台 DPLL 收敛。
 
 第五刀已经完成：
@@ -833,5 +840,5 @@ protect:  SYST:PROT:STAT? -> 1,<table_seq>,1,1,1,0,0,0,2,11,2,<guard_crc>,0,0
 smoke:    identity/build_id/core_heartbeat/loop_status/vdc_status/dpll_status/config_gate_status/config_snapshot_queries/runtime_protection_tables/trigger_seq/error_queue/log_stat/trace_last 13/13 PASS
 ```
 
-下一步继续补分布式 ACK/NACK reason、RUN 态 SCPI 白名单和 SystemMode/ResourceArbiter
+下一步继续补分布式 ACK/NACK reason、RUN 态 SCPI 策略表和 SystemMode/ResourceArbiter
 查询表，不接跨板 RJ45 同步和真实转台 DPLL 收敛。

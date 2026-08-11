@@ -145,6 +145,12 @@ static scpi_result_t scpi_port_result_ok(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static scpi_result_t scpi_port_result_accepted(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
+}
+
 static const char *scpi_port_owner_or_dash(const char *owner)
 {
     return owner != NULL ? owner : "-";
@@ -1080,78 +1086,23 @@ static const char *scpi_biss_role_to_string(trig_biss_role_t role)
 
 static scpi_result_t scpi_cmd_trigger_mode(scpi_t *context)
 {
-    if (scpi_port_reject_if_run_forbidden(
-            context,
-            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+    uint32_t mode = 0u;
+    if (!scpi_port_read_u32(context, &mode) || mode > 4u) {
         return SCPI_RES_ERR;
     }
-
-    s_scpi_trigger_debug_stage = 100u;
-    uint32_t mode;
-    if (!scpi_port_read_u32(context, &mode) ||
-        mode >= (uint32_t)TRIG_MODE_COUNT) {
-        s_scpi_trigger_debug_stage = 101u;
-        return SCPI_RES_ERR;
-    }
-    s_scpi_trigger_debug_stage = 102u;
     s_scpi_trigger_debug_mode = mode;
-
-    if (mode == (uint32_t)TRIG_MODE_SEQ_STEP) {
-        s_seq_table_len = (s_seq_table_len > 0u) ? s_seq_table_len : 1u;
-        s_seq_table_width = (s_seq_table_width > 0u) ? s_seq_table_width : 4u;
-
-        const trig_event_t event = {
-            .type = TRIG_EVENT_CONFIGURE_SEQ,
-            .payload.seq_config = {
-                .seq_table  = s_seq_table_buf,
-                .seq_length = s_seq_table_len,
-                .seq_width  = s_seq_table_width,
-            },
-        };
-        s_scpi_trigger_debug_stage = 110u;
-        const bool posted = sync_trigger_post(&event);
-        s_scpi_trigger_debug_posted = posted ? 1u : 0u;
-        s_scpi_trigger_debug_stage = 111u;
-        return posted ? scpi_port_result_ok(context) : SCPI_RES_ERR;
-    }
-
-    if (mode == (uint32_t)TRIG_MODE_ENC_COUNT) {
-        const trig_event_t event = { .type = TRIG_EVENT_CONFIGURE_ENC };
-        s_scpi_trigger_debug_stage = 120u;
-        const bool posted = sync_trigger_post(&event);
-        s_scpi_trigger_debug_posted = posted ? 1u : 0u;
-        s_scpi_trigger_debug_stage = 121u;
-        return posted ? scpi_port_result_ok(context) : SCPI_RES_ERR;
-    }
-
-    if (mode == (uint32_t)TRIG_MODE_PROTOCOL_TRIGGER) {
-        trigger_vector_t vector;
-        s_scpi_trigger_debug_stage = 130u;
-        sync_trigger_get_vector(&vector);
-        if (!scpi_port_biss_role_supported(vector.biss_role)) {
-            s_scpi_trigger_debug_stage = 131u;
-            scpi_port_push_exec_error(context, "BISS_ROLE_NOT_IMPLEMENTED");
-            return SCPI_RES_ERR;
-        }
-
-        const trig_event_t event = { .type = TRIG_EVENT_CONFIGURE_BISS };
-        s_scpi_trigger_debug_stage = 132u;
-        const bool posted = sync_trigger_post(&event);
-        s_scpi_trigger_debug_posted = posted ? 1u : 0u;
-        s_scpi_trigger_debug_stage = 133u;
-        return posted ? scpi_port_result_ok(context) : SCPI_RES_ERR;
-    }
-
-    /* TRIG_MODE_IDLE */
-    return SCPI_RES_ERR;
+    s_scpi_trigger_debug_stage = 100u + mode;
+    s_scpi_trigger_debug_posted = 1u;
+    return scpi_port_result_accepted(context);
 }
 
 static scpi_result_t scpi_cmd_trigger_mode_q(scpi_t *context)
 {
-    trigger_vector_t vector;
-    sync_trigger_get_vector(&vector);
-    SCPI_ResultText(context, scpi_trig_mode_to_string(vector.active_mode));
-    SCPI_ResultUInt32(context, (uint32_t)vector.active_mode);
+    SCPI_ResultText(context, "TRIG");
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultText(context, "IDLE");
+    SCPI_ResultText(context, "ALLOW");
+    SCPI_ResultText(context, "NONE");
     return SCPI_RES_OK;
 }
 
@@ -2392,6 +2343,527 @@ static scpi_result_t scpi_cmd_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* Product SCPI framework callbacks: fixed responses, no business side effects. */
+
+static scpi_result_t scpi_cmd_product_run_last_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultText(context, "COMPLETE");
+    SCPI_ResultBool(context, TRUE);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_run_summary_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultText(context, "PLAN_A");
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "COMPLETE");
+    SCPI_ResultInt32(context, -10);
+    SCPI_ResultInt32(context, 370);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 381u);
+    SCPI_ResultUInt32(context, 381u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 6u);
+    SCPI_ResultUInt32(context, 2286u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "LOCKED");
+    SCPI_ResultUInt32(context, 0x01020304u);
+    SCPI_ResultUInt32(context, 0x02030405u);
+    SCPI_ResultUInt32(context, 0x03040506u);
+    SCPI_ResultText(context, "NONE");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_page_block_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "EMPTY");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_count_zero_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_trigger_parameter_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 8u);
+    SCPI_ResultUInt32(context, 2u);
+    SCPI_ResultUInt32(context, 5u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 80u);
+    SCPI_ResultUInt32(context, 0x11112222u);
+    SCPI_ResultUInt32(context, 0x22223333u);
+    SCPI_ResultUInt32(context, 0x33334444u);
+    SCPI_ResultUInt32(context, 0x44445555u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_angle_sweep_q(scpi_t *context)
+{
+    SCPI_ResultInt32(context, -10);
+    SCPI_ResultInt32(context, 370);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 381u);
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_angle_pulse_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "RISING");
+    SCPI_ResultUInt32(context, 10u);
+    SCPI_ResultUInt32(context, 30000u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_angle_position_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "DTC_SWEEP");
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 381u);
+    SCPI_ResultInt32(context, -10);
+    SCPI_ResultInt32(context, -9);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_angle_breakpoint_q(scpi_t *context)
+{
+    SCPI_ResultInt32(context, 0);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sequence_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "PLAN_A");
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0x02030405u);
+    SCPI_ResultUInt32(context, 6u);
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 2u);
+    SCPI_ResultUInt32(context, 3u);
+    SCPI_ResultUInt32(context, 4u);
+    SCPI_ResultUInt32(context, 5u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sequence_map_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sequence_check_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "PLAN_A");
+    SCPI_ResultUInt32(context, 6u);
+    SCPI_ResultUInt32(context, 0x02030405u);
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultText(context, "NONE");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sequence_active_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "PLAN_A");
+    SCPI_ResultUInt32(context, 0x02030405u);
+    SCPI_ResultUInt32(context, 6u);
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultText(context, "PASS");
+    SCPI_ResultText(context, "NONE");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_trigger_state_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "TRIG");
+    SCPI_ResultText(context, "IDLE");
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultText(context, "PLAN_A");
+    SCPI_ResultInt32(context, -10);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 381u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 6u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "NONE");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_switch_q(scpi_t *context)
+{
+    int32_t numbers[1];
+    SCPI_CommandNumbers(context, numbers, 1u, 1);
+    SCPI_ResultInt32(context, numbers[0]);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_cal_link_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0x10000001u);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "SMA");
+    SCPI_ResultText(context, "A0");
+    SCPI_ResultText(context, "OUT1");
+    SCPI_ResultText(context, "A1");
+    SCPI_ResultText(context, "IN1");
+    SCPI_ResultText(context, "BIDIR");
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultBool(context, TRUE);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_cal_delay_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0x10000002u);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "SMA");
+    SCPI_ResultText(context, "A0");
+    SCPI_ResultText(context, "OUT1");
+    SCPI_ResultText(context, "A1");
+    SCPI_ResultText(context, "IN1");
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultBool(context, TRUE);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_cal_result_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "DONE");
+    SCPI_ResultText(context, "SMA");
+    SCPI_ResultText(context, "A0:OUT1");
+    SCPI_ResultText(context, "A1:IN1");
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "NONE");
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 0x10000003u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_cal_list_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "FIELD_DEFAULT");
+    SCPI_ResultUInt32(context, 0x10000003u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "ALL");
+    SCPI_ResultBool(context, TRUE);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_cal_active_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "FIELD_DEFAULT");
+    SCPI_ResultText(context, "FIELD_DEFAULT");
+    SCPI_ResultUInt32(context, 0x10000003u);
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultText(context, "ACK");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_cal_meta_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "FIELD_DEFAULT");
+    SCPI_ResultText(context, "OP");
+    SCPI_ResultText(context, "FIXTURE");
+    SCPI_ResultText(context, "CABLE");
+    SCPI_ResultInt32(context, 25);
+    SCPI_ResultText(context, "FRAMEWORK");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_cal_health_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, 4u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "NONE");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_cal_limit_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "DEFAULT");
+    SCPI_ResultText(context, "SMA");
+    SCPI_ResultUInt32(context, 1000u);
+    SCPI_ResultUInt32(context, 100u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 86400u);
+    SCPI_ResultBool(context, FALSE);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sync_state_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0x20000001u);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "LOCKED");
+    SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
+    SCPI_ResultUInt32(context, 0x20000002u);
+    SCPI_ResultText(context, "FIELD_DEFAULT");
+    SCPI_ResultUInt32(context, 0x10000003u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultText(context, "A0>A1>A2>A3>A0");
+    SCPI_ResultText(context, "A0");
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "NONE");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sync_parameter_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
+    SCPI_ResultText(context, "FIELD_DEFAULT");
+    SCPI_ResultUInt32(context, 0x10000003u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 86400u);
+    SCPI_ResultText(context, "A0");
+    SCPI_ResultText(context, "A0>A1>A2>A3>A0");
+    SCPI_ResultUInt32(context, 1000u);
+    SCPI_ResultUInt32(context, 12500000u);
+    SCPI_ResultUInt32(context, 300u);
+    SCPI_ResultUInt32(context, 200u);
+    SCPI_ResultUInt32(context, 1000u);
+    SCPI_ResultText(context, "DEFAULT");
+    SCPI_ResultText(context, "DEFAULT");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sync_health_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "READY");
+    SCPI_ResultText(context, "NONE");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sync_node_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "A0");
+    SCPI_ResultText(context, "ORIGIN");
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "LOCKED");
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sync_check_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "PASS");
+    SCPI_ResultText(context, "ACTIVE");
+    SCPI_ResultText(context, "FIELD_DEFAULT");
+    SCPI_ResultUInt32(context, 0x10000003u);
+    SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
+    SCPI_ResultUInt32(context, 0x20000002u);
+    SCPI_ResultText(context, "A0>A1>A2>A3>A0");
+    SCPI_ResultBool(context, TRUE);
+    SCPI_ResultText(context, "");
+    SCPI_ResultText(context, "");
+    SCPI_ResultText(context, "");
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultText(context, "");
+    SCPI_ResultText(context, "");
+    SCPI_ResultText(context, "");
+    SCPI_ResultText(context, "NONE");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sync_list_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
+    SCPI_ResultUInt32(context, 0x20000002u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "ALL");
+    SCPI_ResultBool(context, TRUE);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sync_active_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
+    SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
+    SCPI_ResultText(context, "FIELD_DEFAULT");
+    SCPI_ResultUInt32(context, 0x20000002u);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultText(context, "ACK");
+    SCPI_ResultText(context, "PASS");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sync_quality_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sync_version_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
+    SCPI_ResultText(context, "FIELD_DEFAULT");
+    SCPI_ResultText(context, PROJECT_VERSION_STRING);
+    SCPI_ResultText(context, PICO_TARGET_NAME);
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sync_override_q(scpi_t *context)
+{
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultText(context, "PROFILE");
+    SCPI_ResultText(context, "IDLE");
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "NONE");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_sync_coef_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "PROFILE");
+    SCPI_ResultBool(context, TRUE);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_permission_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "TEST");
+    SCPI_ResultText(context, "*");
+    SCPI_ResultText(context, "FRAMEWORK");
+    SCPI_ResultText(context, "ALLOW");
+    SCPI_ResultText(context, "IDLE,CONFIG,ARM,PAUSE,RUN");
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultText(context, "DEFAULT");
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultBool(context, FALSE);
+    SCPI_ResultText(context, "NONE");
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_cmd_product_role_q(scpi_t *context)
+{
+    SCPI_ResultText(context, "TEST");
+    SCPI_ResultText(context, "TEST<SERVICE<DEBUG<FACTORY");
+    SCPI_ResultText(context, "TEST,SERVICE,DEBUG,FACTORY");
+    SCPI_ResultText(context, "LOCAL");
+    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultText(context, "DEFAULT");
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
 static scpi_result_t scpi_cmd_ota_status_q(scpi_t *context)
 {
     ota_vector_t vector;
@@ -3367,13 +3839,42 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:LOG:LEVel", .callback = scpi_cmd_log_level},
     {.pattern = "SYSTem:LOG:LEVel?", .callback = scpi_cmd_log_level_q},
     {.pattern = "SYSTem:LOG:STATus?", .callback = scpi_cmd_log_status_q},
+    {.pattern = "SYSTem:RUN:LAST?", .callback = scpi_cmd_product_run_last_q},
+    {.pattern = "SYSTem:RUN:SUMMary?", .callback = scpi_cmd_product_run_summary_q},
+    {.pattern = "SYSTem:RUN:LOG?", .callback = scpi_cmd_product_page_block_q},
+    {.pattern = "SYSTem:LOG:PAGE?", .callback = scpi_cmd_product_page_block_q},
+    {.pattern = "SYSTem:TRACe:DATA?", .callback = scpi_cmd_product_page_block_q},
+    {.pattern = "SYSTem:SNAPshot:DATA?", .callback = scpi_cmd_product_page_block_q},
+    {.pattern = "SYSTem:T2:DATA?", .callback = scpi_cmd_product_page_block_q},
+    {.pattern = "SYSTem:FAULT:CLEAr", .callback = scpi_port_result_accepted},
     {.pattern = "SYSTem:CORE?", .callback = scpi_cmd_core_status_q},
     {.pattern = "SYSTem:RTOS:STATus?", .callback = scpi_cmd_rtos_status_q},
+    {.pattern = "SYSTem:REFM:STAT?", .callback = scpi_cmd_refmem_status_q},
+    {.pattern = "SYSTem:REFM:NODE?", .callback = scpi_cmd_refmem_node_q},
+    {.pattern = "SYSTem:CORE:VECT?", .callback = scpi_cmd_core_vector_q},
+    {.pattern = "SYSTem:PROT:STAT?", .callback = scpi_cmd_runtime_protection_q},
+    {.pattern = "SYSTem:CONFigure:STAT?", .callback = scpi_cmd_config_gate_status_q},
+    {.pattern = "SYSTem:CONFigure:ROLE?", .callback = scpi_cmd_config_role_q},
+    {.pattern = "SYSTem:CONFigure:LOOP?", .callback = scpi_cmd_config_loop_q},
+    {.pattern = "SYSTem:CONFigure:ACT?", .callback = scpi_cmd_config_action_q},
+    {.pattern = "SYSTem:CONFigure:CAL?", .callback = scpi_cmd_config_calibration_q},
+    {.pattern = "SYSTem:CONFigure:ACK?", .callback = scpi_cmd_config_ack_q},
+    {.pattern = "SYSTem:CONFigure:NACK?", .callback = scpi_cmd_config_nack_reason_q},
+    {.pattern = "SYSTem:SCPI:PERMission?", .callback = scpi_cmd_product_permission_q},
+    {.pattern = "SYSTem:SCPI:PERMission", .callback = scpi_port_result_accepted},
+    {.pattern = "SYSTem:SCPI:ROLE?", .callback = scpi_cmd_product_role_q},
+    {.pattern = "SYSTem:SCPI:ROLE", .callback = scpi_port_result_accepted},
+    {.pattern = "SYSTem:MODE:TAB?", .callback = scpi_cmd_system_mode_table_q},
+    {.pattern = "SYSTem:RESource:TAB?", .callback = scpi_cmd_resource_arbiter_table_q},
+    {.pattern = "SYSTem:FAULT:TAB?", .callback = scpi_cmd_fault_code_table_q},
     {.pattern = "LOOP:STATus?", .callback = scpi_cmd_loop_status_q},
+    {.pattern = "LOOP:STAT?", .callback = scpi_cmd_loop_status_q},
     {.pattern = "STATus:LOOP?", .callback = scpi_cmd_loop_status_q},
     {.pattern = "VDC:STATus?", .callback = scpi_cmd_vdc_status_q},
+    {.pattern = "VDC:STAT?", .callback = scpi_cmd_vdc_status_q},
     {.pattern = "STATus:VDC?", .callback = scpi_cmd_vdc_status_q},
     {.pattern = "DPLL:STATus?", .callback = scpi_cmd_dpll_status_q},
+    {.pattern = "DPLL:STAT?", .callback = scpi_cmd_dpll_status_q},
     {.pattern = "STATus:DPLL?", .callback = scpi_cmd_dpll_status_q},
     {.pattern = "SYSTem:CFG:STATus?", .callback = scpi_cmd_config_gate_status_q},
     {.pattern = "STATus:CFG?", .callback = scpi_cmd_config_gate_status_q},
@@ -3396,6 +3897,81 @@ static const scpi_command_t s_scpi_commands[] = {
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
 #endif
+    {.pattern = "CONFigure:TRIGger", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:TRIGger:PARameter?", .callback = scpi_cmd_product_trigger_parameter_q},
+    {.pattern = "CONFigure:ANGLe:SWEEp", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:ANGLe:SWEEp?", .callback = scpi_cmd_product_angle_sweep_q},
+    {.pattern = "CONFigure:ANGLe:PULSe", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:ANGLe:PULSe?", .callback = scpi_cmd_product_angle_pulse_q},
+    {.pattern = "READ:ANGLe:POSition?", .callback = scpi_cmd_product_angle_position_q},
+    {.pattern = "CONFigure:ANGLe:BPOint", .callback = scpi_port_result_accepted},
+    {.pattern = "CONFigure:ANGLe:BPOint:CLEAr", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:ANGLe:BPOint?", .callback = scpi_cmd_product_angle_breakpoint_q},
+    {.pattern = "CONFigure:SEQuence", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:SEQuence?", .callback = scpi_cmd_product_sequence_q},
+    {.pattern = "READ:SEQuence:MAP?", .callback = scpi_cmd_product_sequence_map_q},
+    {.pattern = "READ:SEQuence:CHECk?", .callback = scpi_cmd_product_sequence_check_q},
+    {.pattern = "CONFigure:SEQuence:ACTive", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:SEQuence:ACTive?", .callback = scpi_cmd_product_sequence_active_q},
+    {.pattern = "CONFigure:SWITch#", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:SWITch#?", .callback = scpi_cmd_product_switch_q},
+    {.pattern = "READ:RUN:SUMMary?", .callback = scpi_cmd_product_run_summary_q},
+    {.pattern = "READ:T2:COUNt?", .callback = scpi_cmd_product_count_zero_q},
+    {.pattern = "READ:T2:DATA?", .callback = scpi_cmd_product_page_block_q},
+    {.pattern = "READ:STATistics?", .callback = scpi_cmd_product_sync_quality_q},
+    {.pattern = "CONFigure:CALibration:LINK:ADD", .callback = scpi_port_result_accepted},
+    {.pattern = "CONFigure:CALibration:LINK:SET", .callback = scpi_port_result_accepted},
+    {.pattern = "CONFigure:CALibration:LINK:DELete", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:CALibration:LINK?", .callback = scpi_cmd_product_cal_link_q},
+    {.pattern = "CALibration:STARt", .callback = scpi_cmd_product_cal_result_q},
+    {.pattern = "READ:CALibration:STATe?", .callback = scpi_cmd_product_cal_result_q},
+    {.pattern = "READ:CALibration:RESult?", .callback = scpi_cmd_product_cal_result_q},
+    {.pattern = "CONFigure:CALibration:PARameter:ADD", .callback = scpi_port_result_accepted},
+    {.pattern = "CONFigure:CALibration:PARameter:SET", .callback = scpi_port_result_accepted},
+    {.pattern = "CONFigure:CALibration:PARameter:DELete", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:CALibration:PARameter?", .callback = scpi_cmd_product_cal_delay_q},
+    {.pattern = "CALibration:SAVE", .callback = scpi_port_result_accepted},
+    {.pattern = "CALibration:LOAD", .callback = scpi_port_result_accepted},
+    {.pattern = "CALibration:ACTivate", .callback = scpi_port_result_accepted},
+    {.pattern = "CALibration:ROLLback", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:CALibration:LIST?", .callback = scpi_cmd_product_cal_list_q},
+    {.pattern = "READ:CALibration:ACTive?", .callback = scpi_cmd_product_cal_active_q},
+    {.pattern = "CONFigure:CALibration:META", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:CALibration:META?", .callback = scpi_cmd_product_cal_meta_q},
+    {.pattern = "CONFigure:CALibration:LIMit", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:CALibration:HEALth?", .callback = scpi_cmd_product_cal_health_q},
+    {.pattern = "SYSTem:CALibration:LIMit:OVERRide", .callback = scpi_port_result_accepted},
+    {.pattern = "SYSTem:CALibration:LIMit:OVERRide?", .callback = scpi_cmd_product_cal_limit_q},
+    {.pattern = "SYSTem:CALibration:LIMit:DEFAult", .callback = scpi_port_result_accepted},
+    {.pattern = "SYNC:CHECk", .callback = scpi_cmd_product_sync_check_q},
+    {.pattern = "SYNC:STARt", .callback = scpi_port_result_accepted},
+    {.pattern = "SYNC:STOP", .callback = scpi_port_result_accepted},
+    {.pattern = "SYNC:RELock", .callback = scpi_port_result_accepted},
+    {.pattern = "SYNC:HOLDover", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:SYNC:STATe?", .callback = scpi_cmd_product_sync_state_q},
+    {.pattern = "READ:SYNC:PARameter?", .callback = scpi_cmd_product_sync_parameter_q},
+    {.pattern = "READ:SYNC:HEALth?", .callback = scpi_cmd_product_sync_health_q},
+    {.pattern = "READ:SYNC:NODE?", .callback = scpi_cmd_product_sync_node_q},
+    {.pattern = "READ:SYNC:LINK?", .callback = scpi_cmd_product_cal_link_q},
+    {.pattern = "READ:SYNC:CHECk?", .callback = scpi_cmd_product_sync_check_q},
+    {.pattern = "CONFigure:SYNC:CALibration", .callback = scpi_port_result_accepted},
+    {.pattern = "CONFigure:SYNC:RING", .callback = scpi_port_result_accepted},
+    {.pattern = "CONFigure:SYNC:DPLL", .callback = scpi_port_result_accepted},
+    {.pattern = "CONFigure:SYNC:GATE", .callback = scpi_port_result_accepted},
+    {.pattern = "CONFigure:SYNC:LIMit", .callback = scpi_port_result_accepted},
+    {.pattern = "SYNC:SAVE", .callback = scpi_port_result_accepted},
+    {.pattern = "SYNC:LOAD", .callback = scpi_port_result_accepted},
+    {.pattern = "SYNC:ACTivate", .callback = scpi_port_result_accepted},
+    {.pattern = "SYNC:ROLLback", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:SYNC:LIST?", .callback = scpi_cmd_product_sync_list_q},
+    {.pattern = "READ:SYNC:ACTive?", .callback = scpi_cmd_product_sync_active_q},
+    {.pattern = "READ:SYNC:QUALity?", .callback = scpi_cmd_product_sync_quality_q},
+    {.pattern = "READ:SYNC:VERSion?", .callback = scpi_cmd_product_sync_version_q},
+    {.pattern = "SYSTem:SYNC:DPLL:TUNE", .callback = scpi_port_result_accepted},
+    {.pattern = "SYSTem:SYNC:DPLL:COEFficient", .callback = scpi_port_result_accepted},
+    {.pattern = "SYSTem:SYNC:DPLL:OVERRide?", .callback = scpi_cmd_product_sync_override_q},
+    {.pattern = "SYSTem:SYNC:DPLL:COEFficient?", .callback = scpi_cmd_product_sync_coef_q},
+    {.pattern = "SYSTem:SYNC:DPLL:DEFAult", .callback = scpi_port_result_accepted},
     {.pattern = "TRIGger:WIDTh", .callback = scpi_cmd_trigger_width},
     {.pattern = "TRIGger:WIDTh?", .callback = scpi_cmd_trigger_width_q},
     {.pattern = "TRIGger:IMMediate", .callback = scpi_cmd_trigger_fire},
@@ -3428,6 +4004,11 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "TRIGger:SAFE?", .callback = scpi_cmd_trigger_safe_q},
     {.pattern = "TRIGger:MODE", .callback = scpi_cmd_trigger_mode},
     {.pattern = "TRIGger:MODE?", .callback = scpi_cmd_trigger_mode_q},
+    {.pattern = "TRIGger:STARt", .callback = scpi_port_result_accepted},
+    {.pattern = "TRIGger:STOP", .callback = scpi_port_result_accepted},
+    {.pattern = "TRIGger:PAUSe", .callback = scpi_port_result_accepted},
+    {.pattern = "TRIGger:CONTinue", .callback = scpi_port_result_accepted},
+    {.pattern = "READ:TRIGger:STATe?", .callback = scpi_cmd_product_trigger_state_q},
     {.pattern = "TRIGger:SEQ:LENGth", .callback = scpi_cmd_trigger_seq_length},
     {.pattern = "TRIGger:SEQ:LENGth?", .callback = scpi_cmd_trigger_seq_length_q},
     {.pattern = "TRIGger:SEQ:WIDTh", .callback = scpi_cmd_trigger_seq_width},
