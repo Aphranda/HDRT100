@@ -295,7 +295,7 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1
 |---|---|---|
 | `SMA` | `SMA,A0,OUT1,A1,IN1,delay_ns` | A0..A4 节点之间 SMA 输入/输出触发链路 delay |
 | `NODE` | `NODE,A0,RJ45,A1,RJ45,delay_ns` | RJ45 触发回传链路 delay；用于同步环 `A0->A1->A2->A3->A0` |
-| `DEVICE` | `DEVICE,A1,SP8T,READY,delay_ns` | 节点内部动作 delay，例如 SP8T、SP2T、VNA TRIG/READY、设备完成 T2 |
+| `DEVICE` | `DEVICE,A1,SP8T,READY,delay_ns` | 稳态 DC 锁定后测得的设备动作/T2 delay，例如 SP8T、SP2T、VNA TRIG/READY |
 
 ### 7.2 标准链路清单
 
@@ -303,7 +303,7 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1
 |---|---|---|
 | `NODE` | `A0,RJ45 -> A1,RJ45 -> A2,RJ45 -> A3,RJ45 -> A0,RJ45` | RJ45_SYNC_RING 完整环路，内部包含 4 个 required hop |
 | `SMA` | `<src_node>,OUT# -> <dst_node>,IN#` | SMA 触发链路按现场接线任意配置，不限定 A0 作为输出源 |
-| `DEVICE` | `A1,SP8T,READY` / `A2,SP2T,READY` / `A3,VNA,READY` | 节点内部动作或仪表 READY/T2 delay |
+| `DEVICE` | `A1,SP8T,READY` / `A2,SP2T,READY` / `A3,VNA,READY` | 在虚拟 DC `LOCKED` 后标定设备 READY/T2，形成预测分发使用的动作补偿 |
 
 ### 7.3 delay 参数表
 
@@ -386,7 +386,7 @@ READ:CALibration:HEALth? NODE
 
 ### 9.1 同步边界
 
-同步基于 active 校准表，不重新测 delay。校准表提供 NODE 链路固定 delay，DPLL 在此基础上维护虚拟 DC offset/rate，是实现 DC 时钟同步的基础。`SYNC:STARt` 只使用 active 同步配置，并要求最近一次 `SYNC:CHECk` 通过。
+同步阶段的目标是让 DPLL 在 RJ45_SYNC_RING 上建立稳态虚拟 DC 时钟。active 校准表中的 NODE 链路 delay 只用于固定 hop 补偿和拓扑门禁；`SYNC:STARt` 不测 T2。只有虚拟 DC 进入 `LOCKED` 后，DEVICE/T2 校准才具备统一时间基准，后续预测分发使用稳态 DC + T2/动作补偿执行。
 
 ### 9.2 动作指令
 
@@ -532,7 +532,7 @@ READ:SYNC:STATe?
 
 校准质量门限和 DPLL 的调试覆盖均为易失态，不写入出厂默认 profile。同步质量门限统一由 `CONFigure:SYNC:LIMit` 管理；执行不带 `key=value` 的 profile 配置时清除同步门限临时覆盖。`READ:CALibration:HEALth?`、`READ:SYNC:PARameter?`、`READ:SYNC:QUALity?` 应返回 profile 展开值和 override 标志。
 
-DPLL 是 DC 时钟同步的基础环路：校准 delay 用于补偿固定链路延时，DPLL 持续估计各节点相对 DC 的 offset/rate，并输出 `LOCKING`、`LOCKED`、`HOLDOVER` 等同步状态。调试覆盖只允许在 `IDLE`、`STOPPED` 或 `LOCKING` 使用；正式 `TRIG RUN` 禁止修改。同步 DPLL 不等同于扫描角度预测 DPLL。
+DPLL 是实现稳态 DC 时钟的基础环路：它持续估计各节点相对 DC 的 offset/rate，并输出 `LOCKING`、`LOCKED`、`HOLDOVER` 等同步状态。T2/DEVICE 校准应在 DC `LOCKED` 后执行，用统一时间基准测得动作补偿；预测分发再使用稳态 DC + T2/动作补偿生成本地预约。调试覆盖只允许在 `IDLE`、`STOPPED` 或 `LOCKING` 使用；正式 `TRIG RUN` 禁止修改。同步 DPLL 不等同于扫描角度预测 DPLL。
 
 ## 12. 维护指令
 
@@ -596,9 +596,9 @@ crc
 
 | 边界 | 规则 |
 |---|---|
-| 校准 | 校准只计算线缆或链路固定 delay，是快速短事务；结果先进入 staging，再保存和激活 |
-| 同步 | 同步基于 active 校准表，不重新测 delay；NODE 环路方向必须与 `node_order` 完全一致 |
-| DPLL | `SYNC:DPLL` 是实现 DC 时钟同步的虚拟 offset/rate 环路；角度预测 DPLL 属于触发/扫描域 |
+| 校准 | NODE/SMA 基础链路校准提供固定 delay；DEVICE/T2 校准应在 DC `LOCKED` 后执行，形成预测分发用动作补偿 |
+| 同步 | 同步用 DPLL 建立稳态虚拟 DC 时钟；NODE 环路方向必须与 `node_order` 完全一致 |
+| DPLL | `SYNC:DPLL` 是实现稳态 DC 时钟的虚拟 offset/rate 环路；预测分发使用稳态 DC + T2/动作补偿，角度预测 DPLL 属于触发/扫描域 |
 | HOLDOVER | 首版为保守策略：只允许已装载队列完成，不接收新增预约 |
 | 上位机 | 上位机负责配置、启动、停止、读取状态和导出报告，不参与 RUN 态逐点实时决策 |
 | 反射内存 | 用于多节点共同事实和摘要，不承载精确触发边沿 |
