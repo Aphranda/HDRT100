@@ -164,6 +164,27 @@
     width:56%;
     line-height:1.5;
   }
+  .dpll-range-table {
+    table-layout:fixed;
+  }
+  .dpll-range-table th:nth-child(1),
+  .dpll-range-table td:nth-child(1) {
+    width:14%;
+  }
+  .dpll-range-table th:nth-child(2),
+  .dpll-range-table td:nth-child(2) {
+    width:46%;
+  }
+  .dpll-range-table th:nth-child(3),
+  .dpll-range-table td:nth-child(3) {
+    width:40%;
+    line-height:1.5;
+  }
+  .dpll-range-table td:nth-child(2) code {
+    white-space:normal;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+  }
   code {
     font-family:Consolas,"Courier New",monospace;
     font-size:9.5px;
@@ -1014,7 +1035,7 @@ READ:SYNC:STATe?</code></pre>
 </tbody>
 </table>
 <div class="section-title">DPLL 调试范围</div>
-<table class="compact">
+<table class="compact dpll-range-table">
 <thead><tr><th>参数</th><th>范围</th><th>说明</th></tr></thead>
 <tbody>
 <tr><td><code>profile</code></td><td><code>DEFAULT</code> / <code>STRICT</code> / <code>RELAXED</code> / <code>FAST_LOCK</code> / <code>LOW_JITTER</code></td><td>业务配置只选择内置 profile。</td></tr>
