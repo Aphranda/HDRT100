@@ -143,6 +143,27 @@
     overflow-wrap:anywhere;
     word-break:break-word;
   }
+  .sync-version-table {
+    table-layout:fixed;
+  }
+  .sync-version-table th:nth-child(1),
+  .sync-version-table td:nth-child(1) {
+    width:17%;
+  }
+  .sync-version-table th:nth-child(2),
+  .sync-version-table td:nth-child(2) {
+    width:15%;
+  }
+  .sync-version-table th:nth-child(3),
+  .sync-version-table td:nth-child(3) {
+    width:12%;
+    line-height:1.45;
+  }
+  .sync-version-table th:nth-child(4),
+  .sync-version-table td:nth-child(4) {
+    width:56%;
+    line-height:1.5;
+  }
   code {
     font-family:Consolas,"Courier New",monospace;
     font-size:9.5px;
@@ -957,7 +978,7 @@ READ:SYNC:STATe?</code></pre>
   </div>
   <div class="main">
 <div class="section-title">版本管理</div>
-<table class="compact">
+<table class="compact sync-version-table">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
 <tr><td><code>SYNC:SAVE</code></td><td><code>&lt;sync_id&gt;[,scope]</code></td><td><code>1</code></td><td>保存 staging 同步配置并生成 CRC；scope=ALL/CAL/RING/DPLL/GATE/LIMIT。</td></tr>
