@@ -305,10 +305,7 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1
 
 | 类型 | 标准链路 | 说明 |
 |---|---|---|
-| `NODE` | `A0,RJ45 -> A1,RJ45` | RJ45_SYNC_RING 第 1 跳，required=1 |
-| `NODE` | `A1,RJ45 -> A2,RJ45` | RJ45_SYNC_RING 第 2 跳，required=1 |
-| `NODE` | `A2,RJ45 -> A3,RJ45` | RJ45_SYNC_RING 第 3 跳，required=1 |
-| `NODE` | `A3,RJ45 -> A0,RJ45` | RJ45_SYNC_RING 回环，required=1 |
+| `NODE` | `A0,RJ45 -> A1,RJ45 -> A2,RJ45 -> A3,RJ45 -> A0,RJ45` | RJ45_SYNC_RING 完整环路，内部包含 4 个 required hop |
 | `SMA` | `A0,OUT# -> A1/2/3,IN#` | 触发脉冲外部线缆或近端 SMA 链路 |
 | `DEVICE` | `A1,SP8T,READY` / `A2,SP2T,READY` / `A3,VNA,READY` | 节点内部动作或仪表 READY/T2 delay |
 

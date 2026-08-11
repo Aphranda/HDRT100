@@ -659,10 +659,7 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1</code></pre>
 <table class="compact">
 <thead><tr><th>类型</th><th>标准链路</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>NODE</code></td><td><code>A0,RJ45-&gt;A1,RJ45</code></td><td>RJ45_SYNC_RING 第 1 跳，required=1。</td></tr>
-<tr><td><code>NODE</code></td><td><code>A1,RJ45-&gt;A2,RJ45</code></td><td>第 2 跳，required=1。</td></tr>
-<tr><td><code>NODE</code></td><td><code>A2,RJ45-&gt;A3,RJ45</code></td><td>第 3 跳，required=1。</td></tr>
-<tr><td><code>NODE</code></td><td><code>A3,RJ45-&gt;A0,RJ45</code></td><td>回环，required=1。</td></tr>
+<tr><td><code>NODE</code></td><td><code>A0,RJ45-&gt;A1,RJ45-&gt;A2,RJ45-&gt;A3,RJ45-&gt;A0,RJ45</code></td><td>RJ45_SYNC_RING 完整环路，内部包含 4 个 required hop。</td></tr>
 <tr><td><code>SMA</code></td><td><code>A0,OUT#-&gt;A1/2/3,IN#</code></td><td>触发脉冲外部或近端 SMA 链路。</td></tr>
 <tr><td><code>DEVICE</code></td><td><code>SP8T/SP2T/VNA READY</code></td><td>节点内部动作或仪表 READY/T2 delay。</td></tr>
 </tbody>
