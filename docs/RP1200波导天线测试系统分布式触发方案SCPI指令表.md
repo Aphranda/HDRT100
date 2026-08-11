@@ -244,11 +244,7 @@ seq,node,channel,t2_tick,status,error_code,temperature
 
 ## 6. 校准指令
 
-### 6.1 校准边界
-
-校准是快速短事务，只计算线缆或触发链路固定 delay。`CALibration:STARt` 必须明确输入端和输出端，响应前完成测量；失败不覆盖旧 staging 数据。
-
-### 6.2 链路表维护
+### 6.1 链路表维护
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
@@ -257,7 +253,7 @@ seq,node,channel,t2_tick,status,error_code,temperature
 | `CONFigure:CALibration:LINK:DELete` | `<type>,<src_node>,<src_port>,<dst_node>,<dst_port>[,DEL]` | `1` | 删除链路；带 `DEL` 时同时删除该链路校准数据 |
 | `READ:CALibration:LINK?` | `[type,src_node,src_port,dst_node,dst_port]` | `link table` | 读取链路清单、方向、使能、必需标志和当前 delay 是否有效 |
 
-### 6.3 校准动作
+### 6.2 校准动作
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
@@ -265,7 +261,7 @@ seq,node,channel,t2_tick,status,error_code,temperature
 | `READ:CALibration:STATe?` | `[type,src_node,src_port,dst_node,dst_port]` | `state block` | 读取最近一次或指定链路校准状态；快速事务通常返回 DONE/FAIL |
 | `READ:CALibration:RESult?` | `[type,src_node,src_port,dst_node,dst_port]` | `result block` | 读取最近一次校准结果、delay、jitter、样本数和失败原因 |
 
-### 6.4 执行约束
+### 6.3 执行约束
 
 | 约束 | 规则 | 上位机处理 |
 |---|---|---|
@@ -274,7 +270,7 @@ seq,node,channel,t2_tick,status,error_code,temperature
 | 失败保护 | 失败不覆盖旧 staging delay，只记录失败原因和原始计数 | 读取 `READ:CALibration:RESult?` 后决定是否重测 |
 | 同步影响 | 校准写入 staging；只有 `CALibration:ACTivate` 后才影响 SYNC | 激活后重新执行 `SYNC:CHECk` |
 
-### 6.5 拒绝原因
+### 6.4 拒绝原因
 
 | `reject_reason` | 含义 | 处理 |
 |---|---|---|
