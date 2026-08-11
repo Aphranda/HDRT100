@@ -756,8 +756,11 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1</code></pre>
 <tbody>
 <tr><td><code>CONFigure:CALibration:META</code></td><td><code>&lt;cal_id&gt;,&lt;operator&gt;,&lt;fixture_id&gt;,&lt;cable_id&gt;,&lt;temperature_c&gt;,&lt;note&gt;</code></td><td><code>1</code></td><td>写入 staging 校准表追溯信息。</td></tr>
 <tr><td><code>READ:CALibration:META?</code></td><td><code>[cal_id]</code></td><td>meta block</td><td>读取校准表追溯信息。</td></tr>
-<tr><td><code>CONFigure:CALibration:LIMit</code></td><td><code>&lt;type&gt;,&lt;max_delay_ns&gt;,&lt;max_jitter_ns&gt;,&lt;min_count&gt;,&lt;max_age_s&gt;</code></td><td><code>1</code></td><td>配置校准质量门限。</td></tr>
+<tr><td><code>CONFigure:CALibration:LIMit</code></td><td><code>&lt;profile&gt;</code></td><td><code>1</code></td><td>选择校准质量门限档位；完整门限由固件 profile 展开。</td></tr>
 <tr><td><code>READ:CALibration:HEALth?</code></td><td><code>[type]</code></td><td>health table</td><td>读取缺失、过期、jitter 超限和可用于 SYNC 的 NODE 链路数量。</td></tr>
+<tr><td><code>SYSTem:CALibration:LIMit:OVERRide</code></td><td><code>&lt;type&gt;,&lt;key=value&gt;[,...]</code></td><td><code>1</code></td><td>调试接口：按需覆盖指定类型的校准质量门限；未写字段保持 profile 展开值。</td></tr>
+<tr><td><code>SYSTem:CALibration:LIMit:OVERRide?</code></td><td><code>[type]</code></td><td>limit block</td><td>调试接口：读取 profile 展开后的完整校准门限和覆盖状态。</td></tr>
+<tr><td><code>SYSTem:CALibration:LIMit:DEFAult</code></td><td><code>[type]</code></td><td><code>1</code></td><td>清除调试覆盖，恢复 profile 门限。</td></tr>
 </tbody>
 </table>
 <div class="section-title">生命周期与质量字段</div>
@@ -969,7 +972,7 @@ READ:SYNC:STATe?</code></pre>
 <table class="compact quality-dpll-table">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>CONFigure:SYNC:LIMit</code></td><td><code>&lt;max_crc&gt;,&lt;max_seq&gt;,&lt;max_drop&gt;,&lt;max_relock&gt;,&lt;max_evdc_p99_ns&gt;,&lt;max_evdc_p999_ns&gt;,&lt;min_lock_count&gt;</code></td><td><code>1</code></td><td>配置同步质量门限。</td></tr>
+<tr><td><code>CONFigure:SYNC:LIMit</code></td><td><code>&lt;profile&gt;[,&lt;key=value&gt;[,...]]</code></td><td><code>1</code></td><td>选择同步质量门限档位；调试时可追加字段覆盖，未写字段保持 profile 展开值。</td></tr>
 <tr><td><code>READ:SYNC:QUALity?</code></td><td><code>[sync_id]</code></td><td>quality block</td><td>读取质量结论、e_vdc 分布、错误计数、重锁计数、链路年龄和门禁拒绝原因。</td></tr>
 <tr><td><code>READ:SYNC:VERSion?</code></td><td></td><td>version block</td><td>读取同步配置版本、绑定校准版本、固件版本、硬件 profile 和最近激活时间。</td></tr>
 <tr><td><code>SYSTem:SYNC:DPLL:TUNE</code></td><td><code>&lt;bandwidth_hz&gt;,&lt;damping&gt;,&lt;max_slew_ppm&gt;</code></td><td><code>1</code></td><td>按等效传递函数参数覆盖虚拟环路滤波器，仅用于调试。</td></tr>
@@ -993,14 +996,16 @@ READ:SYNC:STATe?</code></pre>
 <table class="compact">
 <thead><tr><th>参数</th><th>范围</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>profile</code></td><td><code>DEFAULT</code> / <code>FAST_LOCK</code> / <code>LOW_JITTER</code></td><td>业务配置只选择内置 profile。</td></tr>
+<tr><td><code>profile</code></td><td><code>DEFAULT</code> / <code>STRICT</code> / <code>RELAXED</code> / <code>FAST_LOCK</code> / <code>LOW_JITTER</code></td><td>业务配置只选择内置 profile。</td></tr>
+<tr><td><code>cal_limit key</code></td><td><code>max_delay_ns</code> / <code>max_jitter_ns</code> / <code>min_count</code> / <code>max_age_s</code></td><td>校准调试覆盖字段，可只写需要临时调整的字段。</td></tr>
+<tr><td><code>sync_limit key</code></td><td><code>max_crc</code> / <code>max_seq</code> / <code>max_drop</code> / <code>max_relock</code> / <code>max_evdc_p99_ns</code> / <code>max_evdc_p999_ns</code> / <code>min_lock_count</code></td><td>同步调试覆盖字段，可只写需要临时调整的字段。</td></tr>
 <tr><td><code>bandwidth_hz</code></td><td><code>0.01 .. 20</code></td><td>维护调试环路带宽。</td></tr>
 <tr><td><code>damping</code></td><td><code>0.3 .. 2.0</code></td><td>维护调试阻尼系数。</td></tr>
 <tr><td><code>max_slew_ppm</code></td><td><code>1 .. 200</code></td><td>offset/rate 修正限幅。</td></tr>
 <tr><td><code>coef_source</code></td><td><code>DEFAULT/PROFILE/OVERRIDE</code></td><td>当前系数来源。</td></tr>
 </tbody>
 </table>
-<div class="note-box">DPLL 是 DC 时钟同步的基础环路：校准 delay 用于补偿固定链路延时，DPLL 持续估计各节点相对 DC 的 offset/rate，并输出 LOCKING、LOCKED、HOLDOVER 等同步状态。调试覆盖只允许在 IDLE、STOPPED 或 LOCKING 使用；正式 TRIG RUN 禁止修改。同步 DPLL 不等同于扫描角度预测 DPLL。</div>
+<div class="note-box">校准质量门限和 DPLL 的调试覆盖均为易失态，不写入出厂默认 profile。同步质量门限统一由 CONFigure:SYNC:LIMit 管理；执行不带 key=value 的 profile 配置时清除同步门限临时覆盖。READ:CALibration:HEALth?、READ:SYNC:PARameter?、READ:SYNC:QUALity? 应返回 profile 展开值和 override 标志。DPLL 是 DC 时钟同步的基础环路：校准 delay 用于补偿固定链路延时，DPLL 持续估计各节点相对 DC 的 offset/rate，并输出 LOCKING、LOCKED、HOLDOVER 等同步状态。调试覆盖只允许在 IDLE、STOPPED 或 LOCKING 使用；正式 TRIG RUN 禁止修改。同步 DPLL 不等同于扫描角度预测 DPLL。</div>
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
