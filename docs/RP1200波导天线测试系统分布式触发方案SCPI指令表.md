@@ -302,7 +302,7 @@ READ:CALibration:RESult? SMA,A0,OUT1,A1,IN1
 | 类型 | 标准链路 | 说明 |
 |---|---|---|
 | `NODE` | `A0,RJ45 -> A1,RJ45 -> A2,RJ45 -> A3,RJ45 -> A0,RJ45` | RJ45_SYNC_RING 完整环路，内部包含 4 个 required hop |
-| `SMA` | `A0,OUT# -> A1/2/3,IN#` | 触发脉冲外部线缆或近端 SMA 链路 |
+| `SMA` | `<src_node>,OUT# -> <dst_node>,IN#` | SMA 触发链路按现场接线任意配置，不限定 A0 作为输出源 |
 | `DEVICE` | `A1,SP8T,READY` / `A2,SP2T,READY` / `A3,VNA,READY` | 节点内部动作或仪表 READY/T2 delay |
 
 ### 7.3 delay 参数表
@@ -442,10 +442,10 @@ READ:CALibration:HEALth? NODE
 
 | 字段组 | 字段 | 说明 |
 |---|---|---|
-| `param` | `cal_id,cal_crc,max_age_s,origin,node_order,period_us,bitrate,lock_window_ns,holdover_ms,dpll_profile` | 同步使用的校准表、环路配置、DPLL profile 和锁定判据 |
-| `health` | `crc_count,seq_error,drop_count,relock_count,evdc_p99_ns,evdc_p999_ns,late_count` | 同步环健康度、虚拟 DC 残差和运行门禁依据 |
-| `node` | `node,offset_tick,rate_q32,last_seq,age_ms,link_delay_ns` | 单节点虚拟 DC 估计结果和校准链路 delay 使用值 |
-| `check` | `check_state,cal_id,cal_crc,node_order,missing_link,expired_link,direction_mismatch,reject_reason` | 启动前定位缺失链路、过期校准表、方向错误和门禁拒绝原因 |
+| `param` | `cal_id, cal_crc`<br>`max_age_s, origin`<br>`node_order, period_us`<br>`bitrate, lock_window_ns`<br>`holdover_ms, dpll_profile` | 同步使用的校准表、环路配置、DPLL profile 和锁定判据 |
+| `health` | `crc_count, seq_error`<br>`drop_count, relock_count`<br>`evdc_p99_ns, evdc_p999_ns`<br>`late_count` | 同步环健康度、虚拟 DC 残差和运行门禁依据 |
+| `node` | `node, offset_tick`<br>`rate_q32, last_seq`<br>`age_ms, link_delay_ns` | 单节点虚拟 DC 估计结果和校准链路 delay 使用值 |
+| `check` | `check_state, cal_id`<br>`cal_crc, node_order`<br>`missing_link, expired_link`<br>`direction_mismatch, reject_reason` | 启动前定位缺失链路、过期校准表、方向错误和门禁拒绝原因 |
 
 ### 10.3 拓扑检查字段
 
