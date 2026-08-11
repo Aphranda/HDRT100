@@ -383,7 +383,7 @@ READ:CALibration:HEALth? NODE
 
 ### 9.1 同步边界
 
-同步基于 active 校准表，不重新测 delay。`SYNC:STARt` 只使用 active 同步配置，并要求最近一次 `SYNC:CHECk` 通过。
+同步基于 active 校准表，不重新测 delay。校准表提供 NODE 链路固定 delay，DPLL 在此基础上维护虚拟 DC offset/rate，是实现 DC 时钟同步的基础。`SYNC:STARt` 只使用 active 同步配置，并要求最近一次 `SYNC:CHECk` 通过。
 
 ### 9.2 动作指令
 
@@ -435,7 +435,7 @@ READ:CALibration:HEALth? NODE
 |---|---|---|---|
 | `CONFigure:SYNC:CALibration` | `<cal_id>,<cal_crc>,<max_age_s>` | `1` | 绑定同步使用的校准表到 staging 配置 |
 | `CONFigure:SYNC:RING` | `<origin>,<node_order>,<period_us>,<bitrate>,<timeout_ms>,<crc_limit>` | `1` | 配置 RJ45_SYNC_RING；`node_order` 每一跳必须匹配同方向 NODE 校准链路 |
-| `CONFigure:SYNC:DPLL` | `<lock_window_ns>,<lock_count>,<holdover_ms>,<relock_ms>,<profile>` | `1` | 配置虚拟 DC offset/rate 环路的锁定、保持和重锁判据 |
+| `CONFigure:SYNC:DPLL` | `<lock_window_ns>,<lock_count>,<holdover_ms>,<relock_ms>,<profile>` | `1` | 配置虚拟 DC 时钟同步 DPLL 的锁定、保持和重锁判据 |
 | `CONFigure:SYNC:GATE` | `<required_lock>,<max_age_ms>,<max_evdc_p99_ns>,<allow_holdover>` | `1` | 配置触发运行门禁 |
 
 ### 10.2 同步字段
@@ -527,7 +527,7 @@ READ:SYNC:STATe?
 
 调试覆盖为易失态，不写入出厂默认 profile。重启或执行 `SYSTem:SYNC:DPLL:DEFAult` 后清除覆盖。
 
-DPLL 调试覆盖只允许在 `IDLE`、`STOPPED` 或 `LOCKING` 使用；正式 `TRIG RUN` 禁止修改。同步 DPLL 表示虚拟 DC offset/rate 环路，不等同于扫描角度预测 DPLL。
+DPLL 是 DC 时钟同步的基础环路：校准 delay 用于补偿固定链路延时，DPLL 持续估计各节点相对 DC 的 offset/rate，并输出 `LOCKING`、`LOCKED`、`HOLDOVER` 等同步状态。调试覆盖只允许在 `IDLE`、`STOPPED` 或 `LOCKING` 使用；正式 `TRIG RUN` 禁止修改。同步 DPLL 不等同于扫描角度预测 DPLL。
 
 ## 12. 维护指令
 
@@ -593,7 +593,7 @@ crc
 |---|---|
 | 校准 | 校准只计算线缆或链路固定 delay，是快速短事务；结果先进入 staging，再保存和激活 |
 | 同步 | 同步基于 active 校准表，不重新测 delay；NODE 环路方向必须与 `node_order` 完全一致 |
-| DPLL | `SYNC:DPLL` 只表示虚拟 DC offset/rate 环路；角度预测 DPLL 属于触发/扫描域 |
+| DPLL | `SYNC:DPLL` 是实现 DC 时钟同步的虚拟 offset/rate 环路；角度预测 DPLL 属于触发/扫描域 |
 | HOLDOVER | 首版为保守策略：只允许已装载队列完成，不接收新增预约 |
 | 上位机 | 上位机负责配置、启动、停止、读取状态和导出报告，不参与 RUN 态逐点实时决策 |
 | 反射内存 | 用于多节点共同事实和摘要，不承载精确触发边沿 |

@@ -118,6 +118,31 @@
     word-break:break-word;
     line-height:1.45;
   }
+  .quality-dpll-table {
+    table-layout:fixed;
+  }
+  .quality-dpll-table th:nth-child(1),
+  .quality-dpll-table td:nth-child(1) {
+    width:26%;
+  }
+  .quality-dpll-table th:nth-child(2),
+  .quality-dpll-table td:nth-child(2) {
+    width:24%;
+  }
+  .quality-dpll-table th:nth-child(3),
+  .quality-dpll-table td:nth-child(3) {
+    width:10%;
+  }
+  .quality-dpll-table th:nth-child(4),
+  .quality-dpll-table td:nth-child(4) {
+    width:40%;
+    line-height:1.5;
+  }
+  .quality-dpll-table td:nth-child(2) code {
+    white-space:normal;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+  }
   code {
     font-family:Consolas,"Courier New",monospace;
     font-size:9.5px;
@@ -784,7 +809,7 @@ READ:CALibration:HEALth? NODE</code></pre>
   </div>
   <div class="main">
 <div class="section-title">同步边界</div>
-<div class="note-box">同步基于 active 校准表，不重新测 delay。<code>SYNC:STARt</code> 只使用 active 同步配置，并要求最近一次 <code>SYNC:CHECk</code> 通过。</div>
+<div class="note-box">同步基于 active 校准表，不重新测 delay。校准表提供 NODE 链路固定 delay，DPLL 在此基础上维护虚拟 DC offset/rate，是实现 DC 时钟同步的基础。<code>SYNC:STARt</code> 只使用 active 同步配置，并要求最近一次 <code>SYNC:CHECk</code> 通过。</div>
 <div class="section-title">动作指令</div>
 <table class="compact">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
@@ -859,7 +884,7 @@ READ:CALibration:HEALth? NODE</code></pre>
 <tbody>
 <tr><td><code>CONFigure:SYNC:CALibration</code></td><td><code>&lt;cal_id&gt;,&lt;cal_crc&gt;,&lt;max_age_s&gt;</code></td><td><code>1</code></td><td>绑定同步使用的校准表到 staging 配置。</td></tr>
 <tr><td><code>CONFigure:SYNC:RING</code></td><td><code>&lt;origin&gt;,&lt;node_order&gt;,&lt;period_us&gt;,&lt;bitrate&gt;,&lt;timeout_ms&gt;,&lt;crc_limit&gt;</code></td><td><code>1</code></td><td>配置 RJ45_SYNC_RING；<code>node_order</code> 每一跳必须匹配同方向 NODE 校准链路。</td></tr>
-<tr><td><code>CONFigure:SYNC:DPLL</code></td><td><code>&lt;lock_window_ns&gt;,&lt;lock_count&gt;,&lt;holdover_ms&gt;,&lt;relock_ms&gt;,&lt;profile&gt;</code></td><td><code>1</code></td><td>配置虚拟 DC offset/rate 环路的锁定、保持和重锁判据。</td></tr>
+<tr><td><code>CONFigure:SYNC:DPLL</code></td><td><code>&lt;lock_window_ns&gt;,&lt;lock_count&gt;,&lt;holdover_ms&gt;,&lt;relock_ms&gt;,&lt;profile&gt;</code></td><td><code>1</code></td><td>配置虚拟 DC 时钟同步 DPLL 的锁定、保持和重锁判据。</td></tr>
 <tr><td><code>CONFigure:SYNC:GATE</code></td><td><code>&lt;required_lock&gt;,&lt;max_age_ms&gt;,&lt;max_evdc_p99_ns&gt;,&lt;allow_holdover&gt;</code></td><td><code>1</code></td><td>配置触发运行门禁。</td></tr>
 </tbody>
 </table>
@@ -941,7 +966,7 @@ READ:SYNC:STATe?</code></pre>
 </tbody>
 </table>
 <div class="section-title">质量判据和 DPLL</div>
-<table class="compact">
+<table class="compact quality-dpll-table">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
 <tr><td><code>CONFigure:SYNC:LIMit</code></td><td><code>&lt;max_crc&gt;,&lt;max_seq&gt;,&lt;max_drop&gt;,&lt;max_relock&gt;,&lt;max_evdc_p99_ns&gt;,&lt;max_evdc_p999_ns&gt;,&lt;min_lock_count&gt;</code></td><td><code>1</code></td><td>配置同步质量门限。</td></tr>
@@ -975,7 +1000,7 @@ READ:SYNC:STATe?</code></pre>
 <tr><td><code>coef_source</code></td><td><code>DEFAULT/PROFILE/OVERRIDE</code></td><td>当前系数来源。</td></tr>
 </tbody>
 </table>
-<div class="note-box">DPLL 调试覆盖只允许在 IDLE、STOPPED 或 LOCKING 使用；正式 TRIG RUN 禁止修改。同步 DPLL 表示虚拟 DC offset/rate 环路，不等同于扫描角度预测 DPLL。</div>
+<div class="note-box">DPLL 是 DC 时钟同步的基础环路：校准 delay 用于补偿固定链路延时，DPLL 持续估计各节点相对 DC 的 offset/rate，并输出 LOCKING、LOCKED、HOLDOVER 等同步状态。调试覆盖只允许在 IDLE、STOPPED 或 LOCKING 使用；正式 TRIG RUN 禁止修改。同步 DPLL 不等同于扫描角度预测 DPLL。</div>
   </div>
   <div class="page-footer">
     <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
