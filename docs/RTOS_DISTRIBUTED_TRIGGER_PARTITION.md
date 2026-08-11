@@ -6,7 +6,7 @@ Canonical: `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 Related: `docs/RTOS_PORTING_PLAN.md`, `docs/MULTICORE_PARTITION_PLAN.md`, `docs/TRIGGER_SYNC_TODO.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_SUMMARY.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-10
 
-本文档把《相控阵测试系统 RP 分布式触发方案技术报告 0804》落成 RP2350_TRIG
+本文档把《RP1200波导天线 RP 分布式触发方案技术报告 0804》落成 RP2350_TRIG
 产品化 RTOS + 双核 AMP 任务划分。目标不是把现有函数平均分到多个任务，而是把
 四板分布式触发系统中的控制面、实时控制面、数据面和诊断面固定成可实现边界。
 

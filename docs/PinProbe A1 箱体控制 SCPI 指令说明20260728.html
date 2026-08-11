@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PinProbe A1 箱体控制 SCPI 指令说明</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body {
+    font-family:"Microsoft YaHei","SimSun","DengXian",Arial,sans-serif;
+    background:#d7d9df;
+    color:#1f2328;
+    padding:18px;
+    line-height:1.42;
+  }
+  @page { size:A4 portrait; margin:0; }
+  .page {
+    width:210mm;
+    height:297mm;
+    margin:0 auto 18px;
+    background:#fff;
+    box-shadow:0 3px 14px rgba(0,0,0,.16);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    break-after:page;
+    page-break-after:always;
+  }
+  .page:last-child { margin-bottom:0; }
+  .page-header {
+    padding:10mm 16mm 5mm;
+    border-bottom:5px solid #d9e1ef;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:18px;
+  }
+  .page-header .logo { height:28px; width:auto; display:block; overflow:visible; }
+  .svg-defs { position:absolute; width:0; height:0; overflow:hidden; }
+  .doc-meta { text-align:right; font-size:10.5px; color:#687381; white-space:nowrap; }
+  .doc-meta strong { display:block; color:#1f3864; font-size:13px; margin-bottom:3px; }
+  .main { flex:1; padding:6mm 16mm 6mm; overflow:hidden; }
+  .page-footer {
+    padding:3mm 16mm 4mm;
+    border-top:5px solid #d9e1ef;
+    color:#8b949e;
+    font-size:9px;
+    display:flex;
+    justify-content:space-between;
+  }
+  h1 { font-size:23px; color:#172033; letter-spacing:0; margin-bottom:3px; }
+  h3 { font-size:13px; color:#1f3864; margin:7px 0 5px; }
+  h4, h5 { font-size:12px; color:#374151; margin:6px 0 4px; }
+  p { font-size:10.7px; margin:4px 0 6px; }
+  .subtitle { color:#5b6573; font-size:12px; }
+  .section-title {
+    font-size:14px;
+    color:#1f3864;
+    font-weight:700;
+    padding-bottom:4px;
+    border-bottom:2px solid #1f3864;
+    margin-bottom:6px;
+  }
+  table { width:100%; border-collapse:collapse; font-size:10.3px; border:1.5px solid #2f3542; margin:6px 0 8px; }
+  th {
+    background:#1f3864;
+    color:#fff;
+    text-align:left;
+    padding:5px 7px;
+    border:1px solid #182b4c;
+    font-weight:700;
+  }
+  th code {
+    color:#fff;
+    background:rgba(255,255,255,.16);
+    border-color:rgba(255,255,255,.28);
+    font-weight:700;
+  }
+  td { padding:4px 7px; border:1px solid #c8d1dc; vertical-align:top; }
+  tbody tr:nth-child(even) td { background:#f5f8fc; }
+  code {
+    font-family:Consolas,"Courier New",monospace;
+    font-size:9.5px;
+    background:#f5f8fc;
+    border:1px solid #dce3ed;
+    border-radius:3px;
+    padding:0 3px;
+  }
+  pre {
+    white-space:pre-wrap;
+    word-break:break-word;
+    font-size:10px;
+    background:#f5f8fc;
+    border:1px solid #dce3ed;
+    padding:6px 7px;
+    margin:5px 0 7px;
+  }
+  pre code { border:0; background:transparent; padding:0; font-size:10px; }
+  .note-box {
+    padding:7px 10px;
+    font-size:10.8px;
+    background:#f7fbf5;
+    border-left:4px solid #2e7d32;
+    margin:5px 0 7px;
+  }
+  .danger-text { color:#c1121f; font-weight:800; }
+  .doc-image {
+    margin:7px 0 9px;
+    padding:5px;
+    border:1px solid #d6deea;
+    background:#f8fafc;
+  }
+  .doc-image img {
+    width:100%;
+    height:auto;
+    max-height:82mm;
+    object-fit:contain;
+    display:block;
+  }
+  .doc-image figcaption {
+    margin-top:4px;
+    color:#5b6573;
+    font-size:9.8px;
+    text-align:center;
+  }
+  .small-list { font-size:10.8px; color:#2f3542; padding-left:17px; margin:4px 0 7px; }
+  li { margin:1px 0; }
+  .chips { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:0 0 9px; }
+  .chip { border:1px solid #d9e1ef; border-left:4px solid #1f3864; padding:6px 8px; min-height:44px; background:#f8fafc; }
+  .chip:nth-child(2) { border-left-color:#2e7d32; }
+  .chip:nth-child(3) { border-left-color:#d97706; }
+  .chip:nth-child(4) { border-left-color:#6a1b9a; }
+  .chip .k { display:block; color:#687381; font-size:9.5px; margin-bottom:1px; }
+  .chip .v { display:block; color:#111827; font-size:12px; font-weight:700; }
+  .cover-page .page-header { padding-top:11mm; padding-bottom:8mm; align-items:center; }
+  .cover-header-text { min-width:40mm; }
+  .cover-doc-label { font-size:14px; color:#172033; font-weight:800; }
+  .cover-doc-subtitle { margin-top:3px; color:#687381; font-size:10px; }
+  .cover-page .logo { height:30px; }
+  .cover-main { justify-content:center; padding-top:8mm; padding-bottom:7mm; }
+  .cover-layout { display:flex; flex-direction:column; gap:11mm; justify-content:center; height:100%; }
+  .cover-copy { text-align:left; }
+  .cover-kicker { font-size:18px; color:#1f3864; font-weight:800; margin-bottom:4px; }
+  .cover-title { font-size:31px; line-height:1.24; color:#172033; font-weight:800; margin-bottom:12px; max-width:142mm; }
+  .cover-divider { width:86px; height:4px; background:#1f3864; margin:0 0 14px; }
+  .cover-subtitle { font-size:14px; color:#1f3864; margin-bottom:13px; }
+  .cover-info-line { display:flex; flex-wrap:wrap; gap:8px 20px; color:#374151; font-size:11px; font-weight:700; margin-bottom:10px; }
+  .cover-info-line span { padding-left:9px; border-left:3px solid #d9e1ef; }
+  .cover-info-line span:first-child { border-left-color:#1f3864; }
+  .cover-note { margin-top:0; padding:8px 10px; border-left:4px solid #2e7d32; background:#f7fbf5; color:#2f3542; font-size:11px; line-height:1.6; }
+  .cover-image-wrap { height:122mm; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  .cover-image-wrap img { max-width:100%; max-height:122mm; object-fit:contain; display:block; }
+  @media print {
+    html, body {
+      width:210mm;
+      min-width:210mm;
+      max-width:210mm;
+      background:#fff;
+      padding:0;
+      overflow:visible;
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+    }
+    .page {
+      width:210mm !important;
+      height:297mm !important;
+      min-height:297mm !important;
+      margin:0;
+      box-shadow:none;
+      break-after:page;
+      page-break-after:always;
+      transform:none !important;
+    }
+  }
+</style>
+</head>
+<body>
+<svg class="svg-defs" aria-hidden="true" focusable="false" width="0" height="0">
+  <defs>
+<g id="gts-logo">
+<path fill="#D60037" fill-rule="nonzero" d="M7173.87 7805.86c65.71,49.76 152.92,-3.45 161.5,-85.48 34.14,-326.93 59.89,-778.58 -188.29,-867.15 -134.13,-47.88 -383.2,75.16 -647.9,276.41 -56.62,43.08 -58.44,137.1 -0.49,178.37 114.42,81.53 286.45,206.09 359.03,259.42 67.74,49.78 207.26,155.97 316.15,238.43z"/>
+  <path fill="#D60037" fill-rule="nonzero" d="M7010.48 8220.07c50.61,-15.73 89.1,44.99 53.52,84.38 -476,526.88 -1651.9,1775.4 -2028.19,1645.49 -295.42,-101.97 -217.57,-697.86 -167.67,-999.8 6.59,-39.95 38.12,-86.94 76.85,-98.98 300.73,-93.45 1586.52,-482.25 2065.49,-631.09z"/>
+  <path fill="#D60037" fill-rule="nonzero" d="M6289.45 9505.32c-45.04,49.87 -39.24,134.17 19.91,165.98 487.05,261.95 883.78,383.1 1180.58,206.51 339.14,-201.84 91.52,-1044.36 -91.35,-1494.25 -37.92,-93.31 -128.44,-95.32 -184.99,-20.01 -249.69,332.51 -548.72,726.2 -924.15,1141.77z"/>
+  <path fill="#D60037" fill-rule="nonzero" d="M6973.93 8073.83c88.35,-19.74 108.24,-132.68 33.57,-183.98 -760.56,-522.38 -1894.09,-1273.18 -2308.85,-988.78 -347.98,238.59 -54.33,1130.87 115.77,1565.41 18.63,47.61 69.13,74.43 118.96,63.29l2040.55 -455.94z"/>
+  <path fill="#000" fill-rule="nonzero" d="M9171.91 9327.15c-256.06,0 -459.29,-82.56 -609.64,-247.68 -150.37,-165.1 -225.55,-388.47 -225.55,-670.04 0,-287.18 78.19,-515.1 234.52,-683.81 156.33,-168.7 367.72,-253.07 634.14,-253.07 213.77,0 389.85,53.47 528.29,160.35 138.37,106.9 219.12,251.26 242.27,433.12l-367.33 0c-9.58,-76.57 -52.72,-143.74 -129.37,-201.61 -76.67,-57.83 -161.31,-86.75 -253.93,-86.75 -159.73,0 -284.72,55.26 -374.96,165.72 -90.24,110.51 -135.35,263.83 -135.35,460.05 0,199.45 43.3,351.2 129.86,455.31 86.57,104.07 213.26,156.11 380.02,156.11l-1.19 0c142.02,0 252.93,-54.22 332.73,-162.7 43.87,-61.43 76.2,-133.59 96.96,-216.58l0 -3.6 -414.07 0 0 -302.7 736.66 0 0 948.82 -245.28 0 -35.89 -227.36 -21.54 28.74c-123.64,165.12 -291.16,247.68 -502.55,247.68l1.2 0z"/>
+  <path fill="#000" fill-rule="nonzero" d="M11057 8494.38c-7.98,-78.18 -28.71,-139.2 -62.23,-183.06 -43.88,-58.22 -112.08,-87.35 -204.58,-87.35 -88.55,0 -155.98,33.93 -202.24,101.71 -28.72,43.08 -49.45,99.29 -62.22,168.7l531.27 0zm-262.03 818.41c-197.84,0 -350.41,-61.02 -457.67,-183.06 -107.3,-122.03 -160.94,-295.93 -160.94,-521.68 0,-208.2 54.65,-371.1 163.93,-488.76 109.26,-117.66 260.84,-176.5 454.68,-176.5 198.6,0 351.57,60.03 458.85,180.08 107.28,120.06 160.91,290.93 160.91,512.7 1.61,25.55 -0.39,51.43 -5.96,77.76l-886.62 0c7.97,102.91 30.71,179.89 68.2,230.92 47.87,63.84 127.63,95.72 239.3,95.72 51.85,0 99.92,-14.74 144.17,-44.27 44.28,-29.49 70.79,-64.99 79.59,-106.47l349.38 0c-29.52,132.41 -97.93,236.11 -205.21,311.09 -107.3,74.98 -241.5,112.47 -402.61,112.47z"/>
+  <path fill="#000" fill-rule="nonzero" d="M11604.85 7977.48l162.71 0 163.92 0 0 192.65c13.57,-23.13 28.32,-45.07 44.27,-65.82 84.55,-107.67 207.38,-161.52 368.53,-161.52 137.18,0 244.69,40.69 322.46,122.03 77.78,81.37 116.66,194.25 116.66,338.6l0 875.87 -171.1 0 -172.29 0 0 -813.65c0,-80.53 -17.37,-140.15 -52.06,-178.83 -34.68,-38.72 -87.92,-58.07 -159.74,-58.07 -90.14,0 -159.32,27.14 -207.57,81.35 -48.27,54.29 -72.4,132.46 -72.4,234.53l0 734.67 -171.09 0 -172.3 0 0 -1301.81z"/>
+  <path fill="#000" fill-rule="nonzero" d="M13843.63 8494.38c-7.99,-78.18 -28.72,-139.2 -62.22,-183.06 -43.9,-58.22 -112.07,-87.35 -204.6,-87.35 -88.55,0 -155.96,33.93 -202.22,101.71 -28.72,43.08 -49.45,99.29 -62.21,168.7l531.25 0zm-262.04 818.41c-197.83,0 -350.39,-61.02 -457.67,-183.06 -107.29,-122.03 -160.91,-295.93 -160.91,-521.68 0,-208.2 54.62,-371.1 163.9,-488.76 109.28,-117.66 260.84,-176.5 454.68,-176.5 198.6,0 351.58,60.03 458.87,180.08 107.26,120.06 160.92,290.93 160.92,512.7 1.59,25.55 -0.42,51.43 -5.98,77.76l-886.61 0c7.97,102.91 30.69,179.89 68.18,230.92 47.87,63.84 127.64,95.72 239.3,95.72 51.85,0 99.92,-14.74 144.2,-44.27 44.25,-29.49 70.77,-64.99 79.56,-106.47l349.39 0c-29.53,132.41 -97.92,236.11 -205.22,311.09 -107.29,74.98 -241.5,112.47 -402.61,112.47z"/>
+  <path fill="#000" fill-rule="nonzero" d="M14390.55 7977.48l162.7 0 163.93 0 0 233.32c11.98,-25.53 25.53,-50.23 40.7,-74.19 80.57,-129.21 184.63,-193.82 312.29,-193.82l77.77 1.2 0 350.57c-30.33,-3.19 -64.61,-4.78 -102.91,-4.78 -104.5,0 -182.45,25.92 -233.9,77.75 -51.46,51.87 -77.19,130.45 -77.19,235.74l0 676.02 -171.08 0 -172.31 0 0 -1301.81z"/>
+  <path fill="#000" fill-rule="nonzero" d="M16032.68 8798.3l0 -149.57c-39.89,22.33 -92.54,40.27 -157.94,53.84l-126.83 23.94c-59.84,11.17 -105.3,31.71 -136.41,61.6 -31.1,29.92 -46.65,67.61 -46.65,113.08 0,51.87 13.94,92.57 41.87,122.05 27.91,29.51 67.01,44.28 117.27,44.28 110.05,0 197.79,-38.69 263.21,-116.07 12.75,-15.13 23.53,-37.49 32.32,-67.02 8.75,-29.5 13.16,-58.2 13.16,-86.13zm-412.8 514.49c-120.44,0 -217.37,-34.49 -290.75,-103.48 -73.4,-69.02 -110.08,-159.77 -110.08,-272.22 0,-118.82 33.09,-213.97 99.32,-285.37 66.2,-71.38 162.72,-116.26 289.53,-134.61l226.14 -31.1c59.03,-7.99 108.08,-21.56 147.18,-40.68 16.74,-7.98 29.73,-22.32 38.89,-43.09 9.17,-20.72 12.57,-41.88 10.17,-63.4 -4.78,-36.68 -23.52,-65.42 -56.24,-86.17 -39.1,-24.7 -95.31,-37.08 -168.72,-37.08 -65.4,0 -116.44,15.97 -153.14,47.88 -36.69,31.9 -56.22,76.97 -58.62,135.19l-329.05 0c7.2,-152.32 59.03,-266.43 155.55,-342.21 96.51,-75.75 238.12,-113.65 424.76,-113.65 161.94,0 289.75,34.13 383.47,102.4 93.73,68.27 140.6,161.48 140.6,279.64l0 728.12c0,58.3 4.78,99.21 14.36,122.76 9.58,23.58 28.72,42.13 57.43,55.7l0 1.18 0 46.68 -185.46 0 -185.44 0 0 -1.18c-15.19,-52.66 -25.14,-104.11 -29.92,-154.35l-1.2 -2.42c-107.69,127.65 -247.28,191.46 -418.78,191.46z"/>
+  <polygon fill="#000" fill-rule="nonzero" points="16634.66,7520.42 16805.76,7520.42 16978.05,7520.42 16978.05,9279.28 16806.96,9279.28 16634.66,9279.28 "/>
+  <polygon fill="#000" fill-rule="nonzero" points="18393.51,7832.71 17862.26,7832.71 17862.26,7677.19 17862.26,7520.42 19292.09,7520.42 19292.09,7675.94 19292.09,7832.71 18760.84,7832.71 18760.84,9279.28 18577.78,9279.28 18393.51,9279.28 "/>
+  <path fill="#000" fill-rule="nonzero" d="M20018.43 8494.38c-7.98,-78.18 -28.72,-139.2 -62.21,-183.06 -43.9,-58.22 -112.08,-87.35 -204.6,-87.35 -88.54,0 -155.96,33.93 -202.22,101.71 -28.72,43.08 -49.48,99.29 -62.22,168.7l531.25 0zm-262.03 818.41c-197.84,0 -350.4,-61.02 -457.67,-183.06 -107.3,-122.03 -160.92,-295.93 -160.92,-521.68 0,-208.2 54.62,-371.1 163.91,-488.76 109.28,-117.66 260.83,-176.5 454.68,-176.5 198.6,0 351.56,60.03 458.86,180.08 107.26,120.06 160.92,290.93 160.92,512.7 1.59,25.55 -0.41,51.43 -5.98,77.76l-886.6 0c7.94,102.91 30.68,179.89 68.17,230.92 47.88,63.84 127.64,95.72 239.3,95.72 51.87,0 99.92,-14.74 144.18,-44.27 44.27,-29.49 70.81,-64.99 79.58,-106.47l349.39 0c-29.52,132.41 -97.91,236.11 -205.21,311.09 -107.3,74.98 -241.5,112.47 -402.61,112.47z"/>
+  <path fill="#000" fill-rule="nonzero" d="M21307.05 8367.53c0,-50.23 -20.77,-90.52 -62.27,-120.85 -41.51,-30.29 -96.58,-45.43 -165.21,-45.43 -66.26,0 -117.96,11.34 -155.05,34.08 -37.14,22.74 -55.69,54.45 -55.69,95.13 0,28.69 21.13,53.46 63.42,74.19 41.48,19.95 115.3,41.87 221.4,65.79 210.64,47.07 351.47,98.52 422.5,154.35 71.18,55.86 106.78,143.61 106.78,263.25 0,127.62 -51.67,230.31 -154.97,308.09 -103.31,77.77 -239.54,116.67 -408.67,116.67 -200.28,0 -354.43,-38.31 -462.55,-114.87 -108.09,-76.6 -165.72,-188.25 -172.91,-335.02l349.38 0c2.4,59.83 28.94,106.67 79.58,140.58 50.68,33.92 119.5,50.84 206.46,50.84 68.6,0 122.28,-11.74 160.99,-35.29 38.69,-23.5 58.04,-56.41 58.04,-98.72 0,-29.48 -18.74,-54.62 -56.21,-75.37 -37.49,-19.9 -103.33,-40.27 -197.46,-61.01 -220.2,-49.45 -367.39,-101.72 -441.58,-156.75 -74.08,-54.25 -111.11,-138.38 -111.11,-252.46 0,-129.23 48.03,-233.51 144.14,-312.88 96.08,-79.35 222.71,-119.06 379.81,-119.06 177.05,0 319.8,38.89 428.28,116.66 108.48,77.77 162.71,180.5 162.71,308.08l-339.81 0z"/>
+  <path fill="#000" fill-rule="nonzero" d="M22489.62 9286.48c-57.44,4.78 -128.03,7.16 -211.8,7.16 -121.27,0 -208.38,-21.71 -261.43,-65.2 -53.05,-43.47 -79.57,-114.67 -79.57,-213.59l0 -796.85 -180.66 0 0 -240.52 180.66 0 0 -350.57 343.39 0 0 350.57 209.41 0 0 240.52 -209.41 0 0 739.43c0,30.31 9,50.25 26.93,59.82 17.96,9.58 55.21,14.35 111.88,14.35l70.6 0 0 254.88z"/>
+ </g>
+  </defs>
+</svg>
+<!-- P1 Cover -->
+<div class="page cover-page">
+  <div class="page-header cover-header">
+    <div class="cover-header-text">
+      <div class="cover-doc-label">客户交付文档</div>
+      <div class="cover-doc-subtitle">Customer Delivery</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main cover-main">
+    <div class="cover-layout">
+      <div class="cover-copy">
+        <div class="cover-kicker">PinProbe A1</div>
+        <div class="cover-title">箱体控制 SCPI 指令说明</div>
+        <div class="cover-divider"></div>
+        <div class="cover-subtitle">通信指令 · 设备控制 · 异常处理</div>
+        <div class="cover-info-line">
+          <span>客户联调资料</span>
+          <span>SCPI / UART</span>
+          <span>2026-08-11</span>
+        </div>
+        <div class="cover-note">文档更新时间：<code>2026-08-11</code>。本文用于客户侧上位机联调、设备控制与维护参考。</div>
+      </div>
+      <div class="cover-image-wrap"><img src="file:///E:/OneDrive/4.Code/STM32/PinProbeA1/STM32F103RCT6_PinprobeA1/Doc/untitled.642.png" alt="PinProbe A1 箱体示意图"></div>
+    </div>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 1 / 13</span>
+  </div>
+</div>
+<!-- P2 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>设备信息</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<div class="section-title">设备信息</div>
+<table class="compact">
+<thead><tr><th>项目</th><th>默认值</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>制造商</td><td><code>GTS</code></td><td><code>*IDN?</code> 字段 1，可通过 <code>SYSTem:IDN1</code> 修改</td></tr>
+<tr><td>型号</td><td><code>PINPROBEA1</code></td><td><code>*IDN?</code> 字段 2，可通过 <code>SYSTem:IDN2</code> 修改</td></tr>
+<tr><td>序列号</td><td><code>20250626</code></td><td><code>*IDN?</code> 字段 3，可通过 <code>SYSTem:IDN3</code> 修改</td></tr>
+<tr><td>IDN 固件版本</td><td><code>V0.0.9</code></td><td><code>*IDN?</code> 字段 4，可通过 <code>SYSTem:IDN4</code> 修改</td></tr>
+<tr><td>编译固件版本</td><td><code>v1.0.0+&lt;build-id&gt;</code></td><td><code>SYSTem:VERSion?</code> 返回</td></tr>
+</tbody>
+</table>
+<div class="note-box"><code>*IDN?</code> 返回当前 SCPI IDN 配置：<code>制造商,型号,序列号,IDN固件版本</code>。IDN 字段保存在设备配置中，可能与编译固件版本不同。</div>
+<div class="section-title">通信约定</div>
+<table class="compact">
+<thead><tr><th>项目</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>串口波特率</td><td><code>115200</code></td></tr>
+<tr><td>指令结束符</td><td><code>\r\n</code></td></tr>
+<tr><td>普通响应</td><td>单行文本</td></tr>
+<tr><td>日志批量响应</td><td><code>READ:LOG:ALL?</code> 可能返回多行文本</td></tr>
+<tr><td>OTA 数据块</td><td>使用 SCPI definite-length binary block，当前单块 payload 最大<code>128</code> 字节</td></tr>
+</tbody>
+</table>
+<div class="note-box">SCPI 报错有三类来源：解析器错误队列、命令主动返回的 <code>ERR...</code> 文本，以及设备异常日志。上位机应同时处理指令响应和日志流，详见报错与异常处理。</div>
+<div class="section-title">基础指令（IEEE 488.2）</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>*CLS</code></td><td></td><td>无</td><td>清除状态和错误队列</td></tr>
+<tr><td><code>*IDN?</code></td><td></td><td><code>GTS,PINPROBEA1,20250626,V0.0.9</code></td><td>查询设备身份信息</td></tr>
+<tr><td><code>*RST</code></td><td></td><td>无</td><td>复位 SCPI 解析器状态</td></tr>
+<tr><td><code>*STB?</code></td><td></td><td>状态字节</td><td>查询状态字节</td></tr>
+<tr><td><code>*WAI</code></td><td></td><td>无</td><td>等待指令完成</td></tr>
+<tr><td><code>*OPC?</code></td><td></td><td><code>1</code></td><td>查询操作完成状态</td></tr>
+</tbody>
+</table>
+<div class="section-title">系统指令</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>SYSTem:ERRor[:NEXT]?</code></td><td></td><td>错误码与描述</td><td>查询下一条错误信息</td></tr>
+<tr><td><code>SYSTem:ERRor:COUNt?</code></td><td></td><td>错误数量</td><td>查询错误队列数量</td></tr>
+<tr><td><code>SYSTem:VERSion?</code></td><td></td><td><code>v1.0.0+&lt;build-id&gt;</code></td><td>查询编译固件版本和构建标识</td></tr>
+<tr><td><code>SYSTem:UPTime?</code></td><td></td><td>秒数</td><td>查询系统运行时间</td></tr>
+<tr><td><code>SYSTem:REBoot</code></td><td></td><td><code>OK</code></td><td>延时约 200 ms 后软件复位</td></tr>
+<tr><td><code>SYSTem:FLASH:ID?</code></td><td></td><td><code>OK ID=&lt;JEDEC&gt; SR1=&lt;xx&gt; SR2=&lt;xx&gt;</code> 或 <code>ERR ...</code></td><td>查询 W25Q128 Flash ID 与状态寄存器</td></tr>
+</tbody>
+</table>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 2 / 13</span>
+  </div>
+</div>
+<!-- P3 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>系统指令</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<h4>示例</h4>
+<pre data-lang="scpi"><code>SYSTem:ERRor:NEXT?
+SYSTem:ERRor:COUNt?
+SYSTem:VERSion?
+SYSTem:UPTime?
+SYSTem:FLASH:ID?
+SYSTem:REBoot</code></pre>
+<div class="section-title">设备身份配置指令</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>SYSTem:IDN1</code></td><td><code>&lt;string&gt;</code></td><td>无</td><td>配置制造商字段，并保存到 Flash</td></tr>
+<tr><td><code>SYSTem:IDN1?</code></td><td></td><td>字符串</td><td>查询制造商字段</td></tr>
+<tr><td><code>SYSTem:IDN2</code></td><td><code>&lt;string&gt;</code></td><td>无</td><td>配置型号字段，并保存到 Flash</td></tr>
+<tr><td><code>SYSTem:IDN2?</code></td><td></td><td>字符串</td><td>查询型号字段</td></tr>
+<tr><td><code>SYSTem:IDN3</code></td><td><code>&lt;string&gt;</code></td><td>无</td><td>配置序列号/日期字段，并保存到 Flash</td></tr>
+<tr><td><code>SYSTem:IDN3?</code></td><td></td><td>字符串</td><td>查询序列号/日期字段</td></tr>
+<tr><td><code>SYSTem:IDN4</code></td><td><code>&lt;string&gt;</code></td><td>无</td><td>配置 IDN 固件版本字段，并保存到 Flash</td></tr>
+<tr><td><code>SYSTem:IDN4?</code></td><td></td><td>字符串</td><td>查询 IDN 固件版本字段</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre data-lang="scpi"><code>SYSTem:IDN1 &quot;GTS&quot;
+SYSTem:IDN2 &quot;PINPROBEA1&quot;
+SYSTem:IDN3 &quot;20260727&quot;
+SYSTem:IDN4 &quot;V0.0.9&quot;
+*IDN?</code></pre>
+<div class="section-title">通信配置指令</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>CONFigure:BAUDrate</code></td><td><code>115200</code></td><td><code>115200 baudrate is enable</code></td><td>配置 BSM 通信波特率。当前仅支持<code>115200</code></td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre data-lang="scpi"><code>CONFigure:BAUDrate 115200</code></pre>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 3 / 13</span>
+  </div>
+</div>
+<!-- P4 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>箱门与 USB 控制指令</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<div class="section-title">箱门与 USB 控制指令</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>CONFigure:CYLInder1</code></td><td><code>OPEN</code> / <code>CLOSE</code></td><td><code>OPEN</code> / <code>CLOSE</code></td><td>打开或关闭箱门</td></tr>
+<tr><td><code>READ:CYLInder1:STATe?</code></td><td></td><td>执行器状态</td><td>查询箱门当前状态</td></tr>
+<tr><td><code>CONFigure:CYLInder2</code></td><td><code>OPEN</code> / <code>CLOSE</code></td><td><code>OPEN</code> / <code>CLOSE</code></td><td>手动控制 USB 气缸；<code>CLOSE</code>=插入，<code>OPEN</code>=拔出/回退</td></tr>
+<tr><td><code>READ:CYLInder2:STATe?</code></td><td></td><td>执行器状态</td><td>查询 USB 插拔机构当前状态</td></tr>
+<tr><td><code>CONFigure:USB:AUTO</code></td><td><code>OFF</code> / <code>ON</code></td><td><code>OFF</code> / <code>ON</code></td><td>USB 自动拔插流程出厂配置项，<span class="danger-text">禁止修改</span>；出厂已按设备硬件配置完成</td></tr>
+<tr><td><code>READ:USB:AUTO?</code></td><td></td><td><code>OFF</code> / <code>ON</code></td><td>查询 USB 自动拔插流程出厂配置，确认当前设备是否启用该流程</td></tr>
+<tr><td><code>CONFigure:DUT:AUTO</code></td><td><code>OFF</code> / <code>ON</code></td><td><code>OFF</code> / <code>ON</code></td><td>配置 DUT 到位检测是否参与 USB 自动流程，并保存到 Flash</td></tr>
+<tr><td><code>READ:DUT:AUTO?</code></td><td></td><td><code>OFF</code> / <code>ON</code></td><td>查询 DUT 到位检测是否参与 USB 自动流程</td></tr>
+</tbody>
+</table>
+<div class="note-box">USB 动作按连接状态定义：<code>CYLInder2 CLOSE</code> 表示插入/连接 USB，<code>CYLInder2 OPEN</code> 表示拔出/回退 USB。</div>
+<h4>执行器状态</h4>
+<table class="compact">
+<thead><tr><th>返回值</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>CLOSE</code></td><td>关闭指令已接收；USB 表示插入/连接</td></tr>
+<tr><td><code>OPEN</code></td><td>打开指令已接收；USB 表示拔出/回退</td></tr>
+<tr><td><code>CLOSING</code></td><td>正在关闭；USB 表示正在插入</td></tr>
+<tr><td><code>OPENING</code></td><td>正在打开；USB 表示正在拔出/回退</td></tr>
+<tr><td><code>CLOSED</code></td><td>已关闭；USB 表示已插入/已连接</td></tr>
+<tr><td><code>OPENED</code></td><td>已打开；USB 表示已拔出/已回退</td></tr>
+<tr><td><code>CYL ERR</code></td><td>执行器错误</td></tr>
+</tbody>
+</table>
+<h4>USB 自动流程</h4>
+<p><code>CONFigure:USB:AUTO ON</code> 后，设备会把 USB 插入、回退动作绑定到门流程；<code>CONFigure:DUT:AUTO ON</code> 时，DUT 到位检测参与自动流程：</p>
+<table class="compact">
+<thead><tr><th>场景</th><th>自动动作</th></tr></thead>
+<tbody>
+<tr><td><code>CONFigure:USB:AUTO OFF</code></td><td>USB 自动拔插和 DUT 到位检测全部旁路，按普通门流程执行</td></tr>
+<tr><td><code>CONFigure:USB:AUTO ON</code> 且 <code>CONFigure:DUT:AUTO OFF</code></td><td>DUT 到位检测不参与自动流程；双按钮确认后直接执行 USB 自动插入流程</td></tr>
+<tr><td><code>CONFigure:USB:AUTO ON</code> 且 <code>CONFigure:DUT:AUTO ON</code></td><td>先检查 <code>dut_sensor</code>。DUT 到位后才执行 <code>CONFigure:CYLInder2 CLOSE</code> 插入 USB；确认 USB 插入到位后，才自动执行关门</td></tr>
+<tr><td>DUT 未到位</td><td>不执行 USB 插入和关门，系统保持等待；<code>READ:DUT:STATe?</code> 仍可查询实际传感器状态</td></tr>
+<tr><td>USB 插入未到位或传感异常</td><td>不执行关门；记录 <code>USB_INSERT_FAIL</code>。门仍在打开位置时会先执行 <code>CONFigure:CYLInder2 OPEN</code> 回退 USB，并红灯快闪提示</td></tr>
+<tr><td><code>COMPLETE</code> 状态下按键开门</td><td>先自动开门；门打开到位并回到 <code>IDLE</code> 后，若 USB 未回退到位，再执行 <code>CONFigure:CYLInder2 OPEN</code> 回退 USB</td></tr>
+<tr><td>USB 回退未到位或输出异常</td><td>记录 <code>USB_RETRACT_FAIL</code>，红灯快闪提示；必要时退回 <code>IDLE</code> 并等待按钮释放后才能重新进入关门准备</td></tr>
+<tr><td>诊断兜底（正常流程不应出现）</td><td>若关门完成后仍检测到 USB 未插到位，记录 <code>USB_INSERT_FAIL</code>，黄灯闪烁提示；USB 到位后自动恢复绿灯</td></tr>
+</tbody>
+</table>
+<div class="note-box"><code>CONFigure:USB:AUTO ON/OFF</code> 为出厂配置项，<span class="danger-text">禁止修改</span>；出厂时已按设备硬件配置完成。带 USB 气缸的设备配置为 <code>ON</code>，不带 USB 气缸的设备配置为 <code>OFF</code>。<code>CONFigure:DUT:AUTO ON/OFF</code> 为现场配置项，保存到 Flash；仅在 <code>USB:AUTO ON</code> 时决定 DUT 到位检测是否参与自动流程。<code>READ:DUT:STATe?</code> 始终读取实际 <code>dut_sensor</code>，查询不受 <code>USB:AUTO</code> 或 <code>DUT:AUTO</code> 旁路影响。</div>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 4 / 13</span>
+  </div>
+</div>
+<!-- P5 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>箱门与 USB 控制指令</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明（续）</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<h4>示例</h4>
+<pre data-lang="scpi"><code>CONFigure:CYLInder1 OPEN
+CONFigure:CYLInder1 CLOSE
+READ:CYLInder1:STATe?
+CONFigure:CYLInder2 CLOSE
+CONFigure:CYLInder2 OPEN
+READ:CYLInder2:STATe?
+READ:USB:AUTO?
+CONFigure:DUT:AUTO ON
+READ:DUT:AUTO?
+READ:DUT:STATe?</code></pre>
+<div class="section-title">锁定与指示灯指令</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>CONFigure:LOCK</code></td><td><code>UNLOCK</code> / <code>LOCKED</code></td><td><code>UNLOCK</code> / <code>LOCKED</code></td><td>配置设备锁状态</td></tr>
+<tr><td><code>READ:LOCK:STATe?</code></td><td></td><td>锁状态</td><td>查询锁状态</td></tr>
+</tbody>
+</table>
+<h4>锁状态</h4>
+<table class="compact">
+<thead><tr><th>参数/返回值</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>UNLOCK</code></td><td>解锁</td></tr>
+<tr><td><code>LOCKED</code></td><td>锁定</td></tr>
+<tr><td><code>LOCK ERR</code></td><td>锁错误</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre data-lang="scpi"><code>CONFigure:LOCK LOCKED
+CONFigure:LOCK UNLOCK
+READ:LOCK:STATe?</code></pre>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 5 / 13</span>
+  </div>
+</div>
+<!-- P6 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>LED 指示灯指令</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<div class="section-title">LED 指示灯指令</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>CONFigure:LED</code></td><td><code>OFF</code> / <code>GREEN</code> / <code>RED</code> / <code>YELLOW</code></td><td>LED 状态</td><td>配置 LED 指示灯</td></tr>
+<tr><td><code>READ:LED:STATe?</code></td><td></td><td>LED 状态</td><td>查询 LED 状态</td></tr>
+<tr><td><code>CONFigure:LED:MAP</code></td><td><code>&lt;io5&gt;,&lt;io6&gt;,&lt;io7&gt;</code></td><td><code>G,R,Y</code> 格式</td><td>配置 IO5/IO6/IO7 对应的 LED 颜色，并保存到 Flash</td></tr>
+<tr><td><code>READ:LED:MAP?</code></td><td></td><td><code>G,R,Y</code> 格式</td><td>查询 IO5/IO6/IO7 对应的 LED 颜色</td></tr>
+</tbody>
+</table>
+<h4>LED 状态</h4>
+<table class="compact">
+<thead><tr><th>参数/返回值</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>OFF</code></td><td>LED 关闭</td></tr>
+<tr><td><code>GREEN</code></td><td>绿色 LED</td></tr>
+<tr><td><code>RED</code></td><td>红色 LED</td></tr>
+<tr><td><code>YELLOW</code></td><td>黄色 LED</td></tr>
+<tr><td><code>LED ERR</code></td><td>LED 错误</td></tr>
+</tbody>
+</table>
+<h4>LED 映射参数</h4>
+<table class="compact">
+<thead><tr><th>参数</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>G</code> / <code>GREEN</code></td><td>当前 IO 对应绿灯</td></tr>
+<tr><td><code>R</code> / <code>RED</code></td><td>当前 IO 对应红灯</td></tr>
+<tr><td><code>Y</code> / <code>YELLOW</code></td><td>当前 IO 对应黄灯</td></tr>
+</tbody>
+</table>
+<div class="note-box"><code>CONFigure:LED:MAP</code> 三个参数不能重复，且必须同时包含绿、红、黄三种颜色。</div>
+<h4>示例</h4>
+<pre data-lang="scpi"><code>CONFigure:LED GREEN
+CONFigure:LED OFF
+READ:LED:STATe?
+CONFigure:LED:MAP G,R,Y
+READ:LED:MAP?</code></pre>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 6 / 13</span>
+  </div>
+</div>
+<!-- P7 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>系统状态查询指令</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<div class="section-title">系统状态查询指令</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>READ:SYSTem:STATe?</code></td><td></td><td>系统状态</td><td>查询系统状态</td></tr>
+<tr><td><code>READ:IO:ALL?</code></td><td></td><td><code>IN:0xHH,0xHH OUT:0xHH,0xHH</code></td><td>查询全部原始输入和输出状态</td></tr>
+<tr><td><code>READ:DUT:STATe?</code></td><td></td><td><code>INPOS</code> / <code>OUTPOS</code></td><td>查询 DUT 到位状态</td></tr>
+</tbody>
+</table>
+<h4>系统状态返回值</h4>
+<table class="compact">
+<thead><tr><th>返回值</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>LOCK</code></td><td>系统处于锁定状态</td></tr>
+<tr><td><code>IDLE</code></td><td>系统空闲</td></tr>
+<tr><td><code>READY</code></td><td>系统就绪</td></tr>
+<tr><td><code>RUNNING</code></td><td>系统运行中</td></tr>
+<tr><td><code>EMERGENCY</code></td><td>急停触发</td></tr>
+<tr><td><code>COMPLETE</code></td><td>系统操作完成</td></tr>
+<tr><td><code>SYS ERR</code></td><td>系统错误</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre data-lang="scpi"><code>READ:SYSTem:STATe?
+READ:IO:ALL?
+READ:DUT:STATe?</code></pre>
+<div class="note-box"><code>READ:DUT:STATe?</code> 读取 <code>dut_sensor</code>，<code>INPOS</code> 表示 DUT 到位，<code>OUTPOS</code> 表示 DUT 未到位；该查询始终有效，不受自动流程旁路设置影响。<code>READ:DUT:AUTO?</code> 查询 DUT 到位检测是否参与 USB 自动流程。</div>
+<div class="section-title">急停、风险模式与 Boot 诊断指令</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>CONFigure:ESTOP:TYPE</code></td><td><code>NC</code> / <code>NO</code></td><td><code>NC</code> / <code>NO</code></td><td>配置急停输入类型，并保存到 Flash</td></tr>
+<tr><td><code>READ:ESTOP:TYPE?</code></td><td></td><td><code>NC</code> / <code>NO</code></td><td>查询急停输入类型</td></tr>
+<tr><td><code>CONFigure:RISK:MODE</code></td><td><code>OFF</code> / <code>ON</code></td><td><code>OFF</code> / <code>ON</code></td><td>配置 Risk Mode，并保存到 Flash</td></tr>
+<tr><td><code>READ:RISK:MODE?</code></td><td></td><td><code>OFF</code> / <code>ON</code></td><td>查询 Risk Mode</td></tr>
+<tr><td><code>CONFigure:BOOT:DIAG</code></td><td><code>OFF</code> / <code>ON</code></td><td><code>OFF</code> / <code>ON</code></td><td>配置 Bootloader 诊断串口输出，并保存到 Flash</td></tr>
+<tr><td><code>READ:BOOT:DIAG?</code></td><td></td><td><code>OFF</code> / <code>ON</code></td><td>查询 Bootloader 诊断串口输出开关</td></tr>
+</tbody>
+</table>
+<div class="note-box">输入气压建议保持在 <code>0.33 MPa</code> 左右；电子气压表阈值建议设在 <code>0.3 MPa</code> 左右。</div>
+<h4>参数说明</h4>
+<table class="compact">
+<thead><tr><th>参数</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>NC</code></td><td>急停常闭</td></tr>
+<tr><td><code>NO</code></td><td>急停常开</td></tr>
+<tr><td><code>OFF</code></td><td>关闭功能</td></tr>
+<tr><td><code>ON</code></td><td>开启功能</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre data-lang="scpi"><code>CONFigure:ESTOP:TYPE NC
+READ:ESTOP:TYPE?
+CONFigure:RISK:MODE ON
+READ:RISK:MODE?
+CONFigure:BOOT:DIAG ON
+READ:BOOT:DIAG?</code></pre>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 7 / 13</span>
+  </div>
+</div>
+<!-- P8 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>OTA 固件升级指令</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<div class="section-title">OTA 固件升级指令</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>SYSTem:OTA:STATus?</code></td><td></td><td><code>STATE:... SIZE:... RECV:...</code></td><td>查询 OTA 接收与校验状态</td></tr>
+<tr><td><code>SYSTem:OTA:BOOT?</code></td><td></td><td><code>FLASH:... FLAGS:... MAN:...</code></td><td>查询 Bootloader 与 OTA Manifest 状态</td></tr>
+<tr><td><code>SYSTem:OTA:BEGIN</code></td><td><code>&lt;size&gt;,&lt;crc32&gt;,&lt;version&gt;,&lt;image_id&gt;</code></td><td><code>OK</code> 或 <code>ERR,&lt;code&gt;,&lt;name&gt;</code></td><td>开始一次 OTA 上传</td></tr>
+<tr><td><code>SYSTem:OTA:DATA</code></td><td><code>&lt;offset&gt;,#&lt;n&gt;&lt;len&gt;&lt;data&gt;</code></td><td><code>OK,NEXT:&lt;offset&gt;</code> 或 <code>ERR,&lt;code&gt;,&lt;name&gt;</code></td><td>写入一块 OTA 数据</td></tr>
+<tr><td><code>SYSTem:OTA:END</code></td><td></td><td><code>OK</code> 或 <code>ERR,&lt;code&gt;,&lt;name&gt;</code></td><td>结束 OTA 数据接收</td></tr>
+<tr><td><code>SYSTem:OTA:VERify?</code></td><td></td><td>状态文本或错误文本</td><td>校验 OTA 镜像</td></tr>
+<tr><td><code>SYSTem:OTA:COMMit</code></td><td></td><td><code>OK</code> 或错误文本</td><td>提交升级请求，成功后设备复位</td></tr>
+<tr><td><code>SYSTem:OTA:ABORt</code></td><td></td><td><code>OK</code> 或错误文本</td><td>中止当前 OTA 流程</td></tr>
+</tbody>
+</table>
+<h4>OTA 状态响应</h4>
+<p><code>SYSTem:OTA:STATus?</code> 返回格式：</p>
+<pre data-lang="text"><code>STATE:&lt;state&gt; SIZE:&lt;bytes&gt; RECV:&lt;bytes&gt; BLOCKS:&lt;recv&gt;/&lt;total&gt; NEXT:&lt;offset&gt; CRC:0x&lt;crc32&gt; VER:0x&lt;version&gt; IMG:&lt;id&gt; ERR:&lt;code&gt;</code></pre>
+<p><code>SYSTem:OTA:BOOT?</code> 返回格式：</p>
+<pre data-lang="text"><code>FLASH:&lt;0|1&gt; FLAGS:&lt;0|1&gt; MAN:&lt;0|1&gt; SEQ:&lt;n&gt; ACT:&lt;n&gt; PEND:&lt;slot&gt; PREV:&lt;slot&gt; BSTATE:&lt;n&gt; ATT:&lt;n&gt;/&lt;max&gt; BERR:&lt;code&gt; MSTATE:&lt;state&gt; SIZE:&lt;bytes&gt; CRC:0x&lt;crc32&gt; VER:0x&lt;version&gt; IMG:&lt;id&gt;</code></pre>
+<h4>OTA 示例</h4>
+<pre data-lang="scpi"><code>SYSTem:OTA:STATus?
+SYSTem:OTA:BEGIN 4096,305419896,65536,1
+SYSTem:OTA:DATA 0,#3128&lt;128 bytes binary payload&gt;
+SYSTem:OTA:END
+SYSTem:OTA:VERify?
+SYSTem:OTA:COMMit</code></pre>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 8 / 13</span>
+  </div>
+</div>
+<!-- P9 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>报错与异常处理</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<div class="section-title">报错与异常处理</div>
+<h4>SCPI 解析器错误</h4>
+<p>参数缺失、参数非法、未知指令、Flash 保存失败或底层硬件通信失败时，固件会向 SCPI 错误队列写入错误。错误队列容量为 <code>17</code> 条，可用以下方式读取：</p>
+<pre data-lang="scpi"><code>SYSTem:ERRor:COUNt?
+SYSTem:ERRor:NEXT?
+*CLS</code></pre>
+<table class="compact">
+<thead><tr><th>场景</th><th>典型表现</th><th>处理建议</th></tr></thead>
+<tbody>
+<tr><td>未知指令</td><td>串口可能主动输出 <code>**ERROR: -113, &quot;Undefined header&quot;</code>；错误队列可读到 <code>-113,&quot;Undefined header&quot;</code></td><td>停止发送该指令，检查命令拼写和层级</td></tr>
+<tr><td>缺少参数</td><td><code>-109,&quot;Missing parameter&quot;</code></td><td>补齐必填参数</td></tr>
+<tr><td>参数值非法</td><td><code>-224,&quot;Illegal parameter value&quot;</code> 或 <code>-222,&quot;Data out of range&quot;</code></td><td>检查枚举值、LED 映射是否重复、数值范围是否越界</td></tr>
+<tr><td>Flash 保存失败</td><td><code>-320,&quot;Storage fault&quot;</code></td><td>配置可能未持久化；建议重试并读取对应查询指令确认</td></tr>
+<tr><td>UART/RS485 硬件或通信失败</td><td><code>-240,&quot;Hardware error&quot;</code> 或 <code>-360,&quot;Communication error&quot;</code></td><td>查询 <code>READ:LOG:STATus?</code>、<code>READ:IO:ALL?</code>，并检查 IO 扩展板链路</td></tr>
+</tbody>
+</table>
+<div class="note-box">SCPI 错误队列使用出队读取；<code>SYSTem:ERRor:NEXT?</code> 每读一次弹出一条。<code>*CLS</code> 会清除状态和错误队列。</div>
+<h4>命令主动返回的 <code>ERR...</code></h4>
+<p>部分命令不通过 SCPI 错误队列报错，而是在普通响应中返回 <code>ERR...</code>：</p>
+<table class="compact">
+<thead><tr><th>指令</th><th>报错格式</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>SYSTem:FLASH:ID?</code></td><td><code>ERR INIT=&lt;name&gt;</code> 或 <code>ERR ID=&lt;name&gt;</code></td><td>W25Q128 初始化或读取 JEDEC ID 失败</td></tr>
+<tr><td>OTA 指令</td><td><code>ERR,&lt;code&gt;,&lt;name&gt;</code></td><td>OTA 流程错误，错误码见下表</td></tr>
+</tbody>
+</table>
+<h4>OTA 错误码</h4>
+<table class="compact">
+<thead><tr><th>代码</th><th>名称</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>0</code></td><td><code>OK</code></td><td>成功</td></tr>
+<tr><td><code>1</code></td><td><code>BUSY</code></td><td>OTA 流程忙</td></tr>
+<tr><td><code>2</code></td><td><code>BAD_STATE</code></td><td>当前状态不允许执行该 OTA 步骤</td></tr>
+<tr><td><code>3</code></td><td><code>BAD_PARAM</code></td><td>参数错误</td></tr>
+<tr><td><code>4</code></td><td><code>FLASH_FAIL</code></td><td>Flash 操作失败</td></tr>
+<tr><td><code>5</code></td><td><code>SIZE_OVERFLOW</code></td><td>镜像大小超出允许范围</td></tr>
+<tr><td><code>6</code></td><td><code>CRC_FAIL</code></td><td>CRC 校验失败</td></tr>
+<tr><td><code>7</code></td><td><code>CAN_TIMEOUT</code></td><td>CAN 分发超时</td></tr>
+<tr><td><code>8</code></td><td><code>CAN_NACK</code></td><td>CAN 节点拒绝</td></tr>
+<tr><td><code>9</code></td><td><code>NODE_NOT_READY</code></td><td>节点未就绪</td></tr>
+<tr><td><code>10</code></td><td><code>BOOT_FAIL</code></td><td>Bootloader 升级失败</td></tr>
+<tr><td><code>11</code></td><td><code>APP_NOT_CONFIRMED</code></td><td>App 未确认</td></tr>
+<tr><td><code>12</code></td><td><code>BLOCK_MISSING</code></td><td>OTA 数据块缺失</td></tr>
+<tr><td><code>13</code></td><td><code>BAD_MANIFEST</code></td><td>Manifest 无效</td></tr>
+<tr><td><code>14</code></td><td><code>UNSUPPORTED_IMAGE</code></td><td>镜像类型不支持</td></tr>
+</tbody>
+</table>
+<h4>运行异常处理</h4>
+<p>运行时安全事件和执行器异常主要通过设备日志上报。上位机建议按以下顺序处理：</p>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 9 / 13</span>
+  </div>
+</div>
+<!-- P10 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>报错与异常处理</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明（续）</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<ol class="small-list">
+<li>指令响应以 <code>ERR</code> 或 <code>ERROR</code> 开头时，立即读取 <code>SYSTem:ERRor:NEXT?</code> 直到返回无错误。</li>
+<li>定期读取 <code>READ:LOG:STATus?</code>；若 <code>PEND</code> 非零，读取 <code>READ:LOG:NEXT?</code> 或 <code>READ:LOG:ALL?</code>。</li>
+<li>发现 <code>[ERROR]</code> 时停止自动测试流程，采集 <code>READ:SYSTem:STATe?</code>、<code>READ:IO:ALL?</code>、<code>READ:CYLInder1:STATe?</code>、<code>READ:CYLInder2:STATe?</code>。</li>
+<li>发现 <code>[WARN]</code> 时结合事件名判断是否可继续；USB 插拔失败、RS485 故障、IO 写入失败建议人工确认后再继续。</li>
+</ol>
+<table class="compact">
+<thead><tr><th>异常</th><th>日志级别</th><th>固件动作</th><th>恢复建议</th></tr></thead>
+<tbody>
+<tr><td>急停 <code>ESTOP</code></td><td><code>[ERROR]</code></td><td>进入 <code>EMERGENCY</code>，红灯，系统开门并锁定</td><td>急停复位且激光清除后，重新按下启动键解锁恢复</td></tr>
+<tr><td>激光防夹 <code>LASER</code></td><td><code>[ERROR]</code></td><td>关门后段检测到遮挡时进入 <code>EMERGENCY</code>，红灯，系统开门并锁定</td><td>清除遮挡后，重新按下启动键解锁恢复</td></tr>
+<tr><td>RS485 故障 <code>RS485_FAULT</code></td><td><code>[WARN]</code></td><td>IO 链路标记不可用，状态机暂停本轮自动操作并请求黄灯告警</td><td>等待 <code>RS485_RECOVERED</code>，再读取 IO 和系统状态确认</td></tr>
+<tr><td>Risk Mode 压力事件 <code>RISK_PRESSURE</code></td><td><code>[WARN]</code></td><td>Risk Mode 下用气压和学习时间完成关门判定</td><td>检查门下限位或气压传感状态</td></tr>
+<tr><td>气压低 <code>AIR_LOW</code></td><td><code>[WARN]</code></td><td>仅记录诊断日志，不触发急停</td><td>等待 <code>clear_after</code> 记录或检查气路</td></tr>
+<tr><td>IO 写入失败 <code>IO_WRITE_FAIL</code></td><td><code>[WARN]</code></td><td>对应执行器命令可能未真正输出</td><td>检查 IO 板通信、电源和执行器线路</td></tr>
+<tr><td>USB 插入失败 <code>USB_INSERT_FAIL</code></td><td><code>[WARN]</code></td><td>可能回退 USB、红灯快闪或在 <code>COMPLETE</code> 中黄灯闪烁</td><td>查询 <code>READ:CYLInder2:STATe?</code>，检查 USB 插入气缸和到位传感</td></tr>
+<tr><td>USB 回退失败 <code>USB_RETRACT_FAIL</code></td><td><code>[WARN]</code></td><td>红灯快闪，必要时退回 <code>IDLE</code></td><td>查询 <code>READ:CYLInder2:STATe?</code>，检查 USB 回退气缸和到位传感</td></tr>
+</tbody>
+</table>
+<div class="section-title">调试开关指令</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>CONFigure:DEBUg:STATe</code></td><td><code>OFF</code> / <code>ON</code></td><td><code>OFF</code> / <code>ON</code></td><td>运行时开启/关闭状态迁移调试输出</td></tr>
+<tr><td><code>READ:DEBUg:STATe?</code></td><td></td><td><code>OFF</code> / <code>ON</code></td><td>查询状态迁移调试输出开关</td></tr>
+<tr><td><code>CONFigure:DEBUg:ACTion</code></td><td><code>OFF</code> / <code>ON</code></td><td><code>OFF</code> / <code>ON</code></td><td>运行时开启/关闭动作耗时调试输出</td></tr>
+<tr><td><code>READ:DEBUg:ACTion?</code></td><td></td><td><code>OFF</code> / <code>ON</code></td><td>查询动作耗时调试输出开关</td></tr>
+<tr><td><code>CONFigure:DEBUg:EVENt</code></td><td><code>OFF</code> / <code>ON</code></td><td><code>OFF</code> / <code>ON</code></td><td>运行时开启/关闭事件调试输出</td></tr>
+<tr><td><code>READ:DEBUg:EVENt?</code></td><td></td><td><code>OFF</code> / <code>ON</code></td><td>查询事件调试输出开关</td></tr>
+<tr><td><code>CONFigure:DEBUg:IO</code></td><td><code>OFF</code> / <code>ON</code></td><td><code>OFF</code> / <code>ON</code></td><td>运行时开启/关闭 IO 调试输出</td></tr>
+<tr><td><code>READ:DEBUg:IO?</code></td><td></td><td><code>OFF</code> / <code>ON</code></td><td>查询 IO 调试输出开关</td></tr>
+</tbody>
+</table>
+<div class="note-box">调试开关为运行时状态，默认 <code>OFF</code>，不写入 Flash。</div>
+<h4>示例</h4>
+<pre data-lang="scpi"><code>CONFigure:DEBUg:STATe ON
+READ:DEBUg:STATe?
+CONFigure:DEBUg:IO OFF
+READ:DEBUg:IO?</code></pre>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 10 / 13</span>
+  </div>
+</div>
+<!-- P11 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>设备日志指令</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<div class="section-title">设备日志指令</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>CONFigure:LOG:UART</code></td><td><code>OFF</code> / <code>ON</code></td><td><code>OFF</code> / <code>ON</code></td><td>开启/关闭设备日志实时 UART 输出</td></tr>
+<tr><td><code>READ:LOG:UART?</code></td><td></td><td><code>OFF</code> / <code>ON</code></td><td>查询实时 UART 输出开关</td></tr>
+<tr><td><code>READ:LOG:NEXT?</code></td><td></td><td>一条日志或<code>EMPTY</code></td><td>读取下一条设备日志记录</td></tr>
+<tr><td><code>READ:LOG:ALL?</code></td><td></td><td>多行日志或<code>EMPTY</code></td><td>读取当前全部待读设备日志记录</td></tr>
+<tr><td><code>READ:LOG:STATus?</code></td><td></td><td><code>PEND:... CAP:... NEXT:...</code></td><td>查询设备日志缓冲区状态</td></tr>
+<tr><td><code>CONFigure:LOG:CLEar</code></td><td></td><td><code>OK</code></td><td>清空设备日志缓冲区</td></tr>
+</tbody>
+</table>
+<h4>日志状态响应</h4>
+<pre data-lang="text"><code>PEND:&lt;pending&gt; CAP:&lt;capacity&gt; NEXT:&lt;next_seq&gt; DROP:&lt;drop_count&gt; RDROP:&lt;realtime_drop_count&gt; UART:&lt;0|1&gt;</code></pre>
+<h4>日志行格式</h4>
+<p>日志记录通常以时间戳和节点号开头，例如：</p>
+<pre data-lang="text"><code>[T+12.345s][N0][INFO][ACTION] CLOSE_DONE duration=300ms</code></pre>
+<p>通用格式如下：</p>
+<pre data-lang="text"><code>[T+&lt;设备启动后时间&gt;][N&lt;节点号&gt;][&lt;级别&gt;][&lt;模块&gt;] &lt;事件及参数&gt;</code></pre>
+<table class="compact">
+<thead><tr><th>字段</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>T+</code></td><td>本次启动后的相对时间，复位后重新计时</td></tr>
+<tr><td><code>N</code></td><td>节点号，单机默认通常为<code>N0</code></td></tr>
+<tr><td><code>INFO</code></td><td>普通状态、动作、命令或恢复事件</td></tr>
+<tr><td><code>WARN</code></td><td>需要关注的异常或诊断事件</td></tr>
+<tr><td><code>ERROR</code></td><td>严重安全事件，如急停、激光防夹触发</td></tr>
+<tr><td><code>STATE</code> / <code>ACTION</code> / <code>EVENT</code> / <code>IO</code></td><td>状态、动作、事件或 IO 快照</td></tr>
+</tbody>
+</table>
+<h4>异常日志说明</h4>
+<p>上位机应以日志级别字段判断异常。当前固件中，急停和激光防夹为 <code>[ERROR][EVENT]</code>，其余运行诊断事件通常为 <code>[WARN][EVENT]</code>：</p>
+<table class="compact">
+<thead><tr><th>异常事件</th><th>日志示例</th><th>含义与操作说明</th></tr></thead>
+<tbody>
+<tr><td>急停触发</td><td><code>[T+15.120s][N0][ERROR][EVENT] ESTOP close_elapsed=820ms</code></td><td>系统开门并锁定；复位急停后重新按启动键恢复</td></tr>
+<tr><td>异物阻挡</td><td><code>[T+16.020s][N0][ERROR][EVENT] LASER close_elapsed=1720ms</code></td><td>系统开门并锁定；清除遮挡后重新按启动键恢复</td></tr>
+<tr><td>RS485 通信故障</td><td><code>[T+12.345s][N0][WARN][EVENT] RS485_FAULT arg0=0 arg1=0</code></td><td>IO 通信暂不可用；暂停操作并等待恢复日志</td></tr>
+<tr><td>Risk Mode 压力事件</td><td><code>[T+16.100s][N0][WARN][EVENT] RISK_PRESSURE close_elapsed=1800ms</code></td><td>关门压力条件触发；检查工件和关门阻力</td></tr>
+<tr><td>气压低/恢复</td><td><code>[T+20.000s][N0][WARN][EVENT] AIR_LOW low_after=500ms</code></td><td>气压低或恢复；按参数名区分 <code>low_after/clear_after</code></td></tr>
+<tr><td>IO 写入失败</td><td><code>[T+21.000s][N0][WARN][EVENT] IO_WRITE_FAIL target=2 cmd=0x0003</code></td><td>输出写入失败；检查对应执行器与 IO 通信</td></tr>
+<tr><td>USB 插入失败</td><td><code>[T+22.000s][N0][WARN][EVENT] USB_INSERT_FAIL elapsed=2001ms reason=timeout</code></td><td>USB 插入未到位；按 <code>reason</code> 检查传感或输出</td></tr>
+<tr><td>USB 回退失败</td><td><code>[T+23.000s][N0][WARN][EVENT] USB_RETRACT_FAIL elapsed=2001ms reason=sensor_conflict</code></td><td>USB 回退未到位；按 <code>reason</code> 检查传感或输出</td></tr>
+</tbody>
+</table>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 11 / 13</span>
+  </div>
+</div>
+<!-- P12 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>设备日志指令 / 指令总表</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明（续）</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<h4>USB 异常原因</h4>
+<table class="compact">
+<thead><tr><th><code>reason</code></th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>timeout</code></td><td>USB 行程超过 2000 ms 未到位</td></tr>
+<tr><td><code>sensor_conflict</code></td><td>USB 上位和下位传感同时有效</td></tr>
+<tr><td><code>dual_output</code></td><td>USB 插入输出和回退输出同时有效</td></tr>
+<tr><td><code>unknown</code></td><td>未识别的原因码</td></tr>
+</tbody>
+</table>
+<p>RS485 通信恢复时会产生普通信息日志：</p>
+<pre data-lang="text"><code>[T+13.500s][N0][INFO][EVENT] RS485_RECOVERED arg0=0 arg1=0</code></pre>
+<p>该记录表示 IO 链路已经恢复，设备会退出 RS485 故障保护并请求关闭告警灯。<code>ESTOP</code> 和 <code>LASER</code> 会导致系统开门并锁定；清除急停或遮挡后，重新按下启动键即可解锁恢复。<code>RISK_PRESSURE</code> 当前没有单独的恢复事件，应结合后续系统状态、IO 状态和动作日志判断故障是否解除。</p>
+<h4>异常日志读取建议</h4>
+<ol class="small-list">
+<li>先发送 <code>READ:LOG:STATus?</code> 检查待处理数量和丢失计数。</li>
+<li>使用 <code>READ:LOG:NEXT?</code> 逐条读取，或使用 <code>READ:LOG:ALL?</code> 一次读取当前全部记录。</li>
+<li>筛选日志中的 <code>[WARN]</code> 和 <code>[ERROR]</code>；收到 <code>RS485_FAULT</code> 后继续等待 <code>RS485_RECOVERED</code>。</li>
+<li>若 <code>DROP</code> 或 <code>RDROP</code> 非零，说明日志不完整，应同时采集设备当前状态和 IO 状态辅助诊断。</li>
+</ol>
+<div class="note-box"><code>READ:LOG:NEXT?</code> 和 <code>READ:LOG:ALL?</code> 为出队读取，已返回的记录不会再次返回。日志缓冲区容量当前为 <code>76</code> 条，位于 RAM 中，设备复位或掉电后会清空。  <code>DROP</code> 表示待读缓冲区满后被覆盖的记录数；<code>RDROP</code> 表示开启实时 UART 输出时，实时发送队列来不及发送而丢失的记录数。<code>CONFigure:LOG:CLEar</code> 会清空日志及两个丢失计数。  开启 <code>CONFigure:LOG:UART ON</code> 后，日志会在 SCPI 串口上主动输出，属于非请求响应数据。上位机必须能够区分实时日志与 SCPI 指令响应；不能处理异步文本时应保持 <code>OFF</code>，改用查询指令轮询。</div>
+<h4>示例</h4>
+<pre data-lang="scpi"><code>CONFigure:LOG:UART ON
+READ:LOG:UART?
+READ:LOG:STATus?
+READ:LOG:NEXT?
+READ:LOG:ALL?
+CONFigure:LOG:CLEar</code></pre>
+<div class="section-title">指令总表</div>
+<table class="compact">
+<thead><tr><th>类别</th><th>指令</th></tr></thead>
+<tbody>
+<tr><td>基础</td><td><code>*CLS</code>, <code>*IDN?</code>, <code>*RST</code>, <code>*STB?</code>, <code>*WAI</code>, <code>*OPC?</code></td></tr>
+<tr><td>系统</td><td><code>SYSTem:ERRor[:NEXT]?</code>, <code>SYSTem:ERRor:COUNt?</code>, <code>SYSTem:VERSion?</code>, <code>SYSTem:UPTime?</code>, <code>SYSTem:REBoot</code>, <code>SYSTem:FLASH:ID?</code></td></tr>
+<tr><td>IDN</td><td><code>SYSTem:IDN1</code>, <code>SYSTem:IDN1?</code>, <code>SYSTem:IDN2</code>, <code>SYSTem:IDN2?</code>, <code>SYSTem:IDN3</code>, <code>SYSTem:IDN3?</code>, <code>SYSTem:IDN4</code>, <code>SYSTem:IDN4?</code></td></tr>
+<tr><td>执行器</td><td><code>CONFigure:CYLInder#</code>, <code>READ:CYLInder#:STATe?</code>, <code>CONFigure:USB:AUTO</code>, <code>READ:USB:AUTO?</code>, <code>CONFigure:DUT:AUTO</code>, <code>READ:DUT:AUTO?</code>, <code>CONFigure:LOCK</code>, <code>READ:LOCK:STATe?</code>, <code>CONFigure:LED</code>, <code>READ:LED:STATe?</code>, <code>CONFigure:LED:MAP</code>, <code>READ:LED:MAP?</code></td></tr>
+<tr><td>状态</td><td><code>READ:SYSTem:STATe?</code>, <code>READ:IO:ALL?</code>, <code>READ:DUT:STATe?</code></td></tr>
+<tr><td>配置</td><td><code>CONFigure:BAUDrate</code>, <code>CONFigure:ESTOP:TYPE</code>, <code>READ:ESTOP:TYPE?</code>, <code>CONFigure:RISK:MODE</code>, <code>READ:RISK:MODE?</code>, <code>CONFigure:BOOT:DIAG</code>, <code>READ:BOOT:DIAG?</code></td></tr>
+<tr><td>OTA</td><td><code>SYSTem:OTA:STATus?</code>, <code>SYSTem:OTA:BOOT?</code>, <code>SYSTem:OTA:BEGIN</code>, <code>SYSTem:OTA:DATA</code>, <code>SYSTem:OTA:END</code>, <code>SYSTem:OTA:VERify?</code>, <code>SYSTem:OTA:COMMit</code>, <code>SYSTem:OTA:ABORt</code></td></tr>
+<tr><td>调试</td><td><code>CONFigure:DEBUg:STATe</code>, <code>READ:DEBUg:STATe?</code>, <code>CONFigure:DEBUg:ACTion</code>, <code>READ:DEBUg:ACTion?</code>, <code>CONFigure:DEBUg:EVENt</code>, <code>READ:DEBUg:EVENt?</code>, <code>CONFigure:DEBUg:IO</code>, <code>READ:DEBUg:IO?</code></td></tr>
+<tr><td>日志</td><td><code>CONFigure:LOG:UART</code>, <code>READ:LOG:UART?</code>, <code>READ:LOG:NEXT?</code>, <code>READ:LOG:ALL?</code>, <code>READ:LOG:STATus?</code>, <code>CONFigure:LOG:CLEar</code></td></tr>
+</tbody>
+</table>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 12 / 13</span>
+  </div>
+</div>
+<!-- P13 -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>修订记录</h1>
+      <div class="subtitle">PinProbe A1 箱体控制 SCPI 指令说明</div>
+    </div>
+    <svg class="logo" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="#gts-logo"></use></svg>
+    <div class="doc-meta">
+      <strong>2026-08-11</strong>
+      SCPI Reference<br>
+      PinProbe A1
+    </div>
+  </div>
+  <div class="main">
+<div class="section-title">修订记录</div>
+<table class="compact">
+<thead><tr><th>日期</th><th>新增指令</th><th>修订内容</th></tr></thead>
+<tbody>
+<tr><td><code>2026-08-11</code></td><td><code>CONFigure:DUT:AUTO</code>、<code>READ:DUT:AUTO?</code>、<code>READ:DUT:STATe?</code></td><td>增加 DUT 到位检测自动流程参与开关，并明确 <code>USB:AUTO OFF</code> 时 USB 自动拔插和 DUT 检测全部旁路；<code>USB:AUTO ON</code> 时可独立开关 DUT 检测；DUT 状态查询始终读取实际传感器，不受旁路影响。</td></tr>
+<tr><td><code>2026-07-28</code></td><td><code>CONFigure:CYLInder2</code>、<code>READ:CYLInder2:STATe?</code></td><td>修订 USB 手动控制和状态返回语义：<code>CLOSE/CLOSED</code> 表示 USB 插入/连接，<code>OPEN/OPENED</code> 表示 USB 拔出/回退；硬件输出动作不变。</td></tr>
+<tr><td><code>2026-07-27</code></td><td><code>CONFigure:USB:AUTO</code>、<code>READ:USB:AUTO?</code></td><td>增加 USB 自动拔插流程相关指令；出厂时已按设备硬件配置完成，<span class="danger-text">禁止修改</span>；带 USB 气缸设备为 <code>ON</code>，不带 USB 气缸设备为 <code>OFF</code>；客户侧使用 <code>READ:USB:AUTO?</code> 确认是否开启。</td></tr>
+</tbody>
+</table>
+  </div>
+  <div class="page-footer">
+    <span>Accurate · Simple · Fast · Agile | General Test Systems Inc.</span>
+    <span>PinProbe A1 指令说明 | 13 / 13</span>
+  </div>
+</div>
+</body>
+</html>
