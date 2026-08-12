@@ -1285,9 +1285,13 @@ archive:  build-rtos-multicore-smoke/validation_scpi_sync_loop_boundary_fix_step
    Dependency:
      ota_ao, ota metadata, run-state policy, optional fault injection
    Risk:
-     high, update path and arbitrary block input; split only after focused OTA smoke script exists
+     medium-high after split; update path and arbitrary block input remain high-value validation targets
    Validation:
      status/progress/slot/result/txn/mode/target/capability first; write path separately gated
+   Status:
+     done 2026-08-12: SYSTem:OTA:* moved from scpi_port.c to scpi_ota_commands.c/.h,
+     with shared scpi_port_internal.h helpers for read_u32/result_ok/run-state rejection.
+     Verified by build-rtos-multicore-smoke and release_check.
 
 7. scpi_storage_commands.c/.h
    Scope:
