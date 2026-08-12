@@ -8,7 +8,6 @@ scpi_result_t scpi_product_run_last_q(scpi_t *context);
 scpi_result_t scpi_product_run_summary_q(scpi_t *context);
 scpi_result_t scpi_product_page_block_q(scpi_t *context);
 scpi_result_t scpi_product_count_zero_q(scpi_t *context);
-scpi_result_t scpi_product_trigger_state_q(scpi_t *context);
 scpi_result_t scpi_product_permission_q(scpi_t *context);
 scpi_result_t scpi_product_role_q(scpi_t *context);
 
@@ -32,12 +31,5 @@ scpi_result_t scpi_product_role_q(scpi_t *context);
     {.pattern = "READ:RUN:SUMMary?", .callback = scpi_product_run_summary_q}, \
     {.pattern = "READ:T2:COUNt?", .callback = scpi_product_count_zero_q}, \
     {.pattern = "READ:T2:DATA?", .callback = scpi_product_page_block_q}
-
-#define SCPI_PRODUCT_TRIGGER_COMMANDS \
-    {.pattern = "TRIGger:STARt", .callback = scpi_product_result_accepted}, \
-    {.pattern = "TRIGger:STOP", .callback = scpi_product_result_accepted}, \
-    {.pattern = "TRIGger:PAUSe", .callback = scpi_product_result_accepted}, \
-    {.pattern = "TRIGger:CONTinue", .callback = scpi_product_result_accepted}, \
-    {.pattern = "READ:TRIGger:STATe?", .callback = scpi_product_trigger_state_q}
 
 #endif

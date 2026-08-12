@@ -22,6 +22,7 @@
 #include "scpi/scpi.h"
 #include "scpi_product_commands.h"
 #include "scpi_sync_commands.h"
+#include "scpi_trigger_commands.h"
 #include "scpi_usb_control.h"
 #include "storage_manager.h"
 #include "sync_trigger.h"
@@ -3406,7 +3407,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "TRIGger:SAFE?", .callback = scpi_cmd_trigger_safe_q},
     {.pattern = "TRIGger:MODE", .callback = scpi_cmd_trigger_mode},
     {.pattern = "TRIGger:MODE?", .callback = scpi_cmd_trigger_mode_q},
-    SCPI_PRODUCT_TRIGGER_COMMANDS,
+    SCPI_TRIGGER_COMMANDS,
     {.pattern = "TRIGger:SEQ:LENGth", .callback = scpi_cmd_trigger_seq_length},
     {.pattern = "TRIGger:SEQ:LENGth?", .callback = scpi_cmd_trigger_seq_length_q},
     {.pattern = "TRIGger:SEQ:WIDTh", .callback = scpi_cmd_trigger_seq_width},

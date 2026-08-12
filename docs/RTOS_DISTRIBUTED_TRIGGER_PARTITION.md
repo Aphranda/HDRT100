@@ -1061,7 +1061,7 @@ archive:  build-rtos-multicore-smoke/validation_calibration_step1_full_retry
 | 1 | 拆出 `scpi_calibration_commands.c/.h`，保留现有 CAL 响应字段和 accepted stub | 已完成；`READ:CALibration:*?`、`READ:SYNC:LINK?` 和 full smoke 通过 |
 | 2 | 拆出 `scpi_sync_commands.c/.h`，保留现有 SYNC 响应字段和 accepted stub | 已完成；`READ:SYNC:*?`、`SYNC:CHECk` 和 full smoke 通过 |
 | 3 | 拆出 `scpi_config_commands.c/.h`，把测试 recipe/角度/序列/SWITCH 查询从 product common 移出 | 已完成；`READ:TRIGger:PARameter?`、`READ:ANGLe:*?`、`READ:SEQuence:*?` 通过 |
-| 4 | 拆出 `scpi_trigger_commands.c/.h`，让产品运行控制和历史触发命令分层 | `TRIGger:MODE/STARt/STOP` 产品 smoke 通过 |
+| 4 | 拆出 `scpi_trigger_commands.c/.h`，让产品运行控制和历史触发命令分层 | 已完成；`TRIGger:MODE/STARt/STOP` 产品 smoke 通过 |
 | 5 | 拆出 `scpi_system_commands.c/.h`，收敛 system/refmem/config/RTOS/storage/OTA 入口 | `SYSTem:*`、OTA、Storage、REFM 验证通过 |
 | 6 | 建立 `scpi_legacy_commands.c/.h`，给旧验证命令集中权限和 RUN 态策略 | 旧 HIL 工具仍可用，产品指令表不依赖 legacy 入口 |
 | 7 | 规划并实现 `CalibrationSlot`，把 CAL 读取从 app task snapshot 迁移为反射内存快照 | `READ:CALibration:*?` 字段不变，source 从 task snapshot 变为 slot snapshot |
@@ -1134,5 +1134,24 @@ archive:  build-rtos-multicore-smoke/validation_scpi_config_split_step1
 写命令要么完整解析并投递配置事件，要么明确拒绝并给出固定 NACK/reason，不能返回 accepted
 后再遗留 SCPI parser 参数错误。
 
-下一步执行第 4 项产品运行控制拆分，先把 `TRIGger:STARt/STOP/PAUSe/CONTinue` 和
-`READ:TRIGger:STATe?` 从 product common 拆出，不接历史 `TRIGger:SEQ/BISS/PCNT`。
+第十刀已经完成：
+
+```text
+split product trigger run-control commands into scpi_trigger_commands.c/.h
+move TRIGger:STARt/STOP/PAUSe/CONTinue and READ:TRIGger:STATe?
+keep legacy TRIGger:MODE / TRIGger:SEQ / BISS / PCNT in scpi_port.c for now
+```
+
+板端验证结果：
+
+```text
+build_id: 20260812053420
+quick:    TRIGger:MODE 1 / TRIGger:MODE? / READ:TRIGger:STATe? / TRIGger:STARt / TRIGger:STOP PASS
+full:     RTOS + multicore smoke 16/16 PASS
+errors:   SYST:ERR? -> 0,"No error"
+archive:  build-rtos-multicore-smoke/validation_scpi_trigger_split_step1
+```
+
+下一步执行第 5 项系统/维护入口拆分。建议先拆低风险 `scpi_report_commands.c/.h` 或
+`scpi_system_tables_commands.c/.h`，把 RUN/T2 报告占位和 SystemMode/Resource/Fault/REFM
+表查询从 `scpi_port.c` 逐组移出；Storage/OTA 因为依赖资源仲裁和文件操作，放到后续单独验证。
