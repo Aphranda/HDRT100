@@ -71,10 +71,46 @@ Realtime 细分按内部基础组件推进，`SCPI_REALTIME_COMPONENT_COMMANDS` 
 - `scpi_realtime_sequence_commands.c/.h`：`TRIGger:SEQ:*`、`TRIGger:SOURce/EDGE/GATE/SAFE`、`ARM/DISarm/DISAble/FAULT`。
 - `scpi_realtime_status_commands.c/.h`：`STATus:TRIGger?` 和后续内部实时状态查询。
 
-拆分顺序为 PCNT -> ENC -> IO -> SEQ -> STATUS。每一步都必须构建、dry-run、文档检查、
-RTOS + multicore smoke，并在可用 COM 口上执行产品 SCPI 板端验证。
+拆分顺序为 PCNT -> ENC -> IO -> SEQ -> STATUS，已全部完成并完成板端闭环。每一步都必须构建、
+dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行产品 SCPI 板端验证。
 
 ## 任务记录
+
+### SCPI-TASK-20260812-023 - Realtime STATUS 命令细分
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 将 `STATus:TRIGger?` 从 realtime component 聚合文件中拆出。
+  - 保持 `SCPI_REALTIME_COMPONENT_COMMANDS` 聚合入口不变，完成 PCNT/ENC/IO/SEQ/STATUS
+    realtime 子域拆分链路。
+  - 为后续内部实时状态查询扩展保留独立 status 模块。
+- 完成内容：
+  - 新增 `scpi_realtime_status_commands.c/.h`。
+  - `STATus:TRIGger?` 和底层 trigger mode 字符串转换移入 STATUS 子模块。
+  - `scpi_realtime_component_commands.h` 引入 `SCPI_REALTIME_STATUS_COMMANDS`。
+  - `scpi_realtime_component_commands.c` 收缩为聚合占位源文件，后续可按 CMake 边界决定是否删除。
+  - `CMakeLists.txt` 纳入新 STATUS 源文件。
+- 验证结果：
+  - `cmake --build build` 通过，build id：`20260812133754`，
+    `build\RP2350_TRIG_UPDATE.pkg` package CRC：`0x47BA0ADD`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，
+    生成 `111` 条产品命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812133754"`。
+  - `SYSTem:OTA:COMMit` 后 `SYSTem:OTA:SLOT? -> 1,0,1,0,0`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_213929`。
+- 还需完成：
+  - realtime 拆分链路已完成；下一轮转向序列触发和脉冲计数内部基础组件实现。
+- 关联文件：
+  - `middleware/scpi_port/src/scpi_realtime_component_commands.c`
+  - `middleware/scpi_port/inc/scpi_realtime_component_commands.h`
+  - `middleware/scpi_port/src/scpi_realtime_status_commands.c`
+  - `middleware/scpi_port/inc/scpi_realtime_status_commands.h`
 
 ### SCPI-TASK-20260812-022 - Realtime SEQ 命令细分
 
