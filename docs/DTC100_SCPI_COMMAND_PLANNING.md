@@ -91,6 +91,7 @@ owner task / component
 | `READ:SYNC` | 同步读取 | `task_vdc_sync` | VdcSlot、NodeSlot、StatisticsSlot | 产品上位机主视图 |
 | `READ:STATistics` | 跨域统计摘要 | `task_diag` / `task_storage` | StatisticsSlot、run summary | 报告统计，不挂在 SYNC 域内部 |
 | `MMEMory` / storage | 文件和数据块 | `task_storage` | storage job | SD、trace、snapshot、报告分页 |
+| `REALtime` | 底层实时维护和 validation | `core1_realtime` / TriggerAO / IO profile | TriggerVector、IoSlot、维护快照 | PCNT、ENC、SEQ_STEP、即时 IO、内部状态查询；不进入产品测试主流程 |
 
 ## 5. 测试业务域规划
 
@@ -413,12 +414,13 @@ RUN 中原则：
 2. 修改正式 SCPI 指令表 Markdown，使 SYNC/VDC/DPLL 层级与本文一致。
 3. 同步 HTML 和 PDF。
 4. 固件命令表移除裸顶层 `VDC:*`、`DPLL:*`、`STATus:VDC/DPLL?` 的新验证依赖。
-5. 固件保留或移除旧命令需单独决策：若保留，只作为 legacy validation alias，必须标注 deprecated。
+5. 固件将底层实时验证入口迁移到 `REALtime:*` 维护域；旧 `TRIGger:PCNT/ENC/SEQ`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut`、`STATus:TRIGger?` 只作为 legacy validation alias，必须标注 deprecated。
 6. `READ:STATistics?` 从 SYNC 模块迁到 report/statistics 模块。
 7. `scpi_sync_commands.c/.h` 只保留 SYNC 域和 `SYSTem:SYNC:VDC:*` 维护入口。
 8. `task_vdc_sync` 后续通过 sync_control_queue 消费动作，不由 SCPI callback 直接改状态。
 9. 将 `READ:SYNC:*?` 的响应来源迁到 `VdcSlot/NodeSlot/StatisticsSlot`。
 10. 增加 `SYSTem:COMMand:ACK?` 或复用现有 ACK 查询，统一完成态闭环。
+11. 产品 `TRIGger:*` 只保留运行控制语义；低层 `ARM/DISarm/FAULT` 验证路径迁入 `REALtime:*` 或维护权限 alias。
 
 ## 13. 当前建议结论
 
@@ -589,8 +591,6 @@ TRIGger
   :PAUSe
   :CONTinue
   :ABORt
-  :ARM
-  :DISarm
 
 CALibration
   :STARt
@@ -657,6 +657,58 @@ MMEMory
   :READ?
   :WRITe
   :DELete
+
+REALtime
+  :STATus?
+  :PCNT
+    :DECode / :DECode?
+    :DIRection / :DIRection?
+    :FILTer / :FILTer?
+    :GATE / :GATE?
+    :CMP / :CMP?
+    :PRESet / :PRESet?
+    :CLEar
+    :TOTal?
+    :FREQuency?
+  :ENC
+    :TARGet / :TARGet?
+    :COUNt?
+    :APIN / :APIN?
+    :REVolution?
+  :SEQ
+    :LENGth / :LENGth?
+    :WIDTh / :WIDTh?
+    :INDex?
+    :DATA / :DATA?
+  :SOURce / :SOURce?
+  :EDGE / :EDGE?
+  :GATE / :GATE?
+  :SAFE / :SAFE?
+  :ARM
+  :DISarm
+  :DISAble
+  :FAULT
+  :IO
+    :TRIGger
+      :WIDTh / :WIDTh?
+      :IMMediate
+    :PULSe
+      :WIDTh / :WIDTh?
+      :IMMediate
+    :MARKer
+      :WIDTh / :WIDTh?
+      :IMMediate
+    :RJ45
+      :WIDTh / :WIDTh?
+      :IMMediate
+      :PINs?
+    :SAMPle
+      :RATE / :RATE?
+      :STATe / :STATe?
+    :CLOCk
+      :FREQuency / :FREQuency?
+      :STATe / :STATe?
+    :SYNC?
 ```
 
 ### 14.1 指令树收敛说明
@@ -669,5 +721,7 @@ MMEMory
 - `SYSTem:*` 是系统、维护、诊断和证据树；`SYSTem:T2:*?` 不属于业务域。
 - `SYSTem:SYNC:VDC:*` 是维护诊断树，不是产品测试主流程树。
 - `CONFigure:SYNC:VDC:DPLL` 是产品配置树，用于选择 VDC DPLL profile 和门限，不直接调试系数。
+- `REALtime:*` 是底层实时维护和 validation 树，用于 PCNT、ENC、SEQ_STEP、即时 IO、TriggerVector 快照和低层 ARM/DISarm/FAULT 验证，不作为现场测试上位机主流程 API。
+- 产品 `TRIGger:*` 不再承载底层 `SEQ_STEP/ENC/PCNT/PIO` 验证命令；这类能力必须从 `REALtime:*` 或 maintenance/legacy alias 进入。
 - 裸 `VDC:*`、裸 `DPLL:*`、`STATus:VDC?`、`STATus:DPLL?` 不进入建议指令树。
-- 旧的编码器、BiSS、PCNT、PIO 单项验证命令不进入产品主树；需要保留时应放入维护权限或独立 validation 文档。
+- 旧的编码器、BiSS、PCNT、PIO 单项验证命令不进入产品主树；需要保留时应放入 `REALtime:*`、`COMMunication:BISS:*`、维护权限或独立 validation 文档。
