@@ -62,7 +62,53 @@ SYSTEM RUNTIME、SYSTEM DIAGNOSTICS/EVIDENCE、MEASURE 的拆分和板端闭环�
 当前剩余高风险区域是底层验证能力拆分：`BiSS-C`、`ENC/PCNT`、`SEQ_STEP/ARM/FAULT`
 和 `sync_io` pulse validation。后续拆分必须保持产品主流程与底层验证入口分离。
 
+Realtime 细分按内部基础组件推进，`SCPI_REALTIME_COMPONENT_COMMANDS` 保持聚合入口，
+子域目标为：
+
+- `scpi_realtime_pcnt_commands.c/.h`：`TRIGger:PCNT:*`，转台脉冲输入计数、比较、门控和滤波基础组件。
+- `scpi_realtime_encoder_commands.c/.h`：`TRIGger:ENC:*`，编码器计数触发配置和观测。
+- `scpi_realtime_io_commands.c/.h`：`TRIGger/PULSe/MARKer/RJ45` 即时 IO、`SAMPle:*`、`OUTPut:CLOCk:*`、`STATus:SYNC?`。
+- `scpi_realtime_sequence_commands.c/.h`：`TRIGger:SEQ:*`、`TRIGger:SOURce/EDGE/GATE/SAFE`、`ARM/DISarm/DISAble/FAULT`。
+- `scpi_realtime_status_commands.c/.h`：`STATus:TRIGger?` 和后续内部实时状态查询。
+
+拆分顺序为 PCNT -> ENC -> IO -> SEQ -> STATUS。每一步都必须构建、dry-run、文档检查、
+RTOS + multicore smoke，并在可用 COM 口上执行产品 SCPI 板端验证。
+
 ## 任务记录
+
+### SCPI-TASK-20260812-019 - Realtime PCNT 命令细分
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 将 `TRIGger:PCNT:*` 从 realtime 大文件中拆出，作为转台脉冲计数基础组件。
+  - 保持 `SCPI_REALTIME_COMPONENT_COMMANDS` 聚合入口不变，避免影响 `scpi_port.c`。
+  - 为后续 ENC、IO、SEQ、STATUS 细分建立模板。
+- 完成内容：
+  - 新增 `scpi_realtime_pcnt_commands.c/.h`。
+  - `TRIGger:PCNT:DECode/DIRection/FILTer/GATE/CMP/PRESet/CLEar/TOTal?/FREQuency?`
+    从 `scpi_realtime_component_commands.c` 移入 PCNT 子模块。
+  - `scpi_realtime_component_commands.h` 引入 `SCPI_REALTIME_PCNT_COMMANDS`，继续作为
+    realtime 聚合入口。
+  - `CMakeLists.txt` 纳入新 PCNT 源文件。
+- 验证结果：
+  - `cmake --build build` 通过，build id：`20260812125633`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，生成 `111` 条产品命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812125633"`。
+  - `SYSTem:OTA:COMMit` 后 `SYSTem:OTA:SLOT? -> 1,0,1,0,0`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_205831`。
+- 还需完成：
+  - 继续按计划拆分 `ENC`、`IO`、`SEQ` 和 `STATUS` realtime 子域。
+- 关联文件：
+  - `middleware/scpi_port/src/scpi_realtime_component_commands.c`
+  - `middleware/scpi_port/inc/scpi_realtime_component_commands.h`
+  - `middleware/scpi_port/src/scpi_realtime_pcnt_commands.c`
+  - `middleware/scpi_port/inc/scpi_realtime_pcnt_commands.h`
 
 ### SCPI-TASK-20260812-017 - COMMUNICATION BiSS-C 命令拆分
 

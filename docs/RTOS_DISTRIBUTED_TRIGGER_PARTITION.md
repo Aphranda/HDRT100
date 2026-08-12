@@ -972,24 +972,37 @@ SCPI 拆分详细进度、板端验证记录、串口生命周期问题和归档
    Validation:
      representative BISS config/readback/status/error queue + full smoke
 
-2. scpi_pcnt_commands.c/.h
+2. scpi_realtime_pcnt_commands.c/.h
    Scope:
-     TRIGger:ENC:*, TRIGger:PCNT:*
+     TRIGger:PCNT:*
    Position:
-     foundation / validation; ENC/PCNT is the base for count pulse, position event,
-     and distributed trigger prediction
+     foundation / validation; PCNT is the base for turntable pulse input, count
+     compare, gate/filter, and later distributed trigger prediction
    Dependency:
      trigger vector/event queue, run-state policy
    Risk:
-     medium; compact, but it influences later position pulse semantics
+     low-medium; compact, but it influences later position pulse semantics
    Validation:
-     ENC/PCNT defaults, decode/direction/filter/gate/cmp/preset/clear/readback,
+     PCNT defaults, decode/direction/filter/gate/cmp/preset/clear/readback,
      error queue + full smoke
+
+3. scpi_realtime_encoder_commands.c/.h
+   Scope:
+     TRIGger:ENC:*
+   Position:
+     foundation / validation; ENC_COUNT remains a bottom-layer capability and can
+     converge with PCNT-compatible aliases
+   Dependency:
+     trigger vector/event queue, run-state policy
+   Risk:
+     medium
+   Validation:
+     ENC target/pin/count/revolution readback, error queue + full smoke
    Note:
      ENC commands should gradually converge to PCNT-compatible aliases instead of
      becoming a second product command family.
 
-3. scpi_validation_trigger_commands.c/.h
+4. scpi_realtime_sequence_commands.c/.h
    Scope:
      TRIGger:SEQ:*, TRIGger:SOURce, TRIGger:EDGE, TRIGger:GATE, TRIGger:SAFE,
      STATus:TRIGger?, and low-level ARM/DISarm/FAULT validation path when needed
@@ -1005,7 +1018,7 @@ SCPI 拆分详细进度、板端验证记录、串口生命周期问题和归档
      MODE compatibility checks, SEQ/ARM/DISarm/FAULT/debug path, repeated
      SSCOM-equivalent queries, no LCD/USB hang, full smoke
 
-4. scpi_sync_io_commands.c/.h
+5. scpi_realtime_io_commands.c/.h
    Scope:
      TRIGger/PULSe/MARKer/RJ45 width and immediate commands,
      SAMPle:RATE/STATe, OUTPut:CLOCk:*, legacy STATus:SYNC?
@@ -1019,7 +1032,19 @@ SCPI 拆分详细进度、板端验证记录、串口生命周期问题和归档
      read back width/rate/state/pins, immediate pulse smoke, no trigger hang,
      full smoke
 
-5. scpi_system_runtime_commands.c/.h
+6. scpi_realtime_status_commands.c/.h
+   Scope:
+     STATus:TRIGger? and future STATus:SEQ?/ENC?/PCNT?/REALtime?
+   Position:
+     realtime internal observability
+   Dependency:
+     trigger vector snapshot
+   Risk:
+     low
+   Validation:
+     trigger status readback + full smoke
+
+7. scpi_system_runtime_commands.c/.h
    Scope:
      *TST?, SYSTem:FW:*, SYSTem:BOOT:VERSion?/CAPability?,
      SYSTem:LOG:LEVel/LEVel?/STATus?, SYSTem:CORE?, SYSTem:RTOS:STATus?
