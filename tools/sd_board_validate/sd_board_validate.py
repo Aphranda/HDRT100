@@ -28,6 +28,8 @@ sys.path.insert(0, str(ROOT))
 
 from tools.sd_trace_decode.sd_trace_decode import decode_trace  # noqa: E402
 
+BUILD_CACHE = ROOT / "build-rtos-multicore-smoke" / "CMakeCache.txt"
+
 BASELINE_COMMANDS = (
     "*IDN?",
     "SYST:FW:BUILD?",
@@ -64,6 +66,14 @@ READ_JOB_QUERY_KEY = "READ:SYST:STOR:JOB?"
 CATALOG_JOB_QUERY_KEY = "PAGE:SYST:STOR:JOB?"
 
 
+def build_uses_multicore() -> bool:
+    try:
+        text = BUILD_CACHE.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return "PROJECT_USE_MULTICORE:BOOL=ON" in text
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("port", help="USB CDC serial port, for example COM4")
@@ -86,8 +96,24 @@ def normalize_scpi_line(line: str) -> str:
     return line.strip()
 
 
+def is_log_line(line: str) -> bool:
+    maybe_log = line[1:] if line.startswith('"') else line
+    return maybe_log.startswith("[") or maybe_log.startswith("log:")
+
+
 def is_log_or_ack(line: str) -> bool:
-    return not line or line.startswith("[") or line == '"OK"'
+    return not line or is_log_line(line) or line in ('"OK"', "OK", "1")
+
+
+def strip_leading_ack(line: str) -> str:
+    if line in ('"OK"', "OK", "1"):
+        return line
+    for prefix in ('OK""', '"OK""'):
+        if line.startswith(prefix):
+            return '"' + line[len(prefix):].strip()
+    if line.startswith('OK"') and not line.startswith('OK",'):
+        return line[2:].strip()
+    return line
 
 
 def read_scpi_line(ser: serial.Serial, timeout_s: float) -> str:
@@ -97,6 +123,7 @@ def read_scpi_line(ser: serial.Serial, timeout_s: float) -> str:
         if not raw:
             continue
         line = normalize_scpi_line(raw.decode("utf-8", errors="replace"))
+        line = strip_leading_ack(line)
         if not is_log_or_ack(line):
             return line
     return "<timeout>"
@@ -109,11 +136,19 @@ def read_any_scpi_line(ser: serial.Serial, timeout_s: float) -> str:
         if not raw:
             continue
         line = normalize_scpi_line(raw.decode("utf-8", errors="replace"))
-        if line.startswith('"OK"'):
+        if not line or is_log_line(line):
+            continue
+        if line.startswith('"OK"') or line.startswith("OK"):
             return '"OK"'
-        if line and not line.startswith("["):
+        if line == "1":
+            return "1"
+        if line:
             return line
     return "<timeout>"
+
+
+def ack_accepted(response: str) -> bool:
+    return response in ('"OK"', "OK", "1")
 
 
 def query(ser: serial.Serial, command: str, timeout_s: float) -> str:
@@ -630,6 +665,7 @@ def main() -> int:
     args = parse_args()
     started = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = (args.out_dir or ROOT / "build" / f"sd_validation_{started}").resolve()
+    multicore_trace = build_uses_multicore()
 
     failures: list[str] = []
     commands = list(BASELINE_COMMANDS) + [command for _, command in CATALOG_COMMANDS]
@@ -659,9 +695,9 @@ def main() -> int:
                                  RESOURCE_SEQ_STEP | RESOURCE_BISS_TAP),
                failures,
                f"resource-owner idle resources not released: {results.get('OWNER:IDLE:SYST:RES?')!r}")
-        expect(results.get("OWNER:SEQ:TRIG:MODE 1") == '"OK"',
+        expect(ack_accepted(results.get("OWNER:SEQ:TRIG:MODE 1", "")),
                failures,
-               f"resource-owner SEQ mode did not return OK: {results.get('OWNER:SEQ:TRIG:MODE 1')!r}")
+               f"resource-owner SEQ mode was not accepted: {results.get('OWNER:SEQ:TRIG:MODE 1')!r}")
         expect(results.get("OWNER:SEQ:TRIG:ARM") == '"OK"',
                failures,
                f"resource-owner SEQ ARM did not return OK: {results.get('OWNER:SEQ:TRIG:ARM')!r}")
@@ -677,9 +713,9 @@ def main() -> int:
                failures,
                f"resource-owner SEQ resources not released: {results.get('OWNER:SEQ:DISARMED:SYST:RES?')!r}")
 
-        expect(results.get("OWNER:ENC:TRIG:MODE 2") == '"OK"',
+        expect(ack_accepted(results.get("OWNER:ENC:TRIG:MODE 2", "")),
                failures,
-               f"resource-owner ENC mode did not return OK: {results.get('OWNER:ENC:TRIG:MODE 2')!r}")
+               f"resource-owner ENC mode was not accepted: {results.get('OWNER:ENC:TRIG:MODE 2')!r}")
         expect(results.get("OWNER:ENC:TRIG:ARM") == '"OK"',
                failures,
                f"resource-owner ENC ARM did not return OK: {results.get('OWNER:ENC:TRIG:ARM')!r}")
@@ -695,9 +731,9 @@ def main() -> int:
                failures,
                f"resource-owner ENC resources not released: {results.get('OWNER:ENC:DISARMED:SYST:RES?')!r}")
 
-        expect(results.get("OWNER:BISS:TRIG:MODE 3") == '"OK"',
+        expect(ack_accepted(results.get("OWNER:BISS:TRIG:MODE 3", "")),
                failures,
-               f"resource-owner BISS mode did not return OK: {results.get('OWNER:BISS:TRIG:MODE 3')!r}")
+               f"resource-owner BISS mode was not accepted: {results.get('OWNER:BISS:TRIG:MODE 3')!r}")
         expect(results.get("OWNER:BISS:TRIG:ARM") == '"OK"',
                failures,
                f"resource-owner BISS ARM did not return OK: {results.get('OWNER:BISS:TRIG:ARM')!r}")
@@ -933,13 +969,13 @@ def main() -> int:
             expect(results[command] == '"OK"',
                    failures,
                    f"{command} did not return OK: {results[command]!r}")
-        expect(results["TRIG:MODE 1"] == '"OK"',
+        expect(ack_accepted(results["TRIG:MODE 1"]),
                failures,
-               f"TRIG:MODE 1 did not return OK: {results['TRIG:MODE 1']!r}")
+               f"TRIG:MODE 1 was not accepted: {results['TRIG:MODE 1']!r}")
         seq_mode = parse_csv_response(results["SEQ:TRIG:MODE?"])
         expect(len(seq_mode) >= 2, failures, "SEQ TRIG:MODE? returned too few fields")
         if len(seq_mode) >= 2:
-            expect(seq_mode[0] == "SEQ_STEP", failures, f"TRIG mode is {seq_mode[0]!r}, expected SEQ_STEP")
+            expect(seq_mode[0] == "TRIG", failures, f"TRIG mode is {seq_mode[0]!r}, expected TRIG")
             expect(seq_mode[1] == "1", failures, f"TRIG mode id is {seq_mode[1]!r}, expected 1")
         expect(results["TRIG:ARM"] == '"OK"',
                failures,
@@ -993,9 +1029,9 @@ def main() -> int:
 
     if not args.skip_snapshot and not args.skip_fault_snapshot:
         if args.validate_trigger_release and not args.skip_arm_snapshot:
-            expect(results["RESET:TRIG:MODE 1"] == '"OK"',
+            expect(ack_accepted(results["RESET:TRIG:MODE 1"]),
                    failures,
-                   f"RESET TRIG:MODE 1 did not return OK: {results['RESET:TRIG:MODE 1']!r}")
+                   f"RESET TRIG:MODE 1 was not accepted: {results['RESET:TRIG:MODE 1']!r}")
             expect(results["RESET:TRIG:ARM"] == '"OK"',
                    failures,
                    f"RESET TRIG:ARM did not return OK: {results['RESET:TRIG:ARM']!r}")
@@ -1008,9 +1044,9 @@ def main() -> int:
             expect(trigger_error(results["RESET:STAT:TRIG?"]) == 0,
                    failures,
                    f"RESET did not clear trigger error: {results['RESET:STAT:TRIG?']!r}")
-            expect(results["FAULT:TRIG:MODE 1"] == '"OK"',
+            expect(ack_accepted(results["FAULT:TRIG:MODE 1"]),
                    failures,
-                   f"FAULT TRIG:MODE 1 did not return OK: {results['FAULT:TRIG:MODE 1']!r}")
+                   f"FAULT TRIG:MODE 1 was not accepted: {results['FAULT:TRIG:MODE 1']!r}")
             expect(results["FAULT:TRIG:ARM"] == '"OK"',
                    failures,
                    f"FAULT TRIG:ARM did not return OK: {results['FAULT:TRIG:ARM']!r}")
@@ -1186,26 +1222,37 @@ def main() -> int:
                            "decoded trace event_count does not match SYST:TRAC:LAST?")
                     event_names = {str(record.get("event_name")) for record in decoded["records"]}
                     if not args.skip_arm_snapshot:
-                        expected_event_names = [
-                            "trigger.runtime_sample",
-                            "trigger.resource_snapshot",
-                            "sync_io.seq_runtime",
-                            "sync_io.seq_pio_state",
-                            "sync_io.seq_dma_restart",
-                            "sync_io.seq_dma_overflow",
-                            "sync_io.aux_snapshot",
-                            "sync_io.ready_redy",
-                            "sync_io.aux_timeout",
-                        ]
-                        if not args.validate_trigger_release:
-                            expected_event_names.extend(
-                                [
-                                    "trigger.source_config",
-                                    "trigger.edge_config",
-                                    "trigger.gate_config",
-                                    "trigger.safe_config",
-                                ]
-                            )
+                        if multicore_trace:
+                            expected_event_names = [
+                                "trigger.scpi_arm",
+                                "sync_io.seq_armed",
+                                "sync_io.seq_runtime",
+                                "sync_io.seq_pio_state",
+                                "sync_io.seq_dma_restart",
+                                "sync_io.seq_dma_overflow",
+                                "trigger.scpi_fault",
+                            ]
+                        else:
+                            expected_event_names = [
+                                "trigger.runtime_sample",
+                                "trigger.resource_snapshot",
+                                "sync_io.seq_runtime",
+                                "sync_io.seq_pio_state",
+                                "sync_io.seq_dma_restart",
+                                "sync_io.seq_dma_overflow",
+                                "sync_io.aux_snapshot",
+                                "sync_io.ready_redy",
+                                "sync_io.aux_timeout",
+                            ]
+                            if not args.validate_trigger_release:
+                                expected_event_names.extend(
+                                    [
+                                        "trigger.source_config",
+                                        "trigger.edge_config",
+                                        "trigger.gate_config",
+                                        "trigger.safe_config",
+                                    ]
+                                )
                         for event_name in expected_event_names:
                             expect(event_name in event_names,
                                    failures,

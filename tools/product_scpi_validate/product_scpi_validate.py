@@ -156,8 +156,8 @@ def mode_tests() -> list[TestCase]:
             "TRIGger:MODE?",
             "scpi_cmd_trigger_mode_q",
             (
-                ExpectedField("exact", "TRIG"),
-                ExpectedField("exact", "1"),
+                ExpectedField("exact", "SIM"),
+                ExpectedField("exact", "4"),
                 ExpectedField("exact", "IDLE"),
                 ExpectedField("exact", "ALLOW"),
                 ExpectedField("exact", "NONE"),

@@ -152,12 +152,6 @@ scpi_result_t scpi_port_result_ok(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-static scpi_result_t scpi_port_result_accepted(scpi_t *context)
-{
-    SCPI_ResultUInt32(context, 1u);
-    return SCPI_RES_OK;
-}
-
 static const char *scpi_port_owner_or_dash(const char *owner)
 {
     return owner != NULL ? owner : "-";
@@ -672,6 +666,51 @@ static scpi_result_t scpi_cmd_clock_state_q(scpi_t *context)
 static uint32_t        s_seq_table_buf[TRIG_SEQ_TABLE_MAX];
 static uint32_t        s_seq_table_len;
 static uint32_t        s_seq_table_width;
+static uint32_t        s_product_trigger_mode;
+
+static uint32_t scpi_trigger_seq_length_or_default(void)
+{
+    return s_seq_table_len > 0u ? s_seq_table_len : 1u;
+}
+
+static uint32_t scpi_trigger_seq_width_or_default(void)
+{
+    return s_seq_table_width > 0u ? s_seq_table_width : 1u;
+}
+
+static void scpi_trigger_prepare_default_seq(void)
+{
+    if (s_seq_table_len == 0u) {
+        s_seq_table_buf[0] = 0u;
+    }
+}
+
+static const char *scpi_product_trigger_mode_to_string(uint32_t mode)
+{
+    switch (mode) {
+    case 0u: return "IDLE";
+    case 1u: return "TRIG";
+    case 2u: return "CAL";
+    case 3u: return "SYNC";
+    case 4u: return "SIM";
+    default: return "UNKNOWN";
+    }
+}
+
+static const char *scpi_product_trigger_state_to_string(trig_state_t state)
+{
+    switch (state) {
+    case TRIG_STATE_IDLE:           return "IDLE";
+    case TRIG_STATE_SEQ_CONFIGURED:
+    case TRIG_STATE_ENC_CONFIGURED:
+    case TRIG_STATE_BISS_CONFIGURED:return "ARMED";
+    case TRIG_STATE_SEQ_ARMED:
+    case TRIG_STATE_ENC_ARMED:
+    case TRIG_STATE_BISS_ARMED:     return "RUN";
+    case TRIG_STATE_FAULT:          return "FAULT";
+    default:                        return "UNKNOWN";
+    }
+}
 
 static const char *scpi_trig_mode_to_string(trig_mode_t mode)
 {
@@ -701,19 +740,30 @@ static scpi_result_t scpi_cmd_trigger_mode(scpi_t *context)
     if (!scpi_port_read_u32(context, &mode) || mode > 4u) {
         return SCPI_RES_ERR;
     }
+    s_product_trigger_mode = mode;
     s_scpi_trigger_debug_mode = mode;
     s_scpi_trigger_debug_stage = 100u + mode;
-    s_scpi_trigger_debug_posted = 1u;
-    return scpi_port_result_accepted(context);
+
+    if (mode == 0u) {
+        const trig_event_t event = { .type = TRIG_EVENT_RESET };
+        s_scpi_trigger_debug_posted = sync_trigger_post(&event) ? 1u : 0u;
+    } else {
+        s_scpi_trigger_debug_posted = 0u;
+    }
+
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
 }
 
 static scpi_result_t scpi_cmd_trigger_mode_q(scpi_t *context)
 {
-    SCPI_ResultText(context, "TRIG");
-    SCPI_ResultUInt32(context, 1u);
-    SCPI_ResultText(context, "IDLE");
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    SCPI_ResultText(context, scpi_product_trigger_mode_to_string(s_product_trigger_mode));
+    SCPI_ResultUInt32(context, s_product_trigger_mode);
+    SCPI_ResultText(context, scpi_product_trigger_state_to_string(vector.state));
     SCPI_ResultText(context, "ALLOW");
-    SCPI_ResultText(context, "NONE");
+    SCPI_ResultText(context, vector.error_code == TRIG_ERROR_NONE ? "NONE" : "ERROR");
     return SCPI_RES_OK;
 }
 
@@ -835,12 +885,26 @@ static scpi_result_t scpi_cmd_trigger_arm(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
+    if (vector.state == TRIG_STATE_IDLE && s_product_trigger_mode == 1u) {
+        scpi_trigger_prepare_default_seq();
+        const trig_event_t config_event = {
+            .type = TRIG_EVENT_CONFIGURE_SEQ,
+            .payload.seq_config = {
+                .seq_table = s_seq_table_buf,
+                .seq_length = scpi_trigger_seq_length_or_default(),
+                .seq_width = scpi_trigger_seq_width_or_default(),
+            },
+        };
+        if (!sync_trigger_post(&config_event)) {
+            s_scpi_trigger_debug_posted = 0u;
+            return SCPI_RES_ERR;
+        }
+    }
+
     const trig_event_t event = { .type = TRIG_EVENT_ARM };
-#if !PROJECT_USE_MULTICORE
     storage_manager_trace_event(2u, 10u, 1u, 0u, 0u);
     uint32_t job_id = 0u;
     (void)storage_manager_post_snapshot_job("arm", &job_id);
-#endif
     s_scpi_trigger_debug_stage = 210u;
     const bool posted = sync_trigger_post(&event);
     s_scpi_trigger_debug_posted = posted ? 1u : 0u;

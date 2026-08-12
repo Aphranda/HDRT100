@@ -268,6 +268,11 @@ static bool storage_job_is_active(void)
            s_storage_job.result.state == STORAGE_MANAGER_JOB_STATE_RUNNING;
 }
 
+static bool storage_error_is_retryable(uint32_t error)
+{
+    return error == STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+}
+
 static bool storage_is_control_char(char c)
 {
     return ((unsigned char)c) < 0x20u || c == 0x7fu;
@@ -809,6 +814,9 @@ bool storage_manager_probe(void)
         s_storage_vector.card_present &&
         s_storage_vector.fs_mounted &&
         s_storage_vector.card_status == SD_CARD_STATUS_OK) {
+        if (s_storage_vector.storage_error == STORAGE_MANAGER_ERROR_RESOURCE_BUSY) {
+            s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_NONE;
+        }
         return true;
     }
 
@@ -1700,6 +1708,9 @@ static void storage_manager_service_job(void)
                                sizeof(s_storage_job.result.path),
                                info.path);
         } else {
+            if (storage_error_is_retryable(s_storage_vector.storage_error)) {
+                return;
+            }
             s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
             s_storage_job.result.error = s_storage_vector.storage_error;
             s_storage_job.result.size = 0u;
@@ -1715,7 +1726,7 @@ static void storage_manager_service_job(void)
                                                         s_storage_job.offset,
                                                         s_storage_job.read_buffer,
                                                         s_storage_job.length,
-                                                        &s_storage_job.read_info);
+                                                       &s_storage_job.read_info);
         if (ok) {
             s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_DONE;
             s_storage_job.result.error = STORAGE_MANAGER_ERROR_NONE;
@@ -1726,6 +1737,9 @@ static void storage_manager_service_job(void)
                                sizeof(s_storage_job.result.path),
                                s_storage_job.read_info.path);
         } else {
+            if (storage_error_is_retryable(s_storage_vector.storage_error)) {
+                return;
+            }
             s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
             s_storage_job.result.error = s_storage_vector.storage_error;
             s_storage_job.result.size = 0u;
@@ -1753,6 +1767,9 @@ static void storage_manager_service_job(void)
                                sizeof(s_storage_job.result.path),
                                s_storage_job.catalog_page.path);
         } else {
+            if (storage_error_is_retryable(s_storage_vector.storage_error)) {
+                return;
+            }
             s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
             s_storage_job.result.error = s_storage_vector.storage_error;
             s_storage_job.result.size = 0u;
@@ -1775,6 +1792,9 @@ static void storage_manager_service_job(void)
                                sizeof(s_storage_job.result.path),
                                s_storage_vector.last_snapshot_path);
         } else {
+            if (storage_error_is_retryable(s_storage_vector.storage_error)) {
+                return;
+            }
             s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
             s_storage_job.result.error = s_storage_vector.last_snapshot_error != STORAGE_MANAGER_ERROR_NONE ?
                                              s_storage_vector.last_snapshot_error :
@@ -1790,6 +1810,9 @@ static void storage_manager_service_job(void)
     if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_MANIFEST_SCAN) {
         if (s_storage_job.step == 0u) {
             const bool ok = storage_manager_scan_manifest();
+            if (!ok && storage_error_is_retryable(s_storage_vector.storage_error)) {
+                return;
+            }
             if (ok || s_storage_vector.manifest_status != STORAGE_MANAGER_MANIFEST_NOT_FOUND) {
                 storage_job_complete_manifest_scan(ok);
                 return;
@@ -1801,12 +1824,19 @@ static void storage_manager_service_job(void)
 
         if (s_storage_job.step == 1u) {
             s_storage_job.step_ok0 = storage_manager_initialize_system_pack();
+            if (!s_storage_job.step_ok0 &&
+                storage_error_is_retryable(s_storage_vector.storage_error)) {
+                return;
+            }
             s_storage_job.step = 2u;
             storage_publish_job_result();
             return;
         }
 
         const bool ok = s_storage_job.step_ok0 && storage_manager_scan_manifest();
+        if (!ok && storage_error_is_retryable(s_storage_vector.storage_error)) {
+            return;
+        }
         storage_job_complete_manifest_scan(ok);
         return;
     }
@@ -1814,12 +1844,19 @@ static void storage_manager_service_job(void)
     if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_SYSTEM_INIT) {
         if (s_storage_job.step == 0u) {
             s_storage_job.step_ok0 = storage_manager_initialize_system_pack();
+            if (!s_storage_job.step_ok0 &&
+                storage_error_is_retryable(s_storage_vector.storage_error)) {
+                return;
+            }
             s_storage_job.step = 1u;
             storage_publish_job_result();
             return;
         }
 
         const bool ok = s_storage_job.step_ok0 && storage_manager_scan_manifest();
+        if (!ok && storage_error_is_retryable(s_storage_vector.storage_error)) {
+            return;
+        }
         if (!ok && !s_storage_job.step_ok0) {
             s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_FAILED;
             s_storage_job.result.error = s_storage_vector.storage_error;
@@ -1839,6 +1876,10 @@ static void storage_manager_service_job(void)
     if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_FAULT_EVIDENCE) {
         if (s_storage_job.step == 0u) {
             s_storage_job.step_ok0 = storage_manager_write_snapshot("fault");
+            if (!s_storage_job.step_ok0 &&
+                storage_error_is_retryable(s_storage_vector.storage_error)) {
+                return;
+            }
             s_storage_job.step = 1u;
             storage_publish_job_result();
             return;
@@ -1846,12 +1887,20 @@ static void storage_manager_service_job(void)
 
         if (s_storage_job.step == 1u) {
             s_storage_job.step_ok1 = storage_manager_write_trace("fault");
+            if (!s_storage_job.step_ok1 &&
+                storage_error_is_retryable(s_storage_vector.storage_error)) {
+                return;
+            }
             s_storage_job.step = 2u;
             storage_publish_job_result();
             return;
         }
 
         s_storage_job.step_ok2 = storage_manager_write_fault_report();
+        if (!s_storage_job.step_ok2 &&
+            storage_error_is_retryable(s_storage_vector.storage_error)) {
+            return;
+        }
         storage_job_complete_fault_evidence();
         return;
     }
