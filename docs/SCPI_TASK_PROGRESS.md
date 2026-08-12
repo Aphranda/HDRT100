@@ -81,26 +81,26 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 
 ## SCPI 维护规范化待办
 
-按优先级推进，不一次性删除兼容入口。原则是先定义 canonical，再把 legacy alias 从产品/维护主宏中
-视觉拆出，验证脚本默认只覆盖 canonical，最后再评审是否删除 legacy。
+按优先级推进，不保留兼容入口。原则是先判断 legacy 功能是否已有正式归属：已有正式归属的，
+确认 canonical 已覆盖同等参数、响应格式和验证脚本入口后，直接删除旧入口；尚无正式归属但确有
+产品或维护价值的，先释放到 `REALtime`、`COMMunication`、`SYSTem`、`READ` 等正式域，再删除旧入口，
+避免后续再补命令对照。
 
 ### P0 - 产品 TRIGger 域瘦身
 
-- [ ] 新建 legacy validation 命令聚合入口，集中注册旧 `TRIGger:PCNT/ENC/SEQ`、
-  `TRIGger:BISS:*`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut`、`STATus:TRIGger?` 等兼容命令。
-- [x] 从 `SCPI_REALTIME_SEQUENCE_COMMANDS` 拆出旧 `TRIGger:SOURce/EDGE/GATE/SAFE/SEQ/ARM/DISarm/FAULT`
-  alias，保留 `REALtime:*` canonical。
-- [ ] 从 `SCPI_REALTIME_PCNT_COMMANDS` 拆出旧 `TRIGger:PCNT:*` alias。
-- [ ] 从 `SCPI_REALTIME_ENCODER_COMMANDS` 拆出旧 `TRIGger:ENC:*` alias。
-- [ ] 从 `SCPI_REALTIME_IO_COMMANDS` 拆出裸 `TRIGger/PULSe/MARKer/RJ45/SAMPle/OUTPut/STATus:SYNC?`
-  alias。
-- [ ] 从 `SCPI_REALTIME_STATUS_COMMANDS` 拆出旧 `STATus:TRIGger?` alias。
-- [ ] 文档和验证脚本默认只使用 `REALtime:*`，legacy 验证后续通过显式 `--legacy` 选项进入。
+- [x] 删除旧 `TRIGger:SOURce/EDGE/GATE/SAFE/SEQ/ARM/DISarm/FAULT` 入口，保留
+  `REALtime:*` canonical。
+- [x] 删除旧 `TRIGger:PCNT:*` 入口，保留 `REALtime:PCNT:*` canonical。
+- [ ] 删除旧 `TRIGger:ENC:*` 入口，保留 `REALtime:ENC:*` canonical。
+- [ ] 删除裸 `TRIGger/PULSe/MARKer/RJ45/SAMPle/OUTPut/STATus:SYNC?` 入口，确认必要能力已由
+  `REALtime:IO:*` 覆盖。
+- [ ] 删除旧 `STATus:TRIGger?` 入口，保留 `REALtime:STATus?` canonical。
+- [ ] 文档和验证脚本默认只使用 canonical，不再新增 legacy 验证脚本。
 
 ### P1 - 通信和系统维护域收敛
 
-- [ ] `COMMunication:BISS:*` 作为 BiSS-C canonical 主入口，`TRIGger:BISS:*` 和 `STATus:BISS?`
-  拆入 legacy validation。
+- [ ] `COMMunication:BISS:*` 作为 BiSS-C canonical 主入口，确认覆盖同等能力后删除
+  `TRIGger:BISS:*` 和 `STATus:BISS?`。
 - [ ] `SYSTem:CONFigure:*`、`SYSTem:REFMem:*`、`SYSTem:CORE:VECTor?` 作为文档 canonical；
   `SYSTem:CFG:*`、`SYSTem:REFM:*`、`SYSTem:CORE:VECT?` 保留为 legacy alias。
 - [ ] 裸 `STATus:*` 不进入产品主树；如后续实现 IEEE 488.2 status register，再单独规划。
@@ -113,6 +113,55 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   `CONFigure:SEQuence:ACTive` 的校验和门禁。
 
 ## 任务记录
+
+### SCPI-TASK-20260812-027 - 删除 realtime sequence 和 PCNT 旧 TRIGger 入口
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 按“不兼容保留，改完之后直接删除”的策略，删除已经由 `REALtime:*` canonical 覆盖的旧
+    `TRIGger:*` 底层实时入口。
+  - 本轮只处理 sequence/gate/arm/fault 和 PCNT 两组，逐条验证每个正式入口可用、每个旧入口失效。
+  - 将 SCPI 维护规范化待办从“legacy alias 隔离”调整为“canonical 覆盖后删除”。
+- 完成内容：
+  - 删除 `SCPI_LEGACY_VALIDATION_COMMANDS` 聚合入口和 `scpi_legacy_validation_commands.h`。
+  - `scpi_port.c` 不再挂载 legacy validation 命令宏。
+  - `SCPI_REALTIME_PCNT_COMMANDS` 删除旧 `TRIGger:PCNT:*` pattern，仅保留 `REALtime:PCNT:*`。
+  - 上一轮已从 `SCPI_REALTIME_SEQUENCE_COMMANDS` 拆出的旧
+    `TRIGger:SOURce/EDGE/GATE/SAFE/SEQ/ARM/DISarm/DISAble/FAULT` 不再通过 legacy 聚合入口注册。
+  - 待办原则更新为：已有正式归属并逐条验证覆盖后，直接删除旧入口；无正式归属的功能先释放到
+    正式域，再删除旧入口。
+- 验证结果：
+  - 代码检索确认 `middleware/scpi_port` 中不再注册
+    `TRIGger:SOURce/EDGE/GATE/SAFE/SEQ/ARM/DISarm/DISAble/FAULT/PCNT:*`。
+  - `cmake --build build` 通过，build id：`20260812150846`，
+    `build\RP2350_TRIG_UPDATE.pkg` package CRC：`0xD244950E`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，
+    生成 `111` 条产品命令。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 通过，
+    生成 `57` 条 `REALtime:*` canonical 维护命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `git diff --check` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812150846"`，`SYSTem:OTA:SLOT? -> 1,0,2,1,0`。
+  - `SYSTem:OTA:COMMit` 通过，`SYSTem:OTA:SLOT? -> 1,0,1,0,0`。
+  - 逐条 canonical 实机验证通过：`REALtime:SOURce/EDGE/GATE/SAFE/SEQ/ARM/DISarm/DISAble/FAULT`
+    和 `REALtime:PCNT:*` 共 `32` 条逐条 PASS。
+  - 逐条旧入口删除验证通过：对应 `TRIGger:*` 旧入口共 `20` 条逐条返回
+    `-113,"Undefined header"`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_231230`。
+- 还需完成：
+  - 继续按一组一闭环删除 `TRIGger:ENC:*`，确认 `REALtime:ENC:*` 已逐条覆盖。
+  - 继续按一组一闭环删除裸 IO 旧入口，确认 `REALtime:IO:*` 已逐条覆盖。
+  - 继续按一组一闭环删除 `STATus:TRIGger?`，确认 `REALtime:STATus?` 已覆盖。
+- 关联文件：
+  - `docs/SCPI_TASK_PROGRESS.md`
+  - `middleware/scpi_port/inc/scpi_realtime_pcnt_commands.h`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `middleware/scpi_port/inc/scpi_legacy_validation_commands.h`
 
 ### SCPI-TASK-20260812-026 - Legacy realtime sequence alias 拆出
 

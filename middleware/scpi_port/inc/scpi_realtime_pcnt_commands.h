@@ -34,21 +34,6 @@ scpi_result_t scpi_cmd_pcnt_freq_q(scpi_t *context);
     {.pattern = "REALtime:PCNT:PRESet?", .callback = scpi_cmd_pcnt_preset_q}, \
     {.pattern = "REALtime:PCNT:CLEar", .callback = scpi_cmd_pcnt_clear}, \
     {.pattern = "REALtime:PCNT:TOTal?", .callback = scpi_cmd_pcnt_total_q}, \
-    {.pattern = "REALtime:PCNT:FREQuency?", .callback = scpi_cmd_pcnt_freq_q}, \
-    {.pattern = "TRIGger:PCNT:DECode", .callback = scpi_cmd_pcnt_decode}, \
-    {.pattern = "TRIGger:PCNT:DECode?", .callback = scpi_cmd_pcnt_decode_q}, \
-    {.pattern = "TRIGger:PCNT:DIRection", .callback = scpi_cmd_pcnt_dir}, \
-    {.pattern = "TRIGger:PCNT:DIRection?", .callback = scpi_cmd_pcnt_dir_q}, \
-    {.pattern = "TRIGger:PCNT:FILTer", .callback = scpi_cmd_pcnt_filter}, \
-    {.pattern = "TRIGger:PCNT:FILTer?", .callback = scpi_cmd_pcnt_filter_q}, \
-    {.pattern = "TRIGger:PCNT:GATE", .callback = scpi_cmd_pcnt_gate}, \
-    {.pattern = "TRIGger:PCNT:GATE?", .callback = scpi_cmd_pcnt_gate_q}, \
-    {.pattern = "TRIGger:PCNT:CMP", .callback = scpi_cmd_pcnt_cmp}, \
-    {.pattern = "TRIGger:PCNT:CMP?", .callback = scpi_cmd_pcnt_cmp_q}, \
-    {.pattern = "TRIGger:PCNT:PRESet", .callback = scpi_cmd_pcnt_preset}, \
-    {.pattern = "TRIGger:PCNT:PRESet?", .callback = scpi_cmd_pcnt_preset_q}, \
-    {.pattern = "TRIGger:PCNT:CLEar", .callback = scpi_cmd_pcnt_clear}, \
-    {.pattern = "TRIGger:PCNT:TOTal?", .callback = scpi_cmd_pcnt_total_q}, \
-    {.pattern = "TRIGger:PCNT:FREQuency?", .callback = scpi_cmd_pcnt_freq_q}
+    {.pattern = "REALtime:PCNT:FREQuency?", .callback = scpi_cmd_pcnt_freq_q}
 
 #endif
