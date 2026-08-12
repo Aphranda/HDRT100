@@ -117,7 +117,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 
 ### SCPI-TASK-20260813-033 - P1 裸状态入口文档收口
 
-- 状态：进行中
+- 状态：完成
 - 日期：2026-08-13
 - 任务目标：
   - 完成 P1 收尾：确认裸 `STATus:*`、裸 `VDC:*` 和裸 `DPLL:*` 不进入当前产品主树。
@@ -134,14 +134,51 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
     当前 `REALtime:*` 维护域 canonical。
   - `docs\DTC100_SCPI_COMMAND_PLANNING.md` 将“不推荐命令”修正为“已删除旧入口”，
     明确后续若实现 IEEE 488.2 `STATus` register 需独立规划。
+  - 新增 `tools\scpi_legacy_validate\scpi_legacy_validate.py`，固化逐条旧入口
+    `Undefined header` 验证流程，避免后续手写串口验证脚本。
+  - 新增 `tools\ota_boot_commit\ota_boot_commit.py`，固化 OTA 后 `BOOT/COMMit`
+    串口重枚举闭环，避免后续手写启动提交脚本。
+  - `tools\README.md` 补充上述两个固定工具的使用定位。
 - 验证结果：
-  - 待执行构建、文档检查、dry-run、OTA 和板端验证。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run`
+    通过，生成 `111` 条产品命令。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run`
+    通过，生成 `57` 条 `REALtime:*` 维护命令。
+  - `python -m py_compile tools\scpi_legacy_validate\scpi_legacy_validate.py tools\ota_boot_commit\ota_boot_commit.py`
+    通过。
+  - `python tools\scpi_legacy_validate\scpi_legacy_validate.py --dry-run`
+    通过，生成 `58` 条旧入口删除验证命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件名 warning。
+  - `git diff --check` 通过，仅有既有 CRLF 工作区 warning。
+  - `cmake --build build` 通过，build id：`20260812163355`，
+    `build\RP2350_TRIG_UPDATE.pkg` package CRC：`0xD4A4DF54`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，smoke build id：
+    `20260812163355`，package CRC：`0xC353324A`。
+  - 产品包 OTA 到 COM6 通过；`tools\ota_boot_commit\ota_boot_commit.py`
+    验证并 commit 后，`SYSTem:FW:BUILD? -> "20260812163355"`，
+    `SYSTem:OTA:SLOT? -> 2,0,2,0,0`，`SYSTem:ERRor? -> 0,"No error"`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6 --out-dir build\product_scpi_validation_scpi_status_doc_cleanup`
+    实机通过：`summary: passed=True failed=0`。
+  - `python tools\scpi_legacy_validate\scpi_legacy_validate.py COM6 --group status-doc-cleanup --out-dir build\legacy_status_doc_cleanup_validation_tool`
+    实机通过：旧裸状态、旧实时、旧 IO 入口共 `58` 条全部返回
+    `-113,"Undefined header"`，最终错误队列 `0,"No error"`。
+  - smoke 包 OTA 到 COM6 通过；`tools\ota_boot_commit\ota_boot_commit.py`
+    验证并 commit 后，smoke 固件运行正常。
+  - `python tools\multicore_board_validate\multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke\validation_scpi_status_doc_cleanup_full`
+    实机通过：`16/16 PASS`。
+  - 重新 OTA 回产品包并 commit 后，
+    `python tools\product_scpi_validate\product_scpi_validate.py COM6 --out-dir build\product_scpi_validation_scpi_status_doc_cleanup_final`
+    实机通过：`summary: passed=True failed=0`；板端最终停在产品固件
+    `20260812163355`，slot `2,0,2,0,0`。
 - 还需完成：
-  - 执行验证闭环后提交并推送。
+  - P1 legacy 清理已完成；下一轮继续 P2 重复读取和报告域收敛。
 - 关联文件：
   - `docs/SCPI_TASK_PROGRESS.md`
   - `docs/SCPI_COMMANDS.md`
   - `docs/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `tools/scpi_legacy_validate/scpi_legacy_validate.py`
+  - `tools/ota_boot_commit/ota_boot_commit.py`
+  - `tools/README.md`
 
 ### SCPI-TASK-20260813-032 - 删除系统维护短旧入口
 

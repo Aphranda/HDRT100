@@ -48,7 +48,12 @@ def read_serial_line(ser: serial.Serial, deadline: float) -> str | None:
 
 def is_log_line(line: str) -> bool:
     maybe_log = line[1:] if line.startswith('"[') else line
-    return not line or maybe_log.startswith("[") or maybe_log.startswith("log:")
+    return (
+        not line
+        or maybe_log.startswith("[")
+        or maybe_log.startswith("log:")
+        or "service initialized" in maybe_log
+    )
 
 
 def command(ser: serial.Serial, text: str, timeout_s: float) -> str:
