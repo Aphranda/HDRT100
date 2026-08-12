@@ -91,7 +91,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 - [x] 删除旧 `TRIGger:SOURce/EDGE/GATE/SAFE/SEQ/ARM/DISarm/FAULT` 入口，保留
   `REALtime:*` canonical。
 - [x] 删除旧 `TRIGger:PCNT:*` 入口，保留 `REALtime:PCNT:*` canonical。
-- [ ] 删除旧 `TRIGger:ENC:*` 入口，保留 `REALtime:ENC:*` canonical。
+- [x] 删除旧 `TRIGger:ENC:*` 入口，保留 `REALtime:ENC:*` canonical。
 - [ ] 删除裸 `TRIGger/PULSe/MARKer/RJ45/SAMPle/OUTPut/STATus:SYNC?` 入口，确认必要能力已由
   `REALtime:IO:*` 覆盖。
 - [ ] 删除旧 `STATus:TRIGger?` 入口，保留 `REALtime:STATus?` canonical。
@@ -113,6 +113,46 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   `CONFigure:SEQuence:ACTive` 的校验和门禁。
 
 ## 任务记录
+
+### SCPI-TASK-20260812-028 - 删除 realtime ENC 旧 TRIGger 入口
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 继续按“一组一闭环、逐条测试”的策略，删除已经由 `REALtime:ENC:*` 覆盖的旧
+    `TRIGger:ENC:*` 入口。
+  - 确认 encoder 目标计数、计数查询、A/B/Z 引脚查询和圈数查询的 canonical 参数与响应覆盖旧入口。
+- 完成内容：
+  - `SCPI_REALTIME_ENCODER_COMMANDS` 删除旧
+    `TRIGger:ENC:TARGet/TARGet?/COUNt?/APIN/APIN?/REVolution?` pattern。
+  - 保留 `REALtime:ENC:TARGet/TARGet?/COUNt?/APIN/APIN?/REVolution?` canonical。
+  - P0 待办中 `TRIGger:ENC:*` 删除项标记完成。
+- 验证结果：
+  - 代码检索确认 `middleware/scpi_port` 中不再注册 `TRIGger:ENC:*`。
+  - `cmake --build build` 通过，build id：`20260812151951`，
+    `build\RP2350_TRIG_UPDATE.pkg` package CRC：`0x02FFCC6E`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，
+    生成 `111` 条产品命令。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 通过，
+    生成 `57` 条 `REALtime:*` canonical 维护命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `git diff --check` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812151951"`，`SYSTem:OTA:SLOT? -> 2,0,1,1,0`。
+  - `SYSTem:OTA:COMMit` 通过，`SYSTem:OTA:SLOT? -> 2,0,2,0,0`。
+  - 逐条 canonical ENC 实机验证通过：`REALtime:ENC:*` 共 `6` 条逐条 PASS。
+  - 逐条旧入口删除验证通过：`TRIGger:ENC:*` 共 `6` 条逐条返回
+    `-113,"Undefined header"`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_232146`。
+- 还需完成：
+  - 继续按一组一闭环删除裸 IO 旧入口，确认 `REALtime:IO:*` 已逐条覆盖。
+  - 继续按一组一闭环删除 `STATus:TRIGger?`，确认 `REALtime:STATus?` 已覆盖。
+- 关联文件：
+  - `docs/SCPI_TASK_PROGRESS.md`
+  - `middleware/scpi_port/inc/scpi_realtime_encoder_commands.h`
 
 ### SCPI-TASK-20260812-027 - 删除 realtime sequence 和 PCNT 旧 TRIGger 入口
 

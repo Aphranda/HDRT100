@@ -16,12 +16,6 @@ scpi_result_t scpi_cmd_enc_rev_q(scpi_t *context);
     {.pattern = "REALtime:ENC:COUNt?", .callback = scpi_cmd_enc_count_q}, \
     {.pattern = "REALtime:ENC:APIN", .callback = scpi_cmd_enc_a_pin}, \
     {.pattern = "REALtime:ENC:APIN?", .callback = scpi_cmd_enc_a_pin_q}, \
-    {.pattern = "REALtime:ENC:REVolution?", .callback = scpi_cmd_enc_rev_q}, \
-    {.pattern = "TRIGger:ENC:TARGet", .callback = scpi_cmd_enc_target}, \
-    {.pattern = "TRIGger:ENC:TARGet?", .callback = scpi_cmd_enc_target_q}, \
-    {.pattern = "TRIGger:ENC:COUNt?", .callback = scpi_cmd_enc_count_q}, \
-    {.pattern = "TRIGger:ENC:APIN", .callback = scpi_cmd_enc_a_pin}, \
-    {.pattern = "TRIGger:ENC:APIN?", .callback = scpi_cmd_enc_a_pin_q}, \
-    {.pattern = "TRIGger:ENC:REVolution?", .callback = scpi_cmd_enc_rev_q}
+    {.pattern = "REALtime:ENC:REVolution?", .callback = scpi_cmd_enc_rev_q}
 
 #endif
