@@ -93,6 +93,31 @@ owner task / component
 | `MMEMory` / storage | 文件和数据块 | `task_storage` | storage job | SD、trace、snapshot、报告分页 |
 | `REALtime` | 底层实时维护和 validation | `core1_realtime` / TriggerAO / IO profile | TriggerVector、IoSlot、维护快照 | PCNT、ENC、SEQ_STEP、即时 IO、内部状态查询；不进入产品测试主流程 |
 
+### 4.1 REALtime 主域定位
+
+`REALtime:*` 是 DTC100 的底层实时维护主域，用于开发、产测、服务和调试上位机验证 core1
+实时基础组件。它不属于现场测试上位机的产品运行主链路，也不替代 `CONFigure:*`、`TRIGger:*`
+和 `READ:*?` 的业务接口。
+
+`REALtime` 主域承载以下类型的能力：
+
+- `REALtime:PCNT:*`：转台角度阈输入脉冲计数、方向、滤波、门控、比较和计数快照。
+- `REALtime:ENC:*`：编码器计数触发配置、目标计数和实时观测。
+- `REALtime:SEQ:*`：core1 点内序列基础组件验证，包括长度、宽度、索引和序列数据。
+- `REALtime:IO:*`：即时输出、脉冲、marker、RJ45、采样和输出时钟验证。
+- `REALtime:ARM/DISarm/DISAble/FAULT`：底层实时执行层门禁、停车和故障注入验证。
+- `REALtime:STATus?`：实时核心维护快照，供调试工具确认底层状态，不作为产品报告字段。
+
+命名原则：
+
+- 产品 `TRIGger:*` 只表达一次业务 run 的启动、停止、暂停、继续和模式切换。
+- `REALtime:*` 内部不再新增 `TRIGger` 子树；底层 pulse count、sequence step、IO fire 和
+  core1 gate 都应放在具名实时子域下。
+- 已存在的旧 `TRIGger:PCNT/ENC/SEQ`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut` 和
+  `STATus:TRIGger?` 仅作为 legacy validation alias 保留，验证脚本和新文档不再以它们作为主入口。
+- 若后续需要暴露 BiSS-C 通信验证，应进入 `COMMunication:BISS:*` 或独立维护页，不挂到产品
+  `TRIGger:*` 下。
+
 ## 5. 测试业务域规划
 
 测试业务域是 DTC100 面向现场测试上位机的主流程，不应混入校准、同步调参、存储维护和内部调试。它的仪器式模型是：
@@ -689,7 +714,7 @@ REALtime
   :DISAble
   :FAULT
   :IO
-    :TRIGger
+    :OUTPut
       :WIDTh / :WIDTh?
       :IMMediate
     :PULSe
@@ -714,7 +739,7 @@ REALtime
 ### 14.1 指令树收敛说明
 
 - `CONFigure:*` 只负责写入 staging 配置，不直接开始测试、校准或同步。
-- `TRIGger:*` 是测试运行控制树，负责业务 run 的 start/stop/pause/continue/arm/disarm。
+- `TRIGger:*` 是测试运行控制树，负责业务 run 的 start/stop/pause/continue 和运行模式切换。
 - `CALibration:*` 是校准动作树，负责快速测链路 delay、保存、加载、激活、回滚和清空。
 - `SYNC:*` 是同步动作树，负责基于 active 校准表进行 check/start/stop/relock/holdover。
 - `READ:*?` 是产品读取树，优先服务上位机主界面和报告闭环。

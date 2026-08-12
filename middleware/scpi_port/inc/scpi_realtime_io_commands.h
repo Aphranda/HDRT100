@@ -27,9 +27,9 @@ scpi_result_t scpi_cmd_clock_state_q(scpi_t *context);
 scpi_result_t scpi_cmd_status_q(scpi_t *context);
 
 #define SCPI_REALTIME_IO_COMMANDS \
-    {.pattern = "REALtime:IO:TRIGger:WIDTh", .callback = scpi_cmd_trigger_width}, \
-    {.pattern = "REALtime:IO:TRIGger:WIDTh?", .callback = scpi_cmd_trigger_width_q}, \
-    {.pattern = "REALtime:IO:TRIGger:IMMediate", .callback = scpi_cmd_trigger_fire}, \
+    {.pattern = "REALtime:IO:OUTPut:WIDTh", .callback = scpi_cmd_trigger_width}, \
+    {.pattern = "REALtime:IO:OUTPut:WIDTh?", .callback = scpi_cmd_trigger_width_q}, \
+    {.pattern = "REALtime:IO:OUTPut:IMMediate", .callback = scpi_cmd_trigger_fire}, \
     {.pattern = "REALtime:IO:PULSe:WIDTh", .callback = scpi_cmd_pulse_width}, \
     {.pattern = "REALtime:IO:PULSe:WIDTh?", .callback = scpi_cmd_pulse_width_q}, \
     {.pattern = "REALtime:IO:PULSe:IMMediate", .callback = scpi_cmd_pulse_fire}, \

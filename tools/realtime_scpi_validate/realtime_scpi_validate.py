@@ -38,8 +38,8 @@ class TestCase:
 
 
 COMMAND_ARGS = {
-    "REALtime:IO:TRIGger:WIDTh": "25",
-    "REALtime:IO:TRIGger:IMMediate": "",
+    "REALtime:IO:OUTPut:WIDTh": "25",
+    "REALtime:IO:OUTPut:IMMediate": "",
     "REALtime:IO:PULSe:WIDTh": "40",
     "REALtime:IO:PULSe:IMMediate": "",
     "REALtime:IO:MARKer:WIDTh": "55",

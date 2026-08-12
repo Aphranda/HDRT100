@@ -81,6 +81,51 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 
 ## 任务记录
 
+### SCPI-TASK-20260812-025 - REALtime IO 输出命名去 TRIGger
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 按“慢慢将 realtime 中的 trig 删除”的原则，先从新 `REALtime:*` 主域中移除 IO 输出子树里的
+    `TRIGger` 命名。
+  - 将 `REALtime:IO:TRIGger:*` 收敛为 `REALtime:IO:OUTPut:*`，避免底层实时维护域继续复用
+    产品 `TRIGger:*` 的业务运行语义。
+  - 在规划文档中补充 `REALtime` 主域定位，明确它是底层实时维护和 validation 域，不是现场测试主链路。
+- 完成内容：
+  - `REALtime:IO:TRIGger:WIDTh/WIDTh?/IMMediate` 改为
+    `REALtime:IO:OUTPut:WIDTh/WIDTh?/IMMediate`。
+  - `tools/realtime_scpi_validate/realtime_scpi_validate.py` 同步使用新的
+    `REALtime:IO:OUTPut:*` 验证入口。
+  - `docs/DTC100_SCPI_COMMAND_PLANNING.md` 增加 `REALtime` 主域定位小节，写明
+    `REALtime:PCNT/ENC/SEQ/IO/STATus` 的职责、权限边界和 legacy alias 策略。
+  - 文档中的产品 `TRIGger:*` 收敛为 start/stop/pause/continue 和运行模式切换，不再写
+    `arm/disarm`。
+- 验证结果：
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 通过，
+    生成 `57` 条 `REALtime:*` 维护域验证命令。
+  - `cmake --build build` 通过，build id：`20260812143237`，
+    `build\RP2350_TRIG_UPDATE.pkg` package CRC：`0x6F668981`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，
+    仍生成 `111` 条产品命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `git diff --check` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812143237"`，`SYSTem:OTA:SLOT? -> 1,0,2,1,0`。
+  - `SYSTem:OTA:COMMit` 通过，`SYSTem:OTA:SLOT? -> 1,0,1,0,0`。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0 generated=57`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_223508`。
+- 还需完成：
+  - 继续分阶段清理 realtime 内部 callback、文件名、注释和 legacy alias 中不必要的 trigger 命名。
+  - 后续再评审 `REALtime:SEQ:*`、`REALtime:ARM/DISarm/*` 是否需要进一步拆成更贴近执行层的子域。
+- 关联文件：
+  - `docs/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `middleware/scpi_port/inc/scpi_realtime_io_commands.h`
+  - `tools/realtime_scpi_validate/realtime_scpi_validate.py`
+
 ### SCPI-TASK-20260812-024 - REALtime 维护域规范化
 
 - 状态：完成
