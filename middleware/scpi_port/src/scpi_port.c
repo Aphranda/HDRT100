@@ -22,6 +22,7 @@
 #include "scpi/scpi.h"
 #include "scpi_product_commands.h"
 #include "scpi_report_commands.h"
+#include "scpi_service_status_commands.h"
 #include "scpi_sync_commands.h"
 #include "scpi_system_snapshot_commands.h"
 #include "scpi_trigger_commands.h"
@@ -355,46 +356,6 @@ static scpi_result_t scpi_cmd_rtos_status_q(scpi_t *context)
         SCPI_ResultUInt32(context, task->priority);
     }
 
-    return SCPI_RES_OK;
-}
-
-static scpi_result_t scpi_cmd_loop_status_q(scpi_t *context)
-{
-    app_loop_engine_status_t status;
-    app_loop_engine_get_status(&status);
-
-    SCPI_ResultBool(context, status.ready ? TRUE : FALSE);
-    SCPI_ResultUInt32(context, status.service_count);
-    SCPI_ResultUInt32(context, status.first_service_ms);
-    SCPI_ResultUInt32(context, status.last_service_ms);
-    return SCPI_RES_OK;
-}
-
-static scpi_result_t scpi_cmd_vdc_status_q(scpi_t *context)
-{
-    app_vdc_sync_status_t status;
-    app_vdc_sync_get_status(&status);
-
-    SCPI_ResultBool(context, status.ready ? TRUE : FALSE);
-    SCPI_ResultUInt32(context, status.lock_state);
-    SCPI_ResultUInt32(context, status.service_count);
-    SCPI_ResultUInt32(context, status.first_service_ms);
-    SCPI_ResultUInt32(context, status.last_service_ms);
-    SCPI_ResultUInt32(context, status.sync_seq);
-    return SCPI_RES_OK;
-}
-
-static scpi_result_t scpi_cmd_dpll_status_q(scpi_t *context)
-{
-    app_dpll_status_t status;
-    app_dpll_get_status(&status);
-
-    SCPI_ResultBool(context, status.ready ? TRUE : FALSE);
-    SCPI_ResultUInt32(context, status.state);
-    SCPI_ResultUInt32(context, status.service_count);
-    SCPI_ResultUInt32(context, status.first_service_ms);
-    SCPI_ResultUInt32(context, status.last_service_ms);
-    SCPI_ResultUInt32(context, status.update_seq);
     return SCPI_RES_OK;
 }
 
@@ -2974,15 +2935,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:RTOS:STATus?", .callback = scpi_cmd_rtos_status_q},
     SCPI_SYSTEM_SNAPSHOT_COMMANDS,
     SCPI_PRODUCT_SYSTEM_PERMISSION_COMMANDS,
-    {.pattern = "LOOP:STATus?", .callback = scpi_cmd_loop_status_q},
-    {.pattern = "LOOP:STAT?", .callback = scpi_cmd_loop_status_q},
-    {.pattern = "STATus:LOOP?", .callback = scpi_cmd_loop_status_q},
-    {.pattern = "VDC:STATus?", .callback = scpi_cmd_vdc_status_q},
-    {.pattern = "VDC:STAT?", .callback = scpi_cmd_vdc_status_q},
-    {.pattern = "STATus:VDC?", .callback = scpi_cmd_vdc_status_q},
-    {.pattern = "DPLL:STATus?", .callback = scpi_cmd_dpll_status_q},
-    {.pattern = "DPLL:STAT?", .callback = scpi_cmd_dpll_status_q},
-    {.pattern = "STATus:DPLL?", .callback = scpi_cmd_dpll_status_q},
+    SCPI_SERVICE_STATUS_COMMANDS,
     {.pattern = "SYSTem:TRIGger:DBG?", .callback = scpi_cmd_trigger_debug_q},
     {.pattern = "SYSTem:RESource?", .callback = scpi_cmd_resource_status_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION

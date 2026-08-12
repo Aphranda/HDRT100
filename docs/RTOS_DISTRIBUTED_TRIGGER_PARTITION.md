@@ -1190,6 +1190,24 @@ errors:   SYST:ERR? -> 0,"No error"
 archive:  build-rtos-multicore-smoke/validation_scpi_system_snapshot_split_step1
 ```
 
-下一步继续第 5 项系统/维护入口拆分。建议先拆 `scpi_service_status_commands.c/.h`，把
-`LOOP/VDC/DPLL/STATus:*` 这类 RTOS task 状态查询从 `scpi_port.c` 移出；Storage/OTA/MMEM
-因为依赖资源仲裁和文件操作，放到后续单独验证。
+第十三刀已经完成：
+
+```text
+split service status commands into scpi_service_status_commands.c/.h
+move LOOP/VDC/DPLL status queries and STATus:* aliases
+keep SYSTem:TRIGger:DBG? and SYSTem:RESource? in scpi_port.c for local debug/static helper dependency
+```
+
+板端验证结果：
+
+```text
+build_id: 20260812062425
+quick:    *IDN?/SYST:FW:BUILD?/LOOP:STAT?/VDC:STAT?/DPLL:STAT?/STATus:* aliases PASS
+full:     RTOS + multicore smoke 16/16 PASS
+errors:   SYST:ERR? -> 0,"No error"
+archive:  build-rtos-multicore-smoke/validation_scpi_service_status_split_step1
+```
+
+下一步继续第 5 项系统/维护入口拆分。建议再拆 `scpi_system_runtime_commands.c/.h`，把
+固件版本、bootloader 能力、日志状态、Core/RTOS 状态等系统运行查询从 `scpi_port.c` 移出；
+Storage/OTA/MMEM 因为依赖资源仲裁和文件操作，放到后续单独验证。
