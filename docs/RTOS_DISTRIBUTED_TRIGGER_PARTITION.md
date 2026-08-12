@@ -1152,6 +1152,25 @@ errors:   SYST:ERR? -> 0,"No error"
 archive:  build-rtos-multicore-smoke/validation_scpi_trigger_split_step1
 ```
 
-下一步执行第 5 项系统/维护入口拆分。建议先拆低风险 `scpi_report_commands.c/.h` 或
-`scpi_system_tables_commands.c/.h`，把 RUN/T2 报告占位和 SystemMode/Resource/Fault/REFM
-表查询从 `scpi_port.c` 逐组移出；Storage/OTA 因为依赖资源仲裁和文件操作，放到后续单独验证。
+第十一刀已经完成：
+
+```text
+split report placeholder commands into scpi_report_commands.c/.h
+move SYSTem:RUN:* / SYSTem:LOG:PAGE? / SYSTem:TRACe:DATA? / SYSTem:SNAPshot:DATA? / SYSTem:T2:DATA?
+move READ:RUN:SUMMary? / READ:T2:COUNt? / READ:T2:DATA?
+keep real Storage/OTA/MMEM commands in scpi_port.c
+```
+
+板端验证结果：
+
+```text
+build_id: 20260812055925
+quick:    SYSTem:RUN:LAST?/SUMMary?/LOG?, SYSTem:LOG:PAGE?, TRACe/SNAPshot/T2 DATA, READ:RUN/T2 PASS
+full:     RTOS + multicore smoke 16/16 PASS
+errors:   SYST:ERR? -> 0,"No error"
+archive:  build-rtos-multicore-smoke/validation_scpi_report_split_step1
+```
+
+下一步继续第 5 项系统/维护入口拆分，优先拆 `scpi_system_tables_commands.c/.h`，把
+SystemMode/Resource/Fault 表查询和低风险状态表入口从 `scpi_port.c` 移出；Storage/OTA/MMEM
+因为依赖资源仲裁和文件操作，放到后续单独验证。

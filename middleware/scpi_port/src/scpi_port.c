@@ -21,6 +21,7 @@
 #include "scpi_config_commands.h"
 #include "scpi/scpi.h"
 #include "scpi_product_commands.h"
+#include "scpi_report_commands.h"
 #include "scpi_sync_commands.h"
 #include "scpi_trigger_commands.h"
 #include "scpi_usb_control.h"
@@ -3323,7 +3324,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:LOG:LEVel", .callback = scpi_cmd_log_level},
     {.pattern = "SYSTem:LOG:LEVel?", .callback = scpi_cmd_log_level_q},
     {.pattern = "SYSTem:LOG:STATus?", .callback = scpi_cmd_log_status_q},
-    SCPI_PRODUCT_SYSTEM_LOG_COMMANDS,
+    SCPI_REPORT_SYSTEM_COMMANDS,
     {.pattern = "SYSTem:CORE?", .callback = scpi_cmd_core_status_q},
     {.pattern = "SYSTem:RTOS:STATus?", .callback = scpi_cmd_rtos_status_q},
     {.pattern = "SYSTem:REFM:STAT?", .callback = scpi_cmd_refmem_status_q},
@@ -3372,7 +3373,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
 #endif
     SCPI_CONFIG_COMMANDS,
-    SCPI_PRODUCT_REPORT_COMMANDS,
+    SCPI_REPORT_READ_COMMANDS,
     SCPI_CALIBRATION_COMMANDS,
     SCPI_SYNC_COMMANDS,
     {.pattern = "TRIGger:WIDTh", .callback = scpi_cmd_trigger_width},
