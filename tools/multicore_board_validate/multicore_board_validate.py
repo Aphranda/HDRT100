@@ -5,8 +5,8 @@ Checks:
 - *IDN?, SYST:FW:BUILD? baseline
 - SYST:CORE? core1 enabled and heartbeat growing
 - LOOP:STAT? loop engine ready and service counter growing
-- VDC:STAT? VDC sync skeleton ready and service counter growing
-- DPLL:STAT? DPLL skeleton ready and service counter growing
+- SYST:SYNC:VDC:STAT? VDC sync skeleton ready and service counter growing
+- SYST:SYNC:VDC:DPLL:STAT? VDC DPLL skeleton ready and service counter growing
 - SYST:CFG:STAT? config gate static snapshot ready and service counter growing
 - SYST:CFG:ROLE?/LOOP?/ACT?/CAL? static distributed config queries
 - SYST:CFG:ACK?, SYST:CFG:NACK?, SYST:SCPI:RUN:ALLOW? ACK reason and RUN whitelist tables
@@ -221,20 +221,20 @@ def test_loop_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
 
 
 def test_vdc_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
-    """Read VDC:STAT? 3 times, 1s apart. service_count must grow and ready must be true."""
+    """Read SYST:SYNC:VDC:STAT? 3 times. service_count must grow and ready must be true."""
     reads: list[list[int]] = []
     for i in range(3):
-        resp = _query(ser, "VDC:STAT?", timeout)
+        resp = _query(ser, "SYST:SYNC:VDC:STAT?", timeout)
         fields = _parse_ints(resp)
         if len(fields) < 6:
-            return False, f"VDC:STAT? read {i+1}: unparseable response: {resp}"
+            return False, f"SYST:SYNC:VDC:STAT? read {i+1}: unparseable response: {resp}"
         reads.append(fields)
         if i < 2:
             time.sleep(1.0)
 
     for i, fields in enumerate(reads):
         if fields[0] != 1:
-            return False, f"VDC:STAT? read {i+1}: VDC sync NOT ready (field0={fields[0]})"
+            return False, f"SYST:SYNC:VDC:STAT? read {i+1}: VDC sync NOT ready (field0={fields[0]})"
 
     service_counts = [r[2] for r in reads]
     sync_seq = [r[5] for r in reads]
@@ -246,27 +246,27 @@ def test_vdc_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
             f"lock_state={reads[-1][1]}"
         )
     if service_counts[0] == service_counts[1] or service_counts[1] == service_counts[2]:
-        return False, f"VDC:STAT? service count STALLED: {service_counts}"
+        return False, f"SYST:SYNC:VDC:STAT? service count STALLED: {service_counts}"
     if sync_seq[0] == sync_seq[1] or sync_seq[1] == sync_seq[2]:
-        return False, f"VDC:STAT? sync_seq STALLED: {sync_seq}"
-    return False, f"VDC:STAT? counters not monotonic: service={service_counts}, sync_seq={sync_seq}"
+        return False, f"SYST:SYNC:VDC:STAT? sync_seq STALLED: {sync_seq}"
+    return False, f"SYST:SYNC:VDC:STAT? counters not monotonic: service={service_counts}, sync_seq={sync_seq}"
 
 
 def test_dpll_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
-    """Read DPLL:STAT? 3 times, 1s apart. service_count must grow and ready must be true."""
+    """Read SYST:SYNC:VDC:DPLL:STAT? 3 times. service_count must grow and ready must be true."""
     reads: list[list[int]] = []
     for i in range(3):
-        resp = _query(ser, "DPLL:STAT?", timeout)
+        resp = _query(ser, "SYST:SYNC:VDC:DPLL:STAT?", timeout)
         fields = _parse_ints(resp)
         if len(fields) < 6:
-            return False, f"DPLL:STAT? read {i+1}: unparseable response: {resp}"
+            return False, f"SYST:SYNC:VDC:DPLL:STAT? read {i+1}: unparseable response: {resp}"
         reads.append(fields)
         if i < 2:
             time.sleep(1.0)
 
     for i, fields in enumerate(reads):
         if fields[0] != 1:
-            return False, f"DPLL:STAT? read {i+1}: DPLL NOT ready (field0={fields[0]})"
+            return False, f"SYST:SYNC:VDC:DPLL:STAT? read {i+1}: DPLL NOT ready (field0={fields[0]})"
 
     service_counts = [r[2] for r in reads]
     update_seq = [r[5] for r in reads]
@@ -278,10 +278,10 @@ def test_dpll_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
             f"state={reads[-1][1]}"
         )
     if service_counts[0] == service_counts[1] or service_counts[1] == service_counts[2]:
-        return False, f"DPLL:STAT? service count STALLED: {service_counts}"
+        return False, f"SYST:SYNC:VDC:DPLL:STAT? service count STALLED: {service_counts}"
     if update_seq[0] == update_seq[1] or update_seq[1] == update_seq[2]:
-        return False, f"DPLL:STAT? update_seq STALLED: {update_seq}"
-    return False, f"DPLL:STAT? counters not monotonic: service={service_counts}, update_seq={update_seq}"
+        return False, f"SYST:SYNC:VDC:DPLL:STAT? update_seq STALLED: {update_seq}"
+    return False, f"SYST:SYNC:VDC:DPLL:STAT? counters not monotonic: service={service_counts}, update_seq={update_seq}"
 
 
 def test_calibration_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:

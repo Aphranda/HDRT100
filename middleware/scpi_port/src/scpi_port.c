@@ -20,9 +20,9 @@
 #include "scpi_calibration_commands.h"
 #include "scpi_config_commands.h"
 #include "scpi/scpi.h"
+#include "scpi_loop_engine_commands.h"
 #include "scpi_product_commands.h"
 #include "scpi_report_commands.h"
-#include "scpi_service_status_commands.h"
 #include "scpi_sync_commands.h"
 #include "scpi_system_snapshot_commands.h"
 #include "scpi_trigger_commands.h"
@@ -2935,7 +2935,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:RTOS:STATus?", .callback = scpi_cmd_rtos_status_q},
     SCPI_SYSTEM_SNAPSHOT_COMMANDS,
     SCPI_PRODUCT_SYSTEM_PERMISSION_COMMANDS,
-    SCPI_SERVICE_STATUS_COMMANDS,
+    SCPI_LOOP_ENGINE_COMMANDS,
     {.pattern = "SYSTem:TRIGger:DBG?", .callback = scpi_cmd_trigger_debug_q},
     {.pattern = "SYSTem:RESource?", .callback = scpi_cmd_resource_status_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION

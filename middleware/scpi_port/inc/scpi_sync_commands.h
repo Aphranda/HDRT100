@@ -16,9 +16,10 @@ scpi_result_t scpi_product_sync_quality_q(scpi_t *context);
 scpi_result_t scpi_product_sync_version_q(scpi_t *context);
 scpi_result_t scpi_product_sync_override_q(scpi_t *context);
 scpi_result_t scpi_product_sync_coef_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_dpll_status_q(scpi_t *context);
 
 #define SCPI_SYNC_COMMANDS \
-    {.pattern = "READ:STATistics?", .callback = scpi_product_sync_quality_q}, \
     {.pattern = "SYNC:CHECk", .callback = scpi_product_sync_check_q}, \
     {.pattern = "SYNC:STARt", .callback = scpi_product_result_accepted}, \
     {.pattern = "SYNC:STOP", .callback = scpi_product_result_accepted}, \
@@ -32,7 +33,7 @@ scpi_result_t scpi_product_sync_coef_q(scpi_t *context);
     {.pattern = "READ:SYNC:CHECk?", .callback = scpi_product_sync_check_q}, \
     {.pattern = "CONFigure:SYNC:CALibration", .callback = scpi_product_result_accepted}, \
     {.pattern = "CONFigure:SYNC:RING", .callback = scpi_product_result_accepted}, \
-    {.pattern = "CONFigure:SYNC:DPLL", .callback = scpi_product_result_accepted}, \
+    {.pattern = "CONFigure:SYNC:VDC:DPLL", .callback = scpi_product_result_accepted}, \
     {.pattern = "CONFigure:SYNC:GATE", .callback = scpi_product_result_accepted}, \
     {.pattern = "CONFigure:SYNC:LIMit", .callback = scpi_product_result_accepted}, \
     {.pattern = "SYNC:SAVE", .callback = scpi_product_result_accepted}, \
@@ -43,10 +44,12 @@ scpi_result_t scpi_product_sync_coef_q(scpi_t *context);
     {.pattern = "READ:SYNC:ACTive?", .callback = scpi_product_sync_active_q}, \
     {.pattern = "READ:SYNC:QUALity?", .callback = scpi_product_sync_quality_q}, \
     {.pattern = "READ:SYNC:VERSion?", .callback = scpi_product_sync_version_q}, \
-    {.pattern = "SYSTem:SYNC:DPLL:TUNE", .callback = scpi_product_result_accepted}, \
-    {.pattern = "SYSTem:SYNC:DPLL:COEFficient", .callback = scpi_product_result_accepted}, \
-    {.pattern = "SYSTem:SYNC:DPLL:OVERRide?", .callback = scpi_product_sync_override_q}, \
-    {.pattern = "SYSTem:SYNC:DPLL:COEFficient?", .callback = scpi_product_sync_coef_q}, \
-    {.pattern = "SYSTem:SYNC:DPLL:DEFAult", .callback = scpi_product_result_accepted}
+    {.pattern = "SYSTem:SYNC:VDC:STATus?", .callback = scpi_cmd_sync_vdc_status_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:STATus?", .callback = scpi_cmd_sync_vdc_dpll_status_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:TUNE", .callback = scpi_product_result_accepted}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:COEFficient", .callback = scpi_product_result_accepted}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:OVERRide?", .callback = scpi_product_sync_override_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:COEFficient?", .callback = scpi_product_sync_coef_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:DEFAult", .callback = scpi_product_result_accepted}
 
 #endif

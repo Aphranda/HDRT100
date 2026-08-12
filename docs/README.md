@@ -120,6 +120,7 @@ Last updated: 2026-07-07
 | 文件 | 定位 |
 |---|---|
 | `SCPI_COMMANDS.md` | SCPI 命令清单、语义和边界。 |
+| `DTC100_SCPI_COMMAND_PLANNING.md` | DTC100 仪器式 SCPI 指令规划方案，定义主线挂载、SYNC/VDC/DPLL 层级和后续收敛步骤。 |
 | `RP1200波导天线测试系统分布式触发方案SCPI指令表.md` | RP1200 / DTC100 产品级 SCPI 指令表 Markdown 源文档，面向上位机联调和协议冻结。 |
 | `RP1200波导天线测试系统分布式触发方案SCPI指令表.html` | RP1200 / DTC100 产品级 SCPI 指令表 HTML 版，当前与 Markdown 0.7 同步。 |
 | `LOG_SYSTEM_TODO.md` | 日志系统待办和演进方向。 |

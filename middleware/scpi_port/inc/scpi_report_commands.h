@@ -8,6 +8,7 @@ scpi_result_t scpi_product_run_last_q(scpi_t *context);
 scpi_result_t scpi_product_run_summary_q(scpi_t *context);
 scpi_result_t scpi_product_page_block_q(scpi_t *context);
 scpi_result_t scpi_product_count_zero_q(scpi_t *context);
+scpi_result_t scpi_product_statistics_q(scpi_t *context);
 
 #define SCPI_REPORT_SYSTEM_COMMANDS \
     {.pattern = "SYSTem:RUN:LAST?", .callback = scpi_product_run_last_q}, \
@@ -21,6 +22,7 @@ scpi_result_t scpi_product_count_zero_q(scpi_t *context);
 
 #define SCPI_REPORT_READ_COMMANDS \
     {.pattern = "READ:RUN:SUMMary?", .callback = scpi_product_run_summary_q}, \
+    {.pattern = "READ:STATistics?", .callback = scpi_product_statistics_q}, \
     {.pattern = "READ:T2:COUNt?", .callback = scpi_product_count_zero_q}, \
     {.pattern = "READ:T2:DATA?", .callback = scpi_product_page_block_q}
 

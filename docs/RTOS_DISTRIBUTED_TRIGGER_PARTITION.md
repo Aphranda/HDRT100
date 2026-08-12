@@ -114,7 +114,7 @@ SCPI 指令表是上位机可见的产品 API，RTOS 任务划分必须先满足
 | `READ:TRIGger:*?` / `READ:ANGLe:*?` | `task_scpi` | `task_loop_engine` | `LoopSlot`、`TriggerSlot` | 查询运行态、触发参数、角度游标和断点；只读快照，不临时读 IO |
 | `CONFigure:CALibration:*` / `CALibration:*` | `task_scpi` | `task_calibration` | `CalibrationSlot`、ACK/NACK、storage | 维护 link/delay/staging/active；短事务测固定链路 delay，失败不覆盖旧数据 |
 | `READ:CALibration:*?` | `task_scpi` | `task_calibration` | `CalibrationSlot`、结果页 | 读取 link table、delay table、结果、版本和质量 |
-| `CONFigure:SYNC:*` / `SYNC:*` | `task_scpi` | `task_vdc_sync` | `VdcSlot`、`StatisticsSlot`、ACK/NACK | 绑定校准表、配置 ring/DPLL/gate，执行 check/start/stop/relock/holdover |
+| `CONFigure:SYNC:*` / `SYNC:*` | `task_scpi` | `task_vdc_sync` | `VdcSlot`、`StatisticsSlot`、ACK/NACK | 绑定校准表、配置 ring/VDC DPLL/gate，执行 check/start/stop/relock/holdover |
 | `READ:SYNC:*?` | `task_scpi` | `task_vdc_sync` | `VdcSlot`、`NodeSlot`、`StatisticsSlot` | 读取 LOCK/HOLDOVER、e_vdc、节点新鲜度、质量和版本 |
 | `SYSTem:LOG:*` / `SYSTem:TRACe:*` / `SYSTem:SNAPshot:*` / `SYSTem:T2:DATA?` | `task_scpi` | `task_storage` | storage job、分页 block | RUN 后报告数据按页读取；不阻塞 core1 或 RUN 态边沿 |
 | `SYSTem:OTA:*` / `SYSTem:USB:*` / `SYSTem:SD:*` | `task_scpi` | `task_ota` / `task_storage` / `task_system` | 资源仲裁、保护快照 | 涉及 flash/storage 的动作必须经过资源仲裁和 core1 park/lockout |
@@ -445,7 +445,7 @@ RUN 态下，`task_loop_engine` 可以根据反射内存中的 ACK、stale、fau
 ### 虚拟 DC 建立顺序
 
 虚拟 DC 不是 BiSS-C 线时钟直接产生，也不是 DPLL 替代本地晶振。指令表中的
-`SYNC:DPLL` 是同步域的虚拟环路，用来把各节点本地 tick 映射到共同 DC；`task_dpll`
+`SYSTem:SYNC:VDC:DPLL:*` 是同步域 VDC 的维护/调试入口，用来把各节点本地 tick 映射到共同 DC；`task_dpll`
 是扫描域的角度预测环路，用来生成 `T_fire_base`。两类 DPLL 的 owner、指标和门禁不得混用。
 
 产品化顺序固定为：
@@ -699,14 +699,16 @@ RUN 态禁止或推迟到下一轮：
 - 修改 `ActionMap`。
 - 修改 `CONFigure:TRIGger`、`CONFigure:ANGLe:*`、`CONFigure:SEQuence:*` 或 active sequence。
 - 写入 `CONFigure:CALibration:*`、`CALibration:*`、`CONFigure:SYNC:*`、`SYNC:*`。
-- 修改 `SYSTem:SYNC:DPLL:*` 调试覆盖。
+- 修改 `SYSTem:SYNC:VDC:DPLL:*` 调试覆盖。
 - 修改 PIO owner。
 - 直接写 SD 大文件。
 - OTA 开始或 flash erase/write。
 - 对已过期 `T_fire` 补发触发。
 
-兼容开发验证指令如 `LOOP:STAT?`、`VDC:STAT?`、`DPLL:STAT?` 和 `STATus:*?` 可以保留，
-但产品上位机优先使用 `READ:*?` / `SYSTem:*?` 的完整命令和固定 block 字段。
+开发验证指令也必须归入业务域：`LOOP:STAT?` 属于 LoopEngine 维护入口，
+`SYSTem:SYNC:VDC:STATus?` 和 `SYSTem:SYNC:VDC:DPLL:STATus?` 属于同步域维护入口。
+不再新增裸顶层 `VDC:*`、`DPLL:*` 或 `STATus:VDC/DPLL?`；产品上位机优先使用
+`READ:*?` / `SYSTem:*?` 的完整命令和固定 block 字段。
 
 ## 禁止清单
 
@@ -749,9 +751,9 @@ core1 禁止：
 - [x] 建立 `task_loop_engine` 空壳，只计数和响应状态查询，不接业务。
   2026-08-10: 已增加 `task_loop_engine` RTOS 任务、`LOOP:STAT?` / `STAT:LOOP?` 只读查询，以及本地 service_count/first_service_ms/last_service_ms 快照。
 - [x] 建立 `task_vdc_sync` 空壳，只维护 lock 状态和统计计数。
-  2026-08-10: build `20260810124245` 已烧录验证，`VDC:STAT?` / `STAT:VDC?` 返回 ready、lock_state、service_count、first/last service ms 和 sync_seq，计数持续增长。
+  2026-08-10: build `20260810124245` 已烧录验证，VDC 状态返回 ready、lock_state、service_count、first/last service ms 和 sync_seq，计数持续增长。后续规范入口为 `SYSTem:SYNC:VDC:STATus?`。
 - [x] 建立 `task_dpll` 空壳，只维护 disabled/ready 状态。
-  2026-08-10: build `20260810124902` 已烧录验证，`DPLL:STAT?` / `STAT:DPLL?` 返回 ready、state、service_count、first/last service ms 和 update_seq，计数持续增长。
+  2026-08-10: build `20260810124902` 已烧录验证，DPLL 状态返回 ready、state、service_count、first/last service ms 和 update_seq，计数持续增长。后续规范入口为 `SYSTem:SYNC:VDC:DPLL:STATus?`。
 - [x] 建立 `task_refmem_sync` 空壳，按 64 KB 完整布局维护本地 DistributedVectorTable header、node slot 和 heartbeat。
   2026-08-10: build `20260810110636` 已烧录验证，`SYST:RTOS:STAT?` 显示 `refmem_sync`，本地 heartbeat 持续增长；NodeSlot 预留 8 个节点。
 - [x] 增加本地 DistributedVectorTable snapshot 查询，先不做跨板同步。
@@ -838,7 +840,7 @@ core1 禁止：
 - [ ] 将 CAL/SYNC 的 `SAVE/ACTivate/CHECk/STARt/STOP/RELock/HOLDover` 统一接入分布式 ACK 语义，SCPI 写命令只表示 accepted，完成态通过 `command_seq/target_mask/ack_flags/nack_flags/busy_flags/timeout_flags` 查询。
 - [ ] 实现 `REFMEM_DELTA`、`FIRE_LOAD`、`DONE/MEAS_DONE` 全部携带 epoch/run_id 或可回溯上下文。
 - [ ] 定义 RJ45 帧级 `table_seq / slot_seq / owner / stale / crc` 头字段，统一反射内存和跨板同步的可追溯性。
-- [ ] 实现 `CONFigure:SYNC:CALibration/RING/DPLL/GATE/LIMit` 的 staging 配置、profile 展开、门限覆盖和拒绝原因。
+- [ ] 实现 `CONFigure:SYNC:CALibration/RING/VDC:DPLL/GATE/LIMit` 的 staging 配置、profile 展开、门限覆盖和拒绝原因。
 - [ ] 实现 `SYNC:CHECk/STARt/STOP/RELock/HOLDover`，完成态通过 `READ:SYNC:STATe?`、`READ:SYNC:CHECk?`、`READ:SYNC:QUALity?` 查询。
 - [ ] 实现 SYNC DPLL 的 VDC offset/rate 更新、LOCK/HOLDOVER/RELOCK 和虚拟环路滤波器调试接口。
 - [ ] 实现 NODE/RJ45 link delay 引入 VDC 计算，统计 `e_vdc`、crc_count、seq_error、node freshness。
@@ -916,8 +918,8 @@ flash UF2
 board smoke
 SYST:RTOS:STAT? 水位记录
 LOOP:STAT? loop counter
-VDC:STAT? VDC counter
-DPLL:STAT? angle DPLL counter
+SYSTem:SYNC:VDC:STATus? VDC counter
+SYSTem:SYNC:VDC:DPLL:STATus? sync DPLL counter
 READ:SYNC:STATe? / READ:CALibration:STATe? if enabled
 SYST:CORE? core1 heartbeat
 SYST:ERR? 错误队列确认
@@ -978,8 +980,8 @@ do not connect real DC convergence yet
 ```text
 build_id: 20260810132729
 smoke:    identity/build_id/core_heartbeat/loop_status/vdc_status/dpll_status/config_gate_status/trigger_seq/error_queue/log_stat/trace_last 11/11 PASS
-vdc:      VDC:STAT? -> 1,0,<service_count>,<first_service_ms>,<last_service_ms>,<sync_seq>
-dpll:     DPLL:STAT? -> 1,0,<service_count>,<first_service_ms>,<last_service_ms>,<update_seq>
+vdc:      SYSTem:SYNC:VDC:STATus? -> 1,0,<service_count>,<first_service_ms>,<last_service_ms>,<sync_seq>
+dpll:     SYSTem:SYNC:VDC:DPLL:STATus? -> 1,0,<service_count>,<first_service_ms>,<last_service_ms>,<update_seq>
 cfg:      SYST:CFG:STAT? -> "20260810132729",1,1,60141,3550,13605,1848,2369500348,1,1,1,1,1,15,0,0,0,0,1484595822,2475547252,577814202,2954853378,2581941186,400340093,1187728286
 rtos:     task_count 11; vdc_sync/dpll/cfg_gate/ui still visible; heap min free 27968 bytes
 ```
@@ -1049,7 +1051,7 @@ archive:  build-rtos-multicore-smoke/validation_calibration_step1_full_retry
 | `scpi_product_commands.c` | product common | 通用 accepted、RUN/log/page、权限、角色，以及尚未拆出的产品占位命令 |
 | `scpi_config_commands.c` | `task_loop_engine` | `CONFigure:TRIGger`、`CONFigure:ANGLe:*`、`CONFigure:SEQuence:*`、`CONFigure:SWITch#`、对应 `READ:*?` |
 | `scpi_calibration_commands.c` | `task_calibration` | `CONFigure:CALibration:*`、`CALibration:*`、`READ:CALibration:*?` |
-| `scpi_sync_commands.c` | `task_vdc_sync` | `CONFigure:SYNC:*`、`SYNC:*`、`READ:SYNC:*?`，包括 DPLL 调试查询 |
+| `scpi_sync_commands.c` | `task_vdc_sync` | `CONFigure:SYNC:*`、`SYNC:*`、`READ:SYNC:*?`、`SYSTem:SYNC:VDC:*` 维护查询 |
 | `scpi_system_commands.c` | `task_system/storage/ota/refmem` | IEEE 488.2 以外的 `SYSTem:*` 产品系统、资源、日志、故障、存储、OTA、REFM 查询 |
 | `scpi_trigger_commands.c` | `task_loop_engine` / `core1_realtime` | 产品化 `TRIGger:STARt/STOP/PAUSe/CONTinue` 与 `READ:TRIGger:*?` |
 | `scpi_legacy_commands.c` | compatibility | 旧 `TRIGger:SEQ/BISS/PCNT`、裸机 bring-up 和历史验证入口，后续标记权限和废弃计划 |
@@ -1095,7 +1097,8 @@ archive:  build-rtos-multicore-smoke/validation_scpi_cal_split_step1
 ```text
 split SCPI sync commands into scpi_sync_commands.c/.h
 keep SYNC response fields and accepted stubs unchanged
-keep READ:STATistics? temporarily mapped to sync quality
+keep SYNC response fields and accepted stubs unchanged
+READ:STATistics? has been moved to report/statistics domain to avoid overlapping with SYNC quality
 ```
 
 板端验证结果：
@@ -1190,11 +1193,13 @@ errors:   SYST:ERR? -> 0,"No error"
 archive:  build-rtos-multicore-smoke/validation_scpi_system_snapshot_split_step1
 ```
 
-第十三刀已经完成：
+第十三刀已经完成，并在后续复核中做了边界修正：
 
 ```text
-split service status commands into scpi_service_status_commands.c/.h
-move LOOP/VDC/DPLL status queries and STATus:* aliases
+split LOOP engine status commands into scpi_loop_engine_commands.c/.h
+move LOOP:STATus?/LOOP:STAT?/STATus:LOOP? only
+move SYSTem:SYNC:VDC:STATus? and SYSTem:SYNC:VDC:DPLL:STATus? into scpi_sync_commands.c/.h
+remove broad scpi_service_status_commands module to avoid overlapping with sync domain
 keep SYSTem:TRIGger:DBG? and SYSTem:RESource? in scpi_port.c for local debug/static helper dependency
 ```
 
@@ -1202,12 +1207,110 @@ keep SYSTem:TRIGger:DBG? and SYSTem:RESource? in scpi_port.c for local debug/sta
 
 ```text
 build_id: 20260812062425
-quick:    *IDN?/SYST:FW:BUILD?/LOOP:STAT?/VDC:STAT?/DPLL:STAT?/STATus:* aliases PASS
+quick:    *IDN?/SYST:FW:BUILD?/LOOP:STAT?/VDC:STAT?/DPLL:STAT?/STATus:* aliases PASS before namespace cleanup
 full:     RTOS + multicore smoke 16/16 PASS
 errors:   SYST:ERR? -> 0,"No error"
 archive:  build-rtos-multicore-smoke/validation_scpi_service_status_split_step1
 ```
 
-下一步继续第 5 项系统/维护入口拆分。建议再拆 `scpi_system_runtime_commands.c/.h`，把
-固件版本、bootloader 能力、日志状态、Core/RTOS 状态等系统运行查询从 `scpi_port.c` 移出；
-Storage/OTA/MMEM 因为依赖资源仲裁和文件操作，放到后续单独验证。
+边界修正验证结果：
+
+```text
+target:   build-rtos-multicore-smoke
+quick:    READ:SYNC:* + SYSTem:SYNC:VDC:* + LOOP aliases
+full:     RTOS + multicore smoke
+archive:  build-rtos-multicore-smoke/validation_scpi_sync_loop_boundary_fix_step1
+```
+
+剩余 `scpi_port.c` 拆分规划按业务域推进，不再按“查询/状态”横切：
+
+```text
+1. scpi_system_runtime_commands.c/.h
+   Scope:
+     *TST?, SYSTem:FW:*, SYSTem:BOOT:VERSion?/CAPability?,
+     SYSTem:LOG:LEVel/LEVel?/STATus?, SYSTem:CORE?, SYSTem:RTOS:STATus?
+   Dependency:
+     diagnostics, osal, ota metadata, project_config/project_build_info
+   Risk:
+     low, mostly read-only; LOG:LEVel is a small runtime setting
+   Validation:
+     IDN/FW/BOOT/LOG/CORE/RTOS/error queue + full smoke
+
+2. scpi_io_trigger_commands.c/.h
+   Scope:
+     TRIGger/PULSe/MARKer/RJ45 width and immediate commands,
+     SAMPle:RATE/STATe, OUTPut:CLOCk:*
+   Dependency:
+     sync_trigger event queue, sync_io_hw_profile, run-state policy
+   Risk:
+     medium, these are hardware-facing but still sync_trigger event based
+   Validation:
+     read back width/rate/state/pins, no trigger hang, full smoke
+
+3. scpi_legacy_trigger_commands.c/.h
+   Scope:
+     TRIGger:MODE, TRIGger:SEQ:*, TRIGger:ARM/DISarm/FAULT,
+     STATus:TRIGger?, ENC_COUNT legacy commands
+   Dependency:
+     sync_trigger state machine, storage trace/fault evidence, debug stage variables
+   Risk:
+     high, this area caused previous TRIG:MODE/TRIG:ARM hang; split only after
+     local debug state is converted from scpi_port static globals to a small context API
+   Validation:
+     MODE/SEQ/ARM/DISarm/FAULT/debug path, repeated SSCOM-equivalent queries, full smoke
+
+4. scpi_biss_commands.c/.h
+   Scope:
+     TRIGger:BISS:* and STATus:BISS?
+   Dependency:
+     BISS protocol constants, trigger vector/event queue, run-state policy
+   Risk:
+     medium-high, many parameters; split first with no behavior change, parser cleanup later
+   Validation:
+     representative BISS config/readback/status/error queue + full smoke
+
+5. scpi_pcnt_commands.c/.h
+   Scope:
+     TRIGger:PCNT:* counter decode/direction/filter/gate/cmp/preset/clear/readback
+   Dependency:
+     trigger vector/event queue, run-state policy
+   Risk:
+     medium, compact and separable from BISS
+   Validation:
+     PCNT readback/defaults + error queue + full smoke
+
+6. scpi_ota_commands.c/.h
+   Scope:
+     SYSTem:OTA:* including package begin/data/end/abort/boot/commit/status/result
+   Dependency:
+     ota_ao, ota metadata, run-state policy, optional fault injection
+   Risk:
+     high, update path and arbitrary block input; split only after focused OTA smoke script exists
+   Validation:
+     status/progress/slot/result/txn/mode/target/capability first; write path separately gated
+
+7. scpi_storage_commands.c/.h
+   Scope:
+     SYSTem:SD:*, SYSTem:STORage:*, SNAPshot/TRACE/FAULT last, MMEMory:*
+   Dependency:
+     storage_manager, FATFS, SD raw ops, resource/run-state policy, job wait helper
+   Risk:
+     high, file system and potentially destructive maintenance commands
+   Validation:
+     status/info/manifest/job/MMEM read-only first; raw clear/MKFS only with explicit confirm tests
+
+8. scpi_measure_commands.c/.h
+   Scope:
+     MEASure:FREQuency?, MEASure:REPort?
+   Dependency:
+     trigger_measure
+   Risk:
+     low, read-only self-test data
+   Validation:
+     frequency/report query + full smoke
+```
+
+长期收敛目标：`scpi_port.c` 只保留 libscpi 上下文、输入输出、错误队列、reset/flush/control
+以及命令表拼装；业务命令全部进入清晰的业务域模块。共享能力如 `read_u32`、`result_ok`、
+`run_forbidden`、`trigger_post`、`storage_job_wait` 应拆成窄接口 helper，而不是让各模块反向依赖
+`scpi_port.c` 的 static 函数。

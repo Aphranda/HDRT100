@@ -169,8 +169,8 @@ Last updated: 2026-08-11
 | `SYSTem:CONFigure:NACK?` / `SYSTem:CFG:NACK?` | `[reason_id]` | `reason block` | 查询 NACK reason 表，用于 UI 参数校验和故障提示 |
 | `SYSTem:SCPI:RUN:ALLOW?` | `[index]` | `policy block` | 查询运行态 SCPI 策略表；命名保留 ALLOW，但语义为权限 profile 在 RUN 状态下的执行结果 |
 | `LOOP:STAT?` / `STATus:LOOP?` |  | `loop block` | 兼容开发验证查询：loop_engine ready、service_count 和 service 时间 |
-| `VDC:STAT?` / `STATus:VDC?` |  | `vdc block` | 兼容开发验证查询：虚拟 DC 任务 ready、lock_state、service_count 和 sync_seq |
-| `DPLL:STAT?` / `STATus:DPLL?` |  | `dpll block` | 兼容开发验证查询：转台/扫描 DPLL 任务 ready、state、service_count 和 update_seq |
+| `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 同步域维护查询：虚拟 DC 服务 ready、lock_state、service_count 和 sync_seq |
+| `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 同步域维护查询：VDC DPLL ready、state、service_count 和 update_seq |
 
 HTML 分页将系统域拆成两页：系统状态与日志、系统门禁与分布式表。
 
@@ -369,8 +369,8 @@ seq,node,channel,t2_tick,status,error_code,temperature
 | `SYSTem:REFM:NODE?` | `[node_id]` | `node block` | 读取指定节点镜像；省略时读取本节点 |
 | `SYSTem:CORE:VECT?` |  | `core vector block` | 读取 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态 |
 | `SYSTem:PROT:STAT?` |  | `runtime protection block` | 读取 RAM-resident、flash lockout/park、entry owner 和保护状态 |
-| `VDC:STAT?` / `STATus:VDC?` |  | `vdc block` | 兼容开发验证查询：读取虚拟 DC 任务 ready、lock_state、service_count 和 sync_seq |
-| `DPLL:STAT?` / `STATus:DPLL?` |  | `dpll block` | 兼容开发验证查询：读取转台/扫描 DPLL 任务 ready、state、service_count 和 update_seq |
+| `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 同步域维护查询：读取虚拟 DC 服务 ready、lock_state、service_count 和 sync_seq |
+| `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 同步域维护查询：读取 VDC DPLL ready、state、service_count 和 update_seq |
 | `SYSTem:CONFigure:ROLE?` | `[node_id]` | `role block` | 查询 NodeRoleMap |
 | `SYSTem:CONFigure:LOOP?` | `[layer_id]` | `loop block` | 查询 LoopPlan 层级和数组循环编排 |
 | `SYSTem:CONFigure:ACT?` | `[action_id]` | `action block` | 查询 SP8T、SP2T、READY 等动作映射 |
@@ -545,7 +545,56 @@ READ:CALibration:HEALth? NODE
 
 同步阶段的目标是让 DPLL 在 BiSS-C/RJ45_SYNC_RING 观测上建立稳态虚拟 DC。时序上，本地晶振和 `local_tick` 先存在；同步帧只提供跨节点边沿观测；DPLL 根据本地时间戳、seq、CRC、链路 delay 和节点 age 估计 `offset/rate`，进入 `LOCKED` 后才形成可用于正式运行的共同虚拟 DC。active 校准表中的 NODE 链路 delay 只用于固定 hop 补偿和拓扑门禁；`SYNC:STARt` 不测 T2。只有虚拟 DC 进入 `LOCKED` 后，DEVICE/T2 校准才具备统一时间基准，后续预测分发使用稳态 DC + T2/动作补偿执行。
 
-### 9.2 动作指令
+### 9.2 指令分层与收敛
+
+SYNC 域按产品框架收敛为四层，避免同一功能在多个前缀下重复暴露：
+
+| 层级 | 入口 | 保留功能 | 不承担的功能 |
+|---|---|---|---|
+| 业务配置 | `CONFigure:SYNC:*` | 写 staging 同步配置：绑定校准表、ring、VDC DPLL profile、运行门禁和质量门限 | 不启动同步、不保存 active、不返回运行状态 |
+| 同步动作 | `SYNC:*` | 执行检查、启动、停止、重锁、保持、保存、加载、激活和回滚 | 不直接返回完整状态；写命令只表示 accepted 或 check 结果 |
+| 业务读取 | `READ:SYNC:*?` | 上位机主视图：同步状态、参数、健康度、节点、链路、检查结果、质量和版本 | 不暴露 RTOS 任务水位、不暴露调试覆盖写入口 |
+| 维护诊断 | `SYSTem:SYNC:VDC:*` | VDC 服务状态和 VDC DPLL 调试覆盖，用于 SERVICE/DEBUG 联调 | 不作为产品报告主视图，不替代 `READ:SYNC:*?` |
+
+收敛原则：
+
+- `READ:SYNC:STATe?` 是同步状态主入口；`SYSTem:SYNC:VDC:STATus?` 只看内部服务活性。
+- `READ:SYNC:QUALity?` 是同步质量主入口；全局 `READ:STATistics?` 属于报告统计域，不挂在 SYNC 模块下。
+- `CONFigure:SYNC:VDC:DPLL` 只选择和保存 VDC DPLL profile；`SYSTem:SYNC:VDC:DPLL:*` 只做易失调试覆盖。
+- `SYNC:CHECk` 执行一次检查并返回结果；`READ:SYNC:CHECk?` 读取最近一次检查快照，两者允许响应字段相同但动作语义不同。
+- 不再新增裸顶层 `VDC:*`、`DPLL:*` 或 `STATus:VDC/DPLL?`；历史验证记录只作为历史事实保留。
+
+### 9.3 主线挂载关系
+
+SYNC 是 DTC100 主控制面上的一个业务域，不是独立通信主线。挂载关系如下：
+
+```text
+USBTMC / USB488
+  -> task_usb_device
+  -> task_scpi
+  -> libscpi command table
+  -> SCPI_SYNC_COMMANDS
+  -> task_vdc_sync / VdcSlot / ACK
+```
+
+| 层级 | 归属 | 职责 |
+|---|---|---|
+| 物理入口 | USBTMC / USB488 | 承载全部 DTC100 SCPI 指令，不为 SYNC 单独开端口 |
+| 解析入口 | `task_scpi` | 解析 `CONFigure:SYNC:*`、`SYNC:*`、`READ:SYNC:*?`、`SYSTem:SYNC:*`，返回 accepted 或读取快照 |
+| 命令挂载 | `scpi_sync_commands.c/.h` | 在主命令表中声明 SYNC 域命令；不持有实时状态事实源 |
+| 执行 owner | `task_vdc_sync` | 消费同步配置/动作事件，维护 VDC lock、offset/rate、holdover、quality |
+| 事实快照 | `VdcSlot`、`NodeSlot`、`StatisticsSlot` | 给 `READ:SYNC:*?` 和运行门禁提供一致快照 |
+| 运行引用 | `task_loop_engine` / `TRIGger:STARt` | 只读取 VDC 锁定和质量快照做 START/RUN 门禁，不直接调用 SYNC 命令 |
+
+SYNC 域挂到主线后的行为规则：
+
+- `CONFigure:SYNC:*` 写 staging 配置，完成态通过 ACK 和 `READ:SYNC:PARameter?` 读取。
+- `SYNC:CHECk/STARt/STOP/RELock/HOLDover` 是动作入口，返回值只表示 accepted 或本次检查结果；跨节点完成态通过 ACK 和 `READ:SYNC:*?` 闭环。
+- `READ:SYNC:*?` 是产品主视图，测试上位机和报告系统应优先使用。
+- `SYSTem:SYNC:VDC:*` 是维护诊断视图，只暴露 VDC 服务和 VDC DPLL 调试，不参与现场测试主流程。
+- `task_vdc_sync` 不直接产生 TRIG 边沿；它只建立共同虚拟 DC 和运行门禁事实，实时边沿仍由 `task_loop_engine` 装载、core1 执行。
+
+### 9.4 动作指令
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
@@ -555,7 +604,7 @@ READ:CALibration:HEALth? NODE
 | `SYNC:RELock` |  | `1` | accepted：清除当前 offset/rate 估计并重新锁定；不清除校准表和同步配置，也不自动恢复 RUN |
 | `SYNC:HOLDover` | `0|1` | `1` | accepted：`1` 请求进入保持态；`0` 只请求退出保持态，必须重新 `LOCKED` 并通过运行门禁后才可恢复 |
 
-### 9.3 读取指令
+### 9.5 读取指令
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
@@ -566,7 +615,7 @@ READ:CALibration:HEALth? NODE
 | `READ:SYNC:LINK?` | `[src_node,dst_node]` | `link table` | 读取 NODE delay、hop 方向、required/enabled 状态和校验结果 |
 | `READ:SYNC:CHECk?` |  | `check block` | 读取最近一次同步检查结果和拒绝原因 |
 
-### 9.4 同步状态机
+### 9.6 同步状态机
 
 | 状态 | 含义 | 允许动作 |
 |---|---|---|
@@ -579,7 +628,7 @@ READ:CALibration:HEALth? NODE
 | `HOLDOVER` | 短时失去同步帧或节点 stale，停止生成新的 FIRE_LOAD | 不允许新增预约；已装载队列按安全策略完成或撤销；重锁后也不自动恢复 RUN |
 | `FAULT` | CRC、seq、拓扑或门禁故障锁存 | 读取证据后停止并清故障 |
 
-### 9.5 故障与恢复
+### 9.7 故障与恢复
 
 | 场景 | 状态变化 | 恢复动作 |
 |---|---|---|
@@ -590,7 +639,7 @@ READ:CALibration:HEALth? NODE
 | e_vdc 超门限 | `LOCKED -> LOCKING/FAULT` | 读取质量数据，必要时调整 profile 或排查链路 |
 | 故障锁存 | `FAULT` | 读取日志、trace、snapshot 后执行 `SYSTem:FAULT:CLEAr` |
 
-### 9.6 同步门禁
+### 9.8 同步门禁
 
 | 场景 | 允许状态 | 说明 |
 |---|---|---|
@@ -601,7 +650,7 @@ READ:CALibration:HEALth? NODE
 | 调试 DPLL | `IDLE` / `LOCKING` | 正式 `TRIG RUN` 和 `LOCKED` 稳态运行禁止修改 DPLL 调试覆盖 |
 | 触发运行 | `LOCKED` 且节点 `OK` | `FREE_RUN/OBSERVED/LOCKING/HOLDOVER/FAULT` 不能作为正式触发时间基准；任一目标节点 `STALE/MISSING/INVALID/FAULT` 时拒绝 RUN |
 
-### 9.7 流程门禁
+### 9.9 流程门禁
 
 | 步骤 | 门禁条件 | 失败读取 |
 |---|---|---|
@@ -612,7 +661,7 @@ READ:CALibration:HEALth? NODE
 | 触发运行 | required_lock=1 时必须 LOCKED，且 e_vdc、age、CRC、seq、节点新鲜度低于门限 | `READ:SYNC:STATe?` |
 | HOLDOVER 恢复 | 重锁后只恢复同步锁定，不自动恢复 TRIG RUN | `READ:SYNC:STATe?`、`SYSTem:CONFigure:ACK?` |
 
-### 9.8 DPLL 调试范围
+### 9.10 DPLL 调试范围
 
 | 参数 | 范围 | 说明 |
 |---|---|---|
@@ -632,7 +681,7 @@ READ:CALibration:HEALth? NODE
 |---|---|---|---|
 | `CONFigure:SYNC:CALibration` | `<cal_id>,<cal_crc>,<max_age_s>` | `1` | 绑定同步使用的校准表到 staging 配置 |
 | `CONFigure:SYNC:RING` | `<origin>,<node_order>,<period_us>,<bitrate>,<timeout_ms>,<crc_limit>` | `1` | 配置 RJ45_SYNC_RING；`node_order` 每一跳必须匹配同方向 NODE 校准链路 |
-| `CONFigure:SYNC:DPLL` | `<lock_window_ns>,<lock_count>,<holdover_ms>,<relock_ms>,<profile>` | `1` | 配置虚拟 DC 时钟同步 DPLL 的锁定、保持和重锁判据 |
+| `CONFigure:SYNC:VDC:DPLL` | `<lock_window_ns>,<lock_count>,<holdover_ms>,<relock_ms>,<profile>` | `1` | 配置虚拟 DC 时钟同步 DPLL 的锁定、保持和重锁判据 |
 | `CONFigure:SYNC:GATE` | `<required_lock>,<max_age_ms>,<max_evdc_p99_ns>,<allow_holdover>` | `1` | 配置触发运行门禁 |
 
 ### 10.2 同步字段
@@ -662,7 +711,7 @@ READ:CALibration:HEALth? NODE
 ```scpi
 CONFigure:SYNC:CALibration FIELD_20260811,3A91C027,86400
 CONFigure:SYNC:RING A0,A0>A1>A2>A3>A0,1000,12500000,20,0
-CONFigure:SYNC:DPLL 300,100,200,1000,LOW_JITTER
+CONFigure:SYNC:VDC:DPLL 300,100,200,1000,LOW_JITTER
 CONFigure:SYNC:GATE 1,50,100,0
 SYNC:CHECk STAGing
 SYNC:SAVE FIELD_SYNC_20260811
@@ -692,11 +741,13 @@ READ:SYNC:STATe?
 | `CONFigure:SYNC:LIMit` | `<profile>[,<key=value>[,...]]` | `1` | 选择同步质量门限档位；调试时可追加字段覆盖，未写字段保持 profile 展开值 |
 | `READ:SYNC:QUALity?` | `[sync_id]` | `quality block` | 读取质量结论、e_vdc 分布、错误计数、重锁计数、链路年龄和门禁拒绝原因 |
 | `READ:SYNC:VERSion?` |  | `version block` | 读取同步配置版本、绑定校准版本、固件版本、硬件 profile 和最近激活时间 |
-| `SYSTem:SYNC:DPLL:TUNE` | `<bandwidth_hz>,<damping>,<max_slew_ppm>` | `1` | 按等效传递函数参数覆盖虚拟环路滤波器，仅用于调试 |
-| `SYSTem:SYNC:DPLL:COEFficient` | `<kp_q31>,<ki_q31>,<max_slew_ppm>` | `1` | 直接覆盖离散 PI 环路系数 |
-| `SYSTem:SYNC:DPLL:OVERRide?` |  | `override block` | 读取调试覆盖是否生效、来源、允许状态、最近写入时间和清除原因 |
-| `SYSTem:SYNC:DPLL:COEFficient?` |  | `coef block` | 读取当前环路滤波器系数、来源、限幅和生效状态 |
-| `SYSTem:SYNC:DPLL:DEFAult` |  | `1` | 清除调试覆盖，恢复内置 profile |
+| `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 读取同步域虚拟 DC 服务内部状态；产品报告优先用 `READ:SYNC:STATe?` |
+| `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 读取 VDC DPLL 内部状态；用于维护和闭环调试 |
+| `SYSTem:SYNC:VDC:DPLL:TUNE` | `<bandwidth_hz>,<damping>,<max_slew_ppm>` | `1` | 按等效传递函数参数覆盖 VDC 虚拟环路滤波器，仅用于调试 |
+| `SYSTem:SYNC:VDC:DPLL:COEFficient` | `<kp_q31>,<ki_q31>,<max_slew_ppm>` | `1` | 直接覆盖离散 PI 环路系数 |
+| `SYSTem:SYNC:VDC:DPLL:OVERRide?` |  | `override block` | 读取调试覆盖是否生效、来源、允许状态、最近写入时间和清除原因 |
+| `SYSTem:SYNC:VDC:DPLL:COEFficient?` |  | `coef block` | 读取当前环路滤波器系数、来源、限幅和生效状态 |
+| `SYSTem:SYNC:VDC:DPLL:DEFAult` |  | `1` | 清除调试覆盖，恢复内置 profile |
 
 ### 11.3 质量字段
 
@@ -846,7 +897,7 @@ RUN 中替换已冻结配置，也不能进入校准、同步调参、存储维�
 | `position block` | `source,angle_index,angle_count,current_angle_by_sweep,next_angle_by_sweep,angle_pulse_count,last_pulse_time,valid,stale,fault_code` | DTC 侧扫描游标和角度脉冲推导状态；真实转台位置由运动控制器 API 提供 |
 | `core vector block` | `version,table_seq,core_count,core0_vtor_owner,core1_vtor_owner,core0_irq_owner_mask,core1_irq_owner_mask,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags` | core0/core1 入口表、IRQ owner 和 guard 观测 |
 | `runtime protection block` | `version,table_seq,ram_resident_required,flash_lockout_supported,flash_lockout_online,flash_lockout_requested,flash_lockout_acknowledged,park_state,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags` | RAM-resident、flash lockout/park 和入口归属观测 |
-| `vdc block` | `ready,lock_state,service_count,first_service_ms,last_service_ms,sync_seq` | 开发验证兼容字段；产品上位机优先使用 `READ:SYNC:STATe?` |
+| `vdc block` | `ready,lock_state,service_count,first_service_ms,last_service_ms,sync_seq` | 同步域维护字段；产品上位机优先使用 `READ:SYNC:STATe?` |
 | `dpll block` | `ready,state,service_count,first_service_ms,last_service_ms,update_seq` | 开发验证兼容字段；用于扫描/转台 DPLL 任务观测 |
 
 ### 14.2 二进制 block
@@ -883,7 +934,7 @@ crc
 |---|---|
 | 校准 | NODE/SMA 基础链路校准提供固定 delay；DEVICE/T2 校准应在 DC `LOCKED` 后执行，形成预测分发用动作补偿 |
 | 同步 | 本地晶振先提供 `local_tick`，BiSS-C/RJ45 提供跨节点观测，同步 DPLL 收敛出稳态虚拟 DC；NODE 环路方向必须与 `node_order` 完全一致 |
-| DPLL | `SYNC:DPLL` 是实现虚拟 DC 的 offset/rate 收敛环路，不替代物理晶振；预测分发使用稳态 DC + T2/动作补偿，角度预测 DPLL 属于触发/扫描域 |
+| DPLL | `SYSTem:SYNC:VDC:DPLL:*` 是实现虚拟 DC 的 offset/rate 收敛环路调试入口，不替代物理晶振；预测分发使用稳态 DC + T2/动作补偿，角度预测 DPLL 属于触发/扫描域 |
 | HOLDOVER | 首版为保守策略：只允许已装载队列完成，不接收新增预约 |
 | 测试上位机 | RUN 前配置转台和 DTC，RUN 中只从网分取数据，RUN 后读取 `SYSTem:RUN:*` 摘要和故障证据 |
 | 调试上位机 | 面向当前系统任意状态的验证和控制；通过 `TEST/SERVICE/DEBUG/FACTORY` 四级权限 profile 控制可见按钮、可执行命令和状态策略，其中 `DEBUG` 高于现场 `SERVICE`。全部动作必须通过 core0 控制面、权限表、资源仲裁和 ACK 闭环，不直接影响 core1 已装载边沿 |
@@ -938,4 +989,4 @@ crc
 - 同步域从早期抽象 `CONFigure:SYNC <mode,target,param...>` 拆成 CAL/RING/DPLL/GATE、CHECK/START/STOP/RELOCK/HOLDOVER、版本和质量管理。
 - 同步明确 staging/active 两级配置，`SYNC:STARt` 只使用 active。
 - RJ45_SYNC_RING 拓扑强校验要求 `node_order` 每一跳匹配同方向 active NODE 校准链路。
-- DPLL 调试接口保留在 `SYSTem:SYNC:DPLL:*` 维护域，正式 TRIG RUN 禁止修改。
+- DPLL 调试接口保留在 `SYSTem:SYNC:VDC:DPLL:*` 维护域，正式 TRIG RUN 禁止修改。
