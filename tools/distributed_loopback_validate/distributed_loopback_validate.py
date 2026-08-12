@@ -47,12 +47,12 @@ DEFAULT_TESTS = (
     "*IDN?",
     "SYST:FW:BUILD?",
     "SYST:CORE?",
-    "SYST:CFG:STAT?",
-    "SYST:CFG:ACK?",
-    "SYST:CFG:ROLE? 0",
-    "SYST:CFG:ROLE? 1",
-    "SYST:CFG:ROLE? 2",
-    "SYST:CFG:ROLE? 3",
+    "SYST:CONFigure:STAT?",
+    "SYST:CONFigure:ACK?",
+    "SYST:CONFigure:ROLE? 0",
+    "SYST:CONFigure:ROLE? 1",
+    "SYST:CONFigure:ROLE? 2",
+    "SYST:CONFigure:ROLE? 3",
     "SYST:MODE:TAB? 1",
     "SYST:RESource:TAB? 0",
     "SYST:FAULT:TAB? 0",
@@ -231,9 +231,12 @@ def validate_control_board(spec: NodeSpec, args: argparse.Namespace) -> dict:
 
     checks = {record["command"]: record["response"] for record in records}
     core = parse_csv_ints(checks.get("SYST:CORE?", ""))
-    cfg = parse_csv_ints(checks.get("SYST:CFG:STAT?", ""))
-    ack = parse_csv_ints(checks.get("SYST:CFG:ACK?", ""))
-    role_rows = {idx: parse_csv_ints(checks.get(f"SYST:CFG:ROLE? {idx}", "")) for idx in ROLE_QUERY_IDS}
+    cfg = parse_csv_ints(checks.get("SYST:CONFigure:STAT?", ""))
+    ack = parse_csv_ints(checks.get("SYST:CONFigure:ACK?", ""))
+    role_rows = {
+        idx: parse_csv_ints(checks.get(f"SYST:CONFigure:ROLE? {idx}", ""))
+        for idx in ROLE_QUERY_IDS
+    }
 
     if len(core) < 5 or core[0] != 1:
         passed = False

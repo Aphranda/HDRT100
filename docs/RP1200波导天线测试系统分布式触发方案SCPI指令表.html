@@ -699,9 +699,9 @@
 <table class="compact">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>SYSTem:REFM:STAT?</code></td><td></td><td>表头摘要</td><td>查询 64 KB 反射内存总表状态</td></tr>
-<tr><td><code>SYSTem:REFM:NODE?</code></td><td><code>[node_id]</code></td><td>节点快照</td><td>查询指定节点状态；省略时查询本节点</td></tr>
-<tr><td><code>SYSTem:CORE:VECT?</code></td><td></td><td>core vector block</td><td>查询 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态</td></tr>
+<tr><td><code>SYSTem:REFMEM:STATUS?</code></td><td></td><td>表头摘要</td><td>查询 64 KB 反射内存总表状态</td></tr>
+<tr><td><code>SYSTem:REFMEM:NODE?</code></td><td><code>[node_id]</code></td><td>节点快照</td><td>查询指定节点状态；省略时查询本节点</td></tr>
+<tr><td><code>SYSTem:CORE:VECTOR?</code></td><td></td><td>core vector block</td><td>查询 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态</td></tr>
 <tr><td><code>SYSTem:PROT:STAT?</code></td><td></td><td>runtime protection block</td><td>查询 RAM-resident、flash lockout/park、entry owner 和保护状态</td></tr>
 <tr><td><code>SYSTem:MODE:TAB?</code></td><td><code>[mode_id]</code></td><td>mode table row</td><td>查询 SystemModeTable：当前模式、允许能力和表 CRC。</td></tr>
 <tr><td><code>SYSTem:RESource:TAB?</code></td><td><code>[resource_id]</code></td><td>resource table row</td><td>查询 ResourceArbiterTable：资源 owner、活跃位和冲突位。</td></tr>
@@ -724,7 +724,7 @@
 <pre data-lang="scpi"><code>SYSTem:CORE?
 SYSTem:RTOS:STATus?
 SYSTem:CONFigure:STAT?
-SYSTem:REFM:NODE? 3
+SYSTem:REFMEM:NODE? 3
 SYSTem:SCPI:RUN:ALLOW?</code></pre>
   </div>
   <div class="page-footer">
@@ -1292,7 +1292,7 @@ READ:CALibration:HEALth? NODE</code></pre>
 <tr><td>链路缺失/方向错误</td><td><code>CHECk</code> 失败。</td><td>读取 <code>READ:SYNC:LINK?</code>。</td></tr>
 <tr><td>CRC/seq 超限</td><td><code>LOCKED-&gt;FAULT</code></td><td>停止触发，读取 health 和故障证据。</td></tr>
 <tr><td>短时丢帧</td><td><code>LOCKED-&gt;HOLDOVER</code></td><td>停止新增预约；重锁后重新 ARM/START。</td></tr>
-<tr><td>节点 stale/missing/invalid/fault</td><td><code>LOCKED/RUN-&gt;HOLDOVER/FAULT</code></td><td>读取 <code>READ:SYNC:NODE?</code> 和 <code>SYSTem:REFM:NODE?</code>。</td></tr>
+<tr><td>节点 stale/missing/invalid/fault</td><td><code>LOCKED/RUN-&gt;HOLDOVER/FAULT</code></td><td>读取 <code>READ:SYNC:NODE?</code> 和 <code>SYSTem:REFMEM:NODE?</code>。</td></tr>
 <tr><td>e_vdc 超门限</td><td><code>LOCKED-&gt;LOCKING/FAULT</code></td><td>读取质量数据，排查链路或 profile。</td></tr>
 <tr><td>故障锁存</td><td><code>FAULT</code></td><td>读日志后 <code>SYSTem:FAULT:CLEAr</code>。</td></tr>
 </tbody>
@@ -1554,7 +1554,7 @@ READ:SYNC:STATe?</code></pre>
 <tr><td><code>SYSTem:RESource?</code></td><td></td><td>resource block</td><td>查询资源占用、冲突、request owner 和 holder owner。</td></tr>
 <tr><td><code>SYSTem:CONFigure:ACK?</code></td><td></td><td>ack block</td><td>查询调试命令 accepted 后的分布式完成态。</td></tr>
 <tr><td><code>SYSTem:CONFigure:NACK?</code></td><td><code>[reason_id]</code></td><td>reason block</td><td>查询拒绝原因表。</td></tr>
-<tr><td><code>SYSTem:CORE:VECT?</code></td><td></td><td>core vector block</td><td>查询 core0/core1 VTOR、IRQ owner、entry owner 和 guard。</td></tr>
+<tr><td><code>SYSTem:CORE:VECTOR?</code></td><td></td><td>core vector block</td><td>查询 core0/core1 VTOR、IRQ owner、entry owner 和 guard。</td></tr>
 <tr><td><code>SYSTem:PROT:STAT?</code></td><td></td><td>runtime protection block</td><td>查询 RAM-resident、flash lockout/park 和入口归属。</td></tr>
 <tr><td><code>SYSTem:RUN:LOG?</code></td><td><code>[run_id,page]</code></td><td>run log page block</td><td>调试导出 RUN 短日志。</td></tr>
 </tbody>

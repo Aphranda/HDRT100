@@ -113,10 +113,10 @@ owner task / component
 - 产品 `TRIGger:*` 只表达一次业务 run 的启动、停止、暂停、继续和模式切换。
 - `REALtime:*` 内部不再新增 `TRIGger` 子树；底层 pulse count、sequence step、IO fire 和
   core1 gate 都应放在具名实时子域下。
-- 已存在的旧 `TRIGger:PCNT/ENC/SEQ`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut` 和
-  `STATus:TRIGger?` 仅作为 legacy validation alias 保留，验证脚本和新文档不再以它们作为主入口。
-- 若后续需要暴露 BiSS-C 通信验证，应进入 `COMMunication:BISS:*` 或独立维护页，不挂到产品
-  `TRIGger:*` 下。
+- 旧 `TRIGger:PCNT/ENC/SEQ`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut` 和
+  `STATus:TRIGger?` 已删除；验证脚本和新文档只使用 `REALtime:*`。
+- BiSS-C 通信验证统一进入 `COMMunication:BISS:*`，旧 `TRIGger:BISS:*` 和 `STATus:BISS?`
+  已删除，不挂到产品 `TRIGger:*` 下。
 
 ## 5. 测试业务域规划
 
@@ -439,7 +439,7 @@ RUN 中原则：
 2. 修改正式 SCPI 指令表 Markdown，使 SYNC/VDC/DPLL 层级与本文一致。
 3. 同步 HTML 和 PDF。
 4. 固件命令表移除裸顶层 `VDC:*`、`DPLL:*`、`STATus:VDC/DPLL?` 的新验证依赖。
-5. 固件将底层实时验证入口迁移到 `REALtime:*` 维护域；旧 `TRIGger:PCNT/ENC/SEQ`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut`、`STATus:TRIGger?` 只作为 legacy validation alias，必须标注 deprecated。
+5. 固件将底层实时验证入口迁移到 `REALtime:*` 维护域；旧 `TRIGger:PCNT/ENC/SEQ`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut`、`STATus:TRIGger?` 已删除，不再保留兼容入口。
 6. `READ:STATistics?` 从 SYNC 模块迁到 report/statistics 模块。
 7. `scpi_sync_commands.c/.h` 只保留 SYNC 域和 `SYSTem:SYNC:VDC:*` 维护入口。
 8. `task_vdc_sync` 后续通过 sync_control_queue 消费动作，不由 SCPI callback 直接改状态。

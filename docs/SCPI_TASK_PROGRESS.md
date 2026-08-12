@@ -101,7 +101,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 
 - [x] `COMMunication:BISS:*` 作为 BiSS-C canonical 主入口，确认覆盖同等能力后删除
   `TRIGger:BISS:*` 和 `STATus:BISS?`。
-- [ ] `SYSTem:CONFigure:*`、`SYSTem:REFMem:*`、`SYSTem:CORE:VECTor?` 作为系统维护 canonical；
+- [x] `SYSTem:CONFigure:*`、`SYSTem:REFMEM:*`、`SYSTem:CORE:VECTOR?` 作为系统维护 canonical；
   确认覆盖后删除旧 `SYSTem:CFG:*`、`SYSTem:REFM:*`、`SYSTem:CORE:VECT?`，不保留兼容入口。
 - [ ] 裸 `STATus:*` 不进入产品主树；如后续实现 IEEE 488.2 status register，再单独规划。
 
@@ -113,6 +113,69 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   `CONFigure:SEQuence:ACTive` 的校验和门禁。
 
 ## 任务记录
+
+### SCPI-TASK-20260813-032 - 删除系统维护短旧入口
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 完成 P1 系统维护域收敛：保留 `SYSTem:CONFigure:*`、`SYSTem:REFMEM:*`、
+    `SYSTem:CORE:VECTOR?` 作为 canonical。
+  - 删除旧 `SYSTem:CFG:*`、`STATus:CFG?`、`SYSTem:REFM:*` 和
+    `SYSTem:CORE:VECT?`，不保留兼容入口。
+  - 同步当前验证脚本和活跃 SCPI 文档，避免后续工具继续依赖旧入口。
+- 完成内容：
+  - `SCPI_SYSTEM_SNAPSHOT_COMMANDS` 删除旧 `SYSTem:CFG:*`、`STATus:CFG?`、
+    `SYSTem:REFM:*` 和 `SYSTem:CORE:VECT?` pattern。
+  - `SYSTem:REFMEM:STATUS?`、`SYSTem:REFMEM:NODE?` 和 `SYSTem:CORE:VECTOR?`
+    使用全长关键字段注册，避免 SCPI 最短缩写继续接受旧 `REFM` / `VECT`。
+  - `tools\multicore_board_validate\multicore_board_validate.py` 切到
+    `SYSTem:CONFigure:*` 和 `SYSTem:CORE:VECTOR?`。
+  - `tools\distributed_loopback_validate\distributed_loopback_validate.py` 切到
+    `SYSTem:CONFigure:*`。
+  - 同步 `docs\SCPI_COMMANDS.md`、
+    `docs\RP1200波导天线测试系统分布式触发方案SCPI指令表.md`、对应 HTML、
+    `docs\DTC100_SCPI_COMMAND_PLANNING.md` 和 `tools\README.md` 的当前接口说明。
+- 验证结果：
+  - 代码和工具检索确认 `middleware` / `tools` 中不再依赖旧
+    `SYSTem:CFG:*`、`SYSTem:REFM:*`、`SYSTem:CORE:VECT?` 和 `STATus:CFG?`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，
+    生成 `111` 条产品命令。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 通过，
+    生成 `57` 条 `REALtime:*` canonical 维护命令。
+  - 首轮发现 `SYSTem:REFM:*` / `SYSTem:CORE:VECT?` 仍可被 libscpi 当作
+    `REFMem` / `VECTor` 的标准短写匹配；随后将 canonical 注册改为全长
+    `REFMEM` / `VECTOR`，重新构建验证。
+  - `cmake --build build` 通过，最终 build id：`20260812161738`，
+    `build\RP2350_TRIG_UPDATE.pkg` package CRC：`0x587B3797`。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `git diff --check` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 smoke build id：
+    `20260812161125`。
+  - 产品包 OTA 通过 COM6 写入并 commit，最终运行
+    `SYSTem:FW:BUILD? -> "20260812161738"`，`SYSTem:OTA:SLOT? -> 1,0,1,0,0`。
+  - canonical 长入口实机验证通过：
+    `SYSTem:REFMEM:STATUS?`、`SYSTem:REFMEM:NODE?`、`SYSTem:CORE:VECTOR?`、
+    `SYSTem:CONFigure:STAT?`、`SYSTem:CONFigure:ACK?`、`SYSTem:CONFigure:NACK?`。
+  - 逐条旧入口删除验证通过：旧 `SYSTem:REFM:*`、`SYSTem:CORE:VECT?`、
+    `SYSTem:CFG:*` 和 `STATus:CFG?` 共 `21` 条全部返回 `-113,"Undefined header"`。
+  - `python tools\multicore_board_validate\multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke\validation_scpi_system_alias_removal_full`
+    在 smoke 固件上实机通过：`16/16 PASS`。
+  - 重新 OTA 回产品包并 commit 后，
+    `python tools\product_scpi_validate\product_scpi_validate.py COM6 --out-dir build\product_scpi_validation_scpi_system_alias_removal_final`
+    实机通过：`summary: passed=True failed=0`。
+- 还需完成：
+  - P1 剩余项只保留“裸 `STATus:*` 不进入产品主树”的后续标准状态寄存器规划，不再有当前固件旧入口删除项。
+- 关联文件：
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `tools/distributed_loopback_validate/distributed_loopback_validate.py`
+  - `docs/SCPI_TASK_PROGRESS.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
+  - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`
+  - `tools/README.md`
 
 ### SCPI-TASK-20260813-031 - 删除 BiSS-C 旧 TRIGger 通信入口
 

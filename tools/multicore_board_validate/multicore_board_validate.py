@@ -7,10 +7,10 @@ Checks:
 - SYST:LOOP:STAT? loop engine ready and service counter growing
 - SYST:SYNC:VDC:STAT? VDC sync skeleton ready and service counter growing
 - SYST:SYNC:VDC:DPLL:STAT? VDC DPLL skeleton ready and service counter growing
-- SYST:CFG:STAT? config gate static snapshot ready and service counter growing
-- SYST:CFG:ROLE?/LOOP?/ACT?/CAL? static distributed config queries
-- SYST:CFG:ACK?, SYST:CFG:NACK?, SYST:SCPI:RUN:ALLOW? ACK reason and RUN whitelist tables
-- SYST:CORE:VECT? and SYST:PROT:STAT? owner/protection table snapshots
+- SYST:CONFigure:STAT? config gate static snapshot ready and service counter growing
+- SYST:CONFigure:ROLE?/LOOP?/ACT?/CAL? static distributed config queries
+- SYST:CONFigure:ACK?, SYST:CONFigure:NACK?, SYST:SCPI:RUN:ALLOW? ACK reason and RUN whitelist tables
+- SYST:CORE:VECTor? and SYST:PROT:STAT? owner/protection table snapshots
 - SYST:MODE:TAB?, SYST:RESource:TAB?, SYST:FAULT:TAB? system/resource/fault tables
 - TRIGger:MODE 1 -> STARt -> STOP product control smoke
 - Error queue, LOG STAT, TRACE LAST
@@ -335,26 +335,26 @@ def test_calibration_status(ser: serial.Serial, timeout: float) -> tuple[bool, s
 
 
 def test_config_gate_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
-    """Read SYST:CFG:STAT? 3 times, 1s apart. service_count must grow and CRCs must exist."""
+    """Read SYST:CONFigure:STAT? 3 times. service_count must grow and CRCs must exist."""
     reads: list[list[int]] = []
     for i in range(3):
-        resp = _query(ser, "SYST:CFG:STAT?", timeout)
+        resp = _query(ser, "SYST:CONFigure:STAT?", timeout)
         fields = _parse_ints(resp)
         if len(fields) < 24:
-            return False, f"SYST:CFG:STAT? read {i+1}: unparseable response: {resp}"
+            return False, f"SYST:CONFigure:STAT? read {i+1}: unparseable response: {resp}"
         reads.append(fields)
         if i < 2:
             time.sleep(1.0)
 
     for i, fields in enumerate(reads):
         if fields[0] != 1:
-            return False, f"SYST:CFG:STAT? read {i+1}: config gate NOT ready (field0={fields[0]})"
+            return False, f"SYST:CONFigure:STAT? read {i+1}: config gate NOT ready (field0={fields[0]})"
         if fields[1] != 1:
-            return False, f"SYST:CFG:STAT? read {i+1}: gate_state not ready (field1={fields[1]})"
+            return False, f"SYST:CONFigure:STAT? read {i+1}: gate_state not ready (field1={fields[1]})"
         if fields[12] != 15:
-            return False, f"SYST:CFG:STAT? read {i+1}: target_mask unexpected (field12={fields[12]})"
+            return False, f"SYST:CONFigure:STAT? read {i+1}: target_mask unexpected (field12={fields[12]})"
         if fields[13] != 15 or fields[14] != 0:
-            return False, f"SYST:CFG:STAT? read {i+1}: ACK/NACK unexpected (ack={fields[13]}, nack={fields[14]})"
+            return False, f"SYST:CONFigure:STAT? read {i+1}: ACK/NACK unexpected (ack={fields[13]}, nack={fields[14]})"
 
     service_counts = [r[2] for r in reads]
     build_crcs = [r[17] for r in reads]
@@ -369,61 +369,61 @@ def test_config_gate_status(ser: serial.Serial, timeout: float) -> tuple[bool, s
             f"config_crc={config_crcs[0]}, run_id={reads[-1][6]}"
         )
     if service_counts[0] == service_counts[1] or service_counts[1] == service_counts[2]:
-        return False, f"SYST:CFG:STAT? service count STALLED: {service_counts}"
-    return False, f"SYST:CFG:STAT? counters not monotonic: service={service_counts}"
+        return False, f"SYST:CONFigure:STAT? service count STALLED: {service_counts}"
+    return False, f"SYST:CONFigure:STAT? counters not monotonic: service={service_counts}"
 
 
 def test_config_snapshot_queries(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
     checks: list[str] = []
 
-    role = _parse_ints(_query(ser, "SYST:CFG:ROLE? 3", timeout))
+    role = _parse_ints(_query(ser, "SYST:CONFigure:ROLE? 3", timeout))
     if len(role) < 10:
-        return False, f"SYST:CFG:ROLE? unparseable: {role}"
+        return False, f"SYST:CONFigure:ROLE? unparseable: {role}"
     if role[0] != 1 or role[1] != 4 or role[2] != 15 or role[6] != 3 or role[7] != 3:
-        return False, f"SYST:CFG:ROLE? unexpected fields: {role}"
+        return False, f"SYST:CONFigure:ROLE? unexpected fields: {role}"
     checks.append(f"role_node={role[6]}/role={role[7]}")
 
-    loop = _parse_ints(_query(ser, "SYST:CFG:LOOP? 3", timeout))
+    loop = _parse_ints(_query(ser, "SYST:CONFigure:LOOP? 3", timeout))
     if len(loop) < 9:
-        return False, f"SYST:CFG:LOOP? unparseable: {loop}"
+        return False, f"SYST:CONFigure:LOOP? unparseable: {loop}"
     if loop[0] != 1 or loop[1] != 4 or loop[3] != 4 or loop[5] != 3 or loop[6] != 3:
-        return False, f"SYST:CFG:LOOP? unexpected fields: {loop}"
+        return False, f"SYST:CONFigure:LOOP? unexpected fields: {loop}"
     checks.append(f"loop_layer={loop[5]}/node={loop[6]}/action={loop[7]}")
 
-    action = _parse_ints(_query(ser, "SYST:CFG:ACT? 3", timeout))
+    action = _parse_ints(_query(ser, "SYST:CONFigure:ACT? 3", timeout))
     if len(action) < 8:
-        return False, f"SYST:CFG:ACT? unparseable: {action}"
+        return False, f"SYST:CONFigure:ACT? unparseable: {action}"
     if action[0] != 1 or action[1] != 4 or action[2] != 3 or action[3] != 3:
-        return False, f"SYST:CFG:ACT? unexpected fields: {action}"
+        return False, f"SYST:CONFigure:ACT? unexpected fields: {action}"
     checks.append(f"action={action[2]}/delay_us={action[7]}")
 
-    calibration = _parse_ints(_query(ser, "SYST:CFG:CAL? 3", timeout))
+    calibration = _parse_ints(_query(ser, "SYST:CONFigure:CAL? 3", timeout))
     if len(calibration) < 9:
-        return False, f"SYST:CFG:CAL? unparseable: {calibration}"
+        return False, f"SYST:CONFigure:CAL? unparseable: {calibration}"
     if calibration[0] != 1 or calibration[1] != 4 or calibration[2] != 3 or calibration[3] != 24000:
-        return False, f"SYST:CFG:CAL? unexpected fields: {calibration}"
+        return False, f"SYST:CONFigure:CAL? unexpected fields: {calibration}"
     checks.append(f"cal_node={calibration[2]}/delta_ns={calibration[3]}")
 
     return True, ", ".join(checks)
 
 
 def test_ack_reason_and_run_policy(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
-    ack = _parse_ints(_query(ser, "SYST:CFG:ACK?", timeout))
+    ack = _parse_ints(_query(ser, "SYST:CONFigure:ACK?", timeout))
     if len(ack) < 12:
-        return False, f"SYST:CFG:ACK? unparseable: {ack}"
+        return False, f"SYST:CONFigure:ACK? unparseable: {ack}"
     if ack[0] != 1 or ack[2] != 15 or ack[3] != 15 or ack[4] != 0:
-        return False, f"SYST:CFG:ACK? unexpected flags: {ack}"
+        return False, f"SYST:CONFigure:ACK? unexpected flags: {ack}"
     if ack[7] != 0 or ack[9] < 6 or ack[10] == 0 or ack[11] == 0:
-        return False, f"SYST:CFG:ACK? missing reason/config CRC: {ack}"
+        return False, f"SYST:CONFigure:ACK? missing reason/config CRC: {ack}"
 
-    reason = _query(ser, "SYST:CFG:NACK? 5", timeout)
+    reason = _query(ser, "SYST:CONFigure:NACK? 5", timeout)
     reason_fields = _parse_ints(reason)
     if len(reason_fields) < 7:
-        return False, f"SYST:CFG:NACK? unparseable: {reason}"
+        return False, f"SYST:CONFigure:NACK? unparseable: {reason}"
     if reason_fields[0] != 1 or reason_fields[2] != 5 or reason_fields[6] != 1005:
-        return False, f"SYST:CFG:NACK? unexpected flash lockout reason: {reason}"
+        return False, f"SYST:CONFigure:NACK? unexpected flash lockout reason: {reason}"
     if "FLASH_LOCKOUT_UNREADY" not in reason:
-        return False, f"SYST:CFG:NACK? missing reason name: {reason}"
+        return False, f"SYST:CONFigure:NACK? missing reason name: {reason}"
 
     policy = _query(ser, "SYST:SCPI:RUN:ALLOW? 3", timeout)
     policy_fields = _parse_ints(policy)
@@ -443,15 +443,15 @@ def test_ack_reason_and_run_policy(ser: serial.Serial, timeout: float) -> tuple[
 
 
 def test_runtime_protection_tables(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
-    core_vector = _parse_ints(_query(ser, "SYST:CORE:VECT?", timeout))
+    core_vector = _parse_ints(_query(ser, "SYST:CORE:VECTor?", timeout))
     if len(core_vector) < 13:
-        return False, f"SYST:CORE:VECT? unparseable: {core_vector}"
+        return False, f"SYST:CORE:VECTor? unparseable: {core_vector}"
     if core_vector[0] != 1 or core_vector[2] != 2:
-        return False, f"SYST:CORE:VECT? unexpected version/core_count: {core_vector}"
+        return False, f"SYST:CORE:VECTor? unexpected version/core_count: {core_vector}"
     if core_vector[3] != 0 or core_vector[4] != 1 or core_vector[7] != 2:
-        return False, f"SYST:CORE:VECT? owner map unexpected: {core_vector}"
+        return False, f"SYST:CORE:VECTor? owner map unexpected: {core_vector}"
     if core_vector[6] == 0 or core_vector[10] == 0:
-        return False, f"SYST:CORE:VECT? missing realtime IRQ mask or guard CRC: {core_vector}"
+        return False, f"SYST:CORE:VECTor? missing realtime IRQ mask or guard CRC: {core_vector}"
 
     protection = _parse_ints(_query(ser, "SYST:PROT:STAT?", timeout))
     if len(protection) < 14:

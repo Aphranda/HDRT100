@@ -37,7 +37,7 @@ Last updated: 2026-07-22
 | `SYSTem:LOOP:STATus?` / `SYSTem:LOOP:STAT?` | 查询 `task_loop_engine` 的只读维护状态：是否 ready、service_count、first_service_ms、last_service_ms。 |
 | `VDC:STAT?` / `STATus:VDC?` | 查询 `task_vdc_sync` 的只读空壳状态：是否 ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq。 |
 | `DPLL:STAT?` / `STATus:DPLL?` | 查询 `task_dpll` 的只读空壳状态：是否 ready、state、service_count、first_service_ms、last_service_ms、update_seq。 |
-| `SYSTem:CONFigure:STAT?` / `STATus:CFG?` | 查询配置门禁状态：build id、ready、gate_state、service_count、epoch、run_id、版本号、ACK/NACK/busy/timeout 位和 CRC 快照（build/hw/role/loop/action/calibration/config）。 |
+| `SYSTem:CONFigure:STAT?` | 查询配置门禁状态：build id、ready、gate_state、service_count、epoch、run_id、版本号、ACK/NACK/busy/timeout 位和 CRC 快照（build/hw/role/loop/action/calibration/config）。 |
 | `SYSTem:CONFigure:ROLE? [node_id]` | 查询静态 `NodeRoleMap` 条目；省略 `node_id` 时查询 0。返回 `version,node_count,target_mask,input_base_pin,output_base_pin,aux_base_pin,node_id,role,persona,feature_mask`。 |
 | `SYSTem:CONFigure:LOOP? [layer_id]` | 查询静态 `LoopPlan` 层条目；省略 `layer_id` 时查询 0。返回 `version,node_loop_count,array_loop_count,layer_count,default_wait_rule,layer_id,node_id,action_id,wait_rule`。 |
 | `SYSTem:CONFigure:ACT? [action_id]` | 查询静态 `ActionMap` 条目；省略 `action_id` 时查询 0。返回 `version,action_count,action_id,node_id,sma_out_pin,sma_in_pin,edge,delay_us`。 |
@@ -45,9 +45,9 @@ Last updated: 2026-07-22
 | `SYSTem:CONFigure:ACK?` | 查询本地分布式命令 ACK 快照：`version,command_seq,target_mask,ack_flags,nack_flags,busy_flags,timeout_flags,last_nack_reason,last_nack_node,reason_count,reason_table_crc32,config_crc32`。当前为本地门禁骨架，尚未接真实 RJ45 ACK delta。 |
 | `SYSTem:CONFigure:NACK? [reason_id]` | 查询 NACK reason 表条目；省略 `reason_id` 时查询 0。返回 `version,reason_count,reason_id,severity,retryable,blocking,detail_code,name`。首版 reason 覆盖 `NONE`、配置 CRC、硬件 profile、节点 stale/fault 和 flash lockout 未就绪。 |
 | `SYSTem:SCPI:RUN:ALLOW? [index]` | 查询 RUN 态 SCPI 白名单策略表；省略 `index` 时查询 0。返回 `version,entry_count,enforced,policy_crc32,index,class_id,run_allowed,query_allowed,write_allowed,forbidden_error_code,pattern`。关键触发/采样/时钟/BiSS/Storage/OTA 写入口已按表拒绝，禁止码 `2401=RUN_STATE_DENIED`、`2402=RESOURCE_BUSY`。 |
-| `SYSTem:REFM:STAT?` | 查询本地 DistributedVectorTable P0 快照：`table_size,layout_version,table_seq,local_node_id,node_count,local_heartbeat,service_count,flags`。 |
-| `SYSTem:REFM:NODE? [node_id]` | 查询 NodeSlot P0 快照；省略 `node_id` 时查询本节点，当前预留 `0..7` 共 8 个节点，支持真实板卡和模型节点。返回 `node_id,state,heartbeat,slot_version,last_update_ms,stale_count,fault_code,flags,node_type`。 |
-| `SYSTem:CORE:VECT?` | 查询 `CoreVectorOwnerTable` 快照：`version,table_seq,core_count,core0_vtor_owner,core1_vtor_owner,core0_irq_owner_mask,core1_irq_owner_mask,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags`。 |
+| `SYSTem:REFMEM:STATUS?` | 查询本地 DistributedVectorTable P0 快照：`table_size,layout_version,table_seq,local_node_id,node_count,local_heartbeat,service_count,flags`。 |
+| `SYSTem:REFMEM:NODE? [node_id]` | 查询 NodeSlot P0 快照；省略 `node_id` 时查询本节点，当前预留 `0..7` 共 8 个节点，支持真实板卡和模型节点。返回 `node_id,state,heartbeat,slot_version,last_update_ms,stale_count,fault_code,flags,node_type`。 |
+| `SYSTem:CORE:VECTOR?` | 查询 `CoreVectorOwnerTable` 快照：`version,table_seq,core_count,core0_vtor_owner,core1_vtor_owner,core0_irq_owner_mask,core1_irq_owner_mask,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags`。 |
 | `SYSTem:PROT:STAT?` | 查询 `RuntimeProtectionTable` 快照：`version,table_seq,ram_resident_required,flash_lockout_supported,flash_lockout_online,flash_lockout_requested,flash_lockout_acknowledged,park_state,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags`。 |
 | `SYSTem:MODE:TAB? [mode_id]` | 查询 `SystemModeTable` 条目；省略 `mode_id` 时查询 0。返回 `version,mode_count,current_mode,table_crc32,mode_id,run_allowed,ota_allowed,fault_allowed,name`。 |
 | `SYSTem:RESource:TAB? [resource_id]` | 查询 `ResourceArbiterTable` 条目；省略 `resource_id` 时查询 0。返回 `version,resource_count,current_mode,active_resources,last_conflict_resources,table_crc32,resource_id,mask,owner_mode,active,name,owner_name`。 |

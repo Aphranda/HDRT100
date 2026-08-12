@@ -156,17 +156,17 @@ Last updated: 2026-08-11
 | `SYSTem:RESource?` |  | `resource block` | 读取资源仲裁摘要：active、conflict、request owner 和 holder owner |
 | `SYSTem:RESource:TAB?` | `[resource_id]` | `resource table row` | 查询 ResourceArbiterTable：资源 owner、活跃位和冲突位 |
 | `SYSTem:FAULT:TAB?` | `[fault_id]` | `fault table row` | 查询 FaultCodeTable：故障域、等级、sticky 和 recoverable |
-| `SYSTem:REFM:STAT?` |  | `refmem block` | 查询本地 DistributedVectorTable 表头、layout version、table_seq、节点数和本节点 heartbeat |
-| `SYSTem:REFM:NODE?` | `[node_id]` | `node block` | 查询 NodeSlot 快照；省略时读取本节点 |
-| `SYSTem:CORE:VECT?` |  | `core vector block` | 读取 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态 |
+| `SYSTem:REFMEM:STATUS?` |  | `refmem block` | 查询本地 DistributedVectorTable 表头、layout version、table_seq、节点数和本节点 heartbeat |
+| `SYSTem:REFMEM:NODE?` | `[node_id]` | `node block` | 查询 NodeSlot 快照；省略时读取本节点 |
+| `SYSTem:CORE:VECTOR?` |  | `core vector block` | 读取 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态 |
 | `SYSTem:PROT:STAT?` |  | `runtime protection block` | 读取 RAM-resident、flash lockout/park、entry owner 和保护状态 |
-| `SYSTem:CONFigure:STAT?` / `STATus:CFG?` |  | `gate block` | 读取配置门禁、ACK/NACK、busy、timeout 和 CRC 快照 |
-| `SYSTem:CONFigure:ROLE?` / `SYSTem:CFG:ROLE?` | `[node_id]` | `role block` | 查询 NodeRoleMap 条目 |
-| `SYSTem:CONFigure:LOOP?` / `SYSTem:CFG:LOOP?` | `[layer_id]` | `loop block` | 查询 LoopPlan 层级和数组循环编排 |
-| `SYSTem:CONFigure:ACT?` / `SYSTem:CFG:ACT?` | `[action_id]` | `action block` | 查询 SP8T、SP2T、READY 等动作映射 |
-| `SYSTem:CONFigure:CAL?` / `SYSTem:CFG:CAL?` | `[node_id]` | `cal block` | 查询链路、端口和设备动作补偿摘要 |
-| `SYSTem:CONFigure:ACK?` / `SYSTem:CFG:ACK?` |  | `ack block` | 查询分布式命令 ACK/NACK/busy/timeout 快照 |
-| `SYSTem:CONFigure:NACK?` / `SYSTem:CFG:NACK?` | `[reason_id]` | `reason block` | 查询 NACK reason 表，用于 UI 参数校验和故障提示 |
+| `SYSTem:CONFigure:STAT?` |  | `gate block` | 读取配置门禁、ACK/NACK、busy、timeout 和 CRC 快照 |
+| `SYSTem:CONFigure:ROLE?` | `[node_id]` | `role block` | 查询 NodeRoleMap 条目 |
+| `SYSTem:CONFigure:LOOP?` | `[layer_id]` | `loop block` | 查询 LoopPlan 层级和数组循环编排 |
+| `SYSTem:CONFigure:ACT?` | `[action_id]` | `action block` | 查询 SP8T、SP2T、READY 等动作映射 |
+| `SYSTem:CONFigure:CAL?` | `[node_id]` | `cal block` | 查询链路、端口和设备动作补偿摘要 |
+| `SYSTem:CONFigure:ACK?` |  | `ack block` | 查询分布式命令 ACK/NACK/busy/timeout 快照 |
+| `SYSTem:CONFigure:NACK?` | `[reason_id]` | `reason block` | 查询 NACK reason 表，用于 UI 参数校验和故障提示 |
 | `SYSTem:SCPI:RUN:ALLOW?` | `[index]` | `policy block` | 查询运行态 SCPI 策略表；命名保留 ALLOW，但语义为权限 profile 在 RUN 状态下的执行结果 |
 | `SYSTem:LOOP:STATus?` / `SYSTem:LOOP:STAT?` |  | `loop block` | 系统维护查询：loop_engine ready、service_count 和 service 时间 |
 | `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 同步域维护查询：虚拟 DC 服务 ready、lock_state、service_count 和 sync_seq |
@@ -362,12 +362,12 @@ seq,node,channel,t2_tick,status,error_code,temperature
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
-| `SYSTem:CONFigure:STAT?` / `STATus:CFG?` |  | `gate block` | 读取配置门禁、ACK/NACK、busy、timeout 和 CRC 快照 |
+| `SYSTem:CONFigure:STAT?` |  | `gate block` | 读取配置门禁、ACK/NACK、busy、timeout 和 CRC 快照 |
 | `SYSTem:CONFigure:ACK?` |  | `ack block` | 读取分布式配置 ACK 位图、NACK 位图和最近拒绝原因 |
 | `SYSTem:CONFigure:NACK?` | `[reason_id]` | `reason block` | 读取 NACK reason 表，用于 UI 参数校验和故障提示 |
-| `SYSTem:REFM:STAT?` |  | `refmem block` | 读取 64KB 分布式向量表表头、版本、table_seq、节点心跳和 stale 状态 |
-| `SYSTem:REFM:NODE?` | `[node_id]` | `node block` | 读取指定节点镜像；省略时读取本节点 |
-| `SYSTem:CORE:VECT?` |  | `core vector block` | 读取 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态 |
+| `SYSTem:REFMEM:STATUS?` |  | `refmem block` | 读取 64KB 分布式向量表表头、版本、table_seq、节点心跳和 stale 状态 |
+| `SYSTem:REFMEM:NODE?` | `[node_id]` | `node block` | 读取指定节点镜像；省略时读取本节点 |
+| `SYSTem:CORE:VECTOR?` |  | `core vector block` | 读取 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态 |
 | `SYSTem:PROT:STAT?` |  | `runtime protection block` | 读取 RAM-resident、flash lockout/park、entry owner 和保护状态 |
 | `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 同步域维护查询：读取虚拟 DC 服务 ready、lock_state、service_count 和 sync_seq |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 同步域维护查询：读取 VDC DPLL ready、state、service_count 和 update_seq |
@@ -635,7 +635,7 @@ SYNC 域挂到主线后的行为规则：
 | NODE 链路缺失或方向错误 | `SYNC:CHECk` 返回失败，不进入 `CHECKED` | 读取 `READ:SYNC:LINK?`，修正校准表或 ring 顺序 |
 | CRC / seq 连续超限 | `LOCKED -> FAULT` | 停止触发，读取 `READ:SYNC:HEALth?` 和故障证据 |
 | 短时丢帧 | `LOCKED -> HOLDOVER` | 停止新增预约；等待重锁或执行 `SYNC:RELock`，重锁后重新 ARM/START |
-| 节点 stale/missing/invalid/fault | `LOCKED/RUN -> HOLDOVER/FAULT` | 读取 `READ:SYNC:NODE?` 和 `SYSTem:REFM:NODE?`；不补发已过期触发 |
+| 节点 stale/missing/invalid/fault | `LOCKED/RUN -> HOLDOVER/FAULT` | 读取 `READ:SYNC:NODE?` 和 `SYSTem:REFMEM:NODE?`；不补发已过期触发 |
 | e_vdc 超门限 | `LOCKED -> LOCKING/FAULT` | 读取质量数据，必要时调整 profile 或排查链路 |
 | 故障锁存 | `FAULT` | 读取日志、trace、snapshot 后执行 `SYSTem:FAULT:CLEAr` |
 
@@ -848,7 +848,7 @@ RUN 中替换已冻结配置，也不能进入校准、同步调参、存储维�
 | `SYSTem:RESource?` |  | `resource block` | 查询资源占用、冲突、request owner 和 holder owner |
 | `SYSTem:CONFigure:ACK?` |  | `ack block` | 查询调试命令 accepted 后的分布式完成态 |
 | `SYSTem:CONFigure:NACK?` | `[reason_id]` | `reason block` | 查询拒绝原因表 |
-| `SYSTem:CORE:VECT?` |  | `core vector block` | 查询 core0/core1 VTOR、IRQ owner、entry owner 和 guard |
+| `SYSTem:CORE:VECTOR?` |  | `core vector block` | 查询 core0/core1 VTOR、IRQ owner、entry owner 和 guard |
 | `SYSTem:PROT:STAT?` |  | `runtime protection block` | 查询 RAM-resident、flash lockout/park 和入口归属 |
 | `SYSTem:RUN:LOG?` | `[run_id,page]` | `run log page block` | 调试导出 RUN 短日志 |
 
@@ -960,7 +960,7 @@ crc
 | `0.8` | 2026-08-11 | 根据独立评审细化指令表：明确 A4 调试节点边界、同步响应字段、统一 IDLE 状态、将门禁分散到序列/CAL/SYNC/TRIG 业务端、加入 core/vector/protection 诊断查询，并澄清外部 BiSS-C 仅为调试保留 |
 | `0.7` | 2026-08-11 | 根据对话决策完整回顾细化校准和同步：补拒绝原因、标准链路清单、校准门禁、同步故障恢复、拓扑检查字段、DPLL 调试范围和虚拟 DC 收敛顺序 |
 | `0.6` | 2026-08-11 | 按最初版页面架构扩展为校准三页和同步三页：校准指令、校准参数与流程、校准版本与质量、同步指令、同步参数与流程、同步版本与质量 |
-| `0.5` | 2026-08-11 | 按 `RP1200波导天线测试系统分布式触发方案SCPI指令表最初版.html` 复核格式和初始定义；回补设备信息、IEEE 488.2 完整基础指令、系统摘要查询、`SYSTem:REFM:*`、`READ:SEQuence:MAP?`，并将序列主模型恢复为自动展开状态表 + state_id 顺序引用 |
+| `0.5` | 2026-08-11 | 按 `RP1200波导天线测试系统分布式触发方案SCPI指令表最初版.html` 复核格式和初始定义；回补设备信息、IEEE 488.2 完整基础指令、系统摘要查询、`SYSTem:REFMEM:*`、`READ:SEQuence:MAP?`，并将序列主模型恢复为自动展开状态表 + state_id 顺序引用 |
 | `0.4` | 2026-08-11 | 形成 Markdown 源文档；补齐业务配置、运行控制、校准短事务、校准追溯、SYNC staging/active、NODE 拓扑强校验、版本质量和 DPLL 调试边界 |
 | `0.3` | 2026-08-11 | 补齐校准和同步版本管理、质量判据、运行态保护、SYNC 检查字段、HOLDOVER 保守策略和 DPLL 调试边界 |
 
@@ -977,7 +977,7 @@ crc
 - 通信约定保留 USBTMC/USB488 成品接口、CDC validation 维护接口、调试权限 profile 和状态策略约束。
 - IEEE 488.2 指令补齐 `*OPC`、`*STB?`、`*ESR?`、`*ESE/*ESE?`、`*SRE/*SRE?`。
 - 系统指令补齐 `SYSTem:FW:BUILD?`、`SYSTem:LOG:STATus?`、`SYSTem:TRACe:LAST?`、`SYSTem:SNAPshot:LAST?`。
-- 反射内存命令恢复最初版 `SYSTem:REFM:STAT?`、`SYSTem:REFM:NODE?` 命名。
+- 反射内存命令收敛到 `SYSTem:REFMEM:STATUS?`、`SYSTem:REFMEM:NODE?` 命名，旧 `SYSTem:REFM:*` 不再保留。
 - 序列主模型恢复为 `CONFigure:TRIGger` 自动展开状态表，`CONFigure:SEQuence` 上传 state_id 顺序引用。
 - 增加并保留 `READ:SEQuence:MAP?`，用于显示 state_id 到 SWITCH1/SWITCH2/pol/freq/wave 的映射。
 - 角度断点命名恢复为完整 `CONFigure:ANGLe:BPOint`、`READ:ANGLe:BPOint?`。
