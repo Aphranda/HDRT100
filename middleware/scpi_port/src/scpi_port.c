@@ -20,6 +20,7 @@
 #include "scpi_calibration_commands.h"
 #include "scpi/scpi.h"
 #include "scpi_product_commands.h"
+#include "scpi_sync_commands.h"
 #include "scpi_usb_control.h"
 #include "storage_manager.h"
 #include "sync_trigger.h"
@@ -3370,7 +3371,7 @@ static const scpi_command_t s_scpi_commands[] = {
 #endif
     SCPI_PRODUCT_BUSINESS_COMMANDS,
     SCPI_CALIBRATION_COMMANDS,
-    SCPI_PRODUCT_SYNC_COMMANDS,
+    SCPI_SYNC_COMMANDS,
     {.pattern = "TRIGger:WIDTh", .callback = scpi_cmd_trigger_width},
     {.pattern = "TRIGger:WIDTh?", .callback = scpi_cmd_trigger_width_q},
     {.pattern = "TRIGger:IMMediate", .callback = scpi_cmd_trigger_fire},

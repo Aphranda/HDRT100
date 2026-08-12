@@ -1059,7 +1059,7 @@ archive:  build-rtos-multicore-smoke/validation_calibration_step1_full_retry
 | 顺序 | 动作 | 验收 |
 |---:|---|---|
 | 1 | 拆出 `scpi_calibration_commands.c/.h`，保留现有 CAL 响应字段和 accepted stub | 已完成；`READ:CALibration:*?`、`READ:SYNC:LINK?` 和 full smoke 通过 |
-| 2 | 拆出 `scpi_sync_commands.c/.h`，保留现有 SYNC 响应字段和 accepted stub | `READ:SYNC:*?`、`SYNC:CHECk` 和 full smoke 通过 |
+| 2 | 拆出 `scpi_sync_commands.c/.h`，保留现有 SYNC 响应字段和 accepted stub | 已完成；`READ:SYNC:*?`、`SYNC:CHECk` 和 full smoke 通过 |
 | 3 | 拆出 `scpi_config_commands.c/.h`，把测试 recipe/角度/序列/SWITCH 查询从 product common 移出 | `READ:TRIGger:PARameter?`、`READ:ANGLe:*?`、`READ:SEQuence:*?` 通过 |
 | 4 | 拆出 `scpi_trigger_commands.c/.h`，让产品运行控制和历史触发命令分层 | `TRIGger:MODE/STARt/STOP` 产品 smoke 通过 |
 | 5 | 拆出 `scpi_system_commands.c/.h`，收敛 system/refmem/config/RTOS/storage/OTA 入口 | `SYSTem:*`、OTA、Storage、REFM 验证通过 |
@@ -1090,4 +1090,23 @@ errors:   SYST:ERR? -> 0,"No error"
 archive:  build-rtos-multicore-smoke/validation_scpi_cal_split_step1
 ```
 
-下一步执行第 2 项 SYNC 模块无行为变化拆分，不接真实 VDC/DPLL 收敛。
+第八刀已经完成：
+
+```text
+split SCPI sync commands into scpi_sync_commands.c/.h
+keep SYNC response fields and accepted stubs unchanged
+keep READ:STATistics? temporarily mapped to sync quality
+```
+
+板端验证结果：
+
+```text
+build_id: 20260812050219
+quick:    READ:SYNC:STATe?/PARameter?/HEALth?/NODE?/LINK?/CHECk?/QUALity?/VERSion? PASS
+command:  SYNC:CHECk -> "PASS","ACTIVE","FIELD_DEFAULT",268435459,"FIELD_SYNC_DEFAULT",536870914,"A0>A1>A2>A3>A0",1,"","","","OK","","","","NONE"
+full:     RTOS + multicore smoke 16/16 PASS
+errors:   SYST:ERR? -> 0,"No error"
+archive:  build-rtos-multicore-smoke/validation_scpi_sync_split_step1
+```
+
+下一步执行第 3 项 CONFIG/业务配置模块无行为变化拆分，不接真实序列展开或 SWITCH 占用策略。

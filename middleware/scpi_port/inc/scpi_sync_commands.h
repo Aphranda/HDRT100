@@ -1,0 +1,52 @@
+#ifndef SCPI_SYNC_COMMANDS_H
+#define SCPI_SYNC_COMMANDS_H
+
+#include "scpi/scpi.h"
+
+#include "scpi_calibration_commands.h"
+
+scpi_result_t scpi_product_sync_state_q(scpi_t *context);
+scpi_result_t scpi_product_sync_parameter_q(scpi_t *context);
+scpi_result_t scpi_product_sync_health_q(scpi_t *context);
+scpi_result_t scpi_product_sync_node_q(scpi_t *context);
+scpi_result_t scpi_product_sync_check_q(scpi_t *context);
+scpi_result_t scpi_product_sync_list_q(scpi_t *context);
+scpi_result_t scpi_product_sync_active_q(scpi_t *context);
+scpi_result_t scpi_product_sync_quality_q(scpi_t *context);
+scpi_result_t scpi_product_sync_version_q(scpi_t *context);
+scpi_result_t scpi_product_sync_override_q(scpi_t *context);
+scpi_result_t scpi_product_sync_coef_q(scpi_t *context);
+
+#define SCPI_SYNC_COMMANDS \
+    {.pattern = "READ:STATistics?", .callback = scpi_product_sync_quality_q}, \
+    {.pattern = "SYNC:CHECk", .callback = scpi_product_sync_check_q}, \
+    {.pattern = "SYNC:STARt", .callback = scpi_product_result_accepted}, \
+    {.pattern = "SYNC:STOP", .callback = scpi_product_result_accepted}, \
+    {.pattern = "SYNC:RELock", .callback = scpi_product_result_accepted}, \
+    {.pattern = "SYNC:HOLDover", .callback = scpi_product_result_accepted}, \
+    {.pattern = "READ:SYNC:STATe?", .callback = scpi_product_sync_state_q}, \
+    {.pattern = "READ:SYNC:PARameter?", .callback = scpi_product_sync_parameter_q}, \
+    {.pattern = "READ:SYNC:HEALth?", .callback = scpi_product_sync_health_q}, \
+    {.pattern = "READ:SYNC:NODE?", .callback = scpi_product_sync_node_q}, \
+    {.pattern = "READ:SYNC:LINK?", .callback = scpi_product_cal_link_q}, \
+    {.pattern = "READ:SYNC:CHECk?", .callback = scpi_product_sync_check_q}, \
+    {.pattern = "CONFigure:SYNC:CALibration", .callback = scpi_product_result_accepted}, \
+    {.pattern = "CONFigure:SYNC:RING", .callback = scpi_product_result_accepted}, \
+    {.pattern = "CONFigure:SYNC:DPLL", .callback = scpi_product_result_accepted}, \
+    {.pattern = "CONFigure:SYNC:GATE", .callback = scpi_product_result_accepted}, \
+    {.pattern = "CONFigure:SYNC:LIMit", .callback = scpi_product_result_accepted}, \
+    {.pattern = "SYNC:SAVE", .callback = scpi_product_result_accepted}, \
+    {.pattern = "SYNC:LOAD", .callback = scpi_product_result_accepted}, \
+    {.pattern = "SYNC:ACTivate", .callback = scpi_product_result_accepted}, \
+    {.pattern = "SYNC:ROLLback", .callback = scpi_product_result_accepted}, \
+    {.pattern = "READ:SYNC:LIST?", .callback = scpi_product_sync_list_q}, \
+    {.pattern = "READ:SYNC:ACTive?", .callback = scpi_product_sync_active_q}, \
+    {.pattern = "READ:SYNC:QUALity?", .callback = scpi_product_sync_quality_q}, \
+    {.pattern = "READ:SYNC:VERSion?", .callback = scpi_product_sync_version_q}, \
+    {.pattern = "SYSTem:SYNC:DPLL:TUNE", .callback = scpi_product_result_accepted}, \
+    {.pattern = "SYSTem:SYNC:DPLL:COEFficient", .callback = scpi_product_result_accepted}, \
+    {.pattern = "SYSTem:SYNC:DPLL:OVERRide?", .callback = scpi_product_sync_override_q}, \
+    {.pattern = "SYSTem:SYNC:DPLL:COEFficient?", .callback = scpi_product_sync_coef_q}, \
+    {.pattern = "SYSTem:SYNC:DPLL:DEFAult", .callback = scpi_product_result_accepted}
+
+#endif

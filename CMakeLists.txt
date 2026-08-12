@@ -201,6 +201,7 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_calibration_commands.c
         middleware/scpi_port/src/scpi_product_commands.c
         middleware/scpi_port/src/scpi_port.c
+        middleware/scpi_port/src/scpi_sync_commands.c
         middleware/u8g2_port/src/u8g2_port.c
         third_party/scpi-parser/libscpi/src/error.c
         third_party/scpi-parser/libscpi/src/expression.c
