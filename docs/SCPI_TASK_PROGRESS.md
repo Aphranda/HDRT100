@@ -76,6 +76,43 @@ RTOS + multicore smoke，并在可用 COM 口上执行产品 SCPI 板端验证�
 
 ## 任务记录
 
+### SCPI-TASK-20260812-022 - Realtime SEQ 命令细分
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 将 `TRIGger:SEQ:*`、source/edge/gate/safe 和低层 ARM/DISARM/FAULT 验证入口
+    从 realtime component 聚合文件中拆出。
+  - 保持产品命令树、callback 行为和 `SCPI_REALTIME_COMPONENT_COMMANDS` 聚合入口不变。
+  - 让 `scpi_realtime_component_commands.c` 继续收缩，为后续 STATUS 独立拆分做准备。
+- 完成内容：
+  - 新增 `scpi_realtime_sequence_commands.c/.h`。
+  - 移入 `TRIGger:SEQ:LENGth/LENGth?/WIDTh/WIDTh?/INDex?/DATA/DATA?`。
+  - 移入 `TRIGger:SOURce/SOURce?/EDGE/EDGE?/GATE/GATE?/SAFE/SAFE?`。
+  - 移入 `TRIGger:ARM/DISarm/DISAble/FAULT` 低层验证路径。
+  - `scpi_realtime_component_commands.h` 引入 `SCPI_REALTIME_SEQUENCE_COMMANDS`，
+    `CMakeLists.txt` 纳入新 SEQ 源文件。
+- 验证结果：
+  - `cmake --build build` 通过，build id：`20260812133120`，
+    `build\RP2350_TRIG_UPDATE.pkg` package CRC：`0x01F0A2EF`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，
+    生成 `111` 条产品命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812133120"`。
+  - `SYSTem:OTA:COMMit` 后 `SYSTem:OTA:SLOT? -> 2,0,2,0,0`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_213326`。
+- 还需完成：
+  - 拆分 `STATUS` realtime 子域，将 `STATus:TRIGger?` 移入独立状态模块。
+- 关联文件：
+  - `middleware/scpi_port/src/scpi_realtime_component_commands.c`
+  - `middleware/scpi_port/inc/scpi_realtime_component_commands.h`
+  - `middleware/scpi_port/src/scpi_realtime_sequence_commands.c`
+  - `middleware/scpi_port/inc/scpi_realtime_sequence_commands.h`
+
 ### SCPI-TASK-20260812-021 - Realtime IO 命令细分
 
 - 状态：完成
