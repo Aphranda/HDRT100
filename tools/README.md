@@ -45,7 +45,7 @@ Get-Content -Path tools\README.md -Encoding UTF8
   the negative package matrix, and writes `summary.json`, `summary.txt`, serial
   query files, and per-step logs under a validation output directory.
 - `multicore_board_validate/multicore_board_validate.py`: RTOS + AMP smoke
-  runner. It checks `*IDN?`, `SYST:FW:BUILD?`, `SYST:CORE?`, `LOOP:STAT?`,
+  runner. It checks `*IDN?`, `SYST:FW:BUILD?`, `SYST:CORE?`, `SYST:LOOP:STAT?`,
   `SYST:SYNC:VDC:STAT?`, `SYST:SYNC:VDC:DPLL:STAT?`, `SYST:CFG:STAT?`, static `SYST:CFG:*?`
   config queries, Trigger arm/disarm, `SYST:ERR?`, `SYST:LOG:STAT?`, and `SYST:TRAC:LAST?`,
   then writes a board validation summary under `build-rtos-multicore-smoke/`.

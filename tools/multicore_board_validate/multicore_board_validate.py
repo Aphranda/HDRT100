@@ -4,7 +4,7 @@
 Checks:
 - *IDN?, SYST:FW:BUILD? baseline
 - SYST:CORE? core1 enabled and heartbeat growing
-- LOOP:STAT? loop engine ready and service counter growing
+- SYST:LOOP:STAT? loop engine ready and service counter growing
 - SYST:SYNC:VDC:STAT? VDC sync skeleton ready and service counter growing
 - SYST:SYNC:VDC:DPLL:STAT? VDC DPLL skeleton ready and service counter growing
 - SYST:CFG:STAT? config gate static snapshot ready and service counter growing
@@ -194,20 +194,20 @@ def test_trigger_seq(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
 
 
 def test_loop_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
-    """Read LOOP:STAT? 3 times, 1s apart. service_count must grow and ready must be true."""
+    """Read SYST:LOOP:STAT? 3 times, 1s apart. service_count must grow and ready must be true."""
     reads: list[list[int]] = []
     for i in range(3):
-        resp = _query(ser, "LOOP:STAT?", timeout)
+        resp = _query(ser, "SYST:LOOP:STAT?", timeout)
         fields = _parse_ints(resp)
         if len(fields) < 4:
-            return False, f"LOOP:STAT? read {i+1}: unparseable response: {resp}"
+            return False, f"SYST:LOOP:STAT? read {i+1}: unparseable response: {resp}"
         reads.append(fields)
         if i < 2:
             time.sleep(1.0)
 
     for i, fields in enumerate(reads):
         if fields[0] != 1:
-            return False, f"LOOP:STAT? read {i+1}: loop engine NOT ready (field0={fields[0]})"
+            return False, f"SYST:LOOP:STAT? read {i+1}: loop engine NOT ready (field0={fields[0]})"
 
     service_counts = [r[1] for r in reads]
     if service_counts[0] < service_counts[1] < service_counts[2]:
@@ -216,8 +216,8 @@ def test_loop_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
             f"{service_counts[0]} -> {service_counts[1]} -> {service_counts[2]}"
         )
     if service_counts[0] == service_counts[1] or service_counts[1] == service_counts[2]:
-        return False, f"LOOP:STAT? service count STALLED: {service_counts}"
-    return False, f"LOOP:STAT? service count not monotonic: {service_counts}"
+        return False, f"SYST:LOOP:STAT? service count STALLED: {service_counts}"
+    return False, f"SYST:LOOP:STAT? service count not monotonic: {service_counts}"
 
 
 def test_vdc_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:

@@ -707,7 +707,7 @@
 <tr><td><code>SYSTem:RESource:TAB?</code></td><td><code>[resource_id]</code></td><td>resource table row</td><td>查询 ResourceArbiterTable：资源 owner、活跃位和冲突位。</td></tr>
 <tr><td><code>SYSTem:FAULT:TAB?</code></td><td><code>[fault_id]</code></td><td>fault table row</td><td>查询 FaultCodeTable：故障域、等级、sticky 和 recoverable。</td></tr>
 <tr><td><code>SYSTem:RESource?</code></td><td></td><td>resource block</td><td>读取资源仲裁摘要：active、conflict、request owner 和 holder owner。</td></tr>
-<tr><td><code>LOOP:STAT?</code> / <code>STATus:LOOP?</code></td><td></td><td>loop block</td><td>兼容开发验证查询：loop_engine ready、service_count 和 service 时间。</td></tr>
+<tr><td><code>SYSTem:LOOP:STATus?</code> / <code>SYSTem:LOOP:STAT?</code></td><td></td><td>loop block</td><td>系统维护查询：loop_engine ready、service_count 和 service 时间。</td></tr>
 <tr><td><code>VDC:STAT?</code> / <code>STATus:VDC?</code></td><td></td><td>vdc block</td><td>兼容开发验证查询：虚拟 DC 任务 ready、lock_state、service_count 和 sync_seq</td></tr>
 <tr><td><code>DPLL:STAT?</code> / <code>STATus:DPLL?</code></td><td></td><td>dpll block</td><td>兼容开发验证查询：转台/扫描 DPLL 任务 ready、state、service_count 和 update_seq</td></tr>
 <tr><td><code>SYSTem:CONFigure:STAT?</code></td><td></td><td>门禁摘要</td><td>查询配置门禁状态，确认是否允许进入运行</td></tr>

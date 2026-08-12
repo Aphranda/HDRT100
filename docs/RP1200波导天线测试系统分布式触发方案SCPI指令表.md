@@ -168,7 +168,7 @@ Last updated: 2026-08-11
 | `SYSTem:CONFigure:ACK?` / `SYSTem:CFG:ACK?` |  | `ack block` | 查询分布式命令 ACK/NACK/busy/timeout 快照 |
 | `SYSTem:CONFigure:NACK?` / `SYSTem:CFG:NACK?` | `[reason_id]` | `reason block` | 查询 NACK reason 表，用于 UI 参数校验和故障提示 |
 | `SYSTem:SCPI:RUN:ALLOW?` | `[index]` | `policy block` | 查询运行态 SCPI 策略表；命名保留 ALLOW，但语义为权限 profile 在 RUN 状态下的执行结果 |
-| `LOOP:STAT?` / `STATus:LOOP?` |  | `loop block` | 兼容开发验证查询：loop_engine ready、service_count 和 service 时间 |
+| `SYSTem:LOOP:STATus?` / `SYSTem:LOOP:STAT?` |  | `loop block` | 系统维护查询：loop_engine ready、service_count 和 service 时间 |
 | `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 同步域维护查询：虚拟 DC 服务 ready、lock_state、service_count 和 sync_seq |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 同步域维护查询：VDC DPLL ready、state、service_count 和 update_seq |
 

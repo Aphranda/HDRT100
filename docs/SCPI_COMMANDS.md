@@ -34,7 +34,7 @@ Last updated: 2026-07-22
 | `SYSTem:LOG:STATus?` | 查询文本日志统计：当前等级、等级值、DEBUG/INFO/WARN/ERROR 发出计数、过滤丢弃计数、截断计数、输出失败计数，以及队列丢弃数、当前队列字节数、队列高水位。 |
 | `SYSTem:CORE?` | 查询核心运行状态：core1 是否启用、core0/core1 循环计数、core0/core1 最近一次心跳毫秒时间戳。 |
 | `SYSTem:RTOS:STATus?` | 查询 FreeRTOS heap 和任务栈水位。 |
-| `LOOP:STAT?` / `STATus:LOOP?` | 查询 `task_loop_engine` 的只读空壳状态：是否 ready、service_count、first_service_ms、last_service_ms。 |
+| `SYSTem:LOOP:STATus?` / `SYSTem:LOOP:STAT?` | 查询 `task_loop_engine` 的只读维护状态：是否 ready、service_count、first_service_ms、last_service_ms。 |
 | `VDC:STAT?` / `STATus:VDC?` | 查询 `task_vdc_sync` 的只读空壳状态：是否 ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq。 |
 | `DPLL:STAT?` / `STATus:DPLL?` | 查询 `task_dpll` 的只读空壳状态：是否 ready、state、service_count、first_service_ms、last_service_ms、update_seq。 |
 | `SYSTem:CONFigure:STAT?` / `STATus:CFG?` | 查询配置门禁状态：build id、ready、gate_state、service_count、epoch、run_id、版本号、ACK/NACK/busy/timeout 位和 CRC 快照（build/hw/role/loop/action/calibration/config）。 |

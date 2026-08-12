@@ -500,6 +500,8 @@ SYSTem
     :LAST?
     :SUMMary?
     :LOG?
+  :LOOP
+    :STATus?
   :T2
     :COUNt?
     :DATA?

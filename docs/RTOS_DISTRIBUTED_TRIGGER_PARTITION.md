@@ -705,7 +705,7 @@ RUN 态禁止或推迟到下一轮：
 - OTA 开始或 flash erase/write。
 - 对已过期 `T_fire` 补发触发。
 
-开发验证指令也必须归入业务域：`LOOP:STAT?` 属于 LoopEngine 维护入口，
+开发验证指令也必须归入系统维护域：`SYSTem:LOOP:STATus?` 属于 LoopEngine 维护入口，
 `SYSTem:SYNC:VDC:STATus?` 和 `SYSTem:SYNC:VDC:DPLL:STATus?` 属于同步域维护入口。
 不再新增裸顶层 `VDC:*`、`DPLL:*` 或 `STATus:VDC/DPLL?`；产品上位机优先使用
 `READ:*?` / `SYSTem:*?` 的完整命令和固定 block 字段。
