@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/SCPI_COMMANDS.md`
 Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/OTA_SYSTEM_DESIGN.md`, `docs/SD_TODO.md`, `docs/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-07-22
+Last updated: 2026-08-13
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -35,8 +35,8 @@ Last updated: 2026-07-22
 | `SYSTem:CORE?` | 查询核心运行状态：core1 是否启用、core0/core1 循环计数、core0/core1 最近一次心跳毫秒时间戳。 |
 | `SYSTem:RTOS:STATus?` | 查询 FreeRTOS heap 和任务栈水位。 |
 | `SYSTem:LOOP:STATus?` / `SYSTem:LOOP:STAT?` | 查询 `task_loop_engine` 的只读维护状态：是否 ready、service_count、first_service_ms、last_service_ms。 |
-| `VDC:STAT?` / `STATus:VDC?` | 查询 `task_vdc_sync` 的只读空壳状态：是否 ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq。 |
-| `DPLL:STAT?` / `STATus:DPLL?` | 查询 `task_dpll` 的只读空壳状态：是否 ready、state、service_count、first_service_ms、last_service_ms、update_seq。 |
+| `SYSTem:SYNC:VDC:STATus?` | 查询 `task_vdc_sync` 的只读维护状态：是否 ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq。 |
+| `SYSTem:SYNC:VDC:DPLL:STATus?` | 查询 `task_dpll` 的只读维护状态：是否 ready、state、service_count、first_service_ms、last_service_ms、update_seq。 |
 | `SYSTem:CONFigure:STAT?` | 查询配置门禁状态：build id、ready、gate_state、service_count、epoch、run_id、版本号、ACK/NACK/busy/timeout 位和 CRC 快照（build/hw/role/loop/action/calibration/config）。 |
 | `SYSTem:CONFigure:ROLE? [node_id]` | 查询静态 `NodeRoleMap` 条目；省略 `node_id` 时查询 0。返回 `version,node_count,target_mask,input_base_pin,output_base_pin,aux_base_pin,node_id,role,persona,feature_mask`。 |
 | `SYSTem:CONFigure:LOOP? [layer_id]` | 查询静态 `LoopPlan` 层条目；省略 `layer_id` 时查询 0。返回 `version,node_loop_count,array_loop_count,layer_count,default_wait_rule,layer_id,node_id,action_id,wait_rule`。 |
@@ -67,60 +67,26 @@ Last updated: 2026-07-22
 | `CONFigure:SYNC <...>` | 配置同步模式、锁定策略或环路参数。 |
 | `READ:SYNC?` | 查询同步锁定状态、偏差或健康信息。 |
 
-## 触发输出
+## 实时 IO 维护域
+
+底层即时输出、RJ45 触发、采样和同步时钟验证统一归入 `REALtime:IO:*`。这些命令服务开发、产测和调试上位机，不作为现场测试上位机主流程 API；现场测试主流程通过 `CONFigure:*`、`TRIGger:*` 和 `READ:*?` 闭环。
 
 | 命令 | 说明 |
 |---|---|
-| `TRIG:WIDT <us>` | 设置 `GPIO20/TRIG_OUT` 脉宽，单位 us。 |
-| `TRIG:WIDT?` | 查询 `TRIG_OUT` 脉宽。 |
-| `TRIG:IMM` | 立即输出一次 `TRIG_OUT` 脉冲。 |
-
-## 第二路脉冲输出
-
-| 命令 | 说明 |
-|---|---|
-| `PULSe:WIDT <us>` | 设置 `GPIO21/PULSE_OUT` 脉宽，单位 us。 |
-| `PULSe:WIDT?` | 查询 `PULSE_OUT` 脉宽。 |
-| `PULSe:IMM` | 立即输出一次 `PULSE_OUT` 脉冲。 |
-
-## RJ45 触发输出
-
-当前硬件定义以 `RJ45_TRIG_IN=GPIO19/IN3` 和 `RJ45_TRIG_OUT=GPIO23/OUT3`
-为准，不再定义独立 `MARKER_OUT` 物理信号。新接口优先使用 `RJ45:TRIG:*`；
-`MARKer:*` 是历史兼容命令，仍等价输出到 `RJ45_TRIG_OUT`。
-
-| 命令 | 说明 |
-|---|---|
-| `RJ45:TRIG:WIDT <us>` | 设置 `GPIO23/RJ45_TRIG_OUT` 脉宽，单位 us。 |
-| `RJ45:TRIG:WIDT?` | 查询 `RJ45_TRIG_OUT` 脉宽。 |
-| `RJ45:TRIG:IMM` | 立即从 `GPIO23/RJ45_TRIG_OUT` 输出一次触发脉冲。 |
-| `RJ45:TRIG:PINS?` | 查询 RJ45 触发硬件绑定，返回 `in_pin,out_pin`，当前为 `19,23`。 |
-| `MARKer:WIDT <us>` | 设置兼容触发脉宽，单位 us；输出到 `GPIO23/RJ45_TRIG_OUT`。 |
-| `MARKer:WIDT?` | 查询兼容触发脉宽。 |
-| `MARKer:IMM` | 立即从 `GPIO23/RJ45_TRIG_OUT` 输出一次兼容触发脉冲。 |
-
-固件快照和新配置结构使用 `rj45_trigger_width_us` 作为主字段；历史
-`marker_width_us` 保留为同值镜像，仅用于旧 UI/脚本兼容。
-
-## 采样配置
-
-| 命令 | 说明 |
-|---|---|
-| `SAMPle:RATE <Hz>` | 设置输入采样率，并启动 `GPIO16..GPIO19` 采样。 |
-| `SAMPle:RATE?` | 查询输入采样率。 |
-| `SAMPle:STAT ON` | 启动输入采样。 |
-| `SAMPle:STAT OFF` | 停止输入采样。 |
-| `SAMPle:STAT?` | 查询采样状态。 |
-
-## 同步时钟输出
-
-| 命令 | 说明 |
-|---|---|
-| `OUTPut:CLOC:FREQ <Hz>` | 设置 `SYNC_CLK_OUT` 输出频率。当前固件运行在 AUX2/GPIO28；若 AUX persona/BiSS 占用 `PIO2 + AUX`，启动会返回执行错误并置资源冲突。 |
-| `OUTPut:CLOC:FREQ?` | 查询同步时钟频率。 |
-| `OUTPut:CLOC:STAT ON` | 启动同步时钟输出。 |
-| `OUTPut:CLOC:STAT OFF` | 停止同步时钟输出。 |
-| `OUTPut:CLOC:STAT?` | 查询同步时钟输出状态。 |
+| `REALtime:IO:OUTPut:WIDTh <us>` / `REALtime:IO:OUTPut:WIDTh?` | 设置或查询 `GPIO20/TRIG_OUT` 即时输出脉宽。 |
+| `REALtime:IO:OUTPut:IMMediate` | 从 `GPIO20/TRIG_OUT` 立即输出一次维护脉冲。 |
+| `REALtime:IO:PULSe:WIDTh <us>` / `REALtime:IO:PULSe:WIDTh?` | 设置或查询 `GPIO21/PULSE_OUT` 即时输出脉宽。 |
+| `REALtime:IO:PULSe:IMMediate` | 从 `GPIO21/PULSE_OUT` 立即输出一次维护脉冲。 |
+| `REALtime:IO:RJ45:WIDTh <us>` / `REALtime:IO:RJ45:WIDTh?` | 设置或查询 `GPIO23/RJ45_TRIG_OUT` 即时输出脉宽。 |
+| `REALtime:IO:RJ45:IMMediate` | 从 `GPIO23/RJ45_TRIG_OUT` 立即输出一次维护脉冲。 |
+| `REALtime:IO:RJ45:PINs?` | 查询 RJ45 触发硬件绑定，返回 `in_pin,out_pin`，当前为 `19,23`。 |
+| `REALtime:IO:MARKer:WIDTh <us>` / `REALtime:IO:MARKer:WIDTh?` | 调试 marker 语义输出，当前映射到 `GPIO23/RJ45_TRIG_OUT`。 |
+| `REALtime:IO:MARKer:IMMediate` | 从 marker 语义输出立即发一次维护脉冲。 |
+| `REALtime:IO:SAMPle:RATE <Hz>` / `REALtime:IO:SAMPle:RATE?` | 设置或查询输入采样率。 |
+| `REALtime:IO:SAMPle:STATe <ON|OFF>` / `REALtime:IO:SAMPle:STATe?` | 启停或查询输入采样状态。 |
+| `REALtime:IO:CLOCk:FREQuency <Hz>` / `REALtime:IO:CLOCk:FREQuency?` | 设置或查询 `SYNC_CLK_OUT` 维护输出频率。 |
+| `REALtime:IO:CLOCk:STATe <ON|OFF>` / `REALtime:IO:CLOCk:STATe?` | 启停或查询同步时钟维护输出状态。 |
+| `REALtime:IO:SYNC?` | 查询同步 IO 维护快照。 |
 
 ## 应用层语义 IO 与资源互斥
 
@@ -142,13 +108,13 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 | 状态/模式 | SCPI 约束 |
 |---|---|
-| `TRIG` armed | 主输出总线 OUT0..OUT3 被触发引擎独占；`TRIG:IMM`、`PULSe:IMM`、`RJ45:TRIG:IMM`、`MARKer:IMM` 这类主总线即时输出应返回 busy 或在运行前关闭。 |
+| `TRIG` armed | 主输出总线 OUT0..OUT3 被触发引擎独占；`REALtime:IO:*:IMMediate` 这类主总线即时输出应返回 busy 或在运行前关闭。 |
 | `ENC_COUNT` armed | IN0/IN1/IN2 被 A/B/Z 独占；AUX0=`ARM_IN` 可作为未来独立资格输入。IN3=`RJ45_TRIG_IN/GATE_IN` 不被 ENC 软件定义占用。OUT0 被比较触发占用。 |
 | `BISS_ARMED` | BiSS-C TAP 占用 `PIO2 + AUX0..AUX3`，AUX framework 功能应返回 busy/执行错误。 |
-| `IDLE` | 即时脉冲、同步时钟和 RJ45 trigger 兼容命令可以使用各自语义输出。 |
+| `IDLE` | `REALtime:IO:*` 即时脉冲、同步时钟和 RJ45 维护命令可以使用各自语义输出。 |
 
-硬件已经定型后，`TRIG:ENC:APIN` 只接受 `16`。历史开发诊断入口
-`TRIG:ENC:APIN 26` 已关闭，因为 AUX0/AUX1 是固定差分输入，AUX2/AUX3 是固定
+硬件已经定型后，`REALtime:ENC:APIN` 只接受 `16`。历史开发诊断入口
+`TRIGger:ENC:APIN 26` 已关闭，因为 AUX0/AUX1 是固定差分输入，AUX2/AUX3 是固定
 差分输出，不能作为连续 4-pin 编码器输入组。后续新增 SCPI/UI 配置应优先使用
 `TRIG_IN`、`ARM_IN`、`SYNC_CLK_OUT` 等语义名，而不是直接公开任意 GPIO。
 
@@ -168,19 +134,12 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 |---|---|
 | `TRIGger:MODE <0..4>` | 设置当前运行模式。 |
 | `TRIGger:MODE?` | 查询当前运行模式和模式号。 |
-| `TRIGger:SEQuence:LENG <1..256>` | 设置编码序列长度，仅在 `TRIG` 模式下有效。 |
-| `TRIGger:SEQuence:LENG?` | 查询序列长度。 |
-| `TRIGger:SEQuence:WIDT <1..8>` | 设置编码输出位宽。 |
-| `TRIGger:SEQuence:WIDT?` | 查询编码位宽。 |
-| `TRIGger:SEQuence:INDE?` | 查询当前步进索引。 |
-| `TRIGger:SEQuence:DATA <binary_block>` | 写入编码表（二进制块，长度=4×seq_length）。 |
-| `TRIGger:SEQuence:DATA?` | 回读编码表。 |
-| `TRIGger:STARt` | 启动当前模式。 |
+| `TRIGger:STARt [plan_id]` | 启动当前 active 业务配置；带 `plan_id` 时语义等价于激活该配置后启动，不得绕过 `CONFigure:SEQuence:ACTive` 的校验和门禁。 |
 | `TRIGger:STOP` | 停止当前模式并回到 `IDLE`。 |
-| `TRIGger:FAULt` | 维护/验证命令：先强制触发 Trigger fault，再投递 StorageAO `FAULT_EVIDENCE` job 在 FAULT 后后台写入 snapshot/trace/report。 |
+| `TRIGger:PAUSe` | 暂停当前业务运行。 |
+| `TRIGger:CONTinue` | 从暂停位置继续业务运行。 |
 | `READ:TRIGger:PARameter?` | 查询触发参数，返回 `chan_cnt,pol,freq_cnt,wave_cnt,total_state_count`。 |
 | `READ:TRIGger:STATe?` | 查询触发运行状态，返回 `mode,run_state,current_angle,angle_index,seq_index,late_count,error_code,breakpoint_enabled,breakpoint_angle`。 |
-| `STATus:TRIG?` | 触发域摘要：模式、状态、seq_index、rollover_count、error_code。 |
 
 ## 开关控制
 
@@ -200,7 +159,10 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 | 命令 | 说明 |
 |---|---|
-| `READ:SEQuence:CHECK?` | 维护/验证命令：检查序列长度、状态范围、SWITCH1/SWITCH2 组合和 CRC。 |
+| `CONFigure:SEQuence:ACTive <id>` | 选择活动序列，后续 `TRIGger:STARt` 只消费 active 序列快照。 |
+| `READ:SEQuence? [id]` | 查询任意已配置序列或当前默认序列。 |
+| `READ:SEQuence:ACTive?` | 查询活动序列摘要。 |
+| `READ:SEQuence:CHECK?` | 维护/验证命令：检查序列长度、状态范围、SWITCH1/SWITCH2 组合和 CRC，返回逐项预检结果。 |
 
 ## 断点与分段运行
 
@@ -216,27 +178,36 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 业务运行模型为 `扫描角度外层循环 -> 角度点内测试序列内层循环`。每个扫描角度点执行一组完整测试序列，序列展开顺序按 `通道 -> 极化 -> 频点 -> 波位` 进行，`CONFigure:TRIGger` 的参数顺序也与此一致，写作 `chan_cnt,pol,freq_cnt,wave_cnt`。其中 `pol=0` 表示 H，`pol=1` 表示 V，`pol=2` 表示 BOTH，且 `2` 会展开成 H/V 两态。
 
-## PCNT 参数接口
+## Realtime 基础组件
 
-以下命令当前写入 TriggerVector/PCNT 配置快照，其中部分能力仍是后续 PIO 增强预留项。
+以下命令属于 `REALtime:*` 维护域，当前写入 TriggerVector、PCNT、ENC 或 IO 配置快照，其中部分能力仍是后续 PIO 增强预留项。现场测试上位机不直接依赖这些入口。
 
 | 命令 | 说明 |
 |---|---|
-| `TRIGger:PCNT:DEC <0..3>` | 设置解码模式：`0=SINGLE`，`1=QUAD1X`，`2=QUAD2X`，`3=UPDOWN`。 |
-| `TRIGger:PCNT:DEC?` | 查询解码模式。 |
-| `TRIGger:PCNT:DIR <0..2>` | 设置方向：`0=CW`，`1=CCW`，`2=BOTH`。 |
-| `TRIGger:PCNT:DIR?` | 查询方向配置。 |
-| `TRIGger:PCNT:FILT <ns>` | 设置滤波窗口配置值。 |
-| `TRIGger:PCNT:FILT?` | 查询滤波窗口配置值。 |
-| `TRIGger:PCNT:GATE <ON\|OFF>` | 设置 PCNT 门控配置位。 |
-| `TRIGger:PCNT:GATE?` | 查询 PCNT 门控配置位。 |
-| `TRIGger:PCNT:CMP <ns>` | 设置比较器触发脉冲宽度配置值。 |
-| `TRIGger:PCNT:CMP?` | 查询比较器触发脉冲宽度配置值。 |
-| `TRIGger:PCNT:PRES <value>` | 设置预设计数值。 |
-| `TRIGger:PCNT:PRES?` | 查询预设计数值。 |
-| `TRIGger:PCNT:CLE` | 清零当前 PCNT 计数，并先累计到 `enc_total`。 |
-| `TRIGger:PCNT:TOT?` | 查询累计计数。 |
-| `TRIGger:PCNT:FREQ?` | 查询频率快照字段。 |
+| `REALtime:STATus?` | 查询实时核心维护摘要。 |
+| `REALtime:SOURce` / `REALtime:SOURce?` | 设置或查询底层实时触发源。 |
+| `REALtime:EDGE` / `REALtime:EDGE?` | 设置或查询底层实时边沿。 |
+| `REALtime:GATE` / `REALtime:GATE?` | 设置或查询底层实时门控。 |
+| `REALtime:SAFE` / `REALtime:SAFE?` | 设置或查询底层安全输出状态。 |
+| `REALtime:SEQ:LENGth` / `REALtime:SEQ:LENGth?` | 设置或查询底层 sequence step 长度。 |
+| `REALtime:SEQ:WIDTh` / `REALtime:SEQ:WIDTh?` | 设置或查询底层 sequence step 位宽。 |
+| `REALtime:SEQ:INDex?` | 查询底层 sequence step 当前索引。 |
+| `REALtime:SEQ:DATA` / `REALtime:SEQ:DATA?` | 写入或回读底层 sequence step 数据。 |
+| `REALtime:ARM` / `REALtime:DISarm` / `REALtime:DISAble` | 底层实时执行层门禁和停车。 |
+| `REALtime:FAULT` | 维护/验证命令：强制触发实时故障路径。 |
+| `REALtime:PCNT:DECode` / `REALtime:PCNT:DECode?` | 设置或查询脉冲计数解码模式。 |
+| `REALtime:PCNT:DIRection` / `REALtime:PCNT:DIRection?` | 设置或查询脉冲计数方向。 |
+| `REALtime:PCNT:FILTer` / `REALtime:PCNT:FILTer?` | 设置或查询脉冲计数滤波窗口。 |
+| `REALtime:PCNT:GATE` / `REALtime:PCNT:GATE?` | 设置或查询脉冲计数门控。 |
+| `REALtime:PCNT:CMP` / `REALtime:PCNT:CMP?` | 设置或查询脉冲计数比较触发配置。 |
+| `REALtime:PCNT:PRESet` / `REALtime:PCNT:PRESet?` | 设置或查询脉冲计数预设值。 |
+| `REALtime:PCNT:CLEar` | 清零当前 PCNT 计数，并先累计到总计数。 |
+| `REALtime:PCNT:TOTal?` | 查询累计计数。 |
+| `REALtime:PCNT:FREQuency?` | 查询频率快照字段。 |
+| `REALtime:ENC:TARGet` / `REALtime:ENC:TARGet?` | 设置或查询编码器目标计数。 |
+| `REALtime:ENC:COUNt?` | 查询编码器当前计数。 |
+| `REALtime:ENC:APIN` / `REALtime:ENC:APIN?` | 设置或查询编码器 A/B/Z 引脚组，当前只接受 `16` 并派生 `16,17,18`。 |
+| `REALtime:ENC:REVolution?` | 查询编码器圈数快照。 |
 
 ## 触发测量
 
@@ -249,9 +220,9 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 | 命令 | 说明 |
 |---|---|
-| `STATus:SYNC?` | 返回同步 IO 状态：初始化状态、采样状态、时钟状态、采样率、时钟频率、采样溢出计数。 |
-| `STATus:TRIG?` | 返回触发域状态：模式、状态、源引脚、seq_index、enc_target、enc_count、trigger_count、rollover_count、error_code。`error_code` 当前稳定值：`0=NONE`、`1=INVALID_SEQ_CONFIG`、`2=RESOURCE_CONFLICT`、`3=IO_ARM_FAILED`、`4=IO_LOST`、`10=INVALID_ENC_TARGET`、`11=INVALID_ENC_PINS`、`20=INVALID_BISS_CONFIG`、`100=FORCED_FAULT`。 |
-| `SYSTem:RES?` | 返回资源仲裁摘要：`active_resources,last_conflict_resources,request_owner,holder_owner`。用于调试触发模式、AUX persona、PIO/DMA/SD/OTA 等资源冲突。 |
+| `REALtime:IO:SYNC?` | 返回同步 IO 维护状态：初始化状态、采样状态、时钟状态、采样率、时钟频率、采样溢出计数。 |
+| `REALtime:STATus?` | 返回实时触发维护状态：模式、状态、源引脚、seq_index、enc_target、enc_count、trigger_count、rollover_count、error_code。 |
+| `SYSTem:RESource?` | 返回资源仲裁摘要：`active_resources,last_conflict_resources,request_owner,holder_owner`。用于调试触发模式、AUX persona、PIO/DMA/SD/OTA 等资源冲突。 |
 
 ## SD / System Pack 维护
 
@@ -336,5 +307,5 @@ OTA 命令遵循 `docs/OTA_SYSTEM_DESIGN.md` 中的 `OtaAO + OtaFB + OtaVector` 
 ## 当前限制
 
 - 日志和 SCPI 响应目前共用 stdio 通道，后续产品化应拆分控制通道和日志通道，或在 SCPI 会话期间关闭周期日志。
-- `SAMPle:RATE` 当前会直接启动采样，但尚未接入 DMA 环形缓冲。
+- `REALtime:IO:SAMPle:RATE` 当前会直接启动采样，但尚未接入 DMA 环形缓冲。
 - OTA 命令已接入 `OtaAO/OtaFB/OtaVector`，SCPI 只投递事件和读取快照，不直接调用 Flash 擦写 API。

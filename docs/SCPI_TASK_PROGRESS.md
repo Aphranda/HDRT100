@@ -103,7 +103,8 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   `TRIGger:BISS:*` 和 `STATus:BISS?`。
 - [x] `SYSTem:CONFigure:*`、`SYSTem:REFMEM:*`、`SYSTem:CORE:VECTOR?` 作为系统维护 canonical；
   确认覆盖后删除旧 `SYSTem:CFG:*`、`SYSTem:REFM:*`、`SYSTem:CORE:VECT?`，不保留兼容入口。
-- [ ] 裸 `STATus:*` 不进入产品主树；如后续实现 IEEE 488.2 status register，再单独规划。
+- [x] 裸 `STATus:*` 不进入产品主树；当前固件注册表只保留子域内部 `...:STATus?`，
+  如后续实现 IEEE 488.2 status register，再单独规划。
 
 ### P2 - 重复读取和报告域收敛
 
@@ -113,6 +114,34 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   `CONFigure:SEQuence:ACTive` 的校验和门禁。
 
 ## 任务记录
+
+### SCPI-TASK-20260813-033 - P1 裸状态入口文档收口
+
+- 状态：进行中
+- 日期：2026-08-13
+- 任务目标：
+  - 完成 P1 收尾：确认裸 `STATus:*`、裸 `VDC:*` 和裸 `DPLL:*` 不进入当前产品主树。
+  - 清理活跃 SCPI 文档中仍把已删除 legacy 入口写成当前接口的内容。
+  - 暂不进入 SCPI 指令树整体一致性评审，等所有 legacy 清完后再单独处理。
+- 完成内容：
+  - `middleware/scpi_port` 注册表检索确认仅剩子域内部
+    `COMMunication:BISS:STATus:GATE`，没有裸顶层 `STATus:*` 注册。
+  - `docs\SCPI_COMMANDS.md` 将旧裸 `VDC:STAT?`、`DPLL:STAT?`、
+    `STATus:VDC?`、`STATus:DPLL?` 改为
+    `SYSTem:SYNC:VDC:STATus?` 和 `SYSTem:SYNC:VDC:DPLL:STATus?`。
+  - `docs\SCPI_COMMANDS.md` 将旧裸 IO、`TRIGger:SEQuence:*`、
+    `TRIGger:PCNT:*`、`STATus:SYNC?` 和 `STATus:TRIG?` 说明改为
+    当前 `REALtime:*` 维护域 canonical。
+  - `docs\DTC100_SCPI_COMMAND_PLANNING.md` 将“不推荐命令”修正为“已删除旧入口”，
+    明确后续若实现 IEEE 488.2 `STATus` register 需独立规划。
+- 验证结果：
+  - 待执行构建、文档检查、dry-run、OTA 和板端验证。
+- 还需完成：
+  - 执行验证闭环后提交并推送。
+- 关联文件：
+  - `docs/SCPI_TASK_PROGRESS.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/DTC100_SCPI_COMMAND_PLANNING.md`
 
 ### SCPI-TASK-20260813-032 - 删除系统维护短旧入口
 

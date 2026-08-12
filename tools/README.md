@@ -27,6 +27,14 @@ Get-Content -Path tools\README.md -Encoding UTF8
   final state with `--expect-final-state`, asserts OTA error text with
   `--expect-error`, and supports package negative-path mutations through
   `--package-negative`.
+- `ota_boot_commit/ota_boot_commit.py`: OTA post-transfer helper. It sends
+  `SYSTem:OTA:BOOT`, tolerates the expected USB CDC reset/re-enumeration,
+  reopens the port, verifies build/slot/error state, and sends
+  `SYSTem:OTA:COMMit`.
+- `scpi_legacy_validate/scpi_legacy_validate.py`: removed-command validator.
+  It sends each legacy command one by one, then queries `SYSTem:ERRor?` and
+  requires `-113,"Undefined header"` for every entry. Use this instead of
+  hand-written one-off serial scripts when removing SCPI aliases.
 - `release_check/release_check.py`: release gate. It verifies release preset
   safety switches, required artifacts, and absence of OTA fault-injection
   command strings in release artifacts.

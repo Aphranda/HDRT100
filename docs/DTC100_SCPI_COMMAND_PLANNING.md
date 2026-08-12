@@ -4,7 +4,7 @@ Status: Draft
 Domain: SCPI
 Canonical: `docs/DTC100_SCPI_COMMAND_PLANNING.md`
 Related: `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/SCPI_COMMANDS.md`
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 ## 1. 目标
 
@@ -352,9 +352,10 @@ SYSTem:SYNC:VDC:DPLL:COEFficient?
 SYSTem:SYNC:VDC:DPLL:DEFAult
 ```
 
-### 8.2 不推荐命令
+### 8.2 已删除旧入口
 
-以下命令不建议作为新产品接口继续扩展：
+以下旧入口不再作为新产品接口、维护接口或验证脚本入口。后续如实现 IEEE 488.2
+`STATus` register，应独立规划标准状态树，而不是复用这些旧状态快照入口。
 
 ```scpi
 VDC:STAT?
@@ -365,7 +366,8 @@ CONFigure:SYNC:DPLL
 SYSTem:SYNC:DPLL:*
 ```
 
-其中 `CONFigure:SYNC:DPLL` 和 `SYSTem:SYNC:DPLL:*` 的问题是少了 `VDC` 层，容易让上位机误以为 DPLL 是 SYNC 的产品对象，而不是 VDC 的实现环路。
+`CONFigure:SYNC:DPLL` 和 `SYSTem:SYNC:DPLL:*` 的问题是少了 `VDC` 层，容易让上位机误以为 DPLL 是 SYNC 的产品对象，而不是 VDC 的实现环路。
+裸 `VDC:*`、裸 `DPLL:*` 和裸 `STATus:*` 则会把内部服务快照暴露成产品主树。
 
 ## 9. 配置、动作、读取的闭环模型
 
@@ -438,7 +440,7 @@ RUN 中原则：
 1. 冻结本文作为规划稿。
 2. 修改正式 SCPI 指令表 Markdown，使 SYNC/VDC/DPLL 层级与本文一致。
 3. 同步 HTML 和 PDF。
-4. 固件命令表移除裸顶层 `VDC:*`、`DPLL:*`、`STATus:VDC/DPLL?` 的新验证依赖。
+4. 固件命令表已移除裸顶层 `VDC:*`、`DPLL:*`、`STATus:VDC/DPLL?` 的新验证依赖。
 5. 固件将底层实时验证入口迁移到 `REALtime:*` 维护域；旧 `TRIGger:PCNT/ENC/SEQ`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut`、`STATus:TRIGger?` 已删除，不再保留兼容入口。
 6. `READ:STATistics?` 从 SYNC 模块迁到 report/statistics 模块。
 7. `scpi_sync_commands.c/.h` 只保留 SYNC 域和 `SYSTem:SYNC:VDC:*` 维护入口。
@@ -462,7 +464,7 @@ SYSTem:SYNC:VDC:DPLL:COEFficient?
 SYSTem:SYNC:VDC:DPLL:DEFAult
 ```
 
-短期推荐避免：
+以下旧入口已经从当前固件注册表删除，不再保留兼容：
 
 ```text
 VDC:*
@@ -748,5 +750,5 @@ REALtime
 - `CONFigure:SYNC:VDC:DPLL` 是产品配置树，用于选择 VDC DPLL profile 和门限，不直接调试系数。
 - `REALtime:*` 是底层实时维护和 validation 树，用于 PCNT、ENC、SEQ_STEP、即时 IO、TriggerVector 快照和低层 ARM/DISarm/FAULT 验证，不作为现场测试上位机主流程 API。
 - 产品 `TRIGger:*` 不再承载底层 `SEQ_STEP/ENC/PCNT/PIO` 验证命令；这类能力必须从 `REALtime:*` 或 maintenance/legacy alias 进入。
-- 裸 `VDC:*`、裸 `DPLL:*`、`STATus:VDC?`、`STATus:DPLL?` 不进入建议指令树。
+- 裸 `VDC:*`、裸 `DPLL:*`、`STATus:VDC?`、`STATus:DPLL?` 已删除，不进入建议指令树。
 - 旧的编码器、BiSS、PCNT、PIO 单项验证命令不进入产品主树；需要保留时应放入 `REALtime:*`、`COMMunication:BISS:*`、维护权限或独立 validation 文档。
