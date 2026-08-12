@@ -11,6 +11,12 @@ scpi_result_t scpi_cmd_enc_a_pin_q(scpi_t *context);
 scpi_result_t scpi_cmd_enc_rev_q(scpi_t *context);
 
 #define SCPI_REALTIME_ENCODER_COMMANDS \
+    {.pattern = "REALtime:ENC:TARGet", .callback = scpi_cmd_enc_target}, \
+    {.pattern = "REALtime:ENC:TARGet?", .callback = scpi_cmd_enc_target_q}, \
+    {.pattern = "REALtime:ENC:COUNt?", .callback = scpi_cmd_enc_count_q}, \
+    {.pattern = "REALtime:ENC:APIN", .callback = scpi_cmd_enc_a_pin}, \
+    {.pattern = "REALtime:ENC:APIN?", .callback = scpi_cmd_enc_a_pin_q}, \
+    {.pattern = "REALtime:ENC:REVolution?", .callback = scpi_cmd_enc_rev_q}, \
     {.pattern = "TRIGger:ENC:TARGet", .callback = scpi_cmd_enc_target}, \
     {.pattern = "TRIGger:ENC:TARGet?", .callback = scpi_cmd_enc_target_q}, \
     {.pattern = "TRIGger:ENC:COUNt?", .callback = scpi_cmd_enc_count_q}, \

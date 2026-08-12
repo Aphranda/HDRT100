@@ -752,6 +752,35 @@ core1 禁止：
 - [x] 建立 `task_refmem_sync` 空壳，按 64 KB 完整布局维护本地 DistributedVectorTable header、node slot 和 heartbeat。
 - [x] 增加本地 DistributedVectorTable snapshot 查询，先不做跨板同步。
 
+### SCPI 指令规范化优先队列
+
+SCPI realtime 子模块拆分已经完成，但当前重点仍是规范化产品指令，而不是立即进入
+`FIRE_LOAD`、PIO 或 core1 runtime 实现。runtime 基础组件待办继续保留在 P1-P7；
+本队列用于约束下一阶段先把上位机可见 API、权限、响应和验证脚本收敛。
+
+- [ ] 复审 `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` 和 HTML 指令表，确保 Markdown/HTML 同步。
+- [ ] 以 `docs/DTC100_SCPI_COMMAND_PLANNING.md` 为指令规范化评审基线，正式指令表、HTML、固件命令表和验证工具必须逐步向同一棵产品指令树收敛。
+- [ ] 冻结产品主树：`SYSTem`、`CONFigure`、`TRIGger`、`CALibration`、`SYNC`、`READ`、`MMEMory`；禁止新增按 RTOS task、临时变量、算法名或裸内部模块命名的产品入口。
+- [ ] 复核 `CONFigure / 动作 / READ` 三层分离：`CONFigure:*` 只写 staging/recipe，`TRIGger/CALibration/SYNC:*` 执行动作，`READ:*?` 只读产品快照和报告。
+- [ ] 将底层实时验证入口从产品 `TRIGger:*` 主树迁移到 `REALtime:*` 维护域：`REALtime:PCNT:*`、`REALtime:ENC:*`、`REALtime:SEQ:*`、`REALtime:IO:*`、`REALtime:STATus?`。旧 `TRIGger:PCNT/ENC/SEQ`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut` 和 `STATus:TRIGger?` 只作为 legacy validation alias 保留，不再作为产品主流程扩展入口。
+- [ ] 冻结 `TEST/SERVICE/DEBUG/FACTORY` 四级权限矩阵；`TEST` 覆盖 P5-P7 现场测试业务闭环，`DEBUG+` 才开放任意状态强控。
+- [ ] 统一写命令 accepted 响应语义：短动作可返回 `1`，跨 task/跨节点/持久化动作必须通过 ACK/状态查询闭环，不把 accepted 当 complete。
+- [ ] 统一 ACK/NACK 查询策略：评审 `SYSTem:COMMand:ACK?/NACK?` 与现有 `SYSTem:CONFigure:ACK?/NACK?` 的边界，决定配置专用别名是否保留、废弃或映射到通用命令完成态。
+- [ ] 复审业务配置指令：`CONFigure:TRIGger`、`CONFigure:ANGLe:*`、`CONFigure:SEQuence`、`CONFigure:SEQuence:ACTive`、`CONFigure:SWITch#`。
+- [ ] 对齐序列建模命名：评审 DTC 规划中的 `CONFigure:SEQuence:MAP` / `CONFigure:SEQuence:ACTive <plan_id>,<state_id...>` 与正式指令表当前 `CONFigure:SEQuence` / `CONFigure:SEQuence:ACTive` 的差异，冻结 state_id map 和 active sequence 的最终写入接口。
+- [ ] 对齐角度与断点命名：冻结 `SWEEP/SWEEp`、`BREAkpoint/BPOint` 等 SCPI 缩写和兼容 alias 策略，避免上位机、HTML、固件和验证脚本各用一套名称。
+- [ ] 对齐校准 link 修改动词：评审 `LINK:ADD/SET/DELete` 与 `LINK:ADD/DELete/UPDate/CLEAr`，冻结产品动词和 legacy alias。
+- [ ] 复审业务查询指令：`READ:TRIGger:PARameter?`、`READ:ANGLe:*?`、`READ:SEQuence?`、`READ:SEQuence:MAP?`、`READ:SEQuence:CHECk?`、`READ:SEQuence:ACTive?`。
+- [ ] 复审运行控制指令：`TRIGger:MODE 0|1`、`TRIGger:STARt [plan_id]`、`TRIGger:STOP`、`TRIGger:PAUSe`、`TRIGger:CONTinue` 和 RUN 态只读/拒绝策略。
+- [ ] 复审 CAL/SYNC 指令的状态门禁、响应字段和拒绝原因，确保门禁分散在业务端而不是只集中在维护页。
+- [ ] 冻结 SYNC/VDC/DPLL 层级：`VDC` 是 SYNC 下的产品对象，`DPLL` 是 VDC 的实现环路；继续避免裸 `VDC:*`、裸 `DPLL:*`、`STATus:VDC?`、`STATus:DPLL?` 进入产品主树。
+- [ ] 复审 `READ:STATistics?`、`SYSTem:T2:*?`、`SYSTem:RUN:*?`、`MMEMory:*` 的归属，确保统计、T2 明细、报告分页和文件访问不塞回 SYNC 或业务配置页。
+- [ ] 统一 response block 字段顺序和命名，至少覆盖 permission、role、gate、sequence、trigger state、calibration、sync、run summary。
+- [ ] 将 `table_seq / slot_seq / owner / crc / stale / flags` 是否进入各 response block 的规则写清，避免每页各自定义。
+- [ ] 更新 `tools/product_scpi_validate/product_scpi_validate.py`，确保产品验证脚本覆盖全部规范化产品指令、权限语义和代表性响应字段。
+- [ ] 对当前固件命令表做一次规范化 diff：列出正式产品指令、`REALtime:*` maintenance/validation 指令、legacy validation alias 和待废弃裸内部入口。
+- [ ] 保留 runtime 后续候选：`core_ipc_contract`、`trigger_status_ring`、TriggerVector snapshot、core1 RAM-resident/VTOR、`FIRE_LOAD -> local_fire`、PCNT 角度脉冲外层循环和 active sequence 执行链路；这些候选必须先映射到已规范化 SCPI 状态/诊断入口再进入实现。
+
 ### P1 - 反射内存与快照一致性
 
 已完成项的板端验证详见 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。

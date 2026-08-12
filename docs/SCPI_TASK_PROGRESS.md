@@ -58,23 +58,77 @@ Last updated: 2026-08-12
 ## 当前目标
 
 SCPI 模块已经完成 CAL、SYNC、CONFIG、TRIGGER、SYSTEM SNAPSHOT、LOOP STATUS、
-SYSTEM RUNTIME、SYSTEM DIAGNOSTICS/EVIDENCE、MEASURE 的拆分和板端闭环。
-当前剩余高风险区域是底层验证能力拆分：`BiSS-C`、`ENC/PCNT`、`SEQ_STEP/ARM/FAULT`
-和 `sync_io` pulse validation。后续拆分必须保持产品主流程与底层验证入口分离。
+SYSTEM RUNTIME、SYSTEM DIAGNOSTICS/EVIDENCE、MEASURE 和 realtime 子域拆分的板端闭环。
+当前重点仍是规范化产品 SCPI 指令：同步 Markdown/HTML 指令表，冻结 `TEST/SERVICE/DEBUG/FACTORY`
+权限矩阵，统一 accepted/ACK/状态查询语义，复审业务配置、序列、运行控制、CAL/SYNC 门禁、
+response block 字段和产品验证脚本覆盖。`docs/DTC100_SCPI_COMMAND_PLANNING.md` 是本轮规范化
+评审基线，后续需要处理序列建模命名、角度/断点缩写、校准 link 动词、SYNC/VDC/DPLL 层级、
+通用 ACK/NACK、统计/T2/报告/MMEM 归属和 legacy alias 边界。底层实时验证入口统一以
+`REALtime:*` 作为维护域主入口，旧 `TRIGger:*` 底层入口只作为兼容 alias。realtime 内部基础组件
+实现排在指令规范化之后。
 
 Realtime 细分按内部基础组件推进，`SCPI_REALTIME_COMPONENT_COMMANDS` 保持聚合入口，
 子域目标为：
 
-- `scpi_realtime_pcnt_commands.c/.h`：`TRIGger:PCNT:*`，转台脉冲输入计数、比较、门控和滤波基础组件。
-- `scpi_realtime_encoder_commands.c/.h`：`TRIGger:ENC:*`，编码器计数触发配置和观测。
-- `scpi_realtime_io_commands.c/.h`：`TRIGger/PULSe/MARKer/RJ45` 即时 IO、`SAMPle:*`、`OUTPut:CLOCk:*`、`STATus:SYNC?`。
-- `scpi_realtime_sequence_commands.c/.h`：`TRIGger:SEQ:*`、`TRIGger:SOURce/EDGE/GATE/SAFE`、`ARM/DISarm/DISAble/FAULT`。
-- `scpi_realtime_status_commands.c/.h`：`STATus:TRIGger?` 和后续内部实时状态查询。
+- `scpi_realtime_pcnt_commands.c/.h`：`REALtime:PCNT:*`，转台脉冲输入计数、比较、门控和滤波基础组件；旧 `TRIGger:PCNT:*` 为 legacy alias。
+- `scpi_realtime_encoder_commands.c/.h`：`REALtime:ENC:*`，编码器计数触发配置和观测；旧 `TRIGger:ENC:*` 为 legacy alias。
+- `scpi_realtime_io_commands.c/.h`：`REALtime:IO:*` 即时 IO、采样和输出时钟；旧 `TRIGger/PULSe/MARKer/RJ45/SAMPle/OUTPut/STATus:SYNC?` 为 legacy alias。
+- `scpi_realtime_sequence_commands.c/.h`：`REALtime:SEQ:*`、`REALtime:SOURce/EDGE/GATE/SAFE`、`REALtime:ARM/DISarm/DISAble/FAULT`；旧 `TRIGger:*` 底层入口为 legacy alias。
+- `scpi_realtime_status_commands.c/.h`：`REALtime:STATus?` 和后续内部实时状态查询；旧 `STATus:TRIGger?` 为 legacy alias。
 
 拆分顺序为 PCNT -> ENC -> IO -> SEQ -> STATUS，已全部完成并完成板端闭环。每一步都必须构建、
 dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行产品 SCPI 板端验证。
 
 ## 任务记录
+
+### SCPI-TASK-20260812-024 - REALtime 维护域规范化
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 将底层实时验证入口从产品 `TRIGger:*` 主树提升为独立 `REALtime:*` 维护域。
+  - 保留旧 `TRIGger:*`、`PULSe:*`、`MARKer:*`、`RJ45:*`、`SAMPle:*`、
+    `OUTPut:CLOCk:*` 和 `STATus:*` 入口作为 legacy validation alias。
+  - 增加 realtime 维护域验证脚本，避免该域游离在产品验证脚本之外。
+- 完成内容：
+  - 新增 `REALtime:PCNT:*`、`REALtime:ENC:*`、`REALtime:SEQ:*`、
+    `REALtime:SOURce/EDGE/GATE/SAFE`、`REALtime:ARM/DISarm/DISAble/FAULT`、
+    `REALtime:IO:*` 和 `REALtime:STATus?` 命令 pattern。
+  - 旧底层实时入口继续注册，作为兼容 alias，不再作为产品主流程扩展入口。
+  - 新增 `tools/realtime_scpi_validate/realtime_scpi_validate.py`，从 realtime 头文件
+    生成 `REALtime:*` 验证用例。
+  - realtime 验证脚本按维护域语义处理写命令：写命令验证可发送并 drain ACK，查询命令验证字段数。
+  - 文档补充 `REALtime:*` 作为实质 realtime 维护域，产品 `TRIGger:*` 保持运行控制语义。
+- 验证结果：
+  - `cmake --build build` 通过，build id：`20260812141458`，
+    `build\RP2350_TRIG_UPDATE.pkg` package CRC：`0xD37D2D89`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，
+    仍生成 `111` 条产品命令，确认 `REALtime:*` 未混入产品主树。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 通过，
+    生成 `57` 条 `REALtime:*` 维护域验证命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812141458"`。
+  - `SYSTem:OTA:COMMit` 后 `SYSTem:OTA:SLOT? -> 2,0,2,0,0`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_221703`。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0 generated=57`。
+  - realtime 验证脚本修正 drain 后，再次运行产品实机验证通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_222154`。
+- 还需完成：
+  - 继续规范化正式 SCPI 指令表和 HTML，冻结产品主树、维护域和 legacy alias 边界。
+  - 评审是否在产品指令表中增加 `REALtime:*` 维护页，或只放入开发/维护附录。
+- 关联文件：
+  - `middleware/scpi_port/inc/scpi_realtime_pcnt_commands.h`
+  - `middleware/scpi_port/inc/scpi_realtime_encoder_commands.h`
+  - `middleware/scpi_port/inc/scpi_realtime_sequence_commands.h`
+  - `middleware/scpi_port/inc/scpi_realtime_io_commands.h`
+  - `middleware/scpi_port/inc/scpi_realtime_status_commands.h`
+  - `tools/realtime_scpi_validate/realtime_scpi_validate.py`
 
 ### SCPI-TASK-20260812-023 - Realtime STATUS 命令细分
 
