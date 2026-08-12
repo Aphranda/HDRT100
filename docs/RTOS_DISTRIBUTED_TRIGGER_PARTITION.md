@@ -1305,6 +1305,22 @@ archive:  build-rtos-multicore-smoke/validation_scpi_sync_loop_boundary_fix_step
      high, file system and potentially destructive maintenance commands
    Validation:
      status/info/manifest/job/MMEM read-only first; raw clear/MKFS only with explicit confirm tests
+   Status:
+     done 2026-08-12: SYSTem:SD:*, SYSTem:STORage:*, SNAPshot/TRACE/FAULT last,
+     and MMEMory:* moved from scpi_port.c to scpi_storage_commands.c/.h.
+     Behavior-preserving split; command names, parameters, and response fields unchanged.
+     Verified by build-rtos-multicore-smoke. Factory image flashed with picotool load -f -v -x.
+     Board storage smoke passed through tools/scpi_query/scpi_query.py --cmd-file:
+     *IDN?, SYSTem:FW:BUILD?, SYSTem:SD:STATus?, SYSTem:SD:INFO?,
+     SYSTem:SD:MANifest?, and MMEMory:CATalog? responded on COM4.
+     Full tools/sd_board_validate/sd_board_validate.py run was executed and failed because the
+     inserted SD card System Pack is stale/incomplete for the current build:
+     manifest build_id was 20260704044222 while firmware build_id was 20260812074528,
+     and /update/RP2350_TRIG_UPDATE.pkg, /mission/recipe.json, /mission/node_map.json
+     were missing. Re-run full SD validation after refreshing the SD System Pack.
+     release_check.py --preset pico2-release --build-dir build passed. The existing build directory
+     cache points at the old D:/OneDrive path, so non-RTOS release build was re-verified in
+     build-storage-release instead of mutating the stale build cache.
 
 8. scpi_measure_commands.c/.h
    Scope:
