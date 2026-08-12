@@ -94,8 +94,8 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 - [x] 删除旧 `TRIGger:ENC:*` 入口，保留 `REALtime:ENC:*` canonical。
 - [x] 删除裸 `TRIGger/PULSe/MARKer/RJ45/SAMPle/OUTPut/STATus:SYNC?` 入口，确认必要能力已由
   `REALtime:IO:*` 覆盖。
-- [ ] 删除旧 `STATus:TRIGger?` 入口，保留 `REALtime:STATus?` canonical。
-- [ ] 文档和验证脚本默认只使用 canonical，不再新增 legacy 验证脚本。
+- [x] 删除旧 `STATus:TRIGger?` 入口，保留 `REALtime:STATus?` canonical。
+- [x] 文档和验证脚本默认只使用 canonical，不再新增 legacy 验证脚本。
 
 ### P1 - 通信和系统维护域收敛
 
@@ -113,6 +113,45 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   `CONFigure:SEQuence:ACTive` 的校验和门禁。
 
 ## 任务记录
+
+### SCPI-TASK-20260812-030 - 删除 realtime STATUS 旧 TRIGger 查询
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 完成 P0 产品 `TRIGger` 域瘦身最后一项：删除旧 `STATus:TRIGger?`。
+  - 保留 `REALtime:STATus?` 作为底层实时维护状态 canonical 查询。
+  - 确认产品 `TRIGger:*` 不再承载底层实时 PCNT/ENC/SEQ/IO/STATUS 验证入口。
+- 完成内容：
+  - `SCPI_REALTIME_STATUS_COMMANDS` 删除旧 `STATus:TRIGger?` pattern。
+  - P0 待办中 `STATus:TRIGger?` 删除项和 canonical-only 验证策略标记完成。
+- 验证结果：
+  - 代码检索确认 `middleware/scpi_port` 中不再注册旧
+    `STATus:TRIGger?`，也不再注册旧 `TRIGger:SOURce/EDGE/GATE/SAFE/SEQ/ARM/DISarm/DISAble/FAULT/PCNT/ENC/WIDTh/IMMediate`。
+  - `cmake --build build` 通过，build id：`20260812154120`，
+    `build\RP2350_TRIG_UPDATE.pkg` package CRC：`0xEC3C99BA`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，
+    生成 `111` 条产品命令。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 通过，
+    生成 `57` 条 `REALtime:*` canonical 维护命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `git diff --check` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812154120"`，`SYSTem:OTA:SLOT? -> 2,0,1,1,0`。
+  - `SYSTem:OTA:COMMit` 通过，`SYSTem:OTA:SLOT? -> 2,0,2,0,0`。
+  - 逐条 status 实机验证通过：`REALtime:STATus?` 返回 9 字段状态块；
+    `STATus:TRIGger?` 返回 `-113,"Undefined header"`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_234318`。
+- 还需完成：
+  - P0 产品 `TRIGger` 域瘦身完成；下一步进入 P1。
+  - P1 首项建议处理 BiSS-C：逐条确认 `COMMunication:BISS:*` 覆盖后，删除
+    `TRIGger:BISS:*` 和 `STATus:BISS?`。
+- 关联文件：
+  - `docs/SCPI_TASK_PROGRESS.md`
+  - `middleware/scpi_port/inc/scpi_realtime_status_commands.h`
 
 ### SCPI-TASK-20260812-029 - 删除 realtime IO 裸旧入口
 
