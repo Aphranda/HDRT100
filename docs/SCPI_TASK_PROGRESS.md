@@ -64,6 +64,49 @@ SYSTEM RUNTIME、SYSTEM DIAGNOSTICS/EVIDENCE、MEASURE 的拆分和板端闭环�
 
 ## 任务记录
 
+### SCPI-TASK-20260812-017 - COMMUNICATION BiSS-C 命令拆分
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 将 BiSS-C 从底层 `TRIGger:BISS:*` 触发域中拆出，归入通信/协议验证域。
+  - 保持产品 `TRIGger:MODE 0..4 = IDLE/TRIG/CAL/SYNC/SIM` 语义，不再把
+    `TRIGger:MODE 3` 当作 BiSS 底层入口。
+  - 保留旧 `TRIGger:BISS:*` / `STATus:BISS?` 作为 bench 兼容别名。
+- 完成内容：
+  - 新增 `scpi_communication_biss_commands.c/.h`。
+  - 新主路径为 `COMMunication:BISS:*`。
+  - 新增 `COMMunication:BISS:CONFigure`，用于把当前 BiSS profile 冻结为
+    `BISS_CONFIGURED`；运行边界仍由 `TRIGger:ARM/DISarm` 控制。
+  - `COMMunication:BISS:FRAMe/PULSe/CRC:ERRor/TIMEout:INJect` 作为调试注入事件，
+    允许在 `BISS_ARMED` 中执行；profile 参数类命令仍禁止运行中修改。
+  - `tools/biss_board_validate/biss_board_validate.py` 切到
+    `COMMunication:BISS:*` 主路径，并加强串口日志/ACK 交织处理。
+- 验证结果：
+  - build id：`20260812104309`。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - picotool 烧录、verify、reboot 通过。
+  - BiSS-C board smoke PASS：
+    `build-rtos-multicore-smoke/validation_scpi_comm_biss_split`。
+  - full RTOS + multicore smoke `16/16 PASS`：
+    `build-rtos-multicore-smoke/validation_scpi_comm_biss_split_full`。
+  - product SCPI validation `109/109 PASS`：
+    `build-rtos-multicore-smoke/validation_scpi_comm_biss_split_product_ff`。
+  - 注意：product SCPI 全量验证耗时约 174 秒，120 秒外层 timeout 会误判超时。
+- 还需完成：
+  - 后续将 `ENC/PCNT`、`SEQ_STEP/ARM/FAULT` 底层验证命令继续从 `scpi_port.c`
+    拆到更明确的 foundation/validation 模块。
+  - 后续文档可补充 `COMMunication:BISS:CONFigure` 作为 bench/debug 协议冻结入口，
+    不进入产品业务指令树。
+- 关联文件：
+  - `middleware/scpi_port/inc/scpi_communication_biss_commands.h`
+  - `middleware/scpi_port/src/scpi_communication_biss_commands.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/biss_board_validate/biss_board_validate.py`
+- 下一步：
+  - 继续拆分 `ENC/PCNT` 或 `SEQ_STEP/ARM/FAULT` 底层验证命令，保持产品主线和
+    bench validation 主线分层。
+
 ### SCPI-TASK-20260812-016 - SYSTEM ACCESS 重命名与 product 符号收敛
 
 - 状态：完成
