@@ -1292,6 +1292,9 @@ archive:  build-rtos-multicore-smoke/validation_scpi_sync_loop_boundary_fix_step
      done 2026-08-12: SYSTem:OTA:* moved from scpi_port.c to scpi_ota_commands.c/.h,
      with shared scpi_port_internal.h helpers for read_u32/result_ok/run-state rejection.
      Verified by build-rtos-multicore-smoke and release_check.
+     Bench closed loop: tools/ota_board_validate/ota_board_validate.py COM4 build-rtos-multicore-smoke
+     --skip-release-check --skip-negative passed factory flash, baseline query, positive OTA,
+     boot/commit, and final safe state.
 
 7. scpi_storage_commands.c/.h
    Scope:
