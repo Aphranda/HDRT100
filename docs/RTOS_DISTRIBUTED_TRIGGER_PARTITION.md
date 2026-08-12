@@ -1171,6 +1171,25 @@ errors:   SYST:ERR? -> 0,"No error"
 archive:  build-rtos-multicore-smoke/validation_scpi_report_split_step1
 ```
 
-下一步继续第 5 项系统/维护入口拆分，优先拆 `scpi_system_tables_commands.c/.h`，把
-SystemMode/Resource/Fault 表查询和低风险状态表入口从 `scpi_port.c` 移出；Storage/OTA/MMEM
+第十二刀已经完成：
+
+```text
+split system snapshot commands into scpi_system_snapshot_commands.c/.h
+move REFMEM status/node, core vector, runtime protection, config gate ACK/NACK,
+role/loop/action/calibration snapshots, SCPI run policy, SystemMode/Resource/Fault tables
+keep SYSTem:TRIGger:DBG? and SYSTem:RESource? in scpi_port.c for local debug/static helper dependency
+```
+
+板端验证结果：
+
+```text
+build_id: 20260812060813
+quick:    SYSTem:REFM/REFMem, CORE:VECTor, PROTection, CONFigure/CFG, SCPI:RUN:ALLOW, MODE/RESource/FAULT tables PASS
+full:     RTOS + multicore smoke 16/16 PASS
+errors:   SYST:ERR? -> 0,"No error"
+archive:  build-rtos-multicore-smoke/validation_scpi_system_snapshot_split_step1
+```
+
+下一步继续第 5 项系统/维护入口拆分。建议先拆 `scpi_service_status_commands.c/.h`，把
+`LOOP/VDC/DPLL/STATus:*` 这类 RTOS task 状态查询从 `scpi_port.c` 移出；Storage/OTA/MMEM
 因为依赖资源仲裁和文件操作，放到后续单独验证。

@@ -204,6 +204,7 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_port.c
         middleware/scpi_port/src/scpi_report_commands.c
         middleware/scpi_port/src/scpi_sync_commands.c
+        middleware/scpi_port/src/scpi_system_snapshot_commands.c
         middleware/scpi_port/src/scpi_trigger_commands.c
         middleware/u8g2_port/src/u8g2_port.c
         third_party/scpi-parser/libscpi/src/error.c
