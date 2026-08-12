@@ -41,6 +41,7 @@ static bool s_ui_key_stable;
 static app_loop_engine_status_t s_loop_engine_status;
 static app_vdc_sync_status_t s_vdc_sync_status;
 static app_dpll_status_t s_dpll_status;
+static app_calibration_status_t s_calibration_status;
 static app_config_gate_status_t s_config_gate_status;
 
 typedef struct {
@@ -264,6 +265,16 @@ bool app_init(void)
     s_dpll_status.first_service_ms = 0u;
     s_dpll_status.last_service_ms = s_last_tick_ms;
     s_dpll_status.update_seq = 0u;
+    s_calibration_status.ready = false;
+    s_calibration_status.state = 0u;
+    s_calibration_status.service_count = 0u;
+    s_calibration_status.first_service_ms = 0u;
+    s_calibration_status.last_service_ms = s_last_tick_ms;
+    s_calibration_status.command_seq = 1u;
+    s_calibration_status.link_count = 1u;
+    s_calibration_status.delay_count = 1u;
+    s_calibration_status.active_crc32 = 0x10000003u;
+    s_calibration_status.last_error = 0u;
     s_config_gate_status.ready = false;
     s_config_gate_status.gate_state = 0u;
     s_config_gate_status.service_count = 0u;
@@ -361,6 +372,7 @@ bool app_init(void)
     s_loop_engine_status.ready = true;
     s_vdc_sync_status.ready = true;
     s_dpll_status.ready = true;
+    s_calibration_status.ready = true;
     s_config_gate_status.build_crc32 = app_crc32_text(g_project_build_id);
     const app_hw_profile_blob_t hw_profile = {
         .main_input_base_pin = SYNC_IO_HW_MAIN_INPUT_BASE_PIN,
@@ -516,6 +528,33 @@ void app_dpll_get_status(app_dpll_status_t *status)
 
     osal_critical_enter();
     *status = s_dpll_status;
+    status->ready = s_app_ready;
+    osal_critical_exit();
+}
+
+void app_calibration_service(void)
+{
+    const uint32_t now_ms = board_uptime_ms();
+
+    osal_critical_enter();
+    if (s_calibration_status.service_count == 0u) {
+        s_calibration_status.first_service_ms = now_ms;
+    }
+    s_calibration_status.service_count++;
+    s_calibration_status.last_service_ms = now_ms;
+    s_calibration_status.ready = s_app_ready;
+    s_calibration_status.state = 0u;
+    osal_critical_exit();
+}
+
+void app_calibration_get_status(app_calibration_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+
+    osal_critical_enter();
+    *status = s_calibration_status;
     status->ready = s_app_ready;
     osal_critical_exit();
 }
@@ -703,6 +742,7 @@ void app_run_once(void)
     diagnostics_record_core0_loop();
     app_comm_service();
     app_loop_engine_service();
+    app_calibration_service();
     app_vdc_sync_service();
     app_dpll_service();
     app_config_gate_service();
@@ -719,6 +759,7 @@ void app_management_run_once(void)
     diagnostics_record_core0_loop();
     app_comm_service();
     app_loop_engine_service();
+    app_calibration_service();
     app_vdc_sync_service();
     app_dpll_service();
     app_config_gate_service();

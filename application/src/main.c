@@ -154,6 +154,21 @@ static void task_vdc_sync(void *context)
     }
 }
 
+static void task_calibration(void *context)
+{
+    (void)context;
+
+    while (true) {
+        if (!app_is_ready()) {
+            osal_task_delay_ms(1u);
+            continue;
+        }
+
+        app_calibration_service();
+        osal_task_delay_ms(1u);
+    }
+}
+
 static void task_dpll(void *context)
 {
     (void)context;
@@ -298,6 +313,13 @@ int main(void)
         .stack_words = 2048u,
         .priority = 4u,
     };
+    const osal_task_config_t calibration_task_config = {
+        .name = "calibration",
+        .entry = task_calibration,
+        .context = NULL,
+        .stack_words = 2048u,
+        .priority = 3u,
+    };
     const osal_task_config_t dpll_task_config = {
         .name = "dpll",
         .entry = task_dpll,
@@ -365,6 +387,10 @@ int main(void)
     }
     if (!osal_task_create(&vdc_sync_task_config, NULL)) {
         diagnostics_mark_fault("rtos", "vdc_sync task creation failed");
+        app_blink_fault_forever();
+    }
+    if (!osal_task_create(&calibration_task_config, NULL)) {
+        diagnostics_mark_fault("rtos", "calibration task creation failed");
         app_blink_fault_forever();
     }
     if (!osal_task_create(&dpll_task_config, NULL)) {

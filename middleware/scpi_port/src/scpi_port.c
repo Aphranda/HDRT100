@@ -17,6 +17,7 @@
 #include "pico/stdio.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
+#include "scpi_calibration_commands.h"
 #include "scpi/scpi.h"
 #include "scpi_product_commands.h"
 #include "scpi_usb_control.h"
@@ -326,7 +327,7 @@ static scpi_result_t scpi_cmd_rtos_status_q(scpi_t *context)
 {
     uint32_t heap_free = 0u;
     uint32_t heap_min_free = 0u;
-    osal_task_stats_t task_stats[12];
+    osal_task_stats_t task_stats[16];
     const uint32_t task_count =
         osal_task_get_stats(task_stats,
                             (uint32_t)(sizeof(task_stats) / sizeof(task_stats[0])));
@@ -3368,7 +3369,8 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
 #endif
     SCPI_PRODUCT_BUSINESS_COMMANDS,
-    SCPI_PRODUCT_CAL_SYNC_COMMANDS,
+    SCPI_CALIBRATION_COMMANDS,
+    SCPI_PRODUCT_SYNC_COMMANDS,
     {.pattern = "TRIGger:WIDTh", .callback = scpi_cmd_trigger_width},
     {.pattern = "TRIGger:WIDTh?", .callback = scpi_cmd_trigger_width_q},
     {.pattern = "TRIGger:IMMediate", .callback = scpi_cmd_trigger_fire},

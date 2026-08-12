@@ -65,10 +65,8 @@ def trim_embedded_log(line: str) -> str:
 def strip_leading_ack(line: str) -> str:
     if line.startswith('"OK[') or line.startswith('OK['):
         return ""
-    if line.startswith('"OK"'):
-        return line[4:].strip()
-    if line.startswith('OK"'):
-        return line[3:].strip()
+    if line in {'"OK"', "OK", 'OK"'}:
+        return ""
     return line
 
 

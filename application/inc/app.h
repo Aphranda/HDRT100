@@ -41,6 +41,19 @@ typedef struct {
 
 typedef struct {
     bool ready;
+    uint32_t state;
+    uint32_t service_count;
+    uint32_t first_service_ms;
+    uint32_t last_service_ms;
+    uint32_t command_seq;
+    uint32_t link_count;
+    uint32_t delay_count;
+    uint32_t active_crc32;
+    uint32_t last_error;
+} app_calibration_status_t;
+
+typedef struct {
+    bool ready;
     uint32_t gate_state;
     uint32_t service_count;
     uint32_t first_service_ms;
@@ -139,6 +152,8 @@ void app_vdc_sync_service(void);
 void app_vdc_sync_get_status(app_vdc_sync_status_t *status);
 void app_dpll_service(void);
 void app_dpll_get_status(app_dpll_status_t *status);
+void app_calibration_service(void);
+void app_calibration_get_status(app_calibration_status_t *status);
 void app_config_gate_service(void);
 void app_config_gate_get_status(app_config_gate_status_t *status);
 void app_config_gate_get_ack_status(app_config_ack_status_t *status);

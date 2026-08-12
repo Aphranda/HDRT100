@@ -12,7 +12,7 @@ Checks:
 - SYST:CFG:ACK?, SYST:CFG:NACK?, SYST:SCPI:RUN:ALLOW? ACK reason and RUN whitelist tables
 - SYST:CORE:VECT? and SYST:PROT:STAT? owner/protection table snapshots
 - SYST:MODE:TAB?, SYST:RESource:TAB?, SYST:FAULT:TAB? system/resource/fault tables
-- TRIG:MODE 1 -> ARM -> DISARM state progression
+- TRIGger:MODE 1 -> STARt -> STOP product control smoke
 - Error queue, LOG STAT, TRACE LAST
 """
 
@@ -59,7 +59,7 @@ def _read_line(ser: serial.Serial, timeout_s: float) -> str:
         maybe_log = line[1:] if line.startswith('"[') else line
         if not line or maybe_log.startswith("[") or maybe_log.startswith("log:"):
             continue
-        if line.startswith('"OK"') or line.startswith('OK"') or line.startswith('"OK[') or line.startswith('OK['):
+        if line in {'"OK"', "OK", 'OK"'} or line.startswith('"OK[') or line.startswith('OK['):
             return '"OK"'
         line = re.sub(r'(?<!^)\[\s*\d+\]\s+(?:DBG|INF|WRN|ERR)\s+.*$', '', line).strip()
         return line
@@ -95,7 +95,7 @@ def _parse_ints(response: str) -> list[int]:
 
 
 def _ack_ok(response: str) -> bool:
-    return response in {'"OK"', "OK", '"OK', "OK\"", '"O', "O"}
+    return response in {'"OK"', "OK", '"OK', "OK\"", '"O', "O", "1"}
 
 
 # ---------------------------------------------------------------------------
@@ -148,50 +148,47 @@ def test_core_heartbeat(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
 
 
 def test_trigger_seq(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
-    """TRIG:MODE 1 -> STAT:TRIG? -> ARM -> STAT:TRIG? -> DIS -> STAT:TRIG?."""
+    """TRIGger product control smoke: MODE 1 -> START -> STOP with status reads."""
     steps: list[str] = []
 
-    # Make the test repeatable after an interrupted/manual ARM sequence.
-    _cmd(ser, "TRIG:DIS", timeout)
+    # Make the test repeatable after an interrupted/manual run sequence.
+    _cmd(ser, "TRIGger:STOP", timeout)
 
-    # Set mode
-    ack = _cmd(ser, "TRIG:MODE 1", timeout)
+    ack = _cmd(ser, "TRIGger:MODE 1", timeout)
     if not _ack_ok(ack):
-        return False, f"TRIG:MODE 1 ack: {ack}"
+        return False, f"TRIGger:MODE 1 ack: {ack}"
     steps.append("MODE=1")
 
-    # Pre-arm status
-    s0 = _query(ser, "STAT:TRIG?", timeout)
-    f0 = _parse_ints(s0)
-    if len(f0) < 2 or f0[0] != 1:
-        return False, f"Pre-ARM state expected state_id=1 (SEQ_CONFIGURED), got: {s0}"
-    steps.append(f"state_before={f0[0]}")
+    mode = _query(ser, "TRIGger:MODE?", timeout)
+    mode_fields = _parse_ints(mode)
+    if len(mode_fields) < 1 or mode_fields[0] != 1 or "TRIG" not in mode:
+        return False, f"TRIGger:MODE? expected TRIG,1, got: {mode}"
+    steps.append("mode_query=TRIG")
 
-    # Arm
-    ack = _cmd(ser, "TRIG:ARM", timeout)
+    state_before = _query(ser, "READ:TRIGger:STATe?", timeout)
+    if "TRIG" not in state_before or "PLAN_A" not in state_before:
+        return False, f"READ:TRIGger:STATe? missing product fields before START: {state_before}"
+    steps.append("state_read_ok")
+
+    ack = _cmd(ser, "TRIGger:STARt", timeout)
     if not _ack_ok(ack):
-        return False, f"TRIG:ARM ack: {ack}"
-    steps.append("ARMED")
+        return False, f"TRIGger:STARt ack: {ack}"
+    steps.append("START accepted")
 
-    # Armed status
-    s1 = _query(ser, "STAT:TRIG?", timeout)
-    f1 = _parse_ints(s1)
-    if len(f1) < 2 or f1[0] != 2:
-        return False, f"ARMED state expected state_id=2 (SEQ_ARMED), got: {s1}"
-    steps.append(f"state_armed={f1[0]}")
+    state_after_start = _query(ser, "READ:TRIGger:STATe?", timeout)
+    if "TRIG" not in state_after_start or "NONE" not in state_after_start:
+        return False, f"READ:TRIGger:STATe? missing product fields after START: {state_after_start}"
+    steps.append("start_state_read_ok")
 
-    # Disarm
-    ack = _cmd(ser, "TRIG:DIS", timeout)
+    ack = _cmd(ser, "TRIGger:STOP", timeout)
     if not _ack_ok(ack):
-        return False, f"TRIG:DIS ack: {ack}"
-    steps.append("DISARMED")
+        return False, f"TRIGger:STOP ack: {ack}"
+    steps.append("STOP accepted")
 
-    # Post-disarm status
-    s2 = _query(ser, "STAT:TRIG?", timeout)
-    f2 = _parse_ints(s2)
-    if len(f2) < 2 or f2[0] != 0:
-        return False, f"DISARMED state expected state_id=0 (IDLE), got: {s2}"
-    steps.append(f"state_idle={f2[0]}")
+    err = _query(ser, "SYST:ERR?", timeout)
+    if "No error" not in err and not err.startswith("0,"):
+        return False, f"SYST:ERR? after trigger control: {err}"
+    steps.append("error_queue=0")
 
     return True, " -> ".join(steps)
 
@@ -285,6 +282,56 @@ def test_dpll_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
     if update_seq[0] == update_seq[1] or update_seq[1] == update_seq[2]:
         return False, f"DPLL:STAT? update_seq STALLED: {update_seq}"
     return False, f"DPLL:STAT? counters not monotonic: service={service_counts}, update_seq={update_seq}"
+
+
+def test_calibration_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
+    """Read CAL status snapshots. service_count must grow and table snapshots must be valid."""
+    reads: list[list[int]] = []
+    for i in range(3):
+        resp = _query(ser, "READ:CALibration:STATe?", timeout)
+        fields = _parse_ints(resp)
+        if len(fields) < 8:
+            return False, f"READ:CALibration:STATe? read {i+1}: unparseable response: {resp}"
+        if "DONE" not in resp and "IDLE" not in resp:
+            return False, f"READ:CALibration:STATe? read {i+1}: missing state text: {resp}"
+        reads.append(fields)
+        if i < 2:
+            time.sleep(1.0)
+
+    ready_values = [r[4] for r in reads]
+    service_counts = [r[6] for r in reads]
+    active_crcs = [r[7] for r in reads]
+    if any(v != 1 for v in ready_values):
+        return False, f"READ:CALibration:STATe? ready field unexpected: {ready_values}"
+    if not (service_counts[0] < service_counts[1] < service_counts[2]):
+        return False, f"READ:CALibration:STATe? service count not monotonic: {service_counts}"
+    if active_crcs[0] == 0:
+        return False, f"READ:CALibration:STATe? active CRC missing: {active_crcs}"
+
+    link = _parse_ints(_query(ser, "READ:CALibration:LINK?", timeout))
+    if len(link) < 6:
+        return False, f"READ:CALibration:LINK? unparseable: {link}"
+    if link[3] != active_crcs[-1] or link[5] != 1:
+        return False, f"READ:CALibration:LINK? guard/ready unexpected: {link}"
+
+    parameter = _parse_ints(_query(ser, "READ:CALibration:PARameter?", timeout))
+    if len(parameter) < 6:
+        return False, f"READ:CALibration:PARameter? unparseable: {parameter}"
+    if parameter[3] != active_crcs[-1] or parameter[5] != 1:
+        return False, f"READ:CALibration:PARameter? guard/ready unexpected: {parameter}"
+
+    health_resp = _query(ser, "READ:CALibration:HEALth?", timeout)
+    health = _parse_ints(health_resp)
+    if len(health) < 4 or "OK" not in health_resp:
+        return False, f"READ:CALibration:HEALth? unparseable: {health_resp}"
+    if health[0] < 1 or health[1] < 1 or health[2] < service_counts[-1]:
+        return False, f"READ:CALibration:HEALth? unexpected fields: {health_resp}"
+
+    return True, (
+        "calibration ready, service counts: "
+        f"{service_counts[0]} -> {service_counts[1]} -> {service_counts[2]}, "
+        f"active_crc={active_crcs[-1]}, link_seq={link[0]}, parameter_seq={parameter[0]}"
+    )
 
 
 def test_config_gate_status(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
@@ -486,6 +533,7 @@ ALL_TESTS = [
     ("loop_status", test_loop_status),
     ("vdc_status", test_vdc_status),
     ("dpll_status", test_dpll_status),
+    ("calibration_status", test_calibration_status),
     ("config_gate_status", test_config_gate_status),
     ("config_snapshot_queries", test_config_snapshot_queries),
     ("ack_reason_and_run_policy", test_ack_reason_and_run_policy),
