@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/SCPI_TASK_PROGRESS.md`
 Related: `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 本文档用于记录 DTC100 / RP2350_TRIG 工程中 SCPI 指令模块拆分、产品命令树收敛、
 板端烧录验证和工具闭环进度。每完成一个阶段，都应追加任务记录，说明目标、完成内容、
@@ -64,17 +64,17 @@ SYSTEM RUNTIME、SYSTEM DIAGNOSTICS/EVIDENCE、MEASURE 和 realtime 子域拆分
 response block 字段和产品验证脚本覆盖。`docs/DTC100_SCPI_COMMAND_PLANNING.md` 是本轮规范化
 评审基线，后续需要处理序列建模命名、角度/断点缩写、校准 link 动词、SYNC/VDC/DPLL 层级、
 通用 ACK/NACK、统计/T2/报告/MMEM 归属和 legacy alias 边界。底层实时验证入口统一以
-`REALtime:*` 作为维护域主入口，旧 `TRIGger:*` 底层入口只作为兼容 alias。realtime 内部基础组件
+`REALtime:*` 作为维护域主入口，旧 `TRIGger:*` 底层入口已经按组删除。realtime 内部基础组件
 实现排在指令规范化之后。
 
 Realtime 细分按内部基础组件推进，`SCPI_REALTIME_COMPONENT_COMMANDS` 保持聚合入口，
 子域目标为：
 
-- `scpi_realtime_pcnt_commands.c/.h`：`REALtime:PCNT:*`，转台脉冲输入计数、比较、门控和滤波基础组件；旧 `TRIGger:PCNT:*` 为 legacy alias。
-- `scpi_realtime_encoder_commands.c/.h`：`REALtime:ENC:*`，编码器计数触发配置和观测；旧 `TRIGger:ENC:*` 为 legacy alias。
-- `scpi_realtime_io_commands.c/.h`：`REALtime:IO:*` 即时 IO、采样和输出时钟；旧 `TRIGger/PULSe/MARKer/RJ45/SAMPle/OUTPut/STATus:SYNC?` 为 legacy alias。
-- `scpi_realtime_sequence_commands.c/.h`：`REALtime:SEQ:*`、`REALtime:SOURce/EDGE/GATE/SAFE`、`REALtime:ARM/DISarm/DISAble/FAULT`；旧 `TRIGger:*` 底层入口为 legacy alias。
-- `scpi_realtime_status_commands.c/.h`：`REALtime:STATus?` 和后续内部实时状态查询；旧 `STATus:TRIGger?` 为 legacy alias。
+- `scpi_realtime_pcnt_commands.c/.h`：`REALtime:PCNT:*`，转台脉冲输入计数、比较、门控和滤波基础组件；旧 `TRIGger:PCNT:*` 已删除。
+- `scpi_realtime_encoder_commands.c/.h`：`REALtime:ENC:*`，编码器计数触发配置和观测；旧 `TRIGger:ENC:*` 已删除。
+- `scpi_realtime_io_commands.c/.h`：`REALtime:IO:*` 即时 IO、采样和输出时钟；旧 `TRIGger/PULSe/MARKer/RJ45/SAMPle/OUTPut/STATus:SYNC?` 已删除。
+- `scpi_realtime_sequence_commands.c/.h`：`REALtime:SEQ:*`、`REALtime:SOURce/EDGE/GATE/SAFE`、`REALtime:ARM/DISarm/DISAble/FAULT`；旧 `TRIGger:*` 底层入口已删除。
+- `scpi_realtime_status_commands.c/.h`：`REALtime:STATus?` 和后续内部实时状态查询；旧 `STATus:TRIGger?` 已删除。
 
 拆分顺序为 PCNT -> ENC -> IO -> SEQ -> STATUS，已全部完成并完成板端闭环。每一步都必须构建、
 dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行产品 SCPI 板端验证。
@@ -99,10 +99,10 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 
 ### P1 - 通信和系统维护域收敛
 
-- [ ] `COMMunication:BISS:*` 作为 BiSS-C canonical 主入口，确认覆盖同等能力后删除
+- [x] `COMMunication:BISS:*` 作为 BiSS-C canonical 主入口，确认覆盖同等能力后删除
   `TRIGger:BISS:*` 和 `STATus:BISS?`。
-- [ ] `SYSTem:CONFigure:*`、`SYSTem:REFMem:*`、`SYSTem:CORE:VECTor?` 作为文档 canonical；
-  `SYSTem:CFG:*`、`SYSTem:REFM:*`、`SYSTem:CORE:VECT?` 保留为 legacy alias。
+- [ ] `SYSTem:CONFigure:*`、`SYSTem:REFMem:*`、`SYSTem:CORE:VECTor?` 作为系统维护 canonical；
+  确认覆盖后删除旧 `SYSTem:CFG:*`、`SYSTem:REFM:*`、`SYSTem:CORE:VECT?`，不保留兼容入口。
 - [ ] 裸 `STATus:*` 不进入产品主树；如后续实现 IEEE 488.2 status register，再单独规划。
 
 ### P2 - 重复读取和报告域收敛
@@ -113,6 +113,48 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   `CONFigure:SEQuence:ACTive` 的校验和门禁。
 
 ## 任务记录
+
+### SCPI-TASK-20260813-031 - 删除 BiSS-C 旧 TRIGger 通信入口
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 完成 P1 通信域首项：保留 `COMMunication:BISS:*` 作为 BiSS-C canonical 主入口。
+  - 删除旧 `TRIGger:BISS:*` 和 `STATus:BISS?`，避免产品 `TRIGger:*` 再承载 BiSS-C 底层协议配置。
+  - 通过构建、OTA 和实机逐条验证确认 canonical 可用、旧入口返回 undefined header。
+- 完成内容：
+  - `SCPI_COMMUNICATION_BISS_COMMANDS` 删除旧 `TRIGger:BISS:*` 和 `STATus:BISS?` pattern。
+  - `COMMunication:BISS:*` callback 和响应格式保持不变。
+  - P1 BiSS-C 待办标记完成。
+  - P1 系统维护别名策略按最新要求修正：`SYSTem:CFG:*`、`SYSTem:REFM:*`、
+    `SYSTem:CORE:VECT?` 后续同样删除，不保留兼容入口。
+- 验证结果：
+  - 代码检索确认 `middleware/scpi_port` 中不再注册旧 `TRIGger:BISS:*` 和 `STATus:BISS?`。
+  - `cmake --build build` 通过，build id：`20260812155051`，
+    `build\RP2350_TRIG_UPDATE.pkg` package CRC：`0x02B09C2D`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，
+    生成 `111` 条产品命令。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 通过，
+    生成 `57` 条 `REALtime:*` canonical 维护命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `git diff --check` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812155051"`，`SYSTem:OTA:SLOT? -> 1,0,2,1,0`。
+  - `SYSTem:OTA:COMMit` 通过，`SYSTem:OTA:SLOT? -> 1,0,1,0,0`，
+    `SYSTem:ERRor? -> 0,"No error"`。
+  - `python tools\biss_board_validate\biss_board_validate.py COM6 --skip-arm --skip-inject`
+    实机通过，输出目录 `build\biss_validation_scpi_comm_biss_alias_removal`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6 --out-dir build\product_scpi_validation_scpi_comm_biss_alias_removal`
+    实机通过：`summary: passed=True failed=0`。
+  - 逐条旧入口删除验证通过：旧 `TRIGger:BISS:*` 和 `STATus:BISS?` 共 `71` 条全部返回
+    `-113,"Undefined header"`。
+- 还需完成：
+  - 下一轮处理 P1 系统维护别名删除：
+    `SYSTem:CFG:*`、`SYSTem:REFM:*`、`SYSTem:CORE:VECT?`。
+- 关联文件：
+  - `docs/SCPI_TASK_PROGRESS.md`
+  - `middleware/scpi_port/inc/scpi_communication_biss_commands.h`
 
 ### SCPI-TASK-20260812-030 - 删除 realtime STATUS 旧 TRIGger 查询
 
