@@ -1222,10 +1222,102 @@ full:     RTOS + multicore smoke
 archive:  build-rtos-multicore-smoke/validation_scpi_sync_loop_boundary_fix_step1
 ```
 
-剩余 `scpi_port.c` 拆分规划按业务域推进，不再按“查询/状态”横切：
+第十四刀已经完成：
 
 ```text
-1. scpi_system_runtime_commands.c/.h
+split system runtime commands into scpi_system_runtime_commands.c/.h
+move *TST?, SYSTem:FW:*, SYSTem:BOOT:*,
+SYSTem:LOG:LEVel/LEVel?/STATus?, SYSTem:CORE?, SYSTem:RTOS:STATus?
+keep command names and response fields unchanged
+keep scpi_port.c owning libscpi context, stream I/O, reset/control, and command table assembly
+```
+
+板端验证结果：
+
+```text
+build_id: 20260812091932
+build:    build-rtos-multicore-smoke PASS
+flash:    picotool load -f -v -x RP2350_TRIG_FACTORY.uf2 PASS
+quick:    *IDN?, SYSTem:FW:BUILD?, *TST?, SYSTem:BOOT:CAPability?,
+          SYSTem:LOG:LEVel?, SYSTem:LOG:STATus?, SYSTem:CORE?,
+          SYSTem:RTOS:STATus? PASS
+product:  tools/product_scpi_validate/product_scpi_validate.py COM4 PASS
+full:     RTOS + multicore smoke 16/16 PASS
+errors:   SYSTem:ERRor:COUNt? -> 0; SYSTem:ERRor? -> 0,"No error"
+archive:  build-rtos-multicore-smoke/validation_scpi_system_runtime_split_step1
+archive:  build-rtos-multicore-smoke/validation_scpi_system_runtime_split_full
+note:     one parallel COM4 query failed with PermissionError while product validation
+          owned the port; the same query passed after running serially.
+```
+
+剩余 `scpi_port.c` 拆分待办按 `docs/DTC100_SCPI_COMMAND_PLANNING.md` 的产品指令树推进。
+拆分时必须把产品主流程和底层验证能力分开：产品模式继续使用
+`TRIGger:MODE 0..4 = IDLE/TRIG/CAL/SYNC/SIM`，不能再直接映射为
+`SEQ_STEP`、`ENC_COUNT` 或 `BISS` 等底层状态机模式。`SEQ_STEP`、`BiSS-C`、`ENC/PCNT`
+作为 A1 底层、四板通信和计数脉冲/预测分发的基础件保留，但默认挂在 validation/maintenance
+路径中，后续由 `task_loop_engine`、`task_vdc_sync` 和反射内存消费。
+
+```text
+1. scpi_biss_commands.c/.h
+   Scope:
+     TRIGger:BISS:*, STATus:BISS?
+   Position:
+     foundation / validation; BiSS-C is the future four-board communication base
+   Dependency:
+     BISS protocol constants, trigger vector/event queue, run-state policy
+   Risk:
+     medium-high, many parameters and timing-facing states
+   Validation:
+     representative BISS config/readback/status/error queue + full smoke
+
+2. scpi_pcnt_commands.c/.h
+   Scope:
+     TRIGger:ENC:*, TRIGger:PCNT:*
+   Position:
+     foundation / validation; ENC/PCNT is the base for count pulse, position event,
+     and distributed trigger prediction
+   Dependency:
+     trigger vector/event queue, run-state policy
+   Risk:
+     medium; compact, but it influences later position pulse semantics
+   Validation:
+     ENC/PCNT defaults, decode/direction/filter/gate/cmp/preset/clear/readback,
+     error queue + full smoke
+   Note:
+     ENC commands should gradually converge to PCNT-compatible aliases instead of
+     becoming a second product command family.
+
+3. scpi_validation_trigger_commands.c/.h
+   Scope:
+     TRIGger:SEQ:*, TRIGger:SOURce, TRIGger:EDGE, TRIGger:GATE, TRIGger:SAFE,
+     STATus:TRIGger?, and low-level ARM/DISarm/FAULT validation path when needed
+   Position:
+     foundation / validation; SEQ_STEP is A1 bottom-layer capability, not product
+     TRIGger:MODE 1
+   Dependency:
+     sync_trigger state machine, storage trace/fault evidence, debug stage variables
+   Risk:
+     high, this area caused previous TRIG:MODE/TRIG:ARM hang; split only after
+     local debug state is converted from scpi_port static globals to a small context API
+   Validation:
+     MODE compatibility checks, SEQ/ARM/DISarm/FAULT/debug path, repeated
+     SSCOM-equivalent queries, no LCD/USB hang, full smoke
+
+4. scpi_sync_io_commands.c/.h
+   Scope:
+     TRIGger/PULSe/MARKer/RJ45 width and immediate commands,
+     SAMPle:RATE/STATe, OUTPut:CLOCk:*, legacy STATus:SYNC?
+   Position:
+     sync_io / pulse validation; not product SYNC:VDC
+   Dependency:
+     sync_trigger event queue, sync_io_hw_profile, run-state policy
+   Risk:
+     medium, hardware-facing but still event based
+   Validation:
+     read back width/rate/state/pins, immediate pulse smoke, no trigger hang,
+     full smoke
+
+5. scpi_system_runtime_commands.c/.h
    Scope:
      *TST?, SYSTem:FW:*, SYSTem:BOOT:VERSion?/CAPability?,
      SYSTem:LOG:LEVel/LEVel?/STATus?, SYSTem:CORE?, SYSTem:RTOS:STATus?
@@ -1235,51 +1327,26 @@ archive:  build-rtos-multicore-smoke/validation_scpi_sync_loop_boundary_fix_step
      low, mostly read-only; LOG:LEVel is a small runtime setting
    Validation:
      IDN/FW/BOOT/LOG/CORE/RTOS/error queue + full smoke
+   Status:
+     done 2026-08-12: *TST?, SYSTem:FW:*, SYSTem:BOOT:*,
+     SYSTem:LOG:LEVel/LEVel?/STATus?, SYSTem:CORE?, and
+     SYSTem:RTOS:STATus? moved from scpi_port.c to scpi_system_runtime_commands.c/.h.
+     Verified by build-rtos-multicore-smoke, factory flash, quick runtime SCPI query,
+     product_scpi_validate.py, full RTOS + multicore smoke, and clean SCPI error queue.
 
-2. scpi_io_trigger_commands.c/.h
+6. scpi_system_diagnostics_commands.c/.h
    Scope:
-     TRIGger/PULSe/MARKer/RJ45 width and immediate commands,
-     SAMPle:RATE/STATe, OUTPut:CLOCk:*
+     SYSTem:TRIGger:DBG?, SYSTem:RESource?, SYSTem:FAULT:* and future
+     SYSTem:COMMand:ACK?
    Dependency:
-     sync_trigger event queue, sync_io_hw_profile, run-state policy
+     diagnostics snapshots, ResourceSlot, FaultSlot, ACK/NACK slots
    Risk:
-     medium, these are hardware-facing but still sync_trigger event based
+     medium; these commands are cross-domain diagnostic views and must not own
+     business facts
    Validation:
-     read back width/rate/state/pins, no trigger hang, full smoke
+     resource/fault/debug/ACK queries + error queue + full smoke
 
-3. scpi_legacy_trigger_commands.c/.h
-   Scope:
-     TRIGger:MODE, TRIGger:SEQ:*, TRIGger:ARM/DISarm/FAULT,
-     STATus:TRIGger?, ENC_COUNT legacy commands
-   Dependency:
-     sync_trigger state machine, storage trace/fault evidence, debug stage variables
-   Risk:
-     high, this area caused previous TRIG:MODE/TRIG:ARM hang; split only after
-     local debug state is converted from scpi_port static globals to a small context API
-   Validation:
-     MODE/SEQ/ARM/DISarm/FAULT/debug path, repeated SSCOM-equivalent queries, full smoke
-
-4. scpi_biss_commands.c/.h
-   Scope:
-     TRIGger:BISS:* and STATus:BISS?
-   Dependency:
-     BISS protocol constants, trigger vector/event queue, run-state policy
-   Risk:
-     medium-high, many parameters; split first with no behavior change, parser cleanup later
-   Validation:
-     representative BISS config/readback/status/error queue + full smoke
-
-5. scpi_pcnt_commands.c/.h
-   Scope:
-     TRIGger:PCNT:* counter decode/direction/filter/gate/cmp/preset/clear/readback
-   Dependency:
-     trigger vector/event queue, run-state policy
-   Risk:
-     medium, compact and separable from BISS
-   Validation:
-     PCNT readback/defaults + error queue + full smoke
-
-6. scpi_ota_commands.c/.h
+7. scpi_ota_commands.c/.h
    Scope:
      SYSTem:OTA:* including package begin/data/end/abort/boot/commit/status/result
    Dependency:
@@ -1296,7 +1363,7 @@ archive:  build-rtos-multicore-smoke/validation_scpi_sync_loop_boundary_fix_step
      --skip-release-check --skip-negative passed factory flash, baseline query, positive OTA,
      boot/commit, and final safe state.
 
-7. scpi_storage_commands.c/.h
+8. scpi_storage_commands.c/.h
    Scope:
      SYSTem:SD:*, SYSTem:STORage:*, SNAPshot/TRACE/FAULT last, MMEMory:*
    Dependency:
@@ -1322,7 +1389,7 @@ archive:  build-rtos-multicore-smoke/validation_scpi_sync_loop_boundary_fix_step
      cache points at the old D:/OneDrive path, so non-RTOS release build was re-verified in
      build-storage-release instead of mutating the stale build cache.
 
-8. scpi_measure_commands.c/.h
+9. scpi_measure_commands.c/.h
    Scope:
      MEASure:FREQuency?, MEASure:REPort?
    Dependency:

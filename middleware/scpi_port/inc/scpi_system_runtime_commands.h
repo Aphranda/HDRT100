@@ -1,0 +1,29 @@
+#ifndef SCPI_SYSTEM_RUNTIME_COMMANDS_H
+#define SCPI_SYSTEM_RUNTIME_COMMANDS_H
+
+#include "scpi/scpi.h"
+
+scpi_result_t scpi_cmd_core_tst_q(scpi_t *context);
+scpi_result_t scpi_cmd_firmware_version_q(scpi_t *context);
+scpi_result_t scpi_cmd_firmware_build_q(scpi_t *context);
+scpi_result_t scpi_cmd_bootloader_version_q(scpi_t *context);
+scpi_result_t scpi_cmd_bootloader_capability_q(scpi_t *context);
+scpi_result_t scpi_cmd_log_level(scpi_t *context);
+scpi_result_t scpi_cmd_log_level_q(scpi_t *context);
+scpi_result_t scpi_cmd_log_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_core_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_rtos_status_q(scpi_t *context);
+
+#define SCPI_SYSTEM_RUNTIME_COMMANDS \
+    {.pattern = "*TST?", .callback = scpi_cmd_core_tst_q}, \
+    {.pattern = "SYSTem:FW:VERSion?", .callback = scpi_cmd_firmware_version_q}, \
+    {.pattern = "SYSTem:FW:BUILD?", .callback = scpi_cmd_firmware_build_q}, \
+    {.pattern = "SYSTem:BOOT:VERSion?", .callback = scpi_cmd_bootloader_version_q}, \
+    {.pattern = "SYSTem:BOOT:CAPability?", .callback = scpi_cmd_bootloader_capability_q}, \
+    {.pattern = "SYSTem:LOG:LEVel", .callback = scpi_cmd_log_level}, \
+    {.pattern = "SYSTem:LOG:LEVel?", .callback = scpi_cmd_log_level_q}, \
+    {.pattern = "SYSTem:LOG:STATus?", .callback = scpi_cmd_log_status_q}, \
+    {.pattern = "SYSTem:CORE?", .callback = scpi_cmd_core_status_q}, \
+    {.pattern = "SYSTem:RTOS:STATus?", .callback = scpi_cmd_rtos_status_q}
+
+#endif

@@ -207,6 +207,7 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_ota_commands.c
         middleware/scpi_port/src/scpi_storage_commands.c
         middleware/scpi_port/src/scpi_sync_commands.c
+        middleware/scpi_port/src/scpi_system_runtime_commands.c
         middleware/scpi_port/src/scpi_system_snapshot_commands.c
         middleware/scpi_port/src/scpi_trigger_commands.c
         middleware/u8g2_port/src/u8g2_port.c
