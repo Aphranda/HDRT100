@@ -208,6 +208,7 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_storage_commands.c
         middleware/scpi_port/src/scpi_realtime_component_commands.c
         middleware/scpi_port/src/scpi_realtime_encoder_commands.c
+        middleware/scpi_port/src/scpi_realtime_io_commands.c
         middleware/scpi_port/src/scpi_realtime_pcnt_commands.c
         middleware/scpi_port/src/scpi_sync_commands.c
         middleware/scpi_port/src/scpi_system_access_commands.c

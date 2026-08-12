@@ -3,30 +3,9 @@
 
 #include "scpi/scpi.h"
 #include "scpi_realtime_encoder_commands.h"
+#include "scpi_realtime_io_commands.h"
 #include "scpi_realtime_pcnt_commands.h"
 
-scpi_result_t scpi_cmd_trigger_width(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_width_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_fire(scpi_t *context);
-scpi_result_t scpi_cmd_pulse_width(scpi_t *context);
-scpi_result_t scpi_cmd_pulse_width_q(scpi_t *context);
-scpi_result_t scpi_cmd_pulse_fire(scpi_t *context);
-scpi_result_t scpi_cmd_marker_width(scpi_t *context);
-scpi_result_t scpi_cmd_marker_width_q(scpi_t *context);
-scpi_result_t scpi_cmd_marker_fire(scpi_t *context);
-scpi_result_t scpi_cmd_rj45_trigger_width(scpi_t *context);
-scpi_result_t scpi_cmd_rj45_trigger_width_q(scpi_t *context);
-scpi_result_t scpi_cmd_rj45_trigger_fire(scpi_t *context);
-scpi_result_t scpi_cmd_rj45_trigger_pins_q(scpi_t *context);
-scpi_result_t scpi_cmd_sample_rate(scpi_t *context);
-scpi_result_t scpi_cmd_sample_rate_q(scpi_t *context);
-scpi_result_t scpi_cmd_sample_state(scpi_t *context);
-scpi_result_t scpi_cmd_sample_state_q(scpi_t *context);
-scpi_result_t scpi_cmd_clock_freq(scpi_t *context);
-scpi_result_t scpi_cmd_clock_freq_q(scpi_t *context);
-scpi_result_t scpi_cmd_clock_state(scpi_t *context);
-scpi_result_t scpi_cmd_clock_state_q(scpi_t *context);
-scpi_result_t scpi_cmd_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_seq_length(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_seq_length_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_seq_width(scpi_t *context);
@@ -48,28 +27,7 @@ scpi_result_t scpi_cmd_trigger_safe_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_status_q(scpi_t *context);
 
 #define SCPI_REALTIME_COMPONENT_COMMANDS \
-    {.pattern = "TRIGger:WIDTh", .callback = scpi_cmd_trigger_width}, \
-    {.pattern = "TRIGger:WIDTh?", .callback = scpi_cmd_trigger_width_q}, \
-    {.pattern = "TRIGger:IMMediate", .callback = scpi_cmd_trigger_fire}, \
-    {.pattern = "PULSe:WIDTh", .callback = scpi_cmd_pulse_width}, \
-    {.pattern = "PULSe:WIDTh?", .callback = scpi_cmd_pulse_width_q}, \
-    {.pattern = "PULSe:IMMediate", .callback = scpi_cmd_pulse_fire}, \
-    {.pattern = "MARKer:WIDTh", .callback = scpi_cmd_marker_width}, \
-    {.pattern = "MARKer:WIDTh?", .callback = scpi_cmd_marker_width_q}, \
-    {.pattern = "MARKer:IMMediate", .callback = scpi_cmd_marker_fire}, \
-    {.pattern = "RJ45:TRIGger:WIDTh", .callback = scpi_cmd_rj45_trigger_width}, \
-    {.pattern = "RJ45:TRIGger:WIDTh?", .callback = scpi_cmd_rj45_trigger_width_q}, \
-    {.pattern = "RJ45:TRIGger:IMMediate", .callback = scpi_cmd_rj45_trigger_fire}, \
-    {.pattern = "RJ45:TRIGger:PINs?", .callback = scpi_cmd_rj45_trigger_pins_q}, \
-    {.pattern = "SAMPle:RATE", .callback = scpi_cmd_sample_rate}, \
-    {.pattern = "SAMPle:RATE?", .callback = scpi_cmd_sample_rate_q}, \
-    {.pattern = "SAMPle:STATe", .callback = scpi_cmd_sample_state}, \
-    {.pattern = "SAMPle:STATe?", .callback = scpi_cmd_sample_state_q}, \
-    {.pattern = "OUTPut:CLOCk:FREQuency", .callback = scpi_cmd_clock_freq}, \
-    {.pattern = "OUTPut:CLOCk:FREQuency?", .callback = scpi_cmd_clock_freq_q}, \
-    {.pattern = "OUTPut:CLOCk:STATe", .callback = scpi_cmd_clock_state}, \
-    {.pattern = "OUTPut:CLOCk:STATe?", .callback = scpi_cmd_clock_state_q}, \
-    {.pattern = "STATus:SYNC?", .callback = scpi_cmd_status_q}, \
+    SCPI_REALTIME_IO_COMMANDS, \
     {.pattern = "TRIGger:SOURce", .callback = scpi_cmd_trigger_source}, \
     {.pattern = "TRIGger:SOURce?", .callback = scpi_cmd_trigger_source_q}, \
     {.pattern = "TRIGger:EDGE", .callback = scpi_cmd_trigger_edge}, \

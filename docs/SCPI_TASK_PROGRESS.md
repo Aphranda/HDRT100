@@ -76,6 +76,43 @@ RTOS + multicore smoke，并在可用 COM 口上执行产品 SCPI 板端验证�
 
 ## 任务记录
 
+### SCPI-TASK-20260812-021 - Realtime IO 命令细分
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 将 realtime 中的即时 IO、脉冲、标记、RJ45 触发、采样和输出时钟命令拆出。
+  - 保持 `SCPI_REALTIME_COMPONENT_COMMANDS` 作为聚合入口，继续降低
+    `scpi_realtime_component_commands.c` 的职责和文件长度。
+  - 验证拆分后产品 SCPI 命令数量、构建产物和板端行为不变化。
+- 完成内容：
+  - 新增 `scpi_realtime_io_commands.c/.h`。
+  - `TRIGger:WIDTh`、`TRIGger:IMMediate`、`PULSe:*`、`MARKer:*`、
+    `RJ45:TRIGger:*`、`SAMPle:*`、`OUTPut:CLOCk:*`、`STATus:SYNC?`
+    从 `scpi_realtime_component_commands.c` 移入 IO 子模块。
+  - `scpi_realtime_component_commands.h` 引入 `SCPI_REALTIME_IO_COMMANDS`，
+    与 PCNT、ENC 子模块一起组成 realtime 聚合入口。
+  - `CMakeLists.txt` 纳入新 IO 源文件。
+- 验证结果：
+  - `cmake --build build` 通过，build id：`20260812131915`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，
+    生成 `111` 条产品命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812131915"`。
+  - `SYSTem:OTA:COMMit` 后 `SYSTem:OTA:SLOT? -> 1,0,1,0,0`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_212109`。
+- 还需完成：
+  - 继续按计划拆分 `SEQ` 和 `STATUS` realtime 子域。
+- 关联文件：
+  - `middleware/scpi_port/src/scpi_realtime_component_commands.c`
+  - `middleware/scpi_port/inc/scpi_realtime_component_commands.h`
+  - `middleware/scpi_port/src/scpi_realtime_io_commands.c`
+  - `middleware/scpi_port/inc/scpi_realtime_io_commands.h`
+
 ### SCPI-TASK-20260812-020 - Realtime ENC 命令细分
 
 - 状态：完成
