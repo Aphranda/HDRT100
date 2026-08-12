@@ -79,7 +79,86 @@ Realtime 细分按内部基础组件推进，`SCPI_REALTIME_COMPONENT_COMMANDS` 
 拆分顺序为 PCNT -> ENC -> IO -> SEQ -> STATUS，已全部完成并完成板端闭环。每一步都必须构建、
 dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行产品 SCPI 板端验证。
 
+## SCPI 维护规范化待办
+
+按优先级推进，不一次性删除兼容入口。原则是先定义 canonical，再把 legacy alias 从产品/维护主宏中
+视觉拆出，验证脚本默认只覆盖 canonical，最后再评审是否删除 legacy。
+
+### P0 - 产品 TRIGger 域瘦身
+
+- [ ] 新建 legacy validation 命令聚合入口，集中注册旧 `TRIGger:PCNT/ENC/SEQ`、
+  `TRIGger:BISS:*`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut`、`STATus:TRIGger?` 等兼容命令。
+- [x] 从 `SCPI_REALTIME_SEQUENCE_COMMANDS` 拆出旧 `TRIGger:SOURce/EDGE/GATE/SAFE/SEQ/ARM/DISarm/FAULT`
+  alias，保留 `REALtime:*` canonical。
+- [ ] 从 `SCPI_REALTIME_PCNT_COMMANDS` 拆出旧 `TRIGger:PCNT:*` alias。
+- [ ] 从 `SCPI_REALTIME_ENCODER_COMMANDS` 拆出旧 `TRIGger:ENC:*` alias。
+- [ ] 从 `SCPI_REALTIME_IO_COMMANDS` 拆出裸 `TRIGger/PULSe/MARKer/RJ45/SAMPle/OUTPut/STATus:SYNC?`
+  alias。
+- [ ] 从 `SCPI_REALTIME_STATUS_COMMANDS` 拆出旧 `STATus:TRIGger?` alias。
+- [ ] 文档和验证脚本默认只使用 `REALtime:*`，legacy 验证后续通过显式 `--legacy` 选项进入。
+
+### P1 - 通信和系统维护域收敛
+
+- [ ] `COMMunication:BISS:*` 作为 BiSS-C canonical 主入口，`TRIGger:BISS:*` 和 `STATus:BISS?`
+  拆入 legacy validation。
+- [ ] `SYSTem:CONFigure:*`、`SYSTem:REFMem:*`、`SYSTem:CORE:VECTor?` 作为文档 canonical；
+  `SYSTem:CFG:*`、`SYSTem:REFM:*`、`SYSTem:CORE:VECT?` 保留为 legacy alias。
+- [ ] 裸 `STATus:*` 不进入产品主树；如后续实现 IEEE 488.2 status register，再单独规划。
+
+### P2 - 重复读取和报告域收敛
+
+- [ ] `SYSTem:RUN:SUMMary?` 作为 RUN 后摘要 canonical，`READ:RUN:SUMMary?` 保留兼容或主界面快捷查询。
+- [ ] `READ:SEQuence:ACTive?` 保留 active 序列摘要，`READ:SEQuence:CHECk?` 保留逐项预检结果。
+- [ ] `TRIGger:STARt [plan_id]` 保留受限便捷事务，但必须等价于“激活并启动”，不能绕过
+  `CONFigure:SEQuence:ACTive` 的校验和门禁。
+
 ## 任务记录
+
+### SCPI-TASK-20260812-026 - Legacy realtime sequence alias 拆出
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 按 P0 产品 `TRIGger` 域瘦身待办，先把底层 realtime sequence 的旧 `TRIGger:*` alias
+    从 canonical `SCPI_REALTIME_SEQUENCE_COMMANDS` 中拆出。
+  - 保持旧 alias 可用，不改变板端行为，只改变命令表归属边界。
+  - 建立后续 PCNT、ENC、IO、STATUS 和 BiSS legacy alias 继续迁移的聚合入口。
+- 完成内容：
+  - 新增 `middleware/scpi_port/inc/scpi_legacy_validation_commands.h`。
+  - 新增 `SCPI_LEGACY_REALTIME_SEQUENCE_COMMANDS`，集中注册旧
+    `TRIGger:SOURce/EDGE/GATE/SAFE/SEQ/ARM/DISarm/DISAble/FAULT` alias。
+  - `SCPI_REALTIME_SEQUENCE_COMMANDS` 只保留 `REALtime:*` canonical pattern。
+  - `scpi_port.c` 单独挂载 `SCPI_LEGACY_VALIDATION_COMMANDS`，让 legacy validation 与产品/维护
+    canonical 宏在代码结构上分离。
+  - 在本文档新增 SCPI 维护规范化待办，按 P0/P1/P2 记录后续收敛顺序。
+- 验证结果：
+  - `cmake --build build` 通过，build id：`20260812145629`，
+    `build\RP2350_TRIG_UPDATE.pkg` package CRC：`0x27884087`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，
+    生成 `111` 条产品命令。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 通过，
+    生成 `57` 条 `REALtime:*` canonical 维护命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `git diff --check` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812145629"`，`SYSTem:OTA:SLOT? -> 2,0,1,1,0`。
+  - `SYSTem:OTA:COMMit` 通过，`SYSTem:OTA:SLOT? -> 2,0,2,0,0`。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0 generated=57`。
+  - legacy alias 查询烟测通过：`TRIGger:SOURce? -> 16`、
+    `TRIGger:EDGE? -> "RISING",0`、`TRIGger:SEQ:INDex? -> 0`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_225816`。
+- 还需完成：
+  - 继续从 PCNT、ENC、IO、STATUS 和 BiSS canonical 宏中拆出 legacy alias。
+  - 后续为 validation 脚本增加显式 `--legacy` 选项，默认只验证 canonical。
+- 关联文件：
+  - `docs/SCPI_TASK_PROGRESS.md`
+  - `middleware/scpi_port/inc/scpi_legacy_validation_commands.h`
+  - `middleware/scpi_port/inc/scpi_realtime_sequence_commands.h`
+  - `middleware/scpi_port/src/scpi_port.c`
 
 ### SCPI-TASK-20260812-025 - REALtime IO 输出命名去 TRIGger
 

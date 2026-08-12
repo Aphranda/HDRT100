@@ -17,6 +17,7 @@
 #include "scpi_communication_biss_commands.h"
 #include "scpi_config_commands.h"
 #include "scpi/scpi.h"
+#include "scpi_legacy_validation_commands.h"
 #include "scpi_loop_engine_commands.h"
 #include "scpi_measure_commands.h"
 #include "scpi_ota_commands.h"
@@ -269,6 +270,7 @@ static const scpi_command_t s_scpi_commands[] = {
     SCPI_SYNC_COMMANDS,
     SCPI_TRIGGER_COMMANDS,
     SCPI_REALTIME_COMPONENT_COMMANDS,
+    SCPI_LEGACY_VALIDATION_COMMANDS,
     SCPI_COMMUNICATION_BISS_COMMANDS,
     SCPI_OTA_COMMANDS,
 #if PROJECT_ENABLE_USB_RUNTIME_SWITCH
