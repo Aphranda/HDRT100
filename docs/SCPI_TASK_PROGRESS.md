@@ -76,6 +76,40 @@ RTOS + multicore smoke，并在可用 COM 口上执行产品 SCPI 板端验证�
 
 ## 任务记录
 
+### SCPI-TASK-20260812-020 - Realtime ENC 命令细分
+
+- 状态：完成
+- 日期：2026-08-12
+- 任务目标：
+  - 将 `TRIGger:ENC:*` 从 realtime 大文件中拆出，作为编码器计数触发基础组件。
+  - 保持 `SCPI_REALTIME_COMPONENT_COMMANDS` 聚合入口不变，避免影响 `scpi_port.c`。
+  - 继续按 PCNT 拆分模板推进 realtime 子域细化。
+- 完成内容：
+  - 新增 `scpi_realtime_encoder_commands.c/.h`。
+  - `TRIGger:ENC:TARGet/TARGet?/COUNt?/APIN/APIN?/REVolution?`
+    从 `scpi_realtime_component_commands.c` 移入 ENC 子模块。
+  - `scpi_realtime_component_commands.h` 引入 `SCPI_REALTIME_ENCODER_COMMANDS`，
+    与 `SCPI_REALTIME_PCNT_COMMANDS` 一起保持 realtime 聚合入口。
+  - `CMakeLists.txt` 纳入新 ENC 源文件。
+- 验证结果：
+  - `cmake --build build` 通过，build id：`20260812130437`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，生成 `111` 条产品命令。
+  - `python tools\docs_check\docs_check.py` 通过，保留 9 个历史文件命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - OTA 通过 COM6 写入 `build\RP2350_TRIG_UPDATE.pkg`，`SYSTem:OTA:BOOT` 后运行
+    `SYSTem:FW:BUILD? -> "20260812130437"`。
+  - `SYSTem:OTA:COMMit` 后 `SYSTem:OTA:SLOT? -> 2,0,2,0,0`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py COM6` 实机通过：
+    `summary: passed=True failed=0`，输出目录
+    `build\product_scpi_validation_20260812_210636`。
+- 还需完成：
+  - 继续按计划拆分 `IO`、`SEQ` 和 `STATUS` realtime 子域。
+- 关联文件：
+  - `middleware/scpi_port/src/scpi_realtime_component_commands.c`
+  - `middleware/scpi_port/inc/scpi_realtime_component_commands.h`
+  - `middleware/scpi_port/src/scpi_realtime_encoder_commands.c`
+  - `middleware/scpi_port/inc/scpi_realtime_encoder_commands.h`
+
 ### SCPI-TASK-20260812-019 - Realtime PCNT 命令细分
 
 - 状态：完成
