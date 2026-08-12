@@ -1,6 +1,6 @@
 #include "scpi_trigger_commands.h"
 
-scpi_result_t scpi_product_trigger_state_q(scpi_t *context)
+scpi_result_t scpi_trigger_state_q(scpi_t *context)
 {
     SCPI_ResultText(context, "TRIG");
     SCPI_ResultText(context, "IDLE");

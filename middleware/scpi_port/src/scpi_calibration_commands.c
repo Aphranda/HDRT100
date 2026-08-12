@@ -2,7 +2,7 @@
 
 #include "app.h"
 
-scpi_result_t scpi_product_cal_link_q(scpi_t *context)
+scpi_result_t scpi_calibration_link_q(scpi_t *context)
 {
     app_calibration_status_t status;
     app_calibration_get_status(&status);
@@ -25,7 +25,7 @@ scpi_result_t scpi_product_cal_link_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_cal_delay_q(scpi_t *context)
+scpi_result_t scpi_calibration_parameter_q(scpi_t *context)
 {
     app_calibration_status_t status;
     app_calibration_get_status(&status);
@@ -49,7 +49,7 @@ scpi_result_t scpi_product_cal_delay_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_cal_result_q(scpi_t *context)
+scpi_result_t scpi_calibration_result_q(scpi_t *context)
 {
     app_calibration_status_t status;
     app_calibration_get_status(&status);
@@ -70,7 +70,7 @@ scpi_result_t scpi_product_cal_result_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_cal_list_q(scpi_t *context)
+scpi_result_t scpi_calibration_list_q(scpi_t *context)
 {
     SCPI_ResultText(context, "FIELD_DEFAULT");
     SCPI_ResultUInt32(context, 0x10000003u);
@@ -80,7 +80,7 @@ scpi_result_t scpi_product_cal_list_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_cal_active_q(scpi_t *context)
+scpi_result_t scpi_calibration_active_q(scpi_t *context)
 {
     app_calibration_status_t status;
     app_calibration_get_status(&status);
@@ -94,7 +94,7 @@ scpi_result_t scpi_product_cal_active_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_cal_meta_q(scpi_t *context)
+scpi_result_t scpi_calibration_meta_q(scpi_t *context)
 {
     SCPI_ResultText(context, "FIELD_DEFAULT");
     SCPI_ResultText(context, "OP");
@@ -105,7 +105,7 @@ scpi_result_t scpi_product_cal_meta_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_cal_health_q(scpi_t *context)
+scpi_result_t scpi_calibration_health_q(scpi_t *context)
 {
     app_calibration_status_t status;
     app_calibration_get_status(&status);
@@ -119,7 +119,7 @@ scpi_result_t scpi_product_cal_health_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_cal_limit_q(scpi_t *context)
+scpi_result_t scpi_calibration_limit_q(scpi_t *context)
 {
     SCPI_ResultText(context, "DEFAULT");
     SCPI_ResultText(context, "SMA");

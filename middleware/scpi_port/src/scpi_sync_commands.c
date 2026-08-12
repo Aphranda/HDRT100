@@ -3,7 +3,7 @@
 #include "app.h"
 #include "project_config.h"
 
-scpi_result_t scpi_product_sync_state_q(scpi_t *context)
+scpi_result_t scpi_sync_state_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, 1u);
     SCPI_ResultUInt32(context, 1u);
@@ -34,7 +34,7 @@ scpi_result_t scpi_product_sync_state_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sync_parameter_q(scpi_t *context)
+scpi_result_t scpi_sync_parameter_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, 1u);
     SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
@@ -55,7 +55,7 @@ scpi_result_t scpi_product_sync_parameter_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sync_health_q(scpi_t *context)
+scpi_result_t scpi_sync_health_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, 1u);
     SCPI_ResultUInt32(context, 0u);
@@ -72,7 +72,7 @@ scpi_result_t scpi_product_sync_health_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sync_node_q(scpi_t *context)
+scpi_result_t scpi_sync_node_q(scpi_t *context)
 {
     SCPI_ResultText(context, "A0");
     SCPI_ResultText(context, "ORIGIN");
@@ -93,7 +93,7 @@ scpi_result_t scpi_product_sync_node_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sync_check_q(scpi_t *context)
+scpi_result_t scpi_sync_check_q(scpi_t *context)
 {
     SCPI_ResultText(context, "PASS");
     SCPI_ResultText(context, "ACTIVE");
@@ -114,7 +114,7 @@ scpi_result_t scpi_product_sync_check_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sync_list_q(scpi_t *context)
+scpi_result_t scpi_sync_list_q(scpi_t *context)
 {
     SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
     SCPI_ResultUInt32(context, 0x20000002u);
@@ -124,7 +124,7 @@ scpi_result_t scpi_product_sync_list_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sync_active_q(scpi_t *context)
+scpi_result_t scpi_sync_active_q(scpi_t *context)
 {
     SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
     SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
@@ -136,7 +136,7 @@ scpi_result_t scpi_product_sync_active_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sync_quality_q(scpi_t *context)
+scpi_result_t scpi_sync_quality_q(scpi_t *context)
 {
     SCPI_ResultText(context, "OK");
     SCPI_ResultUInt32(context, 0u);
@@ -153,7 +153,7 @@ scpi_result_t scpi_product_sync_quality_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sync_version_q(scpi_t *context)
+scpi_result_t scpi_sync_version_q(scpi_t *context)
 {
     SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
     SCPI_ResultText(context, "FIELD_DEFAULT");
@@ -163,7 +163,7 @@ scpi_result_t scpi_product_sync_version_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sync_override_q(scpi_t *context)
+scpi_result_t scpi_sync_override_q(scpi_t *context)
 {
     SCPI_ResultBool(context, FALSE);
     SCPI_ResultText(context, "PROFILE");
@@ -173,7 +173,7 @@ scpi_result_t scpi_product_sync_override_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sync_coef_q(scpi_t *context)
+scpi_result_t scpi_sync_coef_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, 0u);
     SCPI_ResultUInt32(context, 0u);

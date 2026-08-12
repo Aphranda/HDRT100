@@ -14,17 +14,17 @@
 #include "pico/error.h"
 #include "pico/stdio.h"
 #include "project_config.h"
-#include "resource_arbiter.h"
 #include "scpi_calibration_commands.h"
 #include "scpi_config_commands.h"
 #include "scpi/scpi.h"
 #include "scpi_loop_engine_commands.h"
+#include "scpi_measure_commands.h"
 #include "scpi_ota_commands.h"
 #include "scpi_port_internal.h"
-#include "scpi_product_commands.h"
-#include "scpi_report_commands.h"
 #include "scpi_sync_commands.h"
 #include "scpi_storage_commands.h"
+#include "scpi_system_access_commands.h"
+#include "scpi_system_diagnostics_commands.h"
 #include "scpi_system_runtime_commands.h"
 #include "scpi_system_snapshot_commands.h"
 #include "scpi_trigger_commands.h"
@@ -32,7 +32,6 @@
 #include "storage_manager.h"
 #include "sync_trigger.h"
 #include "sync_io_hw_profile.h"
-#include "trigger_measure.h"
 
 #define SCPI_PORT_INPUT_BUFFER_LENGTH 768u
 #define SCPI_PORT_ERROR_QUEUE_SIZE    16
@@ -145,9 +144,10 @@ scpi_result_t scpi_port_result_ok(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-static const char *scpi_port_owner_or_dash(const char *owner)
+scpi_result_t scpi_port_result_accepted(scpi_t *context)
 {
-    return owner != NULL ? owner : "-";
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
 }
 
 static void scpi_port_get_trigger_summary(sync_trigger_summary_t *summary)
@@ -213,34 +213,19 @@ bool scpi_port_reject_if_run_forbidden(scpi_t *context, uint32_t class_id)
     return true;
 }
 
-static scpi_result_t scpi_cmd_trigger_debug_q(scpi_t *context)
+void scpi_port_get_trigger_debug_snapshot(uint32_t *stage,
+                                          uint32_t *mode,
+                                          uint32_t *posted)
 {
-    uint32_t sync_stage = 0u;
-    uint32_t sync_event = 0u;
-    uint32_t sync_state = 0u;
-    uint32_t sync_error = 0u;
-    sync_trigger_get_debug(&sync_stage, &sync_event, &sync_state, &sync_error);
-
-    SCPI_ResultUInt32(context, s_scpi_trigger_debug_stage);
-    SCPI_ResultUInt32(context, s_scpi_trigger_debug_mode);
-    SCPI_ResultUInt32(context, s_scpi_trigger_debug_posted);
-    SCPI_ResultUInt32(context, sync_stage);
-    SCPI_ResultUInt32(context, sync_event);
-    SCPI_ResultUInt32(context, sync_state);
-    SCPI_ResultUInt32(context, sync_error);
-    return SCPI_RES_OK;
-}
-
-static scpi_result_t scpi_cmd_resource_status_q(scpi_t *context)
-{
-    resource_arbiter_snapshot_t snapshot;
-    resource_arbiter_get_snapshot(&snapshot);
-
-    SCPI_ResultUInt32(context, snapshot.active_resources);
-    SCPI_ResultUInt32(context, snapshot.last_conflict_resources);
-    SCPI_ResultText(context, scpi_port_owner_or_dash(snapshot.last_conflict_owner));
-    SCPI_ResultText(context, scpi_port_owner_or_dash(snapshot.last_conflict_holder));
-    return SCPI_RES_OK;
+    if (stage != NULL) {
+        *stage = s_scpi_trigger_debug_stage;
+    }
+    if (mode != NULL) {
+        *mode = s_scpi_trigger_debug_mode;
+    }
+    if (posted != NULL) {
+        *posted = s_scpi_trigger_debug_posted;
+    }
 }
 
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
@@ -546,7 +531,7 @@ static void scpi_trigger_prepare_default_seq(void)
     }
 }
 
-static const char *scpi_product_trigger_mode_to_string(uint32_t mode)
+static const char *scpi_trigger_control_mode_to_string(uint32_t mode)
 {
     switch (mode) {
     case 0u: return "IDLE";
@@ -558,7 +543,7 @@ static const char *scpi_product_trigger_mode_to_string(uint32_t mode)
     }
 }
 
-static const char *scpi_product_trigger_state_to_string(trig_state_t state)
+static const char *scpi_trigger_control_state_to_string(trig_state_t state)
 {
     switch (state) {
     case TRIG_STATE_IDLE:           return "IDLE";
@@ -620,9 +605,9 @@ static scpi_result_t scpi_cmd_trigger_mode_q(scpi_t *context)
 {
     trigger_vector_t vector;
     sync_trigger_get_vector(&vector);
-    SCPI_ResultText(context, scpi_product_trigger_mode_to_string(s_product_trigger_mode));
+    SCPI_ResultText(context, scpi_trigger_control_mode_to_string(s_product_trigger_mode));
     SCPI_ResultUInt32(context, s_product_trigger_mode);
-    SCPI_ResultText(context, scpi_product_trigger_state_to_string(vector.state));
+    SCPI_ResultText(context, scpi_trigger_control_state_to_string(vector.state));
     SCPI_ResultText(context, "ALLOW");
     SCPI_ResultText(context, vector.error_code == TRIG_ERROR_NONE ? "NONE" : "ERROR");
     return SCPI_RES_OK;
@@ -1879,34 +1864,6 @@ static scpi_result_t scpi_cmd_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-/* ── 触发测量 (同步自检) ── */
-
-static scpi_result_t scpi_cmd_meas_freq_q(scpi_t *context)
-{
-    uint32_t gate_ms = 1000u;
-    scpi_port_read_u32(context, &gate_ms);
-    if (gate_ms < 10u || gate_ms > 60000u) {
-        gate_ms = 1000u;
-    }
-    const uint32_t freq_hz = trigger_measure_quick_freq_hz(gate_ms);
-    SCPI_ResultUInt32(context, freq_hz);
-    return SCPI_RES_OK;
-}
-
-static scpi_result_t scpi_cmd_meas_report_q(scpi_t *context)
-{
-    trigger_measure_report_t report;
-    if (!trigger_measure_get_report(&report)) {
-        return SCPI_RES_ERR;
-    }
-    SCPI_ResultUInt32(context, report.freq_hz);
-    SCPI_ResultUInt32(context, report.period_ns);
-    SCPI_ResultUInt32(context, report.trigger_count);
-    SCPI_ResultUInt32(context, report.elapsed_us);
-    SCPI_ResultUInt32(context, report.jitter_est_ppm);
-    return SCPI_RES_OK;
-}
-
 static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "*CLS", .callback = SCPI_CoreCls},
     {.pattern = "*ESE", .callback = SCPI_CoreEse},
@@ -1924,17 +1881,15 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:ERRor[:NEXT]?", .callback = SCPI_SystemErrorNextQ},
     {.pattern = "SYSTem:ERRor:COUNt?", .callback = SCPI_SystemErrorCountQ},
     {.pattern = "SYSTem:VERSion?", .callback = SCPI_SystemVersionQ},
-    SCPI_REPORT_SYSTEM_COMMANDS,
+    SCPI_SYSTEM_DIAGNOSTICS_COMMANDS,
     SCPI_SYSTEM_SNAPSHOT_COMMANDS,
-    SCPI_PRODUCT_SYSTEM_PERMISSION_COMMANDS,
+    SCPI_SYSTEM_ACCESS_COMMANDS,
     SCPI_LOOP_ENGINE_COMMANDS,
-    {.pattern = "SYSTem:TRIGger:DBG?", .callback = scpi_cmd_trigger_debug_q},
-    {.pattern = "SYSTem:RESource?", .callback = scpi_cmd_resource_status_q},
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
 #endif
     SCPI_CONFIG_COMMANDS,
-    SCPI_REPORT_READ_COMMANDS,
+    SCPI_SYSTEM_DIAGNOSTICS_READ_COMMANDS,
     SCPI_CALIBRATION_COMMANDS,
     SCPI_SYNC_COMMANDS,
     {.pattern = "TRIGger:WIDTh", .callback = scpi_cmd_trigger_width},
@@ -2078,8 +2033,7 @@ static const scpi_command_t s_scpi_commands[] = {
     SCPI_USB_CONTROL_COMMANDS,
 #endif
     SCPI_STORAGE_COMMANDS,
-    {.pattern = "MEASure:FREQuency?", .callback = scpi_cmd_meas_freq_q},
-    {.pattern = "MEASure:REPort?", .callback = scpi_cmd_meas_report_q},
+    SCPI_MEASURE_COMMANDS,
     SCPI_CMD_LIST_END,
 };
 

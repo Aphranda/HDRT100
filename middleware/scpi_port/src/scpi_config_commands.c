@@ -1,6 +1,6 @@
 #include "scpi_config_commands.h"
 
-scpi_result_t scpi_product_trigger_parameter_q(scpi_t *context)
+scpi_result_t scpi_config_trigger_parameter_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, 8u);
     SCPI_ResultUInt32(context, 2u);
@@ -14,7 +14,7 @@ scpi_result_t scpi_product_trigger_parameter_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_angle_sweep_q(scpi_t *context)
+scpi_result_t scpi_config_angle_sweep_q(scpi_t *context)
 {
     SCPI_ResultInt32(context, -10);
     SCPI_ResultInt32(context, 370);
@@ -24,7 +24,7 @@ scpi_result_t scpi_product_angle_sweep_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_angle_pulse_q(scpi_t *context)
+scpi_result_t scpi_config_angle_pulse_q(scpi_t *context)
 {
     SCPI_ResultText(context, "RISING");
     SCPI_ResultUInt32(context, 10u);
@@ -38,7 +38,7 @@ scpi_result_t scpi_product_angle_pulse_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_angle_position_q(scpi_t *context)
+scpi_result_t scpi_config_angle_position_q(scpi_t *context)
 {
     SCPI_ResultText(context, "DTC_SWEEP");
     SCPI_ResultUInt32(context, 0u);
@@ -53,7 +53,7 @@ scpi_result_t scpi_product_angle_position_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_angle_breakpoint_q(scpi_t *context)
+scpi_result_t scpi_config_angle_breakpoint_q(scpi_t *context)
 {
     SCPI_ResultInt32(context, 0);
     SCPI_ResultBool(context, FALSE);
@@ -62,7 +62,7 @@ scpi_result_t scpi_product_angle_breakpoint_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sequence_q(scpi_t *context)
+scpi_result_t scpi_config_sequence_q(scpi_t *context)
 {
     SCPI_ResultText(context, "PLAN_A");
     SCPI_ResultUInt32(context, 0u);
@@ -78,7 +78,7 @@ scpi_result_t scpi_product_sequence_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sequence_map_q(scpi_t *context)
+scpi_result_t scpi_config_sequence_map_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, 0u);
     SCPI_ResultUInt32(context, 1u);
@@ -89,7 +89,7 @@ scpi_result_t scpi_product_sequence_map_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sequence_check_q(scpi_t *context)
+scpi_result_t scpi_config_sequence_check_q(scpi_t *context)
 {
     SCPI_ResultText(context, "PLAN_A");
     SCPI_ResultUInt32(context, 6u);
@@ -106,7 +106,7 @@ scpi_result_t scpi_product_sequence_check_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_sequence_active_q(scpi_t *context)
+scpi_result_t scpi_config_sequence_active_q(scpi_t *context)
 {
     SCPI_ResultText(context, "PLAN_A");
     SCPI_ResultUInt32(context, 0x02030405u);
@@ -117,7 +117,7 @@ scpi_result_t scpi_product_sequence_active_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_switch_q(scpi_t *context)
+scpi_result_t scpi_config_switch_q(scpi_t *context)
 {
     int32_t numbers[1];
     SCPI_CommandNumbers(context, numbers, 1u, 1);

@@ -3,7 +3,7 @@
 Status: Draft
 Domain: RTOS
 Canonical: `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
-Related: `docs/RTOS_PORTING_PLAN.md`, `docs/MULTICORE_PARTITION_PLAN.md`, `docs/TRIGGER_SYNC_TODO.md`, `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+Related: `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`, `docs/SCPI_TASK_PROGRESS.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/MULTICORE_PARTITION_PLAN.md`, `docs/TRIGGER_SYNC_TODO.md`, `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-12
 
 本文档把《RP1200波导天线 RP 分布式触发方案技术报告 0804》落成 RP2350_TRIG
@@ -740,26 +740,21 @@ core1 禁止：
 
 ### P0 - 任务边界固化
 
+进度与板端验证详见 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
+
 - [x] 将当前 `task_io_frontend` 拆为 `task_usb_device` 和 `task_scpi`。
-  2026-08-10: build `20260810104144` 已烧录验证，RTOS task list 显示 `usb_device` 和 `scpi`。
 - [x] 将 `app_comm_service()` 拆为 `app_usb_device_service()` 和 `app_scpi_service()`。
-  2026-08-10: 裸机路径保留 `app_comm_service()` wrapper，FreeRTOS 路径由两个任务直接调用。
 - [x] 让 `SYST:RTOS:STAT?` 显示拆分后的任务水位。
-  2026-08-10: `usb_device` used 32 words，`scpi` used 1166 words，heap min free 73584 bytes。
 - [x] 保持当前 `TRIG:MODE 1 -> TRIG:ARM -> TRIG:DIS` 板端 smoke 通过。
-  2026-08-10: `tools/multicore_board_validate` 5/5 PASS，结果归档 `build-rtos-multicore-smoke/validation_split_usb_scpi_step1`。
 - [x] 建立 `task_loop_engine` 空壳，只计数和响应状态查询，不接业务。
-  2026-08-10: 已增加 `task_loop_engine` RTOS 任务、`LOOP:STAT?` / `STAT:LOOP?` 只读查询，以及本地 service_count/first_service_ms/last_service_ms 快照。
 - [x] 建立 `task_vdc_sync` 空壳，只维护 lock 状态和统计计数。
-  2026-08-10: build `20260810124245` 已烧录验证，VDC 状态返回 ready、lock_state、service_count、first/last service ms 和 sync_seq，计数持续增长。后续规范入口为 `SYSTem:SYNC:VDC:STATus?`。
 - [x] 建立 `task_dpll` 空壳，只维护 disabled/ready 状态。
-  2026-08-10: build `20260810124902` 已烧录验证，DPLL 状态返回 ready、state、service_count、first/last service ms 和 update_seq，计数持续增长。后续规范入口为 `SYSTem:SYNC:VDC:DPLL:STATus?`。
 - [x] 建立 `task_refmem_sync` 空壳，按 64 KB 完整布局维护本地 DistributedVectorTable header、node slot 和 heartbeat。
-  2026-08-10: build `20260810110636` 已烧录验证，`SYST:RTOS:STAT?` 显示 `refmem_sync`，本地 heartbeat 持续增长；NodeSlot 预留 8 个节点。
 - [x] 增加本地 DistributedVectorTable snapshot 查询，先不做跨板同步。
-  2026-08-10: 已增加 `SYST:REFM:STAT?` / `SYST:REFM:NODE?`，返回 64 KB table、layout version、table_seq 和本节点 slot 快照。
 
 ### P1 - 反射内存与快照一致性
+
+已完成项的板端验证详见 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
 
 - [ ] 定义 `distributed_vector_table.h`，冻结 64 KB 完整表 layout、slot offset、slot size 和 layout version。
 - [ ] 在链接脚本/配置中为 DistributedVectorTable 预留 64 KB 预算，避免后续扩容破坏协议。
@@ -772,15 +767,11 @@ core1 禁止：
 - [ ] 实现命令槽原子 Take/Clear，执行动作保持在临界区外。
 - [ ] 将 core1 trigger status ring 合并到本节点 TriggerSlot 摘要。
 - [x] 定义 `CoreVectorOwnerTable`，统一记录 core0/core1 VTOR、IRQ owner、entry owner、park/lockout 状态和恢复原因码。
-  2026-08-10: 已在 DistributedVectorTable header 中加入 core0/core1 VTOR owner、IRQ owner mask、entry table owner 和 guard 字段，并通过 `SYST:CORE:VECT?` 查询。
 - [x] 定义 `RuntimeProtectionTable`，把 RAM-resident section、flash lockout/park、entry table owner、realtime IRQ owner 写入表头或 slot 元素。
-  2026-08-10: 已在 DistributedVectorTable header 中加入 RAM-resident、flash lockout/park 和 entry owner 状态，并通过 `SYST:PROT:STAT?` 查询。
 - [x] 定义 `SystemModeTable`、`ResourceArbiterTable` 和 `FaultCodeTable` 的只读查询接口，作为产品门禁和诊断入口。
-  2026-08-10: 已新增 `SYST:MODE:TAB?`、`SYST:RESource:TAB?`、`SYST:FAULT:TAB?`，分别暴露系统模式、资源仲裁和产品故障码只读表。
 - [ ] 为所有共享表项统一补齐 `table_seq / slot_seq / owner / crc / stale / flags` 字段，保证反射内存口径一致。
 - [ ] 将 `table_seq / slot_seq / owner / crc / stale / flags` 统一纳入 CAL/SYNC/SEQUENCE 对外响应字段，至少覆盖 `link table`、`delay table`、`sync state block`、`sync node block`、`sequence active block`、`check block` 和 `quality block`。
 - [x] 增加 `SYST:REFM:STAT?` / `SYST:REFM:NODE?` 诊断命令。
-  2026-08-10: P0 本地快照命令已接入，后续 stale/CRC/slot owner 完成后继续扩展字段语义。
 - [ ] 增加 `OK/STALE/MISSING/INVALID/FAULT` 节点新鲜度状态和 stale window 计数。
 - [ ] 将节点新鲜度状态纳入 `SYNC:CHECk`、`READ:SYNC:STATe?`、`READ:SYNC:NODE?` 和 TRIG RUN 门禁，明确 `STALE/MISSING/INVALID/FAULT` 的拒绝原因。
 
@@ -801,18 +792,14 @@ core1 禁止：
 
 ### P3 - A0/A3 控制面
 
+已完成项的实现与验证记录详见 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
+
 - [x] 建立配置门禁骨架，公开 `SYST:CFG:STAT?` / `STAT:CFG?`，冻结 build_id/hw_profile/CRC/ACK 快照。
-  2026-08-10: build `20260810124902` 已烧录验证，`SYST:CFG:STAT?` 返回 build id、ready、gate_state、epoch、run_id、版本号、ACK/NACK/busy/timeout 位和 CRC 快照，service_count 持续增长。
 - [x] 定义 `NodeRoleMap` 存储和 SCPI 查询接口。
-  2026-08-10: `components/distributed_config/` 提供静态 `NodeRoleMap`，`SYST:CFG:ROLE? [node_id]` 可查询节点角色、persona、feature mask 和 IO base。
 - [x] 定义 `LoopPlan`、`LayerAction`、`ActionMap` 的内存结构。
-  2026-08-10: 静态 `LoopPlan` / `LayerAction` / `ActionMap` 已落地，`SYST:CFG:LOOP? [layer_id]` 和 `SYST:CFG:ACT? [action_id]` 可查询当前快照。
 - [x] 定义 RUN 前配置一致性门禁：build_id、hw_profile、NodeRoleMap CRC、LoopPlan CRC、ActionMap CRC、Calibration CRC。
-  2026-08-10: `distributed_config_validate()` 已加入本地结构一致性检查；门禁通过时 `ack_flags=target_mask`、`nack_flags=0`，失败时 `gate_state=2`。
 - [x] 定义分布式命令 ACK/NACK 协议骨架：command_seq、target_mask、ack_flags、nack_flags、busy_flags、timeout_flags、nack_reason。
-  2026-08-10: `SYST:CFG:ACK?` 暴露本地 command ACK 快照，`SYST:CFG:NACK? [reason_id]` 暴露 NACK reason 表。当前为本地配置门禁和表定义，真实跨板 ACK delta 同步仍放在 P4。
 - [x] 把 `SystemModeTable` 和 `ResourceArbiterTable` 接到 `task_system`，让模式切换、资源占用和恢复动作都能通过统一查询返回。
-  2026-08-10: 当前先接入本地 `resource_arbiter` 快照和只读表查询；完整 `task_system` 模式切换 AO 仍留作后续演进。
 - [ ] 增加 `task_gateway_a3`，接收上位机配置、START/STOP 和数据查询。
 - [ ] 增加 `task_loop_engine` 的 A0 扫描状态机，并按 SCPI 指令表支持 `CONFigure:TRIGger` 自动展开状态表。
 - [ ] 增加 `CONFigure:ANGLe:SWEEp`、`CONFigure:ANGLe:PULSe`、`READ:ANGLe:POSition?` 和 `CONFigure:ANGLe:BPOint` 的 LoopSlot/staging/active 字段。
@@ -820,13 +807,13 @@ core1 禁止：
 - [ ] 增加 `CONFigure:SWITch#` / `READ:SWITch#?` 的独立切换路径，并实现 RUN 中序列引擎占用时返回 busy。
 - [ ] 冻结测试/调试双上位机边界：最低 `TEST` 权限就是现场测试程序，必须覆盖 SCPI 指令表 P5-P7 现场测试业务页，包括 RUN 前装载测试 recipe、配置触发参数、扫描角度、角度脉冲、断点续测和 active sequence，执行 `SYNC:CHECk` 门禁，启动/暂停/继续/停止测试，RUN 中只从网分取数据并保留安全停止与只读状态，RUN 后读取 `SYSTem:RUN:*`、同步状态和故障摘要；`TEST` 的限制来自 IDLE/CONFIG/ARM/PAUSE/RUN 状态边界和 profile 开关，而不是把业务指令上提到 `DEBUG`。调试上位机按 `TEST < SERVICE < DEBUG < FACTORY` 四级单调继承权限开放不同调试功能，高级权限包含低级权限全部功能；`DEBUG+` 增加任意状态强控、外设联动、异常注入、状态机推进和越过常规现场流程的验证动作，用权限 profile + 状态策略表对任意状态下的查询、控制、排队和拒绝作出决策，但必须通过 core0 控制面、资源仲裁和 ACK 闭环，不能直接影响 core1 已装载边沿。
 - [x] 增加 RUN 态 SCPI 策略表和禁止命令错误码。
-  2026-08-10: `SYST:SCPI:RUN:ALLOW? [index]` 暴露 RUN 态策略表；命名保留 ALLOW，但语义为权限 profile 在 RUN 状态下的执行结果，关键触发/采样/时钟/BiSS/PCNT/Storage/OTA 写入口在 ARMED/RUN 态按表返回 `RUN_STATE_DENIED:2401` 或 `RESOURCE_BUSY:2402`。
 - [ ] 增加断点保存和恢复策略。
 
 ### P4 - CAL/SYNC、RJ45_SYNC_RING、反射内存同步与虚拟 DC
 
+已完成项的实现与验证记录详见 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
+
 - [x] 增加 `task_calibration` 空壳和 `calibration_job_queue`，先支持 link/delay 表的 staging、snapshot 和计数器。
-  2026-08-12: build `20260812043516` 已烧录验证，RTOS task list 显示 `calibration`；`READ:CALibration:STATe?` service_count 持续增长，`READ:CALibration:LINK?` / `READ:CALibration:PARameter?` 返回 active CRC 和 ready guard。
 - [ ] 实现 `CONFigure:CALibration:LINK:ADD/SET/DELete`、`READ:CALibration:LINK?` 和 link key 去重。
 - [ ] 实现 `CALibration:STARt <type,src_node,src_port,dst_node,dst_port>` 短事务骨架，失败不覆盖旧 staging delay。
 - [ ] 实现 `READ:CALibration:STATe?`、`READ:CALibration:RESult?`、`READ:CALibration:PARameter?`、`READ:CALibration:VERSion?` 和 `READ:CALibration:QUALity?` 固定字段。
@@ -874,7 +861,6 @@ core1 禁止：
 - [ ] 实现 A0 角度脉冲外层循环：每收到一个转台目标角度脉冲推进 `angle_index`，完整执行一次 active sequence，并在扫描完成后锁存 RUN summary。
 - [ ] 将 `FaultCodeTable` 和 `SafetyFB` 接到 DPLL/Trigger/OTA 三域，统一故障等级、锁存条件和恢复路径。
 - [x] 定义 BiSS 组网 HIL 回环验证脚本入口。
-  2026-08-11: 新增 `tools/distributed_loopback_validate/distributed_loopback_validate.py`，默认拓扑为 A3 单外部 COM + 内部 BiSSC 组网；A4 作为内部模拟板角色，脚本只打开 A3 串口并做 SCPI preflight，真实内部帧级闭环待固件协议落地后扩展。
 - [ ] 完成转台/VNA HIL 长稳测试。
 
 ### P7 - 发布门禁
@@ -888,14 +874,14 @@ core1 禁止：
 - [ ] 验证上电、bootloader、看门狗、通信丢失和 FAULT 下的安全默认态。
 - [ ] release preset 明确 RTOS + 双核产品化门禁；单核/裸机仅保留 bring-up 路径。
 - [ ] README、SCPI 命令文档、HIL 工具和生产测试流程同步更新。
-  2026-08-11: BiSS 组网 HIL preflight 工具已建立，后续还需补生产测试流程和真实闭环验收矩阵。
 - [ ] 给产品版发布门禁补一份固定测试矩阵：core0/core1 隔离、flash lockout、REFMEM delta、FIRE_LOAD/T2、OTA 事务、掉电恢复。
 - [ ] 给 CAL/SYNC 持久化路径补 flash/storage 资源仲裁验证：`CALibration:SAVE`、`SYNC:SAVE` 和配置落盘前必须确认系统处于 `IDLE/MAINT`，且 core1 已完成 park/lockout 或后端不触发 flash erase/program。
 - [ ] 给 `task_refmem_sync`、`task_calibration`、`task_vdc_sync`、`task_dpll`、`task_gateway_a3` 建立统一长稳回归用例和失败码映射。
 
 ## 当前进度与下一刀
 
-近期 RTOS 规划按小步验证执行：
+近期 RTOS 规划按小步验证执行。详细任务进度、build id、烧录记录、板端 smoke、
+水位和归档路径统一记录在 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
 
 | 顺序 | 代码目标 | 板端验收 |
 |---:|---|---|
@@ -923,116 +909,6 @@ SYSTem:SYNC:VDC:DPLL:STATus? sync DPLL counter
 READ:SYNC:STATe? / READ:CALibration:STATe? if enabled
 SYST:CORE? core1 heartbeat
 SYST:ERR? 错误队列确认
-```
-
-第一刀已经完成：
-
-```text
-task_io_frontend
-  -> task_usb_device
-  -> task_scpi
-```
-
-板端验证结果：
-
-```text
-build_id: 20260810104144
-smoke:    identity/build_id/core_heartbeat/trigger_seq/error_queue 5/5 PASS
-rtos:     usb_device used 32 words, scpi used 1166 words, heap min free 73584 bytes
-```
-
-第二刀已经完成：
-
-```text
-add task_refmem_sync skeleton
-reserve local 64 KB DistributedVectorTable layout
-publish local header/node heartbeat snapshot
-```
-
-板端验证结果：
-
-```text
-build_id: 20260810110636
-smoke:    identity/build_id/core_heartbeat/trigger_seq/error_queue 5/5 PASS
-refmem:   SYST:REFM:STAT? -> 65536,1,<table_seq>,0,8,<heartbeat>,<service_count>,0
-refmem:   SYST:REFM:NODE? 7 -> 7,0,0,0,0,0,0,0,0
-rtos:     refmem_sync used 32 words, heap min free 65288 bytes
-```
-
-第三刀已经完成：
-
-```text
-add task_dpll skeleton
-publish disabled/ready state and counter snapshot
-do not connect turntable Compare Out or DPLL convergence yet
-```
-
-第四刀已经完成：
-
-```text
-add task_vdc_sync skeleton
-publish lock state and counter snapshot
-do not connect real DC convergence yet
-```
-
-板端验证结果：
-
-```text
-build_id: 20260810132729
-smoke:    identity/build_id/core_heartbeat/loop_status/vdc_status/dpll_status/config_gate_status/trigger_seq/error_queue/log_stat/trace_last 11/11 PASS
-vdc:      SYSTem:SYNC:VDC:STATus? -> 1,0,<service_count>,<first_service_ms>,<last_service_ms>,<sync_seq>
-dpll:     SYSTem:SYNC:VDC:DPLL:STATus? -> 1,0,<service_count>,<first_service_ms>,<last_service_ms>,<update_seq>
-cfg:      SYST:CFG:STAT? -> "20260810132729",1,1,60141,3550,13605,1848,2369500348,1,1,1,1,1,15,0,0,0,0,1484595822,2475547252,577814202,2954853378,2581941186,400340093,1187728286
-rtos:     task_count 11; vdc_sync/dpll/cfg_gate/ui still visible; heap min free 27968 bytes
-```
-
-`components/distributed_config/` 已落地静态 `NodeRoleMap` / `LoopPlan` / `ActionMap` /
-`Calibration` 数据源和本地一致性检查，并通过 `SYST:CFG:ROLE?` / `SYST:CFG:LOOP?` /
-`SYST:CFG:ACT?` / `SYST:CFG:CAL?` 暴露只读快照。下一步继续补 `CoreVectorOwnerTable`、
-`RuntimeProtectionTable`、分布式 ACK/NACK 原因码和 RUN 态命令策略表，不接跨板 RJ45
-同步和真实转台 DPLL 收敛。
-
-第五刀已经完成：
-
-```text
-add CoreVectorOwnerTable snapshot
-add RuntimeProtectionTable snapshot
-publish VTOR owner / IRQ owner / flash lockout / park fields through DistributedVectorTable header
-```
-
-板端验证结果：
-
-```text
-build_id: 20260810151918
-ota:      SYST:OTA:COMM -> "OK"; SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5
-corevec:  SYST:CORE:VECT? -> 1,<table_seq>,2,0,1,15,3840,2,0,2,<guard_crc>,0,0
-protect:  SYST:PROT:STAT? -> 1,<table_seq>,1,1,1,0,0,0,2,11,2,<guard_crc>,0,0
-smoke:    identity/build_id/core_heartbeat/loop_status/vdc_status/dpll_status/config_gate_status/config_snapshot_queries/runtime_protection_tables/trigger_seq/error_queue/log_stat/trace_last 13/13 PASS
-```
-
-下一步继续补分布式 ACK/NACK reason、RUN 态 SCPI 策略表和 SystemMode/ResourceArbiter
-查询表，不接跨板 RJ45 同步和真实转台 DPLL 收敛。
-
-第六刀已经完成：
-
-```text
-add task_calibration skeleton
-publish CAL status snapshot through READ:CALibration:STATe?/LINK?/PARameter?/HEALth?
-keep calibration measurement and storage package inactive
-```
-
-板端验证结果：
-
-```text
-build_id: 20260812043516
-single:   calibration_status 1/1 PASS
-full:     RTOS + multicore smoke 16/16 PASS
-rtos:     calibration task stack 2048 words, used 28 words
-cal:      READ:CALibration:STATe? service_count 673265 -> 674940 -> 676614
-cal:      active_crc 268435459, link_seq 676621, parameter_seq 676629
-trigger:  TRIGger:MODE 1 -> TRIGger:STARt -> TRIGger:STOP product smoke PASS
-errors:   SYST:ERR? -> 0,"No error"
-archive:  build-rtos-multicore-smoke/validation_calibration_step1_full_retry
 ```
 
 ### SCPI 模块拆分规划
@@ -1072,183 +948,9 @@ archive:  build-rtos-multicore-smoke/validation_calibration_step1_full_retry
 每次拆分都必须执行 build、烧录、板端 smoke、水位记录和错误队列检查；验证通过后暂存代码
 和文档改动，并提交形成可回退节点。
 
-第七刀已经完成：
-
-```text
-split SCPI calibration commands into scpi_calibration_commands.c/.h
-keep CAL response fields and accepted stubs unchanged
-keep READ:SYNC:LINK? reusing CAL link snapshot
-```
-
-板端验证结果：
-
-```text
-build_id: 20260812045404
-quick:    *IDN?/SYST:FW:BUILD?/READ:CALibration:STATe?/READ:CALibration:LINK?/READ:SYNC:LINK?/SYST:ERR? PASS
-full:     RTOS + multicore smoke 16/16 PASS
-cal:      READ:CALibration:STATe? -> "DONE","SMA","A0:OUT1","A1:IN1",0,0,0,0,"NONE",1,0,24460,268435459
-sync:     READ:SYNC:LINK? -> 24475,1,0,268435459,0,1,"SMA","A0","OUT1","A1","IN1","BIDIR",1,1,1
-errors:   SYST:ERR? -> 0,"No error"
-archive:  build-rtos-multicore-smoke/validation_scpi_cal_split_step1
-```
-
-第八刀已经完成：
-
-```text
-split SCPI sync commands into scpi_sync_commands.c/.h
-keep SYNC response fields and accepted stubs unchanged
-keep SYNC response fields and accepted stubs unchanged
-READ:STATistics? has been moved to report/statistics domain to avoid overlapping with SYNC quality
-```
-
-板端验证结果：
-
-```text
-build_id: 20260812050219
-quick:    READ:SYNC:STATe?/PARameter?/HEALth?/NODE?/LINK?/CHECk?/QUALity?/VERSion? PASS
-command:  SYNC:CHECk -> "PASS","ACTIVE","FIELD_DEFAULT",268435459,"FIELD_SYNC_DEFAULT",536870914,"A0>A1>A2>A3>A0",1,"","","","OK","","","","NONE"
-full:     RTOS + multicore smoke 16/16 PASS
-errors:   SYST:ERR? -> 0,"No error"
-archive:  build-rtos-multicore-smoke/validation_scpi_sync_split_step1
-```
-
-第九刀已经完成：
-
-```text
-split SCPI config commands into scpi_config_commands.c/.h
-move CONFigure:TRIGger / CONFigure:ANGLe:* / CONFigure:SEQuence:* / CONFigure:SWITch#
-move READ:TRIGger:PARameter? / READ:ANGLe:*? / READ:SEQuence:*? / READ:SWITch#?
-keep READ:RUN:* and READ:T2:* temporarily in product report commands
-```
-
-板端验证结果：
-
-```text
-build_id: 20260812052827
-quick:    READ:TRIGger:PARameter?/READ:ANGLe:*?/READ:SEQuence:*?/READ:SWITch1?/READ:RUN:SUMMary?/READ:T2:* PASS
-full:     RTOS + multicore smoke 16/16 PASS
-errors:   SYST:ERR? -> 0,"No error" after error queue follow-up
-archive:  build-rtos-multicore-smoke/validation_scpi_config_split_step1
-```
-
-注意：当前 `CONFigure:*` 仍是 accepted stub，不消费参数。带参数调用如
-`CONFigure:TRIGger 8,2,5,1` 会先返回 `1`，随后 libscpi 留下 `-108` 参数错误。
-这不是本次拆分引入的新问题，但接入 `task_loop_engine` staging 时必须同时修正：
-写命令要么完整解析并投递配置事件，要么明确拒绝并给出固定 NACK/reason，不能返回 accepted
-后再遗留 SCPI parser 参数错误。
-
-第十刀已经完成：
-
-```text
-split product trigger run-control commands into scpi_trigger_commands.c/.h
-move TRIGger:STARt/STOP/PAUSe/CONTinue and READ:TRIGger:STATe?
-keep legacy TRIGger:MODE / TRIGger:SEQ / BISS / PCNT in scpi_port.c for now
-```
-
-板端验证结果：
-
-```text
-build_id: 20260812053420
-quick:    TRIGger:MODE 1 / TRIGger:MODE? / READ:TRIGger:STATe? / TRIGger:STARt / TRIGger:STOP PASS
-full:     RTOS + multicore smoke 16/16 PASS
-errors:   SYST:ERR? -> 0,"No error"
-archive:  build-rtos-multicore-smoke/validation_scpi_trigger_split_step1
-```
-
-第十一刀已经完成：
-
-```text
-split report placeholder commands into scpi_report_commands.c/.h
-move SYSTem:RUN:* / SYSTem:LOG:PAGE? / SYSTem:TRACe:DATA? / SYSTem:SNAPshot:DATA? / SYSTem:T2:DATA?
-move READ:RUN:SUMMary? / READ:T2:COUNt? / READ:T2:DATA?
-keep real Storage/OTA/MMEM commands in scpi_port.c
-```
-
-板端验证结果：
-
-```text
-build_id: 20260812055925
-quick:    SYSTem:RUN:LAST?/SUMMary?/LOG?, SYSTem:LOG:PAGE?, TRACe/SNAPshot/T2 DATA, READ:RUN/T2 PASS
-full:     RTOS + multicore smoke 16/16 PASS
-errors:   SYST:ERR? -> 0,"No error"
-archive:  build-rtos-multicore-smoke/validation_scpi_report_split_step1
-```
-
-第十二刀已经完成：
-
-```text
-split system snapshot commands into scpi_system_snapshot_commands.c/.h
-move REFMEM status/node, core vector, runtime protection, config gate ACK/NACK,
-role/loop/action/calibration snapshots, SCPI run policy, SystemMode/Resource/Fault tables
-keep SYSTem:TRIGger:DBG? and SYSTem:RESource? in scpi_port.c for local debug/static helper dependency
-```
-
-板端验证结果：
-
-```text
-build_id: 20260812060813
-quick:    SYSTem:REFM/REFMem, CORE:VECTor, PROTection, CONFigure/CFG, SCPI:RUN:ALLOW, MODE/RESource/FAULT tables PASS
-full:     RTOS + multicore smoke 16/16 PASS
-errors:   SYST:ERR? -> 0,"No error"
-archive:  build-rtos-multicore-smoke/validation_scpi_system_snapshot_split_step1
-```
-
-第十三刀已经完成，并在后续复核中做了边界修正：
-
-```text
-split LOOP engine status commands into scpi_loop_engine_commands.c/.h
-move LOOP:STATus?/LOOP:STAT?/STATus:LOOP? only
-move SYSTem:SYNC:VDC:STATus? and SYSTem:SYNC:VDC:DPLL:STATus? into scpi_sync_commands.c/.h
-remove broad scpi_service_status_commands module to avoid overlapping with sync domain
-keep SYSTem:TRIGger:DBG? and SYSTem:RESource? in scpi_port.c for local debug/static helper dependency
-```
-
-板端验证结果：
-
-```text
-build_id: 20260812062425
-quick:    *IDN?/SYST:FW:BUILD?/LOOP:STAT?/VDC:STAT?/DPLL:STAT?/STATus:* aliases PASS before namespace cleanup
-full:     RTOS + multicore smoke 16/16 PASS
-errors:   SYST:ERR? -> 0,"No error"
-archive:  build-rtos-multicore-smoke/validation_scpi_service_status_split_step1
-```
-
-边界修正验证结果：
-
-```text
-target:   build-rtos-multicore-smoke
-quick:    READ:SYNC:* + SYSTem:SYNC:VDC:* + LOOP aliases
-full:     RTOS + multicore smoke
-archive:  build-rtos-multicore-smoke/validation_scpi_sync_loop_boundary_fix_step1
-```
-
-第十四刀已经完成：
-
-```text
-split system runtime commands into scpi_system_runtime_commands.c/.h
-move *TST?, SYSTem:FW:*, SYSTem:BOOT:*,
-SYSTem:LOG:LEVel/LEVel?/STATus?, SYSTem:CORE?, SYSTem:RTOS:STATus?
-keep command names and response fields unchanged
-keep scpi_port.c owning libscpi context, stream I/O, reset/control, and command table assembly
-```
-
-板端验证结果：
-
-```text
-build_id: 20260812091932
-build:    build-rtos-multicore-smoke PASS
-flash:    picotool load -f -v -x RP2350_TRIG_FACTORY.uf2 PASS
-quick:    *IDN?, SYSTem:FW:BUILD?, *TST?, SYSTem:BOOT:CAPability?,
-          SYSTem:LOG:LEVel?, SYSTem:LOG:STATus?, SYSTem:CORE?,
-          SYSTem:RTOS:STATus? PASS
-product:  tools/product_scpi_validate/product_scpi_validate.py COM4 PASS
-full:     RTOS + multicore smoke 16/16 PASS
-errors:   SYSTem:ERRor:COUNt? -> 0; SYSTem:ERRor? -> 0,"No error"
-archive:  build-rtos-multicore-smoke/validation_scpi_system_runtime_split_step1
-archive:  build-rtos-multicore-smoke/validation_scpi_system_runtime_split_full
-note:     one parallel COM4 query failed with PermissionError while product validation
-          owned the port; the same query passed after running serially.
-```
+SCPI 拆分详细进度、板端验证记录、串口生命周期问题和归档路径统一记录在
+`docs/SCPI_TASK_PROGRESS.md`。本文只保留目标边界和后续待办，避免 RTOS 架构文档
+继续膨胀为验证流水账。
 
 剩余 `scpi_port.c` 拆分待办按 `docs/DTC100_SCPI_COMMAND_PLANNING.md` 的产品指令树推进。
 拆分时必须把产品主流程和底层验证能力分开：产品模式继续使用
@@ -1336,15 +1038,29 @@ note:     one parallel COM4 query failed with PermissionError while product vali
 
 6. scpi_system_diagnostics_commands.c/.h
    Scope:
-     SYSTem:TRIGger:DBG?, SYSTem:RESource?, SYSTem:FAULT:* and future
-     SYSTem:COMMand:ACK?
+     SYSTem:RUN:*, SYSTem:LOG:PAGE?, SYSTem:TRACe:DATA?,
+     SYSTem:SNAPshot:DATA?, SYSTem:T2:DATA?, READ:RUN:*,
+     READ:STATistics?, READ:T2:*, SYSTem:TRIGger:DBG?,
+     SYSTem:RESource?, SYSTem:FAULT:* and future SYSTem:COMMand:ACK?
    Dependency:
-     diagnostics snapshots, ResourceSlot, FaultSlot, ACK/NACK slots
+     diagnostics snapshots, ResourceSlot, FaultSlot, ACK/NACK slots,
+     run evidence, trace/snapshot/T2 report pages
    Risk:
-     medium; these commands are cross-domain diagnostic views and must not own
-     business facts
+     medium; these commands are cross-domain diagnostic/evidence views and must
+     not own business facts
    Validation:
-     resource/fault/debug/ACK queries + error queue + full smoke
+     run summary/page, statistics/T2, resource/fault/debug/ACK queries,
+     error queue + full smoke
+   Note:
+     scpi_report_commands.c/.h should not remain as a parallel module; report
+     placeholder commands are part of system diagnostics/evidence.
+   Status:
+     done 2026-08-12: scpi_report_commands.c/.h removed; SYSTem:RUN:*,
+     SYSTem:LOG:PAGE?, trace/snapshot/T2 page placeholders, READ:RUN:*,
+     READ:STATistics?, READ:T2:*, SYSTem:TRIGger:DBG?, SYSTem:RESource?,
+     and SYSTem:FAULT:CLEAr moved into scpi_system_diagnostics_commands.c/.h.
+     Verified by quick diagnostics/report SCPI query, product validation,
+     full RTOS + multicore smoke, and clean SCPI error queue.
 
 7. scpi_ota_commands.c/.h
    Scope:
@@ -1391,13 +1107,23 @@ note:     one parallel COM4 query failed with PermissionError while product vali
 
 9. scpi_measure_commands.c/.h
    Scope:
-     MEASure:FREQuency?, MEASure:REPort?
+     MEASure:FREQuency?, MEASure:PERiod?, MEASure:JITTer?,
+     MEASure:PULSe:WIDTh?, MEASure:LINK:DELay?, MEASure:T2?,
+     MEASure:REPort?
    Dependency:
-     trigger_measure
+     trigger_measure today; later shared raw measurement backend for CALibration
+     and SYNC
    Risk:
-     low, read-only self-test data
+     low-medium, read-only self-test and raw observation data; backend expansion
+     must not make CALibration or SYNC depend on SCPI callbacks
    Validation:
-     frequency/report query + full smoke
+     frequency/period/jitter/pulse/link/T2/report query + full smoke
+   Status:
+     done 2026-08-12: MEASure expanded as an independent raw observation layer.
+     Query commands return explicit status ("DONE", "NO_REPORT", or
+     "PENDING_BACKEND") and do not push SCPI errors when no active report exists.
+     Verified by quick MEASure SCPI query, product validation, full RTOS +
+     multicore smoke, and clean SCPI error queue.
 ```
 
 长期收敛目标：`scpi_port.c` 只保留 libscpi 上下文、输入输出、错误队列、reset/flush/control

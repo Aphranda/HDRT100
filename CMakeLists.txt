@@ -200,13 +200,14 @@ set(PROJECT_APP_SOURCES
         ${PROJECT_FATFS_CONFIGURED_DIR}/ffunicode.c
         middleware/scpi_port/src/scpi_calibration_commands.c
         middleware/scpi_port/src/scpi_config_commands.c
-        middleware/scpi_port/src/scpi_product_commands.c
         middleware/scpi_port/src/scpi_port.c
-        middleware/scpi_port/src/scpi_report_commands.c
         middleware/scpi_port/src/scpi_loop_engine_commands.c
+        middleware/scpi_port/src/scpi_measure_commands.c
         middleware/scpi_port/src/scpi_ota_commands.c
         middleware/scpi_port/src/scpi_storage_commands.c
         middleware/scpi_port/src/scpi_sync_commands.c
+        middleware/scpi_port/src/scpi_system_access_commands.c
+        middleware/scpi_port/src/scpi_system_diagnostics_commands.c
         middleware/scpi_port/src/scpi_system_runtime_commands.c
         middleware/scpi_port/src/scpi_system_snapshot_commands.c
         middleware/scpi_port/src/scpi_trigger_commands.c

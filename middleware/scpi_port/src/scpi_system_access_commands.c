@@ -1,12 +1,6 @@
-#include "scpi_product_commands.h"
+#include "scpi_system_access_commands.h"
 
-scpi_result_t scpi_product_result_accepted(scpi_t *context)
-{
-    SCPI_ResultUInt32(context, 1u);
-    return SCPI_RES_OK;
-}
-
-scpi_result_t scpi_product_permission_q(scpi_t *context)
+scpi_result_t scpi_system_access_permission_q(scpi_t *context)
 {
     SCPI_ResultText(context, "TEST");
     SCPI_ResultText(context, "*");
@@ -21,7 +15,7 @@ scpi_result_t scpi_product_permission_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_product_role_q(scpi_t *context)
+scpi_result_t scpi_system_access_role_q(scpi_t *context)
 {
     SCPI_ResultText(context, "TEST");
     SCPI_ResultText(context, "TEST<SERVICE<DEBUG<FACTORY");

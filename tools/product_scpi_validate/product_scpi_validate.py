@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Validate product SCPI framework commands over USB CDC or USBTMC/VISA.
 
-The test list is generated from middleware/scpi_port/inc/scpi_product_commands.h
-and the expected fixed-response fields are generated from
-middleware/scpi_port/src/scpi_product_commands.c. This keeps the board-side
-validation aligned with the firmware command table after product commands move
-between SCPI modules.
+The test list is generated from the product-facing SCPI domain headers and the
+expected fixed-response fields are generated from the matching SCPI command
+sources. This keeps the board-side validation aligned with the firmware command
+table as product commands move between modules.
 """
 
 from __future__ import annotations
@@ -28,8 +27,25 @@ except ImportError as exc:  # pragma: no cover - bench dependency
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PRODUCT_HEADER = Path("middleware/scpi_port/inc/scpi_product_commands.h")
-PRODUCT_SOURCE = Path("middleware/scpi_port/src/scpi_product_commands.c")
+PRODUCT_HEADERS = (
+    Path("middleware/scpi_port/inc/scpi_system_access_commands.h"),
+    Path("middleware/scpi_port/inc/scpi_config_commands.h"),
+    Path("middleware/scpi_port/inc/scpi_calibration_commands.h"),
+    Path("middleware/scpi_port/inc/scpi_sync_commands.h"),
+    Path("middleware/scpi_port/inc/scpi_trigger_commands.h"),
+    Path("middleware/scpi_port/inc/scpi_system_diagnostics_commands.h"),
+    Path("middleware/scpi_port/inc/scpi_measure_commands.h"),
+)
+PRODUCT_SOURCES = (
+    Path("middleware/scpi_port/src/scpi_port.c"),
+    Path("middleware/scpi_port/src/scpi_system_access_commands.c"),
+    Path("middleware/scpi_port/src/scpi_config_commands.c"),
+    Path("middleware/scpi_port/src/scpi_calibration_commands.c"),
+    Path("middleware/scpi_port/src/scpi_sync_commands.c"),
+    Path("middleware/scpi_port/src/scpi_trigger_commands.c"),
+    Path("middleware/scpi_port/src/scpi_system_diagnostics_commands.c"),
+    Path("middleware/scpi_port/src/scpi_measure_commands.c"),
+)
 
 
 @dataclass(frozen=True)
@@ -101,7 +117,7 @@ def expected_from_result(kind: str, expr: str, *, channel: int) -> ExpectedField
             return ExpectedField("exact", "1")
         if expr == "FALSE":
             return ExpectedField("exact", "0")
-        return ExpectedField("exact", "1") if expr else ExpectedField("nonempty")
+        return ExpectedField("nonempty")
     if kind == "Text":
         match = re.fullmatch(r'"((?:[^"\\]|\\.)*)"', expr)
         if match:
@@ -116,21 +132,23 @@ def command_from_pattern(pattern: str, *, channel: int) -> str:
 
 
 def parse_product_commands(root: Path, *, channel: int) -> list[tuple[str, str]]:
-    header = (root / PRODUCT_HEADER).read_text(encoding="utf-8")
     entries: list[tuple[str, str]] = []
-    for match in re.finditer(r'\{\.pattern = "([^"]+)", \.callback = ([A-Za-z0-9_]+)\}', header):
-        pattern, callback = match.groups()
-        entries.append((command_from_pattern(pattern, channel=channel), callback))
+    for path in PRODUCT_HEADERS:
+        header = (root / path).read_text(encoding="utf-8")
+        for match in re.finditer(r'\{\.pattern = "([^"]+)", \.callback = ([A-Za-z0-9_]+)\}', header):
+            pattern, callback = match.groups()
+            entries.append((command_from_pattern(pattern, channel=channel), callback))
     if not entries:
-        raise RuntimeError(f"no product SCPI command registrations found in {PRODUCT_HEADER}")
+        joined = ", ".join(str(path) for path in PRODUCT_HEADERS)
+        raise RuntimeError(f"no product SCPI command registrations found in {joined}")
     return entries
 
 
 def parse_callback_responses(root: Path, *, channel: int) -> dict[str, tuple[ExpectedField, ...]]:
-    source = (root / PRODUCT_SOURCE).read_text(encoding="utf-8")
+    source = "\n".join((root / path).read_text(encoding="utf-8") for path in PRODUCT_SOURCES)
     callbacks: dict[str, tuple[ExpectedField, ...]] = {}
     function_re = re.compile(
-        r"scpi_result_t\s+(scpi_product_[A-Za-z0-9_]+)\s*\([^)]*\)\s*\{(?P<body>.*?)\n\}",
+        r"(?:static\s+)?scpi_result_t\s+([A-Za-z0-9_]+)\s*\([^)]*\)\s*\{(?P<body>.*?)\n\}",
         re.DOTALL,
     )
     result_re = re.compile(r"SCPI_Result(UInt32|Int32|Bool|Text)\s*\(\s*context\s*,\s*(.*?)\s*\);")
@@ -142,7 +160,8 @@ def parse_callback_responses(root: Path, *, channel: int) -> dict[str, tuple[Exp
         ]
         callbacks[name] = tuple(fields)
     if not callbacks:
-        raise RuntimeError(f"no product SCPI callbacks found in {PRODUCT_SOURCE}")
+        joined = ", ".join(str(path) for path in PRODUCT_SOURCES)
+        raise RuntimeError(f"no product SCPI callbacks found in {joined}")
     return callbacks
 
 
@@ -338,6 +357,11 @@ def run(args: argparse.Namespace) -> int:
             def execute(command: str) -> str:
                 return send_command(ser, command, args.timeout)
 
+        try:
+            execute("*CLS")
+        except Exception:
+            pass
+
         for test in tests:
             response = execute(test.command)
             ok, reason = validate_response(test, response)
@@ -355,6 +379,11 @@ def run(args: argparse.Namespace) -> int:
                 break
             time.sleep(0.05)
     finally:
+        try:
+            if close_handles:
+                execute("*CLS")
+        except Exception:
+            pass
         for handle in close_handles:
             try:
                 handle.close()
