@@ -206,6 +206,7 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_measure_commands.c
         middleware/scpi_port/src/scpi_ota_commands.c
         middleware/scpi_port/src/scpi_storage_commands.c
+        middleware/scpi_port/src/scpi_realtime_component_commands.c
         middleware/scpi_port/src/scpi_sync_commands.c
         middleware/scpi_port/src/scpi_system_access_commands.c
         middleware/scpi_port/src/scpi_system_diagnostics_commands.c

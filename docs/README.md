@@ -33,6 +33,8 @@ Last updated: 2026-07-07
 |---|---|---|
 | BiSS-C | `BISSC_TASK_PROGRESS.md` | BiSS-C 新任务记录写入本文件。 |
 | SYNC_IO | `SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构闭环记录写入本文件。 |
+| RTOS | `RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
+| SCPI | `SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
 | SD | `SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
 | Documentation | `DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
 | 其他领域 | 新建或补齐 `<DOMAIN>_TASK_PROGRESS.md` | 后续新闭环记录优先建立领域进度文件，不再追加到全局历史文件。 |
@@ -58,6 +60,7 @@ Last updated: 2026-07-07
 | `RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md` | 0614 分布式触发报告的仓库内摘要入口。 |
 | `RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告，已从外部 DOC 迁入。 |
 | `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` | RTOS + 双核 AMP 下四板分布式触发任务划分与小步验证记录。 |
+| `RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务进度和闭环验证记录。 |
 | `相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告的仓库内摘要入口。 |
 | `RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html` | 0804 RP 分布式触发完整原始报告，已从外部 DOC 迁入。 |
 | `MULTICORE_PARTITION_PLAN.md` | RP2350 双核分区计划。 |
@@ -125,6 +128,7 @@ Last updated: 2026-07-07
 | `RP1200波导天线测试系统分布式触发方案SCPI指令表.html` | RP1200 / DTC100 产品级 SCPI 指令表 HTML 版，当前与 Markdown 0.7 同步。 |
 | `LOG_SYSTEM_TODO.md` | 日志系统待办和演进方向。 |
 | `SCPI_USB_INTERFACE_DESIGN.md` | USB CDC/USBTMC 接口设计、描述符、bus-powered/self-powered 决策记录。 |
+| `SCPI_TASK_PROGRESS.md` | SCPI 指令框架、接口拆分、USB 验证和产品指令闭环记录。 |
 
 ## 08 发布、验证与全局进度
 
