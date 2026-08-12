@@ -199,6 +199,7 @@ set(PROJECT_APP_SOURCES
         ${PROJECT_FATFS_CONFIGURED_DIR}/ffsystem.c
         ${PROJECT_FATFS_CONFIGURED_DIR}/ffunicode.c
         middleware/scpi_port/src/scpi_calibration_commands.c
+        middleware/scpi_port/src/scpi_config_commands.c
         middleware/scpi_port/src/scpi_product_commands.c
         middleware/scpi_port/src/scpi_port.c
         middleware/scpi_port/src/scpi_sync_commands.c

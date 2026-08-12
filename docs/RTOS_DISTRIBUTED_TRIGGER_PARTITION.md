@@ -1060,7 +1060,7 @@ archive:  build-rtos-multicore-smoke/validation_calibration_step1_full_retry
 |---:|---|---|
 | 1 | 拆出 `scpi_calibration_commands.c/.h`，保留现有 CAL 响应字段和 accepted stub | 已完成；`READ:CALibration:*?`、`READ:SYNC:LINK?` 和 full smoke 通过 |
 | 2 | 拆出 `scpi_sync_commands.c/.h`，保留现有 SYNC 响应字段和 accepted stub | 已完成；`READ:SYNC:*?`、`SYNC:CHECk` 和 full smoke 通过 |
-| 3 | 拆出 `scpi_config_commands.c/.h`，把测试 recipe/角度/序列/SWITCH 查询从 product common 移出 | `READ:TRIGger:PARameter?`、`READ:ANGLe:*?`、`READ:SEQuence:*?` 通过 |
+| 3 | 拆出 `scpi_config_commands.c/.h`，把测试 recipe/角度/序列/SWITCH 查询从 product common 移出 | 已完成；`READ:TRIGger:PARameter?`、`READ:ANGLe:*?`、`READ:SEQuence:*?` 通过 |
 | 4 | 拆出 `scpi_trigger_commands.c/.h`，让产品运行控制和历史触发命令分层 | `TRIGger:MODE/STARt/STOP` 产品 smoke 通过 |
 | 5 | 拆出 `scpi_system_commands.c/.h`，收敛 system/refmem/config/RTOS/storage/OTA 入口 | `SYSTem:*`、OTA、Storage、REFM 验证通过 |
 | 6 | 建立 `scpi_legacy_commands.c/.h`，给旧验证命令集中权限和 RUN 态策略 | 旧 HIL 工具仍可用，产品指令表不依赖 legacy 入口 |
@@ -1109,4 +1109,30 @@ errors:   SYST:ERR? -> 0,"No error"
 archive:  build-rtos-multicore-smoke/validation_scpi_sync_split_step1
 ```
 
-下一步执行第 3 项 CONFIG/业务配置模块无行为变化拆分，不接真实序列展开或 SWITCH 占用策略。
+第九刀已经完成：
+
+```text
+split SCPI config commands into scpi_config_commands.c/.h
+move CONFigure:TRIGger / CONFigure:ANGLe:* / CONFigure:SEQuence:* / CONFigure:SWITch#
+move READ:TRIGger:PARameter? / READ:ANGLe:*? / READ:SEQuence:*? / READ:SWITch#?
+keep READ:RUN:* and READ:T2:* temporarily in product report commands
+```
+
+板端验证结果：
+
+```text
+build_id: 20260812052827
+quick:    READ:TRIGger:PARameter?/READ:ANGLe:*?/READ:SEQuence:*?/READ:SWITch1?/READ:RUN:SUMMary?/READ:T2:* PASS
+full:     RTOS + multicore smoke 16/16 PASS
+errors:   SYST:ERR? -> 0,"No error" after error queue follow-up
+archive:  build-rtos-multicore-smoke/validation_scpi_config_split_step1
+```
+
+注意：当前 `CONFigure:*` 仍是 accepted stub，不消费参数。带参数调用如
+`CONFigure:TRIGger 8,2,5,1` 会先返回 `1`，随后 libscpi 留下 `-108` 参数错误。
+这不是本次拆分引入的新问题，但接入 `task_loop_engine` staging 时必须同时修正：
+写命令要么完整解析并投递配置事件，要么明确拒绝并给出固定 NACK/reason，不能返回 accepted
+后再遗留 SCPI parser 参数错误。
+
+下一步执行第 4 项产品运行控制拆分，先把 `TRIGger:STARt/STOP/PAUSe/CONTinue` 和
+`READ:TRIGger:STATe?` 从 product common 拆出，不接历史 `TRIGger:SEQ/BISS/PCNT`。

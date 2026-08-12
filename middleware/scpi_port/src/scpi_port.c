@@ -18,6 +18,7 @@
 #include "project_config.h"
 #include "resource_arbiter.h"
 #include "scpi_calibration_commands.h"
+#include "scpi_config_commands.h"
 #include "scpi/scpi.h"
 #include "scpi_product_commands.h"
 #include "scpi_sync_commands.h"
@@ -3369,7 +3370,8 @@ static const scpi_command_t s_scpi_commands[] = {
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
 #endif
-    SCPI_PRODUCT_BUSINESS_COMMANDS,
+    SCPI_CONFIG_COMMANDS,
+    SCPI_PRODUCT_REPORT_COMMANDS,
     SCPI_CALIBRATION_COMMANDS,
     SCPI_SYNC_COMMANDS,
     {.pattern = "TRIGger:WIDTh", .callback = scpi_cmd_trigger_width},
