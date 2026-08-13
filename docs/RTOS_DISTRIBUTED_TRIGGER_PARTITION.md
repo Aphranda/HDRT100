@@ -4,7 +4,7 @@ Status: Draft
 Domain: RTOS
 Canonical: `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 Related: `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`, `docs/SCPI_TASK_PROGRESS.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/MULTICORE_PARTITION_PLAN.md`, `docs/TRIGGER_SYNC_TODO.md`, `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 本文档把《RP1200波导天线 RP 分布式触发方案技术报告 0804》落成 RP2350_TRIG
 产品化 RTOS + 双核 AMP 任务划分。目标不是把现有函数平均分到多个任务，而是把
@@ -100,13 +100,33 @@ SCPI 指令表是上位机可见的产品 API，RTOS 任务划分必须先满足
 系统、资源、日志和故障走 `SYSTem:*`，运行控制走 `TRIGger:*`，校准和同步分别走
 `CALibration:*` / `SYNC:*`。
 
+硬约束是：SCPI 是对外通讯接口，不是硬件操作接口。`task_scpi` 和各
+`scpi_<domain>_commands.c` callback 只能解析参数、检查权限/状态/资源，并通过 owner API 写入
+command/config slot、投递 owner event 或读取反射内存/snapshot，并返回 accepted 或查询结果；不能直接操作 GPIO、PIO、DMA、ADC、UART、
+RS485、BiSS、SD、flash 或现场 IO。真实硬件动作必须由对应 owner task 或 core1 子功能状态机在
+内部循环中消费反射内存、命令槽、事件队列或小载荷后自发推进。
+SCPI 不得直接覆盖 owner facts、state、summary、ACK/NACK、result、health 或 evidence slot；这些字段只能由对应 owner 写入。
+
+因此 RTOS 划分要把“对外事务接口”和“内部执行状态机”严格分开：
+
+```text
+SCPI command
+  -> task_scpi parse and gate
+  -> command/config slot or owner event (through owner API)
+  -> reflected memory snapshot and ACK/NACK
+  -> domain owner state machine loop
+  -> hardware driver / PIO / storage / communication backend
+  -> status/result/health/evidence slot
+  -> READ:*? / SYSTem:*?
+```
+
 ### 指令域 owner
 
 | SCPI 域 | 入口任务 | 执行 owner | 快照/闭环 | 说明 |
 |---|---|---|---|---|
 | IEEE 488.2 / `SYSTem:VERSion?` / `SYSTem:ERRor?` | `task_scpi` | `task_system` | `SystemSlot`、错误队列 | 基础识别、自检、错误队列和版本信息不进入实时路径 |
 | `SYSTem:RTOS:STATus?` / `SYSTem:CORE?` | `task_scpi` | `task_system` | RTOS 水位、core heartbeat | 用于验收任务划分和双核活性 |
-| `SYSTem:REFM:*` / `SYSTem:CONFigure:*` | `task_scpi` | `task_refmem_sync` / `task_system` | `DistributedVectorTable`、ACK/NACK | 读取表头、节点、配置门禁、角色、CRC 和拒绝原因 |
+| `SYSTem:REFMEM:*` / `SYSTem:CONFigure:*` | `task_scpi` | `task_refmem_sync` / `task_system` | `DistributedVectorTable`、ACK/NACK | 读取表头、节点、配置门禁、角色、CRC 和拒绝原因 |
 | `CONFigure:TRIGger` / `CONFigure:ANGLe:*` | `task_scpi` | `task_loop_engine` | `LoopSlot`、`Role/ConfigSlot` | 形成点内状态表、扫描角度集合和角度脉冲输入参数 |
 | `CONFigure:SEQuence:*` / `READ:SEQuence:*?` | `task_scpi` | `task_loop_engine` | `LoopSlot`、配置 CRC、ACK/NACK | 采用自动展开状态表 + `state_id` 顺序引用；active sequence 在 START 前冻结 |
 | `CONFigure:SWITch#` / `READ:SWITch#?` | `task_scpi` | `task_loop_engine` / `core1_realtime` | `IoSlot`、`TriggerSlot` | 独立切换只在序列引擎未占用时允许；RUN 中按策略 busy/deny |
@@ -166,6 +186,7 @@ RTOS、驱动和 HIL 工具实现过程中可以反推新增 SCPI 指令，但�
 | 状态策略 | 必须写清 `IDLE/CONFIG/LOCK/CAL/ARMED/RUN/HOLDOVER/FAULT` 下允许、排队、拒绝或只读 |
 | ACK 闭环 | 写命令如果跨核、跨节点或持久化，返回值只表示 accepted，完成态必须能通过 ACK/状态查询闭环 |
 | 权限边界 | 必须落入 `TEST/SERVICE/DEBUG/FACTORY` 权限层级，不能因为调试方便绕过现场测试边界 |
+| 接口隔离 | SCPI callback 只能写意图/配置槽或读快照，不能直接操作硬件后端 |
 | 实时隔离 | 指令不能直接等待 READY/T2、不能直接改 PIO owner、不能影响已装载 `local_fire` |
 | 报告价值 | RUN 相关新增查询应能进入 run summary、trace、snapshot、T2 或 fault evidence，避免只服务一次性联调 |
 

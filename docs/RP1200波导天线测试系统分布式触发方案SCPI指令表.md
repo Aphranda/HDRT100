@@ -7,7 +7,7 @@ Related: `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.
 Last updated: 2026-08-11
 
 版本：0.11
-日期：2026-08-11
+日期：2026-08-13
 产品：DTC100 Distributed Trigger
 接口：USBTMC / USB488
 文档状态：Markdown 源文档，HTML 已同步到 0.11，后续 PDF 由本文同步导出
@@ -51,7 +51,31 @@ Last updated: 2026-08-11
 
 最初版文档中运行控制写命令多使用 `OK`；当前固件和后续产品化文档可以统一为 `1`，但上位机前期开发应兼容 `OK` / `1` 两种 accepted 响应。任何 accepted 响应都不等价于跨节点动作完成。
 
-### 1.3 上位机能力分层
+### 1.3 接口边界硬约束
+
+本指令表是 DTC100 对外通讯接口，不是硬件直控接口。上位机通过 SCPI 发送配置、动作意图和查询请求；
+固件 SCPI 层只负责解析、权限/状态/资源门禁，并通过 owner API 写入 command/config slot、投递 owner event 或读取快照。
+SCPI callback 不直接操作 GPIO、PIO、DMA、ADC、UART、RS485、BiSS、SD、flash 或现场 IO。
+
+内部执行由各域 owner 和子功能状态机自发完成：
+
+```text
+SCPI command
+  -> SCPI/A3 gateway accepted
+  -> command/config slot or owner event
+  -> domain owner state machine
+  -> hardware backend or core1 realtime payload
+  -> reflected memory status/result/evidence slot
+  -> READ:*? / SYSTem:*? query
+```
+
+反射内存保存多节点共同事实、配置快照、命令意图、ACK/NACK、状态摘要和质量证据。
+它不承载精确触发边沿，也不传 OTA payload、日志全文、波形或 SD 文件内容。
+SCPI 只允许写 command/config slot；state、summary、ACK/NACK、result、health 和 evidence slot 必须由对应 owner 写入。
+写命令响应 `OK` 或 `1` 只表示接口层 accepted；动作完成、拒绝原因、质量和证据必须通过
+`READ:*?`、`SYSTem:*?`、ACK/NACK 或日志/snapshot 闭环确认。
+
+### 1.4 上位机能力分层
 
 | 上位机 | RUN 前 | RUN 中 | RUN 后 |
 |---|---|---|---|
@@ -72,7 +96,7 @@ Last updated: 2026-08-11
 `ALLOW/QUERY_ONLY/SAFE_BOUNDARY/QUEUE/DENY` 决策。不能立即安全执行的控制必须被拒绝、排队到安全边界
 或转入 HOLDOVER/FAULT。
 
-### 1.4 设备信息
+### 1.5 设备信息
 
 | 项目 | 默认值 | 说明 |
 |---|---|---|

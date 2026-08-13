@@ -55,8 +55,20 @@ USBTMC / USB488 / validation CDC
   -> task_scpi
   -> libscpi command table
   -> scpi_<domain>_commands.c
-  -> owner task / event queue / snapshot slot
+  -> command/config slot or owner event (through owner API)
+  -> reflected memory / owner snapshot
+  -> domain state machine internal loop
 ```
+
+硬约束：
+
+- SCPI 指令表是对外通讯接口和事务入口，不是硬件寄存器或 GPIO/PIO 操作接口。
+- SCPI callback 只能解析参数、做权限/状态/资源门禁，并通过 owner API 写入 command/config slot、投递 owner event 或读取反射内存/snapshot。
+- SCPI callback 不得直接操作 GPIO、PIO、DMA、ADC、UART、RS485、BiSS、SD、flash 或任何现场硬件。
+- 硬件动作只能由对应域 owner 和子功能状态机在内部循环中消费反射内存、命令槽或事件后执行。
+- 反射内存不是任意共享变量区：SCPI 只允许写 command/config slot；state、summary、ACK/NACK、result、health 和 evidence slot 必须由对应 owner 写入。
+- 写命令返回 `1/OK` 只表示接口层 accepted；动作完成、拒绝原因和质量证据必须通过 ACK/NACK、`READ:*?` 或 `SYSTem:*?` 回读。
+- 反射内存保存共同事实、配置快照、命令意图、ACK/NACK、状态摘要和质量证据；不承载精确触发边沿，也不传 OTA payload、日志全文、波形或 SD 文件内容。
 
 固件分层要求：
 
@@ -73,11 +85,13 @@ scpi_<domain>_commands.c/.h
   - one domain or one coherent subdomain
   - parse SCPI parameters
   - reject forbidden RUN-state writes
-  - return accepted, read snapshot, or post event
+  - write command/config slot through owner API, read snapshot, or post owner event
+  - no direct hardware operation
 
 owner task / component
   - owns facts and state transitions
   - writes reflected memory/vector/snapshot
+  - consumes command/config slots in its own loop
   - produces ACK/NACK, result, health and evidence data
 ```
 
@@ -112,10 +126,10 @@ owner task / component
 |---|---|---|---|---|
 | `*` | IEEE 488.2 通用控制 | libscpi / `task_scpi` | status/error queue | 仅放标准通用命令 |
 | `SYSTem` | 系统、维护、诊断、证据 | system/storage/OTA/config/refmem owner | `SYSTem:*?`, error queue, ACK/NACK | 不表达现场测试动作 |
-| `CONFigure` | 建立配置快照 | loop/cal/sync owner | `SYSTem:CONFigure:ACK?`, 对应 `READ:*?` | 写 staging 或 active config，不启动运行 |
-| `TRIGger` | 产品运行控制 | system + loop owner | `READ:TRIGger:STATe?`, `READ:RUN:SUMMary?` | 只保留 mode/start/stop/pause/continue/abort |
-| `CALibration` | 校准动作 | calibration owner | `READ:CALibration:*?` | `CALibration:STARt` 必须明确一段链路 |
-| `SYNC` | 同步动作 | VDC/DPLL/sync owner | `READ:SYNC:*?` | 基于 active calibration 建立 DC 时钟同步 |
+| `CONFigure` | 建立配置快照 | loop/cal/sync owner | `SYSTem:CONFigure:ACK?`, 对应 `READ:*?` | 只写配置/命令槽，不启动运行，不直接碰硬件 |
+| `TRIGger` | 产品运行控制 | system + loop owner | `READ:TRIGger:STATe?`, `READ:RUN:SUMMary?` | 只写运行意图；START/STOP 由 owner 状态机执行 |
+| `CALibration` | 校准动作 | calibration owner | `READ:CALibration:*?` | `CALibration:STARt` 明确一段链路；测量由校准状态机执行 |
+| `SYNC` | 同步动作 | VDC/DPLL/sync owner | `READ:SYNC:*?` | 基于 active calibration 建立 DC 时钟同步；DPLL 由同步状态机维护 |
 | `READ` | 产品视图读取 | 各 owner snapshot | `READ:*?` | 查询快照，不临时跨线程抓内部变量 |
 | `MEASure` | 测量原语 | measurement service / diag owner | `MEASure:*?` | 可被 CAL/SYNC/诊断复用，后端逐步接入 |
 | `MMEMory` | 文件系统式访问 | storage owner | `MMEMory:*?` | 用于目录、info、文件读；破坏性 SD 操作仍在 `SYSTem:SD:*` |
