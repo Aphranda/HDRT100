@@ -146,17 +146,112 @@ typedef struct {
 
 ### 参数来源
 
-| 来源 | 事件 | 采集位置 | 时间戳类型 | 用途 |
+| 来源 | 事件 | 采集位置 | 线上形式 | 用途 |
 |---|---|---|---|---|
-| RJ45/BiSS-C/SYNC 帧首沿 | `SYNC_EDGE` / `FRAME_EDGE0` | PIO/IRQ capture | local tick | SYNC DPLL 估计 offset/rate、节点 freshness 和环路周期。 |
-| NODE 校准脉冲 | `CAL_EDGE` | PIO capture | local tick pair | 计算 NODE/RJ45 链路 delay。 |
-| SMA/外部触发回路 | `SMA_EDGE` | PIO capture / timestamp service | local tick pair | 计算外部输入/输出链路 delay。 |
-| 转台/角度 Compare 输入 | `ANGLE_EDGE` / `COMPARE_EDGE` | realtime capture | local tick | Angle DPLL 生成 `T_fire_base`。 |
-| 本地预约输出 | `FIRE_LOAD` / `FIRE_EXEC` | core1 realtime / PIO status | local tick + VDC tick | 验证预约是否 late，记录实际发火时间。 |
-| READY/T2 输入 | `READY_EDGE` / `T2_EDGE` | PIO/IRQ capture | local tick + mapped VDC tick | 计算 `e_act`，形成报告和质量证据。 |
-| 节点心跳/反射内存更新 | `NODE_HEARTBEAT` / `REFMEM_DELTA` | refmem sync service | receive tick | 判断 stale、missing、seq error 和 ring health。 |
+| RJ45/BiSS-C/SYNC 帧首沿 | `SYNC_EDGE` / `FRAME_EDGE0` | PIO/IRQ capture | compact timestamp | SYNC DPLL 估计 offset/rate、节点 freshness 和环路周期。 |
+| NODE 校准脉冲 | `CAL_EDGE` | PIO capture | compact timestamp pair | 计算 NODE/RJ45 链路 delay。 |
+| SMA/外部触发回路 | `SMA_EDGE` | PIO capture / timestamp service | compact timestamp pair | 计算外部输入/输出链路 delay。 |
+| 转台/角度 Compare 输入 | `ANGLE_EDGE` / `COMPARE_EDGE` | realtime capture | compact timestamp | Angle DPLL 生成 `T_fire_base`。 |
+| 本地预约输出 | `FIRE_LOAD` / `FIRE_EXEC` | core1 realtime / PIO status | local compact record | 验证预约是否 late，记录实际发火时间。 |
+| READY/T2 输入 | `READY_EDGE` / `T2_EDGE` | PIO/IRQ capture | compact timestamp | 计算 `e_act`，形成报告和质量证据。 |
+| 节点心跳/反射内存更新 | `NODE_HEARTBEAT` / `REFMEM_DELTA` | refmem sync service | compact delta header | 判断 stale、missing、seq error 和 ring health。 |
 
-基础 timestamp sample 至少包含：
+### 基础形式
+
+时间戳的基础形式分为两层：
+
+- 线上最小单元：只携带实时传输必需字段，目标是低字节数、固定长度、PIO/中断易解析。
+- 本地展开样本：接收端根据预设字典、epoch、source_id 和 sequence_id 展开为完整 timestamp sample，用于 DPLL、反射内存、T2 和报告。
+
+推荐线上最小单元为 8 字节：
+
+```c
+typedef struct {
+    uint16_t seq_delta;
+    uint8_t  source_event;
+    uint8_t  flags;
+    uint32_t tick_l32;
+} ts8_compact_t;
+```
+
+字段含义：
+
+| 字段 | 位宽 | 含义 |
+|---|---:|---|
+| `seq_delta` | 16 | 相对当前 epoch/run 的序号低 16 位或差分序号。 |
+| `source_event` | 8 | 高 4 位为 `source_id`，低 4 位为 `event_id`。 |
+| `flags` | 8 | valid、late、edge polarity、overflow、holdover_mapped、crc/seq 异常摘要。 |
+| `tick_l32` | 32 | 本地 tick 低 32 位；高位由接收端根据 epoch 和 wrap 扩展。 |
+
+8 字节形式适用于 SYNC edge、READY/T2、Angle edge、heartbeat 等高频链路。若需要携带更长时间窗口或帧校验，可使用 12/16 字节扩展：
+
+```c
+typedef struct {
+    uint16_t seq_delta;
+    uint8_t  source_event;
+    uint8_t  flags;
+    uint32_t tick_l32;
+    uint16_t age_us;
+    uint16_t crc16;
+} ts12_compact_t;
+
+typedef struct {
+    uint16_t seq_delta;
+    uint8_t  source_event;
+    uint8_t  flags;
+    uint32_t tick_l32;
+    uint32_t tick_h_or_vdc_l32;
+    uint16_t age_us;
+    uint16_t crc16;
+} ts16_compact_t;
+```
+
+选择规则：
+
+| 形式 | 字节 | 使用场景 |
+|---|---:|---|
+| `ts8_compact_t` | 8 | 高频实时边沿，默认优先。 |
+| `ts12_compact_t` | 12 | 需要 age 或 CRC 的同步帧、跨板维护帧。 |
+| `ts16_compact_t` | 16 | 需要携带 tick 高位、短 VDC 映射或更长 trace 的低频证据帧。 |
+
+### 预设字典
+
+大容量定义不在线上传输，而由配置、System Pack 或固件 profile 预设。线上 `source_event` 只传索引。
+
+```c
+typedef struct {
+    uint8_t  source_id;
+    uint8_t  node_id;
+    uint8_t  port_id;
+    uint8_t  signal_role;
+    uint8_t  event_id;
+    uint8_t  edge_policy;
+    uint16_t default_quality_mask;
+} timestamp_dictionary_entry_t;
+```
+
+预设字典包含：
+
+- `node_id`：A0/A1/A2/A3 或后续扩展节点。
+- `port_id`：IN/OUT/SMA/RJ45/VNA/DEVICE 的预定义端口。
+- `signal_role`：SYNC、CAL、ANGLE、FIRE、READY、T2、HEARTBEAT。
+- `event_id`：边沿或事件枚举。
+- `edge_policy`：上升沿、下降沿、双沿、帧首沿。
+- 默认质量掩码和允许的环路时间门限。
+
+接收端展开规则：
+
+```text
+ts8/ts12/ts16
+  -> lookup source_event in timestamp dictionary
+  -> extend seq_delta by epoch/run context
+  -> extend tick_l32 by local wrap tracker
+  -> attach node/port/signal role
+  -> compute receive_age_us if not carried
+  -> produce timestamp_sample_t
+```
+
+展开后的 timestamp sample 至少包含：
 
 ```c
 typedef struct {
@@ -176,10 +271,12 @@ typedef struct {
 字段规则：
 
 - `local_tick` 是原始事实，必须保留。
+- 线上只传 `tick_l32` 时，接收端必须用 wrap tracker 扩展为 64-bit `local_tick`。
 - `mapped_vdc_tick` 只有在 VDC `LOCKED/HOLDOVER` 且映射有效时才可信。
 - `sequence_id` 用于把 SYNC、FIRE、READY/T2 和报告证据归入同一轮。
 - `quality_flags` 至少区分 valid、late、stale、crc_error、seq_error、outlier、holdover_mapped。
 - `receive_age_us` 用于 freshness gate，不能由上位机事后补算。
+- 字典版本、epoch 和 source_id 必须能追溯到 System Pack 或 active profile，否则样本只能作为 invalid evidence 存档。
 
 ### 流动方向
 
@@ -264,6 +361,7 @@ timestamp freshness
 原则：
 
 - 环路周期必须慢于底层帧传输和 timestamp merge 的最坏延迟。
+- 高实时链路只传 compact timestamp；完整字段由接收端根据字典和 epoch 展开。
 - DPLL 更新周期必须快于允许的晶振漂移失控时间。
 - `sample_age_limit_us` 必须小于 `sync_period_us` 或明确标注为跨周期样本。
 - 进入 HOLDOVER 后，允许继续使用冻结/降权 offset/rate，但必须标记 `holdover_mapped`。
