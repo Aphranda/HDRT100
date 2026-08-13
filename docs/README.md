@@ -129,6 +129,7 @@ docs/
 | 文件 | 定位 |
 |---|---|
 | `arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层产品架构主文档，阐述组件约束、层次逻辑和约束传播，不直接冻结硬件 pin map。 |
+| `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 核心基础架构，定义虚拟 DC、SYNC DPLL、Angle DPLL、时间事实和预测分发边界。 |
 | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构特化，统一 DTC100 产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
 | `arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施补充、示例和迁移说明。 |
 | `arch/HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估。 |
@@ -240,6 +241,7 @@ docs/
 ## 快速查找规则
 
 - 查系统边界：先读 `arch/HAOFV_ARCHITECTURE.md`。
+- 查 VDC/DPLL：先读 `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`，再读 `sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`。
 - 查当前运行板约束：读 `hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`。
 - 查产品板约束：读 `hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`，再读最新网表和 IO 约束。
 - 查 IO/PIO 资源：先读 `sync/SYNC_IO_RESOURCE_PLAN.md`，再读具体域设计。

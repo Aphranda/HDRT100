@@ -3,7 +3,7 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
 Last updated: 2026-08-13
 
 本文档定义 DTC100 / RP2350_TRIG 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -40,6 +40,7 @@ HAOFV Architecture
 - `Resource Arbiter`：统一管理 Flash、SPI、PIO、DMA、USB、LCD、SD 等资源互锁。
 - `RTE-like Service Layer`：上层不直接碰硬件，通过驱动和服务层访问外设。
 - `Bootloader/OTA Safety Chain`：App 接收和校验，Bootloader 启动选择、搬运、回滚。
+- `VDC/DPLL Core Infrastructure`：在 HAOFV 下形成共同时间事实、同步锁定、HOLDOVER/RELOCK、预测分发和 T2 质量闭环。
 
 完整分层如下：
 
@@ -100,8 +101,9 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | Function Block | 执行 ECC 状态迁移、资源规则和错误归因；不得长期阻塞。 | `trigger/`、`ota/`、`storage/`、`sync/` |
 | Vector Blackboard | 保存事实、摘要、命令槽和版本；字段必须有唯一 writer。 | `refmem/`、各 Domain Vector |
 | Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源。 | `arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` |
+| VDC/DPLL | 形成多节点共同时间事实；SYNC DPLL 负责 VDC offset/rate，Angle DPLL 负责 `T_fire_base` 预测，两者不得混用。 | `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` |
 | Hardware Service | 封装 SDK/驱动细节；上层不直接调用板级 API。 | `components/`、`drivers/` |
-| PIO/DMA/IRQ | 只执行硬实时动作和最小事实回写。 | `sync/`、`trigger/`、board profile |
+| PIO/DMA/IRQ | 只执行硬实时动作和最小事实回写；对外维护入口归 `REALtime`，产品业务动作入口仍归 `TRIGger`。 | `sync/`、`trigger/`、board profile |
 
 ### 板级约束入口
 
@@ -952,7 +954,54 @@ Bootloader 支持两种模式：
 - 当前：Factory UF2 = Bootloader + Slot A App + 空白 metadata；板端通过 BOOTSEL + UF2 做终极恢复
 - 规划：Scratch 区预留 640 KB 可存放最小 Golden Image，或通过 SD 卡 `/factory/` 提供恢复包
 
-## Trigger 设计
+## Trigger / Realtime 分层
+
+`TRIGger` 是产品业务的动作域，不应改名为 `REALtime`。它回答“产品测试流程要执行什么动作”，负责现场测试中的运行意图、模式切换、开始、停止、暂停、继续、终止、业务门禁和业务状态闭环。
+
+`REALtime` 是底层实时能力域，不替代 `TRIGger`。它回答“底层实时资源如何执行和验证”，负责 PIO/DMA/IRQ、SEQ/ENC/PCNT、底层 IO、时序调试、产测维护和硬实时能力观测。
+
+两者的关系是：
+
+```text
+SCPI / UI / System Pack
+        |
+        v
+TRIGger product action domain
+  - select mode
+  - start / stop / pause / resume / abort
+  - validate product gate
+  - bind active sequence
+  - publish business state
+        |
+        v
+REALtime capability domain
+  - configure low-level realtime engine
+  - arm/disarm PIO/DMA/IRQ resources
+  - expose validation and maintenance hooks
+  - publish low-level timing status
+        |
+        v
+PIO / DMA / IRQ
+  - deterministic edge/capture execution
+```
+
+| 层级 | 对外域 / 内部对象 | 职责 |
+|---|---|---|
+| 产品业务动作域 | `TRIGger:*` / `TriggerAO` / `TriggerFB` / `TriggerVector` | 产品 RUN 意图、运行门禁、业务状态机、active sequence 绑定、状态摘要和故障归因。 |
+| 底层实时维护域 | `REALtime:*` / `sync_io` / realtime component | PIO/DMA/IRQ 资源、SEQ/ENC/PCNT 低层模式、IO 维护、validation、产测和调试观测。 |
+| 硬实时执行层 | PIO / DMA / IRQ | 边沿捕获、脉冲输出、倒计时、READY/T2 捕获和最小事实回写。 |
+
+命名规则如下：
+
+- `TRIGger` / `TriggerAO` / `TriggerFB` / `TriggerVector`：只用于产品业务动作域。
+- `REALtime`：只用于底层实时维护、验证、产测和低层能力观测。
+- `sync_io`、PIO、DMA、IRQ：只用于硬件服务和硬实时执行层。
+- `SEQ_STEP`、`ENC_COUNT`、`PCNT` 等底层实时模式可作为 `TRIGger` 业务动作的执行基础，但不直接成为现场上位机主流程的产品动作域。
+- 上位机现场测试流程应调用 `TRIGger:*` 表达业务动作；开发、产测、HIL 和底层调试工具才调用 `REALtime:*`。
+- `TRIGger:*` 可以请求或锁定 `REALtime` 能力，但不能绕过 `REALtime` owner 直接改 PIO/DMA/IRQ。
+- `REALtime:*` 可以暴露底层状态和维护动作，但不能绕过 `TRIGger` owner 直接改变产品 RUN 状态。
+
+因此，HAOFV 中的 `Trigger` 命名用于产品业务动作域；只有当文档讨论底层实时维护接口、实时能力或硬实时执行资源时，才使用 `REALtime`。
 
 同步触发使用独立 `TriggerVector`、`TriggerAO` 和 `TriggerFB`。底层确定性时序仍由 `sync_io`、PIO、DMA 和 IRQ 实现。
 

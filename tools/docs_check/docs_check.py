@@ -115,7 +115,7 @@ def is_allowed_name(name: str) -> bool:
     if suffix not in ALLOWED_SUFFIXES:
         return False
 
-    for width in range(min(2, len(prefix_parts)), 0, -1):
+    for width in range(min(3, len(prefix_parts)), 0, -1):
         prefix = "_".join(prefix_parts[:width])
         if prefix in ALLOWED_PREFIXES:
             return True

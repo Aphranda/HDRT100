@@ -468,6 +468,7 @@ RUN 态下，`task_loop_engine` 可以根据反射内存中的 ACK、stale、fau
 虚拟 DC 不是 BiSS-C 线时钟直接产生，也不是 DPLL 替代本地晶振。指令表中的
 `SYSTem:SYNC:VDC:DPLL:*` 是同步域 VDC 的维护/调试入口，用来把各节点本地 tick 映射到共同 DC；`task_dpll`
 是扫描域的角度预测环路，用来生成 `T_fire_base`。两类 DPLL 的 owner、指标和门禁不得混用。
+核心基础架构边界见 `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`。
 
 产品化顺序固定为：
 

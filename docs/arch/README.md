@@ -13,6 +13,7 @@ Last updated: 2026-08-13
 | 当前路径 | 定位 |
 |---|---|
 | `HAOFV_ARCHITECTURE.md` | HAOFV 顶层架构入口，定义组件约束、层次逻辑和跨域 owner |
+| `HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 核心基础架构，定义共同时间事实、同步 DPLL、角度 DPLL 和预测分发边界 |
 | `ARCH_PRODUCT_ARCHITECTURE.md` | DTC100/RP2350_TRIG 产品化系统架构特化，服从 HAOFV 顶层约束 |
 | `HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施指南 |
 | `HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估 |
