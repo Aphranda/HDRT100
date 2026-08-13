@@ -2,6 +2,7 @@
 #define REFMEM_VECTOR_TABLE_H
 
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "distributed_refmem.h"
@@ -49,6 +50,7 @@ typedef struct {
     uint32_t flags;
     uint32_t table_owner;
     uint32_t header_crc32;
+    uint32_t directory_crc32;
     uint32_t header_stale;
     uint32_t core_count;
     uint32_t core0_vtor_owner;
@@ -65,7 +67,7 @@ typedef struct {
     uint32_t core1_park_state;
     refmem_vector_slot_dir_t slots[REFMEM_VECTOR_SLOT_COUNT];
     uint8_t reserved[DISTRIBUTED_REFMEM_HEADER_SIZE -
-                     (26u * sizeof(uint32_t)) -
+                     (27u * sizeof(uint32_t)) -
                      (REFMEM_VECTOR_SLOT_COUNT * sizeof(refmem_vector_slot_dir_t))];
 } refmem_vector_header_slot_t;
 
@@ -109,6 +111,8 @@ const refmem_vector_node_slot_t *refmem_vector_table_node_const(const refmem_vec
                                                                uint32_t node_id);
 void refmem_vector_table_init_directory(refmem_vector_table_t *table);
 uint32_t refmem_vector_fast_crc32(const void *data, size_t size);
+uint32_t refmem_vector_directory_crc(const refmem_vector_table_t *table);
+bool refmem_vector_table_validate_directory(const refmem_vector_table_t *table);
 uint32_t refmem_vector_header_crc(const refmem_vector_table_t *table);
 
 #endif

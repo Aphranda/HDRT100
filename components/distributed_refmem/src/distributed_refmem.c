@@ -42,6 +42,24 @@ static uint32_t distributed_refmem_header_crc_locked(void)
     return refmem_vector_header_crc(&s_distributed_refmem_table);
 }
 
+static void distributed_refmem_refresh_directory_flags_locked(void)
+{
+    refmem_vector_header_slot_t *header = distributed_refmem_header();
+    const uint32_t directory_crc32 = refmem_vector_directory_crc(&s_distributed_refmem_table);
+
+    if (refmem_vector_table_validate_directory(&s_distributed_refmem_table)) {
+        header->flags |= DISTRIBUTED_REFMEM_FLAG_DIRECTORY_VALID;
+    } else {
+        header->flags &= ~DISTRIBUTED_REFMEM_FLAG_DIRECTORY_VALID;
+    }
+
+    if (header->directory_crc32 == directory_crc32) {
+        header->flags |= DISTRIBUTED_REFMEM_FLAG_DIRECTORY_CRC_VALID;
+    } else {
+        header->flags &= ~DISTRIBUTED_REFMEM_FLAG_DIRECTORY_CRC_VALID;
+    }
+}
+
 static void distributed_refmem_publish_runtime_locked(void)
 {
     refmem_vector_header_slot_t *header = distributed_refmem_header();
@@ -89,6 +107,7 @@ static void distributed_refmem_publish_runtime_locked(void)
     }
     header->table_owner = REFMEM_VECTOR_TABLE_OWNER;
     header->header_stale = REFMEM_VECTOR_HEADER_STALE;
+    distributed_refmem_refresh_directory_flags_locked();
     header->header_crc32 = distributed_refmem_header_crc_locked();
 }
 
@@ -112,6 +131,7 @@ bool distributed_refmem_init(void)
     header->table_owner = REFMEM_VECTOR_TABLE_OWNER;
     header->header_stale = REFMEM_VECTOR_HEADER_STALE;
     refmem_vector_table_init_directory(&s_distributed_refmem_table);
+    header->directory_crc32 = refmem_vector_directory_crc(&s_distributed_refmem_table);
     distributed_refmem_publish_runtime_locked();
 
     for (uint32_t i = 0u; i < DISTRIBUTED_REFMEM_NODE_COUNT; i++) {

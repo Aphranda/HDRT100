@@ -125,15 +125,51 @@ void refmem_vector_table_init_directory(refmem_vector_table_t *table)
                            sizeof(table->tlv));
 }
 
-uint32_t refmem_vector_fast_crc32(const void *data, size_t size)
+static uint32_t refmem_vector_crc32_update(uint32_t crc, const void *data, size_t size)
 {
     const uint8_t *bytes = (const uint8_t *)data;
-    uint32_t crc = 2166136261u;
     for (size_t i = 0u; i < size; i++) {
         crc ^= bytes[i];
         crc *= 16777619u;
     }
     return crc;
+}
+
+uint32_t refmem_vector_fast_crc32(const void *data, size_t size)
+{
+    return refmem_vector_crc32_update(2166136261u, data, size);
+}
+
+uint32_t refmem_vector_directory_crc(const refmem_vector_table_t *table)
+{
+    const refmem_vector_header_slot_t *header = refmem_vector_table_header_const(table);
+    if (header == NULL) {
+        return 0u;
+    }
+    return refmem_vector_fast_crc32(header->slots, sizeof(header->slots));
+}
+
+bool refmem_vector_table_validate_directory(const refmem_vector_table_t *table)
+{
+    const refmem_vector_header_slot_t *header = refmem_vector_table_header_const(table);
+    if (header == NULL || header->slot_count != REFMEM_VECTOR_SLOT_COUNT) {
+        return false;
+    }
+
+    uint32_t next_offset = 0u;
+    for (uint32_t i = 0u; i < REFMEM_VECTOR_SLOT_COUNT; i++) {
+        const refmem_vector_slot_dir_t *slot = &header->slots[i];
+        if (slot->offset != next_offset || slot->size == 0u) {
+            return false;
+        }
+        if (slot->offset > DISTRIBUTED_REFMEM_TABLE_SIZE ||
+            slot->size > (DISTRIBUTED_REFMEM_TABLE_SIZE - slot->offset)) {
+            return false;
+        }
+        next_offset = slot->offset + slot->size;
+    }
+
+    return next_offset == DISTRIBUTED_REFMEM_TABLE_SIZE;
 }
 
 uint32_t refmem_vector_header_crc(const refmem_vector_table_t *table)
@@ -142,5 +178,11 @@ uint32_t refmem_vector_header_crc(const refmem_vector_table_t *table)
     if (header == NULL) {
         return 0u;
     }
-    return refmem_vector_fast_crc32(header, offsetof(refmem_vector_header_slot_t, header_crc32));
+
+    const size_t crc_offset = offsetof(refmem_vector_header_slot_t, header_crc32);
+    const size_t crc_end = crc_offset + sizeof(header->header_crc32);
+    uint32_t crc = refmem_vector_crc32_update(2166136261u, header, crc_offset);
+    return refmem_vector_crc32_update(crc,
+                                      (const uint8_t *)header + crc_end,
+                                      sizeof(*header) - crc_end);
 }
