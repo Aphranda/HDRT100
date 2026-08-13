@@ -2500,7 +2500,7 @@ Last updated: 2026-08-10
     - `build/RP2350_TRIG.elf.map`
   - 扫描 release App/Bootloader 二进制，检查不包含 `SYSTem:OTA:INJect` 或 `SYST:OTA:INJ` 字符串。
   - README 增加 release gate check 命令。
-  - `docs/RELEASE_CHECKLIST.md` 更新 release 检查命令和当前实际产物名。
+  - `docs/release/RELEASE_CHECKLIST.md` 更新 release 检查命令和当前实际产物名。
   - `docs/OTA_TODO.md` 标记发布前注入命令检查、周期日志检查、产物命名规则和 release 检查脚本待办完成。
 - 验证结果：
   - `cmake --build --preset pico2-release` 编译通过，生成 `build/RP2350_TRIG_FACTORY.uf2`，factory blocks 为 `315`。
@@ -2517,7 +2517,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `tools/release_check/release_check.py`
   - `README.md`
-  - `docs/RELEASE_CHECKLIST.md`
+  - `docs/release/RELEASE_CHECKLIST.md`
   - `docs/OTA_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：

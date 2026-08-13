@@ -203,7 +203,7 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
-| `RELEASE_CHECKLIST.md` | 发布门禁检查表。 |
+| `release/RELEASE_CHECKLIST.md` | 发布门禁检查表。 |
 | `TASK_PROGRESS.md` | 全局历史任务进度。新域建议使用 `<DOMAIN>_TASK_PROGRESS.md`。 |
 | `BISSC_NETWORK_LOOPBACK_PLAYBOOK.md` | 2026-08-11 BiSS 组网 preflight 处理流程和跨电脑继续工作交接记录。 |
 

@@ -2,7 +2,7 @@
 
 Status: Active
 Domain: RELEASE
-Canonical: `docs/RELEASE_CHECKLIST.md`
+Canonical: `docs/release/RELEASE_CHECKLIST.md`
 Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
 Last updated: 2026-07-07
 

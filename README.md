@@ -422,7 +422,7 @@ time.
   architecture based on Active Objects, lightweight IEC 61499-style function
   blocks, time-synchronized vectors, table-driven state machines, event
   dispatch, and resource arbitration.
-- `docs/RELEASE_CHECKLIST.md`: release gate template.
+- `docs/release/RELEASE_CHECKLIST.md`: release gate template.
 - `docs/SYNC_IO_RESOURCE_PLAN.md`: sync trigger PIO, state-machine, and GPIO
   allocation.
 - `docs/TRIGGER_SYNC_TODO.md`: remaining work for the production trigger

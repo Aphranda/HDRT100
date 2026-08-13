@@ -95,7 +95,7 @@ docs/
 | `ota/` | `OTA_SYSTEM_DESIGN.md`, `OTA_TODO.md`, `OTA_AB_SWITCH_DESIGN.md`, `OTA_COPY_TRANSACTION_DESIGN.md` |
 | `hardware/` | `RP2350B_QFN80_IO_CONSTRAINTS.md`, `hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md`, `hardware/Netlist_Schematic1_2026-08-04.tel` |
 | `validation/` | `SCPI_TASK_PROGRESS.md`, `RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`, `BISSC_TASK_PROGRESS.md` 的后续验证索引 |
-| `release/` | `RELEASE_CHECKLIST.md`, PDF/打印规则相关文档 |
+| `release/` | `release/RELEASE_CHECKLIST.md`, PDF/打印规则相关文档 |
 | `legacy/` | PinProbe HTML、0614/0804 原始 HTML、最初版 SCPI HTML、外部迁入 PDF |
 
 ## 迁移批次
