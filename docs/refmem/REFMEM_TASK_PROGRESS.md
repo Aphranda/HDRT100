@@ -52,6 +52,40 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-017 - RefMem TableRegistry 首版
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 按新 P0 待办落地 `RefMemTableRegistry` 首版。
+  - 先建立可编译、可查询的 registry 基础件，用于观察 active/staging CRC、validation state 和 evidence。
+- 完成内容：
+  - 新增 `refmem_table_registry.h/.c`，覆盖 8 张静态应用模型表的 registry entry。
+  - registry 首版从 `refmem_application_model_snapshot_t` 刷新 active CRC，从 `refmem_application_model_load_snapshot_t` 刷新 staging CRC 和 validation state。
+  - 增加 `SYSTem:REFMEM:TABle? [table_id]` 查询，返回 registry snapshot 加指定表 entry。
+  - 根 `CMakeLists.txt` 纳入 `refmem_table_registry.c`。
+  - `SCPI_COMMANDS.md` 和 `REFMEM_DOMAIN_TODO.md` 同步新命令与完成状态。
+- 验证结果：
+  - `python -m py_compile tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 通过。
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813145717`，package CRC `0xFF8303A3`。
+  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813145717 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_table_registry_fix` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813145717`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_registry_fix` 通过，覆盖 `SYSTem:REFMEM:TABle?` 初始 active mask、NodeLoad staging 后 active/staging mask 共存、非法 NodeLoad rejected 和 SD staging。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_registry_multicore` 通过，16/16 passed。
+- 还需完成：
+  - `RefMemTableRegistry` 后续接入真实 active/staging table image、owner validation callback 和 rollbackable 状态。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_table_registry.h`
+  - `components/distributed_refmem/src/refmem_table_registry.c`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 继续 P0：定义真实 active/staging table image 生命周期和 owner validation callback。
+
 ### REFMEM-TASK-20260813-016 - RefMem 文档主线重排
 
 - 状态：完成

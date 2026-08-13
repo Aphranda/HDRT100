@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "ota_crc32.h"
+#include "refmem_table_registry.h"
 #include "refmem_vector_table.h"
 
 #define REFMEM_APP_INSTANCE_A0_REFMEM_SYNC      0u
@@ -294,6 +295,7 @@ static bool s_initialized;
 
 static bool refmem_model_instance_enabled(const refmem_fb_instance_entry_t *instance);
 static void refmem_model_copy_text(char *dst, size_t dst_size, const char *src);
+static void refmem_model_finish_load_idle(void);
 
 static uint32_t refmem_model_crc32_update(uint32_t crc, const void *data, size_t size)
 {
@@ -973,6 +975,12 @@ static void refmem_model_copy_text(char *dst, size_t dst_size, const char *src)
     dst[i] = '\0';
 }
 
+static void refmem_model_finish_load_idle(void)
+{
+    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+    refmem_table_registry_refresh_staging(&s_load_snapshot);
+}
+
 bool refmem_application_model_validate(void)
 {
     uint32_t error_count;
@@ -1023,6 +1031,7 @@ bool refmem_application_model_init(void)
     s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
 
     s_initialized = true;
+    refmem_table_registry_init(&s_snapshot);
     return s_snapshot.valid != 0u;
 }
 
@@ -1058,12 +1067,12 @@ bool refmem_application_model_stage_sd_system_pack(const char *path,
                            manifest_build_id);
 
     if (manifest_status != REFMEM_APP_MODEL_SD_MANIFEST_OK || manifest_missing_count != 0u) {
-        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
         s_load_snapshot.staging_package_crc32 = 0u;
         s_load_snapshot.staging_lint_error_count = 1u;
         s_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_BAD_TABLE_VERSION;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_MANIFEST_NOT_OK;
+        refmem_model_finish_load_idle();
         return false;
     }
 
@@ -1079,15 +1088,15 @@ bool refmem_application_model_stage_sd_system_pack(const char *path,
     s_load_snapshot.staging_required = 0u;
     s_load_snapshot.staging_load_order = 0u;
     if (s_snapshot.valid == 0u) {
-        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_LINT_FAILED;
+        refmem_model_finish_load_idle();
         return false;
     }
 
     s_load_snapshot.staging_state = REFMEM_APP_STAGING_VALIDATED;
     s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
-    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+    refmem_model_finish_load_idle();
     return true;
 }
 
@@ -1129,22 +1138,22 @@ bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
     s_load_snapshot.path[0] = '\0';
 
     if (node_id >= REFMEM_APP_MODEL_NODE_COUNT) {
-        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
         s_load_snapshot.staging_lint_error_count = 1u;
         s_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_BAD_NODE_RANGE;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_NODE_RANGE;
+        refmem_model_finish_load_idle();
         return false;
     }
 
     if (!refmem_model_instance_exists(instance_id) ||
         enabled > 1u ||
         required > 1u) {
-        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
         s_load_snapshot.staging_lint_error_count = 1u;
         s_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_BAD_INSTANCE_RANGE;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_INSTANCE_RANGE;
+        refmem_model_finish_load_idle();
         return false;
     }
 
@@ -1152,15 +1161,15 @@ bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
     s_load_snapshot.staging_lint_error_count = s_snapshot.lint_error_count;
     s_load_snapshot.staging_first_lint_error = s_snapshot.first_lint_error;
     if (s_snapshot.valid == 0u) {
-        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_LINT_FAILED;
+        refmem_model_finish_load_idle();
         return false;
     }
 
     s_load_snapshot.staging_state = REFMEM_APP_STAGING_VALIDATED;
     s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
-    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+    refmem_model_finish_load_idle();
     return true;
 }
 

@@ -134,6 +134,22 @@ def expect_sd_response(response: str) -> None:
         raise AssertionError(f"unexpected SD source/mode: {fields[2:4]}")
 
 
+def expect_table_response(response: str, *, table_id: str, min_staging_mask: int = 0) -> None:
+    fields = parse_csv_response(response)
+    if len(fields) != 16:
+        raise AssertionError(f"field_count={len(fields)} expected=16")
+    if fields[0] != "1" or fields[1] != "8":
+        raise AssertionError(f"unexpected registry header: {fields[0:2]}")
+    if fields[6] != table_id:
+        raise AssertionError(f"unexpected table id: {fields[6]}")
+    if int(fields[2], 0) != 0xFF:
+        raise AssertionError(f"active mask is not complete: {fields[2]}")
+    if int(fields[3], 0) < min_staging_mask:
+        raise AssertionError(f"staging mask too small: {fields[3]} < {min_staging_mask}")
+    if int(fields[9], 0) == 0:
+        raise AssertionError("active CRC is zero")
+
+
 def write_outputs(out_dir: Path, records: list[Record]) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     transcript = out_dir / "refmem_scpi_load_transcript.txt"
@@ -155,8 +171,11 @@ def write_outputs(out_dir: Path, records: list[Record]) -> None:
 def run_validation(execute, *, skip_sd: bool) -> list[Record]:
     tests = [
         ("SYSTem:REFMEM:LOAD:STATus?", expect_status_idle),
+        ("SYSTem:REFMEM:TABle? 0", lambda response: expect_table_response(response, table_id="0")),
         ("SYSTem:REFMEM:LOAD:NODE 5,9,32,32,1,0,0",
          lambda response: expect_node_staged(response, node_id="5", instance_id="9")),
+        ("SYSTem:REFMEM:TABle? 2",
+         lambda response: expect_table_response(response, table_id="2", min_staging_mask=0xFF)),
         ("SYSTem:REFMEM:LOAD:NODE 8,9,32,32,1,0,0", expect_node_rejected),
     ]
     if not skip_sd:

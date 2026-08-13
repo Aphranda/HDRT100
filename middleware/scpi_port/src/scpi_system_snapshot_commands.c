@@ -8,6 +8,7 @@
 #include "osal.h"
 #include "project_build_info.h"
 #include "refmem_application_model.h"
+#include "refmem_table_registry.h"
 #include "scpi_port_internal.h"
 #include "storage_manager.h"
 #include "system_manager.h"
@@ -174,6 +175,38 @@ scpi_result_t scpi_cmd_refmem_load_status_q(scpi_t *context)
     refmem_application_model_load_snapshot_t snapshot;
     refmem_application_model_get_load_snapshot(&snapshot);
     scpi_refmem_result_load_snapshot(context, &snapshot);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_table_q(scpi_t *context)
+{
+    uint32_t table_id = REFMEM_APP_TABLE_APPLICATION_MAP;
+    (void)SCPI_ParamUInt32(context, &table_id, FALSE);
+
+    refmem_table_registry_entry_t entry;
+    if (!refmem_table_registry_get_entry(table_id, &entry)) {
+        return SCPI_RES_ERR;
+    }
+
+    refmem_table_registry_snapshot_t snapshot;
+    refmem_table_registry_get_snapshot(&snapshot);
+
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.table_count);
+    SCPI_ResultUInt32(context, snapshot.active_table_mask);
+    SCPI_ResultUInt32(context, snapshot.staging_table_mask);
+    SCPI_ResultUInt32(context, snapshot.registry_crc32);
+    SCPI_ResultUInt32(context, snapshot.last_error);
+    SCPI_ResultUInt32(context, entry.table_id);
+    SCPI_ResultUInt32(context, entry.owner);
+    SCPI_ResultUInt32(context, entry.layout_version);
+    SCPI_ResultUInt32(context, entry.active_crc32);
+    SCPI_ResultUInt32(context, entry.staging_crc32);
+    SCPI_ResultUInt32(context, entry.validation_state);
+    SCPI_ResultUInt32(context, entry.validator_id);
+    SCPI_ResultUInt32(context, entry.last_result);
+    SCPI_ResultUInt32(context, entry.evidence_index);
+    SCPI_ResultUInt32(context, entry.flags);
     return SCPI_RES_OK;
 }
 

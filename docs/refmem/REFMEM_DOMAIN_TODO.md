@@ -36,14 +36,14 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 目标：先把当前 `LOAD:SD` / `LOAD:NODE` staging 骨架升级为真正可验证、可回滚的表镜像机制。没有这层，后续动态节点加载、SD 加载和类似 OTA 的 RefMem package 都会缺少统一落点。
 
 - [ ] 定义静态模型表的 binary/TLV 存储格式、CRC、版本兼容和 System Pack 导入策略，覆盖 ApplicationMap、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate 和 QualityTable。
-- [ ] 实现 `RefMemTableRegistry`，记录 table id、owner、offset/size、layout version、active CRC、staging CRC、validation state、validator id、last result 和 evidence。
+- [x] 实现 `RefMemTableRegistry` 首版，记录 table id、owner、layout version、active CRC、staging CRC、validation state、validator id、last result 和 evidence；首版反映已编译 active 表和当前 staging snapshot。
 - [ ] 增加 table image 双镜像生命周期：`EMPTY -> STAGED -> CRC_OK -> OWNER_OK -> ACTIVE -> ROLLBACKABLE/FAILED`。
 - [ ] 实现 table dump/load 镜像规则：dump 只导出稳定 snapshot，load 只能进入 staging，不得直接覆盖 active。
 - [ ] 实现 owner validation callback 调度；CRC 通过后仍必须由表 owner 检查字段范围、逻辑一致性、资源冲突和运行门禁。
 - [ ] 将 `SYSTem:REFMEM:LOAD:SD` 从 manifest 占位升级为真实 TLV/System Pack parser。
 - [ ] 将 `SYSTem:REFMEM:LOAD:NODE` 从单条候选 snapshot 升级为 staging NodeLoadTable image，支持多条候选、CRC、owner validation 和回滚。
 - [ ] 增加类似 OTA 的 SCPI package 分块加载：`SYSTem:REFMEM:LOAD:BEGIN/DATA/END/ABORT`，用于传输完整 RefMem application/node package 到 staging。
-- [ ] 增加 `SYSTem:REFMEM:TABLE:*` 维护查询草案，至少能观察 registry、active/staging CRC、validation state 和 evidence；保持在 `SYSTem:REFMEM:*` 命名空间内。
+- [x] 增加 `SYSTem:REFMEM:TABle? [table_id]` 维护查询，观察 registry、active/staging CRC、validation state 和 evidence；保持在 `SYSTem:REFMEM:*` 命名空间内。
 
 ## P1 - SlotClaimMap 与自组网协调
 
@@ -108,7 +108,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 新增 `components/distributed_refmem/inc/refmem_domain.h` 和 `src/refmem_domain.c`。
 - [x] 新增 `refmem_vector_table.h/.c`。
 - [x] 新增 `refmem_application_model.h/.c`。
-- [ ] 新增 `refmem_table_registry.h/.c`。
+- [x] 新增 `refmem_table_registry.h/.c`。
 - [ ] 新增 `refmem_slot_claim.h/.c`。
 - [ ] 新增 `refmem_slot_contract.h/.c`。
 - [ ] 新增 `refmem_sync.h/.c`。
