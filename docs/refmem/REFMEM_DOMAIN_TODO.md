@@ -57,7 +57,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 将上述六张静态模型表落到 `refmem_application_model.h/.c`。
 - [ ] 定义静态模型表的 binary/TLV 存储格式、CRC、版本兼容和 System Pack 导入策略。
 - [ ] 将 DeploymentGate 输出映射到 `SYSTem:REFMEM:STATus?` / 诊断 evidence / RUN gate。
-- [ ] 增加静态模型 linter：检查 instance id、node id、role/persona、resource claim、IO claim、writer 唯一性和 event/data link 完整性。
+- [x] 增加静态模型 linter：检查 instance id、node id、role/persona、resource claim、IO claim、writer 唯一性和 event/data link 完整性。
 - [ ] 增加静态模型 package CRC：分别覆盖 ApplicationMap、FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality。
 - [ ] 增加 FB 图版本门禁：借鉴 IEC 61499 的部署一致性思想，RUN 前检查 AO/FB 类型、版本、enable 条件和连接表 CRC。
 

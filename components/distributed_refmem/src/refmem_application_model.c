@@ -1,6 +1,7 @@
 #include "refmem_application_model.h"
 
 #include <stddef.h>
+#include <string.h>
 
 #include "ota_crc32.h"
 #include "refmem_vector_table.h"
@@ -445,13 +446,228 @@ static bool refmem_model_validate_gate_and_quality(void)
     return true;
 }
 
+static void refmem_model_lint_note(bool ok,
+                                   uint32_t error,
+                                   uint32_t *error_count,
+                                   uint32_t *first_error)
+{
+    if (ok) {
+        return;
+    }
+
+    if (*error_count == 0u) {
+        *first_error = error;
+    }
+    (*error_count)++;
+}
+
+static bool refmem_model_instance_enabled(const refmem_fb_instance_entry_t *instance)
+{
+    return instance != NULL && instance->enable_condition != 0u;
+}
+
+static bool refmem_model_validate_node_instance_ranges(void)
+{
+    for (uint32_t node_index = 0u; node_index < s_application_map.node_count; node_index++) {
+        const refmem_app_node_entry_t *node = &s_application_map.node[node_index];
+        const uint32_t end = node->instance_first + node->instance_count;
+
+        for (uint32_t i = node->instance_first; i < end; i++) {
+            if (s_fb_instance_table.instance[i].node_id != node->node_id) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool refmem_model_validate_resource_claims(void)
+{
+    const uint32_t exclusive_resource_mask = REFMEM_APP_RESOURCE_FLASH |
+                                            REFMEM_APP_RESOURCE_SD |
+                                            REFMEM_APP_RESOURCE_USB |
+                                            REFMEM_APP_RESOURCE_LCD;
+
+    for (uint32_t i = 0u; i < s_fb_instance_table.instance_count; i++) {
+        const refmem_fb_instance_entry_t *left = &s_fb_instance_table.instance[i];
+        if (!refmem_model_instance_enabled(left)) {
+            continue;
+        }
+
+        for (uint32_t j = i + 1u; j < s_fb_instance_table.instance_count; j++) {
+            const refmem_fb_instance_entry_t *right = &s_fb_instance_table.instance[j];
+            if (!refmem_model_instance_enabled(right) || left->node_id != right->node_id) {
+                continue;
+            }
+
+            if (left->conflict_class != 0u &&
+                left->conflict_class == right->conflict_class) {
+                return false;
+            }
+
+            if (((left->resource_claim & right->resource_claim) & exclusive_resource_mask) != 0u) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool refmem_model_validate_io_claims(void)
+{
+    const uint32_t exclusive_io_mask = REFMEM_APP_IO_LINK_CONTROL |
+                                      REFMEM_APP_IO_BISS_C |
+                                      REFMEM_APP_IO_UART_RS485;
+
+    for (uint32_t i = 0u; i < s_fb_instance_table.instance_count; i++) {
+        const refmem_fb_instance_entry_t *left = &s_fb_instance_table.instance[i];
+        if (!refmem_model_instance_enabled(left)) {
+            continue;
+        }
+
+        for (uint32_t j = i + 1u; j < s_fb_instance_table.instance_count; j++) {
+            const refmem_fb_instance_entry_t *right = &s_fb_instance_table.instance[j];
+            if (!refmem_model_instance_enabled(right) || left->node_id != right->node_id) {
+                continue;
+            }
+
+            if (((left->io_claim & right->io_claim) & exclusive_io_mask) != 0u) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool refmem_model_validate_unique_writers(void)
+{
+    for (uint32_t i = 0u; i < s_data_link_table.data_link_count; i++) {
+        const refmem_data_link_entry_t *left = &s_data_link_table.link[i];
+        for (uint32_t j = i + 1u; j < s_data_link_table.data_link_count; j++) {
+            const refmem_data_link_entry_t *right = &s_data_link_table.link[j];
+            if (strcmp(left->slot_path, right->slot_path) == 0 &&
+                left->writer_instance != right->writer_instance) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool refmem_model_validate_required_event_links(void)
+{
+    bool has_start = false;
+    bool has_stop = false;
+    bool has_fire_load = false;
+    bool has_done = false;
+    bool has_fault = false;
+
+    for (uint32_t i = 0u; i < s_event_link_table.event_link_count; i++) {
+        const refmem_event_link_entry_t *link = &s_event_link_table.link[i];
+        has_start = has_start ||
+                    (link->source_event == REFMEM_APP_EVENT_START &&
+                     link->target_event == REFMEM_APP_EVENT_START);
+        has_stop = has_stop ||
+                   (link->source_event == REFMEM_APP_EVENT_STOP &&
+                    link->target_event == REFMEM_APP_EVENT_STOP);
+        has_fire_load = has_fire_load ||
+                        (link->source_event == REFMEM_APP_EVENT_FIRE_LOAD &&
+                         link->target_event == REFMEM_APP_EVENT_FIRE_LOAD);
+        has_done = has_done ||
+                   (link->source_event == REFMEM_APP_EVENT_DONE &&
+                    link->target_event == REFMEM_APP_EVENT_DONE);
+        has_fault = has_fault ||
+                    (link->source_event == REFMEM_APP_EVENT_FAULT &&
+                     link->target_event == REFMEM_APP_EVENT_FAULT);
+    }
+
+    return has_start && has_stop && has_fire_load && has_done && has_fault;
+}
+
+static bool refmem_model_validate_required_data_links(void)
+{
+    uint32_t slot_mask = 0u;
+    const uint32_t required_slot_mask = (1u << REFMEM_VECTOR_SLOT_SYSTEM) |
+                                        (1u << REFMEM_VECTOR_SLOT_ROLE) |
+                                        (1u << REFMEM_VECTOR_SLOT_VDC) |
+                                        (1u << REFMEM_VECTOR_SLOT_LOOP) |
+                                        (1u << REFMEM_VECTOR_SLOT_DPLL) |
+                                        (1u << REFMEM_VECTOR_SLOT_NODE) |
+                                        (1u << REFMEM_VECTOR_SLOT_TRIGGER) |
+                                        (1u << REFMEM_VECTOR_SLOT_IO) |
+                                        (1u << REFMEM_VECTOR_SLOT_CAL) |
+                                        (1u << REFMEM_VECTOR_SLOT_ACK_CMD) |
+                                        (1u << REFMEM_VECTOR_SLOT_GATEWAY);
+
+    for (uint32_t i = 0u; i < s_data_link_table.data_link_count; i++) {
+        const refmem_data_link_entry_t *link = &s_data_link_table.link[i];
+        slot_mask |= (1u << link->crc_scope);
+    }
+
+    return (slot_mask & required_slot_mask) == required_slot_mask;
+}
+
+static void refmem_model_lint(uint32_t *error_count, uint32_t *first_error)
+{
+    *error_count = 0u;
+    *first_error = REFMEM_APP_LINT_OK;
+
+    refmem_model_lint_note(refmem_model_validate_application_map(),
+                           REFMEM_APP_LINT_BAD_TABLE_VERSION,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_node_instance_ranges(),
+                           REFMEM_APP_LINT_BAD_NODE_RANGE,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_instances(),
+                           REFMEM_APP_LINT_BAD_INSTANCE_RANGE,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_resource_claims(),
+                           REFMEM_APP_LINT_RESOURCE_CONFLICT,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_io_claims(),
+                           REFMEM_APP_LINT_IO_CONFLICT,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_event_links(),
+                           REFMEM_APP_LINT_BAD_EVENT_LINK,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_required_event_links(),
+                           REFMEM_APP_LINT_BAD_EVENT_LINK,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_data_links(),
+                           REFMEM_APP_LINT_BAD_DATA_LINK,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_unique_writers(),
+                           REFMEM_APP_LINT_DUPLICATE_WRITER,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_required_data_links(),
+                           REFMEM_APP_LINT_BAD_DATA_LINK,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_gate_and_quality(),
+                           REFMEM_APP_LINT_BAD_GATE_OR_QUALITY,
+                           error_count,
+                           first_error);
+}
+
 bool refmem_application_model_validate(void)
 {
-    return refmem_model_validate_application_map() &&
-           refmem_model_validate_instances() &&
-           refmem_model_validate_event_links() &&
-           refmem_model_validate_data_links() &&
-           refmem_model_validate_gate_and_quality();
+    uint32_t error_count;
+    uint32_t first_error;
+    refmem_model_lint(&error_count, &first_error);
+    return error_count == 0u;
 }
 
 bool refmem_application_model_init(void)
@@ -478,7 +694,8 @@ bool refmem_application_model_init(void)
     s_snapshot.package_crc32 =
         refmem_model_crc32_fields(package_fields,
                                   sizeof(package_fields) / sizeof(package_fields[0]));
-    s_snapshot.valid = refmem_application_model_validate() ? 1u : 0u;
+    refmem_model_lint(&s_snapshot.lint_error_count, &s_snapshot.first_lint_error);
+    s_snapshot.valid = s_snapshot.lint_error_count == 0u ? 1u : 0u;
     s_initialized = true;
     return s_snapshot.valid != 0u;
 }

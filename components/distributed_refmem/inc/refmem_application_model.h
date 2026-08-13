@@ -173,6 +173,20 @@ typedef enum {
     REFMEM_APP_QUALITY_DATA_LINK = 4u,
 } refmem_app_quality_scope_t;
 
+typedef enum {
+    REFMEM_APP_LINT_OK = 0u,
+    REFMEM_APP_LINT_BAD_TABLE_VERSION = 1u,
+    REFMEM_APP_LINT_BAD_NODE_RANGE = 2u,
+    REFMEM_APP_LINT_BAD_INSTANCE_RANGE = 3u,
+    REFMEM_APP_LINT_BAD_INSTANCE_REF = 4u,
+    REFMEM_APP_LINT_RESOURCE_CONFLICT = 5u,
+    REFMEM_APP_LINT_IO_CONFLICT = 6u,
+    REFMEM_APP_LINT_DUPLICATE_WRITER = 7u,
+    REFMEM_APP_LINT_BAD_EVENT_LINK = 8u,
+    REFMEM_APP_LINT_BAD_DATA_LINK = 9u,
+    REFMEM_APP_LINT_BAD_GATE_OR_QUALITY = 10u,
+} refmem_app_lint_error_t;
+
 typedef struct {
     uint32_t node_id;
     uint32_t node_uuid_crc32;
@@ -323,6 +337,8 @@ typedef struct {
     uint32_t deployment_gate_crc32;
     uint32_t connection_quality_crc32;
     uint32_t package_crc32;
+    uint32_t lint_error_count;
+    uint32_t first_lint_error;
 } refmem_application_model_snapshot_t;
 
 bool refmem_application_model_init(void);

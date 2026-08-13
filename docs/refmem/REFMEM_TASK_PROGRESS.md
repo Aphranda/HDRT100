@@ -43,6 +43,41 @@ DistributedRefMemAO
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-011 - 静态模型 linter 首版
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 将 P2 静态应用模型从基础字段合法性检查升级为关系一致性 linter。
+  - 为后续 RUN gate、owner 写权限和 System Pack 导入提供统一的模型验证结果。
+- 完成内容：
+  - `refmem_application_model_snapshot_t` 增加 `lint_error_count` 和 `first_lint_error`。
+  - 增加 `refmem_app_lint_error_t`，首版覆盖表版本、节点范围、实例范围、实例引用、资源冲突、IO 冲突、重复 writer、事件链路、数据链路、gate/quality 错误。
+  - linter 检查节点声明的 instance range 是否确实归属该节点。
+  - linter 检查同节点启用实例的独占资源冲突；首版将 Flash、SD、USB、LCD 作为硬独占资源，RJ45/PIO/DMA/core1 保留给后续按实例细化。
+  - linter 检查同节点启用实例的独占 IO 冲突；首版将 link-control、BiSS-C、UART/RS485 作为硬独占 IO，SMA/RJ45_SYNC 暂按分布式链路能力处理。
+  - linter 检查 `slot_path` 的 writer 唯一性，禁止同一字段被不同实例声明为 writer。
+  - linter 检查 START、STOP、FIRE_LOAD、DONE、FAULT 必需事件链路存在。
+  - linter 检查关键 slot 的 data link 覆盖：System、Role、VDC、Loop、DPLL、Node、Trigger、IO、Calibration、AckCommand、Gateway。
+  - `refmem_application_model_validate()` 改为使用 linter 汇总结果；RefMem status 的 `APP_MODEL_VALID` 位继续由 snapshot valid 派生。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813130200`，package CRC `0xA3A4BDE6`。
+  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813130200 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_app_linter` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813130200`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_app_linter` 通过，16/16 passed。
+  - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,96185,0,8,96184,96184,7`，其中 flags `7` 表示 directory valid、directory CRC valid 和 application model valid 均置位；`SYSTem:REFMEM:NODE? => 0,1,96189,96190,101105,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,96196,2,0,1,15,3840,2,7,2,2463022334,0,7`；`SYSTem:PROTection:STATus? => 1,96202,1,1,1,0,0,0,2,11,2,737992584,0,7`。
+- 还需完成：
+  - 把 `lint_error_count/first_lint_error` 暴露到后续维护查询或 RUN gate evidence。
+  - 将 PIO/DMA/core1/RJ45 的共享/独占策略从硬编码升级为 resource class 表。
+  - 增加 System Pack 导入前的离线 linter 和故障注入测试。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 继续 P2 的 binary/TLV 存储格式和 System Pack 导入策略，或将 linter 结果接入 DeploymentGate / RUN gate。
+
 ### REFMEM-TASK-20260813-010 - P2 六张静态应用模型表落代码
 
 - 状态：完成
