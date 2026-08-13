@@ -363,10 +363,12 @@ SYSTem:USB:*
 
 反射内存边界：
 
-- 反射内存是系统维护事实源，入口固定为 `SYSTem:REFMEM:*`。
-- 不单独建立顶级 `REFMEM` 域。
-- 当前表设计面向 8 个节点，后续可包含真实板卡、模型节点、模拟网分、模拟转台等节点类型。
+- RefMem 是 HAOFV 内部主域，owner 为 Distributed Vector Blackboard / RefMem Sync Domain。
+- 对外维护入口固定为 `SYSTem:REFMEM:*`，不单独建立顶级 `REFMEM` SCPI 域。
+- 当前表设计面向 A0-A7 八个通用节点；真实板卡、模型网分、模拟转台、网关和测试代理是加载到通用节点上的 role/persona/instance。
+- 在资源、IO、时序、owner 和 slot writer 不冲突时，同一通用节点可以同时载入多个逻辑实例。
 - 产品业务读取优先通过 `READ:*?` 和 `SYSTem:*?` 摘要，不直接要求上位机解析全部反射内存布局。
+- SCPI 只读取 RefMem snapshot 或写 command/config slot；state、summary、ACK/NACK、result、health 和 evidence slot 仍由对应 owner 写入。
 
 报告/日志/T2 边界：
 

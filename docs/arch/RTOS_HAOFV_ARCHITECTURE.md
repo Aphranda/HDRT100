@@ -173,7 +173,7 @@ RuntimeProtectionTable / `SYSTem:PROTection:STATus?` 至少需要覆盖：
 | `task_loop_engine` | core0 | 3 | 3072 words | A0 扫描编排、角度/断点/序列展开、滚动生成 `FIRE_LOAD` |
 | `task_vdc_sync` | core0 | 4 | 2048 words | SYNC DPLL、虚拟 DC offset/rate、LOCK/HOLDOVER/RELOCK、`e_vdc` |
 | `task_calibration` | core0 | 3 | 2048 words | CAL link/delay 表、短事务测量、staging/active/version/quality |
-| `task_refmem_sync` | core0 | 4 | 2048 words | 64 KB DistributedVectorTable、slot delta、节点心跳、stale 判定 |
+| `task_refmem_sync` | core0 | 4 | 2048 words | 当前任务壳承载 `DistributedRefMemAO / RefMemSyncFB`；维护 64 KB DistributedVectorTable、静态分布式模型、slot delta、节点心跳、stale 判定 |
 | `task_dpll` | core0 | 3 | 2048 words | 角度预测 DPLL、Compare Out、`T_fire_base`；不参与 VDC offset/rate |
 | `task_storage` | core0 | 2 | 3072 words | SD/FatFs、System Pack、trace、snapshot、T2、report job |
 | `task_ota` | core0 | 2 | 1536 words | OtaAO、metadata、flash job，受资源仲裁和 core1 park 约束 |
@@ -193,7 +193,7 @@ RuntimeProtectionTable / `SYSTem:PROTection:STATus?` 至少需要覆盖：
 | `task_loop_engine` | on | off | off | proxy | A0 执行；A3 转发或显示 |
 | `task_calibration` | owner | local | local | coordinator | A0/A3 编排；各节点执行本地链路测量 |
 | `task_vdc_sync` | origin | follower | follower | follower | A0 发布共同时间；其他节点跟随 |
-| `task_refmem_sync` | on | on | on | on | 所有节点维护同一张表 |
+| `task_refmem_sync` / RefMem Domain | on | on | on | on | 所有节点维护同一张 DistributedVectorTable 和静态分布式模型 |
 | `task_dpll` | on | off | off | off | 首版转台 Compare Out 在 A0 |
 | `core1_realtime` | on | on | on | on | 所有节点都有本地 PIO 触发/捕获 |
 | `task_storage` / `task_ui` / `task_ota` | on | on | on | on | 维护、观测和升级 |
@@ -230,12 +230,14 @@ A3 SCPI START
   -> task_loop_engine / task_storage / task_gateway_a3
 ```
 
-## 反射内存
+## RefMem 内部主域
 
 DistributedVectorTable 按 64 KB 产品化完整布局实现，P0 只启用核心字段，其余区域保留并纳入
 版本和 CRC 管理。
 
-在 RTOS + 分布式系统中，反射内存不仅是 slot 数据表，还承接 HAOFV 的静态分布式应用模型。它吸收 IEC 61499 分布式运行时的 application / FB instance / event connection / data connection / deployment consistency / diagnostics 思想，但不支持动态部署和跨节点 FB 直接调用。
+在 RTOS + 分布式系统中，RefMem 是内部主域，不仅是 slot 数据表，还承接 HAOFV 的静态分布式应用模型。它吸收 IEC 61499 分布式运行时的 application / FB instance / event connection / data connection / deployment consistency / diagnostics 思想，但不支持动态部署和跨节点 FB 直接调用。
+
+RefMem 固定提供 A0-A7 八个通用节点槽。模型网分、模拟转台、网关、测试代理等不是额外固定节点，而是加载到 A0-A7 通用节点上的 role、persona 或 AO/FB instance。在资源、IO、时序、owner 和 slot writer 不冲突时，同一通用节点可以同时载入多个逻辑实例。
 
 实施上必须拆成两类表：
 
@@ -248,11 +250,11 @@ DistributedVectorTable 按 64 KB 产品化完整布局实现，P0 只启用核�
 
 | 表 | 内容 | RUN 门禁作用 |
 |---|---|---|
-| `DistributedApplicationMap` | A0/A1/A2/A3、模型节点、网分、转台、网关等逻辑节点。 | 确认节点数量、角色和是否允许模型节点参与。 |
-| `DistributedFbInstanceTable` | 每节点 AO/FB instance、domain、版本、enable 条件和健康状态。 | 确认每个 required instance 存在且版本兼容。 |
+| `DistributedApplicationMap` | A0-A7 通用节点，以及加载到节点上的 role、persona、真实板卡、模型网分、模拟转台、网关和测试代理实例。 | 确认节点数量、角色、实例加载和共存关系。 |
+| `DistributedFbInstanceTable` | 每节点 AO/FB instance、domain、版本、enable 条件、健康状态和共存冲突规则。 | 确认每个 required instance 存在、版本兼容且无资源冲突。 |
 | `DistributedEventLinkTable` | START/STOP/FIRE_LOAD/DONE/FAULT/ACK/NACK 的 source、destination、通道、timeout。 | 确认跨节点事件路径完整且 ACK 策略明确。 |
 | `DistributedDataLinkTable` | slot 字段 writer/reader、单位、值域、生命周期、snapshot 策略。 | 确认没有多 writer、未声明 reader 或不一致单位。 |
-| `DistributedDeploymentGate` | build id、hw profile、config CRC、calibration CRC、sync profile CRC、layout version。 | RUN 前一票否决不一致部署。 |
+| `DistributedDeploymentGate` | build id、hw profile、config CRC、calibration CRC、sync profile CRC、layout version 和实例共存冲突检查。 | RUN 前一票否决不一致部署或冲突实例组合。 |
 | `DistributedConnectionQualityTable` | seq、CRC、stale、late、drop、timeout、last_error、evidence index。 | RUN 中诊断连接质量和报告闭环。 |
 
 | 区域 | 建议大小 | 内容 | 写入者 |

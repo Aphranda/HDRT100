@@ -35,11 +35,14 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [x] 当前分支默认构建和运行路径固化为 RTOS + 双核 AMP。
 - [ ] 将空壳逐步替换为真正 AO service，`app.c` 只保留启动编排。
 
-## P1 - 反射内存主数据面
+## P1 - RefMem 内部主域 / 反射内存主数据面
+
+详细待办以 `docs/refmem/REFMEM_DOMAIN_TODO.md` 为准；本节只保留 RTOS + 双核 AMP 视角下必须纳入发布门禁和任务拆分的事项。
 
 - [ ] 根据风险 `HAOFV-RISK-20260813-003/009`，将跨核 owner 矩阵和时间回绕规则升格为反射内存基础约束。
 - [x] 在 HAOFV/RTOS 架构中明确 Distributed RefMem 不是完整 IEC 61499 分布式运行时，而是吸收其 application / instance / event connection / data connection / deployment / diagnostics 优点的静态分布式应用模型。
-- [ ] 定义 `DistributedApplicationMap`，覆盖 A0/A1/A2/A3、模型节点、网分、转台和网关节点。
+- [x] 将 RefMem 明确为 HAOFV 内部主域，并建立 `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`、`REFMEM_DOMAIN_TODO.md`、`REFMEM_TASK_PROGRESS.md`。
+- [ ] 定义 `DistributedApplicationMap`，覆盖 A0-A7 八个通用节点，以及加载到节点上的 board/gateway/model_vna/model_turntable/model_dut/test_agent 等 role/persona/instance；允许无冲突时同一通用节点同时载入多个实例。
 - [ ] 定义 `DistributedFbInstanceTable`，覆盖每节点 AO/FB instance、domain、版本、enable 条件和健康状态。
 - [ ] 定义 `DistributedEventLinkTable`，覆盖 START/STOP/FIRE_LOAD/DONE/FAULT/ACK/NACK 的 source、destination、通道和 timeout。
 - [ ] 定义 `DistributedDataLinkTable`，覆盖 slot 字段 writer/reader、单位、值域、生命周期和 snapshot 策略。

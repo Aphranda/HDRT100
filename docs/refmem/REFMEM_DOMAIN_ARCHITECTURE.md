@@ -95,13 +95,31 @@ Other nodes
 
 RefMem Domain 吸收 IEC 61499-style 分布式运行时的优点，但保留静态、可验证、产品化的实现方式。
 
+### 节点模型硬规则
+
+RefMem 的底座只固定 **A0-A7 八个通用节点**。A0-A7 是 slot 和同步协议中的通用 node id，不代表永久固定的产品角色。
+
+模型节点、模拟网分节点、模拟转台节点、网关节点都不是额外的固定节点类型，也不是独立于 A0-A7 之外的表空间。它们是加载到 A0-A7 某个通用节点上的 role、persona 或 AO/FB instance：
+
+```text
+A0-A7 generic node
+  + NodeRoleMap
+  + persona / feature_mask
+  + DistributedFbInstanceTable
+  -> board / gateway / model_vna / model_turntable / model_dut / test_agent
+```
+
+在不冲突的情况下，同一个 A0-A7 通用节点可以同时载入多个逻辑实例。例如一个节点可以同时承载 `board` + `gateway`，或 `model_vna` + `test_agent`。是否允许并存由 `DistributedDeploymentGate` 判定，至少检查资源、IO、时序、owner、slot writer、事件连接和数据连接是否冲突。
+
+因此，`NodeSlot[8]` 只描述八个通用节点的新鲜度、心跳、角色摘要和故障摘要；具体节点承载真实板卡、网关、模型网分或模拟转台，由静态分布式应用模型决定。
+
 | 借鉴点 | RefMem Domain 落地形式 | 不采用的部分 |
 |---|---|---|
-| Application model | 静态 `DistributedApplicationMap`，描述 A0/A1/A2/A3、模型节点、网分、转台、网关节点。 | 运行时动态部署 application。 |
-| FB instance model | 静态 `DistributedFbInstanceTable`，描述每个节点上的 AO/FB 实例、版本、role 和 enable 条件。 | 跨节点动态创建/销毁 FB。 |
+| Application model | 静态 `DistributedApplicationMap`，描述 A0-A7 通用节点以及加载到节点上的 role、persona 和实例。 | 运行时动态部署 application。 |
+| FB instance model | 静态 `DistributedFbInstanceTable`，描述每个节点上的 AO/FB 实例、版本、role、enable 条件和共存冲突规则。 | 跨节点动态创建/销毁 FB。 |
 | Event connection | 静态 `DistributedEventLinkTable`，把 START、STOP、FIRE_LOAD、DONE、FAULT、ACK/NACK 映射为 command slot、event queue 或 RJ45 frame。 | 跨节点直接事件调用和动态路由。 |
 | Data connection | 静态 `DistributedDataLinkTable`，把状态、参数、质量、时间戳、T2 和统计量映射到固定 slot 字段。 | 任意远程变量读写。 |
-| Deployment consistency | `DistributedDeploymentGate` 聚合 build id、hw profile、config CRC、calibration CRC、sync profile CRC 和 layout version。 | 在线热替换部署。 |
+| Deployment consistency | `DistributedDeploymentGate` 聚合 build id、hw profile、config CRC、calibration CRC、sync profile CRC、layout version 和实例共存冲突检查。 | 在线热替换部署。 |
 | Diagnostics | `DistributedConnectionQualityTable` 记录 seq、CRC、stale、late、drop、timeout、last_error 和 evidence index。 | 依赖外部 IEC 工具链诊断。 |
 
 ## 核心数据面
@@ -116,7 +134,7 @@ RefMem Domain 吸收 IEC 61499-style 分布式运行时的优点，但保留静�
 | VdcSlot | 2 KB | sync_id、offset、rate、lock_state、holdover、relock、`e_vdc` | VdcSyncAO |
 | LoopSlot | 4 KB | trigger param、angle sweep/breakpoint、active sequence、scan_index | LoopEngineAO |
 | DpllSlot | 2 KB | compare 捕获、角度预测、`T_fire_base`、`e_pll` | AngleDpll owner |
-| NodeSlot[8] | 4 KB | node_id、role、heartbeat、local_state、error_code、stale_count | 各节点 owner |
+| NodeSlot[8] | 4 KB | A0-A7 通用节点的 node_id、role、persona、heartbeat、local_state、error_code、stale_count | 各节点 owner |
 | TriggerSlot[8] | 8 KB | armed、last_fire_seq、late_count、t2_count、ready_timeout | 各节点 core1 摘要 |
 | IoSlot[8] | 8 KB | SMA/RJ45/BiSS IO 镜像、边沿计数、健康状态 | 各节点 IO owner |
 | CalibrationSlot | 8 KB | link table、delay table、staging/active/version/quality | CalibrationAO |

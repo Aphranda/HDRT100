@@ -174,16 +174,20 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - `middleware/scpi_port/src/scpi_sync_commands.c`
   - `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`
 
-### HAOFV-MAINT-20260813-007 - Distributed RefMem 需要从本地表骨架升级为主数据面
+### HAOFV-MAINT-20260813-007 - Distributed RefMem 需要升级为内部主域
 
 - 状态：进行中
 - 问题：
   - 64 KB slot 表已经建立，但目前主要维护 header、node heartbeat 和 core 保护状态。
   - 尚未实现跨板同步、slot 唯一 writer、命令槽、ACK/NACK、CRC/seqlock 和 slot 提交流程。
+  - RefMem 已确定为 HAOFV 内部基础主域，不能继续只作为 System 维护查询下的本地表组件。
 - 影响：
   - 当前 SCPI/域状态仍容易绕过反射内存直接调用函数。
 - 待办：
   - [x] 在 HAOFV/RTOS 架构中明确 Distributed RefMem 吸收 IEC 61499 分布式运行时优点，但不引入动态部署和跨节点 FB 直接调用。
+  - [x] 建立 `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`、`REFMEM_DOMAIN_TODO.md` 和 `REFMEM_TASK_PROGRESS.md` 三份标准文件。
+  - [x] 明确 A0-A7 是 RefMem 通用节点底座；真实板卡、网关、模型网分、模拟转台和测试代理是加载到通用节点上的 role/persona/instance。
+  - [x] 明确无资源、IO、时序、owner 和 slot writer 冲突时，同一通用节点允许同时载入多个逻辑实例。
   - [ ] 定义静态分布式应用模型：ApplicationMap、FbInstanceTable、EventLinkTable、DataLinkTable、DeploymentGate、ConnectionQualityTable。
   - [ ] 定义每个 slot 的 owner 和 writer 规则。
   - [ ] 增加 slot seqlock、CRC、stale、version 和 dirty 标记。

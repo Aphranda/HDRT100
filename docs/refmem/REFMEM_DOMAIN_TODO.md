@@ -13,22 +13,22 @@ Last updated: 2026-08-13
 - [x] 建立 `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`。
 - [x] 建立 `docs/refmem/REFMEM_DOMAIN_TODO.md`。
 - [x] 建立 `docs/refmem/REFMEM_TASK_PROGRESS.md`。
-- [ ] 更新 `docs/refmem/README.md`，加入三份标准文档入口。
-- [ ] 更新 `docs/arch/README.md`，在阅读顺序中加入 RefMem 主域文档。
-- [ ] 更新 `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`，把 `refmem/` 从预留目录升级为内部主域目录。
+- [x] 更新 `docs/refmem/README.md`，加入三份标准文档入口。
+- [x] 更新 `docs/arch/README.md`，在阅读顺序中加入 RefMem 主域文档。
+- [x] 更新 `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`，把 `refmem/` 从预留目录升级为内部主域目录。
 
 ## P1 - 架构文件同步
 
-- [ ] 修改 `docs/arch/HAOFV_ARCHITECTURE.md`，把 Distributed RefMem 从 layer 明确升格为 HAOFV 内部主域。
-- [ ] 修改 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`，把 `task_refmem_sync` 改成 `DistributedRefMemAO / RefMemSyncFB` 的 RTOS owner 体现。
-- [ ] 修改 `docs/arch/RTOS_HAOFV_TODO.md`，将 P1 反射内存主数据面重构为 RefMem Domain 待办。
-- [ ] 修改 `docs/arch/HAOFV_MAINTENANCE_TODO.md`，增加“RefMem 内部主域建设”维护项。
-- [ ] 修改 `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`，说明 `SYSTem:REFMEM:*` 背后 owner 是 RefMem Domain。
-- [ ] 修改 `docs/interface/SCPI_COMMANDS.md`，同步 `SYSTem:REFMEM:*` 查询说明，避免上位机误认为有顶级 `REFMEM` SCPI 域。
+- [x] 修改 `docs/arch/HAOFV_ARCHITECTURE.md`，把 Distributed RefMem 从 layer 明确升格为 HAOFV 内部主域。
+- [x] 修改 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`，把 `task_refmem_sync` 改成 `DistributedRefMemAO / RefMemSyncFB` 的 RTOS owner 体现。
+- [x] 修改 `docs/arch/RTOS_HAOFV_TODO.md`，将 P1 反射内存主数据面重构为 RefMem Domain 待办。
+- [x] 修改 `docs/arch/HAOFV_MAINTENANCE_TODO.md`，增加“RefMem 内部主域建设”维护项。
+- [x] 修改 `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`，说明 `SYSTem:REFMEM:*` 背后 owner 是 RefMem Domain。
+- [x] 修改 `docs/interface/SCPI_COMMANDS.md`，同步 `SYSTem:REFMEM:*` 查询说明，避免上位机误认为有顶级 `REFMEM` SCPI 域。
 
 ## P2 - 静态分布式应用模型
 
-- [ ] 定义 `DistributedApplicationMap`，覆盖 A0/A1/A2/A3、模型节点、网分、转台、网关节点。
+- [ ] 定义 `DistributedApplicationMap`，覆盖 A0-A7 八个通用节点，以及加载到节点上的 board/gateway/model_vna/model_turntable/model_dut/test_agent 等 role/persona/instance；允许无冲突时同一通用节点同时载入多个实例。
 - [ ] 定义 `DistributedFbInstanceTable`，覆盖每节点 AO/FB instance、domain、版本、enable 条件和健康状态。
 - [ ] 定义 `DistributedEventLinkTable`，覆盖 START/STOP/FIRE_LOAD/DONE/FAULT/ACK/NACK 的 source、destination、通道和 timeout。
 - [ ] 定义 `DistributedDataLinkTable`，覆盖 slot 字段 writer/reader、单位、值域、生命周期和 snapshot 策略。

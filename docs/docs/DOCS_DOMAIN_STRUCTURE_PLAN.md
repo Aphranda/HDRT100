@@ -67,7 +67,7 @@ docs/
 |---|---|---|
 | Control Plane / System Manager | `arch/` | `_ARCHITECTURE.md`, `_DESIGN.md`, `_TASK_PROGRESS.md` |
 | Command Transaction / ACK-NACK | `refmem/` | `_DESIGN.md`, `_COMMANDS.md`, `_CHECKLIST.md` |
-| Distributed Vector / REFMEM | `refmem/` | `_ARCHITECTURE.md`, `_DESIGN.md`, `_TASK_PROGRESS.md` |
+| Distributed Vector / REFMEM | `refmem/` | 内部主域；`REFMEM_DOMAIN_ARCHITECTURE.md`, `REFMEM_DOMAIN_TODO.md`, `REFMEM_TASK_PROGRESS.md` |
 | Loop Engine / Sequence Engine | `trigger/` | `_DESIGN.md`, `_PLAN.md`, `_TASK_PROGRESS.md` |
 | Core1 Realtime / FIRE_LOAD | `trigger/` | `_DESIGN.md`, `_ANALYSIS.md`, `_CHECKLIST.md` |
 | Calibration Engine | `calibration/` | `_DESIGN.md`, `_COMMANDS.md`, `_TASK_PROGRESS.md` |
@@ -88,7 +88,7 @@ docs/
 | `trigger/` | `TRIGGER_SYNC_TODO.md`, `TRIGGER_SEQ_STEP_DESIGN.md`, `TRIGGER_ENC_COUNT_DESIGN.md`, `TRIGGER_PULSE_COUNT_ANALYSIS.md`, `SYNC_IO_RESOURCE_PLAN.md` |
 | `sync/` | `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`, `SYNC_IO_REFACTOR_PLAN.md`, `SYNC_IO_TASK_PROGRESS.md` |
 | `calibration/` | 首批需要从 SCPI/RTOS 文档中抽出 `CALibration` 专题设计文档 |
-| `refmem/` | `LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` 作为参考；首批需要新增 DTC100 反射内存设计 |
+| `refmem/` | `REFMEM_DOMAIN_ARCHITECTURE.md`, `REFMEM_DOMAIN_TODO.md`, `REFMEM_TASK_PROGRESS.md`；`LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` 作为参考 |
 | `communication/` | `BISSC_TAP_BRIDGE_DESIGN.md`, `BISSC_IMPLEMENTATION_TODO.md`, `BISSC_TASK_PROGRESS.md`, `BISSC_NETWORK_LOOPBACK_PLAYBOOK.md` |
 | `measure/` | 首批需要新增测量服务设计，定义与 CAL/SYNC/T2 的边界 |
 | `storage/` | `SD_TODO.md`, `SD_TASK_PROGRESS.md`, `LOG_SYSTEM_TODO.md` |
