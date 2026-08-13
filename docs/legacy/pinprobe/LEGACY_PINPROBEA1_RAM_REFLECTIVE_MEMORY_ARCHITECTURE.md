@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: Architecture
-Canonical: `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`
-Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`
+Canonical: `docs/legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`
+Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`
 Last updated: 2026-08-10
 
 ## 文档信息

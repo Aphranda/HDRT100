@@ -346,7 +346,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
   - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
-  - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`
+  - `docs/reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`
   - `tools/README.md`
 
 ### SCPI-TASK-20260813-031 - 删除 BiSS-C 旧 TRIGger 通信入口

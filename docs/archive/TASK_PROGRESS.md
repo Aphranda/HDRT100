@@ -2,7 +2,7 @@
 
 Status: Active
 Domain: Documentation
-Canonical: `docs/TASK_PROGRESS.md`
+Canonical: `docs/archive/TASK_PROGRESS.md`
 Related: `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/communication/BISSC_TASK_PROGRESS.md`, `docs/storage/SD_TASK_PROGRESS.md`
 Last updated: 2026-08-10
 
@@ -75,11 +75,11 @@ Last updated: 2026-08-10
 - 关联文件：
   - `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`
   - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
-  - `docs/RP1200_DTC100_对话决策完整回顾.md`
+  - `docs/archive/RP1200_DTC100_对话决策完整回顾.md`
   - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
-  - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`
+  - `docs/reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`
   - `docs/README.md`
-  - `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`
+  - `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.md`
 - 下一步：
   - 继续把产品级 SCPI 表和当前固件 `SCPI_COMMANDS.md` 做命令映射差异表。
 
@@ -239,8 +239,8 @@ Last updated: 2026-08-10
 - 完成内容：
   - 新增 `components/distributed_config/`，提供静态 `NodeRoleMap`、`LoopPlan`、`ActionMap`、`Calibration` 和聚合 CRC。
   - `SYST:CFG:STAT?` 接入真实配置 CRC，新增尾部 `config_crc32` 字段，用于运行前配置门禁观测。
-  - 迁入完整报告 `docs/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` 与 `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`。
-  - 迁入 PinProbe A1 历史方案 `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` 与 `docs/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`。
+  - 迁入完整报告 `docs/reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` 与 `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`。
+  - 迁入 PinProbe A1 历史方案 `docs/legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` 与 `docs/legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`。
   - 更新 `docs/README.md`、`docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 和摘要入口，消除对外部 `DOC/` 路径的依赖。
   - 调整 `.gitignore`，不再把关键文档目录作为整体忽略对象。
 - 验证结果：
@@ -260,10 +260,10 @@ Last updated: 2026-08-10
   - `application/inc/app.h`
   - `middleware/scpi_port/src/scpi_port.c`
   - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
-  - `docs/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`
-  - `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`
-  - `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`
-  - `docs/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`
+  - `docs/reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`
+  - `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`
+  - `docs/legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`
+  - `docs/legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`
 - 下一步：
   - 继续扩展配置一致性门禁和跨板分布式触发闭环验证。
 
@@ -327,7 +327,7 @@ Last updated: 2026-08-10
   - `tools/README.md`
   - `README.md`
   - `CMakeLists.txt`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 继续检查 `tools/` 子目录内部脚本复用关系，优先抽出重复的 SCPI、串口、路径处理 helper。
 
@@ -354,7 +354,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 先做固件 P0 骨架：模式、角色、SCPI 配置、状态计数和低速固定帧接口。
 
@@ -397,7 +397,7 @@ Last updated: 2026-08-10
   - 后续再在 `storage_manager` 中引入 `StorageAO/StorageFB` 最小 job 框架。
 - 关联文件：
   - `docs/storage/SD_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 先实现 SD System Pack staging 生成，再进行板端 manifest scan 和路径白名单。
 
@@ -432,7 +432,7 @@ Last updated: 2026-08-10
   - 后续 StorageAO 支持 ref 查询、candidate 校验和 ARM 前 checkout。
 - 关联文件：
   - `docs/storage/SD_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - P0 仍先完成固定目录、manifest、snapshot/trace；P1 再引入 `/packs + /refs` 版本模型。
 
@@ -482,7 +482,7 @@ Last updated: 2026-08-10
   - 在 `storage_manager` 中实现 P0A：manifest scan、路径白名单、文件信息查询和 required 文件检查。
 - 关联文件：
   - `docs/storage/SD_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0A 实现：先改 SD staging 工具，再让板端 StorageAO 能扫描 `manifest.idx` 并发布 System Pack 摘要。
 
@@ -517,7 +517,7 @@ Last updated: 2026-08-10
   - 实现 snapshot 原子写入和 trace `.bin/.idx` 成对落盘。
 - 关联文件：
   - `docs/storage/SD_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 从最小落地顺序 1-3 开始：生成固定目录/manifest，板端扫描 manifest，补路径白名单与文件信息查询。
 
@@ -554,7 +554,7 @@ Last updated: 2026-08-10
   - 后续实现 snapshot JSON 写入和 trace binary 落盘。
 - 关联文件：
   - `docs/storage/SD_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 先改 SD staging 工具生成完整目录和 manifest，再让板端 `StorageAO` 识别 manifest 并把摘要发布到 `StorageVector`。
 
@@ -602,7 +602,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `docs/storage/SD_TODO.md`
   - `docs/arch/HAOFV_ARCHITECTURE.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 从 `StorageAO + StorageFB + StorageVector` 的最小 job 框架开始实现，优先支持 snapshot 写入和最近 fault 追溯查询。
 
@@ -642,7 +642,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `docs/storage/SD_TODO.md`
   - `docs/arch/HAOFV_ARCHITECTURE.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 先实现最小 boot/arm/fault snapshot，再实现脉冲异常 RAM trace ring 和 DISARM/FAULT 后批量落盘。
 
@@ -686,7 +686,7 @@ Last updated: 2026-08-10
   - `application/src/app.c`
   - `tools/release_check/release_check.py`
   - `tools/ota_board_validate/ota_board_validate.py`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 回到 SD 卡系统闭环：准备带 `/update/RP2350_TRIG_UPDATE.pkg` 的 SD 卡，复测 `MMEM:CAT? "/update"`，再实现 App 侧 `SYST:OTA:FILE "<path>"` 离线 OTA 数据流。
 
@@ -756,7 +756,7 @@ Last updated: 2026-08-10
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/bench/rp2350_tk_toolbox.py`
   - `docs/storage/SD_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 先准备一张带 `/update/RP2350_TRIG_UPDATE.pkg` 的 SD 卡，验证目录枚举和默认包识别；随后实现 `SYST:OTA:FILE "<path>"` 的 App 侧离线 OTA 数据流。
 
@@ -780,7 +780,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 先实现 A0 单板 TTL 位置脉冲捕获与 `sequence_id/position_count` 生成，再接 A1/A2/A3 环路转发。
 
@@ -806,7 +806,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
   - `README.md`
 - 下一步：
   - 进入 Phase 0/1：硬件单段回环验证和多板 CAL_RING 脉冲环路原型。
@@ -841,7 +841,7 @@ Last updated: 2026-08-10
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/arch/HAOFV_ARCHITECTURE.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
   - `boards/rp2350_trig/inc/board_config.h`
 - 下一步：
   - 按 AUX 语义别名迁移 `sync_io` 的 `SYNC_CLK_OUT/MARKER_OUT` 输出路径，再接入 `ARM_IN` 管理面资格输入。
@@ -871,7 +871,7 @@ Last updated: 2026-08-10
   - `docs/arch/HAOFV_ARCHITECTURE.md`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 按语义 IO 契约补 `sync_trigger`/SCPI 层资源仲裁，优先拦截 `SEQ_STEP` armed 后的独立输出和同步时钟冲突。
 
@@ -1332,7 +1332,7 @@ Last updated: 2026-08-10
     - `summary.json` 中所有步骤 `passed=true`
     - 最终安全状态：`SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`，`SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
 - 还需完成：
-  - 后续可将 `docs/TASK_PROGRESS.md` 和 `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md` 的闭环记录引用一键脚本输出目录，减少手写验证记录。
+  - 后续可将 `docs/archive/TASK_PROGRESS.md` 和 `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md` 的闭环记录引用一键脚本输出目录，减少手写验证记录。
   - 后续如做掉电测试，可在 `ota_board_validate.py` 上扩展电源控制 hook。
 - 关联文件：
   - `CMakeLists.txt`
@@ -2117,7 +2117,7 @@ Last updated: 2026-08-10
   - `linker/rp2350_app_slot_b.ld`
   - `docs/ota/OTA_AB_SWITCH_DESIGN.md`
   - `docs/ota/OTA_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 实现 metadata A/B 扩展字段和基础查询能力，默认仍保持 `COPY_TO_ACTIVE`。
 
@@ -2147,7 +2147,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `bootloader/inc/bootloader_config.h`
   - `bootloader/src/bootloader_main.c`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 继续 P0 metadata 写入掉电/双副本选择验证，或补充外部断电台架脚本接口。
 
@@ -2198,7 +2198,7 @@ Last updated: 2026-08-10
   - `bootloader/inc/bootloader_config.h`
   - `bootloader/src/bootloader_main.c`
   - `docs/ota/OTA_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 进入 metadata 写入掉电/双副本选择验证，或补充 release 验证报告模板。
 
@@ -2233,7 +2233,7 @@ Last updated: 2026-08-10
   - 继续验证 metadata 写入过程中掉电的双副本选择。
 - 关联文件：
   - `docs/ota/OTA_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 进入 Bootloader copy 过程断电验证，需要在 copy 期间真实断电。
 
@@ -2273,7 +2273,7 @@ Last updated: 2026-08-10
   - 继续验证 OTA 接收过程中断电、Bootloader copy 过程中断电和 metadata 写入过程中断电。
 - 关联文件：
   - `docs/ota/OTA_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 验证 OTA 接收未完成时断电，确认重启后仍运行旧 App 且 metadata 不进入 pending。
 
@@ -2316,7 +2316,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `tools/ota_send/ota_send.py`
   - `docs/ota/OTA_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 配合用户手动断电，验证 Bootloader Slot B -> Slot A copy 过程中的恢复能力。
 
@@ -2362,7 +2362,7 @@ Last updated: 2026-08-10
   - `middleware/scpi_port/src/scpi_port.c`
   - `docs/ota/OTA_TODO.md`
   - `docs/interface/SCPI_COMMANDS.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 烧录并执行一次正常 OTA 闭环，确认 `SYST:OTA:TXN?` 在完成后返回空 transaction；然后进入手动断电验证。
 
@@ -2394,7 +2394,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `CMakeLists.txt`
   - `tools/uf2_join/make_fill_bin.py`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 继续处理 P0：Bootloader copy-to-active 流程接入 transaction 状态机。
 
@@ -2477,7 +2477,7 @@ Last updated: 2026-08-10
   - `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`
   - `docs/ota/OTA_TODO.md`
   - `README.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 实现 copy transaction metadata/API，或继续评估真正 A/B 启动方案。
 
@@ -2519,7 +2519,7 @@ Last updated: 2026-08-10
   - `README.md`
   - `docs/release/RELEASE_CHECKLIST.md`
   - `docs/ota/OTA_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 继续推进 P0 掉电恢复策略设计，或推进 P1 manifest/兼容性校验。
 
@@ -2542,7 +2542,7 @@ Last updated: 2026-08-10
   - 后续按 `docs/ota/OTA_TODO.md` 优先级逐项实现和验证。
 - 关联文件：
   - `docs/ota/OTA_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 优先设计 copy-to-active 掉电恢复策略，再推进 manifest/metadata 扩展 CRC 和 SCPI 交互语义完善。
 
@@ -2577,7 +2577,7 @@ Last updated: 2026-08-10
   - `components/ota_manager/src/ota_fb.c`
   - `bootloader/src/bootloader_main.c`
   - `docs/ota/OTA_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 下次烧录 release factory 后，验证错误时序下的 `SYST:OTA:COMM` 不会清 pending，并验证 Bootloader active App CRC 校验路径。
 
@@ -2609,7 +2609,7 @@ Last updated: 2026-08-10
   - `README.md`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/ota/OTA_TODO.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 使用 `pico2-release` 作为客户/量产固件构建入口；使用 `pico2-validation` 作为异常注入和掉电台架验证入口。
 
@@ -2685,7 +2685,7 @@ Last updated: 2026-08-10
   - `middleware/scpi_port/src/scpi_port.c`
   - `README.md`
   - `docs/interface/SCPI_COMMANDS.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 后续如具备可控电源台架，执行真实断电恢复测试；当前软件故障注入路径已闭环。
 
@@ -2721,7 +2721,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `tools/ota_send/ota_send.py`
   - `README.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 设计 OTA 故障注入接口，用于 metadata 损坏、Bootloader copy 失败和断电恢复测试。
 
@@ -2750,7 +2750,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `tools/ota_send/ota_send.py`
   - `README.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 实现传输中断和 abort 路径测试，确认未完成镜像不会进入 pending。
 
@@ -2784,7 +2784,7 @@ Last updated: 2026-08-10
   - `tools/ota_send/ota_send.py`
   - `components/ota_manager/src/ota_fb.c`
   - `README.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 实现向量表错误 payload 测试，验证 `OTA_ERR_VECTOR` 路径。
 
@@ -2817,7 +2817,7 @@ Last updated: 2026-08-10
   - `tools/build_info/gen_build_info.py`
   - `config/project_config.h`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 开始 OTA 失败路径和掉电恢复测试。
 
@@ -2888,7 +2888,7 @@ Last updated: 2026-08-10
   - `config/project_config.h`
   - `components/diagnostics/src/diagnostics.c`
   - `tools/ota_send/ota_send.py`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 实现 build id 每次构建刷新，并开始 OTA 失败路径和掉电恢复测试。
 
@@ -2923,7 +2923,7 @@ Last updated: 2026-08-10
   - `tools/ota_send/ota_send.py`
   - `config/project_config.h`
   - `components/diagnostics/src/diagnostics.c`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 首烧最新 factory，验证 SCPI 通道降噪和 OTA ACK 解析稳定性。
 
@@ -2959,7 +2959,7 @@ Last updated: 2026-08-10
   - `tools/ota_send/ota_send.py`
   - `docs/interface/SCPI_COMMANDS.md`
   - `README.md`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 首烧最新 factory 后，验证版本查询和带 ACK 的 OTA 完整流程。
 
@@ -3001,7 +3001,7 @@ Last updated: 2026-08-10
   - `components/ota_manager/src/ota_metadata.c`
   - `bootloader/src/bootloader_main.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 统一 SCPI 写命令响应，并增加固件 build id 查询。
 
@@ -3072,7 +3072,7 @@ Last updated: 2026-08-10
   - `components/ota_manager/src/ota_fb.c`
   - `bootloader/src/bootloader_main.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 补齐 OTA 审计查询和 App commit/rollback 闭环，使 OTA 从“可升级”提升到“可审计、可回滚”的工业化状态。
 
@@ -3106,7 +3106,7 @@ Last updated: 2026-08-10
   - `drivers/mcu/watchdog/src/drv_watchdog.c`
   - `tools/ota_send/ota_send.py`
   - `components/ota_manager/src/ota_fb.c`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 首烧最新 factory 镜像，复测 `SYST:OTA:BOOT` 是否能真正触发 Bootloader 升级。
 
@@ -3136,7 +3136,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `components/ota_manager/src/ota_fb.c`
   - `tools/ota_send/ota_send.py`
-  - `docs/TASK_PROGRESS.md`
+  - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 首烧更新后的 factory 镜像后，复测完整 OTA 升级闭环。
 
@@ -3526,7 +3526,7 @@ Last updated: 2026-08-10
   - `components/sync_io/src/sync_io.c` — DMA 手动 reset、清理逻辑
   - `components/sync_trigger/inc/trigger_vector.h` — `seq_table` 1024 字节对齐
   - `tools/trigger_meas/trigger_meas.py` — SCPI 超时/延迟优化
-  - `docs/TASK_PROGRESS.md` — 本记录
+  - `docs/archive/TASK_PROGRESS.md` — 本记录
 - 关键经验：
   - RP2350 DMA ring buffer 对地址对齐有硬性要求，若缓冲区不在软件控制范围内（如 struct 成员），不要依赖 ring buffer。
   - ISR 中手动 `read_addr` + `al1_transfer_count_trig` 组合比 ring buffer 更可靠、可调试。

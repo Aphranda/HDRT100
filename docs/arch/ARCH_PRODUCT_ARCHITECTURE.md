@@ -515,4 +515,4 @@ FAULT
 | SD/System Pack | `docs/storage/SD_TODO.md` |
 | 日志与证据 | `docs/storage/LOG_SYSTEM_TODO.md` |
 | BiSS-C 协议扩展 | `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md` |
-| PinProbe A1 历史 RamVector | `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` |
+| PinProbe A1 历史 RamVector | `docs/legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` |

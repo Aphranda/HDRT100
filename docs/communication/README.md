@@ -17,6 +17,7 @@ Last updated: 2026-08-13
 | `BISSC_TASK_PROGRESS.md` | BiSS-C 任务进度和验证记录 |
 | `BISSC_NETWORK_LOOPBACK_PLAYBOOK.md` | BiSS 组网 preflight 和跨电脑交接 |
 | `BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C 与 SYNC_IO 外围电路约束 |
+| `BISSC_SYNC_IO_HARDWARE_ARCHITECTURE.html` | BiSS-C / SYNC_IO 硬件架构图 HTML |
 
 ## 边界
 

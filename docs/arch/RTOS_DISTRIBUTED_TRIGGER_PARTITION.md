@@ -3,7 +3,7 @@
 Status: Draft
 Domain: RTOS
 Canonical: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
-Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/arch/MULTICORE_PARTITION_PLAN.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/arch/MULTICORE_PARTITION_PLAN.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.md`, `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-13
 
 本文档把《RP1200波导天线 RP 分布式触发方案技术报告 0804》落成 RP2350_TRIG
@@ -14,10 +14,10 @@ Last updated: 2026-08-13
 
 完整原始资料已经从外部 `DOC/` 目录补入仓库，克隆后不再依赖 OneDrive 本地路径：
 
-- `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`：0804 RP 分布式触发完整报告。
-- `docs/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`：0614 分布式触发完整报告。
-- `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`：PinProbe A1 RAM 反射内存与多机协同历史方案。
-- `docs/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`：PinProbe A1 OTA 与 CAN 多机分发历史方案。
+- `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`：0804 RP 分布式触发完整报告。
+- `docs/reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`：0614 分布式触发完整报告。
+- `docs/legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`：PinProbe A1 RAM 反射内存与多机协同历史方案。
+- `docs/legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`：PinProbe A1 OTA 与 CAN 多机分发历史方案。
 
 0804 报告给出的系统边界如下：
 

@@ -35,6 +35,7 @@ docs/
   hardware/       IO 约束、PCB、网表、BOM、Gerber、硬件评审
   validation/     HIL、工具验证、闭环验证记录和脚本说明
   release/        发布门禁、打印/PDF、产品冻结 checklist
+  reports/        当前产品 HTML/PDF 输出、打印和交付件
   legacy/         PinProbe、历史报告、最初版 HTML、外部迁入资料
   archive/        废弃路径说明、旧索引和批量迁移记录
 ```
@@ -60,6 +61,7 @@ docs/
 | `hardware/` | `hardware/README.md` | IO 约束、PCB、网表、BOM、Gerber 和硬件评审 |
 | `validation/` | `validation/README.md` | HIL、工具验证、任务进度和闭环验证记录 |
 | `release/` | `release/README.md` | 发布门禁、打印/PDF、产品冻结 checklist |
+| `reports/` | `reports/README.md` | 当前产品 HTML/PDF 输出、打印和交付件 |
 | `legacy/` | `legacy/README.md` | PinProbe、历史报告、最初版 HTML 和外部迁入资料 |
 | `archive/` | `archive/README.md` | 废弃路径说明、旧索引和批量迁移记录 |
 
@@ -113,7 +115,13 @@ docs/
 | `hardware/README.md` | 硬件域 README。 |
 | `validation/README.md` | 验证域 README。 |
 | `release/README.md` | 发布域 README。 |
+| `reports/README.md` | 报告输出域 README。 |
+| `reports/scpi/README.md` | SCPI 报告输出 README。 |
+| `reports/distributed-trigger/README.md` | 分布式触发报告输出 README。 |
 | `legacy/README.md` | 历史资料域 README。 |
+| `legacy/pinprobe/README.md` | PinProbe A1 历史资料 README。 |
+| `legacy/rp1200/README.md` | RP1200 历史资料 README。 |
+| `legacy/external/README.md` | 外部参考资料 README。 |
 | `archive/README.md` | 归档域 README。 |
 
 ## 01 系统架构
@@ -126,20 +134,20 @@ docs/
 | `arch/HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估。 |
 | `arch/RTOS_PORTING_PLAN.md` | FreeRTOS/OSAL 迁移计划。 |
 | `arch/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md` | 0614 分布式触发报告的仓库内摘要入口。 |
-| `RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告，已从外部 DOC 迁入。 |
+| `reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告，已从外部 DOC 迁入。 |
 | `arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` | RTOS + 双核 AMP 下四板分布式触发任务划分与小步验证记录。 |
 | `arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务进度和闭环验证记录。 |
-| `相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告的仓库内摘要入口。 |
-| `RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html` | 0804 RP 分布式触发完整原始报告，已从外部 DOC 迁入。 |
+| `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告的仓库内摘要入口。 |
+| `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html` | 0804 RP 分布式触发完整原始报告，已从外部 DOC 迁入。 |
 | `arch/MULTICORE_PARTITION_PLAN.md` | RP2350 双核分区计划。 |
-| `RP1200_DTC100_对话决策完整回顾.md` | RP1200 / DTC100 本轮对话决策总归档，作为产品级 SCPI 和同步/校准口径来源。 |
+| `archive/RP1200_DTC100_对话决策完整回顾.md` | RP1200 / DTC100 本轮对话决策总归档，作为产品级 SCPI 和同步/校准口径来源。 |
 
 ## 02 硬件与资源约束
 
 | 文件 | 定位 |
 |---|---|
 | `sync/SYNC_IO_RESOURCE_PLAN.md` | PIO、State Machine、DMA、GPIO 和语义 IO 资源规划。 |
-| `RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 硬件版本 GPIO 分配与 IO 使用约束。 |
+| `hardware/RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 硬件版本 GPIO 分配与 IO 使用约束。 |
 | `hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md` | RP2350B 网表评审，当前硬件域迁移后的 canonical 入口。 |
 | `communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C TAP Bridge、RJ45、SYNC_IO、AUX 两收两发和外围电路约束。 |
 
@@ -178,7 +186,7 @@ docs/
 | `ota/OTA_PORTABLE_ARCHITECTURE.md` | Portable OTA 架构和复用方案。 |
 | `ota/OTA_OPEN_SOURCE_COMPARISON.md` | OTA 开源方案对比。 |
 | `ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md` | Portable OTA 库化迁移 playbook。 |
-| `LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，作为当前 OTA/多机分发参考。 |
+| `legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，作为当前 OTA/多机分发参考。 |
 
 ## 06 存储与 SD
 
@@ -194,7 +202,7 @@ docs/
 | `interface/SCPI_COMMANDS.md` | SCPI 命令清单、语义和边界。 |
 | `interface/DTC100_SCPI_COMMAND_PLANNING.md` | DTC100 仪器式 SCPI 指令规划方案，定义主线挂载、SYNC/VDC/DPLL 层级和后续收敛步骤。 |
 | `interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` | RP1200 / DTC100 产品级 SCPI 指令表 Markdown 源文档，面向上位机联调和协议冻结。 |
-| `RP1200波导天线测试系统分布式触发方案SCPI指令表.html` | RP1200 / DTC100 产品级 SCPI 指令表 HTML 版，当前与 Markdown 0.7 同步。 |
+| `reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html` | RP1200 / DTC100 产品级 SCPI 指令表 HTML 版，当前与 Markdown 0.7 同步。 |
 | `storage/LOG_SYSTEM_TODO.md` | 日志系统待办和演进方向。 |
 | `interface/SCPI_USB_INTERFACE_DESIGN.md` | USB CDC/USBTMC 接口设计、描述符、bus-powered/self-powered 决策记录。 |
 | `interface/SCPI_TASK_PROGRESS.md` | SCPI 指令框架、接口拆分、USB 验证和产品指令闭环记录。 |
@@ -204,7 +212,7 @@ docs/
 | 文件 | 定位 |
 |---|---|
 | `release/RELEASE_CHECKLIST.md` | 发布门禁检查表。 |
-| `TASK_PROGRESS.md` | 全局历史任务进度。新域建议使用 `<DOMAIN>_TASK_PROGRESS.md`。 |
+| `archive/TASK_PROGRESS.md` | 全局历史任务进度。新域建议使用 `<DOMAIN>_TASK_PROGRESS.md`。 |
 | `communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md` | 2026-08-11 BiSS 组网 preflight 处理流程和跨电脑继续工作交接记录。 |
 
 ### 验证工具入口
@@ -218,12 +226,13 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
-| `LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` | PinProbe A1 多机协同与 RAM 反射内存历史方案，当前分布式 Vector/命令槽设计复用其原则。 |
-| `LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，当前 OTA/SD/System Pack 方案可参考其分片、ACK 和本地校验边界。 |
-| `PinProbe A1控制箱 嵌入式整体方案与架构报告.html` | PinProbe A1 控制箱整体方案原始 HTML 报告。 |
-| `RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告。 |
-| `RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html` | 0804 RP 分布式触发完整原始报告。 |
-| `相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告仓库内摘要。 |
+| `legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` | PinProbe A1 多机协同与 RAM 反射内存历史方案，当前分布式 Vector/命令槽设计复用其原则。 |
+| `legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，当前 OTA/SD/System Pack 方案可参考其分片、ACK 和本地校验边界。 |
+| `legacy/pinprobe/PinProbe A1控制箱 嵌入式整体方案与架构报告.html` | PinProbe A1 控制箱整体方案原始 HTML 报告。 |
+| `legacy/pinprobe/PinProbe A1 箱体控制 SCPI 指令说明20260728.html` | PinProbe A1 SCPI 指令原始参考。 |
+| `reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告。 |
+| `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html` | 0804 RP 分布式触发完整原始报告。 |
+| `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告仓库内摘要。 |
 
 ## 快速查找规则
 

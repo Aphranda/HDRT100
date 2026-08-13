@@ -3,7 +3,7 @@
 Status: Draft
 Domain: Hardware / Board
 Target: RP2350B QFN-80
-Canonical: `docs/RP2350B_QFN80_IO_CONSTRAINTS.md`
+Canonical: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
 Related: `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `IO约束.md`
 Last updated: 2026-08-04
 

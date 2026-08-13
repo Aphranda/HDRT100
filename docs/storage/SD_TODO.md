@@ -1011,4 +1011,4 @@ tools/bench/rp2350_tk_toolbox.py
 - `tools/bench/rp2350_tk_toolbox.py`
 - `docs/ota/OTA_SYSTEM_DESIGN.md`
 - `docs/arch/HAOFV_ARCHITECTURE.md`
-- `docs/TASK_PROGRESS.md`
+- `docs/archive/TASK_PROGRESS.md`

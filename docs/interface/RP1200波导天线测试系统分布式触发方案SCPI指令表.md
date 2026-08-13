@@ -3,7 +3,7 @@
 Status: Active
 Domain: SCPI
 Canonical: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
-Related: `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/interface/SCPI_COMMANDS.md`, `docs/RP1200_DTC100_对话决策完整回顾.md`
+Related: `docs/reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/interface/SCPI_COMMANDS.md`, `docs/archive/RP1200_DTC100_对话决策完整回顾.md`
 Last updated: 2026-08-11
 
 版本：0.11
@@ -20,7 +20,7 @@ Last updated: 2026-08-11
 先更新 Markdown -> 评审确认 -> 同步更新 HTML -> 按需导出 PDF
 ```
 
-本文以 `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表最初版.html` 作为格式和初始定义基线；后续增强只在该基线之上扩展，不破坏初版已经明确的业务语义。
+本文以 `docs/legacy/rp1200/RP1200波导天线测试系统分布式触发方案SCPI指令表最初版.html` 作为格式和初始定义基线；后续增强只在该基线之上扩展，不破坏初版已经明确的业务语义。
 
 ### 1.1 指令命名
 
@@ -1014,7 +1014,7 @@ crc
 
 复核基线：
 
-- `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表最初版.html`
+- `docs/legacy/rp1200/RP1200波导天线测试系统分布式触发方案SCPI指令表最初版.html`
 
 已继承的格式和定义：
 

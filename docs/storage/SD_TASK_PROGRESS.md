@@ -3,7 +3,7 @@
 Status: Active
 Domain: SD
 Canonical: `docs/storage/SD_TASK_PROGRESS.md`
-Related: `docs/storage/SD_TODO.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/TASK_PROGRESS.md`
+Related: `docs/storage/SD_TODO.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/archive/TASK_PROGRESS.md`
 Last updated: 2026-07-07
 
 本文档用于记录 RP2350_TRIG SD 卡 System Pack 功能的正式实现进度。每完成一个阶段，都应追加任务记录，说明目标、完成内容、验证结果、剩余工作和下一步计划，便于后续回溯 SD 设计决策、烧录闭环和板端证据。

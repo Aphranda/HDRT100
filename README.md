@@ -450,7 +450,7 @@ time.
 - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`: product RTOS + dual-core
   partition for the four-board distributed trigger system, including the
   simulated reflective-memory DistributedVectorTable.
-- `docs/TASK_PROGRESS.md`: task progress log for goals, completed work,
+- `docs/archive/TASK_PROGRESS.md`: task progress log for goals, completed work,
   verification results, remaining work, and next steps.
 
 ## Expansion Rules

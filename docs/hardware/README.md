@@ -12,7 +12,8 @@ Last updated: 2026-08-13
 
 | 当前路径 | 定位 |
 |---|---|
-| `../RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 GPIO 分配与 IO 使用约束 |
+| `RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 GPIO 分配与 IO 使用约束 |
+| `RP2350B_QFN80_IO_CONSTRAINTS.html` | RP2350B QFN-80 IO 约束 HTML 版 |
 | `RP2350B_NETLIST_REVIEW_2026-08-04.md` | RP2350B 网表评审 |
 | `Netlist_Schematic1_2026-08-04.tel` | 当前硬件网表 |
 | `RP2350_PICO_Netlist_Schematic1_2026-07-27.tel` | 早期 PICO 网表参考 |

@@ -3,7 +3,7 @@
 Status: Active
 Domain: Verification
 Canonical: `docs/communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`
-Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/TASK_PROGRESS.md`, `docs/README.md`
+Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/archive/TASK_PROGRESS.md`, `docs/README.md`
 Last updated: 2026-08-11
 
 本文档记录 2026-08-11 这轮 BiSS 组网处理流程，便于在其他电脑继续工作。
@@ -49,7 +49,7 @@ git push origin main
   - 明确模拟板同时承担 turntable + VNA，位于内部节点侧。
 - `docs/README.md`
   - 在验证工具入口中加入 BiSS 组网 preflight 脚本。
-- `docs/TASK_PROGRESS.md`
+- `docs/archive/TASK_PROGRESS.md`
   - 追加 `TASK-20260811-001 - BiSS 组网 HIL preflight 脚本`。
 
 ## 脚本能力
