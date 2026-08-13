@@ -73,8 +73,8 @@ docs/
 | TRIGGER | `TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
 | BISSC | `BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
 | OTA | `OTA_SYSTEM_DESIGN.md` | 历史 OTA 主方案入口；后续迁移方向见 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`。 |
-| SD | `SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
-| LOG | `LOG_SYSTEM_TODO.md` | 日志 core、诊断 trace、持久化和故障证据入口。 |
+| SD | `storage/SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
+| LOG | `storage/LOG_SYSTEM_TODO.md` | 日志 core、诊断 trace、持久化和故障证据入口。 |
 | SCPI | `SCPI_COMMANDS.md` | SCPI 命令语义、兼容性和用户可调用接口入口。 |
 | USB | `SCPI_USB_INTERFACE_DESIGN.md` | USB CDC、USBTMC/USB488、VISA 枚举和供电描述符策略。 |
 
@@ -86,7 +86,7 @@ docs/
 | SYNC_IO | `SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构闭环记录写入本文件。 |
 | RTOS | `RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
 | SCPI | `SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
-| SD | `SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
+| SD | `storage/SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
 | Documentation | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
 | 其他领域 | 新建或补齐 `<DOMAIN>_TASK_PROGRESS.md` | 后续新闭环记录优先建立领域进度文件，不再追加到全局历史文件。 |
 | 全局历史 | `TASK_PROGRESS.md` | 只保留跨域历史和迁移前记录；除跨域总览外不再作为默认新任务入口。 |
@@ -184,8 +184,8 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
-| `SD_TODO.md` | SD 文件系统、StorageAO 和持久化观测层设计/待办。 |
-| `SD_TASK_PROGRESS.md` | SD 域任务进度和验证记录。 |
+| `storage/SD_TODO.md` | SD 文件系统、StorageAO 和持久化观测层设计/待办。 |
+| `storage/SD_TASK_PROGRESS.md` | SD 域任务进度和验证记录。 |
 
 ## 07 诊断、日志与 SCPI
 
@@ -195,7 +195,7 @@ docs/
 | `DTC100_SCPI_COMMAND_PLANNING.md` | DTC100 仪器式 SCPI 指令规划方案，定义主线挂载、SYNC/VDC/DPLL 层级和后续收敛步骤。 |
 | `RP1200波导天线测试系统分布式触发方案SCPI指令表.md` | RP1200 / DTC100 产品级 SCPI 指令表 Markdown 源文档，面向上位机联调和协议冻结。 |
 | `RP1200波导天线测试系统分布式触发方案SCPI指令表.html` | RP1200 / DTC100 产品级 SCPI 指令表 HTML 版，当前与 Markdown 0.7 同步。 |
-| `LOG_SYSTEM_TODO.md` | 日志系统待办和演进方向。 |
+| `storage/LOG_SYSTEM_TODO.md` | 日志系统待办和演进方向。 |
 | `SCPI_USB_INTERFACE_DESIGN.md` | USB CDC/USBTMC 接口设计、描述符、bus-powered/self-powered 决策记录。 |
 | `SCPI_TASK_PROGRESS.md` | SCPI 指令框架、接口拆分、USB 验证和产品指令闭环记录。 |
 

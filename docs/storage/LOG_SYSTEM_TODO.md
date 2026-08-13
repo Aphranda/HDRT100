@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: LOG
-Canonical: `docs/LOG_SYSTEM_TODO.md`
-Related: `docs/SCPI_COMMANDS.md`, `docs/SD_TODO.md`
+Canonical: `docs/storage/LOG_SYSTEM_TODO.md`
+Related: `docs/SCPI_COMMANDS.md`, `docs/storage/SD_TODO.md`
 Last updated: 2026-07-07
 
 本文档跟踪 RP2350_TRIG 的统一 LOG/TRACE 体系。目标不是把所有信息都打印到 USB CDC，

@@ -3,7 +3,7 @@
 Status: Active
 Domain: SYNC_IO
 Canonical: `docs/SYNC_IO_TASK_PROGRESS.md`
-Related: `docs/SYNC_IO_ARCH_REVIEW_TODO.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/LOG_SYSTEM_TODO.md`
+Related: `docs/SYNC_IO_ARCH_REVIEW_TODO.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/storage/LOG_SYSTEM_TODO.md`
 Last updated: 2026-07-08
 
 本文档记录 SYNC_IO / Trigger 同步重构相关任务的闭环验证、风险和后续动作。

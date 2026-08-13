@@ -3,7 +3,7 @@
 Status: Active
 Domain: SCPI
 Canonical: `docs/SCPI_COMMANDS.md`
-Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/SD_TODO.md`, `docs/SCPI_USB_INTERFACE_DESIGN.md`
+Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/SCPI_USB_INTERFACE_DESIGN.md`
 Last updated: 2026-08-13
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
@@ -241,7 +241,7 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 ## SD / System Pack 维护
 
-SD 命令遵循 `docs/SD_TODO.md` 中的 `StorageAO + StorageFB + StorageVector` 设计。SCPI 只负责表达查询或维护意图，后续应逐步收敛到 StorageAO job；当前 P0A/P0B/P0C 已完成 `FILE_INFO`、`FILE_READ`、`CATALOG_PAGE`、`MANIFEST_SCAN`、`SYSTEM_INIT`、`SNAPSHOT_WRITE` 和 `FAULT_EVIDENCE` job 闭环。
+SD 命令遵循 `docs/storage/SD_TODO.md` 中的 `StorageAO + StorageFB + StorageVector` 设计。SCPI 只负责表达查询或维护意图，后续应逐步收敛到 StorageAO job；当前 P0A/P0B/P0C 已完成 `FILE_INFO`、`FILE_READ`、`CATALOG_PAGE`、`MANIFEST_SCAN`、`SYSTEM_INIT`、`SNAPSHOT_WRITE` 和 `FAULT_EVIDENCE` job 闭环。
 
 | 命令 | 说明 |
 |---|---|

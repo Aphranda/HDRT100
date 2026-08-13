@@ -75,7 +75,7 @@ Last updated: 2026-08-13
 
 | 批次 | 状态 | 旧路径 | 新路径 | 引用影响 |
 |---|---|---|---|---|
-| 2026-07-07-SD-PROGRESS | 已完成 | `TASK_PROGRESS_SD.md` | `docs/SD_TASK_PROGRESS.md` | 已更新 README、docs 内引用，并从 docs 检查脚本 allowlist 移除旧历史名。 |
+| 2026-07-07-SD-PROGRESS | 已完成 | `TASK_PROGRESS_SD.md` | `docs/storage/SD_TASK_PROGRESS.md` | 已更新 README、docs 内引用，并从 docs 检查脚本 allowlist 移除旧历史名。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `DOCS_NAMING_AND_STRUCTURE.md` | 根目录 `DOCS_NAMING_STRUCTURE_PLAN.md` | 已更新 README、docs、tools 内引用；保持文档治理 canonical 入口。 |
 | 2026-08-13-DOCS-DOMAIN-PHASE-2 | 已完成 | 根目录 `DOCS_NAMING_STRUCTURE_PLAN.md` | `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` | 文档治理域首批迁移，已更新 README、docs 和根 README 引用。 |
 | 2026-08-13-DOCS-DOMAIN-PHASE-2 | 已完成 | 根目录 `DOCS_DOMAIN_STRUCTURE_PLAN.md` | `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md` | 文档治理域首批迁移，作为后续域目录迁移样板。 |

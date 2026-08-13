@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: SD
-Canonical: `docs/SD_TASK_PROGRESS.md`
-Related: `docs/SD_TODO.md`, `docs/SCPI_COMMANDS.md`, `docs/TASK_PROGRESS.md`
+Canonical: `docs/storage/SD_TASK_PROGRESS.md`
+Related: `docs/storage/SD_TODO.md`, `docs/SCPI_COMMANDS.md`, `docs/TASK_PROGRESS.md`
 Last updated: 2026-07-07
 
 本文档用于记录 RP2350_TRIG SD 卡 System Pack 功能的正式实现进度。每完成一个阶段，都应追加任务记录，说明目标、完成内容、验证结果、剩余工作和下一步计划，便于后续回溯 SD 设计决策、烧录闭环和板端证据。
@@ -87,8 +87,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
 - 关联文件：
   - `components/sync_io/inc/sync_io.h`
   - `components/sync_io/src/sync_io.c`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 mission/node_map runtime：优先确定解析边界、字段 schema、错误上报和 ARM 前加载时机。
 
@@ -129,8 +129,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `components/sync_trigger/src/sync_trigger.c`
   - `tools/sd_trace_decode/sd_trace_decode.py`
   - `tools/sd_board_validate/sd_board_validate.py`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
   - `tools/README.md`
 - 下一步：
   - 进入 P1C/P1B 交界：优先实现 `/mission/node_map.json` runtime 加载和 A0-A3 角色/READY mask 的配置边界，再补真实业务 timeout 判定。
@@ -172,8 +172,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `components/storage_manager/src/storage_manager.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
   - `tools/sd_board_validate/sd_board_validate.py`
 - 下一步：
   - 继续 P0C 剩余 A0-A3 timeout、READY/REDY 观测；新增观测仍必须通过管理面采样、状态锁存或 DISARM/FAULT 后处理完成。
@@ -190,7 +190,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `sync_io.c` 新增 `sync_io.seq_dma_overflow` 和 `sync_io.enc_dma_overflow` 事件；IRQ 仍只递增已有计数，采样函数负责比较增量、记录 baseline 或 warn 级异常快照。
   - `sd_trace_decode.py` 增加两个 DMA overflow 事件名和字段解码：`rollover_delta/restart_delta`、`overflow_threshold`、`overflow_detected`。
   - `sd_board_validate.py` 将 `sync_io.seq_dma_overflow` 加入 fault trace 解码必需事件。
-  - `tools/README.md`、`docs/SD_TODO.md` 同步记录 DMA overflow 管理面观测边界。
+  - `tools/README.md`、`docs/storage/SD_TODO.md` 同步记录 DMA overflow 管理面观测边界。
 - 验证结果：
   - `python -m py_compile tools\sd_trace_decode\sd_trace_decode.py tools\sd_board_validate\sd_board_validate.py` 通过。
   - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`build_id=20260706154459`。
@@ -208,8 +208,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `components/sync_io/src/sync_io.c`
   - `tools/sd_trace_decode/sd_trace_decode.py`
   - `tools/sd_board_validate/sd_board_validate.py`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
   - `tools/README.md`
 - 下一步：
   - 进入 A0-A3/READY 观测前，先收口 node_map/mission runtime 对象边界，避免直接在 SCPI 或热路径里拼临时状态。
@@ -226,7 +226,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `sync_trigger.c` 新增 `trigger.resource_snapshot` trace event：ARM 成功进入 `SEQ_ARMED/ENC_ARMED` 时记录 requested resources、active resources 和 arbiter mode；ARM 资源申请失败并产生 `trigger.resource_busy` 时记录同样快照。
   - `sd_trace_decode.py` 增加 `trigger.resource_snapshot` 事件名和资源位解码，输出 `requested_resource_names`、`active_resource_names` 和 `arbiter_mode_name`。
   - `sd_board_validate.py` 将 `trigger.resource_snapshot` 加入 fault trace 解码必需事件。
-  - `docs/SD_TODO.md`、`tools/README.md` 同步记录 resource snapshot 观测边界。
+  - `docs/storage/SD_TODO.md`、`tools/README.md` 同步记录 resource snapshot 观测边界。
 - 验证结果：
   - `python -m py_compile tools\sd_trace_decode\sd_trace_decode.py tools\sd_board_validate\sd_board_validate.py` 通过。
   - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-goodcard` 通过，`build_id=20260706154108`。
@@ -244,8 +244,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `components/sync_trigger/src/sync_trigger.c`
   - `tools/sd_trace_decode/sd_trace_decode.py`
   - `tools/sd_board_validate/sd_board_validate.py`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
   - `tools/README.md`
 - 下一步：
   - 进入 `SD-TASK-20260706-028`，补齐 DMA overflow 管理面观测。
@@ -263,7 +263,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - Pico 侧生成默认 `/profile/active.json`、`/mission/recipe.json`、`/mission/node_map.json`、`/cal/board_cal.json`、占位 `/update/RP2350_TRIG_UPDATE.pkg`、`/manifest.json` 和 `/manifest.idx`；`manifest.idx` 最后写入，便于断电后下次继续补齐。
   - 新增 StorageAO `SYSTEM_INIT` job 和 SCPI `SYST:SD:INIT`；`SYST:SD:MAN?` 在 manifest `NOT_FOUND` 时自动执行同一套非破坏性初始化并重扫。
   - `sd_board_validate.py` 增加 `SYST:SD:INIT` 和 `INIT:SYST:STOR:JOB?` 断言。
-  - `docs/SCPI_COMMANDS.md`、`tools/README.md`、`docs/SD_TODO.md` 已同步记录。
+  - `docs/SCPI_COMMANDS.md`、`tools/README.md`、`docs/storage/SD_TODO.md` 已同步记录。
 - 验证结果：
   - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\cmake_build_auto\cmake_build_auto.py` 通过。
   - `python tools\cmake_build_auto\cmake_build_auto.py --preset pico2-release --build-dir build-sd-goodcard` 通过，build id：`20260706152725`。
@@ -289,8 +289,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `tools/sd_board_validate/sd_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
   - `tools/README.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 继续 P0C：优先补 DMA overflow 或 resource timeout 的管理面/后处理观测，并保持 PIO/DMA/IRQ hot path 无 SD、FatFs、日志或 trace 写入。
 
@@ -330,8 +330,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `components/sync_trigger/src/sync_trigger.c`
   - `tools/sd_trace_decode/sd_trace_decode.py`
   - `tools/sd_board_validate/sd_board_validate.py`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 按优先级继续 P0C：先补 DMA restart/overflow 与 PIO state 的管理面/后处理观测，再扩展 A0-A3 timeout、READY/REDY、resource timeout。
 
@@ -372,8 +372,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `components/storage_manager/src/storage_manager.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 优先补齐 P0C 管理面观测：trigger edge/missed edge、gate、DMA restart/overflow、PIO state、A0-A3 timeout、READY/REDY、resource timeout。
 
@@ -440,7 +440,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `MMEM:CAT:PAGE?` 改为投递 `CATALOG_PAGE(path,offset,limit)`，旧返回字段保持兼容。
   - `SYST:STOR:JOB?` 对 catalog page job 返回 type=`CATALOG_PAGE`、kind=`CATALOG`，size 字段返回本页 entries 数量。
   - `sd_board_validate.py` 在 `/traces/fault` 分页枚举后断言最近 job 为 `DONE/CATALOG_PAGE/CATALOG/error=0`。
-  - `docs/SCPI_COMMANDS.md`、`docs/SD_TODO.md` 和 `tools/README.md` 已同步记录 `CATALOG_PAGE` job。
+  - `docs/SCPI_COMMANDS.md`、`docs/storage/SD_TODO.md` 和 `tools/README.md` 已同步记录 `CATALOG_PAGE` job。
 - 验证结果：
   - 已先烧录上一版 `build-sd-verify\RP2350_TRIG_FACTORY.uf2`，build id：`20260704135435`。
   - `sd_board_validate.py COM5 --out-dir build-sd-verify\sd_validation_file_read_job_final` 未通过，根因是 SD 文件系统未挂载：
@@ -468,7 +468,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
+  - `docs/storage/SD_TODO.md`
   - `tools/README.md`
 - 下一步：
   - 优先恢复 SD 卡 FAT32/System Pack 根目录并完成板端复验；之后进入 P0C 剩余观测项或 P1 Pack/Ref。
@@ -524,7 +524,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `sd_board_validate.py` 在 fault trace 读回后断言最近 job 为 `DONE/FILE_READ/READ/error=0`。
   - 新增 `tools/cmake_build_auto/cmake_build_auto.py`，自动判断 `CMakeCache.txt` 是否指向当前工作区；D/E 盘路径切换时会清理 stale CMake 元数据并重新配置。
   - `rp2350_tk_toolbox.py` 的 `Build Release` 改为调用自动构建脚本，GUI 选中旧构建目录时也能自动修复路径。
-  - `docs/SCPI_COMMANDS.md`、`docs/SD_TODO.md` 和 `tools/README.md` 已同步记录 `FILE_READ` job。
+  - `docs/SCPI_COMMANDS.md`、`docs/storage/SD_TODO.md` 和 `tools/README.md` 已同步记录 `FILE_READ` job。
 - 验证结果：
   - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
   - 初始 `cmake --build build-sd-verify` 失败：该目录的 CMake cache 记录旧 `E:\...` 源路径，当前工作区在 `D:\...`。
@@ -545,7 +545,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `tools/sd_board_validate/sd_board_validate.py`
   - `README.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
+  - `docs/storage/SD_TODO.md`
   - `tools/README.md`
 - 下一步：
   - 完成烧录和板端 `sd_board_validate.py` 闭环后，再处理 `MMEM:CAT:PAGE?` 的 job 化或小预算分片策略。
@@ -585,8 +585,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - P1 Pack/Ref 尚未实现，当前 UI 的 `SYSTEM PACK` 表示 P0 manifest/required/default OTA 兼容入口状态。
 - 关联文件：
   - `components/sync_config_ui/src/sync_config_ui.c`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 按优先级处理 `MMEM:READ?`：先明确最大 128 字节诊断读回是否保留同步小块边界，或新增 StorageAO `READ_CHUNK` job。
 
@@ -602,7 +602,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `scpi_cmd_mmem_catalog_q()` 改为调用 `storage_manager_catalog_page(path, 0, 16, ...)`。
   - 当目录还有后续页时，兼容输出不以完整 `;` 结束，保留现有工具对“目录不完整”的识别。
   - `docs/SCPI_COMMANDS.md` 将 `MMEM:CAT?` 标记为兼容诊断目录枚举，说明可靠长目录枚举必须使用分页命令。
-  - `docs/SD_TODO.md` 勾选 `MMEM:CAT?` 分页包装待办。
+  - `docs/storage/SD_TODO.md` 勾选 `MMEM:CAT?` 分页包装待办。
 - 验证结果：
   - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
   - `cmake --build build-sd-verify` 通过，build id：`20260704105758`。
@@ -623,8 +623,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
 - 关联文件：
   - `middleware/scpi_port/src/scpi_port.c`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 评估 `MMEM:READ?` 的同步读回是否需要 job 化；若保持诊断接口，则在文档中明确最大 128 字节、小块读、非 hot path 的使用边界。
 
@@ -668,8 +668,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
   - `tools/README.md`
 - 下一步：
   - 收口 `MMEM:CAT?` 旧接口：优先将其定位为兼容诊断接口或改为分页包装，避免长目录同步枚举。
@@ -713,8 +713,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
   - `tools/README.md`
 - 下一步：
   - 按优先级评估 `MMEM:CAT:PAGE?` 和 `MMEM:READ?`：先确定是 StorageAO job 还是小预算分片状态机，再保持板端闭环验证。
@@ -761,8 +761,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0A job 化：优先评估 `MMEM:CAT:PAGE?` 分页接口是否改为异步 job，或先把 manifest scan 收敛为 StorageAO job。
 
@@ -807,8 +807,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0B job 化：优先把手动 `SYST:SNAP:WRITe` 迁移为 StorageAO job，并保留旧命令返回/查询语义的兼容层。
 
@@ -826,7 +826,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `sync_io.c` 的 DMA IRQ handler 保持为硬实时最小路径：只清 DMA IRQ、维护必要计数、重启 DMA transfer；不调用 `sync_io_trace()`、`storage_manager_trace_event()`、LOG 或 FatFs/SD。
   - `sd_trace_decode.py` 增加 runtime 事件名和 flags 解码：`running`、`pio_enabled`、`dma_busy`、`dma_irq_enabled`、`tx_fifo_empty`、`tx_fifo_full`、`transfer_count_low16`。
   - `sd_board_validate.py` 在 fault trace 读回解码后断言包含 `sync_io.seq_runtime`。
-  - `docs/SD_TODO.md` 补充 HAOFV 实时边界：硬实时 hot path 禁止新增 trace/log/storage 写入；runtime 观测必须走管理面采样或后处理。
+  - `docs/storage/SD_TODO.md` 补充 HAOFV 实时边界：硬实时 hot path 禁止新增 trace/log/storage 写入；runtime 观测必须走管理面采样或后处理。
 - 验证结果：
   - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
   - `cmake --build build-sd-verify` 通过，build id：`20260704093710`。
@@ -855,8 +855,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `components/sync_io/src/sync_io.c`
   - `tools/sd_trace_decode/sd_trace_decode.py`
   - `tools/sd_board_validate/sd_board_validate.py`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0A/P0B 横向收口：优先把仍在 SCPI 回调内同步执行的 manifest scan、snapshot write、目录枚举/readback 迁移为 StorageAO job；同时为 ENC_COUNT runtime 增加独立板端验证。
 
@@ -874,7 +874,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - 修正配置变更后误记 `trigger.event_ignored` 的判定：source/edge/gate/safe 变化会被视为有效进展。
   - `sd_trace_decode.py` 增加新增事件名和 before/after 参数解码。
   - `sd_board_validate.py` 在 ARM 前主动执行并恢复 `TRIG:SOUR`、`TRIG:EDGE`、`TRIG:GATE`、`TRIG:SAFE`，并在读回解码结果中断言四类配置事件存在。
-  - `docs/SD_TODO.md` 和 `tools/README.md` 记录新增覆盖范围。
+  - `docs/storage/SD_TODO.md` 和 `tools/README.md` 记录新增覆盖范围。
 - 验证结果：
   - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
   - `cmake --build build-sd-verify` 通过。
@@ -901,8 +901,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `tools/sd_trace_decode/sd_trace_decode.py`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `tools/README.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 继续 P0C-6：优先增加硬实时 edge/missed edge 与 DMA/PIO 异常状态的轻量采样，避免直接在 ISR 内做重型 SD 写入。
 
@@ -920,7 +920,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - 新增 SCPI：`MMEM:READ? "<path>",<offset>,<length>`，返回 `status,path,offset,requested,returned,eof,path_hash,error,hex`；固件端 length 上限为 128 字节。
   - `sd_board_validate.py` 增加 `MMEM:READ?` 负向路径验证。
   - `sd_board_validate.py` 在 fault 后拉取最新 `.bin/.idx` 到验证目录 `trace_readback/`，并调用 `decode_trace()` 校验 `magic_ok/schema_ok/size_ok/crc_ok/idx_ok`。
-  - `docs/SCPI_COMMANDS.md` 和 `docs/SD_TODO.md` 记录 `MMEM:READ?` 和 trace 在线解码闭环。
+  - `docs/SCPI_COMMANDS.md` 和 `docs/storage/SD_TODO.md` 记录 `MMEM:READ?` 和 trace 在线解码闭环。
 - 验证结果：
   - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
   - `cmake --build build-sd-verify` 通过。
@@ -949,8 +949,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `tools/sd_board_validate/sd_board_validate.py`
   - `tools/README.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0C-6：补齐硬实时/异常 trace 事件覆盖，优先从 trigger edge/missed edge、gate 和 DMA/PIO 异常状态开始。
 
@@ -968,7 +968,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - 新增 SCPI：`MMEM:CAT:PAGE? "<path>",<offset>,<limit>`，返回 `status,path,offset,returned,next_offset,complete,truncated,entries`；固件端 limit 上限为 16。
   - `sd_board_validate.py` 增加分页验证：按 `next_offset` 循环读取 `/traces/fault`，要求每页未截断，并在分页结果中找到最新 `.bin/.idx`。
   - `sd_board_validate.py` 增加负向路径验证：`MMEM:CAT:PAGE? "/../",0,4` 必须被拒绝。
-  - `docs/SCPI_COMMANDS.md` 和 `docs/SD_TODO.md` 记录 `MMEM:CAT:PAGE?`。
+  - `docs/SCPI_COMMANDS.md` 和 `docs/storage/SD_TODO.md` 记录 `MMEM:CAT:PAGE?`。
 - 验证结果：
   - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
   - `cmake --build build-sd-verify` 通过。
@@ -997,8 +997,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0C-5：评估并实现受限 trace 文件读取/导出闭环，让 `sd_board_validate.py` 能拉取最新 `.bin/.idx` 后调用 `sd_trace_decode.py` 校验真实 trace 内容。
 
@@ -1015,7 +1015,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - 新增 SCPI：`MMEM:INFO? "<path>"`，返回 `status,path,size,kind,path_hash,error`。
   - `sd_board_validate.py` 在 `SYST:SNAP:LAST?`、`SYST:TRAC:LAST?`、`SYST:FAULT:LAST?` 后查询对应 `MMEM:INFO?`，验证最新 boot/arm/fault snapshot、fault trace `.bin/.idx`、fault report。
   - `sd_board_validate.py` 增加负向路径验证：`MMEM:INFO? "/../"` 必须被拒绝。
-  - `docs/SCPI_COMMANDS.md` 和 `docs/SD_TODO.md` 记录 `MMEM:INFO?`。
+  - `docs/SCPI_COMMANDS.md` 和 `docs/storage/SD_TODO.md` 记录 `MMEM:INFO?`。
 - 验证结果：
   - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\sd_fs_build\sd_fs_build.py` 通过。
   - `cmake --build build-sd-verify` 通过。
@@ -1043,8 +1043,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0A-3：实现 `MMEM:CAT?` 分页或 `MMEM:CAT:PAGE? "<path>",offset,limit` 等等价机制，保留白名单和截断标志。
 
@@ -1093,8 +1093,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `components/sync_io/src/sync_io.c`
   - `tools/sd_trace_decode/sd_trace_decode.py`
   - `tools/sd_board_validate/sd_board_validate.py`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0A-2：实现目录分页/长度控制或 `MMEM:INFO? "<path>"` 文件信息查询，优先支撑 `/snapshots/*`、`/traces/*`、`/reports/*` 的重复验证。
 
@@ -1112,7 +1112,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - 内部周期 `DMA_ROLLOVER` 只在 rollover/seq 进展或状态/错误变化时记录，避免 64 条 ring 被空转服务刷掉。
   - 新增 `tools/sd_trace_decode/sd_trace_decode.py`，校验 trace header、事件区 CRC、可选 `.idx`，输出 JSON/CSV，并解码 trigger domain/event/severity/state 名称。
   - `sd_board_validate.py` 将默认 fault trace `event_count` 断言提升到 `>= 8`；跳过 ARM 验证时保留 `>= 3`。
-  - 更新 `tools/README.md` 和 `docs/SD_TODO.md`，记录 trace 解码工具和 P0C 当前覆盖范围。
+  - 更新 `tools/README.md` 和 `docs/storage/SD_TODO.md`，记录 trace 解码工具和 P0C 当前覆盖范围。
 - 验证结果：
   - `python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_fs_build\sd_fs_build.py tools\sd_trace_decode\sd_trace_decode.py` 通过。
   - 使用合成 trace 样本验证 `sd_trace_decode.py` JSON/CSV 输出，`magic_ok/schema_ok/size_ok/crc_ok/idx_ok` 均为 `true`。
@@ -1140,8 +1140,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `tools/sd_trace_decode/sd_trace_decode.py`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `tools/README.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0C-4：补齐底层 I/O 和硬实时异常 trace，优先从 `sync_io` 的 DMA/PIO 状态和 resource acquire 失败路径开始。
 
@@ -1182,8 +1182,8 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0C-3：丰富 trace event 来源和增加 trace 解码工具。
 
@@ -1227,7 +1227,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `middleware/fatfs_port/src/fatfs_port.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0C-2：fault report JSON 和最近故障查询。
 
@@ -1269,7 +1269,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0C：RAM trace ring、fault trace `.bin/.idx` 和 pulse fault report。
 
@@ -1307,7 +1307,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `components/storage_manager/src/storage_manager.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0B-3：fault snapshot 触发点；完成后再进入 P0C RAM trace ring。
 
@@ -1354,7 +1354,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `components/storage_manager/src/storage_manager.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/sd_board_validate/sd_board_validate.py`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0B-2：snapshot 自动触发点和多 kind 验证，再进入 P0C RAM trace ring。
 
@@ -1394,7 +1394,7 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
   - `middleware/fatfs_port/inc/fatfs_port.h`
   - `middleware/fatfs_port/src/fatfs_port.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/SD_TODO.md`
-  - `docs/SD_TASK_PROGRESS.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/storage/SD_TASK_PROGRESS.md`
 - 下一步：
   - 进入 P0B：Vector snapshot 写入、最近 snapshot 查询和独立工具闭环。
