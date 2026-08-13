@@ -66,6 +66,40 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260813-005 - UiManager 组件合并
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 将 `app.c` 中的 UI 按键去抖、刷新节拍和 dirty 调度迁入独立 UI owner。
+  - 将旧 UI 渲染组件合并到 `components/ui_manager/`，避免两个并列 UI 管理组件。
+- 完成内容：
+  - 新增 `components/ui_manager/inc/ui_manager.h` 和 `components/ui_manager/src/ui_manager.c`，承接按键、刷新周期和渲染调度。
+  - 将旧渲染文件迁入 `components/ui_manager/` 后重命名为 `status_ui.c/h`，作为 UI 组件内部状态界面渲染模块。
+  - CMake 删除独立 UI 渲染组件路径，统一使用 `components/ui_manager/`。
+  - `application/src/app.c` 删除 UI 本地状态，`app_ui_service()` 保留为兼容 wrapper。
+  - RTOS `task_ui` 直接调用 `ui_manager_service()`。
+- 验证结果：
+  - build-validation build id：`20260813073155`。
+  - build-rtos-multicore-smoke build id：`20260813073155`。
+  - `rg` 搜索确认代码与架构文档中不再残留旧 UI 渲染组件代码符号和组件路径。
+  - `cmake --build build-validation` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - SCPI USB namespace check 在构建中通过。
+  - `python tools/docs_check/docs_check.py` 通过，保留 7 个既有文件命名 warning。
+  - 本轮未执行板端 LCD 刷新和按键切页 smoke。
+- 还需完成：
+  - 将 `UiManager` 升级为 `UiAO / UiVector`。
+  - UI 只读公开 snapshot，动作入口走 System/Domain event。
+  - 补充板端 LCD 刷新和按键切页 smoke 记录。
+- 关联文件：
+  - `components/ui_manager/`
+  - `application/src/app.c`
+  - `application/src/app_runtime.c`
+  - `components/ui_manager/src/status_ui.c`
+- 下一步：
+  - 继续清理 `app.c` 中的 Diagnostics heartbeat wrapper，或开始为 UI 增加只读 snapshot 边界。
+
 ### RTOS-DIST-TASK-20260813-004 - VdcDpllManager 第一阶段组件化
 
 - 状态：进行中

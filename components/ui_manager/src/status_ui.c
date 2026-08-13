@@ -1,4 +1,4 @@
-#include "sync_config_ui.h"
+#include "status_ui.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -57,9 +57,9 @@ typedef struct {
     uint8_t tab_anim;
     bool boot_splash_active;
     bool initialized;
-} sync_config_ui_t;
+} status_ui_t;
 
-static sync_config_ui_t s_ui;
+static status_ui_t s_ui;
 
 extern const uint8_t u8g2_font_5x8_tr[];
 extern const uint8_t u8g2_font_6x10_tf[];
@@ -1256,7 +1256,7 @@ static void run_boot_splash(void)
                              RESOURCE_ARBITER_RESOURCE_LCD);
 }
 
-bool sync_config_ui_init(void)
+bool status_ui_init(void)
 {
     memset(&s_ui, 0, sizeof(s_ui));
     u8g2_port_setup_240x136(&s_ui.u8g2, s_ui.mono_buffer);
@@ -1271,7 +1271,7 @@ bool sync_config_ui_init(void)
     return true;
 }
 
-void sync_config_ui_key_next(void)
+void status_ui_key_next(void)
 {
     if (!s_ui.initialized) {
         return;
@@ -1291,7 +1291,7 @@ void sync_config_ui_key_next(void)
     s_ui.tab_anim = UI_TAB_ANIM_STEPS;
 }
 
-bool sync_config_ui_render(void)
+bool status_ui_render(void)
 {
     ui_snapshot_t snapshot;
 
@@ -1327,7 +1327,7 @@ bool sync_config_ui_render(void)
     return true;
 }
 
-bool sync_config_ui_needs_render(void)
+bool status_ui_needs_render(void)
 {
     return s_ui.initialized && (s_ui.tab_anim > 0u || s_ui.page != s_ui.target_page);
 }

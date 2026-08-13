@@ -279,7 +279,7 @@ SYST:OTA:BEGIN
 - `sync_trigger`：同步触发域。
 - `ota_manager`：OTA 域。
 - `storage_manager`：SD/文件域。
-- `sync_config_ui`：LCD/按键 UI 域。
+- `ui_manager`：LCD/按键 UI 域，内部包含 `status_ui` 状态界面渲染模块。
 - `diagnostics`：诊断域。
 
 每个域只允许自己修改自己的运行状态。
@@ -337,7 +337,7 @@ components/
   ota_manager/                  # OTA Active Object
   storage_manager/              # SD 卡 / 文件管理
   diagnostics/                  # 诊断、错误码、运行日志
-  sync_config_ui/               # LCD/按键配置界面
+  ui_manager/                   # LCD/按键 UI 调度，内部包含 status_ui 状态界面渲染模块
 
 middleware/
   scpi_port/                    # SCPI 命令入口

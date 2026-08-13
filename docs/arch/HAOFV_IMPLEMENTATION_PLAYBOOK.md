@@ -477,7 +477,7 @@ void app_ui_service(void) {
         // 资源不可用：保持 dirty 标志，下次主循环重试
         return;
     }
-    sync_config_ui_render();                                    // 执行渲染
+    status_ui_render();                                         // 执行状态界面渲染
     resource_arbiter_release(SYS_RESOURCE_SPI0 | SYS_RESOURCE_LCD);
     ui_dirty = false;
 }

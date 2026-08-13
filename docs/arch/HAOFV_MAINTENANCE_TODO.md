@@ -228,19 +228,21 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 - 问题：
   - Measure 目前主要是查询占位，T2 明细、timestamp 质量、报告导出还未形成独立数据链。
   - Diagnostics 有基础状态，但尚未形成产品级 fault/log/trace/snapshot/report 闭环。
-  - UI 当前直接读多个模块 snapshot，尚未形成 `UiAO / UiVector`。
+  - UI 调度与 `status_ui` 渲染模块已合并到 `components/ui_manager/`。
+  - UI 当前直接读多个模块 snapshot，尚未形成完整 `UiAO / UiVector`。
 - 影响：
   - 分布式系统后续测试报告、故障恢复、现场维护和上位机闭环会缺少统一事实来源。
 - 待办：
   - [ ] 建立 `MeasureAO / TimestampService / T2Vector`。
   - [ ] T2 数据归入系统测量/同步事实，不放在业务域。
   - [ ] Diagnostics 接入 fault clear、fault evidence、trace、snapshot、log page。
+  - [x] 建立 `UiManager` 第一阶段组件，合并按键/刷新调度和 `status_ui` 渲染模块路径。
   - [ ] UI 只读公开 snapshot，动作入口走 System/Domain event。
   - [ ] 增加报告导出的分页读取和批次索引。
 - 关联文件：
   - `middleware/scpi_port/src/scpi_measure_commands.c`
   - `components/diagnostics/`
-  - `components/sync_config_ui/`
+  - `components/ui_manager/`
 
 ## 推荐推进顺序
 

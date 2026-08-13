@@ -15,36 +15,24 @@
 #include "scpi_port.h"
 #include "storage_manager.h"
 #include "system_manager.h"
-#include "sync_config_ui.h"
 #include "sync_trigger.h"
 #include "sync_io.h"
 #include "trigger_measure.h"
+#include "ui_manager.h"
 #include "vdc_dpll_manager.h"
 #if PROJECT_ENABLE_USBTMC || PROJECT_ENABLE_USB_RUNTIME_SWITCH
 #include "usbtmc_scpi_port.h"
 #endif
 
-#define APP_UI_REFRESH_PERIOD_MS 250u
-#define APP_UI_KEY_DEBOUNCE_MS 35u
 #define APP_LOG_SERVICE_BYTES 256u
 
 static uint32_t s_last_tick_ms;
-static uint32_t s_last_ui_refresh_ms;
-static uint32_t s_last_ui_key_change_ms;
 static bool s_app_ready;
-static bool s_ui_dirty;
-static bool s_ui_key_sample;
-static bool s_ui_key_stable;
 
 bool app_init(void)
 {
     s_last_tick_ms = board_uptime_ms();
-    s_last_ui_refresh_ms = s_last_tick_ms;
-    s_last_ui_key_change_ms = s_last_tick_ms;
     s_app_ready = false;
-    s_ui_dirty = false;
-    s_ui_key_sample = false;
-    s_ui_key_stable = false;
     LOG_INFO("app", "application initialized");
 
     const sync_io_config_t sync_io_config = {
@@ -128,11 +116,10 @@ bool app_init(void)
         return false;
     }
 
-    if (!sync_config_ui_init()) {
+    if (!ui_manager_init()) {
         diagnostics_mark_fault("ui", "sync config UI initialization failed");
         return false;
     }
-    s_ui_dirty = true;
     s_app_ready = true;
     loop_engine_set_ready(true);
     calibration_manager_set_ready(true);
@@ -295,38 +282,7 @@ void app_ota_service(void)
 
 void app_ui_service(void)
 {
-    const uint32_t now_ms = board_uptime_ms();
-    const bool key_sample = board_key2_is_pressed();
-
-    if (key_sample != s_ui_key_sample) {
-        s_ui_key_sample = key_sample;
-        s_last_ui_key_change_ms = now_ms;
-    }
-
-    if ((uint32_t)(now_ms - s_last_ui_key_change_ms) >= APP_UI_KEY_DEBOUNCE_MS &&
-        s_ui_key_stable != s_ui_key_sample) {
-        s_ui_key_stable = s_ui_key_sample;
-        if (s_ui_key_stable) {
-            sync_config_ui_key_next();
-            s_ui_dirty = true;
-        }
-    }
-
-    if ((uint32_t)(now_ms - s_last_ui_refresh_ms) >= APP_UI_REFRESH_PERIOD_MS) {
-        s_ui_dirty = true;
-    }
-    if (sync_config_ui_needs_render()) {
-        s_ui_dirty = true;
-    }
-
-    if (!s_ui_dirty) {
-        return;
-    }
-
-    if (sync_config_ui_render()) {
-        s_ui_dirty = sync_config_ui_needs_render();
-        s_last_ui_refresh_ms = now_ms;
-    }
+    ui_manager_service();
 }
 
 void app_diag_service(void)

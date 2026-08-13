@@ -6,6 +6,7 @@
 #include "drv_flash.h"
 #include "loop_engine.h"
 #include "osal.h"
+#include "ui_manager.h"
 #include "vdc_dpll_manager.h"
 #if PROJECT_USE_MULTICORE
 #include "pico/multicore.h"
@@ -266,7 +267,7 @@ static void task_ui(void *context)
             continue;
         }
 
-        app_ui_service();
+        ui_manager_service();
         osal_task_delay_ms(5u);
     }
 }

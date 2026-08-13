@@ -75,7 +75,7 @@ Last updated: 2026-08-13
 
 - `application/` — 应用入口和胶水逻辑
 - `boards/rp2350_trig/` — 板级定义
-- `components/` — 功能组件（sync_io, sync_trigger, ota_manager, diagnostics, event_bus, resource_arbiter, sync_config_ui）
+- `components/` — 功能组件（sync_io, sync_trigger, ota_manager, diagnostics, event_bus, resource_arbiter, ui_manager/status_ui）
 - `drivers/mcu/` — MCU 外设驱动（spi, i2c, uart, flash, watchdog）
 - `drivers/external/` — 外部器件驱动（lcd）
 - `middleware/` — 中间件适配层（portable_ota_port, scpi_port, u8g2_port）
@@ -229,7 +229,7 @@ typedef struct {
 
 ### 4.2 中等迁移难度子系统（5-8 分）
 
-#### 4.2.1 UI 子系统 — sync_config_ui（7/10）
+#### 4.2.1 UI 子系统 — ui_manager/status_ui（7/10）
 
 **现状**：U8G2 单色 page buffer 模式 + 三栏运行时看板（SYSTEM / TRIGGER / OTA），通过 `resource_arbiter` 申请 `SPI0 + LCD`。
 
@@ -578,7 +578,7 @@ resource_arbiter             10/10  10/10    零改动
 diagnostics                  9/10   9/10     零改动
 function_block (ECC引擎)     9/10   9/10     零改动
 scpi-parser                  9/10   9/10     零改动
-sync_config_ui (U8G2)        7/10   8/10     重写 SPI 适配
+ui_manager/status_ui (U8G2)  7/10   8/10     重写 SPI 适配
 SCPI 传输层                  3/10   8/10     实现 3 个 transport ops
 drv_flash                    5/10   7/10     替换 Flash HAL + 参数化地址
 drv_spi/i2c/uart             4/10   6/10     类型抽象 + HAL 替换
