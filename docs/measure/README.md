@@ -13,7 +13,7 @@ Last updated: 2026-08-13
 | 当前路径 | 定位 |
 |---|---|
 | `../interface/DTC100_SCPI_COMMAND_PLANNING.md` | `MEASure:*?` 边界和指令树 |
-| `../arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` | measurement service、T2 和报告证据关系 |
+| `../arch/RTOS_HAOFV_ARCHITECTURE.md` | measurement service、T2 和报告证据关系 |
 
 ## 待补 canonical
 

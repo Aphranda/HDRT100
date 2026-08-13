@@ -3,7 +3,7 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
 Last updated: 2026-08-13
 
 本文档定义 DTC100 / RP2350_TRIG 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -100,7 +100,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | Active Object | 拥有事件队列、生命周期和执行预算；外部入口只能投递事件。 | 各功能域设计 |
 | Function Block | 执行 ECC 状态迁移、资源规则和错误归因；不得长期阻塞。 | `trigger/`、`ota/`、`storage/`、`sync/` |
 | Vector Blackboard | 保存事实、摘要、命令槽和版本；字段必须有唯一 writer。 | `refmem/`、各 Domain Vector |
-| Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源。 | `arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` |
+| Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源。 | `arch/RTOS_HAOFV_ARCHITECTURE.md` |
 | VDC/DPLL | 形成多节点共同时间事实；timestamp sample 是原始观测事实，SYNC DPLL 负责 VDC offset/rate，Angle DPLL 负责 `T_fire_base` 预测，两者不得混用。 | `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` |
 | Hardware Service | 封装 SDK/驱动细节；上层不直接调用板级 API。 | `components/`、`drivers/` |
 | PIO/DMA/IRQ | 只执行硬实时动作和最小事实回写；对外维护入口归 `REALtime`，产品业务动作入口仍归 `TRIGger`。 | `sync/`、`trigger/`、board profile |
@@ -1204,10 +1204,11 @@ SCPI/UI/Storage/OTA 只能投递 Trigger 事件或读取 TriggerVector 快照；
 
 ### 当前进度
 
-RTOS/OSAL 引入阶段的迁移步骤详见 `docs/arch/RTOS_PORTING_PLAN.md`。当前产品化主线已经从单核
-`task_trigger` 过渡到 RTOS + 双核 AMP：core0 负责控制面，core1 负责 TriggerAO/TriggerFB
-实时 owner，SCPI 通过反射内存、命令槽、事件队列和 owner 状态机闭环。任务划分、栈/堆水位、
-VDC/DPLL、CAL/SYNC 和验证待办以 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 为准。
+RTOS/OSAL、双核 AMP 和分布式触发任务划分详见 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`。
+当前产品化主线已经从单核 `task_trigger` 过渡到 RTOS + 双核 AMP：core0 负责控制面，
+core1 负责 TriggerAO/TriggerFB 实时 owner，SCPI 通过反射内存、命令槽、事件队列和
+owner 状态机闭环。任务划分、栈/堆水位、VDC/DPLL、CAL/SYNC 和验证待办以
+`docs/arch/RTOS_HAOFV_TODO.md` 为准。
 
 ## 测试策略
 

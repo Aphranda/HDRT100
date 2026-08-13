@@ -51,9 +51,10 @@ The design rules are:
 - PIO/DMA/IRQ own hard real-time capture and trigger output; RTOS tasks or the
   bare-metal main loop only manage configuration, state, and diagnostics.
 
-Future FreeRTOS support must be added as an OSAL port and task runtime for
-Active Objects. It must not replace the HAOFV boundaries or move hard real-time
-edge generation into ordinary RTOS tasks. See `docs/arch/RTOS_PORTING_PLAN.md`.
+FreeRTOS support is part of the HAOFV runtime model: it provides task runtime,
+queues, timeouts, and OSAL primitives for Active Objects. It must not replace the
+HAOFV boundaries or move hard real-time edge generation into ordinary RTOS
+tasks. See `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`.
 
 ## Directory Layout
 
@@ -445,11 +446,12 @@ time.
 - `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`: staged plan for hardening
   `portable_ota` first, then migrating the current project with closed-loop
   validation at each step.
-- `docs/arch/RTOS_PORTING_PLAN.md`: HAOFV-aligned FreeRTOS migration plan and
-  OTA RTOS adapter requirements.
-- `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`: product RTOS + dual-core
-  partition for the four-board distributed trigger system, including the
+- `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`: HAOFV-based RTOS + dual-core AMP
+  architecture for the four-board distributed trigger system, including the
   simulated reflective-memory DistributedVectorTable.
+- `docs/arch/RTOS_HAOFV_TODO.md`: RTOS implementation backlog under HAOFV.
+- `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`: RTOS verification and task progress
+  log.
 - `docs/archive/TASK_PROGRESS.md`: task progress log for goals, completed work,
   verification results, remaining work, and next steps.
 

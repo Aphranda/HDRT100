@@ -3,7 +3,7 @@
 Status: Active
 Domain: OTA
 Canonical: `docs/legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`
-Related: `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+Related: `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 Last updated: 2026-08-10
 
 ## 1. 目标与边界

@@ -7,7 +7,8 @@ Canonical: `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-04
 Related:
 
-- `docs/arch/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md`
+- `docs/reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`
+- `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 - `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
 - `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
 - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`

@@ -247,7 +247,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 构建单核 factory/update 包。
   - 烧录 `build-biss-integration\RP2350_TRIG_FACTORY.uf2`。
   - 为 SCPI DISARM 增加兼容别名：`TRIG:DIS`、`TRIG:DISA`、`TRIG:DISarm` 均进入同一 DISARM 回调。
-  - 更新 `docs/interface/SCPI_COMMANDS.md`、`docs/communication/BISSC_IMPLEMENTATION_TODO.md` 和 `docs/arch/MULTICORE_PARTITION_PLAN.md`，记录单核主线和双核暂停原因。
+  - 更新 `docs/interface/SCPI_COMMANDS.md`、`docs/communication/BISSC_IMPLEMENTATION_TODO.md` 和 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`，记录单核主线和双核暂停原因。
 - 验证结果：
   - 单核 factory build id：`20260707081355`。
   - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`。
@@ -274,7 +274,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - `middleware/scpi_port/src/scpi_port.c`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
-  - `docs/arch/MULTICORE_PARTITION_PLAN.md`
+  - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
   - `build-biss-integration\biss_validation_singlecore\summary.txt`
   - `build-biss-integration\biss_validation_singlecore\summary.json`
   - `build-biss-integration\biss_validation_singlecore\queries.txt`

@@ -3,14 +3,14 @@
 Status: Active
 Domain: SCPI
 Canonical: `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
-Related: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
+Related: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
 Last updated: 2026-08-13
 
 本文档记录 DTC100 当前 SCPI 固件架构、命令域边界、owner 归属和后续收敛待办。它不是历史流水账，也不是上位机最终指令手册：
 
 - 正式产品指令表以 `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` 为准。
 - 固件基础命令说明以 `docs/interface/SCPI_COMMANDS.md` 为准。
-- RTOS、反射内存、owner task 和双核职责以 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 为准。
+- RTOS、反射内存、owner task 和双核职责以 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md` 为准。
 - SCPI 拆分、验证、板端闭环记录以 `docs/interface/SCPI_TASK_PROGRESS.md` 为准。
 
 ## 1. 当前结论

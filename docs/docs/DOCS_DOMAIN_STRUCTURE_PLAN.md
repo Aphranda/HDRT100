@@ -3,7 +3,7 @@
 Status: Draft
 Domain: Documentation
 Canonical: `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 Last updated: 2026-08-13
 
 本文档定义 `docs/` 后续按产品主域整理的目标结构、迁移规则和文档归属。当前阶段不直接移动大批文件，先冻结目录规划、迁移 gate 和索引规则，后续按域小批量迁移。
@@ -25,7 +25,7 @@ Last updated: 2026-08-13
 docs/
   README.md
   docs/                 ; 文档治理、命名规则、迁移表
-  arch/                 ; 产品架构、HAOFV、RTOS、双核、分布式总纲
+  arch/                 ; 产品架构、HAOFV、RTOS 和分布式总纲
   interface/            ; SCPI、USB、USBTMC、命令表、上位机接口
   trigger/              ; 产品触发、序列、角度、core1 实时执行
   sync/                 ; SYNC、VDC、DPLL、同步质量
@@ -83,7 +83,7 @@ docs/
 | 目标目录 | 初始 canonical |
 |---|---|
 | `docs/` | `DOCS_NAMING_STRUCTURE_PLAN.md`, `DOCS_MIGRATION_TODO.md`, `DOCS_DOMAIN_STRUCTURE_PLAN.md` |
-| `arch/` | `HAOFV_ARCHITECTURE.md`, `HAOFV_VDC_DPLL_ARCHITECTURE.md`, `ARCH_PRODUCT_ARCHITECTURE.md`, `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `MULTICORE_PARTITION_PLAN.md` |
+| `arch/` | `HAOFV_ARCHITECTURE.md`, `HAOFV_VDC_DPLL_ARCHITECTURE.md`, `ARCH_PRODUCT_ARCHITECTURE.md`, `RTOS_HAOFV_ARCHITECTURE.md`, `RTOS_HAOFV_TODO.md`, `RTOS_HAOFV_TASK_PROGRESS.md` |
 | `interface/` | `DTC100_SCPI_COMMAND_PLANNING.md`, `SCPI_COMMANDS.md`, `SCPI_USB_INTERFACE_DESIGN.md`, `RP1200波导天线测试系统分布式触发方案SCPI指令表.md` |
 | `trigger/` | `TRIGGER_SYNC_TODO.md`, `TRIGGER_SEQ_STEP_DESIGN.md`, `TRIGGER_ENC_COUNT_DESIGN.md`, `TRIGGER_PULSE_COUNT_ANALYSIS.md`, `SYNC_IO_RESOURCE_PLAN.md` |
 | `sync/` | `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`, `SYNC_IO_REFACTOR_PLAN.md`, `SYNC_IO_TASK_PROGRESS.md` |
@@ -94,7 +94,7 @@ docs/
 | `storage/` | `SD_TODO.md`, `SD_TASK_PROGRESS.md`, `LOG_SYSTEM_TODO.md` |
 | `ota/` | `OTA_SYSTEM_DESIGN.md`, `OTA_TODO.md`, `OTA_AB_SWITCH_DESIGN.md`, `OTA_COPY_TRANSACTION_DESIGN.md` |
 | `hardware/` | `HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`, `HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`, `RP2350B_QFN80_IO_CONSTRAINTS.md`, `hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md`, `hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel`, `hardware/Netlist_Schematic1_2026-08-04.tel` |
-| `validation/` | `SCPI_TASK_PROGRESS.md`, `RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`, `BISSC_TASK_PROGRESS.md` 的后续验证索引 |
+| `validation/` | `SCPI_TASK_PROGRESS.md`, `RTOS_HAOFV_TASK_PROGRESS.md`, `BISSC_TASK_PROGRESS.md` 的后续验证索引 |
 | `release/` | `release/RELEASE_CHECKLIST.md`, PDF/打印规则相关文档 |
 | `legacy/` | PinProbe HTML、0614/0804 原始 HTML、最初版 SCPI HTML、外部迁入 PDF |
 
@@ -120,7 +120,7 @@ docs/
 
 ### Phase 3 - 高风险接口和架构迁移
 
-- 迁移 `DTC100_SCPI_COMMAND_PLANNING.md`、`RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`、产品 SCPI 指令表 Markdown。
+- 迁移 `DTC100_SCPI_COMMAND_PLANNING.md`、RTOS HAOFV 三件套、产品 SCPI 指令表 Markdown。
 - 同步更新 HTML/PDF 导出脚本、校验脚本、报告模板和 README。
 - 对外指令表文件名和历史 HTML/PDF 可以暂缓移动，避免影响上位机交付路径。
 
@@ -146,7 +146,7 @@ docs/
 
 新增文档先按以下顺序判断目录：
 
-1. 是否是跨域产品架构、HAOFV、RTOS 或双核 owner 设计：放 `arch/`。
+1. 是否是跨域产品架构、HAOFV、RTOS 或 core0/core1 owner 设计：放 `arch/`。
 2. 是否是对外命令、上位机接口、USB/USBTMC 或权限策略：放 `interface/`。
 3. 是否影响触发运行、角度、序列、core1 或实时边沿：放 `trigger/`。
 4. 是否管理链路 delay、校准表、校准质量：放 `calibration/`。
@@ -171,7 +171,9 @@ DTC100 分布式触发系统
 │  ├─ arch/HAOFV_ARCHITECTURE.md
 │  ├─ arch/HAOFV_VDC_DPLL_ARCHITECTURE.md
 │  ├─ arch/ARCH_PRODUCT_ARCHITECTURE.md
-│  └─ arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md
+│  ├─ arch/RTOS_HAOFV_ARCHITECTURE.md
+│  ├─ arch/RTOS_HAOFV_TODO.md
+│  └─ arch/RTOS_HAOFV_TASK_PROGRESS.md
 ├─ 2. 对外接口
 │  ├─ interface/DTC100_SCPI_COMMAND_PLANNING.md
 │  ├─ interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md

@@ -3,7 +3,7 @@
 Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_TASK_PROGRESS.md`
-Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
+Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
 Last updated: 2026-08-13
 
 本文档用于记录 DTC100 / RP2350_TRIG 工程中 SCPI 指令模块拆分、产品命令树收敛、
@@ -12,7 +12,7 @@ Last updated: 2026-08-13
 板端证据。
 
 架构原则以 `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md` 为准，RTOS / 反射内存 / owner
-任务边界以 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 为准。
+任务边界以 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md` 为准。
 
 ## 记录规则
 
@@ -185,7 +185,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `tools/biss_board_validate.py`、`tools/multicore_board_validate.py` 和
     `tools/distributed_loopback_validate.py` 切到 canonical 命令。
   - 同步 `docs/interface/SCPI_COMMANDS.md`、`docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
-    和 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 的当前接口描述。
+    和 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md` 的当前接口描述。
 - 验证结果：
   - `python tools/product_scpi_validate/product_scpi_validate.py --dry-run`
     通过，生成 `114` 条产品命令。
@@ -219,7 +219,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `tools/distributed_loopback_validate/distributed_loopback_validate.py`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
-  - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 
 ### SCPI-TASK-20260813-033 - P1 裸状态入口文档收口
 
@@ -1023,7 +1023,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `middleware/scpi_port/inc/scpi_measure_commands.h`
   - `middleware/scpi_port/src/scpi_measure_commands.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 - 下一步：
   - 进入 `BiSS-C`、`ENC/PCNT`、`SEQ_STEP/ARM/FAULT` 和 `sync_io` pulse validation
     的底层验证命令拆分。
@@ -1060,7 +1060,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `middleware/scpi_port/inc/scpi_system_runtime_commands.h`
   - `middleware/scpi_port/src/scpi_system_runtime_commands.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 - 下一步：
   - 拆分系统诊断和测量相关命令。
 

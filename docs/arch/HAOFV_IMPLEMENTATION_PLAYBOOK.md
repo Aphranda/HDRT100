@@ -3,14 +3,14 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
 Last updated: 2026-08-13
 
 本文档是 `HAOFV_ARCHITECTURE.md` 的实施补充，提供具体代码示例、迁移步骤和实现细节。阅读本文档前应先通读主架构文档。
 
 > 当前定位：本文档是实施 playbook 和历史迁移样例，不是当前产品硬件资源 canonical。
 > HAOFV 顶层规则以 `docs/arch/HAOFV_ARCHITECTURE.md` 为准；RTOS + 双核产品化路径以
-> `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 为准；GPIO、PIO、隔离、电源和网表事实以
+> `docs/arch/RTOS_HAOFV_ARCHITECTURE.md` 为准；GPIO、PIO、隔离、电源和网表事实以
 > `docs/hardware/` 与 `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 为准。
 
 **内容**：
@@ -512,4 +512,4 @@ typedef struct {
 
 - **创建日期**：2026-06-29
 - **主架构文档**：[HAOFV_ARCHITECTURE.md](HAOFV_ARCHITECTURE.md)
-- **关联文档**：`docs/ota/OTA_SYSTEM_DESIGN.md`、`docs/arch/RTOS_PORTING_PLAN.md`、`docs/sync/SYNC_IO_RESOURCE_PLAN.md`、`docs/trigger/TRIGGER_SYNC_TODO.md`
+- **关联文档**：`docs/ota/OTA_SYSTEM_DESIGN.md`、`docs/arch/RTOS_HAOFV_ARCHITECTURE.md`、`docs/sync/SYNC_IO_RESOURCE_PLAN.md`、`docs/trigger/TRIGGER_SYNC_TODO.md`

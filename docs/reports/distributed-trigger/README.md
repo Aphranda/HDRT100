@@ -3,7 +3,7 @@
 Status: Active
 Domain: RELEASE
 Canonical: `docs/reports/distributed-trigger/README.md`
-Related: `docs/reports/README.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+Related: `docs/reports/README.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 Last updated: 2026-08-13
 
 本目录保存分布式触发技术报告、历史完整报告和仓库摘要。

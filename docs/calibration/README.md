@@ -13,7 +13,7 @@ Last updated: 2026-08-13
 | 当前路径 | 定位 |
 |---|---|
 | `../interface/DTC100_SCPI_COMMAND_PLANNING.md` | 当前 CALibration 指令和边界定义 |
-| `../arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` | `task_calibration` owner、slot 和 ACK/NACK 闭环 |
+| `../arch/RTOS_HAOFV_ARCHITECTURE.md` | `task_calibration` owner、slot 和 ACK/NACK 闭环 |
 | `../interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` | 对外 CALibration 指令表 |
 
 ## 待补 canonical

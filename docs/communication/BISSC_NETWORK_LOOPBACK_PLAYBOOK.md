@@ -3,7 +3,7 @@
 Status: Active
 Domain: Verification
 Canonical: `docs/communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`
-Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/archive/TASK_PROGRESS.md`, `docs/README.md`
+Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/archive/TASK_PROGRESS.md`, `docs/README.md`
 Last updated: 2026-08-11
 
 本文档记录 2026-08-11 这轮 BiSS 组网处理流程，便于在其他电脑继续工作。
@@ -44,7 +44,7 @@ git push origin main
 
 文档更新：
 
-- `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+- `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
   - 在 P6 记录 A3 单外部 COM + BiSSC 内部组网的 HIL 入口。
   - 明确模拟板同时承担 turntable + VNA，位于内部节点侧。
 - `docs/README.md`
@@ -154,7 +154,7 @@ python tools\distributed_loopback_validate\distributed_loopback_validate.py `
 
 1. 在另一台电脑先确认 `8dbc8f0` 是否已推送到 `origin/main`。
 2. 用 A3 外部 COM 跑一次 `--dry-run` 和一次真实 SCPI preflight。
-3. 若 preflight 通过，继续 `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 的 P4：
+3. 若 preflight 通过，继续 `RTOS_HAOFV_TODO.md` 的 P4：
    - 定义 RJ45 `SYNC/FIRE_LOAD/DONE/MEAS_DONE/FAULT` 帧格式和 CRC。
    - 定义 `REFMEM_DELTA` / `REFMEM_EPOCH` 帧格式。
    - 实现 ACK/NACK/busy_flags 位图同步。

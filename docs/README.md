@@ -22,7 +22,7 @@ Last updated: 2026-08-13
 docs/
   README.md
   docs/           文档治理、命名规则、迁移表
-  arch/           产品架构、HAOFV、RTOS、双核、分布式总纲
+  arch/           产品架构、HAOFV、RTOS 和分布式总纲
   interface/      SCPI、USB、USBTMC、命令表、上位机接口
   trigger/        产品触发、序列、角度、core1 实时执行
   sync/           SYNC、VDC、DPLL、同步质量
@@ -48,7 +48,7 @@ docs/
 | 目录 | 入口 | 当前作用 |
 |---|---|---|
 | `docs/` | `docs/README.md` | 文档治理、命名规则、迁移表 |
-| `arch/` | `arch/README.md` | 产品架构、HAOFV、RTOS、双核 AMP 和分布式总纲 |
+| `arch/` | `arch/README.md` | 产品架构、HAOFV、RTOS 和分布式总纲 |
 | `interface/` | `interface/README.md` | SCPI、USB、USBTMC、命令表和上位机接口 |
 | `trigger/` | `trigger/README.md` | 产品触发、序列、角度、core1 实时执行 |
 | `sync/` | `sync/README.md` | SYNC、VDC、DPLL、同步质量和 HOLDOVER |
@@ -87,7 +87,7 @@ docs/
 |---|---|---|
 | BiSS-C | `communication/BISSC_TASK_PROGRESS.md` | BiSS-C 新任务记录写入本文件。 |
 | SYNC_IO | `sync/SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构闭环记录写入本文件。 |
-| RTOS | `arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
+| RTOS | `arch/RTOS_HAOFV_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
 | SCPI | `interface/SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
 | SD | `storage/SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
 | Documentation | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
@@ -130,18 +130,17 @@ docs/
 | 文件 | 定位 |
 |---|---|
 | `arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层产品架构主文档，阐述组件约束、层次逻辑和约束传播，不直接冻结硬件 pin map。 |
+| `arch/HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，跟踪 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 |
 | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 核心基础架构，定义虚拟 DC、SYNC DPLL、Angle DPLL、时间事实和预测分发边界。 |
 | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构特化，统一 DTC100 产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
 | `arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施补充、示例和历史迁移说明；不作为硬件资源 canonical。 |
 | `arch/HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估快照，用于识别平台耦合和迁移风险。 |
-| `arch/RTOS_PORTING_PLAN.md` | FreeRTOS/OSAL 迁移计划；当前产品化任务 owner 以 RTOS 分布式触发分区为准。 |
-| `arch/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md` | 0614 分布式触发报告的历史设计输入摘要。 |
 | `reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告，已从外部 DOC 迁入。 |
-| `arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` | RTOS + 双核 AMP 下四板分布式触发任务划分与小步验证记录。 |
-| `arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务进度和闭环验证记录。 |
+| `arch/RTOS_HAOFV_ARCHITECTURE.md` | 基于 HAOFV 的 RTOS + 双核 AMP 架构，整合任务划分、OSAL 移植、双核边界和 0614 摘要。 |
+| `arch/RTOS_HAOFV_TODO.md` | 基于 HAOFV 的 RTOS 实施待办事项。 |
+| `arch/RTOS_HAOFV_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务进度和闭环验证记录。 |
 | `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告的仓库内摘要入口。 |
 | `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html` | 0804 RP 分布式触发完整原始报告，已从外部 DOC 迁入。 |
-| `arch/MULTICORE_PARTITION_PLAN.md` | RP2350 双核 bring-up 和 AMP 隔离原则；产品化主线以 RTOS 分区文档为准。 |
 | `archive/RP1200_DTC100_对话决策完整回顾.md` | RP1200 / DTC100 本轮对话决策总归档，作为产品级 SCPI 和同步/校准口径来源。 |
 
 ## 02 硬件与资源约束
