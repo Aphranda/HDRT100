@@ -183,6 +183,8 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 - 影响：
   - 当前 SCPI/域状态仍容易绕过反射内存直接调用函数。
 - 待办：
+  - [x] 在 HAOFV/RTOS 架构中明确 Distributed RefMem 吸收 IEC 61499 分布式运行时优点，但不引入动态部署和跨节点 FB 直接调用。
+  - [ ] 定义静态分布式应用模型：ApplicationMap、FbInstanceTable、EventLinkTable、DataLinkTable、DeploymentGate、ConnectionQualityTable。
   - [ ] 定义每个 slot 的 owner 和 writer 规则。
   - [ ] 增加 slot seqlock、CRC、stale、version 和 dirty 标记。
   - [ ] 建立 command slot / ack slot / fault slot 的通用协议。

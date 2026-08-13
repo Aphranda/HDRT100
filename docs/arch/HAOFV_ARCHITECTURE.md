@@ -36,6 +36,7 @@ HAOFV Architecture
 - `IEC 61499-inspired Function Block Layer`：采用固定功能块、静态事件连接、数据输入输出和 ECC 状态机。
 - `System Vector Blackboard`：系统总表，保存全局状态摘要、资源占用、错误摘要。
 - `Domain Vector Tables`：各功能域独立向量表，例如 OTA、Trigger、Storage、UI。
+- `Distributed Vector Blackboard / RefMem Sync Layer`：分布式系统共同事实层，维护 64 KB 反射内存向量表、slot owner、命令槽、ACK/NACK、stale、CRC 和 sequence。
 - `Table-Driven State Machines`：状态转移、命令解析、资源冲突、错误码使用表驱动。
 - `Resource Arbiter`：统一管理 Flash、SPI、PIO、DMA、USB、LCD、SD 等资源互锁。
 - `RTE-like Service Layer`：上层不直接碰硬件，通过驱动和服务层访问外设。
@@ -53,6 +54,8 @@ IEC 61499-style Function Block Layer
         ↓
 Time-Synchronized Vector Blackboard Layer
         ↓
+Distributed Vector Blackboard / RefMem Sync Layer
+        ↓
 Hardware Service Layer
 
 Hard Real-Time Side Path:
@@ -64,7 +67,8 @@ PIO / DMA / IRQ
 ```text
 Active Object 管运行，
 IEC 61499 风格功能块管逻辑，
-Vector Blackboard 管数据，
+Vector Blackboard 管本节点事实，
+Distributed RefMem 管多节点共同事实，
 PIO/DMA 管硬实时。
 ```
 
@@ -75,7 +79,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | 约束层 | owner | 输出到下层的内容 |
 |---|---|---|
 | 产品能力约束 | 产品架构 / 系统设计 | 必须支持的主域、运行模式、同步精度、报告闭环、OTA/SD/诊断能力。 |
-| HAOFV 组件约束 | 本文档 | AO/FB/Vector/Resource Arbiter/Service 的 owner、状态事实和跨域交互规则。 |
+| HAOFV 组件约束 | 本文档 | AO/FB/Vector/Distributed RefMem/Resource Arbiter/Service 的 owner、状态事实和跨域交互规则。 |
 | 业务域约束 | `trigger/`、`sync/`、`calibration/`、`interface/` 等 | 触发序列、DPLL、校准、SCPI 契约、反射内存字段和 ACK/NACK。 |
 | 板级硬件约束 | `hardware/` | 调试最小系统板和产品板的 pin map、隔离边界、电源域、连接器和网表事实。 |
 | 固件实现约束 | `boards/`、`components/`、`middleware/` | board profile、驱动服务、RTOS task、PIO/DMA/IRQ owner 和构建配置。 |
@@ -100,6 +104,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | Active Object | 拥有事件队列、生命周期和执行预算；外部入口只能投递事件。 | 各功能域设计 |
 | Function Block | 执行 ECC 状态迁移、资源规则和错误归因；Action 必须立即返回，耗时动作只能返回 busy 并由后续 tick 推进。 | `trigger/`、`ota/`、`storage/`、`sync/` |
 | Vector Blackboard | 保存事实、摘要、命令槽和版本；字段必须有唯一 writer、值域、生命周期和快照规则。 | `refmem/`、各 Domain Vector |
+| Distributed RefMem | 分布式 RTOS 上的共同事实层；跨节点动作只能通过反射内存向量表、命令槽、ACK/NACK、stale、CRC、sequence 和同步帧表达。 | `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`、`components/distributed_refmem/` |
 | Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源；Flash/XIP 双核安全是最高优先级硬约束。 | `arch/RTOS_HAOFV_ARCHITECTURE.md` |
 | VDC/DPLL | 形成多节点共同时间事实；timestamp sample 是原始观测事实，SYNC DPLL 负责 VDC offset/rate，Angle DPLL 负责 `T_fire_base` 预测，两者不得混用。 | `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` |
 | Hardware Service | 封装 SDK/驱动细节；上层不直接调用板级 API。 | `components/`、`drivers/` |
@@ -124,6 +129,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | 双核 Flash/XIP 安全 | 任何 Flash erase/program 只能由 core0 发起；进入 Flash 临界区前必须申请 Flash bus 资源锁，并等待 core1 park/lockout ACK。 |
 | core1 实时 owner | RTOS + 双核 AMP 主线下，TriggerAO/TriggerFB 运行在 core1；core0 只能投递事件、写命令槽或读取快照。 |
 | 跨核共享事实 | core0/core1 共享字段必须有唯一 writer，快照必须使用 seqlock、双缓冲或等价 sequence/version 机制，并使用 `__atomic` 或 DMB 屏障。 |
+| 分布式共同事实 | 不引入完整 IEC 61499 分布式运行时；多节点状态、命令、ACK/NACK、版本、质量和证据统一由 Distributed RefMem / RefMem Sync Layer 承接。 |
 | Vector 字段契约 | 每个 Vector 字段或字段块必须定义 writer、value domain、lifecycle、snapshot-needed；不得把 Vector 当作全局变量自由读写。 |
 | 时间回绕 | `uint32_t timestamp_ms` 只能用于短时间差；时间差必须使用回绕安全写法 `int32_t diff = (int32_t)(t1 - t0)`，长时间事实需要 epoch 扩展。 |
 | Metadata failsafe | Bootloader 必须定义 metadata 双副本无效的强制恢复路径，禁止继续启动未知镜像。 |
@@ -156,12 +162,12 @@ Active Object 不直接暴露内部状态，不允许外部模块直接修改 Do
 
 ### IEC 61499-style Function Block Layer
 
-本项目只采用轻量 IEC 61499 子集，不实现完整 IEC 61499 运行时。
+本项目只采用轻量 IEC 61499 子集，不实现完整 IEC 61499 运行时。这里的 Function Block 只负责本节点或本功能域内部的 FB + ECC 状态机逻辑，不承担跨节点动态部署和跨节点事件网络。
 
 采用内容：
 
 - 固定功能块实例。
-- 静态事件连接。
+- 本节点/本功能域内的静态事件连接。
 - Event Input / Event Output。
 - Data Input / Data Output。
 - ECC 状态机。
@@ -172,8 +178,12 @@ Active Object 不直接暴露内部状态，不允许外部模块直接修改 Do
 - 动态部署功能块。
 - XML/FBT 解析。
 - 完整分布式运行时。
+- 跨节点 FB 直接调用。
+- 跨节点动态事件路由。
 - 工程工具链绑定。
 - 在硬实时 PIO 路径中执行功能块调度。
+
+DTC100 的分布式系统能力不由 IEC 61499 分布式运行时实现，而由 Distributed Vector Blackboard / RefMem Sync Layer 实现。换句话说，FB 不跨节点直接调用 FB；跨节点交互只能通过反射内存向量表、命令槽、ACK/NACK、同步帧和共同时间事实完成。
 
 建议功能块：
 
@@ -218,6 +228,89 @@ Vector 是数据表，但"时间"由调度器保证。也就是说，Vector 按�
 4. Arbitrate Resources
 5. Commit Outputs
 6. Publish Diagnostics
+```
+
+### Distributed Vector Blackboard / RefMem Sync Layer
+
+Distributed RefMem 是 HAOFV 在分布式 RTOS 系统中的核心体现。它不是 IEC 61499 分布式运行时，也不是任意共享变量区，而是多节点共同事实、命令意图、ACK/NACK、版本、质量和证据的静态数据面。
+
+Distributed RefMem 需要吸收 IEC 61499 分布式运行时的优点，但保留静态、可验证、产品化的实现方式。也就是说，它不支持动态部署 FB，却要有“静态分布式应用模型”的概念：系统中有哪些节点、每个节点部署哪些 AO/FB 实例、哪些事件连接跨节点、哪些数据连接进入哪个 slot、哪个 owner 写入、谁消费、如何确认和如何诊断。
+
+从 IEC 61499-style 分布式思想中吸收的内容：
+
+| 借鉴点 | 在 HAOFV 中的落地形式 | 不采用的部分 |
+|---|---|---|
+| Application model | 静态 `DistributedApplicationMap`，描述 A0/A1/A2/A3、模型节点、网分、转台等逻辑节点。 | 运行时动态部署 application。 |
+| FB instance model | 静态 `DistributedFbInstanceTable`，描述每个节点上的 AO/FB 实例、版本、role 和 enable 条件。 | 跨节点动态创建/销毁 FB。 |
+| Event connection | 静态 `DistributedEventLinkTable`，把 START、STOP、FIRE_LOAD、DONE、FAULT、ACK/NACK 映射为 command slot、event queue 或 RJ45 frame。 | 跨节点直接事件调用和动态路由。 |
+| Data connection | 静态 `DistributedDataLinkTable`，把状态、参数、质量、时间戳、T2 和统计量映射到固定 slot 字段。 | 任意远程变量读写。 |
+| Deployment consistency | build id、app map version、hw profile、config CRC、calibration CRC、sync profile CRC 进入 RefMem gate。 | 在线热替换部署。 |
+| Execution control | 每个节点本地 AO/FB 执行 ECC；跨节点只传意图、事实和 ACK/NACK。 | 跨节点统一 FB scheduler。 |
+| Diagnostics | 每个连接和 slot 有 seq、stale、CRC、late、timeout、drop、last_error 和 evidence。 | 依赖外部 IEC 工具链诊断。 |
+| Management command | 使用受控 SCPI/System Pack 写 command/config slot，owner 原子 take/clear。 | 标准 IEC management runtime。 |
+
+核心规则：
+
+- 每个 slot 必须有唯一 writer。
+- SCPI/UI/System Pack 只能写 command/config slot 或读取 snapshot。
+- state、summary、health、result、quality 和 evidence slot 只能由对应 owner 写入。
+- 跨节点同步只传播 slot delta、版本、CRC、stale、ACK/NACK 和小载荷，不传播 OTA payload、日志全文、波形或硬实时边沿。
+- 查询必须读取本地快照；slot stale 时返回 stale，不临时跨板阻塞查询。
+- VDC/DPLL 提供共同时间事实，RefMem 保存时间事实的版本、质量和证据。
+- 所有跨节点事件连接和数据连接必须在静态表中声明，禁止在业务代码中临时拼接远程目标。
+- 每个跨节点连接必须定义 source、destination、载荷格式、超时、ACK/NACK、stale 策略和诊断字段。
+- RUN 前必须通过 Deployment Gate：节点角色、FB instance version、slot layout、配置 CRC、校准 CRC 和同步 profile 一致。
+
+建议静态表：
+
+| 表 | 内容 | owner |
+|---|---|---|
+| `DistributedApplicationMap` | 系统逻辑节点、角色、节点类型、是否真实硬件、是否模型节点。 | SystemAO / ConfigGate |
+| `DistributedFbInstanceTable` | 节点内 AO/FB 实例、domain、版本、使能条件和健康状态。 | 各节点 SystemAO |
+| `DistributedEventLinkTable` | 跨节点事件名、source、destination、传输通道、ACK/NACK、timeout。 | LoopEngineAO / SystemAO |
+| `DistributedDataLinkTable` | slot 字段映射、writer、reader、单位、值域、生命周期、snapshot 策略。 | RefMem owner |
+| `DistributedDeploymentGate` | build/hw/config/cal/sync/vector layout 一致性门禁。 | ConfigGate |
+| `DistributedConnectionQualityTable` | seq、CRC、stale、late、drop、timeout、last_error 和 evidence 索引。 | DiagnosticsAO / RefMem |
+
+典型跨节点连接示例：
+
+| 逻辑连接 | IEC 61499-style 语义 | HAOFV 静态落地 |
+|---|---|---|
+| A3 START -> A0 LoopEngine | Event connection | `AckCommandSlot.command_seq` + gateway event + ACK/NACK |
+| A0 FIRE_LOAD -> A1/A2/A3 core1 | Event + data connection | RJ45 frame + TriggerSlot sequence + late/fault evidence |
+| A1 DONE/T2 -> A0 statistics | Event + data connection | TriggerStatus delta + T2 ring summary + StatisticsSlot |
+| CAL link delay publish | Data connection | CalibrationSlot active version + delay table CRC |
+| SYNC lock quality publish | Data connection | VdcSlot lock_state / e_vdc / stale / quality |
+
+分布式交互主线：
+
+```text
+SCPI / UI / System Pack
+  -> command/config slot
+  -> owner AO/FB consume
+  -> Domain Vector update
+  -> Distributed RefMem slot publish
+  -> RefMem Sync delta
+  -> remote node local snapshot
+  -> ACK/NACK / stale / evidence
+```
+
+因此，分布式系统在 HAOFV 中的表达是：
+
+```text
+静态 AO/FB 状态机
++ 分布式反射内存向量表
++ slot owner / command / ACK-NACK / stale / CRC / sequence
++ VDC/DPLL 共同时间事实
+```
+
+而不是：
+
+```text
+动态部署 FB
++ 跨节点 FB 网络运行时
++ 动态事件路由
++ 完整 IEC 61499 runtime
 ```
 
 ### Hardware Service Layer

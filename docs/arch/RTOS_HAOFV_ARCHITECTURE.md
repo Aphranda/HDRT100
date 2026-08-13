@@ -235,6 +235,26 @@ A3 SCPI START
 DistributedVectorTable 按 64 KB 产品化完整布局实现，P0 只启用核心字段，其余区域保留并纳入
 版本和 CRC 管理。
 
+在 RTOS + 分布式系统中，反射内存不仅是 slot 数据表，还承接 HAOFV 的静态分布式应用模型。它吸收 IEC 61499 分布式运行时的 application / FB instance / event connection / data connection / deployment consistency / diagnostics 思想，但不支持动态部署和跨节点 FB 直接调用。
+
+实施上必须拆成两类表：
+
+| 表类型 | 作用 | 同步频率 |
+|---|---|---|
+| 静态分布式模型表 | 描述节点、FB 实例、事件连接、数据连接、部署门禁和连接质量字段定义。 | 配置加载、版本变化或 RUN 前校验时同步。 |
+| 运行事实 slot 表 | 保存 heartbeat、state、command、ACK/NACK、T2、VDC、统计、故障证据。 | 按 slot delta 高频或中频同步。 |
+
+静态分布式模型表建议：
+
+| 表 | 内容 | RUN 门禁作用 |
+|---|---|---|
+| `DistributedApplicationMap` | A0/A1/A2/A3、模型节点、网分、转台、网关等逻辑节点。 | 确认节点数量、角色和是否允许模型节点参与。 |
+| `DistributedFbInstanceTable` | 每节点 AO/FB instance、domain、版本、enable 条件和健康状态。 | 确认每个 required instance 存在且版本兼容。 |
+| `DistributedEventLinkTable` | START/STOP/FIRE_LOAD/DONE/FAULT/ACK/NACK 的 source、destination、通道、timeout。 | 确认跨节点事件路径完整且 ACK 策略明确。 |
+| `DistributedDataLinkTable` | slot 字段 writer/reader、单位、值域、生命周期、snapshot 策略。 | 确认没有多 writer、未声明 reader 或不一致单位。 |
+| `DistributedDeploymentGate` | build id、hw profile、config CRC、calibration CRC、sync profile CRC、layout version。 | RUN 前一票否决不一致部署。 |
+| `DistributedConnectionQualityTable` | seq、CRC、stale、late、drop、timeout、last_error、evidence index。 | RUN 中诊断连接质量和报告闭环。 |
+
 | 区域 | 建议大小 | 内容 | 写入者 |
 |---|---:|---|---|
 | Header/Directory | 1 KB | magic、layout、slot offset、table_seq、epoch、crc32 | `task_refmem_sync` |
