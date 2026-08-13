@@ -12,10 +12,11 @@ Last updated: 2026-08-13
 
 | 当前路径 | 定位 |
 |---|---|
-| `../SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` | 分布式 DPLL / CAL_RING 同步设计 |
-| `../SYNC_IO_REFACTOR_PLAN.md` | SYNC_IO 重构计划 |
-| `../SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构进度 |
-| `../SYNC_IO_ARCH_REVIEW_TODO.md` | 同步架构评审待办 |
+| `SYNC_IO_RESOURCE_PLAN.md` | PIO、GPIO、DMA 和语义 IO 资源规划 |
+| `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` | 分布式 DPLL / CAL_RING 同步设计 |
+| `SYNC_IO_REFACTOR_PLAN.md` | SYNC_IO 重构计划 |
+| `SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构进度 |
+| `SYNC_IO_ARCH_REVIEW_TODO.md` | 同步架构评审待办 |
 
 ## 边界
 

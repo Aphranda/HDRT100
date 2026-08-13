@@ -16,7 +16,7 @@ Last updated: 2026-08-13
 | `../RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务进度 |
 | `../communication/BISSC_TASK_PROGRESS.md` | BiSS-C 任务进度和验证记录 |
 | `../storage/SD_TASK_PROGRESS.md` | SD 域任务进度和验证记录 |
-| `../SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构任务进度 |
+| `../sync/SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构任务进度 |
 
 ## 边界
 

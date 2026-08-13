@@ -3,7 +3,7 @@
 Status: Active
 Domain: RTOS
 Canonical: `docs/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md`
-Related: `docs/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`, `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
+Related: `docs/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`, `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
 Last updated: 2026-08-10
 
 这是一份仓库内摘要，用来替代外部 `DOC/0614.html` 路径引用。完整原始报告已补入

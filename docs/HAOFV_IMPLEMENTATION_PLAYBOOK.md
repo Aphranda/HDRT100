@@ -3,7 +3,7 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`
-Related: `docs/HAOFV_ARCHITECTURE.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`
+Related: `docs/HAOFV_ARCHITECTURE.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
 Last updated: 2026-07-08
 
 本文档是 `HAOFV_ARCHITECTURE.md` 的实施补充，提供具体代码示例、迁移步骤和实现细节。阅读本文档前应先通读主架构文档。
@@ -501,4 +501,4 @@ typedef struct {
 
 - **创建日期**：2026-06-29
 - **主架构文档**：[HAOFV_ARCHITECTURE.md](HAOFV_ARCHITECTURE.md)
-- **关联文档**：`docs/ota/OTA_SYSTEM_DESIGN.md`、`docs/RTOS_PORTING_PLAN.md`、`docs/SYNC_IO_RESOURCE_PLAN.md`、`docs/trigger/TRIGGER_SYNC_TODO.md`
+- **关联文档**：`docs/ota/OTA_SYSTEM_DESIGN.md`、`docs/RTOS_PORTING_PLAN.md`、`docs/sync/SYNC_IO_RESOURCE_PLAN.md`、`docs/trigger/TRIGGER_SYNC_TODO.md`

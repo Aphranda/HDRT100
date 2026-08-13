@@ -69,7 +69,7 @@ docs/
 |---|---|---|
 | ARCH/PRODUCT | `ARCH_PRODUCT_ARCHITECTURE.md` | 面向产品的系统架构总纲，综合 HAOFV、RTOS 双核、分布式触发、OTA、SD 和诊断边界。 |
 | ARCH/HAOFV | `HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口。 |
-| SYNC_IO | `SYNC_IO_RESOURCE_PLAN.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
+| SYNC_IO | `sync/SYNC_IO_RESOURCE_PLAN.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TRIGGER | `trigger/TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
 | OTA | `OTA_SYSTEM_DESIGN.md` | 历史 OTA 主方案入口；后续迁移方向见 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`。 |
@@ -83,7 +83,7 @@ docs/
 | 领域 | 当前进度入口 | 规则 |
 |---|---|---|
 | BiSS-C | `communication/BISSC_TASK_PROGRESS.md` | BiSS-C 新任务记录写入本文件。 |
-| SYNC_IO | `SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构闭环记录写入本文件。 |
+| SYNC_IO | `sync/SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构闭环记录写入本文件。 |
 | RTOS | `RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
 | SCPI | `SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
 | SD | `storage/SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
@@ -138,7 +138,7 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
-| `SYNC_IO_RESOURCE_PLAN.md` | PIO、State Machine、DMA、GPIO 和语义 IO 资源规划。 |
+| `sync/SYNC_IO_RESOURCE_PLAN.md` | PIO、State Machine、DMA、GPIO 和语义 IO 资源规划。 |
 | `RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 硬件版本 GPIO 分配与 IO 使用约束。 |
 | `hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md` | RP2350B 网表评审，当前硬件域迁移后的 canonical 入口。 |
 | `communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C TAP Bridge、RJ45、SYNC_IO、AUX 两收两发和外围电路约束。 |
@@ -147,16 +147,16 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
-| `SYNC_IO_REFACTOR_PLAN.md` | SYNC_IO 硬件 profile + 多模式重构计划。 |
+| `sync/SYNC_IO_REFACTOR_PLAN.md` | SYNC_IO 硬件 profile + 多模式重构计划。 |
 | `trigger/TRIGGER_SYNC_TODO.md` | 触发系统生产化待办。 |
 | `trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md` | RP2350B 四板分布式触发方案。 |
 | `trigger/TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计。 |
 | `trigger/TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计。 |
 | `trigger/TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析。 |
 | `trigger/TRIGGER_INDUSTRIAL_ENHANCEMENT_DESIGN.md` | 工业级触发增强方案。 |
-| `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` | 多板分布式 DPLL / CAL_RING 同步设计。 |
-| `SYNC_IO_ARCH_REVIEW_TODO.md` | SYNC_IO 架构评审待办，跟踪重构中途发现的架构债务。 |
-| `SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构任务进度和闭环验证记录。 |
+| `sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` | 多板分布式 DPLL / CAL_RING 同步设计。 |
+| `sync/SYNC_IO_ARCH_REVIEW_TODO.md` | SYNC_IO 架构评审待办，跟踪重构中途发现的架构债务。 |
+| `sync/SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构任务进度和闭环验证记录。 |
 
 ## 04 BiSS-C
 
@@ -228,8 +228,8 @@ docs/
 ## 快速查找规则
 
 - 查系统边界：先读 `HAOFV_ARCHITECTURE.md`。
-- 查 IO/PIO 资源：先读 `SYNC_IO_RESOURCE_PLAN.md`，再读具体域设计。
-- 查 SYNC_IO 当前代码重构：先读 `SYNC_IO_REFACTOR_PLAN.md`。
+- 查 IO/PIO 资源：先读 `sync/SYNC_IO_RESOURCE_PLAN.md`，再读具体域设计。
+- 查 SYNC_IO 当前代码重构：先读 `sync/SYNC_IO_REFACTOR_PLAN.md`。
 - 查 BiSS-C：先读 `communication/BISSC_TAP_BRIDGE_DESIGN.md` 和
   `communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`。
 - 查命令：先读 `SCPI_COMMANDS.md`。

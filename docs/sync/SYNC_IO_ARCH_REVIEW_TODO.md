@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: SYNC_IO
-Canonical: `docs/SYNC_IO_ARCH_REVIEW_TODO.md`
-Related: `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/storage/LOG_SYSTEM_TODO.md`
+Canonical: `docs/sync/SYNC_IO_ARCH_REVIEW_TODO.md`
+Related: `docs/sync/SYNC_IO_REFACTOR_PLAN.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/storage/LOG_SYSTEM_TODO.md`
 Last updated: 2026-07-08
 
 本文档跟踪 2026-07-07 SYNC 架构评审中发现的问题。评审结论：架构方向正确——五层分离

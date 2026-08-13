@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: SYNC_IO
-Canonical: `docs/SYNC_IO_RESOURCE_PLAN.md`
-Related: `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`, `docs/SCPI_COMMANDS.md`
+Canonical: `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+Related: `docs/sync/SYNC_IO_REFACTOR_PLAN.md`, `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`, `docs/SCPI_COMMANDS.md`
 Last updated: 2026-07-08
 
 本文档为同步触发系统预留 RP2350 的 PIO、状态机和高速 IO 资源。目标是把确定性的输入捕获、触发判定和输出生成，与 UI、日志、存储、通信等非实时服务隔离开。

@@ -3,7 +3,7 @@
 Status: Active
 Domain: BISSC
 Canonical: `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
-Related: `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/communication/BISSC_TASK_PROGRESS.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`
+Related: `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/communication/BISSC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_REFACTOR_PLAN.md`
 Last updated: 2026-07-07
 
 本文档跟踪 `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md` 之后的 `TRIG_PROTOCOL_BISS_C`

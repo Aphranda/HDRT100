@@ -3,7 +3,7 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/HAOFV_ARCHITECTURE.md`
-Related: `docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`
+Related: `docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
 Last updated: 2026-08-10
 
 本文档定义 RP2350_TRIG 后续产品化演进采用的软件架构。目标是在保持裸机/Pico SDK 工程轻量性的同时，融合 Active Object、轻量 IEC 61499 功能块、时间同步型系统向量黑板、资源仲裁和表驱动状态机，为 OTA、同步触发、SD 卡、LCD、SCPI、诊断、后续 RTOS 和更多硬件模块提供清晰边界。

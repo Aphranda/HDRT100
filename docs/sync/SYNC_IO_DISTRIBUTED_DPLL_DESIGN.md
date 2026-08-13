@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: TRIGGER
-Canonical: `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
-Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/MULTICORE_PARTITION_PLAN.md`
+Canonical: `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
+Related: `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/MULTICORE_PARTITION_PLAN.md`
 Last updated: 2026-07-07
 
 本文档把 `docs/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md` 中的 DPLL、未来预约触发和反馈校准思想，收敛为当前 RP2350_TRIG 工程可以分阶段落地的多板原型方案。

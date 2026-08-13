@@ -768,7 +768,7 @@ Last updated: 2026-08-10
   - 将分布式 DPLL/CAL_RING 方案从抽象多板同步，细化为转台、DUT、馈源和网分四类板卡的实际测试流程。
   - 明确转台 TTL 位置脉冲如何转换为位置触发事件，A1/A2 如何完成链路切换，A3 如何触发网分并等待 `REDY/READY` 后推进下一轮。
 - 完成内容：
-  - `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` 新增 A0-A3 业务拓扑：A0=转台板卡/Master，A1=DUT/SP8T，A2=馈源极化，A3=网分触发与 READY 回读。
+  - `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` 新增 A0-A3 业务拓扑：A0=转台板卡/Master，A1=DUT/SP8T，A2=馈源极化，A3=网分触发与 READY 回读。
   - 将 AUX 环路更新为 A0→A1→A2→A3→A0。
   - 新增一轮测试状态机：`WAIT_POS`、`DISTRIBUTE_POS`、`DUT_SWITCH`、`FEED_SWITCH`、`VNA_TRIGGER`、`WAIT_VNA_READY`、`ROUND_DONE`。
   - 新增业务帧建议：`SYNC`、`POS_TRIG`、`A1_DONE`、`A2_DONE`、`MEAS_DONE`、`FAULT`。
@@ -778,7 +778,7 @@ Last updated: 2026-08-10
 - 还需完成：
   - 在代码中实现 A0-A3 role profile、业务帧解析、超时处理和 `REDY/READY` 捕获。
 - 关联文件：
-  - `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
+  - `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
@@ -792,7 +792,7 @@ Last updated: 2026-08-10
   - 阅读 `docs/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md`，将其中 DPLL、DC 时间轴、预约触发和 T2_i 回读思想映射为当前 RP2350 多板原型可实施方案。
   - 明确 AUX 两路一进一出、RS-485/RS-422 差分物理层、PIO/CPU 分工、虚拟 DC 时钟、DPLL 闭环和分阶段验收边界。
 - 完成内容：
-  - 新增 `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`，定义多板 `CAL_RING` 拓扑：AUX0/GPIO26=`CAL_IN`，AUX3/GPIO29=`CAL_OUT`。
+  - 新增 `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`，定义多板 `CAL_RING` 拓扑：AUX0/GPIO26=`CAL_IN`，AUX3/GPIO29=`CAL_OUT`。
   - 明确 RS-485/RS-422 芯片只作为点对点单向差分收发器使用，`DE`/`RE` 常使能，不做共享总线仲裁。
   - 明确 PIO 负责边沿捕获、固定延迟转发、短窗口相对计时和本地预约触发；CPU/上位机负责 64-bit 虚拟 DC 时间轴、DPLL、残差剔除和补偿表。
   - 给出 12.5 Mbps、16.667 Mbps、20.833 Mbps、25 Mbps 四档 PIO 友好短帧速率，以及 Phase 0 到 Phase 4 的实施和验收计划。
@@ -804,7 +804,7 @@ Last updated: 2026-08-10
   - 选定高速 RS-485/RS-422 收发器并完成单段回环电气验证。
   - 实现 `CAL_RING` PIO 原型、AUX owner/arbiter、虚拟 DC 状态和本地预约触发队列。
 - 关联文件：
-  - `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
+  - `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
   - `README.md`
@@ -819,7 +819,7 @@ Last updated: 2026-08-10
   - 将跨模式框架功能信号约束到 AUX 接口，使主输入/输出口更加纯粹。
   - 明确主触发口只承载高速触发、编码器、门控和序列输出；AUX 口承载 `ARM_IN`、`EXT_CLK_IN`、`SYNC_CLK_OUT`、`MARKER_OUT`。
 - 完成内容：
-  - `docs/SYNC_IO_RESOURCE_PLAN.md` 将产品 AUX 功能接口定义为：
+  - `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 将产品 AUX 功能接口定义为：
     - AUX0/GPIO26 = `ARM_IN`
     - AUX1/GPIO27 = `EXT_CLK_IN`
     - AUX2/GPIO28 = `SYNC_CLK_OUT`
@@ -837,7 +837,7 @@ Last updated: 2026-08-10
   - 迁移当前固件旧路径：`BOARD_SYNC_ARM_IN_PIN`、`BOARD_SYNC_EXT_CLK_IN_PIN`、`BOARD_SYNC_SYNC_CLK_OUT_PIN`、`BOARD_SYNC_MARKER_OUT_PIN` 仍指向 GPIO17/18/22/23。
   - 为 AUX 功能接口增加资源仲裁，确保开发诊断 `TRIG:ENC:APIN 26` 与 AUX 产品功能互斥。
 - 关联文件：
-  - `docs/SYNC_IO_RESOURCE_PLAN.md`
+  - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
   - `docs/SCPI_COMMANDS.md`
   - `docs/HAOFV_ARCHITECTURE.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
@@ -854,7 +854,7 @@ Last updated: 2026-08-10
   - 将触发系统的应用层接口从具体 GPIO 中抽象出来，约束为稳定语义通道，例如 `ARM_IN`、`TRIG_IN`、`GATE_IN`、`SYNC_CLK_OUT`。
   - 明确不同触发模式 armed 后对语义输入/输出的独占关系，避免 SCPI/UI 后续继续暴露任意 GPIO 路由。
 - 完成内容：
-  - `docs/SYNC_IO_RESOURCE_PLAN.md` 新增 Framework/Application Interface Contract，定义输入 `TRIG_IN/ARM_IN/EXT_CLK_IN/GATE_IN` 和输出 `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT` 的语义、物理通道和 GPIO 映射。
+  - `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 新增 Framework/Application Interface Contract，定义输入 `TRIG_IN/ARM_IN/EXT_CLK_IN/GATE_IN` 和输出 `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT` 的语义、物理通道和 GPIO 映射。
   - 明确 `ARM_IN` 是应用层外部 ARM 资格/请求，不属于当前 `SEQ_STEP` PIO 实时循环；在 `ENC_COUNT` 量产映射中 IN1 被 B 相占用，因此 `ARM_IN` 不可作为独立资格信号。
   - 明确 `SEQ_STEP` armed 时 OUT0..OUT3 被序列总线独占，独立 `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT` 命令应 busy 或在 ARM 前关闭。
   - 明确 `ENC_COUNT` armed 时 IN0/IN1/IN3 被 A/B/Z 独占，OUT0 被比较触发独占；`GATE_IN` 在 IN3 被 Z 相占用时不可作为独立门控。
@@ -867,7 +867,7 @@ Last updated: 2026-08-10
   - 在代码中实现语义 IO 资源 owner/arbiter：armed 状态下对冲突 SCPI 命令返回 busy 或 unavailable。
   - 后续真正接入 `ARM_IN` 时，需要按该契约处理与 `ENC_COUNT` B 相的硬件通道冲突。
 - 关联文件：
-  - `docs/SYNC_IO_RESOURCE_PLAN.md`
+  - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
   - `docs/HAOFV_ARCHITECTURE.md`
   - `docs/SCPI_COMMANDS.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
@@ -883,7 +883,7 @@ Last updated: 2026-08-10
   - 明确不同触发模式使用相同的物理输入/输出通道，方便硬件统一增加施密特触发器、输入保护/隔离和输出驱动器。
   - 收敛 `ENC_COUNT` 可选 `GPIO26..GPIO29` 输入组的定位，避免被误解为量产默认接线。
 - 完成内容：
-  - `docs/SYNC_IO_RESOURCE_PLAN.md` 新增统一物理 IO 策略：产品高速触发接口固定为 `GPIO16..GPIO19` 输入和 `GPIO20..GPIO23` 输出。
+  - `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 新增统一物理 IO 策略：产品高速触发接口固定为 `GPIO16..GPIO19` 输入和 `GPIO20..GPIO23` 输出。
   - 明确不同模式只改变逻辑含义，不改变正常产品外部接线：
     - `SEQ_STEP`：IN0=`TRIG_IN`，IN3=`GATE_IN`，OUT0..3=`SEQ_OUT[3:0]`。
     - `ENC_COUNT`：IN0=A，IN1=B，IN3=Z，OUT0=`TRIG_OUT`。
@@ -894,7 +894,7 @@ Last updated: 2026-08-10
 - 还需完成：
   - 后续新增触发模式时必须先检查是否能映射到统一物理 IO 层；如需要新增物理通道，应同步更新硬件前端和 PIO 资源规划。
 - 关联文件：
-  - `docs/SYNC_IO_RESOURCE_PLAN.md`
+  - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/SCPI_COMMANDS.md`
 - 下一步：
@@ -3540,7 +3540,7 @@ Last updated: 2026-08-10
   - 建立 RP2350 同步触发系统的 PIO IO 基线，并记录后续工业化待办。
 - 完成内容：
   - 完成 `components/sync_io/` 的 PIO 输入采样、主触发输出、第二路脉冲输出、同步时钟、Marker 和 AUX IO。
-  - 输出 `docs/SYNC_IO_RESOURCE_PLAN.md`。
+  - 输出 `docs/sync/SYNC_IO_RESOURCE_PLAN.md`。
   - 输出 `docs/trigger/TRIGGER_SYNC_TODO.md`。
 - 验证结果：
   - 工程编译通过。
@@ -3551,7 +3551,7 @@ Last updated: 2026-08-10
   - 触发延时、burst、统计、错误码和硬件验证。
 - 关联文件：
   - `components/sync_io/`
-  - `docs/SYNC_IO_RESOURCE_PLAN.md`
+  - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
 - 下一步：
   - 在 OTA 基础稳定后，回到 `sync_trigger` 上层状态机实现。

@@ -3,7 +3,7 @@
 Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/TRIGGER_SYNC_TODO.md`
-Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/MULTICORE_PARTITION_PLAN.md`
+Related: `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/sync/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/MULTICORE_PARTITION_PLAN.md`
 Last updated: 2026-08-10
 
 本文档用于跟踪同步触发系统从当前 PIO IO 驱动，完善到工业产品级触发子系统所需的剩余工作。
@@ -78,7 +78,7 @@ Last updated: 2026-08-10
 
 ## 分布式 DPLL / CAL_RING 待办（2026-06-29）
 
-- [ ] 新增 `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` 对应的 `CAL_RING` 原型任务。
+- [ ] 新增 `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` 对应的 `CAL_RING` 原型任务。
   使用 AUX0/GPIO26 作为 `CAL_IN`，AUX3/GPIO29 作为 `CAL_OUT`，通过高速
   RS-485/RS-422 收发器组成 A0→A1→A2→A3→A0 点对点单向环路。
 
@@ -299,7 +299,7 @@ Last updated: 2026-08-10
   和 deprecated `MARKER_OUT` alias 的硬件绑定。后续新增模式资源表时仍可继续扩展 SM/DMA 断言。
 
 - [ ] 增加应用层语义 IO 资源仲裁。
-  按 `docs/SYNC_IO_RESOURCE_PLAN.md` 的接口契约，在代码中拒绝模式 armed 后的语义通道冲突：
+  按 `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 的接口契约，在代码中拒绝模式 armed 后的语义通道冲突：
   `SEQ_STEP` 独占主 OUT0..OUT3，`ENC_COUNT` 独占主 IN0/IN1/IN2 和 OUT0；
   AUX0..AUX3 作为 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT` 和协议辅助输出的跨模式功能口，
   需要独立 owner/arbiter。当前 `ARM_IN/EXT_CLK_IN` 仍是语义占位，尚未接入 TriggerFB

@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: SYNC_IO
-Canonical: `docs/SYNC_IO_TASK_PROGRESS.md`
-Related: `docs/SYNC_IO_ARCH_REVIEW_TODO.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/storage/LOG_SYSTEM_TODO.md`
+Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
+Related: `docs/sync/SYNC_IO_ARCH_REVIEW_TODO.md`, `docs/sync/SYNC_IO_REFACTOR_PLAN.md`, `docs/storage/LOG_SYSTEM_TODO.md`
 Last updated: 2026-07-08
 
 本文档记录 SYNC_IO / Trigger 同步重构相关任务的闭环验证、风险和后续动作。
@@ -24,7 +24,7 @@ Last updated: 2026-07-08
 - 验证：`decoded_fault_trace.json` 中 trace header/size/CRC/idx 全部通过；`trigger.resource_release` 记录显示 RESET 和 FAULT 均从 `SEQ_ARMED` 释放 `PIO1`、`DMA`。
 - 风险：P0-00 已完成 SEQ_STEP 板端释放闭环；ENC/BISS 的 RESET/FAULT 路径共用同一 `fb_reset_all()` 和 `fb_release_running_io()`，后续在 P0-01/P0-03 做 BiSS 专项板端验证时继续覆盖。
 - 后续：进入 P0-01 BiSS runtime timeout/sample scan 闭环，将 sample scan 步进从 helper 静默 re-arm 收敛到 TriggerFB 管理面 action。
-- 涉及文件：`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_trace_decode/sd_trace_decode.py`，`tools/sd_board_validate/sd_board_validate.py`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`。
+- 涉及文件：`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_trace_decode/sd_trace_decode.py`，`tools/sd_board_validate/sd_board_validate.py`，`docs/sync/SYNC_IO_ARCH_REVIEW_TODO.md`。
 
 ### SYNC_IO-TASK-20260707-002 - BiSS timeout/sample scan 闭环
 
@@ -41,7 +41,7 @@ Last updated: 2026-07-08
 - 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_p0_01_default` 通过，确认普通 BiSS TAP 配置、ARM、软件 frame crossing、DISARM 未被 sample-scan 改动破坏。
 - 风险：P0-01 已覆盖无帧 timeout scan 的板端路径；re-arm 失败路径通过代码路径和 trace/error 逻辑闭合，后续 P0-03 拆物理 arm 边界时应补一个故意非法 mode config 的 fault 注入验证。
 - 后续：进入 P0-02 resource owner 边界，避免后续移动 mode arm 时引入重复 acquire。
-- 涉及文件：`components/sync_trigger/inc/biss_node_io.h`，`components/sync_trigger/src/biss_node_io.c`，`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_trace_decode/sd_trace_decode.py`，`tools/biss_board_validate/biss_board_validate.py`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`。
+- 涉及文件：`components/sync_trigger/inc/biss_node_io.h`，`components/sync_trigger/src/biss_node_io.c`，`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_trace_decode/sd_trace_decode.py`，`tools/biss_board_validate/biss_board_validate.py`，`docs/sync/SYNC_IO_ARCH_REVIEW_TODO.md`。
 
 ### SYNC_IO-TASK-20260707-003 - Resource owner 边界收口
 
@@ -57,7 +57,7 @@ Last updated: 2026-07-08
 - 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_p0_02_default` 通过，确认 BiSS TAP 配置、ARM、软件 frame crossing、DISARM 未被资源映射收口破坏。
 - 风险：ENC_COUNT 现在按 mode table 映射为 `PIO1|DMA`，比旧手写 mask 多仲裁 DMA；这与 ENC 物理实现实际使用 DMA 的事实一致，但会改变未来与其他 DMA mode 的冲突判定。
 - 后续：进入 P0-03 BiSS TAP 物理 ARM 边界，继续保持 TriggerFB owner 和 mode driver 物理实现边界清晰。
-- 涉及文件：`components/sync_trigger/inc/trigger_resource_map.h`，`components/sync_trigger/src/trigger_resource_map.c`，`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_board_validate/sd_board_validate.py`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`。
+- 涉及文件：`components/sync_trigger/inc/trigger_resource_map.h`，`components/sync_trigger/src/trigger_resource_map.c`，`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_board_validate/sd_board_validate.py`，`docs/sync/SYNC_IO_ARCH_REVIEW_TODO.md`。
 
 ### SYNC_IO-TASK-20260708-004 - BiSS TAP 物理 ARM 边界收口
 
@@ -74,7 +74,7 @@ Last updated: 2026-07-08
 - 验证：`python tools\sd_board_validate\sd_board_validate.py COM5 --validate-resource-owner --validate-trigger-release --out-dir build-codex-sync-refactor\sd_validation_p0_03_resource_owner` 通过，确认 TriggerFB owner/release 边界未回退。
 - 风险：为兼容现有调用，`sync_io.h` 中的 `sync_io_biss_tap_*` API 仍保留，但实现已位于 mode driver；P0-04 拆 `sync_io.c` 时可继续评估是否把这些声明迁入 mode 专用头。
 - 后续：进入 P0-04 `sync_io.c` 单体拆分，优先按 mode driver 边界搬迁 SEQ_STEP 和 ENC_COUNT。
-- 涉及文件：`components/sync_io/src/sync_io_core_internal.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/inc/sync_io_mode_biss_tap.h`，`components/sync_io/src/sync_io_mode_biss_tap.c`，`components/sync_trigger/src/biss_node_io.c`，`components/sync_trigger/src/trigger_fb.c`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`。
+- 涉及文件：`components/sync_io/src/sync_io_core_internal.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/inc/sync_io_mode_biss_tap.h`，`components/sync_io/src/sync_io_mode_biss_tap.c`，`components/sync_trigger/src/biss_node_io.c`，`components/sync_trigger/src/trigger_fb.c`，`docs/sync/SYNC_IO_ARCH_REVIEW_TODO.md`。
 
 ### SYNC_IO-TASK-20260708-005 - SEQ_STEP 物理实现搬迁
 
@@ -89,7 +89,7 @@ Last updated: 2026-07-08
 - 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_p0_04_seq_regression` 通过，确认本次共享 core helper/IRQ 分派调整未回退 BiSS TAP。
 - 风险：共享 DMA IRQ 仍服务 SEQ_STEP 和 ENC_COUNT；运行互斥由 TriggerFB/resource owner 保证。ENC_COUNT 尚在 `sync_io.c`，下一步迁移时应把 ENC IRQ service 一并搬到 `sync_io_mode_enc_count.c`。
 - 后续：继续 P0-04 的 ENC_COUNT 物理实现搬迁，并复跑资源 owner 中的 ENC ARM/DISARM 板端断言。
-- 涉及文件：`components/sync_io/src/sync_io_core_internal.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io_mode_seq_step.c`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`。
+- 涉及文件：`components/sync_io/src/sync_io_core_internal.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io_mode_seq_step.c`，`docs/sync/SYNC_IO_ARCH_REVIEW_TODO.md`。
 
 ### SYNC_IO-TASK-20260708-006 - ENC_COUNT 物理实现搬迁与 P0-04 收口
 
@@ -104,7 +104,7 @@ Last updated: 2026-07-08
 - 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_p0_04_enc_regression` 通过，确认共享 IRQ 分发调整未回退 BiSS TAP 默认闭环。
 - 风险：SEQ_STEP 和 ENC_COUNT 仍共享 `BOARD_SYNC_OUTPUT_SM`、`DMA_IRQ_0`，运行互斥依赖 TriggerFB/resource owner；该共享关系已作为 P1-01 后续显式资源表/断言任务保留。
 - 后续：进入 P1-01，将 PIO instance、SM、DMA channel、IRQ 的互斥关系显式记录到 mode resource 表或验证表，避免后续并发 mode 改动误用共享资源。
-- 涉及文件：`components/sync_io/src/sync_io_core_internal.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io_mode_enc_count.c`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`。
+- 涉及文件：`components/sync_io/src/sync_io_core_internal.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io_mode_enc_count.c`，`docs/sync/SYNC_IO_ARCH_REVIEW_TODO.md`。
 
 ### SYNC_IO-TASK-20260708-007 - SYNC_IO P1 架构小项收口
 
@@ -122,7 +122,7 @@ Last updated: 2026-07-08
 - 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_p1_sync_arch` 通过，确认 BiSS TAP 和 RJ45 trigger 语义入口未回退。
 - 风险：历史 ABI 中仍保留 `MARK:*` / `marker_width_us` 名称；这些名称只表示 RJ45 trigger 兼容入口，不表示独立硬件输出。
 - 后续：如需继续清理，可在 SCPI/UI 层新增正式 `RJ45:*` 命令，再把 `MARK:*` 标记为 deprecated 兼容命令。
-- 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/inc/sync_io_mode.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io_mode_*.c`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_resource_map.c`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`，`docs/SYNC_IO_RESOURCE_PLAN.md`，`docs/SCPI_COMMANDS.md`。
+- 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/inc/sync_io_mode.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io_mode_*.c`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_resource_map.c`，`docs/sync/SYNC_IO_ARCH_REVIEW_TODO.md`，`docs/sync/SYNC_IO_RESOURCE_PLAN.md`，`docs/SCPI_COMMANDS.md`。
 
 ### SYNC_IO-TASK-20260708-008 - RJ45_TRIG 硬件定义优先收口
 
@@ -138,7 +138,7 @@ Last updated: 2026-07-08
 - 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_rj45_hw_definition` 通过，确认 BiSS TAP 与 RJ45 trigger 语义入口未回退。
 - 风险：SCPI/UI/TriggerVector 仍保留 `MARK:*` / `marker_width_us` 历史命名；短期作为 ABI 兼容保留，后续可新增正式 `RJ45:*` 命令再逐步 deprecated。
 - 后续：如继续清理命名，应先增加 `RJ45:*` SCPI/UI 入口和状态字段，再保留 `MARK:*` 作为兼容别名，不改动 `GPIO23/RJ45_TRIG_OUT` 硬件定义。
-- 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io.h`，`components/sync_io/src/sync_io.c`，`components/sync_trigger/inc/sync_trigger.h`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_fb.c`，`docs/SYNC_IO_REFACTOR_PLAN.md`，`docs/SYNC_IO_RESOURCE_PLAN.md`，`docs/SCPI_COMMANDS.md`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`，`docs/SYNC_IO_TASK_PROGRESS.md`，`docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，`docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`，`docs/HAOFV_ARCHITECTURE.md`，`docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`，`docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`，`docs/trigger/TRIGGER_SYNC_TODO.md`。
+- 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io.h`，`components/sync_io/src/sync_io.c`，`components/sync_trigger/inc/sync_trigger.h`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_fb.c`，`docs/sync/SYNC_IO_REFACTOR_PLAN.md`，`docs/sync/SYNC_IO_RESOURCE_PLAN.md`，`docs/SCPI_COMMANDS.md`，`docs/sync/SYNC_IO_ARCH_REVIEW_TODO.md`，`docs/sync/SYNC_IO_TASK_PROGRESS.md`，`docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，`docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`，`docs/HAOFV_ARCHITECTURE.md`，`docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`，`docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`，`docs/trigger/TRIGGER_SYNC_TODO.md`。
 
 ### SYNC_IO-TASK-20260708-009 - ENC_COUNT 3-pin 软件定义收口
 
@@ -149,14 +149,14 @@ Last updated: 2026-07-08
 - 完成：同步更新 HAOFV、SYNC_IO、SCPI、BiSS 和 Trigger 文档，明确 `GPIO19` 是 `RJ45_TRIG_IN`，`GATE_IN` 只是模式层解释，ENC Z 不再使用 IN3。
 - 验证：`cmake --build build-codex-sync-refactor` 通过，生成 build id `20260707172833` 的 factory/update 产物。
 - 验证：`python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\biss_board_validate\biss_board_validate.py` 通过。
-- 验证：`git diff --check boards/rp2350_trig/inc/board_config.h components/sync_io/inc/sync_io_hw_profile.h components/sync_io/src/enc_count.pio components/sync_io/src/sync_io_mode_enc_count.c components/sync_trigger/inc/trigger_vector.h docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md docs/HAOFV_ARCHITECTURE.md docs/SCPI_COMMANDS.md docs/SYNC_IO_RESOURCE_PLAN.md docs/SYNC_IO_REFACTOR_PLAN.md docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md docs/communication/BISSC_TAP_BRIDGE_DESIGN.md docs/communication/BISSC_IMPLEMENTATION_TODO.md docs/trigger/TRIGGER_SYNC_TODO.md docs/trigger/TRIGGER_ENC_COUNT_DESIGN.md docs/trigger/TRIGGER_PULSE_COUNT_ANALYSIS.md` 通过，仅有既有 CRLF warning。
+- 验证：`git diff --check boards/rp2350_trig/inc/board_config.h components/sync_io/inc/sync_io_hw_profile.h components/sync_io/src/enc_count.pio components/sync_io/src/sync_io_mode_enc_count.c components/sync_trigger/inc/trigger_vector.h docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md docs/HAOFV_ARCHITECTURE.md docs/SCPI_COMMANDS.md docs/sync/SYNC_IO_RESOURCE_PLAN.md docs/sync/SYNC_IO_REFACTOR_PLAN.md docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md docs/communication/BISSC_TAP_BRIDGE_DESIGN.md docs/communication/BISSC_IMPLEMENTATION_TODO.md docs/trigger/TRIGGER_SYNC_TODO.md docs/trigger/TRIGGER_ENC_COUNT_DESIGN.md docs/trigger/TRIGGER_PULSE_COUNT_ANALYSIS.md` 通过，仅有既有 CRLF warning。
 - 验证：`picotool reboot -f -u` 后 `picotool load -x build-codex-sync-refactor\RP2350_TRIG_FACTORY.uf2` 烧录并启动应用成功；板端 `SYST:FW:BUILD?` 返回 `"20260707172833"`。
 - 验证：`python tools\sd_board_validate\sd_board_validate.py COM5 --validate-resource-owner --validate-trigger-release --out-dir build-codex-sync-refactor\sd_validation_enc_3pin_pinout_final` 通过，`summary.txt` 为 `PASS`。
 - 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_enc_3pin_pinout_final` 通过，确认 BiSS TAP 未被 ENC pinout 调整回退。
 - 验证：板端 `TRIG:ENC:APIN?` 返回 `16,17,18`；执行 `TRIG:ENC:APIN 26` 后 `SYST:ERR?` 返回 `-200,"Execution error"`，再次查询仍为 `16,17,18`。
 - 风险：`docs/TASK_PROGRESS.md` 中仍保留迁移前历史记录的旧 ENC 16/17/19 描述；按文档规则该文件作为全局历史保留，不作为当前硬件约束入口。
 - 后续：如继续推进 P2 自检，应在板端闭环脚本中增加 ENC A/B/Z loopback 或外部回放验证，覆盖真实 A/B/Z 脉冲输入，而不仅是 SCPI 配置与资源 owner 断言。
-- 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/src/enc_count.pio`，`components/sync_io/src/sync_io_mode_enc_count.c`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_fb.c`，`docs/SYNC_IO_REFACTOR_PLAN.md`，`docs/SYNC_IO_RESOURCE_PLAN.md`，`docs/SCPI_COMMANDS.md`，`docs/HAOFV_ARCHITECTURE.md`，`docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`，`docs/SYNC_IO_TASK_PROGRESS.md`。
+- 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/src/enc_count.pio`，`components/sync_io/src/sync_io_mode_enc_count.c`，`components/sync_trigger/inc/trigger_vector.h`，`components/sync_trigger/src/trigger_fb.c`，`docs/sync/SYNC_IO_REFACTOR_PLAN.md`，`docs/sync/SYNC_IO_RESOURCE_PLAN.md`，`docs/SCPI_COMMANDS.md`，`docs/HAOFV_ARCHITECTURE.md`，`docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`，`docs/sync/SYNC_IO_TASK_PROGRESS.md`。
 
 ### SYNC_IO-TASK-20260708-010 - SYNC_CLK_OUT AUX2 运行路径迁移
 
@@ -167,4 +167,4 @@ Last updated: 2026-07-08
 - 完成：`sync_io_hw_profile.h` 增加主口、RJ45_TRIG_IN/OUT、ARM_IN、EXT_CLK_IN、SYNC_CLK_OUT、AUX3 和 deprecated marker alias 的编译期断言。
 - 验证：`cmake --build build-codex-rj45-interface` 通过，生成 factory/update 产物。
 - 风险：`ARM_IN`、`EXT_CLK_IN` 仍是语义占位，旧低层宏只做 pull-down/诊断采样；后续需要迁移到 AUX0/AUX1 并接入 TriggerFB 资格/外部时钟逻辑。
-- 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/src/sync_io.c`，`components/sync_trigger/src/trigger_fb.c`，`docs/SCPI_COMMANDS.md`，`docs/SYNC_IO_RESOURCE_PLAN.md`，`docs/trigger/TRIGGER_SYNC_TODO.md`，`docs/SYNC_IO_ARCH_REVIEW_TODO.md`，`docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，`docs/SYNC_IO_TASK_PROGRESS.md`。
+- 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/src/sync_io.c`，`components/sync_trigger/src/trigger_fb.c`，`docs/SCPI_COMMANDS.md`，`docs/sync/SYNC_IO_RESOURCE_PLAN.md`，`docs/trigger/TRIGGER_SYNC_TODO.md`，`docs/sync/SYNC_IO_ARCH_REVIEW_TODO.md`，`docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，`docs/sync/SYNC_IO_TASK_PROGRESS.md`。
