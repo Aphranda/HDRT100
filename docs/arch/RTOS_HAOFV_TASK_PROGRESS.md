@@ -66,6 +66,40 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260813-006 - App 组合根与 RTOS Task Registry 收窄
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 按 APP 剩余四项拆分继续收窄 `application/src/app.c`。
+  - 将 Diagnostics housekeeping、RTOS task registry、SCPI snapshot wrapper 和裸机单核路径从 APP 主体中移出或收敛。
+- 完成内容：
+  - `components/diagnostics/` 新增 `diagnostics_housekeeping_init()` 和 `diagnostics_housekeeping_service()`，承接日志 flush 和健康心跳节拍。
+  - 新增 `application/inc/app_tasks.h` 和 `application/src/app_tasks.c`，集中维护 RTOS task entry、栈大小、优先级和 task 创建表。
+  - `application/src/app_runtime.c` 收窄为 bring-up、core1 启动、kernel init/start 和故障兜底。
+  - `middleware/scpi_port` 中 Loop/Calibration/SYNC/System snapshot 查询改为直接读取对应 owner 组件快照，不再经由 `app.h` typedef/wrapper。
+  - `application/inc/app.h` 删除状态 typedef、状态查询 wrapper、裸机 `run_once` 和 UI/loop/cal/vdc/dpll 转发接口。
+  - 当前分支通过编译期检查和 CMake 默认值固化为 `PROJECT_USE_FREERTOS=ON` + `PROJECT_USE_MULTICORE=ON`。
+- 验证结果：
+  - build-validation 重新配置为 RTOS + 双核 AMP 后通过，build id：`20260813074910`。
+  - build-rtos-multicore-smoke 通过，build id：`20260813074910`。
+  - `python tools/docs_check/docs_check.py` 通过，保留 7 个既有文件命名 warning。
+  - SCPI USB namespace check 在两个构建中通过。
+  - 本轮未执行烧录、`SYSTem:CORE?`、`SYSTem:RTOS:STATus?` 和 LCD/按键板端 smoke。
+- 还需完成：
+  - 将剩余 `app_*_service()` 转发逐步替换为各域 AO 或 task registry 直接调用。
+  - 为 `app_tasks.c` 增加 task 表快照、水位导出和任务预算字段。
+  - 板端验证 core1 heartbeat、RTOS stack/heap 水位和基础 SCPI 查询。
+- 关联文件：
+  - `application/src/app.c`
+  - `application/inc/app.h`
+  - `application/src/app_runtime.c`
+  - `application/src/app_tasks.c`
+  - `components/diagnostics/`
+  - `middleware/scpi_port/src/scpi_*_commands.c`
+- 下一步：
+  - 进入反射内存主数据面：冻结 64 KB DistributedVectorTable layout、slot owner 和 seqlock/CRC/stale 规则。
+
 ### RTOS-DIST-TASK-20260813-005 - UiManager 组件合并
 
 - 状态：完成

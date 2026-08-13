@@ -28,7 +28,12 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [x] 将 LoopEngine ready/service_count/first_service_ms/last_service_ms 状态迁入 `components/loop_engine/`，`task_loop_engine` 直接服务该 owner。
 - [x] 将 Calibration ready/state/service_count/link_count/delay_count/active_crc32 状态迁入 `components/calibration_manager/`，`task_calibration` 直接服务该 owner。
 - [x] 将 VDC ready/lock_state/service_count/sync_seq 与 DPLL ready/state/service_count/update_seq 状态迁入 `components/vdc_dpll_manager/`，`task_vdc_sync` 和 `task_dpll` 直接服务该 owner。
-- [ ] 将空壳逐步替换为真正 AO service，`app.c` 只保留启动编排和顶层调度。
+- [x] 将 UI 按键/刷新调度迁入 `components/ui_manager/`，内部状态界面渲染模块命名为 `status_ui`。
+- [x] 将 Diagnostics housekeeping 节拍迁入 `components/diagnostics/`。
+- [x] 将 RTOS task entry、栈大小和优先级迁入 `application/src/app_tasks.c`。
+- [x] 收窄 `application/inc/app.h`，SCPI 读取直接依赖对应 owner 组件快照。
+- [x] 当前分支默认构建和运行路径固化为 RTOS + 双核 AMP。
+- [ ] 将空壳逐步替换为真正 AO service，`app.c` 只保留启动编排。
 
 ## P1 - 反射内存主数据面
 

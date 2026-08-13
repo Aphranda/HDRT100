@@ -1,6 +1,5 @@
 #include "app.h"
 
-#include "board.h"
 #include "calibration_manager.h"
 #include "diagnostics.h"
 #include "distributed_config.h"
@@ -8,9 +7,7 @@
 #include "event_bus.h"
 #include "loop_engine.h"
 #include "ota_ao.h"
-#include "osal.h"
 #include "product_config.h"
-#include "project_config.h"
 #include "resource_arbiter.h"
 #include "scpi_port.h"
 #include "storage_manager.h"
@@ -24,15 +21,12 @@
 #include "usbtmc_scpi_port.h"
 #endif
 
-#define APP_LOG_SERVICE_BYTES 256u
-
-static uint32_t s_last_tick_ms;
 static bool s_app_ready;
 
 bool app_init(void)
 {
-    s_last_tick_ms = board_uptime_ms();
     s_app_ready = false;
+    diagnostics_housekeeping_init();
     LOG_INFO("app", "application initialized");
 
     const sync_io_config_t sync_io_config = {
@@ -134,12 +128,6 @@ bool app_is_ready(void)
     return s_app_ready;
 }
 
-void app_comm_service(void)
-{
-    app_usb_device_service();
-    app_scpi_service();
-}
-
 void app_usb_device_service(void)
 {
 #if PROJECT_ENABLE_USBTMC || PROJECT_ENABLE_USB_RUNTIME_SWITCH
@@ -159,120 +147,9 @@ void app_refmem_service(void)
     distributed_refmem_service();
 }
 
-void app_loop_engine_service(void)
-{
-    loop_engine_set_ready(s_app_ready);
-    loop_engine_service();
-}
-
-void app_loop_engine_get_status(app_loop_engine_status_t *status)
-{
-    if (status == NULL) {
-        return;
-    }
-
-    loop_engine_get_status(status);
-}
-
-void app_vdc_sync_service(void)
-{
-    vdc_dpll_manager_set_vdc_ready(s_app_ready);
-    vdc_dpll_manager_vdc_service();
-}
-
-void app_vdc_sync_get_status(app_vdc_sync_status_t *status)
-{
-    if (status == NULL) {
-        return;
-    }
-
-    vdc_dpll_manager_get_vdc_status(status);
-}
-
-void app_dpll_service(void)
-{
-    vdc_dpll_manager_set_dpll_ready(s_app_ready);
-    vdc_dpll_manager_dpll_service();
-}
-
-void app_dpll_get_status(app_dpll_status_t *status)
-{
-    if (status == NULL) {
-        return;
-    }
-
-    vdc_dpll_manager_get_dpll_status(status);
-}
-
-void app_calibration_service(void)
-{
-    calibration_manager_set_ready(s_app_ready);
-    calibration_manager_service();
-}
-
-void app_calibration_get_status(app_calibration_status_t *status)
-{
-    if (status == NULL) {
-        return;
-    }
-
-    calibration_manager_get_status(status);
-}
-
 void app_config_gate_service(void)
 {
     system_manager_service();
-}
-
-void app_config_gate_get_status(app_config_gate_status_t *status)
-{
-    if (status == NULL) {
-        return;
-    }
-
-    system_manager_get_config_gate_status(status);
-}
-
-void app_config_gate_get_ack_status(app_config_ack_status_t *status)
-{
-    if (status == NULL) {
-        return;
-    }
-
-    system_manager_get_config_ack_status(status);
-}
-
-void app_system_mode_get_table(app_system_mode_table_t *table)
-{
-    if (table == NULL) {
-        return;
-    }
-
-    system_manager_get_mode_table(table);
-}
-
-void app_resource_arbiter_get_table(app_resource_arbiter_table_t *table)
-{
-    if (table == NULL) {
-        return;
-    }
-
-    system_manager_get_resource_table(table);
-}
-
-void app_fault_code_get_table(app_fault_code_table_t *table)
-{
-    if (table == NULL) {
-        return;
-    }
-
-    system_manager_get_fault_table(table);
-}
-
-void app_trigger_service(void)
-{
-    sync_trigger_service();
-    trigger_measure_service();   /* 同步自检: 门控测量非阻塞服务 */
 }
 
 void app_ota_service(void)
@@ -280,21 +157,9 @@ void app_ota_service(void)
     ota_ao_service(500u);
 }
 
-void app_ui_service(void)
-{
-    ui_manager_service();
-}
-
 void app_diag_service(void)
 {
-    const uint32_t now_ms = board_uptime_ms();
-
-    diagnostics_service(APP_LOG_SERVICE_BYTES);
-
-    if ((uint32_t)(now_ms - s_last_tick_ms) >= PROJECT_LOOP_PERIOD_MS) {
-        s_last_tick_ms = now_ms;
-        diagnostics_heartbeat(PROJECT_HEALTH_LOG_PERIOD_MS);
-    }
+    diagnostics_housekeeping_service();
 }
 
 void app_storage_service(void)
@@ -302,45 +167,9 @@ void app_storage_service(void)
     storage_manager_service(250u);
 }
 
-void app_run_once(void)
-{
-    diagnostics_record_core0_loop();
-    app_comm_service();
-    app_loop_engine_service();
-    app_calibration_service();
-    app_vdc_sync_service();
-    app_dpll_service();
-    app_config_gate_service();
-    app_trigger_service();
-    app_ota_service();
-    app_storage_service();
-    app_ui_service();
-    app_diag_service();
-    osal_delay_ms(1u);
-}
-
-void app_management_run_once(void)
-{
-    diagnostics_record_core0_loop();
-    app_comm_service();
-    app_loop_engine_service();
-    app_calibration_service();
-    app_vdc_sync_service();
-    app_dpll_service();
-    app_config_gate_service();
-    app_ota_service();
-    app_storage_service();
-    app_ui_service();
-    app_diag_service();
-    osal_delay_ms(1u);
-}
-
 void app_realtime_run_once(void)
 {
     diagnostics_record_core1_loop();
-#if PROJECT_USE_MULTICORE
     sync_trigger_service();
-#else
-    app_trigger_service();
-#endif
+    trigger_measure_service();   /* 同步自检: 门控测量非阻塞服务 */
 }

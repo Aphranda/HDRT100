@@ -1,11 +1,11 @@
 #include "scpi_calibration_commands.h"
 
-#include "app.h"
+#include "calibration_manager.h"
 
 scpi_result_t scpi_calibration_link_q(scpi_t *context)
 {
-    app_calibration_status_t status;
-    app_calibration_get_status(&status);
+    calibration_manager_status_t status;
+    calibration_manager_get_status(&status);
 
     SCPI_ResultUInt32(context, status.service_count);
     SCPI_ResultUInt32(context, status.command_seq);
@@ -27,8 +27,8 @@ scpi_result_t scpi_calibration_link_q(scpi_t *context)
 
 scpi_result_t scpi_calibration_parameter_q(scpi_t *context)
 {
-    app_calibration_status_t status;
-    app_calibration_get_status(&status);
+    calibration_manager_status_t status;
+    calibration_manager_get_status(&status);
 
     SCPI_ResultUInt32(context, status.service_count);
     SCPI_ResultUInt32(context, status.command_seq);
@@ -51,8 +51,8 @@ scpi_result_t scpi_calibration_parameter_q(scpi_t *context)
 
 scpi_result_t scpi_calibration_result_q(scpi_t *context)
 {
-    app_calibration_status_t status;
-    app_calibration_get_status(&status);
+    calibration_manager_status_t status;
+    calibration_manager_get_status(&status);
 
     SCPI_ResultText(context, status.ready ? "DONE" : "IDLE");
     SCPI_ResultText(context, "SMA");
@@ -82,8 +82,8 @@ scpi_result_t scpi_calibration_list_q(scpi_t *context)
 
 scpi_result_t scpi_calibration_active_q(scpi_t *context)
 {
-    app_calibration_status_t status;
-    app_calibration_get_status(&status);
+    calibration_manager_status_t status;
+    calibration_manager_get_status(&status);
 
     SCPI_ResultText(context, "FIELD_DEFAULT");
     SCPI_ResultText(context, "FIELD_DEFAULT");
@@ -107,8 +107,8 @@ scpi_result_t scpi_calibration_meta_q(scpi_t *context)
 
 scpi_result_t scpi_calibration_health_q(scpi_t *context)
 {
-    app_calibration_status_t status;
-    app_calibration_get_status(&status);
+    calibration_manager_status_t status;
+    calibration_manager_get_status(&status);
 
     SCPI_ResultText(context, status.ready ? "OK" : "INIT");
     SCPI_ResultUInt32(context, status.link_count);

@@ -3,10 +3,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "app.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
 #include "project_build_info.h"
+#include "system_manager.h"
 
 scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context)
 {
@@ -93,8 +93,8 @@ scpi_result_t scpi_cmd_runtime_protection_q(scpi_t *context)
 
 scpi_result_t scpi_cmd_config_gate_status_q(scpi_t *context)
 {
-    app_config_gate_status_t status;
-    app_config_gate_get_status(&status);
+    system_manager_config_gate_status_t status;
+    system_manager_get_config_gate_status(&status);
 
     SCPI_ResultText(context, g_project_build_id);
     SCPI_ResultBool(context, status.ready ? TRUE : FALSE);
@@ -126,8 +126,8 @@ scpi_result_t scpi_cmd_config_gate_status_q(scpi_t *context)
 
 scpi_result_t scpi_cmd_config_ack_q(scpi_t *context)
 {
-    app_config_ack_status_t status;
-    app_config_gate_get_ack_status(&status);
+    system_manager_config_ack_status_t status;
+    system_manager_get_config_ack_status(&status);
 
     SCPI_ResultUInt32(context, status.version);
     SCPI_ResultUInt32(context, status.command_seq);
@@ -282,8 +282,8 @@ scpi_result_t scpi_cmd_config_calibration_q(scpi_t *context)
 
 scpi_result_t scpi_cmd_system_mode_table_q(scpi_t *context)
 {
-    app_system_mode_table_t table;
-    app_system_mode_get_table(&table);
+    system_manager_mode_table_t table;
+    system_manager_get_mode_table(&table);
 
     uint32_t mode_id = 0u;
     (void)SCPI_ParamUInt32(context, &mode_id, FALSE);
@@ -291,7 +291,7 @@ scpi_result_t scpi_cmd_system_mode_table_q(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    const app_system_mode_entry_t *mode = &table.mode[mode_id];
+    const system_manager_mode_entry_t *mode = &table.mode[mode_id];
     SCPI_ResultUInt32(context, table.version);
     SCPI_ResultUInt32(context, table.mode_count);
     SCPI_ResultUInt32(context, table.current_mode);
@@ -306,8 +306,8 @@ scpi_result_t scpi_cmd_system_mode_table_q(scpi_t *context)
 
 scpi_result_t scpi_cmd_resource_arbiter_table_q(scpi_t *context)
 {
-    app_resource_arbiter_table_t table;
-    app_resource_arbiter_get_table(&table);
+    system_manager_resource_table_t table;
+    system_manager_get_resource_table(&table);
 
     uint32_t resource_id = 0u;
     (void)SCPI_ParamUInt32(context, &resource_id, FALSE);
@@ -315,7 +315,7 @@ scpi_result_t scpi_cmd_resource_arbiter_table_q(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    const app_resource_arbiter_entry_t *resource = &table.resource[resource_id];
+    const system_manager_resource_entry_t *resource = &table.resource[resource_id];
     SCPI_ResultUInt32(context, table.version);
     SCPI_ResultUInt32(context, table.resource_count);
     SCPI_ResultUInt32(context, table.current_mode);
@@ -333,8 +333,8 @@ scpi_result_t scpi_cmd_resource_arbiter_table_q(scpi_t *context)
 
 scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context)
 {
-    app_fault_code_table_t table;
-    app_fault_code_get_table(&table);
+    system_manager_fault_table_t table;
+    system_manager_get_fault_table(&table);
 
     uint32_t fault_id = 0u;
     (void)SCPI_ParamUInt32(context, &fault_id, FALSE);
@@ -350,7 +350,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    const app_fault_code_entry_t *fault = &table.fault[index];
+    const system_manager_fault_entry_t *fault = &table.fault[index];
     SCPI_ResultUInt32(context, table.version);
     SCPI_ResultUInt32(context, table.fault_count);
     SCPI_ResultUInt32(context, table.latched);

@@ -6,11 +6,14 @@
 #include "pico/stdlib.h"
 #include "project_config.h"
 
+#define DIAGNOSTICS_LOG_SERVICE_BYTES 256u
+
 static bool s_fault_latched;
 static volatile uint32_t s_core0_loop_count;
 static volatile uint32_t s_core1_loop_count;
 static volatile uint32_t s_core0_last_ms;
 static volatile uint32_t s_core1_last_ms;
+static uint32_t s_housekeeping_last_ms;
 
 static void diagnostics_record_core_loop(volatile uint32_t *loop_count,
                                          volatile uint32_t *last_ms)
@@ -62,12 +65,30 @@ void diagnostics_init(void)
     s_core1_loop_count = 0u;
     s_core0_last_ms = 0u;
     s_core1_last_ms = 0u;
+    s_housekeeping_last_ms = 0u;
     portable_log_port_init();
 }
 
 void diagnostics_service(uint32_t max_bytes)
 {
     portable_log_port_service(max_bytes);
+}
+
+void diagnostics_housekeeping_init(void)
+{
+    s_housekeeping_last_ms = to_ms_since_boot(get_absolute_time());
+}
+
+void diagnostics_housekeeping_service(void)
+{
+    const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+
+    diagnostics_service(DIAGNOSTICS_LOG_SERVICE_BYTES);
+
+    if ((uint32_t)(now_ms - s_housekeeping_last_ms) >= PROJECT_LOOP_PERIOD_MS) {
+        s_housekeeping_last_ms = now_ms;
+        diagnostics_heartbeat(PROJECT_HEALTH_LOG_PERIOD_MS);
+    }
 }
 
 void diagnostics_log(diag_level_t level, const char *module, const char *fmt, ...)

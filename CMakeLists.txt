@@ -30,8 +30,8 @@ set(PROJECT_ENABLE_UART_STDIO OFF CACHE BOOL "Enable stdio over default UART")
 set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors")
 set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA validation SCPI commands")
 set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
-set(PROJECT_USE_FREERTOS OFF CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
-set(PROJECT_USE_MULTICORE OFF CACHE BOOL "Run realtime trigger service on RP2350 core1")
+set(PROJECT_USE_FREERTOS ON CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
+set(PROJECT_USE_MULTICORE ON CACHE BOOL "Run realtime trigger service on RP2350 core1")
 set_property(CACHE PROJECT_OTA_DEFAULT_BOOT_MODE PROPERTY STRINGS COPY_TO_ACTIVE DIRECT_AB)
 set_property(CACHE PROJECT_USB_DEFAULT_MODE PROPERTY STRINGS CDC USBTMC)
 
@@ -152,6 +152,7 @@ set(PROJECT_APP_SOURCES
         application/src/main.c
         application/src/app_runtime.c
         application/src/app.c
+        application/src/app_tasks.c
         ${PROJECT_BUILD_INFO_SOURCE}
         boards/rp2350_trig/src/board.c
         third_party/portable_log/src/portable_log.c

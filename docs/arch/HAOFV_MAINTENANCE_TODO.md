@@ -41,7 +41,7 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - `LoopEngine` ready、service_count 和状态查询已迁入 `components/loop_engine/`。
   - `Calibration` ready、state、service_count、link_count、delay_count 和 active_crc32 已迁入 `components/calibration_manager/`。
   - `VDC/DPLL` ready、service_count、lock/state 和 seq 计数已迁入 `components/vdc_dpll_manager/`。
-  - `application/src/app.c` 已不再集中保存 LoopEngine、Calibration、VDC、DPLL 状态。
+  - `application/src/app.c` 已不再集中保存 LoopEngine、Calibration、VDC、DPLL 和 UI/Diagnostics 调度状态。
   - `system_manager` 目前是快照 owner 第一阶段，还不是完整 `SystemAO / SystemVector / SafetyFB`。
   - `loop_engine`、`calibration`、`vdc_dpll` 和其他 service 当前主要是 ready、计数器和时间戳维护，尚未形成独立 AO/FB/Vector。
 - 影响：
@@ -56,7 +56,8 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - [ ] 将 `components/loop_engine/` 升级为 `LoopEngineAO / LoopEngineFB / LoopVector`，承接业务配置、序列展开和运行计划。
   - [ ] 将 `components/calibration_manager/` 升级为 `CalibrationAO / CalibrationFB / CalibrationVector`，承接 link/parameter CRUD、短事务测量和校准版本质量。
   - [ ] 将 `components/vdc_dpll_manager/` 升级为 `VdcSyncAO / SyncDpllFB / VdcVector`，承接 timestamp、offset/rate、锁定状态、质量判据和版本管理。
-  - [ ] `app.c` 长期只保留启动编排、board bring-up 和顶层 service 调度。
+  - [x] `app.c` 第一阶段只保留启动编排、ready 状态和少量 RTOS task 入口转发。
+  - [ ] 继续把剩余 task 入口转发收敛到各域 AO 或 runtime task registry。
 - 关联文件：
   - `application/src/app.c`
   - `application/inc/app.h`
@@ -66,12 +67,15 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 - 状态：进行中
 - 问题：
   - `application/src/main.c` 已保留为初始化、失败兜底和进入运行的入口骨架。
-  - `application/src/app_runtime.c` 承接 `system/usb_device/scpi/refmem_sync/loop_engine/vdc_sync/calibration/dpll/config_gate/ota/storage/ui` 任务创建、裸机循环和 core1 启动。
-  - 多数任务仍调用 `app_*_service()`，还不是独立域 AO 的 service。
+  - `application/src/app_tasks.c` 承接 `system/usb_device/scpi/refmem_sync/loop_engine/vdc_sync/calibration/dpll/config_gate/ota/storage/ui` 任务入口、栈大小和优先级。
+  - `application/src/app_runtime.c` 只保留 bring-up、core1 启动、kernel init/start 和故障兜底。
+  - 部分任务仍调用少量 `app_*_service()` 转发，还不是独立域 AO 的 service。
 - 影响：
   - RTOS 调度维度已经展开，但 HAOFV 的 owner、事件队列、执行预算还未落在各域。
 - 待办：
   - [x] 将 RTOS task 创建、裸机循环和 core1 启动细节从 `main.c` 迁入 `app_runtime`。
+  - [x] 将 RTOS task entry、栈大小和优先级从 `app_runtime.c` 迁入 `app_tasks.c`。
+  - [x] 当前分支固化为 RTOS + 双核 AMP，不再维护裸机单核运行路径。
   - [x] 将 `task_loop_engine` 第一阶段接到 `components/loop_engine/` owner service。
   - [ ] 将 `task_loop_engine` 升级接到 `loop_engine_ao_service()`。
   - [x] 将 `task_calibration` 第一阶段接到 `components/calibration_manager/` owner service。

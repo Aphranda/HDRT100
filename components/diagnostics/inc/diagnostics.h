@@ -33,6 +33,8 @@ typedef struct {
 
 void diagnostics_init(void);
 void diagnostics_service(uint32_t max_bytes);
+void diagnostics_housekeeping_init(void);
+void diagnostics_housekeeping_service(void);
 void diagnostics_log(diag_level_t level, const char *module, const char *fmt, ...);
 bool diagnostics_set_min_level(diag_level_t level);
 diag_level_t diagnostics_get_min_level(void);
