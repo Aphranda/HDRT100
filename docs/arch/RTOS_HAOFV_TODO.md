@@ -19,6 +19,8 @@ Last updated: 2026-08-13
 - [x] 建立 `task_vdc_sync` 空壳，只维护 lock 状态和统计计数。
 - [x] 建立 `task_dpll` 空壳，只维护 disabled/ready 状态。
 - [x] 建立 `task_calibration` 空壳，支持 link/delay staging、snapshot 和计数器。
+- [x] 将 `main.c` 中的 RTOS task 创建、裸机循环和 core1 启动细节迁入 `app_runtime`，`main.c` 只保留初始化、失败兜底和进入运行。
+- [x] 将 ConfigGate、配置 ACK、SystemModeTable、ResourceArbiterTable 和 FaultCodeTable 只读快照迁入 `system_manager`。
 - [ ] 将空壳逐步替换为真正 AO service，`app.c` 只保留启动编排和顶层调度。
 
 ## P1 - 反射内存主数据面
@@ -54,7 +56,8 @@ Last updated: 2026-08-13
 
 ## P3 - SystemAO / ConfigGate / LoopEngine
 
-- [ ] 建立 `SystemAO / SystemVector / SafetyFB`，迁出 `app.c` 中的系统模式、故障锁存和资源策略。
+- [x] 建立 `SystemManager` 第一阶段组件，先迁出 ConfigGate 快照、配置 ACK 和系统只读表。
+- [ ] 将 `SystemManager` 升级/收敛为 `SystemAO / SystemVector / SafetyFB`，接管系统模式、故障锁存、恢复策略和资源策略。
 - [ ] 把 SystemModeTable 和 ResourceArbiterTable 接入真实模式切换。
 - [ ] 建立通用 `SYSTem:COMMand:ACK? / NACK?` 或收敛现有配置 ACK。
 - [ ] 增加 `task_gateway_a3`，接收上位机配置、START/STOP 和数据查询。
