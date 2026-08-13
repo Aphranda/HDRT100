@@ -501,4 +501,4 @@ typedef struct {
 
 - **创建日期**：2026-06-29
 - **主架构文档**：[HAOFV_ARCHITECTURE.md](HAOFV_ARCHITECTURE.md)
-- **关联文档**：`docs/OTA_SYSTEM_DESIGN.md`、`docs/RTOS_PORTING_PLAN.md`、`docs/SYNC_IO_RESOURCE_PLAN.md`、`docs/TRIGGER_SYNC_TODO.md`
+- **关联文档**：`docs/ota/OTA_SYSTEM_DESIGN.md`、`docs/RTOS_PORTING_PLAN.md`、`docs/SYNC_IO_RESOURCE_PLAN.md`、`docs/TRIGGER_SYNC_TODO.md`

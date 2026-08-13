@@ -3,7 +3,7 @@
 Status: Draft
 Domain: ARCH
 Canonical: `docs/ARCH_PRODUCT_ARCHITECTURE.md`
-Related: `docs/HAOFV_ARCHITECTURE.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/TRIGGER_SYNC_TODO.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/OTA_SYSTEM_DESIGN.md`, `docs/SD_TODO.md`, `docs/LOG_SYSTEM_TODO.md`, `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+Related: `docs/HAOFV_ARCHITECTURE.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/TRIGGER_SYNC_TODO.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/SD_TODO.md`, `docs/LOG_SYSTEM_TODO.md`, `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-10
 
 本文档把 `docs/` 中已经沉淀的框架性内容综合为面向产品的系统架构入口。各专项文档仍是细节来源；本文只定义产品边界、运行模型、数据契约、跨域依赖和发布门禁。
@@ -511,7 +511,7 @@ FAULT
 | PIO/GPIO/AUX 资源约束 | `docs/SYNC_IO_RESOURCE_PLAN.md` |
 | 四板业务拓扑 | `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md` |
 | DPLL/虚拟 DC | `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` |
-| OTA/Bootloader | `docs/OTA_SYSTEM_DESIGN.md` |
+| OTA/Bootloader | `docs/ota/OTA_SYSTEM_DESIGN.md` |
 | SD/System Pack | `docs/SD_TODO.md` |
 | 日志与证据 | `docs/LOG_SYSTEM_TODO.md` |
 | BiSS-C 协议扩展 | `docs/BISSC_TAP_BRIDGE_DESIGN.md` |

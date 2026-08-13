@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: OTA
-Canonical: `docs/OTA_TODO.md`
-Related: `docs/OTA_SYSTEM_DESIGN.md`, `docs/OTA_AB_SWITCH_DESIGN.md`, `docs/OTA_COPY_TRANSACTION_DESIGN.md`
+Canonical: `docs/ota/OTA_TODO.md`
+Related: `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/ota/OTA_AB_SWITCH_DESIGN.md`, `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`
 Last updated: 2026-07-07
 
 本文档记录 OTA 从当前验证版推进到工业产品发布版所需的剩余工作。

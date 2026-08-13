@@ -12,12 +12,13 @@ Last updated: 2026-08-13
 
 | 当前路径 | 定位 |
 |---|---|
-| `../OTA_SYSTEM_DESIGN.md` | OTA 主方案历史文件 |
-| `../OTA_TODO.md` | OTA 产品化待办 |
-| `../OTA_AB_SWITCH_DESIGN.md` | Direct A/B 切换设计 |
-| `../OTA_COPY_TRANSACTION_DESIGN.md` | Copy-to-active 掉电恢复事务设计 |
-| `../OTA_PORTABLE_ARCHITECTURE.md` | Portable OTA 架构和复用方案 |
-| `../OTA_LIBRARY_MIGRATION_PLAYBOOK.md` | Portable OTA 库化迁移 playbook |
+| `OTA_SYSTEM_DESIGN.md` | OTA 主方案历史文件 |
+| `OTA_TODO.md` | OTA 产品化待办 |
+| `OTA_AB_SWITCH_DESIGN.md` | Direct A/B 切换设计 |
+| `OTA_COPY_TRANSACTION_DESIGN.md` | Copy-to-active 掉电恢复事务设计 |
+| `OTA_PORTABLE_ARCHITECTURE.md` | Portable OTA 架构和复用方案 |
+| `OTA_OPEN_SOURCE_COMPARISON.md` | OTA 开源方案对比 |
+| `OTA_LIBRARY_MIGRATION_PLAYBOOK.md` | Portable OTA 库化迁移 playbook |
 
 ## 边界
 

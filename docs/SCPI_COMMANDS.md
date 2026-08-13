@@ -3,7 +3,7 @@
 Status: Active
 Domain: SCPI
 Canonical: `docs/SCPI_COMMANDS.md`
-Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/OTA_SYSTEM_DESIGN.md`, `docs/SD_TODO.md`, `docs/SCPI_USB_INTERFACE_DESIGN.md`
+Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/SD_TODO.md`, `docs/SCPI_USB_INTERFACE_DESIGN.md`
 Last updated: 2026-08-13
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
@@ -266,7 +266,7 @@ SD 命令遵循 `docs/SD_TODO.md` 中的 `StorageAO + StorageFB + StorageVector`
 
 ## OTA 维护
 
-OTA 命令遵循 `docs/OTA_SYSTEM_DESIGN.md` 中的 `OtaAO + OtaFB + OtaVector` 设计。SCPI 只负责解析命令、投递 OTA 事件和读取状态快照，不直接擦写 Flash，不直接修改 OTA 状态。
+OTA 命令遵循 `docs/ota/OTA_SYSTEM_DESIGN.md` 中的 `OtaAO + OtaFB + OtaVector` 设计。SCPI 只负责解析命令、投递 OTA 事件和读取状态快照，不直接擦写 Flash，不直接修改 OTA 状态。
 
 | 命令 | 说明 |
 |---|---|

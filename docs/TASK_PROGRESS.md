@@ -741,7 +741,7 @@ Last updated: 2026-08-10
   - 增加 SD UI 第二阶段：显示 `/update` 是否存在、默认包是否存在、包大小/版本/CRC、最近一次 SD 错误和离线 OTA 进度。
   - 增加日志/报告目录写入能力：`/logs`、`/reports`、`/config`、`/capture` 的安全写入、临时文件命名、写完 rename、容量不足处理。
   - 增加多卡兼容验证：空卡、无卡、FAT32 卡、SDHC/SDXC 卡、无 `/update`、坏路径、长文件名、拔卡后恢复。
-  - 更新 `docs/SCPI_COMMANDS.md`、`README.md` 和 `docs/OTA_SYSTEM_DESIGN.md`，把已实现命令和后续 `SYST:OTA:FILE` 流程写清楚。
+  - 更新 `docs/SCPI_COMMANDS.md`、`README.md` 和 `docs/ota/OTA_SYSTEM_DESIGN.md`，把已实现命令和后续 `SYST:OTA:FILE` 流程写清楚。
   - 在 `tools/bench/rp2350_tk_toolbox.py` 中继续扩展 SD 操作区：构建 SD 文件系统、打开 staging 目录、查询 SD 状态、列目录、触发离线 OTA。
 - 关联文件：
   - `tools/sd_fs_build/sd_fs_build.py`
@@ -1332,7 +1332,7 @@ Last updated: 2026-08-10
     - `summary.json` 中所有步骤 `passed=true`
     - 最终安全状态：`SYST:OTA:STAT? -> "FAILED",2,"IMAGE_TOO_LARGE",4`，`SYST:OTA:SLOT? -> 1,0,1,0,0`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
 - 还需完成：
-  - 后续可将 `docs/TASK_PROGRESS.md` 和 `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md` 的闭环记录引用一键脚本输出目录，减少手写验证记录。
+  - 后续可将 `docs/TASK_PROGRESS.md` 和 `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md` 的闭环记录引用一键脚本输出目录，减少手写验证记录。
   - 后续如做掉电测试，可在 `ota_board_validate.py` 上扩展电源控制 hook。
 - 关联文件：
   - `CMakeLists.txt`
@@ -1447,8 +1447,8 @@ Last updated: 2026-08-10
   - 继续扫描 CRC wrapper、metadata wrapper 和 core port 中是否还有适合下沉为库内表/API 的机械逻辑。
 - 关联文件：
   - `middleware/portable_ota_port/src/portable_ota_port.c`
-  - `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`
+  - `docs/ota/OTA_TODO.md`
 - 下一步：
   - 执行下一轮 wrapper 扫描，优先处理低风险的 package index helper 或确认 CRC wrapper 保留为端口边界。
 
@@ -1591,7 +1591,7 @@ Last updated: 2026-08-10
   - 新增 `portable_ota_metadata_port.c`，用字段布局 static assert 保证 `ota_metadata_t` 与 `pota_metadata_t` 兼容。
   - 产品侧 `ota_metadata_*` 公开 API 保持不变，内部收敛为 `load -> portable mutation -> store`。
   - 产品侧仍保留 RP2350 相关职责：flash 双副本 offset、erase/program/read、v2 旧格式迁移、Bootloader flash copy、镜像校验、watchdog reset 和 slot jump。
-  - 更新 `third_party/portable_ota/README.md`、`docs/OTA_TODO.md`、`docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`。
+  - 更新 `third_party/portable_ota/README.md`、`docs/ota/OTA_TODO.md`、`docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`。
 - 验证结果：
   - `powershell -ExecutionPolicy Bypass -File tools\tests\run_portable_ota_tests.ps1` 通过；当前机器无 host C compiler，因此执行 ARM GCC compile/object-build gate。
   - `cmake -S . -B build-portable-session -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF` 通过。
@@ -1707,8 +1707,8 @@ Last updated: 2026-08-10
   - `components/ota_manager/src/ota_metadata.c`
   - `tests/unit/test_portable_ota_metadata.c`
   - `tools/tests/run_portable_ota_tests.ps1`
-  - `docs/OTA_TODO.md`
-  - `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`
+  - `docs/ota/OTA_TODO.md`
+  - `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`
   - `third_party/portable_ota/README.md`
 - 下一步：
   - 转入 OTA validation report 自动化、metadata schema 迁移规则、安全签名/anti-rollback 设计，或开始 RP2350 RTOS owner task 迁移。
@@ -1751,7 +1751,7 @@ Last updated: 2026-08-10
   - `tools/ota_send/ota_send.py`
   - `README.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_TODO.md`
 - 下一步：
   - 补齐统一 package 的产品兼容字段和负向测试脚本，再进入 release 默认 `DIRECT_AB` 迁移评估。
 
@@ -1770,7 +1770,7 @@ Last updated: 2026-08-10
   - 在未确认 Slot B 状态下连续真实断电/上电，验证 `boot_attempts` 增长和最终回滚。
   - 回滚后再次执行 direct A/B OTA 到 Slot B 并 `COMM`，验证系统可恢复正常升级能力。
   - 最后烧录 `build\RP2350_TRIG_FACTORY.uf2` 恢复 release 状态，并验证 release 隔离。
-  - 更新 `docs/OTA_TODO.md` 和 `docs/OTA_AB_SWITCH_DESIGN.md`。
+  - 更新 `docs/ota/OTA_TODO.md` 和 `docs/ota/OTA_AB_SWITCH_DESIGN.md`。
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
@@ -1815,8 +1815,8 @@ Last updated: 2026-08-10
   - 增加 manifest、`min_bootloader_version` 和发布验证报告模板。
   - 评估 release 默认启用 `DIRECT_AB` 的出厂条件和迁移策略。
 - 关联文件：
-  - `docs/OTA_TODO.md`
-  - `docs/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/ota/OTA_TODO.md`
+  - `docs/ota/OTA_AB_SWITCH_DESIGN.md`
   - `tools/ota_send/ota_send.py`
   - `bootloader/src/bootloader_main.c`
 - 下一步：
@@ -1838,7 +1838,7 @@ Last updated: 2026-08-10
     - 有 size/CRC 的 slot 执行 CRC 强校验。
     - 无 size/CRC 的 factory 初始 slot 允许退化到向量表校验。
   - validation 构建新增 `SYST:BOOT:RES`，通过 watchdog 触发系统复位，用于回滚/断电类验证；release 构建不包含该命令。
-  - 更新 `docs/OTA_TODO.md`、`docs/OTA_AB_SWITCH_DESIGN.md`、`docs/SCPI_COMMANDS.md`。
+  - 更新 `docs/ota/OTA_TODO.md`、`docs/ota/OTA_AB_SWITCH_DESIGN.md`、`docs/SCPI_COMMANDS.md`。
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
@@ -1878,8 +1878,8 @@ Last updated: 2026-08-10
 - 关联文件：
   - `bootloader/src/bootloader_main.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/OTA_TODO.md`
-  - `docs/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/ota/OTA_TODO.md`
+  - `docs/ota/OTA_AB_SWITCH_DESIGN.md`
   - `docs/SCPI_COMMANDS.md`
 - 下一步：
   - 开始 direct A/B 断电恢复验证，优先验证 pending 应用前后和未确认状态下的真实断电/复位行为。
@@ -1894,7 +1894,7 @@ Last updated: 2026-08-10
   - 新增 `ota_metadata_set_boot_mode()`，可切换 `COPY_TO_ACTIVE` / `DIRECT_AB`，切换时清理 pending 和 copy transaction。
   - validation 构建新增 `SYST:OTA:MODE <0|1>` 写命令；release 构建仅保留 `SYST:OTA:MODE?` 查询。
   - `tools/ota_send/ota_send.py` 新增 `--auto-target --image-a --image-b`，可查询 `SYST:OTA:TARG?` 后自动选择 Slot A/B 镜像。
-  - 更新 README、`docs/SCPI_COMMANDS.md`、`docs/OTA_AB_SWITCH_DESIGN.md`、`docs/OTA_TODO.md`。
+  - 更新 README、`docs/SCPI_COMMANDS.md`、`docs/ota/OTA_AB_SWITCH_DESIGN.md`、`docs/ota/OTA_TODO.md`。
 - 验证结果：
   - `python -m py_compile tools\ota_send\ota_send.py` 通过。
   - `python tools\ota_send\ota_send.py COM4 build\RP2350_TRIG.bin --dry-run` 通过。
@@ -1940,8 +1940,8 @@ Last updated: 2026-08-10
   - `tools/ota_send/ota_send.py`
   - `README.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/OTA_AB_SWITCH_DESIGN.md`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/ota/OTA_TODO.md`
 - 下一步：
   - 做 direct A/B 未确认回滚和断电恢复验证；当前板端运行 validation 固件且 metadata 为 `DIRECT_AB`。
 
@@ -1956,7 +1956,7 @@ Last updated: 2026-08-10
   - `COPY_TO_ACTIVE` 模式继续写 Slot B，并按 Slot A 运行地址校验向量表。
   - `DIRECT_AB` 模式按 `active_slot` 选择 inactive slot，并按目标 slot 运行地址校验向量表。
   - `SYST:OTA:STAT?` 在空闲状态下显示下一次 OTA 目标 slot，与 `SYST:OTA:TARG?` 对齐。
-  - 更新 `docs/OTA_AB_SWITCH_DESIGN.md` 和 `docs/OTA_TODO.md`。
+  - 更新 `docs/ota/OTA_AB_SWITCH_DESIGN.md` 和 `docs/ota/OTA_TODO.md`。
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
@@ -1986,8 +1986,8 @@ Last updated: 2026-08-10
   - `components/ota_manager/src/ota_ao.c`
   - `components/ota_manager/src/ota_ao_private.h`
   - `components/ota_manager/src/ota_fb.c`
-  - `docs/OTA_AB_SWITCH_DESIGN.md`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/ota/OTA_TODO.md`
 - 下一步：
   - 增加 direct A/B 受控启用接口和工具侧目标镜像选择能力。
 
@@ -2002,7 +2002,7 @@ Last updated: 2026-08-10
   - 保留 `COPY_TO_ACTIVE` 默认路径：Slot B 镜像仍按 Slot A 运行地址校验后复制到 Slot A。
   - 新增 `DIRECT_AB` 分支：校验 `pending_slot`、更新 `previous_slot/active_slot/boot_generation`，并按 `active_slot` 跳转。
   - 新增 direct active slot 校验逻辑，支持 Slot A 或 Slot B 作为 active app。
-  - 更新 `docs/OTA_AB_SWITCH_DESIGN.md` 和 `docs/OTA_TODO.md`。
+  - 更新 `docs/ota/OTA_AB_SWITCH_DESIGN.md` 和 `docs/ota/OTA_TODO.md`。
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
@@ -2027,8 +2027,8 @@ Last updated: 2026-08-10
   - 完成 direct A/B 正常升级、未确认回滚和断电恢复验证。
 - 关联文件：
   - `bootloader/src/bootloader_main.c`
-  - `docs/OTA_AB_SWITCH_DESIGN.md`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/ota/OTA_TODO.md`
 - 下一步：
   - 实现 App 侧动态 OTA target，并继续保持默认 `COPY_TO_ACTIVE` 行为可验证。
 
@@ -2043,7 +2043,7 @@ Last updated: 2026-08-10
   - 新增 A/B 扩展区 CRC，旧 copy transaction 扩展 CRC 的字段位置和覆盖范围保持稳定。
   - 默认 `boot_mode = COPY_TO_ACTIVE`，`boot_capabilities = COPY_TO_ACTIVE`。
   - 新增 `SYST:OTA:MODE?`、`SYST:OTA:TARG?`、`SYST:OTA:CAP?`。
-  - 更新 `docs/OTA_AB_SWITCH_DESIGN.md`、`docs/SCPI_COMMANDS.md`、`docs/OTA_TODO.md`。
+  - 更新 `docs/ota/OTA_AB_SWITCH_DESIGN.md`、`docs/SCPI_COMMANDS.md`、`docs/ota/OTA_TODO.md`。
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
@@ -2071,9 +2071,9 @@ Last updated: 2026-08-10
   - `components/ota_manager/inc/ota_metadata.h`
   - `components/ota_manager/src/ota_metadata.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/ota/OTA_AB_SWITCH_DESIGN.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_TODO.md`
 - 下一步：
   - 实现 Bootloader direct A/B 分支能力，但默认仍保持 `COPY_TO_ACTIVE`。
 
@@ -2084,12 +2084,12 @@ Last updated: 2026-08-10
 - 任务目标：
   - 启动从 copy-to-active 演进到真正 A/B 直接切换的实施工作，先建立 Slot A/Slot B 双镜像构建能力，并保持现有 factory 默认启动行为不变。
 - 完成内容：
-  - 新增 `docs/OTA_AB_SWITCH_DESIGN.md`，明确 direct A/B 的目标流程、metadata、Bootloader、SCPI、工具链和迁移策略。
+  - 新增 `docs/ota/OTA_AB_SWITCH_DESIGN.md`，明确 direct A/B 的目标流程、metadata、Bootloader、SCPI、工具链和迁移策略。
   - 新增 `linker/rp2350_app_slot_b.ld`，Slot B App 链接地址为 `0x101C0000`。
   - 重构 `CMakeLists.txt`，抽出 `PROJECT_APP_SOURCES` 和 `project_configure_app_target()`，避免 A/B App target 配置漂移。
   - 新增 `RP2350_TRIG_B` App target，生成 `RP2350_TRIG_B.bin/.elf/.map/.dis/.hex`。
   - 保留 `RP2350_TRIG` 作为 Slot A 默认 App target，factory UF2 仍只烧 Bootloader、Slot A App 和 metadata clear，不改变当前启动路径。
-  - 更新 `docs/OTA_TODO.md`，新增 A/B 直接切换演进待办。
+  - 更新 `docs/ota/OTA_TODO.md`，新增 A/B 直接切换演进待办。
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
@@ -2115,8 +2115,8 @@ Last updated: 2026-08-10
 - 关联文件：
   - `CMakeLists.txt`
   - `linker/rp2350_app_slot_b.ld`
-  - `docs/OTA_AB_SWITCH_DESIGN.md`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_AB_SWITCH_DESIGN.md`
+  - `docs/ota/OTA_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 实现 metadata A/B 扩展字段和基础查询能力，默认仍保持 `COPY_TO_ACTIVE`。
@@ -2165,7 +2165,7 @@ Last updated: 2026-08-10
   - 上电后查询 metadata、Bootloader result 和 transaction。
   - 执行 `SYST:OTA:COMM` 完成确认。
   - 补跑 release 构建和 release gate，确认慢速 copy 只存在于 validation 构建。
-  - 更新 `docs/OTA_TODO.md`，标记 Bootloader copy 过程中掉电恢复验证完成。
+  - 更新 `docs/ota/OTA_TODO.md`，标记 Bootloader copy 过程中掉电恢复验证完成。
 - 验证结果：
   - `cmake --build --preset pico2-validation` 通过。
   - `picotool load -f -v -x build-validation\RP2350_TRIG_FACTORY.uf2` 烧录和 Flash verify 通过。
@@ -2197,7 +2197,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `bootloader/inc/bootloader_config.h`
   - `bootloader/src/bootloader_main.c`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 进入 metadata 写入掉电/双副本选择验证，或补充 release 验证报告模板。
@@ -2217,7 +2217,7 @@ Last updated: 2026-08-10
     - `SYST:OTA:SLOT? -> 1,0,1,0,0`
     - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
   - 用户按复位键后重新查询状态。
-  - 更新 `docs/OTA_TODO.md`，标记 OTA 接收过程中复位/掉电恢复验证完成。
+  - 更新 `docs/ota/OTA_TODO.md`，标记 OTA 接收过程中复位/掉电恢复验证完成。
 - 验证结果：
   - 复位后 USB CDC 正常枚举为 `COM4`。
   - 复位后查询：
@@ -2232,7 +2232,7 @@ Last updated: 2026-08-10
   - 继续验证 Bootloader Slot B -> Slot A copy 过程中真实断电恢复。
   - 继续验证 metadata 写入过程中掉电的双副本选择。
 - 关联文件：
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 进入 Bootloader copy 过程断电验证，需要在 copy 期间真实断电。
@@ -2249,7 +2249,7 @@ Last updated: 2026-08-10
   - 在未执行 `SYST:OTA:COMM` 前，由用户手动断电并重新上电。
   - 上电后查询 metadata 和 transaction 状态。
   - 验证通过后执行 `SYST:OTA:COMM` 完成确认。
-  - 更新 `docs/OTA_TODO.md`，标记 `COMM` 前掉电验证完成。
+  - 更新 `docs/ota/OTA_TODO.md`，标记 `COMM` 前掉电验证完成。
 - 验证结果：
   - 断电前 Bootloader 应用后查询：
     - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
@@ -2272,7 +2272,7 @@ Last updated: 2026-08-10
 - 还需完成：
   - 继续验证 OTA 接收过程中断电、Bootloader copy 过程中断电和 metadata 写入过程中断电。
 - 关联文件：
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 验证 OTA 接收未完成时断电，确认重启后仍运行旧 App 且 metadata 不进入 pending。
@@ -2290,7 +2290,7 @@ Last updated: 2026-08-10
   - Bootloader 重启后 App 正常枚举为 `COM4`。
   - 查询确认 pending 已清、Bootloader 结果为 `APPLIED`、copy transaction 已清零。
   - 执行 `SYST:OTA:COMM`，确认当前固件。
-  - 更新 `docs/OTA_TODO.md`，标记正常 OTA 闭环验证完成。
+  - 更新 `docs/ota/OTA_TODO.md`，标记正常 OTA 闭环验证完成。
 - 验证结果：
   - `python tools/ota_send/ota_send.py COM4 build\RP2350_TRIG.bin --block-size 512 --expect-final-state READY_TO_REBOOT` 执行通过。
   - `READY_TO_REBOOT` 前查询：
@@ -2315,7 +2315,7 @@ Last updated: 2026-08-10
   - 验证异常路径下 pending 保留和 transaction 失败状态是否符合预期。
 - 关联文件：
   - `tools/ota_send/ota_send.py`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 配合用户手动断电，验证 Bootloader Slot B -> Slot A copy 过程中的恢复能力。
@@ -2338,7 +2338,7 @@ Last updated: 2026-08-10
   - 修复成功收尾的 metadata 提交顺序：清 transaction、清 pending、记录 `APPLIED` 合并到同一次 metadata 写入，减少 `COMM` 前掉电审计空窗。
   - 修复 `DONE` 恢复路径优先级：如果 transaction 已到 `DONE` 且 Slot A 校验通过，应优先完成 `APPLIED`，不被最大尝试次数拦截。
   - 重复烧录后确认设备能从短暂停留 Bootloader/BOOT 状态恢复到 App USB CDC。
-  - 更新 `docs/OTA_TODO.md` 和 `docs/SCPI_COMMANDS.md`。
+  - 更新 `docs/ota/OTA_TODO.md` 和 `docs/SCPI_COMMANDS.md`。
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
@@ -2360,7 +2360,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `bootloader/src/bootloader_main.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_TODO.md`
   - `docs/SCPI_COMMANDS.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
@@ -2418,7 +2418,7 @@ Last updated: 2026-08-10
   - `ota_metadata_store()` 写入前自动刷新前缀 CRC 和扩展 CRC，避免调用方直接修改 metadata 后漏算 CRC。
   - v2 metadata 和旧 v3 metadata 加载后会升级扩展字段默认值，并补齐扩展 CRC。
   - 清理 Bootloader 中两处手工设置旧 CRC 的代码，改为依赖 metadata store 的统一 CRC 更新。
-  - 更新 `docs/OTA_TODO.md` 和 `docs/OTA_COPY_TRANSACTION_DESIGN.md`。
+  - 更新 `docs/ota/OTA_TODO.md` 和 `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`。
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
@@ -2431,8 +2431,8 @@ Last updated: 2026-08-10
   - `components/ota_manager/inc/ota_metadata.h`
   - `components/ota_manager/src/ota_metadata.c`
   - `bootloader/src/bootloader_main.c`
-  - `docs/OTA_TODO.md`
-  - `docs/OTA_COPY_TRANSACTION_DESIGN.md`
+  - `docs/ota/OTA_TODO.md`
+  - `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`
 - 下一步：
   - 继续处理 P0：Bootloader copy-to-active 流程使用 transaction 状态实现可恢复拷贝。
 
@@ -2441,9 +2441,9 @@ Last updated: 2026-08-10
 - 状态：完成
 - 日期：2026-06-22
 - 任务目标：
-  - 处理 `docs/OTA_TODO.md` 中 P0 掉电恢复设计项，明确当前 copy-to-active OTA 在掉电场景下的恢复策略。
+  - 处理 `docs/ota/OTA_TODO.md` 中 P0 掉电恢复设计项，明确当前 copy-to-active OTA 在掉电场景下的恢复策略。
 - 完成内容：
-  - 新增 `docs/OTA_COPY_TRANSACTION_DESIGN.md`。
+  - 新增 `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`。
   - 梳理当前 4 MB Flash 分区约束：
     - Bootloader 256 KB。
     - Slot A 1.5 MB。
@@ -2465,8 +2465,8 @@ Last updated: 2026-08-10
     - 不依赖断点续写，降低 page/sector 边界和部分写入复杂度。
     - 只有 Slot A 校验通过并达到 `COPY_DONE` 后，才允许清 pending 并记录 `APPLIED`。
     - Slot B 无效时不应误报 `APPLIED`，也不应跳转损坏的 Slot A。
-  - 在 `docs/OTA_TODO.md` 中标记 Bootloader copy transaction 状态设计完成。
-  - README 增加 `docs/OTA_COPY_TRANSACTION_DESIGN.md` 索引。
+  - 在 `docs/ota/OTA_TODO.md` 中标记 Bootloader copy transaction 状态设计完成。
+  - README 增加 `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md` 索引。
 - 验证结果：
   - 文档设计完成，未改动代码，未执行编译。
 - 还需完成：
@@ -2474,8 +2474,8 @@ Last updated: 2026-08-10
   - 修改 Bootloader copy-to-active 流程，避免 copy 失败时错误清 pending。
   - 使用 validation 固件和真实掉电台架验证各 transaction 阶段恢复行为。
 - 关联文件：
-  - `docs/OTA_COPY_TRANSACTION_DESIGN.md`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`
+  - `docs/ota/OTA_TODO.md`
   - `README.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
@@ -2486,7 +2486,7 @@ Last updated: 2026-08-10
 - 状态：完成
 - 日期：2026-06-22
 - 任务目标：
-  - 处理 `docs/OTA_TODO.md` 中 P0 发布构建隔离待办，增加自动化 release 检查，避免异常注入或调试日志进入量产固件。
+  - 处理 `docs/ota/OTA_TODO.md` 中 P0 发布构建隔离待办，增加自动化 release 检查，避免异常注入或调试日志进入量产固件。
 - 完成内容：
   - 新增 `tools/release_check/release_check.py`。
   - 检查 `pico2-release` preset 必须关闭 `PROJECT_ENABLE_OTA_FAULT_INJECTION`。
@@ -2501,7 +2501,7 @@ Last updated: 2026-08-10
   - 扫描 release App/Bootloader 二进制，检查不包含 `SYSTem:OTA:INJect` 或 `SYST:OTA:INJ` 字符串。
   - README 增加 release gate check 命令。
   - `docs/release/RELEASE_CHECKLIST.md` 更新 release 检查命令和当前实际产物名。
-  - `docs/OTA_TODO.md` 标记发布前注入命令检查、周期日志检查、产物命名规则和 release 检查脚本待办完成。
+  - `docs/ota/OTA_TODO.md` 标记发布前注入命令检查、周期日志检查、产物命名规则和 release 检查脚本待办完成。
 - 验证结果：
   - `cmake --build --preset pico2-release` 编译通过，生成 `build/RP2350_TRIG_FACTORY.uf2`，factory blocks 为 `315`。
   - `python tools\release_check\release_check.py --preset pico2-release --build-dir build` 执行通过。
@@ -2518,7 +2518,7 @@ Last updated: 2026-08-10
   - `tools/release_check/release_check.py`
   - `README.md`
   - `docs/release/RELEASE_CHECKLIST.md`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 继续推进 P0 掉电恢复策略设计，或推进 P1 manifest/兼容性校验。
@@ -2530,7 +2530,7 @@ Last updated: 2026-08-10
 - 任务目标：
   - 将 OTA 代码评审中尚未处理的风险项写入待办，避免后续遗漏。
 - 完成内容：
-  - 在 `docs/OTA_TODO.md` 中补充 Bootloader copy transaction 状态设计待办。
+  - 在 `docs/ota/OTA_TODO.md` 中补充 Bootloader copy transaction 状态设计待办。
   - 补充 copy-to-active 失败时不应在 Slot A 可能损坏时直接清 pending 的待办。
   - 补充从 copy-to-active 演进到真正 A/B 启动或 active 备份/scratch 恢复机制的评估项。
   - 补充 metadata v3 扩展字段独立 CRC 或扩展区版本/CRC 的待办。
@@ -2539,9 +2539,9 @@ Last updated: 2026-08-10
 - 验证结果：
   - 文档更新完成，未改动代码，未执行编译。
 - 还需完成：
-  - 后续按 `docs/OTA_TODO.md` 优先级逐项实现和验证。
+  - 后续按 `docs/ota/OTA_TODO.md` 优先级逐项实现和验证。
 - 关联文件：
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 优先设计 copy-to-active 掉电恢复策略，再推进 manifest/metadata 扩展 CRC 和 SCPI 交互语义完善。
@@ -2561,7 +2561,7 @@ Last updated: 2026-08-10
   - Bootloader 普通启动前增加 active App 完整性校验：
     - metadata 中 `active_slot == OTA_SLOT_A` 且 `slot_a_size != 0` 时，使用 Slot A size/CRC 校验。
     - metadata 不完整时，保留最小向量校验作为首烧/历史状态兼容路径。
-  - `docs/OTA_TODO.md` 标记上述两项保护已完成，保留 copy-to-active 真实掉电恢复为 P0 待办。
+  - `docs/ota/OTA_TODO.md` 标记上述两项保护已完成，保留 copy-to-active 真实掉电恢复为 P0 待办。
 - 验证结果：
   - `cmake --build --preset pico2-release` 编译通过，生成 `build/RP2350_TRIG_FACTORY.uf2`，factory blocks 为 `315`。
   - `cmake --build --preset pico2-validation` 编译通过，生成 `build-validation/RP2350_TRIG_FACTORY.uf2`，factory blocks 为 `324`。
@@ -2576,7 +2576,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `components/ota_manager/src/ota_fb.c`
   - `bootloader/src/bootloader_main.c`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 下次烧录 release factory 后，验证错误时序下的 `SYST:OTA:COMM` 不会清 pending，并验证 Bootloader active App CRC 校验路径。
@@ -2595,7 +2595,7 @@ Last updated: 2026-08-10
   - 保留 `pico2-debug-uart` 开启异常注入，用于调试构建。
   - README 增加 validation 构建命令，并明确 release 构建不包含异常注入 SCPI。
   - SCPI 文档明确 `SYST:OTA:INJ:*` 仅存在于 validation/debug 构建，不开放给最终用户。
-  - 新增 `docs/OTA_TODO.md`，记录发布构建隔离、掉电恢复验证、manifest/兼容性、发布验证报告和自动化工具待办。
+  - 新增 `docs/ota/OTA_TODO.md`，记录发布构建隔离、掉电恢复验证、manifest/兼容性、发布验证报告和自动化工具待办。
 - 验证结果：
   - `cmake --preset pico2-release` 配置通过。
   - `cmake --build --preset pico2-release` 编译通过，生成 `build/RP2350_TRIG_FACTORY.uf2`，factory blocks 为 `314`，符合 release 移除异常注入代码后的体积变化。
@@ -2608,7 +2608,7 @@ Last updated: 2026-08-10
   - `CMakePresets.json`
   - `README.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/OTA_TODO.md`
+  - `docs/ota/OTA_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 使用 `pico2-release` 作为客户/量产固件构建入口；使用 `pico2-validation` 作为异常注入和掉电台架验证入口。
@@ -3307,7 +3307,7 @@ Last updated: 2026-08-10
   - 增加发送完成后的状态判定和失败退出码。
 - 关联文件：
   - `tools/ota_send/ota_send.py`
-  - `docs/OTA_SYSTEM_DESIGN.md`
+  - `docs/ota/OTA_SYSTEM_DESIGN.md`
 - 下一步：
   - 执行 dry-run，并在硬件连接后做实传验证。
 
@@ -3337,7 +3337,7 @@ Last updated: 2026-08-10
   - `components/ota_manager/src/ota_image.c`
   - `components/ota_manager/src/ota_fb.c`
   - `tools/ota_bin_info/ota_bin_info.py`
-  - `docs/OTA_SYSTEM_DESIGN.md`
+  - `docs/ota/OTA_SYSTEM_DESIGN.md`
   - `docs/SCPI_COMMANDS.md`
   - `docs/HAOFV_ARCHITECTURE.md`
 - 下一步：
@@ -3373,7 +3373,7 @@ Last updated: 2026-08-10
   - `components/ota_manager/src/ota_metadata.c`
   - `components/ota_manager/src/ota_fb.c`
   - `tools/ota_bin_info/ota_bin_info.py`
-  - `docs/OTA_SYSTEM_DESIGN.md`
+  - `docs/ota/OTA_SYSTEM_DESIGN.md`
 - 下一步：
   - 实现 Bootloader 最小启动链路和 metadata 回滚策略。
 
@@ -3396,7 +3396,7 @@ Last updated: 2026-08-10
   - `CMakeLists.txt`
   - `README.md`
   - `docs/HAOFV_ARCHITECTURE.md`
-  - `docs/OTA_SYSTEM_DESIGN.md`
+  - `docs/ota/OTA_SYSTEM_DESIGN.md`
 - 下一步：
   - 后续新增模块默认使用 `inc/` 和 `src/`。
 
@@ -3444,7 +3444,7 @@ Last updated: 2026-08-10
 - 还需完成：
   - 按方案逐步实现代码。
 - 关联文件：
-  - `docs/OTA_SYSTEM_DESIGN.md`
+  - `docs/ota/OTA_SYSTEM_DESIGN.md`
   - `docs/SCPI_COMMANDS.md`
 - 下一步：
   - 实现 OTA App 侧骨架。

@@ -614,7 +614,7 @@ typedef struct {
 | 域 | 错误码范围 | 示例 |
 |---|---|---|
 | 通用 | 0 | `NONE` |
-| OTA | 1-99 | 见 `docs/OTA_SYSTEM_DESIGN.md` 15 种 OTA 错误码 |
+| OTA | 1-99 | 见 `docs/ota/OTA_SYSTEM_DESIGN.md` 15 种 OTA 错误码 |
 | Trigger | 100-199 | 1=非法参数, 2=资源忙, 3=PIO/DMA 配置失败, 10=ENC target=0, 11=非法编码器引脚 |
 | Flash | 200-299 | 擦除/写入/读回校验失败 |
 | Storage | 300-399 | SD 卡挂载/读写/文件系统错误 |

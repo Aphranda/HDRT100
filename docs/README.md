@@ -171,13 +171,13 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
-| `OTA_SYSTEM_DESIGN.md` | 现有 OTA 主方案历史文件。后续迁移建议见命名规则文档。 |
-| `OTA_TODO.md` | OTA 产品化待办。 |
-| `OTA_AB_SWITCH_DESIGN.md` | Direct A/B 切换设计。 |
-| `OTA_COPY_TRANSACTION_DESIGN.md` | Copy-to-active 掉电恢复事务设计。 |
-| `OTA_PORTABLE_ARCHITECTURE.md` | Portable OTA 架构和复用方案。 |
-| `OTA_OPEN_SOURCE_COMPARISON.md` | OTA 开源方案对比。 |
-| `OTA_LIBRARY_MIGRATION_PLAYBOOK.md` | Portable OTA 库化迁移 playbook。 |
+| `ota/OTA_SYSTEM_DESIGN.md` | 现有 OTA 主方案历史文件。后续迁移建议见命名规则文档。 |
+| `ota/OTA_TODO.md` | OTA 产品化待办。 |
+| `ota/OTA_AB_SWITCH_DESIGN.md` | Direct A/B 切换设计。 |
+| `ota/OTA_COPY_TRANSACTION_DESIGN.md` | Copy-to-active 掉电恢复事务设计。 |
+| `ota/OTA_PORTABLE_ARCHITECTURE.md` | Portable OTA 架构和复用方案。 |
+| `ota/OTA_OPEN_SOURCE_COMPARISON.md` | OTA 开源方案对比。 |
+| `ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md` | Portable OTA 库化迁移 playbook。 |
 | `LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，作为当前 OTA/多机分发参考。 |
 
 ## 06 存储与 SD

@@ -11,7 +11,7 @@ and written as UTF-8. On Windows PowerShell, prefer explicit UTF-8 reads when
 checking Chinese documents:
 
 ```powershell
-Get-Content -Path docs\OTA_TODO.md -Encoding UTF8
+Get-Content -Path docs\ota\OTA_TODO.md -Encoding UTF8
 Get-Content -Path README.md -Encoding UTF8
 ```
 
@@ -431,18 +431,18 @@ time.
 - `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`: implementable A0-A3 RP2350
   distributed DPLL, virtual DC clock, AUX calibration ring, and local scheduled
   trigger plan.
-- `docs/OTA_SYSTEM_DESIGN.md`: A/B OTA upgrade design for the W25Q32 4 MB QSPI Flash.
-- `docs/OTA_COPY_TRANSACTION_DESIGN.md`: copy-to-active OTA transaction
+- `docs/ota/OTA_SYSTEM_DESIGN.md`: A/B OTA upgrade design for the W25Q32 4 MB QSPI Flash.
+- `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`: copy-to-active OTA transaction
   design for power-loss recovery within the current flash partition layout.
-- `docs/OTA_TODO.md`: OTA productization backlog for release gating,
+- `docs/ota/OTA_TODO.md`: OTA productization backlog for release gating,
   power-loss recovery, manifest compatibility, validation reports, and
   automation.
-- `docs/OTA_PORTABLE_ARCHITECTURE.md`: portable OTA design and validation
+- `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`: portable OTA design and validation
   guide for reusing the proven package, metadata, Bootloader, and negative-path
   validation flow on RP2350 and STM32 RTOS products.
-- `docs/OTA_OPEN_SOURCE_COMPARISON.md`: comparison with MCUboot, ESP-IDF OTA,
+- `docs/ota/OTA_OPEN_SOURCE_COMPARISON.md`: comparison with MCUboot, ESP-IDF OTA,
   Mender MCU, and STM32 X-CUBE-SBSFU for the RP2350/STM32 RTOS scope.
-- `docs/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`: staged plan for hardening
+- `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`: staged plan for hardening
   `portable_ota` first, then migrating the current project with closed-loop
   validation at each step.
 - `docs/RTOS_PORTING_PLAN.md`: HAOFV-aligned FreeRTOS migration plan and
