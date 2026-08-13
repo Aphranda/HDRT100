@@ -161,6 +161,7 @@ set(PROJECT_APP_SOURCES
         components/diagnostics/src/diagnostics.c
         components/distributed_config/src/distributed_config.c
         components/distributed_refmem/src/distributed_refmem.c
+        components/distributed_refmem/src/refmem_vector_table.c
         components/event_bus/src/event_bus.c
         components/loop_engine/src/loop_engine.c
         components/ota_manager/src/ota_ao.c

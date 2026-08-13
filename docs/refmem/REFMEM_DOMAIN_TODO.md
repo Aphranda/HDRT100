@@ -72,7 +72,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 文档定义共享字段必须使用 `__atomic`、DMB 屏障或等价机制；跨核快照必须带 sequence/version。
 - [x] 文档定义时间差一律使用回绕安全写法：`int32_t diff = (int32_t)(t1 - t0)`。
 - [x] 文档定义 `epoch_id + tick32` 和 `dc_time64_ns` 语义，并要求增加 `epoch_seconds` / `time_epoch` 等价字段。
-- [ ] 将 `distributed_refmem.h/.c` 拆出 `refmem_vector_table.h/.c`，并按文档冻结 offset/size/static assert。
+- [x] 将 `distributed_refmem.h/.c` 拆出 `refmem_vector_table.h/.c`，并按文档冻结 offset/size/static assert。
 - [ ] 为 DistributedVectorTable 实现 directory CRC 和 slot directory 校验。
 - [ ] 为全部 slot 增加统一 guard 或等价兼容结构。
 - [ ] 实现 slot owner 写权限检查，禁止非 owner 写其他节点 slot。
