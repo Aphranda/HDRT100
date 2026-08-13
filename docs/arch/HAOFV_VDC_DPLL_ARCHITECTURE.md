@@ -454,6 +454,12 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 
 ## 11. 待办
 
+- [ ] 补齐四板环路 VDC 建立链：A0/A1/A2/A3 角色、A0 ring origin、A1/A2/A3 follower 映射、A0->A1->A2->A3->A0 环路方向。
+- [ ] 定义四板 VDC 建立流程：NodeRoleMap -> active calibration -> ring heartbeat/freshness -> `SYNC:CHECk` -> `SYNC:STARt` -> compact timestamp exchange -> per-node offset/rate -> global LOCK。
+- [ ] 定义环路帧与 timestamp 关系：SYNC、CAL、REFMEM_DELTA、FIRE_LOAD、DONE、MEAS_DONE、FAULT 分别使用 `ts8/ts12/ts16` 的规则。
+- [ ] 定义 `NodeVdcSlot[A0..A3]`：每节点 offset/rate/lock/e_vdc/freshness/seq/crc、local slot 与 peer slot writer 规则。
+- [ ] 定义环路 delay 模型：A0->A1、A1->A2、A2->A3、A3->A0 分段 delay、round-trip delay、one-way delay 与 lumped delay 的边界。
+- [ ] 定义四板 global LOCK/HOLDOVER/FAULT 判据：required node、freshness、crc/seq、e_vdc、active calibration CRC 和 active sync CRC 的一致性门禁。
 - [ ] 将 compact timestamp、timestamp dictionary 和 expanded sample 冻结到反射内存规划文档。
 - [ ] 将 `SYNC DPLL` 与 `Angle DPLL` 的状态、参数和质量指标拆成两个 owner 表。
 - [ ] 将 `SYSTem:SYNC:VDC:DPLL:*` 调试接口映射到权限 profile。
