@@ -3,7 +3,7 @@
 Status: Draft
 Domain: TRIGGER / Distributed Sync
 Target: RP2350_TRIG RP2350B QFN-80 四板系统
-Canonical: `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+Canonical: `docs/trigger/TRIGGER_FOUR_BOARD_DISTRIBUTED_PLAN.md`
 Last updated: 2026-08-04
 Related:
 
@@ -12,7 +12,7 @@ Related:
 - `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
 - `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
 - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
-- `docs/hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md`
+- `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
 
 本文档把原 Zynq/EtherCAT/DC 分布式触发技术报告，改写为当前 RP2350B QFN-80
 硬件可以落地的四板分布式触发方案。新版方案以 `RP2350B_QFN80_IO_CONSTRAINTS`

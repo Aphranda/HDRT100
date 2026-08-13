@@ -3,7 +3,7 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
 Last updated: 2026-08-13
 
 本文档用于独立维护 Distributed Hard Real-Time Trigger System 对 HAOFV 架构的符合性待办。`DTC100` 保留为当前设备型号，`RP2350_TRIG` 保留为历史工程和构建产物名。
@@ -54,7 +54,7 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - `docs/arch/HAOFV_ARCHITECTURE.md`
   - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
   - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-  - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
   - `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
   - `docs/docs/DOCS_MIGRATION_TODO.md`
 - 下一步：

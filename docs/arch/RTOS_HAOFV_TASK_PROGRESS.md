@@ -76,7 +76,7 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 - 完成内容：
   - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加 Command / ACK / NACK 契约。
   - `RTOS_HAOFV_TODO.md` 将通用 ACK/NACK 文档定义标记完成，并拆出 `system_manager` 映射和通用 `SYSTem:COMMand:*` 评估待办。
-  - `DTC100_SCPI_COMMAND_PLANNING.md` 和 `SCPI_COMMANDS.md` 明确写命令 accepted 与动作完成态分离。
+  - `SCPI_COMMAND_PLAN.md` 和 `SCPI_COMMANDS.md` 明确写命令 accepted 与动作完成态分离。
 - 验证结果：
   - `python tools/docs_check/docs_check.py` 通过，保留 7 个既有文件命名 warning。
   - 本轮未修改固件代码，未执行构建、烧录或板端 SCPI。
@@ -88,7 +88,7 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
   - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/arch/RTOS_HAOFV_TODO.md`
-  - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
   - `docs/interface/SCPI_COMMANDS.md`
 - 下一步：
   - 继续 RefMem P5 Sync Protocol 契约，随后进入代码拆分。

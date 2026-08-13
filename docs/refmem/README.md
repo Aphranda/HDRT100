@@ -23,4 +23,4 @@ Last updated: 2026-08-13
 | `../arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层架构，定义 Distributed RefMem 的内部主域地位。 |
 | `../arch/RTOS_HAOFV_ARCHITECTURE.md` | 当前 DTC100 反射内存和 RTOS owner 设计。 |
 | `../legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` | PinProbe A1 RAM 反射内存历史方案。 |
-| `../interface/DTC100_SCPI_COMMAND_PLANNING.md` | SCPI 与反射内存边界。 |
+| `../interface/SCPI_COMMAND_PLAN.md` | SCPI 与反射内存边界。 |

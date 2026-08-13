@@ -3,7 +3,7 @@
 Status: Draft
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`, `docs/interface/SCPI_COMMAND_PLAN.md`
 Last updated: 2026-08-13
 
 本文档定义 VDC 与 DPLL 在 HAOFV 下的核心基础架构。HAOFV 是架构，基础件是对架构的实现；因此本文不把“架构”和“基础件”拆成两个孤立部分，而是按 HAOFV 的运行链条融合描述：每一条链都从 AO/FB/Vector 的 owner 开始，向下落到 Service、PIO/IRQ、compact timestamp、loop filter、时钟约束和动态性能指标。
@@ -450,7 +450,7 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 | `HAOFV_ARCHITECTURE.md` | 定义 HAOFV 顶层 owner、层次和 Trigger/Realtime/VDC 边界。 |
 | `RTOS_HAOFV_ARCHITECTURE.md` / `RTOS_HAOFV_TODO.md` | 定义 `task_vdc_sync`、`task_dpll`、反射内存 slot 和实现阶段。 |
 | `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` | 同步域落地方案，描述环路、帧、PIO 和多板原型细节。 |
-| `DTC100_SCPI_COMMAND_PLANNING.md` | 对外 SCPI 命令树和 VDC/DPLL 指令边界。 |
+| `SCPI_COMMAND_PLAN.md` | 对外 SCPI 命令树和 VDC/DPLL 指令边界。 |
 
 ## 11. 待办
 

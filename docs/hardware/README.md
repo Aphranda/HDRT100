@@ -16,7 +16,7 @@ Last updated: 2026-08-13
 | `HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md` | 产品板硬件约束入口，由最新产品网表和硬件输出派生 |
 | `RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 GPIO 分配与 IO 使用约束 |
 | `RP2350B_QFN80_IO_CONSTRAINTS.html` | RP2350B QFN-80 IO 约束 HTML 版 |
-| `RP2350B_NETLIST_REVIEW_2026-08-04.md` | RP2350B 网表评审 |
+| `HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md` | RP2350B 网表评审 |
 | `Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel` | 最新产品板网表，后续产品硬件约束和评审来源 |
 | `Netlist_Schematic1_2026-08-04.tel` | 当前硬件网表 |
 | `RP2350_PICO_Netlist_Schematic1_2026-07-27.tel` | 早期 PICO 网表参考 |

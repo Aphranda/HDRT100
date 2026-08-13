@@ -3,7 +3,7 @@
 Status: Active
 Domain: SCPI
 Canonical: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
-Related: `docs/reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/interface/SCPI_COMMANDS.md`, `docs/archive/RP1200_DTC100_对话决策完整回顾.md`
+Related: `docs/reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/interface/SCPI_COMMANDS.md`, `docs/archive/TASK_PROGRESS.md`
 Last updated: 2026-08-11
 
 版本：0.11

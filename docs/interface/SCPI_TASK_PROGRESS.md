@@ -3,7 +3,7 @@
 Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_TASK_PROGRESS.md`
-Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
+Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
 Last updated: 2026-08-13
 
 本文档用于记录 Distributed Hard Real-Time Trigger System 中 SCPI 指令模块拆分、产品命令树收敛、
@@ -11,7 +11,7 @@ Last updated: 2026-08-13
 验证结果、剩余工作和下一步计划，便于后续回溯 SCPI 架构边界、串口生命周期问题和
 板端证据。`DTC100` 保留为当前设备型号，`RP2350_TRIG` 保留为历史工程和构建产物名。
 
-架构原则以 `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md` 为准，RTOS / 反射内存 / owner
+架构原则以 `docs/interface/SCPI_COMMAND_PLAN.md` 为准，RTOS / 反射内存 / owner
 任务边界以 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md` 为准。
 
 ## 记录规则
@@ -61,7 +61,7 @@ SCPI 模块已经完成 CAL、SYNC、CONFIG、TRIGGER、SYSTEM SNAPSHOT、LOOP S
 SYSTEM RUNTIME、SYSTEM DIAGNOSTICS/EVIDENCE、MEASURE 和 realtime 子域拆分的板端闭环。
 当前重点仍是规范化产品 SCPI 指令：同步 Markdown/HTML 指令表，冻结 `TEST/SERVICE/DEBUG/FACTORY`
 权限矩阵，统一 accepted/ACK/状态查询语义，复审业务配置、序列、运行控制、CAL/SYNC 门禁、
-response block 字段和产品验证脚本覆盖。`docs/interface/DTC100_SCPI_COMMAND_PLANNING.md` 是本轮规范化
+response block 字段和产品验证脚本覆盖。`docs/interface/SCPI_COMMAND_PLAN.md` 是本轮规范化
 评审基线，后续需要处理序列建模命名、角度/断点缩写、校准 link 动词、SYNC/VDC/DPLL 层级、
 通用 ACK/NACK、统计/T2/报告/MMEM 归属和 legacy alias 边界。底层实时验证入口统一以
 `REALtime:*` 作为维护域主入口，旧 `TRIGger:*` 底层入口已经按组删除。realtime 内部基础组件
@@ -141,7 +141,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `scpi_port.c` 命令表加入 `SCPI_COMMUNICATION_UART_COMMANDS`。
   - `CMakeLists.txt` 加入 UART SCPI 源文件。
   - `tools/product_scpi_validate/product_scpi_validate.py` 加入 UART 通信命令头文件和源文件。
-  - 同步 `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`、`docs/interface/SCPI_COMMANDS.md` 和
+  - 同步 `docs/interface/SCPI_COMMAND_PLAN.md`、`docs/interface/SCPI_COMMANDS.md` 和
     `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md/html`。
 - 验证结果：
   - `python tools/product_scpi_validate/product_scpi_validate.py --dry-run`
@@ -161,7 +161,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `middleware/scpi_port/src/scpi_communication_uart_commands.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/product_scpi_validate/product_scpi_validate.py`
-  - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
 
@@ -238,7 +238,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `docs\interface\SCPI_COMMANDS.md` 将旧裸 IO、`TRIGger:SEQuence:*`、
     `TRIGger:PCNT:*`、`STATus:SYNC?` 和 `STATus:TRIG?` 说明改为
     当前 `REALtime:*` 维护域 canonical。
-  - `docs\interface\DTC100_SCPI_COMMAND_PLANNING.md` 将“不推荐命令”修正为“已删除旧入口”，
+  - `docs\interface\SCPI_COMMAND_PLAN.md` 将“不推荐命令”修正为“已删除旧入口”，
     明确后续若实现 IEEE 488.2 `STATus` register 需独立规划。
   - 新增 `tools\scpi_legacy_validate\scpi_legacy_validate.py`，固化逐条旧入口
     `Undefined header` 验证流程，避免后续手写串口验证脚本。
@@ -281,7 +281,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 - 关联文件：
   - `docs/interface/SCPI_TASK_PROGRESS.md`
   - `docs/interface/SCPI_COMMANDS.md`
-  - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
   - `tools/scpi_legacy_validate/scpi_legacy_validate.py`
   - `tools/ota_boot_commit/ota_boot_commit.py`
   - `tools/README.md`
@@ -307,7 +307,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
     `SYSTem:CONFigure:*`。
   - 同步 `docs\interface\SCPI_COMMANDS.md`、
     `docs\interface\RP1200波导天线测试系统分布式触发方案SCPI指令表.md`、对应 HTML、
-    `docs\interface\DTC100_SCPI_COMMAND_PLANNING.md` 和 `tools\README.md` 的当前接口说明。
+    `docs\interface\SCPI_COMMAND_PLAN.md` 和 `tools\README.md` 的当前接口说明。
 - 验证结果：
   - 代码和工具检索确认 `middleware` / `tools` 中不再依赖旧
     `SYSTem:CFG:*`、`SYSTem:REFM:*`、`SYSTem:CORE:VECT?` 和 `STATus:CFG?`。
@@ -344,7 +344,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `tools/distributed_loopback_validate/distributed_loopback_validate.py`
   - `docs/interface/SCPI_TASK_PROGRESS.md`
   - `docs/interface/SCPI_COMMANDS.md`
-  - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
   - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
   - `docs/reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`
   - `tools/README.md`
@@ -622,7 +622,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
     `REALtime:IO:OUTPut:WIDTh/WIDTh?/IMMediate`。
   - `tools/realtime_scpi_validate/realtime_scpi_validate.py` 同步使用新的
     `REALtime:IO:OUTPut:*` 验证入口。
-  - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md` 增加 `REALtime` 主域定位小节，写明
+  - `docs/interface/SCPI_COMMAND_PLAN.md` 增加 `REALtime` 主域定位小节，写明
     `REALtime:PCNT/ENC/SEQ/IO/STATus` 的职责、权限边界和 legacy alias 策略。
   - 文档中的产品 `TRIGger:*` 收敛为 start/stop/pause/continue 和运行模式切换，不再写
     `arm/disarm`。
@@ -648,7 +648,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - 继续分阶段清理 realtime 内部 callback、文件名、注释和 legacy alias 中不必要的 trigger 命名。
   - 后续再评审 `REALtime:SEQ:*`、`REALtime:ARM/DISarm/*` 是否需要进一步拆成更贴近执行层的子域。
 - 关联文件：
-  - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
   - `middleware/scpi_port/inc/scpi_realtime_io_commands.h`
   - `tools/realtime_scpi_validate/realtime_scpi_validate.py`
 

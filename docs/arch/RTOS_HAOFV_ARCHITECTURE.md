@@ -3,7 +3,7 @@
 Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`, `docs/interface/SCPI_COMMAND_PLAN.md`
 Last updated: 2026-08-13
 
 本文档是 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 RTOS + 双核 AMP 架构入口。

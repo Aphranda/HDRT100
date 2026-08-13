@@ -2,7 +2,7 @@
 
 Status: Active
 Domain: SCPI
-Canonical: `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+Canonical: `docs/interface/SCPI_COMMAND_PLAN.md`
 Related: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
 Last updated: 2026-08-13
 

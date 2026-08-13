@@ -23,7 +23,7 @@ Last updated: 2026-08-13
 - [x] 修改 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`，把 `task_refmem_sync` 改成 `DistributedRefMemAO / RefMemSyncFB` 的 RTOS owner 体现。
 - [x] 修改 `docs/arch/RTOS_HAOFV_TODO.md`，将 P1 反射内存主数据面重构为 RefMem Domain 待办。
 - [x] 修改 `docs/arch/HAOFV_MAINTENANCE_TODO.md`，增加“RefMem 内部主域建设”维护项。
-- [x] 修改 `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`，说明 `SYSTem:REFMEM:*` 背后 owner 是 RefMem Domain。
+- [x] 修改 `docs/interface/SCPI_COMMAND_PLAN.md`，说明 `SYSTem:REFMEM:*` 背后 owner 是 RefMem Domain。
 - [x] 修改 `docs/interface/SCPI_COMMANDS.md`，同步 `SYSTem:REFMEM:*` 查询说明，避免上位机误认为有顶级 `REFMEM` SCPI 域。
 
 ## P2 - 静态分布式应用模型

@@ -58,7 +58,7 @@ DistributedRefMemAO
   - 定义重复 `command_seq`、payload CRC mismatch、epoch mismatch、timeout、clear_seq 和 stale 策略。
   - 定义产品化 NACK reason 扩展列表。
   - `REFMEM_DOMAIN_TODO.md` 与 `RTOS_HAOFV_TODO.md` 将 P4 文档定义项标记完成，并拆出 `refmem_command.h/.c`、system_manager 映射和通用 `SYSTem:COMMand:*` 评估待办。
-  - `DTC100_SCPI_COMMAND_PLANNING.md` 和 `SCPI_COMMANDS.md` 同步 ACK/NACK 单事实源规则。
+  - `SCPI_COMMAND_PLAN.md` 和 `SCPI_COMMANDS.md` 同步 ACK/NACK 单事实源规则。
 - 验证结果：
   - `python tools/docs_check/docs_check.py` 通过，保留 7 个既有文件命名 warning。
   - 本任务为文档契约定义，未执行构建、烧录或板端 SCPI。
@@ -70,7 +70,7 @@ DistributedRefMemAO
   - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/arch/RTOS_HAOFV_TODO.md`
-  - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
   - `docs/interface/SCPI_COMMANDS.md`
 - 下一步：
   - 进入 P5，定义 `REFMEM_DELTA` / `REFMEM_EPOCH` 帧格式、slot delta CRC、seq、timestamp、RJ45_SYNC_RING stale 和重放策略。
@@ -149,7 +149,7 @@ DistributedRefMemAO
 - 完成内容：
   - `HAOFV_ARCHITECTURE.md` 将 `Distributed Vector Blackboard / RefMem Sync` 表述为内部主域。
   - `RTOS_HAOFV_ARCHITECTURE.md` 将 `task_refmem_sync` 描述为当前任务壳承载 `DistributedRefMemAO / RefMemSyncFB`。
-  - `DTC100_SCPI_COMMAND_PLANNING.md` 和 `SCPI_COMMANDS.md` 明确 `SYSTem:REFMEM:*` 是 RefMem 内部主域的系统维护入口，不建立裸顶级 `REFMEM` SCPI 域。
+  - `SCPI_COMMAND_PLAN.md` 和 `SCPI_COMMANDS.md` 明确 `SYSTem:REFMEM:*` 是 RefMem 内部主域的系统维护入口，不建立裸顶级 `REFMEM` SCPI 域。
   - `REFMEM_DOMAIN_ARCHITECTURE.md` 补充节点模型硬规则：RefMem 底座只固定 A0-A7 八个通用节点。
   - `REFMEM_DOMAIN_ARCHITECTURE.md` 补充多实例共存规则：在资源、IO、时序、owner、slot writer、事件连接和数据连接不冲突时，同一通用节点允许同时载入多个逻辑实例。
   - `arch/README.md` 和 `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md` 将 RefMem 主域加入阅读顺序和内部架构域目录规划。
@@ -165,7 +165,7 @@ DistributedRefMemAO
   - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
   - `docs/arch/README.md`
   - `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-  - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/arch/HAOFV_MAINTENANCE_TODO.md`
   - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`

@@ -3,7 +3,7 @@
 Status: Active
 Domain: BISSC
 Canonical: `docs/communication/README.md`
-Related: `docs/README.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是 BiSS-C、UART、RS485、RJ45 后端维护和通信 validation 的目标入口。

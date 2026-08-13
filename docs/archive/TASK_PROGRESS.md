@@ -75,7 +75,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`
   - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-  - `docs/archive/RP1200_DTC100_对话决策完整回顾.md`
+  - `docs/archive/TASK_PROGRESS.md`
   - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
   - `docs/reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`
   - `docs/README.md`
@@ -240,7 +240,7 @@ Last updated: 2026-08-10
   - 新增 `components/distributed_config/`，提供静态 `NodeRoleMap`、`LoopPlan`、`ActionMap`、`Calibration` 和聚合 CRC。
   - `SYST:CFG:STAT?` 接入真实配置 CRC，新增尾部 `config_crc32` 字段，用于运行前配置门禁观测。
   - 迁入完整报告 `docs/reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` 与 `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`。
-  - 迁入 PinProbe A1 历史方案 `docs/legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` 与 `docs/legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`。
+  - 迁入 PinProbe A1 历史方案 `docs/legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` 与 `docs/legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION_ARCHITECTURE.md`。
   - 更新 `docs/README.md`、`docs/arch/RTOS_HAOFV_ARCHITECTURE.md` 和摘要入口，消除对外部 `DOC/` 路径的依赖。
   - 调整 `.gitignore`，不再把关键文档目录作为整体忽略对象。
 - 验证结果：
@@ -263,7 +263,7 @@ Last updated: 2026-08-10
   - `docs/reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`
   - `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`
   - `docs/legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`
-  - `docs/legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`
+  - `docs/legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION_ARCHITECTURE.md`
 - 下一步：
   - 继续扩展配置一致性门禁和跨板分布式触发闭环验证。
 

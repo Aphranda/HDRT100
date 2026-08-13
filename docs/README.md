@@ -146,7 +146,7 @@ docs/
 | `arch/RTOS_HAOFV_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务进度和闭环验证记录。 |
 | `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告的仓库内摘要入口。 |
 | `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html` | 0804 RP 分布式触发完整原始报告，已从外部 DOC 迁入。 |
-| `archive/RP1200_DTC100_对话决策完整回顾.md` | RP1200 / DTC100 本轮对话决策总归档，作为产品级 SCPI 和同步/校准口径来源。 |
+| `archive/TASK_PROGRESS.md` | 全局历史任务进度和跨域迁移记录。 |
 
 ## 02 硬件与资源约束
 
@@ -156,7 +156,6 @@ docs/
 | `hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md` | 当前运行/调试最小系统板约束，用于软件架构、小步烧录和闭环验证。 |
 | `hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md` | 产品板硬件约束入口，由最新产品网表、IO 约束和生产输出派生。 |
 | `hardware/RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 硬件版本 GPIO 分配与 IO 使用约束。 |
-| `hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md` | RP2350B 网表评审，当前硬件域迁移后的 canonical 入口。 |
 | `hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel` | 最新产品板网表，是产品硬件约束刷新和网表评审的事实来源。 |
 | `communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C TAP Bridge、RJ45、SYNC_IO、AUX 两收两发和外围电路约束。 |
 
@@ -166,7 +165,7 @@ docs/
 |---|---|
 | `sync/SYNC_IO_REFACTOR_PLAN.md` | SYNC_IO 硬件 profile + 多模式重构计划。 |
 | `trigger/TRIGGER_SYNC_TODO.md` | 触发系统生产化待办。 |
-| `trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md` | RP2350B 四板分布式触发方案。 |
+| `trigger/TRIGGER_FOUR_BOARD_DISTRIBUTED_PLAN.md` | RP2350B 四板分布式触发方案。 |
 | `trigger/TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计。 |
 | `trigger/TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计。 |
 | `trigger/TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析。 |
@@ -195,7 +194,7 @@ docs/
 | `ota/OTA_PORTABLE_ARCHITECTURE.md` | Portable OTA 架构和复用方案。 |
 | `ota/OTA_OPEN_SOURCE_COMPARISON.md` | OTA 开源方案对比。 |
 | `ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md` | Portable OTA 库化迁移 playbook。 |
-| `legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，作为当前 OTA/多机分发参考。 |
+| `legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION_ARCHITECTURE.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，作为当前 OTA/多机分发参考。 |
 
 ## 06 存储与 SD
 
@@ -209,7 +208,7 @@ docs/
 | 文件 | 定位 |
 |---|---|
 | `interface/SCPI_COMMANDS.md` | SCPI 命令清单、语义和边界。 |
-| `interface/DTC100_SCPI_COMMAND_PLANNING.md` | DTC100 仪器式 SCPI 指令规划方案，定义主线挂载、SYNC/VDC/DPLL 层级和后续收敛步骤。 |
+| `interface/SCPI_COMMAND_PLAN.md` | DTC100 仪器式 SCPI 指令规划方案，定义主线挂载、SYNC/VDC/DPLL 层级和后续收敛步骤。 |
 | `interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` | RP1200 / DTC100 产品级 SCPI 指令表 Markdown 源文档，面向上位机联调和协议冻结。 |
 | `reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html` | RP1200 / DTC100 产品级 SCPI 指令表 HTML 版，当前与 Markdown 0.7 同步。 |
 | `storage/LOG_SYSTEM_TODO.md` | 日志系统待办和演进方向。 |
@@ -236,7 +235,7 @@ docs/
 | 文件 | 定位 |
 |---|---|
 | `legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` | PinProbe A1 多机协同与 RAM 反射内存历史方案，当前分布式 Vector/命令槽设计复用其原则。 |
-| `legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，当前 OTA/SD/System Pack 方案可参考其分片、ACK 和本地校验边界。 |
+| `legacy/pinprobe/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION_ARCHITECTURE.md` | PinProbe A1 OTA 固件升级与 CAN 多机分发历史方案，当前 OTA/SD/System Pack 方案可参考其分片、ACK 和本地校验边界。 |
 | `legacy/pinprobe/PinProbe A1控制箱 嵌入式整体方案与架构报告.html` | PinProbe A1 控制箱整体方案原始 HTML 报告。 |
 | `legacy/pinprobe/PinProbe A1 箱体控制 SCPI 指令说明20260728.html` | PinProbe A1 SCPI 指令原始参考。 |
 | `reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告。 |

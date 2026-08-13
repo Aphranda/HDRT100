@@ -56,6 +56,8 @@ LEGACY_NAME_ALLOWLIST = {
     "README.md",
     "TASK_PROGRESS.md",
     "RP2350B_QFN80_IO_CONSTRAINTS.md",
+    "RP1200波导天线测试系统分布式触发方案SCPI指令表.md",
+    "相控阵测试系统RP分布式触发方案技术报告0804.md",
 }
 
 DOC_REF_RE = re.compile(r"docs[\\/][^\s`'\"<>)\]]+?\.md")
