@@ -41,6 +41,12 @@ typedef enum {
     STORAGE_MANAGER_JOB_TYPE_MANIFEST_SCAN,
     STORAGE_MANAGER_JOB_TYPE_FAULT_EVIDENCE,
     STORAGE_MANAGER_JOB_TYPE_SYSTEM_INIT,
+    STORAGE_MANAGER_JOB_TYPE_FILE_WRITE,
+    STORAGE_MANAGER_JOB_TYPE_FILE_DELETE,
+    STORAGE_MANAGER_JOB_TYPE_FILE_RENAME,
+    STORAGE_MANAGER_JOB_TYPE_DIRECTORY_CREATE,
+    STORAGE_MANAGER_JOB_TYPE_DIRECTORY_DELETE,
+    STORAGE_MANAGER_JOB_TYPE_DIRECTORY_RENAME,
 } storage_manager_job_type_t;
 
 typedef enum {
@@ -135,6 +141,36 @@ typedef struct {
     char path[96];
 } storage_manager_job_result_t;
 
+typedef enum {
+    STORAGE_MANAGER_OBJECT_NONE = 0,
+    STORAGE_MANAGER_OBJECT_REFMEM_PACKAGE = 1,
+} storage_manager_object_t;
+
+typedef enum {
+    STORAGE_MANAGER_WRITE_STATE_IDLE = 0,
+    STORAGE_MANAGER_WRITE_STATE_RECEIVING,
+    STORAGE_MANAGER_WRITE_STATE_READY,
+    STORAGE_MANAGER_WRITE_STATE_QUEUED,
+    STORAGE_MANAGER_WRITE_STATE_WRITING,
+    STORAGE_MANAGER_WRITE_STATE_DONE,
+    STORAGE_MANAGER_WRITE_STATE_FAILED,
+    STORAGE_MANAGER_WRITE_STATE_ABORTED,
+} storage_manager_write_state_t;
+
+typedef struct {
+    uint32_t txn_id;
+    storage_manager_object_t object;
+    storage_manager_write_state_t state;
+    uint32_t expected_size;
+    uint32_t received_size;
+    uint32_t expected_crc32;
+    uint32_t actual_crc32;
+    uint32_t path_hash;
+    uint32_t error;
+    char path[96];
+    char tmp_path[96];
+} storage_manager_write_snapshot_t;
+
 bool storage_manager_init(void);
 bool storage_manager_probe(void);
 bool storage_manager_catalog(const char *path, char *buffer, size_t buffer_size);
@@ -152,6 +188,42 @@ bool storage_manager_read_file_range(const char *path,
                                      storage_manager_file_read_t *read_info);
 bool storage_manager_scan_manifest(void);
 bool storage_manager_initialize_system_pack(void);
+bool storage_manager_post_object_info_job(storage_manager_object_t object, uint32_t *job_id);
+bool storage_manager_post_object_read_job(storage_manager_object_t object,
+                                          uint32_t offset,
+                                          uint32_t length,
+                                          uint32_t *job_id);
+bool storage_manager_post_object_delete_job(storage_manager_object_t object, uint32_t *job_id);
+bool storage_manager_post_file_delete_job(const char *path, uint32_t *job_id);
+bool storage_manager_post_file_rename_job(const char *old_path,
+                                          const char *new_path,
+                                          uint32_t *job_id);
+bool storage_manager_post_directory_create_job(const char *path, uint32_t *job_id);
+bool storage_manager_post_directory_delete_job(const char *path, uint32_t *job_id);
+bool storage_manager_post_directory_rename_job(const char *old_path,
+                                               const char *new_path,
+                                               uint32_t *job_id);
+bool storage_manager_begin_file_write(const char *path,
+                                      uint32_t expected_size,
+                                      uint32_t expected_crc32,
+                                      uint32_t *txn_id);
+bool storage_manager_write_file_chunk(uint32_t txn_id,
+                                      uint32_t offset,
+                                      const uint8_t *data,
+                                      size_t data_size);
+bool storage_manager_commit_file_write(uint32_t txn_id, uint32_t *job_id);
+bool storage_manager_abort_file_write(uint32_t txn_id);
+bool storage_manager_begin_object_write(storage_manager_object_t object,
+                                        uint32_t expected_size,
+                                        uint32_t expected_crc32,
+                                        uint32_t *txn_id);
+bool storage_manager_write_object_chunk(uint32_t txn_id,
+                                        uint32_t offset,
+                                        const uint8_t *data,
+                                        size_t data_size);
+bool storage_manager_commit_object_write(uint32_t txn_id, uint32_t *job_id);
+bool storage_manager_abort_object_write(uint32_t txn_id);
+void storage_manager_get_write_snapshot(storage_manager_write_snapshot_t *snapshot);
 bool storage_manager_raw_clear_prefix(uint32_t sector_count,
                                       uint32_t *cleared_count,
                                       sd_card_status_t *raw_status);
@@ -193,5 +265,7 @@ const char *storage_manager_state_string(storage_manager_state_t state);
 const char *storage_manager_manifest_status_string(storage_manager_manifest_status_t status);
 const char *storage_manager_job_type_string(storage_manager_job_type_t type);
 const char *storage_manager_job_state_string(storage_manager_job_state_t state);
+const char *storage_manager_write_state_string(storage_manager_write_state_t state);
+const char *storage_manager_object_string(storage_manager_object_t object);
 
 #endif

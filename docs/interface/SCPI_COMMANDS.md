@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/sync/SYNC_IO_REFACTOR_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -245,7 +245,7 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 ## SD / System Pack 维护
 
-SD 命令遵循 `docs/storage/SD_TODO.md` 中的 `StorageAO + StorageFB + StorageVector` 设计。SCPI 只负责表达查询或维护意图，后续应逐步收敛到 StorageAO job；当前 P0A/P0B/P0C 已完成 `FILE_INFO`、`FILE_READ`、`CATALOG_PAGE`、`MANIFEST_SCAN`、`SYSTEM_INIT`、`SNAPSHOT_WRITE` 和 `FAULT_EVIDENCE` job 闭环。
+SD 命令遵循 `docs/storage/SD_TODO.md` 中的 `StorageAO + StorageFB + StorageVector` 设计。SCPI 只负责表达查询或维护意图，所有文件/目录增删改查都通过 StorageAO job 或 StorageAO 写事务进入后端；RefMem 只是通过 `/refmem/app_model.rmtp` 消费文件，不拥有文件 CRUD 接口。当前已完成 `FILE_INFO`、`FILE_READ`、`FILE_WRITE`、`FILE_DELETE`、`FILE_RENAME`、`DIRECTORY_CREATE`、`DIRECTORY_DELETE`、`DIRECTORY_RENAME`、`CATALOG_PAGE`、`MANIFEST_SCAN`、`SYSTEM_INIT`、`SNAPSHOT_WRITE` 和 `FAULT_EVIDENCE` job 闭环。
 
 | 命令 | 说明 |
 |---|---|
@@ -258,7 +258,20 @@ SD 命令遵循 `docs/storage/SD_TODO.md` 中的 `StorageAO + StorageFB + Storag
 | `SYSTem:SD:MAN?` | 投递 StorageAO `MANIFEST_SCAN` job 扫描 `/manifest.idx`；若 FAT32 卡可挂载但 `/manifest.idx` 缺失，会先执行同一套非破坏性 System Pack 初始化再重新扫描。兼容返回 manifest 状态、schema、product_id、hardware_id、build_id、required_count、missing_count；Trigger armed 时拒绝执行。 |
 | `SYSTem:STOR:STAT?` | `SYSTem:SD:STAT?` 的 Storage 域别名。 |
 | `SYSTem:STOR:JOB:INFO "<path>"` | 投递 StorageAO `FILE_INFO` job，返回 `"OK",job_id`；实际 FatFs 查询在 `storage_manager_service()` 中执行。 |
-| `SYSTem:STOR:JOB?` | 查询最近 Storage job：`state,id,type,path,size,kind,path_hash,error`；当前 type 包含 `FILE_INFO`、`FILE_READ`、`CATALOG_PAGE`、`MANIFEST_SCAN`、`SYSTEM_INIT`、`SNAPSHOT_WRITE`、`FAULT_EVIDENCE`，manifest/system-init job 的 kind 为 `MANIFEST` 且 size 为 required_count，file read job 的 kind 为 `READ` 且 size 为本次返回字节数，catalog page job 的 kind 为 `CATALOG` 且 size 为本页返回条目数，fault evidence job 的 path 指向最新 fault report。 |
+| `SYSTem:STOR:JOB?` | 查询最近 Storage job：`state,id,type,path,size,kind,path_hash,error`；当前 type 包含 `FILE_INFO`、`FILE_READ`、`FILE_WRITE`、`FILE_DELETE`、`FILE_RENAME`、`DIRECTORY_CREATE`、`DIRECTORY_DELETE`、`DIRECTORY_RENAME`、`CATALOG_PAGE`、`MANIFEST_SCAN`、`SYSTEM_INIT`、`SNAPSHOT_WRITE`、`FAULT_EVIDENCE`，manifest/system-init job 的 kind 为 `MANIFEST` 且 size 为 required_count，file read job 的 kind 为 `READ` 且 size 为本次返回字节数，catalog page job 的 kind 为 `CATALOG` 且 size 为本页返回条目数，fault evidence job 的 path 指向最新 fault report。 |
+| `SYSTem:STORage:FILE:WRITe:BEGIN "<path>",<size>,<crc32>` | 建立 StorageAO 文件写事务，路径必须落在白名单根下，返回 `OK,txn_id`；不直接写 SD。 |
+| `SYSTem:STORage:FILE:WRITe:DATA <txn_id>,<offset>,"<hex>"` | 顺序写入当前事务 buffer，返回 `OK,txn_id,received_size`；单块十六进制数据最大 256 字节。 |
+| `SYSTem:STORage:FILE:WRITe:END <txn_id>` | 校验事务 CRC 后投递 `FILE_WRITE` job，由 StorageAO 执行临时文件写入、sync 和原子替换，返回 `WRITTEN,active,txn_id,state,expected_size,received_size,expected_crc32,actual_crc32,path_hash,error,job_id,path`。 |
+| `SYSTem:STORage:FILE:WRITe:ABORt [txn_id]` | 中止当前文件写事务，返回 `OK`。 |
+| `SYSTem:STORage:FILE:WRITe:STATus?` | 查询文件写事务摘要：`active,txn_id,state,expected_size,received_size,expected_crc32,actual_crc32,path_hash,error,job_id,path`。 |
+| `SYSTem:STORage:FILE:INFO? "<path>"` | 查询文件或目录信息，返回 `OK/ERROR,job_id,job_state,kind,size,path_hash,error,path`。 |
+| `SYSTem:STORage:FILE:READ? "<path>",[offset],[length]` | 分段读取文件，返回 `OK/ERROR,job_id,offset,requested,returned,file_size,eof,path_hash,error,hex`；`length` 固件端最大 128 字节。 |
+| `SYSTem:STORage:FILE:DELete "<path>"` | 删除文件，返回 `DELETED/ERROR,job_id,job_state,error,path`。 |
+| `SYSTem:STORage:FILE:REName "<old_path>","<new_path>"` | 文件移动/改名，返回 `RENAMED/ERROR,job_id,job_state,error,path`；成功时 path 为新路径。 |
+| `SYSTem:STORage:DIRectory:CREate "<path>"` | 创建目录，返回 `CREATED/ERROR,job_id,job_state,error,path`；已存在目录视为成功。 |
+| `SYSTem:STORage:DIRectory:DELete "<path>"` | 删除空目录，返回 `DELETED/ERROR,job_id,job_state,error,path`；不存在视为成功。 |
+| `SYSTem:STORage:DIRectory:REName "<old_path>","<new_path>"` | 目录移动/改名，返回 `RENAMED/ERROR,job_id,job_state,error,path`；成功时 path 为新路径。 |
+| `SYSTem:STORage:DIRectory:CATalog? "<path>",<offset>,<limit>` | `MMEM:CAT:PAGE?` 的 Storage 域别名，用于分页枚举目录。 |
 | `MMEM:CAT? ["<path>"]` | 兼容诊断目录枚举；内部投递 `CATALOG_PAGE` job 包装第 0 页，最多 16 项。长目录可能不完整，可靠枚举必须使用 `MMEM:CAT:PAGE?`。非法路径如 `/../` 应返回 `PATH_DENIED`。 |
 | `MMEM:CAT:PAGE? "<path>",<offset>,<limit>` | 投递 StorageAO `CATALOG_PAGE` job 分页枚举白名单路径目录，返回 `status,path,offset,returned,next_offset,complete,truncated,entries`；`limit` 固件端最大限制为 16；Trigger armed 时拒绝执行。 |
 | `MMEM:INFO? "<path>"` | 投递 StorageAO `FILE_INFO` job 查询白名单路径中的单个文件或目录信息，兼容返回 `status,path,size,kind,path_hash,error`；用于长目录截断时稳定确认文件存在；Trigger armed 时拒绝执行。 |

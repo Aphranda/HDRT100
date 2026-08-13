@@ -60,6 +60,8 @@ fatfs_port_status_t fatfs_port_write_binary_file_atomic(const char *final_path,
                                                         const char *tmp_path,
                                                         const uint8_t *data,
                                                         size_t data_size);
+fatfs_port_status_t fatfs_port_delete(const char *path);
+fatfs_port_status_t fatfs_port_rename(const char *old_path, const char *new_path);
 fatfs_port_status_t fatfs_port_find_max_sequence(const char *directory,
                                                  const char *prefix,
                                                  const char *suffix,

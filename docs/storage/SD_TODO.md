@@ -4,7 +4,7 @@ Status: Active
 Domain: SD
 Canonical: `docs/storage/SD_TODO.md`
 Related: `docs/storage/SD_TASK_PROGRESS.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`
-Last updated: 2026-07-07
+Last updated: 2026-08-14
 
 本文档定义 RP2350_TRIG 的 SD 卡系统。SD 卡不是简单 OTA 介质，而是 App 侧 **System Pack 介质 + 持久化观测层**，用于任务配置、校准补偿、Pack/Ref 版本管理、Vector/反射内存快照、脉冲异常 trace、运行报告、产测结果和离线 OTA。
 
@@ -500,6 +500,39 @@ last_event_sequence
 ```
 
 StorageVector 不保存完整长路径、JSON 文本、trace buffer 或文件内容。完整路径由 StorageAO 内部固定缓冲或最近路径表保存；SCPI/UI 需要完整路径时通过 StorageAO 查询接口返回裁剪后的字符串。
+
+## 8.1 StorageAO 文件管理基础件
+
+StorageAO 的文件管理能力是 SD/FatFs 之上的 HAOFV 基础件，不属于 RefMem、Trigger 或 OTA 的业务私有接口。SCPI、UI、PC 工具只能提交文件/目录意图和读取 job 证据；FatFs 访问、资源仲裁、路径白名单、写事务、CRC、原子替换和错误映射都由 StorageAO/StorageFB 负责。
+
+能力边界：
+
+- 文件：`write transaction`、`info`、`read range`、`delete`、`rename`。
+- 目录：`create`、`delete`、`rename`、`catalog page`。
+- 写事务：`BEGIN` 建立私有 buffer，`DATA` 顺序追加，`END` 校验 CRC 后投递 `FILE_WRITE` job，后端使用同目录 tmp 文件、`f_sync` 和 rename 原子替换；首次 rename 失败时允许清理目标后重试一次，最终失败必须删除 tmp 并保留 job evidence。
+- 目录创建：`f_mkdir` 返回已存在时必须再确认同名项是目录；同名文件不能被当作目录创建成功。
+- Vector：只发布 job id、type、state、size、path hash、error 等摘要，不保存文件数据、目录数据或完整长路径。
+- 后端：当前是 SD/FatFs；后续可扩展到其他存储设备，但上层命令和 RefMem load 语义不变。
+
+正式 SCPI 入口：
+
+```text
+SYSTem:STORage:FILE:WRITe:BEGIN "<path>",<size>,<crc32>
+SYSTem:STORage:FILE:WRITe:DATA <txn_id>,<offset>,"<hex>"
+SYSTem:STORage:FILE:WRITe:END <txn_id>
+SYSTem:STORage:FILE:WRITe:ABORt [txn_id]
+SYSTem:STORage:FILE:WRITe:STATus?
+SYSTem:STORage:FILE:INFO? "<path>"
+SYSTem:STORage:FILE:READ? "<path>",[offset],[length]
+SYSTem:STORage:FILE:DELete "<path>"
+SYSTem:STORage:FILE:REName "<old_path>","<new_path>"
+SYSTem:STORage:DIRectory:CREate "<path>"
+SYSTem:STORage:DIRectory:DELete "<path>"
+SYSTem:STORage:DIRectory:REName "<old_path>","<new_path>"
+SYSTem:STORage:DIRectory:CATalog? "<path>",<offset>,<limit>
+```
+
+RefMem 的 `/refmem/app_model.rmtp` 只是该基础件的一个文件消费者：文件写入和读回使用 `SYSTem:STORage:FILE:*`，表镜像解释、lint、owner validation、staging/active 切换仍归 `DistributedRefMemAO`。
 
 ## 9. StorageFB 状态机
 

@@ -16,8 +16,8 @@
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 200u
 #define SCPI_REFMEM_PACKAGE_PATH "/refmem/app_model.rmtp"
-#define SCPI_REFMEM_PACKAGE_MAX_BYTES 1024u
 #define SCPI_REFMEM_PACKAGE_READ_CHUNK 128u
+#define SCPI_REFMEM_LOAD_MAX_BYTES 4096u
 
 static bool scpi_refmem_wait_storage_job(uint32_t job_id);
 static bool scpi_refmem_read_package(const char *path,
@@ -116,7 +116,7 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
         load_path = path_buffer;
     }
 
-    uint8_t package_buffer[SCPI_REFMEM_PACKAGE_MAX_BYTES];
+    uint8_t package_buffer[SCPI_REFMEM_LOAD_MAX_BYTES];
     size_t package_size = 0u;
     refmem_table_package_validation_t validation = {0};
     validation.error = REFMEM_TABLE_PACKAGE_ERR_TOO_SMALL;

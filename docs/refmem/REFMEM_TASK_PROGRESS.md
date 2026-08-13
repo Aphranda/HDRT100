@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
@@ -51,6 +51,74 @@ RefMemTableRegistry
 ```
 
 ## 任务记录
+
+### REFMEM-TASK-20260814-023 - StorageAO 通用文件管理基础件
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 将 `app_model.rmtp` 写入 SD 的能力从 RefMem 专用 package 命令纠偏为 HAOFV StorageAO 通用文件管理基础件。
+  - 支持文件和目录增删改查，并保持 SCPI 不直接调用 FatFs、RefMem 向量表不承载文件数据。
+- 完成内容：
+  - `SYSTem:STORage:FILE:*` 增加通用文件事务写入、info、read、delete、rename。
+  - `SYSTem:STORage:DIRectory:*` 增加 create、delete、rename、catalog。
+  - StorageManager 增加 `FILE_DELETE`、`FILE_RENAME`、`DIRECTORY_CREATE`、`DIRECTORY_DELETE`、`DIRECTORY_RENAME` job，并通过 StorageAO service 和资源仲裁访问 SD。
+  - FatFs port 增加 delete 和 rename 封装；文件写入仍使用 tmp + sync + rename 原子替换。
+  - `tools/refmem_pack_write/refmem_pack_write.py` 改为通过 `SYSTem:STORage:FILE:WRITe:*` 写入 `/refmem/app_model.rmtp`，再执行 `SYSTem:REFMEM:LOAD:SD`。
+  - 新增 `tools/storage_scpi_validate/storage_scpi_validate.py`，固化通用 Storage 文件/目录 CRUD 验证流程。
+  - `SCPI_COMMANDS.md` 和 RefMem 架构/TODO 同步为通用 Storage 文件管理接口，删除文档中的 RefMem package 专用入口。
+- 验证结果：
+  - `python -m py_compile tools/refmem_pack_write/refmem_pack_write.py tools/storage_scpi_validate/storage_scpi_validate.py` 通过。
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，最终生成 build id `20260813163405`，package CRC `0x22C703CC`。
+  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813163405 --out-dir build-rtos-multicore-smoke/ota_boot_commit_storage_rename_retry` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813163405`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/storage_scpi_validate/storage_scpi_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_storage_file_mgmt_tmp_path` 通过，覆盖目录 create/catalog/rename/delete 和文件 write/info/read/rename/delete。
+  - 初次写 `/refmem/app_model.rmtp` 失败定位为 FatFs 原子 rename 阶段错误；修复后 `python tools/refmem_pack_write/refmem_pack_write.py COM6 --package build-rtos-multicore-smoke/sdcard_refmem_parser/refmem/app_model.rmtp --timeout 8 --out-dir build-rtos-multicore-smoke/validation_refmem_pack_write_storage_file_rename_retry` 通过，`FILE:INFO?` 返回 704 字节，`FILE:READ?` 读回 `RMTP` header，`SYSTem:REFMEM:LOAD:SD` 返回 `STAGED`。
+- 还需完成：
+  - 将 StorageAO 写事务从当前 4096 字节 RAM buffer 升级为分片落盘或后端流式事务，用于更大的 System Pack/RefMem table image。
+  - 继续实现 staging/active/rollbackable table image 切换与 owner validation callback。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/fatfs_port/inc/fatfs_port.h`
+  - `middleware/fatfs_port/src/fatfs_port.c`
+  - `middleware/scpi_port/inc/scpi_storage_commands.h`
+  - `middleware/scpi_port/src/scpi_storage_commands.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_pack_write/refmem_pack_write.py`
+  - `tools/storage_scpi_validate/storage_scpi_validate.py`
+- 下一步：
+  - 完成板端 CRUD 和 RefMem load 正向闭环后，继续实现 staging/active/rollbackable table image 切换与 owner validation callback。
+
+### REFMEM-TASK-20260813-022 - StorageAO RefMem package 对象事务
+
+- 状态：已被 20260814-023 纠偏为通用 Storage 文件管理基础件
+- 日期：2026-08-13
+- 任务目标：
+  - 允许通过 SCPI 把 `app_model.rmtp` 写入 SD，同时保持 HAOFV 边界：SCPI 不直接写 FatFs，RefMem 向量表不承载文件数据。
+  - 把写入能力做成 StorageAO object transaction 基础件，后续可扩展到其他存储对象和后端。
+- 完成内容：
+  - StorageManager 增加 object contract 和写事务 API：`begin_object_write`、`write_object_chunk`、`commit_object_write`、`abort_object_write`、`get_write_snapshot`。
+  - 首个对象为 `REFMEM_PACKAGE`，固定映射 `/refmem/app_model.rmtp`，支持 create/update/read/delete/info；该专用入口已在 20260814-023 中迁移为通用 `SYSTem:STORage:FILE:*` 路径接口。
+  - FatFs port 增加 `fatfs_port_delete()`；原子写入支持替换已有目标文件。
+  - 原 `SYSTem:REFMEM:PACKage:*` 接入 StorageAO 对象事务：`BEGIN/DATA/END/ABORt/STATus?/INFO?/READ?/DELete`；该命令树已删除，不再作为正式接口。
+  - 新增 `tools/refmem_pack_write/refmem_pack_write.py`，固化分块上传、读回和 `LOAD:SD` 验证流程。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke` 已通过，生成 build id `20260813154434`，package CRC `0x8E5DC49A`。
+- 还需完成：
+  - 运行 Python 脚本静态检查、文档检查。
+  - OTA 烧录到 COM6 后，用 `refmem_pack_write.py` 完成板端上传、读回和 `LOAD:SD` 正向闭环。
+- 关联文件：
+  - `components/storage_manager/inc/storage_manager.h`
+  - `components/storage_manager/src/storage_manager.c`
+  - `middleware/fatfs_port/inc/fatfs_port.h`
+  - `middleware/fatfs_port/src/fatfs_port.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_pack_write/refmem_pack_write.py`
+- 下一步：
+  - 完成板端闭环后，将该对象事务抽象继续推广到 profile/calibration 等受控存储对象。
 
 ### REFMEM-TASK-20260813-021 - LOAD:SD 接入 RMTP parser 首版
 

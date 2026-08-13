@@ -76,6 +76,14 @@ Get-Content -Path tools\README.md -Encoding UTF8
   package under `/refmem/` for System Pack staging format validation. It writes
   `app_model.rmtp`, `app_model.idx`, and `app_model.json`; board-side parsing is
   intentionally staged behind the RefMem TLV parser work.
+- `refmem_pack_write/refmem_pack_write.py`: uploads `/refmem/app_model.rmtp`
+  through generic `SYSTem:STORage:FILE:WRITe:*` SCPI commands, reads back the
+  first bytes with `SYSTem:STORage:FILE:READ?`, and can run
+  `SYSTem:REFMEM:LOAD:SD` for the RefMem staging gate.
+- `storage_scpi_validate/storage_scpi_validate.py`: board-side validation for
+  generic StorageAO file and directory CRUD. It covers directory create,
+  catalog, rename and delete, plus file write transaction, info, readback,
+  rename and delete.
 - `sd_board_validate/sd_board_validate.py`: board-side SD validation over SCPI.
   It does not flash firmware; it checks `SYST:SD:*`, `SYST:STOR:*`, root and
   key directory catalogs, path-denial behavior, boot/arm/fault snapshot

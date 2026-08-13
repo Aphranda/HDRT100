@@ -899,7 +899,42 @@ SYSTem:REFMEM:LOAD:NODE
 SYSTem:REFMEM:LOAD:STATus?
 ```
 
-SCPI callback 只能读取 RefMem snapshot 或写 command/config slot，不能临时触发跨板查询，也不能直接修改 state、summary、result、health、quality 或 evidence slot。
+SCPI callback 只能读取 RefMem snapshot 或提交受控 owner 意图，不能临时触发跨板查询，也不能直接修改 state、summary、result、health、quality 或 evidence slot。RefMem 向量表不承载 `app_model.rmtp` 文件数据；它只保存 state、size、CRC、path hash、table registry、load snapshot 和 evidence 等事实摘要。完整文件数据属于 StorageAO 私有事务 buffer 或 SD/FatFs 后端对象。
+
+### StorageAO File Management
+
+`app_model.rmtp` 的写入不是 SCPI 直接写 FatFs，也不是 RefMem 向量表承载数据。它通过 StorageAO 的通用文件管理基础件完成；RefMem 只在 `LOAD:SD` 阶段读取并校验文件内容：
+
+```text
+SCPI command
+  -> StorageAO file/directory command
+  -> path whitelist + mode gate
+  -> receive/update private transaction buffer
+  -> CRC gate
+  -> StorageAO FILE_WRITE job
+  -> backend atomic replace
+  -> FILE_INFO/FILE_READ/FILE_DELETE/FILE_RENAME query and evidence
+  -> SYSTem:REFMEM:LOAD:SD validates package into RefMem staging
+```
+
+通用 Storage 文件/目录能力：
+
+| 类别 | 命令 | 语义 |
+|---|---|---|
+| 文件写事务 | `SYSTem:STORage:FILE:WRITe:BEGIN/DATA/END/ABORt/STATus?` | 分块写入 StorageAO 私有 buffer，CRC 通过后由 `FILE_WRITE` job 原子替换后端文件。 |
+| 文件查询 | `SYSTem:STORage:FILE:INFO?/READ?` | 通过 StorageAO job 查询文件/目录摘要或读取受限片段。 |
+| 文件维护 | `SYSTem:STORage:FILE:DELete/REName` | 通过 StorageAO job 删除或移动/改名文件。 |
+| 目录维护 | `SYSTem:STORage:DIRectory:CREate/DELete/REName/CATalog?` | 通过 StorageAO job 创建、删除、移动/改名和分页枚举目录。 |
+
+接口规则：
+
+- `BEGIN "<path>",<size>,<crc32>` 只建立 StorageAO 写事务，返回 `txn_id`，不写 SD。
+- `DATA <offset>,"<hex>"` 只允许顺序 offset 分块，写入 StorageAO 私有 buffer；数据不进入 RefMem 向量表。
+- `END` 先校验传输 CRC，再投递 StorageAO `FILE_WRITE` job，由 StorageAO owner 执行目录创建、临时文件写入、sync 和原子替换。
+- `INFO?`、`READ?`、`DELete`、`REName` 和目录命令都通过 StorageAO job 完成；SCPI 层不直接调用 FatFs。
+- 路径先经 StorageAO 规范化和白名单检查；调试上位机可再做产品级封装限制，但底层不绑定 `REFMEM_PACKAGE` 专用入口。
+- `LOAD:SD` 仍是独立步骤：它读取 `/refmem/app_model.rmtp`，校验 `.rmtp` header、目录和 CRC，只写 RefMem staging snapshot，不直接替换 active image。
+- 后续对接其他存储设备时，SCPI 和 RefMem 不变，只扩展 StorageAO backend contract。
 
 ### RefMem Load 状态机
 
@@ -926,6 +961,19 @@ SCPI / SD
 ```
 
 `SYSTem:REFMEM:LOAD:SD [path]` 扫描 SD `/manifest.idx`，随后读取并校验 RefMem table image；默认路径为 `/refmem/app_model.rmtp`，可用可选 path 覆盖。当前 parser 已校验 `.rmtp` header、table directory、payload CRC、package CRC 和单表 CRC，但仍只写 staging load snapshot，不替换 active image。`SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 允许 SCPI 直接提交一条 NodeLoad 候选到 staging，用于调试和自组网协调前的节点实例化验证。两者都不直接覆盖 active NodeLoadTable，也不修改 NodeSlot live fact。`SYSTem:REFMEM:LOAD:STATus?` 读取固定 snapshot：`version,load_seq,source,mode,staging_state,manifest_status,manifest_schema,manifest_required_count,manifest_missing_count,path_hash,active_package_crc32,staging_package_crc32,staging_lint_error_count,staging_first_lint_error,staging_node_id,staging_instance_id,staging_role_mask,staging_persona_mask,staging_enabled,staging_required,staging_load_order,last_error,manifest_build_id,path`。
+
+写入 `/refmem/app_model.rmtp` 使用通用 Storage 文件接口，不再保留 `SYSTem:REFMEM:PACKage:*` 专用入口：
+
+| 命令 | 返回 | 语义 |
+|---|---|---|
+| `SYSTem:STORage:FILE:WRITe:BEGIN "/refmem/app_model.rmtp",<size>,<crc32>` | `OK,txn_id` | 在 StorageAO 建立写事务。 |
+| `SYSTem:STORage:FILE:WRITe:DATA <txn_id>,<offset>,"<hex>"` | `OK,txn_id,received_size` | 顺序写入事务 buffer。 |
+| `SYSTem:STORage:FILE:WRITe:END <txn_id>` | `WRITTEN,<status fields>` | CRC 通过后提交 StorageAO 写 job，原子写入 `/refmem/app_model.rmtp`。 |
+| `SYSTem:STORage:FILE:WRITe:ABORt [txn_id]` | `OK` | 中止当前事务。 |
+| `SYSTem:STORage:FILE:WRITe:STATus?` | `active,txn_id,state,expected_size,received_size,expected_crc32,actual_crc32,path_hash,error,job_id,path` | 查询 StorageAO 写事务摘要。 |
+| `SYSTem:STORage:FILE:INFO? "/refmem/app_model.rmtp"` | `OK/ERROR,job_id,job_state,kind,size,path_hash,error,path` | 查询文件信息。 |
+| `SYSTem:STORage:FILE:READ? "/refmem/app_model.rmtp",[offset],[length]` | `OK/ERROR,job_id,offset,requested,returned,file_size,eof,path_hash,error,hex` | 分段读取文件内容。 |
+| `SYSTem:STORage:FILE:DELete "/refmem/app_model.rmtp"` | `DELETED/ERROR,job_id,job_state,error,path` | 删除文件。 |
 
 ### RefMem Table Image 格式
 
@@ -970,6 +1018,7 @@ table directory 每项 16 字节：
 约束：
 
 - `.rmtp` 只描述 RefMem static model table image，不承载 OTA payload、日志、波形或大证据。
+- RefMem 向量表不承载 `.rmtp` 文件数据；最多记录路径、hash、CRC、load state 和 validation evidence。
 - 固件 parser 必须先验证 magic、format_version、header_size、total_size、table_count、payload CRC、package CRC 和每表 CRC，再进入 owner validation。当前首版已完成这些格式与 CRC 校验。
 - table image 只能写 staging，不能直接覆盖 active。
 - owner validation 通过前，`RefMemTableRegistry` 只能显示 `STAGED/CRC_OK`，不能显示 `OWNER_OK`。

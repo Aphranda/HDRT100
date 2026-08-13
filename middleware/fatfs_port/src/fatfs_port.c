@@ -338,8 +338,16 @@ fatfs_port_status_t fatfs_port_make_directory(const char *path)
     fatfs_port_make_path(path, fat_path, sizeof(fat_path));
 
     const FRESULT result = f_mkdir(fat_path);
-    if (result == FR_OK || result == FR_EXIST) {
+    if (result == FR_OK) {
         return FATFS_PORT_STATUS_OK;
+    }
+    if (result == FR_EXIST) {
+        FILINFO file_info;
+        if (f_stat(fat_path, &file_info) == FR_OK &&
+            (file_info.fattrib & AM_DIR) != 0u) {
+            return FATFS_PORT_STATUS_OK;
+        }
+        return FATFS_PORT_STATUS_WRITE_FAILED;
     }
     return FATFS_PORT_STATUS_WRITE_FAILED;
 }
@@ -416,6 +424,10 @@ fatfs_port_status_t fatfs_port_write_text_file_atomic(const char *final_path,
 
     result = f_rename(fat_tmp_path, fat_final_path);
     if (result != FR_OK) {
+        (void)f_unlink(fat_final_path);
+        result = f_rename(fat_tmp_path, fat_final_path);
+    }
+    if (result != FR_OK) {
         (void)f_unlink(fat_tmp_path);
         return FATFS_PORT_STATUS_RENAME_FAILED;
     }
@@ -463,11 +475,63 @@ fatfs_port_status_t fatfs_port_write_binary_file_atomic(const char *final_path,
 
     result = f_rename(fat_tmp_path, fat_final_path);
     if (result != FR_OK) {
+        (void)f_unlink(fat_final_path);
+        result = f_rename(fat_tmp_path, fat_final_path);
+    }
+    if (result != FR_OK) {
         (void)f_unlink(fat_tmp_path);
         return FATFS_PORT_STATUS_RENAME_FAILED;
     }
 
     return FATFS_PORT_STATUS_OK;
+}
+
+fatfs_port_status_t fatfs_port_delete(const char *path)
+{
+    if (path == NULL) {
+        return FATFS_PORT_STATUS_PATH_NOT_FOUND;
+    }
+
+    const fatfs_port_status_t mount_status = fatfs_port_mount();
+    if (mount_status != FATFS_PORT_STATUS_OK) {
+        return mount_status;
+    }
+
+    char fat_path[96];
+    fatfs_port_make_path(path, fat_path, sizeof(fat_path));
+    const FRESULT result = f_unlink(fat_path);
+    if (result == FR_OK) {
+        return FATFS_PORT_STATUS_OK;
+    }
+    if (result == FR_NO_FILE || result == FR_NO_PATH) {
+        return FATFS_PORT_STATUS_PATH_NOT_FOUND;
+    }
+    return FATFS_PORT_STATUS_WRITE_FAILED;
+}
+
+fatfs_port_status_t fatfs_port_rename(const char *old_path, const char *new_path)
+{
+    if (old_path == NULL || new_path == NULL) {
+        return FATFS_PORT_STATUS_PATH_NOT_FOUND;
+    }
+
+    const fatfs_port_status_t mount_status = fatfs_port_mount();
+    if (mount_status != FATFS_PORT_STATUS_OK) {
+        return mount_status;
+    }
+
+    char fat_old_path[96];
+    char fat_new_path[96];
+    fatfs_port_make_path(old_path, fat_old_path, sizeof(fat_old_path));
+    fatfs_port_make_path(new_path, fat_new_path, sizeof(fat_new_path));
+    const FRESULT result = f_rename(fat_old_path, fat_new_path);
+    if (result == FR_OK) {
+        return FATFS_PORT_STATUS_OK;
+    }
+    if (result == FR_NO_FILE || result == FR_NO_PATH) {
+        return FATFS_PORT_STATUS_PATH_NOT_FOUND;
+    }
+    return FATFS_PORT_STATUS_RENAME_FAILED;
 }
 
 static bool fatfs_port_parse_sequence_name(const char *name,
