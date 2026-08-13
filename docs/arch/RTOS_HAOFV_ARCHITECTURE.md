@@ -6,7 +6,7 @@ Canonical: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
 Last updated: 2026-08-13
 
-本文档是 DTC100 / RP2350_TRIG 在 HAOFV 下的 RTOS + 双核 AMP 架构入口。
+本文档是 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 RTOS + 双核 AMP 架构入口。
 RTOS 只提供调度器、任务、队列、超时和同步原语，不替代 HAOFV 中的
 Active Object、Function Block、Vector Blackboard、Resource Arbiter 和 Hardware Service
 边界。

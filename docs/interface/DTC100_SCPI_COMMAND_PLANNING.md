@@ -1,4 +1,4 @@
-# DTC100 SCPI 架构基线
+# Distributed Hard Real-Time Trigger System SCPI 架构基线
 
 Status: Active
 Domain: SCPI
@@ -6,7 +6,7 @@ Canonical: `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
 Related: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
 Last updated: 2026-08-13
 
-本文档记录 DTC100 当前 SCPI 固件架构、命令域边界、owner 归属和后续收敛待办。它不是历史流水账，也不是上位机最终指令手册：
+本文档记录 Distributed Hard Real-Time Trigger System 当前 SCPI 固件架构、命令域边界、owner 归属和后续收敛待办。`DTC100` 暂作为当前设备型号和 `*IDN?` 字段保留。它不是历史流水账，也不是上位机最终指令手册：
 
 - 正式产品指令表以 `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` 为准。
 - 固件基础命令说明以 `docs/interface/SCPI_COMMANDS.md` 为准。
@@ -15,7 +15,7 @@ Last updated: 2026-08-13
 
 ## 1. 当前结论
 
-DTC100 当前 SCPI 已经从早期 `scpi_port.c` 大文件和 legacy trigger 入口，收敛为“主命令线 + 分域命令模块 + owner/snapshot 闭环”的结构。
+当前 SCPI 已经从早期 `scpi_port.c` 大文件和 legacy trigger 入口，收敛为“主命令线 + 分域命令模块 + owner/snapshot 闭环”的结构。
 
 当前主域为：
 
@@ -47,7 +47,7 @@ REALtime
 
 ## 2. 主命令线
 
-DTC100 对外只保留一条 SCPI 主命令线：
+系统对外只保留一条 SCPI 主命令线：
 
 ```text
 USBTMC / USB488 / validation CDC

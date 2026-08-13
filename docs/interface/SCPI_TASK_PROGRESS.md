@@ -6,10 +6,10 @@ Canonical: `docs/interface/SCPI_TASK_PROGRESS.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
 Last updated: 2026-08-13
 
-本文档用于记录 DTC100 / RP2350_TRIG 工程中 SCPI 指令模块拆分、产品命令树收敛、
+本文档用于记录 Distributed Hard Real-Time Trigger System 中 SCPI 指令模块拆分、产品命令树收敛、
 板端烧录验证和工具闭环进度。每完成一个阶段，都应追加任务记录，说明目标、完成内容、
 验证结果、剩余工作和下一步计划，便于后续回溯 SCPI 架构边界、串口生命周期问题和
-板端证据。
+板端证据。`DTC100` 保留为当前设备型号，`RP2350_TRIG` 保留为历史工程和构建产物名。
 
 架构原则以 `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md` 为准，RTOS / 反射内存 / owner
 任务边界以 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md` 为准。

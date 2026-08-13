@@ -6,7 +6,7 @@ Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
 Last updated: 2026-08-13
 
-本文档定义 DTC100 / RP2350_TRIG 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
+本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
 
 > **实施指南**：[HAOFV_IMPLEMENTATION_PLAYBOOK.md](HAOFV_IMPLEMENTATION_PLAYBOOK.md) 提供 ECC 表实现示例、Flash 异步 Job 代码和历史 GPIO 迁移样例；具体硬件约束仍以 `docs/hardware/` 和 `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 为准。
 
@@ -183,7 +183,7 @@ Active Object 不直接暴露内部状态，不允许外部模块直接修改 Do
 - 工程工具链绑定。
 - 在硬实时 PIO 路径中执行功能块调度。
 
-DTC100 的分布式系统能力不由 IEC 61499 分布式运行时实现，而由 Distributed Vector Blackboard / RefMem Sync Layer 实现。换句话说，FB 不跨节点直接调用 FB；跨节点交互只能通过反射内存向量表、命令槽、ACK/NACK、同步帧和共同时间事实完成。
+Distributed Hard Real-Time Trigger System 的分布式系统能力不由 IEC 61499 分布式运行时实现，而由 Distributed Vector Blackboard / RefMem Sync Layer 实现。换句话说，FB 不跨节点直接调用 FB；跨节点交互只能通过反射内存向量表、命令槽、ACK/NACK、同步帧和共同时间事实完成。
 
 建议功能块：
 

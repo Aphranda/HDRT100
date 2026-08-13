@@ -6,7 +6,7 @@ Canonical: `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
 Last updated: 2026-08-13
 
-本文档用于记录 DTC100 / RP2350_TRIG 工程中基于 HAOFV 的 RTOS + 双核 AMP、
+本文档用于记录 Distributed Hard Real-Time Trigger System 工程中基于 HAOFV 的 RTOS + 双核 AMP、
 分布式触发、模拟反射内存、任务拆分和板端烧录验证进度。每完成一个阶段，
 都应追加任务记录，说明目标、完成内容、验证结果、剩余工作和下一步计划，
 便于后续回溯任务边界、水位、core1 heartbeat、反射内存快照和 CAL/SYNC 骨架状态。

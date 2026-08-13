@@ -15,7 +15,7 @@ Last updated: 2026-08-13
 | `HAOFV_ARCHITECTURE.md` | HAOFV 顶层架构入口，定义组件约束、层次逻辑和跨域 owner。 | 最高层架构真相；不写具体 PCB pin map。 |
 | `HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，记录 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 | 架构偏差和未建功能域的独立追踪入口；不记录普通开发流水账。 |
 | `HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 核心基础架构，定义共同时间事实、同步 DPLL、角度 DPLL 和预测分发边界。 | VDC/DPLL 的当前架构入口；`sync/` 中的 DPLL 文档作为落地方案和历史设计输入。 |
-| `ARCH_PRODUCT_ARCHITECTURE.md` | DTC100/RP2350_TRIG 产品化系统架构特化，服从 HAOFV 顶层约束。 | 产品目标、四板角色、发布门禁和跨域契约入口。 |
+| `ARCH_PRODUCT_ARCHITECTURE.md` | Distributed Hard Real-Time Trigger System 产品化系统架构特化，服从 HAOFV 顶层约束。 | 产品目标、四板角色、发布门禁和跨域契约入口。 |
 | `RTOS_HAOFV_ARCHITECTURE.md` | 基于 HAOFV 的 RTOS + 双核 AMP 架构，整合原 RTOS 分区、OSAL 移植、双核方案和 0614 摘要。 | 当前 RTOS / 双核 / 分布式触发唯一架构入口；不再保留独立双核方案。 |
 | `RTOS_HAOFV_TODO.md` | 基于 HAOFV 的 RTOS 实施待办。 | 只维护未完成事项；不写验证流水账。 |
 | `RTOS_HAOFV_TASK_PROGRESS.md` | 基于 HAOFV 的 RTOS 任务进度。 | 闭环验证记录入口；代码任务完成后追加。 |

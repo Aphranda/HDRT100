@@ -47,6 +47,9 @@ Last updated: 2026-08-13
   目录 README 先列迁移候选和 canonical，不移动历史文件。
 - [ ] P1-08 形成第一批迁移 CSV：列出旧路径、新路径、引用影响、验证命令和回退策略，
   优先覆盖 `docs/` 文档治理、`refmem/`、`interface/` 和 `trigger/`。
+- [x] P1-09 冻结系统/项目命名层级：系统/项目名为 `Distributed Hard Real-Time Trigger System`，
+  `DTC100` 保留为当前设备型号，`RP2350 / RP2350B` 保留为当前硬件平台，
+  `RP2350_TRIG` 保留为历史工程和构建产物名。
 
 ## P2 可以延后
 
@@ -78,6 +81,7 @@ Last updated: 2026-08-13
 | 2026-07-07-SD-PROGRESS | 已完成 | `TASK_PROGRESS_SD.md` | `docs/storage/SD_TASK_PROGRESS.md` | 已更新 README、docs 内引用，并从 docs 检查脚本 allowlist 移除旧历史名。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `DOCS_NAMING_AND_STRUCTURE.md` | 根目录 `DOCS_NAMING_STRUCTURE_PLAN.md` | 已更新 README、docs、tools 内引用；保持文档治理 canonical 入口。 |
 | 2026-08-13-DOCS-DOMAIN-PHASE-2 | 已完成 | 根目录 `DOCS_NAMING_STRUCTURE_PLAN.md` | `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` | 文档治理域首批迁移，已更新 README、docs 和根 README 引用。 |
+| 2026-08-13-PROJECT-NAME-FREEZE | 已完成 | `DTC100 / RP2350_TRIG` 作为项目/系统名 | `Distributed Hard Real-Time Trigger System` | 已更新 README、HAOFV、产品架构、RTOS、RefMem、SCPI 规划和文档治理入口；`DTC100` 型号、`RP2350` 硬件平台、`RP2350_TRIG` 构建产物名暂不迁移。 |
 | 2026-08-13-DOCS-DOMAIN-PHASE-2 | 已完成 | 根目录 `DOCS_DOMAIN_STRUCTURE_PLAN.md` | `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md` | 文档治理域首批迁移，作为后续域目录迁移样板。 |
 | 2026-08-13-DOCS-DOMAIN-PHASE-2 | 已完成 | 根目录 `DOCS_MIGRATION_TODO.md` | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理域首批迁移，迁移待办进入 docs 子目录。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `PIO_RESOURCE_PLAN.md` | `docs/sync/SYNC_IO_RESOURCE_PLAN.md` | 已更新 README、docs、tools 内引用；保持 SYNC_IO 资源规划入口。 |

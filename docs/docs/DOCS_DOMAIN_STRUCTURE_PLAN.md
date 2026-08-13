@@ -1,4 +1,4 @@
-# DTC100 文档域目录化管理方案
+# Distributed Hard Real-Time Trigger System 文档域目录化管理方案
 
 Status: Draft
 Domain: Documentation
@@ -166,7 +166,7 @@ docs/
 迁移完成后的阅读树建议如下：
 
 ```text
-DTC100 分布式触发系统
+Distributed Hard Real-Time Trigger System
 ├─ 1. 产品和软件架构
 │  ├─ arch/HAOFV_ARCHITECTURE.md
 │  ├─ arch/HAOFV_VDC_DPLL_ARCHITECTURE.md
