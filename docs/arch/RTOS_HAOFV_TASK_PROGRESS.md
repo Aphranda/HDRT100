@@ -66,6 +66,31 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260813-008 - RefMem 64 KB 表契约冻结
+
+- 状态：框架完成，代码未改
+- 日期：2026-08-13
+- 任务目标：
+  - 根据 RefMem 主域 P3，冻结 RTOS + 双核 AMP 下 `DistributedVectorTable` 的 64 KB offset/size、slot owner、snapshot、version bundle 和时间回绕契约。
+  - 保持 RTOS 架构文档与 RefMem canonical 一致。
+- 完成内容：
+  - `RTOS_HAOFV_ARCHITECTURE.md` 将 RefMem 表格同步为固定 offset/size，表尾固定 `0x10000`。
+  - 明确详细 Header/Directory、slot guard、owner、snapshot、Version Bundle 和时间回绕契约以 `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md` 为准。
+  - `RTOS_HAOFV_TODO.md` 将 P1 中的 P3 文档冻结项标记完成，并拆出 `refmem_vector_table.h/.c`、directory CRC、统一 guard、owner 写权限、seqlock/双缓冲和运行上下文字段的代码待办。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，保留 7 个既有文件命名 warning。
+  - 本轮为文档契约冻结，未修改固件代码，未执行构建、烧录或板端 `SYSTem:REFMEM:*` 查询。
+- 还需完成：
+  - 按 RefMem canonical 进入代码落地，拆出 `refmem_vector_table.h/.c`。
+  - 完成 directory CRC、slot directory 校验、slot owner 写权限、seqlock/双缓冲和运行上下文字段。
+- 关联文件：
+  - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
+  - `docs/arch/RTOS_HAOFV_TODO.md`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 继续 RefMem P4 Command / ACK / NACK 契约，随后进入代码拆分。
+
 ### RTOS-DIST-TASK-20260813-007 - Flash/XIP 双核保护框架补齐
 
 - 状态：框架完成，代码未改

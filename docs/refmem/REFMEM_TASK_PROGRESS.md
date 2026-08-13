@@ -43,6 +43,37 @@ DistributedRefMemAO
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-004 - DistributedVectorTable 契约冻结
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 进入 P3，冻结 64 KB `DistributedVectorTable` 的 slot offset、slot size、layout version、slot owner、snapshot 和时间字段契约。
+  - 以当前 `components/distributed_refmem/` P0 实现为基线，明确文档冻结内容和后续代码实现项。
+- 完成内容：
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 将 64 KB 表格从“建议大小”升级为固定 offset/size，表尾固定 `0x10000`。
+  - 增加 Header/Directory 契约，定义 `magic/end_magic`、`layout_version`、`table_seq`、`epoch_id`、`run_id`、slot directory、directory CRC 和兼容版本。
+  - 增加 slot guard 契约，定义 `slot_seq`、owner、writer、crc、stale、flags、write_epoch、write_tick32。
+  - 增加 owner 与写权限表，明确各 slot 的唯一 writer 和禁止事项。
+  - 增加 snapshot 与并发契约，定义 `DIRECT_ATOMIC`、`SEQLOCK`、`DOUBLE_BUFFER`、`EVIDENCE_REF` 四类策略。
+  - 增加 Version Bundle，统一 layout、application、config、calibration、sync、loop、action、permission、storage、build 和 hw profile 版本。
+  - 增加时间字段与回绕规则，区分 `tick32`、`epoch_id + tick32` 和 `dc_time64_ns`。
+  - `RTOS_HAOFV_ARCHITECTURE.md` 同步固定 offset/size 表格，并把详细契约指向 RefMem canonical。
+  - `REFMEM_DOMAIN_TODO.md` 与 `RTOS_HAOFV_TODO.md` 将 P3 文档冻结项标记完成，并拆出代码实现项。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，保留 7 个既有文件命名 warning。
+  - 本任务为文档契约冻结，未执行构建、烧录或板端 SCPI。
+- 还需完成：
+  - 将 `distributed_refmem.h/.c` 拆出 `refmem_vector_table.h/.c`。
+  - 实现 directory CRC、slot directory 校验、统一 guard、owner 写权限、seqlock/双缓冲和运行上下文字段。
+- 关联文件：
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
+  - `docs/arch/RTOS_HAOFV_TODO.md`
+- 下一步：
+  - 进入 P4，定义 Command / ACK / NACK 槽原子 Take/Clear、command_seq、target mask、busy/timeout/reason 和 SCPI ACK/NACK 对齐。
+
 ### REFMEM-TASK-20260813-003 - 静态分布式应用模型细化
 
 - 状态：完成

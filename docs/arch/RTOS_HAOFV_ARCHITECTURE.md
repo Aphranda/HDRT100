@@ -257,24 +257,26 @@ RefMem 固定提供 A0-A7 八个通用节点槽。脉冲分发、链路切换、
 | `DistributedDeploymentGate` | build id、hw profile、config CRC、calibration CRC、sync profile CRC、layout version 和实例共存冲突检查。 | RUN 前一票否决不一致部署或冲突实例组合。 |
 | `DistributedConnectionQualityTable` | seq、CRC、stale、late、drop、timeout、last_error、evidence index。 | RUN 中诊断连接质量和报告闭环。 |
 
-| 区域 | 建议大小 | 内容 | 写入者 |
-|---|---:|---|---|
-| Header/Directory | 1 KB | magic、layout、slot offset、table_seq、epoch、crc32 | `task_refmem_sync` |
-| SystemSlot | 1 KB | system_mode、role_map_version、run_id、fault_latch、release gate | `task_system` |
-| Role/ConfigSlot | 2 KB | NodeRoleMap、hw_profile、persona、feature mask | `task_system` / config loader |
-| VdcSlot | 2 KB | sync_id、offset、rate、lock_state、holdover、relock、`e_vdc` | `task_vdc_sync` |
-| LoopSlot | 4 KB | trigger param、angle sweep/breakpoint、active sequence、scan_index | `task_loop_engine` |
-| DpllSlot | 2 KB | compare 捕获、角度预测、`T_fire_base`、`e_pll` | `task_dpll` |
-| NodeSlot[8] | 4 KB | node_id、role、heartbeat、local_state、error_code、stale_count | 各节点 owner |
-| TriggerSlot[8] | 8 KB | armed、last_fire_seq、late_count、t2_count、ready_timeout | 各节点 core1 摘要 |
-| IoSlot[8] | 8 KB | SMA/RJ45/BiSS IO 镜像、边沿计数、健康状态 | 各节点 IO owner |
-| CalibrationSlot | 8 KB | link table、delay table、staging/active/version/quality | `task_calibration` |
-| StatisticsSlot | 8 KB | `e_vdc/e_act/e_pll`、CRC/seq/late 分布、p99/p999 | 各统计 owner |
-| AckCommandSlot | 4 KB | command_seq、ack/nack/busy/timeout 位图、原子命令槽 | 命令 owner + 节点 ack |
-| FaultEvidenceSlot | 6 KB | fault_code、source_node、epoch、run_id、关键证据 | `task_system` |
-| GatewaySlot | 2 KB | A3/VNA/host 状态、采集状态 | `task_gateway_a3` |
-| OtaStorageUiSlot | 2 KB | OTA、Storage、UI 摘要 | 对应 task owner |
-| TlvExtension | 2 KB | versioned TLV、未来扩展 | owner by type |
+| 区域 | Offset | 大小 | 内容 | 写入者 |
+|---|---:|---:|---|---|
+| Header/Directory | `0x0000` | 1 KB | magic、layout、slot offset、table_seq、epoch、crc32 | `task_refmem_sync` |
+| SystemSlot | `0x0400` | 1 KB | system_mode、role_map_version、run_id、fault_latch、release gate | `task_system` |
+| Role/ConfigSlot | `0x0800` | 2 KB | NodeRoleMap、hw_profile、persona、feature mask | `task_system` / config loader |
+| VdcSlot | `0x1000` | 2 KB | sync_id、offset、rate、lock_state、holdover、relock、`e_vdc` | `task_vdc_sync` |
+| LoopSlot | `0x1800` | 4 KB | trigger param、angle sweep/breakpoint、active sequence、scan_index | `task_loop_engine` |
+| DpllSlot | `0x2800` | 2 KB | compare 捕获、角度预测、`T_fire_base`、`e_pll` | `task_dpll` |
+| NodeSlot[8] | `0x3000` | 4 KB | A0-A7 通用节点的 node_id、role、persona、heartbeat、local_state、error_code、stale_count | 各节点 owner |
+| TriggerSlot[8] | `0x4000` | 8 KB | armed、last_fire_seq、late_count、t2_count、ready_timeout | 各节点 core1 摘要 |
+| IoSlot[8] | `0x6000` | 8 KB | SMA/RJ45/BiSS IO 镜像、边沿计数、健康状态 | 各节点 IO owner |
+| CalibrationSlot | `0x8000` | 8 KB | link table、delay table、staging/active/version/quality | `task_calibration` |
+| StatisticsSlot | `0xA000` | 8 KB | `e_vdc/e_act/e_pll`、CRC/seq/late 分布、p99/p999 | 各统计 owner |
+| AckCommandSlot | `0xC000` | 4 KB | command_seq、ack/nack/busy/timeout 位图、原子命令槽 | 命令 owner + 节点 ack |
+| FaultEvidenceSlot | `0xD000` | 6 KB | fault_code、source_node、epoch、run_id、关键证据 | `task_system` |
+| GatewaySlot | `0xE800` | 2 KB | A3/VNA/host 状态、采集状态 | `task_gateway_a3` |
+| OtaStorageUiSlot | `0xF000` | 2 KB | OTA、Storage、UI 摘要 | 对应 task owner |
+| TlvExtension | `0xF800` | 2 KB | versioned TLV、未来扩展 | owner by type |
+
+表尾固定为 `0x10000`，总大小固定 64 KB。更完整的 Header/Directory、slot guard、owner、snapshot、Version Bundle 和时间回绕契约，以 `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md` 为准。
 
 完整表不等于整表高频同步。RJ45_SYNC_RING 上只同步变更 slot 的小 delta：
 

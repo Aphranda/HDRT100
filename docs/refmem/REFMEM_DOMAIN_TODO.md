@@ -40,15 +40,21 @@ Last updated: 2026-08-13
 
 ## P3 - Vector Table 与 Slot 契约
 
-- [ ] 冻结 `DistributedVectorTable` 64 KB layout、slot offset、slot size、layout version。
-- [ ] 为 DistributedVectorTable 增加 directory CRC 和 slot directory 校验。
-- [ ] 增加 epoch、run_id、config/calibration/loop/action/sync/sequence/permission/storage version。
+- [x] 文档冻结 `DistributedVectorTable` 64 KB layout、slot offset、slot size、layout version 规则。
+- [x] 文档定义 Header/Directory 契约，包含 directory CRC、slot directory、layout 兼容和 slot map 校验。
+- [x] 文档定义 Version Bundle，包含 epoch、run_id、config/calibration/loop/action/sync/sequence/permission/storage/build/hw profile 版本。
+- [x] 文档定义 slot owner 写权限规则，禁止非 owner 直接写其他节点 slot 或 active fact。
+- [x] 文档定义 slot 级 snapshot 契约，查询只读快照，不临时触发现场 IO。
+- [x] 文档定义 `DIRECT_ATOMIC`、`SEQLOCK`、`DOUBLE_BUFFER`、`EVIDENCE_REF` 四类快照策略。
+- [x] 文档定义共享字段必须使用 `__atomic`、DMB 屏障或等价机制；跨核快照必须带 sequence/version。
+- [x] 文档定义时间差一律使用回绕安全写法：`int32_t diff = (int32_t)(t1 - t0)`。
+- [x] 文档定义 `epoch_id + tick32` 和 `dc_time64_ns` 语义，并要求增加 `epoch_seconds` / `time_epoch` 等价字段。
+- [ ] 将 `distributed_refmem.h/.c` 拆出 `refmem_vector_table.h/.c`，并按文档冻结 offset/size/static assert。
+- [ ] 为 DistributedVectorTable 实现 directory CRC 和 slot directory 校验。
+- [ ] 为全部 slot 增加统一 guard 或等价兼容结构。
 - [ ] 实现 slot owner 写权限检查，禁止非 owner 写其他节点 slot。
-- [ ] 实现 slot 级 snapshot API，查询只读快照，不临时触发现场 IO。
 - [ ] 实现 seqlock 或双缓冲，避免字段半新半旧。
-- [ ] 共享 slot 字段使用 `__atomic` 或 DMB 屏障；跨核快照必须带 sequence/version。
-- [ ] 时间差一律使用回绕安全写法：`int32_t diff = (int32_t)(t1 - t0)`。
-- [ ] 评估并定义 `epoch_seconds` / `time_epoch` 扩展字段，避免 49 天回绕破坏 VDC/DPLL/T2。
+- [ ] 在代码中补齐 `epoch_id/run_id/epoch_seconds/dc_time64_ns` 等时间与运行上下文字段。
 
 ## P4 - Command / ACK / NACK
 

@@ -276,24 +276,153 @@ last_pass_tick
 
 首版 64 KB 表保持 RTOS 架构中的完整布局：
 
-| 区域 | 建议大小 | 内容 | 写入者 |
-|---|---:|---|---|
-| Header/Directory | 1 KB | magic、layout、slot offset、table_seq、epoch、crc32 | RefMem Domain |
-| SystemSlot | 1 KB | system_mode、role_map_version、run_id、fault_latch、release gate | SystemAO |
-| Role/ConfigSlot | 2 KB | NodeRoleMap、hw_profile、persona、feature mask | SystemAO / config loader |
-| VdcSlot | 2 KB | sync_id、offset、rate、lock_state、holdover、relock、`e_vdc` | VdcSyncAO |
-| LoopSlot | 4 KB | trigger param、angle sweep/breakpoint、active sequence、scan_index | LoopEngineAO |
-| DpllSlot | 2 KB | compare 捕获、角度预测、`T_fire_base`、`e_pll` | AngleDpll owner |
-| NodeSlot[8] | 4 KB | A0-A7 通用节点的 node_id、role、persona、heartbeat、local_state、error_code、stale_count | 各节点 owner |
-| TriggerSlot[8] | 8 KB | armed、last_fire_seq、late_count、t2_count、ready_timeout | 各节点 core1 摘要 |
-| IoSlot[8] | 8 KB | SMA/RJ45/BiSS IO 镜像、边沿计数、健康状态 | 各节点 IO owner |
-| CalibrationSlot | 8 KB | link table、delay table、staging/active/version/quality | CalibrationAO |
-| StatisticsSlot | 8 KB | `e_vdc/e_act/e_pll`、CRC/seq/late 分布、p99/p999 | Statistics / Measure owner |
-| AckCommandSlot | 4 KB | command_seq、ack/nack/busy/timeout 位图、原子命令槽 | 命令 owner + 节点 ACK |
-| FaultEvidenceSlot | 6 KB | fault_code、source_node、epoch、run_id、关键证据 | SystemAO / DiagnosticsAO |
-| GatewaySlot | 2 KB | A3/VNA/host 状态、采集状态 | GatewayAO |
-| OtaStorageUiSlot | 2 KB | OTA、Storage、UI 摘要 | 对应 task owner |
-| TlvExtension | 2 KB | versioned TLV、未来扩展 | owner by type |
+| Slot | Offset | Size | 内容 | 写入者 |
+|---|---:|---:|---|---|
+| Header/Directory | `0x0000` | 1 KB | magic、layout、slot offset、table_seq、epoch、crc32 | RefMem Domain |
+| SystemSlot | `0x0400` | 1 KB | system_mode、role_map_version、run_id、fault_latch、release gate | SystemAO |
+| Role/ConfigSlot | `0x0800` | 2 KB | NodeRoleMap、hw_profile、persona、feature mask | SystemAO / config loader |
+| VdcSlot | `0x1000` | 2 KB | sync_id、offset、rate、lock_state、holdover、relock、`e_vdc` | VdcSyncAO |
+| LoopSlot | `0x1800` | 4 KB | trigger param、angle sweep/breakpoint、active sequence、scan_index | LoopEngineAO |
+| DpllSlot | `0x2800` | 2 KB | compare 捕获、角度预测、`T_fire_base`、`e_pll` | AngleDpll owner |
+| NodeSlot[8] | `0x3000` | 4 KB | A0-A7 通用节点的 node_id、role、persona、heartbeat、local_state、error_code、stale_count | 各节点 owner |
+| TriggerSlot[8] | `0x4000` | 8 KB | armed、last_fire_seq、late_count、t2_count、ready_timeout | 各节点 core1 摘要 |
+| IoSlot[8] | `0x6000` | 8 KB | SMA/RJ45/BiSS IO 镜像、边沿计数、健康状态 | 各节点 IO owner |
+| CalibrationSlot | `0x8000` | 8 KB | link table、delay table、staging/active/version/quality | CalibrationAO |
+| StatisticsSlot | `0xA000` | 8 KB | `e_vdc/e_act/e_pll`、CRC/seq/late 分布、p99/p999 | Statistics / Measure owner |
+| AckCommandSlot | `0xC000` | 4 KB | command_seq、ack/nack/busy/timeout 位图、原子命令槽 | 命令 owner + 节点 ACK |
+| FaultEvidenceSlot | `0xD000` | 6 KB | fault_code、source_node、epoch、run_id、关键证据 | SystemAO / DiagnosticsAO |
+| GatewaySlot | `0xE800` | 2 KB | A3/VNA/host 状态、采集状态 | GatewayAO |
+| OtaStorageUiSlot | `0xF000` | 2 KB | OTA、Storage、UI 摘要 | 对应 task owner |
+| TlvExtension | `0xF800` | 2 KB | versioned TLV、未来扩展 | owner by type |
+
+表尾固定为 `0x10000`，总大小固定 64 KB。任何 slot offset、slot size 或 slot 顺序变化，都必须提升 `layout_version`，并导致旧 System Pack / 旧节点镜像进入 `INVALID` 或兼容转换路径。
+
+### Header 与 Directory 契约
+
+Header/Directory 是 RefMem 的自描述入口。它必须至少提供：
+
+| 字段 | 作用 | 规则 |
+|---|---|---|
+| `magic/end_magic` | 表识别和越界破坏检测。 | 初始化和 snapshot 时都必须校验。 |
+| `layout_version` | 64 KB 表布局版本。 | 首版冻结为 v1；布局变化必须递增。 |
+| `table_size` | 总表大小。 | 固定 65536。 |
+| `table_seq` | 全表事实序号。 | 任意 slot active fact 更新后递增。 |
+| `epoch_id` | 系统事实纪元。 | 复位、System Pack 切换、RUN 批次切换或重大恢复后递增。 |
+| `run_id` | 当前运行批次。 | 把配置、同步、T2、故障和报告绑定到同一批次。 |
+| `slot_count` | directory 项数量。 | 首版为 16。 |
+| `slot_directory[]` | slot id、offset、size、owner、flags、crc。 | RUN 前必须校验 offset/size 不重叠且覆盖 64 KB。 |
+| `directory_crc32` | directory 自身 CRC。 | 防止 slot map 半更新。 |
+| `header_crc32` | header CRC。 | 不包含 `header_crc32` 字段自身。 |
+| `compat_min_version` | 最低兼容 layout。 | 节点低于该版本时拒绝加入 RUN。 |
+
+Directory 项建议结构：
+
+```text
+slot_id
+offset
+size
+owner_domain
+owner_node_mask
+writer_instance
+flags
+slot_crc32
+slot_seq
+stale_window_us
+```
+
+### Slot Guard 契约
+
+每个 slot 的首部应预留统一 guard。P0 代码只有 header/node 的轻量 guard 语义，产品化版本需要推广到全部 slot。
+
+```text
+slot_seq
+owner_domain
+owner_node_id
+writer_instance
+crc32
+stale_state
+flags
+write_epoch
+write_tick32
+```
+
+规则：
+
+- `slot_seq` 在本 slot 完整发布后递增。
+- `crc32` 覆盖 guard 后的有效 payload，不能覆盖自身。
+- `stale_state` 使用 `OK/STALE/MISSING/INVALID/FAULT`。
+- `owner_domain` 和 `writer_instance` 必须能在 `DistributedDataLinkTable` 中找到唯一来源。
+- 非 owner 不能直接写 slot；跨域写入必须走 command/config staging。
+
+### Owner 与写权限
+
+RefMem 的写权限按 slot、字段和节点共同约束：
+
+| 写入范围 | 允许 writer | 禁止事项 |
+|---|---|---|
+| Header/Directory | RefMem Domain | 业务域直接改 layout、offset、slot_count。 |
+| SystemSlot | SystemAO / ConfigGate | SCPI callback 直接写 active state。 |
+| Role/ConfigSlot | SystemAO / config loader | 运行中无 gate 改 role/persona。 |
+| VdcSlot | VdcSyncAO / SyncDpllFB | Angle DPLL 写 VDC offset/rate。 |
+| LoopSlot | LoopEngineAO | TriggerAO 或 SCPI 直接改 active sequence。 |
+| DpllSlot | AngleDpll owner | SYNC DPLL 写 `T_fire_base`。 |
+| NodeSlot[n] | 节点 n owner / RefMem Sync 接收镜像 | 节点 A 写节点 B 的本地 owner 字段。 |
+| TriggerSlot[n] | 节点 n core1 realtime 摘要 / core0 合并 owner | SCPI 临时读取时触发现场 IO。 |
+| IoSlot[n] | 节点 n IO owner | 业务域绕过 IO owner 直接改 IO 镜像。 |
+| CalibrationSlot | CalibrationAO | SYNC 或 TRIG 私自修正 delay table。 |
+| StatisticsSlot | MEASure / Statistics owner | 业务配置写统计结果。 |
+| AckCommandSlot | command owner + target node ACK writer | 在执行动作临界区内做耗时工作。 |
+| FaultEvidenceSlot | SystemAO / DiagnosticsAO | 覆盖未落盘 evidence。 |
+| GatewaySlot | GatewayAO | 普通节点假冒上位机网关状态。 |
+| OtaStorageUiSlot | OTA / Storage / UI owner | core1 实时侧直接落盘或改 UI 状态。 |
+| TlvExtension | owner by TLV type | 未注册 TLV type 写入。 |
+
+### Snapshot 与并发契约
+
+所有对外读取都必须读取快照。SCPI/UI/Report 读取 RefMem 时，不允许临时跨板阻塞查询，也不允许临时驱动现场 IO。
+
+首版快照策略：
+
+| 数据类型 | 策略 | 适用场景 |
+|---|---|---|
+| 单个 32-bit 事实 | `DIRECT_ATOMIC` | heartbeat、flags、state、counter。 |
+| 小型结构 | `SEQLOCK` | node snapshot、guard、status summary。 |
+| 大型 payload | `DOUBLE_BUFFER` | sequence map、delay table、statistics block。 |
+| SD/report 证据 | `EVIDENCE_REF` | RefMem 只保存索引和摘要。 |
+
+跨核共享字段必须使用 `__atomic`、DMB 屏障或等价 RTOS/SDK 屏障。若字段来自 core1 realtime 快路径，core0 只能读取 ring 或 snapshot，不能在 core1 正执行 PIO/DMA 快路径时持有长临界区。
+
+### Version Bundle
+
+RefMem Header/SystemSlot 必须携带下面的版本束，用于 RUN gate 和报告闭环：
+
+```text
+layout_version
+application_version
+config_version / config_crc
+calibration_version / calibration_crc
+sync_profile_version / sync_profile_crc
+loop_version / active_sequence_crc
+action_version
+permission_version
+storage_pack_version
+build_id
+hw_profile_crc
+```
+
+任何会改变 RUN 语义的配置切换，都必须形成新的 `active_crc_bundle`，并记录到 DeploymentGate 和 FaultEvidence/Report。
+
+### 时间字段与回绕
+
+RefMem 中的时间字段分三类：
+
+| 类型 | 用途 | 规则 |
+|---|---|---|
+| `tick32_ms/us` | 短窗口调度、stale、timeout。 | 差值必须写成 `int32_t diff = (int32_t)(t1 - t0)`。 |
+| `epoch_id + tick32` | RUN 批次内事件、T2、故障 evidence。 | 查询和报告必须同时带 epoch/run_id。 |
+| `dc_time64_ns` | VDC/DPLL 稳态共同时间、预测分发。 | 由 SYNC/VDC owner 发布，业务域只读。 |
+
+`uint32_t` tick 不能直接表示长时间绝对时间。产品化版本必须增加 `epoch_seconds` 或等价 `time_epoch` 字段，避免 49 天回绕破坏 VDC/DPLL/T2、日志排序和 stale 计算。
 
 ## 对外接口边界
 
