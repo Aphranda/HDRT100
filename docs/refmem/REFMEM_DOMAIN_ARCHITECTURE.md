@@ -92,6 +92,20 @@ Distributed RefMem Domain
 Other nodes
 ```
 
+## 当前 Canonical Model
+
+本节是当前实现和后续待办的收敛点。若下文历史推导与本节冲突，以本节为准。
+
+- `DistributedRefMemAO` 是 RefMem Domain 的唯一运行 owner；SCPI、UI、System Pack 和业务 AO/FB 只提交意图或读取 snapshot，不直接改 active fact。
+- A0-A7 是全环唯一的通用逻辑插槽，代表可装载 slot substrate，不代表固定产品角色；具体角色由 `DistributedNodeLoadTable` 绑定到 AO/FB instance。
+- 一块物理板可以加载多个逻辑实例，例如调试阶段同时承载模拟网分和模拟转台；active assignment 仍最多 8 个，candidate proposal 上限为 16。
+- `DistributedGenericNodeTable` 只描述通用逻辑插槽基座、硬件身份、capability、claim policy 和 fail policy；不得把业务 role/persona 反向塞回 GenericNode。
+- `DistributedNodeLoadTable` 是 profile 到 A0-A7 的实例装载表；同一插槽允许多条 enabled load，但必须通过 DeploymentGate 的资源、IO、owner、writer、事件和数据连接检查。
+- `SlotClaimMap` 是运行期协调结果，不是新的 slot 空间；未分配 candidate 只能进入 evidence，不能生成 A8 或隐式节点。
+- `RefMemSlotContract` 是 `DistributedRefMemAO` 从 DataLink、Directory、SlotGuard、Gate 和 Quality 派生出的字段级只读契约，不是 AO/FB 对外业务 API。
+- RefMem load mode 是 RefMem 自身的表镜像状态机；`LOAD:SD`、`LOAD:NODE`、后续 `LOAD:BEGIN/DATA/END/ABORT` 只允许写 staging image，active image 必须经 CRC、lint、owner validation 和 activation。
+- 运行期不做热替换 active image；RUN 前 gate 可以激活已验证 image，RUN 中只能发布事实、命令、ACK/NACK、quality 和 evidence。
+
 ## 静态分布式模型
 
 RefMem Domain 吸收 IEC 61499-style 分布式运行时的优点，但保留静态、可验证、产品化的实现方式。
@@ -915,12 +929,22 @@ SCPI / SD
 
 ## 当前实现现状
 
-当前代码中 `components/distributed_refmem/` 仍是组件骨架：
+当前代码中 `components/distributed_refmem/` 已经从单文件表骨架推进到首版 RefMem Domain 组件：
 
-- `distributed_refmem.h`
-- `distributed_refmem.c`
+- `distributed_refmem.h/.c`：仍是当前对外兼容入口，维护本地 64 KB `DistributedVectorTable`、header、node slot、core vector、runtime protection snapshot 和 status flags。
+- `refmem_vector_table.h/.c`：封装 64 KB table layout、slot directory、header CRC 和 directory 校验。
+- `refmem_application_model.h/.c`：落地 ApplicationMap、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality、静态 linter、package CRC 和 load staging snapshot。
+- `SYSTem:REFMEM:LOAD:SD`：已接入 Storage manifest 扫描并写 staging snapshot，当前仍用已编译静态模型 CRC 作为占位，等待真实 TLV/System Pack parser。
+- `SYSTem:REFMEM:LOAD:NODE`：已支持通过 SCPI inline 提交单条 NodeLoad 候选到 staging snapshot，尚未形成多条 staging NodeLoadTable image。
+- `SYSTem:REFMEM:LOAD:STATus?`：已可查询 load sequence、source、RefMem load mode、staging state、manifest、active/staging CRC、lint/error 和当前候选。
 
-它已经维护本地 64 KB `DistributedVectorTable`、header、node slot、core vector 和 runtime protection snapshot，但尚未形成完整 RefMem Domain owner，也未拆出 application model、event link、data link、deployment gate、connection quality、sync protocol 和 command ACK 子模块。
+尚未形成完整实现的部分：
+
+- `RefMemTableRegistry`、active/staging/rollbackable 双镜像切换和 owner validation callback。
+- `SlotClaimMap` 运行期聚合、自组网协调、candidate overflow evidence 和 DeploymentGate 接入。
+- `RefMemSlotContract` 派生代码、字段级 owner 写权限、seqlock/双缓冲快照和 subscription 分发。
+- `refmem_command.h/.c`、ACK/NACK 原子命令槽和 completion/fence 语义。
+- RJ45_SYNC_RING 上的 `REFMEM_DELTA` / `REFMEM_EPOCH` 同步协议和受控 RMA window。
 
 ## 目标代码形态
 
@@ -933,6 +957,9 @@ components/distributed_refmem/
     refmem_domain.h
     refmem_vector_table.h
     refmem_application_model.h
+    refmem_table_registry.h
+    refmem_slot_claim.h
+    refmem_slot_contract.h
     refmem_sync.h
     refmem_command.h
     refmem_quality.h
@@ -940,6 +967,9 @@ components/distributed_refmem/
     refmem_domain.c
     refmem_vector_table.c
     refmem_application_model.c
+    refmem_table_registry.c
+    refmem_slot_claim.c
+    refmem_slot_contract.c
     refmem_sync.c
     refmem_command.c
     refmem_quality.c

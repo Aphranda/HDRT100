@@ -39,9 +39,43 @@ DistributedRefMemAO
 + connection quality
 ```
 
-首阶段先完成文档主域和架构边界，不修改代码。
+当前实现已经落地 `refmem_vector_table.h/.c`、`refmem_application_model.h/.c`、静态模型 linter、package CRC 和 `SYSTem:REFMEM:LOAD:*` staging 骨架。下一阶段主线按以下顺序推进：
+
+```text
+RefMemTableRegistry
+-> staging/active/rollbackable table image
+-> SlotClaimMap + 16 candidate overflow evidence
+-> RefMemSlotContract internal validation
+-> command ACK/NACK
+-> REFMEM_DELTA / REFMEM_EPOCH sync protocol
+```
 
 ## 任务记录
+
+### REFMEM-TASK-20260813-016 - RefMem 文档主线重排
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 在 Distributed RefMem 发生较大架构变动后，重新审查 `docs/refmem` 内容。
+  - 把待办从早期 P0-P8 历史阶段重排为当前可执行优先级。
+  - 修正 README 和架构文档中过时的实现状态。
+- 完成内容：
+  - `README.md` 从 Draft 更新为 Active，并补充 RefMemAO、A0-A7 通用逻辑插槽、NodeLoad、SlotClaim、表镜像加载等当前主线。
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加“当前 Canonical Model”，明确 RefMemAO owner、A0-A7 通用插槽、GenericNode/NodeLoad 分层、SlotClaimMap、RefMemSlotContract 和 load staging 边界。
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 的“当前实现现状”更新为当前代码真实状态，列出已实现组件和未完成模块。
+  - `REFMEM_DOMAIN_TODO.md` 整体重构为当前执行队列：P0 表镜像与加载闭环、P1 SlotClaimMap 与自组网协调、P2 SlotContract 与 AO/FB owner API、P3 Command/ACK/NACK、P4 Sync/RMA、P5 组件化、P6 接口接入、P7 验证。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+- 还需完成：
+  - 按新 P0 从 `RefMemTableRegistry` 和 table image 生命周期开始实现。
+- 关联文件：
+  - `docs/refmem/README.md`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_TASK_PROGRESS.md`
+- 下一步：
+  - 提交推送本轮文档重排；随后进入 P0-TableRegistry 首个实现闭环。
 
 ### REFMEM-TASK-20260813-015 - RefMem SCPI staging load 首版
 
