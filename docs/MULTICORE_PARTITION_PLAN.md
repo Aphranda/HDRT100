@@ -3,7 +3,7 @@
 Status: Active
 Domain: MULTICORE
 Canonical: `docs/MULTICORE_PARTITION_PLAN.md`
-Related: `docs/RTOS_PORTING_PLAN.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/BISSC_TAP_BRIDGE_DESIGN.md`
+Related: `docs/RTOS_PORTING_PLAN.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`, `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`
 Last updated: 2026-08-10
 
 本文档定义 RP2350_TRIG 的双核演进边界。目标是把实时性要求高的触发域和

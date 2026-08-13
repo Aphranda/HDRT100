@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: BISSC
-Canonical: `docs/BISSC_TAP_BRIDGE_DESIGN.md`
-Related: `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`, `docs/BISSC_IMPLEMENTATION_TODO.md`, `docs/BISSC_TASK_PROGRESS.md`
+Canonical: `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`
+Related: `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`, `docs/communication/BISSC_IMPLEMENTATION_TODO.md`, `docs/communication/BISSC_TASK_PROGRESS.md`
 Last updated: 2026-07-08
 
 本文档定义 `PROTOCOL_TRIGGER` 的第一种协议子类型：`TRIG_PROTOCOL_BISS_C`。

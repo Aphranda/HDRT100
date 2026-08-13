@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: BISSC
-Canonical: `docs/BISSC_TASK_PROGRESS.md`
-Related: `docs/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/BISSC_IMPLEMENTATION_TODO.md`
+Canonical: `docs/communication/BISSC_TASK_PROGRESS.md`
+Related: `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
 Last updated: 2026-07-07
 
 本文档用于记录 RP2350_TRIG 工程中 `TRIG_PROTOCOL_BISS_C` / BiSS-C TAP bridge
@@ -11,8 +11,8 @@ Last updated: 2026-07-07
 验证结果、剩余工作和下一步计划，便于后续回溯 BiSS-C 设计决策、烧录闭环、
 板端证据和仪器验证状态。
 
-架构原则以 `docs/BISSC_TAP_BRIDGE_DESIGN.md` 为准，细分 TODO 以
-`docs/BISSC_IMPLEMENTATION_TODO.md` 为准。
+架构原则以 `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md` 为准，细分 TODO 以
+`docs/communication/BISSC_IMPLEMENTATION_TODO.md` 为准。
 
 ## 记录规则
 
@@ -80,12 +80,12 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 明确 AUX0/AUX1 用于接收上游/下游 BiSS-C 信号，AUX2/AUX3 用于原样转发，
     从而允许本板从触发口对整个 BiSS-C 链路进行侧向同步控制。
 - 完成内容：
-  - 更新 `docs/BISSC_TAP_BRIDGE_DESIGN.md`，将 `TAP_MONITOR` 定义为
+  - 更新 `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`，将 `TAP_MONITOR` 定义为
     `CLK_IN -> CLK_OUT`、`DATA_IN -> DATA_OUT` 的串联透明桥，同时旁路解析
     position/status。
-  - 更新 `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，明确串联 TAP bridge
+  - 更新 `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，明确串联 TAP bridge
     需要接收和透传驱动能力；`AM26LV32E` 接收-only 只适合并联高阻监听夹具。
-  - 更新 `docs/BISSC_IMPLEMENTATION_TODO.md`，新增 TAP bridge 透传路径和
+  - 更新 `docs/communication/BISSC_IMPLEMENTATION_TODO.md`，新增 TAP bridge 透传路径和
     示波器验证任务。
 - 验证结果：
   - 本任务为架构和硬件约束文档更新，未修改固件代码，未执行构建、烧录或板端验证。
@@ -97,9 +97,9 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 用逻辑发生器/编码器源和示波器验证 1 MHz/5 MHz 下原链路不被改写，
     同时 `TRIG_OUT` 可对整个 BiSS-C 链路进行侧向控制。
 - 关联文件：
-  - `docs/BISSC_TAP_BRIDGE_DESIGN.md`
-  - `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
-  - `docs/BISSC_IMPLEMENTATION_TODO.md`
+  - `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`
+  - `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
+  - `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
 - 下一步：
   - 在 `sync_io` / `biss_node_io` 中评估 PIO 固定延迟转发或硬件直通方案，
     优先保证透传链路的确定性，再把转发延迟写入 latency offset。
@@ -113,11 +113,11 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 按已定义的 `IN0..IN3` 和 `OUT0..OUT3` 固定方向接口收敛隔离器选型，避免引入运行时双向复用。
   - 给后续原理图设计补充输入整形、输出驱动、默认态、隔离电源和 latency offset 验证要求。
 - 完成内容：
-  - 更新 `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，新增 `SYNC_IO` 本地高速脉冲隔离章节。
+  - 更新 `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，新增 `SYNC_IO` 本地高速脉冲隔离章节。
   - 明确完整 4 入 4 出版本推荐使用两颗 `ISO6440F`：一颗用于外部侧到 RP2350 的输入隔离，一颗用于 RP2350 到外部侧的输出隔离。
   - 明确精简版本可使用 `ISO6442F` 实现 2 入 2 出，最小版本可使用 `ISO6421F` 实现 1 入 1 出；`ISO7710` 仅适合单路验证。
   - 将 `F` 默认低输出作为优先选择，降低上电、掉电或隔离侧未供电时的误触发风险。
-  - 更新 `docs/BISSC_IMPLEMENTATION_TODO.md`，增加 `SYNC_IO` 隔离原理图和脉冲验证任务。
+  - 更新 `docs/communication/BISSC_IMPLEMENTATION_TODO.md`，增加 `SYNC_IO` 隔离原理图和脉冲验证任务。
 - 验证结果：
   - 本任务为外围电路设计文档更新，未修改固件代码，未执行构建、烧录或板端验证。
   - 方案结论：在已经冻结 `GPIO16..19` 为输入、`GPIO20..23` 为输出的前提下，`ISO6440F x2` 比真双向隔离或运行时方向切换更简单、更可靠，也更符合当前 HAOFV/PIO 资源所有权模型。
@@ -126,8 +126,8 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 完成 `SYNC_IO` 输入接口阈值/迟滞/保护电流、输出接口电平/驱动形式、隔离电源和 ESD/TVS 原理图。
   - 使用脉冲发生器和示波器验证 `IN0..IN3` 捕获、`OUT0..OUT3` 输出、闭环 latency、P99 jitter 和上电/掉电安全态。
 - 关联文件：
-  - `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
-  - `docs/BISSC_IMPLEMENTATION_TODO.md`
+  - `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
+  - `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
   - `docs/SYNC_IO_RESOURCE_PLAN.md`
 - 下一步：
   - 在原理图阶段按 `ISO6440F x2` 作为完整版本默认方案，同时保留 `ISO6442F` 精简 BOM 选项。
@@ -141,7 +141,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 明确 `THVD1452` 作为 P0/P1/P2 默认收发器，满足串联 TAP bridge 的接收和透传驱动需求。
   - 给原理图设计提供端接、bias、保护、供电、0 ohm 矩阵和验证清单。
 - 完成内容：
-  - 新增 `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`。
+  - 新增 `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`。
   - 定义 RJ45 T568B 四对线默认分配：`DIFF0`、`DIFF1`、`12V/GND`、`TRIG_DIFF`。
   - 定义 BiSS-C full-duplex 和双路 RS485-HD 两种装配模式。
   - 明确首版优先使用 0 ohm / 焊桥 / 跳帽矩阵，不把普通模拟开关放进高速差分路径。
@@ -153,9 +153,9 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 原理图实现、BOM 选择、PCB 差分走线、端接/bias 阻值冻结。
   - 真实线缆下的 1 MHz/5 MHz BiSS-C、RS485-HD、差分触发 latency、12 V 压降和热插拔验证。
 - 关联文件：
-  - `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
-  - `docs/BISSC_IMPLEMENTATION_TODO.md`
-  - `docs/BISSC_TASK_PROGRESS.md`
+  - `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
+  - `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
+  - `docs/communication/BISSC_TASK_PROGRESS.md`
 - 下一步：
   - 按外围电路检查清单进入原理图设计，并在 P0 bring-up 时验证串联 TAP bridge
     的 `CLK_IN -> CLK_OUT`、`DATA_IN -> DATA_OUT` 透明透传。
@@ -171,7 +171,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 从本地 PDF 手册抽取关键参数：两器件均为 3.3 V、TIA/EIA-422-B / ITU V.11 级别、最高 32 MHz 器件。
   - 确认 `AM26LV32E` 是四路差分接收器，具备 ±200 mV 级差分灵敏度、±7 V 共模范围、open-circuit fail-safe 和 3.3 V GPIO 兼容输出。
   - 确认 `AM26LV31E` 是四路差分驱动器，输入兼容 RP2350 3.3 V GPIO，100 ohm 负载差分输出典型 2.6 V，传播延迟典型 8 ns、最大 12 ns。
-  - 在 `docs/BISSC_TAP_BRIDGE_DESIGN.md` 中新增 RS-422 物理层候选器件章节。
+  - 在 `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md` 中新增 RS-422 物理层候选器件章节。
   - 将 P2 产品化 TODO 拆分为原理图、终端、fail-safe、隔离保护和示波器验证子项。
 - 验证结果：
   - 资料评审结论：这对器件可作为当前 5 MHz 固定 profile BiSS-C P0/P1 的首版物理层候选，尤其适合点对点、固定方向、RS-422-like 链路。
@@ -185,9 +185,9 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
 - 关联文件：
   - `DOC\外围硬件手册\am26lv31e.pdf`
   - `DOC\外围硬件手册\am26lv32e.pdf`
-  - `docs/BISSC_TAP_BRIDGE_DESIGN.md`
-  - `docs/BISSC_IMPLEMENTATION_TODO.md`
-  - `docs/BISSC_TASK_PROGRESS.md`
+  - `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`
+  - `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
+  - `docs/communication/BISSC_TASK_PROGRESS.md`
 - 下一步：
   - 在原理图中按接收端终端、外部 bias 预留、driver enable 固定/可控、保护与隔离器件完成硬件方案。
   - 用 1 MHz CSV 回放先验证 `AM26LV32E -> RP2350` 采样链，再进入 5 MHz 示波器 sample window 验证。
@@ -230,8 +230,8 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - `build\biss_wavegen\biss_crc_1mhz.csv`
   - `build\biss_wavegen\biss_crc_1mhz_validate.json`
   - `build\biss_wavegen\biss_crc_1mhz.svg`
-  - `docs/BISSC_IMPLEMENTATION_TODO.md`
-  - `docs/BISSC_TASK_PROGRESS.md`
+  - `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
+  - `docs/communication/BISSC_TASK_PROGRESS.md`
 - 下一步：
   - 接入 PIO simulator 或逻辑发生器回放 CSV，执行板端 `TRIG:MODE 3` / `TRIG:ARM` / `STAT:BISS?` 验证。
 
@@ -247,7 +247,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 构建单核 factory/update 包。
   - 烧录 `build-biss-integration\RP2350_TRIG_FACTORY.uf2`。
   - 为 SCPI DISARM 增加兼容别名：`TRIG:DIS`、`TRIG:DISA`、`TRIG:DISarm` 均进入同一 DISARM 回调。
-  - 更新 `docs/SCPI_COMMANDS.md`、`docs/BISSC_IMPLEMENTATION_TODO.md` 和 `docs/MULTICORE_PARTITION_PLAN.md`，记录单核主线和双核暂停原因。
+  - 更新 `docs/SCPI_COMMANDS.md`、`docs/communication/BISSC_IMPLEMENTATION_TODO.md` 和 `docs/MULTICORE_PARTITION_PLAN.md`，记录单核主线和双核暂停原因。
 - 验证结果：
   - 单核 factory build id：`20260707081355`。
   - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`。
@@ -273,7 +273,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
 - 关联文件：
   - `middleware/scpi_port/src/scpi_port.c`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/BISSC_IMPLEMENTATION_TODO.md`
+  - `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
   - `docs/MULTICORE_PARTITION_PLAN.md`
   - `build-biss-integration\biss_validation_singlecore\summary.txt`
   - `build-biss-integration\biss_validation_singlecore\summary.json`
@@ -328,7 +328,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 明确“小板类似三通”的输入、输出、监听角色，避免把它误实现成单一编码器解析器。
   - 为后续 `RX_PULSE -> TX_BISS -> RX_BISS -> TX_PULSE` 闭环实现提供 HAOFV 边界和验证路线。
 - 完成内容：
-  - 新增 `docs/BISSC_TAP_BRIDGE_DESIGN.md`，定义 BiSS-C 收发一体三通桥方案。
+  - 新增 `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`，定义 BiSS-C 收发一体三通桥方案。
   - 明确四类节点能力：`RX_PULSE`、`TX_BISS`、`RX_BISS`、`TX_PULSE`。
   - 定义源端、目的端、透明监听端、代理桥端四种配置方式。
   - 明确标准 BiSS-C 从站不能主动发送，`TX_BISS` 必须绑定到上游主站 clock polling。
@@ -339,9 +339,9 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 后续实现低速固定帧 `SLAVE_TX` 与 `MASTER_RX`。
   - 后续根据实测决定是否继续用 RP2350 PIO 提速，或引入 FPGA/CPLD/专用 BiSS 接口芯片。
 - 关联文件：
-  - `docs/BISSC_TAP_BRIDGE_DESIGN.md`
-  - `docs/BISSC_IMPLEMENTATION_TODO.md`
-  - `docs/BISSC_TASK_PROGRESS.md`
+  - `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`
+  - `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
+  - `docs/communication/BISSC_TASK_PROGRESS.md`
 - 下一步：
   - 先做固件 P0 骨架：模式、角色、SCPI 配置、状态计数和低速固定 profile TAP 接收。
 

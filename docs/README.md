@@ -71,7 +71,7 @@ docs/
 | ARCH/HAOFV | `HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口。 |
 | SYNC_IO | `SYNC_IO_RESOURCE_PLAN.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TRIGGER | `TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
-| BISSC | `BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
+| BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
 | OTA | `OTA_SYSTEM_DESIGN.md` | 历史 OTA 主方案入口；后续迁移方向见 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`。 |
 | SD | `storage/SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
 | LOG | `storage/LOG_SYSTEM_TODO.md` | 日志 core、诊断 trace、持久化和故障证据入口。 |
@@ -82,7 +82,7 @@ docs/
 
 | 领域 | 当前进度入口 | 规则 |
 |---|---|---|
-| BiSS-C | `BISSC_TASK_PROGRESS.md` | BiSS-C 新任务记录写入本文件。 |
+| BiSS-C | `communication/BISSC_TASK_PROGRESS.md` | BiSS-C 新任务记录写入本文件。 |
 | SYNC_IO | `SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构闭环记录写入本文件。 |
 | RTOS | `RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
 | SCPI | `SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
@@ -141,7 +141,7 @@ docs/
 | `SYNC_IO_RESOURCE_PLAN.md` | PIO、State Machine、DMA、GPIO 和语义 IO 资源规划。 |
 | `RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 硬件版本 GPIO 分配与 IO 使用约束。 |
 | `hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md` | RP2350B 网表评审，当前硬件域迁移后的 canonical 入口。 |
-| `BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C TAP Bridge、RJ45、SYNC_IO、AUX 两收两发和外围电路约束。 |
+| `communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C TAP Bridge、RJ45、SYNC_IO、AUX 两收两发和外围电路约束。 |
 
 ## 03 触发与 SYNC_IO
 
@@ -162,10 +162,10 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
-| `BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C TAP Bridge 协议、模式和固件架构主设计。 |
-| `BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C 相关硬件和 SYNC_IO 外围电路约束。 |
-| `BISSC_IMPLEMENTATION_TODO.md` | BiSS-C 实现待办，按 P0/P1/P2 细分。 |
-| `BISSC_TASK_PROGRESS.md` | BiSS-C 任务进度、闭环验证和决策记录。 |
+| `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C TAP Bridge 协议、模式和固件架构主设计。 |
+| `communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C 相关硬件和 SYNC_IO 外围电路约束。 |
+| `communication/BISSC_IMPLEMENTATION_TODO.md` | BiSS-C 实现待办，按 P0/P1/P2 细分。 |
+| `communication/BISSC_TASK_PROGRESS.md` | BiSS-C 任务进度、闭环验证和决策记录。 |
 
 ## 05 OTA 与启动
 
@@ -205,7 +205,7 @@ docs/
 |---|---|
 | `release/RELEASE_CHECKLIST.md` | 发布门禁检查表。 |
 | `TASK_PROGRESS.md` | 全局历史任务进度。新域建议使用 `<DOMAIN>_TASK_PROGRESS.md`。 |
-| `BISSC_NETWORK_LOOPBACK_PLAYBOOK.md` | 2026-08-11 BiSS 组网 preflight 处理流程和跨电脑继续工作交接记录。 |
+| `communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md` | 2026-08-11 BiSS 组网 preflight 处理流程和跨电脑继续工作交接记录。 |
 
 ### 验证工具入口
 
@@ -230,8 +230,8 @@ docs/
 - 查系统边界：先读 `HAOFV_ARCHITECTURE.md`。
 - 查 IO/PIO 资源：先读 `SYNC_IO_RESOURCE_PLAN.md`，再读具体域设计。
 - 查 SYNC_IO 当前代码重构：先读 `SYNC_IO_REFACTOR_PLAN.md`。
-- 查 BiSS-C：先读 `BISSC_TAP_BRIDGE_DESIGN.md` 和
-  `BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`。
+- 查 BiSS-C：先读 `communication/BISSC_TAP_BRIDGE_DESIGN.md` 和
+  `communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`。
 - 查命令：先读 `SCPI_COMMANDS.md`。
 - 查待办：优先读对应域的 `*_TODO.md`。
 - 查验证记录：优先读对应域的 `*_TASK_PROGRESS.md`。

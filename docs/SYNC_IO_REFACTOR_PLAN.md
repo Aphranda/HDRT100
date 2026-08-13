@@ -3,7 +3,7 @@
 Status: Active
 Domain: SYNC_IO
 Canonical: `docs/SYNC_IO_REFACTOR_PLAN.md`
-Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`, `docs/TRIGGER_SYNC_TODO.md`
+Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`, `docs/TRIGGER_SYNC_TODO.md`
 Last updated: 2026-07-08
 
 ## 1. 背景

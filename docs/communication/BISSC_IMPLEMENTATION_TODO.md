@@ -2,11 +2,11 @@
 
 Status: Active
 Domain: BISSC
-Canonical: `docs/BISSC_IMPLEMENTATION_TODO.md`
-Related: `docs/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/BISSC_TASK_PROGRESS.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`
+Canonical: `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
+Related: `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/communication/BISSC_TASK_PROGRESS.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`
 Last updated: 2026-07-07
 
-本文档跟踪 `docs/BISSC_TAP_BRIDGE_DESIGN.md` 之后的 `TRIG_PROTOCOL_BISS_C`
+本文档跟踪 `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md` 之后的 `TRIG_PROTOCOL_BISS_C`
 实现步骤。P0 有意收敛为固定 profile 的串联 TAP bridge：原样透传 BiSS-C
 `CLK/DATA`，旁路接收 position/status，并按 crossing 输出触发。
 `TRIG_PROTOCOL_HSPI_LIKE` 已在设计文档中作为同一 RJ45 硬件的后续协议子类型预留；
@@ -118,7 +118,7 @@ python tools\biss_board_validate\biss_board_validate.py COM4 --enable-scan
 
 ## P2 - 产品化
 
-- [ ] 按 `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` 完成 RJ45 四对线和 SYNC_IO 外围电路原理图评审。
+- [ ] 按 `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` 完成 RJ45 四对线和 SYNC_IO 外围电路原理图评审。
 - [ ] 以三颗 `ISO1452` 作为 P0/P1/P2 默认隔离式 RS-422/RS-485 收发器，
       按上行 BiSS、下行 BiSS 和 `FWD_TRIG_DIFF` 三个端口侧通道装配。
 - [ ] 完成 0 ohm / 焊桥 / 跳帽矩阵，支持 BiSS-C full-duplex 与双路 RS485-HD 两种装配。

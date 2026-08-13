@@ -19,7 +19,7 @@ Last updated: 2026-08-13
 | `BOM_CTL-SYNCTRIG4F4-HASL-V0.1_CTL-SYNCTRIG4F4-HASL-V0.1_2026-08-04.xlsx` | BOM 导出 |
 | `PickAndPlace_CTL_SYNCTRIG4F4_HASL_V0_1_2026_08_04.xlsx` | 贴片坐标导出 |
 | `Gerber_CTL-SYNCTRIG4F4-HASL-V0.1_2026-08-04.zip` | Gerber 导出 |
-| `../BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C / SYNC_IO 外围电路约束 |
+| `../communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C / SYNC_IO 外围电路约束 |
 
 ## 边界
 

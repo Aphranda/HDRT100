@@ -3,7 +3,7 @@
 Status: Active
 Domain: Documentation
 Canonical: `docs/TASK_PROGRESS.md`
-Related: `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/BISSC_TASK_PROGRESS.md`, `docs/storage/SD_TASK_PROGRESS.md`
+Related: `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/communication/BISSC_TASK_PROGRESS.md`, `docs/storage/SD_TASK_PROGRESS.md`
 Last updated: 2026-08-10
 
 本文档用于记录 RP2350_TRIG 工程的正式任务进度。每完成一个正式任务后，都应追加一条记录，说明任务目标、完成内容、验证结果、剩余工作和下一步计划，便于后续回溯设计决策和工程状态。
@@ -94,7 +94,7 @@ Last updated: 2026-08-10
 - 完成内容：
   - 重构 `tools/distributed_loopback_validate/distributed_loopback_validate.py` 的命令行入口，改成 `--a3-port` + `--peer` + `--sim-role`。
   - 将 A4 作为 bench-side simulator role 保留在拓扑层，不再要求它占用外部 COM 口。
-  - 新增 `docs/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`，存档本轮 BiSS 组网处理流程。
+  - 新增 `docs/communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`，存档本轮 BiSS 组网处理流程。
   - 更新 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`、`docs/README.md` 和 `.gitignore`，把“5 串口”旧口径收回。
 - 验证结果：
   - `python -m py_compile tools/distributed_loopback_validate/distributed_loopback_validate.py` 通过。
@@ -106,7 +106,7 @@ Last updated: 2026-08-10
   - 如果后续固件开放内部 BiSSC 帧闭环，再把脚本扩展成真实网络闭环。
 - 关联文件：
   - `tools/distributed_loopback_validate/distributed_loopback_validate.py`
-  - `docs/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`
+  - `docs/communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`
   - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
   - `docs/README.md`
   - `.gitignore`
@@ -340,7 +340,7 @@ Last updated: 2026-08-10
   - 明确“小板类似三通”的输入、输出、监听角色，避免把它误实现成单一编码器解析器。
   - 为后续 `RX_PULSE -> TX_BISS -> RX_BISS -> TX_PULSE` 闭环实现提供 HAOFV 边界和验证路线。
 - 完成内容：
-  - 新增 `docs/BISSC_TAP_BRIDGE_DESIGN.md`，定义 BiSS-C 收发一体三通桥方案。
+  - 新增 `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`，定义 BiSS-C 收发一体三通桥方案。
   - 明确四类节点能力：`RX_PULSE`、`TX_BISS`、`RX_BISS`、`TX_PULSE`。
   - 定义源端、目的端、透明监听端、代理桥端四种配置方式。
   - 明确标准 BiSS-C 从站不能主动发送，`TX_BISS` 必须绑定到上游主站 clock polling。
@@ -352,7 +352,7 @@ Last updated: 2026-08-10
   - 后续实现低速固定帧 `SLAVE_TX` 与 `MASTER_RX`，完成双板闭环验证。
   - 后续根据实测决定是否继续用 RP2350 PIO 提速，或引入 FPGA/CPLD/专用 BiSS 接口芯片。
 - 关联文件：
-  - `docs/BISSC_TAP_BRIDGE_DESIGN.md`
+  - `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`
   - `docs/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：

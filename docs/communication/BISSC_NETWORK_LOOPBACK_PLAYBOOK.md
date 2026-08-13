@@ -2,7 +2,7 @@
 
 Status: Active
 Domain: Verification
-Canonical: `docs/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`
+Canonical: `docs/communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`
 Related: `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/TASK_PROGRESS.md`, `docs/README.md`
 Last updated: 2026-08-11
 

@@ -372,7 +372,7 @@ Last updated: 2026-08-10
   目标不是单纯“编码器解析器”，而是 `RX_PULSE -> TX_BISS -> RX_BISS -> TX_PULSE`
   的收发一体节点。每块小板都具备本地脉冲输入、BiSS-C/SSI-like 帧发送、
   BiSS-C/SSI-like 帧接收解析和本地触发输出能力；通过角色配置切换为源端、
-  目的端、透明监听端或代理桥端。详细方案见 `docs/BISSC_TAP_BRIDGE_DESIGN.md`。
+  目的端、透明监听端或代理桥端。详细方案见 `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`。
   P0 先限定 1-5 MHz 低速 bring-up 和固定帧格式，不承诺 100 MHz。
 
 - [ ] BiSS-C 三通透明监听模式。

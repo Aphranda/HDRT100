@@ -2,8 +2,8 @@
 
 Status: Frozen
 Domain: BISSC
-Canonical: `docs/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
-Related: `docs/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`
+Canonical: `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
+Related: `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/SYNC_IO_RESOURCE_PLAN.md`, `docs/SYNC_IO_REFACTOR_PLAN.md`
 Last updated: 2026-07-11
 
 本文档作为 RP2350_TRIG 后续硬件版本的原理图输入规格，统一定义 BiSS-C
