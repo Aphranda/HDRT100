@@ -37,12 +37,16 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 
 ## P1 - 反射内存主数据面
 
+- [ ] 根据风险 `HAOFV-RISK-20260813-003/009`，将跨核 owner 矩阵和时间回绕规则升格为反射内存基础约束。
 - [ ] 冻结 `distributed_vector_table.h`：64 KB layout、slot offset、slot size、layout version。
 - [ ] 为 DistributedVectorTable 增加 directory CRC 和 slot directory 校验。
 - [ ] 增加 epoch、run_id、config/calibration/loop/action/sync/sequence/permission/storage version。
 - [ ] 实现 slot owner 写权限检查，禁止非 owner 写其他节点 slot。
 - [ ] 实现 slot 级 snapshot API，查询只读快照，不临时触发现场 IO。
 - [ ] 实现 seqlock 或双缓冲，避免字段半新半旧。
+- [ ] 共享 slot 字段使用 `__atomic` 或 DMB 屏障；跨核快照必须带 sequence/version。
+- [ ] 时间差一律使用回绕安全写法：`int32_t diff = (int32_t)(t1 - t0)`。
+- [ ] 评估并定义 `epoch_seconds` / `time_epoch` 扩展字段，避免 49 天回绕破坏 VDC/DPLL/T2。
 - [ ] 实现命令槽原子 Take/Clear，执行动作保持在临界区外。
 - [ ] 将 core1 `trigger_status_ring` 合并到本节点 TriggerSlot 摘要。
 - [x] 定义 CoreVectorOwnerTable 和 RuntimeProtectionTable。
@@ -53,12 +57,16 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 
 ## P2 - 跨核通信与实时核保护
 
+- [ ] 根据风险 `HAOFV-RISK-20260813-004`，将 Flash/XIP 双核冲突列为 P2 首要硬约束。
 - [ ] 抽象 `trigger_command_queue`，替代直接暴露 TriggerAO 内部队列。
 - [ ] 抽象 `trigger_status_ring`，core1 只写轻量事件，core0 负责格式化和落盘。
 - [ ] 增加跨核 doorbell 作为唤醒信号，业务 payload 仍走队列。
 - [ ] 为 TriggerVector snapshot 增加 sequence/version。
 - [ ] 抽象 `core_ipc_contract`，定义 mailbox、doorbell、ack、timeout 和 reset 语义。
 - [ ] 实现 core1 park/lockout 握手和超时升级流程。
+- [ ] Flash erase/program 前必须申请 Flash bus 资源锁并等待 core1 park/lockout ACK。
+- [ ] core1 增加 `WAIT_FOR_FLASH` / `PARKED_FOR_FLASH` 或等价可观测状态。
+- [ ] Flash 临界区超时或 core1 未 ACK 时进入 FAULT，禁止继续 erase/program。
 - [ ] 审计 `storage_manager_trace_event()`，禁止 core1 直接调用。
 - [ ] 为 core1 增加 stack/heartbeat/last_event 诊断字段。
 - [ ] 拆分 core0/core1/shared 三类内存区域。
@@ -72,6 +80,11 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [x] 建立 `LoopEngine` 第一阶段组件，先迁出状态计数和只读快照。
 - [ ] 将 `SystemManager` 升级/收敛为 `SystemAO / SystemVector / SafetyFB`，接管系统模式、故障锁存、恢复策略和资源策略。
 - [ ] 把 SystemModeTable 和 ResourceArbiterTable 接入真实模式切换。
+- [ ] 根据风险 `HAOFV-RISK-20260813-005/006/007`，定义资源优先级、等待队列、OTA 允许矩阵和预算 overrun handler。
+- [ ] Resource priority 首版建议：Flash > SD > LCD；所有资源等待必须带 timeout 和升级策略。
+- [ ] SystemManager 定义 OTA 允许矩阵：system mode × resource × trigger state -> allow/busy/fault。
+- [ ] 定义 `OTA_BUSY`、`RESOURCE_ACQUIRE_TIMEOUT`、`BUDGET_OVERRUN` 错误码和 UI/SCPI 提示。
+- [ ] RTOS 预算语义明确为“连续运行时间片”；超预算向 Diagnostics 记录事件并主动 yield。
 - [ ] 建立通用 `SYSTem:COMMand:ACK? / NACK?` 或收敛现有配置 ACK。
 - [ ] 增加 `task_gateway_a3`，接收上位机配置、START/STOP 和数据查询。
 - [ ] 将 `components/loop_engine/` 升级为 `LoopEngineAO / LoopEngineFB / LoopVector`。
@@ -117,6 +130,13 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 
 ## P6 - 本地预约触发与 T2 闭环
 
+- [ ] 根据风险 `HAOFV-RISK-20260813-001/002/009/010`，先修正 TriggerFB/TriggerVector 架构事实和字段契约。
+- [ ] 修正 `HAOFV_ARCHITECTURE.md` 中 TriggerFB ECC 表规模、状态数、事件数和 TriggerVector 字段数。
+- [ ] 增加 ECC 表静态检查脚本，检测重复 `(state,event)`、不可达条目和未覆盖事件。
+- [ ] 引入 `SET_*` 默认配置规则，减少 TriggerFB 直通 ECC 穷举。
+- [ ] 将 BiSS-C 配置字段从 `trigger_vector_t` 顶层拆为 `biss_cfg` 字段块。
+- [ ] 为 TriggerVector 每个字段块补 `writer / value domain / lifecycle / snapshot-needed` 注释。
+- [ ] FB action 必须立即返回；耗时动作使用 `FB_RESULT_BUSY + next_state=self` 分步推进。
 - [ ] 实现 `FIRE_LOAD` 到 core1 `local_fire` 装载。
 - [ ] 实现 `delta_ticks/mask/pulse_width/polarity` 小载荷。
 - [ ] 实现 late 判断，late frame 禁止补救触发。
@@ -131,6 +151,9 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 
 ## P7 - 产品发布门禁
 
+- [ ] 根据风险 `HAOFV-RISK-20260813-008`，定义 Bootloader metadata 双副本无效 failsafe。
+- [ ] metadata 双副本无效时进入 USB MSD / BOOTSEL / SD factory package 恢复路径，禁止继续启动未知镜像。
+- [ ] 增加 metadata 双损坏注入测试和恢复验证。
 - [ ] 24h 四板长稳：core1 heartbeat 不停、heap/stack 水位稳定。
 - [ ] 24h DistributedVectorTable：slot 不撕裂，stale/heartbeat/CRC 统计稳定。
 - [ ] SD/OTA/UI/SCPI 并发压力下 late=0 或按规则进入 HOLDOVER/FAULT。

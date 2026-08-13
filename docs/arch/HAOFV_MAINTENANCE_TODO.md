@@ -91,7 +91,7 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 
 ### HAOFV-MAINT-20260813-003 - TRIGger 产品域需要从 SCPI 静态状态迁出
 
-- 状态：待开始
+- 状态：进行中
 - 问题：
   - `middleware/scpi_port/src/scpi_trigger_commands.c` 中 `s_product_trigger_mode` 由 SCPI 文件持有。
   - `TRIGger:MODE` 仍会直接向 `sync_trigger` 投递 reset。
@@ -248,15 +248,159 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - `components/diagnostics/`
   - `components/ui_manager/`
 
+## 架构风险处置总表
+
+来源：`docs/arch/HAOFV_ARCHITECTURE_RISK_EVALUATION.md`。
+
+本章节把风险登记表中的 S0/S1/S2/S3 风险转成可执行待办。风险文档负责记录评审事实和严重度，本章节负责维护处置入口、优先级和落地去向。
+
+### HAOFV-RISK-TODO-20260813-001 - S0 双核 Flash/XIP 安全硬约束
+
+- 来源风险：`HAOFV-RISK-20260813-004`
+- 状态：待开始
+- 优先级：P0 / S0
+- 问题：
+  - Flash erase/program 会阻塞 XIP；core0 写 Flash 时 core1 若仍从 XIP 执行实时路径，可能 hard fault 或总线超时。
+  - 当前只有 park/lockout 方向，尚未形成强制资源锁、core1 状态和验证门禁。
+- 待办：
+  - [x] 在 `HAOFV_ARCHITECTURE.md` 增加双核 Flash/XIP 顶层硬约束。
+  - [ ] Resource Arbiter 增加 `SYS_RESOURCE_FLASH_BUS` 或等价资源锁。
+  - [ ] Flash 临界区进入前强制 core1 park/lockout ACK；超时进入 FAULT。
+  - [ ] core1 增加 `WAIT_FOR_FLASH` / `PARKED_FOR_FLASH` 可观测状态。
+  - [ ] 验证 OTA/metadata/program 路径中 core1 heartbeat、park ack 和恢复状态。
+- 落地去向：
+  - `docs/arch/RTOS_HAOFV_TODO.md` P2。
+  - `components/resource_arbiter/`
+  - `drivers/mcu/flash/`
+  - `application/src/app_runtime.c`
+
+### HAOFV-RISK-TODO-20260813-002 - S1 跨核反射内存契约升格
+
+- 来源风险：`HAOFV-RISK-20260813-003`
+- 状态：进行中
+- 优先级：P1 / S1
+- 问题：
+  - core0/core1 之间的 owner 矩阵、doorbell、mailbox、ACK、timeout、reset 和内存屏障尚未成为 HAOFV 顶层契约。
+  - 反射内存 slot 尚未强制 seqlock/双缓冲/CRC，存在半新半旧读取风险。
+- 待办：
+  - [x] 在 `HAOFV_ARCHITECTURE.md` 增加跨核 owner 矩阵。
+  - [ ] 定义 core0-WO/core1-RO 与 core1-WO/core0-RO 字段清单。
+  - [ ] 定义 `core_ipc_contract`：mailbox、doorbell、ACK/NACK、timeout、reset。
+  - [ ] 共享字段强制使用 `__atomic` 或 DMB 屏障。
+  - [ ] 反射内存快照采用 seqlock 或双缓冲，并带 version/CRC/stale。
+- 落地去向：
+  - `docs/arch/RTOS_HAOFV_TODO.md` P1/P2。
+  - `components/distributed_refmem/`
+  - `components/sync_trigger/`
+
+### HAOFV-RISK-TODO-20260813-003 - S1 TriggerFB ECC 规模和默认规则化
+
+- 来源风险：`HAOFV-RISK-20260813-001`
+- 状态：进行中
+- 优先级：P2 / S1
+- 问题：
+  - `HAOFV_ARCHITECTURE.md` 中 TriggerFB ECC 规模数字失真；实际 ECC 表约 190 条。
+  - 大量 `SET_*` 配置直通规则被逐状态穷举，新增字段时容易遗漏。
+- 待办：
+  - [x] 修正 `HAOFV_ARCHITECTURE.md` 中 TriggerFB 状态数、事件数、ECC 规则数。
+  - [ ] 增加 ECC 表静态检查脚本，检测重复 `(state,event)`、不可达条目和未覆盖事件。
+  - [ ] 引入 `SET_*` 默认规则，IDLE/CONFIGURED 态统一走配置处理函数。
+  - [ ] 将 BiSS-C 配置从 TriggerFB 巨 switch 拆出到 CommunicationFB 或 CommunicationAO。
+  - [ ] 增加 TriggerFB ECC 规则数量阈值或增长审查门禁。
+- 落地去向：
+  - `docs/arch/RTOS_HAOFV_TODO.md` P6。
+  - `components/sync_trigger/src/trigger_fb.c`
+  - `components/sync_trigger/inc/trigger_vector.h`
+  - `components/sync_trigger/` 与未来 `components/communication/`
+
+### HAOFV-RISK-TODO-20260813-004 - S1 Vector 字段契约和时间回绕规则
+
+- 来源风险：`HAOFV-RISK-20260813-002`、`HAOFV-RISK-20260813-009`
+- 状态：进行中
+- 优先级：P2 / S1
+- 问题：
+  - Vector 只在原则层声明唯一 writer，缺逐字段 writer/value domain/lifecycle/snapshot-needed 表。
+  - `timestamp_ms` 为 `uint32_t`，缺强制回绕安全比较规则。
+- 待办：
+  - [ ] 将 `trigger_vector_t` 的 BiSS-C 配置字段拆成 `biss_cfg` 子结构或字段块。
+  - [ ] 为每个 Vector 字段块增加 `writer / value domain / lifecycle / snapshot-needed` 注释。
+  - [x] 在架构文档中补逐字段或逐字段块写权限表。
+  - [x] 规定时间差计算统一使用 `int32_t diff = (int32_t)(t1 - t0)`。
+  - [ ] 评估是否增加 `epoch_seconds` / `time_epoch` 扩展字段。
+- 落地去向：
+  - `docs/arch/RTOS_HAOFV_TODO.md` P1/P5/P6。
+  - `components/sync_trigger/inc/trigger_vector.h`
+  - `components/distributed_refmem/`
+
+### HAOFV-RISK-TODO-20260813-005 - S1 Bootloader Metadata Failsafe
+
+- 来源风险：`HAOFV-RISK-20260813-008`
+- 状态：进行中
+- 优先级：P2 / S1
+- 问题：
+  - Metadata 双副本损坏后的强制恢复路径尚未写入 Bootloader 启动策略。
+  - BOOTSEL/UF2、Scratch、SD `/factory/` 仍偏规划表述。
+- 待办：
+  - [x] 在 Bootloader 启动策略中规定 metadata 双副本无效的 failsafe 状态机。
+  - [ ] 定义 USB MSD / BOOTSEL / SD factory package 的恢复优先级。
+  - [ ] 定义双副本无效错误码、LED/UI/SCPI 可观测状态。
+  - [ ] 增加 metadata 双损坏注入测试。
+- 落地去向：
+  - `docs/arch/RTOS_HAOFV_TODO.md` P7。
+  - `bootloader/`
+  - `components/ota_manager/`
+  - `middleware/portable_ota_port/`
+
+### HAOFV-RISK-TODO-20260813-006 - S2 Resource/OTA/Budget 产品运行门禁
+
+- 来源风险：`HAOFV-RISK-20260813-005`、`HAOFV-RISK-20260813-006`、`HAOFV-RISK-20260813-007`
+- 状态：进行中
+- 优先级：P3 / S2
+- 问题：
+  - Resource Arbiter 缺资源优先级、等待队列和超时升级策略。
+  - OTA 允许矩阵仍分散在业务域判断，缺 SystemManager 集中定义。
+  - 调度预算只有表格，缺 overrun handler 和 RTOS 时间片语义。
+- 待办：
+  - [ ] 定义资源优先级，首版建议 Flash > SD > LCD。
+  - [ ] 增加资源等待 FIFO、timeout、retryable/blocking 和 fault escalation 规则。
+  - [ ] 在 SystemManager 定义 OTA 允许矩阵：system mode × resource × trigger state。
+  - [ ] 定义 `OTA_BUSY` / `RESOURCE_ACQUIRE_TIMEOUT` / `BUDGET_OVERRUN` 错误码。
+  - [x] 定义预算 overrun handler：记录 Diagnostics 事件并主动 yield。
+  - [x] 明确 RTOS 预算语义为“连续运行时间片”，不等价于绝对截止时间。
+- 落地去向：
+  - `docs/arch/RTOS_HAOFV_TODO.md` P3/P7。
+  - `components/resource_arbiter/`
+  - `components/system_manager/`
+  - `components/diagnostics/`
+  - `components/ota_manager/`
+
+### HAOFV-RISK-TODO-20260813-007 - S3 FB 非阻塞硬规则
+
+- 来源风险：`HAOFV-RISK-20260813-010`
+- 状态：进行中
+- 优先级：P4 / S3
+- 问题：
+  - “不得长期阻塞”仍偏软约束，缺标准状态机写法和代码审计项。
+- 待办：
+  - [x] 在 `HAOFV_ARCHITECTURE.md` 中明确 FB action 必须立即返回。
+  - [x] 耗时动作必须返回 `FB_RESULT_BUSY` 且 `next_state=self`，由下一次 tick 推进。
+  - [ ] 增加禁止在 FB/AO 快路径中等待 flash/storage/job complete 的审计规则。
+  - [ ] 在新 FB 模板中加入非阻塞示例。
+- 落地去向：
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`
+  - `components/*_manager/` 与未来 AO/FB 模板
+
 ## 推荐推进顺序
 
-1. 建立 `SystemAO + SystemVector + command slot`，先统一所有产品指令入口。
-2. 拆出 `LoopEngineAO`，承接业务配置、序列展开、角度扫描和断点角度。
-3. 收敛 `TRIGger` 产品动作域，去掉 SCPI 静态状态和直接底层调用。
-4. 建立 `CalibrationAO`，完成 link/parameter/version/quality 闭环。
-5. 建立 `VdcSyncAO / SyncDpllFB`，形成 DC 时钟同步和 T2 事实来源。
-6. 将 `Distributed RefMem` 升级为跨域主数据面，补齐 slot writer、CRC、seqlock、ACK/NACK。
-7. 收敛 `CommunicationAO`、`MeasureAO`、`DiagnosticsAO`、`UiAO`，完成产品化维护闭环。
+1. 先处理 S0：双核 Flash/XIP park/lockout 硬约束。
+2. 再处理 S1 跨核契约、反射内存 seqlock/CRC/stale 和 Vector 字段契约。
+3. 修正 TriggerFB ECC 事实数字，并开始默认规则化/CommunicationFB 拆分。
+4. 建立 `SystemAO + SystemVector + command slot`，统一产品指令入口、OTA 允许矩阵和资源门禁。
+5. 拆出 `LoopEngineAO`，承接业务配置、序列展开、角度扫描和断点角度。
+6. 建立 `CalibrationAO` 与 `VdcSyncAO / SyncDpllFB`，形成 link delay、DC 时钟同步和 T2 事实来源。
+7. 将 `Distributed RefMem` 升级为跨域主数据面，补齐 slot writer、CRC、seqlock、ACK/NACK。
+8. 收敛 `CommunicationAO`、`MeasureAO`、`DiagnosticsAO`、`UiAO`，完成产品化维护闭环。
 
 ## 验证要求
 

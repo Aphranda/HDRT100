@@ -98,9 +98,9 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 |---|---|---|
 | SCPI / UI / System Pack | 只能表达意图、配置和查询；不能直接驱动硬实时边沿。 | `interface/`、`storage/` |
 | Active Object | 拥有事件队列、生命周期和执行预算；外部入口只能投递事件。 | 各功能域设计 |
-| Function Block | 执行 ECC 状态迁移、资源规则和错误归因；不得长期阻塞。 | `trigger/`、`ota/`、`storage/`、`sync/` |
-| Vector Blackboard | 保存事实、摘要、命令槽和版本；字段必须有唯一 writer。 | `refmem/`、各 Domain Vector |
-| Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源。 | `arch/RTOS_HAOFV_ARCHITECTURE.md` |
+| Function Block | 执行 ECC 状态迁移、资源规则和错误归因；Action 必须立即返回，耗时动作只能返回 busy 并由后续 tick 推进。 | `trigger/`、`ota/`、`storage/`、`sync/` |
+| Vector Blackboard | 保存事实、摘要、命令槽和版本；字段必须有唯一 writer、值域、生命周期和快照规则。 | `refmem/`、各 Domain Vector |
+| Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源；Flash/XIP 双核安全是最高优先级硬约束。 | `arch/RTOS_HAOFV_ARCHITECTURE.md` |
 | VDC/DPLL | 形成多节点共同时间事实；timestamp sample 是原始观测事实，SYNC DPLL 负责 VDC offset/rate，Angle DPLL 负责 `T_fire_base` 预测，两者不得混用。 | `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` |
 | Hardware Service | 封装 SDK/驱动细节；上层不直接调用板级 API。 | `components/`、`drivers/` |
 | PIO/DMA/IRQ | 只执行硬实时动作和最小事实回写；对外维护入口归 `REALtime`，产品业务动作入口仍归 `TRIGger`。 | `sync/`、`trigger/`、board profile |
@@ -114,6 +114,20 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md` | 当前 RP2350B QFN-80 产品板 GPIO、隔离域和模拟/PIO 约束明细。 |
 
 顶层架构引用这些文件，但不复制具体 pin map。任何 `GPIOxx`、连接器、ESD、电源域、隔离边界和装配 DNP/0R 策略应在硬件域维护。
+
+### 顶层安全硬约束
+
+以下约束优先级高于普通功能设计、调试便利性和局部实现习惯。任何代码或子文档与本节冲突时，以本节为准，并同步修正下级文档。
+
+| 约束 | 规则 |
+|---|---|
+| 双核 Flash/XIP 安全 | 任何 Flash erase/program 只能由 core0 发起；进入 Flash 临界区前必须申请 Flash bus 资源锁，并等待 core1 park/lockout ACK。 |
+| core1 实时 owner | RTOS + 双核 AMP 主线下，TriggerAO/TriggerFB 运行在 core1；core0 只能投递事件、写命令槽或读取快照。 |
+| 跨核共享事实 | core0/core1 共享字段必须有唯一 writer，快照必须使用 seqlock、双缓冲或等价 sequence/version 机制，并使用 `__atomic` 或 DMB 屏障。 |
+| Vector 字段契约 | 每个 Vector 字段或字段块必须定义 writer、value domain、lifecycle、snapshot-needed；不得把 Vector 当作全局变量自由读写。 |
+| 时间回绕 | `uint32_t timestamp_ms` 只能用于短时间差；时间差必须使用回绕安全写法 `int32_t diff = (int32_t)(t1 - t0)`，长时间事实需要 epoch 扩展。 |
+| Metadata failsafe | Bootloader 必须定义 metadata 双副本无效的强制恢复路径，禁止继续启动未知镜像。 |
+| FB 非阻塞 | FB action 必须立即返回；耗时动作返回 `FB_RESULT_BUSY` 且 `next_state=self`，由 AO service 后续 tick 分步推进。 |
 
 ## 分层职责
 
@@ -171,6 +185,25 @@ UiFB
 SafetyFB
 DiagnosticsFB
 ```
+
+#### Function Block 非阻塞规则
+
+Function Block 的 action 只允许做以下事情：
+
+- 校验事件和数据。
+- 修改本 FB 私有短状态。
+- 写本域 Vector 的 staging/summary 字段。
+- 投递异步 job 或设置 busy 状态。
+- 立即返回 `FB_RESULT_OK`、`FB_RESULT_BUSY`、`FB_RESULT_ERROR` 或 `FB_RESULT_IGNORED`。
+
+Function Block 禁止在 action 中等待 Flash、SD、USB、锁、队列或长事务完成。耗时事务必须采用：
+
+```text
+event -> action 启动 job -> FB_RESULT_BUSY + next_state=self
+next tick -> service 查询 job -> BUSY/DONE/FAILED -> 状态迁移
+```
+
+该规则适用于 OtaFB、TriggerFB、StorageFB、CalibrationFB、SyncDpllFB 和后续所有业务 FB。
 
 ### Time-Synchronized Vector Blackboard Layer
 
@@ -421,7 +454,16 @@ ECC 执行引擎遍历规则表，找到首条匹配的状态+事件+条件组�
 
 当前已实现的规模：
 - **OtaFB**：15 条 ECC 规则，覆盖 9 个状态 + 10 个事件
-- **TriggerFB**：58 条 ECC 规则，覆盖 6 个状态 + 20 个事件
+- **TriggerFB**：规则数量必须由代码中的 `TRIG_ECC_TABLE_COUNT` 或等价 `sizeof(s_ecc_table) / sizeof(s_ecc_table[0])` 导出，不允许文档手写固定数字作为事实源
+
+2026-08-13 的 TriggerFB 基线已经从早期的 58 条规则扩展到约 190 条规则，覆盖 8 个状态和约 75 个事件。旧的“58 条规则 / 6 个状态 / 20 个事件”只能作为历史记录，不能作为产品化规模判断。
+
+TriggerFB / OtaFB / SyncDpllFB 的 ECC 表必须增加以下静态检查：
+
+- 检查 `(state, event, condition_id)` 是否重复。
+- 检查 `SET_*` 类配置事件是否走统一 default 规则或显式策略，避免为每个状态复制直接透传规则。
+- 检查每个事件的覆盖策略：显式处理、默认处理、或显式标记为 ignored。
+- 当规则数量、状态数量或事件数量超过当前基线阈值时，必须更新架构风险评估和对应域设计文档。
 
 具体代码示例见实施指南。
 
@@ -530,7 +572,7 @@ typedef struct {
 
 `TriggerVector` 描述同步触发域的事实和配置快照。
 
-建议字段：
+建议字段块：
 
 ```c
 typedef struct {
@@ -545,6 +587,18 @@ typedef struct {
     uint32_t error_code;
 } trigger_vector_t;
 ```
+
+字段块契约：
+
+| 字段块 | 唯一 writer | 生命周期 | 是否需要快照 |
+|---|---|---|---|
+| `state/runtime` | RTOS + 双核主线下由 core1 `TriggerAO/TriggerFB` 写 | RUN / MAINTENANCE 运行态 | 是 |
+| `pio_dma_status` | `REALtime` / PIO / DMA owner 写 | ARM 到 DISARM，或底层维护动作周期 | 是 |
+| `sequence_cfg` | core0 `LoopEngineAO` / `TriggerAO` 通过命令槽提交，core1 ACK 后生效 | plan upload -> active plan -> release | 是 |
+| `biss_cfg` | `COMMunity` / BISS-C owner 或 Trigger 兼容层提交 | config enabled -> disabled | 是 |
+| `timestamp/t2` | realtime capture / VDC timestamp service 写 | ring slot / sequence window | 是 |
+
+新增 TriggerVector 字段时，代码和文档必须同时标注 writer、value domain、lifecycle、snapshot-needed。禁止把 TriggerVector 当作自由扩展的全局结构体；跨核读取必须使用 sequence、一致性快照或双缓冲。
 
 ### OtaVector
 
@@ -639,6 +693,14 @@ typedef struct {
 | `sequence` | `uint32_t` | 单调递增 | metadata transaction sequence |
 | `timestamp_ms` | `uint32_t` | 系统启动后的毫秒数 | 约 49 天回绕 |
 
+时间差必须使用回绕安全写法：
+
+```c
+int32_t diff_ms = (int32_t)(t1_ms - t0_ms);
+```
+
+禁止直接使用 `t1_ms > t0_ms` 判断先后关系。`timestamp_ms` 只用于短窗口调度、预算和状态新鲜度判断；长时间运行事实必须扩展为 `epoch_seconds`、`run_id`、高位 epoch 或等价字段。VDC、DPLL 和 T2 质量评估不得把无符号回绕差值直接当作相位误差。
+
 ## 写权限规则
 
 | 数据 | 允许写入者 |
@@ -658,6 +720,18 @@ bool ota_manager_post_event(const ota_event_t *event);
 bool sync_trigger_post_event(const trigger_event_t *event);
 void system_vector_get_snapshot(system_vector_t *snapshot);
 ```
+
+### 跨核写权限矩阵
+
+| 数据 / 通道 | writer | reader | 同步机制 |
+|---|---|---|---|
+| Trigger command slot | core0 System/SCPI/LoopEngine | core1 TriggerAO | command sequence + ACK/NACK |
+| Trigger runtime state | core1 TriggerAO/TriggerFB | core0 SCPI/UI/Diagnostics/RefMem | seqlock 或双缓冲快照 |
+| PIO/DMA capture summary | core1 realtime owner | core0 Measure/Diagnostics/Storage | ring buffer + sequence |
+| RefMem node heartbeat | 节点 owner / core0 RefMem service | 本节点和外部节点 | slot sequence + stale 判断 |
+| Flash lockout state | core0 Flash/Resource owner，core1 lockout poll | System/Diagnostics | atomic flag + ACK timeout |
+
+单字段标志必须使用 `__atomic_load_n` / `__atomic_store_n` 或 DMB 屏障；多字段事实必须使用 seqlock、双缓冲或等价 sequence/version 机制。core1 不允许直接调用 SD、Flash、FatFs、SCPI、UI 渲染或长格式化日志路径。
 
 ## 调度模型
 
@@ -700,6 +774,8 @@ app_run_once()
 | `OTA_DEDICATED` | 5000 μs | OtaAO (OTA 专用模式) | 大块 Flash 操作，必须周期喂狗 |
 | `BACKGROUND` | 500 μs | DiagnosticsAO | 低频诊断 |
 
+budget 表示 RTOS/AO 单次连续运行时间片，不是硬实时边沿的绝对 deadline。AO 超预算时必须记录 `BUDGET_OVERRUN` 或 `WATCHDOG_WARNING` 诊断事件，保存当前 progress，然后主动 yield 或返回 busy。禁止通过阻塞等待、循环追赶或扩大临界区来“补回”已经错过的调度时间。
+
 ### Flash 异步操作模型
 
 W25Q32 扇区擦除需 60-300ms，页编程需 0.7-3ms。架构要求所有 Flash 操作拆分为异步 job，每个 job 在单次 `ao_service()` 内只执行一个可控分片，立即返回：
@@ -721,7 +797,15 @@ AO 创建 job → flash_job_scheduler → 执行一个分片
 
 **不可中止阶段**：Metadata 正在擦写时不能立即中止（会导致双副本全部损坏）。处理方式为设置 `abort_pending` 标志，当前写入事务完成后检查并进入 ABORTED 状态。
 
-**XIP 安全约束**：RP2350 从 W25Q32 XIP 执行代码时，擦写 Flash 需在进入 Flash 操作前完成预算检查，USB CDC 服务不应在 Flash 临界区内执行。
+**XIP 安全约束**：RP2350 从 W25Q32 XIP 执行代码时，Flash erase/program 是双核系统最高风险临界区，必须满足以下硬规则：
+
+- 所有 Flash erase/program 只能由 core0 发起。
+- 进入 erase/program 前必须申请 `SYS_RESOURCE_FLASH_BUS` 或等价 Flash bus 资源锁。
+- core0 必须向 core1 发出 park/lockout 请求，并等待 core1 ACK 进入 `WAIT_FOR_FLASH` / `PARKED_FOR_FLASH` 状态。
+- core1 ACK 超时必须进入 FAULT 或拒绝 Flash job，禁止继续 erase/program。
+- core1 park 状态下不得访问 XIP 代码、XIP 常量、Flash resident 跳转表或任何会触发 Flash bus 取指/取数的路径；必须运行 RAM resident 安全循环或硬件自治路径。
+- Flash 临界区内禁止 USB CDC/USBTMC、SD、LCD 和长日志格式化路径访问 Flash resident 代码路径。
+- 退出 Flash 临界区后，core0 必须释放资源锁、恢复 core1，并记录 Flash job 结果、耗时和 lockout 状态到诊断快照。
 
 ## 系统模式
 
@@ -938,6 +1022,18 @@ SYST:OTA:CAP?                     # Bootloader/OTA 能力位
 Bootloader 支持两种模式：
 - **COPY_TO_ACTIVE**（默认）：校验 Slot B，复制到 Slot A，从 Slot A 启动
 - **DIRECT_AB**（已验证）：直接从 pending slot 启动，App 自检后 commit
+
+### Metadata 双副本无效 Failsafe
+
+Bootloader 读取 metadata 时必须把“双副本均无效”作为独立致命状态处理。如果两个 metadata copy 均 CRC 失败，或版本/transaction 序列不可恢复冲突，Bootloader 禁止启动未知镜像。
+
+强制恢复路径：
+
+1. 首选进入 USB MSD / BOOTSEL 可恢复状态。
+2. 如产品板启用 SD factory package，则允许从 SD `/factory/` 恢复最小 factory image。
+3. 恢复状态必须通过 LED 模式、boot result metadata 或 App 恢复后的 SCPI 查询暴露。
+
+发布验证必须包含 metadata 双副本损坏注入用例，确认系统不会跳转到未确认镜像。
 
 ### 写保护策略
 
@@ -1199,8 +1295,9 @@ SCPI/UI/Storage/OTA 只能投递 Trigger 事件或读取 TriggerVector 快照；
 - ISR 只投递事件或设置标志，不执行复杂业务
 - 硬实时路径（PIO/DMA/IRQ）不进入 RTOS 任务调度
 - RTOS + 双核 AMP 下，TriggerAO/TriggerFB 状态机归 core1；core0 不能直接改写触发域内部状态
-- Vector Blackboard 调度阶段和写权限规则在 RTOS 下保持不变
-- Flash 操作临界区内可能需要暂停 FreeRTOS 调度器
+- RTOS + 双核 AMP 下，core0 对 Trigger 域只能写命令槽、投递事件或读取快照，不能跨核直接写 runtime state
+- Vector Blackboard 调度阶段和写权限规则在 RTOS 下保持不变；共享字段必须使用 atomic、DMB、seqlock、双缓冲或等价机制
+- Flash 操作临界区必须使用 Flash bus 资源锁 + core1 park/lockout ACK；未获得 ACK 时禁止 erase/program
 
 ### 当前进度
 
