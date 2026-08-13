@@ -10,6 +10,7 @@ Last updated: 2026-08-13
 
 | 路径 | 定位 |
 |---|---|
+| `DISTRIBUTED_HARD_REALTIME_TRIGGER_OVERVIEW_REPORT.html` | Distributed Hard Real-Time Trigger System 3-4 页概述报告 |
 | `RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整报告 |
 | `相控阵测试系统RP分布式触发方案技术报告0804.html` | 0804 分布式触发完整技术报告 |
 | `相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发仓库摘要 |

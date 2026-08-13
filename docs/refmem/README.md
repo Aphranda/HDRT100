@@ -3,7 +3,7 @@
 Status: Draft
 Domain: REFMEM
 Canonical: `docs/refmem/README.md`
-Related: `docs/README.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Last updated: 2026-08-13
 
 本目录是 Distributed Vector Blackboard / RefMem Sync 内部主域入口，维护分布式向量表、命令槽、ACK/NACK、节点事实、stale/CRC/epoch、静态分布式应用模型和多板共同状态。
@@ -22,5 +22,6 @@ Last updated: 2026-08-13
 |---|---|
 | `../arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层架构，定义 Distributed RefMem 的内部主域地位。 |
 | `../arch/RTOS_HAOFV_ARCHITECTURE.md` | 当前 DTC100 反射内存和 RTOS owner 设计。 |
+| `../vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 共同时间主域；RefMem 只保存 VDC snapshot、版本、质量和证据。 |
 | `../legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` | PinProbe A1 RAM 反射内存历史方案。 |
 | `../interface/SCPI_COMMAND_PLAN.md` | SCPI 与反射内存边界。 |

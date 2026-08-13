@@ -3,7 +3,7 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
 Last updated: 2026-08-13
 
 本文档用于独立维护 Distributed Hard Real-Time Trigger System 对 HAOFV 架构的符合性待办。`DTC100` 保留为当前设备型号，`RP2350_TRIG` 保留为历史工程和构建产物名。
@@ -19,7 +19,7 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 - Active Object 拥有生命周期、事件队列、执行预算和对外 API。
 - Function Block 执行 ECC 状态迁移、资源规则和错误归因，不做长时间阻塞。
 - Resource Arbiter 统一管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源。
-- DPLL/VDC、Calibration、LoopEngine、Trigger、Storage、Communication 等域必须通过反射内存和事件机制交互，不互相直接篡改状态。
+- VDC Domain 是共同时间 owner；RefMem Domain 是共同事实 owner；Calibration、LoopEngine、Trigger、Storage、Communication 等域必须通过事件、命令槽和 snapshot 交互，不互相直接篡改状态。
 
 ## 任务状态
 
@@ -32,6 +32,36 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 | `暂停` | 暂不推进，但不是技术阻塞。 |
 
 ## 当前架构审查结论
+
+### HAOFV-MAINT-20260813-012 - VDC 内部主域建立
+
+- 状态：进行中
+- 问题：
+  - VDC/DPLL 过去主要挂在 `sync/` 和 `HAOFV_VDC_DPLL_ARCHITECTURE.md`，容易被理解为 SYNC_IO 的一个算法子功能。
+  - 对分布式硬实时系统而言，虚拟 DC 时钟是整个预测分发、T2、HOLDOVER、校准绑定和 RUN gate 的基础件，应与 RefMem 并列为内部基础主域。
+- 影响：
+  - 如果 VDC 不作为主域，`offset/rate` owner、timestamp dictionary、质量门禁、HOLDOVER 和 RefMem 映射容易分散在 SYNC、Trigger、Measure 和 Report 中。
+  - 后续四板环路 VDC/DPLL 建立会缺少统一 canonical 入口。
+- 完成：
+  - [x] 新增 `docs/vdc/README.md`。
+  - [x] 新增 `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`。
+  - [x] 新增 `docs/vdc/VDC_DOMAIN_TODO.md`。
+  - [x] 新增 `docs/vdc/VDC_TASK_PROGRESS.md`。
+  - [x] 在 HAOFV 顶层中把 VDC 与 RefMem 并列为内部基础主域。
+  - [x] 在 RTOS 架构中把 `task_vdc_sync` 定位为 `VdcSyncAO / SyncDpllFB / VdcVector` 的任务壳。
+- 待办：
+  - [ ] 后续将 `HAOFV_VDC_DPLL_ARCHITECTURE.md` 中成熟内容逐步迁入 `VDC_DOMAIN_ARCHITECTURE.md`。
+  - [ ] 将 `components/vdc_dpll_manager/` 升级为 `components/vdc_domain/`。
+  - [ ] 冻结 VDC 数据契约、DPLL 质量字段、HOLDOVER/RELOCK 和 RefMem `VdcSlot` 映射。
+- 关联文件：
+  - `docs/vdc/README.md`
+  - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+  - `docs/vdc/VDC_TASK_PROGRESS.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
+- 下一步：
+  - 按 `docs/vdc/VDC_DOMAIN_TODO.md` 的 P2/P3 冻结数据契约和 DPLL/clock model。
 
 ### HAOFV-MAINT-20260813-010 - 系统/项目命名层级冻结
 
@@ -175,7 +205,7 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - [ ] 定义 `LoopPlanVector`：trigger 参数、angle sweep、angle breakpoint、sequence、switch map。
   - [ ] `CONFigure:*` 写 staged 配置，`READ:*` 读 staged/active snapshot。
   - [ ] 增加 plan CRC、version、active id、last check result。
-  - [ ] 增加 `CONFigure:SEQuence` 状态展开和 SP8T/SP2T 映射校验。
+  - [ ] 增加 `CONFigure:SEQuence` 状态展开和链路控制节点映射校验；当前项目实例具现为 SP8T/SP2T 等链路开关资源。
   - [ ] 运行前由 ConfigGate 校验 build/hardware/config/calibration/sync 版本一致性。
 - 关联文件：
   - `middleware/scpi_port/src/scpi_config_commands.c`

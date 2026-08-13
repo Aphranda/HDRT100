@@ -14,7 +14,8 @@ Last updated: 2026-08-13
 |---|---|
 | `HAOFV_ARCHITECTURE.md` | HAOFV 顶层架构入口，定义组件约束、层次逻辑和跨域 owner。 | 最高层架构真相；不写具体 PCB pin map。 |
 | `HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，记录 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 | 架构偏差和未建功能域的独立追踪入口；不记录普通开发流水账。 |
-| `HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 核心基础架构，定义共同时间事实、同步 DPLL、角度 DPLL 和预测分发边界。 | VDC/DPLL 的当前架构入口；`sync/` 中的 DPLL 文档作为落地方案和历史设计输入。 |
+| `../vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构。 | VDC 主域 canonical 入口；定义共同时间事实、SYNC DPLL、HOLDOVER、timestamp、质量门禁和 RefMem 映射边界。 |
+| `HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 既有融合架构输入。 | 后续逐步迁入 VDC canonical；`sync/` 中的 DPLL 文档作为落地方案和历史设计输入。 |
 | `ARCH_PRODUCT_ARCHITECTURE.md` | Distributed Hard Real-Time Trigger System 产品化系统架构特化，服从 HAOFV 顶层约束。 | 产品目标、四板角色、发布门禁和跨域契约入口。 |
 | `ARCH_FUTURE_APPLICATION_PLAN.md` | Distributed Hard Real-Time Trigger System 未来应用路线图。 | 当前产品完成后的平台化、跨行业、跨平台和开源生态规划；不作为近期实现待办。 |
 | `RTOS_HAOFV_ARCHITECTURE.md` | 基于 HAOFV 的 RTOS + 双核 AMP 架构，整合原 RTOS 分区、OSAL 移植、双核方案和 0614 摘要。 | 当前 RTOS / 双核 / 分布式触发唯一架构入口；不再保留独立双核方案。 |
@@ -34,17 +35,18 @@ Last updated: 2026-08-13
 
 1. `HAOFV_ARCHITECTURE.md`：先确认 HAOFV owner、层次、Vector/Blackboard、TRIGger/REALtime 分层。
 2. `HAOFV_MAINTENANCE_TODO.md`：查看当前代码相对 HAOFV 的偏差、未建主域和推进顺序。
-3. `HAOFV_VDC_DPLL_ARCHITECTURE.md`：再确认 timestamp、VDC、SYNC DPLL、Angle DPLL、T2 和预测分发链。
-4. `ARCH_PRODUCT_ARCHITECTURE.md`：确认 DTC100 产品角色、四板运行模型、数据契约和发布门禁。
-5. `ARCH_FUTURE_APPLICATION_PLAN.md`：了解当前产品完成后的平台化、跨平台和开源生态方向。
-6. `../refmem/REFMEM_DOMAIN_ARCHITECTURE.md`：确认 Distributed RefMem 内部主域、A0-A7 通用节点、静态分布式模型和 slot 边界。
-7. `RTOS_HAOFV_ARCHITECTURE.md`：确认当前 RTOS task、core0/core1、SCPI 到反射内存再到 owner 状态机的落地路径。
-8. `RTOS_HAOFV_TODO.md`：查看 RTOS / 双核 / 反射内存的未完成实施事项。
-9. `RTOS_HAOFV_TASK_PROGRESS.md`：查看已经完成的小步验证。
+3. `../vdc/VDC_DOMAIN_ARCHITECTURE.md`：再确认 VDC 内部主域、共同时间、SYNC DPLL、HOLDOVER、timestamp 和质量门禁。
+4. `HAOFV_VDC_DPLL_ARCHITECTURE.md`：查看既有 VDC/DPLL 融合架构输入和迁移前细节。
+5. `ARCH_PRODUCT_ARCHITECTURE.md`：确认 DTC100 产品角色、四板运行模型、数据契约和发布门禁。
+6. `ARCH_FUTURE_APPLICATION_PLAN.md`：了解当前产品完成后的平台化、跨平台和开源生态方向。
+7. `../refmem/REFMEM_DOMAIN_ARCHITECTURE.md`：确认 Distributed RefMem 内部主域、A0-A7 通用节点、静态分布式模型和 slot 边界。
+8. `RTOS_HAOFV_ARCHITECTURE.md`：确认当前 RTOS task、core0/core1、SCPI 到反射内存再到 owner 状态机的落地路径。
+9. `RTOS_HAOFV_TODO.md`：查看 RTOS / 双核 / 反射内存 / VDC 的未完成实施事项。
+10. `RTOS_HAOFV_TASK_PROGRESS.md`：查看已经完成的小步验证。
 
 ## 边界
 
 - 架构域说明 owner、层次、资源仲裁和长期原则。
 - HAOFV 不维护具体 PCB 资源表；板级约束见 `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md` 和 `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`。
 - 具体 SCPI 命令放 `interface/`；产品业务动作放 `trigger/`；底层实时维护能力放 `REALtime` 指令域和 `sync/`、`trigger/` 的实现约束中。
-- VDC/DPLL 是 HAOFV 核心基础设施，不作为裸顶级业务域；`SYNC DPLL` 维护共同时间，`Angle DPLL` 生成扫描预测时间，两者不得混用。
+- VDC Domain 是 HAOFV 内部基础主域，不作为裸顶级业务域；`SYNC DPLL` 维护共同时间，`Angle DPLL` 生成扫描预测时间，两者不得混用。

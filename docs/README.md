@@ -25,9 +25,10 @@ docs/
   arch/           产品架构、HAOFV、RTOS 和分布式总纲
   interface/      SCPI、USB、USBTMC、命令表、上位机接口
   trigger/        产品触发、序列、角度、core1 实时执行
-  sync/           SYNC、VDC、DPLL、同步质量
+  sync/           SYNC 动作、SYNC_IO、同步链路落地
   calibration/    CAL link、delay、参数、版本、质量
   refmem/         分布式向量表、命令槽、ACK/NACK、节点事实
+  vdc/            虚拟 DC、共同时间、DPLL、HOLDOVER、时间质量
   communication/  BiSS-C、UART、RS485、RJ45 后端维护
   measure/        测量原语、T2 摘要、链路 delay 测量服务
   storage/        SD、StorageAO、日志、trace、snapshot、报告证据
@@ -51,9 +52,10 @@ docs/
 | `arch/` | `arch/README.md` | 产品架构、HAOFV、RTOS 和分布式总纲 |
 | `interface/` | `interface/README.md` | SCPI、USB、USBTMC、命令表和上位机接口 |
 | `trigger/` | `trigger/README.md` | 产品触发、序列、角度、core1 实时执行 |
-| `sync/` | `sync/README.md` | SYNC、VDC、DPLL、同步质量和 HOLDOVER |
+| `sync/` | `sync/README.md` | SYNC 动作、SYNC_IO、同步链路和硬实时 IO 落地 |
 | `calibration/` | `calibration/README.md` | CAL link、delay、参数、版本和质量 |
 | `refmem/` | `refmem/README.md` | 分布式向量表、命令槽、ACK/NACK 和节点事实 |
+| `vdc/` | `vdc/README.md` | 虚拟 DC、共同时间、DPLL、HOLDOVER 和时间质量 |
 | `communication/` | `communication/README.md` | BiSS-C、UART、RS485 和通信维护 |
 | `measure/` | `measure/README.md` | 测量原语、T2 摘要和链路 delay 测量服务 |
 | `storage/` | `storage/README.md` | SD、StorageAO、日志、trace、snapshot 和报告证据 |
@@ -70,7 +72,8 @@ docs/
 | 领域 | 当前 canonical 主文档 | 说明 |
 |---|---|---|
 | ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口，定义组件约束、层次逻辑、Vector/Blackboard 和约束传递。 |
-| ARCH/VDC-DPLL | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 核心基础架构，定义时间事实、同步 DPLL、角度 DPLL、T2 和预测分发边界。 |
+| VDC | `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间事实、同步 DPLL、HOLDOVER、时间质量和预测分发时间基准。 |
+| ARCH/VDC-DPLL | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | 既有 HAOFV VDC/DPLL 融合架构输入；后续逐步迁入 VDC canonical。 |
 | ARCH/PRODUCT | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 面向 Distributed Hard Real-Time Trigger System 的产品系统架构特化，服从 HAOFV 顶层约束。 |
 | ARCH/FUTURE | `arch/ARCH_FUTURE_APPLICATION_PLAN.md` | 当前产品完成后的应用场景、跨平台移植、版本分层和开源生态路线图。 |
 | SYNC_IO | `sync/SYNC_IO_RESOURCE_PLAN.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
@@ -113,6 +116,10 @@ docs/
 | `refmem/REFMEM_DOMAIN_ARCHITECTURE.md` | Distributed RefMem 内部主域架构，定义 RefMem Domain 的职责边界、静态分布式应用模型和目标代码形态。 |
 | `refmem/REFMEM_DOMAIN_TODO.md` | Distributed RefMem 内部主域待办，跟踪分布式应用模型、slot 契约、ACK/NACK、sync protocol 和组件化。 |
 | `refmem/REFMEM_TASK_PROGRESS.md` | Distributed RefMem 内部主域任务进度。 |
+| `vdc/README.md` | VDC 内部主域 README。 |
+| `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间、DPLL、timestamp、HOLDOVER 和质量门禁。 |
+| `vdc/VDC_DOMAIN_TODO.md` | VDC 内部主域待办，跟踪数据契约、DPLL、RefMem 映射、组件化和验证。 |
+| `vdc/VDC_TASK_PROGRESS.md` | VDC 内部主域任务进度。 |
 | `communication/README.md` | 通信域 README。 |
 | `measure/README.md` | 测量域 README。 |
 | `storage/README.md` | 存储与证据域 README。 |
@@ -135,7 +142,7 @@ docs/
 |---|---|
 | `arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层产品架构主文档，阐述组件约束、层次逻辑和约束传播，不直接冻结硬件 pin map。 |
 | `arch/HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，跟踪 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 |
-| `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 核心基础架构，定义虚拟 DC、SYNC DPLL、Angle DPLL、时间事实和预测分发边界。 |
+| `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 既有融合架构输入；VDC 主域 canonical 见 `vdc/VDC_DOMAIN_ARCHITECTURE.md`。 |
 | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构特化，统一 DTC100 产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
 | `arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施补充、示例和历史迁移说明；不作为硬件资源 canonical。 |
 | `arch/HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估快照，用于识别平台耦合和迁移风险。 |
@@ -146,6 +153,7 @@ docs/
 | `arch/RTOS_HAOFV_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务进度和闭环验证记录。 |
 | `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告的仓库内摘要入口。 |
 | `reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html` | 0804 RP 分布式触发完整原始报告，已从外部 DOC 迁入。 |
+| `reports/distributed-trigger/DISTRIBUTED_HARD_REALTIME_TRIGGER_OVERVIEW_REPORT.html` | Distributed Hard Real-Time Trigger System 3-4 页概述报告。 |
 | `archive/TASK_PROGRESS.md` | 全局历史任务进度和跨域迁移记录。 |
 
 ## 02 硬件与资源约束
@@ -245,7 +253,7 @@ docs/
 ## 快速查找规则
 
 - 查系统边界：先读 `arch/HAOFV_ARCHITECTURE.md`。
-- 查 VDC/DPLL：先读 `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`，再读 `sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`。
+- 查 VDC/DPLL：先读 `vdc/VDC_DOMAIN_ARCHITECTURE.md`，再读 `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` 和 `sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`。
 - 查当前运行板约束：读 `hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`。
 - 查产品板约束：读 `hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`，再读最新网表和 IO 约束。
 - 查 IO/PIO 资源：先读 `sync/SYNC_IO_RESOURCE_PLAN.md`，再读具体域设计。

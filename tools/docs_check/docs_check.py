@@ -35,6 +35,7 @@ ALLOWED_PREFIXES = {
     "HARDWARE",
     "VALIDATION",
     "LEGACY",
+    "VDC",
 }
 
 ALLOWED_SUFFIXES = {

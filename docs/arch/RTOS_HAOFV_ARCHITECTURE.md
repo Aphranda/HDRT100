@@ -3,7 +3,7 @@
 Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`, `docs/interface/SCPI_COMMAND_PLAN.md`
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`, `docs/interface/SCPI_COMMAND_PLAN.md`
 Last updated: 2026-08-13
 
 本文档是 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 RTOS + 双核 AMP 架构入口。
@@ -26,6 +26,7 @@ Active Object、Function Block、Vector Blackboard、Resource Arbiter 和 Hardwa
 - 所有跨域动作必须通过 owner API、事件队列、命令槽或反射内存完成。
 - 所有事实、摘要、版本、CRC、ACK/NACK 和健康状态必须由唯一 owner 写入。
 - 反射内存回答“系统共同认知是什么”，不承载 OTA payload、日志全文、波形或实时边沿。
+- VDC Domain 回答“系统共同时间是什么”，SYNC DPLL 是 VDC offset/rate owner，Angle DPLL 不能写 VDC 共同时间。
 
 ## 设计输入
 
@@ -69,6 +70,46 @@ trigger_status_ring
 ```
 
 USB、SCPI、SD、OTA、LCD 和日志抖动不能进入真实触发边沿。
+
+### PIO / VDC 参考数据通路
+
+首版 VDC 与触发预测分发可以参考两个 PIO state machine 形成一收一发的硬实时最小链路。这里描述的是 RTOS/AMP 数据通路和 owner 边界，不冻结具体 PIO instance、GPIO、DMA channel 或最终布线路径；后续可根据实际资源、布线和 board profile 调整。
+
+| 执行体 | 职责 | 输出到 |
+|---|---|---|
+| `PIO_SM0: SYNC_RX_CAPTURE` | 监测差分输入，捕获上升沿，将捕获事件写入 RX FIFO。 | DMA |
+| DMA capture | 将 PIO RX FIFO 写入 RAM timestamp ring。 | `core1_realtime` |
+| `core1_realtime` | 读取捕获时间戳，写 TriggerSlot 摘要，写 DPLL offset/rate 输入样本。 | TriggerSlot / VDC input ring |
+| `task_vdc_sync` | 运行软件 DPLL，更新虚拟 DC offset/rate。 | VdcSlot |
+| `task_loop_engine` | 根据 VDC snapshot 计算 `T_fire_base`，生成 `FIRE_LOAD`。 | `trigger_command_queue` |
+| `core1_realtime` fire loader | 接收 `FIRE_LOAD`，装载 PIO 目标 tick。 | `PIO_SM1` |
+| `PIO_SM1: SYNC_TX_FIRE` | 在指定 tick 输出差分边沿，经 ISO7740 到差分线和对端。 | 外部同步链路 |
+
+数据流：
+
+```text
+SYNC_RX differential edge
+  -> PIO_SM0 RX FIFO
+  -> DMA timestamp ring
+  -> core1_realtime
+  -> TriggerSlot summary + VDC input sample
+  -> task_vdc_sync
+  -> VdcSlot offset/rate/lock/quality
+  -> task_loop_engine
+  -> FIRE_LOAD
+  -> trigger_command_queue
+  -> core1_realtime
+  -> PIO_SM1 target tick
+  -> ISO7740 -> differential line -> peer
+```
+
+边界：
+
+- PIO 和 DMA 只处理硬实时最小事件，不执行 DPLL。
+- core1 只做 timestamp ring 读取、TriggerSlot 摘要和 PIO 装载，不写 VDC offset/rate。
+- `task_vdc_sync` 是 VDC offset/rate 唯一 writer。
+- `task_loop_engine` 只消费 VDC snapshot 生成 `FIRE_LOAD`。
+- late `FIRE_LOAD` 必须拒绝补发并进入 evidence。
 
 ## 核心分区
 
@@ -171,7 +212,7 @@ RuntimeProtectionTable / `SYSTem:PROTection:STATus?` 至少需要覆盖：
 | `task_scpi` | core0 | 3 | 3072 words | SCPI 解析、权限门禁、accepted 响应、只投递事件或查询快照 |
 | `task_gateway_a3` | core0 | 3 | 3072 words | A3 网关、配置包接收、START/STOP 转发、VNA 状态桥接 |
 | `task_loop_engine` | core0 | 3 | 3072 words | A0 扫描编排、角度/断点/序列展开、滚动生成 `FIRE_LOAD` |
-| `task_vdc_sync` | core0 | 4 | 2048 words | SYNC DPLL、虚拟 DC offset/rate、LOCK/HOLDOVER/RELOCK、`e_vdc` |
+| `task_vdc_sync` | core0 | 4 | 2048 words | 当前任务壳承载 `VdcSyncAO / SyncDpllFB / VdcVector`；维护虚拟 DC offset/rate、LOCK/HOLDOVER/RELOCK、`e_vdc` |
 | `task_calibration` | core0 | 3 | 2048 words | CAL link/delay 表、短事务测量、staging/active/version/quality |
 | `task_refmem_sync` | core0 | 4 | 2048 words | 当前任务壳承载 `DistributedRefMemAO / RefMemSyncFB`；维护 64 KB DistributedVectorTable、静态分布式模型、slot delta、节点心跳、stale 判定 |
 | `task_dpll` | core0 | 3 | 2048 words | 角度预测 DPLL、Compare Out、`T_fire_base`；不参与 VDC offset/rate |
@@ -289,6 +330,8 @@ REFMEM_EPOCH(epoch, run_id, table_seq)
 
 ## VDC / DPLL / T2 链
 
+VDC 是 HAOFV 内部基础主域，不只是 `SYNC_IO` 中的一个算法函数。详细主域契约以 `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md` 为准；本文只保留 RTOS task 和双核 AMP 落地视角。
+
 0614 和 0804 方案在 RTOS 下收敛为下面的链条：
 
 ```text
@@ -307,6 +350,7 @@ FIRE_LOAD / local_fire / T2 capture / e_act validation
 - `task_dpll` 的 Angle DPLL 只维护角度预测和 `T_fire_base`。
 - `T2` 是实际动作回读事实，进入 Measure/T2/Statistics，不放在业务配置域。
 - DC 未 `LOCKED` 前的时间戳只能作为调试数据，不能作为正式 RUN 或 DEVICE/T2 校准基准。
+- `PIO_SM0: SYNC_RX_CAPTURE` 和 `PIO_SM1: SYNC_TX_FIRE` 只是首版参考路径；具体 PIO instance、GPIO、DMA channel 和 ring 大小由后续 board profile / SYNC_IO 资源适配决定。
 
 ## SCPI 边界
 

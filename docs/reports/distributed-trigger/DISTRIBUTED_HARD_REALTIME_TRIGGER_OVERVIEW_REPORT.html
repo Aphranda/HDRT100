@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Distributed Hard Real-Time Trigger System 概述报告</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+body { font-family:"等线","SimSun","Microsoft YaHei",sans-serif; background:#d0d0d0; display:flex; flex-direction:column; align-items:center; padding:20px; gap:24px; }
+@media print {
+  @page { size:1120px 630px; margin:0; }
+  body { background:#fff; padding:0; gap:0; }
+  .page { box-shadow:none; margin:0; width:1120px; min-height:630px; break-after:page; page-break-after:always; break-inside:avoid; page-break-inside:avoid; }
+}
+.page { background:#fff; width:1120px; min-height:630px; box-shadow:0 2px 8px rgba(0,0,0,.15); display:flex; flex-direction:column; }
+.page-header { padding:16px 44px 12px; display:flex; justify-content:space-between; align-items:center; border-bottom:8px solid #d0d6e4; min-height:60px; font-size:12px; color:#666; }
+.main { flex:1; display:flex; flex-direction:column; justify-content:center; padding:16px 44px; min-height:0; }
+.page-footer { padding:10px 44px 14px; border-top:8px solid #d0d6e4; display:flex; justify-content:space-between; align-items:center; font-size:9px; color:#aaa; }
+.page-num { font-size:10px; color:#999; }
+.cover-page { justify-content:center; align-items:center; text-align:center; }
+.cover-page .page-header { padding-top:48px; justify-content:space-between; }
+.cover-title { font-size:31px; font-weight:800; color:#1a1a1a; margin-bottom:12px; line-height:1.25; }
+.cover-divider { width:80px; height:4px; background:#1F3864; margin:28px auto; }
+.cover-subtitle { font-size:16px; color:#1F3864; margin-bottom:52px; }
+.cover-info { font-size:14px; color:#666; line-height:2; }
+.h1 { font-size:24px; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
+.sub { font-size:13px; color:#666; margin-bottom:18px; }
+.h2 { font-size:16px; font-weight:700; color:#1F3864; margin:14px 0 8px; padding-bottom:6px; border-bottom:2px solid #1F3864; }
+.row2 { display:flex; gap:20px; }
+.row3 { display:flex; gap:16px; }
+.col2,.col3 { flex:1; min-width:0; }
+table { width:100%; border-collapse:collapse; font-size:12px; border:1.5px solid #333; margin-bottom:12px; }
+thead th { background:#1F3864; color:#fff; font-size:12px; font-weight:600; padding:8px 10px; text-align:left; border:1px solid #1a2e52; }
+tbody td { padding:7px 10px; border:1px solid #bbb; color:#1a1a1a; vertical-align:top; line-height:1.45; }
+tbody tr:nth-child(even) td { background:#f2f6fc; }
+td.c, th.c { text-align:center; }
+td.b { font-weight:700; }
+.card { border:1px solid #ddd; border-radius:6px; overflow:hidden; flex:1; height:100%; }
+.card-h { padding:9px 13px; font-size:13px; font-weight:700; color:#fff; display:flex; align-items:center; gap:8px; }
+.card-b { padding:12px 14px; background:#fafafa; font-size:12px; line-height:1.55; min-height:118px; }
+.cb .card-h { background:#1565c0; } .cg .card-h { background:#2e7d32; } .co .card-h { background:#e65100; } .cp .card-h { background:#6a1b9a; }
+.bar { margin-top:10px; padding:11px 18px; background:linear-gradient(90deg,#1F3864,#283593); color:#fff; border-radius:4px; text-align:center; font-size:13px; font-weight:600; }
+.bar span { color:#ffcc80; font-size:15px; }
+.flow { display:flex; align-items:flex-start; gap:0; padding:6px 0 14px; }
+.step { flex:1; text-align:center; }
+.step-num { width:36px; height:36px; border-radius:50%; background:#1F3864; color:#fff; font-size:14px; font-weight:700; display:flex; align-items:center; justify-content:center; margin:0 auto 7px; }
+.step-title { font-size:12px; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
+.step-desc { font-size:10.5px; color:#555; line-height:1.35; padding:0 4px; }
+.arrow { display:flex; align-items:center; padding-top:7px; flex-shrink:0; }
+.arrow-l { width:26px; height:3px; background:#1F3864; }
+.arrow-h { width:0; height:0; border-top:6px solid transparent; border-bottom:6px solid transparent; border-left:11px solid #1F3864; }
+.img-wrap { text-align:center; margin-bottom:11px; border:1px solid #e0e0e0; border-radius:4px; padding:7px; background:#fafafa; }
+svg text { font-family:"等线","Microsoft YaHei",sans-serif; }
+.note { font-size:10px; color:#777; line-height:1.45; margin-top:6px; }
+.val { font-family:"Consolas","Courier New",monospace; font-weight:700; }
+.compact-page .main { justify-content:flex-start; padding-top:12px; padding-bottom:10px; }
+.compact-page .h1 { font-size:22px; margin-bottom:3px; }
+.compact-page .sub { font-size:12.4px; margin-bottom:11px; }
+.compact-page .h2 { font-size:15.2px; margin:9px 0 6px; padding-bottom:4px; }
+.compact-page table { font-size:11.7px; margin-bottom:8px; }
+.compact-page thead th { font-size:11.7px; padding:5px 9px; }
+.compact-page tbody td { padding:4.5px 9px; line-height:1.34; }
+.compact-page .bar { margin-top:5px; padding:8px 14px; font-size:12.2px; }
+.compact-page .bar span { font-size:13px; }
+</style>
+</head>
+<body>
+<div class="page cover-page">
+  <div class="page-header"><span>Distributed Hard Real-Time Trigger System</span><span>Overview Report</span></div>
+  <div class="main">
+    <h1 class="cover-title">Distributed Hard Real-Time<br>Trigger System 概述报告</h1>
+    <div class="cover-divider"></div>
+    <div class="cover-subtitle">HAOFV · RTOS 双核 AMP · Distributed RefMem · VDC · PIO 硬实时链路</div>
+    <div class="cover-info">DTC100 / RP2350B 当前架构框架 &nbsp;|&nbsp; 2026 年 8 月<br>3-4 页概述版，用于产品化架构沟通和后续详细设计入口</div>
+  </div>
+  <div class="page-footer"><span>Distributed Hard Real-Time Trigger System | Overview Report</span><span><span class="page-num">1 / 4</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><span>Distributed Hard Real-Time Trigger System</span><span>Architecture Overview</span></div>
+  <div class="main">
+    <div class="h1">总体架构：共同事实 + 共同时间 + 硬实时执行</div>
+    <div class="sub">当前框架已经从单板触发控制，收敛为可扩展的分布式硬实时系统平台</div>
+    <div class="row3">
+      <div class="col3"><div class="card cb"><div class="card-h">HAOFV 主线</div><div class="card-b">Active Object 管生命周期和事件入口；Function Block 管状态迁移；Vector 管事实、版本和唯一 writer；Service/PIO 只执行受限底层动作。</div></div></div>
+      <div class="col3"><div class="card cg"><div class="card-h">Distributed RefMem</div><div class="card-b">64 KB Distributed Vector Blackboard 维护共同事实：slot、ACK/NACK、stale、CRC、TableRegistry、RMA Window、静态 AO/FB 图和部署门禁。</div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">Virtual DC</div><div class="card-b">VDC Domain 维护共同时间：local_tick 到 vdc_time 映射、SYNC DPLL、HOLDOVER/RELOCK、servo profile、error budget 和时间质量。</div></div></div>
+    </div>
+    <div class="h2">核心分层</div>
+    <div class="flow">
+      <div class="step"><div class="step-num">1</div><div class="step-title">SCPI / UI</div><div class="step-desc">只表达配置、动作意图和查询</div></div><div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-title">AO / FB</div><div class="step-desc">owner task 消费事件并推进状态机</div></div><div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-title">RefMem / VDC</div><div class="step-desc">共同事实与共同时间形成 RUN gate</div></div><div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-title">core1 / PIO</div><div class="step-desc">固定小载荷、指定 tick 输出或捕获</div></div>
+    </div>
+    <table>
+      <thead><tr><th>内部主域</th><th>回答的问题</th><th>关键输出</th><th>边界</th></tr></thead>
+      <tbody>
+        <tr><td class="b">RefMem Domain</td><td>多节点共同认知是什么</td><td>VectorTable、slot snapshot、ACK/NACK、deployment gate、evidence</td><td>不计算 VDC，不承载大文件/波形/OTA payload</td></tr>
+        <tr><td class="b">VDC Domain</td><td>多节点共同时间是什么</td><td>offset/rate、vdc_time、lock quality、HOLDOVER、servo/error budget</td><td>不执行业务触发，不直接操作 PIO</td></tr>
+        <tr><td class="b">TRIG/Loop/Realtime</td><td>什么时候、以什么动作输出</td><td>sequence、T_fire_base、FIRE_LOAD、T2/READY timestamp</td><td>只消费 VDC snapshot，不写 offset/rate</td></tr>
+      </tbody>
+    </table>
+    <div class="bar">一句话：<span>RefMem 管共同事实，VDC 管共同时间，PIO/core1 管硬实时边沿。</span></div>
+  </div>
+  <div class="page-footer"><span>Distributed Hard Real-Time Trigger System | Overview Report</span><span><span class="page-num">2 / 4</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><span>Distributed Hard Real-Time Trigger System</span><span>VDC / RefMem Closed Loop</span></div>
+  <div class="main">
+    <div class="h1">关键数据通路：VDC 同步环路与 RefMem 共同事实</div>
+    <div class="sub">该路径是首版参考同步闭环，不冻结具体 PIO instance、GPIO、DMA channel 或最终布线路径</div>
+    <div class="img-wrap">
+      <svg viewBox="0 0 1000 260">
+        <defs><marker id="arr" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0,0 10,4 0,8" fill="#1F3864"/></marker></defs>
+        <g transform="translate(60,0)">
+        <text x="95" y="28" text-anchor="middle" font-size="12" fill="#666" font-weight="700">捕获</text>
+        <text x="325" y="28" text-anchor="middle" font-size="12" fill="#666" font-weight="700">搬运</text>
+        <text x="555" y="28" text-anchor="middle" font-size="12" fill="#666" font-weight="700">实时核</text>
+        <text x="785" y="28" text-anchor="middle" font-size="12" fill="#666" font-weight="700">DPLL</text>
+        <text x="95" y="146" text-anchor="middle" font-size="12" fill="#666" font-weight="700">输出</text>
+        <text x="325" y="146" text-anchor="middle" font-size="12" fill="#666" font-weight="700">装载</text>
+        <text x="555" y="146" text-anchor="middle" font-size="12" fill="#666" font-weight="700">计划</text>
+        <text x="785" y="146" text-anchor="middle" font-size="12" fill="#666" font-weight="700">共同时间</text>
+
+        <rect x="35" y="44" width="120" height="58" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/><text x="95" y="68" text-anchor="middle" font-size="13" font-weight="700">PIO_SM0</text><text x="95" y="88" text-anchor="middle" font-size="10.5">SYNC_RX_CAPTURE</text>
+        <rect x="265" y="44" width="120" height="58" rx="8" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="2"/><text x="325" y="76" text-anchor="middle" font-size="13" font-weight="700">DMA Ring</text>
+        <rect x="495" y="44" width="120" height="58" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="2"/><text x="555" y="66" text-anchor="middle" font-size="12.5" font-weight="700">core1_realtime</text><text x="555" y="84" text-anchor="middle" font-size="10.5">TriggerSlot</text><text x="555" y="98" text-anchor="middle" font-size="10.5">DPLL input</text>
+        <rect x="725" y="44" width="120" height="58" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/><text x="785" y="66" text-anchor="middle" font-size="12.5" font-weight="700">task_vdc_sync</text><text x="785" y="84" text-anchor="middle" font-size="10.5">SyncDpllFB</text><text x="785" y="98" text-anchor="middle" font-size="10.5">offset / rate</text>
+
+        <rect x="35" y="162" width="120" height="58" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/><text x="95" y="186" text-anchor="middle" font-size="13" font-weight="700">PIO_SM1</text><text x="95" y="206" text-anchor="middle" font-size="10.5">SYNC_TX_FIRE</text>
+        <rect x="265" y="162" width="120" height="58" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="2"/><text x="325" y="186" text-anchor="middle" font-size="13" font-weight="700">FIRE_LOAD</text><text x="325" y="206" text-anchor="middle" font-size="10.5">target tick</text>
+        <rect x="495" y="162" width="120" height="58" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/><text x="555" y="186" text-anchor="middle" font-size="13" font-weight="700">LoopEngine</text><text x="555" y="206" text-anchor="middle" font-size="10.5">T_fire_base</text>
+        <rect x="725" y="162" width="120" height="58" rx="8" fill="#ede7f6" stroke="#512da8" stroke-width="2"/><text x="785" y="186" text-anchor="middle" font-size="13" font-weight="700">VdcSlot</text><text x="785" y="206" text-anchor="middle" font-size="10.5">RefMem mirror</text>
+
+        <line x1="155" y1="73" x2="265" y2="73" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr)"/>
+        <line x1="385" y1="73" x2="495" y2="73" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr)"/>
+        <line x1="615" y1="73" x2="725" y2="73" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr)"/>
+        <path d="M845 73 L915 73 L915 191 L845 191" fill="none" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr)"/>
+        <line x1="725" y1="191" x2="615" y2="191" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr)"/>
+        <line x1="495" y1="191" x2="385" y2="191" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr)"/>
+        <line x1="265" y1="191" x2="155" y2="191" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr)"/>
+        <path d="M35 191 L-35 191 L-35 73 L35 73" fill="none" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr)"/>
+        <text x="330" y="252" text-anchor="middle" font-size="11" fill="#1F3864" font-weight="700">SYNC_RING / peer node return / cable delay</text>
+        </g>
+      </svg>
+    </div>
+    <table>
+      <thead><tr><th>框架补足</th><th>借鉴来源</th><th>落地到当前系统</th></tr></thead>
+      <tbody>
+        <tr><td class="b">RefMemTableRegistry</td><td>NASA cFS Table Services</td><td>staging/active/rollbackable、CRC、owner validation、dump/load、evidence</td></tr>
+        <tr><td class="b">RefMemRmaWindow</td><td>OpenSHMEM / MPI RMA</td><td>slot delta、atomic 白名单、completion、fence/quiet、snapshot 可见性</td></tr>
+        <tr><td class="b">VdcServoProfile / ErrorBudget</td><td>LinuxPTP / Chrony</td><td>offset/rate、jitter、skew、servo reset、dispersion、HOLDOVER aging</td></tr>
+        <tr><td class="b">VdcDcSyncPipeline</td><td>SOEM / EtherCAT DC</td><td>reference node、active delay、initial sync、drift compensation、T2 validation、closed-loop verification</td></tr>
+      </tbody>
+    </table>
+    <div class="note">说明：PIO_SM0/SM1 是参考路径。TX_FIRE 负责按预测 tick 发出同步边沿，RX_CAPTURE 捕获本端/对端回传时间戳，VDC 用连续时间戳更新 offset/rate 并验证环路质量；具体硬件资源后续按 board profile 调整。</div>
+  </div>
+  <div class="page-footer"><span>Distributed Hard Real-Time Trigger System | Overview Report</span><span><span class="page-num">3 / 4</span></span></div>
+</div>
+
+<div class="page compact-page">
+  <div class="page-header"><span>Distributed Hard Real-Time Trigger System</span><span>Closed Loop Capability</span></div>
+  <div class="main">
+    <div class="h1">能力闭环：从业务意图到硬实时证据</div>
+    <div class="sub">系统的产品化关键不是单条指令，而是配置、时间、执行、证据在 RefMem 和 VDC 上形成闭环</div>
+    <div class="row2">
+      <div class="col2">
+        <div class="h2">运行闭环</div>
+        <table>
+          <thead><tr><th>闭环</th><th>系统语义</th><th>关键事实</th></tr></thead>
+          <tbody>
+            <tr><td class="b">配置闭环</td><td>SCPI/UI 写入配置意图，AO/FB 校验后提交到 RefMem staging/active 表。</td><td>version、owner、CRC、apply_seq、rollback_id</td></tr>
+            <tr><td class="b">时间闭环</td><td>SYNC 捕获时间戳，VDC DPLL 估计 offset/rate，并输出可消费的共同时间。</td><td>local_tick、vdc_time、offset、rate、quality</td></tr>
+            <tr><td class="b">动作闭环</td><td>LoopEngine 根据序列和 VDC 计算目标时刻，core1/PIO 负责确定性输出。</td><td>T_fire_base、FIRE_LOAD、late_flag、done_ack</td></tr>
+            <tr><td class="b">证据闭环</td><td>捕获 T2/READY、late、CRC、seq、stale 等证据，用于报告和故障恢复。</td><td>timestamp、fault_latch、trace_id、snapshot_id</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col2">
+        <div class="h2">最小数据契约</div>
+        <table>
+          <thead><tr><th>结构</th><th>建议字段</th><th>使用者</th></tr></thead>
+          <tbody>
+            <tr><td class="b">TimestampEvent</td><td>source_id、edge、local_tick、seq、quality_flags</td><td>core1、VDC、MEAS/CAL</td></tr>
+            <tr><td class="b">VdcSlot</td><td>epoch、offset_q、rate_q、jitter、state、holdover_age</td><td>LoopEngine、SYNC、TRIG</td></tr>
+            <tr><td class="b">RefMemSlot</td><td>owner、schema_id、version、payload、crc、stale_age</td><td>所有 AO/FB</td></tr>
+            <tr><td class="b">FireLoad</td><td>target_tick、line_mask、pulse_width、guard_tick、command_seq</td><td>LoopEngine、core1、PIO_TX</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="h2">有限版本产品化门禁</div>
+    <table>
+      <thead><tr><th>门禁项</th><th>必须成立的条件</th><th>通过后的系统价值</th></tr></thead>
+      <tbody>
+        <tr><td class="b">最小四板环路</td><td>A0-A3 节点在线、slot 心跳有效、SYNC_RING 捕获/回传闭合。</td><td>证明系统不是单板触发器，而是分布式同步控制器。</td></tr>
+        <tr><td class="b">校准到同步链路</td><td>CAL 写入链路 delay，VDC 使用 delay 建立 offset/rate，SYNC 能读回质量。</td><td>T2 预测分发具备数据基础，角度点内序列可按共同时间执行。</td></tr>
+        <tr><td class="b">序列到边沿输出</td><td>CONFigure:TRIGger / SEQuence 形成动作表，LoopEngine 生成 FIRE_LOAD，PIO 输出可捕获。</td><td>链路控制节点、极化、频点、波位序列进入可验证的自动执行流程；当前项目实例具现为 SP8T/SP2T 等链路开关资源。</td></tr>
+        <tr><td class="b">故障与恢复闭环</td><td>late、stale、CRC、seq、HOLDOVER 超限能够锁存、读取、清除并重新 ARM。</td><td>上位机可以完成运行判定、异常定位和恢复，不依赖人工猜测。</td></tr>
+      </tbody>
+    </table>
+    <div class="bar">有限版本判断：<span>优先证明四板同步环路、校准 delay、预测分发和故障恢复闭环。</span></div>
+  </div>
+  <div class="page-footer"><span>Distributed Hard Real-Time Trigger System | Overview Report</span><span><span class="page-num">4 / 4</span></span></div>
+</div>
+</body>
+</html>

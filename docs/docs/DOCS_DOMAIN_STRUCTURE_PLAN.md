@@ -28,9 +28,10 @@ docs/
   arch/                 ; 产品架构、HAOFV、RTOS 和分布式总纲
   interface/            ; SCPI、USB、USBTMC、命令表、上位机接口
   trigger/              ; 产品触发、序列、角度、core1 实时执行
-  sync/                 ; SYNC、VDC、DPLL、同步质量
+  sync/                 ; SYNC 动作、SYNC_IO、同步链路落地
   calibration/          ; CAL link、delay、参数、版本、质量
   refmem/               ; 分布式向量表、命令槽、ACK/NACK、节点事实
+  vdc/                  ; 虚拟 DC、共同时间、DPLL、HOLDOVER、时间质量
   communication/        ; BiSS-C、UART、RS485、RJ45 后端维护
   measure/              ; 测量原语、T2 摘要、链路 delay 测量服务
   storage/              ; SD、StorageAO、日志、trace、snapshot、报告证据
@@ -52,7 +53,7 @@ docs/
 | `CONFigure` | `interface/`, `trigger/`, `calibration/`, `sync/` | 配置入口按业务归属拆到各 owner 文档，SCPI 表只保留接口契约 |
 | `TRIGger` | `trigger/` | 运行控制、模式、启动停止、core1 实时执行和 active sequence 冻结 |
 | `CALibration` | `calibration/` | 链路 delay、校准事务、参数表、active/staging、版本和质量 |
-| `SYNC` | `sync/` | VDC、DPLL、同步检查、锁定、HOLDOVER、质量和版本 |
+| `SYNC` | `sync/`, `vdc/` | `SYNC:*` 动作和 SYNC_IO 落地放 `sync/`；VDC 共同时间、DPLL、HOLDOVER、质量和版本放 `vdc/` |
 | `READ` | `interface/`, 各业务目录 | `READ:*?` 是产品视图，响应字段归接口文档，事实源归 owner 文档 |
 | `MEASure` | `measure/` | 测量原语和服务视图，供 CAL/SYNC/诊断复用 |
 | `COMMunication` | `communication/` | BiSS-C、UART、RS485 和通信维护能力 |
@@ -68,10 +69,11 @@ docs/
 | Control Plane / System Manager | `arch/` | `_ARCHITECTURE.md`, `_DESIGN.md`, `_TASK_PROGRESS.md` |
 | Command Transaction / ACK-NACK | `refmem/` | `_DESIGN.md`, `_COMMANDS.md`, `_CHECKLIST.md` |
 | Distributed Vector / REFMEM | `refmem/` | 内部主域；`REFMEM_DOMAIN_ARCHITECTURE.md`, `REFMEM_DOMAIN_TODO.md`, `REFMEM_TASK_PROGRESS.md` |
+| Virtual Distributed Clock / VDC | `vdc/` | 内部主域；`VDC_DOMAIN_ARCHITECTURE.md`, `VDC_DOMAIN_TODO.md`, `VDC_TASK_PROGRESS.md` |
 | Loop Engine / Sequence Engine | `trigger/` | `_DESIGN.md`, `_PLAN.md`, `_TASK_PROGRESS.md` |
 | Core1 Realtime / FIRE_LOAD | `trigger/` | `_DESIGN.md`, `_ANALYSIS.md`, `_CHECKLIST.md` |
 | Calibration Engine | `calibration/` | `_DESIGN.md`, `_COMMANDS.md`, `_TASK_PROGRESS.md` |
-| Sync / VDC / DPLL Engine | `sync/` | `_DESIGN.md`, `_ANALYSIS.md`, `_TASK_PROGRESS.md` |
+| Sync Action / SYNC_IO Engine | `sync/` | `_DESIGN.md`, `_ANALYSIS.md`, `_TASK_PROGRESS.md` |
 | Measurement Service | `measure/` | `_DESIGN.md`, `_COMMANDS.md`, `_ANALYSIS.md` |
 | Evidence / Report / Snapshot | `storage/` | `_DESIGN.md`, `_PLAYBOOK.md`, `_CHECKLIST.md` |
 | Access / Permission / Mode Policy | `interface/` 或 `arch/` | `_DESIGN.md`, `_COMMANDS.md` |
@@ -87,6 +89,7 @@ docs/
 | `interface/` | `SCPI_COMMAND_PLAN.md`, `SCPI_COMMANDS.md`, `SCPI_USB_INTERFACE_DESIGN.md`, `RP1200波导天线测试系统分布式触发方案SCPI指令表.md` |
 | `trigger/` | `TRIGGER_SYNC_TODO.md`, `TRIGGER_SEQ_STEP_DESIGN.md`, `TRIGGER_ENC_COUNT_DESIGN.md`, `TRIGGER_PULSE_COUNT_ANALYSIS.md`, `SYNC_IO_RESOURCE_PLAN.md` |
 | `sync/` | `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`, `SYNC_IO_REFACTOR_PLAN.md`, `SYNC_IO_TASK_PROGRESS.md` |
+| `vdc/` | `VDC_DOMAIN_ARCHITECTURE.md`, `VDC_DOMAIN_TODO.md`, `VDC_TASK_PROGRESS.md` |
 | `calibration/` | 首批需要从 SCPI/RTOS 文档中抽出 `CALibration` 专题设计文档 |
 | `refmem/` | `REFMEM_DOMAIN_ARCHITECTURE.md`, `REFMEM_DOMAIN_TODO.md`, `REFMEM_TASK_PROGRESS.md`；`LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` 作为参考 |
 | `communication/` | `BISSC_TAP_BRIDGE_DESIGN.md`, `BISSC_IMPLEMENTATION_TODO.md`, `BISSC_TASK_PROGRESS.md`, `BISSC_NETWORK_LOOPBACK_PLAYBOOK.md` |
@@ -150,8 +153,9 @@ docs/
 2. 是否是对外命令、上位机接口、USB/USBTMC 或权限策略：放 `interface/`。
 3. 是否影响触发运行、角度、序列、core1 或实时边沿：放 `trigger/`。
 4. 是否管理链路 delay、校准表、校准质量：放 `calibration/`。
-5. 是否管理 VDC、DPLL、同步锁定、HOLDOVER 或同步质量：放 `sync/`。
-6. 是否定义分布式节点事实、反射内存、命令槽、ACK/NACK：放 `refmem/`。
+5. 是否管理 VDC 共同时间、SYNC DPLL、HOLDOVER、时间质量或 VDC RefMem 映射：放 `vdc/`。
+6. 是否管理 `SYNC:*` 动作、SYNC_IO、PIO 同步链路或同步 IO 资源：放 `sync/`。
+7. 是否定义分布式节点事实、反射内存、命令槽、ACK/NACK：放 `refmem/`。
 7. 是否是 BiSS/UART/RS485 等通信后端：放 `communication/`。
 8. 是否是测量原语、T2 摘要、delay 测量服务：放 `measure/`。
 9. 是否是 SD、日志、trace、snapshot、报告证据：放 `storage/`。
@@ -182,7 +186,8 @@ Distributed Hard Real-Time Trigger System
 │  ├─ trigger/TRIGGER_* 文档
 │  ├─ calibration/CALIBRATION_* 文档
 │  ├─ sync/SYNC_* 文档
-│  └─ refmem/REFMEM_* 文档
+│  ├─ refmem/REFMEM_* 文档
+│  └─ vdc/VDC_* 文档
 ├─ 4. 后端能力
 │  ├─ communication/BISSC_* / UART / RS485
 │  ├─ measure/MEASURE_* 文档

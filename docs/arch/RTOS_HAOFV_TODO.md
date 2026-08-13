@@ -140,7 +140,10 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 
 ## P5 - VDC / SYNC DPLL / Angle DPLL
 
+详细待办以 `docs/vdc/VDC_DOMAIN_TODO.md` 为准；本节只保留 RTOS + 双核 AMP 视角下必须纳入发布门禁和任务拆分的事项。
+
 - [x] 建立 `VdcDpllManager` 第一阶段组件，先迁出 VDC/DPLL 状态计数和只读快照。
+- [x] 将 VDC 明确为 HAOFV 内部主域，并建立 `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`、`VDC_DOMAIN_TODO.md`、`VDC_TASK_PROGRESS.md`。
 - [ ] 将 `components/vdc_dpll_manager/` 升级为 `VdcSyncAO / SyncDpllFB / VdcVector`。
 - [ ] 实现 `CONFigure:SYNC:CALibration/RING/VDC:DPLL/GATE/LIMit` 的 staging 配置和拒绝原因。
 - [ ] 实现 `SYNC:CHECk/STARt/STOP/RELock/HOLDover`。

@@ -43,6 +43,58 @@ DistributedRefMemAO
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-007 - 虚拟反射内存参考框架补足
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 基于 NASA cFS Table Services、OpenSHMEM / MPI RMA、MPI RMA 和 IEC 61499 的一手机制，补足 RefMem 主域框架。
+  - 将参考项目落到可实现的表生命周期、受控 RMA window、completion、fence/quiet 和静态应用模型检查。
+- 完成内容：
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加虚拟反射内存参考机制矩阵。
+  - 增加 `RefMemTableRegistry` 框架，覆盖 table id、owner、offset/size、layout version、active/staging CRC、validation state、validator id、last result 和 evidence。
+  - 增加 staging/active 表生命周期：`LOAD_TO_STAGING -> CRC_CHECK -> OWNER_VALIDATE -> ACTIVATE -> ACTIVE -> ROLLBACKABLE/FAILED`。
+  - 增加 `RefMemRmaWindow` 受控子集，限制为 slot delta、command flag、dirty bitmap、heartbeat/seq、quality counter 等白名单字段。
+  - 增加 RMA completion 语义：`origin_encoded -> ring_sent -> target_received -> target_crc_ok -> target_owner_validated -> target_committed -> visible_in_snapshot`。
+  - `REFMEM_DOMAIN_TODO.md` 补充 TableRegistry、staging/active/rollback、owner validation、RMA window 和 completion 实现项。
+- 验证结果：
+  - 本任务为文档框架补足，尚未执行构建、烧录或板端 SCPI。
+- 还需完成：
+  - 将 `RefMemTableRegistry` 和 `RefMemRmaWindow` 落到代码组件。
+  - 补充 staging/active load/dump 的 System Pack 存储格式。
+- 关联文件：
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 进入 RefMem P3/P5 代码前，冻结 registry table id 和 RMA atomic 白名单。
+
+### REFMEM-TASK-20260813-006 - 外部参考机制收敛到 RefMem 待办
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 将 NASA cFS Table Services、OpenSHMEM / MPI RMA、IEC 61499 的可借鉴机制收敛到 RefMem Domain 待办。
+  - 明确 RefMem 只吸收表驱动、CRC、owner validation、RMA completion、atomic/fence 和静态 FB 图，不引入完整外部协议栈或动态分布式运行时。
+- 完成内容：
+  - `REFMEM_DOMAIN_TODO.md` 增加“参考项目收敛原则”矩阵，定义每个外部参考项目的借鉴机制和本项目落地边界。
+  - 新增 P1.5 外部参考机制工程化收敛章节，列出 cFS、RMA、IEC 61499 到文档和实现的映射任务。
+  - P2 增加静态模型 linter、package CRC 和 FB 图版本门禁待办。
+  - P3 增加 RefMem Table Registry、active/inactive image 生命周期、owner validation callback 和 dump/load 镜像规则待办。
+  - P4 增加 command slot atomic API、completion 语义和 memory order / fence 规则待办。
+  - P5 增加 RefMem RMA Window、delta completion、远端原子更新白名单、RMA-style fence 和 compact timestamp / delta frame 分层待办。
+  - P8 增加 cFS-style 和 RMA-style 故障注入验证项；VDC/DPLL 类参考拆分到 VDC Domain 待办维护。
+- 验证结果：
+  - 本任务为文档待办推进，未修改代码，未执行构建、烧录或板端 SCPI。
+- 还需完成：
+  - 在 `REFMEM_DOMAIN_ARCHITECTURE.md` 增加虚拟反射内存参考机制矩阵。
+  - 在 VDC Domain 中补齐 offset/rate/quality 与 initial sync/drift compensation/holdover 的字段映射。
+  - 后续按 P3/P4/P5/P8 把参考机制转成代码和验证闭环。
+- 关联文件：
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_TASK_PROGRESS.md`
+- 下一步：
+  - 继续完善 `REFMEM_DOMAIN_ARCHITECTURE.md` 的外部参考机制章节，避免 TODO 和架构正文脱节。
+
 ### REFMEM-TASK-20260813-005 - Command / ACK / NACK 契约定义
 
 - 状态：完成

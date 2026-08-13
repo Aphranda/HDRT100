@@ -3,7 +3,7 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
 Last updated: 2026-08-13
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -37,6 +37,7 @@ HAOFV Architecture
 - `System Vector Blackboard`：系统总表，保存全局状态摘要、资源占用、错误摘要。
 - `Domain Vector Tables`：各功能域独立向量表，例如 OTA、Trigger、Storage、UI。
 - `Distributed Vector Blackboard / RefMem Sync Domain`：分布式系统共同事实内部主域，维护 64 KB 反射内存向量表、静态分布式应用模型、slot owner、命令槽、ACK/NACK、stale、CRC 和 sequence。
+- `Virtual Distributed Clock / VDC Domain`：分布式系统共同时间内部主域，维护 `local_tick -> vdc_time` 映射、SYNC DPLL、HOLDOVER/RELOCK、timestamp dictionary、时间质量和预测分发时间基准。
 - `Table-Driven State Machines`：状态转移、命令解析、资源冲突、错误码使用表驱动。
 - `Resource Arbiter`：统一管理 Flash、SPI、PIO、DMA、USB、LCD、SD 等资源互锁。
 - `RTE-like Service Layer`：上层不直接碰硬件，通过驱动和服务层访问外设。
@@ -54,6 +55,8 @@ IEC 61499-style Function Block Layer
         ↓
 Time-Synchronized Vector Blackboard Layer
         ↓
+Virtual Distributed Clock / VDC Domain
+        ↓
 Distributed Vector Blackboard / RefMem Sync Domain
         ↓
 Hardware Service Layer
@@ -69,6 +72,7 @@ Active Object 管运行，
 IEC 61499 风格功能块管逻辑，
 Vector Blackboard 管本节点事实，
 Distributed RefMem 管多节点共同事实，
+VDC Domain 管多节点共同时间，
 PIO/DMA 管硬实时。
 ```
 
@@ -105,8 +109,8 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | Function Block | 执行 ECC 状态迁移、资源规则和错误归因；Action 必须立即返回，耗时动作只能返回 busy 并由后续 tick 推进。 | `trigger/`、`ota/`、`storage/`、`sync/` |
 | Vector Blackboard | 保存事实、摘要、命令槽和版本；字段必须有唯一 writer、值域、生命周期和快照规则。 | `refmem/`、各 Domain Vector |
 | Distributed RefMem | HAOFV 内部基础主域；跨节点动作只能通过反射内存向量表、静态分布式应用模型、命令槽、ACK/NACK、stale、CRC、sequence 和同步帧表达。 | `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`、`docs/arch/RTOS_HAOFV_ARCHITECTURE.md`、`components/distributed_refmem/` |
+| VDC Domain | HAOFV 内部基础主域；形成多节点共同时间事实，维护 local tick 到 VDC 时间映射、SYNC DPLL、HOLDOVER/RELOCK、timestamp dictionary 和时间质量门禁。 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`、`docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`、`components/vdc_domain/` |
 | Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源；Flash/XIP 双核安全是最高优先级硬约束。 | `arch/RTOS_HAOFV_ARCHITECTURE.md` |
-| VDC/DPLL | 形成多节点共同时间事实；timestamp sample 是原始观测事实，SYNC DPLL 负责 VDC offset/rate，Angle DPLL 负责 `T_fire_base` 预测，两者不得混用。 | `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` |
 | Hardware Service | 封装 SDK/驱动细节；上层不直接调用板级 API。 | `components/`、`drivers/` |
 | PIO/DMA/IRQ | 只执行硬实时动作和最小事实回写；对外维护入口归 `REALtime`，产品业务动作入口仍归 `TRIGger`。 | `sync/`、`trigger/`、board profile |
 
@@ -130,6 +134,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | core1 实时 owner | RTOS + 双核 AMP 主线下，TriggerAO/TriggerFB 运行在 core1；core0 只能投递事件、写命令槽或读取快照。 |
 | 跨核共享事实 | core0/core1 共享字段必须有唯一 writer，快照必须使用 seqlock、双缓冲或等价 sequence/version 机制，并使用 `__atomic` 或 DMB 屏障。 |
 | 分布式共同事实 | 不引入完整 IEC 61499 分布式运行时；多节点状态、命令、ACK/NACK、版本、质量和证据统一由 Distributed RefMem / RefMem Sync 内部主域承接。 |
+| 分布式共同时间 | VDC Domain 是共同时间唯一 owner；SYNC DPLL 维护 VDC offset/rate，Angle DPLL 只生成扫描预测时间，不能写 VDC offset/rate。 |
 | Vector 字段契约 | 每个 Vector 字段或字段块必须定义 writer、value domain、lifecycle、snapshot-needed；不得把 Vector 当作全局变量自由读写。 |
 | 时间回绕 | `uint32_t timestamp_ms` 只能用于短时间差；时间差必须使用回绕安全写法 `int32_t diff = (int32_t)(t1 - t0)`，长时间事实需要 epoch 扩展。 |
 | Metadata failsafe | Bootloader 必须定义 metadata 双副本无效的强制恢复路径，禁止继续启动未知镜像。 |

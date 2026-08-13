@@ -3,7 +3,7 @@
 Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/interface/SCPI_COMMAND_PLAN.md`
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`
 Last updated: 2026-08-13
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面。
@@ -64,6 +64,7 @@ RefMem Domain 不负责：
 - 不传输 OTA payload、日志全文、波形、SD 文件内容或硬实时边沿。
 - 不引入完整 IEC 61499 分布式运行时。
 - 不支持运行时动态部署 FB、跨节点 FB 直接调用或动态事件路由。
+- 不计算 VDC offset/rate，也不执行 DPLL；VDC 共同时间由 VDC Domain owner 发布，RefMem 只保存其 snapshot、版本、质量和 evidence。
 
 ## HAOFV 层级
 
@@ -114,6 +115,80 @@ A0-A7 generic node
 
 因此，`NodeSlot[8]` 只描述八个通用节点的新鲜度、心跳、角色摘要和故障摘要；具体节点承载真实板卡、脉冲分发、链路切换、仪表控制、网关、模型网分或模拟转台，由静态分布式应用模型决定。
 
+### 虚拟反射内存参考机制
+
+RefMem Domain 的外部参考只聚焦“共同事实”和“受控远端内存语义”，不承担 VDC/DPLL 的共同时间算法。参考项目提供机制，不改变 HAOFV 的静态 owner、snapshot 和 RUN gate 约束。
+
+| 参考对象 | 可借鉴机制 | RefMem 落地方式 | 不采用内容 |
+|---|---|---|---|
+| NASA cFS Table Services | table registry、active/inactive image、load/dump、data integrity、owner validation、application get/release access。 | 建立 `RefMemTableRegistry`、staging/active 双镜像、CRC + owner validation、dump/load 镜像、validator id、validation pending/result。 | 不引入 cFS software bus、flight app 生命周期、ground command 格式。 |
+| OpenSHMEM / MPI RMA | remote memory window、put/get/accumulate、atomic memory operation、origin/target completion、fence/quiet、lock/unlock。 | 建立受控 `RefMemRmaWindow`，只允许 slot delta、command flag、dirty bitmap、heartbeat/seq、quality counter 等小字段同步；定义 `origin_encoded -> target_received -> target_validated -> target_committed`。 | 不暴露裸地址，不允许任意远端写变量，不做通用 PGAS。 |
+| IEC 61499 / Eclipse 4diac | FB instance、event connection、data connection、device/resource mapping、deployment consistency。 | 建立静态 `DistributedApplicationMap`、`DistributedFbInstanceTable`、`DistributedEventLinkTable`、`DistributedDataLinkTable` 和 DeploymentGate linter。 | 不做动态 FB 部署，不引入 IEC 工具链，不执行跨节点 FB 直接调用。 |
+
+#### RefMemTableRegistry
+
+`RefMemTableRegistry` 是 cFS-style 表机制在本项目中的落地点。每张表必须能被列出、校验、激活和导出。
+
+| 字段 | 含义 |
+|---|---|
+| `table_id` | 表编号，例如 Vector layout、ApplicationMap、FB instance、EventLink、DataLink、VDC snapshot map。 |
+| `owner_domain` | 表 owner，只有 owner 可执行逻辑 validation。 |
+| `offset/size` | 在 64 KB 表或外部 package 中的位置。 |
+| `layout_version` | 表结构版本。 |
+| `active_crc32` | 当前 active image CRC。 |
+| `staging_crc32` | 当前 staging image CRC。 |
+| `validation_state` | `EMPTY/STAGED/CRC_OK/OWNER_OK/FAILED/ACTIVE/ROLLBACKABLE`。 |
+| `validator_id` | owner validation 函数或策略编号。 |
+| `last_result` | 最近验证/激活/回滚结果。 |
+| `last_evidence_index` | 失败证据索引。 |
+
+表生命周期：
+
+```text
+LOAD_TO_STAGING
+  -> CRC_CHECK
+  -> OWNER_VALIDATE
+  -> ACTIVATE
+  -> ACTIVE
+  -> ROLLBACKABLE / FAILED
+```
+
+规则：
+
+- CRC 只证明字节完整性，不能替代 owner validation。
+- load 只能进入 staging，不得直接覆盖 active。
+- dump 只能导出稳定 snapshot 或 active image，不导出半更新数据。
+- owner 使用表指针后必须 release，避免阻塞 staging/active 切换。
+- validation 失败必须给出 reason 和 evidence，而不是只返回 false。
+
+#### RefMemRmaWindow
+
+`RefMemRmaWindow` 是 OpenSHMEM / MPI RMA 思想在本项目中的受控子集。它不是远端裸内存访问，而是固定 slot mirror 的同步窗口。
+
+| 概念 | RefMem 子集 |
+|---|---|
+| RMA window | A0-A7 每个节点暴露自己的 slot mirror 和少量共享 command/quality 字段。 |
+| put/get | 表达为 `REFMEM_DELTA` 和 snapshot read，不提供任意地址 put/get。 |
+| accumulate | 只允许白名单计数器，例如 stale/drop/late/CRC counter。 |
+| atomic | 只允许 command flag、ack/nack bit、dirty bitmap、heartbeat seq 等小字段。 |
+| fence | 同一 target 的 delta 顺序可见性门禁。 |
+| quiet / flush | 多 target 或 RUN gate 前的全部 delta 完成门禁。 |
+| lock/unlock | 映射为 command slot take/clear 或 staging activation critical section。 |
+
+completion 语义：
+
+```text
+origin_encoded
+  -> ring_sent
+  -> target_received
+  -> target_crc_ok
+  -> target_owner_validated
+  -> target_committed
+  -> visible_in_snapshot
+```
+
+RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/sent/received 但未 committed 的 delta 都不能改变 active fact。
+
 | 借鉴点 | RefMem Domain 落地形式 | 不采用的部分 |
 |---|---|---|
 | Application model | 静态 `DistributedApplicationMap`，描述 A0-A7 通用节点以及加载到节点上的 role、persona 和实例。 | 运行时动态部署 application。 |
@@ -163,7 +238,7 @@ A0-A7 generic node
 | `version` | 实例实现版本。 | RUN 前检查兼容范围。 |
 | `enable_condition` | 启用条件。 | 由 mode、persona、feature、配置 CRC 共同决定。 |
 | `resource_claim` | 资源占用。 | Flash、SD、USB、PIO、DMA、LCD、RJ45、core1 时间片等。 |
-| `io_claim` | IO 占用。 | SMA、RJ45、SP8T、SP2T、BiSS-C、UART/RS485 等。 |
+| `io_claim` | IO 占用。 | SMA、RJ45、link-control resources、BiSS-C、UART/RS485 等；当前项目实例可映射为 SP8T/SP2T。 |
 | `time_budget_us` | 单次 service 预算。 | 超预算进入 Diagnostics evidence。 |
 | `state_slot_ref` | 状态事实位置。 | 指向 Vector slot 字段。 |
 | `health_slot_ref` | 健康事实位置。 | 指向质量或故障 slot 字段。 |
@@ -230,7 +305,7 @@ A0-A7 generic node
 | `node_check` | 必需 A0-A7 节点 online、node_uuid、role/persona 匹配。 | 拒绝 RUN 或按 fail_policy 降级。 |
 | `instance_check` | required AO/FB instance 存在、版本兼容、enable 条件满足。 | 拒绝 RUN。 |
 | `resource_check` | Flash、SD、USB、PIO、DMA、core1、RJ45 等资源无冲突。 | 拒绝冲突实例组合。 |
-| `io_check` | SMA/RJ45/SP8T/SP2T/BiSS-C/UART/RS485 等 IO claim 无冲突。 | 拒绝 RUN 或拒绝实例启用。 |
+| `io_check` | SMA/RJ45/link-control resources/BiSS-C/UART/RS485 等 IO claim 无冲突；当前项目实例可映射为 SP8T/SP2T。 | 拒绝 RUN 或拒绝实例启用。 |
 | `writer_check` | 每个 slot 字段只有唯一 writer。 | 拒绝 RUN。 |
 | `event_check` | 必需事件连接完整，timeout 和 ACK 策略明确。 | 拒绝 RUN。 |
 | `data_check` | 必需数据连接完整，单位、值域、生命周期一致。 | 拒绝 RUN。 |

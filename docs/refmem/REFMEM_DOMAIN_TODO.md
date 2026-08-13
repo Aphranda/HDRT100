@@ -8,6 +8,16 @@ Last updated: 2026-08-13
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的独立待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
 
+## 参考项目收敛原则
+
+RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引入对应协议或完整运行时。借鉴关系必须落到固定表、owner、CRC、atomic、completion、fence、静态 AO/FB 图和验证项上。VDC/DPLL、offset/rate、HOLDOVER 和同步质量参考由 `docs/vdc/VDC_DOMAIN_TODO.md` 维护。
+
+| 参考项目 | 可借鉴机制 | RefMem 落地边界 |
+|---|---|---|
+| NASA cFS Table Services | 表注册、active/inactive 表、CRC / data integrity、owner validation callback、load/dump 流程。 | 用于 `DistributedVectorTable`、静态模型表和 System Pack 的表镜像生命周期；不引入 cFS 总线或 flight app 运行时。 |
+| OpenSHMEM / MPI RMA | RMA window、put/get/accumulate 思想、原子操作、origin/target completion、fence/order。 | 用于定义 RefMem slot mirror、delta 同步完成语义和 command slot atomic take/clear；不允许任意远程写裸变量。 |
+| IEC 61499 | 静态 FB instance、事件连接、数据连接、部署一致性。 | 用于 `DistributedApplicationMap` / `DistributedFbInstanceTable` / EventLink / DataLink；不做运行时动态 FB 部署。 |
+
 ## P0 - 文档主域建立
 
 - [x] 建立 `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`。
@@ -26,6 +36,16 @@ Last updated: 2026-08-13
 - [x] 修改 `docs/interface/SCPI_COMMAND_PLAN.md`，说明 `SYSTem:REFMEM:*` 背后 owner 是 RefMem Domain。
 - [x] 修改 `docs/interface/SCPI_COMMANDS.md`，同步 `SYSTem:REFMEM:*` 查询说明，避免上位机误认为有顶级 `REFMEM` SCPI 域。
 
+## P1.5 - 外部参考机制工程化收敛
+
+- [x] 收敛 NASA cFS Table Services 借鉴项：表驱动、active/inactive、CRC、owner validation、load/dump、table registry。
+- [x] 收敛 OpenSHMEM / MPI RMA 借鉴项：RMA window、origin/target completion、atomic、fence/order、禁止任意远程裸写。
+- [x] 收敛 IEC 61499 借鉴项：静态 AO/FB instance、event/data link、deployment consistency。
+- [x] 在 `REFMEM_DOMAIN_ARCHITECTURE.md` 增加虚拟反射内存参考机制矩阵，明确“借鉴机制 / 不采用内容 / 本项目落地点”。
+- [x] 在 `REFMEM_DOMAIN_ARCHITECTURE.md` 增加 `RefMemTableRegistry`、staging/active 生命周期和 owner validation 框架。
+- [x] 在 `REFMEM_DOMAIN_ARCHITECTURE.md` 增加 `RefMemRmaWindow`、completion、fence/quiet 和 atomic 白名单框架。
+- [ ] 在 `SCPI_COMMAND_PLAN.md` 确认 `SYSTem:REFMEM:*` 暴露的字段能够覆盖 table registry、slot freshness、ACK/NACK、CRC、stale、quality gate 和 evidence。
+
 ## P2 - 静态分布式应用模型
 
 - [x] 文档定义 `DistributedApplicationMap`，覆盖 A0-A7 八个通用节点，以及加载到节点上的 board/pulse_distributor/link_switcher/instrument_controller/gateway/model_vna/model_turntable/model_dut/test_agent 等 role/persona/instance；允许无冲突时同一通用节点同时载入多个实例。
@@ -37,6 +57,9 @@ Last updated: 2026-08-13
 - [ ] 将上述六张静态模型表落到 `refmem_application_model.h/.c`。
 - [ ] 定义静态模型表的 binary/TLV 存储格式、CRC、版本兼容和 System Pack 导入策略。
 - [ ] 将 DeploymentGate 输出映射到 `SYSTem:REFMEM:STATus?` / 诊断 evidence / RUN gate。
+- [ ] 增加静态模型 linter：检查 instance id、node id、role/persona、resource claim、IO claim、writer 唯一性和 event/data link 完整性。
+- [ ] 增加静态模型 package CRC：分别覆盖 ApplicationMap、FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality。
+- [ ] 增加 FB 图版本门禁：借鉴 IEC 61499 的部署一致性思想，RUN 前检查 AO/FB 类型、版本、enable 条件和连接表 CRC。
 
 ## P3 - Vector Table 与 Slot 契约
 
@@ -55,6 +78,13 @@ Last updated: 2026-08-13
 - [ ] 实现 slot owner 写权限检查，禁止非 owner 写其他节点 slot。
 - [ ] 实现 seqlock 或双缓冲，避免字段半新半旧。
 - [ ] 在代码中补齐 `epoch_id/run_id/epoch_seconds/dc_time64_ns` 等时间与运行上下文字段。
+- [ ] 增加 RefMem Table Registry：记录 table id、owner、offset、size、version、active_crc、staging_crc、validation state 和 validator id。
+- [ ] 增加 active/inactive table image 生命周期：`STAGED -> VALIDATED -> ACTIVE -> ROLLBACKABLE`。
+- [ ] 增加 owner validation callback 契约：表 CRC 通过后仍必须由 owner 检查字段范围、逻辑一致性和资源冲突。
+- [ ] 增加 table dump/load 镜像规则：dump 只导出稳定 snapshot，load 只能进入 staging，不得直接覆盖 active。
+- [ ] 实现 `RefMemTableRegistry`，至少覆盖 table id、owner、version、active/staging CRC、validation state、validator id 和 evidence。
+- [ ] 实现 staging/active/rollbackable 双镜像切换。
+- [ ] 实现 owner validation callback 调度和 validation pending/result 查询。
 
 ## P4 - Command / ACK / NACK
 
@@ -67,6 +97,9 @@ Last updated: 2026-08-13
 - [ ] 将现有 `system_manager` 配置 ACK 迁移或映射到 RefMem AckCommandSlot snapshot。
 - [ ] 扩展 NACK reason 表，补齐 resource busy、RUN denied、payload CRC、epoch mismatch、dup seq、timeout、permission denied。
 - [ ] 评估是否新增 `SYSTem:COMMand:ACK? / NACK?`，并保持 `SYSTem:CONFigure:*` 为兼容配置视图。
+- [ ] 定义 command slot atomic API：`try_post`、`try_take`、`ack`、`nack`、`clear` 必须具备 compare-exchange 或等价临界区语义。
+- [ ] 定义 completion 语义：区分 `local_posted`、`target_taken`、`target_acked`、`all_required_acked`、`durable_committed`。
+- [ ] 定义 memory order / fence 规则：payload 写入先于 command publish，ACK/NACK 写入先于 status publish。
 
 ## P5 - RefMem Sync Protocol
 
@@ -75,6 +108,13 @@ Last updated: 2026-08-13
 - [ ] 定义 slot delta CRC、seq、source_node、target_node、timestamp。
 - [ ] 定义 RJ45_SYNC_RING 上的 delta 合并、重放、丢帧和 stale 策略。
 - [ ] 将节点新鲜度纳入 `SYNC:CHECk`、`READ:SYNC:*?` 和 TRIG RUN 门禁。
+- [ ] 定义 RefMem RMA Window 抽象：每个节点只暴露受控 slot mirror，不暴露任意地址。
+- [ ] 定义 delta completion 语义：`origin_encoded`、`ring_sent`、`target_received`、`target_validated`、`target_committed`。
+- [ ] 定义原子远端更新白名单：仅允许 command flag、seq/heartbeat、quality counter、dirty bitmap 等小字段使用 atomic update。
+- [ ] 定义 RMA-style fence：一批 delta 在 `SYNC_EPOCH` 或 `RUN_GATE_CHECK` 前必须完成校验和可见性切换。
+- [ ] 定义 compact timestamp 与 delta frame 的关系：实时链路只传最小 timestamp，RefMem delta 传事实摘要和质量，不传大 payload。
+- [ ] 实现 `RefMemRmaWindow` 子集，禁止裸地址远端写，只允许 slot delta 和白名单 atomic 字段。
+- [ ] 实现 `target_received -> target_crc_ok -> target_owner_validated -> target_committed -> visible_in_snapshot` completion 状态。
 
 ## P6 - 代码组件化
 
@@ -105,3 +145,5 @@ Last updated: 2026-08-13
 - [ ] 板端记录 `SYSTem:CORE?` core1 heartbeat。
 - [ ] 板端记录 `SYSTem:PROTection:STATus?` runtime protection snapshot。
 - [ ] 故障注入 stale、CRC error、timeout、NACK reason。
+- [ ] 增加 cFS-style table 测试：CRC 正确但 owner validation 失败时不得激活。
+- [ ] 增加 RMA-style atomic 测试：重复 post、并发 take、payload CRC mismatch、fence 前读取不可见。
