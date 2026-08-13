@@ -12,11 +12,12 @@ Last updated: 2026-08-13
 
 | 当前路径 | 定位 |
 |---|---|
-| `../TRIGGER_SYNC_TODO.md` | 触发系统产品化待办 |
-| `../TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计 |
-| `../TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计 |
-| `../TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析 |
-| `../TRIGGER_INDUSTRIAL_ENHANCEMENT_DESIGN.md` | 工业级触发增强方案 |
+| `TRIGGER_SYNC_TODO.md` | 触发系统产品化待办 |
+| `TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计 |
+| `TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计 |
+| `TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析 |
+| `TRIGGER_INDUSTRIAL_ENHANCEMENT_DESIGN.md` | 工业级触发增强方案 |
+| `RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md` | RP2350B 四板分布式触发方案 |
 | `../SYNC_IO_RESOURCE_PLAN.md` | PIO、GPIO、DMA 和语义 IO 资源规划 |
 
 ## 边界

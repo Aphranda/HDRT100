@@ -344,7 +344,7 @@ Last updated: 2026-08-10
   - 明确四类节点能力：`RX_PULSE`、`TX_BISS`、`RX_BISS`、`TX_PULSE`。
   - 定义源端、目的端、透明监听端、代理桥端四种配置方式。
   - 明确标准 BiSS-C 从站不能主动发送，`TX_BISS` 必须绑定到上游主站 clock polling。
-  - 更新 `docs/TRIGGER_SYNC_TODO.md`，将原 BiSS-C 泛化兼容项拆成 P0 原型、透明监听、从站发送、主站接收和高速能力评估。
+  - 更新 `docs/trigger/TRIGGER_SYNC_TODO.md`，将原 BiSS-C 泛化兼容项拆成 P0 原型、透明监听、从站发送、主站接收和高速能力评估。
 - 验证结果：
   - 本任务只完成方案和 TODO 更新，未修改固件代码，未执行构建、烧录或板端验证。
 - 还需完成：
@@ -353,7 +353,7 @@ Last updated: 2026-08-10
   - 后续根据实测决定是否继续用 RP2350 PIO 提速，或引入 FPGA/CPLD/专用 BiSS 接口芯片。
 - 关联文件：
   - `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`
-  - `docs/TRIGGER_SYNC_TODO.md`
+  - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 先做固件 P0 骨架：模式、角色、SCPI 配置、状态计数和低速固定帧接口。
@@ -772,14 +772,14 @@ Last updated: 2026-08-10
   - 将 AUX 环路更新为 A0→A1→A2→A3→A0。
   - 新增一轮测试状态机：`WAIT_POS`、`DISTRIBUTE_POS`、`DUT_SWITCH`、`FEED_SWITCH`、`VNA_TRIGGER`、`WAIT_VNA_READY`、`ROUND_DONE`。
   - 新增业务帧建议：`SYNC`、`POS_TRIG`、`A1_DONE`、`A2_DONE`、`MEAS_DONE`、`FAULT`。
-  - 更新 `docs/TRIGGER_SYNC_TODO.md`，补充 A0-A3 角色和状态机待办。
+  - 更新 `docs/trigger/TRIGGER_SYNC_TODO.md`，补充 A0-A3 角色和状态机待办。
 - 验证结果：
   - 本任务只更新文档，未改固件代码，未重新构建或烧录。
 - 还需完成：
   - 在代码中实现 A0-A3 role profile、业务帧解析、超时处理和 `REDY/READY` 捕获。
 - 关联文件：
   - `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
-  - `docs/TRIGGER_SYNC_TODO.md`
+  - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 先实现 A0 单板 TTL 位置脉冲捕获与 `sequence_id/position_count` 生成，再接 A1/A2/A3 环路转发。
@@ -796,7 +796,7 @@ Last updated: 2026-08-10
   - 明确 RS-485/RS-422 芯片只作为点对点单向差分收发器使用，`DE`/`RE` 常使能，不做共享总线仲裁。
   - 明确 PIO 负责边沿捕获、固定延迟转发、短窗口相对计时和本地预约触发；CPU/上位机负责 64-bit 虚拟 DC 时间轴、DPLL、残差剔除和补偿表。
   - 给出 12.5 Mbps、16.667 Mbps、20.833 Mbps、25 Mbps 四档 PIO 友好短帧速率，以及 Phase 0 到 Phase 4 的实施和验收计划。
-  - 更新 `docs/TRIGGER_SYNC_TODO.md`，新增分布式 DPLL / CAL_RING 待办。
+  - 更新 `docs/trigger/TRIGGER_SYNC_TODO.md`，新增分布式 DPLL / CAL_RING 待办。
   - 更新 `README.md` 文档索引。
 - 验证结果：
   - 本任务只新增和更新文档，未改固件代码，未重新构建或烧录。
@@ -805,7 +805,7 @@ Last updated: 2026-08-10
   - 实现 `CAL_RING` PIO 原型、AUX owner/arbiter、虚拟 DC 状态和本地预约触发队列。
 - 关联文件：
   - `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
-  - `docs/TRIGGER_SYNC_TODO.md`
+  - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
   - `README.md`
 - 下一步：
@@ -827,7 +827,7 @@ Last updated: 2026-08-10
   - 将主口 `GPIO16..GPIO23` 约束为模式本地高速 IO：`SEQ_STEP` 和 `ENC_COUNT` 可独占主输入/输出口，跨模式功能不再抢主口通道。
   - `docs/SCPI_COMMANDS.md` 更新语义 IO 表和互斥说明：`TRIG:ENC:APIN 26` 属于开发诊断复用，会占用 AUX 功能接口，量产默认仍使用 `16` 组。
   - `docs/HAOFV_ARCHITECTURE.md` 补充主触发口 + AUX 功能口的架构分层，明确上层语义接口不再绑定到主口 GPIO17/18/22/23。
-  - `docs/TRIGGER_SYNC_TODO.md` 新增代码迁移待办：将 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 从旧路径迁移到 AUX0..AUX3，并实现 AUX owner/arbiter。
+  - `docs/trigger/TRIGGER_SYNC_TODO.md` 新增代码迁移待办：将 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 从旧路径迁移到 AUX0..AUX3，并实现 AUX owner/arbiter。
   - `boards/rp2350_trig/inc/board_config.h` 新增产品 AUX 语义别名宏，不改变当前运行行为。
 - 验证结果：
   - `cmake --build build-codex-trigger-enc` 通过。
@@ -840,7 +840,7 @@ Last updated: 2026-08-10
   - `docs/SYNC_IO_RESOURCE_PLAN.md`
   - `docs/SCPI_COMMANDS.md`
   - `docs/HAOFV_ARCHITECTURE.md`
-  - `docs/TRIGGER_SYNC_TODO.md`
+  - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
   - `boards/rp2350_trig/inc/board_config.h`
 - 下一步：
@@ -860,7 +860,7 @@ Last updated: 2026-08-10
   - 明确 `ENC_COUNT` armed 时 IN0/IN1/IN3 被 A/B/Z 独占，OUT0 被比较触发独占；`GATE_IN` 在 IN3 被 Z 相占用时不可作为独立门控。
   - `docs/HAOFV_ARCHITECTURE.md` 补充 Trigger 域上层接口规则：SCPI/UI/TriggerAO 使用语义通道，GPIO 映射归 board profile 和 `sync_io`。
   - `docs/SCPI_COMMANDS.md` 增加应用层语义 IO 与资源互斥说明。
-  - `docs/TRIGGER_SYNC_TODO.md` 标记语义接口约束完成，并新增后续代码仲裁待办。
+  - `docs/trigger/TRIGGER_SYNC_TODO.md` 标记语义接口约束完成，并新增后续代码仲裁待办。
 - 验证结果：
   - 文档约束更新完成；本任务未改固件代码，未重新构建或烧录。
 - 还需完成：
@@ -870,7 +870,7 @@ Last updated: 2026-08-10
   - `docs/SYNC_IO_RESOURCE_PLAN.md`
   - `docs/HAOFV_ARCHITECTURE.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/TRIGGER_SYNC_TODO.md`
+  - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 按语义 IO 契约补 `sync_trigger`/SCPI 层资源仲裁，优先拦截 `SEQ_STEP` armed 后的独立输出和同步时钟冲突。
@@ -887,7 +887,7 @@ Last updated: 2026-08-10
   - 明确不同模式只改变逻辑含义，不改变正常产品外部接线：
     - `SEQ_STEP`：IN0=`TRIG_IN`，IN3=`GATE_IN`，OUT0..3=`SEQ_OUT[3:0]`。
     - `ENC_COUNT`：IN0=A，IN1=B，IN3=Z，OUT0=`TRIG_OUT`。
-  - `docs/TRIGGER_SYNC_TODO.md` 标记统一物理 IO 定义完成，并注明 `GPIO26..GPIO29` 仅作为 AUX/开发验证扩展。
+  - `docs/trigger/TRIGGER_SYNC_TODO.md` 标记统一物理 IO 定义完成，并注明 `GPIO26..GPIO29` 仅作为 AUX/开发验证扩展。
   - `docs/SCPI_COMMANDS.md` 更新 `TRIG:ENC:APIN <16|26>` 说明：量产默认使用 `16`，`26` 为开发验证扩展。
 - 验证结果：
   - 文档约束更新完成；本任务未改代码，未重新构建或烧录。
@@ -895,7 +895,7 @@ Last updated: 2026-08-10
   - 后续新增触发模式时必须先检查是否能映射到统一物理 IO 层；如需要新增物理通道，应同步更新硬件前端和 PIO 资源规划。
 - 关联文件：
   - `docs/SYNC_IO_RESOURCE_PLAN.md`
-  - `docs/TRIGGER_SYNC_TODO.md`
+  - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/SCPI_COMMANDS.md`
 - 下一步：
   - 若要继续代码闭环，优先在统一物理 IO 约束下实现电平触发模式或完善 `ARM_IN` 管理面语义。
@@ -905,7 +905,7 @@ Last updated: 2026-08-10
 - 状态：完成
 - 日期：2026-06-26
 - 任务目标：
-  - 按 `docs/TRIGGER_SYNC_TODO.md` 逐项收敛触发待办，先闭环 P1 行为一致性问题：`ENC_COUNT` 引脚配置表面可配但 ARM 仍固定使用 `GPIO16..GPIO19`。
+  - 按 `docs/trigger/TRIGGER_SYNC_TODO.md` 逐项收敛触发待办，先闭环 P1 行为一致性问题：`ENC_COUNT` 引脚配置表面可配但 ARM 仍固定使用 `GPIO16..GPIO19`。
   - 顺手修正 `ENC_COUNT` DMA 启动前使用 `dma_channel_unclaim()` 清理通道的风险，与 SEQ_STEP 高频稳定性修复保持一致。
   - 同步更新触发 TODO 和 SCPI 文档，避免公开接口说明与实现脱节。
 - 完成内容：
@@ -913,7 +913,7 @@ Last updated: 2026-08-10
   - `fb_enc_configured_arm()` 改为使用 TriggerVector 下发的 `enc_a_pin` 作为 `sync_io_enc_count_arm()` 的输入组基脚，不再硬编码 `BOARD_SYNC_INPUT_BASE_PIN`。
   - `sync_io_enc_count_arm()` 改为把传入的 `in_pin_base` 下发到 `enc_count_program_init()`，并将 DMA 清理从 `dma_channel_unclaim()` 改为 `dma_channel_abort()`。
   - `TRIG:ENC:APIN <16|26>` 改为选择 ENC 输入组基脚，并自动派生 B/Z；新增 `TRIG:ENC:APIN?` 返回当前 A/B/Z 实际 GPIO。
-  - 更新 `docs/TRIGGER_SYNC_TODO.md`，将 `ENC_COUNT` 引脚配置和 ENC DMA 清理标记闭环。
+  - 更新 `docs/trigger/TRIGGER_SYNC_TODO.md`，将 `ENC_COUNT` 引脚配置和 ENC DMA 清理标记闭环。
   - 更新 `docs/SCPI_COMMANDS.md`，补齐 ENC_COUNT、PCNT 参数和触发测量命令说明。
   - 更新 `trigger_vector.h` 中过时的 DMA ring buffer 注释，说明当前使用 ISR 手动复位 `read_addr`。
 - 验证结果：
@@ -940,17 +940,17 @@ Last updated: 2026-08-10
   - `components/sync_io/src/sync_io.c`
   - `components/sync_trigger/inc/trigger_vector.h`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/TRIGGER_SYNC_TODO.md`
+  - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/SCPI_COMMANDS.md`
 - 下一步：
-  - 继续按 `docs/TRIGGER_SYNC_TODO.md` 处理 P0/P1 未闭环项，优先建议做 `ARM_IN` 接入或电平触发模式。
+  - 继续按 `docs/trigger/TRIGGER_SYNC_TODO.md` 处理 P0/P1 未闭环项，优先建议做 `ARM_IN` 接入或电平触发模式。
 
 ### TASK-20260625-014 - 同步触发 P0 阻塞问题修复
 
 - 状态：完成
 - 日期：2026-06-25
 - 任务目标：
-  - 逐一验证并修复 `docs/TRIGGER_SYNC_TODO.md` 评审补充待办中的 3 个 P0 功能阻塞问题：`ENC_COUNT` 单次触发卡死、`SEQ_STEP` DMA 环回不成立、`gate_enabled` 下触发源选择失效。
+  - 逐一验证并修复 `docs/trigger/TRIGGER_SYNC_TODO.md` 评审补充待办中的 3 个 P0 功能阻塞问题：`ENC_COUNT` 单次触发卡死、`SEQ_STEP` DMA 环回不成立、`gate_enabled` 下触发源选择失效。
   - 顺手修复 1 个 P1 逻辑错误：`PCNT_CLEAR` 统计累计顺序颠倒。
 - 完成内容：
   - **P0-1 `ENC_COUNT` 单次触发卡死**：`sync_io.c` 新增 DMA ch1 (`SYNC_IO_ENC_COUNT_DMA_CH`)，将 `&s_enc.target` 持续写入 PIO TX FIFO（DREQ 节拍），`transfer_count=0xFFFFFFFF`；`sync_io_enc_count_disarm()` 增加 DMA abort；扩展 `sync_io_enc_count_t` 增加 `dma_ch` / `dma_restart_count` 字段。
@@ -979,7 +979,7 @@ Last updated: 2026-08-10
   - `components/sync_io/src/seq_step.pio`
   - `components/sync_trigger/src/trigger_fb.c`
   - `components/sync_config_ui/src/sync_config_ui.c`
-  - `docs/TRIGGER_SYNC_TODO.md`
+  - `docs/trigger/TRIGGER_SYNC_TODO.md`
 - 下一步：
   - 提交代码，TASK-20260625-014 闭环。
 
@@ -1067,7 +1067,7 @@ Last updated: 2026-08-10
   - `middleware/scpi_port/src/scpi_port.c`
   - `osal/port/baremetal/osal_baremetal.c`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/TRIGGER_SYNC_TODO.md`
+  - `docs/trigger/TRIGGER_SYNC_TODO.md`
 - 下一步：
   - 进入 TriggerAO/TriggerFB 的第一轮正式建模，先补 `IDLE / ARMED / TRIGGERED / BUSY / FAULT` 状态和基础统计，再让 UI 与 SCPI 都只面对 Trigger 域快照。
 
@@ -3497,7 +3497,7 @@ Last updated: 2026-08-10
   - `boards/rp2350_trig/inc/board_config.h`
   - `boards/rp2350_trig/src/board.c`
   - `components/sync_config_ui/src/sync_config_ui.c`
-  - `docs/TRIGGER_SYNC_TODO.md`
+  - `docs/trigger/TRIGGER_SYNC_TODO.md`
 
 ### TASK-20260626-015 - SEQ_STEP 高频触发稳定性修复与 Python 工具优化
 
@@ -3541,7 +3541,7 @@ Last updated: 2026-08-10
 - 完成内容：
   - 完成 `components/sync_io/` 的 PIO 输入采样、主触发输出、第二路脉冲输出、同步时钟、Marker 和 AUX IO。
   - 输出 `docs/SYNC_IO_RESOURCE_PLAN.md`。
-  - 输出 `docs/TRIGGER_SYNC_TODO.md`。
+  - 输出 `docs/trigger/TRIGGER_SYNC_TODO.md`。
 - 验证结果：
   - 工程编译通过。
   - 未完成示波器和信号源台架验证。
@@ -3552,6 +3552,6 @@ Last updated: 2026-08-10
 - 关联文件：
   - `components/sync_io/`
   - `docs/SYNC_IO_RESOURCE_PLAN.md`
-  - `docs/TRIGGER_SYNC_TODO.md`
+  - `docs/trigger/TRIGGER_SYNC_TODO.md`
 - 下一步：
   - 在 OTA 基础稳定后，回到 `sync_trigger` 上层状态机实现。

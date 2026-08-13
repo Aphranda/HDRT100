@@ -3,7 +3,7 @@
 Status: Draft
 Domain: TRIGGER / Distributed Sync
 Target: RP2350_TRIG RP2350B QFN-80 四板系统
-Canonical: `docs/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+Canonical: `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-04
 Related:
 

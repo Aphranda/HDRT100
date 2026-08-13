@@ -425,7 +425,7 @@ time.
 - `docs/release/RELEASE_CHECKLIST.md`: release gate template.
 - `docs/SYNC_IO_RESOURCE_PLAN.md`: sync trigger PIO, state-machine, and GPIO
   allocation.
-- `docs/TRIGGER_SYNC_TODO.md`: remaining work for the production trigger
+- `docs/trigger/TRIGGER_SYNC_TODO.md`: remaining work for the production trigger
   subsystem.
 - `docs/SCPI_COMMANDS.md`: basic SCPI command list for trigger configuration.
 - `docs/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`: implementable A0-A3 RP2350
