@@ -6,15 +6,18 @@ Canonical: `docs/hardware/README.md`
 Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
-本目录是 IO 约束、PCB、网表、BOM、Gerber、硬件评审和布局资料的目标入口。
+本目录是 IO 约束、PCB、网表、BOM、Gerber、硬件评审和布局资料的目标入口。HAOFV 只定义系统约束逻辑；具体板级 pin map、电源、隔离、ESD、连接器和装配选项由本目录维护。
 
 ## 当前 canonical
 
 | 当前路径 | 定位 |
 |---|---|
+| `HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md` | 当前运行/调试最小系统板约束，用于软件闭环和小步验证 |
+| `HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md` | 产品板硬件约束入口，由最新产品网表和硬件输出派生 |
 | `RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 GPIO 分配与 IO 使用约束 |
 | `RP2350B_QFN80_IO_CONSTRAINTS.html` | RP2350B QFN-80 IO 约束 HTML 版 |
 | `RP2350B_NETLIST_REVIEW_2026-08-04.md` | RP2350B 网表评审 |
+| `Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel` | 最新产品板网表，后续产品硬件约束和评审来源 |
 | `Netlist_Schematic1_2026-08-04.tel` | 当前硬件网表 |
 | `RP2350_PICO_Netlist_Schematic1_2026-07-27.tel` | 早期 PICO 网表参考 |
 | `BOM_CTL-SYNCTRIG4F4-HASL-V0.1_CTL-SYNCTRIG4F4-HASL-V0.1_2026-08-04.xlsx` | BOM 导出 |
@@ -25,4 +28,6 @@ Last updated: 2026-08-13
 ## 边界
 
 - 硬件域记录物理约束和评审结论。
+- 当前运行版本属于最小系统约束；调试接线、临时外设和最小闭环能力记录在 `HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`。
+- 产品板约束由最新网表、IO 约束、BOM/Gerber/PnP 和硬件评审共同冻结，记录在 `HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md` 及其下游文档。
 - 固件 owner、SCPI 指令和 RTOS 任务归各自软件域。

@@ -4,9 +4,9 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
-Last updated: 2026-08-10
+Last updated: 2026-08-13
 
-本文档定义 RP2350_TRIG 后续产品化演进采用的软件架构。目标是在保持裸机/Pico SDK 工程轻量性的同时，融合 Active Object、轻量 IEC 61499 功能块、时间同步型系统向量黑板、资源仲裁和表驱动状态机，为 OTA、同步触发、SD 卡、LCD、SCPI、诊断、后续 RTOS 和更多硬件模块提供清晰边界。
+本文档定义 DTC100 / RP2350_TRIG 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
 
 > **实施指南**：[HAOFV_IMPLEMENTATION_PLAYBOOK.md](HAOFV_IMPLEMENTATION_PLAYBOOK.md) 提供 ECC 表实现示例、GPIO 迁移步骤、Flash 异步 Job 代码和完整代码附录。
 
@@ -67,47 +67,51 @@ Vector Blackboard 管数据，
 PIO/DMA 管硬实时。
 ```
 
-## 硬件资源约束
+## 约束逻辑
 
-### RP2350 平台
+HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追踪、可验证、可下放的规则链。板级资源、调试板差异和产品板差异由硬件域维护：
 
-| 资源 | 总量 | 约束 |
+| 约束层 | owner | 输出到下层的内容 |
 |---|---|---|
-| SRAM | 520 KB | 10 个 bank，架构占用远低于上限 |
-| XIP Flash (W25Q32) | 4 MB | 见 Flash 分区表 |
-| PIO Block | 3 (pio0/1/2) | 每 block 4 SM + 32 指令，全部预留给同步触发 |
-| DMA Channel | 12 | 触发子系统使用 1-2 通道 |
-| USB CDC | 1 | 与日志共享，OTA 期间暂停周期日志 |
+| 产品能力约束 | 产品架构 / 系统设计 | 必须支持的主域、运行模式、同步精度、报告闭环、OTA/SD/诊断能力。 |
+| HAOFV 组件约束 | 本文档 | AO/FB/Vector/Resource Arbiter/Service 的 owner、状态事实和跨域交互规则。 |
+| 业务域约束 | `trigger/`、`sync/`、`calibration/`、`interface/` 等 | 触发序列、DPLL、校准、SCPI 契约、反射内存字段和 ACK/NACK。 |
+| 板级硬件约束 | `hardware/` | 调试最小系统板和产品板的 pin map、隔离边界、电源域、连接器和网表事实。 |
+| 固件实现约束 | `boards/`、`components/`、`middleware/` | board profile、驱动服务、RTOS task、PIO/DMA/IRQ owner 和构建配置。 |
 
-### RAM 预算
+约束传递方向必须单向收敛：
 
-| 模式 | 估算 RAM 占用 | 说明 |
+```text
+产品需求
+  -> HAOFV owner / layer / vector rule
+  -> 功能域设计
+  -> board profile 与硬件约束
+  -> 固件实现和验证
+```
+
+反向允许提出变更请求，但不能让某一块调试板的临时接线直接污染顶层架构。调试最小系统板只证明架构闭环和软件路径，产品板约束才冻结量产 pin map、隔离、电源和连接器策略。
+
+### 组件约束
+
+| 组件 | 顶层约束 | 由谁细化 |
 |---|---|---|
-| Baremetal | 8-15 KB | 不含 LCD 帧缓冲 |
-| FreeRTOS | 35-55 KB | 含内核、任务栈、堆 |
+| SCPI / UI / System Pack | 只能表达意图、配置和查询；不能直接驱动硬实时边沿。 | `interface/`、`storage/` |
+| Active Object | 拥有事件队列、生命周期和执行预算；外部入口只能投递事件。 | 各功能域设计 |
+| Function Block | 执行 ECC 状态迁移、资源规则和错误归因；不得长期阻塞。 | `trigger/`、`ota/`、`storage/`、`sync/` |
+| Vector Blackboard | 保存事实、摘要、命令槽和版本；字段必须有唯一 writer。 | `refmem/`、各 Domain Vector |
+| Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源。 | `arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` |
+| Hardware Service | 封装 SDK/驱动细节；上层不直接调用板级 API。 | `components/`、`drivers/` |
+| PIO/DMA/IRQ | 只执行硬实时动作和最小事实回写。 | `sync/`、`trigger/`、board profile |
 
-520 KB SRAM 有充足余量。关键约束：
-- LCD 显示不得分配全帧 RGB565 缓冲（~65 KB），应使用 U8G2 page buffer 模式或分片刷新
-- PIO FIFO 和 DMA 缓冲应使用小尺寸环形缓冲或双缓冲
-- SD 卡文件系统缓冲（FatFs）应在使用前才分配，默认不常驻
+### 板级约束入口
 
-### Flash 分区
+| 板级约束 | 用途 |
+|---|---|
+| `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md` | 当前调试最小系统板/DEMO 板约束，允许为了验证 RTOS、双核、SCPI 和基础 IO 做临时取舍。 |
+| `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md` | 后续产品板约束入口，冻结隔离、电源、连接器、网表和产品 pin map。 |
+| `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md` | 当前 RP2350B QFN-80 产品板 GPIO、隔离域和模拟/PIO 约束明细。 |
 
-W25Q32 4 MB，XIP 基地址 `0x10000000`：
-
-| 区域 | Flash 偏移 | XIP 地址 | 大小 | 状态 |
-|---|---|---|---|---|
-| Bootloader | `0x000000` | `0x10000000` | 256 KB | ✅ 已落地，当前 < 64 KB |
-| App Slot A | `0x040000` | `0x10040000` | 1536 KB | ✅ 固定链接地址 |
-| App Slot B | `0x1C0000` | `0x101C0000` | 1536 KB | ✅ OTA staging / direct A/B |
-| OTA Metadata | `0x340000` | `0x10340000` | 64 KB | ✅ 双副本 + copy txn + A/B 扩展 |
-| Product Config | `0x350000` | `0x10350000` | 64 KB | 预留 |
-| Scratch/Reserved | `0x360000` | `0x10360000` | 640 KB | 预留 |
-
-构建大小硬约束：
-- 单个 App 镜像硬上限：1536 KB
-- 构建告警阈值：1200 KB
-- 构建失败阈值：1400 KB
+顶层架构引用这些文件，但不复制具体 pin map。任何 `GPIOxx`、连接器、ESD、电源域、隔离边界和装配 DNP/0R 策略应在硬件域维护。
 
 ## 分层职责
 
@@ -817,7 +821,7 @@ typedef enum {
 
 ### SPI 总线共享仲裁
 
-LCD 和 SD 共用 SPI0（GPIO10=SCK, GPIO11=MOSI, GPIO12=MISO），CS 分别为 GPIO9 和 GPIO15。LCD 为仅写设备（无 MISO）。
+HAOFV 只要求共享总线通过 Resource Arbiter 串行化访问。当前最小系统的实现示例是 LCD 和 SD 共用 SPI0，具体 GPIO、CS 和板级连线以 `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md` 或对应产品板约束为准。
 
 | 操作 | 持有资源 | 冲突操作 | 处理 |
 |---|---|---|---|
@@ -971,7 +975,9 @@ Output semantics:  TRIG_OUT / PULSE_OUT / RJ45_TRIG_OUT / SYNC_CLK_OUT
 
 GPIO16..GPIO23 的实际映射属于 board profile 和 `sync_io` 的职责。`TriggerAO`、`TriggerFB`、SCPI 和 UI 只能表达语义意图，不能把产品功能设计成任意 GPIO 交叉开关。
 
-### 主触发口与 AUX 功能口
+### 当前 board profile 示例：主触发口与 AUX 功能口
+
+下表描述当前固件/板级 profile 中的语义 IO 划分示例，用于说明 `TriggerAO` 只依赖语义通道。最终 GPIO、连接器、电气约束和隔离边界以 `docs/hardware/` 与 `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 为准。
 
 | 接口 | 角色 | 语义 |
 |---|---|---|
@@ -987,9 +993,9 @@ GPIO16..GPIO23 的实际映射属于 board profile 和 `sync_io` 的职责。`Tr
 | `ENC_COUNT` | IN0/IN1/IN2 分别作为 A/B/Z；IN3 的硬件定义是 `RJ45_TRIG_IN`，不被 ENC 软件定义占用。`ARM_IN` 位于 AUX0，不再与 B 相冲突。 |
 | `IDLE` | 语义输出可由即时命令使用；语义输入只做采样/诊断或配置预览。 |
 
-### GPIO 迁移约束
+### Board Profile 迁移约束
 
-当前固件中 `ARM_IN/EXT_CLK_IN` 的旧低层宏仍指向 GPIO17/18，只作为 pull-down/诊断采样占位；`SYNC_CLK_OUT` 已迁移到 AUX2/GPIO28。硬件冻结后，增量编码器固定使用 `SYNC_IO` 的 GPIO16/17/18；`GPIO19` 固定为 `RJ45_TRIG_IN`；`GPIO26..29` 不再作为编码器输入组，而是固定两收两发 AUX 资源。`GPIO23/OUT3` 的硬件定义是 `RJ45_TRIG_OUT`；历史 `MARK:*` 命令只能作为该硬件输出的兼容入口，不再代表独立 `MARKER_OUT`。
+当前固件中仍可能保留调试最小系统的兼容宏。迁移规则是：临时 GPIO 宏只允许存在于 board profile 或兼容层，不能成为 HAOFV 顶层规则；硬件冻结后，语义 IO 到物理 IO 的映射必须由产品板约束、`sync_io` profile 和验证矩阵共同确认。历史兼容命令只能作为语义入口，不能重新定义独立硬件输出。
 
 ### 触发模式扩展表
 

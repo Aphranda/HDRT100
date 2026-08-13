@@ -4,9 +4,9 @@ Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/storage/LOG_SYSTEM_TODO.md`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
-Last updated: 2026-08-10
+Last updated: 2026-08-13
 
-本文档把 `docs/` 中已经沉淀的框架性内容综合为面向产品的系统架构入口。各专项文档仍是细节来源；本文只定义产品边界、运行模型、数据契约、跨域依赖和发布门禁。
+本文档是 HAOFV 顶层架构在 DTC100/RP2350_TRIG 产品上的系统架构特化。`HAOFV_ARCHITECTURE.md` 定义 owner、层次、约束传递和 Vector/Blackboard 规则；本文只定义产品边界、运行模型、数据契约、跨域依赖和发布门禁。具体硬件 pin map、隔离、电源和网表事实由 `docs/hardware/` 承接。
 
 ## 产品定位
 

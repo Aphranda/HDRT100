@@ -92,6 +92,7 @@ LOG_RUNTIME_CORE_DESIGN.md
 | `_EVALUATION.md` | 可行性、移植性、性能或风险评估。 |
 | `_COMMANDS.md` | 命令、协议入口或用户可调用接口列表。 |
 | `_ANALYSIS.md` | 波形、性能、数据或问题分析。 |
+| `_CONSTRAINTS.md` | 硬件、资源、接口或系统边界约束，说明不可绕过的限制和派生规则。 |
 
 不得随意发明近义后缀，例如 `_NOTE.md`、`_DOC.md`、`_SPEC.md`。确实需要新增后缀时，
 先更新本文档。

@@ -83,7 +83,7 @@ docs/
 | 目标目录 | 初始 canonical |
 |---|---|
 | `docs/` | `DOCS_NAMING_STRUCTURE_PLAN.md`, `DOCS_MIGRATION_TODO.md`, `DOCS_DOMAIN_STRUCTURE_PLAN.md` |
-| `arch/` | `ARCH_PRODUCT_ARCHITECTURE.md`, `HAOFV_ARCHITECTURE.md`, `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `MULTICORE_PARTITION_PLAN.md` |
+| `arch/` | `HAOFV_ARCHITECTURE.md`, `ARCH_PRODUCT_ARCHITECTURE.md`, `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `MULTICORE_PARTITION_PLAN.md` |
 | `interface/` | `DTC100_SCPI_COMMAND_PLANNING.md`, `SCPI_COMMANDS.md`, `SCPI_USB_INTERFACE_DESIGN.md`, `RP1200波导天线测试系统分布式触发方案SCPI指令表.md` |
 | `trigger/` | `TRIGGER_SYNC_TODO.md`, `TRIGGER_SEQ_STEP_DESIGN.md`, `TRIGGER_ENC_COUNT_DESIGN.md`, `TRIGGER_PULSE_COUNT_ANALYSIS.md`, `SYNC_IO_RESOURCE_PLAN.md` |
 | `sync/` | `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`, `SYNC_IO_REFACTOR_PLAN.md`, `SYNC_IO_TASK_PROGRESS.md` |
@@ -93,7 +93,7 @@ docs/
 | `measure/` | 首批需要新增测量服务设计，定义与 CAL/SYNC/T2 的边界 |
 | `storage/` | `SD_TODO.md`, `SD_TASK_PROGRESS.md`, `LOG_SYSTEM_TODO.md` |
 | `ota/` | `OTA_SYSTEM_DESIGN.md`, `OTA_TODO.md`, `OTA_AB_SWITCH_DESIGN.md`, `OTA_COPY_TRANSACTION_DESIGN.md` |
-| `hardware/` | `RP2350B_QFN80_IO_CONSTRAINTS.md`, `hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md`, `hardware/Netlist_Schematic1_2026-08-04.tel` |
+| `hardware/` | `HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`, `HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`, `RP2350B_QFN80_IO_CONSTRAINTS.md`, `hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md`, `hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel`, `hardware/Netlist_Schematic1_2026-08-04.tel` |
 | `validation/` | `SCPI_TASK_PROGRESS.md`, `RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`, `BISSC_TASK_PROGRESS.md` 的后续验证索引 |
 | `release/` | `release/RELEASE_CHECKLIST.md`, PDF/打印规则相关文档 |
 | `legacy/` | PinProbe HTML、0614/0804 原始 HTML、最初版 SCPI HTML、外部迁入 PDF |
@@ -168,8 +168,8 @@ docs/
 ```text
 DTC100 分布式触发系统
 ├─ 1. 产品和软件架构
-│  ├─ arch/ARCH_PRODUCT_ARCHITECTURE.md
 │  ├─ arch/HAOFV_ARCHITECTURE.md
+│  ├─ arch/ARCH_PRODUCT_ARCHITECTURE.md
 │  └─ arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md
 ├─ 2. 对外接口
 │  ├─ interface/DTC100_SCPI_COMMAND_PLANNING.md
@@ -186,7 +186,7 @@ DTC100 分布式触发系统
 │  ├─ storage/SD_* / LOG_* 文档
 │  └─ ota/OTA_* 文档
 ├─ 5. 硬件、验证和发布
-│  ├─ hardware/ 与 IO 约束
+│  ├─ hardware/ 最小系统约束、产品板约束、最新网表与 IO 约束
 │  ├─ validation/*_TASK_PROGRESS.md
 │  └─ release/RELEASE_CHECKLIST.md
 └─ 6. 历史和外部参考

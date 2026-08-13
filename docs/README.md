@@ -69,8 +69,8 @@ docs/
 
 | 领域 | 当前 canonical 主文档 | 说明 |
 |---|---|---|
-| ARCH/PRODUCT | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 面向产品的系统架构总纲，综合 HAOFV、RTOS 双核、分布式触发、OTA、SD 和诊断边界。 |
-| ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口。 |
+| ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口，定义组件约束、层次逻辑、Vector/Blackboard 和约束传递。 |
+| ARCH/PRODUCT | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 面向 DTC100/RP2350_TRIG 的产品系统架构特化，服从 HAOFV 顶层约束。 |
 | SYNC_IO | `sync/SYNC_IO_RESOURCE_PLAN.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TRIGGER | `trigger/TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
@@ -128,8 +128,8 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
-| `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构总纲，统一产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
-| `arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层产品架构主文档。 |
+| `arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层产品架构主文档，阐述组件约束、层次逻辑和约束传播，不直接冻结硬件 pin map。 |
+| `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构特化，统一 DTC100 产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
 | `arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施补充、示例和迁移说明。 |
 | `arch/HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估。 |
 | `arch/RTOS_PORTING_PLAN.md` | FreeRTOS/OSAL 迁移计划。 |
@@ -147,8 +147,11 @@ docs/
 | 文件 | 定位 |
 |---|---|
 | `sync/SYNC_IO_RESOURCE_PLAN.md` | PIO、State Machine、DMA、GPIO 和语义 IO 资源规划。 |
+| `hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md` | 当前运行/调试最小系统板约束，用于软件架构、小步烧录和闭环验证。 |
+| `hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md` | 产品板硬件约束入口，由最新产品网表、IO 约束和生产输出派生。 |
 | `hardware/RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 硬件版本 GPIO 分配与 IO 使用约束。 |
 | `hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md` | RP2350B 网表评审，当前硬件域迁移后的 canonical 入口。 |
+| `hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel` | 最新产品板网表，是产品硬件约束刷新和网表评审的事实来源。 |
 | `communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C TAP Bridge、RJ45、SYNC_IO、AUX 两收两发和外围电路约束。 |
 
 ## 03 触发与 SYNC_IO
@@ -237,6 +240,8 @@ docs/
 ## 快速查找规则
 
 - 查系统边界：先读 `arch/HAOFV_ARCHITECTURE.md`。
+- 查当前运行板约束：读 `hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`。
+- 查产品板约束：读 `hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`，再读最新网表和 IO 约束。
 - 查 IO/PIO 资源：先读 `sync/SYNC_IO_RESOURCE_PLAN.md`，再读具体域设计。
 - 查 SYNC_IO 当前代码重构：先读 `sync/SYNC_IO_REFACTOR_PLAN.md`。
 - 查 BiSS-C：先读 `communication/BISSC_TAP_BRIDGE_DESIGN.md` 和
