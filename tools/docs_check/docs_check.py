@@ -28,6 +28,13 @@ ALLOWED_PREFIXES = {
     "MULTICORE",
     "RELEASE",
     "DOCS",
+    "CALIBRATION",
+    "REFMEM",
+    "COMMUNICATION",
+    "MEASURE",
+    "HARDWARE",
+    "VALIDATION",
+    "LEGACY",
 }
 
 ALLOWED_SUFFIXES = {
@@ -114,7 +121,7 @@ def is_allowed_name(name: str) -> bool:
     return False
 
 
-def check_metadata(path: Path, text: str, result: CheckResult) -> None:
+def check_metadata(path: Path, docs_dir: Path, text: str, result: CheckResult) -> None:
     lines = text.splitlines()
     if not lines or not lines[0].startswith("# "):
         result.fail(f"{path}: first line must be a level-1 Markdown title")
@@ -133,20 +140,23 @@ def check_metadata(path: Path, text: str, result: CheckResult) -> None:
 
     canonical_line = next((line for line in header_window if line.startswith("Canonical:")), None)
     if canonical_line:
-        expected = f"`docs/{path.name}`"
+        rel = path.relative_to(docs_dir).as_posix()
+        expected = f"`docs/{rel}`"
         if expected not in canonical_line:
             result.fail(f"{path}: Canonical must include {expected}")
 
 
-def check_index_coverage(docs_files: list[Path], docs_index: Path, result: CheckResult) -> None:
+def check_index_coverage(docs_files: list[Path], docs_dir: Path, docs_index: Path, result: CheckResult) -> None:
     if not docs_index.exists():
         result.fail("docs/README.md is missing")
         return
 
     index_text = read_text(docs_index)
     for path in docs_files:
-        if path.name not in index_text:
-            result.fail(f"docs/README.md does not list {path.name}")
+        rel = path.relative_to(docs_dir).as_posix()
+        needle = rel if "/" in rel else path.name
+        if needle not in index_text:
+            result.fail(f"docs/README.md does not list {needle}")
 
 
 def check_references(root: Path, scan_files: list[Path], result: CheckResult) -> None:
@@ -189,14 +199,14 @@ def main() -> int:
         result.fail(f"docs directory not found: {docs_dir}")
         return 1
 
-    docs_files = sorted(docs_dir.glob("*.md"))
+    docs_files = sorted(docs_dir.rglob("*.md"))
     for path in docs_files:
         text = read_text(path)
         check_conflict_markers(path, text, result)
-        check_metadata(path, text, result)
+        check_metadata(path, docs_dir, text, result)
 
     check_names(docs_files, args.strict_names, result)
-    check_index_coverage(docs_files, docs_dir / "README.md", result)
+    check_index_coverage(docs_files, docs_dir, docs_dir / "README.md", result)
 
     scan_files = docs_files
     root_readme = root / "README.md"

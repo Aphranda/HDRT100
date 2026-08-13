@@ -8,7 +8,7 @@ Related: `docs/SYNC_IO_RESOURCE_PLAN.md`, `IO约束.md`
 Last updated: 2026-08-04
 
 本文档定义 RP2350_TRIG RP2350B QFN-80 硬件版本的实际 GPIO 分配与使用约束。
-本版本以 `docs/PCB/Netlist_Schematic1_2026-08-04.tel` 为准；部分 PIO 引脚为
+本版本以 `docs/hardware/Netlist_Schematic1_2026-08-04.tel` 为准；部分 PIO 引脚为
 方便布线已偏离早期规划表，固件必须按本文档的 pin map 实现。
 现有根目录 `IO约束.md` 仍用于 RP2350A 小系统板，不由本文档替代。
 

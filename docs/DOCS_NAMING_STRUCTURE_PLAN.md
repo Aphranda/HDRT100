@@ -3,8 +3,8 @@
 Status: Active
 Domain: Documentation
 Canonical: `docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Related: `docs/README.md`, `docs/DOCS_MIGRATION_TODO.md`
-Last updated: 2026-07-07
+Related: `docs/README.md`, `docs/DOCS_MIGRATION_TODO.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Last updated: 2026-08-13
 
 本文档定义 `docs/` 下 Markdown 文档的统一命名格式、层级关系、交叉引用规则和
 后续新增文件规则。所有 Markdown 文档按 UTF-8 读取和写入。
@@ -65,6 +65,13 @@ LOG_RUNTIME_CORE_DESIGN.md
 | `MULTICORE` | RP2350 双核分工。 |
 | `RELEASE` | 发布门禁、量产检查和 release 流程。 |
 | `DOCS` | 文档体系、命名规则和索引。 |
+| `CALIBRATION` | 校准 link、delay、参数、版本和质量。 |
+| `REFMEM` | 分布式向量表、命令槽、ACK/NACK 和节点事实。 |
+| `COMMUNICATION` | BiSS-C、UART、RS485 和通信维护。 |
+| `MEASURE` | 测量原语、T2 摘要和链路 delay 测量服务。 |
+| `HARDWARE` | IO 约束、PCB、网表、BOM、Gerber 和硬件评审。 |
+| `VALIDATION` | HIL、工具验证、任务进度和闭环记录。 |
+| `LEGACY` | 历史报告、外部迁入资料和冻结参考。 |
 
 历史文件名不一定完全符合上述前缀，例如
 `HAOFV_ARCHITECTURE.md` 和 `OTA_SYSTEM_DESIGN.md`。这些文件在迁移前仍按
@@ -91,8 +98,9 @@ LOG_RUNTIME_CORE_DESIGN.md
 
 ## 层级关系
 
-当前 `docs/` 采用平铺文件存放，逻辑层级由 `docs/README.md` 维护。暂不建立多级目录，
-避免频繁移动文件导致历史链接失效。
+当前 `docs/` 正从平铺文件存放进入按产品主域目录化管理的规划阶段。目标目录、迁移批次和
+gate 以 `DOCS_DOMAIN_STRUCTURE_PLAN.md` 为准。迁移完成前，根目录中的历史路径仍视为有效路径；
+新增正式文档应优先按目标域选择落点，并同步更新 `docs/README.md`。
 
 逻辑层级如下：
 
@@ -108,12 +116,25 @@ LOG_RUNTIME_CORE_DESIGN.md
 08 发布、验证与全局进度
 ```
 
-如果某个领域文档数量持续超过 12 个，并且交叉引用已经稳定，可以再评估迁移为子目录：
+目标域目录如下：
 
 ```text
-docs/bissc/
+docs/docs/
+docs/arch/
+docs/interface/
+docs/trigger/
+docs/sync/
+docs/calibration/
+docs/refmem/
+docs/communication/
+docs/measure/
+docs/storage/
 docs/ota/
-docs/sync_io/
+docs/hardware/
+docs/validation/
+docs/release/
+docs/legacy/
+docs/archive/
 ```
 
 迁移到子目录必须满足：
@@ -122,6 +143,9 @@ docs/sync_io/
 - 同一提交或同一任务内更新所有 Markdown、README、脚本内引用。
 - 不混合功能代码改动和大规模文档移动。
 - 迁移后保留清晰入口，避免读者必须搜索全仓库才能找到主文档。
+
+新增文档落点按 `DOCS_DOMAIN_STRUCTURE_PLAN.md` 的“新文档落点规则”判断。文件名仍使用
+`<DOMAIN>_<SUBJECT>_<TYPE>.md`，目录只表达文档归属，不替代文件名前缀。
 
 ## 文档元数据
 
@@ -236,7 +260,7 @@ python tools\docs_check\docs_check.py --strict-names
 ```
 
 默认检查用于当前仓库：元数据、索引覆盖、冲突标记、`docs/` 下 Markdown 引用有效性必须通过；
-历史命名不规范文件只给 warning。新增文件评审时应使用 `--strict-names`，确保不再引入
+当前检查递归扫描 `docs` 目录下全部 Markdown，子目录文档必须在总 README 中以相对路径列出。历史命名不规范文件只给 warning。新增文件评审时应使用 `--strict-names`，确保不再引入
 新的历史债务。
 
 ## 历史文件迁移建议

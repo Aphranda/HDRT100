@@ -1,11 +1,12 @@
 # RP2350B Netlist Review
 
-Status: Review
+Status: Active
 Domain: Hardware / PCB
+Canonical: `docs/hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md`
+Related: `docs/RP2350B_QFN80_IO_CONSTRAINTS.md`, `docs/hardware/Netlist_Schematic1_2026-08-04.tel`
+Last updated: 2026-08-13
 Target: RP2350_TRIG RP2350B QFN-80
-Netlist: `docs/PCB/Netlist_Schematic1_2026-08-04.tel`
-Related: `docs/RP2350B_QFN80_IO_CONSTRAINTS.md`
-Review date: 2026-08-04
+Netlist: `docs/hardware/Netlist_Schematic1_2026-08-04.tel`
 
 ## 1. 评审结论
 

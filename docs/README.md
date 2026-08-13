@@ -3,14 +3,65 @@
 Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
-Related: `docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-07-07
+Related: `docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Last updated: 2026-08-13
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
 
-当前阶段已经完成平铺文档命名迁移，暂不引入 `docs/<domain>/` 子目录。
-后续需要移动目录时，应按域小批量迁移，并同步更新所有引用。
+当前阶段已经完成平铺文档命名迁移，后续文档管理进入“按产品主域目录化”的规划阶段。
+域目录目标、迁移批次和 gate 以 `DOCS_DOMAIN_STRUCTURE_PLAN.md` 为准。迁移完成前，
+根目录中的历史路径仍是有效路径；新文档优先按目标域选择落点。
+
+## Docs 目标域结构
+
+参考 `D:\Work\ADS_AUTO_SIM\docs` 的文档治理方式，DTC100 后续采用“总 README + 域目录 README + canonical 主文档”的管理方式。
+长期目标结构如下：
+
+```text
+docs/
+  README.md
+  docs/           文档治理、命名规则、迁移表
+  arch/           产品架构、HAOFV、RTOS、双核、分布式总纲
+  interface/      SCPI、USB、USBTMC、命令表、上位机接口
+  trigger/        产品触发、序列、角度、core1 实时执行
+  sync/           SYNC、VDC、DPLL、同步质量
+  calibration/    CAL link、delay、参数、版本、质量
+  refmem/         分布式向量表、命令槽、ACK/NACK、节点事实
+  communication/  BiSS-C、UART、RS485、RJ45 后端维护
+  measure/        测量原语、T2 摘要、链路 delay 测量服务
+  storage/        SD、StorageAO、日志、trace、snapshot、报告证据
+  ota/            OTA、boot、A/B、回滚、System Pack
+  hardware/       IO 约束、PCB、网表、BOM、Gerber、硬件评审
+  validation/     HIL、工具验证、闭环验证记录和脚本说明
+  release/        发布门禁、打印/PDF、产品冻结 checklist
+  legacy/         PinProbe、历史报告、最初版 HTML、外部迁入资料
+  archive/        废弃路径说明、旧索引和批量迁移记录
+```
+
+现阶段不直接大规模移动文件。迁移顺序：先建立域 README，再按单一主域小批量迁移 Markdown，最后处理 HTML/PDF 和历史资料。
+每批迁移必须更新本索引、`Canonical`/`Related`、脚本引用，并运行文档检查。
+
+## 域目录入口
+
+| 目录 | 入口 | 当前作用 |
+|---|---|---|
+| `docs/` | `docs/README.md` | 文档治理、命名规则、迁移表 |
+| `arch/` | `arch/README.md` | 产品架构、HAOFV、RTOS、双核 AMP 和分布式总纲 |
+| `interface/` | `interface/README.md` | SCPI、USB、USBTMC、命令表和上位机接口 |
+| `trigger/` | `trigger/README.md` | 产品触发、序列、角度、core1 实时执行 |
+| `sync/` | `sync/README.md` | SYNC、VDC、DPLL、同步质量和 HOLDOVER |
+| `calibration/` | `calibration/README.md` | CAL link、delay、参数、版本和质量 |
+| `refmem/` | `refmem/README.md` | 分布式向量表、命令槽、ACK/NACK 和节点事实 |
+| `communication/` | `communication/README.md` | BiSS-C、UART、RS485 和通信维护 |
+| `measure/` | `measure/README.md` | 测量原语、T2 摘要和链路 delay 测量服务 |
+| `storage/` | `storage/README.md` | SD、StorageAO、日志、trace、snapshot 和报告证据 |
+| `ota/` | `ota/README.md` | OTA、boot、A/B、回滚和 System Pack |
+| `hardware/` | `hardware/README.md` | IO 约束、PCB、网表、BOM、Gerber 和硬件评审 |
+| `validation/` | `validation/README.md` | HIL、工具验证、任务进度和闭环验证记录 |
+| `release/` | `release/README.md` | 发布门禁、打印/PDF、产品冻结 checklist |
+| `legacy/` | `legacy/README.md` | PinProbe、历史报告、最初版 HTML 和外部迁入资料 |
+| `archive/` | `archive/README.md` | 废弃路径说明、旧索引和批量迁移记录 |
 
 ## Canonical 主文档
 
@@ -45,8 +96,25 @@ Last updated: 2026-07-07
 | 文件 | 定位 |
 |---|---|
 | `DOCS_NAMING_STRUCTURE_PLAN.md` | 文档命名格式、层级关系、新增文件规则和迁移规则。 |
+| `DOCS_DOMAIN_STRUCTURE_PLAN.md` | 按产品主域目录化管理的目标结构、迁移批次、域映射和 gate。 |
 | `DOCS_MIGRATION_TODO.md` | 文档体系迁移待办，跟踪元数据补齐、历史改名和索引维护。 |
 | `README.md` | 本索引文件，提供当前 `docs/` 文件归属。 |
+| `docs/README.md` | 文档治理域 README。 |
+| `arch/README.md` | 架构域 README。 |
+| `interface/README.md` | 接口域 README。 |
+| `trigger/README.md` | 触发域 README。 |
+| `sync/README.md` | 同步域 README。 |
+| `calibration/README.md` | 校准域 README。 |
+| `refmem/README.md` | 反射内存域 README。 |
+| `communication/README.md` | 通信域 README。 |
+| `measure/README.md` | 测量域 README。 |
+| `storage/README.md` | 存储与证据域 README。 |
+| `ota/README.md` | OTA 与启动域 README。 |
+| `hardware/README.md` | 硬件域 README。 |
+| `validation/README.md` | 验证域 README。 |
+| `release/README.md` | 发布域 README。 |
+| `legacy/README.md` | 历史资料域 README。 |
+| `archive/README.md` | 归档域 README。 |
 
 ## 01 系统架构
 
@@ -72,6 +140,7 @@ Last updated: 2026-07-07
 |---|---|
 | `SYNC_IO_RESOURCE_PLAN.md` | PIO、State Machine、DMA、GPIO 和语义 IO 资源规划。 |
 | `RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 硬件版本 GPIO 分配与 IO 使用约束。 |
+| `hardware/RP2350B_NETLIST_REVIEW_2026-08-04.md` | RP2350B 网表评审，当前硬件域迁移后的 canonical 入口。 |
 | `BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C TAP Bridge、RJ45、SYNC_IO、AUX 两收两发和外围电路约束。 |
 
 ## 03 触发与 SYNC_IO

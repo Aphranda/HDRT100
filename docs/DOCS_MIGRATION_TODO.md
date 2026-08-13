@@ -3,8 +3,8 @@
 Status: Active
 Domain: Documentation
 Canonical: `docs/DOCS_MIGRATION_TODO.md`
-Related: `docs/README.md`, `docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-07-07
+Related: `docs/README.md`, `docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Last updated: 2026-08-13
 
 本文档跟踪 `docs/` 从历史平铺文档向统一命名、统一入口、统一元数据演进的待办。
 迁移过程优先保证引用不失效，不追求一次性大规模改名。
@@ -19,6 +19,8 @@ Last updated: 2026-07-07
   OTA、SD、SCPI、Release。
 - [x] P0-05 新增文档强制遵守命名规则：新文件使用
   `<DOMAIN>_<SUBJECT>_<TYPE>.md`，并加入 `docs/README.md`。
+- [x] P0-06 建立按产品主域目录化的规划入口：新增 `DOCS_DOMAIN_STRUCTURE_PLAN.md`，
+  先冻结目标目录、迁移 gate 和域映射，不直接移动大批历史文件。
 
 ## P1 应该完成
 
@@ -39,6 +41,12 @@ Last updated: 2026-07-07
   `OTA_TODO.md`、`OTA_PORTABLE_ARCHITECTURE.md`、`TRIGGER_SYNC_TODO.md`、
   `TASK_PROGRESS.md`、`SD_TASK_PROGRESS.md`、
   `TRIGGER_PULSE_COUNT_ANALYSIS.md`、`TRIGGER_SEQ_STEP_DESIGN.md`。
+- [x] P1-07 建立 Phase 1 域目录 README：为 `arch/`、`interface/`、`trigger/`、
+  `sync/`、`calibration/`、`refmem/`、`communication/`、`measure/`、`storage/`、
+  `ota/`、`hardware/`、`validation/`、`release/`、`legacy/`、`archive/` 建立入口，
+  目录 README 先列迁移候选和 canonical，不移动历史文件。
+- [ ] P1-08 形成第一批迁移 CSV：列出旧路径、新路径、引用影响、验证命令和回退策略，
+  优先覆盖 `docs/` 文档治理、`refmem/`、`interface/` 和 `trigger/`。
 
 ## P2 可以延后
 
@@ -50,6 +58,11 @@ Last updated: 2026-07-07
 - [x] P2-05 增加脚本化检查：文件名、元数据、索引覆盖和 Markdown 引用扫描。
 - [x] P2-06 小批量迁移剩余历史 ASCII 文件名，使默认文档检查不再产生命名 warning。
 - [x] P2-07 小批量迁移高风险历史入口：OTA 中文主文档和 HAOFV 长文件名。
+- [ ] P2-08 按单一主域小批量迁移低风险 Markdown，先迁文档治理、OTA、SD、BISSC、release，
+  每批迁移后运行 `docs_check` 并更新总 README。
+- [ ] P2-09 迁移高风险接口和架构文档：SCPI 指令规划、产品 SCPI 指令表 Markdown、RTOS 分区文档，
+  同步更新校验工具、HTML/PDF 导出脚本和报告引用。
+- [ ] P2-10 归档历史 HTML/PDF、PinProbe、0614/0804 原始报告和最初版 SCPI HTML，保留冻结说明和旧路径映射。
 
 ## 迁移约束
 
@@ -80,6 +93,11 @@ Last updated: 2026-07-07
 - 2026-07-07：本轮完成平铺文件命名迁移后，默认和 strict 文档检查均已无 warning。
   当前不引入 `docs/<domain>/` 子目录，避免在刚完成文件级重命名后继续放大引用移动面。
   后续只有当单一领域文档持续超过 12 个、引用稳定且确有导航压力时，再单独提出子目录迁移表。
+- 2026-08-13：随着 SCPI、RTOS、分布式向量表、校准、同步和通信主域收敛，文档数量已经超过
+  平铺结构的舒适边界。参考 `D:\Work\ADS_AUTO_SIM\docs` 的域目录治理方式，新增
+  `DOCS_DOMAIN_STRUCTURE_PLAN.md`，进入“先规划、建 README、再小批量迁移”的阶段。
+- 2026-08-13：完成 Phase 1 域目录 README 建立，覆盖 `arch/interface/trigger/sync/calibration/refmem/communication/measure/storage/ota/hardware/validation/release/legacy/archive`。
+  本批不移动历史文件，只提供域入口和迁移候选清单。
 
 ## 进度与引用治理记录
 
