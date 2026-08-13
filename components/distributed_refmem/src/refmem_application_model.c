@@ -35,28 +35,36 @@ static const refmem_generic_node_table_t s_generic_node_table = {
                             REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
                             REFMEM_APP_CAP_CORE1_RT | REFMEM_APP_CAP_SMA_IN |
                             REFMEM_APP_CAP_SMA_OUT,
+         REFMEM_APP_CLAIM_STRICT_UUID, 100u,
          REFMEM_APP_PERSONA_A0_TRIGGER_MASTER, 0u, 1u, REFMEM_APP_FAIL_STOP},
         {1u, 0xA0000001u, REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_PIO |
                             REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
                             REFMEM_APP_CAP_CORE1_RT | REFMEM_APP_CAP_SMA_IN |
                             REFMEM_APP_CAP_SMA_OUT,
+         REFMEM_APP_CLAIM_STRICT_UUID, 90u,
          REFMEM_APP_PERSONA_A1_DISTRIBUTED_TRIGGER, 0u, 1u, REFMEM_APP_FAIL_STOP},
         {2u, 0xA0000002u, REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_PIO |
                             REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
                             REFMEM_APP_CAP_LINK_CONTROL,
+         REFMEM_APP_CLAIM_STRICT_UUID, 80u,
          REFMEM_APP_PERSONA_A2_LINK_SWITCH, 0u, 1u, REFMEM_APP_FAIL_STOP},
         {3u, 0xA0000003u, REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_FLASH |
                             REFMEM_APP_CAP_SD | REFMEM_APP_CAP_USB |
                             REFMEM_APP_CAP_RJ45 | REFMEM_APP_CAP_UART_RS485,
+         REFMEM_APP_CLAIM_STRICT_UUID, 70u,
          REFMEM_APP_PERSONA_A3_GATEWAY, 0u, 1u, REFMEM_APP_FAIL_STOP},
         {4u, 0xA0000004u, REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_USB |
                             REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_BISS_C,
+         REFMEM_APP_CLAIM_ALLOW_SAME_BOARD_MULTI_SLOT, 40u,
          REFMEM_APP_PERSONA_A4_MODEL_INSTRUMENTS, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY},
         {5u, 0xA0000005u, REFMEM_APP_CAP_BOARD,
+         REFMEM_APP_CLAIM_SPARE_DYNAMIC, 10u,
          REFMEM_APP_PERSONA_SPARE, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY},
         {6u, 0xA0000006u, REFMEM_APP_CAP_BOARD,
+         REFMEM_APP_CLAIM_SPARE_DYNAMIC, 9u,
          REFMEM_APP_PERSONA_SPARE, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY},
         {7u, 0xA0000007u, REFMEM_APP_CAP_BOARD,
+         REFMEM_APP_CLAIM_SPARE_DYNAMIC, 8u,
          REFMEM_APP_PERSONA_SPARE, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY},
     },
 };
@@ -511,6 +519,34 @@ static bool refmem_model_validate_node_capabilities(void)
     return true;
 }
 
+static bool refmem_model_validate_slot_claim_policy(void)
+{
+    for (uint32_t i = 0u; i < s_generic_node_table.node_count; i++) {
+        const refmem_app_node_entry_t *node = &s_generic_node_table.node[i];
+        if (node->claim_policy > REFMEM_APP_CLAIM_DISABLED) {
+            return false;
+        }
+
+        if (node->online_required != 0u &&
+            node->claim_policy != REFMEM_APP_CLAIM_STRICT_UUID &&
+            node->claim_policy != REFMEM_APP_CLAIM_ALLOW_SAME_BOARD_MULTI_SLOT) {
+            return false;
+        }
+
+        if (node->claim_policy == REFMEM_APP_CLAIM_SPARE_DYNAMIC &&
+            (node->online_required != 0u || node->fail_policy != REFMEM_APP_FAIL_REPORT_ONLY)) {
+            return false;
+        }
+
+        if (node->claim_policy == REFMEM_APP_CLAIM_DISABLED &&
+            (node->online_required != 0u || node->claim_priority != 0u)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool refmem_model_validate_application_map(void)
 {
     if (s_application_map.version != REFMEM_APP_MODEL_VERSION ||
@@ -872,6 +908,10 @@ static void refmem_model_lint(uint32_t *error_count, uint32_t *first_error)
                            first_error);
     refmem_model_lint_note(refmem_model_validate_node_capabilities(),
                            REFMEM_APP_LINT_BAD_NODE_RANGE,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_slot_claim_policy(),
+                           REFMEM_APP_LINT_BAD_SLOT_CLAIM,
                            error_count,
                            first_error);
     refmem_model_lint_note(refmem_model_validate_instances(),

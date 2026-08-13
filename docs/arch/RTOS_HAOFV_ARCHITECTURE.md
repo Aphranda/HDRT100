@@ -302,6 +302,8 @@ RefMem 固定提供 A0-A7 八个通用插槽。这里的 `node_id` 更准确地�
 
 这些静态表最终由 `DistributedRefMemAO` 组合为内部 `RefMemSlotContract` 契约视图。RTOS 任务或业务 AO/FB 不直接读写裸 RefMem 字段；它们通过各自 owner API 投递事实或读取 snapshot，由 `DistributedRefMemAO` 按字段契约校验 writer、值域、version、timestamp、stale、CRC 和订阅分发。
 
+启动和 profile 激活时，`task_refmem_sync` / `DistributedRefMemAO` 还必须聚合全环 `SlotClaim` 摘要。A0-A7 是 active profile / epoch 内的全局唯一逻辑插槽；同一物理板可按预规划 claim 多个不同插槽，但两个物理板 claim 同一插槽必须进入 `CLAIM_CONFLICT`，并由 DeploymentGate 拒绝相关 required slot 进入 RUN。
+
 | 区域 | Offset | 大小 | 内容 | 写入者 |
 |---|---:|---:|---|---|
 | Header/Directory | `0x0000` | 1 KB | magic、layout、slot offset、table_seq、epoch、crc32 | `task_refmem_sync` |

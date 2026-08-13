@@ -43,6 +43,44 @@ DistributedRefMemAO
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-014 - 全局逻辑插槽 claim 与自组网协调
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 明确 A0-A7 通用插槽在 active profile / epoch 内是全环唯一逻辑地址。
+  - 支持一块物理板同时承载多个不同逻辑插槽，同时禁止多个物理板提交同一个 active slot owner。
+  - 增加自组网协调机制：重复 claim 优先尝试迁移到空闲通用插槽，只有插槽满、实例化溢出或硬绑定 required slot 不匹配时才失败。
+- 完成内容：
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加全局逻辑插槽 `SlotClaim`、`SlotClaimMap` 和自组网协调状态机。
+  - 协调状态覆盖 `DISCOVER -> CLAIM_PROPOSE -> CLAIM_COLLECT -> CONFLICT_DETECTED -> RESOLVE_PLAN -> RESOLVE_COMMIT -> CLAIM_ACTIVE`，失败进入 `CLAIM_STALE / CLAIM_FAULT`。
+  - 明确协调消息：`CLAIM_HELLO`、`CLAIM_PROPOSE`、`CLAIM_CONFLICT`、`CLAIM_RELEASE`、`CLAIM_RESOLVE`、`CLAIM_COMMIT`。
+  - 明确候选节点实例与 active slot assignment 分层：一块物理板最多可上报 16 个候选节点实例用于自组网协调和反向验证，但 active assignment 只能映射到 A0-A7，第 9 到第 16 个未分配候选必须进入 `OVERFLOW` evidence。
+  - `refmem_application_model.h` 增加 `REFMEM_APP_MODEL_CLAIM_CANDIDATE_MAX = 16`，作为后续 `SlotClaimProposal` 运行态上限。
+  - `HAOFV_ARCHITECTURE.md` 和 `RTOS_HAOFV_ARCHITECTURE.md` 同步全环 slot claim 唯一性与 DeploymentGate 拒绝规则。
+  - `refmem_application_model.h/.c` 增加 `REFMEM_APP_CLAIM_*` 策略、`claim_policy` 和 `claim_priority` 字段。
+  - 静态模型 linter 增加 slot claim 策略检查：required slot 不允许 disabled/dynamic claim，dynamic spare 必须 report-only 且非 required。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813141942`，package CRC `0x0978A193`。
+  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813141942 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_slot_claim16` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813141942`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_slot_claim16` 通过，16/16 passed。
+  - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,107645,0,8,107644,107644,7`，其中 flags `7` 表示 directory valid、directory CRC valid 和 application model valid 均置位；`SYSTem:REFMEM:NODE? => 0,1,107650,107651,112568,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,107656,2,0,1,15,3840,2,7,2,24714159,0,7`；`SYSTem:PROTection:STATus? => 1,107661,1,1,1,0,0,0,2,11,2,177242018,0,7`。
+- 还需完成：
+  - 在 `DistributedRefMemAO` 中实现运行态 `SlotClaimMap` 聚合、重复 claim 检测、迁移计划和 claim epoch commit。
+  - 增加单板 16 候选节点反向验证，确认不会生成第 9 个隐式插槽、不会覆盖已有 active slot，超过 16 个 proposal 会被拒绝。
+  - 将 `SlotClaimMap` 暴露到 DeploymentGate evidence 和后续维护查询。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
+- 下一步：
+  - 进入 `DistributedRefMemAO` 运行态 `SlotClaimMap` 聚合、协调消息和 16 候选反向验证实现。
+
 ### REFMEM-TASK-20260813-013 - GenericNode capability 与应用 role 分离
 
 - 状态：完成

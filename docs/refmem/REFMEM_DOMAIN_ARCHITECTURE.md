@@ -231,6 +231,8 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 | `node_id` | A0-A7 通用插槽号。 | 只允许 0-7；字段名沿用 node_id 是为了匹配同步协议和 NodeSlot[8]。 |
 | `node_uuid` | 节点硬件身份。 | 用于防止 A0-A7 逻辑号错绑实体板。 |
 | `capability_mask` | 节点硬件/基础能力上限。 | 例如 board、Flash、SD、USB、PIO、DMA、RJ45、core1_rt、SMA、link_control、BISS-C、UART/RS485。 |
+| `claim_policy` | 逻辑插槽 claim 策略。 | `STRICT_UUID`、`ALLOW_SAME_BOARD_MULTI_SLOT`、`SPARE_DYNAMIC`、`DISABLED`。 |
+| `claim_priority` | 冲突仲裁优先级。 | 只用于诊断和预案选择；不得静默抢占已 active 的必需插槽。 |
 | `default_persona_mask` | 节点默认人格能力。 | 只作为装载约束输入，不等于 active role。 |
 | `hw_profile_crc` | 硬件约束摘要。 | 和当前板级约束、IO 能力一致。 |
 | `online_required` | 节点是否为当前 profile 必需。 | 必需节点 stale 或 missing 时禁止 RUN。 |
@@ -243,6 +245,103 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 - GenericNode 的能力不能从当前装载实例反推；它必须来自 board profile、硬件约束或 System Pack 中的硬件 profile。
 - `capability_mask` 是装载上限，不是当前业务角色。`gateway`、`model_vna`、`model_turntable`、`pulse_distributor` 等 role 只允许出现在 NodeLoadTable。
 - 脉冲分发、链路切换、仪表控制、gateway、model_vna、model_turntable、test_agent 等都由 `DistributedNodeLoadTable` 装载，不扩展固定节点数量。
+
+#### 全局逻辑插槽 Claim
+
+在一个 RefMem active profile / epoch 中，A0-A7 是全环唯一逻辑地址。允许一块物理板同时 claim 多个不同逻辑插槽，例如调试阶段板卡 1 同时 claim A5 作为模型网分、A6 作为模拟转台；但同一个 active `slot_id` 不能同时被两块物理板提交为 active owner。由于插槽是通用基座，重复 claim 不必立即成为不可恢复错误：只要还有可用插槽且 capability、resource、IO、owner 和 NodeLoadTable 约束满足，`DistributedRefMemAO` 可以通过自组网协调把其中一个候选迁移到其他空闲插槽。真正的失败条件是插槽已满、节点实例化溢出、硬绑定 required slot 不匹配，或资源/IO/owner 冲突无法解。
+
+主路径是预规划：
+
+```text
+System Pack / active profile
+  -> GenericNodeTable: slot_id -> expected node_uuid / hw_profile / capability
+  -> NodeLoadTable: slot_id -> instance_id list
+  -> board local profile: physical_board_uuid -> claimed slot list
+```
+
+启动或 profile 激活时，每块板发布 `SlotClaimProposal` 摘要。这里必须区分“候选节点实例”和“已分配 active slot”：候选最多 16 个，可以超过 A0-A7 的容量，用于自组网协调、反向验证和溢出检测；active slot 仍最多只有 8 个。
+
+```text
+physical_board_uuid
+claim_candidate_count
+claim_candidate[]
+claim_seq
+claim_epoch
+claim_crc32
+```
+
+每个 `claim_candidate` 至少包含：
+
+```text
+candidate_id
+preferred_slot_id
+role_mask
+persona_mask
+capability_mask
+resource_claim
+io_claim
+claim_policy
+claim_priority
+```
+
+例如反向验证时，一块板可以一次实例化并上报 9 到 16 个候选节点实例。`DistributedRefMemAO` 必须尝试把候选映射到 A0-A7 八个通用插槽；前 8 个只有在 capability、resource、IO、owner、event/data link 都满足时才能变成 active assignment，第 9 到第 16 个未分配候选必须被标记为 `OVERFLOW`，并进入 DeploymentGate evidence。这个测试用于证明系统不会因为单板多实例而生成第 9 个隐式插槽，也不会覆盖已有 active slot。超过 16 个候选是 proposal 格式错误，应直接 `NACK_BAD_CLAIM_PROPOSAL` 或等价 reason。
+
+`DistributedRefMemAO` 聚合所有可见 `SlotClaim`，形成 `SlotClaimMap` 诊断视图：
+
+| 字段 | 含义 |
+|---|---|
+| `slot_id` | A0-A7 逻辑插槽。 |
+| `owner_board_uuid` | 当前 claim 该 slot 的物理板。 |
+| `claim_count` | 当前 epoch 中 claim 该 slot 的物理板数量。 |
+| `claim_state` | `UNCLAIMED/CLAIMED/CLAIM_CONFLICT/RESOLVING/STALE/MISMATCH/OVERFLOW/DISABLED`。 |
+| `expected_node_uuid` | GenericNodeTable 中预期硬件身份。 |
+| `actual_node_uuid` | 当前 claim 的硬件身份。 |
+| `loaded_instance_mask` | NodeLoadTable 中加载到该 slot 的实例摘要。 |
+| `last_claim_seq` | 最近 claim 序号。 |
+| `evidence_index` | 冲突或错绑证据。 |
+
+`SlotClaimMap` 只记录 resolved active assignment；未分配候选进入 `SlotClaimEvidence` 或质量表，不得伪装成 `NodeSlot[8]` 之外的新 active slot。
+
+#### SlotClaim 自组网协调
+
+纠错不只是报错，也需要支持板卡自组网协调。协调机制仍必须受静态模型和 HAOFV owner 约束：节点可以提出候选 claim 和释放意图，但最终 active claim 只能由 `DistributedRefMemAO` 在同一 `claim_epoch` 下提交。通用插槽优先尝试协调分配；只有没有满足约束的空闲插槽、实例装载超过 profile 上限、或硬绑定 required slot 不匹配时，才进入 `OVERFLOW` 或 `CLAIM_FAULT`。
+
+协调状态机：
+
+```text
+DISCOVER
+  -> CLAIM_PROPOSE
+  -> CLAIM_COLLECT
+  -> CONFLICT_DETECTED
+  -> RESOLVE_PLAN
+  -> RESOLVE_COMMIT
+  -> CLAIM_ACTIVE
+  -> CLAIM_STALE / CLAIM_FAULT
+```
+
+协调消息建议：
+
+| 消息 | 方向 | 含义 |
+|---|---|---|
+| `CLAIM_HELLO` | board -> ring | 发布 physical board uuid、基础能力和当前 active slot assignment 摘要。 |
+| `CLAIM_PROPOSE` | board -> RefMemAO/ring | 提出候选节点实例列表、preferred slot、capability、resource/IO claim 和 claim CRC。 |
+| `CLAIM_CONFLICT` | RefMemAO -> ring | 广播重复 claim、uuid mismatch、hw profile mismatch、stale 或 slot overflow。 |
+| `CLAIM_RELEASE` | board -> ring | 声明释放某 slot claim，带 seq/epoch 防止旧释放误伤。 |
+| `CLAIM_RESOLVE` | RefMemAO -> ring | 发布协调结果，包括 active owner、disabled claim 和 evidence。 |
+| `CLAIM_COMMIT` | RefMemAO -> all | 进入新 `claim_epoch`，同步 active SlotClaimMap CRC。 |
+
+协调规则：
+
+- 同一 `physical_board_uuid` 可以 claim 多个不同 `slot_id`，前提是每个 slot 的 `claim_policy`、`capability_mask`、resource/IO claim 和 NodeLoadTable 共存检查都通过。
+- 同一 `slot_id` 若被多个不同 `physical_board_uuid` claim，状态先进入 `CLAIM_CONFLICT`，随后进入 `RESOLVE_PLAN`。若存在满足 capability/resource/IO/owner 约束的空闲通用插槽，可以生成迁移计划；若无可用插槽或实例数量超过 `NodeLoadTable`/profile 上限，进入 `OVERFLOW/CLAIM_FAULT`。
+- 同一 `physical_board_uuid` 最多可以提出 16 个候选节点实例，但 `DistributedRefMemAO` 在同一 active profile / epoch 中最多只能提交 8 个 active slot assignment。第 9 到第 16 个未分配候选只能作为 `OVERFLOW` evidence，不得生成隐式 slot；超过 16 个候选必须作为格式错误拒绝。
+- `STRICT_UUID` slot 必须匹配 GenericNodeTable 的 `node_uuid` 和 `hw_profile_crc`；不匹配进入 `MISMATCH`。
+- `SPARE_DYNAMIC` 只允许用于 A5-A7 这类非 required spare slot，并且必须在 ConfigGate 激活后形成新的 active CRC bundle，不能在 RUN 中热抢占。
+- `claim_priority` 用于在多个候选物理板或多个可用插槽之间选择协调计划；在 required hard binding 不冲突时可以自动协调通用插槽分配，但不得静默覆盖 `STRICT_UUID` 的硬绑定 required slot。
+- 对 `ALLOW_SAME_BOARD_MULTI_SLOT`、`SPARE_DYNAMIC` 或 `REPORT_ONLY` slot，`DistributedRefMemAO` 可根据 capability、claim_priority、physical uuid、link quality、load_order 和空闲插槽集合生成自动协调结果，但必须提升 `claim_epoch`、更新 `SlotClaimMap CRC`，并广播 `CLAIM_COMMIT`。
+- 冲突恢复可以通过重新加载 System Pack / profile、清除错误板卡 claim、执行受权限保护的维护命令，或对非 required dynamic slot 执行自组网协调完成；不得由节点本地自行改 `node_id` 并直接进入 active。
+- `DeploymentGate.node_check` 必须检查 `SlotClaimMap`：required 实例必须有一个 resolved active slot，spare slot 可 `UNCLAIMED`，任何未解决的 `CLAIM_CONFLICT/MISMATCH/STALE/OVERFLOW/CLAIM_FAULT` required 实例都拒绝 RUN。
+- RJ45_SYNC_RING 同步 `SlotClaim` 摘要时，必须带 `claim_epoch` 和 CRC，旧 epoch claim 不得覆盖 active claim。
 
 ### DistributedNodeLoadTable
 

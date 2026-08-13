@@ -284,6 +284,8 @@ Distributed RefMem 需要吸收 IEC 61499 分布式运行时的优点，但保�
 
 这些表不是彼此孤立的配置清单，而是 `DistributedRefMemAO` 通用基础件的输入。对外行为入口仍属于 AO/FB owner、ConfigGate、CommandSlot owner 和 RefMem Sync owner；`RefMemSlotContract` 只规定 `DistributedRefMemAO` 接收和发布这些事实时必须满足的字段级地址、类型、值域、writer、version、timestamp、lifecycle、error、stale 和 guard 约束。业务代码不得绕过 AO/FB owner 或 RefMemAO 直接写裸 RefMem 字段。
 
+分布式系统中，A0-A7 逻辑插槽在一个 active profile / epoch 内必须全环唯一。允许一块物理板同时承载多个不同逻辑插槽，例如一块调试板同时模拟网分和转台；但不允许两块物理板 claim 同一个逻辑插槽。`DistributedRefMemAO` 必须聚合各板 `SlotClaim` 摘要，发现 `CLAIM_CONFLICT/MISMATCH/STALE` 时通过 DeploymentGate 拒绝 required slot 进入 RUN。
+
 典型跨节点连接示例：
 
 | 逻辑连接 | IEC 61499-style 语义 | HAOFV 静态落地 |

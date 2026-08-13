@@ -14,6 +14,7 @@
 #define REFMEM_APP_MODEL_DATA_LINK_COUNT           12u
 #define REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT    11u
 #define REFMEM_APP_MODEL_QUALITY_COUNT             8u
+#define REFMEM_APP_MODEL_CLAIM_CANDIDATE_MAX       16u
 
 #define REFMEM_APP_ROLE_BOARD                      0x00000001u
 #define REFMEM_APP_ROLE_PULSE_DISTRIBUTOR          0x00000002u
@@ -192,6 +193,13 @@ typedef enum {
 } refmem_app_quality_scope_t;
 
 typedef enum {
+    REFMEM_APP_CLAIM_STRICT_UUID = 0u,
+    REFMEM_APP_CLAIM_ALLOW_SAME_BOARD_MULTI_SLOT = 1u,
+    REFMEM_APP_CLAIM_SPARE_DYNAMIC = 2u,
+    REFMEM_APP_CLAIM_DISABLED = 3u,
+} refmem_app_claim_policy_t;
+
+typedef enum {
     REFMEM_APP_LINT_OK = 0u,
     REFMEM_APP_LINT_BAD_TABLE_VERSION = 1u,
     REFMEM_APP_LINT_BAD_NODE_RANGE = 2u,
@@ -203,6 +211,7 @@ typedef enum {
     REFMEM_APP_LINT_BAD_EVENT_LINK = 8u,
     REFMEM_APP_LINT_BAD_DATA_LINK = 9u,
     REFMEM_APP_LINT_BAD_GATE_OR_QUALITY = 10u,
+    REFMEM_APP_LINT_BAD_SLOT_CLAIM = 11u,
 } refmem_app_lint_error_t;
 
 typedef enum {
@@ -229,6 +238,8 @@ typedef struct {
     uint32_t node_id;
     uint32_t node_uuid_crc32;
     uint32_t capability_mask;
+    uint32_t claim_policy;
+    uint32_t claim_priority;
     uint32_t default_persona_mask;
     uint32_t hw_profile_crc32;
     uint32_t online_required;

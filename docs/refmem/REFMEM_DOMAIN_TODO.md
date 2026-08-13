@@ -76,8 +76,16 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 文档定义 `epoch_id + tick32` 和 `dc_time64_ns` 语义，并要求增加 `epoch_seconds` / `time_epoch` 等价字段。
 - [x] 文档定义通用 RefMemAO 基础件模型：`DistributedRefMemAO` 由 Application/GenericNode/NodeLoad/FbInstance/EventLink/DataLink/Gate/Quality 加 Header/Directory/SlotGuard 组合生成 `RefMemSlotContract` 契约视图。
 - [x] 文档定义 `DistributedRefMemAO` 内部字段级 `RefMemSlotContract` 能力：地址、类型、值域、唯一 writer、原子访问、版本、时间戳、生命周期、错误绑定、订阅、发布策略和权限。
+- [x] 文档定义全局逻辑插槽 `SlotClaim` 机制：A0-A7 在 active profile / epoch 内全环唯一，允许同一物理板 claim 多个不同插槽，禁止多板 claim 同一插槽。
+- [x] 文档定义 `SlotClaim` 自组网协调机制：DISCOVER、CLAIM_PROPOSE、CLAIM_COLLECT、CONFLICT_DETECTED、RESOLVE_PLAN、RESOLVE_COMMIT、CLAIM_ACTIVE。
 - [x] 将 `distributed_refmem.h/.c` 拆出 `refmem_vector_table.h/.c`，并按文档冻结 offset/size/static assert。
 - [x] 为 DistributedVectorTable 实现 directory CRC 和 slot directory 校验。
+- [ ] 在 `GenericNodeTable` 中落 `claim_policy`、`claim_priority` 和预期 hardware identity 约束。
+- [ ] 在静态模型 linter 中检查 slot claim 预规划：required slot 不允许 dynamic claim，spare dynamic slot 必须非 required，claim policy 和 fail policy 一致。
+- [ ] 在 `DistributedRefMemAO` 中实现 `SlotClaimMap` 聚合、重复 claim 检测、uuid/hw profile mismatch 检测和 claim CRC。
+- [ ] 增加单板 16 候选节点反向验证：同一 physical board 最多可以上报 16 个 claim candidate，但 active assignment 只能映射到 A0-A7，第 9 到第 16 个未分配候选必须进入 `OVERFLOW` evidence，超过 16 个 proposal 必须被拒绝。
+- [ ] 实现自组网协调消息：`CLAIM_HELLO`、`CLAIM_PROPOSE`、`CLAIM_CONFLICT`、`CLAIM_RELEASE`、`CLAIM_RESOLVE`、`CLAIM_COMMIT`。
+- [ ] 将 `SlotClaimMap` 接入 DeploymentGate node_check：required slot 冲突、错绑或 stale 时拒绝 RUN；spare dynamic slot 可按协调结果进入新 epoch。
 - [ ] 定义 `DistributedRefMemAO` 的 `RefMemSlotContract` 派生规则：从 DataLinkTable、Header/Directory、SlotGuard、DeploymentGate 和 QualityTable 生成字段级只读 contract，不作为新的业务配置入口。
 - [ ] 新增 `refmem_slot_contract.h/.c`，只提供 `validate_write`、`validate_snapshot`、`validate_subscription`、`derive_contract` 等 `DistributedRefMemAO` 内部校验 helper，不提供绕过 AO/FB 或 RefMemAO 的业务读写 API。
 - [ ] 在静态模型 linter 中检查 `RefMemSlotContract`：地址不越界、字段宽度匹配、类型和值域一致、writer 唯一、version/timestamp/error 引用有效。
