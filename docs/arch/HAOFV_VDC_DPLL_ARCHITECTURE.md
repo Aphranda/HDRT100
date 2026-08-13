@@ -6,103 +6,354 @@ Canonical: `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
 Last updated: 2026-08-13
 
-本文档定义 VDC 与 DPLL 在 HAOFV 下的核心基础架构位置。VDC/DPLL 不是裸顶级产品命令域，也不是某个 PIO 模式；它是支撑多节点共同时间事实、同步门禁、预测分发、T2 证据和分布式 RUN 的基础设施。
+本文档定义 VDC 与 DPLL 在 HAOFV 下的核心基础架构。HAOFV 是架构，基础件是对架构的实现；因此本文不把“架构”和“基础件”拆成两个孤立部分，而是按 HAOFV 的运行链条融合描述：每一条链都从 AO/FB/Vector 的 owner 开始，向下落到 Service、PIO/IRQ、compact timestamp、loop filter、时钟约束和动态性能指标。
 
-## 定位
+VDC/DPLL 不是裸顶级产品命令域，也不是某个 PIO 模式。它是支撑多节点共同时间事实、同步门禁、预测分发、T2 证据和分布式 RUN 的基础设施。
 
-VDC 是虚拟 DC 时钟，是多块 DTC100 节点之间的共同时间认知。DPLL 是让 VDC 稳态收敛、HOLDOVER、RELOCK 和质量评估成立的算法层。
+## 0. 核心口径
 
-```text
-Local tick
-  -> timestamp sample
-  -> calibration delay model
-  -> SYNC DPLL offset/rate estimate
-  -> VDC common time axis
-  -> Trigger prediction and local fire
-  -> T2 / READY feedback evidence
-```
+- HAOFV 是主线：AO 管入口和生命周期，FB 管状态迁移和环路逻辑，Vector 管事实和唯一 writer，Service/PIO 管受限底层执行。
+- 基础件只实现 HAOFV 节点，不自行形成业务状态、对外指令或运行主线。
+- VDC 是共同时间坐标系，DPLL 是形成和维护 VDC 稳态的 FB 逻辑。
+- Timestamp sample 是 DPLL 的原始观测事实；VDC 是 timestamp、校准 delay、DPLL 滤波和质量门限共同形成的结果。
+- `SYNC DPLL` 与 `Angle DPLL` 是两条不同 HAOFV 链：前者生成 VDC offset/rate/lock，后者生成扫描预测 `T_fire_base`。
+- 高实时链路只传 compact timestamp；完整语义由接收端依据 timestamp dictionary、epoch、wrap tracker 和 active profile 展开。
 
-在 HAOFV 中，VDC/DPLL 属于核心基础架构，向上支撑 `SYNC`、`TRIGger`、`CALibration`、`MEASure`、`SYSTem:T2` 和反射内存，向下依赖 `sync_io`、RJ45/BiSS-C、PIO/DMA/IRQ 和板级时间戳能力。
+本文的阅读方式是按链路阅读，而不是按“架构一章、基础件一章”拆开阅读：
 
-时间戳是 VDC/DPLL 的关键传递参数。它是 DPLL 的原始观测事实，不是最终控制量；VDC 是在时间戳样本、校准 delay、DPLL 滤波和质量门限共同作用后形成的共同时间坐标系。
+| 链路 | 从 HAOFV 到基础件 |
+|---|---|
+| Timestamp 采集链 | timestamp service / ValidationFB / TimestampRing -> compact timestamp / local tick / dictionary |
+| SYNC DPLL 锁定链 | VdcSyncAO / SyncDpllFB / VdcVector -> timestamp sample / loop filter / offset-rate |
+| HOLDOVER/RELOCK 链 | HoldoverFB / RelockFB / VdcVector -> freshness timer / age gate / quality window |
+| 校准链 | CalibrationAO / CalibrationFB / CalibrationVector -> timestamp pair / delay model |
+| Trigger 预测分发链 | TriggerAO / TriggerFB / core1 realtime -> VDC snapshot / local_fire / T2 timestamp |
 
-## 名词边界
+## 1. 总装配链
 
-| 名词 | 定义 | owner |
-|---|---|---|
-| Local Tick | 单板本地单调计数，来自 `clk_sys` 或硬件计数源。 | board/realtime service |
-| Timestamp Sample | 某个边沿、帧首沿、READY/T2 或本地事件的本地时间戳样本。 | realtime capture / timestamp service |
-| VDC | Virtual Distributed Clock，多节点共同时间轴。 | `task_vdc_sync` / `VdcSyncAO` |
-| SYNC DPLL | 估计 VDC 的 offset/rate，使各节点本地 tick 映射到共同 DC。 | `task_vdc_sync` |
-| Angle DPLL | 根据转台 Compare/角度脉冲预测未来 `T_fire_base`。 | `task_dpll` / LoopEngine |
-| Loop Filter | DPLL 内部虚拟环路滤波器，用于稳定 offset/rate 或角度预测。 | 对应 DPLL owner |
-| T2 | READY/动作完成的时间事实，用于报告、质量和补偿闭环。 | realtime capture -> storage/measure |
-| e_vdc | VDC 同步残差。 | `task_vdc_sync` |
-| e_pll | 角度预测残差。 | `task_dpll` |
-| e_act | 动作执行残差，通常为 `T2_i - T_fire_base - Delta_t_i`。 | Trigger/Measure |
-
-关键约束：
-
-- `SYNC DPLL` 和 `Angle DPLL` 是两套不同环路，owner、输入、输出、质量指标和门禁不同。
-- `SYNC DPLL` 输出共同时间轴 `VDC offset/rate/lock`。
-- `Angle DPLL` 输出扫描预测时间 `T_fire_base`，不能参与 VDC offset/rate 收敛。
-- timestamp sample 必须保留来源、事件类型、序号、节点、质量标志和本地 tick；不能只把样本折叠成 offset/rate。
-- VDC/DPLL 可以有维护和调试接口，但不建立裸 `VDC:*` 或裸 `DPLL:*` 产品顶级命令。
-
-## HAOFV 分层
+VDC/DPLL 的整体装配按 HAOFV 走，而不是按算法模块自由调用。
 
 ```text
 SCPI / UI / System Pack
-  CONFigure:SYNC:* / SYNC:* / READ:SYNC:*?
-  SYSTem:SYNC:VDC:* maintenance
         |
         v
 Active Object Layer
-  VdcSyncAO
-  CalibrationAO
-  TriggerAO
-  MeasureAO / DiagnosticsAO
+  VdcSyncAO / CalibrationAO / TriggerAO / MeasureAO
         |
         v
 Function Block Layer
-  VdcSyncFB
-  SyncDpllFB
-  SyncQualityGateFB
-  HoldoverFB
-  RelockFB
+  TimestampValidationFB / SyncDpllFB / HoldoverFB / RelockFB
+  CalibrationFB / AngleDpllFB / TriggerFB
         |
         v
 Vector Blackboard Layer
-  VdcVector
-  CalibrationVector
-  TriggerVector
-  Statistics/T2 summary
-  DistributedVectorTable
+  VdcVector / CalibrationVector / TriggerVector
+  TimestampRing / T2Summary / DistributedVectorTable
         |
         v
 Hardware Service Layer
-  sync_io
-  RJ45/BiSS-C frame service
-  timestamp service
+  timestamp service / sync_io / RJ45-BiSS frame service
         |
         v
 Hard Realtime Side Path
-  PIO / DMA / IRQ
+  local_tick / compact timestamp / PIO capture / DMA / IRQ
 ```
 
-分层规则：
+| HAOFV 节点 | 基础实现件 | 输入 | 输出 | 禁止 |
+|---|---|---|---|---|
+| `VdcSyncAO` | event queue、profile staging、resource gate | `SYNC:*` event、active config | VDC lifecycle、FB dispatch | 直接采边沿或绕过 FB 写 offset/rate |
+| `TimestampValidationFB` | dictionary、wrap tracker、age/CRC/seq gate | compact timestamp | valid/invalid sample | 发布产品状态 |
+| `SyncDpllFB` | loop filter、outlier gate、calibrated sample | SYNC timestamp | offset/rate/e_vdc | 消费 Angle DPLL 输出 |
+| `VdcVector` | atomic commit、update_seq、CRC | FB result | VDC fact snapshot | 被 SCPI、PIO、storage 直接写 |
+| `TriggerFB` | RUN gate、FIRE_LOAD builder | VDC snapshot、`T_fire_base` | local_fire request | 修改 VDC owner 字段 |
+| `timestamp service` | local tick、compact decoder、ring merge | PIO/IRQ capture | timestamp sample | 发布业务语义 |
+| PIO/DMA/IRQ | edge capture、minimal flags | physical edge | compact timestamp | 执行 DPLL 或访问 USB/SD/SCPI |
 
-- `CONFigure:SYNC:*` 只写 staging 配置，不直接改变已锁定的 VDC。
-- `SYNC:*` 是同步动作域，负责 CHECK、START、STOP、RELOCK、HOLDOVER。
-- `SYSTem:SYNC:VDC:*` 是维护/诊断入口，只暴露状态、调试参数和受权限保护的调节动作。
-- `TRIGger:*` 只能消费已通过门禁的 VDC 事实，不能直接调 DPLL。
-- `REALtime:*` 可以用于底层时序验证，但不能越过 `task_vdc_sync` 写 VdcVector。
+## 2. Timestamp 采集链
 
-## Owner 与 Vector
+这条链把物理边沿变成可被 HAOFV 消费的时间事实。
 
-### VdcVector
+```text
+physical edge
+  -> PIO/IRQ capture
+  -> local_tick latch
+  -> compact timestamp
+  -> timestamp service
+  -> dictionary decode + wrap extend
+  -> TimestampValidationFB
+  -> TimestampRing / owner FB
+```
 
-`VdcVector` 是 VDC/DPLL 的唯一事实源。建议常驻在反射内存或系统向量表的同步槽中。
+### 2.1 末端基础件
+
+`local_tick` 是每块板的本地单调时间事实。
+
+| 属性 | 要求 |
+|---|---|
+| 单调性 | 必须单调递增，允许固定宽度回绕，但不允许软件重置造成局部倒退。 |
+| 来源 | `clk_sys`、PIO capture counter、硬件 timer 或统一 timestamp service。 |
+| 粒度 | 当前 RP2350 原型可按 250 MHz 计，1 tick = 4 ns。 |
+| owner | board/realtime service。 |
+| 禁止 | 上位机、SCPI、Storage、Report 不能生成或修正 local tick。 |
+
+默认线上 compact timestamp 为 8 字节：
+
+```c
+typedef struct {
+    uint16_t seq_delta;
+    uint8_t  source_event;
+    uint8_t  flags;
+    uint32_t tick_l32;
+} ts8_compact_t;
+```
+
+| 字段 | 位宽 | 含义 |
+|---|---:|---|
+| `seq_delta` | 16 | 相对当前 epoch/run 的序号低 16 位或差分序号。 |
+| `source_event` | 8 | 高 4 位为 `source_id`，低 4 位为 `event_id`。 |
+| `flags` | 8 | valid、late、edge polarity、overflow、holdover_mapped、crc/seq 异常摘要。 |
+| `tick_l32` | 32 | local tick 低 32 位；接收端用 wrap tracker 扩展为 64 位。 |
+
+扩展形式：
+
+```c
+typedef struct {
+    uint16_t seq_delta;
+    uint8_t  source_event;
+    uint8_t  flags;
+    uint32_t tick_l32;
+    uint16_t age_us;
+    uint16_t crc16;
+} ts12_compact_t;
+
+typedef struct {
+    uint16_t seq_delta;
+    uint8_t  source_event;
+    uint8_t  flags;
+    uint32_t tick_l32;
+    uint32_t tick_h_or_vdc_l32;
+    uint16_t age_us;
+    uint16_t crc16;
+} ts16_compact_t;
+```
+
+| 形式 | 字节 | 使用场景 |
+|---|---:|---|
+| `ts8_compact_t` | 8 | 高频实时边沿，默认优先。 |
+| `ts12_compact_t` | 12 | 需要 age 或 CRC 的同步帧、跨板维护帧。 |
+| `ts16_compact_t` | 16 | 需要携带 tick 高位、短 VDC 映射或更长 trace 的低频证据帧。 |
+
+### 2.2 字典展开
+
+大容量语义定义不在线上传输，而由配置、System Pack 或固件 profile 预设。线上只传 `source_event` 索引。
+
+```c
+typedef struct {
+    uint8_t  source_id;
+    uint8_t  node_id;
+    uint8_t  port_id;
+    uint8_t  signal_role;
+    uint8_t  event_id;
+    uint8_t  edge_policy;
+    uint16_t default_quality_mask;
+} timestamp_dictionary_entry_t;
+```
+
+展开后的样本供 FB 和 Vector owner 使用：
+
+```c
+typedef struct {
+    uint32_t epoch;
+    uint32_t sequence_id;
+    uint8_t  source_node;
+    uint8_t  source_port;
+    uint8_t  event_type;
+    uint8_t  quality_flags;
+    uint64_t local_tick;
+    uint64_t mapped_vdc_tick;
+    uint32_t frame_crc;
+    uint32_t receive_age_us;
+} timestamp_sample_t;
+```
+
+展开流程：
+
+```text
+ts8/ts12/ts16
+  -> lookup source_event in timestamp dictionary
+  -> extend seq_delta by epoch/run context
+  -> extend tick_l32 by local wrap tracker
+  -> attach node/port/signal role
+  -> compute receive_age_us if not carried
+  -> produce timestamp_sample_t
+```
+
+质量规则：
+
+- `local_tick` 是原始事实，必须保留。
+- `mapped_vdc_tick` 只有在 VDC `LOCKED/HOLDOVER` 且映射有效时才可信。
+- `sequence_id` 用于把 SYNC、FIRE、READY/T2 和报告证据归入同一轮。
+- `quality_flags` 至少区分 valid、late、stale、crc_error、seq_error、outlier、holdover_mapped。
+- 字典版本不匹配时，样本只能作为 invalid evidence 存档，不能进入 DPLL。
+
+## 3. SYNC DPLL 锁定链
+
+这条链把 SYNC timestamp 变成 VDC 共同时间轴。
+
+```text
+SYNC:STARt event
+  -> VdcSyncAO
+  -> TimestampValidationFB
+  -> apply active calibration delay
+  -> SyncDpllFB
+  -> SyncQualityGateFB
+  -> VdcSyncAO commit
+  -> VdcVector offset/rate/lock
+```
+
+### 3.1 输入事实
+
+| 输入 | 来源 | 用途 |
+|---|---|---|
+| SYNC timestamp sample | timestamp service | phase detector 输入 |
+| NODE/RJ45 delay | active CalibrationVector | 修正链路传播 delay |
+| dictionary/profile CRC | System Pack / active profile | 样本解释一致性 |
+| freshness / CRC / seq | timestamp validation | 样本门禁和 fault 归因 |
+
+### 3.2 VDC 映射
+
+每个节点维护从 local tick 到 VDC 的映射：
+
+```text
+vdc_tick = local_tick * rate_q32 + offset_tick
+```
+
+- `offset_tick`：本地时间到 VDC 的相位偏移。
+- `rate_q32`：本地时钟相对 VDC 的频率修正。
+- `rate_q32 = 1.0` 表示无频率修正。
+
+offset/rate 的唯一 writer 是 `VdcSyncAO` 对 `VdcVector` 的原子提交；core1 只能读取一致 snapshot。
+
+### 3.3 环路逻辑
+
+基础离散环路：
+
+```text
+e_phase[k] = corrected_sample[k] - predicted_vdc[k]
+offset[k+1] = offset[k] + Kp * e_phase[k] + Ki * sum(e_phase)
+rate[k+1] = rate[k] + Ki_rate * e_phase[k]
+```
+
+传递函数视角：
+
+```text
+phase_detector -> loop_filter(z) -> numerically controlled time mapping
+F(z) = Kp + Ki / (1 - z^-1)
+```
+
+| 参数 | 作用 | 过小 | 过大 |
+|---|---|---|---|
+| `Kp` | 相位误差快速修正 | 收敛慢 | 抖动放大、易振荡 |
+| `Ki` | 长期频偏修正 | rate 漂移残留 | 积分 windup、超调 |
+| `max_step_ns` | 限制 offset 跳变 | 修正过慢 | 时间轴不连续 |
+| `max_rate_ppm` | 限制频率修正 | holdover 前误差变大 | 跟踪噪声 |
+| `outlier_window_ns` | 样本剔除 | 错误样本进入环路 | 好样本被误丢 |
+
+## 4. HOLDOVER / RELOCK 链
+
+这条链处理观测丢失后的时间轴保持和恢复。
+
+```text
+timestamp freshness timeout
+  -> HoldoverFB
+  -> VdcVector HOLDOVER
+  -> quality downgrade
+  -> Trigger gate blocks new FIRE_LOAD
+  -> new valid sample window
+  -> RelockFB
+  -> VdcVector LOCKED or FAULT
+```
+
+| 控制项 | HAOFV owner | 作用 |
+|---|---|---|
+| `sync_period_us` | `VdcSyncAO` | SYNC timestamp 采样周期，决定 DPLL 更新速率。 |
+| `frame_guard_us` | timestamp/ring service | 帧间隔保护，防止环路自激或前后帧混叠。 |
+| `capture_window_us` | core1 realtime | READY/T2 或 SYNC 边沿捕获窗口，超窗标记 late/missing。 |
+| `sample_age_limit_us` | `TimestampValidationFB` | timestamp 从采集到被消费的最大允许年龄。 |
+| `freshness_timeout_ms` | `HoldoverFB` | 节点失去更新多久后变成 stale/missing。 |
+| `lock_window_ns` | `SyncQualityGateFB` | 连续样本残差进入窗口后允许 LOCKED。 |
+| `holdover_enter_ms` | `HoldoverFB` | 观测丢失多久进入 HOLDOVER。 |
+| `holdover_max_ms` | `HoldoverFB` | HOLDOVER 最长持续时间，超时进入 FAULT。 |
+| `relock_settle_ms` | `RelockFB` | RELOCK 后重新稳定所需时间。 |
+
+RELOCK 成功只恢复 VDC `LOCKED`，不自动恢复 TRIG RUN。
+
+## 5. 校准链
+
+校准链为 VDC/DPLL 提供 delay model，但它不等于同步锁定。
+
+```text
+CALibration:STARt
+  -> CalibrationAO
+  -> timestamp capture pair
+  -> CalibrationFB delay calculation
+  -> CalibrationVector staging
+  -> CALibration:ACTivate
+  -> active calibration CRC
+  -> invalidate previous SYNC:CHECk
+```
+
+```text
+corrected_sample = timestamp_sample - link_delay - device_delay
+```
+
+| delay 类型 | 来源 | 用途 |
+|---|---|---|
+| NODE/RJ45 基础链路 delay | `CALibration:STARt` 快速事务 | SYNC CHECK 和 DPLL 初始模型 |
+| SMA/外部触发链路 delay | SMA 回路或外部触发测量 | 外部输入/输出补偿 |
+| DEVICE/T2 动作补偿 | VDC LOCKED 后测得 | 预测分发中的 `Delta_t_i` |
+
+active calibration 切换后，旧的 SYNC CHECK 结论失效，VDC 应进入 `CHECKING` 或要求 `SYNC:RELock`。
+
+## 6. Trigger 预测分发链
+
+这条链把 VDC 共同时间事实转成产品业务动作。
+
+```text
+VdcVector LOCKED snapshot
+  -> TriggerAO RUN gate
+  -> AngleDpllFB T_fire_base
+  -> TriggerFB FIRE_LOAD
+  -> local_fire_i = map(T_fire_base, offset/rate, Delta_t_i)
+  -> core1 realtime
+  -> PIO/DMA/IRQ execute edge
+  -> READY/T2 compact timestamp
+  -> MeasureAO / StorageAO evidence
+```
+
+| 节点 | 输入 | 输出 | 禁止 |
+|---|---|---|---|
+| `AngleDpllFB` | ANGLE/COMPARE timestamp、扫描配置 | `T_fire_base`、`e_pll` | 写 VDC offset/rate/lock |
+| `TriggerFB` | VDC lock、active sequence、`T_fire_base` | FIRE_LOAD | 绕过 VDC gate |
+| core1 realtime | local_fire request | deterministic edge、T2 timestamp | 执行 DPLL 或访问 SCPI/SD/USB |
+| `MeasureAO` | T2/READY sample | `e_act`、报告证据 | 修改 VDC state |
+
+## 7. 状态机和 Vector
+
+建议 VDC/SYNC DPLL 使用以下状态：
+
+| 状态 | 含义 | 允许出口 |
+|---|---|---|
+| `OFF` | 未启用，同步资源释放。 | `CHECKING` |
+| `FREE_RUN` | 本地 tick 可用，但没有共同时间保证。 | `CHECKING`, `OFF` |
+| `CHECKING` | 检查 active calibration、ring、节点 freshness 和门限。 | `LOCKING`, `FAULT`, `OFF` |
+| `LOCKING` | DPLL 收敛 offset/rate，样本可被剔除但不允许正式 RUN。 | `LOCKED`, `HOLDOVER`, `FAULT`, `OFF` |
+| `LOCKED` | VDC 可作为正式预测分发和 DEVICE/T2 校准基准。 | `HOLDOVER`, `RELOCKING`, `FAULT`, `OFF` |
+| `HOLDOVER` | 短时失去同步观测，继续使用冻结/降权参数。 | `RELOCKING`, `FAULT`, `OFF` |
+| `RELOCKING` | 在不重启全系统的情况下重新收敛。 | `LOCKED`, `FAULT`, `OFF` |
+| `FAULT` | 同步质量、拓扑、CRC、seq 或节点新鲜度失败。 | `CHECKING`, `OFF` |
+
+`VdcVector` 是 VDC/DPLL 的唯一事实源。
 
 ```c
 typedef struct {
@@ -128,377 +379,47 @@ typedef struct {
 
 | 字段 | 唯一 writer | 读者 |
 |---|---|---|
-| `offset_tick/rate_q32/state` | `task_vdc_sync` | Trigger、Measure、Diagnostics、SCPI snapshot |
-| `node_*_bitmap` | `task_vdc_sync` / refmem sync merge | System、SYNC gate、Trigger gate |
-| `active_cal_crc` | `task_vdc_sync` 复制 active calibration 版本 | SYNC/CAL consistency check |
-| `e_vdc` 和质量统计 | `task_vdc_sync` | READ/SYSTem/报告 |
+| `offset_tick/rate_q32/state` | `VdcSyncAO` commit | Trigger、Measure、Diagnostics、SCPI snapshot |
+| `node_*_bitmap` | `VdcSyncAO` / refmem sync merge | System、SYNC gate、Trigger gate |
+| `active_cal_crc` | `VdcSyncAO` 复制 active calibration 版本 | SYNC/CAL consistency check |
+| `e_vdc` 和质量统计 | `VdcSyncAO` commit | READ/SYSTem/报告 |
 
-禁止：
+## 8. 时钟约束和动态性能
 
-- SCPI handler 直接写 VdcVector。
-- core1 realtime 直接写 `offset_tick/rate_q32`。
-- `task_dpll` 直接写 VDC lock 状态。
-- 反射内存远端节点覆盖本地 owner 字段；远端事实必须通过 merge 规则进入只读 peer slot。
+时钟约束：
 
-## 时间戳事实链路
-
-时间戳链路必须明确四个问题：参数来源、流动方向、接收端和环路时间控制。DPLL 只能消费带完整上下文的 timestamp sample，不能消费一个孤立的 tick 数值。
-
-### 参数来源
-
-| 来源 | 事件 | 采集位置 | 线上形式 | 用途 |
-|---|---|---|---|---|
-| RJ45/BiSS-C/SYNC 帧首沿 | `SYNC_EDGE` / `FRAME_EDGE0` | PIO/IRQ capture | compact timestamp | SYNC DPLL 估计 offset/rate、节点 freshness 和环路周期。 |
-| NODE 校准脉冲 | `CAL_EDGE` | PIO capture | compact timestamp pair | 计算 NODE/RJ45 链路 delay。 |
-| SMA/外部触发回路 | `SMA_EDGE` | PIO capture / timestamp service | compact timestamp pair | 计算外部输入/输出链路 delay。 |
-| 转台/角度 Compare 输入 | `ANGLE_EDGE` / `COMPARE_EDGE` | realtime capture | compact timestamp | Angle DPLL 生成 `T_fire_base`。 |
-| 本地预约输出 | `FIRE_LOAD` / `FIRE_EXEC` | core1 realtime / PIO status | local compact record | 验证预约是否 late，记录实际发火时间。 |
-| READY/T2 输入 | `READY_EDGE` / `T2_EDGE` | PIO/IRQ capture | compact timestamp | 计算 `e_act`，形成报告和质量证据。 |
-| 节点心跳/反射内存更新 | `NODE_HEARTBEAT` / `REFMEM_DELTA` | refmem sync service | compact delta header | 判断 stale、missing、seq error 和 ring health。 |
-
-### 基础形式
-
-时间戳的基础形式分为两层：
-
-- 线上最小单元：只携带实时传输必需字段，目标是低字节数、固定长度、PIO/中断易解析。
-- 本地展开样本：接收端根据预设字典、epoch、source_id 和 sequence_id 展开为完整 timestamp sample，用于 DPLL、反射内存、T2 和报告。
-
-推荐线上最小单元为 8 字节：
-
-```c
-typedef struct {
-    uint16_t seq_delta;
-    uint8_t  source_event;
-    uint8_t  flags;
-    uint32_t tick_l32;
-} ts8_compact_t;
-```
-
-字段含义：
-
-| 字段 | 位宽 | 含义 |
-|---|---:|---|
-| `seq_delta` | 16 | 相对当前 epoch/run 的序号低 16 位或差分序号。 |
-| `source_event` | 8 | 高 4 位为 `source_id`，低 4 位为 `event_id`。 |
-| `flags` | 8 | valid、late、edge polarity、overflow、holdover_mapped、crc/seq 异常摘要。 |
-| `tick_l32` | 32 | 本地 tick 低 32 位；高位由接收端根据 epoch 和 wrap 扩展。 |
-
-8 字节形式适用于 SYNC edge、READY/T2、Angle edge、heartbeat 等高频链路。若需要携带更长时间窗口或帧校验，可使用 12/16 字节扩展：
-
-```c
-typedef struct {
-    uint16_t seq_delta;
-    uint8_t  source_event;
-    uint8_t  flags;
-    uint32_t tick_l32;
-    uint16_t age_us;
-    uint16_t crc16;
-} ts12_compact_t;
-
-typedef struct {
-    uint16_t seq_delta;
-    uint8_t  source_event;
-    uint8_t  flags;
-    uint32_t tick_l32;
-    uint32_t tick_h_or_vdc_l32;
-    uint16_t age_us;
-    uint16_t crc16;
-} ts16_compact_t;
-```
-
-选择规则：
-
-| 形式 | 字节 | 使用场景 |
-|---|---:|---|
-| `ts8_compact_t` | 8 | 高频实时边沿，默认优先。 |
-| `ts12_compact_t` | 12 | 需要 age 或 CRC 的同步帧、跨板维护帧。 |
-| `ts16_compact_t` | 16 | 需要携带 tick 高位、短 VDC 映射或更长 trace 的低频证据帧。 |
-
-### 预设字典
-
-大容量定义不在线上传输，而由配置、System Pack 或固件 profile 预设。线上 `source_event` 只传索引。
-
-```c
-typedef struct {
-    uint8_t  source_id;
-    uint8_t  node_id;
-    uint8_t  port_id;
-    uint8_t  signal_role;
-    uint8_t  event_id;
-    uint8_t  edge_policy;
-    uint16_t default_quality_mask;
-} timestamp_dictionary_entry_t;
-```
-
-预设字典包含：
-
-- `node_id`：A0/A1/A2/A3 或后续扩展节点。
-- `port_id`：IN/OUT/SMA/RJ45/VNA/DEVICE 的预定义端口。
-- `signal_role`：SYNC、CAL、ANGLE、FIRE、READY、T2、HEARTBEAT。
-- `event_id`：边沿或事件枚举。
-- `edge_policy`：上升沿、下降沿、双沿、帧首沿。
-- 默认质量掩码和允许的环路时间门限。
-
-接收端展开规则：
-
-```text
-ts8/ts12/ts16
-  -> lookup source_event in timestamp dictionary
-  -> extend seq_delta by epoch/run context
-  -> extend tick_l32 by local wrap tracker
-  -> attach node/port/signal role
-  -> compute receive_age_us if not carried
-  -> produce timestamp_sample_t
-```
-
-展开后的 timestamp sample 至少包含：
-
-```c
-typedef struct {
-    uint32_t epoch;
-    uint32_t sequence_id;
-    uint8_t  source_node;
-    uint8_t  source_port;
-    uint8_t  event_type;
-    uint8_t  quality_flags;
-    uint64_t local_tick;
-    uint64_t mapped_vdc_tick;
-    uint32_t frame_crc;
-    uint32_t receive_age_us;
-} timestamp_sample_t;
-```
-
-字段规则：
-
-- `local_tick` 是原始事实，必须保留。
-- 线上只传 `tick_l32` 时，接收端必须用 wrap tracker 扩展为 64-bit `local_tick`。
-- `mapped_vdc_tick` 只有在 VDC `LOCKED/HOLDOVER` 且映射有效时才可信。
-- `sequence_id` 用于把 SYNC、FIRE、READY/T2 和报告证据归入同一轮。
-- `quality_flags` 至少区分 valid、late、stale、crc_error、seq_error、outlier、holdover_mapped。
-- `receive_age_us` 用于 freshness gate，不能由上位机事后补算。
-- 字典版本、epoch 和 source_id 必须能追溯到 System Pack 或 active profile，否则样本只能作为 invalid evidence 存档。
-
-### 流动方向
-
-时间戳流动方向固定为“硬实时采集 -> 本地事实缓存 -> owner 消费 -> Vector/报告发布”。
-
-```text
-PIO / DMA / IRQ capture
-        |
-        v
-core1 realtime timestamp ring
-        |
-        v
-core0 timestamp merge / refmem sync
-        |
-        +--> task_vdc_sync
-        |      - SYNC DPLL
-        |      - VDC offset/rate/lock
-        |      - e_vdc / freshness / holdover
-        |
-        +--> task_dpll
-        |      - Angle DPLL
-        |      - T_fire_base
-        |      - e_pll
-        |
-        +--> task_calibration
-        |      - link delay
-        |      - DEVICE/T2 delay
-        |
-        +--> task_measure / task_storage
-               - T2 pages
-               - trace/snapshot
-               - run report evidence
-```
-
-禁止反向流动：
-
-- SCPI/UI 不能直接写 timestamp sample。
-- task_vdc_sync 不能伪造 READY/T2 timestamp，只能标注样本质量或丢弃样本。
-- task_dpll 不能把 Angle timestamp 写成 SYNC timestamp。
-- storage/report 不能反向修正 VDC lock 或 offset/rate。
-
-### 接收端职责
-
-| 接收端 | 接收内容 | 允许动作 | 禁止动作 |
-|---|---|---|---|
-| `core1_realtime` | PIO/IRQ 原始 timestamp | 写 timestamp ring、标记 late/overflow、最小事实回写。 | 执行 DPLL 计算、写 VdcVector offset/rate、访问 SCPI/SD/USB。 |
-| `task_vdc_sync` | SYNC/CAL/NODE timestamp sample | 样本筛选、offset/rate 更新、LOCK/HOLDOVER/RELOCK、写 VdcVector。 | 消费 Angle DPLL 输出作为 offset/rate 输入。 |
-| `task_dpll` | ANGLE/COMPARE timestamp sample | 角度预测、生成 `T_fire_base`、写 DpllSlot。 | 修改 VDC lock、覆盖 SYNC DPLL 参数。 |
-| `task_calibration` | CAL/SMA/DEVICE/T2 sample | 计算 delay、写 staging calibration、生成 result。 | 激活参数后不触发 SYNC CHECK 失效。 |
-| `task_trigger` / core1 TriggerAO | VDC lock、`T_fire_base`、`Delta_t_i` | 门禁、FIRE_LOAD、local_fire 换算。 | 直接调 DPLL 或改 timestamp 历史。 |
-| `task_storage` | T2/trace/snapshot timestamp page | 持久化、分页读取、报告证据。 | 参与实时门禁和 DPLL 状态迁移。 |
-
-### 环路时间控制
-
-VDC/DPLL 的环路时间不是单一 DPLL 系数，而是一组时间预算和门限。它们共同决定样本是否可用、环路是否稳定、是否进入 HOLDOVER 或 FAULT。
-
-| 控制项 | owner | 作用 |
-|---|---|---|
-| `sync_period_us` | `task_vdc_sync` | SYNC timestamp 采样周期，决定 DPLL 更新速率。 |
-| `frame_guard_us` | realtime/ring service | 帧间隔保护，防止环路自激或前后帧混叠。 |
-| `capture_window_us` | core1 realtime | READY/T2 或 SYNC 边沿捕获窗口，超窗标记 late/missing。 |
-| `sample_age_limit_us` | `task_vdc_sync` | timestamp 从采集到被消费的最大允许年龄。 |
-| `freshness_timeout_ms` | `task_vdc_sync` | 节点失去更新多久后变成 stale/missing。 |
-| `outlier_window_ns` | SyncDpllFB | 样本残差超过该窗口时剔除，不进入环路滤波。 |
-| `lock_window_ns` | SyncQualityGateFB | 连续样本残差进入窗口后允许 LOCKED。 |
-| `max_step_ns` | SyncDpllFB | 单次 offset 调整上限，避免时间轴跳变。 |
-| `holdover_enter_ms` | HoldoverFB | 观测丢失多久进入 HOLDOVER。 |
-| `holdover_max_ms` | HoldoverFB | HOLDOVER 最长持续时间，超时进入 FAULT。 |
-| `relock_settle_ms` | RelockFB | RELOCK 后重新稳定所需时间，期间不自动恢复 RUN。 |
-
-环路控制方向：
-
-```text
-timestamp freshness
-  -> sample validity
-  -> DPLL update eligibility
-  -> lock quality
-  -> VDC state
-  -> Trigger RUN gate
-```
-
-原则：
-
-- 环路周期必须慢于底层帧传输和 timestamp merge 的最坏延迟。
-- 高实时链路只传 compact timestamp；完整字段由接收端根据字典和 epoch 展开。
-- DPLL 更新周期必须快于允许的晶振漂移失控时间。
-- `sample_age_limit_us` 必须小于 `sync_period_us` 或明确标注为跨周期样本。
-- 进入 HOLDOVER 后，允许继续使用冻结/降权 offset/rate，但必须标记 `holdover_mapped`。
-- HOLDOVER 中不得新增正式 `FIRE_LOAD`，除非产品 profile 明确允许且报告中记录。
-- RELOCK 成功只恢复 VDC `LOCKED`，不自动恢复 TRIG RUN。
-
-## 状态机
-
-建议 VDC/SYNC DPLL 使用以下状态：
-
-| 状态 | 含义 | 允许出口 |
-|---|---|---|
-| `OFF` | 未启用，同步资源释放。 | `CHECKING` |
-| `FREE_RUN` | 本地 tick 可用，但没有共同时间保证。 | `CHECKING`, `OFF` |
-| `CHECKING` | 检查 active calibration、ring、节点 freshness 和门限。 | `LOCKING`, `FAULT`, `OFF` |
-| `LOCKING` | DPLL 收敛 offset/rate，样本可被剔除但不允许正式 RUN。 | `LOCKED`, `HOLDOVER`, `FAULT`, `OFF` |
-| `LOCKED` | VDC 可作为正式预测分发和 DEVICE/T2 校准基准。 | `HOLDOVER`, `RELOCKING`, `FAULT`, `OFF` |
-| `HOLDOVER` | 短时失去同步观测，继续使用冻结/降权参数。 | `RELOCKING`, `FAULT`, `OFF` |
-| `RELOCKING` | 在不重启全系统的情况下重新收敛。 | `LOCKED`, `FAULT`, `OFF` |
-| `FAULT` | 同步质量、拓扑、CRC、seq 或节点新鲜度失败。 | `CHECKING`, `OFF` |
-
-状态门禁：
-
-- `LOCKING` 期间不得执行正式 `TRIGger:STARt`。
-- `LOCKED` 是正式 RUN、DEVICE/T2 校准和预测分发的必要条件。
-- `HOLDOVER` 是否允许继续 RUN 由 profile 决定；默认只允许已装载 fire 完成，不允许新增 `FIRE_LOAD`。
-- `RELOCKING` 成功不自动恢复 RUN，必须重新通过 `TRIGger` 业务门禁。
-
-## 数据流
-
-### 建立共同时间轴
-
-```text
-CONFigure:CALibration:LINK:* / CALibration:STARt
-        |
-        v
-CALibration:ACTivate
-        |
-        v
-CONFigure:SYNC:* staging
-        |
-        v
-SYNC:CHECk
-  - active calibration present
-  - node/ring topology valid
-  - link delay table complete
-  - freshness/CRC/seq limits valid
-        |
-        v
-SYNC:STARt
-  - collect timestamp samples
-  - reject outliers
-  - update offset/rate
-  - publish VdcVector
-        |
-        v
-READ:SYNC:STATe? / READ:SYNC:QUALity?
-```
-
-### 支撑预测分发
-
-```text
-VDC LOCKED
-        |
-        v
-DEVICE/T2 calibration -> Delta_t_i
-        |
-        v
-Angle DPLL -> T_fire_base
-        |
-        v
-TRIGger gate -> FIRE_LOAD
-        |
-        v
-core1 realtime -> local_fire_i
-        |
-        v
-PIO/DMA/IRQ execute edge
-        |
-        v
-T2/READY capture -> e_act/e_vdc/e_pll statistics
-```
-
-## DPLL 环路滤波器
-
-DPLL 需要虚拟环路滤波器，但它是固件内部稳定性机制，不是现场上位机的业务配置项。调试接口可以暴露参数，便于开发、产测和服务阶段调节。
-
-建议参数：
-
-| 参数 | 用途 | 典型约束 |
-|---|---|---|
-| `profile` | 选择保守/标准/快速收敛配置。 | 产品默认 `standard` |
-| `kp` | 相位误差比例项。 | 调试权限 |
-| `ki` | 频率/漂移积分项。 | 调试权限 |
-| `max_step_ns` | 单次 offset 修正上限。 | 防止跳变 |
-| `max_rate_ppm` | rate 修正上限。 | 防止过度跟踪噪声 |
-| `outlier_ns` | 样本剔除阈值。 | 与链路 jitter 相关 |
-| `lock_window_ns` | LOCK 判据窗口。 | 产品质量门限 |
-| `holdover_ms` | 失去观测后的保持时间。 | 安全门限 |
-
-调节规则：
-
-- 默认产品参数由 profile 给出，上位机现场测试不需要调节。
-- `SYSTem:SYNC:VDC:DPLL:*` 调试接口只允许 `SERVICE/DEBUG/FACTORY` 权限使用。
-- 参数更新写 staging，必须通过 `SYNC:STOP` 或安全 `RELOCK` 流程应用。
-- RUN 中禁止改变 DPLL 系数。
-- 任意参数覆盖都必须写入日志和报告证据。
-
-## 与校准域的关系
-
-校准域给 VDC/DPLL 提供固定链路模型。校准很快，主要测算线缆、驱动、接收和设备动作 delay，但它不能直接宣称系统已同步。
-
-| 校准内容 | 是否需要 VDC LOCKED | 用途 |
-|---|---|---|
-| NODE/RJ45 基础链路 delay | 否 | SYNC CHECK 和 DPLL 初始模型 |
-| SMA/外部触发链路 delay | 否 | 外部触发路径补偿 |
-| DEVICE/T2 动作补偿 | 是 | 预测分发中的 `Delta_t_i` |
-
-active calibration 切换后：
-
-- `VdcVector.active_cal_crc` 必须更新。
-- 旧的 `SYNC:CHECk` 结论失效。
-- VDC 若处于 `LOCKED`，应进入 `CHECKING` 或要求 `SYNC:RELock`。
-- TRIGger RUN 门禁必须重新检查 active cal 与 active sync 的 CRC 一致性。
-
-## 与 Trigger / Realtime 的关系
-
-`TRIGger` 是产品业务动作域，消费 VDC 的锁定状态和时间事实。`REALtime` 是低层实时能力域，执行 VDC 派生出的本地时间动作。
-
-| 方向 | 规则 |
+| 约束 | 要求 |
 |---|---|
-| `TRIGger -> VDC` | RUN 前读取 VDC lock、epoch、quality 和 active cal CRC，决定是否允许 START。 |
-| `VDC -> TRIGger` | 发布共同时间轴和质量门禁，不直接启动业务 RUN。 |
-| `VDC -> REALtime` | 提供 local_fire 换算所需 offset/rate 和有效窗口。 |
-| `REALtime -> VDC` | 提供时间戳样本、T2、CRC/seq/freshness 事实，不直接修改 offset/rate。 |
+| tick source | 必须单调、稳定、可由 PIO/IRQ 采样。 |
+| tick width | 线上可传 32 位低位，本地必须扩展为 64 位事实。 |
+| wrap tracker | 每个 source_id 或 capture domain 必须维护 wrap 状态。 |
+| read atomicity | core1/core0 读写 tick、offset/rate 必须避免撕裂。 |
+| clock change | RUN、LOCKED、HOLDOVER 中禁止改变 `clk_sys` 或 timestamp 分频。 |
 
-## SCPI 边界
+动态性能指标：
+
+| 指标 | 含义 | 来源 |
+|---|---|---|
+| `lock_time_ms` | 从 `SYNC:STARt` 到 `LOCKED` 的时间。 | VdcSyncFB |
+| `e_vdc_rms_ns` | VDC 同步残差 RMS。 | SYNC timestamp |
+| `e_vdc_pk_ns` | VDC 同步残差峰值。 | SYNC timestamp |
+| `jitter_ns` | 样本短期抖动。 | timestamp statistics |
+| `wander_ppm` | 长期频率漂移估计。 | rate history |
+| `outlier_ratio` | 被剔除样本比例。 | SyncDpllFB |
+| `holdover_drift_ns` | HOLDOVER 期间误差增长。 | holdover model / T2 |
+| `relock_time_ms` | RELOCK 回到 LOCKED 的时间。 | RelockFB |
+| `late_count` | FIRE/T2 late 计数。 | core1 realtime |
+| `seq_crc_error_count` | 序号和 CRC 错误。 | refmem/ring service |
+
+VDC `LOCKED` 的判据应至少包含：
+
+- 连续 N 个有效样本进入 `lock_window_ns`。
+- `e_vdc_rms_ns` 小于 profile 门限。
+- node freshness 全部满足 required node。
+- CRC/seq error 在窗口内低于门限。
+- active calibration CRC 与 active sync CRC 一致。
+
+## 9. SCPI 边界
 
 VDC/DPLL 不建立裸顶级命令。产品命令树保持：
 
@@ -522,7 +443,7 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 - `SYSTem:SYNC:VDC:*` 给维护工具读取和调试底层 VDC/DPLL。
 - 禁止新增 `VDC:*`、`DPLL:*`、`STATus:VDC?`、`STATus:DPLL?`。
 
-## 与既有文档的关系
+## 10. 与既有文档的关系
 
 | 文档 | 关系 |
 |---|---|
@@ -531,10 +452,10 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 | `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` | 同步域落地方案，描述环路、帧、PIO 和多板原型细节。 |
 | `DTC100_SCPI_COMMAND_PLANNING.md` | 对外 SCPI 命令树和 VDC/DPLL 指令边界。 |
 
-## 待办
+## 11. 待办
 
-- [ ] 将 `VdcVector` 字段冻结到反射内存规划文档。
+- [ ] 将 compact timestamp、timestamp dictionary 和 expanded sample 冻结到反射内存规划文档。
 - [ ] 将 `SYNC DPLL` 与 `Angle DPLL` 的状态、参数和质量指标拆成两个 owner 表。
 - [ ] 将 `SYSTem:SYNC:VDC:DPLL:*` 调试接口映射到权限 profile。
-- [ ] 在 `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 中补充本架构文档引用。
 - [ ] 为 VDC LOCK/HOLDOVER/RELOCK 建立闭环验证脚本和报告字段。
+- [ ] 增加动态性能评估记录模板，覆盖 lock_time、e_vdc、jitter、holdover drift、relock_time 和 late_count。
