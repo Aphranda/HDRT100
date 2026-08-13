@@ -4,9 +4,14 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
-Last updated: 2026-07-08
+Last updated: 2026-08-13
 
 本文档是 `HAOFV_ARCHITECTURE.md` 的实施补充，提供具体代码示例、迁移步骤和实现细节。阅读本文档前应先通读主架构文档。
+
+> 当前定位：本文档是实施 playbook 和历史迁移样例，不是当前产品硬件资源 canonical。
+> HAOFV 顶层规则以 `docs/arch/HAOFV_ARCHITECTURE.md` 为准；RTOS + 双核产品化路径以
+> `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 为准；GPIO、PIO、隔离、电源和网表事实以
+> `docs/hardware/` 与 `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 为准。
 
 **内容**：
 
@@ -128,9 +133,15 @@ fb_result_t fb_ecc_execute(fb_context_t *ctx, const fb_event_t *event,
 
 ## 2. 固定 SYNC_IO 硬件定义与模式引用
 
-本项目的 SYNC_IO 不是可运行时重映射的 GPIO 池。硬件定义优先级最高，应先在
-board profile 中写死 12 个 PIO state machine、固定 GPIO、方向和语义名；上层模式
-只能引用这些定义，不能再通过兼容宏把硬件目标改来改去。
+本节保留 2026-07 调试最小系统阶段的 SYNC_IO 固定资源样例，用于说明“语义 IO
+不能被 SCPI/UI 随意重映射”的实现方法。它不冻结当前产品板 GPIO。当前硬件资源入口为：
+
+- `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`：当前最小系统板约束。
+- `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`：产品板约束。
+- `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`：RP2350B QFN-80 IO 约束明细。
+- `docs/sync/SYNC_IO_RESOURCE_PLAN.md`：PIO、DMA、语义 IO 和硬实时资源规划。
+
+本项目的 SYNC_IO 不是可运行时重映射的 GPIO 池。硬件定义应由 board profile 和硬件约束文件固定；上层模式只能引用这些定义，不能通过兼容宏把硬件目标改来改去。
 
 ### 2.1 12 个 PIO State Machine 固定定义
 

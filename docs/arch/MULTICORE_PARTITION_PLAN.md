@@ -4,10 +4,16 @@ Status: Active
 Domain: MULTICORE
 Canonical: `docs/arch/MULTICORE_PARTITION_PLAN.md`
 Related: `docs/arch/RTOS_PORTING_PLAN.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/sync/SYNC_IO_REFACTOR_PLAN.md`, `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`
-Last updated: 2026-08-10
+Last updated: 2026-08-13
 
 本文档定义 RP2350_TRIG 的双核演进边界。目标是把实时性要求高的触发域和
 管理/观测/存储域隔离，而不是简单把现有函数平均分到两个核心。
+
+> 当前定位：本文档保留 RP2350 双核 bring-up、裸机双核实验和 AMP 隔离原则。当前产品化
+> RTOS + 双核主线以 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 为准；VDC/DPLL
+> 的 HAOFV 链路以 `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` 为准。
+> 本文中的裸机双核策略用于定位跨核队列、critical section 和 heartbeat，不作为最终
+> release 架构的单独入口。
 
 ## 产品化目标
 

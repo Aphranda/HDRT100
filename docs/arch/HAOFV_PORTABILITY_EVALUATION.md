@@ -4,9 +4,14 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_PORTABILITY_EVALUATION.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_PORTING_PLAN.md`
-Last updated: 2026-07-07
+Last updated: 2026-08-13
 
 ## 文档信息
+
+> 当前定位：本文档是 2026-06/07 代码基线下的可移植性评估快照，用于识别平台耦合和迁移风险。
+> 当前产品化架构以 `docs/arch/HAOFV_ARCHITECTURE.md`、`docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`
+> 和 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 为准；本文中的裸机、SCPI 传输、PIO/GPIO
+> 数量和任务边界不覆盖后续 RTOS + 双核 AMP 决策。
 
 | 项目 | 内容 |
 |---|---|

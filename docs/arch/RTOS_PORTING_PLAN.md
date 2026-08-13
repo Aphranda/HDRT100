@@ -4,10 +4,16 @@ Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_PORTING_PLAN.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/MULTICORE_PARTITION_PLAN.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
-Last updated: 2026-07-07
+Last updated: 2026-08-13
 
 本文档定义 RP2350_TRIG 在 OTA 基本收口后引入 FreeRTOS 的迁移方案。移植必须服从
 `docs/arch/HAOFV_ARCHITECTURE.md` 中定义的 HAOFV 架构，FreeRTOS 只作为调度器和同步原语提供者，不替代 Active Object、Function Block、Vector Blackboard 和 Resource Arbiter 的边界。
+
+> 当前定位：本文档是 FreeRTOS/OSAL 引入阶段的迁移计划，负责回答“如何把调度器和 OSAL
+> 带入 HAOFV”。当前产品化 RTOS + 双核 AMP 的任务 owner、SCPI 到反射内存闭环、VDC/DPLL
+> 和 core1 realtime 分区，以 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 为准。
+> 文中 `task_trigger` 表示单核 RTOS 过渡路径；产品化双核路径中 TriggerAO/TriggerFB 由
+> core1 realtime owner 承载，core0 不再创建并消费同一触发状态机。
 
 ## 目标
 

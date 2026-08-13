@@ -8,7 +8,7 @@ Last updated: 2026-08-13
 
 本文档定义 DTC100 / RP2350_TRIG 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
 
-> **实施指南**：[HAOFV_IMPLEMENTATION_PLAYBOOK.md](HAOFV_IMPLEMENTATION_PLAYBOOK.md) 提供 ECC 表实现示例、GPIO 迁移步骤、Flash 异步 Job 代码和完整代码附录。
+> **实施指南**：[HAOFV_IMPLEMENTATION_PLAYBOOK.md](HAOFV_IMPLEMENTATION_PLAYBOOK.md) 提供 ECC 表实现示例、Flash 异步 Job 代码和历史 GPIO 迁移样例；具体硬件约束仍以 `docs/hardware/` 和 `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 为准。
 
 ## 架构名称
 
@@ -1204,7 +1204,10 @@ SCPI/UI/Storage/OTA 只能投递 Trigger 事件或读取 TriggerVector 快照；
 
 ### 当前进度
 
-已执行到 RTOS 移植方案 Step 4/8：CMake 开关、OSAL port 骨架、单任务入口、Event Bus 收口、Resource Arbiter、独立 task_trigger/task_ui 预留和 Trigger SCPI 事件收口均已完成。Release 构建仍保持 baremetal 默认。详见 `docs/arch/RTOS_PORTING_PLAN.md`。
+RTOS/OSAL 引入阶段的迁移步骤详见 `docs/arch/RTOS_PORTING_PLAN.md`。当前产品化主线已经从单核
+`task_trigger` 过渡到 RTOS + 双核 AMP：core0 负责控制面，core1 负责 TriggerAO/TriggerFB
+实时 owner，SCPI 通过反射内存、命令槽、事件队列和 owner 状态机闭环。任务划分、栈/堆水位、
+VDC/DPLL、CAL/SYNC 和验证待办以 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 为准。
 
 ## 测试策略
 

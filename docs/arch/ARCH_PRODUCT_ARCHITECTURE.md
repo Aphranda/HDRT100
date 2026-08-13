@@ -3,7 +3,7 @@
 Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/storage/LOG_SYSTEM_TODO.md`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/storage/LOG_SYSTEM_TODO.md`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-13
 
 本文档是 HAOFV 顶层架构在 DTC100/RP2350_TRIG 产品上的系统架构特化。`HAOFV_ARCHITECTURE.md` 定义 owner、层次、约束传递和 Vector/Blackboard 规则；本文只定义产品边界、运行模型、数据契约、跨域依赖和发布门禁。具体硬件 pin map、隔离、电源和网表事实由 `docs/hardware/` 承接。
@@ -510,7 +510,8 @@ FAULT
 | 触发域待办与当前基线 | `docs/trigger/TRIGGER_SYNC_TODO.md` |
 | PIO/GPIO/AUX 资源约束 | `docs/sync/SYNC_IO_RESOURCE_PLAN.md` |
 | 四板业务拓扑 | `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md` |
-| DPLL/虚拟 DC | `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` |
+| VDC/DPLL 核心架构 | `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` |
+| DPLL/虚拟 DC 落地方案 | `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` |
 | OTA/Bootloader | `docs/ota/OTA_SYSTEM_DESIGN.md` |
 | SD/System Pack | `docs/storage/SD_TODO.md` |
 | 日志与证据 | `docs/storage/LOG_SYSTEM_TODO.md` |
