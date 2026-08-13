@@ -8,7 +8,8 @@
 
 #define REFMEM_APP_MODEL_VERSION                   1u
 #define REFMEM_APP_MODEL_NODE_COUNT                DISTRIBUTED_REFMEM_NODE_COUNT
-#define REFMEM_APP_MODEL_INSTANCE_COUNT            10u
+#define REFMEM_APP_MODEL_NODE_LOAD_COUNT           11u
+#define REFMEM_APP_MODEL_INSTANCE_COUNT            11u
 #define REFMEM_APP_MODEL_EVENT_LINK_COUNT          8u
 #define REFMEM_APP_MODEL_DATA_LINK_COUNT           12u
 #define REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT    11u
@@ -75,6 +76,8 @@ typedef enum {
     REFMEM_APP_FB_GATEWAY_AO = 7u,
     REFMEM_APP_FB_MODEL_VNA = 8u,
     REFMEM_APP_FB_MODEL_TURNTABLE = 9u,
+    REFMEM_APP_FB_PULSE_COUNTER = 10u,
+    REFMEM_APP_FB_INSTRUMENT_CONTROLLER = 11u,
 } refmem_app_fb_type_t;
 
 typedef enum {
@@ -187,16 +190,31 @@ typedef enum {
     REFMEM_APP_LINT_BAD_GATE_OR_QUALITY = 10u,
 } refmem_app_lint_error_t;
 
+typedef enum {
+    REFMEM_APP_TABLE_APPLICATION_MAP = 0u,
+    REFMEM_APP_TABLE_NODE_LOAD = 1u,
+    REFMEM_APP_TABLE_FB_INSTANCE = 2u,
+    REFMEM_APP_TABLE_EVENT_LINK = 3u,
+    REFMEM_APP_TABLE_DATA_LINK = 4u,
+    REFMEM_APP_TABLE_DEPLOYMENT_GATE = 5u,
+    REFMEM_APP_TABLE_CONNECTION_QUALITY = 6u,
+} refmem_app_table_id_t;
+
+#define REFMEM_APP_TABLE_MASK_ALL ((1u << REFMEM_APP_TABLE_APPLICATION_MAP) | \
+                                   (1u << REFMEM_APP_TABLE_NODE_LOAD) | \
+                                   (1u << REFMEM_APP_TABLE_FB_INSTANCE) | \
+                                   (1u << REFMEM_APP_TABLE_EVENT_LINK) | \
+                                   (1u << REFMEM_APP_TABLE_DATA_LINK) | \
+                                   (1u << REFMEM_APP_TABLE_DEPLOYMENT_GATE) | \
+                                   (1u << REFMEM_APP_TABLE_CONNECTION_QUALITY))
+
 typedef struct {
     uint32_t node_id;
     uint32_t node_uuid_crc32;
-    uint32_t role_mask;
-    uint32_t persona_mask;
-    uint32_t instance_first;
-    uint32_t instance_count;
+    uint32_t capability_mask;
+    uint32_t default_persona_mask;
     uint32_t hw_profile_crc32;
-    uint32_t config_crc32;
-    uint32_t required;
+    uint32_t online_required;
     uint32_t fail_policy;
 } refmem_app_node_entry_t;
 
@@ -204,6 +222,7 @@ typedef struct {
     uint32_t version;
     uint32_t application_id;
     uint32_t application_version;
+    uint32_t profile_id;
     uint32_t layout_version;
     uint32_t node_count;
     uint32_t target_node_mask;
@@ -211,8 +230,28 @@ typedef struct {
 } refmem_application_map_t;
 
 typedef struct {
-    uint32_t instance_id;
+    uint32_t load_id;
+    uint32_t application_id;
+    uint32_t profile_id;
     uint32_t node_id;
+    uint32_t instance_id;
+    uint32_t role_mask;
+    uint32_t persona_mask;
+    uint32_t enabled;
+    uint32_t required;
+    uint32_t fail_policy;
+    uint32_t load_order;
+} refmem_node_load_entry_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t load_count;
+    refmem_node_load_entry_t load[REFMEM_APP_MODEL_NODE_LOAD_COUNT];
+} refmem_node_load_table_t;
+
+typedef struct {
+    uint32_t instance_id;
+    uint32_t default_node_id;
     uint32_t domain;
     uint32_t ao_type;
     uint32_t fb_type;
@@ -330,7 +369,9 @@ typedef struct {
     uint32_t version;
     uint32_t valid;
     uint32_t target_node_mask;
+    uint32_t table_mask;
     uint32_t application_map_crc32;
+    uint32_t node_load_crc32;
     uint32_t fb_instance_crc32;
     uint32_t event_link_crc32;
     uint32_t data_link_crc32;
@@ -344,6 +385,7 @@ typedef struct {
 bool refmem_application_model_init(void);
 bool refmem_application_model_validate(void);
 const refmem_application_map_t *refmem_application_model_get_application_map(void);
+const refmem_node_load_table_t *refmem_application_model_get_node_load_table(void);
 const refmem_fb_instance_table_t *refmem_application_model_get_fb_instance_table(void);
 const refmem_event_link_table_t *refmem_application_model_get_event_link_table(void);
 const refmem_data_link_table_t *refmem_application_model_get_data_link_table(void);

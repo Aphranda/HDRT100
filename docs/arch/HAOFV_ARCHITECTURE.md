@@ -245,8 +245,10 @@ Distributed RefMem 需要吸收 IEC 61499 分布式运行时的优点，但保�
 
 | 借鉴点 | 在 HAOFV 中的落地形式 | 不采用的部分 |
 |---|---|---|
-| Application model | 静态 `DistributedApplicationMap`，描述 A0/A1/A2/A3、模型节点、网分、转台等逻辑节点。 | 运行时动态部署 application。 |
-| FB instance model | 静态 `DistributedFbInstanceTable`，描述每个节点上的 AO/FB 实例、版本、role 和 enable 条件。 | 跨节点动态创建/销毁 FB。 |
+| Application model | 静态 `DistributedApplicationMap`，描述应用/profile 元数据、目标节点集合和模型 CRC bundle。 | 运行时动态部署 application。 |
+| Generic node model | 静态 `DistributedGenericNodeTable`，描述 A0-A7 通用节点基座、硬件身份和基础能力。 | 把网分、转台、网关等固化成新节点类型。 |
+| Node load model | 静态 `DistributedNodeLoadTable`，把 AO/FB instance 显式加载到 A0-A7 通用节点。 | 用 `instance_first/count` 把节点绑定到连续实例范围。 |
+| FB instance model | 静态 `DistributedFbInstanceTable`，描述可加载 AO/FB 实例、版本、role 和 enable 条件。 | 跨节点动态创建/销毁 FB。 |
 | Event connection | 静态 `DistributedEventLinkTable`，把 START、STOP、FIRE_LOAD、DONE、FAULT、ACK/NACK 映射为 command slot、event queue 或 RJ45 frame。 | 跨节点直接事件调用和动态路由。 |
 | Data connection | 静态 `DistributedDataLinkTable`，把状态、参数、质量、时间戳、T2 和统计量映射到固定 slot 字段。 | 任意远程变量读写。 |
 | Deployment consistency | build id、app map version、hw profile、config CRC、calibration CRC、sync profile CRC 进入 RefMem gate。 | 在线热替换部署。 |
@@ -270,8 +272,10 @@ Distributed RefMem 需要吸收 IEC 61499 分布式运行时的优点，但保�
 
 | 表 | 内容 | owner |
 |---|---|---|
-| `DistributedApplicationMap` | 系统逻辑节点、角色、节点类型、是否真实硬件、是否模型节点。 | SystemAO / ConfigGate |
-| `DistributedFbInstanceTable` | 节点内 AO/FB 实例、domain、版本、使能条件和健康状态。 | 各节点 SystemAO |
+| `DistributedApplicationMap` | 应用/profile 元数据、目标节点集合和模型 CRC bundle。 | SystemAO / ConfigGate |
+| `DistributedGenericNodeTable` | A0-A7 通用节点、硬件身份、基础能力和失效策略。 | SystemAO / ConfigGate |
+| `DistributedNodeLoadTable` | role/persona/instance 到通用节点的装载关系，支持同节点多实例。 | SystemAO / ConfigGate |
+| `DistributedFbInstanceTable` | 可加载 AO/FB 实例、domain、版本、使能条件和健康状态。 | 各节点 SystemAO |
 | `DistributedEventLinkTable` | 跨节点事件名、source、destination、传输通道、ACK/NACK、timeout。 | LoopEngineAO / SystemAO |
 | `DistributedDataLinkTable` | slot 字段映射、writer、reader、单位、值域、生命周期、snapshot 策略。 | RefMem owner |
 | `DistributedDeploymentGate` | build/hw/config/cal/sync/vector layout 一致性门禁。 | ConfigGate |

@@ -49,16 +49,18 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 ## P2 - 静态分布式应用模型
 
 - [x] 文档定义 `DistributedApplicationMap`，覆盖 A0-A7 八个通用节点，以及加载到节点上的 board/pulse_distributor/link_switcher/instrument_controller/gateway/model_vna/model_turntable/model_dut/test_agent 等 role/persona/instance；允许无冲突时同一通用节点同时载入多个实例。
+- [x] 架构纠偏：将 A0-A7 通用节点基座与应用实例装载拆开，禁止 `ApplicationMap.node[]` 使用 `instance_first/count` 把节点绑定到连续实例范围。
+- [x] 增加 `DistributedNodeLoadTable`：由应用 profile 显式声明 `node_id -> instance_id` 加载关系，支持同一通用节点同时加载模拟转台和模拟网分等多个实例。
 - [x] 文档定义 `DistributedFbInstanceTable`，覆盖每节点 AO/FB instance、domain、版本、enable 条件、资源/IO claim、时间预算和健康状态。
 - [x] 文档定义 `DistributedEventLinkTable`，覆盖 START/STOP/FIRE_LOAD/DONE/FAULT/ACK/NACK 的 source、destination、transport、timeout、ACK 策略和 evidence。
 - [x] 文档定义 `DistributedDataLinkTable`，覆盖 slot 字段 writer/reader、类型、单位、值域、生命周期、snapshot 策略和 stale 窗口。
 - [x] 文档定义 `DistributedDeploymentGate`，把 layout、node、instance、resource、IO、writer、event、data、config、cal/sync quality 纳入 RUN 门禁。
 - [x] 文档定义 `DistributedConnectionQualityTable`，覆盖 seq、CRC、stale、late、drop、timeout、last_error、p99/p999 和 evidence index。
-- [x] 将上述六张静态模型表落到 `refmem_application_model.h/.c`。
+- [x] 将静态模型表落到 `refmem_application_model.h/.c`，首版包含 ApplicationMap、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality。
 - [ ] 定义静态模型表的 binary/TLV 存储格式、CRC、版本兼容和 System Pack 导入策略。
 - [ ] 将 DeploymentGate 输出映射到 `SYSTem:REFMEM:STATus?` / 诊断 evidence / RUN gate。
 - [x] 增加静态模型 linter：检查 instance id、node id、role/persona、resource claim、IO claim、writer 唯一性和 event/data link 完整性。
-- [ ] 增加静态模型 package CRC：分别覆盖 ApplicationMap、FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality。
+- [x] 增加静态模型 package CRC：分别覆盖 ApplicationMap、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality。
 - [ ] 增加 FB 图版本门禁：借鉴 IEC 61499 的部署一致性思想，RUN 前检查 AO/FB 类型、版本、enable 条件和连接表 CRC。
 
 ## P3 - Vector Table 与 Slot 契约

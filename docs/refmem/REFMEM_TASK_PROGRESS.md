@@ -43,6 +43,41 @@ DistributedRefMemAO
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-012 - 通用节点与实例加载架构纠偏
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 将 RefMem 静态模型从“节点直接绑定产品实例”纠偏为“通用节点基座 + 应用实例加载表”。
+  - 支持同一块板卡同时加载多个逻辑实例，例如调试阶段一块板同时模拟转台和网分。
+  - 避免 `ApplicationMap.node[]` 通过 `instance_first/count` 绑定连续实例范围，阻碍后续多节点、多 profile 和多实例加载。
+- 完成内容：
+  - `REFMEM_DOMAIN_TODO.md` 增加架构纠偏待办：A0-A7 通用节点基座必须与应用实例装载拆开。
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 将 `DistributedApplicationMap` 改为应用/profile 元数据和 CRC bundle，不再作为节点目录。
+  - 新增 `DistributedGenericNodeTable` 和 `DistributedNodeLoadTable` 架构说明。
+  - `HAOFV_ARCHITECTURE.md` 和 `RTOS_HAOFV_ARCHITECTURE.md` 同步 GenericNode / NodeLoad / FbInstance 三层边界。
+  - `refmem_application_model.h/.c` 增加 `refmem_node_load_table_t`，把实例实际装载关系从节点表移出。
+  - `refmem_app_node_entry_t` 改为通用节点基座字段：`capability_mask`、`default_persona_mask`、`hw_profile_crc32`、`online_required`、`fail_policy`。
+  - `refmem_fb_instance_entry_t.node_id` 改为 `default_node_id`，实际 active 节点以 NodeLoadTable 为准。
+  - linter 改为校验 NodeLoadTable 的 `node_id -> instance_id` 装载关系，资源/IO 冲突按加载到同一节点的 enabled 实例组合检查。
+  - package CRC 和 `table_mask` 纳入 NodeLoadTable CRC。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813133647`，package CRC `0xD148A39A`。
+  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813133647 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_node_load` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813133647`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_node_load` 通过，16/16 passed。
+  - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,128516,0,8,128515,128515,7`，其中 flags `7` 表示 directory valid、directory CRC valid 和 application model valid 均置位；`SYSTem:REFMEM:NODE? => 0,1,128521,128522,133442,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,128527,2,0,1,15,3840,2,7,2,405916318,0,7`；`SYSTem:PROTection:STATus? => 1,128532,1,1,1,0,0,0,2,11,2,2731132301,0,7`。
+- 还需完成：
+  - 定义 binary/TLV 存储格式、版本兼容和 System Pack 导入策略。
+  - 把 package CRC、lint 结果和 table mask 暴露到维护查询或 DeploymentGate evidence。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 继续 P2 的 binary/TLV 存储格式和 System Pack 导入策略。
+
 ### REFMEM-TASK-20260813-011 - 静态模型 linter 首版
 
 - 状态：完成

@@ -270,7 +270,7 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - [x] 建立 `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`、`REFMEM_DOMAIN_TODO.md` 和 `REFMEM_TASK_PROGRESS.md` 三份标准文件。
   - [x] 明确 A0-A7 是 RefMem 通用节点底座；真实板卡、网关、模型网分、模拟转台和测试代理是加载到通用节点上的 role/persona/instance。
   - [x] 明确无资源、IO、时序、owner 和 slot writer 冲突时，同一通用节点允许同时载入多个逻辑实例。
-  - [ ] 定义静态分布式应用模型：ApplicationMap、FbInstanceTable、EventLinkTable、DataLinkTable、DeploymentGate、ConnectionQualityTable。
+  - [ ] 定义静态分布式应用模型：ApplicationMap、GenericNodeTable、NodeLoadTable、FbInstanceTable、EventLinkTable、DataLinkTable、DeploymentGate、ConnectionQualityTable。
   - [ ] 定义每个 slot 的 owner 和 writer 规则。
   - [ ] 增加 slot seqlock、CRC、stale、version 和 dirty 标记。
   - [ ] 建立 command slot / ack slot / fault slot 的通用协议。

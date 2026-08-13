@@ -48,7 +48,7 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [x] 文档定义 `DistributedDataLinkTable`，覆盖 slot 字段 writer/reader、类型、单位、值域、生命周期、snapshot 策略和 stale 窗口。
 - [x] 文档定义 `DistributedDeploymentGate`，把 layout、node、instance、resource、IO、writer、event、data、config、cal/sync quality 纳入 RUN 门禁。
 - [x] 文档定义 `DistributedConnectionQualityTable`，覆盖 seq、CRC、stale、late、drop、timeout、last_error、p99/p999 和 evidence index。
-- [ ] 将六张静态模型表落到 RefMem Domain 代码组件，并接入 RUN gate。
+- [ ] 将通用节点、实例加载、FB instance、事件连接、数据连接、部署门禁和连接质量表落到 RefMem Domain 代码组件，并接入 RUN gate。
 - [x] 文档冻结 `DistributedVectorTable` 64 KB layout、slot offset、slot size、layout version 规则。
 - [x] 文档定义 Header/Directory、directory CRC、slot directory、layout 兼容和 slot map 校验。
 - [x] 文档定义 Version Bundle，包含 epoch、run_id、config/calibration/loop/action/sync/sequence/permission/storage/build/hw profile 版本。

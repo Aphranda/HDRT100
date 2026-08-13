@@ -291,8 +291,10 @@ RefMem 固定提供 A0-A7 八个通用节点槽。脉冲分发、链路切换、
 
 | 表 | 内容 | RUN 门禁作用 |
 |---|---|---|
-| `DistributedApplicationMap` | A0-A7 通用节点，以及加载到节点上的 role、persona、真实板卡、脉冲分发、链路切换、仪表控制、模型网分、模拟转台、网关和测试代理实例。 | 确认节点数量、角色、实例加载和共存关系。 |
-| `DistributedFbInstanceTable` | 每节点 AO/FB instance、domain、版本、enable 条件、健康状态和共存冲突规则。 | 确认每个 required instance 存在、版本兼容且无资源冲突。 |
+| `DistributedApplicationMap` | 应用/profile 元数据、目标节点集合和静态模型 CRC bundle。 | 确认 active profile、layout 和静态模型版本一致。 |
+| `DistributedGenericNodeTable` | A0-A7 通用节点基座、硬件身份、能力和失效策略。 | 确认通用节点存在、online、hw profile 和基础能力匹配。 |
+| `DistributedNodeLoadTable` | 将 AO/FB instance 显式加载到 A0-A7 通用节点，支持同一节点多实例。 | 确认 role/persona/instance 装载完整且共存关系可验证。 |
+| `DistributedFbInstanceTable` | 可加载 AO/FB instance、domain、版本、enable 条件、健康状态和共存冲突规则。 | 确认每个 required instance 存在、版本兼容且无资源冲突。 |
 | `DistributedEventLinkTable` | START/STOP/FIRE_LOAD/DONE/FAULT/ACK/NACK 的 source、destination、通道、timeout。 | 确认跨节点事件路径完整且 ACK 策略明确。 |
 | `DistributedDataLinkTable` | slot 字段 writer/reader、单位、值域、生命周期、snapshot 策略。 | 确认没有多 writer、未声明 reader 或不一致单位。 |
 | `DistributedDeploymentGate` | build id、hw profile、config CRC、calibration CRC、sync profile CRC、layout version 和实例共存冲突检查。 | RUN 前一票否决不一致部署或冲突实例组合。 |

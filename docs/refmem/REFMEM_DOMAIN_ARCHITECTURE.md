@@ -200,38 +200,82 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 
 ### DistributedApplicationMap
 
-`DistributedApplicationMap` 描述一套静态分布式应用如何装载到 A0-A7 八个通用节点上。它是产品配置的一部分，不是运行时热部署脚本。
+`DistributedApplicationMap` 描述一套静态分布式应用的 profile、版本、目标节点集合和表布局依赖。它是产品配置的一部分，不是运行时热部署脚本，也不是 A0-A7 节点目录。A0-A7 通用节点由节点基座表描述；应用实例装载由 `DistributedNodeLoadTable` 描述。
 
 | 字段 | 含义 | 约束 |
 |---|---|---|
 | `application_id` | 分布式应用编号。 | 由上位机配置或 System Pack 生成。 |
 | `application_version` | 应用模型版本。 | RUN 前必须和各节点 active config 一致。 |
+| `profile_id` | 应用 profile 编号。 | 区分现场产品 profile、调试 profile、仿真 profile。 |
 | `layout_version` | RefMem 表布局版本。 | 必须匹配 `DistributedVectorTable` header。 |
+| `target_node_mask` | 本 profile 使用的 A0-A7 通用节点集合。 | 只允许 0-7 位。 |
+| `node_table_crc` | 通用节点基座表摘要。 | RUN 前必须和 active image 一致。 |
+| `node_load_crc` | 实例加载表摘要。 | RUN 前必须和 active image 一致。 |
+| `fb_instance_crc` | AO/FB 实例定义表摘要。 | RUN 前必须和 active image 一致。 |
+| `event_link_crc` | 事件连接表摘要。 | RUN 前必须和 active image 一致。 |
+| `data_link_crc` | 数据连接表摘要。 | RUN 前必须和 active image 一致。 |
+
+规则：
+
+- `DistributedApplicationMap` 只定义应用 profile 的元数据和 CRC bundle，不直接描述每个节点上的实例范围。
+- 不允许在 ApplicationMap 的 node 项中使用 `instance_first/count` 将节点绑定到连续实例区间。
+- 同一个应用可以有多个 profile，例如现场四板 profile、A4 调试仿真 profile、HIL profile。
+- RUN gate 以 `ApplicationMap + GenericNodeTable + NodeLoadTable + FbInstanceTable` 的组合为部署事实。
+
+### DistributedGenericNodeTable
+
+`DistributedGenericNodeTable` 描述 A0-A7 八个通用节点基座。它回答“有哪些通用 node slot 可参与当前系统”，不回答“这些节点加载了哪些业务实例”。
+
+| 字段 | 含义 | 约束 |
+|---|---|---|
 | `node_id` | A0-A7 通用节点号。 | 只允许 0-7。 |
 | `node_uuid` | 节点硬件身份。 | 用于防止 A0-A7 逻辑号错绑实体板。 |
-| `role_mask` | 节点当前角色集合。 | 例如 `board`、`pulse_distributor`、`link_switcher`、`instrument_controller`、`gateway`、`model_vna`、`model_turntable`。 |
-| `persona_mask` | 节点装载的人格/能力集合。 | 一个节点可同时装载多个不冲突 persona。 |
-| `instance_first/count` | 本节点实例表范围。 | 指向 `DistributedFbInstanceTable`。 |
+| `capability_mask` | 节点硬件/基础能力集合。 | 例如 board、PIO、DMA、RJ45、USB、SD、BISS-C、UART/RS485。 |
+| `default_persona_mask` | 节点默认人格能力。 | 只作为装载约束输入，不等于 active role。 |
 | `hw_profile_crc` | 硬件约束摘要。 | 和当前板级约束、IO 能力一致。 |
-| `config_crc` | 业务配置摘要。 | 和 Loop/Trigger/Interface 配置一致。 |
-| `required` | 节点是否为当前应用必需。 | 必需节点 stale 或 missing 时禁止 RUN。 |
+| `online_required` | 节点是否为当前 profile 必需。 | 必需节点 stale 或 missing 时禁止 RUN。 |
 | `fail_policy` | 节点失效策略。 | `STOP`、`HOLDOVER`、`DEGRADE`、`REPORT_ONLY`。 |
 
 规则：
 
 - A0-A7 是唯一固定节点空间。
-- 脉冲分发、链路切换、仪表控制、gateway、model_vna、model_turntable、test_agent 等都是加载实例，不扩展固定节点数量。
-- 一个节点同时装载多个实例时，必须通过 `DistributedDeploymentGate` 的冲突检查。
+- GenericNode 只描述通用节点基座、硬件身份和基础能力，不直接声明业务 role/persona 实例。
+- 脉冲分发、链路切换、仪表控制、gateway、model_vna、model_turntable、test_agent 等都由 `DistributedNodeLoadTable` 装载，不扩展固定节点数量。
+
+### DistributedNodeLoadTable
+
+`DistributedNodeLoadTable` 是应用 profile 到通用节点的实例装载表。它回答“哪个实例被加载到哪个 A0-A7 通用节点上”，支持同一节点同时加载多个不冲突实例。
+
+| 字段 | 含义 | 约束 |
+|---|---|---|
+| `load_id` | 装载记录编号。 | 在当前表内唯一。 |
+| `application_id` | 所属应用编号。 | 必须匹配 active ApplicationMap。 |
+| `profile_id` | 所属 profile 编号。 | 必须匹配 active ApplicationMap。 |
+| `node_id` | 目标 A0-A7 通用节点。 | 必须存在于 GenericNodeTable。 |
+| `instance_id` | 被装载的 AO/FB 实例。 | 必须存在于 DistributedFbInstanceTable。 |
+| `role_mask` | 本次装载赋予的角色集合。 | 例如 board、pulse_distributor、gateway、model_vna、model_turntable。 |
+| `persona_mask` | 本次装载启用的人格集合。 | 一个节点可由多条 load 记录组合出多 persona。 |
+| `enabled` | 是否启用本条装载。 | 禁用时不参与 RUN，但保留诊断和报告。 |
+| `required` | 是否为当前 profile 必需。 | 必需实例缺失或 stale 时拒绝 RUN。 |
+| `fail_policy` | 本实例失效策略。 | `STOP`、`HOLDOVER`、`DEGRADE`、`REPORT_ONLY`。 |
+| `load_order` | 同节点多实例初始化顺序。 | 用于 gateway + instrument 或 model_vna + model_turntable 等组合。 |
+
+规则：
+
+- 同一 `node_id` 可以出现多条 enabled load 记录。
+- 同一 `instance_id` 在同一 active profile 中首版只允许一条 enabled load 记录；后续若支持 replicated instance，必须显式增加 instance replica id。
+- 一块板同时模拟转台和网分时，应表现为同一通用节点上两条 load 记录，例如 `A4.ModelVnaAO` 和 `A4.ModelTurntableAO`。
+- 一个节点同时装载多个实例时，必须通过 `DistributedDeploymentGate` 检查资源、IO、时序、owner、slot writer、事件连接和数据连接冲突。
 - 逻辑实例可以禁用，但禁用实例仍应保留版本、原因和最后一次健康状态，便于报告闭环。
 
 ### DistributedFbInstanceTable
 
-`DistributedFbInstanceTable` 描述运行在各节点上的 AO/FB 实例。这里的 FB 是 HAOFV 的本地功能块，不是跨节点动态调用对象。
+`DistributedFbInstanceTable` 描述可被加载的 AO/FB 实例定义。这里的 FB 是 HAOFV 的本地功能块，不是跨节点动态调用对象；实例实际加载到哪个 A0-A7 节点由 `DistributedNodeLoadTable` 决定。
 
 | 字段 | 含义 | 约束 |
 |---|---|---|
 | `instance_id` | 全局实例编号。 | 在当前 `application_id` 内唯一。 |
-| `node_id` | 实例所在 A0-A7 节点。 | 必须存在于 `DistributedApplicationMap`。 |
+| `default_node_id` | 建议或默认装载节点。 | 只作为默认 profile 的提示；active 节点以 NodeLoadTable 为准。 |
 | `domain` | 所属主域。 | `SYSTEM`、`TRIG`、`CAL`、`SYNC`、`MEAS`、`REFMEM` 等。 |
 | `ao_type/fb_type` | AO/FB 类型。 | 用于版本兼容和配置校验。 |
 | `instance_name` | 实例名。 | 例如 `A0.TriggerAO`、`A1.PulseDistributorAO`、`A2.LinkSwitcherAO`、`A3.InstrumentControllerAO`。 |
