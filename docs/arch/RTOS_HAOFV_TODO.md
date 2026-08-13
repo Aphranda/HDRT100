@@ -27,6 +27,7 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [x] 将 ConfigGate、配置 ACK、SystemModeTable、ResourceArbiterTable 和 FaultCodeTable 只读快照迁入 `system_manager`。
 - [x] 将 LoopEngine ready/service_count/first_service_ms/last_service_ms 状态迁入 `components/loop_engine/`，`task_loop_engine` 直接服务该 owner。
 - [x] 将 Calibration ready/state/service_count/link_count/delay_count/active_crc32 状态迁入 `components/calibration_manager/`，`task_calibration` 直接服务该 owner。
+- [x] 将 VDC ready/lock_state/service_count/sync_seq 与 DPLL ready/state/service_count/update_seq 状态迁入 `components/vdc_dpll_manager/`，`task_vdc_sync` 和 `task_dpll` 直接服务该 owner。
 - [ ] 将空壳逐步替换为真正 AO service，`app.c` 只保留启动编排和顶层调度。
 
 ## P1 - 反射内存主数据面
@@ -96,7 +97,8 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 
 ## P5 - VDC / SYNC DPLL / Angle DPLL
 
-- [ ] 建立 `VdcSyncAO / SyncDpllFB / VdcVector`。
+- [x] 建立 `VdcDpllManager` 第一阶段组件，先迁出 VDC/DPLL 状态计数和只读快照。
+- [ ] 将 `components/vdc_dpll_manager/` 升级为 `VdcSyncAO / SyncDpllFB / VdcVector`。
 - [ ] 实现 `CONFigure:SYNC:CALibration/RING/VDC:DPLL/GATE/LIMit` 的 staging 配置和拒绝原因。
 - [ ] 实现 `SYNC:CHECk/STARt/STOP/RELock/HOLDover`。
 - [ ] 实现 SYNC DPLL 的 offset/rate 更新、LOCK/HOLDOVER/RELOCK。

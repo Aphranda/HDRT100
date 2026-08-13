@@ -6,6 +6,7 @@
 #include "drv_flash.h"
 #include "loop_engine.h"
 #include "osal.h"
+#include "vdc_dpll_manager.h"
 #if PROJECT_USE_MULTICORE
 #include "pico/multicore.h"
 #endif
@@ -153,7 +154,8 @@ static void task_vdc_sync(void *context)
             continue;
         }
 
-        app_vdc_sync_service();
+        vdc_dpll_manager_set_vdc_ready(true);
+        vdc_dpll_manager_vdc_service();
         osal_task_delay_ms(1u);
     }
 }
@@ -184,7 +186,8 @@ static void task_dpll(void *context)
             continue;
         }
 
-        app_dpll_service();
+        vdc_dpll_manager_set_dpll_ready(true);
+        vdc_dpll_manager_dpll_service();
         osal_task_delay_ms(1u);
     }
 }

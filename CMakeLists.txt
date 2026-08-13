@@ -190,6 +190,7 @@ set(PROJECT_APP_SOURCES
         components/sync_io/src/sync_io_mode_enc_count.c
         components/sync_io/src/sync_io_mode_seq_step.c
         components/sync_config_ui/src/sync_config_ui.c
+        components/vdc_dpll_manager/src/vdc_dpll_manager.c
         drivers/mcu/spi/src/drv_spi.c
         drivers/mcu/i2c/src/drv_i2c.c
         drivers/mcu/uart/src/drv_uart.c
@@ -305,6 +306,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_trigger/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_config_ui/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/vdc_dpll_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/config
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/spi/inc
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/i2c/inc

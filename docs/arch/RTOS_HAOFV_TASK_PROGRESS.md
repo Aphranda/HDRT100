@@ -66,6 +66,41 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260813-004 - VdcDpllManager 第一阶段组件化
+
+- 状态：进行中
+- 日期：2026-08-13
+- 任务目标：
+  - 将 `app.c` 中的 VDC 与 DPLL 状态计数迁入独立同步基础件组件。
+  - 让 `task_vdc_sync` 和 `task_dpll` 直接服务 VDC/DPLL owner，减少 RTOS task 对 `app_*` wrapper 的依赖。
+- 完成内容：
+  - 新增 `components/vdc_dpll_manager/`，承接 VDC ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq 快照。
+  - 同一组件承接 DPLL ready、state、service_count、first_service_ms、last_service_ms、update_seq 快照。
+  - `application/inc/app.h` 使用 `vdc_dpll_manager_*_status_t` 兼容 `app_vdc_sync_status_t` 和 `app_dpll_status_t`。
+  - `app_vdc_sync_service()`、`app_dpll_service()` 和对应 get_status 保留为兼容 wrapper。
+  - RTOS `task_vdc_sync` 和 `task_dpll` 直接调用 `vdc_dpll_manager_*_service()`。
+- 验证结果：
+  - build-validation build id：`20260813071627`。
+  - build-rtos-multicore-smoke build id：`20260813071620`。
+  - `cmake --build build-validation` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - `python tools/docs_check/docs_check.py` 通过，保留 7 条既有文件命名 warning。
+  - SCPI USB namespace check 在两个构建中均通过。
+  - 本轮未执行烧录和板端 `SYSTem:SYNC:VDC:*?` 查询，后续继续小步拆分时需要补板端 smoke 记录。
+- 还需完成：
+  - 当前算法尚未开始实现；本步骤只迁出状态 owner。
+  - 将 `VdcDpllManager` 升级为 `VdcSyncAO / SyncDpllFB / VdcVector`。
+  - 实现 timestamp sample、offset/rate、环路滤波、LOCK/HOLDOVER/RELOCK、质量判据和版本管理。
+  - 区分 SYNC DPLL 与 Angle DPLL，避免 VDC offset/rate 与 `T_fire_base` 预测混用。
+- 关联文件：
+  - `components/vdc_dpll_manager/`
+  - `application/src/app.c`
+  - `application/src/app_runtime.c`
+  - `application/inc/app.h`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+- 下一步：
+  - 继续清理 `app.c` 中的 UI/diag/storage wrappers，或开始把 `VdcDpllManager` 的状态字段映射到 Distributed RefMem VDC/DPLL slot。
+
 ### RTOS-DIST-TASK-20260813-003 - CalibrationManager 第一阶段组件化
 
 - 状态：进行中

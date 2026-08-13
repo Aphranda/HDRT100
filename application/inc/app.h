@@ -7,6 +7,7 @@
 #include "calibration_manager.h"
 #include "loop_engine.h"
 #include "system_manager.h"
+#include "vdc_dpll_manager.h"
 
 bool app_init(void);
 bool app_is_ready(void);
@@ -20,23 +21,8 @@ void app_refmem_service(void);
 
 typedef loop_engine_status_t app_loop_engine_status_t;
 
-typedef struct {
-    bool ready;
-    uint32_t lock_state;
-    uint32_t service_count;
-    uint32_t first_service_ms;
-    uint32_t last_service_ms;
-    uint32_t sync_seq;
-} app_vdc_sync_status_t;
-
-typedef struct {
-    bool ready;
-    uint32_t state;
-    uint32_t service_count;
-    uint32_t first_service_ms;
-    uint32_t last_service_ms;
-    uint32_t update_seq;
-} app_dpll_status_t;
+typedef vdc_dpll_manager_vdc_status_t app_vdc_sync_status_t;
+typedef vdc_dpll_manager_dpll_status_t app_dpll_status_t;
 
 typedef calibration_manager_status_t app_calibration_status_t;
 

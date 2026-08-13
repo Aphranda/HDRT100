@@ -19,6 +19,7 @@
 #include "sync_trigger.h"
 #include "sync_io.h"
 #include "trigger_measure.h"
+#include "vdc_dpll_manager.h"
 #if PROJECT_ENABLE_USBTMC || PROJECT_ENABLE_USB_RUNTIME_SWITCH
 #include "usbtmc_scpi_port.h"
 #endif
@@ -34,8 +35,6 @@ static bool s_app_ready;
 static bool s_ui_dirty;
 static bool s_ui_key_sample;
 static bool s_ui_key_stable;
-static app_vdc_sync_status_t s_vdc_sync_status;
-static app_dpll_status_t s_dpll_status;
 
 bool app_init(void)
 {
@@ -46,18 +45,6 @@ bool app_init(void)
     s_ui_dirty = false;
     s_ui_key_sample = false;
     s_ui_key_stable = false;
-    s_vdc_sync_status.ready = false;
-    s_vdc_sync_status.lock_state = 0u;
-    s_vdc_sync_status.service_count = 0u;
-    s_vdc_sync_status.first_service_ms = 0u;
-    s_vdc_sync_status.last_service_ms = s_last_tick_ms;
-    s_vdc_sync_status.sync_seq = 0u;
-    s_dpll_status.ready = false;
-    s_dpll_status.state = 0u;
-    s_dpll_status.service_count = 0u;
-    s_dpll_status.first_service_ms = 0u;
-    s_dpll_status.last_service_ms = s_last_tick_ms;
-    s_dpll_status.update_seq = 0u;
     LOG_INFO("app", "application initialized");
 
     const sync_io_config_t sync_io_config = {
@@ -107,6 +94,11 @@ bool app_init(void)
         return false;
     }
 
+    if (!vdc_dpll_manager_init()) {
+        diagnostics_mark_fault("vdc_dpll", "VDC/DPLL manager initialization failed");
+        return false;
+    }
+
     if (!distributed_refmem_init()) {
         diagnostics_mark_fault("refmem", "distributed refmem initialization failed");
         return false;
@@ -144,8 +136,8 @@ bool app_init(void)
     s_app_ready = true;
     loop_engine_set_ready(true);
     calibration_manager_set_ready(true);
-    s_vdc_sync_status.ready = true;
-    s_dpll_status.ready = true;
+    vdc_dpll_manager_set_vdc_ready(true);
+    vdc_dpll_manager_set_dpll_ready(true);
 
     return true;
 }
@@ -197,18 +189,8 @@ void app_loop_engine_get_status(app_loop_engine_status_t *status)
 
 void app_vdc_sync_service(void)
 {
-    const uint32_t now_ms = board_uptime_ms();
-
-    osal_critical_enter();
-    if (s_vdc_sync_status.service_count == 0u) {
-        s_vdc_sync_status.first_service_ms = now_ms;
-    }
-    s_vdc_sync_status.service_count++;
-    s_vdc_sync_status.last_service_ms = now_ms;
-    s_vdc_sync_status.ready = s_app_ready;
-    s_vdc_sync_status.lock_state = 0u;
-    s_vdc_sync_status.sync_seq++;
-    osal_critical_exit();
+    vdc_dpll_manager_set_vdc_ready(s_app_ready);
+    vdc_dpll_manager_vdc_service();
 }
 
 void app_vdc_sync_get_status(app_vdc_sync_status_t *status)
@@ -217,26 +199,13 @@ void app_vdc_sync_get_status(app_vdc_sync_status_t *status)
         return;
     }
 
-    osal_critical_enter();
-    *status = s_vdc_sync_status;
-    status->ready = s_app_ready;
-    osal_critical_exit();
+    vdc_dpll_manager_get_vdc_status(status);
 }
 
 void app_dpll_service(void)
 {
-    const uint32_t now_ms = board_uptime_ms();
-
-    osal_critical_enter();
-    if (s_dpll_status.service_count == 0u) {
-        s_dpll_status.first_service_ms = now_ms;
-    }
-    s_dpll_status.service_count++;
-    s_dpll_status.last_service_ms = now_ms;
-    s_dpll_status.ready = s_app_ready;
-    s_dpll_status.state = 0u;
-    s_dpll_status.update_seq++;
-    osal_critical_exit();
+    vdc_dpll_manager_set_dpll_ready(s_app_ready);
+    vdc_dpll_manager_dpll_service();
 }
 
 void app_dpll_get_status(app_dpll_status_t *status)
@@ -245,10 +214,7 @@ void app_dpll_get_status(app_dpll_status_t *status)
         return;
     }
 
-    osal_critical_enter();
-    *status = s_dpll_status;
-    status->ready = s_app_ready;
-    osal_critical_exit();
+    vdc_dpll_manager_get_dpll_status(status);
 }
 
 void app_calibration_service(void)

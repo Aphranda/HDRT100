@@ -40,9 +40,10 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - `ConfigGate`、配置 ACK、SystemModeTable、ResourceArbiterTable 和 FaultCodeTable 已迁入 `components/system_manager/`。
   - `LoopEngine` ready、service_count 和状态查询已迁入 `components/loop_engine/`。
   - `Calibration` ready、state、service_count、link_count、delay_count 和 active_crc32 已迁入 `components/calibration_manager/`。
-  - `application/src/app.c` 仍集中保存 `vdc_sync`、`dpll` 状态。
+  - `VDC/DPLL` ready、service_count、lock/state 和 seq 计数已迁入 `components/vdc_dpll_manager/`。
+  - `application/src/app.c` 已不再集中保存 LoopEngine、Calibration、VDC、DPLL 状态。
   - `system_manager` 目前是快照 owner 第一阶段，还不是完整 `SystemAO / SystemVector / SafetyFB`。
-  - `loop_engine`、`calibration` 和其他 service 当前主要是 ready、计数器和时间戳维护，尚未形成独立 AO/FB/Vector。
+  - `loop_engine`、`calibration`、`vdc_dpll` 和其他 service 当前主要是 ready、计数器和时间戳维护，尚未形成独立 AO/FB/Vector。
 - 影响：
   - 不符合 HAOFV 中“功能域 owner 拥有生命周期、事件队列、状态事实”的约束。
   - 后续 SCPI、UI、反射内存和 core1 实时侧容易再次直接耦合到 `app.c`。
@@ -50,10 +51,11 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - [x] 建立 `SystemManager` 第一阶段组件，迁出 ConfigGate 快照、配置 ACK 和系统只读表。
   - [x] 建立 `LoopEngine` 第一阶段组件，迁出循环引擎状态计数和状态查询。
   - [x] 建立 `CalibrationManager` 第一阶段组件，迁出校准状态计数、link/delay 摘要和状态查询。
+  - [x] 建立 `VdcDpllManager` 第一阶段组件，迁出 VDC/DPLL 状态计数和状态查询。
   - [ ] 将 `SystemManager` 升级/收敛为 `SystemAO / SystemVector / SafetyFB`，接管系统模式、故障锁存、恢复策略和资源策略。
   - [ ] 将 `components/loop_engine/` 升级为 `LoopEngineAO / LoopEngineFB / LoopVector`，承接业务配置、序列展开和运行计划。
   - [ ] 将 `components/calibration_manager/` 升级为 `CalibrationAO / CalibrationFB / CalibrationVector`，承接 link/parameter CRUD、短事务测量和校准版本质量。
-  - [ ] 建立 `VdcSyncAO / SyncDpllFB / VdcVector`，迁出 VDC/DPLL 状态。
+  - [ ] 将 `components/vdc_dpll_manager/` 升级为 `VdcSyncAO / SyncDpllFB / VdcVector`，承接 timestamp、offset/rate、锁定状态、质量判据和版本管理。
   - [ ] `app.c` 长期只保留启动编排、board bring-up 和顶层 service 调度。
 - 关联文件：
   - `application/src/app.c`
@@ -74,7 +76,8 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - [ ] 将 `task_loop_engine` 升级接到 `loop_engine_ao_service()`。
   - [x] 将 `task_calibration` 第一阶段接到 `components/calibration_manager/` owner service。
   - [ ] 将 `task_calibration` 升级接到 `calibration_ao_service()`。
-  - [ ] 将 `task_vdc_sync` / `task_dpll` 收敛到同步基础件 owner。
+  - [x] 将 `task_vdc_sync` / `task_dpll` 第一阶段接到 `components/vdc_dpll_manager/` owner service。
+  - [ ] 将 `task_vdc_sync` / `task_dpll` 升级接到同步基础件 AO/FB owner。
   - [ ] 为每个 AO 增加 queue depth、service budget、watermark、last error snapshot。
   - [ ] 板端验证时记录 RTOS stack/heap 水位和 core1 heartbeat。
 - 关联文件：
@@ -147,15 +150,17 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 
 ### HAOFV-MAINT-20260813-006 - SYNC/VDC/DPLL 基础件还未真正实现
 
-- 状态：待开始
+- 状态：进行中
 - 问题：
   - `READ:SYNC:*` 当前大多返回固定字段。
-  - `SYSTem:SYNC:VDC:STATus?` 和 `SYSTem:SYNC:VDC:DPLL:STATus?` 只是读取 `app.c` 计数器。
+  - `SYSTem:SYNC:VDC:STATus?` 和 `SYSTem:SYNC:VDC:DPLL:STATus?` 已改为读取 `components/vdc_dpll_manager/` 第一阶段状态 owner。
+  - 当前尚未开始实现 VDC/DPLL 算法，`vdc_dpll_manager` 只维护 ready、状态计数器、时间戳和 seq。
   - 尚未实现 timestamp sample、VDC offset/rate、lock/holdover/relock、DPLL 环路质量和版本管理。
 - 影响：
   - 四板环路 VDC、DC 时钟同步、T2 计算和预测分发尚无法产品化闭环。
 - 待办：
-  - [ ] 建立 `VdcSyncAO / SyncDpllFB / VdcVector`。
+  - [x] 建立 `VdcDpllManager` 第一阶段状态 owner。
+  - [ ] 将 `VdcDpllManager` 升级为 `VdcSyncAO / SyncDpllFB / VdcVector`。
   - [ ] 定义 timestamp sample 最小传输格式和批量预定义表。
   - [ ] 实现 DPLL 虚拟环路滤波器参数、状态、锁定质量和调试接口。
   - [ ] 将 calibration link delay 作为 T2 参数来源。
