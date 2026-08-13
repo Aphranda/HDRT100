@@ -1571,7 +1571,7 @@ READ:SYNC:STATe?</code></pre>
   <div class="page-header">
     <div>
       <h1>维护指令</h1>
-      <div class="subtitle">USB、OTA、SD 与错误处理</div>
+      <div class="subtitle">USB、OTA、SD、通信接口与错误处理</div>
     </div>
     <svg class="brand" viewBox="4400 6500 18750 3520" role="img" aria-label="GTS"><use href="RP2350B_QFN80_IO_CONSTRAINTS_assets/logo.svg#图层_x0020_1"></use></svg>
     <div class="doc-meta">
@@ -1590,6 +1590,24 @@ READ:SYNC:STATe?</code></pre>
 <tr><td><code>SYSTem:USB:BOOT</code></td><td></td><td><code>1</code></td><td>重启并应用 USB 模式</td></tr>
 <tr><td><code>SYSTem:OTA:STATus?</code></td><td></td><td>OTA block</td><td>查询升级流程状态</td></tr>
 <tr><td><code>SYSTem:SD:STATus?</code></td><td></td><td>storage block</td><td>查询 SD、日志、snapshot 和报告写入状态</td></tr>
+</tbody>
+</table>
+<div class="section-title">通信维护指令</div>
+<div class="note-box">通信维护域用于 UART、RS485、BiSS-C 等外部或板间接口的配置、状态和验证。USB 仍归 <code>SYSTem:USB:*</code>，反射内存仍归 <code>SYSTem:REFMEM:*</code>。UART 首版先冻结 SCPI 入口，后端驱动和 owner task 后续接入。</div>
+<table class="compact">
+<thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>COMMunication:SERial:UART#:BAUD</code></td><td><code>&lt;baud&gt;</code></td><td><code>1</code></td><td>设置 UART# 波特率</td></tr>
+<tr><td><code>COMMunication:SERial:UART#:BAUD?</code></td><td></td><td><code>&lt;uart&gt;,&lt;baud&gt;</code></td><td>查询 UART# 波特率</td></tr>
+<tr><td><code>COMMunication:SERial:UART#:FORMat</code></td><td><code>&lt;data_bits&gt;,&lt;parity&gt;,&lt;stop_bits&gt;</code></td><td><code>1</code></td><td>设置 UART# 帧格式，parity=NONE/EVEN/ODD</td></tr>
+<tr><td><code>COMMunication:SERial:UART#:FORMat?</code></td><td></td><td><code>&lt;uart&gt;,&lt;data_bits&gt;,&lt;parity&gt;,&lt;stop_bits&gt;</code></td><td>查询 UART# 帧格式</td></tr>
+<tr><td><code>COMMunication:SERial:UART#:STATe</code></td><td><code>&lt;0|1&gt;</code></td><td><code>1</code></td><td>关闭或使能 UART# 维护端口</td></tr>
+<tr><td><code>COMMunication:SERial:UART#:STATe?</code></td><td></td><td><code>&lt;uart&gt;,&lt;state&gt;,&lt;enable&gt;</code></td><td>查询 UART# 使能状态</td></tr>
+<tr><td><code>COMMunication:SERial:UART#:STATus?</code></td><td></td><td>uart status block</td><td>查询 UART# ready、配置、收发计数和后端接入状态</td></tr>
+<tr><td><code>COMMunication:SERial:UART#:TX:TEST</code></td><td><code>&lt;count&gt;[,&lt;pattern&gt;]</code></td><td><code>1</code></td><td>发送 UART# 测试帧</td></tr>
+<tr><td><code>COMMunication:SERial:UART#:TX:TEST?</code></td><td></td><td><code>&lt;uart&gt;,&lt;count&gt;,&lt;state&gt;</code></td><td>查询最近一次 UART# 发送测试摘要</td></tr>
+<tr><td><code>COMMunication:SERial:UART#:RX:COUNt?</code></td><td></td><td><code>&lt;uart&gt;,&lt;byte_count&gt;,&lt;frame_count&gt;</code></td><td>查询 UART# 接收计数</td></tr>
+<tr><td><code>COMMunication:SERial:UART#:ERRor?</code></td><td></td><td><code>&lt;uart&gt;,&lt;error_count&gt;,&lt;last_error&gt;</code></td><td>查询 UART# 错误计数和最近错误</td></tr>
 </tbody>
 </table>
 <div class="section-title">错误处理</div>

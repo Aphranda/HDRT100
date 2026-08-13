@@ -123,8 +123,47 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 - [x] 产品运行控制补齐 `TRIGger:ABORt`。
 - [x] BiSS-C 参数命名从 `FBITs/POFFset/PBITs/PMODulo` 收敛到
   `FRAMe:BITS`、`POSition:OFFSet`、`POSition:BITS`、`POSition:MODulo`。
+- [x] 在现有 `COMMunication` 主域下增加 `COMMunication:SERial:UART#:*` 维护入口，
+  为后续 UART/RS485 通信接口扩展预留稳定命令树。
 
 ## 任务记录
+
+### SCPI-TASK-20260813-035 - 通信主域增加 UART 入口
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 在现有 `COMMunication` 主域下增加 UART 维护入口，为后续 RS485/UART 接口扩展预留稳定命令树。
+  - 保持 USB 归 `SYSTem:USB:*`、反射内存归 `SYSTem:REFMEM:*`，避免泛化 `INTerface` 顶级域。
+- 完成内容：
+  - 新增 `scpi_communication_uart_commands.c/.h`，挂载
+    `COMMunication:SERial:UART#:BAUD/FORMat/STATe/STATus?/TX:TEST/RX:COUNt?/ERRor?`。
+  - `scpi_port.c` 命令表加入 `SCPI_COMMUNICATION_UART_COMMANDS`。
+  - `CMakeLists.txt` 加入 UART SCPI 源文件。
+  - `tools/product_scpi_validate/product_scpi_validate.py` 加入 UART 通信命令头文件和源文件。
+  - 同步 `docs/DTC100_SCPI_COMMAND_PLANNING.md`、`docs/SCPI_COMMANDS.md` 和
+    `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md/html`。
+- 验证结果：
+  - `python tools/product_scpi_validate/product_scpi_validate.py --dry-run`
+    通过，生成 `125` 条产品命令。
+  - `python -m py_compile` 覆盖 product/legacy/BiSS/multicore/distributed-loopback
+    验证脚本，通过。
+  - `python tools/docs_check/docs_check.py` 通过，保留 9 个既有文件名 warning。
+  - `cmake --build build-validation` 通过，build id：`20260813014249`，
+    package CRC：`0x180DAFD1`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id：`20260813014249`，
+    package CRC：`0xBA51CE76`。
+  - `git diff --check` 通过，仅保留既有 CRLF 工作区 warning。
+- 还需完成：
+  - 后续接入真实 UART owner/driver 后，将 `PENDING_BACKEND` 响应改为真实端口状态和计数。
+- 关联文件：
+  - `middleware/scpi_port/inc/scpi_communication_uart_commands.h`
+  - `middleware/scpi_port/src/scpi_communication_uart_commands.c`
+  - `middleware/scpi_port/src/scpi_port.c`
+  - `tools/product_scpi_validate/product_scpi_validate.py`
+  - `docs/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
 
 ### SCPI-TASK-20260813-034 - SCPI 指令规范性审查收敛
 

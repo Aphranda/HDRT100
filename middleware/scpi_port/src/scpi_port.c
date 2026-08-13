@@ -15,6 +15,7 @@
 #include "project_config.h"
 #include "scpi_calibration_commands.h"
 #include "scpi_communication_biss_commands.h"
+#include "scpi_communication_uart_commands.h"
 #include "scpi_config_commands.h"
 #include "scpi/scpi.h"
 #include "scpi_loop_engine_commands.h"
@@ -270,6 +271,7 @@ static const scpi_command_t s_scpi_commands[] = {
     SCPI_TRIGGER_COMMANDS,
     SCPI_REALTIME_COMPONENT_COMMANDS,
     SCPI_COMMUNICATION_BISS_COMMANDS,
+    SCPI_COMMUNICATION_UART_COMMANDS,
     SCPI_OTA_COMMANDS,
 #if PROJECT_ENABLE_USB_RUNTIME_SWITCH
     SCPI_USB_CONTROL_COMMANDS,

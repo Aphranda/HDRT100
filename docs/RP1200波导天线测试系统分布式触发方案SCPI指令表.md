@@ -864,7 +864,27 @@ RUN 中替换已冻结配置，也不能进入校准、同步调参、存储维�
 | `SYSTem:OTA:STATus?` |  | `OTA block` | 查询升级流程状态 |
 | `SYSTem:SD:STATus?` |  | `storage block` | 查询 SD、日志、snapshot 和报告写入状态 |
 
-### 13.1 错误处理速查
+### 13.1 通信维护指令
+
+通信维护域用于 UART、RS485、BiSS-C 等外部或板间接口的配置、状态和验证。USB 仍归
+`SYSTem:USB:*`，反射内存仍归 `SYSTem:REFMEM:*`。UART 首版先冻结 SCPI 入口，后端驱动和
+owner task 后续接入。
+
+| 指令 | 参数 | 响应 | 说明 |
+|---|---|---|---|
+| `COMMunication:SERial:UART#:BAUD` | `<baud>` | `1` | 设置 UART# 波特率 |
+| `COMMunication:SERial:UART#:BAUD?` |  | `<uart>,<baud>` | 查询 UART# 波特率 |
+| `COMMunication:SERial:UART#:FORMat` | `<data_bits>,<parity>,<stop_bits>` | `1` | 设置 UART# 帧格式，`parity=NONE/EVEN/ODD` |
+| `COMMunication:SERial:UART#:FORMat?` |  | `<uart>,<data_bits>,<parity>,<stop_bits>` | 查询 UART# 帧格式 |
+| `COMMunication:SERial:UART#:STATe` | `<0|1>` | `1` | 关闭或使能 UART# 维护端口 |
+| `COMMunication:SERial:UART#:STATe?` |  | `<uart>,<state>,<enable>` | 查询 UART# 使能状态 |
+| `COMMunication:SERial:UART#:STATus?` |  | `uart status block` | 查询 UART# ready、配置、收发计数和后端接入状态 |
+| `COMMunication:SERial:UART#:TX:TEST` | `<count>[,<pattern>]` | `1` | 发送 UART# 测试帧 |
+| `COMMunication:SERial:UART#:TX:TEST?` |  | `<uart>,<count>,<state>` | 查询最近一次 UART# 发送测试摘要 |
+| `COMMunication:SERial:UART#:RX:COUNt?` |  | `<uart>,<byte_count>,<frame_count>` | 查询 UART# 接收计数 |
+| `COMMunication:SERial:UART#:ERRor?` |  | `<uart>,<error_count>,<last_error>` | 查询 UART# 错误计数和最近错误 |
+
+### 13.2 错误处理速查
 
 | 场景 | 上位机处理 |
 |---|---|

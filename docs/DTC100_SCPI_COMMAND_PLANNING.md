@@ -89,6 +89,7 @@ owner task / component
 | `READ:CALibration` | 校准读取 | `task_calibration` | CalibrationSlot | 校准状态、链路、参数、质量、版本 |
 | `CONFigure:SYNC` / `SYNC` | 同步配置和动作 | `task_vdc_sync` | VdcSlot、NodeSlot、StatisticsSlot、ACK/NACK | 建立共同虚拟 DC 和同步门禁 |
 | `READ:SYNC` | 同步读取 | `task_vdc_sync` | VdcSlot、NodeSlot、StatisticsSlot | 产品上位机主视图 |
+| `COMMunication:SERial:*` | 串口通信维护和验证 | `task_comm` / serial owner | SerialSlot、错误计数 | UART/RS485 端口配置、状态、收发测试 |
 | `READ:STATistics` | 跨域统计摘要 | `task_diag` / `task_storage` | StatisticsSlot、run summary | 报告统计，不挂在 SYNC 域内部 |
 | `MMEMory` / storage | 文件和数据块 | `task_storage` | storage job | SD、trace、snapshot、报告分页 |
 | `REALtime` | 底层实时维护和 validation | `core1_realtime` / TriggerAO / IO profile | TriggerVector、IoSlot、维护快照 | PCNT、ENC、SEQ_STEP、即时 IO、内部状态查询；不进入产品测试主流程 |
@@ -684,6 +685,22 @@ MMEMory
   :READ?
   :WRITe
   :DELete
+
+COMMunication
+  :BISS
+    :CONFigure
+    :STATus?
+  :SERial
+    :UART#
+      :BAUD / :BAUD?
+      :FORMat / :FORMat?
+      :STATe / :STATe?
+      :STATus?
+      :TX
+        :TEST / :TEST?
+      :RX
+        :COUNt?
+      :ERRor?
 
 REALtime
   :STATus?

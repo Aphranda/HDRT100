@@ -33,6 +33,7 @@ PRODUCT_HEADERS = (
     Path("middleware/scpi_port/inc/scpi_calibration_commands.h"),
     Path("middleware/scpi_port/inc/scpi_sync_commands.h"),
     Path("middleware/scpi_port/inc/scpi_trigger_commands.h"),
+    Path("middleware/scpi_port/inc/scpi_communication_uart_commands.h"),
     Path("middleware/scpi_port/inc/scpi_system_diagnostics_commands.h"),
     Path("middleware/scpi_port/inc/scpi_measure_commands.h"),
 )
@@ -43,6 +44,7 @@ PRODUCT_SOURCES = (
     Path("middleware/scpi_port/src/scpi_calibration_commands.c"),
     Path("middleware/scpi_port/src/scpi_sync_commands.c"),
     Path("middleware/scpi_port/src/scpi_trigger_commands.c"),
+    Path("middleware/scpi_port/src/scpi_communication_uart_commands.c"),
     Path("middleware/scpi_port/src/scpi_system_diagnostics_commands.c"),
     Path("middleware/scpi_port/src/scpi_measure_commands.c"),
 )

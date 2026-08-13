@@ -67,6 +67,21 @@ Last updated: 2026-08-13
 | `CONFigure:SYNC <...>` | 配置同步模式、锁定策略或环路参数。 |
 | `READ:SYNC?` | 查询同步锁定状态、偏差或健康信息。 |
 
+## 通信维护域
+
+UART/RS485/BiSS-C 等外部或板间通信能力统一归入 `COMMunication:*`。USB 仍归
+`SYSTem:USB:*`，反射内存仍归 `SYSTem:REFMEM:*`。
+
+| 命令 | 说明 |
+|---|---|
+| `COMMunication:SERial:UART#:BAUD <baud>` / `BAUD?` | 设置或查询 UART# 波特率；当前 UART 后端待接入，查询返回默认配置。 |
+| `COMMunication:SERial:UART#:FORMat <data_bits>,<parity>,<stop_bits>` / `FORMat?` | 设置或查询 UART# 帧格式，`parity=NONE/EVEN/ODD`。 |
+| `COMMunication:SERial:UART#:STATe <0|1>` / `STATe?` | 使能或关闭 UART# 维护端口。 |
+| `COMMunication:SERial:UART#:STATus?` | 查询 UART# ready、配置、收发计数和后端接入状态。 |
+| `COMMunication:SERial:UART#:TX:TEST <count>[,<pattern>]` / `TX:TEST?` | 发送测试帧或读取最近一次发送测试摘要。 |
+| `COMMunication:SERial:UART#:RX:COUNt?` | 查询 UART# 接收字节计数和帧计数。 |
+| `COMMunication:SERial:UART#:ERRor?` | 查询 UART# 错误计数和最近错误文本。 |
+
 ## 实时 IO 维护域
 
 底层即时输出、RJ45 触发、采样和同步时钟验证统一归入 `REALtime:IO:*`。这些命令服务开发、产测和调试上位机，不作为现场测试上位机主流程 API；现场测试主流程通过 `CONFigure:*`、`TRIGger:*` 和 `READ:*?` 闭环。
