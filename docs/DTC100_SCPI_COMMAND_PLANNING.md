@@ -1,461 +1,252 @@
-# DTC100 SCPI 指令规划方案
+# DTC100 SCPI 架构基线
 
-Status: Draft
+Status: Active
 Domain: SCPI
 Canonical: `docs/DTC100_SCPI_COMMAND_PLANNING.md`
-Related: `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/SCPI_COMMANDS.md`
+Related: `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/SCPI_COMMANDS.md`, `docs/SCPI_TASK_PROGRESS.md`
 Last updated: 2026-08-13
 
-## 1. 目标
+本文档记录 DTC100 当前 SCPI 固件架构、命令域边界、owner 归属和后续收敛待办。它不是历史流水账，也不是上位机最终指令手册：
 
-本文用于重新规划 DTC100 的 SCPI 指令架构，先形成可评审的产品化分层方案，再同步修改正式指令表、HTML、固件命令表和验证工具。
+- 正式产品指令表以 `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` 为准。
+- 固件基础命令说明以 `docs/SCPI_COMMANDS.md` 为准。
+- RTOS、反射内存、owner task 和双核职责以 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 为准。
+- SCPI 拆分、验证、板端闭环记录以 `docs/SCPI_TASK_PROGRESS.md` 为准。
 
-本次规划的核心目标：
+## 1. 当前结论
 
-- 借鉴网分、信号源、示波器等仪器仪表的 SCPI 架构，按仪器功能和操作模型组织指令。
-- 避免按内部 RTOS task、临时变量、算法名直接暴露产品指令。
-- 明确 `SYNC` 域如何挂载到 DTC100 主控制面。
-- 明确 `VDC` 和 `DPLL` 的层级关系，避免二者在指令树中平级混用。
-- 为后续拆分 `scpi_port.c`、规划反射内存和上位机开发提供稳定接口边界。
+DTC100 当前 SCPI 已经从早期 `scpi_port.c` 大文件和 legacy trigger 入口，收敛为“主命令线 + 分域命令模块 + owner/snapshot 闭环”的结构。
 
-## 2. 仪器式 SCPI 参考原则
-
-典型仪器 SCPI 会按“仪器功能块 + 操作阶段”划分，而不是按固件线程或内部模块划分：
-
-| 仪器式域 | 常见含义 | DTC100 对应 |
-|---|---|---|
-| `*` | IEEE 488.2 通用指令 | 识别、自检、状态字节、错误清理 |
-| `SYSTem` | 系统、错误、维护、资源和诊断 | 版本、日志、RTOS、水位、资源、故障、维护调试 |
-| `CONFigure` | 建立一次运行或测量所需配置 | 触发参数、角度、序列、开关、校准绑定、同步配置 |
-| `TRIGger` | 触发模型和运行控制 | START/STOP/PAUSE/CONTINUE、运行模式 |
-| `READ` / `FETCh` | 读取结果、状态和报告数据 | 运行状态、同步状态、T2、统计、报告 |
-| `MMEMory` | 文件系统和数据块 | SD、日志、trace、snapshot、导出 |
-| `STATus` | 标准状态寄存器/状态模型 | 后续如实现 SCPI status register，可独立规划 |
-
-DTC100 不需要机械照搬 `SENSe/SOURce/INITiate/FETCh`，但应吸收其架构思想：
-
-- 配置和执行分离。
-- accepted 和完成态分离。
-- 产品主视图和维护诊断分离。
-- 查询读取快照，不临时跨线程抓内部状态。
-- 写命令跨核、跨节点、持久化时，必须有 ACK/NACK 或 `READ/SYSTem` 闭环。
-
-## 3. DTC100 主命令线
-
-DTC100 的 SCPI 主线只有一条：
+当前主域为：
 
 ```text
-USBTMC / USB488
-  -> task_usb_device
+*
+SYSTem
+CONFigure
+TRIGger
+CALibration
+SYNC
+READ
+MEASure
+MMEMory
+COMMunication
+REALtime
+```
+
+核心边界：
+
+- `TRIGger:*` 只保留产品运行控制：模式、启动、停止、暂停、继续、终止。
+- `CONFigure:*` 负责业务配置、校准配置和同步配置，不直接执行 RUN。
+- `CALibration:*` 和 `SYNC:*` 是动作域，分别负责校准事务和同步事务。
+- `READ:*?` 是产品视角的状态、结果和摘要读取。
+- `SYSTem:*` 是系统、维护、诊断、权限、反射内存、日志、OTA、SD 和报告证据域。
+- `COMMunication:*` 是通信维护主域，当前包含 BiSS-C 和 UART，后续 RS485/UART 扩展继续放在这里。
+- `REALtime:*` 是底层实时维护和 validation 主域，不进入现场测试上位机主流程。
+- `MEASure:*?` 是测量原语/服务视图，供 CAL/SYNC/诊断复用，不替代业务 RUN 结果。
+- `MMEMory:*` 只表达文件系统式访问；SD 卡驱动、job、manifest 仍归 `SYSTem:SD/STORage:*` 管理。
+
+## 2. 主命令线
+
+DTC100 对外只保留一条 SCPI 主命令线：
+
+```text
+USBTMC / USB488 / validation CDC
+  -> USB device task
   -> task_scpi
   -> libscpi command table
-  -> domain command macros
+  -> scpi_<domain>_commands.c
   -> owner task / event queue / snapshot slot
 ```
 
-任何业务域都不另开通信主线。`SYNC`、`CALibration`、`TRIGger`、`CONFigure` 都只是主命令表上的域挂载。
-
-固件结构应收敛为：
+固件分层要求：
 
 ```text
 scpi_port.c
   - libscpi context
   - input/output/error queue
-  - common command table assembly
-  - no business implementation
+  - stream write/flush/capture
+  - reset/control/error bridge
+  - command table assembly
+  - common helpers
 
 scpi_<domain>_commands.c/.h
-  - command callbacks for one product domain
-  - parse parameters
-  - return accepted or read snapshot
-  - post event to owner task when needed
+  - one domain or one coherent subdomain
+  - parse SCPI parameters
+  - reject forbidden RUN-state writes
+  - return accepted, read snapshot, or post event
 
 owner task / component
-  - owns facts
-  - writes vector table / snapshot
-  - produces ACK/NACK
+  - owns facts and state transitions
+  - writes reflected memory/vector/snapshot
+  - produces ACK/NACK, result, health and evidence data
 ```
 
-## 4. 指令域规划
+`scpi_port.c` 不应重新承载业务实现。新增命令时先判断域归属，再在对应 `scpi_<domain>_commands.c/.h` 中注册。
 
-| 域 | 产品定位 | 执行 owner | 快照/闭环 | 说明 |
+## 3. 当前代码模块
+
+`middleware/scpi_port/src/scpi_port.c` 当前聚合以下命令模块：
+
+| 模块 | 主要域 | 当前定位 |
+|---|---|---|
+| `scpi_system_runtime_commands.c/.h` | `*TST?`, `SYSTem:FW/BOOT/LOG/CORE/RTOS:*` | 系统运行时、版本、自检、RTOS 水位 |
+| `scpi_system_diagnostics_commands.c/.h` | `SYSTem:RUN/LOG/TRACe/SNAPshot/T2/FAULT:*`, `READ:RUN/STATistics:*` | 诊断、报告、T2、故障恢复闭环 |
+| `scpi_system_snapshot_commands.c/.h` | `SYSTem:CONFigure/REFMEM/CORE/PROTection/MODE/RESource/FAULT:*` | 反射内存、配置门禁、系统表只读快照 |
+| `scpi_system_access_commands.c/.h` | `SYSTem:SCPI:PERMission/ROLE:*` | SCPI 权限与角色 |
+| `scpi_loop_engine_commands.c/.h` | `SYSTem:LOOP:STATus?` | loop engine 维护状态 |
+| `scpi_config_commands.c/.h` | `CONFigure:TRIGger/ANGLe/SEQuence/SWITch`, `READ:*` | 现场测试业务配置和读取 |
+| `scpi_calibration_commands.c/.h` | `CONFigure:CALibration:*`, `CALibration:*`, `READ:CALibration:*` | 校准 link、参数、版本、质量、事务 |
+| `scpi_sync_commands.c/.h` | `CONFigure:SYNC:*`, `SYNC:*`, `READ:SYNC:*`, `SYSTem:SYNC:VDC:*` | 同步配置、同步动作、VDC/DPLL 维护 |
+| `scpi_trigger_commands.c/.h` | `TRIGger:*`, `READ:TRIGger:STATe?` | 产品运行控制 |
+| `scpi_realtime_component_commands.c/.h` | `REALtime:*` | 底层实时维护聚合入口 |
+| `scpi_communication_biss_commands.c/.h` | `COMMunication:BISS:*` | BiSS-C 通信维护 |
+| `scpi_communication_uart_commands.c/.h` | `COMMunication:SERial:UART#:*` | UART 通信维护骨架，后端待接入 |
+| `scpi_ota_commands.c/.h` | `SYSTem:OTA:*` | OTA 包传输、状态、回滚和能力 |
+| `scpi_usb_control.h` | `SYSTem:USB:*` | validation USB 模式切换，成品固定 USBTMC |
+| `scpi_storage_commands.c/.h` | `SYSTem:SD/STORage/SNAPshot/TRACe/FAULT:*`, `MMEMory:*` | SD、storage job、snapshot、trace、MMEM 文件读取 |
+| `scpi_measure_commands.c/.h` | `MEASure:*?` | 测量原语、链路 delay、T2 和报告视图 |
+
+## 4. 域边界
+
+| 域 | 产品含义 | owner/事实源 | 闭环入口 | 关键规则 |
 |---|---|---|---|---|
-| `*` / SCPI core | 仪器通用控制 | `task_scpi` / libscpi | SCPI status/error queue | IEEE 488.2 基础能力 |
-| `SYSTem` | 系统和维护 | `task_system`、`task_storage`、`task_ota` | SystemSlot、ResourceSlot、FaultSlot、日志 | 系统状态、权限、资源、故障、日志、OTA、SD |
-| `CONFigure:TRIGger/ANGLe/SEQuence/SWITch` | 现场测试配置 | `task_loop_engine` | LoopSlot、IoSlot、ACK/NACK | 构造测试 recipe 和点内序列 |
-| `TRIGger` | 测试运行控制 | `task_system` + `task_loop_engine` | SystemSlot、LoopSlot、TriggerSlot、ACK/NACK | START/STOP/PAUSE/CONTINUE |
-| `READ:TRIGger/ANGLe/SEQuence/SWITch` | 测试运行读取 | `task_loop_engine` | LoopSlot、TriggerSlot、IoSlot | 产品上位机主视图 |
-| `CONFigure:CALibration` / `CALibration` | 校准配置和动作 | `task_calibration` | CalibrationSlot、ACK/NACK、storage | 链路 delay、T2/DEVICE 校准、版本管理 |
-| `READ:CALibration` | 校准读取 | `task_calibration` | CalibrationSlot | 校准状态、链路、参数、质量、版本 |
-| `CONFigure:SYNC` / `SYNC` | 同步配置和动作 | `task_vdc_sync` | VdcSlot、NodeSlot、StatisticsSlot、ACK/NACK | 建立共同虚拟 DC 和同步门禁 |
-| `READ:SYNC` | 同步读取 | `task_vdc_sync` | VdcSlot、NodeSlot、StatisticsSlot | 产品上位机主视图 |
-| `COMMunication:SERial:*` | 串口通信维护和验证 | `task_comm` / serial owner | SerialSlot、错误计数 | UART/RS485 端口配置、状态、收发测试 |
-| `READ:STATistics` | 跨域统计摘要 | `task_diag` / `task_storage` | StatisticsSlot、run summary | 报告统计，不挂在 SYNC 域内部 |
-| `MMEMory` / storage | 文件和数据块 | `task_storage` | storage job | SD、trace、snapshot、报告分页 |
-| `REALtime` | 底层实时维护和 validation | `core1_realtime` / TriggerAO / IO profile | TriggerVector、IoSlot、维护快照 | PCNT、ENC、SEQ_STEP、即时 IO、内部状态查询；不进入产品测试主流程 |
+| `*` | IEEE 488.2 通用控制 | libscpi / `task_scpi` | status/error queue | 仅放标准通用命令 |
+| `SYSTem` | 系统、维护、诊断、证据 | system/storage/OTA/config/refmem owner | `SYSTem:*?`, error queue, ACK/NACK | 不表达现场测试动作 |
+| `CONFigure` | 建立配置快照 | loop/cal/sync owner | `SYSTem:CONFigure:ACK?`, 对应 `READ:*?` | 写 staging 或 active config，不启动运行 |
+| `TRIGger` | 产品运行控制 | system + loop owner | `READ:TRIGger:STATe?`, `READ:RUN:SUMMary?` | 只保留 mode/start/stop/pause/continue/abort |
+| `CALibration` | 校准动作 | calibration owner | `READ:CALibration:*?` | `CALibration:STARt` 必须明确一段链路 |
+| `SYNC` | 同步动作 | VDC/DPLL/sync owner | `READ:SYNC:*?` | 基于 active calibration 建立 DC 时钟同步 |
+| `READ` | 产品视图读取 | 各 owner snapshot | `READ:*?` | 查询快照，不临时跨线程抓内部变量 |
+| `MEASure` | 测量原语 | measurement service / diag owner | `MEASure:*?` | 可被 CAL/SYNC/诊断复用，后端逐步接入 |
+| `MMEMory` | 文件系统式访问 | storage owner | `MMEMory:*?` | 用于目录、info、文件读；破坏性 SD 操作仍在 `SYSTem:SD:*` |
+| `COMMunication` | 外部/板间通信维护 | comm owner | `COMMunication:*?` | BiSS/UART/RS485 统一归入此域；USB 不放入此域 |
+| `REALtime` | 底层实时 validation | core1 realtime / sync_trigger owner | `REALtime:STATus?` | 不作为产品业务主流程 API |
 
-### 4.1 REALtime 主域定位
+## 5. 产品业务链路
 
-`REALtime:*` 是 DTC100 的底层实时维护主域，用于开发、产测、服务和调试上位机验证 core1
-实时基础组件。它不属于现场测试上位机的产品运行主链路，也不替代 `CONFigure:*`、`TRIGger:*`
-和 `READ:*?` 的业务接口。
-
-`REALtime` 主域承载以下类型的能力：
-
-- `REALtime:PCNT:*`：转台角度阈输入脉冲计数、方向、滤波、门控、比较和计数快照。
-- `REALtime:ENC:*`：编码器计数触发配置、目标计数和实时观测。
-- `REALtime:SEQ:*`：core1 点内序列基础组件验证，包括长度、宽度、索引和序列数据。
-- `REALtime:IO:*`：即时输出、脉冲、marker、RJ45、采样和输出时钟验证。
-- `REALtime:ARM/DISarm/DISAble/FAULT`：底层实时执行层门禁、停车和故障注入验证。
-- `REALtime:STATus?`：实时核心维护快照，供调试工具确认底层状态，不作为产品报告字段。
-
-命名原则：
-
-- 产品 `TRIGger:*` 只表达一次业务 run 的启动、停止、暂停、继续和模式切换。
-- `REALtime:*` 内部不再新增 `TRIGger` 子树；底层 pulse count、sequence step、IO fire 和
-  core1 gate 都应放在具名实时子域下。
-- 旧 `TRIGger:PCNT/ENC/SEQ`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut` 和
-  `STATus:TRIGger?` 已删除；验证脚本和新文档只使用 `REALtime:*`。
-- BiSS-C 通信验证统一进入 `COMMunication:BISS:*`，旧 `TRIGger:BISS:*` 和 `STATus:BISS?`
-  已删除，不挂到产品 `TRIGger:*` 下。
-
-## 5. 测试业务域规划
-
-测试业务域是 DTC100 面向现场测试上位机的主流程，不应混入校准、同步调参、存储维护和内部调试。它的仪器式模型是：
+现场测试上位机主流程按以下顺序闭环：
 
 ```text
-CONFigure business recipe
-  -> SYNC/CAL gate check
-  -> TRIGger run control
-  -> READ business state
-  -> SYSTem/READ report
+CONFigure:TRIGger
+CONFigure:ANGLe:SWEEp
+CONFigure:ANGLe:BREAkpoint
+CONFigure:SEQuence
+CONFigure:SEQuence:ACTive
+  -> READ:TRIGger:PARameter?
+  -> READ:ANGLe:SWEEp?
+  -> READ:SEQuence:MAP?
+  -> READ:SEQuence:CHECk?
+  -> READ:SEQuence:ACTive?
+  -> SYSTem:CONFigure:ACK? / NACK?
+  -> TRIGger:MODE 1
+  -> TRIGger:STARt
+  -> READ:TRIGger:STATe?
+  -> READ:RUN:SUMMary? / SYSTem:RUN:SUMMary?
 ```
 
-### 5.1 业务域对象
+业务规则：
 
-| 对象 | 产品含义 | 主要指令 | owner | 快照 |
-|---|---|---|---|---|
-| TriggerParam | 点内触发参数 | `CONFigure:TRIGger` / `READ:TRIGger:PARameter?` | `task_loop_engine` | LoopSlot / ConfigSlot |
-| AngleSweep | 扫描角度集合和步长 | `CONFigure:ANGLe:SWEEP` / `READ:ANGLe:SWEEP?` | `task_loop_engine` | LoopSlot |
-| AngleBreakpoint | 运动角度断点 | `CONFigure:ANGLe:BREAkpoint` / `READ:ANGLe:BREAkpoint?` | `task_loop_engine` | LoopSlot / storage |
-| SequencePlan | 每个角度点内部状态序列 | `CONFigure:SEQuence:*` / `READ:SEQuence:*?` | `task_loop_engine` | SequenceSlot |
-| SwitchAction | SP8T/SP2T 独立动作或序列动作 | `CONFigure:SWITch#` / `READ:SWITch#?` | `task_loop_engine` / core1 | IoSlot / ActionSlot |
-| RunControl | START/STOP/PAUSE/CONTINUE | `TRIGger:*` / `READ:TRIGger:STATe?` | `task_system` + `task_loop_engine` | SystemSlot / LoopSlot |
-| RunReport | RUN 后摘要证据 | `READ:RUN:*?` / `SYSTem:RUN:*?` | `task_storage` / `task_loop_engine` | RunSummary / trace |
+- `CONFigure:TRIGger <channel_count>,<pol>,<freq_count>,<wave_count>` 定义自动展开状态表的维度；参数顺序按“通道 -> 极化 -> 频点 -> 波位”。
+- `pol=0/1/2` 分别表示 H/V/BOTH，`BOTH` 展开成 H/V 两态。
+- `CONFigure:SEQuence` 上传状态引用顺序；`state_id -> switch1/switch2/pol/freq/wave` 必须可通过 `READ:SEQuence:MAP?` 回读。
+- `CONFigure:SEQuence:ACTive` 负责选择并冻结 active sequence；`TRIGger:STARt [plan_id]` 只是受限便捷事务，不能绕过 active sequence 校验和门禁。
+- `CONFigure:ANGLe:SWEEp` 定义扫描角度；`CONFigure:ANGLe:BREAkpoint` 定义运动角度断点。
+- 断点只作用于扫描角度，不保存点内序列位置；断点恢复时，该角度点内部序列完整重测。
+- `CONFigure:SWITch#` 是独立维护/调试切换。RUN 中若序列引擎占用开关资源，必须 busy/deny。
+- `TRIGger:MODE 0..4 = IDLE/TRIG/CAL/SYNC/SIM`；`TEST` 产品上位机默认只使用 `0=IDLE` 和 `1=TRIG`。
 
-### 5.2 业务域层级
+## 6. 校准和同步
 
-业务配置全部走 `CONFigure`，运行控制全部走 `TRIGger`，状态和报告读取走 `READ` 或 `SYSTem:RUN`：
-
-```scpi
-CONFigure:TRIGger <channel_count>,<pol>,<freq_count>,<wave_count>
-CONFigure:ANGLe:SWEEP <start_deg>,<stop_deg>,<step_deg>
-CONFigure:ANGLe:BREAkpoint <breakpoint_id>,<angle_deg>[,<enable>]
-CONFigure:SEQuence:MAP <state_id>,<switch1>,<switch2>,<pol>,<freq>,<wave>
-CONFigure:SEQuence:ACTive <plan_id>,<state_id1>,<state_id2>,...
-CONFigure:SWITch# <position>
-
-TRIGger:MODE <IDLE|TRIG|CAL|SYNC|SIM>
-TRIGger:STARt [plan_id]
-TRIGger:STOP
-TRIGger:PAUSe
-TRIGger:CONTinue
-
-READ:TRIGger:STATe?
-READ:TRIGger:PARameter?
-READ:ANGLe:POSition?
-READ:ANGLe:PULSe?
-READ:ANGLe:SWEEP?
-READ:ANGLe:BREAkpoint?
-READ:SEQuence:MAP?
-READ:SEQuence:ACTive?
-READ:SEQuence:STATe?
-READ:SWITch#?
-READ:RUN:SUMMary?
-```
-
-### 5.3 业务域规则
-
-- `CONFigure:TRIGger` 只定义自动展开状态表所需维度，不直接启动测试。
-- `CONFigure:SEQuence:MAP` 定义 `state_id -> switch1/switch2/pol/freq/wave` 的映射。
-- `CONFigure:SEQuence:ACTive` 只引用已经存在的 state_id，形成点内执行顺序。
-- `CONFigure:ANGLe:SWEEP` 定义扫描角度范围和步长；`CONFigure:ANGLe:BREAkpoint` 定义运动断点。
-- 断点是运动角度断点，不保存点内序列位置；断点恢复时该角度点内部序列全部重测。
-- `CONFigure:SWITch#` 是独立维护/调试切换；RUN 中若序列引擎占用开关资源，应 busy/deny。
-- `TRIGger:STARt` 只消费 active config、active sequence、active calibration、active sync 和权限/资源门禁的冻结快照。
-- RUN 中测试上位机主要读取网分数据，DTC100 只保留安全停止和只读证明入口。
-- T2 明细是同步/校准质量证据和报告数据，不放在业务域；上位机通过 `SYSTem:T2:*?` 或后续报告/存储分页接口读取。
-
-## 6. 校准域规划
-
-校准域的目标是维护“固定链路 delay”和“设备动作补偿”的事实源，为 SYNC/VDC 和业务预测分发提供可信时间基准。校准不是持续运行主流程，也不直接生成测试序列。
-
-### 6.1 校准对象
-
-| 对象 | 产品含义 | 主要指令 | owner | 快照 |
-|---|---|---|---|---|
-| CalLink | 节点/端口之间的物理链路 | `CONFigure:CALibration:LINK:*` / `READ:CALibration:LINK?` | `task_calibration` | CalibrationSlot |
-| CalParameter | 链路 delay、jitter、count、valid | `CONFigure:CALibration:PARameter` / `READ:CALibration:PARameter?` | `task_calibration` | CalibrationSlot |
-| CalMeta | 版本追溯信息 | `CONFigure:CALibration:META` / `READ:CALibration:VERSion?` | `task_calibration` / storage | CalibrationSlot / storage |
-| CalTransaction | 快速测一段 link delay | `CALibration:STARt` / `READ:CALibration:STATe?` | `task_calibration` | CalibrationSlot / result |
-| CalProfile | staging/active/rollback | `CALibration:SAVE/LOAD/ACTivate/ROLLback` | `task_calibration` / storage | ACK / storage |
-| CalHealth | 校准质量门禁 | `READ:CALibration:HEALth?` | `task_calibration` | CalibrationSlot / StatisticsSlot |
-
-### 6.2 校准域层级
-
-校准配置走 `CONFigure:CALibration:*`，校准动作走 `CALibration:*`，校准读取走 `READ:CALibration:*?`：
-
-```scpi
-CONFigure:CALibration:LINK:ADD <link_id>,<src_node>,<src_port>,<dst_node>,<dst_port>,<type>,<required>
-CONFigure:CALibration:LINK:DELete <link_id>
-CONFigure:CALibration:LINK:UPDate <link_id>,<field>,<value>
-CONFigure:CALibration:PARameter <link_id>,<delay_ns>,<jitter_ns>,<count>,<valid>
-CONFigure:CALibration:META <cal_id>,<operator>,<fixture_id>,<cable_id>,<temperature_c>,<note>
-
-CALibration:STARt <src_node>,<src_port>,<dst_node>,<dst_port>
-CALibration:STOP
-CALibration:SAVE <cal_id>
-CALibration:LOAD <cal_id>
-CALibration:ACTivate <cal_id>
-CALibration:ROLLback
-CALibration:CLEAr
-
-READ:CALibration:STATe?
-READ:CALibration:LINK? [link_id|src_node,dst_node]
-READ:CALibration:PARameter? [link_id]
-READ:CALibration:HEALth? [domain]
-READ:CALibration:VERSion?
-```
-
-### 6.3 校准域规则
-
-- 校准表分 staging 和 active；`CONFigure:CALibration:*` 只写 staging。
-- `CALibration:SAVE` 只保存 staging，不自动切换 active。
-- `CALibration:ACTivate` 切换 active 后必须清除最近一次 `SYNC:CHECk` 结果，要求重新检查同步。
-- `CALibration:STARt` 必须显式带输入和输出端，例如 `A0,OUT1,A1,IN1`，避免不知道测的是哪一段。
-- NODE 链路用于 RJ45 触发/回传链路，SMA/DEVICE 链路用于外部仪表动作补偿；二者可以共享字段结构，但 domain 必须明确。
-- 校准事务应短、快、可重复；失败不能覆盖旧 active 参数。
-- 校准数据的增删改查必须记录版本、CRC、时间戳、操作者、夹具/线缆信息。
-- SYNC 只接受 active 且方向匹配的 NODE link；DEVICE/T2 校准应在 VDC LOCKED 后进行。
-- RUN 中禁止修改 active 校准表；必要时进入 MAINT/IDLE 后操作。
-
-### 6.4 校准与 SYNC 的关系
+校准和同步是两条相邻但不同的业务支撑链路：
 
 ```text
-CALibration active NODE link
+CALibration active link/parameter table
   -> SYNC:CHECk topology and delay gate
-  -> SYNC:STARt VDC lock
-  -> DEVICE/T2 calibration on locked VDC
-  -> TRIGger:STARt prediction and fire load
+  -> SYNC:STARt VDC/DPLL lock
+  -> MEASure/T2/DEVICE quality evidence
+  -> TRIGger prediction and fire load
 ```
 
-校准域提供固定链路 delay 和质量证明；同步域基于 active 校准表建立 VDC；业务域基于 active VDC 和 T2/动作补偿执行预测分发。
+### 6.1 校准域
 
-## 7. SYNC 域挂载方案
-
-`SYNC` 是主命令线上的一个业务域，挂载关系如下：
+校准域维护固定链路 delay 和设备动作补偿，支持 link 和参数的增删改查。
 
 ```text
-SCPI command table
-  -> SCPI_SYNC_COMMANDS
-  -> scpi_sync_commands.c
-  -> sync_control_queue / task_vdc_sync
-  -> VdcSlot / NodeSlot / StatisticsSlot / ACK
+CONFigure:CALibration:LINK:ADD/UPDate/DELete/CLEAr
+READ:CALibration:LINK?
+
+CALibration:STARt
+CALibration:STOP
+READ:CALibration:STATe?
+READ:CALibration:RESult?
+
+CONFigure:CALibration:PARameter:ADD/SET/DELete
+READ:CALibration:PARameter?
+
+CALibration:SAVE/LOAD/ACTivate/ROLLback/CLEAr
+READ:CALibration:LIST?
+READ:CALibration:ACTive?
+
+CONFigure:CALibration:META
+READ:CALibration:META?
+CONFigure:CALibration:LIMit
+READ:CALibration:HEALth?
+
+SYSTem:CALibration:LIMit:OVERRide
+SYSTem:CALibration:LIMit:OVERRide?
+SYSTem:CALibration:LIMit:DEFAult
 ```
 
-### 7.1 SYNC 域四层
+规则：
 
-| 层级 | 指令前缀 | 作用 | 上位机定位 |
-|---|---|---|---|
-| 配置层 | `CONFigure:SYNC:*` | 写 staging 同步配置 | 测试上位机可在 RUN 前使用部分配置；SERVICE 可维护 |
-| 动作层 | `SYNC:*` | check/start/stop/relock/holdover/save/load/activate/rollback | 动作 accepted，完成态靠 ACK/READ |
-| 产品读取层 | `READ:SYNC:*?` | 读取同步状态、参数、健康度、节点、链路、质量和版本 | 测试上位机和报告系统主入口 |
-| 维护诊断层 | `SYSTem:SYNC:*` | 内部服务水位、VDC/DPLL 调试、工程诊断 | SERVICE/DEBUG/FACTORY |
+- `CONFigure:CALibration:*` 写 staging，`CALibration:ACTivate` 才切换 active。
+- `CALibration:STARt` 必须显式带链路端点，例如 `A0,OUT1,A1,IN1`。
+- NODE 链路走 RJ45 触发回传；SMA/DEVICE 链路用于外部仪表或设备动作补偿。
+- 校准事务应短、快、可重复；失败不得覆盖旧 active 参数。
+- active 校准版本切换后，必须要求重新执行 `SYNC:CHECk`。
 
-### 7.2 SYNC 不承担的职责
+### 6.2 同步域
 
-- 不直接产生 TRIG 边沿。
-- 不直接推进测试序列。
-- 不替代 `TRIGger:STARt/STOP`。
-- 不承担全局统计报告入口。
-- 不暴露 RTOS task 名称作为产品命令。
-- 不在 RUN 中修改 active 时间基准。
-
-## 8. VDC 与 DPLL 层级
-
-建议将 `VDC` 定义为 SYNC 域的产品对象，将 `DPLL` 定义为实现 VDC 的内部控制算法。
-
-层级关系：
+同步域基于 active calibration 验证拓扑和 delay，建立 VDC/DPLL 的稳态 DC 时钟，并为预测分发提供门禁。
 
 ```text
-SYNC
-  -> VDC               product object: virtual distributed clock
-      -> DPLL          implementation/control loop for VDC offset/rate
-```
+CONFigure:SYNC:CALibration
+CONFigure:SYNC:RING
+CONFigure:SYNC:VDC:DPLL
+CONFigure:SYNC:GATE
+CONFigure:SYNC:LIMit
 
-含义：
-
-- `VDC` 是上位机需要确认的产品事实：是否 LOCKED、是否 HOLDOVER、e_vdc 是否达标、节点是否新鲜。
-- `DPLL` 是 VDC 的实现机制：根据同步帧时间戳、seq、CRC、链路 delay 和节点 age 估计 offset/rate。
-- `DPLL` 不应与 `VDC` 平级暴露，也不应与扫描角度预测 DPLL 混用。
-- 扫描/转台角度预测 DPLL 属于触发/扫描域，负责 `T_fire_base`，不是 `SYNC:VDC` 的 owner。
-
-### 8.1 推荐命令层级
-
-产品配置：
-
-```scpi
-CONFigure:SYNC:CALibration <cal_id>,<cal_crc>,<max_age_s>
-CONFigure:SYNC:RING <origin>,<node_order>,<period_us>,<bitrate>,<timeout_ms>,<crc_limit>
-CONFigure:SYNC:VDC:DPLL <lock_window_ns>,<lock_count>,<holdover_ms>,<relock_ms>,<profile>
-CONFigure:SYNC:GATE <required_lock>,<max_age_ms>,<max_evdc_p99_ns>,<allow_holdover>
-CONFigure:SYNC:LIMit <profile>[,<key=value>[,...]]
-```
-
-同步动作：
-
-```scpi
-SYNC:CHECk [ACTive|STAGing]
+SYNC:CHECk
 SYNC:STARt
 SYNC:STOP
 SYNC:RELock
-SYNC:HOLDover 0|1
-SYNC:SAVE <sync_id>[,scope]
-SYNC:LOAD <sync_id>
-SYNC:ACTivate <sync_id>
-SYNC:ROLLback
-```
+SYNC:HOLDover
 
-产品读取：
-
-```scpi
 READ:SYNC:STATe?
 READ:SYNC:PARameter?
 READ:SYNC:HEALth?
-READ:SYNC:NODE? [node]
-READ:SYNC:LINK? [src_node,dst_node]
+READ:SYNC:NODE?
+READ:SYNC:LINK?
 READ:SYNC:CHECk?
-READ:SYNC:QUALity? [sync_id]
-READ:SYNC:VERSion?
+
+SYNC:SAVE/LOAD/ACTivate/ROLLback
 READ:SYNC:LIST?
 READ:SYNC:ACTive?
-```
-
-维护诊断：
-
-```scpi
-SYSTem:SYNC:VDC:STATus?
-SYSTem:SYNC:VDC:DPLL:STATus?
-SYSTem:SYNC:VDC:DPLL:TUNE <bandwidth_hz>,<damping>,<max_slew_ppm>
-SYSTem:SYNC:VDC:DPLL:COEFficient <kp_q31>,<ki_q31>,<max_slew_ppm>
-SYSTem:SYNC:VDC:DPLL:OVERRide?
-SYSTem:SYNC:VDC:DPLL:COEFficient?
-SYSTem:SYNC:VDC:DPLL:DEFAult
-```
-
-### 8.2 已删除旧入口
-
-以下旧入口不再作为新产品接口、维护接口或验证脚本入口。后续如实现 IEEE 488.2
-`STATus` register，应独立规划标准状态树，而不是复用这些旧状态快照入口。
-
-```scpi
-VDC:STAT?
-DPLL:STAT?
-STATus:VDC?
-STATus:DPLL?
-CONFigure:SYNC:DPLL
-SYSTem:SYNC:DPLL:*
-```
-
-`CONFigure:SYNC:DPLL` 和 `SYSTem:SYNC:DPLL:*` 的问题是少了 `VDC` 层，容易让上位机误以为 DPLL 是 SYNC 的产品对象，而不是 VDC 的实现环路。
-裸 `VDC:*`、裸 `DPLL:*` 和裸 `STATus:*` 则会把内部服务快照暴露成产品主树。
-
-## 9. 配置、动作、读取的闭环模型
-
-所有复杂写命令必须区分 accepted 和完成态：
-
-```text
-CONFigure:SYNC:* / SYNC:*
-  -> SCPI returns 1 or OK
-  -> owner task consumes event
-  -> owner writes slot and ACK/NACK
-  -> host reads READ:SYNC:*? or SYSTem:COMMand:ACK?
-```
-
-示例：
-
-```scpi
-CONFigure:SYNC:CALibration FIELD_20260811,3A91C027,86400
-CONFigure:SYNC:RING A0,A0>A1>A2>A3>A0,1000,12500000,20,0
-CONFigure:SYNC:VDC:DPLL 300,100,200,1000,LOW_JITTER
-CONFigure:SYNC:GATE 1,50,100,0
-SYNC:CHECk STAGing
-SYNC:SAVE FIELD_SYNC_20260811
-SYNC:ACTivate FIELD_SYNC_20260811
-SYNC:CHECk ACTive
-SYNC:STARt
-READ:SYNC:STATe?
 READ:SYNC:QUALity?
+READ:SYNC:VERSion?
 ```
 
-## 10. 与反射内存的关系
+VDC/DPLL 层级：
 
-SCPI 指令不直接读写零散全局变量，统一通过反射内存或 owner snapshot 闭环。
+- `SYNC:*` 是产品同步动作域。
+- `CONFigure:SYNC:VDC:DPLL` 是产品同步配置中的 DPLL 参数入口。
+- `SYSTem:SYNC:VDC:*` 是维护和诊断入口。
+- `VDC` 是虚拟 DC 时钟；`DPLL` 是实现 VDC 稳态同步的算法层，不作为顶级域。
+- 不允许新增裸 `VDC:*` 或裸 `DPLL:*`。
 
-建议对应：
-
-| 指令视图 | 反射内存/快照 |
-|---|---|
-| `READ:SYNC:STATe?` | `VdcSlot` + `SystemSlot` |
-| `READ:SYNC:PARameter?` | `SyncConfigSlot` / `ConfigSlot` |
-| `READ:SYNC:HEALth?` | `StatisticsSlot` + `VdcSlot` |
-| `READ:SYNC:NODE?` | `NodeSlot` |
-| `READ:SYNC:LINK?` | `CalibrationSlot` + sync topology view |
-| `READ:SYNC:CHECk?` | `SyncCheckSlot` / ACK reason |
-| `SYSTem:SYNC:VDC:STATus?` | `task_vdc_sync` service snapshot |
-| `SYSTem:SYNC:VDC:DPLL:*?` | VDC DPLL diagnostic snapshot |
-
-## 11. 权限与运行态策略
-
-| 指令层级 | TEST | SERVICE | DEBUG | FACTORY |
-|---|---:|---:|---:|---:|
-| `READ:SYNC:*?` | 允许 | 允许 | 允许 | 允许 |
-| `SYNC:CHECk` | RUN 前允许 | 允许 | 允许 | 允许 |
-| `SYNC:STARt/STOP/RELock/HOLDover` | 按状态策略 | 允许 | 允许 | 允许 |
-| `CONFigure:SYNC:*` | RUN 前有限允许 | 允许 | 允许 | 允许 |
-| `SYNC:SAVE/LOAD/ACTivate/ROLLback` | 禁止 | 允许 | 允许 | 允许 |
-| `SYSTem:SYNC:VDC:STATus?` | 只读可选 | 允许 | 允许 | 允许 |
-| `SYSTem:SYNC:VDC:DPLL:*` | 禁止 | 查询允许 | 允许 | 允许 |
-
-RUN 中原则：
-
-- 允许 `READ:SYNC:*?`。
-- 允许安全停止相关动作。
-- 禁止修改 active sync、active calibration、DPLL 调试覆盖和质量门限。
-- HOLDOVER/RELOCK 不自动恢复 TRIG RUN，必须重新经过 ARM/START 门禁。
-
-## 12. 与当前代码的收敛步骤
-
-建议按以下顺序执行，每一步都要 build、烧录、串口快测、full smoke，并更新文档：
-
-1. 冻结本文作为规划稿。
-2. 修改正式 SCPI 指令表 Markdown，使 SYNC/VDC/DPLL 层级与本文一致。
-3. 同步 HTML 和 PDF。
-4. 固件命令表已移除裸顶层 `VDC:*`、`DPLL:*`、`STATus:VDC/DPLL?` 的新验证依赖。
-5. 固件将底层实时验证入口迁移到 `REALtime:*` 维护域；旧 `TRIGger:PCNT/ENC/SEQ`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut`、`STATus:TRIGger?` 已删除，不再保留兼容入口。
-6. `READ:STATistics?` 从 SYNC 模块迁到 report/statistics 模块。
-7. `scpi_sync_commands.c/.h` 只保留 SYNC 域和 `SYSTem:SYNC:VDC:*` 维护入口。
-8. `task_vdc_sync` 后续通过 sync_control_queue 消费动作，不由 SCPI callback 直接改状态。
-9. 将 `READ:SYNC:*?` 的响应来源迁到 `VdcSlot/NodeSlot/StatisticsSlot`。
-10. 增加 `SYSTem:COMMand:ACK?` 或复用现有 ACK 查询，统一完成态闭环。
-11. 产品 `TRIGger:*` 只保留运行控制语义；低层 `ARM/DISarm/FAULT` 验证路径迁入 `REALtime:*` 或维护权限 alias。
-
-## 13. 当前建议结论
-
-短期推荐冻结以下命名：
+当前维护入口：
 
 ```text
-CONFigure:SYNC:VDC:DPLL
 SYSTem:SYNC:VDC:STATus?
 SYSTem:SYNC:VDC:DPLL:STATus?
 SYSTem:SYNC:VDC:DPLL:TUNE
@@ -465,307 +256,452 @@ SYSTem:SYNC:VDC:DPLL:COEFficient?
 SYSTem:SYNC:VDC:DPLL:DEFAult
 ```
 
-以下旧入口已经从当前固件注册表删除，不再保留兼容：
+## 7. 通信、实时和测量
+
+### 7.1 通信域
+
+`COMMunication:*` 统一承载外部或板间通信维护能力：
 
 ```text
-VDC:*
-DPLL:*
-STATus:VDC?
-STATus:DPLL?
-SYSTem:SYNC:DPLL:*
-CONFigure:SYNC:DPLL
+COMMunication:BISS:*
+COMMunication:SERial:UART#:*
 ```
 
-这样可以让 DTC100 的 SCPI 看起来像一台分布式触发仪器，而不是一个 RTOS 内部调试 shell。
+边界：
 
-## 14. 建议指令树
+- BiSS-C 属于 `COMMunication:BISS:*`，不属于 `TRIGger:*`。
+- UART 属于 `COMMunication:SERial:UART#:*`，当前为后端待接入骨架，查询中保留 `PENDING_BACKEND`。
+- 后续 RS485 建议扩展为 `COMMunication:SERial:RS485#:*` 或在 `SERial` 下增加端口类型字段。
+- USB 是 SCPI 传输与 validation 模式切换，保留在 `SYSTem:USB:*`，不迁入 `COMMunication`。
 
-以下指令树是规划稿的冻结候选，不代表所有命令都已实现。后续正式指令表、HTML、固件命令表和验证工具应以本树为目标逐步收敛。
+### 7.2 REALtime 维护域
+
+`REALtime:*` 面向开发、产测、服务和底层验证：
+
+```text
+REALtime:IO:*
+REALtime:SEQ:*
+REALtime:ENC:*
+REALtime:PCNT:*
+REALtime:SOURce/EDGE/GATE/SAFE
+REALtime:ARM/DISarm/DISAble/FAULT
+REALtime:STATus?
+```
+
+规则：
+
+- `SEQ_STEP` 是 A1 底层状态机基础件。
+- `ENC` 是计数脉冲、角度和分发触发基础件。
+- `PCNT` 是脉冲计数基础件。
+- 这些能力后续可进入产品化流程，但当前不挂到产品 `TRIGger:*` 下。
+
+### 7.3 MEASure 测量域
+
+`MEASure:*?` 当前作为测量原语和服务视图：
+
+```text
+MEASure:FREQuency?
+MEASure:PERiod?
+MEASure:JITTer?
+MEASure:PULSe:WIDTh?
+MEASure:LINK:DELay?
+MEASure:T2?
+MEASure:REPort?
+```
+
+边界：
+
+- `MEASure:LINK:DELay?` 可以成为 `CALibration:STARt` 的底层测量来源，但不直接管理校准表版本。
+- `MEASure:T2?` 可以成为同步质量和报告证据来源，但 T2 明细分页仍归 `SYSTem:T2:*?`。
+- `MEASure:REPort?` 是测量摘要视图，不替代 `SYSTem:RUN:*?` 和 storage report。
+
+## 8. 系统、诊断、存储和反射内存
+
+`SYSTem:*` 是维护和证据主域，不再拆出裸 `STATus:*`、裸 `REFMEM:*` 或裸 `REPORT:*`。
+
+当前系统主线：
+
+```text
+SYSTem:FW:*
+SYSTem:BOOT:*
+SYSTem:LOG:*
+SYSTem:CORE?
+SYSTem:RTOS:STATus?
+SYSTem:LOOP:STATus?
+SYSTem:SCPI:*
+SYSTem:CONFigure:*
+SYSTem:REFMEM:*
+SYSTem:CORE:VECTOR?
+SYSTem:PROTection:STATus?
+SYSTem:MODE:TABle?
+SYSTem:RESource:TABle?
+SYSTem:FAULT:TABle?
+SYSTem:FAULT:CLEAr
+SYSTem:RUN:*
+SYSTem:TRACe:*
+SYSTem:SNAPshot:*
+SYSTem:T2:*
+SYSTem:OTA:*
+SYSTem:SD:*
+SYSTem:STORage:*
+SYSTem:USB:*
+```
+
+反射内存边界：
+
+- 反射内存是系统维护事实源，入口固定为 `SYSTem:REFMEM:*`。
+- 不单独建立顶级 `REFMEM` 域。
+- 当前表设计面向 8 个节点，后续可包含真实板卡、模型节点、模拟网分、模拟转台等节点类型。
+- 产品业务读取优先通过 `READ:*?` 和 `SYSTem:*?` 摘要，不直接要求上位机解析全部反射内存布局。
+
+报告/日志/T2 边界：
+
+- RUN 后摘要：`READ:RUN:SUMMary?` 和 `SYSTem:RUN:SUMMary?`。
+- 诊断证据：`SYSTem:RUN:LOG?`、`SYSTem:LOG:PAGE?`、`SYSTem:TRACe:DATA?`、`SYSTem:SNAPshot:DATA?`。
+- T2 明细：`SYSTem:T2:COUNt?`、`SYSTem:T2:DATA?`。
+- 文件访问：`MMEMory:CATalog:PAGE?`、`MMEMory:CATalog?`、`MMEMory:INFO?`、`MMEMory:READ?`。
+
+## 9. 命名规范
+
+新增或修改 SCPI 命令必须遵守以下规则：
+
+- 使用标准 SCPI 大小写：关键字前四位大写，其余小写，例如 `CONFigure`、`TRIGger`、`STATus`。
+- 对外文档使用完整语义词，不使用无人能读懂的缩写，例如使用 `BREAkpoint`，不使用 `BP` 或 `BPOint`。
+- 业务配置使用 `CONFigure:*`。
+- 业务读取使用 `READ:*?`。
+- 产品运行动作使用 `TRIGger:*`。
+- 校准动作使用 `CALibration:*`。
+- 同步动作使用 `SYNC:*`。
+- 系统维护使用 `SYSTem:*`。
+- 文件系统式访问使用 `MMEMory:*`。
+- 通信维护使用 `COMMunication:*`。
+- 底层实时 validation 使用 `REALtime:*`。
+
+禁止重新引入：
+
+```text
+TRIGger:BISS:*
+TRIGger:PCNT:*
+TRIGger:ENC:*
+TRIGger:SEQ:*
+TRIGger:SOURce/EDGE/GATE/SAFE
+STATus:TRIGger?
+STATus:BISS?
+READ:T2:*
+SYSTem:CFG:*
+SYSTem:REFM:*
+VDC:*
+DPLL:*
+BPOint
+FBITs / POFFset / PBITs / PMODulo
+```
+
+## 10. 当前实现指令树
+
+以下指令树按当前固件注册表整理。详细参数和响应字段见正式指令表与 `docs/SCPI_COMMANDS.md`。
 
 ```text
 *
-  *IDN?
-  *RST
-  *CLS
-  *TST?
-  *OPC / *OPC?
-  *WAI
-  *STB?
-  *ESR?
-  *ESE / *ESE?
-  *SRE / *SRE?
+  CLS
+  ESE / ESE?
+  ESR?
+  IDN?
+  OPC / OPC?
+  RST
+  SRE / SRE?
+  STB?
+  TST?
+  WAI
 
 SYSTem
-  :VERSion?
-  :ERRor?
-  :ERRor:COUNt?
-  :FW
-    :VERSion?
-    :BUILD?
-  :BOOT
-    :VERSion?
-    :CAPability?
-  :RTOS
-    :STATus?
-    :TASK?
-    :HEAP?
-  :CORE?
-  :COMMand
-    :ACK?
-    :LAST?
-    :NACK?
-  :CONFigure
-    :SEQuence
-      :CHECk?
-  :FAULT
-    :LAST?
-    :CLEAr
-    :TABle?
-  :LOG
-    :LEVel / :LEVel?
-    :STATus?
-    :PAGE?
-    :CLEAr
-  :RUN
-    :LAST?
-    :SUMMary?
-    :LOG?
-  :LOOP
-    :STATus?
-  :T2
-    :COUNt?
-    :DATA?
-    :CLOCK?
-  :TRACe
-    :DATA?
-    :LAST?
-  :SNAPshot
-    :DATA?
-    :WRITe
-    :LAST?
-  :REFMem
-    :STATus?
-    :NODE?
-    :VECTor?
-  :SYNC
-    :VDC
-      :STATus?
-      :DPLL
-        :STATus?
-        :TUNE
-        :COEFficient / :COEFficient?
-        :OVERRide?
-        :DEFAult
-  :SCPI
-    :RUN
-      :ALLOW?
-  :USB
-    :MODE / :MODE?
-  :SD
-    :STATus?
-    :INFO?
-    :MANifest?
-    :INITialize
-  :STORage
-    :STATus?
-    :JOB?
-    :JOB:INFO?
-  :OTA
-    :STATus?
-    :PROGress?
-    :BEGIN
-    :DATA
-    :END
-    :ABORt
-    :BOOT
-    :COMMit
-    :SLOT?
-    :RESult?
+  ERRor[:NEXT]?
+  ERRor:COUNt?
+  VERSion?
+  FW:VERSion?
+  FW:BUILD?
+  BOOT:VERSion?
+  BOOT:CAPability?
+  BOOT:RESet                 ; fault injection build only
+  LOG:LEVel / LEVel?
+  LOG:STATus?
+  LOG:PAGE?
+  CORE?
+  CORE:VECTOR?
+  RTOS:STATus?
+  LOOP:STATus?
+  SCPI:PERMission / PERMission?
+  SCPI:ROLE / ROLE?
+  SCPI:RUN:ALLOW?
+  CONFigure:STAT?
+  CONFigure:ROLE?
+  CONFigure:LOOP?
+  CONFigure:ACT?
+  CONFigure:CAL?
+  CONFigure:ACK?
+  CONFigure:NACK?
+  REFMEM:STATus?
+  REFMEM:NODE?
+  PROTection:STATus?
+  MODE:TABle?
+  RESource?
+  RESource:TABle?
+  FAULT:TABle?
+  FAULT:CLEAr
+  FAULT:LAST?
+  RUN:LAST?
+  RUN:SUMMary?
+  RUN:LOG?
+  TRACe:DATA?
+  TRACe:LAST?
+  SNAPshot:DATA?
+  SNAPshot:WRITe
+  SNAPshot:LAST?
+  T2:COUNt?
+  T2:DATA?
+  TRIGger:DBG?
+  CALibration:LIMit:OVERRide / OVERRide?
+  CALibration:LIMit:DEFAult
+  SYNC:VDC:STATus?
+  SYNC:VDC:DPLL:STATus?
+  SYNC:VDC:DPLL:TUNE
+  SYNC:VDC:DPLL:COEFficient / COEFficient?
+  SYNC:VDC:DPLL:OVERRide?
+  SYNC:VDC:DPLL:DEFAult
+  OTA:STATus?
+  OTA:PROGress?
+  OTA:BEGIN
+  OTA:PBEGIN
+  OTA:DATA
+  OTA:END
+  OTA:ABORt
+  OTA:BOOT
+  OTA:COMMit
+  OTA:SLOT?
+  OTA:RESult?
+  OTA:TXN?
+  OTA:TRANsaction?
+  OTA:MODE / MODE?           ; write only in fault injection build
+  OTA:TARGet?
+  OTA:CAPability?
+  OTA:INJect:*               ; fault injection build only
+  SD:STATus?
+  SD:INFO?
+  SD:RAW:CLEar
+  SD:RAW:READ?
+  SD:MKFS
+  SD:INITialize
+  SD:MANifest?
+  STORage:JOB:INFO
+  STORage:JOB?
+  STORage:STATus?
+  USB:MODE / MODE?           ; runtime switch build only
+  USB:BOOT                   ; runtime switch build only
 
 CONFigure
-  :TRIGger
-  :ANGLe
-    :SWEEP
-    :BREAkpoint
-      :ADD
-      :DELete
-      :CLEAr
-  :SEQuence
-    :MAP
-    :MAP:DELete
-    :MAP:CLEAr
-    :ACTive
-  :SWITch#
-  :CALibration
-    :LINK
-      :ADD
-      :DELete
-      :UPDate
-      :CLEAr
-    :PARameter
-    :META
-  :SYNC
-    :CALibration
-    :RING
-    :VDC
-      :DPLL
-    :GATE
-    :LIMit
+  TRIGger
+  ANGLe:SWEEp
+  ANGLe:PULSe
+  ANGLe:BREAkpoint
+  ANGLe:BREAkpoint:CLEAr
+  SEQuence
+  SEQuence:ACTive
+  SWITch#
+  CALibration:LINK:ADD
+  CALibration:LINK:UPDate
+  CALibration:LINK:DELete
+  CALibration:LINK:CLEAr
+  CALibration:PARameter:ADD
+  CALibration:PARameter:SET
+  CALibration:PARameter:DELete
+  CALibration:META
+  CALibration:LIMit
+  SYNC:CALibration
+  SYNC:RING
+  SYNC:VDC:DPLL
+  SYNC:GATE
+  SYNC:LIMit
 
 TRIGger
-  :MODE / :MODE?
-  :STARt
-  :STOP
-  :PAUSe
-  :CONTinue
-  :ABORt
+  MODE / MODE?
+  STARt
+  STOP
+  PAUSe
+  CONTinue
+  ABORt
 
 CALibration
-  :STARt
-  :STOP
-  :SAVE
-  :LOAD
-  :ACTivate
-  :ROLLback
-  :CLEAr
+  STARt
+  STOP
+  SAVE
+  LOAD
+  ACTivate
+  ROLLback
+  CLEAr
 
 SYNC
-  :CHECk
-  :STARt
-  :STOP
-  :RELock
-  :HOLDover
-  :SAVE
-  :LOAD
-  :ACTivate
-  :ROLLback
+  CHECk
+  STARt
+  STOP
+  RELock
+  HOLDover
+  SAVE
+  LOAD
+  ACTivate
+  ROLLback
 
 READ
-  :TRIGger
-    :STATe?
-    :PARameter?
-  :ANGLe
-    :POSition?
-    :PULSe?
-    :SWEEP?
-    :BREAkpoint?
-  :SEQuence
-    :MAP?
-    :ACTive?
-    :STATe?
-  :SWITch#?
-  :RUN
-    :SUMMary?
-    :PROGress?
-  :CALibration
-    :STATe?
-    :LINK?
-    :PARameter?
-    :HEALth?
-    :VERSion?
-    :LIST?
-    :ACTive?
-  :SYNC
-    :STATe?
-    :PARameter?
-    :HEALth?
-    :NODE?
-    :LINK?
-    :CHECk?
-    :QUALity?
-    :VERSion?
-    :LIST?
-    :ACTive?
-  :STATistics?
+  TRIGger:PARameter?
+  TRIGger:STATe?
+  ANGLe:SWEEp?
+  ANGLe:PULSe?
+  ANGLe:POSition?
+  ANGLe:BREAkpoint?
+  SEQuence?
+  SEQuence:MAP?
+  SEQuence:CHECk?
+  SEQuence:ACTive?
+  SWITch#?
+  CALibration:LINK?
+  CALibration:STATe?
+  CALibration:RESult?
+  CALibration:PARameter?
+  CALibration:LIST?
+  CALibration:ACTive?
+  CALibration:META?
+  CALibration:HEALth?
+  SYNC:STATe?
+  SYNC:PARameter?
+  SYNC:HEALth?
+  SYNC:NODE?
+  SYNC:LINK?
+  SYNC:CHECk?
+  SYNC:LIST?
+  SYNC:ACTive?
+  SYNC:QUALity?
+  SYNC:VERSion?
+  RUN:SUMMary?
+  STATistics?
+
+MEASure
+  FREQuency?
+  PERiod?
+  JITTer?
+  PULSe:WIDTh?
+  LINK:DELay?
+  T2?
+  REPort?
 
 MMEMory
-  :CATalog?
-  :CATalog:PAGE?
-  :INFO?
-  :READ?
-  :WRITe
-  :DELete
+  CATalog:PAGE?
+  CATalog?
+  INFO?
+  READ?
 
 COMMunication
-  :BISS
-    :CONFigure
-    :STATus?
-  :SERial
-    :UART#
-      :BAUD / :BAUD?
-      :FORMat / :FORMat?
-      :STATe / :STATe?
-      :STATus?
-      :TX
-        :TEST / :TEST?
-      :RX
-        :COUNt?
-      :ERRor?
+  BISS:CONFigure
+  BISS:ROLE / ROLE?
+  BISS:DEVice / DEVice?
+  BISS:CLOCk / CLOCk?
+  BISS:FRAMe:BITS / BITS?
+  BISS:POSition:OFFSet / OFFSet?
+  BISS:POSition:BITS / BITS?
+  BISS:POSition:MODulo / MODulo?
+  BISS:SAMPle:*
+  BISS:TIMEout / TIMEout?
+  BISS:ANCHor:*
+  BISS:ERRor:BIT / BIT?
+  BISS:WARNing:BIT / BIT?
+  BISS:STATus:GATE / GATE?
+  BISS:CRC:*
+  BISS:LATency:OFFSet / OFFSet?
+  BISS:TARGet / TARGet?
+  BISS:PINs?
+  BISS:PULSe
+  BISS:FRAMe
+  BISS:CRC:ERRor
+  BISS:TIMEout:INJect
+  BISS:STATus?
+  SERial:UART#:BAUD / BAUD?
+  SERial:UART#:FORMat / FORMat?
+  SERial:UART#:STATe / STATe?
+  SERial:UART#:STATus?
+  SERial:UART#:TX:TEST / TEST?
+  SERial:UART#:RX:COUNt?
+  SERial:UART#:ERRor?
 
 REALtime
-  :STATus?
-  :PCNT
-    :DECode / :DECode?
-    :DIRection / :DIRection?
-    :FILTer / :FILTer?
-    :GATE / :GATE?
-    :CMP / :CMP?
-    :PRESet / :PRESet?
-    :CLEar
-    :TOTal?
-    :FREQuency?
-  :ENC
-    :TARGet / :TARGet?
-    :COUNt?
-    :APIN / :APIN?
-    :REVolution?
-  :SEQ
-    :LENGth / :LENGth?
-    :WIDTh / :WIDTh?
-    :INDex?
-    :DATA / :DATA?
-  :SOURce / :SOURce?
-  :EDGE / :EDGE?
-  :GATE / :GATE?
-  :SAFE / :SAFE?
-  :ARM
-  :DISarm
-  :DISAble
-  :FAULT
-  :IO
-    :OUTPut
-      :WIDTh / :WIDTh?
-      :IMMediate
-    :PULSe
-      :WIDTh / :WIDTh?
-      :IMMediate
-    :MARKer
-      :WIDTh / :WIDTh?
-      :IMMediate
-    :RJ45
-      :WIDTh / :WIDTh?
-      :IMMediate
-      :PINs?
-    :SAMPle
-      :RATE / :RATE?
-      :STATe / :STATe?
-    :CLOCk
-      :FREQuency / :FREQuency?
-      :STATe / :STATe?
-    :SYNC?
+  IO:OUTPut:WIDTh / WIDTh?
+  IO:OUTPut:IMMediate
+  IO:PULSe:WIDTh / WIDTh?
+  IO:PULSe:IMMediate
+  IO:MARKer:WIDTh / WIDTh?
+  IO:MARKer:IMMediate
+  IO:RJ45:WIDTh / WIDTh?
+  IO:RJ45:IMMediate
+  IO:RJ45:PINs?
+  IO:SAMPle:RATE / RATE?
+  IO:SAMPle:STATe / STATe?
+  IO:CLOCk:FREQuency / FREQuency?
+  IO:CLOCk:STATe / STATe?
+  IO:SYNC?
+  SOURce / SOURce?
+  EDGE / EDGE?
+  GATE / GATE?
+  SAFE / SAFE?
+  SEQ:LENGth / LENGth?
+  SEQ:WIDTh / WIDTh?
+  SEQ:INDex?
+  SEQ:DATA / DATA?
+  ENC:TARGet / TARGet?
+  ENC:COUNt?
+  ENC:APIN / APIN?
+  ENC:REVolution?
+  PCNT:DECode / DECode?
+  PCNT:DIRection / DIRection?
+  PCNT:FILTer / FILTer?
+  PCNT:GATE / GATE?
+  PCNT:CMP / CMP?
+  PCNT:PRESet / PRESet?
+  PCNT:CLEar
+  PCNT:TOTal?
+  PCNT:FREQuency?
+  ARM
+  DISarm
+  DISAble
+  FAULT
+  STATus?
 ```
 
-### 14.1 指令树收敛说明
+## 11. 后续收敛待办
 
-- `CONFigure:*` 只负责写入 staging 配置，不直接开始测试、校准或同步。
-- `TRIGger:*` 是测试运行控制树，负责业务 run 的 start/stop/pause/continue 和运行模式切换。
-- `CALibration:*` 是校准动作树，负责快速测链路 delay、保存、加载、激活、回滚和清空。
-- `SYNC:*` 是同步动作树，负责基于 active 校准表进行 check/start/stop/relock/holdover。
-- `READ:*?` 是产品读取树，优先服务上位机主界面和报告闭环。
-- `SYSTem:*` 是系统、维护、诊断和证据树；`SYSTem:T2:*?` 不属于业务域。
-- `SYSTem:SYNC:VDC:*` 是维护诊断树，不是产品测试主流程树。
-- `CONFigure:SYNC:VDC:DPLL` 是产品配置树，用于选择 VDC DPLL profile 和门限，不直接调试系数。
-- `REALtime:*` 是底层实时维护和 validation 树，用于 PCNT、ENC、SEQ_STEP、即时 IO、TriggerVector 快照和低层 ARM/DISarm/FAULT 验证，不作为现场测试上位机主流程 API。
-- 产品 `TRIGger:*` 不再承载底层 `SEQ_STEP/ENC/PCNT/PIO` 验证命令；这类能力必须从 `REALtime:*` 或 maintenance/legacy alias 进入。
-- 裸 `VDC:*`、裸 `DPLL:*`、`STATus:VDC?`、`STATus:DPLL?` 已删除，不进入建议指令树。
-- 旧的编码器、BiSS、PCNT、PIO 单项验证命令不进入产品主树；需要保留时应放入 `REALtime:*`、`COMMunication:BISS:*`、维护权限或独立 validation 文档。
+这些待办按架构优先级排列，具体执行记录追加到 `docs/SCPI_TASK_PROGRESS.md`。
+
+- [ ] UART 后端接入真实 driver/owner，替换 `PENDING_BACKEND` 响应，补 RX/TX/error 计数闭环。
+- [ ] 规划 RS485 命令树，建议挂在 `COMMunication:SERial:RS485#:*`，并与 UART 共享 serial owner 抽象。
+- [ ] 复核 `READ:RUN:SUMMary?` 与 `SYSTem:RUN:SUMMary?` 的保留策略：一个作为产品快捷读，一个作为系统报告读，响应字段必须一致。
+- [ ] 完成 `CONFigure:SEQuence` 后端产品化：序列库、active CRC、拒绝原因、ACK/NACK 和 RUN 冻结快照。
+- [ ] 完成 `SYSTem:T2:DATA?` 分页数据结构，固定字段、block 格式、CRC、seq/late/error 证据。
+- [ ] 将 `MEASure:LINK:DELay?` 与校准 owner 打通，形成 `CALibration:STARt` 的真实测量来源。
+- [ ] 将 `MEASure:T2?` 与同步质量/报告数据打通，明确与 `SYSTem:T2:*?` 的摘要/明细边界。
+- [ ] 反射内存表字段与 SCPI 摘要字段继续对齐，避免上位机同时维护两套状态模型。
+- [ ] MMEM 写入/删除如进入产品化，必须先定义权限、RUN 态拒绝、文件锁和 storage job ACK。
+- [ ] 下一次板端烧录时覆盖 product SCPI、realtime SCPI、legacy 删除验证、UART 骨架查询和 RUN smoke。
+
+## 12. 验证基线
+
+本文档对应的当前离线验证基线：
+
+```text
+python tools/product_scpi_validate/product_scpi_validate.py --dry-run
+  generated=125
+
+python tools/realtime_scpi_validate/realtime_scpi_validate.py --dry-run
+  generated=57
+```
+
+文档修改后至少执行：
+
+```text
+python tools/docs_check/docs_check.py
+git diff --check
+```
