@@ -24,26 +24,39 @@ static const refmem_application_map_t s_application_map = {
     .application_version = 1u,
     .profile_id = 1u,
     .layout_version = DISTRIBUTED_REFMEM_LAYOUT_VERSION,
-    .node_count = REFMEM_APP_MODEL_NODE_COUNT,
     .target_node_mask = 0xFFu,
+};
+
+static const refmem_generic_node_table_t s_generic_node_table = {
+    .version = REFMEM_APP_MODEL_VERSION,
+    .node_count = REFMEM_APP_MODEL_NODE_COUNT,
     .node = {
-        {0u, 0xA0000000u, REFMEM_APP_ROLE_BOARD | REFMEM_APP_ROLE_PULSE_DISTRIBUTOR,
+        {0u, 0xA0000000u, REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_PIO |
+                            REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
+                            REFMEM_APP_CAP_CORE1_RT | REFMEM_APP_CAP_SMA_IN |
+                            REFMEM_APP_CAP_SMA_OUT,
          REFMEM_APP_PERSONA_A0_TRIGGER_MASTER, 0u, 1u, REFMEM_APP_FAIL_STOP},
-        {1u, 0xA0000001u, REFMEM_APP_ROLE_BOARD | REFMEM_APP_ROLE_PULSE_DISTRIBUTOR,
+        {1u, 0xA0000001u, REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_PIO |
+                            REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
+                            REFMEM_APP_CAP_CORE1_RT | REFMEM_APP_CAP_SMA_IN |
+                            REFMEM_APP_CAP_SMA_OUT,
          REFMEM_APP_PERSONA_A1_DISTRIBUTED_TRIGGER, 0u, 1u, REFMEM_APP_FAIL_STOP},
-        {2u, 0xA0000002u, REFMEM_APP_ROLE_BOARD | REFMEM_APP_ROLE_LINK_SWITCHER,
+        {2u, 0xA0000002u, REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_PIO |
+                            REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
+                            REFMEM_APP_CAP_LINK_CONTROL,
          REFMEM_APP_PERSONA_A2_LINK_SWITCH, 0u, 1u, REFMEM_APP_FAIL_STOP},
-        {3u, 0xA0000003u, REFMEM_APP_ROLE_BOARD | REFMEM_APP_ROLE_INSTRUMENT_CONTROLLER |
-                            REFMEM_APP_ROLE_GATEWAY,
+        {3u, 0xA0000003u, REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_FLASH |
+                            REFMEM_APP_CAP_SD | REFMEM_APP_CAP_USB |
+                            REFMEM_APP_CAP_RJ45 | REFMEM_APP_CAP_UART_RS485,
          REFMEM_APP_PERSONA_A3_GATEWAY, 0u, 1u, REFMEM_APP_FAIL_STOP},
-        {4u, 0xA0000004u, REFMEM_APP_ROLE_BOARD | REFMEM_APP_ROLE_MODEL_VNA |
-                            REFMEM_APP_ROLE_MODEL_TURNTABLE | REFMEM_APP_ROLE_TEST_AGENT,
+        {4u, 0xA0000004u, REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_USB |
+                            REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_BISS_C,
          REFMEM_APP_PERSONA_A4_MODEL_INSTRUMENTS, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY},
-        {5u, 0xA0000005u, REFMEM_APP_ROLE_BOARD,
+        {5u, 0xA0000005u, REFMEM_APP_CAP_BOARD,
          REFMEM_APP_PERSONA_SPARE, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY},
-        {6u, 0xA0000006u, REFMEM_APP_ROLE_BOARD,
+        {6u, 0xA0000006u, REFMEM_APP_CAP_BOARD,
          REFMEM_APP_PERSONA_SPARE, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY},
-        {7u, 0xA0000007u, REFMEM_APP_ROLE_BOARD,
+        {7u, 0xA0000007u, REFMEM_APP_CAP_BOARD,
          REFMEM_APP_PERSONA_SPARE, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY},
     },
 };
@@ -296,13 +309,20 @@ static uint32_t refmem_model_crc32_fields(const uint32_t *fields, size_t count)
 
 static uint32_t refmem_model_application_map_crc32(void)
 {
+    return refmem_model_crc32_update(0xFFFFFFFFu,
+                                     &s_application_map,
+                                     sizeof(s_application_map));
+}
+
+static uint32_t refmem_model_generic_node_crc32(void)
+{
     uint32_t crc = refmem_model_crc32_update(0xFFFFFFFFu,
-                                             &s_application_map,
-                                             offsetof(refmem_application_map_t, node));
-    for (uint32_t i = 0u; i < s_application_map.node_count; i++) {
+                                             &s_generic_node_table,
+                                             offsetof(refmem_generic_node_table_t, node));
+    for (uint32_t i = 0u; i < s_generic_node_table.node_count; i++) {
         crc = refmem_model_crc32_update(crc,
-                                        &s_application_map.node[i],
-                                        sizeof(s_application_map.node[i]));
+                                        &s_generic_node_table.node[i],
+                                        sizeof(s_generic_node_table.node[i]));
     }
     return crc;
 }
@@ -395,6 +415,68 @@ static bool refmem_model_node_load_enabled(const refmem_node_load_entry_t *load)
     return load != NULL && load->enabled != 0u;
 }
 
+static const refmem_app_node_entry_t *refmem_model_generic_node_by_id(uint32_t node_id)
+{
+    if (node_id >= s_generic_node_table.node_count) {
+        return NULL;
+    }
+    return &s_generic_node_table.node[node_id];
+}
+
+static uint32_t refmem_model_resource_capability_mask(uint32_t resource_claim)
+{
+    uint32_t capability = 0u;
+    if ((resource_claim & REFMEM_APP_RESOURCE_FLASH) != 0u) {
+        capability |= REFMEM_APP_CAP_FLASH;
+    }
+    if ((resource_claim & REFMEM_APP_RESOURCE_SD) != 0u) {
+        capability |= REFMEM_APP_CAP_SD;
+    }
+    if ((resource_claim & REFMEM_APP_RESOURCE_USB) != 0u) {
+        capability |= REFMEM_APP_CAP_USB;
+    }
+    if ((resource_claim & REFMEM_APP_RESOURCE_PIO) != 0u) {
+        capability |= REFMEM_APP_CAP_PIO;
+    }
+    if ((resource_claim & REFMEM_APP_RESOURCE_DMA) != 0u) {
+        capability |= REFMEM_APP_CAP_DMA;
+    }
+    if ((resource_claim & REFMEM_APP_RESOURCE_LCD) != 0u) {
+        capability |= REFMEM_APP_CAP_LCD;
+    }
+    if ((resource_claim & REFMEM_APP_RESOURCE_RJ45) != 0u) {
+        capability |= REFMEM_APP_CAP_RJ45;
+    }
+    if ((resource_claim & REFMEM_APP_RESOURCE_CORE1_RT) != 0u) {
+        capability |= REFMEM_APP_CAP_CORE1_RT;
+    }
+    return capability;
+}
+
+static uint32_t refmem_model_io_capability_mask(uint32_t io_claim)
+{
+    uint32_t capability = 0u;
+    if ((io_claim & REFMEM_APP_IO_SMA_IN) != 0u) {
+        capability |= REFMEM_APP_CAP_SMA_IN;
+    }
+    if ((io_claim & REFMEM_APP_IO_SMA_OUT) != 0u) {
+        capability |= REFMEM_APP_CAP_SMA_OUT;
+    }
+    if ((io_claim & REFMEM_APP_IO_RJ45_SYNC) != 0u) {
+        capability |= REFMEM_APP_CAP_RJ45;
+    }
+    if ((io_claim & REFMEM_APP_IO_LINK_CONTROL) != 0u) {
+        capability |= REFMEM_APP_CAP_LINK_CONTROL;
+    }
+    if ((io_claim & REFMEM_APP_IO_BISS_C) != 0u) {
+        capability |= REFMEM_APP_CAP_BISS_C;
+    }
+    if ((io_claim & REFMEM_APP_IO_UART_RS485) != 0u) {
+        capability |= REFMEM_APP_CAP_UART_RS485;
+    }
+    return capability;
+}
+
 static bool refmem_model_instance_is_loaded(uint32_t instance_id)
 {
     for (uint32_t i = 0u; i < s_node_load_table.load_count; i++) {
@@ -406,16 +488,49 @@ static bool refmem_model_instance_is_loaded(uint32_t instance_id)
     return false;
 }
 
+static bool refmem_model_validate_node_capabilities(void)
+{
+    for (uint32_t i = 0u; i < s_node_load_table.load_count; i++) {
+        const refmem_node_load_entry_t *load = &s_node_load_table.load[i];
+        const refmem_fb_instance_entry_t *instance =
+            refmem_model_instance_by_id(load->instance_id);
+        const refmem_app_node_entry_t *node = refmem_model_generic_node_by_id(load->node_id);
+        if (!refmem_model_node_load_enabled(load) ||
+            !refmem_model_instance_enabled(instance) ||
+            node == NULL) {
+            continue;
+        }
+
+        const uint32_t required_capability =
+            refmem_model_resource_capability_mask(instance->resource_claim) |
+            refmem_model_io_capability_mask(instance->io_claim);
+        if ((required_capability & ~node->capability_mask) != 0u) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool refmem_model_validate_application_map(void)
 {
     if (s_application_map.version != REFMEM_APP_MODEL_VERSION ||
         s_application_map.layout_version != DISTRIBUTED_REFMEM_LAYOUT_VERSION ||
-        s_application_map.node_count != REFMEM_APP_MODEL_NODE_COUNT) {
+        (s_application_map.target_node_mask & ~((1u << REFMEM_APP_MODEL_NODE_COUNT) - 1u)) != 0u) {
         return false;
     }
 
-    for (uint32_t i = 0u; i < s_application_map.node_count; i++) {
-        const refmem_app_node_entry_t *node = &s_application_map.node[i];
+    return true;
+}
+
+static bool refmem_model_validate_generic_node_table(void)
+{
+    if (s_generic_node_table.version != REFMEM_APP_MODEL_VERSION ||
+        s_generic_node_table.node_count != REFMEM_APP_MODEL_NODE_COUNT) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < s_generic_node_table.node_count; i++) {
+        const refmem_app_node_entry_t *node = &s_generic_node_table.node[i];
         if (node->node_id != i ||
             node->fail_policy > REFMEM_APP_FAIL_REPORT_ONLY) {
             return false;
@@ -747,7 +862,15 @@ static void refmem_model_lint(uint32_t *error_count, uint32_t *first_error)
                            REFMEM_APP_LINT_BAD_TABLE_VERSION,
                            error_count,
                            first_error);
+    refmem_model_lint_note(refmem_model_validate_generic_node_table(),
+                           REFMEM_APP_LINT_BAD_NODE_RANGE,
+                           error_count,
+                           first_error);
     refmem_model_lint_note(refmem_model_validate_node_load_table(),
+                           REFMEM_APP_LINT_BAD_NODE_RANGE,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_node_capabilities(),
                            REFMEM_APP_LINT_BAD_NODE_RANGE,
                            error_count,
                            first_error);
@@ -803,6 +926,7 @@ bool refmem_application_model_init(void)
     s_snapshot.target_node_mask = s_application_map.target_node_mask;
     s_snapshot.table_mask = REFMEM_APP_TABLE_MASK_ALL;
     s_snapshot.application_map_crc32 = refmem_model_application_map_crc32();
+    s_snapshot.generic_node_crc32 = refmem_model_generic_node_crc32();
     s_snapshot.node_load_crc32 = refmem_model_node_load_crc32();
     s_snapshot.fb_instance_crc32 = refmem_model_fb_instance_crc32();
     s_snapshot.event_link_crc32 = refmem_model_event_link_crc32();
@@ -815,6 +939,7 @@ bool refmem_application_model_init(void)
         s_snapshot.target_node_mask,
         s_snapshot.table_mask,
         s_snapshot.application_map_crc32,
+        s_snapshot.generic_node_crc32,
         s_snapshot.node_load_crc32,
         s_snapshot.fb_instance_crc32,
         s_snapshot.event_link_crc32,
@@ -834,6 +959,11 @@ bool refmem_application_model_init(void)
 const refmem_application_map_t *refmem_application_model_get_application_map(void)
 {
     return &s_application_map;
+}
+
+const refmem_generic_node_table_t *refmem_application_model_get_generic_node_table(void)
+{
+    return &s_generic_node_table;
 }
 
 const refmem_node_load_table_t *refmem_application_model_get_node_load_table(void)

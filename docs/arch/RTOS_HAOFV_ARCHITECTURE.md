@@ -278,7 +278,7 @@ DistributedVectorTable 按 64 KB 产品化完整布局实现，P0 只启用核�
 
 在 RTOS + 分布式系统中，RefMem 是内部主域，不仅是 slot 数据表，还承接 HAOFV 的静态分布式应用模型。它吸收 IEC 61499 分布式运行时的 application / FB instance / event connection / data connection / deployment consistency / diagnostics 思想，但不支持动态部署和跨节点 FB 直接调用。
 
-RefMem 固定提供 A0-A7 八个通用节点槽。脉冲分发、链路切换、仪表控制、模型网分、模拟转台、网关、测试代理等不是额外固定节点，而是加载到 A0-A7 通用节点上的 role、persona 或 AO/FB instance。在资源、IO、时序、owner 和 slot writer 不冲突时，同一通用节点可以同时载入多个逻辑实例。
+RefMem 固定提供 A0-A7 八个通用插槽。这里的 `node_id` 更准确地说是 slot id；脉冲分发、链路切换、仪表控制、模型网分、模拟转台、网关、测试代理等不是额外固定节点，而是加载到 A0-A7 通用插槽上的 role、persona 或 AO/FB instance。在资源、IO、时序、owner 和 slot writer 不冲突时，同一通用插槽可以同时载入多个逻辑实例。
 
 实施上必须拆成两类表：
 
@@ -291,14 +291,16 @@ RefMem 固定提供 A0-A7 八个通用节点槽。脉冲分发、链路切换、
 
 | 表 | 内容 | RUN 门禁作用 |
 |---|---|---|
-| `DistributedApplicationMap` | 应用/profile 元数据、目标节点集合和静态模型 CRC bundle。 | 确认 active profile、layout 和静态模型版本一致。 |
-| `DistributedGenericNodeTable` | A0-A7 通用节点基座、硬件身份、能力和失效策略。 | 确认通用节点存在、online、hw profile 和基础能力匹配。 |
-| `DistributedNodeLoadTable` | 将 AO/FB instance 显式加载到 A0-A7 通用节点，支持同一节点多实例。 | 确认 role/persona/instance 装载完整且共存关系可验证。 |
+| `DistributedApplicationMap` | 应用/profile 元数据、目标插槽集合和静态模型 CRC bundle。 | 确认 active profile、layout 和静态模型版本一致。 |
+| `DistributedGenericNodeTable` | A0-A7 通用插槽基座、硬件身份、能力和失效策略。 | 确认通用插槽存在、online、hw profile 和基础能力匹配。 |
+| `DistributedNodeLoadTable` | 将 AO/FB instance 显式加载到 A0-A7 通用插槽，支持同一插槽多实例。 | 确认 role/persona/instance 装载完整且共存关系可验证。 |
 | `DistributedFbInstanceTable` | 可加载 AO/FB instance、domain、版本、enable 条件、健康状态和共存冲突规则。 | 确认每个 required instance 存在、版本兼容且无资源冲突。 |
 | `DistributedEventLinkTable` | START/STOP/FIRE_LOAD/DONE/FAULT/ACK/NACK 的 source、destination、通道、timeout。 | 确认跨节点事件路径完整且 ACK 策略明确。 |
 | `DistributedDataLinkTable` | slot 字段 writer/reader、单位、值域、生命周期、snapshot 策略。 | 确认没有多 writer、未声明 reader 或不一致单位。 |
 | `DistributedDeploymentGate` | build id、hw profile、config CRC、calibration CRC、sync profile CRC、layout version 和实例共存冲突检查。 | RUN 前一票否决不一致部署或冲突实例组合。 |
 | `DistributedConnectionQualityTable` | seq、CRC、stale、late、drop、timeout、last_error、evidence index。 | RUN 中诊断连接质量和报告闭环。 |
+
+这些静态表最终由 `DistributedRefMemAO` 组合为内部 `RefMemSlotContract` 契约视图。RTOS 任务或业务 AO/FB 不直接读写裸 RefMem 字段；它们通过各自 owner API 投递事实或读取 snapshot，由 `DistributedRefMemAO` 按字段契约校验 writer、值域、version、timestamp、stale、CRC 和订阅分发。
 
 | 区域 | Offset | 大小 | 内容 | 写入者 |
 |---|---:|---:|---|---|
@@ -308,7 +310,7 @@ RefMem 固定提供 A0-A7 八个通用节点槽。脉冲分发、链路切换、
 | VdcSlot | `0x1000` | 2 KB | sync_id、offset、rate、lock_state、holdover、relock、`e_vdc` | `task_vdc_sync` |
 | LoopSlot | `0x1800` | 4 KB | trigger param、angle sweep/breakpoint、active sequence、scan_index | `task_loop_engine` |
 | DpllSlot | `0x2800` | 2 KB | compare 捕获、角度预测、`T_fire_base`、`e_pll` | `task_dpll` |
-| NodeSlot[8] | `0x3000` | 4 KB | A0-A7 通用节点的 node_id、role、persona、heartbeat、local_state、error_code、stale_count | 各节点 owner |
+| NodeSlot[8] | `0x3000` | 4 KB | A0-A7 通用插槽的 node_id、装载摘要、heartbeat、local_state、error_code、stale_count | 各节点 owner |
 | TriggerSlot[8] | `0x4000` | 8 KB | armed、last_fire_seq、late_count、t2_count、ready_timeout | 各节点 core1 摘要 |
 | IoSlot[8] | `0x6000` | 8 KB | SMA/RJ45/BiSS IO 镜像、边沿计数、健康状态 | 各节点 IO owner |
 | CalibrationSlot | `0x8000` | 8 KB | link table、delay table、staging/active/version/quality | `task_calibration` |

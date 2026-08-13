@@ -48,9 +48,9 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 ## P2 - 静态分布式应用模型
 
-- [x] 文档定义 `DistributedApplicationMap`，覆盖 A0-A7 八个通用节点，以及加载到节点上的 board/pulse_distributor/link_switcher/instrument_controller/gateway/model_vna/model_turntable/model_dut/test_agent 等 role/persona/instance；允许无冲突时同一通用节点同时载入多个实例。
-- [x] 架构纠偏：将 A0-A7 通用节点基座与应用实例装载拆开，禁止 `ApplicationMap.node[]` 使用 `instance_first/count` 把节点绑定到连续实例范围。
-- [x] 增加 `DistributedNodeLoadTable`：由应用 profile 显式声明 `node_id -> instance_id` 加载关系，支持同一通用节点同时加载模拟转台和模拟网分等多个实例。
+- [x] 文档定义 `DistributedApplicationMap`，覆盖应用/profile 元数据、A0-A7 通用插槽集合，以及加载到插槽上的 board/pulse_distributor/link_switcher/instrument_controller/gateway/model_vna/model_turntable/model_dut/test_agent 等 role/persona/instance；允许无冲突时同一通用插槽同时载入多个实例。
+- [x] 架构纠偏：将 A0-A7 通用插槽基座与应用实例装载拆开，禁止 `ApplicationMap.node[]` 使用 `instance_first/count` 把节点绑定到连续实例范围。
+- [x] 增加 `DistributedNodeLoadTable`：由应用 profile 显式声明 `node_id -> instance_id` 加载关系，支持同一通用插槽同时加载模拟转台和模拟网分等多个实例。
 - [x] 文档定义 `DistributedFbInstanceTable`，覆盖每节点 AO/FB instance、domain、版本、enable 条件、资源/IO claim、时间预算和健康状态。
 - [x] 文档定义 `DistributedEventLinkTable`，覆盖 START/STOP/FIRE_LOAD/DONE/FAULT/ACK/NACK 的 source、destination、transport、timeout、ACK 策略和 evidence。
 - [x] 文档定义 `DistributedDataLinkTable`，覆盖 slot 字段 writer/reader、类型、单位、值域、生命周期、snapshot 策略和 stale 窗口。
@@ -74,8 +74,13 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 文档定义共享字段必须使用 `__atomic`、DMB 屏障或等价机制；跨核快照必须带 sequence/version。
 - [x] 文档定义时间差一律使用回绕安全写法：`int32_t diff = (int32_t)(t1 - t0)`。
 - [x] 文档定义 `epoch_id + tick32` 和 `dc_time64_ns` 语义，并要求增加 `epoch_seconds` / `time_epoch` 等价字段。
+- [x] 文档定义通用 RefMemAO 基础件模型：`DistributedRefMemAO` 由 Application/GenericNode/NodeLoad/FbInstance/EventLink/DataLink/Gate/Quality 加 Header/Directory/SlotGuard 组合生成 `RefMemSlotContract` 契约视图。
+- [x] 文档定义 `DistributedRefMemAO` 内部字段级 `RefMemSlotContract` 能力：地址、类型、值域、唯一 writer、原子访问、版本、时间戳、生命周期、错误绑定、订阅、发布策略和权限。
 - [x] 将 `distributed_refmem.h/.c` 拆出 `refmem_vector_table.h/.c`，并按文档冻结 offset/size/static assert。
 - [x] 为 DistributedVectorTable 实现 directory CRC 和 slot directory 校验。
+- [ ] 定义 `DistributedRefMemAO` 的 `RefMemSlotContract` 派生规则：从 DataLinkTable、Header/Directory、SlotGuard、DeploymentGate 和 QualityTable 生成字段级只读 contract，不作为新的业务配置入口。
+- [ ] 新增 `refmem_slot_contract.h/.c`，只提供 `validate_write`、`validate_snapshot`、`validate_subscription`、`derive_contract` 等 `DistributedRefMemAO` 内部校验 helper，不提供绕过 AO/FB 或 RefMemAO 的业务读写 API。
+- [ ] 在静态模型 linter 中检查 `RefMemSlotContract`：地址不越界、字段宽度匹配、类型和值域一致、writer 唯一、version/timestamp/error 引用有效。
 - [ ] 为全部 slot 增加统一 guard 或等价兼容结构。
 - [ ] 实现 slot owner 写权限检查，禁止非 owner 写其他节点 slot。
 - [ ] 实现 seqlock 或双缓冲，避免字段半新半旧。

@@ -245,12 +245,13 @@ Distributed RefMem 需要吸收 IEC 61499 分布式运行时的优点，但保�
 
 | 借鉴点 | 在 HAOFV 中的落地形式 | 不采用的部分 |
 |---|---|---|
-| Application model | 静态 `DistributedApplicationMap`，描述应用/profile 元数据、目标节点集合和模型 CRC bundle。 | 运行时动态部署 application。 |
-| Generic node model | 静态 `DistributedGenericNodeTable`，描述 A0-A7 通用节点基座、硬件身份和基础能力。 | 把网分、转台、网关等固化成新节点类型。 |
-| Node load model | 静态 `DistributedNodeLoadTable`，把 AO/FB instance 显式加载到 A0-A7 通用节点。 | 用 `instance_first/count` 把节点绑定到连续实例范围。 |
+| Application model | 静态 `DistributedApplicationMap`，描述应用/profile 元数据、目标插槽集合和模型 CRC bundle。 | 运行时动态部署 application。 |
+| Generic node model | 静态 `DistributedGenericNodeTable`，描述 A0-A7 通用插槽基座、硬件身份和基础能力上限。 | 从当前应用装载反推节点能力，或把网分、转台、网关等固化成新节点类型。 |
+| Node load model | 静态 `DistributedNodeLoadTable`，把 AO/FB instance 显式加载到 A0-A7 通用插槽。 | 用 `instance_first/count` 把节点绑定到连续实例范围。 |
 | FB instance model | 静态 `DistributedFbInstanceTable`，描述可加载 AO/FB 实例、版本、role 和 enable 条件。 | 跨节点动态创建/销毁 FB。 |
 | Event connection | 静态 `DistributedEventLinkTable`，把 START、STOP、FIRE_LOAD、DONE、FAULT、ACK/NACK 映射为 command slot、event queue 或 RJ45 frame。 | 跨节点直接事件调用和动态路由。 |
 | Data connection | 静态 `DistributedDataLinkTable`，把状态、参数、质量、时间戳、T2 和统计量映射到固定 slot 字段。 | 任意远程变量读写。 |
+| RefMem AO slot contract | `DistributedRefMemAO` 由 DataLink、Header/Directory、SlotGuard、DeploymentGate 和 QualityTable 派生字段级 `RefMemSlotContract`，用于校验事实提交、快照、delta 和订阅分发。 | 把 `RefMemSlotContract` 做成绕过 AO/FB 或 RefMemAO 的第二套业务 API，或由业务代码自行拼地址。 |
 | Deployment consistency | build id、app map version、hw profile、config CRC、calibration CRC、sync profile CRC 进入 RefMem gate。 | 在线热替换部署。 |
 | Execution control | 每个节点本地 AO/FB 执行 ECC；跨节点只传意图、事实和 ACK/NACK。 | 跨节点统一 FB scheduler。 |
 | Diagnostics | 每个连接和 slot 有 seq、stale、CRC、late、timeout、drop、last_error 和 evidence。 | 依赖外部 IEC 工具链诊断。 |
@@ -272,14 +273,16 @@ Distributed RefMem 需要吸收 IEC 61499 分布式运行时的优点，但保�
 
 | 表 | 内容 | owner |
 |---|---|---|
-| `DistributedApplicationMap` | 应用/profile 元数据、目标节点集合和模型 CRC bundle。 | SystemAO / ConfigGate |
-| `DistributedGenericNodeTable` | A0-A7 通用节点、硬件身份、基础能力和失效策略。 | SystemAO / ConfigGate |
-| `DistributedNodeLoadTable` | role/persona/instance 到通用节点的装载关系，支持同节点多实例。 | SystemAO / ConfigGate |
+| `DistributedApplicationMap` | 应用/profile 元数据、目标插槽集合和模型 CRC bundle。 | SystemAO / ConfigGate |
+| `DistributedGenericNodeTable` | A0-A7 通用插槽、硬件身份、基础能力上限和失效策略。 | SystemAO / ConfigGate |
+| `DistributedNodeLoadTable` | role/persona/instance 到通用插槽的装载关系，支持同插槽多实例。 | SystemAO / ConfigGate |
 | `DistributedFbInstanceTable` | 可加载 AO/FB 实例、domain、版本、使能条件和健康状态。 | 各节点 SystemAO |
 | `DistributedEventLinkTable` | 跨节点事件名、source、destination、传输通道、ACK/NACK、timeout。 | LoopEngineAO / SystemAO |
 | `DistributedDataLinkTable` | slot 字段映射、writer、reader、单位、值域、生命周期、snapshot 策略。 | RefMem owner |
 | `DistributedDeploymentGate` | build/hw/config/cal/sync/vector layout 一致性门禁。 | ConfigGate |
 | `DistributedConnectionQualityTable` | seq、CRC、stale、late、drop、timeout、last_error 和 evidence 索引。 | DiagnosticsAO / RefMem |
+
+这些表不是彼此孤立的配置清单，而是 `DistributedRefMemAO` 通用基础件的输入。对外行为入口仍属于 AO/FB owner、ConfigGate、CommandSlot owner 和 RefMem Sync owner；`RefMemSlotContract` 只规定 `DistributedRefMemAO` 接收和发布这些事实时必须满足的字段级地址、类型、值域、writer、version、timestamp、lifecycle、error、stale 和 guard 约束。业务代码不得绕过 AO/FB owner 或 RefMemAO 直接写裸 RefMem 字段。
 
 典型跨节点连接示例：
 

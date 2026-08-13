@@ -98,12 +98,12 @@ RefMem Domain 吸收 IEC 61499-style 分布式运行时的优点，但保留静�
 
 ### 节点模型硬规则
 
-RefMem 的底座只固定 **A0-A7 八个通用节点**。A0-A7 是 slot 和同步协议中的通用 node id，不代表永久固定的产品角色。
+RefMem 的底座只固定 **A0-A7 八个通用插槽**。A0-A7 是 slot substrate 和同步协议中的通用 `node_id`，更准确地说是 8 个可装载插槽，不代表永久固定的产品角色。
 
-模型节点、脉冲分发节点、链路切换节点、仪表控制节点、模拟网分节点、模拟转台节点、网关节点都不是额外的固定节点类型，也不是独立于 A0-A7 之外的表空间。它们是加载到 A0-A7 某个通用节点上的 role、persona 或 AO/FB instance：
+模型节点、脉冲分发节点、链路切换节点、仪表控制节点、模拟网分节点、模拟转台节点、网关节点都不是额外的固定节点类型，也不是独立于 A0-A7 之外的表空间。它们是加载到 A0-A7 某个通用插槽上的 role、persona 或 AO/FB instance：
 
 ```text
-A0-A7 generic node
+A0-A7 generic slot substrate
   + NodeRoleMap
   + persona / feature_mask
   + DistributedFbInstanceTable
@@ -111,9 +111,9 @@ A0-A7 generic node
      / gateway / model_vna / model_turntable / model_dut / test_agent
 ```
 
-在不冲突的情况下，同一个 A0-A7 通用节点可以同时载入多个逻辑实例。例如一个节点可以同时承载 `board` + `gateway`，或 `model_vna` + `test_agent`，也可以在 IO 与时序资源允许时同时承载 `pulse_distributor` + `link_switcher`。是否允许并存由 `DistributedDeploymentGate` 判定，至少检查资源、IO、时序、owner、slot writer、事件连接和数据连接是否冲突。
+在不冲突的情况下，同一个 A0-A7 通用插槽可以同时载入多个逻辑实例。例如一个插槽可以同时承载 `board` + `gateway`，或 `model_vna` + `model_turntable`，也可以在 IO 与时序资源允许时同时承载 `pulse_distributor` + `link_switcher`。是否允许并存由 `DistributedDeploymentGate` 判定，至少检查资源、IO、时序、owner、slot writer、事件连接和数据连接是否冲突。
 
-因此，`NodeSlot[8]` 只描述八个通用节点的新鲜度、心跳、角色摘要和故障摘要；具体节点承载真实板卡、脉冲分发、链路切换、仪表控制、网关、模型网分或模拟转台，由静态分布式应用模型决定。
+因此，`NodeSlot[8]` 只描述八个通用插槽的新鲜度、心跳、装载摘要和故障摘要；具体插槽承载真实板卡、脉冲分发、链路切换、仪表控制、网关、模型网分或模拟转台，由静态分布式应用模型决定。
 
 ### 虚拟反射内存参考机制
 
@@ -191,7 +191,7 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 
 | 借鉴点 | RefMem Domain 落地形式 | 不采用的部分 |
 |---|---|---|
-| Application model | 静态 `DistributedApplicationMap`，描述 A0-A7 通用节点以及加载到节点上的 role、persona 和实例。 | 运行时动态部署 application。 |
+| Application model | 静态 `DistributedApplicationMap`，描述应用/profile 元数据、目标插槽集合和加载实例的 CRC bundle。 | 运行时动态部署 application。 |
 | FB instance model | 静态 `DistributedFbInstanceTable`，描述每个节点上的 AO/FB 实例、版本、role、enable 条件和共存冲突规则。 | 跨节点动态创建/销毁 FB。 |
 | Event connection | 静态 `DistributedEventLinkTable`，把 START、STOP、FIRE_LOAD、DONE、FAULT、ACK/NACK 映射为 command slot、event queue 或 RJ45 frame。 | 跨节点直接事件调用和动态路由。 |
 | Data connection | 静态 `DistributedDataLinkTable`，把状态、参数、质量、时间戳、T2 和统计量映射到固定 slot 字段。 | 任意远程变量读写。 |
@@ -200,7 +200,7 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 
 ### DistributedApplicationMap
 
-`DistributedApplicationMap` 描述一套静态分布式应用的 profile、版本、目标节点集合和表布局依赖。它是产品配置的一部分，不是运行时热部署脚本，也不是 A0-A7 节点目录。A0-A7 通用节点由节点基座表描述；应用实例装载由 `DistributedNodeLoadTable` 描述。
+`DistributedApplicationMap` 描述一套静态分布式应用的 profile、版本、目标插槽集合和表布局依赖。它是产品配置的一部分，不是运行时热部署脚本，也不是 A0-A7 节点目录。A0-A7 通用插槽由 GenericNodeTable 描述；应用实例装载由 `DistributedNodeLoadTable` 描述。
 
 | 字段 | 含义 | 约束 |
 |---|---|---|
@@ -208,8 +208,8 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 | `application_version` | 应用模型版本。 | RUN 前必须和各节点 active config 一致。 |
 | `profile_id` | 应用 profile 编号。 | 区分现场产品 profile、调试 profile、仿真 profile。 |
 | `layout_version` | RefMem 表布局版本。 | 必须匹配 `DistributedVectorTable` header。 |
-| `target_node_mask` | 本 profile 使用的 A0-A7 通用节点集合。 | 只允许 0-7 位。 |
-| `node_table_crc` | 通用节点基座表摘要。 | RUN 前必须和 active image 一致。 |
+| `target_node_mask` | 本 profile 使用的 A0-A7 通用插槽集合。 | 只允许 0-7 位；字段名沿用 node 是为了兼容同步协议。 |
+| `node_table_crc` | 通用插槽基座表摘要。 | RUN 前必须和 active image 一致。 |
 | `node_load_crc` | 实例加载表摘要。 | RUN 前必须和 active image 一致。 |
 | `fb_instance_crc` | AO/FB 实例定义表摘要。 | RUN 前必须和 active image 一致。 |
 | `event_link_crc` | 事件连接表摘要。 | RUN 前必须和 active image 一致。 |
@@ -224,13 +224,13 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 
 ### DistributedGenericNodeTable
 
-`DistributedGenericNodeTable` 描述 A0-A7 八个通用节点基座。它回答“有哪些通用 node slot 可参与当前系统”，不回答“这些节点加载了哪些业务实例”。
+`DistributedGenericNodeTable` 描述 A0-A7 八个通用插槽基座。它回答“有哪些通用 slot substrate 可参与当前系统”，不回答“这些插槽加载了哪些业务实例”。
 
 | 字段 | 含义 | 约束 |
 |---|---|---|
-| `node_id` | A0-A7 通用节点号。 | 只允许 0-7。 |
+| `node_id` | A0-A7 通用插槽号。 | 只允许 0-7；字段名沿用 node_id 是为了匹配同步协议和 NodeSlot[8]。 |
 | `node_uuid` | 节点硬件身份。 | 用于防止 A0-A7 逻辑号错绑实体板。 |
-| `capability_mask` | 节点硬件/基础能力集合。 | 例如 board、PIO、DMA、RJ45、USB、SD、BISS-C、UART/RS485。 |
+| `capability_mask` | 节点硬件/基础能力上限。 | 例如 board、Flash、SD、USB、PIO、DMA、RJ45、core1_rt、SMA、link_control、BISS-C、UART/RS485。 |
 | `default_persona_mask` | 节点默认人格能力。 | 只作为装载约束输入，不等于 active role。 |
 | `hw_profile_crc` | 硬件约束摘要。 | 和当前板级约束、IO 能力一致。 |
 | `online_required` | 节点是否为当前 profile 必需。 | 必需节点 stale 或 missing 时禁止 RUN。 |
@@ -238,20 +238,22 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 
 规则：
 
-- A0-A7 是唯一固定节点空间。
-- GenericNode 只描述通用节点基座、硬件身份和基础能力，不直接声明业务 role/persona 实例。
+- A0-A7 是唯一固定插槽空间。
+- GenericNode 只描述通用插槽基座、硬件身份和基础能力，不直接声明业务 role/persona 实例。
+- GenericNode 的能力不能从当前装载实例反推；它必须来自 board profile、硬件约束或 System Pack 中的硬件 profile。
+- `capability_mask` 是装载上限，不是当前业务角色。`gateway`、`model_vna`、`model_turntable`、`pulse_distributor` 等 role 只允许出现在 NodeLoadTable。
 - 脉冲分发、链路切换、仪表控制、gateway、model_vna、model_turntable、test_agent 等都由 `DistributedNodeLoadTable` 装载，不扩展固定节点数量。
 
 ### DistributedNodeLoadTable
 
-`DistributedNodeLoadTable` 是应用 profile 到通用节点的实例装载表。它回答“哪个实例被加载到哪个 A0-A7 通用节点上”，支持同一节点同时加载多个不冲突实例。
+`DistributedNodeLoadTable` 是应用 profile 到通用插槽的实例装载表。它回答“哪个实例被加载到哪个 A0-A7 通用插槽上”，支持同一插槽同时加载多个不冲突实例。
 
 | 字段 | 含义 | 约束 |
 |---|---|---|
 | `load_id` | 装载记录编号。 | 在当前表内唯一。 |
 | `application_id` | 所属应用编号。 | 必须匹配 active ApplicationMap。 |
 | `profile_id` | 所属 profile 编号。 | 必须匹配 active ApplicationMap。 |
-| `node_id` | 目标 A0-A7 通用节点。 | 必须存在于 GenericNodeTable。 |
+| `node_id` | 目标 A0-A7 通用插槽。 | 必须存在于 GenericNodeTable。 |
 | `instance_id` | 被装载的 AO/FB 实例。 | 必须存在于 DistributedFbInstanceTable。 |
 | `role_mask` | 本次装载赋予的角色集合。 | 例如 board、pulse_distributor、gateway、model_vna、model_turntable。 |
 | `persona_mask` | 本次装载启用的人格集合。 | 一个节点可由多条 load 记录组合出多 persona。 |
@@ -262,15 +264,16 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 
 规则：
 
-- 同一 `node_id` 可以出现多条 enabled load 记录。
+- 同一 `node_id` 插槽可以出现多条 enabled load 记录。
 - 同一 `instance_id` 在同一 active profile 中首版只允许一条 enabled load 记录；后续若支持 replicated instance，必须显式增加 instance replica id。
-- 一块板同时模拟转台和网分时，应表现为同一通用节点上两条 load 记录，例如 `A4.ModelVnaAO` 和 `A4.ModelTurntableAO`。
-- 一个节点同时装载多个实例时，必须通过 `DistributedDeploymentGate` 检查资源、IO、时序、owner、slot writer、事件连接和数据连接冲突。
+- 每条 enabled load 必须通过 capability gate：实例的 resource/IO claim 必须被目标 GenericNode 的 `capability_mask` 覆盖。
+- 一块板同时模拟转台和网分时，应表现为同一通用插槽上两条 load 记录，例如 `A4.ModelVnaAO` 和 `A4.ModelTurntableAO`。
+- 一个插槽同时装载多个实例时，必须通过 `DistributedDeploymentGate` 检查资源、IO、时序、owner、slot writer、事件连接和数据连接冲突。
 - 逻辑实例可以禁用，但禁用实例仍应保留版本、原因和最后一次健康状态，便于报告闭环。
 
 ### DistributedFbInstanceTable
 
-`DistributedFbInstanceTable` 描述可被加载的 AO/FB 实例定义。这里的 FB 是 HAOFV 的本地功能块，不是跨节点动态调用对象；实例实际加载到哪个 A0-A7 节点由 `DistributedNodeLoadTable` 决定。
+`DistributedFbInstanceTable` 描述可被加载的 AO/FB 实例定义。这里的 FB 是 HAOFV 的本地功能块，不是跨节点动态调用对象；实例实际加载到哪个 A0-A7 通用插槽由 `DistributedNodeLoadTable` 决定。
 
 | 字段 | 含义 | 约束 |
 |---|---|---|
@@ -300,7 +303,7 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 | `event_link_id` | 事件连接编号。 | 全局唯一。 |
 | `source_instance` | 源实例。 | 可为 SCPI/SystemAO/LoopEngineAO/TriggerAO 等。 |
 | `source_event` | 源事件。 | `START`、`STOP`、`ARM`、`FIRE_LOAD`、`DONE`、`FAULT`、`ACK`、`NACK`。 |
-| `target_node_mask` | 目标节点集合。 | 支持单播、多播或广播到 A0-A7。 |
+| `target_node_mask` | 目标 slot/node_id 集合。 | 支持单播、多播或广播到 A0-A7；字段名沿用 node 是协议兼容名。 |
 | `target_instance` | 目标实例。 | 多播时可用类型匹配。 |
 | `target_event` | 目标事件。 | 目标 AO/FB 接收的事件名。 |
 | `transport` | 传递方式。 | `LOCAL_QUEUE`、`CORE_IPC`、`COMMAND_SLOT`、`RJ45_SYNC_RING`。 |
@@ -339,6 +342,117 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 | `crc_scope` | CRC 范围。 | 字段、slot、directory 或 package。 |
 | `permission` | 访问权限。 | `READ_ONLY`、`COMMAND_WRITE`、`CONFIG_STAGE_WRITE`。 |
 
+### 通用 RefMem 基础件模型
+
+RefMem 要形成可复用基础件，不能把字段能力拆成一张孤立的新业务表。更稳妥的方式是把现有静态模型表、Vector layout 和运行质量表组合成一个统一 `RefMemSlotContract` 视图：
+
+```text
+DistributedApplicationMap
+  + DistributedGenericNodeTable
+  + DistributedNodeLoadTable
+  + DistributedFbInstanceTable
+  + DistributedEventLinkTable
+  + DistributedDataLinkTable
+  + DistributedDeploymentGate
+  + DistributedConnectionQualityTable
+  + Header/Directory/SlotGuard
+  -> DistributedRefMemAO / RefMemSlotContract
+```
+
+其中：
+
+- `GenericNodeTable` 和 `NodeLoadTable` 回答“实例装载到哪个 A0-A7 通用插槽”。
+- `FbInstanceTable`、`EventLinkTable` 和 `DataLinkTable` 回答“实例之间有哪些事件和事实连接”。
+- `Header/Directory/SlotGuard` 回答“事实字段在 64 KB 表中的物理位置、发布序号、CRC 和 stale 状态”。
+- `DeploymentGate` 和 `ConnectionQualityTable` 回答“当前组合是否允许 RUN、连接是否可信、失败证据在哪里”。
+- `DistributedRefMemAO` 是 RefMem 基础件的运行 owner；`RefMemSlotContract` 是它内部使用的字段级契约视图，为各 AO/FB owner 的事实提交、快照、delta、owner validation 和 subscription 提供校验依据。
+
+这样链路控制节点、DPLL 节点、Trigger 状态节点、UI 事件节点都不需要自带一套反射内存规则。它们只需要声明 AO/FB instance、事件连接、数据连接和字段契约；对应 AO/FB owner 通过自己的 owner API 向 `DistributedRefMemAO` 提交事实意图或读取 snapshot，`DistributedRefMemAO` 按 `RefMemSlotContract` 完成校验、发布和订阅分发。
+
+#### 字段级 RefMemSlotContract
+
+`DistributedDataLinkTable` 描述“谁写、谁读、字段是什么”。`RefMemSlotContract` 进一步把 DataLink、Directory 和 Guard 合成为字段级能力视图，描述“这个字段被 `DistributedRefMemAO` 接收、校验、发布、过期和订阅分发时必须满足什么条件”。它不是 A0-A7 的通用插槽，也不是 `NodeLoadTable` 的装载插槽，而是 `DistributedVectorTable` 内每一个可发布事实字段或字段块的能力契约。
+
+字段级 slot 的最小能力如下：
+
+| 能力 | 字段建议 | 作用 |
+|---|---|---|
+| 地址 | `field_slot_id`、`slot_id`、`offset`、`width` | 唯一定位一个反射内存事实；`slot_id` 对应 64 KB 大 slot，`field_slot_id` 对应 slot 内字段。 |
+| 类型 | `type` | 声明 `FLAG/ENUM/COUNTER/STEP/ERROR/VERSION/TIMESTAMP/U32/I32/FIXED/CRC/BITMASK` 等类型。 |
+| 值域 | `value_min/value_max`、`enum_table_id` | 写入前做边界检查，防止非法状态进入共同事实。 |
+| 写权限 | `writer_domain`、`writer_instance`、`writer_owner` | 定义唯一 writer；`DistributedRefMemAO` 接收事实提交时必须以此校验。 |
+| 原子访问 | `atomic_width`、`memory_order` | 定义 8/16/32-bit 原子读写、DMB 或等价跨核屏障要求。 |
+| 版本 | `version_field_slot_id`、`version_policy` | 支持读前后比对、seqlock 或字段组一致性检查。 |
+| 时间戳 | `timestamp_field_slot_id`、`timestamp_kind` | 记录更新时间，支撑 stale、timeout、报告排序和重采样判断。 |
+| 生命周期 | `lifecycle`、`valid_state_mask`、`clear_policy` | 定义何时有效、何时清零、何时冻结和何时失效。 |
+| 错误绑定 | `error_field_slot_id`、`error_scope` | 把字段错误归因到本字段、本节点、上游或系统级错误。 |
+| 订阅 | `subscription_mask`、`event_link_id` | 字段变化时投递本地事件、更新 dirty bitmap 或触发 delta 发布。 |
+| 发布策略 | `snapshot_policy`、`sync_policy`、`crc_scope` | 定义直读、seqlock、双缓冲、是否跨节点 delta 同步和 CRC 范围。 |
+| 权限 | `permission`、`write_mode` | 区分只读事实、命令写、配置 staging 写和维护写。 |
+
+建议首版不要把它作为独立配置源，而是在代码中生成或静态固化为派生只读视图：
+
+```c
+typedef enum {
+    RM_FIELD_TYPE_FLAG,
+    RM_FIELD_TYPE_ENUM,
+    RM_FIELD_TYPE_COUNTER,
+    RM_FIELD_TYPE_STEP,
+    RM_FIELD_TYPE_ERROR,
+    RM_FIELD_TYPE_VERSION,
+    RM_FIELD_TYPE_TIMESTAMP,
+    RM_FIELD_TYPE_U32,
+    RM_FIELD_TYPE_I32,
+    RM_FIELD_TYPE_FIXED,
+    RM_FIELD_TYPE_CRC,
+    RM_FIELD_TYPE_BITMASK,
+} rm_field_type_t;
+
+typedef struct {
+    uint16_t field_slot_id;
+    uint8_t  vector_slot_id;
+    uint16_t offset;
+    uint8_t  width;
+    rm_field_type_t type;
+    uint32_t value_min;
+    uint32_t value_max;
+    uint32_t writer_domain;
+    uint32_t writer_instance;
+    uint16_t version_field_slot_id;
+    uint16_t timestamp_field_slot_id;
+    uint16_t error_field_slot_id;
+    uint8_t  lifecycle;
+    uint8_t  snapshot_policy;
+    uint8_t  sync_policy;
+    uint8_t  permission;
+    uint32_t subscription_mask;
+} refmem_slot_contract_t;
+```
+
+`DistributedRefMemAO` 内部校验必须按 `RefMemSlotContract` 执行，调用者不能自行拼接地址和权限。示例 helper 只能作为 RefMemAO 内部实现，不作为对外业务入口：
+
+```c
+bool refmem_slot_contract_validate_write(uint16_t field_slot_id,
+                                         uint32_t writer_instance,
+                                         uint32_t value);
+
+bool refmem_slot_contract_validate_snapshot(uint16_t field_slot_id,
+                                            uint32_t reader_instance);
+
+bool refmem_slot_contract_validate_subscription(uint16_t field_slot_id,
+                                                uint32_t subscriber_instance);
+```
+
+规则：
+
+- `field_slot_id` 是反射内存字段级地址，A0-A7 的 `node_id` 是节点装载插槽地址，两者必须分层命名，禁止混用。
+- `DistributedDataLinkTable` 可以引用 `field_slot_id`，用于声明 writer/reader 和数据连接；`RefMemSlotContract` 定义 `DistributedRefMemAO` 接收、验证和发布该字段时的条件。
+- `RefMemSlotContract` 是 `DistributedRefMemAO` 的内部契约视图，不是新的业务建模入口，也不是绕过 AO/FB 的运行 API；配置源仍以现有静态模型表和 Vector layout 为准。
+- owner、sequence/version、CRC/seqlock、RAM-resident/flash lockout 相关事实都可以作为字段级 slot 元素表达，但字段本身仍必须服从唯一 writer 和生命周期。
+- 对 core1 realtime 快路径发布的字段，`snapshot_policy` 至少应为 `DIRECT_ATOMIC` 或 `SEQLOCK`；多字段一致快照必须使用 version/seqlock 或双缓冲。
+- 订阅只允许投递轻量事件、dirty bitmap 或 delta publish 请求，不允许在写入临界区执行耗时动作。
+- 运行门禁不得直接相信裸字段值，必须检查字段值域、writer、版本、时间戳、stale 和错误绑定。
+
 ### DistributedDeploymentGate
 
 `DistributedDeploymentGate` 是 RUN 前的一票否决表。它聚合静态模型、版本、资源、IO、时间和校准/同步质量，判断当前系统是否允许进入触发运行。
@@ -346,7 +460,7 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 | 检查项 | 内容 | 失败处理 |
 |---|---|---|
 | `layout_check` | `layout_version`、slot offset、slot size、directory CRC。 | 拒绝 RUN。 |
-| `node_check` | 必需 A0-A7 节点 online、node_uuid、role/persona 匹配。 | 拒绝 RUN 或按 fail_policy 降级。 |
+| `node_check` | 必需 A0-A7 插槽 online、node_uuid、hardware profile、capability 和装载实例匹配。 | 拒绝 RUN 或按 fail_policy 降级。 |
 | `instance_check` | required AO/FB instance 存在、版本兼容、enable 条件满足。 | 拒绝 RUN。 |
 | `resource_check` | Flash、SD、USB、PIO、DMA、core1、RJ45 等资源无冲突。 | 拒绝冲突实例组合。 |
 | `io_check` | SMA/RJ45/link-control resources/BiSS-C/UART/RS485 等 IO claim 无冲突；当前项目实例可映射为 SP8T/SP2T。 | 拒绝 RUN 或拒绝实例启用。 |
@@ -403,7 +517,7 @@ last_pass_tick
 | VdcSlot | `0x1000` | 2 KB | sync_id、offset、rate、lock_state、holdover、relock、`e_vdc` | VdcSyncAO |
 | LoopSlot | `0x1800` | 4 KB | trigger param、angle sweep/breakpoint、active sequence、scan_index | LoopEngineAO |
 | DpllSlot | `0x2800` | 2 KB | compare 捕获、角度预测、`T_fire_base`、`e_pll` | AngleDpll owner |
-| NodeSlot[8] | `0x3000` | 4 KB | A0-A7 通用节点的 node_id、role、persona、heartbeat、local_state、error_code、stale_count | 各节点 owner |
+| NodeSlot[8] | `0x3000` | 4 KB | A0-A7 通用插槽的 node_id、装载摘要、heartbeat、local_state、error_code、stale_count | 各节点 owner |
 | TriggerSlot[8] | `0x4000` | 8 KB | armed、last_fire_seq、late_count、t2_count、ready_timeout | 各节点 core1 摘要 |
 | IoSlot[8] | `0x6000` | 8 KB | SMA/RJ45/BiSS IO 镜像、边沿计数、健康状态 | 各节点 IO owner |
 | CalibrationSlot | `0x8000` | 8 KB | link table、delay table、staging/active/version/quality | CalibrationAO |
@@ -521,7 +635,7 @@ SCPI 写命令返回 `OK` 或 `1` 只表示接口层 accepted，不表示动作�
 | `command_seq` | 命令序号。 | command owner 单调递增，0 保留为无效。 |
 | `source_node` | 发起节点。 | 通常为 A3 gateway 或 A0 SystemAO。 |
 | `source_instance` | 发起实例。 | 对应 `DistributedFbInstanceTable`。 |
-| `target_mask` | 目标 A0-A7 节点位图。 | 只允许指向静态模型中存在的节点。 |
+| `target_mask` | 目标 A0-A7 slot/node_id 位图。 | 只允许指向静态模型中存在的通用插槽。 |
 | `required_mask` | 必须 ACK 的目标位图。 | 可小于 target_mask，用于 report-only 节点。 |
 | `command_type` | 命令类型。 | 使用枚举，不使用自由字符串。 |
 | `command_class` | 权限和资源分类。 | 配合 RUN 态策略、ResourceArbiter 和权限表。 |

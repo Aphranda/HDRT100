@@ -43,6 +43,45 @@ DistributedRefMemAO
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-013 - GenericNode capability 与应用 role 分离
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 继续纠偏 RefMem 静态模型，避免 GenericNodeTable 从当前节点应用范围反推出通用节点属性。
+  - 将通用节点能力定义为硬件/基础能力上限，应用 role/persona/instance 只通过 NodeLoadTable 装载。
+  - 固化“RefMem A0-A7 是 8 个通用插槽，node_id 是同步协议中的 slot id”这一模型。
+  - 综合用户提出的 RM Slot 能力模型，评估如何在不破坏 HAOFV 与既有静态模型表的前提下形成通用 RefMem 基础件。
+- 完成内容：
+  - `refmem_application_map_t` 删除 `node_count` 和 `node[]`，只保留 application/profile/layout/target mask 元数据。
+  - 新增 `refmem_generic_node_table_t`，独立维护 A0-A7 通用插槽基座。
+  - `refmem_application_model_snapshot_t` 增加 `generic_node_crc32`，package CRC 和 table mask 纳入 GenericNodeTable。
+  - 增加独立 `REFMEM_APP_CAP_*` 能力位，GenericNodeTable 不再复用 `REFMEM_APP_ROLE_*`。
+  - 增加 capability gate：enabled load 的实例 resource/IO claim 必须被目标 GenericNode 的 `capability_mask` 覆盖。
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 明确 GenericNode capability 不能从当前装载实例反推，必须来自 board profile、硬件约束或 System Pack 的硬件 profile。
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 和 `RTOS_HAOFV_ARCHITECTURE.md` 将 A0-A7 明确描述为通用插槽，实例化节点/逻辑功能通过 NodeLoadTable 装入插槽。
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加通用 RefMemAO 基础件模型：现有静态模型表、Header/Directory、SlotGuard、DeploymentGate 和 QualityTable 共同生成 `DistributedRefMemAO` 内部 `RefMemSlotContract` 契约视图。
+  - 明确 `RefMemSlotContract` 不是绕过 AO/FB 或 RefMemAO 的第二套业务 API，而是 `DistributedRefMemAO` 接收、校验、发布和订阅分发反射内存事实时使用的内部契约。
+  - `HAOFV_ARCHITECTURE.md` 与 `RTOS_HAOFV_ARCHITECTURE.md` 同步表读写规范：业务行为入口仍归 AO/FB owner、ConfigGate、CommandSlot owner 和 RefMem Sync owner；裸 RefMem 字段不得被业务代码直接写入。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813140220`，package CRC `0xC6404998`。
+  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813140220 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_slot_contract` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813140220`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_slot_contract` 通过，16/16 passed。
+  - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,89430,0,8,89429,89429,7`，其中 flags `7` 表示 directory valid、directory CRC valid 和 application model valid 均置位；`SYSTem:REFMEM:NODE? => 0,1,89434,89435,94354,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,89440,2,0,1,15,3840,2,7,2,4138206416,0,7`；`SYSTem:PROTection:STATus? => 1,89445,1,1,1,0,0,0,2,11,2,2207849873,0,7`。
+- 还需完成：
+  - 把 GenericNode capability 暴露到后续 table registry / System Pack / DeploymentGate evidence。
+  - 将 resource/IO 到 capability 的映射从当前代码 helper 升级为表驱动资源能力矩阵。
+  - 后续实现 `DistributedRefMemAO` 内部 `RefMemSlotContract` 派生与 linter，不建立对外业务读写 API。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_TASK_PROGRESS.md`
+- 下一步：
+  - 进入 `DistributedRefMemAO` 内部 `RefMemSlotContract` 派生规则和 linter 实现，或继续 table registry / System Pack / DeploymentGate evidence。
+
 ### REFMEM-TASK-20260813-012 - 通用节点与实例加载架构纠偏
 
 - 状态：完成

@@ -24,6 +24,21 @@
 #define REFMEM_APP_ROLE_MODEL_TURNTABLE            0x00000040u
 #define REFMEM_APP_ROLE_TEST_AGENT                 0x00000080u
 
+#define REFMEM_APP_CAP_BOARD                       0x00000001u
+#define REFMEM_APP_CAP_FLASH                       0x00000002u
+#define REFMEM_APP_CAP_SD                          0x00000004u
+#define REFMEM_APP_CAP_USB                         0x00000008u
+#define REFMEM_APP_CAP_PIO                         0x00000010u
+#define REFMEM_APP_CAP_DMA                         0x00000020u
+#define REFMEM_APP_CAP_LCD                         0x00000040u
+#define REFMEM_APP_CAP_RJ45                        0x00000080u
+#define REFMEM_APP_CAP_CORE1_RT                    0x00000100u
+#define REFMEM_APP_CAP_SMA_IN                      0x00000200u
+#define REFMEM_APP_CAP_SMA_OUT                     0x00000400u
+#define REFMEM_APP_CAP_LINK_CONTROL                0x00000800u
+#define REFMEM_APP_CAP_BISS_C                      0x00001000u
+#define REFMEM_APP_CAP_UART_RS485                  0x00002000u
+
 #define REFMEM_APP_PERSONA_A0_TRIGGER_MASTER       0x00000001u
 #define REFMEM_APP_PERSONA_A1_DISTRIBUTED_TRIGGER  0x00000002u
 #define REFMEM_APP_PERSONA_A2_LINK_SWITCH          0x00000004u
@@ -192,15 +207,17 @@ typedef enum {
 
 typedef enum {
     REFMEM_APP_TABLE_APPLICATION_MAP = 0u,
-    REFMEM_APP_TABLE_NODE_LOAD = 1u,
-    REFMEM_APP_TABLE_FB_INSTANCE = 2u,
-    REFMEM_APP_TABLE_EVENT_LINK = 3u,
-    REFMEM_APP_TABLE_DATA_LINK = 4u,
-    REFMEM_APP_TABLE_DEPLOYMENT_GATE = 5u,
-    REFMEM_APP_TABLE_CONNECTION_QUALITY = 6u,
+    REFMEM_APP_TABLE_GENERIC_NODE = 1u,
+    REFMEM_APP_TABLE_NODE_LOAD = 2u,
+    REFMEM_APP_TABLE_FB_INSTANCE = 3u,
+    REFMEM_APP_TABLE_EVENT_LINK = 4u,
+    REFMEM_APP_TABLE_DATA_LINK = 5u,
+    REFMEM_APP_TABLE_DEPLOYMENT_GATE = 6u,
+    REFMEM_APP_TABLE_CONNECTION_QUALITY = 7u,
 } refmem_app_table_id_t;
 
 #define REFMEM_APP_TABLE_MASK_ALL ((1u << REFMEM_APP_TABLE_APPLICATION_MAP) | \
+                                   (1u << REFMEM_APP_TABLE_GENERIC_NODE) | \
                                    (1u << REFMEM_APP_TABLE_NODE_LOAD) | \
                                    (1u << REFMEM_APP_TABLE_FB_INSTANCE) | \
                                    (1u << REFMEM_APP_TABLE_EVENT_LINK) | \
@@ -224,10 +241,14 @@ typedef struct {
     uint32_t application_version;
     uint32_t profile_id;
     uint32_t layout_version;
-    uint32_t node_count;
     uint32_t target_node_mask;
-    refmem_app_node_entry_t node[REFMEM_APP_MODEL_NODE_COUNT];
 } refmem_application_map_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t node_count;
+    refmem_app_node_entry_t node[REFMEM_APP_MODEL_NODE_COUNT];
+} refmem_generic_node_table_t;
 
 typedef struct {
     uint32_t load_id;
@@ -371,6 +392,7 @@ typedef struct {
     uint32_t target_node_mask;
     uint32_t table_mask;
     uint32_t application_map_crc32;
+    uint32_t generic_node_crc32;
     uint32_t node_load_crc32;
     uint32_t fb_instance_crc32;
     uint32_t event_link_crc32;
@@ -385,6 +407,7 @@ typedef struct {
 bool refmem_application_model_init(void);
 bool refmem_application_model_validate(void);
 const refmem_application_map_t *refmem_application_model_get_application_map(void);
+const refmem_generic_node_table_t *refmem_application_model_get_generic_node_table(void);
 const refmem_node_load_table_t *refmem_application_model_get_node_load_table(void);
 const refmem_fb_instance_table_t *refmem_application_model_get_fb_instance_table(void);
 const refmem_event_link_table_t *refmem_application_model_get_event_link_table(void);
