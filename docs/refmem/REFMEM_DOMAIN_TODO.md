@@ -58,6 +58,13 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 文档定义 `DistributedConnectionQualityTable`，覆盖 seq、CRC、stale、late、drop、timeout、last_error、p99/p999 和 evidence index。
 - [x] 将静态模型表落到 `refmem_application_model.h/.c`，首版包含 ApplicationMap、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality。
 - [ ] 定义静态模型表的 binary/TLV 存储格式、CRC、版本兼容和 System Pack 导入策略。
+- [x] 增加 RefMem load 状态机首版：`IDLE / LOAD_TO_STAGING / VALIDATING / ACTIVATING / FAULT`，区分 load mode 与 staging image 状态。
+- [x] 增加 SCPI SD 加载 staging 骨架：`SYSTem:REFMEM:LOAD:SD` 只在 RefMem `mode=IDLE` 且实时触发空闲时扫描 System Pack manifest，并把结果写入 staging load snapshot，不直接覆盖 active。
+- [x] 增加 SCPI 直接节点配置 staging 骨架：`SYSTem:REFMEM:LOAD:NODE` 可提交一条 NodeLoad 候选，用于调试、节点实例化验证和后续自组网协调输入。
+- [x] 增加 `SYSTem:REFMEM:LOAD:STATus?`，固定返回 load_seq、source、mode、staging_state、active/staging CRC、lint/error 和候选节点字段。
+- [ ] 将 `SYSTem:REFMEM:LOAD:SD` 从 manifest 占位升级为真实 TLV/System Pack parser，导入 ApplicationMap、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate 和 QualityTable staging image。
+- [ ] 将 `SYSTem:REFMEM:LOAD:NODE` 从单条候选 snapshot 升级为 staging NodeLoadTable image，支持多条候选、CRC、owner validation 和回滚。
+- [ ] 增加类似 OTA 的 SCPI package 分块加载：`BEGIN/DATA/END/ABORT`，用于传输完整 RefMem application/node package 到 staging，完成后统一 CRC/lint/owner validation。
 - [ ] 将 DeploymentGate 输出映射到 `SYSTem:REFMEM:STATus?` / 诊断 evidence / RUN gate。
 - [x] 增加静态模型 linter：检查 instance id、node id、role/persona、resource claim、IO claim、writer 唯一性和 event/data link 完整性。
 - [x] 增加静态模型 package CRC：分别覆盖 ApplicationMap、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality。
@@ -147,7 +154,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 - [ ] 修改 `application/src/app_tasks.c`，把 `task_refmem_sync` 的职责描述收敛到 RefMem Domain owner。
 - [ ] 修改 `application/src/app.c`，逐步去掉直接 `distributed_refmem_*` 调用，改成 RefMem Domain 初始化/service。
-- [ ] 修改 `middleware/scpi_port/src/scpi_system_snapshot_commands.c`，保持 SCPI 读取 snapshot，不触发现场动作。
+- [x] 修改 `middleware/scpi_port/src/scpi_system_snapshot_commands.c`，保持 `SYSTem:REFMEM:*` 读取 snapshot 或写 staging load 意图，不触发跨板查询或现场 IO，不直接覆盖 active。
 - [ ] 保持 `SYSTem:REFMEM:*` 为系统维护入口，不新增裸顶级 `REFMEM` SCPI 域。
 
 ## P8 - 验证
@@ -157,6 +164,9 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 构建验证 build-rtos-multicore-smoke。
 - [ ] 板端记录 `SYSTem:REFMEM:STATus?`。
 - [ ] 板端记录 `SYSTem:REFMEM:NODE?`。
+- [ ] 板端记录 `SYSTem:REFMEM:LOAD:STATus?`。
+- [ ] 板端验证 `SYSTem:REFMEM:LOAD:NODE` 合法候选 staged、非法 node/instance rejected。
+- [ ] 板端验证 `SYSTem:REFMEM:LOAD:SD` 在无 SD、manifest 缺失、manifest OK 三种路径下返回固定 snapshot 且不改 active。
 - [ ] 板端记录 `SYSTem:CORE?` core1 heartbeat。
 - [ ] 板端记录 `SYSTem:PROTection:STATus?` runtime protection snapshot。
 - [ ] 故障注入 stale、CRC error、timeout、NACK reason。

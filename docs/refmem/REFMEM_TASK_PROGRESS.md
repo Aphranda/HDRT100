@@ -43,6 +43,49 @@ DistributedRefMemAO
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-015 - RefMem SCPI staging load 首版
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 在 RefMem 自身状态机 `mode=IDLE` 时支持 SCPI 发起 SD/System Pack 加载。
+  - 支持通过 SCPI 直接提交节点装载配置候选到 RefMem staging，用于节点实例化和后续自组网协调验证。
+  - 加载只进入 staging snapshot，不直接覆盖 active NodeLoadTable 或 live NodeSlot fact。
+- 完成内容：
+  - `refmem_application_model.h/.c` 增加 RefMem load 状态机枚举：`IDLE / LOAD_TO_STAGING / VALIDATING / ACTIVATING / FAULT`。
+  - 增加 staging 状态枚举：`EMPTY / STAGED / VALIDATED / FAILED`，并建立 `refmem_application_model_load_snapshot_t`。
+  - 增加 `refmem_application_model_stage_sd_system_pack()`：接收 Storage manifest 结果，当前用已编译静态应用模型 package CRC 写入 staging snapshot，占位等待真实 TLV/System Pack parser。
+  - 增加 `refmem_application_model_stage_scpi_node_config()`：通过 SCPI inline 参数提交一条 NodeLoad 候选，校验 A0-A7 node 范围、instance 范围和基础 enable/required 位。
+  - `SYSTem:REFMEM:LOAD:SD [path]` 接入 StorageAO `MANIFEST_SCAN` job，只在 RefMem load mode 为 `IDLE` 且底层实时触发状态 `TRIG_STATE_IDLE` 时允许。
+  - `SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 接入 SCPI 节点候选 staging。
+  - `SYSTem:REFMEM:LOAD:STATus?` 固定返回 load snapshot，覆盖 load_seq、source、mode、staging_state、manifest、active/staging CRC、lint/error 和候选节点字段。
+  - 新增 `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`，固化 CDC/USBTMC RefMem load 命令验证。
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 和 `SCPI_COMMANDS.md` 同步 RefMem load 状态机与 SCPI 命令说明。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813143521`，package CRC `0xE86659C5`。
+  - `python tools/product_scpi_validate/product_scpi_validate.py --dry-run --skip-mode` 通过，生成 119 条产品 SCPI 固定响应用例；该脚本不覆盖 `scpi_system_snapshot_commands.h`，RefMem load 使用新增专用脚本验证。
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `python -m py_compile tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py tools/product_scpi_validate/product_scpi_validate.py` 通过。
+  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813143521 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_scpi_load` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813143521`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_scpi_load` 通过：`LOAD:STATus?` 初始 `mode=0`；合法 `LOAD:NODE 5,9,32,32,1,0,0` 返回 `STAGED`；非法 `LOAD:NODE 8,9,32,32,1,0,0` 返回 `REJECTED` 且 `last_error=4`；`LOAD:SD` 返回 `STAGED`，manifest build id `20260812074528`。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_scpi_load_multicore` 通过，16/16 passed。
+- 还需完成：
+  - 将 SD manifest 占位导入升级为真实 TLV/System Pack parser。
+  - 将 SCPI inline 单条 NodeLoad 候选升级为 staging NodeLoadTable image，支持多条候选、CRC、owner validation 和 activation。
+  - 增加类似 OTA 的 `BEGIN/DATA/END/ABORT` 分块传输完整 RefMem application/node package 到 staging。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/interface/SCPI_COMMANDS.md`
+- 下一步：
+  - OTA 烧录本轮固件，使用 CDC/USBTMC 查询 `SYSTem:REFMEM:LOAD:STATus?`、`LOAD:NODE` 和 `LOAD:SD`，确认 staging 快照闭环。
+
 ### REFMEM-TASK-20260813-014 - 全局逻辑插槽 claim 与自组网协调
 
 - 状态：完成

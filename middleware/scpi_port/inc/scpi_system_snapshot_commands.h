@@ -5,6 +5,9 @@
 
 scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_node_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_load_node(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_load_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_core_vector_q(scpi_t *context);
 scpi_result_t scpi_cmd_runtime_protection_q(scpi_t *context);
 scpi_result_t scpi_cmd_config_gate_status_q(scpi_t *context);
@@ -30,6 +33,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:SCPI:RUN:ALLOW?", .callback = scpi_cmd_scpi_run_allow_q}, \
     {.pattern = "SYSTem:REFMEM:STATus?", .callback = scpi_cmd_refmem_status_q}, \
     {.pattern = "SYSTem:REFMEM:NODE?", .callback = scpi_cmd_refmem_node_q}, \
+    {.pattern = "SYSTem:REFMEM:LOAD:SD", .callback = scpi_cmd_refmem_load_sd}, \
+    {.pattern = "SYSTem:REFMEM:LOAD:NODE", .callback = scpi_cmd_refmem_load_node}, \
+    {.pattern = "SYSTem:REFMEM:LOAD:STATus?", .callback = scpi_cmd_refmem_load_status_q}, \
     {.pattern = "SYSTem:CORE:VECTOR?", .callback = scpi_cmd_core_vector_q}, \
     {.pattern = "SYSTem:PROTection:STATus?", .callback = scpi_cmd_runtime_protection_q}, \
     {.pattern = "SYSTem:MODE:TABle?", .callback = scpi_cmd_system_mode_table_q}, \

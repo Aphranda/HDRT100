@@ -880,9 +880,38 @@ RefMem 不建立裸顶级 `REFMEM` SCPI 域。对外维护查询归 `SYSTem:REFM
 ```text
 SYSTem:REFMEM:STATus?
 SYSTem:REFMEM:NODE?
+SYSTem:REFMEM:LOAD:SD
+SYSTem:REFMEM:LOAD:NODE
+SYSTem:REFMEM:LOAD:STATus?
 ```
 
 SCPI callback 只能读取 RefMem snapshot 或写 command/config slot，不能临时触发跨板查询，也不能直接修改 state、summary、result、health、quality 或 evidence slot。
+
+### RefMem Load 状态机
+
+RefMem 动态加载不是产品 `TRIGger:MODE`，也不是 `ResourceArbiter` 的 BOOT/RUN/OTA。它是 `DistributedRefMemAO` 自己的表镜像状态机：
+
+| mode | 含义 | 允许入口 |
+|---|---|---|
+| `IDLE` | RefMem 没有 load/validate/activate 事务。 | 允许 `LOAD:SD`、`LOAD:NODE` 写 staging。 |
+| `LOAD_TO_STAGING` | 正在接收 SD/System Pack 或 SCPI inline 节点候选。 | 禁止新的 load begin。 |
+| `VALIDATING` | 正在做 CRC/lint/owner validation。 | 禁止新的 load begin。 |
+| `ACTIVATING` | staging 正在切换 active。 | 禁止新的 load begin，后续必须接全环 ACK。 |
+| `FAULT` | RefMem 加载或激活失败并锁存。 | 只允许维护清除或诊断查询。 |
+
+staging image 独立于 active image：
+
+```text
+SCPI / SD
+  -> RefMem mode IDLE gate
+  -> LOAD_TO_STAGING
+  -> VALIDATING
+  -> staging_state = VALIDATED / FAILED
+  -> mode 回到 IDLE
+  -> 后续 ACTIVATE 才允许替换 active
+```
+
+`SYSTem:REFMEM:LOAD:SD [path]` 扫描 SD `/manifest.idx`，把 System Pack 结果写入 RefMem staging load snapshot；当前代码首版用已编译的静态应用模型 package CRC 作为 staging image，占位等待后续 TLV parser 接入。`SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 允许 SCPI 直接提交一条 NodeLoad 候选到 staging，用于调试和自组网协调前的节点实例化验证。两者都不直接覆盖 active NodeLoadTable，也不修改 NodeSlot live fact。`SYSTem:REFMEM:LOAD:STATus?` 读取固定 snapshot：`version,load_seq,source,mode,staging_state,manifest_status,manifest_schema,manifest_required_count,manifest_missing_count,path_hash,active_package_crc32,staging_package_crc32,staging_lint_error_count,staging_first_lint_error,staging_node_id,staging_instance_id,staging_role_mask,staging_persona_mask,staging_enabled,staging_required,staging_load_order,last_error,manifest_build_id,path`。
 
 ## 当前实现现状
 

@@ -15,6 +15,7 @@
 #define REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT    11u
 #define REFMEM_APP_MODEL_QUALITY_COUNT             8u
 #define REFMEM_APP_MODEL_CLAIM_CANDIDATE_MAX       16u
+#define REFMEM_APP_MODEL_SD_MANIFEST_OK            1u
 
 #define REFMEM_APP_ROLE_BOARD                      0x00000001u
 #define REFMEM_APP_ROLE_PULSE_DISTRIBUTOR          0x00000002u
@@ -234,6 +235,36 @@ typedef enum {
                                    (1u << REFMEM_APP_TABLE_DEPLOYMENT_GATE) | \
                                    (1u << REFMEM_APP_TABLE_CONNECTION_QUALITY))
 
+typedef enum {
+    REFMEM_APP_LOAD_SOURCE_DEFAULT = 0u,
+    REFMEM_APP_LOAD_SOURCE_SD_SYSTEM_PACK = 1u,
+    REFMEM_APP_LOAD_SOURCE_SCPI_INLINE = 2u,
+} refmem_app_load_source_t;
+
+typedef enum {
+    REFMEM_APP_MODEL_MODE_IDLE = 0u,
+    REFMEM_APP_MODEL_MODE_LOAD_TO_STAGING = 1u,
+    REFMEM_APP_MODEL_MODE_VALIDATING = 2u,
+    REFMEM_APP_MODEL_MODE_ACTIVATING = 3u,
+    REFMEM_APP_MODEL_MODE_FAULT = 4u,
+} refmem_app_model_mode_t;
+
+typedef enum {
+    REFMEM_APP_STAGING_EMPTY = 0u,
+    REFMEM_APP_STAGING_STAGED = 1u,
+    REFMEM_APP_STAGING_VALIDATED = 2u,
+    REFMEM_APP_STAGING_FAILED = 3u,
+} refmem_app_staging_state_t;
+
+typedef enum {
+    REFMEM_APP_LOAD_OK = 0u,
+    REFMEM_APP_LOAD_ERR_BAD_ARGUMENT = 1u,
+    REFMEM_APP_LOAD_ERR_MANIFEST_NOT_OK = 2u,
+    REFMEM_APP_LOAD_ERR_LINT_FAILED = 3u,
+    REFMEM_APP_LOAD_ERR_NODE_RANGE = 4u,
+    REFMEM_APP_LOAD_ERR_INSTANCE_RANGE = 5u,
+} refmem_app_load_error_t;
+
 typedef struct {
     uint32_t node_id;
     uint32_t node_uuid_crc32;
@@ -415,8 +446,49 @@ typedef struct {
     uint32_t first_lint_error;
 } refmem_application_model_snapshot_t;
 
+typedef struct {
+    uint32_t version;
+    uint32_t load_seq;
+    uint32_t source;
+    uint32_t mode;
+    uint32_t staging_state;
+    uint32_t manifest_status;
+    uint32_t manifest_schema;
+    uint32_t manifest_required_count;
+    uint32_t manifest_missing_count;
+    uint32_t path_hash;
+    uint32_t active_package_crc32;
+    uint32_t staging_package_crc32;
+    uint32_t staging_lint_error_count;
+    uint32_t staging_first_lint_error;
+    uint32_t staging_node_id;
+    uint32_t staging_instance_id;
+    uint32_t staging_role_mask;
+    uint32_t staging_persona_mask;
+    uint32_t staging_enabled;
+    uint32_t staging_required;
+    uint32_t staging_load_order;
+    uint32_t last_error;
+    char manifest_build_id[32];
+    char path[96];
+} refmem_application_model_load_snapshot_t;
+
 bool refmem_application_model_init(void);
 bool refmem_application_model_validate(void);
+bool refmem_application_model_stage_sd_system_pack(const char *path,
+                                                   uint32_t path_hash,
+                                                   uint32_t manifest_status,
+                                                   uint32_t manifest_schema,
+                                                   uint32_t manifest_required_count,
+                                                   uint32_t manifest_missing_count,
+                                                   const char *manifest_build_id);
+bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
+                                                     uint32_t instance_id,
+                                                     uint32_t role_mask,
+                                                     uint32_t persona_mask,
+                                                     uint32_t enabled,
+                                                     uint32_t required,
+                                                     uint32_t load_order);
 const refmem_application_map_t *refmem_application_model_get_application_map(void);
 const refmem_generic_node_table_t *refmem_application_model_get_generic_node_table(void);
 const refmem_node_load_table_t *refmem_application_model_get_node_load_table(void);
@@ -426,5 +498,6 @@ const refmem_data_link_table_t *refmem_application_model_get_data_link_table(voi
 const refmem_deployment_gate_table_t *refmem_application_model_get_deployment_gate(void);
 const refmem_connection_quality_table_t *refmem_application_model_get_connection_quality(void);
 const refmem_application_model_snapshot_t *refmem_application_model_get_snapshot(void);
+void refmem_application_model_get_load_snapshot(refmem_application_model_load_snapshot_t *snapshot);
 
 #endif

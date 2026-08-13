@@ -289,9 +289,11 @@ static const refmem_connection_quality_table_t s_connection_quality = {
 };
 
 static refmem_application_model_snapshot_t s_snapshot;
+static refmem_application_model_load_snapshot_t s_load_snapshot;
 static bool s_initialized;
 
 static bool refmem_model_instance_enabled(const refmem_fb_instance_entry_t *instance);
+static void refmem_model_copy_text(char *dst, size_t dst_size, const char *src);
 
 static uint32_t refmem_model_crc32_update(uint32_t crc, const void *data, size_t size)
 {
@@ -952,6 +954,25 @@ static void refmem_model_lint(uint32_t *error_count, uint32_t *first_error)
                            first_error);
 }
 
+static void refmem_model_copy_text(char *dst, size_t dst_size, const char *src)
+{
+    if (dst == NULL || dst_size == 0u) {
+        return;
+    }
+
+    if (src == NULL) {
+        dst[0] = '\0';
+        return;
+    }
+
+    size_t i = 0u;
+    while (i + 1u < dst_size && src[i] != '\0') {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = '\0';
+}
+
 bool refmem_application_model_validate(void)
 {
     uint32_t error_count;
@@ -992,8 +1013,155 @@ bool refmem_application_model_init(void)
                                   sizeof(package_fields) / sizeof(package_fields[0]));
     refmem_model_lint(&s_snapshot.lint_error_count, &s_snapshot.first_lint_error);
     s_snapshot.valid = s_snapshot.lint_error_count == 0u ? 1u : 0u;
+
+    memset(&s_load_snapshot, 0, sizeof(s_load_snapshot));
+    s_load_snapshot.version = REFMEM_APP_MODEL_VERSION;
+    s_load_snapshot.source = REFMEM_APP_LOAD_SOURCE_DEFAULT;
+    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+    s_load_snapshot.staging_state = REFMEM_APP_STAGING_EMPTY;
+    s_load_snapshot.active_package_crc32 = s_snapshot.package_crc32;
+    s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
+
     s_initialized = true;
     return s_snapshot.valid != 0u;
+}
+
+bool refmem_application_model_stage_sd_system_pack(const char *path,
+                                                   uint32_t path_hash,
+                                                   uint32_t manifest_status,
+                                                   uint32_t manifest_schema,
+                                                   uint32_t manifest_required_count,
+                                                   uint32_t manifest_missing_count,
+                                                   const char *manifest_build_id)
+{
+    if (!s_initialized) {
+        (void)refmem_application_model_init();
+    }
+
+    if (s_load_snapshot.mode != REFMEM_APP_MODEL_MODE_IDLE) {
+        s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_BAD_ARGUMENT;
+        return false;
+    }
+
+    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_LOAD_TO_STAGING;
+    s_load_snapshot.load_seq++;
+    s_load_snapshot.source = REFMEM_APP_LOAD_SOURCE_SD_SYSTEM_PACK;
+    s_load_snapshot.manifest_status = manifest_status;
+    s_load_snapshot.manifest_schema = manifest_schema;
+    s_load_snapshot.manifest_required_count = manifest_required_count;
+    s_load_snapshot.manifest_missing_count = manifest_missing_count;
+    s_load_snapshot.path_hash = path_hash;
+    s_load_snapshot.active_package_crc32 = s_snapshot.package_crc32;
+    refmem_model_copy_text(s_load_snapshot.path, sizeof(s_load_snapshot.path), path);
+    refmem_model_copy_text(s_load_snapshot.manifest_build_id,
+                           sizeof(s_load_snapshot.manifest_build_id),
+                           manifest_build_id);
+
+    if (manifest_status != REFMEM_APP_MODEL_SD_MANIFEST_OK || manifest_missing_count != 0u) {
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+        s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
+        s_load_snapshot.staging_package_crc32 = 0u;
+        s_load_snapshot.staging_lint_error_count = 1u;
+        s_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_BAD_TABLE_VERSION;
+        s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_MANIFEST_NOT_OK;
+        return false;
+    }
+
+    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_VALIDATING;
+    s_load_snapshot.staging_package_crc32 = s_snapshot.package_crc32;
+    s_load_snapshot.staging_lint_error_count = s_snapshot.lint_error_count;
+    s_load_snapshot.staging_first_lint_error = s_snapshot.first_lint_error;
+    s_load_snapshot.staging_node_id = 0u;
+    s_load_snapshot.staging_instance_id = 0u;
+    s_load_snapshot.staging_role_mask = 0u;
+    s_load_snapshot.staging_persona_mask = 0u;
+    s_load_snapshot.staging_enabled = 0u;
+    s_load_snapshot.staging_required = 0u;
+    s_load_snapshot.staging_load_order = 0u;
+    if (s_snapshot.valid == 0u) {
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+        s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
+        s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_LINT_FAILED;
+        return false;
+    }
+
+    s_load_snapshot.staging_state = REFMEM_APP_STAGING_VALIDATED;
+    s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
+    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+    return true;
+}
+
+bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
+                                                     uint32_t instance_id,
+                                                     uint32_t role_mask,
+                                                     uint32_t persona_mask,
+                                                     uint32_t enabled,
+                                                     uint32_t required,
+                                                     uint32_t load_order)
+{
+    if (!s_initialized) {
+        (void)refmem_application_model_init();
+    }
+
+    if (s_load_snapshot.mode != REFMEM_APP_MODEL_MODE_IDLE) {
+        s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_BAD_ARGUMENT;
+        return false;
+    }
+
+    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_LOAD_TO_STAGING;
+    s_load_snapshot.load_seq++;
+    s_load_snapshot.source = REFMEM_APP_LOAD_SOURCE_SCPI_INLINE;
+    s_load_snapshot.manifest_status = 0u;
+    s_load_snapshot.manifest_schema = 0u;
+    s_load_snapshot.manifest_required_count = 0u;
+    s_load_snapshot.manifest_missing_count = 0u;
+    s_load_snapshot.path_hash = 0u;
+    s_load_snapshot.active_package_crc32 = s_snapshot.package_crc32;
+    s_load_snapshot.staging_package_crc32 = s_snapshot.package_crc32;
+    s_load_snapshot.staging_node_id = node_id;
+    s_load_snapshot.staging_instance_id = instance_id;
+    s_load_snapshot.staging_role_mask = role_mask;
+    s_load_snapshot.staging_persona_mask = persona_mask;
+    s_load_snapshot.staging_enabled = enabled;
+    s_load_snapshot.staging_required = required;
+    s_load_snapshot.staging_load_order = load_order;
+    s_load_snapshot.manifest_build_id[0] = '\0';
+    s_load_snapshot.path[0] = '\0';
+
+    if (node_id >= REFMEM_APP_MODEL_NODE_COUNT) {
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+        s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
+        s_load_snapshot.staging_lint_error_count = 1u;
+        s_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_BAD_NODE_RANGE;
+        s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_NODE_RANGE;
+        return false;
+    }
+
+    if (!refmem_model_instance_exists(instance_id) ||
+        enabled > 1u ||
+        required > 1u) {
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+        s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
+        s_load_snapshot.staging_lint_error_count = 1u;
+        s_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_BAD_INSTANCE_RANGE;
+        s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_INSTANCE_RANGE;
+        return false;
+    }
+
+    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_VALIDATING;
+    s_load_snapshot.staging_lint_error_count = s_snapshot.lint_error_count;
+    s_load_snapshot.staging_first_lint_error = s_snapshot.first_lint_error;
+    if (s_snapshot.valid == 0u) {
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+        s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
+        s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_LINT_FAILED;
+        return false;
+    }
+
+    s_load_snapshot.staging_state = REFMEM_APP_STAGING_VALIDATED;
+    s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
+    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+    return true;
 }
 
 const refmem_application_map_t *refmem_application_model_get_application_map(void)
@@ -1042,4 +1210,15 @@ const refmem_application_model_snapshot_t *refmem_application_model_get_snapshot
         (void)refmem_application_model_init();
     }
     return &s_snapshot;
+}
+
+void refmem_application_model_get_load_snapshot(refmem_application_model_load_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+    if (!s_initialized) {
+        (void)refmem_application_model_init();
+    }
+    *snapshot = s_load_snapshot;
 }

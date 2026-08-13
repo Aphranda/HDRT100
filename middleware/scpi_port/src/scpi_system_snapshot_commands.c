@@ -5,8 +5,21 @@
 
 #include "distributed_config.h"
 #include "distributed_refmem.h"
+#include "osal.h"
 #include "project_build_info.h"
+#include "refmem_application_model.h"
+#include "scpi_port_internal.h"
+#include "storage_manager.h"
 #include "system_manager.h"
+#include "sync_trigger.h"
+
+#define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 200u
+
+static bool scpi_refmem_wait_storage_job(uint32_t job_id);
+static bool scpi_refmem_model_mode_idle(void);
+static bool scpi_refmem_realtime_idle(void);
+static void scpi_refmem_result_load_snapshot(scpi_t *context,
+                                             const refmem_application_model_load_snapshot_t *snapshot);
 
 scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context)
 {
@@ -46,6 +59,188 @@ scpi_result_t scpi_cmd_refmem_node_q(scpi_t *context)
     SCPI_ResultUInt32(context, node.flags);
     SCPI_ResultUInt32(context, node.node_type);
     return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
+{
+    if (!scpi_refmem_model_mode_idle()) {
+        scpi_port_push_exec_error(context, "REFMEM_MODE_NOT_IDLE");
+        return SCPI_RES_ERR;
+    }
+
+    if (!scpi_refmem_realtime_idle()) {
+        scpi_port_push_exec_error(context, "REFMEM_RT_NOT_IDLE");
+        return SCPI_RES_ERR;
+    }
+
+    const char *path = NULL;
+    size_t path_len = 0u;
+    (void)SCPI_ParamCharacters(context, &path, &path_len, FALSE);
+    if (path != NULL && path_len >= 96u) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t job_id = 0u;
+    if (!storage_manager_post_manifest_scan_job(&job_id)) {
+        scpi_port_push_exec_error(context, "REFMEM_SD_JOB_BUSY");
+        return SCPI_RES_ERR;
+    }
+    (void)scpi_refmem_wait_storage_job(job_id);
+
+    storage_manager_job_result_t job;
+    storage_manager_get_job_result(&job);
+    if (job.id != job_id ||
+        job.state == STORAGE_MANAGER_JOB_STATE_QUEUED ||
+        job.state == STORAGE_MANAGER_JOB_STATE_RUNNING) {
+        scpi_port_push_exec_error(context, "REFMEM_SD_JOB_INCOMPLETE");
+        return SCPI_RES_ERR;
+    }
+
+    storage_manager_vector_t vector;
+    storage_manager_get_vector(&vector);
+    const char *load_path = (path != NULL && path_len > 0u) ? path : job.path;
+    char path_buffer[96];
+    if (path != NULL && path_len > 0u) {
+        for (size_t i = 0u; i < path_len; i++) {
+            path_buffer[i] = path[i];
+        }
+        path_buffer[path_len] = '\0';
+        load_path = path_buffer;
+    }
+
+    const bool staged =
+        refmem_application_model_stage_sd_system_pack(load_path,
+                                                      job.path_hash,
+                                                      (uint32_t)vector.manifest_status,
+                                                      vector.manifest_schema,
+                                                      vector.manifest_required_count,
+                                                      vector.manifest_missing_count,
+                                                      vector.manifest_build_id);
+
+    refmem_application_model_load_snapshot_t snapshot;
+    refmem_application_model_get_load_snapshot(&snapshot);
+    SCPI_ResultText(context, staged ? "STAGED" : "REJECTED");
+    scpi_refmem_result_load_snapshot(context, &snapshot);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_load_node(scpi_t *context)
+{
+    if (!scpi_refmem_model_mode_idle()) {
+        scpi_port_push_exec_error(context, "REFMEM_MODE_NOT_IDLE");
+        return SCPI_RES_ERR;
+    }
+
+    if (!scpi_refmem_realtime_idle()) {
+        scpi_port_push_exec_error(context, "REFMEM_RT_NOT_IDLE");
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t node_id = 0u;
+    uint32_t instance_id = 0u;
+    uint32_t role_mask = 0u;
+    uint32_t persona_mask = 0u;
+    uint32_t enabled = 1u;
+    uint32_t required = 0u;
+    uint32_t load_order = 0u;
+    if (!scpi_port_read_u32(context, &node_id) ||
+        !scpi_port_read_u32(context, &instance_id) ||
+        !scpi_port_read_u32(context, &role_mask) ||
+        !scpi_port_read_u32(context, &persona_mask)) {
+        return SCPI_RES_ERR;
+    }
+    (void)SCPI_ParamUInt32(context, &enabled, FALSE);
+    (void)SCPI_ParamUInt32(context, &required, FALSE);
+    (void)SCPI_ParamUInt32(context, &load_order, FALSE);
+
+    const bool staged =
+        refmem_application_model_stage_scpi_node_config(node_id,
+                                                        instance_id,
+                                                        role_mask,
+                                                        persona_mask,
+                                                        enabled,
+                                                        required,
+                                                        load_order);
+
+    refmem_application_model_load_snapshot_t snapshot;
+    refmem_application_model_get_load_snapshot(&snapshot);
+    SCPI_ResultText(context, staged ? "STAGED" : "REJECTED");
+    scpi_refmem_result_load_snapshot(context, &snapshot);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_load_status_q(scpi_t *context)
+{
+    refmem_application_model_load_snapshot_t snapshot;
+    refmem_application_model_get_load_snapshot(&snapshot);
+    scpi_refmem_result_load_snapshot(context, &snapshot);
+    return SCPI_RES_OK;
+}
+
+static bool scpi_refmem_wait_storage_job(uint32_t job_id)
+{
+    for (uint32_t i = 0u; i < SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS; i++) {
+#if PROJECT_USE_FREERTOS
+        osal_task_delay_ms(1u);
+#else
+        storage_manager_service(250u);
+#endif
+        storage_manager_job_result_t job;
+        storage_manager_get_job_result(&job);
+        if (job.id != job_id) {
+            return false;
+        }
+        if (job.state == STORAGE_MANAGER_JOB_STATE_DONE) {
+            return true;
+        }
+        if (job.state == STORAGE_MANAGER_JOB_STATE_FAILED) {
+            return false;
+        }
+    }
+    return false;
+}
+
+static bool scpi_refmem_model_mode_idle(void)
+{
+    refmem_application_model_load_snapshot_t snapshot;
+    refmem_application_model_get_load_snapshot(&snapshot);
+    return snapshot.mode == REFMEM_APP_MODEL_MODE_IDLE;
+}
+
+static bool scpi_refmem_realtime_idle(void)
+{
+    trigger_vector_t vector;
+    sync_trigger_get_vector(&vector);
+    return vector.state == TRIG_STATE_IDLE;
+}
+
+static void scpi_refmem_result_load_snapshot(scpi_t *context,
+                                             const refmem_application_model_load_snapshot_t *snapshot)
+{
+    SCPI_ResultUInt32(context, snapshot->version);
+    SCPI_ResultUInt32(context, snapshot->load_seq);
+    SCPI_ResultUInt32(context, snapshot->source);
+    SCPI_ResultUInt32(context, snapshot->mode);
+    SCPI_ResultUInt32(context, snapshot->staging_state);
+    SCPI_ResultUInt32(context, snapshot->manifest_status);
+    SCPI_ResultUInt32(context, snapshot->manifest_schema);
+    SCPI_ResultUInt32(context, snapshot->manifest_required_count);
+    SCPI_ResultUInt32(context, snapshot->manifest_missing_count);
+    SCPI_ResultUInt32(context, snapshot->path_hash);
+    SCPI_ResultUInt32(context, snapshot->active_package_crc32);
+    SCPI_ResultUInt32(context, snapshot->staging_package_crc32);
+    SCPI_ResultUInt32(context, snapshot->staging_lint_error_count);
+    SCPI_ResultUInt32(context, snapshot->staging_first_lint_error);
+    SCPI_ResultUInt32(context, snapshot->staging_node_id);
+    SCPI_ResultUInt32(context, snapshot->staging_instance_id);
+    SCPI_ResultUInt32(context, snapshot->staging_role_mask);
+    SCPI_ResultUInt32(context, snapshot->staging_persona_mask);
+    SCPI_ResultUInt32(context, snapshot->staging_enabled);
+    SCPI_ResultUInt32(context, snapshot->staging_required);
+    SCPI_ResultUInt32(context, snapshot->staging_load_order);
+    SCPI_ResultUInt32(context, snapshot->last_error);
+    SCPI_ResultText(context, snapshot->manifest_build_id);
+    SCPI_ResultText(context, snapshot->path);
 }
 
 scpi_result_t scpi_cmd_core_vector_q(scpi_t *context)
