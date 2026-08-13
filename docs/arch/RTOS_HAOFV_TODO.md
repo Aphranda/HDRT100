@@ -57,7 +57,12 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 
 ## P2 - 跨核通信与实时核保护
 
-- [ ] 根据风险 `HAOFV-RISK-20260813-004`，将 Flash/XIP 双核冲突列为 P2 首要硬约束。
+- [x] 根据风险 `HAOFV-RISK-20260813-004`，将 Flash/XIP 双核冲突列为 P2 首要硬约束。
+- [x] 在 `RTOS_HAOFV_ARCHITECTURE.md` 定义 Flash/XIP 双核保护框架、状态机、接口契约、可观测字段和验证门禁。
+- [ ] 定义 `FlashWriteOwner` 框架入口，禁止 OtaAO/metadata/config 落盘直接调用底层 erase/program。
+- [ ] Resource Arbiter 增加 `FLASH_BUS` 资源、owner、timeout、conflict holder 和 fault escalation。
+- [ ] 定义 `Core1LockoutGate` request/ack/state/sequence/timeout/last_result 共享结构。
+- [ ] 将 RuntimeProtectionTable 字段对齐到 `flash_lockout_supported/online/requested/acknowledged/park_state/last_result/elapsed_us`。
 - [ ] 抽象 `trigger_command_queue`，替代直接暴露 TriggerAO 内部队列。
 - [ ] 抽象 `trigger_status_ring`，core1 只写轻量事件，core0 负责格式化和落盘。
 - [ ] 增加跨核 doorbell 作为唤醒信号，业务 payload 仍走队列。
@@ -67,6 +72,7 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [ ] Flash erase/program 前必须申请 Flash bus 资源锁并等待 core1 park/lockout ACK。
 - [ ] core1 增加 `WAIT_FOR_FLASH` / `PARKED_FOR_FLASH` 或等价可观测状态。
 - [ ] Flash 临界区超时或 core1 未 ACK 时进入 FAULT，禁止继续 erase/program。
+- [ ] 增加 core1 不 ACK 故障注入验证，确认 Flash job 不执行并返回 NACK/fault。
 - [ ] 审计 `storage_manager_trace_event()`，禁止 core1 直接调用。
 - [ ] 为 core1 增加 stack/heartbeat/last_event 诊断字段。
 - [ ] 拆分 core0/core1/shared 三类内存区域。

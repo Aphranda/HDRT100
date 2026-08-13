@@ -112,7 +112,7 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 
 ### HAOFV-MAINT-20260813-004 - CONFIG/LoopEngine 还没有真实配置数据面
 
-- 状态：待开始
+- 状态：进行中
 - 问题：
   - `CONFigure:TRIGger`、`CONFigure:ANGLe:*`、`CONFigure:SEQuence`、`CONFigure:SWITCH#` 多数查询仍返回固定样例。
   - 暂未形成 staged/active 配置、CRC、ACK/NACK、门禁和运行计划展开。
@@ -264,9 +264,13 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - 当前只有 park/lockout 方向，尚未形成强制资源锁、core1 状态和验证门禁。
 - 待办：
   - [x] 在 `HAOFV_ARCHITECTURE.md` 增加双核 Flash/XIP 顶层硬约束。
+  - [x] 在 `RTOS_HAOFV_ARCHITECTURE.md` 写入 Flash/XIP 双核保护框架、状态机、接口契约、可观测字段和验证门禁。
+  - [ ] 定义 `FlashWriteOwner` 框架入口，所有 OTA/metadata/config 落盘先进入该 owner，不直接调用底层 erase/program。
   - [ ] Resource Arbiter 增加 `SYS_RESOURCE_FLASH_BUS` 或等价资源锁。
+  - [ ] 定义 `Core1LockoutGate` request/ack/state/sequence/timeout/last_result 共享结构。
   - [ ] Flash 临界区进入前强制 core1 park/lockout ACK；超时进入 FAULT。
   - [ ] core1 增加 `WAIT_FOR_FLASH` / `PARKED_FOR_FLASH` 可观测状态。
+  - [ ] RuntimeProtectionTable 对齐 lockout support/online/requested/acknowledged/park_state/last_result/elapsed_us。
   - [ ] 验证 OTA/metadata/program 路径中 core1 heartbeat、park ack 和恢复状态。
 - 落地去向：
   - `docs/arch/RTOS_HAOFV_TODO.md` P2。

@@ -66,6 +66,35 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260813-007 - Flash/XIP 双核保护框架补齐
+
+- 状态：框架完成，代码未改
+- 日期：2026-08-13
+- 任务目标：
+  - 先处理 S0 架构风险 `HAOFV-RISK-20260813-004`，不修改代码，只把 Flash/XIP 双核保护框架写清楚。
+  - 将 core0 Flash 写入、core1 park/lockout、Resource Arbiter、RuntimeProtectionTable 和验证门禁串成统一实施契约。
+- 完成内容：
+  - 在 `RTOS_HAOFV_ARCHITECTURE.md` 新增 `Flash/XIP 双核保护框架` 小节。
+  - 定义参与组件：`FlashWriteOwner`、`Resource Arbiter`、`Core1LockoutGate`、`core1_realtime`、`RuntimeProtectionTable` 和 `DiagnosticsAO`。
+  - 定义 Flash 写入状态机：`FLASH_IDLE`、`REQUEST_LOCKOUT`、`WAIT_CORE1_ACK`、`PARKED_FOR_FLASH`、`FLASH_CRITICAL`、`RELEASE_LOCKOUT`、`FAULT_TIMEOUT`。
+  - 定义接口契约：Flash 写请求、`FLASH_BUS` 资源申请、core1 lockout request/ack、runtime protection snapshot 和 flash write result。
+  - 定义可观测字段和最小验证门禁，覆盖 lockout supported/online/requested/acknowledged、park_state、last_result 和 elapsed_us。
+  - 在 `RTOS_HAOFV_TODO.md` P2 中拆出后续实现待办。
+  - 在 `HAOFV_MAINTENANCE_TODO.md` 的 S0 风险项中计入本次框架补齐。
+- 验证结果：
+  - 本轮为文档框架修改，未执行代码构建、烧录或板端 SCPI。
+- 还需完成：
+  - 定义并实现 `FlashWriteOwner` 框架入口。
+  - Resource Arbiter 增加 `FLASH_BUS` 资源、owner、timeout、conflict holder 和 fault escalation。
+  - 定义 `Core1LockoutGate` 共享结构并对齐 RuntimeProtectionTable。
+  - 增加 core1 不 ACK 故障注入验证，确认 Flash job 不执行并返回 NACK/fault。
+- 关联文件：
+  - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
+  - `docs/arch/RTOS_HAOFV_TODO.md`
+  - `docs/arch/HAOFV_MAINTENANCE_TODO.md`
+- 下一步：
+  - 继续处理 S0 的实现前框架收敛：先完成 RuntimeProtectionTable/RefMem/SCPI 字段契约，再进入代码实现。
+
 ### RTOS-DIST-TASK-20260813-006 - App 组合根与 RTOS Task Registry 收窄
 
 - 状态：完成

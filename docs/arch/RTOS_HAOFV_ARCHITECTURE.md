@@ -80,6 +80,85 @@ USB、SCPI、SD、OTA、LCD 和日志抖动不能进入真实触发边沿。
 
 core1 禁止执行 FatFs、USB、SCPI、OTA flash job、LCD 刷新、阻塞日志格式化、动态内存申请和无界等待。
 
+## Flash/XIP 双核保护框架
+
+Flash erase/program 是 RTOS + 双核 AMP 的 S0 风险路径。框架目标不是让 Flash 写入更快，而是保证任何擦写都不会让 core1 在 XIP 总线不可用时取指、取常量或进入不可恢复状态。
+
+### 参与组件
+
+| 组件 | 角色 | 职责 |
+|---|---|---|
+| `FlashWriteOwner` | core0 | 唯一允许发起 erase/program 的 owner，可由 OtaAO、Boot metadata 写入、配置落盘通过受控 API 请求。 |
+| `Resource Arbiter` | core0 | 提供 `FLASH_BUS` 互斥资源，统一记录 owner、冲突、timeout 和 fault escalation。 |
+| `Core1LockoutGate` | core0/core1 shared | 提供 request、ack、state、timeout、last_result 和 sequence。 |
+| `core1_realtime` | core1 | 在循环快路径轮询 lockout request，进入 RAM resident park 状态。 |
+| `RuntimeProtectionTable` | shared/refmem | 暴露 lockout support、online、requested、acknowledged、park_state、last_result。 |
+| `DiagnosticsAO` | core0 | 记录 timeout、unexpected XIP access suspect、overrun、restore failure 和 release 事件。 |
+
+### 状态机
+
+| 状态 | owner | 说明 | 允许转移 |
+|---|---|---|---|
+| `FLASH_IDLE` | core0 | 无 Flash 写请求，core1 正常运行实时循环。 | `REQUEST_LOCKOUT` |
+| `REQUEST_LOCKOUT` | core0 | 已获得或正在申请 `FLASH_BUS`，向 core1 设置 lockout request。 | `WAIT_CORE1_ACK` / `DENY` |
+| `WAIT_CORE1_ACK` | core0 | 等待 core1 ACK；该等待必须有固定 timeout。 | `PARKED_FOR_FLASH` / `FAULT_TIMEOUT` |
+| `PARKED_FOR_FLASH` | core1 | core1 已进入 RAM resident park loop，不访问 XIP。 | `FLASH_CRITICAL` |
+| `FLASH_CRITICAL` | core0 | core0 执行 erase/program；禁止 USB/SD/LCD/日志长路径进入 Flash resident 代码。 | `RELEASE_LOCKOUT` / `FAULT_WRITE` |
+| `RELEASE_LOCKOUT` | core0 | 清除 request，等待 core1 退出 park，释放 `FLASH_BUS`。 | `FLASH_IDLE` / `FAULT_RELEASE` |
+| `FAULT_TIMEOUT` | core0 | core1 未 ACK 或 release 超时；本次 Flash job 拒绝或失败。 | `FAULT` |
+
+状态机约束：
+
+- `FLASH_BUS` 资源锁必须先于 core1 lockout request。
+- 未获得 `FLASH_BUS` 时不得发起 lockout request。
+- 未收到 core1 ACK 时不得进入 erase/program。
+- timeout 后必须清除 request，记录 NACK/fault，并返回失败。
+- core1 park loop、lockout poll、状态写回和必要栈必须位于 RAM resident 或已验证不触发 XIP 的区域。
+
+### 接口契约
+
+| 接口 | 方向 | 语义 |
+|---|---|---|
+| `flash_write_request(owner, op, offset, length)` | AO -> FlashWriteOwner | 请求受控 Flash 写入，不直接调用底层 erase/program。 |
+| `resource_acquire(FLASH_BUS, owner, timeout)` | FlashWriteOwner -> Resource Arbiter | 申请 Flash bus 互斥资源，失败返回 busy 或 fault。 |
+| `core1_lockout_request(seq)` | core0 -> core1 | 请求 core1 进入 park，`seq` 用于防止旧 ACK 被误用。 |
+| `core1_lockout_ack(seq, park_state)` | core1 -> core0 | core1 已进入 `PARKED_FOR_FLASH` 或拒绝。 |
+| `runtime_protection_snapshot()` | SCPI/RefMem -> RuntimeProtectionTable | 查询 lockout 可观测状态，不触发现场动作。 |
+| `flash_write_result(seq, result, elapsed_us)` | FlashWriteOwner -> Diagnostics/RefMem | 发布写入结果、耗时、失败原因和恢复状态。 |
+
+### 可观测字段
+
+RuntimeProtectionTable / `SYSTem:PROTection:STATus?` 至少需要覆盖：
+
+| 字段 | 说明 |
+|---|---|
+| `flash_lockout_supported` | 当前构建和板级 profile 是否支持 core1 lockout。 |
+| `flash_lockout_online` | core1 是否已经进入可响应 lockout 的实时循环。 |
+| `flash_lockout_requested` | core0 当前是否请求 park。 |
+| `flash_lockout_acknowledged` | core1 是否 ACK 当前 request sequence。 |
+| `park_state` | `0=RUNNING, 1=WAIT_FOR_FLASH, 2=PARKED_FOR_FLASH, 3=FAULT_TIMEOUT, 4=RELEASING`。 |
+| `last_lockout_seq` | 最近一次 lockout request 序号。 |
+| `last_lockout_result` | `OK / BUSY / ACK_TIMEOUT / RELEASE_TIMEOUT / WRITE_FAILED`。 |
+| `last_lockout_elapsed_us` | 最近一次 Flash 临界区或等待阶段耗时。 |
+
+### 失败处理
+
+- `FLASH_BUS` busy：Flash job 返回 busy，不改变 core1 状态。
+- core1 未 online：维护模式可按构建策略拒绝 Flash job；产品 RUN/OTA 路径必须拒绝。
+- ACK timeout：进入 FAULT 或返回不可重试 NACK，禁止 erase/program。
+- release timeout：记录 F2 系统故障，禁止后续 Flash job，保留 SCPI 只读诊断入口。
+- 写入失败：释放 lockout 后进入 OTA/metadata 对应失败状态，并保存 evidence。
+
+### 验证门禁
+
+最小验证必须覆盖：
+
+1. 空闲查询：`SYSTem:PROTection:STATus?` 显示 lockout supported/online。
+2. OTA 或 metadata 写入前后：`requested/acknowledged/park_state` 按状态机变化。
+3. 故障注入：模拟 core1 不 ACK 时 Flash job 不执行，错误进入 fault/NACK。
+4. 并发压力：USBTMC 查询、UI 刷新、SD 空闲任务存在时，Flash 写入仍能 park/release core1。
+5. 长稳：24h 内 core1 heartbeat 不停，lockout 统计无异常增长。
+
 ## 任务模型
 
 初始栈采用“先大后小”，后续通过 `SYSTem:RTOS:STATus?` 水位收缩。
