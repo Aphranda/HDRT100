@@ -1097,6 +1097,7 @@ bool refmem_application_model_stage_sd_system_pack(const char *path,
     s_load_snapshot.staging_state = REFMEM_APP_STAGING_VALIDATED;
     s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
     refmem_model_finish_load_idle();
+    (void)refmem_table_registry_validate_staging(&s_load_snapshot);
     return true;
 }
 
@@ -1170,6 +1171,7 @@ bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
     s_load_snapshot.staging_state = REFMEM_APP_STAGING_VALIDATED;
     s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
     refmem_model_finish_load_idle();
+    (void)refmem_table_registry_validate_staging(&s_load_snapshot);
     return true;
 }
 

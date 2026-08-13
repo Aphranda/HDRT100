@@ -37,9 +37,11 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 - [ ] 定义静态模型表的 binary/TLV 存储格式、CRC、版本兼容和 System Pack 导入策略，覆盖 ApplicationMap、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate 和 QualityTable。
 - [x] 实现 `RefMemTableRegistry` 首版，记录 table id、owner、layout version、active CRC、staging CRC、validation state、validator id、last result 和 evidence；首版反映已编译 active 表和当前 staging snapshot。
-- [ ] 增加 table image 双镜像生命周期：`EMPTY -> STAGED -> CRC_OK -> OWNER_OK -> ACTIVE -> ROLLBACKABLE/FAILED`。
+- [x] 增加 TableRegistry 可观测生命周期字段：`EMPTY/STAGED/CRC_OK/OWNER_OK/ACTIVE/ROLLBACKABLE/FAILED`。
+- [ ] 实现真实 active/staging/rollbackable table image 切换：staging 通过验证后可进入 activation，旧 active 进入 rollbackable。
 - [ ] 实现 table dump/load 镜像规则：dump 只导出稳定 snapshot，load 只能进入 staging，不得直接覆盖 active。
-- [ ] 实现 owner validation callback 调度；CRC 通过后仍必须由表 owner 检查字段范围、逻辑一致性、资源冲突和运行门禁。
+- [x] 增加 owner validation contract 首版入口：`refmem_table_registry_validate_staging()` 只校验当前 staging snapshot 的 CRC/lint/error 结果，不执行 active 替换。
+- [ ] 实现真实 owner validation callback 调度；CRC 通过后仍必须由表 owner 检查字段范围、逻辑一致性、资源冲突和运行门禁。
 - [ ] 将 `SYSTem:REFMEM:LOAD:SD` 从 manifest 占位升级为真实 TLV/System Pack parser。
 - [ ] 将 `SYSTem:REFMEM:LOAD:NODE` 从单条候选 snapshot 升级为 staging NodeLoadTable image，支持多条候选、CRC、owner validation 和回滚。
 - [ ] 增加类似 OTA 的 SCPI package 分块加载：`SYSTem:REFMEM:LOAD:BEGIN/DATA/END/ABORT`，用于传输完整 RefMem application/node package 到 staging。

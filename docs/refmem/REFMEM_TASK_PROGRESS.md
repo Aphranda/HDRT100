@@ -52,6 +52,42 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-018 - TableRegistry 生命周期字段与 owner validation contract
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 在 TableRegistry 首版查询基础上补齐 table image 生命周期的可观测字段。
+  - 增加 owner validation contract 首版入口，但不提前实现 active 替换。
+- 完成内容：
+  - `refmem_table_registry_entry_t` 增加 `image_offset` 和 `image_size`，为后续 System Pack/TLV table image 导入提供稳定位置语义。
+  - 增加 registry flags：`ACTIVE_PRESENT`、`STAGING_PRESENT`、`CRC_OK`、`OWNER_OK`。
+  - `refmem_table_registry_refresh_snapshot()` 改为 active/staging mask 分离，staging 状态不再覆盖 active 表存在性。
+  - 新增 `refmem_table_registry_validate_staging()`，首版基于 staging snapshot 的 package CRC、lint error 和 last error 设置 owner-ok 可观测状态。
+  - `SYSTem:REFMEM:TABle?` 返回字段增加 `image_offset,image_size`。
+  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 同步 18 字段返回格式。
+- 验证结果：
+  - `python -m py_compile tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 通过。
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813150257`，package CRC `0x5248DF3C`。
+  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813150257 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_table_lifecycle` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813150257`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_lifecycle` 通过，覆盖 `SYSTem:REFMEM:TABle?` 18 字段、active/staging mask 分离和 staging owner-ok flags。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_lifecycle_multicore` 通过，16/16 passed。
+- 还需完成：
+  - 接入真实 TLV/System Pack table image。
+  - 实现 owner validation callback table 和 active/rollbackable 切换。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_table_registry.h`
+  - `components/distributed_refmem/src/refmem_table_registry.c`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 继续 P0：定义 TLV/System Pack table image 格式，随后让 `LOAD:SD` 进入真实 parser。
+
 ### REFMEM-TASK-20260813-017 - RefMem TableRegistry 首版
 
 - 状态：完成

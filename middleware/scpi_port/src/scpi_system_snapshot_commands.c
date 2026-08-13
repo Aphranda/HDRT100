@@ -200,6 +200,8 @@ scpi_result_t scpi_cmd_refmem_table_q(scpi_t *context)
     SCPI_ResultUInt32(context, entry.table_id);
     SCPI_ResultUInt32(context, entry.owner);
     SCPI_ResultUInt32(context, entry.layout_version);
+    SCPI_ResultUInt32(context, entry.image_offset);
+    SCPI_ResultUInt32(context, entry.image_size);
     SCPI_ResultUInt32(context, entry.active_crc32);
     SCPI_ResultUInt32(context, entry.staging_crc32);
     SCPI_ResultUInt32(context, entry.validation_state);

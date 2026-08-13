@@ -9,6 +9,11 @@
 #define REFMEM_TABLE_REGISTRY_VERSION 1u
 #define REFMEM_TABLE_REGISTRY_COUNT   8u
 
+#define REFMEM_TABLE_FLAG_ACTIVE_PRESENT  0x00000001u
+#define REFMEM_TABLE_FLAG_STAGING_PRESENT 0x00000002u
+#define REFMEM_TABLE_FLAG_CRC_OK          0x00000004u
+#define REFMEM_TABLE_FLAG_OWNER_OK        0x00000008u
+
 typedef enum {
     REFMEM_TABLE_OWNER_REFMEM_AO = 0u,
     REFMEM_TABLE_OWNER_SYSTEM_AO = 1u,
@@ -31,6 +36,8 @@ typedef struct {
     uint32_t table_id;
     uint32_t owner;
     uint32_t layout_version;
+    uint32_t image_offset;
+    uint32_t image_size;
     uint32_t active_crc32;
     uint32_t staging_crc32;
     uint32_t validation_state;
@@ -52,6 +59,7 @@ typedef struct {
 void refmem_table_registry_init(const refmem_application_model_snapshot_t *model);
 void refmem_table_registry_refresh_active(const refmem_application_model_snapshot_t *model);
 void refmem_table_registry_refresh_staging(const refmem_application_model_load_snapshot_t *load);
+bool refmem_table_registry_validate_staging(const refmem_application_model_load_snapshot_t *load);
 bool refmem_table_registry_get_entry(uint32_t table_id, refmem_table_registry_entry_t *entry);
 void refmem_table_registry_get_snapshot(refmem_table_registry_snapshot_t *snapshot);
 
