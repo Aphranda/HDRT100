@@ -53,9 +53,9 @@ DEFAULT_TESTS = (
     "SYST:CONFigure:ROLE? 1",
     "SYST:CONFigure:ROLE? 2",
     "SYST:CONFigure:ROLE? 3",
-    "SYST:MODE:TAB? 1",
-    "SYST:RESource:TAB? 0",
-    "SYST:FAULT:TAB? 0",
+    "SYST:MODE:TABle? 1",
+    "SYST:RESource:TABle? 0",
+    "SYST:FAULT:TABle? 0",
 )
 
 

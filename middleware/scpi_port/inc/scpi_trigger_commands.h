@@ -11,6 +11,7 @@ scpi_result_t scpi_cmd_trigger_start(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_stop(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_pause(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_continue(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_abort(scpi_t *context);
 uint32_t scpi_trigger_product_mode(void);
 
 #define SCPI_TRIGGER_COMMANDS \
@@ -20,6 +21,7 @@ uint32_t scpi_trigger_product_mode(void);
     {.pattern = "TRIGger:STOP", .callback = scpi_cmd_trigger_stop}, \
     {.pattern = "TRIGger:PAUSe", .callback = scpi_cmd_trigger_pause}, \
     {.pattern = "TRIGger:CONTinue", .callback = scpi_cmd_trigger_continue}, \
+    {.pattern = "TRIGger:ABORt", .callback = scpi_cmd_trigger_abort}, \
     {.pattern = "READ:TRIGger:STATe?", .callback = scpi_trigger_state_q}
 
 #endif

@@ -95,6 +95,12 @@ scpi_result_t scpi_cmd_trigger_continue(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_trigger_abort(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_trigger_state_q(scpi_t *context)
 {
     SCPI_ResultText(context, "TRIG");

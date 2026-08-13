@@ -15,8 +15,9 @@ scpi_result_t scpi_calibration_limit_q(scpi_t *context);
 
 #define SCPI_CALIBRATION_COMMANDS \
     {.pattern = "CONFigure:CALibration:LINK:ADD", .callback = scpi_port_result_accepted}, \
-    {.pattern = "CONFigure:CALibration:LINK:SET", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CONFigure:CALibration:LINK:UPDate", .callback = scpi_port_result_accepted}, \
     {.pattern = "CONFigure:CALibration:LINK:DELete", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CONFigure:CALibration:LINK:CLEAr", .callback = scpi_port_result_accepted}, \
     {.pattern = "READ:CALibration:LINK?", .callback = scpi_calibration_link_q}, \
     {.pattern = "CALibration:STARt", .callback = scpi_calibration_result_q}, \
     {.pattern = "READ:CALibration:STATe?", .callback = scpi_calibration_result_q}, \
@@ -26,9 +27,11 @@ scpi_result_t scpi_calibration_limit_q(scpi_t *context);
     {.pattern = "CONFigure:CALibration:PARameter:DELete", .callback = scpi_port_result_accepted}, \
     {.pattern = "READ:CALibration:PARameter?", .callback = scpi_calibration_parameter_q}, \
     {.pattern = "CALibration:SAVE", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CALibration:STOP", .callback = scpi_port_result_accepted}, \
     {.pattern = "CALibration:LOAD", .callback = scpi_port_result_accepted}, \
     {.pattern = "CALibration:ACTivate", .callback = scpi_port_result_accepted}, \
     {.pattern = "CALibration:ROLLback", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CALibration:CLEAr", .callback = scpi_port_result_accepted}, \
     {.pattern = "READ:CALibration:LIST?", .callback = scpi_calibration_list_q}, \
     {.pattern = "READ:CALibration:ACTive?", .callback = scpi_calibration_active_q}, \
     {.pattern = "CONFigure:CALibration:META", .callback = scpi_port_result_accepted}, \

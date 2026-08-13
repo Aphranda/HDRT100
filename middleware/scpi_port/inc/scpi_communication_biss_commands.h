@@ -83,14 +83,14 @@ scpi_result_t scpi_cmd_biss_warning_bit_q(scpi_t *context);
     {.pattern = "COMMunication:BISS:DEVice?", .callback = scpi_cmd_biss_device_q}, \
     {.pattern = "COMMunication:BISS:CLOCk", .callback = scpi_cmd_biss_clock}, \
     {.pattern = "COMMunication:BISS:CLOCk?", .callback = scpi_cmd_biss_clock_q}, \
-    {.pattern = "COMMunication:BISS:FBITs", .callback = scpi_cmd_biss_frame_bits}, \
-    {.pattern = "COMMunication:BISS:FBITs?", .callback = scpi_cmd_biss_frame_bits_q}, \
-    {.pattern = "COMMunication:BISS:POFFset", .callback = scpi_cmd_biss_position_offset}, \
-    {.pattern = "COMMunication:BISS:POFFset?", .callback = scpi_cmd_biss_position_offset_q}, \
-    {.pattern = "COMMunication:BISS:PBITs", .callback = scpi_cmd_biss_position_bits}, \
-    {.pattern = "COMMunication:BISS:PBITs?", .callback = scpi_cmd_biss_position_bits_q}, \
-    {.pattern = "COMMunication:BISS:PMODulo", .callback = scpi_cmd_biss_position_modulo}, \
-    {.pattern = "COMMunication:BISS:PMODulo?", .callback = scpi_cmd_biss_position_modulo_q}, \
+    {.pattern = "COMMunication:BISS:FRAMe:BITS", .callback = scpi_cmd_biss_frame_bits}, \
+    {.pattern = "COMMunication:BISS:FRAMe:BITS?", .callback = scpi_cmd_biss_frame_bits_q}, \
+    {.pattern = "COMMunication:BISS:POSition:OFFSet", .callback = scpi_cmd_biss_position_offset}, \
+    {.pattern = "COMMunication:BISS:POSition:OFFSet?", .callback = scpi_cmd_biss_position_offset_q}, \
+    {.pattern = "COMMunication:BISS:POSition:BITS", .callback = scpi_cmd_biss_position_bits}, \
+    {.pattern = "COMMunication:BISS:POSition:BITS?", .callback = scpi_cmd_biss_position_bits_q}, \
+    {.pattern = "COMMunication:BISS:POSition:MODulo", .callback = scpi_cmd_biss_position_modulo}, \
+    {.pattern = "COMMunication:BISS:POSition:MODulo?", .callback = scpi_cmd_biss_position_modulo_q}, \
     {.pattern = "COMMunication:BISS:SAMPle:EDGE", .callback = scpi_cmd_biss_sample_edge}, \
     {.pattern = "COMMunication:BISS:SAMPle:EDGE?", .callback = scpi_cmd_biss_sample_edge_q}, \
     {.pattern = "COMMunication:BISS:SAMPle:DELay", .callback = scpi_cmd_biss_sample_delay}, \

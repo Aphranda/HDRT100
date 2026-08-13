@@ -10,8 +10,8 @@ Checks:
 - SYST:CONFigure:STAT? config gate static snapshot ready and service counter growing
 - SYST:CONFigure:ROLE?/LOOP?/ACT?/CAL? static distributed config queries
 - SYST:CONFigure:ACK?, SYST:CONFigure:NACK?, SYST:SCPI:RUN:ALLOW? ACK reason and RUN whitelist tables
-- SYST:CORE:VECTor? and SYST:PROT:STAT? owner/protection table snapshots
-- SYST:MODE:TAB?, SYST:RESource:TAB?, SYST:FAULT:TAB? system/resource/fault tables
+- SYST:CORE:VECTor? and SYST:PROTection:STATus? owner/protection table snapshots
+- SYST:MODE:TABle?, SYST:RESource:TABle?, SYST:FAULT:TABle? system/resource/fault tables
 - TRIGger:MODE 1 -> STARt -> STOP product control smoke
 - Error queue, LOG STAT, TRACE LAST
 """
@@ -453,13 +453,13 @@ def test_runtime_protection_tables(ser: serial.Serial, timeout: float) -> tuple[
     if core_vector[6] == 0 or core_vector[10] == 0:
         return False, f"SYST:CORE:VECTor? missing realtime IRQ mask or guard CRC: {core_vector}"
 
-    protection = _parse_ints(_query(ser, "SYST:PROT:STAT?", timeout))
+    protection = _parse_ints(_query(ser, "SYST:PROTection:STATus?", timeout))
     if len(protection) < 14:
-        return False, f"SYST:PROT:STAT? unparseable: {protection}"
+        return False, f"SYST:PROTection:STATus? unparseable: {protection}"
     if protection[0] != 1 or protection[2] != 1 or protection[3] != 1:
-        return False, f"SYST:PROT:STAT? protection flags unexpected: {protection}"
+        return False, f"SYST:PROTection:STATus? protection flags unexpected: {protection}"
     if protection[4] != 1 or protection[8] != 2 or protection[11] == 0:
-        return False, f"SYST:PROT:STAT? lockout/entry/guard unexpected: {protection}"
+        return False, f"SYST:PROTection:STATus? lockout/entry/guard unexpected: {protection}"
 
     return True, (
         f"core_vector seq={core_vector[1]} core1_irq_mask={core_vector[6]} "
@@ -468,32 +468,32 @@ def test_runtime_protection_tables(ser: serial.Serial, timeout: float) -> tuple[
 
 
 def test_system_resource_fault_tables(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
-    mode = _query(ser, "SYST:MODE:TAB? 1", timeout)
+    mode = _query(ser, "SYST:MODE:TABle? 1", timeout)
     mode_fields = _parse_ints(mode)
     if len(mode_fields) < 8:
-        return False, f"SYST:MODE:TAB? unparseable: {mode}"
+        return False, f"SYST:MODE:TABle? unparseable: {mode}"
     if mode_fields[0] != 1 or mode_fields[1] != 4 or mode_fields[4] != 1 or mode_fields[5] != 1:
-        return False, f"SYST:MODE:TAB? unexpected RUN row: {mode}"
+        return False, f"SYST:MODE:TABle? unexpected RUN row: {mode}"
     if "RUN" not in mode:
-        return False, f"SYST:MODE:TAB? missing mode name: {mode}"
+        return False, f"SYST:MODE:TABle? missing mode name: {mode}"
 
-    resource = _query(ser, "SYST:RESource:TAB? 0", timeout)
+    resource = _query(ser, "SYST:RESource:TABle? 0", timeout)
     resource_fields = _parse_ints(resource)
     if len(resource_fields) < 10:
-        return False, f"SYST:RESource:TAB? unparseable: {resource}"
+        return False, f"SYST:RESource:TABle? unparseable: {resource}"
     if resource_fields[0] != 1 or resource_fields[1] != 10 or resource_fields[6] != 0:
-        return False, f"SYST:RESource:TAB? unexpected FLASH row: {resource}"
+        return False, f"SYST:RESource:TABle? unexpected FLASH row: {resource}"
     if "FLASH" not in resource:
-        return False, f"SYST:RESource:TAB? missing resource name: {resource}"
+        return False, f"SYST:RESource:TABle? missing resource name: {resource}"
 
-    fault = _query(ser, "SYST:FAULT:TAB? 0", timeout)
+    fault = _query(ser, "SYST:FAULT:TABle? 0", timeout)
     fault_fields = _parse_ints(fault)
     if len(fault_fields) < 9:
-        return False, f"SYST:FAULT:TAB? unparseable: {fault}"
+        return False, f"SYST:FAULT:TABle? unparseable: {fault}"
     if fault_fields[0] != 1 or fault_fields[1] < 16 or fault_fields[4] != 0:
-        return False, f"SYST:FAULT:TAB? unexpected NONE row: {fault}"
+        return False, f"SYST:FAULT:TABle? unexpected NONE row: {fault}"
     if "NONE" not in fault:
-        return False, f"SYST:FAULT:TAB? missing fault name: {fault}"
+        return False, f"SYST:FAULT:TABle? missing fault name: {fault}"
 
     return True, (
         f"mode_count={mode_fields[1]} resource_count={resource_fields[1]} "

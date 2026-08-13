@@ -699,15 +699,15 @@
 <table class="compact">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>SYSTem:REFMEM:STATUS?</code></td><td></td><td>表头摘要</td><td>查询 64 KB 反射内存总表状态</td></tr>
+<tr><td><code>SYSTem:REFMEM:STATus?</code></td><td></td><td>表头摘要</td><td>查询 64 KB 反射内存总表状态</td></tr>
 <tr><td><code>SYSTem:REFMEM:NODE?</code></td><td><code>[node_id]</code></td><td>节点快照</td><td>查询指定节点状态；省略时查询本节点</td></tr>
 <tr><td><code>SYSTem:CORE:VECTOR?</code></td><td></td><td>core vector block</td><td>查询 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态</td></tr>
-<tr><td><code>SYSTem:PROT:STAT?</code></td><td></td><td>runtime protection block</td><td>查询 RAM-resident、flash lockout/park、entry owner 和保护状态</td></tr>
-<tr><td><code>SYSTem:MODE:TAB?</code></td><td><code>[mode_id]</code></td><td>mode table row</td><td>查询 SystemModeTable：当前模式、允许能力和表 CRC。</td></tr>
-<tr><td><code>SYSTem:RESource:TAB?</code></td><td><code>[resource_id]</code></td><td>resource table row</td><td>查询 ResourceArbiterTable：资源 owner、活跃位和冲突位。</td></tr>
-<tr><td><code>SYSTem:FAULT:TAB?</code></td><td><code>[fault_id]</code></td><td>fault table row</td><td>查询 FaultCodeTable：故障域、等级、sticky 和 recoverable。</td></tr>
+<tr><td><code>SYSTem:PROTection:STATus?</code></td><td></td><td>runtime protection block</td><td>查询 RAM-resident、flash lockout/park、entry owner 和保护状态</td></tr>
+<tr><td><code>SYSTem:MODE:TABle?</code></td><td><code>[mode_id]</code></td><td>mode table row</td><td>查询 SystemModeTable：当前模式、允许能力和表 CRC。</td></tr>
+<tr><td><code>SYSTem:RESource:TABle?</code></td><td><code>[resource_id]</code></td><td>resource table row</td><td>查询 ResourceArbiterTable：资源 owner、活跃位和冲突位。</td></tr>
+<tr><td><code>SYSTem:FAULT:TABle?</code></td><td><code>[fault_id]</code></td><td>fault table row</td><td>查询 FaultCodeTable：故障域、等级、sticky 和 recoverable。</td></tr>
 <tr><td><code>SYSTem:RESource?</code></td><td></td><td>resource block</td><td>读取资源仲裁摘要：active、conflict、request owner 和 holder owner。</td></tr>
-<tr><td><code>SYSTem:LOOP:STATus?</code> / <code>SYSTem:LOOP:STAT?</code></td><td></td><td>loop block</td><td>系统维护查询：loop_engine ready、service_count 和 service 时间。</td></tr>
+<tr><td><code>SYSTem:LOOP:STATus?</code></td><td></td><td>loop block</td><td>系统维护查询：loop_engine ready、service_count 和 service 时间。</td></tr>
 <tr><td><code>VDC:STAT?</code> / <code>STATus:VDC?</code></td><td></td><td>vdc block</td><td>兼容开发验证查询：虚拟 DC 任务 ready、lock_state、service_count 和 sync_seq</td></tr>
 <tr><td><code>DPLL:STAT?</code> / <code>STATus:DPLL?</code></td><td></td><td>dpll block</td><td>兼容开发验证查询：转台/扫描 DPLL 任务 ready、state、service_count 和 update_seq</td></tr>
 <tr><td><code>SYSTem:CONFigure:STAT?</code></td><td></td><td>门禁摘要</td><td>查询配置门禁状态，确认是否允许进入运行</td></tr>
@@ -857,9 +857,9 @@ READ:SEQuence:ACTive?</code></pre>
 <table class="compact">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>CONFigure:ANGLe:BPOint</code></td><td><code>[angle_deg]</code></td><td><code>1</code></td><td>设置角度断点；给出参数时绑定指定扫描角度，运行中或暂停中省略参数时使用当前待输出的角度游标</td></tr>
-<tr><td><code>READ:ANGLe:BPOint?</code></td><td></td><td>breakpoint block</td><td>查询当前角度断点配置、命中状态和断点游标</td></tr>
-<tr><td><code>CONFigure:ANGLe:BPOint:CLEAr</code></td><td></td><td><code>1</code></td><td>清除断点配置；若当前已因断点暂停，仅清除断点标志，不自动继续运行</td></tr>
+<tr><td><code>CONFigure:ANGLe:BREAkpoint</code></td><td><code>[angle_deg]</code></td><td><code>1</code></td><td>设置角度断点；给出参数时绑定指定扫描角度，运行中或暂停中省略参数时使用当前待输出的角度游标</td></tr>
+<tr><td><code>READ:ANGLe:BREAkpoint?</code></td><td></td><td>breakpoint block</td><td>查询当前角度断点配置、命中状态和断点游标</td></tr>
+<tr><td><code>CONFigure:ANGLe:BREAkpoint:CLEAr</code></td><td></td><td><code>1</code></td><td>清除断点配置；若当前已因断点暂停，仅清除断点标志，不自动继续运行</td></tr>
 <tr><td><code>READ:TRIGger:STATe?</code></td><td></td><td>state block</td><td>读取触发运行状态，含模式、运行态、当前角度、角度索引、序列索引、late、错误和断点</td></tr>
 </tbody>
 </table>
@@ -868,7 +868,7 @@ READ:SEQuence:ACTive?</code></pre>
 <tbody>
 <tr><td>命中时机</td><td>每个角度点开始前比较当前扫描角度；命中后进入暂停，该角度点对应的测试序列尚未输出</td></tr>
 <tr><td>继续运行</td><td><code>TRIGger:CONTinue</code> 从命中的角度继续执行，并完整跑完该角度点内的测试序列；断点不进入点内序列</td></tr>
-<tr><td>清除/停止</td><td><code>CONFigure:ANGLe:BPOint:CLEAr</code> 只清断点；<code>TRIGger:STOP</code> 停止运行但不改变断点配置；<code>*RST</code> 清除临时断点和运行游标</td></tr>
+<tr><td>清除/停止</td><td><code>CONFigure:ANGLe:BREAkpoint:CLEAr</code> 只清断点；<code>TRIGger:STOP</code> 停止运行但不改变断点配置；<code>*RST</code> 清除临时断点和运行游标</td></tr>
 </tbody>
 </table>
 <div class="note-box">前期软件可以先按角度点和角度点内的完整测试序列开发界面和文件格式；断点只保存角度，不保存点内序列位置，命中后继续时该角度点内部序列全部测一遍。下位机后续可把角度映射到完整状态表，避免上位机逐脚控制开关。</div>
@@ -980,7 +980,7 @@ SYSTem:FAULT:LAST?</code></pre>
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
 <tr><td><code>CONFigure:CALibration:LINK:ADD</code></td><td><code>&lt;type&gt;,&lt;src_node&gt;,&lt;src_port&gt;,&lt;dst_node&gt;,&lt;dst_port&gt;,&lt;direction&gt;,&lt;enable&gt;,&lt;required&gt;</code></td><td><code>1</code></td><td>新增可校准链路；链路 key 已存在时返回 duplicate。</td></tr>
-<tr><td><code>CONFigure:CALibration:LINK:SET</code></td><td>同 ADD</td><td><code>1</code></td><td>修改链路属性；不修改已经保存的 delay 数据。</td></tr>
+<tr><td><code>CONFigure:CALibration:LINK:UPDate</code></td><td>同 ADD</td><td><code>1</code></td><td>修改链路属性；不修改已经保存的 delay 数据。</td></tr>
 <tr><td><code>CONFigure:CALibration:LINK:DELete</code></td><td><code>&lt;type&gt;,&lt;src_node&gt;,&lt;src_port&gt;,&lt;dst_node&gt;,&lt;dst_port&gt;[,DEL]</code></td><td><code>1</code></td><td>删除链路；带 <code>DEL</code> 时同时删除该链路校准数据。</td></tr>
 <tr><td><code>READ:CALibration:LINK?</code></td><td><code>[type,src_node,src_port,dst_node,dst_port]</code></td><td>link table</td><td>读取链路清单、方向、使能、必需标志和当前 delay 是否有效。</td></tr>
 </tbody>
@@ -1002,7 +1002,7 @@ SYSTem:FAULT:LAST?</code></pre>
 <tr><td>链路存在</td><td><code>CALibration:STARt</code> 的端口对必须已在 LINK 表中登记。</td><td>缺失时先执行 <code>CONFigure:CALibration:LINK:ADD</code>。</td></tr>
 <tr><td>失败保护</td><td>失败不覆盖旧 staging delay，只记录失败原因和原始计数。</td><td>读取 <code>READ:CALibration:RESult?</code> 后决定是否重测。</td></tr>
 <tr><td>同步影响</td><td>校准写入 staging；只有 <code>CALibration:ACTivate</code> 后才影响 SYNC。</td><td>激活后重新执行 <code>SYNC:CHECk</code>。</td></tr>
-<tr><td>持久化</td><td><code>CALibration:SAVE</code> 涉及 flash/storage 时必须通过资源仲裁；core1 已 park/lockout 或后端不触发 flash 写。</td><td>失败时读取 <code>SYSTem:PROT:STAT?</code>、<code>SYSTem:SD:STATus?</code> 和 NACK。</td></tr>
+<tr><td>持久化</td><td><code>CALibration:SAVE</code> 涉及 flash/storage 时必须通过资源仲裁；core1 已 park/lockout 或后端不触发 flash 写。</td><td>失败时读取 <code>SYSTem:PROTection:STATus?</code>、<code>SYSTem:SD:STATus?</code> 和 NACK。</td></tr>
 </tbody>
 </table>
   </div>
@@ -1555,7 +1555,7 @@ READ:SYNC:STATe?</code></pre>
 <tr><td><code>SYSTem:CONFigure:ACK?</code></td><td></td><td>ack block</td><td>查询调试命令 accepted 后的分布式完成态。</td></tr>
 <tr><td><code>SYSTem:CONFigure:NACK?</code></td><td><code>[reason_id]</code></td><td>reason block</td><td>查询拒绝原因表。</td></tr>
 <tr><td><code>SYSTem:CORE:VECTOR?</code></td><td></td><td>core vector block</td><td>查询 core0/core1 VTOR、IRQ owner、entry owner 和 guard。</td></tr>
-<tr><td><code>SYSTem:PROT:STAT?</code></td><td></td><td>runtime protection block</td><td>查询 RAM-resident、flash lockout/park 和入口归属。</td></tr>
+<tr><td><code>SYSTem:PROTection:STATus?</code></td><td></td><td>runtime protection block</td><td>查询 RAM-resident、flash lockout/park 和入口归属。</td></tr>
 <tr><td><code>SYSTem:RUN:LOG?</code></td><td><code>[run_id,page]</code></td><td>run log page block</td><td>调试导出 RUN 短日志。</td></tr>
 </tbody>
 </table>

@@ -768,13 +768,13 @@ SCPI realtime 子模块拆分已经完成，但当前重点仍是规范化产品
 - [ ] 统一 ACK/NACK 查询策略：评审 `SYSTem:COMMand:ACK?/NACK?` 与现有 `SYSTem:CONFigure:ACK?/NACK?` 的边界，决定配置专用别名是否保留、废弃或映射到通用命令完成态。
 - [ ] 复审业务配置指令：`CONFigure:TRIGger`、`CONFigure:ANGLe:*`、`CONFigure:SEQuence`、`CONFigure:SEQuence:ACTive`、`CONFigure:SWITch#`。
 - [ ] 对齐序列建模命名：评审 DTC 规划中的 `CONFigure:SEQuence:MAP` / `CONFigure:SEQuence:ACTive <plan_id>,<state_id...>` 与正式指令表当前 `CONFigure:SEQuence` / `CONFigure:SEQuence:ACTive` 的差异，冻结 state_id map 和 active sequence 的最终写入接口。
-- [ ] 对齐角度与断点命名：冻结 `SWEEP/SWEEp`、`BREAkpoint/BPOint` 等 SCPI 缩写和兼容 alias 策略，避免上位机、HTML、固件和验证脚本各用一套名称。
-- [ ] 对齐校准 link 修改动词：评审 `LINK:ADD/SET/DELete` 与 `LINK:ADD/DELete/UPDate/CLEAr`，冻结产品动词和 legacy alias。
+- [x] 对齐角度与断点命名：冻结 `CONFigure:ANGLe:SWEEp` 和 `CONFigure:ANGLe:BREAkpoint`，不保留 `BPOint` 兼容 alias。
+- [x] 对齐校准 link 修改动词：冻结 `LINK:ADD/UPDate/DELete/CLEAr`，不保留 `LINK:SET` 兼容 alias。
 - [ ] 复审业务查询指令：`READ:TRIGger:PARameter?`、`READ:ANGLe:*?`、`READ:SEQuence?`、`READ:SEQuence:MAP?`、`READ:SEQuence:CHECk?`、`READ:SEQuence:ACTive?`。
 - [ ] 复审运行控制指令：`TRIGger:MODE 0|1`、`TRIGger:STARt [plan_id]`、`TRIGger:STOP`、`TRIGger:PAUSe`、`TRIGger:CONTinue` 和 RUN 态只读/拒绝策略。
 - [ ] 复审 CAL/SYNC 指令的状态门禁、响应字段和拒绝原因，确保门禁分散在业务端而不是只集中在维护页。
 - [ ] 冻结 SYNC/VDC/DPLL 层级：`VDC` 是 SYNC 下的产品对象，`DPLL` 是 VDC 的实现环路；继续避免裸 `VDC:*`、裸 `DPLL:*`、`STATus:VDC?`、`STATus:DPLL?` 进入产品主树。
-- [ ] 复审 `READ:STATistics?`、`SYSTem:T2:*?`、`SYSTem:RUN:*?`、`MMEMory:*` 的归属，确保统计、T2 明细、报告分页和文件访问不塞回 SYNC 或业务配置页。
+- [x] 复审 `READ:STATistics?`、`SYSTem:T2:*?`、`SYSTem:RUN:*?`、`MMEMory:*` 的归属，T2 明细收敛到 `SYSTem:T2:*?`。
 - [ ] 统一 response block 字段顺序和命名，至少覆盖 permission、role、gate、sequence、trigger state、calibration、sync、run summary。
 - [ ] 将 `table_seq / slot_seq / owner / crc / stale / flags` 是否进入各 response block 的规则写清，避免每页各自定义。
 - [ ] 更新 `tools/product_scpi_validate/product_scpi_validate.py`，确保产品验证脚本覆盖全部规范化产品指令、权限语义和代表性响应字段。
@@ -831,7 +831,7 @@ SCPI realtime 子模块拆分已经完成，但当前重点仍是规范化产品
 - [x] 把 `SystemModeTable` 和 `ResourceArbiterTable` 接到 `task_system`，让模式切换、资源占用和恢复动作都能通过统一查询返回。
 - [ ] 增加 `task_gateway_a3`，接收上位机配置、START/STOP 和数据查询。
 - [ ] 增加 `task_loop_engine` 的 A0 扫描状态机，并按 SCPI 指令表支持 `CONFigure:TRIGger` 自动展开状态表。
-- [ ] 增加 `CONFigure:ANGLe:SWEEp`、`CONFigure:ANGLe:PULSe`、`READ:ANGLe:POSition?` 和 `CONFigure:ANGLe:BPOint` 的 LoopSlot/staging/active 字段。
+- [ ] 增加 `CONFigure:ANGLe:SWEEp`、`CONFigure:ANGLe:PULSe`、`READ:ANGLe:POSition?` 和 `CONFigure:ANGLe:BREAkpoint` 的 LoopSlot/staging/active 字段。
 - [ ] 增加 `CONFigure:SEQuence`、`READ:SEQuence:MAP?`、`READ:SEQuence:CHECK?`、`CONFigure:SEQuence:ACTive` 和 `READ:SEQuence:ACTive?` 的序列库、CRC、拒绝原因和 ACK 闭环。
 - [ ] 增加 `CONFigure:SWITch#` / `READ:SWITch#?` 的独立切换路径，并实现 RUN 中序列引擎占用时返回 busy。
 - [ ] 冻结测试/调试双上位机边界：最低 `TEST` 权限就是现场测试程序，必须覆盖 SCPI 指令表 P5-P7 现场测试业务页，包括 RUN 前装载测试 recipe、配置触发参数、扫描角度、角度脉冲、断点续测和 active sequence，执行 `SYNC:CHECk` 门禁，启动/暂停/继续/停止测试，RUN 中只从网分取数据并保留安全停止与只读状态，RUN 后读取 `SYSTem:RUN:*`、同步状态和故障摘要；`TEST` 的限制来自 IDLE/CONFIG/ARM/PAUSE/RUN 状态边界和 profile 开关，而不是把业务指令上提到 `DEBUG`。调试上位机按 `TEST < SERVICE < DEBUG < FACTORY` 四级单调继承权限开放不同调试功能，高级权限包含低级权限全部功能；`DEBUG+` 增加任意状态强控、外设联动、异常注入、状态机推进和越过常规现场流程的验证动作，用权限 profile + 状态策略表对任意状态下的查询、控制、排队和拒绝作出决策，但必须通过 core0 控制面、资源仲裁和 ACK 闭环，不能直接影响 core1 已装载边沿。
@@ -843,7 +843,7 @@ SCPI realtime 子模块拆分已经完成，但当前重点仍是规范化产品
 已完成项的实现与验证记录详见 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
 
 - [x] 增加 `task_calibration` 空壳和 `calibration_job_queue`，先支持 link/delay 表的 staging、snapshot 和计数器。
-- [ ] 实现 `CONFigure:CALibration:LINK:ADD/SET/DELete`、`READ:CALibration:LINK?` 和 link key 去重。
+- [ ] 实现 `CONFigure:CALibration:LINK:ADD/UPDate/DELete/CLEAr`、`READ:CALibration:LINK?` 和 link key 去重。
 - [ ] 实现 `CALibration:STARt <type,src_node,src_port,dst_node,dst_port>` 短事务骨架，失败不覆盖旧 staging delay。
 - [ ] 实现 `READ:CALibration:STATe?`、`READ:CALibration:RESult?`、`READ:CALibration:PARameter?`、`READ:CALibration:VERSion?` 和 `READ:CALibration:QUALity?` 固定字段。
 - [ ] 实现 `CALibration:SAVE/LOAD/ACTivate/ROLLback` 的资源仲裁、ACK/NACK 和 storage package 版本管理。
@@ -1094,7 +1094,7 @@ SCPI 拆分详细进度、板端验证记录、串口生命周期问题和归档
    Scope:
      SYSTem:RUN:*, SYSTem:LOG:PAGE?, SYSTem:TRACe:DATA?,
      SYSTem:SNAPshot:DATA?, SYSTem:T2:DATA?, READ:RUN:*,
-     READ:STATistics?, READ:T2:*, SYSTem:TRIGger:DBG?,
+     READ:STATistics?, SYSTem:T2:*, SYSTem:TRIGger:DBG?,
      SYSTem:RESource?, SYSTem:FAULT:* and future SYSTem:COMMand:ACK?
    Dependency:
      diagnostics snapshots, ResourceSlot, FaultSlot, ACK/NACK slots,
@@ -1111,7 +1111,7 @@ SCPI 拆分详细进度、板端验证记录、串口生命周期问题和归档
    Status:
      done 2026-08-12: scpi_report_commands.c/.h removed; SYSTem:RUN:*,
      SYSTem:LOG:PAGE?, trace/snapshot/T2 page placeholders, READ:RUN:*,
-     READ:STATistics?, READ:T2:*, SYSTem:TRIGger:DBG?, SYSTem:RESource?,
+     READ:STATistics?, SYSTem:T2:*, SYSTem:TRIGger:DBG?, SYSTem:RESource?,
      and SYSTem:FAULT:CLEAr moved into scpi_system_diagnostics_commands.c/.h.
      Verified by quick diagnostics/report SCPI query, product validation,
      full RTOS + multicore smoke, and clean SCPI error queue.

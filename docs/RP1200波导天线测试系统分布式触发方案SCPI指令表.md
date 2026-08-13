@@ -124,6 +124,7 @@ Last updated: 2026-08-11
 | `SYSTem:LOG:PAGE?` | `[page_id]` | `log page block` | 按页读取日志，用于上位机报告和故障追溯 |
 | `SYSTem:TRACe:DATA?` | `[kind,page]` | `trace block` | 读取运行 trace、同步 trace 或故障 trace |
 | `SYSTem:SNAPshot:DATA?` | `[kind]` | `snapshot block` | 读取配置、运行或故障快照 |
+| `SYSTem:T2:COUNt?` |  | `<count>` | 读取 T2 FIFO 当前数据量 |
 | `SYSTem:T2:DATA?` | `[count]` | `T2 block` | 读取 T2、e_act、late、CRC、seq 分布数据 |
 
 `SYSTem:RUN:SUMMary?` 是 RUN 后复盘接口，不作为测试上位机 RUN 中实时控制依据。测试上位机
@@ -152,14 +153,14 @@ Last updated: 2026-08-11
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
-| `SYSTem:MODE:TAB?` | `[mode_id]` | `mode table row` | 查询 SystemModeTable：当前模式、允许能力和表 CRC |
+| `SYSTem:MODE:TABle?` | `[mode_id]` | `mode table row` | 查询 SystemModeTable：当前模式、允许能力和表 CRC |
 | `SYSTem:RESource?` |  | `resource block` | 读取资源仲裁摘要：active、conflict、request owner 和 holder owner |
-| `SYSTem:RESource:TAB?` | `[resource_id]` | `resource table row` | 查询 ResourceArbiterTable：资源 owner、活跃位和冲突位 |
-| `SYSTem:FAULT:TAB?` | `[fault_id]` | `fault table row` | 查询 FaultCodeTable：故障域、等级、sticky 和 recoverable |
-| `SYSTem:REFMEM:STATUS?` |  | `refmem block` | 查询本地 DistributedVectorTable 表头、layout version、table_seq、节点数和本节点 heartbeat |
+| `SYSTem:RESource:TABle?` | `[resource_id]` | `resource table row` | 查询 ResourceArbiterTable：资源 owner、活跃位和冲突位 |
+| `SYSTem:FAULT:TABle?` | `[fault_id]` | `fault table row` | 查询 FaultCodeTable：故障域、等级、sticky 和 recoverable |
+| `SYSTem:REFMEM:STATus?` |  | `refmem block` | 查询本地 DistributedVectorTable 表头、layout version、table_seq、节点数和本节点 heartbeat |
 | `SYSTem:REFMEM:NODE?` | `[node_id]` | `node block` | 查询 NodeSlot 快照；省略时读取本节点 |
 | `SYSTem:CORE:VECTOR?` |  | `core vector block` | 读取 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态 |
-| `SYSTem:PROT:STAT?` |  | `runtime protection block` | 读取 RAM-resident、flash lockout/park、entry owner 和保护状态 |
+| `SYSTem:PROTection:STATus?` |  | `runtime protection block` | 读取 RAM-resident、flash lockout/park、entry owner 和保护状态 |
 | `SYSTem:CONFigure:STAT?` |  | `gate block` | 读取配置门禁、ACK/NACK、busy、timeout 和 CRC 快照 |
 | `SYSTem:CONFigure:ROLE?` | `[node_id]` | `role block` | 查询 NodeRoleMap 条目 |
 | `SYSTem:CONFigure:LOOP?` | `[layer_id]` | `loop block` | 查询 LoopPlan 层级和数组循环编排 |
@@ -168,7 +169,7 @@ Last updated: 2026-08-11
 | `SYSTem:CONFigure:ACK?` |  | `ack block` | 查询分布式命令 ACK/NACK/busy/timeout 快照 |
 | `SYSTem:CONFigure:NACK?` | `[reason_id]` | `reason block` | 查询 NACK reason 表，用于 UI 参数校验和故障提示 |
 | `SYSTem:SCPI:RUN:ALLOW?` | `[index]` | `policy block` | 查询运行态 SCPI 策略表；命名保留 ALLOW，但语义为权限 profile 在 RUN 状态下的执行结果 |
-| `SYSTem:LOOP:STATus?` / `SYSTem:LOOP:STAT?` |  | `loop block` | 系统维护查询：loop_engine ready、service_count 和 service 时间 |
+| `SYSTem:LOOP:STATus?` |  | `loop block` | 系统维护查询：loop_engine ready、service_count 和 service 时间 |
 | `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 同步域维护查询：虚拟 DC 服务 ready、lock_state、service_count 和 sync_seq |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 同步域维护查询：VDC DPLL ready、state、service_count 和 update_seq |
 
@@ -191,9 +192,9 @@ HTML 分页将系统域拆成两页：系统状态与日志、系统门禁与分
 | `CONFigure:ANGLe:PULSe` | `<RISING|FALLING>,<pulse_width_us>,<timeout_ms>` | `1` | 配置 A0 接收转台角度触发脉冲的边沿、脉宽和超时；归属角度域，不做编码器 PCNT 换算 |
 | `READ:ANGLe:PULSe?` |  | `angle pulse block` | 读取角度脉冲输入配置、有效计数、漏脉冲计数、超时状态和最近边沿时间 |
 | `READ:ANGLe:POSition?` |  | `position block` | 读取 DTC 侧由扫描配置和角度脉冲推导出的角度状态；不代表运动控制器反馈的真实转台位置 |
-| `CONFigure:ANGLe:BPOint` | `[angle_deg]` | `1` | 配置角度断点；给出参数时绑定指定扫描角度，运行中或暂停中省略参数时使用当前待输出角度游标 |
-| `CONFigure:ANGLe:BPOint:CLEAr` |  | `1` | 清除角度断点和命中标志；若当前已因断点暂停，仅清除断点标志，不自动继续运行 |
-| `READ:ANGLe:BPOint?` |  | `breakpoint block` | 读取断点角度、命中状态、暂停状态和断点游标 |
+| `CONFigure:ANGLe:BREAkpoint` | `[angle_deg]` | `1` | 配置角度断点；给出参数时绑定指定扫描角度，运行中或暂停中省略参数时使用当前待输出角度游标 |
+| `CONFigure:ANGLe:BREAkpoint:CLEAr` |  | `1` | 清除角度断点和命中标志；若当前已因断点暂停，仅清除断点标志，不自动继续运行 |
+| `READ:ANGLe:BREAkpoint?` |  | `breakpoint block` | 读取断点角度、命中状态、暂停状态和断点游标 |
 
 极化编码：
 
@@ -294,7 +295,7 @@ wave_idx
 ```scpi
 CONFigure:ANGLe:SWEEP -10,370,1
 CONFigure:ANGLe:PULSe RISING,10,30000
-CONFigure:ANGLe:BPOint 0
+CONFigure:ANGLe:BREAkpoint 0
 CONFigure:TRIGger 8,2,5,1
 CONFigure:SEQuence PLAN_A,0,1,2,3,4,5
 CONFigure:SEQuence:ACTive PLAN_A
@@ -348,11 +349,9 @@ TRIGger:STARt PLAN_A
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
 | `READ:RUN:SUMMary?` |  | `summary block` | 兼容读取最近 RUN 摘要；产品上位机优先使用 `SYSTem:RUN:SUMMary?` |
-| `READ:T2:COUNt?` |  | `<count>` | 读取 T2 FIFO 当前数据量 |
-| `READ:T2:DATA?` | `[count]` | `T2 block` | 读取 T2 数据 |
 | `READ:STATistics?` | `[kind]` | `statistics block` | 读取 `e_vdc/e_act/e_pll/late/crc/seq` 统计摘要 |
 
-`READ:T2:DATA?` 字段：
+`SYSTem:T2:DATA?` 字段：
 
 ```text
 seq,node,channel,t2_tick,status,error_code,temperature
@@ -365,10 +364,10 @@ seq,node,channel,t2_tick,status,error_code,temperature
 | `SYSTem:CONFigure:STAT?` |  | `gate block` | 读取配置门禁、ACK/NACK、busy、timeout 和 CRC 快照 |
 | `SYSTem:CONFigure:ACK?` |  | `ack block` | 读取分布式配置 ACK 位图、NACK 位图和最近拒绝原因 |
 | `SYSTem:CONFigure:NACK?` | `[reason_id]` | `reason block` | 读取 NACK reason 表，用于 UI 参数校验和故障提示 |
-| `SYSTem:REFMEM:STATUS?` |  | `refmem block` | 读取 64KB 分布式向量表表头、版本、table_seq、节点心跳和 stale 状态 |
+| `SYSTem:REFMEM:STATus?` |  | `refmem block` | 读取 64KB 分布式向量表表头、版本、table_seq、节点心跳和 stale 状态 |
 | `SYSTem:REFMEM:NODE?` | `[node_id]` | `node block` | 读取指定节点镜像；省略时读取本节点 |
 | `SYSTem:CORE:VECTOR?` |  | `core vector block` | 读取 core0/core1 VTOR owner、IRQ owner、entry table owner 和 guard 状态 |
-| `SYSTem:PROT:STAT?` |  | `runtime protection block` | 读取 RAM-resident、flash lockout/park、entry owner 和保护状态 |
+| `SYSTem:PROTection:STATus?` |  | `runtime protection block` | 读取 RAM-resident、flash lockout/park、entry owner 和保护状态 |
 | `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 同步域维护查询：读取虚拟 DC 服务 ready、lock_state、service_count 和 sync_seq |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 同步域维护查询：读取 VDC DPLL ready、state、service_count 和 update_seq |
 | `SYSTem:CONFigure:ROLE?` | `[node_id]` | `role block` | 查询 NodeRoleMap |
@@ -386,7 +385,8 @@ seq,node,channel,t2_tick,status,error_code,temperature
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
 | `CONFigure:CALibration:LINK:ADD` | `<type>,<src_node>,<src_port>,<dst_node>,<dst_port>,<direction>,<enable>,<required>` | `1` | 新增可校准链路；链路 key 已存在时返回 duplicate |
-| `CONFigure:CALibration:LINK:SET` | 同 ADD | `1` | 修改链路属性；不修改已经保存的 delay 数据 |
+| `CONFigure:CALibration:LINK:UPDate` | 同 ADD | `1` | 修改链路属性；不修改已经保存的 delay 数据 |
+| `CONFigure:CALibration:LINK:CLEAr` |  | `1` | 清空 staging 链路表；active 校准表不受影响 |
 | `CONFigure:CALibration:LINK:DELete` | `<type>,<src_node>,<src_port>,<dst_node>,<dst_port>[,DEL]` | `1` | 删除链路；带 `DEL` 时同时删除该链路校准数据 |
 | `READ:CALibration:LINK?` | `[type,src_node,src_port,dst_node,dst_port]` | `link table` | 读取链路清单、方向、使能、必需标志和当前 delay 是否有效 |
 
@@ -395,6 +395,8 @@ seq,node,channel,t2_tick,status,error_code,temperature
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
 | `CALibration:STARt` | `<type>,<src_node>,<src_port>,<dst_node>,<dst_port>` | `result block` | 快速测量指定输入/输出段，例如 `CALibration:STARt SMA,A0,OUT1,A1,IN1` |
+| `CALibration:STOP` |  | `1` | 停止当前校准事务；若事务已完成则保持最近结果不变 |
+| `CALibration:CLEAr` |  | `1` | 清除 staging 校准结果和最近一次校准事务状态，不影响 active 表 |
 | `READ:CALibration:STATe?` | `[type,src_node,src_port,dst_node,dst_port]` | `state block` | 读取最近一次或指定链路校准状态；快速事务通常返回 DONE/FAIL |
 | `READ:CALibration:RESult?` | `[type,src_node,src_port,dst_node,dst_port]` | `result block` | 读取最近一次校准结果、delay、jitter、样本数和失败原因 |
 
@@ -406,7 +408,7 @@ seq,node,channel,t2_tick,status,error_code,temperature
 | 链路存在 | `CALibration:STARt` 的端口对必须已在 LINK 表中登记 | 缺失时先执行 `CONFigure:CALibration:LINK:ADD` |
 | 失败保护 | 失败不覆盖旧 staging delay，只记录失败原因和原始计数 | 读取 `READ:CALibration:RESult?` 后决定是否重测 |
 | 同步影响 | 校准写入 staging；只有 `CALibration:ACTivate` 后才影响 SYNC | 激活后重新执行 `SYNC:CHECk` |
-| 持久化 | `CALibration:SAVE` 涉及 flash/storage 时必须通过资源仲裁；core1 需已 park/lockout 或后端不触发 flash erase/program | 失败时读取 `SYSTem:PROT:STAT?`、`SYSTem:SD:STATus?` 和 `SYSTem:CONFigure:NACK?` |
+| 持久化 | `CALibration:SAVE` 涉及 flash/storage 时必须通过资源仲裁；core1 需已 park/lockout 或后端不触发 flash erase/program | 失败时读取 `SYSTem:PROTection:STATus?`、`SYSTem:SD:STATus?` 和 `SYSTem:CONFigure:NACK?` |
 
 ### 6.4 校准门禁
 
@@ -798,7 +800,7 @@ RUN 中替换已冻结配置，也不能进入校准、同步调参、存储维�
 | 序列准备 | `CONFigure:SEQuence`、`CONFigure:SEQuence:ACTive`、`READ:SEQuence:ACTive?` | IDLE/CONFIG/ARM 前 | 写入或选择测试序列；`CONFigure:SEQuence:ACTive` 内部完成序列校验并冻结 active sequence，失败原因通过 ACK/NACK 和 `READ:SEQuence:ACTive?` 查询；`TRIGger:STARt [plan_id]` 可作为激活并启动的受限便捷事务 |
 | 同步门禁 | `SYNC:CHECk`、`READ:SYNC:STATe?`、`READ:SYNC:HEALth?`、`READ:SYNC:LINK?`、`READ:SYNC:CHECk?` | START 前；RUN 中只读 | 检查 active CAL/SYNC、NODE 链路和 DPLL 锁定质量；不允许 `TEST` 修改 DPLL 或同步 profile |
 | 启动运行 | P7 运行控制：`TRIGger:MODE 0|1`、`TRIGger:STARt [plan_id]`、`READ:TRIGger:STATe?`、`READ:TRIGger:PARameter?` | IDLE/CONFIG/ARM 前启动；RUN 中只读 | `TEST` 只允许设置 IDLE/TRIG 两种模式；`START` 只负责进入运行，不再承担任意配置；带 `plan_id` 时仍必须通过 active sequence 校验和门禁 |
-| 断点续测 | `CONFigure:ANGLe:BPOint`、`CONFigure:ANGLe:BPOint:CLEAr`、`READ:ANGLe:BPOint?`、`TRIGger:PAUSe`、`TRIGger:CONTinue` | IDLE/CONFIG 或安全暂停边界 | 归属现场测试业务，用于断点续测和停点恢复；是否在 UI 显示由 `TEST` profile 开关决定，不需要 `DEBUG` |
+| 断点续测 | `CONFigure:ANGLe:BREAkpoint`、`CONFigure:ANGLe:BREAkpoint:CLEAr`、`READ:ANGLe:BREAkpoint?`、`TRIGger:PAUSe`、`TRIGger:CONTinue` | IDLE/CONFIG 或安全暂停边界 | 归属现场测试业务，用于断点续测和停点恢复；是否在 UI 显示由 `TEST` profile 开关决定，不需要 `DEBUG` |
 | RUN 态安全动作 | `TRIGger:STOP`、`READ:ANGLe:POSition?`、`READ:ANGLe:PULSe?`、`READ:TRIGger:STATe?`、`READ:SYNC:STATe?` | RUN 中 `STOP` 安全执行，其余只读 | 测试程序 RUN 中主要从网分取数据；DTC 只提供安全停止、运行状态和只读证明 |
 | 结束复盘 | `SYSTem:RUN:LAST?`、`SYSTem:RUN:SUMMary?`、`SYSTem:RUN:LOG?`、`SYSTem:FAULT:LAST?`、`SYSTem:ERRor?`、`SYSTem:LOG:PAGE?` | STOP/IDLE/FAULT 后只读 | 生成现场测试报告，记录触发计数、漏脉冲、同步质量、错误、日志和故障摘要 |
 
@@ -849,7 +851,7 @@ RUN 中替换已冻结配置，也不能进入校准、同步调参、存储维�
 | `SYSTem:CONFigure:ACK?` |  | `ack block` | 查询调试命令 accepted 后的分布式完成态 |
 | `SYSTem:CONFigure:NACK?` | `[reason_id]` | `reason block` | 查询拒绝原因表 |
 | `SYSTem:CORE:VECTOR?` |  | `core vector block` | 查询 core0/core1 VTOR、IRQ owner、entry owner 和 guard |
-| `SYSTem:PROT:STAT?` |  | `runtime protection block` | 查询 RAM-resident、flash lockout/park 和入口归属 |
+| `SYSTem:PROTection:STATus?` |  | `runtime protection block` | 查询 RAM-resident、flash lockout/park 和入口归属 |
 | `SYSTem:RUN:LOG?` | `[run_id,page]` | `run log page block` | 调试导出 RUN 短日志 |
 
 ## 13. 维护指令
@@ -905,7 +907,7 @@ RUN 中替换已冻结配置，也不能进入校准、同步调参、存储维�
 | 数据 | 格式 | 说明 |
 |---|---|---|
 | `CONFigure:SEQuence` | IEEE488.2 definite length block | 记录数组，每条记录固定 8 个字段 |
-| `READ:T2:DATA?` | block | 输出 `seq,node,channel,t2_tick,status,error_code,temperature` |
+| `SYSTem:T2:DATA?` | block | 输出 `seq,node,channel,t2_tick,status,error_code,temperature` |
 | `SYSTem:TRACe:DATA?` | block | trace 分页输出，包含页号、总页数、run_id、CRC |
 | `SYSTem:SNAPshot:DATA?` | block | 配置、运行、故障快照，带 layout_version 和 CRC |
 
@@ -977,10 +979,10 @@ crc
 - 通信约定保留 USBTMC/USB488 成品接口、CDC validation 维护接口、调试权限 profile 和状态策略约束。
 - IEEE 488.2 指令补齐 `*OPC`、`*STB?`、`*ESR?`、`*ESE/*ESE?`、`*SRE/*SRE?`。
 - 系统指令补齐 `SYSTem:FW:BUILD?`、`SYSTem:LOG:STATus?`、`SYSTem:TRACe:LAST?`、`SYSTem:SNAPshot:LAST?`。
-- 反射内存命令收敛到 `SYSTem:REFMEM:STATUS?`、`SYSTem:REFMEM:NODE?` 命名，旧 `SYSTem:REFM:*` 不再保留。
+- 反射内存命令收敛到 `SYSTem:REFMEM:STATus?`、`SYSTem:REFMEM:NODE?` 命名，旧 `SYSTem:REFM:*` 不再保留。
 - 序列主模型恢复为 `CONFigure:TRIGger` 自动展开状态表，`CONFigure:SEQuence` 上传 state_id 顺序引用。
 - 增加并保留 `READ:SEQuence:MAP?`，用于显示 state_id 到 SWITCH1/SWITCH2/pol/freq/wave 的映射。
-- 角度断点命名恢复为完整 `CONFigure:ANGLe:BPOint`、`READ:ANGLe:BPOint?`。
+- 角度断点命名恢复为完整 `CONFigure:ANGLe:BREAkpoint`、`READ:ANGLe:BREAkpoint?`。
 
 在最初版基础上继续保留的产品化增强：
 

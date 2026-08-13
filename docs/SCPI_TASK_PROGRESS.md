@@ -112,8 +112,75 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 - [ ] `READ:SEQuence:ACTive?` 保留 active 序列摘要，`READ:SEQuence:CHECk?` 保留逐项预检结果。
 - [ ] `TRIGger:STARt [plan_id]` 保留受限便捷事务，但必须等价于“激活并启动”，不能绕过
   `CONFigure:SEQuence:ACTive` 的校验和门禁。
+- [x] 断点命名收敛到 `CONFigure:ANGLe:BREAkpoint` / `READ:ANGLe:BREAkpoint?`，删除
+  `BPOint` 入口。
+- [x] 系统维护表入口删除短别名，保留 `SYSTem:PROTection:STATus?`、
+  `SYSTem:MODE:TABle?`、`SYSTem:RESource:TABle?`、`SYSTem:FAULT:TABle?`。
+- [x] 反射内存状态命名收敛到 `SYSTem:REFMEM:STATus?`。
+- [x] 校准链路表动词收敛到 `LINK:ADD/UPDate/DELete/CLEAr`，补齐
+  `CALibration:STOP` 和 `CALibration:CLEAr` 动作入口。
+- [x] T2 明细读取从 `READ:T2:*` 收敛到 `SYSTem:T2:*?`。
+- [x] 产品运行控制补齐 `TRIGger:ABORt`。
+- [x] BiSS-C 参数命名从 `FBITs/POFFset/PBITs/PMODulo` 收敛到
+  `FRAMe:BITS`、`POSition:OFFSet`、`POSition:BITS`、`POSition:MODulo`。
 
 ## 任务记录
+
+### SCPI-TASK-20260813-034 - SCPI 指令规范性审查收敛
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 将本轮 SCPI 域拆分后的规范性审查结果加入待办，并逐条修正固件注册表、验证工具和活跃文档。
+  - 继续坚持不保留兼容入口，避免上位机、HTML、固件和验证脚本各自使用一套命令。
+- 完成内容：
+  - 业务断点入口从 `BPOint` 收敛到 `BREAkpoint`。
+  - 系统维护表入口删除 `PROT:STAT?`、`MODE:TAB?`、`RESource:TAB?`、`FAULT:TAB?` 短别名。
+  - 反射内存状态查询改为 `SYSTem:REFMEM:STATus?`。
+  - 校准链路修改动词改为 `LINK:UPDate`，新增 `LINK:CLEAr`、`CALibration:STOP`、
+    `CALibration:CLEAr`。
+  - T2 明细读取改为 `SYSTem:T2:COUNt?` / `SYSTem:T2:DATA?`，移除 `READ:T2:*` 产品注册。
+  - 产品运行控制补齐 `TRIGger:ABORt`。
+  - BiSS-C 配置参数改为 `FRAMe:BITS`、`POSition:OFFSet`、`POSition:BITS`、
+    `POSition:MODulo`。
+  - `tools/biss_board_validate.py`、`tools/multicore_board_validate.py` 和
+    `tools/distributed_loopback_validate.py` 切到 canonical 命令。
+  - 同步 `docs/SCPI_COMMANDS.md`、`docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
+    和 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 的当前接口描述。
+- 验证结果：
+  - `python tools/product_scpi_validate/product_scpi_validate.py --dry-run`
+    通过，生成 `114` 条产品命令。
+  - `python tools/realtime_scpi_validate/realtime_scpi_validate.py --dry-run`
+    通过，生成 `57` 条 `REALtime:*` 维护命令。
+  - `python tools/scpi_legacy_validate/scpi_legacy_validate.py --dry-run`
+    通过，生成 `78` 条旧入口删除验证命令。
+  - `python -m py_compile` 覆盖 product/realtime/legacy/BiSS/multicore/distributed-loopback
+    验证脚本，通过。
+  - `python tools/docs_check/docs_check.py` 通过，保留 9 个既有文件名 warning。
+  - `git diff --check` 通过，仅保留既有 CRLF 工作区 warning。
+  - `cmake --build build-validation` 通过，生成 validation 包，build id：
+    `20260813012710`，package CRC：`0xE92D5E11`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 smoke 包，build id：
+    `20260813012837`，package CRC：`0x20326F3F`。
+  - `cmake --build build` 未使用为最终结论：该目录的 `CMakeCache.txt` 仍指向
+    `D:/OneDrive/...`，当前工作区为 `E:/OneDrive/...`，触发 CMake cache 路径不一致；
+    本轮改用 E 盘有效缓存的 `build-validation` 和 `build-rtos-multicore-smoke` 验证。
+- 还需完成：
+  - 后续如需要板端闭环，可 OTA validation 或 smoke 包后执行 product SCPI、
+    legacy 删除验证和 multicore board validate。
+- 关联文件：
+  - `middleware/scpi_port/inc/scpi_config_commands.h`
+  - `middleware/scpi_port/inc/scpi_calibration_commands.h`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/inc/scpi_system_diagnostics_commands.h`
+  - `middleware/scpi_port/inc/scpi_trigger_commands.h`
+  - `middleware/scpi_port/inc/scpi_communication_biss_commands.h`
+  - `tools/biss_board_validate/biss_board_validate.py`
+  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `tools/distributed_loopback_validate/distributed_loopback_validate.py`
+  - `docs/SCPI_COMMANDS.md`
+  - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
+  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 
 ### SCPI-TASK-20260813-033 - P1 裸状态入口文档收口
 

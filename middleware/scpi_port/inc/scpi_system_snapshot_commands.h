@@ -20,7 +20,6 @@ scpi_result_t scpi_cmd_resource_arbiter_table_q(scpi_t *context);
 scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
 
 #define SCPI_SYSTEM_SNAPSHOT_COMMANDS \
-    {.pattern = "SYSTem:PROT:STAT?", .callback = scpi_cmd_runtime_protection_q}, \
     {.pattern = "SYSTem:CONFigure:STAT?", .callback = scpi_cmd_config_gate_status_q}, \
     {.pattern = "SYSTem:CONFigure:ROLE?", .callback = scpi_cmd_config_role_q}, \
     {.pattern = "SYSTem:CONFigure:LOOP?", .callback = scpi_cmd_config_loop_q}, \
@@ -28,11 +27,8 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:CONFigure:CAL?", .callback = scpi_cmd_config_calibration_q}, \
     {.pattern = "SYSTem:CONFigure:ACK?", .callback = scpi_cmd_config_ack_q}, \
     {.pattern = "SYSTem:CONFigure:NACK?", .callback = scpi_cmd_config_nack_reason_q}, \
-    {.pattern = "SYSTem:MODE:TAB?", .callback = scpi_cmd_system_mode_table_q}, \
-    {.pattern = "SYSTem:RESource:TAB?", .callback = scpi_cmd_resource_arbiter_table_q}, \
-    {.pattern = "SYSTem:FAULT:TAB?", .callback = scpi_cmd_fault_code_table_q}, \
     {.pattern = "SYSTem:SCPI:RUN:ALLOW?", .callback = scpi_cmd_scpi_run_allow_q}, \
-    {.pattern = "SYSTem:REFMEM:STATUS?", .callback = scpi_cmd_refmem_status_q}, \
+    {.pattern = "SYSTem:REFMEM:STATus?", .callback = scpi_cmd_refmem_status_q}, \
     {.pattern = "SYSTem:REFMEM:NODE?", .callback = scpi_cmd_refmem_node_q}, \
     {.pattern = "SYSTem:CORE:VECTOR?", .callback = scpi_cmd_core_vector_q}, \
     {.pattern = "SYSTem:PROTection:STATus?", .callback = scpi_cmd_runtime_protection_q}, \
