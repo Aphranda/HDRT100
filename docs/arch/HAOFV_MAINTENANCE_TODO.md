@@ -60,6 +60,31 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 - 下一步：
   - 后续如需迁移构建产物、包名、SCPI `*IDN?` 型号或 HTML 指令表标题，应单独立项，不和文档系统名冻结混做。
 
+### HAOFV-MAINT-20260813-011 - 未来应用与跨平台路线图建立
+
+- 状态：完成
+- 问题：
+  - Distributed Hard Real-Time Trigger System 的应用边界已经超过当前相控阵/波导天线触发场景，需要单独记录未来规划。
+  - 跨平台能力需要明确为“RP2350 是低成本参考实现，不是架构边界”。
+- 影响：
+  - 如果未来规划直接写入当前实现待办，容易冲散 DTC100 / RP2350 当前产品闭环。
+  - 如果不记录，后续平台化、开源生态和跨平台移植会缺少共同口径。
+- 完成：
+  - [x] 新增 `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`。
+  - [x] 记录近期主场景、横向扩展场景、高价值商业方向和开源生态方向。
+  - [x] 记录跨平台可移植性，明确 HAOFV/RefMem/DPLL/ACK 逻辑层保持稳定，硬实时 backend 和平台服务层可替换。
+  - [x] 增加 RP2350、AM3352、i.MX RT1170、STM32H7、ESP32-S3、TI C2000、FPGA、Zynq 的平台映射。
+  - [x] 增加 Open Reference、Industrial MCU、Linux Gateway、Extreme Realtime 版本分层。
+  - [x] 接入 `docs/README.md`、`docs/arch/README.md` 和 `ARCH_PRODUCT_ARCHITECTURE.md`。
+- 关联文件：
+  - `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`
+  - `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`
+  - `docs/arch/README.md`
+  - `docs/README.md`
+  - `docs/docs/DOCS_MIGRATION_TODO.md`
+- 下一步：
+  - 当前仍优先完成 DTC100 / RP2350 产品闭环；跨平台 portable boundary 后续单独立项。
+
 ### HAOFV-MAINT-20260813-001 - app.c 中心化状态需要拆出主域 owner
 
 - 状态：进行中
