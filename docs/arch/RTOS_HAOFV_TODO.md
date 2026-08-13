@@ -9,6 +9,10 @@ Last updated: 2026-08-13
 本文档只维护 RTOS + 双核 AMP 在 HAOFV 下的实施待办。已经完成的构建、烧录、
 板端 smoke、工具输出和水位记录放在 `RTOS_HAOFV_TASK_PROGRESS.md`。
 
+当前产品化开发分支：`feature/rtos-multicore-haofv`。该分支只维护 RTOS + 双核
+AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史 bring-up 参考和故障
+定位时的对照路径。
+
 ## P0 - 任务边界固化
 
 - [x] 将 `task_io_frontend` 拆为 `task_usb_device` 和 `task_scpi`。
