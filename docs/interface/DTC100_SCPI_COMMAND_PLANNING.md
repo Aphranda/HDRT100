@@ -369,6 +369,8 @@ SYSTem:USB:*
 - 在资源、IO、时序、owner 和 slot writer 不冲突时，同一通用节点可以同时载入多个逻辑实例。
 - 产品业务读取优先通过 `READ:*?` 和 `SYSTem:*?` 摘要，不直接要求上位机解析全部反射内存布局。
 - SCPI 只读取 RefMem snapshot 或写 command/config slot；state、summary、ACK/NACK、result、health 和 evidence slot 仍由对应 owner 写入。
+- `SYSTem:CONFigure:ACK?` / `SYSTem:CONFigure:NACK?` 是 RefMem `AckCommandSlot` 的配置门禁视图；如果后续增加通用 `SYSTem:COMMand:ACK?` / `SYSTem:COMMand:NACK?`，必须读取同一底层 command slot，不允许另建一套 ACK/NACK 事实。
+- 写命令返回 `OK` 或 `1` 只表示接口层 accepted；动作完成、节点拒绝、busy、timeout 和证据必须通过 ACK/NACK、对应 `READ:*?` 或 `SYSTem:*?` 快照闭环。
 
 报告/日志/T2 边界：
 

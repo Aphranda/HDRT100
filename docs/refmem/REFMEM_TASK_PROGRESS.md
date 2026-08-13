@@ -43,6 +43,38 @@ DistributedRefMemAO
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-005 - Command / ACK / NACK 契约定义
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 进入 P4，定义 RefMem `AckCommandSlot` 的命令意图、ACK/NACK、busy、timeout、reason 和 evidence 契约。
+  - 将现有 `SYSTem:CONFigure:ACK? / NACK?` 收敛为底层 command slot 的配置门禁视图。
+- 完成内容：
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加 Command / ACK / NACK 契约，明确写命令返回 accepted 不代表动作完成。
+  - 定义 `AckCommandSlot` 字段：`command_seq`、source、target、required mask、command type/class、payload ref/CRC、epoch/run_id、timeout、taken/ack/nack/busy/timeout 位图、reason、evidence 和 clear_seq。
+  - 定义命令类型首版集合：`CONFIG_STAGE`、`CONFIG_ACTIVATE`、`START/STOP`、`ARM`、`FIRE_LOAD`、`CAL_START`、`SYNC_START_STOP`、`FAULT_CLEAR`、`RESOURCE_JOB` 等。
+  - 定义命令状态机：`IDLE -> POSTED -> TAKEN -> EXECUTING/BUSY -> ACKED/NACKED/TIMED_OUT/FAULTED -> CLEAR_PENDING -> IDLE`。
+  - 定义重复 `command_seq`、payload CRC mismatch、epoch mismatch、timeout、clear_seq 和 stale 策略。
+  - 定义产品化 NACK reason 扩展列表。
+  - `REFMEM_DOMAIN_TODO.md` 与 `RTOS_HAOFV_TODO.md` 将 P4 文档定义项标记完成，并拆出 `refmem_command.h/.c`、system_manager 映射和通用 `SYSTem:COMMand:*` 评估待办。
+  - `DTC100_SCPI_COMMAND_PLANNING.md` 和 `SCPI_COMMANDS.md` 同步 ACK/NACK 单事实源规则。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，保留 7 个既有文件命名 warning。
+  - 本任务为文档契约定义，未执行构建、烧录或板端 SCPI。
+- 还需完成：
+  - 将 AckCommandSlot 字段落到 `refmem_command.h/.c`。
+  - 将现有 `system_manager` 配置 ACK 迁移或映射到 RefMem AckCommandSlot snapshot。
+  - 扩展 NACK reason 表并评估通用 `SYSTem:COMMand:ACK? / NACK?`。
+- 关联文件：
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/arch/RTOS_HAOFV_TODO.md`
+  - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/interface/SCPI_COMMANDS.md`
+- 下一步：
+  - 进入 P5，定义 `REFMEM_DELTA` / `REFMEM_EPOCH` 帧格式、slot delta CRC、seq、timestamp、RJ45_SYNC_RING stale 和重放策略。
+
 ### REFMEM-TASK-20260813-004 - DistributedVectorTable 契约冻结
 
 - 状态：完成

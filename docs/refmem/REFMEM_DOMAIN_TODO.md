@@ -58,11 +58,15 @@ Last updated: 2026-08-13
 
 ## P4 - Command / ACK / NACK
 
-- [ ] 实现命令槽原子 Take/Clear，执行动作保持在临界区外。
-- [ ] 定义 command_seq、source_node、target_node、command_type、payload_ref、timeout_ms。
-- [ ] 定义 ACK/NACK/busy/timeout 位图和 per-node reason。
-- [ ] 将 `SYSTem:CONFigure:ACK? / NACK?` 与 AckCommandSlot 对齐。
-- [ ] 定义 command slot stale 和重复 command_seq 策略。
+- [x] 文档定义命令槽原子 Take/Clear 语义，执行动作保持在临界区外。
+- [x] 文档定义 `command_seq`、`source_node`、`target_mask`、`required_mask`、`command_type`、`payload_ref`、`payload_crc32`、`issue_epoch/run_id`、`timeout_us`。
+- [x] 文档定义 ACK/NACK/busy/timeout 位图、last NACK reason、last NACK node、reason table CRC 和 evidence index。
+- [x] 文档定义 `SYSTem:CONFigure:ACK? / NACK?` 是 `AckCommandSlot` 的配置门禁视图；后续 `SYSTem:COMMand:*` 也必须读取同一底层事实。
+- [x] 文档定义 command slot stale、重复 `command_seq`、CRC mismatch、epoch mismatch、timeout 和 clear_seq 策略。
+- [ ] 将 AckCommandSlot 字段落到 `refmem_command.h/.c`。
+- [ ] 将现有 `system_manager` 配置 ACK 迁移或映射到 RefMem AckCommandSlot snapshot。
+- [ ] 扩展 NACK reason 表，补齐 resource busy、RUN denied、payload CRC、epoch mismatch、dup seq、timeout、permission denied。
+- [ ] 评估是否新增 `SYSTem:COMMand:ACK? / NACK?`，并保持 `SYSTem:CONFigure:*` 为兼容配置视图。
 
 ## P5 - RefMem Sync Protocol
 

@@ -66,6 +66,33 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260813-009 - RefMem ACK/NACK 契约收敛
+
+- 状态：框架完成，代码未改
+- 日期：2026-08-13
+- 任务目标：
+  - 将 RTOS + 分布式系统里的配置 ACK、跨节点命令 ACK/NACK、busy、timeout 和 reason 收敛到 RefMem `AckCommandSlot` 单事实源。
+  - 保持现有 `SYSTem:CONFigure:ACK? / NACK?` 为配置门禁视图，避免新增重复 ACK/NACK 事实。
+- 完成内容：
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加 Command / ACK / NACK 契约。
+  - `RTOS_HAOFV_TODO.md` 将通用 ACK/NACK 文档定义标记完成，并拆出 `system_manager` 映射和通用 `SYSTem:COMMand:*` 评估待办。
+  - `DTC100_SCPI_COMMAND_PLANNING.md` 和 `SCPI_COMMANDS.md` 明确写命令 accepted 与动作完成态分离。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，保留 7 个既有文件命名 warning。
+  - 本轮未修改固件代码，未执行构建、烧录或板端 SCPI。
+- 还需完成：
+  - 将 AckCommandSlot 落到 `refmem_command.h/.c`。
+  - 将现有 `system_manager` 配置 ACK 迁移或映射到 RefMem AckCommandSlot snapshot。
+  - 扩展 NACK reason 表并评估通用 `SYSTem:COMMand:ACK? / NACK?`。
+- 关联文件：
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/arch/RTOS_HAOFV_TODO.md`
+  - `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`
+  - `docs/interface/SCPI_COMMANDS.md`
+- 下一步：
+  - 继续 RefMem P5 Sync Protocol 契约，随后进入代码拆分。
+
 ### RTOS-DIST-TASK-20260813-008 - RefMem 64 KB 表契约冻结
 
 - 状态：框架完成，代码未改

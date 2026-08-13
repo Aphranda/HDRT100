@@ -377,6 +377,123 @@ RefMem 的写权限按 slot、字段和节点共同约束：
 | OtaStorageUiSlot | OTA / Storage / UI owner | core1 实时侧直接落盘或改 UI 状态。 |
 | TlvExtension | owner by TLV type | 未注册 TLV type 写入。 |
 
+### Command / ACK / NACK 契约
+
+`AckCommandSlot` 是跨域、跨核和跨节点命令闭环的数据面。它不执行业务动作，只保存命令意图、目标节点、payload 引用、ACK/NACK/busy/timeout 位图和可回溯证据。
+
+写命令的基本语义：
+
+```text
+SCPI / UI / System Pack accepted
+  -> command slot POSTED
+  -> target owner TAKE
+  -> target AO/FB 执行或分步 busy
+  -> ACK / NACK / TIMEOUT / FAULT
+  -> SCPI / UI / Report 读取快照闭环
+```
+
+SCPI 写命令返回 `OK` 或 `1` 只表示接口层 accepted，不表示动作已经完成。动作完成、拒绝原因、节点超时和质量证据必须通过 `SYSTem:CONFigure:ACK?`、后续 `SYSTem:COMMand:ACK?`、对应 `READ:*?` 或故障/报告接口回读。
+
+`AckCommandSlot` 首版字段建议：
+
+| 字段 | 含义 | 规则 |
+|---|---|---|
+| `slot_guard` | 统一 slot guard。 | 带 `slot_seq`、owner、crc、stale。 |
+| `command_seq` | 命令序号。 | command owner 单调递增，0 保留为无效。 |
+| `source_node` | 发起节点。 | 通常为 A3 gateway 或 A0 SystemAO。 |
+| `source_instance` | 发起实例。 | 对应 `DistributedFbInstanceTable`。 |
+| `target_mask` | 目标 A0-A7 节点位图。 | 只允许指向静态模型中存在的节点。 |
+| `required_mask` | 必须 ACK 的目标位图。 | 可小于 target_mask，用于 report-only 节点。 |
+| `command_type` | 命令类型。 | 使用枚举，不使用自由字符串。 |
+| `command_class` | 权限和资源分类。 | 配合 RUN 态策略、ResourceArbiter 和权限表。 |
+| `payload_kind` | payload 类型。 | `INLINE_SMALL`、`SLOT_REF`、`TLV_REF`、`STAGING_REF`。 |
+| `payload_ref` | payload 引用。 | 指向 staging slot、TLV 或小 payload 区。 |
+| `payload_size` | payload 长度。 | 大 payload 不进入 RefMem。 |
+| `payload_crc32` | payload 摘要。 | target TAKE 前必须校验。 |
+| `issue_epoch/run_id` | 发起上下文。 | 防止旧 RUN 命令污染新 RUN。 |
+| `issue_tick32` | 发起时间。 | timeout 使用回绕安全差值。 |
+| `timeout_us` | 命令超时。 | 0 表示无 timeout，但产品 RUN 命令不应为 0。 |
+| `taken_flags` | 目标已 take 位图。 | 原子设置。 |
+| `ack_flags` | 目标完成 ACK 位图。 | 只由目标 owner 设置。 |
+| `nack_flags` | 目标拒绝位图。 | 只由目标 owner 设置。 |
+| `busy_flags` | 目标忙位图。 | 表示已接收但需后续 tick 推进。 |
+| `timeout_flags` | command owner 判定超时位图。 | 不由目标节点自己设置。 |
+| `last_nack_reason` | 最近 NACK 原因。 | 枚举值，必须能查 reason 表。 |
+| `last_nack_node` | 最近 NACK 节点。 | 0-7 或 `UINT32_MAX`。 |
+| `reason_table_crc32` | reason 表摘要。 | 上位机可校验解释版本。 |
+| `evidence_index` | 证据索引。 | 指向 FaultEvidenceSlot 或 SD 日志。 |
+| `clear_seq` | 清除确认序号。 | 防止清错新命令。 |
+
+命令类型首版建议：
+
+| `command_type` | 用途 | 典型 owner |
+|---|---|---|
+| `CONFIG_STAGE` | 写入配置 staging。 | ConfigGate / 对应 Domain AO |
+| `CONFIG_ACTIVATE` | staging 转 active。 | ConfigGate |
+| `START` / `STOP` | 启停产品运行。 | LoopEngineAO / SystemAO |
+| `ARM` | 装载触发准备。 | TriggerAO |
+| `FIRE_LOAD` | 装载未来触发时间。 | core1 realtime owner |
+| `CAL_START` | 启动指定链路校准。 | CalibrationAO |
+| `CAL_SAVE_LOAD_ACTIVATE` | 校准数据持久化/加载/激活。 | CalibrationAO / StorageAO |
+| `SYNC_START_STOP` | 开启或停止同步维护。 | VdcSyncAO |
+| `SYNC_RELOCK_HOLDOVER` | DPLL/VDC 维护动作。 | VdcSyncAO |
+| `FAULT_CLEAR` | 清除可恢复故障锁存。 | SystemAO |
+| `RESOURCE_JOB` | Flash/SD/OTA 等资源任务。 | Resource owner |
+| `MAINTENANCE` | 维护/产测动作。 | 对应维护 owner |
+
+命令状态机：
+
+```text
+IDLE
+POSTED
+TAKEN
+EXECUTING / BUSY
+ACKED / NACKED / TIMED_OUT / FAULTED
+CLEAR_PENDING
+IDLE
+```
+
+规则：
+
+- command owner 只能在 `IDLE` 或 `CLEAR_PENDING` 完成后发布新 `command_seq`。
+- target owner TAKE 命令时只做原子占用、payload CRC、epoch/run_id 和权限检查。
+- TAKE/CLEAR 的临界区只允许修改位图和状态，不允许执行耗时动作。
+- 耗时动作必须转入 AO/FB service tick，期间设置 `busy_flags`。
+- target 完成后设置 `ack_flags` 或 `nack_flags`，并清除自身 busy 位。
+- command owner 根据 `required_mask` 判断命令完成：`required_mask == ack_flags` 为完成；任一 required NACK 或 timeout 为失败。
+- `ack_flags`、`nack_flags`、`busy_flags` 和 `timeout_flags` 互斥；同一节点不能同时处于多个终态。
+
+重复和 stale 策略：
+
+| 场景 | 处理 |
+|---|---|
+| 相同 `command_seq + payload_crc32` 重复到达 | target 返回上一次 ACK/NACK，不重复执行动作。 |
+| 相同 `command_seq` 但 payload CRC 不同 | 标记 `NACK_DUP_SEQ_CRC_MISMATCH`。 |
+| 低于 last completed seq 的旧命令 | 标记 stale 或忽略，并记录 quality drop。 |
+| `issue_epoch/run_id` 与 active 不一致 | 标记 `NACK_EPOCH_MISMATCH`。 |
+| target 长时间 busy 超过 `timeout_us` | command owner 设置 timeout 位，必要时升级 fault。 |
+| clear_seq 与当前 command_seq 不一致 | 拒绝 clear，防止清掉新命令。 |
+
+Reason 表至少覆盖：
+
+| reason | 含义 |
+|---|---|
+| `NONE` | 无拒绝。 |
+| `CONFIG_CRC_MISMATCH` | 配置 CRC 不一致。 |
+| `HW_PROFILE_MISMATCH` | 硬件 profile 不匹配。 |
+| `NODE_STALE` | 节点 stale。 |
+| `NODE_FAULT` | 节点故障。 |
+| `FLASH_LOCKOUT_UNREADY` | Flash/core1 lockout 未就绪。 |
+| `RESOURCE_BUSY` | 资源被占用。 |
+| `RUN_STATE_DENIED` | 当前 RUN 态禁止该命令。 |
+| `PAYLOAD_CRC_MISMATCH` | payload 校验失败。 |
+| `EPOCH_MISMATCH` | epoch/run_id 不匹配。 |
+| `DUP_SEQ_CRC_MISMATCH` | 重复序号但 payload 不同。 |
+| `TIMEOUT` | 命令超时。 |
+| `PERMISSION_DENIED` | 权限不足。 |
+
+现有 `SYSTem:CONFigure:ACK?` / `SYSTem:CONFigure:NACK?` 是 `AckCommandSlot` 的配置门禁视图。后续如果增加 `SYSTem:COMMand:ACK?` / `SYSTem:COMMand:NACK?`，应读取同一底层 command slot，不另建一套 ACK/NACK 事实。
+
 ### Snapshot 与并发契约
 
 所有对外读取都必须读取快照。SCPI/UI/Report 读取 RefMem 时，不允许临时跨板阻塞查询，也不允许临时驱动现场 IO。

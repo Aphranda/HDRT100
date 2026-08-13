@@ -108,7 +108,9 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [ ] SystemManager 定义 OTA 允许矩阵：system mode × resource × trigger state -> allow/busy/fault。
 - [ ] 定义 `OTA_BUSY`、`RESOURCE_ACQUIRE_TIMEOUT`、`BUDGET_OVERRUN` 错误码和 UI/SCPI 提示。
 - [ ] RTOS 预算语义明确为“连续运行时间片”；超预算向 Diagnostics 记录事件并主动 yield。
-- [ ] 建立通用 `SYSTem:COMMand:ACK? / NACK?` 或收敛现有配置 ACK。
+- [x] 文档定义 RefMem `AckCommandSlot`，并明确现有 `SYSTem:CONFigure:ACK? / NACK?` 是配置门禁视图，后续通用 `SYSTem:COMMand:*` 读取同一底层事实。
+- [ ] 将现有配置 ACK 代码迁移或映射到 RefMem AckCommandSlot snapshot。
+- [ ] 评估并建立通用 `SYSTem:COMMand:ACK? / NACK?`，保持 `SYSTem:CONFigure:*` 兼容配置视图。
 - [ ] 增加 `task_gateway_a3`，接收上位机配置、START/STOP 和数据查询。
 - [ ] 将 `components/loop_engine/` 升级为 `LoopEngineAO / LoopEngineFB / LoopVector`。
 - [ ] 实现 `CONFigure:TRIGger` 自动展开状态表。
