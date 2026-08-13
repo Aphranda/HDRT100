@@ -38,16 +38,18 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 - 状态：进行中
 - 问题：
   - `ConfigGate`、配置 ACK、SystemModeTable、ResourceArbiterTable 和 FaultCodeTable 已迁入 `components/system_manager/`。
-  - `application/src/app.c` 仍集中保存 `loop_engine`、`vdc_sync`、`dpll`、`calibration` 状态。
+  - `LoopEngine` ready、service_count 和状态查询已迁入 `components/loop_engine/`。
+  - `application/src/app.c` 仍集中保存 `vdc_sync`、`dpll`、`calibration` 状态。
   - `system_manager` 目前是快照 owner 第一阶段，还不是完整 `SystemAO / SystemVector / SafetyFB`。
-  - 其他 service 当前主要是 ready、计数器和时间戳维护，尚未形成独立 AO/FB/Vector。
+  - `loop_engine` 和其他 service 当前主要是 ready、计数器和时间戳维护，尚未形成独立 AO/FB/Vector。
 - 影响：
   - 不符合 HAOFV 中“功能域 owner 拥有生命周期、事件队列、状态事实”的约束。
   - 后续 SCPI、UI、反射内存和 core1 实时侧容易再次直接耦合到 `app.c`。
 - 待办：
   - [x] 建立 `SystemManager` 第一阶段组件，迁出 ConfigGate 快照、配置 ACK 和系统只读表。
+  - [x] 建立 `LoopEngine` 第一阶段组件，迁出循环引擎状态计数和状态查询。
   - [ ] 将 `SystemManager` 升级/收敛为 `SystemAO / SystemVector / SafetyFB`，接管系统模式、故障锁存、恢复策略和资源策略。
-  - [ ] 建立 `LoopEngineAO / LoopEngineFB / LoopVector`，迁出循环引擎状态。
+  - [ ] 将 `components/loop_engine/` 升级为 `LoopEngineAO / LoopEngineFB / LoopVector`，承接业务配置、序列展开和运行计划。
   - [ ] 建立 `CalibrationAO / CalibrationFB / CalibrationVector`，迁出校准状态。
   - [ ] 建立 `VdcSyncAO / SyncDpllFB / VdcVector`，迁出 VDC/DPLL 状态。
   - [ ] `app.c` 长期只保留启动编排、board bring-up 和顶层 service 调度。
@@ -66,7 +68,8 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - RTOS 调度维度已经展开，但 HAOFV 的 owner、事件队列、执行预算还未落在各域。
 - 待办：
   - [x] 将 RTOS task 创建、裸机循环和 core1 启动细节从 `main.c` 迁入 `app_runtime`。
-  - [ ] 将 `task_loop_engine` 接到 `loop_engine_ao_service()`。
+  - [x] 将 `task_loop_engine` 第一阶段接到 `components/loop_engine/` owner service。
+  - [ ] 将 `task_loop_engine` 升级接到 `loop_engine_ao_service()`。
   - [ ] 将 `task_calibration` 接到 `calibration_ao_service()`。
   - [ ] 将 `task_vdc_sync` / `task_dpll` 收敛到同步基础件 owner。
   - [ ] 为每个 AO 增加 queue depth、service budget、watermark、last error snapshot。

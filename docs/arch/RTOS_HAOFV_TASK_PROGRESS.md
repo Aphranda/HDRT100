@@ -66,6 +66,39 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260813-002 - LoopEngine 第一阶段组件化
+
+- 状态：进行中
+- 日期：2026-08-13
+- 任务目标：
+  - 将 `app.c` 中的 LoopEngine 状态计数和状态查询迁入独立功能域组件。
+  - 让 `task_loop_engine` 直接服务 LoopEngine owner，减少 RTOS task 对 `app_*` wrapper 的依赖。
+- 完成内容：
+  - 新增 `components/loop_engine/`，承接 ready、service_count、first_service_ms、last_service_ms 快照。
+  - `application/inc/app.h` 使用 `loop_engine_status_t` 兼容 `app_loop_engine_status_t`。
+  - `app_loop_engine_service()` 和 `app_loop_engine_get_status()` 保留为兼容 wrapper。
+  - RTOS `task_loop_engine` 直接调用 `loop_engine_set_ready()` 和 `loop_engine_service()`。
+- 验证结果：
+  - build-validation build id：`20260813065348`。
+  - build-rtos-multicore-smoke build id：`20260813065348`。
+  - `cmake --build build-validation` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - `python tools/docs_check/docs_check.py` 通过，保留 7 条既有文件命名 warning。
+  - SCPI USB namespace check 在两个构建中均通过。
+  - 本轮未执行烧录和板端 `SYSTem:LOOP:STATus?` 查询，后续继续小步拆分时需要补板端 smoke 记录。
+- 还需完成：
+  - 将 LoopEngine 从状态计数器升级为 `LoopEngineAO / LoopEngineFB / LoopVector`。
+  - 接入 `CONFigure:TRIGger`、`CONFigure:ANGLe:*`、`CONFigure:SEQuence` 和 `CONFigure:SWITch#` 的 staged/active 数据面。
+  - 增加 plan CRC、active id、last check result、拒绝原因和 ACK/NACK。
+- 关联文件：
+  - `components/loop_engine/`
+  - `application/src/app.c`
+  - `application/src/app_runtime.c`
+  - `application/inc/app.h`
+  - `middleware/scpi_port/src/scpi_loop_engine_commands.c`
+- 下一步：
+  - 继续拆 `CalibrationAO` 或开始给 LoopEngine 增加 staged/active 配置骨架。
+
 ### RTOS-DIST-TASK-20260813-001 - SystemManager 与 AppRuntime 第一阶段拆分
 
 - 状态：进行中

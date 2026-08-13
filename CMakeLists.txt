@@ -160,6 +160,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_config/src/distributed_config.c
         components/distributed_refmem/src/distributed_refmem.c
         components/event_bus/src/event_bus.c
+        components/loop_engine/src/loop_engine.c
         components/ota_manager/src/ota_ao.c
         components/ota_manager/src/ota_fb.c
         components/ota_manager/src/ota_crc32.c
@@ -293,6 +294,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/components/distributed_config/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/distributed_refmem/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/event_bus/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/loop_engine/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/product_config/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/resource_arbiter/inc

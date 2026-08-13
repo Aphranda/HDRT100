@@ -21,6 +21,7 @@ Last updated: 2026-08-13
 - [x] 建立 `task_calibration` 空壳，支持 link/delay staging、snapshot 和计数器。
 - [x] 将 `main.c` 中的 RTOS task 创建、裸机循环和 core1 启动细节迁入 `app_runtime`，`main.c` 只保留初始化、失败兜底和进入运行。
 - [x] 将 ConfigGate、配置 ACK、SystemModeTable、ResourceArbiterTable 和 FaultCodeTable 只读快照迁入 `system_manager`。
+- [x] 将 LoopEngine ready/service_count/first_service_ms/last_service_ms 状态迁入 `components/loop_engine/`，`task_loop_engine` 直接服务该 owner。
 - [ ] 将空壳逐步替换为真正 AO service，`app.c` 只保留启动编排和顶层调度。
 
 ## P1 - 反射内存主数据面
@@ -57,11 +58,12 @@ Last updated: 2026-08-13
 ## P3 - SystemAO / ConfigGate / LoopEngine
 
 - [x] 建立 `SystemManager` 第一阶段组件，先迁出 ConfigGate 快照、配置 ACK 和系统只读表。
+- [x] 建立 `LoopEngine` 第一阶段组件，先迁出状态计数和只读快照。
 - [ ] 将 `SystemManager` 升级/收敛为 `SystemAO / SystemVector / SafetyFB`，接管系统模式、故障锁存、恢复策略和资源策略。
 - [ ] 把 SystemModeTable 和 ResourceArbiterTable 接入真实模式切换。
 - [ ] 建立通用 `SYSTem:COMMand:ACK? / NACK?` 或收敛现有配置 ACK。
 - [ ] 增加 `task_gateway_a3`，接收上位机配置、START/STOP 和数据查询。
-- [ ] 建立 `LoopEngineAO / LoopEngineFB / LoopVector`。
+- [ ] 将 `components/loop_engine/` 升级为 `LoopEngineAO / LoopEngineFB / LoopVector`。
 - [ ] 实现 `CONFigure:TRIGger` 自动展开状态表。
 - [ ] 实现 `CONFigure:ANGLe:SWEEp`、`CONFigure:ANGLe:PULSe`、`READ:ANGLe:POSition?`、
   `CONFigure:ANGLe:BREAkpoint` 的 staging/active 字段。

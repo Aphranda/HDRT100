@@ -3,6 +3,7 @@
 #include "board.h"
 #include "diagnostics.h"
 #include "drv_flash.h"
+#include "loop_engine.h"
 #include "osal.h"
 #if PROJECT_USE_MULTICORE
 #include "pico/multicore.h"
@@ -135,7 +136,8 @@ static void task_loop_engine(void *context)
             continue;
         }
 
-        app_loop_engine_service();
+        loop_engine_set_ready(true);
+        loop_engine_service();
         osal_task_delay_ms(1u);
     }
 }

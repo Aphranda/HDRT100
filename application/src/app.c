@@ -5,6 +5,7 @@
 #include "distributed_config.h"
 #include "distributed_refmem.h"
 #include "event_bus.h"
+#include "loop_engine.h"
 #include "ota_ao.h"
 #include "osal.h"
 #include "product_config.h"
@@ -32,7 +33,6 @@ static bool s_app_ready;
 static bool s_ui_dirty;
 static bool s_ui_key_sample;
 static bool s_ui_key_stable;
-static app_loop_engine_status_t s_loop_engine_status;
 static app_vdc_sync_status_t s_vdc_sync_status;
 static app_dpll_status_t s_dpll_status;
 static app_calibration_status_t s_calibration_status;
@@ -46,10 +46,6 @@ bool app_init(void)
     s_ui_dirty = false;
     s_ui_key_sample = false;
     s_ui_key_stable = false;
-    s_loop_engine_status.ready = false;
-    s_loop_engine_status.service_count = 0u;
-    s_loop_engine_status.first_service_ms = 0u;
-    s_loop_engine_status.last_service_ms = s_last_tick_ms;
     s_vdc_sync_status.ready = false;
     s_vdc_sync_status.lock_state = 0u;
     s_vdc_sync_status.service_count = 0u;
@@ -111,6 +107,11 @@ bool app_init(void)
         return false;
     }
 
+    if (!loop_engine_init()) {
+        diagnostics_mark_fault("loop_engine", "loop engine initialization failed");
+        return false;
+    }
+
     if (!distributed_refmem_init()) {
         diagnostics_mark_fault("refmem", "distributed refmem initialization failed");
         return false;
@@ -146,7 +147,7 @@ bool app_init(void)
     }
     s_ui_dirty = true;
     s_app_ready = true;
-    s_loop_engine_status.ready = true;
+    loop_engine_set_ready(true);
     s_vdc_sync_status.ready = true;
     s_dpll_status.ready = true;
     s_calibration_status.ready = true;
@@ -186,16 +187,8 @@ void app_refmem_service(void)
 
 void app_loop_engine_service(void)
 {
-    const uint32_t now_ms = board_uptime_ms();
-
-    osal_critical_enter();
-    if (s_loop_engine_status.service_count == 0u) {
-        s_loop_engine_status.first_service_ms = now_ms;
-    }
-    s_loop_engine_status.service_count++;
-    s_loop_engine_status.last_service_ms = now_ms;
-    s_loop_engine_status.ready = s_app_ready;
-    osal_critical_exit();
+    loop_engine_set_ready(s_app_ready);
+    loop_engine_service();
 }
 
 void app_loop_engine_get_status(app_loop_engine_status_t *status)
@@ -204,10 +197,7 @@ void app_loop_engine_get_status(app_loop_engine_status_t *status)
         return;
     }
 
-    osal_critical_enter();
-    *status = s_loop_engine_status;
-    status->ready = s_app_ready;
-    osal_critical_exit();
+    loop_engine_get_status(status);
 }
 
 void app_vdc_sync_service(void)

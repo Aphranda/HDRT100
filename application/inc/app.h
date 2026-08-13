@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "loop_engine.h"
 #include "system_manager.h"
 
 bool app_init(void);
@@ -16,12 +17,7 @@ void app_usb_device_service(void);
 void app_scpi_service(void);
 void app_refmem_service(void);
 
-typedef struct {
-    bool ready;
-    uint32_t service_count;
-    uint32_t first_service_ms;
-    uint32_t last_service_ms;
-} app_loop_engine_status_t;
+typedef loop_engine_status_t app_loop_engine_status_t;
 
 typedef struct {
     bool ready;
