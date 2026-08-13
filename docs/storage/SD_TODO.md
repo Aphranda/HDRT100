@@ -258,6 +258,7 @@ min_firmware=0.1.0
 default.profile=/profile/active.json
 default.mission=/mission/recipe.json
 default.calibration=/cal/board_cal.json
+default.refmem=/refmem/app_model.rmtp
 default.ota_package=/update/RP2350_TRIG_UPDATE.pkg
 mode=SEQ_STEP
 mode_schema=1
@@ -266,6 +267,7 @@ capability=edge
 capability=gate
 required=/profile/active.json,type=profile,crc32=00000000
 required=/mission/recipe.json,type=mission,crc32=00000000
+required=/refmem/app_model.rmtp,type=refmem_table_image,crc32=00000000
 required=/update/RP2350_TRIG_UPDATE.pkg,type=ota_package,crc32=00000000
 ```
 
@@ -306,6 +308,7 @@ manifest_crc32=00000000
 | manifest/profile/mission/report | JSON | 易读、便于上位机生成。 |
 | manifest/ref 固件索引 | line-oriented `.idx/.ref` | 固件解析简单可靠。 |
 | calibration 小表 | JSON | 易读，适合少量 offset、版本、hash。 |
+| RefMem table image | binary `.rmtp` + `.idx` | 由 RefMem Domain 解析到 staging table image，根 manifest 只负责发现和 required 校验。 |
 | calibration 大表 / DPLL 补偿 | binary + header + CRC | 体积小，读取快，避免解析负担。 |
 | trace | binary ring dump + `.idx` | 事件数量可能较大，二进制更稳定。 |
 | CSV report | CSV | 方便 Excel/脚本快速分析。 |
@@ -805,7 +808,7 @@ tools/bench/rp2350_tk_toolbox.py
 
 ### P0A - 固定目录与 Manifest
 
-- [x] `sd_fs_build.py` 迁移到第 4 节固定目录，默认生成 `/profile`、`/mission`、`/cal`、`/snapshots`、`/traces`、`/reports`、`/logs`、`/update`、`/factory`。
+- [x] `sd_fs_build.py` 迁移到第 4 节固定目录，默认生成 `/profile`、`/mission`、`/cal`、`/refmem`、`/snapshots`、`/traces`、`/reports`、`/logs`、`/update`、`/factory`。
 - [x] `sd_fs_build.py` 生成同源 `manifest.json`、`manifest.idx`；旧 `/config`、`/capture`、`/resource` 只允许显式兼容选项。
 - [x] 板端 StorageAO 扫描 `manifest.idx`，结果发布到 StorageVector 摘要。
 - [x] 检查 required 文件存在性和可选 CRC。

@@ -52,6 +52,35 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-020 - SD System Pack 集成 RefMem package
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 让 `tools/sd_fs_build/sd_fs_build.py` 默认生成 RefMem table image 文件。
+  - 在根 `/manifest.idx` 中引用 RefMem table image，为后续 `LOAD:SD` parser 提供稳定输入。
+- 完成内容：
+  - `sd_fs_build.py` 固化 `/refmem` 目录，生成 `/refmem/app_model.rmtp`、`/refmem/app_model.idx` 和 `/refmem/app_model.json`。
+  - 根 `manifest.idx` 增加 `default.refmem=/refmem/app_model.rmtp`。
+  - 根 `manifest.idx` 的 required 列表增加 `type=refmem_table_image`。
+  - `SD_TODO.md` 同步 System Pack 示例、文件格式表和固定目录说明。
+  - `REFMEM_DOMAIN_TODO.md` 标记 SD 工具集成完成。
+- 验证结果：
+  - `python -m py_compile tools/sd_fs_build/sd_fs_build.py tools/refmem_pack_build/refmem_pack_build.py` 通过。
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `python tools/sd_fs_build/sd_fs_build.py --build-dir build-rtos-multicore-smoke --output-dir build-rtos-multicore-smoke/sdcard_refmem_pack --clean --no-zip --no-reports` 通过。
+  - 生成的根 `manifest.idx` 包含 `default.refmem=/refmem/app_model.rmtp` 和 `required=/refmem/app_model.rmtp,type=refmem_table_image,size=704,crc32=9474FC98`。
+  - 生成的 `/refmem/app_model.idx` 包含 8 张表的 offset/size/crc32。
+- 还需完成：
+  - 板端 `LOAD:SD` 仍未解析 `.rmtp`，当前只利用 StorageAO manifest scan 结果写 staging snapshot。
+- 关联文件：
+  - `tools/sd_fs_build/sd_fs_build.py`
+  - `docs/storage/SD_TODO.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_TASK_PROGRESS.md`
+- 下一步：
+  - 提交推送本轮 SD System Pack 集成；随后进入板端 `.rmtp` parser 设计和实现。
+
 ### REFMEM-TASK-20260813-019 - RefMem table image 格式固化
 
 - 状态：完成

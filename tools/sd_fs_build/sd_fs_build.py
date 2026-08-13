@@ -24,6 +24,20 @@ PACKAGE_MAGIC = 0x474B5054
 PACKAGE_HEADER_SIZE = 512
 TEXT_FIELD_SIZE = 32
 SCHEMA_VERSION = 1
+REFMEM_PACKAGE_MAGIC = b"RMTP"
+REFMEM_PACKAGE_FORMAT_VERSION = 1
+REFMEM_PACKAGE_HEADER_SIZE = 64
+REFMEM_TABLE_COUNT = 8
+REFMEM_TABLE_NAMES = (
+    "ApplicationMap",
+    "GenericNode",
+    "NodeLoad",
+    "FbInstance",
+    "EventLink",
+    "DataLink",
+    "DeploymentGate",
+    "ConnectionQuality",
+)
 
 SYSTEM_LAYOUT = (
     "profile",
@@ -40,6 +54,7 @@ SYSTEM_LAYOUT = (
     "reports/fault",
     "reports/acceptance",
     "logs",
+    "refmem",
     "update",
     "update/compat",
     "factory",
@@ -227,6 +242,110 @@ def write_default_system_files(output_dir: Path, package_manifest: dict[str, Any
     return written
 
 
+def build_refmem_table_payload(table_id: int, name: str) -> bytes:
+    text = f"{name}:placeholder:v{REFMEM_PACKAGE_FORMAT_VERSION}:table={table_id}\n".encode("ascii")
+    return text.ljust(64, b"\0")
+
+
+def build_refmem_table_package() -> tuple[bytes, list[dict[str, Any]]]:
+    payload = bytearray()
+    entries: list[dict[str, Any]] = []
+    table_dir_size = REFMEM_TABLE_COUNT * 16
+    cursor = REFMEM_PACKAGE_HEADER_SIZE + table_dir_size
+
+    for table_id, name in enumerate(REFMEM_TABLE_NAMES):
+        data = build_refmem_table_payload(table_id, name)
+        entry = {
+            "table_id": table_id,
+            "name": name,
+            "offset": cursor,
+            "size": len(data),
+            "crc32": crc32(data),
+        }
+        entries.append(entry)
+        payload.extend(data)
+        cursor += len(data)
+
+    table_dir = bytearray()
+    for entry in entries:
+        table_dir.extend(struct.pack("<IIII",
+                                     entry["table_id"],
+                                     entry["offset"],
+                                     entry["size"],
+                                     entry["crc32"]))
+
+    payload_crc = crc32(payload)
+    total_size = REFMEM_PACKAGE_HEADER_SIZE + len(table_dir) + len(payload)
+    header = bytearray(REFMEM_PACKAGE_HEADER_SIZE)
+    struct.pack_into("<4sIIIIII",
+                     header,
+                     0,
+                     REFMEM_PACKAGE_MAGIC,
+                     REFMEM_PACKAGE_FORMAT_VERSION,
+                     REFMEM_PACKAGE_HEADER_SIZE,
+                     total_size,
+                     REFMEM_TABLE_COUNT,
+                     table_dir_size,
+                     payload_crc)
+    package = bytearray(header + table_dir + payload)
+    struct.pack_into("<I", package, 28, crc32(package))
+    return bytes(package), entries
+
+
+def write_refmem_package(output_dir: Path, package_manifest: dict[str, Any]) -> dict[str, Any]:
+    refmem_dir = output_dir / "refmem"
+    refmem_dir.mkdir(parents=True, exist_ok=True)
+    package, entries = build_refmem_table_package()
+    package_path = refmem_dir / "app_model.rmtp"
+    package_path.write_bytes(package)
+
+    manifest = {
+        "magic": REFMEM_PACKAGE_MAGIC.decode("ascii"),
+        "format_version": REFMEM_PACKAGE_FORMAT_VERSION,
+        "product_id": package_manifest["product_id"],
+        "hardware_id": package_manifest["hardware_id"],
+        "build_id": package_manifest["build_id"],
+        "table_count": REFMEM_TABLE_COUNT,
+        "package": "/refmem/app_model.rmtp",
+        "size": len(package),
+        "crc32": f"0x{crc32(package):08X}",
+        "tables": [
+            {
+                **entry,
+                "crc32": f"0x{entry['crc32']:08X}",
+            }
+            for entry in entries
+        ],
+    }
+    (refmem_dir / "app_model.json").write_text(json.dumps(manifest, indent=2) + "\n",
+                                                encoding="utf-8",
+                                                newline="\n")
+    idx_lines = [
+        "magic=RP2350_TRIG_REFMEM",
+        f"schema={REFMEM_PACKAGE_FORMAT_VERSION}",
+        f"product_id={package_manifest['product_id']}",
+        f"hardware_id={package_manifest['hardware_id']}",
+        f"build_id={package_manifest['build_id']}",
+        f"table_count={REFMEM_TABLE_COUNT}",
+        f"package=/refmem/app_model.rmtp,type=refmem_table_image,size={len(package)},crc32={crc32(package):08X}",
+    ]
+    for entry in entries:
+        idx_lines.append(
+            f"table={entry['table_id']},offset={entry['offset']},"
+            f"size={entry['size']},crc32={entry['crc32']:08X}"
+        )
+    (refmem_dir / "app_model.idx").write_text("\n".join(idx_lines) + "\n",
+                                               encoding="utf-8",
+                                               newline="\n")
+
+    info = file_info(package_path)
+    info["sd_path"] = "/" + package_path.relative_to(output_dir).as_posix()
+    info["table_count"] = REFMEM_TABLE_COUNT
+    info["idx_path"] = "/refmem/app_model.idx"
+    info["json_path"] = "/refmem/app_model.json"
+    return info
+
+
 def latest_validation_dirs(build_dir: Path) -> list[Path]:
     dirs = [path for path in build_dir.glob("ota_validation*") if path.is_dir()]
     return sorted(dirs, key=lambda path: path.stat().st_mtime, reverse=True)[:3]
@@ -262,6 +381,7 @@ def write_manifest_idx(output_dir: Path,
         ("profile", "profile"),
         ("mission", "mission"),
         ("calibration", "calibration"),
+        ("refmem_table_image", "refmem"),
         ("ota_package", "package"),
     )
     lines = [
@@ -275,6 +395,7 @@ def write_manifest_idx(output_dir: Path,
         "default.profile=/profile/active.json",
         "default.mission=/mission/recipe.json",
         "default.calibration=/cal/board_cal.json",
+        "default.refmem=/refmem/app_model.rmtp",
         "default.ota_package=/update/RP2350_TRIG_UPDATE.pkg",
     ]
     for object_type, key in required:
@@ -315,6 +436,7 @@ def main() -> int:
     copied_package = copy_file(package, output_dir / "update" / "RP2350_TRIG_UPDATE.pkg", output_dir)
     factory_manifest = copy_file(factory, output_dir / "factory" / "RP2350_TRIG_FACTORY.uf2", output_dir)
     system_files = write_default_system_files(output_dir, package_manifest)
+    refmem_package = write_refmem_package(output_dir, package_manifest)
 
     raw_compat: list[dict[str, Any]] = []
     if not args.no_raw_compat:
@@ -360,6 +482,7 @@ def main() -> int:
             "mission": "/mission/recipe.json",
             "node_map": "/mission/node_map.json",
             "calibration": "/cal/board_cal.json",
+            "refmem": "/refmem/app_model.rmtp",
         },
         "ota_default": {
             "format": "unified_pkg",
@@ -368,6 +491,7 @@ def main() -> int:
             "raw_bin_compatibility": not args.no_raw_compat,
         },
         "system_files": system_files,
+        "refmem": refmem_package,
         "package": package_manifest | {"sd_copy": copied_package},
         "factory": factory_manifest,
         "raw_compat": raw_compat,
@@ -379,6 +503,7 @@ def main() -> int:
         package_manifest,
         {
             **system_files,
+            "refmem": refmem_package,
             "package": copied_package,
         },
     )
