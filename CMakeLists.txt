@@ -150,6 +150,7 @@ file(WRITE ${PROJECT_FATFS_CONFIGURED_DIR}/ffconf.h "${PROJECT_FATFS_CONFIG_TEXT
 
 set(PROJECT_APP_SOURCES
         application/src/main.c
+        application/src/app_runtime.c
         application/src/app.c
         ${PROJECT_BUILD_INFO_SOURCE}
         boards/rp2350_trig/src/board.c
@@ -174,6 +175,7 @@ set(PROJECT_APP_SOURCES
         third_party/portable_ota/src/pota_package.c
         components/resource_arbiter/src/resource_arbiter.c
         components/storage_manager/src/storage_manager.c
+        components/system_manager/src/system_manager.c
         components/sync_trigger/src/biss_node_io.c
         components/sync_trigger/src/biss_protocol.c
         components/sync_trigger/src/sync_trigger.c
@@ -295,6 +297,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/components/product_config/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/resource_arbiter/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/storage_manager/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/system_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_trigger/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_config_ui/inc

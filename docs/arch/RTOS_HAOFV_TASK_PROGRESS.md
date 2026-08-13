@@ -66,6 +66,39 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260813-001 - SystemManager 与 AppRuntime 第一阶段拆分
+
+- 状态：进行中
+- 日期：2026-08-13
+- 任务目标：
+  - 按 HAOFV 功能域思路拆分 `app.c`，先迁出 System/ConfigGate 事实源。
+  - 将 `main.c` 中的运行容器逻辑拆出，避免入口文件继续承载 RTOS task 创建和 core1 启动细节。
+- 完成内容：
+  - 新增 `components/system_manager/`，承接 ConfigGate 状态、配置 ACK、SystemModeTable、ResourceArbiterTable 和 FaultCodeTable 快照。
+  - `app.c` 删除本地 system/resource/fault 静态表和 CRC helper，仅保留兼容 wrapper。
+  - `application/inc/app.h` 使用 `system_manager_*` 类型别名保持现有 SCPI 调用方兼容。
+  - 新增 `application/src/app_runtime.c` 和 `application/inc/app_runtime.h`，承接 bring-up、RTOS task 创建、裸机循环和 core1 realtime 启动实现。
+  - `application/src/main.c` 保留一般嵌入式入口职责：初始化、失败兜底和进入运行，不承载 RTOS task 表或功能域细节。
+- 验证结果：
+  - build id：`20260813063506`。
+  - `cmake --build build-validation` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 RTOS + multicore smoke UF2 和 OTA 包。
+  - SCPI USB namespace check 在两个构建中均通过。
+  - 本轮未执行烧录和板端 `SYSTem:*` 查询，后续继续小步拆分时需要补板端 smoke 记录。
+- 还需完成：
+  - 将 `task_system` 继续接入真正 `SystemAO / SystemVector / SafetyFB`，而不是长期停留在 `system_manager` snapshot manager。
+  - 继续迁出 `loop_engine`、`calibration`、`vdc_sync`、`dpll` 状态，建立各自 AO/FB/Vector。
+  - 将 RTOS task 配置进一步从 `app_runtime.c` 拆到域注册表或 runtime task table。
+- 关联文件：
+  - `application/src/app.c`
+  - `application/src/app_runtime.c`
+  - `application/src/main.c`
+  - `application/inc/app.h`
+  - `application/inc/app_runtime.h`
+  - `components/system_manager/`
+- 下一步：
+  - 拆 `LoopEngineAO` 或建立 `SystemAO` 命令槽，逐步替换 `app_*_service()` 空壳。
+
 ### RTOS-DIST-TASK-20260812-006 - task_calibration 骨架与 CAL 快照
 
 - 状态：完成
