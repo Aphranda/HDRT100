@@ -52,6 +52,35 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-019 - RefMem table image 格式固化
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 定义 RefMem 自己的 table image 文件格式，避免把根 `/manifest.idx` 和二进制表镜像混在一起。
+  - 固化最小 PC 侧生成脚本，为后续 `LOAD:SD` 真实 parser 做输入准备。
+- 完成内容：
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加 `RefMem Table Image 格式`，定义 `/refmem/app_model.rmtp`、`app_model.idx`、`app_model.json` 三个文件的职责。
+  - 定义 `.rmtp` header、table directory、payload CRC、package CRC 和 parser/owner validation 约束。
+  - 新增 `tools/refmem_pack_build/refmem_pack_build.py`，生成最小 8 表 placeholder package、索引和 JSON 说明。
+  - `tools/README.md` 增加新工具说明。
+  - `REFMEM_DOMAIN_TODO.md` 标记格式定义完成；真实 `LOAD:SD` parser 仍保留待办。
+- 验证结果：
+  - `python -m py_compile tools/refmem_pack_build/refmem_pack_build.py` 通过。
+  - `python tools/refmem_pack_build/refmem_pack_build.py --output-dir build-rtos-multicore-smoke/refmem_pack_format` 通过，生成 `refmem/app_model.rmtp`、`refmem/app_model.idx` 和 `refmem/app_model.json`。
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+- 还需完成：
+  - 将 `sd_fs_build.py` 集成 RefMem package。
+  - 板端实现 `.rmtp` parser 并接入 `SYSTem:REFMEM:LOAD:SD`。
+- 关联文件：
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_TASK_PROGRESS.md`
+  - `tools/refmem_pack_build/refmem_pack_build.py`
+  - `tools/README.md`
+- 下一步：
+  - 提交推送本轮格式固化；随后评估是否把 `sd_fs_build.py` 集成 RefMem package。
+
 ### REFMEM-TASK-20260813-018 - TableRegistry 生命周期字段与 owner validation contract
 
 - 状态：完成

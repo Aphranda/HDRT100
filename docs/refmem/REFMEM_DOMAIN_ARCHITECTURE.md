@@ -927,6 +927,55 @@ SCPI / SD
 
 `SYSTem:REFMEM:LOAD:SD [path]` 扫描 SD `/manifest.idx`，把 System Pack 结果写入 RefMem staging load snapshot；当前代码首版用已编译的静态应用模型 package CRC 作为 staging image，占位等待后续 TLV parser 接入。`SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 允许 SCPI 直接提交一条 NodeLoad 候选到 staging，用于调试和自组网协调前的节点实例化验证。两者都不直接覆盖 active NodeLoadTable，也不修改 NodeSlot live fact。`SYSTem:REFMEM:LOAD:STATus?` 读取固定 snapshot：`version,load_seq,source,mode,staging_state,manifest_status,manifest_schema,manifest_required_count,manifest_missing_count,path_hash,active_package_crc32,staging_package_crc32,staging_lint_error_count,staging_first_lint_error,staging_node_id,staging_instance_id,staging_role_mask,staging_persona_mask,staging_enabled,staging_required,staging_load_order,last_error,manifest_build_id,path`。
 
+### RefMem Table Image 格式
+
+SD 根 `/manifest.idx` 只作为 System Pack 总索引；它负责告诉固件“有哪些必需文件、产品/硬件/schema 是否匹配”。RefMem 自己的表镜像必须放在独立文件中，由 manifest required 行引用，避免把二进制表和 SD manifest 字符串解析混在一起。
+
+首版文件路径建议：
+
+```text
+/refmem/app_model.rmtp
+/refmem/app_model.idx
+/refmem/app_model.json
+```
+
+其中 `.rmtp` 是固件后续解析的二进制 table image，`.idx` 是轻量索引，`.json` 是 PC 工具和人工审查用说明。`tools/refmem_pack_build/refmem_pack_build.py` 已固化最小占位格式，后续 `sd_fs_build.py` 可以把它复制进 SD System Pack，并在根 `/manifest.idx` 中加入：
+
+```text
+required=/refmem/app_model.rmtp,type=refmem_table_image,size=<bytes>,crc32=<crc32>
+```
+
+`.rmtp` header 首版固定 64 字节，小端序：
+
+| Offset | 字段 | 含义 |
+|---:|---|---|
+| 0 | `magic[4] = "RMTP"` | RefMem Table Package。 |
+| 4 | `format_version` | 当前为 1。 |
+| 8 | `header_size` | 当前为 64。 |
+| 12 | `total_size` | 完整 package 大小。 |
+| 16 | `table_count` | 当前 8。 |
+| 20 | `table_dir_size` | table directory 字节数。 |
+| 24 | `payload_crc32` | 所有表 payload 拼接 CRC。 |
+| 28 | `package_crc32` | 完整 package CRC；计算时该字段先置 0。 |
+
+table directory 每项 16 字节：
+
+| 字段 | 含义 |
+|---|---|
+| `table_id` | 对应 ApplicationMap、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality。 |
+| `offset` | 表 payload 在 package 内偏移。 |
+| `size` | 表 payload 字节数。 |
+| `crc32` | 单表 payload CRC。 |
+
+约束：
+
+- `.rmtp` 只描述 RefMem static model table image，不承载 OTA payload、日志、波形或大证据。
+- 固件 parser 必须先验证 magic、format_version、header_size、total_size、table_count、payload CRC、package CRC 和每表 CRC，再进入 owner validation。
+- table image 只能写 staging，不能直接覆盖 active。
+- owner validation 通过前，`RefMemTableRegistry` 只能显示 `STAGED/CRC_OK`，不能显示 `OWNER_OK`。
+- owner validation 通过后仍不自动 RUN；必须等待显式 activation 和 RUN gate。
+- 运行中不热替换 active image；需要在 RefMem mode `IDLE` 且实时触发 idle 的维护窗口执行 activation。
+
 ## 当前实现现状
 
 当前代码中 `components/distributed_refmem/` 已经从单文件表骨架推进到首版 RefMem Domain 组件：

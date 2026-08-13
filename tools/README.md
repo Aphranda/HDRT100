@@ -72,6 +72,10 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `build/sdcard/`, copies the unified OTA package to `/update/`, keeps raw `.bin`
   compatibility payloads under `/update/compat/`, writes `manifest.json` and
   firmware-readable `manifest.idx`, and creates `build/RP2350_TRIG_SDCARD.zip`.
+- `refmem_pack_build/refmem_pack_build.py`: builds a minimal RefMem table image
+  package under `/refmem/` for System Pack staging format validation. It writes
+  `app_model.rmtp`, `app_model.idx`, and `app_model.json`; board-side parsing is
+  intentionally staged behind the RefMem TLV parser work.
 - `sd_board_validate/sd_board_validate.py`: board-side SD validation over SCPI.
   It does not flash firmware; it checks `SYST:SD:*`, `SYST:STOR:*`, root and
   key directory catalogs, path-denial behavior, boot/arm/fault snapshot
