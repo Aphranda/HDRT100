@@ -109,6 +109,9 @@ docs/
 | `sync/README.md` | 同步域 README。 |
 | `calibration/README.md` | 校准域 README。 |
 | `refmem/README.md` | 反射内存域 README。 |
+| `refmem/REFMEM_DOMAIN_ARCHITECTURE.md` | Distributed RefMem 内部主域架构，定义 RefMem Domain 的职责边界、静态分布式应用模型和目标代码形态。 |
+| `refmem/REFMEM_DOMAIN_TODO.md` | Distributed RefMem 内部主域待办，跟踪分布式应用模型、slot 契约、ACK/NACK、sync protocol 和组件化。 |
+| `refmem/REFMEM_TASK_PROGRESS.md` | Distributed RefMem 内部主域任务进度。 |
 | `communication/README.md` | 通信域 README。 |
 | `measure/README.md` | 测量域 README。 |
 | `storage/README.md` | 存储与证据域 README。 |
