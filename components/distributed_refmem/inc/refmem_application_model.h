@@ -263,6 +263,8 @@ typedef enum {
     REFMEM_APP_LOAD_ERR_LINT_FAILED = 3u,
     REFMEM_APP_LOAD_ERR_NODE_RANGE = 4u,
     REFMEM_APP_LOAD_ERR_INSTANCE_RANGE = 5u,
+    REFMEM_APP_LOAD_ERR_PACKAGE_READ = 6u,
+    REFMEM_APP_LOAD_ERR_PACKAGE_INVALID = 7u,
 } refmem_app_load_error_t;
 
 typedef struct {
@@ -481,7 +483,10 @@ bool refmem_application_model_stage_sd_system_pack(const char *path,
                                                    uint32_t manifest_schema,
                                                    uint32_t manifest_required_count,
                                                    uint32_t manifest_missing_count,
-                                                   const char *manifest_build_id);
+                                                   const char *manifest_build_id,
+                                                   uint32_t package_crc32,
+                                                   uint32_t package_valid,
+                                                   uint32_t package_error);
 bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
                                                      uint32_t instance_id,
                                                      uint32_t role_mask,

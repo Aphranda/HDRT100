@@ -2,6 +2,7 @@
 #define REFMEM_TABLE_REGISTRY_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "refmem_application_model.h"
@@ -13,6 +14,22 @@
 #define REFMEM_TABLE_FLAG_STAGING_PRESENT 0x00000002u
 #define REFMEM_TABLE_FLAG_CRC_OK          0x00000004u
 #define REFMEM_TABLE_FLAG_OWNER_OK        0x00000008u
+
+#define REFMEM_TABLE_PACKAGE_MAGIC        0x50544D52u
+#define REFMEM_TABLE_PACKAGE_VERSION      1u
+#define REFMEM_TABLE_PACKAGE_HEADER_SIZE  64u
+#define REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE 16u
+
+typedef enum {
+    REFMEM_TABLE_PACKAGE_OK = 0u,
+    REFMEM_TABLE_PACKAGE_ERR_TOO_SMALL = 1u,
+    REFMEM_TABLE_PACKAGE_ERR_MAGIC = 2u,
+    REFMEM_TABLE_PACKAGE_ERR_VERSION = 3u,
+    REFMEM_TABLE_PACKAGE_ERR_SIZE = 4u,
+    REFMEM_TABLE_PACKAGE_ERR_TABLE_COUNT = 5u,
+    REFMEM_TABLE_PACKAGE_ERR_CRC = 6u,
+    REFMEM_TABLE_PACKAGE_ERR_TABLE_DIR = 7u,
+} refmem_table_package_error_t;
 
 typedef enum {
     REFMEM_TABLE_OWNER_REFMEM_AO = 0u,
@@ -56,10 +73,24 @@ typedef struct {
     uint32_t last_error;
 } refmem_table_registry_snapshot_t;
 
+typedef struct {
+    uint32_t valid;
+    uint32_t error;
+    uint32_t format_version;
+    uint32_t total_size;
+    uint32_t table_count;
+    uint32_t payload_crc32;
+    uint32_t package_crc32;
+    uint32_t first_bad_table;
+} refmem_table_package_validation_t;
+
 void refmem_table_registry_init(const refmem_application_model_snapshot_t *model);
 void refmem_table_registry_refresh_active(const refmem_application_model_snapshot_t *model);
 void refmem_table_registry_refresh_staging(const refmem_application_model_load_snapshot_t *load);
 bool refmem_table_registry_validate_staging(const refmem_application_model_load_snapshot_t *load);
+bool refmem_table_registry_validate_package(const uint8_t *data,
+                                            size_t size,
+                                            refmem_table_package_validation_t *validation);
 bool refmem_table_registry_get_entry(uint32_t table_id, refmem_table_registry_entry_t *entry);
 void refmem_table_registry_get_snapshot(refmem_table_registry_snapshot_t *snapshot);
 

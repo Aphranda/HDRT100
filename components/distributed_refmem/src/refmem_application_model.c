@@ -1041,7 +1041,10 @@ bool refmem_application_model_stage_sd_system_pack(const char *path,
                                                    uint32_t manifest_schema,
                                                    uint32_t manifest_required_count,
                                                    uint32_t manifest_missing_count,
-                                                   const char *manifest_build_id)
+                                                   const char *manifest_build_id,
+                                                   uint32_t package_crc32,
+                                                   uint32_t package_valid,
+                                                   uint32_t package_error)
 {
     if (!s_initialized) {
         (void)refmem_application_model_init();
@@ -1077,9 +1080,9 @@ bool refmem_application_model_stage_sd_system_pack(const char *path,
     }
 
     s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_VALIDATING;
-    s_load_snapshot.staging_package_crc32 = s_snapshot.package_crc32;
+    s_load_snapshot.staging_package_crc32 = package_crc32;
     s_load_snapshot.staging_lint_error_count = s_snapshot.lint_error_count;
-    s_load_snapshot.staging_first_lint_error = s_snapshot.first_lint_error;
+    s_load_snapshot.staging_first_lint_error = package_error;
     s_load_snapshot.staging_node_id = 0u;
     s_load_snapshot.staging_instance_id = 0u;
     s_load_snapshot.staging_role_mask = 0u;
@@ -1087,8 +1090,16 @@ bool refmem_application_model_stage_sd_system_pack(const char *path,
     s_load_snapshot.staging_enabled = 0u;
     s_load_snapshot.staging_required = 0u;
     s_load_snapshot.staging_load_order = 0u;
+    if (package_valid == 0u || package_crc32 == 0u) {
+        s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
+        s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_PACKAGE_INVALID;
+        refmem_model_finish_load_idle();
+        return false;
+    }
+
     if (s_snapshot.valid == 0u) {
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
+        s_load_snapshot.staging_first_lint_error = s_snapshot.first_lint_error;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_LINT_FAILED;
         refmem_model_finish_load_idle();
         return false;

@@ -15,8 +15,15 @@
 #include "sync_trigger.h"
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 200u
+#define SCPI_REFMEM_PACKAGE_PATH "/refmem/app_model.rmtp"
+#define SCPI_REFMEM_PACKAGE_MAX_BYTES 1024u
+#define SCPI_REFMEM_PACKAGE_READ_CHUNK 128u
 
 static bool scpi_refmem_wait_storage_job(uint32_t job_id);
+static bool scpi_refmem_read_package(const char *path,
+                                     uint8_t *buffer,
+                                     size_t buffer_size,
+                                     size_t *returned_size);
 static bool scpi_refmem_model_mode_idle(void);
 static bool scpi_refmem_realtime_idle(void);
 static void scpi_refmem_result_load_snapshot(scpi_t *context,
@@ -99,7 +106,7 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
 
     storage_manager_vector_t vector;
     storage_manager_get_vector(&vector);
-    const char *load_path = (path != NULL && path_len > 0u) ? path : job.path;
+    const char *load_path = (path != NULL && path_len > 0u) ? path : SCPI_REFMEM_PACKAGE_PATH;
     char path_buffer[96];
     if (path != NULL && path_len > 0u) {
         for (size_t i = 0u; i < path_len; i++) {
@@ -109,14 +116,35 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
         load_path = path_buffer;
     }
 
+    uint8_t package_buffer[SCPI_REFMEM_PACKAGE_MAX_BYTES];
+    size_t package_size = 0u;
+    refmem_table_package_validation_t validation = {0};
+    validation.error = REFMEM_TABLE_PACKAGE_ERR_TOO_SMALL;
+    bool package_read = false;
+    bool package_valid = false;
+    if ((uint32_t)vector.manifest_status == REFMEM_APP_MODEL_SD_MANIFEST_OK &&
+        vector.manifest_missing_count == 0u) {
+        package_read = scpi_refmem_read_package(load_path,
+                                                package_buffer,
+                                                sizeof(package_buffer),
+                                                &package_size);
+        package_valid = package_read &&
+                        refmem_table_registry_validate_package(package_buffer,
+                                                               package_size,
+                                                               &validation);
+    }
+
     const bool staged =
         refmem_application_model_stage_sd_system_pack(load_path,
-                                                      job.path_hash,
+                                                      package_read ? job.path_hash : 0u,
                                                       (uint32_t)vector.manifest_status,
                                                       vector.manifest_schema,
                                                       vector.manifest_required_count,
                                                       vector.manifest_missing_count,
-                                                      vector.manifest_build_id);
+                                                      vector.manifest_build_id,
+                                                      validation.package_crc32,
+                                                      package_valid ? 1u : 0u,
+                                                      validation.error);
 
     refmem_application_model_load_snapshot_t snapshot;
     refmem_application_model_get_load_snapshot(&snapshot);
@@ -232,6 +260,56 @@ static bool scpi_refmem_wait_storage_job(uint32_t job_id)
             return false;
         }
     }
+    return false;
+}
+
+static bool scpi_refmem_read_package(const char *path,
+                                     uint8_t *buffer,
+                                     size_t buffer_size,
+                                     size_t *returned_size)
+{
+    if (path == NULL || buffer == NULL || returned_size == NULL || buffer_size == 0u) {
+        return false;
+    }
+
+    *returned_size = 0u;
+    uint32_t offset = 0u;
+    while (*returned_size < buffer_size) {
+        uint32_t job_id = 0u;
+        if (!storage_manager_post_file_read_job(path,
+                                                offset,
+                                                SCPI_REFMEM_PACKAGE_READ_CHUNK,
+                                                &job_id)) {
+            return false;
+        }
+        if (!scpi_refmem_wait_storage_job(job_id)) {
+            return false;
+        }
+
+        storage_manager_file_read_t read_info;
+        uint8_t chunk[SCPI_REFMEM_PACKAGE_READ_CHUNK];
+        if (!storage_manager_get_file_read_job_result(job_id,
+                                                      &read_info,
+                                                      chunk,
+                                                      sizeof(chunk))) {
+            return false;
+        }
+        if (read_info.returned == 0u ||
+            read_info.returned > sizeof(chunk) ||
+            *returned_size + read_info.returned > buffer_size) {
+            return false;
+        }
+
+        for (uint32_t i = 0u; i < read_info.returned; i++) {
+            buffer[*returned_size + i] = chunk[i];
+        }
+        *returned_size += read_info.returned;
+        if (read_info.eof) {
+            return true;
+        }
+        offset += read_info.returned;
+    }
+
     return false;
 }
 

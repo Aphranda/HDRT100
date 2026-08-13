@@ -29,6 +29,46 @@ static uint32_t refmem_table_registry_crc32_update(uint32_t crc, const void *dat
     return crc;
 }
 
+static uint32_t refmem_table_read_u32_le(const uint8_t *data)
+{
+    return ((uint32_t)data[0]) |
+           ((uint32_t)data[1] << 8) |
+           ((uint32_t)data[2] << 16) |
+           ((uint32_t)data[3] << 24);
+}
+
+static uint32_t refmem_table_package_crc32_zero_field(const uint8_t *data,
+                                                      size_t size,
+                                                      uint32_t zero_offset)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0u; i < size; i++) {
+        uint8_t byte = data[i];
+        if (i >= zero_offset && i < zero_offset + sizeof(uint32_t)) {
+            byte = 0u;
+        }
+        crc ^= byte;
+        for (uint32_t bit = 0u; bit < 8u; bit++) {
+            const uint32_t mask = 0u - (crc & 1u);
+            crc = (crc >> 1) ^ (0xEDB88320u & mask);
+        }
+    }
+    return ~crc;
+}
+
+static uint32_t refmem_table_package_crc32(const uint8_t *data, size_t size)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0u; i < size; i++) {
+        crc ^= data[i];
+        for (uint32_t bit = 0u; bit < 8u; bit++) {
+            const uint32_t mask = 0u - (crc & 1u);
+            crc = (crc >> 1) ^ (0xEDB88320u & mask);
+        }
+    }
+    return ~crc;
+}
+
 static uint32_t refmem_table_registry_crc32(void)
 {
     uint32_t crc = 2166136261u;
@@ -197,6 +237,80 @@ bool refmem_table_registry_validate_staging(const refmem_application_model_load_
 
     refmem_table_registry_refresh_staging(load);
     return true;
+}
+
+bool refmem_table_registry_validate_package(const uint8_t *data,
+                                            size_t size,
+                                            refmem_table_package_validation_t *validation)
+{
+    refmem_table_package_validation_t result;
+    memset(&result, 0, sizeof(result));
+    result.error = REFMEM_TABLE_PACKAGE_ERR_TOO_SMALL;
+
+    if (data == NULL || size < REFMEM_TABLE_PACKAGE_HEADER_SIZE) {
+        if (validation != NULL) {
+            *validation = result;
+        }
+        return false;
+    }
+
+    const uint32_t magic = refmem_table_read_u32_le(&data[0]);
+    result.format_version = refmem_table_read_u32_le(&data[4]);
+    const uint32_t header_size = refmem_table_read_u32_le(&data[8]);
+    result.total_size = refmem_table_read_u32_le(&data[12]);
+    result.table_count = refmem_table_read_u32_le(&data[16]);
+    const uint32_t table_dir_size = refmem_table_read_u32_le(&data[20]);
+    result.payload_crc32 = refmem_table_read_u32_le(&data[24]);
+    result.package_crc32 = refmem_table_read_u32_le(&data[28]);
+
+    if (magic != REFMEM_TABLE_PACKAGE_MAGIC) {
+        result.error = REFMEM_TABLE_PACKAGE_ERR_MAGIC;
+    } else if (result.format_version != REFMEM_TABLE_PACKAGE_VERSION ||
+               header_size != REFMEM_TABLE_PACKAGE_HEADER_SIZE) {
+        result.error = REFMEM_TABLE_PACKAGE_ERR_VERSION;
+    } else if (result.total_size != size ||
+               table_dir_size != result.table_count * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE ||
+               result.total_size < header_size + table_dir_size) {
+        result.error = REFMEM_TABLE_PACKAGE_ERR_SIZE;
+    } else if (result.table_count != REFMEM_TABLE_REGISTRY_COUNT) {
+        result.error = REFMEM_TABLE_PACKAGE_ERR_TABLE_COUNT;
+    } else {
+        const uint8_t *payload = data + header_size + table_dir_size;
+        const size_t payload_size = size - header_size - table_dir_size;
+        const uint32_t payload_crc = refmem_table_package_crc32(payload, payload_size);
+        const uint32_t package_crc =
+            refmem_table_package_crc32_zero_field(data, size, 28u);
+        if (payload_crc != result.payload_crc32 ||
+            package_crc != result.package_crc32) {
+            result.error = REFMEM_TABLE_PACKAGE_ERR_CRC;
+        } else {
+            result.error = REFMEM_TABLE_PACKAGE_OK;
+            for (uint32_t i = 0u; i < result.table_count; i++) {
+                const uint8_t *entry =
+                    data + header_size + i * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE;
+                const uint32_t table_id = refmem_table_read_u32_le(&entry[0]);
+                const uint32_t offset = refmem_table_read_u32_le(&entry[4]);
+                const uint32_t table_size = refmem_table_read_u32_le(&entry[8]);
+                const uint32_t table_crc = refmem_table_read_u32_le(&entry[12]);
+                if (table_id != i ||
+                    offset < header_size + table_dir_size ||
+                    table_size == 0u ||
+                    offset > result.total_size ||
+                    table_size > result.total_size - offset ||
+                    refmem_table_package_crc32(data + offset, table_size) != table_crc) {
+                    result.error = REFMEM_TABLE_PACKAGE_ERR_TABLE_DIR;
+                    result.first_bad_table = i;
+                    break;
+                }
+            }
+        }
+    }
+
+    result.valid = result.error == REFMEM_TABLE_PACKAGE_OK ? 1u : 0u;
+    if (validation != NULL) {
+        *validation = result;
+    }
+    return result.valid != 0u;
 }
 
 bool refmem_table_registry_get_entry(uint32_t table_id, refmem_table_registry_entry_t *entry)

@@ -925,7 +925,7 @@ SCPI / SD
   -> 后续 ACTIVATE 才允许替换 active
 ```
 
-`SYSTem:REFMEM:LOAD:SD [path]` 扫描 SD `/manifest.idx`，把 System Pack 结果写入 RefMem staging load snapshot；当前代码首版用已编译的静态应用模型 package CRC 作为 staging image，占位等待后续 TLV parser 接入。`SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 允许 SCPI 直接提交一条 NodeLoad 候选到 staging，用于调试和自组网协调前的节点实例化验证。两者都不直接覆盖 active NodeLoadTable，也不修改 NodeSlot live fact。`SYSTem:REFMEM:LOAD:STATus?` 读取固定 snapshot：`version,load_seq,source,mode,staging_state,manifest_status,manifest_schema,manifest_required_count,manifest_missing_count,path_hash,active_package_crc32,staging_package_crc32,staging_lint_error_count,staging_first_lint_error,staging_node_id,staging_instance_id,staging_role_mask,staging_persona_mask,staging_enabled,staging_required,staging_load_order,last_error,manifest_build_id,path`。
+`SYSTem:REFMEM:LOAD:SD [path]` 扫描 SD `/manifest.idx`，随后读取并校验 RefMem table image；默认路径为 `/refmem/app_model.rmtp`，可用可选 path 覆盖。当前 parser 已校验 `.rmtp` header、table directory、payload CRC、package CRC 和单表 CRC，但仍只写 staging load snapshot，不替换 active image。`SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 允许 SCPI 直接提交一条 NodeLoad 候选到 staging，用于调试和自组网协调前的节点实例化验证。两者都不直接覆盖 active NodeLoadTable，也不修改 NodeSlot live fact。`SYSTem:REFMEM:LOAD:STATus?` 读取固定 snapshot：`version,load_seq,source,mode,staging_state,manifest_status,manifest_schema,manifest_required_count,manifest_missing_count,path_hash,active_package_crc32,staging_package_crc32,staging_lint_error_count,staging_first_lint_error,staging_node_id,staging_instance_id,staging_role_mask,staging_persona_mask,staging_enabled,staging_required,staging_load_order,last_error,manifest_build_id,path`。
 
 ### RefMem Table Image 格式
 
@@ -970,7 +970,7 @@ table directory 每项 16 字节：
 约束：
 
 - `.rmtp` 只描述 RefMem static model table image，不承载 OTA payload、日志、波形或大证据。
-- 固件 parser 必须先验证 magic、format_version、header_size、total_size、table_count、payload CRC、package CRC 和每表 CRC，再进入 owner validation。
+- 固件 parser 必须先验证 magic、format_version、header_size、total_size、table_count、payload CRC、package CRC 和每表 CRC，再进入 owner validation。当前首版已完成这些格式与 CRC 校验。
 - table image 只能写 staging，不能直接覆盖 active。
 - owner validation 通过前，`RefMemTableRegistry` 只能显示 `STAGED/CRC_OK`，不能显示 `OWNER_OK`。
 - owner validation 通过后仍不自动 RUN；必须等待显式 activation 和 RUN gate。

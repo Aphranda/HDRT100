@@ -52,6 +52,44 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-021 - LOAD:SD 接入 RMTP parser 首版
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 让 `SYSTem:REFMEM:LOAD:SD` 不再只依赖 manifest 摘要，而是读取并校验 RefMem table image。
+  - 首版只校验 `.rmtp` 格式并写 staging snapshot，不替换 active image。
+- 完成内容：
+  - `refmem_table_registry.h/.c` 增加 `.rmtp` package validation API，校验 magic、format version、header size、total size、table count、payload CRC、package CRC 和每表 CRC。
+  - `refmem_application_model_stage_sd_system_pack()` 增加 package CRC、package valid 和 package error 入参。
+  - `SYSTem:REFMEM:LOAD:SD [path]` 默认读取 `/refmem/app_model.rmtp`，可用可选 path 覆盖；读取仍通过 StorageAO `FILE_READ` job，不直接调用 FatFs。
+  - `tools/refmem_scpi_load_validate.py` 允许旧 SD 卡上缺少 `/refmem/app_model.rmtp` 时返回 `REJECTED`，并在 STAGED 时检查 package CRC 和路径。
+  - `SCPI_COMMANDS.md`、`REFMEM_DOMAIN_ARCHITECTURE.md` 和 `REFMEM_DOMAIN_TODO.md` 同步 LOAD:SD parser 状态。
+- 验证结果：
+  - `python -m py_compile tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 通过。
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813152145`，package CRC `0xD5C9018D`。
+  - `python tools/sd_fs_build/sd_fs_build.py --build-dir build-rtos-multicore-smoke --output-dir build-rtos-multicore-smoke/sdcard_refmem_parser --clean --no-zip --no-reports` 通过，生成新版 SD staging。
+  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813152145 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_rmtp_parser` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813152145`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_rmtp_parser` 通过；当前板上 SD 卡仍是旧 System Pack，`LOAD:SD` 返回 `REJECTED`、last_error `7`、path `/refmem/app_model.rmtp`，符合缺少/无效 table image 的预期拒绝路径。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_rmtp_parser_multicore` 通过，16/16 passed。
+- 还需完成：
+  - 将新版 SD staging 写入实际 SD 卡后，复测 `LOAD:SD` 的 STAGED 正向路径。
+  - parser 通过后仍需实现真实 table image staging buffer、owner validation callback 和 activation/rollback。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_table_registry.h`
+  - `components/distributed_refmem/src/refmem_table_registry.c`
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 优先实现板端 parser 通过后的 staging table image 存储和 owner validation callback，而不是直接 active 替换。
+
 ### REFMEM-TASK-20260813-020 - SD System Pack 集成 RefMem package
 
 - 状态：完成

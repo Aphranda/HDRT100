@@ -132,6 +132,11 @@ def expect_sd_response(response: str) -> None:
         raise AssertionError(f"unexpected SD prefix {prefix}")
     if fields[2] != "1" or fields[3] != "0":
         raise AssertionError(f"unexpected SD source/mode: {fields[2:4]}")
+    if prefix == '"STAGED"':
+        if int(fields[11], 0) == 0:
+            raise AssertionError("SD staged with zero package CRC")
+        if fields[23] != "/refmem/app_model.rmtp":
+            raise AssertionError(f"unexpected SD load path {fields[23]!r}")
 
 
 def expect_table_response(response: str, *, table_id: str, min_staging_mask: int = 0) -> None:
