@@ -3,7 +3,7 @@
 Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/README.md`
-Related: `docs/README.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是 SYNC、VDC、DPLL、同步检查、锁定质量和 HOLDOVER 策略的目标入口。

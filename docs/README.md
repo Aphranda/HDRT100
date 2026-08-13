@@ -3,14 +3,14 @@
 Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
-Related: `docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
-`DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
+`docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
 
 当前阶段已经完成平铺文档命名迁移，后续文档管理进入“按产品主域目录化”的规划阶段。
-域目录目标、迁移批次和 gate 以 `DOCS_DOMAIN_STRUCTURE_PLAN.md` 为准。迁移完成前，
+域目录目标、迁移批次和 gate 以 `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md` 为准。迁移完成前，
 根目录中的历史路径仍是有效路径；新文档优先按目标域选择落点。
 
 ## Docs 目标域结构
@@ -72,7 +72,7 @@ docs/
 | SYNC_IO | `SYNC_IO_RESOURCE_PLAN.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TRIGGER | `TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
 | BISSC | `BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
-| OTA | `OTA_SYSTEM_DESIGN.md` | 历史 OTA 主方案入口；后续迁移方向见 `DOCS_NAMING_STRUCTURE_PLAN.md`。 |
+| OTA | `OTA_SYSTEM_DESIGN.md` | 历史 OTA 主方案入口；后续迁移方向见 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`。 |
 | SD | `SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
 | LOG | `LOG_SYSTEM_TODO.md` | 日志 core、诊断 trace、持久化和故障证据入口。 |
 | SCPI | `SCPI_COMMANDS.md` | SCPI 命令语义、兼容性和用户可调用接口入口。 |
@@ -87,7 +87,7 @@ docs/
 | RTOS | `RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
 | SCPI | `SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
 | SD | `SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
-| Documentation | `DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
+| Documentation | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
 | 其他领域 | 新建或补齐 `<DOMAIN>_TASK_PROGRESS.md` | 后续新闭环记录优先建立领域进度文件，不再追加到全局历史文件。 |
 | 全局历史 | `TASK_PROGRESS.md` | 只保留跨域历史和迁移前记录；除跨域总览外不再作为默认新任务入口。 |
 
@@ -95,9 +95,9 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
-| `DOCS_NAMING_STRUCTURE_PLAN.md` | 文档命名格式、层级关系、新增文件规则和迁移规则。 |
-| `DOCS_DOMAIN_STRUCTURE_PLAN.md` | 按产品主域目录化管理的目标结构、迁移批次、域映射和 gate。 |
-| `DOCS_MIGRATION_TODO.md` | 文档体系迁移待办，跟踪元数据补齐、历史改名和索引维护。 |
+| `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` | 文档命名格式、层级关系、新增文件规则和迁移规则。 |
+| `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md` | 按产品主域目录化管理的目标结构、迁移批次、域映射和 gate。 |
+| `docs/docs/DOCS_MIGRATION_TODO.md` | 文档体系迁移待办，跟踪元数据补齐、历史改名和索引维护。 |
 | `README.md` | 本索引文件，提供当前 `docs/` 文件归属。 |
 | `docs/README.md` | 文档治理域 README。 |
 | `arch/README.md` | 架构域 README。 |

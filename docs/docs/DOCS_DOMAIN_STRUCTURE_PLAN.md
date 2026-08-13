@@ -2,8 +2,8 @@
 
 Status: Draft
 Domain: Documentation
-Canonical: `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Related: `docs/README.md`, `docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/DOCS_MIGRATION_TODO.md`, `docs/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+Canonical: `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 Last updated: 2026-08-13
 
 本文档定义 `docs/` 后续按产品主域整理的目标结构、迁移规则和文档归属。当前阶段不直接移动大批文件，先冻结目录规划、迁移 gate 和索引规则，后续按域小批量迁移。
@@ -103,7 +103,7 @@ docs/
 ### Phase 0 - 冻结规划
 
 - 新增本文档。
-- 更新 `docs/README.md`、`DOCS_NAMING_STRUCTURE_PLAN.md` 和 `DOCS_MIGRATION_TODO.md`。
+- 更新 `docs/README.md`、`docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 和 `docs/docs/DOCS_MIGRATION_TODO.md`。
 - 不移动文件，只建立迁移目标和 gate。
 
 ### Phase 1 - 建立目录 README

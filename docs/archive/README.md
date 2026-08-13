@@ -3,7 +3,7 @@
 Status: Active
 Domain: DOCS
 Canonical: `docs/archive/README.md`
-Related: `docs/README.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`, `docs/DOCS_MIGRATION_TODO.md`
+Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`, `docs/docs/DOCS_MIGRATION_TODO.md`
 Last updated: 2026-08-13
 
 本目录是废弃路径说明、旧索引、批量迁移记录和不再作为当前 canonical 的文档入口。

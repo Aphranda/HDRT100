@@ -3,7 +3,7 @@
 Status: Active
 Domain: OTA
 Canonical: `docs/ota/README.md`
-Related: `docs/README.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是 OTA、boot、Direct A/B、copy transaction、回滚、System Pack 和升级安全链的目标入口。

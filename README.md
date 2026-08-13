@@ -416,7 +416,7 @@ time.
   instances.
 - `CMakePresets.json`: release and debug build presets.
 - `docs/README.md`: documentation index and current domain hierarchy.
-- `docs/DOCS_NAMING_STRUCTURE_PLAN.md`: documentation naming, metadata,
+- `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`: documentation naming, metadata,
   hierarchy, cross-reference, and migration rules.
 - `docs/HAOFV_ARCHITECTURE.md`: top-level HAOFV product
   architecture based on Active Objects, lightweight IEC 61499-style function

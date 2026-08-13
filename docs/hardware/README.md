@@ -3,7 +3,7 @@
 Status: Active
 Domain: HARDWARE
 Canonical: `docs/hardware/README.md`
-Related: `docs/README.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是 IO 约束、PCB、网表、BOM、Gerber、硬件评审和布局资料的目标入口。

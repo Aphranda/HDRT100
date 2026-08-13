@@ -3,7 +3,7 @@
 Status: Active
 Domain: RELEASE
 Canonical: `docs/release/README.md`
-Related: `docs/README.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是发布门禁、产品冻结、打印/PDF、报告输出和交付检查的目标入口。

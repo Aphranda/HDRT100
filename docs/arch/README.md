@@ -3,7 +3,7 @@
 Status: Active
 Domain: ARCH
 Canonical: `docs/arch/README.md`
-Related: `docs/README.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是产品架构、HAOFV、RTOS、双核 AMP 和分布式触发总纲的目标入口。

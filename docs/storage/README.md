@@ -3,7 +3,7 @@
 Status: Active
 Domain: SD
 Canonical: `docs/storage/README.md`
-Related: `docs/README.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是 SD、StorageAO、日志、trace、snapshot、T2 分页和报告证据的目标入口。

@@ -3,7 +3,7 @@
 Status: Active
 Domain: LEGACY
 Canonical: `docs/legacy/README.md`
-Related: `docs/README.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是 PinProbe、0614/0804 原始报告、最初版 HTML、外部迁入资料和冻结历史资料的目标入口。

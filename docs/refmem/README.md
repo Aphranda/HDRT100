@@ -3,7 +3,7 @@
 Status: Draft
 Domain: REFMEM
 Canonical: `docs/refmem/README.md`
-Related: `docs/README.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是分布式向量表、命令槽、ACK/NACK、节点事实、stale/CRC/epoch 和多板共同状态的目标入口。

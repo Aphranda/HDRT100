@@ -3,7 +3,7 @@
 Status: Draft
 Domain: MEASURE
 Canonical: `docs/measure/README.md`
-Related: `docs/README.md`, `docs/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是测量原语、T2 摘要、链路 delay 测量服务和诊断测量接口的目标入口。

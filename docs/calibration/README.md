@@ -3,7 +3,7 @@
 Status: Draft
 Domain: CALIBRATION
 Canonical: `docs/calibration/README.md`
-Related: `docs/README.md`, `docs/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是 CAL link、delay、校准参数、active/staging、版本和质量管理的目标入口。

@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: Documentation
-Canonical: `docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Related: `docs/README.md`, `docs/DOCS_MIGRATION_TODO.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Canonical: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本文档定义 `docs/` 下 Markdown 文档的统一命名格式、层级关系、交叉引用规则和

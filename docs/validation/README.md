@@ -3,7 +3,7 @@
 Status: Active
 Domain: VALIDATION
 Canonical: `docs/validation/README.md`
-Related: `docs/README.md`, `docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
+Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Last updated: 2026-08-13
 
 本目录是 HIL、工具验证、任务进度、闭环验证记录和脚本说明的目标入口。
