@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "calibration_manager.h"
 #include "loop_engine.h"
 #include "system_manager.h"
 
@@ -37,18 +38,7 @@ typedef struct {
     uint32_t update_seq;
 } app_dpll_status_t;
 
-typedef struct {
-    bool ready;
-    uint32_t state;
-    uint32_t service_count;
-    uint32_t first_service_ms;
-    uint32_t last_service_ms;
-    uint32_t command_seq;
-    uint32_t link_count;
-    uint32_t delay_count;
-    uint32_t active_crc32;
-    uint32_t last_error;
-} app_calibration_status_t;
+typedef calibration_manager_status_t app_calibration_status_t;
 
 typedef system_manager_config_gate_status_t app_config_gate_status_t;
 typedef system_manager_config_ack_status_t app_config_ack_status_t;

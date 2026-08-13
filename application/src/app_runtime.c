@@ -1,6 +1,7 @@
 #include "app.h"
 #include "app_runtime.h"
 #include "board.h"
+#include "calibration_manager.h"
 #include "diagnostics.h"
 #include "drv_flash.h"
 #include "loop_engine.h"
@@ -167,7 +168,8 @@ static void task_calibration(void *context)
             continue;
         }
 
-        app_calibration_service();
+        calibration_manager_set_ready(true);
+        calibration_manager_service();
         osal_task_delay_ms(1u);
     }
 }

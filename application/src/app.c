@@ -1,6 +1,7 @@
 #include "app.h"
 
 #include "board.h"
+#include "calibration_manager.h"
 #include "diagnostics.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
@@ -35,7 +36,6 @@ static bool s_ui_key_sample;
 static bool s_ui_key_stable;
 static app_vdc_sync_status_t s_vdc_sync_status;
 static app_dpll_status_t s_dpll_status;
-static app_calibration_status_t s_calibration_status;
 
 bool app_init(void)
 {
@@ -58,16 +58,6 @@ bool app_init(void)
     s_dpll_status.first_service_ms = 0u;
     s_dpll_status.last_service_ms = s_last_tick_ms;
     s_dpll_status.update_seq = 0u;
-    s_calibration_status.ready = false;
-    s_calibration_status.state = 0u;
-    s_calibration_status.service_count = 0u;
-    s_calibration_status.first_service_ms = 0u;
-    s_calibration_status.last_service_ms = s_last_tick_ms;
-    s_calibration_status.command_seq = 1u;
-    s_calibration_status.link_count = 1u;
-    s_calibration_status.delay_count = 1u;
-    s_calibration_status.active_crc32 = 0x10000003u;
-    s_calibration_status.last_error = 0u;
     LOG_INFO("app", "application initialized");
 
     const sync_io_config_t sync_io_config = {
@@ -112,6 +102,11 @@ bool app_init(void)
         return false;
     }
 
+    if (!calibration_manager_init()) {
+        diagnostics_mark_fault("calibration", "calibration manager initialization failed");
+        return false;
+    }
+
     if (!distributed_refmem_init()) {
         diagnostics_mark_fault("refmem", "distributed refmem initialization failed");
         return false;
@@ -148,9 +143,9 @@ bool app_init(void)
     s_ui_dirty = true;
     s_app_ready = true;
     loop_engine_set_ready(true);
+    calibration_manager_set_ready(true);
     s_vdc_sync_status.ready = true;
     s_dpll_status.ready = true;
-    s_calibration_status.ready = true;
 
     return true;
 }
@@ -258,17 +253,8 @@ void app_dpll_get_status(app_dpll_status_t *status)
 
 void app_calibration_service(void)
 {
-    const uint32_t now_ms = board_uptime_ms();
-
-    osal_critical_enter();
-    if (s_calibration_status.service_count == 0u) {
-        s_calibration_status.first_service_ms = now_ms;
-    }
-    s_calibration_status.service_count++;
-    s_calibration_status.last_service_ms = now_ms;
-    s_calibration_status.ready = s_app_ready;
-    s_calibration_status.state = 0u;
-    osal_critical_exit();
+    calibration_manager_set_ready(s_app_ready);
+    calibration_manager_service();
 }
 
 void app_calibration_get_status(app_calibration_status_t *status)
@@ -277,10 +263,7 @@ void app_calibration_get_status(app_calibration_status_t *status)
         return;
     }
 
-    osal_critical_enter();
-    *status = s_calibration_status;
-    status->ready = s_app_ready;
-    osal_critical_exit();
+    calibration_manager_get_status(status);
 }
 
 void app_config_gate_service(void)

@@ -156,6 +156,7 @@ set(PROJECT_APP_SOURCES
         boards/rp2350_trig/src/board.c
         third_party/portable_log/src/portable_log.c
         middleware/portable_log_port/src/portable_log_port.c
+        components/calibration_manager/src/calibration_manager.c
         components/diagnostics/src/diagnostics.c
         components/distributed_config/src/distributed_config.c
         components/distributed_refmem/src/distributed_refmem.c
@@ -290,6 +291,7 @@ function(project_configure_app_target target_name app_name linker_script)
     target_include_directories(${target_name} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/application/inc
         ${CMAKE_CURRENT_LIST_DIR}/boards/rp2350_trig/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/calibration_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/diagnostics/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/distributed_config/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/distributed_refmem/inc

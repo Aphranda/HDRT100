@@ -26,6 +26,7 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [x] 将 `main.c` 中的 RTOS task 创建、裸机循环和 core1 启动细节迁入 `app_runtime`，`main.c` 只保留初始化、失败兜底和进入运行。
 - [x] 将 ConfigGate、配置 ACK、SystemModeTable、ResourceArbiterTable 和 FaultCodeTable 只读快照迁入 `system_manager`。
 - [x] 将 LoopEngine ready/service_count/first_service_ms/last_service_ms 状态迁入 `components/loop_engine/`，`task_loop_engine` 直接服务该 owner。
+- [x] 将 Calibration ready/state/service_count/link_count/delay_count/active_crc32 状态迁入 `components/calibration_manager/`，`task_calibration` 直接服务该 owner。
 - [ ] 将空壳逐步替换为真正 AO service，`app.c` 只保留启动编排和顶层调度。
 
 ## P1 - 反射内存主数据面
@@ -79,7 +80,8 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 
 ## P4 - Calibration / SYNC / RJ45_SYNC_RING
 
-- [ ] 建立 `CalibrationAO / CalibrationFB / CalibrationVector`。
+- [x] 建立 `CalibrationManager` 第一阶段组件，先迁出状态计数、link/delay 摘要和只读快照。
+- [ ] 将 `components/calibration_manager/` 升级为 `CalibrationAO / CalibrationFB / CalibrationVector`。
 - [ ] 实现 `CONFigure:CALibration:LINK:ADD/UPDate/DELete/CLEAr` 和 link key 去重。
 - [ ] 实现 `CALibration:STARt <src_node>,<src_port>,<dst_node>,<dst_port>` 短事务。
 - [ ] 实现 `READ:CALibration:STATe? / RESult? / LINK? / PARameter? / VERSion? / QUALity?` 固定字段。

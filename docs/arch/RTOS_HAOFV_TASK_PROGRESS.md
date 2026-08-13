@@ -66,6 +66,39 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
 
+### RTOS-DIST-TASK-20260813-003 - CalibrationManager 第一阶段组件化
+
+- 状态：进行中
+- 日期：2026-08-13
+- 任务目标：
+  - 将 `app.c` 中的 Calibration 状态计数、link/delay 摘要和 active_crc32 迁入独立功能域组件。
+  - 让 `task_calibration` 直接服务 Calibration owner，减少 RTOS task 对 `app_*` wrapper 的依赖。
+- 完成内容：
+  - 新增 `components/calibration_manager/`，承接 ready、state、service_count、first_service_ms、last_service_ms、command_seq、link_count、delay_count、active_crc32 和 last_error 快照。
+  - `application/inc/app.h` 使用 `calibration_manager_status_t` 兼容 `app_calibration_status_t`。
+  - `app_calibration_service()` 和 `app_calibration_get_status()` 保留为兼容 wrapper。
+  - RTOS `task_calibration` 直接调用 `calibration_manager_set_ready()` 和 `calibration_manager_service()`。
+- 验证结果：
+  - build-validation build id：`20260813070532`。
+  - build-rtos-multicore-smoke build id：`20260813070526`。
+  - `cmake --build build-validation` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+  - `python tools/docs_check/docs_check.py` 通过，保留 7 条既有文件命名 warning。
+  - SCPI USB namespace check 在两个构建中均通过。
+  - 本轮未执行烧录和板端 `READ:CALibration:*?` 查询，后续继续小步拆分时需要补板端 smoke 记录。
+- 还需完成：
+  - 将 Calibration 从状态计数器升级为 `CalibrationAO / CalibrationFB / CalibrationVector`。
+  - 接入 link/parameter CRUD、短事务测量、保存/加载/激活/回滚和质量版本管理。
+  - 将校准结果写入 Distributed RefMem 校准 slot，并提供给 VDC/DPLL 作为 T2/link delay 事实来源。
+- 关联文件：
+  - `components/calibration_manager/`
+  - `application/src/app.c`
+  - `application/src/app_runtime.c`
+  - `application/inc/app.h`
+  - `middleware/scpi_port/src/scpi_calibration_commands.c`
+- 下一步：
+  - 继续拆 `VdcSync` / `DPLL` 状态 owner，或开始给 Calibration 增加 link/parameter staged 数据面。
+
 ### RTOS-DIST-TASK-20260813-002 - LoopEngine 第一阶段组件化
 
 - 状态：进行中
