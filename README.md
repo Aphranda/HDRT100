@@ -427,7 +427,7 @@ time.
   allocation.
 - `docs/trigger/TRIGGER_SYNC_TODO.md`: remaining work for the production trigger
   subsystem.
-- `docs/SCPI_COMMANDS.md`: basic SCPI command list for trigger configuration.
+- `docs/interface/SCPI_COMMANDS.md`: basic SCPI command list for trigger configuration.
 - `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`: implementable A0-A3 RP2350
   distributed DPLL, virtual DC clock, AUX calibration ring, and local scheduled
   trigger plan.

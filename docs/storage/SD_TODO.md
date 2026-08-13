@@ -3,7 +3,7 @@
 Status: Active
 Domain: SD
 Canonical: `docs/storage/SD_TODO.md`
-Related: `docs/storage/SD_TASK_PROGRESS.md`, `docs/SCPI_COMMANDS.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`
+Related: `docs/storage/SD_TASK_PROGRESS.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`
 Last updated: 2026-07-07
 
 本文档定义 RP2350_TRIG 的 SD 卡系统。SD 卡不是简单 OTA 介质，而是 App 侧 **System Pack 介质 + 持久化观测层**，用于任务配置、校准补偿、Pack/Ref 版本管理、Vector/反射内存快照、脉冲异常 trace、运行报告、产测结果和离线 OTA。

@@ -3,7 +3,7 @@
 Status: Draft
 Domain: Documentation
 Canonical: `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 Last updated: 2026-08-13
 
 本文档定义 `docs/` 后续按产品主域整理的目标结构、迁移规则和文档归属。当前阶段不直接移动大批文件，先冻结目录规划、迁移 gate 和索引规则，后续按域小批量迁移。

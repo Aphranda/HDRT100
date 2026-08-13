@@ -2,13 +2,13 @@
 
 Status: Active
 Domain: SCPI
-Canonical: `docs/SCPI_COMMANDS.md`
-Related: `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/sync/SYNC_IO_REFACTOR_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/SCPI_USB_INTERFACE_DESIGN.md`
+Canonical: `docs/interface/SCPI_COMMANDS.md`
+Related: `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/sync/SYNC_IO_REFACTOR_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
 Last updated: 2026-08-13
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
-固件使用 `PROJECT_ENABLE_USBTMC` 构建启用 USBTMC/USB488 + SCPI 专业仪表接口。USBTMC 模式复用同一套 SCPI 命令表，当前 USB 描述符按 `bus-powered` 申明；后续成品如确认自供电，再切换为 `self-powered`。USB 描述符、VISA 枚举和供电属性记录见 `docs/SCPI_USB_INTERFACE_DESIGN.md`。
+固件使用 `PROJECT_ENABLE_USBTMC` 构建启用 USBTMC/USB488 + SCPI 专业仪表接口。USBTMC 模式复用同一套 SCPI 命令表，当前 USB 描述符按 `bus-powered` 申明；后续成品如确认自供电，再切换为 `self-powered`。USB 描述符、VISA 枚举和供电属性记录见 `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`。
 开发/validation 阶段如需同一份固件在 CDC / USBTMC 间切换，可启用 `PROJECT_ENABLE_USB_RUNTIME_SWITCH`，并通过 `SYSTem:USB:MODE` 写入 Product Config；该切换不作为 DTC100 成品对外接口。这里 `SYST` 是 `SYSTem` 的短写。这个切换不是 OTA A/B 机制，A/B 只保留给升级镜像和回滚。业务层按 `CONFigure` / `READ` / `TRIGger` / `CALibration` / `SYNC` 分域，`SYSTem` 保留系统与基础状态。
 
 ## 标准命令

@@ -14,7 +14,7 @@ Last updated: 2026-08-13
 |---|---|
 | `../arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` | 当前 DTC100 反射内存和 RTOS owner 设计 |
 | `../LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` | PinProbe A1 RAM 反射内存历史方案 |
-| `../DTC100_SCPI_COMMAND_PLANNING.md` | SCPI 与反射内存边界 |
+| `../interface/DTC100_SCPI_COMMAND_PLANNING.md` | SCPI 与反射内存边界 |
 
 ## 待补 canonical
 

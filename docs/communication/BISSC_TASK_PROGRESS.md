@@ -247,7 +247,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 构建单核 factory/update 包。
   - 烧录 `build-biss-integration\RP2350_TRIG_FACTORY.uf2`。
   - 为 SCPI DISARM 增加兼容别名：`TRIG:DIS`、`TRIG:DISA`、`TRIG:DISarm` 均进入同一 DISARM 回调。
-  - 更新 `docs/SCPI_COMMANDS.md`、`docs/communication/BISSC_IMPLEMENTATION_TODO.md` 和 `docs/arch/MULTICORE_PARTITION_PLAN.md`，记录单核主线和双核暂停原因。
+  - 更新 `docs/interface/SCPI_COMMANDS.md`、`docs/communication/BISSC_IMPLEMENTATION_TODO.md` 和 `docs/arch/MULTICORE_PARTITION_PLAN.md`，记录单核主线和双核暂停原因。
 - 验证结果：
   - 单核 factory build id：`20260707081355`。
   - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`。
@@ -272,7 +272,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 双核 smoke 暂停；此前发现 core1 loop count 后续停止增长，需要后续独立定位跨核队列/critical section。
 - 关联文件：
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
   - `docs/arch/MULTICORE_PARTITION_PLAN.md`
   - `build-biss-integration\biss_validation_singlecore\summary.txt`

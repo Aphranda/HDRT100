@@ -76,7 +76,7 @@ Last updated: 2026-08-10
   - `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`
   - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
   - `docs/RP1200_DTC100_对话决策完整回顾.md`
-  - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
+  - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
   - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`
   - `docs/README.md`
   - `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`
@@ -127,7 +127,7 @@ Last updated: 2026-08-10
   - `ResourceArbiterTable` 接入当前 `resource_arbiter` mode、active_resources、last_conflict 和资源 owner。
   - `FaultCodeTable` 汇总诊断、Trigger、OTA、Storage 的产品常见故障域。
   - `tools/multicore_board_validate` 新增 `system_resource_fault_tables` 用例。
-  - `docs/SCPI_COMMANDS.md` 与 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 已同步更新。
+  - `docs/interface/SCPI_COMMANDS.md` 与 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 已同步更新。
 - 验证结果：
   - `cmake --build --preset pico2-rtos-multicore-smoke` 通过，build id `20260810155455`。
   - `cmake --preset pico2-release` 通过。
@@ -145,7 +145,7 @@ Last updated: 2026-08-10
   - `application/src/app.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/multicore_board_validate/multicore_board_validate.py`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 - 下一步：
   - 收口共享表项 guard 字段或节点 stale window，再进入 RJ45 delta 原型。
@@ -164,7 +164,7 @@ Last updated: 2026-08-10
   - `middleware/scpi_port` 新增 `SYST:CFG:ACK?`、`SYST:CFG:NACK?`、`SYST:SCPI:RUN:ALLOW?`。
   - 触发、采样、时钟、BiSS、PCNT、Storage 和 OTA 的关键写入口接入统一 RUN 态拒绝码。
   - `tools/multicore_board_validate` 新增 ACK reason / RUN policy 验证。
-  - `docs/SCPI_COMMANDS.md` 与 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 已同步更新。
+  - `docs/interface/SCPI_COMMANDS.md` 与 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 已同步更新。
 - 验证结果：
   - `cmake --build --preset pico2-rtos-multicore-smoke` 通过，build id `20260810153737`。
   - `cmake --preset pico2-release` 通过。
@@ -184,7 +184,7 @@ Last updated: 2026-08-10
   - `application/src/app.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/multicore_board_validate/multicore_board_validate.py`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 - 下一步：
   - 收口 SystemMode / ResourceArbiter 查询表，再决定是否进入跨板 ACK delta。
@@ -223,7 +223,7 @@ Last updated: 2026-08-10
   - `drivers/mcu/flash/src/drv_flash.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/multicore_board_validate/multicore_board_validate.py`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 - 下一步：
   - 收口分布式 ACK/NACK 原因码和 RUN 态 SCPI 白名单，不接真实 RJ45 跨板同步。
@@ -741,7 +741,7 @@ Last updated: 2026-08-10
   - 增加 SD UI 第二阶段：显示 `/update` 是否存在、默认包是否存在、包大小/版本/CRC、最近一次 SD 错误和离线 OTA 进度。
   - 增加日志/报告目录写入能力：`/logs`、`/reports`、`/config`、`/capture` 的安全写入、临时文件命名、写完 rename、容量不足处理。
   - 增加多卡兼容验证：空卡、无卡、FAT32 卡、SDHC/SDXC 卡、无 `/update`、坏路径、长文件名、拔卡后恢复。
-  - 更新 `docs/SCPI_COMMANDS.md`、`README.md` 和 `docs/ota/OTA_SYSTEM_DESIGN.md`，把已实现命令和后续 `SYST:OTA:FILE` 流程写清楚。
+  - 更新 `docs/interface/SCPI_COMMANDS.md`、`README.md` 和 `docs/ota/OTA_SYSTEM_DESIGN.md`，把已实现命令和后续 `SYST:OTA:FILE` 流程写清楚。
   - 在 `tools/bench/rp2350_tk_toolbox.py` 中继续扩展 SD 操作区：构建 SD 文件系统、打开 staging 目录、查询 SD 状态、列目录、触发离线 OTA。
 - 关联文件：
   - `tools/sd_fs_build/sd_fs_build.py`
@@ -825,7 +825,7 @@ Last updated: 2026-08-10
     - AUX2/GPIO28 = `SYNC_CLK_OUT`
     - AUX3/GPIO29 = `MARKER_OUT`
   - 将主口 `GPIO16..GPIO23` 约束为模式本地高速 IO：`SEQ_STEP` 和 `ENC_COUNT` 可独占主输入/输出口，跨模式功能不再抢主口通道。
-  - `docs/SCPI_COMMANDS.md` 更新语义 IO 表和互斥说明：`TRIG:ENC:APIN 26` 属于开发诊断复用，会占用 AUX 功能接口，量产默认仍使用 `16` 组。
+  - `docs/interface/SCPI_COMMANDS.md` 更新语义 IO 表和互斥说明：`TRIG:ENC:APIN 26` 属于开发诊断复用，会占用 AUX 功能接口，量产默认仍使用 `16` 组。
   - `docs/arch/HAOFV_ARCHITECTURE.md` 补充主触发口 + AUX 功能口的架构分层，明确上层语义接口不再绑定到主口 GPIO17/18/22/23。
   - `docs/trigger/TRIGGER_SYNC_TODO.md` 新增代码迁移待办：将 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 从旧路径迁移到 AUX0..AUX3，并实现 AUX owner/arbiter。
   - `boards/rp2350_trig/inc/board_config.h` 新增产品 AUX 语义别名宏，不改变当前运行行为。
@@ -838,7 +838,7 @@ Last updated: 2026-08-10
   - 为 AUX 功能接口增加资源仲裁，确保开发诊断 `TRIG:ENC:APIN 26` 与 AUX 产品功能互斥。
 - 关联文件：
   - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/arch/HAOFV_ARCHITECTURE.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
@@ -859,7 +859,7 @@ Last updated: 2026-08-10
   - 明确 `SEQ_STEP` armed 时 OUT0..OUT3 被序列总线独占，独立 `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT` 命令应 busy 或在 ARM 前关闭。
   - 明确 `ENC_COUNT` armed 时 IN0/IN1/IN3 被 A/B/Z 独占，OUT0 被比较触发独占；`GATE_IN` 在 IN3 被 Z 相占用时不可作为独立门控。
   - `docs/arch/HAOFV_ARCHITECTURE.md` 补充 Trigger 域上层接口规则：SCPI/UI/TriggerAO 使用语义通道，GPIO 映射归 board profile 和 `sync_io`。
-  - `docs/SCPI_COMMANDS.md` 增加应用层语义 IO 与资源互斥说明。
+  - `docs/interface/SCPI_COMMANDS.md` 增加应用层语义 IO 与资源互斥说明。
   - `docs/trigger/TRIGGER_SYNC_TODO.md` 标记语义接口约束完成，并新增后续代码仲裁待办。
 - 验证结果：
   - 文档约束更新完成；本任务未改固件代码，未重新构建或烧录。
@@ -869,7 +869,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
   - `docs/arch/HAOFV_ARCHITECTURE.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
@@ -888,7 +888,7 @@ Last updated: 2026-08-10
     - `SEQ_STEP`：IN0=`TRIG_IN`，IN3=`GATE_IN`，OUT0..3=`SEQ_OUT[3:0]`。
     - `ENC_COUNT`：IN0=A，IN1=B，IN3=Z，OUT0=`TRIG_OUT`。
   - `docs/trigger/TRIGGER_SYNC_TODO.md` 标记统一物理 IO 定义完成，并注明 `GPIO26..GPIO29` 仅作为 AUX/开发验证扩展。
-  - `docs/SCPI_COMMANDS.md` 更新 `TRIG:ENC:APIN <16|26>` 说明：量产默认使用 `16`，`26` 为开发验证扩展。
+  - `docs/interface/SCPI_COMMANDS.md` 更新 `TRIG:ENC:APIN <16|26>` 说明：量产默认使用 `16`，`26` 为开发验证扩展。
 - 验证结果：
   - 文档约束更新完成；本任务未改代码，未重新构建或烧录。
 - 还需完成：
@@ -896,7 +896,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
 - 下一步：
   - 若要继续代码闭环，优先在统一物理 IO 约束下实现电平触发模式或完善 `ARM_IN` 管理面语义。
 
@@ -914,7 +914,7 @@ Last updated: 2026-08-10
   - `sync_io_enc_count_arm()` 改为把传入的 `in_pin_base` 下发到 `enc_count_program_init()`，并将 DMA 清理从 `dma_channel_unclaim()` 改为 `dma_channel_abort()`。
   - `TRIG:ENC:APIN <16|26>` 改为选择 ENC 输入组基脚，并自动派生 B/Z；新增 `TRIG:ENC:APIN?` 返回当前 A/B/Z 实际 GPIO。
   - 更新 `docs/trigger/TRIGGER_SYNC_TODO.md`，将 `ENC_COUNT` 引脚配置和 ENC DMA 清理标记闭环。
-  - 更新 `docs/SCPI_COMMANDS.md`，补齐 ENC_COUNT、PCNT 参数和触发测量命令说明。
+  - 更新 `docs/interface/SCPI_COMMANDS.md`，补齐 ENC_COUNT、PCNT 参数和触发测量命令说明。
   - 更新 `trigger_vector.h` 中过时的 DMA ring buffer 注释，说明当前使用 ISR 手动复位 `read_addr`。
 - 验证结果：
   - 旧构建目录 `build-baremetal-trigger-gate` 因 CMake cache 记录旧 `D:/OneDrive/...` 路径，无法在当前 `E:/...` 工作区直接复用；已改用新干净构建目录验证。
@@ -941,7 +941,7 @@ Last updated: 2026-08-10
   - `components/sync_trigger/inc/trigger_vector.h`
   - `middleware/scpi_port/src/scpi_port.c`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
 - 下一步：
   - 继续按 `docs/trigger/TRIGGER_SYNC_TODO.md` 处理 P0/P1 未闭环项，优先建议做 `ARM_IN` 接入或电平触发模式。
 
@@ -1066,7 +1066,7 @@ Last updated: 2026-08-10
   - `components/sync_trigger/src/sync_trigger.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `osal/port/baremetal/osal_baremetal.c`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
 - 下一步：
   - 进入 TriggerAO/TriggerFB 的第一轮正式建模，先补 `IDLE / ARMED / TRIGGERED / BUSY / FAULT` 状态和基础统计，再让 UI 与 SCPI 都只面对 Trigger 域快照。
@@ -1750,7 +1750,7 @@ Last updated: 2026-08-10
   - `tools/ota_packager/ota_packager.py`
   - `tools/ota_send/ota_send.py`
   - `README.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/ota/OTA_TODO.md`
 - 下一步：
   - 补齐统一 package 的产品兼容字段和负向测试脚本，再进入 release 默认 `DIRECT_AB` 迁移评估。
@@ -1838,7 +1838,7 @@ Last updated: 2026-08-10
     - 有 size/CRC 的 slot 执行 CRC 强校验。
     - 无 size/CRC 的 factory 初始 slot 允许退化到向量表校验。
   - validation 构建新增 `SYST:BOOT:RES`，通过 watchdog 触发系统复位，用于回滚/断电类验证；release 构建不包含该命令。
-  - 更新 `docs/ota/OTA_TODO.md`、`docs/ota/OTA_AB_SWITCH_DESIGN.md`、`docs/SCPI_COMMANDS.md`。
+  - 更新 `docs/ota/OTA_TODO.md`、`docs/ota/OTA_AB_SWITCH_DESIGN.md`、`docs/interface/SCPI_COMMANDS.md`。
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
@@ -1880,7 +1880,7 @@ Last updated: 2026-08-10
   - `middleware/scpi_port/src/scpi_port.c`
   - `docs/ota/OTA_TODO.md`
   - `docs/ota/OTA_AB_SWITCH_DESIGN.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
 - 下一步：
   - 开始 direct A/B 断电恢复验证，优先验证 pending 应用前后和未确认状态下的真实断电/复位行为。
 
@@ -1894,7 +1894,7 @@ Last updated: 2026-08-10
   - 新增 `ota_metadata_set_boot_mode()`，可切换 `COPY_TO_ACTIVE` / `DIRECT_AB`，切换时清理 pending 和 copy transaction。
   - validation 构建新增 `SYST:OTA:MODE <0|1>` 写命令；release 构建仅保留 `SYST:OTA:MODE?` 查询。
   - `tools/ota_send/ota_send.py` 新增 `--auto-target --image-a --image-b`，可查询 `SYST:OTA:TARG?` 后自动选择 Slot A/B 镜像。
-  - 更新 README、`docs/SCPI_COMMANDS.md`、`docs/ota/OTA_AB_SWITCH_DESIGN.md`、`docs/ota/OTA_TODO.md`。
+  - 更新 README、`docs/interface/SCPI_COMMANDS.md`、`docs/ota/OTA_AB_SWITCH_DESIGN.md`、`docs/ota/OTA_TODO.md`。
 - 验证结果：
   - `python -m py_compile tools\ota_send\ota_send.py` 通过。
   - `python tools\ota_send\ota_send.py COM4 build\RP2350_TRIG.bin --dry-run` 通过。
@@ -1939,7 +1939,7 @@ Last updated: 2026-08-10
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/ota_send/ota_send.py`
   - `README.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/ota/OTA_AB_SWITCH_DESIGN.md`
   - `docs/ota/OTA_TODO.md`
 - 下一步：
@@ -2043,7 +2043,7 @@ Last updated: 2026-08-10
   - 新增 A/B 扩展区 CRC，旧 copy transaction 扩展 CRC 的字段位置和覆盖范围保持稳定。
   - 默认 `boot_mode = COPY_TO_ACTIVE`，`boot_capabilities = COPY_TO_ACTIVE`。
   - 新增 `SYST:OTA:MODE?`、`SYST:OTA:TARG?`、`SYST:OTA:CAP?`。
-  - 更新 `docs/ota/OTA_AB_SWITCH_DESIGN.md`、`docs/SCPI_COMMANDS.md`、`docs/ota/OTA_TODO.md`。
+  - 更新 `docs/ota/OTA_AB_SWITCH_DESIGN.md`、`docs/interface/SCPI_COMMANDS.md`、`docs/ota/OTA_TODO.md`。
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
@@ -2072,7 +2072,7 @@ Last updated: 2026-08-10
   - `components/ota_manager/src/ota_metadata.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `docs/ota/OTA_AB_SWITCH_DESIGN.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/ota/OTA_TODO.md`
 - 下一步：
   - 实现 Bootloader direct A/B 分支能力，但默认仍保持 `COPY_TO_ACTIVE`。
@@ -2338,7 +2338,7 @@ Last updated: 2026-08-10
   - 修复成功收尾的 metadata 提交顺序：清 transaction、清 pending、记录 `APPLIED` 合并到同一次 metadata 写入，减少 `COMM` 前掉电审计空窗。
   - 修复 `DONE` 恢复路径优先级：如果 transaction 已到 `DONE` 且 Slot A 校验通过，应优先完成 `APPLIED`，不被最大尝试次数拦截。
   - 重复烧录后确认设备能从短暂停留 Bootloader/BOOT 状态恢复到 App USB CDC。
-  - 更新 `docs/ota/OTA_TODO.md` 和 `docs/SCPI_COMMANDS.md`。
+  - 更新 `docs/ota/OTA_TODO.md` 和 `docs/interface/SCPI_COMMANDS.md`。
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
@@ -2361,7 +2361,7 @@ Last updated: 2026-08-10
   - `bootloader/src/bootloader_main.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `docs/ota/OTA_TODO.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 烧录并执行一次正常 OTA 闭环，确认 `SYST:OTA:TXN?` 在完成后返回空 transaction；然后进入手动断电验证。
@@ -2607,7 +2607,7 @@ Last updated: 2026-08-10
   - `CMakeLists.txt`
   - `CMakePresets.json`
   - `README.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/ota/OTA_TODO.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
@@ -2684,7 +2684,7 @@ Last updated: 2026-08-10
   - `bootloader/src/bootloader_main.c`
   - `middleware/scpi_port/src/scpi_port.c`
   - `README.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 后续如具备可控电源台架，执行真实断电恢复测试；当前软件故障注入路径已闭环。
@@ -2848,7 +2848,7 @@ Last updated: 2026-08-10
   - `CMakeLists.txt`
   - `config/project_config.h`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `README.md`
 - 下一步：
   - 用最新 factory 和 OTA payload 验证 build id 前后变化。
@@ -2957,7 +2957,7 @@ Last updated: 2026-08-10
   - `CMakeLists.txt`
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/ota_send/ota_send.py`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `README.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
@@ -3036,7 +3036,7 @@ Last updated: 2026-08-10
   - `bootloader/src/bootloader_main.c`
   - `components/ota_manager/src/ota_fb.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `README.md`
 - 下一步：
   - 进行最新 factory 首烧和 OTA 审计查询实机验证。
@@ -3338,7 +3338,7 @@ Last updated: 2026-08-10
   - `components/ota_manager/src/ota_fb.c`
   - `tools/ota_bin_info/ota_bin_info.py`
   - `docs/ota/OTA_SYSTEM_DESIGN.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
   - `docs/arch/HAOFV_ARCHITECTURE.md`
 - 下一步：
   - 实现 `ota_send.py` 或 Bootloader 最小启动链路。
@@ -3445,7 +3445,7 @@ Last updated: 2026-08-10
   - 按方案逐步实现代码。
 - 关联文件：
   - `docs/ota/OTA_SYSTEM_DESIGN.md`
-  - `docs/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMANDS.md`
 - 下一步：
   - 实现 OTA App 侧骨架。
 

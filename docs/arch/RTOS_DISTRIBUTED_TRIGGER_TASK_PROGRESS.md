@@ -3,7 +3,7 @@
 Status: Active
 Domain: RTOS-DISTRIBUTED-TRIGGER
 Canonical: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`
-Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/SCPI_TASK_PROGRESS.md`, `docs/arch/MULTICORE_PARTITION_PLAN.md`, `docs/arch/RTOS_PORTING_PLAN.md`
+Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/interface/SCPI_TASK_PROGRESS.md`, `docs/arch/MULTICORE_PARTITION_PLAN.md`, `docs/arch/RTOS_PORTING_PLAN.md`
 Last updated: 2026-08-12
 
 本文档用于记录 DTC100 / RP2350_TRIG 工程中 RTOS + 双核 AMP、分布式触发、
@@ -12,7 +12,7 @@ Last updated: 2026-08-12
 水位、core1 heartbeat、反射内存快照和 CAL/SYNC 骨架状态。
 
 架构原则以 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 为准。SCPI 模块拆分和
-命令表迁移记录放在 `docs/SCPI_TASK_PROGRESS.md`。
+命令表迁移记录放在 `docs/interface/SCPI_TASK_PROGRESS.md`。
 
 ## 记录规则
 
@@ -233,7 +233,7 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
   - heap min free：`73584 bytes`。
   - 归档：`build-rtos-multicore-smoke/validation_split_usb_scpi_step1`。
 - 还需完成：
-  - 后续继续拆 SCPI 命令模块，详见 `docs/SCPI_TASK_PROGRESS.md`。
+  - 后续继续拆 SCPI 命令模块，详见 `docs/interface/SCPI_TASK_PROGRESS.md`。
 - 关联文件：
   - `application/src/app.c`
   - `middleware/scpi_port/src/scpi_port.c`

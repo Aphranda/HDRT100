@@ -3,7 +3,7 @@
 Status: Draft
 Domain: RTOS
 Canonical: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
-Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`, `docs/SCPI_TASK_PROGRESS.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/arch/MULTICORE_PARTITION_PLAN.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/arch/MULTICORE_PARTITION_PLAN.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-13
 
 本文档把《RP1200波导天线 RP 分布式触发方案技术报告 0804》落成 RP2350_TRIG
@@ -779,8 +779,8 @@ SCPI realtime 子模块拆分已经完成，但当前重点仍是规范化产品
 `FIRE_LOAD`、PIO 或 core1 runtime 实现。runtime 基础组件待办继续保留在 P1-P7；
 本队列用于约束下一阶段先把上位机可见 API、权限、响应和验证脚本收敛。
 
-- [ ] 复审 `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` 和 HTML 指令表，确保 Markdown/HTML 同步。
-- [ ] 以 `docs/DTC100_SCPI_COMMAND_PLANNING.md` 为指令规范化评审基线，正式指令表、HTML、固件命令表和验证工具必须逐步向同一棵产品指令树收敛。
+- [ ] 复审 `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` 和 HTML 指令表，确保 Markdown/HTML 同步。
+- [ ] 以 `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md` 为指令规范化评审基线，正式指令表、HTML、固件命令表和验证工具必须逐步向同一棵产品指令树收敛。
 - [ ] 冻结产品主树：`SYSTem`、`CONFigure`、`TRIGger`、`CALibration`、`SYNC`、`READ`、`MMEMory`；禁止新增按 RTOS task、临时变量、算法名或裸内部模块命名的产品入口。
 - [ ] 复核 `CONFigure / 动作 / READ` 三层分离：`CONFigure:*` 只写 staging/recipe，`TRIGger/CALibration/SYNC:*` 执行动作，`READ:*?` 只读产品快照和报告。
 - [ ] 将底层实时验证入口从产品 `TRIGger:*` 主树迁移到 `REALtime:*` 维护域：`REALtime:PCNT:*`、`REALtime:ENC:*`、`REALtime:SEQ:*`、`REALtime:IO:*`、`REALtime:STATus?`。旧 `TRIGger:PCNT/ENC/SEQ`、裸 `PULSe/MARKer/RJ45/SAMPle/OUTPut` 和 `STATus:TRIGger?` 只作为 legacy validation alias 保留，不再作为产品主流程扩展入口。
@@ -999,10 +999,10 @@ SYST:ERR? 错误队列确认
 和文档改动，并提交形成可回退节点。
 
 SCPI 拆分详细进度、板端验证记录、串口生命周期问题和归档路径统一记录在
-`docs/SCPI_TASK_PROGRESS.md`。本文只保留目标边界和后续待办，避免 RTOS 架构文档
+`docs/interface/SCPI_TASK_PROGRESS.md`。本文只保留目标边界和后续待办，避免 RTOS 架构文档
 继续膨胀为验证流水账。
 
-剩余 `scpi_port.c` 拆分待办按 `docs/DTC100_SCPI_COMMAND_PLANNING.md` 的产品指令树推进。
+剩余 `scpi_port.c` 拆分待办按 `docs/interface/DTC100_SCPI_COMMAND_PLANNING.md` 的产品指令树推进。
 拆分时必须把产品主流程和底层验证能力分开：产品模式继续使用
 `TRIGger:MODE 0..4 = IDLE/TRIG/CAL/SYNC/SIM`，不能再直接映射为
 `SEQ_STEP`、`ENC_COUNT` 或 `BISS` 等底层状态机模式。`SEQ_STEP`、`BiSS-C`、`ENC/PCNT`
