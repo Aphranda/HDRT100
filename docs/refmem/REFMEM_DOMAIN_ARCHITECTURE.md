@@ -99,19 +99,20 @@ RefMem Domain 吸收 IEC 61499-style 分布式运行时的优点，但保留静�
 
 RefMem 的底座只固定 **A0-A7 八个通用节点**。A0-A7 是 slot 和同步协议中的通用 node id，不代表永久固定的产品角色。
 
-模型节点、模拟网分节点、模拟转台节点、网关节点都不是额外的固定节点类型，也不是独立于 A0-A7 之外的表空间。它们是加载到 A0-A7 某个通用节点上的 role、persona 或 AO/FB instance：
+模型节点、脉冲分发节点、链路切换节点、仪表控制节点、模拟网分节点、模拟转台节点、网关节点都不是额外的固定节点类型，也不是独立于 A0-A7 之外的表空间。它们是加载到 A0-A7 某个通用节点上的 role、persona 或 AO/FB instance：
 
 ```text
 A0-A7 generic node
   + NodeRoleMap
   + persona / feature_mask
   + DistributedFbInstanceTable
-  -> board / gateway / model_vna / model_turntable / model_dut / test_agent
+  -> board / pulse_distributor / link_switcher / instrument_controller
+     / gateway / model_vna / model_turntable / model_dut / test_agent
 ```
 
-在不冲突的情况下，同一个 A0-A7 通用节点可以同时载入多个逻辑实例。例如一个节点可以同时承载 `board` + `gateway`，或 `model_vna` + `test_agent`。是否允许并存由 `DistributedDeploymentGate` 判定，至少检查资源、IO、时序、owner、slot writer、事件连接和数据连接是否冲突。
+在不冲突的情况下，同一个 A0-A7 通用节点可以同时载入多个逻辑实例。例如一个节点可以同时承载 `board` + `gateway`，或 `model_vna` + `test_agent`，也可以在 IO 与时序资源允许时同时承载 `pulse_distributor` + `link_switcher`。是否允许并存由 `DistributedDeploymentGate` 判定，至少检查资源、IO、时序、owner、slot writer、事件连接和数据连接是否冲突。
 
-因此，`NodeSlot[8]` 只描述八个通用节点的新鲜度、心跳、角色摘要和故障摘要；具体节点承载真实板卡、网关、模型网分或模拟转台，由静态分布式应用模型决定。
+因此，`NodeSlot[8]` 只描述八个通用节点的新鲜度、心跳、角色摘要和故障摘要；具体节点承载真实板卡、脉冲分发、链路切换、仪表控制、网关、模型网分或模拟转台，由静态分布式应用模型决定。
 
 | 借鉴点 | RefMem Domain 落地形式 | 不采用的部分 |
 |---|---|---|
@@ -121,6 +122,155 @@ A0-A7 generic node
 | Data connection | 静态 `DistributedDataLinkTable`，把状态、参数、质量、时间戳、T2 和统计量映射到固定 slot 字段。 | 任意远程变量读写。 |
 | Deployment consistency | `DistributedDeploymentGate` 聚合 build id、hw profile、config CRC、calibration CRC、sync profile CRC、layout version 和实例共存冲突检查。 | 在线热替换部署。 |
 | Diagnostics | `DistributedConnectionQualityTable` 记录 seq、CRC、stale、late、drop、timeout、last_error 和 evidence index。 | 依赖外部 IEC 工具链诊断。 |
+
+### DistributedApplicationMap
+
+`DistributedApplicationMap` 描述一套静态分布式应用如何装载到 A0-A7 八个通用节点上。它是产品配置的一部分，不是运行时热部署脚本。
+
+| 字段 | 含义 | 约束 |
+|---|---|---|
+| `application_id` | 分布式应用编号。 | 由上位机配置或 System Pack 生成。 |
+| `application_version` | 应用模型版本。 | RUN 前必须和各节点 active config 一致。 |
+| `layout_version` | RefMem 表布局版本。 | 必须匹配 `DistributedVectorTable` header。 |
+| `node_id` | A0-A7 通用节点号。 | 只允许 0-7。 |
+| `node_uuid` | 节点硬件身份。 | 用于防止 A0-A7 逻辑号错绑实体板。 |
+| `role_mask` | 节点当前角色集合。 | 例如 `board`、`pulse_distributor`、`link_switcher`、`instrument_controller`、`gateway`、`model_vna`、`model_turntable`。 |
+| `persona_mask` | 节点装载的人格/能力集合。 | 一个节点可同时装载多个不冲突 persona。 |
+| `instance_first/count` | 本节点实例表范围。 | 指向 `DistributedFbInstanceTable`。 |
+| `hw_profile_crc` | 硬件约束摘要。 | 和当前板级约束、IO 能力一致。 |
+| `config_crc` | 业务配置摘要。 | 和 Loop/Trigger/Interface 配置一致。 |
+| `required` | 节点是否为当前应用必需。 | 必需节点 stale 或 missing 时禁止 RUN。 |
+| `fail_policy` | 节点失效策略。 | `STOP`、`HOLDOVER`、`DEGRADE`、`REPORT_ONLY`。 |
+
+规则：
+
+- A0-A7 是唯一固定节点空间。
+- 脉冲分发、链路切换、仪表控制、gateway、model_vna、model_turntable、test_agent 等都是加载实例，不扩展固定节点数量。
+- 一个节点同时装载多个实例时，必须通过 `DistributedDeploymentGate` 的冲突检查。
+- 逻辑实例可以禁用，但禁用实例仍应保留版本、原因和最后一次健康状态，便于报告闭环。
+
+### DistributedFbInstanceTable
+
+`DistributedFbInstanceTable` 描述运行在各节点上的 AO/FB 实例。这里的 FB 是 HAOFV 的本地功能块，不是跨节点动态调用对象。
+
+| 字段 | 含义 | 约束 |
+|---|---|---|
+| `instance_id` | 全局实例编号。 | 在当前 `application_id` 内唯一。 |
+| `node_id` | 实例所在 A0-A7 节点。 | 必须存在于 `DistributedApplicationMap`。 |
+| `domain` | 所属主域。 | `SYSTEM`、`TRIG`、`CAL`、`SYNC`、`MEAS`、`REFMEM` 等。 |
+| `ao_type/fb_type` | AO/FB 类型。 | 用于版本兼容和配置校验。 |
+| `instance_name` | 实例名。 | 例如 `A0.TriggerAO`、`A1.PulseDistributorAO`、`A2.LinkSwitcherAO`、`A3.InstrumentControllerAO`。 |
+| `version` | 实例实现版本。 | RUN 前检查兼容范围。 |
+| `enable_condition` | 启用条件。 | 由 mode、persona、feature、配置 CRC 共同决定。 |
+| `resource_claim` | 资源占用。 | Flash、SD、USB、PIO、DMA、LCD、RJ45、core1 时间片等。 |
+| `io_claim` | IO 占用。 | SMA、RJ45、SP8T、SP2T、BiSS-C、UART/RS485 等。 |
+| `time_budget_us` | 单次 service 预算。 | 超预算进入 Diagnostics evidence。 |
+| `state_slot_ref` | 状态事实位置。 | 指向 Vector slot 字段。 |
+| `health_slot_ref` | 健康事实位置。 | 指向质量或故障 slot 字段。 |
+| `event_in/out_range` | 事件连接范围。 | 指向 `DistributedEventLinkTable`。 |
+| `data_in/out_range` | 数据连接范围。 | 指向 `DistributedDataLinkTable`。 |
+| `conflict_class` | 共存冲突分类。 | 同类互斥或资源互斥时拒绝同时启用。 |
+| `restart_policy` | 故障恢复策略。 | `NO_RESTART`、`LOCAL_RESTART`、`SYSTEM_FAULT`。 |
+
+### DistributedEventLinkTable
+
+`DistributedEventLinkTable` 把跨 AO/FB 的事件意图静态化。它只描述事件路径，不直接携带大 payload。
+
+| 字段 | 含义 | 约束 |
+|---|---|---|
+| `event_link_id` | 事件连接编号。 | 全局唯一。 |
+| `source_instance` | 源实例。 | 可为 SCPI/SystemAO/LoopEngineAO/TriggerAO 等。 |
+| `source_event` | 源事件。 | `START`、`STOP`、`ARM`、`FIRE_LOAD`、`DONE`、`FAULT`、`ACK`、`NACK`。 |
+| `target_node_mask` | 目标节点集合。 | 支持单播、多播或广播到 A0-A7。 |
+| `target_instance` | 目标实例。 | 多播时可用类型匹配。 |
+| `target_event` | 目标事件。 | 目标 AO/FB 接收的事件名。 |
+| `transport` | 传递方式。 | `LOCAL_QUEUE`、`CORE_IPC`、`COMMAND_SLOT`、`RJ45_SYNC_RING`。 |
+| `timeout_us` | ACK 或完成超时。 | 为 0 表示无需 ACK。 |
+| `ack_policy` | 应答策略。 | `NONE`、`ANY`、`ALL_REQUIRED`、`BITMAP`。 |
+| `retry_policy` | 重试策略。 | 次数、退避、重复 sequence 处理。 |
+| `safety_class` | 安全等级。 | 影响 timeout 后进入 busy、degrade 还是 fault。 |
+| `evidence_ref` | 证据槽。 | timeout、NACK、late 需要可回溯。 |
+
+首版必须覆盖的事件路径：
+
+- 上位机配置提交到 ConfigGate。
+- `START/STOP` 到 LoopEngineAO 与各节点 TriggerAO。
+- `FIRE_LOAD` 从 LoopEngineAO 到 core1 realtime owner。
+- T2/DONE/FAULT 从实时侧回到 LoopEngineAO、MEASure 和 Diagnostics。
+- 分布式 ACK/NACK 从各节点回到命令 owner。
+
+### DistributedDataLinkTable
+
+`DistributedDataLinkTable` 把事实字段静态化，避免把 RefMem 当作随意读写的全局变量。
+
+| 字段 | 含义 | 约束 |
+|---|---|---|
+| `data_link_id` | 数据连接编号。 | 全局唯一。 |
+| `slot_path` | Vector 字段路径。 | 例如 `LoopSlot.active_sequence_crc`。 |
+| `writer_instance` | 唯一写入者。 | 不允许多 writer。 |
+| `reader_mask` | 读取者集合。 | SCPI/UI/Report 也必须声明为 reader。 |
+| `type` | 数据类型。 | `u8/u16/u32/i32/fixed/ns/tick/enum/bitmask/crc`。 |
+| `unit` | 单位。 | `ns`、`us`、`tick`、`Hz`、`count`、`none`。 |
+| `scale` | 定点比例。 | 例如 ns、0.1 ns、ppm、Q16.16。 |
+| `min/max` | 值域。 | 配置和运行时都按此校验。 |
+| `lifecycle` | 生命周期。 | `STAGING`、`ACTIVE`、`RUN`、`TRANSIENT`、`EVIDENCE`。 |
+| `snapshot_policy` | 快照策略。 | `DIRECT_ATOMIC`、`SEQLOCK`、`DOUBLE_BUFFER`。 |
+| `update_period_us` | 期望更新周期。 | 用于 stale 判定。 |
+| `stale_window_us` | stale 窗口。 | 超窗后 READ 返回 stale 标志。 |
+| `crc_scope` | CRC 范围。 | 字段、slot、directory 或 package。 |
+| `permission` | 访问权限。 | `READ_ONLY`、`COMMAND_WRITE`、`CONFIG_STAGE_WRITE`。 |
+
+### DistributedDeploymentGate
+
+`DistributedDeploymentGate` 是 RUN 前的一票否决表。它聚合静态模型、版本、资源、IO、时间和校准/同步质量，判断当前系统是否允许进入触发运行。
+
+| 检查项 | 内容 | 失败处理 |
+|---|---|---|
+| `layout_check` | `layout_version`、slot offset、slot size、directory CRC。 | 拒绝 RUN。 |
+| `node_check` | 必需 A0-A7 节点 online、node_uuid、role/persona 匹配。 | 拒绝 RUN 或按 fail_policy 降级。 |
+| `instance_check` | required AO/FB instance 存在、版本兼容、enable 条件满足。 | 拒绝 RUN。 |
+| `resource_check` | Flash、SD、USB、PIO、DMA、core1、RJ45 等资源无冲突。 | 拒绝冲突实例组合。 |
+| `io_check` | SMA/RJ45/SP8T/SP2T/BiSS-C/UART/RS485 等 IO claim 无冲突。 | 拒绝 RUN 或拒绝实例启用。 |
+| `writer_check` | 每个 slot 字段只有唯一 writer。 | 拒绝 RUN。 |
+| `event_check` | 必需事件连接完整，timeout 和 ACK 策略明确。 | 拒绝 RUN。 |
+| `data_check` | 必需数据连接完整，单位、值域、生命周期一致。 | 拒绝 RUN。 |
+| `config_check` | config CRC、sequence CRC、angle CRC、permission version 一致。 | 拒绝 RUN。 |
+| `cal_sync_check` | calibration CRC、sync profile CRC、VDC/DPLL lock quality 满足门限。 | 拒绝 RUN 或进入校准/同步维护。 |
+| `quality_check` | stale、CRC、seq、late、drop、timeout 在门限内。 | 拒绝 RUN 或 latch fault。 |
+
+Gate 输出必须可查询和可追溯：
+
+```text
+gate_state
+reject_code
+reject_instance
+reject_node
+reject_slot
+reject_evidence_index
+active_crc_bundle
+last_check_tick
+last_pass_tick
+```
+
+### DistributedConnectionQualityTable
+
+`DistributedConnectionQualityTable` 面向诊断、报告和运行门禁。它记录连接是否可信，不替代业务状态。
+
+| 字段 | 含义 | 约束 |
+|---|---|---|
+| `quality_id` | 质量记录编号。 | 可按 node、link、slot 或 event link 建立。 |
+| `scope` | 质量范围。 | `NODE`、`RJ45_LINK`、`SLOT`、`EVENT_LINK`、`DATA_LINK`。 |
+| `source_node/target_node` | 源/目标节点。 | 本地项可 target=self。 |
+| `seq_expected/seq_last` | sequence 检查。 | 检测丢帧和乱序。 |
+| `crc_error_count` | CRC 错误计数。 | 进入 evidence。 |
+| `stale_count` | stale 次数。 | 影响 READ 与 RUN 门禁。 |
+| `late_count` | late 次数。 | 用于 T2、FIRE_LOAD、SYNC 质量。 |
+| `drop_count` | 丢弃计数。 | 包括队列满、过期、重复包。 |
+| `timeout_count` | 超时计数。 | 对应 event ACK 或 data stale。 |
+| `last_error` | 最近错误。 | 错误码必须可枚举。 |
+| `last_error_tick` | 最近错误时间。 | 使用回绕安全差值计算。 |
+| `p99/p999` | 延迟或误差分布。 | 支撑产品化报告。 |
+| `evidence_index` | 证据索引。 | 指向 FaultEvidenceSlot 或 SD 日志。 |
 
 ## 核心数据面
 

@@ -42,12 +42,13 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [ ] 根据风险 `HAOFV-RISK-20260813-003/009`，将跨核 owner 矩阵和时间回绕规则升格为反射内存基础约束。
 - [x] 在 HAOFV/RTOS 架构中明确 Distributed RefMem 不是完整 IEC 61499 分布式运行时，而是吸收其 application / instance / event connection / data connection / deployment / diagnostics 优点的静态分布式应用模型。
 - [x] 将 RefMem 明确为 HAOFV 内部主域，并建立 `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`、`REFMEM_DOMAIN_TODO.md`、`REFMEM_TASK_PROGRESS.md`。
-- [ ] 定义 `DistributedApplicationMap`，覆盖 A0-A7 八个通用节点，以及加载到节点上的 board/gateway/model_vna/model_turntable/model_dut/test_agent 等 role/persona/instance；允许无冲突时同一通用节点同时载入多个实例。
-- [ ] 定义 `DistributedFbInstanceTable`，覆盖每节点 AO/FB instance、domain、版本、enable 条件和健康状态。
-- [ ] 定义 `DistributedEventLinkTable`，覆盖 START/STOP/FIRE_LOAD/DONE/FAULT/ACK/NACK 的 source、destination、通道和 timeout。
-- [ ] 定义 `DistributedDataLinkTable`，覆盖 slot 字段 writer/reader、单位、值域、生命周期和 snapshot 策略。
-- [ ] 定义 `DistributedDeploymentGate`，把 build id、hw profile、config CRC、calibration CRC、sync profile CRC 和 layout version 纳入 RUN 门禁。
-- [ ] 定义 `DistributedConnectionQualityTable`，覆盖 seq、CRC、stale、late、drop、timeout、last_error 和 evidence index。
+- [x] 文档定义 `DistributedApplicationMap`，覆盖 A0-A7 八个通用节点，以及加载到节点上的 board/pulse_distributor/link_switcher/instrument_controller/gateway/model_vna/model_turntable/model_dut/test_agent 等 role/persona/instance；允许无冲突时同一通用节点同时载入多个实例。
+- [x] 文档定义 `DistributedFbInstanceTable`，覆盖每节点 AO/FB instance、domain、版本、enable 条件、资源/IO claim、时间预算和健康状态。
+- [x] 文档定义 `DistributedEventLinkTable`，覆盖 START/STOP/FIRE_LOAD/DONE/FAULT/ACK/NACK 的 source、destination、transport、timeout、ACK 策略和 evidence。
+- [x] 文档定义 `DistributedDataLinkTable`，覆盖 slot 字段 writer/reader、类型、单位、值域、生命周期、snapshot 策略和 stale 窗口。
+- [x] 文档定义 `DistributedDeploymentGate`，把 layout、node、instance、resource、IO、writer、event、data、config、cal/sync quality 纳入 RUN 门禁。
+- [x] 文档定义 `DistributedConnectionQualityTable`，覆盖 seq、CRC、stale、late、drop、timeout、last_error、p99/p999 和 evidence index。
+- [ ] 将六张静态模型表落到 RefMem Domain 代码组件，并接入 RUN gate。
 - [ ] 冻结 `distributed_vector_table.h`：64 KB layout、slot offset、slot size、layout version。
 - [ ] 为 DistributedVectorTable 增加 directory CRC 和 slot directory 校验。
 - [ ] 增加 epoch、run_id、config/calibration/loop/action/sync/sequence/permission/storage version。

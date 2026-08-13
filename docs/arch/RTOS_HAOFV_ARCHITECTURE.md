@@ -237,7 +237,7 @@ DistributedVectorTable 按 64 KB 产品化完整布局实现，P0 只启用核�
 
 在 RTOS + 分布式系统中，RefMem 是内部主域，不仅是 slot 数据表，还承接 HAOFV 的静态分布式应用模型。它吸收 IEC 61499 分布式运行时的 application / FB instance / event connection / data connection / deployment consistency / diagnostics 思想，但不支持动态部署和跨节点 FB 直接调用。
 
-RefMem 固定提供 A0-A7 八个通用节点槽。模型网分、模拟转台、网关、测试代理等不是额外固定节点，而是加载到 A0-A7 通用节点上的 role、persona 或 AO/FB instance。在资源、IO、时序、owner 和 slot writer 不冲突时，同一通用节点可以同时载入多个逻辑实例。
+RefMem 固定提供 A0-A7 八个通用节点槽。脉冲分发、链路切换、仪表控制、模型网分、模拟转台、网关、测试代理等不是额外固定节点，而是加载到 A0-A7 通用节点上的 role、persona 或 AO/FB instance。在资源、IO、时序、owner 和 slot writer 不冲突时，同一通用节点可以同时载入多个逻辑实例。
 
 实施上必须拆成两类表：
 
@@ -250,7 +250,7 @@ RefMem 固定提供 A0-A7 八个通用节点槽。模型网分、模拟转台、
 
 | 表 | 内容 | RUN 门禁作用 |
 |---|---|---|
-| `DistributedApplicationMap` | A0-A7 通用节点，以及加载到节点上的 role、persona、真实板卡、模型网分、模拟转台、网关和测试代理实例。 | 确认节点数量、角色、实例加载和共存关系。 |
+| `DistributedApplicationMap` | A0-A7 通用节点，以及加载到节点上的 role、persona、真实板卡、脉冲分发、链路切换、仪表控制、模型网分、模拟转台、网关和测试代理实例。 | 确认节点数量、角色、实例加载和共存关系。 |
 | `DistributedFbInstanceTable` | 每节点 AO/FB instance、domain、版本、enable 条件、健康状态和共存冲突规则。 | 确认每个 required instance 存在、版本兼容且无资源冲突。 |
 | `DistributedEventLinkTable` | START/STOP/FIRE_LOAD/DONE/FAULT/ACK/NACK 的 source、destination、通道、timeout。 | 确认跨节点事件路径完整且 ACK 策略明确。 |
 | `DistributedDataLinkTable` | slot 字段 writer/reader、单位、值域、生命周期、snapshot 策略。 | 确认没有多 writer、未声明 reader 或不一致单位。 |
