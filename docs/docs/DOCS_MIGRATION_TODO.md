@@ -88,8 +88,8 @@ Last updated: 2026-08-13
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `TRIGGER_INDUSTRIAL_ENHANCEMENT.md` | `docs/trigger/TRIGGER_INDUSTRIAL_ENHANCEMENT_DESIGN.md` | 已更新 README、docs、tools 内引用；类型后缀改为 DESIGN。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `TRIGGER_SEQ_STEP_MODE.md` | `docs/trigger/TRIGGER_SEQ_STEP_DESIGN.md` | 已更新 README、docs、tools 内引用；类型后缀改为 DESIGN。 |
 | 2026-07-07-NAMING-BATCH-3 | 已完成 | `OTA方案.md` | `docs/ota/OTA_SYSTEM_DESIGN.md` | 已更新 README、docs、tools 内引用；保留 OTA 主方案 canonical 入口语义。 |
-| 2026-07-07-NAMING-BATCH-3 | 已完成 | `HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` | `docs/HAOFV_ARCHITECTURE.md` | 已更新 README、docs、tools 内引用；保留 HAOFV 顶层架构入口语义。 |
-| 2026-07-07-NAMING-BATCH-3 | 已完成 | `HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md` | `docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md` | 已更新 README、docs、tools 内引用；将补充示例和迁移步骤归入 playbook。 |
+| 2026-07-07-NAMING-BATCH-3 | 已完成 | `HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE.md` | `docs/arch/HAOFV_ARCHITECTURE.md` | 已更新 README、docs、tools 内引用；保留 HAOFV 顶层架构入口语义。 |
+| 2026-07-07-NAMING-BATCH-3 | 已完成 | `HYBRID_VECTOR_BLACKBOARD_ARCHITECTURE_SUPPLEMENT.md` | `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md` | 已更新 README、docs、tools 内引用；将补充示例和迁移步骤归入 playbook。 |
 
 ## 子目录评估记录
 

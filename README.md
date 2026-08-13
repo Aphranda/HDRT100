@@ -22,7 +22,7 @@ documentation, because garbled text can hide real checklist changes.
 
 The top-level software architecture is the Hybrid Active Object Function Block
 Vector Architecture, abbreviated as HAOFV. The full design is documented in
-`docs/HAOFV_ARCHITECTURE.md`.
+`docs/arch/HAOFV_ARCHITECTURE.md`.
 
 ```text
 SCPI / UI / SD / Bootloader Result
@@ -53,7 +53,7 @@ The design rules are:
 
 Future FreeRTOS support must be added as an OSAL port and task runtime for
 Active Objects. It must not replace the HAOFV boundaries or move hard real-time
-edge generation into ordinary RTOS tasks. See `docs/RTOS_PORTING_PLAN.md`.
+edge generation into ordinary RTOS tasks. See `docs/arch/RTOS_PORTING_PLAN.md`.
 
 ## Directory Layout
 
@@ -418,7 +418,7 @@ time.
 - `docs/README.md`: documentation index and current domain hierarchy.
 - `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`: documentation naming, metadata,
   hierarchy, cross-reference, and migration rules.
-- `docs/HAOFV_ARCHITECTURE.md`: top-level HAOFV product
+- `docs/arch/HAOFV_ARCHITECTURE.md`: top-level HAOFV product
   architecture based on Active Objects, lightweight IEC 61499-style function
   blocks, time-synchronized vectors, table-driven state machines, event
   dispatch, and resource arbitration.
@@ -445,9 +445,9 @@ time.
 - `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`: staged plan for hardening
   `portable_ota` first, then migrating the current project with closed-loop
   validation at each step.
-- `docs/RTOS_PORTING_PLAN.md`: HAOFV-aligned FreeRTOS migration plan and
+- `docs/arch/RTOS_PORTING_PLAN.md`: HAOFV-aligned FreeRTOS migration plan and
   OTA RTOS adapter requirements.
-- `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`: product RTOS + dual-core
+- `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`: product RTOS + dual-core
   partition for the four-board distributed trigger system, including the
   simulated reflective-memory DistributedVectorTable.
 - `docs/TASK_PROGRESS.md`: task progress log for goals, completed work,

@@ -2,8 +2,8 @@
 
 Status: Draft
 Domain: RTOS
-Canonical: `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
-Related: `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`, `docs/SCPI_TASK_PROGRESS.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/MULTICORE_PARTITION_PLAN.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+Canonical: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`, `docs/SCPI_TASK_PROGRESS.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/arch/MULTICORE_PARTITION_PLAN.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/相控阵测试系统RP分布式触发方案技术报告0804.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`, `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-13
 
 本文档把《RP1200波导天线 RP 分布式触发方案技术报告 0804》落成 RP2350_TRIG
@@ -761,7 +761,7 @@ core1 禁止：
 
 ### P0 - 任务边界固化
 
-进度与板端验证详见 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
+进度与板端验证详见 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
 
 - [x] 将当前 `task_io_frontend` 拆为 `task_usb_device` 和 `task_scpi`。
 - [x] 将 `app_comm_service()` 拆为 `app_usb_device_service()` 和 `app_scpi_service()`。
@@ -804,7 +804,7 @@ SCPI realtime 子模块拆分已经完成，但当前重点仍是规范化产品
 
 ### P1 - 反射内存与快照一致性
 
-已完成项的板端验证详见 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
+已完成项的板端验证详见 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
 
 - [ ] 定义 `distributed_vector_table.h`，冻结 64 KB 完整表 layout、slot offset、slot size 和 layout version。
 - [ ] 在链接脚本/配置中为 DistributedVectorTable 预留 64 KB 预算，避免后续扩容破坏协议。
@@ -842,7 +842,7 @@ SCPI realtime 子模块拆分已经完成，但当前重点仍是规范化产品
 
 ### P3 - A0/A3 控制面
 
-已完成项的实现与验证记录详见 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
+已完成项的实现与验证记录详见 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
 
 - [x] 建立配置门禁骨架，公开 `SYST:CFG:STAT?` / `STAT:CFG?`，冻结 build_id/hw_profile/CRC/ACK 快照。
 - [x] 定义 `NodeRoleMap` 存储和 SCPI 查询接口。
@@ -861,7 +861,7 @@ SCPI realtime 子模块拆分已经完成，但当前重点仍是规范化产品
 
 ### P4 - CAL/SYNC、RJ45_SYNC_RING、反射内存同步与虚拟 DC
 
-已完成项的实现与验证记录详见 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
+已完成项的实现与验证记录详见 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
 
 - [x] 增加 `task_calibration` 空壳和 `calibration_job_queue`，先支持 link/delay 表的 staging、snapshot 和计数器。
 - [ ] 实现 `CONFigure:CALibration:LINK:ADD/UPDate/DELete/CLEAr`、`READ:CALibration:LINK?` 和 link key 去重。
@@ -931,7 +931,7 @@ SCPI realtime 子模块拆分已经完成，但当前重点仍是规范化产品
 ## 当前进度与下一刀
 
 近期 RTOS 规划按小步验证执行。详细任务进度、build id、烧录记录、板端 smoke、
-水位和归档路径统一记录在 `docs/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
+水位和归档路径统一记录在 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md`。
 
 | 顺序 | 代码目标 | 板端验收 |
 |---:|---|---|

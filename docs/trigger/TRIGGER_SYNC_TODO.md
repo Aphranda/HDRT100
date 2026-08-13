@@ -3,7 +3,7 @@
 Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/TRIGGER_SYNC_TODO.md`
-Related: `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/sync/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/MULTICORE_PARTITION_PLAN.md`
+Related: `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/sync/SYNC_IO_REFACTOR_PLAN.md`, `docs/SCPI_COMMANDS.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/arch/MULTICORE_PARTITION_PLAN.md`
 Last updated: 2026-08-10
 
 本文档用于跟踪同步触发系统从当前 PIO IO 驱动，完善到工业产品级触发子系统所需的剩余工作。

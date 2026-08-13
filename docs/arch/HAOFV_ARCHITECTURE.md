@@ -2,8 +2,8 @@
 
 Status: Active
 Domain: HAOFV
-Canonical: `docs/HAOFV_ARCHITECTURE.md`
-Related: `docs/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/RTOS_PORTING_PLAN.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
+Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/RTOS_PORTING_PLAN.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
 Last updated: 2026-08-10
 
 本文档定义 RP2350_TRIG 后续产品化演进采用的软件架构。目标是在保持裸机/Pico SDK 工程轻量性的同时，融合 Active Object、轻量 IEC 61499 功能块、时间同步型系统向量黑板、资源仲裁和表驱动状态机，为 OTA、同步触发、SD 卡、LCD、SCPI、诊断、后续 RTOS 和更多硬件模块提供清晰边界。
@@ -1149,7 +1149,7 @@ SCPI/UI/Storage/OTA 只能投递 Trigger 事件或读取 TriggerVector 快照；
 
 ### 当前进度
 
-已执行到 RTOS 移植方案 Step 4/8：CMake 开关、OSAL port 骨架、单任务入口、Event Bus 收口、Resource Arbiter、独立 task_trigger/task_ui 预留和 Trigger SCPI 事件收口均已完成。Release 构建仍保持 baremetal 默认。详见 `docs/RTOS_PORTING_PLAN.md`。
+已执行到 RTOS 移植方案 Step 4/8：CMake 开关、OSAL port 骨架、单任务入口、Event Bus 收口、Resource Arbiter、独立 task_trigger/task_ui 预留和 Trigger SCPI 事件收口均已完成。Release 构建仍保持 baremetal 默认。详见 `docs/arch/RTOS_PORTING_PLAN.md`。
 
 ## 测试策略
 

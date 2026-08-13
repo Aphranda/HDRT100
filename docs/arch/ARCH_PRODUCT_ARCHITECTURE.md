@@ -2,8 +2,8 @@
 
 Status: Draft
 Domain: ARCH
-Canonical: `docs/ARCH_PRODUCT_ARCHITECTURE.md`
-Related: `docs/HAOFV_ARCHITECTURE.md`, `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/storage/LOG_SYSTEM_TODO.md`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
+Canonical: `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/storage/LOG_SYSTEM_TODO.md`, `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md`
 Last updated: 2026-08-10
 
 本文档把 `docs/` 中已经沉淀的框架性内容综合为面向产品的系统架构入口。各专项文档仍是细节来源；本文只定义产品边界、运行模型、数据契约、跨域依赖和发布门禁。
@@ -505,8 +505,8 @@ FAULT
 
 | 主题 | 细节来源 |
 |---|---|
-| HAOFV 顶层分层 | `docs/HAOFV_ARCHITECTURE.md` |
-| RTOS + 双核 AMP + DistributedVectorTable | `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` |
+| HAOFV 顶层分层 | `docs/arch/HAOFV_ARCHITECTURE.md` |
+| RTOS + 双核 AMP + DistributedVectorTable | `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` |
 | 触发域待办与当前基线 | `docs/trigger/TRIGGER_SYNC_TODO.md` |
 | PIO/GPIO/AUX 资源约束 | `docs/sync/SYNC_IO_RESOURCE_PLAN.md` |
 | 四板业务拓扑 | `docs/trigger/RP2350B_FOUR_BOARD_DISTRIBUTED_TRIGGER_SCHEME.md` |

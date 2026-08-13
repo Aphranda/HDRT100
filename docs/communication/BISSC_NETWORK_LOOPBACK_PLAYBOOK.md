@@ -3,7 +3,7 @@
 Status: Active
 Domain: Verification
 Canonical: `docs/communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`
-Related: `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/TASK_PROGRESS.md`, `docs/README.md`
+Related: `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`, `docs/TASK_PROGRESS.md`, `docs/README.md`
 Last updated: 2026-08-11
 
 本文档记录 2026-08-11 这轮 BiSS 组网处理流程，便于在其他电脑继续工作。
@@ -44,7 +44,7 @@ git push origin main
 
 文档更新：
 
-- `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+- `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
   - 在 P6 记录 A3 单外部 COM + BiSSC 内部组网的 HIL 入口。
   - 明确模拟板同时承担 turntable + VNA，位于内部节点侧。
 - `docs/README.md`

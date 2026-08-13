@@ -1010,5 +1010,5 @@ tools/bench/rp2350_tk_toolbox.py
 - `middleware/scpi_port/src/scpi_port.c`
 - `tools/bench/rp2350_tk_toolbox.py`
 - `docs/ota/OTA_SYSTEM_DESIGN.md`
-- `docs/HAOFV_ARCHITECTURE.md`
+- `docs/arch/HAOFV_ARCHITECTURE.md`
 - `docs/TASK_PROGRESS.md`

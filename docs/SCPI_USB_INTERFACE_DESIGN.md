@@ -3,7 +3,7 @@
 Status: Active
 Domain: USB
 Canonical: `docs/SCPI_USB_INTERFACE_DESIGN.md`
-Related: `docs/SCPI_COMMANDS.md`, `docs/HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`
+Related: `docs/SCPI_COMMANDS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`
 Last updated: 2026-07-22
 
 本文档记录 RP2350_TRIG 当前 USB 接口形态、USBTMC/USB488 接入策略和后续产品化注意事项。

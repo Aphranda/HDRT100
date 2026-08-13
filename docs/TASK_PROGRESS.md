@@ -63,7 +63,7 @@ Last updated: 2026-08-10
   - Markdown 顶部版本从 `0.5` 修正为 `0.7`，并标注 HTML 已同步到 0.7。
   - HTML 封面补充 `版本 0.7`。
   - `docs/README.md` 的 SCPI 文档入口补入 Markdown 源文档和 HTML 版。
-  - `docs/ARCH_PRODUCT_ARCHITECTURE.md`、`docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`、RP1200 SCPI 指令表和对话决策回顾已同步虚拟 DC 收敛顺序。
+  - `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`、`docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`、RP1200 SCPI 指令表和对话决策回顾已同步虚拟 DC 收敛顺序。
   - `READ:SYNC:STATe?` 和 `READ:SYNC:NODE?` 的字段说明补入 `local_tick`、`offset/rate`、`lock_state`，同步状态机补入 `FREE_RUN` 和 `OBSERVED`。
   - 补齐 RP1200 文档元数据、文档索引和 0804 摘要 Canonical，恢复 `docs_check` 通过。
 - 验证结果：
@@ -73,8 +73,8 @@ Last updated: 2026-08-10
   - 后续如生成 PDF，应以 Markdown 0.7 为源同步导出。
   - 后续把产品级 SCPI 表和当前固件 `SCPI_COMMANDS.md` 做命令映射差异表。
 - 关联文件：
-  - `docs/ARCH_PRODUCT_ARCHITECTURE.md`
-  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`
+  - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
   - `docs/RP1200_DTC100_对话决策完整回顾.md`
   - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
   - `docs/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`
@@ -95,7 +95,7 @@ Last updated: 2026-08-10
   - 重构 `tools/distributed_loopback_validate/distributed_loopback_validate.py` 的命令行入口，改成 `--a3-port` + `--peer` + `--sim-role`。
   - 将 A4 作为 bench-side simulator role 保留在拓扑层，不再要求它占用外部 COM 口。
   - 新增 `docs/communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`，存档本轮 BiSS 组网处理流程。
-  - 更新 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`、`docs/README.md` 和 `.gitignore`，把“5 串口”旧口径收回。
+  - 更新 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`、`docs/README.md` 和 `.gitignore`，把“5 串口”旧口径收回。
 - 验证结果：
   - `python -m py_compile tools/distributed_loopback_validate/distributed_loopback_validate.py` 通过。
   - `python tools/docs_check/docs_check.py` 通过，仍有 6 个历史命名 warning。
@@ -107,7 +107,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `tools/distributed_loopback_validate/distributed_loopback_validate.py`
   - `docs/communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`
-  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
   - `docs/README.md`
   - `.gitignore`
 - 下一步：
@@ -127,7 +127,7 @@ Last updated: 2026-08-10
   - `ResourceArbiterTable` 接入当前 `resource_arbiter` mode、active_resources、last_conflict 和资源 owner。
   - `FaultCodeTable` 汇总诊断、Trigger、OTA、Storage 的产品常见故障域。
   - `tools/multicore_board_validate` 新增 `system_resource_fault_tables` 用例。
-  - `docs/SCPI_COMMANDS.md` 与 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 已同步更新。
+  - `docs/SCPI_COMMANDS.md` 与 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 已同步更新。
 - 验证结果：
   - `cmake --build --preset pico2-rtos-multicore-smoke` 通过，build id `20260810155455`。
   - `cmake --preset pico2-release` 通过。
@@ -146,7 +146,7 @@ Last updated: 2026-08-10
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/multicore_board_validate/multicore_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 - 下一步：
   - 收口共享表项 guard 字段或节点 stale window，再进入 RJ45 delta 原型。
 
@@ -164,7 +164,7 @@ Last updated: 2026-08-10
   - `middleware/scpi_port` 新增 `SYST:CFG:ACK?`、`SYST:CFG:NACK?`、`SYST:SCPI:RUN:ALLOW?`。
   - 触发、采样、时钟、BiSS、PCNT、Storage 和 OTA 的关键写入口接入统一 RUN 态拒绝码。
   - `tools/multicore_board_validate` 新增 ACK reason / RUN policy 验证。
-  - `docs/SCPI_COMMANDS.md` 与 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 已同步更新。
+  - `docs/SCPI_COMMANDS.md` 与 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 已同步更新。
 - 验证结果：
   - `cmake --build --preset pico2-rtos-multicore-smoke` 通过，build id `20260810153737`。
   - `cmake --preset pico2-release` 通过。
@@ -185,7 +185,7 @@ Last updated: 2026-08-10
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/multicore_board_validate/multicore_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 - 下一步：
   - 收口 SystemMode / ResourceArbiter 查询表，再决定是否进入跨板 ACK delta。
 
@@ -224,7 +224,7 @@ Last updated: 2026-08-10
   - `middleware/scpi_port/src/scpi_port.c`
   - `tools/multicore_board_validate/multicore_board_validate.py`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
 - 下一步：
   - 收口分布式 ACK/NACK 原因码和 RUN 态 SCPI 白名单，不接真实 RJ45 跨板同步。
 
@@ -233,7 +233,7 @@ Last updated: 2026-08-10
 - 状态：完成
 - 日期：2026-08-10
 - 任务目标：
-  - 继续完善 `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`，把 0804 分布式触发报告落到当前 RTOS + 双核 AMP 分区。
+  - 继续完善 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`，把 0804 分布式触发报告落到当前 RTOS + 双核 AMP 分区。
   - 检查外部 `DOC/` 目录中被 Git 忽略或未迁入的关键资料，补入 `docs/`，保证克隆后不依赖 OneDrive 本地路径。
   - 将报告中的只读配置对象先落成固件静态配置源，并完成编译、烧录和板端闭环验证。
 - 完成内容：
@@ -241,7 +241,7 @@ Last updated: 2026-08-10
   - `SYST:CFG:STAT?` 接入真实配置 CRC，新增尾部 `config_crc32` 字段，用于运行前配置门禁观测。
   - 迁入完整报告 `docs/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` 与 `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`。
   - 迁入 PinProbe A1 历史方案 `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` 与 `docs/LEGACY_PINPROBEA1_OTA_CAN_DISTRIBUTION.md`。
-  - 更新 `docs/README.md`、`docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 和摘要入口，消除对外部 `DOC/` 路径的依赖。
+  - 更新 `docs/README.md`、`docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` 和摘要入口，消除对外部 `DOC/` 路径的依赖。
   - 调整 `.gitignore`，不再把关键文档目录作为整体忽略对象。
 - 验证结果：
   - `cmake --preset pico2-rtos-multicore-smoke` 通过。
@@ -259,7 +259,7 @@ Last updated: 2026-08-10
   - `application/src/app.c`
   - `application/inc/app.h`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `docs/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
+  - `docs/arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md`
   - `docs/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`
   - `docs/RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html`
   - `docs/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md`
@@ -298,9 +298,9 @@ Last updated: 2026-08-10
   - `application/src/main.c`
   - `osal/port/freertos/osal_freertos.c`
   - `components/storage_manager/src/storage_manager.c`
-  - `docs/HAOFV_ARCHITECTURE.md`
-  - `docs/RTOS_PORTING_PLAN.md`
-  - `docs/MULTICORE_PARTITION_PLAN.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/RTOS_PORTING_PLAN.md`
+  - `docs/arch/MULTICORE_PARTITION_PLAN.md`
 - 下一步：
   - 优先做 DEMO 板端双核 smoke，确认 core1 心跳、TriggerAO/TriggerFB 状态推进和 trace 行为，再决定是否进入更完整的 RTOS 双核 HIL 验证。
 
@@ -601,7 +601,7 @@ Last updated: 2026-08-10
   - 再落地 P0B/P0C：boot/arm/fault snapshot 和 RAM trace ring。
 - 关联文件：
   - `docs/storage/SD_TODO.md`
-  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 从 `StorageAO + StorageFB + StorageVector` 的最小 job 框架开始实现，优先支持 snapshot 写入和最近 fault 追溯查询。
@@ -641,7 +641,7 @@ Last updated: 2026-08-10
   - 增加 SCPI/UI 查询最近 snapshot、trace、pulse fault report 的入口。
 - 关联文件：
   - `docs/storage/SD_TODO.md`
-  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
   - `docs/TASK_PROGRESS.md`
 - 下一步：
   - 先实现最小 boot/arm/fault snapshot，再实现脉冲异常 RAM trace ring 和 DISARM/FAULT 后批量落盘。
@@ -789,7 +789,7 @@ Last updated: 2026-08-10
 - 状态：完成
 - 日期：2026-06-29
 - 任务目标：
-  - 阅读 `docs/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md`，将其中 DPLL、DC 时间轴、预约触发和 T2_i 回读思想映射为当前 RP2350 多板原型可实施方案。
+  - 阅读 `docs/arch/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md`，将其中 DPLL、DC 时间轴、预约触发和 T2_i 回读思想映射为当前 RP2350 多板原型可实施方案。
   - 明确 AUX 两路一进一出、RS-485/RS-422 差分物理层、PIO/CPU 分工、虚拟 DC 时钟、DPLL 闭环和分阶段验收边界。
 - 完成内容：
   - 新增 `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`，定义多板 `CAL_RING` 拓扑：AUX0/GPIO26=`CAL_IN`，AUX3/GPIO29=`CAL_OUT`。
@@ -826,7 +826,7 @@ Last updated: 2026-08-10
     - AUX3/GPIO29 = `MARKER_OUT`
   - 将主口 `GPIO16..GPIO23` 约束为模式本地高速 IO：`SEQ_STEP` 和 `ENC_COUNT` 可独占主输入/输出口，跨模式功能不再抢主口通道。
   - `docs/SCPI_COMMANDS.md` 更新语义 IO 表和互斥说明：`TRIG:ENC:APIN 26` 属于开发诊断复用，会占用 AUX 功能接口，量产默认仍使用 `16` 组。
-  - `docs/HAOFV_ARCHITECTURE.md` 补充主触发口 + AUX 功能口的架构分层，明确上层语义接口不再绑定到主口 GPIO17/18/22/23。
+  - `docs/arch/HAOFV_ARCHITECTURE.md` 补充主触发口 + AUX 功能口的架构分层，明确上层语义接口不再绑定到主口 GPIO17/18/22/23。
   - `docs/trigger/TRIGGER_SYNC_TODO.md` 新增代码迁移待办：将 `ARM_IN/EXT_CLK_IN/SYNC_CLK_OUT/MARKER_OUT` 从旧路径迁移到 AUX0..AUX3，并实现 AUX owner/arbiter。
   - `boards/rp2350_trig/inc/board_config.h` 新增产品 AUX 语义别名宏，不改变当前运行行为。
 - 验证结果：
@@ -839,7 +839,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
   - `boards/rp2350_trig/inc/board_config.h`
@@ -858,7 +858,7 @@ Last updated: 2026-08-10
   - 明确 `ARM_IN` 是应用层外部 ARM 资格/请求，不属于当前 `SEQ_STEP` PIO 实时循环；在 `ENC_COUNT` 量产映射中 IN1 被 B 相占用，因此 `ARM_IN` 不可作为独立资格信号。
   - 明确 `SEQ_STEP` armed 时 OUT0..OUT3 被序列总线独占，独立 `TRIG_OUT/PULSE_OUT/SYNC_CLK_OUT/MARKER_OUT` 命令应 busy 或在 ARM 前关闭。
   - 明确 `ENC_COUNT` armed 时 IN0/IN1/IN3 被 A/B/Z 独占，OUT0 被比较触发独占；`GATE_IN` 在 IN3 被 Z 相占用时不可作为独立门控。
-  - `docs/HAOFV_ARCHITECTURE.md` 补充 Trigger 域上层接口规则：SCPI/UI/TriggerAO 使用语义通道，GPIO 映射归 board profile 和 `sync_io`。
+  - `docs/arch/HAOFV_ARCHITECTURE.md` 补充 Trigger 域上层接口规则：SCPI/UI/TriggerAO 使用语义通道，GPIO 映射归 board profile 和 `sync_io`。
   - `docs/SCPI_COMMANDS.md` 增加应用层语义 IO 与资源互斥说明。
   - `docs/trigger/TRIGGER_SYNC_TODO.md` 标记语义接口约束完成，并新增后续代码仲裁待办。
 - 验证结果：
@@ -868,7 +868,7 @@ Last updated: 2026-08-10
   - 后续真正接入 `ARM_IN` 时，需要按该契约处理与 `ENC_COUNT` B 相的硬件通道冲突。
 - 关联文件：
   - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
-  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
   - `docs/SCPI_COMMANDS.md`
   - `docs/trigger/TRIGGER_SYNC_TODO.md`
   - `docs/TASK_PROGRESS.md`
@@ -989,7 +989,7 @@ Last updated: 2026-08-10
 - 日期：2026-06-24
 - 任务目标：
   - 暂停 Trigger 功能继续扩展，先把独立 `task_ui` 下的 LCD/U8G2 界面从静态占位页推进到可读的运行时状态看板。
-  - 按 `docs/HAOFV_ARCHITECTURE.md` 的边界实现 UI：只读取 Trigger/OTA/Resource Arbiter/Diagnostics 的摘要快照，不直接介入业务控制。
+  - 按 `docs/arch/HAOFV_ARCHITECTURE.md` 的边界实现 UI：只读取 Trigger/OTA/Resource Arbiter/Diagnostics 的摘要快照，不直接介入业务控制。
   - 补齐 UI 周期刷新闭环，避免 LCD 只在初始化时渲染一次而后续状态停留在首帧。
 - 完成内容：
   - `components/sync_config_ui/src/sync_config_ui.c` 重构为三栏工业风运行时看板，分别展示：
@@ -1018,7 +1018,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `application/src/app.c`
   - `components/sync_config_ui/src/sync_config_ui.c`
-  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
 - 下一步：
   - 继续把 LCD 从“运行时总览”推进到“总览 + 菜单/配置页”双层结构，并给未来独立通讯任务、触发任务和本地按键输入预留 UI 事件槽位。
 
@@ -1076,7 +1076,7 @@ Last updated: 2026-08-10
 - 状态：完成
 - 日期：2026-06-24
 - 任务目标：
-  - 按 `docs/HAOFV_ARCHITECTURE.md` 和 `docs/RTOS_PORTING_PLAN.md` 继续把 RTOS 骨架往工业化任务结构推进：先落最小 `resource_arbiter`，再预留独立 `task_trigger` 容器，同时保持当前 OTA 闭环稳定可回归。
+  - 按 `docs/arch/HAOFV_ARCHITECTURE.md` 和 `docs/arch/RTOS_PORTING_PLAN.md` 继续把 RTOS 骨架往工业化任务结构推进：先落最小 `resource_arbiter`，再预留独立 `task_trigger` 容器，同时保持当前 OTA 闭环稳定可回归。
   - 在不触碰 PIO/DMA/IRQ 硬实时旁路的前提下，把 Trigger 控制面从“未来规划”推进到“已有独立任务骨架”，并把 LCD/SPI 与 OTA/Flash 的共享资源边界显式化。
 - 完成内容：
   - 新增 `components/resource_arbiter/`，定义 `FLASH / SPI0 / LCD / SD / USB / PIO / DMA` 资源位、最小模式快照和资源申请/释放接口。
@@ -1110,7 +1110,7 @@ Last updated: 2026-08-10
   - `components/sync_config_ui/src/sync_config_ui.c`
   - `components/ota_manager/src/ota_fb.c`
   - `middleware/portable_ota_port/src/portable_ota_core_port.c`
-  - `docs/RTOS_PORTING_PLAN.md`
+  - `docs/arch/RTOS_PORTING_PLAN.md`
 - 下一步：
   - 优先把 Trigger 相关 SCPI 控制收口到 `sync_trigger` 事件接口，再开始引入 `system_vector / system_manager`，让 `resource_arbiter` 不只是一个资源锁组件，而是正式进入 HAOFV 的系统控制主线。
 
@@ -1119,8 +1119,8 @@ Last updated: 2026-08-10
 - 状态：完成
 - 日期：2026-06-24
 - 任务目标：
-  - 按 `docs/RTOS_PORTING_PLAN.md` 的 Step 3，在保持当前 RTOS smoke 多任务骨架可回归的前提下，引入正式事件投递边界，把 OTA 事件入口从 AO 内部私有环形队列收口到独立 `event_bus` 组件。
-  - 按 `docs/HAOFV_ARCHITECTURE.md` 继续对齐 HAOFV：外部入口只投递事件，不直接修改域状态；同时保留 `task_ui` 独立任务，为后续 U8G2/LCD 独立演进预留容器。
+  - 按 `docs/arch/RTOS_PORTING_PLAN.md` 的 Step 3，在保持当前 RTOS smoke 多任务骨架可回归的前提下，引入正式事件投递边界，把 OTA 事件入口从 AO 内部私有环形队列收口到独立 `event_bus` 组件。
+  - 按 `docs/arch/HAOFV_ARCHITECTURE.md` 继续对齐 HAOFV：外部入口只投递事件，不直接修改域状态；同时保留 `task_ui` 独立任务，为后续 U8G2/LCD 独立演进预留容器。
 - 完成内容：
   - 新增 `components/event_bus/`，提供 `event_bus_init()`、`event_bus_post_ota_event()` 和 `event_bus_try_recv_ota_event()`，以最小 OTA 专用 mailbox 形式收口当前事件总线。
   - `components/event_bus/src/event_bus.c` 使用固定长度环形缓冲区，并通过 `osal_critical_enter/exit()` 保护投递与消费路径；`OTA_EVENT_DATA_BLOCK` 在总线侧复制 payload，避免直接依赖外部缓冲区生命周期。
@@ -1148,17 +1148,17 @@ Last updated: 2026-08-10
   - `components/event_bus/inc/event_bus.h`
   - `components/event_bus/src/event_bus.c`
   - `components/ota_manager/src/ota_ao.c`
-  - `docs/HAOFV_ARCHITECTURE.md`
-  - `docs/RTOS_PORTING_PLAN.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/RTOS_PORTING_PLAN.md`
 - 下一步：
-  - 继续 `docs/RTOS_PORTING_PLAN.md` 的 Step 4/Step 8，优先补齐 RTOS 版资源仲裁与 `task_trigger` 预留骨架，再把通讯、UI、触发三类输入都统一纳入“只投递事件”的结构。
+  - 继续 `docs/arch/RTOS_PORTING_PLAN.md` 的 Step 4/Step 8，优先补齐 RTOS 版资源仲裁与 `task_trigger` 预留骨架，再把通讯、UI、触发三类输入都统一纳入“只投递事件”的结构。
 
 ### TASK-20260624-009 - FreeRTOS Step 1 工程入口与 OSAL 骨架
 
 - 状态：完成
 - 日期：2026-06-24
 - 任务目标：
-  - 按 `docs/RTOS_PORTING_PLAN.md` 的 Step 1/Step 2，在不改变当前裸机 release 行为的前提下，引入 FreeRTOS 构建开关、OSAL FreeRTOS port 骨架和最小单任务入口，并完成板端闭环验证。
+  - 按 `docs/arch/RTOS_PORTING_PLAN.md` 的 Step 1/Step 2，在不改变当前裸机 release 行为的前提下，引入 FreeRTOS 构建开关、OSAL FreeRTOS port 骨架和最小单任务入口，并完成板端闭环验证。
   - 保持 HAOFV 边界：FreeRTOS 只作为 Active Object 运行容器和同步原语来源，不让业务层直接依赖 FreeRTOS API。
 - 完成内容：
   - `CMakeLists.txt` 新增 `PROJECT_USE_FREERTOS` 和 `PROJECT_FREERTOS_KERNEL_DIR`，默认 `OFF`；release 路径继续使用 `osal/port/baremetal/osal_baremetal.c`。
@@ -1175,7 +1175,7 @@ Last updated: 2026-08-10
   - `components/ota_manager/src/ota_ao.c` 为内部事件环形队列补充 `osal_critical_enter/exit()` 保护，允许 `task_comm` 投递 OTA 事件、`task_ota` 独立消费。
   - `boards/rp2350_trig/src/board.c` 在 RTOS smoke 下临时关闭硬件 watchdog enable/feed，避免早期 RTOS 故障被反复复位掩盖。
   - `tools/release_check/release_check.py` 增加检查：当前 `pico2-release` 必须保持 `PROJECT_USE_FREERTOS=OFF`，直到 RTOS release 等价验证完成。
-  - 修正 `README.md` 中 RTOS 方案文件名引用为 `docs/RTOS_PORTING_PLAN.md`。
+  - 修正 `README.md` 中 RTOS 方案文件名引用为 `docs/arch/RTOS_PORTING_PLAN.md`。
 - 验证结果：
   - `cmake -S . -B build-rtos-step1 -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF -DPROJECT_USE_FREERTOS=OFF` 通过。
   - `python tools\release_check\release_check.py --preset pico2-release --build-dir build-rtos-step1` 通过。
@@ -1206,7 +1206,7 @@ Last updated: 2026-08-10
   - `README.md`
   - `third_party/freertos/FreeRTOS-Kernel/`
 - 下一步：
-  - 进入 `docs/RTOS_PORTING_PLAN.md` 的 Step 3：保持当前 `system / comm / ota / ui` 多任务 smoke 可回归的前提下，引入正式 RTOS 版 event bus / mailbox，并把通讯入口演进为 `task_io_frontend`。
+  - 进入 `docs/arch/RTOS_PORTING_PLAN.md` 的 Step 3：保持当前 `system / comm / ota / ui` 多任务 smoke 可回归的前提下，引入正式 RTOS 版 event bus / mailbox，并把通讯入口演进为 `task_io_frontend`。
 
 ### TASK-20260624-008 - README 顶层架构入口优化
 
@@ -1218,15 +1218,15 @@ Last updated: 2026-08-10
   - 在 `README.md` 的前半部分新增 `Architecture` 章节。
   - 增加 HAOFV 分层图：SCPI/UI/SD/Bootloader Result、Active Object、IEC 61499-style Function Block、Vector Blackboard、Hardware Service Layer、PIO/DMA/IRQ 硬实时旁路。
   - 明确 Active Object、Function Block、Vector Blackboard、Resource Arbiter 和硬实时路径的职责。
-  - 更新 Key Configuration Files 中 `docs/HAOFV_ARCHITECTURE.md` 和 `docs/RTOS_PORTING_PLAN.md` 的描述。
+  - 更新 Key Configuration Files 中 `docs/arch/HAOFV_ARCHITECTURE.md` 和 `docs/arch/RTOS_PORTING_PLAN.md` 的描述。
 - 验证结果：
   - 文档更新完成，未涉及代码编译和板端烧录。
 - 还需完成：
   - 后续新增 system_manager、system_vector、event_bus、function_block 等组件时，同步 README 的目录结构和架构说明。
 - 关联文件：
   - `README.md`
-  - `docs/HAOFV_ARCHITECTURE.md`
-  - `docs/RTOS_PORTING_PLAN.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/RTOS_PORTING_PLAN.md`
 - 下一步：
   - 继续 OTA 收口或按 FreeRTOS 移植方案进入 OSAL/RTOS 准备阶段。
 
@@ -1235,10 +1235,10 @@ Last updated: 2026-08-10
 - 状态：完成
 - 日期：2026-06-24
 - 任务目标：
-  - 基于 `docs/HAOFV_ARCHITECTURE.md`，输出符合 HAOFV 架构的 FreeRTOS 移植方案。
+  - 基于 `docs/arch/HAOFV_ARCHITECTURE.md`，输出符合 HAOFV 架构的 FreeRTOS 移植方案。
   - 明确 FreeRTOS 与 Active Object、Function Block、Vector Blackboard、Resource Arbiter、PIO/DMA/IRQ 硬实时路径之间的职责边界。
 - 完成内容：
-  - 更新 `docs/RTOS_PORTING_PLAN.md` 为中文 FreeRTOS 移植总方案。
+  - 更新 `docs/arch/RTOS_PORTING_PLAN.md` 为中文 FreeRTOS 移植总方案。
   - 明确 FreeRTOS 只作为调度器和同步原语，不替代 HAOFV 架构边界。
   - 定义 `task_system`、`task_trigger`、`task_ota`、`task_io_frontend`、`task_storage`、`task_diag` 的推荐任务模型和优先级。
   - 补充 Vector Blackboard 在 RTOS 下的同步节拍、事件入口规则、OSAL 扩展接口和 Resource Arbiter 的 FreeRTOS 实现方式。
@@ -1248,8 +1248,8 @@ Last updated: 2026-08-10
 - 还需完成：
   - 后续按方案逐步引入 FreeRTOS、扩展 OSAL，并在每次代码更新后执行构建、烧录和 OTA 一键验证。
 - 关联文件：
-  - `docs/RTOS_PORTING_PLAN.md`
-  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/RTOS_PORTING_PLAN.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
 - 下一步：
   - OTA 收口后进入 FreeRTOS Step 1：引入 FreeRTOS Kernel、CMake 开关和 `osal/port/freertos/`。
 
@@ -3339,7 +3339,7 @@ Last updated: 2026-08-10
   - `tools/ota_bin_info/ota_bin_info.py`
   - `docs/ota/OTA_SYSTEM_DESIGN.md`
   - `docs/SCPI_COMMANDS.md`
-  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
 - 下一步：
   - 实现 `ota_send.py` 或 Bootloader 最小启动链路。
 
@@ -3395,7 +3395,7 @@ Last updated: 2026-08-10
 - 关联文件：
   - `CMakeLists.txt`
   - `README.md`
-  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
   - `docs/ota/OTA_SYSTEM_DESIGN.md`
 - 下一步：
   - 后续新增模块默认使用 `inc/` 和 `src/`。
@@ -3465,7 +3465,7 @@ Last updated: 2026-08-10
 - 还需完成：
   - 后续新增模块按该架构逐步落地。
 - 关联文件：
-  - `docs/HAOFV_ARCHITECTURE.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
   - `README.md`
 - 下一步：
   - 将 OTA 作为第一个 HAOFV 架构落地模块。

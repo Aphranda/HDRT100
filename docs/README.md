@@ -67,8 +67,8 @@ docs/
 
 | 领域 | 当前 canonical 主文档 | 说明 |
 |---|---|---|
-| ARCH/PRODUCT | `ARCH_PRODUCT_ARCHITECTURE.md` | 面向产品的系统架构总纲，综合 HAOFV、RTOS 双核、分布式触发、OTA、SD 和诊断边界。 |
-| ARCH/HAOFV | `HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口。 |
+| ARCH/PRODUCT | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 面向产品的系统架构总纲，综合 HAOFV、RTOS 双核、分布式触发、OTA、SD 和诊断边界。 |
+| ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口。 |
 | SYNC_IO | `sync/SYNC_IO_RESOURCE_PLAN.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TRIGGER | `trigger/TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
@@ -84,7 +84,7 @@ docs/
 |---|---|---|
 | BiSS-C | `communication/BISSC_TASK_PROGRESS.md` | BiSS-C 新任务记录写入本文件。 |
 | SYNC_IO | `sync/SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构闭环记录写入本文件。 |
-| RTOS | `RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
+| RTOS | `arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
 | SCPI | `SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
 | SD | `storage/SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
 | Documentation | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
@@ -120,18 +120,18 @@ docs/
 
 | 文件 | 定位 |
 |---|---|
-| `ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构总纲，统一产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
-| `HAOFV_ARCHITECTURE.md` | HAOFV 顶层产品架构主文档。 |
-| `HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施补充、示例和迁移说明。 |
-| `HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估。 |
-| `RTOS_PORTING_PLAN.md` | FreeRTOS/OSAL 迁移计划。 |
-| `RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md` | 0614 分布式触发报告的仓库内摘要入口。 |
+| `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构总纲，统一产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
+| `arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层产品架构主文档。 |
+| `arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施补充、示例和迁移说明。 |
+| `arch/HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估。 |
+| `arch/RTOS_PORTING_PLAN.md` | FreeRTOS/OSAL 迁移计划。 |
+| `arch/RTOS_DISTRIBUTED_TRIGGER_0614_SUMMARY.md` | 0614 分布式触发报告的仓库内摘要入口。 |
 | `RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整原始报告，已从外部 DOC 迁入。 |
-| `RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` | RTOS + 双核 AMP 下四板分布式触发任务划分与小步验证记录。 |
-| `RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务进度和闭环验证记录。 |
+| `arch/RTOS_DISTRIBUTED_TRIGGER_PARTITION.md` | RTOS + 双核 AMP 下四板分布式触发任务划分与小步验证记录。 |
+| `arch/RTOS_DISTRIBUTED_TRIGGER_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务进度和闭环验证记录。 |
 | `相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告的仓库内摘要入口。 |
 | `RTOS_DISTRIBUTED_TRIGGER_0804_REPORT.html` | 0804 RP 分布式触发完整原始报告，已从外部 DOC 迁入。 |
-| `MULTICORE_PARTITION_PLAN.md` | RP2350 双核分区计划。 |
+| `arch/MULTICORE_PARTITION_PLAN.md` | RP2350 双核分区计划。 |
 | `RP1200_DTC100_对话决策完整回顾.md` | RP1200 / DTC100 本轮对话决策总归档，作为产品级 SCPI 和同步/校准口径来源。 |
 
 ## 02 硬件与资源约束
@@ -227,7 +227,7 @@ docs/
 
 ## 快速查找规则
 
-- 查系统边界：先读 `HAOFV_ARCHITECTURE.md`。
+- 查系统边界：先读 `arch/HAOFV_ARCHITECTURE.md`。
 - 查 IO/PIO 资源：先读 `sync/SYNC_IO_RESOURCE_PLAN.md`，再读具体域设计。
 - 查 SYNC_IO 当前代码重构：先读 `sync/SYNC_IO_REFACTOR_PLAN.md`。
 - 查 BiSS-C：先读 `communication/BISSC_TAP_BRIDGE_DESIGN.md` 和
