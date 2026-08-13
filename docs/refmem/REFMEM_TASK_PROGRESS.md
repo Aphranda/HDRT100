@@ -43,6 +43,42 @@ DistributedRefMemAO
 
 ## 任务记录
 
+### REFMEM-TASK-20260813-010 - P2 六张静态应用模型表落代码
+
+- 状态：完成
+- 日期：2026-08-13
+- 任务目标：
+  - 将 P2 文档定义的六张静态分布式应用模型表落到 `refmem_application_model.h/.c`。
+  - 首版建立 static const 表、CRC bundle、getter 和 validate，暂不做动态加载、不新增 SCPI 命令面。
+- 完成内容：
+  - 新增 `refmem_application_model.h/.c`，包含 `DistributedApplicationMap`、`DistributedFbInstanceTable`、`DistributedEventLinkTable`、`DistributedDataLinkTable`、`DistributedDeploymentGate` 和 `DistributedConnectionQualityTable` 的首版结构与静态实例。
+  - `DistributedApplicationMap` 覆盖 A0-A7 八个通用节点；A0-A3 为产品链路节点，A4 为调试期 model_vna/model_turntable/test_agent 组合节点，A5-A7 保留为 spare board。
+  - 表内实例覆盖 SystemAO、RefMemSyncFB、LoopEngineAO、TriggerAO、LinkSwitcherAO、GatewayAO、CalibrationAO、ModelVnaAO 和 ModelTurntableAO。
+  - 增加每张表的 CRC，以及汇总 `package_crc32`；对含字符串指针的表按字段和字符串内容逐项计算 CRC，避免指针地址污染。
+  - 增加 `refmem_application_model_validate()`，首版检查 node id、instance id、event/data link 引用、slot ref、target mask、gate check 和 quality scope 的基本一致性。
+  - `distributed_refmem_init()` 接入 `refmem_application_model_init()`，并通过 `DISTRIBUTED_REFMEM_FLAG_APP_MODEL_VALID` 把模型有效状态并入 `SYSTem:REFMEM:STATus?` flags。
+  - 根 `CMakeLists.txt` 纳入 `refmem_application_model.c`。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813125333`，package CRC `0x7E02FB60`。
+  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813125333 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_app_model` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813125333`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_app_model` 通过，16/16 passed。
+  - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,99552,0,8,99551,99551,7`，其中 flags `7` 表示 directory valid、directory CRC valid 和 application model valid 均置位；`SYSTem:REFMEM:NODE? => 0,1,99557,99558,104473,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,99562,2,0,1,15,3840,2,7,2,3508053401,0,7`；`SYSTem:PROTection:STATus? => 1,99567,1,1,1,0,0,0,2,11,2,1780001644,0,7`。
+- 还需完成：
+  - 定义静态模型表 binary/TLV 存储格式、CRC、版本兼容和 System Pack 导入策略。
+  - 增加更完整的静态模型 linter，检查资源/IO claim 冲突、writer 唯一性和 event/data link 完整性。
+  - 将 DeploymentGate 输出映射到 RUN gate、诊断 evidence 和更细的维护查询。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `components/distributed_refmem/inc/distributed_refmem.h`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `CMakeLists.txt`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 在 P2 继续补静态模型 linter 与 System Pack/TLV 存储格式，或回到 P3 用模型表支撑 slot guard/owner 检查。
+
 ### REFMEM-TASK-20260813-009 - Directory CRC 与 slot map 校验
 
 - 状态：完成

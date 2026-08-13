@@ -4,6 +4,7 @@
 #include "osal.h"
 #include "project_config.h"
 
+#include "refmem_application_model.h"
 #include "refmem_vector_table.h"
 
 static refmem_vector_table_t s_distributed_refmem_table __attribute__((aligned(4)));
@@ -57,6 +58,12 @@ static void distributed_refmem_refresh_directory_flags_locked(void)
         header->flags |= DISTRIBUTED_REFMEM_FLAG_DIRECTORY_CRC_VALID;
     } else {
         header->flags &= ~DISTRIBUTED_REFMEM_FLAG_DIRECTORY_CRC_VALID;
+    }
+
+    if (refmem_application_model_get_snapshot()->valid != 0u) {
+        header->flags |= DISTRIBUTED_REFMEM_FLAG_APP_MODEL_VALID;
+    } else {
+        header->flags &= ~DISTRIBUTED_REFMEM_FLAG_APP_MODEL_VALID;
     }
 }
 
@@ -113,6 +120,10 @@ static void distributed_refmem_publish_runtime_locked(void)
 
 bool distributed_refmem_init(void)
 {
+    if (!refmem_application_model_init()) {
+        return false;
+    }
+
     osal_critical_enter();
 
     refmem_vector_table_clear(&s_distributed_refmem_table);

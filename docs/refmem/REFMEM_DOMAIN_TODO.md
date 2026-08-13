@@ -54,7 +54,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 文档定义 `DistributedDataLinkTable`，覆盖 slot 字段 writer/reader、类型、单位、值域、生命周期、snapshot 策略和 stale 窗口。
 - [x] 文档定义 `DistributedDeploymentGate`，把 layout、node、instance、resource、IO、writer、event、data、config、cal/sync quality 纳入 RUN 门禁。
 - [x] 文档定义 `DistributedConnectionQualityTable`，覆盖 seq、CRC、stale、late、drop、timeout、last_error、p99/p999 和 evidence index。
-- [ ] 将上述六张静态模型表落到 `refmem_application_model.h/.c`。
+- [x] 将上述六张静态模型表落到 `refmem_application_model.h/.c`。
 - [ ] 定义静态模型表的 binary/TLV 存储格式、CRC、版本兼容和 System Pack 导入策略。
 - [ ] 将 DeploymentGate 输出映射到 `SYSTem:REFMEM:STATus?` / 诊断 evidence / RUN gate。
 - [ ] 增加静态模型 linter：检查 instance id、node id、role/persona、resource claim、IO claim、writer 唯一性和 event/data link 完整性。
@@ -121,7 +121,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 增加 `components/distributed_refmem/CMakeLists.txt`。
 - [ ] 新增 `components/distributed_refmem/inc/refmem_domain.h` 和 `src/refmem_domain.c`。
 - [ ] 新增 `refmem_vector_table.h/.c`。
-- [ ] 新增 `refmem_application_model.h/.c`。
+- [x] 新增 `refmem_application_model.h/.c`。
 - [ ] 新增 `refmem_sync.h/.c`。
 - [ ] 新增 `refmem_command.h/.c`。
 - [ ] 新增 `refmem_quality.h/.c`。
