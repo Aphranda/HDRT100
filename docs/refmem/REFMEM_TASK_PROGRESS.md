@@ -52,6 +52,32 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-032 - 两板 RefMem baseline 验证工具骨架
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 为后续两块最小系统板组网验证建立专用工具入口。
+  - 当前只验证基础 SCPI snapshot，不假设 RJ45 `CLAIM_*` 协调协议已完成。
+- 完成内容：
+  - 新增 `tools/refmem_network_validate/refmem_network_validate.py`。
+  - 工具显式管理两个串口生命周期：分别 open、settle、清输入/输出、查询、flush、close。
+  - 单板 baseline 覆盖 `*IDN?`、`SYST:FW:BUILD?`、`SYST:CORE?`、`SYST:SYNC:VDC:STAT?`、`SYST:SYNC:VDC:DPLL:STAT?`、`SYST:CONFigure:STAT?`、`SYST:REFMEM:CLAIM? 0` 和 `SYST:REFMEM:CLAIM:EVIDence? 0`。
+  - 双板比较默认要求 build id 和 SlotClaimMap CRC 一致，可通过 `--allow-build-mismatch` 或 `--allow-map-mismatch` 放宽。
+  - 验证结果写入 `summary.json` 和 `summary.txt`。
+- 验证结果：
+  - `python -m py_compile tools\refmem_network_validate\refmem_network_validate.py` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `python -m pytest` 通过，18 passed、1 skipped；两板工具未实际打开硬件串口。
+- 还需完成：
+  - 接入真实 RJ45 `CLAIM_*` 协调后，扩展重复 slot claim、错绑、stale、overflow 和 commit 后 CRC 一致性验证。
+- 关联文件：
+  - `tools/refmem_network_validate/refmem_network_validate.py`
+  - `tools/README.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 增加 SlotClaim stale/CRC 字段，再规划 RJ45 claim frame。
+
 ### REFMEM-TASK-20260814-031 - SlotClaimEvidence 诊断视图
 
 - 状态：完成

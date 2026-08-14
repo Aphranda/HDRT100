@@ -71,6 +71,11 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `SYSTem:REFMEM:CLAIM?`, static `SYSTem:CONFigure:*?` config queries,
   Trigger arm/disarm, `SYST:ERR?`, `SYST:LOG:STAT?`, and `SYST:TRAC:LAST?`,
   then writes a board validation summary under `build-rtos-multicore-smoke/`.
+- `refmem_network_validate/refmem_network_validate.py`: two minimal-system board
+  RefMem/VDC baseline runner. It opens two serial ports with explicit lifecycle
+  management, checks identity/build/core/VDC/DPLL/config/SlotClaim snapshots,
+  verifies default SlotClaim evidence is empty, and can compare build id and
+  SlotClaimMap CRC before later RJ45 `CLAIM_*` tests are enabled.
 - `tests/run_portable_ota_tests.ps1`: portable OTA library gate. It builds or runs
   `third_party/portable_ota` unit tests. If no host C compiler exists, it falls
   back to ARM GCC compile/object-build checks and reports that host execution
