@@ -67,7 +67,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 实现 `SlotClaimMap` 首版本地聚合，记录 A0-A7 active assignment、claim epoch、physical board uuid、loaded instance mask、claim state、reason 和 CRC；当前从 active default profile 派生，尚未接 RJ45 自组网消息。
 - [x] 增加 `SlotClaimEvidence` 或等价诊断视图，记录第 9 到第 16 个未分配候选的 `OVERFLOW` evidence；首版同时记录 duplicate、disabled slot、uuid/hw profile mismatch，并通过 `SYSTem:REFMEM:CLAIM:EVIDence?` 查询。
 - [ ] 实现重复 slot claim 检测、uuid mismatch、hardware profile mismatch、stale claim、required hard binding mismatch 和 claim CRC 检查；当前重复 claim、uuid mismatch 和 9-16 candidate overflow 已有纯 C 单元测试覆盖，stale、hard binding 和 claim CRC 仍待实现。
-- [ ] 实现自组网协调消息：`CLAIM_HELLO`、`CLAIM_PROPOSE`、`CLAIM_CONFLICT`、`CLAIM_RELEASE`、`CLAIM_RESOLVE`、`CLAIM_COMMIT`。
+- [ ] 实现自组网协调消息：`CLAIM_HELLO`、`CLAIM_PROPOSE`、`CLAIM_CONFLICT`、`CLAIM_RELEASE`、`CLAIM_RESOLVE`、`CLAIM_COMMIT`；当前已落地 `CLAIM_PROPOSE` 固定 frame header、payload CRC、header CRC 和纯 C 单元测试，尚未接入 RJ45 发送/接收。
 - [x] 将 `SlotClaimMap` 首版接入 `DistributedDeploymentGate.node_check` 和 `system_manager` config RUN gate：本地 required slot 冲突、错绑、overflow 或缺失时拒绝 RUN；spare dynamic slot 可未 claim。
 - [ ] 增加单板 16 候选节点反向验证：一块板可上报 9 到 16 个候选用于溢出验证，但 active assignment 不得生成第 9 个隐式插槽。
 - [ ] 增加动态装载验证：同一个 `B2.LinkSwitcherAO` 候选可以装载到任意满足 PIO/DMA/core1_rt/link_control 和事件/数据连接约束的 A0-A7 slot；不得因名称中的 B2 默认标签强制绑定 slot A2。

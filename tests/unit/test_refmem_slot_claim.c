@@ -1,4 +1,5 @@
 #include "refmem_slot_claim.h"
+#include "refmem_claim_protocol.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -232,6 +233,59 @@ static int test_candidate_overflow_blocks_gate(void)
     return failed;
 }
 
+static int test_claim_propose_frame_crc_validation(void)
+{
+    int failed = 0;
+    refmem_slot_claim_proposal_t proposal[2];
+    refmem_claim_propose_frame_t frame;
+
+    (void)memset(proposal, 0, sizeof(proposal));
+    proposal[0].candidate_id = 0u;
+    proposal[0].board_id = 0u;
+    proposal[0].board_uuid_crc32 = 0xB0000000u;
+    proposal[0].preferred_slot_id = 0u;
+    proposal[1].candidate_id = 1u;
+    proposal[1].board_id = 1u;
+    proposal[1].board_uuid_crc32 = 0xB0000001u;
+    proposal[1].preferred_slot_id = 1u;
+
+    failed += expect_bool("claim propose init",
+                          refmem_claim_propose_frame_init(&frame,
+                                                          2u,
+                                                          100u,
+                                                          0u,
+                                                          0xB0000000u,
+                                                          proposal,
+                                                          2u),
+                          true);
+    failed += expect_u32("claim propose validate",
+                         (uint32_t)refmem_claim_propose_frame_validate(&frame),
+                         REFMEM_CLAIM_FRAME_OK);
+
+    frame.proposal[1].preferred_slot_id = 7u;
+    failed += expect_u32("claim propose payload crc detects mutation",
+                         (uint32_t)refmem_claim_propose_frame_validate(&frame),
+                         REFMEM_CLAIM_FRAME_BAD_PAYLOAD_CRC);
+
+    frame.proposal[1].preferred_slot_id = 1u;
+    (void)refmem_claim_propose_frame_init(&frame, 2u, 100u, 0u, 0xB0000000u, proposal, 2u);
+    frame.header.claim_seq = 101u;
+    failed += expect_u32("claim propose header crc detects mutation",
+                         (uint32_t)refmem_claim_propose_frame_validate(&frame),
+                         REFMEM_CLAIM_FRAME_BAD_HEADER_CRC);
+
+    failed += expect_bool("claim propose rejects too many",
+                          refmem_claim_propose_frame_init(&frame,
+                                                          2u,
+                                                          100u,
+                                                          0u,
+                                                          0xB0000000u,
+                                                          proposal,
+                                                          REFMEM_CLAIM_FRAME_PROPOSAL_MAX + 1u),
+                          false);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -240,6 +294,7 @@ int main(void)
     failed += test_duplicate_claim_blocks_gate();
     failed += test_uuid_mismatch_blocks_gate();
     failed += test_candidate_overflow_blocks_gate();
+    failed += test_claim_propose_frame_crc_validation();
 
     if (failed != 0) {
         (void)printf("refmem_slot_claim tests failed: %d\n", failed);

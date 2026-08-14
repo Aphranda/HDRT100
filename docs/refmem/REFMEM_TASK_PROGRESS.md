@@ -52,6 +52,37 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-033 - CLAIM_PROPOSE 帧协议基础
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 为后续 RJ45 `CLAIM_*` 自组网协调提供可校验的帧格式基础。
+  - 当前只定义和验证 `CLAIM_PROPOSE`，不接运行时发送/接收。
+- 完成内容：
+  - 新增 `refmem_claim_protocol.h/.c`。
+  - 定义 claim frame header：magic、version、frame_type、claim_epoch、claim_seq、source board、payload_count、payload_crc32 和 header_crc32。
+  - 定义 `refmem_claim_propose_frame_t`，最多携带 16 条 `SlotClaimProposal`。
+  - 增加 `refmem_claim_propose_frame_init()` 和 `refmem_claim_propose_frame_validate()`。
+  - SlotClaim 单元测试扩展 payload CRC、header CRC 和超 16 candidate 拒绝检查。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1` 通过；当前机器无 host C 编译器，结果为 ARM GCC 编译检查通过，未执行主机 exe。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `python -m pytest` 通过，18 passed、1 skipped；HIL 串口测试未启用。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0xEE4E9E15`。
+- 还需完成：
+  - 定义并实现 `CLAIM_HELLO/CONFLICT/RELEASE/RESOLVE/COMMIT` 帧。
+  - 接入 RJ45_SYNC_RING 收发、epoch stale 检查和 SlotClaimMap commit。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_claim_protocol.h`
+  - `components/distributed_refmem/src/refmem_claim_protocol.c`
+  - `components/distributed_refmem/inc/refmem_slot_claim.h`
+  - `tests/unit/test_refmem_slot_claim.c`
+  - `tools/tests/run_refmem_slot_claim_tests.ps1`
+  - `CMakeLists.txt`
+- 下一步：
+  - 将 claim frame 与 RefMem Sync frame/RMA delta 分层对齐，避免后续帧类型互相挤占。
+
 ### REFMEM-TASK-20260814-032 - 两板 RefMem baseline 验证工具骨架
 
 - 状态：完成

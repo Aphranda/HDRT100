@@ -162,6 +162,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_config/src/distributed_config.c
         components/distributed_refmem/src/distributed_refmem.c
         components/distributed_refmem/src/refmem_application_model.c
+        components/distributed_refmem/src/refmem_claim_protocol.c
         components/distributed_refmem/src/refmem_realtime_contract.c
         components/distributed_refmem/src/refmem_slot_claim.c
         components/distributed_refmem/src/refmem_table_registry.c
