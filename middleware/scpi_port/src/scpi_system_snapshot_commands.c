@@ -8,6 +8,7 @@
 #include "osal.h"
 #include "project_build_info.h"
 #include "refmem_application_model.h"
+#include "refmem_slot_claim.h"
 #include "refmem_table_registry.h"
 #include "scpi_port_internal.h"
 #include "storage_manager.h"
@@ -97,6 +98,52 @@ scpi_result_t scpi_cmd_refmem_board_q(scpi_t *context)
     SCPI_ResultUInt32(context, board->hw_profile_crc32);
     SCPI_ResultUInt32(context, board->active_default_slot);
     SCPI_ResultUInt32(context, board->online_required);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_claim_q(scpi_t *context)
+{
+    refmem_slot_claim_map_t map;
+    if (!refmem_slot_claim_derive_map(refmem_application_model_get_generic_node_table(),
+                                      refmem_application_model_get_board_capability_table(),
+                                      refmem_application_model_get_node_load_table(),
+                                      refmem_application_model_get_fb_instance_table(),
+                                      &map)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t slot_id = 0u;
+    (void)SCPI_ParamUInt32(context, &slot_id, FALSE);
+    const refmem_slot_claim_assignment_t *slot =
+        refmem_slot_claim_find_assignment(&map, slot_id);
+    if (slot == NULL) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, map.version);
+    SCPI_ResultUInt32(context, map.claim_epoch);
+    SCPI_ResultUInt32(context, map.slot_count);
+    SCPI_ResultUInt32(context, map.candidate_count);
+    SCPI_ResultUInt32(context, map.assigned_count);
+    SCPI_ResultUInt32(context, map.conflict_count);
+    SCPI_ResultUInt32(context, map.overflow_count);
+    SCPI_ResultUInt32(context, map.disabled_count);
+    SCPI_ResultUInt32(context, map.map_crc32);
+    SCPI_ResultUInt32(context, slot->slot_id);
+    SCPI_ResultUInt32(context, slot->board_id);
+    SCPI_ResultUInt32(context, slot->board_uuid_crc32);
+    SCPI_ResultUInt32(context, slot->capability_mask);
+    SCPI_ResultUInt32(context, slot->io_constraint_mask);
+    SCPI_ResultUInt32(context, slot->ip_core_mask);
+    SCPI_ResultUInt32(context, slot->loaded_instance_mask);
+    SCPI_ResultUInt32(context, slot->claim_count);
+    SCPI_ResultUInt32(context, slot->claim_state);
+    SCPI_ResultUInt32(context, slot->reason);
+    SCPI_ResultUInt32(context, slot->claim_policy);
+    SCPI_ResultUInt32(context, slot->claim_priority);
+    SCPI_ResultUInt32(context, slot->claim_epoch);
+    SCPI_ResultUInt32(context, slot->last_claim_seq);
+    SCPI_ResultUInt32(context, slot->claim_crc32);
     return SCPI_RES_OK;
 }
 

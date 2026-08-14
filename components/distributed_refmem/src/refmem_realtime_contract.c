@@ -175,3 +175,80 @@ bool refmem_realtime_contract_derive(const refmem_node_load_entry_t *load,
     contract->result = REFMEM_RT_CONTRACT_OK;
     return true;
 }
+
+bool refmem_realtime_contract_derive_from_claim_map(
+    const refmem_node_load_entry_t *load,
+    const refmem_fb_instance_entry_t *instance,
+    const refmem_app_node_entry_t *node,
+    const refmem_slot_claim_map_t *claim_map,
+    refmem_realtime_contract_t *contract)
+{
+    if (contract == NULL) {
+        return false;
+    }
+
+    memset(contract, 0, sizeof(*contract));
+    contract->result = REFMEM_RT_CONTRACT_BAD_ARGUMENT;
+
+    if (load == NULL || instance == NULL || node == NULL || claim_map == NULL ||
+        load->enabled == 0u || instance->enable_condition == 0u) {
+        return false;
+    }
+
+    const refmem_slot_claim_assignment_t *assignment =
+        refmem_slot_claim_find_assignment(claim_map, load->node_id);
+
+    contract->node_id = load->node_id;
+    contract->instance_id = load->instance_id;
+    contract->resource_claim = instance->resource_claim;
+    contract->io_claim = instance->io_claim;
+    contract->ip_core_claim = instance->ip_core_claim;
+    contract->time_budget_us = instance->time_budget_us;
+    contract->required_capability_mask =
+        refmem_realtime_contract_resource_capability_mask(instance->resource_claim) |
+        refmem_realtime_contract_io_capability_mask(instance->io_claim) |
+        refmem_realtime_contract_ip_capability_mask(instance->ip_core_claim);
+
+    if (assignment == NULL ||
+        assignment->claim_state != REFMEM_SLOT_CLAIM_CLAIMED ||
+        assignment->claim_count == 0u) {
+        contract->result = REFMEM_RT_CONTRACT_SLOT_CLAIM_INVALID;
+        return false;
+    }
+
+    contract->board_id = assignment->board_id;
+    contract->target_capability_mask = assignment->capability_mask;
+    contract->target_io_constraint_mask = assignment->io_constraint_mask;
+    contract->target_ip_core_mask = assignment->ip_core_mask;
+
+    if ((assignment->capability_mask & REFMEM_RT_CONTRACT_BASELINE) !=
+        REFMEM_RT_CONTRACT_BASELINE) {
+        contract->missing_capability_mask =
+            REFMEM_RT_CONTRACT_BASELINE & ~assignment->capability_mask;
+        contract->result = REFMEM_RT_CONTRACT_MISSING_BASELINE;
+        return false;
+    }
+
+    contract->missing_capability_mask =
+        contract->required_capability_mask & ~assignment->capability_mask;
+    if (contract->missing_capability_mask != 0u) {
+        contract->result = REFMEM_RT_CONTRACT_MISSING_CAPABILITY;
+        return false;
+    }
+
+    contract->missing_io_mask = instance->io_claim & ~assignment->io_constraint_mask;
+    if (contract->missing_io_mask != 0u) {
+        contract->result = REFMEM_RT_CONTRACT_MISSING_IO;
+        return false;
+    }
+
+    contract->missing_ip_core_mask = instance->ip_core_claim & ~assignment->ip_core_mask;
+    if (contract->missing_ip_core_mask != 0u) {
+        contract->result = REFMEM_RT_CONTRACT_MISSING_IP_CORE;
+        return false;
+    }
+
+    contract->valid = 1u;
+    contract->result = REFMEM_RT_CONTRACT_OK;
+    return true;
+}

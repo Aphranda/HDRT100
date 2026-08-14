@@ -366,7 +366,7 @@ claim_priority
 | `last_claim_seq` | 最近 claim 序号。 |
 | `evidence_index` | 冲突或错绑证据。 |
 
-`SlotClaimMap` 只记录 resolved active assignment；未分配候选进入 `SlotClaimEvidence` 或质量表，不得伪装成 `NodeSlot[8]` 之外的新 active slot。
+`SlotClaimMap` 只记录 resolved active assignment；未分配候选进入 `SlotClaimEvidence` 或质量表，不得伪装成 `NodeSlot[8]` 之外的新 active slot。首版代码已落地 `refmem_slot_claim.h/.c`，从当前 active default profile 派生本地 `SlotClaimMap`，并可通过 `SYSTem:REFMEM:CLAIM? [slot_id]` 查询 map 和指定 slot assignment。当前尚未接 RJ45 `CLAIM_*` 协调消息，`claim_epoch=1` 表示本地派生 epoch。
 
 #### SlotClaim 自组网协调
 
@@ -999,6 +999,7 @@ RefMem 不建立裸顶级 `REFMEM` SCPI 域。对外维护查询归 `SYSTem:REFM
 ```text
 SYSTem:REFMEM:STATus?
 SYSTem:REFMEM:NODE?
+SYSTem:REFMEM:CLAIM?
 SYSTem:REFMEM:LOAD:SD
 SYSTem:REFMEM:LOAD:NODE
 SYSTem:REFMEM:LOAD:STATus?
@@ -1141,7 +1142,8 @@ table directory 每项 16 字节：
 - `distributed_refmem.h/.c`：仍是当前对外兼容入口，维护本地 64 KB `DistributedVectorTable`、header、node slot、core vector、runtime protection snapshot 和 status flags。
 - `refmem_vector_table.h/.c`：封装 64 KB table layout、slot directory、header CRC 和 directory 校验。
 - `refmem_application_model.h/.c`：落地 ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality、静态 linter、package CRC 和 load staging snapshot。
-- `refmem_realtime_contract.h/.c`：首版派生 `RealtimeCapabilityContract`，从 NodeLoad、FB instance、GenericNode 和 BoardCapability 生成实例级资源/IO/类 IP 核能力契约；当前用 `active_default_slot` 临时关联 B 节点与 A slot，后续由 SlotClaimMap resolved assignment 替代。
+- `refmem_slot_claim.h/.c`：首版派生 `SlotClaimMap`，从 GenericNode、BoardCapability、NodeLoad 和 FB instance 生成 A0-A7 resolved assignment、candidate/assigned/conflict/overflow 计数、loaded instance mask 和 CRC。
+- `refmem_realtime_contract.h/.c`：首版派生 `RealtimeCapabilityContract`，从 NodeLoad、FB instance、GenericNode 和 SlotClaimMap resolved assignment 生成实例级资源/IO/类 IP 核能力契约；保留 default-slot fallback 仅用于过渡。
 - `SYSTem:REFMEM:LOAD:SD`：已接入 Storage manifest 扫描和 `.rmtp` table image parser，可校验 header、directory、payload CRC、package CRC 和单表 CRC，当前仍只写 staging snapshot，不执行 active 切换。
 - `SYSTem:REFMEM:LOAD:NODE`：已支持通过 SCPI inline 提交单条 NodeLoad 候选到 staging snapshot，尚未形成多条 staging NodeLoadTable image。
 - `SYSTem:REFMEM:LOAD:STATus?`：已可查询 load sequence、source、RefMem load mode、staging state、manifest、active/staging CRC、lint/error 和当前候选。
@@ -1150,7 +1152,7 @@ table directory 每项 16 字节：
 尚未形成完整实现的部分：
 
 - `RefMemTableRegistry`、active/staging/rollbackable 双镜像切换和 owner validation callback。
-- `SlotClaimMap` 运行期聚合、自组网协调、candidate overflow evidence 和 DeploymentGate 接入。
+- `SlotClaimMap` RJ45 运行期聚合、自组网协调、candidate overflow evidence 和 DeploymentGate 接入。
 - `RefMemSlotContract` 派生代码、字段级 owner 写权限、seqlock/双缓冲快照和 subscription 分发。
 - `refmem_command.h/.c`、ACK/NACK 原子命令槽和 completion/fence 语义。
 - RJ45_SYNC_RING 上的 `REFMEM_DELTA` / `REFMEM_EPOCH` 同步协议和受控 RMA window。

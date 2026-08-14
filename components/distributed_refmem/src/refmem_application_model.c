@@ -5,6 +5,7 @@
 
 #include "ota_crc32.h"
 #include "refmem_realtime_contract.h"
+#include "refmem_slot_claim.h"
 #include "refmem_table_registry.h"
 #include "refmem_vector_table.h"
 
@@ -546,6 +547,15 @@ static bool refmem_model_instance_is_loaded(uint32_t instance_id)
 
 static bool refmem_model_validate_node_capabilities(void)
 {
+    refmem_slot_claim_map_t claim_map;
+    if (!refmem_slot_claim_derive_map(&s_generic_node_table,
+                                      &s_board_capability_table,
+                                      &s_node_load_table,
+                                      &s_fb_instance_table,
+                                      &claim_map)) {
+        return false;
+    }
+
     for (uint32_t i = 0u; i < s_node_load_table.load_count; i++) {
         const refmem_node_load_entry_t *load = &s_node_load_table.load[i];
         const refmem_fb_instance_entry_t *instance =
@@ -558,11 +568,11 @@ static bool refmem_model_validate_node_capabilities(void)
         }
 
         refmem_realtime_contract_t contract;
-        if (!refmem_realtime_contract_derive(load,
-                                             instance,
-                                             node,
-                                             &s_board_capability_table,
-                                             &contract)) {
+        if (!refmem_realtime_contract_derive_from_claim_map(load,
+                                                            instance,
+                                                            node,
+                                                            &claim_map,
+                                                            &contract)) {
             return false;
         }
     }

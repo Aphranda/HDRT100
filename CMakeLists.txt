@@ -163,6 +163,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/distributed_refmem.c
         components/distributed_refmem/src/refmem_application_model.c
         components/distributed_refmem/src/refmem_realtime_contract.c
+        components/distributed_refmem/src/refmem_slot_claim.c
         components/distributed_refmem/src/refmem_table_registry.c
         components/distributed_refmem/src/refmem_vector_table.c
         components/event_bus/src/event_bus.c

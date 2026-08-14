@@ -52,6 +52,39 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-027 - SlotClaimMap 首版本地派生
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 建立 SlotClaimMap 首版代码组件，把 B0-Bx board/profile 节点映射到 A0-A7 resolved assignment。
+  - 让 RealtimeCapabilityContract 使用 SlotClaimMap resolved assignment，不再依赖 `active_default_slot` 直接查 BoardCapability。
+- 完成内容：
+  - 新增 `refmem_slot_claim.h/.c`，定义 `SlotClaimProposal`、`SlotClaimAssignment` 和 `SlotClaimMap` 首版结构。
+  - `refmem_slot_claim_derive_map()` 从 GenericNode、BoardCapability、NodeLoad 和 FB instance 派生本地 claim map，记录 candidate_count、assigned_count、conflict_count、overflow_count、disabled_count、loaded_instance_mask、claim state、reason 和 CRC。
+  - `refmem_realtime_contract_derive_from_claim_map()` 接入 SlotClaimMap resolved assignment，application model linter 已改用该入口验证资源、IO 和类 IP 核能力。
+  - 增加 `SYSTem:REFMEM:CLAIM? [slot_id]` 维护查询，返回 map 摘要和指定 A slot assignment。
+  - 文档同步 SlotClaimMap 首版能力边界：当前从 active default profile 本地派生，`claim_epoch=1`；RJ45 `CLAIM_*` 自组网消息、overflow evidence 和 DeploymentGate 接入仍是后续项。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0xAFB84E5B`。
+- 还需完成：
+  - 接入 RJ45 `CLAIM_HELLO/PROPOSE/CONFLICT/RESOLVE/COMMIT` 协调消息。
+  - 增加第 9 到第 16 个未分配候选的 overflow evidence，并将未解决冲突接入 DeploymentGate node_check。
+  - 增加 HIL 验证：`SYSTem:REFMEM:CLAIM?` 与 BoardCapability、NodeLoad 和 realtime contract 结果一致。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_slot_claim.h`
+  - `components/distributed_refmem/src/refmem_slot_claim.c`
+  - `components/distributed_refmem/inc/refmem_realtime_contract.h`
+  - `components/distributed_refmem/src/refmem_realtime_contract.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 将 SlotClaimMap 接入 DeploymentGate/RUN gate，先让本地未解决 conflict/mismatch 可以拒绝 RUN，再推进 RJ45 自组网协调。
+
 ### REFMEM-TASK-20260814-026 - RealtimeCapabilityContract 首版组件
 
 - 状态：完成
