@@ -87,6 +87,18 @@ reads the opposite board with `REALtime:IO:INPut:LEVel?`.
 ```powershell
 python tools\two_board_io_validate\two_board_io_validate.py --port-a COM6 --port-b COM7
 ```
+
+### `debug_model_overlay_validate/debug_model_overlay_validate.py`
+
+Checks the GPIO4..7 minimum-system model overlay between X/Y boards. The tool
+opens both serial ports with explicit lifecycle management, verifies
+`REALtime:IO:MODel:PROFile?` reports UART disabled, releases both boards, then
+drives X GPIO4, X GPIO5, Y GPIO6, and X GPIO7 one at a time while reading the
+opposite board with `REALtime:IO:MODel:INPut:LEVel?`.
+
+```powershell
+python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port-x COM3 --port-y COM4
+```
 - `tests/run_portable_ota_tests.ps1`: portable OTA library gate. It builds or runs
   `third_party/portable_ota` unit tests. If no host C compiler exists, it falls
   back to ARM GCC compile/object-build checks and reports that host execution

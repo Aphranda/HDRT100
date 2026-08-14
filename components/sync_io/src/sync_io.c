@@ -41,6 +41,8 @@ typedef struct {
     uint32_t capture_sample_hz;
     uint32_t sync_clock_hz;
     uint32_t dropped_capture_words;
+    uint32_t debug_model_output_enable_mask;
+    uint32_t debug_model_output_value_mask;
     sync_io_aux_mode_t aux_modes[SYNC_IO_AUX_COUNT];
 } sync_io_context_t;
 
@@ -661,6 +663,97 @@ uint32_t sync_io_debug_read_input_mask(void)
         }
     }
     return mask;
+}
+
+bool sync_io_debug_model_set_output_mask(uint32_t enable_mask, uint32_t value_mask)
+{
+    if (!s_sync_io.initialized) {
+        return false;
+    }
+
+    const uint32_t valid_mask = (1u << BOARD_DEBUG_MODEL_GPIO_PIN_COUNT) - 1u;
+    if ((enable_mask & ~valid_mask) != 0u || (value_mask & ~valid_mask) != 0u) {
+        return false;
+    }
+
+    for (uint pin = 0u; pin < BOARD_DEBUG_MODEL_GPIO_PIN_COUNT; pin++) {
+        const uint gpio = BOARD_DEBUG_MODEL_GPIO_BASE_PIN + pin;
+        gpio_set_function(gpio, GPIO_FUNC_SIO);
+        if ((enable_mask & (1u << pin)) != 0u) {
+            gpio_set_dir(gpio, GPIO_OUT);
+            gpio_put(gpio, (value_mask & (1u << pin)) != 0u);
+        } else {
+            gpio_set_dir(gpio, GPIO_IN);
+            gpio_pull_down(gpio);
+        }
+    }
+
+    s_sync_io.debug_model_output_enable_mask = enable_mask;
+    s_sync_io.debug_model_output_value_mask = value_mask & enable_mask;
+    return true;
+}
+
+bool sync_io_debug_model_write_pin(uint32_t pin_index, bool enable, bool value)
+{
+    if (!s_sync_io.initialized || pin_index >= BOARD_DEBUG_MODEL_GPIO_PIN_COUNT) {
+        return false;
+    }
+
+    uint32_t enable_mask = s_sync_io.debug_model_output_enable_mask;
+    uint32_t value_mask = s_sync_io.debug_model_output_value_mask;
+    const uint32_t bit = 1u << pin_index;
+    if (enable) {
+        enable_mask |= bit;
+        if (value) {
+            value_mask |= bit;
+        } else {
+            value_mask &= ~bit;
+        }
+    } else {
+        enable_mask &= ~bit;
+        value_mask &= ~bit;
+    }
+
+    return sync_io_debug_model_set_output_mask(enable_mask, value_mask);
+}
+
+void sync_io_debug_model_release(void)
+{
+    if (!s_sync_io.initialized) {
+        return;
+    }
+
+    for (uint pin = 0u; pin < BOARD_DEBUG_MODEL_GPIO_PIN_COUNT; pin++) {
+        const uint gpio = BOARD_DEBUG_MODEL_GPIO_BASE_PIN + pin;
+        gpio_set_function(gpio, GPIO_FUNC_SIO);
+        gpio_put(gpio, false);
+        gpio_set_dir(gpio, GPIO_IN);
+        gpio_pull_down(gpio);
+    }
+
+    s_sync_io.debug_model_output_enable_mask = 0u;
+    s_sync_io.debug_model_output_value_mask = 0u;
+}
+
+uint32_t sync_io_debug_model_read_input_mask(void)
+{
+    uint32_t mask = 0u;
+    for (uint pin = 0u; pin < BOARD_DEBUG_MODEL_GPIO_PIN_COUNT; pin++) {
+        if (gpio_get(BOARD_DEBUG_MODEL_GPIO_BASE_PIN + pin)) {
+            mask |= (1u << pin);
+        }
+    }
+    return mask;
+}
+
+uint32_t sync_io_debug_model_get_output_enable_mask(void)
+{
+    return s_sync_io.debug_model_output_enable_mask;
+}
+
+uint32_t sync_io_debug_model_get_output_value_mask(void)
+{
+    return s_sync_io.debug_model_output_value_mask;
 }
 
 bool sync_io_aux_set_mode(sync_io_aux_channel_t channel, sync_io_aux_mode_t mode)

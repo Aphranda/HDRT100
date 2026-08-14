@@ -76,6 +76,9 @@ uint32_t refmem_realtime_contract_io_capability_mask(uint32_t io_claim)
     if ((io_claim & REFMEM_APP_IO_PIO_SPI_SYNC) != 0u) {
         capability |= REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT;
     }
+    if ((io_claim & REFMEM_APP_IO_MODEL_SIGNAL_MASK) != 0u) {
+        capability |= REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT;
+    }
     return capability;
 }
 

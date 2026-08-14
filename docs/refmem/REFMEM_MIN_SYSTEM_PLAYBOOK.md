@@ -35,8 +35,8 @@ Board A publishes HELLO / EPOCH / DELTA
 
 | 项目 | 值 |
 |---|---|
-| build id | `20260814083032` |
-| package CRC | `0x2071E6F5` |
+| build id | `20260814104920` |
+| package CRC | `0x2DF62B6E` |
 | SlotClaimMap CRC | `386979554` |
 
 ## 当前 IO Profile
@@ -94,6 +94,14 @@ Board A publishes HELLO / EPOCH / DELTA
 - `GPIO4..7` 在 RP2350 上可由 PIO 使用，但当前 overlay 仍需由资源仲裁器和 board profile 显式启用。
 - `GPIO4/5` 与 UART1 TX/RX 兼容定义冲突；最小系统板默认 `PROJECT_ENABLE_UART_STDIO=OFF`，不得在该 overlay 运行时启用 UART1。
 - 该 overlay 是业务模型验证线束，不代表产品板 pin map，也不改变 A0-A7 通用槽位的动态装载原则。
+
+方向安全预检工具：
+
+```powershell
+python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port-x COM3 --port-y COM4
+```
+
+该工具使用 `REALtime:IO:MODel:*` 维护接口，运行前后都会 release 双方 `GPIO4..7`，并逐线验证当前 owner 方向。
 
 ## 当前实测线序
 
@@ -162,6 +170,10 @@ python tools\two_board_io_validate\two_board_io_validate.py --port-a COM3 --port
 - 当前 logical remap 记录为 B0->B1: `1,2,0,3`，B1->B0: `2,1,0,3`。
 - 后续进入 P4.5 阶段 1：PIO SPI adapter skeleton。
 - 新增 `GPIO4..7` 最小模型系统 overlay 规划：X 板承载 `A1/A2/A3`，Y 板承载 `A4/A5`；其中 Y 板槽位已整体向后挪，避免与 X 板 `A3` 链路控制冲突。
+- 新增 `REALtime:IO:MODel:*` 维护接口和 `tools/debug_model_overlay_validate` 方向安全预检工具。
+- COM3/COM4 均更新到 build `20260814104920`，package CRC `0x2DF62B6E`。
+- `python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port-x COM3 --port-y COM4 --out-dir build-rtos-multicore-smoke\debug_model_overlay_COM3_COM4` 通过。
+- overlay HIL 已验证：`GPIO4` X->Y 位置脉冲、`GPIO5` X->Y READY、`GPIO6` Y->X TRIG、`GPIO7` X->Y LINK_SWITCH。
 
 ## 注意事项
 

@@ -45,13 +45,10 @@ static const refmem_board_capability_table_t s_board_capability_table = {
              REFMEM_APP_IP_RJ45_SYNC_DELTA | REFMEM_APP_IP_VDC_DPLL,
          REFMEM_APP_PERSONA_TRIGGER_MASTER, 0u, 0u, 1u},
         {1u, 0xB0000001u, REFMEM_APP_CAP_BASELINE | REFMEM_APP_CAP_PIO |
-                            REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
-                            REFMEM_APP_CAP_CORE1_RT | REFMEM_APP_CAP_SMA_IN |
-                            REFMEM_APP_CAP_SMA_OUT,
-         REFMEM_APP_IO_SMA_IN | REFMEM_APP_IO_SMA_OUT | REFMEM_APP_IO_RJ45_SYNC,
-         REFMEM_APP_IP_PULSE_CAPTURE | REFMEM_APP_IP_PULSE_FIRE |
-             REFMEM_APP_IP_RJ45_SYNC_DELTA,
-         REFMEM_APP_PERSONA_DISTRIBUTED_TRIGGER, 0u, 1u, 1u},
+                            REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT,
+         REFMEM_APP_IO_MODEL_TURNTABLE_PULSE,
+         REFMEM_APP_IP_PULSE_FIRE,
+         REFMEM_APP_PERSONA_MODEL_INSTRUMENTS, 0u, 1u, 1u},
         {2u, 0xB0000002u, REFMEM_APP_CAP_BASELINE | REFMEM_APP_CAP_PIO |
                             REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
                             REFMEM_APP_CAP_CORE1_RT | REFMEM_APP_CAP_LINK_CONTROL,
@@ -91,11 +88,9 @@ static const refmem_generic_node_table_t s_generic_node_table = {
          REFMEM_APP_CLAIM_STRICT_UUID, 100u,
          REFMEM_APP_PERSONA_TRIGGER_MASTER, 0u, 1u, REFMEM_APP_FAIL_STOP},
         {1u, 0xB0000001u, REFMEM_APP_CAP_BASELINE | REFMEM_APP_CAP_PIO |
-                            REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
-                            REFMEM_APP_CAP_CORE1_RT | REFMEM_APP_CAP_SMA_IN |
-                            REFMEM_APP_CAP_SMA_OUT,
+                            REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT,
          REFMEM_APP_CLAIM_STRICT_UUID, 90u,
-         REFMEM_APP_PERSONA_DISTRIBUTED_TRIGGER, 0u, 1u, REFMEM_APP_FAIL_STOP},
+         REFMEM_APP_PERSONA_MODEL_INSTRUMENTS, 0u, 1u, REFMEM_APP_FAIL_STOP},
         {2u, 0xB0000002u, REFMEM_APP_CAP_BASELINE | REFMEM_APP_CAP_PIO |
                             REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
                             REFMEM_APP_CAP_CORE1_RT |
@@ -142,7 +137,7 @@ static const refmem_node_load_table_t s_node_load_table = {
          1u, 1u, REFMEM_APP_FAIL_STOP, 3u},
         {4u, 1u, 1u, 1u, REFMEM_APP_INSTANCE_B1_TRIGGER,
          REFMEM_APP_ROLE_BOARD | REFMEM_APP_ROLE_PULSE_DISTRIBUTOR,
-         REFMEM_APP_PERSONA_DISTRIBUTED_TRIGGER, 1u, 1u, REFMEM_APP_FAIL_STOP, 0u},
+         REFMEM_APP_PERSONA_DISTRIBUTED_TRIGGER, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY, 0u},
         {5u, 1u, 1u, 2u, REFMEM_APP_INSTANCE_B2_LINK_SWITCH,
          REFMEM_APP_ROLE_BOARD | REFMEM_APP_ROLE_LINK_SWITCHER,
          REFMEM_APP_PERSONA_LINK_CONTROL, 1u, 1u, REFMEM_APP_FAIL_STOP, 0u},
@@ -151,7 +146,7 @@ static const refmem_node_load_table_t s_node_load_table = {
          REFMEM_APP_PERSONA_GATEWAY, 1u, 1u, REFMEM_APP_FAIL_STOP, 0u},
         {7u, 1u, 1u, 3u, REFMEM_APP_INSTANCE_B3_INSTRUMENT,
          REFMEM_APP_ROLE_INSTRUMENT_CONTROLLER | REFMEM_APP_ROLE_GATEWAY,
-         REFMEM_APP_PERSONA_GATEWAY, 1u, 1u, REFMEM_APP_FAIL_STOP, 1u},
+         REFMEM_APP_PERSONA_GATEWAY, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY, 1u},
         {8u, 1u, 1u, 3u, REFMEM_APP_INSTANCE_B3_CALIBRATION,
          REFMEM_APP_ROLE_GATEWAY, REFMEM_APP_PERSONA_GATEWAY,
          1u, 1u, REFMEM_APP_FAIL_STOP, 2u},
@@ -159,10 +154,10 @@ static const refmem_node_load_table_t s_node_load_table = {
          REFMEM_APP_ROLE_MODEL_VNA | REFMEM_APP_ROLE_TEST_AGENT,
          REFMEM_APP_PERSONA_MODEL_INSTRUMENTS, 1u, 0u,
          REFMEM_APP_FAIL_REPORT_ONLY, 0u},
-        {10u, 1u, 1u, 4u, REFMEM_APP_INSTANCE_B4_MODEL_TT,
+        {10u, 1u, 1u, 1u, REFMEM_APP_INSTANCE_B4_MODEL_TT,
          REFMEM_APP_ROLE_MODEL_TURNTABLE | REFMEM_APP_ROLE_TEST_AGENT,
-         REFMEM_APP_PERSONA_MODEL_INSTRUMENTS, 1u, 0u,
-         REFMEM_APP_FAIL_REPORT_ONLY, 1u},
+         REFMEM_APP_PERSONA_MODEL_INSTRUMENTS, 1u, 1u,
+         REFMEM_APP_FAIL_STOP, 1u},
     },
 };
 
@@ -194,7 +189,7 @@ static const refmem_fb_instance_table_t s_fb_instance_table = {
          REFMEM_APP_IP_PULSE_CAPTURE | REFMEM_APP_IP_PULSE_FIRE, 200u,
          REFMEM_VECTOR_SLOT_TRIGGER, REFMEM_VECTOR_SLOT_STATS, 5u, 1u, 8u, 1u, 3u, 2u},
         {REFMEM_APP_INSTANCE_B1_TRIGGER, 1u, REFMEM_APP_DOMAIN_TRIG, REFMEM_APP_FB_TRIGGER_AO,
-         REFMEM_APP_FB_TRIGGER_AO, "B1.TriggerAO", 1u, 1u,
+         REFMEM_APP_FB_TRIGGER_AO, "B1.TriggerAO", 1u, 0u,
          REFMEM_APP_RESOURCE_PIO | REFMEM_APP_RESOURCE_DMA | REFMEM_APP_RESOURCE_CORE1_RT,
          REFMEM_APP_IO_SMA_IN | REFMEM_APP_IO_SMA_OUT | REFMEM_APP_IO_RJ45_SYNC,
          REFMEM_APP_IP_PULSE_CAPTURE | REFMEM_APP_IP_PULSE_FIRE, 200u,
@@ -227,10 +222,10 @@ static const refmem_fb_instance_table_t s_fb_instance_table = {
          REFMEM_APP_FB_MODEL_VNA, "B4.ModelVnaAO", 1u, 1u,
          REFMEM_APP_RESOURCE_USB, 0u, 0u, 1000u,
          REFMEM_VECTOR_SLOT_GATEWAY, REFMEM_VECTOR_SLOT_STATS, 0u, 0u, 0u, 0u, 7u, 1u},
-        {REFMEM_APP_INSTANCE_B4_MODEL_TT, 4u, REFMEM_APP_DOMAIN_MEAS, REFMEM_APP_FB_MODEL_TURNTABLE,
-         REFMEM_APP_FB_MODEL_TURNTABLE, "B4.ModelTurntableAO", 1u, 1u,
+        {REFMEM_APP_INSTANCE_B4_MODEL_TT, 1u, REFMEM_APP_DOMAIN_MEAS, REFMEM_APP_FB_MODEL_TURNTABLE,
+         REFMEM_APP_FB_MODEL_TURNTABLE, "A1.ModelTurntableAO", 1u, 1u,
          REFMEM_APP_RESOURCE_PIO | REFMEM_APP_RESOURCE_DMA | REFMEM_APP_RESOURCE_CORE1_RT,
-         REFMEM_APP_IO_BISS_C, REFMEM_APP_IP_BISS_C_CODEC, 1000u,
+         REFMEM_APP_IO_MODEL_TURNTABLE_PULSE, REFMEM_APP_IP_PULSE_FIRE, 500u,
          REFMEM_VECTOR_SLOT_IO, REFMEM_VECTOR_SLOT_STATS, 0u, 0u, 0u, 0u, 8u, 1u},
     },
 };
@@ -904,7 +899,8 @@ static bool refmem_model_validate_io_claims(void)
     const uint32_t exclusive_io_mask = REFMEM_APP_IO_LINK_CONTROL |
                                       REFMEM_APP_IO_BISS_C |
                                       REFMEM_APP_IO_UART_RS485 |
-                                      REFMEM_APP_IO_PIO_SPI_SYNC;
+                                      REFMEM_APP_IO_PIO_SPI_SYNC |
+                                      REFMEM_APP_IO_MODEL_SIGNAL_MASK;
 
     for (uint32_t i = 0u; i < s_node_load_table.load_count; i++) {
         const refmem_node_load_entry_t *left_load = &s_node_load_table.load[i];

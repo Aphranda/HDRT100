@@ -8,6 +8,48 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-042 - GPIO4..7 overlay 维护接口与预检工具
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 为 GPIO4..7 最小模型 overlay 增加方向安全维护接口和双板预检脚本。
+  - 先确保 UART1 不占用 GPIO4/5，且脚本能以串口生命周期管理方式 release、驱动、读取和退出清理。
+- 完成内容：
+  - `sync_io.h/.c` 增加 `sync_io_debug_model_*` 维护函数，覆盖 GPIO4..7 output enable/value、release 和 input level snapshot。
+  - `scpi_realtime_io_commands.c/h` 增加 `REALtime:IO:MODel:PROFile?`、`REALtime:IO:MODel:INPut:LEVel?`、`REALtime:IO:MODel:OUTPut:MASK`、`REALtime:IO:MODel:OUTPut:MASK?` 和 `REALtime:IO:MODel:OUTPut:RELease`。
+  - `REALtime:IO:MODel:PROFile?` 返回 `base_pin,pin_count,uart_conflict_mask,uart_enabled`，当前期望为 `4,4,3,0`。
+  - `REALtime:IO:MODel:OUTPut:MASK <enable_mask>,<value_mask>` 显式区分输出 owner 和输出电平；未 enable 的线恢复输入下拉。
+  - 新增 `tools/debug_model_overlay_validate/debug_model_overlay_validate.py`，默认验证 X->Y GPIO4/GPIO5/GPIO7 和 Y->X GPIO6，运行前后 release 双方 GPIO4..7。
+  - `tools/README.md`、`REFMEM_MIN_SYSTEM_PLAYBOOK.md` 和 `REFMEM_DOMAIN_TODO.md` 同步新增工具入口和待办状态。
+- 验证结果：
+  - `python -m py_compile tools\debug_model_overlay_validate\debug_model_overlay_validate.py` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，`files=85 warnings=0`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC 为 `0x2DF62B6E`，build id 为 `20260814104920`。
+  - `python tools\ota_send\ota_send.py COM3 build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，COM3 OTA 进入 `READY_TO_REBOOT`。
+  - `python tools\ota_boot_commit\ota_boot_commit.py COM3 --expected-build 20260814104920 --out-dir build-rtos-multicore-smoke\ota_boot_commit_debug_model_COM3` 通过，COM3 启动并 commit 到 build `20260814104920`。
+  - COM3 顺序查询 `REALtime:IO:MODel:PROFile?` 返回 `4,4,3,0`，确认 GPIO4..7 overlay profile 生效且 UART stdio 关闭。
+  - COM3 顺序查询 `REALtime:IO:MODel:INPut:LEVel?` 返回 `4,4,0`。
+  - COM4 首次 OTA 未完成：`ota_send.py COM4 ...` 打开端口失败，错误为 `PermissionError(13, '拒绝访问。', None, 5)`，确认为串口软件占用；关闭占用工具后重试通过。
+  - `python tools\ota_send\ota_send.py COM4 build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，COM4 OTA 进入 `READY_TO_REBOOT`。
+  - `python tools\ota_boot_commit\ota_boot_commit.py COM4 --expected-build 20260814104920 --out-dir build-rtos-multicore-smoke\ota_boot_commit_debug_model_COM4` 通过，COM4 启动并 commit 到 build `20260814104920`。
+  - COM4 顺序查询 `REALtime:IO:MODel:PROFile?` 返回 `4,4,3,0`。
+  - `python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port-x COM3 --port-y COM4 --out-dir build-rtos-multicore-smoke\debug_model_overlay_COM3_COM4` 通过。
+  - HIL 方向结果：`TURN_POS_PULSE` X.GPIO4 -> Y.GPIO4、`VNA_READY` X.GPIO5 -> Y.GPIO5、`VNA_TRIG` Y.GPIO6 -> X.GPIO6、`LINK_SWITCH` X.GPIO7 -> Y.GPIO7 均 PASS。
+- 还需完成：
+  - 进入最小业务 HIL：A1 位置脉冲、A4 捕获并更新时间事实、A3 预约链路切换、A5 触发虚拟网分、A2 返回 READY。
+- 关联文件：
+  - `components/sync_io/inc/sync_io.h`
+  - `components/sync_io/src/sync_io.c`
+  - `middleware/scpi_port/inc/scpi_realtime_io_commands.h`
+  - `middleware/scpi_port/src/scpi_realtime_io_commands.c`
+  - `tools/debug_model_overlay_validate/debug_model_overlay_validate.py`
+  - `tools/README.md`
+  - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 将 overlay 节点写入 NodeLoad/Capability staging，并补齐最小业务 HIL 的 RefMem snapshot / quality / evidence 读取闭环。
+
 ### REFMEM-TASK-20260814-041 - GPIO4..7 最小模型 overlay 规划
 
 - 状态：完成

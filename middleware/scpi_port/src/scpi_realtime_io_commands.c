@@ -5,6 +5,7 @@
 #include "sync_io.h"
 #include "sync_io_hw_profile.h"
 #include "sync_trigger.h"
+#include "project_config.h"
 
 static uint32_t s_debug_output_mask;
 
@@ -234,6 +235,69 @@ scpi_result_t scpi_cmd_output_release(scpi_t *context)
     sync_io_debug_release_output_mask();
     s_debug_output_mask = 0u;
     return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_model_profile_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, BOARD_DEBUG_MODEL_GPIO_BASE_PIN);
+    SCPI_ResultUInt32(context, BOARD_DEBUG_MODEL_GPIO_PIN_COUNT);
+    SCPI_ResultUInt32(context, BOARD_DEBUG_MODEL_UART_CONFLICT_MASK);
+    SCPI_ResultBool(context, PROJECT_ENABLE_UART_STDIO ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_model_input_level_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, BOARD_DEBUG_MODEL_GPIO_BASE_PIN);
+    SCPI_ResultUInt32(context, BOARD_DEBUG_MODEL_GPIO_PIN_COUNT);
+    SCPI_ResultUInt32(context, sync_io_debug_model_read_input_mask());
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_model_output_mask(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t enable_mask;
+    uint32_t value_mask;
+    if (!scpi_port_read_u32(context, &enable_mask) ||
+        !scpi_port_read_u32(context, &value_mask)) {
+        return SCPI_RES_ERR;
+    }
+
+    if (PROJECT_ENABLE_UART_STDIO &&
+        ((enable_mask & BOARD_DEBUG_MODEL_UART_CONFLICT_MASK) != 0u)) {
+        return SCPI_RES_ERR;
+    }
+
+    return sync_io_debug_model_set_output_mask(enable_mask, value_mask) ?
+               scpi_port_result_ok(context) :
+               SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_model_output_mask_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, BOARD_DEBUG_MODEL_GPIO_BASE_PIN);
+    SCPI_ResultUInt32(context, BOARD_DEBUG_MODEL_GPIO_PIN_COUNT);
+    SCPI_ResultUInt32(context, sync_io_debug_model_get_output_enable_mask());
+    SCPI_ResultUInt32(context, sync_io_debug_model_get_output_value_mask());
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_model_output_release(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
+    sync_io_debug_model_release();
+    return scpi_port_result_ok(context);
 }
 
 scpi_result_t scpi_cmd_sample_rate(scpi_t *context)

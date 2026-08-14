@@ -67,6 +67,14 @@
 #define REFMEM_APP_IO_BISS_C                       0x00000010u
 #define REFMEM_APP_IO_UART_RS485                   0x00000020u
 #define REFMEM_APP_IO_PIO_SPI_SYNC                 0x00000040u
+#define REFMEM_APP_IO_MODEL_TURNTABLE_PULSE        0x00000080u
+#define REFMEM_APP_IO_MODEL_VNA_READY              0x00000100u
+#define REFMEM_APP_IO_MODEL_VNA_TRIGGER            0x00000200u
+#define REFMEM_APP_IO_LINK_SWITCH_EVENT            0x00000400u
+#define REFMEM_APP_IO_MODEL_SIGNAL_MASK            (REFMEM_APP_IO_MODEL_TURNTABLE_PULSE | \
+                                                    REFMEM_APP_IO_MODEL_VNA_READY | \
+                                                    REFMEM_APP_IO_MODEL_VNA_TRIGGER | \
+                                                    REFMEM_APP_IO_LINK_SWITCH_EVENT)
 
 #define REFMEM_APP_IP_PULSE_CAPTURE                0x00000001u
 #define REFMEM_APP_IP_PULSE_FIRE                   0x00000002u
