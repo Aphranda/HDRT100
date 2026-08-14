@@ -111,6 +111,11 @@ python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port
   or runs the pure C SlotClaim map/gate tests, including nominal assignment,
   duplicate claim, UUID mismatch, and candidate overflow. If no host C compiler
   exists, it falls back to ARM GCC compile/object-build checks.
+- `tests/run_refmem_table_registry_tests.ps1`: RefMem TableRegistry image gate.
+  It builds or runs pure C tests for active/staging/rollbackable descriptors,
+  activation gate rejection, successful activation, and invalid staging
+  rejection. If no host C compiler exists, it falls back to ARM GCC
+  compile/object-build checks.
 - `ota_packager/ota_packager.py`: builds a unified OTA package from Slot A and
   Slot B linked App binaries. CMake normally invokes this automatically.
 - `sd_fs_build/sd_fs_build.py`: builds the SD-card filesystem staging tree under

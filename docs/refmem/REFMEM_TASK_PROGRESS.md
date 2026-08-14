@@ -8,6 +8,37 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-045 - TableRegistry image descriptor 与 activation 骨架
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 将上一轮文档中的 active/staging/rollbackable table image contract 落到 `RefMemTableRegistry` 的首版代码形态。
+  - 先建立 registry 级 descriptor、activation gate 和失败不污染 active 的验证，不提前改动真实业务表 buffer。
+- 完成内容：
+  - `refmem_table_registry.h/.c` 增加 `refmem_table_image_descriptor_t`，覆盖 role、state、table mask、package CRC、table seq、path hash、last result 和 evidence index。
+  - 增加 active/staging/rollbackable 三类 descriptor，`refresh_active()` 初始化 active descriptor，`refresh_staging()` 和 `stage_table()` 更新 staging descriptor。
+  - 增加 `refmem_table_activation_gate_t` 和 `refmem_table_registry_activate_staging()`：必须显式传入 RefMem idle、realtime idle、flash safe、CRC OK、owner OK、SlotClaim OK、DeploymentGate OK 和 command ACK OK；gate 失败时只记录结果，不改 active。
+  - activation 成功时旧 active descriptor 进入 rollbackable，新 active descriptor 从 validated staging 派生，registry entry 的 active CRC 和状态同步更新，staging descriptor 清空。
+  - 新增 `tests/unit/test_refmem_table_registry.c` 和 `tools/tests/run_refmem_table_registry_tests.ps1`，固化 active descriptor、gate 失败、成功 activation、rollbackable descriptor 和无有效 staging 拒绝验证。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\docs_check\docs_check.py` 通过，`files=85 warnings=0`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814131250`，package CRC `0xA9FBFD22`。
+- 还需完成：
+  - 将 activation gate 的各个输入接到真实 RefMem mode、产品实时 idle/park、flash lockout/RAM-resident 状态、SlotClaimMap、DeploymentGate 和 command ACK。
+  - 实现真实 active/staging/rollbackable table buffer 切换，而不是只切 registry descriptor 和 CRC。
+  - 把 image descriptor 暴露到维护查询或专用验证脚本，形成板端 activation 正反向闭环。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_table_registry.h`
+  - `components/distributed_refmem/src/refmem_table_registry.c`
+  - `tests/unit/test_refmem_table_registry.c`
+  - `tools/tests/run_refmem_table_registry_tests.ps1`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 继续 P0，将 owner validation callback 调度接入 TableRegistry，并把 validation result 写入 table id、owner id、validator id、reason 和 evidence。
+
 ### REFMEM-TASK-20260814-044 - RefMem table image activation 主线收敛
 
 - 状态：完成

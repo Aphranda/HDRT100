@@ -61,7 +61,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 实现 `RefMemTableRegistry` 首版，记录 table id、owner、layout version、active CRC、staging CRC、validation state、validator id、last result 和 evidence；首版反映已编译 active 表和当前 staging snapshot。
 - [x] 增加 TableRegistry 可观测生命周期字段：`EMPTY/STAGED/CRC_OK/OWNER_OK/ACTIVE/ROLLBACKABLE/FAILED`。
 - [ ] 实现真实 active/staging/rollbackable table image 切换：staging 通过验证后可进入 activation，旧 active 进入 rollbackable。
-- [ ] 定义并落地 table image descriptor：active/staging/rollbackable 只由 descriptor、seq、CRC bundle、state 和 evidence 对外可见，完整表数据不得写入 RefMem 向量表。
+- [x] 定义并落地 table image descriptor：active/staging/rollbackable 只由 descriptor、seq、CRC bundle、state 和 evidence 对外可见，完整表数据不得写入 RefMem 向量表。
 - [ ] 增加 activation gate：RefMem load mode、产品实时 idle/park、flash lockout/RAM-resident 入口、CRC bundle、owner validation、SlotClaimMap、DeploymentGate 和 command ACK 必须全部通过后才能切 active。
 - [ ] 实现 table dump/load 镜像规则：dump 只导出稳定 snapshot，load 只能进入 staging，不得直接覆盖 active。
 - [x] 增加 owner validation contract 首版入口：`refmem_table_registry_validate_staging()` 只校验当前 staging snapshot 的 CRC/lint/error 结果，不执行 active 替换。
@@ -233,7 +233,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 每个实现闭环至少执行文档检查和相关代码构建；涉及板端行为时继续使用 COM6 或当前可用端口烧录/查询。
 
 - [x] 文档检查：`python tools/docs_check/docs_check.py`。
-- [ ] 构建验证：`cmake --build build-rtos-multicore-smoke`。
+- [x] 构建验证：`cmake --build build-rtos-multicore-smoke`。
 - [ ] 新增 RefMem 基础件 smoke 验证脚本：顺序查询 build、claim、table、NodeLoad staging、command ACK、slot contract summary，脚本必须打开一次串口并在退出时关闭。
 - [ ] 板端记录 `SYSTem:REFMEM:STATus?`、`SYSTem:REFMEM:NODE?`、`SYSTem:REFMEM:LOAD:STATus?`。
 - [ ] 板端验证 `SYSTem:REFMEM:LOAD:NODE` 合法候选 staged、非法 node/instance rejected。
@@ -243,6 +243,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 增加 table registry 验证：CRC 正确但 owner validation 失败时不得激活。
 - [ ] 增加 table image activation 验证：staging validated 后 active CRC bundle、table seq、rollbackable CRC 和 `SYSTem:REFMEM:TABle?` 状态按预期变化。
 - [ ] 增加 activation 失败回滚验证：owner validation 失败、SlotClaim 冲突、DeploymentGate 拒绝和 ACK timeout 都不得污染旧 active image。
+- [x] 增加 TableRegistry 纯 C 单元测试入口：`tools/tests/run_refmem_table_registry_tests.ps1`，覆盖 active descriptor、staging activation、gate 失败保持 active 不变、rollbackable descriptor 和无有效 staging 拒绝。
 - [x] 增加 SlotClaim gate 正向验证入口：`tools/multicore_board_validate` 和 pytest HIL 查询 `SYSTem:REFMEM:CLAIM?` 与 `SYSTem:CONFigure:STAT?`，确认默认 profile gate ready 一致。
 - [ ] 增加 SlotClaim 验证：重复 claim、错绑、stale、9-16 候选 overflow、超过 16 候选 rejected。
 - [x] 增加 SlotClaim 纯 C 单元测试入口：`tools/tests/run_refmem_slot_claim_tests.ps1`，覆盖默认 assignment、重复 claim、UUID mismatch 和第 9 个候选 overflow；无 host C 编译器时退化为 ARM GCC 编译检查。

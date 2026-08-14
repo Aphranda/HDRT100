@@ -1323,10 +1323,12 @@ table directory 每项 16 字节：
 - `SYSTem:REFMEM:LOAD:NODE`：已支持通过 SCPI inline 提交单条 NodeLoad 候选到 staging snapshot，尚未形成多条 staging NodeLoadTable image。
 - `SYSTem:REFMEM:LOAD:STATus?`：已可查询 load sequence、source、RefMem load mode、staging state、manifest、active/staging CRC、lint/error 和当前候选。
 - `SYSTem:REFMEM:LOAD:BOARD` / `SYSTem:REFMEM:LOAD:BOARD:STATus?`：已支持通过 SCPI inline 提交单条 BoardCapability 候选到 staging snapshot，校验 board 范围、`REFMEM+VDC` baseline 和默认 slot 范围；尚未形成多条 staging BoardCapabilityTable image。
+- `refmem_table_registry_activate_staging()`：已落地 registry 级 activation 骨架，使用显式 activation gate 检查 validated staging，把旧 active descriptor 移到 rollbackable，并把 staging CRC/seq 切到 active entry；当前仍未替换真实业务表数据，也未接命令槽或跨节点 ACK。
+- `refmem_table_registry_get_image_descriptor()`：已可读取 active/staging/rollbackable descriptor，用于后续维护查询和 activation 验证脚本。
 
 尚未形成完整实现的部分：
 
-- `RefMemTableRegistry`、active/staging/rollbackable 双镜像切换和 owner validation callback。
+- 真实 active/staging/rollbackable table buffer 双镜像切换和 owner validation callback。
 - `SlotClaimMap` RJ45 运行期聚合、自组网协调和 candidate overflow evidence；本地 SlotClaim gate 已接入 DeploymentGate/RUN gate。
 - `RefMemSlotContract` 派生代码、字段级 owner 写权限、seqlock/双缓冲快照和 subscription 分发。
 - `refmem_command.h/.c`、ACK/NACK 原子命令槽和 completion/fence 语义。

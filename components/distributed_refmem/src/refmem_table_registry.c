@@ -7,6 +7,10 @@
 
 static refmem_table_registry_entry_t s_registry[REFMEM_TABLE_REGISTRY_COUNT];
 static refmem_table_registry_snapshot_t s_snapshot;
+static refmem_table_image_descriptor_t s_active_image;
+static refmem_table_image_descriptor_t s_staging_image;
+static refmem_table_image_descriptor_t s_rollbackable_image;
+static uint32_t s_table_seq;
 
 static const uint32_t s_table_image_size[REFMEM_TABLE_REGISTRY_COUNT] = {
     sizeof(refmem_application_map_t),
@@ -131,10 +135,47 @@ static void refmem_table_registry_refresh_snapshot(void)
     s_snapshot.registry_crc32 = refmem_table_registry_crc32();
 }
 
+static void refmem_table_registry_clear_image(refmem_table_image_descriptor_t *descriptor,
+                                              refmem_table_image_role_t role)
+{
+    (void)memset(descriptor, 0, sizeof(*descriptor));
+    descriptor->version = REFMEM_TABLE_REGISTRY_VERSION;
+    descriptor->role = (uint32_t)role;
+    descriptor->state = REFMEM_TABLE_VALIDATION_EMPTY;
+    descriptor->evidence_index = REFMEM_VECTOR_SLOT_STATS;
+}
+
+static uint32_t refmem_table_registry_gate_mask(const refmem_table_activation_gate_t *gate)
+{
+    if (gate == NULL) {
+        return 0u;
+    }
+
+    uint32_t mask = 0u;
+    mask |= gate->refmem_idle != 0u ? 0x00000001u : 0u;
+    mask |= gate->realtime_idle != 0u ? 0x00000002u : 0u;
+    mask |= gate->flash_safe != 0u ? 0x00000004u : 0u;
+    mask |= gate->crc_ok != 0u ? 0x00000008u : 0u;
+    mask |= gate->owner_ok != 0u ? 0x00000010u : 0u;
+    mask |= gate->slot_claim_ok != 0u ? 0x00000020u : 0u;
+    mask |= gate->deployment_gate_ok != 0u ? 0x00000040u : 0u;
+    mask |= gate->command_ack_ok != 0u ? 0x00000080u : 0u;
+    return mask;
+}
+
+static bool refmem_table_registry_gate_passed(const refmem_table_activation_gate_t *gate)
+{
+    return refmem_table_registry_gate_mask(gate) == 0x000000FFu;
+}
+
 void refmem_table_registry_init(const refmem_application_model_snapshot_t *model)
 {
     memset(s_registry, 0, sizeof(s_registry));
     memset(&s_snapshot, 0, sizeof(s_snapshot));
+    refmem_table_registry_clear_image(&s_active_image, REFMEM_TABLE_IMAGE_ACTIVE);
+    refmem_table_registry_clear_image(&s_staging_image, REFMEM_TABLE_IMAGE_STAGING);
+    refmem_table_registry_clear_image(&s_rollbackable_image, REFMEM_TABLE_IMAGE_ROLLBACKABLE);
+    s_table_seq = 0u;
 
     for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {
         s_registry[i].table_id = i;
@@ -177,6 +218,19 @@ void refmem_table_registry_refresh_active(const refmem_application_model_snapsho
                                       : REFMEM_TABLE_VALIDATION_FAILED;
     }
 
+    s_table_seq++;
+    s_active_image.version = REFMEM_TABLE_REGISTRY_VERSION;
+    s_active_image.role = REFMEM_TABLE_IMAGE_ACTIVE;
+    s_active_image.state = model->valid != 0u
+                               ? REFMEM_TABLE_VALIDATION_ACTIVE
+                               : REFMEM_TABLE_VALIDATION_FAILED;
+    s_active_image.table_mask = model->table_mask;
+    s_active_image.package_crc32 = model->package_crc32;
+    s_active_image.table_seq = s_table_seq;
+    s_active_image.path_hash = 0u;
+    s_active_image.last_result = model->first_lint_error;
+    s_active_image.evidence_index = REFMEM_VECTOR_SLOT_STATS;
+
     s_snapshot.last_error = model->first_lint_error;
     refmem_table_registry_refresh_snapshot();
 }
@@ -190,6 +244,7 @@ void refmem_table_registry_refresh_staging(const refmem_application_model_load_s
     }
 
     const uint32_t staging_crc32 = load->staging_package_crc32;
+    uint32_t staging_mask = 0u;
     for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {
         refmem_table_registry_entry_t *entry = &s_registry[i];
         entry->staging_crc32 = staging_crc32;
@@ -205,9 +260,14 @@ void refmem_table_registry_refresh_staging(const refmem_application_model_load_s
 
         if (load->staging_state == REFMEM_APP_STAGING_STAGED) {
             entry->validation_state = REFMEM_TABLE_VALIDATION_STAGED;
+            if (staging_crc32 != 0u) {
+                staging_mask |= (1u << entry->table_id);
+                entry->flags |= REFMEM_TABLE_FLAG_STAGING_PRESENT;
+            }
         } else if (load->staging_state == REFMEM_APP_STAGING_VALIDATED) {
             entry->validation_state = REFMEM_TABLE_VALIDATION_OWNER_OK;
             if (staging_crc32 != 0u) {
+                staging_mask |= (1u << entry->table_id);
                 entry->flags |= REFMEM_TABLE_FLAG_STAGING_PRESENT |
                                 REFMEM_TABLE_FLAG_CRC_OK |
                                 REFMEM_TABLE_FLAG_OWNER_OK;
@@ -220,6 +280,25 @@ void refmem_table_registry_refresh_staging(const refmem_application_model_load_s
             entry->validation_state = REFMEM_TABLE_VALIDATION_EMPTY;
         }
     }
+
+    s_staging_image.version = REFMEM_TABLE_REGISTRY_VERSION;
+    s_staging_image.role = REFMEM_TABLE_IMAGE_STAGING;
+    s_staging_image.state =
+        load->staging_state == REFMEM_APP_STAGING_VALIDATED
+            ? REFMEM_TABLE_VALIDATION_OWNER_OK
+            : (load->staging_state == REFMEM_APP_STAGING_STAGED
+                   ? REFMEM_TABLE_VALIDATION_STAGED
+                   : (load->staging_state == REFMEM_APP_STAGING_FAILED
+                          ? REFMEM_TABLE_VALIDATION_FAILED
+                          : REFMEM_TABLE_VALIDATION_EMPTY));
+    s_staging_image.table_mask = staging_mask;
+    s_staging_image.package_crc32 = staging_crc32;
+    s_staging_image.table_seq = s_table_seq;
+    s_staging_image.path_hash = load->path_hash;
+    s_staging_image.last_result = load->staging_first_lint_error != 0u
+                                      ? load->staging_first_lint_error
+                                      : load->last_error;
+    s_staging_image.evidence_index = REFMEM_VECTOR_SLOT_STATS;
 
     s_snapshot.last_error = load->last_error;
     refmem_table_registry_refresh_snapshot();
@@ -271,9 +350,105 @@ bool refmem_table_registry_stage_table(uint32_t table_id,
         }
     }
 
+    s_staging_image.version = REFMEM_TABLE_REGISTRY_VERSION;
+    s_staging_image.role = REFMEM_TABLE_IMAGE_STAGING;
+    s_staging_image.state = validation_state;
+    if (staging_crc32 != 0u && validation_state != REFMEM_TABLE_VALIDATION_FAILED) {
+        s_staging_image.table_mask |= (1u << table_id);
+    } else {
+        s_staging_image.table_mask &= ~(1u << table_id);
+    }
+    s_staging_image.package_crc32 = staging_crc32;
+    s_staging_image.table_seq = s_table_seq;
+    s_staging_image.last_result = last_result;
+    s_staging_image.evidence_index = REFMEM_VECTOR_SLOT_STATS;
+
     s_snapshot.last_error = last_result;
     refmem_table_registry_refresh_snapshot();
     return validation_state != REFMEM_TABLE_VALIDATION_FAILED;
+}
+
+bool refmem_table_registry_activate_staging(const refmem_table_activation_gate_t *gate)
+{
+    if (gate == NULL) {
+        s_snapshot.last_error = REFMEM_TABLE_ACTIVATE_ERR_BAD_ARGUMENT;
+        refmem_table_registry_refresh_snapshot();
+        return false;
+    }
+
+    const bool valid_staging =
+        s_staging_image.state == REFMEM_TABLE_VALIDATION_OWNER_OK &&
+        s_staging_image.table_mask != 0u &&
+        s_staging_image.package_crc32 != 0u;
+    if (!valid_staging) {
+        s_staging_image.state = REFMEM_TABLE_VALIDATION_FAILED;
+        s_staging_image.last_result = REFMEM_TABLE_ACTIVATE_ERR_NO_VALID_STAGING;
+        s_snapshot.last_error = REFMEM_TABLE_ACTIVATE_ERR_NO_VALID_STAGING;
+        refmem_table_registry_refresh_snapshot();
+        return false;
+    }
+
+    if (!refmem_table_registry_gate_passed(gate)) {
+        s_staging_image.state = REFMEM_TABLE_VALIDATION_OWNER_OK;
+        s_staging_image.last_result = REFMEM_TABLE_ACTIVATE_ERR_GATE;
+        s_snapshot.last_error = REFMEM_TABLE_ACTIVATE_ERR_GATE;
+        refmem_table_registry_refresh_snapshot();
+        return false;
+    }
+
+    s_rollbackable_image = s_active_image;
+    s_rollbackable_image.role = REFMEM_TABLE_IMAGE_ROLLBACKABLE;
+    s_rollbackable_image.state = REFMEM_TABLE_VALIDATION_ROLLBACKABLE;
+    s_rollbackable_image.evidence_index = REFMEM_VECTOR_SLOT_STATS;
+
+    s_table_seq++;
+    s_active_image = s_staging_image;
+    s_active_image.role = REFMEM_TABLE_IMAGE_ACTIVE;
+    s_active_image.state = REFMEM_TABLE_VALIDATION_ACTIVE;
+    s_active_image.table_seq = s_table_seq;
+    s_active_image.last_result = REFMEM_TABLE_ACTIVATE_OK;
+    s_active_image.evidence_index = REFMEM_VECTOR_SLOT_STATS;
+
+    for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {
+        refmem_table_registry_entry_t *entry = &s_registry[i];
+        const uint32_t table_bit = 1u << entry->table_id;
+        if ((s_staging_image.table_mask & table_bit) != 0u) {
+            entry->active_crc32 = entry->staging_crc32;
+            entry->validation_state = REFMEM_TABLE_VALIDATION_ACTIVE;
+            entry->flags |= REFMEM_TABLE_FLAG_ACTIVE_PRESENT |
+                            REFMEM_TABLE_FLAG_CRC_OK |
+                            REFMEM_TABLE_FLAG_OWNER_OK |
+                            REFMEM_TABLE_FLAG_ROLLBACKABLE;
+            entry->flags &= ~REFMEM_TABLE_FLAG_STAGING_PRESENT;
+        }
+    }
+
+    refmem_table_registry_clear_image(&s_staging_image, REFMEM_TABLE_IMAGE_STAGING);
+    s_snapshot.last_error = REFMEM_TABLE_ACTIVATE_OK;
+    refmem_table_registry_refresh_snapshot();
+    return true;
+}
+
+bool refmem_table_registry_get_image_descriptor(refmem_table_image_role_t role,
+                                                refmem_table_image_descriptor_t *descriptor)
+{
+    if (descriptor == NULL) {
+        return false;
+    }
+
+    switch (role) {
+    case REFMEM_TABLE_IMAGE_ACTIVE:
+        *descriptor = s_active_image;
+        return true;
+    case REFMEM_TABLE_IMAGE_STAGING:
+        *descriptor = s_staging_image;
+        return true;
+    case REFMEM_TABLE_IMAGE_ROLLBACKABLE:
+        *descriptor = s_rollbackable_image;
+        return true;
+    default:
+        return false;
+    }
 }
 
 bool refmem_table_registry_validate_package(const uint8_t *data,
