@@ -233,7 +233,7 @@ activation gate 至少检查：
 | 产品实时态 | realtime core、trigger、sequence、pulse counter 和 link control 必须处于 idle/park，可接受 flash lockout 或 RAM-resident 入口策略。 | 拒绝 activation，保留 staging。 |
 | CRC bundle | package CRC、每表 CRC、active/staging CRC bundle 和 table seq 必须一致。 | staging 标记 `FAILED`。 |
 | owner validation | 每张表由 owner callback 检查字段范围、writer 唯一性、资源冲突、IO/IP 核能力和生命周期。 | staging 标记 `FAILED`，写入 owner reason。 |
-| SlotClaimMap | A0-A7 active assignment 不得重复、错绑、超出 8 个 active slot；同一板最多 16 个 candidate。 | 拒绝 activation，生成 conflict/overflow evidence。 |
+| SlotClaimMap | A0-A7 active assignment 不得重复、超出 8 个 active slot，required slot 不得缺失；同一板最多 16 个 candidate。 | 拒绝 activation，生成 conflict/overflow/missing evidence。 |
 | DeploymentGate | EventLink、DataLink、RealtimeCapabilityContract、quality 和 required node 必须满足 RUN 前门禁。 | 可留在 staged validated，但不得进入 active。 |
 | Command ACK | 跨节点 activation 需要 command slot 全环 ACK/NACK 或 fence 完成。 | required 节点 NACK/timeout 时回滚。 |
 
@@ -418,19 +418,19 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 | 字段 | 含义 | 约束 |
 |---|---|---|
 | `node_id` | A0-A7 通用插槽号。 | 只允许 0-7；字段名沿用 node_id 是为了匹配同步协议和 NodeSlot[8]。 |
-| `node_uuid` | 节点硬件身份。 | 用于防止 A0-A7 逻辑号错绑实体板。 |
-| `capability_mask` | 节点硬件/基础能力上限。 | 每个可参与系统的物理节点必须具备 board、RefMem、VDC 基础能力；其余可选能力包括 Flash、SD、USB、PIO、DMA、RJ45、core1_rt、SMA、link_control、BISS-C、UART/RS485。 |
+| `node_uuid` | 兼容字段或默认 profile 提示。 | 不得用于把物理板 UUID 绑定到固定 A slot；物理身份以 BoardCapability 为准。 |
+| `capability_mask` | 通用 slot 基础能力或 profile 上限。 | 每个可参与系统的物理节点必须具备 board、RefMem、VDC 基础能力；具体可选能力来自 BoardCapability 和 RealtimeCapabilityContract。 |
 | `claim_policy` | 逻辑插槽 claim 策略。 | `STRICT_UUID`、`ALLOW_SAME_BOARD_MULTI_SLOT`、`SPARE_DYNAMIC`、`DISABLED`。 |
 | `claim_priority` | 冲突仲裁优先级。 | 只用于诊断和预案选择；不得静默抢占已 active 的必需插槽。 |
 | `default_persona_mask` | 节点默认人格能力。 | 只作为装载约束输入，不等于 active role。 |
-| `hw_profile_crc` | 硬件约束摘要。 | 和当前板级约束、IO 能力一致。 |
+| `hw_profile_crc` | 兼容字段或默认 profile 提示。 | 不得作为 A slot 硬绑定依据；硬件约束摘要以 BoardCapability / System Pack 为准。 |
 | `online_required` | 节点是否为当前 profile 必需。 | 必需节点 stale 或 missing 时禁止 RUN。 |
 | `fail_policy` | 节点失效策略。 | `STOP`、`HOLDOVER`、`DEGRADE`、`REPORT_ONLY`。 |
 
 规则：
 
 - A0-A7 是唯一固定插槽空间。
-- GenericNode 只描述通用插槽基座、硬件身份和基础能力，不直接声明业务 role/persona 实例。
+- GenericNode 只描述通用插槽基座、claim policy、required/fail policy 和基础约束，不直接声明物理板绑定或业务 role/persona 实例。
 - GenericNode 的能力不能从当前装载实例反推；它必须来自 board profile、硬件约束或 System Pack 中的硬件 profile。
 - `REFMEM + VDC` 是每个物理节点参与分布式系统的最小基础能力。没有 RefMem 能力的板卡不能发布/接收共同事实；没有 VDC 能力的板卡不能参与虚拟 DC 时间语义，因此不能进入 distributed RUN。
 - `VDC` 基础能力表示节点能接收、校验、使用并发布虚拟 DC 相关 snapshot；`VDC_DPLL` 类 IP 核表示某个实例负责运行 DPLL/虚拟环路 owner，两者不能混为一谈。
@@ -444,7 +444,7 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 | 字段 | 含义 | 约束 |
 |---|---|---|
 | `board_id` | B0-Bx 物理/实例标签。 | 只作为 profile 内部标签，不能当作 RefMem slot id。 |
-| `board_uuid` | 物理板或模型节点身份。 | 用于 claim 和错绑诊断。 |
+| `board_uuid` | 物理板或模型节点身份。 | 用于 claim 稳定身份、冲突诊断和质量追踪，不绑定固定 A slot。 |
 | `capability_mask` | 板级基础能力上限。 | 必须包含 `BOARD + REFMEM + VDC`；可选 PIO、DMA、USB、SD、core1_rt、link_control、BISS-C 等。 |
 | `io_constraint_mask` | 板级 IO 约束。 | 表示该板可承载哪些 IO 类资源，例如 SMA、RJ45_SYNC、LINK_CONTROL、BISS-C、UART/RS485。 |
 | `ip_core_mask` | 类 IP 核能力。 | 表示该板固件/PIO/实时资源能承载哪些类 IP 核，例如 pulse capture/fire、link sequence、BISS-C codec。 |
@@ -534,17 +534,16 @@ claim_priority
 | `owner_board_uuid` | 当前 claim 该 slot 的物理板。 |
 | `claim_count` | 当前 epoch 中 claim 该 slot 的物理板数量。 |
 | `claim_state` | `UNCLAIMED/CLAIMED/CLAIM_CONFLICT/RESOLVING/STALE/MISMATCH/OVERFLOW/DISABLED`。 |
-| `expected_node_uuid` | GenericNodeTable 中预期硬件身份。 |
-| `actual_node_uuid` | 当前 claim 的硬件身份。 |
+| `board_uuid` | 当前 claim 的物理或模型节点身份。 |
 | `loaded_instance_mask` | NodeLoadTable 中加载到该 slot 的实例摘要。 |
 | `last_claim_seq` | 最近 claim 序号。 |
-| `evidence_index` | 冲突或错绑证据。 |
+| `evidence_index` | 冲突、缺失 UUID、overflow、stale 或 owner validation 证据。 |
 
 `SlotClaimMap` 只记录 resolved active assignment；未分配候选进入 `SlotClaimEvidence` 或质量表，不得伪装成 `NodeSlot[8]` 之外的新 active slot。首版代码已落地 `refmem_slot_claim.h/.c`，从当前 active default profile 派生本地 `SlotClaimMap`，并可通过 `SYSTem:REFMEM:CLAIM? [slot_id]` 查询 map 和指定 slot assignment。当前尚未接 RJ45 `CLAIM_*` 协调消息，`claim_epoch=1` 表示本地派生 epoch。
 
 #### SlotClaim 自组网协调
 
-纠错不只是报错，也需要支持板卡自组网协调。协调机制仍必须受静态模型和 HAOFV owner 约束：节点可以提出候选 claim 和释放意图，但最终 active claim 只能由 `DistributedRefMemAO` 在同一 `claim_epoch` 下提交。通用插槽优先尝试协调分配；只有没有满足约束的空闲插槽、实例装载超过 profile 上限、或硬绑定 required slot 不匹配时，才进入 `OVERFLOW` 或 `CLAIM_FAULT`。
+纠错不只是报错，也需要支持板卡自组网协调。协调机制仍必须受静态模型和 HAOFV owner 约束：节点可以提出候选 claim 和释放意图，但最终 active claim 只能由 `DistributedRefMemAO` 在同一 `claim_epoch` 下提交。通用插槽优先尝试协调分配；只有没有满足约束的空闲插槽、实例装载超过 profile 上限、required slot 缺失或 owner validation 拒绝时，才进入 `OVERFLOW`、`MISMATCH` 或 `CLAIM_FAULT`。
 
 协调状态机：
 
@@ -565,7 +564,7 @@ DISCOVER
 |---|---|---|
 | `CLAIM_HELLO` | board -> ring | 发布 physical board uuid、基础能力和当前 active slot assignment 摘要。 |
 | `CLAIM_PROPOSE` | board -> RefMemAO/ring | 提出候选节点实例列表、preferred slot、capability、resource/IO claim 和 claim CRC。 |
-| `CLAIM_CONFLICT` | RefMemAO -> ring | 广播重复 claim、uuid mismatch、hw profile mismatch、stale 或 slot overflow。 |
+| `CLAIM_CONFLICT` | RefMemAO -> ring | 广播重复 claim、缺失稳定 UUID、stale、slot overflow 或 owner validation 拒绝证据。 |
 | `CLAIM_RELEASE` | board -> ring | 声明释放某 slot claim，带 seq/epoch 防止旧释放误伤。 |
 | `CLAIM_RESOLVE` | RefMemAO -> ring | 发布协调结果，包括 active owner、disabled claim 和 evidence。 |
 | `CLAIM_COMMIT` | RefMemAO -> all | 进入新 `claim_epoch`，同步 active SlotClaimMap CRC。 |
@@ -575,15 +574,15 @@ DISCOVER
 - 同一 `physical_board_uuid` 可以 claim 多个不同 `slot_id`，前提是每个 slot 的 `claim_policy`、`capability_mask`、resource/IO claim 和 NodeLoadTable 共存检查都通过。
 - 同一 `slot_id` 若被多个不同 `physical_board_uuid` claim，状态先进入 `CLAIM_CONFLICT`，随后进入 `RESOLVE_PLAN`。若存在满足 capability/resource/IO/owner 约束的空闲通用插槽，可以生成迁移计划；若无可用插槽或实例数量超过 `NodeLoadTable`/profile 上限，进入 `OVERFLOW/CLAIM_FAULT`。
 - 同一 `physical_board_uuid` 最多可以提出 16 个候选节点实例，但 `DistributedRefMemAO` 在同一 active profile / epoch 中最多只能提交 8 个 active slot assignment。第 9 到第 16 个未分配候选只能作为 `OVERFLOW` evidence，不得生成隐式 slot；超过 16 个候选必须作为格式错误拒绝。
-- `STRICT_UUID` slot 必须匹配 GenericNodeTable 的 `node_uuid` 和 `hw_profile_crc`；不匹配进入 `MISMATCH`。
-- `SPARE_DYNAMIC` 只允许用于 A5-A7 这类非 required spare slot，并且必须在 ConfigGate 激活后形成新的 active CRC bundle，不能在 RUN 中热抢占。
-- `claim_priority` 用于在多个候选物理板或多个可用插槽之间选择协调计划；在 required hard binding 不冲突时可以自动协调通用插槽分配，但不得静默覆盖 `STRICT_UUID` 的硬绑定 required slot。
+- `STRICT_UUID` 只要求候选具备稳定 `board_uuid`，便于 claim epoch、release/commit 和质量追踪；它不表示固定 A slot。
+- `SPARE_DYNAMIC` 只允许用于非 required optional slot，并且必须在 ConfigGate 激活后形成新的 active CRC bundle，不能在 RUN 中热抢占。
+- `claim_priority` 用于在多个候选物理板或多个可用插槽之间选择协调计划；协调目标是全环 A0-A7 地址唯一、required slot 满足、资源/IO/owner 不冲突。`STRICT_UUID` 只要求候选具备稳定物理 UUID，不表示某个 UUID 必须绑定某个 A slot。
 - B0-B4 只表示当前项目或默认 profile 中的物理/实例标签，不是 slot id。`B2.LinkSwitcherAO` 可在默认 profile 中加载到 slot A2，也可以在后续 profile 或自组网协调中加载到任何满足 capability、IO 约束和类 IP 核要求的 A0-A7 slot。
 - 对 `ALLOW_SAME_BOARD_MULTI_SLOT`、`SPARE_DYNAMIC` 或 `REPORT_ONLY` slot，`DistributedRefMemAO` 可根据 capability、claim_priority、physical uuid、link quality、load_order 和空闲插槽集合生成自动协调结果，但必须提升 `claim_epoch`、更新 `SlotClaimMap CRC`，并广播 `CLAIM_COMMIT`。
 - 冲突恢复可以通过重新加载 System Pack / profile、清除错误板卡 claim、执行受权限保护的维护命令，或对非 required dynamic slot 执行自组网协调完成；不得由节点本地自行改 `node_id` 并直接进入 active。
 - `DeploymentGate.node_check` 必须检查 `SlotClaimMap`：required 实例必须有一个 resolved active slot，spare slot 可 `UNCLAIMED`，任何未解决的 `CLAIM_CONFLICT/MISMATCH/STALE/OVERFLOW/CLAIM_FAULT` required 实例都拒绝 RUN。首版代码已把本地派生 claim gate 接入 RefMem model validation 和 `system_manager` config RUN gate；RJ45 协调后的跨板 claim gate 后续接入。
 - RJ45_SYNC_RING 同步 `SlotClaim` 摘要时，必须带 `claim_epoch` 和 CRC，旧 epoch claim 不得覆盖 active claim。
-- 后续两块最小系统板组网验证以 B0/B1 两个物理板为最小闭环：每块板都必须先具备 `REFMEM + VDC` baseline，再通过 `CLAIM_HELLO/PROPOSE/RESOLVE/COMMIT` 形成同一份 `SlotClaimMap CRC`。验证重点不是业务触发序列，而是确认重复 slot claim、错绑、stale、overflow 和 required missing 都能被 RefMem gate 拒绝或进入可诊断协调路径。
+- 后续两块最小系统板组网验证以 B0/B1 两个物理板为最小闭环：每块板都必须先具备 `REFMEM + VDC` baseline，再通过 `CLAIM_HELLO/PROPOSE/RESOLVE/COMMIT` 形成同一份 `SlotClaimMap CRC`。验证重点不是业务触发序列，而是确认重复 slot claim、缺失 UUID、stale、overflow、owner validation 拒绝和 required missing 都能被 RefMem gate 拒绝或进入可诊断协调路径。
 
 ### DistributedNodeLoadTable
 

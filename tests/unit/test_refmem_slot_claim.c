@@ -42,6 +42,47 @@ static int expect_bool(const char *name, bool actual, bool expected)
     return 0;
 }
 
+static uint32_t test_crc32_update(uint32_t crc, const void *data, size_t size)
+{
+    return ota_crc32_update(crc, (const uint8_t *)data, size);
+}
+
+static uint32_t test_assignment_crc32(const refmem_slot_claim_assignment_t *slot)
+{
+    if (slot == NULL) {
+        return 0u;
+    }
+    return test_crc32_update(0xFFFFFFFFu,
+                             slot,
+                             sizeof(*slot) - sizeof(slot->claim_crc32)) ^
+           0xFFFFFFFFu;
+}
+
+static uint32_t test_map_crc32(const refmem_slot_claim_map_t *map)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    if (map == NULL) {
+        return 0u;
+    }
+
+    crc = test_crc32_update(crc, &map->version, sizeof(map->version));
+    crc = test_crc32_update(crc, &map->claim_epoch, sizeof(map->claim_epoch));
+    crc = test_crc32_update(crc, &map->slot_count, sizeof(map->slot_count));
+    crc = test_crc32_update(crc, &map->candidate_count, sizeof(map->candidate_count));
+    crc = test_crc32_update(crc, &map->assigned_count, sizeof(map->assigned_count));
+    crc = test_crc32_update(crc, &map->conflict_count, sizeof(map->conflict_count));
+    crc = test_crc32_update(crc, &map->overflow_count, sizeof(map->overflow_count));
+    crc = test_crc32_update(crc, &map->disabled_count, sizeof(map->disabled_count));
+    crc = test_crc32_update(crc, &map->evidence_count, sizeof(map->evidence_count));
+    for (uint32_t i = 0u; i < map->slot_count && i < REFMEM_APP_MODEL_NODE_COUNT; i++) {
+        crc = test_crc32_update(crc, &map->slot[i], sizeof(map->slot[i]));
+    }
+    for (uint32_t i = 0u; i < map->evidence_count && i < REFMEM_SLOT_CLAIM_EVIDENCE_MAX; i++) {
+        crc = test_crc32_update(crc, &map->evidence[i], sizeof(map->evidence[i]));
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
 static void make_generic_nodes(refmem_generic_node_table_t *table, uint32_t node_count)
 {
     (void)memset(table, 0, sizeof(*table));
@@ -115,9 +156,8 @@ static int derive_gate(const refmem_generic_node_table_t *nodes,
     failed += expect_bool("derive map",
                           refmem_slot_claim_derive_map(nodes, boards, loads, instances, map),
                           true);
-    failed += expect_bool("evaluate gate",
-                          refmem_slot_claim_gate_evaluate(map, gate),
-                          gate->ready != 0u);
+    const bool gate_result = refmem_slot_claim_gate_evaluate(map, gate);
+    failed += expect_bool("evaluate gate", gate_result, gate->ready != 0u);
     return failed;
 }
 
@@ -179,7 +219,7 @@ static int test_duplicate_claim_blocks_gate(void)
     return failed;
 }
 
-static int test_uuid_mismatch_blocks_gate(void)
+static int test_missing_uuid_blocks_strict_claim(void)
 {
     int failed = 0;
     refmem_generic_node_table_t nodes;
@@ -194,16 +234,48 @@ static int test_uuid_mismatch_blocks_gate(void)
         nodes.node[i].online_required = 0u;
     }
     make_boards(&boards, 1u);
-    boards.board[0].board_uuid_crc32 = 0xDEADBEEFu;
+    boards.board[0].board_uuid_crc32 = 0u;
     make_loads(&loads, &instances);
 
     (void)derive_gate(&nodes, &boards, &loads, &instances, &map, &gate);
-    failed += expect_u32("uuid mismatch ready", gate.ready, 0u);
-    failed += expect_u32("uuid mismatch state", map.slot[0].claim_state, REFMEM_SLOT_CLAIM_MISMATCH);
-    failed += expect_u32("uuid mismatch reason", map.slot[0].reason, REFMEM_SLOT_CLAIM_REASON_UUID_MISMATCH);
-    failed += expect_u32("uuid mismatch gate count", gate.mismatch_count, 1u);
-    failed += expect_u32("uuid mismatch evidence count", map.evidence_count, 1u);
-    failed += expect_u32("uuid mismatch evidence board", map.evidence[0].board_id, 0u);
+    failed += expect_u32("missing uuid ready", gate.ready, 0u);
+    failed += expect_u32("missing uuid state", map.slot[0].claim_state, REFMEM_SLOT_CLAIM_MISMATCH);
+    failed += expect_u32("missing uuid reason", map.slot[0].reason, REFMEM_SLOT_CLAIM_REASON_UUID_MISMATCH);
+    failed += expect_u32("missing uuid gate count", gate.mismatch_count, 1u);
+    failed += expect_u32("missing uuid evidence count", map.evidence_count, 1u);
+    failed += expect_u32("missing uuid evidence board", map.evidence[0].board_id, 0u);
+    return failed;
+}
+
+static int test_board_identity_does_not_bind_slot(void)
+{
+    int failed = 0;
+    refmem_generic_node_table_t nodes;
+    refmem_board_capability_table_t boards;
+    refmem_node_load_table_t loads;
+    refmem_fb_instance_table_t instances;
+    refmem_slot_claim_map_t map;
+    refmem_slot_claim_gate_status_t gate;
+
+    make_generic_nodes(&nodes, REFMEM_APP_MODEL_NODE_COUNT);
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_NODE_COUNT; i++) {
+        nodes.node[i].online_required = 0u;
+    }
+    make_boards(&boards, 1u);
+    boards.board[0].board_uuid_crc32 = nodes.node[0].node_uuid_crc32;
+    boards.board[0].hw_profile_crc32 = 0xCAFEBABEu;
+    boards.board[0].active_default_slot = 1u;
+    make_loads(&loads, &instances);
+
+    (void)derive_gate(&nodes, &boards, &loads, &instances, &map, &gate);
+    failed += expect_u32("arbitrary slot ready", gate.ready, 1u);
+    failed += expect_u32("arbitrary slot assigned", map.assigned_count, 1u);
+    failed += expect_u32("arbitrary slot evidence", map.evidence_count, 0u);
+    failed += expect_u32("arbitrary slot0 state", map.slot[0].claim_state, REFMEM_SLOT_CLAIM_UNCLAIMED);
+    failed += expect_u32("arbitrary slot1 board", map.slot[1].board_id, 0u);
+    failed += expect_u32("arbitrary slot1 state", map.slot[1].claim_state, REFMEM_SLOT_CLAIM_CLAIMED);
+    failed += expect_u32("arbitrary slot1 reason", map.slot[1].reason, REFMEM_SLOT_CLAIM_REASON_OK);
+    failed += expect_u32("arbitrary slot1 caps", map.slot[1].capability_mask, boards.board[0].capability_mask);
     return failed;
 }
 
@@ -230,6 +302,81 @@ static int test_candidate_overflow_blocks_gate(void)
     failed += expect_u32("overflow reason", gate.first_reason, REFMEM_SLOT_CLAIM_REASON_OVERFLOW);
     failed += expect_u32("overflow evidence count", map.evidence_count, 1u);
     failed += expect_u32("overflow evidence candidate", map.evidence[0].candidate_id, 8u);
+    return failed;
+}
+
+static int test_stale_claim_blocks_gate(void)
+{
+    int failed = 0;
+    refmem_generic_node_table_t nodes;
+    refmem_board_capability_table_t boards;
+    refmem_node_load_table_t loads;
+    refmem_fb_instance_table_t instances;
+    refmem_slot_claim_map_t map;
+    refmem_slot_claim_gate_status_t gate;
+
+    make_generic_nodes(&nodes, REFMEM_APP_MODEL_NODE_COUNT);
+    make_boards(&boards, REFMEM_APP_MODEL_NODE_COUNT);
+    make_loads(&loads, &instances);
+    (void)refmem_slot_claim_derive_map(&nodes, &boards, &loads, &instances, &map);
+
+    map.slot[0].claim_epoch = map.claim_epoch + 1u;
+    map.slot[0].claim_crc32 = test_assignment_crc32(&map.slot[0]);
+    map.map_crc32 = test_map_crc32(&map);
+    (void)refmem_slot_claim_gate_evaluate(&map, &gate);
+    failed += expect_u32("stale ready", gate.ready, 0u);
+    failed += expect_u32("stale slot", gate.first_bad_slot, 0u);
+    failed += expect_u32("stale reason", gate.first_reason, REFMEM_SLOT_CLAIM_REASON_STALE);
+    failed += expect_u32("stale mismatch count", gate.mismatch_count, 1u);
+    return failed;
+}
+
+static int test_claim_crc_blocks_gate(void)
+{
+    int failed = 0;
+    refmem_generic_node_table_t nodes;
+    refmem_board_capability_table_t boards;
+    refmem_node_load_table_t loads;
+    refmem_fb_instance_table_t instances;
+    refmem_slot_claim_map_t map;
+    refmem_slot_claim_gate_status_t gate;
+
+    make_generic_nodes(&nodes, REFMEM_APP_MODEL_NODE_COUNT);
+    make_boards(&boards, REFMEM_APP_MODEL_NODE_COUNT);
+    make_loads(&loads, &instances);
+    (void)refmem_slot_claim_derive_map(&nodes, &boards, &loads, &instances, &map);
+
+    map.slot[0].claim_crc32 ^= 0x55AA55AAu;
+    map.map_crc32 = test_map_crc32(&map);
+    (void)refmem_slot_claim_gate_evaluate(&map, &gate);
+    failed += expect_u32("claim crc ready", gate.ready, 0u);
+    failed += expect_u32("claim crc slot", gate.first_bad_slot, 0u);
+    failed += expect_u32("claim crc reason",
+                         gate.first_reason,
+                         REFMEM_SLOT_CLAIM_REASON_CLAIM_CRC);
+    failed += expect_u32("claim crc mismatch count", gate.mismatch_count, 1u);
+    return failed;
+}
+
+static int test_map_crc_blocks_gate(void)
+{
+    int failed = 0;
+    refmem_generic_node_table_t nodes;
+    refmem_board_capability_table_t boards;
+    refmem_node_load_table_t loads;
+    refmem_fb_instance_table_t instances;
+    refmem_slot_claim_map_t map;
+    refmem_slot_claim_gate_status_t gate;
+
+    make_generic_nodes(&nodes, REFMEM_APP_MODEL_NODE_COUNT);
+    make_boards(&boards, REFMEM_APP_MODEL_NODE_COUNT);
+    make_loads(&loads, &instances);
+    (void)refmem_slot_claim_derive_map(&nodes, &boards, &loads, &instances, &map);
+
+    map.map_crc32 ^= 0x01020304u;
+    (void)refmem_slot_claim_gate_evaluate(&map, &gate);
+    failed += expect_u32("map crc ready", gate.ready, 0u);
+    failed += expect_u32("map crc reason", gate.first_reason, REFMEM_SLOT_CLAIM_REASON_MAP_CRC);
     return failed;
 }
 
@@ -427,8 +574,12 @@ int main(void)
 
     failed += test_nominal_claim_map();
     failed += test_duplicate_claim_blocks_gate();
-    failed += test_uuid_mismatch_blocks_gate();
+    failed += test_missing_uuid_blocks_strict_claim();
+    failed += test_board_identity_does_not_bind_slot();
     failed += test_candidate_overflow_blocks_gate();
+    failed += test_stale_claim_blocks_gate();
+    failed += test_claim_crc_blocks_gate();
+    failed += test_map_crc_blocks_gate();
     failed += test_claim_propose_frame_crc_validation();
     failed += test_claim_hello_and_commit_frames();
     failed += test_claim_conflict_release_resolve_frames();

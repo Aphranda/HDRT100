@@ -63,6 +63,19 @@ static uint32_t refmem_slot_claim_map_crc32(const refmem_slot_claim_map_t *map)
     return crc ^ 0xFFFFFFFFu;
 }
 
+static uint32_t refmem_slot_claim_assignment_crc32(
+    const refmem_slot_claim_assignment_t *slot)
+{
+    if (slot == NULL) {
+        return 0u;
+    }
+    return refmem_slot_claim_crc32_update(0xFFFFFFFFu,
+                                          slot,
+                                          sizeof(*slot) -
+                                              sizeof(slot->claim_crc32)) ^
+           0xFFFFFFFFu;
+}
+
 static void refmem_slot_claim_record_evidence(refmem_slot_claim_map_t *map,
                                               const refmem_board_capability_entry_t *board,
                                               uint32_t candidate_id,
@@ -160,7 +173,7 @@ static bool refmem_slot_claim_add_candidate(refmem_slot_claim_map_t *map,
 
     slot->board_id = board->board_id;
     slot->board_uuid_crc32 = board->board_uuid_crc32;
-    slot->capability_mask = node->capability_mask & board->capability_mask;
+    slot->capability_mask = board->capability_mask;
     slot->io_constraint_mask = board->io_constraint_mask;
     slot->ip_core_mask = board->ip_core_mask;
     slot->loaded_instance_mask =
@@ -174,7 +187,8 @@ static bool refmem_slot_claim_add_candidate(refmem_slot_claim_map_t *map,
     slot->last_claim_seq = candidate_id + 1u;
     map->assigned_count++;
 
-    if (node->node_uuid_crc32 != board->board_uuid_crc32) {
+    if (node->claim_policy == REFMEM_APP_CLAIM_STRICT_UUID &&
+        board->board_uuid_crc32 == 0u) {
         slot->claim_state = REFMEM_SLOT_CLAIM_MISMATCH;
         slot->reason = REFMEM_SLOT_CLAIM_REASON_UUID_MISMATCH;
         map->conflict_count++;
@@ -184,18 +198,6 @@ static bool refmem_slot_claim_add_candidate(refmem_slot_claim_map_t *map,
                                           slot->slot_id,
                                           REFMEM_SLOT_CLAIM_MISMATCH,
                                           REFMEM_SLOT_CLAIM_REASON_UUID_MISMATCH,
-                                          slot->claim_policy,
-                                          slot->claim_priority);
-    } else if (node->hw_profile_crc32 != board->hw_profile_crc32) {
-        slot->claim_state = REFMEM_SLOT_CLAIM_MISMATCH;
-        slot->reason = REFMEM_SLOT_CLAIM_REASON_HW_PROFILE_MISMATCH;
-        map->conflict_count++;
-        refmem_slot_claim_record_evidence(map,
-                                          board,
-                                          candidate_id,
-                                          slot->slot_id,
-                                          REFMEM_SLOT_CLAIM_MISMATCH,
-                                          REFMEM_SLOT_CLAIM_REASON_HW_PROFILE_MISMATCH,
                                           slot->claim_policy,
                                           slot->claim_priority);
     }
@@ -281,11 +283,7 @@ bool refmem_slot_claim_derive_map(const refmem_generic_node_table_t *node_table,
 
     for (uint32_t i = 0u; i < map->slot_count; i++) {
         refmem_slot_claim_assignment_t *slot = &map->slot[i];
-        slot->claim_crc32 = refmem_slot_claim_crc32_update(0xFFFFFFFFu,
-                                                           slot,
-                                                           sizeof(*slot) -
-                                                               sizeof(slot->claim_crc32)) ^
-                            0xFFFFFFFFu;
+        slot->claim_crc32 = refmem_slot_claim_assignment_crc32(slot);
     }
     map->map_crc32 = refmem_slot_claim_map_crc32(map);
     return true;
@@ -333,16 +331,35 @@ bool refmem_slot_claim_gate_evaluate(const refmem_slot_claim_map_t *map,
 
     status->overflow_count = map->overflow_count;
     status->map_crc32 = map->map_crc32;
+    if (map->map_crc32 != refmem_slot_claim_map_crc32(map)) {
+        status->ready = 0u;
+        status->first_reason = REFMEM_SLOT_CLAIM_REASON_MAP_CRC;
+    }
     if (map->overflow_count != 0u) {
         status->ready = 0u;
-        status->first_reason = REFMEM_SLOT_CLAIM_REASON_OVERFLOW;
+        if (status->first_reason == REFMEM_SLOT_CLAIM_REASON_OK) {
+            status->first_reason = REFMEM_SLOT_CLAIM_REASON_OVERFLOW;
+        }
     }
 
     for (uint32_t i = 0u; i < map->slot_count; i++) {
         const refmem_slot_claim_assignment_t *slot = &map->slot[i];
         bool slot_ok = true;
+        uint32_t slot_reason = slot->reason;
 
-        if (slot->claim_state == REFMEM_SLOT_CLAIM_CONFLICT) {
+        if (slot->claim_crc32 != refmem_slot_claim_assignment_crc32(slot)) {
+            status->mismatch_count++;
+            slot_ok = false;
+            slot_reason = REFMEM_SLOT_CLAIM_REASON_CLAIM_CRC;
+        } else if (slot->claim_state == REFMEM_SLOT_CLAIM_STALE ||
+                   ((slot->claim_state == REFMEM_SLOT_CLAIM_CLAIMED ||
+                     slot->claim_state == REFMEM_SLOT_CLAIM_CONFLICT ||
+                     slot->claim_state == REFMEM_SLOT_CLAIM_MISMATCH) &&
+                    slot->claim_epoch != map->claim_epoch)) {
+            status->mismatch_count++;
+            slot_ok = false;
+            slot_reason = REFMEM_SLOT_CLAIM_REASON_STALE;
+        } else if (slot->claim_state == REFMEM_SLOT_CLAIM_CONFLICT) {
             status->conflict_count++;
             slot_ok = false;
         } else if (slot->claim_state == REFMEM_SLOT_CLAIM_MISMATCH) {
@@ -358,7 +375,7 @@ bool refmem_slot_claim_gate_evaluate(const refmem_slot_claim_map_t *map,
             status->ready = 0u;
             if (status->first_bad_slot == UINT32_MAX) {
                 status->first_bad_slot = slot->slot_id;
-                status->first_reason = slot->reason;
+                status->first_reason = slot_reason;
             }
         }
     }

@@ -4,9 +4,46 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
+
+### REFMEM-TASK-20260814-053 - SlotClaim gate integrity checks
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 优先完成 P1 SlotClaimMap 的关键门禁，避免后续动态节点装载和物理同步链路绕过 A0-A7 通用插槽约束。
+  - 补齐 stale claim、claim CRC 和 map CRC 检查，同时纠正“UUID 硬绑定 A slot”的错误方向。
+- 完成内容：
+  - `refmem_slot_claim_reason_t` 增加 `STALE`、`CLAIM_CRC` 和 `MAP_CRC` reason，并移除硬绑定 mismatch reason，避免把 A0-A7 误当固定物理板或固定功能。
+  - `refmem_slot_claim_derive_map()` 不再用 UUID 反查固定 slot；`STRICT_UUID` 只要求候选板具备稳定 UUID。
+  - SlotClaim resolved assignment 的 runtime capability 采用 BoardCapability 中的实际能力，slot 本身只承担通用地址、claim policy、priority 和 required 语义。
+  - `refmem_slot_claim_gate_evaluate()` 重新计算 map CRC 和每个 assignment CRC，发现篡改或不一致时拒绝 gate。
+  - `refmem_slot_claim_gate_evaluate()` 将显式 `STALE` 状态或 assignment epoch 与 map epoch 不一致视为 stale claim，拒绝进入 ready。
+  - `tests/unit/test_refmem_slot_claim.c` 覆盖 duplicate、缺失 UUID、任意 slot claim、candidate overflow、stale、claim CRC 和 map CRC。
+  - `tools/multicore_board_validate.py` 不再把 A0/A2/A7 解释成固定功能位置，只验证 generic SlotClaimMap gate、required/optional 和 config RUN gate 一致性。
+  - `REFMEM_DOMAIN_TODO.md` 将 P1 SlotClaim 完整性检查项标记完成。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `python -m py_compile tools\multicore_board_validate\multicore_board_validate.py` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814155637`，package CRC `0xA9699AF4`。
+  - COM5 OTA/commit 通过，`SYSTem:FW:BUILD?` 返回 `20260814155637`，`SYSTem:ERRor?` 返回 `0,"No error"`。
+  - COM6 OTA/commit 通过，`SYSTem:FW:BUILD?` 返回 `20260814155637`，`SYSTem:ERRor?` 返回 `0,"No error"`。
+  - 初次双板 `multicore_board_validate.py` 只有旧脚本的固定 slot 功能期望失败；修正为 generic slot gate 并烧录最终 build 后，COM5/COM6 均 17/17 passed。
+  - 板端 SlotClaim 查询：`SYSTem:REFMEM:CLAIM? 0` 在 COM5/COM6 均返回 gate ready、map CRC `386979554`、无 conflict/overflow/mismatch；`SYSTem:REFMEM:CLAIM:EVIDence? 0` 返回空 evidence；`SYSTem:CONFigure:STAT?` ready；`SYSTem:ERRor?` 为 no error。
+- 还需完成：
+  - 后续继续 P1：BoardCapabilityTable 纳入 `.rmtp` 真实表镜像、单板 16 候选反向验证和动态装载验证。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_slot_claim.h`
+  - `components/distributed_refmem/src/refmem_slot_claim.c`
+  - `tests/unit/test_refmem_slot_claim.c`
+  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 继续 P1：BoardCapabilityTable `.rmtp` 镜像、动态装载和 16 候选溢出 HIL。
 
 ### REFMEM-TASK-20260814-052 - RefMem Quality runtime snapshot
 
@@ -839,7 +876,7 @@ RefMemTableRegistry
   - `python tools\docs_check\docs_check.py` 通过，warnings=0。
   - `python -m pytest` 通过，18 passed、1 skipped；两板工具未实际打开硬件串口。
 - 还需完成：
-  - 接入真实 RJ45 `CLAIM_*` 协调后，扩展重复 slot claim、错绑、stale、overflow 和 commit 后 CRC 一致性验证。
+  - 接入真实 RJ45 `CLAIM_*` 协调后，扩展重复 slot claim、缺失 UUID、stale、overflow、owner validation 拒绝和 commit 后 CRC 一致性验证。
 - 关联文件：
   - `tools/refmem_network_validate/refmem_network_validate.py`
   - `tools/README.md`
@@ -855,7 +892,7 @@ RefMemTableRegistry
   - 将 SlotClaim 负向结果从计数升级为可查询 evidence，支撑两板组网冲突诊断。
 - 完成内容：
   - `refmem_slot_claim_map_t` 增加 `evidence_count` 和最多 16 条 `refmem_slot_claim_evidence_t`。
-  - duplicate claim、disabled slot、UUID mismatch、hardware profile mismatch、invalid slot 和 active slot 容量 overflow 会记录 evidence。
+  - duplicate claim、disabled slot、缺失稳定 UUID、invalid slot 和 active slot 容量 overflow 会记录 evidence；UUID/profile 不再作为 A slot 硬绑定依据。
   - 新增 `refmem_slot_claim_find_evidence()`。
   - 新增维护查询 `SYSTem:REFMEM:CLAIM:EVIDence? [evidence_id]`，不改变既有 `SYSTem:REFMEM:CLAIM?` 字段顺序。
   - SlotClaim 单元测试增加 evidence_count、reason、board_id 和 candidate_id 断言。
@@ -888,13 +925,13 @@ RefMemTableRegistry
 - 完成内容：
   - `BoardCapabilityTable` 容量从 8 个 active slot 扩为 16 个候选容量，默认 active profile 的 `board_count` 仍保持 8，不改变当前板端默认行为。
   - `refmem_slot_claim_derive_map()` 增加 active slot 容量边界：candidate 数量超过 A0-A7 slot 数量后，后续候选进入 overflow，而不是被误判为普通重复 claim。
-  - 新增 `tests/unit/test_refmem_slot_claim.c`，覆盖 nominal assignment、loaded instance mask、duplicate claim、UUID mismatch 和第 9 个候选 overflow。
+  - 新增 `tests/unit/test_refmem_slot_claim.c`，覆盖 nominal assignment、loaded instance mask、duplicate claim、缺失 UUID 和第 9 个候选 overflow。
   - 新增 `tools/tests/run_refmem_slot_claim_tests.ps1`，沿用现有纯 C 测试风格：有 host gcc/clang 时运行 exe，否则退化为 ARM GCC 编译检查。
   - `tools/README.md`、`tests/README.md` 和 `REFMEM_DOMAIN_TODO.md` 增加测试入口和两板组网验证待办。
 - 验证结果：
   - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1` 通过；当前机器无 host C 编译器，结果为 ARM GCC 编译检查通过，未执行主机 exe。
 - 还需完成：
-  - 增加 stale claim、hard binding mismatch、claim CRC、9-16 全矩阵和超过 16 candidate rejected 的测试。
+  - 增加 stale claim、claim CRC、任意 slot claim、9-16 全矩阵和超过 16 candidate rejected 的测试。
   - 后续在两块最小系统板上验证 `CLAIM_*` 协调消息、slot 冲突处理、RefMem snapshot 一致性和 VDC baseline。
 - 关联文件：
   - `components/distributed_refmem/inc/refmem_application_model.h`
@@ -928,7 +965,7 @@ RefMemTableRegistry
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0xB77FAB04`。
 - 还需完成：
   - 板端实际运行 `python -m pytest -m hil --run-hil --hil-port COMx` 或 `python tools/multicore_board_validate/multicore_board_validate.py COMx --tests refmem_slot_claim_gate`。
-  - 增加负向 SlotClaim 矩阵：重复 claim、错绑、stale、9-16 候选 overflow、超过 16 候选 rejected。
+  - 增加负向 SlotClaim 矩阵：重复 claim、缺失 UUID、stale、9-16 候选 overflow、超过 16 候选 rejected。
 - 关联文件：
   - `tools/multicore_board_validate/multicore_board_validate.py`
   - `tests/hil/test_multicore_board_validate.py`
@@ -943,7 +980,7 @@ RefMemTableRegistry
 - 日期：2026-08-14
 - 任务目标：
   - 将 SlotClaimMap 首版结果接入 RefMem DeploymentGate 和系统 config RUN gate。
-  - 让 claim 冲突、错绑、overflow 和 required slot 缺失不只可查询，还能实际阻止 ready/RUN。
+  - 让 claim 冲突、缺失 UUID、overflow、stale 和 required slot 缺失不只可查询，还能实际阻止 ready/RUN。
 - 完成内容：
   - `refmem_slot_claim_assignment_t` 增加 `online_required`，用于区分 required slot 与 spare/dynamic slot。
   - 新增 `refmem_slot_claim_gate_status_t` 和 `refmem_slot_claim_gate_evaluate()`，输出 gate ready、first_bad_slot、first_reason、conflict/overflow/required_missing/mismatch 统计和 map CRC。

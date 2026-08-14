@@ -375,7 +375,7 @@ def test_config_gate_status(ser: serial.Serial, timeout: float) -> tuple[bool, s
 
 
 def test_refmem_slot_claim_gate(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
-    """Validate SlotClaimMap local gate and config RUN gate consistency."""
+    """Validate generic SlotClaimMap gate and config RUN gate consistency."""
     config = _parse_ints(_query(ser, "SYST:CONFigure:STAT?", timeout))
     if len(config) < 24:
         return False, f"SYST:CONFigure:STAT? unparseable: {config}"
@@ -399,17 +399,17 @@ def test_refmem_slot_claim_gate(ser: serial.Serial, timeout: float) -> tuple[boo
         if claim[22] != 1 or claim[23] != 0 or claim[29] == 0:
             return False, f"SYST:REFMEM:CLAIM? {slot_id} claim state/reason/crc unexpected: {claim}"
 
-    if claim0[20] != 0x0F or claim0[26] != 1:
-        return False, f"A0 loaded_instance_mask/required unexpected: {claim0}"
-    if claim2[19] == 0 or claim2[20] != 0x20 or claim2[26] != 1:
-        return False, f"A2 link switch claim unexpected: {claim2}"
-    if claim7[20] != 0 or claim7[26] != 0:
-        return False, f"A7 spare claim unexpected: {claim7}"
+    if claim0[26] != 1:
+        return False, f"slot0 required flag unexpected: {claim0}"
+    if claim2[26] != 1:
+        return False, f"slot2 required flag unexpected: {claim2}"
+    if claim7[26] != 0:
+        return False, f"slot7 optional flag unexpected: {claim7}"
 
     return True, (
         f"claim gate ready, map_crc={claim0[8]}, "
-        f"A0_instances=0x{claim0[20]:X}, A2_instances=0x{claim2[20]:X}, "
-        f"A7_required={claim7[26]}, config_run_id={config[6]}"
+        f"slot0_active_mask=0x{claim0[20]:X}, slot2_active_mask=0x{claim2[20]:X}, "
+        f"slot7_required={claim7[26]}, config_run_id={config[6]}"
     )
 
 
