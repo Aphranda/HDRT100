@@ -52,6 +52,37 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-031 - SlotClaimEvidence 诊断视图
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 将 SlotClaim 负向结果从计数升级为可查询 evidence，支撑两板组网冲突诊断。
+- 完成内容：
+  - `refmem_slot_claim_map_t` 增加 `evidence_count` 和最多 16 条 `refmem_slot_claim_evidence_t`。
+  - duplicate claim、disabled slot、UUID mismatch、hardware profile mismatch、invalid slot 和 active slot 容量 overflow 会记录 evidence。
+  - 新增 `refmem_slot_claim_find_evidence()`。
+  - 新增维护查询 `SYSTem:REFMEM:CLAIM:EVIDence? [evidence_id]`，不改变既有 `SYSTem:REFMEM:CLAIM?` 字段顺序。
+  - SlotClaim 单元测试增加 evidence_count、reason、board_id 和 candidate_id 断言。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1` 通过；当前机器无 host C 编译器，结果为 ARM GCC 编译检查通过，未执行主机 exe。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `python -m pytest` 通过，18 passed、1 skipped；HIL 串口测试未启用。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0x117B81F7`。
+- 还需完成：
+  - stale claim、claim CRC 和跨板 `CLAIM_*` 协调 evidence 仍待接入。
+  - 两块最小系统板组网 HIL 需要验证双方 `SlotClaimMap CRC` 一致和 evidence 能闭环定位冲突来源。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_slot_claim.h`
+  - `components/distributed_refmem/src/refmem_slot_claim.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tests/unit/test_refmem_slot_claim.c`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 增加两板组网验证工具骨架，串口生命周期必须由统一 helper 管理。
+
 ### REFMEM-TASK-20260814-030 - SlotClaim 负向单元测试基础
 
 - 状态：完成

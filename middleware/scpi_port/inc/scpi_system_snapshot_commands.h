@@ -7,6 +7,7 @@ scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_node_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_board_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_claim_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_claim_evidence_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_node(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_board(scpi_t *context);
@@ -40,6 +41,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:NODE?", .callback = scpi_cmd_refmem_node_q}, \
     {.pattern = "SYSTem:REFMEM:BOARD?", .callback = scpi_cmd_refmem_board_q}, \
     {.pattern = "SYSTem:REFMEM:CLAIM?", .callback = scpi_cmd_refmem_claim_q}, \
+    {.pattern = "SYSTem:REFMEM:CLAIM:EVIDence?", .callback = scpi_cmd_refmem_claim_evidence_q}, \
     {.pattern = "SYSTem:REFMEM:LOAD:SD", .callback = scpi_cmd_refmem_load_sd}, \
     {.pattern = "SYSTem:REFMEM:LOAD:NODE", .callback = scpi_cmd_refmem_load_node}, \
     {.pattern = "SYSTem:REFMEM:LOAD:BOARD", .callback = scpi_cmd_refmem_load_board}, \

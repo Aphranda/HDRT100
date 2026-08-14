@@ -7,6 +7,7 @@
 #include "refmem_application_model.h"
 
 #define REFMEM_SLOT_CLAIM_VERSION 1u
+#define REFMEM_SLOT_CLAIM_EVIDENCE_MAX REFMEM_APP_MODEL_CLAIM_CANDIDATE_MAX
 
 typedef enum {
     REFMEM_SLOT_CLAIM_UNCLAIMED = 0u,
@@ -66,6 +67,21 @@ typedef struct {
 } refmem_slot_claim_assignment_t;
 
 typedef struct {
+    uint32_t evidence_id;
+    uint32_t candidate_id;
+    uint32_t slot_id;
+    uint32_t board_id;
+    uint32_t board_uuid_crc32;
+    uint32_t preferred_slot_id;
+    uint32_t claim_state;
+    uint32_t reason;
+    uint32_t claim_policy;
+    uint32_t claim_priority;
+    uint32_t claim_epoch;
+    uint32_t evidence_crc32;
+} refmem_slot_claim_evidence_t;
+
+typedef struct {
     uint32_t version;
     uint32_t claim_epoch;
     uint32_t slot_count;
@@ -74,8 +90,10 @@ typedef struct {
     uint32_t conflict_count;
     uint32_t overflow_count;
     uint32_t disabled_count;
+    uint32_t evidence_count;
     uint32_t map_crc32;
     refmem_slot_claim_assignment_t slot[REFMEM_APP_MODEL_NODE_COUNT];
+    refmem_slot_claim_evidence_t evidence[REFMEM_SLOT_CLAIM_EVIDENCE_MAX];
 } refmem_slot_claim_map_t;
 
 typedef struct {
@@ -98,6 +116,9 @@ bool refmem_slot_claim_derive_map(const refmem_generic_node_table_t *node_table,
 const refmem_slot_claim_assignment_t *refmem_slot_claim_find_assignment(
     const refmem_slot_claim_map_t *map,
     uint32_t slot_id);
+const refmem_slot_claim_evidence_t *refmem_slot_claim_find_evidence(
+    const refmem_slot_claim_map_t *map,
+    uint32_t evidence_id);
 bool refmem_slot_claim_gate_evaluate(const refmem_slot_claim_map_t *map,
                                      refmem_slot_claim_gate_status_t *status);
 

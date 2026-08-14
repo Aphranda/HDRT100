@@ -53,10 +53,48 @@ static uint32_t refmem_slot_claim_map_crc32(const refmem_slot_claim_map_t *map)
     crc = refmem_slot_claim_crc32_update(crc, &map->conflict_count, sizeof(map->conflict_count));
     crc = refmem_slot_claim_crc32_update(crc, &map->overflow_count, sizeof(map->overflow_count));
     crc = refmem_slot_claim_crc32_update(crc, &map->disabled_count, sizeof(map->disabled_count));
+    crc = refmem_slot_claim_crc32_update(crc, &map->evidence_count, sizeof(map->evidence_count));
     for (uint32_t i = 0u; i < map->slot_count && i < REFMEM_APP_MODEL_NODE_COUNT; i++) {
         crc = refmem_slot_claim_crc32_update(crc, &map->slot[i], sizeof(map->slot[i]));
     }
+    for (uint32_t i = 0u; i < map->evidence_count && i < REFMEM_SLOT_CLAIM_EVIDENCE_MAX; i++) {
+        crc = refmem_slot_claim_crc32_update(crc, &map->evidence[i], sizeof(map->evidence[i]));
+    }
     return crc ^ 0xFFFFFFFFu;
+}
+
+static void refmem_slot_claim_record_evidence(refmem_slot_claim_map_t *map,
+                                              const refmem_board_capability_entry_t *board,
+                                              uint32_t candidate_id,
+                                              uint32_t slot_id,
+                                              uint32_t claim_state,
+                                              uint32_t reason,
+                                              uint32_t claim_policy,
+                                              uint32_t claim_priority)
+{
+    if (map == NULL || map->evidence_count >= REFMEM_SLOT_CLAIM_EVIDENCE_MAX) {
+        return;
+    }
+
+    refmem_slot_claim_evidence_t *evidence = &map->evidence[map->evidence_count];
+    evidence->evidence_id = map->evidence_count;
+    evidence->candidate_id = candidate_id;
+    evidence->slot_id = slot_id;
+    evidence->board_id = board != NULL ? board->board_id : UINT32_MAX;
+    evidence->board_uuid_crc32 = board != NULL ? board->board_uuid_crc32 : 0u;
+    evidence->preferred_slot_id = board != NULL ? board->active_default_slot : UINT32_MAX;
+    evidence->claim_state = claim_state;
+    evidence->reason = reason;
+    evidence->claim_policy = claim_policy;
+    evidence->claim_priority = claim_priority;
+    evidence->claim_epoch = map->claim_epoch;
+    evidence->evidence_crc32 =
+        refmem_slot_claim_crc32_update(0xFFFFFFFFu,
+                                       evidence,
+                                       sizeof(*evidence) -
+                                           sizeof(evidence->evidence_crc32)) ^
+        0xFFFFFFFFu;
+    map->evidence_count++;
 }
 
 static bool refmem_slot_claim_add_candidate(refmem_slot_claim_map_t *map,
@@ -72,6 +110,14 @@ static bool refmem_slot_claim_add_candidate(refmem_slot_claim_map_t *map,
 
     if (candidate_id >= REFMEM_APP_MODEL_CLAIM_CANDIDATE_MAX) {
         map->overflow_count++;
+        refmem_slot_claim_record_evidence(map,
+                                          board,
+                                          candidate_id,
+                                          UINT32_MAX,
+                                          REFMEM_SLOT_CLAIM_OVERFLOW,
+                                          REFMEM_SLOT_CLAIM_REASON_OVERFLOW,
+                                          0u,
+                                          0u);
         return true;
     }
 
@@ -85,6 +131,14 @@ static bool refmem_slot_claim_add_candidate(refmem_slot_claim_map_t *map,
     refmem_slot_claim_assignment_t *slot = &map->slot[board->active_default_slot];
     if (slot->claim_state == REFMEM_SLOT_CLAIM_DISABLED) {
         slot->reason = REFMEM_SLOT_CLAIM_REASON_DISABLED_SLOT;
+        refmem_slot_claim_record_evidence(map,
+                                          board,
+                                          candidate_id,
+                                          board->active_default_slot,
+                                          REFMEM_SLOT_CLAIM_DISABLED,
+                                          REFMEM_SLOT_CLAIM_REASON_DISABLED_SLOT,
+                                          slot->claim_policy,
+                                          slot->claim_priority);
         return true;
     }
 
@@ -93,6 +147,14 @@ static bool refmem_slot_claim_add_candidate(refmem_slot_claim_map_t *map,
         slot->claim_state = REFMEM_SLOT_CLAIM_CONFLICT;
         slot->reason = REFMEM_SLOT_CLAIM_REASON_DUPLICATE_SLOT;
         map->conflict_count++;
+        refmem_slot_claim_record_evidence(map,
+                                          board,
+                                          candidate_id,
+                                          slot->slot_id,
+                                          REFMEM_SLOT_CLAIM_CONFLICT,
+                                          REFMEM_SLOT_CLAIM_REASON_DUPLICATE_SLOT,
+                                          slot->claim_policy,
+                                          slot->claim_priority);
         return true;
     }
 
@@ -116,10 +178,26 @@ static bool refmem_slot_claim_add_candidate(refmem_slot_claim_map_t *map,
         slot->claim_state = REFMEM_SLOT_CLAIM_MISMATCH;
         slot->reason = REFMEM_SLOT_CLAIM_REASON_UUID_MISMATCH;
         map->conflict_count++;
+        refmem_slot_claim_record_evidence(map,
+                                          board,
+                                          candidate_id,
+                                          slot->slot_id,
+                                          REFMEM_SLOT_CLAIM_MISMATCH,
+                                          REFMEM_SLOT_CLAIM_REASON_UUID_MISMATCH,
+                                          slot->claim_policy,
+                                          slot->claim_priority);
     } else if (node->hw_profile_crc32 != board->hw_profile_crc32) {
         slot->claim_state = REFMEM_SLOT_CLAIM_MISMATCH;
         slot->reason = REFMEM_SLOT_CLAIM_REASON_HW_PROFILE_MISMATCH;
         map->conflict_count++;
+        refmem_slot_claim_record_evidence(map,
+                                          board,
+                                          candidate_id,
+                                          slot->slot_id,
+                                          REFMEM_SLOT_CLAIM_MISMATCH,
+                                          REFMEM_SLOT_CLAIM_REASON_HW_PROFILE_MISMATCH,
+                                          slot->claim_policy,
+                                          slot->claim_priority);
     }
 
     return true;
@@ -169,11 +247,27 @@ bool refmem_slot_claim_derive_map(const refmem_generic_node_table_t *node_table,
         if (map->candidate_count >= map->slot_count) {
             map->candidate_count++;
             map->overflow_count++;
+            refmem_slot_claim_record_evidence(map,
+                                              board,
+                                              i,
+                                              UINT32_MAX,
+                                              REFMEM_SLOT_CLAIM_OVERFLOW,
+                                              REFMEM_SLOT_CLAIM_REASON_OVERFLOW,
+                                              0u,
+                                              0u);
             continue;
         }
         if (board->active_default_slot >= node_table->node_count) {
             map->candidate_count++;
             map->overflow_count++;
+            refmem_slot_claim_record_evidence(map,
+                                              board,
+                                              i,
+                                              UINT32_MAX,
+                                              REFMEM_SLOT_CLAIM_OVERFLOW,
+                                              REFMEM_SLOT_CLAIM_REASON_BAD_SLOT,
+                                              0u,
+                                              0u);
             continue;
         }
         const refmem_app_node_entry_t *node = &node_table->node[board->active_default_slot];
@@ -205,6 +299,17 @@ const refmem_slot_claim_assignment_t *refmem_slot_claim_find_assignment(
         return NULL;
     }
     return &map->slot[slot_id];
+}
+
+const refmem_slot_claim_evidence_t *refmem_slot_claim_find_evidence(
+    const refmem_slot_claim_map_t *map,
+    uint32_t evidence_id)
+{
+    if (map == NULL || evidence_id >= map->evidence_count ||
+        evidence_id >= REFMEM_SLOT_CLAIM_EVIDENCE_MAX) {
+        return NULL;
+    }
+    return &map->evidence[evidence_id];
 }
 
 bool refmem_slot_claim_gate_evaluate(const refmem_slot_claim_map_t *map,

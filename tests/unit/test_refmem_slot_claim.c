@@ -140,6 +140,7 @@ static int test_nominal_claim_map(void)
     failed += expect_u32("nominal assigned", map.assigned_count, 8u);
     failed += expect_u32("nominal conflicts", map.conflict_count, 0u);
     failed += expect_u32("nominal overflows", map.overflow_count, 0u);
+    failed += expect_u32("nominal evidence", map.evidence_count, 0u);
     failed += expect_u32("slot0 claimed", map.slot[0].claim_state, REFMEM_SLOT_CLAIM_CLAIMED);
     failed += expect_u32("slot0 load mask", map.slot[0].loaded_instance_mask, 0x01u);
     failed += expect_u32("slot2 load mask", map.slot[2].loaded_instance_mask, 0x02u);
@@ -170,6 +171,10 @@ static int test_duplicate_claim_blocks_gate(void)
     failed += expect_u32("duplicate reason", map.slot[0].reason, REFMEM_SLOT_CLAIM_REASON_DUPLICATE_SLOT);
     failed += expect_u32("duplicate gate conflicts", gate.conflict_count, 1u);
     failed += expect_u32("duplicate first slot", gate.first_bad_slot, 0u);
+    failed += expect_u32("duplicate evidence count", map.evidence_count, 1u);
+    failed += expect_u32("duplicate evidence reason",
+                         map.evidence[0].reason,
+                         REFMEM_SLOT_CLAIM_REASON_DUPLICATE_SLOT);
     return failed;
 }
 
@@ -196,6 +201,8 @@ static int test_uuid_mismatch_blocks_gate(void)
     failed += expect_u32("uuid mismatch state", map.slot[0].claim_state, REFMEM_SLOT_CLAIM_MISMATCH);
     failed += expect_u32("uuid mismatch reason", map.slot[0].reason, REFMEM_SLOT_CLAIM_REASON_UUID_MISMATCH);
     failed += expect_u32("uuid mismatch gate count", gate.mismatch_count, 1u);
+    failed += expect_u32("uuid mismatch evidence count", map.evidence_count, 1u);
+    failed += expect_u32("uuid mismatch evidence board", map.evidence[0].board_id, 0u);
     return failed;
 }
 
@@ -220,6 +227,8 @@ static int test_candidate_overflow_blocks_gate(void)
     failed += expect_u32("overflow assigned", map.assigned_count, 8u);
     failed += expect_u32("overflow count", map.overflow_count, 1u);
     failed += expect_u32("overflow reason", gate.first_reason, REFMEM_SLOT_CLAIM_REASON_OVERFLOW);
+    failed += expect_u32("overflow evidence count", map.evidence_count, 1u);
+    failed += expect_u32("overflow evidence candidate", map.evidence[0].candidate_id, 8u);
     return failed;
 }
 

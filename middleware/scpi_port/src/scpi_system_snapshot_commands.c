@@ -156,6 +156,57 @@ scpi_result_t scpi_cmd_refmem_claim_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_claim_evidence_q(scpi_t *context)
+{
+    refmem_slot_claim_map_t map;
+    if (!refmem_slot_claim_derive_map(refmem_application_model_get_generic_node_table(),
+                                      refmem_application_model_get_board_capability_table(),
+                                      refmem_application_model_get_node_load_table(),
+                                      refmem_application_model_get_fb_instance_table(),
+                                      &map)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t evidence_id = 0u;
+    (void)SCPI_ParamUInt32(context, &evidence_id, FALSE);
+    const refmem_slot_claim_evidence_t *evidence =
+        refmem_slot_claim_find_evidence(&map, evidence_id);
+
+    SCPI_ResultUInt32(context, map.version);
+    SCPI_ResultUInt32(context, map.claim_epoch);
+    SCPI_ResultUInt32(context, map.evidence_count);
+    SCPI_ResultUInt32(context, evidence_id);
+    if (evidence == NULL) {
+        SCPI_ResultUInt32(context, UINT32_MAX);
+        SCPI_ResultUInt32(context, UINT32_MAX);
+        SCPI_ResultUInt32(context, UINT32_MAX);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, UINT32_MAX);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+        return SCPI_RES_OK;
+    }
+
+    SCPI_ResultUInt32(context, evidence->evidence_id);
+    SCPI_ResultUInt32(context, evidence->candidate_id);
+    SCPI_ResultUInt32(context, evidence->slot_id);
+    SCPI_ResultUInt32(context, evidence->board_id);
+    SCPI_ResultUInt32(context, evidence->board_uuid_crc32);
+    SCPI_ResultUInt32(context, evidence->preferred_slot_id);
+    SCPI_ResultUInt32(context, evidence->claim_state);
+    SCPI_ResultUInt32(context, evidence->reason);
+    SCPI_ResultUInt32(context, evidence->claim_policy);
+    SCPI_ResultUInt32(context, evidence->claim_priority);
+    SCPI_ResultUInt32(context, evidence->claim_epoch);
+    SCPI_ResultUInt32(context, evidence->evidence_crc32);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
 {
     if (!scpi_refmem_model_mode_idle()) {
