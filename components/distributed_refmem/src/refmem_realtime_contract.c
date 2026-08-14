@@ -73,6 +73,9 @@ uint32_t refmem_realtime_contract_io_capability_mask(uint32_t io_claim)
     if ((io_claim & REFMEM_APP_IO_UART_RS485) != 0u) {
         capability |= REFMEM_APP_CAP_UART_RS485;
     }
+    if ((io_claim & REFMEM_APP_IO_PIO_SPI_SYNC) != 0u) {
+        capability |= REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT;
+    }
     return capability;
 }
 
@@ -99,7 +102,58 @@ uint32_t refmem_realtime_contract_ip_capability_mask(uint32_t ip_core_claim)
     if ((ip_core_claim & REFMEM_APP_IP_VDC_DPLL) != 0u) {
         capability |= REFMEM_APP_CAP_CORE1_RT;
     }
+    if ((ip_core_claim & REFMEM_APP_IP_PIO_SPI_SYNC_DELTA) != 0u) {
+        capability |= REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT;
+    }
     return capability;
+}
+
+uint32_t refmem_realtime_contract_transport_resource_claim(uint32_t transport)
+{
+    switch (transport) {
+    case REFMEM_APP_TRANSPORT_CORE_IPC:
+        return REFMEM_APP_RESOURCE_CORE1_RT;
+    case REFMEM_APP_TRANSPORT_RJ45_SYNC_RING:
+        return REFMEM_APP_RESOURCE_RJ45;
+    case REFMEM_APP_TRANSPORT_PIO_SPI:
+        return REFMEM_APP_RESOURCE_PIO |
+               REFMEM_APP_RESOURCE_DMA |
+               REFMEM_APP_RESOURCE_CORE1_RT;
+    case REFMEM_APP_TRANSPORT_LOCAL_QUEUE:
+    case REFMEM_APP_TRANSPORT_COMMAND_SLOT:
+    default:
+        return 0u;
+    }
+}
+
+uint32_t refmem_realtime_contract_transport_io_claim(uint32_t transport)
+{
+    switch (transport) {
+    case REFMEM_APP_TRANSPORT_RJ45_SYNC_RING:
+        return REFMEM_APP_IO_RJ45_SYNC;
+    case REFMEM_APP_TRANSPORT_PIO_SPI:
+        return REFMEM_APP_IO_PIO_SPI_SYNC;
+    case REFMEM_APP_TRANSPORT_LOCAL_QUEUE:
+    case REFMEM_APP_TRANSPORT_CORE_IPC:
+    case REFMEM_APP_TRANSPORT_COMMAND_SLOT:
+    default:
+        return 0u;
+    }
+}
+
+uint32_t refmem_realtime_contract_transport_ip_core_claim(uint32_t transport)
+{
+    switch (transport) {
+    case REFMEM_APP_TRANSPORT_RJ45_SYNC_RING:
+        return REFMEM_APP_IP_RJ45_SYNC_DELTA;
+    case REFMEM_APP_TRANSPORT_PIO_SPI:
+        return REFMEM_APP_IP_PIO_SPI_SYNC_DELTA;
+    case REFMEM_APP_TRANSPORT_LOCAL_QUEUE:
+    case REFMEM_APP_TRANSPORT_CORE_IPC:
+    case REFMEM_APP_TRANSPORT_COMMAND_SLOT:
+    default:
+        return 0u;
+    }
 }
 
 bool refmem_realtime_contract_derive(const refmem_node_load_entry_t *load,

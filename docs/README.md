@@ -54,7 +54,7 @@ docs/
 | `trigger/` | `trigger/README.md` | 产品触发、序列、角度、core1 实时执行 |
 | `sync/` | `sync/README.md` | SYNC 动作、SYNC_IO、同步链路和硬实时 IO 落地 |
 | `calibration/` | `calibration/README.md` | CAL link、delay、参数、版本和质量 |
-| `refmem/` | `refmem/README.md` | 分布式向量表、命令槽、ACK/NACK 和节点事实 |
+| `refmem/` | `refmem/README.md` | 分布式向量表、命令槽、ACK/NACK、同步架构和最小系统板操作 |
 | `vdc/` | `vdc/README.md` | 虚拟 DC、共同时间、DPLL、HOLDOVER 和时间质量 |
 | `communication/` | `communication/README.md` | BiSS-C、UART、RS485 和通信维护 |
 | `measure/` | `measure/README.md` | 测量原语、T2 摘要和链路 delay 测量服务 |
@@ -116,6 +116,8 @@ docs/
 | `refmem/REFMEM_DOMAIN_ARCHITECTURE.md` | Distributed RefMem 内部主域架构，定义 RefMem Domain 的职责边界、静态分布式应用模型和目标代码形态。 |
 | `refmem/REFMEM_DOMAIN_TODO.md` | Distributed RefMem 内部主域待办，跟踪分布式应用模型、slot 契约、ACK/NACK、sync protocol 和组件化。 |
 | `refmem/REFMEM_TASK_PROGRESS.md` | Distributed RefMem 内部主域任务进度。 |
+| `refmem/REFMEM_SYNC_ARCHITECTURE.md` | Distributed RefMem Sync 内部架构，定义总线无关同步协议和 adapter 边界。 |
+| `refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md` | Distributed RefMem 最小系统板 bring-up 记录，维护当前两板线序和验证步骤。 |
 | `vdc/README.md` | VDC 内部主域 README。 |
 | `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间、DPLL、timestamp、HOLDOVER 和质量门禁。 |
 | `vdc/VDC_DOMAIN_TODO.md` | VDC 内部主域待办，跟踪数据契约、DPLL、RefMem 映射、组件化和验证。 |

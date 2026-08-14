@@ -40,6 +40,9 @@ typedef struct {
 uint32_t refmem_realtime_contract_resource_capability_mask(uint32_t resource_claim);
 uint32_t refmem_realtime_contract_io_capability_mask(uint32_t io_claim);
 uint32_t refmem_realtime_contract_ip_capability_mask(uint32_t ip_core_claim);
+uint32_t refmem_realtime_contract_transport_resource_claim(uint32_t transport);
+uint32_t refmem_realtime_contract_transport_io_claim(uint32_t transport);
+uint32_t refmem_realtime_contract_transport_ip_core_claim(uint32_t transport);
 bool refmem_realtime_contract_derive(const refmem_node_load_entry_t *load,
                                      const refmem_fb_instance_entry_t *instance,
                                      const refmem_app_node_entry_t *node,

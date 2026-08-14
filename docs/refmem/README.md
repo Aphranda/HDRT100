@@ -8,7 +8,7 @@ Last updated: 2026-08-13
 
 本目录是 Distributed Vector Blackboard / RefMem Sync 内部主域入口，维护分布式向量表、RefMemAO、通用 A0-A7 逻辑插槽、静态分布式应用模型、节点装载、SlotClaim 协调、表镜像加载、命令槽、ACK/NACK、stale/CRC/epoch 和多板共同状态。
 
-当前主线已经从单纯 64 KB 表骨架推进到“RefMemAO 基础件 + 静态模型表 + staging load”的实现阶段。后续待办以 `REFMEM_DOMAIN_TODO.md` 的优先级为准：先收敛 TableRegistry、staging/active 表镜像、SlotClaimMap 和 SlotContract，再推进 sync protocol 与 command slot。
+当前主线已经从单纯 64 KB 表骨架推进到“RefMemAO 基础件 + 静态模型表 + staging load”的实现阶段。后续待办以 `REFMEM_DOMAIN_TODO.md` 的优先级为准：先收敛 TableRegistry、staging/active 表镜像、SlotClaimMap 和 SlotContract，再推进 sync architecture 与 command slot。
 
 ## 当前主线
 
@@ -17,6 +17,8 @@ Last updated: 2026-08-13
 | `REFMEM_DOMAIN_ARCHITECTURE.md` | Distributed RefMem 内部主域架构，定义职责边界、HAOFV 层级、静态分布式模型、通用基础件、核心数据面、load 状态机和目标代码形态。 | RefMem 主域 canonical 架构入口。 |
 | `REFMEM_DOMAIN_TODO.md` | RefMem 主域独立待办，维护 TableRegistry、staging/active 表镜像、SlotClaimMap、SlotContract、ACK/NACK、sync protocol、代码组件化和验证事项。 | 只记录当前未完成事项和执行顺序，不写验证流水账。 |
 | `REFMEM_TASK_PROGRESS.md` | RefMem 主域任务进度，记录阶段性工作、验证结果和后续动作。 | RefMem 新任务完成后追加记录。 |
+| `REFMEM_SYNC_ARCHITECTURE.md` | RefMem Sync 内部架构，定义总线无关同步协议、adapter 边界、RMA/fence/quality 约束。 | RefMem 同步协议的 canonical 架构说明。 |
+| `REFMEM_MIN_SYSTEM_PLAYBOOK.md` | RefMem 最小系统板 bring-up 记录，维护当前两板线序、端口、验证和执行日志。 | 只记录当前最小系统板实际操作，不写架构约束。 |
 
 ## 相关参考
 

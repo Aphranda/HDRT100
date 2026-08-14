@@ -107,6 +107,30 @@ Last updated: 2026-08-13
   支持方向性 logical remap，避免把临时线束顺序硬编码进产品 pin map。
 - 产品板最终 PIO/SMA/RJ45/BiSS pin map 仍以产品板硬件约束和网表为准。
 
+## GPIO4..7 最小模型 Overlay
+
+当前最小系统板允许临时启用 `GPIO4..7` 作为模型系统 overlay，用来模拟转台、虚拟网分、链路控制、脉冲分发和 VNA 网关之间的硬实时事件。该 overlay 属于调试板实操约束，不属于产品板 pin map，也不替代 `GPIO16..19` / `GPIO21..24` 双板主同步链路。
+
+当前槽位与线束规划如下：
+
+| 板卡 | 槽位 | 实例 | GPIO | 方向 | 对端 |
+|---|---|---|---:|---|---|
+| X 板 | `A1` | 模拟转台 | 4 | 输出 `TURN_POS_PULSE` | Y 板 `A4` 脉冲分发输入。 |
+| X 板 | `A2` | 模拟网分 | 5 | 输出 `VNA_READY` | Y 板 `A5` VNA 网关输入。 |
+| X 板 | `A2` | 模拟网分 | 6 | 输入 `VNA_TRIG` | Y 板 `A5` VNA 网关输出。 |
+| X 板 | `A3` | 链路控制 | 7 | 输出 `LINK_SWITCH` | Y 板 `A5` VNA 网关输入。 |
+| Y 板 | `A4` | 脉冲分发 | 4 | 输入 `TURN_POS_PULSE` | X 板 `A1` 模拟转台输出。 |
+| Y 板 | `A5` | VNA 网关 | 5 | 输入 `VNA_READY` | X 板 `A2` 模拟网分输出。 |
+| Y 板 | `A5` | VNA 网关 | 6 | 输出 `VNA_TRIG` | X 板 `A2` 模拟网分输入。 |
+| Y 板 | `A5` | VNA 网关 | 7 | 输入 `LINK_SWITCH` | X 板 `A3` 链路控制输出。 |
+
+调试约束：
+
+- A0-A7 是全系统唯一逻辑槽位；Y 板模型实例当前从 `A4` 开始，不能再占用 X 板的 `A3`。
+- 每根互联线只能有一个输出 owner；方向未配置前双方都必须保持输入或 release。
+- `GPIO4/5` 在当前 board config 中仍保留 UART1 TX/RX 兼容定义；最小系统模型 overlay 运行时必须保持 `PROJECT_ENABLE_UART_STDIO=OFF`，固件不得初始化 UART1。
+- 该 overlay 后续应通过 board profile、RefMem node load 和 realtime capability contract 显式声明，不能靠散落的硬编码 GPIO 驱动。
+
 最小系统板不要求具备：
 
 - ISO1452/ISO7740 真实隔离链路。

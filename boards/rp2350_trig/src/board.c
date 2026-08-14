@@ -4,13 +4,16 @@
 #include "diagnostics.h"
 #include "drv_i2c.h"
 #include "drv_spi.h"
-#include "drv_uart.h"
 #include "drv_watchdog.h"
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "lcd_st7789.h"
 #include "pico/stdlib.h"
 #include "project_config.h"
+
+#if PROJECT_ENABLE_UART_STDIO
+#include "drv_uart.h"
+#endif
 
 static bool s_led_state;
 
@@ -66,6 +69,7 @@ static bool board_init_i2c(void)
 
 static bool board_init_uart(void)
 {
+#if PROJECT_ENABLE_UART_STDIO
     const drv_uart_config_t config = {
         .instance = BOARD_UART_PORT,
         .tx_pin = BOARD_UART_TX_PIN,
@@ -74,6 +78,9 @@ static bool board_init_uart(void)
     };
 
     return drv_uart_init(&config);
+#else
+    return true;
+#endif
 }
 
 static bool board_init_lcd(void)

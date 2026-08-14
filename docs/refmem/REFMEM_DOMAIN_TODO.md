@@ -113,17 +113,53 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 ## P4 - RefMem Sync Protocol 与 RMA Window
 
-目标：把 RJ45_SYNC_RING 上的共同事实同步定义为受控 delta/epoch，而不是远端任意写内存。
+目标：先定义总线无关的 RefMem Sync Protocol，把共同事实同步收敛为受控 delta/epoch/command/fence/quality，而不是远端任意写内存。首版两板验证使用最简单的 PIO SPI 风格 transport adapter；后续可迁移到 BISS-C、RJ45_SYNC_RING、UART、RS485 或其他通讯总线，但不得改变 RefMem 协议语义。
 
-- [ ] 定义 `REFMEM_DELTA(slot_id, slot_version, compact payload)` 帧格式。
-- [ ] 定义 `REFMEM_EPOCH(epoch, run_id, table_seq)` 帧格式。
-- [ ] 定义 slot delta CRC、seq、source_node、target_node、timestamp。
-- [ ] 定义 RJ45_SYNC_RING 上的 delta 合并、重放、丢帧和 stale 策略。
+- [x] 定义总线无关 `RefMemSyncProtocol` 固定帧头：magic、version、frame_type、source_slot、target_mask、epoch、run_id、seq、ack_seq、compact_time、CRC。
+- [x] 定义 `REFMEM_HELLO`，用于节点发现、能力摘要、MTU、adapter id、layout/app/config CRC 交换。
+- [x] 定义 `REFMEM_DELTA(slot_id, slot_version, compact payload)` 帧格式。
+- [x] 定义 `REFMEM_EPOCH(epoch, run_id, table_seq)` 帧格式。
+- [x] 定义 `REFMEM_COMMAND` / `REFMEM_ACK_NACK` / `REFMEM_FENCE` / `REFMEM_QUALITY` 帧格式。
+- [x] 定义 slot delta CRC、seq、source_slot、target_mask、compact timestamp 和 VDC timestamp dictionary 的关系。
+- [x] 定义 delta 合并、重放、丢帧、乱序、重复 seq、epoch mismatch 和 stale 策略，要求策略与具体通讯总线无关。
+- [x] 定义首版 PIO SPI transport adapter skeleton：adapter id、send/poll 占位、MTU、可选 RX timestamp 能力位、链路计数和错误上报。
 - [ ] 定义 RefMem RMA Window 抽象：每个节点只暴露受控 slot mirror，不暴露任意地址。
-- [ ] 定义 delta completion 语义：`origin_encoded`、`ring_sent`、`target_received`、`target_validated`、`target_committed`、`visible_in_snapshot`。
+- [ ] 定义 delta completion 语义：`origin_encoded`、`adapter_queued`、`transport_sent`、`target_received`、`target_validated`、`target_committed`、`visible_in_snapshot`。
 - [ ] 定义原子远端更新白名单：仅允许 command flag、seq/heartbeat、quality counter、dirty bitmap 等小字段使用 atomic update。
 - [ ] 定义 RMA-style fence：一批 delta 在 `SYNC_EPOCH` 或 `RUN_GATE_CHECK` 前必须完成校验和可见性切换。
 - [ ] 将节点新鲜度纳入 `SYNC:CHECk`、`READ:SYNC:*?` 和 TRIG RUN 门禁。
+
+## P4.5 - 最小系统板 PIO SPI Adapter Bring-up
+
+目标：在不绑定 BISS-C 的前提下，用两块最小系统板和最简单 PIO SPI 风格 adapter 验证 RefMem Sync Protocol 的最小分布式闭环。当前端口、线序和已验证记录放在 `REFMEM_MIN_SYSTEM_PLAYBOOK.md`。
+
+- [ ] 阶段 0：固化线序与串口生命周期检查，确保 `REALtime:IO:PROFile?`、输出 release、线序检测和脚本退出清理稳定。
+- [x] 阶段 1：新增 PIO SPI adapter skeleton，提供 adapter id、state、MTU、tx/rx counter、CRC/drop/timeout/last error snapshot。
+- [x] 阶段 1：定义 PIO SPI adapter caps 与 `BoardCapabilityTable` / `RealtimeCapabilityContract` 的映射关系。
+- [x] 阶段 2 前置：增加 PIO SPI adapter 单帧 RX staging / loopback 注入能力，先验证 HELLO frame 可被 adapter 接收、缓存、poll 和计数。
+- [x] 阶段 2 前置：增加 `REFMEM_HELLO` payload/frame helper，将 board capability、adapter caps、layout/application/config CRC 组合为标准 HELLO frame。
+- [ ] 阶段 2：实现 `REFMEM_HELLO` 双向发送与接收，交换 layout version、application CRC、capability mask、adapter caps 和 max payload。
+- [ ] 阶段 2：实现 `REFMEM_EPOCH` 对齐，epoch/run/table seq 或 CRC bundle 不匹配时拒绝进入 delta active。
+- [ ] 阶段 3：实现最小 `REFMEM_DELTA` test field，从 A 板发布到 B 板 mirror，并切换到 snapshot visible。
+- [ ] 阶段 3：实现 `REFMEM_ACK_NACK` 回传，覆盖 ACK、payload CRC mismatch、duplicate seq 和 target mismatch。
+- [ ] 阶段 4：实现最小 `REFMEM_FENCE`，验证 required 节点 visible 后 fence passed，timeout 后进入 degraded/fault evidence。
+- [ ] 阶段 4：将 PIO SPI adapter 的 CRC/drop/late/timeout 计数映射到 `DistributedConnectionQualityTable`。
+- [ ] 增加两板 HIL 工具，顺序管理 COM3/COM4 或用户指定串口生命周期，不并行占用同一端口。
+- [ ] 增加 HIL 报告输出，记录 build id、package CRC、SlotClaimMap CRC、adapter id、线序 remap、delta/fence/quality 结果。
+
+## P4.6 - 最小模型系统 GPIO4..7 Overlay
+
+目标：在两块最小系统板上用 `GPIO4..7` 搭建一个可运行的业务模型闭环，验证“模拟转台 -> 脉冲分发/VDC -> 链路控制 -> VNA 网关 -> 虚拟网分 READY”的分布式事件流。该 overlay 不替代 RefMem Sync transport adapter，也不写入产品板 pin map。
+
+- [x] 记录当前 overlay 槽位分配：X 板 `A1` 模拟转台、`A2` 模拟网分、`A3` 链路控制；Y 板向后挪为 `A4` 脉冲分发、`A5` VNA 网关。
+- [x] 记录当前 GPIO4..7 方向：`GPIO4` X->Y 位置脉冲，`GPIO5` X->Y READY，`GPIO6` Y->X TRIG，`GPIO7` X->Y LINK_SWITCH。
+- [x] 固化最小系统 UART 不启用约束：`GPIO4/5` 可作为 overlay PIO 线使用，默认 `PROJECT_ENABLE_UART_STDIO=OFF` 时不得初始化 UART1。
+- [ ] 新增 debug model board profile 或等价配置表，显式声明 GPIO4..7 overlay 与 UART1 互斥。
+- [ ] 将 overlay 节点写入 `DistributedNodeLoadTable` / System Pack staging：A1 turntable simulator、A2 virtual VNA、A3 link control、A4 pulse distributor、A5 VNA gateway。
+- [ ] 为 overlay 定义 `RealtimeCapabilityContract`：每个实例的 GPIO owner、PIO/IRQ/DMA/core1 需求、time budget 和 fallback policy。
+- [ ] 增加线序/方向安全脚本：运行前 release 双方 GPIO4..7，只逐根拉高输出 owner，确认对端输入和非 owner 不驱动。
+- [ ] 增加最小业务 HIL：A1 输出位置脉冲，A4 捕获并更新时间事实，A3 按 VDC 预约输出 `LINK_SWITCH`，A5 输出 `VNA_TRIG` 并等待 A2 `VNA_READY`。
+- [ ] 将 overlay 结果写入 RefMem snapshot / quality / evidence，供 `READ:*` 或维护接口读取。
 
 ## P5 - 代码组件化
 
@@ -136,7 +172,10 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 新增 `refmem_table_registry.h/.c`。
 - [x] 新增 `refmem_slot_claim.h/.c`。
 - [ ] 新增 `refmem_slot_contract.h/.c`。
-- [ ] 新增 `refmem_sync.h/.c`。
+- [x] 新增 `refmem_sync.h/.c`。
+- [x] 新增 `refmem_sync_frame.h/.c`，落地总线无关帧头、HELLO/EPOCH/DELTA payload、encode/decode 和 CRC 校验。
+- [x] 新增 `refmem_sync_hello.h/.c`，将 board capability、adapter caps 和版本 CRC 打包为标准 HELLO frame。
+- [x] 新增 `refmem_pio_spi_adapter.h/.c`，落地首版 transport caps、send/poll skeleton 和 counters snapshot。
 - [ ] 新增 `refmem_command.h/.c`。
 - [ ] 新增 `refmem_quality.h/.c`。
 - [ ] 让旧 `distributed_refmem.h/.c` 过渡为兼容 wrapper 或逐步拆空。
@@ -169,6 +208,11 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 增加 SlotClaim 纯 C 单元测试入口：`tools/tests/run_refmem_slot_claim_tests.ps1`，覆盖默认 assignment、重复 claim、UUID mismatch 和第 9 个候选 overflow；无 host C 编译器时退化为 ARM GCC 编译检查。
 - [x] 增加两块最小系统板组网 baseline 验证工具骨架：`tools/refmem_network_validate/refmem_network_validate.py` 管理两个串口生命周期，确认 `REFMEM + VDC` baseline、SlotClaim gate ready、默认 evidence 为空，并可比较 build id 与 SlotClaimMap CRC。
 - [x] 增加两块最小系统板 `debug_min_two_board_link` PIO 预检：读取或记录 active profile 的输入/输出 base pin，确认双方按 profile 交叉连接，且 `GPIO12..15` 未被双板链路占用。
+- [ ] 增加两块最小系统板 PIO SPI adapter HIL 验证：按 P4.5 完成 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 闭环；同一验证不依赖 BISS-C。
 - [ ] 增加两块最小系统板组网 HIL 验证：确认 `CLAIM_HELLO/PROPOSE/CONFLICT/RESOLVE/COMMIT`、slot 冲突拒绝或协调、RefMem snapshot 一致性和串口生命周期管理。
 - [ ] 增加 SlotContract 验证：非法 writer、越界字段、stale snapshot、seqlock 重读。
 - [ ] 增加 RMA-style atomic 验证：重复 post、并发 take、payload CRC mismatch、fence 前读取不可见。
+- [x] 增加 RefMem Sync frame 纯 C 单元测试入口：`tools/tests/run_refmem_sync_frame_tests.ps1`，覆盖 HELLO encode/decode、payload CRC、header CRC、bad magic、bad type、bad source slot、oversize payload 和短帧。
+- [x] 增加 RefMem Sync 接收状态机纯 C 单元测试入口：`tools/tests/run_refmem_sync_tests.ps1`，覆盖 HELLO/EPOCH 接收、target mismatch、epoch mismatch、duplicate/stale/drop 计数和 payload CRC 错误归因。
+- [x] 增加 RealtimeCapabilityContract 纯 C 单元测试入口：`tools/tests/run_refmem_realtime_contract_tests.ps1`，覆盖 PIO SPI transport 到 resource/io/ip_core claim 的映射，以及缺少 DMA 或 adapter IP 时拒绝。
+- [x] 增加 RefMem Sync HELLO 纯 C 单元测试入口：`tools/tests/run_refmem_sync_hello_tests.ps1`，覆盖 board capability + adapter caps 生成 HELLO payload、编码为 frame、adapter RX staging poll 和字段校验。

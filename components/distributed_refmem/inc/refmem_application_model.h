@@ -66,6 +66,7 @@
 #define REFMEM_APP_IO_LINK_CONTROL                 0x00000008u
 #define REFMEM_APP_IO_BISS_C                       0x00000010u
 #define REFMEM_APP_IO_UART_RS485                   0x00000020u
+#define REFMEM_APP_IO_PIO_SPI_SYNC                 0x00000040u
 
 #define REFMEM_APP_IP_PULSE_CAPTURE                0x00000001u
 #define REFMEM_APP_IP_PULSE_FIRE                   0x00000002u
@@ -73,6 +74,7 @@
 #define REFMEM_APP_IP_BISS_C_CODEC                 0x00000008u
 #define REFMEM_APP_IP_RJ45_SYNC_DELTA              0x00000010u
 #define REFMEM_APP_IP_VDC_DPLL                     0x00000020u
+#define REFMEM_APP_IP_PIO_SPI_SYNC_DELTA           0x00000040u
 
 typedef enum {
     REFMEM_APP_FAIL_STOP = 0u,
@@ -126,6 +128,7 @@ typedef enum {
     REFMEM_APP_TRANSPORT_CORE_IPC = 1u,
     REFMEM_APP_TRANSPORT_COMMAND_SLOT = 2u,
     REFMEM_APP_TRANSPORT_RJ45_SYNC_RING = 3u,
+    REFMEM_APP_TRANSPORT_PIO_SPI = 4u,
 } refmem_app_transport_t;
 
 typedef enum {

@@ -45,6 +45,9 @@
 #define BOARD_I2C_SCL_PIN 9u
 #define BOARD_I2C_BAUD_HZ 400000u
 
+/* UART1 pins are only initialized when PROJECT_ENABLE_UART_STDIO is enabled.
+ * The minimum-system distributed model overlay may reuse GPIO4/GPIO5 as PIO
+ * model event lines while UART stdio stays disabled. */
 #define BOARD_UART_PORT uart1
 #define BOARD_UART_TX_PIN 4u
 #define BOARD_UART_RX_PIN 5u

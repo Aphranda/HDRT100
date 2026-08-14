@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面。
 
@@ -66,6 +66,29 @@ RefMem Domain 不负责：
 - 不支持运行时动态部署 FB、跨节点 FB 直接调用或动态事件路由。
 - 不计算 VDC offset/rate，也不执行 DPLL；VDC 共同时间由 VDC Domain owner 发布，RefMem 只保存其 snapshot、版本、质量和 evidence。
 
+## 分布式验证硬约束
+
+RefMem Domain 的核心价值不是单板上的 64 KB 表结构，而是多板对共同事实的同步认知。因此实现顺序必须保持一条最小垂直闭环：
+
+```text
+local vector fact
+  -> command / dirty / delta publish
+  -> realtime transport encode
+  -> peer receive / validate / commit
+  -> peer snapshot visible
+  -> ACK/NACK / quality / stale evidence
+```
+
+其中 BISS-C、RJ45_SYNC_RING、UART、RS485 或后续其他链路都只是不同的 transport adapter / realtime capability 载体。RefMem 本身不绑定某一种通讯协议，也不把 BISS-C 当作必要前置；它只定义共同事实、delta/epoch、command/ACK/NACK、stale、CRC、quality 和 evidence 的语义。后续 RefMem 代码推进不能长期停留在本地单元测试；必须尽早选择一个最小 transport adapter 验证 `REFMEM_DELTA`、`REFMEM_EPOCH`、ACK/NACK 和 quality 计数。当前最小系统板的端口、GPIO、线序和脚本记录放在 `REFMEM_MIN_SYSTEM_PLAYBOOK.md`。
+
+首版可接受的最小分布式闭环为：
+
+- 任一板发布一个小型 RefMem fact 或 command sequence。
+- core1 realtime 或 PIO 传输层把 compact delta 发到对端。
+- 对端校验 seq、CRC、epoch 和 source slot 后写入 mirror / snapshot。
+- 发起端能通过 ACK/NACK、stale、drop、CRC error 和 visible counter 判断闭环是否完成。
+- 该链路不要求一开始就是完整 BISS-C 协议，也不要求 RefMem 与 BISS-C 绑定；只要求 transport adapter 的边界能承接后续 BISS-C codec、SYNC capture/fire、VDC timestamp、UART/RS485 或其他物理链路实现。
+
 ## HAOFV 层级
 
 RefMem Domain 位于 HAOFV 的内部基础架构层：
@@ -79,7 +102,7 @@ Distributed RefMem Domain
         ↓
 Domain Vector / Slot / RefMem Sync
         ↓
-RJ45_SYNC_RING / local shared memory
+TransportAdapter / local shared memory
 ```
 
 和业务域的关系：
@@ -102,6 +125,7 @@ Other nodes
 - `DistributedGenericNodeTable` 只描述通用逻辑插槽基座、硬件身份、capability、claim policy 和 fail policy；不得把业务 role/persona 反向塞回 GenericNode。
 - `DistributedNodeLoadTable` 是 profile 到 A0-A7 的实例装载表；同一插槽允许多条 enabled load，但必须通过 DeploymentGate 的资源、IO、owner、writer、事件和数据连接检查。
 - NodeLoad 装载实例时必须同时装载该实例的实时能力契约；也就是 role/persona、`resource_claim`、`io_claim`、`ip_core_claim`、事件连接和数据连接必须作为同一个 active profile 的部署事实被验证。
+- 节点装载不仅装载 RefMem 表项，也必须装载对应 core1 realtime / PIO / DMA / codec 类 IP 核能力。比如链路控制节点装载后，应能接收同步脉冲、执行链路序列并发布 Trigger/Io snapshot；BISS-C 能力装载后，应对应 PIO 编码/解码、DMA ring 和状态镜像。
 - `SlotClaimMap` 是运行期协调结果，不是新的 slot 空间；未分配 candidate 只能进入 evidence，不能生成 A8 或隐式节点。
 - `RefMemSlotContract` 是 `DistributedRefMemAO` 从 DataLink、Directory、SlotGuard、Gate 和 Quality 派生出的字段级只读契约，不是 AO/FB 对外业务 API。
 - RefMem load mode 是 RefMem 自身的表镜像状态机；`LOAD:SD`、`LOAD:NODE`、后续 `LOAD:BEGIN/DATA/END/ABORT` 只允许写 staging image，active image 必须经 CRC、lint、owner validation 和 activation。
@@ -176,6 +200,110 @@ LOAD_TO_STAGING
 - owner 使用表指针后必须 release，避免阻塞 staging/active 切换。
 - validation 失败必须给出 reason 和 evidence，而不是只返回 false。
 
+#### RefMemSyncProtocol
+
+`RefMemSyncProtocol` 是 RefMem 的总线无关同步约束层。架构上它只规定共同事实必须通过 delta、epoch、command、ACK/NACK、fence 和 quality 形成闭环；具体帧格式、首版 PIO SPI adapter、后续 BISS-C/RJ45/UART/RS485 adapter 迁移策略放在 `REFMEM_SYNC_ARCHITECTURE.md` 中维护。
+
+```text
+DistributedRefMemAO
+  -> RefMemSyncProtocol
+  -> TransportAdapter
+  -> PhysicalBus
+```
+
+协议层的架构级帧类别如下，详细字段、CRC 布局和 payload 定义由 `REFMEM_SYNC_ARCHITECTURE.md` 维护：
+
+| 帧类别 | 架构作用 | 约束 |
+|---|---|---|
+| `HELLO` | 节点发现、能力摘要、adapter 能力和 active CRC 交换。 | 只建立同步上下文，不直接 claim slot。 |
+| `EPOCH` | 对齐 RefMem epoch、run、table seq 和 CRC bundle。 | epoch 不一致时不得提交 active fact。 |
+| `DELTA` | 发布小型共同事实变化。 | 只能引用 `RefMemSlotContract` 白名单字段。 |
+| `COMMAND` | 同步命令槽意图。 | 写命令 accepted 不等于动作完成。 |
+| `ACK_NACK` | 回写 take、busy、ACK、NACK、timeout 和 reason。 | 结果必须能映射到 evidence。 |
+| `FENCE` | 在 RUN gate、SYNC epoch 或配置激活前收束可见性。 | required 节点必须到达 snapshot visible。 |
+| `QUALITY` | 发布 stale、CRC、drop、late、timeout 和统计质量。 | 质量事实进入 DeploymentGate 和 Report。 |
+
+Transport adapter 的架构级约束如下：
+
+| Adapter 类别 | 首版定位 | 架构边界 |
+|---|---|---|
+| PIO SPI | 首版两板 HIL 的最小同步承载。 | 用于快速验证协议闭环，不作为最终唯一通讯方案。 |
+| BISS-C | 后续复杂实时 codec 承载。 | 只作为 adapter / 类 IP 核能力，不改变 RefMem 协议语义。 |
+| RJ45_SYNC_RING | 后续环路同步承载。 | 只承载协议帧和可选 timestamp，不直接暴露远端内存。 |
+| UART / RS485 | 维护、低速或扩展节点承载。 | 可参与 RefMem Sync，但必须服从同一 CRC、seq、fence 和 quality 规则。 |
+| USB debug | 调试和验证承载。 | 不作为产品 RUN 硬实时路径依据。 |
+
+Transport adapter 在架构中不是“驱动细节”，而是 RefMem 跨平台、跨总线能力的隔离边界。它必须暴露统一能力模型，让 DeploymentGate 能判断当前链路是否足以承载某个 active profile：
+
+| Adapter 能力 | 架构含义 | Gate/Quality 用途 |
+|---|---|---|
+| `adapter_id` | 当前承载实现，例如 PIO SPI、BISS-C、UART 或 RS485。 | 报告和 profile 兼容检查。 |
+| `capability_mask` | 是否支持 timestamp、双向、ACK、CRC offload、重传、半双工方向控制等。 | 判断能否承载 `DELTA`、`COMMAND`、`FENCE` 或 VDC timestamp 输入。 |
+| `mtu/payload_limit` | 单帧可承载的 payload 上限。 | 决定 delta compact 策略和是否拒绝大字段同步。 |
+| `latency_class` | 预期延迟等级，不等同于实时保证。 | RUN gate、timeout 默认值和 quality 门限输入。 |
+| `timestamp_source` | 无 timestamp、接收 tick、PIO capture、外部同步 timestamp。 | 给 VDC/quality 提供样本来源标识。 |
+| `error_counter` | CRC、drop、overrun、timeout、direction conflict。 | 进入 `DistributedConnectionQualityTable`。 |
+| `active_path_role` | active、standby、debug、report-only。 | 多 adapter 共存时防止同一 slot mirror 多 writer。 |
+
+adapter 的替换原则：
+
+- 协议帧语义不随 adapter 改变；迁移总线不能改 `DELTA/EPOCH/COMMAND/FENCE/QUALITY` 的含义。
+- adapter 可以优化编码、时钟、方向控制和 timestamp 获取，但不能绕过 `RefMemSlotContract`。
+- adapter 的链路错误必须转成统一 quality/evidence，而不是返回物理层私有错误给业务域。
+- 多 adapter 并存时，只允许一个 active sync path 写同一 mirror；其他路径只能作为 standby、diagnostic 或 report-only。
+- PIO SPI 首版 adapter 的价值是降低 bring-up 复杂度，先验证协议和共同事实闭环；BISS-C 价值是后续承载更复杂的实时 codec 和同步链路，但它不能反向污染 RefMem 协议层。
+
+同步协议可借鉴的参考机制如下：
+
+| 参考来源 | 借鉴内容 | RefMem Sync 落点 |
+|---|---|---|
+| OpenSHMEM / MPI RMA | origin/target completion、atomic、fence、quiet。 | delta completion、RMA window 白名单和 fence 可见性门禁。 |
+| NASA cFS Table Services | active/staging 表、CRC、owner validation。 | epoch/CRC bundle、table image 激活前一致性检查。 |
+| IEC 61499 | event/data connection 和部署一致性。 | command/event/data link 与 DeploymentGate。 |
+| LinuxPTP / Chrony / EtherCAT DC | timestamp、delay、lock quality 的质量表达。 | 仅作为 VDC/quality 输入参考，VDC 算法仍由 VDC Domain owner 管理。 |
+
+架构上把 RefMem Sync 拆成 protocol 和 adapter，是为了保证四个不变量：
+
+| 不变量 | 含义 | 破坏后果 |
+|---|---|---|
+| 共同事实不变量 | 所有节点看到的 active fact 必须来自同一套 epoch、run、layout、CRC 和 owner 规则。 | 同一条测试序列在不同板上含义不同，RUN gate 无法可信。 |
+| 写入权限不变量 | 任何跨节点写入都必须经过 slot/field contract、owner validation 和 snapshot policy。 | 通讯中断、重发或误码可能直接污染 active 表。 |
+| 完成语义不变量 | 发送成功、接收成功、校验成功、提交成功和对外可见必须分层表达。 | 上位机或业务域会把“发出去了”误判成“系统已经一致”。 |
+| 质量证据不变量 | stale、drop、CRC、late、timeout、NACK 必须进入同一质量和 evidence 模型。 | 故障只表现为动作不一致，无法定位是链路、节点、epoch 还是权限问题。 |
+
+因此，RefMem Sync 的核心不是“用哪种线通信”，而是“共同事实什么时候被允许成为共同事实”。PIO SPI、BISS-C、RJ45、UART 或 RS485 都只能改变帧如何到达，不能改变 fact 如何被接收、校验、提交和门禁。
+
+在 HAOFV 中，RefMem Sync 处于 AO/FB 之间的事实层，而不是事件执行层：
+
+```text
+Domain AO/FB publishes intent or fact
+  -> DistributedRefMemAO validates owner / contract / epoch
+  -> RefMemSyncProtocol publishes delta / command / quality
+  -> peer DistributedRefMemAO commits snapshot
+  -> peer Domain AO/FB consumes snapshot or event
+```
+
+这个方向保证了 AO/FB 仍然是行为 owner，RefMem 只是共同事实 owner。链路控制节点、脉冲分发节点、仪表控制节点或 BISS-C codec 节点都不能因为自己掌握某个 adapter，就绕过 RefMemAO 直接改其他节点的 active fact。
+
+RefMem Sync 和 VDC 的关系也必须保持分层：
+
+| 层 | 负责内容 | 不负责内容 |
+|---|---|---|
+| TransportAdapter | 提供帧收发、链路计数和可选硬件 timestamp。 | 不计算 offset/rate，不决定共同时间。 |
+| RefMemSyncProtocol | 使用 epoch、seq、CRC、fence、quality 组织事实同步。 | 不执行 DPLL，不修正链路 delay。 |
+| VDC Domain | 根据 timestamp、校准 delay 和 DPLL 形成共同时间。 | 不定义 RefMem slot 同步帧。 |
+| DeploymentGate | 聚合 RefMem 一致性和 VDC 质量，决定能否 RUN。 | 不替代具体 AO/FB 的业务状态机。 |
+
+这样后续两板最小验证可以先用 PIO SPI adapter，产品化版本可以迁移到 BISS-C 或其他总线；但上位机看到的 RefMem 状态、ACK/NACK、fence、quality 和 evidence 解释保持一致。
+
+架构约束：
+
+- RefMem 不绑定具体通讯总线；BISS-C、PIO SPI、RJ45、UART、RS485 都只能作为 transport adapter。
+- adapter 可以变化，RefMem 的共同事实语义、owner、CRC、epoch、stale、fence 和 evidence 规则不能变化。
+- adapter 不得直接修改 active fact，只能把完整协议帧交给 `DistributedRefMemAO` 校验和提交。
+- 协议帧不得承载 OTA、Storage、Report 或波形大 payload；RefMem 只同步小型共同事实、命令、质量和摘要。
+- VDC timestamp 可以由 adapter 提供输入样本，但共同时间算法仍由 VDC Domain owner 负责。
+
 #### RefMemRmaWindow
 
 `RefMemRmaWindow` 是 OpenSHMEM / MPI RMA 思想在本项目中的受控子集。它不是远端裸内存访问，而是固定 slot mirror 的同步窗口。
@@ -194,7 +322,8 @@ completion 语义：
 
 ```text
 origin_encoded
-  -> ring_sent
+  -> adapter_queued
+  -> transport_sent
   -> target_received
   -> target_crc_ok
   -> target_owner_validated

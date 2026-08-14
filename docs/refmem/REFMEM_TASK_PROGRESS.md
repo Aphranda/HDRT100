@@ -8,6 +8,254 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-041 - GPIO4..7 最小模型 overlay 规划
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 将用户当前已连接的 `GPIO4..7` 记录为最小系统业务模型 overlay。
+  - 明确 Y 板模型实例整体向后挪一个槽位，避免和 X 板 `A3` 链路控制冲突。
+  - 消除最小系统 UART1 对 `GPIO4/5` 的默认占用风险。
+- 完成内容：
+  - `REFMEM_MIN_SYSTEM_PLAYBOOK.md` 增加 `GPIO4..7` 最小模型 overlay，定义 X 板 `A1/A2/A3` 和 Y 板 `A4/A5`。
+  - `HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md` 增加 overlay 硬件约束，明确每根线的唯一输出 owner、输入 receiver 和模拟信号。
+  - `REFMEM_DOMAIN_TODO.md` 增加 `P4.6 - 最小模型系统 GPIO4..7 Overlay`，把 profile、node load、RealtimeCapabilityContract、方向安全脚本和业务 HIL 拆成后续待办。
+  - `board_config.h` 注明 `GPIO4/5` 的 UART1 兼容定义只在 UART stdio 启用时有效，最小模型 overlay 可复用。
+  - `board.c` 将 `drv_uart.h` include 和 `board_init_uart()` 内部初始化改为受 `PROJECT_ENABLE_UART_STDIO` 控制；默认最小系统 build 不初始化 UART1。
+- 当前 overlay 线束：
+  - `GPIO4`: X `A1` 模拟转台输出 `TURN_POS_PULSE` -> Y `A4` 脉冲分发输入。
+  - `GPIO5`: X `A2` 模拟网分输出 `VNA_READY` -> Y `A5` VNA 网关输入。
+  - `GPIO6`: Y `A5` VNA 网关输出 `VNA_TRIG` -> X `A2` 模拟网分输入。
+  - `GPIO7`: X `A3` 链路控制输出 `LINK_SWITCH` -> Y `A5` VNA 网关输入。
+- 还需完成：
+  - 增加 debug model board profile 或等价配置表，显式声明 `GPIO4..7` overlay 与 UART1 互斥。
+  - 增加方向安全检测脚本，确保运行前双方非 owner 引脚 release。
+  - 增加最小业务 HIL，验证位置脉冲、VDC 发布时间、预约链路切换、虚拟网分触发和 READY 回传。
+- 关联文件：
+  - `boards/rp2350_trig/inc/board_config.h`
+  - `boards/rp2350_trig/src/board.c`
+  - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
+  - `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 先做 GPIO4..7 方向安全脚本和 profile 声明，再把 overlay 节点写入 RefMem node load / realtime capability contract。
+
+### REFMEM-TASK-20260814-040 - REFMEM_HELLO bundle helper
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 为 P4.5 阶段 2 的 `REFMEM_HELLO` 双向交换建立可复用 payload/frame 生成入口。
+  - 将 board capability、adapter caps、layout/application/config CRC 和 build id CRC 收敛为标准 HELLO，而不是在后续 HIL 或 SCPI 中临时拼字段。
+- 完成内容：
+  - 新增 `components/distributed_refmem/inc/refmem_transport_adapter.h`，抽出通用 adapter id、capability、state、error 和 `refmem_transport_caps_t`。
+  - `refmem_pio_spi_adapter.h` 改为引用公共 transport adapter 头，避免后续 BISS-C/RJ45/UART/RS485 adapter 重复定义。
+  - 新增 `components/distributed_refmem/inc/refmem_sync_hello.h`。
+  - 新增 `components/distributed_refmem/src/refmem_sync_hello.c`。
+  - 实现 `refmem_sync_hello_payload_from_board()`：从 board capability、adapter caps 和版本 CRC 生成 `refmem_sync_hello_payload_t`。
+  - 实现 `refmem_sync_hello_encode_frame()`：把 HELLO payload 编码为标准 RefMem Sync frame。
+  - 新增 `tests/unit/test_refmem_sync_hello.c` 和 `tools/tests/run_refmem_sync_hello_tests.ps1`，覆盖 payload 字段、frame validate、adapter inject/poll 和 payload byte match。
+  - 将 `refmem_sync_hello.c` 加入根 `CMakeLists.txt` 固件源列表。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_hello_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_pio_spi_adapter_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_contract_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_frame_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\docs_check\docs_check.py` 通过，`files=85 warnings=0`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC 为 `0x36759853`，build id 为 `20260814103620`。
+  - 本轮未烧录板端，未运行 COM3/COM4 HIL；真实两板 `REFMEM_HELLO` 双向交换仍未完成。
+- 还需完成：
+  - 定义 `task_refmem_sync` 内的 adapter service 调用点，接入 HELLO TX/RX 周期。
+  - 增加两板 HIL 工具步骤：双方生成 HELLO、发送、接收、校验 build/layout/application/config/capability/adapter bundle。
+  - 将 HELLO 结果写入 peer state 和 connection quality snapshot。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_transport_adapter.h`
+  - `components/distributed_refmem/inc/refmem_sync_hello.h`
+  - `components/distributed_refmem/src/refmem_sync_hello.c`
+  - `components/distributed_refmem/inc/refmem_pio_spi_adapter.h`
+  - `tests/unit/test_refmem_sync_hello.c`
+  - `tools/tests/run_refmem_sync_hello_tests.ps1`
+  - `CMakeLists.txt`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 设计 `RefMemSyncService` 的 TX/RX service 边界，并把 HELLO frame 进入 `refmem_sync_receive_frame()` 的路径固定下来。
+
+### REFMEM-TASK-20260814-039 - PIO SPI adapter RX staging 前置闭环
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 为 P4.5 阶段 2 的 `REFMEM_HELLO` 双向交换建立 adapter-level RX staging 基础。
+  - 先验证完整 RefMem Sync frame 可以在 adapter 层完成接收注入、缓存、poll、计数和错误归因，不接真实 PIO FIFO/DMA。
+- 完成内容：
+  - `refmem_pio_spi_adapter_t` 增加单帧 RX staging buffer、`rx_frame_size` 和 snapshot `rx_pending`。
+  - 新增 `refmem_pio_spi_adapter_inject_rx_frame()`，作为后续 PIO/DMA RX ISR 或 HIL loopback 的受控入口。
+  - `send` 和 `inject_rx_frame` 均改为调用 `refmem_sync_frame_validate()`，在 transport 边界校验 payload CRC。
+  - `poll` 支持取出 pending RX frame，更新 `rx_count`、`last_rx_size`、`rx_pending` 和 `last_error`。
+  - 单元测试增加 HELLO frame 注入/轮询、timestamp 保存、rx pending 清除和坏 payload CRC 拒绝路径。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_pio_spi_adapter_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_contract_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_frame_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\docs_check\docs_check.py` 通过，`files=85 warnings=0`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC 为 `0x39B8BCC8`，build id 为 `20260814103131`。
+  - 本轮未烧录板端，未运行 COM3/COM4 HIL；真实两板 `HELLO` 双向交换仍未完成。
+- 还需完成：
+  - 定义 adapter TX/RX service 的 ownership，明确 `task_refmem_sync`、core1 realtime path 和后续 PIO/DMA ISR 的边界。
+  - 增加 `REFMEM_HELLO` build/layout/app/config/capability bundle 生成 helper。
+  - 将 HELLO send/poll 接到 RefMem Sync 状态机，并进入两板 HIL 验证。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_pio_spi_adapter.h`
+  - `components/distributed_refmem/src/refmem_pio_spi_adapter.c`
+  - `tests/unit/test_refmem_pio_spi_adapter.c`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 进入 `REFMEM_HELLO` bundle 生成和 adapter-level send/poll 接入，再规划两板 HIL。
+
+### REFMEM-TASK-20260814-038 - PIO SPI adapter 能力契约映射
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 将最小系统板 PIO SPI transport adapter 从“代码占位”升级为可被 `BoardCapabilityTable` 和 `RealtimeCapabilityContract` 表达的能力。
+  - 保持默认业务 profile 不强制切换到 PIO SPI；PIO SPI 作为 bring-up adapter，可通过后续 board capability / instance 配置加载。
+- 完成内容：
+  - `refmem_application_model.h` 增加 `REFMEM_APP_IO_PIO_SPI_SYNC`，用于表达 PIO SPI 同步 adapter 的 IO 约束。
+  - `refmem_application_model.h` 增加 `REFMEM_APP_IP_PIO_SPI_SYNC_DELTA`，用于表达 PIO SPI 承载 RefMem Sync delta 的类 IP 核能力。
+  - `refmem_application_model.h` 增加 `REFMEM_APP_TRANSPORT_PIO_SPI`，用于后续 EventLink/adapter 选择。
+  - `refmem_realtime_contract.c` 将 `PIO_SPI_SYNC` / `PIO_SPI_SYNC_DELTA` 映射到 `PIO + DMA + CORE1_RT` 能力。
+  - 新增 `refmem_realtime_contract_transport_resource_claim()`、`refmem_realtime_contract_transport_io_claim()` 和 `refmem_realtime_contract_transport_ip_core_claim()`，统一由 transport 生成 resource/io/ip_core claim。
+  - `refmem_application_model.c` 更新 transport linter 范围，并把 `PIO_SPI_SYNC` 纳入互斥 IO claim 检查。
+  - 新增 `tests/unit/test_refmem_realtime_contract.c` 和 `tools/tests/run_refmem_realtime_contract_tests.ps1`。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_contract_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_pio_spi_adapter_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\docs_check\docs_check.py` 通过，`files=85 warnings=0`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC 为 `0x8FC6456B`，build id 为 `20260814102626`。
+  - 本轮未烧录板端，未运行 COM3/COM4 HIL；变更仍属于能力契约和编译验证。
+- 还需完成：
+  - 将 `REFMEM_HELLO` 通过 PIO SPI adapter 完成双向交换。
+  - 后续在 BoardCapability staging 或 System Pack 中增加可切换的 min-system PIO SPI profile。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/inc/refmem_realtime_contract.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `components/distributed_refmem/src/refmem_realtime_contract.c`
+  - `tests/unit/test_refmem_realtime_contract.c`
+  - `tools/tests/run_refmem_realtime_contract_tests.ps1`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 进入 P4.5 阶段 2：在不绑定真实 PIO 时序的前提下，先建立 adapter-level `REFMEM_HELLO` loopback/queue 骨架。
+
+### REFMEM-TASK-20260814-037 - PIO SPI transport adapter skeleton
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 为两块最小系统板 RefMem Sync bring-up 建立首版 PIO SPI 风格 transport adapter skeleton。
+  - 保持 adapter 层只承载总线收发、MTU、能力位、计数和错误快照，不绑定 RefMem active table，也不计算 VDC/DPLL。
+- 完成内容：
+  - 新增 `components/distributed_refmem/inc/refmem_pio_spi_adapter.h`。
+  - 新增 `components/distributed_refmem/src/refmem_pio_spi_adapter.c`。
+  - 定义 adapter id、capability mask、max payload、preferred MTU、latency class、state 和 last error。
+  - 定义 counters snapshot：tx/rx、tx reject、rx empty、bad frame、drop、timeout、last tx/rx size 和 optional RX timestamp。
+  - 实现 `init`、`reset_counters`、`get_caps`、`get_snapshot`、`send` 和 `poll` 首版接口。
+  - `send` 当前只验证 RefMem Sync frame header 和 payload size，并更新 tx/reject/drop/bad frame 计数。
+  - `poll` 当前为空接收占位，返回 no frame 并更新 rx empty/last error；真实 PIO FIFO/DMA 接入留到后续阶段。
+  - 新增 `tests/unit/test_refmem_pio_spi_adapter.c` 和 `tools/tests/run_refmem_pio_spi_adapter_tests.ps1`。
+  - 将 `refmem_pio_spi_adapter.c` 加入根 `CMakeLists.txt` 固件源列表。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_pio_spi_adapter_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_frame_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\docs_check\docs_check.py` 通过，`files=85 warnings=0`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC 为 `0x6267900E`，build id 为 `20260814101953`。
+  - 本轮未烧录板端，未运行 COM3/COM4 HIL；新增代码仍属于 transport adapter skeleton。
+- 还需完成：
+  - 定义 PIO SPI adapter caps 与 `BoardCapabilityTable` / `RealtimeCapabilityContract` 的映射关系。
+  - 实现真实 PIO SPI 帧定界、TX/RX FIFO、DMA 或 IRQ service，以及可选 RX timestamp 采样。
+  - 接入 `REFMEM_HELLO` 双向发送与接收，进入两板最小闭环。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_pio_spi_adapter.h`
+  - `components/distributed_refmem/src/refmem_pio_spi_adapter.c`
+  - `tests/unit/test_refmem_pio_spi_adapter.c`
+  - `tools/tests/run_refmem_pio_spi_adapter_tests.ps1`
+  - `CMakeLists.txt`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 先补 PIO SPI adapter caps 到 BoardCapabilityTable / RealtimeCapabilityContract 的映射约束，再开始 `REFMEM_HELLO` 的 adapter-level loopback。
+
+### REFMEM-TASK-20260814-006 - 总线无关 RefMem Sync frame 基础件
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 将 RefMem Sync Protocol 的首版固定帧头和基础 payload 落成总线无关代码基础件。
+  - 保持 RefMem 协议层不绑定 BISS-C、PIO SPI、RJ45、UART 或 RS485，后续 adapter 只承载完整协议帧。
+- 完成内容：
+  - 新增 `components/distributed_refmem/inc/refmem_sync_frame.h`。
+  - 新增 `components/distributed_refmem/src/refmem_sync_frame.c`。
+  - 定义固定线格式帧头：magic、version、frame_type、flags、payload_size、source_slot、target_mask、epoch、run、seq、ack_seq、compact_time、header CRC 和 payload CRC。
+  - 定义首版 frame type：`HELLO/EPOCH/DELTA/COMMAND/ACK_NACK/FENCE/QUALITY`。
+  - 定义 `HELLO`、`EPOCH`、`DELTA`、`COMMAND`、`ACK_NACK`、`FENCE` 和 `QUALITY` 的基础 payload 结构。
+  - 使用显式 little-endian encode/decode，避免直接发送 C struct padding。
+  - 将 `refmem_sync_frame.c` 加入根 `CMakeLists.txt` 固件源列表。
+  - 新增 `tests/unit/test_refmem_sync_frame.c` 和 `tools/tests/run_refmem_sync_frame_tests.ps1`。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_frame_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\docs_check\docs_check.py` 通过，`files=85 warnings=0`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC 为 `0x434F3DD1`，build id 为 `20260814100501`。
+  - 本轮未烧录板端，未运行串口 HIL；新增代码目前只作为总线无关协议帧基础件接入构建。
+- 还需完成：
+  - 建立 `refmem_sync.h/.c`，承载接收侧 validate/commit/visible 状态机。
+  - 建立 PIO SPI transport adapter skeleton，并接入最小系统两板 HIL。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_sync_frame.h`
+  - `components/distributed_refmem/src/refmem_sync_frame.c`
+  - `tests/unit/test_refmem_sync_frame.c`
+  - `tools/tests/run_refmem_sync_frame_tests.ps1`
+  - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 补齐 `COMMAND/ACK_NACK/FENCE/QUALITY` payload，随后进入 PIO SPI adapter skeleton。
+
+### REFMEM-TASK-20260814-007 - RefMem Sync 接收状态机骨架
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 在总线无关 frame 基础上新增 RefMem Sync 接收侧状态机骨架。
+  - 保持接收侧只做 validate、quality 和进入 mirror/commit 前置判断，不直接写 64 KB active fact。
+- 完成内容：
+  - 新增 `components/distributed_refmem/inc/refmem_sync.h`。
+  - 新增 `components/distributed_refmem/src/refmem_sync.c`。
+  - 定义 `refmem_sync_context_t`，保存本地 slot、active epoch/run、peer state 和 quality counters。
+  - 定义接收结果：accepted、bad argument、frame invalid、source invalid、target mismatch、epoch mismatch、duplicate seq、stale seq。
+  - 实现 `refmem_sync_receive_frame()`：调用 `refmem_sync_frame_validate()`，检查 source slot、target mask、epoch/run、duplicate/stale/gap，并更新 peer/quality counter。
+  - 新增 `tests/unit/test_refmem_sync.c` 和 `tools/tests/run_refmem_sync_tests.ps1`。
+  - 将 `refmem_sync.c` 加入根 `CMakeLists.txt` 固件源列表。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_frame_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\docs_check\docs_check.py` 通过，`files=85 warnings=0`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC 为 `0xFDD8D052`，build id 为 `20260814101333`。
+  - 本轮未烧录板端，未运行串口 HIL；新增代码目前只作为总线无关接收状态机骨架接入构建。
+- 还需完成：
+  - 将 validated frame 映射到 RefMem mirror/staging view。
+  - 接入 `RefMemSlotContract`，对 delta field writer、宽度、值域和生命周期做真实校验。
+  - 建立 PIO SPI transport adapter skeleton，并把 adapter quality 映射到 `DistributedConnectionQualityTable`。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_sync.h`
+  - `components/distributed_refmem/src/refmem_sync.c`
+  - `tests/unit/test_refmem_sync.c`
+  - `tools/tests/run_refmem_sync_tests.ps1`
+  - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 进入 P4.5 阶段 1，建立 PIO SPI adapter skeleton 的 caps/counter snapshot。
+
 ## 记录规则
 
 每条任务记录使用以下格式：

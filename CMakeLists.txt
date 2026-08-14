@@ -181,8 +181,12 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/distributed_refmem.c
         components/distributed_refmem/src/refmem_application_model.c
         components/distributed_refmem/src/refmem_claim_protocol.c
+        components/distributed_refmem/src/refmem_pio_spi_adapter.c
         components/distributed_refmem/src/refmem_realtime_contract.c
         components/distributed_refmem/src/refmem_slot_claim.c
+        components/distributed_refmem/src/refmem_sync.c
+        components/distributed_refmem/src/refmem_sync_frame.c
+        components/distributed_refmem/src/refmem_sync_hello.c
         components/distributed_refmem/src/refmem_table_registry.c
         components/distributed_refmem/src/refmem_vector_table.c
         components/event_bus/src/event_bus.c

@@ -760,7 +760,7 @@ static bool refmem_model_validate_event_links(void)
             !refmem_model_instance_exists(link->source_instance) ||
             !refmem_model_instance_exists(link->target_instance) ||
             (link->target_node_mask & ~s_application_map.target_node_mask) != 0u ||
-            link->transport > REFMEM_APP_TRANSPORT_RJ45_SYNC_RING ||
+            link->transport > REFMEM_APP_TRANSPORT_PIO_SPI ||
             link->ack_policy > REFMEM_APP_ACK_BITMAP ||
             link->evidence_ref >= REFMEM_VECTOR_SLOT_COUNT) {
             return false;
@@ -903,7 +903,8 @@ static bool refmem_model_validate_io_claims(void)
 {
     const uint32_t exclusive_io_mask = REFMEM_APP_IO_LINK_CONTROL |
                                       REFMEM_APP_IO_BISS_C |
-                                      REFMEM_APP_IO_UART_RS485;
+                                      REFMEM_APP_IO_UART_RS485 |
+                                      REFMEM_APP_IO_PIO_SPI_SYNC;
 
     for (uint32_t i = 0u; i < s_node_load_table.load_count; i++) {
         const refmem_node_load_entry_t *left_load = &s_node_load_table.load[i];

@@ -1,0 +1,306 @@
+#include "refmem_sync.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+
+uint32_t ota_crc32_update(uint32_t crc, const uint8_t *data, size_t length)
+{
+    for (size_t i = 0u; i < length; i++) {
+        crc ^= data[i];
+        for (uint32_t bit = 0u; bit < 8u; bit++) {
+            const uint32_t mask = 0u - (crc & 1u);
+            crc = (crc >> 1u) ^ (0xEDB88320u & mask);
+        }
+    }
+    return crc;
+}
+
+static int expect_u32(const char *name, uint32_t actual, uint32_t expected)
+{
+    if (actual != expected) {
+        (void)printf("%s: expected %lu got %lu\n",
+                     name,
+                     (unsigned long)expected,
+                     (unsigned long)actual);
+        return 1;
+    }
+    return 0;
+}
+
+static int expect_bool(const char *name, bool actual, bool expected)
+{
+    if (actual != expected) {
+        (void)printf("%s: expected %d got %d\n",
+                     name,
+                     expected ? 1 : 0,
+                     actual ? 1 : 0);
+        return 1;
+    }
+    return 0;
+}
+
+static bool make_frame(uint8_t frame_type,
+                       uint8_t source_slot,
+                       uint8_t target_mask,
+                       uint32_t epoch_id,
+                       uint32_t run_id,
+                       uint32_t seq32,
+                       const void *payload,
+                       uint16_t payload_size,
+                       uint8_t *frame,
+                       size_t frame_capacity,
+                       size_t *frame_size)
+{
+    refmem_sync_frame_header_t header;
+    if (!refmem_sync_frame_header_init(&header,
+                                       frame_type,
+                                       0u,
+                                       source_slot,
+                                       target_mask,
+                                       epoch_id,
+                                       run_id,
+                                       seq32,
+                                       0u,
+                                       1000u + seq32,
+                                       payload,
+                                       payload_size)) {
+        return false;
+    }
+    return refmem_sync_frame_encode(&header,
+                                    payload,
+                                    payload_size,
+                                    frame,
+                                    frame_capacity,
+                                    frame_size);
+}
+
+static int test_accepts_hello_and_epoch(void)
+{
+    int failed = 0;
+    refmem_sync_context_t context;
+    refmem_sync_rx_snapshot_t snapshot;
+    refmem_sync_quality_counters_t quality;
+    refmem_sync_hello_payload_t hello;
+    refmem_sync_epoch_payload_t epoch;
+    uint8_t frame[128];
+    size_t frame_size = 0u;
+
+    failed += expect_bool("sync init", refmem_sync_init(&context, 1u, 7u, 8u), true);
+
+    (void)memset(&hello, 0, sizeof(hello));
+    hello.layout_version = 1u;
+    hello.adapter_id = 1u;
+    failed += expect_bool("make hello",
+                          make_frame(REFMEM_SYNC_FRAME_HELLO,
+                                     0u,
+                                     0x02u,
+                                     0u,
+                                     0u,
+                                     10u,
+                                     &hello,
+                                     sizeof(hello),
+                                     frame,
+                                     sizeof(frame),
+                                     &frame_size),
+                          true);
+    failed += expect_u32("recv hello",
+                         refmem_sync_receive_frame(&context, frame, frame_size, &snapshot),
+                         REFMEM_SYNC_RX_ACCEPTED);
+    failed += expect_u32("hello snapshot accepted", snapshot.accepted, 1u);
+    failed += expect_u32("hello peer seen", context.peer[0].hello_seen, 1u);
+
+    (void)memset(&epoch, 0, sizeof(epoch));
+    epoch.table_seq = 123u;
+    failed += expect_bool("make epoch",
+                          make_frame(REFMEM_SYNC_FRAME_EPOCH,
+                                     0u,
+                                     0x02u,
+                                     7u,
+                                     8u,
+                                     11u,
+                                     &epoch,
+                                     sizeof(epoch),
+                                     frame,
+                                     sizeof(frame),
+                                     &frame_size),
+                          true);
+    failed += expect_u32("recv epoch",
+                         refmem_sync_receive_frame(&context, frame, frame_size, &snapshot),
+                         REFMEM_SYNC_RX_ACCEPTED);
+    failed += expect_u32("epoch peer seen", context.peer[0].epoch_seen, 1u);
+
+    refmem_sync_get_quality(&context, &quality);
+    failed += expect_u32("accepted count", quality.accepted_count, 2u);
+    failed += expect_u32("rx count", quality.frame_rx_count, 2u);
+    return failed;
+}
+
+static int test_rejects_target_and_epoch_mismatch(void)
+{
+    int failed = 0;
+    refmem_sync_context_t context;
+    refmem_sync_quality_counters_t quality;
+    refmem_sync_epoch_payload_t epoch;
+    uint8_t frame[128];
+    size_t frame_size = 0u;
+
+    (void)refmem_sync_init(&context, 2u, 7u, 8u);
+    (void)memset(&epoch, 0, sizeof(epoch));
+
+    (void)make_frame(REFMEM_SYNC_FRAME_EPOCH,
+                     0u,
+                     0x02u,
+                     7u,
+                     8u,
+                     1u,
+                     &epoch,
+                     sizeof(epoch),
+                     frame,
+                     sizeof(frame),
+                     &frame_size);
+    failed += expect_u32("target mismatch",
+                         refmem_sync_receive_frame(&context, frame, frame_size, NULL),
+                         REFMEM_SYNC_RX_TARGET_MISMATCH);
+
+    (void)make_frame(REFMEM_SYNC_FRAME_EPOCH,
+                     0u,
+                     0x04u,
+                     70u,
+                     8u,
+                     2u,
+                     &epoch,
+                     sizeof(epoch),
+                     frame,
+                     sizeof(frame),
+                     &frame_size);
+    failed += expect_u32("epoch mismatch",
+                         refmem_sync_receive_frame(&context, frame, frame_size, NULL),
+                         REFMEM_SYNC_RX_EPOCH_MISMATCH);
+
+    refmem_sync_get_quality(&context, &quality);
+    failed += expect_u32("target mismatch count", quality.target_mismatch_count, 1u);
+    failed += expect_u32("epoch mismatch count", quality.epoch_mismatch_count, 1u);
+    failed += expect_u32("accepted after rejects", quality.accepted_count, 0u);
+    return failed;
+}
+
+static int test_sequence_quality(void)
+{
+    int failed = 0;
+    refmem_sync_context_t context;
+    refmem_sync_quality_counters_t quality;
+    refmem_sync_delta_header_t delta;
+    uint8_t frame[128];
+    size_t frame_size = 0u;
+
+    (void)refmem_sync_init(&context, 1u, 7u, 8u);
+    (void)memset(&delta, 0, sizeof(delta));
+    delta.slot_id = 4u;
+    delta.slot_seq = 1u;
+
+    (void)make_frame(REFMEM_SYNC_FRAME_DELTA,
+                     0u,
+                     0x02u,
+                     7u,
+                     8u,
+                     10u,
+                     &delta,
+                     sizeof(delta),
+                     frame,
+                     sizeof(frame),
+                     &frame_size);
+    failed += expect_u32("seq first",
+                         refmem_sync_receive_frame(&context, frame, frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+    failed += expect_u32("seq duplicate",
+                         refmem_sync_receive_frame(&context, frame, frame_size, NULL),
+                         REFMEM_SYNC_RX_DUPLICATE_SEQ);
+
+    (void)make_frame(REFMEM_SYNC_FRAME_DELTA,
+                     0u,
+                     0x02u,
+                     7u,
+                     8u,
+                     9u,
+                     &delta,
+                     sizeof(delta),
+                     frame,
+                     sizeof(frame),
+                     &frame_size);
+    failed += expect_u32("seq stale",
+                         refmem_sync_receive_frame(&context, frame, frame_size, NULL),
+                         REFMEM_SYNC_RX_STALE_SEQ);
+
+    (void)make_frame(REFMEM_SYNC_FRAME_DELTA,
+                     0u,
+                     0x02u,
+                     7u,
+                     8u,
+                     13u,
+                     &delta,
+                     sizeof(delta),
+                     frame,
+                     sizeof(frame),
+                     &frame_size);
+    failed += expect_u32("seq gap accepted",
+                         refmem_sync_receive_frame(&context, frame, frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+
+    refmem_sync_get_quality(&context, &quality);
+    failed += expect_u32("duplicate count", quality.duplicate_count, 1u);
+    failed += expect_u32("stale count", quality.stale_count, 1u);
+    failed += expect_u32("drop count", quality.drop_count, 2u);
+    failed += expect_u32("accepted count seq", quality.accepted_count, 2u);
+    return failed;
+}
+
+static int test_frame_error_quality(void)
+{
+    int failed = 0;
+    refmem_sync_context_t context;
+    refmem_sync_quality_counters_t quality;
+    refmem_sync_delta_header_t delta;
+    uint8_t frame[128];
+    size_t frame_size = 0u;
+
+    (void)refmem_sync_init(&context, 1u, 7u, 8u);
+    (void)memset(&delta, 0, sizeof(delta));
+    (void)make_frame(REFMEM_SYNC_FRAME_DELTA,
+                     0u,
+                     0x02u,
+                     7u,
+                     8u,
+                     1u,
+                     &delta,
+                     sizeof(delta),
+                     frame,
+                     sizeof(frame),
+                     &frame_size);
+    frame[REFMEM_SYNC_FRAME_HEADER_SIZE] ^= 0x55u;
+    failed += expect_u32("bad payload frame",
+                         refmem_sync_receive_frame(&context, frame, frame_size, NULL),
+                         REFMEM_SYNC_RX_FRAME_INVALID);
+    refmem_sync_get_quality(&context, &quality);
+    failed += expect_u32("bad frame count", quality.bad_frame_count, 1u);
+    failed += expect_u32("crc error count", quality.crc_error_count, 1u);
+    return failed;
+}
+
+int main(void)
+{
+    int failed = 0;
+    failed += test_accepts_hello_and_epoch();
+    failed += test_rejects_target_and_epoch_mismatch();
+    failed += test_sequence_quality();
+    failed += test_frame_error_quality();
+
+    if (failed != 0) {
+        (void)printf("refmem_sync tests failed: %d\n", failed);
+        return 1;
+    }
+
+    (void)printf("refmem_sync tests passed\n");
+    return 0;
+}
