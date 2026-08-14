@@ -24,6 +24,7 @@ def test_multicore_board_read_only_smoke(hil_config, hil_serial) -> None:
         ("loop_status", validator.test_loop_status),
         ("vdc_status", validator.test_vdc_status),
         ("dpll_status", validator.test_dpll_status),
+        ("refmem_slot_claim_gate", validator.test_refmem_slot_claim_gate),
         ("error_queue", validator.test_error_queue),
     )
 

@@ -8,6 +8,7 @@ Checks:
 - SYST:SYNC:VDC:STAT? VDC sync skeleton ready and service counter growing
 - SYST:SYNC:VDC:DPLL:STAT? VDC DPLL skeleton ready and service counter growing
 - SYST:CONFigure:STAT? config gate static snapshot ready and service counter growing
+- SYST:REFMEM:CLAIM? SlotClaimMap local gate and config RUN gate consistency
 - SYST:CONFigure:ROLE?/LOOP?/ACT?/CAL? static distributed config queries
 - SYST:CONFigure:ACK?, SYST:CONFigure:NACK?, SYST:SCPI:RUN:ALLOW? ACK reason and RUN whitelist tables
 - SYST:CORE:VECTor? and SYST:PROTection:STATus? owner/protection table snapshots
@@ -373,6 +374,45 @@ def test_config_gate_status(ser: serial.Serial, timeout: float) -> tuple[bool, s
     return False, f"SYST:CONFigure:STAT? counters not monotonic: service={service_counts}"
 
 
+def test_refmem_slot_claim_gate(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
+    """Validate SlotClaimMap local gate and config RUN gate consistency."""
+    config = _parse_ints(_query(ser, "SYST:CONFigure:STAT?", timeout))
+    if len(config) < 24:
+        return False, f"SYST:CONFigure:STAT? unparseable: {config}"
+    if config[0] != 1 or config[1] != 1 or config[13] != config[12] or config[14] != 0:
+        return False, f"SYST:CONFigure:STAT? gate not ready or ACK/NACK mismatch: {config}"
+
+    claim0 = _parse_ints(_query(ser, "SYST:REFMEM:CLAIM? 0", timeout))
+    claim2 = _parse_ints(_query(ser, "SYST:REFMEM:CLAIM? 2", timeout))
+    claim7 = _parse_ints(_query(ser, "SYST:REFMEM:CLAIM? 7", timeout))
+    for slot_id, claim in ((0, claim0), (2, claim2), (7, claim7)):
+        if len(claim) < 30:
+            return False, f"SYST:REFMEM:CLAIM? {slot_id} unparseable: {claim}"
+        if claim[0] != 1 or claim[2] != 8 or claim[3] != 8 or claim[4] != 8:
+            return False, f"SYST:REFMEM:CLAIM? {slot_id} map header unexpected: {claim}"
+        if claim[5] != 0 or claim[6] != 0 or claim[9] != 1:
+            return False, f"SYST:REFMEM:CLAIM? {slot_id} gate not ready: {claim}"
+        if claim[11] != 0 or claim[12] != 0 or claim[13] != 0:
+            return False, f"SYST:REFMEM:CLAIM? {slot_id} gate errors unexpected: {claim}"
+        if claim[14] != slot_id or claim[15] != slot_id or claim[21] != 1:
+            return False, f"SYST:REFMEM:CLAIM? {slot_id} assignment unexpected: {claim}"
+        if claim[22] != 1 or claim[23] != 0 or claim[29] == 0:
+            return False, f"SYST:REFMEM:CLAIM? {slot_id} claim state/reason/crc unexpected: {claim}"
+
+    if claim0[20] != 0x0F or claim0[26] != 1:
+        return False, f"A0 loaded_instance_mask/required unexpected: {claim0}"
+    if claim2[19] == 0 or claim2[20] != 0x20 or claim2[26] != 1:
+        return False, f"A2 link switch claim unexpected: {claim2}"
+    if claim7[20] != 0 or claim7[26] != 0:
+        return False, f"A7 spare claim unexpected: {claim7}"
+
+    return True, (
+        f"claim gate ready, map_crc={claim0[8]}, "
+        f"A0_instances=0x{claim0[20]:X}, A2_instances=0x{claim2[20]:X}, "
+        f"A7_required={claim7[26]}, config_run_id={config[6]}"
+    )
+
+
 def test_config_snapshot_queries(ser: serial.Serial, timeout: float) -> tuple[bool, str]:
     checks: list[str] = []
 
@@ -535,6 +575,7 @@ ALL_TESTS = [
     ("dpll_status", test_dpll_status),
     ("calibration_status", test_calibration_status),
     ("config_gate_status", test_config_gate_status),
+    ("refmem_slot_claim_gate", test_refmem_slot_claim_gate),
     ("config_snapshot_queries", test_config_snapshot_queries),
     ("ack_reason_and_run_policy", test_ack_reason_and_run_policy),
     ("runtime_protection_tables", test_runtime_protection_tables),

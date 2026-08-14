@@ -52,6 +52,35 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-029 - SlotClaim gate HIL 验证入口固化
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 把 SlotClaim 本地 RUN gate 的正向板端验证固化到标准工具和 pytest HIL。
+  - 继续保持串口生命周期集中管理，pytest 默认不打开串口。
+- 完成内容：
+  - `tools/multicore_board_validate/multicore_board_validate.py` 增加 `test_refmem_slot_claim_gate()`。
+  - 验证内容覆盖 `SYSTem:CONFigure:STAT?` ready/ACK/NACK、`SYSTem:REFMEM:CLAIM? 0/2/7` 的 map header、gate_ready、error counters、assignment、claim_state、online_required 和 claim_crc。
+  - `ALL_TESTS` 加入 `refmem_slot_claim_gate`，CLI 全量验证会自动覆盖该项。
+  - `tests/hil/test_multicore_board_validate.py` 将 `refmem_slot_claim_gate` 加入共享 `hil_serial` fixture 的只读 smoke；默认 pytest 仍跳过 HIL，不会自行打开串口。
+  - `tools/README.md` 和 `REFMEM_DOMAIN_TODO.md` 同步记录验证入口。
+- 验证结果：
+  - `python -m py_compile tools\multicore_board_validate\multicore_board_validate.py tests\hil\test_multicore_board_validate.py` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `python -m pytest` 通过，18 passed、1 skipped；HIL 串口测试未启用。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0xB77FAB04`。
+- 还需完成：
+  - 板端实际运行 `python -m pytest -m hil --run-hil --hil-port COMx` 或 `python tools/multicore_board_validate/multicore_board_validate.py COMx --tests refmem_slot_claim_gate`。
+  - 增加负向 SlotClaim 矩阵：重复 claim、错绑、stale、9-16 候选 overflow、超过 16 候选 rejected。
+- 关联文件：
+  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `tests/hil/test_multicore_board_validate.py`
+  - `tools/README.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 增加 SlotClaim 负向测试所需的 staging/fault injection 入口，避免直接修改 active profile。
+
 ### REFMEM-TASK-20260814-028 - SlotClaim 本地 RUN gate 接入
 
 - 状态：完成
