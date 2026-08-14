@@ -13,6 +13,13 @@ Run Python unit tests:
 python -m pytest
 ```
 
+Run pure C unit-test gates:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\tests\run_biss_protocol_tests.ps1
+```
+
 Run hardware-in-the-loop pytest after confirming the board and serial port:
 
 ```powershell

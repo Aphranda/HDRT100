@@ -409,6 +409,7 @@ DISCOVER
 - 冲突恢复可以通过重新加载 System Pack / profile、清除错误板卡 claim、执行受权限保护的维护命令，或对非 required dynamic slot 执行自组网协调完成；不得由节点本地自行改 `node_id` 并直接进入 active。
 - `DeploymentGate.node_check` 必须检查 `SlotClaimMap`：required 实例必须有一个 resolved active slot，spare slot 可 `UNCLAIMED`，任何未解决的 `CLAIM_CONFLICT/MISMATCH/STALE/OVERFLOW/CLAIM_FAULT` required 实例都拒绝 RUN。首版代码已把本地派生 claim gate 接入 RefMem model validation 和 `system_manager` config RUN gate；RJ45 协调后的跨板 claim gate 后续接入。
 - RJ45_SYNC_RING 同步 `SlotClaim` 摘要时，必须带 `claim_epoch` 和 CRC，旧 epoch claim 不得覆盖 active claim。
+- 后续两块最小系统板组网验证以 B0/B1 两个物理板为最小闭环：每块板都必须先具备 `REFMEM + VDC` baseline，再通过 `CLAIM_HELLO/PROPOSE/RESOLVE/COMMIT` 形成同一份 `SlotClaimMap CRC`。验证重点不是业务触发序列，而是确认重复 slot claim、错绑、stale、overflow 和 required missing 都能被 RefMem gate 拒绝或进入可诊断协调路径。
 
 ### DistributedNodeLoadTable
 

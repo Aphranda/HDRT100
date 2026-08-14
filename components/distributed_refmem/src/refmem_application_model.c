@@ -34,7 +34,7 @@ static const refmem_application_map_t s_application_map = {
 
 static const refmem_board_capability_table_t s_board_capability_table = {
     .version = REFMEM_APP_MODEL_VERSION,
-    .board_count = REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT,
+    .board_count = REFMEM_APP_MODEL_NODE_COUNT,
     .board = {
         {0u, 0xB0000000u, REFMEM_APP_CAP_BASELINE | REFMEM_APP_CAP_PIO |
                             REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
@@ -621,7 +621,8 @@ static bool refmem_model_validate_application_map(void)
 static bool refmem_model_validate_board_capability_table(void)
 {
     if (s_board_capability_table.version != REFMEM_APP_MODEL_VERSION ||
-        s_board_capability_table.board_count != REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT) {
+        s_board_capability_table.board_count < REFMEM_APP_MODEL_NODE_COUNT ||
+        s_board_capability_table.board_count > REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT) {
         return false;
     }
 

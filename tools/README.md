@@ -79,6 +79,10 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `third_party/portable_log` unit tests. If no host C compiler exists, it falls
   back to ARM GCC compile/object-build checks and reports that host execution
   was skipped.
+- `tests/run_refmem_slot_claim_tests.ps1`: RefMem SlotClaim core gate. It builds
+  or runs the pure C SlotClaim map/gate tests, including nominal assignment,
+  duplicate claim, UUID mismatch, and candidate overflow. If no host C compiler
+  exists, it falls back to ARM GCC compile/object-build checks.
 - `ota_packager/ota_packager.py`: builds a unified OTA package from Slot A and
   Slot B linked App binaries. CMake normally invokes this automatically.
 - `sd_fs_build/sd_fs_build.py`: builds the SD-card filesystem staging tree under

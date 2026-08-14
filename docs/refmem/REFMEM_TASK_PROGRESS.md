@@ -52,6 +52,36 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-030 - SlotClaim 负向单元测试基础
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 先用纯 C 单元测试固定 SlotClaimMap / gate 的负向基础行为。
+  - 为后续两块最小系统板组网验证建立可复用的算法判定地基。
+- 完成内容：
+  - `BoardCapabilityTable` 容量从 8 个 active slot 扩为 16 个候选容量，默认 active profile 的 `board_count` 仍保持 8，不改变当前板端默认行为。
+  - `refmem_slot_claim_derive_map()` 增加 active slot 容量边界：candidate 数量超过 A0-A7 slot 数量后，后续候选进入 overflow，而不是被误判为普通重复 claim。
+  - 新增 `tests/unit/test_refmem_slot_claim.c`，覆盖 nominal assignment、loaded instance mask、duplicate claim、UUID mismatch 和第 9 个候选 overflow。
+  - 新增 `tools/tests/run_refmem_slot_claim_tests.ps1`，沿用现有纯 C 测试风格：有 host gcc/clang 时运行 exe，否则退化为 ARM GCC 编译检查。
+  - `tools/README.md`、`tests/README.md` 和 `REFMEM_DOMAIN_TODO.md` 增加测试入口和两板组网验证待办。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1` 通过；当前机器无 host C 编译器，结果为 ARM GCC 编译检查通过，未执行主机 exe。
+- 还需完成：
+  - 增加 stale claim、hard binding mismatch、claim CRC、9-16 全矩阵和超过 16 candidate rejected 的测试。
+  - 后续在两块最小系统板上验证 `CLAIM_*` 协调消息、slot 冲突处理、RefMem snapshot 一致性和 VDC baseline。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `components/distributed_refmem/src/refmem_slot_claim.c`
+  - `tests/unit/test_refmem_slot_claim.c`
+  - `tools/tests/run_refmem_slot_claim_tests.ps1`
+  - `tools/README.md`
+  - `tests/README.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 补齐 SlotClaimEvidence 诊断视图，并把两板最小系统组网验证拆成 HIL 工具任务。
+
 ### REFMEM-TASK-20260814-029 - SlotClaim gate HIL 验证入口固化
 
 - 状态：完成

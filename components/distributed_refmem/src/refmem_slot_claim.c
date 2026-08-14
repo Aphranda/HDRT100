@@ -166,6 +166,11 @@ bool refmem_slot_claim_derive_map(const refmem_generic_node_table_t *node_table,
             map->overflow_count++;
             continue;
         }
+        if (map->candidate_count >= map->slot_count) {
+            map->candidate_count++;
+            map->overflow_count++;
+            continue;
+        }
         if (board->active_default_slot >= node_table->node_count) {
             map->candidate_count++;
             map->overflow_count++;
