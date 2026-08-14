@@ -52,6 +52,8 @@ Board A publishes HELLO / EPOCH / DELTA
 | COM6 / Board B | `20260814141201` | `0xA1E002E6` | RefMem Sync HELLO/EPOCH/DELTA/MIRROR/ACK_NACK SCPI 搬运闭环通过。 |
 | COM5 / Board A | `20260814142748` | `0xE3F75DB7` | RefMem Sync HELLO/EPOCH/DELTA/MIRROR/ACK_NACK/FENCE SCPI 搬运闭环通过。 |
 | COM6 / Board B | `20260814142748` | `0xE3F75DB7` | RefMem Sync HELLO/EPOCH/DELTA/MIRROR/ACK_NACK/FENCE SCPI 搬运闭环通过。 |
+| COM5 / Board A | `20260814143942` | `0x4D1483AE` | RefMem Sync HELLO/EPOCH/DELTA/MIRROR/ACK_NACK/FENCE/QUALITY SCPI 搬运闭环通过。 |
+| COM6 / Board B | `20260814143942` | `0x4D1483AE` | RefMem Sync HELLO/EPOCH/DELTA/MIRROR/ACK_NACK/FENCE/QUALITY SCPI 搬运闭环通过。 |
 
 当前 COM5/COM6 查询到的 SlotClaimMap CRC 为 `386979554`。
 
@@ -192,10 +194,12 @@ python tools\two_board_io_validate\two_board_io_validate.py --port-a COM3 --port
 | `SYSTem:REFMEM:SYNC:DELTa? <source_slot>,<target_mask>,<seq>,<slot_id>,<slot_seq>,<field_id>,<value>,<dirty_mask>` | 生成最小 u32 DELTA test field frame。 |
 | `SYSTem:REFMEM:SYNC:ACK? <source_slot>,<target_mask>,<seq>` | 基于本板最近一次 RX snapshot 生成 ACK_NACK frame，返回 frame 摘要、被确认 seq、RX result 和 hex frame。 |
 | `SYSTem:REFMEM:SYNC:FENCe? <source_slot>,<target_mask>,<seq>,<fence_seq>,<scope>,<required_mask>,<min_table_seq>,<deadline_us>` | 生成最小 FENCE frame，用于验证 required 本地 slot 对指定 source mirror 的 visible/min seq 判定。 |
+| `SYSTem:REFMEM:SYNC:QUALity:FRAMe? <source_slot>,<target_mask>,<seq>,<quality_id>,<scope>,<target_slot>` | 生成 QUALITY frame，把本地 receive quality counter 和指定 peer seq 摘要发布给对端。 |
 | `SYSTem:REFMEM:SYNC:RX "<hex>"` | 将 hex frame 注入 adapter RX staging，poll 后送入 `refmem_sync_receive_frame()`。 |
 | `SYSTem:REFMEM:SYNC:MIRRor? <source_slot>` | 查询指定来源 slot 的最新 sync mirror snapshot。 |
 | `SYSTem:REFMEM:SYNC:ACK:STATus? <source_slot>` | 查询指定来源 slot 最近一次 ACK_NACK snapshot。 |
 | `SYSTem:REFMEM:SYNC:FENCe:STATus? <source_slot>` | 查询指定来源 slot 最近一次 FENCE snapshot。 |
+| `SYSTem:REFMEM:SYNC:QUALity:STATus? <source_slot>` | 查询指定来源 slot 最近一次 remote QUALITY snapshot。 |
 | `SYSTem:REFMEM:SYNC:PEER? <source_slot>` | 查询指定对端的 seen、HELLO、EPOCH、seq、drop/stale 状态。 |
 | `SYSTem:REFMEM:SYNC:QUALity?` | 查询本板 sync 接收质量计数。 |
 | `SYSTem:REFMEM:SYNC:ADAPter?` | 查询 adapter caps/counter snapshot。 |
@@ -232,6 +236,8 @@ A payload-CRC-bad DELTA -> B RX rejected -> B ACK? NACK CRC -> A RX -> A ACK:STA
 A FENCE? -> B RX -> B FENCE:STATus?
 B FENCE? -> A RX -> A FENCE:STATus?
 A FENCE? min seq too high -> B RX -> B FENCE:STATus? failed/timeout
+A QUALITY:FRAME? -> B RX -> B QUALITY:STATus?
+B QUALITY:FRAME? -> A RX -> A QUALITY:STATus?
 A PEER?(B), B PEER?(A), A/B QUALITY?
 ```
 
@@ -247,6 +253,7 @@ A PEER?(B), B PEER?(A), A/B QUALITY?
 - `ACK?` 是维护 bridge 调试命令，基于本板最近一次 RX snapshot 生成确认帧；双向 ACK 验证时必须先生成双方 ACK frame，再互相注入，避免 ACK 帧覆盖 DELTA 的 `last_rx`。
 - FENCE pass 要求接收板 local slot 包含在 `required_mask` 中，且对应 source mirror 已 visible，`last_frame_seq32 >= min_table_seq`。
 - FENCE fail/timeout 当前只写入 fence snapshot，不触发产品 RUN gate 或 distributed fault latch；真实门禁接入后再由 DeploymentGate/QualityTable 消费。
+- QUALITY frame 当前同步的是本地 receive quality counter 和 peer seq 摘要，接收端只写 remote quality snapshot；写入 `DistributedConnectionQualityTable` 仍是后续步骤。
 
 ## 执行日志
 
@@ -283,6 +290,10 @@ A PEER?(B), B PEER?(A), A/B QUALITY?
 - COM5/COM6 均 OTA 并 commit 到 build `20260814142748`，package CRC `0xE3F75DB7`。
 - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814142748 --out-dir build-rtos-multicore-smoke\refmem_sync_fence_hil_COM5_COM6_20260814142748` 通过。
 - HIL 结果：55 条记录全部 PASS；A->B 和 B->A FENCE 在对端 mirror visible 且 `min_table_seq=3` 时 passed；A->B `min_table_seq=99,deadline_us=0` 时 failed，`missing_mask=2,timed_out=1,last_reason=3`。
+- 新增 `REFMEM_QUALITY` remote snapshot 和 `SYSTem:REFMEM:SYNC:QUALity:FRAMe?` / `QUALity:STATus?` 维护入口；接收侧按 source slot 记录 quality id、scope、peer seq、CRC/stale/drop/timeout 和 last error。
+- COM5/COM6 均 OTA 并 commit 到 build `20260814143942`，package CRC `0x4D1483AE`。
+- `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814143942 --out-dir build-rtos-multicore-smoke\refmem_sync_quality_hil_COM5_COM6_20260814143942` 通过。
+- HIL 结果：61 条记录全部 PASS；A->B QUALITY snapshot 记录 `seq_expected=9,seq_last=8` 且错误计数为 0；B->A QUALITY snapshot 记录 `seq_expected=10,seq_last=9,crc_error_count=1,drop_count=2,last_error=9`。
 
 ## 注意事项
 

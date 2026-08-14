@@ -8,6 +8,44 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-050 - RefMem Sync QUALITY frame 最小闭环
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 在 FENCE 已通过的基础上，增加 `REFMEM_QUALITY` frame，把本地 receive quality counter 和 peer seq 摘要同步给对端。
+  - 保持 QUALITY frame 只写 remote quality snapshot，不直接写 active `DistributedConnectionQualityTable`。
+- 完成内容：
+  - `refmem_sync_context_t` 增加按 source slot 索引的 `refmem_sync_remote_quality_snapshot_t`。
+  - `refmem_sync_receive_frame()` 接收 `REFMEM_QUALITY` 后提交 remote quality snapshot，记录 quality id、scope、target slot、seq expected/last、CRC/stale/drop/late/timeout、last error 和 evidence。
+  - 新增 `refmem_sync_get_remote_quality()`。
+  - 新增 `SYSTem:REFMEM:SYNC:QUALity:FRAMe?`，从本地 receive quality counter 和指定 peer seq 摘要生成 QUALITY frame。
+  - 新增 `SYSTem:REFMEM:SYNC:QUALity:STATus?`，查询指定 source slot 最近一次 remote QUALITY snapshot。
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 扩展为 HELLO/EPOCH/DELTA/MIRROR/ACK_NACK/FENCE/QUALITY 全流程，记录 61 条 HIL 结果。
+- 验证结果：
+  - `python -m py_compile tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814143942`，package CRC `0x4D1483AE`。
+  - COM5/COM6 均 OTA 并 commit 到 build `20260814143942`。
+  - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814143942 --out-dir build-rtos-multicore-smoke\refmem_sync_quality_hil_COM5_COM6_20260814143942` 通过，61 条记录全部 PASS。
+  - HIL 关键结果：两板 build id 均为 `20260814143942`；SlotClaimMap CRC 均为 `386979554`；A->B QUALITY snapshot 记录 `seq_expected=9,seq_last=8` 且错误计数为 0；B->A QUALITY snapshot 记录 `seq_expected=10,seq_last=9,crc_error_count=1,drop_count=2,last_error=9`。
+- 还需完成：
+  - 将 remote QUALITY snapshot 映射到 `DistributedConnectionQualityTable`，并明确 active table owner validation 与 evidence index。
+  - 真实 PIO SPI physical adapter service 接入，替换当前 PC/SCPI frame 搬运。
+  - 增加 quality 与 DeploymentGate/RUN gate 的消费规则。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_sync.h`
+  - `components/distributed_refmem/src/refmem_sync.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tests/unit/test_refmem_sync.c`
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
+  - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
+- 下一步：
+  - 回到 P4.5 未完成项：真实 PIO SPI physical adapter service、线序/生命周期阶段 0 固化，以及 quality 到 `DistributedConnectionQualityTable` 的正式映射。
+
 ### REFMEM-TASK-20260814-049 - RefMem Sync FENCE 最小闭环
 
 - 状态：完成

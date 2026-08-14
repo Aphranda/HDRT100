@@ -30,7 +30,7 @@ Last updated: 2026-08-14
 | `.rmtp` table image | 已支持 SD/Storage 文件读取、header/directory/payload/package/table CRC 校验，并写入 RefMem staging snapshot。 | 将 staging snapshot 扩展为真实 staging table image。 |
 | TableRegistry | 已能观察 active/staging CRC、validation state 和 evidence。 | 增加 owner validation callback、active/staging/rollbackable 切换和 rollback evidence。 |
 | NodeLoad / BoardCapability | 已支持单条 SCPI staging 候选和基础合法性校验。 | 升级为多条 staging table image，并接入 SlotClaimMap、RealtimeCapabilityContract 和 DeploymentGate。 |
-| RefMem Sync | 已有总线无关 frame、HELLO helper、PIO SPI adapter skeleton、ACK/NACK/FENCE snapshot 和纯 C 测试；SCPI bridge 两板 HIL 已覆盖 HELLO/EPOCH/DELTA/ACK_NACK/FENCE。 | 补齐 QUALITY frame，并接入真实 PIO SPI physical adapter service。 |
+| RefMem Sync | 已有总线无关 frame、HELLO helper、PIO SPI adapter skeleton、ACK/NACK/FENCE/QUALITY snapshot 和纯 C 测试；SCPI bridge 两板 HIL 已覆盖 HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY。 | 接入真实 PIO SPI physical adapter service，并把 quality 映射到 `DistributedConnectionQualityTable`。 |
 
 ## 相关参考
 

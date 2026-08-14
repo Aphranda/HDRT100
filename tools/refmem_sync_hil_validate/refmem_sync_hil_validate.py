@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate two-board RefMem Sync HELLO/EPOCH/DELTA/ACK exchange over SCPI."""
+"""Validate two-board RefMem Sync HELLO/EPOCH/DELTA/ACK/FENCE/QUALITY over SCPI."""
 
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ EPOCH_TYPE = 2
 DELTA_TYPE = 3
 ACK_NACK_TYPE = 5
 FENCE_TYPE = 6
+QUALITY_SYNC_TYPE = 7
 
 HELLO_FIELDS = (
     "status",
@@ -170,6 +171,43 @@ FENCE_STATUS_FIELDS = (
     "passed",
     "timed_out",
     "last_reason",
+    "evidence_index",
+    "last_frame_seq32",
+    "received_count",
+)
+
+QUALITY_FRAME_FIELDS = (
+    "status",
+    "frame_size",
+    "source_slot",
+    "target_mask",
+    "epoch_id",
+    "run_id",
+    "seq32",
+    "payload_crc32",
+    "quality_id",
+    "scope",
+    "target_slot",
+    "hex",
+)
+
+QUALITY_STATUS_FIELDS = (
+    "query_source_slot",
+    "seen",
+    "source_slot",
+    "quality_id",
+    "scope",
+    "target_slot",
+    "seq_expected",
+    "seq_last",
+    "crc_error_count",
+    "stale_count",
+    "drop_count",
+    "late_count",
+    "timeout_count",
+    "last_error",
+    "p99_us",
+    "p999_us",
     "evidence_index",
     "last_frame_seq32",
     "received_count",
@@ -592,6 +630,80 @@ def expect_fence_status(response: str,
         raise AssertionError(f"fence frame_seq={data['last_frame_seq32']} expected {frame_seq}")
     if int(data["received_count"], 0) < 1:
         raise AssertionError("fence received_count did not advance")
+
+
+def expect_quality_frame(response: str,
+                         *,
+                         source: int,
+                         target: int,
+                         epoch: int,
+                         run: int,
+                         seq: int,
+                         quality_id: int,
+                         scope: int,
+                         target_slot: int) -> None:
+    data = fields_dict(QUALITY_FRAME_FIELDS, response)
+    if data["status"] != "OK":
+        raise AssertionError(f"quality frame status is {data['status']!r}")
+    if int(data["source_slot"], 0) != source or int(data["target_mask"], 0) != target:
+        raise AssertionError("quality source/target mismatch")
+    if int(data["epoch_id"], 0) != epoch or int(data["run_id"], 0) != run:
+        raise AssertionError("quality epoch/run mismatch")
+    if int(data["seq32"], 0) != seq:
+        raise AssertionError(f"quality seq={data['seq32']} expected {seq}")
+    if int(data["quality_id"], 0) != quality_id:
+        raise AssertionError(f"quality_id={data['quality_id']} expected {quality_id}")
+    if int(data["scope"], 0) != scope:
+        raise AssertionError(f"quality scope={data['scope']} expected {scope}")
+    if int(data["target_slot"], 0) != target_slot:
+        raise AssertionError(f"quality target_slot={data['target_slot']} expected {target_slot}")
+    if not data["hex"] or len(data["hex"]) != int(data["frame_size"], 0) * 2:
+        raise AssertionError("quality hex length does not match frame_size")
+
+
+def expect_quality_status(response: str,
+                          *,
+                          source: int,
+                          quality_id: int,
+                          scope: int,
+                          target_slot: int,
+                          seq_expected: int,
+                          seq_last: int,
+                          crc_errors: int,
+                          stale_count: int,
+                          drop_count: int,
+                          timeout_count: int,
+                          last_error: int,
+                          frame_seq: int) -> None:
+    data = fields_dict(QUALITY_STATUS_FIELDS, response)
+    if int(data["query_source_slot"], 0) != source or int(data["source_slot"], 0) != source:
+        raise AssertionError(f"quality status source mismatch: {response!r}")
+    if int(data["seen"], 0) != 1:
+        raise AssertionError("quality status not seen")
+    if int(data["quality_id"], 0) != quality_id:
+        raise AssertionError(f"quality_id={data['quality_id']} expected {quality_id}")
+    if int(data["scope"], 0) != scope:
+        raise AssertionError(f"quality scope={data['scope']} expected {scope}")
+    if int(data["target_slot"], 0) != target_slot:
+        raise AssertionError(f"quality target_slot={data['target_slot']} expected {target_slot}")
+    if int(data["seq_expected"], 0) != seq_expected:
+        raise AssertionError(f"seq_expected={data['seq_expected']} expected {seq_expected}")
+    if int(data["seq_last"], 0) != seq_last:
+        raise AssertionError(f"seq_last={data['seq_last']} expected {seq_last}")
+    if int(data["crc_error_count"], 0) != crc_errors:
+        raise AssertionError(f"crc_error_count={data['crc_error_count']} expected {crc_errors}")
+    if int(data["stale_count"], 0) != stale_count:
+        raise AssertionError(f"stale_count={data['stale_count']} expected {stale_count}")
+    if int(data["drop_count"], 0) != drop_count:
+        raise AssertionError(f"drop_count={data['drop_count']} expected {drop_count}")
+    if int(data["timeout_count"], 0) != timeout_count:
+        raise AssertionError(f"timeout_count={data['timeout_count']} expected {timeout_count}")
+    if int(data["last_error"], 0) != last_error:
+        raise AssertionError(f"quality last_error={data['last_error']} expected {last_error}")
+    if int(data["last_frame_seq32"], 0) != frame_seq:
+        raise AssertionError(f"quality frame_seq={data['last_frame_seq32']} expected {frame_seq}")
+    if int(data["received_count"], 0) < 1:
+        raise AssertionError("quality received_count did not advance")
 
 
 def quote_hex(hex_text: str) -> str:
@@ -1195,6 +1307,90 @@ def run_exchange(args: argparse.Namespace,
                                               timed_out=1,
                                               reason=3,
                                               frame_seq=8))
+
+    quality_a = run_checked(records,
+                            "A",
+                            execute_a,
+                            f"SYSTem:REFMEM:SYNC:QUALity:FRAMe? {args.slot_a},{mask_b},9,1,1,{args.slot_b}",
+                            lambda r: expect_quality_frame(r,
+                                                           source=args.slot_a,
+                                                           target=mask_b,
+                                                           epoch=args.epoch,
+                                                           run=args.run,
+                                                           seq=9,
+                                                           quality_id=1,
+                                                           scope=1,
+                                                           target_slot=args.slot_b))
+    quality_a_hex = fields_dict(QUALITY_FRAME_FIELDS, quality_a)["hex"]
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(quality_a_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=QUALITY_SYNC_TYPE,
+                                    source=args.slot_a,
+                                    target=mask_b,
+                                    epoch=args.epoch,
+                                    run=args.run))
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:QUALity:STATus? {args.slot_a}",
+                lambda r: expect_quality_status(r,
+                                                source=args.slot_a,
+                                                quality_id=1,
+                                                scope=1,
+                                                target_slot=args.slot_b,
+                                                seq_expected=9,
+                                                seq_last=8,
+                                                crc_errors=0,
+                                                stale_count=0,
+                                                drop_count=0,
+                                                timeout_count=0,
+                                                last_error=0,
+                                                frame_seq=9))
+
+    quality_b = run_checked(records,
+                            "B",
+                            execute_b,
+                            f"SYSTem:REFMEM:SYNC:QUALity:FRAMe? {args.slot_b},{mask_a},9,2,1,{args.slot_a}",
+                            lambda r: expect_quality_frame(r,
+                                                           source=args.slot_b,
+                                                           target=mask_a,
+                                                           epoch=args.epoch,
+                                                           run=args.run,
+                                                           seq=9,
+                                                           quality_id=2,
+                                                           scope=1,
+                                                           target_slot=args.slot_a))
+    quality_b_hex = fields_dict(QUALITY_FRAME_FIELDS, quality_b)["hex"]
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(quality_b_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=QUALITY_SYNC_TYPE,
+                                    source=args.slot_b,
+                                    target=mask_a,
+                                    epoch=args.epoch,
+                                    run=args.run))
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:QUALity:STATus? {args.slot_b}",
+                lambda r: expect_quality_status(r,
+                                                source=args.slot_b,
+                                                quality_id=2,
+                                                scope=1,
+                                                target_slot=args.slot_a,
+                                                seq_expected=10,
+                                                seq_last=9,
+                                                crc_errors=1,
+                                                stale_count=0,
+                                                drop_count=2,
+                                                timeout_count=0,
+                                                last_error=9,
+                                                frame_seq=9))
     return records
 
 
@@ -1246,7 +1442,7 @@ def main() -> int:
     out_dir = args.out_dir or (ROOT / "build-rtos-multicore-smoke" /
                                f"refmem_sync_hil_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     write_outputs(out_dir, args, records)
-    passed = all(record.status == "PASS" for record in records) and len(records) == 55
+    passed = all(record.status == "PASS" for record in records) and len(records) == 61
     print(f"summary: passed={passed} records={len(records)} out_dir={out_dir}")
     return 0 if passed else 1
 

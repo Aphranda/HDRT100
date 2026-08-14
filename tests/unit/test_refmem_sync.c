@@ -470,6 +470,67 @@ static int test_fence_commit(void)
     return failed;
 }
 
+static int test_quality_commit(void)
+{
+    int failed = 0;
+    refmem_sync_context_t context;
+    refmem_sync_quality_payload_t quality_payload;
+    uint8_t frame[128];
+    size_t frame_size = 0u;
+
+    (void)refmem_sync_init(&context, 0u, 7u, 8u);
+    (void)memset(&quality_payload, 0, sizeof(quality_payload));
+    quality_payload.quality_id = 21u;
+    quality_payload.scope = 1u;
+    quality_payload.source_slot = 1u;
+    quality_payload.target_slot = 0u;
+    quality_payload.seq_expected = 9u;
+    quality_payload.seq_last = 8u;
+    quality_payload.crc_error_count = 2u;
+    quality_payload.stale_count = 3u;
+    quality_payload.drop_count = 4u;
+    quality_payload.timeout_count = 5u;
+    quality_payload.last_error = 9u;
+    quality_payload.evidence_index = 6u;
+
+    failed += expect_bool("make quality",
+                          make_frame(REFMEM_SYNC_FRAME_QUALITY,
+                                     1u,
+                                     0x01u,
+                                     7u,
+                                     8u,
+                                     1u,
+                                     &quality_payload,
+                                     sizeof(quality_payload),
+                                     frame,
+                                     sizeof(frame),
+                                     &frame_size),
+                          true);
+    failed += expect_u32("recv quality",
+                         refmem_sync_receive_frame(&context, frame, frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+
+    const refmem_sync_remote_quality_snapshot_t *quality =
+        refmem_sync_get_remote_quality(&context, 1u);
+    failed += expect_bool("quality present", quality != NULL, true);
+    if (quality != NULL) {
+        failed += expect_u32("quality seen", quality->seen, 1u);
+        failed += expect_u32("quality id", quality->quality_id, 21u);
+        failed += expect_u32("quality target", quality->target_slot, 0u);
+        failed += expect_u32("quality expected", quality->seq_expected, 9u);
+        failed += expect_u32("quality last", quality->seq_last, 8u);
+        failed += expect_u32("quality crc", quality->crc_error_count, 2u);
+        failed += expect_u32("quality stale", quality->stale_count, 3u);
+        failed += expect_u32("quality drop", quality->drop_count, 4u);
+        failed += expect_u32("quality timeout", quality->timeout_count, 5u);
+        failed += expect_u32("quality error", quality->last_error, 9u);
+        failed += expect_u32("quality evidence", quality->evidence_index, 6u);
+        failed += expect_u32("quality frame seq", quality->last_frame_seq32, 1u);
+        failed += expect_u32("quality received count", quality->received_count, 1u);
+    }
+    return failed;
+}
+
 static int test_frame_error_quality(void)
 {
     int failed = 0;
@@ -517,6 +578,7 @@ int main(void)
     failed += test_delta_mirror_commit();
     failed += test_ack_nack_commit();
     failed += test_fence_commit();
+    failed += test_quality_commit();
     failed += test_frame_error_quality();
 
     if (failed != 0) {

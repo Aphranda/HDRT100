@@ -143,6 +143,42 @@ static bool refmem_sync_commit_fence(refmem_sync_context_t *context,
     return true;
 }
 
+static bool refmem_sync_commit_quality(refmem_sync_context_t *context,
+                                       const refmem_sync_frame_header_t *header,
+                                       const uint8_t *payload,
+                                       uint16_t payload_size)
+{
+    if (context == NULL || header == NULL || payload == NULL ||
+        header->source_slot >= REFMEM_SYNC_NODE_COUNT ||
+        payload_size < sizeof(refmem_sync_quality_payload_t)) {
+        return false;
+    }
+
+    refmem_sync_quality_payload_t quality_payload;
+    (void)memcpy(&quality_payload, payload, sizeof(quality_payload));
+    refmem_sync_remote_quality_snapshot_t *quality =
+        &context->remote_quality[header->source_slot];
+    quality->seen = 1u;
+    quality->source_slot = header->source_slot;
+    quality->quality_id = quality_payload.quality_id;
+    quality->scope = quality_payload.scope;
+    quality->target_slot = quality_payload.target_slot;
+    quality->seq_expected = quality_payload.seq_expected;
+    quality->seq_last = quality_payload.seq_last;
+    quality->crc_error_count = quality_payload.crc_error_count;
+    quality->stale_count = quality_payload.stale_count;
+    quality->drop_count = quality_payload.drop_count;
+    quality->late_count = quality_payload.late_count;
+    quality->timeout_count = quality_payload.timeout_count;
+    quality->last_error = quality_payload.last_error;
+    quality->p99_us = quality_payload.p99_us;
+    quality->p999_us = quality_payload.p999_us;
+    quality->evidence_index = quality_payload.evidence_index;
+    quality->last_frame_seq32 = header->seq32;
+    quality->received_count++;
+    return true;
+}
+
 static void refmem_sync_fill_snapshot(refmem_sync_rx_snapshot_t *snapshot,
                                       refmem_sync_rx_result_t result,
                                       refmem_sync_frame_result_t frame_result,
@@ -338,6 +374,8 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
         (void)refmem_sync_commit_ack_nack(context, &header, payload, payload_size);
     } else if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_FENCE) {
         (void)refmem_sync_commit_fence(context, &header, payload, payload_size);
+    } else if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_QUALITY) {
+        (void)refmem_sync_commit_quality(context, &header, payload, payload_size);
     }
 
     context->quality.accepted_count++;
@@ -389,6 +427,16 @@ const refmem_sync_fence_snapshot_t *refmem_sync_get_fence(
         return NULL;
     }
     return &context->fence[source_slot];
+}
+
+const refmem_sync_remote_quality_snapshot_t *refmem_sync_get_remote_quality(
+    const refmem_sync_context_t *context,
+    uint8_t source_slot)
+{
+    if (context == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return NULL;
+    }
+    return &context->remote_quality[source_slot];
 }
 
 void refmem_sync_get_quality(const refmem_sync_context_t *context,

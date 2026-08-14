@@ -151,8 +151,9 @@ adapter 替换关系：
 - `DELTa?` 只生成最小 u32 test field 的 `REFMEM_DELTA` frame，用于验证 mirror commit 和 visible 语义。
 - `ACK?` 只基于本板最近一次 RX snapshot 生成 `REFMEM_ACK_NACK` frame，用于验证 ACK/NACK 位图、reason 和 evidence 语义；它不是业务命令完成 API。
 - `FENCe?` 只生成 `REFMEM_FENCE` frame，用于验证 required slot、source mirror visible 和 min seq 的可见性收束语义；它不直接触发产品 RUN gate。
+- `QUALity:FRAMe?` 只生成 `REFMEM_QUALITY` frame，用于同步本地 receive quality counter 和 peer seq 摘要；它不直接写 active `DistributedConnectionQualityTable`。
 - `RX` 只执行 `hex -> adapter RX staging -> adapter poll -> refmem_sync_receive_frame()`。
-- `MIRRor?` / `ACK:STATus?` / `FENCe:STATus?` / `PEER?` / `QUALity?` / `ADAPter?` 只读取本地 sync context 和 adapter snapshot。
+- `MIRRor?` / `ACK:STATus?` / `FENCe:STATus?` / `QUALity:STATus?` / `PEER?` / `QUALity?` / `ADAPter?` 只读取本地 sync context 和 adapter snapshot。
 - 维护 bridge 不直接修改 active ApplicationModel、SlotClaimMap、DataLink 或 64 KB RefMem active fact。
 - 维护 bridge 不替代真实 transport adapter；真实 PIO SPI、BISS-C、RJ45、UART 或 RS485 接入后必须复用相同 frame validate / receive / quality 语义。
 
@@ -169,9 +170,11 @@ Board B ACK? -> PC tool -> Board A RX -> Board A ACK:STATus?
 Board A ACK? -> PC tool -> Board B RX -> Board B ACK:STATus?
 Board A FENCe? -> PC tool -> Board B RX -> Board B FENCe:STATus?
 Board B FENCe? -> PC tool -> Board A RX -> Board A FENCe:STATus?
+Board A QUALity:FRAMe? -> PC tool -> Board B RX -> Board B QUALity:STATus?
+Board B QUALity:FRAMe? -> PC tool -> Board A RX -> Board A QUALity:STATus?
 ```
 
-这个阶段证明的是 HELLO/EPOCH/DELTA/ACK_NACK/FENCE 语义、target mask、epoch/run gate、seq、mirror visible、ACK/NACK reason、FENCE pass/fail snapshot 和 quality 计数。它不证明最终物理链路时序，也不证明 FENCE 已接入产品 RUN gate。
+这个阶段证明的是 HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY 语义、target mask、epoch/run gate、seq、mirror visible、ACK/NACK reason、FENCE pass/fail snapshot、remote QUALITY snapshot 和本地 quality 计数。它不证明最终物理链路时序，也不证明 FENCE/QUALITY 已接入产品 RUN gate 或 active QualityTable。
 
 注意：`ACK?` 是维护 bridge 命令，确认对象来自本板最近一次 RX snapshot。脚本验证双向 DELTA ACK 时，应先在两端各自生成对 DELTA 的 ACK frame，再互相注入；否则先收到的 ACK frame 会成为新的 `last_rx`，后续 `ACK?` 会确认 ACK frame 本身。真实 command slot 完成语义后续由 `refmem_command.h/.c` 承接。
 

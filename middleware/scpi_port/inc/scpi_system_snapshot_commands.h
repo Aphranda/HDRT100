@@ -20,10 +20,12 @@ scpi_result_t scpi_cmd_refmem_sync_epoch_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_delta_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_ack_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_fence_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_sync_quality_frame_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_rx(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_mirror_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_ack_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_fence_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_sync_quality_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_peer_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_quality_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_adapter_q(scpi_t *context);
@@ -67,10 +69,12 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:SYNC:DELTa?", .callback = scpi_cmd_refmem_sync_delta_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:ACK?", .callback = scpi_cmd_refmem_sync_ack_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:FENCe?", .callback = scpi_cmd_refmem_sync_fence_q}, \
+    {.pattern = "SYSTem:REFMEM:SYNC:QUALity:FRAMe?", .callback = scpi_cmd_refmem_sync_quality_frame_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:RX", .callback = scpi_cmd_refmem_sync_rx}, \
     {.pattern = "SYSTem:REFMEM:SYNC:MIRRor?", .callback = scpi_cmd_refmem_sync_mirror_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:ACK:STATus?", .callback = scpi_cmd_refmem_sync_ack_status_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:FENCe:STATus?", .callback = scpi_cmd_refmem_sync_fence_status_q}, \
+    {.pattern = "SYSTem:REFMEM:SYNC:QUALity:STATus?", .callback = scpi_cmd_refmem_sync_quality_status_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:PEER?", .callback = scpi_cmd_refmem_sync_peer_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:QUALity?", .callback = scpi_cmd_refmem_sync_quality_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:ADAPter?", .callback = scpi_cmd_refmem_sync_adapter_q}, \
