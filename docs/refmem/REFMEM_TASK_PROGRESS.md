@@ -8,6 +8,41 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-007 - RMTP NodeLoadTable 真实表镜像
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 继续 P0 逐表真实化，将 `.rmtp` table 3 `NodeLoadTable` 从占位 payload 升级为固定 u32 表镜像。
+  - 让 NodeLoad 的基础字段合法性由公共 application contract 校验，为后续 `LOAD:NODE` staging image 和动态实例装载做准备。
+- 完成内容：
+  - `tools/refmem_table_image/refmem_table_image.py` 新增 `build_node_load_payload()`，按当前 11 条默认 NodeLoad 模板输出固定 u32 payload。
+  - `refmem_application_contract.h/.c` 新增 `refmem_application_contract_validate_node_load_table()`，校验 version、load count、load id、application/profile、node 范围、instance 范围、fail policy、enabled/required 和 target node mask。
+  - `refmem_application_model.c` 的静态 NodeLoad linter 复用公共 contract，并保留对当前内置 FB instance 表的实例存在性、重复 enabled instance 和 required enabled instance 覆盖检查。
+  - `refmem_table_registry.c` 新增 NodeLoad parser，并在 `.rmtp` package owner validation 中把 table 3 纳入 owner-validated mask。
+  - `tests/python/test_refmem_pack_build.py` 增加 table 3 size/count 断言；`tests/unit/test_refmem_table_registry.c` 增加 NodeLoad package 构造和 owner mask/staging 状态断言。
+- 验证结果：
+  - `python -m pytest tests\python\test_refmem_pack_build.py` 通过，2 passed。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_application_contract_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\refmem_pack_build\refmem_pack_build.py --output-dir build-rtos-multicore-smoke\refmem_pack_nodeload` 通过，生成 `.rmtp` size `1924`、CRC `3A20B868`，table 3 CRC `7D7762D1`。
+  - `python tools\sd_fs_build\sd_fs_build.py --build-dir build-rtos-multicore-smoke --output-dir build-rtos-multicore-smoke\sdcard_nodeload --clean` 通过。
+  - 独立打包输出与 SD staging 输出的 `/refmem/app_model.rmtp` SHA256 均为 `C2EC768B52E284403D655BF60309E5AE102AE974909763A3B078B5FA79CE75CD`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814172116`，package CRC `0x5B9C1C34`。
+- 还需完成：
+  - 继续将 FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality 五张表升级为真实表镜像。
+  - `SYSTem:REFMEM:LOAD:NODE` 仍需从单条候选 snapshot 升级为真正的 NodeLoad staging image；本轮只是让 RMTP package 中的完整 NodeLoad 表具备 canonical payload 和 contract。
+- 关联文件：
+  - `tools/refmem_table_image/refmem_table_image.py`
+  - `tools/refmem_pack_build/refmem_pack_build.py`
+  - `components/distributed_refmem/inc/refmem_application_contract.h`
+  - `components/distributed_refmem/src/refmem_application_contract.c`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `components/distributed_refmem/src/refmem_table_registry.c`
+  - `tests/python/test_refmem_pack_build.py`
+  - `tests/unit/test_refmem_table_registry.c`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+
 ### REFMEM-TASK-20260815-006 - RMTP ApplicationMap 真实表镜像
 
 - 状态：完成

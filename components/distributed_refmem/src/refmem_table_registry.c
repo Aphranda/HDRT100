@@ -126,6 +126,39 @@ static bool refmem_table_registry_parse_generic_node(
     return true;
 }
 
+static bool refmem_table_registry_parse_node_load(
+    const uint8_t *data,
+    size_t size,
+    refmem_node_load_table_t *table)
+{
+    if (data == NULL ||
+        table == NULL ||
+        size != sizeof(refmem_node_load_table_t)) {
+        return false;
+    }
+
+    memset(table, 0, sizeof(*table));
+    table->version = refmem_table_read_u32_le(&data[0]);
+    table->load_count = refmem_table_read_u32_le(&data[4]);
+    size_t cursor = 8u;
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_NODE_LOAD_COUNT; i++) {
+        refmem_node_load_entry_t *load = &table->load[i];
+        load->load_id = refmem_table_read_u32_le(&data[cursor + 0u]);
+        load->application_id = refmem_table_read_u32_le(&data[cursor + 4u]);
+        load->profile_id = refmem_table_read_u32_le(&data[cursor + 8u]);
+        load->node_id = refmem_table_read_u32_le(&data[cursor + 12u]);
+        load->instance_id = refmem_table_read_u32_le(&data[cursor + 16u]);
+        load->role_mask = refmem_table_read_u32_le(&data[cursor + 20u]);
+        load->persona_mask = refmem_table_read_u32_le(&data[cursor + 24u]);
+        load->enabled = refmem_table_read_u32_le(&data[cursor + 28u]);
+        load->required = refmem_table_read_u32_le(&data[cursor + 32u]);
+        load->fail_policy = refmem_table_read_u32_le(&data[cursor + 36u]);
+        load->load_order = refmem_table_read_u32_le(&data[cursor + 40u]);
+        cursor += 11u * sizeof(uint32_t);
+    }
+    return true;
+}
+
 static bool refmem_table_registry_validate_package_owner_contract(
     const uint8_t *data,
     const uint32_t *table_offset,
@@ -146,9 +179,11 @@ static bool refmem_table_registry_validate_package_owner_contract(
     refmem_application_map_t application_map;
     refmem_board_capability_table_t board_table;
     refmem_generic_node_table_t node_table;
+    refmem_node_load_table_t node_load_table;
     const uint32_t app_id = REFMEM_APP_TABLE_APPLICATION_MAP;
     const uint32_t board_id = REFMEM_APP_TABLE_BOARD_CAPABILITY;
     const uint32_t node_id = REFMEM_APP_TABLE_GENERIC_NODE;
+    const uint32_t node_load_id = REFMEM_APP_TABLE_NODE_LOAD;
 
     if (!refmem_table_registry_parse_application_map(data + table_offset[app_id],
                                                      table_size[app_id],
@@ -181,6 +216,17 @@ static bool refmem_table_registry_validate_package_owner_contract(
     if (!refmem_application_contract_validate_slot_substrate(&node_table, &board_table)) {
         if (first_bad_table != NULL) {
             *first_bad_table = board_id;
+        }
+        return false;
+    }
+
+    if (!refmem_table_registry_parse_node_load(data + table_offset[node_load_id],
+                                               table_size[node_load_id],
+                                               &node_load_table) ||
+        !refmem_application_contract_validate_node_load_table(&node_load_table,
+                                                              &application_map)) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = node_load_id;
         }
         return false;
     }
@@ -738,7 +784,8 @@ bool refmem_table_registry_validate_package(const uint8_t *data,
                 result.owner_validated_table_mask =
                     (1u << REFMEM_APP_TABLE_APPLICATION_MAP) |
                     (1u << REFMEM_APP_TABLE_BOARD_CAPABILITY) |
-                    (1u << REFMEM_APP_TABLE_GENERIC_NODE);
+                    (1u << REFMEM_APP_TABLE_GENERIC_NODE) |
+                    (1u << REFMEM_APP_TABLE_NODE_LOAD);
             }
         }
     }

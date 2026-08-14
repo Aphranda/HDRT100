@@ -157,6 +157,39 @@ static void make_valid_generic_node_table(refmem_generic_node_table_t *table)
     }
 }
 
+static void make_valid_node_load_table(refmem_node_load_table_t *table)
+{
+    static const refmem_node_load_entry_t rows[REFMEM_APP_MODEL_NODE_LOAD_COUNT] = {
+        {0u, 1u, 1u, 0u, 0u, REFMEM_APP_ROLE_BOARD,
+         REFMEM_APP_PERSONA_TRIGGER_MASTER, 1u, 1u, REFMEM_APP_FAIL_STOP, 0u},
+        {1u, 1u, 1u, 0u, 1u, REFMEM_APP_ROLE_BOARD | REFMEM_APP_ROLE_PULSE_DISTRIBUTOR,
+         REFMEM_APP_PERSONA_TRIGGER_MASTER, 1u, 1u, REFMEM_APP_FAIL_STOP, 1u},
+        {2u, 1u, 1u, 0u, 2u, REFMEM_APP_ROLE_PULSE_DISTRIBUTOR,
+         REFMEM_APP_PERSONA_TRIGGER_MASTER, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY, 2u},
+        {3u, 1u, 1u, 0u, 3u, REFMEM_APP_ROLE_PULSE_DISTRIBUTOR,
+         REFMEM_APP_PERSONA_TRIGGER_MASTER, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY, 3u},
+        {4u, 1u, 1u, 1u, 4u, REFMEM_APP_ROLE_BOARD | REFMEM_APP_ROLE_PULSE_DISTRIBUTOR,
+         REFMEM_APP_PERSONA_DISTRIBUTED_TRIGGER, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY, 0u},
+        {5u, 1u, 1u, 2u, 5u, REFMEM_APP_ROLE_BOARD | REFMEM_APP_ROLE_LINK_SWITCHER,
+         REFMEM_APP_PERSONA_LINK_CONTROL, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY, 0u},
+        {6u, 1u, 1u, 3u, 6u, REFMEM_APP_ROLE_BOARD | REFMEM_APP_ROLE_GATEWAY,
+         REFMEM_APP_PERSONA_GATEWAY, 1u, 1u, REFMEM_APP_FAIL_STOP, 0u},
+        {7u, 1u, 1u, 3u, 7u, REFMEM_APP_ROLE_INSTRUMENT_CONTROLLER | REFMEM_APP_ROLE_GATEWAY,
+         REFMEM_APP_PERSONA_GATEWAY, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY, 1u},
+        {8u, 1u, 1u, 3u, 8u, REFMEM_APP_ROLE_GATEWAY,
+         REFMEM_APP_PERSONA_GATEWAY, 1u, 1u, REFMEM_APP_FAIL_STOP, 2u},
+        {9u, 1u, 1u, 4u, 9u, REFMEM_APP_ROLE_MODEL_VNA | REFMEM_APP_ROLE_TEST_AGENT,
+         REFMEM_APP_PERSONA_MODEL_INSTRUMENTS, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY, 0u},
+        {10u, 1u, 1u, 4u, 10u, REFMEM_APP_ROLE_MODEL_TURNTABLE | REFMEM_APP_ROLE_TEST_AGENT,
+         REFMEM_APP_PERSONA_MODEL_INSTRUMENTS, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY, 1u},
+    };
+
+    (void)memset(table, 0, sizeof(*table));
+    table->version = REFMEM_APP_MODEL_VERSION;
+    table->load_count = REFMEM_APP_MODEL_NODE_LOAD_COUNT;
+    (void)memcpy(table->load, rows, sizeof(rows));
+}
+
 static size_t build_test_package(uint8_t *package,
                                  size_t package_capacity,
                                  bool fixed_contract_tables)
@@ -186,6 +219,12 @@ static size_t build_test_package(uint8_t *package,
         } else if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_GENERIC_NODE) {
             refmem_generic_node_table_t table;
             make_valid_generic_node_table(&table);
+            table_size[table_id] = sizeof(table);
+            (void)memcpy(&payload[payload_size], &table, sizeof(table));
+            payload_size += sizeof(table);
+        } else if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_NODE_LOAD) {
+            refmem_node_load_table_t table;
+            make_valid_node_load_table(&table);
             table_size[table_id] = sizeof(table);
             (void)memcpy(&payload[payload_size], &table, sizeof(table));
             payload_size += sizeof(table);
@@ -423,7 +462,8 @@ static int test_package_owner_validation_accepts_contract_tables(void)
                          validation.owner_validated_table_mask,
                          (1u << REFMEM_APP_TABLE_APPLICATION_MAP) |
                          (1u << REFMEM_APP_TABLE_BOARD_CAPABILITY) |
-                             (1u << REFMEM_APP_TABLE_GENERIC_NODE));
+                             (1u << REFMEM_APP_TABLE_GENERIC_NODE) |
+                             (1u << REFMEM_APP_TABLE_NODE_LOAD));
     failed += expect_u32("application table crc present",
                          validation.table_crc32[REFMEM_APP_TABLE_APPLICATION_MAP] != 0u ? 1u : 0u,
                          1u);
@@ -444,6 +484,7 @@ static int test_package_stage_uses_table_crc_and_partial_owner_state(void)
     refmem_table_activation_gate_t gate = make_pass_gate();
     refmem_table_registry_entry_t board_entry;
     refmem_table_registry_entry_t node_load_entry;
+    refmem_table_registry_entry_t fb_entry;
     refmem_table_image_descriptor_t staging;
 
     failed += expect_bool("contract package validates for stage",
@@ -465,6 +506,10 @@ static int test_package_stage_uses_table_crc_and_partial_owner_state(void)
                           refmem_table_registry_get_entry(REFMEM_APP_TABLE_NODE_LOAD,
                                                           &node_load_entry),
                           true);
+    failed += expect_bool("get fb table",
+                          refmem_table_registry_get_entry(REFMEM_APP_TABLE_FB_INSTANCE,
+                                                          &fb_entry),
+                          true);
     failed += expect_bool("get staging descriptor",
                           refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_STAGING,
                                                                      &staging),
@@ -479,8 +524,14 @@ static int test_package_stage_uses_table_crc_and_partial_owner_state(void)
     failed += expect_u32("nodeload staging table crc",
                          node_load_entry.staging_crc32,
                          validation.table_crc32[REFMEM_APP_TABLE_NODE_LOAD]);
-    failed += expect_u32("nodeload crc only state",
+    failed += expect_u32("nodeload owner ok state",
                          node_load_entry.validation_state,
+                         REFMEM_TABLE_VALIDATION_OWNER_OK);
+    failed += expect_u32("fb staging table crc",
+                         fb_entry.staging_crc32,
+                         validation.table_crc32[REFMEM_APP_TABLE_FB_INSTANCE]);
+    failed += expect_u32("fb crc only state",
+                         fb_entry.validation_state,
                          REFMEM_TABLE_VALIDATION_CRC_OK);
     failed += expect_u32("staging descriptor crc only",
                          staging.state,

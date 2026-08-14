@@ -25,6 +25,7 @@ TABLE_NAMES = (
 
 NODE_COUNT = 8
 BOARD_CAPABILITY_COUNT = 16
+NODE_LOAD_COUNT = 11
 APPLICATION_ID = 1
 APPLICATION_VERSION = 1
 PROFILE_ID = 1
@@ -68,6 +69,15 @@ PERSONA_LINK_CONTROL = 0x00000004
 PERSONA_GATEWAY = 0x00000008
 PERSONA_MODEL_INSTRUMENTS = 0x00000010
 PERSONA_SPARE = 0x00000020
+
+ROLE_BOARD = 0x00000001
+ROLE_PULSE_DISTRIBUTOR = 0x00000002
+ROLE_LINK_SWITCHER = 0x00000004
+ROLE_INSTRUMENT_CONTROLLER = 0x00000008
+ROLE_GATEWAY = 0x00000010
+ROLE_MODEL_VNA = 0x00000020
+ROLE_MODEL_TURNTABLE = 0x00000040
+ROLE_TEST_AGENT = 0x00000080
 
 CLAIM_STRICT_UUID = 0
 CLAIM_ALLOW_SAME_BOARD_MULTI_SLOT = 1
@@ -170,6 +180,41 @@ def build_generic_node_payload() -> bytes:
     return _pack_u32_table(FORMAT_VERSION, NODE_COUNT, rows, NODE_COUNT)
 
 
+def build_node_load_payload() -> bytes:
+    rows = [
+        (0, APPLICATION_ID, PROFILE_ID, 0, 0,
+         ROLE_BOARD, PERSONA_TRIGGER_MASTER, 1, 1, FAIL_STOP, 0),
+        (1, APPLICATION_ID, PROFILE_ID, 0, 1,
+         ROLE_BOARD | ROLE_PULSE_DISTRIBUTOR, PERSONA_TRIGGER_MASTER, 1, 1, FAIL_STOP, 1),
+        (2, APPLICATION_ID, PROFILE_ID, 0, 2,
+         ROLE_PULSE_DISTRIBUTOR, PERSONA_TRIGGER_MASTER, 0, 0, FAIL_REPORT_ONLY, 2),
+        (3, APPLICATION_ID, PROFILE_ID, 0, 3,
+         ROLE_PULSE_DISTRIBUTOR, PERSONA_TRIGGER_MASTER, 0, 0, FAIL_REPORT_ONLY, 3),
+        (4, APPLICATION_ID, PROFILE_ID, 1, 4,
+         ROLE_BOARD | ROLE_PULSE_DISTRIBUTOR, PERSONA_DISTRIBUTED_TRIGGER, 0, 0,
+         FAIL_REPORT_ONLY, 0),
+        (5, APPLICATION_ID, PROFILE_ID, 2, 5,
+         ROLE_BOARD | ROLE_LINK_SWITCHER, PERSONA_LINK_CONTROL, 0, 0, FAIL_REPORT_ONLY, 0),
+        (6, APPLICATION_ID, PROFILE_ID, 3, 6,
+         ROLE_BOARD | ROLE_GATEWAY, PERSONA_GATEWAY, 1, 1, FAIL_STOP, 0),
+        (7, APPLICATION_ID, PROFILE_ID, 3, 7,
+         ROLE_INSTRUMENT_CONTROLLER | ROLE_GATEWAY, PERSONA_GATEWAY, 0, 0,
+         FAIL_REPORT_ONLY, 1),
+        (8, APPLICATION_ID, PROFILE_ID, 3, 8,
+         ROLE_GATEWAY, PERSONA_GATEWAY, 1, 1, FAIL_STOP, 2),
+        (9, APPLICATION_ID, PROFILE_ID, 4, 9,
+         ROLE_MODEL_VNA | ROLE_TEST_AGENT, PERSONA_MODEL_INSTRUMENTS, 0, 0,
+         FAIL_REPORT_ONLY, 0),
+        (10, APPLICATION_ID, PROFILE_ID, 4, 10,
+         ROLE_MODEL_TURNTABLE | ROLE_TEST_AGENT, PERSONA_MODEL_INSTRUMENTS, 0, 0,
+         FAIL_REPORT_ONLY, 1),
+    ]
+    payload = bytearray(struct.pack("<II", FORMAT_VERSION, NODE_LOAD_COUNT))
+    for row in rows:
+        payload.extend(struct.pack("<IIIIIIIIIII", *row))
+    return bytes(payload)
+
+
 def build_table_payload(table_id: int, name: str) -> bytes:
     if table_id == 0:
         return build_application_map_payload()
@@ -177,6 +222,8 @@ def build_table_payload(table_id: int, name: str) -> bytes:
         return build_board_capability_payload()
     if table_id == 2:
         return build_generic_node_payload()
+    if table_id == 3:
+        return build_node_load_payload()
     text = f"{name}:placeholder:v{FORMAT_VERSION}:table={table_id}\n".encode("ascii")
     return text.ljust(64, b"\0")
 

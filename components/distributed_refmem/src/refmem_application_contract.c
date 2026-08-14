@@ -98,6 +98,50 @@ bool refmem_application_contract_validate_board_capability_table(
     return true;
 }
 
+bool refmem_application_contract_validate_node_load_table(
+    const refmem_node_load_table_t *node_load_table,
+    const refmem_application_map_t *application_map)
+{
+    if (node_load_table == NULL ||
+        application_map == NULL ||
+        !refmem_application_contract_validate_application_map(application_map) ||
+        node_load_table->version != REFMEM_APP_MODEL_VERSION ||
+        node_load_table->load_count != REFMEM_APP_MODEL_NODE_LOAD_COUNT) {
+        return false;
+    }
+
+    uint32_t loaded_instance_mask = 0u;
+    for (uint32_t i = 0u; i < node_load_table->load_count; i++) {
+        const refmem_node_load_entry_t *load = &node_load_table->load[i];
+        if (load->load_id != i ||
+            load->application_id != application_map->application_id ||
+            load->profile_id != application_map->profile_id ||
+            load->node_id >= REFMEM_APP_MODEL_NODE_COUNT ||
+            load->instance_id >= REFMEM_APP_MODEL_INSTANCE_COUNT ||
+            load->fail_policy > REFMEM_APP_FAIL_REPORT_ONLY ||
+            load->enabled > 1u ||
+            load->required > 1u) {
+            return false;
+        }
+
+        if (load->enabled == 0u) {
+            continue;
+        }
+
+        if ((application_map->target_node_mask & (1u << load->node_id)) == 0u) {
+            return false;
+        }
+
+        const uint32_t instance_bit = 1u << load->instance_id;
+        if ((loaded_instance_mask & instance_bit) != 0u) {
+            return false;
+        }
+        loaded_instance_mask |= instance_bit;
+    }
+
+    return true;
+}
+
 bool refmem_application_contract_validate_slot_substrate(
     const refmem_generic_node_table_t *node_table,
     const refmem_board_capability_table_t *board_table)

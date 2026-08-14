@@ -24,6 +24,7 @@ HARDWARE_ID = "rp2350_trig"
 DEFAULT_TABLE_NAMES = refmem_table_image.TABLE_NAMES
 NODE_COUNT = refmem_table_image.NODE_COUNT
 BOARD_CAPABILITY_COUNT = refmem_table_image.BOARD_CAPABILITY_COUNT
+NODE_LOAD_COUNT = refmem_table_image.NODE_LOAD_COUNT
 crc32 = refmem_table_image.crc32
 build_package = refmem_table_image.build_package
 

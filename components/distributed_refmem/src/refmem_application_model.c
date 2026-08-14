@@ -628,31 +628,20 @@ static bool refmem_model_validate_generic_node_table(void)
 
 static bool refmem_model_validate_node_load_table(void)
 {
-    if (s_node_load_table.version != REFMEM_APP_MODEL_VERSION ||
-        s_node_load_table.load_count != REFMEM_APP_MODEL_NODE_LOAD_COUNT) {
+    if (!refmem_application_contract_validate_node_load_table(&s_node_load_table,
+                                                              &s_application_map)) {
         return false;
     }
 
     uint32_t loaded_instance_mask = 0u;
     for (uint32_t i = 0u; i < s_node_load_table.load_count; i++) {
         const refmem_node_load_entry_t *load = &s_node_load_table.load[i];
-        if (load->load_id != i ||
-            load->application_id != s_application_map.application_id ||
-            load->profile_id != s_application_map.profile_id ||
-            load->node_id >= REFMEM_APP_MODEL_NODE_COUNT ||
-            !refmem_model_instance_exists(load->instance_id) ||
-            load->fail_policy > REFMEM_APP_FAIL_REPORT_ONLY ||
-            (load->enabled > 1u) ||
-            (load->required > 1u)) {
+        if (!refmem_model_instance_exists(load->instance_id)) {
             return false;
         }
 
         if (!refmem_model_node_load_enabled(load)) {
             continue;
-        }
-
-        if ((s_application_map.target_node_mask & (1u << load->node_id)) == 0u) {
-            return false;
         }
 
         const uint32_t instance_bit = 1u << load->instance_id;

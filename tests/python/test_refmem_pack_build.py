@@ -30,6 +30,7 @@ def test_refmem_package_table_entries_match_payloads() -> None:
         0: 6 * 4,
         1: 8 + refmem_pack_build.BOARD_CAPABILITY_COUNT * 9 * 4,
         2: 8 + refmem_pack_build.NODE_COUNT * 9 * 4,
+        3: 8 + refmem_pack_build.NODE_LOAD_COUNT * 11 * 4,
     }
 
     for index, entry in enumerate(entries):
@@ -51,9 +52,14 @@ def test_refmem_package_table_entries_match_payloads() -> None:
                 0xFF,
             )
         elif index in expected_sizes:
+            expected_count = (
+                refmem_pack_build.NODE_LOAD_COUNT
+                if index == 3
+                else refmem_pack_build.NODE_COUNT
+            )
             assert struct.unpack_from("<II", payload, 0) == (
                 refmem_pack_build.FORMAT_VERSION,
-                refmem_pack_build.NODE_COUNT,
+                expected_count,
             )
         else:
             assert payload.startswith(refmem_pack_build.DEFAULT_TABLE_NAMES[index].encode("ascii"))
