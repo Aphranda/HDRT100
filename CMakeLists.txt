@@ -179,6 +179,7 @@ set(PROJECT_APP_SOURCES
         components/diagnostics/src/diagnostics.c
         components/distributed_config/src/distributed_config.c
         components/distributed_refmem/src/distributed_refmem.c
+        components/distributed_refmem/src/refmem_application_contract.c
         components/distributed_refmem/src/refmem_application_model.c
         components/distributed_refmem/src/refmem_claim_protocol.c
         components/distributed_refmem/src/refmem_pio_spi_adapter.c

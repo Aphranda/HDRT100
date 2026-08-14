@@ -8,6 +8,39 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-001 - GenericNode slot substrate linter 纠偏
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 审查当前 REFMEM 代码中偏离 HAOFV 的表职责边界，并先闭环修复已开始的 P1 `GenericNodeTable` linter 问题。
+  - 保证 A0-A7 仍是通用逻辑插槽，不被 `BoardCapabilityTable[i]` 的 UUID、persona、hw profile 或 default slot 固定绑定。
+- 完成内容：
+  - `REFMEM_DOMAIN_TODO.md` 增加本轮架构偏离审查待办，覆盖 TableRegistry active image、`.rmtp` owner validation、NodeLoad staging、GenericNode linter、legacy realtime contract 和 vector mutable accessor。
+  - 新增 `refmem_application_contract.h/.c`，作为 GenericNode slot substrate 与 BoardCapability 候选能力表的表契约校验基础件。
+  - 将 GenericNode contract 与 BoardCapability contract 拆成独立 validator：GenericNode 只校验 node id、baseline、claim policy、online/fail policy；BoardCapability 只校验 board id、baseline、default slot 范围、online flag 和 IO/IP capability 覆盖；组合校验不引入新的 A/B 固定绑定。
+  - 将 `REFMEM_APP_CAP_BASELINE` 上移为公共应用模型常量，默认表、SCPI staging 和 application contract 使用同一份 `BOARD + REFMEM + VDC` baseline 定义。
+  - 移除 linter 中 `BoardCapabilityTable[i]` 与 `GenericNodeTable[i]` 的 slot、UUID、persona、hw profile 一一相等要求。
+  - 新增 `tests/unit/test_refmem_application_contract.c` 和 `tools/tests/run_refmem_application_contract_tests.ps1`，覆盖错位 default slot、不同 UUID/persona/hw profile 仍可通过 substrate contract，以及 baseline/default slot/capability coverage 负例。
+  - `REFMEM_DOMAIN_TODO.md` 将对应 P1 偏离项标记完成。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_application_contract_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `git diff --check` 通过；仅报告工作区 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814162658`，package CRC `0x6F2E6B9C`。
+- 还需完成：
+  - 继续处理 P0：真实 active/staging/rollbackable table image、`.rmtp` 表级 owner validation、NodeLoadTable staging image。
+  - 后续处理 P2：删除或降级 legacy `refmem_realtime_contract_derive()` 的 default-slot fallback。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_contract.h`
+  - `components/distributed_refmem/src/refmem_application_contract.c`
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `tests/unit/test_refmem_application_contract.c`
+  - `tools/tests/run_refmem_application_contract_tests.ps1`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+
 ### REFMEM-TASK-20260814-053 - SlotClaim gate integrity checks
 
 - 状态：完成

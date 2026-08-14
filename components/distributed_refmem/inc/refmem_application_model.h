@@ -43,6 +43,9 @@
 #define REFMEM_APP_CAP_UART_RS485                  0x00002000u
 #define REFMEM_APP_CAP_REFMEM                      0x00004000u
 #define REFMEM_APP_CAP_VDC                         0x00008000u
+#define REFMEM_APP_CAP_BASELINE                    (REFMEM_APP_CAP_BOARD | \
+                                                    REFMEM_APP_CAP_REFMEM | \
+                                                    REFMEM_APP_CAP_VDC)
 
 #define REFMEM_APP_PERSONA_TRIGGER_MASTER          0x00000001u
 #define REFMEM_APP_PERSONA_DISTRIBUTED_TRIGGER     0x00000002u

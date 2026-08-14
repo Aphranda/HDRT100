@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的当前可执行待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、RefMemAO、A0-A7 通用逻辑插槽、节点装载、SlotClaim 协调、表镜像、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
 
@@ -16,7 +16,7 @@ Last updated: 2026-08-14
 - A0-A7 是全环唯一的通用逻辑插槽，不等同于固定产品角色；一块物理板可以承载多个实例，但 active assignment 最多 8 个。
 - B0-B4 是当前项目或默认 profile 的物理/实例标签，不是 RefMem slot；B 实例加载到哪个 A0-A7 slot 由 `DistributedNodeLoadTable`、`SlotClaimMap` 和 DeploymentGate 共同决定。
 - 每个可参与系统的物理节点都必须具备 `REFMEM + VDC` 基础能力；`VDC` 表示参与虚拟 DC 时间语义，`VDC_DPLL` 才表示运行 DPLL owner。
-- `DistributedGenericNodeTable` 描述通用逻辑插槽基座、硬件身份、能力、claim policy 和 fail policy。
+- `DistributedGenericNodeTable` 描述通用逻辑插槽基座、基础能力上限、claim policy 和 fail policy；UUID / hw profile 字段只作为兼容或默认 profile 提示，不表达固定物理身份。
 - `DistributedNodeLoadTable` 描述实例装载关系，允许同一 A0-A7 插槽加载多个无冲突 AO/FB 实例。
 - `DistributedFbInstanceTable`、`DistributedEventLinkTable`、`DistributedDataLinkTable`、`DistributedDeploymentGate`、`DistributedConnectionQualityTable` 共同描述静态 AO/FB 图、事件/事实连接、RUN 门禁和质量证据；其中 `resource_claim`、`io_claim` 和 `ip_core_claim` 共同表达实时能力契约。
 - `RefMemSlotContract` 是 `DistributedRefMemAO` 内部派生的字段级契约视图，不是新的业务配置入口；AO/FB 通过自己的 owner API 提交事实或读取 snapshot。
@@ -53,6 +53,18 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - 不把 PIO SPI adapter 当成最终通讯绑定；它只是最小两板验证载体。
 - 不在 RUN 中热改 active profile；所有表修改先进入 staging。
 
+## 2026-08-15 架构偏离审查待办
+
+本节记录本轮代码审查发现的 HAOFV 偏离点，必须逐步消除，不能继续作为“已知临时实现”隐含存在。
+
+- [ ] P0: `RefMemTableRegistry` activation 不能只切 descriptor/CRC；必须切换真实 active/staging/rollbackable table image 或明确保持 activation API 不可用于 active 替换。
+- [ ] P0: `.rmtp` `LOAD:SD` 不能只验证 package/header/table CRC 后复用当前 active lint；必须解析每张 staging 表并执行 owner validation、SlotClaimMap、RealtimeCapabilityContract、DeploymentGate 和 rollback 规则。
+- [ ] P0: `SYSTem:REFMEM:LOAD:NODE` 不能只校验单条 node/instance 范围后标记 validated；必须形成 staging NodeLoadTable image，并按候选表重新校验实例、资源、IO、事件/数据连接和 RUN gate。
+- [x] P1: `GenericNodeTable` linter 不得强制 `BoardCapabilityTable[i]` 与 `GenericNodeTable[i]` 的 slot、UUID、persona、hw profile 一一相等；GenericNode 只校验 A0-A7 通用 slot substrate，物理身份和能力由 BoardCapability/SlotClaim 约束。
+- [ ] P2: 旧 `refmem_realtime_contract_derive()` 仍通过 `active_default_slot` 查找 board，后续必须降级为 legacy/internal 或删除，生产路径只允许使用 SlotClaimMap resolved assignment。
+- [ ] P3: `SYSTem:REFMEM:LOAD:*` 后续需要接入 command slot；SCPI 只能 post staging/activation intent，由 RefMemAO owner take 后 ACK/NACK。
+- [ ] P5: `refmem_vector_table.h` 不应向普通模块公开可变 header/node pointer accessor；可变写入口应收敛到 `distributed_refmem.c` 或 RefMemAO owner API，对外只暴露 snapshot/validated publish helper。
+
 ## P0 - 表镜像与加载闭环
 
 目标：先把当前 `LOAD:SD` / `LOAD:NODE` staging 骨架升级为真正可验证、可回滚的表镜像机制。没有这层，后续动态节点加载、SD 加载和类似 OTA 的 RefMem package 都会缺少统一落点。
@@ -81,7 +93,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 目标：解决分布式环路中多个物理板误用同一 A0-A7 逻辑插槽、同一板卡加载多个实例、候选超过 active 容量和动态协调失败的可诊断问题。
 
-- [x] 在 `GenericNodeTable` 中落 `claim_policy`、`claim_priority`、`node_uuid_crc32`、`hw_profile_crc32`、`online_required` 和 `fail_policy` 字段。
+- [x] 在 `GenericNodeTable` 中落 `claim_policy`、`claim_priority`、`node_uuid_crc32`、`hw_profile_crc32`、`online_required` 和 `fail_policy` 字段；其中 UUID / hw profile 只作为兼容或默认 profile 提示，不得作为 A slot 物理绑定依据。
 - [x] 在静态模型 linter 中加入 `claim_policy` 基础合法性检查。
 - [x] 定义 `SlotClaimProposal` / `SlotClaimMap` 首版数据结构，区分 candidate instance 和 resolved active assignment；同一 physical board 最多上报 16 个 candidate。
 - [x] 在 `SlotClaimProposal` 中显式加入 board/profile label，例如 B0-B4、physical uuid、hardware profile CRC、capability mask、IO constraint 和类 IP 核能力摘要，避免把 A0-A7 slot 误当成固定物理板。

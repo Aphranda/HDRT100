@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "ota_crc32.h"
+#include "refmem_application_contract.h"
 #include "refmem_realtime_contract.h"
 #include "refmem_slot_claim.h"
 #include "refmem_table_registry.h"
@@ -29,8 +30,6 @@ static const refmem_application_map_t s_application_map = {
     .layout_version = DISTRIBUTED_REFMEM_LAYOUT_VERSION,
     .target_node_mask = 0xFFu,
 };
-
-#define REFMEM_APP_CAP_BASELINE (REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM | REFMEM_APP_CAP_VDC)
 
 static const refmem_board_capability_table_t s_board_capability_table = {
     .version = REFMEM_APP_MODEL_VERSION,
@@ -621,59 +620,16 @@ static bool refmem_model_validate_application_map(void)
 
 static bool refmem_model_validate_board_capability_table(void)
 {
-    if (s_board_capability_table.version != REFMEM_APP_MODEL_VERSION ||
-        s_board_capability_table.board_count < REFMEM_APP_MODEL_NODE_COUNT ||
-        s_board_capability_table.board_count > REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT) {
-        return false;
-    }
-
-    for (uint32_t i = 0u; i < s_board_capability_table.board_count; i++) {
-        const refmem_board_capability_entry_t *board = &s_board_capability_table.board[i];
-        if (board->board_id != i ||
-            (board->capability_mask & REFMEM_APP_CAP_BASELINE) != REFMEM_APP_CAP_BASELINE ||
-            board->active_default_slot >= REFMEM_APP_MODEL_NODE_COUNT ||
-            board->online_required > 1u) {
-            return false;
-        }
-
-        const uint32_t io_capability =
-            refmem_realtime_contract_io_capability_mask(board->io_constraint_mask);
-        const uint32_t ip_capability =
-            refmem_realtime_contract_ip_capability_mask(board->ip_core_mask);
-        if (((io_capability | ip_capability) & ~board->capability_mask) != 0u) {
-            return false;
-        }
-    }
-
-    return true;
+    return refmem_application_contract_validate_board_capability_table(
+        &s_board_capability_table,
+        REFMEM_APP_MODEL_NODE_COUNT);
 }
 
 static bool refmem_model_validate_generic_node_table(void)
 {
-    if (s_generic_node_table.version != REFMEM_APP_MODEL_VERSION ||
-        s_generic_node_table.node_count != REFMEM_APP_MODEL_NODE_COUNT) {
-        return false;
-    }
-
-    for (uint32_t i = 0u; i < s_generic_node_table.node_count; i++) {
-        const refmem_app_node_entry_t *node = &s_generic_node_table.node[i];
-        if (node->node_id != i ||
-            (node->capability_mask & REFMEM_APP_CAP_BASELINE) != REFMEM_APP_CAP_BASELINE ||
-            node->fail_policy > REFMEM_APP_FAIL_REPORT_ONLY) {
-            return false;
-        }
-
-        const refmem_board_capability_entry_t *board = &s_board_capability_table.board[i];
-        if (board->active_default_slot != node->node_id ||
-            board->board_uuid_crc32 != node->node_uuid_crc32 ||
-            board->default_persona_mask != node->default_persona_mask ||
-            board->hw_profile_crc32 != node->hw_profile_crc32 ||
-            board->online_required != node->online_required ||
-            (node->capability_mask & ~board->capability_mask) != 0u) {
-            return false;
-        }
-    }
-    return true;
+    return refmem_application_contract_validate_slot_substrate(
+        &s_generic_node_table,
+        &s_board_capability_table);
 }
 
 static bool refmem_model_validate_node_load_table(void)
