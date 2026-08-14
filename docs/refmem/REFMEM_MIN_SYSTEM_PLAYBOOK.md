@@ -46,6 +46,8 @@ Board A publishes HELLO / EPOCH / DELTA
 | COM4 / Board B | `20260814104920` | `0x2DF62B6E` | GPIO4..7 overlay 方向 HIL 已验证参考版。 |
 | COM5 / Board A | `20260814133439` | `0x1926CA52` | RefMem Sync HELLO/EPOCH SCPI 搬运闭环通过。 |
 | COM6 / Board B | `20260814133439` | `0x1926CA52` | RefMem Sync HELLO/EPOCH SCPI 搬运闭环通过。 |
+| COM5 / Board A | `20260814134858` | `0xA776513E` | RefMem Sync HELLO/EPOCH/DELTA/MIRROR SCPI 搬运闭环通过。 |
+| COM6 / Board B | `20260814134858` | `0xA776513E` | RefMem Sync HELLO/EPOCH/DELTA/MIRROR SCPI 搬运闭环通过。 |
 
 当前 COM3 查询到的 SlotClaimMap CRC 为 `386979554`。
 
@@ -183,7 +185,9 @@ python tools\two_board_io_validate\two_board_io_validate.py --port-a COM3 --port
 | `SYSTem:REFMEM:SYNC:INITialize <local_slot>,<epoch>,<run>` | 初始化本板 sync context 和 PIO SPI adapter skeleton。 |
 | `SYSTem:REFMEM:SYNC:HELLo? <source_slot>,<target_mask>,<seq>` | 生成 HELLO frame，返回 frame size、header 摘要和 hex frame。 |
 | `SYSTem:REFMEM:SYNC:EPOCh? <source_slot>,<target_mask>,<seq>` | 生成 EPOCH frame，返回 frame size、header 摘要和 hex frame。 |
+| `SYSTem:REFMEM:SYNC:DELTa? <source_slot>,<target_mask>,<seq>,<slot_id>,<slot_seq>,<field_id>,<value>,<dirty_mask>` | 生成最小 u32 DELTA test field frame。 |
 | `SYSTem:REFMEM:SYNC:RX "<hex>"` | 将 hex frame 注入 adapter RX staging，poll 后送入 `refmem_sync_receive_frame()`。 |
+| `SYSTem:REFMEM:SYNC:MIRRor? <source_slot>` | 查询指定来源 slot 的最新 sync mirror snapshot。 |
 | `SYSTem:REFMEM:SYNC:PEER? <source_slot>` | 查询指定对端的 seen、HELLO、EPOCH、seq、drop/stale 状态。 |
 | `SYSTem:REFMEM:SYNC:QUALity?` | 查询本板 sync 接收质量计数。 |
 | `SYSTem:REFMEM:SYNC:ADAPter?` | 查询 adapter caps/counter snapshot。 |
@@ -209,6 +213,8 @@ A HELLO? -> B RX
 B HELLO? -> A RX
 A EPOCH? -> B RX
 B EPOCH? -> A RX
+A DELTA? -> B RX -> B MIRROR?
+B DELTA? -> A RX -> A MIRROR?
 A PEER?(B), B PEER?(A), A/B QUALITY?
 ```
 
@@ -216,7 +222,8 @@ A PEER?(B), B PEER?(A), A/B QUALITY?
 
 - 两板 `RX` 都返回 `ACCEPTED`。
 - 两板 peer 均 `hello_seen=1` 且 `epoch_seen=1`。
-- 两板 quality 中 `accepted_count>=2`，`bad_frame_count/crc_error_count/target_mismatch_count/epoch_mismatch_count=0`。
+- 两板 mirror 均 `visible=1`，`value_u32` 等于对端发送值。
+- 两板 quality 中 `accepted_count>=3`，`bad_frame_count/crc_error_count/target_mismatch_count/epoch_mismatch_count=0`。
 - target mask 必须包含接收板 local slot，否则应被 `TARGET_MISMATCH` 拒绝。
 - EPOCH 必须匹配接收板 active epoch/run，否则应被 `EPOCH_MISMATCH` 拒绝。
 
@@ -242,6 +249,11 @@ A PEER?(B), B PEER?(A), A/B QUALITY?
 - COM5/COM6 均 OTA 并 commit 到 build `20260814133439`，package CRC `0x1926CA52`。
 - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --out-dir build-rtos-multicore-smoke\refmem_sync_hil_COM5_COM6_20260814133439` 通过。
 - HIL 结果：两板 HELLO/EPOCH `RX` 均返回 `ACCEPTED`；A peer slot 1 与 B peer slot 0 均 `hello_seen=1, epoch_seen=1, frame_count=2`；两板 quality `accepted_count=2`，`bad_frame_count/crc_error_count/target_mismatch_count/epoch_mismatch_count=0`。
+- 新增最小 DELTA mirror：`refmem_sync` 接收 `REFMEM_DELTA` 后提交到按 source slot 索引的 sync mirror snapshot，记录 slot、field、slot_seq、u32 value、payload CRC、frame seq、committed/visible count；不写 active ApplicationModel 或 SlotClaimMap。
+- 新增 `SYSTem:REFMEM:SYNC:DELTa?` 和 `SYSTem:REFMEM:SYNC:MIRRor?`，HIL 脚本扩展为 HELLO/EPOCH/DELTA/MIRROR 全流程，并补充 build、SlotClaimMap CRC 与 adapter snapshot 预检。
+- COM5/COM6 均 OTA 并 commit 到 build `20260814134858`，package CRC `0xA776513E`。
+- `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814134858 --out-dir build-rtos-multicore-smoke\refmem_sync_delta_hil_COM5_COM6_20260814134858_report` 通过。
+- HIL 结果：26 条记录全部 PASS；两板 build id 均为 `20260814134858`；SlotClaimMap CRC 均为 `386979554`；adapter id 均为 `1`；A->B DELTA value `2768240641`、B->A DELTA value `3053453314` 均在对端 `MIRRor?` 可见；两板 quality `accepted_count=3` 且 frame/CRC/target/epoch 错误计数为 0。
 
 ## 注意事项
 

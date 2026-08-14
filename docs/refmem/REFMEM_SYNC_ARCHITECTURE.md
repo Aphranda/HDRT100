@@ -148,8 +148,9 @@ adapter 替换关系：
 该 bridge 的边界：
 
 - `HELLo?` / `EPOCh?` 只生成总线无关 RefMem Sync frame，返回 header 摘要和 hex payload。
+- `DELTa?` 只生成最小 u32 test field 的 `REFMEM_DELTA` frame，用于验证 mirror commit 和 visible 语义。
 - `RX` 只执行 `hex -> adapter RX staging -> adapter poll -> refmem_sync_receive_frame()`。
-- `PEER?` / `QUALity?` / `ADAPter?` 只读取本地 sync context 和 adapter snapshot。
+- `MIRRor?` / `PEER?` / `QUALity?` / `ADAPter?` 只读取本地 sync context 和 adapter snapshot。
 - 维护 bridge 不直接修改 active ApplicationModel、SlotClaimMap、DataLink 或 64 KB RefMem active fact。
 - 维护 bridge 不替代真实 transport adapter；真实 PIO SPI、BISS-C、RJ45、UART 或 RS485 接入后必须复用相同 frame validate / receive / quality 语义。
 
@@ -160,9 +161,11 @@ Board A HELLo? -> PC tool -> Board B RX
 Board B HELLo? -> PC tool -> Board A RX
 Board A EPOCh? -> PC tool -> Board B RX
 Board B EPOCh? -> PC tool -> Board A RX
+Board A DELTa? -> PC tool -> Board B RX -> Board B MIRRor?
+Board B DELTa? -> PC tool -> Board A RX -> Board A MIRRor?
 ```
 
-这个阶段证明的是 HELLO/EPOCH 语义、target mask、epoch/run gate、seq 和 quality 计数。它不证明最终物理链路时序，也不证明 DELTA mirror、ACK_NACK 或 FENCE 已可用于 RUN gate。
+这个阶段证明的是 HELLO/EPOCH/DELTA 语义、target mask、epoch/run gate、seq、mirror visible 和 quality 计数。它不证明最终物理链路时序，也不证明 ACK_NACK 或 FENCE 已可用于 RUN gate。
 
 首版语义验证路径：
 

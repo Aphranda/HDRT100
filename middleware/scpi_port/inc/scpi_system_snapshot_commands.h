@@ -17,7 +17,9 @@ scpi_result_t scpi_cmd_refmem_table_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_init(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_hello_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_epoch_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_sync_delta_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_rx(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_sync_mirror_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_peer_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_quality_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_adapter_q(scpi_t *context);
@@ -58,7 +60,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:SYNC:INITialize", .callback = scpi_cmd_refmem_sync_init}, \
     {.pattern = "SYSTem:REFMEM:SYNC:HELLo?", .callback = scpi_cmd_refmem_sync_hello_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:EPOCh?", .callback = scpi_cmd_refmem_sync_epoch_q}, \
+    {.pattern = "SYSTem:REFMEM:SYNC:DELTa?", .callback = scpi_cmd_refmem_sync_delta_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:RX", .callback = scpi_cmd_refmem_sync_rx}, \
+    {.pattern = "SYSTem:REFMEM:SYNC:MIRRor?", .callback = scpi_cmd_refmem_sync_mirror_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:PEER?", .callback = scpi_cmd_refmem_sync_peer_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:QUALity?", .callback = scpi_cmd_refmem_sync_quality_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:ADAPter?", .callback = scpi_cmd_refmem_sync_adapter_q}, \

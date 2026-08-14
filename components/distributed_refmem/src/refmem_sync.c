@@ -15,6 +15,55 @@ static bool refmem_sync_requires_epoch_match(uint8_t frame_type)
     return frame_type != (uint8_t)REFMEM_SYNC_FRAME_HELLO;
 }
 
+static uint32_t refmem_sync_read_le_u32(const uint8_t *data, uint16_t size)
+{
+    uint32_t value = 0u;
+    const uint16_t width = size > 4u ? 4u : size;
+    if (data == NULL) {
+        return 0u;
+    }
+    for (uint16_t i = 0u; i < width; i++) {
+        value |= (uint32_t)data[i] << (8u * i);
+    }
+    return value;
+}
+
+static bool refmem_sync_commit_delta(refmem_sync_context_t *context,
+                                     const refmem_sync_frame_header_t *header,
+                                     const uint8_t *payload,
+                                     uint16_t payload_size)
+{
+    if (context == NULL || header == NULL || payload == NULL ||
+        header->source_slot >= REFMEM_SYNC_NODE_COUNT ||
+        payload_size < sizeof(refmem_sync_delta_header_t)) {
+        return false;
+    }
+
+    refmem_sync_delta_header_t delta;
+    (void)memcpy(&delta, payload, sizeof(delta));
+    if (delta.field_width > 4u ||
+        payload_size < (uint16_t)(sizeof(delta) + delta.field_width)) {
+        return false;
+    }
+
+    refmem_sync_mirror_snapshot_t *mirror = &context->mirror[header->source_slot];
+    mirror->visible = 1u;
+    mirror->source_slot = header->source_slot;
+    mirror->slot_id = delta.slot_id;
+    mirror->payload_kind = delta.payload_kind;
+    mirror->slot_seq = delta.slot_seq;
+    mirror->field_id = delta.field_id;
+    mirror->field_offset = delta.field_offset;
+    mirror->field_width = delta.field_width;
+    mirror->dirty_mask = delta.dirty_mask;
+    mirror->value_u32 = refmem_sync_read_le_u32(&payload[sizeof(delta)], delta.field_width);
+    mirror->value_crc32 = header->payload_crc32;
+    mirror->last_frame_seq32 = header->seq32;
+    mirror->committed_count++;
+    mirror->visible_count++;
+    return true;
+}
+
 static void refmem_sync_fill_snapshot(refmem_sync_rx_snapshot_t *snapshot,
                                       refmem_sync_rx_result_t result,
                                       refmem_sync_frame_result_t frame_result,
@@ -193,6 +242,10 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
     peer->last_compact_time = header.compact_time;
     peer->last_payload_crc32 = header.payload_crc32;
 
+    if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_DELTA) {
+        (void)refmem_sync_commit_delta(context, &header, payload, payload_size);
+    }
+
     context->quality.accepted_count++;
     refmem_sync_fill_snapshot(snapshot,
                               REFMEM_SYNC_RX_ACCEPTED,
@@ -212,6 +265,16 @@ const refmem_sync_peer_state_t *refmem_sync_get_peer(
         return NULL;
     }
     return &context->peer[source_slot];
+}
+
+const refmem_sync_mirror_snapshot_t *refmem_sync_get_mirror(
+    const refmem_sync_context_t *context,
+    uint8_t source_slot)
+{
+    if (context == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return NULL;
+    }
+    return &context->mirror[source_slot];
 }
 
 void refmem_sync_get_quality(const refmem_sync_context_t *context,

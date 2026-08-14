@@ -8,6 +8,43 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-047 - RefMem Sync DELTA mirror 最小闭环
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 在 HELLO/EPOCH 已通过的基础上，增加最小 `REFMEM_DELTA` test field，让两块板能通过受控协议帧同步一个 u32 事实到对端 mirror snapshot。
+  - 保持 DELTA mirror 仍属于 RefMem Sync 维护闭环，不直接写 active ApplicationModel、SlotClaimMap 或业务 active fact。
+- 完成内容：
+  - `refmem_sync_context_t` 增加按 source slot 索引的 `refmem_sync_mirror_snapshot_t`。
+  - `refmem_sync_receive_frame()` 接收 `REFMEM_DELTA` 后解析 `refmem_sync_delta_header_t + u32 value`，更新 mirror visible、slot、field、slot_seq、value、payload CRC、frame seq、committed count 和 visible count。
+  - 新增 `refmem_sync_get_mirror()`。
+  - `SYSTem:REFMEM:SYNC:DELTa?` 可生成带 ACK request flag 的最小 u32 DELTA frame。
+  - `SYSTem:REFMEM:SYNC:MIRRor?` 可查询指定 source slot 的 mirror snapshot。
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 从 HELLO/EPOCH 扩展为 HELLO/EPOCH/DELTA/MIRROR，并增加 build id、SlotClaimMap CRC 和 adapter snapshot 预检。
+- 验证结果：
+  - `python -m py_compile tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814134858`，package CRC `0xA776513E`。
+  - COM5/COM6 均 OTA 并 commit 到 build `20260814134858`。
+  - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814134858 --out-dir build-rtos-multicore-smoke\refmem_sync_delta_hil_COM5_COM6_20260814134858_report` 通过，26 条记录全部 PASS。
+  - HIL 关键结果：两板 build id 均为 `20260814134858`；SlotClaimMap CRC 均为 `386979554`；adapter id 均为 `1`；A->B DELTA value `2768240641`、B->A DELTA value `3053453314` 均在对端 mirror 可见；两板 quality `accepted_count=3` 且 frame、CRC、target、epoch 错误计数为 0。
+- 还需完成：
+  - `REFMEM_ACK_NACK` 回传，把 DELTA accepted、duplicate seq、target mismatch 和 payload CRC mismatch 转成可查询 ACK/NACK 结果。
+  - `REFMEM_FENCE` 可见性门禁，把 mirror visible 与 RUN/SYNC gate 串起来。
+  - 真实 PIO SPI physical adapter service 接入，替换当前 PC/SCPI frame 搬运。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_sync.h`
+  - `components/distributed_refmem/src/refmem_sync.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tests/unit/test_refmem_sync.c`
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
+- 下一步：
+  - 进入 P4.5 阶段 3 的 ACK_NACK 闭环，优先让接收侧根据最近一次 RX snapshot 生成 ACK_NACK frame 并由对端接收/记录。
+
 ### REFMEM-TASK-20260814-046 - RefMem Sync HELLO/EPOCH SCPI 搬运闭环入口
 
 - 状态：完成

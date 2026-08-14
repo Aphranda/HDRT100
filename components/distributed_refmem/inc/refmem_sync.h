@@ -50,10 +50,28 @@ typedef struct {
 } refmem_sync_quality_counters_t;
 
 typedef struct {
+    uint32_t visible;
+    uint32_t source_slot;
+    uint32_t slot_id;
+    uint32_t payload_kind;
+    uint32_t slot_seq;
+    uint32_t field_id;
+    uint32_t field_offset;
+    uint32_t field_width;
+    uint32_t dirty_mask;
+    uint32_t value_u32;
+    uint32_t value_crc32;
+    uint32_t last_frame_seq32;
+    uint32_t committed_count;
+    uint32_t visible_count;
+} refmem_sync_mirror_snapshot_t;
+
+typedef struct {
     uint8_t local_slot;
     uint32_t active_epoch_id;
     uint32_t active_run_id;
     refmem_sync_peer_state_t peer[REFMEM_SYNC_NODE_COUNT];
+    refmem_sync_mirror_snapshot_t mirror[REFMEM_SYNC_NODE_COUNT];
     refmem_sync_quality_counters_t quality;
 } refmem_sync_context_t;
 
@@ -79,6 +97,9 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
                                                   size_t frame_size,
                                                   refmem_sync_rx_snapshot_t *snapshot);
 const refmem_sync_peer_state_t *refmem_sync_get_peer(
+    const refmem_sync_context_t *context,
+    uint8_t source_slot);
+const refmem_sync_mirror_snapshot_t *refmem_sync_get_mirror(
     const refmem_sync_context_t *context,
     uint8_t source_slot);
 void refmem_sync_get_quality(const refmem_sync_context_t *context,

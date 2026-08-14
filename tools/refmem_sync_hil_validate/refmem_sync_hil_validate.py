@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 HELLO_TYPE = 1
 EPOCH_TYPE = 2
+DELTA_TYPE = 3
 
 HELLO_FIELDS = (
     "status",
@@ -86,6 +87,24 @@ QUALITY_FIELDS = (
     "drop_count",
 )
 
+MIRROR_FIELDS = (
+    "query_source_slot",
+    "visible",
+    "source_slot",
+    "slot_id",
+    "payload_kind",
+    "slot_seq",
+    "field_id",
+    "field_offset",
+    "field_width",
+    "dirty_mask",
+    "value_u32",
+    "value_crc32",
+    "last_frame_seq32",
+    "committed_count",
+    "visible_count",
+)
+
 
 @dataclass
 class Record:
@@ -109,6 +128,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--slot-b", type=int, default=1)
     parser.add_argument("--epoch", type=int, default=1)
     parser.add_argument("--run", type=int, default=1)
+    parser.add_argument("--delta-a", type=int, default=0xA5000001)
+    parser.add_argument("--delta-b", type=int, default=0xB6000002)
+    parser.add_argument("--expected-build")
     parser.add_argument("--out-dir", type=Path)
     return parser.parse_args()
 
@@ -240,6 +262,34 @@ def expect_init(response: str, *, slot: int, epoch: int, run: int) -> None:
         raise AssertionError(f"INIT state mismatch {response!r}")
 
 
+def expect_build(response: str, *, expected: str | None) -> None:
+    fields = parse_csv_response(response)
+    if not fields or not fields[0]:
+        raise AssertionError(f"bad build response {response!r}")
+    if expected is not None and fields[0] != expected:
+        raise AssertionError(f"build {fields[0]!r} expected {expected!r}")
+
+
+def expect_claim(response: str) -> None:
+    fields = parse_csv_response(response)
+    if len(fields) < 9:
+        raise AssertionError(f"claim response too short {response!r}")
+    if int(fields[4], 0) == 0:
+        raise AssertionError("claim assigned_count is zero")
+    if int(fields[8], 0) == 0:
+        raise AssertionError("claim map_crc32 is zero")
+
+
+def expect_adapter(response: str) -> None:
+    fields = parse_csv_response(response)
+    if len(fields) < 18:
+        raise AssertionError(f"adapter response too short {response!r}")
+    if int(fields[0], 0) != 1:
+        raise AssertionError(f"adapter_id={fields[0]} expected 1")
+    if int(fields[3], 0) < 64:
+        raise AssertionError(f"adapter max_payload too small: {fields[3]}")
+
+
 def expect_frame(response: str, *, source: int, target: int, epoch: int, run: int) -> None:
     data = fields_dict(HELLO_FIELDS, response)
     if data["status"] != "OK":
@@ -283,17 +333,37 @@ def expect_peer(response: str, *, source: int, hello_seen: int, epoch_seen: int,
         raise AssertionError(f"last_frame_type={data['last_frame_type']} expected {last_type}")
 
 
-def expect_quality(response: str, *, local: int, epoch: int, run: int) -> None:
+def expect_quality(response: str, *, local: int, epoch: int, run: int, accepted_min: int) -> None:
     data = fields_dict(QUALITY_FIELDS, response)
     if int(data["local_slot"], 0) != local:
         raise AssertionError(f"quality local={data['local_slot']} expected {local}")
     if int(data["epoch_id"], 0) != epoch or int(data["run_id"], 0) != run:
         raise AssertionError("quality epoch/run mismatch")
-    if int(data["accepted_count"], 0) < 2:
-        raise AssertionError("quality accepted_count did not reach HELLO+EPOCH")
+    if int(data["accepted_count"], 0) < accepted_min:
+        raise AssertionError(f"quality accepted_count did not reach {accepted_min}")
     for field in ("bad_frame_count", "crc_error_count", "target_mismatch_count", "epoch_mismatch_count"):
         if int(data[field], 0) != 0:
             raise AssertionError(f"quality {field}={data[field]}")
+
+
+def expect_mirror(response: str, *, source: int, slot: int, slot_seq: int, field: int, value: int) -> None:
+    data = fields_dict(MIRROR_FIELDS, response)
+    if int(data["query_source_slot"], 0) != source or int(data["source_slot"], 0) != source:
+        raise AssertionError(f"mirror source mismatch: {response!r}")
+    if int(data["visible"], 0) != 1:
+        raise AssertionError("mirror not visible")
+    if int(data["slot_id"], 0) != slot:
+        raise AssertionError(f"mirror slot={data['slot_id']} expected {slot}")
+    if int(data["slot_seq"], 0) != slot_seq:
+        raise AssertionError(f"mirror slot_seq={data['slot_seq']} expected {slot_seq}")
+    if int(data["field_id"], 0) != field:
+        raise AssertionError(f"mirror field={data['field_id']} expected {field}")
+    if int(data["field_width"], 0) != 4:
+        raise AssertionError(f"mirror width={data['field_width']} expected 4")
+    if int(data["value_u32"], 0) != value:
+        raise AssertionError(f"mirror value={data['value_u32']} expected {value}")
+    if int(data["committed_count"], 0) < 1 or int(data["visible_count"], 0) < 1:
+        raise AssertionError("mirror commit/visible count did not advance")
 
 
 def quote_hex(hex_text: str) -> str:
@@ -310,6 +380,26 @@ def run_exchange(args: argparse.Namespace,
     run_checked(records,
                 "A",
                 execute_a,
+                "SYST:FW:BUILD?",
+                lambda r: expect_build(r, expected=args.expected_build))
+    run_checked(records,
+                "B",
+                execute_b,
+                "SYST:FW:BUILD?",
+                lambda r: expect_build(r, expected=args.expected_build))
+    run_checked(records,
+                "A",
+                execute_a,
+                "SYSTem:REFMEM:CLAIM? 0",
+                expect_claim)
+    run_checked(records,
+                "B",
+                execute_b,
+                "SYSTem:REFMEM:CLAIM? 0",
+                expect_claim)
+    run_checked(records,
+                "A",
+                execute_a,
                 f"SYSTem:REFMEM:SYNC:INITialize {args.slot_a},{args.epoch},{args.run}",
                 lambda r: expect_init(r, slot=args.slot_a, epoch=args.epoch, run=args.run))
     run_checked(records,
@@ -317,6 +407,16 @@ def run_exchange(args: argparse.Namespace,
                 execute_b,
                 f"SYSTem:REFMEM:SYNC:INITialize {args.slot_b},{args.epoch},{args.run}",
                 lambda r: expect_init(r, slot=args.slot_b, epoch=args.epoch, run=args.run))
+    run_checked(records,
+                "A",
+                execute_a,
+                "SYSTem:REFMEM:SYNC:ADAPter?",
+                expect_adapter)
+    run_checked(records,
+                "B",
+                execute_b,
+                "SYSTem:REFMEM:SYNC:ADAPter?",
+                expect_adapter)
 
     hello_a = run_checked(records,
                           "A",
@@ -402,26 +502,89 @@ def run_exchange(args: argparse.Namespace,
                                     epoch=args.epoch,
                                     run=args.run))
 
+    delta_a = run_checked(records,
+                          "A",
+                          execute_a,
+                          f"SYSTem:REFMEM:SYNC:DELTa? {args.slot_a},{mask_b},3,{args.slot_a},1,1,{args.delta_a},1",
+                          lambda r: expect_frame(r,
+                                                 source=args.slot_a,
+                                                 target=mask_b,
+                                                 epoch=args.epoch,
+                                                 run=args.run))
+    delta_a_hex = fields_dict(HELLO_FIELDS, delta_a)["hex"]
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(delta_a_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=DELTA_TYPE,
+                                    source=args.slot_a,
+                                    target=mask_b,
+                                    epoch=args.epoch,
+                                    run=args.run))
+
+    delta_b = run_checked(records,
+                          "B",
+                          execute_b,
+                          f"SYSTem:REFMEM:SYNC:DELTa? {args.slot_b},{mask_a},3,{args.slot_b},1,1,{args.delta_b},1",
+                          lambda r: expect_frame(r,
+                                                 source=args.slot_b,
+                                                 target=mask_a,
+                                                 epoch=args.epoch,
+                                                 run=args.run))
+    delta_b_hex = fields_dict(HELLO_FIELDS, delta_b)["hex"]
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(delta_b_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=DELTA_TYPE,
+                                    source=args.slot_b,
+                                    target=mask_a,
+                                    epoch=args.epoch,
+                                    run=args.run))
+
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:MIRRor? {args.slot_b}",
+                lambda r: expect_mirror(r,
+                                        source=args.slot_b,
+                                        slot=args.slot_b,
+                                        slot_seq=1,
+                                        field=1,
+                                        value=args.delta_b))
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:MIRRor? {args.slot_a}",
+                lambda r: expect_mirror(r,
+                                        source=args.slot_a,
+                                        slot=args.slot_a,
+                                        slot_seq=1,
+                                        field=1,
+                                        value=args.delta_a))
+
     run_checked(records,
                 "A",
                 execute_a,
                 f"SYSTem:REFMEM:SYNC:PEER? {args.slot_b}",
-                lambda r: expect_peer(r, source=args.slot_b, hello_seen=1, epoch_seen=1, last_type=EPOCH_TYPE))
+                lambda r: expect_peer(r, source=args.slot_b, hello_seen=1, epoch_seen=1, last_type=DELTA_TYPE))
     run_checked(records,
                 "B",
                 execute_b,
                 f"SYSTem:REFMEM:SYNC:PEER? {args.slot_a}",
-                lambda r: expect_peer(r, source=args.slot_a, hello_seen=1, epoch_seen=1, last_type=EPOCH_TYPE))
+                lambda r: expect_peer(r, source=args.slot_a, hello_seen=1, epoch_seen=1, last_type=DELTA_TYPE))
     run_checked(records,
                 "A",
                 execute_a,
                 "SYSTem:REFMEM:SYNC:QUALity?",
-                lambda r: expect_quality(r, local=args.slot_a, epoch=args.epoch, run=args.run))
+                lambda r: expect_quality(r, local=args.slot_a, epoch=args.epoch, run=args.run, accepted_min=3))
     run_checked(records,
                 "B",
                 execute_b,
                 "SYSTem:REFMEM:SYNC:QUALity?",
-                lambda r: expect_quality(r, local=args.slot_b, epoch=args.epoch, run=args.run))
+                lambda r: expect_quality(r, local=args.slot_b, epoch=args.epoch, run=args.run, accepted_min=3))
     return records
 
 
@@ -441,6 +604,9 @@ def write_outputs(out_dir: Path, args: argparse.Namespace, records: list[Record]
         "slot_b": args.slot_b,
         "epoch": args.epoch,
         "run": args.run,
+        "delta_a": args.delta_a,
+        "delta_b": args.delta_b,
+        "expected_build": args.expected_build,
         "records": [record.__dict__ for record in records],
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
@@ -470,7 +636,7 @@ def main() -> int:
     out_dir = args.out_dir or (ROOT / "build-rtos-multicore-smoke" /
                                f"refmem_sync_hil_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     write_outputs(out_dir, args, records)
-    passed = all(record.status == "PASS" for record in records) and len(records) == 14
+    passed = all(record.status == "PASS" for record in records) and len(records) == 26
     print(f"summary: passed={passed} records={len(records)} out_dir={out_dir}")
     return 0 if passed else 1
 

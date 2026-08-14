@@ -256,6 +256,66 @@ static int test_sequence_quality(void)
     return failed;
 }
 
+static int test_delta_mirror_commit(void)
+{
+    int failed = 0;
+    refmem_sync_context_t context;
+    refmem_sync_delta_header_t delta;
+    uint8_t payload[sizeof(refmem_sync_delta_header_t) + 4u];
+    uint8_t frame[128];
+    size_t frame_size = 0u;
+
+    (void)refmem_sync_init(&context, 1u, 7u, 8u);
+    (void)memset(&delta, 0, sizeof(delta));
+    delta.delta_id = 3u;
+    delta.slot_id = 4u;
+    delta.payload_kind = 1u;
+    delta.slot_seq = 55u;
+    delta.field_id = 9u;
+    delta.field_offset = 0u;
+    delta.field_width = 4u;
+    delta.dirty_mask = 0x10u;
+    (void)memcpy(payload, &delta, sizeof(delta));
+    payload[sizeof(delta) + 0u] = 0x78u;
+    payload[sizeof(delta) + 1u] = 0x56u;
+    payload[sizeof(delta) + 2u] = 0x34u;
+    payload[sizeof(delta) + 3u] = 0x12u;
+
+    failed += expect_bool("make delta mirror",
+                          make_frame(REFMEM_SYNC_FRAME_DELTA,
+                                     0u,
+                                     0x02u,
+                                     7u,
+                                     8u,
+                                     12u,
+                                     payload,
+                                     sizeof(payload),
+                                     frame,
+                                     sizeof(frame),
+                                     &frame_size),
+                          true);
+    failed += expect_u32("recv delta mirror",
+                         refmem_sync_receive_frame(&context, frame, frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+
+    const refmem_sync_mirror_snapshot_t *mirror = refmem_sync_get_mirror(&context, 0u);
+    failed += expect_bool("mirror present", mirror != NULL, true);
+    if (mirror != NULL) {
+        failed += expect_u32("mirror visible", mirror->visible, 1u);
+        failed += expect_u32("mirror source", mirror->source_slot, 0u);
+        failed += expect_u32("mirror slot", mirror->slot_id, 4u);
+        failed += expect_u32("mirror slot seq", mirror->slot_seq, 55u);
+        failed += expect_u32("mirror field", mirror->field_id, 9u);
+        failed += expect_u32("mirror width", mirror->field_width, 4u);
+        failed += expect_u32("mirror dirty", mirror->dirty_mask, 0x10u);
+        failed += expect_u32("mirror value", mirror->value_u32, 0x12345678u);
+        failed += expect_u32("mirror frame seq", mirror->last_frame_seq32, 12u);
+        failed += expect_u32("mirror committed", mirror->committed_count, 1u);
+        failed += expect_u32("mirror visible count", mirror->visible_count, 1u);
+    }
+    return failed;
+}
+
 static int test_frame_error_quality(void)
 {
     int failed = 0;
@@ -294,6 +354,7 @@ int main(void)
     failed += test_accepts_hello_and_epoch();
     failed += test_rejects_target_and_epoch_mismatch();
     failed += test_sequence_quality();
+    failed += test_delta_mirror_commit();
     failed += test_frame_error_quality();
 
     if (failed != 0) {
