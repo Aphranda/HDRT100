@@ -43,11 +43,6 @@ uint32_t refmem_realtime_contract_ip_capability_mask(uint32_t ip_core_claim);
 uint32_t refmem_realtime_contract_transport_resource_claim(uint32_t transport);
 uint32_t refmem_realtime_contract_transport_io_claim(uint32_t transport);
 uint32_t refmem_realtime_contract_transport_ip_core_claim(uint32_t transport);
-bool refmem_realtime_contract_derive(const refmem_node_load_entry_t *load,
-                                     const refmem_fb_instance_entry_t *instance,
-                                     const refmem_app_node_entry_t *node,
-                                     const refmem_board_capability_table_t *board_table,
-                                     refmem_realtime_contract_t *contract);
 bool refmem_realtime_contract_derive_from_claim_map(
     const refmem_node_load_entry_t *load,
     const refmem_fb_instance_entry_t *instance,

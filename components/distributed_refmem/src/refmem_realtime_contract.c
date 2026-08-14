@@ -2,26 +2,6 @@
 
 #include <string.h>
 
-#define REFMEM_RT_CONTRACT_BASELINE \
-    (REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM | REFMEM_APP_CAP_VDC)
-
-static const refmem_board_capability_entry_t *refmem_realtime_find_board_for_node(
-    const refmem_board_capability_table_t *board_table,
-    uint32_t node_id)
-{
-    if (board_table == NULL || board_table->board_count > REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT) {
-        return NULL;
-    }
-
-    for (uint32_t i = 0u; i < board_table->board_count; i++) {
-        const refmem_board_capability_entry_t *board = &board_table->board[i];
-        if (board->active_default_slot == node_id) {
-            return board;
-        }
-    }
-    return NULL;
-}
-
 uint32_t refmem_realtime_contract_resource_capability_mask(uint32_t resource_claim)
 {
     uint32_t capability = 0u;
@@ -159,80 +139,6 @@ uint32_t refmem_realtime_contract_transport_ip_core_claim(uint32_t transport)
     }
 }
 
-bool refmem_realtime_contract_derive(const refmem_node_load_entry_t *load,
-                                     const refmem_fb_instance_entry_t *instance,
-                                     const refmem_app_node_entry_t *node,
-                                     const refmem_board_capability_table_t *board_table,
-                                     refmem_realtime_contract_t *contract)
-{
-    if (contract == NULL) {
-        return false;
-    }
-
-    memset(contract, 0, sizeof(*contract));
-    contract->result = REFMEM_RT_CONTRACT_BAD_ARGUMENT;
-
-    if (load == NULL || instance == NULL || node == NULL || board_table == NULL ||
-        load->enabled == 0u || instance->enable_condition == 0u) {
-        return false;
-    }
-
-    const refmem_board_capability_entry_t *board =
-        refmem_realtime_find_board_for_node(board_table, load->node_id);
-
-    contract->node_id = load->node_id;
-    contract->instance_id = load->instance_id;
-    contract->resource_claim = instance->resource_claim;
-    contract->io_claim = instance->io_claim;
-    contract->ip_core_claim = instance->ip_core_claim;
-    contract->time_budget_us = instance->time_budget_us;
-    contract->required_capability_mask =
-        refmem_realtime_contract_resource_capability_mask(instance->resource_claim) |
-        refmem_realtime_contract_io_capability_mask(instance->io_claim) |
-        refmem_realtime_contract_ip_capability_mask(instance->ip_core_claim);
-
-    if (board == NULL) {
-        contract->result = REFMEM_RT_CONTRACT_BOARD_NOT_FOUND;
-        return false;
-    }
-
-    contract->board_id = board->board_id;
-    contract->target_capability_mask = node->capability_mask & board->capability_mask;
-    contract->target_io_constraint_mask = board->io_constraint_mask;
-    contract->target_ip_core_mask = board->ip_core_mask;
-
-    if (((node->capability_mask & REFMEM_RT_CONTRACT_BASELINE) != REFMEM_RT_CONTRACT_BASELINE) ||
-        ((board->capability_mask & REFMEM_RT_CONTRACT_BASELINE) != REFMEM_RT_CONTRACT_BASELINE)) {
-        contract->missing_capability_mask =
-            REFMEM_RT_CONTRACT_BASELINE & ~contract->target_capability_mask;
-        contract->result = REFMEM_RT_CONTRACT_MISSING_BASELINE;
-        return false;
-    }
-
-    contract->missing_capability_mask =
-        contract->required_capability_mask & ~contract->target_capability_mask;
-    if (contract->missing_capability_mask != 0u) {
-        contract->result = REFMEM_RT_CONTRACT_MISSING_CAPABILITY;
-        return false;
-    }
-
-    contract->missing_io_mask = instance->io_claim & ~board->io_constraint_mask;
-    if (contract->missing_io_mask != 0u) {
-        contract->result = REFMEM_RT_CONTRACT_MISSING_IO;
-        return false;
-    }
-
-    contract->missing_ip_core_mask = instance->ip_core_claim & ~board->ip_core_mask;
-    if (contract->missing_ip_core_mask != 0u) {
-        contract->result = REFMEM_RT_CONTRACT_MISSING_IP_CORE;
-        return false;
-    }
-
-    contract->valid = 1u;
-    contract->result = REFMEM_RT_CONTRACT_OK;
-    return true;
-}
-
 bool refmem_realtime_contract_derive_from_claim_map(
     const refmem_node_load_entry_t *load,
     const refmem_fb_instance_entry_t *instance,
@@ -278,10 +184,10 @@ bool refmem_realtime_contract_derive_from_claim_map(
     contract->target_io_constraint_mask = assignment->io_constraint_mask;
     contract->target_ip_core_mask = assignment->ip_core_mask;
 
-    if ((assignment->capability_mask & REFMEM_RT_CONTRACT_BASELINE) !=
-        REFMEM_RT_CONTRACT_BASELINE) {
+    if ((assignment->capability_mask & REFMEM_APP_CAP_BASELINE) !=
+        REFMEM_APP_CAP_BASELINE) {
         contract->missing_capability_mask =
-            REFMEM_RT_CONTRACT_BASELINE & ~assignment->capability_mask;
+            REFMEM_APP_CAP_BASELINE & ~assignment->capability_mask;
         contract->result = REFMEM_RT_CONTRACT_MISSING_BASELINE;
         return false;
     }

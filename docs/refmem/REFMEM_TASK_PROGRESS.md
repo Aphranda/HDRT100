@@ -8,6 +8,33 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-002 - Realtime contract 入口收敛到 SlotClaimMap
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 消除旧 `refmem_realtime_contract_derive()` 通过 `active_default_slot` 反查 BoardCapability 的 legacy 路径。
+  - 保证 RealtimeCapabilityContract 只从 SlotClaimMap resolved assignment 派生，不再把 BoardCapability default slot 当作生产绑定事实。
+- 完成内容：
+  - 从 `refmem_realtime_contract.h/.c` 删除 `refmem_realtime_contract_derive()` 和内部 `active_default_slot` 查找 helper。
+  - `derive_from_claim_map()` 改用公共 `REFMEM_APP_CAP_BASELINE`，与 application contract baseline 语义一致。
+  - `tests/unit/test_refmem_realtime_contract.c` 改为构造 `refmem_slot_claim_map_t` 中的 claimed assignment，并只调用 `refmem_realtime_contract_derive_from_claim_map()`。
+  - `REFMEM_DOMAIN_TODO.md` 将 P2 legacy realtime contract 偏离项标记完成，并把 P2 当前基线改为 SlotClaimMap resolved assignment。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_contract_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_application_contract_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `git diff --check` 通过；仅报告工作区 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814164049`，package CRC `0x69842137`。
+- 还需完成：
+  - 继续 P0：`.rmtp` 真实表镜像生成、表级 owner validation、active/staging/rollbackable image buffer。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_realtime_contract.h`
+  - `components/distributed_refmem/src/refmem_realtime_contract.c`
+  - `tests/unit/test_refmem_realtime_contract.c`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+
 ### REFMEM-TASK-20260815-001 - GenericNode slot substrate linter 纠偏
 
 - 状态：完成

@@ -44,12 +44,12 @@ static int expect_bool(const char *name, bool actual, bool expected)
 static void make_pio_spi_contract_inputs(refmem_node_load_entry_t *load,
                                          refmem_fb_instance_entry_t *instance,
                                          refmem_app_node_entry_t *node,
-                                         refmem_board_capability_table_t *boards)
+                                         refmem_slot_claim_map_t *claim_map)
 {
     (void)memset(load, 0, sizeof(*load));
     (void)memset(instance, 0, sizeof(*instance));
     (void)memset(node, 0, sizeof(*node));
-    (void)memset(boards, 0, sizeof(*boards));
+    (void)memset(claim_map, 0, sizeof(*claim_map));
 
     load->node_id = 0u;
     load->instance_id = 0u;
@@ -70,14 +70,23 @@ static void make_pio_spi_contract_inputs(refmem_node_load_entry_t *load,
         REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM | REFMEM_APP_CAP_VDC |
         REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT;
 
-    boards->version = REFMEM_APP_MODEL_VERSION;
-    boards->board_count = 1u;
-    boards->board[0].board_id = 0u;
-    boards->board[0].capability_mask = node->capability_mask;
-    boards->board[0].io_constraint_mask = REFMEM_APP_IO_PIO_SPI_SYNC;
-    boards->board[0].ip_core_mask = REFMEM_APP_IP_PIO_SPI_SYNC_DELTA;
-    boards->board[0].active_default_slot = 0u;
-    boards->board[0].online_required = 1u;
+    claim_map->version = REFMEM_SLOT_CLAIM_VERSION;
+    claim_map->claim_epoch = 1u;
+    claim_map->slot_count = REFMEM_APP_MODEL_NODE_COUNT;
+    claim_map->candidate_count = 1u;
+    claim_map->assigned_count = 1u;
+
+    refmem_slot_claim_assignment_t *slot = &claim_map->slot[0];
+    slot->slot_id = 0u;
+    slot->board_id = 0u;
+    slot->board_uuid_crc32 = 0xB0000000u;
+    slot->capability_mask = node->capability_mask;
+    slot->io_constraint_mask = REFMEM_APP_IO_PIO_SPI_SYNC;
+    slot->ip_core_mask = REFMEM_APP_IP_PIO_SPI_SYNC_DELTA;
+    slot->claim_count = 1u;
+    slot->claim_state = REFMEM_SLOT_CLAIM_CLAIMED;
+    slot->reason = REFMEM_SLOT_CLAIM_REASON_OK;
+    slot->claim_epoch = claim_map->claim_epoch;
 }
 
 static int test_transport_mapping(void)
@@ -119,16 +128,16 @@ static int test_pio_spi_contract_accepts_complete_board(void)
     refmem_node_load_entry_t load;
     refmem_fb_instance_entry_t instance;
     refmem_app_node_entry_t node;
-    refmem_board_capability_table_t boards;
+    refmem_slot_claim_map_t claim_map;
     refmem_realtime_contract_t contract;
 
-    make_pio_spi_contract_inputs(&load, &instance, &node, &boards);
+    make_pio_spi_contract_inputs(&load, &instance, &node, &claim_map);
     failed += expect_bool("pio spi contract",
-                          refmem_realtime_contract_derive(&load,
-                                                          &instance,
-                                                          &node,
-                                                          &boards,
-                                                          &contract),
+                          refmem_realtime_contract_derive_from_claim_map(&load,
+                                                                         &instance,
+                                                                         &node,
+                                                                         &claim_map,
+                                                                         &contract),
                           true);
     failed += expect_u32("pio spi contract valid", contract.valid, 1u);
     failed += expect_u32("pio spi contract result", contract.result, REFMEM_RT_CONTRACT_OK);
@@ -146,30 +155,30 @@ static int test_pio_spi_contract_rejects_missing_parts(void)
     refmem_node_load_entry_t load;
     refmem_fb_instance_entry_t instance;
     refmem_app_node_entry_t node;
-    refmem_board_capability_table_t boards;
+    refmem_slot_claim_map_t claim_map;
     refmem_realtime_contract_t contract;
 
-    make_pio_spi_contract_inputs(&load, &instance, &node, &boards);
-    boards.board[0].capability_mask &= ~REFMEM_APP_CAP_DMA;
+    make_pio_spi_contract_inputs(&load, &instance, &node, &claim_map);
+    claim_map.slot[0].capability_mask &= ~REFMEM_APP_CAP_DMA;
     failed += expect_bool("pio spi missing dma",
-                          refmem_realtime_contract_derive(&load,
-                                                          &instance,
-                                                          &node,
-                                                          &boards,
-                                                          &contract),
+                          refmem_realtime_contract_derive_from_claim_map(&load,
+                                                                         &instance,
+                                                                         &node,
+                                                                         &claim_map,
+                                                                         &contract),
                           false);
     failed += expect_u32("pio spi missing dma result",
                          contract.result,
                          REFMEM_RT_CONTRACT_MISSING_CAPABILITY);
 
-    make_pio_spi_contract_inputs(&load, &instance, &node, &boards);
-    boards.board[0].ip_core_mask = 0u;
+    make_pio_spi_contract_inputs(&load, &instance, &node, &claim_map);
+    claim_map.slot[0].ip_core_mask = 0u;
     failed += expect_bool("pio spi missing ip",
-                          refmem_realtime_contract_derive(&load,
-                                                          &instance,
-                                                          &node,
-                                                          &boards,
-                                                          &contract),
+                          refmem_realtime_contract_derive_from_claim_map(&load,
+                                                                         &instance,
+                                                                         &node,
+                                                                         &claim_map,
+                                                                         &contract),
                           false);
     failed += expect_u32("pio spi missing ip result",
                          contract.result,
