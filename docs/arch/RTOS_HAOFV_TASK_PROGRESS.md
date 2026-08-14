@@ -75,11 +75,15 @@ Last updated: 2026-08-15
   - RuntimeProtectionTable 的 `park_state` 改为发布 lockout 状态机枚举，而不是简单 ACK 布尔。
   - 新增 `test_drv_flash_lockout.c` 和 `tools/tests/run_drv_flash_lockout_tests.ps1`，并纳入 `run_host_unit_tests.ps1`。
 - 验证结果：
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_drv_flash_lockout_tests.ps1` 在无 host gcc PATH 时通过 ARM GCC compile fallback。
-  - 使用 `D:\Embedded\GCC\mingw64\bin` 作为 PATH 前缀后，`run_drv_flash_lockout_tests.ps1` host 执行通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_drv_flash_lockout_tests.ps1` host 执行通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1` 通过，13 个脚本、18 个 C 单元测试全部执行。
+  - `python tools\docs_check\docs_check.py` 通过，files=85，warnings=0。
+  - `git diff --check` 通过，仅报告工作区 LF/CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`。
+  - build id：`20260814180128`；OTA package CRC32：`0x5118EEE6`；image A CRC32：`0xEB0D784C`；image B CRC32：`0x266B8A34`。
   - host 测试覆盖 supported-but-offline 拒绝写入、request/ACK/PARKED/release 完整握手和 `DRV_FLASH_LOCKOUT_FAULT_CORE1_NO_ACK` 故障注入。
+  - 已提交并推送：`d88ad7a rtos: gate flash writes on core1 lockout`。
 - 还需完成：
-  - 跑完整 host 单元测试、docs check 和 `build-rtos-multicore-smoke`。
   - 板端 HIL：OTA/metadata flash job 期间查询 `SYSTem:PROTection:STATus?`，确认 online/request/ACK/park_state 可观测。
   - 将 no-ACK 故障注入接入受控维护接口或 HIL build，验证板端 flash job 不执行并返回 NACK/fault。
 - 关联文件：
