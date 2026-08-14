@@ -95,6 +95,54 @@ static bool refmem_sync_commit_ack_nack(refmem_sync_context_t *context,
     return true;
 }
 
+static bool refmem_sync_commit_fence(refmem_sync_context_t *context,
+                                     const refmem_sync_frame_header_t *header,
+                                     const uint8_t *payload,
+                                     uint16_t payload_size)
+{
+    if (context == NULL || header == NULL || payload == NULL ||
+        header->source_slot >= REFMEM_SYNC_NODE_COUNT ||
+        payload_size < sizeof(refmem_sync_fence_payload_t)) {
+        return false;
+    }
+
+    refmem_sync_fence_payload_t fence_payload;
+    (void)memcpy(&fence_payload, payload, sizeof(fence_payload));
+    const uint32_t local_bit = (uint32_t)(1u << context->local_slot);
+    const refmem_sync_mirror_snapshot_t *mirror = &context->mirror[header->source_slot];
+    refmem_sync_fence_snapshot_t *fence = &context->fence[header->source_slot];
+    const uint32_t previous_count = fence->received_count;
+
+    memset(fence, 0, sizeof(*fence));
+    fence->seen = 1u;
+    fence->source_slot = header->source_slot;
+    fence->fence_seq = fence_payload.fence_seq;
+    fence->fence_scope = fence_payload.fence_scope;
+    fence->required_mask = fence_payload.required_mask;
+    fence->min_table_seq = fence_payload.min_table_seq;
+    fence->last_frame_seq32 = header->seq32;
+    fence->received_count = previous_count + 1u;
+
+    if ((fence_payload.required_mask & local_bit) == 0u) {
+        fence->missing_mask = local_bit;
+        fence->last_reason = 1u;
+    } else if (mirror->visible == 0u) {
+        fence->missing_mask = local_bit;
+        fence->last_reason = 2u;
+    } else if (mirror->last_frame_seq32 < fence_payload.min_table_seq) {
+        fence->missing_mask = local_bit;
+        fence->last_reason = 3u;
+    } else {
+        fence->required_visible_mask = local_bit;
+        fence->passed = 1u;
+    }
+
+    if (fence->passed == 0u && fence_payload.deadline_us == 0u) {
+        fence->timed_out = 1u;
+    }
+    return true;
+}
+
 static void refmem_sync_fill_snapshot(refmem_sync_rx_snapshot_t *snapshot,
                                       refmem_sync_rx_result_t result,
                                       refmem_sync_frame_result_t frame_result,
@@ -288,6 +336,8 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
         (void)refmem_sync_commit_delta(context, &header, payload, payload_size);
     } else if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_ACK_NACK) {
         (void)refmem_sync_commit_ack_nack(context, &header, payload, payload_size);
+    } else if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_FENCE) {
+        (void)refmem_sync_commit_fence(context, &header, payload, payload_size);
     }
 
     context->quality.accepted_count++;
@@ -329,6 +379,16 @@ const refmem_sync_ack_snapshot_t *refmem_sync_get_ack(
         return NULL;
     }
     return &context->ack[source_slot];
+}
+
+const refmem_sync_fence_snapshot_t *refmem_sync_get_fence(
+    const refmem_sync_context_t *context,
+    uint8_t source_slot)
+{
+    if (context == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return NULL;
+    }
+    return &context->fence[source_slot];
 }
 
 void refmem_sync_get_quality(const refmem_sync_context_t *context,

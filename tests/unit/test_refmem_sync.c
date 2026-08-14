@@ -368,6 +368,108 @@ static int test_ack_nack_commit(void)
     return failed;
 }
 
+static int test_fence_commit(void)
+{
+    int failed = 0;
+    refmem_sync_context_t context;
+    refmem_sync_delta_header_t delta;
+    refmem_sync_fence_payload_t fence_payload;
+    uint8_t delta_payload[sizeof(refmem_sync_delta_header_t) + 4u];
+    uint8_t delta_frame[128];
+    uint8_t fence_frame[128];
+    size_t delta_frame_size = 0u;
+    size_t fence_frame_size = 0u;
+
+    (void)refmem_sync_init(&context, 0u, 7u, 8u);
+    (void)memset(&delta, 0, sizeof(delta));
+    delta.slot_id = 1u;
+    delta.slot_seq = 1u;
+    delta.field_width = sizeof(uint32_t);
+    (void)memcpy(delta_payload, &delta, sizeof(delta));
+    delta_payload[sizeof(delta) + 0u] = 0x01u;
+    delta_payload[sizeof(delta) + 1u] = 0x00u;
+    delta_payload[sizeof(delta) + 2u] = 0x00u;
+    delta_payload[sizeof(delta) + 3u] = 0x00u;
+    failed += expect_bool("make delta before fence",
+                          make_frame(REFMEM_SYNC_FRAME_DELTA,
+                                     1u,
+                                     0x01u,
+                                     7u,
+                                     8u,
+                                     1u,
+                                     delta_payload,
+                                     sizeof(delta_payload),
+                                     delta_frame,
+                                     sizeof(delta_frame),
+                                     &delta_frame_size),
+                          true);
+    failed += expect_u32("recv delta before fence",
+                         refmem_sync_receive_frame(&context, delta_frame, delta_frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+
+    (void)memset(&fence_payload, 0, sizeof(fence_payload));
+    fence_payload.fence_seq = 10u;
+    fence_payload.fence_scope = 1u;
+    fence_payload.required_mask = 0x01u;
+    fence_payload.min_table_seq = 1u;
+    fence_payload.deadline_us = 1000u;
+    failed += expect_bool("make pass fence",
+                          make_frame(REFMEM_SYNC_FRAME_FENCE,
+                                     1u,
+                                     0x01u,
+                                     7u,
+                                     8u,
+                                     2u,
+                                     &fence_payload,
+                                     sizeof(fence_payload),
+                                     fence_frame,
+                                     sizeof(fence_frame),
+                                     &fence_frame_size),
+                          true);
+    failed += expect_u32("recv pass fence",
+                         refmem_sync_receive_frame(&context, fence_frame, fence_frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+
+    const refmem_sync_fence_snapshot_t *fence = refmem_sync_get_fence(&context, 1u);
+    failed += expect_bool("fence present", fence != NULL, true);
+    if (fence != NULL) {
+        failed += expect_u32("fence seen", fence->seen, 1u);
+        failed += expect_u32("fence passed", fence->passed, 1u);
+        failed += expect_u32("fence visible mask", fence->required_visible_mask, 1u);
+        failed += expect_u32("fence missing mask", fence->missing_mask, 0u);
+        failed += expect_u32("fence received count", fence->received_count, 1u);
+    }
+
+    fence_payload.fence_seq = 11u;
+    fence_payload.min_table_seq = 99u;
+    fence_payload.deadline_us = 0u;
+    failed += expect_bool("make failed fence",
+                          make_frame(REFMEM_SYNC_FRAME_FENCE,
+                                     1u,
+                                     0x01u,
+                                     7u,
+                                     8u,
+                                     3u,
+                                     &fence_payload,
+                                     sizeof(fence_payload),
+                                     fence_frame,
+                                     sizeof(fence_frame),
+                                     &fence_frame_size),
+                          true);
+    failed += expect_u32("recv failed fence",
+                         refmem_sync_receive_frame(&context, fence_frame, fence_frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+    fence = refmem_sync_get_fence(&context, 1u);
+    if (fence != NULL) {
+        failed += expect_u32("fence failed passed", fence->passed, 0u);
+        failed += expect_u32("fence failed missing", fence->missing_mask, 1u);
+        failed += expect_u32("fence failed reason", fence->last_reason, 3u);
+        failed += expect_u32("fence failed timeout", fence->timed_out, 1u);
+        failed += expect_u32("fence failed count", fence->received_count, 2u);
+    }
+    return failed;
+}
+
 static int test_frame_error_quality(void)
 {
     int failed = 0;
@@ -414,6 +516,7 @@ int main(void)
     failed += test_sequence_quality();
     failed += test_delta_mirror_commit();
     failed += test_ack_nack_commit();
+    failed += test_fence_commit();
     failed += test_frame_error_quality();
 
     if (failed != 0) {

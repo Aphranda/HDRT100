@@ -27,6 +27,7 @@ HELLO_TYPE = 1
 EPOCH_TYPE = 2
 DELTA_TYPE = 3
 ACK_NACK_TYPE = 5
+FENCE_TYPE = 6
 
 HELLO_FIELDS = (
     "status",
@@ -135,6 +136,40 @@ ACK_STATUS_FIELDS = (
     "timeout_flags",
     "last_reason",
     "last_reason_slot",
+    "evidence_index",
+    "last_frame_seq32",
+    "received_count",
+)
+
+FENCE_FRAME_FIELDS = (
+    "status",
+    "frame_size",
+    "source_slot",
+    "target_mask",
+    "epoch_id",
+    "run_id",
+    "seq32",
+    "payload_crc32",
+    "fence_seq",
+    "fence_scope",
+    "required_mask",
+    "min_table_seq",
+    "hex",
+)
+
+FENCE_STATUS_FIELDS = (
+    "query_source_slot",
+    "seen",
+    "source_slot",
+    "fence_seq",
+    "fence_scope",
+    "required_mask",
+    "min_table_seq",
+    "required_visible_mask",
+    "missing_mask",
+    "passed",
+    "timed_out",
+    "last_reason",
     "evidence_index",
     "last_frame_seq32",
     "received_count",
@@ -486,6 +521,77 @@ def expect_ack_status(response: str,
         raise AssertionError(f"ack frame_seq={data['last_frame_seq32']} expected {frame_seq}")
     if int(data["received_count"], 0) < 1:
         raise AssertionError("ack received_count did not advance")
+
+
+def expect_fence_frame(response: str,
+                       *,
+                       source: int,
+                       target: int,
+                       epoch: int,
+                       run: int,
+                       seq: int,
+                       fence_seq: int,
+                       scope: int,
+                       required_mask: int,
+                       min_table_seq: int) -> None:
+    data = fields_dict(FENCE_FRAME_FIELDS, response)
+    if data["status"] != "OK":
+        raise AssertionError(f"fence frame status is {data['status']!r}")
+    if int(data["source_slot"], 0) != source or int(data["target_mask"], 0) != target:
+        raise AssertionError("fence source/target mismatch")
+    if int(data["epoch_id"], 0) != epoch or int(data["run_id"], 0) != run:
+        raise AssertionError("fence epoch/run mismatch")
+    if int(data["seq32"], 0) != seq:
+        raise AssertionError(f"fence seq={data['seq32']} expected {seq}")
+    if int(data["fence_seq"], 0) != fence_seq:
+        raise AssertionError(f"fence_seq={data['fence_seq']} expected {fence_seq}")
+    if int(data["fence_scope"], 0) != scope:
+        raise AssertionError(f"fence_scope={data['fence_scope']} expected {scope}")
+    if int(data["required_mask"], 0) != required_mask:
+        raise AssertionError(f"required_mask={data['required_mask']} expected {required_mask}")
+    if int(data["min_table_seq"], 0) != min_table_seq:
+        raise AssertionError(f"min_table_seq={data['min_table_seq']} expected {min_table_seq}")
+    if not data["hex"] or len(data["hex"]) != int(data["frame_size"], 0) * 2:
+        raise AssertionError("fence hex length does not match frame_size")
+
+
+def expect_fence_status(response: str,
+                        *,
+                        source: int,
+                        fence_seq: int,
+                        required_mask: int,
+                        min_table_seq: int,
+                        visible_mask: int,
+                        missing_mask: int,
+                        passed: int,
+                        timed_out: int,
+                        reason: int,
+                        frame_seq: int) -> None:
+    data = fields_dict(FENCE_STATUS_FIELDS, response)
+    if int(data["query_source_slot"], 0) != source or int(data["source_slot"], 0) != source:
+        raise AssertionError(f"fence status source mismatch: {response!r}")
+    if int(data["seen"], 0) != 1:
+        raise AssertionError("fence status not seen")
+    if int(data["fence_seq"], 0) != fence_seq:
+        raise AssertionError(f"fence_seq={data['fence_seq']} expected {fence_seq}")
+    if int(data["required_mask"], 0) != required_mask:
+        raise AssertionError(f"required_mask={data['required_mask']} expected {required_mask}")
+    if int(data["min_table_seq"], 0) != min_table_seq:
+        raise AssertionError(f"min_table_seq={data['min_table_seq']} expected {min_table_seq}")
+    if int(data["required_visible_mask"], 0) != visible_mask:
+        raise AssertionError(f"visible_mask={data['required_visible_mask']} expected {visible_mask}")
+    if int(data["missing_mask"], 0) != missing_mask:
+        raise AssertionError(f"missing_mask={data['missing_mask']} expected {missing_mask}")
+    if int(data["passed"], 0) != passed:
+        raise AssertionError(f"passed={data['passed']} expected {passed}")
+    if int(data["timed_out"], 0) != timed_out:
+        raise AssertionError(f"timed_out={data['timed_out']} expected {timed_out}")
+    if int(data["last_reason"], 0) != reason:
+        raise AssertionError(f"fence reason={data['last_reason']} expected {reason}")
+    if int(data["last_frame_seq32"], 0) != frame_seq:
+        raise AssertionError(f"fence frame_seq={data['last_frame_seq32']} expected {frame_seq}")
+    if int(data["received_count"], 0) < 1:
+        raise AssertionError("fence received_count did not advance")
 
 
 def quote_hex(hex_text: str) -> str:
@@ -966,6 +1072,129 @@ def run_exchange(args: argparse.Namespace,
                                             reason=9,
                                             reason_slot=args.slot_b,
                                             frame_seq=7))
+
+    fence_a = run_checked(records,
+                          "A",
+                          execute_a,
+                          f"SYSTem:REFMEM:SYNC:FENCe? {args.slot_a},{mask_b},7,1,1,{mask_b},3,1000",
+                          lambda r: expect_fence_frame(r,
+                                                       source=args.slot_a,
+                                                       target=mask_b,
+                                                       epoch=args.epoch,
+                                                       run=args.run,
+                                                       seq=7,
+                                                       fence_seq=1,
+                                                       scope=1,
+                                                       required_mask=mask_b,
+                                                       min_table_seq=3))
+    fence_a_hex = fields_dict(FENCE_FRAME_FIELDS, fence_a)["hex"]
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(fence_a_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=FENCE_TYPE,
+                                    source=args.slot_a,
+                                    target=mask_b,
+                                    epoch=args.epoch,
+                                    run=args.run))
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:FENCe:STATus? {args.slot_a}",
+                lambda r: expect_fence_status(r,
+                                              source=args.slot_a,
+                                              fence_seq=1,
+                                              required_mask=mask_b,
+                                              min_table_seq=3,
+                                              visible_mask=mask_b,
+                                              missing_mask=0,
+                                              passed=1,
+                                              timed_out=0,
+                                              reason=0,
+                                              frame_seq=7))
+
+    fence_b = run_checked(records,
+                          "B",
+                          execute_b,
+                          f"SYSTem:REFMEM:SYNC:FENCe? {args.slot_b},{mask_a},8,2,1,{mask_a},3,1000",
+                          lambda r: expect_fence_frame(r,
+                                                       source=args.slot_b,
+                                                       target=mask_a,
+                                                       epoch=args.epoch,
+                                                       run=args.run,
+                                                       seq=8,
+                                                       fence_seq=2,
+                                                       scope=1,
+                                                       required_mask=mask_a,
+                                                       min_table_seq=3))
+    fence_b_hex = fields_dict(FENCE_FRAME_FIELDS, fence_b)["hex"]
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(fence_b_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=FENCE_TYPE,
+                                    source=args.slot_b,
+                                    target=mask_a,
+                                    epoch=args.epoch,
+                                    run=args.run))
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:FENCe:STATus? {args.slot_b}",
+                lambda r: expect_fence_status(r,
+                                              source=args.slot_b,
+                                              fence_seq=2,
+                                              required_mask=mask_a,
+                                              min_table_seq=3,
+                                              visible_mask=mask_a,
+                                              missing_mask=0,
+                                              passed=1,
+                                              timed_out=0,
+                                              reason=0,
+                                              frame_seq=8))
+
+    fence_fail = run_checked(records,
+                             "A",
+                             execute_a,
+                             f"SYSTem:REFMEM:SYNC:FENCe? {args.slot_a},{mask_b},8,3,1,{mask_b},99,0",
+                             lambda r: expect_fence_frame(r,
+                                                          source=args.slot_a,
+                                                          target=mask_b,
+                                                          epoch=args.epoch,
+                                                          run=args.run,
+                                                          seq=8,
+                                                          fence_seq=3,
+                                                          scope=1,
+                                                          required_mask=mask_b,
+                                                          min_table_seq=99))
+    fence_fail_hex = fields_dict(FENCE_FRAME_FIELDS, fence_fail)["hex"]
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(fence_fail_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=FENCE_TYPE,
+                                    source=args.slot_a,
+                                    target=mask_b,
+                                    epoch=args.epoch,
+                                    run=args.run))
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:FENCe:STATus? {args.slot_a}",
+                lambda r: expect_fence_status(r,
+                                              source=args.slot_a,
+                                              fence_seq=3,
+                                              required_mask=mask_b,
+                                              min_table_seq=99,
+                                              visible_mask=0,
+                                              missing_mask=mask_b,
+                                              passed=0,
+                                              timed_out=1,
+                                              reason=3,
+                                              frame_seq=8))
     return records
 
 
@@ -1017,7 +1246,7 @@ def main() -> int:
     out_dir = args.out_dir or (ROOT / "build-rtos-multicore-smoke" /
                                f"refmem_sync_hil_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     write_outputs(out_dir, args, records)
-    passed = all(record.status == "PASS" for record in records) and len(records) == 46
+    passed = all(record.status == "PASS" for record in records) and len(records) == 55
     print(f"summary: passed={passed} records={len(records)} out_dir={out_dir}")
     return 0 if passed else 1
 

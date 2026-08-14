@@ -84,12 +84,30 @@ typedef struct {
 } refmem_sync_ack_snapshot_t;
 
 typedef struct {
+    uint32_t seen;
+    uint32_t source_slot;
+    uint32_t fence_seq;
+    uint32_t fence_scope;
+    uint32_t required_mask;
+    uint32_t min_table_seq;
+    uint32_t required_visible_mask;
+    uint32_t missing_mask;
+    uint32_t passed;
+    uint32_t timed_out;
+    uint32_t last_reason;
+    uint32_t evidence_index;
+    uint32_t last_frame_seq32;
+    uint32_t received_count;
+} refmem_sync_fence_snapshot_t;
+
+typedef struct {
     uint8_t local_slot;
     uint32_t active_epoch_id;
     uint32_t active_run_id;
     refmem_sync_peer_state_t peer[REFMEM_SYNC_NODE_COUNT];
     refmem_sync_mirror_snapshot_t mirror[REFMEM_SYNC_NODE_COUNT];
     refmem_sync_ack_snapshot_t ack[REFMEM_SYNC_NODE_COUNT];
+    refmem_sync_fence_snapshot_t fence[REFMEM_SYNC_NODE_COUNT];
     refmem_sync_quality_counters_t quality;
 } refmem_sync_context_t;
 
@@ -121,6 +139,9 @@ const refmem_sync_mirror_snapshot_t *refmem_sync_get_mirror(
     const refmem_sync_context_t *context,
     uint8_t source_slot);
 const refmem_sync_ack_snapshot_t *refmem_sync_get_ack(
+    const refmem_sync_context_t *context,
+    uint8_t source_slot);
+const refmem_sync_fence_snapshot_t *refmem_sync_get_fence(
     const refmem_sync_context_t *context,
     uint8_t source_slot);
 void refmem_sync_get_quality(const refmem_sync_context_t *context,

@@ -8,6 +8,44 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-049 - RefMem Sync FENCE 最小闭环
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 在 DELTA mirror 和 ACK/NACK 已通过的基础上，增加最小 `REFMEM_FENCE`，让接收板能基于 source mirror visible 与最小 seq 形成 pass/fail/timeout snapshot。
+  - 保持 FENCE 仍为 RefMem Sync 维护闭环，不直接触发产品 RUN gate、DistributedDeploymentGate 或 fault latch。
+- 完成内容：
+  - `refmem_sync_context_t` 增加按 source slot 索引的 `refmem_sync_fence_snapshot_t`。
+  - `refmem_sync_receive_frame()` 接收 `REFMEM_FENCE` 后解析 `refmem_sync_fence_payload_t`，检查 local slot 是否在 required mask 中、source mirror 是否 visible、mirror frame seq 是否满足 `min_table_seq`。
+  - 新增 `refmem_sync_get_fence()`。
+  - 新增 `SYSTem:REFMEM:SYNC:FENCe?`，生成最小 FENCE frame，携带 fence seq、scope、required mask、min table seq、CRC bundle 和 deadline。
+  - 新增 `SYSTem:REFMEM:SYNC:FENCe:STATus?`，查询指定 source slot 最近一次 FENCE snapshot。
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 扩展为 HELLO/EPOCH/DELTA/MIRROR/ACK_NACK/FENCE 全流程，增加双向 FENCE pass 和 min seq 不满足的 fail/timeout 场景。
+- 验证结果：
+  - `python -m py_compile tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814142748`，package CRC `0xE3F75DB7`。
+  - COM5/COM6 均 OTA 并 commit 到 build `20260814142748`。
+  - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814142748 --out-dir build-rtos-multicore-smoke\refmem_sync_fence_hil_COM5_COM6_20260814142748` 通过，55 条记录全部 PASS。
+  - HIL 关键结果：两板 build id 均为 `20260814142748`；SlotClaimMap CRC 均为 `386979554`；A->B 与 B->A FENCE 在对端 mirror visible 且 `min_table_seq=3` 时 passed；A->B `min_table_seq=99,deadline_us=0` 时 failed，`missing_mask=2,timed_out=1,last_reason=3`。
+- 还需完成：
+  - 将 FENCE snapshot 接入正式 `refmem_command.h/.c` completion、DeploymentGate 和 `DistributedConnectionQualityTable`。
+  - 实现 `REFMEM_QUALITY` frame，把 adapter CRC/drop/late/timeout 计数作为总线无关质量事实发布。
+  - 真实 PIO SPI physical adapter service 接入，替换当前 PC/SCPI frame 搬运。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_sync.h`
+  - `components/distributed_refmem/src/refmem_sync.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tests/unit/test_refmem_sync.c`
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
+  - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
+- 下一步：
+  - 进入 P4.5 阶段 4 的 `REFMEM_QUALITY` frame，把现有 adapter 和 receive quality counter 从本地查询扩展为可同步质量事实。
+
 ### REFMEM-TASK-20260814-048 - RefMem Sync ACK/NACK 最小闭环
 
 - 状态：完成
