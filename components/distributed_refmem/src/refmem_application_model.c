@@ -822,6 +822,19 @@ static bool refmem_model_validate_gate_and_quality(void)
             return false;
         }
     }
+
+    refmem_slot_claim_map_t claim_map;
+    refmem_slot_claim_gate_status_t claim_gate;
+    if (!refmem_slot_claim_derive_map(&s_generic_node_table,
+                                      &s_board_capability_table,
+                                      &s_node_load_table,
+                                      &s_fb_instance_table,
+                                      &claim_map)) {
+        return false;
+    }
+    if (!refmem_slot_claim_gate_evaluate(&claim_map, &claim_gate)) {
+        return false;
+    }
     return true;
 }
 

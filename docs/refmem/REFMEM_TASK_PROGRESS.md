@@ -52,6 +52,38 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-028 - SlotClaim 本地 RUN gate 接入
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 将 SlotClaimMap 首版结果接入 RefMem DeploymentGate 和系统 config RUN gate。
+  - 让 claim 冲突、错绑、overflow 和 required slot 缺失不只可查询，还能实际阻止 ready/RUN。
+- 完成内容：
+  - `refmem_slot_claim_assignment_t` 增加 `online_required`，用于区分 required slot 与 spare/dynamic slot。
+  - 新增 `refmem_slot_claim_gate_status_t` 和 `refmem_slot_claim_gate_evaluate()`，输出 gate ready、first_bad_slot、first_reason、conflict/overflow/required_missing/mismatch 统计和 map CRC。
+  - RefMem application model 的 `DeploymentGate` 静态验证接入 claim gate；本地 claim gate fail 时 model validation fail。
+  - `system_manager` config gate 接入 claim gate；分布式配置 CRC 合法但 claim gate fail 时，`SYSTem:CONFigure:STAT?` 的 `ready=0`、`gate_state=2`、`nack_flags=target_mask`。
+  - `SYSTem:REFMEM:CLAIM? [slot_id]` 返回值扩展 gate 字段和 `online_required` 字段，便于解释 RUN gate 拒绝原因。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0xCF7DDAB2`。
+- 还需完成：
+  - 板端/HIL 验证 `SYSTem:REFMEM:CLAIM?` 与 `SYSTem:CONFigure:STAT?` 的 gate 行为一致。
+  - 增加第 9 到第 16 个候选的 overflow evidence，并接入 DeploymentGate evidence。
+  - 接入 RJ45 `CLAIM_*` 协调消息后的跨板 claim gate。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_slot_claim.h`
+  - `components/distributed_refmem/src/refmem_slot_claim.c`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `components/system_manager/src/system_manager.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 增加 SlotClaim gate 的 Python/板端验证脚本，然后推进 overflow evidence 和 RJ45 claim 协调。
+
 ### REFMEM-TASK-20260814-027 - SlotClaimMap 首版本地派生
 
 - 状态：完成

@@ -59,6 +59,7 @@ typedef struct {
     uint32_t reason;
     uint32_t claim_policy;
     uint32_t claim_priority;
+    uint32_t online_required;
     uint32_t claim_epoch;
     uint32_t last_claim_seq;
     uint32_t claim_crc32;
@@ -77,6 +78,18 @@ typedef struct {
     refmem_slot_claim_assignment_t slot[REFMEM_APP_MODEL_NODE_COUNT];
 } refmem_slot_claim_map_t;
 
+typedef struct {
+    uint32_t version;
+    uint32_t ready;
+    uint32_t first_bad_slot;
+    uint32_t first_reason;
+    uint32_t conflict_count;
+    uint32_t overflow_count;
+    uint32_t required_missing_count;
+    uint32_t mismatch_count;
+    uint32_t map_crc32;
+} refmem_slot_claim_gate_status_t;
+
 bool refmem_slot_claim_derive_map(const refmem_generic_node_table_t *node_table,
                                   const refmem_board_capability_table_t *board_table,
                                   const refmem_node_load_table_t *node_load_table,
@@ -85,5 +98,7 @@ bool refmem_slot_claim_derive_map(const refmem_generic_node_table_t *node_table,
 const refmem_slot_claim_assignment_t *refmem_slot_claim_find_assignment(
     const refmem_slot_claim_map_t *map,
     uint32_t slot_id);
+bool refmem_slot_claim_gate_evaluate(const refmem_slot_claim_map_t *map,
+                                     refmem_slot_claim_gate_status_t *status);
 
 #endif

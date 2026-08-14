@@ -112,6 +112,9 @@ scpi_result_t scpi_cmd_refmem_claim_q(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
+    refmem_slot_claim_gate_status_t gate;
+    (void)refmem_slot_claim_gate_evaluate(&map, &gate);
+
     uint32_t slot_id = 0u;
     (void)SCPI_ParamUInt32(context, &slot_id, FALSE);
     const refmem_slot_claim_assignment_t *slot =
@@ -129,6 +132,11 @@ scpi_result_t scpi_cmd_refmem_claim_q(scpi_t *context)
     SCPI_ResultUInt32(context, map.overflow_count);
     SCPI_ResultUInt32(context, map.disabled_count);
     SCPI_ResultUInt32(context, map.map_crc32);
+    SCPI_ResultUInt32(context, gate.ready);
+    SCPI_ResultUInt32(context, gate.first_bad_slot);
+    SCPI_ResultUInt32(context, gate.first_reason);
+    SCPI_ResultUInt32(context, gate.required_missing_count);
+    SCPI_ResultUInt32(context, gate.mismatch_count);
     SCPI_ResultUInt32(context, slot->slot_id);
     SCPI_ResultUInt32(context, slot->board_id);
     SCPI_ResultUInt32(context, slot->board_uuid_crc32);
@@ -141,6 +149,7 @@ scpi_result_t scpi_cmd_refmem_claim_q(scpi_t *context)
     SCPI_ResultUInt32(context, slot->reason);
     SCPI_ResultUInt32(context, slot->claim_policy);
     SCPI_ResultUInt32(context, slot->claim_priority);
+    SCPI_ResultUInt32(context, slot->online_required);
     SCPI_ResultUInt32(context, slot->claim_epoch);
     SCPI_ResultUInt32(context, slot->last_claim_seq);
     SCPI_ResultUInt32(context, slot->claim_crc32);

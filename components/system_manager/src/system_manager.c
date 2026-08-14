@@ -10,6 +10,8 @@
 #include "osal.h"
 #include "ota_crc32.h"
 #include "project_config.h"
+#include "refmem_application_model.h"
+#include "refmem_slot_claim.h"
 #include "resource_arbiter.h"
 #include "sync_io_hw_profile.h"
 
@@ -38,6 +40,20 @@ typedef struct {
 
 static system_manager_config_gate_status_t s_config_gate_status;
 static bool s_initialized;
+
+static bool system_manager_refmem_claim_gate_ready(void)
+{
+    refmem_slot_claim_map_t claim_map;
+    refmem_slot_claim_gate_status_t claim_gate;
+    if (!refmem_slot_claim_derive_map(refmem_application_model_get_generic_node_table(),
+                                      refmem_application_model_get_board_capability_table(),
+                                      refmem_application_model_get_node_load_table(),
+                                      refmem_application_model_get_fb_instance_table(),
+                                      &claim_map)) {
+        return false;
+    }
+    return refmem_slot_claim_gate_evaluate(&claim_map, &claim_gate);
+}
 
 static const system_manager_mode_entry_t s_system_mode_template[4] = {
     { .mode_id = RESOURCE_ARBITER_MODE_BOOT, .run_allowed = 0u, .ota_allowed = 0u, .fault_allowed = 1u, .name = "BOOT" },
@@ -241,16 +257,17 @@ bool system_manager_init(void)
     s_config_gate_status.config_crc32 = config_snapshot->config_crc32;
 
     const bool config_valid = distributed_config_validate();
+    const bool refmem_claim_valid = system_manager_refmem_claim_gate_ready();
     s_config_gate_status.ack_flags =
-        config_valid ? s_config_gate_status.target_mask : 0u;
+        (config_valid && refmem_claim_valid) ? s_config_gate_status.target_mask : 0u;
     s_config_gate_status.nack_flags =
-        config_valid ? 0u : s_config_gate_status.target_mask;
+        (config_valid && refmem_claim_valid) ? 0u : s_config_gate_status.target_mask;
     s_config_gate_status.run_id = s_config_gate_status.build_crc32 ^
                                   s_config_gate_status.hw_profile_crc32 ^
                                   s_config_gate_status.config_crc32 ^
                                   s_config_gate_status.epoch;
-    s_config_gate_status.ready = config_valid;
-    s_config_gate_status.gate_state = config_valid ? 1u : 2u;
+    s_config_gate_status.ready = config_valid && refmem_claim_valid;
+    s_config_gate_status.gate_state = s_config_gate_status.ready ? 1u : 2u;
     s_initialized = true;
     return config_valid;
 }
@@ -269,7 +286,9 @@ void system_manager_service(void)
     }
     s_config_gate_status.service_count++;
     s_config_gate_status.last_service_ms = now_ms;
+    const bool refmem_claim_valid = system_manager_refmem_claim_gate_ready();
     const bool gate_ready = s_config_gate_status.nack_flags == 0u &&
+                            refmem_claim_valid &&
                             s_config_gate_status.config_crc32 != 0u;
     s_config_gate_status.ready = gate_ready;
     s_config_gate_status.gate_state = gate_ready ? 1u : 2u;

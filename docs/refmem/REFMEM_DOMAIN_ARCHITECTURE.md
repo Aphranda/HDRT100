@@ -407,7 +407,7 @@ DISCOVER
 - B0-B4 只表示当前项目或默认 profile 中的物理/实例标签，不是 slot id。`B2.LinkSwitcherAO` 可在默认 profile 中加载到 slot A2，也可以在后续 profile 或自组网协调中加载到任何满足 capability、IO 约束和类 IP 核要求的 A0-A7 slot。
 - 对 `ALLOW_SAME_BOARD_MULTI_SLOT`、`SPARE_DYNAMIC` 或 `REPORT_ONLY` slot，`DistributedRefMemAO` 可根据 capability、claim_priority、physical uuid、link quality、load_order 和空闲插槽集合生成自动协调结果，但必须提升 `claim_epoch`、更新 `SlotClaimMap CRC`，并广播 `CLAIM_COMMIT`。
 - 冲突恢复可以通过重新加载 System Pack / profile、清除错误板卡 claim、执行受权限保护的维护命令，或对非 required dynamic slot 执行自组网协调完成；不得由节点本地自行改 `node_id` 并直接进入 active。
-- `DeploymentGate.node_check` 必须检查 `SlotClaimMap`：required 实例必须有一个 resolved active slot，spare slot 可 `UNCLAIMED`，任何未解决的 `CLAIM_CONFLICT/MISMATCH/STALE/OVERFLOW/CLAIM_FAULT` required 实例都拒绝 RUN。
+- `DeploymentGate.node_check` 必须检查 `SlotClaimMap`：required 实例必须有一个 resolved active slot，spare slot 可 `UNCLAIMED`，任何未解决的 `CLAIM_CONFLICT/MISMATCH/STALE/OVERFLOW/CLAIM_FAULT` required 实例都拒绝 RUN。首版代码已把本地派生 claim gate 接入 RefMem model validation 和 `system_manager` config RUN gate；RJ45 协调后的跨板 claim gate 后续接入。
 - RJ45_SYNC_RING 同步 `SlotClaim` 摘要时，必须带 `claim_epoch` 和 CRC，旧 epoch claim 不得覆盖 active claim。
 
 ### DistributedNodeLoadTable
@@ -678,7 +678,7 @@ bool refmem_slot_contract_validate_subscription(uint16_t field_slot_id,
 | 检查项 | 内容 | 失败处理 |
 |---|---|---|
 | `layout_check` | `layout_version`、slot offset、slot size、directory CRC。 | 拒绝 RUN。 |
-| `node_check` | 必需 A0-A7 插槽 online、node_uuid、hardware profile、capability 和装载实例匹配。 | 拒绝 RUN 或按 fail_policy 降级。 |
+| `node_check` | 必需 A0-A7 插槽 online、SlotClaimMap resolved assignment、node_uuid、hardware profile、capability 和装载实例匹配。 | 拒绝 RUN 或按 fail_policy 降级。 |
 | `instance_check` | required AO/FB instance 存在、版本兼容、enable 条件满足。 | 拒绝 RUN。 |
 | `resource_check` | Flash、SD、USB、PIO、DMA、core1、RJ45 等资源无冲突。 | 拒绝冲突实例组合。 |
 | `io_check` | SMA/RJ45/link-control resources/BiSS-C/UART/RS485 等 IO claim 无冲突；当前项目实例可映射为 SP8T/SP2T。 | 拒绝 RUN 或拒绝实例启用。 |
@@ -1152,7 +1152,7 @@ table directory 每项 16 字节：
 尚未形成完整实现的部分：
 
 - `RefMemTableRegistry`、active/staging/rollbackable 双镜像切换和 owner validation callback。
-- `SlotClaimMap` RJ45 运行期聚合、自组网协调、candidate overflow evidence 和 DeploymentGate 接入。
+- `SlotClaimMap` RJ45 运行期聚合、自组网协调和 candidate overflow evidence；本地 SlotClaim gate 已接入 DeploymentGate/RUN gate。
 - `RefMemSlotContract` 派生代码、字段级 owner 写权限、seqlock/双缓冲快照和 subscription 分发。
 - `refmem_command.h/.c`、ACK/NACK 原子命令槽和 completion/fence 语义。
 - RJ45_SYNC_RING 上的 `REFMEM_DELTA` / `REFMEM_EPOCH` 同步协议和受控 RMA window。

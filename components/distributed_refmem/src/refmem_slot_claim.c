@@ -108,6 +108,7 @@ static bool refmem_slot_claim_add_candidate(refmem_slot_claim_map_t *map,
     slot->reason = REFMEM_SLOT_CLAIM_REASON_OK;
     slot->claim_policy = node->claim_policy;
     slot->claim_priority = node->claim_priority;
+    slot->online_required = node->online_required;
     slot->last_claim_seq = candidate_id + 1u;
     map->assigned_count++;
 
@@ -148,6 +149,7 @@ bool refmem_slot_claim_derive_map(const refmem_generic_node_table_t *node_table,
         slot->claim_epoch = map->claim_epoch;
         slot->claim_policy = node->claim_policy;
         slot->claim_priority = node->claim_priority;
+        slot->online_required = node->online_required;
         if (node->claim_policy == REFMEM_APP_CLAIM_DISABLED) {
             slot->claim_state = REFMEM_SLOT_CLAIM_DISABLED;
             slot->reason = REFMEM_SLOT_CLAIM_REASON_DISABLED_SLOT;
@@ -198,4 +200,63 @@ const refmem_slot_claim_assignment_t *refmem_slot_claim_find_assignment(
         return NULL;
     }
     return &map->slot[slot_id];
+}
+
+bool refmem_slot_claim_gate_evaluate(const refmem_slot_claim_map_t *map,
+                                     refmem_slot_claim_gate_status_t *status)
+{
+    if (status == NULL) {
+        return false;
+    }
+
+    memset(status, 0, sizeof(*status));
+    status->version = REFMEM_SLOT_CLAIM_VERSION;
+    status->ready = 1u;
+    status->first_bad_slot = UINT32_MAX;
+
+    if (map == NULL || map->version != REFMEM_SLOT_CLAIM_VERSION ||
+        map->slot_count > REFMEM_APP_MODEL_NODE_COUNT) {
+        status->ready = 0u;
+        status->first_reason = REFMEM_SLOT_CLAIM_REASON_BAD_ARGUMENT;
+        return false;
+    }
+
+    status->overflow_count = map->overflow_count;
+    status->map_crc32 = map->map_crc32;
+    if (map->overflow_count != 0u) {
+        status->ready = 0u;
+        status->first_reason = REFMEM_SLOT_CLAIM_REASON_OVERFLOW;
+    }
+
+    for (uint32_t i = 0u; i < map->slot_count; i++) {
+        const refmem_slot_claim_assignment_t *slot = &map->slot[i];
+        bool slot_ok = true;
+
+        if (slot->claim_state == REFMEM_SLOT_CLAIM_CONFLICT) {
+            status->conflict_count++;
+            slot_ok = false;
+        } else if (slot->claim_state == REFMEM_SLOT_CLAIM_MISMATCH) {
+            status->mismatch_count++;
+            slot_ok = false;
+        } else if (slot->online_required != 0u &&
+                   slot->claim_state != REFMEM_SLOT_CLAIM_CLAIMED) {
+            status->required_missing_count++;
+            slot_ok = false;
+        }
+
+        if (!slot_ok) {
+            status->ready = 0u;
+            if (status->first_bad_slot == UINT32_MAX) {
+                status->first_bad_slot = slot->slot_id;
+                status->first_reason = slot->reason;
+            }
+        }
+    }
+
+    if (status->ready != 0u) {
+        status->first_reason = REFMEM_SLOT_CLAIM_REASON_OK;
+    } else if (status->first_bad_slot == UINT32_MAX) {
+        status->first_bad_slot = 0u;
+    }
+    return status->ready != 0u;
 }
