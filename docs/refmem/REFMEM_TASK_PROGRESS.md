@@ -8,6 +8,41 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-008 - Host GCC 单元测试断言门禁
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 使用 `D:\Embedded\GCC\mingw64\bin\gcc.exe` 让现有 C 单元测试在 host 上真实执行断言。
+  - 纠正此前多处测试脚本在无 host C 编译器时只做 ARM GCC compile-only 的验证口径。
+  - 将该门禁作为继续推进 RefMem 表模型、S0 flash/core1、真实 transport 和 PIO 预约输出前的基础验证。
+- 完成内容：
+  - 新增 `tools/tests/run_host_unit_tests.ps1`，默认将 `D:\Embedded\GCC\mingw64\bin` 加入 `PATH`，顺序运行 BiSS、portable LOG/OTA 和 RefMem 相关测试脚本。
+  - 修正 `run_refmem_application_contract_tests.ps1` 的链接源，补入 `refmem_slot_claim.c`。
+  - 修复 `refmem_claim_propose_frame_init()` 在设置 `payload_count` 前计算 payload CRC 的协议 bug。
+  - 扩大 `test_refmem_table_registry.c` 的测试构包容量，避免当前 `.rmtp` P0-P3 表 payload 超过旧 `1536` 字节缓冲导致 host 栈破坏。
+  - 修正 `test_portable_ota_core.c` 的 package-mode 测试夹具，使 header package CRC 字段保持与当前 packager 一致的 `0` 语义。
+  - 修正 `test_biss_protocol.c` 中 CRC6 golden vector 的参与位拼接，改为明确的 18-bit payload/status 和 24-bit payload 向量。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1` 通过。
+  - 覆盖 12 个测试脚本、17 个 C 单元测试文件，输出 `host unit test scripts passed: 12/12`。
+  - Host GCC：`D:\Embedded\GCC\mingw64\bin\gcc.exe`。
+- 还需完成：
+  - 下一轮优先进入 S0：Flash erase/program 前 core1 park/lockout/RAM-resident 入口完整握手和故障注入。
+  - 然后接入真实最小 physical transport，让 `DELTA/ACK/FENCE` 在两板真实链路上跑通。
+  - `ModelTurntableAO` 需要补真实 PIO scheduled fire 输出路径，验证“到点出边沿”。
+- 关联文件：
+  - `tools/tests/run_host_unit_tests.ps1`
+  - `tools/tests/run_refmem_application_contract_tests.ps1`
+  - `components/distributed_refmem/src/refmem_claim_protocol.c`
+  - `tests/unit/test_refmem_table_registry.c`
+  - `tests/unit/test_portable_ota_core.c`
+  - `tests/unit/test_biss_protocol.c`
+  - `docs/validation/README.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 不继续扩大 RefMem 静态表模型，先按 `REFMEM_DOMAIN_TODO.md` 的近期主线完成 S0、真实 transport 和 PIO 预约输出闭环。
+
 ### REFMEM-TASK-20260815-007 - RMTP NodeLoadTable 真实表镜像
 
 - 状态：完成

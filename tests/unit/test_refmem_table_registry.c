@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#define TEST_REFMEM_TABLE_PACKAGE_CAPACITY 8192u
+
 uint32_t ota_crc32_update(uint32_t crc, const uint8_t *data, size_t length)
 {
     for (size_t i = 0u; i < length; i++) {
@@ -198,7 +200,7 @@ static size_t build_test_package(uint8_t *package,
                             REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE;
     uint32_t table_offset[REFMEM_TABLE_REGISTRY_COUNT];
     uint32_t table_size[REFMEM_TABLE_REGISTRY_COUNT];
-    uint8_t payload[1536];
+    uint8_t payload[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
     size_t payload_size = 0u;
 
     for (uint32_t table_id = 0u; table_id < REFMEM_TABLE_REGISTRY_COUNT; table_id++) {
@@ -422,7 +424,7 @@ static int test_invalid_staging_is_not_activated(void)
 static int test_package_owner_validation_rejects_placeholder_tables(void)
 {
     int failed = 0;
-    uint8_t package[2048];
+    uint8_t package[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
     refmem_table_package_validation_t validation;
     const size_t package_size = build_test_package(package, sizeof(package), false);
 
@@ -443,7 +445,7 @@ static int test_package_owner_validation_rejects_placeholder_tables(void)
 static int test_package_owner_validation_accepts_contract_tables(void)
 {
     int failed = 0;
-    uint8_t package[2048];
+    uint8_t package[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
     refmem_table_package_validation_t validation;
     const size_t package_size = build_test_package(package, sizeof(package), true);
 
@@ -476,7 +478,7 @@ static int test_package_owner_validation_accepts_contract_tables(void)
 static int test_package_stage_uses_table_crc_and_partial_owner_state(void)
 {
     int failed = 0;
-    uint8_t package[2048];
+    uint8_t package[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
     refmem_table_package_validation_t validation;
     const size_t package_size = build_test_package(package, sizeof(package), true);
     const refmem_application_model_snapshot_t model = make_active_model();

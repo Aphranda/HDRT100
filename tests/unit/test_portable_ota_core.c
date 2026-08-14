@@ -184,7 +184,7 @@ static void make_package(uint8_t *package,
     write_le32(package, 4u, POTA_PACKAGE_VERSION);
     write_le32(package, 8u, POTA_PACKAGE_HEADER_SIZE);
     write_le32(package, 12u, package_size);
-    write_le32(package, 16u, pota_crc32_compute(package, package_size));
+    write_le32(package, 16u, 0u);
     write_le32(package, 20u, 2u);
     fill_text(package, 32u, "RP2350_TRIG");
     fill_text(package, 64u, "PICO2");
@@ -205,7 +205,6 @@ static void make_package(uint8_t *package,
 
     memcpy(&package[image_a_offset], image_a, image_a_size);
     memcpy(&package[image_b_offset], image_b, image_b_size);
-    write_le32(package, 16u, pota_crc32_compute(package, package_size));
 }
 
 static int expect_error(const char *name, pota_error_t actual, pota_error_t expected)
@@ -498,6 +497,7 @@ static int test_package_header_crc_mismatch(void)
     fill_image(image_a, sizeof(image_a), 0x60u);
     fill_image(image_b, sizeof(image_b), 0xA0u);
     make_package(package, image_a, sizeof(image_a), image_b, sizeof(image_b));
+    write_le32(package, 16u, 0x12345678u);
 
     pota_context_t context;
     pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);

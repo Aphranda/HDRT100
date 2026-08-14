@@ -114,6 +114,11 @@ python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port
   `third_party/portable_ota` unit tests. If no host C compiler exists, it falls
   back to ARM GCC compile/object-build checks and reports that host execution
   was skipped.
+- `tests/run_host_unit_tests.ps1`: host assertion gate for the product C unit
+  tests. It prepends `D:\Embedded\GCC\mingw64\bin` by default, then runs the
+  BiSS, portable LOG/OTA, and RefMem unit test scripts as executable host
+  assertions. Use this gate when the target machine has MinGW GCC installed;
+  the individual scripts may otherwise fall back to ARM compile-only checks.
 - `tests/run_portable_log_tests.ps1`: portable LOG core gate. It builds or runs
   `third_party/portable_log` unit tests. If no host C compiler exists, it falls
   back to ARM GCC compile/object-build checks and reports that host execution

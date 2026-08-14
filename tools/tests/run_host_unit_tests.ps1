@@ -1,0 +1,42 @@
+param(
+    [string]$HostGccDir = "D:\Embedded\GCC\mingw64\bin"
+)
+
+$ErrorActionPreference = "Stop"
+
+$repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$gcc = Join-Path $HostGccDir "gcc.exe"
+if (-not (Test-Path $gcc)) {
+    throw "Host GCC not found: $gcc"
+}
+
+$env:PATH = "$HostGccDir;$env:PATH"
+
+$scripts = @(
+    "run_biss_protocol_tests.ps1",
+    "run_portable_log_tests.ps1",
+    "run_portable_ota_tests.ps1",
+    "run_refmem_application_contract_tests.ps1",
+    "run_refmem_pio_spi_adapter_tests.ps1",
+    "run_refmem_quality_tests.ps1",
+    "run_refmem_realtime_contract_tests.ps1",
+    "run_refmem_slot_claim_tests.ps1",
+    "run_refmem_sync_frame_tests.ps1",
+    "run_refmem_sync_hello_tests.ps1",
+    "run_refmem_sync_tests.ps1",
+    "run_refmem_table_registry_tests.ps1"
+)
+
+$passed = 0
+foreach ($script in $scripts) {
+    $path = Join-Path $PSScriptRoot $script
+    Write-Host "==> $script"
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $path
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+    $passed++
+}
+
+Write-Host "host unit test scripts passed: $passed/$($scripts.Count)"
+Write-Host "host gcc: $gcc"

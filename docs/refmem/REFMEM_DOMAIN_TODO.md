@@ -35,16 +35,19 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 ## 近期执行主线
 
-当前阶段先完善 RefMem 基础件，不继续堆业务节点。业务节点只作为验证载体，不能绕过 RefMem 的 staging、owner、slot contract、command 和 quality 闭环。
+当前阶段先补真实验证地基，再推进 RefMem 基础件；不能继续只堆静态表模型。业务节点只作为验证载体，不能绕过 RefMem 的 staging、owner、slot contract、command 和 quality 闭环。
 
 | 顺序 | 主线 | 完成判据 |
 |---:|---|---|
-| 1 | NodeLoad staging/activation | `CONFigure:MODEl:TURNtable:LOAD` 不再只改本地变量，而是形成 NodeLoad staging snapshot；可查询、可验证、可拒绝、可激活、可回滚。 |
-| 2 | Command / ACK / NACK 基础件 | SCPI 只 post command，owner take 后 ACK/NACK；启动、停止、配置激活和模型加载都能形成闭环状态。 |
-| 3 | RefMemSlotContract | 每个 slot/字段有唯一 writer、权限、guard、snapshot 策略和 stale 规则；业务 AO 不能直接裸写共享内存。 |
-| 4 | RefMem Sync 最小闭环 | 先用 PIO SPI adapter 完成 `HELLO -> EPOCH -> DELTA -> ACK_NACK -> FENCE -> QUALITY`，协议不绑定 BISS-C。 |
-| 5 | Quality / Evidence | CRC/drop/late/timeout/stale/claim conflict 等进入质量表和 evidence，可由维护接口和报告读取。 |
-| 6 | 业务模型闭环 | 在以上基础上逐个接入 `ModelTurntableAO`、`ModelVnaAO`、`LinkSwitcherAO`、`PulseDistributorAO`、`VnaGatewayAO`。 |
+| 1 | Host C 断言门禁 | 17 个 C 单元测试必须由 host gcc 编译并执行断言；compile-only 只能作为无 host gcc 时的降级信息，不算完整验证通过。 |
+| 2 | S0 flash/core1 park-lockout | Flash erase/program 前必须完成 core1 park/lockout/RAM-resident 入口握手，并加入故障注入；该门禁优先于继续扩大 RefMem 表模型。 |
+| 3 | 真实最小 transport | 至少两块板通过一条真实物理链路运行 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY`，不再只依赖 PC hex bridge 或本地 stub。 |
+| 4 | PIO 预约输出路径 | `ModelTurntableAO` 或等价模型必须走真实 PIO scheduled fire，验证“到点出边沿”的硬实时承诺。 |
+| 5 | NodeLoad staging/activation | `CONFigure:MODEl:TURNtable:LOAD` 不再只改本地变量，而是形成 NodeLoad staging snapshot；可查询、可验证、可拒绝、可激活、可回滚。 |
+| 6 | Command / ACK / NACK 基础件 | SCPI 只 post command，owner take 后 ACK/NACK；启动、停止、配置激活和模型加载都能形成闭环状态。 |
+| 7 | RefMemSlotContract | 每个 slot/字段有唯一 writer、权限、guard、snapshot 策略和 stale 规则；业务 AO 不能直接裸写共享内存。 |
+| 8 | Quality / Evidence | CRC/drop/late/timeout/stale/claim conflict 等进入质量表和 evidence，可由维护接口和报告读取。 |
+| 9 | 业务模型闭环 | 在以上基础上逐个接入 `ModelTurntableAO`、`ModelVnaAO`、`LinkSwitcherAO`、`PulseDistributorAO`、`VnaGatewayAO`。 |
 
 近期不做：
 

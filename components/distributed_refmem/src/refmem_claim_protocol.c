@@ -127,7 +127,10 @@ bool refmem_claim_propose_frame_init(
                              source_board_id,
                              source_board_uuid_crc32,
                              proposal_count,
-                             refmem_claim_payload_crc32(frame));
+                             refmem_claim_raw_payload_crc32(
+                                 frame->proposal,
+                                 proposal_count * sizeof(frame->proposal[0]),
+                                 proposal_count));
     return true;
 }
 

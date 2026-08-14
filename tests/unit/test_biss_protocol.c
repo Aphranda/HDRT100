@@ -206,23 +206,21 @@ static int test_crc6(void)
     failed += expect_u32("crc6 zero inverted",
                          biss_crc6_compute_bits(0u, 36u, true),
                          0x3Fu);
-    failed += expect_u32("crc6 meetwit vector 12 34 00",
-                         biss_crc6_compute_bits((0x12ull << 12) |
-                                                (0x34ull << 6),
+    failed += expect_u32("crc6 biss vector 12 34 status00",
+                         biss_crc6_compute_bits((0x12ull << 10) |
+                                                (0x34ull << 2),
                                                 18u,
                                                 true),
-                         0x39u);
-    failed += expect_u32("generic crc6 meetwit vector",
-                         biss_crc_compute_bits((0x0Full << 18) |
-                                               (0x2Aull << 12) |
-                                               (0x15ull << 6),
+                         0x1Au);
+    failed += expect_u32("generic crc6 biss vector fedcba",
+                         biss_crc_compute_bits(0xFEDCBAull,
                                                24u,
                                                6u,
                                                0x03u,
                                                0u,
                                                0u,
                                                true),
-                         0x12u);
+                         0x32u);
     failed += expect_bool("frame crc matches",
                           biss_crc_matches(frame, &profile),
                           true);

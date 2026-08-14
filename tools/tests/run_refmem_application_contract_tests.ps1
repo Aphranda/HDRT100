@@ -12,6 +12,7 @@ $otaInclude = Join-Path $repo "components\ota_manager\inc"
 $testSource = Join-Path $repo "tests\unit\test_refmem_application_contract.c"
 $contractModelSource = Join-Path $repo "components\distributed_refmem\src\refmem_application_contract.c"
 $contractSource = Join-Path $repo "components\distributed_refmem\src\refmem_realtime_contract.c"
+$slotClaimSource = Join-Path $repo "components\distributed_refmem\src\refmem_slot_claim.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -56,7 +57,7 @@ function Find-ArmGcc {
     return ""
 }
 
-$sources = @($testSource, $contractModelSource, $contractSource)
+$sources = @($testSource, $contractModelSource, $contractSource, $slotClaimSource)
 
 $hostCc = Get-ToolPath "gcc"
 if (-not $hostCc) {
