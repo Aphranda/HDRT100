@@ -48,6 +48,7 @@ class WireStep:
     target: str
     output_index: int
     output_pin: int
+    expected_input_index: int
     observed_mask: int
     observed_inputs: list[int]
     expected_mask: int
@@ -148,6 +149,18 @@ def bit_indices(mask: int, count: int) -> list[int]:
     return [index for index in range(count) if (mask & (1 << index)) != 0]
 
 
+def parse_line_map(text: str, count: int, name: str) -> list[int]:
+    try:
+        values = [int(part.strip(), 0) for part in text.split(",")]
+    except ValueError as exc:
+        raise SystemExit(f"{name} must be a comma-separated integer list") from exc
+    if len(values) != count:
+        raise SystemExit(f"{name} must contain exactly {count} entries")
+    if sorted(values) != list(range(count)):
+        raise SystemExit(f"{name} must be a permutation of 0..{count - 1}")
+    return values
+
+
 def release_outputs(ser: serial.Serial, timeout_s: float) -> None:
     write_command(ser, "REALtime:IO:OUTPut:MASK 0", timeout_s)
     write_command(ser, "REALtime:IO:OUTPut:RELease", timeout_s)
@@ -165,6 +178,7 @@ def check_direction(source_name: str,
                     target_name: str,
                     target: serial.Serial,
                     target_profile: IoProfile,
+                    expected_map: list[int],
                     timeout_s: float,
                     settle_s: float) -> list[WireStep]:
     steps: list[WireStep] = []
@@ -173,8 +187,10 @@ def check_direction(source_name: str,
     time.sleep(settle_s)
 
     for output_index in range(count):
-        expected_mask = 1 << output_index
-        drive_mask(source, expected_mask, timeout_s)
+        expected_input_index = expected_map[output_index]
+        output_mask = 1 << output_index
+        expected_mask = 1 << expected_input_index
+        drive_mask(source, output_mask, timeout_s)
         time.sleep(settle_s)
         _, _, observed_mask = read_input_mask(target, timeout_s)
         observed_mask &= (1 << target_profile.input_count) - 1
@@ -183,6 +199,7 @@ def check_direction(source_name: str,
             target=target_name,
             output_index=output_index,
             output_pin=source_profile.output_base + output_index,
+            expected_input_index=expected_input_index,
             observed_mask=observed_mask,
             observed_inputs=bit_indices(observed_mask, target_profile.input_count),
             expected_mask=expected_mask,
@@ -202,11 +219,11 @@ def format_step(step: WireStep, target_profile: IoProfile) -> str:
         )
     else:
         targets = "none"
-    expected_pin = target_profile.input_base + step.output_index
+    expected_pin = target_profile.input_base + step.expected_input_index
     status = "PASS" if step.passed else "FAIL"
     return (
         f"{status} {step.source}.OUT{step.output_index}/GPIO{step.output_pin} -> "
-        f"{step.target}.{targets} expected IN{step.output_index}/GPIO{expected_pin} "
+        f"{step.target}.{targets} expected IN{step.expected_input_index}/GPIO{expected_pin} "
         f"mask=0x{step.observed_mask:X}"
     )
 
@@ -221,6 +238,10 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=2.0)
     parser.add_argument("--settle", type=float, default=1.0, help="seconds after opening each port")
     parser.add_argument("--line-settle", type=float, default=0.05, help="seconds after changing output mask")
+    parser.add_argument("--expect-a-to-b", default="1,2,0,3",
+                        help="expected B input index for each A output index; default is measured debug wiring")
+    parser.add_argument("--expect-b-to-a", default="2,1,0,3",
+                        help="expected A input index for each B output index; default is measured debug wiring")
     parser.add_argument("--out-dir", type=Path)
     args = parser.parse_args()
 
@@ -237,6 +258,10 @@ def main() -> int:
 
         profile_a = read_profile(ser_a, args.timeout)
         profile_b = read_profile(ser_b, args.timeout)
+        count_ab = min(profile_a.output_count, profile_b.input_count)
+        count_ba = min(profile_b.output_count, profile_a.input_count)
+        expect_ab = parse_line_map(args.expect_a_to_b, count_ab, "--expect-a-to-b")
+        expect_ba = parse_line_map(args.expect_b_to_a, count_ba, "--expect-b-to-a")
 
         release_outputs(ser_a, args.timeout)
         release_outputs(ser_b, args.timeout)
@@ -247,6 +272,7 @@ def main() -> int:
                                    args.name_b,
                                    ser_b,
                                    profile_b,
+                                   expect_ab,
                                    args.timeout,
                                    args.line_settle)
         steps_ba = check_direction(args.name_b,
@@ -255,6 +281,7 @@ def main() -> int:
                                    args.name_a,
                                    ser_a,
                                    profile_a,
+                                   expect_ba,
                                    args.timeout,
                                    args.line_settle)
 
@@ -268,6 +295,10 @@ def main() -> int:
         "passed": passed,
         "ports": {args.name_a: args.port_a, args.name_b: args.port_b},
         "profiles": {args.name_a: asdict(profile_a), args.name_b: asdict(profile_b)},
+        "expected_maps": {
+            f"{args.name_a}_to_{args.name_b}": expect_ab,
+            f"{args.name_b}_to_{args.name_a}": expect_ba,
+        },
         "steps": [asdict(step) for step in steps],
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
@@ -278,6 +309,8 @@ def main() -> int:
         f"OUT GPIO{profile_a.output_base}..{profile_a.output_base + profile_a.output_count - 1}",
         f"{args.name_b}: IN GPIO{profile_b.input_base}..{profile_b.input_base + profile_b.input_count - 1}, "
         f"OUT GPIO{profile_b.output_base}..{profile_b.output_base + profile_b.output_count - 1}",
+        f"{args.name_a}->{args.name_b} map OUT index -> IN index: {expect_ab}",
+        f"{args.name_b}->{args.name_a} map OUT index -> IN index: {expect_ba}",
     ]
     lines.extend(format_step(step, profile_b if step.target == args.name_b else profile_a) for step in steps)
     (out_dir / "summary.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")

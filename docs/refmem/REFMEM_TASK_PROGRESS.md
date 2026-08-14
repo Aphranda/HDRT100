@@ -70,9 +70,17 @@ RefMemTableRegistry
   - 新增 `tools/two_board_io_validate/two_board_io_validate.py`，逐位静态驱动两块板的 active output group 并读取对端 input mask，自动识别漏接、错位和短接。
   - `REFMEM_DOMAIN_TODO.md` 将双板 PIO 预检待办标记完成，后续真实两板 HIL 验证仍保留。
 - 验证结果：
-  - 待执行 py_compile、文档检查、pytest 和 RTOS smoke build。
+  - `python -m py_compile tools\two_board_io_validate\two_board_io_validate.py tools\realtime_scpi_validate\realtime_scpi_validate.py` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `python -m pytest` 通过，18 passed、1 skipped。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814083032`，package CRC `0x2071E6F5`。
+  - `COM3` 和 `COM4` OTA 升级并 commit 到 build `20260814083032`。
+  - `python tools\refmem_network_validate\refmem_network_validate.py --port-a COM3 --port-b COM4` 通过，双方 SlotClaimMap CRC 均为 `386979554`。
+  - `python tools\two_board_io_validate\two_board_io_validate.py --port-a COM3 --port-b COM4` 首次按直通期望执行，测得方向性线序：A->B 为 `OUT0->IN1, OUT1->IN2, OUT2->IN0, OUT3->IN3`；B->A 为 `OUT0->IN2, OUT1->IN1, OUT2->IN0, OUT3->IN3`。
+  - 自动线序检测工具默认改为按上述实测 logical remap 验收，保留 `--expect-a-to-b` / `--expect-b-to-a` 参数支持后续改线。
+  - `python tools\two_board_io_validate\two_board_io_validate.py --port-a COM3 --port-b COM4 --out-dir build-rtos-multicore-smoke\two_board_io_COM3_COM4_remap` 通过，确认当前线束按 logical remap 可用。
 - 还需完成：
-  - 在两块板上执行 baseline 工具和后续 PIO 方向预检。
+  - 评估后续是否需要将 logical line remap 从工具参数升级到 RefMem/IO profile 表。
   - 后续产品板 profile 需要按产品板硬件约束设置独立构建参数，不沿用调试默认接线。
 - 关联文件：
   - `boards/rp2350_trig/inc/board_config.h`

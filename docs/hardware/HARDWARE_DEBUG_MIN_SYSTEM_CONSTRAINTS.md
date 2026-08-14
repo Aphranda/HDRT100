@@ -85,6 +85,17 @@ Last updated: 2026-08-13
 | B -> A | `GPIO24` | `GPIO19` | 反向同名语义交叉连接。 |
 | 共地 | `GND` | `GND` | 两块板必须共地。 |
 
+当前 COM3/COM4 双板调试实测线序不是直通顺序，按方向定义为：
+
+| 方向 | 线序定义 |
+|---|---|
+| B0 -> B1 | `OUT0->IN1, OUT1->IN2, OUT2->IN0, OUT3->IN3` |
+| B1 -> B0 | `OUT0->IN2, OUT1->IN1, OUT2->IN0, OUT3->IN3` |
+
+该线序是调试 profile 的 logical remap，不改变 active output/input GPIO group 的物理
+定义。若后续重接为直通线序，可用 `two_board_io_validate.py --expect-a-to-b 0,1,2,3
+--expect-b-to-a 0,1,2,3` 进行验证。
+
 调试规则：
 
 - 当前固件的最小系统默认 profile 使用 `GPIO16..19` 作为 PIO 输入组，
@@ -92,6 +103,8 @@ Last updated: 2026-08-13
 - `GPIO12..15` 与 SD/SPI 调试资源存在冲突；双板直连验证时不得把它们作为主链路。
 - 输出线建议串 `47R~100R` 调试电阻；在方向 ownership 未明确前，禁止把两块板的
   输出脚同名直连。
+- 自动线序检测以 `tools/two_board_io_validate/two_board_io_validate.py` 为准；该工具
+  支持方向性 logical remap，避免把临时线束顺序硬编码进产品 pin map。
 - 产品板最终 PIO/SMA/RJ45/BiSS pin map 仍以产品板硬件约束和网表为准。
 
 最小系统板不要求具备：
