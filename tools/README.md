@@ -77,10 +77,12 @@ Get-Content -Path tools\README.md -Encoding UTF8
   verifies default SlotClaim evidence is empty, and can compare build id and
   SlotClaimMap CRC before later RJ45 `CLAIM_*` tests are enabled.
 - `refmem_sync_hil_validate/refmem_sync_hil_validate.py`: two-board RefMem Sync
-  HELLO/EPOCH/DELTA runner. It initializes each board's `SYSTem:REFMEM:SYNC`
-  maintenance context, checks build/SlotClaim/adapter snapshots, moves HELLO,
-  EPOCH, and u32 DELTA hex frames through SCPI or USBTMC, then checks `MIRRor?`,
-  `PEER?`, and `QUALity?` before the real PIO SPI physical adapter is enabled.
+  HELLO/EPOCH/DELTA/ACK_NACK runner. It initializes each board's
+  `SYSTem:REFMEM:SYNC` maintenance context, checks build/SlotClaim/adapter
+  snapshots, moves HELLO, EPOCH, u32 DELTA, and ACK_NACK hex frames through SCPI
+  or USBTMC, then checks `MIRRor?`, `ACK:STATus?`, `PEER?`, and `QUALity?`.
+  Negative paths cover duplicate seq, target mismatch, and payload CRC mismatch
+  before the real PIO SPI physical adapter is enabled.
 
 ### `two_board_io_validate/two_board_io_validate.py`
 

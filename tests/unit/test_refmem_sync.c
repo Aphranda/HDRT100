@@ -316,10 +316,63 @@ static int test_delta_mirror_commit(void)
     return failed;
 }
 
+static int test_ack_nack_commit(void)
+{
+    int failed = 0;
+    refmem_sync_context_t context;
+    refmem_sync_ack_nack_payload_t ack_payload;
+    uint8_t frame[128];
+    size_t frame_size = 0u;
+
+    (void)refmem_sync_init(&context, 0u, 7u, 8u);
+    (void)memset(&ack_payload, 0, sizeof(ack_payload));
+    ack_payload.command_seq = 0u;
+    ack_payload.delta_seq32 = 12u;
+    ack_payload.taken_flags = 0x01u;
+    ack_payload.ack_flags = 0x01u;
+    ack_payload.nack_flags = 0u;
+    ack_payload.last_reason = 0u;
+    ack_payload.last_reason_slot = 1u;
+
+    failed += expect_bool("make ack",
+                          make_frame(REFMEM_SYNC_FRAME_ACK_NACK,
+                                     1u,
+                                     0x01u,
+                                     7u,
+                                     8u,
+                                     13u,
+                                     &ack_payload,
+                                     sizeof(ack_payload),
+                                     frame,
+                                     sizeof(frame),
+                                     &frame_size),
+                          true);
+    failed += expect_u32("recv ack",
+                         refmem_sync_receive_frame(&context, frame, frame_size, NULL),
+                         REFMEM_SYNC_RX_ACCEPTED);
+
+    const refmem_sync_ack_snapshot_t *ack = refmem_sync_get_ack(&context, 1u);
+    failed += expect_bool("ack present", ack != NULL, true);
+    if (ack != NULL) {
+        failed += expect_u32("ack seen", ack->seen, 1u);
+        failed += expect_u32("ack source", ack->source_slot, 1u);
+        failed += expect_u32("ack delta seq", ack->delta_seq32, 12u);
+        failed += expect_u32("ack taken flags", ack->taken_flags, 1u);
+        failed += expect_u32("ack flags", ack->ack_flags, 1u);
+        failed += expect_u32("ack nack flags", ack->nack_flags, 0u);
+        failed += expect_u32("ack reason", ack->last_reason, 0u);
+        failed += expect_u32("ack reason slot", ack->last_reason_slot, 1u);
+        failed += expect_u32("ack frame seq", ack->last_frame_seq32, 13u);
+        failed += expect_u32("ack received count", ack->received_count, 1u);
+    }
+    return failed;
+}
+
 static int test_frame_error_quality(void)
 {
     int failed = 0;
     refmem_sync_context_t context;
+    refmem_sync_rx_snapshot_t snapshot;
     refmem_sync_quality_counters_t quality;
     refmem_sync_delta_header_t delta;
     uint8_t frame[128];
@@ -340,8 +393,13 @@ static int test_frame_error_quality(void)
                      &frame_size);
     frame[REFMEM_SYNC_FRAME_HEADER_SIZE] ^= 0x55u;
     failed += expect_u32("bad payload frame",
-                         refmem_sync_receive_frame(&context, frame, frame_size, NULL),
+                         refmem_sync_receive_frame(&context, frame, frame_size, &snapshot),
                          REFMEM_SYNC_RX_FRAME_INVALID);
+    failed += expect_u32("bad payload frame result",
+                         snapshot.frame_result,
+                         REFMEM_SYNC_FRAME_BAD_PAYLOAD_CRC);
+    failed += expect_u32("bad payload source preserved", snapshot.header.source_slot, 0u);
+    failed += expect_u32("bad payload seq preserved", snapshot.header.seq32, 1u);
     refmem_sync_get_quality(&context, &quality);
     failed += expect_u32("bad frame count", quality.bad_frame_count, 1u);
     failed += expect_u32("crc error count", quality.crc_error_count, 1u);
@@ -355,6 +413,7 @@ int main(void)
     failed += test_rejects_target_and_epoch_mismatch();
     failed += test_sequence_quality();
     failed += test_delta_mirror_commit();
+    failed += test_ack_nack_commit();
     failed += test_frame_error_quality();
 
     if (failed != 0) {

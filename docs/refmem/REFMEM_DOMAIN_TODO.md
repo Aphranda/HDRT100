@@ -177,12 +177,12 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 阶段 2：在两块最小系统板上通过 SCPI 搬运执行 `REFMEM_EPOCH` 对齐，epoch/run/table seq 或 CRC bundle 不匹配时拒绝进入 delta active，并将结果写入 HIL 报告。
 - [ ] 阶段 2：将当前 SCPI 搬运通路切到真实 PIO SPI 物理 adapter service，保留相同 frame/peer/quality 语义。
 - [x] 阶段 3：实现最小 `REFMEM_DELTA` test field，通过 SCPI 搬运从 A 板发布到 B 板 mirror、B 板发布到 A 板 mirror，并切换到 sync mirror snapshot visible。
-- [ ] 阶段 3：实现 `REFMEM_ACK_NACK` 回传，覆盖 ACK、payload CRC mismatch、duplicate seq 和 target mismatch。
+- [x] 阶段 3：实现 `REFMEM_ACK_NACK` 回传，覆盖 ACK、payload CRC mismatch、duplicate seq 和 target mismatch；当前通过 SCPI bridge 基于最近一次 RX snapshot 生成 ACK/NACK frame，并由对端记录 ack snapshot。
 - [ ] 阶段 4：实现最小 `REFMEM_FENCE`，验证 required 节点 visible 后 fence passed，timeout 后进入 degraded/fault evidence。
 - [ ] 阶段 4：将 PIO SPI adapter 的 CRC/drop/late/timeout 计数映射到 `DistributedConnectionQualityTable`。
 - [x] 增加两板 HIL 工具，顺序管理 COM3/COM4、用户指定串口或 USBTMC VISA 生命周期，不并行占用同一端口。
 - [x] 增加 RefMem sync HELLO/EPOCH HIL 报告输出，记录命令 transcript、slot、epoch、run、peer 和 quality 结果。
-- [ ] 扩展 RefMem sync HIL 报告输出，记录 build id、package CRC、SlotClaimMap CRC、adapter id、线序 remap、delta/fence/quality 结果；当前已记录 build id、SlotClaimMap CRC、adapter id、delta mirror 和 quality，package CRC、线序 remap 与 fence 待接入。
+- [ ] 扩展 RefMem sync HIL 报告输出，记录 build id、package CRC、SlotClaimMap CRC、adapter id、线序 remap、delta/fence/quality 结果；当前已记录 build id、SlotClaimMap CRC、adapter id、delta mirror、ACK/NACK 和 quality，package CRC、线序 remap 与 fence 待接入。
 
 ## P4.6 - 最小模型系统 GPIO4..7 Overlay
 
@@ -253,7 +253,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 增加 SlotClaim 纯 C 单元测试入口：`tools/tests/run_refmem_slot_claim_tests.ps1`，覆盖默认 assignment、重复 claim、UUID mismatch 和第 9 个候选 overflow；无 host C 编译器时退化为 ARM GCC 编译检查。
 - [x] 增加两块最小系统板组网 baseline 验证工具骨架：`tools/refmem_network_validate/refmem_network_validate.py` 管理两个串口生命周期，确认 `REFMEM + VDC` baseline、SlotClaim gate ready、默认 evidence 为空，并可比较 build id 与 SlotClaimMap CRC。
 - [x] 增加两块最小系统板 `debug_min_two_board_link` PIO 预检：读取或记录 active profile 的输入/输出 base pin，确认双方按 profile 交叉连接，且 `GPIO12..15` 未被双板链路占用。
-- [ ] 增加两块最小系统板 PIO SPI adapter HIL 验证：按 P4.5 完成 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 闭环；同一验证不依赖 BISS-C。
+- [ ] 增加两块最小系统板 PIO SPI adapter HIL 验证：按 P4.5 完成 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 闭环；当前 SCPI bridge 已覆盖 `HELLO/EPOCH/DELTA/ACK_NACK`，真实 PIO SPI physical adapter、FENCE 和 QUALITY frame 仍待接入。同一验证不依赖 BISS-C。
 - [ ] 增加两块最小系统板组网 HIL 验证：确认 `CLAIM_HELLO/PROPOSE/CONFLICT/RESOLVE/COMMIT`、slot 冲突拒绝或协调、RefMem snapshot 一致性和串口生命周期管理。
 - [ ] 增加 SlotContract 验证：非法 writer、越界字段、stale snapshot、seqlock 重读。
 - [ ] 增加 RMA-style atomic 验证：重复 post、并发 take、payload CRC mismatch、fence 前读取不可见。

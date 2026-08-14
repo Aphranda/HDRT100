@@ -79,6 +79,13 @@ static bool scpi_refmem_sync_build_delta_frame(uint8_t source_slot,
                                                uint8_t *frame,
                                                size_t frame_capacity,
                                                size_t *frame_size);
+static bool scpi_refmem_sync_build_ack_frame(uint8_t source_slot,
+                                             uint8_t target_mask,
+                                             uint32_t seq32,
+                                             const refmem_sync_rx_snapshot_t *rx,
+                                             uint8_t *frame,
+                                             size_t frame_capacity,
+                                             size_t *frame_size);
 static void scpi_refmem_sync_result_rx_snapshot(scpi_t *context,
                                                 const refmem_sync_rx_snapshot_t *snapshot);
 static void scpi_refmem_sync_hex_encode(const uint8_t *data,
@@ -693,6 +700,64 @@ scpi_result_t scpi_cmd_refmem_sync_delta_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_sync_ack_q(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+    if (s_refmem_sync.last_rx.header.header_size != REFMEM_SYNC_FRAME_HEADER_SIZE ||
+        s_refmem_sync.last_rx.header.source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        scpi_port_push_exec_error(context, "REFMEM_SYNC_ACK_NO_RX");
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t source_slot = s_refmem_sync.context.local_slot;
+    uint32_t target_mask = (uint32_t)(1u << s_refmem_sync.last_rx.header.source_slot);
+    uint32_t seq32 = 0u;
+    (void)SCPI_ParamUInt32(context, &source_slot, FALSE);
+    (void)SCPI_ParamUInt32(context, &target_mask, FALSE);
+    (void)SCPI_ParamUInt32(context, &seq32, FALSE);
+    if (source_slot >= REFMEM_SYNC_NODE_COUNT || target_mask > 0xFFu) {
+        return SCPI_RES_ERR;
+    }
+    if (seq32 == 0u) {
+        seq32 = s_refmem_sync.tx_seq32++;
+    }
+
+    uint8_t frame[SCPI_REFMEM_SYNC_FRAME_MAX];
+    size_t frame_size = 0u;
+    if (!scpi_refmem_sync_build_ack_frame((uint8_t)source_slot,
+                                          (uint8_t)target_mask,
+                                          seq32,
+                                          &s_refmem_sync.last_rx,
+                                          frame,
+                                          sizeof(frame),
+                                          &frame_size) ||
+        !refmem_pio_spi_adapter_send(&s_refmem_sync.adapter, frame, frame_size)) {
+        scpi_port_push_exec_error(context, "REFMEM_SYNC_ACK");
+        return SCPI_RES_ERR;
+    }
+
+    refmem_sync_frame_header_t header;
+    (void)refmem_sync_frame_decode_header(frame, frame_size, &header);
+    char hex[SCPI_REFMEM_SYNC_HEX_MAX];
+    scpi_refmem_sync_hex_encode(frame, frame_size, hex, sizeof(hex));
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, frame_size);
+    SCPI_ResultUInt32(context, header.source_slot);
+    SCPI_ResultUInt32(context, header.target_mask);
+    SCPI_ResultUInt32(context, header.epoch_id);
+    SCPI_ResultUInt32(context, header.run_id);
+    SCPI_ResultUInt32(context, header.seq32);
+    SCPI_ResultUInt32(context, header.payload_crc32);
+    SCPI_ResultUInt32(context, header.ack_seq32);
+    SCPI_ResultUInt32(context, s_refmem_sync.last_rx.accepted);
+    SCPI_ResultUInt32(context, s_refmem_sync.last_rx.result);
+    SCPI_ResultUInt32(context, s_refmem_sync.last_rx.frame_result);
+    SCPI_ResultText(context, hex);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_sync_rx(scpi_t *context)
 {
     if (!scpi_refmem_sync_ensure_initialized()) {
@@ -717,28 +782,30 @@ scpi_result_t scpi_cmd_refmem_sync_rx(scpi_t *context)
     }
 
     const uint32_t timestamp = osal_tick_ms();
-    if (!refmem_pio_spi_adapter_inject_rx_frame(&s_refmem_sync.adapter,
-                                                frame,
-                                                frame_size,
-                                                timestamp)) {
-        scpi_port_push_exec_error(context, "REFMEM_SYNC_RX_ADAPTER");
-        return SCPI_RES_ERR;
-    }
+    if (refmem_pio_spi_adapter_inject_rx_frame(&s_refmem_sync.adapter,
+                                               frame,
+                                               frame_size,
+                                               timestamp)) {
+        uint8_t staged_frame[SCPI_REFMEM_SYNC_FRAME_MAX];
+        size_t staged_size = 0u;
+        if (!refmem_pio_spi_adapter_poll(&s_refmem_sync.adapter,
+                                         staged_frame,
+                                         sizeof(staged_frame),
+                                         &staged_size)) {
+            scpi_port_push_exec_error(context, "REFMEM_SYNC_RX_POLL");
+            return SCPI_RES_ERR;
+        }
 
-    uint8_t staged_frame[SCPI_REFMEM_SYNC_FRAME_MAX];
-    size_t staged_size = 0u;
-    if (!refmem_pio_spi_adapter_poll(&s_refmem_sync.adapter,
-                                     staged_frame,
-                                     sizeof(staged_frame),
-                                     &staged_size)) {
-        scpi_port_push_exec_error(context, "REFMEM_SYNC_RX_POLL");
-        return SCPI_RES_ERR;
+        (void)refmem_sync_receive_frame(&s_refmem_sync.context,
+                                        staged_frame,
+                                        staged_size,
+                                        &s_refmem_sync.last_rx);
+    } else {
+        (void)refmem_sync_receive_frame(&s_refmem_sync.context,
+                                        frame,
+                                        frame_size,
+                                        &s_refmem_sync.last_rx);
     }
-
-    (void)refmem_sync_receive_frame(&s_refmem_sync.context,
-                                    staged_frame,
-                                    staged_size,
-                                    &s_refmem_sync.last_rx);
     SCPI_ResultText(context, s_refmem_sync.last_rx.accepted != 0u ? "ACCEPTED" : "REJECTED");
     scpi_refmem_sync_result_rx_snapshot(context, &s_refmem_sync.last_rx);
     return SCPI_RES_OK;
@@ -777,6 +844,42 @@ scpi_result_t scpi_cmd_refmem_sync_mirror_q(scpi_t *context)
     SCPI_ResultUInt32(context, mirror->last_frame_seq32);
     SCPI_ResultUInt32(context, mirror->committed_count);
     SCPI_ResultUInt32(context, mirror->visible_count);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_ack_status_q(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t source_slot = 0u;
+    (void)SCPI_ParamUInt32(context, &source_slot, FALSE);
+    if (source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return SCPI_RES_ERR;
+    }
+
+    const refmem_sync_ack_snapshot_t *ack =
+        refmem_sync_get_ack(&s_refmem_sync.context, (uint8_t)source_slot);
+    if (ack == NULL) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, source_slot);
+    SCPI_ResultUInt32(context, ack->seen);
+    SCPI_ResultUInt32(context, ack->source_slot);
+    SCPI_ResultUInt32(context, ack->command_seq);
+    SCPI_ResultUInt32(context, ack->delta_seq32);
+    SCPI_ResultUInt32(context, ack->taken_flags);
+    SCPI_ResultUInt32(context, ack->ack_flags);
+    SCPI_ResultUInt32(context, ack->nack_flags);
+    SCPI_ResultUInt32(context, ack->busy_flags);
+    SCPI_ResultUInt32(context, ack->timeout_flags);
+    SCPI_ResultUInt32(context, ack->last_reason);
+    SCPI_ResultUInt32(context, ack->last_reason_slot);
+    SCPI_ResultUInt32(context, ack->evidence_index);
+    SCPI_ResultUInt32(context, ack->last_frame_seq32);
+    SCPI_ResultUInt32(context, ack->received_count);
     return SCPI_RES_OK;
 }
 
@@ -1190,6 +1293,65 @@ static bool scpi_refmem_sync_build_delta_frame(uint8_t source_slot,
     }
     return refmem_sync_frame_encode(&header,
                                     payload,
+                                    sizeof(payload),
+                                    frame,
+                                    frame_capacity,
+                                    frame_size);
+}
+
+static bool scpi_refmem_sync_build_ack_frame(uint8_t source_slot,
+                                             uint8_t target_mask,
+                                             uint32_t seq32,
+                                             const refmem_sync_rx_snapshot_t *rx,
+                                             uint8_t *frame,
+                                             size_t frame_capacity,
+                                             size_t *frame_size)
+{
+    if (rx == NULL ||
+        rx->header.header_size != REFMEM_SYNC_FRAME_HEADER_SIZE ||
+        rx->header.source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return false;
+    }
+
+    const uint32_t local_bit = (uint32_t)(1u << source_slot);
+    refmem_sync_ack_nack_payload_t payload;
+    memset(&payload, 0, sizeof(payload));
+    payload.command_seq = rx->header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_COMMAND ?
+        rx->header.seq32 : 0u;
+    payload.delta_seq32 = rx->header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_DELTA ?
+        rx->header.seq32 : 0u;
+    payload.taken_flags = local_bit;
+    if (rx->accepted != 0u) {
+        payload.ack_flags = local_bit;
+    } else {
+        payload.nack_flags = local_bit;
+    }
+    payload.last_reason = rx->accepted != 0u ? 0u : (uint32_t)rx->result;
+    if (rx->accepted == 0u &&
+        rx->result == REFMEM_SYNC_RX_FRAME_INVALID &&
+        rx->frame_result != REFMEM_SYNC_FRAME_OK) {
+        payload.last_reason = (uint32_t)rx->frame_result;
+    }
+    payload.last_reason_slot = source_slot;
+    payload.evidence_index = 0u;
+
+    refmem_sync_frame_header_t header;
+    if (!refmem_sync_frame_header_init(&header,
+                                       REFMEM_SYNC_FRAME_ACK_NACK,
+                                       0u,
+                                       source_slot,
+                                       target_mask,
+                                       s_refmem_sync.context.active_epoch_id,
+                                       s_refmem_sync.context.active_run_id,
+                                       seq32,
+                                       rx->header.seq32,
+                                       osal_tick_ms(),
+                                       &payload,
+                                       sizeof(payload))) {
+        return false;
+    }
+    return refmem_sync_frame_encode(&header,
+                                    &payload,
                                     sizeof(payload),
                                     frame,
                                     frame_capacity,

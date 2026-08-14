@@ -67,11 +67,29 @@ typedef struct {
 } refmem_sync_mirror_snapshot_t;
 
 typedef struct {
+    uint32_t seen;
+    uint32_t source_slot;
+    uint32_t command_seq;
+    uint32_t delta_seq32;
+    uint32_t taken_flags;
+    uint32_t ack_flags;
+    uint32_t nack_flags;
+    uint32_t busy_flags;
+    uint32_t timeout_flags;
+    uint32_t last_reason;
+    uint32_t last_reason_slot;
+    uint32_t evidence_index;
+    uint32_t last_frame_seq32;
+    uint32_t received_count;
+} refmem_sync_ack_snapshot_t;
+
+typedef struct {
     uint8_t local_slot;
     uint32_t active_epoch_id;
     uint32_t active_run_id;
     refmem_sync_peer_state_t peer[REFMEM_SYNC_NODE_COUNT];
     refmem_sync_mirror_snapshot_t mirror[REFMEM_SYNC_NODE_COUNT];
+    refmem_sync_ack_snapshot_t ack[REFMEM_SYNC_NODE_COUNT];
     refmem_sync_quality_counters_t quality;
 } refmem_sync_context_t;
 
@@ -100,6 +118,9 @@ const refmem_sync_peer_state_t *refmem_sync_get_peer(
     const refmem_sync_context_t *context,
     uint8_t source_slot);
 const refmem_sync_mirror_snapshot_t *refmem_sync_get_mirror(
+    const refmem_sync_context_t *context,
+    uint8_t source_slot);
+const refmem_sync_ack_snapshot_t *refmem_sync_get_ack(
     const refmem_sync_context_t *context,
     uint8_t source_slot);
 void refmem_sync_get_quality(const refmem_sync_context_t *context,

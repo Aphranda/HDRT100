@@ -8,6 +8,45 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-048 - RefMem Sync ACK/NACK 最小闭环
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 在 DELTA mirror 已通过的基础上，增加 `REFMEM_ACK_NACK` 回传，让两块板能对已接收 DELTA 和异常 RX 结果形成可查询确认。
+  - 覆盖正向 ACK、duplicate seq、target mismatch 和 payload CRC mismatch，不直接写 active ApplicationModel、SlotClaimMap 或业务 active fact。
+- 完成内容：
+  - `refmem_sync_context_t` 增加按 source slot 索引的 `refmem_sync_ack_snapshot_t`。
+  - `refmem_sync_receive_frame()` 接收 `REFMEM_ACK_NACK` 后提交 ACK/NACK snapshot，记录 command/delta seq、taken/ack/nack/busy/timeout 位图、reason、evidence、frame seq 和 received count。
+  - payload CRC 错误时尽量保留可解码 header 到 RX snapshot，使维护 bridge 能为坏帧生成 NACK 证据。
+  - 新增 `refmem_sync_get_ack()`。
+  - 新增 `SYSTem:REFMEM:SYNC:ACK?`，基于本板最近一次 RX snapshot 生成 ACK_NACK frame。
+  - 新增 `SYSTem:REFMEM:SYNC:ACK:STATus?`，查询指定 source slot 最近一次 ACK/NACK snapshot。
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 扩展为 HELLO/EPOCH/DELTA/MIRROR/ACK_NACK 全流程，正向 ACK 双向生成后再互相注入，避免 ACK frame 覆盖 DELTA `last_rx`。
+- 验证结果：
+  - `python -m py_compile tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814141201`，package CRC `0xA1E002E6`。
+  - COM5/COM6 均 OTA 并 commit 到 build `20260814141201`。
+  - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814141201 --out-dir build-rtos-multicore-smoke\refmem_sync_ack_hil_COM5_COM6_20260814141201_r3` 通过，46 条记录全部 PASS。
+  - HIL 关键结果：两板 build id 均为 `20260814141201`；SlotClaimMap CRC 均为 `386979554`；A->B 与 B->A DELTA seq `3` 均收到 ACK；duplicate seq NACK reason `6`、target mismatch NACK reason `4`、payload CRC mismatch NACK reason `9` 均由对端接收并可查询。
+- 还需完成：
+  - 将 ACK/NACK 从维护 bridge 的 `last_rx` 生成模式收敛到正式 `refmem_command.h/.c` command slot 完成语义。
+  - 增加 `REFMEM_FENCE` 可见性门禁，把 mirror visible、ACK/NACK 和 RUN/SYNC gate 串起来。
+  - 真实 PIO SPI physical adapter service 接入，替换当前 PC/SCPI frame 搬运。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_sync.h`
+  - `components/distributed_refmem/src/refmem_sync.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tests/unit/test_refmem_sync.c`
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
+  - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
+- 下一步：
+  - 进入 P4.5 阶段 4 的 FENCE/QUALITY 闭环，并开始把 ACK/NACK 与正式 command slot completion 语义对齐。
+
 ### REFMEM-TASK-20260814-047 - RefMem Sync DELTA mirror 最小闭环
 
 - 状态：完成

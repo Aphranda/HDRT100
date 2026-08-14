@@ -64,6 +64,37 @@ static bool refmem_sync_commit_delta(refmem_sync_context_t *context,
     return true;
 }
 
+static bool refmem_sync_commit_ack_nack(refmem_sync_context_t *context,
+                                        const refmem_sync_frame_header_t *header,
+                                        const uint8_t *payload,
+                                        uint16_t payload_size)
+{
+    if (context == NULL || header == NULL || payload == NULL ||
+        header->source_slot >= REFMEM_SYNC_NODE_COUNT ||
+        payload_size < sizeof(refmem_sync_ack_nack_payload_t)) {
+        return false;
+    }
+
+    refmem_sync_ack_nack_payload_t ack_payload;
+    (void)memcpy(&ack_payload, payload, sizeof(ack_payload));
+    refmem_sync_ack_snapshot_t *ack = &context->ack[header->source_slot];
+    ack->seen = 1u;
+    ack->source_slot = header->source_slot;
+    ack->command_seq = ack_payload.command_seq;
+    ack->delta_seq32 = ack_payload.delta_seq32;
+    ack->taken_flags = ack_payload.taken_flags;
+    ack->ack_flags = ack_payload.ack_flags;
+    ack->nack_flags = ack_payload.nack_flags;
+    ack->busy_flags = ack_payload.busy_flags;
+    ack->timeout_flags = ack_payload.timeout_flags;
+    ack->last_reason = ack_payload.last_reason;
+    ack->last_reason_slot = ack_payload.last_reason_slot;
+    ack->evidence_index = ack_payload.evidence_index;
+    ack->last_frame_seq32 = header->seq32;
+    ack->received_count++;
+    return true;
+}
+
 static void refmem_sync_fill_snapshot(refmem_sync_rx_snapshot_t *snapshot,
                                       refmem_sync_rx_result_t result,
                                       refmem_sync_frame_result_t frame_result,
@@ -142,18 +173,29 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
     const refmem_sync_frame_result_t frame_result =
         refmem_sync_frame_validate(frame, frame_size, &header, &payload, &payload_size);
     if (frame_result != REFMEM_SYNC_FRAME_OK) {
+        refmem_sync_frame_header_t bad_header;
+        const refmem_sync_frame_header_t *snapshot_header = NULL;
+        const uint8_t *snapshot_payload = NULL;
+        uint16_t snapshot_payload_size = 0u;
         context->quality.bad_frame_count++;
         if (frame_result == REFMEM_SYNC_FRAME_BAD_PAYLOAD_CRC) {
             context->quality.crc_error_count++;
+            if (refmem_sync_frame_decode_header(frame,
+                                                frame_size,
+                                                &bad_header) == REFMEM_SYNC_FRAME_OK) {
+                snapshot_header = &bad_header;
+                snapshot_payload = &frame[bad_header.header_size];
+                snapshot_payload_size = bad_header.payload_size;
+            }
         } else {
             context->quality.header_error_count++;
         }
         refmem_sync_fill_snapshot(snapshot,
                                   REFMEM_SYNC_RX_FRAME_INVALID,
                                   frame_result,
-                                  NULL,
-                                  NULL,
-                                  0u,
+                                  snapshot_header,
+                                  snapshot_payload,
+                                  snapshot_payload_size,
                                   false);
         return REFMEM_SYNC_RX_FRAME_INVALID;
     }
@@ -244,6 +286,8 @@ refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context
 
     if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_DELTA) {
         (void)refmem_sync_commit_delta(context, &header, payload, payload_size);
+    } else if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_ACK_NACK) {
+        (void)refmem_sync_commit_ack_nack(context, &header, payload, payload_size);
     }
 
     context->quality.accepted_count++;
@@ -275,6 +319,16 @@ const refmem_sync_mirror_snapshot_t *refmem_sync_get_mirror(
         return NULL;
     }
     return &context->mirror[source_slot];
+}
+
+const refmem_sync_ack_snapshot_t *refmem_sync_get_ack(
+    const refmem_sync_context_t *context,
+    uint8_t source_slot)
+{
+    if (context == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return NULL;
+    }
+    return &context->ack[source_slot];
 }
 
 void refmem_sync_get_quality(const refmem_sync_context_t *context,

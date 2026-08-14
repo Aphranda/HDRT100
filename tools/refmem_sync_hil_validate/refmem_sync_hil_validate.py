@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate two-board RefMem Sync HELLO/EPOCH exchange over SCPI transport."""
+"""Validate two-board RefMem Sync HELLO/EPOCH/DELTA/ACK exchange over SCPI."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HELLO_TYPE = 1
 EPOCH_TYPE = 2
 DELTA_TYPE = 3
+ACK_NACK_TYPE = 5
 
 HELLO_FIELDS = (
     "status",
@@ -103,6 +104,40 @@ MIRROR_FIELDS = (
     "last_frame_seq32",
     "committed_count",
     "visible_count",
+)
+
+ACK_FRAME_FIELDS = (
+    "status",
+    "frame_size",
+    "source_slot",
+    "target_mask",
+    "epoch_id",
+    "run_id",
+    "seq32",
+    "payload_crc32",
+    "ack_seq32",
+    "accepted",
+    "rx_result",
+    "rx_frame_result",
+    "hex",
+)
+
+ACK_STATUS_FIELDS = (
+    "query_source_slot",
+    "seen",
+    "source_slot",
+    "command_seq",
+    "delta_seq32",
+    "taken_flags",
+    "ack_flags",
+    "nack_flags",
+    "busy_flags",
+    "timeout_flags",
+    "last_reason",
+    "last_reason_slot",
+    "evidence_index",
+    "last_frame_seq32",
+    "received_count",
 )
 
 
@@ -319,6 +354,60 @@ def expect_rx(response: str, *, frame_type: int, source: int, target: int, epoch
         raise AssertionError("epoch/run mismatch")
 
 
+def expect_rx_rejected(response: str,
+                       *,
+                       frame_type: int,
+                       source: int,
+                       target: int,
+                       epoch: int,
+                       run: int,
+                       result: int,
+                       frame_result: int) -> None:
+    data = fields_dict(RX_FIELDS, response)
+    if data["status"] != "REJECTED" or int(data["accepted"], 0) != 0:
+        raise AssertionError(f"RX not rejected: {response!r}")
+    if int(data["result"], 0) != result:
+        raise AssertionError(f"result={data['result']} expected {result}")
+    if int(data["frame_result"], 0) != frame_result:
+        raise AssertionError(f"frame_result={data['frame_result']} expected {frame_result}")
+    if int(data["frame_type"], 0) != frame_type:
+        raise AssertionError(f"frame_type={data['frame_type']} expected {frame_type}")
+    if int(data["source_slot"], 0) != source or int(data["target_mask"], 0) != target:
+        raise AssertionError("source/target mismatch")
+    if int(data["epoch_id"], 0) != epoch or int(data["run_id"], 0) != run:
+        raise AssertionError("epoch/run mismatch")
+
+
+def expect_ack_frame(response: str,
+                     *,
+                     source: int,
+                     target: int,
+                     epoch: int,
+                     run: int,
+                     seq: int,
+                     ack_seq: int,
+                     accepted: int,
+                     rx_result: int,
+                     rx_frame_result: int) -> None:
+    data = fields_dict(ACK_FRAME_FIELDS, response)
+    if data["status"] != "OK":
+        raise AssertionError(f"ack frame status is {data['status']!r}")
+    if int(data["source_slot"], 0) != source or int(data["target_mask"], 0) != target:
+        raise AssertionError("ack source/target mismatch")
+    if int(data["epoch_id"], 0) != epoch or int(data["run_id"], 0) != run:
+        raise AssertionError("ack epoch/run mismatch")
+    if int(data["seq32"], 0) != seq or int(data["ack_seq32"], 0) != ack_seq:
+        raise AssertionError("ack seq mismatch")
+    if int(data["accepted"], 0) != accepted:
+        raise AssertionError(f"ack accepted={data['accepted']} expected {accepted}")
+    if int(data["rx_result"], 0) != rx_result:
+        raise AssertionError(f"ack rx_result={data['rx_result']} expected {rx_result}")
+    if int(data["rx_frame_result"], 0) != rx_frame_result:
+        raise AssertionError(f"ack rx_frame_result={data['rx_frame_result']} expected {rx_frame_result}")
+    if not data["hex"] or len(data["hex"]) != int(data["frame_size"], 0) * 2:
+        raise AssertionError("ack hex length does not match frame_size")
+
+
 def expect_peer(response: str, *, source: int, hello_seen: int, epoch_seen: int, last_type: int) -> None:
     data = fields_dict(PEER_FIELDS, response)
     if int(data["source_slot"], 0) != source:
@@ -366,8 +455,49 @@ def expect_mirror(response: str, *, source: int, slot: int, slot_seq: int, field
         raise AssertionError("mirror commit/visible count did not advance")
 
 
+def expect_ack_status(response: str,
+                      *,
+                      source: int,
+                      delta_seq: int,
+                      taken_flags: int,
+                      ack_flags: int,
+                      nack_flags: int,
+                      reason: int,
+                      reason_slot: int,
+                      frame_seq: int) -> None:
+    data = fields_dict(ACK_STATUS_FIELDS, response)
+    if int(data["query_source_slot"], 0) != source or int(data["source_slot"], 0) != source:
+        raise AssertionError(f"ack status source mismatch: {response!r}")
+    if int(data["seen"], 0) != 1:
+        raise AssertionError("ack status not seen")
+    if int(data["delta_seq32"], 0) != delta_seq:
+        raise AssertionError(f"ack delta_seq32={data['delta_seq32']} expected {delta_seq}")
+    if int(data["taken_flags"], 0) != taken_flags:
+        raise AssertionError(f"ack taken_flags={data['taken_flags']} expected {taken_flags}")
+    if int(data["ack_flags"], 0) != ack_flags:
+        raise AssertionError(f"ack_flags={data['ack_flags']} expected {ack_flags}")
+    if int(data["nack_flags"], 0) != nack_flags:
+        raise AssertionError(f"nack_flags={data['nack_flags']} expected {nack_flags}")
+    if int(data["last_reason"], 0) != reason:
+        raise AssertionError(f"ack reason={data['last_reason']} expected {reason}")
+    if int(data["last_reason_slot"], 0) != reason_slot:
+        raise AssertionError(f"ack reason_slot={data['last_reason_slot']} expected {reason_slot}")
+    if int(data["last_frame_seq32"], 0) != frame_seq:
+        raise AssertionError(f"ack frame_seq={data['last_frame_seq32']} expected {frame_seq}")
+    if int(data["received_count"], 0) < 1:
+        raise AssertionError("ack received_count did not advance")
+
+
 def quote_hex(hex_text: str) -> str:
     return '"' + hex_text.replace('"', "") + '"'
+
+
+def corrupt_last_payload_byte(hex_text: str) -> str:
+    data = bytearray.fromhex(hex_text)
+    if len(data) <= 36:
+        raise AssertionError("frame too short to corrupt payload")
+    data[-1] ^= 0x55
+    return data.hex().upper()
 
 
 def run_exchange(args: argparse.Namespace,
@@ -585,6 +715,257 @@ def run_exchange(args: argparse.Namespace,
                 execute_b,
                 "SYSTem:REFMEM:SYNC:QUALity?",
                 lambda r: expect_quality(r, local=args.slot_b, epoch=args.epoch, run=args.run, accepted_min=3))
+
+    ack_b = run_checked(records,
+                        "B",
+                        execute_b,
+                        f"SYSTem:REFMEM:SYNC:ACK? {args.slot_b},{mask_a},4",
+                        lambda r: expect_ack_frame(r,
+                                                   source=args.slot_b,
+                                                   target=mask_a,
+                                                   epoch=args.epoch,
+                                                   run=args.run,
+                                                   seq=4,
+                                                   ack_seq=3,
+                                                   accepted=1,
+                                                   rx_result=0,
+                                                   rx_frame_result=0))
+    ack_b_hex = fields_dict(ACK_FRAME_FIELDS, ack_b)["hex"]
+    ack_a = run_checked(records,
+                        "A",
+                        execute_a,
+                        f"SYSTem:REFMEM:SYNC:ACK? {args.slot_a},{mask_b},4",
+                        lambda r: expect_ack_frame(r,
+                                                   source=args.slot_a,
+                                                   target=mask_b,
+                                                   epoch=args.epoch,
+                                                   run=args.run,
+                                                   seq=4,
+                                                   ack_seq=3,
+                                                   accepted=1,
+                                                   rx_result=0,
+                                                   rx_frame_result=0))
+    ack_a_hex = fields_dict(ACK_FRAME_FIELDS, ack_a)["hex"]
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(ack_b_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=ACK_NACK_TYPE,
+                                    source=args.slot_b,
+                                    target=mask_a,
+                                    epoch=args.epoch,
+                                    run=args.run))
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:ACK:STATus? {args.slot_b}",
+                lambda r: expect_ack_status(r,
+                                            source=args.slot_b,
+                                            delta_seq=3,
+                                            taken_flags=mask_b,
+                                            ack_flags=mask_b,
+                                            nack_flags=0,
+                                            reason=0,
+                                            reason_slot=args.slot_b,
+                                            frame_seq=4))
+
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(delta_a_hex)}",
+                lambda r: expect_rx_rejected(r,
+                                             frame_type=DELTA_TYPE,
+                                             source=args.slot_a,
+                                             target=mask_b,
+                                             epoch=args.epoch,
+                                             run=args.run,
+                                             result=6,
+                                             frame_result=0))
+    duplicate_ack = run_checked(records,
+                                "B",
+                                execute_b,
+                                f"SYSTem:REFMEM:SYNC:ACK? {args.slot_b},{mask_a},5",
+                                lambda r: expect_ack_frame(r,
+                                                           source=args.slot_b,
+                                                           target=mask_a,
+                                                           epoch=args.epoch,
+                                                           run=args.run,
+                                                           seq=5,
+                                                           ack_seq=3,
+                                                           accepted=0,
+                                                           rx_result=6,
+                                                           rx_frame_result=0))
+    duplicate_ack_hex = fields_dict(ACK_FRAME_FIELDS, duplicate_ack)["hex"]
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(duplicate_ack_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=ACK_NACK_TYPE,
+                                    source=args.slot_b,
+                                    target=mask_a,
+                                    epoch=args.epoch,
+                                    run=args.run))
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:ACK:STATus? {args.slot_b}",
+                lambda r: expect_ack_status(r,
+                                            source=args.slot_b,
+                                            delta_seq=3,
+                                            taken_flags=mask_b,
+                                            ack_flags=0,
+                                            nack_flags=mask_b,
+                                            reason=6,
+                                            reason_slot=args.slot_b,
+                                            frame_seq=5))
+
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(ack_a_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=ACK_NACK_TYPE,
+                                    source=args.slot_a,
+                                    target=mask_b,
+                                    epoch=args.epoch,
+                                    run=args.run))
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:ACK:STATus? {args.slot_a}",
+                lambda r: expect_ack_status(r,
+                                            source=args.slot_a,
+                                            delta_seq=3,
+                                            taken_flags=mask_a,
+                                            ack_flags=mask_a,
+                                            nack_flags=0,
+                                            reason=0,
+                                            reason_slot=args.slot_a,
+                                            frame_seq=4))
+
+    target_bad = run_checked(records,
+                             "A",
+                             execute_a,
+                             f"SYSTem:REFMEM:SYNC:DELTa? {args.slot_a},{mask_a},5,{args.slot_a},2,1,{args.delta_a + 1},1",
+                             lambda r: expect_frame(r,
+                                                    source=args.slot_a,
+                                                    target=mask_a,
+                                                    epoch=args.epoch,
+                                                    run=args.run))
+    target_bad_hex = fields_dict(HELLO_FIELDS, target_bad)["hex"]
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(target_bad_hex)}",
+                lambda r: expect_rx_rejected(r,
+                                             frame_type=DELTA_TYPE,
+                                             source=args.slot_a,
+                                             target=mask_a,
+                                             epoch=args.epoch,
+                                             run=args.run,
+                                             result=4,
+                                             frame_result=0))
+    target_ack = run_checked(records,
+                             "B",
+                             execute_b,
+                             f"SYSTem:REFMEM:SYNC:ACK? {args.slot_b},{mask_a},6",
+                             lambda r: expect_ack_frame(r,
+                                                        source=args.slot_b,
+                                                        target=mask_a,
+                                                        epoch=args.epoch,
+                                                        run=args.run,
+                                                        seq=6,
+                                                        ack_seq=5,
+                                                        accepted=0,
+                                                        rx_result=4,
+                                                        rx_frame_result=0))
+    target_ack_hex = fields_dict(ACK_FRAME_FIELDS, target_ack)["hex"]
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(target_ack_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=ACK_NACK_TYPE,
+                                    source=args.slot_b,
+                                    target=mask_a,
+                                    epoch=args.epoch,
+                                    run=args.run))
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:ACK:STATus? {args.slot_b}",
+                lambda r: expect_ack_status(r,
+                                            source=args.slot_b,
+                                            delta_seq=5,
+                                            taken_flags=mask_b,
+                                            ack_flags=0,
+                                            nack_flags=mask_b,
+                                            reason=4,
+                                            reason_slot=args.slot_b,
+                                            frame_seq=6))
+
+    crc_bad = run_checked(records,
+                          "A",
+                          execute_a,
+                          f"SYSTem:REFMEM:SYNC:DELTa? {args.slot_a},{mask_b},6,{args.slot_a},3,1,{args.delta_a + 2},1",
+                          lambda r: expect_frame(r,
+                                                 source=args.slot_a,
+                                                 target=mask_b,
+                                                 epoch=args.epoch,
+                                                 run=args.run))
+    crc_bad_hex = corrupt_last_payload_byte(fields_dict(HELLO_FIELDS, crc_bad)["hex"])
+    run_checked(records,
+                "B",
+                execute_b,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(crc_bad_hex)}",
+                lambda r: expect_rx_rejected(r,
+                                             frame_type=DELTA_TYPE,
+                                             source=args.slot_a,
+                                             target=mask_b,
+                                             epoch=args.epoch,
+                                             run=args.run,
+                                             result=2,
+                                             frame_result=9))
+    crc_ack = run_checked(records,
+                          "B",
+                          execute_b,
+                          f"SYSTem:REFMEM:SYNC:ACK? {args.slot_b},{mask_a},7",
+                          lambda r: expect_ack_frame(r,
+                                                     source=args.slot_b,
+                                                     target=mask_a,
+                                                     epoch=args.epoch,
+                                                     run=args.run,
+                                                     seq=7,
+                                                     ack_seq=6,
+                                                     accepted=0,
+                                                     rx_result=2,
+                                                     rx_frame_result=9))
+    crc_ack_hex = fields_dict(ACK_FRAME_FIELDS, crc_ack)["hex"]
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:RX {quote_hex(crc_ack_hex)}",
+                lambda r: expect_rx(r,
+                                    frame_type=ACK_NACK_TYPE,
+                                    source=args.slot_b,
+                                    target=mask_a,
+                                    epoch=args.epoch,
+                                    run=args.run))
+    run_checked(records,
+                "A",
+                execute_a,
+                f"SYSTem:REFMEM:SYNC:ACK:STATus? {args.slot_b}",
+                lambda r: expect_ack_status(r,
+                                            source=args.slot_b,
+                                            delta_seq=6,
+                                            taken_flags=mask_b,
+                                            ack_flags=0,
+                                            nack_flags=mask_b,
+                                            reason=9,
+                                            reason_slot=args.slot_b,
+                                            frame_seq=7))
     return records
 
 
@@ -636,7 +1017,7 @@ def main() -> int:
     out_dir = args.out_dir or (ROOT / "build-rtos-multicore-smoke" /
                                f"refmem_sync_hil_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     write_outputs(out_dir, args, records)
-    passed = all(record.status == "PASS" for record in records) and len(records) == 26
+    passed = all(record.status == "PASS" for record in records) and len(records) == 46
     print(f"summary: passed={passed} records={len(records)} out_dir={out_dir}")
     return 0 if passed else 1
 
