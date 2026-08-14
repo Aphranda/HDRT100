@@ -33,6 +33,26 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | OpenSHMEM / MPI RMA | RMA window、put/get/accumulate 思想、原子操作、origin/target completion、fence/order。 | 用于定义 RefMem slot mirror、delta 同步完成语义和 command slot atomic take/clear；不允许任意远程写裸变量。 |
 | IEC 61499 | 静态 FB instance、事件连接、数据连接、部署一致性。 | 用于 `DistributedApplicationMap` / `DistributedFbInstanceTable` / EventLink / DataLink；不做运行时动态 FB 部署。 |
 
+## 近期执行主线
+
+当前阶段先完善 RefMem 基础件，不继续堆业务节点。业务节点只作为验证载体，不能绕过 RefMem 的 staging、owner、slot contract、command 和 quality 闭环。
+
+| 顺序 | 主线 | 完成判据 |
+|---:|---|---|
+| 1 | NodeLoad staging/activation | `CONFigure:MODEl:TURNtable:LOAD` 不再只改本地变量，而是形成 NodeLoad staging snapshot；可查询、可验证、可拒绝、可激活、可回滚。 |
+| 2 | Command / ACK / NACK 基础件 | SCPI 只 post command，owner take 后 ACK/NACK；启动、停止、配置激活和模型加载都能形成闭环状态。 |
+| 3 | RefMemSlotContract | 每个 slot/字段有唯一 writer、权限、guard、snapshot 策略和 stale 规则；业务 AO 不能直接裸写共享内存。 |
+| 4 | RefMem Sync 最小闭环 | 先用 PIO SPI adapter 完成 `HELLO -> EPOCH -> DELTA -> ACK_NACK -> FENCE -> QUALITY`，协议不绑定 BISS-C。 |
+| 5 | Quality / Evidence | CRC/drop/late/timeout/stale/claim conflict 等进入质量表和 evidence，可由维护接口和报告读取。 |
+| 6 | 业务模型闭环 | 在以上基础上逐个接入 `ModelTurntableAO`、`ModelVnaAO`、`LinkSwitcherAO`、`PulseDistributorAO`、`VnaGatewayAO`。 |
+
+近期不做：
+
+- 不把 `TriggerMasterAO`、`TriggerAO`、`LinkSwitcherAO`、`ModelTurntableAO` 等功能实例重新写死到固定 A slot。
+- 不让 SCPI 直接操作硬件动作；SCPI 只表达配置、动作意图和读取 snapshot。
+- 不把 PIO SPI adapter 当成最终通讯绑定；它只是最小两板验证载体。
+- 不在 RUN 中热改 active profile；所有表修改先进入 staging。
+
 ## P0 - 表镜像与加载闭环
 
 目标：先把当前 `LOAD:SD` / `LOAD:NODE` staging 骨架升级为真正可验证、可回滚的表镜像机制。没有这层，后续动态节点加载、SD 加载和类似 OTA 的 RefMem package 都会缺少统一落点。
@@ -47,6 +67,9 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 将 `SYSTem:REFMEM:LOAD:SD` 从 manifest 占位升级为 `.rmtp` table image parser 首版，校验 header、table directory、payload CRC、package CRC 和每表 CRC；当前仍只写 staging snapshot，不替换 active。
 - [x] 将 `sd_fs_build.py` 集成 RefMem table image 生成，默认输出 `/refmem/app_model.rmtp`、`/refmem/app_model.idx`、`/refmem/app_model.json`，并在根 `/manifest.idx` 中作为 `required=...,type=refmem_table_image` 引用。
 - [ ] 将 `SYSTem:REFMEM:LOAD:NODE` 从单条候选 snapshot 升级为 staging NodeLoadTable image，支持多条候选、CRC、owner validation 和回滚。
+- [ ] 将 `CONFigure:MODEl:TURNtable:LOAD <slot_id>,<output_index>` 映射为 NodeLoad staging 意图：生成或更新 `Template.ModelTurntableAO` 的候选装载记录，并记录 staging seq、slot、resource/io/ip claim 和拒绝原因。
+- [ ] 增加 NodeLoad staging activation 命令或复用现有 config activation：activation 前必须完成 table CRC、instance range、SlotClaimMap、RealtimeCapabilityContract、DeploymentGate 和 command ACK 检查。
+- [ ] 增加 NodeLoad rollback/abort 语义：未激活 staging 可 abort；激活失败必须保留旧 active profile，并在 TableRegistry 中记录失败 evidence。
 - [x] 增加类似 OTA 的通用 StorageSCPI 文件分块加载：`SYSTem:STORage:FILE:WRITe:BEGIN/DATA/END/ABORt/STATus?`，可写入 `/refmem/app_model.rmtp`；写入后仍需 `SYSTem:REFMEM:LOAD:SD` 进入 RefMem staging。
 - [x] 为 StorageAO 文件/目录补齐 CRUD 维护入口：`FILE:INFO?/READ?/DELete/REName`、`DIRectory:CREate/DELete/REName/CATalog?`；SCPI 不直接调用 FatFs，RefMem 向量表不承载文件数据。
 - [x] 增加 `SYSTem:REFMEM:TABle? [table_id]` 维护查询，观察 registry、active/staging CRC、validation state 和 evidence；保持在 `SYSTem:REFMEM:*` 命名空间内。
@@ -73,6 +96,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 将默认功能 AO 收敛为模板语义：`PulseCounterAO`、`TriggerMasterAO`、`TriggerAO`、`LinkSwitcherAO`、`InstrumentControllerAO`、`ModelVnaAO` 和 `ModelTurntableAO` 不作为默认固定 active 业务角色运行。
 - [ ] 增加动态装载验证：同一个 `Template.LinkSwitcherAO` 候选可以装载到任意满足 PIO/DMA/core1_rt/link_control 和事件/数据连接约束的 A0-A7 slot；不得因默认标签强制绑定 slot A2。
 - [ ] 将可加载实例的 SCPI 运行时状态升级为 RefMem NodeLoad staging/activation：LOAD 只写 staging，activation 通过 SlotClaimMap、RealtimeCapabilityContract 和 DeploymentGate 后才进入 active。
+- [ ] 增加 `Template.ModelTurntableAO` 动态装载验证：同一固件可把模拟转台候选加载到任意满足 `MODEL_TURNTABLE_PULSE + PULSE_FIRE + PIO/DMA/core1_rt` 的 A slot，不依赖 slot 1。
 
 ## P2 - RealtimeCapabilityContract 与 RefMemSlotContract
 
@@ -80,7 +104,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 - [x] 在静态 `refmem_fb_instance_entry_t` 中增加 `ip_core_claim`，首版覆盖 pulse capture/fire、link sequence、BISS-C codec、RJ45 sync delta 和 VDC/DPLL。
 - [x] 在静态模型 linter 中把 `ip_core_claim` 映射为 capability gate，确保类 IP 核不会被当成普通 GPIO。
-- [x] 将默认 profile 中的 `B2.LinkSwitcherAO` 声明为 `CORE1_RT + PIO + DMA + LINK_CONTROL`，并补齐 FIRE_LOAD、DONE、FAULT、link timestamp、link sequence state 等事件/数据连接。
+- [x] 将 `Template.LinkSwitcherAO` 声明为 `CORE1_RT + PIO + DMA + LINK_CONTROL`，并补齐 FIRE_LOAD、DONE、FAULT、link timestamp、link sequence state 等事件/数据连接。
 - [x] 将 BISS-C 节点声明为 `BISS_C_CODEC` 类 IP 核，要求 PIO、DMA、core1_rt 和 BISS-C IO。
 - [x] 定义 `RealtimeCapabilityContract` 首版派生规则：从 NodeLoad、FbInstance、GenericNode 和 BoardCapability 生成实例级资源/IO/类 IP 核能力契约；当前 SlotClaimMap 未落地，先用 `active_default_slot` 建立 B 节点到 A slot 的临时关联。
 - [x] 新增 `refmem_realtime_contract.h/.c`，提供资源/IO/类 IP 核 claim 到 capability 的映射，以及 `refmem_realtime_contract_derive()` 首版。
@@ -92,6 +116,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 增加链路控制节点 HIL/板端验证：加载 link-control 候选后确认 `FIRE_LOAD` 可投递到 core1 owner，脉冲捕获和链路序列状态可通过 RefMem snapshot 读取。
 - [ ] 定义 `RefMemSlotContract` 派生规则：从 DataLinkTable、Header/Directory、SlotGuard、DeploymentGate 和 QualityTable 生成字段级只读 contract。
 - [ ] 新增 `refmem_slot_contract.h/.c`，只提供 `derive_contract`、`validate_write`、`validate_snapshot`、`validate_subscription` 等 RefMemAO 内部 helper。
+- [ ] 为 `ModelTurntableAO` 定义首个字段级 contract：loaded/enabled/running、slot_id、output_index、pulse_count、last_tick、motion_phase、error_code、quality_ref。
 - [ ] 明确 AO/FB 对外入口命名：业务 owner 调用 `DistributedRefMemAO` 的 publish/snapshot/subscription API；`SlotContract` 不作为业务 API 暴露。
 - [ ] 在 linter 中检查 contract：地址不越界、字段宽度匹配、类型和值域一致、writer 唯一、version/timestamp/error 引用有效。
 - [ ] 为全部字段增加统一 guard 或等价兼容结构。
@@ -107,6 +132,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 文档定义 `command_seq`、`source_node`、`target_mask`、`required_mask`、`command_type`、`payload_ref`、`payload_crc32`、`issue_epoch/run_id`、`timeout_us`。
 - [x] 文档定义 ACK/NACK/busy/timeout 位图、last NACK reason、last NACK node、reason table CRC 和 evidence index。
 - [ ] 新增 `refmem_command.h/.c`，实现 `try_post`、`try_take`、`ack`、`nack`、`clear`。
+- [ ] 增加 command slot 最小单元测试：重复 post、空闲 take、非目标 take、ACK/NACK 位图、timeout 标记、clear seq 防误清。
+- [ ] 将模型加载动作接入 command slot：`CONFigure:MODEl:*:LOAD` 接口层 accepted 后只 post `CONFIG_STAGE` 或 `NODE_LOAD_STAGE`，由 RefMem owner 完成 staging 并 ACK/NACK。
 - [ ] 将现有 `system_manager` 配置 ACK 迁移或映射到 RefMem AckCommandSlot snapshot。
 - [ ] 扩展 NACK reason 表，补齐 resource busy、RUN denied、payload CRC、epoch mismatch、dup seq、timeout、permission denied。
 - [ ] 定义 completion 语义：`local_posted`、`target_taken`、`target_acked`、`all_required_acked`、`durable_committed`。
@@ -130,6 +157,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 定义原子远端更新白名单：仅允许 command flag、seq/heartbeat、quality counter、dirty bitmap 等小字段使用 atomic update。
 - [ ] 定义 RMA-style fence：一批 delta 在 `SYNC_EPOCH` 或 `RUN_GATE_CHECK` 前必须完成校验和可见性切换。
 - [ ] 将节点新鲜度纳入 `SYNC:CHECk`、`READ:SYNC:*?` 和 TRIG RUN 门禁。
+- [ ] 明确 RefMem Sync 与 VDC 的边界：RefMem Sync 负责事实复制、completion、fence 和 quality；VDC 负责 offset/rate、DPLL、holdover 和 DC 时间发布。RefMem frame 只携带紧凑时间戳引用或必要采样点，不运行 DPLL。
 
 ## P4.5 - 最小系统板 PIO SPI Adapter Bring-up
 
@@ -151,14 +179,15 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 ## P4.6 - 最小模型系统 GPIO4..7 Overlay
 
-目标：在两块最小系统板上用 `GPIO4..7` 搭建一个可运行的业务模型闭环，验证“模拟转台 -> 脉冲分发/VDC -> 链路控制 -> VNA 网关 -> 虚拟网分 READY”的分布式事件流。该 overlay 不替代 RefMem Sync transport adapter，也不写入产品板 pin map。
+目标：在两块最小系统板上用 `GPIO4..7` 搭建一个可运行的业务模型闭环，验证“模拟转台 -> 脉冲分发/VDC -> 链路控制 -> VNA 网关 -> 虚拟网分 READY”的分布式事件流。该 overlay 不替代 RefMem Sync transport adapter，也不写入产品板 pin map；表中的 A1-A5 只是当前测试装载选择，不能成为默认固化绑定。
 
-- [x] 记录当前 overlay 槽位分配：X 板 `A1` 模拟转台、`A2` 模拟网分、`A3` 链路控制；Y 板向后挪为 `A4` 脉冲分发、`A5` VNA 网关。
+- [x] 记录当前 overlay 测试装载选择：X 板 `A1` 模拟转台、`A2` 模拟网分、`A3` 链路控制；Y 板向后挪为 `A4` 脉冲分发、`A5` VNA 网关。
 - [x] 记录当前 GPIO4..7 方向：`GPIO4` X->Y 位置脉冲，`GPIO5` X->Y READY，`GPIO6` Y->X TRIG，`GPIO7` X->Y LINK_SWITCH。
 - [x] 固化最小系统 UART 不启用约束：`GPIO4/5` 可作为 overlay PIO 线使用，默认 `PROJECT_ENABLE_UART_STDIO=OFF` 时不得初始化 UART1。
 - [x] 新增 debug model board profile 或等价配置表，显式声明 GPIO4..7 overlay 与 UART1 互斥。
 - [x] 增加首个可加载模型实例 `ModelTurntableAO`：默认未加载，必须通过 `CONFigure:MODEl:TURNtable:LOAD <slot_id>,<output_index>` 显式选择运行槽位和输出索引。
 - [ ] 将 overlay 模型实例纳入 `DistributedNodeLoadTable` / System Pack staging，而不是写成固定默认表：turntable simulator、virtual VNA、link control、pulse distributor、VNA gateway 均应可加载到任意满足能力约束的 A0-A7 slot。
+- [ ] 将 `ModelTurntableAO` 当前 debug 输出从 SIO 迁移到 PIO/DMA/core1 预约输出，至少提供 feature flag 或 fallback，避免产品路径依赖维护接口。
 - [ ] 为 overlay 定义 `RealtimeCapabilityContract`：每个实例的 GPIO owner、PIO/IRQ/DMA/core1 需求、time budget 和 fallback policy。
 - [x] 增加线序/方向安全脚本：运行前 release 双方 GPIO4..7，只逐根拉高输出 owner，确认对端输入和非 owner 不驱动。
 - [x] 完成 COM3/COM4 双板 overlay 方向 HIL：build `20260814104920`，package CRC `0x2DF62B6E`，`GPIO4/5/7` X->Y、`GPIO6` Y->X 均验证通过。
@@ -169,6 +198,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 目标：将当前 `distributed_refmem.c` 的兼容壳逐步拆成可维护的 RefMem Domain 组件。
 
+- [ ] 新增 `components/distributed_refmem/README.md`，说明 RefMem Domain 组件边界、owner、SCPI 入口、测试入口和与 VDC/TRIG/CAL/SYSTEM 的关系。
 - [ ] 增加 `components/distributed_refmem/CMakeLists.txt`。
 - [ ] 新增 `components/distributed_refmem/inc/refmem_domain.h` 和 `src/refmem_domain.c`。
 - [x] 新增 `refmem_vector_table.h/.c`。
@@ -201,6 +231,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 - [ ] 文档检查：`python tools/docs_check/docs_check.py`。
 - [ ] 构建验证：`cmake --build build-rtos-multicore-smoke`。
+- [ ] 新增 RefMem 基础件 smoke 验证脚本：顺序查询 build、claim、table、NodeLoad staging、command ACK、slot contract summary，脚本必须打开一次串口并在退出时关闭。
 - [ ] 板端记录 `SYSTem:REFMEM:STATus?`、`SYSTem:REFMEM:NODE?`、`SYSTem:REFMEM:LOAD:STATus?`。
 - [ ] 板端验证 `SYSTem:REFMEM:LOAD:NODE` 合法候选 staged、非法 node/instance rejected。
 - [ ] 板端验证 `SYSTem:REFMEM:LOAD:SD` 在无 SD、manifest 缺失、manifest OK 三种路径下返回固定 snapshot 且不改 active。
@@ -216,6 +247,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 增加两块最小系统板组网 HIL 验证：确认 `CLAIM_HELLO/PROPOSE/CONFLICT/RESOLVE/COMMIT`、slot 冲突拒绝或协调、RefMem snapshot 一致性和串口生命周期管理。
 - [ ] 增加 SlotContract 验证：非法 writer、越界字段、stale snapshot、seqlock 重读。
 - [ ] 增加 RMA-style atomic 验证：重复 post、并发 take、payload CRC mismatch、fence 前读取不可见。
+- [ ] 增加 `ModelTurntableAO` RefMem 化验证：LOAD staging、activation、start command、pulse snapshot、stop command、quality/evidence 全链路闭环。
 - [x] 增加 RefMem Sync frame 纯 C 单元测试入口：`tools/tests/run_refmem_sync_frame_tests.ps1`，覆盖 HELLO encode/decode、payload CRC、header CRC、bad magic、bad type、bad source slot、oversize payload 和短帧。
 - [x] 增加 RefMem Sync 接收状态机纯 C 单元测试入口：`tools/tests/run_refmem_sync_tests.ps1`，覆盖 HELLO/EPOCH 接收、target mismatch、epoch mismatch、duplicate/stale/drop 计数和 payload CRC 错误归因。
 - [x] 增加 RealtimeCapabilityContract 纯 C 单元测试入口：`tools/tests/run_refmem_realtime_contract_tests.ps1`，覆盖 PIO SPI transport 到 resource/io/ip_core claim 的映射，以及缺少 DMA 或 adapter IP 时拒绝。
