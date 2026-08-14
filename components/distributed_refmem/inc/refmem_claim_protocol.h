@@ -83,6 +83,36 @@ typedef struct {
     refmem_claim_commit_payload_t commit;
 } refmem_claim_commit_frame_t;
 
+typedef struct {
+    uint32_t candidate_id;
+    uint32_t slot_id;
+    uint32_t board_id;
+    uint32_t board_uuid_crc32;
+    uint32_t assigned_slot_id;
+    uint32_t claim_state;
+    uint32_t reason;
+    uint32_t evidence_id;
+    uint32_t claim_crc32;
+} refmem_claim_resolution_entry_t;
+
+typedef struct {
+    refmem_claim_frame_header_t header;
+    refmem_claim_resolution_entry_t entry[REFMEM_CLAIM_FRAME_PROPOSAL_MAX];
+} refmem_claim_resolution_frame_t;
+
+typedef struct {
+    uint32_t slot_id;
+    uint32_t board_id;
+    uint32_t board_uuid_crc32;
+    uint32_t release_seq;
+    uint32_t claim_crc32;
+} refmem_claim_release_payload_t;
+
+typedef struct {
+    refmem_claim_frame_header_t header;
+    refmem_claim_release_payload_t release;
+} refmem_claim_release_frame_t;
+
 bool refmem_claim_propose_frame_init(
     refmem_claim_propose_frame_t *frame,
     uint32_t claim_epoch,
@@ -109,5 +139,34 @@ bool refmem_claim_commit_frame_init(
     const refmem_claim_commit_payload_t *commit);
 refmem_claim_frame_result_t refmem_claim_commit_frame_validate(
     const refmem_claim_commit_frame_t *frame);
+bool refmem_claim_conflict_frame_init(
+    refmem_claim_resolution_frame_t *frame,
+    uint32_t claim_epoch,
+    uint32_t claim_seq,
+    uint32_t source_board_id,
+    uint32_t source_board_uuid_crc32,
+    const refmem_claim_resolution_entry_t *entry,
+    uint32_t entry_count);
+refmem_claim_frame_result_t refmem_claim_conflict_frame_validate(
+    const refmem_claim_resolution_frame_t *frame);
+bool refmem_claim_resolve_frame_init(
+    refmem_claim_resolution_frame_t *frame,
+    uint32_t claim_epoch,
+    uint32_t claim_seq,
+    uint32_t source_board_id,
+    uint32_t source_board_uuid_crc32,
+    const refmem_claim_resolution_entry_t *entry,
+    uint32_t entry_count);
+refmem_claim_frame_result_t refmem_claim_resolve_frame_validate(
+    const refmem_claim_resolution_frame_t *frame);
+bool refmem_claim_release_frame_init(
+    refmem_claim_release_frame_t *frame,
+    uint32_t claim_epoch,
+    uint32_t claim_seq,
+    uint32_t source_board_id,
+    uint32_t source_board_uuid_crc32,
+    const refmem_claim_release_payload_t *release);
+refmem_claim_frame_result_t refmem_claim_release_frame_validate(
+    const refmem_claim_release_frame_t *frame);
 
 #endif

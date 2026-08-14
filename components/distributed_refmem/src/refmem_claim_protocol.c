@@ -230,3 +230,150 @@ refmem_claim_frame_result_t refmem_claim_commit_frame_validate(
                                         1u,
                                         payload_crc32);
 }
+
+static bool refmem_claim_resolution_frame_init(
+    refmem_claim_resolution_frame_t *frame,
+    uint32_t frame_type,
+    uint32_t claim_epoch,
+    uint32_t claim_seq,
+    uint32_t source_board_id,
+    uint32_t source_board_uuid_crc32,
+    const refmem_claim_resolution_entry_t *entry,
+    uint32_t entry_count)
+{
+    if (frame == NULL ||
+        entry_count > REFMEM_CLAIM_FRAME_PROPOSAL_MAX ||
+        (entry_count != 0u && entry == NULL)) {
+        return false;
+    }
+
+    memset(frame, 0, sizeof(*frame));
+    if (entry_count != 0u) {
+        memcpy(frame->entry, entry, entry_count * sizeof(frame->entry[0]));
+    }
+    const uint32_t payload_crc32 =
+        refmem_claim_raw_payload_crc32(frame->entry,
+                                       entry_count * sizeof(frame->entry[0]),
+                                       entry_count);
+    refmem_claim_header_init(&frame->header,
+                             frame_type,
+                             claim_epoch,
+                             claim_seq,
+                             source_board_id,
+                             source_board_uuid_crc32,
+                             entry_count,
+                             payload_crc32);
+    return true;
+}
+
+static refmem_claim_frame_result_t refmem_claim_resolution_frame_validate(
+    const refmem_claim_resolution_frame_t *frame,
+    uint32_t expected_type)
+{
+    if (frame == NULL) {
+        return REFMEM_CLAIM_FRAME_BAD_ARGUMENT;
+    }
+    if (frame->header.payload_count > REFMEM_CLAIM_FRAME_PROPOSAL_MAX) {
+        return REFMEM_CLAIM_FRAME_BAD_COUNT;
+    }
+    const uint32_t payload_crc32 =
+        refmem_claim_raw_payload_crc32(frame->entry,
+                                       frame->header.payload_count *
+                                           sizeof(frame->entry[0]),
+                                       frame->header.payload_count);
+    return refmem_claim_header_validate(&frame->header,
+                                        expected_type,
+                                        frame->header.payload_count,
+                                        payload_crc32);
+}
+
+bool refmem_claim_conflict_frame_init(
+    refmem_claim_resolution_frame_t *frame,
+    uint32_t claim_epoch,
+    uint32_t claim_seq,
+    uint32_t source_board_id,
+    uint32_t source_board_uuid_crc32,
+    const refmem_claim_resolution_entry_t *entry,
+    uint32_t entry_count)
+{
+    return refmem_claim_resolution_frame_init(frame,
+                                             REFMEM_CLAIM_FRAME_CONFLICT,
+                                             claim_epoch,
+                                             claim_seq,
+                                             source_board_id,
+                                             source_board_uuid_crc32,
+                                             entry,
+                                             entry_count);
+}
+
+refmem_claim_frame_result_t refmem_claim_conflict_frame_validate(
+    const refmem_claim_resolution_frame_t *frame)
+{
+    return refmem_claim_resolution_frame_validate(frame, REFMEM_CLAIM_FRAME_CONFLICT);
+}
+
+bool refmem_claim_resolve_frame_init(
+    refmem_claim_resolution_frame_t *frame,
+    uint32_t claim_epoch,
+    uint32_t claim_seq,
+    uint32_t source_board_id,
+    uint32_t source_board_uuid_crc32,
+    const refmem_claim_resolution_entry_t *entry,
+    uint32_t entry_count)
+{
+    return refmem_claim_resolution_frame_init(frame,
+                                             REFMEM_CLAIM_FRAME_RESOLVE,
+                                             claim_epoch,
+                                             claim_seq,
+                                             source_board_id,
+                                             source_board_uuid_crc32,
+                                             entry,
+                                             entry_count);
+}
+
+refmem_claim_frame_result_t refmem_claim_resolve_frame_validate(
+    const refmem_claim_resolution_frame_t *frame)
+{
+    return refmem_claim_resolution_frame_validate(frame, REFMEM_CLAIM_FRAME_RESOLVE);
+}
+
+bool refmem_claim_release_frame_init(
+    refmem_claim_release_frame_t *frame,
+    uint32_t claim_epoch,
+    uint32_t claim_seq,
+    uint32_t source_board_id,
+    uint32_t source_board_uuid_crc32,
+    const refmem_claim_release_payload_t *release)
+{
+    if (frame == NULL || release == NULL) {
+        return false;
+    }
+
+    memset(frame, 0, sizeof(*frame));
+    frame->release = *release;
+    const uint32_t payload_crc32 =
+        refmem_claim_raw_payload_crc32(&frame->release, sizeof(frame->release), 1u);
+    refmem_claim_header_init(&frame->header,
+                             REFMEM_CLAIM_FRAME_RELEASE,
+                             claim_epoch,
+                             claim_seq,
+                             source_board_id,
+                             source_board_uuid_crc32,
+                             1u,
+                             payload_crc32);
+    return true;
+}
+
+refmem_claim_frame_result_t refmem_claim_release_frame_validate(
+    const refmem_claim_release_frame_t *frame)
+{
+    if (frame == NULL) {
+        return REFMEM_CLAIM_FRAME_BAD_ARGUMENT;
+    }
+    const uint32_t payload_crc32 =
+        refmem_claim_raw_payload_crc32(&frame->release, sizeof(frame->release), 1u);
+    return refmem_claim_header_validate(&frame->header,
+                                        REFMEM_CLAIM_FRAME_RELEASE,
+                                        1u,
+                                        payload_crc32);
+}

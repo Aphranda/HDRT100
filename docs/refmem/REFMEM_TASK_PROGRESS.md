@@ -52,6 +52,35 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-035 - CLAIM_CONFLICT / RELEASE / RESOLVE 帧
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 补齐 SlotClaim 自组网协调消息族的静态帧定义。
+  - 保持当前阶段仍为协议基础件，不接运行时 RJ45 收发。
+- 完成内容：
+  - `refmem_claim_protocol.h/.c` 增加 `refmem_claim_resolution_entry_t` 与 `refmem_claim_resolution_frame_t`。
+  - `CLAIM_CONFLICT` 和 `CLAIM_RESOLVE` 共享 resolution entry 数组，覆盖 candidate、slot、board、assigned slot、claim_state、reason、evidence_id 和 claim_crc。
+  - 增加 `refmem_claim_release_payload_t` 与 `refmem_claim_release_frame_t`，覆盖 slot、board、release_seq 和 claim_crc。
+  - 增加 conflict/release/resolve 的 init/validate API。
+  - SlotClaim 单元测试覆盖 payload CRC mutation、wrong frame type 和 bad payload count。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1` 通过；当前机器无 host C 编译器，结果为 ARM GCC 编译检查通过，未执行主机 exe。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `python -m pytest` 通过，18 passed、1 skipped；HIL 串口测试未启用。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0x9623ECA9`。
+- 还需完成：
+  - 接入 RJ45_SYNC_RING 收发、epoch stale 检查、SlotClaimMap 聚合与 commit。
+  - 将两板 baseline 工具升级为真实 `CLAIM_*` 组网验证。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_claim_protocol.h`
+  - `components/distributed_refmem/src/refmem_claim_protocol.c`
+  - `tests/unit/test_refmem_slot_claim.c`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 定义 RefMem claim RX/TX staging queue 或 adapter，使协议帧能进入 RefMemAO 聚合，但仍不直接修改 active fact。
+
 ### REFMEM-TASK-20260814-034 - CLAIM_HELLO 与 CLAIM_COMMIT 帧
 
 - 状态：完成

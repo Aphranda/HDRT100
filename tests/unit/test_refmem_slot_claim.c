@@ -340,6 +340,87 @@ static int test_claim_hello_and_commit_frames(void)
     return failed;
 }
 
+static int test_claim_conflict_release_resolve_frames(void)
+{
+    int failed = 0;
+    refmem_claim_resolution_entry_t entries[2];
+    refmem_claim_resolution_frame_t resolution_frame;
+    refmem_claim_release_payload_t release;
+    refmem_claim_release_frame_t release_frame;
+
+    (void)memset(entries, 0, sizeof(entries));
+    entries[0].candidate_id = 0u;
+    entries[0].slot_id = 0u;
+    entries[0].board_id = 1u;
+    entries[0].board_uuid_crc32 = 0xB0000001u;
+    entries[0].assigned_slot_id = 5u;
+    entries[0].claim_state = REFMEM_SLOT_CLAIM_CONFLICT;
+    entries[0].reason = REFMEM_SLOT_CLAIM_REASON_DUPLICATE_SLOT;
+    entries[0].evidence_id = 0u;
+    entries[0].claim_crc32 = 0x11111111u;
+    entries[1] = entries[0];
+    entries[1].candidate_id = 1u;
+    entries[1].slot_id = 2u;
+    entries[1].assigned_slot_id = 6u;
+    entries[1].evidence_id = 1u;
+
+    failed += expect_bool("claim conflict init",
+                          refmem_claim_conflict_frame_init(&resolution_frame,
+                                                           4u,
+                                                           20u,
+                                                           0u,
+                                                           0xB0000000u,
+                                                           entries,
+                                                           2u),
+                          true);
+    failed += expect_u32("claim conflict validate",
+                         (uint32_t)refmem_claim_conflict_frame_validate(&resolution_frame),
+                         REFMEM_CLAIM_FRAME_OK);
+    resolution_frame.entry[1].assigned_slot_id = 7u;
+    failed += expect_u32("claim conflict payload crc detects mutation",
+                         (uint32_t)refmem_claim_conflict_frame_validate(&resolution_frame),
+                         REFMEM_CLAIM_FRAME_BAD_PAYLOAD_CRC);
+
+    failed += expect_bool("claim resolve init",
+                          refmem_claim_resolve_frame_init(&resolution_frame,
+                                                          4u,
+                                                          21u,
+                                                          0u,
+                                                          0xB0000000u,
+                                                          entries,
+                                                          2u),
+                          true);
+    failed += expect_u32("claim resolve validate",
+                         (uint32_t)refmem_claim_resolve_frame_validate(&resolution_frame),
+                         REFMEM_CLAIM_FRAME_OK);
+    failed += expect_u32("claim resolve rejects conflict validator",
+                         (uint32_t)refmem_claim_conflict_frame_validate(&resolution_frame),
+                         REFMEM_CLAIM_FRAME_BAD_TYPE);
+
+    (void)memset(&release, 0, sizeof(release));
+    release.slot_id = 6u;
+    release.board_id = 1u;
+    release.board_uuid_crc32 = 0xB0000001u;
+    release.release_seq = 22u;
+    release.claim_crc32 = 0x22222222u;
+    failed += expect_bool("claim release init",
+                          refmem_claim_release_frame_init(&release_frame,
+                                                          4u,
+                                                          22u,
+                                                          1u,
+                                                          0xB0000001u,
+                                                          &release),
+                          true);
+    failed += expect_u32("claim release validate",
+                         (uint32_t)refmem_claim_release_frame_validate(&release_frame),
+                         REFMEM_CLAIM_FRAME_OK);
+    release_frame.header.payload_count = 2u;
+    failed += expect_u32("claim release rejects bad count",
+                         (uint32_t)refmem_claim_release_frame_validate(&release_frame),
+                         REFMEM_CLAIM_FRAME_BAD_COUNT);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -350,6 +431,7 @@ int main(void)
     failed += test_candidate_overflow_blocks_gate();
     failed += test_claim_propose_frame_crc_validation();
     failed += test_claim_hello_and_commit_frames();
+    failed += test_claim_conflict_release_resolve_frames();
 
     if (failed != 0) {
         (void)printf("refmem_slot_claim tests failed: %d\n", failed);
