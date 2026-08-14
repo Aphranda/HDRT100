@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Virtual Distributed Clock / VDC 内部主域。VDC Domain 不是对外 SCPI 主域，也不是 `SYNC_IO` 的一个普通算法函数，而是整个分布式硬实时系统的核心基础件，负责让多节点形成同一条可验证、可门禁、可报告的共同时间轴。
 
@@ -117,6 +117,114 @@ VDC Domain 的参考对象聚焦在“共同时间”和“同步质量”，和
 | `VdcErrorBudget` | 定义 offset、RMS、peak、jitter、skew、delay、dispersion、holdover drift bound。 | Chrony tracking/sourcestats、PTP summary statistics。 |
 | `VdcDcSyncPipeline` | 定义 delay 校准、initial sync、drift compensation、sync output/input timestamp 闭环。 | SOEM / EtherCAT DC `configdc`、sync0 cycle/shift、propagation delay 思想。 |
 | `VdcHoldoverModel` | 定义进入、维持、失效和 relock 的 aging 规则。 | Chrony root dispersion / max clock error、PTP servo reset 思想。 |
+
+### TDMA + DPLL 融合控制模型
+
+VDC 不是在 TDMA 和 DPLL 之间二选一。产品化架构应采用“TDMA 提供确定性观测骨架，DPLL 形成共同时间估计”的融合模型：
+
+```text
+TDMA deterministic observation window
+  -> PIO/DMA timestamp capture
+  -> VdcSyncAO sample validation
+  -> SyncDpllFB offset/rate estimator
+  -> VdcClockModel / VdcVector snapshot
+  -> core1 realtime phase pull / FIRE_LOAD timing
+```
+
+三层控制环的职责如下：
+
+| 控制环 | 执行者 | 时间尺度 | 主要输入 | 主要输出 | 不允许做的事 |
+|---|---|---:|---|---|---|
+| TDMA 硬实时环 | PIO / DMA / core1 realtime | us 级窗口，ns 级 timestamp | active TDMA schedule、reference edge、local tick | capture timestamp、sync frame、FIRE_LOAD edge | 计算 DPLL、访问 SCPI/SD/USB、修改 offset/rate |
+| DPLL 锁相环 | `VdcSyncAO / SyncDpllFB` | ms 级 service tick | validated timestamp sample、active calibration delay、profile | offset/rate、phase error、lock state、quality | 直接驱动 PIO 输出、绕过 RefMem/Vector 写其他域事实 |
+| 低频驯服环 | `HoldoverFB / VdcQualityGateFB` | s 级窗口 | rate history、temperature/aging evidence、holdover age | drift bound、dispersion、servo profile evidence、persistent compensation candidate | 在 RUN 热写 flash、改变实时 tick source、直接修正 local_tick |
+
+该模型的关键点是：TDMA 只保证 DPLL 观测样本的确定性和低干扰，不等于共同时间已经锁定；DPLL 只修改 VDC 的 `offset/rate/quality`，不直接发硬实时边沿；core1/PIO 只消费稳定 VDC snapshot 进行相位牵引或预测输出。
+
+#### TDMA Observation Window
+
+TDMA schedule 必须给 VDC 保留固定同步观测窗口。该窗口用于发送/接收 reference sync frame、采集硬件 timestamp 和形成 DPLL sample，不能被普通数据帧、维护帧或 report payload 抢占。
+
+| 字段 | 含义 |
+|---|---|
+| `tdma_epoch` | 当前 TDMA 周期或 schedule epoch。 |
+| `tdma_period_ns` | 标称 TDMA 周期，例如 1 ms；实际数值来自 active profile。 |
+| `sync_window_offset_ns` | 同步窗口相对周期起点的偏移。 |
+| `sync_window_width_ns` | 同步窗口宽度。 |
+| `guard_before_ns / guard_after_ns` | 同步窗口前后保护时间。 |
+| `reference_slot_id` | 当前 reference node / slot，首版可固定 A0。 |
+| `schedule_crc32` | TDMA schedule profile 摘要。 |
+| `schedule_version` | schedule layout/version，用于跨节点一致性。 |
+
+规则：
+
+- 同步窗口只承载 reference edge、timestamp capture 和必要的同步帧摘要。
+- 普通 RefMem delta、维护数据、日志、SD/OTA payload 不能进入同步观测窗口。
+- TDMA schedule 更新只能走 VDC/System Pack staging 和 activation，不得在 RUN 中热改窗口位置。
+- `schedule_crc32` 必须进入 VDC profile CRC 和 RefMem version bundle；不一致时拒绝 LOCK。
+
+#### DPLL Servo And DCO Contract
+
+DPLL 的输出不是直接修改本地硬件 timer，而是更新 VDC clock model 的受控参数。core1 读取该 snapshot，把未来 `vdc_time` 映射到 `local_fire_tick`，通过小步 slew 或 phase pull 消化相位误差。
+
+VDC clock model 需要同时表达标称周期和修正量：
+
+| 字段 | 含义 |
+|---|---|
+| `base_epoch_id` / `run_id` | 时间上下文，防止旧样本进入新 RUN。 |
+| `base_local_tick64` | 当前模型锚点的本地 tick。 |
+| `base_vdc_time64_ns` | 当前模型锚点对应的 VDC 时间。 |
+| `nominal_period_ns` | TDMA/VDC 标称周期。 |
+| `period_adjust_ppb` 或 `rate_q32` | DPLL 输出的频率修正。 |
+| `phase_offset_ns` | DPLL 输出的相位偏移。 |
+| `slew_limit_ppb` | 每周期允许的最大平滑牵引量。 |
+| `dco_update_seq` | DCO 参数提交序号。 |
+| `tdma_schedule_crc32` | 使用中的 TDMA schedule 摘要。 |
+| `servo_profile_crc32` | 使用中的 DPLL profile 摘要。 |
+
+规则：
+
+- `base_local_tick64` 是观测事实，不能被 DPLL 改写。
+- `period_adjust_ppb/rate_q32` 和 `phase_offset_ns` 的唯一 writer 是 `SyncDpllFB` 的 commit。
+- core1 读取 DCO snapshot 必须使用 seqlock、双缓冲或等价 guard，避免半新半旧参数。
+- DPLL 可使用 step/slew 策略，但 RUN 中默认只允许 slew；超过 step/sanity limit 应进入 `RELOCKING` 或 `FAULT`。
+- 参考实现中的固定地址、固定 1 ms、固定 ±50 ppm、固定 KP/KI/KD 都只能作为调试 profile 初值，不能写死为架构常量。
+
+#### Low Frequency Discipline
+
+低频驯服环用于长期稳定性和 HOLDOVER 误差预算，不直接参与每个同步周期的硬实时输出。
+
+| 输出 | 用途 |
+|---|---|
+| `aging_compensation_ppb` | 老化补偿候选值，允许在维护窗口持久化。 |
+| `temperature_compensation_ppb` | 温度补偿输入，来自传感器或 profile 表。 |
+| `wander_ppb` | 长期频率漂移估计。 |
+| `holdover_drift_bound_ns_s` | HOLDOVER 期间误差增长上界。 |
+| `discipline_window_s` | 低频统计窗口。 |
+| `persistent_profile_seq` | 持久化补偿 profile 序号。 |
+
+规则：
+
+- 低频补偿只能更新 staging compensation 或下一轮 servo profile，不得在 RUN 中直接写 flash。
+- HOLDOVER 时冻结最后可信 offset/rate，并按 `holdover_drift_bound_ns_s` 增长 `dispersion_ns`。
+- RELOCK 只能恢复 VDC `LOCKED`，不自动恢复 TRIG RUN。
+- 长期指标如 Allan deviation、稳态 RMS、温漂补偿效果必须作为验证目标和报告字段，不作为未经实测的产品保证。
+
+#### Fused State Machine
+
+TDMA/DPLL 融合后，VDC 状态机需要区分“TDMA schedule 可用”和“VDC 已锁定”：
+
+| 状态 | 触发条件 | TDMA 行为 | DPLL 行为 | 输出语义 |
+|---|---|---|---|---|
+| `OFF` | VDC 未启用 | 释放同步资源 | 停止 | 不发布有效共同时间。 |
+| `CHECKING` | `SYNC:CHECk` 或 profile activation 后 | 检查 schedule/profile/cal CRC | 清空或准备 servo | 只能发布检查状态。 |
+| `INITIAL_SYNC` | reference、cal、timestamp dictionary 通过 | 建立同步窗口并采样 | 允许 step 或粗 offset 初始化 | 粗同步，不允许正式 RUN。 |
+| `FREQ_LOCK` | initial sync 样本连续有效 | TDMA 正常发/收同步帧 | 频率快速拉入，积分可限幅或关闭 | 频率趋同，但相位质量未达 RUN 门限。 |
+| `PHASE_LOCK` | frequency error 进入门限 | TDMA 正常 | PI/PID 或产品 servo 全量收敛 | 相位误差进入窗口，准备 LOCKED。 |
+| `LOCKED` | offset RMS、peak、freshness、CRC/seq 连续通过 | TDMA 正常 | 低抖动跟踪 | 可作为 FIRE_LOAD、T2/READY 和报告时间基准。 |
+| `HOLDOVER` | reference 丢失或样本 stale | 可旁路或保留 schedule | 冻结可信 rate/offset，增长 dispersion | 只在 drift bound 内有限可用。 |
+| `RELOCKING` | 新有效样本恢复 | TDMA 正常 | 带 outlier gate 重锁 | 不自动恢复 TRIG RUN。 |
+| `FAULT` | cal/profile/CRC/seq/freshness/sanity 失败 | 释放或降级 | reset/fault evidence | 禁止 RUN 和新 FIRE_LOAD。 |
 
 #### VdcServoProfile
 
@@ -234,8 +342,10 @@ VDC Domain 首版冻结以下基础表。字段可以分阶段实现，但 owner
 | 表 | 作用 | 唯一 writer |
 |---|---|---|
 | `VdcClockModel` | 描述 `local_tick` 到 `vdc_time64_ns` 的映射。 | `VdcSyncAO / SyncDpllFB` |
+| `VdcTdmaScheduleProfile` | 描述 TDMA 周期、同步窗口、guard、reference slot 和 schedule CRC。 | `VdcSyncAO / profile loader` |
 | `VdcReferenceClockTable` | 描述 reference node、candidate、priority、source 和切换原因。 | `VdcSyncAO` |
 | `VdcDpllState` | 保存 SYNC DPLL 状态、offset、rate、phase/frequency error。 | `SyncDpllFB` |
+| `VdcDcoControl` | 保存 DPLL 输出到 core1/PIO 消费的 DCO snapshot、slew limit 和 update seq。 | `SyncDpllFB` |
 | `VdcServoProfile` | 保存 DPLL/servo 参数、step/slew、sanity limit 和 reset 策略。 | `VdcSyncAO / profile loader` |
 | `VdcQualityTable` | 保存 jitter、RMS、peak、stale、holdover age、lock quality。 | `VdcQualityGateFB` |
 | `VdcErrorBudget` | 保存 offset/rate/delay/dispersion/root distance 等误差预算。 | `VdcQualityGateFB` |
@@ -244,6 +354,7 @@ VDC Domain 首版冻结以下基础表。字段可以分阶段实现，但 owner
 | `VdcCalibrationBinding` | 绑定 active calibration CRC、link delay 和使用范围。 | `VdcSyncAO` 只读 CAL active 结果后发布绑定 |
 | `VdcDcSyncPipeline` | 保存 reference、initial sync、drift compensation 和 locked gate 阶段结果。 | `VdcSyncAO` |
 | `VdcHoldoverPolicy` | 定义 HOLDOVER 进入、保持、退出和 RELOCK 策略。 | `VdcSyncAO` |
+| `VdcDisciplineModel` | 保存长期漂移、温度/老化补偿候选和持久化 profile seq。 | `HoldoverFB / VdcQualityGateFB` |
 | `VdcGateResult` | 给 RUN gate 的 lock/quality/reject/evidence 输出。 | `VdcSyncAO` |
 
 ### 核心字段
@@ -256,8 +367,16 @@ VDC snapshot 至少需要覆盖：
 | `run_id` | 当前运行批次。 |
 | `local_tick64` | 本节点扩展后的本地单调 tick。 |
 | `vdc_time64_ns` | 映射到共同时间轴的纳秒时间。 |
+| `base_local_tick64` | clock model 当前锚点的本地 tick。 |
+| `base_vdc_time64_ns` | clock model 当前锚点的 VDC 时间。 |
+| `nominal_period_ns` | TDMA/VDC 标称周期。 |
+| `tdma_epoch` | 当前 TDMA schedule epoch。 |
+| `tdma_schedule_crc32` | 当前 TDMA schedule profile CRC。 |
 | `offset_ns` | 本地时间到 VDC 的相位偏移。 |
 | `rate_ppb` / `rate_q32` | 本地时钟相对 VDC 的频率修正。 |
+| `period_adjust_ppb` | DPLL 输出的 DCO 周期牵引量。 |
+| `slew_limit_ppb` | RUN/HOLDOVER 中允许的最大平滑牵引量。 |
+| `dco_update_seq` | DCO snapshot 提交序号。 |
 | `phase_error_ns` | 当前同步相位误差。 |
 | `freq_error_ppb` | 当前频率误差估计。 |
 | `jitter_rms_ns` | 同步残差 RMS。 |
@@ -268,6 +387,9 @@ VDC snapshot 至少需要覆盖：
 | `active_cal_crc` | 当前用于修正 link delay 的校准表 CRC。 |
 | `timestamp_dict_crc` | timestamp dictionary 版本。 |
 | `sync_profile_crc` | 同步参数、DPLL 参数和 gate limit CRC。 |
+| `aging_compensation_ppb` | 长期老化补偿候选或 active 值。 |
+| `temperature_compensation_ppb` | 温度补偿输入。 |
+| `holdover_drift_bound_ns_s` | HOLDOVER 误差增长上界。 |
 | `servo_reset_count` | DPLL 重置次数。 |
 | `last_fault_code` | 最近故障。 |
 | `last_evidence_index` | 诊断证据索引。 |
@@ -299,8 +421,10 @@ vdc_time64_ns = local_tick64 * tick_ns * rate_q32 + offset_ns - delay_ns
 | 状态 | 含义 | 允许转移 |
 |---|---|---|
 | `OFF` | VDC 未启用。 | `CHECKING` |
-| `CHECKING` | 检查节点、RefMem freshness、active calibration、timestamp dictionary 和 profile。 | `LOCKING`, `FAULT`, `OFF` |
-| `LOCKING` | DPLL 正在收敛 offset/rate。 | `LOCKED`, `HOLDOVER`, `FAULT`, `OFF` |
+| `CHECKING` | 检查节点、RefMem freshness、active calibration、timestamp dictionary、TDMA schedule 和 servo profile。 | `INITIAL_SYNC`, `FAULT`, `OFF` |
+| `INITIAL_SYNC` | TDMA 同步窗口可用，采集初始 sample 并建立粗 offset。 | `FREQ_LOCK`, `FAULT`, `OFF` |
+| `FREQ_LOCK` | DPLL 快速拉入频率，积分项可限幅或关闭。 | `PHASE_LOCK`, `HOLDOVER`, `FAULT`, `OFF` |
+| `PHASE_LOCK` | DPLL 收敛相位，offset RMS/peak 逐步进入门限。 | `LOCKED`, `HOLDOVER`, `FAULT`, `OFF` |
 | `LOCKED` | VDC 可作为正式预测分发和 T2/READY 时间基准。 | `HOLDOVER`, `RELOCKING`, `FAULT`, `OFF` |
 | `HOLDOVER` | 丢失部分同步观测，使用最后 rate/offset 和 aging gate。 | `RELOCKING`, `FAULT`, `OFF` |
 | `RELOCKING` | 使用当前 holdover 状态尝试重新锁定。 | `LOCKED`, `FAULT`, `OFF` |

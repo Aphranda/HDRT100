@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 本文档维护 Virtual Distributed Clock / VDC Domain 的独立待办。这里不记录普通开发流水账，只记录会影响共同时间、timestamp、offset/rate、DPLL、HOLDOVER/RELOCK、VDC quality、RefMem 映射和 RUN gate 的架构与实现事项。
 
@@ -50,8 +50,10 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 ## P2 - VDC 数据契约冻结
 
 - [ ] 冻结 `VdcClockModel` 字段、单位、writer、reader 和 snapshot 策略。
+- [ ] 冻结 `VdcTdmaScheduleProfile`，覆盖 TDMA 周期、同步窗口、guard、reference slot、schedule version 和 CRC。
 - [ ] 冻结 `VdcReferenceClockTable`，首版固定 A0，后续支持 priority / failover。
 - [ ] 冻结 `VdcDpllState` 字段、单位、writer、reader 和 snapshot 策略。
+- [ ] 冻结 `VdcDcoControl`，覆盖 DPLL 输出到 core1/PIO 的 `base_local_tick64`、`base_vdc_time64_ns`、`period_adjust_ppb/rate_q32`、`phase_offset_ns`、`slew_limit_ppb` 和 `dco_update_seq`。
 - [ ] 冻结 `VdcServoProfile`，覆盖 servo_type、kp/ki、update period、step threshold、sanity limit 和 reset policy。
 - [ ] 冻结 `VdcQualityTable` 字段、质量窗口、统计口径和 RUN gate 门限。
 - [ ] 冻结 `VdcErrorBudget`，覆盖 offset RMS/max、frequency skew、path delay、dispersion 和 root distance 等价字段。
@@ -59,20 +61,25 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 冻结 `VdcWrapTracker` 的 tick/seq 扩展规则和回绕安全差分。
 - [ ] 冻结 `VdcCalibrationBinding`，定义 active cal CRC、link key、delay_ns 和失效策略。
 - [ ] 冻结 `VdcDcSyncPipeline`，定义 reference select、initial sync、drift compensation、LOCKED publish 和 T2 validation 阶段。
+- [ ] 冻结 `VdcDisciplineModel`，定义 aging compensation、temperature compensation、wander、holdover drift bound、discipline window 和持久化 profile seq。
 - [ ] 冻结 `VdcGateResult`，定义 reject code、reject node、reject evidence 和 last pass tick。
+- [x] 在 `VDC_DOMAIN_ARCHITECTURE.md` 融合 TDMA + DPLL 三环模型，明确 TDMA 只提供确定性观测窗口，DPLL 是 offset/rate 唯一 writer，低频驯服环只更新长期漂移和 HOLDOVER 误差预算。
 
 ## P3 - DPLL / Clock Model
 
 - [ ] 实现 `local_tick -> vdc_time64_ns` 映射函数。
 - [ ] 实现 SYNC DPLL offset/rate 更新。
+- [ ] 实现 TDMA observation window 输入门禁：只有来自 active schedule、正确 reference slot、正确 schedule CRC 和同步窗口内的 timestamp sample 才能进入 DPLL。
+- [ ] 实现 DCO snapshot 生成：DPLL 输出通过 `VdcDcoControl` 提交给 core1，core1 只读稳定 snapshot 并执行 slew/phase pull。
 - [ ] 实现 outlier gate、jitter window、phase error 和 frequency error 统计。
 - [ ] 实现 servo reset 策略，区分 step reset、profile reset、calibration reset 和 fault reset。
 - [ ] 实现 reference node 选择和 reference loss/failover 记录；首版可固定 A0。
 - [ ] 实现 error budget 累积，HOLDOVER 中按 drift bound 增长 dispersion。
-- [ ] 实现 `LOCKING -> LOCKED` 判据。
+- [ ] 实现 `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 分阶段判据。
 - [ ] 实现 `LOCKED -> HOLDOVER` 判据。
 - [ ] 实现 `HOLDOVER -> RELOCKING -> LOCKED/FAULT` 判据。
 - [ ] 增加虚拟环路滤波器调试接口，但默认不要求上位机调节。
+- [ ] 增加低频驯服任务：按秒级窗口统计 wander、temperature/aging compensation candidate，RUN 中不得直接写 flash。
 
 ## P4 - CAL / SYNC / MEAS / TRIG 边界
 
@@ -86,6 +93,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 冻结 `PIO_SM1: SYNC_TX_FIRE` 的 `FIRE_LOAD` 小载荷、target tick、polarity、width 和 late 拒绝规则。
 - [ ] 冻结 core1_realtime 对 capture ring、TriggerSlot、VDC input ring 的写入边界。
 - [ ] 冻结 `task_loop_engine -> trigger_command_queue -> core1_realtime -> PIO_SM1` 的 FIRE_LOAD 装载路径。
+- [ ] 冻结 TDMA 同步窗口内的禁止项：普通数据帧、维护帧、report payload、SD/OTA payload 不得占用 VDC observation window。
 
 ## P5 - RefMem 映射
 
@@ -118,7 +126,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 
 ## P8 - 验证
 
-- [ ] 文档检查 `python tools/docs_check/docs_check.py`。
+- [x] 文档检查 `python tools/docs_check/docs_check.py`。
 - [ ] 构建验证 build-validation。
 - [ ] 构建验证 build-rtos-multicore-smoke。
 - [ ] 板端记录 `SYSTem:SYNC:VDC:STATus?`。
@@ -128,6 +136,10 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 故障注入 calibration CRC mismatch、timestamp dictionary mismatch、node stale。
 - [ ] 验证 VDC unlocked 时禁止 RUN / `FIRE_LOAD`。
 - [ ] 验证 LOCKED 后 T2/READY timestamp 映射到 VDC 时间。
+- [ ] 验证 TDMA observation window 门禁：窗口外、schedule CRC 不匹配、reference slot 不匹配的样本不得进入 DPLL。
+- [ ] 验证 `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 收敛状态链，并记录 lock_time、RMS/peak offset 和 outlier ratio。
+- [ ] 验证 DCO slew/phase pull：core1 读取稳定 snapshot，late/半更新 snapshot 不得产生 FIRE_LOAD。
+- [ ] 验证低频驯服环：wander、temperature/aging compensation candidate 和 HOLDOVER drift bound 只影响 error budget 或下一轮 profile。
 - [ ] 验证 `PIO_SM0 -> DMA -> core1_realtime -> task_vdc_sync -> VdcSlot` 捕获链路时间戳连续性。
 - [ ] 验证 `task_loop_engine -> FIRE_LOAD -> PIO_SM1` 输出链路 late 拒绝和准时输出。
 - [ ] 增加 PTP/Chrony-style VDC 质量测试：offset step、rate drift、jitter spike、servo reset、holdover aging。
