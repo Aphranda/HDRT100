@@ -11,6 +11,19 @@ The current layout is grouped by function:
 - feature-specific subdirectories such as `tools/ota_send/` and
   `tools/sd_board_validate/`
 
+## Test Layering
+
+- Standard unit tests live under `tests/python/` and run with `python -m pytest`.
+  They cover pure host-side logic from tools, package builders, decoders, and
+  repository checks.
+- Hardware-in-the-loop pytest wrappers live under `tests/hil/`. They are skipped
+  by default and only open a serial port when `--run-hil --hil-port COMx` is
+  provided. HIL tests must use the shared pytest serial lifecycle fixture rather
+  than opening `serial.Serial` directly.
+- `tools/*_validate/` scripts remain board validation and production smoke
+  runners. They may use serial, VISA, picotool, or generated build artifacts and
+  should not be imported by default unit tests unless guarded by a HIL fixture.
+
 Legacy root-level wrappers remain in `tools/` for backward compatibility while
 the docs and scripts move over to the new paths.
 
