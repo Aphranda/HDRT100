@@ -200,6 +200,51 @@ LOAD_TO_STAGING
 - owner 使用表指针后必须 release，避免阻塞 staging/active 切换。
 - validation 失败必须给出 reason 和 evidence，而不是只返回 false。
 
+#### Table Image Activation Contract
+
+RefMem table image activation 是 `DistributedRefMemAO` 的内部表驱动事务，不是 SCPI 直接改 active 表，也不是 StorageAO 写文件动作。StorageAO 只保证文件对象已经按路径、长度和 CRC 进入后端；`LOAD:SD` 只把 `.rmtp` 解析结果写入 staging；真正改变系统共同事实的动作必须由 activation contract 完成。
+
+三类镜像必须分离：
+
+| 镜像 | 角色 | 数据位置 | 可见性 |
+|---|---|---|---|
+| `active_image` | 当前 RUN gate 和业务 AO/FB 使用的稳定表集合。 | RefMemAO 管理的 active descriptor / table buffer。 | 对业务 snapshot 可见。 |
+| `staging_image` | SCPI、SD 或类似 OTA 加载后的候选表集合。 | RefMemAO 私有 staging buffer 或外部 table image descriptor。 | 只对维护查询和 validator 可见。 |
+| `rollbackable_image` | 最近一次被替换的旧 active 表集合。 | RefMemAO 保留的 rollback descriptor / table buffer。 | 只对回滚和诊断 evidence 可见。 |
+
+activation 状态必须比 load mode 更细：
+
+```text
+LOAD_TO_STAGING
+  -> CRC_CHECK
+  -> LINT_CHECK
+  -> OWNER_VALIDATE
+  -> ACTIVATE_PENDING
+  -> ACTIVATING
+  -> ACTIVE
+  -> ROLLBACKABLE / FAILED
+```
+
+activation gate 至少检查：
+
+| Gate | 检查内容 | 失败处理 |
+|---|---|---|
+| RefMem mode | 必须处于 RefMem load `IDLE` 或明确的 `ACTIVATE_PENDING`，不得已有并发表事务。 | 拒绝 activation，记录 busy evidence。 |
+| 产品实时态 | realtime core、trigger、sequence、pulse counter 和 link control 必须处于 idle/park，可接受 flash lockout 或 RAM-resident 入口策略。 | 拒绝 activation，保留 staging。 |
+| CRC bundle | package CRC、每表 CRC、active/staging CRC bundle 和 table seq 必须一致。 | staging 标记 `FAILED`。 |
+| owner validation | 每张表由 owner callback 检查字段范围、writer 唯一性、资源冲突、IO/IP 核能力和生命周期。 | staging 标记 `FAILED`，写入 owner reason。 |
+| SlotClaimMap | A0-A7 active assignment 不得重复、错绑、超出 8 个 active slot；同一板最多 16 个 candidate。 | 拒绝 activation，生成 conflict/overflow evidence。 |
+| DeploymentGate | EventLink、DataLink、RealtimeCapabilityContract、quality 和 required node 必须满足 RUN 前门禁。 | 可留在 staged validated，但不得进入 active。 |
+| Command ACK | 跨节点 activation 需要 command slot 全环 ACK/NACK 或 fence 完成。 | required 节点 NACK/timeout 时回滚。 |
+
+切换规则：
+
+- active 切换只能更新 RefMemAO 管理的 table image descriptor、`table_seq`、active CRC bundle 和 snapshot 可见版本；不得在 RUN 中就地改业务正在读取的数据结构。
+- 向量表不承载完整 table image 数据，只承载 active/staging/rollbackable 的状态、CRC、path hash、version、seq、quality 和 evidence 摘要。
+- owner validation callback 由 AO/FB owner 实现，RefMemAO 调度并汇总结果；`RefMemSlotContract` 是 RefMemAO 内部派生视图，不作为业务层独立 API。
+- activation 失败必须保持旧 `active_image` 不变；若已进入 `ACTIVATING` 后失败，必须用 `rollbackable_image` 恢复 active descriptor，并记录失败阶段、table id、owner id、reason 和 evidence。
+- activation 成功后旧 active 进入 `rollbackable_image`，直到下一次成功 activation 或显式清除；上位机可通过 `SYSTem:REFMEM:TABle?` 和 load status 查询证据。
+
 #### RefMemSyncProtocol
 
 `RefMemSyncProtocol` 是 RefMem 的总线无关同步约束层。架构上它只规定共同事实必须通过 delta、epoch、command、ACK/NACK、fence 和 quality 形成闭环；具体帧格式、首版 PIO SPI adapter、后续 BISS-C/RJ45/UART/RS485 adapter 迁移策略放在 `REFMEM_SYNC_ARCHITECTURE.md` 中维护。

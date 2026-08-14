@@ -8,6 +8,31 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-044 - RefMem table image activation 主线收敛
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 通读 `docs/refmem` 当前主线，承接 StorageAO 通用文件管理和 `.rmtp` staging load 的最新闭环。
+  - 将下一轮 RefMem 工作从“能加载 staging snapshot”收敛到“可验证、可激活、可回滚的 active/staging/rollbackable table image”。
+  - 明确 RefMem 向量表不承载 table image 或文件数据，只承载状态、CRC、path hash、version、seq、quality 和 evidence 摘要。
+- 完成内容：
+  - `README.md` 更新到 2026-08-14，补充 StorageAO 文件/目录 CRUD、`app_model.rmtp` 上传/读回、`SYSTem:REFMEM:LOAD:SD` staging 正向闭环，以及下一轮 activation 主线。
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加 `Table Image Activation Contract`，定义 `active_image`、`staging_image`、`rollbackable_image` 三类镜像、activation 状态链、activation gate、descriptor 切换规则和失败回滚证据。
+  - `REFMEM_DOMAIN_TODO.md` 将 Storage 文件上传和通用 CRUD 板端验证标记完成，并新增 table image descriptor、activation gate、owner validation evidence、activation 正向和失败回滚验证待办。
+- 验证结果：
+  - `python tools\docs_check\docs_check.py` 通过，`files=85 warnings=0`。
+- 还需完成：
+  - 实现真实 table image descriptor 和 active/staging/rollbackable 切换。
+  - 实现 owner validation callback 调度，并将 table id、owner id、validator id、reason 和 evidence 写入 TableRegistry。
+  - 增加 activation 正向和失败回滚脚本，覆盖 CRC 正确但 owner validation/SlotClaim/DeploymentGate/ACK 失败不得污染旧 active image。
+- 关联文件：
+  - `docs/refmem/README.md`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 进入 P0 table image activation 代码闭环，优先落地 descriptor、activation gate 和 owner validation callback。
+
 ### REFMEM-TASK-20260814-043 - 功能 AO 模板化与 ModelTurntableAO 首个可加载实例
 
 - 状态：完成
