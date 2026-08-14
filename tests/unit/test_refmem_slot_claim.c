@@ -286,6 +286,60 @@ static int test_claim_propose_frame_crc_validation(void)
     return failed;
 }
 
+static int test_claim_hello_and_commit_frames(void)
+{
+    int failed = 0;
+    refmem_claim_hello_payload_t hello;
+    refmem_claim_hello_frame_t hello_frame;
+    refmem_claim_commit_payload_t commit;
+    refmem_claim_commit_frame_t commit_frame;
+
+    (void)memset(&hello, 0, sizeof(hello));
+    hello.board_id = 1u;
+    hello.board_uuid_crc32 = 0xB0000001u;
+    hello.capability_mask = REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM |
+                            REFMEM_APP_CAP_VDC;
+    hello.active_slot_id = 1u;
+    hello.baseline_ready = 1u;
+    hello.vdc_ready = 1u;
+    hello.claim_crc32 = 0x12345678u;
+
+    failed += expect_bool("claim hello init",
+                          refmem_claim_hello_frame_init(&hello_frame, 3u, 10u, &hello),
+                          true);
+    failed += expect_u32("claim hello validate",
+                         (uint32_t)refmem_claim_hello_frame_validate(&hello_frame),
+                         REFMEM_CLAIM_FRAME_OK);
+    hello_frame.hello.vdc_ready = 0u;
+    failed += expect_u32("claim hello payload crc detects mutation",
+                         (uint32_t)refmem_claim_hello_frame_validate(&hello_frame),
+                         REFMEM_CLAIM_FRAME_BAD_PAYLOAD_CRC);
+
+    (void)memset(&commit, 0, sizeof(commit));
+    commit.map_crc32 = 0xA5A55A5Au;
+    commit.slot_count = 8u;
+    commit.assigned_count = 8u;
+    commit.committed_node_mask = 0xFFu;
+    commit.gate_ready = 1u;
+
+    failed += expect_bool("claim commit init",
+                          refmem_claim_commit_frame_init(&commit_frame,
+                                                         3u,
+                                                         11u,
+                                                         0u,
+                                                         0xB0000000u,
+                                                         &commit),
+                          true);
+    failed += expect_u32("claim commit validate",
+                         (uint32_t)refmem_claim_commit_frame_validate(&commit_frame),
+                         REFMEM_CLAIM_FRAME_OK);
+    commit_frame.header.frame_type = REFMEM_CLAIM_FRAME_RESOLVE;
+    failed += expect_u32("claim commit rejects wrong type",
+                         (uint32_t)refmem_claim_commit_frame_validate(&commit_frame),
+                         REFMEM_CLAIM_FRAME_BAD_TYPE);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -295,6 +349,7 @@ int main(void)
     failed += test_uuid_mismatch_blocks_gate();
     failed += test_candidate_overflow_blocks_gate();
     failed += test_claim_propose_frame_crc_validation();
+    failed += test_claim_hello_and_commit_frames();
 
     if (failed != 0) {
         (void)printf("refmem_slot_claim tests failed: %d\n", failed);

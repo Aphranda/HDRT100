@@ -10,6 +10,20 @@ static uint32_t refmem_claim_crc32(const void *data, size_t size)
     return ota_crc32_update(0xFFFFFFFFu, (const uint8_t *)data, size) ^ 0xFFFFFFFFu;
 }
 
+static uint32_t refmem_claim_raw_payload_crc32(const void *payload,
+                                               size_t payload_size,
+                                               uint32_t payload_count)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    crc = ota_crc32_update(crc,
+                           (const uint8_t *)&payload_count,
+                           sizeof(payload_count));
+    if (payload_size != 0u && payload != NULL) {
+        crc = ota_crc32_update(crc, (const uint8_t *)payload, payload_size);
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
 static uint32_t refmem_claim_payload_crc32(const refmem_claim_propose_frame_t *frame)
 {
     if (frame == NULL ||
@@ -17,15 +31,10 @@ static uint32_t refmem_claim_payload_crc32(const refmem_claim_propose_frame_t *f
         return 0u;
     }
 
-    uint32_t crc = 0xFFFFFFFFu;
-    crc = ota_crc32_update(crc,
-                           (const uint8_t *)&frame->header.payload_count,
-                           sizeof(frame->header.payload_count));
-    crc = ota_crc32_update(crc,
-                           (const uint8_t *)frame->proposal,
-                           frame->header.payload_count *
-                               sizeof(frame->proposal[0]));
-    return crc ^ 0xFFFFFFFFu;
+    return refmem_claim_raw_payload_crc32(frame->proposal,
+                                          frame->header.payload_count *
+                                              sizeof(frame->proposal[0]),
+                                          frame->header.payload_count);
 }
 
 static uint32_t refmem_claim_header_crc32(const refmem_claim_frame_header_t *header)
@@ -34,8 +43,59 @@ static uint32_t refmem_claim_header_crc32(const refmem_claim_frame_header_t *hea
         return 0u;
     }
     return refmem_claim_crc32(header,
-                              sizeof(*header) -
+                                  sizeof(*header) -
                                   sizeof(header->header_crc32));
+}
+
+static void refmem_claim_header_init(refmem_claim_frame_header_t *header,
+                                     uint32_t frame_type,
+                                     uint32_t claim_epoch,
+                                     uint32_t claim_seq,
+                                     uint32_t source_board_id,
+                                     uint32_t source_board_uuid_crc32,
+                                     uint32_t payload_count,
+                                     uint32_t payload_crc32)
+{
+    header->magic = REFMEM_CLAIM_FRAME_MAGIC;
+    header->version = REFMEM_CLAIM_FRAME_VERSION;
+    header->frame_type = frame_type;
+    header->claim_epoch = claim_epoch;
+    header->claim_seq = claim_seq;
+    header->source_board_id = source_board_id;
+    header->source_board_uuid_crc32 = source_board_uuid_crc32;
+    header->payload_count = payload_count;
+    header->payload_crc32 = payload_crc32;
+    header->header_crc32 = refmem_claim_header_crc32(header);
+}
+
+static refmem_claim_frame_result_t refmem_claim_header_validate(
+    const refmem_claim_frame_header_t *header,
+    uint32_t expected_type,
+    uint32_t expected_count,
+    uint32_t payload_crc32)
+{
+    if (header == NULL) {
+        return REFMEM_CLAIM_FRAME_BAD_ARGUMENT;
+    }
+    if (header->magic != REFMEM_CLAIM_FRAME_MAGIC) {
+        return REFMEM_CLAIM_FRAME_BAD_MAGIC;
+    }
+    if (header->version != REFMEM_CLAIM_FRAME_VERSION) {
+        return REFMEM_CLAIM_FRAME_BAD_VERSION;
+    }
+    if (header->frame_type != expected_type) {
+        return REFMEM_CLAIM_FRAME_BAD_TYPE;
+    }
+    if (header->payload_count != expected_count) {
+        return REFMEM_CLAIM_FRAME_BAD_COUNT;
+    }
+    if (header->payload_crc32 != payload_crc32) {
+        return REFMEM_CLAIM_FRAME_BAD_PAYLOAD_CRC;
+    }
+    if (header->header_crc32 != refmem_claim_header_crc32(header)) {
+        return REFMEM_CLAIM_FRAME_BAD_HEADER_CRC;
+    }
+    return REFMEM_CLAIM_FRAME_OK;
 }
 
 bool refmem_claim_propose_frame_init(
@@ -54,22 +114,20 @@ bool refmem_claim_propose_frame_init(
     }
 
     memset(frame, 0, sizeof(*frame));
-    frame->header.magic = REFMEM_CLAIM_FRAME_MAGIC;
-    frame->header.version = REFMEM_CLAIM_FRAME_VERSION;
-    frame->header.frame_type = REFMEM_CLAIM_FRAME_PROPOSE;
-    frame->header.claim_epoch = claim_epoch;
-    frame->header.claim_seq = claim_seq;
-    frame->header.source_board_id = source_board_id;
-    frame->header.source_board_uuid_crc32 = source_board_uuid_crc32;
-    frame->header.payload_count = proposal_count;
     if (proposal_count != 0u) {
         memcpy(frame->proposal,
                proposal,
                proposal_count * sizeof(frame->proposal[0]));
     }
 
-    frame->header.payload_crc32 = refmem_claim_payload_crc32(frame);
-    frame->header.header_crc32 = refmem_claim_header_crc32(&frame->header);
+    refmem_claim_header_init(&frame->header,
+                             REFMEM_CLAIM_FRAME_PROPOSE,
+                             claim_epoch,
+                             claim_seq,
+                             source_board_id,
+                             source_board_uuid_crc32,
+                             proposal_count,
+                             refmem_claim_payload_crc32(frame));
     return true;
 }
 
@@ -79,23 +137,96 @@ refmem_claim_frame_result_t refmem_claim_propose_frame_validate(
     if (frame == NULL) {
         return REFMEM_CLAIM_FRAME_BAD_ARGUMENT;
     }
-    if (frame->header.magic != REFMEM_CLAIM_FRAME_MAGIC) {
-        return REFMEM_CLAIM_FRAME_BAD_MAGIC;
-    }
-    if (frame->header.version != REFMEM_CLAIM_FRAME_VERSION) {
-        return REFMEM_CLAIM_FRAME_BAD_VERSION;
-    }
-    if (frame->header.frame_type != REFMEM_CLAIM_FRAME_PROPOSE) {
-        return REFMEM_CLAIM_FRAME_BAD_TYPE;
-    }
     if (frame->header.payload_count > REFMEM_CLAIM_FRAME_PROPOSAL_MAX) {
         return REFMEM_CLAIM_FRAME_BAD_COUNT;
     }
-    if (frame->header.payload_crc32 != refmem_claim_payload_crc32(frame)) {
-        return REFMEM_CLAIM_FRAME_BAD_PAYLOAD_CRC;
-    }
-    if (frame->header.header_crc32 != refmem_claim_header_crc32(&frame->header)) {
-        return REFMEM_CLAIM_FRAME_BAD_HEADER_CRC;
+    refmem_claim_frame_result_t result =
+        refmem_claim_header_validate(&frame->header,
+                                     REFMEM_CLAIM_FRAME_PROPOSE,
+                                     frame->header.payload_count,
+                                     refmem_claim_payload_crc32(frame));
+    if (result != REFMEM_CLAIM_FRAME_OK) {
+        return result;
     }
     return REFMEM_CLAIM_FRAME_OK;
+}
+
+bool refmem_claim_hello_frame_init(
+    refmem_claim_hello_frame_t *frame,
+    uint32_t claim_epoch,
+    uint32_t claim_seq,
+    const refmem_claim_hello_payload_t *hello)
+{
+    if (frame == NULL || hello == NULL) {
+        return false;
+    }
+
+    memset(frame, 0, sizeof(*frame));
+    frame->hello = *hello;
+    const uint32_t payload_crc32 =
+        refmem_claim_raw_payload_crc32(&frame->hello, sizeof(frame->hello), 1u);
+    refmem_claim_header_init(&frame->header,
+                             REFMEM_CLAIM_FRAME_HELLO,
+                             claim_epoch,
+                             claim_seq,
+                             hello->board_id,
+                             hello->board_uuid_crc32,
+                             1u,
+                             payload_crc32);
+    return true;
+}
+
+refmem_claim_frame_result_t refmem_claim_hello_frame_validate(
+    const refmem_claim_hello_frame_t *frame)
+{
+    if (frame == NULL) {
+        return REFMEM_CLAIM_FRAME_BAD_ARGUMENT;
+    }
+    const uint32_t payload_crc32 =
+        refmem_claim_raw_payload_crc32(&frame->hello, sizeof(frame->hello), 1u);
+    return refmem_claim_header_validate(&frame->header,
+                                        REFMEM_CLAIM_FRAME_HELLO,
+                                        1u,
+                                        payload_crc32);
+}
+
+bool refmem_claim_commit_frame_init(
+    refmem_claim_commit_frame_t *frame,
+    uint32_t claim_epoch,
+    uint32_t claim_seq,
+    uint32_t source_board_id,
+    uint32_t source_board_uuid_crc32,
+    const refmem_claim_commit_payload_t *commit)
+{
+    if (frame == NULL || commit == NULL) {
+        return false;
+    }
+
+    memset(frame, 0, sizeof(*frame));
+    frame->commit = *commit;
+    const uint32_t payload_crc32 =
+        refmem_claim_raw_payload_crc32(&frame->commit, sizeof(frame->commit), 1u);
+    refmem_claim_header_init(&frame->header,
+                             REFMEM_CLAIM_FRAME_COMMIT,
+                             claim_epoch,
+                             claim_seq,
+                             source_board_id,
+                             source_board_uuid_crc32,
+                             1u,
+                             payload_crc32);
+    return true;
+}
+
+refmem_claim_frame_result_t refmem_claim_commit_frame_validate(
+    const refmem_claim_commit_frame_t *frame)
+{
+    if (frame == NULL) {
+        return REFMEM_CLAIM_FRAME_BAD_ARGUMENT;
+    }
+    const uint32_t payload_crc32 =
+        refmem_claim_raw_payload_crc32(&frame->commit, sizeof(frame->commit), 1u);
+    return refmem_claim_header_validate(&frame->header,
+                                        REFMEM_CLAIM_FRAME_COMMIT,
+                                        1u,
+                                        payload_crc32);
 }

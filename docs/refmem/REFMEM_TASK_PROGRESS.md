@@ -52,6 +52,35 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-034 - CLAIM_HELLO 与 CLAIM_COMMIT 帧
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 在 `CLAIM_PROPOSE` 之外补齐两板发现和提交所需的最小控制帧。
+  - 继续保持协议基础件只做 init/validate，不接运行时收发。
+- 完成内容：
+  - `refmem_claim_protocol.h/.c` 增加 `refmem_claim_hello_frame_t` 和 `refmem_claim_commit_frame_t`。
+  - `CLAIM_HELLO` payload 覆盖 board id、uuid、capability、IO/IP core、hw profile、active slot、loaded instance、baseline/VDC ready 和 claim CRC。
+  - `CLAIM_COMMIT` payload 覆盖 SlotClaimMap CRC、slot/assigned/conflict/overflow/evidence 计数、committed node mask 和 gate_ready。
+  - 协议实现抽出 header 初始化、header 校验和 raw payload CRC helper，保持 `CLAIM_PROPOSE` 外部 API 不变。
+  - SlotClaim 单元测试增加 HELLO/COMMIT payload CRC 和 frame type 错误检测。
+- 验证结果：
+  - `powershell -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1` 通过；当前机器无 host C 编译器，结果为 ARM GCC 编译检查通过，未执行主机 exe。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `python -m pytest` 通过，18 passed、1 skipped；HIL 串口测试未启用。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0x36309B39`。
+- 还需完成：
+  - 继续补 `CLAIM_CONFLICT/RELEASE/RESOLVE` 帧。
+  - 接入 RJ45_SYNC_RING 收发、epoch stale 检查和 SlotClaimMap commit。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_claim_protocol.h`
+  - `components/distributed_refmem/src/refmem_claim_protocol.c`
+  - `tests/unit/test_refmem_slot_claim.c`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 增加 conflict/release/resolve 帧，完成 SlotClaim 协调消息族的静态协议定义。
+
 ### REFMEM-TASK-20260814-033 - CLAIM_PROPOSE 帧协议基础
 
 - 状态：完成
