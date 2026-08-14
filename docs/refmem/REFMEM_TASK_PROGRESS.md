@@ -52,6 +52,38 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-024 - NodeLoad 实时能力契约补齐
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 补齐“RefMem 加载节点实例时必须同时加载 core1 实时能力、IO 约束和类 IP 核能力”的架构与代码表达。
+  - 将 A0-A7 统一收敛为 RefMem 逻辑槽位，把当前项目物理/实例标签改为 B0-B4，避免 slot 与板卡定位混淆。
+- 完成内容：
+  - `refmem_fb_instance_entry_t` 增加 `ip_core_claim` 字段，首版覆盖 `PULSE_CAPTURE`、`PULSE_FIRE`、`LINK_SEQUENCE`、`BISS_C_CODEC`、`RJ45_SYNC_DELTA` 和 `VDC_DPLL`。
+  - 静态模型 linter 将 `ip_core_claim` 映射为 capability gate，确保链路控制、BISS-C 编解码等类 IP 核不会被当作普通 GPIO。
+  - 默认 profile 中 `B2.LinkSwitcherAO` 明确声明 `CORE1_RT + PIO + DMA + LINK_CONTROL`，并补齐 FIRE_LOAD、DONE、FAULT、link timestamp、link sequence state 等事件/数据连接。
+  - BISS-C 模型节点声明为 `BISS_C_CODEC` 类 IP 核，要求 PIO、DMA、core1_rt 和 BISS-C IO。
+  - 增加 `REFMEM_APP_CAP_REFMEM` 和 `REFMEM_APP_CAP_VDC`，当前静态表所有 A0-A7 slot 候选都具备 `REFMEM + VDC` baseline，linter 对 baseline 做硬检查。
+  - 明确 `VDC` 是每个物理节点参与虚拟 DC 时间语义的基础能力，`VDC_DPLL` 才是运行 DPLL owner 的类 IP 核能力。
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加 `RealtimeCapabilityContract`，明确 RefMem 只验证和发布实时能力事实，实际执行仍由 core1/PIO/DMA/域状态机 owner 完成。
+  - `REFMEM_DOMAIN_TODO.md` 增加 `BoardCapabilityTable`、动态 SlotClaim、realtime contract 派生和 HIL 验证待办。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `python -m pytest` 通过，18 passed、1 skipped。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0xD66CCA10`。
+- 还需完成：
+  - 将物理板能力从当前静态 GenericNode 默认表中进一步拆到 `BoardCapabilityTable` 或等价 profile 表。
+  - 实现 `RealtimeCapabilityContract` 派生组件，并接入 DeploymentGate 和 RUN gate。
+  - 做板端/HIL 验证：加载 link-control 候选后确认 FIRE_LOAD、脉冲捕获、链路序列状态与 RefMem snapshot 闭环。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 进入 `BoardCapabilityTable` / `SlotClaimProposal` 细化，让 B0-B4 物理能力与 A0-A7 slot assignment 完全解耦。
+
 ### REFMEM-TASK-20260814-023 - StorageAO 通用文件管理基础件
 
 - 状态：完成

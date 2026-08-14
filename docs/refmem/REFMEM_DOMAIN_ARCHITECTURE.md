@@ -101,6 +101,7 @@ Other nodes
 - 一块物理板可以加载多个逻辑实例，例如调试阶段同时承载模拟网分和模拟转台；active assignment 仍最多 8 个，candidate proposal 上限为 16。
 - `DistributedGenericNodeTable` 只描述通用逻辑插槽基座、硬件身份、capability、claim policy 和 fail policy；不得把业务 role/persona 反向塞回 GenericNode。
 - `DistributedNodeLoadTable` 是 profile 到 A0-A7 的实例装载表；同一插槽允许多条 enabled load，但必须通过 DeploymentGate 的资源、IO、owner、writer、事件和数据连接检查。
+- NodeLoad 装载实例时必须同时装载该实例的实时能力契约；也就是 role/persona、`resource_claim`、`io_claim`、`ip_core_claim`、事件连接和数据连接必须作为同一个 active profile 的部署事实被验证。
 - `SlotClaimMap` 是运行期协调结果，不是新的 slot 空间；未分配 candidate 只能进入 evidence，不能生成 A8 或隐式节点。
 - `RefMemSlotContract` 是 `DistributedRefMemAO` 从 DataLink、Directory、SlotGuard、Gate 和 Quality 派生出的字段级只读契约，不是 AO/FB 对外业务 API。
 - RefMem load mode 是 RefMem 自身的表镜像状态机；`LOAD:SD`、`LOAD:NODE`、后续 `LOAD:BEGIN/DATA/END/ABORT` 只允许写 staging image，active image 必须经 CRC、lint、owner validation 和 activation。
@@ -233,7 +234,7 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 
 - `DistributedApplicationMap` 只定义应用 profile 的元数据和 CRC bundle，不直接描述每个节点上的实例范围。
 - 不允许在 ApplicationMap 的 node 项中使用 `instance_first/count` 将节点绑定到连续实例区间。
-- 同一个应用可以有多个 profile，例如现场四板 profile、A4 调试仿真 profile、HIL profile。
+- 同一个应用可以有多个 profile，例如现场四板 profile、B4 调试仿真 profile、HIL profile。
 - RUN gate 以 `ApplicationMap + GenericNodeTable + NodeLoadTable + FbInstanceTable` 的组合为部署事实。
 
 ### DistributedGenericNodeTable
@@ -244,7 +245,7 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 |---|---|---|
 | `node_id` | A0-A7 通用插槽号。 | 只允许 0-7；字段名沿用 node_id 是为了匹配同步协议和 NodeSlot[8]。 |
 | `node_uuid` | 节点硬件身份。 | 用于防止 A0-A7 逻辑号错绑实体板。 |
-| `capability_mask` | 节点硬件/基础能力上限。 | 例如 board、Flash、SD、USB、PIO、DMA、RJ45、core1_rt、SMA、link_control、BISS-C、UART/RS485。 |
+| `capability_mask` | 节点硬件/基础能力上限。 | 每个可参与系统的物理节点必须具备 board、RefMem、VDC 基础能力；其余可选能力包括 Flash、SD、USB、PIO、DMA、RJ45、core1_rt、SMA、link_control、BISS-C、UART/RS485。 |
 | `claim_policy` | 逻辑插槽 claim 策略。 | `STRICT_UUID`、`ALLOW_SAME_BOARD_MULTI_SLOT`、`SPARE_DYNAMIC`、`DISABLED`。 |
 | `claim_priority` | 冲突仲裁优先级。 | 只用于诊断和预案选择；不得静默抢占已 active 的必需插槽。 |
 | `default_persona_mask` | 节点默认人格能力。 | 只作为装载约束输入，不等于 active role。 |
@@ -257,12 +258,14 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 - A0-A7 是唯一固定插槽空间。
 - GenericNode 只描述通用插槽基座、硬件身份和基础能力，不直接声明业务 role/persona 实例。
 - GenericNode 的能力不能从当前装载实例反推；它必须来自 board profile、硬件约束或 System Pack 中的硬件 profile。
+- `REFMEM + VDC` 是每个物理节点参与分布式系统的最小基础能力。没有 RefMem 能力的板卡不能发布/接收共同事实；没有 VDC 能力的板卡不能参与虚拟 DC 时间语义，因此不能进入 distributed RUN。
+- `VDC` 基础能力表示节点能接收、校验、使用并发布虚拟 DC 相关 snapshot；`VDC_DPLL` 类 IP 核表示某个实例负责运行 DPLL/虚拟环路 owner，两者不能混为一谈。
 - `capability_mask` 是装载上限，不是当前业务角色。`gateway`、`model_vna`、`model_turntable`、`pulse_distributor` 等 role 只允许出现在 NodeLoadTable。
 - 脉冲分发、链路切换、仪表控制、gateway、model_vna、model_turntable、test_agent 等都由 `DistributedNodeLoadTable` 装载，不扩展固定节点数量。
 
 #### 全局逻辑插槽 Claim
 
-在一个 RefMem active profile / epoch 中，A0-A7 是全环唯一逻辑地址。允许一块物理板同时 claim 多个不同逻辑插槽，例如调试阶段板卡 1 同时 claim A5 作为模型网分、A6 作为模拟转台；但同一个 active `slot_id` 不能同时被两块物理板提交为 active owner。由于插槽是通用基座，重复 claim 不必立即成为不可恢复错误：只要还有可用插槽且 capability、resource、IO、owner 和 NodeLoadTable 约束满足，`DistributedRefMemAO` 可以通过自组网协调把其中一个候选迁移到其他空闲插槽。真正的失败条件是插槽已满、节点实例化溢出、硬绑定 required slot 不匹配，或资源/IO/owner 冲突无法解。
+在一个 RefMem active profile / epoch 中，A0-A7 是全环唯一逻辑地址。物理板、当前项目实例或调试模型使用 B0-B4 这类 board/profile label 表达，避免和 A0-A7 slot 混淆。允许一块物理板同时 claim 多个不同逻辑插槽，例如调试阶段 B4 同时 claim A5 作为模型网分、A6 作为模拟转台；但同一个 active `slot_id` 不能同时被两块物理板提交为 active owner。由于插槽是通用基座，重复 claim 不必立即成为不可恢复错误：只要还有可用插槽且 capability、resource、IO、owner 和 NodeLoadTable 约束满足，`DistributedRefMemAO` 可以通过自组网协调把其中一个候选迁移到其他空闲插槽。真正的失败条件是插槽已满、节点实例化溢出、硬绑定 required slot 不匹配，或资源/IO/owner 冲突无法解。
 
 主路径是预规划：
 
@@ -294,11 +297,12 @@ persona_mask
 capability_mask
 resource_claim
 io_claim
+ip_core_claim
 claim_policy
 claim_priority
 ```
 
-例如反向验证时，一块板可以一次实例化并上报 9 到 16 个候选节点实例。`DistributedRefMemAO` 必须尝试把候选映射到 A0-A7 八个通用插槽；前 8 个只有在 capability、resource、IO、owner、event/data link 都满足时才能变成 active assignment，第 9 到第 16 个未分配候选必须被标记为 `OVERFLOW`，并进入 DeploymentGate evidence。这个测试用于证明系统不会因为单板多实例而生成第 9 个隐式插槽，也不会覆盖已有 active slot。超过 16 个候选是 proposal 格式错误，应直接 `NACK_BAD_CLAIM_PROPOSAL` 或等价 reason。
+例如反向验证时，一块板可以一次实例化并上报 9 到 16 个候选节点实例。`DistributedRefMemAO` 必须尝试把候选映射到 A0-A7 八个通用插槽；前 8 个只有在 capability、resource、IO、类 IP 核、owner、event/data link 都满足时才能变成 active assignment，第 9 到第 16 个未分配候选必须被标记为 `OVERFLOW`，并进入 DeploymentGate evidence。这个测试用于证明系统不会因为单板多实例而生成第 9 个隐式插槽，也不会覆盖已有 active slot。超过 16 个候选是 proposal 格式错误，应直接 `NACK_BAD_CLAIM_PROPOSAL` 或等价 reason。
 
 `DistributedRefMemAO` 聚合所有可见 `SlotClaim`，形成 `SlotClaimMap` 诊断视图：
 
@@ -352,6 +356,7 @@ DISCOVER
 - `STRICT_UUID` slot 必须匹配 GenericNodeTable 的 `node_uuid` 和 `hw_profile_crc`；不匹配进入 `MISMATCH`。
 - `SPARE_DYNAMIC` 只允许用于 A5-A7 这类非 required spare slot，并且必须在 ConfigGate 激活后形成新的 active CRC bundle，不能在 RUN 中热抢占。
 - `claim_priority` 用于在多个候选物理板或多个可用插槽之间选择协调计划；在 required hard binding 不冲突时可以自动协调通用插槽分配，但不得静默覆盖 `STRICT_UUID` 的硬绑定 required slot。
+- B0-B4 只表示当前项目或默认 profile 中的物理/实例标签，不是 slot id。`B2.LinkSwitcherAO` 可在默认 profile 中加载到 slot A2，也可以在后续 profile 或自组网协调中加载到任何满足 capability、IO 约束和类 IP 核要求的 A0-A7 slot。
 - 对 `ALLOW_SAME_BOARD_MULTI_SLOT`、`SPARE_DYNAMIC` 或 `REPORT_ONLY` slot，`DistributedRefMemAO` 可根据 capability、claim_priority、physical uuid、link quality、load_order 和空闲插槽集合生成自动协调结果，但必须提升 `claim_epoch`、更新 `SlotClaimMap CRC`，并广播 `CLAIM_COMMIT`。
 - 冲突恢复可以通过重新加载 System Pack / profile、清除错误板卡 claim、执行受权限保护的维护命令，或对非 required dynamic slot 执行自组网协调完成；不得由节点本地自行改 `node_id` 并直接进入 active。
 - `DeploymentGate.node_check` 必须检查 `SlotClaimMap`：required 实例必须有一个 resolved active slot，spare slot 可 `UNCLAIMED`，任何未解决的 `CLAIM_CONFLICT/MISMATCH/STALE/OVERFLOW/CLAIM_FAULT` required 实例都拒绝 RUN。
@@ -380,9 +385,60 @@ DISCOVER
 - 同一 `node_id` 插槽可以出现多条 enabled load 记录。
 - 同一 `instance_id` 在同一 active profile 中首版只允许一条 enabled load 记录；后续若支持 replicated instance，必须显式增加 instance replica id。
 - 每条 enabled load 必须通过 capability gate：实例的 resource/IO claim 必须被目标 GenericNode 的 `capability_mask` 覆盖。
-- 一块板同时模拟转台和网分时，应表现为同一通用插槽上两条 load 记录，例如 `A4.ModelVnaAO` 和 `A4.ModelTurntableAO`。
+- 每条 enabled load 必须同时通过 realtime capability gate：实例的 `ip_core_claim` 必须能映射到目标 GenericNode 的基础能力和 IO 约束，例如链路序列控制需要 PIO、DMA、core1_rt、link_control；BISS-C 编解码需要 PIO、DMA、core1_rt、BISS-C IO。
+- 一块板同时模拟转台和网分时，应表现为同一通用插槽上两条 load 记录，例如 `B4.ModelVnaAO` 和 `B4.ModelTurntableAO` 被加载到某个可用 A0-A7 slot。
 - 一个插槽同时装载多个实例时，必须通过 `DistributedDeploymentGate` 检查资源、IO、时序、owner、slot writer、事件连接和数据连接冲突。
 - 逻辑实例可以禁用，但禁用实例仍应保留版本、原因和最后一次健康状态，便于报告闭环。
+
+#### RealtimeCapabilityContract
+
+`RealtimeCapabilityContract` 是从 `DistributedNodeLoadTable + DistributedFbInstanceTable + EventLink + DataLink` 派生出的装载契约。它不代表 RefMem 执行硬实时动作，而是说明某个实例被加载后，系统必须同步验证和发布哪些实时能力事实。
+
+| 字段 | 含义 | 约束 |
+|---|---|---|
+| `realtime_owner` | 实时执行 owner。 | `CORE0`、`CORE1` 或 `SHARED`；硬实时边沿、脉冲捕获、PIO 编解码默认要求 `CORE1` 或等价实时资源。 |
+| `resource_claim` | 执行资源。 | PIO、DMA、IRQ、timer、core1 时间片、RJ45 等；由 FB instance 声明，由 DeploymentGate 校验。 |
+| `io_claim` | 外设与引脚约束。 | SMA/RJ45/link-control/BISS-C/UART-RS485 等；必须被硬件约束和 GenericNode capability 覆盖。 |
+| `ip_core_claim` | 类 IP 核能力。 | PIO 程序、DMA 搬运、IRQ 捕获、core1 service 预算等组合能力，不等同于普通 GPIO。 |
+| `event_links` | 事件入口/出口。 | `FIRE_LOAD`、`START`、`STOP`、`DONE`、`FAULT`、`ACK/NACK` 必须有静态连接或明确不需要。 |
+| `data_links` | 事实入口/出口。 | timestamp、sequence state、link output state、quality、late/drop/error counter 必须有唯一 writer 和稳定 snapshot。 |
+| `time_budget_us` | 实时服务预算。 | 超预算必须进入 Diagnostics evidence，并可触发 DeploymentGate 降级或拒绝 RUN。 |
+
+首版类 IP 核映射：
+
+| `ip_core_claim` | 含义 | 基础能力要求 |
+|---|---|---|
+| `PULSE_CAPTURE` | 捕获输入脉冲并生成时间戳。 | PIO + DMA + core1_rt，外加对应 SMA/RJ45 输入 IO。 |
+| `PULSE_FIRE` | 在指定 tick 输出触发边沿。 | PIO + DMA + core1_rt，外加对应 SMA/RJ45 输出 IO。 |
+| `LINK_SEQUENCE` | 按序列切换链路控制节点。 | PIO + DMA + core1_rt + link_control；当前项目实例可映射为 SP8T/SP2T。 |
+| `BISS_C_CODEC` | BISS-C 编码/解码。 | PIO + DMA + core1_rt + BISS-C IO。 |
+| `RJ45_SYNC_DELTA` | 同步环路上的小 delta/ACK/NACK 传递。 | RJ45_SYNC IO 和 RJ45 基础能力。 |
+| `VDC_DPLL` | 虚拟 DC / DPLL 运行 owner。 | VDC 基础能力 + core1_rt 或等价受控实时预算，具体算法由 VDC Domain owner 执行。 |
+
+链路控制节点的装载语义：
+
+```text
+NodeLoad(B2.LinkSwitcherAO -> slot A2 in default profile)
+  -> role/persona: link_switcher
+  -> resource_claim: CORE1_RT + PIO + DMA
+  -> io_claim: LINK_CONTROL + RJ45_SYNC
+  -> ip_core_claim: PULSE_CAPTURE + LINK_SEQUENCE
+  -> event_links: FIRE_LOAD / DONE / FAULT / ACK/NACK
+  -> data_links: pulse timestamp / link sequence state / link output state / quality
+```
+
+BISS-C 节点的装载语义：
+
+```text
+NodeLoad(ModelTurntableAO or encoder node)
+  -> role/persona: model_turntable or encoder
+  -> resource_claim: CORE1_RT + PIO + DMA
+  -> io_claim: BISS_C
+  -> ip_core_claim: BISS_C_CODEC
+  -> data_links: encoder position / capture timestamp / quality
+```
+
+因此，RefMem load 的目标不是“把某个 node 名称写进去”，而是把可验证的实时能力事实装入 staging image。只有 capability、IO 约束、类 IP 核、事件/数据连接、owner 和质量门禁都通过后，active profile 才能允许 RUN。
 
 ### DistributedFbInstanceTable
 
@@ -394,11 +450,12 @@ DISCOVER
 | `default_node_id` | 建议或默认装载节点。 | 只作为默认 profile 的提示；active 节点以 NodeLoadTable 为准。 |
 | `domain` | 所属主域。 | `SYSTEM`、`TRIG`、`CAL`、`SYNC`、`MEAS`、`REFMEM` 等。 |
 | `ao_type/fb_type` | AO/FB 类型。 | 用于版本兼容和配置校验。 |
-| `instance_name` | 实例名。 | 例如 `A0.TriggerAO`、`A1.PulseDistributorAO`、`A2.LinkSwitcherAO`、`A3.InstrumentControllerAO`。 |
+| `instance_name` | 实例名。 | 例如 `B0.TriggerAO`、`B1.PulseDistributorAO`、`B2.LinkSwitcherAO`、`B3.InstrumentControllerAO`；B 前缀是物理/实例标签，不是 RefMem slot。 |
 | `version` | 实例实现版本。 | RUN 前检查兼容范围。 |
 | `enable_condition` | 启用条件。 | 由 mode、persona、feature、配置 CRC 共同决定。 |
 | `resource_claim` | 资源占用。 | Flash、SD、USB、PIO、DMA、LCD、RJ45、core1 时间片等。 |
 | `io_claim` | IO 占用。 | SMA、RJ45、link-control resources、BiSS-C、UART/RS485 等；当前项目实例可映射为 SP8T/SP2T。 |
+| `ip_core_claim` | 类 IP 核能力占用。 | 例如 PIO pulse capture/fire、link sequence、BISS-C codec、RJ45 sync delta、VDC/DPLL。 |
 | `time_budget_us` | 单次 service 预算。 | 超预算进入 Diagnostics evidence。 |
 | `state_slot_ref` | 状态事实位置。 | 指向 Vector slot 字段。 |
 | `health_slot_ref` | 健康事实位置。 | 指向质量或故障 slot 字段。 |
@@ -746,7 +803,7 @@ SCPI 写命令返回 `OK` 或 `1` 只表示接口层 accepted，不表示动作�
 |---|---|---|
 | `slot_guard` | 统一 slot guard。 | 带 `slot_seq`、owner、crc、stale。 |
 | `command_seq` | 命令序号。 | command owner 单调递增，0 保留为无效。 |
-| `source_node` | 发起节点。 | 通常为 A3 gateway 或 A0 SystemAO。 |
+| `source_node` | 发起节点。 | 字段名沿用 node 是协议兼容名，语义上指 A0-A7 slot；对应实例可为 B3 gateway 或 B0 SystemAO。 |
 | `source_instance` | 发起实例。 | 对应 `DistributedFbInstanceTable`。 |
 | `target_mask` | 目标 A0-A7 slot/node_id 位图。 | 只允许指向静态模型中存在的通用插槽。 |
 | `required_mask` | 必须 ACK 的目标位图。 | 可小于 target_mask，用于 report-only 节点。 |

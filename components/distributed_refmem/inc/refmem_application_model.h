@@ -10,8 +10,8 @@
 #define REFMEM_APP_MODEL_NODE_COUNT                DISTRIBUTED_REFMEM_NODE_COUNT
 #define REFMEM_APP_MODEL_NODE_LOAD_COUNT           11u
 #define REFMEM_APP_MODEL_INSTANCE_COUNT            11u
-#define REFMEM_APP_MODEL_EVENT_LINK_COUNT          8u
-#define REFMEM_APP_MODEL_DATA_LINK_COUNT           12u
+#define REFMEM_APP_MODEL_EVENT_LINK_COUNT          11u
+#define REFMEM_APP_MODEL_DATA_LINK_COUNT           14u
 #define REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT    11u
 #define REFMEM_APP_MODEL_QUALITY_COUNT             8u
 #define REFMEM_APP_MODEL_CLAIM_CANDIDATE_MAX       16u
@@ -40,12 +40,14 @@
 #define REFMEM_APP_CAP_LINK_CONTROL                0x00000800u
 #define REFMEM_APP_CAP_BISS_C                      0x00001000u
 #define REFMEM_APP_CAP_UART_RS485                  0x00002000u
+#define REFMEM_APP_CAP_REFMEM                      0x00004000u
+#define REFMEM_APP_CAP_VDC                         0x00008000u
 
-#define REFMEM_APP_PERSONA_A0_TRIGGER_MASTER       0x00000001u
-#define REFMEM_APP_PERSONA_A1_DISTRIBUTED_TRIGGER  0x00000002u
-#define REFMEM_APP_PERSONA_A2_LINK_SWITCH          0x00000004u
-#define REFMEM_APP_PERSONA_A3_GATEWAY              0x00000008u
-#define REFMEM_APP_PERSONA_A4_MODEL_INSTRUMENTS    0x00000010u
+#define REFMEM_APP_PERSONA_TRIGGER_MASTER          0x00000001u
+#define REFMEM_APP_PERSONA_DISTRIBUTED_TRIGGER     0x00000002u
+#define REFMEM_APP_PERSONA_LINK_CONTROL            0x00000004u
+#define REFMEM_APP_PERSONA_GATEWAY                 0x00000008u
+#define REFMEM_APP_PERSONA_MODEL_INSTRUMENTS       0x00000010u
 #define REFMEM_APP_PERSONA_SPARE                   0x00000020u
 
 #define REFMEM_APP_RESOURCE_FLASH                  0x00000001u
@@ -63,6 +65,13 @@
 #define REFMEM_APP_IO_LINK_CONTROL                 0x00000008u
 #define REFMEM_APP_IO_BISS_C                       0x00000010u
 #define REFMEM_APP_IO_UART_RS485                   0x00000020u
+
+#define REFMEM_APP_IP_PULSE_CAPTURE                0x00000001u
+#define REFMEM_APP_IP_PULSE_FIRE                   0x00000002u
+#define REFMEM_APP_IP_LINK_SEQUENCE                0x00000004u
+#define REFMEM_APP_IP_BISS_C_CODEC                 0x00000008u
+#define REFMEM_APP_IP_RJ45_SYNC_DELTA              0x00000010u
+#define REFMEM_APP_IP_VDC_DPLL                     0x00000020u
 
 typedef enum {
     REFMEM_APP_FAIL_STOP = 0u,
@@ -95,6 +104,7 @@ typedef enum {
     REFMEM_APP_FB_MODEL_TURNTABLE = 9u,
     REFMEM_APP_FB_PULSE_COUNTER = 10u,
     REFMEM_APP_FB_INSTRUMENT_CONTROLLER = 11u,
+    REFMEM_APP_FB_LINK_SWITCHER = 12u,
 } refmem_app_fb_type_t;
 
 typedef enum {
@@ -325,6 +335,7 @@ typedef struct {
     uint32_t enable_condition;
     uint32_t resource_claim;
     uint32_t io_claim;
+    uint32_t ip_core_claim;
     uint32_t time_budget_us;
     uint32_t state_slot_ref;
     uint32_t health_slot_ref;
