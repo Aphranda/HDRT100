@@ -8,6 +8,33 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-005 - TableRegistry package staging 表级 CRC 纠偏
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 修复 `.rmtp` `LOAD:SD` staging 中 `RefMemTableRegistry` 把同一个 package CRC 写入所有 table entry `staging_crc32` 的结构性偏离。
+  - 将 package descriptor 与 table entry 的职责分开：descriptor 记录包级 CRC/mask/path，entry 记录对应表自己的 CRC、CRC_OK/OWNER_OK 状态和 owner validation 覆盖情况。
+- 完成内容：
+  - `refmem_table_package_validation_t` 增加 `table_mask`、`table_crc32[9]` 和 `owner_validated_table_mask`。
+  - `.rmtp` parser 在 directory 校验通过时保存每张表的 CRC；BoardCapability/GenericNode owner contract 通过后只把 table 1/2 标记进 `owner_validated_table_mask`。
+  - 新增 `refmem_table_registry_stage_package_validation()`，用 package validation summary 更新 per-table staging entry：所有表进入 `CRC_OK`，当前已 owner validation 的 BoardCapability/GenericNode 进入 `OWNER_OK`。
+  - staging descriptor 的 `package_crc32` 保持包级 CRC；由于其余七张表仍未 owner validation，descriptor state 保持 `CRC_OK`，不能被 `activate_staging()` 当作完整 `OWNER_OK` active image 激活。
+  - `SYSTem:REFMEM:LOAD:SD` 在 package parser 通过后调用新的 package staging API，`SYSTem:REFMEM:TABle? <id>` 可观察真实表级 staging CRC。
+  - 单元测试补充 per-table CRC、partial owner state 和 partial owner staging 不可激活的约束。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814170816`，package CRC `0x9B75313C`。
+- 还需完成：
+  - 将其余七张 `.rmtp` 表升级为真实表镜像并接入 owner validation，使完整 package staging descriptor 能从 `CRC_OK` 进入 `OWNER_OK`。
+  - 将 owner validation reason/evidence 进一步落入 table entry 的 `last_result/evidence_index`，而不是只保留 validation summary。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_table_registry.h`
+  - `components/distributed_refmem/src/refmem_table_registry.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tests/unit/test_refmem_table_registry.c`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+
 ### REFMEM-TASK-20260815-004 - RMTP table image 生成器共享基础件
 
 - 状态：完成

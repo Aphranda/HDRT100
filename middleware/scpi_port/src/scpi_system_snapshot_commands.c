@@ -372,6 +372,9 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
 
     refmem_application_model_load_snapshot_t snapshot;
     refmem_application_model_get_load_snapshot(&snapshot);
+    if (staged && package_valid) {
+        (void)refmem_table_registry_stage_package_validation(&snapshot, &validation);
+    }
     SCPI_ResultText(context, staged ? "STAGED" : "REJECTED");
     scpi_refmem_result_load_snapshot(context, &snapshot);
     return SCPI_RES_OK;

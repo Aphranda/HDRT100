@@ -117,8 +117,11 @@ typedef struct {
     uint32_t format_version;
     uint32_t total_size;
     uint32_t table_count;
+    uint32_t table_mask;
     uint32_t payload_crc32;
     uint32_t package_crc32;
+    uint32_t table_crc32[REFMEM_TABLE_REGISTRY_COUNT];
+    uint32_t owner_validated_table_mask;
     uint32_t first_bad_table;
 } refmem_table_package_validation_t;
 
@@ -126,6 +129,9 @@ void refmem_table_registry_init(const refmem_application_model_snapshot_t *model
 void refmem_table_registry_refresh_active(const refmem_application_model_snapshot_t *model);
 void refmem_table_registry_refresh_staging(const refmem_application_model_load_snapshot_t *load);
 bool refmem_table_registry_validate_staging(const refmem_application_model_load_snapshot_t *load);
+bool refmem_table_registry_stage_package_validation(
+    const refmem_application_model_load_snapshot_t *load,
+    const refmem_table_package_validation_t *validation);
 bool refmem_table_registry_stage_table(uint32_t table_id,
                                        uint32_t staging_crc32,
                                        uint32_t validation_state,

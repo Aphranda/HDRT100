@@ -82,6 +82,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 将 `SYSTem:REFMEM:LOAD:SD` 从 manifest 占位升级为 `.rmtp` table image parser 首版，校验 header、table directory、payload CRC、package CRC 和每表 CRC；当前仍只写 staging snapshot，不替换 active。
 - [x] 将 `.rmtp` 中的 `BoardCapabilityTable` 和 `GenericNodeTable` 从 64 字节占位 payload 升级为固定 u32 表镜像；`RefMemTableRegistry` 在 package CRC 通过后解析这两张表并调用 application contract 做 owner validation。
 - [x] 将 RMTP table image 二进制生成逻辑收敛为共享基础件 `tools/refmem_table_image/refmem_table_image.py`，独立 package 工具和 SD System Pack staging 复用同一份 header、directory、表顺序、CRC 和默认表 payload。
+- [x] 将 `.rmtp` package validation summary 写入 `RefMemTableRegistry` per-table staging entry：descriptor 保留 package CRC，entry 使用 table directory CRC；当前只有 BoardCapability/GenericNode 标记 OWNER_OK，其余表保持 CRC_OK 且不得激活为完整 active image。
 - [ ] 将 `.rmtp` 其余表从占位 payload 升级为真实表镜像，并接入各自 owner validation：ApplicationMap、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality。
 - [x] 将 `sd_fs_build.py` 集成 RefMem table image 生成，默认输出 `/refmem/app_model.rmtp`、`/refmem/app_model.idx`、`/refmem/app_model.json`，并在根 `/manifest.idx` 中作为 `required=...,type=refmem_table_image` 引用。
 - [ ] 将 `SYSTem:REFMEM:LOAD:NODE` 从单条候选 snapshot 升级为 staging NodeLoadTable image，支持多条候选、CRC、owner validation 和回滚。

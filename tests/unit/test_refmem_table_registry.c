@@ -398,6 +398,77 @@ static int test_package_owner_validation_accepts_contract_tables(void)
     failed += expect_u32("contract package error",
                          validation.error,
                          REFMEM_TABLE_PACKAGE_OK);
+    failed += expect_u32("contract package table mask",
+                         validation.table_mask,
+                         REFMEM_APP_TABLE_MASK_ALL);
+    failed += expect_u32("contract package owner mask",
+                         validation.owner_validated_table_mask,
+                         (1u << REFMEM_APP_TABLE_BOARD_CAPABILITY) |
+                             (1u << REFMEM_APP_TABLE_GENERIC_NODE));
+    failed += expect_u32("board table crc present",
+                         validation.table_crc32[REFMEM_APP_TABLE_BOARD_CAPABILITY] != 0u ? 1u : 0u,
+                         1u);
+    return failed;
+}
+
+static int test_package_stage_uses_table_crc_and_partial_owner_state(void)
+{
+    int failed = 0;
+    uint8_t package[2048];
+    refmem_table_package_validation_t validation;
+    const size_t package_size = build_test_package(package, sizeof(package), true);
+    const refmem_application_model_snapshot_t model = make_active_model();
+    refmem_application_model_load_snapshot_t load = make_valid_load();
+    refmem_table_activation_gate_t gate = make_pass_gate();
+    refmem_table_registry_entry_t board_entry;
+    refmem_table_registry_entry_t node_load_entry;
+    refmem_table_image_descriptor_t staging;
+
+    failed += expect_bool("contract package validates for stage",
+                          refmem_table_registry_validate_package(package,
+                                                                 package_size,
+                                                                 &validation),
+                          true);
+    load.staging_package_crc32 = validation.package_crc32;
+
+    refmem_table_registry_init(&model);
+    failed += expect_bool("stage package validation",
+                          refmem_table_registry_stage_package_validation(&load, &validation),
+                          true);
+    failed += expect_bool("get board table",
+                          refmem_table_registry_get_entry(REFMEM_APP_TABLE_BOARD_CAPABILITY,
+                                                          &board_entry),
+                          true);
+    failed += expect_bool("get nodeload table",
+                          refmem_table_registry_get_entry(REFMEM_APP_TABLE_NODE_LOAD,
+                                                          &node_load_entry),
+                          true);
+    failed += expect_bool("get staging descriptor",
+                          refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_STAGING,
+                                                                     &staging),
+                          true);
+
+    failed += expect_u32("board staging table crc",
+                         board_entry.staging_crc32,
+                         validation.table_crc32[REFMEM_APP_TABLE_BOARD_CAPABILITY]);
+    failed += expect_u32("board owner ok state",
+                         board_entry.validation_state,
+                         REFMEM_TABLE_VALIDATION_OWNER_OK);
+    failed += expect_u32("nodeload staging table crc",
+                         node_load_entry.staging_crc32,
+                         validation.table_crc32[REFMEM_APP_TABLE_NODE_LOAD]);
+    failed += expect_u32("nodeload crc only state",
+                         node_load_entry.validation_state,
+                         REFMEM_TABLE_VALIDATION_CRC_OK);
+    failed += expect_u32("staging descriptor crc only",
+                         staging.state,
+                         REFMEM_TABLE_VALIDATION_CRC_OK);
+    failed += expect_u32("staging package crc",
+                         staging.package_crc32,
+                         validation.package_crc32);
+    failed += expect_bool("partial owner package cannot activate",
+                          refmem_table_registry_activate_staging(&gate),
+                          false);
     return failed;
 }
 
@@ -411,6 +482,7 @@ int main(void)
     failed += test_invalid_staging_is_not_activated();
     failed += test_package_owner_validation_rejects_placeholder_tables();
     failed += test_package_owner_validation_accepts_contract_tables();
+    failed += test_package_stage_uses_table_crc_and_partial_owner_state();
 
     if (failed != 0) {
         (void)printf("refmem_table_registry tests failed: %d\n", failed);
