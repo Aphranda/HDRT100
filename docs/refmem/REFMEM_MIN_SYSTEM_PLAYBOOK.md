@@ -33,11 +33,12 @@ Board A publishes HELLO / EPOCH / DELTA
 
 当前已验证固件：
 
-| 项目 | 值 |
-|---|---|
-| build id | `20260814104920` |
-| package CRC | `0x2DF62B6E` |
-| SlotClaimMap CRC | `386979554` |
+| 板卡 | build id | package CRC | 说明 |
+|---|---|---|---|
+| COM3 / Board A | `20260814112552` | `0xD7B2581D` | 功能 AO 模板化与 `ModelTurntableAO` 可加载实例验证版。 |
+| COM4 / Board B | `20260814104920` | `0x2DF62B6E` | GPIO4..7 overlay 方向 HIL 已验证参考版。 |
+
+当前 COM3 查询到的 SlotClaimMap CRC 为 `386979554`。
 
 ## 当前 IO Profile
 
@@ -94,6 +95,7 @@ Board A publishes HELLO / EPOCH / DELTA
 - `GPIO4..7` 在 RP2350 上可由 PIO 使用，但当前 overlay 仍需由资源仲裁器和 board profile 显式启用。
 - `GPIO4/5` 与 UART1 TX/RX 兼容定义冲突；最小系统板默认 `PROJECT_ENABLE_UART_STDIO=OFF`，不得在该 overlay 运行时启用 UART1。
 - 该 overlay 是业务模型验证线束，不代表产品板 pin map，也不改变 A0-A7 通用槽位的动态装载原则。
+- 表中的 A1/A2/A3/A4/A5 是当前测试实例选择，不是默认固化绑定；功能节点应由 SCPI 或 SD System Pack staging 显式加载并通过 DeploymentGate 激活。
 
 方向安全预检工具：
 
@@ -174,6 +176,10 @@ python tools\two_board_io_validate\two_board_io_validate.py --port-a COM3 --port
 - COM3/COM4 均更新到 build `20260814104920`，package CRC `0x2DF62B6E`。
 - `python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port-x COM3 --port-y COM4 --out-dir build-rtos-multicore-smoke\debug_model_overlay_COM3_COM4` 通过。
 - overlay HIL 已验证：`GPIO4` X->Y 位置脉冲、`GPIO5` X->Y READY、`GPIO6` Y->X TRIG、`GPIO7` X->Y LINK_SWITCH。
+- COM3 更新到 build `20260814112552`，package CRC `0xD7B2581D`，用于验证功能 AO 模板化和 `ModelTurntableAO` 可加载实例。
+- COM3 验证默认未加载：`READ:MODEl:TURNtable:LOAD?` 返回 `0,4294967295,0`。
+- COM3 验证未加载启动被拒绝：直接 `MODEl:TURNtable:STARt` 后，`SYSTem:ERRor?` 返回 `-200,"Execution error"`。
+- COM3 验证临时加载到 slot 1/output 0：`CONFigure:MODEl:TURNtable:LOAD 1,0` 后 `READ:MODEl:TURNtable:LOAD?` 返回 `1,1,0`，配置触发和运动参数后 `STARt/STOP` 均返回 `"OK"`。
 
 ## 注意事项
 

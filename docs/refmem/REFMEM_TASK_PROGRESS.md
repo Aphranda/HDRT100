@@ -8,6 +8,46 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-043 - 功能 AO 模板化与 ModelTurntableAO 首个可加载实例
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 取消 `TriggerMasterAO`、`TriggerAO`、`LinkSwitcherAO`、`PulseCounterAO`、`InstrumentControllerAO`、`ModelVnaAO` 和 `ModelTurntableAO` 的默认固定运行语义。
+  - 保持 A0-A7 为通用逻辑槽位，功能节点最终由 SCPI 或 SD System Pack staging 确认装载，不在默认表中写死。
+  - 先落地一个可验证的模拟转台实例，作为后续模型节点实例化的首个样例。
+- 完成内容：
+  - `refmem_application_model.c` 中功能 AO 名称改为 `Template.*` 语义；默认 active 基线只保留基础 RefMem/Loop/System/Calibration 类 owner，功能 AO 作为待加载模板。
+  - `refmem_application_model.h` 增加模型信号 IO claim：`MODEL_TURNTABLE_PULSE`、`MODEL_VNA_READY`、`MODEL_VNA_TRIGGER` 和 `LINK_SWITCH_EVENT`。
+  - `refmem_realtime_contract.c` 将模型信号 IO claim 映射为 `PIO + DMA + CORE1_RT` 实时能力需求。
+  - 新增 `components/model_turntable`，实现模拟转台脉冲发生器：支持扫描起止/步长、脉宽、边沿、超时、速度和加速度配置；脉冲间隔按加速、匀速、减速形成疏密变化。
+  - 新增 `SCPI_MODEL_COMMANDS`，提供 `CONFigure:MODEl:TURNtable:*`、`READ:MODEl:TURNtable:*` 和 `MODEl:TURNtable:STARt/STOP`。
+  - 当前 debug 输出经 `sync_io_debug_model_write_pin()` 驱动 GPIO4..7 overlay；后续应迁移到 PIO/DMA/core1 预约输出。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814112552`，package CRC `0xD7B2581D`。
+  - `python tools\ota_send\ota_send.py COM3 build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python tools\ota_boot_commit\ota_boot_commit.py COM3 --expected-build 20260814112552 --out-dir build-rtos-multicore-smoke\ota_boot_commit_model_template_COM3` 通过，COM3 commit 成功。
+  - COM3 查询 `READ:MODEl:TURNtable:LOAD?` 返回 `0,4294967295,0`，确认默认未加载。
+  - 未加载时执行 `MODEl:TURNtable:STARt` 后，`SYSTem:ERRor?` 返回 `-200,"Execution error"`，符合必须先 LOAD 的约束。
+  - 执行 `CONFigure:MODEl:TURNtable:LOAD 1,0` 后，`READ:MODEl:TURNtable:LOAD?` 返回 `1,1,0`。
+  - 执行 `CONFigure:MODEl:TURNtable:TRIGger 0,0,10,1,2000,1,-1` 和 `CONFigure:MODEl:TURNtable:MOTion 10,20` 后，`MODEl:TURNtable:STARt/STOP` 均返回 `"OK"`，最终 `SYSTem:ERRor?` 为 `0,"No error"`。
+- 还需完成：
+  - 将 `ModelTurntableAO` 的 LOAD 结果接入 RefMem NodeLoad staging / activation，而不是只停留在本地运行时状态。
+  - 将 debug GPIO 输出迁移为 PIO/DMA/core1 预约输出，并把脉冲计数、last tick、profile phase 写入 RefMem snapshot。
+  - 按同一模式补 `ModelVnaAO`、`LinkSwitcherAO`、`PulseDistributorAO` 和 `VnaGatewayAO` 的可加载实例。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `components/distributed_refmem/src/refmem_realtime_contract.c`
+  - `components/model_turntable/inc/model_turntable.h`
+  - `components/model_turntable/src/model_turntable.c`
+  - `middleware/scpi_port/inc/scpi_model_commands.h`
+  - `middleware/scpi_port/src/scpi_model_commands.c`
+  - `components/sync_io/inc/sync_io.h`
+  - `components/sync_io/src/sync_io.c`
+- 下一步：
+  - 继续推进 P4.6 最小业务 HIL，先让模拟转台脉冲由可加载实例驱动，再由对端捕获并形成 VDC/RefMem 时间事实。
+
 ### REFMEM-TASK-20260814-042 - GPIO4..7 overlay 维护接口与预检工具
 
 - 状态：完成

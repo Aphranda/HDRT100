@@ -191,6 +191,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_vector_table.c
         components/event_bus/src/event_bus.c
         components/loop_engine/src/loop_engine.c
+        components/model_turntable/src/model_turntable.c
         components/ota_manager/src/ota_ao.c
         components/ota_manager/src/ota_fb.c
         components/ota_manager/src/ota_crc32.c
@@ -240,6 +241,7 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_port.c
         middleware/scpi_port/src/scpi_loop_engine_commands.c
         middleware/scpi_port/src/scpi_measure_commands.c
+        middleware/scpi_port/src/scpi_model_commands.c
         middleware/scpi_port/src/scpi_ota_commands.c
         middleware/scpi_port/src/scpi_storage_commands.c
         middleware/scpi_port/src/scpi_realtime_component_commands.c
@@ -328,6 +330,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/components/distributed_refmem/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/event_bus/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/loop_engine/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/model_turntable/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/product_config/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/resource_arbiter/inc

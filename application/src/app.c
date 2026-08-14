@@ -6,6 +6,7 @@
 #include "distributed_refmem.h"
 #include "event_bus.h"
 #include "loop_engine.h"
+#include "model_turntable.h"
 #include "ota_ao.h"
 #include "product_config.h"
 #include "resource_arbiter.h"
@@ -68,6 +69,11 @@ bool app_init(void)
 
     if (!loop_engine_init()) {
         diagnostics_mark_fault("loop_engine", "loop engine initialization failed");
+        return false;
+    }
+
+    if (!model_turntable_init()) {
+        diagnostics_mark_fault("model_turntable", "model turntable initialization failed");
         return false;
     }
 
@@ -170,6 +176,7 @@ void app_storage_service(void)
 void app_realtime_run_once(void)
 {
     diagnostics_record_core1_loop();
+    model_turntable_service();
     sync_trigger_service();
     trigger_measure_service();   /* 同步自检: 门控测量非阻塞服务 */
 }

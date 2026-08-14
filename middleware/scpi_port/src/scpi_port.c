@@ -20,6 +20,7 @@
 #include "scpi/scpi.h"
 #include "scpi_loop_engine_commands.h"
 #include "scpi_measure_commands.h"
+#include "scpi_model_commands.h"
 #include "scpi_ota_commands.h"
 #include "scpi_port_internal.h"
 #include "scpi_realtime_component_commands.h"
@@ -277,6 +278,7 @@ static const scpi_command_t s_scpi_commands[] = {
     SCPI_USB_CONTROL_COMMANDS,
 #endif
     SCPI_STORAGE_COMMANDS,
+    SCPI_MODEL_COMMANDS,
     SCPI_MEASURE_COMMANDS,
     SCPI_CMD_LIST_END,
 };
