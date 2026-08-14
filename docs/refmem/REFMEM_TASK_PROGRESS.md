@@ -8,6 +8,37 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-046 - RefMem Sync HELLO/EPOCH SCPI 搬运闭环入口
+
+- 状态：代码完成，待两板烧录 HIL
+- 日期：2026-08-14
+- 任务目标：
+  - 在真实 PIO SPI 物理 adapter 完成前，先通过系统维护面把 RefMem Sync frame 在两块最小系统板之间搬运起来。
+  - 验证 HELLO/EPOCH 的 frame encode、adapter RX staging、receive state machine、peer snapshot 和 quality counter，不直接修改 active RefMem fact。
+- 完成内容：
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c` 增加 `SYSTem:REFMEM:SYNC:*` 维护入口：`INITialize`、`HELLo?`、`EPOCh?`、`RX`、`PEER?`、`QUALity?`、`ADAPter?`。
+  - `HELLo?` 从 BoardCapabilityTable、ApplicationModel snapshot、adapter caps 和 build id 摘要生成 HELLO frame。
+  - `EPOCh?` 从 TableRegistry/ApplicationModel snapshot 生成首版 EPOCH frame。
+  - `RX` 执行 `hex -> PIO SPI adapter RX staging -> poll -> refmem_sync_receive_frame()`，只更新 sync context 的 peer/quality 状态。
+  - 新增 `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`，固化两板 HELLO/EPOCH 搬运验证，支持 COM 口和 USBTMC VISA resource。
+  - `REFMEM_SYNC_ARCHITECTURE.md` 增加维护面 SCPI bridge 边界，明确该入口不是裸 RefMem 域，也不是 active fact 写入口。
+  - `REFMEM_MIN_SYSTEM_PLAYBOOK.md` 增加两板 HELLO/EPOCH 验证命令、脚本和通过条件。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814133439`，package CRC `0x1926CA52`。
+- 还需完成：
+  - 将新固件 OTA 到 COM3/COM4 两块板。
+  - 运行 `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM3 --port-b COM4 --slot-a 0 --slot-b 1 --epoch 1 --run 1`，归档 transcript 和 summary。
+  - 后续把同一帧通路接到真实 PIO SPI 物理 adapter service，再推进 DELTA、ACK_NACK、FENCE 和 QUALITY。
+- 关联文件：
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 烧录两块板并执行 HELLO/EPOCH HIL；若通过，关闭 P4.5 阶段 2 的 SCPI 搬运闭环，再开始真实 PIO SPI adapter service。
+
 ### REFMEM-TASK-20260814-045 - TableRegistry image descriptor 与 activation 骨架
 
 - 状态：完成

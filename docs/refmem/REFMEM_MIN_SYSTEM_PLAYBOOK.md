@@ -163,6 +163,54 @@ python tools\two_board_io_validate\two_board_io_validate.py --port-a COM3 --port
 | 阶段 3 | `REFMEM_DELTA` mirror、snapshot visible 和 `ACK_NACK`。 |
 | 阶段 4 | `REFMEM_FENCE` 与 `QUALITY` 闭环。 |
 
+## HELLO/EPOCH SCPI 搬运闭环
+
+阶段 2 先通过 SCPI 维护面搬运 RefMem Sync frame，验证协议状态机和两板 peer/quality 对齐；这不是最终物理链路，也不绕过 HAOFV 修改 active fact。真实 PIO SPI adapter 接入后，应复用同一帧格式和接收状态机。
+
+板端维护入口：
+
+| 命令 | 作用 |
+|---|---|
+| `SYSTem:REFMEM:SYNC:INITialize <local_slot>,<epoch>,<run>` | 初始化本板 sync context 和 PIO SPI adapter skeleton。 |
+| `SYSTem:REFMEM:SYNC:HELLo? <source_slot>,<target_mask>,<seq>` | 生成 HELLO frame，返回 frame size、header 摘要和 hex frame。 |
+| `SYSTem:REFMEM:SYNC:EPOCh? <source_slot>,<target_mask>,<seq>` | 生成 EPOCH frame，返回 frame size、header 摘要和 hex frame。 |
+| `SYSTem:REFMEM:SYNC:RX "<hex>"` | 将 hex frame 注入 adapter RX staging，poll 后送入 `refmem_sync_receive_frame()`。 |
+| `SYSTem:REFMEM:SYNC:PEER? <source_slot>` | 查询指定对端的 seen、HELLO、EPOCH、seq、drop/stale 状态。 |
+| `SYSTem:REFMEM:SYNC:QUALity?` | 查询本板 sync 接收质量计数。 |
+| `SYSTem:REFMEM:SYNC:ADAPter?` | 查询 adapter caps/counter snapshot。 |
+
+两板脚本：
+
+```powershell
+python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM3 --port-b COM4 --slot-a 0 --slot-b 1 --epoch 1 --run 1
+```
+
+如果固件切到 USBTMC，可改用 VISA resource：
+
+```powershell
+python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --visa-a USB::... --visa-b USB::... --slot-a 0 --slot-b 1 --epoch 1 --run 1
+```
+
+脚本执行顺序：
+
+```text
+A INIT(slot 0, epoch 1, run 1)
+B INIT(slot 1, epoch 1, run 1)
+A HELLO? -> B RX
+B HELLO? -> A RX
+A EPOCH? -> B RX
+B EPOCH? -> A RX
+A PEER?(B), B PEER?(A), A/B QUALITY?
+```
+
+通过条件：
+
+- 两板 `RX` 都返回 `ACCEPTED`。
+- 两板 peer 均 `hello_seen=1` 且 `epoch_seen=1`。
+- 两板 quality 中 `accepted_count>=2`，`bad_frame_count/crc_error_count/target_mismatch_count/epoch_mismatch_count=0`。
+- target mask 必须包含接收板 local slot，否则应被 `TARGET_MISMATCH` 拒绝。
+- EPOCH 必须匹配接收板 active epoch/run，否则应被 `EPOCH_MISMATCH` 拒绝。
+
 ## 执行日志
 
 ### 2026-08-14
@@ -180,6 +228,9 @@ python tools\two_board_io_validate\two_board_io_validate.py --port-a COM3 --port
 - COM3 验证默认未加载：`READ:MODEl:TURNtable:LOAD?` 返回 `0,4294967295,0`。
 - COM3 验证未加载启动被拒绝：直接 `MODEl:TURNtable:STARt` 后，`SYSTem:ERRor?` 返回 `-200,"Execution error"`。
 - COM3 验证临时加载到 slot 1/output 0：`CONFigure:MODEl:TURNtable:LOAD 1,0` 后 `READ:MODEl:TURNtable:LOAD?` 返回 `1,1,0`，配置触发和运动参数后 `STARt/STOP` 均返回 `"OK"`。
+- 新增 `SYSTem:REFMEM:SYNC:*` 维护入口，可在两板之间通过 SCPI 搬运 HELLO/EPOCH hex frame；该入口只操作 sync context、adapter skeleton 和 peer/quality snapshot，不直接改 active RefMem 表。
+- 新增 `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`，固化两板 HELLO/EPOCH 搬运验证流程，支持 USB CDC COM 口和 USBTMC VISA resource。
+- 当前构建验证通过：build id `20260814133439`，package CRC `0x1926CA52`；尚未完成两板烧录和板端 HIL 运行。
 
 ## 注意事项
 

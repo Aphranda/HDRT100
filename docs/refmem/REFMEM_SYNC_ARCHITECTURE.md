@@ -141,6 +141,29 @@ adapter 替换关系：
 | RJ45_SYNC_RING | 后续多板环路或差分同步承载。 | 不暴露远端裸内存，只承载协议帧和 timestamp。 |
 | UART / RS485 | 维护、低速节点或扩展节点。 | 可降级参与 sync，但必须服从同一 fence/quality 规则。 |
 
+## 维护面 SCPI Bridge
+
+`SYSTem:REFMEM:SYNC:*` 是 RefMem Sync 的调试/维护 bridge，只用于构造协议帧、把外部工具搬运来的 frame 注入 adapter RX staging、查询 peer/quality/counter snapshot。它仍归属系统维护命名空间，不建立裸顶级 `REFMEM` SCPI 域。
+
+该 bridge 的边界：
+
+- `HELLo?` / `EPOCh?` 只生成总线无关 RefMem Sync frame，返回 header 摘要和 hex payload。
+- `RX` 只执行 `hex -> adapter RX staging -> adapter poll -> refmem_sync_receive_frame()`。
+- `PEER?` / `QUALity?` / `ADAPter?` 只读取本地 sync context 和 adapter snapshot。
+- 维护 bridge 不直接修改 active ApplicationModel、SlotClaimMap、DataLink 或 64 KB RefMem active fact。
+- 维护 bridge 不替代真实 transport adapter；真实 PIO SPI、BISS-C、RJ45、UART 或 RS485 接入后必须复用相同 frame validate / receive / quality 语义。
+
+两板 bring-up 可以先由 PC 工具在两块板之间搬运 hex frame，以便隔离验证协议状态机：
+
+```text
+Board A HELLo? -> PC tool -> Board B RX
+Board B HELLo? -> PC tool -> Board A RX
+Board A EPOCh? -> PC tool -> Board B RX
+Board B EPOCh? -> PC tool -> Board A RX
+```
+
+这个阶段证明的是 HELLO/EPOCH 语义、target mask、epoch/run gate、seq 和 quality 计数。它不证明最终物理链路时序，也不证明 DELTA mirror、ACK_NACK 或 FENCE 已可用于 RUN gate。
+
 首版语义验证路径：
 
 ```text

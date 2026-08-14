@@ -2,13 +2,18 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "distributed_config.h"
 #include "distributed_refmem.h"
 #include "osal.h"
 #include "project_build_info.h"
 #include "refmem_application_model.h"
+#include "refmem_pio_spi_adapter.h"
 #include "refmem_slot_claim.h"
+#include "refmem_sync.h"
+#include "refmem_sync_hello.h"
 #include "refmem_table_registry.h"
 #include "scpi_port_internal.h"
 #include "storage_manager.h"
@@ -19,6 +24,23 @@
 #define SCPI_REFMEM_PACKAGE_PATH "/refmem/app_model.rmtp"
 #define SCPI_REFMEM_PACKAGE_READ_CHUNK 128u
 #define SCPI_REFMEM_LOAD_MAX_BYTES 4096u
+#define SCPI_REFMEM_SYNC_FRAME_MAX (REFMEM_SYNC_FRAME_HEADER_SIZE + REFMEM_SYNC_FRAME_PAYLOAD_MAX)
+#define SCPI_REFMEM_SYNC_HEX_MAX ((SCPI_REFMEM_SYNC_FRAME_MAX * 2u) + 1u)
+#define SCPI_REFMEM_SYNC_DEFAULT_EPOCH 1u
+#define SCPI_REFMEM_SYNC_DEFAULT_RUN 1u
+#define SCPI_REFMEM_SYNC_DEFAULT_MAX_PAYLOAD REFMEM_SYNC_FRAME_PAYLOAD_MAX
+#define SCPI_REFMEM_SYNC_DEFAULT_MTU SCPI_REFMEM_SYNC_FRAME_MAX
+#define SCPI_REFMEM_SYNC_DEFAULT_LATENCY_US 50u
+
+typedef struct {
+    refmem_sync_context_t context;
+    refmem_pio_spi_adapter_t adapter;
+    uint32_t tx_seq32;
+    refmem_sync_rx_snapshot_t last_rx;
+    uint32_t initialized;
+} scpi_refmem_sync_state_t;
+
+static scpi_refmem_sync_state_t s_refmem_sync;
 
 static bool scpi_refmem_wait_storage_job(uint32_t job_id);
 static bool scpi_refmem_read_package(const char *path,
@@ -32,6 +54,31 @@ static void scpi_refmem_result_load_snapshot(scpi_t *context,
 static void scpi_refmem_result_board_load_snapshot(
     scpi_t *context,
     const refmem_board_capability_load_snapshot_t *snapshot);
+static bool scpi_refmem_sync_ensure_initialized(void);
+static uint32_t scpi_refmem_sync_build_id_crc32(void);
+static bool scpi_refmem_sync_build_hello_frame(uint8_t source_slot,
+                                               uint8_t target_mask,
+                                               uint32_t seq32,
+                                               uint8_t *frame,
+                                               size_t frame_capacity,
+                                               size_t *frame_size);
+static bool scpi_refmem_sync_build_epoch_frame(uint8_t source_slot,
+                                               uint8_t target_mask,
+                                               uint32_t seq32,
+                                               uint8_t *frame,
+                                               size_t frame_capacity,
+                                               size_t *frame_size);
+static void scpi_refmem_sync_result_rx_snapshot(scpi_t *context,
+                                                const refmem_sync_rx_snapshot_t *snapshot);
+static void scpi_refmem_sync_hex_encode(const uint8_t *data,
+                                        size_t data_size,
+                                        char *hex,
+                                        size_t hex_size);
+static bool scpi_refmem_sync_hex_decode(const char *hex,
+                                        size_t hex_len,
+                                        uint8_t *output,
+                                        size_t output_size,
+                                        size_t *decoded_size);
 
 scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context)
 {
@@ -437,6 +484,279 @@ scpi_result_t scpi_cmd_refmem_table_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_sync_init(scpi_t *context)
+{
+    uint32_t local_slot = 0u;
+    uint32_t epoch_id = SCPI_REFMEM_SYNC_DEFAULT_EPOCH;
+    uint32_t run_id = SCPI_REFMEM_SYNC_DEFAULT_RUN;
+    if (!scpi_port_read_u32(context, &local_slot)) {
+        return SCPI_RES_ERR;
+    }
+    (void)SCPI_ParamUInt32(context, &epoch_id, FALSE);
+    (void)SCPI_ParamUInt32(context, &run_id, FALSE);
+    if (local_slot >= REFMEM_SYNC_NODE_COUNT ||
+        !refmem_sync_init(&s_refmem_sync.context, (uint8_t)local_slot, epoch_id, run_id) ||
+        !refmem_pio_spi_adapter_init(&s_refmem_sync.adapter,
+                                     SCPI_REFMEM_SYNC_DEFAULT_MAX_PAYLOAD,
+                                     SCPI_REFMEM_SYNC_DEFAULT_MTU,
+                                     SCPI_REFMEM_SYNC_DEFAULT_LATENCY_US)) {
+        scpi_port_push_exec_error(context, "REFMEM_SYNC_INIT");
+        return SCPI_RES_ERR;
+    }
+
+    memset(&s_refmem_sync.last_rx, 0, sizeof(s_refmem_sync.last_rx));
+    s_refmem_sync.tx_seq32 = 1u;
+    s_refmem_sync.initialized = 1u;
+
+    refmem_transport_caps_t caps;
+    (void)refmem_pio_spi_adapter_get_caps(&s_refmem_sync.adapter, &caps);
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, s_refmem_sync.context.local_slot);
+    SCPI_ResultUInt32(context, s_refmem_sync.context.active_epoch_id);
+    SCPI_ResultUInt32(context, s_refmem_sync.context.active_run_id);
+    SCPI_ResultUInt32(context, caps.adapter_id);
+    SCPI_ResultUInt32(context, caps.max_payload_size);
+    SCPI_ResultUInt32(context, caps.preferred_mtu);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_hello_q(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t source_slot = s_refmem_sync.context.local_slot;
+    uint32_t target_mask = 0xFFu;
+    uint32_t seq32 = 0u;
+    (void)SCPI_ParamUInt32(context, &source_slot, FALSE);
+    (void)SCPI_ParamUInt32(context, &target_mask, FALSE);
+    (void)SCPI_ParamUInt32(context, &seq32, FALSE);
+    if (source_slot >= REFMEM_SYNC_NODE_COUNT || target_mask > 0xFFu) {
+        return SCPI_RES_ERR;
+    }
+    if (seq32 == 0u) {
+        seq32 = s_refmem_sync.tx_seq32++;
+    }
+
+    uint8_t frame[SCPI_REFMEM_SYNC_FRAME_MAX];
+    size_t frame_size = 0u;
+    if (!scpi_refmem_sync_build_hello_frame((uint8_t)source_slot,
+                                            (uint8_t)target_mask,
+                                            seq32,
+                                            frame,
+                                            sizeof(frame),
+                                            &frame_size) ||
+        !refmem_pio_spi_adapter_send(&s_refmem_sync.adapter, frame, frame_size)) {
+        scpi_port_push_exec_error(context, "REFMEM_SYNC_HELLO");
+        return SCPI_RES_ERR;
+    }
+
+    refmem_sync_frame_header_t header;
+    (void)refmem_sync_frame_decode_header(frame, frame_size, &header);
+    char hex[SCPI_REFMEM_SYNC_HEX_MAX];
+    scpi_refmem_sync_hex_encode(frame, frame_size, hex, sizeof(hex));
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, frame_size);
+    SCPI_ResultUInt32(context, header.source_slot);
+    SCPI_ResultUInt32(context, header.target_mask);
+    SCPI_ResultUInt32(context, header.epoch_id);
+    SCPI_ResultUInt32(context, header.run_id);
+    SCPI_ResultUInt32(context, header.seq32);
+    SCPI_ResultUInt32(context, header.payload_crc32);
+    SCPI_ResultText(context, hex);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_epoch_q(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t source_slot = s_refmem_sync.context.local_slot;
+    uint32_t target_mask = 0xFFu;
+    uint32_t seq32 = 0u;
+    (void)SCPI_ParamUInt32(context, &source_slot, FALSE);
+    (void)SCPI_ParamUInt32(context, &target_mask, FALSE);
+    (void)SCPI_ParamUInt32(context, &seq32, FALSE);
+    if (source_slot >= REFMEM_SYNC_NODE_COUNT || target_mask > 0xFFu) {
+        return SCPI_RES_ERR;
+    }
+    if (seq32 == 0u) {
+        seq32 = s_refmem_sync.tx_seq32++;
+    }
+
+    uint8_t frame[SCPI_REFMEM_SYNC_FRAME_MAX];
+    size_t frame_size = 0u;
+    if (!scpi_refmem_sync_build_epoch_frame((uint8_t)source_slot,
+                                            (uint8_t)target_mask,
+                                            seq32,
+                                            frame,
+                                            sizeof(frame),
+                                            &frame_size) ||
+        !refmem_pio_spi_adapter_send(&s_refmem_sync.adapter, frame, frame_size)) {
+        scpi_port_push_exec_error(context, "REFMEM_SYNC_EPOCH");
+        return SCPI_RES_ERR;
+    }
+
+    refmem_sync_frame_header_t header;
+    (void)refmem_sync_frame_decode_header(frame, frame_size, &header);
+    char hex[SCPI_REFMEM_SYNC_HEX_MAX];
+    scpi_refmem_sync_hex_encode(frame, frame_size, hex, sizeof(hex));
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, frame_size);
+    SCPI_ResultUInt32(context, header.source_slot);
+    SCPI_ResultUInt32(context, header.target_mask);
+    SCPI_ResultUInt32(context, header.epoch_id);
+    SCPI_ResultUInt32(context, header.run_id);
+    SCPI_ResultUInt32(context, header.seq32);
+    SCPI_ResultUInt32(context, header.payload_crc32);
+    SCPI_ResultText(context, hex);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_rx(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+
+    const char *hex = NULL;
+    size_t hex_len = 0u;
+    if (SCPI_ParamCharacters(context, &hex, &hex_len, TRUE) != TRUE) {
+        return SCPI_RES_ERR;
+    }
+
+    uint8_t frame[SCPI_REFMEM_SYNC_FRAME_MAX];
+    size_t frame_size = 0u;
+    if (!scpi_refmem_sync_hex_decode(hex,
+                                     hex_len,
+                                     frame,
+                                     sizeof(frame),
+                                     &frame_size)) {
+        scpi_port_push_exec_error(context, "REFMEM_SYNC_RX_HEX");
+        return SCPI_RES_ERR;
+    }
+
+    const uint32_t timestamp = osal_tick_ms();
+    if (!refmem_pio_spi_adapter_inject_rx_frame(&s_refmem_sync.adapter,
+                                                frame,
+                                                frame_size,
+                                                timestamp)) {
+        scpi_port_push_exec_error(context, "REFMEM_SYNC_RX_ADAPTER");
+        return SCPI_RES_ERR;
+    }
+
+    uint8_t staged_frame[SCPI_REFMEM_SYNC_FRAME_MAX];
+    size_t staged_size = 0u;
+    if (!refmem_pio_spi_adapter_poll(&s_refmem_sync.adapter,
+                                     staged_frame,
+                                     sizeof(staged_frame),
+                                     &staged_size)) {
+        scpi_port_push_exec_error(context, "REFMEM_SYNC_RX_POLL");
+        return SCPI_RES_ERR;
+    }
+
+    (void)refmem_sync_receive_frame(&s_refmem_sync.context,
+                                    staged_frame,
+                                    staged_size,
+                                    &s_refmem_sync.last_rx);
+    SCPI_ResultText(context, s_refmem_sync.last_rx.accepted != 0u ? "ACCEPTED" : "REJECTED");
+    scpi_refmem_sync_result_rx_snapshot(context, &s_refmem_sync.last_rx);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_peer_q(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t source_slot = 0u;
+    (void)SCPI_ParamUInt32(context, &source_slot, FALSE);
+    if (source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return SCPI_RES_ERR;
+    }
+
+    const refmem_sync_peer_state_t *peer =
+        refmem_sync_get_peer(&s_refmem_sync.context, (uint8_t)source_slot);
+    if (peer == NULL) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, source_slot);
+    SCPI_ResultUInt32(context, peer->seen);
+    SCPI_ResultUInt32(context, peer->hello_seen);
+    SCPI_ResultUInt32(context, peer->epoch_seen);
+    SCPI_ResultUInt32(context, peer->frame_count);
+    SCPI_ResultUInt32(context, peer->duplicate_count);
+    SCPI_ResultUInt32(context, peer->stale_count);
+    SCPI_ResultUInt32(context, peer->drop_count);
+    SCPI_ResultUInt32(context, peer->last_seq32);
+    SCPI_ResultUInt32(context, peer->expected_seq32);
+    SCPI_ResultUInt32(context, peer->last_frame_type);
+    SCPI_ResultUInt32(context, peer->last_compact_time);
+    SCPI_ResultUInt32(context, peer->last_payload_crc32);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_quality_q(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+
+    refmem_sync_quality_counters_t quality;
+    refmem_sync_get_quality(&s_refmem_sync.context, &quality);
+    SCPI_ResultUInt32(context, s_refmem_sync.context.local_slot);
+    SCPI_ResultUInt32(context, s_refmem_sync.context.active_epoch_id);
+    SCPI_ResultUInt32(context, s_refmem_sync.context.active_run_id);
+    SCPI_ResultUInt32(context, quality.frame_rx_count);
+    SCPI_ResultUInt32(context, quality.accepted_count);
+    SCPI_ResultUInt32(context, quality.bad_frame_count);
+    SCPI_ResultUInt32(context, quality.header_error_count);
+    SCPI_ResultUInt32(context, quality.crc_error_count);
+    SCPI_ResultUInt32(context, quality.source_error_count);
+    SCPI_ResultUInt32(context, quality.target_mismatch_count);
+    SCPI_ResultUInt32(context, quality.epoch_mismatch_count);
+    SCPI_ResultUInt32(context, quality.duplicate_count);
+    SCPI_ResultUInt32(context, quality.stale_count);
+    SCPI_ResultUInt32(context, quality.drop_count);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_adapter_q(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+
+    refmem_pio_spi_adapter_snapshot_t snapshot;
+    if (!refmem_pio_spi_adapter_get_snapshot(&s_refmem_sync.adapter, &snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.adapter_id);
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.capability_mask);
+    SCPI_ResultUInt32(context, snapshot.max_payload_size);
+    SCPI_ResultUInt32(context, snapshot.preferred_mtu);
+    SCPI_ResultUInt32(context, snapshot.latency_class_us);
+    SCPI_ResultUInt32(context, snapshot.tx_count);
+    SCPI_ResultUInt32(context, snapshot.rx_count);
+    SCPI_ResultUInt32(context, snapshot.tx_reject_count);
+    SCPI_ResultUInt32(context, snapshot.rx_empty_count);
+    SCPI_ResultUInt32(context, snapshot.bad_frame_count);
+    SCPI_ResultUInt32(context, snapshot.drop_count);
+    SCPI_ResultUInt32(context, snapshot.timeout_count);
+    SCPI_ResultUInt32(context, snapshot.last_error);
+    SCPI_ResultUInt32(context, snapshot.last_tx_size);
+    SCPI_ResultUInt32(context, snapshot.last_rx_size);
+    SCPI_ResultUInt32(context, snapshot.last_rx_timestamp);
+    SCPI_ResultUInt32(context, snapshot.rx_pending);
+    return SCPI_RES_OK;
+}
+
 static bool scpi_refmem_wait_storage_job(uint32_t job_id)
 {
     for (uint32_t i = 0u; i < SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS; i++) {
@@ -575,6 +895,216 @@ static void scpi_refmem_result_board_load_snapshot(
     SCPI_ResultUInt32(context, snapshot->staging_active_default_slot);
     SCPI_ResultUInt32(context, snapshot->staging_online_required);
     SCPI_ResultUInt32(context, snapshot->last_error);
+}
+
+static bool scpi_refmem_sync_ensure_initialized(void)
+{
+    if (s_refmem_sync.initialized != 0u) {
+        return true;
+    }
+
+    const uint8_t local_slot = 0u;
+    if (!refmem_sync_init(&s_refmem_sync.context,
+                          local_slot,
+                          SCPI_REFMEM_SYNC_DEFAULT_EPOCH,
+                          SCPI_REFMEM_SYNC_DEFAULT_RUN) ||
+        !refmem_pio_spi_adapter_init(&s_refmem_sync.adapter,
+                                     SCPI_REFMEM_SYNC_DEFAULT_MAX_PAYLOAD,
+                                     SCPI_REFMEM_SYNC_DEFAULT_MTU,
+                                     SCPI_REFMEM_SYNC_DEFAULT_LATENCY_US)) {
+        return false;
+    }
+    s_refmem_sync.tx_seq32 = 1u;
+    s_refmem_sync.initialized = 1u;
+    return true;
+}
+
+static uint32_t scpi_refmem_sync_build_id_crc32(void)
+{
+    uint32_t hash = 2166136261u;
+    const char *text = g_project_build_id;
+    while (text != NULL && *text != '\0') {
+        hash ^= (uint8_t)*text;
+        hash *= 16777619u;
+        text++;
+    }
+    return hash;
+}
+
+static bool scpi_refmem_sync_build_hello_frame(uint8_t source_slot,
+                                               uint8_t target_mask,
+                                               uint32_t seq32,
+                                               uint8_t *frame,
+                                               size_t frame_capacity,
+                                               size_t *frame_size)
+{
+    refmem_transport_caps_t caps;
+    if (!refmem_pio_spi_adapter_get_caps(&s_refmem_sync.adapter, &caps)) {
+        return false;
+    }
+
+    const refmem_board_capability_table_t *board_table =
+        refmem_application_model_get_board_capability_table();
+    if (board_table == NULL || board_table->board_count == 0u) {
+        return false;
+    }
+    uint32_t board_id = source_slot;
+    if (board_id >= board_table->board_count) {
+        board_id = 0u;
+    }
+    const refmem_application_model_snapshot_t *model =
+        refmem_application_model_get_snapshot();
+    const refmem_application_map_t *application =
+        refmem_application_model_get_application_map();
+
+    refmem_sync_hello_config_t config;
+    memset(&config, 0, sizeof(config));
+    config.build_id_crc32 = scpi_refmem_sync_build_id_crc32();
+    config.layout_version = application != NULL ? application->layout_version : 0u;
+    config.application_crc32 = model != NULL ? model->package_crc32 : 0u;
+    config.config_crc32 = model != NULL ? model->application_map_crc32 : 0u;
+    config.source_slot = source_slot;
+    config.target_mask = target_mask;
+    config.epoch_id = s_refmem_sync.context.active_epoch_id;
+    config.run_id = s_refmem_sync.context.active_run_id;
+    config.seq32 = seq32;
+    config.compact_time = osal_tick_ms();
+
+    refmem_sync_hello_payload_t payload;
+    if (!refmem_sync_hello_payload_from_board(&config,
+                                              &board_table->board[board_id],
+                                              &caps,
+                                              &payload)) {
+        return false;
+    }
+    return refmem_sync_hello_encode_frame(&config,
+                                          &payload,
+                                          frame,
+                                          frame_capacity,
+                                          frame_size);
+}
+
+static bool scpi_refmem_sync_build_epoch_frame(uint8_t source_slot,
+                                               uint8_t target_mask,
+                                               uint32_t seq32,
+                                               uint8_t *frame,
+                                               size_t frame_capacity,
+                                               size_t *frame_size)
+{
+    const refmem_application_model_snapshot_t *model =
+        refmem_application_model_get_snapshot();
+    refmem_table_registry_snapshot_t registry;
+    refmem_table_registry_get_snapshot(&registry);
+    distributed_refmem_status_t status;
+    distributed_refmem_get_status(&status);
+
+    refmem_sync_epoch_payload_t payload;
+    memset(&payload, 0, sizeof(payload));
+    payload.table_seq = status.table_seq;
+    payload.layout_crc32 = registry.registry_crc32;
+    payload.application_crc32 = model != NULL ? model->package_crc32 : 0u;
+    payload.config_crc32 = model != NULL ? model->application_map_crc32 : 0u;
+    payload.calibration_crc32 = model != NULL ? model->deployment_gate_crc32 : 0u;
+    payload.sync_profile_crc32 = model != NULL ? model->connection_quality_crc32 : 0u;
+    payload.quality_epoch = s_refmem_sync.context.active_epoch_id;
+
+    refmem_sync_frame_header_t header;
+    if (!refmem_sync_frame_header_init(&header,
+                                       REFMEM_SYNC_FRAME_EPOCH,
+                                       0u,
+                                       source_slot,
+                                       target_mask,
+                                       s_refmem_sync.context.active_epoch_id,
+                                       s_refmem_sync.context.active_run_id,
+                                       seq32,
+                                       0u,
+                                       osal_tick_ms(),
+                                       &payload,
+                                       sizeof(payload))) {
+        return false;
+    }
+    return refmem_sync_frame_encode(&header,
+                                    &payload,
+                                    sizeof(payload),
+                                    frame,
+                                    frame_capacity,
+                                    frame_size);
+}
+
+static void scpi_refmem_sync_result_rx_snapshot(scpi_t *context,
+                                                const refmem_sync_rx_snapshot_t *snapshot)
+{
+    SCPI_ResultUInt32(context, snapshot->accepted);
+    SCPI_ResultUInt32(context, snapshot->result);
+    SCPI_ResultUInt32(context, snapshot->frame_result);
+    SCPI_ResultUInt32(context, snapshot->header.frame_type);
+    SCPI_ResultUInt32(context, snapshot->header.source_slot);
+    SCPI_ResultUInt32(context, snapshot->header.target_mask);
+    SCPI_ResultUInt32(context, snapshot->header.epoch_id);
+    SCPI_ResultUInt32(context, snapshot->header.run_id);
+    SCPI_ResultUInt32(context, snapshot->header.seq32);
+    SCPI_ResultUInt32(context, snapshot->header.payload_size);
+    SCPI_ResultUInt32(context, snapshot->header.payload_crc32);
+}
+
+static void scpi_refmem_sync_hex_encode(const uint8_t *data,
+                                        size_t data_size,
+                                        char *hex,
+                                        size_t hex_size)
+{
+    static const char digits[] = "0123456789ABCDEF";
+    if (hex == NULL || hex_size == 0u) {
+        return;
+    }
+    if (data == NULL || hex_size < (data_size * 2u) + 1u) {
+        hex[0] = '\0';
+        return;
+    }
+    for (size_t i = 0u; i < data_size; i++) {
+        hex[i * 2u] = digits[(data[i] >> 4u) & 0x0Fu];
+        hex[(i * 2u) + 1u] = digits[data[i] & 0x0Fu];
+    }
+    hex[data_size * 2u] = '\0';
+}
+
+static int scpi_refmem_sync_hex_nibble(char ch)
+{
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return ch - 'A' + 10;
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return ch - 'a' + 10;
+    }
+    return -1;
+}
+
+static bool scpi_refmem_sync_hex_decode(const char *hex,
+                                        size_t hex_len,
+                                        uint8_t *output,
+                                        size_t output_size,
+                                        size_t *decoded_size)
+{
+    if (decoded_size != NULL) {
+        *decoded_size = 0u;
+    }
+    if (hex == NULL || output == NULL || decoded_size == NULL ||
+        (hex_len % 2u) != 0u ||
+        (hex_len / 2u) > output_size) {
+        return false;
+    }
+    for (size_t i = 0u; i < hex_len; i += 2u) {
+        const int high = scpi_refmem_sync_hex_nibble(hex[i]);
+        const int low = scpi_refmem_sync_hex_nibble(hex[i + 1u]);
+        if (high < 0 || low < 0) {
+            return false;
+        }
+        output[i / 2u] = (uint8_t)(((uint8_t)high << 4u) | (uint8_t)low);
+    }
+    *decoded_size = hex_len / 2u;
+    return true;
 }
 
 scpi_result_t scpi_cmd_core_vector_q(scpi_t *context)

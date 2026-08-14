@@ -171,14 +171,18 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 阶段 1：定义 PIO SPI adapter caps 与 `BoardCapabilityTable` / `RealtimeCapabilityContract` 的映射关系。
 - [x] 阶段 2 前置：增加 PIO SPI adapter 单帧 RX staging / loopback 注入能力，先验证 HELLO frame 可被 adapter 接收、缓存、poll 和计数。
 - [x] 阶段 2 前置：增加 `REFMEM_HELLO` payload/frame helper，将 board capability、adapter caps、layout/application/config CRC 组合为标准 HELLO frame。
-- [ ] 阶段 2：实现 `REFMEM_HELLO` 双向发送与接收，交换 layout version、application CRC、capability mask、adapter caps 和 max payload。
-- [ ] 阶段 2：实现 `REFMEM_EPOCH` 对齐，epoch/run/table seq 或 CRC bundle 不匹配时拒绝进入 delta active。
+- [x] 阶段 2 前置：增加 `SYSTem:REFMEM:SYNC:*` 维护入口，支持 `INITialize`、`HELLo?`、`EPOCh?`、`RX`、`PEER?`、`QUALity?`、`ADAPter?`；该入口只搬运协议帧和查询 sync snapshot，不写 active fact。
+- [x] 阶段 2 前置：固化 `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`，通过 SCPI 在两板之间搬运 HELLO/EPOCH hex frame，验证接收状态机、peer 和 quality。
+- [ ] 阶段 2：在两块最小系统板上执行 `REFMEM_HELLO` 双向发送与接收，交换 layout version、application CRC、capability mask、adapter caps 和 max payload，并将结果写入 HIL 报告。
+- [ ] 阶段 2：在两块最小系统板上执行 `REFMEM_EPOCH` 对齐，epoch/run/table seq 或 CRC bundle 不匹配时拒绝进入 delta active，并将结果写入 HIL 报告。
+- [ ] 阶段 2：将当前 SCPI 搬运通路切到真实 PIO SPI 物理 adapter service，保留相同 frame/peer/quality 语义。
 - [ ] 阶段 3：实现最小 `REFMEM_DELTA` test field，从 A 板发布到 B 板 mirror，并切换到 snapshot visible。
 - [ ] 阶段 3：实现 `REFMEM_ACK_NACK` 回传，覆盖 ACK、payload CRC mismatch、duplicate seq 和 target mismatch。
 - [ ] 阶段 4：实现最小 `REFMEM_FENCE`，验证 required 节点 visible 后 fence passed，timeout 后进入 degraded/fault evidence。
 - [ ] 阶段 4：将 PIO SPI adapter 的 CRC/drop/late/timeout 计数映射到 `DistributedConnectionQualityTable`。
-- [x] 增加两板 HIL 工具，顺序管理 COM3/COM4 或用户指定串口生命周期，不并行占用同一端口。
-- [ ] 增加 RefMem sync HIL 报告输出，记录 build id、package CRC、SlotClaimMap CRC、adapter id、线序 remap、delta/fence/quality 结果。
+- [x] 增加两板 HIL 工具，顺序管理 COM3/COM4、用户指定串口或 USBTMC VISA 生命周期，不并行占用同一端口。
+- [x] 增加 RefMem sync HELLO/EPOCH HIL 报告输出，记录命令 transcript、slot、epoch、run、peer 和 quality 结果。
+- [ ] 扩展 RefMem sync HIL 报告输出，记录 build id、package CRC、SlotClaimMap CRC、adapter id、线序 remap、delta/fence/quality 结果。
 
 ## P4.6 - 最小模型系统 GPIO4..7 Overlay
 
@@ -225,7 +229,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 修改 `application/src/app_tasks.c`，把 `task_refmem_sync` 的职责描述收敛到 RefMem Domain owner。
 - [ ] 修改 `application/src/app.c`，逐步去掉直接 `distributed_refmem_*` 调用，改成 RefMem Domain 初始化/service。
 - [x] 修改 `middleware/scpi_port/src/scpi_system_snapshot_commands.c`，保持 `SYSTem:REFMEM:*` 读取 snapshot 或写 staging load 意图，不触发跨板查询或现场 IO，不直接覆盖 active。
-- [ ] 保持 `SYSTem:REFMEM:*` 为系统维护入口，不新增裸顶级 `REFMEM` SCPI 域。
+- [x] 保持 `SYSTem:REFMEM:*` 为系统维护入口，不新增裸顶级 `REFMEM` SCPI 域；`SYSTem:REFMEM:SYNC:*` 只作为调试/维护面的协议帧搬运和状态查询入口。
 - [ ] 在 `SCPI_COMMAND_PLAN.md` 确认 `SYSTem:REFMEM:*` 暴露字段能够覆盖 table registry、slot freshness、ACK/NACK、CRC、stale、quality gate 和 evidence。
 
 ## P7 - 验证
