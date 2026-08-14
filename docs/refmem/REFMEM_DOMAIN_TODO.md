@@ -80,6 +80,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 实现真实 owner validation callback 调度；CRC 通过后仍必须由表 owner 检查字段范围、逻辑一致性、资源冲突和运行门禁。
 - [ ] owner validation callback 结果必须写入 TableRegistry：table id、owner id、validator id、result、reason、evidence index 和失败阶段。
 - [x] 将 `SYSTem:REFMEM:LOAD:SD` 从 manifest 占位升级为 `.rmtp` table image parser 首版，校验 header、table directory、payload CRC、package CRC 和每表 CRC；当前仍只写 staging snapshot，不替换 active。
+- [x] 将 `.rmtp` 中的 `BoardCapabilityTable` 和 `GenericNodeTable` 从 64 字节占位 payload 升级为固定 u32 表镜像；`RefMemTableRegistry` 在 package CRC 通过后解析这两张表并调用 application contract 做 owner validation。
+- [ ] 将 `.rmtp` 其余表从占位 payload 升级为真实表镜像，并接入各自 owner validation：ApplicationMap、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality。
 - [x] 将 `sd_fs_build.py` 集成 RefMem table image 生成，默认输出 `/refmem/app_model.rmtp`、`/refmem/app_model.idx`、`/refmem/app_model.json`，并在根 `/manifest.idx` 中作为 `required=...,type=refmem_table_image` 引用。
 - [ ] 将 `SYSTem:REFMEM:LOAD:NODE` 从单条候选 snapshot 升级为 staging NodeLoadTable image，支持多条候选、CRC、owner validation 和回滚。
 - [ ] 将 `CONFigure:MODEl:TURNtable:LOAD <slot_id>,<output_index>` 映射为 NodeLoad staging 意图：生成或更新 `Template.ModelTurntableAO` 的候选装载记录，并记录 staging seq、slot、resource/io/ip claim 和拒绝原因。
@@ -101,7 +103,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 将 `BoardCapabilityTable` 纳入 `.rmtp` / SD System Pack 的真实表镜像格式，支持 load/dump、CRC、schema version 和 rollbackable active image。
 - [x] 增加受控 SCPI staging 入口 `SYSTem:REFMEM:LOAD:BOARD` / `SYSTem:REFMEM:LOAD:BOARD:STATus?`，用于加载或修改单条 board capability 候选；SCPI 不得直接修改 active BoardCapabilityTable 或 GenericNode active slot fact。
 - [x] 增加 `SYSTem:REFMEM:BOARD?` 和 `SYSTem:REFMEM:TABle? 1`，读取 active board capability snapshot、CRC、table registry validation state、last result 和 evidence；staging 详细字段后续随真实 staging image 增加。
-- [ ] 将 BoardCapabilityTable owner validation 接入 `LOAD:SD` 和后续 `LOAD:BEGIN/DATA/END`：baseline、IO constraint、ip_core、hw_profile_crc、default slot 范围必须通过后才能进入 validated staging。
+- [x] 将 BoardCapabilityTable owner validation 接入 `LOAD:SD` package parser：baseline、IO constraint、ip_core 和 default slot 范围必须通过后才能进入 validated staging；SCPI inline `LOAD:BOARD` 已有同等字段检查。
 - [x] 实现 `SlotClaimMap` 首版本地聚合，记录 A0-A7 active assignment、claim epoch、physical board uuid、loaded instance mask、claim state、reason 和 CRC；当前从 active default profile 派生，尚未接 RJ45 自组网消息。
 - [x] 增加 `SlotClaimEvidence` 或等价诊断视图，记录第 9 到第 16 个未分配候选的 `OVERFLOW` evidence；首版同时记录 duplicate、disabled slot、uuid/hw profile mismatch，并通过 `SYSTem:REFMEM:CLAIM:EVIDence?` 查询。
 - [x] 实现重复 slot claim 检测、缺失稳定 UUID、stale claim、claim CRC 和 map CRC 检查；纯 C 单元测试覆盖 duplicate、缺失 UUID、任意 slot claim、stale、claim CRC、map CRC 和 9-16 candidate overflow。注意：UUID 和硬件 profile 是 BoardCapability 身份/能力事实，不得把 A0-A7 固化为物理板或功能角色。

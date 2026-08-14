@@ -30,6 +30,7 @@ typedef enum {
     REFMEM_TABLE_PACKAGE_ERR_TABLE_COUNT = 5u,
     REFMEM_TABLE_PACKAGE_ERR_CRC = 6u,
     REFMEM_TABLE_PACKAGE_ERR_TABLE_DIR = 7u,
+    REFMEM_TABLE_PACKAGE_ERR_OWNER_VALIDATION = 8u,
 } refmem_table_package_error_t;
 
 typedef enum {

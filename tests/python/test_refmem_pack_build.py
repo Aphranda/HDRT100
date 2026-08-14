@@ -26,6 +26,10 @@ def test_refmem_package_header_and_directory_are_consistent() -> None:
 
 def test_refmem_package_table_entries_match_payloads() -> None:
     package, entries = refmem_pack_build.build_package()
+    expected_sizes = {
+        1: 8 + refmem_pack_build.BOARD_CAPABILITY_COUNT * 9 * 4,
+        2: 8 + refmem_pack_build.NODE_COUNT * 9 * 4,
+    }
 
     for index, entry in enumerate(entries):
         directory_offset = refmem_pack_build.HEADER_SIZE + index * 16
@@ -34,6 +38,12 @@ def test_refmem_package_table_entries_match_payloads() -> None:
 
         assert table_id == entry.table_id == index
         assert offset == entry.offset
-        assert size == entry.size == 64
+        assert size == entry.size == expected_sizes.get(index, 64)
         assert crc32 == entry.crc32 == refmem_pack_build.crc32(payload)
-        assert payload.startswith(refmem_pack_build.DEFAULT_TABLE_NAMES[index].encode("ascii"))
+        if index in expected_sizes:
+            assert struct.unpack_from("<II", payload, 0) == (
+                refmem_pack_build.FORMAT_VERSION,
+                refmem_pack_build.NODE_COUNT,
+            )
+        else:
+            assert payload.startswith(refmem_pack_build.DEFAULT_TABLE_NAMES[index].encode("ascii"))

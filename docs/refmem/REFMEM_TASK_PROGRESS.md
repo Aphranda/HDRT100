@@ -8,6 +8,41 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-003 - RMTP Board/Generic owner validation
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 推进 P0 `.rmtp` 从纯 CRC parser 走向真实表镜像 owner validation。
+  - 先闭环固定 u32 布局的 `BoardCapabilityTable` 和 `GenericNodeTable`，避免继续把 64 字节 placeholder 当成可验证表。
+- 完成内容：
+  - `tools/refmem_pack_build/refmem_pack_build.py` 和 `tools/sd_fs_build/sd_fs_build.py` 生成真实 `BoardCapabilityTable` / `GenericNodeTable` payload；其他表暂时仍是 placeholder，后续逐表替换。
+  - `RefMemTableRegistry` 在 `.rmtp` header、directory、payload、package 和单表 CRC 通过后，解析 table 1/2，并调用 `refmem_application_contract_validate_slot_substrate()` 做 owner validation。
+  - `refmem_table_package_error_t` 增加 `REFMEM_TABLE_PACKAGE_ERR_OWNER_VALIDATION`，旧 placeholder package 会被拒绝，`first_bad_table` 指向 table 1。
+  - `tests/unit/test_refmem_table_registry.c` 增加旧 placeholder package 拒绝和 contract table package 接受两条回归。
+  - `tests/python/test_refmem_pack_build.py` 更新表 1/2 的期望尺寸，确认 payload header 为 `version,node_count`。
+  - `REFMEM_DOMAIN_TODO.md` 标记 BoardCapabilityTable 的 `LOAD:SD` owner validation 完成，并新增其余表真实镜像待办。
+- 验证结果：
+  - `python -m pytest tests\python\test_refmem_pack_build.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_application_contract_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python -m py_compile tools\sd_fs_build\sd_fs_build.py tools\refmem_pack_build\refmem_pack_build.py` 通过。
+  - `python tools\refmem_pack_build\refmem_pack_build.py --output-dir build-rtos-multicore-smoke\refmem_pack_owner_contract` 通过。
+  - `python tools\sd_fs_build\sd_fs_build.py --build-dir build-rtos-multicore-smoke --output-dir build-rtos-multicore-smoke\sdcard_owner_contract --clean` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `git diff --check` 通过；仅报告工作区 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814164837`，package CRC `0xC2461ED3`。
+- 还需完成：
+  - 将其余七张 `.rmtp` 表升级为真实表镜像，并按 ApplicationMap/NodeLoad/FB/Event/Data/Gate/Quality owner contract 逐表校验。
+  - 将 package owner validation 结果进一步写入 TableRegistry evidence，而不是只返回 package validation error。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_table_registry.h`
+  - `components/distributed_refmem/src/refmem_table_registry.c`
+  - `tools/refmem_pack_build/refmem_pack_build.py`
+  - `tools/sd_fs_build/sd_fs_build.py`
+  - `tests/unit/test_refmem_table_registry.c`
+  - `tests/python/test_refmem_pack_build.py`
+
 ### REFMEM-TASK-20260815-002 - Realtime contract 入口收敛到 SlotClaimMap
 
 - 状态：完成

@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "refmem_application_contract.h"
 #include "refmem_vector_table.h"
 
 static refmem_table_registry_entry_t s_registry[REFMEM_TABLE_REGISTRY_COUNT];
@@ -40,6 +41,118 @@ static uint32_t refmem_table_read_u32_le(const uint8_t *data)
            ((uint32_t)data[1] << 8) |
            ((uint32_t)data[2] << 16) |
            ((uint32_t)data[3] << 24);
+}
+
+static bool refmem_table_registry_parse_board_capability(
+    const uint8_t *data,
+    size_t size,
+    refmem_board_capability_table_t *table)
+{
+    if (data == NULL ||
+        table == NULL ||
+        size != sizeof(refmem_board_capability_table_t)) {
+        return false;
+    }
+
+    memset(table, 0, sizeof(*table));
+    table->version = refmem_table_read_u32_le(&data[0]);
+    table->board_count = refmem_table_read_u32_le(&data[4]);
+    size_t cursor = 8u;
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT; i++) {
+        refmem_board_capability_entry_t *board = &table->board[i];
+        board->board_id = refmem_table_read_u32_le(&data[cursor + 0u]);
+        board->board_uuid_crc32 = refmem_table_read_u32_le(&data[cursor + 4u]);
+        board->capability_mask = refmem_table_read_u32_le(&data[cursor + 8u]);
+        board->io_constraint_mask = refmem_table_read_u32_le(&data[cursor + 12u]);
+        board->ip_core_mask = refmem_table_read_u32_le(&data[cursor + 16u]);
+        board->default_persona_mask = refmem_table_read_u32_le(&data[cursor + 20u]);
+        board->hw_profile_crc32 = refmem_table_read_u32_le(&data[cursor + 24u]);
+        board->active_default_slot = refmem_table_read_u32_le(&data[cursor + 28u]);
+        board->online_required = refmem_table_read_u32_le(&data[cursor + 32u]);
+        cursor += 9u * sizeof(uint32_t);
+    }
+    return true;
+}
+
+static bool refmem_table_registry_parse_generic_node(
+    const uint8_t *data,
+    size_t size,
+    refmem_generic_node_table_t *table)
+{
+    if (data == NULL ||
+        table == NULL ||
+        size != sizeof(refmem_generic_node_table_t)) {
+        return false;
+    }
+
+    memset(table, 0, sizeof(*table));
+    table->version = refmem_table_read_u32_le(&data[0]);
+    table->node_count = refmem_table_read_u32_le(&data[4]);
+    size_t cursor = 8u;
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_NODE_COUNT; i++) {
+        refmem_app_node_entry_t *node = &table->node[i];
+        node->node_id = refmem_table_read_u32_le(&data[cursor + 0u]);
+        node->node_uuid_crc32 = refmem_table_read_u32_le(&data[cursor + 4u]);
+        node->capability_mask = refmem_table_read_u32_le(&data[cursor + 8u]);
+        node->claim_policy = refmem_table_read_u32_le(&data[cursor + 12u]);
+        node->claim_priority = refmem_table_read_u32_le(&data[cursor + 16u]);
+        node->default_persona_mask = refmem_table_read_u32_le(&data[cursor + 20u]);
+        node->hw_profile_crc32 = refmem_table_read_u32_le(&data[cursor + 24u]);
+        node->online_required = refmem_table_read_u32_le(&data[cursor + 28u]);
+        node->fail_policy = refmem_table_read_u32_le(&data[cursor + 32u]);
+        cursor += 9u * sizeof(uint32_t);
+    }
+    return true;
+}
+
+static bool refmem_table_registry_validate_package_owner_contract(
+    const uint8_t *data,
+    const uint32_t *table_offset,
+    const uint32_t *table_size,
+    uint32_t table_count,
+    uint32_t *first_bad_table)
+{
+    if (data == NULL ||
+        table_offset == NULL ||
+        table_size == NULL ||
+        table_count != REFMEM_TABLE_REGISTRY_COUNT) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = 0u;
+        }
+        return false;
+    }
+
+    refmem_board_capability_table_t board_table;
+    refmem_generic_node_table_t node_table;
+    const uint32_t board_id = REFMEM_APP_TABLE_BOARD_CAPABILITY;
+    const uint32_t node_id = REFMEM_APP_TABLE_GENERIC_NODE;
+
+    if (!refmem_table_registry_parse_board_capability(data + table_offset[board_id],
+                                                      table_size[board_id],
+                                                      &board_table)) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = board_id;
+        }
+        return false;
+    }
+
+    if (!refmem_table_registry_parse_generic_node(data + table_offset[node_id],
+                                                  table_size[node_id],
+                                                  &node_table)) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = node_id;
+        }
+        return false;
+    }
+
+    if (!refmem_application_contract_validate_slot_substrate(&node_table, &board_table)) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = board_id;
+        }
+        return false;
+    }
+
+    return true;
 }
 
 static uint32_t refmem_table_package_crc32_zero_field(const uint8_t *data,
@@ -497,6 +610,8 @@ bool refmem_table_registry_validate_package(const uint8_t *data,
             result.error = REFMEM_TABLE_PACKAGE_ERR_CRC;
         } else {
             result.error = REFMEM_TABLE_PACKAGE_OK;
+            uint32_t table_offset[REFMEM_TABLE_REGISTRY_COUNT] = {0u};
+            uint32_t table_size_bytes[REFMEM_TABLE_REGISTRY_COUNT] = {0u};
             for (uint32_t i = 0u; i < result.table_count; i++) {
                 const uint8_t *entry =
                     data + header_size + i * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE;
@@ -514,6 +629,16 @@ bool refmem_table_registry_validate_package(const uint8_t *data,
                     result.first_bad_table = i;
                     break;
                 }
+                table_offset[i] = offset;
+                table_size_bytes[i] = table_size;
+            }
+            if (result.error == REFMEM_TABLE_PACKAGE_OK &&
+                !refmem_table_registry_validate_package_owner_contract(data,
+                                                                       table_offset,
+                                                                       table_size_bytes,
+                                                                       result.table_count,
+                                                                       &result.first_bad_table)) {
+                result.error = REFMEM_TABLE_PACKAGE_ERR_OWNER_VALIDATION;
             }
         }
     }

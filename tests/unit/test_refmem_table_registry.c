@@ -1,8 +1,21 @@
 #include "refmem_table_registry.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+
+uint32_t ota_crc32_update(uint32_t crc, const uint8_t *data, size_t length)
+{
+    for (size_t i = 0u; i < length; i++) {
+        crc ^= data[i];
+        for (uint32_t bit = 0u; bit < 8u; bit++) {
+            const uint32_t mask = 0u - (crc & 1u);
+            crc = (crc >> 1u) ^ (0xEDB88320u & mask);
+        }
+    }
+    return crc;
+}
 
 static int expect_u32(const char *name, uint32_t actual, uint32_t expected)
 {
@@ -26,6 +39,19 @@ static int expect_bool(const char *name, bool actual, bool expected)
         return 1;
     }
     return 0;
+}
+
+static uint32_t test_crc32(const uint8_t *data, size_t size)
+{
+    return ota_crc32_update(0xFFFFFFFFu, data, size) ^ 0xFFFFFFFFu;
+}
+
+static void write_u32_le(uint8_t *data, uint32_t value)
+{
+    data[0] = (uint8_t)(value & 0xFFu);
+    data[1] = (uint8_t)((value >> 8) & 0xFFu);
+    data[2] = (uint8_t)((value >> 16) & 0xFFu);
+    data[3] = (uint8_t)((value >> 24) & 0xFFu);
 }
 
 static refmem_application_model_snapshot_t make_active_model(void)
@@ -76,6 +102,115 @@ static refmem_table_activation_gate_t make_pass_gate(void)
     gate.deployment_gate_ok = 1u;
     gate.command_ack_ok = 1u;
     return gate;
+}
+
+static void make_valid_board_table(refmem_board_capability_table_t *table)
+{
+    (void)memset(table, 0, sizeof(*table));
+    table->version = REFMEM_APP_MODEL_VERSION;
+    table->board_count = REFMEM_APP_MODEL_NODE_COUNT;
+    for (uint32_t i = 0u; i < table->board_count; i++) {
+        table->board[i].board_id = i;
+        table->board[i].board_uuid_crc32 = 0xB0000000u + i;
+        table->board[i].capability_mask = REFMEM_APP_CAP_BASELINE |
+                                          REFMEM_APP_CAP_PIO |
+                                          REFMEM_APP_CAP_DMA |
+                                          REFMEM_APP_CAP_CORE1_RT;
+        table->board[i].io_constraint_mask = REFMEM_APP_IO_PIO_SPI_SYNC;
+        table->board[i].ip_core_mask = REFMEM_APP_IP_PIO_SPI_SYNC_DELTA;
+        table->board[i].default_persona_mask = REFMEM_APP_PERSONA_SPARE;
+        table->board[i].active_default_slot = i;
+        table->board[i].online_required = 1u;
+    }
+}
+
+static void make_valid_generic_node_table(refmem_generic_node_table_t *table)
+{
+    (void)memset(table, 0, sizeof(*table));
+    table->version = REFMEM_APP_MODEL_VERSION;
+    table->node_count = REFMEM_APP_MODEL_NODE_COUNT;
+    for (uint32_t i = 0u; i < table->node_count; i++) {
+        table->node[i].node_id = i;
+        table->node[i].node_uuid_crc32 = 0xA0000000u + i;
+        table->node[i].capability_mask = REFMEM_APP_CAP_BASELINE |
+                                         REFMEM_APP_CAP_PIO |
+                                         REFMEM_APP_CAP_DMA |
+                                         REFMEM_APP_CAP_CORE1_RT;
+        table->node[i].claim_policy = REFMEM_APP_CLAIM_STRICT_UUID;
+        table->node[i].claim_priority = 100u - i;
+        table->node[i].default_persona_mask = REFMEM_APP_PERSONA_SPARE;
+        table->node[i].online_required = 1u;
+        table->node[i].fail_policy = REFMEM_APP_FAIL_STOP;
+    }
+}
+
+static size_t build_test_package(uint8_t *package,
+                                 size_t package_capacity,
+                                 bool fixed_contract_tables)
+{
+    const size_t dir_size = REFMEM_TABLE_REGISTRY_COUNT *
+                            REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE;
+    uint32_t table_offset[REFMEM_TABLE_REGISTRY_COUNT];
+    uint32_t table_size[REFMEM_TABLE_REGISTRY_COUNT];
+    uint8_t payload[1536];
+    size_t payload_size = 0u;
+
+    for (uint32_t table_id = 0u; table_id < REFMEM_TABLE_REGISTRY_COUNT; table_id++) {
+        table_offset[table_id] = (uint32_t)(REFMEM_TABLE_PACKAGE_HEADER_SIZE +
+                                            dir_size +
+                                            payload_size);
+        if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_BOARD_CAPABILITY) {
+            refmem_board_capability_table_t table;
+            make_valid_board_table(&table);
+            table_size[table_id] = sizeof(table);
+            (void)memcpy(&payload[payload_size], &table, sizeof(table));
+            payload_size += sizeof(table);
+        } else if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_GENERIC_NODE) {
+            refmem_generic_node_table_t table;
+            make_valid_generic_node_table(&table);
+            table_size[table_id] = sizeof(table);
+            (void)memcpy(&payload[payload_size], &table, sizeof(table));
+            payload_size += sizeof(table);
+        } else {
+            table_size[table_id] = 64u;
+            (void)memset(&payload[payload_size], 0, 64u);
+            payload[payload_size] = (uint8_t)('A' + table_id);
+            payload_size += 64u;
+        }
+    }
+
+    const size_t total_size = REFMEM_TABLE_PACKAGE_HEADER_SIZE + dir_size + payload_size;
+    if (package == NULL || package_capacity < total_size) {
+        return 0u;
+    }
+
+    (void)memset(package, 0, total_size);
+    write_u32_le(&package[0], REFMEM_TABLE_PACKAGE_MAGIC);
+    write_u32_le(&package[4], REFMEM_TABLE_PACKAGE_VERSION);
+    write_u32_le(&package[8], REFMEM_TABLE_PACKAGE_HEADER_SIZE);
+    write_u32_le(&package[12], (uint32_t)total_size);
+    write_u32_le(&package[16], REFMEM_TABLE_REGISTRY_COUNT);
+    write_u32_le(&package[20], (uint32_t)dir_size);
+    write_u32_le(&package[24], test_crc32(payload, payload_size));
+
+    for (uint32_t table_id = 0u; table_id < REFMEM_TABLE_REGISTRY_COUNT; table_id++) {
+        const size_t entry = REFMEM_TABLE_PACKAGE_HEADER_SIZE +
+                             table_id * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE;
+        write_u32_le(&package[entry + 0u], table_id);
+        write_u32_le(&package[entry + 4u], table_offset[table_id]);
+        write_u32_le(&package[entry + 8u], table_size[table_id]);
+        write_u32_le(&package[entry + 12u],
+                     test_crc32(&payload[table_offset[table_id] -
+                                         REFMEM_TABLE_PACKAGE_HEADER_SIZE -
+                                         dir_size],
+                                table_size[table_id]));
+    }
+
+    (void)memcpy(&package[REFMEM_TABLE_PACKAGE_HEADER_SIZE + dir_size],
+                 payload,
+                 payload_size);
+    write_u32_le(&package[28], test_crc32(package, total_size));
+    return total_size;
 }
 
 static int test_init_sets_active_descriptor(void)
@@ -227,6 +362,45 @@ static int test_invalid_staging_is_not_activated(void)
     return failed;
 }
 
+static int test_package_owner_validation_rejects_placeholder_tables(void)
+{
+    int failed = 0;
+    uint8_t package[2048];
+    refmem_table_package_validation_t validation;
+    const size_t package_size = build_test_package(package, sizeof(package), false);
+
+    failed += expect_bool("placeholder package validates",
+                          refmem_table_registry_validate_package(package,
+                                                                 package_size,
+                                                                 &validation),
+                          false);
+    failed += expect_u32("placeholder owner error",
+                         validation.error,
+                         REFMEM_TABLE_PACKAGE_ERR_OWNER_VALIDATION);
+    failed += expect_u32("placeholder first bad table",
+                         validation.first_bad_table,
+                         REFMEM_APP_TABLE_BOARD_CAPABILITY);
+    return failed;
+}
+
+static int test_package_owner_validation_accepts_contract_tables(void)
+{
+    int failed = 0;
+    uint8_t package[2048];
+    refmem_table_package_validation_t validation;
+    const size_t package_size = build_test_package(package, sizeof(package), true);
+
+    failed += expect_bool("contract package validates",
+                          refmem_table_registry_validate_package(package,
+                                                                 package_size,
+                                                                 &validation),
+                          true);
+    failed += expect_u32("contract package error",
+                         validation.error,
+                         REFMEM_TABLE_PACKAGE_OK);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -235,6 +409,8 @@ int main(void)
     failed += test_failed_activation_preserves_active();
     failed += test_success_activation_moves_images();
     failed += test_invalid_staging_is_not_activated();
+    failed += test_package_owner_validation_rejects_placeholder_tables();
+    failed += test_package_owner_validation_accepts_contract_tables();
 
     if (failed != 0) {
         (void)printf("refmem_table_registry tests failed: %d\n", failed);
