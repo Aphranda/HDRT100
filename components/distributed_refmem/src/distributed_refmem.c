@@ -99,6 +99,13 @@ static void distributed_refmem_publish_runtime_locked(void)
     header->flash_lockout_requested = flash_status.core1_lockout_requested ? 1u : 0u;
     header->flash_lockout_acknowledged = flash_status.core1_lockout_acknowledged ? 1u : 0u;
     header->core1_park_state = flash_status.park_state;
+    header->flash_lockout_last_result = flash_status.last_result;
+    header->flash_lockout_last_elapsed_us = flash_status.last_elapsed_us;
+    header->flash_lockout_request_seq = flash_status.request_seq;
+    header->flash_lockout_ack_seq = flash_status.ack_seq;
+    header->flash_lockout_release_seq = flash_status.release_seq;
+    header->flash_lockout_timeout_count = flash_status.timeout_count;
+    header->flash_lockout_release_timeout_count = flash_status.release_timeout_count;
     header->runtime_protection_flags = 0u;
     if (header->ram_resident_required != 0u) {
         header->runtime_protection_flags |= DISTRIBUTED_REFMEM_PROT_RAM_RESIDENT_REQUIRED;
@@ -234,6 +241,13 @@ void distributed_refmem_get_runtime_protection(distributed_refmem_runtime_protec
     snapshot->flash_lockout_requested = header->flash_lockout_requested;
     snapshot->flash_lockout_acknowledged = header->flash_lockout_acknowledged;
     snapshot->park_state = header->core1_park_state;
+    snapshot->last_result = header->flash_lockout_last_result;
+    snapshot->last_elapsed_us = header->flash_lockout_last_elapsed_us;
+    snapshot->request_seq = header->flash_lockout_request_seq;
+    snapshot->ack_seq = header->flash_lockout_ack_seq;
+    snapshot->release_seq = header->flash_lockout_release_seq;
+    snapshot->timeout_count = header->flash_lockout_timeout_count;
+    snapshot->release_timeout_count = header->flash_lockout_release_timeout_count;
     snapshot->entry_table_owner = header->entry_table_owner;
     snapshot->flags = header->runtime_protection_flags;
     snapshot->guard.table_seq = header->table_seq;

@@ -395,6 +395,7 @@ function(project_configure_app_target target_name app_name linker_script)
         PORTABLE_OTA_PORT_ENABLE_SESSION=1
         DRV_FLASH_LOCKOUT_PICO_RAM=1
         DRV_FLASH_LOCKOUT_USE_ARM_EVENTS=1
+        DRV_FLASH_LOCKOUT_PICO_TIME=1
         SCPI_USER_CONFIG=1
         PICO_TARGET_NAME="${target_name}"
     )

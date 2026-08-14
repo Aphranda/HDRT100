@@ -942,7 +942,7 @@ owner task 后续接入。
 | `angle pulse block` | `edge,pulse_width_us,timeout_ms,angle_pulse_count,missed_angle_pulse_count,last_edge_time,timeout_state,valid,fault_code` | A0 接收转台目标角度触发脉冲的角度域配置和统计 |
 | `position block` | `source,angle_index,angle_count,current_angle_by_sweep,next_angle_by_sweep,angle_pulse_count,last_pulse_time,valid,stale,fault_code` | DTC 侧扫描游标和角度脉冲推导状态；真实转台位置由运动控制器 API 提供 |
 | `core vector block` | `version,table_seq,core_count,core0_vtor_owner,core1_vtor_owner,core0_irq_owner_mask,core1_irq_owner_mask,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags` | core0/core1 入口表、IRQ owner 和 guard 观测 |
-| `runtime protection block` | `version,table_seq,ram_resident_required,flash_lockout_supported,flash_lockout_online,flash_lockout_requested,flash_lockout_acknowledged,park_state,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags` | RAM-resident、flash lockout/park 和入口归属观测 |
+| `runtime protection block` | `version,table_seq,ram_resident_required,flash_lockout_supported,flash_lockout_online,flash_lockout_requested,flash_lockout_acknowledged,park_state,last_result,last_elapsed_us,request_seq,ack_seq,release_seq,timeout_count,release_timeout_count,entry_table_owner,flags,guard_owner,guard_crc,guard_stale,guard_flags` | RAM-resident、flash lockout/park、入口归属和 S0 lockout 证据观测 |
 | `vdc block` | `ready,lock_state,service_count,first_service_ms,last_service_ms,sync_seq` | 同步域维护字段；产品上位机优先使用 `READ:SYNC:STATe?` |
 | `dpll block` | `ready,state,service_count,first_service_ms,last_service_ms,update_seq` | 开发验证兼容字段；用于扫描/转台 DPLL 任务观测 |
 

@@ -145,7 +145,10 @@ def wait_for_serial(port: str, timeout_s: float = 15.0) -> None:
 def read_response(ser: serial.Serial, timeout_s: float = 2.0) -> str:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        raw = ser.readline()
+        try:
+            raw = ser.readline()
+        except (OSError, serial.SerialException) as exc:
+            return f"<serial-reset:{exc}>"
         if not raw:
             continue
         text = raw.decode("utf-8", errors="replace").strip()
@@ -174,12 +177,15 @@ def query_serial(port: str, commands: Iterable[str], output: Path) -> dict[str, 
 def run_boot_commit(port: str, output: Path) -> dict[str, str]:
     lines: list[str] = []
     wait_for_serial(port)
-    with serial.Serial(port, 115200, timeout=0.1) as ser:
-        time.sleep(0.5)
-        ser.reset_input_buffer()
-        ser.write(b"SYST:OTA:BOOT\n")
-        ser.flush()
-        lines.append(f"SYST:OTA:BOOT -> {read_response(ser, 2.0)}")
+    try:
+        with serial.Serial(port, 115200, timeout=0.1) as ser:
+            time.sleep(0.5)
+            ser.reset_input_buffer()
+            ser.write(b"SYST:OTA:BOOT\n")
+            ser.flush()
+            lines.append(f"SYST:OTA:BOOT -> {read_response(ser, 2.0)}")
+    except (OSError, serial.SerialException) as exc:
+        lines.append(f"SYST:OTA:BOOT -> <serial-reset:{exc}>")
 
     time.sleep(4.0)
     wait_for_serial(port)

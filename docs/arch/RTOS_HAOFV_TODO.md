@@ -82,7 +82,7 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [x] core1 lockout poll 入口使用 RAM-resident 定义；Pico App target 显式启用 `wfe/sev/nop` 等待/唤醒指令，host/ARM compile fallback 不启用。
 - [x] Flash erase/program 进入临界区前必须通过 `drv_flash_lockout_begin()`，未获得 ACK 时不调用底层 `flash_range_erase/program`。
 - [x] 增加 host 单元测试 `test_drv_flash_lockout.c`，覆盖 request/ACK/PARKED/release、offline 拒绝和 no-ACK 故障注入。
-- [ ] 板端 HIL 验证：执行 OTA/metadata flash 写路径时查询 `SYSTem:PROTection:STATus?`，确认 online、requested/acknowledged/park_state 随 flash job 变化。
+- [x] 板端 HIL 验证：执行 OTA/metadata flash 写路径时查询 `SYSTem:PROTection:STATus?`，确认 online、park_state、request_seq、ack_seq、release_seq、last_result 和 timeout 证据。
 - [ ] 将 no-ACK 故障注入接到受控维护接口或 HIL build，验证板端 flash job 不执行并返回 NACK/fault。
 
 ## P2 - 跨核通信与实时核保护
@@ -92,7 +92,7 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [ ] 定义 `FlashWriteOwner` 框架入口，禁止 OtaAO/metadata/config 落盘直接调用底层 erase/program。
 - [ ] Resource Arbiter 增加 `FLASH_BUS` 资源、owner、timeout、conflict holder 和 fault escalation。
 - [x] 定义 `Core1LockoutGate` request/ack/state/sequence/timeout/last_result 共享结构。
-- [ ] 将 RuntimeProtectionTable 字段对齐到 `flash_lockout_supported/online/requested/acknowledged/park_state/last_result/elapsed_us`。
+- [x] 将 RuntimeProtectionTable 字段对齐到 `flash_lockout_supported/online/requested/acknowledged/park_state/last_result/elapsed_us`。
 - [ ] 抽象 `trigger_command_queue`，替代直接暴露 TriggerAO 内部队列。
 - [ ] 抽象 `trigger_status_ring`，core1 只写轻量事件，core0 负责格式化和落盘。
 - [ ] 增加跨核 doorbell 作为唤醒信号，业务 payload 仍走队列。

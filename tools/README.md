@@ -122,6 +122,10 @@ python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port
 - `tests/run_drv_flash_lockout_tests.ps1`: S0 Flash/Core1 lockout gate. It
   executes the pure C lockout state machine on host, including request/ACK,
   PARKED/release, supported-but-offline rejection, and no-ACK fault injection.
+- `flash_lockout_hil_validate/flash_lockout_hil_validate.py`: S0 board HIL gate.
+  It performs a real OTA package write, boots and commits the image, then checks
+  `SYSTem:PROTection:STATus?` evidence fields so request/ACK/release sequence
+  counters grow, timeout counters stay unchanged, and `last_result` is ACKED.
 - `tests/run_portable_log_tests.ps1`: portable LOG core gate. It builds or runs
   `third_party/portable_log` unit tests. If no host C compiler exists, it falls
   back to ARM GCC compile/object-build checks and reports that host execution

@@ -44,6 +44,7 @@ typedef struct {
     uint32_t release_timeout_count;
     uint32_t fault_injection_flags;
     uint32_t last_result;
+    uint32_t last_elapsed_us;
 } drv_flash_lockout_status_t;
 
 void drv_flash_lockout_init(bool supported);

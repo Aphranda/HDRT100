@@ -73,6 +73,10 @@ Last updated: 2026-08-15
   - App target 显式启用 `DRV_FLASH_LOCKOUT_PICO_RAM=1` 和 `DRV_FLASH_LOCKOUT_USE_ARM_EVENTS=1`；core1 lockout poll 入口使用 RAM-resident 定义和 `wfe/sev/nop`。
   - `app_runtime_start_realtime_core()` 在启动 core1 前初始化 lockout gate，避免 core1 poll 入口触碰 XIP 初始化路径。
   - RuntimeProtectionTable 的 `park_state` 改为发布 lockout 状态机枚举，而不是简单 ACK 布尔。
+  - RuntimeProtectionTable 追加 `last_result`、`last_elapsed_us`、`request_seq`、`ack_seq`、`release_seq`、`timeout_count` 和 `release_timeout_count`，作为 HIL 证据字段。
+  - 新增 `tools/flash_lockout_hil_validate/flash_lockout_hil_validate.py`，固化真实 OTA flash 写入前后 lockout 证据校验。
+  - 修复 `tools/ota_board_validate/ota_board_validate.py` 的 USB reset 容错，`SYSTem:OTA:BOOT` 导致串口复位时记录 `<serial-reset:...>` 后继续重连验证。
+  - `tools/multicore_board_validate/multicore_board_validate.py` 支持新版 RuntimeProtectionTable 字段，并在 smoke detail 中输出 lockout sequence/result。
   - 新增 `test_drv_flash_lockout.c` 和 `tools/tests/run_drv_flash_lockout_tests.ps1`，并纳入 `run_host_unit_tests.ps1`。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_drv_flash_lockout_tests.ps1` host 执行通过。
@@ -83,8 +87,15 @@ Last updated: 2026-08-15
   - build id：`20260814180128`；OTA package CRC32：`0x5118EEE6`；image A CRC32：`0xEB0D784C`；image B CRC32：`0x266B8A34`。
   - host 测试覆盖 supported-but-offline 拒绝写入、request/ACK/PARKED/release 完整握手和 `DRV_FLASH_LOCKOUT_FAULT_CORE1_NO_ACK` 故障注入。
   - 已提交并推送：`d88ad7a rtos: gate flash writes on core1 lockout`。
+  - 追加可观测字段后，`powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1` 通过，13 个脚本、18 个 C 单元测试全部执行。
+  - `python tools\docs_check\docs_check.py` 通过，files=85，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id：`20260814181349`；OTA package CRC32：`0xF246B193`；image A CRC32：`0xCAE8BE57`；image B CRC32：`0xFBF657ED`。
+  - COM5/COM6 均通过 `ota_board_validate.py --skip-flash --skip-release-check --skip-negative` 升级并 commit 到 `20260814181349`。
+  - COM5 `flash_lockout_hil_validate.py` 通过：`request_seq=2->540`、`ack_seq=2->540`、`release_seq=2->540`、`last_result=1`、`last_elapsed_us=808`。
+  - COM6 `flash_lockout_hil_validate.py` 通过：`request_seq=2->540`、`ack_seq=2->540`、`release_seq=2->540`、`last_result=1`、`last_elapsed_us=1725`。
+  - COM5 final smoke 通过：identity/build_id/core_heartbeat/runtime_protection_tables/error_queue `5/5 PASS`，lockout `seq=2/2/2 timeout=0/0`。
+  - COM6 final smoke 通过：identity/build_id/core_heartbeat/runtime_protection_tables/error_queue `5/5 PASS`，lockout `seq=2/2/2 timeout=0/0`。
 - 还需完成：
-  - 板端 HIL：OTA/metadata flash job 期间查询 `SYSTem:PROTection:STATus?`，确认 online/request/ACK/park_state 可观测。
   - 将 no-ACK 故障注入接入受控维护接口或 HIL build，验证板端 flash job 不执行并返回 NACK/fault。
 - 关联文件：
   - `drivers/mcu/flash/inc/drv_flash_lockout.h`
@@ -94,8 +105,9 @@ Last updated: 2026-08-15
   - `components/distributed_refmem/src/distributed_refmem.c`
   - `tests/unit/test_drv_flash_lockout.c`
   - `tools/tests/run_drv_flash_lockout_tests.ps1`
+  - `tools/flash_lockout_hil_validate/flash_lockout_hil_validate.py`
 - 下一步：
-  - 完成 S0 构建与 host 验证闭环后，进入真实最小 physical transport；暂不继续扩展 RefMem 静态表模型。
+  - 完成 no-ACK 受控 HIL 故障注入后，进入真实最小 physical transport；暂不继续扩展 RefMem 静态表模型。
 
 RTOS 主线已经完成 `task_usb_device/task_scpi` 拆分、`task_refmem_sync` 64 KB
 本地表骨架、`task_dpll`、`task_vdc_sync`、CoreVector/RuntimeProtection 快照和

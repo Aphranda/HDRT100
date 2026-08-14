@@ -65,9 +65,16 @@ typedef struct {
     uint32_t flash_lockout_requested;
     uint32_t flash_lockout_acknowledged;
     uint32_t core1_park_state;
+    uint32_t flash_lockout_last_result;
+    uint32_t flash_lockout_last_elapsed_us;
+    uint32_t flash_lockout_request_seq;
+    uint32_t flash_lockout_ack_seq;
+    uint32_t flash_lockout_release_seq;
+    uint32_t flash_lockout_timeout_count;
+    uint32_t flash_lockout_release_timeout_count;
     refmem_vector_slot_dir_t slots[REFMEM_VECTOR_SLOT_COUNT];
     uint8_t reserved[DISTRIBUTED_REFMEM_HEADER_SIZE -
-                     (27u * sizeof(uint32_t)) -
+                     (34u * sizeof(uint32_t)) -
                      (REFMEM_VECTOR_SLOT_COUNT * sizeof(refmem_vector_slot_dir_t))];
 } refmem_vector_header_slot_t;
 

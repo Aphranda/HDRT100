@@ -1877,6 +1877,13 @@ scpi_result_t scpi_cmd_runtime_protection_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.flash_lockout_requested);
     SCPI_ResultUInt32(context, snapshot.flash_lockout_acknowledged);
     SCPI_ResultUInt32(context, snapshot.park_state);
+    SCPI_ResultUInt32(context, snapshot.last_result);
+    SCPI_ResultUInt32(context, snapshot.last_elapsed_us);
+    SCPI_ResultUInt32(context, snapshot.request_seq);
+    SCPI_ResultUInt32(context, snapshot.ack_seq);
+    SCPI_ResultUInt32(context, snapshot.release_seq);
+    SCPI_ResultUInt32(context, snapshot.timeout_count);
+    SCPI_ResultUInt32(context, snapshot.release_timeout_count);
     SCPI_ResultUInt32(context, snapshot.entry_table_owner);
     SCPI_ResultUInt32(context, snapshot.flags);
     SCPI_ResultUInt32(context, snapshot.guard.owner);

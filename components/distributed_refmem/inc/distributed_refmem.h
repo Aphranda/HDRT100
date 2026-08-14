@@ -119,6 +119,13 @@ typedef struct {
     uint32_t flash_lockout_requested;
     uint32_t flash_lockout_acknowledged;
     uint32_t park_state;
+    uint32_t last_result;
+    uint32_t last_elapsed_us;
+    uint32_t request_seq;
+    uint32_t ack_seq;
+    uint32_t release_seq;
+    uint32_t timeout_count;
+    uint32_t release_timeout_count;
     uint32_t entry_table_owner;
     uint32_t flags;
     distributed_refmem_slot_guard_t guard;

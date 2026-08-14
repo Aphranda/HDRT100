@@ -358,7 +358,7 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - [ ] 定义 `Core1LockoutGate` request/ack/state/sequence/timeout/last_result 共享结构。
   - [ ] Flash 临界区进入前强制 core1 park/lockout ACK；超时进入 FAULT。
   - [ ] core1 增加 `WAIT_FOR_FLASH` / `PARKED_FOR_FLASH` 可观测状态。
-  - [ ] RuntimeProtectionTable 对齐 lockout support/online/requested/acknowledged/park_state/last_result/elapsed_us。
+  - [x] RuntimeProtectionTable 对齐 lockout support/online/requested/acknowledged/park_state/last_result/elapsed_us。
   - [ ] 验证 OTA/metadata/program 路径中 core1 heartbeat、park ack 和恢复状态。
 - 落地去向：
   - `docs/arch/RTOS_HAOFV_TODO.md` P2。

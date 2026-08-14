@@ -6,6 +6,10 @@
 #include <windows.h>
 #endif
 
+#if DRV_FLASH_LOCKOUT_PICO_TIME
+#include "pico/time.h"
+#endif
+
 #if DRV_FLASH_LOCKOUT_PICO_RAM
 #include "pico.h"
 #define DRV_FLASH_LOCKOUT_CORE1_POLL_DEF \
@@ -42,6 +46,14 @@
 #endif
 #endif
 
+#ifndef DRV_FLASH_LOCKOUT_TIME_US
+#if DRV_FLASH_LOCKOUT_PICO_TIME
+#define DRV_FLASH_LOCKOUT_TIME_US() ((uint32_t)time_us_32())
+#else
+#define DRV_FLASH_LOCKOUT_TIME_US() 0u
+#endif
+#endif
+
 typedef struct {
     volatile bool supported;
     volatile bool online;
@@ -55,6 +67,8 @@ typedef struct {
     volatile uint32_t release_timeout_count;
     volatile uint32_t fault_injection_flags;
     volatile uint32_t last_result;
+    volatile uint32_t operation_started_us;
+    volatile uint32_t last_elapsed_us;
 } drv_flash_lockout_context_t;
 
 static drv_flash_lockout_context_t s_lockout = {
@@ -81,6 +95,8 @@ void drv_flash_lockout_init(bool supported)
     s_lockout.release_timeout_count = 0u;
     s_lockout.fault_injection_flags = 0u;
     s_lockout.last_result = DRV_FLASH_LOCKOUT_RESULT_NONE;
+    s_lockout.operation_started_us = 0u;
+    s_lockout.last_elapsed_us = 0u;
 }
 
 DRV_FLASH_LOCKOUT_CORE1_POLL_DEF
@@ -127,13 +143,17 @@ bool drv_flash_lockout_begin(uint32_t wait_loop_budget)
     if (!s_lockout.supported) {
         s_lockout.park_state = DRV_FLASH_LOCKOUT_PARK_IDLE;
         s_lockout.last_result = DRV_FLASH_LOCKOUT_RESULT_NONE;
+        s_lockout.operation_started_us = DRV_FLASH_LOCKOUT_TIME_US();
         return true;
     }
 
+    s_lockout.operation_started_us = DRV_FLASH_LOCKOUT_TIME_US();
     if (!s_lockout.online) {
         s_lockout.timeout_count++;
         s_lockout.park_state = DRV_FLASH_LOCKOUT_PARK_OFFLINE;
         s_lockout.last_result = DRV_FLASH_LOCKOUT_RESULT_TIMEOUT;
+        s_lockout.last_elapsed_us =
+            DRV_FLASH_LOCKOUT_TIME_US() - s_lockout.operation_started_us;
         return false;
     }
 
@@ -146,6 +166,8 @@ bool drv_flash_lockout_begin(uint32_t wait_loop_budget)
         s_lockout.timeout_count++;
         s_lockout.requested = false;
         s_lockout.park_state = DRV_FLASH_LOCKOUT_PARK_FAULT;
+        s_lockout.last_elapsed_us =
+            DRV_FLASH_LOCKOUT_TIME_US() - s_lockout.operation_started_us;
         DRV_FLASH_LOCKOUT_WAKE_INSTRUCTION();
         return false;
     }
@@ -169,6 +191,8 @@ bool drv_flash_lockout_begin(uint32_t wait_loop_budget)
     s_lockout.requested = false;
     s_lockout.last_result = DRV_FLASH_LOCKOUT_RESULT_TIMEOUT;
     s_lockout.park_state = DRV_FLASH_LOCKOUT_PARK_TIMEOUT;
+    s_lockout.last_elapsed_us =
+        DRV_FLASH_LOCKOUT_TIME_US() - s_lockout.operation_started_us;
     DRV_FLASH_LOCKOUT_WAKE_INSTRUCTION();
     return false;
 }
@@ -179,6 +203,8 @@ void drv_flash_lockout_end(uint32_t wait_loop_budget)
         s_lockout.requested = false;
         s_lockout.acknowledged = false;
         s_lockout.park_state = DRV_FLASH_LOCKOUT_PARK_IDLE;
+        s_lockout.last_elapsed_us =
+            DRV_FLASH_LOCKOUT_TIME_US() - s_lockout.operation_started_us;
         return;
     }
 
@@ -189,6 +215,8 @@ void drv_flash_lockout_end(uint32_t wait_loop_budget)
     for (uint32_t i = 0u; i < wait_loop_budget; i++) {
         if (!s_lockout.acknowledged) {
             s_lockout.park_state = DRV_FLASH_LOCKOUT_PARK_IDLE;
+            s_lockout.last_elapsed_us =
+                DRV_FLASH_LOCKOUT_TIME_US() - s_lockout.operation_started_us;
             return;
         }
         DRV_FLASH_LOCKOUT_SPIN_INSTRUCTION();
@@ -197,6 +225,8 @@ void drv_flash_lockout_end(uint32_t wait_loop_budget)
     s_lockout.release_timeout_count++;
     s_lockout.last_result = DRV_FLASH_LOCKOUT_RESULT_RELEASE_TIMEOUT;
     s_lockout.park_state = DRV_FLASH_LOCKOUT_PARK_FAULT;
+    s_lockout.last_elapsed_us =
+        DRV_FLASH_LOCKOUT_TIME_US() - s_lockout.operation_started_us;
 }
 
 void drv_flash_lockout_get_status(drv_flash_lockout_status_t *status)
@@ -218,6 +248,7 @@ void drv_flash_lockout_get_status(drv_flash_lockout_status_t *status)
     status->release_timeout_count = s_lockout.release_timeout_count;
     status->fault_injection_flags = s_lockout.fault_injection_flags;
     status->last_result = s_lockout.last_result;
+    status->last_elapsed_us = s_lockout.last_elapsed_us;
 }
 
 void drv_flash_lockout_set_fault_injection(uint32_t flags)

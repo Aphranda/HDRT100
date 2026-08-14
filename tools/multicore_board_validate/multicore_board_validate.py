@@ -498,12 +498,40 @@ def test_runtime_protection_tables(ser: serial.Serial, timeout: float) -> tuple[
         return False, f"SYST:PROTection:STATus? unparseable: {protection}"
     if protection[0] != 1 or protection[2] != 1 or protection[3] != 1:
         return False, f"SYST:PROTection:STATus? protection flags unexpected: {protection}"
-    if protection[4] != 1 or protection[8] != 2 or protection[11] == 0:
+
+    if len(protection) >= 21:
+        entry_table_owner = protection[15]
+        protection_flags = protection[16]
+        guard_crc = protection[18]
+        last_result = protection[8]
+        last_elapsed_us = protection[9]
+        request_seq = protection[10]
+        ack_seq = protection[11]
+        release_seq = protection[12]
+        timeout_count = protection[13]
+        release_timeout_count = protection[14]
+    else:
+        entry_table_owner = protection[8]
+        protection_flags = protection[9]
+        guard_crc = protection[11]
+        last_result = 0
+        last_elapsed_us = 0
+        request_seq = 0
+        ack_seq = 0
+        release_seq = 0
+        timeout_count = 0
+        release_timeout_count = 0
+
+    if protection[4] != 1 or entry_table_owner != 2 or guard_crc == 0:
         return False, f"SYST:PROTection:STATus? lockout/entry/guard unexpected: {protection}"
+    if len(protection) >= 21 and timeout_count != 0:
+        return False, f"SYST:PROTection:STATus? lockout timeout count nonzero: {protection}"
 
     return True, (
         f"core_vector seq={core_vector[1]} core1_irq_mask={core_vector[6]} "
-        f"prot_flags={protection[9]} lockout_online={protection[4]}"
+        f"prot_flags={protection_flags} lockout_online={protection[4]} "
+        f"last_result={last_result} elapsed_us={last_elapsed_us} "
+        f"seq={request_seq}/{ack_seq}/{release_seq} timeout={timeout_count}/{release_timeout_count}"
     )
 
 
