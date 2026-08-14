@@ -10,6 +10,7 @@ static refmem_table_registry_snapshot_t s_snapshot;
 
 static const uint32_t s_table_image_size[REFMEM_TABLE_REGISTRY_COUNT] = {
     sizeof(refmem_application_map_t),
+    sizeof(refmem_board_capability_table_t),
     sizeof(refmem_generic_node_table_t),
     sizeof(refmem_node_load_table_t),
     sizeof(refmem_fb_instance_table_t),
@@ -88,6 +89,8 @@ static uint32_t refmem_table_registry_active_crc(const refmem_application_model_
     switch ((refmem_app_table_id_t)table_id) {
     case REFMEM_APP_TABLE_APPLICATION_MAP:
         return model->application_map_crc32;
+    case REFMEM_APP_TABLE_BOARD_CAPABILITY:
+        return model->board_capability_crc32;
     case REFMEM_APP_TABLE_GENERIC_NODE:
         return model->generic_node_crc32;
     case REFMEM_APP_TABLE_NODE_LOAD:
@@ -237,6 +240,40 @@ bool refmem_table_registry_validate_staging(const refmem_application_model_load_
 
     refmem_table_registry_refresh_staging(load);
     return true;
+}
+
+bool refmem_table_registry_stage_table(uint32_t table_id,
+                                       uint32_t staging_crc32,
+                                       uint32_t validation_state,
+                                       uint32_t last_result)
+{
+    if (table_id >= REFMEM_TABLE_REGISTRY_COUNT ||
+        validation_state > REFMEM_TABLE_VALIDATION_FAILED) {
+        s_snapshot.last_error = 1u;
+        refmem_table_registry_refresh_snapshot();
+        return false;
+    }
+
+    refmem_table_registry_entry_t *entry = &s_registry[table_id];
+    entry->staging_crc32 = staging_crc32;
+    entry->validation_state = validation_state;
+    entry->last_result = last_result;
+    entry->flags &= ~(REFMEM_TABLE_FLAG_STAGING_PRESENT |
+                      REFMEM_TABLE_FLAG_CRC_OK |
+                      REFMEM_TABLE_FLAG_OWNER_OK);
+    if (entry->active_crc32 != 0u) {
+        entry->flags |= REFMEM_TABLE_FLAG_ACTIVE_PRESENT;
+    }
+    if (staging_crc32 != 0u && validation_state != REFMEM_TABLE_VALIDATION_FAILED) {
+        entry->flags |= REFMEM_TABLE_FLAG_STAGING_PRESENT | REFMEM_TABLE_FLAG_CRC_OK;
+        if (validation_state == REFMEM_TABLE_VALIDATION_OWNER_OK) {
+            entry->flags |= REFMEM_TABLE_FLAG_OWNER_OK;
+        }
+    }
+
+    s_snapshot.last_error = last_result;
+    refmem_table_registry_refresh_snapshot();
+    return validation_state != REFMEM_TABLE_VALIDATION_FAILED;
 }
 
 bool refmem_table_registry_validate_package(const uint8_t *data,

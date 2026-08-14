@@ -8,7 +8,7 @@
 #include "refmem_application_model.h"
 
 #define REFMEM_TABLE_REGISTRY_VERSION 1u
-#define REFMEM_TABLE_REGISTRY_COUNT   8u
+#define REFMEM_TABLE_REGISTRY_COUNT   9u
 
 #define REFMEM_TABLE_FLAG_ACTIVE_PRESENT  0x00000001u
 #define REFMEM_TABLE_FLAG_STAGING_PRESENT 0x00000002u
@@ -88,6 +88,10 @@ void refmem_table_registry_init(const refmem_application_model_snapshot_t *model
 void refmem_table_registry_refresh_active(const refmem_application_model_snapshot_t *model);
 void refmem_table_registry_refresh_staging(const refmem_application_model_load_snapshot_t *load);
 bool refmem_table_registry_validate_staging(const refmem_application_model_load_snapshot_t *load);
+bool refmem_table_registry_stage_table(uint32_t table_id,
+                                       uint32_t staging_crc32,
+                                       uint32_t validation_state,
+                                       uint32_t last_result);
 bool refmem_table_registry_validate_package(const uint8_t *data,
                                             size_t size,
                                             refmem_table_package_validation_t *validation);

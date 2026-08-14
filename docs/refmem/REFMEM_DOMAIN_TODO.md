@@ -59,7 +59,11 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 在静态模型 linter 中加入 `claim_policy` 基础合法性检查。
 - [ ] 定义 `SlotClaimProposal` 数据结构，区分 candidate instance 和 resolved active assignment；同一 physical board 最多上报 16 个 candidate。
 - [ ] 在 `SlotClaimProposal` 中显式加入 board/profile label，例如 B0-B4、physical uuid、hardware profile CRC、capability mask、IO constraint 和类 IP 核能力摘要，避免把 A0-A7 slot 误当成固定物理板。
-- [ ] 定义 `BoardCapabilityTable` 或等价 profile 表，把物理板能力、IO 约束和类 IP 核能力从 `GenericNodeTable` 中逐步拆出；所有板卡条目必须包含 `REFMEM + VDC` baseline，`GenericNodeTable` 只保留 A0-A7 slot 基座和 claim policy。
+- [x] 定义 `BoardCapabilityTable` 或等价 profile 表，把物理板能力、IO 约束和类 IP 核能力从 `GenericNodeTable` 中逐步拆出；所有板卡条目必须包含 `REFMEM + VDC` baseline，`GenericNodeTable` 只保留 A0-A7 slot 基座和 claim policy。
+- [ ] 将 `BoardCapabilityTable` 纳入 `.rmtp` / SD System Pack 的真实表镜像格式，支持 load/dump、CRC、schema version 和 rollbackable active image。
+- [x] 增加受控 SCPI staging 入口 `SYSTem:REFMEM:LOAD:BOARD` / `SYSTem:REFMEM:LOAD:BOARD:STATus?`，用于加载或修改单条 board capability 候选；SCPI 不得直接修改 active BoardCapabilityTable 或 GenericNode active slot fact。
+- [x] 增加 `SYSTem:REFMEM:BOARD?` 和 `SYSTem:REFMEM:TABle? 1`，读取 active board capability snapshot、CRC、table registry validation state、last result 和 evidence；staging 详细字段后续随真实 staging image 增加。
+- [ ] 将 BoardCapabilityTable owner validation 接入 `LOAD:SD` 和后续 `LOAD:BEGIN/DATA/END`：baseline、IO constraint、ip_core、hw_profile_crc、default slot 范围必须通过后才能进入 validated staging。
 - [ ] 实现 `SlotClaimMap` 聚合，记录 A0-A7 active assignment、claim epoch、physical board uuid、loaded instance mask、claim state、reason 和 CRC。
 - [ ] 增加 `SlotClaimEvidence` 或等价诊断视图，记录第 9 到第 16 个未分配候选的 `OVERFLOW` evidence；超过 16 个 candidate 必须拒绝。
 - [ ] 实现重复 slot claim 检测、uuid mismatch、hardware profile mismatch、stale claim、required hard binding mismatch 和 claim CRC 检查。
@@ -76,8 +80,10 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 在静态模型 linter 中把 `ip_core_claim` 映射为 capability gate，确保类 IP 核不会被当成普通 GPIO。
 - [x] 将默认 profile 中的 `B2.LinkSwitcherAO` 声明为 `CORE1_RT + PIO + DMA + LINK_CONTROL`，并补齐 FIRE_LOAD、DONE、FAULT、link timestamp、link sequence state 等事件/数据连接。
 - [x] 将 BISS-C 节点声明为 `BISS_C_CODEC` 类 IP 核，要求 PIO、DMA、core1_rt 和 BISS-C IO。
-- [ ] 定义 `RealtimeCapabilityContract` 派生规则：从 NodeLoad、FbInstance、EventLink、DataLink、BoardCapability 和 SlotClaimMap 生成实例级实时能力契约。
-- [ ] 新增 `refmem_realtime_contract.h/.c` 或并入 `refmem_slot_contract.h/.c`，提供 `derive_realtime_contract`、`validate_ip_core_claim`、`validate_io_constraint`、`validate_time_budget`。
+- [x] 定义 `RealtimeCapabilityContract` 首版派生规则：从 NodeLoad、FbInstance、GenericNode 和 BoardCapability 生成实例级资源/IO/类 IP 核能力契约；当前 SlotClaimMap 未落地，先用 `active_default_slot` 建立 B 节点到 A slot 的临时关联。
+- [x] 新增 `refmem_realtime_contract.h/.c`，提供资源/IO/类 IP 核 claim 到 capability 的映射，以及 `refmem_realtime_contract_derive()` 首版。
+- [ ] 将 `RealtimeCapabilityContract` 升级为 SlotClaimMap resolved assignment 输入：从 NodeLoad、FbInstance、EventLink、DataLink、BoardCapability 和 SlotClaimMap 生成完整实例级实时能力契约。
+- [ ] 为 `RealtimeCapabilityContract` 增加 time budget、IP core version、PIO program id、DMA channel policy、IRQ source 和 fallback policy 校验。
 - [ ] 在 DeploymentGate 中增加 realtime contract 检查：缺少 core1_rt、PIO/DMA、IRQ/timer、IO 约束、事件路径或数据 writer 时拒绝 RUN。
 - [ ] 在 DeploymentGate 中增加 baseline 检查：缺少 `REFMEM` 或 `VDC` 基础能力的物理节点不得进入 distributed RUN；缺少 `VDC_DPLL` 只影响 DPLL owner 候选，不影响普通 VDC 参与节点。
 - [ ] 定义类 IP 核能力版本字段，至少覆盖 PIO 程序 id/version、DMA channel policy、IRQ source、timer source、core1 time budget 和 fallback policy。

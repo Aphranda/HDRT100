@@ -263,6 +263,54 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 - `capability_mask` 是装载上限，不是当前业务角色。`gateway`、`model_vna`、`model_turntable`、`pulse_distributor` 等 role 只允许出现在 NodeLoadTable。
 - 脉冲分发、链路切换、仪表控制、gateway、model_vna、model_turntable、test_agent 等都由 `DistributedNodeLoadTable` 装载，不扩展固定节点数量。
 
+### BoardCapabilityTable
+
+`BoardCapabilityTable` 描述当前 profile 中可见物理板、模型板或调试节点的基础能力。它回答“B0-B4/Bx 这块物理或模型节点能做什么”，不回答“它当前占用哪个 A0-A7 slot”，也不直接表达业务装载关系。
+
+| 字段 | 含义 | 约束 |
+|---|---|---|
+| `board_id` | B0-Bx 物理/实例标签。 | 只作为 profile 内部标签，不能当作 RefMem slot id。 |
+| `board_uuid` | 物理板或模型节点身份。 | 用于 claim 和错绑诊断。 |
+| `capability_mask` | 板级基础能力上限。 | 必须包含 `BOARD + REFMEM + VDC`；可选 PIO、DMA、USB、SD、core1_rt、link_control、BISS-C 等。 |
+| `io_constraint_mask` | 板级 IO 约束。 | 表示该板可承载哪些 IO 类资源，例如 SMA、RJ45_SYNC、LINK_CONTROL、BISS-C、UART/RS485。 |
+| `ip_core_mask` | 类 IP 核能力。 | 表示该板固件/PIO/实时资源能承载哪些类 IP 核，例如 pulse capture/fire、link sequence、BISS-C codec。 |
+| `default_persona_mask` | 默认人格能力。 | 只作为默认 profile 提示，active role 仍由 NodeLoadTable 决定。 |
+| `hw_profile_crc` | 硬件约束摘要。 | 来自硬件约束/System Pack。 |
+| `active_default_slot` | 默认 profile 建议 slot。 | 仅用于默认映射，例如 B2 默认加载到 A2；后续可经 SlotClaim 协调迁移。 |
+| `online_required` | 当前 profile 是否必需。 | 必需 board 缺失时拒绝 RUN 或进入 fault。 |
+
+首版代码中 `BoardCapabilityTable` 已作为应用模型正式表参与 package CRC、TableRegistry 和 linter，并可通过 `SYSTem:REFMEM:BOARD?` 查询 active snapshot，也可通过 `SYSTem:REFMEM:TABle? 1` 查询表级 CRC、staging 和 validation 状态。System Pack 应优先加载 BoardCapabilityTable，再由 SlotClaimMap 把 B 实例映射到 A0-A7 slot：
+
+```text
+BoardCapabilityTable(B0-Bx)
+  -> SlotClaimProposal(board_id, preferred_slot_id, capability, io, ip_core)
+  -> SlotClaimMap(resolved active A0-A7 assignment)
+  -> DistributedNodeLoadTable(slot_id -> AO/FB instance)
+  -> DeploymentGate(resource/io/ip/event/data/quality check)
+```
+
+拆分后的规则：
+
+- B0-Bx 的能力来自物理板、最小系统约束、产品硬件约束或 System Pack。
+- A0-A7 的 GenericNode 只表达 slot substrate、claim policy 和 active assignment 结果，不应永久代表某个硬件功能。
+- `B2.LinkSwitcherAO` 默认可以装载到 A2，但只要 capability、IO 约束、类 IP 核、事件和数据连接通过，也可以装载到其他 A0-A7 slot。
+- 没有 `REFMEM + VDC` baseline 的物理节点不得进入 distributed RUN；缺少 `VDC_DPLL` 只影响 DPLL owner 候选，不影响普通 VDC 参与节点。
+- 板卡能力必须支持通过 SD System Pack 和受控 SCPI staging 加载。固件内置表只作为 default/factory profile；SD/SCPI 加载的 BoardCapabilityTable 只能进入 staging image，必须经过 CRC、版本兼容、owner validation、IO 约束检查、类 IP 核能力检查和 DeploymentGate 后才能激活。
+- SCPI 不得直接修改 active BoardCapabilityTable，也不得直接改 GenericNode 的 active slot 事实；SCPI 只能通过 `SYSTem:REFMEM:LOAD:BOARD` 提交 board capability load 意图，通过 `SYSTem:REFMEM:LOAD:BOARD:STATus?` 读取 staging 结果，通过 `SYSTem:REFMEM:BOARD?` 读取 active snapshot。
+
+BoardCapabilityTable 加载路径：
+
+```text
+SD System Pack / SYSTem:REFMEM:LOAD:BOARD
+  -> BoardCapabilityTable staging image
+  -> CRC + schema/version check
+  -> owner validation
+  -> IO constraint + ip_core + baseline check
+  -> SlotClaim proposal/regenerate
+  -> DeploymentGate
+  -> active profile activation
+```
+
 #### 全局逻辑插槽 Claim
 
 在一个 RefMem active profile / epoch 中，A0-A7 是全环唯一逻辑地址。物理板、当前项目实例或调试模型使用 B0-B4 这类 board/profile label 表达，避免和 A0-A7 slot 混淆。允许一块物理板同时 claim 多个不同逻辑插槽，例如调试阶段 B4 同时 claim A5 作为模型网分、A6 作为模拟转台；但同一个 active `slot_id` 不能同时被两块物理板提交为 active owner。由于插槽是通用基座，重复 claim 不必立即成为不可恢复错误：只要还有可用插槽且 capability、resource、IO、owner 和 NodeLoadTable 约束满足，`DistributedRefMemAO` 可以通过自组网协调把其中一个候选迁移到其他空闲插槽。真正的失败条件是插槽已满、节点实例化溢出、硬绑定 required slot 不匹配，或资源/IO/owner 冲突无法解。
@@ -954,6 +1002,10 @@ SYSTem:REFMEM:NODE?
 SYSTem:REFMEM:LOAD:SD
 SYSTem:REFMEM:LOAD:NODE
 SYSTem:REFMEM:LOAD:STATus?
+SYSTem:REFMEM:BOARD?
+SYSTem:REFMEM:LOAD:BOARD
+SYSTem:REFMEM:LOAD:BOARD:STATus?
+SYSTem:REFMEM:TABle?
 ```
 
 SCPI callback 只能读取 RefMem snapshot 或提交受控 owner 意图，不能临时触发跨板查询，也不能直接修改 state、summary、result、health、quality 或 evidence slot。RefMem 向量表不承载 `app_model.rmtp` 文件数据；它只保存 state、size、CRC、path hash、table registry、load snapshot 和 evidence 等事实摘要。完整文件数据属于 StorageAO 私有事务 buffer 或 SD/FatFs 后端对象。
@@ -999,7 +1051,7 @@ RefMem 动态加载不是产品 `TRIGger:MODE`，也不是 `ResourceArbiter` 的
 
 | mode | 含义 | 允许入口 |
 |---|---|---|
-| `IDLE` | RefMem 没有 load/validate/activate 事务。 | 允许 `LOAD:SD`、`LOAD:NODE` 写 staging。 |
+| `IDLE` | RefMem 没有 load/validate/activate 事务。 | 允许 `LOAD:SD`、`LOAD:NODE`、`LOAD:BOARD` 写 staging。 |
 | `LOAD_TO_STAGING` | 正在接收 SD/System Pack 或 SCPI inline 节点候选。 | 禁止新的 load begin。 |
 | `VALIDATING` | 正在做 CRC/lint/owner validation。 | 禁止新的 load begin。 |
 | `ACTIVATING` | staging 正在切换 active。 | 禁止新的 load begin，后续必须接全环 ACK。 |
@@ -1017,7 +1069,7 @@ SCPI / SD
   -> 后续 ACTIVATE 才允许替换 active
 ```
 
-`SYSTem:REFMEM:LOAD:SD [path]` 扫描 SD `/manifest.idx`，随后读取并校验 RefMem table image；默认路径为 `/refmem/app_model.rmtp`，可用可选 path 覆盖。当前 parser 已校验 `.rmtp` header、table directory、payload CRC、package CRC 和单表 CRC，但仍只写 staging load snapshot，不替换 active image。`SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 允许 SCPI 直接提交一条 NodeLoad 候选到 staging，用于调试和自组网协调前的节点实例化验证。两者都不直接覆盖 active NodeLoadTable，也不修改 NodeSlot live fact。`SYSTem:REFMEM:LOAD:STATus?` 读取固定 snapshot：`version,load_seq,source,mode,staging_state,manifest_status,manifest_schema,manifest_required_count,manifest_missing_count,path_hash,active_package_crc32,staging_package_crc32,staging_lint_error_count,staging_first_lint_error,staging_node_id,staging_instance_id,staging_role_mask,staging_persona_mask,staging_enabled,staging_required,staging_load_order,last_error,manifest_build_id,path`。
+`SYSTem:REFMEM:LOAD:SD [path]` 扫描 SD `/manifest.idx`，随后读取并校验 RefMem table image；默认路径为 `/refmem/app_model.rmtp`，可用可选 path 覆盖。当前 parser 已校验 `.rmtp` header、table directory、payload CRC、package CRC 和单表 CRC，但仍只写 staging load snapshot，不替换 active image。`SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 允许 SCPI 直接提交一条 NodeLoad 候选到 staging，用于调试和自组网协调前的节点实例化验证。`SYSTem:REFMEM:LOAD:BOARD <board_id>,<board_uuid_crc32>,<capability_mask>,<io_constraint_mask>,<ip_core_mask>,<default_persona_mask>,<hw_profile_crc32>,<active_default_slot>,<online_required>` 允许 SCPI 提交一条 BoardCapability 候选到 staging，用于调试和 SD System Pack 前置验证；它必须满足 `REFMEM+VDC` baseline 和字段范围约束。以上入口都不直接覆盖 active 表，也不修改 NodeSlot live fact。`SYSTem:REFMEM:LOAD:STATus?` 读取 NodeLoad/SD load snapshot：`version,load_seq,source,mode,staging_state,manifest_status,manifest_schema,manifest_required_count,manifest_missing_count,path_hash,active_package_crc32,staging_package_crc32,staging_lint_error_count,staging_first_lint_error,staging_node_id,staging_instance_id,staging_role_mask,staging_persona_mask,staging_enabled,staging_required,staging_load_order,last_error,manifest_build_id,path`。`SYSTem:REFMEM:LOAD:BOARD:STATus?` 读取 BoardCapability staging snapshot：`version,load_seq,mode,staging_state,active_crc32,staging_crc32,staging_lint_error_count,staging_first_lint_error,staging_board_id,staging_board_uuid_crc32,staging_capability_mask,staging_io_constraint_mask,staging_ip_core_mask,staging_default_persona_mask,staging_hw_profile_crc32,staging_active_default_slot,staging_online_required,last_error`。
 
 写入 `/refmem/app_model.rmtp` 使用通用 Storage 文件接口，不再保留 `SYSTem:REFMEM:PACKage:*` 专用入口：
 
@@ -1058,7 +1110,7 @@ required=/refmem/app_model.rmtp,type=refmem_table_image,size=<bytes>,crc32=<crc3
 | 4 | `format_version` | 当前为 1。 |
 | 8 | `header_size` | 当前为 64。 |
 | 12 | `total_size` | 完整 package 大小。 |
-| 16 | `table_count` | 当前 8。 |
+| 16 | `table_count` | 当前 9，包含 ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality。 |
 | 20 | `table_dir_size` | table directory 字节数。 |
 | 24 | `payload_crc32` | 所有表 payload 拼接 CRC。 |
 | 28 | `package_crc32` | 完整 package CRC；计算时该字段先置 0。 |
@@ -1067,7 +1119,7 @@ table directory 每项 16 字节：
 
 | 字段 | 含义 |
 |---|---|
-| `table_id` | 对应 ApplicationMap、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality。 |
+| `table_id` | 对应 ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality。 |
 | `offset` | 表 payload 在 package 内偏移。 |
 | `size` | 表 payload 字节数。 |
 | `crc32` | 单表 payload CRC。 |
@@ -1088,10 +1140,12 @@ table directory 每项 16 字节：
 
 - `distributed_refmem.h/.c`：仍是当前对外兼容入口，维护本地 64 KB `DistributedVectorTable`、header、node slot、core vector、runtime protection snapshot 和 status flags。
 - `refmem_vector_table.h/.c`：封装 64 KB table layout、slot directory、header CRC 和 directory 校验。
-- `refmem_application_model.h/.c`：落地 ApplicationMap、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality、静态 linter、package CRC 和 load staging snapshot。
-- `SYSTem:REFMEM:LOAD:SD`：已接入 Storage manifest 扫描并写 staging snapshot，当前仍用已编译静态模型 CRC 作为占位，等待真实 TLV/System Pack parser。
+- `refmem_application_model.h/.c`：落地 ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality、静态 linter、package CRC 和 load staging snapshot。
+- `refmem_realtime_contract.h/.c`：首版派生 `RealtimeCapabilityContract`，从 NodeLoad、FB instance、GenericNode 和 BoardCapability 生成实例级资源/IO/类 IP 核能力契约；当前用 `active_default_slot` 临时关联 B 节点与 A slot，后续由 SlotClaimMap resolved assignment 替代。
+- `SYSTem:REFMEM:LOAD:SD`：已接入 Storage manifest 扫描和 `.rmtp` table image parser，可校验 header、directory、payload CRC、package CRC 和单表 CRC，当前仍只写 staging snapshot，不执行 active 切换。
 - `SYSTem:REFMEM:LOAD:NODE`：已支持通过 SCPI inline 提交单条 NodeLoad 候选到 staging snapshot，尚未形成多条 staging NodeLoadTable image。
 - `SYSTem:REFMEM:LOAD:STATus?`：已可查询 load sequence、source、RefMem load mode、staging state、manifest、active/staging CRC、lint/error 和当前候选。
+- `SYSTem:REFMEM:LOAD:BOARD` / `SYSTem:REFMEM:LOAD:BOARD:STATus?`：已支持通过 SCPI inline 提交单条 BoardCapability 候选到 staging snapshot，校验 board 范围、`REFMEM+VDC` baseline 和默认 slot 范围；尚未形成多条 staging BoardCapabilityTable image。
 
 尚未形成完整实现的部分：
 

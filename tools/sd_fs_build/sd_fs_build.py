@@ -27,9 +27,10 @@ SCHEMA_VERSION = 1
 REFMEM_PACKAGE_MAGIC = b"RMTP"
 REFMEM_PACKAGE_FORMAT_VERSION = 1
 REFMEM_PACKAGE_HEADER_SIZE = 64
-REFMEM_TABLE_COUNT = 8
+REFMEM_TABLE_COUNT = 9
 REFMEM_TABLE_NAMES = (
     "ApplicationMap",
+    "BoardCapability",
     "GenericNode",
     "NodeLoad",
     "FbInstance",

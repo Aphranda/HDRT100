@@ -14,11 +14,12 @@ from pathlib import Path
 MAGIC = b"RMTP"
 FORMAT_VERSION = 1
 HEADER_SIZE = 64
-TABLE_COUNT = 8
+TABLE_COUNT = 9
 PRODUCT_ID = "RP2350_TRIG"
 HARDWARE_ID = "rp2350_trig"
 DEFAULT_TABLE_NAMES = (
     "ApplicationMap",
+    "BoardCapability",
     "GenericNode",
     "NodeLoad",
     "FbInstance",

@@ -28,6 +28,9 @@ static bool scpi_refmem_model_mode_idle(void);
 static bool scpi_refmem_realtime_idle(void);
 static void scpi_refmem_result_load_snapshot(scpi_t *context,
                                              const refmem_application_model_load_snapshot_t *snapshot);
+static void scpi_refmem_result_board_load_snapshot(
+    scpi_t *context,
+    const refmem_board_capability_load_snapshot_t *snapshot);
 
 scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context)
 {
@@ -66,6 +69,34 @@ scpi_result_t scpi_cmd_refmem_node_q(scpi_t *context)
     SCPI_ResultUInt32(context, node.fault_code);
     SCPI_ResultUInt32(context, node.flags);
     SCPI_ResultUInt32(context, node.node_type);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_board_q(scpi_t *context)
+{
+    const refmem_board_capability_table_t *table =
+        refmem_application_model_get_board_capability_table();
+    const refmem_application_model_snapshot_t *snapshot =
+        refmem_application_model_get_snapshot();
+    uint32_t board_id = 0u;
+    (void)SCPI_ParamUInt32(context, &board_id, FALSE);
+    if (table == NULL || board_id >= table->board_count) {
+        return SCPI_RES_ERR;
+    }
+
+    const refmem_board_capability_entry_t *board = &table->board[board_id];
+    SCPI_ResultUInt32(context, table->version);
+    SCPI_ResultUInt32(context, table->board_count);
+    SCPI_ResultUInt32(context, snapshot->board_capability_crc32);
+    SCPI_ResultUInt32(context, board->board_id);
+    SCPI_ResultUInt32(context, board->board_uuid_crc32);
+    SCPI_ResultUInt32(context, board->capability_mask);
+    SCPI_ResultUInt32(context, board->io_constraint_mask);
+    SCPI_ResultUInt32(context, board->ip_core_mask);
+    SCPI_ResultUInt32(context, board->default_persona_mask);
+    SCPI_ResultUInt32(context, board->hw_profile_crc32);
+    SCPI_ResultUInt32(context, board->active_default_slot);
+    SCPI_ResultUInt32(context, board->online_required);
     return SCPI_RES_OK;
 }
 
@@ -198,11 +229,70 @@ scpi_result_t scpi_cmd_refmem_load_node(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_load_board(scpi_t *context)
+{
+    if (!scpi_refmem_model_mode_idle()) {
+        scpi_port_push_exec_error(context, "REFMEM_MODE_NOT_IDLE");
+        return SCPI_RES_ERR;
+    }
+
+    if (!scpi_refmem_realtime_idle()) {
+        scpi_port_push_exec_error(context, "REFMEM_RT_NOT_IDLE");
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t board_id = 0u;
+    uint32_t board_uuid_crc32 = 0u;
+    uint32_t capability_mask = 0u;
+    uint32_t io_constraint_mask = 0u;
+    uint32_t ip_core_mask = 0u;
+    uint32_t default_persona_mask = 0u;
+    uint32_t hw_profile_crc32 = 0u;
+    uint32_t active_default_slot = 0u;
+    uint32_t online_required = 0u;
+    if (!scpi_port_read_u32(context, &board_id) ||
+        !scpi_port_read_u32(context, &board_uuid_crc32) ||
+        !scpi_port_read_u32(context, &capability_mask) ||
+        !scpi_port_read_u32(context, &io_constraint_mask) ||
+        !scpi_port_read_u32(context, &ip_core_mask) ||
+        !scpi_port_read_u32(context, &default_persona_mask) ||
+        !scpi_port_read_u32(context, &hw_profile_crc32) ||
+        !scpi_port_read_u32(context, &active_default_slot) ||
+        !scpi_port_read_u32(context, &online_required)) {
+        return SCPI_RES_ERR;
+    }
+
+    const bool staged =
+        refmem_application_model_stage_scpi_board_capability(board_id,
+                                                             board_uuid_crc32,
+                                                             capability_mask,
+                                                             io_constraint_mask,
+                                                             ip_core_mask,
+                                                             default_persona_mask,
+                                                             hw_profile_crc32,
+                                                             active_default_slot,
+                                                             online_required);
+
+    refmem_board_capability_load_snapshot_t snapshot;
+    refmem_application_model_get_board_load_snapshot(&snapshot);
+    SCPI_ResultText(context, staged ? "STAGED" : "REJECTED");
+    scpi_refmem_result_board_load_snapshot(context, &snapshot);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_load_status_q(scpi_t *context)
 {
     refmem_application_model_load_snapshot_t snapshot;
     refmem_application_model_get_load_snapshot(&snapshot);
     scpi_refmem_result_load_snapshot(context, &snapshot);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_load_board_status_q(scpi_t *context)
+{
+    refmem_board_capability_load_snapshot_t snapshot;
+    refmem_application_model_get_board_load_snapshot(&snapshot);
+    scpi_refmem_result_board_load_snapshot(context, &snapshot);
     return SCPI_RES_OK;
 }
 
@@ -354,6 +444,30 @@ static void scpi_refmem_result_load_snapshot(scpi_t *context,
     SCPI_ResultUInt32(context, snapshot->last_error);
     SCPI_ResultText(context, snapshot->manifest_build_id);
     SCPI_ResultText(context, snapshot->path);
+}
+
+static void scpi_refmem_result_board_load_snapshot(
+    scpi_t *context,
+    const refmem_board_capability_load_snapshot_t *snapshot)
+{
+    SCPI_ResultUInt32(context, snapshot->version);
+    SCPI_ResultUInt32(context, snapshot->load_seq);
+    SCPI_ResultUInt32(context, snapshot->mode);
+    SCPI_ResultUInt32(context, snapshot->staging_state);
+    SCPI_ResultUInt32(context, snapshot->active_crc32);
+    SCPI_ResultUInt32(context, snapshot->staging_crc32);
+    SCPI_ResultUInt32(context, snapshot->staging_lint_error_count);
+    SCPI_ResultUInt32(context, snapshot->staging_first_lint_error);
+    SCPI_ResultUInt32(context, snapshot->staging_board_id);
+    SCPI_ResultUInt32(context, snapshot->staging_board_uuid_crc32);
+    SCPI_ResultUInt32(context, snapshot->staging_capability_mask);
+    SCPI_ResultUInt32(context, snapshot->staging_io_constraint_mask);
+    SCPI_ResultUInt32(context, snapshot->staging_ip_core_mask);
+    SCPI_ResultUInt32(context, snapshot->staging_default_persona_mask);
+    SCPI_ResultUInt32(context, snapshot->staging_hw_profile_crc32);
+    SCPI_ResultUInt32(context, snapshot->staging_active_default_slot);
+    SCPI_ResultUInt32(context, snapshot->staging_online_required);
+    SCPI_ResultUInt32(context, snapshot->last_error);
 }
 
 scpi_result_t scpi_cmd_core_vector_q(scpi_t *context)

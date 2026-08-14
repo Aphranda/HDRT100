@@ -52,6 +52,65 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-026 - RealtimeCapabilityContract 首版组件
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 把“加载节点实例时必须同时加载实时能力”的规则从文档和 linter 私有函数中抽成 RefMem 内部基础组件。
+  - 为后续 DeploymentGate、SlotClaimMap 和板端 HIL 验证提供统一的资源/IO/类 IP 核 contract 派生入口。
+- 完成内容：
+  - 新增 `refmem_realtime_contract.h/.c`，定义 `refmem_realtime_contract_t` 和 `refmem_realtime_contract_derive()`。
+  - 首版 contract 从 NodeLoad、FB instance、GenericNode 和 BoardCapability 派生 `resource_claim`、`io_claim`、`ip_core_claim`、目标 capability、目标 IO constraint、目标 IP core mask、缺失掩码和结果码。
+  - application model linter 改为调用 `refmem_realtime_contract_derive()`，能力校验错误归入 `REFMEM_APP_LINT_BAD_REALTIME_CONTRACT`。
+  - 当前没有 SlotClaimMap resolved assignment，因此临时通过 `BoardCapabilityTable.active_default_slot == node_id` 关联 B 节点和 A slot；文档中已标记后续替换点。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `python -m pytest` 通过，18 passed、1 skipped；HIL 串口测试未启用。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0xCD54C6D1`。
+- 还需完成：
+  - 将 contract 输入从 `active_default_slot` 替换为 SlotClaimMap resolved assignment。
+  - 接入 DeploymentGate/RUN gate，并增加 time budget、IP core version、PIO program id、DMA channel policy、IRQ source 和 fallback policy 校验。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_realtime_contract.h`
+  - `components/distributed_refmem/src/refmem_realtime_contract.c`
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 推进 SlotClaimMap 首版，让板卡能力、逻辑 slot 和实时 contract 的关联不再依赖 default slot。
+
+### REFMEM-TASK-20260814-025 - BoardCapability SCPI staging 闭环
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 让物理板能力可以通过 SCPI 受控提交到 RefMem staging，支撑 SD System Pack 之外的调试加载和能力实例化验证。
+  - 保持 A0-A7 逻辑 slot 与 B0-Bx 物理/profile 节点解耦，SCPI 不直接修改 active BoardCapabilityTable。
+- 完成内容：
+  - 增加 `SYSTem:REFMEM:LOAD:BOARD <board_id>,<board_uuid_crc32>,<capability_mask>,<io_constraint_mask>,<ip_core_mask>,<default_persona_mask>,<hw_profile_crc32>,<active_default_slot>,<online_required>`。
+  - 增加 `SYSTem:REFMEM:LOAD:BOARD:STATus?`，返回 board capability staging snapshot，覆盖 load_seq、mode、active/staging CRC、lint/error 和当前候选字段。
+  - `refmem_application_model_stage_scpi_board_capability()` 校验 board 范围、`REFMEM+VDC` baseline、默认 slot 范围和基础字段后，只写 staging snapshot 与 TableRegistry staging 状态。
+  - `SCPI_COMMANDS.md` 和 `REFMEM_DOMAIN_ARCHITECTURE.md` 同步说明：板卡能力可由 SD System Pack 或 SCPI staging 提交，但 active profile 仍必须等待后续 CRC、owner validation、IO/IP 核检查、DeploymentGate 和 activation。
+- 验证结果：
+  - `python tools/docs_check/docs_check.py` 通过，warnings=0。
+  - `python -m pytest` 通过，18 passed、1 skipped；HIL 串口测试未启用。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0x8AB7A16E`。
+- 还需完成：
+  - 将 BoardCapabilityTable 接入真实多条 staging image、owner validation callback、active/rollbackable 切换和 RUN gate。
+  - 增加 HIL 验证：加载 link-control/BISS-C 候选后，确认对应 PIO/DMA/core1_rt 类 IP 核能力可以由 DeploymentGate 检查并通过 RefMem snapshot 闭环。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 推进 `RealtimeCapabilityContract` 派生和 DeploymentGate 接入，让 board capability 不只可加载，还能约束实际 RUN。
+
 ### REFMEM-TASK-20260814-024 - NodeLoad 实时能力契约补齐
 
 - 状态：完成
@@ -66,6 +125,10 @@ RefMemTableRegistry
   - BISS-C 模型节点声明为 `BISS_C_CODEC` 类 IP 核，要求 PIO、DMA、core1_rt 和 BISS-C IO。
   - 增加 `REFMEM_APP_CAP_REFMEM` 和 `REFMEM_APP_CAP_VDC`，当前静态表所有 A0-A7 slot 候选都具备 `REFMEM + VDC` baseline，linter 对 baseline 做硬检查。
   - 明确 `VDC` 是每个物理节点参与虚拟 DC 时间语义的基础能力，`VDC_DPLL` 才是运行 DPLL owner 的类 IP 核能力。
+  - 增加 `BoardCapabilityTable` 首版代码结构，描述 B0-Bx 物理/模型节点能力、IO 约束、类 IP 核、默认 persona 和默认 slot，并参与 package CRC 与 linter。
+  - 将 `BoardCapabilityTable` 升级为 TableRegistry 正式表，table id 为 1；`.rmtp` / SD System Pack table count 从 8 增加到 9，表顺序为 ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality。
+  - 增加 `SYSTem:REFMEM:BOARD? [board_id]`，可读取 active BoardCapabilityTable 的 B 节点能力、IO 约束、类 IP 核、默认 slot 和 CRC。
+  - 文档明确板卡能力必须支持 SD System Pack 和受控 SCPI staging 加载；固件内置表只作为 default/factory profile，active 表必须由 CRC、owner validation、IO 约束、类 IP 核和 DeploymentGate 验证后激活。
   - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加 `RealtimeCapabilityContract`，明确 RefMem 只验证和发布实时能力事实，实际执行仍由 core1/PIO/DMA/域状态机 owner 完成。
   - `REFMEM_DOMAIN_TODO.md` 增加 `BoardCapabilityTable`、动态 SlotClaim、realtime contract 派生和 HIL 验证待办。
 - 验证结果：
@@ -73,7 +136,7 @@ RefMemTableRegistry
   - `python -m pytest` 通过，18 passed、1 skipped。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0xD66CCA10`。
 - 还需完成：
-  - 将物理板能力从当前静态 GenericNode 默认表中进一步拆到 `BoardCapabilityTable` 或等价 profile 表。
+  - 将 `BoardCapabilityTable` 接入真实 staging/active table image 切换和受控 SCPI 写入 staging。
   - 实现 `RealtimeCapabilityContract` 派生组件，并接入 DeploymentGate 和 RUN gate。
   - 做板端/HIL 验证：加载 link-control 候选后确认 FIRE_LOAD、脉冲捕获、链路序列状态与 RefMem snapshot 闭环。
 - 关联文件：

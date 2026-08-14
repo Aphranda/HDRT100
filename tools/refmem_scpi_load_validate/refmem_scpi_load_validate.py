@@ -179,8 +179,8 @@ def run_validation(execute, *, skip_sd: bool) -> list[Record]:
         ("SYSTem:REFMEM:TABle? 0", lambda response: expect_table_response(response, table_id="0")),
         ("SYSTem:REFMEM:LOAD:NODE 5,9,32,32,1,0,0",
          lambda response: expect_node_staged(response, node_id="5", instance_id="9")),
-        ("SYSTem:REFMEM:TABle? 2",
-         lambda response: expect_table_response(response, table_id="2", min_staging_mask=0xFF)),
+        ("SYSTem:REFMEM:TABle? 3",
+         lambda response: expect_table_response(response, table_id="3", min_staging_mask=0x1FF)),
         ("SYSTem:REFMEM:LOAD:NODE 8,9,32,32,1,0,0", expect_node_rejected),
     ]
     if not skip_sd:

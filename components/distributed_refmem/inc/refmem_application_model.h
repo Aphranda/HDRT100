@@ -15,6 +15,7 @@
 #define REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT    11u
 #define REFMEM_APP_MODEL_QUALITY_COUNT             8u
 #define REFMEM_APP_MODEL_CLAIM_CANDIDATE_MAX       16u
+#define REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT    REFMEM_APP_MODEL_NODE_COUNT
 #define REFMEM_APP_MODEL_SD_MANIFEST_OK            1u
 
 #define REFMEM_APP_ROLE_BOARD                      0x00000001u
@@ -223,20 +224,24 @@ typedef enum {
     REFMEM_APP_LINT_BAD_DATA_LINK = 9u,
     REFMEM_APP_LINT_BAD_GATE_OR_QUALITY = 10u,
     REFMEM_APP_LINT_BAD_SLOT_CLAIM = 11u,
+    REFMEM_APP_LINT_BAD_BOARD_CAPABILITY = 12u,
+    REFMEM_APP_LINT_BAD_REALTIME_CONTRACT = 13u,
 } refmem_app_lint_error_t;
 
 typedef enum {
     REFMEM_APP_TABLE_APPLICATION_MAP = 0u,
-    REFMEM_APP_TABLE_GENERIC_NODE = 1u,
-    REFMEM_APP_TABLE_NODE_LOAD = 2u,
-    REFMEM_APP_TABLE_FB_INSTANCE = 3u,
-    REFMEM_APP_TABLE_EVENT_LINK = 4u,
-    REFMEM_APP_TABLE_DATA_LINK = 5u,
-    REFMEM_APP_TABLE_DEPLOYMENT_GATE = 6u,
-    REFMEM_APP_TABLE_CONNECTION_QUALITY = 7u,
+    REFMEM_APP_TABLE_BOARD_CAPABILITY = 1u,
+    REFMEM_APP_TABLE_GENERIC_NODE = 2u,
+    REFMEM_APP_TABLE_NODE_LOAD = 3u,
+    REFMEM_APP_TABLE_FB_INSTANCE = 4u,
+    REFMEM_APP_TABLE_EVENT_LINK = 5u,
+    REFMEM_APP_TABLE_DATA_LINK = 6u,
+    REFMEM_APP_TABLE_DEPLOYMENT_GATE = 7u,
+    REFMEM_APP_TABLE_CONNECTION_QUALITY = 8u,
 } refmem_app_table_id_t;
 
 #define REFMEM_APP_TABLE_MASK_ALL ((1u << REFMEM_APP_TABLE_APPLICATION_MAP) | \
+                                   (1u << REFMEM_APP_TABLE_BOARD_CAPABILITY) | \
                                    (1u << REFMEM_APP_TABLE_GENERIC_NODE) | \
                                    (1u << REFMEM_APP_TABLE_NODE_LOAD) | \
                                    (1u << REFMEM_APP_TABLE_FB_INSTANCE) | \
@@ -288,6 +293,24 @@ typedef struct {
     uint32_t online_required;
     uint32_t fail_policy;
 } refmem_app_node_entry_t;
+
+typedef struct {
+    uint32_t board_id;
+    uint32_t board_uuid_crc32;
+    uint32_t capability_mask;
+    uint32_t io_constraint_mask;
+    uint32_t ip_core_mask;
+    uint32_t default_persona_mask;
+    uint32_t hw_profile_crc32;
+    uint32_t active_default_slot;
+    uint32_t online_required;
+} refmem_board_capability_entry_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t board_count;
+    refmem_board_capability_entry_t board[REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT];
+} refmem_board_capability_table_t;
 
 typedef struct {
     uint32_t version;
@@ -447,6 +470,7 @@ typedef struct {
     uint32_t target_node_mask;
     uint32_t table_mask;
     uint32_t application_map_crc32;
+    uint32_t board_capability_crc32;
     uint32_t generic_node_crc32;
     uint32_t node_load_crc32;
     uint32_t fb_instance_crc32;
@@ -486,6 +510,27 @@ typedef struct {
     char path[96];
 } refmem_application_model_load_snapshot_t;
 
+typedef struct {
+    uint32_t version;
+    uint32_t load_seq;
+    uint32_t mode;
+    uint32_t staging_state;
+    uint32_t active_crc32;
+    uint32_t staging_crc32;
+    uint32_t staging_lint_error_count;
+    uint32_t staging_first_lint_error;
+    uint32_t staging_board_id;
+    uint32_t staging_board_uuid_crc32;
+    uint32_t staging_capability_mask;
+    uint32_t staging_io_constraint_mask;
+    uint32_t staging_ip_core_mask;
+    uint32_t staging_default_persona_mask;
+    uint32_t staging_hw_profile_crc32;
+    uint32_t staging_active_default_slot;
+    uint32_t staging_online_required;
+    uint32_t last_error;
+} refmem_board_capability_load_snapshot_t;
+
 bool refmem_application_model_init(void);
 bool refmem_application_model_validate(void);
 bool refmem_application_model_stage_sd_system_pack(const char *path,
@@ -505,7 +550,17 @@ bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
                                                      uint32_t enabled,
                                                      uint32_t required,
                                                      uint32_t load_order);
+bool refmem_application_model_stage_scpi_board_capability(uint32_t board_id,
+                                                          uint32_t board_uuid_crc32,
+                                                          uint32_t capability_mask,
+                                                          uint32_t io_constraint_mask,
+                                                          uint32_t ip_core_mask,
+                                                          uint32_t default_persona_mask,
+                                                          uint32_t hw_profile_crc32,
+                                                          uint32_t active_default_slot,
+                                                          uint32_t online_required);
 const refmem_application_map_t *refmem_application_model_get_application_map(void);
+const refmem_board_capability_table_t *refmem_application_model_get_board_capability_table(void);
 const refmem_generic_node_table_t *refmem_application_model_get_generic_node_table(void);
 const refmem_node_load_table_t *refmem_application_model_get_node_load_table(void);
 const refmem_fb_instance_table_t *refmem_application_model_get_fb_instance_table(void);
@@ -515,5 +570,6 @@ const refmem_deployment_gate_table_t *refmem_application_model_get_deployment_ga
 const refmem_connection_quality_table_t *refmem_application_model_get_connection_quality(void);
 const refmem_application_model_snapshot_t *refmem_application_model_get_snapshot(void);
 void refmem_application_model_get_load_snapshot(refmem_application_model_load_snapshot_t *snapshot);
+void refmem_application_model_get_board_load_snapshot(refmem_board_capability_load_snapshot_t *snapshot);
 
 #endif
