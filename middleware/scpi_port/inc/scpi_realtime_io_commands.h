@@ -16,6 +16,11 @@ scpi_result_t scpi_cmd_rj45_trigger_width(scpi_t *context);
 scpi_result_t scpi_cmd_rj45_trigger_width_q(scpi_t *context);
 scpi_result_t scpi_cmd_rj45_trigger_fire(scpi_t *context);
 scpi_result_t scpi_cmd_rj45_trigger_pins_q(scpi_t *context);
+scpi_result_t scpi_cmd_io_profile_q(scpi_t *context);
+scpi_result_t scpi_cmd_input_level_q(scpi_t *context);
+scpi_result_t scpi_cmd_output_mask(scpi_t *context);
+scpi_result_t scpi_cmd_output_mask_q(scpi_t *context);
+scpi_result_t scpi_cmd_output_release(scpi_t *context);
 scpi_result_t scpi_cmd_sample_rate(scpi_t *context);
 scpi_result_t scpi_cmd_sample_rate_q(scpi_t *context);
 scpi_result_t scpi_cmd_sample_state(scpi_t *context);
@@ -40,6 +45,11 @@ scpi_result_t scpi_cmd_status_q(scpi_t *context);
     {.pattern = "REALtime:IO:RJ45:WIDTh?", .callback = scpi_cmd_rj45_trigger_width_q}, \
     {.pattern = "REALtime:IO:RJ45:IMMediate", .callback = scpi_cmd_rj45_trigger_fire}, \
     {.pattern = "REALtime:IO:RJ45:PINs?", .callback = scpi_cmd_rj45_trigger_pins_q}, \
+    {.pattern = "REALtime:IO:PROFile?", .callback = scpi_cmd_io_profile_q}, \
+    {.pattern = "REALtime:IO:INPut:LEVel?", .callback = scpi_cmd_input_level_q}, \
+    {.pattern = "REALtime:IO:OUTPut:MASK", .callback = scpi_cmd_output_mask}, \
+    {.pattern = "REALtime:IO:OUTPut:MASK?", .callback = scpi_cmd_output_mask_q}, \
+    {.pattern = "REALtime:IO:OUTPut:RELease", .callback = scpi_cmd_output_release}, \
     {.pattern = "REALtime:IO:SAMPle:RATE", .callback = scpi_cmd_sample_rate}, \
     {.pattern = "REALtime:IO:SAMPle:RATE?", .callback = scpi_cmd_sample_rate_q}, \
     {.pattern = "REALtime:IO:SAMPle:STATe", .callback = scpi_cmd_sample_state}, \

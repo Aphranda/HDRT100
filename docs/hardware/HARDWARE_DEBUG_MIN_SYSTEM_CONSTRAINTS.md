@@ -53,6 +53,47 @@ Last updated: 2026-08-13
 | Storage smoke | 有 TF/SD 或可替代的文件系统路径 | 验证 System Pack、日志、trace、snapshot 基础流程。 |
 | OTA smoke | 能完成 package/status/commit 查询 | 验证 OTA 与 flash/boot 元数据路径。 |
 
+## 双板 PIO 调试接线
+
+当前双板最小系统验证采用 `debug_min_two_board_link` 临时接线 profile，只用于两块
+最小系统板之间验证 RefMem/VDC/SlotClaim 和后续 PIO 快路径，不作为产品板 pin map。
+该 profile 的输入/输出 GPIO 通过构建参数选择，默认值服务当前最方便接线的排针组合。
+
+| 构建参数 | 默认值 | 约束 |
+|---|---:|---|
+| `PROJECT_SYNC_IO_INPUT_BASE_PIN` | `16` | 输入组为连续 4 位，默认 `GPIO16..19`。 |
+| `PROJECT_SYNC_IO_OUTPUT_BASE_PIN` | `21` | 输出组为连续 4 位，默认 `GPIO21..24`。 |
+
+可自定义规则：
+
+- 输入组和输出组都必须是连续 4 个 GPIO，供 PIO `in pins,4` / `out pins,4` 使用。
+- 输入组和输出组不得重叠；同一根线只能有一个确定的输出 owner。
+- 调试接线应避开 SD/SPI、LCD、UART、SWD 和已接外设占用脚。
+- 当前默认值可通过 CMake 覆盖，例如 `-DPROJECT_SYNC_IO_OUTPUT_BASE_PIN=20`。
+
+默认接线示例如下：
+
+| 方向 | 板 A | 板 B | 说明 |
+|---|---|---|---|
+| A -> B | `GPIO21` | `GPIO16` | `OUT0/TRIG_OUT` 到 `IN0/TRIG_IN`。 |
+| A -> B | `GPIO22` | `GPIO17` | `OUT1/PULSE_OUT` 到 `IN1`。 |
+| A -> B | `GPIO23` | `GPIO18` | `OUT2/MODE_OUT2` 到 `IN2/ENC_Z`。 |
+| A -> B | `GPIO24` | `GPIO19` | `OUT3/RJ45_TRIG_OUT compat` 到 `IN3/RJ45_TRIG_IN`。 |
+| B -> A | `GPIO21` | `GPIO16` | 反向同名语义交叉连接。 |
+| B -> A | `GPIO22` | `GPIO17` | 反向同名语义交叉连接。 |
+| B -> A | `GPIO23` | `GPIO18` | 反向同名语义交叉连接。 |
+| B -> A | `GPIO24` | `GPIO19` | 反向同名语义交叉连接。 |
+| 共地 | `GND` | `GND` | 两块板必须共地。 |
+
+调试规则：
+
+- 当前固件的最小系统默认 profile 使用 `GPIO16..19` 作为 PIO 输入组，
+  `GPIO21..24` 作为 PIO 输出组；如构建参数改变，接线必须随 active profile 改变。
+- `GPIO12..15` 与 SD/SPI 调试资源存在冲突；双板直连验证时不得把它们作为主链路。
+- 输出线建议串 `47R~100R` 调试电阻；在方向 ownership 未明确前，禁止把两块板的
+  输出脚同名直连。
+- 产品板最终 PIO/SMA/RJ45/BiSS pin map 仍以产品板硬件约束和网表为准。
+
 最小系统板不要求具备：
 
 - ISO1452/ISO7740 真实隔离链路。

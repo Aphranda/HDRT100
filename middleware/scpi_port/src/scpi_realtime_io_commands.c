@@ -2,8 +2,11 @@
 
 #include "distributed_config.h"
 #include "scpi_port_internal.h"
+#include "sync_io.h"
 #include "sync_io_hw_profile.h"
 #include "sync_trigger.h"
+
+static uint32_t s_debug_output_mask;
 
 scpi_result_t scpi_cmd_trigger_width(scpi_t *context)
 {
@@ -166,6 +169,70 @@ scpi_result_t scpi_cmd_rj45_trigger_pins_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, SYNC_IO_HW_RJ45_TRIG_IN_PIN);
     SCPI_ResultUInt32(context, SYNC_IO_HW_RJ45_TRIG_OUT_PIN);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_io_profile_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, SYNC_IO_HW_MAIN_INPUT_BASE_PIN);
+    SCPI_ResultUInt32(context, SYNC_IO_HW_MAIN_INPUT_PIN_COUNT);
+    SCPI_ResultUInt32(context, SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN);
+    SCPI_ResultUInt32(context, SYNC_IO_HW_MAIN_OUTPUT_PIN_COUNT);
+    SCPI_ResultUInt32(context, SYNC_IO_HW_TRIG_IN_PIN);
+    SCPI_ResultUInt32(context, SYNC_IO_HW_RJ45_TRIG_IN_PIN);
+    SCPI_ResultUInt32(context, SYNC_IO_HW_TRIG_OUT_PIN);
+    SCPI_ResultUInt32(context, SYNC_IO_HW_RJ45_TRIG_OUT_PIN);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_input_level_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, SYNC_IO_HW_MAIN_INPUT_BASE_PIN);
+    SCPI_ResultUInt32(context, SYNC_IO_HW_MAIN_INPUT_PIN_COUNT);
+    SCPI_ResultUInt32(context, sync_io_debug_read_input_mask());
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_output_mask(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t value;
+    if (!scpi_port_read_u32(context, &value)) {
+        return SCPI_RES_ERR;
+    }
+
+    const uint32_t valid_mask = (1u << SYNC_IO_HW_MAIN_OUTPUT_PIN_COUNT) - 1u;
+    if ((value & ~valid_mask) != 0u || !sync_io_debug_set_output_mask(value)) {
+        return SCPI_RES_ERR;
+    }
+
+    s_debug_output_mask = value;
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_output_mask_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN);
+    SCPI_ResultUInt32(context, SYNC_IO_HW_MAIN_OUTPUT_PIN_COUNT);
+    SCPI_ResultUInt32(context, s_debug_output_mask);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_output_release(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
+    sync_io_debug_release_output_mask();
+    s_debug_output_mask = 0u;
     return SCPI_RES_OK;
 }
 

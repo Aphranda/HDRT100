@@ -1233,8 +1233,8 @@ GPIO16..GPIO23 的实际映射属于 board profile 和 `sync_io` 的职责。`Tr
 
 | 接口 | 角色 | 语义 |
 |---|---|---|
-| 主输入 IN0..IN3 / GPIO16..19 | 模式本地高速输入 | `TRIG_IN`、`RJ45_TRIG_IN`、`GATE_IN`、编码器 A/B/Z（仅 IN0..IN2）、后续计数/采样输入 |
-| 主输出 OUT0..OUT3 / GPIO20..23 | 模式本地高速输出 | `TRIG_OUT`、`PULSE_OUT`、`RJ45_TRIG_OUT`、`SEQ_OUT[3:0]` |
+| 主输入 IN0..IN3 / active input group | 模式本地高速输入 | `TRIG_IN`、`RJ45_TRIG_IN`、`GATE_IN`、编码器 A/B/Z（仅 IN0..IN2）、后续计数/采样输入 |
+| 主输出 OUT0..OUT3 / active output group | 模式本地高速输出 | `TRIG_OUT`、`PULSE_OUT`、`RJ45_TRIG_OUT`、`SEQ_OUT[3:0]` |
 | AUX0..AUX3 / GPIO26..29 | 跨模式框架功能 | `ARM_IN`、`EXT_CLK_IN`、`SYNC_CLK_OUT`、`AUX3_TX/BISS_DATA_OUT` |
 
 ### 模式资源约束

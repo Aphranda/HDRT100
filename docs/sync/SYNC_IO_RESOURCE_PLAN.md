@@ -13,8 +13,8 @@ Last updated: 2026-07-08
 | 项目 | 当前结论 |
 |---|---|
 | 文档状态 | `Active`。PIO/SM/DMA ownership 仍随固件实现演进；外部高速 IO pinout 和 AUX 两收两发方向按当前产品目标冻结。 |
-| 适用硬件 | RP2350_TRIG 当前开发板和后续以 `GPIO16..23` 主触发口、`GPIO26..29` AUX 口为基础的硬件版本。 |
-| 冻结约束 | `GPIO16..19` 为主输入组，`GPIO20..23` 为主输出组；`AUX0/AUX1` 固定输入，`AUX2/AUX3` 固定输出；非同步功能不得占用 PIO 状态机。 |
+| 适用硬件 | RP2350_TRIG 当前开发板和后续由 board profile 指定连续 PIO 输入/输出组的硬件版本。 |
+| 冻结约束 | 产品目标仍按产品板硬件约束冻结；当前最小系统调试 profile 由 `PROJECT_SYNC_IO_INPUT_BASE_PIN` / `PROJECT_SYNC_IO_OUTPUT_BASE_PIN` 选择，默认 `GPIO16..19` 输入、`GPIO21..24` 输出。`AUX0/AUX1` 固定输入，`AUX2/AUX3` 固定输出；非同步功能不得占用 PIO 状态机。 |
 | 未决项 | `ARM_IN`、`EXT_CLK_IN` 旧低层宏仍需迁移到 AUX 语义通道并接入运行逻辑；`SYNC_CLK_OUT` 已迁移到 AUX2/GPIO28 并由资源仲裁器与 BiSS/HSPI/AUX persona 互斥。`MARKER_OUT` 不再作为独立硬件信号定义，历史 `MARK:*` 命令兼容到 `RJ45_FWD_TRIG_OUT`。 |
 
 ## 硬件资源预算
@@ -43,14 +43,14 @@ RP2350 提供 3 个 PIO block。每个 PIO block 有 4 个状态机和独立指�
 
 | PIO | 状态机 | 名称 | 当前/目标功能 |
 |---|---:|---|---|
-| `pio0` | `sm0` | `CAPTURE` | 当前用于 `GPIO16..GPIO19` 4 bit 输入采样，写入 RX FIFO/DMA。 |
+| `pio0` | `sm0` | `CAPTURE` | 当前用于 active profile 的 4 bit 输入组采样，写入 RX FIFO/DMA。 |
 | `pio0` | `sm1` | `TIMESTAMP_RESERVED` | 预留给粗/细边沿计时、事件 tick、捕获 strobe 或后续外部参考输入处理；当前未在 `sync_io` 中启用。 |
 | `pio0` | `sm2` | `RJ45_FWD_TRIGGER_IN` | 固定对应 `GPIO19/RJ45_FWD_TRIG_IN`；可在模式层解释为 gate、inhibit 或 HSPI-like `MOSI/SYNC` 输入。 |
 | `pio0` | `sm3` | `ARM_RESERVED` | 预留给硬件 ARM/DISARM 握手和捕获窗口控制；当前 `ARM_IN` 尚未接入 TriggerFB/PIO。 |
 | `pio1` | `sm0` | `MAIN_OUTPUT` | 当前由主输出模式独占：即时 `TRIG_OUT`、`SEQ_STEP` 序列输出和 `ENC_COUNT` 比较触发都复用该 SM。 |
 | `pio1` | `sm1` | `MAIN_OUT2_RESERVED` | 释放为主口 OUT2/`SEQ_STEP` bit2 或后续模式本地输出；不再承载框架层 `SYNC_CLK_OUT`。 |
-| `pio1` | `sm2` | `MAIN_PULSE` | 当前用于 `GPIO21/PULSE_OUT` 第二路脉冲输出。代码宏名为 `BOARD_SYNC_GATE_SM`，实际用途是 pulse 输出，不是 `GATE_IN` 输入资格机。 |
-| `pio1` | `sm3` | `MAIN_OUT3_RJ45_FWD_TRIGGER` | 当前用于 `GPIO23/OUT3`，产品硬件语义为 `RJ45_FWD_TRIG_OUT`；旧 `MARK:*` 命令仅作为兼容入口复用该硬件触发输出。 |
+| `pio1` | `sm2` | `MAIN_PULSE` | 当前用于 active profile 的 `OUT1/PULSE_OUT` 第二路脉冲输出。代码宏名为 `BOARD_SYNC_GATE_SM`，实际用途是 pulse 输出，不是 `GATE_IN` 输入资格机。 |
+| `pio1` | `sm3` | `MAIN_OUT3_RJ45_FWD_TRIGGER` | 当前用于 active profile 的 `OUT3/RJ45_FWD_TRIG_OUT` 兼容输出；旧 `MARK:*` 命令仅作为兼容入口复用该硬件触发输出。 |
 | `pio2` | `sm0` | `AUX0_ARM` | 产品目标为 AUX0/GPIO26 `ARM_IN`；当前作为通用 AUX IO 初始化。 |
 | `pio2` | `sm1` | `AUX1_EXT_CLK` | 产品目标为 AUX1/GPIO27 `EXT_CLK_IN`；当前作为通用 AUX IO 初始化。 |
 | `pio2` | `sm2` | `AUX2_SYNC_CLK` | 当前承载 AUX2/GPIO28 `SYNC_CLK_OUT`；BiSS persona 中作为 `BISS_CLK_OUT`，HSPI-like persona 中作为 `HSPI_SCLK_OUT`，三者由 `PIO2 + AUX` 资源互斥。 |
@@ -58,24 +58,25 @@ RP2350 提供 3 个 PIO block。每个 PIO block 有 4 个状态机和独立指�
 
 ## GPIO 分配
 
-外部连接器上最适合同步触发的连续 GPIO 组为 J2/J1 触发侧 `GPIO16..GPIO23`，以及 J1 辅助侧 `GPIO26..GPIO29`。这些引脚统一预留为同步触发高速 IO 区。
+外部连接器上最适合同步触发的连续 GPIO 组由 board profile 选择。当前最小系统双板调试默认使用 `GPIO16..19` 接收、`GPIO21..24` 发送；产品板实际方向以产品板约束为准。
 
-| GPIO | 方向 | 信号 | PIO owner | 说明 |
-|---:|---|---|---|---|
-| 16 | 输入 | `TRIG_IN` | `pio0/sm0`, `pio0/sm2` | 主外部触发输入。 |
-| 17 | 输入 | `ENC_B_IN` / `MODE_IN1` | `pio0/sm3` | 主触发输入通道；产品映射中作为 `ENC_COUNT` B 相，也可作为后续模式本地输入。 |
-| 18 | 输入 | `ENC_Z_IN` / `MODE_IN2` | `pio0/sm1` | 主触发输入通道；产品映射中作为 `ENC_COUNT` Z 相，也可作为后续模式本地输入。 |
-| 19 | 输入 | `RJ45_FWD_TRIG_IN` / `GATE_IN` | `pio0/sm2` | 上行 RJ45 前向触发输入，也可在模式内解释为 gate、inhibit 或 HSPI-like `MOSI/SYNC` 输入。 |
-| 20 | 输出 | `TRIG_OUT` | `pio1/sm0` | 主确定性触发输出。 |
-| 21 | 输出 | `PULSE_OUT` | `pio1/sm2` | 第二路可编程脉冲或 burst 输出。 |
-| 22 | 输出 | `MODE_OUT2` | `pio1/sm1` | 主触发输出通道；产品映射中作为 `SEQ_STEP` bit2。 |
-| 23 | 输出 | `RJ45_FWD_TRIG_OUT` / `MODE_OUT3` | `pio1/sm3` | 下行 RJ45 前向触发输出，也可在模式内解释为 `SEQ_STEP` bit3 或 HSPI-like `MOSI/SYNC` 输出。 |
+| 语义通道 | 默认 GPIO | 方向 | PIO owner | 说明 |
+|---|---:|---|---|---|
+| `IN0/TRIG_IN` | 16 | 输入 | `pio0/sm0`, `pio0/sm2` | 主外部触发输入。 |
+| `IN1/ENC_B_IN` | 17 | 输入 | `pio0/sm3` | 主触发输入通道；也可作为后续模式本地输入。 |
+| `IN2/ENC_Z_IN` | 18 | 输入 | `pio0/sm1` | 主触发输入通道；`ENC_COUNT` Z 相。 |
+| `IN3/RJ45_FWD_TRIG_IN` | 19 | 输入 | `pio0/sm2` | 上行 RJ45 兼容输入，也可在模式内解释为 gate 或 inhibit。 |
+| `OUT0/TRIG_OUT` | 21 | 输出 | `pio1/sm0` | 主确定性触发输出。 |
+| `OUT1/PULSE_OUT` | 22 | 输出 | `pio1/sm2` | 第二路可编程脉冲或 burst 输出。 |
+| `OUT2/MODE_OUT2` | 23 | 输出 | `pio1/sm1` | `SEQ_STEP` bit2 或模式本地输出。 |
+| `OUT3/RJ45_FWD_TRIG_OUT` | 24 | 输出 | `pio1/sm3` | RJ45 兼容输出；`SEQ_STEP` bit3。 |
 | 26 | 输入 | `AUX0_ARM_IN` | `pio2/sm0` | 产品 AUX 固定接收：外部 ARM 资格/请求，也可在 BiSS persona 中作为 `BISS_CLK_IN`，HSPI-like 中作为 `HSPI_SCLK_IN`。 |
 | 27 | 输入 | `AUX1_EXT_CLK_IN` | `pio2/sm1` | 产品 AUX 固定接收：外部参考或采样时钟，也可在 BiSS persona 中作为 `BISS_DATA_IN`，HSPI-like 中作为 `HSPI_MISO_IN`。 |
 | 28 | 输出 | `AUX2_SYNC_CLK_OUT` | `pio2/sm2` | 产品 AUX 固定发送：参考/分频同步时钟，也可在 BiSS persona 中作为 `BISS_CLK_OUT`，HSPI-like 中作为 `HSPI_SCLK_OUT`。 |
 | 29 | 输出 | `AUX3_TX` / `BISS_DATA_OUT` | `pio2/sm3` | 产品 AUX 固定发送：辅助输出、BiSS persona 的 `BISS_DATA_OUT` 或 HSPI-like 的 `HSPI_MISO_OUT`。 |
 
-`GPIO24` 保留为未来板级功能或调试备用 GPIO。
+如需切换接线，只能移动整组 base pin，不能把 4 个 bit 拆成离散 GPIO。默认示例之外的
+组合必须由 CMake profile 和板端验证记录共同确认。
 
 ## 统一物理 IO 策略
 
@@ -141,7 +142,7 @@ AUX 仍然可以按 persona 复用为 BiSS-C TAP、HSPI-like、差分触发、�
 
 原始 GPIO 选择命令只能作为 board profile 配置或开发诊断入口。产品 SCPI/UI 应优先使用语义通道，由 Trigger 资源仲裁器决定当前模式下请求是否可用。
 
-当前固件仍保留部分旧低层宏：`BOARD_SYNC_ARM_IN_PIN`=`GPIO17`、`BOARD_SYNC_EXT_CLK_IN_PIN`=`GPIO18` 仍只代表待迁移的旧诊断路径。`BOARD_SYNC_SYNC_CLK_OUT_PIN` 已解析到 `AUX2/GPIO28`。硬件 pinout 已冻结，`GPIO23` 的硬件语义是 `RJ45_FWD_TRIG_OUT`；`BOARD_SYNC_MARKER_OUT_PIN` 仅作为 deprecated 兼容别名指向 `GPIO23/RJ45_FWD_TRIG_OUT`，不再表示独立硬件信号。
+当前固件仍保留部分旧低层宏：`BOARD_SYNC_ARM_IN_PIN` 和 `BOARD_SYNC_EXT_CLK_IN_PIN` 仍只代表 active input group 内待迁移的旧诊断路径。`BOARD_SYNC_SYNC_CLK_OUT_PIN` 已解析到 `AUX2/GPIO28`。`BOARD_SYNC_RJ45_TRIG_OUT_PIN` 解析到 active output group 的 OUT3；`BOARD_SYNC_MARKER_OUT_PIN` 仅作为 deprecated 兼容别名指向该 RJ45 兼容输出，不再表示独立硬件信号。
 
 ## 实用性能目标
 

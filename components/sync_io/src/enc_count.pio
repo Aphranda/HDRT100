@@ -1,13 +1,13 @@
 ; enc_count.pio — 编码器计数触发 (HAOFV 实时面)
 ; 1x 解码, CW 方向, Z 递增圈数 (IRQ 通知 CPU)
 ;
-; Pin 组 (in_pin_base=16, 3-pin contiguous):
-;   offset 0: GPIO16 = A
-;   offset 1: GPIO17 = B
-;   offset 2: GPIO18 = Z
-; GPIO19 is RJ45_TRIG_IN and is not owned by ENC_COUNT.
+; Pin 组 (in_pin_base, 3-pin contiguous):
+;   offset 0: A
+;   offset 1: B
+;   offset 2: Z
+; input offset 3 is RJ45_TRIG_IN and is not owned by ENC_COUNT.
 ;
-; Pins (set_pin_base=20): TRIG_OUT
+; Pins (set_pin): TRIG_OUT from active board profile
 ;
 ; Registers: X=剩余位置计数, Y=临时提取, OSR/ISR=采样移位
 ;

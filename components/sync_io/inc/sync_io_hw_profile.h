@@ -6,13 +6,16 @@
 
 #include "board_config.h"
 
-/* Frozen product hardware profile:
- * - GPIO16..19: fixed SYNC_IO input group.
- * - GPIO18: fixed ENC_COUNT Z software input.
- * - GPIO19: fixed RJ45_TRIG_IN hardware input; gate is mode semantics.
- * - GPIO20..23: fixed SYNC_IO output group.
- * - GPIO23: fixed RJ45_TRIG_OUT hardware output; MARK:* is compatibility.
+/* Active board hardware profile:
+ * - PROJECT_SYNC_IO_INPUT_BASE_PIN..+3: contiguous SYNC_IO input group.
+ * - input +2: ENC_COUNT Z software input.
+ * - input +3: RJ45_TRIG_IN compatibility input; gate is mode semantics.
+ * - PROJECT_SYNC_IO_OUTPUT_BASE_PIN..+3: contiguous SYNC_IO output group.
+ * - output +3: RJ45_TRIG_OUT compatibility output; MARK:* is compatibility.
  * - GPIO26..29: AUX is fixed as two RX + two TX, reused by firmware persona.
+ *
+ * The active profile is selected by CMake/board profile. Product-board pinout
+ * remains documented in docs/hardware/ and should use its own values.
  */
 
 #define SYNC_IO_HW_MAIN_INPUT_BASE_PIN   BOARD_SYNC_INPUT_BASE_PIN
@@ -48,12 +51,17 @@
 #define SYNC_IO_HW_AUX_RX_MASK ((1u << 0) | (1u << 1))
 #define SYNC_IO_HW_AUX_TX_MASK ((1u << 2) | (1u << 3))
 
-_Static_assert(SYNC_IO_HW_MAIN_INPUT_BASE_PIN == 16u, "SYNC_IO input base must be GPIO16");
+_Static_assert(SYNC_IO_HW_MAIN_INPUT_BASE_PIN <= 26u, "SYNC_IO input group must fit GPIO0..29");
 _Static_assert(SYNC_IO_HW_MAIN_INPUT_PIN_COUNT == 4u, "SYNC_IO input count must be 4");
-_Static_assert(SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN == 20u, "SYNC_IO output base must be GPIO20");
+_Static_assert(SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN <= 26u, "SYNC_IO output group must fit GPIO0..29");
 _Static_assert(SYNC_IO_HW_MAIN_OUTPUT_PIN_COUNT == 4u, "SYNC_IO output count must be 4");
-_Static_assert(SYNC_IO_HW_RJ45_TRIG_IN_PIN == 19u, "RJ45_TRIG_IN must be GPIO19/IN3");
-_Static_assert(SYNC_IO_HW_RJ45_TRIG_OUT_PIN == 23u, "RJ45_TRIG_OUT must be GPIO23/OUT3");
+_Static_assert((SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN > (SYNC_IO_HW_MAIN_INPUT_BASE_PIN + 3u)) ||
+               ((SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN + 3u) < SYNC_IO_HW_MAIN_INPUT_BASE_PIN),
+               "SYNC_IO input and output groups must not overlap");
+_Static_assert(SYNC_IO_HW_RJ45_TRIG_IN_PIN == (SYNC_IO_HW_MAIN_INPUT_BASE_PIN + 3u),
+               "RJ45_TRIG_IN must be input group IN3");
+_Static_assert(SYNC_IO_HW_RJ45_TRIG_OUT_PIN == (SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN + 3u),
+               "RJ45_TRIG_OUT must be output group OUT3");
 _Static_assert(SYNC_IO_HW_ARM_IN_PIN == 26u, "ARM_IN must be AUX0/GPIO26");
 _Static_assert(SYNC_IO_HW_EXT_CLK_IN_PIN == 27u, "EXT_CLK_IN must be AUX1/GPIO27");
 _Static_assert(SYNC_IO_HW_SYNC_CLK_OUT_PIN == 28u, "SYNC_CLK_OUT must be AUX2/GPIO28");

@@ -72,22 +72,34 @@
 #define BOARD_SYNC_GATE_SM 2u
 #define BOARD_SYNC_MARKER_SM 3u
 
-#define BOARD_SYNC_INPUT_BASE_PIN 16u
+#ifndef PROJECT_SYNC_IO_INPUT_BASE_PIN
+#define PROJECT_SYNC_IO_INPUT_BASE_PIN 16u
+#endif
+
+#ifndef PROJECT_SYNC_IO_OUTPUT_BASE_PIN
+#define PROJECT_SYNC_IO_OUTPUT_BASE_PIN 21u
+#endif
+
+#define BOARD_SYNC_INPUT_BASE_PIN PROJECT_SYNC_IO_INPUT_BASE_PIN
 #define BOARD_SYNC_INPUT_PIN_COUNT 4u
-#define BOARD_SYNC_TRIG_IN_PIN 16u
-#define BOARD_SYNC_ARM_IN_PIN 17u
-#define BOARD_SYNC_EXT_CLK_IN_PIN 18u
-#define BOARD_SYNC_RJ45_TRIG_IN_PIN 19u
+#define BOARD_SYNC_TRIG_IN_PIN (BOARD_SYNC_INPUT_BASE_PIN + 0u)
+#define BOARD_SYNC_ARM_IN_PIN (BOARD_SYNC_INPUT_BASE_PIN + 1u)
+#define BOARD_SYNC_EXT_CLK_IN_PIN (BOARD_SYNC_INPUT_BASE_PIN + 2u)
+#define BOARD_SYNC_RJ45_TRIG_IN_PIN (BOARD_SYNC_INPUT_BASE_PIN + 3u)
 /* Mode-level alias: IN3 can be interpreted as gate/inhibit by software,
  * but the hardware connector definition is RJ45_TRIG_IN. */
 #define BOARD_SYNC_GATE_IN_PIN BOARD_SYNC_RJ45_TRIG_IN_PIN
 
-#define BOARD_SYNC_OUTPUT_BASE_PIN 20u
+/* Configurable debug/product board profile:
+ * SYNC_IO uses contiguous 4-pin RX/TX groups. Defaults are selected by CMake
+ * for the current minimum-system two-board wiring, but a build may override
+ * PROJECT_SYNC_IO_INPUT_BASE_PIN / PROJECT_SYNC_IO_OUTPUT_BASE_PIN. */
+#define BOARD_SYNC_OUTPUT_BASE_PIN PROJECT_SYNC_IO_OUTPUT_BASE_PIN
 #define BOARD_SYNC_OUTPUT_PIN_COUNT 4u
-#define BOARD_SYNC_TRIG_OUT_PIN 20u
-#define BOARD_SYNC_PULSE_OUT_PIN 21u
-#define BOARD_SYNC_MODE_OUT2_PIN 22u
-#define BOARD_SYNC_RJ45_TRIG_OUT_PIN 23u
+#define BOARD_SYNC_TRIG_OUT_PIN (BOARD_SYNC_OUTPUT_BASE_PIN + 0u)
+#define BOARD_SYNC_PULSE_OUT_PIN (BOARD_SYNC_OUTPUT_BASE_PIN + 1u)
+#define BOARD_SYNC_MODE_OUT2_PIN (BOARD_SYNC_OUTPUT_BASE_PIN + 2u)
+#define BOARD_SYNC_RJ45_TRIG_OUT_PIN (BOARD_SYNC_OUTPUT_BASE_PIN + 3u)
 #define BOARD_SYNC_RJ45_TRIGGER_SM BOARD_SYNC_MARKER_SM
 /* Deprecated compatibility alias: marker output is no longer a separate
  * physical product signal; legacy MARK:* commands pulse RJ45_TRIG_OUT. */

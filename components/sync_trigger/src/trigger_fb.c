@@ -1030,7 +1030,7 @@ bool trigger_fb_init(trigger_vector_t *vector)
     vector->state = TRIG_STATE_IDLE;
     vector->active_mode = TRIG_MODE_IDLE;
     vector->supported_modes = (1u << TRIG_MODE_SEQ_STEP);
-    vector->trigger_source_pin = 16u;    /* GPIO16 = TRIG_IN */
+    vector->trigger_source_pin = SYNC_IO_HW_TRIG_IN_PIN;
     vector->edge = TRIG_EDGE_RISING;
     vector->gate_enabled = false;
     vector->safe_state = TRIG_SAFE_ZERO;

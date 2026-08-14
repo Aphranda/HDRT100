@@ -52,6 +52,37 @@ RefMemTableRegistry
 
 ## 任务记录
 
+### REFMEM-TASK-20260814-036 - 双板 PIO 可配置调试接线 profile
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 为两块最小系统板组网验证建立方便接线且可自定义的 PIO 调试 profile。
+  - 保持该接线只属于最小系统调试约束，不上升为产品板 pin map。
+- 完成内容：
+  - 新增 `PROJECT_SYNC_IO_INPUT_BASE_PIN` 和 `PROJECT_SYNC_IO_OUTPUT_BASE_PIN` 构建参数。
+  - 当前默认 profile 为 `GPIO16..19` 输入、`GPIO21..24` 输出；后续可通过 CMake 切换整组 base pin。
+  - `board_config.h` 从 active profile 派生 `TRIG_IN`、`TRIG_OUT`、`PULSE_OUT`、`RJ45_TRIG_IN/OUT` 等语义脚。
+  - `sync_io_hw_profile` 的编译期断言改为检查连续 4 位、范围合法和输入/输出不重叠。
+  - `trigger_fb` 默认触发源改为从 active profile 读取，不再硬编码 `GPIO16`。
+  - `HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md` 记录双板交叉接线表和 `GPIO12..15` 避让规则。
+  - 增加 `REALtime:IO:PROFile?`、`REALtime:IO:INPut:LEVel?`、`REALtime:IO:OUTPut:MASK`、`REALtime:IO:OUTPut:MASK?` 和 `REALtime:IO:OUTPut:RELease` 维护接口。
+  - 新增 `tools/two_board_io_validate/two_board_io_validate.py`，逐位静态驱动两块板的 active output group 并读取对端 input mask，自动识别漏接、错位和短接。
+  - `REFMEM_DOMAIN_TODO.md` 将双板 PIO 预检待办标记完成，后续真实两板 HIL 验证仍保留。
+- 验证结果：
+  - 待执行 py_compile、文档检查、pytest 和 RTOS smoke build。
+- 还需完成：
+  - 在两块板上执行 baseline 工具和后续 PIO 方向预检。
+  - 后续产品板 profile 需要按产品板硬件约束设置独立构建参数，不沿用调试默认接线。
+- 关联文件：
+  - `boards/rp2350_trig/inc/board_config.h`
+  - `components/sync_io/inc/sync_io_hw_profile.h`
+  - `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`
+  - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+- 下一步：
+  - 构建并烧录最小系统 profile 后，用 `SYSTem:REFMEM:*` 和后续 PIO 预检确认双板基础链路。
+
 ### REFMEM-TASK-20260814-035 - CLAIM_CONFLICT / RELEASE / RESOLVE 帧
 
 - 状态：完成

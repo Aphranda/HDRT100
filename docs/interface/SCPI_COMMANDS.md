@@ -97,15 +97,19 @@ UART/RS485/BiSS-C 等外部或板间通信能力统一归入 `COMMunication:*`�
 
 | 命令 | 说明 |
 |---|---|
-| `REALtime:IO:OUTPut:WIDTh <us>` / `REALtime:IO:OUTPut:WIDTh?` | 设置或查询 `GPIO20/TRIG_OUT` 即时输出脉宽。 |
-| `REALtime:IO:OUTPut:IMMediate` | 从 `GPIO20/TRIG_OUT` 立即输出一次维护脉冲。 |
-| `REALtime:IO:PULSe:WIDTh <us>` / `REALtime:IO:PULSe:WIDTh?` | 设置或查询 `GPIO21/PULSE_OUT` 即时输出脉宽。 |
-| `REALtime:IO:PULSe:IMMediate` | 从 `GPIO21/PULSE_OUT` 立即输出一次维护脉冲。 |
-| `REALtime:IO:RJ45:WIDTh <us>` / `REALtime:IO:RJ45:WIDTh?` | 设置或查询 `GPIO23/RJ45_TRIG_OUT` 即时输出脉宽。 |
-| `REALtime:IO:RJ45:IMMediate` | 从 `GPIO23/RJ45_TRIG_OUT` 立即输出一次维护脉冲。 |
-| `REALtime:IO:RJ45:PINs?` | 查询 RJ45 触发硬件绑定，返回 `in_pin,out_pin`，当前为 `19,23`。 |
-| `REALtime:IO:MARKer:WIDTh <us>` / `REALtime:IO:MARKer:WIDTh?` | 调试 marker 语义输出，当前映射到 `GPIO23/RJ45_TRIG_OUT`。 |
+| `REALtime:IO:OUTPut:WIDTh <us>` / `REALtime:IO:OUTPut:WIDTh?` | 设置或查询 active profile 的 `OUT0/TRIG_OUT` 即时输出脉宽。 |
+| `REALtime:IO:OUTPut:IMMediate` | 从 active profile 的 `OUT0/TRIG_OUT` 立即输出一次维护脉冲。 |
+| `REALtime:IO:PULSe:WIDTh <us>` / `REALtime:IO:PULSe:WIDTh?` | 设置或查询 active profile 的 `OUT1/PULSE_OUT` 即时输出脉宽。 |
+| `REALtime:IO:PULSe:IMMediate` | 从 active profile 的 `OUT1/PULSE_OUT` 立即输出一次维护脉冲。 |
+| `REALtime:IO:RJ45:WIDTh <us>` / `REALtime:IO:RJ45:WIDTh?` | 设置或查询 active profile 的 `OUT3/RJ45_TRIG_OUT` 即时输出脉宽。 |
+| `REALtime:IO:RJ45:IMMediate` | 从 active profile 的 `OUT3/RJ45_TRIG_OUT` 立即输出一次维护脉冲。 |
+| `REALtime:IO:RJ45:PINs?` | 查询 RJ45 触发硬件绑定，返回 `in_pin,out_pin`；当前默认 profile 为 `19,24`。 |
+| `REALtime:IO:MARKer:WIDTh <us>` / `REALtime:IO:MARKer:WIDTh?` | 调试 marker 语义输出，当前映射到 active profile 的 `OUT3/RJ45_TRIG_OUT`。 |
 | `REALtime:IO:MARKer:IMMediate` | 从 marker 语义输出立即发一次维护脉冲。 |
+| `REALtime:IO:PROFile?` | 查询 active profile，返回 `input_base,input_count,output_base,output_count,trig_in,rj45_in,trig_out,rj45_out`。 |
+| `REALtime:IO:INPut:LEVel?` | 查询 active input group 当前电平，返回 `input_base,input_count,level_mask`。 |
+| `REALtime:IO:OUTPut:MASK <mask>` / `REALtime:IO:OUTPut:MASK?` | 维护态静态驱动 active output group，供线序检测使用。 |
+| `REALtime:IO:OUTPut:RELease` | 释放维护态静态输出，恢复即时脉冲输出路径。 |
 | `REALtime:IO:SAMPle:RATE <Hz>` / `REALtime:IO:SAMPle:RATE?` | 设置或查询输入采样率。 |
 | `REALtime:IO:SAMPle:STATe <ON|OFF>` / `REALtime:IO:SAMPle:STATe?` | 启停或查询输入采样状态。 |
 | `REALtime:IO:CLOCk:FREQuency <Hz>` / `REALtime:IO:CLOCk:FREQuency?` | 设置或查询 `SYNC_CLK_OUT` 维护输出频率。 |

@@ -76,6 +76,17 @@ Get-Content -Path tools\README.md -Encoding UTF8
   management, checks identity/build/core/VDC/DPLL/config/SlotClaim snapshots,
   verifies default SlotClaim evidence is empty, and can compare build id and
   SlotClaimMap CRC before later RJ45 `CLAIM_*` tests are enabled.
+
+### `two_board_io_validate/two_board_io_validate.py`
+
+Checks the active SYNC_IO wiring between two minimum-system boards. The tool
+opens both serial ports with explicit lifecycle management, queries
+`REALtime:IO:PROFile?`, drives one `REALtime:IO:OUTPut:MASK` bit at a time, and
+reads the opposite board with `REALtime:IO:INPut:LEVel?`.
+
+```powershell
+python tools\two_board_io_validate\two_board_io_validate.py --port-a COM6 --port-b COM7
+```
 - `tests/run_portable_ota_tests.ps1`: portable OTA library gate. It builds or runs
   `third_party/portable_ota` unit tests. If no host C compiler exists, it falls
   back to ARM GCC compile/object-build checks and reports that host execution

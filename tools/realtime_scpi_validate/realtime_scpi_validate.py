@@ -40,6 +40,8 @@ class TestCase:
 COMMAND_ARGS = {
     "REALtime:IO:OUTPut:WIDTh": "25",
     "REALtime:IO:OUTPut:IMMediate": "",
+    "REALtime:IO:OUTPut:MASK": "0",
+    "REALtime:IO:OUTPut:RELease": "",
     "REALtime:IO:PULSe:WIDTh": "40",
     "REALtime:IO:PULSe:IMMediate": "",
     "REALtime:IO:MARKer:WIDTh": "55",
@@ -70,6 +72,9 @@ COMMAND_ARGS = {
 MIN_FIELDS = {
     "REALtime:STATus?": 9,
     "REALtime:IO:SYNC?": 6,
+    "REALtime:IO:PROFile?": 8,
+    "REALtime:IO:INPut:LEVel?": 3,
+    "REALtime:IO:OUTPut:MASK?": 3,
 }
 
 SKIP_PATTERNS = {

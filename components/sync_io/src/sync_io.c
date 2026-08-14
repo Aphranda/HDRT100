@@ -598,6 +598,71 @@ bool sync_io_fire_rj45_trigger_us(uint32_t high_us)
     return sync_io_fire_pulse_us_on_sm(BOARD_SYNC_RJ45_TRIGGER_SM, high_us);
 }
 
+bool sync_io_debug_set_output_mask(uint32_t mask)
+{
+    if (!s_sync_io.initialized) {
+        return false;
+    }
+
+    const uint32_t valid_mask = (1u << BOARD_SYNC_OUTPUT_PIN_COUNT) - 1u;
+    mask &= valid_mask;
+
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, false);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, false);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM, false);
+
+    for (uint pin = 0u; pin < BOARD_SYNC_OUTPUT_PIN_COUNT; pin++) {
+        const uint gpio = BOARD_SYNC_OUTPUT_BASE_PIN + pin;
+        gpio_set_function(gpio, GPIO_FUNC_SIO);
+        gpio_set_dir(gpio, GPIO_OUT);
+        gpio_put(gpio, (mask & (1u << pin)) != 0u);
+    }
+
+    return true;
+}
+
+void sync_io_debug_release_output_mask(void)
+{
+    if (!s_sync_io.initialized) {
+        return;
+    }
+
+    for (uint pin = 0u; pin < BOARD_SYNC_OUTPUT_PIN_COUNT; pin++) {
+        const uint gpio = BOARD_SYNC_OUTPUT_BASE_PIN + pin;
+        gpio_set_function(gpio, GPIO_FUNC_SIO);
+        gpio_set_dir(gpio, GPIO_OUT);
+        gpio_put(gpio, false);
+    }
+
+    sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
+                            BOARD_SYNC_OUTPUT_SM,
+                            s_sync_io.pulse_offset,
+                            BOARD_SYNC_TRIG_OUT_PIN);
+    sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
+                            BOARD_SYNC_GATE_SM,
+                            s_sync_io.pulse_offset,
+                            BOARD_SYNC_PULSE_OUT_PIN);
+    sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
+                            BOARD_SYNC_RJ45_TRIGGER_SM,
+                            s_sync_io.pulse_offset,
+                            BOARD_SYNC_RJ45_TRIG_OUT_PIN);
+
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, true);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, true);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM, true);
+}
+
+uint32_t sync_io_debug_read_input_mask(void)
+{
+    uint32_t mask = 0u;
+    for (uint pin = 0u; pin < BOARD_SYNC_INPUT_PIN_COUNT; pin++) {
+        if (gpio_get(BOARD_SYNC_INPUT_BASE_PIN + pin)) {
+            mask |= (1u << pin);
+        }
+    }
+    return mask;
+}
+
 bool sync_io_aux_set_mode(sync_io_aux_channel_t channel, sync_io_aux_mode_t mode)
 {
     if (!s_sync_io.initialized || !sync_io_valid_aux_channel(channel)) {
