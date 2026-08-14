@@ -31,12 +31,21 @@ Board A publishes HELLO / EPOCH / DELTA
 | Board A / B0 | `COM3` | `GTS,DTC100,91274BA197662714,0.1.0` |
 | Board B / B1 | `COM4` | `GTS,DTC100,73E940D75B406BCD,0.1.0` |
 
+2026-08-14 当前 HIL 端口更新为：
+
+| 板卡 | 端口 | 逻辑 slot |
+|---|---|---:|
+| Board A | `COM5` | `0` |
+| Board B | `COM6` | `1` |
+
 当前已验证固件：
 
 | 板卡 | build id | package CRC | 说明 |
 |---|---|---|---|
 | COM3 / Board A | `20260814112552` | `0xD7B2581D` | 功能 AO 模板化与 `ModelTurntableAO` 可加载实例验证版。 |
 | COM4 / Board B | `20260814104920` | `0x2DF62B6E` | GPIO4..7 overlay 方向 HIL 已验证参考版。 |
+| COM5 / Board A | `20260814133439` | `0x1926CA52` | RefMem Sync HELLO/EPOCH SCPI 搬运闭环通过。 |
+| COM6 / Board B | `20260814133439` | `0x1926CA52` | RefMem Sync HELLO/EPOCH SCPI 搬运闭环通过。 |
 
 当前 COM3 查询到的 SlotClaimMap CRC 为 `386979554`。
 
@@ -230,7 +239,9 @@ A PEER?(B), B PEER?(A), A/B QUALITY?
 - COM3 验证临时加载到 slot 1/output 0：`CONFigure:MODEl:TURNtable:LOAD 1,0` 后 `READ:MODEl:TURNtable:LOAD?` 返回 `1,1,0`，配置触发和运动参数后 `STARt/STOP` 均返回 `"OK"`。
 - 新增 `SYSTem:REFMEM:SYNC:*` 维护入口，可在两板之间通过 SCPI 搬运 HELLO/EPOCH hex frame；该入口只操作 sync context、adapter skeleton 和 peer/quality snapshot，不直接改 active RefMem 表。
 - 新增 `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`，固化两板 HELLO/EPOCH 搬运验证流程，支持 USB CDC COM 口和 USBTMC VISA resource。
-- 当前构建验证通过：build id `20260814133439`，package CRC `0x1926CA52`；尚未完成两板烧录和板端 HIL 运行。
+- COM5/COM6 均 OTA 并 commit 到 build `20260814133439`，package CRC `0x1926CA52`。
+- `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --out-dir build-rtos-multicore-smoke\refmem_sync_hil_COM5_COM6_20260814133439` 通过。
+- HIL 结果：两板 HELLO/EPOCH `RX` 均返回 `ACCEPTED`；A peer slot 1 与 B peer slot 0 均 `hello_seen=1, epoch_seen=1, frame_count=2`；两板 quality `accepted_count=2`，`bad_frame_count/crc_error_count/target_mismatch_count/epoch_mismatch_count=0`。
 
 ## 注意事项
 

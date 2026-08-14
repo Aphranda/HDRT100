@@ -10,7 +10,7 @@ Last updated: 2026-08-14
 
 ### REFMEM-TASK-20260814-046 - RefMem Sync HELLO/EPOCH SCPI 搬运闭环入口
 
-- 状态：代码完成，待两板烧录 HIL
+- 状态：完成
 - 日期：2026-08-14
 - 任务目标：
   - 在真实 PIO SPI 物理 adapter 完成前，先通过系统维护面把 RefMem Sync frame 在两块最小系统板之间搬运起来。
@@ -25,9 +25,13 @@ Last updated: 2026-08-14
   - `REFMEM_MIN_SYSTEM_PLAYBOOK.md` 增加两板 HELLO/EPOCH 验证命令、脚本和通过条件。
 - 验证结果：
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814133439`，package CRC `0x1926CA52`。
+  - `python tools\ota_send\ota_send.py COM5 build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python tools\ota_boot_commit\ota_boot_commit.py COM5 --expected-build 20260814133439 --out-dir build-rtos-multicore-smoke\ota_commit_COM5_20260814133439` 通过，`SYSTem:FW:BUILD?` 返回 `20260814133439`，`SYSTem:ERRor?` 返回 `0,"No error"`。
+  - `python tools\ota_send\ota_send.py COM6 build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python tools\ota_boot_commit\ota_boot_commit.py COM6 --expected-build 20260814133439 --out-dir build-rtos-multicore-smoke\ota_commit_COM6_20260814133439` 通过，`SYSTem:FW:BUILD?` 返回 `20260814133439`，`SYSTem:ERRor?` 返回 `0,"No error"`。
+  - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --out-dir build-rtos-multicore-smoke\refmem_sync_hil_COM5_COM6_20260814133439` 通过，14 条记录全部 PASS。
+  - HIL 关键结果：A/B 双向 HELLO 与 EPOCH 的 `RX` 均 `ACCEPTED`；A peer slot 1 与 B peer slot 0 均 `hello_seen=1, epoch_seen=1, frame_count=2`；A/B quality 均 `accepted_count=2` 且 frame、CRC、target、epoch 错误计数为 0。
 - 还需完成：
-  - 将新固件 OTA 到 COM3/COM4 两块板。
-  - 运行 `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM3 --port-b COM4 --slot-a 0 --slot-b 1 --epoch 1 --run 1`，归档 transcript 和 summary。
   - 后续把同一帧通路接到真实 PIO SPI 物理 adapter service，再推进 DELTA、ACK_NACK、FENCE 和 QUALITY。
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
