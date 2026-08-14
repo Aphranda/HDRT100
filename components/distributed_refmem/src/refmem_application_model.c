@@ -818,7 +818,7 @@ static bool refmem_model_validate_gate_and_quality(void)
     for (uint32_t i = 0u; i < s_connection_quality.quality_count; i++) {
         const refmem_connection_quality_entry_t *quality = &s_connection_quality.quality[i];
         if (quality->quality_id != i ||
-            quality->scope > REFMEM_APP_QUALITY_DATA_LINK ||
+            quality->scope > REFMEM_APP_QUALITY_TRANSPORT_ADAPTER ||
             quality->source_node >= REFMEM_APP_MODEL_NODE_COUNT ||
             quality->target_node >= REFMEM_APP_MODEL_NODE_COUNT) {
             return false;

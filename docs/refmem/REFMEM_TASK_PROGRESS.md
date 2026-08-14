@@ -8,6 +8,46 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-052 - RefMem Quality runtime snapshot
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 将本地 PIO SPI adapter 计数和 remote `REFMEM_QUALITY` snapshot 规范映射为 `DistributedConnectionQualityTable` entry 形状。
+  - 保持 active static `ConnectionQualityTable` 只作为契约/CRC 来源，不在运行中被维护 bridge 热写。
+- 完成内容：
+  - 新增 `components/distributed_refmem/inc/refmem_quality.h` 和 `src/refmem_quality.c`。
+  - 新增 `refmem_quality_runtime_table_t`，包含 active quality table CRC、local slot、epoch/run、overflow count 和 runtime quality entries。
+  - 本地 adapter 条目映射 sync CRC/stale/drop 计数和 adapter bad/drop/timeout/last error/latency class。
+  - remote 条目映射 `REFMEM_QUALITY` 的 source/target、seq、CRC/stale/drop/late/timeout、last error、p99/p999 和 evidence。
+  - 新增维护查询 `SYSTem:REFMEM:QUALity? [index]`，读取 runtime derived quality snapshot，不修改 active RefMem fact。
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 增加 runtime quality 查询校验，确认远端 QUALITY frame 接收后进入派生质量视图。
+  - `REFMEM_DOMAIN_TODO.md` 将 P4.5 quality 映射项和 P5 `refmem_quality.h/.c` 标记完成。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_quality_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python -m py_compile tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814151311`，package CRC `0x97D14458`。
+  - COM5/COM6 均通过 OTA 更新并 commit 到 build `20260814151311`。
+  - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814151311 --package-crc 0x97D14458 --line-remap-a-to-b 1,2,0,3 --line-remap-b-to-a 2,1,0,3 --preflight-io --out-dir build-rtos-multicore-smoke\refmem_sync_quality_runtime_hil_COM5_COM6_20260814151311_r2` 通过。
+  - HIL 关键结果：IO preflight PASS；B0->B1 remap `[1,2,0,3]`，B1->B0 remap `[2,1,0,3]`；RefMem Sync 63 条记录全部 PASS；两端 runtime quality index `1` 均正确反映对端 QUALITY frame，A 侧记录 B->A `crc_error_count=1,drop_count=2,last_error=9`，B 侧记录 A->B 无错误。
+- 还需完成：
+  - 真实 PIO SPI physical adapter service 接入，替换当前 PC/SCPI frame 搬运。
+  - 后续把 quality snapshot 接入 DeploymentGate/RUN gate evidence。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_quality.h`
+  - `components/distributed_refmem/src/refmem_quality.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tests/unit/test_refmem_quality.c`
+  - `tools/tests/run_refmem_quality_tests.ps1`
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
+- 下一步：
+  - 编译、烧录 COM5/COM6 并执行带 IO preflight 的 RefMem Sync HIL，完成本轮闭环后提交推送。
+
 ### REFMEM-TASK-20260814-051 - RefMem Sync HIL 报告与 IO 预检固化
 
 - 状态：完成

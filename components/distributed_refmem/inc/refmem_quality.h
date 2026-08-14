@@ -1,0 +1,40 @@
+#ifndef REFMEM_QUALITY_H
+#define REFMEM_QUALITY_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "refmem_application_model.h"
+#include "refmem_pio_spi_adapter.h"
+#include "refmem_sync.h"
+
+#define REFMEM_QUALITY_RUNTIME_ENTRY_COUNT (REFMEM_SYNC_NODE_COUNT + 1u)
+
+typedef struct {
+    uint32_t version;
+    uint32_t entry_count;
+    uint32_t active_table_crc32;
+    uint32_t local_slot;
+    uint32_t epoch_id;
+    uint32_t run_id;
+    uint32_t overflow_count;
+    refmem_connection_quality_entry_t entry[REFMEM_QUALITY_RUNTIME_ENTRY_COUNT];
+} refmem_quality_runtime_table_t;
+
+bool refmem_quality_map_local_adapter(
+    const refmem_sync_context_t *sync,
+    const refmem_pio_spi_adapter_snapshot_t *adapter,
+    refmem_connection_quality_entry_t *entry);
+bool refmem_quality_map_remote_sync(
+    const refmem_sync_remote_quality_snapshot_t *remote,
+    refmem_connection_quality_entry_t *entry);
+bool refmem_quality_build_runtime_table(
+    uint32_t active_table_crc32,
+    const refmem_sync_context_t *sync,
+    const refmem_pio_spi_adapter_snapshot_t *adapter,
+    refmem_quality_runtime_table_t *table);
+const refmem_connection_quality_entry_t *refmem_quality_get_entry(
+    const refmem_quality_runtime_table_t *table,
+    uint32_t index);
+
+#endif

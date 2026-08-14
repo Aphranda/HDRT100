@@ -11,6 +11,7 @@
 #include "project_build_info.h"
 #include "refmem_application_model.h"
 #include "refmem_pio_spi_adapter.h"
+#include "refmem_quality.h"
 #include "refmem_slot_claim.h"
 #include "refmem_sync.h"
 #include "refmem_sync_hello.h"
@@ -519,6 +520,64 @@ scpi_result_t scpi_cmd_refmem_table_q(scpi_t *context)
     SCPI_ResultUInt32(context, entry.last_result);
     SCPI_ResultUInt32(context, entry.evidence_index);
     SCPI_ResultUInt32(context, entry.flags);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_quality_q(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t index = 0u;
+    (void)SCPI_ParamUInt32(context, &index, FALSE);
+
+    refmem_pio_spi_adapter_snapshot_t adapter;
+    if (!refmem_pio_spi_adapter_get_snapshot(&s_refmem_sync.adapter, &adapter)) {
+        return SCPI_RES_ERR;
+    }
+
+    const refmem_application_model_snapshot_t *model =
+        refmem_application_model_get_snapshot();
+    refmem_quality_runtime_table_t table;
+    if (!refmem_quality_build_runtime_table(
+            model != NULL ? model->connection_quality_crc32 : 0u,
+            &s_refmem_sync.context,
+            &adapter,
+            &table)) {
+        return SCPI_RES_ERR;
+    }
+
+    const refmem_connection_quality_entry_t *entry =
+        refmem_quality_get_entry(&table, index);
+    if (entry == NULL) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, index);
+    SCPI_ResultUInt32(context, table.version);
+    SCPI_ResultUInt32(context, table.entry_count);
+    SCPI_ResultUInt32(context, table.active_table_crc32);
+    SCPI_ResultUInt32(context, table.local_slot);
+    SCPI_ResultUInt32(context, table.epoch_id);
+    SCPI_ResultUInt32(context, table.run_id);
+    SCPI_ResultUInt32(context, table.overflow_count);
+    SCPI_ResultUInt32(context, entry->quality_id);
+    SCPI_ResultUInt32(context, entry->scope);
+    SCPI_ResultUInt32(context, entry->source_node);
+    SCPI_ResultUInt32(context, entry->target_node);
+    SCPI_ResultUInt32(context, entry->seq_expected);
+    SCPI_ResultUInt32(context, entry->seq_last);
+    SCPI_ResultUInt32(context, entry->crc_error_count);
+    SCPI_ResultUInt32(context, entry->stale_count);
+    SCPI_ResultUInt32(context, entry->late_count);
+    SCPI_ResultUInt32(context, entry->drop_count);
+    SCPI_ResultUInt32(context, entry->timeout_count);
+    SCPI_ResultUInt32(context, entry->last_error);
+    SCPI_ResultUInt32(context, entry->last_error_tick);
+    SCPI_ResultUInt32(context, entry->p99);
+    SCPI_ResultUInt32(context, entry->p999);
+    SCPI_ResultUInt32(context, entry->evidence_index);
     return SCPI_RES_OK;
 }
 

@@ -152,6 +152,7 @@ adapter 替换关系：
 - `ACK?` 只基于本板最近一次 RX snapshot 生成 `REFMEM_ACK_NACK` frame，用于验证 ACK/NACK 位图、reason 和 evidence 语义；它不是业务命令完成 API。
 - `FENCe?` 只生成 `REFMEM_FENCE` frame，用于验证 required slot、source mirror visible 和 min seq 的可见性收束语义；它不直接触发产品 RUN gate。
 - `QUALity:FRAMe?` 只生成 `REFMEM_QUALITY` frame，用于同步本地 receive quality counter 和 peer seq 摘要；它不直接写 active `DistributedConnectionQualityTable`。
+- `SYSTem:REFMEM:QUALity?` 读取 `refmem_quality.h/.c` 生成的运行态派生质量视图，把本地 adapter 计数和 remote QUALITY snapshot 映射为 `DistributedConnectionQualityTable` entry 形状；该视图是 snapshot，不是 active static table 替换。
 - `RX` 只执行 `hex -> adapter RX staging -> adapter poll -> refmem_sync_receive_frame()`。
 - `MIRRor?` / `ACK:STATus?` / `FENCe:STATus?` / `QUALity:STATus?` / `PEER?` / `QUALity?` / `ADAPter?` 只读取本地 sync context 和 adapter snapshot。
 - 维护 bridge 不直接修改 active ApplicationModel、SlotClaimMap、DataLink 或 64 KB RefMem active fact。
@@ -174,7 +175,7 @@ Board A QUALity:FRAMe? -> PC tool -> Board B RX -> Board B QUALity:STATus?
 Board B QUALity:FRAMe? -> PC tool -> Board A RX -> Board A QUALity:STATus?
 ```
 
-这个阶段证明的是 HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY 语义、target mask、epoch/run gate、seq、mirror visible、ACK/NACK reason、FENCE pass/fail snapshot、remote QUALITY snapshot 和本地 quality 计数。它不证明最终物理链路时序，也不证明 FENCE/QUALITY 已接入产品 RUN gate 或 active QualityTable。
+这个阶段证明的是 HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY 语义、target mask、epoch/run gate、seq、mirror visible、ACK/NACK reason、FENCE pass/fail snapshot、remote QUALITY snapshot、本地 quality 计数和 runtime quality 派生视图。它不证明最终物理链路时序，也不证明 FENCE/QUALITY 已接入产品 RUN gate 或 active QualityTable activation。
 
 注意：`ACK?` 是维护 bridge 命令，确认对象来自本板最近一次 RX snapshot。脚本验证双向 DELTA ACK 时，应先在两端各自生成对 DELTA 的 ACK frame，再互相注入；否则先收到的 ACK frame 会成为新的 `last_rx`，后续 `ACK?` 会确认 ACK frame 本身。真实 command slot 完成语义后续由 `refmem_command.h/.c` 承接。
 
@@ -324,7 +325,7 @@ Domain AO/FB fact changed
 | 字段 | 说明 |
 |---|---|
 | `quality_id` | 质量记录编号。 |
-| `scope` | node、adapter、slot、event link、data link。 |
+| `scope` | node、RJ45 link、slot、event link、data link、transport adapter。 |
 | `seq_expected` | 期望序号。 |
 | `seq_last` | 最近接收序号。 |
 | `crc_error_count` | CRC 错误计数。 |
@@ -335,6 +336,15 @@ Domain AO/FB fact changed
 | `last_error` | 最近错误。 |
 | `p99_us` / `p999_us` | 可选延迟分布。 |
 | `evidence_index` | evidence 索引。 |
+
+### Runtime Quality Snapshot
+
+`refmem_quality.h/.c` 是 `DistributedRefMemAO` 内部质量视图 helper，用来把不同来源的质量证据规范成 `refmem_connection_quality_entry_t` 形状：
+
+- index `0` 固定为本地 transport adapter 派生条目，首版把 sync CRC/stale/drop 与 adapter bad/drop/timeout 合并。
+- index `1..8` 为已收到的 remote `REFMEM_QUALITY` snapshot，按 source slot 扫描生成。
+- `active_table_crc32` 只记录当前 active `DistributedConnectionQualityTable` contract 的 CRC，表示该 runtime snapshot 采用哪个质量表契约解释。
+- runtime snapshot 不改变 active table，也不改变 RUN gate；后续 DeploymentGate 消费 quality 时必须显式读取 snapshot 并形成 evidence。
 
 ## 接收提交状态机
 

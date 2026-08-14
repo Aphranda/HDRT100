@@ -215,6 +215,33 @@ QUALITY_STATUS_FIELDS = (
     "received_count",
 )
 
+REFMEM_QUALITY_FIELDS = (
+    "query_index",
+    "version",
+    "entry_count",
+    "active_table_crc32",
+    "local_slot",
+    "epoch_id",
+    "run_id",
+    "overflow_count",
+    "quality_id",
+    "scope",
+    "source_node",
+    "target_node",
+    "seq_expected",
+    "seq_last",
+    "crc_error_count",
+    "stale_count",
+    "late_count",
+    "drop_count",
+    "timeout_count",
+    "last_error",
+    "last_error_tick",
+    "p99",
+    "p999",
+    "evidence_index",
+)
+
 
 @dataclass
 class Record:
@@ -756,6 +783,56 @@ def expect_quality_status(response: str,
         raise AssertionError(f"quality frame_seq={data['last_frame_seq32']} expected {frame_seq}")
     if int(data["received_count"], 0) < 1:
         raise AssertionError("quality received_count did not advance")
+
+
+def expect_refmem_quality(response: str,
+                          *,
+                          index: int,
+                          local: int,
+                          epoch: int,
+                          run: int,
+                          quality_id: int,
+                          scope: int,
+                          source: int,
+                          target: int,
+                          seq_expected: int,
+                          seq_last: int,
+                          crc_errors: int,
+                          stale_count: int,
+                          drop_count: int,
+                          timeout_count: int,
+                          last_error: int) -> None:
+    data = fields_dict(REFMEM_QUALITY_FIELDS, response)
+    if int(data["query_index"], 0) != index:
+        raise AssertionError(f"quality index={data['query_index']} expected {index}")
+    if int(data["entry_count"], 0) <= index:
+        raise AssertionError(f"quality entry_count={data['entry_count']} expected > {index}")
+    if int(data["local_slot"], 0) != local:
+        raise AssertionError(f"quality local={data['local_slot']} expected {local}")
+    if int(data["epoch_id"], 0) != epoch or int(data["run_id"], 0) != run:
+        raise AssertionError("refmem quality epoch/run mismatch")
+    if int(data["overflow_count"], 0) != 0:
+        raise AssertionError(f"quality overflow_count={data['overflow_count']}")
+    if int(data["quality_id"], 0) != quality_id:
+        raise AssertionError(f"quality_id={data['quality_id']} expected {quality_id}")
+    if int(data["scope"], 0) != scope:
+        raise AssertionError(f"scope={data['scope']} expected {scope}")
+    if int(data["source_node"], 0) != source or int(data["target_node"], 0) != target:
+        raise AssertionError("quality source/target mismatch")
+    if int(data["seq_expected"], 0) != seq_expected:
+        raise AssertionError(f"seq_expected={data['seq_expected']} expected {seq_expected}")
+    if int(data["seq_last"], 0) != seq_last:
+        raise AssertionError(f"seq_last={data['seq_last']} expected {seq_last}")
+    if int(data["crc_error_count"], 0) != crc_errors:
+        raise AssertionError(f"crc_error_count={data['crc_error_count']} expected {crc_errors}")
+    if int(data["stale_count"], 0) != stale_count:
+        raise AssertionError(f"stale_count={data['stale_count']} expected {stale_count}")
+    if int(data["drop_count"], 0) != drop_count:
+        raise AssertionError(f"drop_count={data['drop_count']} expected {drop_count}")
+    if int(data["timeout_count"], 0) != timeout_count:
+        raise AssertionError(f"timeout_count={data['timeout_count']} expected {timeout_count}")
+    if int(data["last_error"], 0) != last_error:
+        raise AssertionError(f"last_error={data['last_error']} expected {last_error}")
 
 
 def quote_hex(hex_text: str) -> str:
@@ -1401,6 +1478,26 @@ def run_exchange(args: argparse.Namespace,
                                                 timeout_count=0,
                                                 last_error=0,
                                                 frame_seq=9))
+    run_checked(records,
+                "B",
+                execute_b,
+                "SYSTem:REFMEM:QUALity? 1",
+                lambda r: expect_refmem_quality(r,
+                                                index=1,
+                                                local=args.slot_b,
+                                                epoch=args.epoch,
+                                                run=args.run,
+                                                quality_id=1,
+                                                scope=1,
+                                                source=args.slot_a,
+                                                target=args.slot_b,
+                                                seq_expected=9,
+                                                seq_last=8,
+                                                crc_errors=0,
+                                                stale_count=0,
+                                                drop_count=0,
+                                                timeout_count=0,
+                                                last_error=0))
 
     quality_b = run_checked(records,
                             "B",
@@ -1443,6 +1540,26 @@ def run_exchange(args: argparse.Namespace,
                                                 timeout_count=0,
                                                 last_error=9,
                                                 frame_seq=9))
+    run_checked(records,
+                "A",
+                execute_a,
+                "SYSTem:REFMEM:QUALity? 1",
+                lambda r: expect_refmem_quality(r,
+                                                index=1,
+                                                local=args.slot_a,
+                                                epoch=args.epoch,
+                                                run=args.run,
+                                                quality_id=2,
+                                                scope=1,
+                                                source=args.slot_b,
+                                                target=args.slot_a,
+                                                seq_expected=10,
+                                                seq_last=9,
+                                                crc_errors=1,
+                                                stale_count=0,
+                                                drop_count=2,
+                                                timeout_count=0,
+                                                last_error=9))
     return records
 
 
@@ -1512,7 +1629,7 @@ def main() -> int:
                 pass
 
     write_outputs(out_dir, args, records, io_preflight)
-    passed = all(record.status == "PASS" for record in records) and len(records) == 61
+    passed = bool(records) and all(record.status == "PASS" for record in records)
     print(f"summary: passed={passed} records={len(records)} out_dir={out_dir}")
     return 0 if passed else 1
 

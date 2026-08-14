@@ -213,6 +213,7 @@ typedef enum {
     REFMEM_APP_QUALITY_SLOT = 2u,
     REFMEM_APP_QUALITY_EVENT_LINK = 3u,
     REFMEM_APP_QUALITY_DATA_LINK = 4u,
+    REFMEM_APP_QUALITY_TRANSPORT_ADAPTER = 5u,
 } refmem_app_quality_scope_t;
 
 typedef enum {
