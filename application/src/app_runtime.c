@@ -57,6 +57,8 @@ void app_runtime_start_realtime_core(void)
         return;
     }
 
+    drv_flash_lockout_status_t lockout_status;
+    drv_flash_get_lockout_status(&lockout_status);
     multicore_launch_core1(core1_realtime_entry);
     s_core1_started = true;
 }

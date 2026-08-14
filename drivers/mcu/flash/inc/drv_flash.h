@@ -5,18 +5,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "drv_flash_lockout.h"
+
 #define DRV_FLASH_TOTAL_SIZE_BYTES (4u * 1024u * 1024u)
 #define DRV_FLASH_SECTOR_SIZE      4096u
 #define DRV_FLASH_PAGE_SIZE        256u
 #define DRV_FLASH_XIP_BASE         0x10000000u
-
-typedef struct {
-    bool core1_lockout_supported;
-    bool core1_lockout_online;
-    bool core1_lockout_requested;
-    bool core1_lockout_acknowledged;
-    uint32_t wait_loop_budget;
-} drv_flash_lockout_status_t;
 
 bool drv_flash_is_range_valid(uint32_t flash_offset, size_t length);
 bool drv_flash_is_erased(uint32_t flash_offset, size_t length);
@@ -26,5 +20,7 @@ bool drv_flash_read(uint32_t flash_offset, void *data, size_t length);
 const uint8_t *drv_flash_xip_ptr(uint32_t flash_offset);
 void drv_flash_core1_lockout_poll(void);
 void drv_flash_get_lockout_status(drv_flash_lockout_status_t *status);
+void drv_flash_set_lockout_fault_injection(uint32_t flags);
+void drv_flash_clear_lockout_fault_injection(void);
 
 #endif

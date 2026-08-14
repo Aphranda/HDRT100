@@ -14,6 +14,7 @@ $env:PATH = "$HostGccDir;$env:PATH"
 
 $scripts = @(
     "run_biss_protocol_tests.ps1",
+    "run_drv_flash_lockout_tests.ps1",
     "run_portable_log_tests.ps1",
     "run_portable_ota_tests.ps1",
     "run_refmem_application_contract_tests.ps1",

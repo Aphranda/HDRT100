@@ -228,6 +228,7 @@ set(PROJECT_APP_SOURCES
         drivers/mcu/i2c/src/drv_i2c.c
         drivers/mcu/uart/src/drv_uart.c
         drivers/mcu/flash/src/drv_flash.c
+        drivers/mcu/flash/src/drv_flash_lockout.c
         drivers/mcu/watchdog/src/drv_watchdog.c
         drivers/external/lcd/src/lcd_st7789.c
         drivers/external/sd_card/src/sd_card.c
@@ -392,6 +393,8 @@ function(project_configure_app_target target_name app_name linker_script)
         PROJECT_SYNC_IO_INPUT_BASE_PIN=${PROJECT_SYNC_IO_INPUT_BASE_PIN}
         PROJECT_SYNC_IO_OUTPUT_BASE_PIN=${PROJECT_SYNC_IO_OUTPUT_BASE_PIN}
         PORTABLE_OTA_PORT_ENABLE_SESSION=1
+        DRV_FLASH_LOCKOUT_PICO_RAM=1
+        DRV_FLASH_LOCKOUT_USE_ARM_EVENTS=1
         SCPI_USER_CONFIG=1
         PICO_TARGET_NAME="${target_name}"
     )
@@ -462,6 +465,7 @@ add_executable(RP2350_TRIG_BOOT
         components/ota_manager/src/ota_metadata.c
         ${PROJECT_PORTABLE_OTA_ADAPTER_SOURCES}
         drivers/mcu/flash/src/drv_flash.c
+        drivers/mcu/flash/src/drv_flash_lockout.c
 )
 
 pico_set_program_name(RP2350_TRIG_BOOT "RP2350_TRIG_BOOT")

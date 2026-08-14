@@ -4,7 +4,7 @@ Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_HAOFV_TODO.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-15
 
 本文档只维护 RTOS + 双核 AMP 在 HAOFV 下的实施待办。已经完成的构建、烧录、
 板端 smoke、工具输出和水位记录放在 `RTOS_HAOFV_TASK_PROGRESS.md`。
@@ -72,24 +72,37 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [ ] 增加 `OK/STALE/MISSING/INVALID/FAULT` 节点新鲜度状态和 stale window。
 - [ ] 将节点新鲜度纳入 `SYNC:CHECk`、`READ:SYNC:*?` 和 TRIG RUN 门禁。
 
+## S0 - Flash/Core1 Lockout 发布前硬门禁
+
+本节优先级高于 RefMem 基础件继续扩表。目标是先证明任何 Flash erase/program 都不会在 core1 仍可能从 XIP 取指时发生。
+
+- [x] 将 `drv_flash` 中的静态 lockout 变量抽成 `drv_flash_lockout` 状态机，形成可测试、可观测的 Core1LockoutGate。
+- [x] App 启动 core1 前初始化 lockout gate；bootloader 单核目标保持 `supported=false`。
+- [x] 多核 App 中，core1 未 online 时 flash begin 拒绝写入；bootloader 单核写入不受该门禁阻塞。
+- [x] core1 lockout poll 入口使用 RAM-resident 定义；Pico App target 显式启用 `wfe/sev/nop` 等待/唤醒指令，host/ARM compile fallback 不启用。
+- [x] Flash erase/program 进入临界区前必须通过 `drv_flash_lockout_begin()`，未获得 ACK 时不调用底层 `flash_range_erase/program`。
+- [x] 增加 host 单元测试 `test_drv_flash_lockout.c`，覆盖 request/ACK/PARKED/release、offline 拒绝和 no-ACK 故障注入。
+- [ ] 板端 HIL 验证：执行 OTA/metadata flash 写路径时查询 `SYSTem:PROTection:STATus?`，确认 online、requested/acknowledged/park_state 随 flash job 变化。
+- [ ] 将 no-ACK 故障注入接到受控维护接口或 HIL build，验证板端 flash job 不执行并返回 NACK/fault。
+
 ## P2 - 跨核通信与实时核保护
 
 - [x] 根据风险 `HAOFV-RISK-20260813-004`，将 Flash/XIP 双核冲突列为 P2 首要硬约束。
 - [x] 在 `RTOS_HAOFV_ARCHITECTURE.md` 定义 Flash/XIP 双核保护框架、状态机、接口契约、可观测字段和验证门禁。
 - [ ] 定义 `FlashWriteOwner` 框架入口，禁止 OtaAO/metadata/config 落盘直接调用底层 erase/program。
 - [ ] Resource Arbiter 增加 `FLASH_BUS` 资源、owner、timeout、conflict holder 和 fault escalation。
-- [ ] 定义 `Core1LockoutGate` request/ack/state/sequence/timeout/last_result 共享结构。
+- [x] 定义 `Core1LockoutGate` request/ack/state/sequence/timeout/last_result 共享结构。
 - [ ] 将 RuntimeProtectionTable 字段对齐到 `flash_lockout_supported/online/requested/acknowledged/park_state/last_result/elapsed_us`。
 - [ ] 抽象 `trigger_command_queue`，替代直接暴露 TriggerAO 内部队列。
 - [ ] 抽象 `trigger_status_ring`，core1 只写轻量事件，core0 负责格式化和落盘。
 - [ ] 增加跨核 doorbell 作为唤醒信号，业务 payload 仍走队列。
 - [ ] 为 TriggerVector snapshot 增加 sequence/version。
 - [ ] 抽象 `core_ipc_contract`，定义 mailbox、doorbell、ack、timeout 和 reset 语义。
-- [ ] 实现 core1 park/lockout 握手和超时升级流程。
-- [ ] Flash erase/program 前必须申请 Flash bus 资源锁并等待 core1 park/lockout ACK。
+- [x] 实现 core1 park/lockout 握手和超时升级流程。
+- [x] Flash erase/program 前必须申请 Flash bus 资源锁并等待 core1 park/lockout ACK。
 - [ ] core1 增加 `WAIT_FOR_FLASH` / `PARKED_FOR_FLASH` 或等价可观测状态。
 - [ ] Flash 临界区超时或 core1 未 ACK 时进入 FAULT，禁止继续 erase/program。
-- [ ] 增加 core1 不 ACK 故障注入验证，确认 Flash job 不执行并返回 NACK/fault。
+- [x] 增加 core1 不 ACK 故障注入验证，确认 Flash job 不执行并返回 NACK/fault。
 - [ ] 审计 `storage_manager_trace_event()`，禁止 core1 直接调用。
 - [ ] 为 core1 增加 stack/heartbeat/last_event 诊断字段。
 - [ ] 拆分 core0/core1/shared 三类内存区域。

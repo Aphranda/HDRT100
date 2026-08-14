@@ -6,13 +6,19 @@
 #include "hardware/sync.h"
 #include "pico/platform.h"
 
-#if PROJECT_USE_MULTICORE
-#define DRV_FLASH_CORE1_LOCKOUT_WAIT_LOOPS 1000000u
-
-static volatile bool s_core1_lockout_online;
-static volatile bool s_core1_lockout_request;
-static volatile bool s_core1_lockout_ack;
+#ifndef PROJECT_USE_MULTICORE
+#define PROJECT_USE_MULTICORE 0
 #endif
+
+static bool s_lockout_initialized;
+
+static void drv_flash_ensure_lockout_initialized(void)
+{
+    if (!s_lockout_initialized) {
+        drv_flash_lockout_init(PROJECT_USE_MULTICORE != 0);
+        s_lockout_initialized = true;
+    }
+}
 
 static bool drv_flash_is_aligned(uint32_t value, uint32_t alignment)
 {
@@ -21,79 +27,36 @@ static bool drv_flash_is_aligned(uint32_t value, uint32_t alignment)
 
 void __not_in_flash_func(drv_flash_core1_lockout_poll)(void)
 {
-#if PROJECT_USE_MULTICORE
-    s_core1_lockout_online = true;
-    if (!s_core1_lockout_request) {
-        return;
-    }
-
-    s_core1_lockout_ack = true;
-    __asm volatile("sev");
-    while (s_core1_lockout_request) {
-        __asm volatile("wfe");
-    }
-    s_core1_lockout_ack = false;
-    __asm volatile("sev");
-#endif
+    drv_flash_lockout_core1_poll();
 }
 
 void drv_flash_get_lockout_status(drv_flash_lockout_status_t *status)
 {
-    if (status == NULL) {
-        return;
-    }
-
-#if PROJECT_USE_MULTICORE
-    status->core1_lockout_supported = true;
-    status->core1_lockout_online = s_core1_lockout_online;
-    status->core1_lockout_requested = s_core1_lockout_request;
-    status->core1_lockout_acknowledged = s_core1_lockout_ack;
-    status->wait_loop_budget = DRV_FLASH_CORE1_LOCKOUT_WAIT_LOOPS;
-#else
-    status->core1_lockout_supported = false;
-    status->core1_lockout_online = false;
-    status->core1_lockout_requested = false;
-    status->core1_lockout_acknowledged = false;
-    status->wait_loop_budget = 0u;
-#endif
+    drv_flash_ensure_lockout_initialized();
+    drv_flash_lockout_get_status(status);
 }
 
 static bool drv_flash_begin_write(void)
 {
-#if PROJECT_USE_MULTICORE
-    if (!s_core1_lockout_online) {
-        return true;
-    }
-
-    s_core1_lockout_request = true;
-    __asm volatile("sev");
-    for (uint32_t i = 0u; i < DRV_FLASH_CORE1_LOCKOUT_WAIT_LOOPS; i++) {
-        if (s_core1_lockout_ack) {
-            return true;
-        }
-        __asm volatile("nop");
-    }
-
-    s_core1_lockout_request = false;
-    __asm volatile("sev");
-    return false;
-#else
-    return true;
-#endif
+    drv_flash_ensure_lockout_initialized();
+    return drv_flash_lockout_begin(DRV_FLASH_LOCKOUT_DEFAULT_WAIT_LOOPS);
 }
 
 static void drv_flash_end_write(void)
 {
-#if PROJECT_USE_MULTICORE
-    s_core1_lockout_request = false;
-    __asm volatile("sev");
-    for (uint32_t i = 0u; i < DRV_FLASH_CORE1_LOCKOUT_WAIT_LOOPS; i++) {
-        if (!s_core1_lockout_ack) {
-            break;
-        }
-        __asm volatile("nop");
-    }
-#endif
+    drv_flash_lockout_end(DRV_FLASH_LOCKOUT_DEFAULT_WAIT_LOOPS);
+}
+
+void drv_flash_set_lockout_fault_injection(uint32_t flags)
+{
+    drv_flash_ensure_lockout_initialized();
+    drv_flash_lockout_set_fault_injection(flags);
+}
+
+void drv_flash_clear_lockout_fault_injection(void)
+{
+    drv_flash_ensure_lockout_initialized();
+    drv_flash_lockout_clear_fault_injection();
 }
 
 bool drv_flash_is_range_valid(uint32_t flash_offset, size_t length)

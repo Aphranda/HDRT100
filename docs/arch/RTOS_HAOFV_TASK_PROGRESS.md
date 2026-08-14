@@ -4,7 +4,7 @@ Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-15
 
 本文档用于记录 Distributed Hard Real-Time Trigger System 工程中基于 HAOFV 的 RTOS + 双核 AMP、
 分布式触发、模拟反射内存、任务拆分和板端烧录验证进度。每完成一个阶段，
@@ -58,6 +58,40 @@ Last updated: 2026-08-13
 ```
 
 ## 当前目标
+
+### RTOS-DIST-TASK-20260815-001 - S0 Flash/Core1 Lockout 门禁落地
+
+- 状态：进行中
+- 日期：2026-08-15
+- 任务目标：
+  - 将 Flash/XIP 双核冲突从 P2 文档约束提升为当前 S0 代码门禁。
+  - 保证 App 多核目标中，任何 `drv_flash_erase()` / `drv_flash_program()` 在进入底层 `flash_range_erase/program` 前必须完成 core1 park/lockout ACK。
+  - 增加 core1 不 ACK 故障注入，先用 host 单元测试证明 flash begin 会被拒绝。
+- 完成内容：
+  - 新增 `drv_flash_lockout.h/.c`，定义 `Core1LockoutGate` 状态机：supported、online、requested、acknowledged、park_state、request_seq、ack_seq、release_seq、timeout_count、release_timeout_count、fault_injection_flags 和 last_result。
+  - `drv_flash.c` 改为通过 `drv_flash_lockout_begin/end()` 包裹 erase/program；未 online 或未 ACK 时不进入底层 flash 临界区。
+  - App target 显式启用 `DRV_FLASH_LOCKOUT_PICO_RAM=1` 和 `DRV_FLASH_LOCKOUT_USE_ARM_EVENTS=1`；core1 lockout poll 入口使用 RAM-resident 定义和 `wfe/sev/nop`。
+  - `app_runtime_start_realtime_core()` 在启动 core1 前初始化 lockout gate，避免 core1 poll 入口触碰 XIP 初始化路径。
+  - RuntimeProtectionTable 的 `park_state` 改为发布 lockout 状态机枚举，而不是简单 ACK 布尔。
+  - 新增 `test_drv_flash_lockout.c` 和 `tools/tests/run_drv_flash_lockout_tests.ps1`，并纳入 `run_host_unit_tests.ps1`。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_drv_flash_lockout_tests.ps1` 在无 host gcc PATH 时通过 ARM GCC compile fallback。
+  - 使用 `D:\Embedded\GCC\mingw64\bin` 作为 PATH 前缀后，`run_drv_flash_lockout_tests.ps1` host 执行通过。
+  - host 测试覆盖 supported-but-offline 拒绝写入、request/ACK/PARKED/release 完整握手和 `DRV_FLASH_LOCKOUT_FAULT_CORE1_NO_ACK` 故障注入。
+- 还需完成：
+  - 跑完整 host 单元测试、docs check 和 `build-rtos-multicore-smoke`。
+  - 板端 HIL：OTA/metadata flash job 期间查询 `SYSTem:PROTection:STATus?`，确认 online/request/ACK/park_state 可观测。
+  - 将 no-ACK 故障注入接入受控维护接口或 HIL build，验证板端 flash job 不执行并返回 NACK/fault。
+- 关联文件：
+  - `drivers/mcu/flash/inc/drv_flash_lockout.h`
+  - `drivers/mcu/flash/src/drv_flash_lockout.c`
+  - `drivers/mcu/flash/src/drv_flash.c`
+  - `application/src/app_runtime.c`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `tests/unit/test_drv_flash_lockout.c`
+  - `tools/tests/run_drv_flash_lockout_tests.ps1`
+- 下一步：
+  - 完成 S0 构建与 host 验证闭环后，进入真实最小 physical transport；暂不继续扩展 RefMem 静态表模型。
 
 RTOS 主线已经完成 `task_usb_device/task_scpi` 拆分、`task_refmem_sync` 64 KB
 本地表骨架、`task_dpll`、`task_vdc_sync`、CoreVector/RuntimeProtection 快照和

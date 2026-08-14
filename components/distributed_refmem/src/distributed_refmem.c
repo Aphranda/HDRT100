@@ -98,7 +98,7 @@ static void distributed_refmem_publish_runtime_locked(void)
     header->flash_lockout_online = flash_status.core1_lockout_online ? 1u : 0u;
     header->flash_lockout_requested = flash_status.core1_lockout_requested ? 1u : 0u;
     header->flash_lockout_acknowledged = flash_status.core1_lockout_acknowledged ? 1u : 0u;
-    header->core1_park_state = flash_status.core1_lockout_acknowledged ? 1u : 0u;
+    header->core1_park_state = flash_status.park_state;
     header->runtime_protection_flags = 0u;
     if (header->ram_resident_required != 0u) {
         header->runtime_protection_flags |= DISTRIBUTED_REFMEM_PROT_RAM_RESIDENT_REQUIRED;
@@ -106,7 +106,7 @@ static void distributed_refmem_publish_runtime_locked(void)
     if (header->flash_lockout_supported != 0u && header->flash_lockout_online != 0u) {
         header->runtime_protection_flags |= DISTRIBUTED_REFMEM_PROT_FLASH_LOCKOUT_READY;
     }
-    if (header->core1_park_state != 0u) {
+    if (header->core1_park_state == DRV_FLASH_LOCKOUT_PARK_PARKED) {
         header->runtime_protection_flags |= DISTRIBUTED_REFMEM_PROT_CORE1_PARKED;
     }
     if (header->entry_table_owner == DISTRIBUTED_REFMEM_OWNER_SHARED) {

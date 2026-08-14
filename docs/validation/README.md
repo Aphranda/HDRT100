@@ -34,8 +34,8 @@ Last updated: 2026-08-15
 
 覆盖：
 
-- 12 个 `tools/tests/run_*tests.ps1` 脚本。
-- 17 个 C 单元测试文件：BiSS protocol、portable log、portable OTA 六项、RefMem application contract、PIO SPI adapter、quality、realtime contract、slot claim、sync frame、sync hello、sync、table registry。
+- 13 个 `tools/tests/run_*tests.ps1` 脚本。
+- 18 个 C 单元测试文件：BiSS protocol、Flash/Core1 lockout、portable log、portable OTA 六项、RefMem application contract、PIO SPI adapter、quality、realtime contract、slot claim、sync frame、sync hello、sync、table registry。
 
 本轮真实断言暴露并修复：
 
@@ -44,8 +44,9 @@ Last updated: 2026-08-15
 - `refmem_application_contract` 测试脚本漏链接 `refmem_slot_claim.c`。
 - `refmem_claim_propose_frame_init()` 在设置 `payload_count` 前计算 payload CRC，导致新建 PROPOSE 帧自校验失败。
 - `test_refmem_table_registry` 的构包 payload 固定为 `1536` 字节，已小于当前 P0-P3 表镜像 payload，host 执行时发生栈破坏。
+- S0 后续补入 `drv_flash_lockout` host 断言，覆盖 supported-but-offline 拒绝写入、request/ACK/PARKED/release 完整握手和 core1 不 ACK 故障注入。
 
 结果：
 
-- `tools\tests\run_host_unit_tests.ps1` 通过，输出 `host unit test scripts passed: 12/12`。
+- `tools\tests\run_host_unit_tests.ps1` 通过后必须输出 `host unit test scripts passed: 13/13`。
 - 后续验证报告必须区分 `host unit tests passed` 与 `compiled with ARM GCC; host execution skipped`。

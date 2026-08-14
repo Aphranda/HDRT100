@@ -119,6 +119,9 @@ python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port
   BiSS, portable LOG/OTA, and RefMem unit test scripts as executable host
   assertions. Use this gate when the target machine has MinGW GCC installed;
   the individual scripts may otherwise fall back to ARM compile-only checks.
+- `tests/run_drv_flash_lockout_tests.ps1`: S0 Flash/Core1 lockout gate. It
+  executes the pure C lockout state machine on host, including request/ACK,
+  PARKED/release, supported-but-offline rejection, and no-ACK fault injection.
 - `tests/run_portable_log_tests.ps1`: portable LOG core gate. It builds or runs
   `third_party/portable_log` unit tests. If no host C compiler exists, it falls
   back to ARM GCC compile/object-build checks and reports that host execution

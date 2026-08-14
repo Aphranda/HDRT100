@@ -25,7 +25,7 @@ Last updated: 2026-08-15
   - 修正 `test_biss_protocol.c` 中 CRC6 golden vector 的参与位拼接，改为明确的 18-bit payload/status 和 24-bit payload 向量。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1` 通过。
-  - 覆盖 12 个测试脚本、17 个 C 单元测试文件，输出 `host unit test scripts passed: 12/12`。
+  - S0 补入 Flash/Core1 lockout 断言后，覆盖 13 个测试脚本、18 个 C 单元测试文件，期望输出 `host unit test scripts passed: 13/13`。
   - Host GCC：`D:\Embedded\GCC\mingw64\bin\gcc.exe`。
 - 还需完成：
   - 下一轮优先进入 S0：Flash erase/program 前 core1 park/lockout/RAM-resident 入口完整握手和故障注入。

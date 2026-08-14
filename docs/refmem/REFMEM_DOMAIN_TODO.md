@@ -39,7 +39,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 | 顺序 | 主线 | 完成判据 |
 |---:|---|---|
-| 1 | Host C 断言门禁 | 17 个 C 单元测试必须由 host gcc 编译并执行断言；compile-only 只能作为无 host gcc 时的降级信息，不算完整验证通过。 |
+| 1 | Host C 断言门禁 | 18 个 C 单元测试必须由 host gcc 编译并执行断言；compile-only 只能作为无 host gcc 时的降级信息，不算完整验证通过。 |
 | 2 | S0 flash/core1 park-lockout | Flash erase/program 前必须完成 core1 park/lockout/RAM-resident 入口握手，并加入故障注入；该门禁优先于继续扩大 RefMem 表模型。 |
 | 3 | 真实最小 transport | 至少两块板通过一条真实物理链路运行 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY`，不再只依赖 PC hex bridge 或本地 stub。 |
 | 4 | PIO 预约输出路径 | `ModelTurntableAO` 或等价模型必须走真实 PIO scheduled fire，验证“到点出边沿”的硬实时承诺。 |
