@@ -609,13 +609,7 @@ static bool refmem_model_validate_slot_claim_policy(void)
 
 static bool refmem_model_validate_application_map(void)
 {
-    if (s_application_map.version != REFMEM_APP_MODEL_VERSION ||
-        s_application_map.layout_version != DISTRIBUTED_REFMEM_LAYOUT_VERSION ||
-        (s_application_map.target_node_mask & ~((1u << REFMEM_APP_MODEL_NODE_COUNT) - 1u)) != 0u) {
-        return false;
-    }
-
-    return true;
+    return refmem_application_contract_validate_application_map(&s_application_map);
 }
 
 static bool refmem_model_validate_board_capability_table(void)

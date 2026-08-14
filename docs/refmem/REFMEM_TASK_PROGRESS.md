@@ -8,6 +8,40 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-006 - RMTP ApplicationMap 真实表镜像
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 按 P0 “逐表替换占位 payload”推进 `.rmtp` table 0 `ApplicationMap`。
+  - 将 ApplicationMap 校验从 application model 内部静态 linter 提升为可被 SD/System Pack parser 复用的公共 table contract。
+- 完成内容：
+  - `tools/refmem_table_image/refmem_table_image.py` 新增 `build_application_map_payload()`，table 0 从 64 字节占位改为 6 个 u32 的真实 `ApplicationMap` payload。
+  - `refmem_application_contract.h/.c` 新增 `refmem_application_contract_validate_application_map()`，校验 version、application/profile id、layout version 和 target node mask。
+  - `refmem_application_model.c` 的静态 linter 复用公共 ApplicationMap contract，避免内置模型与 `.rmtp` parser 分叉。
+  - `refmem_table_registry.c` 新增 ApplicationMap parser，并在 package owner validation 中把 table 0 纳入 owner-validated mask。
+  - `tests/python/test_refmem_pack_build.py` 更新 table 0 size/字段断言；`tests/unit/test_refmem_table_registry.c` 更新 placeholder 拒绝点和 owner mask 预期。
+- 验证结果：
+  - `python -m pytest tests\python\test_refmem_pack_build.py` 通过，2 passed。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_application_contract_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `python tools\refmem_pack_build\refmem_pack_build.py --output-dir build-rtos-multicore-smoke\refmem_pack_appmap` 通过，生成 `.rmtp` size `1496`、CRC `2F945F7D`，table 0 CRC `60E14FD0`。
+  - `python tools\sd_fs_build\sd_fs_build.py --build-dir build-rtos-multicore-smoke --output-dir build-rtos-multicore-smoke\sdcard_appmap --clean` 通过。
+  - 独立打包输出与 SD staging 输出的 `/refmem/app_model.rmtp` SHA256 均为 `CAD97D3A4CF3D205AFFEB5375DDE3E49A8A3BD55D4A4140C95AF4F9A9E55A379`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814171242`，package CRC `0x2A60F721`。
+- 还需完成：
+  - 继续将 NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality 六张表升级为真实表镜像。
+  - 对包含字符串语义的 FB/Data 表先确定 binary canonical 表达方式，例如固定 hash/id 字段，而不是把 C 指针或可变文本写入 `.rmtp`。
+- 关联文件：
+  - `tools/refmem_table_image/refmem_table_image.py`
+  - `components/distributed_refmem/inc/refmem_application_contract.h`
+  - `components/distributed_refmem/src/refmem_application_contract.c`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `components/distributed_refmem/src/refmem_table_registry.c`
+  - `tests/python/test_refmem_pack_build.py`
+  - `tests/unit/test_refmem_table_registry.c`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+
 ### REFMEM-TASK-20260815-005 - TableRegistry package staging 表级 CRC 纠偏
 
 - 状态：完成

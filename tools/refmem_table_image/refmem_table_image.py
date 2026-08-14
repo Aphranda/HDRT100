@@ -25,6 +25,11 @@ TABLE_NAMES = (
 
 NODE_COUNT = 8
 BOARD_CAPABILITY_COUNT = 16
+APPLICATION_ID = 1
+APPLICATION_VERSION = 1
+PROFILE_ID = 1
+LAYOUT_VERSION = 1
+TARGET_NODE_MASK = 0xFF
 
 CAP_BOARD = 0x00000001
 CAP_FLASH = 0x00000002
@@ -96,6 +101,16 @@ def _pack_u32_table(version: int,
     return bytes(payload)
 
 
+def build_application_map_payload() -> bytes:
+    return struct.pack("<IIIIII",
+                       FORMAT_VERSION,
+                       APPLICATION_ID,
+                       APPLICATION_VERSION,
+                       PROFILE_ID,
+                       LAYOUT_VERSION,
+                       TARGET_NODE_MASK)
+
+
 def build_board_capability_payload() -> bytes:
     rows = [
         (0, 0xB0000000, CAP_BASELINE | CAP_PIO | CAP_DMA | CAP_RJ45 |
@@ -156,6 +171,8 @@ def build_generic_node_payload() -> bytes:
 
 
 def build_table_payload(table_id: int, name: str) -> bytes:
+    if table_id == 0:
+        return build_application_map_payload()
     if table_id == 1:
         return build_board_capability_payload()
     if table_id == 2:

@@ -104,6 +104,19 @@ static refmem_table_activation_gate_t make_pass_gate(void)
     return gate;
 }
 
+static refmem_application_map_t make_valid_application_map(void)
+{
+    refmem_application_map_t map;
+    (void)memset(&map, 0, sizeof(map));
+    map.version = REFMEM_APP_MODEL_VERSION;
+    map.application_id = 1u;
+    map.application_version = 1u;
+    map.profile_id = 1u;
+    map.layout_version = DISTRIBUTED_REFMEM_LAYOUT_VERSION;
+    map.target_node_mask = (1u << REFMEM_APP_MODEL_NODE_COUNT) - 1u;
+    return map;
+}
+
 static void make_valid_board_table(refmem_board_capability_table_t *table)
 {
     (void)memset(table, 0, sizeof(*table));
@@ -159,7 +172,12 @@ static size_t build_test_package(uint8_t *package,
         table_offset[table_id] = (uint32_t)(REFMEM_TABLE_PACKAGE_HEADER_SIZE +
                                             dir_size +
                                             payload_size);
-        if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_BOARD_CAPABILITY) {
+        if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_APPLICATION_MAP) {
+            const refmem_application_map_t table = make_valid_application_map();
+            table_size[table_id] = sizeof(table);
+            (void)memcpy(&payload[payload_size], &table, sizeof(table));
+            payload_size += sizeof(table);
+        } else if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_BOARD_CAPABILITY) {
             refmem_board_capability_table_t table;
             make_valid_board_table(&table);
             table_size[table_id] = sizeof(table);
@@ -379,7 +397,7 @@ static int test_package_owner_validation_rejects_placeholder_tables(void)
                          REFMEM_TABLE_PACKAGE_ERR_OWNER_VALIDATION);
     failed += expect_u32("placeholder first bad table",
                          validation.first_bad_table,
-                         REFMEM_APP_TABLE_BOARD_CAPABILITY);
+                         REFMEM_APP_TABLE_APPLICATION_MAP);
     return failed;
 }
 
@@ -403,8 +421,12 @@ static int test_package_owner_validation_accepts_contract_tables(void)
                          REFMEM_APP_TABLE_MASK_ALL);
     failed += expect_u32("contract package owner mask",
                          validation.owner_validated_table_mask,
+                         (1u << REFMEM_APP_TABLE_APPLICATION_MAP) |
                          (1u << REFMEM_APP_TABLE_BOARD_CAPABILITY) |
                              (1u << REFMEM_APP_TABLE_GENERIC_NODE));
+    failed += expect_u32("application table crc present",
+                         validation.table_crc32[REFMEM_APP_TABLE_APPLICATION_MAP] != 0u ? 1u : 0u,
+                         1u);
     failed += expect_u32("board table crc present",
                          validation.table_crc32[REFMEM_APP_TABLE_BOARD_CAPABILITY] != 0u ? 1u : 0u,
                          1u);

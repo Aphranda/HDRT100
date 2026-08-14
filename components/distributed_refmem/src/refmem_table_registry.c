@@ -74,6 +74,27 @@ static bool refmem_table_registry_parse_board_capability(
     return true;
 }
 
+static bool refmem_table_registry_parse_application_map(
+    const uint8_t *data,
+    size_t size,
+    refmem_application_map_t *table)
+{
+    if (data == NULL ||
+        table == NULL ||
+        size != sizeof(refmem_application_map_t)) {
+        return false;
+    }
+
+    memset(table, 0, sizeof(*table));
+    table->version = refmem_table_read_u32_le(&data[0]);
+    table->application_id = refmem_table_read_u32_le(&data[4]);
+    table->application_version = refmem_table_read_u32_le(&data[8]);
+    table->profile_id = refmem_table_read_u32_le(&data[12]);
+    table->layout_version = refmem_table_read_u32_le(&data[16]);
+    table->target_node_mask = refmem_table_read_u32_le(&data[20]);
+    return true;
+}
+
 static bool refmem_table_registry_parse_generic_node(
     const uint8_t *data,
     size_t size,
@@ -122,10 +143,22 @@ static bool refmem_table_registry_validate_package_owner_contract(
         return false;
     }
 
+    refmem_application_map_t application_map;
     refmem_board_capability_table_t board_table;
     refmem_generic_node_table_t node_table;
+    const uint32_t app_id = REFMEM_APP_TABLE_APPLICATION_MAP;
     const uint32_t board_id = REFMEM_APP_TABLE_BOARD_CAPABILITY;
     const uint32_t node_id = REFMEM_APP_TABLE_GENERIC_NODE;
+
+    if (!refmem_table_registry_parse_application_map(data + table_offset[app_id],
+                                                     table_size[app_id],
+                                                     &application_map) ||
+        !refmem_application_contract_validate_application_map(&application_map)) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = app_id;
+        }
+        return false;
+    }
 
     if (!refmem_table_registry_parse_board_capability(data + table_offset[board_id],
                                                       table_size[board_id],
@@ -703,6 +736,7 @@ bool refmem_table_registry_validate_package(const uint8_t *data,
                 result.error = REFMEM_TABLE_PACKAGE_ERR_OWNER_VALIDATION;
             } else if (result.error == REFMEM_TABLE_PACKAGE_OK) {
                 result.owner_validated_table_mask =
+                    (1u << REFMEM_APP_TABLE_APPLICATION_MAP) |
                     (1u << REFMEM_APP_TABLE_BOARD_CAPABILITY) |
                     (1u << REFMEM_APP_TABLE_GENERIC_NODE);
             }

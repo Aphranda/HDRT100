@@ -4,6 +4,25 @@
 
 #include "refmem_realtime_contract.h"
 
+bool refmem_application_contract_validate_application_map(
+    const refmem_application_map_t *application_map)
+{
+    const uint32_t allowed_node_mask =
+        (1u << REFMEM_APP_MODEL_NODE_COUNT) - 1u;
+    if (application_map == NULL ||
+        application_map->version != REFMEM_APP_MODEL_VERSION ||
+        application_map->application_id == 0u ||
+        application_map->application_version == 0u ||
+        application_map->profile_id == 0u ||
+        application_map->layout_version != DISTRIBUTED_REFMEM_LAYOUT_VERSION ||
+        application_map->target_node_mask == 0u ||
+        (application_map->target_node_mask & ~allowed_node_mask) != 0u) {
+        return false;
+    }
+
+    return true;
+}
+
 bool refmem_application_contract_validate_generic_node_table(
     const refmem_generic_node_table_t *node_table)
 {
