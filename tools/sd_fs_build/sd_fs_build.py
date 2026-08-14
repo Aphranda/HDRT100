@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import binascii
 import hashlib
 import json
 import os
 import shutil
 import stat
 import struct
+import sys
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,74 +18,21 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.refmem_table_image import refmem_table_image
+
 DEFAULT_BUILD_DIR = ROOT / "build"
 DEFAULT_OUTPUT_DIR = DEFAULT_BUILD_DIR / "sdcard"
 PACKAGE_MAGIC = 0x474B5054
 PACKAGE_HEADER_SIZE = 512
 TEXT_FIELD_SIZE = 32
 SCHEMA_VERSION = 1
-REFMEM_PACKAGE_MAGIC = b"RMTP"
-REFMEM_PACKAGE_FORMAT_VERSION = 1
-REFMEM_PACKAGE_HEADER_SIZE = 64
-REFMEM_TABLE_COUNT = 9
-REFMEM_TABLE_NAMES = (
-    "ApplicationMap",
-    "BoardCapability",
-    "GenericNode",
-    "NodeLoad",
-    "FbInstance",
-    "EventLink",
-    "DataLink",
-    "DeploymentGate",
-    "ConnectionQuality",
-)
-
-REFMEM_NODE_COUNT = 8
-REFMEM_BOARD_CAPABILITY_COUNT = 16
-
-REFMEM_CAP_BOARD = 0x00000001
-REFMEM_CAP_FLASH = 0x00000002
-REFMEM_CAP_SD = 0x00000004
-REFMEM_CAP_USB = 0x00000008
-REFMEM_CAP_PIO = 0x00000010
-REFMEM_CAP_DMA = 0x00000020
-REFMEM_CAP_RJ45 = 0x00000080
-REFMEM_CAP_CORE1_RT = 0x00000100
-REFMEM_CAP_SMA_IN = 0x00000200
-REFMEM_CAP_SMA_OUT = 0x00000400
-REFMEM_CAP_LINK_CONTROL = 0x00000800
-REFMEM_CAP_BISS_C = 0x00001000
-REFMEM_CAP_UART_RS485 = 0x00002000
-REFMEM_CAP_REFMEM = 0x00004000
-REFMEM_CAP_VDC = 0x00008000
-REFMEM_CAP_BASELINE = REFMEM_CAP_BOARD | REFMEM_CAP_REFMEM | REFMEM_CAP_VDC
-
-REFMEM_IO_SMA_IN = 0x00000001
-REFMEM_IO_SMA_OUT = 0x00000002
-REFMEM_IO_RJ45_SYNC = 0x00000004
-REFMEM_IO_LINK_CONTROL = 0x00000008
-REFMEM_IO_BISS_C = 0x00000010
-REFMEM_IO_UART_RS485 = 0x00000020
-
-REFMEM_IP_PULSE_CAPTURE = 0x00000001
-REFMEM_IP_PULSE_FIRE = 0x00000002
-REFMEM_IP_LINK_SEQUENCE = 0x00000004
-REFMEM_IP_BISS_C_CODEC = 0x00000008
-REFMEM_IP_RJ45_SYNC_DELTA = 0x00000010
-REFMEM_IP_VDC_DPLL = 0x00000020
-
-REFMEM_PERSONA_TRIGGER_MASTER = 0x00000001
-REFMEM_PERSONA_DISTRIBUTED_TRIGGER = 0x00000002
-REFMEM_PERSONA_LINK_CONTROL = 0x00000004
-REFMEM_PERSONA_GATEWAY = 0x00000008
-REFMEM_PERSONA_MODEL_INSTRUMENTS = 0x00000010
-REFMEM_PERSONA_SPARE = 0x00000020
-
-REFMEM_CLAIM_STRICT_UUID = 0
-REFMEM_CLAIM_ALLOW_SAME_BOARD_MULTI_SLOT = 1
-REFMEM_CLAIM_SPARE_DYNAMIC = 2
-REFMEM_FAIL_STOP = 0
-REFMEM_FAIL_REPORT_ONLY = 3
+REFMEM_PACKAGE_MAGIC = refmem_table_image.MAGIC
+REFMEM_PACKAGE_FORMAT_VERSION = refmem_table_image.FORMAT_VERSION
+REFMEM_TABLE_COUNT = refmem_table_image.TABLE_COUNT
+REFMEM_TABLE_NAMES = refmem_table_image.TABLE_NAMES
 
 SYSTEM_LAYOUT = (
     "profile",
@@ -116,7 +63,7 @@ LEGACY_LAYOUT = (
 
 
 def crc32(data: bytes) -> int:
-    return binascii.crc32(data) & 0xFFFFFFFF
+    return refmem_table_image.crc32(data)
 
 
 def crc32_text(value: str) -> str:
@@ -290,148 +237,10 @@ def write_default_system_files(output_dir: Path, package_manifest: dict[str, Any
     return written
 
 
-def pack_refmem_u32_table(version: int,
-                          count: int,
-                          rows: list[tuple[int, ...]],
-                          row_capacity: int) -> bytes:
-    payload = bytearray(struct.pack("<II", version, count))
-    empty = (0,) * 9
-    for row in rows[:row_capacity]:
-        payload.extend(struct.pack("<IIIIIIIII", *row))
-    for _ in range(len(rows), row_capacity):
-        payload.extend(struct.pack("<IIIIIIIII", *empty))
-    return bytes(payload)
-
-
-def build_refmem_board_capability_payload() -> bytes:
-    rows = [
-        (0, 0xB0000000, REFMEM_CAP_BASELINE | REFMEM_CAP_PIO | REFMEM_CAP_DMA |
-         REFMEM_CAP_RJ45 | REFMEM_CAP_CORE1_RT | REFMEM_CAP_SMA_IN | REFMEM_CAP_SMA_OUT,
-         REFMEM_IO_SMA_IN | REFMEM_IO_SMA_OUT | REFMEM_IO_RJ45_SYNC,
-         REFMEM_IP_PULSE_CAPTURE | REFMEM_IP_PULSE_FIRE |
-         REFMEM_IP_RJ45_SYNC_DELTA | REFMEM_IP_VDC_DPLL,
-         REFMEM_PERSONA_TRIGGER_MASTER, 0, 0, 1),
-        (1, 0xB0000001, REFMEM_CAP_BASELINE | REFMEM_CAP_PIO | REFMEM_CAP_DMA |
-         REFMEM_CAP_RJ45 | REFMEM_CAP_CORE1_RT | REFMEM_CAP_SMA_IN | REFMEM_CAP_SMA_OUT,
-         REFMEM_IO_SMA_IN | REFMEM_IO_SMA_OUT | REFMEM_IO_RJ45_SYNC,
-         REFMEM_IP_PULSE_CAPTURE | REFMEM_IP_PULSE_FIRE | REFMEM_IP_RJ45_SYNC_DELTA,
-         REFMEM_PERSONA_DISTRIBUTED_TRIGGER, 0, 1, 1),
-        (2, 0xB0000002, REFMEM_CAP_BASELINE | REFMEM_CAP_PIO | REFMEM_CAP_DMA |
-         REFMEM_CAP_RJ45 | REFMEM_CAP_CORE1_RT | REFMEM_CAP_LINK_CONTROL,
-         REFMEM_IO_LINK_CONTROL | REFMEM_IO_RJ45_SYNC,
-         REFMEM_IP_PULSE_CAPTURE | REFMEM_IP_LINK_SEQUENCE | REFMEM_IP_RJ45_SYNC_DELTA,
-         REFMEM_PERSONA_LINK_CONTROL, 0, 2, 1),
-        (3, 0xB0000003, REFMEM_CAP_BASELINE | REFMEM_CAP_FLASH | REFMEM_CAP_SD |
-         REFMEM_CAP_USB | REFMEM_CAP_RJ45 | REFMEM_CAP_UART_RS485,
-         REFMEM_IO_RJ45_SYNC | REFMEM_IO_UART_RS485,
-         REFMEM_IP_RJ45_SYNC_DELTA, REFMEM_PERSONA_GATEWAY, 0, 3, 1),
-        (4, 0xB0000004, REFMEM_CAP_BASELINE | REFMEM_CAP_USB | REFMEM_CAP_PIO |
-         REFMEM_CAP_DMA | REFMEM_CAP_CORE1_RT | REFMEM_CAP_BISS_C,
-         REFMEM_IO_BISS_C, REFMEM_IP_BISS_C_CODEC,
-         REFMEM_PERSONA_MODEL_INSTRUMENTS, 0, 4, 0),
-        (5, 0xB0000005, REFMEM_CAP_BASELINE, 0, 0, REFMEM_PERSONA_SPARE, 0, 5, 0),
-        (6, 0xB0000006, REFMEM_CAP_BASELINE, 0, 0, REFMEM_PERSONA_SPARE, 0, 6, 0),
-        (7, 0xB0000007, REFMEM_CAP_BASELINE, 0, 0, REFMEM_PERSONA_SPARE, 0, 7, 0),
-    ]
-    return pack_refmem_u32_table(REFMEM_PACKAGE_FORMAT_VERSION,
-                                 REFMEM_NODE_COUNT,
-                                 rows,
-                                 REFMEM_BOARD_CAPABILITY_COUNT)
-
-
-def build_refmem_generic_node_payload() -> bytes:
-    rows = [
-        (0, 0xB0000000, REFMEM_CAP_BASELINE | REFMEM_CAP_PIO | REFMEM_CAP_DMA |
-         REFMEM_CAP_RJ45 | REFMEM_CAP_CORE1_RT | REFMEM_CAP_SMA_IN | REFMEM_CAP_SMA_OUT,
-         REFMEM_CLAIM_STRICT_UUID, 100, REFMEM_PERSONA_TRIGGER_MASTER, 0, 1,
-         REFMEM_FAIL_STOP),
-        (1, 0xB0000001, REFMEM_CAP_BASELINE | REFMEM_CAP_PIO | REFMEM_CAP_DMA |
-         REFMEM_CAP_RJ45 | REFMEM_CAP_CORE1_RT | REFMEM_CAP_SMA_IN | REFMEM_CAP_SMA_OUT,
-         REFMEM_CLAIM_STRICT_UUID, 90, REFMEM_PERSONA_DISTRIBUTED_TRIGGER, 0, 1,
-         REFMEM_FAIL_STOP),
-        (2, 0xB0000002, REFMEM_CAP_BASELINE | REFMEM_CAP_PIO | REFMEM_CAP_DMA |
-         REFMEM_CAP_RJ45 | REFMEM_CAP_CORE1_RT | REFMEM_CAP_LINK_CONTROL,
-         REFMEM_CLAIM_STRICT_UUID, 80, REFMEM_PERSONA_LINK_CONTROL, 0, 1,
-         REFMEM_FAIL_STOP),
-        (3, 0xB0000003, REFMEM_CAP_BASELINE | REFMEM_CAP_FLASH | REFMEM_CAP_SD |
-         REFMEM_CAP_USB | REFMEM_CAP_RJ45 | REFMEM_CAP_UART_RS485,
-         REFMEM_CLAIM_STRICT_UUID, 70, REFMEM_PERSONA_GATEWAY, 0, 1,
-         REFMEM_FAIL_STOP),
-        (4, 0xB0000004, REFMEM_CAP_BASELINE | REFMEM_CAP_USB | REFMEM_CAP_PIO |
-         REFMEM_CAP_DMA | REFMEM_CAP_CORE1_RT | REFMEM_CAP_BISS_C,
-         REFMEM_CLAIM_ALLOW_SAME_BOARD_MULTI_SLOT, 40,
-         REFMEM_PERSONA_MODEL_INSTRUMENTS, 0, 0, REFMEM_FAIL_REPORT_ONLY),
-        (5, 0xB0000005, REFMEM_CAP_BASELINE, REFMEM_CLAIM_SPARE_DYNAMIC, 10,
-         REFMEM_PERSONA_SPARE, 0, 0, REFMEM_FAIL_REPORT_ONLY),
-        (6, 0xB0000006, REFMEM_CAP_BASELINE, REFMEM_CLAIM_SPARE_DYNAMIC, 9,
-         REFMEM_PERSONA_SPARE, 0, 0, REFMEM_FAIL_REPORT_ONLY),
-        (7, 0xB0000007, REFMEM_CAP_BASELINE, REFMEM_CLAIM_SPARE_DYNAMIC, 8,
-         REFMEM_PERSONA_SPARE, 0, 0, REFMEM_FAIL_REPORT_ONLY),
-    ]
-    return pack_refmem_u32_table(REFMEM_PACKAGE_FORMAT_VERSION,
-                                 REFMEM_NODE_COUNT,
-                                 rows,
-                                 REFMEM_NODE_COUNT)
-
-
-def build_refmem_table_payload(table_id: int, name: str) -> bytes:
-    if table_id == 1:
-        return build_refmem_board_capability_payload()
-    if table_id == 2:
-        return build_refmem_generic_node_payload()
-    text = f"{name}:placeholder:v{REFMEM_PACKAGE_FORMAT_VERSION}:table={table_id}\n".encode("ascii")
-    return text.ljust(64, b"\0")
-
-
-def build_refmem_table_package() -> tuple[bytes, list[dict[str, Any]]]:
-    payload = bytearray()
-    entries: list[dict[str, Any]] = []
-    table_dir_size = REFMEM_TABLE_COUNT * 16
-    cursor = REFMEM_PACKAGE_HEADER_SIZE + table_dir_size
-
-    for table_id, name in enumerate(REFMEM_TABLE_NAMES):
-        data = build_refmem_table_payload(table_id, name)
-        entry = {
-            "table_id": table_id,
-            "name": name,
-            "offset": cursor,
-            "size": len(data),
-            "crc32": crc32(data),
-        }
-        entries.append(entry)
-        payload.extend(data)
-        cursor += len(data)
-
-    table_dir = bytearray()
-    for entry in entries:
-        table_dir.extend(struct.pack("<IIII",
-                                     entry["table_id"],
-                                     entry["offset"],
-                                     entry["size"],
-                                     entry["crc32"]))
-
-    payload_crc = crc32(payload)
-    total_size = REFMEM_PACKAGE_HEADER_SIZE + len(table_dir) + len(payload)
-    header = bytearray(REFMEM_PACKAGE_HEADER_SIZE)
-    struct.pack_into("<4sIIIIII",
-                     header,
-                     0,
-                     REFMEM_PACKAGE_MAGIC,
-                     REFMEM_PACKAGE_FORMAT_VERSION,
-                     REFMEM_PACKAGE_HEADER_SIZE,
-                     total_size,
-                     REFMEM_TABLE_COUNT,
-                     table_dir_size,
-                     payload_crc)
-    package = bytearray(header + table_dir + payload)
-    struct.pack_into("<I", package, 28, crc32(package))
-    return bytes(package), entries
-
-
 def write_refmem_package(output_dir: Path, package_manifest: dict[str, Any]) -> dict[str, Any]:
     refmem_dir = output_dir / "refmem"
     refmem_dir.mkdir(parents=True, exist_ok=True)
-    package, entries = build_refmem_table_package()
+    package, entries = refmem_table_image.build_package()
     package_path = refmem_dir / "app_model.rmtp"
     package_path.write_bytes(package)
 
@@ -447,8 +256,11 @@ def write_refmem_package(output_dir: Path, package_manifest: dict[str, Any]) -> 
         "crc32": f"0x{crc32(package):08X}",
         "tables": [
             {
-                **entry,
-                "crc32": f"0x{entry['crc32']:08X}",
+                "table_id": entry.table_id,
+                "name": REFMEM_TABLE_NAMES[entry.table_id],
+                "offset": entry.offset,
+                "size": entry.size,
+                "crc32": f"0x{entry.crc32:08X}",
             }
             for entry in entries
         ],
@@ -467,8 +279,8 @@ def write_refmem_package(output_dir: Path, package_manifest: dict[str, Any]) -> 
     ]
     for entry in entries:
         idx_lines.append(
-            f"table={entry['table_id']},offset={entry['offset']},"
-            f"size={entry['size']},crc32={entry['crc32']:08X}"
+            f"table={entry.table_id},offset={entry.offset},"
+            f"size={entry.size},crc32={entry.crc32:08X}"
         )
     (refmem_dir / "app_model.idx").write_text("\n".join(idx_lines) + "\n",
                                                encoding="utf-8",

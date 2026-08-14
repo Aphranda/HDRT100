@@ -8,6 +8,38 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-004 - RMTP table image 生成器共享基础件
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 消除 `tools/refmem_pack_build/refmem_pack_build.py` 与 `tools/sd_fs_build/sd_fs_build.py` 中重复维护的 RMTP 表格式、表名、CRC、BoardCapability 和 GenericNode payload 生成逻辑。
+  - 保证独立 RefMem package 工具和 SD System Pack staging 输出同一份 `.rmtp` 二进制表镜像，避免后续表格式演进时出现双源分叉。
+- 完成内容：
+  - 新增 `tools/refmem_table_image/refmem_table_image.py`，作为 canonical RMTP table image builder，统一 `RMTP` header、directory、package CRC、9 张表顺序、默认 BoardCapabilityTable 和 GenericNodeTable payload。
+  - `tools/refmem_pack_build/refmem_pack_build.py` 改为复用共享 builder，只保留独立输出目录、manifest 和 idx 生成职责。
+  - `tools/sd_fs_build/sd_fs_build.py` 删除私有 `build_refmem_table_package()`、`build_refmem_board_capability_payload()`、`build_refmem_generic_node_payload()` 等重复实现，SD staging 直接调用共享 builder。
+  - 两个脚本都补齐直接脚本运行时的 repo root import path，避免 `python tools\...\*.py` 因 `tools` 包不可见失败。
+  - `REFMEM_DOMAIN_TODO.md` 与架构文档同步当前状态：BoardCapability/GenericNode 已是 `.rmtp` 真实表镜像，其余表仍按 P0 逐表替换。
+- 验证结果：
+  - `python -m py_compile tools\sd_fs_build\sd_fs_build.py tools\refmem_pack_build\refmem_pack_build.py tools\refmem_table_image\refmem_table_image.py` 通过。
+  - `python -m pytest tests\python\test_refmem_pack_build.py` 通过，2 passed。
+  - `python tools\refmem_pack_build\refmem_pack_build.py --output-dir build-rtos-multicore-smoke\refmem_pack_shared` 通过，生成 `.rmtp` size `1536`、CRC `E24B033A`。
+  - `python tools\sd_fs_build\sd_fs_build.py --build-dir build-rtos-multicore-smoke --output-dir build-rtos-multicore-smoke\sdcard_shared --clean` 通过。
+  - 独立打包输出与 SD staging 输出的 `/refmem/app_model.rmtp` SHA256 均为 `6D3A788DB55DC43BF63434C38C5E00E9741C631B9382710F9768317928401188`。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814170001`，package CRC `0xBD91DC17`。
+- 还需完成：
+  - 将其余七张 `.rmtp` 表升级为真实表镜像，并继续接入各自 owner validation。
+  - 后续可把 manifest/idx 的公共描述逻辑继续收敛，但二进制 table image 已经只有一个生成源。
+- 关联文件：
+  - `tools/refmem_table_image/refmem_table_image.py`
+  - `tools/refmem_table_image/__init__.py`
+  - `tools/refmem_pack_build/refmem_pack_build.py`
+  - `tools/sd_fs_build/sd_fs_build.py`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+
 ### REFMEM-TASK-20260815-003 - RMTP Board/Generic owner validation
 
 - 状态：完成

@@ -1271,7 +1271,7 @@ SD 根 `/manifest.idx` 只作为 System Pack 总索引；它负责告诉固件�
 /refmem/app_model.json
 ```
 
-其中 `.rmtp` 是固件后续解析的二进制 table image，`.idx` 是轻量索引，`.json` 是 PC 工具和人工审查用说明。`tools/refmem_pack_build/refmem_pack_build.py` 已固化最小占位格式，后续 `sd_fs_build.py` 可以把它复制进 SD System Pack，并在根 `/manifest.idx` 中加入：
+其中 `.rmtp` 是固件后续解析的二进制 table image，`.idx` 是轻量索引，`.json` 是 PC 工具和人工审查用说明。RMTP 二进制生成由 `tools/refmem_table_image/refmem_table_image.py` 统一维护；`tools/refmem_pack_build/refmem_pack_build.py` 和 `tools/sd_fs_build/sd_fs_build.py` 只负责各自输出目录、manifest 和 idx。当前 table 1 `BoardCapability` 与 table 2 `GenericNode` 已是固定 u32 真实表镜像，其余表仍按 P0 计划逐表替换占位 payload。SD System Pack 在根 `/manifest.idx` 中加入：
 
 ```text
 required=/refmem/app_model.rmtp,type=refmem_table_image,size=<bytes>,crc32=<crc32>
