@@ -210,6 +210,12 @@ python tools\two_board_io_validate\two_board_io_validate.py --port-a COM3 --port
 python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM3 --port-b COM4 --slot-a 0 --slot-b 1 --epoch 1 --run 1
 ```
 
+带线序预检和报告元数据：
+
+```powershell
+python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814143942 --package-crc 0x4D1483AE --line-remap-a-to-b 1,2,0,3 --line-remap-b-to-a 2,1,0,3 --preflight-io
+```
+
 如果固件切到 USBTMC，可改用 VISA resource：
 
 ```powershell
@@ -219,6 +225,11 @@ python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --visa-a USB::
 脚本执行顺序：
 
 ```text
+optional IO preflight:
+  REALtime:IO:PROFile?
+  REALtime:IO:OUTPut:MASK 0
+  REALtime:IO:OUTPut:RELease
+  two_board_io_validate line remap check
 A INIT(slot 0, epoch 1, run 1)
 B INIT(slot 1, epoch 1, run 1)
 A HELLO? -> B RX
@@ -254,6 +265,7 @@ A PEER?(B), B PEER?(A), A/B QUALITY?
 - FENCE pass 要求接收板 local slot 包含在 `required_mask` 中，且对应 source mirror 已 visible，`last_frame_seq32 >= min_table_seq`。
 - FENCE fail/timeout 当前只写入 fence snapshot，不触发产品 RUN gate 或 distributed fault latch；真实门禁接入后再由 DeploymentGate/QualityTable 消费。
 - QUALITY frame 当前同步的是本地 receive quality counter 和 peer seq 摘要，接收端只写 remote quality snapshot；写入 `DistributedConnectionQualityTable` 仍是后续步骤。
+- 带 `--preflight-io` 时，脚本会先运行 `two_board_io_validate.py`，完成 `REALtime:IO:PROFile?` 查询、双板输出 release、逐线 remap 检查和退出清理，再重新打开串口进入 RefMem Sync 协议验证。
 
 ## 执行日志
 
@@ -294,6 +306,8 @@ A PEER?(B), B PEER?(A), A/B QUALITY?
 - COM5/COM6 均 OTA 并 commit 到 build `20260814143942`，package CRC `0x4D1483AE`。
 - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814143942 --out-dir build-rtos-multicore-smoke\refmem_sync_quality_hil_COM5_COM6_20260814143942` 通过。
 - HIL 结果：61 条记录全部 PASS；A->B QUALITY snapshot 记录 `seq_expected=9,seq_last=8` 且错误计数为 0；B->A QUALITY snapshot 记录 `seq_expected=10,seq_last=9,crc_error_count=1,drop_count=2,last_error=9`。
+- `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814143942 --package-crc 0x4D1483AE --line-remap-a-to-b 1,2,0,3 --line-remap-b-to-a 2,1,0,3 --preflight-io --out-dir build-rtos-multicore-smoke\refmem_sync_report_hil_COM5_COM6_20260814143942` 通过。
+- 带预检报告结果：`io_preflight` PASS；B0->B1 remap `[1,2,0,3]`，B1->B0 remap `[2,1,0,3]`；完整 RefMem Sync HIL 61 条记录全部 PASS，报告记录 package CRC `0x4D1483AE`。
 
 ## 注意事项
 

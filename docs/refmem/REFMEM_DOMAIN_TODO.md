@@ -166,7 +166,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 目标：在不绑定 BISS-C 的前提下，用两块最小系统板和最简单 PIO SPI 风格 adapter 验证 RefMem Sync Protocol 的最小分布式闭环。当前端口、线序和已验证记录放在 `REFMEM_MIN_SYSTEM_PLAYBOOK.md`。
 
-- [ ] 阶段 0：固化线序与串口生命周期检查，确保 `REALtime:IO:PROFile?`、输出 release、线序检测和脚本退出清理稳定。
+- [x] 阶段 0：固化线序与串口生命周期检查，确保 `REALtime:IO:PROFile?`、输出 release、线序检测和脚本退出清理稳定；`refmem_sync_hil_validate.py --preflight-io` 会在协议交换前调用 `two_board_io_validate.py` 并把结果写入同一报告目录。
 - [x] 阶段 1：新增 PIO SPI adapter skeleton，提供 adapter id、state、MTU、tx/rx counter、CRC/drop/timeout/last error snapshot。
 - [x] 阶段 1：定义 PIO SPI adapter caps 与 `BoardCapabilityTable` / `RealtimeCapabilityContract` 的映射关系。
 - [x] 阶段 2 前置：增加 PIO SPI adapter 单帧 RX staging / loopback 注入能力，先验证 HELLO frame 可被 adapter 接收、缓存、poll 和计数。
@@ -182,7 +182,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 阶段 4：将 PIO SPI adapter 的 CRC/drop/late/timeout 计数映射到 `DistributedConnectionQualityTable`；当前已完成总线无关 `REFMEM_QUALITY` frame 和 remote quality snapshot，尚未写入 active QualityTable。
 - [x] 增加两板 HIL 工具，顺序管理 COM3/COM4、用户指定串口或 USBTMC VISA 生命周期，不并行占用同一端口。
 - [x] 增加 RefMem sync HELLO/EPOCH HIL 报告输出，记录命令 transcript、slot、epoch、run、peer 和 quality 结果。
-- [ ] 扩展 RefMem sync HIL 报告输出，记录 build id、package CRC、SlotClaimMap CRC、adapter id、线序 remap、delta/fence/quality 结果；当前已记录 build id、SlotClaimMap CRC、adapter id、delta mirror、ACK/NACK、fence snapshot、QUALITY frame 和 local quality，package CRC 与线序 remap 待接入。
+- [x] 扩展 RefMem sync HIL 报告输出，记录 build id、package CRC、SlotClaimMap CRC、adapter id、线序 remap、delta/fence/quality 结果；当前报告已记录 package CRC、线序 remap、IO preflight、SlotClaimMap CRC、adapter id、delta mirror、ACK/NACK、fence snapshot、QUALITY frame 和 local quality。
 
 ## P4.6 - 最小模型系统 GPIO4..7 Overlay
 

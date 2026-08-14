@@ -8,6 +8,34 @@ Last updated: 2026-08-14
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260814-051 - RefMem Sync HIL 报告与 IO 预检固化
+
+- 状态：完成
+- 日期：2026-08-14
+- 任务目标：
+  - 补齐 P4.5 阶段 0 的线序与串口生命周期检查，把 `REALtime:IO:PROFile?`、输出 release、逐线 remap 和退出清理纳入 RefMem Sync HIL 前置流程。
+  - 扩展 RefMem Sync HIL 报告，记录 package CRC、双向线序 remap 和 IO preflight 结果，避免后续依赖手写日志。
+- 完成内容：
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 新增 `--package-crc`、`--line-remap-a-to-b`、`--line-remap-b-to-a` 和 `--preflight-io`。
+  - `--preflight-io` 会在主协议交换前调用 `tools/two_board_io_validate/two_board_io_validate.py`，该工具完成双板 profile 查询、输出 release、逐线 remap 验证和退出释放。
+  - `summary.json` 与 `transcript.txt` 写入 package CRC、line remap 和 `io_preflight` 摘要；preflight 结果保存到同一报告目录下的 `io_preflight/`。
+  - `REFMEM_DOMAIN_TODO.md` 将阶段 0 与 HIL 报告扩展项标记完成。
+- 验证结果：
+  - `python -m py_compile tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py` 通过。
+  - `python tools\two_board_io_validate\two_board_io_validate.py --port-a COM5 --port-b COM6 --out-dir build-rtos-multicore-smoke\two_board_io_COM5_COM6_preflight_20260814143942` 通过。
+  - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814143942 --package-crc 0x4D1483AE --line-remap-a-to-b 1,2,0,3 --line-remap-b-to-a 2,1,0,3 --preflight-io --out-dir build-rtos-multicore-smoke\refmem_sync_report_hil_COM5_COM6_20260814143942` 通过。
+  - HIL 关键结果：IO preflight PASS；B0->B1 remap `[1,2,0,3]`，B1->B0 remap `[2,1,0,3]`；完整 RefMem Sync HIL 61 条记录全部 PASS；报告记录 package CRC `0x4D1483AE`。
+- 还需完成：
+  - 真实 PIO SPI physical adapter service 接入，替换当前 PC/SCPI frame 搬运。
+  - 将 remote quality snapshot 映射到 `DistributedConnectionQualityTable`。
+- 关联文件：
+  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `tools/README.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
+- 下一步：
+  - 进入真实 PIO SPI physical adapter service 的实现拆解；先定义 service 状态机、TX/RX ownership、线序依赖和与当前 SCPI bridge 的并存边界。
+
 ### REFMEM-TASK-20260814-050 - RefMem Sync QUALITY frame 最小闭环
 
 - 状态：完成

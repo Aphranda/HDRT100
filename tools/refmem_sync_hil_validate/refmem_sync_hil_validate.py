@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -239,6 +241,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--delta-a", type=int, default=0xA5000001)
     parser.add_argument("--delta-b", type=int, default=0xB6000002)
     parser.add_argument("--expected-build")
+    parser.add_argument("--package-crc", help="expected OTA package CRC recorded in the HIL report")
+    parser.add_argument("--line-remap-a-to-b", help="recorded OUT-index to IN-index remap, for example 1,2,0,3")
+    parser.add_argument("--line-remap-b-to-a", help="recorded OUT-index to IN-index remap, for example 2,1,0,3")
+    parser.add_argument("--preflight-io", action="store_true",
+                        help="run tools/two_board_io_validate before the RefMem Sync exchange")
     parser.add_argument("--out-dir", type=Path)
     return parser.parse_args()
 
@@ -333,6 +340,51 @@ def make_execute(name: str, port: str | None, visa: str | None, args: argparse.N
     if visa:
         return make_visa_execute(visa, args)
     return make_serial_execute(str(port), args)
+
+
+def run_io_preflight(args: argparse.Namespace, out_dir: Path) -> dict[str, object]:
+    if args.visa_a or args.visa_b:
+        raise SystemExit("--preflight-io requires USB CDC --port-a/--port-b, not VISA")
+    if not args.port_a or not args.port_b:
+        raise SystemExit("--preflight-io requires --port-a and --port-b")
+
+    preflight_dir = out_dir / "io_preflight"
+    command = [
+        sys.executable,
+        str(ROOT / "tools" / "two_board_io_validate" / "two_board_io_validate.py"),
+        "--port-a",
+        str(args.port_a),
+        "--port-b",
+        str(args.port_b),
+        "--out-dir",
+        str(preflight_dir),
+    ]
+    if args.line_remap_a_to_b:
+        command.extend(["--expect-a-to-b", args.line_remap_a_to_b])
+    if args.line_remap_b_to_a:
+        command.extend(["--expect-b-to-a", args.line_remap_b_to_a])
+
+    completed = subprocess.run(command,
+                               cwd=ROOT,
+                               text=True,
+                               capture_output=True,
+                               check=False)
+    result: dict[str, object] = {
+        "enabled": True,
+        "returncode": completed.returncode,
+        "out_dir": str(preflight_dir),
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+    summary_path = preflight_dir / "summary.json"
+    if summary_path.exists():
+        try:
+            result["summary"] = json.loads(summary_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            result["summary_error"] = str(exc)
+    if completed.returncode != 0:
+        raise RuntimeError(f"io preflight failed: {completed.stdout} {completed.stderr}".strip())
+    return result
 
 
 def run_checked(records: list[Record],
@@ -1394,12 +1446,23 @@ def run_exchange(args: argparse.Namespace,
     return records
 
 
-def write_outputs(out_dir: Path, args: argparse.Namespace, records: list[Record]) -> None:
+def write_outputs(out_dir: Path,
+                  args: argparse.Namespace,
+                  records: list[Record],
+                  io_preflight: dict[str, object] | None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     passed = all(record.status == "PASS" for record in records)
     with (out_dir / "transcript.txt").open("w", encoding="utf-8", newline="\n") as handle:
         handle.write(f"# RefMem Sync HIL validation {datetime.now().isoformat(timespec='seconds')}\n")
         handle.write(f"# slot_a={args.slot_a} slot_b={args.slot_b} epoch={args.epoch} run={args.run}\n")
+        if args.package_crc:
+            handle.write(f"# package_crc={args.package_crc}\n")
+        if args.line_remap_a_to_b:
+            handle.write(f"# line_remap_a_to_b={args.line_remap_a_to_b}\n")
+        if args.line_remap_b_to_a:
+            handle.write(f"# line_remap_b_to_a={args.line_remap_b_to_a}\n")
+        if io_preflight is not None:
+            handle.write(f"# io_preflight={io_preflight.get('out_dir')} returncode={io_preflight.get('returncode')}\n")
         for record in records:
             handle.write(f"# {record.board} {record.status} {record.reason}\n")
             handle.write(f"> {record.command}\n")
@@ -1413,6 +1476,10 @@ def write_outputs(out_dir: Path, args: argparse.Namespace, records: list[Record]
         "delta_a": args.delta_a,
         "delta_b": args.delta_b,
         "expected_build": args.expected_build,
+        "package_crc": args.package_crc,
+        "line_remap_a_to_b": args.line_remap_a_to_b,
+        "line_remap_b_to_a": args.line_remap_b_to_a,
+        "io_preflight": io_preflight or {"enabled": False},
         "records": [record.__dict__ for record in records],
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
@@ -1425,7 +1492,12 @@ def main() -> int:
     handles_a = []
     handles_b = []
     records: list[Record] = []
+    out_dir = args.out_dir or (ROOT / "build-rtos-multicore-smoke" /
+                               f"refmem_sync_hil_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    io_preflight = None
     try:
+        if args.preflight_io:
+            io_preflight = run_io_preflight(args, out_dir)
         execute_a, handles_a = make_execute("a", args.port_a, args.visa_a, args)
         execute_b, handles_b = make_execute("b", args.port_b, args.visa_b, args)
         records = run_exchange(args, execute_a, execute_b)
@@ -1439,9 +1511,7 @@ def main() -> int:
             except Exception:
                 pass
 
-    out_dir = args.out_dir or (ROOT / "build-rtos-multicore-smoke" /
-                               f"refmem_sync_hil_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-    write_outputs(out_dir, args, records)
+    write_outputs(out_dir, args, records, io_preflight)
     passed = all(record.status == "PASS" for record in records) and len(records) == 61
     print(f"summary: passed={passed} records={len(records)} out_dir={out_dir}")
     return 0 if passed else 1

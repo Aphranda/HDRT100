@@ -84,7 +84,9 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `FENCe:STATus?`, `QUALity:STATus?`, `PEER?`, and `QUALity?`. Negative paths
   cover duplicate seq, target mismatch, payload CRC mismatch, FENCE min-seq
   timeout, and remote quality error propagation before the real PIO SPI physical
-  adapter is enabled.
+  adapter is enabled. Use `--package-crc`, `--line-remap-a-to-b`,
+  `--line-remap-b-to-a`, and `--preflight-io` to record package/remap metadata
+  and run `two_board_io_validate.py` before opening the sync exchange ports.
 
 ### `two_board_io_validate/two_board_io_validate.py`
 
