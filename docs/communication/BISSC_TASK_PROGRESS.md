@@ -128,7 +128,7 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
 - 关联文件：
   - `docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`
   - `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
-  - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+  - `docs/sync/SYNC_IO_ARCHITECTURE.md`
 - 下一步：
   - 在原理图阶段按 `ISO6440F x2` 作为完整版本默认方案，同时保留 `ISO6442F` 精简 BOM 选项。
 

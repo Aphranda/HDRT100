@@ -87,8 +87,8 @@ Last updated: 2026-08-13
 | 2026-08-13-FUTURE-ROADMAP | 已完成 | 对话中的未来规划 | `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md` | 将应用场景、跨平台移植、开源生态和版本分层纳入架构域；已接入 docs/README、arch/README 和产品架构 Related。 |
 | 2026-08-13-DOCS-DOMAIN-PHASE-2 | 已完成 | 根目录 `DOCS_DOMAIN_STRUCTURE_PLAN.md` | `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md` | 文档治理域首批迁移，作为后续域目录迁移样板。 |
 | 2026-08-13-DOCS-DOMAIN-PHASE-2 | 已完成 | 根目录 `DOCS_MIGRATION_TODO.md` | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理域首批迁移，迁移待办进入 docs 子目录。 |
-| 2026-07-07-NAMING-BATCH-2 | 已完成 | `PIO_RESOURCE_PLAN.md` | `docs/sync/SYNC_IO_RESOURCE_PLAN.md` | 已更新 README、docs、tools 内引用；保持 SYNC_IO 资源规划入口。 |
-| 2026-07-07-NAMING-BATCH-2 | 已完成 | `DISTRIBUTED_DPLL_SYNC_DESIGN.md` | `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` | 已更新 README、docs、tools 内引用；归入 SYNC_IO 设计文档。 |
+| 2026-07-07-NAMING-BATCH-2 | 已完成 | `PIO_RESOURCE_PLAN.md` | `docs/sync/SYNC_IO_ARCHITECTURE.md` | 已更新 README、docs、tools 内引用；保持 SYNC_IO 资源规划入口。 |
+| 2026-07-07-NAMING-BATCH-2 | 已完成 | `DISTRIBUTED_DPLL_SYNC_DESIGN.md` | `docs/sync/SYNC_IO_ARCHITECTURE.md` | 已更新 README、docs、tools 内引用；归入 SYNC_IO 设计文档。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `PORTABLE_OTA_ARCHITECTURE.md` | `docs/ota/OTA_PORTABLE_ARCHITECTURE.md` | 已更新 README、docs、tools 内引用；归入 OTA 架构文档。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `SYNC_TRIGGER_TODO.md` | `docs/trigger/TRIGGER_SYNC_TODO.md` | 已更新 README、docs、tools 内引用；归入 TRIGGER 待办。 |
 | 2026-07-07-NAMING-BATCH-2 | 已完成 | `TRIGGER_ENC_COUNT_MODE.md` | `docs/trigger/TRIGGER_ENC_COUNT_DESIGN.md` | 已更新 README、docs、tools 内引用；类型后缀改为 DESIGN。 |

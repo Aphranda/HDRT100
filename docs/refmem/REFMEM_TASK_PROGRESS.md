@@ -1022,7 +1022,7 @@ RefMemTableRegistry
   - `boards/rp2350_trig/inc/board_config.h`
   - `components/sync_io/inc/sync_io_hw_profile.h`
   - `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`
-  - `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+  - `docs/sync/SYNC_IO_ARCHITECTURE.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
 - 下一步：
   - 构建并烧录最小系统 profile 后，用 `SYSTem:REFMEM:*` 和后续 PIO 预检确认双板基础链路。

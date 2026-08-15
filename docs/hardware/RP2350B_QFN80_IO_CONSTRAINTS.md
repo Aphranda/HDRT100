@@ -4,7 +4,7 @@ Status: Draft
 Domain: Hardware / Board
 Target: RP2350B QFN-80
 Canonical: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
-Related: `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`, `docs/hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `IO约束.md`
+Related: `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`, `docs/hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `IO约束.md`
 Last updated: 2026-08-13
 
 本文档定义 RP2350_TRIG RP2350B QFN-80 硬件版本的实际 GPIO 分配与使用约束。

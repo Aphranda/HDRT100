@@ -3,7 +3,7 @@
 Status: Draft
 Domain: HARDWARE
 Canonical: `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Last updated: 2026-08-13
 
 本文档定义当前正在运行和调试的最小系统板 / DEMO 板硬件约束。该板用于验证 HAOFV、RTOS、双核、SCPI、OTA、SD、基础触发和工具链闭环，不作为产品板 pin map 或隔离策略冻结依据。

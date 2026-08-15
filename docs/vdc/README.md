@@ -34,7 +34,7 @@ Last updated: 2026-08-14
 | `../arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层架构，定义 VDC 的内部基础主域地位。 |
 | `../arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | 既有 VDC/DPLL 融合架构输入，后续逐步迁入 VDC canonical。 |
 | `../arch/RTOS_HAOFV_ARCHITECTURE.md` | 当前 RTOS task、VDC/DPLL owner 壳和双核边界。 |
-| `../sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` | SYNC_IO 下的分布式 DPLL 落地方案和历史设计输入。 |
+| `../sync/SYNC_IO_ARCHITECTURE.md` | SYNC_IO 下的分布式 DPLL 落地方案和历史设计输入。 |
 | `../refmem/REFMEM_DOMAIN_ARCHITECTURE.md` | RefMem 共同事实主域，保存 VDC snapshot、版本、质量和证据。 |
 
 ## 边界

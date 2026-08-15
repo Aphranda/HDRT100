@@ -10,8 +10,8 @@ Related:
 - `docs/reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`
 - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 - `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
-- `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`
-- `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+- `docs/sync/SYNC_IO_ARCHITECTURE.md`
+- `docs/sync/SYNC_IO_ARCHITECTURE.md`
 - `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
 
 本文档把原 Zynq/EtherCAT/DC 分布式触发技术报告，改写为当前 RP2350B QFN-80

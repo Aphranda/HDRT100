@@ -3,12 +3,12 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`
+Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Last updated: 2026-08-13
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
 
-> **实施指南**：[HAOFV_IMPLEMENTATION_PLAYBOOK.md](HAOFV_IMPLEMENTATION_PLAYBOOK.md) 提供 ECC 表实现示例、Flash 异步 Job 代码和历史 GPIO 迁移样例；具体硬件约束仍以 `docs/hardware/` 和 `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 为准。
+> **实施指南**：[HAOFV_IMPLEMENTATION_PLAYBOOK.md](HAOFV_IMPLEMENTATION_PLAYBOOK.md) 提供 ECC 表实现示例、Flash 异步 Job 代码和历史 GPIO 迁移样例；具体硬件约束仍以 `docs/hardware/` 和 `docs/sync/SYNC_IO_ARCHITECTURE.md` 为准。
 
 ## 架构名称
 
@@ -1229,7 +1229,7 @@ GPIO16..GPIO23 的实际映射属于 board profile 和 `sync_io` 的职责。`Tr
 
 ### 当前 board profile 示例：主触发口与 AUX 功能口
 
-下表描述当前固件/板级 profile 中的语义 IO 划分示例，用于说明 `TriggerAO` 只依赖语义通道。最终 GPIO、连接器、电气约束和隔离边界以 `docs/hardware/` 与 `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 为准。
+下表描述当前固件/板级 profile 中的语义 IO 划分示例，用于说明 `TriggerAO` 只依赖语义通道。最终 GPIO、连接器、电气约束和隔离边界以 `docs/hardware/` 与 `docs/sync/SYNC_IO_ARCHITECTURE.md` 为准。
 
 | 接口 | 角色 | 语义 |
 |---|---|---|

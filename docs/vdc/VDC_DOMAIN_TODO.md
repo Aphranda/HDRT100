@@ -44,7 +44,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [x] 收敛 IEC 61499 对 VDC owner/FB 边界的借鉴项：静态 AO/FB、event/data boundary、deployment consistency。
 - [x] 在 `VDC_DOMAIN_ARCHITECTURE.md` 增加虚拟 DC 时钟参考机制矩阵，明确“借鉴机制 / 不采用内容 / 本项目落地点”。
 - [ ] 在 `HAOFV_VDC_DPLL_ARCHITECTURE.md` 增加 VDC/DPLL 质量字段与 PTP/Chrony servo 字段映射。
-- [ ] 在 `SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md` 增加 EtherCAT DC-style 的 initial sync / drift compensation / holdover 检查链。
+- [ ] 在 `SYNC_IO_ARCHITECTURE.md` / VDC 文档之间补齐 EtherCAT DC-style 的 initial sync / drift compensation / holdover 检查链。
 - [ ] 在 `SCPI_COMMAND_PLAN.md` 确认 `READ:SYNC:*?`、`SYSTem:SYNC:VDC:*` 暴露字段能够覆盖 offset/rate/quality/gate/evidence。
 
 ## P2 - VDC 数据契约冻结

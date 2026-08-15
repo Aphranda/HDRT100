@@ -3,7 +3,7 @@
 Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
-Related: `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `tools/two_board_io_validate/README.md`
+Related: `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `tools/two_board_io_validate/README.md`
 Last updated: 2026-08-14
 
 本文档记录当前两块最小系统板上的 RefMem / VDC / PIO transport bring-up 操作。它不是架构约束，也不是产品板 pin map；架构定义以 `REFMEM_DOMAIN_ARCHITECTURE.md` 和 `REFMEM_SYNC_ARCHITECTURE.md` 为准。

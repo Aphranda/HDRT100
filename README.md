@@ -426,14 +426,11 @@ time.
   blocks, time-synchronized vectors, table-driven state machines, event
   dispatch, and resource arbitration.
 - `docs/release/RELEASE_CHECKLIST.md`: release gate template.
-- `docs/sync/SYNC_IO_RESOURCE_PLAN.md`: sync trigger PIO, state-machine, and GPIO
-  allocation.
+- `docs/sync/SYNC_IO_ARCHITECTURE.md`: sync/realtime IO architecture, PIO/DMA/IRQ
+  resources, semantic IO, mode drivers, CAL_RING, and scheduled-trigger boundary.
 - `docs/trigger/TRIGGER_SYNC_TODO.md`: remaining work for the production trigger
   subsystem.
 - `docs/interface/SCPI_COMMANDS.md`: basic SCPI command list for trigger configuration.
-- `docs/sync/SYNC_IO_DISTRIBUTED_DPLL_DESIGN.md`: implementable A0-A3 RP2350
-  distributed DPLL, virtual DC clock, AUX calibration ring, and local scheduled
-  trigger plan.
 - `docs/ota/OTA_SYSTEM_DESIGN.md`: A/B OTA upgrade design for the W25Q32 4 MB QSPI Flash.
 - `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`: copy-to-active OTA transaction
   design for power-loss recovery within the current flash partition layout.

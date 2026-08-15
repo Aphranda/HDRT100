@@ -3,7 +3,7 @@
 Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/TRIGGER_INDUSTRIAL_ENHANCEMENT_DESIGN.md`
-Related: `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/sync/SYNC_IO_RESOURCE_PLAN.md`, `docs/trigger/TRIGGER_SEQ_STEP_DESIGN.md`
+Related: `docs/trigger/TRIGGER_SYNC_TODO.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/trigger/TRIGGER_SEQ_STEP_DESIGN.md`
 Last updated: 2026-07-07
 
 本文档基于对开源触发/测试仪器项目的对标分析，梳理当前 SEQ_STEP 实现与工业级触发系统的差距，

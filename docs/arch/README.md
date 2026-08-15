@@ -27,7 +27,7 @@ Last updated: 2026-08-13
 
 | 当前路径 | 定位 | 当前约束 |
 |---|---|---|
-| `HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施指南、ECC 示例、Flash Job 示例和历史 GPIO 迁移样例。 | 不作为硬件资源 canonical；具体 IO 以 `docs/hardware/` 和 `docs/sync/SYNC_IO_RESOURCE_PLAN.md` 为准。 |
+| `HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施指南、ECC 示例、Flash Job 示例和历史 GPIO 迁移样例。 | 不作为硬件资源 canonical；具体 IO 以 `docs/hardware/` 和 `docs/sync/SYNC_IO_ARCHITECTURE.md` 为准。 |
 | `HAOFV_PORTABILITY_EVALUATION.md` | 2026-06/07 代码基线下的可移植性评估。 | 作为迁移风险快照使用；不覆盖当前 RTOS + 双核 AMP 产品架构。 |
 | `HAOFV_ARCHITECTURE_RISK_EVALUATION.md` | HAOFV 顶层架构独立风险评估快照。 | 记录 owner、跨核契约、硬实时边界、ECC 状态机规模和恢复路径风险，含事实校正与处置去向。 |
 
