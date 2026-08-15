@@ -8,6 +8,38 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-020 - ModelTurntable LOAD via RefMem command slot
+
+- 状态：完成首版闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 将 `CONFigure:MODEl:TURNtable:LOAD <slot_id>,<output_index>` 从 SCPI 直接业务调用收敛到 RefMem command slot / NodeLoad staging 路径。
+  - 保持 HAOFV 边界：SCPI 只提交 intent；`DistributedRefMemAO` 负责 command、staging 和 ACK/NACK；实际加载由 `ModelTurntableAO` registered owner 执行。
+- 完成内容：
+  - 新增 `distributed_refmem_register_node_load_owner()`，按 `instance_id` 注册 AO/FB owner 回调；`distributed_refmem.c` 不再直接 include `model_turntable.h`。
+  - `ModelTurntableAO` 在初始化时注册 `Template.ModelTurntableAO` 的 NodeLoad owner，owner 回调内部执行 `model_turntable_load()`。
+  - `CONFigure:MODEl:TURNtable:LOAD` 改为调用 `distributed_refmem_stage_model_turntable_load()`；该入口 post `NODE_LOAD_STAGE` command、写入 NodeLoad staging snapshot、由 owner 执行加载，并 ACK/NACK command slot。
+  - `system_manager` 的 `SYSTem:CONFigure:ACK?` 兼容视图只读取 `CONFIG_ACTIVATE` command，避免模型 LOAD command 污染配置门禁 ACK。
+  - 新增 `tools/model_turntable_load_validate/model_turntable_load_validate.py`，固化 build id、默认未加载、LOAD、staging snapshot、配置 ACK 兼容视图和错误队列检查。
+- 验证结果：
+  - `python -m py_compile tools\model_turntable_load_validate\model_turntable_load_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_command_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815075135`，package CRC `0x3F00DD7D`。
+  - COM5/COM6 OTA 写入、boot 和 commit 到 build `20260815075135` 通过，错误队列均为 `0,"No error"`。
+  - COM5 执行 `python tools\model_turntable_load_validate\model_turntable_load_validate.py COM5 --expected-build 20260815075135 --slot 1 --output 0 --out-dir build-rtos-multicore-smoke\model_turntable_load_COM5_20260815075135` 通过。
+  - COM6 执行 `python tools\model_turntable_load_validate\model_turntable_load_validate.py COM6 --expected-build 20260815075135 --slot 1 --output 0 --out-dir build-rtos-multicore-smoke\model_turntable_load_COM6_20260815075135` 通过。
+- 后续闭环：
+  - 当前仍是首版 staging snapshot，不是完整 NodeLoadTable active/staging/rollbackable image；P0 仍需把 `CONFigure:MODEl:TURNtable:LOAD` 升级为真实 table image、owner validation、SlotClaimMap、RealtimeCapabilityContract、DeploymentGate 和 rollback。
+  - 将 `ModelVnaAO`、`LinkSwitcherAO` 等其余可加载实例接入同一 NodeLoad owner 注册和 command slot 路径。
+- 关联文件：
+  - `components/distributed_refmem/inc/distributed_refmem.h`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `components/model_turntable/src/model_turntable.c`
+  - `components/system_manager/src/system_manager.c`
+  - `middleware/scpi_port/src/scpi_model_commands.c`
+  - `tools/model_turntable_load_validate/model_turntable_load_validate.py`
+
 ### REFMEM-TASK-20260815-019 - SystemManager config ACK maps to RefMem command slot
 
 - 状态：完成

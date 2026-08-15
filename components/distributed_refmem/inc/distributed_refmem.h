@@ -53,6 +53,11 @@
 #include "refmem_command.h"
 #include "refmem_realtime_tdma.h"
 
+typedef bool (*distributed_refmem_node_load_owner_t)(uint32_t instance_id,
+                                                     uint32_t slot_id,
+                                                     uint32_t payload_ref,
+                                                     void *context);
+
 typedef enum {
     DISTRIBUTED_REFMEM_NODE_MISSING = 0,
     DISTRIBUTED_REFMEM_NODE_OK = 1,
@@ -163,5 +168,11 @@ bool distributed_refmem_command_mark_timeout(uint32_t now_tick32,
                                              uint32_t evidence_index);
 bool distributed_refmem_command_clear(uint32_t clear_seq);
 bool distributed_refmem_get_command_snapshot(refmem_command_snapshot_t *snapshot);
+bool distributed_refmem_register_node_load_owner(
+    uint32_t instance_id,
+    distributed_refmem_node_load_owner_t owner,
+    void *context);
+bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
+                                                   uint32_t output_index);
 
 #endif

@@ -13,13 +13,82 @@
 #include "refmem_spi_physical_adapter.h"
 #include "refmem_vector_table.h"
 
+#define DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT 16u
+
+typedef struct {
+    uint32_t instance_id;
+    distributed_refmem_node_load_owner_t owner;
+    void *context;
+} distributed_refmem_node_load_owner_entry_t;
+
 static refmem_vector_table_t s_distributed_refmem_table __attribute__((aligned(4)));
 static refmem_command_slot_t s_refmem_command_slot;
 static refmem_realtime_tdma_service_t s_refmem_realtime_tdma;
 static refmem_spi_physical_adapter_t s_refmem_realtime_spi;
+static distributed_refmem_node_load_owner_entry_t
+    s_node_load_owners[DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT];
 static distributed_refmem_status_t s_status;
 static uint32_t s_service_count;
 static bool s_initialized;
+
+static uint32_t distributed_refmem_model_payload_crc32(uint32_t slot_id,
+                                                       uint32_t output_index)
+{
+    uint32_t crc = 2166136261u;
+    const uint32_t fields[] = {slot_id, output_index};
+    const uint8_t *bytes = (const uint8_t *)fields;
+    for (uint32_t i = 0u; i < (uint32_t)sizeof(fields); i++) {
+        crc ^= bytes[i];
+        crc *= 16777619u;
+    }
+    return crc;
+}
+
+static bool distributed_refmem_command_state_is_complete(uint32_t state)
+{
+    return state == REFMEM_COMMAND_STATE_ACKED ||
+           state == REFMEM_COMMAND_STATE_NACKED ||
+           state == REFMEM_COMMAND_STATE_TIMED_OUT;
+}
+
+static uint32_t distributed_refmem_next_command_seq(
+    const refmem_command_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return 1u;
+    }
+
+    uint32_t seq = snapshot->last_completed_seq;
+    if (snapshot->command_seq > seq) {
+        seq = snapshot->command_seq;
+    }
+    seq++;
+    return seq == 0u ? 1u : seq;
+}
+
+static distributed_refmem_node_load_owner_entry_t *
+distributed_refmem_find_node_load_owner(uint32_t instance_id)
+{
+    for (uint32_t i = 0u; i < DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT; i++) {
+        if (s_node_load_owners[i].owner != NULL &&
+            s_node_load_owners[i].instance_id == instance_id) {
+            return &s_node_load_owners[i];
+        }
+    }
+    return NULL;
+}
+
+static bool distributed_refmem_execute_node_load_owner(uint32_t instance_id,
+                                                       uint32_t slot_id,
+                                                       uint32_t payload_ref)
+{
+    distributed_refmem_node_load_owner_entry_t *entry =
+        distributed_refmem_find_node_load_owner(instance_id);
+    if (entry == NULL) {
+        return false;
+    }
+    return entry->owner(instance_id, slot_id, payload_ref, entry->context);
+}
 
 static refmem_vector_header_slot_t *distributed_refmem_header(void)
 {
@@ -462,6 +531,127 @@ bool distributed_refmem_command_clear(uint32_t clear_seq)
 bool distributed_refmem_get_command_snapshot(refmem_command_snapshot_t *snapshot)
 {
     return refmem_command_get_snapshot(&s_refmem_command_slot, snapshot);
+}
+
+bool distributed_refmem_register_node_load_owner(
+    uint32_t instance_id,
+    distributed_refmem_node_load_owner_t owner,
+    void *context)
+{
+    if (owner == NULL || instance_id == 0u) {
+        return false;
+    }
+
+    osal_critical_enter();
+    distributed_refmem_node_load_owner_entry_t *empty = NULL;
+    for (uint32_t i = 0u; i < DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT; i++) {
+        if (s_node_load_owners[i].owner != NULL &&
+            s_node_load_owners[i].instance_id == instance_id) {
+            s_node_load_owners[i].owner = owner;
+            s_node_load_owners[i].context = context;
+            osal_critical_exit();
+            return true;
+        }
+        if (empty == NULL && s_node_load_owners[i].owner == NULL) {
+            empty = &s_node_load_owners[i];
+        }
+    }
+
+    if (empty != NULL) {
+        empty->instance_id = instance_id;
+        empty->owner = owner;
+        empty->context = context;
+        osal_critical_exit();
+        return true;
+    }
+
+    osal_critical_exit();
+    return false;
+}
+
+bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
+                                                   uint32_t output_index)
+{
+    if (!s_initialized || slot_id >= DISTRIBUTED_REFMEM_NODE_COUNT) {
+        return false;
+    }
+
+    refmem_command_snapshot_t snapshot;
+    if (!distributed_refmem_get_command_snapshot(&snapshot)) {
+        return false;
+    }
+    if (snapshot.command_seq != 0u) {
+        if (!distributed_refmem_command_state_is_complete(snapshot.state) ||
+            !distributed_refmem_command_clear(snapshot.command_seq)) {
+            return false;
+        }
+        if (!distributed_refmem_get_command_snapshot(&snapshot)) {
+            return false;
+        }
+    }
+
+    const uint32_t payload_crc32 =
+        distributed_refmem_model_payload_crc32(slot_id, output_index);
+    const uint32_t target_mask = (uint32_t)(1u << slot_id);
+    const refmem_command_request_t request = {
+        .command_seq = distributed_refmem_next_command_seq(&snapshot),
+        .source_node = DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
+        .source_instance = REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE,
+        .target_mask = target_mask,
+        .required_mask = target_mask,
+        .command_type = REFMEM_COMMAND_TYPE_NODE_LOAD_STAGE,
+        .command_class = REFMEM_COMMAND_CLASS_CONFIG,
+        .payload_kind = REFMEM_COMMAND_PAYLOAD_INLINE_SMALL,
+        .payload_ref = output_index,
+        .payload_size = 2u * sizeof(uint32_t),
+        .payload_crc32 = payload_crc32,
+        .issue_epoch = 0u,
+        .run_id = 0u,
+        .timeout_us = 50000u,
+    };
+
+    if (!distributed_refmem_command_try_post(&request, osal_tick_ms())) {
+        return false;
+    }
+    osal_critical_enter();
+    const refmem_command_take_result_t take_result =
+        refmem_command_try_take(&s_refmem_command_slot,
+                                slot_id,
+                                0u,
+                                0u,
+                                payload_crc32,
+                                REFMEM_VECTOR_SLOT_ACK_CMD);
+    osal_critical_exit();
+    if (take_result != REFMEM_COMMAND_TAKE_TAKEN) {
+        return false;
+    }
+
+    const bool staged =
+        refmem_application_model_stage_scpi_node_config(
+            slot_id,
+            REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE,
+            REFMEM_APP_ROLE_MODEL_TURNTABLE | REFMEM_APP_ROLE_TEST_AGENT,
+            REFMEM_APP_PERSONA_MODEL_INSTRUMENTS,
+            1u,
+            0u,
+            0u);
+    const bool loaded =
+        staged &&
+        distributed_refmem_execute_node_load_owner(
+            REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE,
+            slot_id,
+            output_index);
+    if (loaded) {
+        (void)distributed_refmem_command_ack(slot_id, REFMEM_VECTOR_SLOT_ACK_CMD);
+        return true;
+    }
+
+    (void)distributed_refmem_command_nack(slot_id,
+                                          staged
+                                              ? REFMEM_COMMAND_REASON_RUN_STATE_DENIED
+                                              : REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
+                                          REFMEM_VECTOR_SLOT_ACK_CMD);
+    return false;
 }
 
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot)

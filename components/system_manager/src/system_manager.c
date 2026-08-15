@@ -121,6 +121,12 @@ static void system_manager_publish_config_command(bool gate_ready,
 
     if (has_snapshot &&
         snapshot.command_seq != 0u &&
+        snapshot.command_type != REFMEM_COMMAND_TYPE_CONFIG_ACTIVATE) {
+        return;
+    }
+
+    if (has_snapshot &&
+        snapshot.command_seq != 0u &&
         snapshot.target_mask == s_config_gate_status.target_mask &&
         snapshot.ack_flags == desired_ack &&
         snapshot.nack_flags == desired_nack &&
@@ -478,7 +484,8 @@ void system_manager_get_config_ack_status(system_manager_config_ack_status_t *st
 
     refmem_command_snapshot_t command_snapshot;
     const bool command_snapshot_ok =
-        distributed_refmem_get_command_snapshot(&command_snapshot);
+        distributed_refmem_get_command_snapshot(&command_snapshot) &&
+        command_snapshot.command_type == REFMEM_COMMAND_TYPE_CONFIG_ACTIVATE;
 
     osal_critical_enter();
     status->version = config_snapshot->config_version;

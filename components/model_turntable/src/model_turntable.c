@@ -4,9 +4,11 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "distributed_refmem.h"
 #include "hardware/gpio.h"
 #include "pico/time.h"
 #include "project_config.h"
+#include "refmem_application_model.h"
 #include "sync_io.h"
 
 #define MODEL_TURNTABLE_DEFAULT_VELOCITY   10.0
@@ -43,6 +45,18 @@ typedef struct {
 } model_turntable_context_t;
 
 static model_turntable_context_t s_turntable;
+
+static bool model_turntable_refmem_load_owner(uint32_t instance_id,
+                                              uint32_t slot_id,
+                                              uint32_t payload_ref,
+                                              void *context)
+{
+    (void)context;
+    if (instance_id != REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE) {
+        return false;
+    }
+    return model_turntable_load(slot_id, payload_ref);
+}
 
 static double model_turntable_abs_double(double value)
 {
@@ -200,7 +214,10 @@ bool model_turntable_init(void)
     s_turntable.motion.acceleration_units_per_s2 = MODEL_TURNTABLE_DEFAULT_ACCEL;
     s_turntable.configured = true;
     model_turntable_recompute_plan();
-    return true;
+    return distributed_refmem_register_node_load_owner(
+        REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE,
+        model_turntable_refmem_load_owner,
+        NULL);
 }
 
 bool model_turntable_load(uint32_t slot_id, uint32_t output_index)

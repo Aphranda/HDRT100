@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "distributed_config.h"
+#include "distributed_refmem.h"
 #include "model_turntable.h"
 #include "scpi_port_internal.h"
 
@@ -23,7 +24,7 @@ scpi_result_t scpi_cmd_model_turntable_load(scpi_t *context)
     uint32_t output_index;
     if (!scpi_port_read_u32(context, &slot_id) ||
         !scpi_port_read_u32(context, &output_index) ||
-        !model_turntable_load(slot_id, output_index)) {
+        !distributed_refmem_stage_model_turntable_load(slot_id, output_index)) {
         return SCPI_RES_ERR;
     }
 
