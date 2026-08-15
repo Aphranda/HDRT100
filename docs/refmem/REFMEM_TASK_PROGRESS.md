@@ -8,6 +8,35 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-030 - NodeLoadTable staging image
+
+- 状态：完成 COM5 板端闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 将 `SYSTem:REFMEM:LOAD:NODE` 从单条候选状态快照推进为私有 staging `DistributedNodeLoadTable` image。
+  - 保持 HAOFV 边界：SCPI 只 post `NODE_LOAD_STAGE` command，`DistributedRefMemAO` owner take 后更新 staging 表镜像、执行 validation、ACK/NACK，并只向 TableRegistry 发布摘要。
+- 完成内容：
+  - 新增 `s_staging_node_load_table` 和 `s_staging_node_load_valid`，`LOAD:NODE` 成功后在私有 staging 表上累积候选。
+  - `LOAD:NODE` 现在按候选 `NodeLoadTable` 调用 `refmem_application_contract_validate_node_load_table()`，并计算整表 staging CRC。
+  - 成功路径只更新 `RefMemTableRegistry` table 3 `NodeLoadTable` 的 staging CRC、`OWNER_OK` 状态和 flags；不再通过整包 staging refresh 把 9 张表都标成 staging。
+  - 非法 node/instance 仍返回 `REJECTED` / command NACK，并把 table 3 标成 `FAILED`，不污染 active 表。
+  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 同步断言：合法 `LOAD:NODE` 必须有非零 NodeLoadTable staging CRC，`SYSTem:REFMEM:TABle? 3` 的 staging mask 至少包含 bit3。
+- 验证结果：
+  - `python -m py_compile tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py tools\refmem_table_registry_validate\refmem_table_registry_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_application_contract_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815114032`，package CRC `0xF7BB88ED`。
+  - COM5 OTA 到 build `20260815114032` 并 `SYSTem:OTA:COMMit` 通过，错误队列为 0。
+  - COM5 执行 `python -u tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py COM5 --skip-sd --timeout 10 --out-dir build-rtos-multicore-smoke\refmem_load_COM5_20260815114032_nodeload_staging` 通过；合法 `LOAD:NODE 5,9,32,32,1,0,0` 生成 table 3 staging CRC `3388599922`，`SYSTem:REFMEM:TABle? 3` 返回 `staging_table_mask=8`。
+  - COM5 执行 `python -u tools\refmem_table_registry_validate\refmem_table_registry_validate.py COM5 --package build-rtos-multicore-smoke\sdcard_full_tables_20260815110412\refmem\app_model.rmtp --load-sd --timeout 10 --load-timeout 30 --out-dir build-rtos-multicore-smoke\refmem_table_registry_COM5_20260815114032` 通过，确认 `LOAD:SD` 全 9 表 staging CRC 未被破坏。
+- 结论：
+  - `LOAD:NODE` 已进入 P0 表镜像主线，不再只是单字段 snapshot。
+  - active/staging/rollbackable 全表 image buffer、activation gate、abort/rollback 仍是 P0 下一步。
+- 后续动作：
+  - 按 P0-P3 优先级推进：P0 真实 table image activation/rollback；P1 SlotClaimMap 协调和溢出验证；P2 RefMemSlotContract 字段级 owner/snapshot；P3 Command/ACK/NACK 与 activation gate 统一。
+
 ### REFMEM-TASK-20260815-029 - TableRegistry per-table staging CRC gate
 
 - 状态：完成 COM5 板端闭环

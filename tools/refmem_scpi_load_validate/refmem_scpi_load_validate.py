@@ -123,6 +123,8 @@ def expect_node_staged(response: str, *, node_id: str, instance_id: str) -> None
         raise AssertionError("node load was not staged")
     if fields[2] != "2" or fields[3] != "0" or fields[4] != "2":
         raise AssertionError(f"unexpected source/mode/staging: {fields[2:5]}")
+    if int(fields[11], 0) == 0:
+        raise AssertionError("node load staged with zero NodeLoadTable CRC")
     if fields[14] != node_id or fields[15] != instance_id or fields[21] != "0":
         raise AssertionError(f"unexpected node staging fields: {fields[14:22]}")
 
@@ -320,7 +322,7 @@ def run_validation(execute, *, skip_sd: bool) -> list[Record]:
         ("SYSTem:COMMand:ACK?",
          lambda response: expect_command_node_load_ack(response, node_id=5, instance_id=9)),
         ("SYSTem:REFMEM:TABle? 3",
-         lambda response: expect_table_response(response, table_id="3", min_staging_mask=0x1FF)),
+         lambda response: expect_table_response(response, table_id="3", min_staging_mask=0x08)),
         ("SYSTem:REFMEM:LOAD:NODE 8,9,32,32,1,0,0", expect_node_rejected),
         ("SYSTem:REFMEM:LOAD:BOARD 5,2952790021,49153,0,0,32,0,5,0",
          lambda response: expect_board_staged(response, board_id="5")),

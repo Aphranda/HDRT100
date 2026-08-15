@@ -374,6 +374,8 @@ static const refmem_connection_quality_table_t s_connection_quality = {
 static refmem_application_model_snapshot_t s_snapshot;
 static refmem_application_model_load_snapshot_t s_load_snapshot;
 static refmem_board_capability_load_snapshot_t s_board_load_snapshot;
+static refmem_node_load_table_t s_staging_node_load_table;
+static bool s_staging_node_load_valid;
 static bool s_initialized;
 
 static bool refmem_model_instance_enabled(const refmem_fb_instance_entry_t *instance);
@@ -437,11 +439,19 @@ static uint32_t refmem_model_generic_node_crc32(void)
     return crc;
 }
 
+static uint32_t refmem_model_node_load_table_crc32(const refmem_node_load_table_t *table)
+{
+    if (table == NULL) {
+        return 0u;
+    }
+    return refmem_model_crc32_update(0xFFFFFFFFu,
+                                     table,
+                                     sizeof(*table));
+}
+
 static uint32_t refmem_model_node_load_crc32(void)
 {
-    return refmem_model_crc32_update(0xFFFFFFFFu,
-                                     &s_node_load_table,
-                                     sizeof(s_node_load_table));
+    return refmem_model_node_load_table_crc32(&s_node_load_table);
 }
 
 static uint32_t refmem_model_fb_instance_crc32(void)
@@ -1036,6 +1046,57 @@ static void refmem_model_finish_load_idle(void)
     refmem_table_registry_refresh_staging(&s_load_snapshot);
 }
 
+static bool refmem_model_make_staging_node_load_table(
+    uint32_t node_id,
+    uint32_t instance_id,
+    uint32_t role_mask,
+    uint32_t persona_mask,
+    uint32_t enabled,
+    uint32_t required,
+    uint32_t load_order,
+    refmem_node_load_table_t *candidate,
+    uint32_t *candidate_crc32)
+{
+    if (candidate == NULL || candidate_crc32 == NULL) {
+        return false;
+    }
+
+    if (s_staging_node_load_valid) {
+        *candidate = s_staging_node_load_table;
+    } else {
+        *candidate = s_node_load_table;
+    }
+
+    refmem_node_load_entry_t *target = NULL;
+    for (uint32_t i = 0u; i < candidate->load_count; i++) {
+        refmem_node_load_entry_t *entry = &candidate->load[i];
+        if (entry->instance_id == instance_id) {
+            target = entry;
+            break;
+        }
+    }
+
+    if (target == NULL) {
+        return false;
+    }
+
+    target->application_id = s_application_map.application_id;
+    target->profile_id = s_application_map.profile_id;
+    target->node_id = node_id;
+    target->role_mask = role_mask;
+    target->persona_mask = persona_mask;
+    target->enabled = enabled;
+    target->required = required;
+    target->load_order = load_order;
+
+    if (!refmem_application_contract_validate_node_load_table(candidate, &s_application_map)) {
+        return false;
+    }
+
+    *candidate_crc32 = refmem_model_node_load_table_crc32(candidate);
+    return *candidate_crc32 != 0u;
+}
+
 bool refmem_application_model_validate(void)
 {
     uint32_t error_count;
@@ -1093,6 +1154,9 @@ bool refmem_application_model_init(void)
     s_board_load_snapshot.staging_state = REFMEM_APP_STAGING_EMPTY;
     s_board_load_snapshot.active_crc32 = s_snapshot.board_capability_crc32;
     s_board_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
+
+    memset(&s_staging_node_load_table, 0, sizeof(s_staging_node_load_table));
+    s_staging_node_load_valid = false;
 
     s_initialized = true;
     refmem_table_registry_init(&s_snapshot);
@@ -1202,7 +1266,6 @@ bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
     s_load_snapshot.manifest_missing_count = 0u;
     s_load_snapshot.path_hash = 0u;
     s_load_snapshot.active_package_crc32 = s_snapshot.package_crc32;
-    s_load_snapshot.staging_package_crc32 = s_snapshot.package_crc32;
     s_load_snapshot.staging_node_id = node_id;
     s_load_snapshot.staging_instance_id = instance_id;
     s_load_snapshot.staging_role_mask = role_mask;
@@ -1215,10 +1278,15 @@ bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
 
     if (node_id >= REFMEM_APP_MODEL_NODE_COUNT) {
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
+        s_load_snapshot.staging_package_crc32 = 0u;
         s_load_snapshot.staging_lint_error_count = 1u;
         s_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_BAD_NODE_RANGE;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_NODE_RANGE;
-        refmem_model_finish_load_idle();
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+        (void)refmem_table_registry_stage_table(REFMEM_APP_TABLE_NODE_LOAD,
+                                                0u,
+                                                REFMEM_TABLE_VALIDATION_FAILED,
+                                                s_load_snapshot.staging_first_lint_error);
         return false;
     }
 
@@ -1226,27 +1294,66 @@ bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
         enabled > 1u ||
         required > 1u) {
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
+        s_load_snapshot.staging_package_crc32 = 0u;
         s_load_snapshot.staging_lint_error_count = 1u;
         s_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_BAD_INSTANCE_RANGE;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_INSTANCE_RANGE;
-        refmem_model_finish_load_idle();
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+        (void)refmem_table_registry_stage_table(REFMEM_APP_TABLE_NODE_LOAD,
+                                                0u,
+                                                REFMEM_TABLE_VALIDATION_FAILED,
+                                                s_load_snapshot.staging_first_lint_error);
         return false;
     }
 
     s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_VALIDATING;
-    s_load_snapshot.staging_lint_error_count = s_snapshot.lint_error_count;
-    s_load_snapshot.staging_first_lint_error = s_snapshot.first_lint_error;
+    refmem_node_load_table_t candidate;
+    uint32_t candidate_crc32 = 0u;
+    const bool candidate_valid =
+        refmem_model_make_staging_node_load_table(node_id,
+                                                  instance_id,
+                                                  role_mask,
+                                                  persona_mask,
+                                                  enabled,
+                                                  required,
+                                                  load_order,
+                                                  &candidate,
+                                                  &candidate_crc32);
+    s_load_snapshot.staging_lint_error_count =
+        (s_snapshot.lint_error_count == 0u && candidate_valid) ? 0u : 1u;
+    s_load_snapshot.staging_first_lint_error =
+        candidate_valid ? s_snapshot.first_lint_error : REFMEM_APP_LINT_BAD_INSTANCE_RANGE;
+    s_load_snapshot.staging_package_crc32 = candidate_valid ? candidate_crc32 : 0u;
     if (s_snapshot.valid == 0u) {
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_LINT_FAILED;
-        refmem_model_finish_load_idle();
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+        (void)refmem_table_registry_stage_table(REFMEM_APP_TABLE_NODE_LOAD,
+                                                0u,
+                                                REFMEM_TABLE_VALIDATION_FAILED,
+                                                s_load_snapshot.staging_first_lint_error);
+        return false;
+    }
+    if (!candidate_valid) {
+        s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
+        s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_LINT_FAILED;
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+        (void)refmem_table_registry_stage_table(REFMEM_APP_TABLE_NODE_LOAD,
+                                                0u,
+                                                REFMEM_TABLE_VALIDATION_FAILED,
+                                                s_load_snapshot.staging_first_lint_error);
         return false;
     }
 
+    s_staging_node_load_table = candidate;
+    s_staging_node_load_valid = true;
     s_load_snapshot.staging_state = REFMEM_APP_STAGING_VALIDATED;
     s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
-    refmem_model_finish_load_idle();
-    (void)refmem_table_registry_validate_staging(&s_load_snapshot);
+    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+    (void)refmem_table_registry_stage_table(REFMEM_APP_TABLE_NODE_LOAD,
+                                            candidate_crc32,
+                                            REFMEM_TABLE_VALIDATION_OWNER_OK,
+                                            REFMEM_APP_LINT_OK);
     return true;
 }
 
