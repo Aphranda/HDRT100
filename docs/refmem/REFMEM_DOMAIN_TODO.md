@@ -80,7 +80,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 定义并落地 stable table view access/release：`refmem_table_registry_access_table()` 只借出 const payload view、CRC、offset、size 和 seq，`release_table()` 释放 reader guard；未 release 的 view 会让 activation 返回 `IMAGE_BUSY`。
 - [ ] 增加完整 activation gate：RefMem load mode、产品实时 idle/park、flash lockout/RAM-resident 入口、CRC bundle、owner validation、SlotClaimMap、DeploymentGate 和 command ACK 必须全部通过后才能切 active；当前单板 gate 已接入 RefMem idle、realtime idle、runtime protection、CRC/owner、SlotClaim、quality/DeploymentGate 和 local command take，仍需接跨节点 ACK/FENCE 与 staging stable table view。
 - [ ] 实现 table dump/load 镜像规则：dump 只导出稳定 snapshot，load 只能进入 staging，不得直接覆盖 active。
-- [ ] 将 active package view 解析为业务结构表 snapshot：ApplicationMap、BoardCapability、GenericNode、NodeLoad 等后续读取 active profile 时必须逐步切到 activated stable view，而不是继续使用编译内置表。
+- [x] 将 active package view 解析为业务结构表 snapshot：ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality 的外部 getter 已在 activation 成功后切到 activated stable view；内部默认表 lint 抽象和真实 owner callback 调度继续留在后续项。
 - [x] 增加 owner validation contract 首版入口：`refmem_table_registry_validate_staging()` 只校验当前 staging snapshot 的 CRC/lint/error 结果，不执行 active 替换。
 - [ ] 实现真实 owner validation callback 调度；CRC 通过后仍必须由表 owner 检查字段范围、逻辑一致性、资源冲突和运行门禁。
 - [ ] owner validation callback 结果必须写入 TableRegistry：table id、owner id、validator id、result、reason、evidence index 和失败阶段。

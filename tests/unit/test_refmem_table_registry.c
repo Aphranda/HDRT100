@@ -869,6 +869,58 @@ static int test_active_table_view_access_release(void)
     return failed;
 }
 
+static int test_application_model_applies_active_table_views(void)
+{
+    int failed = 0;
+    uint8_t package[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
+    refmem_table_package_validation_t validation;
+    const size_t package_size = build_test_package(package, sizeof(package), true);
+    refmem_application_model_load_snapshot_t load = make_valid_load();
+    refmem_table_activation_gate_t gate = make_pass_gate();
+
+    failed += expect_bool("init application model for active views",
+                          refmem_application_model_init(),
+                          true);
+    failed += expect_bool("contract package validates for application apply",
+                          refmem_table_registry_validate_package(package,
+                                                                 package_size,
+                                                                 &validation),
+                          true);
+    load.staging_package_crc32 = validation.package_crc32;
+    failed += expect_bool("stage package image for application apply",
+                          refmem_table_registry_stage_package_image(&load,
+                                                                    package,
+                                                                    package_size,
+                                                                    &validation),
+                          true);
+    failed += expect_bool("activate image for application apply",
+                          refmem_table_registry_activate_staging(&gate),
+                          true);
+    failed += expect_bool("application model applies active image",
+                          refmem_application_model_apply_active_table_views(),
+                          true);
+
+    const refmem_application_model_snapshot_t *snapshot =
+        refmem_application_model_get_snapshot();
+    const refmem_board_capability_table_t *boards =
+        refmem_application_model_get_board_capability_table();
+    const refmem_fb_instance_table_t *instances =
+        refmem_application_model_get_fb_instance_table();
+    failed += expect_u32("application snapshot package crc",
+                         snapshot->package_crc32,
+                         validation.package_crc32);
+    failed += expect_u32("application snapshot board crc",
+                         snapshot->board_capability_crc32,
+                         validation.table_crc32[REFMEM_APP_TABLE_BOARD_CAPABILITY]);
+    failed += expect_u32("active board io comes from package",
+                         boards->board[0].io_constraint_mask,
+                         REFMEM_APP_IO_PIO_SPI_SYNC);
+    failed += expect_u32("active fb table parsed from wire",
+                         instances->instance[1].domain,
+                         REFMEM_APP_DOMAIN_SYSTEM);
+    return failed;
+}
+
 static int test_activation_rejects_unreleased_table_view(void)
 {
     int failed = 0;
@@ -942,6 +994,7 @@ int main(void)
     failed += test_package_image_activation_switches_active_and_rollbackable();
     failed += test_metadata_staging_clears_stale_package_image();
     failed += test_active_table_view_access_release();
+    failed += test_application_model_applies_active_table_views();
     failed += test_activation_rejects_unreleased_table_view();
 
     if (failed != 0) {

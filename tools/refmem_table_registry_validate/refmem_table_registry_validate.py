@@ -256,6 +256,18 @@ def check_load_status(response: str, package: PackageSummary) -> None:
         raise AssertionError(f"last error is non-zero: {fields[21]}")
 
 
+def check_active_load_status(response: str, package: PackageSummary) -> None:
+    fields = load_status_fields(response)
+    if int(fields[3], 0) != 0:
+        raise AssertionError(f"RefMem load mode is not IDLE after activation: {fields[3]}")
+    if int(fields[10], 0) != package.package_crc32:
+        raise AssertionError(
+            f"active package CRC mismatch after activation: {fields[10]} != 0x{package.package_crc32:08X}"
+        )
+    if int(fields[21], 0) != 0:
+        raise AssertionError(f"last error is non-zero after activation: {fields[21]}")
+
+
 def check_table_response(response: str, expected: TableDirectoryEntry, *, activated: bool = False) -> None:
     fields = table_fields(response)
     if activated:
@@ -403,6 +415,7 @@ def run_validation(execute,
         run("SYSTem:REFMEM:LOAD:ACTivate", lambda response: check_activate_response(response, package))
         run("SYSTem:COMMand:ACK?",
             lambda response: check_command_ack(response, command_type=17, payload_size=16))
+        run("SYSTem:REFMEM:LOAD:STATus?", lambda response: check_active_load_status(response, package))
         run("SYSTem:REFMEM:TABle:IMAGe? 0",
             lambda response: check_image_response(response,
                                                   role=0,

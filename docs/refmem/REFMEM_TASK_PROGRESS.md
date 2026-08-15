@@ -8,6 +8,34 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-034 - Active table views to application runtime snapshot
+
+- 状态：完成 COM5/COM6 板端闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 让 registry 级 active image activation 后，业务读取路径不再继续固定读编译内置表。
+  - 保持 HAOFV 边界：`RefMemTableRegistry` 只管理 active/staging/rollbackable image 和 const table view，`refmem_application_model` 负责把 active view 解析成私有 runtime snapshot。
+- 完成内容：
+  - 新增 `refmem_application_model_apply_active_table_views()`，从 active image 借出 9 张 canonical 表的 stable view，解析到 application model 私有 runtime tables。
+  - 外部 getter 切到 runtime snapshot：ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality。
+  - `DistributedRefMemAO` 在 `TABLE_PACKAGE_ACTIVATE` 成功后触发 application model apply，并更新 `active_package_crc32` 与 per-table CRC snapshot。
+  - `tools\refmem_table_registry_validate.py` 增加 activation 后 `SYSTem:REFMEM:LOAD:STATus?` 检查，确认 application model active package CRC 已跟随 active image。
+  - `tools\tests\run_refmem_table_registry_tests.ps1` 链接 application model 源，新增 host 断言覆盖 getter 从 active image runtime snapshot 取 BoardCapability/FBInstance。
+- 当前验证：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python -m py_compile tools\refmem_table_registry_validate\refmem_table_registry_validate.py` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815124740`，package CRC `0x1E1584A1`。
+  - `python -u tools\ota_send\ota_send.py COM5 build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python -u tools\ota_boot_commit\ota_boot_commit.py COM5 --expected-build 20260815124740 --out-dir build-rtos-multicore-smoke\ota_commit_COM5_20260815124740_refmem_app_view` 通过。
+  - `python -u tools\refmem_table_registry_validate\refmem_table_registry_validate.py COM5 --package build-rtos-multicore-smoke\sdcard_full_tables_20260815110412\refmem\app_model.rmtp --load-sd --activate --timeout 10 --load-timeout 30 --out-dir build-rtos-multicore-smoke\refmem_table_registry_COM5_20260815124740_app_view` 通过。
+  - `python -u tools\ota_send\ota_send.py COM6 build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python -u tools\ota_boot_commit\ota_boot_commit.py COM6 --expected-build 20260815124740 --out-dir build-rtos-multicore-smoke\ota_commit_COM6_20260815124740_refmem_app_view` 通过。
+  - `python -u tools\refmem_table_registry_validate\refmem_table_registry_validate.py COM6 --package build-rtos-multicore-smoke\sdcard_full_tables_20260815110412\refmem\app_model.rmtp --load-sd --activate --timeout 10 --load-timeout 30 --out-dir build-rtos-multicore-smoke\refmem_table_registry_COM6_20260815124740_app_view` 通过。
+- 后续动作：
+  - 把 activation 前 staging stable table view 预解析纳入 activation transaction，减少“registry 已切换但 application apply 失败”的理论窗口。
+  - 接入真实 owner validation callback 调度和跨节点 ACK/FENCE。
+
 ### REFMEM-TASK-20260815-033 - Stable table view access/release
 
 - 状态：完成 COM5/COM6 板端闭环

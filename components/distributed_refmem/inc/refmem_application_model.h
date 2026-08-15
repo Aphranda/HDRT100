@@ -576,6 +576,7 @@ bool refmem_application_model_stage_scpi_board_capability(uint32_t board_id,
                                                           uint32_t hw_profile_crc32,
                                                           uint32_t active_default_slot,
                                                           uint32_t online_required);
+bool refmem_application_model_apply_active_table_views(void);
 const refmem_application_map_t *refmem_application_model_get_application_map(void);
 const refmem_board_capability_table_t *refmem_application_model_get_board_capability_table(void);
 const refmem_generic_node_table_t *refmem_application_model_get_generic_node_table(void);

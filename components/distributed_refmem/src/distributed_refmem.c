@@ -946,6 +946,7 @@ bool distributed_refmem_activate_staging(uint32_t realtime_idle)
     refmem_table_registry_snapshot_t registry;
     refmem_table_registry_get_snapshot(&registry);
     if (activated) {
+        (void)refmem_application_model_apply_active_table_views();
         (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_SLOT_ACK_CMD);
         return true;
     }
