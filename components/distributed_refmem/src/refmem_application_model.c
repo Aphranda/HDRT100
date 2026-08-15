@@ -386,6 +386,7 @@ static refmem_application_model_snapshot_t s_snapshot;
 static refmem_application_model_load_snapshot_t s_load_snapshot;
 static refmem_board_capability_load_snapshot_t s_board_load_snapshot;
 static refmem_node_load_table_t s_staging_node_load_table;
+static refmem_board_capability_table_t s_staging_board_capability_table;
 static refmem_application_map_t s_active_application_map;
 static refmem_board_capability_table_t s_active_board_capability_table;
 static refmem_generic_node_table_t s_active_generic_node_table;
@@ -396,6 +397,7 @@ static refmem_data_link_table_t s_active_data_link_table;
 static refmem_deployment_gate_table_t s_active_deployment_gate;
 static refmem_connection_quality_table_t s_active_connection_quality;
 static bool s_staging_node_load_valid;
+static bool s_staging_board_capability_valid;
 static bool s_active_tables_from_image;
 static bool s_initialized;
 
@@ -792,14 +794,6 @@ static bool refmem_model_parse_connection_quality_view(const uint8_t *data,
     }
     return quality->version == REFMEM_APP_MODEL_VERSION &&
            quality->quality_count == REFMEM_APP_MODEL_QUALITY_COUNT;
-}
-
-static uint32_t refmem_model_board_entry_crc32(const refmem_board_capability_entry_t *entry)
-{
-    if (entry == NULL) {
-        return 0u;
-    }
-    return refmem_model_crc32_update(0xFFFFFFFFu, entry, sizeof(*entry));
 }
 
 static uint32_t refmem_model_application_map_crc32(void)
@@ -1722,6 +1716,39 @@ static bool refmem_model_make_staging_node_load_table(
     return *candidate_crc32 != 0u;
 }
 
+static bool refmem_model_make_staging_board_capability_table(
+    const refmem_board_capability_entry_t *candidate_entry,
+    refmem_board_capability_table_t *candidate,
+    uint32_t *candidate_crc32)
+{
+    if (candidate_entry == NULL || candidate == NULL || candidate_crc32 == NULL ||
+        candidate_entry->board_id >= REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT) {
+        return false;
+    }
+
+    if (s_staging_board_capability_valid) {
+        *candidate = s_staging_board_capability_table;
+    } else {
+        *candidate = *refmem_application_model_get_board_capability_table();
+    }
+
+    if (candidate_entry->board_id >= candidate->board_count) {
+        return false;
+    }
+
+    candidate->board[candidate_entry->board_id] = *candidate_entry;
+    if (!refmem_application_contract_validate_board_capability_table(
+            candidate,
+            refmem_application_model_get_generic_node_table()->node_count)) {
+        return false;
+    }
+
+    *candidate_crc32 = refmem_model_crc32_update(0xFFFFFFFFu,
+                                                 candidate,
+                                                 sizeof(*candidate));
+    return *candidate_crc32 != 0u;
+}
+
 bool refmem_application_model_validate(void)
 {
     uint32_t error_count;
@@ -1781,7 +1808,9 @@ bool refmem_application_model_init(void)
     s_board_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
 
     memset(&s_staging_node_load_table, 0, sizeof(s_staging_node_load_table));
+    memset(&s_staging_board_capability_table, 0, sizeof(s_staging_board_capability_table));
     s_staging_node_load_valid = false;
+    s_staging_board_capability_valid = false;
     refmem_application_model_discard_prepared_table_views();
     s_active_tables_from_image = false;
 
@@ -2019,7 +2048,7 @@ bool refmem_application_model_stage_scpi_board_capability(uint32_t board_id,
     s_board_load_snapshot.mode = REFMEM_APP_MODEL_MODE_LOAD_TO_STAGING;
     s_board_load_snapshot.load_seq++;
     s_board_load_snapshot.active_crc32 = s_snapshot.board_capability_crc32;
-    s_board_load_snapshot.staging_crc32 = refmem_model_board_entry_crc32(&candidate);
+    s_board_load_snapshot.staging_crc32 = 0u;
     s_board_load_snapshot.staging_board_id = board_id;
     s_board_load_snapshot.staging_board_uuid_crc32 = board_uuid_crc32;
     s_board_load_snapshot.staging_capability_mask = capability_mask;
@@ -2056,14 +2085,29 @@ bool refmem_application_model_stage_scpi_board_capability(uint32_t board_id,
     }
 
     s_board_load_snapshot.mode = REFMEM_APP_MODEL_MODE_VALIDATING;
+    refmem_board_capability_table_t candidate_table;
+    uint32_t candidate_crc32 = 0u;
+    if (valid &&
+        !refmem_model_make_staging_board_capability_table(&candidate,
+                                                          &candidate_table,
+                                                          &candidate_crc32)) {
+        valid = false;
+        first_error = REFMEM_APP_LINT_BAD_BOARD_CAPABILITY;
+    }
+
     s_board_load_snapshot.staging_lint_error_count = valid ? 0u : 1u;
     s_board_load_snapshot.staging_first_lint_error = first_error;
+    s_board_load_snapshot.staging_crc32 = valid ? candidate_crc32 : 0u;
     s_board_load_snapshot.last_error = valid ? REFMEM_APP_LOAD_OK : REFMEM_APP_LOAD_ERR_LINT_FAILED;
     s_board_load_snapshot.staging_state =
         valid ? REFMEM_APP_STAGING_VALIDATED : REFMEM_APP_STAGING_FAILED;
+    if (valid) {
+        s_staging_board_capability_table = candidate_table;
+        s_staging_board_capability_valid = true;
+    }
 
     (void)refmem_table_registry_stage_table(REFMEM_APP_TABLE_BOARD_CAPABILITY,
-                                            valid ? s_board_load_snapshot.staging_crc32 : 0u,
+                                            valid ? candidate_crc32 : 0u,
                                             valid ? REFMEM_TABLE_VALIDATION_OWNER_OK
                                                   : REFMEM_TABLE_VALIDATION_FAILED,
                                             first_error);

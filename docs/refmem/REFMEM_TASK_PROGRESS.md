@@ -8,6 +8,27 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-039 - LOAD:BOARD private table staging image
+
+- 状态：完成 host/build 验证
+- 日期：2026-08-15
+- 任务目标：
+  - 推进风险评审 §3.11：`SYSTem:REFMEM:LOAD:BOARD` 不能只发布单条 entry CRC 和 metadata-only staging，至少必须形成 RefMemAO 私有 `BoardCapabilityTable` staging image。
+  - 保持 HAOFV 边界：SCPI 只提交 board capability load 意图；application model owner 构造候选表、执行 contract validation 并发布 TableRegistry staging 摘要。
+- 完成内容：
+  - 新增私有 `s_staging_board_capability_table` / `s_staging_board_capability_valid`，与 NodeLoad staging image 对齐。
+  - 新增 `refmem_model_make_staging_board_capability_table()`：从当前 active 或已有 staging board table 复制候选表、替换目标 board entry、执行 `refmem_application_contract_validate_board_capability_table()`，并计算整表 CRC。
+  - `refmem_application_model_stage_scpi_board_capability()` 不再使用单 entry CRC；合法路径发布 `BoardCapabilityTable` 整表 staging CRC，非法路径继续发布 FAILED。
+  - 删除旧 `refmem_model_board_entry_crc32()`，避免继续暗示单 entry staging。
+  - `test_refmem_table_registry.c` 增加 `LOAD:BOARD` 断言：registry table 1 staging CRC 等于 board load snapshot 的整表 CRC，且不同于单 entry CRC；active getter 在 staging 阶段不被改变。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815142112`，package CRC `0xE8171F9A`。
+- 后续动作：
+  - §3.11 仍未完全关闭；下一步需要让 inline NodeLoad/BoardCapability staging 合成完整 package image，或明确声明为不参与 activation 的诊断 staging。
+
 ### REFMEM-TASK-20260815-038 - TableRegistry OWNER_OK provenance
 
 - 状态：完成 host/build 验证

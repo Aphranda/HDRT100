@@ -16,7 +16,7 @@ Last updated: 2026-08-15
 - 方法：四组并行代码审查（core / model+registry / claim+command+contract / sync+adapter+quality），叠加文档与代码交叉核对、以及全量 host 单测复跑。
 - 基线：固定四板 A0–A3 环，HAOFV 架构，RefMem 作为内部基础主域（共同事实 owner，不执行业务动作、不驱动硬实时边沿）。
 
-**一句话结论**：核心生效路径（vector 表、SlotClaimMap 派生 + RUN gate、command slot、table registry staging/activation、TDMA 物理 transport）是扎实且有测试的；但整体对固定四板系统明显超配，大量「定义好、CRC/校验/解析全做了、却没有任何运行时读取者」的机器处于 dormant 状态。真正的 P0 风险集中在跨核并发、一个线格式缺陷、以及部署门禁未真正生效三处。
+**一句话结论**：核心生效路径（vector 表、SlotClaimMap 派生 + RUN gate、command slot、table registry staging/activation、TDMA 物理 transport）是扎实且有测试的。8 槽 + 预留扩展 + 动态装载 / claim 协调这套「基础件」是**有意的平台投资**（先搭基础件、预留扩展头寸，避免后续返工技术债），不属于「过度工程」，不纳入缺陷。真正的 P0 风险集中在跨核并发、线格式、门禁与 owner 校验三处，其中已纠偏 4 项（§3.1/§3.2/§3.3/§3.10，复核属实）。当前唯一需收敛的是「半接线」路径——以「成功」姿态暴露却未真正生效的接口，应闭环或显式标 DRAFT。
 
 ---
 
@@ -27,12 +27,14 @@ Last updated: 2026-08-15
 | P0 高 | 11 | 跨核并发、线格式、门禁失效、假传输、缓冲区/状态破坏 |
 | P1 中 | 10 | 单位混用、回绕、端序、PIO 运行时补丁、死分支 |
 | P2 低 | 6 | 命名误导、冗余校验、严格顺序 |
-| 死代码/超配 | 8 组 | claim 协调协议、4/9 表、并行假 adapter 等 |
+| 平台预留基础件 | 8 组 | claim 协调协议、4/9 表、并行假 adapter 等（有意预留，见 §6） |
 | 文档漂移 | 5 | 架构文档过期、头泄漏、装饰性 guard 等 |
 
 ---
 
 ## 3. P0 高风险项
+
+> 复核记录（2026-08-15）：§3.1 / §3.2 / §3.3 / §3.10 四处「已纠偏」已逐条核对当前工作树代码，属实（见各节纠偏结论）。
 
 ### 3.1 跨核 seqlock 写入非原子、无 release fence（已纠偏）
 
@@ -110,9 +112,11 @@ if ((model->table_mask & table_bit) != 0u && entry->active_crc32 != 0u) {
 
 纠偏：`refresh_active()` 的编译内置 active entry 不再把 `present + CRC` 升级为 `OWNER_OK`，只置 `ACTIVE_PRESENT|CRC_OK`。`OWNER_OK` 继续只由 staging package validation 的 `owner_validated_table_mask` 或 activation 后的已验证 image provenance 产生；新增 table registry 单测覆盖该语义。
 
-### 3.11 SCPI `LOAD:NODE` / `LOAD:BOARD` staging 是死胡同
+### 3.11 SCPI `LOAD:NODE` / `LOAD:BOARD` staging 是死胡同（部分纠偏）
 
 [refmem_application_model.c:1974](components/distributed_refmem/src/refmem_application_model.c#L1974) 附近：`stage_scpi_node_config` 只写 metadata-only registry 条目，`s_staging_image_size` 始终为 0；activation 再 parse 时 `access_table` 必然失败。结果：这些接口报成功、更新 registry flag，但改动永远进不了 runtime 模型。`stage_scpi_board_capability` 同理。
+
+纠偏进度：`LOAD:NODE` 已形成私有 `DistributedNodeLoadTable` staging image；`LOAD:BOARD` 已形成私有 `BoardCapabilityTable` staging image，发布整表 CRC 而非单 entry CRC，并有 host 断言覆盖。剩余风险仍是 inline staging 尚未生成完整 `.rmtp` package image，因此还不能通过现有 activation/rollback/runtime parse 链路进入 active。
 
 ---
 
@@ -146,9 +150,11 @@ if ((model->table_mask & table_bit) != 0u && entry->active_crc32 != 0u) {
 
 ---
 
-## 6. 定义但未接线的代码（过度工程信号）
+## 6. 平台预留基础件（有意为之，非过度工程）
 
-| 死代码 | 规模 | 状态 |
+以下清单是**有意预留的扩展基础件**（8 槽 + 预留扩展 + 动态装载 / claim 协调，先搭基础件避免后续返工技术债），不是待删除的死代码。清单仅用于标记「哪些尚处于预留态」，以便后续扩展时知道头寸已就位。
+
+| 预留基础件 | 规模 | 状态 |
 |---|---|---|
 | Claim 自组网协议（HELLO/PROPOSE/CONFLICT/RELEASE/RESOLVE/COMMIT 六帧） | [refmem_claim_protocol.c](components/distributed_refmem/src/refmem_claim_protocol.c) ≈380 行 | **0 个运行时调用者**，仅单测引用；TODO 自认「尚未接 RJ45」。 |
 | 9 张 canonical 表中的 4 张：EventLink / DataLink / DeploymentGate / ConnectionQuality | 各自 parser + validator + CRC + wire 格式 | **0 个读取者**，`get_event_link_table` / `get_data_link_table` / `get_deployment_gate` / `get_connection_quality` 全无调用方。 |
@@ -159,7 +165,7 @@ if ((model->table_mask & table_bit) != 0u && entry->active_crc32 != 0u) {
 | 「TDMA」 | [refmem_realtime_tdma.c](components/distributed_refmem/src/refmem_realtime_tdma.c) | 单发 mailbox 而非调度器，`window_epoch/index` 不用于排程；TX 逐字节 blocking，仅 RX 用 DMA。 |
 | 死函数 / 死枚举 | 多处 | `command_mark_timeout`、`set_epoch`、blocking `receive`、`application_model_validate` 全 0 调用者；`NODE_STALE/INVALID/FAULT`、`NODE_TYPE_MODEL_VNA/...`、`FAIL_HOLDOVER/DEGRADE`、`SLOT_CLAIM_REASON_HW_PROFILE_MISMATCH` 等只定义从不赋值或读取。 |
 
-**关键区分**：`SlotClaimMap` 的派生 + RUN gate 检查是**活的**（`distributed_refmem.c`、`system_manager.c`、`scpi_system_snapshot_commands.c` 均在用）。死的只是**跨板协调协议**那一层——对固定四板、「主路径是预规划」的部署而言，该层本不应在当前阶段落地。
+**关键区分**：`SlotClaimMap` 的派生 + RUN gate 检查是**活的**（`distributed_refmem.c`、`system_manager.c`、`scpi_system_snapshot_commands.c` 均在用）。`refmem_claim_protocol` 跨板协调协议、8 状态 claim 机、4/9 表、16 项 owner registry 等是**有意预留的扩展基础件**——当前产品主路径用预规划（SlotClaimMap 派生），这些作为未来多应用 / 跨平台扩展的头寸先搭好，避免后续返工技术债。它们不是缺陷，但**未接线的部分不得以「成功」姿态对外暴露**：半接线项（如假 TX §3.4、假 staging §3.11）仍需闭环或显式标 DRAFT。
 
 ---
 
@@ -194,10 +200,10 @@ if ((model->table_mask & table_bit) != 0u && entry->active_crc32 != 0u) {
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 1 | 修 P0 跨核并发（§3.1，seqlock release fence，3 处） | 双核目标上最实打实的正确性问题，改动小、有单测兜底。 |
-| 2 | 修线格式 16→8（§3.2） | 会拒绝合法包的真 bug。 |
-| 3 | 让部署门禁真正 gate（§3.3）+ 修 `OWNER_OK` 语义（§3.10） | 否则激活门禁形同虚设。 |
-| 4 | 决定 4 张 dormant 表 + claim 协调协议命运（§6） | 要么接线要么删；删除是最大瘦身（约 1,800 + 380 行）。 |
-| 5 | 修假 TX / 假 staging（§3.4、§3.11） | 把 `pio_spi_adapter` 降级为显式 loopback 诊断标签，或让 `LOAD:NODE/BOARD` staging 真正提交到 runtime 模型。 |
+| 1 | ~~修 P0 跨核并发（§3.1）~~ ✅ 已纠偏（复核通过） | 写侧已统一 `__atomic_add_fetch(..., __ATOMIC_RELEASE)`，读侧 `__ATOMIC_ACQUIRE`，三处配对成立。 |
+| 2 | ~~修线格式 16→8（§3.2）~~ ✅ 已纠偏（复核通过） | `BOARD_CAPABILITY_COUNT` 已 = `NODE_COUNT` = 8，与 `CLAIM_CANDIDATE_MAX=16` 解耦。 |
+| 3 | ~~让部署门禁真正 gate（§3.3）+ 修 OWNER_OK（§3.10）~~ ✅ 已纠偏（复核通过） | gate 现显式检查 `claim_gate.ready == 0u`；`refresh_active` 不再升级 `OWNER_OK`。 |
+| 4 | 保留 4 张 dormant 表 + claim 协调协议为平台基础件（§6） | 有意预留扩展头寸、先搭基础件避免后续返工；**不删除**。 |
+| 5 | 闭环或显式标 DRAFT：假 TX / 假 staging（§3.4、§3.11） | 基础件不得以「成功」姿态暴露却不生效；要么闭环、要么标 `DRAFT/UNSUPPORTED`。 |
 | 6 | 修 P1 项（§4） | 单位混用、回绕、PIO 运行时补丁等，批量处理。 |
 | 7 | 更新架构文档两节（§7.1） | 让「当前实现现状」「目标代码形态」与实际文件集一致。 |

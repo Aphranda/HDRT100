@@ -1049,6 +1049,66 @@ static int test_activation_rejects_unreleased_table_view(void)
     return failed;
 }
 
+static int test_scpi_board_load_stages_board_table_crc(void)
+{
+    int failed = 0;
+    refmem_board_capability_load_snapshot_t board_load;
+    refmem_table_registry_entry_t board_entry;
+    refmem_board_capability_entry_t candidate = {
+        5u,
+        0xB0001005u,
+        REFMEM_APP_CAP_BASELINE,
+        0u,
+        0u,
+        REFMEM_APP_PERSONA_SPARE,
+        0xA5000005u,
+        5u,
+        0u,
+    };
+    const uint32_t single_entry_crc =
+        ota_crc32_update(0xFFFFFFFFu, (const uint8_t *)&candidate, sizeof(candidate));
+
+    failed += expect_bool("init application model for board load",
+                          refmem_application_model_init(),
+                          true);
+    failed += expect_bool("stage board capability table",
+                          refmem_application_model_stage_scpi_board_capability(
+                              candidate.board_id,
+                              candidate.board_uuid_crc32,
+                              candidate.capability_mask,
+                              candidate.io_constraint_mask,
+                              candidate.ip_core_mask,
+                              candidate.default_persona_mask,
+                              candidate.hw_profile_crc32,
+                              candidate.active_default_slot,
+                              candidate.online_required),
+                          true);
+
+    refmem_application_model_get_board_load_snapshot(&board_load);
+    failed += expect_bool("get board table entry",
+                          refmem_table_registry_get_entry(REFMEM_APP_TABLE_BOARD_CAPABILITY,
+                                                          &board_entry),
+                          true);
+    failed += expect_u32("board load validated",
+                         board_load.staging_state,
+                         REFMEM_APP_STAGING_VALIDATED);
+    failed += expect_u32("board registry owner ok",
+                         board_entry.validation_state,
+                         REFMEM_TABLE_VALIDATION_OWNER_OK);
+    failed += expect_u32("board staging crc published",
+                         board_entry.staging_crc32,
+                         board_load.staging_crc32);
+    failed += expect_bool("board staging crc is table crc",
+                          board_load.staging_crc32 != single_entry_crc,
+                          true);
+    failed += expect_u32("active board table unchanged",
+                         refmem_application_model_get_board_capability_table()
+                             ->board[candidate.board_id]
+                             .hw_profile_crc32,
+                         0u);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -1066,6 +1126,7 @@ int main(void)
     failed += test_application_model_applies_active_table_views();
     failed += test_application_model_prepares_staging_before_commit();
     failed += test_activation_rejects_unreleased_table_view();
+    failed += test_scpi_board_load_stages_board_table_crc();
 
     if (failed != 0) {
         (void)printf("refmem_table_registry tests failed: %d\n", failed);
