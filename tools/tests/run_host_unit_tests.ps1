@@ -27,7 +27,8 @@ $scripts = @(
     "run_refmem_sync_frame_tests.ps1",
     "run_refmem_sync_hello_tests.ps1",
     "run_refmem_sync_tests.ps1",
-    "run_refmem_table_registry_tests.ps1"
+    "run_refmem_table_registry_tests.ps1",
+    "run_vdc_domain_tests.ps1"
 )
 
 $passed = 0

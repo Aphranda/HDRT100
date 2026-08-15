@@ -1,0 +1,236 @@
+#include "vdc_domain.h"
+
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+
+static int expect_bool(const char *name, bool actual, bool expected)
+{
+    if (actual != expected) {
+        (void)printf("%s: expected %d got %d\n",
+                     name,
+                     expected ? 1 : 0,
+                     actual ? 1 : 0);
+        return 1;
+    }
+    return 0;
+}
+
+static int expect_u32(const char *name, uint32_t actual, uint32_t expected)
+{
+    if (actual != expected) {
+        (void)printf("%s: expected %lu got %lu\n",
+                     name,
+                     (unsigned long)expected,
+                     (unsigned long)actual);
+        return 1;
+    }
+    return 0;
+}
+
+static int expect_u64(const char *name, uint64_t actual, uint64_t expected)
+{
+    if (actual != expected) {
+        (void)printf("%s: expected %llu got %llu\n",
+                     name,
+                     (unsigned long long)expected,
+                     (unsigned long long)actual);
+        return 1;
+    }
+    return 0;
+}
+
+static vdc_tdma_timestamp_evidence_t make_hardware_sample(
+    const vdc_tdma_schedule_profile_t *schedule,
+    uint32_t sample_seq,
+    int32_t phase_error_ns)
+{
+    vdc_tdma_timestamp_evidence_t evidence;
+    (void)memset(&evidence, 0, sizeof(evidence));
+    evidence.sample_seq = sample_seq;
+    evidence.schedule_epoch = schedule->schedule_epoch;
+    evidence.slot_index = 0u;
+    evidence.source_slot_id = schedule->reference_slot_id;
+    evidence.reference_slot_id = schedule->reference_slot_id;
+    evidence.payload_class = VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE;
+    evidence.expected_window_start_ns =
+        (uint64_t)(sample_seq - 1u) * schedule->period_ns +
+        schedule->observation_window_offset_ns;
+    evidence.arm_time_ns = evidence.expected_window_start_ns;
+    evidence.start_time_ns = evidence.expected_window_start_ns;
+    evidence.observed_time_ns = evidence.expected_window_start_ns +
+                                (uint32_t)(phase_error_ns < 0 ? 0 : phase_error_ns);
+    evidence.done_time_ns = evidence.observed_time_ns + 100u;
+    evidence.apply_time_ns = evidence.done_time_ns + 100u;
+    evidence.late_ns = phase_error_ns < 0 ? 0u : (uint32_t)phase_error_ns;
+    evidence.jitter_ns = 5u;
+    evidence.delay_ns = 0u;
+    evidence.phase_error_ns = phase_error_ns;
+    evidence.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    evidence.timestamp_resolution_ns = 50u;
+    evidence.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+    evidence.schedule_crc32 = schedule->schedule_crc32;
+    evidence.frame_crc32 = 0x1000u + sample_seq;
+    evidence.sample_crc32 = 0x2000u + sample_seq;
+    return evidence;
+}
+
+static int test_default_schedule_and_clock(void)
+{
+    int failed = 0;
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_clock_model_t model;
+    uint64_t vdc_ns = 0u;
+
+    vdc_domain_default_schedule(&schedule, 1u, 0u);
+    failed += expect_bool("schedule valid",
+                          vdc_domain_schedule_validate(&schedule),
+                          true);
+    failed += expect_u32("reference slot", schedule.reference_slot_id, 0u);
+    failed += expect_u32("local slot", schedule.local_slot_id, 1u);
+
+    vdc_domain_default_clock_model(&model,
+                                   schedule.schedule_epoch,
+                                   9u,
+                                   1000u,
+                                   2000000u,
+                                   schedule.schedule_crc32);
+    model.period_adjust_ppb = 1000;
+    model.phase_offset_ns = -10;
+    failed += expect_bool("clock map",
+                          vdc_domain_clock_model_local_to_vdc_ns(&model,
+                                                                  2000u,
+                                                                  &vdc_ns),
+                          true);
+    failed += expect_u64("clock mapped ns", vdc_ns, 2000990u);
+    failed += expect_bool("clock rejects reverse tick",
+                          vdc_domain_clock_model_local_to_vdc_ns(&model,
+                                                                  999u,
+                                                                  &vdc_ns),
+                          false);
+    return failed;
+}
+
+static int test_gate_rejects_diagnostic_timestamp(void)
+{
+    int failed = 0;
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_tdma_timestamp_evidence_t evidence;
+    vdc_gate_result_t gate;
+
+    vdc_domain_default_schedule(&schedule, 0u, 0u);
+    evidence = make_hardware_sample(&schedule, 1u, 0);
+    evidence.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_SOFTWARE_US;
+    evidence.timestamp_resolution_ns = 1000u;
+    evidence.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+
+    failed += expect_bool("diagnostic rejected",
+                          vdc_domain_validate_tdma_timestamp_evidence(&schedule,
+                                                                       &evidence,
+                                                                       true,
+                                                                       &gate),
+                          false);
+    failed += expect_u32("diagnostic reject code",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE);
+    failed += expect_bool("diagnostic accepted as quality only",
+                          vdc_domain_validate_tdma_timestamp_evidence(&schedule,
+                                                                       &evidence,
+                                                                       false,
+                                                                       &gate),
+                          true);
+    return failed;
+}
+
+static int test_gate_rejects_schedule_and_window_mismatch(void)
+{
+    int failed = 0;
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_tdma_timestamp_evidence_t evidence;
+    vdc_gate_result_t gate;
+
+    vdc_domain_default_schedule(&schedule, 0u, 0u);
+    evidence = make_hardware_sample(&schedule, 1u, 0);
+    evidence.schedule_crc32 ^= 0x1u;
+    failed += expect_bool("crc mismatch rejected",
+                          vdc_domain_validate_tdma_timestamp_evidence(&schedule,
+                                                                       &evidence,
+                                                                       true,
+                                                                       &gate),
+                          false);
+    failed += expect_u32("crc reject code",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_SCHEDULE_CRC_MISMATCH);
+
+    evidence = make_hardware_sample(&schedule, 1u, 0);
+    evidence.observed_time_ns =
+        evidence.expected_window_start_ns +
+        schedule.observation_window_width_ns +
+        schedule.guard_after_ns +
+        1u;
+    failed += expect_bool("window mismatch rejected",
+                          vdc_domain_validate_tdma_timestamp_evidence(&schedule,
+                                                                       &evidence,
+                                                                       true,
+                                                                       &gate),
+                          false);
+    failed += expect_u32("window reject code",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_WINDOW_BOUND);
+    return failed;
+}
+
+static int test_context_accepts_samples_until_locked(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+
+    failed += expect_bool("init", vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    vdc_domain_service(&context, 1000000u);
+    failed += expect_bool("snapshot",
+                          vdc_domain_get_snapshot(&context, &snapshot),
+                          true);
+    failed += expect_u32("checking", snapshot.dpll.state, VDC_DOMAIN_LOCK_CHECKING);
+
+    for (uint32_t i = 1u; i <= 4u; i++) {
+        vdc_tdma_timestamp_evidence_t evidence =
+            make_hardware_sample(&context.schedule, i, 10);
+        failed += expect_bool("submit evidence",
+                              vdc_domain_submit_tdma_evidence(&context, &evidence),
+                              true);
+    }
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("locked", snapshot.dpll.state, VDC_DOMAIN_LOCK_LOCKED);
+    failed += expect_u32("accepted", snapshot.dpll.accepted_sample_count, 4u);
+    failed += expect_u32("gate pass", snapshot.gate.passed, 1u);
+    failed += expect_u32("last pass seq", snapshot.gate.last_pass_seq, 4u);
+
+    vdc_tdma_timestamp_evidence_t bad = make_hardware_sample(&context.schedule, 5u, 0);
+    bad.reference_slot_id = 7u;
+    failed += expect_bool("bad evidence rejected",
+                          vdc_domain_submit_tdma_evidence(&context, &bad),
+                          false);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("rejected", snapshot.dpll.rejected_sample_count, 1u);
+    failed += expect_u32("checking after reject",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_CHECKING);
+    return failed;
+}
+
+int main(void)
+{
+    int failed = 0;
+    failed += test_default_schedule_and_clock();
+    failed += test_gate_rejects_diagnostic_timestamp();
+    failed += test_gate_rejects_schedule_and_window_mismatch();
+    failed += test_context_accepts_samples_until_locked();
+    if (failed != 0) {
+        (void)printf("vdc_domain tests failed: %d\n", failed);
+        return 1;
+    }
+    (void)printf("vdc_domain tests passed\n");
+    return 0;
+}

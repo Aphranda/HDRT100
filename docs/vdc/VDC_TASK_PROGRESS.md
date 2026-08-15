@@ -43,6 +43,39 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-003 - VDC domain core contract landing
+
+- 状态：完成 host/build 验证；硬件 timestamp latch 和真实 servo 待实现
+- 日期：2026-08-16
+- 任务目标：
+  - 把 VDC 从 `vdc_dpll_manager` 的 ready/service stub 推进为独立 HAOFV 内部基础组件。
+  - 冻结并落地 `VdcClockModel`、`VdcTdmaScheduleProfile`、`VdcTDMATimestampEvidence`、`VdcServoProfile`、`VdcDpllState` 和 `VdcGateResult` 的首版 C 契约。
+  - 实现 `local_tick -> vdc_time64_ns` 映射和 TDMA observation window 输入门禁，明确诊断时间戳不得进入 DPLL。
+- 完成内容：
+  - 新增 `components/vdc_domain/inc/vdc_domain.h` / `src/vdc_domain.c` 和组件 `CMakeLists.txt`。
+  - 新增 schedule CRC、schedule validate、默认 schedule/servo/clock model、clock mapping、timestamp evidence gate 和最小 DPLL 状态推进。
+  - 门禁要求 active schedule、schedule CRC、epoch、reference slot、source slot、payload class、hardware timestamp source、`DPLL_ELIGIBLE` flag、`timestamp_resolution_ns <= 100` 和 observation window bound 全部通过。
+  - 旧 `components/vdc_dpll_manager/` 改为兼容 wrapper，应用任务和现有 `SYSTem:SYNC:VDC:*?` 查询继续走旧接口，但状态来源开始接入 `vdc_domain`。
+  - 新增 `tests/unit/test_vdc_domain.c` 和 `tools/tests/run_vdc_domain_tests.ps1`，并加入 `run_host_unit_tests.ps1`。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，16/16 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815175522`，package CRC `0xB090BCE7`。
+- 还需完成：
+  - 将 PIO/DMA/IRQ/core1 的真实 timestamp latch 输出接入 `vdc_domain_submit_tdma_evidence()`。
+  - 实现 `SyncDpllFB` 的真实 offset/rate servo，而不是当前 sample-count 分阶段状态推进。
+  - 将 VDC snapshot 映射到 RefMem VDC/DPLL 区域，并完善 SCPI 字段。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `tests/unit/test_vdc_domain.c`
+  - `tools/tests/run_vdc_domain_tests.ps1`
+- 下一步：
+  - 增加板端帧级 timestamp evidence 输入路径，先让 COM5/COM6 在真实 PIO TDMA 环路中产出被 VDC gate 明确拒绝或接受的样本证据。
+
 ### VDC-TASK-20260816-002 - TDMA diagnostic timestamp and 1e3ns deadline contract
 
 - 状态：完成 host/build 验证；硬件 latch 和 DPLL gate 待实现

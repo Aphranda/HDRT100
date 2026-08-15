@@ -4,11 +4,18 @@
 
 #include "board.h"
 #include "osal.h"
+#include "vdc_domain.h"
 
 static vdc_dpll_manager_vdc_status_t s_vdc_status;
 static vdc_dpll_manager_dpll_status_t s_dpll_status;
+static vdc_domain_context_t s_vdc_domain;
 static bool s_vdc_ready;
 static bool s_dpll_ready;
+
+static uint64_t vdc_dpll_manager_now_ns(void)
+{
+    return (uint64_t)board_uptime_ms() * 1000000ull;
+}
 
 bool vdc_dpll_manager_init(void)
 {
@@ -16,6 +23,9 @@ bool vdc_dpll_manager_init(void)
 
     memset(&s_vdc_status, 0, sizeof(s_vdc_status));
     memset(&s_dpll_status, 0, sizeof(s_dpll_status));
+    if (!vdc_domain_init(&s_vdc_domain)) {
+        return false;
+    }
     s_vdc_status.last_service_ms = now_ms;
     s_dpll_status.last_service_ms = now_ms;
     s_vdc_ready = false;
@@ -28,6 +38,7 @@ void vdc_dpll_manager_set_vdc_ready(bool ready)
     osal_critical_enter();
     s_vdc_ready = ready;
     s_vdc_status.ready = ready;
+    vdc_domain_set_ready(&s_vdc_domain, ready);
     osal_critical_exit();
 }
 
@@ -42,15 +53,18 @@ void vdc_dpll_manager_set_dpll_ready(bool ready)
 void vdc_dpll_manager_vdc_service(void)
 {
     const uint32_t now_ms = board_uptime_ms();
+    vdc_domain_snapshot_t snapshot;
 
     osal_critical_enter();
+    vdc_domain_service(&s_vdc_domain, vdc_dpll_manager_now_ns());
+    (void)vdc_domain_get_snapshot(&s_vdc_domain, &snapshot);
     if (s_vdc_status.service_count == 0u) {
         s_vdc_status.first_service_ms = now_ms;
     }
     s_vdc_status.service_count++;
     s_vdc_status.last_service_ms = now_ms;
     s_vdc_status.ready = s_vdc_ready;
-    s_vdc_status.lock_state = 0u;
+    s_vdc_status.lock_state = snapshot.dpll.state;
     s_vdc_status.sync_seq++;
     osal_critical_exit();
 }
@@ -58,16 +72,18 @@ void vdc_dpll_manager_vdc_service(void)
 void vdc_dpll_manager_dpll_service(void)
 {
     const uint32_t now_ms = board_uptime_ms();
+    vdc_domain_snapshot_t snapshot;
 
     osal_critical_enter();
+    (void)vdc_domain_get_snapshot(&s_vdc_domain, &snapshot);
     if (s_dpll_status.service_count == 0u) {
         s_dpll_status.first_service_ms = now_ms;
     }
     s_dpll_status.service_count++;
     s_dpll_status.last_service_ms = now_ms;
     s_dpll_status.ready = s_dpll_ready;
-    s_dpll_status.state = 0u;
-    s_dpll_status.update_seq++;
+    s_dpll_status.state = snapshot.dpll.state;
+    s_dpll_status.update_seq = snapshot.dpll.update_seq;
     osal_critical_exit();
 }
 

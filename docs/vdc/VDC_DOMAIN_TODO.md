@@ -49,15 +49,15 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 
 ## P2 - VDC 数据契约冻结
 
-- [ ] 冻结 `VdcClockModel` 字段、单位、writer、reader 和 snapshot 策略。
-- [ ] 冻结 `VdcTdmaScheduleProfile`，覆盖 TDMA 周期、同步窗口、guard、reference slot、schedule version 和 CRC。
+- [x] 冻结 `VdcClockModel` 字段、单位、writer、reader 和 snapshot 策略。
+- [x] 冻结 `VdcTdmaScheduleProfile`，覆盖 TDMA 周期、同步窗口、guard、reference slot、schedule version 和 CRC。
 - [ ] 冻结 TDMA frame envelope：每一帧都必须先表达 schedule_epoch、slot_index、frame_seq、source/reference slot、timestamp evidence、schedule CRC、frame CRC 和 payload class；RefMem 数据只能作为 payload class 搭载。
 - [ ] 冻结 TDMA window class：`VDC_OBSERVATION_WINDOW` 是高优先级 DPLL 样本窗口，`REFMEM_DATA_WINDOW` 在同一 VDC/TDMA 骨架上搭载共同事实同步；两者必须分别有 slot/action、guard、CRC、quality 和禁止项。
-- [ ] 冻结 `VdcTDMATimestampEvidence`，字段单位统一为 ns，至少覆盖 expected_window_start、arm/start/done/apply timestamp、late_ns、jitter_ns、schedule_crc32、frame/sample CRC 和 `timestamp_resolution_ns`。
+- [x] 冻结 `VdcTDMATimestampEvidence`，字段单位统一为 ns，至少覆盖 expected_window_start、arm/start/done/apply timestamp、late_ns、jitter_ns、schedule_crc32、frame/sample CRC 和 `timestamp_resolution_ns`。
 - [ ] 冻结 `VdcReferenceClockTable`，首版固定 A0，后续支持 priority / failover。
-- [ ] 冻结 `VdcDpllState` 字段、单位、writer、reader 和 snapshot 策略。
+- [x] 冻结 `VdcDpllState` 字段、单位、writer、reader 和 snapshot 策略。
 - [ ] 冻结 `VdcDcoControl`，覆盖 DPLL 输出到 core1/PIO 的 `base_local_tick64`、`base_vdc_time64_ns`、`period_adjust_ppb/rate_q32`、`phase_offset_ns`、`slew_limit_ppb` 和 `dco_update_seq`。
-- [ ] 冻结 `VdcServoProfile`，覆盖 servo_type、kp/ki、update period、step threshold、sanity limit 和 reset policy。
+- [x] 冻结 `VdcServoProfile`，覆盖 servo_type、kp/ki、update period、step threshold、sanity limit 和 reset policy。
 - [ ] 冻结 `VdcQualityTable` 字段、质量窗口、统计口径和 RUN gate 门限。
 - [ ] 冻结 `VdcErrorBudget`，覆盖 offset RMS/max、frequency skew、path delay、dispersion 和 root distance 等价字段。
 - [ ] 冻结 `VdcTimestampDictionary` 表格式、CRC、版本兼容和 System Pack 导入策略。
@@ -65,14 +65,14 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 冻结 `VdcCalibrationBinding`，定义 active cal CRC、link key、delay_ns 和失效策略。
 - [ ] 冻结 `VdcDcSyncPipeline`，定义 reference select、initial sync、drift compensation、LOCKED publish 和 T2 validation 阶段。
 - [ ] 冻结 `VdcDisciplineModel`，定义 aging compensation、temperature compensation、wander、holdover drift bound、discipline window 和持久化 profile seq。
-- [ ] 冻结 `VdcGateResult`，定义 reject code、reject node、reject evidence 和 last pass tick。
+- [x] 冻结 `VdcGateResult`，定义 reject code、reject node、reject evidence 和 last pass tick。
 - [x] 在 `VDC_DOMAIN_ARCHITECTURE.md` 融合 TDMA + DPLL 三环模型，明确 TDMA 只提供确定性观测窗口，DPLL 是 offset/rate 唯一 writer，低频驯服环只更新长期漂移和 HOLDOVER 误差预算。
 
 ## P3 - DPLL / Clock Model
 
-- [ ] 实现 `local_tick -> vdc_time64_ns` 映射函数。
+- [x] 实现 `local_tick -> vdc_time64_ns` 映射函数。
 - [ ] 实现 SYNC DPLL offset/rate 更新。
-- [ ] 实现 TDMA observation window 输入门禁：只有来自 active schedule、正确 reference slot、正确 schedule CRC 和同步窗口内的 timestamp sample 才能进入 DPLL。
+- [x] 实现 TDMA observation window 输入门禁：只有来自 active schedule、正确 reference slot、正确 schedule CRC 和同步窗口内的 timestamp sample 才能进入 DPLL。
 - [ ] 在 COM5/COM6 已验证 RefMem data TDMA 环路基础上，增加两板帧级 timestamp bring-up：每个 `REFMEM_DELTA/ACK/FENCE/QUALITY/IDLE_BEACON` 帧都产生 TDMA/VDC timestamp evidence；高优先级 `VDC_OBSERVATION_WINDOW` 形成正式 `VdcDpllSample`，再反向或双向测量 delay/evidence。
 - [x] 将当前 TDMA snapshot 的软件时间戳明确限定为诊断 evidence：若来源为 `time_us_64()*1000`，必须暴露 `timestamp_resolution_ns=1000`，不得进入 100 ns DPLL lock gate。
 - [ ] 增加硬实时 timestamp latch 路径：PIO/DMA/IRQ/core1 采集本地 tick，转换或映射为 ns 字段，并声明实际分辨率；DPLL 正式样本要求 `timestamp_resolution_ns <= 100`。
@@ -111,13 +111,13 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 
 ## P6 - 代码组件化
 
-- [ ] 增加 `components/vdc_domain/CMakeLists.txt`。
-- [ ] 新增 `components/vdc_domain/inc/vdc_domain.h` 和 `src/vdc_domain.c`。
+- [x] 增加 `components/vdc_domain/CMakeLists.txt`。
+- [x] 新增 `components/vdc_domain/inc/vdc_domain.h` 和 `src/vdc_domain.c`。
 - [ ] 新增 `vdc_clock_model.h/.c`。
 - [ ] 新增 `vdc_dpll.h/.c`。
 - [ ] 新增 `vdc_quality.h/.c`。
 - [ ] 新增 `vdc_timestamp.h/.c`。
-- [ ] 让旧 `components/vdc_dpll_manager/` 过渡为兼容 wrapper 或逐步拆空。
+- [x] 让旧 `components/vdc_dpll_manager/` 过渡为兼容 wrapper 或逐步拆空。
 - [ ] 修改 `application/src/app_tasks.c`，让 `task_vdc_sync` 直接服务 VDC Domain owner。
 - [ ] 修改 SCPI VDC/SYNC 查询，保持读取 snapshot，不直接访问内部状态。
 
