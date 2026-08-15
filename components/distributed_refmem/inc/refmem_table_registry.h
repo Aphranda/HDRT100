@@ -62,6 +62,7 @@ typedef enum {
     REFMEM_TABLE_ACTIVATE_ERR_BAD_ARGUMENT = 1u,
     REFMEM_TABLE_ACTIVATE_ERR_NO_VALID_STAGING = 2u,
     REFMEM_TABLE_ACTIVATE_ERR_GATE = 3u,
+    REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED = 4u,
 } refmem_table_activation_result_t;
 
 typedef struct {

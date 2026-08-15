@@ -8,6 +8,30 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-025 - Block descriptor-only table activation
+
+- 状态：完成基础纠偏
+- 日期：2026-08-15
+- 任务目标：
+  - 消除 `RefMemTableRegistry` 只切 descriptor/CRC 就宣称 active image 已替换的架构风险。
+  - 在真实 active/staging/rollbackable table buffer 未落地前，明确阻断 activation。
+- 完成内容：
+  - 新增 `REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED`。
+  - `refmem_table_registry_activate_staging()` 在 validated staging 和 activation gate 都通过后，仍返回 false，保留 staging descriptor，并写入 `IMAGE_NOT_LOADED`；不修改 active descriptor、rollbackable descriptor 或 active entry CRC。
+  - 单元测试从“成功切 descriptor”改为验证“真实 table image 未加载时拒绝伪激活”。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `python tools\checks\check_scpi_usb_namespace.py --root .` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815085709`，package CRC `0x1C61EB50`。
+- 后续闭环：
+  - 后续必须引入真实 staging/active/rollbackable table image buffer 和业务表切换后，才能恢复 activation 成功路径。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_table_registry.h`
+  - `components/distributed_refmem/src/refmem_table_registry.c`
+  - `tests/unit/test_refmem_table_registry.c`
+
 ### REFMEM-TASK-20260815-024 - LOAD:SD via RefMem command slot
 
 - 状态：完成首版闭环

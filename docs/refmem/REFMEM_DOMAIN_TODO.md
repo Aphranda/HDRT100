@@ -60,7 +60,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 本节记录本轮代码审查发现的 HAOFV 偏离点，必须逐步消除，不能继续作为“已知临时实现”隐含存在。
 
-- [ ] P0: `RefMemTableRegistry` activation 不能只切 descriptor/CRC；必须切换真实 active/staging/rollbackable table image 或明确保持 activation API 不可用于 active 替换。
+- [x] P0: `RefMemTableRegistry` activation 不能只切 descriptor/CRC；在真实 active/staging/rollbackable table image 切换实现前，activation API 必须显式拒绝 active 替换并返回 `IMAGE_NOT_LOADED`。
 - [ ] P0: `.rmtp` `LOAD:SD` 不能只验证 package/header/table CRC 后复用当前 active lint；必须解析每张 staging 表并执行 owner validation、SlotClaimMap、RealtimeCapabilityContract、DeploymentGate 和 rollback 规则。
 - [ ] P0: `SYSTem:REFMEM:LOAD:NODE` 不能只校验单条 node/instance 范围后标记 validated；必须形成 staging NodeLoadTable image，并按候选表重新校验实例、资源、IO、事件/数据连接和 RUN gate。
 - [x] P1: `GenericNodeTable` linter 不得强制 `BoardCapabilityTable[i]` 与 `GenericNodeTable[i]` 的 slot、UUID、persona、hw profile 一一相等；GenericNode 只校验 A0-A7 通用 slot substrate，物理身份和能力由 BoardCapability/SlotClaim 约束。
@@ -75,7 +75,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 定义静态模型表的 binary/TLV 存储格式、CRC、版本兼容和 System Pack 导入策略，覆盖 ApplicationMap、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate 和 QualityTable。
 - [x] 实现 `RefMemTableRegistry` 首版，记录 table id、owner、layout version、active CRC、staging CRC、validation state、validator id、last result 和 evidence；首版反映已编译 active 表和当前 staging snapshot。
 - [x] 增加 TableRegistry 可观测生命周期字段：`EMPTY/STAGED/CRC_OK/OWNER_OK/ACTIVE/ROLLBACKABLE/FAILED`。
-- [ ] 实现真实 active/staging/rollbackable table image 切换：staging 通过验证后可进入 activation，旧 active 进入 rollbackable。
+- [ ] 实现真实 active/staging/rollbackable table image 切换：staging 通过验证后可进入 activation，旧 active 进入 rollbackable；当前 activation gate 已显式阻断伪切换。
 - [x] 定义并落地 table image descriptor：active/staging/rollbackable 只由 descriptor、seq、CRC bundle、state 和 evidence 对外可见，完整表数据不得写入 RefMem 向量表。
 - [ ] 增加 activation gate：RefMem load mode、产品实时 idle/park、flash lockout/RAM-resident 入口、CRC bundle、owner validation、SlotClaimMap、DeploymentGate 和 command ACK 必须全部通过后才能切 active。
 - [ ] 实现 table dump/load 镜像规则：dump 只导出稳定 snapshot，load 只能进入 staging，不得直接覆盖 active。

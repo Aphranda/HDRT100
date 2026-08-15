@@ -341,25 +341,35 @@ static int test_failed_activation_preserves_active(void)
     return failed;
 }
 
-static int test_success_activation_moves_images(void)
+static int test_activation_requires_real_table_image(void)
 {
     int failed = 0;
     const refmem_application_model_snapshot_t model = make_active_model();
     refmem_application_model_load_snapshot_t load = make_valid_load();
     refmem_table_activation_gate_t gate = make_pass_gate();
+    refmem_table_image_descriptor_t active_before;
     refmem_table_image_descriptor_t active;
     refmem_table_image_descriptor_t staging;
     refmem_table_image_descriptor_t rollbackable;
     refmem_table_registry_entry_t entry;
+    refmem_table_registry_entry_t entry_before;
     refmem_table_registry_snapshot_t snapshot;
 
     refmem_table_registry_init(&model);
     failed += expect_bool("validate staging",
                           refmem_table_registry_validate_staging(&load),
                           true);
+    failed += expect_bool("get active before",
+                          refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_ACTIVE,
+                                                                     &active_before),
+                          true);
+    failed += expect_bool("get table entry before",
+                          refmem_table_registry_get_entry(REFMEM_APP_TABLE_NODE_LOAD,
+                                                          &entry_before),
+                          true);
     failed += expect_bool("activate staging",
                           refmem_table_registry_activate_staging(&gate),
-                          true);
+                          false);
 
     failed += expect_bool("get active",
                           refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_ACTIVE,
@@ -373,26 +383,40 @@ static int test_success_activation_moves_images(void)
                           refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_ROLLBACKABLE,
                                                                      &rollbackable),
                           true);
-    failed += expect_u32("active package", active.package_crc32, load.staging_package_crc32);
+    failed += expect_u32("active package unchanged",
+                         active.package_crc32,
+                         active_before.package_crc32);
     failed += expect_u32("active state", active.state, REFMEM_TABLE_VALIDATION_ACTIVE);
-    failed += expect_u32("active seq advanced", active.table_seq, 2u);
-    failed += expect_u32("staging cleared", staging.state, REFMEM_TABLE_VALIDATION_EMPTY);
+    failed += expect_u32("active seq unchanged", active.table_seq, active_before.table_seq);
+    failed += expect_u32("staging retained", staging.state, REFMEM_TABLE_VALIDATION_OWNER_OK);
+    failed += expect_u32("staging image missing result",
+                         staging.last_result,
+                         REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED);
     failed += expect_u32("rollback state",
                          rollbackable.state,
-                         REFMEM_TABLE_VALIDATION_ROLLBACKABLE);
-    failed += expect_u32("rollback package", rollbackable.package_crc32, model.package_crc32);
+                         REFMEM_TABLE_VALIDATION_EMPTY);
+    failed += expect_u32("rollback package", rollbackable.package_crc32, 0u);
 
     failed += expect_bool("get table entry",
                           refmem_table_registry_get_entry(REFMEM_APP_TABLE_NODE_LOAD, &entry),
                           true);
-    failed += expect_u32("entry active crc", entry.active_crc32, load.staging_package_crc32);
-    failed += expect_u32("entry state", entry.validation_state, REFMEM_TABLE_VALIDATION_ACTIVE);
-    failed += expect_u32("entry flags rollback",
+    failed += expect_u32("entry active crc unchanged",
+                         entry.active_crc32,
+                         entry_before.active_crc32);
+    failed += expect_u32("entry state still owner ok",
+                         entry.validation_state,
+                         REFMEM_TABLE_VALIDATION_OWNER_OK);
+    failed += expect_u32("entry flags no rollback",
                          entry.flags & REFMEM_TABLE_FLAG_ROLLBACKABLE,
-                         REFMEM_TABLE_FLAG_ROLLBACKABLE);
+                         0u);
 
     refmem_table_registry_get_snapshot(&snapshot);
-    failed += expect_u32("snapshot staging cleared", snapshot.staging_table_mask, 0u);
+    failed += expect_u32("snapshot staging retained",
+                         snapshot.staging_table_mask,
+                         REFMEM_APP_TABLE_MASK_ALL);
+    failed += expect_u32("snapshot last error",
+                         snapshot.last_error,
+                         REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED);
     return failed;
 }
 
@@ -553,7 +577,7 @@ int main(void)
 
     failed += test_init_sets_active_descriptor();
     failed += test_failed_activation_preserves_active();
-    failed += test_success_activation_moves_images();
+    failed += test_activation_requires_real_table_image();
     failed += test_invalid_staging_is_not_activated();
     failed += test_package_owner_validation_rejects_placeholder_tables();
     failed += test_package_owner_validation_accepts_contract_tables();

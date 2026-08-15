@@ -648,37 +648,11 @@ bool refmem_table_registry_activate_staging(const refmem_table_activation_gate_t
         return false;
     }
 
-    s_rollbackable_image = s_active_image;
-    s_rollbackable_image.role = REFMEM_TABLE_IMAGE_ROLLBACKABLE;
-    s_rollbackable_image.state = REFMEM_TABLE_VALIDATION_ROLLBACKABLE;
-    s_rollbackable_image.evidence_index = REFMEM_VECTOR_SLOT_STATS;
-
-    s_table_seq++;
-    s_active_image = s_staging_image;
-    s_active_image.role = REFMEM_TABLE_IMAGE_ACTIVE;
-    s_active_image.state = REFMEM_TABLE_VALIDATION_ACTIVE;
-    s_active_image.table_seq = s_table_seq;
-    s_active_image.last_result = REFMEM_TABLE_ACTIVATE_OK;
-    s_active_image.evidence_index = REFMEM_VECTOR_SLOT_STATS;
-
-    for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {
-        refmem_table_registry_entry_t *entry = &s_registry[i];
-        const uint32_t table_bit = 1u << entry->table_id;
-        if ((s_staging_image.table_mask & table_bit) != 0u) {
-            entry->active_crc32 = entry->staging_crc32;
-            entry->validation_state = REFMEM_TABLE_VALIDATION_ACTIVE;
-            entry->flags |= REFMEM_TABLE_FLAG_ACTIVE_PRESENT |
-                            REFMEM_TABLE_FLAG_CRC_OK |
-                            REFMEM_TABLE_FLAG_OWNER_OK |
-                            REFMEM_TABLE_FLAG_ROLLBACKABLE;
-            entry->flags &= ~REFMEM_TABLE_FLAG_STAGING_PRESENT;
-        }
-    }
-
-    refmem_table_registry_clear_image(&s_staging_image, REFMEM_TABLE_IMAGE_STAGING);
-    s_snapshot.last_error = REFMEM_TABLE_ACTIVATE_OK;
+    s_staging_image.state = REFMEM_TABLE_VALIDATION_OWNER_OK;
+    s_staging_image.last_result = REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED;
+    s_snapshot.last_error = REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED;
     refmem_table_registry_refresh_snapshot();
-    return true;
+    return false;
 }
 
 bool refmem_table_registry_get_image_descriptor(refmem_table_image_role_t role,

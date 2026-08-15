@@ -1336,7 +1336,7 @@ table directory 每项 16 字节：
 - `SYSTem:REFMEM:LOAD:NODE`：已支持通过 SCPI inline 提交单条 NodeLoad 候选到 staging snapshot，尚未形成多条 staging NodeLoadTable image。
 - `SYSTem:REFMEM:LOAD:STATus?`：已可查询 load sequence、source、RefMem load mode、staging state、manifest、active/staging CRC、lint/error 和当前候选。
 - `SYSTem:REFMEM:LOAD:BOARD` / `SYSTem:REFMEM:LOAD:BOARD:STATus?`：已支持通过 SCPI inline 提交单条 BoardCapability 候选到 staging snapshot，校验 board 范围、`REFMEM+VDC` baseline 和默认 slot 范围；SCPI 已收敛为 RefMem intent，`DistributedRefMemAO` 通过 `BOARD_CAPABILITY_STAGE` command slot 写 staging 并 ACK/NACK；尚未形成多条 staging BoardCapabilityTable image。
-- `refmem_table_registry_activate_staging()`：已落地 registry 级 activation 骨架，使用显式 activation gate 检查 validated staging，把旧 active descriptor 移到 rollbackable，并把 staging CRC/seq 切到 active entry；当前仍未替换真实业务表数据，也未接命令槽或跨节点 ACK。
+- `refmem_table_registry_activate_staging()`：已落地 registry 级 activation gate，但在真实 table image buffer 和业务表切换未实现前显式拒绝 active 替换，返回 `IMAGE_NOT_LOADED` 并保留 staging descriptor；不得只切 descriptor/CRC 伪装为 active 切换。
 - `refmem_table_registry_get_image_descriptor()`：已可读取 active/staging/rollbackable descriptor，用于后续维护查询和 activation 验证脚本。
 
 尚未形成完整实现的部分：
