@@ -97,8 +97,8 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [x] 冻结 `VdcDpllState` 字段、单位、writer、reader 和 snapshot 策略。
 - [x] 冻结 `VdcDcoControl`，覆盖 DPLL 输出到 core1/PIO 的 `base_local_tick64`、`base_vdc_time64_ns`、`period_adjust_ppb/rate_q32`、`phase_offset_ns`、`slew_limit_ppb` 和 `dco_update_seq`。
 - [x] 冻结 `VdcServoProfile`，覆盖 servo_type、kp/ki、update period、step threshold、sanity limit 和 reset policy。
-- [ ] 冻结 `VdcQualityTable` 字段、质量窗口、统计口径和 RUN gate 门限。
-- [ ] 冻结 `VdcErrorBudget`，覆盖 offset RMS/max、frequency skew、path delay、dispersion 和 root distance 等价字段。
+- [x] 冻结 `VdcQualityTable` 字段、质量窗口、统计口径和 RUN gate 门限。
+- [x] 冻结 `VdcErrorBudget`，覆盖 offset RMS/max、frequency skew、path delay、dispersion 和 root distance 等价字段。
 - [ ] 冻结 `VdcTimestampDictionary` 表格式、CRC、版本兼容和 System Pack 导入策略。
 - [ ] 冻结 `VdcWrapTracker` 的 tick/seq 扩展规则和回绕安全差分。
 - [ ] 冻结 `VdcCalibrationBinding`，定义 active cal CRC、link key、delay_ns 和失效策略。
@@ -118,7 +118,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 将 RefMem TDMA TX/RX 从“收到 intent 后立即执行”升级为按 `VdcTdmaScheduleProfile` 的 `REFMEM_DATA_WINDOW` 执行：core1/PIO 必须等待窗口、记录 late/jitter，并在窗口外明确返回 gate evidence；首版已落地 `vdc_domain_plan_tdma_window()` 和 `SYSTem:SYNC:VDC:TDMA:PLAN?` 只读计划查询，后续需要由 core1 TDMA service 消费该计划并真正等待窗口。HIL 当前允许诊断样本因未调度而被 VDC gate 拒绝，但这不算正式 TDMA schedule 通过。
 - [ ] 增加硬实时 timestamp latch 路径：PIO/DMA/IRQ/core1 采集本地 tick，转换或映射为 ns 字段，并声明实际分辨率；DPLL 正式样本要求 `timestamp_resolution_ns <= 100`。
 - [ ] 实现 DCO snapshot 生成：DPLL 输出通过 `VdcDcoControl` 提交给 core1，core1 只读稳定 snapshot 并执行 slew/phase pull。
-- [ ] 实现 outlier gate、jitter window、phase error 和 frequency error 统计。
+- [ ] 实现 outlier gate、jitter window、phase error 和 frequency error 统计；首版已落地 VDC-owned `VdcQualityTable` / `VdcErrorBudget` 快照，能记录 accepted/rejected sample、offset RMS/max、jitter、timestamp freshness、resolution 和 gate reject，frequency error / outlier policy 后续接真实 servo。
 - [ ] 实现 servo reset 策略，区分 step reset、profile reset、calibration reset 和 fault reset。
 - [ ] 实现 reference node 选择和 reference loss/failover 记录；首版可固定 A0。
 - [ ] 实现 error budget 累积，HOLDOVER 中按 drift bound 增长 dispersion。
@@ -166,7 +166,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 
 - [ ] 确认 `CONFigure:SYNC:VDC:DPLL` 写入 VDC staging profile。
 - [ ] 确认 `SYNC:CHECk/STARt/STOP/RELock/HOLDover` 进入 VdcSyncAO command/event。
-- [ ] 确认 `READ:SYNC:STATe?` / `READ:SYNC:QUALity?` 字段覆盖 VDC gate 和 quality。
+- [ ] 确认 `READ:SYNC:STATe?` / `READ:SYNC:QUALity?` 字段覆盖 VDC gate 和 quality；当前 `READ:SYNC:QUALity?` 已从 VDC snapshot 输出 health、offset、jitter、freshness、sample counter、timestamp resolution 和 reject code，字段语义仍需同步到 SCPI 指令表。
 - [ ] 确认 `SYSTem:SYNC:VDC:*` 只作为维护调试接口；当前新增 `SYSTem:SYNC:VDC:TDMA:PLAN?` 仅返回 active schedule 窗口计划，不提交 intent、不写 RefMem、不写 DPLL。
 - [ ] 定义 VDC profile、timestamp dictionary、quality limits 的 System Pack 存储格式。
 - [ ] 定义 VDC 参数 save/load/activate/rollback 策略。

@@ -43,6 +43,40 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-010 - VDC quality table and error budget snapshot
+
+- 状态：完成 host/build 验证；板端查询待后续 HIL 轮次执行
+- 日期：2026-08-16
+- 任务目标：
+  - 按 HAOFV 边界补齐 VDC 自有的同步时钟健康评估机制。
+  - 明确 TDMA sample 的 accepted/rejected、timestamp resolution、freshness、offset、jitter 和 gate reject 由 VDC owner 形成质量事实。
+  - 避免 RefMem payload 同步成功被误当作 VDC/DPLL 健康结论。
+- 完成内容：
+  - `vdc_domain_snapshot_t` / `vdc_domain_context_t` 增加 `VdcQualityTable` 和 `VdcErrorBudget`。
+  - `vdc_domain_submit_tdma_evidence()` 在 DPLL sample 通过或拒绝时同步更新 health state、sample counter、consecutive good/bad、timestamp source/resolution/flags、offset RMS/max、jitter、path delay、dispersion 和 root distance。
+  - `vdc_domain_service()` 增加 sample age 刷新，形成 `last_sample_age_1e3ns`，为后续 HOLDOVER / stale / RUN gate 提供基础字段。
+  - `vdc_dpll_manager_get_snapshot()` 提供只读 VDC snapshot 入口，保持 SCPI 读取 snapshot，不直接访问 VDC context。
+  - `READ:SYNC:QUALity?` 从固定回复改为读取 VDC quality/error budget snapshot。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815190808`，package CRC `0xF1ACEE53`。
+- 还需完成：
+  - 将 `READ:SYNC:QUALity?` 的更新字段同步到 SCPI 指令表。
+  - 接真实 DPLL servo 后补 frequency error、outlier gate 和 rate/skew 统计。
+  - 将 VDC quality/error budget 接入 RUN gate 和 RefMem VdcSlot。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 提交推送后进入 TDMA plan 被 core1/PIO 消费的 P0 项。
+
 ### VDC-TASK-20260816-009 - VDC TDMA window planner contract
 
 - 状态：完成并已通过 COM5/COM6 板端查询和两板 HIL

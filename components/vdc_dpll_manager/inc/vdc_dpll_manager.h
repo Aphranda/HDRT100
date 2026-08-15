@@ -33,6 +33,7 @@ void vdc_dpll_manager_vdc_service(void);
 void vdc_dpll_manager_dpll_service(void);
 void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status);
 void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status);
+bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot);
 bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
                                        uint64_t now_ns,
                                        vdc_tdma_window_plan_t *plan,

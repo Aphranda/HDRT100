@@ -8,6 +8,8 @@
 #define VDC_DOMAIN_INITIAL_LOCK_SAMPLES 1u
 #define VDC_DOMAIN_FREQ_LOCK_SAMPLES 2u
 #define VDC_DOMAIN_PHASE_LOCK_SAMPLES 3u
+#define VDC_DOMAIN_DEFAULT_FRESHNESS_LIMIT_1E3NS 1000000u
+#define VDC_DOMAIN_DEFAULT_HOLDOVER_DRIFT_BOUND_NS_S 1000u
 
 static uint32_t vdc_domain_hash_u32(uint32_t hash, uint32_t value)
 {
@@ -133,6 +135,172 @@ static bool vdc_domain_payload_allowed_for_window(uint32_t window_class,
 static uint32_t vdc_domain_saturate_u64_to_u32(uint64_t value)
 {
     return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
+}
+
+static uint32_t vdc_domain_avg_u32(uint32_t previous, uint32_t sample)
+{
+    return previous == 0u ? sample : (previous + sample) / 2u;
+}
+
+static uint64_t vdc_domain_evidence_time_ns(
+    const vdc_tdma_timestamp_evidence_t *evidence)
+{
+    if (evidence == NULL) {
+        return 0u;
+    }
+    if (evidence->apply_time_ns != 0u) {
+        return evidence->apply_time_ns;
+    }
+    if (evidence->done_time_ns != 0u) {
+        return evidence->done_time_ns;
+    }
+    return evidence->observed_time_ns;
+}
+
+static void vdc_domain_refresh_quality_state(vdc_domain_context_t *context)
+{
+    if (context == NULL) {
+        return;
+    }
+
+    context->quality.valid = 1u;
+    context->quality.lock_state = context->dpll.state;
+    if (context->dpll.state == VDC_DOMAIN_LOCK_FAULT) {
+        context->quality.health_state = VDC_DOMAIN_HEALTH_FAULT;
+    } else if (context->dpll.state == VDC_DOMAIN_LOCK_LOCKED &&
+               context->gate.passed != 0u &&
+               context->quality.rms_offset_ns <=
+                   context->servo.offset_lock_threshold_ns &&
+               context->quality.freshness_limit_1e3ns != 0u &&
+               context->quality.last_sample_age_1e3ns <=
+                   context->quality.freshness_limit_1e3ns) {
+        context->quality.health_state = VDC_DOMAIN_HEALTH_HEALTHY;
+    } else if (context->dpll.state == VDC_DOMAIN_LOCK_PHASE_LOCK ||
+               context->dpll.state == VDC_DOMAIN_LOCK_FREQ_LOCK) {
+        context->quality.health_state = VDC_DOMAIN_HEALTH_LOCK_CANDIDATE;
+    } else if (context->dpll.state == VDC_DOMAIN_LOCK_OFF ||
+               context->dpll.state == VDC_DOMAIN_LOCK_CHECKING ||
+               context->dpll.state == VDC_DOMAIN_LOCK_INITIAL_SYNC ||
+               context->dpll.state == VDC_DOMAIN_LOCK_RELOCKING) {
+        context->quality.health_state = VDC_DOMAIN_HEALTH_CHECKING;
+    } else {
+        context->quality.health_state = VDC_DOMAIN_HEALTH_DEGRADED;
+    }
+}
+
+static void vdc_domain_refresh_quality_age(vdc_domain_context_t *context,
+                                           uint64_t now_ns)
+{
+    if (context == NULL || context->quality.last_sample_time_ns == 0u) {
+        return;
+    }
+    const uint64_t age_ns =
+        now_ns >= context->quality.last_sample_time_ns
+            ? now_ns - context->quality.last_sample_time_ns
+            : 0u;
+    context->quality.last_sample_age_1e3ns =
+        vdc_domain_saturate_u64_to_u32(age_ns / 1000ull);
+    if (context->dpll.state == VDC_DOMAIN_LOCK_HOLDOVER) {
+        context->dpll.holdover_age_1e3ns = context->quality.last_sample_age_1e3ns;
+    }
+    vdc_domain_refresh_quality_state(context);
+}
+
+static void vdc_domain_init_quality(vdc_domain_context_t *context)
+{
+    if (context == NULL) {
+        return;
+    }
+    memset(&context->quality, 0, sizeof(context->quality));
+    memset(&context->error_budget, 0, sizeof(context->error_budget));
+    context->quality.valid = 1u;
+    context->quality.health_state = VDC_DOMAIN_HEALTH_UNKNOWN;
+    context->quality.lock_state = VDC_DOMAIN_LOCK_OFF;
+    context->quality.freshness_limit_1e3ns =
+        VDC_DOMAIN_DEFAULT_FRESHNESS_LIMIT_1E3NS;
+    context->error_budget.valid = 1u;
+    context->error_budget.holdover_drift_bound_ns_s =
+        VDC_DOMAIN_DEFAULT_HOLDOVER_DRIFT_BOUND_NS_S;
+}
+
+static void vdc_domain_record_rejected_sample(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    const vdc_gate_result_t *gate)
+{
+    if (context == NULL || gate == NULL) {
+        return;
+    }
+    context->quality.valid = 1u;
+    context->quality.update_seq++;
+    context->quality.rejected_sample_count = context->dpll.rejected_sample_count;
+    context->quality.consecutive_good_samples = 0u;
+    context->quality.consecutive_bad_samples++;
+    context->quality.last_reject_code = gate->reject_code;
+    context->quality.gate_reject_code = gate->reject_code;
+    context->quality.gate_reject_slot = gate->reject_slot;
+    context->quality.gate_reject_evidence = gate->reject_evidence;
+    if (evidence != NULL) {
+        context->quality.last_sample_seq = evidence->sample_seq;
+        context->quality.last_timestamp_source = evidence->timestamp_source;
+        context->quality.last_timestamp_resolution_ns =
+            evidence->timestamp_resolution_ns;
+        context->quality.last_timestamp_flags = evidence->timestamp_flags;
+    }
+    vdc_domain_refresh_quality_state(context);
+}
+
+static void vdc_domain_record_accepted_sample(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence)
+{
+    if (context == NULL || evidence == NULL) {
+        return;
+    }
+
+    const uint32_t abs_phase = vdc_domain_abs_i32(evidence->phase_error_ns);
+    const uint32_t root_distance =
+        (evidence->delay_ns / 2u) +
+        context->error_budget.dispersion_ns +
+        abs_phase;
+
+    context->quality.valid = 1u;
+    context->quality.update_seq++;
+    context->quality.accepted_sample_count = context->dpll.accepted_sample_count;
+    context->quality.rejected_sample_count = context->dpll.rejected_sample_count;
+    context->quality.consecutive_good_samples++;
+    context->quality.consecutive_bad_samples = 0u;
+    context->quality.last_sample_seq = evidence->sample_seq;
+    context->quality.last_reject_code = VDC_DOMAIN_GATE_PASS;
+    context->quality.last_timestamp_source = evidence->timestamp_source;
+    context->quality.last_timestamp_resolution_ns =
+        evidence->timestamp_resolution_ns;
+    context->quality.last_timestamp_flags = evidence->timestamp_flags;
+    context->quality.last_sample_time_ns = vdc_domain_evidence_time_ns(evidence);
+    context->quality.last_sample_age_1e3ns = 0u;
+    context->quality.last_offset_ns = evidence->phase_error_ns;
+    context->quality.rms_offset_ns = context->dpll.rms_offset_ns;
+    context->quality.max_abs_offset_ns = context->dpll.max_abs_offset_ns;
+    context->quality.last_jitter_ns = evidence->jitter_ns;
+    context->quality.jitter_rms_ns =
+        vdc_domain_avg_u32(context->quality.jitter_rms_ns, evidence->jitter_ns);
+    context->quality.jitter_pk_ns = context->dpll.jitter_pk_ns;
+    context->quality.gate_reject_code = VDC_DOMAIN_GATE_PASS;
+    context->quality.gate_reject_slot = evidence->source_slot_id;
+    context->quality.gate_reject_evidence = evidence->sample_seq;
+
+    context->error_budget.valid = 1u;
+    context->error_budget.update_seq++;
+    context->error_budget.last_offset_ns = evidence->phase_error_ns;
+    context->error_budget.rms_offset_ns = context->dpll.rms_offset_ns;
+    context->error_budget.max_abs_offset_ns = context->dpll.max_abs_offset_ns;
+    context->error_budget.path_delay_ns = evidence->delay_ns;
+    context->error_budget.delay_stddev_ns =
+        vdc_domain_avg_u32(context->error_budget.delay_stddev_ns,
+                           evidence->jitter_ns);
+    context->error_budget.dispersion_ns = evidence->jitter_ns;
+    context->error_budget.root_distance_ns = root_distance;
+    vdc_domain_refresh_quality_state(context);
 }
 
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
@@ -730,6 +898,7 @@ bool vdc_domain_init(vdc_domain_context_t *context)
     context->dpll.state = VDC_DOMAIN_LOCK_OFF;
     context->dpll.schedule_crc32 = context->schedule.schedule_crc32;
     context->dpll.servo_profile_crc32 = context->servo.servo_profile_crc32;
+    vdc_domain_init_quality(context);
     vdc_domain_default_dco_control(&context->dco,
                                    &context->clock,
                                    context->dpll.state);
@@ -763,11 +932,13 @@ void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns)
 
     if (context->ready == 0u) {
         context->dpll.state = VDC_DOMAIN_LOCK_OFF;
+        vdc_domain_refresh_quality_state(context);
         return;
     }
     if (context->dpll.state == VDC_DOMAIN_LOCK_OFF) {
         context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
     }
+    vdc_domain_refresh_quality_age(context, now_ns);
 }
 
 bool vdc_domain_publish_clock_model(vdc_domain_context_t *context,
@@ -830,6 +1001,7 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
         if (context->ready != 0u) {
             context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
         }
+        vdc_domain_record_rejected_sample(context, evidence, &gate);
         return false;
     }
 
@@ -869,6 +1041,7 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
         context->dpll.state = VDC_DOMAIN_LOCK_LOCKED;
     }
 
+    vdc_domain_record_accepted_sample(context, evidence);
     return true;
 }
 
@@ -887,6 +1060,8 @@ bool vdc_domain_get_snapshot(const vdc_domain_context_t *context,
     snapshot->clock = context->clock;
     snapshot->dco = context->dco;
     snapshot->dpll = context->dpll;
+    snapshot->quality = context->quality;
+    snapshot->error_budget = context->error_budget;
     snapshot->gate = context->gate;
     return true;
 }

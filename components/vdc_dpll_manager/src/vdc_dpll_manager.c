@@ -111,6 +111,19 @@ void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status)
     osal_critical_exit();
 }
 
+bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot)
+{
+    bool result = false;
+    if (snapshot == NULL) {
+        return false;
+    }
+
+    osal_critical_enter();
+    result = vdc_domain_get_snapshot(&s_vdc_domain, snapshot);
+    osal_critical_exit();
+    return result;
+}
+
 bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
                                        uint64_t now_ns,
                                        vdc_tdma_window_plan_t *plan,

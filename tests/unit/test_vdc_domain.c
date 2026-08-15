@@ -458,6 +458,22 @@ static int test_context_accepts_samples_until_locked(void)
     failed += expect_u32("accepted", snapshot.dpll.accepted_sample_count, 4u);
     failed += expect_u32("gate pass", snapshot.gate.passed, 1u);
     failed += expect_u32("last pass seq", snapshot.gate.last_pass_seq, 4u);
+    failed += expect_u32("quality valid", snapshot.quality.valid, 1u);
+    failed += expect_u32("quality healthy",
+                         snapshot.quality.health_state,
+                         VDC_DOMAIN_HEALTH_HEALTHY);
+    failed += expect_u32("quality accepted",
+                         snapshot.quality.accepted_sample_count,
+                         4u);
+    failed += expect_u32("quality timestamp resolution",
+                         snapshot.quality.last_timestamp_resolution_ns,
+                         50u);
+    failed += expect_i32("budget last offset",
+                         snapshot.error_budget.last_offset_ns,
+                         10);
+    failed += expect_u32("budget root distance",
+                         snapshot.error_budget.root_distance_ns,
+                         15u);
 
     vdc_tdma_timestamp_evidence_t bad = make_hardware_sample(&context.schedule, 5u, 0);
     bad.reference_slot_id = 7u;
@@ -469,6 +485,34 @@ static int test_context_accepts_samples_until_locked(void)
     failed += expect_u32("checking after reject",
                          snapshot.dpll.state,
                          VDC_DOMAIN_LOCK_CHECKING);
+    failed += expect_u32("quality bad count",
+                         snapshot.quality.consecutive_bad_samples,
+                         1u);
+    failed += expect_u32("quality reject code",
+                         snapshot.quality.gate_reject_code,
+                         VDC_DOMAIN_GATE_REFERENCE_MISMATCH);
+    return failed;
+}
+
+static int test_quality_age_updates_on_service(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_tdma_timestamp_evidence_t evidence;
+
+    failed += expect_bool("init age", vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    evidence = make_hardware_sample(&context.schedule, 1u, 0);
+    evidence.apply_time_ns = 1000u;
+    failed += expect_bool("submit age evidence",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    vdc_domain_service(&context, 51000u);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("sample age 1e3ns",
+                         snapshot.quality.last_sample_age_1e3ns,
+                         50u);
     return failed;
 }
 
@@ -482,6 +526,7 @@ int main(void)
     failed += test_tdma_window_plan_contract();
     failed += test_dco_control_contract();
     failed += test_context_accepts_samples_until_locked();
+    failed += test_quality_age_updates_on_service();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);
         return 1;

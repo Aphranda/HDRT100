@@ -138,18 +138,50 @@ scpi_result_t scpi_sync_active_q(scpi_t *context)
 
 scpi_result_t scpi_sync_quality_q(scpi_t *context)
 {
-    SCPI_ResultText(context, "OK");
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 1u);
-    SCPI_ResultUInt32(context, 1u);
+    vdc_domain_snapshot_t snapshot;
+    const bool has_snapshot = vdc_dpll_manager_get_snapshot(&snapshot);
+    const vdc_quality_table_t *quality =
+        has_snapshot ? &snapshot.quality : NULL;
+    const vdc_error_budget_t *budget =
+        has_snapshot ? &snapshot.error_budget : NULL;
+    const char *state_text = "UNAVAILABLE";
+
+    if (quality != NULL) {
+        switch ((vdc_domain_health_state_t)quality->health_state) {
+        case VDC_DOMAIN_HEALTH_HEALTHY:
+            state_text = "OK";
+            break;
+        case VDC_DOMAIN_HEALTH_LOCK_CANDIDATE:
+            state_text = "LOCK_CANDIDATE";
+            break;
+        case VDC_DOMAIN_HEALTH_DEGRADED:
+            state_text = "DEGRADED";
+            break;
+        case VDC_DOMAIN_HEALTH_FAULT:
+            state_text = "FAULT";
+            break;
+        case VDC_DOMAIN_HEALTH_CHECKING:
+            state_text = "CHECKING";
+            break;
+        case VDC_DOMAIN_HEALTH_UNKNOWN:
+        default:
+            state_text = "UNKNOWN";
+            break;
+        }
+    }
+
+    SCPI_ResultText(context, state_text);
+    SCPI_ResultInt32(context, budget != NULL ? budget->last_offset_ns : 0);
+    SCPI_ResultUInt32(context, budget != NULL ? budget->rms_offset_ns : 0u);
+    SCPI_ResultUInt32(context, budget != NULL ? budget->max_abs_offset_ns : 0u);
+    SCPI_ResultInt32(context, budget != NULL ? budget->freq_offset_ppb : 0);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->jitter_pk_ns : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->last_sample_age_1e3ns : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->last_reject_code : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->accepted_sample_count : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->rejected_sample_count : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->last_timestamp_resolution_ns : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->health_state : 0u);
     return SCPI_RES_OK;
 }
 

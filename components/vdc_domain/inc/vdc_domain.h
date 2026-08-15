@@ -51,6 +51,15 @@ typedef enum {
 } vdc_domain_timestamp_source_t;
 
 typedef enum {
+    VDC_DOMAIN_HEALTH_UNKNOWN = 0u,
+    VDC_DOMAIN_HEALTH_CHECKING = 1u,
+    VDC_DOMAIN_HEALTH_DEGRADED = 2u,
+    VDC_DOMAIN_HEALTH_LOCK_CANDIDATE = 3u,
+    VDC_DOMAIN_HEALTH_HEALTHY = 4u,
+    VDC_DOMAIN_HEALTH_FAULT = 5u,
+} vdc_domain_health_state_t;
+
+typedef enum {
     VDC_DOMAIN_GATE_PASS = 0u,
     VDC_DOMAIN_GATE_DISABLED = 1u,
     VDC_DOMAIN_GATE_BAD_ARGUMENT = 2u,
@@ -206,6 +215,50 @@ typedef struct {
 } vdc_gate_result_t;
 
 typedef struct {
+    uint32_t valid;
+    uint32_t update_seq;
+    uint32_t health_state;
+    uint32_t lock_state;
+    uint32_t quality_flags;
+    uint32_t accepted_sample_count;
+    uint32_t rejected_sample_count;
+    uint32_t consecutive_good_samples;
+    uint32_t consecutive_bad_samples;
+    uint32_t last_sample_seq;
+    uint32_t last_reject_code;
+    uint32_t last_timestamp_source;
+    uint32_t last_timestamp_resolution_ns;
+    uint32_t last_timestamp_flags;
+    uint64_t last_sample_time_ns;
+    uint32_t last_sample_age_1e3ns;
+    uint32_t freshness_limit_1e3ns;
+    int32_t last_offset_ns;
+    uint32_t rms_offset_ns;
+    uint32_t max_abs_offset_ns;
+    uint32_t last_jitter_ns;
+    uint32_t jitter_rms_ns;
+    uint32_t jitter_pk_ns;
+    uint32_t gate_reject_code;
+    uint32_t gate_reject_slot;
+    uint32_t gate_reject_evidence;
+} vdc_quality_table_t;
+
+typedef struct {
+    uint32_t valid;
+    uint32_t update_seq;
+    int32_t last_offset_ns;
+    uint32_t rms_offset_ns;
+    uint32_t max_abs_offset_ns;
+    int32_t freq_offset_ppb;
+    uint32_t freq_skew_ppb;
+    uint32_t path_delay_ns;
+    uint32_t delay_stddev_ns;
+    uint32_t dispersion_ns;
+    uint32_t root_distance_ns;
+    uint32_t holdover_drift_bound_ns_s;
+} vdc_error_budget_t;
+
+typedef struct {
     uint32_t state;
     uint32_t update_seq;
     uint32_t accepted_sample_count;
@@ -232,6 +285,8 @@ typedef struct {
     vdc_clock_model_t clock;
     vdc_dco_control_t dco;
     vdc_dpll_state_t dpll;
+    vdc_quality_table_t quality;
+    vdc_error_budget_t error_budget;
     vdc_gate_result_t gate;
 } vdc_domain_snapshot_t;
 
@@ -245,6 +300,8 @@ typedef struct {
     vdc_clock_model_t clock;
     vdc_dco_control_t dco;
     vdc_dpll_state_t dpll;
+    vdc_quality_table_t quality;
+    vdc_error_budget_t error_budget;
     vdc_gate_result_t gate;
 } vdc_domain_context_t;
 
