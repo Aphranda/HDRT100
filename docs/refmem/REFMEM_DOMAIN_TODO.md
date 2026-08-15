@@ -204,6 +204,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - [x] 用 COM5/COM6 实板执行 `--transport tdma` HIL，确认不再依赖 `SYSTem:REFMEM:SYNC:SPI:*` 帧级阻塞命令。
   - [x] 在 TDMA HIL 通过后，将 `SYSTem:REFMEM:SYNC:SPI:*` 帧级阻塞命令降级为 legacy/diagnostic 或删除，仅保留 line/raw bring-up 必要入口。
   - [x] 增加 TDMA window timeout、DMA overrun、missed window 和 physical adapter error 到 `DistributedConnectionQualityTable` 的正式映射。
+  - [x] 增加 `refmem_quality_evaluate_deployment_gate()`，把 runtime quality table 转换为 `DeploymentGate.QUALITY` 的 pass/reject/evidence 结果。
+  - [ ] 将 quality gate evaluator 接入 `system_manager` config RUN gate，使 TDMA timeout、late、drop 或 physical last_error 能拒绝 RUN 或 latch fault。
 - [x] 阶段 3：实现最小 `REFMEM_DELTA` test field，通过 SCPI 搬运从 A 板发布到 B 板 mirror、B 板发布到 A 板 mirror，并切换到 sync mirror snapshot visible。
 - [x] 阶段 3：实现 `REFMEM_ACK_NACK` 回传，覆盖 ACK、payload CRC mismatch、duplicate seq 和 target mismatch；当前通过 SCPI bridge 基于最近一次 RX snapshot 生成 ACK/NACK frame，并由对端记录 ack snapshot。
 - [x] 阶段 4：实现最小 `REFMEM_FENCE`，验证 required 节点 visible 后 fence passed，min seq 不满足且 deadline 为 0 时进入 timeout evidence snapshot；当前仍是 SCPI bridge 验证，不代表真实 RUN gate 已接入。

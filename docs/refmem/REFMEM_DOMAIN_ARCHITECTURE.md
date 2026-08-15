@@ -906,6 +906,8 @@ last_pass_tick
 
 SCPI 只能通过 `SYSTem:REFMEM:QUALity? [index]` 读取该派生视图，不能直接修改 quality entry。TDMA frame payload 不进入向量表；向量表和 quality table 只承载 seq、CRC、error、timeout 和 evidence 摘要。
 
+`DeploymentGate.QUALITY` 不能直接遍历底层 adapter 或 core1 mailbox；它必须调用 `refmem_quality_evaluate_deployment_gate()` 消费 runtime quality table。该 evaluator 只输出 gate 状态、reject reason、node/slot 和 evidence index，不改变 active fact。产品 RUN gate 后续只允许消费这个 gate 结果。
+
 ## 核心数据面
 
 首版 64 KB 表保持 RTOS 架构中的完整布局：

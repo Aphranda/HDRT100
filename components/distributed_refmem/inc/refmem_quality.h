@@ -13,6 +13,27 @@
 #define REFMEM_QUALITY_RUNTIME_LOCAL_ADAPTER_ID 0u
 #define REFMEM_QUALITY_RUNTIME_TDMA_SERVICE_ID 0x54444D41u
 
+typedef enum {
+    REFMEM_QUALITY_GATE_OK = 0u,
+    REFMEM_QUALITY_GATE_BAD_ARGUMENT = 1u,
+    REFMEM_QUALITY_GATE_NO_RUNTIME_ENTRY = 2u,
+    REFMEM_QUALITY_GATE_CRC_ERROR = 3u,
+    REFMEM_QUALITY_GATE_STALE = 4u,
+    REFMEM_QUALITY_GATE_LATE = 5u,
+    REFMEM_QUALITY_GATE_DROP = 6u,
+    REFMEM_QUALITY_GATE_TIMEOUT = 7u,
+    REFMEM_QUALITY_GATE_LAST_ERROR = 8u,
+} refmem_quality_gate_reason_t;
+
+typedef struct {
+    uint32_t max_crc_error_count;
+    uint32_t max_stale_count;
+    uint32_t max_late_count;
+    uint32_t max_drop_count;
+    uint32_t max_timeout_count;
+    uint32_t require_no_last_error;
+} refmem_quality_gate_threshold_t;
+
 typedef struct {
     uint32_t version;
     uint32_t entry_count;
@@ -44,5 +65,9 @@ bool refmem_quality_build_runtime_table(
 const refmem_connection_quality_entry_t *refmem_quality_get_entry(
     const refmem_quality_runtime_table_t *table,
     uint32_t index);
+bool refmem_quality_evaluate_deployment_gate(
+    const refmem_quality_runtime_table_t *table,
+    const refmem_quality_gate_threshold_t *threshold,
+    refmem_deployment_gate_entry_t *gate);
 
 #endif

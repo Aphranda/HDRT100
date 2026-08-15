@@ -256,6 +256,147 @@ static int test_rejects_invalid_inputs(void)
     return failed;
 }
 
+static int test_quality_gate_passes_clean_runtime_table(void)
+{
+    int failed = 0;
+    refmem_quality_runtime_table_t table;
+    refmem_quality_gate_threshold_t threshold = {
+        .max_crc_error_count = 0u,
+        .max_stale_count = 0u,
+        .max_late_count = 0u,
+        .max_drop_count = 0u,
+        .max_timeout_count = 0u,
+        .require_no_last_error = 1u,
+    };
+    refmem_deployment_gate_entry_t gate;
+
+    (void)memset(&table, 0, sizeof(table));
+    table.entry_count = 1u;
+    table.entry[0].source_node = 1u;
+    table.entry[0].target_node = 1u;
+    table.entry[0].evidence_index = 6u;
+
+    failed += expect_bool("quality gate clean",
+                          refmem_quality_evaluate_deployment_gate(&table,
+                                                                  &threshold,
+                                                                  &gate),
+                          true);
+    failed += expect_u32("quality gate id", gate.check_id, REFMEM_APP_GATE_QUALITY);
+    failed += expect_u32("quality gate state", gate.last_state, REFMEM_APP_GATE_PASS);
+    failed += expect_u32("quality gate reason", gate.reject_code, REFMEM_QUALITY_GATE_OK);
+    return failed;
+}
+
+static int test_quality_gate_rejects_tdma_timeout(void)
+{
+    int failed = 0;
+    refmem_quality_runtime_table_t table;
+    refmem_quality_gate_threshold_t threshold = {
+        .max_timeout_count = 0u,
+    };
+    refmem_deployment_gate_entry_t gate;
+
+    (void)memset(&table, 0, sizeof(table));
+    table.entry_count = 1u;
+    table.entry[0].source_node = 2u;
+    table.entry[0].target_node = 3u;
+    table.entry[0].timeout_count = 1u;
+    table.entry[0].evidence_index = 9u;
+
+    failed += expect_bool("quality gate timeout",
+                          refmem_quality_evaluate_deployment_gate(&table,
+                                                                  &threshold,
+                                                                  &gate),
+                          true);
+    failed += expect_u32("timeout gate state",
+                         gate.last_state,
+                         REFMEM_APP_GATE_LATCH_FAULT);
+    failed += expect_u32("timeout reason",
+                         gate.reject_code,
+                         REFMEM_QUALITY_GATE_TIMEOUT);
+    failed += expect_u32("timeout node", gate.reject_node, 2u);
+    failed += expect_u32("timeout slot", gate.reject_slot, 3u);
+    failed += expect_u32("timeout evidence", gate.reject_evidence_index, 9u);
+    return failed;
+}
+
+static int test_quality_gate_rejects_last_error(void)
+{
+    int failed = 0;
+    refmem_quality_runtime_table_t table;
+    refmem_quality_gate_threshold_t threshold = {
+        .max_crc_error_count = 10u,
+        .max_stale_count = 10u,
+        .max_late_count = 10u,
+        .max_drop_count = 10u,
+        .max_timeout_count = 10u,
+        .require_no_last_error = 1u,
+    };
+    refmem_deployment_gate_entry_t gate;
+
+    (void)memset(&table, 0, sizeof(table));
+    table.entry_count = 1u;
+    table.entry[0].last_error = 4u;
+
+    failed += expect_bool("quality gate last error",
+                          refmem_quality_evaluate_deployment_gate(&table,
+                                                                  &threshold,
+                                                                  &gate),
+                          true);
+    failed += expect_u32("last error reason",
+                         gate.reject_code,
+                         REFMEM_QUALITY_GATE_LAST_ERROR);
+    return failed;
+}
+
+static int test_quality_gate_rejects_late_before_drop(void)
+{
+    int failed = 0;
+    refmem_quality_runtime_table_t table;
+    refmem_quality_gate_threshold_t threshold = {
+        .max_late_count = 0u,
+        .max_drop_count = 0u,
+    };
+    refmem_deployment_gate_entry_t gate;
+
+    (void)memset(&table, 0, sizeof(table));
+    table.entry_count = 1u;
+    table.entry[0].late_count = 1u;
+    table.entry[0].drop_count = 1u;
+
+    failed += expect_bool("quality gate late drop",
+                          refmem_quality_evaluate_deployment_gate(&table,
+                                                                  &threshold,
+                                                                  &gate),
+                          true);
+    failed += expect_u32("late before drop",
+                         gate.reject_code,
+                         REFMEM_QUALITY_GATE_LATE);
+    return failed;
+}
+
+static int test_quality_gate_rejects_empty_runtime_table(void)
+{
+    int failed = 0;
+    refmem_quality_runtime_table_t table;
+    refmem_quality_gate_threshold_t threshold = {0};
+    refmem_deployment_gate_entry_t gate;
+
+    (void)memset(&table, 0, sizeof(table));
+    failed += expect_bool("quality gate empty",
+                          refmem_quality_evaluate_deployment_gate(&table,
+                                                                  &threshold,
+                                                                  &gate),
+                          true);
+    failed += expect_u32("empty gate state",
+                         gate.last_state,
+                         REFMEM_APP_GATE_LATCH_FAULT);
+    failed += expect_u32("empty gate reason",
+                         gate.reject_code,
+                         REFMEM_QUALITY_GATE_NO_RUNTIME_ENTRY);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -264,6 +405,11 @@ int main(void)
     failed += test_realtime_tdma_mapping();
     failed += test_runtime_table();
     failed += test_rejects_invalid_inputs();
+    failed += test_quality_gate_passes_clean_runtime_table();
+    failed += test_quality_gate_rejects_tdma_timeout();
+    failed += test_quality_gate_rejects_last_error();
+    failed += test_quality_gate_rejects_late_before_drop();
+    failed += test_quality_gate_rejects_empty_runtime_table();
 
     if (failed != 0) {
         (void)printf("refmem_quality tests failed: %d\n", failed);

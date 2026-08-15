@@ -161,3 +161,75 @@ const refmem_connection_quality_entry_t *refmem_quality_get_entry(
     }
     return &table->entry[index];
 }
+
+static bool refmem_quality_entry_violates(
+    const refmem_connection_quality_entry_t *entry,
+    const refmem_quality_gate_threshold_t *threshold,
+    refmem_quality_gate_reason_t *reason)
+{
+    if (entry->crc_error_count > threshold->max_crc_error_count) {
+        *reason = REFMEM_QUALITY_GATE_CRC_ERROR;
+        return true;
+    }
+    if (entry->stale_count > threshold->max_stale_count) {
+        *reason = REFMEM_QUALITY_GATE_STALE;
+        return true;
+    }
+    if (entry->late_count > threshold->max_late_count) {
+        *reason = REFMEM_QUALITY_GATE_LATE;
+        return true;
+    }
+    if (entry->drop_count > threshold->max_drop_count) {
+        *reason = REFMEM_QUALITY_GATE_DROP;
+        return true;
+    }
+    if (entry->timeout_count > threshold->max_timeout_count) {
+        *reason = REFMEM_QUALITY_GATE_TIMEOUT;
+        return true;
+    }
+    if (threshold->require_no_last_error != 0u && entry->last_error != 0u) {
+        *reason = REFMEM_QUALITY_GATE_LAST_ERROR;
+        return true;
+    }
+    return false;
+}
+
+bool refmem_quality_evaluate_deployment_gate(
+    const refmem_quality_runtime_table_t *table,
+    const refmem_quality_gate_threshold_t *threshold,
+    refmem_deployment_gate_entry_t *gate)
+{
+    if (gate != NULL) {
+        memset(gate, 0, sizeof(*gate));
+        gate->check_id = REFMEM_APP_GATE_QUALITY;
+        gate->required = 1u;
+        gate->fail_action = REFMEM_APP_GATE_LATCH_FAULT;
+        gate->last_state = REFMEM_APP_GATE_LATCH_FAULT;
+        gate->reject_code = REFMEM_QUALITY_GATE_BAD_ARGUMENT;
+    }
+    if (table == NULL || threshold == NULL || gate == NULL ||
+        table->entry_count > REFMEM_QUALITY_RUNTIME_ENTRY_COUNT) {
+        return false;
+    }
+
+    if (table->entry_count == 0u) {
+        gate->reject_code = REFMEM_QUALITY_GATE_NO_RUNTIME_ENTRY;
+        return true;
+    }
+
+    gate->last_state = REFMEM_APP_GATE_PASS;
+    gate->reject_code = REFMEM_QUALITY_GATE_OK;
+    for (uint32_t i = 0u; i < table->entry_count; i++) {
+        refmem_quality_gate_reason_t reason = REFMEM_QUALITY_GATE_OK;
+        if (!refmem_quality_entry_violates(&table->entry[i], threshold, &reason)) {
+            continue;
+        }
+        gate->last_state = gate->fail_action;
+        gate->reject_code = (uint32_t)reason;
+        gate->reject_node = table->entry[i].source_node;
+        gate->reject_slot = table->entry[i].target_node;
+        gate->reject_evidence_index = table->entry[i].evidence_index;
+        return true;
+    }
+    return true;
+}

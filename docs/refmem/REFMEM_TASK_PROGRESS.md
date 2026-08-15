@@ -8,6 +8,28 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-015 - Quality gate evaluator
+
+- 状态：完成基础件，SystemManager 接入待继续
+- 日期：2026-08-15
+- 任务目标：
+  - 在 TDMA runtime quality entry 已进入 `DistributedConnectionQualityTable` 派生视图后，提供表驱动的 `DeploymentGate.QUALITY` 消费入口。
+  - 避免 RUN gate 直接遍历 adapter、core1 mailbox 或 SCPI 查询结果。
+- 完成内容：
+  - `refmem_quality.h/.c` 增加 `refmem_quality_gate_threshold_t`、`refmem_quality_gate_reason_t` 和 `refmem_quality_evaluate_deployment_gate()`。
+  - evaluator 输入 `refmem_quality_runtime_table_t` 和阈值，输出 `refmem_deployment_gate_entry_t`，包含 `check_id=REFMEM_APP_GATE_QUALITY`、pass/reject 状态、reject reason、node/slot 和 evidence index。
+  - 当前 reason 覆盖 bad argument、empty runtime table、CRC、stale、late、drop、timeout 和 last_error。
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 明确 `DeploymentGate.QUALITY` 只能消费 quality evaluator 输出，不能直接读取底层 adapter 或 core1 mailbox。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_quality_tests.ps1` 通过 host GCC 断言执行。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815052521`，package CRC `0x346FB00F`。
+- 还需完成：
+  - 将 quality gate evaluator 接入 `system_manager` config RUN gate，并补板端负向验证：TDMA timeout、late/drop 或 last_error 时拒绝 RUN 或 latch fault。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_quality.h`
+  - `components/distributed_refmem/src/refmem_quality.c`
+  - `tests/unit/test_refmem_quality.c`
+
 ### REFMEM-TASK-20260815-014 - TDMA quality runtime mapping
 
 - 状态：完成
