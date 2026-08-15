@@ -15,11 +15,13 @@ static bool fake_transmit(void *context,
                           size_t frame_size,
                           refmem_spi_physical_role_t role,
                           uint32_t baud_hz,
+                          const refmem_spi_physical_pin_config_t *pins,
                           uint32_t deadline_us,
                           refmem_realtime_tdma_exec_status_t *status)
 {
     (void)frame;
     (void)baud_hz;
+    (void)pins;
     (void)deadline_us;
     fake_ops_context_t *fake = (fake_ops_context_t *)context;
     fake->tx_calls++;
@@ -36,12 +38,14 @@ static bool fake_receive(void *context,
                          size_t frame_capacity,
                          refmem_spi_physical_role_t role,
                          uint32_t baud_hz,
+                         const refmem_spi_physical_pin_config_t *pins,
                          uint32_t deadline_us,
                          refmem_realtime_tdma_exec_status_t *status)
 {
     (void)frame;
     (void)frame_capacity;
     (void)baud_hz;
+    (void)pins;
     (void)deadline_us;
     fake_ops_context_t *fake = (fake_ops_context_t *)context;
     fake->rx_calls++;

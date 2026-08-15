@@ -132,6 +132,16 @@ def expect_response_frame(response: str, expected_type: int) -> tuple[bool, str]
     return True, "OK"
 
 
+def expect_tdma_tx(response: str) -> tuple[bool, str]:
+    fields = parse_csv(response)
+    if not fields or fields[0].strip('"') != "ACCEPTED":
+        return False, f"tdma tx not accepted: {response}"
+    ints = parse_ints(response)
+    if len(ints) < 2 or ints[0] == 0 or ints[1] == 0:
+        return False, f"tdma tx response too short: {response}"
+    return True, "OK"
+
+
 def expect_rx(response: str, expected_type: int, expected_source: int) -> tuple[bool, str]:
     fields = parse_csv(response)
     if not fields or fields[0].strip('"') != "ACCEPTED":
@@ -151,6 +161,31 @@ def expect_rx(response: str, expected_type: int, expected_source: int) -> tuple[
     if source_slot != expected_source:
         return False, f"rx source {source_slot} != {expected_source}"
     return True, "OK"
+
+
+def extract_frame_hex(response: str) -> str:
+    fields = parse_csv(response)
+    if not fields or fields[0].strip('"') != "OK":
+        raise RuntimeError(f"frame builder did not return OK: {response}")
+    frame_hex = fields[-1].strip().strip('"')
+    if not frame_hex or not re.fullmatch(r"[0-9A-Fa-f]+", frame_hex):
+        raise RuntimeError(f"frame builder response has no frame hex: {response}")
+    return frame_hex
+
+
+def spi_command_to_frame_builder(command: str) -> str:
+    replacements = {
+        "SYSTem:REFMEM:SYNC:SPI:HELLo": "SYSTem:REFMEM:SYNC:HELLo?",
+        "SYSTem:REFMEM:SYNC:SPI:EPOCh": "SYSTem:REFMEM:SYNC:EPOCh?",
+        "SYSTem:REFMEM:SYNC:SPI:DELTa": "SYSTem:REFMEM:SYNC:DELTa?",
+        "SYSTem:REFMEM:SYNC:SPI:ACK": "SYSTem:REFMEM:SYNC:ACK?",
+        "SYSTem:REFMEM:SYNC:SPI:FENCe": "SYSTem:REFMEM:SYNC:FENCe?",
+        "SYSTem:REFMEM:SYNC:SPI:QUALity:FRAMe": "SYSTem:REFMEM:SYNC:QUALity:FRAMe?",
+    }
+    for old, new in replacements.items():
+        if command.startswith(old):
+            return new + command[len(old):]
+    raise RuntimeError(f"cannot map SPI command to frame builder: {command}")
 
 
 def raw_checksum(seed: int, count: int) -> int:
@@ -316,6 +351,63 @@ def exchange(name: str,
                           tx_response, rx_response, passed, reason)
 
 
+def tdma_exchange(name: str,
+                  sender_name: str,
+                  sender: serial.Serial,
+                  sender_pins: SpiPins,
+                  receiver_name: str,
+                  receiver: serial.Serial,
+                  receiver_pins: SpiPins,
+                  tx_command: str,
+                  expected_type: int,
+                  expected_source: int,
+                  baud: int,
+                  rx_timeout_ms: int,
+                  timeout_s: float) -> ExchangeResult:
+    frame_builder = spi_command_to_frame_builder(tx_command)
+    frame_response = query(sender, frame_builder, timeout_s)
+    try:
+        frame_hex = extract_frame_hex(frame_response)
+    except RuntimeError as exc:
+        return ExchangeResult(name, sender_name, receiver_name, frame_builder,
+                              frame_response, "<not-started>", False, str(exc))
+
+    rx_deadline_us = rx_timeout_ms * 1000
+    rx_command = (
+        "SYSTem:REFMEM:SYNC:TDMA:RX "
+        f"{rx_deadline_us},{baud},{receiver_pins.rx},{receiver_pins.csn},"
+        f"{receiver_pins.sck},{receiver_pins.tx}"
+    )
+    rx_start = query(receiver, rx_command, timeout_s)
+    if not rx_start.startswith('"ACCEPTED"'):
+        return ExchangeResult(name, sender_name, receiver_name, rx_command,
+                              frame_response, rx_start, False, "TDMA RX start failed")
+
+    time.sleep(0.05)
+    tdma_tx_command = (
+        "SYSTem:REFMEM:SYNC:TDMA:TX "
+        f"{frame_hex},{baud},{rx_deadline_us},{sender_pins.rx},{sender_pins.csn},"
+        f"{sender_pins.sck},{sender_pins.tx}"
+    )
+    tx_response = query(sender, tdma_tx_command, timeout_s)
+
+    deadline = time.monotonic() + timeout_s + (rx_timeout_ms / 1000.0) + 2.0
+    rx_response = "<tdma-frame-timeout>"
+    while time.monotonic() < deadline:
+        candidate = query(receiver, "SYSTem:REFMEM:SYNC:TDMA:FRAMe?", timeout_s)
+        if candidate.startswith('"ACCEPTED"') or candidate.startswith('"REJECTED"'):
+            rx_response = candidate
+            break
+        time.sleep(0.05)
+
+    tx_ok, tx_reason = expect_tdma_tx(tx_response)
+    rx_ok, rx_reason = expect_rx(rx_response, expected_type, expected_source)
+    passed = tx_ok and rx_ok
+    reason = "OK" if passed else f"{tx_reason}; {rx_reason}"
+    return ExchangeResult(name, sender_name, receiver_name, tdma_tx_command,
+                          tx_response, rx_response, passed, reason)
+
+
 def raw_exchange(name: str,
                  sender_name: str,
                  sender: serial.Serial,
@@ -361,6 +453,7 @@ def main() -> int:
     parser.add_argument("--port-a", default="COM5")
     parser.add_argument("--port-b", default="COM6")
     parser.add_argument("--baud", type=int, default=25000000)
+    parser.add_argument("--transport", choices=["spi", "tdma"], default="spi")
     parser.add_argument("--serial-baud", type=int, default=115200)
     parser.add_argument("--timeout-s", type=float, default=2.0)
     parser.add_argument("--rx-timeout-ms", type=int, default=3000)
@@ -459,10 +552,11 @@ def main() -> int:
 
         if not failures:
             for item in plan:
-                result = exchange(*item,
-                                  baud=args.baud,
-                                  rx_timeout_ms=args.rx_timeout_ms,
-                                  timeout_s=args.timeout_s)
+                exchange_fn = tdma_exchange if args.transport == "tdma" else exchange
+                result = exchange_fn(*item,
+                                     baud=args.baud,
+                                     rx_timeout_ms=args.rx_timeout_ms,
+                                     timeout_s=args.timeout_s)
                 results.append(result)
                 if not result.passed:
                     failures.append(f"{result.name}: {result.reason}")
@@ -476,6 +570,8 @@ def main() -> int:
         fence_b = query(ser_b, "SYSTem:REFMEM:SYNC:FENCe:STATus? 0", args.timeout_s)
         spi_a = query(ser_a, "SYSTem:REFMEM:SYNC:SPI:STATus?", args.timeout_s)
         spi_b = query(ser_b, "SYSTem:REFMEM:SYNC:SPI:STATus?", args.timeout_s)
+        tdma_a = query(ser_a, "SYSTem:REFMEM:SYNC:TDMA:STATus?", args.timeout_s)
+        tdma_b = query(ser_b, "SYSTem:REFMEM:SYNC:TDMA:STATus?", args.timeout_s)
         profiles = {"A": asdict(profile_a), "B": asdict(profile_b)}
         spi_pin_plan = {
             "a_master_to_b": asdict(a_master_to_b),
@@ -488,6 +584,7 @@ def main() -> int:
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "port_a": args.port_a,
         "port_b": args.port_b,
+        "transport": args.transport,
         "build_a": build_a,
         "build_b": build_b,
         "init_a": init_a,
@@ -507,6 +604,8 @@ def main() -> int:
         "fence_b_source_0": fence_b,
         "spi_a": spi_a,
         "spi_b": spi_b,
+        "tdma_a": tdma_a,
+        "tdma_b": tdma_b,
         "failures": failures,
         "passed": not failures,
     }

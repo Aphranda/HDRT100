@@ -68,6 +68,10 @@ static bool refmem_realtime_tdma_submit(refmem_realtime_tdma_service_t *service,
     service->intent_type = (uint32_t)intent;
     service->role = (uint32_t)config->role;
     service->baud_hz = config->baud_hz;
+    service->rx_pin = config->pins.rx_pin;
+    service->csn_pin = config->pins.csn_pin;
+    service->sck_pin = config->pins.sck_pin;
+    service->tx_pin = config->pins.tx_pin;
     service->deadline_us = config->deadline_us;
     service->frame_size = (uint32_t)config->frame_size;
     if (config->frame_size != 0u && config->frame != NULL) {
@@ -165,6 +169,7 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
     uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX];
     uint32_t intent_type;
     refmem_spi_physical_role_t role;
+    refmem_spi_physical_pin_config_t pins;
     uint32_t baud_hz;
     uint32_t deadline_us;
     size_t frame_size;
@@ -175,6 +180,10 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
         }
         intent_type = service->intent_type;
         role = (refmem_spi_physical_role_t)service->role;
+        pins.rx_pin = service->rx_pin;
+        pins.csn_pin = service->csn_pin;
+        pins.sck_pin = service->sck_pin;
+        pins.tx_pin = service->tx_pin;
         baud_hz = service->baud_hz;
         deadline_us = service->deadline_us;
         frame_size = (size_t)service->frame_size;
@@ -205,6 +214,7 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
                                     frame_size,
                                     role,
                                     baud_hz,
+                                    &pins,
                                     deadline_us,
                                     &exec_status);
     } else if (intent_type == REFMEM_REALTIME_TDMA_INTENT_RX_WINDOW) {
@@ -213,6 +223,7 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
                                    sizeof(frame),
                                    role,
                                    baud_hz,
+                                   &pins,
                                    deadline_us,
                                    &exec_status);
     } else {
@@ -268,6 +279,10 @@ bool refmem_realtime_tdma_get_snapshot(const refmem_realtime_tdma_service_t *ser
         snapshot->intent_type = service->intent_type;
         snapshot->role = service->role;
         snapshot->baud_hz = service->baud_hz;
+        snapshot->rx_pin = service->rx_pin;
+        snapshot->csn_pin = service->csn_pin;
+        snapshot->sck_pin = service->sck_pin;
+        snapshot->tx_pin = service->tx_pin;
         snapshot->deadline_us = service->deadline_us;
         snapshot->frame_size = service->frame_size;
         snapshot->reject_count = service->reject_count;

@@ -54,6 +54,7 @@ typedef struct {
                      size_t frame_size,
                      refmem_spi_physical_role_t role,
                      uint32_t baud_hz,
+                     const refmem_spi_physical_pin_config_t *pins,
                      uint32_t deadline_us,
                      refmem_realtime_tdma_exec_status_t *status);
     bool (*receive)(void *context,
@@ -61,6 +62,7 @@ typedef struct {
                     size_t frame_capacity,
                     refmem_spi_physical_role_t role,
                     uint32_t baud_hz,
+                    const refmem_spi_physical_pin_config_t *pins,
                     uint32_t deadline_us,
                     refmem_realtime_tdma_exec_status_t *status);
 } refmem_realtime_tdma_ops_t;
@@ -78,6 +80,10 @@ typedef struct {
     uint32_t intent_type;
     uint32_t role;
     uint32_t baud_hz;
+    uint32_t rx_pin;
+    uint32_t csn_pin;
+    uint32_t sck_pin;
+    uint32_t tx_pin;
     uint32_t deadline_us;
     uint32_t frame_size;
     uint32_t ready_count;
@@ -94,6 +100,7 @@ typedef struct {
     uint32_t deadline_us;
     refmem_spi_physical_role_t role;
     uint32_t baud_hz;
+    refmem_spi_physical_pin_config_t pins;
     const uint8_t *frame;
     size_t frame_size;
 } refmem_realtime_tdma_intent_config_t;
@@ -110,6 +117,10 @@ typedef struct {
     volatile uint32_t intent_type;
     volatile uint32_t role;
     volatile uint32_t baud_hz;
+    volatile uint32_t rx_pin;
+    volatile uint32_t csn_pin;
+    volatile uint32_t sck_pin;
+    volatile uint32_t tx_pin;
     volatile uint32_t deadline_us;
     volatile uint32_t frame_size;
     volatile uint32_t reject_count;

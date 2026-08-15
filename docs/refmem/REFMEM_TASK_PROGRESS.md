@@ -23,13 +23,16 @@ Last updated: 2026-08-15
   - TDMA service 增加 RX result frame 缓存和只读 API；收到的 frame 不写入向量表大数据，后续由 RefMem Sync owner 读取并进入协议 decode/quality。
   - `distributed_refmem_init()` 初始化 TDMA service，`app_realtime_run_once()` 通过 `distributed_refmem_realtime_run_once()` 在 core1 循环中推进。
   - 新增维护查询 `SYSTem:REFMEM:SYNC:TDMA:STATus?`，只读取 snapshot，不直接驱动硬件动作。
+  - 新增维护入口 `SYSTem:REFMEM:SYNC:TDMA:TX/RX/FRAMe?/ABORt`：`TX/RX` 只 post intent，`FRAMe?` 读取 core1 result frame 并交给 RefMem Sync receive state machine。
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 增加 `--transport tdma`，在现有线序 remap 和 frame plan 基础上改走 TDMA intent 路径；RAW 仍保留为 SPI line diagnostic。
   - 新增 `tests/unit/test_refmem_realtime_tdma.c` 和 `tools/tests/run_refmem_realtime_tdma_tests.ps1`。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过 host gcc 断言执行。
-  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815035323`，package CRC `0x2F031D72`。
+  - `python -m py_compile tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815040106`，package CRC `0xE67D0C6D`。
 - 后续：
-  - 将 `SYSTem:REFMEM:SYNC:SPI:*` 的帧级阻塞维护路径改为 post TDMA intent + 查询 TDMA/quality snapshot。
-  - 增加 TDMA service HIL：两板不再由 SCPI 在每帧前后阻塞等待，而是由 core1 service 运行 PIO+DMA。
+  - 用 COM5/COM6 执行 `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6 --transport tdma --out-dir build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_tdma`。
+  - TDMA HIL 通过后再收敛或删除 `SYSTem:REFMEM:SYNC:SPI:*` 的帧级阻塞命令。
 
 ### REFMEM-TASK-20260815-010 - P4.5 PIO+DMA physical adapter 25 MHz 闭环
 

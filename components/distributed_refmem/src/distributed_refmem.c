@@ -61,6 +61,7 @@ static bool distributed_refmem_tdma_transmit(void *context,
                                              size_t frame_size,
                                              refmem_spi_physical_role_t role,
                                              uint32_t baud_hz,
+                                             const refmem_spi_physical_pin_config_t *pins,
                                              uint32_t deadline_us,
                                              refmem_realtime_tdma_exec_status_t *status)
 {
@@ -68,7 +69,7 @@ static bool distributed_refmem_tdma_transmit(void *context,
     refmem_spi_physical_adapter_t *adapter = (refmem_spi_physical_adapter_t *)context;
     if (adapter == NULL || status == NULL ||
         role != REFMEM_SPI_PHYSICAL_ROLE_MASTER ||
-        !refmem_spi_physical_adapter_arm(adapter, role, baud_hz, NULL)) {
+        !refmem_spi_physical_adapter_arm(adapter, role, baud_hz, pins)) {
         if (status != NULL) {
             status->result = REFMEM_REALTIME_TDMA_EXEC_ERROR;
             status->error = REFMEM_REALTIME_TDMA_RESULT_BAD_ARGUMENT;
@@ -91,13 +92,14 @@ static bool distributed_refmem_tdma_receive(void *context,
                                             size_t frame_capacity,
                                             refmem_spi_physical_role_t role,
                                             uint32_t baud_hz,
+                                            const refmem_spi_physical_pin_config_t *pins,
                                             uint32_t deadline_us,
                                             refmem_realtime_tdma_exec_status_t *status)
 {
     refmem_spi_physical_adapter_t *adapter = (refmem_spi_physical_adapter_t *)context;
     if (adapter == NULL || status == NULL ||
         role != REFMEM_SPI_PHYSICAL_ROLE_SLAVE ||
-        !refmem_spi_physical_adapter_arm(adapter, role, baud_hz, NULL)) {
+        !refmem_spi_physical_adapter_arm(adapter, role, baud_hz, pins)) {
         if (status != NULL) {
             status->result = REFMEM_REALTIME_TDMA_EXEC_ERROR;
             status->error = REFMEM_REALTIME_TDMA_RESULT_BAD_ARGUMENT;
