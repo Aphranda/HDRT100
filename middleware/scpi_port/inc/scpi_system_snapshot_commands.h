@@ -45,6 +45,7 @@ scpi_result_t scpi_cmd_refmem_sync_quality_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_peer_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_quality_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_adapter_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_core_vector_q(scpi_t *context);
 scpi_result_t scpi_cmd_runtime_protection_q(scpi_t *context);
 scpi_result_t scpi_cmd_config_gate_status_q(scpi_t *context);
@@ -110,6 +111,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:SYNC:PEER?", .callback = scpi_cmd_refmem_sync_peer_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:QUALity?", .callback = scpi_cmd_refmem_sync_quality_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:ADAPter?", .callback = scpi_cmd_refmem_sync_adapter_q}, \
+    {.pattern = "SYSTem:REFMEM:SYNC:TDMA:STATus?", .callback = scpi_cmd_refmem_sync_tdma_status_q}, \
     {.pattern = "SYSTem:CORE:VECTOR?", .callback = scpi_cmd_core_vector_q}, \
     {.pattern = "SYSTem:PROTection:STATus?", .callback = scpi_cmd_runtime_protection_q}, \
     {.pattern = "SYSTem:MODE:TABle?", .callback = scpi_cmd_system_mode_table_q}, \

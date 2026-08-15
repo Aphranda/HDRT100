@@ -1803,6 +1803,36 @@ scpi_result_t scpi_cmd_refmem_sync_adapter_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
+{
+    refmem_realtime_tdma_snapshot_t snapshot;
+    if (!distributed_refmem_get_realtime_tdma(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.owner_core);
+    SCPI_ResultUInt32(context, snapshot.armed);
+    SCPI_ResultUInt32(context, snapshot.service_count);
+    SCPI_ResultUInt32(context, snapshot.intent_seq);
+    SCPI_ResultUInt32(context, snapshot.completed_seq);
+    SCPI_ResultUInt32(context, snapshot.dropped_seq);
+    SCPI_ResultUInt32(context, snapshot.window_epoch);
+    SCPI_ResultUInt32(context, snapshot.window_index);
+    SCPI_ResultUInt32(context, snapshot.intent_type);
+    SCPI_ResultUInt32(context, snapshot.role);
+    SCPI_ResultUInt32(context, snapshot.baud_hz);
+    SCPI_ResultUInt32(context, snapshot.deadline_us);
+    SCPI_ResultUInt32(context, snapshot.frame_size);
+    SCPI_ResultUInt32(context, snapshot.ready_count);
+    SCPI_ResultUInt32(context, snapshot.timeout_count);
+    SCPI_ResultUInt32(context, snapshot.overrun_count);
+    SCPI_ResultUInt32(context, snapshot.reject_count);
+    SCPI_ResultUInt32(context, snapshot.last_result);
+    SCPI_ResultUInt32(context, snapshot.last_error);
+    return SCPI_RES_OK;
+}
+
 static bool scpi_refmem_wait_storage_job(uint32_t job_id)
 {
     for (uint32_t i = 0u; i < SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS; i++) {

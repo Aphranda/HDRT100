@@ -176,6 +176,7 @@ void app_storage_service(void)
 void app_realtime_run_once(void)
 {
     diagnostics_record_core1_loop();
+    distributed_refmem_realtime_run_once();
     model_turntable_service();
     sync_trigger_service();
     trigger_measure_service();   /* 同步自检: 门控测量非阻塞服务 */

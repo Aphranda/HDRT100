@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "refmem_realtime_tdma.h"
+
 #define DISTRIBUTED_REFMEM_TABLE_SIZE       65536u
 #define DISTRIBUTED_REFMEM_LAYOUT_VERSION   1u
 #define DISTRIBUTED_REFMEM_NODE_COUNT       8u
@@ -133,9 +135,19 @@ typedef struct {
 
 bool distributed_refmem_init(void);
 void distributed_refmem_service(void);
+void distributed_refmem_realtime_run_once(void);
 void distributed_refmem_get_status(distributed_refmem_status_t *status);
 bool distributed_refmem_get_node(uint32_t node_id, distributed_refmem_node_snapshot_t *snapshot);
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot);
 void distributed_refmem_get_runtime_protection(distributed_refmem_runtime_protection_snapshot_t *snapshot);
+bool distributed_refmem_get_realtime_tdma(refmem_realtime_tdma_snapshot_t *snapshot);
+bool distributed_refmem_get_realtime_tdma_frame(uint8_t *frame,
+                                               size_t frame_capacity,
+                                               size_t *frame_size);
+bool distributed_refmem_submit_realtime_tdma_tx(
+    const refmem_realtime_tdma_intent_config_t *config);
+bool distributed_refmem_submit_realtime_tdma_rx(
+    const refmem_realtime_tdma_intent_config_t *config);
+void distributed_refmem_abort_realtime_tdma(void);
 
 #endif

@@ -8,6 +8,29 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-011 - P4.5 core1 TDMA service contract 收敛
+
+- 状态：完成 service contract、physical ops 绑定与构建闭环；SCPI 维护路径迁移和 HIL 待继续
+- 日期：2026-08-15
+- 任务目标：
+  - 将当前 PIO+DMA physical adapter 从“只有 SCPI 维护命令能表达状态”向 HAOFV 的 RefMemAO/core1 realtime TDMA service 边界收敛。
+  - 先建立 core0 intent 与 core1 result 的字段归属，避免跨核共享状态双 writer。
+- 完成内容：
+  - 新增 `components/distributed_refmem/inc/refmem_realtime_tdma.h` 和 `components/distributed_refmem/src/refmem_realtime_tdma.c`。
+  - service 使用双 guard：core0 writer 只更新 intent mailbox、frame staging 和 reject counter；core1 writer 只更新 runtime/result snapshot、completed seq、ready/timeout/overrun/error counter。
+  - TDMA service 增加 physical ops 边界，避免把具体总线实现写死在基础状态机中；host 单测使用 fake ops，固件使用 PIO+DMA physical adapter wrapper。
+  - `DistributedRefMemAO` 绑定 `refmem_spi_physical_adapter_transmit/receive`，core1 service 可按 intent role、baud 和 deadline 调用真实 PIO+DMA TX/RX。
+  - TDMA service 增加 RX result frame 缓存和只读 API；收到的 frame 不写入向量表大数据，后续由 RefMem Sync owner 读取并进入协议 decode/quality。
+  - `distributed_refmem_init()` 初始化 TDMA service，`app_realtime_run_once()` 通过 `distributed_refmem_realtime_run_once()` 在 core1 循环中推进。
+  - 新增维护查询 `SYSTem:REFMEM:SYNC:TDMA:STATus?`，只读取 snapshot，不直接驱动硬件动作。
+  - 新增 `tests/unit/test_refmem_realtime_tdma.c` 和 `tools/tests/run_refmem_realtime_tdma_tests.ps1`。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过 host gcc 断言执行。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815035323`，package CRC `0x2F031D72`。
+- 后续：
+  - 将 `SYSTem:REFMEM:SYNC:SPI:*` 的帧级阻塞维护路径改为 post TDMA intent + 查询 TDMA/quality snapshot。
+  - 增加 TDMA service HIL：两板不再由 SCPI 在每帧前后阻塞等待，而是由 core1 service 运行 PIO+DMA。
+
 ### REFMEM-TASK-20260815-010 - P4.5 PIO+DMA physical adapter 25 MHz 闭环
 
 - 状态：完成当前 HIL；core1 TDMA service 化待继续

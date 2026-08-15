@@ -5,9 +5,13 @@
 #include "project_config.h"
 
 #include "refmem_application_model.h"
+#include "refmem_realtime_tdma.h"
+#include "refmem_spi_physical_adapter.h"
 #include "refmem_vector_table.h"
 
 static refmem_vector_table_t s_distributed_refmem_table __attribute__((aligned(4)));
+static refmem_realtime_tdma_service_t s_refmem_realtime_tdma;
+static refmem_spi_physical_adapter_t s_refmem_realtime_spi;
 static distributed_refmem_status_t s_status;
 static uint32_t s_service_count;
 static bool s_initialized;
@@ -41,6 +45,80 @@ static void distributed_refmem_publish_status_locked(void)
 static uint32_t distributed_refmem_header_crc_locked(void)
 {
     return refmem_vector_header_crc(&s_distributed_refmem_table);
+}
+
+static uint32_t distributed_refmem_deadline_us_to_ms(uint32_t deadline_us)
+{
+    if (deadline_us == 0u) {
+        return 1u;
+    }
+    const uint32_t rounded_ms = (deadline_us + 999u) / 1000u;
+    return rounded_ms == 0u ? 1u : rounded_ms;
+}
+
+static bool distributed_refmem_tdma_transmit(void *context,
+                                             const uint8_t *frame,
+                                             size_t frame_size,
+                                             refmem_spi_physical_role_t role,
+                                             uint32_t baud_hz,
+                                             uint32_t deadline_us,
+                                             refmem_realtime_tdma_exec_status_t *status)
+{
+    (void)deadline_us;
+    refmem_spi_physical_adapter_t *adapter = (refmem_spi_physical_adapter_t *)context;
+    if (adapter == NULL || status == NULL ||
+        role != REFMEM_SPI_PHYSICAL_ROLE_MASTER ||
+        !refmem_spi_physical_adapter_arm(adapter, role, baud_hz, NULL)) {
+        if (status != NULL) {
+            status->result = REFMEM_REALTIME_TDMA_EXEC_ERROR;
+            status->error = REFMEM_REALTIME_TDMA_RESULT_BAD_ARGUMENT;
+        }
+        return false;
+    }
+
+    const bool ok = refmem_spi_physical_adapter_transmit(adapter, frame, frame_size);
+    refmem_spi_physical_snapshot_t snapshot;
+    (void)refmem_spi_physical_adapter_get_snapshot(adapter, &snapshot);
+    status->frame_size = frame_size;
+    status->error = snapshot.last_error;
+    status->result = ok ? REFMEM_REALTIME_TDMA_EXEC_TX_OK
+                        : REFMEM_REALTIME_TDMA_EXEC_ERROR;
+    return ok;
+}
+
+static bool distributed_refmem_tdma_receive(void *context,
+                                            uint8_t *frame,
+                                            size_t frame_capacity,
+                                            refmem_spi_physical_role_t role,
+                                            uint32_t baud_hz,
+                                            uint32_t deadline_us,
+                                            refmem_realtime_tdma_exec_status_t *status)
+{
+    refmem_spi_physical_adapter_t *adapter = (refmem_spi_physical_adapter_t *)context;
+    if (adapter == NULL || status == NULL ||
+        role != REFMEM_SPI_PHYSICAL_ROLE_SLAVE ||
+        !refmem_spi_physical_adapter_arm(adapter, role, baud_hz, NULL)) {
+        if (status != NULL) {
+            status->result = REFMEM_REALTIME_TDMA_EXEC_ERROR;
+            status->error = REFMEM_REALTIME_TDMA_RESULT_BAD_ARGUMENT;
+        }
+        return false;
+    }
+
+    size_t frame_size = 0u;
+    const bool ok = refmem_spi_physical_adapter_receive(
+        adapter,
+        frame,
+        frame_capacity,
+        &frame_size,
+        distributed_refmem_deadline_us_to_ms(deadline_us));
+    refmem_spi_physical_snapshot_t snapshot;
+    (void)refmem_spi_physical_adapter_get_snapshot(adapter, &snapshot);
+    status->frame_size = frame_size;
+    status->error = snapshot.last_error;
+    status->result = ok ? REFMEM_REALTIME_TDMA_EXEC_RX_OK
+                        : REFMEM_REALTIME_TDMA_EXEC_TIMEOUT;
+    return ok;
 }
 
 static void distributed_refmem_refresh_directory_flags_locked(void)
@@ -130,6 +208,18 @@ bool distributed_refmem_init(void)
     if (!refmem_application_model_init()) {
         return false;
     }
+    if (!refmem_realtime_tdma_init(&s_refmem_realtime_tdma)) {
+        return false;
+    }
+    static const refmem_realtime_tdma_ops_t tdma_ops = {
+        .transmit = distributed_refmem_tdma_transmit,
+        .receive = distributed_refmem_tdma_receive,
+    };
+    if (!refmem_realtime_tdma_bind_ops(&s_refmem_realtime_tdma,
+                                       &tdma_ops,
+                                       &s_refmem_realtime_spi)) {
+        return false;
+    }
 
     osal_critical_enter();
 
@@ -174,6 +264,15 @@ bool distributed_refmem_init(void)
     return true;
 }
 
+void distributed_refmem_realtime_run_once(void)
+{
+    if (!s_initialized) {
+        return;
+    }
+
+    refmem_realtime_tdma_core1_service(&s_refmem_realtime_tdma);
+}
+
 void distributed_refmem_service(void)
 {
     if (!s_initialized) {
@@ -197,6 +296,38 @@ void distributed_refmem_service(void)
     distributed_refmem_publish_status_locked();
 
     osal_critical_exit();
+}
+
+bool distributed_refmem_get_realtime_tdma(refmem_realtime_tdma_snapshot_t *snapshot)
+{
+    return refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, snapshot);
+}
+
+bool distributed_refmem_get_realtime_tdma_frame(uint8_t *frame,
+                                               size_t frame_capacity,
+                                               size_t *frame_size)
+{
+    return refmem_realtime_tdma_get_result_frame(&s_refmem_realtime_tdma,
+                                                frame,
+                                                frame_capacity,
+                                                frame_size);
+}
+
+bool distributed_refmem_submit_realtime_tdma_tx(
+    const refmem_realtime_tdma_intent_config_t *config)
+{
+    return refmem_realtime_tdma_submit_tx(&s_refmem_realtime_tdma, config);
+}
+
+bool distributed_refmem_submit_realtime_tdma_rx(
+    const refmem_realtime_tdma_intent_config_t *config)
+{
+    return refmem_realtime_tdma_submit_rx(&s_refmem_realtime_tdma, config);
+}
+
+void distributed_refmem_abort_realtime_tdma(void)
+{
+    refmem_realtime_tdma_abort(&s_refmem_realtime_tdma);
 }
 
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot)

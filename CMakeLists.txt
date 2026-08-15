@@ -184,6 +184,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_claim_protocol.c
         components/distributed_refmem/src/refmem_pio_spi_adapter.c
         components/distributed_refmem/src/refmem_quality.c
+        components/distributed_refmem/src/refmem_realtime_tdma.c
         components/distributed_refmem/src/refmem_realtime_contract.c
         components/distributed_refmem/src/refmem_spi_physical_adapter.c
         components/distributed_refmem/src/refmem_slot_claim.c
