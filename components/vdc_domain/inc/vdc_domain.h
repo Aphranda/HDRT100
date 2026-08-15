@@ -266,6 +266,7 @@ typedef struct {
     uint32_t last_reject_code;
     uint32_t last_sample_seq;
     int32_t last_phase_error_ns;
+    int32_t last_frequency_error_ppb;
     int32_t last_offset_ns;
     uint32_t rms_offset_ns;
     uint32_t max_abs_offset_ns;
@@ -273,6 +274,8 @@ typedef struct {
     uint32_t holdover_age_1e3ns;
     uint32_t schedule_crc32;
     uint32_t servo_profile_crc32;
+    uint64_t last_expected_window_start_ns;
+    uint64_t last_observed_time_ns;
 } vdc_dpll_state_t;
 
 typedef struct {

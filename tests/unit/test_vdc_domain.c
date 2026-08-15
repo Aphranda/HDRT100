@@ -471,6 +471,12 @@ static int test_context_accepts_samples_until_locked(void)
     failed += expect_i32("budget last offset",
                          snapshot.error_budget.last_offset_ns,
                          10);
+    failed += expect_i32("clock phase from dpll",
+                         snapshot.clock.phase_offset_ns,
+                         -10);
+    failed += expect_i32("dco phase from dpll",
+                         snapshot.dco.phase_offset_ns,
+                         -10);
     failed += expect_u32("budget root distance",
                          snapshot.error_budget.root_distance_ns,
                          15u);
@@ -491,6 +497,38 @@ static int test_context_accepts_samples_until_locked(void)
     failed += expect_u32("quality reject code",
                          snapshot.quality.gate_reject_code,
                          VDC_DOMAIN_GATE_REFERENCE_MISMATCH);
+    return failed;
+}
+
+static int test_dpll_updates_clock_rate_from_sample_period(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_tdma_timestamp_evidence_t first;
+    vdc_tdma_timestamp_evidence_t second;
+
+    failed += expect_bool("init rate", vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+
+    first = make_hardware_sample(&context.schedule, 1u, 0);
+    second = make_hardware_sample(&context.schedule, 11u, 1);
+    failed += expect_bool("submit first rate sample",
+                          vdc_domain_submit_tdma_evidence(&context, &first),
+                          true);
+    failed += expect_bool("submit second rate sample",
+                          vdc_domain_submit_tdma_evidence(&context, &second),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("frequency error ppb",
+                         snapshot.dpll.last_frequency_error_ppb,
+                         100);
+    failed += expect_i32("clock period adjust ppb",
+                         snapshot.clock.period_adjust_ppb,
+                         -100);
+    failed += expect_i32("budget frequency ppb",
+                         snapshot.error_budget.freq_offset_ppb,
+                         100);
     return failed;
 }
 
@@ -527,6 +565,7 @@ int main(void)
     failed += test_dco_control_contract();
     failed += test_context_accepts_samples_until_locked();
     failed += test_quality_age_updates_on_service();
+    failed += test_dpll_updates_clock_rate_from_sample_period();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);
         return 1;

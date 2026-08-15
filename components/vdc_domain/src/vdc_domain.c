@@ -142,6 +142,29 @@ static uint32_t vdc_domain_avg_u32(uint32_t previous, uint32_t sample)
     return previous == 0u ? sample : (previous + sample) / 2u;
 }
 
+static int32_t vdc_domain_clamp_i64_to_i32(int64_t value)
+{
+    if (value > INT32_MAX) {
+        return INT32_MAX;
+    }
+    if (value < INT32_MIN) {
+        return INT32_MIN;
+    }
+    return (int32_t)value;
+}
+
+static int32_t vdc_domain_clamp_ppb(int64_t value, uint32_t limit_ppb)
+{
+    const int64_t limit = (int64_t)limit_ppb;
+    if (value > limit) {
+        return (int32_t)limit;
+    }
+    if (value < -limit) {
+        return (int32_t)-limit;
+    }
+    return vdc_domain_clamp_i64_to_i32(value);
+}
+
 static uint64_t vdc_domain_evidence_time_ns(
     const vdc_tdma_timestamp_evidence_t *evidence)
 {
@@ -301,6 +324,60 @@ static void vdc_domain_record_accepted_sample(
     context->error_budget.dispersion_ns = evidence->jitter_ns;
     context->error_budget.root_distance_ns = root_distance;
     vdc_domain_refresh_quality_state(context);
+}
+
+static void vdc_domain_update_clock_from_evidence(
+    vdc_domain_context_t *context,
+    const vdc_tdma_timestamp_evidence_t *evidence)
+{
+    if (context == NULL || evidence == NULL) {
+        return;
+    }
+
+    int32_t frequency_error_ppb = context->dpll.last_frequency_error_ppb;
+    if (context->dpll.accepted_sample_count > 1u &&
+        evidence->expected_window_start_ns >
+            context->dpll.last_expected_window_start_ns &&
+        evidence->observed_time_ns > context->dpll.last_observed_time_ns) {
+        const uint64_t expected_delta =
+            evidence->expected_window_start_ns -
+            context->dpll.last_expected_window_start_ns;
+        const uint64_t observed_delta =
+            evidence->observed_time_ns -
+            context->dpll.last_observed_time_ns;
+        const int64_t delta_error =
+            (int64_t)observed_delta - (int64_t)expected_delta;
+        const int64_t raw_ppb =
+            (delta_error * 1000000000ll) / (int64_t)expected_delta;
+        frequency_error_ppb =
+            vdc_domain_clamp_ppb(raw_ppb,
+                                 context->servo.sanity_freq_limit_ppb);
+    }
+
+    context->dpll.last_frequency_error_ppb = frequency_error_ppb;
+    context->dpll.last_expected_window_start_ns =
+        evidence->expected_window_start_ns;
+    context->dpll.last_observed_time_ns = evidence->observed_time_ns;
+
+    context->clock.valid = 1u;
+    context->clock.model_seq++;
+    context->clock.epoch_id = context->schedule.schedule_epoch;
+    context->clock.base_local_tick64 = evidence->observed_time_ns;
+    context->clock.base_vdc_time64_ns = evidence->observed_time_ns;
+    context->clock.nominal_period_ns = context->schedule.period_ns;
+    context->clock.phase_offset_ns = -evidence->phase_error_ns;
+    context->clock.period_adjust_ppb = -frequency_error_ppb;
+    context->clock.tdma_schedule_crc32 = context->schedule.schedule_crc32;
+    context->clock.servo_profile_crc32 = context->servo.servo_profile_crc32;
+
+    vdc_domain_default_dco_control(&context->dco,
+                                   &context->clock,
+                                   context->dpll.state);
+    context->dco.dco_update_seq++;
+    context->dpll.update_seq++;
+
+    context->error_budget.freq_offset_ppb = frequency_error_ppb;
+    context->error_budget.freq_skew_ppb = vdc_domain_abs_i32(frequency_error_ppb);
 }
 
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
@@ -1041,6 +1118,7 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
         context->dpll.state = VDC_DOMAIN_LOCK_LOCKED;
     }
 
+    vdc_domain_update_clock_from_evidence(context, evidence);
     vdc_domain_record_accepted_sample(context, evidence);
     return true;
 }

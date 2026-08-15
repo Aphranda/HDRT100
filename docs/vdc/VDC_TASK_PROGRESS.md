@@ -43,6 +43,35 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-012 - DPLL sample commits VDC clock and DCO snapshot
+
+- 状态：完成 host/build 验证；真实 servo 和硬件 timestamp latch 待后续实现
+- 日期：2026-08-16
+- 任务目标：
+  - 让 DPLL accepted sample 形成实质性的 VDC clock model 输出，而不是只推进 lock state 计数。
+  - 保持 HAOFV 边界：`SyncDpllFB` / VDC owner 是 `offset/rate/lock` 唯一 writer，RefMem 和 core1/PIO 不写 clock model。
+- 完成内容：
+  - `vdc_dpll_state_t` 增加 `last_frequency_error_ppb`、`last_expected_window_start_ns` 和 `last_observed_time_ns`。
+  - accepted hardware sample 后，VDC owner 根据 `phase_error_ns` 更新 `VdcClockModel.phase_offset_ns`，并同步派生 `VdcDcoControl`。
+  - 连续样本之间通过 expected/observed period delta 估算 `frequency_error_ppb`，按 servo sanity limit 限幅，并写入 `clock.period_adjust_ppb` 和 `VdcErrorBudget.freq_offset_ppb/freq_skew_ppb`。
+  - 单元测试覆盖 phase offset 写入 clock/DCO，以及 10 ms 样本间隔下的 100 ppb frequency error 估算。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815192045`，package CRC `0xFC02E459`。
+- 还需完成：
+  - 将该首版 period/phase 更新替换或升级为 `SyncDpllFB` 内部 PI/linreg servo。
+  - 增加 outlier gate、servo reset、step/slew policy 和 HOLDOVER/RELOCK 状态迁移。
+  - 接入硬件 timestamp latch 后，禁止诊断 timestamp 进入该更新路径。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 提交推送后进入硬件 timestamp latch 或 `SyncDpllFB` 组件化拆分。
+
 ### VDC-TASK-20260816-011 - RefMem TDMA consumes VDC data window plan
 
 - 状态：完成 host/build 验证；COM5/COM6 HIL 待后续烧录轮次执行
