@@ -8,6 +8,50 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-029 - TableRegistry per-table staging CRC gate
+
+- 状态：完成 COM5 板端闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 将 RefMem 主线从 `LOAD:SD => STAGED` 字符串检查推进到 TableRegistry per-table 证据检查。
+  - 验证 `.rmtp` package directory 中 9 张 canonical 表的 CRC 是否逐表进入 `SYSTem:REFMEM:TABle?` staging entry。
+  - 保持 HAOFV 边界：SCPI 只执行 `LOAD:SD` 意图和读取 snapshot，不直接写 active fact 或 TableRegistry。
+- 发现问题：
+  - COM5 旧 build 执行 `SYSTem:REFMEM:LOAD:SD` 后返回 `STAGED`，但 `SYSTem:REFMEM:TABle? 0` 的 `staging_crc32` 仍为整包 CRC `0xB27CF840`，不是 `ApplicationMap` 单表 CRC `0x60E14FD0`。
+  - 根因是 `DistributedRefMemAO` 将 package parser summary 交给 `RefMemTableRegistry` 时漏填 `validation.table_mask`，导致 `refmem_table_registry_stage_package_validation()` 拒绝 per-table validation summary，并退回旧的整包 CRC staging refresh。
+- 完成内容：
+  - `distributed_refmem_stage_sd_system_pack()` 补齐 `validation.table_mask = 0x1FF`，让 RefMemAO 向 TableRegistry 提交完整 9 表 package validation 事实。
+  - 新增 `tools/refmem_table_registry_validate/refmem_table_registry_validate.py`，读取本地 RMTP header/directory，校验 package/payload/table CRC，然后通过单次串口生命周期查询：
+    - `SYSTem:REFMEM:LOAD:SD`
+    - `SYSTem:COMMand:ACK?`
+    - `SYSTem:REFMEM:LOAD:STATus?`
+    - `SYSTem:REFMEM:TABle? 0..8`
+    - `SYSTem:ERRor?`
+  - 脚本断言 `staging_table_mask=0x1FF`、每表 `staging_crc32` 等于 RMTP directory CRC、`validation_state=OWNER_OK`、`STAGING_PRESENT|CRC_OK|OWNER_OK` flags 齐全。
+- 验证结果：
+  - `python -m py_compile tools\refmem_table_registry_validate\refmem_table_registry_validate.py` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815113037`，package CRC `0xFF54EA0C`。
+  - COM5 OTA 到 build `20260815113037` 并 `SYSTem:OTA:COMMit` 通过，错误队列为 0。
+  - COM5 执行 `python -u tools\refmem_table_registry_validate\refmem_table_registry_validate.py COM5 --package build-rtos-multicore-smoke\sdcard_full_tables_20260815110412\refmem\app_model.rmtp --load-sd --timeout 10 --load-timeout 30 --out-dir build-rtos-multicore-smoke\refmem_table_registry_COM5_20260815113037_r2` 通过。
+  - 验证通过的 9 表 staging CRC：
+    - ApplicationMap `0x60E14FD0`
+    - BoardCapability `0xCEFC3615`
+    - GenericNode `0xA1681310`
+    - NodeLoad `0x7D7762D1`
+    - FbInstance `0x1CC15A37`
+    - EventLink `0x5A4E36C8`
+    - DataLink `0xD7E24830`
+    - DeploymentGate `0x31FDBA68`
+    - ConnectionQuality `0xA67C64D1`
+- 结论：
+  - `LOAD:SD` 正向路径现在不只证明 package 能解析为 `STAGED`，还证明 TableRegistry 的 per-table staging 证据与 RMTP directory 一致。
+  - 真实 active/staging/rollbackable image buffer 仍未落地，activation 仍应保持 `IMAGE_NOT_LOADED` 阻断。
+- 后续动作：
+  - 继续 RefMem 主线 P0：实现真实 active/staging/rollbackable table image 切换和 owner validation callback 调度。
+  - 继续 P7：补无 SD、manifest 缺失、CRC 正确但 owner validation 失败、activation 失败回滚等验证。
+
 ### REFMEM-TASK-20260815-028 - Optimize LOAD:SD bounded read chunk
 
 - 状态：完成 COM5 板端闭环

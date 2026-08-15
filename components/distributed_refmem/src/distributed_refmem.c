@@ -793,6 +793,7 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
         validation.error = package_error;
         validation.package_crc32 = package_crc32;
         validation.table_count = REFMEM_TABLE_REGISTRY_COUNT;
+        validation.table_mask = (1u << REFMEM_TABLE_REGISTRY_COUNT) - 1u;
         validation.owner_validated_table_mask = owner_validated_table_mask;
         validation.first_bad_table = first_bad_table;
         for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {

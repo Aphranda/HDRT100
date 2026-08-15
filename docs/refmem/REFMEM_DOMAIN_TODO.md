@@ -287,7 +287,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - [x] COM5 覆盖 512B bounded read 优化后的 manifest OK + 9 表 package valid 正向路径：`LOAD:SD` 返回 `STAGED`，错误队列为 0。
   - [ ] 覆盖无 SD 路径。
   - [ ] 覆盖 manifest 缺失路径。
-  - [ ] 增加 TableRegistry per-table staging CRC 查询脚本化断言，避免只检查 `STAGED` 字符串。
+  - [x] 增加 TableRegistry per-table staging CRC 查询脚本化断言，避免只检查 `STAGED` 字符串；COM5 build `20260815113037` 已验证全 9 张表 staging CRC 与 RMTP directory 一致。
 - [x] 首轮优化 `SYSTem:REFMEM:LOAD:SD` 耗时：StorageAO 内部 bounded read 从 128B 提到 512B，4800B package 加载和状态查询在 COM5 上约 6.944 s。
 - [ ] 支线优化 `SYSTem:REFMEM:LOAD:SD` 耗时：当前 512B bounded read 路径已经可用，bounded stream read job 或更大的 StorageAO 读事务转为支线，不阻塞 RefMem 主线；实现时仍保持 SCPI 只发起意图。
 - [x] 复核无参 `SYSTem:REFMEM:LOAD:SD` 错误队列污染：本轮干净串行测试未复现，之前为 PC 侧引号错误/同 COM 并发访问导致的响应串扰。
