@@ -43,6 +43,40 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-006 - RefMem TDMA data frame to VDC envelope bridge
+
+- 状态：完成 host 验证；仍为诊断 timestamp，硬件 latch 待实现
+- 日期：2026-08-16
+- 任务目标：
+  - 将 COM5/COM6 已跑通的 RefMem TDMA data frame 纳入 VDC frame envelope/evidence 体系。
+  - 保持 HAOFV 边界：RefMem 只映射 payload/evidence，VDC gate 只校验时间契约，offset/rate 仍只能由 `VdcSyncAO / SyncDpllFB` 写。
+- 完成内容：
+  - 新增 `refmem_vdc_bridge` 基础件，把 `REFMEM_SYNC_FRAME_DELTA` 映射为 `VDC_DOMAIN_PAYLOAD_REFMEM_DELTA`，把 `ACK_NACK/FENCE/QUALITY` 映射为 `VDC_DOMAIN_PAYLOAD_ACK_NACK_FENCE_QUALITY`。
+  - 新增独立适配头 `distributed_refmem_vdc_bridge.h`，避免 `distributed_refmem.h` 直接依赖 VDC 主域头文件。
+  - 新增 `distributed_refmem_build_realtime_tdma_vdc_envelope()`，从最近 TDMA RX result frame 构造 `vdc_tdma_frame_envelope_t`。
+  - 新增维护查询 `SYSTem:REFMEM:SYNC:TDMA:VDC? [local_slot],[reference_slot]`，输出 bridge result、VDC gate result、frame/window/payload、CRC 和 timestamp 摘要。
+  - 诊断 timestamp 仍保持 `SOFTWARE_US`、`timestamp_resolution_ns=1000`、`DIAGNOSTIC_ONLY`，可通过 VDC frame envelope 质量检查，但要求 DPLL eligibility 时会被拒绝。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_vdc_bridge_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\checks\check_scpi_usb_namespace.py --root .` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815181647`，package CRC `0x48C97051`。
+- 还需完成：
+  - 将 PIO/DMA/IRQ/core1 硬件 timestamp latch 接入 bridge 输入，使 `timestamp_resolution_ns <= 100` 的 `VDC_OBSERVATION_WINDOW` 样本能够进入正式 DPLL gate。
+  - 增加 HIL 脚本查询 `SYSTem:REFMEM:SYNC:TDMA:VDC?`，记录 COM5/COM6 的 frame CRC、payload CRC、late/delay 和 gate result。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_vdc_bridge.h`
+  - `components/distributed_refmem/src/refmem_vdc_bridge.c`
+  - `components/distributed_refmem/inc/distributed_refmem_vdc_bridge.h`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tests/unit/test_refmem_vdc_bridge.c`
+  - `tools/tests/run_refmem_vdc_bridge_tests.ps1`
+- 下一步：
+  - 跑 docs/diff/build 验证，通过后提交推送；随后进入硬件 timestamp latch 或 HIL 查询脚本固化。
+
 ### VDC-TASK-20260816-005 - VDC DCO control snapshot contract
 
 - 状态：完成 host 验证；core1/PIO 实际消费待实现

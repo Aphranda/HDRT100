@@ -195,6 +195,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_sync_hello.c
         components/distributed_refmem/src/refmem_table_registry.c
         components/distributed_refmem/src/refmem_vector_table.c
+        components/distributed_refmem/src/refmem_vdc_bridge.c
         components/event_bus/src/event_bus.c
         components/loop_engine/src/loop_engine.c
         components/model_turntable/src/model_turntable.c

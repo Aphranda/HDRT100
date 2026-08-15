@@ -28,6 +28,7 @@ $scripts = @(
     "run_refmem_sync_hello_tests.ps1",
     "run_refmem_sync_tests.ps1",
     "run_refmem_table_registry_tests.ps1",
+    "run_refmem_vdc_bridge_tests.ps1",
     "run_vdc_domain_tests.ps1"
 )
 

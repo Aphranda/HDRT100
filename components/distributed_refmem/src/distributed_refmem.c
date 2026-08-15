@@ -7,6 +7,7 @@
 #include "board_config.h"
 #include "project_config.h"
 
+#include "distributed_refmem_vdc_bridge.h"
 #include "refmem_application_model.h"
 #include "refmem_command.h"
 #include "refmem_node_load_sync.h"
@@ -854,6 +855,35 @@ bool distributed_refmem_get_realtime_tdma_frame(uint8_t *frame,
                                                 frame,
                                                 frame_capacity,
                                                 frame_size);
+}
+
+bool distributed_refmem_build_realtime_tdma_vdc_envelope(
+    const vdc_tdma_schedule_profile_t *schedule,
+    vdc_tdma_frame_envelope_t *envelope,
+    refmem_vdc_bridge_status_t *status)
+{
+    uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX];
+    size_t frame_size = 0u;
+    refmem_realtime_tdma_snapshot_t snapshot;
+
+    if (!refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &snapshot) ||
+        !refmem_realtime_tdma_get_result_frame(&s_refmem_realtime_tdma,
+                                               frame,
+                                               sizeof(frame),
+                                               &frame_size)) {
+        if (status != NULL) {
+            memset(status, 0, sizeof(*status));
+            status->result = REFMEM_VDC_BRIDGE_BAD_TDMA_SNAPSHOT;
+        }
+        return false;
+    }
+
+    return refmem_vdc_bridge_build_data_envelope(schedule,
+                                                 &snapshot,
+                                                 frame,
+                                                 frame_size,
+                                                 envelope,
+                                                 status);
 }
 
 bool distributed_refmem_submit_realtime_tdma_tx(

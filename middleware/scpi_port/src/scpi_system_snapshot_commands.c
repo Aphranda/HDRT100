@@ -8,6 +8,7 @@
 #include "board_config.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
+#include "distributed_refmem_vdc_bridge.h"
 #include "osal.h"
 #include "project_build_info.h"
 #include "refmem_application_model.h"
@@ -2022,6 +2023,78 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_frame_q(scpi_t *context)
     scpi_refmem_sync_result_rx_snapshot(context, &s_refmem_sync.last_rx);
     SCPI_ResultUInt32(context, (uint32_t)frame_size);
     SCPI_ResultText(context, hex);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_tdma_vdc_q(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t local_slot = s_refmem_sync.context.local_slot;
+    uint32_t reference_slot = 0u;
+    (void)SCPI_ParamUInt32(context, &local_slot, FALSE);
+    (void)SCPI_ParamUInt32(context, &reference_slot, FALSE);
+
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_domain_default_schedule(&schedule, local_slot, reference_slot);
+
+    vdc_tdma_frame_envelope_t envelope;
+    refmem_vdc_bridge_status_t status;
+    if (!distributed_refmem_build_realtime_tdma_vdc_envelope(&schedule,
+                                                             &envelope,
+                                                             &status)) {
+        SCPI_ResultText(context, "REJECTED");
+        SCPI_ResultUInt32(context, status.result);
+        SCPI_ResultUInt32(context, status.frame_type);
+        SCPI_ResultUInt32(context, status.source_slot);
+        SCPI_ResultUInt32(context, status.payload_class);
+        SCPI_ResultUInt32(context, status.frame_crc32);
+        SCPI_ResultUInt32(context, status.payload_crc32);
+        SCPI_ResultUInt32(context, status.gate.passed);
+        SCPI_ResultUInt32(context, status.gate.reject_code);
+        SCPI_ResultUInt32(context, status.gate.reject_slot);
+        SCPI_ResultUInt32(context, status.gate.reject_evidence);
+        return SCPI_RES_OK;
+    }
+
+    SCPI_ResultText(context, "ACCEPTED");
+    SCPI_ResultUInt32(context, status.result);
+    SCPI_ResultUInt32(context, status.frame_type);
+    SCPI_ResultUInt32(context, status.source_slot);
+    SCPI_ResultUInt32(context, status.payload_class);
+    SCPI_ResultUInt32(context, status.frame_crc32);
+    SCPI_ResultUInt32(context, status.payload_crc32);
+    SCPI_ResultUInt32(context, status.gate.passed);
+    SCPI_ResultUInt32(context, status.gate.reject_code);
+    SCPI_ResultUInt32(context, status.gate.reject_slot);
+    SCPI_ResultUInt32(context, status.gate.reject_evidence);
+    SCPI_ResultUInt32(context, envelope.frame_version);
+    SCPI_ResultUInt32(context, envelope.frame_seq);
+    SCPI_ResultUInt32(context, envelope.schedule_epoch);
+    SCPI_ResultUInt32(context, envelope.slot_index);
+    SCPI_ResultUInt32(context, envelope.source_slot_id);
+    SCPI_ResultUInt32(context, envelope.reference_slot_id);
+    SCPI_ResultUInt32(context, envelope.window_class);
+    SCPI_ResultUInt32(context, envelope.payload_class);
+    SCPI_ResultUInt32(context, (uint32_t)(envelope.window_start_ns & 0xFFFFFFFFull));
+    SCPI_ResultUInt32(context, (uint32_t)(envelope.window_start_ns >> 32u));
+    SCPI_ResultUInt32(context, envelope.schedule_crc32);
+    SCPI_ResultUInt32(context, envelope.frame_crc32);
+    SCPI_ResultUInt32(context, envelope.payload_crc32);
+    SCPI_ResultUInt32(context, envelope.timestamp.timestamp_source);
+    SCPI_ResultUInt32(context, envelope.timestamp.timestamp_resolution_ns);
+    SCPI_ResultUInt32(context, envelope.timestamp.timestamp_flags);
+    SCPI_ResultUInt32(context, envelope.timestamp.late_ns);
+    SCPI_ResultUInt32(context, envelope.timestamp.jitter_ns);
+    SCPI_ResultUInt32(context, envelope.timestamp.delay_ns);
+    SCPI_ResultUInt32(context,
+                      (uint32_t)(envelope.timestamp.observed_time_ns & 0xFFFFFFFFull));
+    SCPI_ResultUInt32(context, (uint32_t)(envelope.timestamp.observed_time_ns >> 32u));
+    SCPI_ResultUInt32(context,
+                      (uint32_t)(envelope.timestamp.done_time_ns & 0xFFFFFFFFull));
+    SCPI_ResultUInt32(context, (uint32_t)(envelope.timestamp.done_time_ns >> 32u));
     return SCPI_RES_OK;
 }
 
