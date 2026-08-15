@@ -118,6 +118,23 @@ typedef struct {
 } vdc_clock_model_t;
 
 typedef struct {
+    uint32_t valid;
+    uint32_t dco_update_seq;
+    uint32_t source_model_seq;
+    uint32_t epoch_id;
+    uint32_t run_id;
+    uint64_t base_local_tick64;
+    uint64_t base_vdc_time64_ns;
+    uint32_t nominal_period_ns;
+    int32_t period_adjust_ppb;
+    int32_t phase_offset_ns;
+    uint32_t slew_limit_ppb;
+    uint32_t lock_state;
+    uint32_t tdma_schedule_crc32;
+    uint32_t servo_profile_crc32;
+} vdc_dco_control_t;
+
+typedef struct {
     uint32_t sample_seq;
     uint32_t schedule_epoch;
     uint32_t slot_index;
@@ -193,6 +210,7 @@ typedef struct {
     vdc_tdma_schedule_profile_t schedule;
     vdc_servo_profile_t servo;
     vdc_clock_model_t clock;
+    vdc_dco_control_t dco;
     vdc_dpll_state_t dpll;
     vdc_gate_result_t gate;
 } vdc_domain_snapshot_t;
@@ -205,6 +223,7 @@ typedef struct {
     vdc_tdma_schedule_profile_t schedule;
     vdc_servo_profile_t servo;
     vdc_clock_model_t clock;
+    vdc_dco_control_t dco;
     vdc_dpll_state_t dpll;
     vdc_gate_result_t gate;
 } vdc_domain_context_t;
@@ -221,9 +240,15 @@ void vdc_domain_default_clock_model(vdc_clock_model_t *model,
                                     uint64_t base_local_tick64,
                                     uint64_t base_vdc_time64_ns,
                                     uint32_t schedule_crc32);
+void vdc_domain_default_dco_control(vdc_dco_control_t *dco,
+                                    const vdc_clock_model_t *model,
+                                    uint32_t lock_state);
 bool vdc_domain_clock_model_local_to_vdc_ns(const vdc_clock_model_t *model,
                                             uint64_t local_tick64,
                                             uint64_t *vdc_time64_ns);
+bool vdc_domain_dco_control_validate(const vdc_tdma_schedule_profile_t *schedule,
+                                     const vdc_servo_profile_t *servo,
+                                     const vdc_dco_control_t *dco);
 bool vdc_domain_validate_tdma_timestamp_evidence(
     const vdc_tdma_schedule_profile_t *profile,
     const vdc_tdma_timestamp_evidence_t *evidence,
@@ -239,6 +264,8 @@ void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready);
 void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns);
 bool vdc_domain_publish_clock_model(vdc_domain_context_t *context,
                                     const vdc_clock_model_t *model);
+bool vdc_domain_publish_dco_control(vdc_domain_context_t *context,
+                                    const vdc_dco_control_t *dco);
 bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
                                      const vdc_tdma_timestamp_evidence_t *evidence);
 bool vdc_domain_get_snapshot(const vdc_domain_context_t *context,

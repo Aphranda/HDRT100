@@ -273,6 +273,35 @@ void vdc_domain_default_clock_model(vdc_clock_model_t *model,
     model->servo_profile_crc32 = VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32;
 }
 
+void vdc_domain_default_dco_control(vdc_dco_control_t *dco,
+                                    const vdc_clock_model_t *model,
+                                    uint32_t lock_state)
+{
+    if (dco == NULL) {
+        return;
+    }
+
+    memset(dco, 0, sizeof(*dco));
+    if (model == NULL || model->valid == 0u) {
+        return;
+    }
+
+    dco->valid = 1u;
+    dco->dco_update_seq = 1u;
+    dco->source_model_seq = model->model_seq;
+    dco->epoch_id = model->epoch_id;
+    dco->run_id = model->run_id;
+    dco->base_local_tick64 = model->base_local_tick64;
+    dco->base_vdc_time64_ns = model->base_vdc_time64_ns;
+    dco->nominal_period_ns = model->nominal_period_ns;
+    dco->period_adjust_ppb = model->period_adjust_ppb;
+    dco->phase_offset_ns = model->phase_offset_ns;
+    dco->slew_limit_ppb = model->slew_limit_ppb;
+    dco->lock_state = lock_state;
+    dco->tdma_schedule_crc32 = model->tdma_schedule_crc32;
+    dco->servo_profile_crc32 = model->servo_profile_crc32;
+}
+
 bool vdc_domain_clock_model_local_to_vdc_ns(const vdc_clock_model_t *model,
                                             uint64_t local_tick64,
                                             uint64_t *vdc_time64_ns)
@@ -299,6 +328,22 @@ bool vdc_domain_clock_model_local_to_vdc_ns(const vdc_clock_model_t *model,
         *vdc_time64_ns = UINT64_MAX;
     } else {
         *vdc_time64_ns = base_time + (uint64_t)signed_adjust;
+    }
+    return true;
+}
+
+bool vdc_domain_dco_control_validate(const vdc_tdma_schedule_profile_t *schedule,
+                                     const vdc_servo_profile_t *servo,
+                                     const vdc_dco_control_t *dco)
+{
+    if (schedule == NULL || servo == NULL || dco == NULL ||
+        dco->valid == 0u ||
+        dco->nominal_period_ns == 0u ||
+        dco->slew_limit_ppb > servo->sanity_freq_limit_ppb ||
+        dco->tdma_schedule_crc32 != schedule->schedule_crc32 ||
+        dco->servo_profile_crc32 != servo->servo_profile_crc32 ||
+        dco->lock_state > VDC_DOMAIN_LOCK_FAULT) {
+        return false;
     }
     return true;
 }
@@ -585,6 +630,9 @@ bool vdc_domain_init(vdc_domain_context_t *context)
     context->dpll.state = VDC_DOMAIN_LOCK_OFF;
     context->dpll.schedule_crc32 = context->schedule.schedule_crc32;
     context->dpll.servo_profile_crc32 = context->servo.servo_profile_crc32;
+    vdc_domain_default_dco_control(&context->dco,
+                                   &context->clock,
+                                   context->dpll.state);
     return true;
 }
 
@@ -625,6 +673,9 @@ void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns)
 bool vdc_domain_publish_clock_model(vdc_domain_context_t *context,
                                     const vdc_clock_model_t *model)
 {
+    const uint32_t next_dco_seq =
+        context != NULL ? context->dco.dco_update_seq + 1u : 0u;
+
     if (context == NULL || model == NULL || model->valid == 0u ||
         model->tdma_schedule_crc32 != context->schedule.schedule_crc32 ||
         model->servo_profile_crc32 != context->servo.servo_profile_crc32) {
@@ -633,6 +684,29 @@ bool vdc_domain_publish_clock_model(vdc_domain_context_t *context,
 
     context->clock = *model;
     context->clock.model_seq++;
+    vdc_domain_default_dco_control(&context->dco,
+                                   &context->clock,
+                                   context->dpll.state);
+    context->dco.dco_update_seq = next_dco_seq;
+    context->dpll.update_seq++;
+    return true;
+}
+
+bool vdc_domain_publish_dco_control(vdc_domain_context_t *context,
+                                    const vdc_dco_control_t *dco)
+{
+    const uint32_t next_dco_seq =
+        context != NULL ? context->dco.dco_update_seq + 1u : 0u;
+
+    if (context == NULL || dco == NULL ||
+        !vdc_domain_dco_control_validate(&context->schedule,
+                                         &context->servo,
+                                         dco)) {
+        return false;
+    }
+
+    context->dco = *dco;
+    context->dco.dco_update_seq = next_dco_seq;
     context->dpll.update_seq++;
     return true;
 }
@@ -711,6 +785,7 @@ bool vdc_domain_get_snapshot(const vdc_domain_context_t *context,
     snapshot->schedule = context->schedule;
     snapshot->servo = context->servo;
     snapshot->clock = context->clock;
+    snapshot->dco = context->dco;
     snapshot->dpll = context->dpll;
     snapshot->gate = context->gate;
     return true;

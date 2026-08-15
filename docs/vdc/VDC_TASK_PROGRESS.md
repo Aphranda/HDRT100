@@ -43,6 +43,35 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-005 - VDC DCO control snapshot contract
+
+- 状态：完成 host 验证；core1/PIO 实际消费待实现
+- 日期：2026-08-16
+- 任务目标：
+  - 将 DPLL 输出给 core1/PIO 的 DCO 控制快照从文档契约落到 C 结构。
+  - 明确 `SyncDpllFB` 侧的 clock model / DCO snapshot 是唯一受控输出，core1 后续只读稳定 snapshot。
+- 完成内容：
+  - 新增 `vdc_dco_control_t`，覆盖 `base_local_tick64`、`base_vdc_time64_ns`、`nominal_period_ns`、`period_adjust_ppb`、`phase_offset_ns`、`slew_limit_ppb`、`dco_update_seq`、`source_model_seq`、`epoch_id/run_id`、lock state 和 profile CRC。
+  - `vdc_domain_context_t` / `vdc_domain_snapshot_t` 增加 `dco` 字段。
+  - 新增 `vdc_domain_default_dco_control()`、`vdc_domain_dco_control_validate()` 和 `vdc_domain_publish_dco_control()`。
+  - `vdc_domain_publish_clock_model()` 会从新的 `VdcClockModel` 派生 DCO snapshot，并由 VDC owner 单调递增 `dco_update_seq`。
+  - DCO validate 拒绝无效 snapshot、CRC 不匹配、非法 lock state 和超过 servo sanity limit 的 slew。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，16/16 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815180531`，package CRC `0x3512BD4E`。
+- 还需完成：
+  - core1 realtime 读取 DCO snapshot 时增加 seqlock、双缓冲或等价 guard。
+  - 将 DCO snapshot 接到 `FIRE_LOAD` 预测路径，验证 late/半更新 snapshot 不会输出边沿。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 跑全量 host/build 验证；通过后提交推送，再继续硬件 timestamp latch 或 RefMem TDMA frame envelope 接入。
+
 ### VDC-TASK-20260816-004 - TDMA frame envelope and window class contract
 
 - 状态：完成 host 验证；硬件 PIO timestamp latch 待接入

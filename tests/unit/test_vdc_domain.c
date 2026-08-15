@@ -40,6 +40,18 @@ static int expect_u64(const char *name, uint64_t actual, uint64_t expected)
     return 0;
 }
 
+static int expect_i32(const char *name, int32_t actual, int32_t expected)
+{
+    if (actual != expected) {
+        (void)printf("%s: expected %ld got %ld\n",
+                     name,
+                     (long)expected,
+                     (long)actual);
+        return 1;
+    }
+    return 0;
+}
+
 static vdc_tdma_timestamp_evidence_t make_hardware_sample(
     const vdc_tdma_schedule_profile_t *schedule,
     uint32_t sample_seq,
@@ -294,6 +306,70 @@ static int test_frame_envelope_window_contract(void)
     return failed;
 }
 
+static int test_dco_control_contract(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_clock_model_t model;
+    vdc_dco_control_t dco;
+
+    failed += expect_bool("init for dco", vdc_domain_init(&context), true);
+    failed += expect_bool("dco snapshot",
+                          vdc_domain_get_snapshot(&context, &snapshot),
+                          true);
+    failed += expect_u32("dco valid", snapshot.dco.valid, 1u);
+    failed += expect_u32("dco seq", snapshot.dco.dco_update_seq, 1u);
+    failed += expect_u32("dco lock state",
+                         snapshot.dco.lock_state,
+                         VDC_DOMAIN_LOCK_OFF);
+    failed += expect_u32("dco schedule crc",
+                         snapshot.dco.tdma_schedule_crc32,
+                         context.schedule.schedule_crc32);
+
+    model = context.clock;
+    model.phase_offset_ns = -25;
+    model.period_adjust_ppb = 100;
+    model.base_local_tick64 = 500u;
+    model.base_vdc_time64_ns = 1000000u;
+    failed += expect_bool("publish clock model",
+                          vdc_domain_publish_clock_model(&context, &model),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("dco seq after clock publish",
+                         snapshot.dco.dco_update_seq,
+                         2u);
+    failed += expect_i32("dco phase mirrors clock",
+                         snapshot.dco.phase_offset_ns,
+                         -25);
+    failed += expect_i32("dco rate mirrors clock",
+                         snapshot.dco.period_adjust_ppb,
+                         100);
+    failed += expect_u32("dco source model seq",
+                         snapshot.dco.source_model_seq,
+                         snapshot.clock.model_seq);
+
+    dco = snapshot.dco;
+    dco.slew_limit_ppb = context.servo.sanity_freq_limit_ppb + 1u;
+    failed += expect_bool("invalid dco rejected",
+                          vdc_domain_publish_dco_control(&context, &dco),
+                          false);
+
+    dco = snapshot.dco;
+    dco.phase_offset_ns = 33;
+    failed += expect_bool("publish dco",
+                          vdc_domain_publish_dco_control(&context, &dco),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("dco seq after publish",
+                         snapshot.dco.dco_update_seq,
+                         3u);
+    failed += expect_i32("published dco phase",
+                         snapshot.dco.phase_offset_ns,
+                         33);
+    return failed;
+}
+
 static int test_context_accepts_samples_until_locked(void)
 {
     int failed = 0;
@@ -341,6 +417,7 @@ int main(void)
     failed += test_gate_rejects_diagnostic_timestamp();
     failed += test_gate_rejects_schedule_and_window_mismatch();
     failed += test_frame_envelope_window_contract();
+    failed += test_dco_control_contract();
     failed += test_context_accepts_samples_until_locked();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);

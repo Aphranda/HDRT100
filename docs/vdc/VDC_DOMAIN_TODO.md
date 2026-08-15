@@ -56,7 +56,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [x] 冻结 `VdcTDMATimestampEvidence`，字段单位统一为 ns，至少覆盖 expected_window_start、arm/start/done/apply timestamp、late_ns、jitter_ns、schedule_crc32、frame/sample CRC 和 `timestamp_resolution_ns`。
 - [ ] 冻结 `VdcReferenceClockTable`，首版固定 A0，后续支持 priority / failover。
 - [x] 冻结 `VdcDpllState` 字段、单位、writer、reader 和 snapshot 策略。
-- [ ] 冻结 `VdcDcoControl`，覆盖 DPLL 输出到 core1/PIO 的 `base_local_tick64`、`base_vdc_time64_ns`、`period_adjust_ppb/rate_q32`、`phase_offset_ns`、`slew_limit_ppb` 和 `dco_update_seq`。
+- [x] 冻结 `VdcDcoControl`，覆盖 DPLL 输出到 core1/PIO 的 `base_local_tick64`、`base_vdc_time64_ns`、`period_adjust_ppb/rate_q32`、`phase_offset_ns`、`slew_limit_ppb` 和 `dco_update_seq`。
 - [x] 冻结 `VdcServoProfile`，覆盖 servo_type、kp/ki、update period、step threshold、sanity limit 和 reset policy。
 - [ ] 冻结 `VdcQualityTable` 字段、质量窗口、统计口径和 RUN gate 门限。
 - [ ] 冻结 `VdcErrorBudget`，覆盖 offset RMS/max、frequency skew、path delay、dispersion 和 root distance 等价字段。
