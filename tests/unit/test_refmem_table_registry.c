@@ -378,6 +378,7 @@ static int test_init_sets_active_descriptor(void)
     const refmem_application_model_snapshot_t model = make_active_model();
     refmem_table_image_descriptor_t active;
     refmem_table_registry_snapshot_t snapshot;
+    refmem_table_registry_entry_t entry;
 
     refmem_table_registry_init(&model);
     failed += expect_bool("get active descriptor",
@@ -394,6 +395,15 @@ static int test_init_sets_active_descriptor(void)
                          snapshot.active_table_mask,
                          REFMEM_APP_TABLE_MASK_ALL);
     failed += expect_u32("snapshot staging mask", snapshot.staging_table_mask, 0u);
+    failed += expect_bool("get active entry",
+                          refmem_table_registry_get_entry(REFMEM_APP_TABLE_NODE_LOAD, &entry),
+                          true);
+    failed += expect_u32("compiled active has crc flag",
+                         entry.flags & REFMEM_TABLE_FLAG_CRC_OK,
+                         REFMEM_TABLE_FLAG_CRC_OK);
+    failed += expect_u32("compiled active owner provenance clear",
+                         entry.flags & REFMEM_TABLE_FLAG_OWNER_OK,
+                         0u);
     return failed;
 }
 

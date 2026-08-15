@@ -96,7 +96,7 @@ if (fence->passed == 0u && fence_payload.deadline_us == 0u)
 
 [distributed_refmem.c:1164](components/distributed_refmem/src/distributed_refmem.c#L1164) 的 `distributed_refmem_get_runtime_protection()` 内部调用 `publish_runtime_locked()`（`:341-394`），重读 flash lockout 状态、重算 directory flag、改写 `header->header_crc32`。文档标注的「snapshot」API 实际每次读都做一次 1 KB FNV 重算并写共享状态，其消费者（`flash_activation_safe`、SCPI）在读路径上触发 header 变更。
 
-### 3.10 `OWNER_OK` 未做 owner validation 就置位
+### 3.10 `OWNER_OK` 未做 owner validation 就置位（已纠偏）
 
 [refmem_table_registry.c:949-956](components/distributed_refmem/src/refmem_table_registry.c#L949-L956)：
 
@@ -108,7 +108,7 @@ if ((model->table_mask & table_bit) != 0u && entry->active_crc32 != 0u) {
 }
 ```
 
-`OWNER_OK` 仅凭「present 且 crc≠0」置位，没有运行任何 owner 语义校验。activation gate 依赖的 `owner_ok` 实际是未经验证的值（TODO:84 亦确认 validate_staging 只校验 CRC/lint/error）。
+纠偏：`refresh_active()` 的编译内置 active entry 不再把 `present + CRC` 升级为 `OWNER_OK`，只置 `ACTIVE_PRESENT|CRC_OK`。`OWNER_OK` 继续只由 staging package validation 的 `owner_validated_table_mask` 或 activation 后的已验证 image provenance 产生；新增 table registry 单测覆盖该语义。
 
 ### 3.11 SCPI `LOAD:NODE` / `LOAD:BOARD` staging 是死胡同
 

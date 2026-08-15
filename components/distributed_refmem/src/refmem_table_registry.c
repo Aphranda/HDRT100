@@ -948,8 +948,7 @@ void refmem_table_registry_refresh_active(const refmem_application_model_snapsho
         entry->flags = 0u;
         if ((model->table_mask & table_bit) != 0u && entry->active_crc32 != 0u) {
             entry->flags |= REFMEM_TABLE_FLAG_ACTIVE_PRESENT |
-                            REFMEM_TABLE_FLAG_CRC_OK |
-                            REFMEM_TABLE_FLAG_OWNER_OK;
+                            REFMEM_TABLE_FLAG_CRC_OK;
         }
         entry->validation_state = (model->valid != 0u && entry->active_crc32 != 0u)
                                       ? REFMEM_TABLE_VALIDATION_ACTIVE

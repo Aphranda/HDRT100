@@ -63,7 +63,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] P0: 风险评审 §3.1 跨核 seqlock/guard 写侧必须使用 release 语义；`refmem_realtime_tdma` 的 intent/result guard 和 `refmem_command` 的 command guard 已从普通 `++` 收敛为 `__atomic_add_fetch(..., __ATOMIC_RELEASE)`，读侧 acquire 与写侧 release 成对。
 - [x] P0: 风险评审 §3.2 `BoardCapabilityTable` 当前产品 wire payload 固定 8 条；`CLAIM_CANDIDATE_MAX=16` 只保留给 SlotClaim candidate/overflow evidence，不能复用为 BoardCapability 表容量。
 - [x] P0: 风险评审 §3.3 DeploymentGate/SlotClaimGate 评估结果必须真正 gate；application model validation、DistributedRefMemAO activation gate 和 SystemManager RUN gate 调用端已显式检查 `evaluate && ready`。
-- [ ] P0: 风险评审 §3.10 `OWNER_OK` 只能由 owner validation 结果置位；`present + CRC` 只能进入 `CRC_OK`，不得伪装为 owner 语义通过。
+- [x] P0: 风险评审 §3.10 `OWNER_OK` 只能由 owner validation 结果置位；`refresh_active()` 的编译内置 active entry 已降级为 `ACTIVE_PRESENT|CRC_OK`，不再由 `present + CRC` 伪造 owner provenance。
 - [ ] P0: 风险评审 §3.11 `SYSTem:REFMEM:LOAD:NODE` / `LOAD:BOARD` staging 不能停在 metadata-only 死胡同；必须形成可 activation、可 rollback、可 runtime parse 的真实 staging table image，或明确降级为不参与 activation 的诊断入口。
 - [x] P0: `RefMemTableRegistry` activation 不能只切 descriptor/CRC；在真实 active/staging/rollbackable table image 切换实现前，activation API 必须显式拒绝 active 替换并返回 `IMAGE_NOT_LOADED`。
 - [ ] P0: `.rmtp` `LOAD:SD` 不能只验证 package/header/table CRC 后复用当前 active lint；必须解析每张 staging 表并执行 owner validation、SlotClaimMap、RealtimeCapabilityContract、DeploymentGate 和 rollback 规则。

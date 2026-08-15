@@ -8,6 +8,23 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-038 - TableRegistry OWNER_OK provenance
+
+- 状态：完成 host/build 验证
+- 日期：2026-08-15
+- 任务目标：
+  - 修复风险评审 §3.10：`OWNER_OK` 不能由 `present + CRC` 推导，必须代表 owner validation provenance。
+  - 保持 HAOFV 边界：TableRegistry 只记录 image/validation 证据，不把 CRC 完整性伪装成 AO/FB owner 语义验证。
+- 完成内容：
+  - `refmem_table_registry_refresh_active()` 中编译内置 active entry 的 flags 从 `ACTIVE_PRESENT|CRC_OK|OWNER_OK` 降级为 `ACTIVE_PRESENT|CRC_OK`。
+  - staging package 路径仍按 `owner_validated_table_mask` 逐表置 `OWNER_OK`；activation 后的 active image 可继承已验证 provenance。
+  - `test_refmem_table_registry.c` 增加断言：初始化 active entry 有 CRC flag，但 `OWNER_OK` flag 必须为 0。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815141450`，package CRC `0x9A5F9C0D`。
+
 ### REFMEM-TASK-20260815-037 - SlotClaimGate explicit ready gating
 
 - 状态：完成 host/build 验证
