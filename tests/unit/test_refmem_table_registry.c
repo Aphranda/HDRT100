@@ -210,7 +210,7 @@ static void append_valid_fb_instance_table(uint8_t *payload, size_t *payload_siz
             i, i % REFMEM_APP_MODEL_NODE_COUNT, REFMEM_APP_DOMAIN_SYSTEM,
             REFMEM_APP_FB_SYSTEM_AO, REFMEM_APP_FB_SYSTEM_AO, 0x90000000u + i,
             1u, i < 2u ? 1u : 0u, 0u, 0u, 0u, 1000u,
-            REFMEM_VECTOR_SLOT_SYSTEM, REFMEM_VECTOR_SLOT_STATS,
+            REFMEM_VECTOR_REGION_SYSTEM, REFMEM_VECTOR_REGION_STATS,
             0u, 0u, 0u, 0u, 0u, 1u,
         };
         append_repeated_u32(payload, payload_size, row, 20u);
@@ -225,7 +225,7 @@ static void append_valid_event_link_table(uint8_t *payload, size_t *payload_size
         const uint32_t row[] = {
             i, 0u, REFMEM_APP_EVENT_START, 1u, 0u, REFMEM_APP_EVENT_START,
             REFMEM_APP_TRANSPORT_COMMAND_SLOT, 1000u, REFMEM_APP_ACK_NONE,
-            0u, 0u, REFMEM_VECTOR_SLOT_ACK_CMD,
+            0u, 0u, REFMEM_VECTOR_REGION_ACK_CMD,
         };
         append_repeated_u32(payload, payload_size, row, 12u);
     }
@@ -239,7 +239,7 @@ static void append_valid_data_link_table(uint8_t *payload, size_t *payload_size)
         const uint32_t row[] = {
             i, 0x91000000u + i, 0u, 1u, REFMEM_APP_DATA_U32, REFMEM_APP_UNIT_COUNT,
             1u, 0u, 1000u, REFMEM_APP_LIFE_ACTIVE, REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC,
-            1000u, 10000u, REFMEM_VECTOR_SLOT_SYSTEM, REFMEM_APP_PERMISSION_READ_ONLY,
+            1000u, 10000u, REFMEM_VECTOR_REGION_SYSTEM, REFMEM_APP_PERMISSION_READ_ONLY,
         };
         append_repeated_u32(payload, payload_size, row, 15u);
     }
@@ -252,7 +252,7 @@ static void append_valid_deployment_gate_table(uint8_t *payload, size_t *payload
     for (uint32_t i = 0u; i < REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT; i++) {
         const uint32_t row[] = {
             i, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS,
-            0u, 0u, 0u, REFMEM_VECTOR_SLOT_SYSTEM, 0u,
+            0u, 0u, 0u, REFMEM_VECTOR_REGION_SYSTEM, 0u,
         };
         append_repeated_u32(payload, payload_size, row, 9u);
     }

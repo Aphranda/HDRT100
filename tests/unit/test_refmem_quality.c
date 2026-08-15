@@ -268,7 +268,7 @@ static int test_quality_gate_passes_clean_runtime_table(void)
         .max_timeout_count = 0u,
         .require_no_last_error = 1u,
     };
-    refmem_deployment_gate_entry_t gate;
+    refmem_quality_gate_result_t gate;
 
     (void)memset(&table, 0, sizeof(table));
     table.entry_count = 1u;
@@ -294,7 +294,7 @@ static int test_quality_gate_rejects_tdma_timeout(void)
     refmem_quality_gate_threshold_t threshold = {
         .max_timeout_count = 0u,
     };
-    refmem_deployment_gate_entry_t gate;
+    refmem_quality_gate_result_t gate;
 
     (void)memset(&table, 0, sizeof(table));
     table.entry_count = 1u;
@@ -332,7 +332,7 @@ static int test_quality_gate_rejects_last_error(void)
         .max_timeout_count = 10u,
         .require_no_last_error = 1u,
     };
-    refmem_deployment_gate_entry_t gate;
+    refmem_quality_gate_result_t gate;
 
     (void)memset(&table, 0, sizeof(table));
     table.entry_count = 1u;
@@ -357,7 +357,7 @@ static int test_quality_gate_rejects_late_before_drop(void)
         .max_late_count = 0u,
         .max_drop_count = 0u,
     };
-    refmem_deployment_gate_entry_t gate;
+    refmem_quality_gate_result_t gate;
 
     (void)memset(&table, 0, sizeof(table));
     table.entry_count = 1u;
@@ -380,7 +380,7 @@ static int test_quality_gate_rejects_empty_runtime_table(void)
     int failed = 0;
     refmem_quality_runtime_table_t table;
     refmem_quality_gate_threshold_t threshold = {0};
-    refmem_deployment_gate_entry_t gate;
+    refmem_quality_gate_result_t gate;
 
     (void)memset(&table, 0, sizeof(table));
     failed += expect_bool("quality gate empty",

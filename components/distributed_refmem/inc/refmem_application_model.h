@@ -377,8 +377,8 @@ typedef struct {
     uint32_t io_claim;
     uint32_t ip_core_claim;
     uint32_t time_budget_us;
-    uint32_t state_slot_ref;
-    uint32_t health_slot_ref;
+    uint32_t state_region_ref;
+    uint32_t health_region_ref;
     uint32_t event_first;
     uint32_t event_count;
     uint32_t data_first;
@@ -405,7 +405,7 @@ typedef struct {
     uint32_t ack_policy;
     uint32_t retry_policy;
     uint32_t safety_class;
-    uint32_t evidence_ref;
+    uint32_t evidence_region_ref;
 } refmem_event_link_entry_t;
 
 typedef struct {
@@ -416,7 +416,7 @@ typedef struct {
 
 typedef struct {
     uint32_t data_link_id;
-    const char *slot_path;
+    const char *region_path;
     uint32_t writer_instance;
     uint32_t reader_mask;
     uint32_t type;
@@ -428,7 +428,7 @@ typedef struct {
     uint32_t snapshot_policy;
     uint32_t update_period_us;
     uint32_t stale_window_us;
-    uint32_t crc_scope;
+    uint32_t crc_region_ref;
     uint32_t permission;
 } refmem_data_link_entry_t;
 
@@ -446,7 +446,7 @@ typedef struct {
     uint32_t reject_code;
     uint32_t reject_instance;
     uint32_t reject_node;
-    uint32_t reject_slot;
+    uint32_t reject_region_ref;
     uint32_t reject_evidence_index;
 } refmem_deployment_gate_entry_t;
 

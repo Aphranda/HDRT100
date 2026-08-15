@@ -9,33 +9,33 @@
 
 #define REFMEM_VECTOR_MAGIC          0x44565431u
 #define REFMEM_VECTOR_END_MAGIC      0x454E4400u
-#define REFMEM_VECTOR_SLOT_COUNT     16u
+#define REFMEM_VECTOR_REGION_COUNT  16u
 #define REFMEM_VECTOR_TABLE_OWNER    DISTRIBUTED_REFMEM_OWNER_SHARED
 #define REFMEM_VECTOR_HEADER_STALE   0u
 
 typedef enum {
-    REFMEM_VECTOR_SLOT_HEADER = 0,
-    REFMEM_VECTOR_SLOT_SYSTEM = 1,
-    REFMEM_VECTOR_SLOT_ROLE = 2,
-    REFMEM_VECTOR_SLOT_VDC = 3,
-    REFMEM_VECTOR_SLOT_LOOP = 4,
-    REFMEM_VECTOR_SLOT_DPLL = 5,
-    REFMEM_VECTOR_SLOT_NODE = 6,
-    REFMEM_VECTOR_SLOT_TRIGGER = 7,
-    REFMEM_VECTOR_SLOT_IO = 8,
-    REFMEM_VECTOR_SLOT_CAL = 9,
-    REFMEM_VECTOR_SLOT_STATS = 10,
-    REFMEM_VECTOR_SLOT_ACK_CMD = 11,
-    REFMEM_VECTOR_SLOT_FAULT = 12,
-    REFMEM_VECTOR_SLOT_GATEWAY = 13,
-    REFMEM_VECTOR_SLOT_SERVICE = 14,
-    REFMEM_VECTOR_SLOT_TLV = 15,
-} refmem_vector_slot_id_t;
+    REFMEM_VECTOR_REGION_HEADER = 0,
+    REFMEM_VECTOR_REGION_SYSTEM = 1,
+    REFMEM_VECTOR_REGION_ROLE = 2,
+    REFMEM_VECTOR_REGION_VDC = 3,
+    REFMEM_VECTOR_REGION_LOOP = 4,
+    REFMEM_VECTOR_REGION_DPLL = 5,
+    REFMEM_VECTOR_REGION_NODE = 6,
+    REFMEM_VECTOR_REGION_TRIGGER = 7,
+    REFMEM_VECTOR_REGION_IO = 8,
+    REFMEM_VECTOR_REGION_CAL = 9,
+    REFMEM_VECTOR_REGION_STATS = 10,
+    REFMEM_VECTOR_REGION_ACK_CMD = 11,
+    REFMEM_VECTOR_REGION_FAULT = 12,
+    REFMEM_VECTOR_REGION_GATEWAY = 13,
+    REFMEM_VECTOR_REGION_SERVICE = 14,
+    REFMEM_VECTOR_REGION_TLV = 15,
+} refmem_vector_region_id_t;
 
 typedef struct {
     uint32_t offset;
     uint32_t size;
-} refmem_vector_slot_dir_t;
+} refmem_vector_region_dir_t;
 
 typedef struct {
     uint32_t magic;
@@ -46,7 +46,7 @@ typedef struct {
     uint32_t local_node_id;
     uint32_t node_count;
     uint32_t header_size;
-    uint32_t slot_count;
+    uint32_t region_count;
     uint32_t flags;
     uint32_t table_owner;
     uint32_t header_crc32;
@@ -72,11 +72,11 @@ typedef struct {
     uint32_t flash_lockout_release_seq;
     uint32_t flash_lockout_timeout_count;
     uint32_t flash_lockout_release_timeout_count;
-    refmem_vector_slot_dir_t slots[REFMEM_VECTOR_SLOT_COUNT];
+    refmem_vector_region_dir_t regions[REFMEM_VECTOR_REGION_COUNT];
     uint8_t reserved[DISTRIBUTED_REFMEM_HEADER_SIZE -
                      (34u * sizeof(uint32_t)) -
-                     (REFMEM_VECTOR_SLOT_COUNT * sizeof(refmem_vector_slot_dir_t))];
-} refmem_vector_header_slot_t;
+                     (REFMEM_VECTOR_REGION_COUNT * sizeof(refmem_vector_region_dir_t))];
+} refmem_vector_header_region_t;
 
 typedef struct {
     uint32_t node_id;
@@ -89,16 +89,16 @@ typedef struct {
     uint32_t flags;
     uint32_t node_type;
     uint8_t reserved[DISTRIBUTED_REFMEM_NODE_SLOT_SIZE - 9u * sizeof(uint32_t)];
-} refmem_vector_node_slot_t;
+} refmem_vector_node_region_t;
 
 typedef struct {
-    refmem_vector_header_slot_t header;
+    refmem_vector_header_region_t header;
     uint8_t system[DISTRIBUTED_REFMEM_SYSTEM_SIZE];
     uint8_t role[DISTRIBUTED_REFMEM_ROLE_SIZE];
     uint8_t vdc[DISTRIBUTED_REFMEM_VDC_SIZE];
     uint8_t loop[DISTRIBUTED_REFMEM_LOOP_SIZE];
     uint8_t dpll[DISTRIBUTED_REFMEM_DPLL_SIZE];
-    refmem_vector_node_slot_t node[DISTRIBUTED_REFMEM_NODE_COUNT];
+    refmem_vector_node_region_t node[DISTRIBUTED_REFMEM_NODE_COUNT];
     uint8_t trigger[DISTRIBUTED_REFMEM_TRIGGER_SIZE];
     uint8_t io[DISTRIBUTED_REFMEM_IO_SIZE];
     uint8_t calibration[DISTRIBUTED_REFMEM_CAL_SIZE];
@@ -111,11 +111,11 @@ typedef struct {
 } refmem_vector_table_t;
 
 void refmem_vector_table_clear(refmem_vector_table_t *table);
-refmem_vector_header_slot_t *refmem_vector_table_header(refmem_vector_table_t *table);
-const refmem_vector_header_slot_t *refmem_vector_table_header_const(const refmem_vector_table_t *table);
-refmem_vector_node_slot_t *refmem_vector_table_node(refmem_vector_table_t *table, uint32_t node_id);
-const refmem_vector_node_slot_t *refmem_vector_table_node_const(const refmem_vector_table_t *table,
-                                                               uint32_t node_id);
+refmem_vector_header_region_t *refmem_vector_table_header(refmem_vector_table_t *table);
+const refmem_vector_header_region_t *refmem_vector_table_header_const(const refmem_vector_table_t *table);
+refmem_vector_node_region_t *refmem_vector_table_node(refmem_vector_table_t *table, uint32_t node_id);
+const refmem_vector_node_region_t *refmem_vector_table_node_const(const refmem_vector_table_t *table,
+                                                                 uint32_t node_id);
 void refmem_vector_table_init_directory(refmem_vector_table_t *table);
 uint32_t refmem_vector_fast_crc32(const void *data, size_t size);
 uint32_t refmem_vector_directory_crc(const refmem_vector_table_t *table);

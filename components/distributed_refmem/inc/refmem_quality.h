@@ -35,6 +35,17 @@ typedef struct {
 } refmem_quality_gate_threshold_t;
 
 typedef struct {
+    uint32_t check_id;
+    uint32_t required;
+    uint32_t fail_action;
+    uint32_t last_state;
+    uint32_t reject_code;
+    uint32_t reject_node;
+    uint32_t reject_slot;
+    uint32_t reject_evidence_index;
+} refmem_quality_gate_result_t;
+
+typedef struct {
     uint32_t version;
     uint32_t entry_count;
     uint32_t active_table_crc32;
@@ -72,6 +83,6 @@ const refmem_connection_quality_entry_t *refmem_quality_get_entry(
 bool refmem_quality_evaluate_deployment_gate(
     const refmem_quality_runtime_table_t *table,
     const refmem_quality_gate_threshold_t *threshold,
-    refmem_deployment_gate_entry_t *gate);
+    refmem_quality_gate_result_t *gate);
 
 #endif

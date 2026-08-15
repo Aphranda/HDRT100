@@ -209,7 +209,7 @@ static bool refmem_quality_entry_violates(
 bool refmem_quality_evaluate_deployment_gate(
     const refmem_quality_runtime_table_t *table,
     const refmem_quality_gate_threshold_t *threshold,
-    refmem_deployment_gate_entry_t *gate)
+    refmem_quality_gate_result_t *gate)
 {
     if (gate != NULL) {
         memset(gate, 0, sizeof(*gate));

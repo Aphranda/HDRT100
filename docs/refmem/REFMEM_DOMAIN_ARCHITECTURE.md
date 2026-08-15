@@ -152,7 +152,7 @@ A0-A7 generic slot substrate
 
 在不冲突的情况下，同一个 A0-A7 通用插槽可以同时载入多个逻辑实例。例如一个插槽可以同时承载 `board` + `gateway`，或 `model_vna` + `model_turntable`，也可以在 IO 与时序资源允许时同时承载 `pulse_distributor` + `link_switcher`。是否允许并存由 `DistributedDeploymentGate` 判定，至少检查资源、IO、时序、owner、slot writer、事件连接和数据连接是否冲突。
 
-因此，`NodeSlot[8]` 只描述八个通用插槽的新鲜度、心跳、装载摘要和故障摘要；具体插槽承载真实板卡、脉冲分发、链路切换、仪表控制、网关、模型网分或模拟转台，由静态分布式应用模型决定。
+因此，`NodeRegion[8]` 只描述八个通用插槽的新鲜度、心跳、装载摘要和故障摘要；具体插槽承载真实板卡、脉冲分发、链路切换、仪表控制、网关、模型网分或模拟转台，由静态分布式应用模型决定。
 
 ### 虚拟反射内存参考机制
 
@@ -388,7 +388,7 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 | Application model | 静态 `DistributedApplicationMap`，描述应用/profile 元数据、目标插槽集合和加载实例的 CRC bundle。 | 运行时动态部署 application。 |
 | FB instance model | 静态 `DistributedFbInstanceTable`，描述每个节点上的 AO/FB 实例、版本、role、enable 条件和共存冲突规则。 | 跨节点动态创建/销毁 FB。 |
 | Event connection | 静态 `DistributedEventLinkTable`，把 START、STOP、FIRE_LOAD、DONE、FAULT、ACK/NACK 映射为 command slot、event queue 或 RJ45 frame。 | 跨节点直接事件调用和动态路由。 |
-| Data connection | 静态 `DistributedDataLinkTable`，把状态、参数、质量、时间戳、T2 和统计量映射到固定 slot 字段。 | 任意远程变量读写。 |
+| Data connection | 静态 `DistributedDataLinkTable`，把状态、参数、质量、时间戳、T2 和统计量映射到固定 region 字段。 | 任意远程变量读写。 |
 | Deployment consistency | `DistributedDeploymentGate` 聚合 build id、hw profile、config CRC、calibration CRC、sync profile CRC、layout version 和实例共存冲突检查。 | 在线热替换部署。 |
 | Diagnostics | `DistributedConnectionQualityTable` 记录 seq、CRC、stale、late、drop、timeout、last_error 和 evidence index。 | 依赖外部 IEC 工具链诊断。 |
 
@@ -422,7 +422,7 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 
 | 字段 | 含义 | 约束 |
 |---|---|---|
-| `node_id` | A0-A7 通用插槽号。 | 只允许 0-7；字段名沿用 node_id 是为了匹配同步协议和 NodeSlot[8]。 |
+| `node_id` | A0-A7 通用插槽号。 | 只允许 0-7；字段名沿用 node_id 是为了匹配同步协议和 NodeRegion[8]。 |
 | `node_uuid` | 兼容字段或默认 profile 提示。 | 不得用于把物理板 UUID 绑定到固定 A slot；物理身份以 BoardCapability 为准。 |
 | `capability_mask` | 通用 slot 基础能力或 profile 上限。 | 每个可参与系统的物理节点必须具备 board、RefMem、VDC 基础能力；具体可选能力来自 BoardCapability 和 RealtimeCapabilityContract。 |
 | `claim_policy` | 逻辑插槽 claim 策略。 | `STRICT_UUID`、`ALLOW_SAME_BOARD_MULTI_SLOT`、`SPARE_DYNAMIC`、`DISABLED`。 |
@@ -545,7 +545,7 @@ claim_priority
 | `last_claim_seq` | 最近 claim 序号。 |
 | `evidence_index` | 冲突、缺失 UUID、overflow、stale 或 owner validation 证据。 |
 
-`SlotClaimMap` 只记录 resolved active assignment；未分配候选进入 `SlotClaimEvidence` 或质量表，不得伪装成 `NodeSlot[8]` 之外的新 active slot。首版代码已落地 `refmem_slot_claim.h/.c`，从当前 active default profile 派生本地 `SlotClaimMap`，并可通过 `SYSTem:REFMEM:CLAIM? [slot_id]` 查询 map 和指定 slot assignment。当前尚未接 RJ45 `CLAIM_*` 协调消息，`claim_epoch=1` 表示本地派生 epoch。
+`SlotClaimMap` 只记录 resolved active assignment；未分配候选进入 `SlotClaimEvidence` 或质量表，不得伪装成 `NodeRegion[8]` 之外的新 active slot。首版代码已落地 `refmem_slot_claim.h/.c`，从当前 active default profile 派生本地 `SlotClaimMap`，并可通过 `SYSTem:REFMEM:CLAIM? [slot_id]` 查询 map 和指定 slot assignment。当前尚未接 RJ45 `CLAIM_*` 协调消息，`claim_epoch=1` 表示本地派生 epoch。
 
 #### SlotClaim 自组网协调
 
@@ -685,8 +685,8 @@ NodeLoad(ModelTurntableAO or encoder node)
 | `io_claim` | IO 占用。 | SMA、RJ45、link-control resources、BiSS-C、UART/RS485 等；当前项目实例可映射为 SP8T/SP2T。 |
 | `ip_core_claim` | 类 IP 核能力占用。 | 例如 PIO pulse capture/fire、link sequence、BISS-C codec、RJ45 sync delta、VDC/DPLL。 |
 | `time_budget_us` | 单次 service 预算。 | 超预算进入 Diagnostics evidence。 |
-| `state_slot_ref` | 状态事实位置。 | 指向 Vector slot 字段。 |
-| `health_slot_ref` | 健康事实位置。 | 指向质量或故障 slot 字段。 |
+| `state_region_ref` | 状态事实位置。 | 指向 Vector 固定 region 字段。 |
+| `health_region_ref` | 健康事实位置。 | 指向质量或故障 region 字段。 |
 | `event_in/out_range` | 事件连接范围。 | 指向 `DistributedEventLinkTable`。 |
 | `data_in/out_range` | 数据连接范围。 | 指向 `DistributedDataLinkTable`。 |
 | `conflict_class` | 共存冲突分类。 | 同类互斥或资源互斥时拒绝同时启用。 |
@@ -709,7 +709,7 @@ NodeLoad(ModelTurntableAO or encoder node)
 | `ack_policy` | 应答策略。 | `NONE`、`ANY`、`ALL_REQUIRED`、`BITMAP`。 |
 | `retry_policy` | 重试策略。 | 次数、退避、重复 sequence 处理。 |
 | `safety_class` | 安全等级。 | 影响 timeout 后进入 busy、degrade 还是 fault。 |
-| `evidence_ref` | 证据槽。 | timeout、NACK、late 需要可回溯。 |
+| `evidence_region_ref` | 证据 region。 | timeout、NACK、late 需要可回溯。 |
 
 首版必须覆盖的事件路径：
 
@@ -726,7 +726,7 @@ NodeLoad(ModelTurntableAO or encoder node)
 | 字段 | 含义 | 约束 |
 |---|---|---|
 | `data_link_id` | 数据连接编号。 | 全局唯一。 |
-| `slot_path` | Vector 字段路径。 | 例如 `LoopSlot.active_sequence_crc`。 |
+| `region_path` | Vector 字段路径。 | 例如 `LoopRegion.active_sequence_crc`。 |
 | `writer_instance` | 唯一写入者。 | 不允许多 writer。 |
 | `reader_mask` | 读取者集合。 | SCPI/UI/Report 也必须声明为 reader。 |
 | `type` | 数据类型。 | `u8/u16/u32/i32/fixed/ns/tick/enum/bitmask/crc`。 |
@@ -737,7 +737,7 @@ NodeLoad(ModelTurntableAO or encoder node)
 | `snapshot_policy` | 快照策略。 | `DIRECT_ATOMIC`、`SEQLOCK`、`DOUBLE_BUFFER`。 |
 | `update_period_us` | 期望更新周期。 | 用于 stale 判定。 |
 | `stale_window_us` | stale 窗口。 | 超窗后 READ 返回 stale 标志。 |
-| `crc_scope` | CRC 范围。 | 字段、slot、directory 或 package。 |
+| `crc_region_ref` | CRC 范围。 | 字段、region、directory 或 package。 |
 | `permission` | 访问权限。 | `READ_ONLY`、`COMMAND_WRITE`、`CONFIG_STAGE_WRITE`。 |
 
 ### 通用 RefMem 基础件模型
@@ -785,7 +785,7 @@ DistributedApplicationMap
 | 生命周期 | `lifecycle`、`valid_state_mask`、`clear_policy` | 定义何时有效、何时清零、何时冻结和何时失效。 |
 | 错误绑定 | `error_field_slot_id`、`error_scope` | 把字段错误归因到本字段、本节点、上游或系统级错误。 |
 | 订阅 | `subscription_mask`、`event_link_id` | 字段变化时投递本地事件、更新 dirty bitmap 或触发 delta 发布。 |
-| 发布策略 | `snapshot_policy`、`sync_policy`、`crc_scope` | 定义直读、seqlock、双缓冲、是否跨节点 delta 同步和 CRC 范围。 |
+| 发布策略 | `snapshot_policy`、`sync_policy`、`crc_region_ref` | 定义直读、seqlock、双缓冲、是否跨节点 delta 同步和 CRC 范围。 |
 | 权限 | `permission`、`write_mode` | 区分只读事实、命令写、配置 staging 写和维护写。 |
 
 建议首版不要把它作为独立配置源，而是在代码中生成或静态固化为派生只读视图：
@@ -857,12 +857,12 @@ bool refmem_slot_contract_validate_subscription(uint16_t field_slot_id,
 
 | 检查项 | 内容 | 失败处理 |
 |---|---|---|
-| `layout_check` | `layout_version`、slot offset、slot size、directory CRC。 | 拒绝 RUN。 |
+| `layout_check` | `layout_version`、region offset、region size、directory CRC。 | 拒绝 RUN。 |
 | `node_check` | 必需 A0-A7 插槽 online、SlotClaimMap resolved assignment、node_uuid、hardware profile、capability 和装载实例匹配。 | 拒绝 RUN 或按 fail_policy 降级。 |
 | `instance_check` | required AO/FB instance 存在、版本兼容、enable 条件满足。 | 拒绝 RUN。 |
 | `resource_check` | Flash、SD、USB、PIO、DMA、core1、RJ45 等资源无冲突。 | 拒绝冲突实例组合。 |
 | `io_check` | SMA/RJ45/link-control resources/BiSS-C/UART/RS485 等 IO claim 无冲突；当前项目实例可映射为 SP8T/SP2T。 | 拒绝 RUN 或拒绝实例启用。 |
-| `writer_check` | 每个 slot 字段只有唯一 writer。 | 拒绝 RUN。 |
+| `writer_check` | 每个 region 字段只有唯一 writer。 | 拒绝 RUN。 |
 | `event_check` | 必需事件连接完整，timeout 和 ACK 策略明确。 | 拒绝 RUN。 |
 | `data_check` | 必需数据连接完整，单位、值域、生命周期一致。 | 拒绝 RUN。 |
 | `config_check` | config CRC、sequence CRC、angle CRC、permission version 一致。 | 拒绝 RUN。 |
@@ -876,7 +876,7 @@ gate_state
 reject_code
 reject_instance
 reject_node
-reject_slot
+reject_region_ref
 reject_evidence_index
 active_crc_bundle
 last_check_tick
@@ -901,7 +901,7 @@ last_pass_tick
 | `last_error` | 最近错误。 | 错误码必须可枚举。 |
 | `last_error_tick` | 最近错误时间。 | 使用回绕安全差值计算。 |
 | `p99/p999` | 延迟或误差分布。 | 支撑产品化报告。 |
-| `evidence_index` | 证据索引。 | 指向 FaultEvidenceSlot 或 SD 日志。 |
+| `evidence_index` | 证据索引。 | 指向 FaultEvidenceRegion 或 SD 日志。 |
 
 运行态质量表由 `RefMemAO`/`DistributedRefMemAO` 从各 owner 的只读 snapshot 派生，不热写 active static `DistributedConnectionQualityTable`。本地物理链路至少包含两个 `TRANSPORT_ADAPTER` 派生 entry：
 
@@ -918,26 +918,28 @@ SCPI 只能通过 `SYSTem:REFMEM:QUALity? [index]` 读取该派生视图，不�
 
 首版 64 KB 表保持 RTOS 架构中的完整布局：
 
-| Slot | Offset | Size | 内容 | 写入者 |
+Vector directory 的 16 项是固定内存定义区（region），不是 A0-A7 可实例化节点槽位，也不是 SlotClaim 的候选槽。节点实例化只能通过 A0-A7 逻辑 slot / NodeLoad / SlotClaimMap 进入系统；Vector region 只提供事实存放位置、owner 边界和 CRC/seq/stale 保护。
+
+| Region | Offset | Size | 内容 | 写入者 |
 |---|---:|---:|---|---|
-| Header/Directory | `0x0000` | 1 KB | magic、layout、slot offset、table_seq、epoch、crc32 | RefMem Domain |
-| SystemSlot | `0x0400` | 1 KB | system_mode、role_map_version、run_id、fault_latch、release gate | SystemAO |
-| Role/ConfigSlot | `0x0800` | 2 KB | NodeRoleMap、hw_profile、persona、feature mask | SystemAO / config loader |
-| VdcSlot | `0x1000` | 2 KB | sync_id、offset、rate、lock_state、holdover、relock、`e_vdc` | VdcSyncAO |
-| LoopSlot | `0x1800` | 4 KB | trigger param、angle sweep/breakpoint、active sequence、scan_index | LoopEngineAO |
-| DpllSlot | `0x2800` | 2 KB | compare 捕获、角度预测、`T_fire_base`、`e_pll` | AngleDpll owner |
-| NodeSlot[8] | `0x3000` | 4 KB | A0-A7 通用插槽的 node_id、装载摘要、heartbeat、local_state、error_code、stale_count | 各节点 owner |
-| TriggerSlot[8] | `0x4000` | 8 KB | armed、last_fire_seq、late_count、t2_count、ready_timeout | 各节点 core1 摘要 |
-| IoSlot[8] | `0x6000` | 8 KB | SMA/RJ45/BiSS IO 镜像、边沿计数、健康状态 | 各节点 IO owner |
-| CalibrationSlot | `0x8000` | 8 KB | link table、delay table、staging/active/version/quality | CalibrationAO |
-| StatisticsSlot | `0xA000` | 8 KB | `e_vdc/e_act/e_pll`、CRC/seq/late 分布、p99/p999 | Statistics / Measure owner |
-| AckCommandSlot | `0xC000` | 4 KB | command_seq、ack/nack/busy/timeout 位图、原子命令槽 | 命令 owner + 节点 ACK |
-| FaultEvidenceSlot | `0xD000` | 6 KB | fault_code、source_node、epoch、run_id、关键证据 | SystemAO / DiagnosticsAO |
-| GatewaySlot | `0xE800` | 2 KB | A3/VNA/host 状态、采集状态 | GatewayAO |
-| OtaStorageUiSlot | `0xF000` | 2 KB | OTA、Storage、UI 摘要 | 对应 task owner |
+| Header/Directory | `0x0000` | 1 KB | magic、layout、region offset、table_seq、epoch、crc32 | RefMem Domain |
+| SystemRegion | `0x0400` | 1 KB | system_mode、role_map_version、run_id、fault_latch、release gate | SystemAO |
+| Role/ConfigRegion | `0x0800` | 2 KB | NodeRoleMap、hw_profile、persona、feature mask | SystemAO / config loader |
+| VdcRegion | `0x1000` | 2 KB | sync_id、offset、rate、lock_state、holdover、relock、`e_vdc` | VdcSyncAO |
+| LoopRegion | `0x1800` | 4 KB | trigger param、angle sweep/breakpoint、active sequence、scan_index | LoopEngineAO |
+| DpllRegion | `0x2800` | 2 KB | compare 捕获、角度预测、`T_fire_base`、`e_pll` | AngleDpll owner |
+| NodeRegion[8] | `0x3000` | 4 KB | A0-A7 通用插槽的 node_id、装载摘要、heartbeat、local_state、error_code、stale_count | 各节点 owner |
+| TriggerRegion[8] | `0x4000` | 8 KB | armed、last_fire_seq、late_count、t2_count、ready_timeout | 各节点 core1 摘要 |
+| IoRegion[8] | `0x6000` | 8 KB | SMA/RJ45/BiSS IO 镜像、边沿计数、健康状态 | 各节点 IO owner |
+| CalibrationRegion | `0x8000` | 8 KB | link table、delay table、staging/active/version/quality | CalibrationAO |
+| StatisticsRegion | `0xA000` | 8 KB | `e_vdc/e_act/e_pll`、CRC/seq/late 分布、p99/p999 | Statistics / Measure owner |
+| AckCommandRegion | `0xC000` | 4 KB | command_seq、ack/nack/busy/timeout 位图、原子命令槽 | 命令 owner + 节点 ACK |
+| FaultEvidenceRegion | `0xD000` | 6 KB | fault_code、source_node、epoch、run_id、关键证据 | SystemAO / DiagnosticsAO |
+| GatewayRegion | `0xE800` | 2 KB | A3/VNA/host 状态、采集状态 | GatewayAO |
+| OtaStorageUiRegion | `0xF000` | 2 KB | OTA、Storage、UI 摘要 | 对应 task owner |
 | TlvExtension | `0xF800` | 2 KB | versioned TLV、未来扩展 | owner by type |
 
-表尾固定为 `0x10000`，总大小固定 64 KB。任何 slot offset、slot size 或 slot 顺序变化，都必须提升 `layout_version`，并导致旧 System Pack / 旧节点镜像进入 `INVALID` 或兼容转换路径。
+表尾固定为 `0x10000`，总大小固定 64 KB。任何 region offset、region size 或 region 顺序变化，都必须提升 `layout_version`，并导致旧 System Pack / 旧节点镜像进入 `INVALID` 或兼容转换路径。
 
 ### Header 与 Directory 契约
 
@@ -948,36 +950,36 @@ Header/Directory 是 RefMem 的自描述入口。它必须至少提供：
 | `magic/end_magic` | 表识别和越界破坏检测。 | 初始化和 snapshot 时都必须校验。 |
 | `layout_version` | 64 KB 表布局版本。 | 首版冻结为 v1；布局变化必须递增。 |
 | `table_size` | 总表大小。 | 固定 65536。 |
-| `table_seq` | 全表事实序号。 | 任意 slot active fact 更新后递增。 |
+| `table_seq` | 全表事实序号。 | 任意 region active fact 更新后递增。 |
 | `epoch_id` | 系统事实纪元。 | 复位、System Pack 切换、RUN 批次切换或重大恢复后递增。 |
 | `run_id` | 当前运行批次。 | 把配置、同步、T2、故障和报告绑定到同一批次。 |
-| `slot_count` | directory 项数量。 | 首版为 16。 |
-| `slot_directory[]` | slot id、offset、size、owner、flags、crc。 | RUN 前必须校验 offset/size 不重叠且覆盖 64 KB。 |
-| `directory_crc32` | directory 自身 CRC。 | 防止 slot map 半更新。 |
+| `region_count` | directory 项数量。 | 首版为 16。 |
+| `region_directory[]` | region id、offset、size、owner、flags、crc。 | RUN 前必须校验 offset/size 不重叠且覆盖 64 KB。 |
+| `directory_crc32` | directory 自身 CRC。 | 防止 region map 半更新。 |
 | `header_crc32` | header CRC。 | 不包含 `header_crc32` 字段自身。 |
 | `compat_min_version` | 最低兼容 layout。 | 节点低于该版本时拒绝加入 RUN。 |
 
 Directory 项建议结构：
 
 ```text
-slot_id
+region_id
 offset
 size
 owner_domain
 owner_node_mask
 writer_instance
 flags
-slot_crc32
-slot_seq
+region_crc32
+region_seq
 stale_window_us
 ```
 
-### Slot Guard 契约
+### Region Guard 契约
 
-每个 slot 的首部应预留统一 guard。P0 代码只有 header/node 的轻量 guard 语义，产品化版本需要推广到全部 slot。
+每个 region 的首部应预留统一 guard。P0 代码只有 header/node 的轻量 guard 语义，产品化版本需要推广到全部 region。
 
 ```text
-slot_seq
+region_seq
 owner_domain
 owner_node_id
 writer_instance
@@ -990,38 +992,38 @@ write_tick32
 
 规则：
 
-- `slot_seq` 在本 slot 完整发布后递增。
+- `region_seq` 在本 region 完整发布后递增。
 - `crc32` 覆盖 guard 后的有效 payload，不能覆盖自身。
 - `stale_state` 使用 `OK/STALE/MISSING/INVALID/FAULT`。
 - `owner_domain` 和 `writer_instance` 必须能在 `DistributedDataLinkTable` 中找到唯一来源。
-- 非 owner 不能直接写 slot；跨域写入必须走 command/config staging。
+- 非 owner 不能直接写 region；跨域写入必须走 command/config staging。
 
 ### Owner 与写权限
 
-RefMem 的写权限按 slot、字段和节点共同约束：
+RefMem 的写权限按 region、字段和节点共同约束：
 
 | 写入范围 | 允许 writer | 禁止事项 |
 |---|---|---|
-| Header/Directory | RefMem Domain | 业务域直接改 layout、offset、slot_count。 |
-| SystemSlot | SystemAO / ConfigGate | SCPI callback 直接写 active state。 |
-| Role/ConfigSlot | SystemAO / config loader | 运行中无 gate 改 role/persona。 |
-| VdcSlot | VdcSyncAO / SyncDpllFB | Angle DPLL 写 VDC offset/rate。 |
-| LoopSlot | LoopEngineAO | TriggerAO 或 SCPI 直接改 active sequence。 |
-| DpllSlot | AngleDpll owner | SYNC DPLL 写 `T_fire_base`。 |
-| NodeSlot[n] | 节点 n owner / RefMem Sync 接收镜像 | 节点 A 写节点 B 的本地 owner 字段。 |
-| TriggerSlot[n] | 节点 n core1 realtime 摘要 / core0 合并 owner | SCPI 临时读取时触发现场 IO。 |
-| IoSlot[n] | 节点 n IO owner | 业务域绕过 IO owner 直接改 IO 镜像。 |
-| CalibrationSlot | CalibrationAO | SYNC 或 TRIG 私自修正 delay table。 |
-| StatisticsSlot | MEASure / Statistics owner | 业务配置写统计结果。 |
-| AckCommandSlot | command owner + target node ACK writer | 在执行动作临界区内做耗时工作。 |
-| FaultEvidenceSlot | SystemAO / DiagnosticsAO | 覆盖未落盘 evidence。 |
-| GatewaySlot | GatewayAO | 普通节点假冒上位机网关状态。 |
-| OtaStorageUiSlot | OTA / Storage / UI owner | core1 实时侧直接落盘或改 UI 状态。 |
+| Header/Directory | RefMem Domain | 业务域直接改 layout、offset、region_count。 |
+| SystemRegion | SystemAO / ConfigGate | SCPI callback 直接写 active state。 |
+| Role/ConfigRegion | SystemAO / config loader | 运行中无 gate 改 role/persona。 |
+| VdcRegion | VdcSyncAO / SyncDpllFB | Angle DPLL 写 VDC offset/rate。 |
+| LoopRegion | LoopEngineAO | TriggerAO 或 SCPI 直接改 active sequence。 |
+| DpllRegion | AngleDpll owner | SYNC DPLL 写 `T_fire_base`。 |
+| NodeRegion[n] | 节点 n owner / RefMem Sync 接收镜像 | 节点 A 写节点 B 的本地 owner 字段。 |
+| TriggerRegion[n] | 节点 n core1 realtime 摘要 / core0 合并 owner | SCPI 临时读取时触发现场 IO。 |
+| IoRegion[n] | 节点 n IO owner | 业务域绕过 IO owner 直接改 IO 镜像。 |
+| CalibrationRegion | CalibrationAO | SYNC 或 TRIG 私自修正 delay table。 |
+| StatisticsRegion | MEASure / Statistics owner | 业务配置写统计结果。 |
+| AckCommandRegion | command owner + target node ACK writer | 在执行动作临界区内做耗时工作。 |
+| FaultEvidenceRegion | SystemAO / DiagnosticsAO | 覆盖未落盘 evidence。 |
+| GatewayRegion | GatewayAO | 普通节点假冒上位机网关状态。 |
+| OtaStorageUiRegion | OTA / Storage / UI owner | core1 实时侧直接落盘或改 UI 状态。 |
 | TlvExtension | owner by TLV type | 未注册 TLV type 写入。 |
 
 ### Command / ACK / NACK 契约
 
-`AckCommandSlot` 是跨域、跨核和跨节点命令闭环的数据面。它不执行业务动作，只保存命令意图、目标节点、payload 引用、ACK/NACK/busy/timeout 位图和可回溯证据。
+`AckCommandRegion` 是跨域、跨核和跨节点命令闭环的数据面。它不执行业务动作，只保存命令意图、目标节点、payload 引用、ACK/NACK/busy/timeout 位图和可回溯证据。
 
 写命令的基本语义：
 
@@ -1036,7 +1038,7 @@ SCPI / UI / System Pack accepted
 
 SCPI 写命令返回 `OK` 或 `1` 只表示接口层 accepted，不表示动作已经完成。动作完成、拒绝原因、节点超时和质量证据必须通过 `SYSTem:CONFigure:ACK?`、后续 `SYSTem:COMMand:ACK?`、对应 `READ:*?` 或故障/报告接口回读。
 
-`AckCommandSlot` 首版字段建议：
+`AckCommandRegion` 首版字段建议：
 
 | 字段 | 含义 | 规则 |
 |---|---|---|
@@ -1063,7 +1065,7 @@ SCPI 写命令返回 `OK` 或 `1` 只表示接口层 accepted，不表示动作�
 | `last_nack_reason` | 最近 NACK 原因。 | 枚举值，必须能查 reason 表。 |
 | `last_nack_node` | 最近 NACK 节点。 | 0-7 或 `UINT32_MAX`。 |
 | `reason_table_crc32` | reason 表摘要。 | 上位机可校验解释版本。 |
-| `evidence_index` | 证据索引。 | 指向 FaultEvidenceSlot 或 SD 日志。 |
+| `evidence_index` | 证据索引。 | 指向 FaultEvidenceRegion 或 SD 日志。 |
 | `clear_seq` | 清除确认序号。 | 防止清错新命令。 |
 
 命令类型首版建议：
@@ -1137,7 +1139,7 @@ Reason 表至少覆盖：
 | `TIMEOUT` | 命令超时。 |
 | `PERMISSION_DENIED` | 权限不足。 |
 
-`SYSTem:COMMand:ACK?` / `SYSTem:COMMand:NACK?` 是通用 command slot 维护视图，直接读取同一底层 `AckCommandSlot` snapshot 和 reason 表。`SYSTem:CONFigure:ACK?` / `SYSTem:CONFigure:NACK?` 只保留为配置门禁兼容视图，并且只映射 `CONFIG_ACTIVATE` command，不得把 `NODE_LOAD_STAGE`、`START`、`STOP` 等非配置激活命令混入配置 ACK 事实。
+`SYSTem:COMMand:ACK?` / `SYSTem:COMMand:NACK?` 是通用 command slot 维护视图，直接读取同一底层 `AckCommandRegion` snapshot 和 reason 表。`SYSTem:CONFigure:ACK?` / `SYSTem:CONFigure:NACK?` 只保留为配置门禁兼容视图，并且只映射 `CONFIG_ACTIVATE` command，不得把 `NODE_LOAD_STAGE`、`START`、`STOP` 等非配置激活命令混入配置 ACK 事实。
 
 ### Snapshot 与并发契约
 
@@ -1156,7 +1158,7 @@ Reason 表至少覆盖：
 
 ### Version Bundle
 
-RefMem Header/SystemSlot 必须携带下面的版本束，用于 RUN gate 和报告闭环：
+RefMem Header/SystemRegion 必须携带下面的版本束，用于 RUN gate 和报告闭环：
 
 ```text
 layout_version
@@ -1287,9 +1289,9 @@ Inline SCPI load 的产品语义不是“单表加载”，而是“单表 draft
 | `SYSTem:REFMEM:LOAD:NODE ...` | 一条 NodeLoad 候选，累积到私有 `NodeLoadTable draft`。 | 当前 active 9 表 + NodeLoad draft + 已存在 BoardCapability draft。 | 新生成的完整 9 表 inline RMTP package image。 |
 | `SYSTem:REFMEM:LOAD:BOARD ...` | 一条 BoardCapability 候选，累积到系统级多板能力资源综合表 draft。 | 当前 active 9 表 + BoardCapability draft + 已存在 NodeLoad draft。 | 新生成的完整 9 表 inline RMTP package image。 |
 
-`SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 允许 SCPI 提交一条 NodeLoad 候选到 staging，用于调试和自组网协调前的节点实例化验证；SCPI 只调用 RefMem intent API，`DistributedRefMemAO` 通过 `NODE_LOAD_STAGE` command slot take 后，由 ApplicationModel owner 更新私有 `DistributedNodeLoadTable draft`、执行 NodeLoadTable contract validation、计算 draft 整表 CRC，再把当前 active 9 表叠加所有 draft 合成为完整 Node Model Candidate。合成结果编码为 9 表 inline RMTP package image，交给 `RefMemTableRegistry` staging；该入口不直接覆盖 active `NodeLoadTable`，也不修改 NodeSlot live fact。多条 `LOAD:NODE` 可在同一 draft 上累积候选，每次成功后都会刷新完整 staging package image，后续 activation/rollback 只处理完整 package。
+`SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 允许 SCPI 提交一条 NodeLoad 候选到 staging，用于调试和自组网协调前的节点实例化验证；SCPI 只调用 RefMem intent API，`DistributedRefMemAO` 通过 `NODE_LOAD_STAGE` command slot take 后，由 ApplicationModel owner 更新私有 `DistributedNodeLoadTable draft`、执行 NodeLoadTable contract validation、计算 draft 整表 CRC，再把当前 active 9 表叠加所有 draft 合成为完整 Node Model Candidate。合成结果编码为 9 表 inline RMTP package image，交给 `RefMemTableRegistry` staging；该入口不直接覆盖 active `NodeLoadTable`，也不修改 NodeRegion live fact。多条 `LOAD:NODE` 可在同一 draft 上累积候选，每次成功后都会刷新完整 staging package image，后续 activation/rollback 只处理完整 package。
 
-`SYSTem:REFMEM:LOAD:BOARD <board_id>,<board_uuid_crc32>,<capability_mask>,<io_constraint_mask>,<ip_core_mask>,<default_persona_mask>,<hw_profile_crc32>,<active_default_slot>,<online_required>` 允许 SCPI 提交一条 BoardCapability 候选到 staging，用于调试和 SD System Pack 前置验证；它必须满足 `REFMEM+VDC` baseline 和字段范围约束。`BoardCapabilityTable` 是系统级多板能力资源综合表，`board_id` 是板卡/profile 候选标签，不是 A0-A7 执行 slot；该命令由本地 `DistributedRefMemAO` 通过 `BOARD_CAPABILITY_STAGE` command slot 执行，payload_ref 才携带 `board_id`。ApplicationModel owner 更新私有 `BoardCapabilityTable draft`、执行 BoardCapabilityTable contract validation、计算 draft 整表 CRC，并刷新完整 9 表 inline RMTP package staging。以上入口都不直接覆盖 active 表，也不修改 NodeSlot live fact。`SYSTem:REFMEM:LOAD:STATus?` 读取系统级 package load snapshot：`version,load_seq,source,mode,staging_state,manifest_status,manifest_schema,manifest_required_count,manifest_missing_count,path_hash,active_package_crc32,staging_package_crc32,staging_lint_error_count,staging_first_lint_error,staging_node_id,staging_instance_id,staging_role_mask,staging_persona_mask,staging_enabled,staging_required,staging_load_order,last_error,manifest_build_id,path`。`SYSTem:REFMEM:LOAD:BOARD:STATus?` 读取 BoardCapability draft snapshot：`version,load_seq,mode,staging_state,active_crc32,staging_crc32,staging_lint_error_count,staging_first_lint_error,staging_board_id,staging_board_uuid_crc32,staging_capability_mask,staging_io_constraint_mask,staging_ip_core_mask,staging_default_persona_mask,staging_hw_profile_crc32,staging_active_default_slot,staging_online_required,last_error`。
+`SYSTem:REFMEM:LOAD:BOARD <board_id>,<board_uuid_crc32>,<capability_mask>,<io_constraint_mask>,<ip_core_mask>,<default_persona_mask>,<hw_profile_crc32>,<active_default_slot>,<online_required>` 允许 SCPI 提交一条 BoardCapability 候选到 staging，用于调试和 SD System Pack 前置验证；它必须满足 `REFMEM+VDC` baseline 和字段范围约束。`BoardCapabilityTable` 是系统级多板能力资源综合表，`board_id` 是板卡/profile 候选标签，不是 A0-A7 执行 slot；该命令由本地 `DistributedRefMemAO` 通过 `BOARD_CAPABILITY_STAGE` command slot 执行，payload_ref 才携带 `board_id`。ApplicationModel owner 更新私有 `BoardCapabilityTable draft`、执行 BoardCapabilityTable contract validation、计算 draft 整表 CRC，并刷新完整 9 表 inline RMTP package staging。以上入口都不直接覆盖 active 表，也不修改 NodeRegion live fact。`SYSTem:REFMEM:LOAD:STATus?` 读取系统级 package load snapshot：`version,load_seq,source,mode,staging_state,manifest_status,manifest_schema,manifest_required_count,manifest_missing_count,path_hash,active_package_crc32,staging_package_crc32,staging_lint_error_count,staging_first_lint_error,staging_node_id,staging_instance_id,staging_role_mask,staging_persona_mask,staging_enabled,staging_required,staging_load_order,last_error,manifest_build_id,path`。`SYSTem:REFMEM:LOAD:BOARD:STATus?` 读取 BoardCapability draft snapshot：`version,load_seq,mode,staging_state,active_crc32,staging_crc32,staging_lint_error_count,staging_first_lint_error,staging_board_id,staging_board_uuid_crc32,staging_capability_mask,staging_io_constraint_mask,staging_ip_core_mask,staging_default_persona_mask,staging_hw_profile_crc32,staging_active_default_slot,staging_online_required,last_error`。
 
 写入 `/refmem/app_model.rmtp` 使用通用 Storage 文件接口，不再保留 `SYSTem:REFMEM:PACKage:*` 专用入口：
 
@@ -1318,7 +1320,7 @@ SD 根 `/manifest.idx` 只作为 System Pack 总索引；它负责告诉固件�
 /refmem/app_model.json
 ```
 
-其中 `.rmtp` 是固件后续解析的二进制 table image，`.idx` 是轻量索引，`.json` 是 PC 工具和人工审查用说明。RMTP 二进制生成由 `tools/refmem_table_image/refmem_table_image.py` 统一维护；`tools/refmem_pack_build/refmem_pack_build.py` 和 `tools/sd_fs_build/sd_fs_build.py` 只负责各自输出目录、manifest 和 idx。当前 table 0 `ApplicationMap`、table 1 `BoardCapability`、table 2 `GenericNode`、table 3 `NodeLoad`、table 4 `FbInstance`、table 5 `EventLink`、table 6 `DataLink`、table 7 `DeploymentGate` 与 table 8 `ConnectionQuality` 均已是固定 u32 真实表镜像；带名字或路径语义的表项在 `.rmtp` 中使用 `name_hash` / `slot_path_hash`，人类可读文本留在 `.idx` / `.json` 等调试说明中。SD System Pack 在根 `/manifest.idx` 中加入：
+其中 `.rmtp` 是固件后续解析的二进制 table image，`.idx` 是轻量索引，`.json` 是 PC 工具和人工审查用说明。RMTP 二进制生成由 `tools/refmem_table_image/refmem_table_image.py` 统一维护；`tools/refmem_pack_build/refmem_pack_build.py` 和 `tools/sd_fs_build/sd_fs_build.py` 只负责各自输出目录、manifest 和 idx。当前 table 0 `ApplicationMap`、table 1 `BoardCapability`、table 2 `GenericNode`、table 3 `NodeLoad`、table 4 `FbInstance`、table 5 `EventLink`、table 6 `DataLink`、table 7 `DeploymentGate` 与 table 8 `ConnectionQuality` 均已是固定 u32 真实表镜像；带名字或路径语义的表项在 `.rmtp` 中使用 `name_hash` / `region_path_hash`，人类可读文本留在 `.idx` / `.json` 等调试说明中。SD System Pack 在根 `/manifest.idx` 中加入：
 
 ```text
 required=/refmem/app_model.rmtp,type=refmem_table_image,size=<bytes>,crc32=<crc32>

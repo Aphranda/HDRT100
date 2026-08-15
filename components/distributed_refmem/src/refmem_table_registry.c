@@ -61,8 +61,8 @@ typedef struct {
     uint32_t io_claim;
     uint32_t ip_core_claim;
     uint32_t time_budget_us;
-    uint32_t state_slot_ref;
-    uint32_t health_slot_ref;
+    uint32_t state_region_ref;
+    uint32_t health_region_ref;
     uint32_t event_first;
     uint32_t event_count;
     uint32_t data_first;
@@ -83,12 +83,12 @@ typedef struct {
     uint32_t ack_policy;
     uint32_t retry_policy;
     uint32_t safety_class;
-    uint32_t evidence_ref;
+    uint32_t evidence_region_ref;
 } refmem_event_link_wire_entry_t;
 
 typedef struct {
     uint32_t data_link_id;
-    uint32_t slot_path_hash;
+    uint32_t region_path_hash;
     uint32_t writer_instance;
     uint32_t reader_mask;
     uint32_t type;
@@ -100,7 +100,7 @@ typedef struct {
     uint32_t snapshot_policy;
     uint32_t update_period_us;
     uint32_t stale_window_us;
-    uint32_t crc_scope;
+    uint32_t crc_region_ref;
     uint32_t permission;
 } refmem_data_link_wire_entry_t;
 
@@ -112,7 +112,7 @@ typedef struct {
     uint32_t reject_code;
     uint32_t reject_instance;
     uint32_t reject_node;
-    uint32_t reject_slot;
+    uint32_t reject_region_ref;
     uint32_t reject_evidence_index;
 } refmem_deployment_gate_wire_entry_t;
 
@@ -454,8 +454,8 @@ static bool refmem_table_registry_parse_fb_instance_entry(
     entry->io_claim = refmem_table_read_u32_le(&data[36]);
     entry->ip_core_claim = refmem_table_read_u32_le(&data[40]);
     entry->time_budget_us = refmem_table_read_u32_le(&data[44]);
-    entry->state_slot_ref = refmem_table_read_u32_le(&data[48]);
-    entry->health_slot_ref = refmem_table_read_u32_le(&data[52]);
+    entry->state_region_ref = refmem_table_read_u32_le(&data[48]);
+    entry->health_region_ref = refmem_table_read_u32_le(&data[52]);
     entry->event_first = refmem_table_read_u32_le(&data[56]);
     entry->event_count = refmem_table_read_u32_le(&data[60]);
     entry->data_first = refmem_table_read_u32_le(&data[64]);
@@ -491,8 +491,8 @@ static bool refmem_table_registry_validate_fb_instance(
             entry.version == 0u ||
             entry.enable_condition > 1u ||
             entry.time_budget_us == 0u ||
-            entry.state_slot_ref >= REFMEM_VECTOR_SLOT_COUNT ||
-            entry.health_slot_ref >= REFMEM_VECTOR_SLOT_COUNT ||
+            entry.state_region_ref >= REFMEM_VECTOR_REGION_COUNT ||
+            entry.health_region_ref >= REFMEM_VECTOR_REGION_COUNT ||
             entry.event_first > REFMEM_APP_MODEL_EVENT_LINK_COUNT ||
             entry.event_count > (REFMEM_APP_MODEL_EVENT_LINK_COUNT - entry.event_first) ||
             entry.data_first > REFMEM_APP_MODEL_DATA_LINK_COUNT ||
@@ -533,7 +533,7 @@ static bool refmem_table_registry_validate_event_link(
         entry.ack_policy = refmem_table_read_u32_le(&data[cursor + 32u]);
         entry.retry_policy = refmem_table_read_u32_le(&data[cursor + 36u]);
         entry.safety_class = refmem_table_read_u32_le(&data[cursor + 40u]);
-        entry.evidence_ref = refmem_table_read_u32_le(&data[cursor + 44u]);
+        entry.evidence_region_ref = refmem_table_read_u32_le(&data[cursor + 44u]);
 
         if (entry.event_link_id != i ||
             entry.source_instance >= REFMEM_APP_MODEL_INSTANCE_COUNT ||
@@ -545,7 +545,7 @@ static bool refmem_table_registry_validate_event_link(
             entry.transport > REFMEM_APP_TRANSPORT_PIO_SPI ||
             entry.timeout_us == 0u ||
             entry.ack_policy > REFMEM_APP_ACK_BITMAP ||
-            entry.evidence_ref >= REFMEM_VECTOR_SLOT_COUNT) {
+            entry.evidence_region_ref >= REFMEM_VECTOR_REGION_COUNT) {
             return false;
         }
         cursor += REFMEM_TABLE_WIRE_EVENT_LINK_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
@@ -568,7 +568,7 @@ static bool refmem_table_registry_validate_data_link(const uint8_t *data, size_t
     for (uint32_t i = 0u; i < count; i++) {
         refmem_data_link_wire_entry_t entry;
         entry.data_link_id = refmem_table_read_u32_le(&data[cursor + 0u]);
-        entry.slot_path_hash = refmem_table_read_u32_le(&data[cursor + 4u]);
+        entry.region_path_hash = refmem_table_read_u32_le(&data[cursor + 4u]);
         entry.writer_instance = refmem_table_read_u32_le(&data[cursor + 8u]);
         entry.reader_mask = refmem_table_read_u32_le(&data[cursor + 12u]);
         entry.type = refmem_table_read_u32_le(&data[cursor + 16u]);
@@ -580,11 +580,11 @@ static bool refmem_table_registry_validate_data_link(const uint8_t *data, size_t
         entry.snapshot_policy = refmem_table_read_u32_le(&data[cursor + 40u]);
         entry.update_period_us = refmem_table_read_u32_le(&data[cursor + 44u]);
         entry.stale_window_us = refmem_table_read_u32_le(&data[cursor + 48u]);
-        entry.crc_scope = refmem_table_read_u32_le(&data[cursor + 52u]);
+        entry.crc_region_ref = refmem_table_read_u32_le(&data[cursor + 52u]);
         entry.permission = refmem_table_read_u32_le(&data[cursor + 56u]);
 
         if (entry.data_link_id != i ||
-            entry.slot_path_hash == 0u ||
+            entry.region_path_hash == 0u ||
             entry.writer_instance >= REFMEM_APP_MODEL_INSTANCE_COUNT ||
             entry.reader_mask == 0u ||
             (entry.reader_mask & ~((1u << REFMEM_APP_MODEL_NODE_COUNT) - 1u)) != 0u ||
@@ -596,7 +596,7 @@ static bool refmem_table_registry_validate_data_link(const uint8_t *data, size_t
             entry.snapshot_policy > REFMEM_APP_SNAPSHOT_EVIDENCE_REF ||
             entry.update_period_us == 0u ||
             entry.stale_window_us < entry.update_period_us ||
-            entry.crc_scope >= REFMEM_VECTOR_SLOT_COUNT ||
+            entry.crc_region_ref >= REFMEM_VECTOR_REGION_COUNT ||
             entry.permission > REFMEM_APP_PERMISSION_CONFIG_STAGE_WRITE) {
             return false;
         }
@@ -626,7 +626,7 @@ static bool refmem_table_registry_validate_deployment_gate(const uint8_t *data, 
         entry.reject_code = refmem_table_read_u32_le(&data[cursor + 16u]);
         entry.reject_instance = refmem_table_read_u32_le(&data[cursor + 20u]);
         entry.reject_node = refmem_table_read_u32_le(&data[cursor + 24u]);
-        entry.reject_slot = refmem_table_read_u32_le(&data[cursor + 28u]);
+        entry.reject_region_ref = refmem_table_read_u32_le(&data[cursor + 28u]);
         entry.reject_evidence_index = refmem_table_read_u32_le(&data[cursor + 32u]);
 
         if (entry.check_id != i ||
@@ -635,7 +635,7 @@ static bool refmem_table_registry_validate_deployment_gate(const uint8_t *data, 
             entry.last_state > REFMEM_APP_GATE_LATCH_FAULT ||
             entry.reject_instance >= REFMEM_APP_MODEL_INSTANCE_COUNT ||
             entry.reject_node >= REFMEM_APP_MODEL_NODE_COUNT ||
-            entry.reject_slot >= REFMEM_VECTOR_SLOT_COUNT) {
+            entry.reject_region_ref >= REFMEM_VECTOR_REGION_COUNT) {
             return false;
         }
         cursor += REFMEM_TABLE_WIRE_DEPLOYMENT_GATE_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
@@ -841,7 +841,7 @@ static void refmem_table_registry_clear_image(refmem_table_image_descriptor_t *d
     descriptor->version = REFMEM_TABLE_REGISTRY_VERSION;
     descriptor->role = (uint32_t)role;
     descriptor->state = REFMEM_TABLE_VALIDATION_EMPTY;
-    descriptor->evidence_index = REFMEM_VECTOR_SLOT_STATS;
+    descriptor->evidence_index = REFMEM_VECTOR_REGION_STATS;
 }
 
 static void refmem_table_registry_copy_image(uint8_t *dst,
@@ -925,7 +925,7 @@ void refmem_table_registry_init(const refmem_application_model_snapshot_t *model
         }
         s_registry[i].image_size = s_table_image_size[i];
         s_registry[i].validator_id = i;
-        s_registry[i].evidence_index = REFMEM_VECTOR_SLOT_STATS;
+        s_registry[i].evidence_index = REFMEM_VECTOR_REGION_STATS;
         s_registry[i].validation_state = REFMEM_TABLE_VALIDATION_EMPTY;
     }
 
@@ -966,7 +966,7 @@ void refmem_table_registry_refresh_active(const refmem_application_model_snapsho
     s_active_image.table_seq = s_table_seq;
     s_active_image.path_hash = 0u;
     s_active_image.last_result = model->first_lint_error;
-    s_active_image.evidence_index = REFMEM_VECTOR_SLOT_STATS;
+    s_active_image.evidence_index = REFMEM_VECTOR_REGION_STATS;
 
     s_snapshot.last_error = model->first_lint_error;
     refmem_table_registry_refresh_snapshot();
@@ -1037,7 +1037,7 @@ void refmem_table_registry_refresh_staging(const refmem_application_model_load_s
     s_staging_image.last_result = load->staging_first_lint_error != 0u
                                       ? load->staging_first_lint_error
                                       : load->last_error;
-    s_staging_image.evidence_index = REFMEM_VECTOR_SLOT_STATS;
+    s_staging_image.evidence_index = REFMEM_VECTOR_REGION_STATS;
 
     s_snapshot.last_error = load->last_error;
     refmem_table_registry_refresh_snapshot();
@@ -1115,7 +1115,7 @@ bool refmem_table_registry_stage_package_validation(
     s_staging_image.table_seq = s_table_seq;
     s_staging_image.path_hash = load->path_hash;
     s_staging_image.last_result = validation->error;
-    s_staging_image.evidence_index = REFMEM_VECTOR_SLOT_STATS;
+    s_staging_image.evidence_index = REFMEM_VECTOR_REGION_STATS;
 
     s_snapshot.last_error = validation->error;
     refmem_table_registry_refresh_snapshot();
@@ -1209,7 +1209,7 @@ bool refmem_table_registry_stage_table(uint32_t table_id,
     s_staging_image.package_crc32 = staging_crc32;
     s_staging_image.table_seq = s_table_seq;
     s_staging_image.last_result = last_result;
-    s_staging_image.evidence_index = REFMEM_VECTOR_SLOT_STATS;
+    s_staging_image.evidence_index = REFMEM_VECTOR_REGION_STATS;
 
     s_snapshot.last_error = last_result;
     refmem_table_registry_refresh_snapshot();

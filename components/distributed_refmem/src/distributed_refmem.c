@@ -184,21 +184,21 @@ static refmem_command_reason_t distributed_refmem_activation_nack_reason(uint32_
     }
 }
 
-static refmem_vector_header_slot_t *distributed_refmem_header(void)
+static refmem_vector_header_region_t *distributed_refmem_header(void)
 {
     return refmem_vector_table_header(&s_distributed_refmem_table);
 }
 
-static refmem_vector_node_slot_t *distributed_refmem_node_slot(uint32_t node_id)
+static refmem_vector_node_region_t *distributed_refmem_node_region(uint32_t node_id)
 {
     return refmem_vector_table_node(&s_distributed_refmem_table, node_id);
 }
 
 static void distributed_refmem_publish_status_locked(void)
 {
-    const refmem_vector_header_slot_t *header = distributed_refmem_header();
-    const refmem_vector_node_slot_t *local_node =
-        distributed_refmem_node_slot(DISTRIBUTED_REFMEM_LOCAL_NODE_ID);
+    const refmem_vector_header_region_t *header = distributed_refmem_header();
+    const refmem_vector_node_region_t *local_node =
+        distributed_refmem_node_region(DISTRIBUTED_REFMEM_LOCAL_NODE_ID);
 
     s_status.table_size = header->table_size;
     s_status.layout_version = header->layout_version;
@@ -315,7 +315,7 @@ static bool distributed_refmem_tdma_receive(void *context,
 
 static void distributed_refmem_refresh_directory_flags_locked(void)
 {
-    refmem_vector_header_slot_t *header = distributed_refmem_header();
+    refmem_vector_header_region_t *header = distributed_refmem_header();
     const uint32_t directory_crc32 = refmem_vector_directory_crc(&s_distributed_refmem_table);
 
     if (refmem_vector_table_validate_directory(&s_distributed_refmem_table)) {
@@ -339,7 +339,7 @@ static void distributed_refmem_refresh_directory_flags_locked(void)
 
 static void distributed_refmem_publish_runtime_locked(void)
 {
-    refmem_vector_header_slot_t *header = distributed_refmem_header();
+    refmem_vector_header_region_t *header = distributed_refmem_header();
     drv_flash_lockout_status_t flash_status;
     drv_flash_get_lockout_status(&flash_status);
 
@@ -420,7 +420,7 @@ bool distributed_refmem_init(void)
 
     refmem_vector_table_clear(&s_distributed_refmem_table);
 
-    refmem_vector_header_slot_t *header = distributed_refmem_header();
+    refmem_vector_header_region_t *header = distributed_refmem_header();
     header->magic = REFMEM_VECTOR_MAGIC;
     header->end_magic = REFMEM_VECTOR_END_MAGIC;
     header->layout_version = DISTRIBUTED_REFMEM_LAYOUT_VERSION;
@@ -429,7 +429,7 @@ bool distributed_refmem_init(void)
     header->local_node_id = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
     header->node_count = DISTRIBUTED_REFMEM_NODE_COUNT;
     header->header_size = DISTRIBUTED_REFMEM_HEADER_SIZE;
-    header->slot_count = REFMEM_VECTOR_SLOT_COUNT;
+    header->region_count = REFMEM_VECTOR_REGION_COUNT;
     header->flags = 0u;
     header->table_owner = REFMEM_VECTOR_TABLE_OWNER;
     header->header_stale = REFMEM_VECTOR_HEADER_STALE;
@@ -438,14 +438,14 @@ bool distributed_refmem_init(void)
     distributed_refmem_publish_runtime_locked();
 
     for (uint32_t i = 0u; i < DISTRIBUTED_REFMEM_NODE_COUNT; i++) {
-        refmem_vector_node_slot_t *node = distributed_refmem_node_slot(i);
+        refmem_vector_node_region_t *node = distributed_refmem_node_region(i);
         node->node_id = i;
         node->state = DISTRIBUTED_REFMEM_NODE_MISSING;
         node->node_type = DISTRIBUTED_REFMEM_NODE_TYPE_BOARD;
     }
 
-    refmem_vector_node_slot_t *local_node =
-        distributed_refmem_node_slot(DISTRIBUTED_REFMEM_LOCAL_NODE_ID);
+    refmem_vector_node_region_t *local_node =
+        distributed_refmem_node_region(DISTRIBUTED_REFMEM_LOCAL_NODE_ID);
     local_node->state = DISTRIBUTED_REFMEM_NODE_OK;
     local_node->node_type = DISTRIBUTED_REFMEM_NODE_TYPE_BOARD;
     local_node->slot_version = 1u;
@@ -476,9 +476,9 @@ void distributed_refmem_service(void)
 
     osal_critical_enter();
 
-    refmem_vector_header_slot_t *header = distributed_refmem_header();
-    refmem_vector_node_slot_t *local_node =
-        distributed_refmem_node_slot(DISTRIBUTED_REFMEM_LOCAL_NODE_ID);
+    refmem_vector_header_region_t *header = distributed_refmem_header();
+    refmem_vector_node_region_t *local_node =
+        distributed_refmem_node_region(DISTRIBUTED_REFMEM_LOCAL_NODE_ID);
 
     s_service_count++;
     header->table_seq++;
@@ -552,7 +552,7 @@ bool distributed_refmem_quality_gate_ready(void)
         return false;
     }
 
-    refmem_deployment_gate_entry_t gate;
+    refmem_quality_gate_result_t gate;
     if (!refmem_quality_evaluate_deployment_gate(&table, &threshold, &gate)) {
         return false;
     }
@@ -726,7 +726,7 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
                                 0u,
                                 0u,
                                 payload_crc32,
-                                REFMEM_VECTOR_SLOT_ACK_CMD);
+                                REFMEM_VECTOR_REGION_ACK_CMD);
     osal_critical_exit();
     if (take_result != REFMEM_COMMAND_TAKE_TAKEN) {
         return false;
@@ -741,13 +741,13 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
                                                         required,
                                                         load_order);
     if (staged) {
-        (void)distributed_refmem_command_ack(node_id, REFMEM_VECTOR_SLOT_ACK_CMD);
+        (void)distributed_refmem_command_ack(node_id, REFMEM_VECTOR_REGION_ACK_CMD);
         return true;
     }
 
     (void)distributed_refmem_command_nack(node_id,
                                           REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
-                                          REFMEM_VECTOR_SLOT_ACK_CMD);
+                                          REFMEM_VECTOR_REGION_ACK_CMD);
     return false;
 }
 
@@ -821,7 +821,7 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
                                 0u,
                                 0u,
                                 payload_crc32,
-                                REFMEM_VECTOR_SLOT_ACK_CMD);
+                                REFMEM_VECTOR_REGION_ACK_CMD);
     osal_critical_exit();
     if (take_result != REFMEM_COMMAND_TAKE_TAKEN) {
         return false;
@@ -860,13 +860,13 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
     }
 
     if (staged) {
-        (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_SLOT_ACK_CMD);
+        (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_REGION_ACK_CMD);
         return true;
     }
 
     (void)distributed_refmem_command_nack(local_target,
                                           REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
-                                          REFMEM_VECTOR_SLOT_ACK_CMD);
+                                          REFMEM_VECTOR_REGION_ACK_CMD);
     return false;
 }
 
@@ -921,7 +921,7 @@ bool distributed_refmem_activate_staging(uint32_t realtime_idle)
                                 0u,
                                 0u,
                                 payload_crc32,
-                                REFMEM_VECTOR_SLOT_ACK_CMD);
+                                REFMEM_VECTOR_REGION_ACK_CMD);
     osal_critical_exit();
     if (take_result != REFMEM_COMMAND_TAKE_TAKEN) {
         return false;
@@ -969,7 +969,7 @@ bool distributed_refmem_activate_staging(uint32_t realtime_idle)
             local_target,
             distributed_refmem_activation_nack_reason(
                 REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID),
-            REFMEM_VECTOR_SLOT_ACK_CMD);
+            REFMEM_VECTOR_REGION_ACK_CMD);
         return false;
     }
 
@@ -980,7 +980,7 @@ bool distributed_refmem_activate_staging(uint32_t realtime_idle)
         if (!refmem_application_model_commit_prepared_table_views()) {
             (void)refmem_application_model_apply_active_table_views();
         }
-        (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_SLOT_ACK_CMD);
+        (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_REGION_ACK_CMD);
         return true;
     }
 
@@ -988,7 +988,7 @@ bool distributed_refmem_activate_staging(uint32_t realtime_idle)
     (void)distributed_refmem_command_nack(
         local_target,
         distributed_refmem_activation_nack_reason(registry.last_error),
-        REFMEM_VECTOR_SLOT_ACK_CMD);
+        REFMEM_VECTOR_REGION_ACK_CMD);
     return false;
 }
 
@@ -1050,7 +1050,7 @@ bool distributed_refmem_stage_board_capability(uint32_t board_id,
                                 0u,
                                 0u,
                                 payload_crc32,
-                                REFMEM_VECTOR_SLOT_ACK_CMD);
+                                REFMEM_VECTOR_REGION_ACK_CMD);
     osal_critical_exit();
     if (take_result != REFMEM_COMMAND_TAKE_TAKEN) {
         return false;
@@ -1067,13 +1067,13 @@ bool distributed_refmem_stage_board_capability(uint32_t board_id,
                                                              active_default_slot,
                                                              online_required);
     if (staged) {
-        (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_SLOT_ACK_CMD);
+        (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_REGION_ACK_CMD);
         return true;
     }
 
     (void)distributed_refmem_command_nack(local_target,
                                           REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
-                                          REFMEM_VECTOR_SLOT_ACK_CMD);
+                                          REFMEM_VECTOR_REGION_ACK_CMD);
     return false;
 }
 
@@ -1114,7 +1114,7 @@ bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
                                 0u,
                                 0u,
                                 payload_crc32,
-                                REFMEM_VECTOR_SLOT_ACK_CMD);
+                                REFMEM_VECTOR_REGION_ACK_CMD);
     osal_critical_exit();
     if (take_result != REFMEM_COMMAND_TAKE_TAKEN) {
         return false;
@@ -1136,7 +1136,7 @@ bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
             slot_id,
             output_index);
     if (loaded) {
-        (void)distributed_refmem_command_ack(slot_id, REFMEM_VECTOR_SLOT_ACK_CMD);
+        (void)distributed_refmem_command_ack(slot_id, REFMEM_VECTOR_REGION_ACK_CMD);
         return true;
     }
 
@@ -1144,7 +1144,7 @@ bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
                                           staged
                                               ? REFMEM_COMMAND_REASON_RUN_STATE_DENIED
                                               : REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
-                                          REFMEM_VECTOR_SLOT_ACK_CMD);
+                                          REFMEM_VECTOR_REGION_ACK_CMD);
     return false;
 }
 
@@ -1155,7 +1155,7 @@ void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_
     }
 
     osal_critical_enter();
-    const refmem_vector_header_slot_t *header = distributed_refmem_header();
+    const refmem_vector_header_region_t *header = distributed_refmem_header();
     snapshot->version = header->layout_version;
     snapshot->table_seq = header->table_seq;
     snapshot->core_count = header->core_count;
@@ -1181,7 +1181,7 @@ void distributed_refmem_get_runtime_protection(distributed_refmem_runtime_protec
 
     osal_critical_enter();
     distributed_refmem_publish_runtime_locked();
-    const refmem_vector_header_slot_t *header = distributed_refmem_header();
+    const refmem_vector_header_region_t *header = distributed_refmem_header();
     snapshot->version = header->layout_version;
     snapshot->table_seq = header->table_seq;
     snapshot->ram_resident_required = header->ram_resident_required;
@@ -1226,7 +1226,7 @@ bool distributed_refmem_get_node(uint32_t node_id, distributed_refmem_node_snaps
 
     osal_critical_enter();
 
-    const refmem_vector_node_slot_t *node = distributed_refmem_node_slot(node_id);
+    const refmem_vector_node_region_t *node = distributed_refmem_node_region(node_id);
     snapshot->node_id = node->node_id;
     snapshot->state = node->state;
     snapshot->heartbeat = node->heartbeat;

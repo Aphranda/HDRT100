@@ -8,6 +8,29 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-041 - Vector fixed regions rename
+
+- 状态：完成 host/build 验证
+- 日期：2026-08-15
+- 任务目标：
+  - 修正“Vector 16 槽”的误导命名：Vector directory 的 16 项是固定内存定义区（region），不是 A0-A7 可实例化节点槽位，也不是 SlotClaim 候选槽。
+  - 保持 HAOFV 边界：NodeLoad / SlotClaim / A0-A7 继续使用逻辑 slot 语义；Vector 只提供固定事实 region、owner 边界和 CRC/seq/stale 保护。
+- 完成内容：
+  - `refmem_vector_table.h/.c` 将 `REFMEM_VECTOR_SLOT_*`、`slot_count`、`slots[]`、vector header/node 类型统一改为 `REFMEM_VECTOR_REGION_*`、`region_count`、`regions[]`、`*_region_t`。
+  - `DistributedFbInstanceTable`、`DistributedEventLinkTable`、`DistributedDataLinkTable`、`DistributedDeploymentGate` 中指向 Vector directory 的字段改为 `state_region_ref`、`health_region_ref`、`evidence_region_ref`、`crc_region_ref`、`reject_region_ref`。
+  - DataLink 可读路径从 `*Slot.*` 改为 `*Region.*`，Python RMTP 生成工具同步改用 `REGION_*` 常量和 `region_path_hash`。
+  - `refmem_quality_evaluate_deployment_gate()` 的输出拆成 `refmem_quality_gate_result_t`，避免 quality runtime 的逻辑 `reject_slot` 与 DeploymentGate 表的 `reject_region_ref` 混用。
+  - 架构文档明确：Vector directory 16 项是固定 region；A0-A7 / SlotClaim 才是节点实例化槽位。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_application_contract_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_quality_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815151411`，package CRC `0x6B9F4362`。
+- 后续动作：
+  - 后续架构评审中继续区分 Vector fixed region、A0-A7 logical slot、SlotClaim assignment 和 RMTP 九表模型，避免把 region 当成可加载节点槽。
+
 ### REFMEM-TASK-20260815-040 - Inline LOAD:NODE/BOARD to full RMTP package image
 
 - 状态：完成 host/build 验证

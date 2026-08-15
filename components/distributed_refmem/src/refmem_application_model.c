@@ -190,64 +190,64 @@ static const refmem_fb_instance_table_t s_fb_instance_table = {
          REFMEM_APP_FB_REFMEM_SYNC, "B0.RefMemSyncFB", 1u, 1u,
          REFMEM_APP_RESOURCE_RJ45, REFMEM_APP_IO_RJ45_SYNC,
          REFMEM_APP_IP_RJ45_SYNC_DELTA, 1000u,
-         REFMEM_VECTOR_SLOT_GATEWAY, REFMEM_VECTOR_SLOT_STATS, 2u, 1u, 3u, 2u, 1u, 1u},
+         REFMEM_VECTOR_REGION_GATEWAY, REFMEM_VECTOR_REGION_STATS, 2u, 1u, 3u, 2u, 1u, 1u},
         {REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, 0u, REFMEM_APP_DOMAIN_TRIG, REFMEM_APP_FB_LOOP_ENGINE,
          REFMEM_APP_FB_LOOP_ENGINE, "B0.LoopEngineAO", 1u, 1u,
          REFMEM_APP_RESOURCE_CORE1_RT, REFMEM_APP_IO_SMA_IN | REFMEM_APP_IO_SMA_OUT,
          REFMEM_APP_IP_VDC_DPLL, 500u,
-         REFMEM_VECTOR_SLOT_LOOP, REFMEM_VECTOR_SLOT_STATS, 3u, 2u, 5u, 3u, 2u, 2u},
+         REFMEM_VECTOR_REGION_LOOP, REFMEM_VECTOR_REGION_STATS, 3u, 2u, 5u, 3u, 2u, 2u},
         {REFMEM_APP_INSTANCE_B0_PULSE_COUNTER, 0u, REFMEM_APP_DOMAIN_TRIG,
          REFMEM_APP_FB_PULSE_COUNTER, REFMEM_APP_FB_PULSE_COUNTER,
          "Template.PulseCounterAO", 1u, 0u,
          REFMEM_APP_RESOURCE_PIO | REFMEM_APP_RESOURCE_DMA | REFMEM_APP_RESOURCE_CORE1_RT,
          REFMEM_APP_IO_SMA_IN | REFMEM_APP_IO_SMA_OUT,
          REFMEM_APP_IP_PULSE_CAPTURE | REFMEM_APP_IP_PULSE_FIRE, 200u,
-         REFMEM_VECTOR_SLOT_TRIGGER, REFMEM_VECTOR_SLOT_STATS, 5u, 1u, 8u, 1u, 0u, 2u},
+         REFMEM_VECTOR_REGION_TRIGGER, REFMEM_VECTOR_REGION_STATS, 5u, 1u, 8u, 1u, 0u, 2u},
         {REFMEM_APP_INSTANCE_B0_TRIGGER_MASTER, 0u, REFMEM_APP_DOMAIN_TRIG, REFMEM_APP_FB_TRIGGER_AO,
          REFMEM_APP_FB_TRIGGER_AO, "Template.TriggerMasterAO", 1u, 0u,
          REFMEM_APP_RESOURCE_PIO | REFMEM_APP_RESOURCE_DMA | REFMEM_APP_RESOURCE_CORE1_RT,
          REFMEM_APP_IO_SMA_IN | REFMEM_APP_IO_SMA_OUT,
          REFMEM_APP_IP_PULSE_CAPTURE | REFMEM_APP_IP_PULSE_FIRE, 200u,
-         REFMEM_VECTOR_SLOT_TRIGGER, REFMEM_VECTOR_SLOT_STATS, 5u, 1u, 8u, 1u, 3u, 2u},
+         REFMEM_VECTOR_REGION_TRIGGER, REFMEM_VECTOR_REGION_STATS, 5u, 1u, 8u, 1u, 3u, 2u},
         {REFMEM_APP_INSTANCE_B1_TRIGGER, 1u, REFMEM_APP_DOMAIN_TRIG, REFMEM_APP_FB_TRIGGER_AO,
          REFMEM_APP_FB_TRIGGER_AO, "Template.TriggerAO", 1u, 0u,
          REFMEM_APP_RESOURCE_PIO | REFMEM_APP_RESOURCE_DMA | REFMEM_APP_RESOURCE_CORE1_RT,
          REFMEM_APP_IO_SMA_IN | REFMEM_APP_IO_SMA_OUT | REFMEM_APP_IO_RJ45_SYNC,
          REFMEM_APP_IP_PULSE_CAPTURE | REFMEM_APP_IP_PULSE_FIRE, 200u,
-         REFMEM_VECTOR_SLOT_TRIGGER, REFMEM_VECTOR_SLOT_STATS, 6u, 1u, 9u, 1u, 3u, 2u},
+         REFMEM_VECTOR_REGION_TRIGGER, REFMEM_VECTOR_REGION_STATS, 6u, 1u, 9u, 1u, 3u, 2u},
         {REFMEM_APP_INSTANCE_B2_LINK_SWITCH, 2u, REFMEM_APP_DOMAIN_TRIG,
          REFMEM_APP_FB_LINK_SWITCHER, REFMEM_APP_FB_LINK_SWITCHER,
          "Template.LinkSwitcherAO", 1u, 0u,
          REFMEM_APP_RESOURCE_PIO | REFMEM_APP_RESOURCE_DMA | REFMEM_APP_RESOURCE_CORE1_RT,
          REFMEM_APP_IO_LINK_CONTROL | REFMEM_APP_IO_RJ45_SYNC,
          REFMEM_APP_IP_PULSE_CAPTURE | REFMEM_APP_IP_LINK_SEQUENCE, 300u,
-         REFMEM_VECTOR_SLOT_IO, REFMEM_VECTOR_SLOT_STATS, 8u, 3u, 10u, 3u, 4u, 2u},
+         REFMEM_VECTOR_REGION_IO, REFMEM_VECTOR_REGION_STATS, 8u, 3u, 10u, 3u, 4u, 2u},
         {REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, 3u, REFMEM_APP_DOMAIN_SYSTEM,
          REFMEM_APP_FB_SYSTEM_AO, REFMEM_APP_FB_SYSTEM_AO,
          "B3.SystemGatewayAO", 1u, 1u,
          REFMEM_APP_RESOURCE_FLASH | REFMEM_APP_RESOURCE_SD | REFMEM_APP_RESOURCE_USB,
          0u, 0u, 1000u,
-         REFMEM_VECTOR_SLOT_SYSTEM, REFMEM_VECTOR_SLOT_FAULT, 0u, 0u, 11u, 1u, 0u, 2u},
+         REFMEM_VECTOR_REGION_SYSTEM, REFMEM_VECTOR_REGION_FAULT, 0u, 0u, 11u, 1u, 0u, 2u},
         {REFMEM_APP_INSTANCE_B3_INSTRUMENT, 3u, REFMEM_APP_DOMAIN_GATEWAY,
          REFMEM_APP_FB_GATEWAY_AO, REFMEM_APP_FB_INSTRUMENT_CONTROLLER,
          "Template.InstrumentControllerAO", 1u, 0u,
          REFMEM_APP_RESOURCE_RJ45, REFMEM_APP_IO_RJ45_SYNC | REFMEM_APP_IO_UART_RS485,
          REFMEM_APP_IP_RJ45_SYNC_DELTA, 1000u,
-         REFMEM_VECTOR_SLOT_GATEWAY, REFMEM_VECTOR_SLOT_STATS, 0u, 0u, 13u, 1u, 5u, 1u},
+         REFMEM_VECTOR_REGION_GATEWAY, REFMEM_VECTOR_REGION_STATS, 0u, 0u, 13u, 1u, 5u, 1u},
         {REFMEM_APP_INSTANCE_B3_CALIBRATION, 3u, REFMEM_APP_DOMAIN_CAL, REFMEM_APP_FB_CALIBRATION_AO,
          REFMEM_APP_FB_CALIBRATION_AO, "B3.CalibrationAO", 1u, 1u,
          REFMEM_APP_RESOURCE_RJ45, REFMEM_APP_IO_RJ45_SYNC,
          REFMEM_APP_IP_RJ45_SYNC_DELTA, 1000u,
-         REFMEM_VECTOR_SLOT_CAL, REFMEM_VECTOR_SLOT_STATS, 0u, 0u, 0u, 0u, 6u, 1u},
+         REFMEM_VECTOR_REGION_CAL, REFMEM_VECTOR_REGION_STATS, 0u, 0u, 0u, 0u, 6u, 1u},
         {REFMEM_APP_INSTANCE_B4_MODEL_VNA, 4u, REFMEM_APP_DOMAIN_MEAS, REFMEM_APP_FB_MODEL_VNA,
          REFMEM_APP_FB_MODEL_VNA, "Template.ModelVnaAO", 1u, 0u,
          REFMEM_APP_RESOURCE_USB, 0u, 0u, 1000u,
-         REFMEM_VECTOR_SLOT_GATEWAY, REFMEM_VECTOR_SLOT_STATS, 0u, 0u, 0u, 0u, 7u, 1u},
+         REFMEM_VECTOR_REGION_GATEWAY, REFMEM_VECTOR_REGION_STATS, 0u, 0u, 0u, 0u, 7u, 1u},
         {REFMEM_APP_INSTANCE_B4_MODEL_TT, 4u, REFMEM_APP_DOMAIN_MEAS, REFMEM_APP_FB_MODEL_TURNTABLE,
          REFMEM_APP_FB_MODEL_TURNTABLE, "Template.ModelTurntableAO", 1u, 0u,
          REFMEM_APP_RESOURCE_PIO | REFMEM_APP_RESOURCE_DMA | REFMEM_APP_RESOURCE_CORE1_RT,
          REFMEM_APP_IO_MODEL_TURNTABLE_PULSE, REFMEM_APP_IP_PULSE_FIRE, 500u,
-         REFMEM_VECTOR_SLOT_IO, REFMEM_VECTOR_SLOT_STATS, 0u, 0u, 0u, 0u, 8u, 1u},
+         REFMEM_VECTOR_REGION_IO, REFMEM_VECTOR_REGION_STATS, 0u, 0u, 0u, 0u, 8u, 1u},
     },
 };
 
@@ -257,37 +257,37 @@ static const refmem_event_link_table_t s_event_link_table = {
     .link = {
         {0u, REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, REFMEM_APP_EVENT_CONFIG_STAGE, 0x0Fu,
          REFMEM_APP_INSTANCE_B0_REFMEM_SYNC, REFMEM_APP_EVENT_CONFIG_STAGE,
-         REFMEM_APP_TRANSPORT_COMMAND_SLOT, 50000u, REFMEM_APP_ACK_ALL_REQUIRED, 0u, 1u, REFMEM_VECTOR_SLOT_ACK_CMD},
+         REFMEM_APP_TRANSPORT_COMMAND_SLOT, 50000u, REFMEM_APP_ACK_ALL_REQUIRED, 0u, 1u, REFMEM_VECTOR_REGION_ACK_CMD},
         {1u, REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, REFMEM_APP_EVENT_CONFIG_ACTIVATE, 0x0Fu,
          REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, REFMEM_APP_EVENT_CONFIG_ACTIVATE,
-         REFMEM_APP_TRANSPORT_COMMAND_SLOT, 50000u, REFMEM_APP_ACK_ALL_REQUIRED, 0u, 1u, REFMEM_VECTOR_SLOT_ACK_CMD},
+         REFMEM_APP_TRANSPORT_COMMAND_SLOT, 50000u, REFMEM_APP_ACK_ALL_REQUIRED, 0u, 1u, REFMEM_VECTOR_REGION_ACK_CMD},
         {2u, REFMEM_APP_INSTANCE_B0_REFMEM_SYNC, REFMEM_APP_EVENT_ACK, 0x08u,
          REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, REFMEM_APP_EVENT_ACK,
-         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 20000u, REFMEM_APP_ACK_BITMAP, 0u, 1u, REFMEM_VECTOR_SLOT_ACK_CMD},
+         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 20000u, REFMEM_APP_ACK_BITMAP, 0u, 1u, REFMEM_VECTOR_REGION_ACK_CMD},
         {3u, REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, REFMEM_APP_EVENT_START, 0x0Fu,
          REFMEM_APP_INSTANCE_B0_TRIGGER_MASTER, REFMEM_APP_EVENT_START,
-         REFMEM_APP_TRANSPORT_COMMAND_SLOT, 20000u, REFMEM_APP_ACK_ALL_REQUIRED, 0u, 2u, REFMEM_VECTOR_SLOT_ACK_CMD},
+         REFMEM_APP_TRANSPORT_COMMAND_SLOT, 20000u, REFMEM_APP_ACK_ALL_REQUIRED, 0u, 2u, REFMEM_VECTOR_REGION_ACK_CMD},
         {4u, REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, REFMEM_APP_EVENT_STOP, 0x0Fu,
          REFMEM_APP_INSTANCE_B0_TRIGGER_MASTER, REFMEM_APP_EVENT_STOP,
-         REFMEM_APP_TRANSPORT_COMMAND_SLOT, 10000u, REFMEM_APP_ACK_ALL_REQUIRED, 0u, 2u, REFMEM_VECTOR_SLOT_ACK_CMD},
+         REFMEM_APP_TRANSPORT_COMMAND_SLOT, 10000u, REFMEM_APP_ACK_ALL_REQUIRED, 0u, 2u, REFMEM_VECTOR_REGION_ACK_CMD},
         {5u, REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, REFMEM_APP_EVENT_FIRE_LOAD, 0x01u,
          REFMEM_APP_INSTANCE_B0_PULSE_COUNTER, REFMEM_APP_EVENT_FIRE_LOAD,
-         REFMEM_APP_TRANSPORT_CORE_IPC, 1000u, REFMEM_APP_ACK_NONE, 0u, 3u, REFMEM_VECTOR_SLOT_TRIGGER},
+         REFMEM_APP_TRANSPORT_CORE_IPC, 1000u, REFMEM_APP_ACK_NONE, 0u, 3u, REFMEM_VECTOR_REGION_TRIGGER},
         {6u, REFMEM_APP_INSTANCE_B0_PULSE_COUNTER, REFMEM_APP_EVENT_DONE, 0x01u,
          REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, REFMEM_APP_EVENT_DONE,
-         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 10000u, REFMEM_APP_ACK_BITMAP, 0u, 2u, REFMEM_VECTOR_SLOT_STATS},
+         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 10000u, REFMEM_APP_ACK_BITMAP, 0u, 2u, REFMEM_VECTOR_REGION_STATS},
         {7u, REFMEM_APP_INSTANCE_B0_PULSE_COUNTER, REFMEM_APP_EVENT_FAULT, 0x08u,
          REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, REFMEM_APP_EVENT_FAULT,
-         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 10000u, REFMEM_APP_ACK_BITMAP, 0u, 3u, REFMEM_VECTOR_SLOT_FAULT},
+         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 10000u, REFMEM_APP_ACK_BITMAP, 0u, 3u, REFMEM_VECTOR_REGION_FAULT},
         {8u, REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, REFMEM_APP_EVENT_FIRE_LOAD, 0x04u,
          REFMEM_APP_INSTANCE_B2_LINK_SWITCH, REFMEM_APP_EVENT_FIRE_LOAD,
-         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 2000u, REFMEM_APP_ACK_BITMAP, 0u, 3u, REFMEM_VECTOR_SLOT_IO},
+         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 2000u, REFMEM_APP_ACK_BITMAP, 0u, 3u, REFMEM_VECTOR_REGION_IO},
         {9u, REFMEM_APP_INSTANCE_B2_LINK_SWITCH, REFMEM_APP_EVENT_DONE, 0x01u,
          REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, REFMEM_APP_EVENT_DONE,
-         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 10000u, REFMEM_APP_ACK_BITMAP, 0u, 2u, REFMEM_VECTOR_SLOT_STATS},
+         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 10000u, REFMEM_APP_ACK_BITMAP, 0u, 2u, REFMEM_VECTOR_REGION_STATS},
         {10u, REFMEM_APP_INSTANCE_B2_LINK_SWITCH, REFMEM_APP_EVENT_FAULT, 0x08u,
          REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, REFMEM_APP_EVENT_FAULT,
-         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 10000u, REFMEM_APP_ACK_BITMAP, 0u, 3u, REFMEM_VECTOR_SLOT_FAULT},
+         REFMEM_APP_TRANSPORT_RJ45_SYNC_RING, 10000u, REFMEM_APP_ACK_BITMAP, 0u, 3u, REFMEM_VECTOR_REGION_FAULT},
     },
 };
 
@@ -295,61 +295,61 @@ static const refmem_data_link_table_t s_data_link_table = {
     .version = REFMEM_APP_MODEL_VERSION,
     .data_link_count = REFMEM_APP_MODEL_DATA_LINK_COUNT,
     .link = {
-        {0u, "SystemSlot.mode", REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, 0xFFu, REFMEM_APP_DATA_ENUM,
+        {0u, "SystemRegion.mode", REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, 0xFFu, REFMEM_APP_DATA_ENUM,
          REFMEM_APP_UNIT_NONE, 1, 0, 8, REFMEM_APP_LIFE_ACTIVE,
-         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 10000u, 50000u, REFMEM_VECTOR_SLOT_SYSTEM,
+         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 10000u, 50000u, REFMEM_VECTOR_REGION_SYSTEM,
          REFMEM_APP_PERMISSION_COMMAND_WRITE},
-        {1u, "RoleSlot.node_role", REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, 0xFFu, REFMEM_APP_DATA_BITMASK,
+        {1u, "RoleRegion.node_role", REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, 0xFFu, REFMEM_APP_DATA_BITMASK,
          REFMEM_APP_UNIT_NONE, 1, 0, 255, REFMEM_APP_LIFE_ACTIVE,
-         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 100000u, 500000u, REFMEM_VECTOR_SLOT_ROLE,
+         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 100000u, 500000u, REFMEM_VECTOR_REGION_ROLE,
          REFMEM_APP_PERMISSION_CONFIG_STAGE_WRITE},
-        {2u, "LoopSlot.active_sequence_crc", REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, 0xFFu,
+        {2u, "LoopRegion.active_sequence_crc", REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, 0xFFu,
          REFMEM_APP_DATA_CRC, REFMEM_APP_UNIT_NONE, 1, 0, 2147483647, REFMEM_APP_LIFE_ACTIVE,
-         REFMEM_APP_SNAPSHOT_SEQLOCK, 10000u, 50000u, REFMEM_VECTOR_SLOT_LOOP,
+         REFMEM_APP_SNAPSHOT_SEQLOCK, 10000u, 50000u, REFMEM_VECTOR_REGION_LOOP,
          REFMEM_APP_PERMISSION_CONFIG_STAGE_WRITE},
-        {3u, "LoopSlot.run_state", REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, 0xFFu, REFMEM_APP_DATA_ENUM,
+        {3u, "LoopRegion.run_state", REFMEM_APP_INSTANCE_B0_LOOP_ENGINE, 0xFFu, REFMEM_APP_DATA_ENUM,
          REFMEM_APP_UNIT_NONE, 1, 0, 16, REFMEM_APP_LIFE_RUN,
-         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 1000u, 10000u, REFMEM_VECTOR_SLOT_LOOP,
+         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 1000u, 10000u, REFMEM_VECTOR_REGION_LOOP,
          REFMEM_APP_PERMISSION_COMMAND_WRITE},
-        {4u, "VdcSlot.dc_time64_ns", REFMEM_APP_INSTANCE_B0_REFMEM_SYNC, 0xFFu, REFMEM_APP_DATA_NS,
+        {4u, "VdcRegion.dc_time64_ns", REFMEM_APP_INSTANCE_B0_REFMEM_SYNC, 0xFFu, REFMEM_APP_DATA_NS,
          REFMEM_APP_UNIT_NS, 1, 0, 2147483647, REFMEM_APP_LIFE_RUN,
-         REFMEM_APP_SNAPSHOT_SEQLOCK, 1000u, 10000u, REFMEM_VECTOR_SLOT_VDC,
+         REFMEM_APP_SNAPSHOT_SEQLOCK, 1000u, 10000u, REFMEM_VECTOR_REGION_VDC,
          REFMEM_APP_PERMISSION_READ_ONLY},
-        {5u, "DpllSlot.lock_state", REFMEM_APP_INSTANCE_B0_REFMEM_SYNC, 0xFFu, REFMEM_APP_DATA_ENUM,
+        {5u, "DpllRegion.lock_state", REFMEM_APP_INSTANCE_B0_REFMEM_SYNC, 0xFFu, REFMEM_APP_DATA_ENUM,
          REFMEM_APP_UNIT_NONE, 1, 0, 8, REFMEM_APP_LIFE_RUN,
-         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 1000u, 10000u, REFMEM_VECTOR_SLOT_DPLL,
+         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 1000u, 10000u, REFMEM_VECTOR_REGION_DPLL,
          REFMEM_APP_PERMISSION_READ_ONLY},
-        {6u, "CalibrationSlot.delay_crc", REFMEM_APP_INSTANCE_B3_CALIBRATION, 0xFFu,
+        {6u, "CalibrationRegion.delay_crc", REFMEM_APP_INSTANCE_B3_CALIBRATION, 0xFFu,
          REFMEM_APP_DATA_CRC, REFMEM_APP_UNIT_NONE, 1, 0, 2147483647, REFMEM_APP_LIFE_ACTIVE,
-         REFMEM_APP_SNAPSHOT_SEQLOCK, 100000u, 500000u, REFMEM_VECTOR_SLOT_CAL,
+         REFMEM_APP_SNAPSHOT_SEQLOCK, 100000u, 500000u, REFMEM_VECTOR_REGION_CAL,
          REFMEM_APP_PERMISSION_CONFIG_STAGE_WRITE},
-        {7u, "AckCommandSlot.command_seq", REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, 0xFFu,
+        {7u, "AckCommandRegion.command_seq", REFMEM_APP_INSTANCE_B3_SYSTEM_GATEWAY, 0xFFu,
          REFMEM_APP_DATA_U32, REFMEM_APP_UNIT_COUNT, 1, 0, 2147483647, REFMEM_APP_LIFE_TRANSIENT,
-         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 1000u, 50000u, REFMEM_VECTOR_SLOT_ACK_CMD,
+         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 1000u, 50000u, REFMEM_VECTOR_REGION_ACK_CMD,
          REFMEM_APP_PERMISSION_COMMAND_WRITE},
-        {8u, "TriggerSlot.fire_seq", REFMEM_APP_INSTANCE_B0_PULSE_COUNTER, 0x0Fu, REFMEM_APP_DATA_U32,
+        {8u, "TriggerRegion.fire_seq", REFMEM_APP_INSTANCE_B0_PULSE_COUNTER, 0x0Fu, REFMEM_APP_DATA_U32,
          REFMEM_APP_UNIT_COUNT, 1, 0, 2147483647, REFMEM_APP_LIFE_RUN,
-         REFMEM_APP_SNAPSHOT_SEQLOCK, 1000u, 10000u, REFMEM_VECTOR_SLOT_TRIGGER,
+         REFMEM_APP_SNAPSHOT_SEQLOCK, 1000u, 10000u, REFMEM_VECTOR_REGION_TRIGGER,
          REFMEM_APP_PERMISSION_READ_ONLY},
-        {9u, "TriggerSlot.node_heartbeat", REFMEM_APP_INSTANCE_B1_TRIGGER, 0x0Fu,
+        {9u, "TriggerRegion.node_heartbeat", REFMEM_APP_INSTANCE_B1_TRIGGER, 0x0Fu,
          REFMEM_APP_DATA_U32, REFMEM_APP_UNIT_COUNT, 1, 0, 2147483647, REFMEM_APP_LIFE_RUN,
-         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 1000u, 10000u, REFMEM_VECTOR_SLOT_NODE,
+         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 1000u, 10000u, REFMEM_VECTOR_REGION_NODE,
          REFMEM_APP_PERMISSION_READ_ONLY},
-        {10u, "IoSlot.link_state", REFMEM_APP_INSTANCE_B2_LINK_SWITCH, 0xFFu, REFMEM_APP_DATA_BITMASK,
+        {10u, "IoRegion.link_state", REFMEM_APP_INSTANCE_B2_LINK_SWITCH, 0xFFu, REFMEM_APP_DATA_BITMASK,
          REFMEM_APP_UNIT_NONE, 1, 0, 65535, REFMEM_APP_LIFE_ACTIVE,
-         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 10000u, 50000u, REFMEM_VECTOR_SLOT_IO,
+         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 10000u, 50000u, REFMEM_VECTOR_REGION_IO,
          REFMEM_APP_PERMISSION_COMMAND_WRITE},
-        {11u, "IoSlot.link_pulse_timestamp", REFMEM_APP_INSTANCE_B2_LINK_SWITCH, 0xFFu,
+        {11u, "IoRegion.link_pulse_timestamp", REFMEM_APP_INSTANCE_B2_LINK_SWITCH, 0xFFu,
          REFMEM_APP_DATA_TICK, REFMEM_APP_UNIT_TICK, 1, 0, 2147483647, REFMEM_APP_LIFE_RUN,
-         REFMEM_APP_SNAPSHOT_SEQLOCK, 1000u, 10000u, REFMEM_VECTOR_SLOT_IO,
+         REFMEM_APP_SNAPSHOT_SEQLOCK, 1000u, 10000u, REFMEM_VECTOR_REGION_IO,
          REFMEM_APP_PERMISSION_READ_ONLY},
-        {12u, "IoSlot.link_sequence_state", REFMEM_APP_INSTANCE_B2_LINK_SWITCH, 0xFFu,
+        {12u, "IoRegion.link_sequence_state", REFMEM_APP_INSTANCE_B2_LINK_SWITCH, 0xFFu,
          REFMEM_APP_DATA_ENUM, REFMEM_APP_UNIT_NONE, 1, 0, 32, REFMEM_APP_LIFE_RUN,
-         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 1000u, 10000u, REFMEM_VECTOR_SLOT_IO,
+         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 1000u, 10000u, REFMEM_VECTOR_REGION_IO,
          REFMEM_APP_PERMISSION_READ_ONLY},
-        {13u, "GatewaySlot.instrument_state", REFMEM_APP_INSTANCE_B3_INSTRUMENT, 0xFFu,
+        {13u, "GatewayRegion.instrument_state", REFMEM_APP_INSTANCE_B3_INSTRUMENT, 0xFFu,
          REFMEM_APP_DATA_ENUM, REFMEM_APP_UNIT_NONE, 1, 0, 32, REFMEM_APP_LIFE_ACTIVE,
-         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 10000u, 50000u, REFMEM_VECTOR_SLOT_GATEWAY,
+         REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC, 10000u, 50000u, REFMEM_VECTOR_REGION_GATEWAY,
          REFMEM_APP_PERMISSION_READ_ONLY},
     },
 };
@@ -358,17 +358,17 @@ static const refmem_deployment_gate_table_t s_deployment_gate = {
     .version = REFMEM_APP_MODEL_VERSION,
     .check_count = REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT,
     .check = {
-        {REFMEM_APP_GATE_LAYOUT, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_SLOT_HEADER, 0u},
-        {REFMEM_APP_GATE_NODE, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_SLOT_NODE, 0u},
-        {REFMEM_APP_GATE_INSTANCE, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_SLOT_TLV, 0u},
-        {REFMEM_APP_GATE_RESOURCE, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_SLOT_SERVICE, 0u},
-        {REFMEM_APP_GATE_IO, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_SLOT_IO, 0u},
-        {REFMEM_APP_GATE_WRITER, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_SLOT_TLV, 0u},
-        {REFMEM_APP_GATE_EVENT, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_SLOT_ACK_CMD, 0u},
-        {REFMEM_APP_GATE_DATA, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_SLOT_TLV, 0u},
-        {REFMEM_APP_GATE_CONFIG, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_SLOT_SYSTEM, 0u},
-        {REFMEM_APP_GATE_CAL_SYNC, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_SLOT_CAL, 0u},
-        {REFMEM_APP_GATE_QUALITY, 1u, REFMEM_APP_GATE_LATCH_FAULT, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_SLOT_STATS, 0u},
+        {REFMEM_APP_GATE_LAYOUT, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_HEADER, 0u},
+        {REFMEM_APP_GATE_NODE, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_NODE, 0u},
+        {REFMEM_APP_GATE_INSTANCE, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_TLV, 0u},
+        {REFMEM_APP_GATE_RESOURCE, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_SERVICE, 0u},
+        {REFMEM_APP_GATE_IO, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_IO, 0u},
+        {REFMEM_APP_GATE_WRITER, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_TLV, 0u},
+        {REFMEM_APP_GATE_EVENT, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_ACK_CMD, 0u},
+        {REFMEM_APP_GATE_DATA, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_TLV, 0u},
+        {REFMEM_APP_GATE_CONFIG, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_SYSTEM, 0u},
+        {REFMEM_APP_GATE_CAL_SYNC, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_CAL, 0u},
+        {REFMEM_APP_GATE_QUALITY, 1u, REFMEM_APP_GATE_LATCH_FAULT, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_STATS, 0u},
     },
 };
 
@@ -560,10 +560,10 @@ static const char *refmem_model_default_instance_name(uint32_t instance_id)
     return "";
 }
 
-static const char *refmem_model_default_slot_path(uint32_t data_link_id)
+static const char *refmem_model_default_region_path(uint32_t data_link_id)
 {
     if (data_link_id < s_data_link_table.data_link_count) {
-        return s_data_link_table.link[data_link_id].slot_path;
+        return s_data_link_table.link[data_link_id].region_path;
     }
     return "";
 }
@@ -712,8 +712,8 @@ static bool refmem_model_parse_fb_instance_view(const uint8_t *data,
         instance->io_claim = refmem_model_read_u32_le(&data[cursor + 36u]);
         instance->ip_core_claim = refmem_model_read_u32_le(&data[cursor + 40u]);
         instance->time_budget_us = refmem_model_read_u32_le(&data[cursor + 44u]);
-        instance->state_slot_ref = refmem_model_read_u32_le(&data[cursor + 48u]);
-        instance->health_slot_ref = refmem_model_read_u32_le(&data[cursor + 52u]);
+        instance->state_region_ref = refmem_model_read_u32_le(&data[cursor + 48u]);
+        instance->health_region_ref = refmem_model_read_u32_le(&data[cursor + 52u]);
         instance->event_first = refmem_model_read_u32_le(&data[cursor + 56u]);
         instance->event_count = refmem_model_read_u32_le(&data[cursor + 60u]);
         instance->data_first = refmem_model_read_u32_le(&data[cursor + 64u]);
@@ -751,7 +751,7 @@ static bool refmem_model_parse_event_link_view(const uint8_t *data,
         link->ack_policy = refmem_model_read_u32_le(&data[cursor + 32u]);
         link->retry_policy = refmem_model_read_u32_le(&data[cursor + 36u]);
         link->safety_class = refmem_model_read_u32_le(&data[cursor + 40u]);
-        link->evidence_ref = refmem_model_read_u32_le(&data[cursor + 44u]);
+        link->evidence_region_ref = refmem_model_read_u32_le(&data[cursor + 44u]);
         cursor += 12u * sizeof(uint32_t);
     }
     return links->version == REFMEM_APP_MODEL_VERSION &&
@@ -780,7 +780,7 @@ static bool refmem_model_parse_data_link_view(const uint8_t *data,
     for (uint32_t i = 0u; i < count; i++) {
         refmem_data_link_entry_t *link = &links->link[i];
         link->data_link_id = refmem_model_read_u32_le(&data[cursor + 0u]);
-        link->slot_path = refmem_model_default_slot_path(link->data_link_id);
+        link->region_path = refmem_model_default_region_path(link->data_link_id);
         link->writer_instance = refmem_model_read_u32_le(&data[cursor + 8u]);
         link->reader_mask = refmem_model_read_u32_le(&data[cursor + 12u]);
         link->type = refmem_model_read_u32_le(&data[cursor + 16u]);
@@ -792,7 +792,7 @@ static bool refmem_model_parse_data_link_view(const uint8_t *data,
         link->snapshot_policy = refmem_model_read_u32_le(&data[cursor + 40u]);
         link->update_period_us = refmem_model_read_u32_le(&data[cursor + 44u]);
         link->stale_window_us = refmem_model_read_u32_le(&data[cursor + 48u]);
-        link->crc_scope = refmem_model_read_u32_le(&data[cursor + 52u]);
+        link->crc_region_ref = refmem_model_read_u32_le(&data[cursor + 52u]);
         link->permission = refmem_model_read_u32_le(&data[cursor + 56u]);
         cursor += REFMEM_APP_TABLE_WIRE_DATA_LINK_WORDS * REFMEM_APP_TABLE_WIRE_U32_SIZE;
     }
@@ -821,7 +821,7 @@ static bool refmem_model_parse_deployment_gate_view(const uint8_t *data,
         check->reject_code = refmem_model_read_u32_le(&data[cursor + 16u]);
         check->reject_instance = refmem_model_read_u32_le(&data[cursor + 20u]);
         check->reject_node = refmem_model_read_u32_le(&data[cursor + 24u]);
-        check->reject_slot = refmem_model_read_u32_le(&data[cursor + 28u]);
+        check->reject_region_ref = refmem_model_read_u32_le(&data[cursor + 28u]);
         check->reject_evidence_index = refmem_model_read_u32_le(&data[cursor + 32u]);
         cursor += 9u * sizeof(uint32_t);
     }
@@ -920,7 +920,7 @@ static uint32_t refmem_model_fb_instance_crc32(void)
             instance->fb_type, instance->version, instance->enable_condition,
             instance->resource_claim, instance->io_claim, instance->ip_core_claim,
             instance->time_budget_us,
-            instance->state_slot_ref, instance->health_slot_ref, instance->event_first,
+            instance->state_region_ref, instance->health_region_ref, instance->event_first,
             instance->event_count, instance->data_first, instance->data_count,
             instance->conflict_class, instance->restart_policy,
         };
@@ -948,11 +948,11 @@ static uint32_t refmem_model_data_link_crc32(void)
             link->data_link_id, link->writer_instance, link->reader_mask, link->type,
             link->unit, (uint32_t)link->scale, (uint32_t)link->min_value,
             (uint32_t)link->max_value, link->lifecycle, link->snapshot_policy,
-            link->update_period_us, link->stale_window_us, link->crc_scope,
+            link->update_period_us, link->stale_window_us, link->crc_region_ref,
             link->permission,
         };
         crc = refmem_model_crc32_update(crc, fields, sizeof(fields));
-        crc = refmem_model_crc32_string(crc, link->slot_path);
+        crc = refmem_model_crc32_string(crc, link->region_path);
     }
     return crc;
 }
@@ -1190,8 +1190,8 @@ static bool refmem_model_serialize_fb_instance(uint8_t *data,
             !refmem_model_write_u32_le(data, size, cursor, entry->io_claim) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->ip_core_claim) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->time_budget_us) ||
-            !refmem_model_write_u32_le(data, size, cursor, entry->state_slot_ref) ||
-            !refmem_model_write_u32_le(data, size, cursor, entry->health_slot_ref) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->state_region_ref) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->health_region_ref) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->event_first) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->event_count) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->data_first) ||
@@ -1226,7 +1226,7 @@ static bool refmem_model_serialize_event_link(uint8_t *data,
             !refmem_model_write_u32_le(data, size, cursor, entry->ack_policy) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->retry_policy) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->safety_class) ||
-            !refmem_model_write_u32_le(data, size, cursor, entry->evidence_ref)) {
+            !refmem_model_write_u32_le(data, size, cursor, entry->evidence_region_ref)) {
             return false;
         }
     }
@@ -1246,7 +1246,7 @@ static bool refmem_model_serialize_data_link(uint8_t *data,
         const refmem_data_link_entry_t *entry = &table->link[i];
         if (!refmem_model_write_u32_le(data, size, cursor, entry->data_link_id) ||
             !refmem_model_write_u32_le(data, size, cursor,
-                                       refmem_model_rmtp_crc32_string(entry->slot_path)) ||
+                                       refmem_model_rmtp_crc32_string(entry->region_path)) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->writer_instance) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->reader_mask) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->type) ||
@@ -1258,7 +1258,7 @@ static bool refmem_model_serialize_data_link(uint8_t *data,
             !refmem_model_write_u32_le(data, size, cursor, entry->snapshot_policy) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->update_period_us) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->stale_window_us) ||
-            !refmem_model_write_u32_le(data, size, cursor, entry->crc_scope) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->crc_region_ref) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->permission)) {
             return false;
         }
@@ -1285,7 +1285,7 @@ static bool refmem_model_serialize_deployment_gate(
             !refmem_model_write_u32_le(data, size, cursor, entry->reject_code) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->reject_instance) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->reject_node) ||
-            !refmem_model_write_u32_le(data, size, cursor, entry->reject_slot) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->reject_region_ref) ||
             !refmem_model_write_u32_le(data, size, cursor, entry->reject_evidence_index)) {
             return false;
         }
@@ -1657,8 +1657,8 @@ static bool refmem_model_validate_instances(void)
             instance->default_node_id >= REFMEM_APP_MODEL_NODE_COUNT ||
             instance->instance_name == NULL ||
             instance->domain > REFMEM_APP_DOMAIN_GATEWAY ||
-            instance->state_slot_ref >= REFMEM_VECTOR_SLOT_COUNT ||
-            instance->health_slot_ref >= REFMEM_VECTOR_SLOT_COUNT ||
+            instance->state_region_ref >= REFMEM_VECTOR_REGION_COUNT ||
+            instance->health_region_ref >= REFMEM_VECTOR_REGION_COUNT ||
             instance->event_first > s_event_link_table.event_link_count ||
             instance->event_count > (s_event_link_table.event_link_count - instance->event_first) ||
             instance->data_first > s_data_link_table.data_link_count ||
@@ -1684,7 +1684,7 @@ static bool refmem_model_validate_event_links(void)
             (link->target_node_mask & ~s_application_map.target_node_mask) != 0u ||
             link->transport > REFMEM_APP_TRANSPORT_PIO_SPI ||
             link->ack_policy > REFMEM_APP_ACK_BITMAP ||
-            link->evidence_ref >= REFMEM_VECTOR_SLOT_COUNT) {
+            link->evidence_region_ref >= REFMEM_VECTOR_REGION_COUNT) {
             return false;
         }
     }
@@ -1701,14 +1701,14 @@ static bool refmem_model_validate_data_links(void)
     for (uint32_t i = 0u; i < s_data_link_table.data_link_count; i++) {
         const refmem_data_link_entry_t *link = &s_data_link_table.link[i];
         if (link->data_link_id != i ||
-            link->slot_path == NULL ||
+            link->region_path == NULL ||
             !refmem_model_instance_exists(link->writer_instance) ||
             (link->reader_mask & ~s_application_map.target_node_mask) != 0u ||
             link->type > REFMEM_APP_DATA_CRC ||
             link->unit > REFMEM_APP_UNIT_COUNT ||
             link->lifecycle > REFMEM_APP_LIFE_EVIDENCE ||
             link->snapshot_policy > REFMEM_APP_SNAPSHOT_EVIDENCE_REF ||
-            link->crc_scope >= REFMEM_VECTOR_SLOT_COUNT ||
+            link->crc_region_ref >= REFMEM_VECTOR_REGION_COUNT ||
             link->permission > REFMEM_APP_PERMISSION_CONFIG_STAGE_WRITE ||
             link->min_value > link->max_value) {
             return false;
@@ -1731,7 +1731,7 @@ static bool refmem_model_validate_gate_and_quality(void)
         if (check->check_id != i ||
             check->fail_action > REFMEM_APP_GATE_LATCH_FAULT ||
             check->last_state > REFMEM_APP_GATE_LATCH_FAULT ||
-            check->reject_slot >= REFMEM_VECTOR_SLOT_COUNT) {
+            check->reject_region_ref >= REFMEM_VECTOR_REGION_COUNT) {
             return false;
         }
     }
@@ -1864,7 +1864,7 @@ static bool refmem_model_validate_unique_writers(void)
         const refmem_data_link_entry_t *left = &s_data_link_table.link[i];
         for (uint32_t j = i + 1u; j < s_data_link_table.data_link_count; j++) {
             const refmem_data_link_entry_t *right = &s_data_link_table.link[j];
-            if (strcmp(left->slot_path, right->slot_path) == 0 &&
+            if (strcmp(left->region_path, right->region_path) == 0 &&
                 left->writer_instance != right->writer_instance) {
                 return false;
             }
@@ -1906,25 +1906,25 @@ static bool refmem_model_validate_required_event_links(void)
 
 static bool refmem_model_validate_required_data_links(void)
 {
-    uint32_t slot_mask = 0u;
-    const uint32_t required_slot_mask = (1u << REFMEM_VECTOR_SLOT_SYSTEM) |
-                                        (1u << REFMEM_VECTOR_SLOT_ROLE) |
-                                        (1u << REFMEM_VECTOR_SLOT_VDC) |
-                                        (1u << REFMEM_VECTOR_SLOT_LOOP) |
-                                        (1u << REFMEM_VECTOR_SLOT_DPLL) |
-                                        (1u << REFMEM_VECTOR_SLOT_NODE) |
-                                        (1u << REFMEM_VECTOR_SLOT_TRIGGER) |
-                                        (1u << REFMEM_VECTOR_SLOT_IO) |
-                                        (1u << REFMEM_VECTOR_SLOT_CAL) |
-                                        (1u << REFMEM_VECTOR_SLOT_ACK_CMD) |
-                                        (1u << REFMEM_VECTOR_SLOT_GATEWAY);
+    uint32_t region_mask = 0u;
+    const uint32_t required_region_mask = (1u << REFMEM_VECTOR_REGION_SYSTEM) |
+                                          (1u << REFMEM_VECTOR_REGION_ROLE) |
+                                          (1u << REFMEM_VECTOR_REGION_VDC) |
+                                          (1u << REFMEM_VECTOR_REGION_LOOP) |
+                                          (1u << REFMEM_VECTOR_REGION_DPLL) |
+                                          (1u << REFMEM_VECTOR_REGION_NODE) |
+                                          (1u << REFMEM_VECTOR_REGION_TRIGGER) |
+                                          (1u << REFMEM_VECTOR_REGION_IO) |
+                                          (1u << REFMEM_VECTOR_REGION_CAL) |
+                                          (1u << REFMEM_VECTOR_REGION_ACK_CMD) |
+                                          (1u << REFMEM_VECTOR_REGION_GATEWAY);
 
     for (uint32_t i = 0u; i < s_data_link_table.data_link_count; i++) {
         const refmem_data_link_entry_t *link = &s_data_link_table.link[i];
-        slot_mask |= (1u << link->crc_scope);
+        region_mask |= (1u << link->crc_region_ref);
     }
 
-    return (slot_mask & required_slot_mask) == required_slot_mask;
+    return (region_mask & required_region_mask) == required_region_mask;
 }
 
 static void refmem_model_lint(uint32_t *error_count, uint32_t *first_error)
