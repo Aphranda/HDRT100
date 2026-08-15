@@ -8,6 +8,37 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-022 - LOAD:NODE via RefMem command slot
+
+- 状态：完成首版闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 将 `SYSTem:REFMEM:LOAD:NODE` 从 SCPI 直接调用 application staging API 收敛到 `DistributedRefMemAO` command slot / staging 路径。
+  - 验证 `SYSTem:COMMand:ACK?` 能直接观察 `LOAD:NODE` 的 `NODE_LOAD_STAGE` completion。
+- 完成内容：
+  - 新增 `distributed_refmem_stage_node_load()`，由 RefMemAO 原子清理已完成 command、post `NODE_LOAD_STAGE`、take target slot、调用 `refmem_application_model_stage_scpi_node_config()`，随后 ACK/NACK。
+  - 修复 command slot 抢占竞态：`clear completed command -> allocate seq -> post new command` 现在在 RefMemAO 内部同一个 critical section 完成，避免 `system_manager` 在间隙重新发布 `CONFIG_ACTIVATE`。
+  - `SYSTem:REFMEM:LOAD:NODE` 改为调用 RefMem intent API；返回字段保持原 `STAGED/REJECTED + LOAD:STATus` 格式。
+  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 增加 `SYSTem:COMMand:ACK?` 校验，并把 table count / active mask 更新为当前 9 张表 / `0x1FF`。
+- 验证结果：
+  - `python -m py_compile tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py` 通过。
+  - `python tools\checks\check_scpi_usb_namespace.py --root .` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_command_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815081416`，package CRC `0x5D6D4C16`。
+  - COM5/COM6 OTA 写入、boot 和 commit 到 build `20260815081416` 通过，错误队列均为 `0,"No error"`。
+  - COM5 执行 `python tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py COM5 --skip-sd --out-dir build-rtos-multicore-smoke\refmem_load_node_COM5_20260815081416_command_slot` 通过。
+  - COM6 执行 `python tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py COM6 --skip-sd --out-dir build-rtos-multicore-smoke\refmem_load_node_COM6_20260815081416_command_slot` 通过。
+  - COM5/COM6 再次执行 `tools\model_turntable_load_validate\model_turntable_load_validate.py` 通过，确认共享 post helper 未破坏 `CONFigure:MODEl:TURNtable:LOAD`。
+- 后续闭环：
+  - `LOAD:NODE` 仍是单条 staging snapshot，不是完整 NodeLoadTable active/staging/rollbackable image；P0 仍需升级为真实表镜像。
+  - `SYSTem:REFMEM:LOAD:SD` 和 `SYSTem:REFMEM:LOAD:BOARD` 仍需接入 command slot。
+- 关联文件：
+  - `components/distributed_refmem/inc/distributed_refmem.h`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+
 ### REFMEM-TASK-20260815-021 - Generic command ACK/NACK SCPI view
 
 - 状态：完成

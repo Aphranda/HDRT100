@@ -31,17 +31,29 @@ static distributed_refmem_status_t s_status;
 static uint32_t s_service_count;
 static bool s_initialized;
 
-static uint32_t distributed_refmem_model_payload_crc32(uint32_t slot_id,
-                                                       uint32_t output_index)
+static uint32_t distributed_refmem_u32_payload_crc32(const uint32_t *fields,
+                                                     uint32_t field_count)
 {
+    if (fields == NULL || field_count == 0u) {
+        return 0u;
+    }
+
     uint32_t crc = 2166136261u;
-    const uint32_t fields[] = {slot_id, output_index};
     const uint8_t *bytes = (const uint8_t *)fields;
-    for (uint32_t i = 0u; i < (uint32_t)sizeof(fields); i++) {
+    for (uint32_t i = 0u; i < field_count * (uint32_t)sizeof(uint32_t); i++) {
         crc ^= bytes[i];
         crc *= 16777619u;
     }
     return crc;
+}
+
+static uint32_t distributed_refmem_model_payload_crc32(uint32_t slot_id,
+                                                       uint32_t output_index)
+{
+    const uint32_t fields[] = {slot_id, output_index};
+    return distributed_refmem_u32_payload_crc32(
+        fields,
+        (uint32_t)(sizeof(fields) / sizeof(fields[0])));
 }
 
 static bool distributed_refmem_command_state_is_complete(uint32_t state)
@@ -64,6 +76,35 @@ static uint32_t distributed_refmem_next_command_seq(
     }
     seq++;
     return seq == 0u ? 1u : seq;
+}
+
+static bool distributed_refmem_post_command_replacing_complete(
+    refmem_command_request_t *request,
+    uint32_t issue_tick32)
+{
+    if (request == NULL) {
+        return false;
+    }
+
+    osal_critical_enter();
+    refmem_command_snapshot_t snapshot;
+    if (!refmem_command_get_snapshot(&s_refmem_command_slot, &snapshot)) {
+        osal_critical_exit();
+        return false;
+    }
+    if (snapshot.command_seq != 0u) {
+        if (!distributed_refmem_command_state_is_complete(snapshot.state) ||
+            !refmem_command_clear(&s_refmem_command_slot, snapshot.command_seq)) {
+            osal_critical_exit();
+            return false;
+        }
+    }
+    request->command_seq = distributed_refmem_next_command_seq(&snapshot);
+    const bool ok = refmem_command_try_post(&s_refmem_command_slot,
+                                            request,
+                                            issue_tick32);
+    osal_critical_exit();
+    return ok;
 }
 
 static distributed_refmem_node_load_owner_entry_t *
@@ -569,6 +610,94 @@ bool distributed_refmem_register_node_load_owner(
     return false;
 }
 
+bool distributed_refmem_stage_node_load(uint32_t node_id,
+                                        uint32_t instance_id,
+                                        uint32_t role_mask,
+                                        uint32_t persona_mask,
+                                        uint32_t enabled,
+                                        uint32_t required,
+                                        uint32_t load_order)
+{
+    if (!s_initialized) {
+        return false;
+    }
+    if (node_id >= DISTRIBUTED_REFMEM_NODE_COUNT) {
+        (void)refmem_application_model_stage_scpi_node_config(node_id,
+                                                              instance_id,
+                                                              role_mask,
+                                                              persona_mask,
+                                                              enabled,
+                                                              required,
+                                                              load_order);
+        return false;
+    }
+
+    const uint32_t fields[] = {
+        node_id,
+        instance_id,
+        role_mask,
+        persona_mask,
+        enabled,
+        required,
+        load_order,
+    };
+    const uint32_t payload_crc32 = distributed_refmem_u32_payload_crc32(
+        fields,
+        (uint32_t)(sizeof(fields) / sizeof(fields[0])));
+    const uint32_t target_mask = (uint32_t)(1u << node_id);
+    refmem_command_request_t request = {
+        .command_seq = 0u,
+        .source_node = DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
+        .source_instance = instance_id,
+        .target_mask = target_mask,
+        .required_mask = target_mask,
+        .command_type = REFMEM_COMMAND_TYPE_NODE_LOAD_STAGE,
+        .command_class = REFMEM_COMMAND_CLASS_CONFIG,
+        .payload_kind = REFMEM_COMMAND_PAYLOAD_INLINE_SMALL,
+        .payload_ref = instance_id,
+        .payload_size = (uint32_t)sizeof(fields),
+        .payload_crc32 = payload_crc32,
+        .issue_epoch = 0u,
+        .run_id = 0u,
+        .timeout_us = 50000u,
+    };
+
+    if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
+        return false;
+    }
+
+    osal_critical_enter();
+    const refmem_command_take_result_t take_result =
+        refmem_command_try_take(&s_refmem_command_slot,
+                                node_id,
+                                0u,
+                                0u,
+                                payload_crc32,
+                                REFMEM_VECTOR_SLOT_ACK_CMD);
+    osal_critical_exit();
+    if (take_result != REFMEM_COMMAND_TAKE_TAKEN) {
+        return false;
+    }
+
+    const bool staged =
+        refmem_application_model_stage_scpi_node_config(node_id,
+                                                        instance_id,
+                                                        role_mask,
+                                                        persona_mask,
+                                                        enabled,
+                                                        required,
+                                                        load_order);
+    if (staged) {
+        (void)distributed_refmem_command_ack(node_id, REFMEM_VECTOR_SLOT_ACK_CMD);
+        return true;
+    }
+
+    (void)distributed_refmem_command_nack(node_id,
+                                          REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
+                                          REFMEM_VECTOR_SLOT_ACK_CMD);
+    return false;
+}
+
 bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
                                                    uint32_t output_index)
 {
@@ -576,25 +705,11 @@ bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
         return false;
     }
 
-    refmem_command_snapshot_t snapshot;
-    if (!distributed_refmem_get_command_snapshot(&snapshot)) {
-        return false;
-    }
-    if (snapshot.command_seq != 0u) {
-        if (!distributed_refmem_command_state_is_complete(snapshot.state) ||
-            !distributed_refmem_command_clear(snapshot.command_seq)) {
-            return false;
-        }
-        if (!distributed_refmem_get_command_snapshot(&snapshot)) {
-            return false;
-        }
-    }
-
     const uint32_t payload_crc32 =
         distributed_refmem_model_payload_crc32(slot_id, output_index);
     const uint32_t target_mask = (uint32_t)(1u << slot_id);
-    const refmem_command_request_t request = {
-        .command_seq = distributed_refmem_next_command_seq(&snapshot),
+    refmem_command_request_t request = {
+        .command_seq = 0u,
         .source_node = DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
         .source_instance = REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE,
         .target_mask = target_mask,
@@ -610,7 +725,7 @@ bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
         .timeout_us = 50000u,
     };
 
-    if (!distributed_refmem_command_try_post(&request, osal_tick_ms())) {
+    if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
         return false;
     }
     osal_critical_enter();

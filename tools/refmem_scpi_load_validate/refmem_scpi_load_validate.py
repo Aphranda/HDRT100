@@ -125,6 +125,34 @@ def expect_node_rejected(response: str) -> None:
         raise AssertionError(f"unexpected reject fields: {fields[3:5]} last_error={fields[21]}")
 
 
+def expect_command_node_load_ack(response: str, *, node_id: int, instance_id: int) -> None:
+    fields = [int(part.strip().strip('"'), 0) for part in parse_csv_response(response)]
+    if len(fields) < 28:
+        raise AssertionError(f"field_count={len(fields)} expected>=28")
+    target_mask = 1 << node_id
+    checks = {
+        "schema": fields[0] == 1,
+        "state_acked": fields[1] == 4,
+        "source_instance": fields[4] == instance_id,
+        "target": fields[5] == target_mask,
+        "required": fields[6] == target_mask,
+        "command_type": fields[7] == 14,
+        "command_class": fields[8] == 1,
+        "payload_kind": fields[9] == 1,
+        "payload_ref": fields[10] == instance_id,
+        "payload_size": fields[11] == 28,
+        "taken": fields[17] == target_mask,
+        "ack": fields[18] == target_mask,
+        "nack": fields[19] == 0,
+        "busy": fields[20] == 0,
+        "timeout": fields[21] == 0,
+        "reason": fields[22] == 0,
+    }
+    bad = [name for name, ok in checks.items() if not ok]
+    if bad:
+        raise AssertionError(f"unexpected command ACK fields {bad}: {fields}")
+
+
 def expect_sd_response(response: str) -> None:
     fields = load_fields(response, has_prefix=True)
     prefix = response.split(",", 1)[0]
@@ -143,11 +171,11 @@ def expect_table_response(response: str, *, table_id: str, min_staging_mask: int
     fields = parse_csv_response(response)
     if len(fields) != 18:
         raise AssertionError(f"field_count={len(fields)} expected=18")
-    if fields[0] != "1" or fields[1] != "8":
+    if fields[0] != "1" or fields[1] != "9":
         raise AssertionError(f"unexpected registry header: {fields[0:2]}")
     if fields[6] != table_id:
         raise AssertionError(f"unexpected table id: {fields[6]}")
-    if int(fields[2], 0) != 0xFF:
+    if int(fields[2], 0) != 0x1FF:
         raise AssertionError(f"active mask is not complete: {fields[2]}")
     if int(fields[3], 0) < min_staging_mask:
         raise AssertionError(f"staging mask too small: {fields[3]} < {min_staging_mask}")
@@ -179,6 +207,8 @@ def run_validation(execute, *, skip_sd: bool) -> list[Record]:
         ("SYSTem:REFMEM:TABle? 0", lambda response: expect_table_response(response, table_id="0")),
         ("SYSTem:REFMEM:LOAD:NODE 5,9,32,32,1,0,0",
          lambda response: expect_node_staged(response, node_id="5", instance_id="9")),
+        ("SYSTem:COMMand:ACK?",
+         lambda response: expect_command_node_load_ack(response, node_id=5, instance_id=9)),
         ("SYSTem:REFMEM:TABle? 3",
          lambda response: expect_table_response(response, table_id="3", min_staging_mask=0x1FF)),
         ("SYSTem:REFMEM:LOAD:NODE 8,9,32,32,1,0,0", expect_node_rejected),

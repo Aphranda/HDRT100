@@ -455,13 +455,13 @@ scpi_result_t scpi_cmd_refmem_load_node(scpi_t *context)
     (void)SCPI_ParamUInt32(context, &load_order, FALSE);
 
     const bool staged =
-        refmem_application_model_stage_scpi_node_config(node_id,
-                                                        instance_id,
-                                                        role_mask,
-                                                        persona_mask,
-                                                        enabled,
-                                                        required,
-                                                        load_order);
+        distributed_refmem_stage_node_load(node_id,
+                                           instance_id,
+                                           role_mask,
+                                           persona_mask,
+                                           enabled,
+                                           required,
+                                           load_order);
 
     refmem_application_model_load_snapshot_t snapshot;
     refmem_application_model_get_load_snapshot(&snapshot);

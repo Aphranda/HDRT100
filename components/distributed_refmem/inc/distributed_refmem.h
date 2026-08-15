@@ -172,6 +172,13 @@ bool distributed_refmem_register_node_load_owner(
     uint32_t instance_id,
     distributed_refmem_node_load_owner_t owner,
     void *context);
+bool distributed_refmem_stage_node_load(uint32_t node_id,
+                                        uint32_t instance_id,
+                                        uint32_t role_mask,
+                                        uint32_t persona_mask,
+                                        uint32_t enabled,
+                                        uint32_t required,
+                                        uint32_t load_order);
 bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
                                                    uint32_t output_index);
 
