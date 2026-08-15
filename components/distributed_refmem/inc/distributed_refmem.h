@@ -50,6 +50,7 @@
 #define DISTRIBUTED_REFMEM_SERVICE_SIZE     2048u
 #define DISTRIBUTED_REFMEM_TLV_SIZE         2048u
 
+#include "refmem_command.h"
 #include "refmem_realtime_tdma.h"
 
 typedef enum {
@@ -150,5 +151,17 @@ bool distributed_refmem_submit_realtime_tdma_rx(
     const refmem_realtime_tdma_intent_config_t *config);
 void distributed_refmem_abort_realtime_tdma(void);
 bool distributed_refmem_quality_gate_ready(void);
+bool distributed_refmem_command_set_reason_table_crc32(uint32_t reason_table_crc32);
+bool distributed_refmem_command_try_post(const refmem_command_request_t *request,
+                                         uint32_t issue_tick32);
+bool distributed_refmem_command_ack(uint32_t target_node,
+                                    uint32_t evidence_index);
+bool distributed_refmem_command_nack(uint32_t target_node,
+                                     refmem_command_reason_t reason,
+                                     uint32_t evidence_index);
+bool distributed_refmem_command_mark_timeout(uint32_t now_tick32,
+                                             uint32_t evidence_index);
+bool distributed_refmem_command_clear(uint32_t clear_seq);
+bool distributed_refmem_get_command_snapshot(refmem_command_snapshot_t *snapshot);
 
 #endif

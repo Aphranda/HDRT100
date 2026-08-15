@@ -156,7 +156,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 新增 `refmem_command.h/.c`，实现 `try_post`、`try_take`、`ack`、`nack`、`timeout`、`clear` 和 sync payload 映射。
 - [x] 增加 command slot 最小单元测试：重复 post、空闲 take、非目标 take、ACK/NACK 位图、timeout 标记、clear seq 防误清。
 - [ ] 将模型加载动作接入 command slot：`CONFigure:MODEl:*:LOAD` 接口层 accepted 后只 post `CONFIG_STAGE` 或 `NODE_LOAD_STAGE`，由 RefMem owner 完成 staging 并 ACK/NACK。
-- [ ] 将现有 `system_manager` 配置 ACK 迁移或映射到 RefMem AckCommandSlot snapshot。
+- [x] 将现有 `system_manager` 配置 ACK 迁移或映射到 RefMem AckCommandSlot snapshot。
 - [ ] 扩展 NACK reason 表，补齐 resource busy、RUN denied、payload CRC、epoch mismatch、dup seq、timeout、permission denied。
 - [ ] 定义 completion 语义：`local_posted`、`target_taken`、`target_acked`、`all_required_acked`、`durable_committed`。
 - [ ] 定义 memory order / fence 规则：payload 写入先于 command publish，ACK/NACK 写入先于 status publish。
@@ -206,7 +206,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - [x] 增加 TDMA window timeout、DMA overrun、missed window 和 physical adapter error 到 `DistributedConnectionQualityTable` 的正式映射。
   - [x] 增加 `refmem_quality_evaluate_deployment_gate()`，把 runtime quality table 转换为 `DeploymentGate.QUALITY` 的 pass/reject/evidence 结果。
   - [x] 将 quality gate evaluator 接入 `system_manager` config RUN gate，使 TDMA timeout、late、drop 或 physical last_error 能拒绝 RUN 或 latch fault。
-  - [x] 固化 `tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`，脚本化 TDMA timeout -> config RUN gate reject -> OTA restore 闭环。
+- [x] 固化 `tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`，脚本化 TDMA timeout -> config RUN gate reject -> config ACK/NACK reject -> OTA restore 闭环。
 - [x] 阶段 3：实现最小 `REFMEM_DELTA` test field，通过 SCPI 搬运从 A 板发布到 B 板 mirror、B 板发布到 A 板 mirror，并切换到 sync mirror snapshot visible。
 - [x] 阶段 3：实现 `REFMEM_ACK_NACK` 回传，覆盖 ACK、payload CRC mismatch、duplicate seq 和 target mismatch；当前通过 SCPI bridge 基于最近一次 RX snapshot 生成 ACK/NACK frame，并由对端记录 ack snapshot。
 - [x] 阶段 4：实现最小 `REFMEM_FENCE`，验证 required 节点 visible 后 fence passed，min seq 不满足且 deadline 为 0 时进入 timeout evidence snapshot；当前仍是 SCPI bridge 验证，不代表真实 RUN gate 已接入。

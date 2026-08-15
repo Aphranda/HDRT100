@@ -159,6 +159,8 @@ typedef struct {
 } refmem_command_slot_t;
 
 bool refmem_command_init(refmem_command_slot_t *slot, uint32_t reason_table_crc32);
+bool refmem_command_set_reason_table_crc32(refmem_command_slot_t *slot,
+                                           uint32_t reason_table_crc32);
 bool refmem_command_try_post(refmem_command_slot_t *slot,
                              const refmem_command_request_t *request,
                              uint32_t issue_tick32);

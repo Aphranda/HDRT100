@@ -41,6 +41,148 @@ typedef struct {
 static system_manager_config_gate_status_t s_config_gate_status;
 static bool s_initialized;
 
+static refmem_command_reason_t system_manager_refmem_reason_from_config(
+    distributed_config_nack_reason_t reason)
+{
+    switch (reason) {
+    case DISTRIBUTED_CONFIG_NACK_CONFIG_CRC_MISMATCH:
+        return REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH;
+    case DISTRIBUTED_CONFIG_NACK_HW_PROFILE_MISMATCH:
+        return REFMEM_COMMAND_REASON_HW_PROFILE_MISMATCH;
+    case DISTRIBUTED_CONFIG_NACK_NODE_STALE:
+        return REFMEM_COMMAND_REASON_NODE_STALE;
+    case DISTRIBUTED_CONFIG_NACK_NODE_FAULT:
+        return REFMEM_COMMAND_REASON_NODE_FAULT;
+    case DISTRIBUTED_CONFIG_NACK_FLASH_LOCKOUT_UNREADY:
+        return REFMEM_COMMAND_REASON_FLASH_LOCKOUT_UNREADY;
+    case DISTRIBUTED_CONFIG_NACK_NONE:
+    default:
+        return REFMEM_COMMAND_REASON_NONE;
+    }
+}
+
+static distributed_config_nack_reason_t system_manager_config_reason_from_refmem(
+    uint32_t reason)
+{
+    switch ((refmem_command_reason_t)reason) {
+    case REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH:
+        return DISTRIBUTED_CONFIG_NACK_CONFIG_CRC_MISMATCH;
+    case REFMEM_COMMAND_REASON_HW_PROFILE_MISMATCH:
+        return DISTRIBUTED_CONFIG_NACK_HW_PROFILE_MISMATCH;
+    case REFMEM_COMMAND_REASON_NODE_STALE:
+        return DISTRIBUTED_CONFIG_NACK_NODE_STALE;
+    case REFMEM_COMMAND_REASON_NODE_FAULT:
+        return DISTRIBUTED_CONFIG_NACK_NODE_FAULT;
+    case REFMEM_COMMAND_REASON_FLASH_LOCKOUT_UNREADY:
+        return DISTRIBUTED_CONFIG_NACK_FLASH_LOCKOUT_UNREADY;
+    case REFMEM_COMMAND_REASON_NONE:
+    default:
+        return DISTRIBUTED_CONFIG_NACK_NONE;
+    }
+}
+
+static distributed_config_nack_reason_t system_manager_select_config_nack_reason(
+    bool config_valid,
+    bool refmem_claim_valid,
+    bool refmem_quality_valid)
+{
+    if (!config_valid) {
+        return DISTRIBUTED_CONFIG_NACK_CONFIG_CRC_MISMATCH;
+    }
+    if (!refmem_claim_valid || !refmem_quality_valid) {
+        return DISTRIBUTED_CONFIG_NACK_NODE_FAULT;
+    }
+    return DISTRIBUTED_CONFIG_NACK_NONE;
+}
+
+static void system_manager_copy_command_snapshot(
+    const refmem_command_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+
+    s_config_gate_status.command_seq = snapshot->command_seq;
+    s_config_gate_status.target_mask = snapshot->target_mask;
+    s_config_gate_status.ack_flags = snapshot->ack_flags;
+    s_config_gate_status.nack_flags = snapshot->nack_flags;
+    s_config_gate_status.busy_flags = snapshot->busy_flags;
+    s_config_gate_status.timeout_flags = snapshot->timeout_flags;
+}
+
+static void system_manager_publish_config_command(bool gate_ready,
+                                                  distributed_config_nack_reason_t reason,
+                                                  uint32_t now_ms)
+{
+    const uint32_t desired_ack = gate_ready ? s_config_gate_status.target_mask : 0u;
+    const uint32_t desired_nack = gate_ready ? 0u : s_config_gate_status.target_mask;
+    refmem_command_snapshot_t snapshot;
+    const bool has_snapshot = distributed_refmem_get_command_snapshot(&snapshot);
+
+    if (has_snapshot &&
+        snapshot.command_seq != 0u &&
+        snapshot.target_mask == s_config_gate_status.target_mask &&
+        snapshot.ack_flags == desired_ack &&
+        snapshot.nack_flags == desired_nack &&
+        snapshot.busy_flags == 0u &&
+        snapshot.timeout_flags == 0u) {
+        system_manager_copy_command_snapshot(&snapshot);
+        return;
+    }
+
+    if (has_snapshot && snapshot.command_seq != 0u) {
+        (void)distributed_refmem_command_clear(snapshot.command_seq);
+        if (s_config_gate_status.command_seq <= snapshot.command_seq) {
+            s_config_gate_status.command_seq = snapshot.command_seq + 1u;
+        }
+    }
+    if (s_config_gate_status.command_seq == 0u) {
+        s_config_gate_status.command_seq = 1u;
+    }
+
+    const refmem_command_request_t request = {
+        .command_seq = s_config_gate_status.command_seq,
+        .source_node = DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
+        .source_instance = 0u,
+        .target_mask = s_config_gate_status.target_mask,
+        .required_mask = s_config_gate_status.target_mask,
+        .command_type = REFMEM_COMMAND_TYPE_CONFIG_ACTIVATE,
+        .command_class = REFMEM_COMMAND_CLASS_CONFIG,
+        .payload_kind = REFMEM_COMMAND_PAYLOAD_STAGING_REF,
+        .payload_ref = 0u,
+        .payload_size = 0u,
+        .payload_crc32 = s_config_gate_status.config_crc32,
+        .issue_epoch = s_config_gate_status.epoch,
+        .run_id = s_config_gate_status.run_id,
+        .timeout_us = 100000u,
+    };
+
+    if (!distributed_refmem_command_try_post(&request, now_ms)) {
+        if (distributed_refmem_get_command_snapshot(&snapshot)) {
+            system_manager_copy_command_snapshot(&snapshot);
+        }
+        return;
+    }
+
+    for (uint32_t node = 0u; node < DISTRIBUTED_REFMEM_NODE_COUNT; node++) {
+        if ((s_config_gate_status.target_mask & (1u << node)) == 0u) {
+            continue;
+        }
+        if (gate_ready) {
+            (void)distributed_refmem_command_ack(node, 0u);
+        } else {
+            (void)distributed_refmem_command_nack(
+                node,
+                system_manager_refmem_reason_from_config(reason),
+                0u);
+        }
+    }
+
+    if (distributed_refmem_get_command_snapshot(&snapshot)) {
+        system_manager_copy_command_snapshot(&snapshot);
+    }
+}
+
 static bool system_manager_refmem_claim_gate_ready(void)
 {
     refmem_slot_claim_map_t claim_map;
@@ -264,18 +406,20 @@ bool system_manager_init(void)
     const bool config_valid = distributed_config_validate();
     const bool refmem_claim_valid = system_manager_refmem_claim_gate_ready();
     const bool refmem_quality_valid = system_manager_refmem_quality_gate_ready();
-    s_config_gate_status.ack_flags =
-        (config_valid && refmem_claim_valid && refmem_quality_valid) ?
-        s_config_gate_status.target_mask : 0u;
-    s_config_gate_status.nack_flags =
-        (config_valid && refmem_claim_valid && refmem_quality_valid) ?
-        0u : s_config_gate_status.target_mask;
     s_config_gate_status.run_id = s_config_gate_status.build_crc32 ^
                                   s_config_gate_status.hw_profile_crc32 ^
                                   s_config_gate_status.config_crc32 ^
                                   s_config_gate_status.epoch;
     s_config_gate_status.ready = config_valid && refmem_claim_valid && refmem_quality_valid;
     s_config_gate_status.gate_state = s_config_gate_status.ready ? 1u : 2u;
+    (void)distributed_refmem_command_set_reason_table_crc32(
+        config_snapshot->nack_reason_crc32);
+    system_manager_publish_config_command(
+        s_config_gate_status.ready,
+        system_manager_select_config_nack_reason(config_valid,
+                                                 refmem_claim_valid,
+                                                 refmem_quality_valid),
+        now_ms);
     s_initialized = true;
     return config_valid;
 }
@@ -296,12 +440,17 @@ void system_manager_service(void)
     s_config_gate_status.last_service_ms = now_ms;
     const bool refmem_claim_valid = system_manager_refmem_claim_gate_ready();
     const bool refmem_quality_valid = system_manager_refmem_quality_gate_ready();
-    const bool gate_ready = s_config_gate_status.nack_flags == 0u &&
-                            refmem_claim_valid &&
+    const bool gate_ready = refmem_claim_valid &&
                             refmem_quality_valid &&
                             s_config_gate_status.config_crc32 != 0u;
     s_config_gate_status.ready = gate_ready;
     s_config_gate_status.gate_state = gate_ready ? 1u : 2u;
+    system_manager_publish_config_command(
+        gate_ready,
+        system_manager_select_config_nack_reason(s_config_gate_status.config_crc32 != 0u,
+                                                 refmem_claim_valid,
+                                                 refmem_quality_valid),
+        now_ms);
     osal_critical_exit();
 }
 
@@ -327,20 +476,32 @@ void system_manager_get_config_ack_status(system_manager_config_ack_status_t *st
     const distributed_config_nack_reason_table_t *reason_table =
         distributed_config_get_nack_reason_table();
 
+    refmem_command_snapshot_t command_snapshot;
+    const bool command_snapshot_ok =
+        distributed_refmem_get_command_snapshot(&command_snapshot);
+
     osal_critical_enter();
     status->version = config_snapshot->config_version;
-    status->command_seq = s_config_gate_status.command_seq;
-    status->target_mask = s_config_gate_status.target_mask;
-    status->ack_flags = s_config_gate_status.ack_flags;
-    status->nack_flags = s_config_gate_status.nack_flags;
-    status->busy_flags = s_config_gate_status.busy_flags;
-    status->timeout_flags = s_config_gate_status.timeout_flags;
-    status->last_nack_reason = s_config_gate_status.nack_flags == 0u ?
-                               (uint32_t)DISTRIBUTED_CONFIG_NACK_NONE :
-                               (uint32_t)DISTRIBUTED_CONFIG_NACK_CONFIG_CRC_MISMATCH;
-    status->last_nack_node = s_config_gate_status.nack_flags == 0u ?
-                             UINT32_MAX :
-                             DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    status->command_seq = command_snapshot_ok ? command_snapshot.command_seq :
+                          s_config_gate_status.command_seq;
+    status->target_mask = command_snapshot_ok ? command_snapshot.target_mask :
+                          s_config_gate_status.target_mask;
+    status->ack_flags = command_snapshot_ok ? command_snapshot.ack_flags :
+                        s_config_gate_status.ack_flags;
+    status->nack_flags = command_snapshot_ok ? command_snapshot.nack_flags :
+                         s_config_gate_status.nack_flags;
+    status->busy_flags = command_snapshot_ok ? command_snapshot.busy_flags :
+                         s_config_gate_status.busy_flags;
+    status->timeout_flags = command_snapshot_ok ? command_snapshot.timeout_flags :
+                            s_config_gate_status.timeout_flags;
+    status->last_nack_reason =
+        command_snapshot_ok && command_snapshot.nack_flags != 0u ?
+        (uint32_t)system_manager_config_reason_from_refmem(command_snapshot.last_reason) :
+        (uint32_t)DISTRIBUTED_CONFIG_NACK_NONE;
+    status->last_nack_node =
+        command_snapshot_ok && command_snapshot.nack_flags != 0u ?
+        command_snapshot.last_reason_slot :
+        UINT32_MAX;
     status->reason_count = reason_table->reason_count;
     status->reason_table_crc32 = config_snapshot->nack_reason_crc32;
     status->config_crc32 = s_config_gate_status.config_crc32;

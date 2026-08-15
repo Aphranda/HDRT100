@@ -136,6 +136,42 @@ def config_rejected(response: str) -> tuple[bool, str]:
     return True, "OK"
 
 
+def config_ack_ready(response: str) -> tuple[bool, str]:
+    fields = parse_ints(response)
+    if len(fields) < 12:
+        return False, f"config ACK response too short: {response}"
+    target = fields[2]
+    ack = fields[3]
+    nack = fields[4]
+    busy = fields[5]
+    timeout = fields[6]
+    reason = fields[7]
+    if target == 0 or ack != target or nack != 0 or busy != 0 or timeout != 0 or reason != 0:
+        return False, (
+            "config ACK not ready: "
+            f"target={target} ack={ack} nack={nack} busy={busy} timeout={timeout} reason={reason}"
+        )
+    return True, "OK"
+
+
+def config_ack_rejected(response: str) -> tuple[bool, str]:
+    fields = parse_ints(response)
+    if len(fields) < 12:
+        return False, f"config ACK response too short: {response}"
+    target = fields[2]
+    ack = fields[3]
+    nack = fields[4]
+    busy = fields[5]
+    timeout = fields[6]
+    reason = fields[7]
+    if target == 0 or ack != 0 or nack != target or busy != 0 or timeout != 0 or reason == 0:
+        return False, (
+            "config ACK not rejected: "
+            f"target={target} ack={ack} nack={nack} busy={busy} timeout={timeout} reason={reason}"
+        )
+    return True, "OK"
+
+
 def tdma_timeout(response: str, before_timeout_count: int) -> tuple[bool, str]:
     fields = parse_ints(response)
     if len(fields) < 24:
@@ -277,6 +313,16 @@ def main() -> int:
         if not ok:
             failures.append(reason)
 
+        before_ack = query(ser, "SYSTem:CONFigure:ACK?", args.timeout)
+        before_ack_ok, before_ack_reason = config_ack_ready(before_ack)
+        steps.append(ValidationStep("before_config_ack_ready",
+                                    "SYSTem:CONFigure:ACK?",
+                                    before_ack,
+                                    before_ack_ok,
+                                    before_ack_reason))
+        if not before_ack_ok:
+            failures.append(before_ack_reason)
+
         before_tdma = query(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", args.timeout)
         before_tdma_values = parse_ints(before_tdma)
         before_timeout_count = before_tdma_values[19] if len(before_tdma_values) > 19 else 0
@@ -324,6 +370,16 @@ def main() -> int:
         if not reject_ok:
             failures.append(reject_reason)
 
+        after_ack = query(ser, "SYSTem:CONFigure:ACK?", args.timeout)
+        reject_ack_ok, reject_ack_reason = config_ack_rejected(after_ack)
+        steps.append(ValidationStep("after_config_ack_rejected",
+                                    "SYSTem:CONFigure:ACK?",
+                                    after_ack,
+                                    reject_ack_ok,
+                                    reject_ack_reason))
+        if not reject_ack_ok:
+            failures.append(reject_ack_reason)
+
     restore_failures: list[str] = []
     if args.restore_package is not None:
         if not args.expected_build:
@@ -351,6 +407,16 @@ def main() -> int:
                                         final_reason))
             if not final_ok:
                 failures.append(final_reason)
+
+            final_ack = query(ser, "SYSTem:CONFigure:ACK?", args.timeout)
+            final_ack_ok, final_ack_reason = config_ack_ready(final_ack)
+            steps.append(ValidationStep("restore_config_ack_ready",
+                                        "SYSTem:CONFigure:ACK?",
+                                        final_ack,
+                                        final_ack_ok,
+                                        final_ack_reason))
+            if not final_ack_ok:
+                failures.append(final_ack_reason)
 
     records = {
         "started": started,

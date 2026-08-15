@@ -101,6 +101,19 @@ bool refmem_command_init(refmem_command_slot_t *slot, uint32_t reason_table_crc3
     return true;
 }
 
+bool refmem_command_set_reason_table_crc32(refmem_command_slot_t *slot,
+                                           uint32_t reason_table_crc32)
+{
+    if (slot == NULL) {
+        return false;
+    }
+
+    refmem_command_begin_write(slot);
+    slot->reason_table_crc32 = reason_table_crc32;
+    refmem_command_end_write(slot);
+    return true;
+}
+
 bool refmem_command_try_post(refmem_command_slot_t *slot,
                              const refmem_command_request_t *request,
                              uint32_t issue_tick32)

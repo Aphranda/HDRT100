@@ -7,12 +7,14 @@
 #include "project_config.h"
 
 #include "refmem_application_model.h"
+#include "refmem_command.h"
 #include "refmem_quality.h"
 #include "refmem_realtime_tdma.h"
 #include "refmem_spi_physical_adapter.h"
 #include "refmem_vector_table.h"
 
 static refmem_vector_table_t s_distributed_refmem_table __attribute__((aligned(4)));
+static refmem_command_slot_t s_refmem_command_slot;
 static refmem_realtime_tdma_service_t s_refmem_realtime_tdma;
 static refmem_spi_physical_adapter_t s_refmem_realtime_spi;
 static distributed_refmem_status_t s_status;
@@ -238,6 +240,9 @@ bool distributed_refmem_init(void)
     if (!refmem_realtime_tdma_init(&s_refmem_realtime_tdma)) {
         return false;
     }
+    if (!refmem_command_init(&s_refmem_command_slot, 0u)) {
+        return false;
+    }
     static const refmem_realtime_tdma_ops_t tdma_ops = {
         .transmit = distributed_refmem_tdma_transmit,
         .receive = distributed_refmem_tdma_receive,
@@ -389,6 +394,74 @@ bool distributed_refmem_quality_gate_ready(void)
         return false;
     }
     return gate.last_state == REFMEM_APP_GATE_PASS;
+}
+
+bool distributed_refmem_command_set_reason_table_crc32(uint32_t reason_table_crc32)
+{
+    osal_critical_enter();
+    const bool ok = refmem_command_set_reason_table_crc32(&s_refmem_command_slot,
+                                                          reason_table_crc32);
+    osal_critical_exit();
+    return ok;
+}
+
+bool distributed_refmem_command_try_post(const refmem_command_request_t *request,
+                                         uint32_t issue_tick32)
+{
+    osal_critical_enter();
+    const bool ok = refmem_command_try_post(&s_refmem_command_slot,
+                                            request,
+                                            issue_tick32);
+    osal_critical_exit();
+    return ok;
+}
+
+bool distributed_refmem_command_ack(uint32_t target_node,
+                                    uint32_t evidence_index)
+{
+    osal_critical_enter();
+    const bool ok = refmem_command_ack(&s_refmem_command_slot,
+                                       target_node,
+                                       evidence_index);
+    osal_critical_exit();
+    return ok;
+}
+
+bool distributed_refmem_command_nack(uint32_t target_node,
+                                     refmem_command_reason_t reason,
+                                     uint32_t evidence_index)
+{
+    osal_critical_enter();
+    const bool ok = refmem_command_nack(&s_refmem_command_slot,
+                                        target_node,
+                                        reason,
+                                        evidence_index);
+    osal_critical_exit();
+    return ok;
+}
+
+bool distributed_refmem_command_mark_timeout(uint32_t now_tick32,
+                                             uint32_t evidence_index)
+{
+    osal_critical_enter();
+    const bool ok = refmem_command_mark_timeout(&s_refmem_command_slot,
+                                                now_tick32,
+                                                evidence_index);
+    osal_critical_exit();
+    return ok;
+}
+
+bool distributed_refmem_command_clear(uint32_t clear_seq)
+{
+    osal_critical_enter();
+    const bool ok = refmem_command_clear(&s_refmem_command_slot, clear_seq);
+    osal_critical_exit();
+    return ok;
+}
+
+bool distributed_refmem_get_command_snapshot(refmem_command_snapshot_t *snapshot)
+{
+    return refmem_command_get_snapshot(&s_refmem_command_slot, snapshot);
 }
 
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot)

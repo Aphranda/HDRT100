@@ -8,6 +8,36 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-019 - SystemManager config ACK maps to RefMem command slot
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 消除 `SYSTem:CONFigure:ACK?` 由 SystemManager 本地字段单独拼装造成的 ACK/NACK 事实分裂。
+  - 保持 SCPI 兼容查询不变，同时让底层 ACK/NACK 来自 RefMem `AckCommandSlot` snapshot。
+- 完成内容：
+  - `DistributedRefMemAO` 增加 command slot owner API：reason table CRC、post、ACK、NACK、timeout、clear 和 snapshot。
+  - `system_manager` 在配置 RUN gate 初始化和 service 中发布 `CONFIG_ACTIVATE` command snapshot，并按 gate 结果写入 ACK 或 NACK。
+  - 修正 quality gate 变坏时 ACK/NACK flags 可能仍停留在旧全 ACK 的问题；现在 reject 时 `SYSTem:CONFigure:ACK?` 返回 `ack=0,nack=target`。
+  - `tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py` 增加 config ACK 正向、负向和恢复后的全 ACK 检查。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_command_tests.ps1` 通过 host GCC 断言执行。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815061144`，package CRC `0xAB77E7E3`。
+  - COM5/COM6 OTA 到 build `20260815061144` 并 commit 通过。
+  - COM5/COM6 执行 `multicore_board_validate.py --tests build_id config_gate_status ack_reason_and_run_policy` 均通过。
+  - COM5 执行 `refmem_quality_gate_hil_validate.py` 通过，确认 TDMA timeout 后 config gate reject、config ACK reject，并通过 OTA 恢复 ready / full ACK。
+  - COM6 在 COM5 负向验证后再次执行配置 ACK 相关 HIL 查询通过。
+- 后续闭环：
+  - 将 `CONFigure:MODEl:*:LOAD` 接入 command slot，让 SCPI 只 post `NODE_LOAD_STAGE` 或 `CONFIG_STAGE`。
+  - 评估是否新增 `SYSTem:COMMand:ACK? / NACK?` 作为通用 command slot 维护视图。
+- 关联文件：
+  - `components/distributed_refmem/inc/distributed_refmem.h`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `components/distributed_refmem/inc/refmem_command.h`
+  - `components/distributed_refmem/src/refmem_command.c`
+  - `components/system_manager/src/system_manager.c`
+  - `tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`
+
 ### REFMEM-TASK-20260815-018 - Command slot foundation
 
 - 状态：完成基础件
