@@ -63,6 +63,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] P0: 风险评审 §3.1 跨核 seqlock/guard 写侧必须使用 release 语义；`refmem_realtime_tdma` 的 intent/result guard 和 `refmem_command` 的 command guard 已从普通 `++` 收敛为 `__atomic_add_fetch(..., __ATOMIC_RELEASE)`，读侧 acquire 与写侧 release 成对。
 - [x] P0: 风险评审 §3.2 `BoardCapabilityTable` 当前产品 wire payload 固定 8 条；`CLAIM_CANDIDATE_MAX=16` 只保留给 SlotClaim candidate/overflow evidence，不能复用为 BoardCapability 表容量。
 - [x] P0: 风险评审 §3.3 DeploymentGate/SlotClaimGate 评估结果必须真正 gate；application model validation、DistributedRefMemAO activation gate 和 SystemManager RUN gate 调用端已显式检查 `evaluate && ready`。
+- [x] P0: 风险评审 §3.4 子项 A：`refmem_pio_spi_adapter_send()` 不能作为假 TX 对外返回成功；旧 `SYSTem:REFMEM:SYNC:*?` frame builder 已收敛为只生成/回放诊断帧，真实发送必须走 TDMA/physical adapter owner 路径；无 TX 后端的 skeleton send 返回 `TX_UNBOUND`。
+- [ ] P0: 风险评审 §3.4 子项 B：两板真实 RefMem 同步验收。只通过 SCPI 操作 X 板加载两个节点，X 板经真实 TDMA/PIO transport 将 NodeLoad / table image / SlotClaim / quality evidence 同步到 Y 板，Y 板维护查询必须看到一致 snapshot；随后只通过 SCPI 操作 Y 板加载两个节点，同步回 X 板并由 X 板查询确认一致。PC 不得搬运 frame hex 或直接写对端。
 - [x] P0: 风险评审 §3.10 `OWNER_OK` 只能由 owner validation 结果置位；`refresh_active()` 的编译内置 active entry 已降级为 `ACTIVE_PRESENT|CRC_OK`，不再由 `present + CRC` 伪造 owner provenance。
 - [x] P0: 风险评审 §3.11 `SYSTem:REFMEM:LOAD:NODE` / `LOAD:BOARD` staging 不能停在 metadata-only 死胡同；`LOAD:NODE` 已形成私有 NodeLoadTable draft，`LOAD:BOARD` 已形成私有 BoardCapabilityTable draft，单表 draft 已合并为完整 Node Model Candidate，并生成可 activation、可 rollback、可 runtime parse 的 9 表 inline RMTP package image。产品路径不允许单表独立激活或降级为仅诊断入口。
 - [x] P0: `RefMemTableRegistry` activation 不能只切 descriptor/CRC；在真实 active/staging/rollbackable table image 切换实现前，activation API 必须显式拒绝 active 替换并返回 `IMAGE_NOT_LOADED`。

@@ -101,7 +101,7 @@ static int test_caps_and_snapshot(void)
     return failed;
 }
 
-static int test_send_stub_counters(void)
+static int test_send_requires_bound_tx_backend(void)
 {
     int failed = 0;
     refmem_pio_spi_adapter_t adapter;
@@ -111,16 +111,19 @@ static int test_send_stub_counters(void)
 
     (void)refmem_pio_spi_adapter_init(&adapter, 128u, 128u, 50u);
     failed += expect_bool("make hello frame", make_hello_frame(frame, sizeof(frame), &frame_size), true);
-    failed += expect_bool("send frame", refmem_pio_spi_adapter_send(&adapter, frame, frame_size), true);
+    failed += expect_bool("send frame without backend",
+                          refmem_pio_spi_adapter_send(&adapter, frame, frame_size),
+                          false);
     (void)refmem_pio_spi_adapter_get_snapshot(&adapter, &snapshot);
-    failed += expect_u32("tx count", snapshot.tx_count, 1u);
+    failed += expect_u32("tx count", snapshot.tx_count, 0u);
+    failed += expect_u32("tx reject count", snapshot.tx_reject_count, 1u);
     failed += expect_u32("tx last size", snapshot.last_tx_size, (uint32_t)frame_size);
-    failed += expect_u32("tx last error", snapshot.last_error, REFMEM_TRANSPORT_ERROR_NONE);
+    failed += expect_u32("tx last error", snapshot.last_error, REFMEM_TRANSPORT_ERROR_TX_UNBOUND);
 
     frame[0] = 0u;
     failed += expect_bool("send bad frame", refmem_pio_spi_adapter_send(&adapter, frame, frame_size), false);
     (void)refmem_pio_spi_adapter_get_snapshot(&adapter, &snapshot);
-    failed += expect_u32("tx reject count", snapshot.tx_reject_count, 1u);
+    failed += expect_u32("tx reject count after bad frame", snapshot.tx_reject_count, 2u);
     failed += expect_u32("bad frame count", snapshot.bad_frame_count, 1u);
     failed += expect_u32("bad frame error", snapshot.last_error, REFMEM_TRANSPORT_ERROR_BAD_FRAME);
     return failed;
@@ -223,7 +226,7 @@ int main(void)
 {
     int failed = 0;
     failed += test_caps_and_snapshot();
-    failed += test_send_stub_counters();
+    failed += test_send_requires_bound_tx_backend();
     failed += test_poll_stub_and_reset();
     failed += test_inject_and_poll_hello_frame();
     failed += test_inject_rejects_bad_payload_crc();

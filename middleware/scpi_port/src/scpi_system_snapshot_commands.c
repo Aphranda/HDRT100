@@ -819,8 +819,7 @@ scpi_result_t scpi_cmd_refmem_sync_hello_q(scpi_t *context)
                                             seq32,
                                             frame,
                                             sizeof(frame),
-                                            &frame_size) ||
-        !refmem_pio_spi_adapter_send(&s_refmem_sync.adapter, frame, frame_size)) {
+                                            &frame_size)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_HELLO");
         return SCPI_RES_ERR;
     }
@@ -867,8 +866,7 @@ scpi_result_t scpi_cmd_refmem_sync_epoch_q(scpi_t *context)
                                             seq32,
                                             frame,
                                             sizeof(frame),
-                                            &frame_size) ||
-        !refmem_pio_spi_adapter_send(&s_refmem_sync.adapter, frame, frame_size)) {
+                                            &frame_size)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_EPOCH");
         return SCPI_RES_ERR;
     }
@@ -933,8 +931,7 @@ scpi_result_t scpi_cmd_refmem_sync_delta_q(scpi_t *context)
                                             dirty_mask,
                                             frame,
                                             sizeof(frame),
-                                            &frame_size) ||
-        !refmem_pio_spi_adapter_send(&s_refmem_sync.adapter, frame, frame_size)) {
+                                            &frame_size)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_DELTA");
         return SCPI_RES_ERR;
     }
@@ -987,8 +984,7 @@ scpi_result_t scpi_cmd_refmem_sync_ack_q(scpi_t *context)
                                           &s_refmem_sync.last_rx,
                                           frame,
                                           sizeof(frame),
-                                          &frame_size) ||
-        !refmem_pio_spi_adapter_send(&s_refmem_sync.adapter, frame, frame_size)) {
+                                          &frame_size)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_ACK");
         return SCPI_RES_ERR;
     }
@@ -1056,8 +1052,7 @@ scpi_result_t scpi_cmd_refmem_sync_fence_q(scpi_t *context)
                                             deadline_us,
                                             frame,
                                             sizeof(frame),
-                                            &frame_size) ||
-        !refmem_pio_spi_adapter_send(&s_refmem_sync.adapter, frame, frame_size)) {
+                                            &frame_size)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_FENCE");
         return SCPI_RES_ERR;
     }
@@ -1119,8 +1114,7 @@ scpi_result_t scpi_cmd_refmem_sync_quality_frame_q(scpi_t *context)
                                               target_slot,
                                               frame,
                                               sizeof(frame),
-                                              &frame_size) ||
-        !refmem_pio_spi_adapter_send(&s_refmem_sync.adapter, frame, frame_size)) {
+                                              &frame_size)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_QUALITY_FRAME");
         return SCPI_RES_ERR;
     }

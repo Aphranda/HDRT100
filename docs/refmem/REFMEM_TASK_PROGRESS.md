@@ -8,6 +8,31 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-042 - P0 risk 3.4 fake TX correction
+
+- 状态：子项 A 完成 host/build 验证；子项 B 两板真实同步待实现
+- 日期：2026-08-15
+- 任务目标：
+  - 修复风险评审 §3.4：`refmem_pio_spi_adapter_send()` 不能作为无物理后端的 fake TX 返回成功。
+  - 保持 HAOFV 边界：旧 `SYSTem:REFMEM:SYNC:*?` 只作为 frame builder / PC bridge 诊断入口；真实发送必须走 physical adapter 或 core1 TDMA owner 路径。
+  - 最终验收不是“能生成 hex”，而是两板真实双向同步：X 板 SCPI 加载两个节点并同步到 Y，随后 Y 板 SCPI 加载两个节点并同步回 X。
+- 完成内容：
+  - `refmem_transport_adapter.h` 增加 `REFMEM_TRANSPORT_ERROR_TX_UNBOUND`。
+  - `refmem_pio_spi_adapter_send()` 在 frame/MTU 校验通过后仍拒绝发送，记录 `tx_reject_count`、`last_tx_size` 和 `TX_UNBOUND`，不再增加 `tx_count` 或返回成功。
+  - `SYSTem:REFMEM:SYNC:HELLo?/EPOCh?/DELTa?/ACK?/FENCe?/QUALity:FRAMe?` 取消 fake adapter send 调用，只生成 frame hex；真实两板 TX 继续使用 `SYSTem:REFMEM:SYNC:TDMA:*` 或 physical raw bring-up。
+  - `test_refmem_pio_spi_adapter.c` 将 send 单测改为断言无 TX 后端必须拒绝。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_pio_spi_adapter_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_hello_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_quality_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `git diff --check` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815153622`，package CRC `0x6A4E1D33`。
+- 后续动作：
+  - 完成两板真实同步验收：PC 只对源板下发 SCPI intent，不搬运 frame hex、不直接写对端；目标板通过维护查询确认 NodeLoad / table image / SlotClaim / quality evidence 与源板一致。
+  - 继续按风险评审 P0/P1 清单推进 §3.5 fence deadline、§3.6 receive raw capacity、§3.7 arm/capture 状态破坏等结构性纠偏。
+
 ### REFMEM-TASK-20260815-041 - Vector fixed regions rename
 
 - 状态：完成 host/build 验证

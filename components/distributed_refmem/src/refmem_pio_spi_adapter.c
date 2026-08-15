@@ -129,11 +129,10 @@ bool refmem_pio_spi_adapter_send(refmem_pio_spi_adapter_t *adapter,
         return false;
     }
 
-    adapter->snapshot.tx_count++;
+    adapter->snapshot.tx_reject_count++;
     adapter->snapshot.last_tx_size = (uint32_t)frame_size;
-    adapter->snapshot.last_error = REFMEM_TRANSPORT_ERROR_NONE;
-    adapter->snapshot.state = REFMEM_TRANSPORT_STATE_IDLE;
-    return true;
+    refmem_pio_spi_adapter_set_error(adapter, REFMEM_TRANSPORT_ERROR_TX_UNBOUND);
+    return false;
 }
 
 bool refmem_pio_spi_adapter_inject_rx_frame(refmem_pio_spi_adapter_t *adapter,

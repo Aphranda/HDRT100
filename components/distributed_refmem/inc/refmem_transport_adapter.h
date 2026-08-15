@@ -25,6 +25,7 @@ typedef enum {
     REFMEM_TRANSPORT_ERROR_PAYLOAD_TOO_LARGE = 3u,
     REFMEM_TRANSPORT_ERROR_NO_RX_FRAME = 4u,
     REFMEM_TRANSPORT_ERROR_RX_BUSY = 5u,
+    REFMEM_TRANSPORT_ERROR_TX_UNBOUND = 6u,
 } refmem_transport_error_t;
 
 typedef struct {

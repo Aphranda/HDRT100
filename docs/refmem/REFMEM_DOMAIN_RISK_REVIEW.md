@@ -67,9 +67,13 @@ return true;
 
 纠偏：当前 `refmem_slot_claim_gate_evaluate()` 返回值已经表示 `ready`，但调用端仍改为显式检查 `evaluate && claim_gate.ready`。`refmem_application_model` 的静态表 validation、`DistributedRefMemAO` activation gate 和 `SystemManager` RUN gate 均不再依赖 evaluator 返回值的隐含语义。
 
-### 3.4 假 TX：SCPI 同步链路「成功」却不发一个 bit
+### 3.4 假 TX：SCPI 同步链路「成功」却不发一个 bit（部分纠偏）
 
 [refmem_pio_spi_adapter.c:97-137](components/distributed_refmem/src/refmem_pio_spi_adapter.c#L97-L137) 的 `send()` 只校验帧、`tx_count++`、置 `IDLE`、返回 `true`，不触碰 PIO/SPI/GPIO/DMA。`SYSTem:REFMEM:SYNC:TX` 每次「成功」都没有传输任何数据。唯一的真实行为是坏帧拒绝。
+
+纠偏子项 A：旧 `SYSTem:REFMEM:SYNC:HELLo?/EPOCh?/DELTa?/ACK?/FENCe?/QUALity:FRAMe?` 已收敛为 frame builder / PC bridge 诊断入口，只负责生成 frame hex，不调用 TX API、不增加 TX 成功计数、不宣称物理发送。真实发送只允许走 `SYSTem:REFMEM:SYNC:TDMA:*` 或 `SYSTem:REFMEM:SYNC:SPI:RAW:*` bring-up 路径，并由 physical adapter / core1 TDMA owner 执行。`refmem_pio_spi_adapter_send()` 在无 TX 后端时返回 `false` 并置 `REFMEM_TRANSPORT_ERROR_TX_UNBOUND`，避免后续误接成假成功路径。
+
+剩余验收子项 B：两板必须能在真实 transport 上双向同步 RefMem 变化。验收条件为：只通过 SCPI 操作 X 板加载两个节点，X 板通过 TDMA/PIO transport 将 NodeLoad / table image / SlotClaim / quality evidence 同步到 Y 板，Y 板查询一致；随后只通过 SCPI 操作 Y 板加载两个节点，同步回 X 板并由 X 板查询一致。该闭环禁止 PC 搬运 frame hex 或直接写对端。
 
 ### 3.5 Fence 超时逻辑反转
 
@@ -160,7 +164,7 @@ if ((model->table_mask & table_bit) != 0u && entry->active_crc32 != 0u) {
 | 9 张 canonical 表中的 4 张：EventLink / DataLink / DeploymentGate / ConnectionQuality | 各自 parser + validator + CRC + wire 格式 | **0 个读取者**，`get_event_link_table` / `get_data_link_table` / `get_deployment_gate` / `get_connection_quality` 全无调用方。 |
 | 8 状态 claim 机 | [refmem_slot_claim.h:12-21](components/distributed_refmem/inc/refmem_slot_claim.h#L12-L21) | 仅 UNCLAIMED/CLAIMED/CONFLICT/MISMATCH/DISABLED 被真实产出；RESOLVING/STALE/OVERFLOW 从不赋值或仅读。 |
 | 8 节点 / 16 候选 / 16 directory slot | 多个头文件 | 固定四板系统，一半 node slot 和大部分 sub-slot buffer 从不写。 |
-| 并行假 adapter | [refmem_pio_spi_adapter.c](components/distributed_refmem/src/refmem_pio_spi_adapter.c) | skeleton 与 physical adapter 并存，前者 `send()` 是 stub，只服务 SCPI loopback 诊断。 |
+| 诊断 staging adapter | [refmem_pio_spi_adapter.c](components/distributed_refmem/src/refmem_pio_spi_adapter.c) | skeleton 与 physical adapter 并存；前者只服务 RX staging / SCPI loopback 诊断，无 TX 后端时 `send()` 返回 `TX_UNBOUND`，不再以成功姿态暴露假发送。 |
 | 16 项 owner registry | [distributed_refmem.c:31-32](components/distributed_refmem/src/distributed_refmem.c#L31-L32) | 仅 `model_turntable` 一个注册者。 |
 | 「TDMA」 | [refmem_realtime_tdma.c](components/distributed_refmem/src/refmem_realtime_tdma.c) | 单发 mailbox 而非调度器，`window_epoch/index` 不用于排程；TX 逐字节 blocking，仅 RX 用 DMA。 |
 | 死函数 / 死枚举 | 多处 | `command_mark_timeout`、`set_epoch`、blocking `receive`、`application_model_validate` 全 0 调用者；`NODE_STALE/INVALID/FAULT`、`NODE_TYPE_MODEL_VNA/...`、`FAIL_HOLDOVER/DEGRADE`、`SLOT_CLAIM_REASON_HW_PROFILE_MISMATCH` 等只定义从不赋值或读取。 |
@@ -204,6 +208,6 @@ if ((model->table_mask & table_bit) != 0u && entry->active_crc32 != 0u) {
 | 2 | ~~修线格式 16→8（§3.2）~~ ✅ 已纠偏（复核通过） | `BOARD_CAPABILITY_COUNT` 已 = `NODE_COUNT` = 8，与 `CLAIM_CANDIDATE_MAX=16` 解耦。 |
 | 3 | ~~让部署门禁真正 gate（§3.3）+ 修 OWNER_OK（§3.10）~~ ✅ 已纠偏（复核通过） | gate 现显式检查 `claim_gate.ready == 0u`；`refresh_active` 不再升级 `OWNER_OK`。 |
 | 4 | 保留 4 张 dormant 表 + claim 协调协议为平台基础件（§6） | 有意预留扩展头寸、先搭基础件避免后续返工；**不删除**。 |
-| 5 | 闭环或显式标 DRAFT：假 TX / 假 staging（§3.4、§3.11） | 基础件不得以「成功」姿态暴露却不生效；要么闭环、要么标 `DRAFT/UNSUPPORTED`。 |
+| 5 | 闭环或显式标 DRAFT：假 TX / 假 staging（§3.4、§3.11） | §3.4 已完成 fake-success 清理，但仍需两板真实双向 NodeLoad 同步验收；§3.11 已改为完整 9 表 inline RMTP package staging。 |
 | 6 | 修 P1 项（§4） | 单位混用、回绕、PIO 运行时补丁等，批量处理。 |
 | 7 | 更新架构文档两节（§7.1） | 让「当前实现现状」「目标代码形态」与实际文件集一致。 |
