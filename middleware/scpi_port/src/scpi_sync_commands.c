@@ -183,6 +183,12 @@ scpi_result_t scpi_sync_coef_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static void scpi_sync_result_u64_parts(scpi_t *context, uint64_t value)
+{
+    SCPI_ResultUInt32(context, (uint32_t)(value & 0xFFFFFFFFull));
+    SCPI_ResultUInt32(context, (uint32_t)(value >> 32u));
+}
+
 scpi_result_t scpi_cmd_sync_vdc_status_q(scpi_t *context)
 {
     vdc_dpll_manager_vdc_status_t status;
@@ -208,5 +214,55 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.first_service_ms);
     SCPI_ResultUInt32(context, status.last_service_ms);
     SCPI_ResultUInt32(context, status.update_seq);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_tdma_plan_q(scpi_t *context)
+{
+    uint32_t window_class = VDC_DOMAIN_WINDOW_REFMEM_DATA;
+    uint32_t now_lo = 0u;
+    uint32_t now_hi = 0u;
+    uint64_t now_ns = VDC_DPLL_MANAGER_PLAN_NOW_NS;
+    vdc_tdma_window_plan_t plan;
+    vdc_gate_result_t gate;
+
+    (void)SCPI_ParamUInt32(context, &window_class, FALSE);
+    const scpi_bool_t has_now_lo = SCPI_ParamUInt32(context, &now_lo, FALSE);
+    const scpi_bool_t has_now_hi = SCPI_ParamUInt32(context, &now_hi, FALSE);
+    if (has_now_lo == TRUE || has_now_hi == TRUE) {
+        now_ns = ((uint64_t)now_hi << 32u) | (uint64_t)now_lo;
+    }
+
+    if (!vdc_dpll_manager_plan_tdma_window(window_class,
+                                           now_ns,
+                                           &plan,
+                                           &gate)) {
+        SCPI_ResultText(context, "REJECTED");
+        SCPI_ResultUInt32(context, gate.reject_code);
+        SCPI_ResultUInt32(context, gate.reject_slot);
+        SCPI_ResultUInt32(context, gate.reject_evidence);
+        return SCPI_RES_OK;
+    }
+
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, plan.window_class);
+    SCPI_ResultUInt32(context, plan.schedule_epoch);
+    SCPI_ResultUInt32(context, plan.slot_index);
+    SCPI_ResultUInt32(context, plan.source_slot_id);
+    SCPI_ResultUInt32(context, plan.reference_slot_id);
+    scpi_sync_result_u64_parts(context, plan.now_ns);
+    scpi_sync_result_u64_parts(context, plan.window_start_ns);
+    scpi_sync_result_u64_parts(context, plan.window_end_ns);
+    scpi_sync_result_u64_parts(context, plan.guard_start_ns);
+    scpi_sync_result_u64_parts(context, plan.guard_end_ns);
+    SCPI_ResultUInt32(context, plan.wait_ns);
+    SCPI_ResultUInt32(context, plan.late_ns);
+    SCPI_ResultUInt32(context, plan.in_guarded_window);
+    SCPI_ResultUInt32(context, plan.inside_payload_window);
+    SCPI_ResultUInt32(context, plan.missed_current_window);
+    SCPI_ResultUInt32(context, plan.schedule_crc32);
+    SCPI_ResultUInt32(context, gate.reject_code);
+    SCPI_ResultUInt32(context, gate.reject_slot);
+    SCPI_ResultUInt32(context, gate.reject_evidence);
     return SCPI_RES_OK;
 }

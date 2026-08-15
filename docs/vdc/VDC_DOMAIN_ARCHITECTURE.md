@@ -542,6 +542,7 @@ READ:SYNC:STATe?
 READ:SYNC:QUALity?
 SYSTem:SYNC:VDC:STATus?
 SYSTem:SYNC:VDC:DPLL:STATus?
+SYSTem:SYNC:VDC:TDMA:PLAN?
 SYSTem:SYNC:VDC:DPLL:TUNE
 SYSTem:SYNC:VDC:DPLL:COEFficient
 SYSTem:SYNC:VDC:DPLL:DEFAult
@@ -553,6 +554,7 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 - `SYNC:*` 发起同步动作事务。
 - `READ:SYNC:*?` 给产品上位机读取同步状态。
 - `SYSTem:SYNC:VDC:*` 给维护工具读取和调试底层 VDC/DPLL。
+- `SYSTem:SYNC:VDC:TDMA:PLAN?` 只输出 active schedule 的窗口计划和 gate evidence，不提交 TDMA intent，也不改变 RefMem 或 DPLL 状态。
 - 禁止新增 `VDC:*`、`DPLL:*`、`STATus:VDC?`、`STATus:DPLL?`。
 
 ## 目标代码形态

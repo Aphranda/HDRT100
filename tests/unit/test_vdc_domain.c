@@ -306,6 +306,68 @@ static int test_frame_envelope_window_contract(void)
     return failed;
 }
 
+static int test_tdma_window_plan_contract(void)
+{
+    int failed = 0;
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_tdma_window_plan_t plan;
+    vdc_gate_result_t gate;
+
+    vdc_domain_default_schedule(&schedule, 3u, 0u);
+
+    failed += expect_bool("plan before data window",
+                          vdc_domain_plan_tdma_window(&schedule,
+                                                       VDC_DOMAIN_WINDOW_REFMEM_DATA,
+                                                       15000u,
+                                                       &plan,
+                                                       &gate),
+                          true);
+    failed += expect_u32("plan valid", plan.valid, 1u);
+    failed += expect_u32("plan pass", gate.reject_code, VDC_DOMAIN_GATE_PASS);
+    failed += expect_u64("plan window start", plan.window_start_ns, 20000u);
+    failed += expect_u64("plan window end", plan.window_end_ns, 820000u);
+    failed += expect_u64("plan guard start", plan.guard_start_ns, 19000u);
+    failed += expect_u64("plan guard end", plan.guard_end_ns, 821000u);
+    failed += expect_u32("plan wait", plan.wait_ns, 5000u);
+    failed += expect_u32("plan guarded", plan.in_guarded_window, 0u);
+    failed += expect_u32("plan payload", plan.inside_payload_window, 0u);
+
+    failed += expect_bool("plan inside data window",
+                          vdc_domain_plan_tdma_window(&schedule,
+                                                       VDC_DOMAIN_WINDOW_REFMEM_DATA,
+                                                       21000u,
+                                                       &plan,
+                                                       &gate),
+                          true);
+    failed += expect_u32("inside wait", plan.wait_ns, 0u);
+    failed += expect_u32("inside late", plan.late_ns, 1000u);
+    failed += expect_u32("inside guarded", plan.in_guarded_window, 1u);
+    failed += expect_u32("inside payload", plan.inside_payload_window, 1u);
+
+    failed += expect_bool("plan after guard moves to next cycle",
+                          vdc_domain_plan_tdma_window(&schedule,
+                                                       VDC_DOMAIN_WINDOW_REFMEM_DATA,
+                                                       840000u,
+                                                       &plan,
+                                                       &gate),
+                          true);
+    failed += expect_u64("next window start", plan.window_start_ns, 1020000u);
+    failed += expect_u32("next wait", plan.wait_ns, 180000u);
+    failed += expect_u32("missed window", plan.missed_current_window, 1u);
+
+    failed += expect_bool("plan rejects bad window",
+                          vdc_domain_plan_tdma_window(&schedule,
+                                                       99u,
+                                                       0u,
+                                                       &plan,
+                                                       &gate),
+                          false);
+    failed += expect_u32("bad window reject",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_BAD_WINDOW_CLASS);
+    return failed;
+}
+
 static int test_dco_control_contract(void)
 {
     int failed = 0;
@@ -417,6 +479,7 @@ int main(void)
     failed += test_gate_rejects_diagnostic_timestamp();
     failed += test_gate_rejects_schedule_and_window_mismatch();
     failed += test_frame_envelope_window_contract();
+    failed += test_tdma_window_plan_contract();
     failed += test_dco_control_contract();
     failed += test_context_accepts_samples_until_locked();
     if (failed != 0) {

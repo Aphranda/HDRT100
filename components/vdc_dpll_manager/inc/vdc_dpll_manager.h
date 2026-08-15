@@ -4,6 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "vdc_domain.h"
+
+#define VDC_DPLL_MANAGER_PLAN_NOW_NS UINT64_MAX
+
 typedef struct {
     bool ready;
     uint32_t lock_state;
@@ -29,5 +33,9 @@ void vdc_dpll_manager_vdc_service(void);
 void vdc_dpll_manager_dpll_service(void);
 void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status);
 void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status);
+bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
+                                       uint64_t now_ns,
+                                       vdc_tdma_window_plan_t *plan,
+                                       vdc_gate_result_t *gate);
 
 #endif

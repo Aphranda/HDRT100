@@ -130,6 +130,11 @@ static bool vdc_domain_payload_allowed_for_window(uint32_t window_class,
     }
 }
 
+static uint32_t vdc_domain_saturate_u64_to_u32(uint64_t value)
+{
+    return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
+}
+
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
                                  uint32_t local_slot_id,
                                  uint32_t reference_slot_id)
@@ -608,6 +613,101 @@ bool vdc_domain_validate_tdma_frame_envelope(
         gate->reject_slot = frame->source_slot_id;
         gate->reject_evidence = frame->frame_seq;
         gate->last_pass_seq = frame->frame_seq;
+    }
+    return true;
+}
+
+bool vdc_domain_plan_tdma_window(const vdc_tdma_schedule_profile_t *profile,
+                                 uint32_t window_class,
+                                 uint64_t now_ns,
+                                 vdc_tdma_window_plan_t *plan,
+                                 vdc_gate_result_t *gate)
+{
+    uint32_t offset_ns = 0u;
+    uint32_t width_ns = 0u;
+
+    if (gate != NULL) {
+        memset(gate, 0, sizeof(*gate));
+    }
+    if (plan != NULL) {
+        memset(plan, 0, sizeof(*plan));
+    }
+    if (profile == NULL || plan == NULL) {
+        vdc_domain_gate_fail(gate, VDC_DOMAIN_GATE_BAD_ARGUMENT, 0u, 0u);
+        return false;
+    }
+    if (!vdc_domain_schedule_validate(profile)) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BAD_SCHEDULE,
+                             profile->local_slot_id,
+                             profile->schedule_epoch);
+        return false;
+    }
+    if (!vdc_domain_window_contract(profile,
+                                    window_class,
+                                    &offset_ns,
+                                    &width_ns)) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BAD_WINDOW_CLASS,
+                             profile->local_slot_id,
+                             profile->schedule_epoch);
+        return false;
+    }
+
+    const uint64_t period_ns = profile->period_ns;
+    uint64_t cycle_start_ns = now_ns - (now_ns % period_ns);
+    uint64_t window_start_ns = cycle_start_ns + offset_ns;
+    uint64_t window_end_ns = window_start_ns + width_ns;
+    uint64_t guard_start_ns =
+        window_start_ns > profile->guard_before_ns
+            ? window_start_ns - profile->guard_before_ns
+            : 0u;
+    uint64_t guard_end_ns = window_end_ns + profile->guard_after_ns;
+
+    if (now_ns > guard_end_ns) {
+        cycle_start_ns += period_ns;
+        window_start_ns = cycle_start_ns + offset_ns;
+        window_end_ns = window_start_ns + width_ns;
+        guard_start_ns = window_start_ns > profile->guard_before_ns
+                             ? window_start_ns - profile->guard_before_ns
+                             : 0u;
+        guard_end_ns = window_end_ns + profile->guard_after_ns;
+        plan->missed_current_window = 1u;
+    }
+
+    plan->valid = 1u;
+    plan->window_class = window_class;
+    plan->schedule_epoch = profile->schedule_epoch;
+    plan->slot_index = profile->local_slot_id;
+    plan->source_slot_id = profile->local_slot_id;
+    plan->reference_slot_id = profile->reference_slot_id;
+    plan->now_ns = now_ns;
+    plan->window_start_ns = window_start_ns;
+    plan->window_end_ns = window_end_ns;
+    plan->guard_start_ns = guard_start_ns;
+    plan->guard_end_ns = guard_end_ns;
+    plan->schedule_crc32 = profile->schedule_crc32;
+
+    if (now_ns < window_start_ns) {
+        plan->wait_ns =
+            vdc_domain_saturate_u64_to_u32(window_start_ns - now_ns);
+    } else {
+        plan->late_ns =
+            vdc_domain_saturate_u64_to_u32(now_ns - window_start_ns);
+    }
+    if (now_ns >= guard_start_ns && now_ns <= guard_end_ns) {
+        plan->in_guarded_window = 1u;
+    }
+    if (now_ns >= window_start_ns && now_ns <= window_end_ns) {
+        plan->inside_payload_window = 1u;
+    }
+
+    if (gate != NULL) {
+        gate->passed = 1u;
+        gate->reject_code = VDC_DOMAIN_GATE_PASS;
+        gate->reject_slot = profile->local_slot_id;
+        gate->reject_evidence = profile->schedule_epoch;
+        gate->last_pass_seq = profile->schedule_epoch;
     }
     return true;
 }

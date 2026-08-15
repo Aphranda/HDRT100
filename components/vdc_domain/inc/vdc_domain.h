@@ -178,6 +178,26 @@ typedef struct {
 } vdc_tdma_frame_envelope_t;
 
 typedef struct {
+    uint32_t valid;
+    uint32_t window_class;
+    uint32_t schedule_epoch;
+    uint32_t slot_index;
+    uint32_t source_slot_id;
+    uint32_t reference_slot_id;
+    uint64_t now_ns;
+    uint64_t window_start_ns;
+    uint64_t window_end_ns;
+    uint64_t guard_start_ns;
+    uint64_t guard_end_ns;
+    uint32_t wait_ns;
+    uint32_t late_ns;
+    uint32_t in_guarded_window;
+    uint32_t inside_payload_window;
+    uint32_t missed_current_window;
+    uint32_t schedule_crc32;
+} vdc_tdma_window_plan_t;
+
+typedef struct {
     uint32_t passed;
     uint32_t reject_code;
     uint32_t reject_slot;
@@ -259,6 +279,11 @@ bool vdc_domain_validate_tdma_frame_envelope(
     const vdc_tdma_frame_envelope_t *frame,
     bool require_dpll_eligible,
     vdc_gate_result_t *gate);
+bool vdc_domain_plan_tdma_window(const vdc_tdma_schedule_profile_t *profile,
+                                 uint32_t window_class,
+                                 uint64_t now_ns,
+                                 vdc_tdma_window_plan_t *plan,
+                                 vdc_gate_result_t *gate);
 bool vdc_domain_init(vdc_domain_context_t *context);
 void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready);
 void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns);

@@ -43,6 +43,40 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-009 - VDC TDMA window planner contract
+
+- 状态：完成并已通过 COM5/COM6 板端查询和两板 HIL
+- 日期：2026-08-16
+- 任务目标：
+  - 为 core1/PIO 后续按 `VdcTdmaScheduleProfile` 等待 `REFMEM_DATA_WINDOW` / `VDC_OBSERVATION_WINDOW` 提供 VDC-owned 计划契约。
+  - 避免 RefMem 或 SCPI 自行计算窗口相位，保持 VDC 拥有 schedule/window/gate 语义。
+- 完成内容：
+  - 新增 `vdc_tdma_window_plan_t`，字段覆盖 `now_ns`、窗口起止、guard 起止、`wait_ns`、`late_ns`、inside/missed 标志、slot/reference 和 schedule CRC。
+  - 新增 `vdc_domain_plan_tdma_window()`，从 active profile 计算当前或下一 TDMA window；窗口已错过 guard 后自动转入下一周期并记录 `missed_current_window`。
+  - `vdc_dpll_manager` 增加只读 wrapper，SCPI 继续通过 manager 读取 VDC 计划，不直接访问内部 context。
+  - 新增维护命令 `SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]`，默认查询 `REFMEM_DATA_WINDOW` 当前窗口计划。
+  - 同步更新 `SCPI_COMMANDS.md`、`SCPI_COMMAND_PLAN.md` 和 VDC 架构/TODO。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815185032`，package CRC `0xB6C4C634`。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - OTA 到 COM5/COM6 后查询 `SYST:FW:BUILD?` 均为 `"20260815185032"`，`SYST:OTA:STAT?` 均为 `"COMMITTED"`。
+  - COM5/COM6 执行 `SYSTem:SYNC:VDC:TDMA:PLAN? 2,15000,0` 均返回默认 `REFMEM_DATA_WINDOW`：`window_start_ns=20000`、`window_end_ns=820000`、`guard_start_ns=19000`、`guard_end_ns=821000`、`wait_ns=5000`、schedule CRC `974530568`。
+  - `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6 --out-dir build-rtos-multicore-smoke\refmem_spi_hil_vdc_plan` 通过；报告 build A/B 均为 `"20260815185032"`，`failures=[]`。
+- 还需完成：
+  - 让 `refmem_realtime_tdma` / core1 PIO service 消费该 plan，真正按 data/observation window 执行 TX/RX 和 timestamp latch。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `middleware/scpi_port/inc/scpi_sync_commands.h`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 增加 TDMA service 对 window plan 的消费字段和执行前等待策略。
+
 ### VDC-TASK-20260816-008 - COM5/COM6 VDC data-window diagnostic gate
 
 - 状态：完成并已通过 COM5/COM6 HIL；正式 schedule wait / hardware latch 待实现

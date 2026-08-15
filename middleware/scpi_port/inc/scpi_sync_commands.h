@@ -19,6 +19,7 @@ scpi_result_t scpi_sync_override_q(scpi_t *context);
 scpi_result_t scpi_sync_coef_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_tdma_plan_q(scpi_t *context);
 
 #define SCPI_SYNC_COMMANDS \
     {.pattern = "SYNC:CHECk", .callback = scpi_sync_check_q}, \
@@ -47,6 +48,7 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_status_q(scpi_t *context);
     {.pattern = "READ:SYNC:VERSion?", .callback = scpi_sync_version_q}, \
     {.pattern = "SYSTem:SYNC:VDC:STATus?", .callback = scpi_cmd_sync_vdc_status_q}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:STATus?", .callback = scpi_cmd_sync_vdc_dpll_status_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:TDMA:PLAN?", .callback = scpi_cmd_sync_vdc_tdma_plan_q}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TUNE", .callback = scpi_port_result_accepted}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:COEFficient", .callback = scpi_port_result_accepted}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:OVERRide?", .callback = scpi_sync_override_q}, \

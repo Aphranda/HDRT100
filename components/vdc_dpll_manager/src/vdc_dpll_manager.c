@@ -110,3 +110,27 @@ void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status)
     status->ready = s_dpll_ready;
     osal_critical_exit();
 }
+
+bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
+                                       uint64_t now_ns,
+                                       vdc_tdma_window_plan_t *plan,
+                                       vdc_gate_result_t *gate)
+{
+    bool result = false;
+    if (plan == NULL) {
+        return false;
+    }
+
+    if (now_ns == VDC_DPLL_MANAGER_PLAN_NOW_NS) {
+        now_ns = vdc_dpll_manager_now_ns();
+    }
+
+    osal_critical_enter();
+    result = vdc_domain_plan_tdma_window(&s_vdc_domain.schedule,
+                                         window_class,
+                                         now_ns,
+                                         plan,
+                                         gate);
+    osal_critical_exit();
+    return result;
+}

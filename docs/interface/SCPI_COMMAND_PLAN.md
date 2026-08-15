@@ -263,12 +263,15 @@ VDC/DPLL 层级：
 ```text
 SYSTem:SYNC:VDC:STATus?
 SYSTem:SYNC:VDC:DPLL:STATus?
+SYSTem:SYNC:VDC:TDMA:PLAN?
 SYSTem:SYNC:VDC:DPLL:TUNE
 SYSTem:SYNC:VDC:DPLL:COEFficient
 SYSTem:SYNC:VDC:DPLL:OVERRide?
 SYSTem:SYNC:VDC:DPLL:COEFficient?
 SYSTem:SYNC:VDC:DPLL:DEFAult
 ```
+
+`SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]` 是只读维护入口，用于复现 active `VdcTdmaScheduleProfile` 对 observation/data/idle window 的计划结果。它返回当前或指定 `now_ns` 对应的窗口起止、guard、wait_ns、late_ns、inside/missed 标志、schedule CRC 和 gate；不得作为产品上位机控制入口。
 
 ## 7. 通信、实时和测量
 
