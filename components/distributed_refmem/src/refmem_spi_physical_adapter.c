@@ -72,15 +72,16 @@ static bool refmem_spi_physical_pins_valid(const refmem_spi_physical_pin_config_
     if (pins == NULL) {
         return false;
     }
+    const bool csn_used = pins->csn_pin != REFMEM_SPI_PHYSICAL_PIN_UNUSED;
     return pins->rx_pin <= 29u &&
-           pins->csn_pin <= 29u &&
+           (csn_used ? pins->csn_pin <= 29u : true) &&
            pins->sck_pin <= 29u &&
            pins->tx_pin <= 29u &&
-           pins->rx_pin != pins->csn_pin &&
+           (!csn_used || pins->rx_pin != pins->csn_pin) &&
            pins->rx_pin != pins->sck_pin &&
            pins->rx_pin != pins->tx_pin &&
-           pins->csn_pin != pins->sck_pin &&
-           pins->csn_pin != pins->tx_pin &&
+           (!csn_used || pins->csn_pin != pins->sck_pin) &&
+           (!csn_used || pins->csn_pin != pins->tx_pin) &&
            pins->sck_pin != pins->tx_pin;
 }
 
@@ -109,9 +110,11 @@ static void refmem_spi_physical_configure_pins(refmem_spi_physical_adapter_t *ad
         gpio_set_dir(adapter->pins.rx_pin, GPIO_IN);
         gpio_pull_up(adapter->pins.rx_pin);
 
-        gpio_set_function(adapter->pins.csn_pin, GPIO_FUNC_SIO);
-        gpio_set_dir(adapter->pins.csn_pin, GPIO_OUT);
-        gpio_put(adapter->pins.csn_pin, true);
+        if (adapter->pins.csn_pin != REFMEM_SPI_PHYSICAL_PIN_UNUSED) {
+            gpio_set_function(adapter->pins.csn_pin, GPIO_FUNC_SIO);
+            gpio_set_dir(adapter->pins.csn_pin, GPIO_OUT);
+            gpio_put(adapter->pins.csn_pin, true);
+        }
 
         refmem_pio_spi_tx_byte_program_init(BOARD_REFMEM_SPI_PIO,
                                             BOARD_REFMEM_SPI_TX_SM,
@@ -422,11 +425,15 @@ void refmem_spi_physical_adapter_disarm(refmem_spi_physical_adapter_t *adapter)
     pio_sm_clear_fifos(BOARD_REFMEM_SPI_PIO, BOARD_REFMEM_SPI_TX_SM);
     pio_sm_clear_fifos(BOARD_REFMEM_SPI_PIO, BOARD_REFMEM_SPI_RX_SM);
     gpio_set_function(adapter->pins.rx_pin, GPIO_FUNC_SIO);
-    gpio_set_function(adapter->pins.csn_pin, GPIO_FUNC_SIO);
+    if (adapter->pins.csn_pin != REFMEM_SPI_PHYSICAL_PIN_UNUSED) {
+        gpio_set_function(adapter->pins.csn_pin, GPIO_FUNC_SIO);
+    }
     gpio_set_function(adapter->pins.sck_pin, GPIO_FUNC_SIO);
     gpio_set_function(adapter->pins.tx_pin, GPIO_FUNC_SIO);
     gpio_set_dir(adapter->pins.rx_pin, GPIO_IN);
-    gpio_set_dir(adapter->pins.csn_pin, GPIO_IN);
+    if (adapter->pins.csn_pin != REFMEM_SPI_PHYSICAL_PIN_UNUSED) {
+        gpio_set_dir(adapter->pins.csn_pin, GPIO_IN);
+    }
     gpio_set_dir(adapter->pins.sck_pin, GPIO_IN);
     gpio_set_dir(adapter->pins.tx_pin, GPIO_IN);
     adapter->armed = false;
@@ -463,8 +470,10 @@ bool refmem_spi_physical_adapter_transmit(refmem_spi_physical_adapter_t *adapter
         (uint8_t)(frame_size >> 8u),
     };
 
-    gpio_put(adapter->pins.csn_pin, false);
-    sleep_us(10u);
+    if (adapter->pins.csn_pin != REFMEM_SPI_PHYSICAL_PIN_UNUSED) {
+        gpio_put(adapter->pins.csn_pin, false);
+        sleep_us(10u);
+    }
     refmem_spi_physical_tx_prepare();
     for (size_t i = 0u; i < sizeof(packet_header); i++) {
         refmem_spi_physical_write_byte(packet_header[i]);
@@ -474,7 +483,9 @@ bool refmem_spi_physical_adapter_transmit(refmem_spi_physical_adapter_t *adapter
     }
     refmem_spi_physical_wait_tx_done(sizeof(packet_header) + frame_size, adapter->baud_hz);
     sleep_us(10u);
-    gpio_put(adapter->pins.csn_pin, true);
+    if (adapter->pins.csn_pin != REFMEM_SPI_PHYSICAL_PIN_UNUSED) {
+        gpio_put(adapter->pins.csn_pin, true);
+    }
 
     adapter->snapshot.tx_count++;
     adapter->snapshot.last_tx_size = (uint32_t)frame_size;
@@ -493,8 +504,10 @@ bool refmem_spi_physical_adapter_transmit_raw(refmem_spi_physical_adapter_t *ada
         return false;
     }
 
-    gpio_put(adapter->pins.csn_pin, false);
-    sleep_us(10u);
+    if (adapter->pins.csn_pin != REFMEM_SPI_PHYSICAL_PIN_UNUSED) {
+        gpio_put(adapter->pins.csn_pin, false);
+        sleep_us(10u);
+    }
     refmem_spi_physical_tx_prepare();
     for (size_t i = 0u; i < byte_count; i++) {
         const uint8_t value = (uint8_t)(seed + i);
@@ -502,7 +515,9 @@ bool refmem_spi_physical_adapter_transmit_raw(refmem_spi_physical_adapter_t *ada
     }
     refmem_spi_physical_wait_tx_done(byte_count, adapter->baud_hz);
     sleep_us(10u);
-    gpio_put(adapter->pins.csn_pin, true);
+    if (adapter->pins.csn_pin != REFMEM_SPI_PHYSICAL_PIN_UNUSED) {
+        gpio_put(adapter->pins.csn_pin, true);
+    }
 
     adapter->snapshot.tx_count++;
     adapter->snapshot.last_tx_size = (uint32_t)byte_count;

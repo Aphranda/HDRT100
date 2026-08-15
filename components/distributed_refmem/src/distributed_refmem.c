@@ -44,7 +44,10 @@ typedef struct {
     uint32_t run_id;
     uint32_t baud_hz;
     uint32_t deadline_us;
-    refmem_spi_physical_pin_config_t pins;
+    uint32_t uplink_duplex_mode;
+    uint32_t downlink_duplex_mode;
+    refmem_spi_physical_pin_config_t uplink_adapter_pins;
+    refmem_spi_physical_pin_config_t downlink_adapter_pins;
     uint32_t pending_instance[DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_QUEUE_COUNT];
     uint32_t pending_count;
     uint32_t active_intent;
@@ -85,10 +88,20 @@ static void distributed_refmem_node_load_auto_init(void)
     s_node_load_auto_sync.run_id = DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN;
     s_node_load_auto_sync.baud_hz = BOARD_REFMEM_SPI_BAUD_HZ;
     s_node_load_auto_sync.deadline_us = 1000000u;
-    s_node_load_auto_sync.pins.rx_pin = BOARD_REFMEM_SPI_RX_PIN;
-    s_node_load_auto_sync.pins.csn_pin = BOARD_REFMEM_SPI_CSN_PIN;
-    s_node_load_auto_sync.pins.sck_pin = BOARD_REFMEM_SPI_SCK_PIN;
-    s_node_load_auto_sync.pins.tx_pin = BOARD_REFMEM_SPI_TX_PIN;
+    s_node_load_auto_sync.uplink_duplex_mode =
+        DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF;
+    s_node_load_auto_sync.downlink_duplex_mode =
+        DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF;
+    s_node_load_auto_sync.uplink_adapter_pins.rx_pin = BOARD_REFMEM_SPI_RX_PIN;
+    s_node_load_auto_sync.uplink_adapter_pins.csn_pin =
+        REFMEM_SPI_PHYSICAL_PIN_UNUSED;
+    s_node_load_auto_sync.uplink_adapter_pins.sck_pin = BOARD_REFMEM_SPI_SCK_PIN;
+    s_node_load_auto_sync.uplink_adapter_pins.tx_pin = BOARD_REFMEM_SPI_TX_PIN;
+    s_node_load_auto_sync.downlink_adapter_pins.rx_pin = BOARD_REFMEM_SPI_RX_PIN;
+    s_node_load_auto_sync.downlink_adapter_pins.csn_pin =
+        REFMEM_SPI_PHYSICAL_PIN_UNUSED;
+    s_node_load_auto_sync.downlink_adapter_pins.sck_pin = BOARD_REFMEM_SPI_SCK_PIN;
+    s_node_load_auto_sync.downlink_adapter_pins.tx_pin = BOARD_REFMEM_SPI_TX_PIN;
     s_node_load_auto_sync.next_seq32 = 1u;
     (void)refmem_sync_init(&s_refmem_sync_context,
                            s_node_load_auto_sync.local_slot,
@@ -138,6 +151,26 @@ static bool distributed_refmem_tdma_busy(const refmem_realtime_tdma_snapshot_t *
 {
     return snapshot != NULL &&
            snapshot->intent_seq > snapshot->completed_seq;
+}
+
+static bool distributed_refmem_node_load_auto_rx_preemptible(void)
+{
+    return s_node_load_auto_sync.enabled != 0u &&
+           s_node_load_auto_sync.active_intent ==
+               DISTRIBUTED_REFMEM_AUTO_INTENT_RX_WINDOW;
+}
+
+static void distributed_refmem_node_load_auto_preempt_rx(void)
+{
+    if (!distributed_refmem_node_load_auto_rx_preemptible()) {
+        return;
+    }
+
+    refmem_realtime_tdma_abort(&s_refmem_realtime_tdma);
+    s_node_load_auto_sync.active_intent = DISTRIBUTED_REFMEM_AUTO_INTENT_NONE;
+    s_node_load_auto_sync.active_instance_id = 0u;
+    s_node_load_auto_sync.active_intent_seq = 0u;
+    s_node_load_auto_sync.last_error = 0u;
 }
 
 static uint32_t distributed_refmem_u32_payload_crc32(const uint32_t *fields,
@@ -541,7 +574,7 @@ static bool distributed_refmem_node_load_auto_submit_tx(void)
         .deadline_us = s_node_load_auto_sync.deadline_us,
         .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
         .baud_hz = s_node_load_auto_sync.baud_hz,
-        .pins = s_node_load_auto_sync.pins,
+        .pins = s_node_load_auto_sync.downlink_adapter_pins,
         .frame = frame,
         .frame_size = frame_size,
     };
@@ -573,7 +606,7 @@ static bool distributed_refmem_node_load_auto_submit_rx(void)
         .deadline_us = s_node_load_auto_sync.deadline_us,
         .role = REFMEM_SPI_PHYSICAL_ROLE_SLAVE,
         .baud_hz = s_node_load_auto_sync.baud_hz,
-        .pins = s_node_load_auto_sync.pins,
+        .pins = s_node_load_auto_sync.uplink_adapter_pins,
         .frame = NULL,
         .frame_size = 0u,
     };
@@ -978,6 +1011,19 @@ bool distributed_refmem_register_node_load_owner(
     return false;
 }
 
+bool distributed_refmem_can_accept_node_load_intent(uint32_t realtime_idle)
+{
+    if (!s_initialized) {
+        return false;
+    }
+
+    if (realtime_idle != 0u) {
+        return true;
+    }
+
+    return distributed_refmem_node_load_auto_rx_preemptible();
+}
+
 bool distributed_refmem_stage_node_load(uint32_t node_id,
                                         uint32_t instance_id,
                                         uint32_t role_mask,
@@ -989,6 +1035,8 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
     if (!s_initialized) {
         return false;
     }
+    distributed_refmem_node_load_auto_preempt_rx();
+
     if (node_id >= DISTRIBUTED_REFMEM_NODE_COUNT) {
         (void)refmem_application_model_stage_scpi_node_config(node_id,
                                                               instance_id,
@@ -1518,14 +1566,22 @@ bool distributed_refmem_configure_node_load_auto_sync(
     uint32_t target_mask,
     uint32_t baud_hz,
     uint32_t deadline_us,
-    const refmem_spi_physical_pin_config_t *pins)
+    uint32_t uplink_duplex_mode,
+    const refmem_spi_physical_pin_config_t *uplink_adapter_pins,
+    uint32_t downlink_duplex_mode,
+    const refmem_spi_physical_pin_config_t *downlink_adapter_pins)
 {
     if (!s_initialized ||
         enabled > 1u ||
         local_slot >= DISTRIBUTED_REFMEM_NODE_COUNT ||
         target_mask > 0xFFu ||
         deadline_us == 0u ||
-        pins == NULL) {
+        (uplink_duplex_mode != DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF &&
+         uplink_duplex_mode != DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_FULL) ||
+        (downlink_duplex_mode != DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF &&
+         downlink_duplex_mode != DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_FULL) ||
+        uplink_adapter_pins == NULL ||
+        downlink_adapter_pins == NULL) {
         return false;
     }
 
@@ -1540,7 +1596,10 @@ bool distributed_refmem_configure_node_load_auto_sync(
     s_node_load_auto_sync.baud_hz =
         baud_hz == 0u ? BOARD_REFMEM_SPI_BAUD_HZ : baud_hz;
     s_node_load_auto_sync.deadline_us = deadline_us;
-    s_node_load_auto_sync.pins = *pins;
+    s_node_load_auto_sync.uplink_duplex_mode = uplink_duplex_mode;
+    s_node_load_auto_sync.downlink_duplex_mode = downlink_duplex_mode;
+    s_node_load_auto_sync.uplink_adapter_pins = *uplink_adapter_pins;
+    s_node_load_auto_sync.downlink_adapter_pins = *downlink_adapter_pins;
     s_node_load_auto_sync.active_intent = DISTRIBUTED_REFMEM_AUTO_INTENT_NONE;
     s_node_load_auto_sync.active_instance_id = 0u;
     s_node_load_auto_sync.active_intent_seq = 0u;
@@ -1565,10 +1624,17 @@ void distributed_refmem_get_node_load_auto_sync(
     snapshot->target_mask = s_node_load_auto_sync.target_mask;
     snapshot->baud_hz = s_node_load_auto_sync.baud_hz;
     snapshot->deadline_us = s_node_load_auto_sync.deadline_us;
-    snapshot->rx_pin = s_node_load_auto_sync.pins.rx_pin;
-    snapshot->csn_pin = s_node_load_auto_sync.pins.csn_pin;
-    snapshot->sck_pin = s_node_load_auto_sync.pins.sck_pin;
-    snapshot->tx_pin = s_node_load_auto_sync.pins.tx_pin;
+    snapshot->uplink_duplex_mode = s_node_load_auto_sync.uplink_duplex_mode;
+    snapshot->uplink_rx_pin = s_node_load_auto_sync.uplink_adapter_pins.rx_pin;
+    snapshot->uplink_sck_pin = s_node_load_auto_sync.uplink_adapter_pins.sck_pin;
+    snapshot->uplink_tx_pin = s_node_load_auto_sync.uplink_adapter_pins.tx_pin;
+    snapshot->downlink_duplex_mode = s_node_load_auto_sync.downlink_duplex_mode;
+    snapshot->downlink_rx_pin =
+        s_node_load_auto_sync.downlink_adapter_pins.rx_pin;
+    snapshot->downlink_sck_pin =
+        s_node_load_auto_sync.downlink_adapter_pins.sck_pin;
+    snapshot->downlink_tx_pin =
+        s_node_load_auto_sync.downlink_adapter_pins.tx_pin;
     snapshot->pending_count = s_node_load_auto_sync.pending_count;
     snapshot->active_intent = s_node_load_auto_sync.active_intent;
     snapshot->active_instance_id = s_node_load_auto_sync.active_instance_id;

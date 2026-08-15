@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define REFMEM_SPI_PHYSICAL_PIN_UNUSED UINT32_MAX
+
 typedef enum {
     REFMEM_SPI_PHYSICAL_ROLE_DISABLED = 0u,
     REFMEM_SPI_PHYSICAL_ROLE_MASTER = 1u,

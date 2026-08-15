@@ -8,6 +8,58 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-046 - NodeLoad AUTO 3-wire uplink/downlink adapter correction
+
+- 状态：完成并通过 COM5/COM6 B3 HIL
+- 日期：2026-08-15
+- 任务目标：
+  - 修正 B3 HIL 未收到 frame 的结构性原因：NodeLoad AUTO 不能复用单组 pins，必须区分环路上行 adapter 和下行 adapter。
+  - 按产品链路收敛为无 CS 的 3-wire SPI；每组 adapter 保留 `duplex_mode,rx,sck,tx`，支持 half/full duplex 配置。
+- 完成内容：
+  - `DistributedRefMemAO` 的 AUTO 配置由单组 pins 改为 `uplink_adapter_pins` 和 `downlink_adapter_pins`，并新增 uplink/downlink duplex mode。
+  - NodeLoad AUTO RX window 使用 uplink adapter，语义为接收上一个板卡的数据；pending NodeLoad DELTA TX 使用 downlink adapter，语义为下发到下一个板卡。
+  - `SYSTem:REFMEM:SYNC:AUTO` 改为配置 `enable,local_slot,target_mask,baud,deadline,uplink_mode,uplink_rx,uplink_sck,uplink_tx,downlink_mode,downlink_rx,downlink_sck,downlink_tx`；`AUTO?` 返回同序 snapshot 和计数/evidence。
+  - `refmem_spi_physical_adapter` 支持 `csn_pin=REFMEM_SPI_PHYSICAL_PIN_UNUSED` 的无 CS 模式：master 不驱动 CS，slave PIO 不等待 CS，仍由 RM packet magic、length、CRC 和 RX stable 判断帧边界。
+  - `tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py` 固化两板 B3 验收，自动运行 IO preflight 后推导 A/B 的 uplink/downlink adapter，并只向源板发送 `LOAD:NODE`。
+- 验证结果：
+  - `python -m py_compile tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，15/15 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815165314`，package CRC `0x36DE7654`。
+  - OTA build `20260815165314` 到 COM5/COM6 并 commit 通过，两板 `SYSTem:FW:BUILD?` 均返回 `"20260815165314"`，`SYSTem:ERRor?` 均为 `0,"No error"`。
+  - 执行 `python -u tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py --port-a COM5 --port-b COM6 --out-dir build-rtos-multicore-smoke\refmem_node_load_auto_hil_COM5_COM6_20260815165314` 通过。
+  - IO preflight 实测线序：A->B 为 `[1,2,0,3]`，B->A 为 `[2,1,0,3]`。
+  - AUTO 配置证据：A 使用 `SYSTem:REFMEM:SYNC:AUTO 1,0,2,25000000,1000000,1,16,18,23,1,16,22,23`，B 使用 `SYSTem:REFMEM:SYNC:AUTO 1,1,1,25000000,1000000,1,16,18,23,1,16,21,23`。
+  - A->B：只向 A 下发 `LOAD:NODE 6,10,...` 和 `LOAD:NODE 5,9,...` 后，B `AUTO?` 显示 `applied_rx_count` 增长到 2，`last_frame_type=3`，`last_source_slot=0`，NodeLoad table staging CRC 与 A 一致。
+  - B->A：只向 B 下发同样两条 `LOAD:NODE` 后，A `AUTO?` 显示 `applied_rx_count` 增长到 2，`last_frame_type=3`，`last_source_slot=1`，NodeLoad table staging CRC 与 B 一致。
+  - HIL 记录：`build-rtos-multicore-smoke\refmem_node_load_auto_hil_COM5_COM6_20260815165314\records.json` 和 `adapter_plan.json`。
+- 后续动作：
+  - 在 B3 已闭环基础上，继续 P0 表镜像 activation gate 的跨节点 ACK/FENCE 与 owner validation callback 调度。
+
+### REFMEM-TASK-20260815-045 - NodeLoad AUTO gate correction and HIL script
+
+- 状态：完成 host/build 验证；COM5/COM6 HIL 待执行
+- 日期：2026-08-15
+- 任务目标：
+  - 支持通过 SCPI 配置 RefMem NodeLoad 是否自动运行，并保证开启 AUTO 后仍可在 idle 业务状态提交本地 `LOAD:NODE`。
+  - 固化 B3 双板验收脚本，验证 PC 不搬运 frame hex 的 NodeLoad 双向同步。
+- 完成内容：
+  - 新增 `distributed_refmem_can_accept_node_load_intent()`，由 `DistributedRefMemAO` 判断 NodeLoad intent 是否可接收。
+  - `DistributedRefMemAO` 允许抢占自己挂起的 AUTO RX window：本地 `LOAD:NODE` staging 前 abort AUTO RX，staging 成功后进入 pending TX 队列；手工 TDMA/其他实时活动仍不被抢占。
+  - `SYSTem:REFMEM:LOAD:NODE` 改为使用 RefMemAO 判定；`SYSTem:REFMEM:LOAD:SD` / `LOAD:BOARD` 仍保持 realtime idle 门禁。
+  - 修复 RMTP inline package CRC 生成端：ApplicationModel 不再依赖 `ota_crc32_update()` 的隐含初值语义，改为本地 CRC32 算法，与 TableRegistry validator 的 package/payload/table CRC 完全一致。该问题此前导致板端 `LOAD:NODE` / `LOAD:BOARD` 返回 `PACKAGE_INVALID`，host stub 未暴露。
+  - inline package 构建失败时保留 package validator 的失败表证据：若 validation 已给出 `first_bad_table`，则通过该表的 registry entry 暴露 `FAILED + last_result=package_error`，避免所有失败都折叠成 `BAD_TABLE_VERSION`。
+  - 新增 `tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py`：COM5/COM6 分别开启 `SYSTem:REFMEM:SYNC:AUTO`，只对源板下发两条 `LOAD:NODE`，目标板只查询 `AUTO?`、`LOAD:STATus?`、`TABle? 3` 和 `CLAIM?` 证据；随后反向执行。
+- 验证结果：
+  - `python -m py_compile tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，15/15 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815162909`，package CRC `0xFA4FE362`。
+- 后续动作：
+  - 将 build `20260815162909` OTA 到 COM5/COM6。
+  - 执行 `python tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py --port-a COM5 --port-b COM6`，若出现窗口碰撞，再按 RefMemAO/TDMA 调度策略修正，不退回 PC frame bridge。
+
 ### REFMEM-TASK-20260815-044 - Configurable NodeLoad auto sync service
 
 - 状态：完成 host/build 验证；板端 HIL 待执行

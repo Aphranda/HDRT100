@@ -25,6 +25,8 @@ bitloop_rx:
 
 % c-sdk {
 
+#include <stdint.h>
+
 #include "hardware/clocks.h"
 #include "hardware/pio_instructions.h"
 
@@ -64,18 +66,27 @@ static inline void refmem_pio_spi_rx_byte_program_init(PIO pio,
                                                        uint csn_pin,
                                                        uint sck_pin)
 {
-    pio->instr_mem[offset + 0u] = (uint16_t)pio_encode_wait_gpio(false, csn_pin);
+    pio->instr_mem[offset + 0u] =
+        csn_pin == UINT32_MAX
+            ? (uint16_t)pio_encode_nop()
+            : (uint16_t)pio_encode_wait_gpio(false, csn_pin);
     pio->instr_mem[offset + 2u] = (uint16_t)pio_encode_wait_gpio(true, sck_pin);
     pio->instr_mem[offset + 4u] = (uint16_t)pio_encode_wait_gpio(false, sck_pin);
 
     pio_gpio_init(pio, rx_pin);
-    pio_gpio_init(pio, csn_pin);
+    if (csn_pin != UINT32_MAX) {
+        pio_gpio_init(pio, csn_pin);
+    }
     pio_gpio_init(pio, sck_pin);
     gpio_pull_down(rx_pin);
-    gpio_pull_up(csn_pin);
+    if (csn_pin != UINT32_MAX) {
+        gpio_pull_up(csn_pin);
+    }
     gpio_pull_down(sck_pin);
     pio_sm_set_consecutive_pindirs(pio, sm, rx_pin, 1, false);
-    pio_sm_set_consecutive_pindirs(pio, sm, csn_pin, 1, false);
+    if (csn_pin != UINT32_MAX) {
+        pio_sm_set_consecutive_pindirs(pio, sm, csn_pin, 1, false);
+    }
     pio_sm_set_consecutive_pindirs(pio, sm, sck_pin, 1, false);
 
     pio_sm_config c = refmem_pio_spi_rx_byte_program_get_default_config(offset);

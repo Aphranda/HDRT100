@@ -30,6 +30,9 @@
 #define DISTRIBUTED_REFMEM_PROT_CORE1_PARKED          0x00000004u
 #define DISTRIBUTED_REFMEM_PROT_ENTRY_OWNER_VALID     0x00000008u
 
+#define DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF        1u
+#define DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_FULL        2u
+
 #define DISTRIBUTED_REFMEM_FLAG_DIRECTORY_VALID       0x00000001u
 #define DISTRIBUTED_REFMEM_FLAG_DIRECTORY_CRC_VALID   0x00000002u
 #define DISTRIBUTED_REFMEM_FLAG_APP_MODEL_VALID       0x00000004u
@@ -146,10 +149,14 @@ typedef struct {
     uint32_t target_mask;
     uint32_t baud_hz;
     uint32_t deadline_us;
-    uint32_t rx_pin;
-    uint32_t csn_pin;
-    uint32_t sck_pin;
-    uint32_t tx_pin;
+    uint32_t uplink_duplex_mode;
+    uint32_t uplink_rx_pin;
+    uint32_t uplink_sck_pin;
+    uint32_t uplink_tx_pin;
+    uint32_t downlink_duplex_mode;
+    uint32_t downlink_rx_pin;
+    uint32_t downlink_sck_pin;
+    uint32_t downlink_tx_pin;
     uint32_t pending_count;
     uint32_t active_intent;
     uint32_t active_instance_id;
@@ -198,6 +205,7 @@ bool distributed_refmem_register_node_load_owner(
     uint32_t instance_id,
     distributed_refmem_node_load_owner_t owner,
     void *context);
+bool distributed_refmem_can_accept_node_load_intent(uint32_t realtime_idle);
 bool distributed_refmem_stage_node_load(uint32_t node_id,
                                         uint32_t instance_id,
                                         uint32_t role_mask,
@@ -251,7 +259,10 @@ bool distributed_refmem_configure_node_load_auto_sync(
     uint32_t target_mask,
     uint32_t baud_hz,
     uint32_t deadline_us,
-    const refmem_spi_physical_pin_config_t *pins);
+    uint32_t uplink_duplex_mode,
+    const refmem_spi_physical_pin_config_t *uplink_adapter_pins,
+    uint32_t downlink_duplex_mode,
+    const refmem_spi_physical_pin_config_t *downlink_adapter_pins);
 void distributed_refmem_get_node_load_auto_sync(
     distributed_refmem_node_load_auto_sync_snapshot_t *snapshot);
 

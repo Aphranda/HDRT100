@@ -457,7 +457,16 @@ static uint32_t refmem_model_crc32_string(uint32_t crc, const char *text)
 
 static uint32_t refmem_model_rmtp_crc32(const void *data, size_t size)
 {
-    return ota_crc32_update(0xFFFFFFFFu, (const uint8_t *)data, size) ^ 0xFFFFFFFFu;
+    const uint8_t *bytes = (const uint8_t *)data;
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0u; i < size; i++) {
+        crc ^= bytes[i];
+        for (uint32_t bit = 0u; bit < 8u; bit++) {
+            const uint32_t mask = 0u - (crc & 1u);
+            crc = (crc >> 1u) ^ (0xEDB88320u & mask);
+        }
+    }
+    return ~crc;
 }
 
 static uint32_t refmem_model_rmtp_crc32_string(const char *text)
@@ -467,10 +476,14 @@ static uint32_t refmem_model_rmtp_crc32_string(const char *text)
     }
     uint32_t crc = 0xFFFFFFFFu;
     while (*text != '\0') {
-        crc = ota_crc32_update(crc, (const uint8_t *)text, 1u);
+        crc ^= (uint8_t)*text;
+        for (uint32_t bit = 0u; bit < 8u; bit++) {
+            const uint32_t mask = 0u - (crc & 1u);
+            crc = (crc >> 1u) ^ (0xEDB88320u & mask);
+        }
         text++;
     }
-    return crc ^ 0xFFFFFFFFu;
+    return ~crc;
 }
 
 static uint32_t refmem_model_rmtp_crc32_zero_field(const uint8_t *data,
@@ -483,9 +496,13 @@ static uint32_t refmem_model_rmtp_crc32_zero_field(const uint8_t *data,
         if (i >= zero_offset && i < zero_offset + sizeof(uint32_t)) {
             byte = 0u;
         }
-        crc = ota_crc32_update(crc, &byte, 1u);
+        crc ^= byte;
+        for (uint32_t bit = 0u; bit < 8u; bit++) {
+            const uint32_t mask = 0u - (crc & 1u);
+            crc = (crc >> 1u) ^ (0xEDB88320u & mask);
+        }
     }
-    return crc ^ 0xFFFFFFFFu;
+    return ~crc;
 }
 
 static bool refmem_model_write_u32_le(uint8_t *data,
@@ -1476,6 +1493,7 @@ static bool refmem_model_build_inline_package_image(uint8_t *data,
 static bool refmem_model_stage_inline_package_image(void)
 {
     refmem_table_package_validation_t validation;
+    memset(&validation, 0, sizeof(validation));
     size_t package_size = 0u;
     if (!refmem_model_build_inline_package_image(s_inline_package_image_buffer,
                                                  sizeof(s_inline_package_image_buffer),
@@ -1487,7 +1505,15 @@ static bool refmem_model_stage_inline_package_image(void)
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_PACKAGE_INVALID;
         s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
-        refmem_table_registry_refresh_staging(&s_load_snapshot);
+        if (validation.error != REFMEM_TABLE_PACKAGE_OK &&
+            validation.first_bad_table < REFMEM_TABLE_REGISTRY_COUNT) {
+            (void)refmem_table_registry_stage_table(validation.first_bad_table,
+                                                    0u,
+                                                    REFMEM_TABLE_VALIDATION_FAILED,
+                                                    validation.error);
+        } else {
+            refmem_table_registry_refresh_staging(&s_load_snapshot);
+        }
         return false;
     }
 

@@ -483,7 +483,8 @@ scpi_result_t scpi_cmd_refmem_load_node(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    if (!scpi_refmem_realtime_idle()) {
+    if (!distributed_refmem_can_accept_node_load_intent(
+            scpi_refmem_realtime_idle() ? 1u : 0u)) {
         scpi_port_push_exec_error(context, "REFMEM_RT_NOT_IDLE");
         return SCPI_RES_ERR;
     }
@@ -1659,9 +1660,17 @@ scpi_result_t scpi_cmd_refmem_sync_auto(scpi_t *context)
     uint32_t target_mask = 0xFFu;
     uint32_t baud_hz = BOARD_REFMEM_SPI_BAUD_HZ;
     uint32_t deadline_us = 1000000u;
-    refmem_spi_physical_pin_config_t pins = {
+    uint32_t uplink_duplex_mode = DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF;
+    uint32_t downlink_duplex_mode = DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF;
+    refmem_spi_physical_pin_config_t uplink_adapter_pins = {
         .rx_pin = BOARD_REFMEM_SPI_RX_PIN,
-        .csn_pin = BOARD_REFMEM_SPI_CSN_PIN,
+        .csn_pin = REFMEM_SPI_PHYSICAL_PIN_UNUSED,
+        .sck_pin = BOARD_REFMEM_SPI_SCK_PIN,
+        .tx_pin = BOARD_REFMEM_SPI_TX_PIN,
+    };
+    refmem_spi_physical_pin_config_t downlink_adapter_pins = {
+        .rx_pin = BOARD_REFMEM_SPI_RX_PIN,
+        .csn_pin = REFMEM_SPI_PHYSICAL_PIN_UNUSED,
         .sck_pin = BOARD_REFMEM_SPI_SCK_PIN,
         .tx_pin = BOARD_REFMEM_SPI_TX_PIN,
     };
@@ -1673,17 +1682,24 @@ scpi_result_t scpi_cmd_refmem_sync_auto(scpi_t *context)
     (void)SCPI_ParamUInt32(context, &target_mask, FALSE);
     (void)SCPI_ParamUInt32(context, &baud_hz, FALSE);
     (void)SCPI_ParamUInt32(context, &deadline_us, FALSE);
-    (void)SCPI_ParamUInt32(context, &pins.rx_pin, FALSE);
-    (void)SCPI_ParamUInt32(context, &pins.csn_pin, FALSE);
-    (void)SCPI_ParamUInt32(context, &pins.sck_pin, FALSE);
-    (void)SCPI_ParamUInt32(context, &pins.tx_pin, FALSE);
+    (void)SCPI_ParamUInt32(context, &uplink_duplex_mode, FALSE);
+    (void)SCPI_ParamUInt32(context, &uplink_adapter_pins.rx_pin, FALSE);
+    (void)SCPI_ParamUInt32(context, &uplink_adapter_pins.sck_pin, FALSE);
+    (void)SCPI_ParamUInt32(context, &uplink_adapter_pins.tx_pin, FALSE);
+    (void)SCPI_ParamUInt32(context, &downlink_duplex_mode, FALSE);
+    (void)SCPI_ParamUInt32(context, &downlink_adapter_pins.rx_pin, FALSE);
+    (void)SCPI_ParamUInt32(context, &downlink_adapter_pins.sck_pin, FALSE);
+    (void)SCPI_ParamUInt32(context, &downlink_adapter_pins.tx_pin, FALSE);
 
     if (!distributed_refmem_configure_node_load_auto_sync(enabled,
                                                           local_slot,
                                                           target_mask,
                                                           baud_hz,
                                                           deadline_us,
-                                                          &pins)) {
+                                                          uplink_duplex_mode,
+                                                          &uplink_adapter_pins,
+                                                          downlink_duplex_mode,
+                                                          &downlink_adapter_pins)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_AUTO");
         return SCPI_RES_ERR;
     }
@@ -1701,10 +1717,14 @@ scpi_result_t scpi_cmd_refmem_sync_auto_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.target_mask);
     SCPI_ResultUInt32(context, snapshot.baud_hz);
     SCPI_ResultUInt32(context, snapshot.deadline_us);
-    SCPI_ResultUInt32(context, snapshot.rx_pin);
-    SCPI_ResultUInt32(context, snapshot.csn_pin);
-    SCPI_ResultUInt32(context, snapshot.sck_pin);
-    SCPI_ResultUInt32(context, snapshot.tx_pin);
+    SCPI_ResultUInt32(context, snapshot.uplink_duplex_mode);
+    SCPI_ResultUInt32(context, snapshot.uplink_rx_pin);
+    SCPI_ResultUInt32(context, snapshot.uplink_sck_pin);
+    SCPI_ResultUInt32(context, snapshot.uplink_tx_pin);
+    SCPI_ResultUInt32(context, snapshot.downlink_duplex_mode);
+    SCPI_ResultUInt32(context, snapshot.downlink_rx_pin);
+    SCPI_ResultUInt32(context, snapshot.downlink_sck_pin);
+    SCPI_ResultUInt32(context, snapshot.downlink_tx_pin);
     SCPI_ResultUInt32(context, snapshot.pending_count);
     SCPI_ResultUInt32(context, snapshot.active_intent);
     SCPI_ResultUInt32(context, snapshot.active_instance_id);
