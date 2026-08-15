@@ -222,8 +222,8 @@ bool app_tasks_create_all(void)
         {.name = "dpll", .entry = task_dpll, .context = NULL, .stack_words = 2048u, .priority = 3u},
         {.name = "cfg_gate", .entry = task_config_gate, .context = NULL, .stack_words = 2048u, .priority = 3u},
         {.name = "ota", .entry = task_ota, .context = NULL, .stack_words = 1536u, .priority = 3u},
-        {.name = "storage", .entry = task_storage, .context = NULL, .stack_words = 3072u, .priority = 2u},
-        {.name = "ui", .entry = task_ui, .context = NULL, .stack_words = 2048u, .priority = 2u},
+        {.name = "storage", .entry = task_storage, .context = NULL, .stack_words = 3072u, .priority = 3u},
+        {.name = "ui", .entry = task_ui, .context = NULL, .stack_words = 2048u, .priority = 1u},
     };
 
     for (uint32_t i = 0u; i < (uint32_t)(sizeof(task_table) / sizeof(task_table[0])); i++) {

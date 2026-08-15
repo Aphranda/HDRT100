@@ -1238,10 +1238,12 @@ static void draw_boot_splash_frame(uint8_t frame)
 
 static void run_boot_splash(void)
 {
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_LCD)) {
+    if (!resource_arbiter_acquire_owned(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                        RESOURCE_ARBITER_RESOURCE_LCD,
+                                        "StatusUI")) {
         return;
     }
+    board_prepare_lcd_spi();
 
     s_ui.boot_splash_active = true;
     for (uint8_t frame = 0u; frame < 16u; frame++) {
@@ -1252,8 +1254,9 @@ static void run_boot_splash(void)
     }
     s_ui.boot_splash_active = false;
 
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_LCD);
+    resource_arbiter_release_owned(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                   RESOURCE_ARBITER_RESOURCE_LCD,
+                                   "StatusUI");
 }
 
 bool status_ui_init(void)
@@ -1299,10 +1302,12 @@ bool status_ui_render(void)
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_LCD)) {
+    if (!resource_arbiter_acquire_owned(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                        RESOURCE_ARBITER_RESOURCE_LCD,
+                                        "StatusUI")) {
         return false;
     }
+    board_prepare_lcd_spi();
 
     capture_snapshot(&snapshot);
 
@@ -1322,8 +1327,9 @@ bool status_ui_render(void)
     if (s_ui.tab_anim > 0u) {
         s_ui.tab_anim--;
     }
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_LCD);
+    resource_arbiter_release_owned(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                   RESOURCE_ARBITER_RESOURCE_LCD,
+                                   "StatusUI");
     return true;
 }
 

@@ -8,6 +8,85 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-027 - StorageAO/RefMem LOAD:SD HIL deep dive
+
+- 状态：完成 COM6 板端闭环，COM5 需单独恢复/重刷
+- 日期：2026-08-15
+- 任务目标：
+  - 深挖 `/refmem/app_model.rmtp` 通过 Storage SCPI 写入时反复撞到 `RUNNING`、最终 `RENAME_FAILED` 的原因。
+  - 判断是否由最小系统板 RefMem PIO-SPI 与 SD 共享 SPI 引起，并给出结构性修复。
+- 结论：
+  - 当前板级配置中 SD 与 LCD 共用 `BOARD_SPI_PORT`，实际为 `spi1` 的 SCK/MOSI/MISO 总线；RefMem 最小 transport 使用 PIO-SPI GPIO16-19，不是 SD 使用的硬件 SPI 总线。
+  - `RUNNING` 的主要原因不是 RefMem PIO-SPI 与 SD 物理共线，而是 StorageAO 服务优先级、boot snapshot 插队和 UI 刷屏共享 SPI 资源叠加。
+  - `RENAME_FAILED` 发生在 CRC 已匹配后的临时文件替换阶段，说明 SCPI 分块上传和内存缓冲完整，失败集中在 FatFs rename/replace 语义或目标文件残留。
+  - `SYSTem:REFMEM:LOAD:SD` 的挂死风险来自 SCPI 回调栈上 8 KB package buffer；该缓冲已迁移为模块静态加载缓冲，避免命令执行时压垮 SCPI task stack。
+  - `SYSTem:REFMEM:LOAD:SD` 返回固定 IO_ERROR/REJECTED 的根因是 RefMem load 只等待 StorageAO job 约 200 ms；真实 manifest/package 分段读取会超过该窗口，导致 `RUNNING` 被误判为失败。等待窗口已与 Storage SCPI 统一到 10000 loops。
+  - UI 不是旁路代码：`UiAO`/`LcdFb` 纳入 HAOFV 资源治理，UI 只读取 snapshot 并通过 ResourceArbiter 获取 `SPI0|LCD`，StorageAO 获取 `SPI0|SD`，板级 port 负责共享 SPI 模式和 CS 准备。
+- 完成内容：
+  - `storage_manager_service()` 改为显式 Storage job 优先于 boot snapshot/system pack 自动动作，避免 SCPI 已投递 job 后被启动快照插队。
+  - FreeRTOS 任务优先级调整：`storage` 从 2 提到 3，`ui` 从 2 降到 1，避免 UI 与 StorageAO 在 `SPI0|LCD/SD` 资源上同级频繁碰撞。
+  - `ui_manager_service()` 在 StorageAO job 处于 `QUEUED/RUNNING` 时跳过本轮刷新，让 SD 文件操作优先完成。
+  - `StatusUI` 对 `SPI0|LCD` 使用 owner 标记 `StatusUI`，后续 ResourceArbiter 快照可直接看到冲突 holder。
+  - `fatfs_port_write_text_file_atomic()` 与 `fatfs_port_write_binary_file_atomic()` 收敛到公共 bytes 写入 helper；临时文件 rename 失败后增加直写目标文件兜底，避免 FatFs 覆盖式 rename 或旧文件残留导致 StorageAO 卡死。
+  - `SCPI_STORAGE_JOB_WAIT_LOOPS` 从 2000 增加到 10000；`tools/refmem_pack_write/refmem_pack_write.py` 默认 timeout 从 3 s 增加到 10 s，防止设备端仍在合法写入时 PC 侧先超时。
+  - `SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS` 从 200 增加到 10000；`tools/refmem_pack_write/refmem_pack_write.py` 增加 `--load-timeout`，默认 60 s，专门覆盖 `LOAD:SD` 的长耗时 staged 路径。
+  - 新增 `tools/scpi_common/scpi_serial.py`，固化 USB CDC 串口打开、settle、输入/输出缓冲清理、idle-gap 读行和 finally close 生命周期管理；`scpi_query`、`storage_scpi_validate`、`refmem_pack_write` 已接入。
+  - 新增 `tools/storage_file_upload/storage_file_upload.py`，作为通用 Storage SCPI 文件上传工具，支持多文件、自动建目录、分片写入、写后 `FILE:INFO?` 校验。
+- 验证结果：
+  - `python -m py_compile tools\scpi_common\scpi_serial.py tools\storage_file_upload\storage_file_upload.py tools\refmem_pack_write\refmem_pack_write.py tools\scpi_query\scpi_query.py tools\storage_scpi_validate\storage_scpi_validate.py` 通过。
+  - `python -m pytest tests\python\test_refmem_pack_build.py -q` 通过，2 passed；pytest cache 写入 `.pytest_cache` 因权限被拒绝，只产生 warning。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `python tools\checks\check_scpi_usb_namespace.py --root .` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `cmake --build build-rtos-multicore-smoke` 通过，最终验证 build id `20260815104540`，package CRC `0x1995734A`。
+  - OTA/commit COM6 到 build `20260815104540` 通过。
+  - COM6 通用 Storage CRUD 使用唯一目录重跑通过；先前 COM5 directory rename 失败确认为历史目标目录残留，不是 `RUNNING`。
+  - COM6 写入 HIL manifest（只要求 profile/mission/cal/refmem 四个小文件）后，`SYSTem:SD:MANifest?` 返回 `"OK",1,"RP2350_TRIG","rp2350_trig","20260815103459",4,0`。
+  - COM6 执行 `python -u tools\refmem_pack_write\refmem_pack_write.py COM6 --timeout 10 --load-timeout 60 --chunk 256 --package build-rtos-multicore-smoke\sdcard_full_tables_20260815103459\refmem\app_model.rmtp --out-dir build-rtos-multicore-smoke\refmem_pack_write_COM6_20260815104540_load_wait_fixed` 通过；`SYSTem:REFMEM:LOAD:SD` 返回 `STAGED`，staging package CRC `2994534464`，Storage job `DONE`，错误队列为 0。
+  - 发现通用 Storage FILE 写事务仍是 RAM buffer 型，`STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES=8192`，不能用该接口直接上传 523 KB OTA package；大文件 OTA 仍应走 OTA AO/portable OTA 流式入口，Storage 文件接口后续若要支持大文件需设计流式后端。
+- 后续动作：
+  - COM5 仍停留在旧 `LOAD:SD` 触发后的不可响应/不可访问状态，需要手动复位或重新上电后再 OTA 到 `20260815104540`。
+  - 将 `LOAD:SD` 37 s 耗时继续优化：优先减少逐 128 B 文件读 job 的重复调度，或在 StorageAO 提供 bounded stream read job。
+  - 修复无参 `SYSTem:REFMEM:LOAD:SD` 在错误队列留下 `Missing parameter` 的可观测污染。
+- 关联文件：
+  - `application/src/app_tasks.c`
+  - `components/storage_manager/src/storage_manager.c`
+  - `components/ui_manager/src/ui_manager.c`
+  - `components/ui_manager/src/status_ui.c`
+  - `middleware/fatfs_port/src/fatfs_port.c`
+  - `middleware/scpi_port/src/scpi_storage_commands.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/scpi_common/scpi_serial.py`
+  - `tools/refmem_pack_write/refmem_pack_write.py`
+  - `tools/storage_file_upload/storage_file_upload.py`
+
+### REFMEM-TASK-20260815-026 - Complete RMTP canonical table payloads
+
+- 状态：完成代码侧基础闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 将 `.rmtp` 中剩余 5 张 canonical 表从 64 字节占位 payload 升级为真实固定 u32 wire payload。
+  - 让 `RefMemTableRegistry` 对全 9 张表执行 owner validation，同时保持 active image 切换阻断，不伪激活。
+- 完成内容：
+  - `tools/refmem_table_image/refmem_table_image.py` 新增 `FbInstance`、`EventLink`、`DataLink`、`DeploymentGate`、`ConnectionQuality` payload 生成。
+  - `FbInstance` 的 `instance_name` 和 `DataLink` 的 `slot_path` 不写入 C 指针，`.rmtp` 使用 `name_hash` / `slot_path_hash` 作为稳定 wire 字段；可读说明仍放在 idx/json。
+  - `refmem_table_registry.c` 的 table image size 改为 wire size，避免把 C struct pointer size 当作 package layout。
+  - `RefMemTableRegistry` 增加 4-8 号表 parser 和字段级 owner validation，成功 package 的 `owner_validated_table_mask` 覆盖 `REFMEM_APP_TABLE_MASK_ALL`。
+  - 单元测试构造器从“前 4 张真实 + 后 5 张 placeholder”升级为全 9 张 contract package；staging descriptor 预期从 `CRC_OK` 更新为 `OWNER_OK`。
+- 验证结果：
+  - `python -m py_compile tools\refmem_table_image\refmem_table_image.py tools\refmem_pack_build\refmem_pack_build.py tools\sd_fs_build\sd_fs_build.py` 通过。
+  - `python -m pytest tests\python\test_refmem_pack_build.py -q` 通过，2 passed；pytest cache 写入 `.pytest_cache` 因权限被拒绝，只产生 warning。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
+  - `python tools\refmem_pack_build\refmem_pack_build.py --output-dir build-rtos-multicore-smoke\refmem_pack_full_tables` 生成 9 表 package，size `4800`，CRC `0xEFAF178F`。
+- 后续闭环：
+  - 继续运行完整 host/unit/docs/build/HIL 验证；通过后再进入真实 staging/active/rollbackable image buffer。
+- 关联文件：
+  - `components/distributed_refmem/src/refmem_table_registry.c`
+  - `tools/refmem_table_image/refmem_table_image.py`
+  - `tools/refmem_pack_build/refmem_pack_build.py`
+  - `tests/unit/test_refmem_table_registry.c`
+  - `tests/python/test_refmem_pack_build.py`
+
 ### REFMEM-TASK-20260815-025 - Block descriptor-only table activation
 
 - 状态：完成基础纠偏

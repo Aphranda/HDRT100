@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "board.h"
 #include "fatfs_port.h"
 #include "osal.h"
 #include "ota_crc32.h"
@@ -29,7 +30,7 @@
 #define STORAGE_MANAGER_SNAPSHOT_MAX_BYTES 768u
 #define STORAGE_MANAGER_FAULT_REPORT_MAX_BYTES 1024u
 #define STORAGE_MANAGER_FILE_READ_MAX_BYTES 128u
-#define STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES 4096u
+#define STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES 8192u
 #define STORAGE_MANAGER_CATALOG_PAGE_MAX_BYTES 384u
 #define STORAGE_MANAGER_RAW_CLEAR_MAX_SECTORS 64u
 #define STORAGE_MANAGER_BOOT_SNAPSHOT_DELAY_MS 500u
@@ -310,6 +311,25 @@ static bool storage_job_is_active(void)
 static bool storage_error_is_retryable(uint32_t error)
 {
     return error == STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+}
+
+static bool storage_acquire_sd_resource(void)
+{
+    if (!resource_arbiter_acquire_owned(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                        RESOURCE_ARBITER_RESOURCE_SD,
+                                        "StorageAO")) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+        return false;
+    }
+    board_prepare_sd_spi();
+    return true;
+}
+
+static void storage_release_sd_resource(void)
+{
+    resource_arbiter_release_owned(RESOURCE_ARBITER_RESOURCE_SPI0 |
+                                   RESOURCE_ARBITER_RESOURCE_SD,
+                                   "StorageAO");
 }
 
 static bool storage_is_control_char(char c)
@@ -650,8 +670,7 @@ bool storage_manager_initialize_system_pack(void)
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
+    if (!storage_acquire_sd_resource()) {
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
         return false;
     }
@@ -659,21 +678,18 @@ bool storage_manager_initialize_system_pack(void)
     fatfs_port_file_info_t existing_manifest;
     fatfs_port_status_t status = fatfs_port_file_info("/manifest.idx", &existing_manifest);
     if (status == FATFS_PORT_STATUS_OK) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         return true;
     }
     if (status != FATFS_PORT_STATUS_PATH_NOT_FOUND) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_NO_FS;
         return false;
     }
 
     status = storage_make_system_pack_dirs();
     if (status != FATFS_PORT_STATUS_OK) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         return false;
     }
@@ -695,8 +711,7 @@ bool storage_manager_initialize_system_pack(void)
                            STORAGE_MANAGER_HARDWARE_ID,
                            g_project_build_id);
     if (written <= 0 || (size_t)written >= sizeof(profile)) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         return false;
     }
@@ -718,8 +733,7 @@ bool storage_manager_initialize_system_pack(void)
                        STORAGE_MANAGER_HARDWARE_ID,
                        g_project_build_id);
     if (written <= 0 || (size_t)written >= sizeof(mission)) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         return false;
     }
@@ -740,8 +754,7 @@ bool storage_manager_initialize_system_pack(void)
                        STORAGE_MANAGER_HARDWARE_ID,
                        g_project_build_id);
     if (written <= 0 || (size_t)written >= sizeof(node_map)) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         return false;
     }
@@ -762,8 +775,7 @@ bool storage_manager_initialize_system_pack(void)
                        STORAGE_MANAGER_HARDWARE_ID,
                        g_project_build_id);
     if (written <= 0 || (size_t)written >= sizeof(calibration)) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         return false;
     }
@@ -794,8 +806,7 @@ bool storage_manager_initialize_system_pack(void)
                        (unsigned long)storage_crc32_text(calibration),
                        (unsigned long)storage_crc32_text(STORAGE_MANAGER_BOOTSTRAP_OTA_TEXT));
     if (written <= 0 || (size_t)written >= sizeof(manifest_idx)) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         return false;
     }
@@ -822,8 +833,7 @@ bool storage_manager_initialize_system_pack(void)
                        STORAGE_MANAGER_HARDWARE_ID,
                        g_project_build_id);
     if (written <= 0 || (size_t)written >= sizeof(manifest_json)) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         return false;
     }
@@ -850,8 +860,7 @@ bool storage_manager_initialize_system_pack(void)
         status = storage_write_text_checked("/manifest.idx", "/manifest.idx.tmp", manifest_idx);
     }
 
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (status != FATFS_PORT_STATUS_OK) {
         return false;
@@ -879,9 +888,7 @@ bool storage_manager_probe(void)
         return true;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
-        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+    if (!storage_acquire_sd_resource()) {
         return false;
     }
 
@@ -917,22 +924,19 @@ bool storage_manager_probe(void)
     if (status != SD_CARD_STATUS_OK) {
         s_storage_vector.state = STORAGE_MANAGER_STATE_NO_CARD;
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_CARD;
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         return false;
     }
 
     if (!s_storage_vector.fatfs_available) {
         s_storage_vector.state = STORAGE_MANAGER_STATE_NO_FILESYSTEM;
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_NO_FS;
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         return true;
     }
 
     const fatfs_port_status_t mount_status = fatfs_port_mount();
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
     s_storage_vector.fs_mounted = mount_status == FATFS_PORT_STATUS_OK;
     s_storage_vector.state = s_storage_vector.fs_mounted ?
                                  STORAGE_MANAGER_STATE_CARD_READY :
@@ -963,16 +967,14 @@ bool storage_manager_catalog(const char *path, char *buffer, size_t buffer_size)
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
+    if (!storage_acquire_sd_resource()) {
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
         (void)snprintf(buffer, buffer_size, "RESOURCE_BUSY");
         return false;
     }
 
     const fatfs_port_status_t status = fatfs_port_catalog(normalized_path, buffer, buffer_size);
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (status != FATFS_PORT_STATUS_OK) {
         if (status == FATFS_PORT_STATUS_PATH_NOT_FOUND) {
@@ -1019,8 +1021,7 @@ bool storage_manager_catalog_page(const char *path,
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
+    if (!storage_acquire_sd_resource()) {
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
         (void)snprintf(buffer, buffer_size, "RESOURCE_BUSY");
         return false;
@@ -1033,8 +1034,7 @@ bool storage_manager_catalog_page(const char *path,
                                                               buffer,
                                                               buffer_size,
                                                               &fat_page);
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (status != FATFS_PORT_STATUS_OK) {
         if (status == FATFS_PORT_STATUS_PATH_NOT_FOUND) {
@@ -1079,16 +1079,13 @@ bool storage_manager_file_info(const char *path, storage_manager_file_info_t *in
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
-        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+    if (!storage_acquire_sd_resource()) {
         return false;
     }
 
     fatfs_port_file_info_t file_info;
     const fatfs_port_status_t status = fatfs_port_file_info(normalized_path, &file_info);
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (status != FATFS_PORT_STATUS_OK) {
         if (status == FATFS_PORT_STATUS_PATH_NOT_FOUND) {
@@ -1135,9 +1132,7 @@ bool storage_manager_read_file_range(const char *path,
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
-        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+    if (!storage_acquire_sd_resource()) {
         return false;
     }
 
@@ -1149,8 +1144,7 @@ bool storage_manager_read_file_range(const char *path,
                                                                     buffer_size,
                                                                     &bytes_read,
                                                                     &file_size);
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (status != FATFS_PORT_STATUS_OK) {
         if (status == FATFS_PORT_STATUS_PATH_NOT_FOUND) {
@@ -1193,9 +1187,7 @@ bool storage_manager_raw_clear_prefix(uint32_t sector_count,
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
-        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+    if (!storage_acquire_sd_resource()) {
         return false;
     }
 
@@ -1241,8 +1233,7 @@ bool storage_manager_raw_clear_prefix(uint32_t sector_count,
         }
     }
 
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (raw_status != NULL) {
         *raw_status = status;
@@ -1271,9 +1262,7 @@ bool storage_manager_raw_read_sector(uint32_t sector,
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
-        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+    if (!storage_acquire_sd_resource()) {
         return false;
     }
 
@@ -1308,8 +1297,7 @@ bool storage_manager_raw_read_sector(uint32_t sector,
         status = sd_card_read_blocks(sector, 1u, buffer);
     }
 
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (raw_status != NULL) {
         *raw_status = status;
@@ -1326,9 +1314,7 @@ bool storage_manager_format_volume(fatfs_port_status_t *format_status)
         *format_status = FATFS_PORT_STATUS_FORMAT_FAILED;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
-        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+    if (!storage_acquire_sd_resource()) {
         return false;
     }
 
@@ -1365,8 +1351,7 @@ bool storage_manager_format_volume(fatfs_port_status_t *format_status)
         status = fatfs_port_format_volume();
     }
 
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (format_status != NULL) {
         *format_status = status;
@@ -2231,15 +2216,12 @@ static void storage_manager_service_job(void)
 
         s_write_snapshot.state = STORAGE_MANAGER_WRITE_STATE_WRITING;
         bool ok = false;
-        if (storage_manager_probe() &&
-            resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                     RESOURCE_ARBITER_RESOURCE_SD)) {
+        if (storage_manager_probe() && storage_acquire_sd_resource()) {
             fatfs_port_status_t status = fatfs_port_write_binary_file_atomic(s_write_snapshot.path,
                                                                              s_write_snapshot.tmp_path,
                                                                              s_write_buffer,
                                                                              s_write_snapshot.received_size);
-            resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                     RESOURCE_ARBITER_RESOURCE_SD);
+            storage_release_sd_resource();
             ok = status == FATFS_PORT_STATUS_OK;
             if (!ok) {
                 s_storage_vector.storage_error =
@@ -2279,12 +2261,9 @@ static void storage_manager_service_job(void)
 
     if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_FILE_DELETE) {
         bool ok = false;
-        if (storage_manager_probe() &&
-            resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                     RESOURCE_ARBITER_RESOURCE_SD)) {
+        if (storage_manager_probe() && storage_acquire_sd_resource()) {
             const fatfs_port_status_t status = fatfs_port_delete(s_storage_job.result.path);
-            resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                     RESOURCE_ARBITER_RESOURCE_SD);
+            storage_release_sd_resource();
             ok = status == FATFS_PORT_STATUS_OK || status == FATFS_PORT_STATUS_PATH_NOT_FOUND;
             if (!ok) {
                 s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
@@ -2317,13 +2296,10 @@ static void storage_manager_service_job(void)
         bool ok = false;
         if (s_storage_job.target_path[0] == '\0') {
             s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_PATH;
-        } else if (storage_manager_probe() &&
-                   resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                            RESOURCE_ARBITER_RESOURCE_SD)) {
+        } else if (storage_manager_probe() && storage_acquire_sd_resource()) {
             const fatfs_port_status_t status = fatfs_port_rename(s_storage_job.result.path,
                                                                  s_storage_job.target_path);
-            resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                     RESOURCE_ARBITER_RESOURCE_SD);
+            storage_release_sd_resource();
             ok = status == FATFS_PORT_STATUS_OK;
             if (!ok) {
                 s_storage_vector.storage_error =
@@ -2359,12 +2335,9 @@ static void storage_manager_service_job(void)
 
     if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_DIRECTORY_CREATE) {
         bool ok = false;
-        if (storage_manager_probe() &&
-            resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                     RESOURCE_ARBITER_RESOURCE_SD)) {
+        if (storage_manager_probe() && storage_acquire_sd_resource()) {
             const fatfs_port_status_t status = fatfs_port_make_directory(s_storage_job.result.path);
-            resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                     RESOURCE_ARBITER_RESOURCE_SD);
+            storage_release_sd_resource();
             ok = status == FATFS_PORT_STATUS_OK;
             if (!ok) {
                 s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
@@ -2393,12 +2366,9 @@ static void storage_manager_service_job(void)
 
     if (s_storage_job.result.type == STORAGE_MANAGER_JOB_TYPE_DIRECTORY_DELETE) {
         bool ok = false;
-        if (storage_manager_probe() &&
-            resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                     RESOURCE_ARBITER_RESOURCE_SD)) {
+        if (storage_manager_probe() && storage_acquire_sd_resource()) {
             const fatfs_port_status_t status = fatfs_port_delete(s_storage_job.result.path);
-            resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                     RESOURCE_ARBITER_RESOURCE_SD);
+            storage_release_sd_resource();
             ok = status == FATFS_PORT_STATUS_OK || status == FATFS_PORT_STATUS_PATH_NOT_FOUND;
             if (!ok) {
                 s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
@@ -2596,8 +2566,7 @@ bool storage_manager_scan_manifest(void)
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
+    if (!storage_acquire_sd_resource()) {
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
         s_storage_vector.manifest_status = STORAGE_MANAGER_MANIFEST_IO_ERROR;
         return false;
@@ -2610,8 +2579,7 @@ bool storage_manager_scan_manifest(void)
                                                                      sizeof(manifest),
                                                                      &bytes_read);
     if (read_status != FATFS_PORT_STATUS_OK) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.manifest_status = read_status == FATFS_PORT_STATUS_PATH_NOT_FOUND ?
                                                STORAGE_MANAGER_MANIFEST_NOT_FOUND :
                                                STORAGE_MANAGER_MANIFEST_IO_ERROR;
@@ -2619,8 +2587,7 @@ bool storage_manager_scan_manifest(void)
     }
 
     if (bytes_read >= STORAGE_MANAGER_MANIFEST_MAX_BYTES) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.manifest_status = STORAGE_MANAGER_MANIFEST_INVALID;
         return false;
     }
@@ -2694,8 +2661,7 @@ bool storage_manager_scan_manifest(void)
         cursor = line_end + 1;
     }
 
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (manifest_invalid || !has_magic || !has_schema || !has_product || !has_hardware) {
         s_storage_vector.manifest_status = STORAGE_MANAGER_MANIFEST_INVALID;
@@ -2741,8 +2707,7 @@ bool storage_manager_write_snapshot(const char *kind)
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
+    if (!storage_acquire_sd_resource()) {
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
         storage_publish_snapshot_result(snapshot_kind, 0u, "", STORAGE_MANAGER_ERROR_RESOURCE_BUSY);
         return false;
@@ -2758,8 +2723,7 @@ bool storage_manager_write_snapshot(const char *kind)
         status = fatfs_port_make_directory(directory);
     }
     if (status != FATFS_PORT_STATUS_OK) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         storage_publish_snapshot_result(snapshot_kind, 0u, "", STORAGE_MANAGER_ERROR_WRITE_FAILED);
         return false;
@@ -2768,8 +2732,7 @@ bool storage_manager_write_snapshot(const char *kind)
     uint32_t max_sequence = 0u;
     status = fatfs_port_find_max_sequence(directory, prefix, ".json", &max_sequence);
     if (status != FATFS_PORT_STATUS_OK || max_sequence >= 999999u) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_SEQUENCE;
         storage_publish_snapshot_result(snapshot_kind, 0u, "", STORAGE_MANAGER_ERROR_SEQUENCE);
         return false;
@@ -2788,8 +2751,7 @@ bool storage_manager_write_snapshot(const char *kind)
 
     fatfs_port_file_info_t existing_info;
     if (fatfs_port_file_info(final_path, &existing_info) == FATFS_PORT_STATUS_OK) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_SEQUENCE;
         storage_publish_snapshot_result(snapshot_kind, 0u, "", STORAGE_MANAGER_ERROR_SEQUENCE);
         return false;
@@ -2838,16 +2800,14 @@ bool storage_manager_write_snapshot(const char *kind)
                                  (unsigned long)s_storage_vector.manifest_missing_count);
 
     if (written <= 0 || (size_t)written >= sizeof(payload)) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         storage_publish_snapshot_result(snapshot_kind, 0u, "", STORAGE_MANAGER_ERROR_WRITE_FAILED);
         return false;
     }
 
     status = fatfs_port_write_text_file_atomic(final_path, tmp_path, payload);
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (status != FATFS_PORT_STATUS_OK) {
         const uint32_t error = status == FATFS_PORT_STATUS_RENAME_FAILED ?
@@ -2879,8 +2839,7 @@ bool storage_manager_write_trace(const char *kind)
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
+    if (!storage_acquire_sd_resource()) {
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
         storage_publish_trace_result(trace_kind, 0u, "", 0u, STORAGE_MANAGER_ERROR_RESOURCE_BUSY);
         return false;
@@ -2896,8 +2855,7 @@ bool storage_manager_write_trace(const char *kind)
         status = fatfs_port_make_directory(directory);
     }
     if (status != FATFS_PORT_STATUS_OK) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         storage_publish_trace_result(trace_kind, 0u, "", 0u, STORAGE_MANAGER_ERROR_WRITE_FAILED);
         return false;
@@ -2906,8 +2864,7 @@ bool storage_manager_write_trace(const char *kind)
     uint32_t max_sequence = 0u;
     status = fatfs_port_find_max_sequence(directory, prefix, ".bin", &max_sequence);
     if (status != FATFS_PORT_STATUS_OK || max_sequence >= 999999u) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_SEQUENCE;
         storage_publish_trace_result(trace_kind, 0u, "", 0u, STORAGE_MANAGER_ERROR_SEQUENCE);
         return false;
@@ -2993,8 +2950,7 @@ bool storage_manager_write_trace(const char *kind)
         }
     }
 
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (status != FATFS_PORT_STATUS_OK) {
         const uint32_t error = status == FATFS_PORT_STATUS_RENAME_FAILED ?
@@ -3019,8 +2975,7 @@ bool storage_manager_write_fault_report(void)
         return false;
     }
 
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                  RESOURCE_ARBITER_RESOURCE_SD)) {
+    if (!storage_acquire_sd_resource()) {
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
         storage_publish_fault_report_result(0u, "", STORAGE_MANAGER_ERROR_RESOURCE_BUSY);
         return false;
@@ -3031,8 +2986,7 @@ bool storage_manager_write_fault_report(void)
         status = fatfs_port_make_directory("/reports/fault");
     }
     if (status != FATFS_PORT_STATUS_OK) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         storage_publish_fault_report_result(0u, "", STORAGE_MANAGER_ERROR_WRITE_FAILED);
         return false;
@@ -3044,8 +2998,7 @@ bool storage_manager_write_fault_report(void)
                                           ".json",
                                           &max_sequence);
     if (status != FATFS_PORT_STATUS_OK || max_sequence >= 999999u) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_SEQUENCE;
         storage_publish_fault_report_result(0u, "", STORAGE_MANAGER_ERROR_SEQUENCE);
         return false;
@@ -3108,16 +3061,14 @@ bool storage_manager_write_fault_report(void)
                                  (unsigned long)s_storage_vector.last_trace_event_count,
                                  (unsigned long)s_storage_vector.last_trace_error);
     if (written <= 0 || (size_t)written >= sizeof(payload)) {
-        resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                 RESOURCE_ARBITER_RESOURCE_SD);
+        storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
         storage_publish_fault_report_result(0u, "", STORAGE_MANAGER_ERROR_WRITE_FAILED);
         return false;
     }
 
     status = fatfs_port_write_text_file_atomic(final_path, tmp_path, payload);
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                             RESOURCE_ARBITER_RESOURCE_SD);
+    storage_release_sd_resource();
 
     if (status != FATFS_PORT_STATUS_OK) {
         const uint32_t error = status == FATFS_PORT_STATUS_RENAME_FAILED ?
@@ -3138,6 +3089,11 @@ bool storage_manager_write_fault_report(void)
 void storage_manager_service(uint32_t budget_us)
 {
     const uint64_t start_us = storage_now_us();
+    if (storage_job_is_active()) {
+        storage_manager_service_job();
+        return;
+    }
+
     if (s_boot_snapshot_pending &&
         (int32_t)(storage_now_ms() - s_boot_snapshot_due_ms) >= 0) {
         if (s_boot_snapshot_step == 0u) {

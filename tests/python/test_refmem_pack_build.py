@@ -31,6 +31,21 @@ def test_refmem_package_table_entries_match_payloads() -> None:
         1: 8 + refmem_pack_build.BOARD_CAPABILITY_COUNT * 9 * 4,
         2: 8 + refmem_pack_build.NODE_COUNT * 9 * 4,
         3: 8 + refmem_pack_build.NODE_LOAD_COUNT * 11 * 4,
+        4: 8 + refmem_pack_build.FB_INSTANCE_COUNT * 20 * 4,
+        5: 8 + refmem_pack_build.EVENT_LINK_COUNT * 12 * 4,
+        6: 8 + refmem_pack_build.DATA_LINK_COUNT * 15 * 4,
+        7: 8 + refmem_pack_build.DEPLOYMENT_CHECK_COUNT * 9 * 4,
+        8: 8 + refmem_pack_build.QUALITY_COUNT * 16 * 4,
+    }
+    expected_counts = {
+        1: refmem_pack_build.NODE_COUNT,
+        2: refmem_pack_build.NODE_COUNT,
+        3: refmem_pack_build.NODE_LOAD_COUNT,
+        4: refmem_pack_build.FB_INSTANCE_COUNT,
+        5: refmem_pack_build.EVENT_LINK_COUNT,
+        6: refmem_pack_build.DATA_LINK_COUNT,
+        7: refmem_pack_build.DEPLOYMENT_CHECK_COUNT,
+        8: refmem_pack_build.QUALITY_COUNT,
     }
 
     for index, entry in enumerate(entries):
@@ -40,7 +55,7 @@ def test_refmem_package_table_entries_match_payloads() -> None:
 
         assert table_id == entry.table_id == index
         assert offset == entry.offset
-        assert size == entry.size == expected_sizes.get(index, 64)
+        assert size == entry.size == expected_sizes[index]
         assert crc32 == entry.crc32 == refmem_pack_build.crc32(payload)
         if index == 0:
             assert struct.unpack_from("<IIIIII", payload, 0) == (
@@ -51,15 +66,9 @@ def test_refmem_package_table_entries_match_payloads() -> None:
                 1,
                 0xFF,
             )
-        elif index in expected_sizes:
-            expected_count = (
-                refmem_pack_build.NODE_LOAD_COUNT
-                if index == 3
-                else refmem_pack_build.NODE_COUNT
-            )
+        else:
+            expected_count = expected_counts[index]
             assert struct.unpack_from("<II", payload, 0) == (
                 refmem_pack_build.FORMAT_VERSION,
                 expected_count,
             )
-        else:
-            assert payload.startswith(refmem_pack_build.DEFAULT_TABLE_NAMES[index].encode("ascii"))

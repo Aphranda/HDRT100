@@ -384,11 +384,48 @@ uint32_t fatfs_port_last_mount_result(void)
     return (uint32_t)s_last_mount_result;
 }
 
-fatfs_port_status_t fatfs_port_write_text_file_atomic(const char *final_path,
-                                                      const char *tmp_path,
-                                                      const char *text)
+static fatfs_port_status_t fatfs_port_write_bytes_to_fat_path(const char *fat_path,
+                                                              const uint8_t *data,
+                                                              size_t data_size)
 {
-    if (final_path == NULL || tmp_path == NULL || text == NULL) {
+    FIL file;
+    FRESULT result = f_open(&file, fat_path, FA_CREATE_ALWAYS | FA_WRITE);
+    if (result != FR_OK) {
+        return FATFS_PORT_STATUS_WRITE_FAILED;
+    }
+
+    UINT written = 0u;
+    if (data_size > 0u) {
+        result = f_write(&file, data, (UINT)data_size, &written);
+    }
+    if (result == FR_OK && written == (UINT)data_size) {
+        result = f_sync(&file);
+    }
+    const FRESULT close_result = f_close(&file);
+    if (result != FR_OK || close_result != FR_OK || written != (UINT)data_size) {
+        return FATFS_PORT_STATUS_WRITE_FAILED;
+    }
+
+    return FATFS_PORT_STATUS_OK;
+}
+
+static fatfs_port_status_t fatfs_port_replace_tmp_file(const char *fat_tmp_path,
+                                                       const char *fat_final_path)
+{
+    FRESULT result = f_rename(fat_tmp_path, fat_final_path);
+    if (result != FR_OK) {
+        (void)f_unlink(fat_final_path);
+        result = f_rename(fat_tmp_path, fat_final_path);
+    }
+    return result == FR_OK ? FATFS_PORT_STATUS_OK : FATFS_PORT_STATUS_RENAME_FAILED;
+}
+
+static fatfs_port_status_t fatfs_port_write_bytes_file_atomic(const char *final_path,
+                                                              const char *tmp_path,
+                                                              const uint8_t *data,
+                                                              size_t data_size)
+{
+    if (final_path == NULL || tmp_path == NULL || data == NULL) {
         return FATFS_PORT_STATUS_WRITE_FAILED;
     }
 
@@ -404,35 +441,39 @@ fatfs_port_status_t fatfs_port_write_text_file_atomic(const char *final_path,
 
     (void)f_unlink(fat_tmp_path);
 
-    FIL file;
-    FRESULT result = f_open(&file, fat_tmp_path, FA_CREATE_ALWAYS | FA_WRITE);
-    if (result != FR_OK) {
-        return FATFS_PORT_STATUS_WRITE_FAILED;
-    }
-
-    const size_t text_len = strlen(text);
-    UINT written = 0u;
-    result = f_write(&file, text, (UINT)text_len, &written);
-    if (result == FR_OK && written == (UINT)text_len) {
-        result = f_sync(&file);
-    }
-    const FRESULT close_result = f_close(&file);
-    if (result != FR_OK || close_result != FR_OK || written != (UINT)text_len) {
+    fatfs_port_status_t status =
+        fatfs_port_write_bytes_to_fat_path(fat_tmp_path, data, data_size);
+    if (status != FATFS_PORT_STATUS_OK) {
         (void)f_unlink(fat_tmp_path);
-        return FATFS_PORT_STATUS_WRITE_FAILED;
+        return status;
     }
 
-    result = f_rename(fat_tmp_path, fat_final_path);
-    if (result != FR_OK) {
-        (void)f_unlink(fat_final_path);
-        result = f_rename(fat_tmp_path, fat_final_path);
+    status = fatfs_port_replace_tmp_file(fat_tmp_path, fat_final_path);
+    if (status == FATFS_PORT_STATUS_OK) {
+        return FATFS_PORT_STATUS_OK;
     }
-    if (result != FR_OK) {
+
+    status = fatfs_port_write_bytes_to_fat_path(fat_final_path, data, data_size);
+    if (status != FATFS_PORT_STATUS_OK) {
         (void)f_unlink(fat_tmp_path);
-        return FATFS_PORT_STATUS_RENAME_FAILED;
+        return status;
     }
 
+    (void)f_unlink(fat_tmp_path);
     return FATFS_PORT_STATUS_OK;
+}
+
+fatfs_port_status_t fatfs_port_write_text_file_atomic(const char *final_path,
+                                                      const char *tmp_path,
+                                                      const char *text)
+{
+    if (text == NULL) {
+        return FATFS_PORT_STATUS_WRITE_FAILED;
+    }
+    return fatfs_port_write_bytes_file_atomic(final_path,
+                                             tmp_path,
+                                             (const uint8_t *)text,
+                                             strlen(text));
 }
 
 fatfs_port_status_t fatfs_port_write_binary_file_atomic(const char *final_path,
@@ -444,46 +485,7 @@ fatfs_port_status_t fatfs_port_write_binary_file_atomic(const char *final_path,
         return FATFS_PORT_STATUS_WRITE_FAILED;
     }
 
-    const fatfs_port_status_t mount_status = fatfs_port_mount();
-    if (mount_status != FATFS_PORT_STATUS_OK) {
-        return mount_status;
-    }
-
-    char fat_final_path[96];
-    char fat_tmp_path[96];
-    fatfs_port_make_path(final_path, fat_final_path, sizeof(fat_final_path));
-    fatfs_port_make_path(tmp_path, fat_tmp_path, sizeof(fat_tmp_path));
-
-    (void)f_unlink(fat_tmp_path);
-
-    FIL file;
-    FRESULT result = f_open(&file, fat_tmp_path, FA_CREATE_ALWAYS | FA_WRITE);
-    if (result != FR_OK) {
-        return FATFS_PORT_STATUS_WRITE_FAILED;
-    }
-
-    UINT written = 0u;
-    result = f_write(&file, data, (UINT)data_size, &written);
-    if (result == FR_OK && written == (UINT)data_size) {
-        result = f_sync(&file);
-    }
-    const FRESULT close_result = f_close(&file);
-    if (result != FR_OK || close_result != FR_OK || written != (UINT)data_size) {
-        (void)f_unlink(fat_tmp_path);
-        return FATFS_PORT_STATUS_WRITE_FAILED;
-    }
-
-    result = f_rename(fat_tmp_path, fat_final_path);
-    if (result != FR_OK) {
-        (void)f_unlink(fat_final_path);
-        result = f_rename(fat_tmp_path, fat_final_path);
-    }
-    if (result != FR_OK) {
-        (void)f_unlink(fat_tmp_path);
-        return FATFS_PORT_STATUS_RENAME_FAILED;
-    }
-
-    return FATFS_PORT_STATUS_OK;
+    return fatfs_port_write_bytes_file_atomic(final_path, tmp_path, data, data_size);
 }
 
 fatfs_port_status_t fatfs_port_delete(const char *path)

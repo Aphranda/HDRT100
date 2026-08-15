@@ -13,17 +13,129 @@ static refmem_table_image_descriptor_t s_staging_image;
 static refmem_table_image_descriptor_t s_rollbackable_image;
 static uint32_t s_table_seq;
 
+#define REFMEM_TABLE_WIRE_U32_SIZE 4u
+#define REFMEM_TABLE_WIRE_HEADER_WORDS 2u
+#define REFMEM_TABLE_WIRE_FB_INSTANCE_WORDS 20u
+#define REFMEM_TABLE_WIRE_EVENT_LINK_WORDS 12u
+#define REFMEM_TABLE_WIRE_DATA_LINK_WORDS 15u
+#define REFMEM_TABLE_WIRE_DEPLOYMENT_GATE_WORDS 9u
+#define REFMEM_TABLE_WIRE_CONNECTION_QUALITY_WORDS 16u
+
+#define REFMEM_TABLE_WIRE_SIZE(row_count, row_words) \
+    ((REFMEM_TABLE_WIRE_HEADER_WORDS + ((row_count) * (row_words))) * REFMEM_TABLE_WIRE_U32_SIZE)
+
 static const uint32_t s_table_image_size[REFMEM_TABLE_REGISTRY_COUNT] = {
     sizeof(refmem_application_map_t),
     sizeof(refmem_board_capability_table_t),
     sizeof(refmem_generic_node_table_t),
     sizeof(refmem_node_load_table_t),
-    sizeof(refmem_fb_instance_table_t),
-    sizeof(refmem_event_link_table_t),
-    sizeof(refmem_data_link_table_t),
-    sizeof(refmem_deployment_gate_table_t),
-    sizeof(refmem_connection_quality_table_t),
+    REFMEM_TABLE_WIRE_SIZE(REFMEM_APP_MODEL_INSTANCE_COUNT,
+                           REFMEM_TABLE_WIRE_FB_INSTANCE_WORDS),
+    REFMEM_TABLE_WIRE_SIZE(REFMEM_APP_MODEL_EVENT_LINK_COUNT,
+                           REFMEM_TABLE_WIRE_EVENT_LINK_WORDS),
+    REFMEM_TABLE_WIRE_SIZE(REFMEM_APP_MODEL_DATA_LINK_COUNT,
+                           REFMEM_TABLE_WIRE_DATA_LINK_WORDS),
+    REFMEM_TABLE_WIRE_SIZE(REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT,
+                           REFMEM_TABLE_WIRE_DEPLOYMENT_GATE_WORDS),
+    REFMEM_TABLE_WIRE_SIZE(REFMEM_APP_MODEL_QUALITY_COUNT,
+                           REFMEM_TABLE_WIRE_CONNECTION_QUALITY_WORDS),
 };
+
+typedef struct {
+    uint32_t instance_id;
+    uint32_t default_node_id;
+    uint32_t domain;
+    uint32_t ao_type;
+    uint32_t fb_type;
+    uint32_t instance_name_hash;
+    uint32_t version;
+    uint32_t enable_condition;
+    uint32_t resource_claim;
+    uint32_t io_claim;
+    uint32_t ip_core_claim;
+    uint32_t time_budget_us;
+    uint32_t state_slot_ref;
+    uint32_t health_slot_ref;
+    uint32_t event_first;
+    uint32_t event_count;
+    uint32_t data_first;
+    uint32_t data_count;
+    uint32_t conflict_class;
+    uint32_t restart_policy;
+} refmem_fb_instance_wire_entry_t;
+
+typedef struct {
+    uint32_t event_link_id;
+    uint32_t source_instance;
+    uint32_t source_event;
+    uint32_t target_node_mask;
+    uint32_t target_instance;
+    uint32_t target_event;
+    uint32_t transport;
+    uint32_t timeout_us;
+    uint32_t ack_policy;
+    uint32_t retry_policy;
+    uint32_t safety_class;
+    uint32_t evidence_ref;
+} refmem_event_link_wire_entry_t;
+
+typedef struct {
+    uint32_t data_link_id;
+    uint32_t slot_path_hash;
+    uint32_t writer_instance;
+    uint32_t reader_mask;
+    uint32_t type;
+    uint32_t unit;
+    int32_t scale;
+    int32_t min_value;
+    int32_t max_value;
+    uint32_t lifecycle;
+    uint32_t snapshot_policy;
+    uint32_t update_period_us;
+    uint32_t stale_window_us;
+    uint32_t crc_scope;
+    uint32_t permission;
+} refmem_data_link_wire_entry_t;
+
+typedef struct {
+    uint32_t check_id;
+    uint32_t required;
+    uint32_t fail_action;
+    uint32_t last_state;
+    uint32_t reject_code;
+    uint32_t reject_instance;
+    uint32_t reject_node;
+    uint32_t reject_slot;
+    uint32_t reject_evidence_index;
+} refmem_deployment_gate_wire_entry_t;
+
+typedef struct {
+    uint32_t quality_id;
+    uint32_t scope;
+    uint32_t source_node;
+    uint32_t target_node;
+    uint32_t seq_expected;
+    uint32_t seq_last;
+    uint32_t crc_error_count;
+    uint32_t stale_count;
+    uint32_t late_count;
+    uint32_t drop_count;
+    uint32_t timeout_count;
+    uint32_t last_error;
+    uint32_t last_error_tick;
+    uint32_t p99;
+    uint32_t p999;
+    uint32_t evidence_index;
+} refmem_connection_quality_wire_entry_t;
+
+static bool refmem_table_registry_validate_fb_instance(const uint8_t *data, size_t size);
+static bool refmem_table_registry_validate_event_link(
+    const uint8_t *data,
+    size_t size,
+    const refmem_application_map_t *application_map);
+static bool refmem_table_registry_validate_data_link(const uint8_t *data, size_t size);
+static bool refmem_table_registry_validate_deployment_gate(const uint8_t *data, size_t size);
+static bool refmem_table_registry_validate_connection_quality(const uint8_t *data, size_t size);
 
 static uint32_t refmem_table_registry_crc32_update(uint32_t crc, const void *data, size_t size)
 {
@@ -41,6 +153,34 @@ static uint32_t refmem_table_read_u32_le(const uint8_t *data)
            ((uint32_t)data[1] << 8) |
            ((uint32_t)data[2] << 16) |
            ((uint32_t)data[3] << 24);
+}
+
+static int32_t refmem_table_read_i32_le(const uint8_t *data)
+{
+    return (int32_t)refmem_table_read_u32_le(data);
+}
+
+static bool refmem_table_registry_validate_wire_header(const uint8_t *data,
+                                                       size_t size,
+                                                       uint32_t expected_count,
+                                                       uint32_t row_words,
+                                                       uint32_t *count)
+{
+    if (data == NULL ||
+        count == NULL ||
+        size != REFMEM_TABLE_WIRE_SIZE(expected_count, row_words)) {
+        return false;
+    }
+
+    const uint32_t version = refmem_table_read_u32_le(&data[0]);
+    const uint32_t parsed_count = refmem_table_read_u32_le(&data[4]);
+    if (version != REFMEM_APP_MODEL_VERSION ||
+        parsed_count != expected_count) {
+        return false;
+    }
+
+    *count = parsed_count;
+    return true;
 }
 
 static bool refmem_table_registry_parse_board_capability(
@@ -184,6 +324,11 @@ static bool refmem_table_registry_validate_package_owner_contract(
     const uint32_t board_id = REFMEM_APP_TABLE_BOARD_CAPABILITY;
     const uint32_t node_id = REFMEM_APP_TABLE_GENERIC_NODE;
     const uint32_t node_load_id = REFMEM_APP_TABLE_NODE_LOAD;
+    const uint32_t fb_id = REFMEM_APP_TABLE_FB_INSTANCE;
+    const uint32_t event_id = REFMEM_APP_TABLE_EVENT_LINK;
+    const uint32_t data_id = REFMEM_APP_TABLE_DATA_LINK;
+    const uint32_t gate_id = REFMEM_APP_TABLE_DEPLOYMENT_GATE;
+    const uint32_t quality_id = REFMEM_APP_TABLE_CONNECTION_QUALITY;
 
     if (!refmem_table_registry_parse_application_map(data + table_offset[app_id],
                                                      table_size[app_id],
@@ -231,6 +376,298 @@ static bool refmem_table_registry_validate_package_owner_contract(
         return false;
     }
 
+    if (!refmem_table_registry_validate_fb_instance(data + table_offset[fb_id],
+                                                    table_size[fb_id])) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = fb_id;
+        }
+        return false;
+    }
+
+    if (!refmem_table_registry_validate_event_link(data + table_offset[event_id],
+                                                   table_size[event_id],
+                                                   &application_map)) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = event_id;
+        }
+        return false;
+    }
+
+    if (!refmem_table_registry_validate_data_link(data + table_offset[data_id],
+                                                  table_size[data_id])) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = data_id;
+        }
+        return false;
+    }
+
+    if (!refmem_table_registry_validate_deployment_gate(data + table_offset[gate_id],
+                                                        table_size[gate_id])) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = gate_id;
+        }
+        return false;
+    }
+
+    if (!refmem_table_registry_validate_connection_quality(data + table_offset[quality_id],
+                                                           table_size[quality_id])) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = quality_id;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+static bool refmem_table_registry_parse_fb_instance_entry(
+    const uint8_t *data,
+    refmem_fb_instance_wire_entry_t *entry)
+{
+    if (data == NULL || entry == NULL) {
+        return false;
+    }
+
+    entry->instance_id = refmem_table_read_u32_le(&data[0]);
+    entry->default_node_id = refmem_table_read_u32_le(&data[4]);
+    entry->domain = refmem_table_read_u32_le(&data[8]);
+    entry->ao_type = refmem_table_read_u32_le(&data[12]);
+    entry->fb_type = refmem_table_read_u32_le(&data[16]);
+    entry->instance_name_hash = refmem_table_read_u32_le(&data[20]);
+    entry->version = refmem_table_read_u32_le(&data[24]);
+    entry->enable_condition = refmem_table_read_u32_le(&data[28]);
+    entry->resource_claim = refmem_table_read_u32_le(&data[32]);
+    entry->io_claim = refmem_table_read_u32_le(&data[36]);
+    entry->ip_core_claim = refmem_table_read_u32_le(&data[40]);
+    entry->time_budget_us = refmem_table_read_u32_le(&data[44]);
+    entry->state_slot_ref = refmem_table_read_u32_le(&data[48]);
+    entry->health_slot_ref = refmem_table_read_u32_le(&data[52]);
+    entry->event_first = refmem_table_read_u32_le(&data[56]);
+    entry->event_count = refmem_table_read_u32_le(&data[60]);
+    entry->data_first = refmem_table_read_u32_le(&data[64]);
+    entry->data_count = refmem_table_read_u32_le(&data[68]);
+    entry->conflict_class = refmem_table_read_u32_le(&data[72]);
+    entry->restart_policy = refmem_table_read_u32_le(&data[76]);
+    return true;
+}
+
+static bool refmem_table_registry_validate_fb_instance(
+    const uint8_t *data,
+    size_t size)
+{
+    uint32_t count = 0u;
+    if (!refmem_table_registry_validate_wire_header(data,
+                                                    size,
+                                                    REFMEM_APP_MODEL_INSTANCE_COUNT,
+                                                    REFMEM_TABLE_WIRE_FB_INSTANCE_WORDS,
+                                                    &count)) {
+        return false;
+    }
+
+    size_t cursor = REFMEM_TABLE_WIRE_HEADER_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
+    for (uint32_t i = 0u; i < count; i++) {
+        refmem_fb_instance_wire_entry_t entry;
+        if (!refmem_table_registry_parse_fb_instance_entry(&data[cursor], &entry) ||
+            entry.instance_id != i ||
+            entry.default_node_id >= REFMEM_APP_MODEL_NODE_COUNT ||
+            entry.domain > REFMEM_APP_DOMAIN_GATEWAY ||
+            entry.ao_type > REFMEM_APP_FB_LINK_SWITCHER ||
+            entry.fb_type > REFMEM_APP_FB_LINK_SWITCHER ||
+            entry.instance_name_hash == 0u ||
+            entry.version == 0u ||
+            entry.enable_condition > 1u ||
+            entry.time_budget_us == 0u ||
+            entry.state_slot_ref >= REFMEM_VECTOR_SLOT_COUNT ||
+            entry.health_slot_ref >= REFMEM_VECTOR_SLOT_COUNT ||
+            entry.event_first > REFMEM_APP_MODEL_EVENT_LINK_COUNT ||
+            entry.event_count > (REFMEM_APP_MODEL_EVENT_LINK_COUNT - entry.event_first) ||
+            entry.data_first > REFMEM_APP_MODEL_DATA_LINK_COUNT ||
+            entry.data_count > (REFMEM_APP_MODEL_DATA_LINK_COUNT - entry.data_first)) {
+            return false;
+        }
+        cursor += REFMEM_TABLE_WIRE_FB_INSTANCE_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
+    }
+    return true;
+}
+
+static bool refmem_table_registry_validate_event_link(
+    const uint8_t *data,
+    size_t size,
+    const refmem_application_map_t *application_map)
+{
+    uint32_t count = 0u;
+    if (application_map == NULL ||
+        !refmem_table_registry_validate_wire_header(data,
+                                                    size,
+                                                    REFMEM_APP_MODEL_EVENT_LINK_COUNT,
+                                                    REFMEM_TABLE_WIRE_EVENT_LINK_WORDS,
+                                                    &count)) {
+        return false;
+    }
+
+    size_t cursor = REFMEM_TABLE_WIRE_HEADER_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
+    for (uint32_t i = 0u; i < count; i++) {
+        refmem_event_link_wire_entry_t entry;
+        entry.event_link_id = refmem_table_read_u32_le(&data[cursor + 0u]);
+        entry.source_instance = refmem_table_read_u32_le(&data[cursor + 4u]);
+        entry.source_event = refmem_table_read_u32_le(&data[cursor + 8u]);
+        entry.target_node_mask = refmem_table_read_u32_le(&data[cursor + 12u]);
+        entry.target_instance = refmem_table_read_u32_le(&data[cursor + 16u]);
+        entry.target_event = refmem_table_read_u32_le(&data[cursor + 20u]);
+        entry.transport = refmem_table_read_u32_le(&data[cursor + 24u]);
+        entry.timeout_us = refmem_table_read_u32_le(&data[cursor + 28u]);
+        entry.ack_policy = refmem_table_read_u32_le(&data[cursor + 32u]);
+        entry.retry_policy = refmem_table_read_u32_le(&data[cursor + 36u]);
+        entry.safety_class = refmem_table_read_u32_le(&data[cursor + 40u]);
+        entry.evidence_ref = refmem_table_read_u32_le(&data[cursor + 44u]);
+
+        if (entry.event_link_id != i ||
+            entry.source_instance >= REFMEM_APP_MODEL_INSTANCE_COUNT ||
+            entry.target_instance >= REFMEM_APP_MODEL_INSTANCE_COUNT ||
+            entry.target_node_mask == 0u ||
+            (entry.target_node_mask & ~application_map->target_node_mask) != 0u ||
+            entry.source_event > REFMEM_APP_EVENT_CONFIG_ACTIVATE ||
+            entry.target_event > REFMEM_APP_EVENT_CONFIG_ACTIVATE ||
+            entry.transport > REFMEM_APP_TRANSPORT_PIO_SPI ||
+            entry.timeout_us == 0u ||
+            entry.ack_policy > REFMEM_APP_ACK_BITMAP ||
+            entry.evidence_ref >= REFMEM_VECTOR_SLOT_COUNT) {
+            return false;
+        }
+        cursor += REFMEM_TABLE_WIRE_EVENT_LINK_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
+    }
+    return true;
+}
+
+static bool refmem_table_registry_validate_data_link(const uint8_t *data, size_t size)
+{
+    uint32_t count = 0u;
+    if (!refmem_table_registry_validate_wire_header(data,
+                                                    size,
+                                                    REFMEM_APP_MODEL_DATA_LINK_COUNT,
+                                                    REFMEM_TABLE_WIRE_DATA_LINK_WORDS,
+                                                    &count)) {
+        return false;
+    }
+
+    size_t cursor = REFMEM_TABLE_WIRE_HEADER_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
+    for (uint32_t i = 0u; i < count; i++) {
+        refmem_data_link_wire_entry_t entry;
+        entry.data_link_id = refmem_table_read_u32_le(&data[cursor + 0u]);
+        entry.slot_path_hash = refmem_table_read_u32_le(&data[cursor + 4u]);
+        entry.writer_instance = refmem_table_read_u32_le(&data[cursor + 8u]);
+        entry.reader_mask = refmem_table_read_u32_le(&data[cursor + 12u]);
+        entry.type = refmem_table_read_u32_le(&data[cursor + 16u]);
+        entry.unit = refmem_table_read_u32_le(&data[cursor + 20u]);
+        entry.scale = refmem_table_read_i32_le(&data[cursor + 24u]);
+        entry.min_value = refmem_table_read_i32_le(&data[cursor + 28u]);
+        entry.max_value = refmem_table_read_i32_le(&data[cursor + 32u]);
+        entry.lifecycle = refmem_table_read_u32_le(&data[cursor + 36u]);
+        entry.snapshot_policy = refmem_table_read_u32_le(&data[cursor + 40u]);
+        entry.update_period_us = refmem_table_read_u32_le(&data[cursor + 44u]);
+        entry.stale_window_us = refmem_table_read_u32_le(&data[cursor + 48u]);
+        entry.crc_scope = refmem_table_read_u32_le(&data[cursor + 52u]);
+        entry.permission = refmem_table_read_u32_le(&data[cursor + 56u]);
+
+        if (entry.data_link_id != i ||
+            entry.slot_path_hash == 0u ||
+            entry.writer_instance >= REFMEM_APP_MODEL_INSTANCE_COUNT ||
+            entry.reader_mask == 0u ||
+            (entry.reader_mask & ~((1u << REFMEM_APP_MODEL_NODE_COUNT) - 1u)) != 0u ||
+            entry.type > REFMEM_APP_DATA_CRC ||
+            entry.unit > REFMEM_APP_UNIT_COUNT ||
+            entry.scale == 0 ||
+            entry.min_value > entry.max_value ||
+            entry.lifecycle > REFMEM_APP_LIFE_EVIDENCE ||
+            entry.snapshot_policy > REFMEM_APP_SNAPSHOT_EVIDENCE_REF ||
+            entry.update_period_us == 0u ||
+            entry.stale_window_us < entry.update_period_us ||
+            entry.crc_scope >= REFMEM_VECTOR_SLOT_COUNT ||
+            entry.permission > REFMEM_APP_PERMISSION_CONFIG_STAGE_WRITE) {
+            return false;
+        }
+        cursor += REFMEM_TABLE_WIRE_DATA_LINK_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
+    }
+    return true;
+}
+
+static bool refmem_table_registry_validate_deployment_gate(const uint8_t *data, size_t size)
+{
+    uint32_t count = 0u;
+    if (!refmem_table_registry_validate_wire_header(data,
+                                                    size,
+                                                    REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT,
+                                                    REFMEM_TABLE_WIRE_DEPLOYMENT_GATE_WORDS,
+                                                    &count)) {
+        return false;
+    }
+
+    size_t cursor = REFMEM_TABLE_WIRE_HEADER_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
+    for (uint32_t i = 0u; i < count; i++) {
+        refmem_deployment_gate_wire_entry_t entry;
+        entry.check_id = refmem_table_read_u32_le(&data[cursor + 0u]);
+        entry.required = refmem_table_read_u32_le(&data[cursor + 4u]);
+        entry.fail_action = refmem_table_read_u32_le(&data[cursor + 8u]);
+        entry.last_state = refmem_table_read_u32_le(&data[cursor + 12u]);
+        entry.reject_code = refmem_table_read_u32_le(&data[cursor + 16u]);
+        entry.reject_instance = refmem_table_read_u32_le(&data[cursor + 20u]);
+        entry.reject_node = refmem_table_read_u32_le(&data[cursor + 24u]);
+        entry.reject_slot = refmem_table_read_u32_le(&data[cursor + 28u]);
+        entry.reject_evidence_index = refmem_table_read_u32_le(&data[cursor + 32u]);
+
+        if (entry.check_id != i ||
+            entry.required > 1u ||
+            entry.fail_action > REFMEM_APP_GATE_LATCH_FAULT ||
+            entry.last_state > REFMEM_APP_GATE_LATCH_FAULT ||
+            entry.reject_instance >= REFMEM_APP_MODEL_INSTANCE_COUNT ||
+            entry.reject_node >= REFMEM_APP_MODEL_NODE_COUNT ||
+            entry.reject_slot >= REFMEM_VECTOR_SLOT_COUNT) {
+            return false;
+        }
+        cursor += REFMEM_TABLE_WIRE_DEPLOYMENT_GATE_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
+    }
+    return true;
+}
+
+static bool refmem_table_registry_validate_connection_quality(const uint8_t *data, size_t size)
+{
+    uint32_t count = 0u;
+    if (!refmem_table_registry_validate_wire_header(data,
+                                                    size,
+                                                    REFMEM_APP_MODEL_QUALITY_COUNT,
+                                                    REFMEM_TABLE_WIRE_CONNECTION_QUALITY_WORDS,
+                                                    &count)) {
+        return false;
+    }
+
+    size_t cursor = REFMEM_TABLE_WIRE_HEADER_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
+    for (uint32_t i = 0u; i < count; i++) {
+        refmem_connection_quality_wire_entry_t entry;
+        entry.quality_id = refmem_table_read_u32_le(&data[cursor + 0u]);
+        entry.scope = refmem_table_read_u32_le(&data[cursor + 4u]);
+        entry.source_node = refmem_table_read_u32_le(&data[cursor + 8u]);
+        entry.target_node = refmem_table_read_u32_le(&data[cursor + 12u]);
+        entry.seq_expected = refmem_table_read_u32_le(&data[cursor + 16u]);
+        entry.seq_last = refmem_table_read_u32_le(&data[cursor + 20u]);
+        entry.crc_error_count = refmem_table_read_u32_le(&data[cursor + 24u]);
+        entry.stale_count = refmem_table_read_u32_le(&data[cursor + 28u]);
+        entry.late_count = refmem_table_read_u32_le(&data[cursor + 32u]);
+        entry.drop_count = refmem_table_read_u32_le(&data[cursor + 36u]);
+        entry.timeout_count = refmem_table_read_u32_le(&data[cursor + 40u]);
+        entry.last_error = refmem_table_read_u32_le(&data[cursor + 44u]);
+        entry.last_error_tick = refmem_table_read_u32_le(&data[cursor + 48u]);
+        entry.p99 = refmem_table_read_u32_le(&data[cursor + 52u]);
+        entry.p999 = refmem_table_read_u32_le(&data[cursor + 56u]);
+        entry.evidence_index = refmem_table_read_u32_le(&data[cursor + 60u]);
+
+        if (entry.quality_id != i ||
+            entry.scope > REFMEM_APP_QUALITY_TRANSPORT_ADAPTER ||
+            entry.source_node >= REFMEM_APP_MODEL_NODE_COUNT ||
+            entry.target_node >= REFMEM_APP_MODEL_NODE_COUNT) {
+            return false;
+        }
+        cursor += REFMEM_TABLE_WIRE_CONNECTION_QUALITY_WORDS * REFMEM_TABLE_WIRE_U32_SIZE;
+    }
     return true;
 }
 
@@ -755,11 +1192,7 @@ bool refmem_table_registry_validate_package(const uint8_t *data,
                                                                        &result.first_bad_table)) {
                 result.error = REFMEM_TABLE_PACKAGE_ERR_OWNER_VALIDATION;
             } else if (result.error == REFMEM_TABLE_PACKAGE_OK) {
-                result.owner_validated_table_mask =
-                    (1u << REFMEM_APP_TABLE_APPLICATION_MAP) |
-                    (1u << REFMEM_APP_TABLE_BOARD_CAPABILITY) |
-                    (1u << REFMEM_APP_TABLE_GENERIC_NODE) |
-                    (1u << REFMEM_APP_TABLE_NODE_LOAD);
+                result.owner_validated_table_mask = REFMEM_APP_TABLE_MASK_ALL;
             }
         }
     }

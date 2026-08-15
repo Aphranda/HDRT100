@@ -4,6 +4,7 @@
 
 #include "board.h"
 #include "status_ui.h"
+#include "storage_manager.h"
 
 #define UI_MANAGER_REFRESH_PERIOD_MS 250u
 #define UI_MANAGER_KEY_DEBOUNCE_MS 35u
@@ -39,6 +40,13 @@ void ui_manager_service(void)
 {
     const uint32_t now_ms = board_uptime_ms();
     const bool key_sample = board_key2_is_pressed();
+    storage_manager_vector_t storage;
+
+    storage_manager_get_vector(&storage);
+    if (storage.current_job_state == STORAGE_MANAGER_JOB_STATE_QUEUED ||
+        storage.current_job_state == STORAGE_MANAGER_JOB_STATE_RUNNING) {
+        return;
+    }
 
     if (key_sample != s_key_sample) {
         s_key_sample = key_sample;

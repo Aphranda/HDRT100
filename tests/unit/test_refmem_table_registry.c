@@ -1,4 +1,5 @@
 #include "refmem_table_registry.h"
+#include "refmem_vector_table.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -192,6 +193,85 @@ static void make_valid_node_load_table(refmem_node_load_table_t *table)
     (void)memcpy(table->load, rows, sizeof(rows));
 }
 
+static void append_repeated_u32(uint8_t *payload, size_t *payload_size, const uint32_t *fields, size_t count)
+{
+    for (size_t i = 0u; i < count; i++) {
+        write_u32_le(&payload[*payload_size], fields[i]);
+        *payload_size += sizeof(uint32_t);
+    }
+}
+
+static void append_valid_fb_instance_table(uint8_t *payload, size_t *payload_size)
+{
+    const uint32_t header[] = {REFMEM_APP_MODEL_VERSION, REFMEM_APP_MODEL_INSTANCE_COUNT};
+    append_repeated_u32(payload, payload_size, header, 2u);
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_INSTANCE_COUNT; i++) {
+        const uint32_t row[] = {
+            i, i % REFMEM_APP_MODEL_NODE_COUNT, REFMEM_APP_DOMAIN_SYSTEM,
+            REFMEM_APP_FB_SYSTEM_AO, REFMEM_APP_FB_SYSTEM_AO, 0x90000000u + i,
+            1u, i < 2u ? 1u : 0u, 0u, 0u, 0u, 1000u,
+            REFMEM_VECTOR_SLOT_SYSTEM, REFMEM_VECTOR_SLOT_STATS,
+            0u, 0u, 0u, 0u, 0u, 1u,
+        };
+        append_repeated_u32(payload, payload_size, row, 20u);
+    }
+}
+
+static void append_valid_event_link_table(uint8_t *payload, size_t *payload_size)
+{
+    const uint32_t header[] = {REFMEM_APP_MODEL_VERSION, REFMEM_APP_MODEL_EVENT_LINK_COUNT};
+    append_repeated_u32(payload, payload_size, header, 2u);
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_EVENT_LINK_COUNT; i++) {
+        const uint32_t row[] = {
+            i, 0u, REFMEM_APP_EVENT_START, 1u, 0u, REFMEM_APP_EVENT_START,
+            REFMEM_APP_TRANSPORT_COMMAND_SLOT, 1000u, REFMEM_APP_ACK_NONE,
+            0u, 0u, REFMEM_VECTOR_SLOT_ACK_CMD,
+        };
+        append_repeated_u32(payload, payload_size, row, 12u);
+    }
+}
+
+static void append_valid_data_link_table(uint8_t *payload, size_t *payload_size)
+{
+    const uint32_t header[] = {REFMEM_APP_MODEL_VERSION, REFMEM_APP_MODEL_DATA_LINK_COUNT};
+    append_repeated_u32(payload, payload_size, header, 2u);
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_DATA_LINK_COUNT; i++) {
+        const uint32_t row[] = {
+            i, 0x91000000u + i, 0u, 1u, REFMEM_APP_DATA_U32, REFMEM_APP_UNIT_COUNT,
+            1u, 0u, 1000u, REFMEM_APP_LIFE_ACTIVE, REFMEM_APP_SNAPSHOT_DIRECT_ATOMIC,
+            1000u, 10000u, REFMEM_VECTOR_SLOT_SYSTEM, REFMEM_APP_PERMISSION_READ_ONLY,
+        };
+        append_repeated_u32(payload, payload_size, row, 15u);
+    }
+}
+
+static void append_valid_deployment_gate_table(uint8_t *payload, size_t *payload_size)
+{
+    const uint32_t header[] = {REFMEM_APP_MODEL_VERSION, REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT};
+    append_repeated_u32(payload, payload_size, header, 2u);
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT; i++) {
+        const uint32_t row[] = {
+            i, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS,
+            0u, 0u, 0u, REFMEM_VECTOR_SLOT_SYSTEM, 0u,
+        };
+        append_repeated_u32(payload, payload_size, row, 9u);
+    }
+}
+
+static void append_valid_connection_quality_table(uint8_t *payload, size_t *payload_size)
+{
+    const uint32_t header[] = {REFMEM_APP_MODEL_VERSION, REFMEM_APP_MODEL_QUALITY_COUNT};
+    append_repeated_u32(payload, payload_size, header, 2u);
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_QUALITY_COUNT; i++) {
+        const uint32_t row[] = {
+            i, REFMEM_APP_QUALITY_NODE, i % REFMEM_APP_MODEL_NODE_COUNT,
+            i % REFMEM_APP_MODEL_NODE_COUNT, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+            0u, 0u, 0u, 0u, i,
+        };
+        append_repeated_u32(payload, payload_size, row, 16u);
+    }
+}
+
 static size_t build_test_package(uint8_t *package,
                                  size_t package_capacity,
                                  bool fixed_contract_tables)
@@ -230,6 +310,26 @@ static size_t build_test_package(uint8_t *package,
             table_size[table_id] = sizeof(table);
             (void)memcpy(&payload[payload_size], &table, sizeof(table));
             payload_size += sizeof(table);
+        } else if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_FB_INSTANCE) {
+            const size_t before = payload_size;
+            append_valid_fb_instance_table(payload, &payload_size);
+            table_size[table_id] = (uint32_t)(payload_size - before);
+        } else if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_EVENT_LINK) {
+            const size_t before = payload_size;
+            append_valid_event_link_table(payload, &payload_size);
+            table_size[table_id] = (uint32_t)(payload_size - before);
+        } else if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_DATA_LINK) {
+            const size_t before = payload_size;
+            append_valid_data_link_table(payload, &payload_size);
+            table_size[table_id] = (uint32_t)(payload_size - before);
+        } else if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_DEPLOYMENT_GATE) {
+            const size_t before = payload_size;
+            append_valid_deployment_gate_table(payload, &payload_size);
+            table_size[table_id] = (uint32_t)(payload_size - before);
+        } else if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_CONNECTION_QUALITY) {
+            const size_t before = payload_size;
+            append_valid_connection_quality_table(payload, &payload_size);
+            table_size[table_id] = (uint32_t)(payload_size - before);
         } else {
             table_size[table_id] = 64u;
             (void)memset(&payload[payload_size], 0, 64u);
@@ -486,10 +586,7 @@ static int test_package_owner_validation_accepts_contract_tables(void)
                          REFMEM_APP_TABLE_MASK_ALL);
     failed += expect_u32("contract package owner mask",
                          validation.owner_validated_table_mask,
-                         (1u << REFMEM_APP_TABLE_APPLICATION_MAP) |
-                         (1u << REFMEM_APP_TABLE_BOARD_CAPABILITY) |
-                             (1u << REFMEM_APP_TABLE_GENERIC_NODE) |
-                             (1u << REFMEM_APP_TABLE_NODE_LOAD));
+                         REFMEM_APP_TABLE_MASK_ALL);
     failed += expect_u32("application table crc present",
                          validation.table_crc32[REFMEM_APP_TABLE_APPLICATION_MAP] != 0u ? 1u : 0u,
                          1u);
@@ -556,12 +653,12 @@ static int test_package_stage_uses_table_crc_and_partial_owner_state(void)
     failed += expect_u32("fb staging table crc",
                          fb_entry.staging_crc32,
                          validation.table_crc32[REFMEM_APP_TABLE_FB_INSTANCE]);
-    failed += expect_u32("fb crc only state",
+    failed += expect_u32("fb owner ok state",
                          fb_entry.validation_state,
-                         REFMEM_TABLE_VALIDATION_CRC_OK);
-    failed += expect_u32("staging descriptor crc only",
+                         REFMEM_TABLE_VALIDATION_OWNER_OK);
+    failed += expect_u32("staging descriptor owner ok",
                          staging.state,
-                         REFMEM_TABLE_VALIDATION_CRC_OK);
+                         REFMEM_TABLE_VALIDATION_OWNER_OK);
     failed += expect_u32("staging package crc",
                          staging.package_crc32,
                          validation.package_crc32);

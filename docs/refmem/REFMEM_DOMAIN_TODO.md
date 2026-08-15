@@ -85,8 +85,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 将 `SYSTem:REFMEM:LOAD:SD` 从 manifest 占位升级为 `.rmtp` table image parser 首版，校验 header、table directory、payload CRC、package CRC 和每表 CRC；当前仍只写 staging snapshot，不替换 active。
 - [x] 将 `.rmtp` 中的 `ApplicationMap`、`BoardCapabilityTable`、`GenericNodeTable` 和 `NodeLoadTable` 从 64 字节占位 payload 升级为固定 u32 表镜像；`RefMemTableRegistry` 在 package CRC 通过后解析这四张表并调用 application contract 做 owner validation。
 - [x] 将 RMTP table image 二进制生成逻辑收敛为共享基础件 `tools/refmem_table_image/refmem_table_image.py`，独立 package 工具和 SD System Pack staging 复用同一份 header、directory、表顺序、CRC 和默认表 payload。
-- [x] 将 `.rmtp` package validation summary 写入 `RefMemTableRegistry` per-table staging entry：descriptor 保留 package CRC，entry 使用 table directory CRC；当前只有 ApplicationMap/BoardCapability/GenericNode/NodeLoad 标记 OWNER_OK，其余表保持 CRC_OK 且不得激活为完整 active image。
-- [ ] 将 `.rmtp` 其余表从占位 payload 升级为真实表镜像，并接入各自 owner validation：FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality。
+- [x] 将 `.rmtp` package validation summary 写入 `RefMemTableRegistry` per-table staging entry：descriptor 保留 package CRC，entry 使用 table directory CRC；全 9 张 canonical 表 owner validation 通过后 staging descriptor 进入 `OWNER_OK`，但真实 active image buffer 未落地前仍不得激活。
+- [x] 将 `.rmtp` 其余表从占位 payload 升级为真实表镜像，并接入各自 owner validation：FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality。
 - [x] 将 `sd_fs_build.py` 集成 RefMem table image 生成，默认输出 `/refmem/app_model.rmtp`、`/refmem/app_model.idx`、`/refmem/app_model.json`，并在根 `/manifest.idx` 中作为 `required=...,type=refmem_table_image` 引用。
 - [ ] 将 `SYSTem:REFMEM:LOAD:NODE` 从单条候选 snapshot 升级为 staging NodeLoadTable image，支持多条候选、CRC、owner validation 和回滚。
 - [x] 将 `CONFigure:MODEl:TURNtable:LOAD <slot_id>,<output_index>` 的首版入口接入 RefMem command slot 和 NodeLoad staging snapshot：SCPI 不再直接调用 `model_turntable_load()`，而是由 `DistributedRefMemAO` post `NODE_LOAD_STAGE`、写 staging、调用 registered AO/FB owner、再 ACK/NACK。
@@ -95,7 +95,10 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 增加 NodeLoad rollback/abort 语义：未激活 staging 可 abort；激活失败必须保留旧 active profile，并在 TableRegistry 中记录失败 evidence。
 - [x] 增加类似 OTA 的通用 StorageSCPI 文件分块加载：`SYSTem:STORage:FILE:WRITe:BEGIN/DATA/END/ABORt/STATus?`，可写入 `/refmem/app_model.rmtp`；写入后仍需 `SYSTem:REFMEM:LOAD:SD` 进入 RefMem staging。
 - [x] 为 StorageAO 文件/目录补齐 CRUD 维护入口：`FILE:INFO?/READ?/DELete/REName`、`DIRectory:CREate/DELete/REName/CATalog?`；SCPI 不直接调用 FatFs，RefMem 向量表不承载文件数据。
+- [x] 修复 StorageSCPI 写入 `/refmem/app_model.rmtp` 时反复撞 `RUNNING` 的结构性原因：StorageAO 显式 job 优先于 boot snapshot，Storage task 优先级高于 UI，UI 在 Storage job active 时让路；确认问题不是 RefMem PIO-SPI 与 SD 共用总线，而是 SD/LCD 共用 SPI 和服务优先级叠加。
+- [x] 修复 FatFs 原子替换阶段 `RENAME_FAILED` 的兜底路径：text/binary 写入收敛为公共 bytes helper，临时文件 rename 失败后直写目标文件并清理 tmp，避免 `.rmtp` CRC 已匹配但替换失败导致 job 卡死或失败。
 - [x] 增加 `SYSTem:REFMEM:TABle? [table_id]` 维护查询，观察 registry、active/staging CRC、validation state 和 evidence；保持在 `SYSTem:REFMEM:*` 命名空间内。
+- [ ] 重新 OTA COM5/COM6 并执行 `refmem_pack_write` + `refmem_scpi_load_validate`，确认 9 表 `.rmtp` 写入、读取和 `LOAD:SD` staging 在最小系统板上闭环通过。
 
 ## P1 - SlotClaimMap 与自组网协调
 
@@ -280,6 +283,12 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 板端验证 `SYSTem:REFMEM:LOAD:BOARD` 合法候选 ACK、非法 board_id NACK，并确认 `SYSTem:COMMand:ACK?` 暴露 `BOARD_CAPABILITY_STAGE` completion。
 - [x] 板端验证 `SYSTem:REFMEM:LOAD:SD` 在当前 SD package 未有效 staging 时返回固定 `REJECTED` snapshot，不改 active，并通过 `SYSTem:COMMand:ACK?` 暴露 `TABLE_PACKAGE_STAGE` NACK。
 - [ ] 扩展 `SYSTem:REFMEM:LOAD:SD` 板端验证：覆盖无 SD、manifest 缺失、manifest OK 且 package valid 三种路径，并确认 valid package 的 TableRegistry per-table staging CRC。
+  - [x] COM6 覆盖 manifest OK + 9 表 package valid 正向路径：通用 Storage SCPI 写入 `/refmem/app_model.rmtp`，HIL manifest gate OK，`LOAD:SD` 返回 `STAGED`。
+  - [ ] 覆盖无 SD 路径。
+  - [ ] 覆盖 manifest 缺失路径。
+  - [ ] 增加 TableRegistry per-table staging CRC 查询脚本化断言，避免只检查 `STAGED` 字符串。
+- [ ] 优化 `SYSTem:REFMEM:LOAD:SD` 耗时：当前 4800B package 通过 128B Storage read job 分段加载约 37 s；后续需要 bounded stream read job 或更大的 StorageAO 读事务，仍保持 SCPI 只发起意图。
+- [ ] 修复无参 `SYSTem:REFMEM:LOAD:SD` 在错误队列留下 `Missing parameter` 的可观测污染。
 - [x] 板端验证 `SYSTem:STORage:FILE:WRITe:BEGIN/DATA/END` 上传 `/refmem/app_model.rmtp`，再用 `FILE:INFO?`、`FILE:READ?` 和 `SYSTem:REFMEM:LOAD:SD` 完成正向闭环。
 - [x] 板端验证通用 Storage 文件管理闭环：目录 create/rename/catalog/delete，文件 write/info/read/rename/delete。
 - [ ] 增加 table registry 验证：CRC 正确但 owner validation 失败时不得激活。

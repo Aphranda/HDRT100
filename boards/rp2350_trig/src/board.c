@@ -48,7 +48,14 @@ static bool board_init_spi(void)
         .baud_hz = BOARD_SPI_BAUD_HZ,
     };
 
-    return drv_spi_init(&config);
+    if (!drv_spi_init(&config)) {
+        return false;
+    }
+
+    gpio_put(BOARD_SD_SPI_CS_PIN, 1);
+    gpio_init(BOARD_SD_SPI_CS_PIN);
+    gpio_set_dir(BOARD_SD_SPI_CS_PIN, GPIO_OUT);
+    return true;
 }
 
 static bool board_init_i2c(void)
@@ -85,6 +92,8 @@ static bool board_init_uart(void)
 
 static bool board_init_lcd(void)
 {
+    board_prepare_lcd_spi();
+
     const lcd_st7789_config_t config = {
         .spi = BOARD_LCD_SPI_PORT,
         .dc_pin = BOARD_LCD_DC_PIN,
@@ -99,6 +108,27 @@ static bool board_init_lcd(void)
     };
 
     return lcd_st7789_init(&config);
+}
+
+void board_prepare_lcd_spi(void)
+{
+    gpio_put(BOARD_SD_SPI_CS_PIN, 1);
+    gpio_put(BOARD_LCD_CS_PIN, 1);
+    spi_set_format(BOARD_LCD_SPI_PORT, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    (void)spi_set_baudrate(BOARD_LCD_SPI_PORT, BOARD_SPI_BAUD_HZ);
+    gpio_set_function(BOARD_LCD_SCK_PIN, GPIO_FUNC_SPI);
+    gpio_set_function(BOARD_LCD_MOSI_PIN, GPIO_FUNC_SPI);
+    gpio_set_function(BOARD_SPI_MISO_PIN, GPIO_FUNC_SPI);
+}
+
+void board_prepare_sd_spi(void)
+{
+    gpio_put(BOARD_LCD_CS_PIN, 1);
+    gpio_put(BOARD_SD_SPI_CS_PIN, 1);
+    spi_set_format(BOARD_SD_SPI_PORT, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    gpio_set_function(BOARD_SD_SPI_CLK_PIN, GPIO_FUNC_SPI);
+    gpio_set_function(BOARD_SD_SPI_MOSI_PIN, GPIO_FUNC_SPI);
+    gpio_set_function(BOARD_SD_SPI_MISO_PIN, GPIO_FUNC_SPI);
 }
 
 bool board_init(void)

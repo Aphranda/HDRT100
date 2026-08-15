@@ -23,10 +23,10 @@
 #include "system_manager.h"
 #include "sync_trigger.h"
 
-#define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 200u
+#define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
 #define SCPI_REFMEM_PACKAGE_PATH "/refmem/app_model.rmtp"
 #define SCPI_REFMEM_PACKAGE_READ_CHUNK 128u
-#define SCPI_REFMEM_LOAD_MAX_BYTES 4096u
+#define SCPI_REFMEM_LOAD_MAX_BYTES 8192u
 #define SCPI_REFMEM_SYNC_FRAME_MAX (REFMEM_SYNC_FRAME_HEADER_SIZE + REFMEM_SYNC_FRAME_PAYLOAD_MAX)
 #define SCPI_REFMEM_SYNC_HEX_MAX ((SCPI_REFMEM_SYNC_FRAME_MAX * 2u) + 1u)
 #define SCPI_REFMEM_SYNC_DEFAULT_EPOCH 1u
@@ -56,6 +56,8 @@ typedef struct {
 } scpi_refmem_sync_state_t;
 
 static scpi_refmem_sync_state_t s_refmem_sync;
+static uint8_t s_refmem_package_buffer[SCPI_REFMEM_LOAD_MAX_BYTES];
+static uint8_t s_refmem_package_chunk[SCPI_REFMEM_PACKAGE_READ_CHUNK];
 
 static bool scpi_refmem_wait_storage_job(uint32_t job_id);
 static bool scpi_refmem_read_package(const char *path,
@@ -422,7 +424,6 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
     storage_manager_vector_t vector;
     storage_manager_get_vector(&vector);
 
-    uint8_t package_buffer[SCPI_REFMEM_LOAD_MAX_BYTES];
     size_t package_size = 0u;
     refmem_table_package_validation_t validation = {0};
     validation.error = REFMEM_TABLE_PACKAGE_ERR_TOO_SMALL;
@@ -431,11 +432,11 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
     if ((uint32_t)vector.manifest_status == REFMEM_APP_MODEL_SD_MANIFEST_OK &&
         vector.manifest_missing_count == 0u) {
         package_read = scpi_refmem_read_package(load_path,
-                                                package_buffer,
-                                                sizeof(package_buffer),
+                                                s_refmem_package_buffer,
+                                                sizeof(s_refmem_package_buffer),
                                                 &package_size);
         package_valid = package_read &&
-                        refmem_table_registry_validate_package(package_buffer,
+                        refmem_table_registry_validate_package(s_refmem_package_buffer,
                                                                package_size,
                                                                &validation);
     }
@@ -1821,21 +1822,20 @@ static bool scpi_refmem_read_package(const char *path,
         }
 
         storage_manager_file_read_t read_info;
-        uint8_t chunk[SCPI_REFMEM_PACKAGE_READ_CHUNK];
         if (!storage_manager_get_file_read_job_result(job_id,
                                                       &read_info,
-                                                      chunk,
-                                                      sizeof(chunk))) {
+                                                      s_refmem_package_chunk,
+                                                      sizeof(s_refmem_package_chunk))) {
             return false;
         }
         if (read_info.returned == 0u ||
-            read_info.returned > sizeof(chunk) ||
+            read_info.returned > sizeof(s_refmem_package_chunk) ||
             *returned_size + read_info.returned > buffer_size) {
             return false;
         }
 
         for (uint32_t i = 0u; i < read_info.returned; i++) {
-            buffer[*returned_size + i] = chunk[i];
+            buffer[*returned_size + i] = s_refmem_package_chunk[i];
         }
         *returned_size += read_info.returned;
         if (read_info.eof) {

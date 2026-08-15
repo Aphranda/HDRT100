@@ -7,18 +7,18 @@ import argparse
 import binascii
 import csv
 import json
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-try:
-    import serial
-except ImportError as exc:  # pragma: no cover - bench dependency
-    raise SystemExit("pyserial is required: python -m pip install pyserial") from exc
-
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from tools.scpi_common.scpi_serial import open_serial_port, read_serial_line_idle
+
 DEFAULT_PACKAGE = ROOT / "build-rtos-multicore-smoke" / "sdcard_refmem_parser" / "refmem" / "app_model.rmtp"
 
 
@@ -36,7 +36,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--visa-resource", help="USBTMC VISA resource")
     parser.add_argument("--package", type=Path, default=DEFAULT_PACKAGE)
     parser.add_argument("--baud", type=int, default=115200)
-    parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--timeout", type=float, default=10.0)
+    parser.add_argument("--load-timeout", type=float, default=60.0)
     parser.add_argument("--settle", type=float, default=1.0)
     parser.add_argument("--chunk", type=int, default=128)
     parser.add_argument("--out-dir", type=Path)
@@ -57,17 +58,7 @@ def is_log_line(line: str) -> bool:
 
 
 def read_serial_line(ser: serial.Serial, deadline: float) -> str | None:
-    raw = bytearray()
-    while time.monotonic() < deadline:
-        ch = ser.read(1)
-        if not ch:
-            continue
-        raw.extend(ch)
-        if ch == b"\n":
-            break
-    if not raw:
-        return None
-    return bytes(raw).decode("utf-8", errors="replace").strip()
+    return read_serial_line_idle(ser, deadline)
 
 
 def read_response(ser: serial.Serial, timeout_s: float) -> str:
@@ -105,20 +96,20 @@ def make_execute(args: argparse.Namespace):
         rm, inst = open_visa_resource(args.visa_resource, args.timeout)
         close_handles = [inst, rm]
 
-        def execute(command: str) -> str:
+        def execute(command: str, timeout_s: float | None = None) -> str:
+            inst.timeout = int((timeout_s if timeout_s is not None else args.timeout) * 1000)
             return str(inst.query(command)).strip()
 
     else:
-        ser = serial.Serial(args.port, args.baud, timeout=0.1, write_timeout=args.timeout)
-        close_handles = [ser]
-        time.sleep(args.settle)
-        ser.reset_input_buffer()
+        serial_context = open_serial_port(args.port, args.baud, args.timeout, args.settle)
+        ser = serial_context.__enter__()
+        close_handles = [serial_context]
 
-        def execute(command: str) -> str:
+        def execute(command: str, timeout_s: float | None = None) -> str:
             ser.reset_input_buffer()
             ser.write((command + "\n").encode("ascii"))
             ser.flush()
-            return read_response(ser, args.timeout)
+            return read_response(ser, timeout_s if timeout_s is not None else args.timeout)
 
     return execute, close_handles
 
@@ -129,14 +120,120 @@ def check_prefix(response: str, expected: str) -> None:
         raise AssertionError(f"expected prefix {expected!r}, got {response!r}")
 
 
-def upload_package(execute, payload: bytes, chunk_size: int, skip_load: bool) -> list[Record]:
+def directory_info_ok(response: str) -> bool:
+    fields = parse_csv_response(response)
+    return len(fields) == 8 and fields[0] == "OK" and fields[3] == "DIR" and fields[7] == "/refmem"
+
+
+def wait_storage_job_idle(execute, timeout_s: float = 8.0) -> str:
+    deadline = time.monotonic() + timeout_s
+    last_response = ""
+    while time.monotonic() < deadline:
+        last_response = execute("SYSTem:STORage:JOB?")
+        fields = parse_csv_response(last_response)
+        if fields and fields[0] not in ("QUEUED", "RUNNING"):
+            return last_response
+        time.sleep(0.1)
+    raise TimeoutError(f"storage job did not finish: {last_response!r}")
+
+
+def ensure_refmem_directory(execute) -> list[Record]:
+    records: list[Record] = []
+    try:
+        job_response = wait_storage_job_idle(execute)
+        records.append(Record("SYSTem:STORage:JOB?", job_response, "PASS", "idle"))
+        print(f"PASS {records[-1].command} => {job_response}")
+    except TimeoutError as exc:
+        records.append(Record("SYSTem:STORage:JOB?", str(exc), "FAIL", "busy"))
+        print(f"FAIL {records[-1].command} => {records[-1].response}")
+        raise SystemExit(1) from exc
+
+    info_response = execute('SYSTem:STORage:FILE:INFO? "/refmem"')
+    if directory_info_ok(info_response):
+        records.append(Record('SYSTem:STORage:FILE:INFO? "/refmem"',
+                              info_response,
+                              "PASS",
+                              "exists"))
+        print(f"PASS {records[-1].command} => {info_response}")
+        return records
+
+    records.append(Record('SYSTem:STORage:FILE:INFO? "/refmem"',
+                          info_response,
+                          "PASS",
+                          "create-required"))
+    print(f"PASS {records[-1].command} => {info_response}")
+
+    create_command = 'SYSTem:STORage:DIRectory:CREate "/refmem"'
+    create_response = execute(create_command)
+    try:
+        check_prefix(create_response, "CREATED")
+        try:
+            (void_response := wait_storage_job_idle(execute))
+            records.append(Record("SYSTem:STORage:JOB?", void_response, "PASS", "idle"))
+            print(f"PASS {records[-1].command} => {void_response}")
+        except TimeoutError:
+            pass
+        records.append(Record(create_command, create_response, "PASS", "created"))
+        print(f"PASS {create_command} => {create_response}")
+        return records
+    except AssertionError:
+        time.sleep(0.2)
+        verify_response = execute('SYSTem:STORage:FILE:INFO? "/refmem"')
+        if directory_info_ok(verify_response):
+            records.append(Record(create_command, create_response, "PASS", "directory-present-after-create"))
+            records.append(Record('SYSTem:STORage:FILE:INFO? "/refmem"',
+                                  verify_response,
+                                  "PASS",
+                                  "exists"))
+            print(f"PASS {create_command} => {create_response}")
+            print(f"PASS {records[-1].command} => {verify_response}")
+            return records
+        records.append(Record(create_command, create_response, "FAIL", "create failed"))
+        records.append(Record('SYSTem:STORage:FILE:INFO? "/refmem"',
+                              verify_response,
+                              "FAIL",
+                              "directory missing"))
+        print(f"FAIL {create_command} => {create_response}")
+        print(f"FAIL {records[-1].command} => {verify_response}")
+        raise SystemExit(1)
+
+
+def cleanup_refmem_package(execute) -> list[Record]:
+    records: list[Record] = []
+    for path in ("/refmem/app_model.tmp", "/refmem/write.tmp", "/refmem/app_model.rmtp"):
+        command = f'SYSTem:STORage:FILE:DELete "{path}"'
+        response = execute(command)
+        fields = parse_csv_response(response)
+        status = "PASS" if fields and fields[0] in ("DELETED", "ERROR") else "FAIL"
+        reason = "deleted" if fields and fields[0] == "DELETED" else "not-present-or-delete-error"
+        records.append(Record(command, response, status, reason))
+        print(f"{status} {command} => {response}")
+        try:
+            job_response = wait_storage_job_idle(execute)
+            records.append(Record("SYSTem:STORage:JOB?", job_response, "PASS", "idle"))
+            print(f"PASS {records[-1].command} => {job_response}")
+        except TimeoutError as exc:
+            records.append(Record("SYSTem:STORage:JOB?", str(exc), "FAIL", "busy"))
+            print(f"FAIL {records[-1].command} => {records[-1].response}")
+            raise SystemExit(1) from exc
+        if status != "PASS":
+            raise SystemExit(1)
+    return records
+
+
+def upload_package(execute,
+                   payload: bytes,
+                   chunk_size: int,
+                   skip_load: bool,
+                   load_timeout_s: float) -> list[Record]:
     if chunk_size <= 0 or chunk_size > 256:
         raise SystemExit("--chunk must be 1..256 bytes")
 
-    records: list[Record] = []
+    records: list[Record] = ensure_refmem_directory(execute)
+    records.extend(cleanup_refmem_package(execute))
 
-    def run(command: str, checker) -> str:
-        response = execute(command)
+    def run(command: str, checker, timeout_s: float | None = None) -> str:
+        response = execute(command, timeout_s)
         try:
             checker(response)
             records.append(Record(command, response, "PASS", "ok"))
@@ -149,8 +246,6 @@ def upload_package(execute, payload: bytes, chunk_size: int, skip_load: bool) ->
 
     crc = binascii.crc32(payload) & 0xFFFFFFFF
     path = "/refmem/app_model.rmtp"
-    run('SYSTem:STORage:DIRectory:CREate "/refmem"', lambda r: check_prefix(r, "CREATED"))
-    run('SYSTem:STORage:FILE:INFO? "/refmem"', check_refmem_directory)
     begin_response = run(f'SYSTem:STORage:FILE:WRITe:BEGIN "{path}",{len(payload)},{crc}',
                          lambda r: check_prefix(r, "OK"))
     begin_fields = parse_csv_response(begin_response)
@@ -179,7 +274,7 @@ def upload_package(execute, payload: bytes, chunk_size: int, skip_load: bool) ->
     run(f'SYSTem:STORage:FILE:INFO? "{path}"', lambda r: check_info(r, len(payload)))
     run(f'SYSTem:STORage:FILE:READ? "{path}",0,16', lambda r: check_read(r, payload[:16], len(payload)))
     if not skip_load:
-        run("SYSTem:REFMEM:LOAD:SD", check_load_sd)
+        run("SYSTem:REFMEM:LOAD:SD", check_load_sd, timeout_s=load_timeout_s)
     return records
 
 
@@ -256,11 +351,11 @@ def main() -> int:
 
     execute, close_handles = make_execute(args)
     try:
-        records = upload_package(execute, payload, args.chunk, args.skip_load)
+        records = upload_package(execute, payload, args.chunk, args.skip_load, args.load_timeout)
     finally:
         for handle in close_handles:
             try:
-                handle.close()
+                handle.close() if hasattr(handle, "close") else handle.__exit__(None, None, None)
             except Exception:
                 pass
 

@@ -7,18 +7,18 @@ import argparse
 import binascii
 import csv
 import json
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-try:
-    import serial
-except ImportError as exc:  # pragma: no cover - bench dependency
-    raise SystemExit("pyserial is required: python -m pip install pyserial") from exc
-
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from tools.scpi_common.scpi_serial import open_serial_port, read_serial_line_idle
+
 DEFAULT_DIR = "/logs/scpi_storage_validate"
 DEFAULT_FILE = f"{DEFAULT_DIR}/roundtrip.bin"
 DEFAULT_RENAMED_FILE = f"{DEFAULT_DIR}/roundtrip_renamed.bin"
@@ -64,17 +64,7 @@ def is_log_line(line: str) -> bool:
 
 
 def read_serial_line(ser: serial.Serial, deadline: float) -> str | None:
-    raw = bytearray()
-    while time.monotonic() < deadline:
-        ch = ser.read(1)
-        if not ch:
-            continue
-        raw.extend(ch)
-        if ch == b"\n":
-            break
-    if not raw:
-        return None
-    return bytes(raw).decode("utf-8", errors="replace").strip()
+    return read_serial_line_idle(ser, deadline)
 
 
 def read_response(ser: serial.Serial, timeout_s: float) -> str:
@@ -115,9 +105,8 @@ def make_execute(args: argparse.Namespace):
 
         return execute, [inst, rm]
 
-    ser = serial.Serial(args.port, args.baud, timeout=0.1, write_timeout=args.timeout)
-    time.sleep(args.settle)
-    ser.reset_input_buffer()
+    serial_context = open_serial_port(args.port, args.baud, args.timeout, args.settle)
+    ser = serial_context.__enter__()
 
     def execute(command: str) -> str:
         ser.reset_input_buffer()
@@ -125,7 +114,7 @@ def make_execute(args: argparse.Namespace):
         ser.flush()
         return read_response(ser, args.timeout)
 
-    return execute, [ser]
+    return execute, [serial_context]
 
 
 def expect_prefix(response: str, expected: str) -> None:
@@ -294,7 +283,7 @@ def main() -> int:
     finally:
         for handle in handles:
             try:
-                handle.close()
+                handle.close() if hasattr(handle, "close") else handle.__exit__(None, None, None)
             except Exception:
                 pass
 

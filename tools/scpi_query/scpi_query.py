@@ -10,14 +10,15 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-try:
-    import serial
-except ImportError as exc:  # pragma: no cover - bench dependency
-    raise SystemExit("pyserial is required: python -m pip install pyserial") from exc
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from tools.scpi_common.scpi_serial import open_serial_port, read_serial_line_idle
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,17 +72,8 @@ def strip_leading_ack(line: str) -> str:
 
 
 def read_serial_line(ser: serial.Serial, deadline: float) -> str | None:
-    raw = bytearray()
-    while time.monotonic() < deadline:
-        ch = ser.read(1)
-        if not ch:
-            continue
-        raw.extend(ch)
-        if ch == b"\n":
-            break
-    if len(raw) == 0:
-        return None
-    return normalize_line(bytes(raw).decode("utf-8", errors="replace"))
+    line = read_serial_line_idle(ser, deadline)
+    return None if line is None else normalize_line(line)
 
 
 def read_response(ser: serial.Serial, command: str, timeout_s: float) -> str:
@@ -130,8 +122,7 @@ def main() -> int:
     commands = load_commands(args)
     records: list[dict[str, str]] = []
 
-    with serial.Serial(args.port, args.baud, timeout=0.2) as ser:
-        time.sleep(args.settle)
+    with open_serial_port(args.port, args.baud, args.timeout, args.settle, read_timeout_s=0.2) as ser:
         for command in commands:
             response = send_command(ser, command, args.timeout)
             record = {"command": command, "response": response}
