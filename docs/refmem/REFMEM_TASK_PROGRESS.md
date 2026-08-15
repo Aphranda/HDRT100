@@ -8,6 +8,30 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-040 - Inline LOAD:NODE/BOARD to full RMTP package image
+
+- 状态：完成 host/build 验证
+- 日期：2026-08-15
+- 任务目标：
+  - 完整修复风险评审 §3.11：inline `LOAD:NODE` / `LOAD:BOARD` 不能停在 metadata-only 或单表 staging；单表 draft 必须合并为完整 Node Model Candidate，并生成 9 表 RMTP package image。
+  - 保持 HAOFV 边界：SCPI 只提交 intent；ApplicationModel owner 生成 draft/candidate/package；TableRegistry 只管理完整 image lifecycle；Vector 不承载完整表数据。
+- 完成内容：
+  - 在架构文档中固化两张表：`Table Draft -> Node Model Candidate -> RMTP Package Image` 层级表，以及 `LOAD:SD / LOAD:NODE / LOAD:BOARD` 到最终 package 产物的路径表。
+  - `refmem_application_model.c` 增加 inline RMTP serializer：按 9 张 canonical 表生成 header、directory、payload、per-table CRC、payload CRC 和 package CRC。
+  - serializer 从当前 active 9 表读取未修改表，并用私有 `NodeLoadTable draft` / `BoardCapabilityTable draft` 覆盖候选表，形成完整 Node Model Candidate。
+  - `LOAD:NODE` 成功路径改为调用 `refmem_table_registry_stage_package_image()`，不再把 `staging_package_crc32` 当成 NodeLoad 单表 CRC。
+  - `LOAD:BOARD` 成功路径同步刷新系统级 `LOAD:STATus?` 的 inline package staging 状态，同时 `BOARD:STATus?` 保留 BoardCapability draft 整表 CRC。
+  - host 单测新增 inline `LOAD:BOARD` 和 `LOAD:NODE` activation-ready package 断言：stage 后可 prepare staging view、activate、commit，并确认 runtime getter 发生预期变化。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_application_contract_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815144746`，package CRC `0x8A0A9E09`。
+- 后续动作：
+  - 继续审查 TableRegistry `stage_table()` 的剩余用途，把产品路径中的单表 staging 约束为失败 evidence 或测试辅助。
+  - 重新跑 COM5/COM6 HIL，确认 inline package staging 与 `LOAD:ACTivate` 在板端同样闭环。
+
 ### REFMEM-TASK-20260815-039 - LOAD:BOARD private table staging image
 
 - 状态：完成 host/build 验证

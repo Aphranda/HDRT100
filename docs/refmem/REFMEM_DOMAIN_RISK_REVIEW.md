@@ -112,11 +112,11 @@ if ((model->table_mask & table_bit) != 0u && entry->active_crc32 != 0u) {
 
 纠偏：`refresh_active()` 的编译内置 active entry 不再把 `present + CRC` 升级为 `OWNER_OK`，只置 `ACTIVE_PRESENT|CRC_OK`。`OWNER_OK` 继续只由 staging package validation 的 `owner_validated_table_mask` 或 activation 后的已验证 image provenance 产生；新增 table registry 单测覆盖该语义。
 
-### 3.11 SCPI `LOAD:NODE` / `LOAD:BOARD` staging 是死胡同（部分纠偏）
+### 3.11 SCPI `LOAD:NODE` / `LOAD:BOARD` staging 是死胡同（已纠偏）
 
 [refmem_application_model.c:1974](components/distributed_refmem/src/refmem_application_model.c#L1974) 附近：`stage_scpi_node_config` 只写 metadata-only registry 条目，`s_staging_image_size` 始终为 0；activation 再 parse 时 `access_table` 必然失败。结果：这些接口报成功、更新 registry flag，但改动永远进不了 runtime 模型。`stage_scpi_board_capability` 同理。
 
-纠偏进度：`LOAD:NODE` 已形成私有 `DistributedNodeLoadTable` staging image；`LOAD:BOARD` 已形成私有 `BoardCapabilityTable` staging image，发布整表 CRC 而非单 entry CRC，并有 host 断言覆盖。剩余风险仍是 inline staging 尚未生成完整 `.rmtp` package image，因此还不能通过现有 activation/rollback/runtime parse 链路进入 active。
+纠偏：`LOAD:NODE` 已形成私有 `DistributedNodeLoadTable` draft；`LOAD:BOARD` 已形成私有系统级 `BoardCapabilityTable` draft。任一 inline draft 通过单表 contract 后，ApplicationModel owner 会将当前 active 9 表叠加所有 draft，生成完整 9 表 inline RMTP package image，并调用 `refmem_table_registry_stage_package_image()`。后续 `LOAD:ACTivate` 继续走 staging stable view pre-parse、activation gate、active/rollbackable 切换和 runtime getter commit；产品路径不再存在可激活的单表 staging。
 
 ---
 

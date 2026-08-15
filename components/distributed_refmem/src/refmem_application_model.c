@@ -21,6 +21,11 @@
     ((REFMEM_APP_TABLE_WIRE_HEADER_WORDS + ((row_count) * (row_words))) * \
      REFMEM_APP_TABLE_WIRE_U32_SIZE)
 
+#define REFMEM_APP_INLINE_PACKAGE_DIR_SIZE \
+    (REFMEM_TABLE_REGISTRY_COUNT * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE)
+#define REFMEM_APP_INLINE_PACKAGE_PAYLOAD_OFFSET \
+    (REFMEM_TABLE_PACKAGE_HEADER_SIZE + REFMEM_APP_INLINE_PACKAGE_DIR_SIZE)
+
 #define REFMEM_APP_INSTANCE_B0_REFMEM_SYNC      0u
 #define REFMEM_APP_INSTANCE_B0_LOOP_ENGINE      1u
 #define REFMEM_APP_INSTANCE_B0_PULSE_COUNTER    2u
@@ -387,6 +392,7 @@ static refmem_application_model_load_snapshot_t s_load_snapshot;
 static refmem_board_capability_load_snapshot_t s_board_load_snapshot;
 static refmem_node_load_table_t s_staging_node_load_table;
 static refmem_board_capability_table_t s_staging_board_capability_table;
+static uint8_t s_inline_package_image_buffer[REFMEM_TABLE_IMAGE_BUFFER_SIZE];
 static refmem_application_map_t s_active_application_map;
 static refmem_board_capability_table_t s_active_board_capability_table;
 static refmem_generic_node_table_t s_active_generic_node_table;
@@ -423,7 +429,14 @@ static bool refmem_model_instance_enabled(const refmem_fb_instance_entry_t *inst
 static void refmem_model_copy_text(char *dst, size_t dst_size, const char *src);
 static void refmem_model_finish_load_idle(void);
 static const refmem_application_map_t *refmem_model_current_application_map(void);
+static const refmem_board_capability_table_t *refmem_model_current_board_capability_table(void);
+static const refmem_generic_node_table_t *refmem_model_current_generic_node_table(void);
+static const refmem_node_load_table_t *refmem_model_current_node_load_table(void);
 static const refmem_fb_instance_table_t *refmem_model_current_fb_instance_table(void);
+static const refmem_event_link_table_t *refmem_model_current_event_link_table(void);
+static const refmem_data_link_table_t *refmem_model_current_data_link_table(void);
+static const refmem_deployment_gate_table_t *refmem_model_current_deployment_gate_table(void);
+static const refmem_connection_quality_table_t *refmem_model_current_connection_quality_table(void);
 
 static uint32_t refmem_model_crc32_update(uint32_t crc, const void *data, size_t size)
 {
@@ -440,6 +453,63 @@ static uint32_t refmem_model_crc32_string(uint32_t crc, const char *text)
         text++;
     }
     return crc;
+}
+
+static uint32_t refmem_model_rmtp_crc32(const void *data, size_t size)
+{
+    return ota_crc32_update(0xFFFFFFFFu, (const uint8_t *)data, size) ^ 0xFFFFFFFFu;
+}
+
+static uint32_t refmem_model_rmtp_crc32_string(const char *text)
+{
+    if (text == NULL) {
+        return 0u;
+    }
+    uint32_t crc = 0xFFFFFFFFu;
+    while (*text != '\0') {
+        crc = ota_crc32_update(crc, (const uint8_t *)text, 1u);
+        text++;
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
+static uint32_t refmem_model_rmtp_crc32_zero_field(const uint8_t *data,
+                                                   size_t size,
+                                                   size_t zero_offset)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0u; i < size; i++) {
+        uint8_t byte = data[i];
+        if (i >= zero_offset && i < zero_offset + sizeof(uint32_t)) {
+            byte = 0u;
+        }
+        crc = ota_crc32_update(crc, &byte, 1u);
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
+static bool refmem_model_write_u32_le(uint8_t *data,
+                                      size_t size,
+                                      size_t *cursor,
+                                      uint32_t value)
+{
+    if (data == NULL || cursor == NULL || *cursor > size || size - *cursor < sizeof(uint32_t)) {
+        return false;
+    }
+    data[*cursor + 0u] = (uint8_t)(value & 0xFFu);
+    data[*cursor + 1u] = (uint8_t)((value >> 8u) & 0xFFu);
+    data[*cursor + 2u] = (uint8_t)((value >> 16u) & 0xFFu);
+    data[*cursor + 3u] = (uint8_t)((value >> 24u) & 0xFFu);
+    *cursor += sizeof(uint32_t);
+    return true;
+}
+
+static bool refmem_model_write_i32_le(uint8_t *data,
+                                      size_t size,
+                                      size_t *cursor,
+                                      int32_t value)
+{
+    return refmem_model_write_u32_le(data, size, cursor, (uint32_t)value);
 }
 
 static uint32_t refmem_model_crc32_fields(const uint32_t *fields, size_t count)
@@ -906,9 +976,44 @@ static const refmem_application_map_t *refmem_model_current_application_map(void
     return s_active_tables_from_image ? &s_active_application_map : &s_application_map;
 }
 
+static const refmem_board_capability_table_t *refmem_model_current_board_capability_table(void)
+{
+    return s_active_tables_from_image ? &s_active_board_capability_table : &s_board_capability_table;
+}
+
+static const refmem_generic_node_table_t *refmem_model_current_generic_node_table(void)
+{
+    return s_active_tables_from_image ? &s_active_generic_node_table : &s_generic_node_table;
+}
+
+static const refmem_node_load_table_t *refmem_model_current_node_load_table(void)
+{
+    return s_active_tables_from_image ? &s_active_node_load_table : &s_node_load_table;
+}
+
 static const refmem_fb_instance_table_t *refmem_model_current_fb_instance_table(void)
 {
     return s_active_tables_from_image ? &s_active_fb_instance_table : &s_fb_instance_table;
+}
+
+static const refmem_event_link_table_t *refmem_model_current_event_link_table(void)
+{
+    return s_active_tables_from_image ? &s_active_event_link_table : &s_event_link_table;
+}
+
+static const refmem_data_link_table_t *refmem_model_current_data_link_table(void)
+{
+    return s_active_tables_from_image ? &s_active_data_link_table : &s_data_link_table;
+}
+
+static const refmem_deployment_gate_table_t *refmem_model_current_deployment_gate_table(void)
+{
+    return s_active_tables_from_image ? &s_active_deployment_gate : &s_deployment_gate;
+}
+
+static const refmem_connection_quality_table_t *refmem_model_current_connection_quality_table(void)
+{
+    return s_active_tables_from_image ? &s_active_connection_quality : &s_connection_quality;
 }
 
 static bool refmem_model_instance_exists(uint32_t instance_id)
@@ -924,6 +1029,478 @@ static const refmem_fb_instance_entry_t *refmem_model_instance_by_id(uint32_t in
         return NULL;
     }
     return &refmem_model_current_fb_instance_table()->instance[instance_id];
+}
+
+static size_t refmem_model_table_payload_size(uint32_t table_id)
+{
+    switch (table_id) {
+    case REFMEM_APP_TABLE_APPLICATION_MAP:
+        return sizeof(refmem_application_map_t);
+    case REFMEM_APP_TABLE_BOARD_CAPABILITY:
+        return sizeof(refmem_board_capability_table_t);
+    case REFMEM_APP_TABLE_GENERIC_NODE:
+        return sizeof(refmem_generic_node_table_t);
+    case REFMEM_APP_TABLE_NODE_LOAD:
+        return sizeof(refmem_node_load_table_t);
+    case REFMEM_APP_TABLE_FB_INSTANCE:
+        return REFMEM_APP_TABLE_WIRE_SIZE(REFMEM_APP_MODEL_INSTANCE_COUNT,
+                                          REFMEM_APP_TABLE_WIRE_FB_INSTANCE_WORDS);
+    case REFMEM_APP_TABLE_EVENT_LINK:
+        return REFMEM_APP_TABLE_WIRE_SIZE(REFMEM_APP_MODEL_EVENT_LINK_COUNT,
+                                          REFMEM_APP_TABLE_WIRE_EVENT_LINK_WORDS);
+    case REFMEM_APP_TABLE_DATA_LINK:
+        return REFMEM_APP_TABLE_WIRE_SIZE(REFMEM_APP_MODEL_DATA_LINK_COUNT,
+                                          REFMEM_APP_TABLE_WIRE_DATA_LINK_WORDS);
+    case REFMEM_APP_TABLE_DEPLOYMENT_GATE:
+        return REFMEM_APP_TABLE_WIRE_SIZE(REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT,
+                                          REFMEM_APP_TABLE_WIRE_DEPLOYMENT_GATE_WORDS);
+    case REFMEM_APP_TABLE_CONNECTION_QUALITY:
+        return REFMEM_APP_TABLE_WIRE_SIZE(REFMEM_APP_MODEL_QUALITY_COUNT,
+                                          REFMEM_APP_TABLE_WIRE_CONNECTION_QUALITY_WORDS);
+    default:
+        return 0u;
+    }
+}
+
+static bool refmem_model_serialize_wire_header(uint8_t *data,
+                                               size_t size,
+                                               size_t *cursor,
+                                               uint32_t count)
+{
+    return refmem_model_write_u32_le(data, size, cursor, REFMEM_APP_MODEL_VERSION) &&
+           refmem_model_write_u32_le(data, size, cursor, count);
+}
+
+static bool refmem_model_serialize_application_map(uint8_t *data,
+                                                   size_t size,
+                                                   size_t *cursor,
+                                                   const refmem_application_map_t *table)
+{
+    return table != NULL &&
+           refmem_model_write_u32_le(data, size, cursor, table->version) &&
+           refmem_model_write_u32_le(data, size, cursor, table->application_id) &&
+           refmem_model_write_u32_le(data, size, cursor, table->application_version) &&
+           refmem_model_write_u32_le(data, size, cursor, table->profile_id) &&
+           refmem_model_write_u32_le(data, size, cursor, table->layout_version) &&
+           refmem_model_write_u32_le(data, size, cursor, table->target_node_mask);
+}
+
+static bool refmem_model_serialize_board_capability(
+    uint8_t *data,
+    size_t size,
+    size_t *cursor,
+    const refmem_board_capability_table_t *table)
+{
+    if (table == NULL ||
+        !refmem_model_serialize_wire_header(data, size, cursor, table->board_count)) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT; i++) {
+        const refmem_board_capability_entry_t *entry = &table->board[i];
+        if (!refmem_model_write_u32_le(data, size, cursor, entry->board_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->board_uuid_crc32) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->capability_mask) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->io_constraint_mask) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->ip_core_mask) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->default_persona_mask) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->hw_profile_crc32) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->active_default_slot) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->online_required)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool refmem_model_serialize_generic_node(uint8_t *data,
+                                                size_t size,
+                                                size_t *cursor,
+                                                const refmem_generic_node_table_t *table)
+{
+    if (table == NULL ||
+        !refmem_model_serialize_wire_header(data, size, cursor, table->node_count)) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_NODE_COUNT; i++) {
+        const refmem_app_node_entry_t *entry = &table->node[i];
+        if (!refmem_model_write_u32_le(data, size, cursor, entry->node_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->node_uuid_crc32) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->capability_mask) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->claim_policy) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->claim_priority) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->default_persona_mask) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->hw_profile_crc32) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->online_required) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->fail_policy)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool refmem_model_serialize_node_load(uint8_t *data,
+                                             size_t size,
+                                             size_t *cursor,
+                                             const refmem_node_load_table_t *table)
+{
+    if (table == NULL ||
+        !refmem_model_serialize_wire_header(data, size, cursor, table->load_count)) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_NODE_LOAD_COUNT; i++) {
+        const refmem_node_load_entry_t *entry = &table->load[i];
+        if (!refmem_model_write_u32_le(data, size, cursor, entry->load_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->application_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->profile_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->node_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->instance_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->role_mask) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->persona_mask) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->enabled) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->required) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->fail_policy) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->load_order)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool refmem_model_serialize_fb_instance(uint8_t *data,
+                                               size_t size,
+                                               size_t *cursor,
+                                               const refmem_fb_instance_table_t *table)
+{
+    if (table == NULL ||
+        !refmem_model_serialize_wire_header(data, size, cursor, table->instance_count)) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_INSTANCE_COUNT; i++) {
+        const refmem_fb_instance_entry_t *entry = &table->instance[i];
+        if (!refmem_model_write_u32_le(data, size, cursor, entry->instance_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->default_node_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->domain) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->ao_type) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->fb_type) ||
+            !refmem_model_write_u32_le(data, size, cursor,
+                                       refmem_model_rmtp_crc32_string(entry->instance_name)) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->version) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->enable_condition) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->resource_claim) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->io_claim) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->ip_core_claim) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->time_budget_us) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->state_slot_ref) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->health_slot_ref) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->event_first) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->event_count) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->data_first) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->data_count) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->conflict_class) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->restart_policy)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool refmem_model_serialize_event_link(uint8_t *data,
+                                              size_t size,
+                                              size_t *cursor,
+                                              const refmem_event_link_table_t *table)
+{
+    if (table == NULL ||
+        !refmem_model_serialize_wire_header(data, size, cursor, table->event_link_count)) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_EVENT_LINK_COUNT; i++) {
+        const refmem_event_link_entry_t *entry = &table->link[i];
+        if (!refmem_model_write_u32_le(data, size, cursor, entry->event_link_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->source_instance) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->source_event) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->target_node_mask) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->target_instance) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->target_event) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->transport) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->timeout_us) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->ack_policy) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->retry_policy) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->safety_class) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->evidence_ref)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool refmem_model_serialize_data_link(uint8_t *data,
+                                             size_t size,
+                                             size_t *cursor,
+                                             const refmem_data_link_table_t *table)
+{
+    if (table == NULL ||
+        !refmem_model_serialize_wire_header(data, size, cursor, table->data_link_count)) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_DATA_LINK_COUNT; i++) {
+        const refmem_data_link_entry_t *entry = &table->link[i];
+        if (!refmem_model_write_u32_le(data, size, cursor, entry->data_link_id) ||
+            !refmem_model_write_u32_le(data, size, cursor,
+                                       refmem_model_rmtp_crc32_string(entry->slot_path)) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->writer_instance) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->reader_mask) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->type) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->unit) ||
+            !refmem_model_write_i32_le(data, size, cursor, entry->scale) ||
+            !refmem_model_write_i32_le(data, size, cursor, entry->min_value) ||
+            !refmem_model_write_i32_le(data, size, cursor, entry->max_value) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->lifecycle) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->snapshot_policy) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->update_period_us) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->stale_window_us) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->crc_scope) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->permission)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool refmem_model_serialize_deployment_gate(
+    uint8_t *data,
+    size_t size,
+    size_t *cursor,
+    const refmem_deployment_gate_table_t *table)
+{
+    if (table == NULL ||
+        !refmem_model_serialize_wire_header(data, size, cursor, table->check_count)) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT; i++) {
+        const refmem_deployment_gate_entry_t *entry = &table->check[i];
+        if (!refmem_model_write_u32_le(data, size, cursor, entry->check_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->required) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->fail_action) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->last_state) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->reject_code) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->reject_instance) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->reject_node) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->reject_slot) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->reject_evidence_index)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool refmem_model_serialize_connection_quality(
+    uint8_t *data,
+    size_t size,
+    size_t *cursor,
+    const refmem_connection_quality_table_t *table)
+{
+    if (table == NULL ||
+        !refmem_model_serialize_wire_header(data, size, cursor, table->quality_count)) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < REFMEM_APP_MODEL_QUALITY_COUNT; i++) {
+        const refmem_connection_quality_entry_t *entry = &table->quality[i];
+        if (!refmem_model_write_u32_le(data, size, cursor, entry->quality_id) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->scope) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->source_node) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->target_node) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->seq_expected) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->seq_last) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->crc_error_count) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->stale_count) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->late_count) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->drop_count) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->timeout_count) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->last_error) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->last_error_tick) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->p99) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->p999) ||
+            !refmem_model_write_u32_le(data, size, cursor, entry->evidence_index)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool refmem_model_serialize_candidate_table(uint32_t table_id,
+                                                   uint8_t *data,
+                                                   size_t size,
+                                                   size_t *cursor)
+{
+    switch (table_id) {
+    case REFMEM_APP_TABLE_APPLICATION_MAP:
+        return refmem_model_serialize_application_map(data,
+                                                      size,
+                                                      cursor,
+                                                      refmem_model_current_application_map());
+    case REFMEM_APP_TABLE_BOARD_CAPABILITY:
+        return refmem_model_serialize_board_capability(
+            data,
+            size,
+            cursor,
+            s_staging_board_capability_valid ? &s_staging_board_capability_table
+                                             : refmem_model_current_board_capability_table());
+    case REFMEM_APP_TABLE_GENERIC_NODE:
+        return refmem_model_serialize_generic_node(data,
+                                                   size,
+                                                   cursor,
+                                                   refmem_model_current_generic_node_table());
+    case REFMEM_APP_TABLE_NODE_LOAD:
+        return refmem_model_serialize_node_load(
+            data,
+            size,
+            cursor,
+            s_staging_node_load_valid ? &s_staging_node_load_table
+                                      : refmem_model_current_node_load_table());
+    case REFMEM_APP_TABLE_FB_INSTANCE:
+        return refmem_model_serialize_fb_instance(data,
+                                                  size,
+                                                  cursor,
+                                                  refmem_model_current_fb_instance_table());
+    case REFMEM_APP_TABLE_EVENT_LINK:
+        return refmem_model_serialize_event_link(data,
+                                                 size,
+                                                 cursor,
+                                                 refmem_model_current_event_link_table());
+    case REFMEM_APP_TABLE_DATA_LINK:
+        return refmem_model_serialize_data_link(data,
+                                                size,
+                                                cursor,
+                                                refmem_model_current_data_link_table());
+    case REFMEM_APP_TABLE_DEPLOYMENT_GATE:
+        return refmem_model_serialize_deployment_gate(
+            data,
+            size,
+            cursor,
+            refmem_model_current_deployment_gate_table());
+    case REFMEM_APP_TABLE_CONNECTION_QUALITY:
+        return refmem_model_serialize_connection_quality(
+            data,
+            size,
+            cursor,
+            refmem_model_current_connection_quality_table());
+    default:
+        return false;
+    }
+}
+
+static bool refmem_model_build_inline_package_image(uint8_t *data,
+                                                    size_t capacity,
+                                                    size_t *package_size,
+                                                    refmem_table_package_validation_t *validation)
+{
+    if (data == NULL || package_size == NULL || validation == NULL ||
+        capacity < REFMEM_APP_INLINE_PACKAGE_PAYLOAD_OFFSET) {
+        return false;
+    }
+
+    const size_t table_dir_size = REFMEM_APP_INLINE_PACKAGE_DIR_SIZE;
+    size_t total_size = REFMEM_APP_INLINE_PACKAGE_PAYLOAD_OFFSET;
+    for (uint32_t table_id = 0u; table_id < REFMEM_TABLE_REGISTRY_COUNT; table_id++) {
+        const size_t table_size = refmem_model_table_payload_size(table_id);
+        if (table_size == 0u ||
+            total_size > capacity ||
+            table_size > capacity - total_size) {
+            return false;
+        }
+        total_size += table_size;
+    }
+
+    memset(data, 0, total_size);
+    size_t cursor = 0u;
+    if (!refmem_model_write_u32_le(data, total_size, &cursor, REFMEM_TABLE_PACKAGE_MAGIC) ||
+        !refmem_model_write_u32_le(data, total_size, &cursor, REFMEM_TABLE_PACKAGE_VERSION) ||
+        !refmem_model_write_u32_le(data, total_size, &cursor, REFMEM_TABLE_PACKAGE_HEADER_SIZE) ||
+        !refmem_model_write_u32_le(data, total_size, &cursor, (uint32_t)total_size) ||
+        !refmem_model_write_u32_le(data, total_size, &cursor, REFMEM_TABLE_REGISTRY_COUNT) ||
+        !refmem_model_write_u32_le(data, total_size, &cursor, (uint32_t)table_dir_size) ||
+        !refmem_model_write_u32_le(data, total_size, &cursor, 0u) ||
+        !refmem_model_write_u32_le(data, total_size, &cursor, 0u)) {
+        return false;
+    }
+
+    size_t payload_cursor = REFMEM_APP_INLINE_PACKAGE_PAYLOAD_OFFSET;
+    for (uint32_t table_id = 0u; table_id < REFMEM_TABLE_REGISTRY_COUNT; table_id++) {
+        const size_t table_offset = payload_cursor;
+        const size_t table_size = refmem_model_table_payload_size(table_id);
+        if (!refmem_model_serialize_candidate_table(table_id,
+                                                    data,
+                                                    total_size,
+                                                    &payload_cursor) ||
+            payload_cursor - table_offset != table_size) {
+            return false;
+        }
+
+        size_t dir_cursor =
+            REFMEM_TABLE_PACKAGE_HEADER_SIZE +
+            table_id * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE;
+        const uint32_t table_crc = refmem_model_rmtp_crc32(&data[table_offset], table_size);
+        if (!refmem_model_write_u32_le(data, total_size, &dir_cursor, table_id) ||
+            !refmem_model_write_u32_le(data, total_size, &dir_cursor, (uint32_t)table_offset) ||
+            !refmem_model_write_u32_le(data, total_size, &dir_cursor, (uint32_t)table_size) ||
+            !refmem_model_write_u32_le(data, total_size, &dir_cursor, table_crc)) {
+            return false;
+        }
+    }
+
+    if (payload_cursor != total_size) {
+        return false;
+    }
+
+    const uint32_t payload_crc =
+        refmem_model_rmtp_crc32(&data[REFMEM_APP_INLINE_PACKAGE_PAYLOAD_OFFSET],
+                                total_size - REFMEM_APP_INLINE_PACKAGE_PAYLOAD_OFFSET);
+    cursor = 24u;
+    if (!refmem_model_write_u32_le(data, total_size, &cursor, payload_crc)) {
+        return false;
+    }
+    const uint32_t package_crc = refmem_model_rmtp_crc32_zero_field(data, total_size, 28u);
+    cursor = 28u;
+    if (!refmem_model_write_u32_le(data, total_size, &cursor, package_crc)) {
+        return false;
+    }
+
+    if (!refmem_table_registry_validate_package(data, total_size, validation)) {
+        return false;
+    }
+
+    *package_size = total_size;
+    return true;
+}
+
+static bool refmem_model_stage_inline_package_image(void)
+{
+    refmem_table_package_validation_t validation;
+    size_t package_size = 0u;
+    if (!refmem_model_build_inline_package_image(s_inline_package_image_buffer,
+                                                 sizeof(s_inline_package_image_buffer),
+                                                 &package_size,
+                                                 &validation)) {
+        s_load_snapshot.staging_package_crc32 = 0u;
+        s_load_snapshot.staging_lint_error_count = 1u;
+        s_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_BAD_TABLE_VERSION;
+        s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
+        s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_PACKAGE_INVALID;
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+        refmem_table_registry_refresh_staging(&s_load_snapshot);
+        return false;
+    }
+
+    s_load_snapshot.staging_package_crc32 = validation.package_crc32;
+    s_load_snapshot.staging_lint_error_count = 0u;
+    s_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_OK;
+    s_load_snapshot.staging_state = REFMEM_APP_STAGING_VALIDATED;
+    s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
+    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
+    return refmem_table_registry_stage_package_image(&s_load_snapshot,
+                                                     s_inline_package_image_buffer,
+                                                     package_size,
+                                                     &validation);
 }
 
 static bool refmem_model_node_load_enabled(const refmem_node_load_entry_t *load)
@@ -1743,9 +2320,7 @@ static bool refmem_model_make_staging_board_capability_table(
         return false;
     }
 
-    *candidate_crc32 = refmem_model_crc32_update(0xFFFFFFFFu,
-                                                 candidate,
-                                                 sizeof(*candidate));
+    *candidate_crc32 = refmem_model_rmtp_crc32(candidate, sizeof(*candidate));
     return *candidate_crc32 != 0u;
 }
 
@@ -1979,7 +2554,7 @@ bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
         (s_snapshot.lint_error_count == 0u && candidate_valid) ? 0u : 1u;
     s_load_snapshot.staging_first_lint_error =
         candidate_valid ? s_snapshot.first_lint_error : REFMEM_APP_LINT_BAD_INSTANCE_RANGE;
-    s_load_snapshot.staging_package_crc32 = candidate_valid ? candidate_crc32 : 0u;
+    s_load_snapshot.staging_package_crc32 = 0u;
     if (s_snapshot.valid == 0u) {
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_LINT_FAILED;
@@ -2003,14 +2578,7 @@ bool refmem_application_model_stage_scpi_node_config(uint32_t node_id,
 
     s_staging_node_load_table = candidate;
     s_staging_node_load_valid = true;
-    s_load_snapshot.staging_state = REFMEM_APP_STAGING_VALIDATED;
-    s_load_snapshot.last_error = REFMEM_APP_LOAD_OK;
-    s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
-    (void)refmem_table_registry_stage_table(REFMEM_APP_TABLE_NODE_LOAD,
-                                            candidate_crc32,
-                                            REFMEM_TABLE_VALIDATION_OWNER_OK,
-                                            REFMEM_APP_LINT_OK);
-    return true;
+    return refmem_model_stage_inline_package_image();
 }
 
 bool refmem_application_model_stage_scpi_board_capability(uint32_t board_id,
@@ -2106,11 +2674,40 @@ bool refmem_application_model_stage_scpi_board_capability(uint32_t board_id,
         s_staging_board_capability_valid = true;
     }
 
-    (void)refmem_table_registry_stage_table(REFMEM_APP_TABLE_BOARD_CAPABILITY,
-                                            valid ? candidate_crc32 : 0u,
-                                            valid ? REFMEM_TABLE_VALIDATION_OWNER_OK
-                                                  : REFMEM_TABLE_VALIDATION_FAILED,
-                                            first_error);
+    if (valid) {
+        s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_VALIDATING;
+        s_load_snapshot.load_seq++;
+        s_load_snapshot.source = REFMEM_APP_LOAD_SOURCE_SCPI_INLINE;
+        s_load_snapshot.manifest_status = 0u;
+        s_load_snapshot.manifest_schema = 0u;
+        s_load_snapshot.manifest_required_count = 0u;
+        s_load_snapshot.manifest_missing_count = 0u;
+        s_load_snapshot.path_hash = 0u;
+        s_load_snapshot.active_package_crc32 = s_snapshot.package_crc32;
+        s_load_snapshot.staging_node_id = 0u;
+        s_load_snapshot.staging_instance_id = 0u;
+        s_load_snapshot.staging_role_mask = 0u;
+        s_load_snapshot.staging_persona_mask = 0u;
+        s_load_snapshot.staging_enabled = 0u;
+        s_load_snapshot.staging_required = 0u;
+        s_load_snapshot.staging_load_order = 0u;
+        s_load_snapshot.manifest_build_id[0] = '\0';
+        s_load_snapshot.path[0] = '\0';
+        valid = refmem_model_stage_inline_package_image();
+        s_board_load_snapshot.last_error =
+            valid ? REFMEM_APP_LOAD_OK : REFMEM_APP_LOAD_ERR_PACKAGE_INVALID;
+        s_board_load_snapshot.staging_state =
+            valid ? REFMEM_APP_STAGING_VALIDATED : REFMEM_APP_STAGING_FAILED;
+        if (!valid) {
+            s_board_load_snapshot.staging_lint_error_count = 1u;
+            s_board_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_BAD_TABLE_VERSION;
+        }
+    } else {
+        (void)refmem_table_registry_stage_table(REFMEM_APP_TABLE_BOARD_CAPABILITY,
+                                                0u,
+                                                REFMEM_TABLE_VALIDATION_FAILED,
+                                                first_error);
+    }
     s_board_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
     return valid;
 }

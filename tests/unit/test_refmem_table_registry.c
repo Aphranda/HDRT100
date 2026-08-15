@@ -1053,6 +1053,7 @@ static int test_scpi_board_load_stages_board_table_crc(void)
 {
     int failed = 0;
     refmem_board_capability_load_snapshot_t board_load;
+    refmem_table_activation_gate_t gate = make_pass_gate();
     refmem_table_registry_entry_t board_entry;
     refmem_board_capability_entry_t candidate = {
         5u,
@@ -1106,6 +1107,81 @@ static int test_scpi_board_load_stages_board_table_crc(void)
                              ->board[candidate.board_id]
                              .hw_profile_crc32,
                          0u);
+    failed += expect_bool("prepare inline board package",
+                          refmem_application_model_prepare_staging_table_views(),
+                          true);
+    failed += expect_bool("activate inline board package",
+                          refmem_table_registry_activate_staging(&gate),
+                          true);
+    failed += expect_bool("commit inline board package",
+                          refmem_application_model_commit_prepared_table_views(),
+                          true);
+    failed += expect_u32("active board table changed after activation",
+                         refmem_application_model_get_board_capability_table()
+                             ->board[candidate.board_id]
+                             .hw_profile_crc32,
+                         candidate.hw_profile_crc32);
+    return failed;
+}
+
+static int test_scpi_node_load_stages_activation_ready_package(void)
+{
+    int failed = 0;
+    refmem_application_model_load_snapshot_t load;
+    refmem_table_activation_gate_t gate = make_pass_gate();
+    refmem_table_image_descriptor_t staging;
+    refmem_table_registry_entry_t node_load_entry;
+    const uint32_t target_node = 6u;
+
+    failed += expect_bool("init application model for node load",
+                          refmem_application_model_init(),
+                          true);
+    failed += expect_bool("stage node load package",
+                          refmem_application_model_stage_scpi_node_config(
+                              target_node,
+                              REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE,
+                              REFMEM_APP_ROLE_MODEL_TURNTABLE | REFMEM_APP_ROLE_TEST_AGENT,
+                              REFMEM_APP_PERSONA_MODEL_INSTRUMENTS,
+                              1u,
+                              0u,
+                              0u),
+                          true);
+
+    refmem_application_model_get_load_snapshot(&load);
+    failed += expect_bool("get node staging descriptor",
+                          refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_STAGING,
+                                                                     &staging),
+                          true);
+    failed += expect_bool("get node load table entry",
+                          refmem_table_registry_get_entry(REFMEM_APP_TABLE_NODE_LOAD,
+                                                          &node_load_entry),
+                          true);
+    failed += expect_u32("node load validated",
+                         load.staging_state,
+                         REFMEM_APP_STAGING_VALIDATED);
+    failed += expect_u32("node load full table mask",
+                         staging.table_mask,
+                         REFMEM_APP_TABLE_MASK_ALL);
+    failed += expect_u32("node load owner ok image",
+                         staging.state,
+                         REFMEM_TABLE_VALIDATION_OWNER_OK);
+    failed += expect_bool("node load table crc present",
+                          node_load_entry.staging_crc32 != 0u,
+                          true);
+    failed += expect_bool("prepare inline node package",
+                          refmem_application_model_prepare_staging_table_views(),
+                          true);
+    failed += expect_bool("activate inline node package",
+                          refmem_table_registry_activate_staging(&gate),
+                          true);
+    failed += expect_bool("commit inline node package",
+                          refmem_application_model_commit_prepared_table_views(),
+                          true);
+    failed += expect_u32("active node load changed after activation",
+                         refmem_application_model_get_node_load_table()
+                             ->load[REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE]
+                             .node_id,
+                         target_node);
     return failed;
 }
 
@@ -1127,6 +1203,7 @@ int main(void)
     failed += test_application_model_prepares_staging_before_commit();
     failed += test_activation_rejects_unreleased_table_view();
     failed += test_scpi_board_load_stages_board_table_crc();
+    failed += test_scpi_node_load_stages_activation_ready_package();
 
     if (failed != 0) {
         (void)printf("refmem_table_registry tests failed: %d\n", failed);
