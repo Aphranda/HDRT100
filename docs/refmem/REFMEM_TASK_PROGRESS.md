@@ -30,7 +30,7 @@ Last updated: 2026-08-15
   - `LOAD:SD` 首轮优化有效，耗时从约 37 秒降到 7 秒量级。
   - 无参 `SYSTem:REFMEM:LOAD:SD` 在本轮干净串行测试中未复现 `Missing parameter`；此前污染来自命令行引号错误和同一 COM 口并发访问造成的响应串扰。
 - 后续动作：
-  - 若后续需要继续压缩到 1 秒级，需要在 StorageAO 增加真正的 bounded stream read job，减少 SCPI 回调内反复 post/wait Storage job。
+  - 当前 512B bounded read 路径作为主线可用基线保留；继续压缩到 1 秒级的 bounded stream read job 先转入支线优化，不阻塞后续 RefMem 主线闭环。
 
 ### REFMEM-TASK-20260815-027 - StorageAO/RefMem LOAD:SD HIL deep dive
 

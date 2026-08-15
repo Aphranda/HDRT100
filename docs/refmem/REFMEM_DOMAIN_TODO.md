@@ -289,7 +289,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - [ ] 覆盖 manifest 缺失路径。
   - [ ] 增加 TableRegistry per-table staging CRC 查询脚本化断言，避免只检查 `STAGED` 字符串。
 - [x] 首轮优化 `SYSTem:REFMEM:LOAD:SD` 耗时：StorageAO 内部 bounded read 从 128B 提到 512B，4800B package 加载和状态查询在 COM5 上约 6.944 s。
-- [ ] 二轮优化 `SYSTem:REFMEM:LOAD:SD` 耗时：后续需要 bounded stream read job 或更大的 StorageAO 读事务，仍保持 SCPI 只发起意图。
+- [ ] 支线优化 `SYSTem:REFMEM:LOAD:SD` 耗时：当前 512B bounded read 路径已经可用，bounded stream read job 或更大的 StorageAO 读事务转为支线，不阻塞 RefMem 主线；实现时仍保持 SCPI 只发起意图。
 - [x] 复核无参 `SYSTem:REFMEM:LOAD:SD` 错误队列污染：本轮干净串行测试未复现，之前为 PC 侧引号错误/同 COM 并发访问导致的响应串扰。
 - [x] 板端验证 `SYSTem:STORage:FILE:WRITe:BEGIN/DATA/END` 上传 `/refmem/app_model.rmtp`，再用 `FILE:INFO?`、`FILE:READ?` 和 `SYSTem:REFMEM:LOAD:SD` 完成正向闭环。
 - [x] 板端验证通用 Storage 文件管理闭环：目录 create/rename/catalog/delete，文件 write/info/read/rename/delete。
