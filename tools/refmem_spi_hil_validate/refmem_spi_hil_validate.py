@@ -39,6 +39,11 @@ FENCE_TYPE = 6
 QUALITY_TYPE = 7
 RAW_BYTE_COUNT = 32
 RAW_SEED = 0xA5
+REFMEM_VDC_BRIDGE_OK = 0
+REFMEM_VDC_BRIDGE_VDC_GATE_REJECTED = 6
+VDC_GATE_PASS = 0
+VDC_GATE_BAD_FRAME = 12
+VDC_GATE_WINDOW_BOUND = 11
 
 
 @dataclass
@@ -184,9 +189,36 @@ def expect_vdc_evidence(response: str,
                         expected_type: int,
                         expected_source: int) -> tuple[bool, str]:
     fields = parse_csv(response)
-    if not fields or fields[0].strip('"') != "ACCEPTED":
-        return False, f"vdc evidence not accepted: {response}"
+    if not fields or fields[0].strip('"') not in {"ACCEPTED", "REJECTED"}:
+        return False, f"vdc evidence response invalid: {response}"
     ints = parse_ints(response)
+    if fields[0].strip('"') == "REJECTED":
+        if len(ints) < 10:
+            return False, f"vdc rejected response too short: {response}"
+        result = ints[0]
+        frame_type = ints[1]
+        source_slot = ints[2]
+        payload_class = ints[3]
+        frame_crc32 = ints[4]
+        payload_crc32 = ints[5]
+        gate_passed = ints[6]
+        gate_reject = ints[7]
+        if result != REFMEM_VDC_BRIDGE_VDC_GATE_REJECTED:
+            return False, f"vdc bridge rejected before gate: result={result} response={response}"
+        if frame_type != expected_type:
+            return False, f"vdc rejected frame type {frame_type} != {expected_type}"
+        if source_slot != expected_source:
+            return False, f"vdc rejected source {source_slot} != {expected_source}"
+        if frame_crc32 == 0 or payload_crc32 == 0:
+            return False, f"vdc rejected without frame/payload CRC evidence: {response}"
+        if gate_passed != 0 or gate_reject not in {VDC_GATE_BAD_FRAME, VDC_GATE_WINDOW_BOUND}:
+            return False, f"vdc rejected for unexpected gate={gate_reject}: {response}"
+        if expected_type == DELTA_TYPE and payload_class != 2:
+            return False, f"vdc rejected payload class {payload_class} != REFMEM_DELTA"
+        if expected_type in {ACK_NACK_TYPE, FENCE_TYPE, QUALITY_TYPE} and payload_class != 3:
+            return False, f"vdc rejected payload class {payload_class} != ACK_NACK_FENCE_QUALITY"
+        return True, "diagnostic timestamp outside active VDC data window"
+
     if len(ints) < 29:
         return False, f"vdc evidence response too short: {response}"
     result = ints[0]
@@ -199,7 +231,7 @@ def expect_vdc_evidence(response: str,
     timestamp_source = ints[23]
     timestamp_resolution_ns = ints[24]
     timestamp_flags = ints[25]
-    if result != 0 or gate_passed != 1 or gate_reject != 0:
+    if result != REFMEM_VDC_BRIDGE_OK or gate_passed != 1 or gate_reject != VDC_GATE_PASS:
         return False, f"vdc gate result={result} passed={gate_passed} reject={gate_reject}"
     if frame_type != expected_type:
         return False, f"vdc frame type {frame_type} != {expected_type}"

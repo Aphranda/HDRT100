@@ -76,6 +76,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 在 COM5/COM6 已验证 RefMem data TDMA 环路基础上，增加两板帧级 timestamp bring-up：每个 `REFMEM_DELTA/ACK/FENCE/QUALITY/IDLE_BEACON` 帧都产生 TDMA/VDC timestamp evidence；高优先级 `VDC_OBSERVATION_WINDOW` 形成正式 `VdcDpllSample`，再反向或双向测量 delay/evidence。
 - [x] 增加 RefMem data frame 到 VDC TDMA frame envelope 的桥接基础件：`DELTA/ACK_NACK/FENCE/QUALITY` 可以映射到 `REFMEM_DATA_WINDOW` 并带诊断 timestamp evidence；该桥接不得计算 offset/rate，也不得把诊断 timestamp 标成 DPLL eligible。
 - [x] 将当前 TDMA snapshot 的软件时间戳明确限定为诊断 evidence：若来源为 `time_us_64()*1000`，必须暴露 `timestamp_resolution_ns=1000`，不得进入 100 ns DPLL lock gate。
+- [ ] 将 RefMem TDMA TX/RX 从“收到 intent 后立即执行”升级为按 `VdcTdmaScheduleProfile` 的 `REFMEM_DATA_WINDOW` 执行：core1/PIO 必须等待窗口、记录 late/jitter，并在窗口外明确返回 gate evidence；HIL 当前允许诊断样本因未调度而被 VDC gate 拒绝，但这不算正式 TDMA schedule 通过。
 - [ ] 增加硬实时 timestamp latch 路径：PIO/DMA/IRQ/core1 采集本地 tick，转换或映射为 ns 字段，并声明实际分辨率；DPLL 正式样本要求 `timestamp_resolution_ns <= 100`。
 - [ ] 实现 DCO snapshot 生成：DPLL 输出通过 `VdcDcoControl` 提交给 core1，core1 只读稳定 snapshot 并执行 slew/phase pull。
 - [ ] 实现 outlier gate、jitter window、phase error 和 frequency error 统计。
@@ -144,7 +145,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 验证 VDC unlocked 时禁止 RUN / `FIRE_LOAD`。
 - [ ] 验证 LOCKED 后 T2/READY timestamp 映射到 VDC 时间。
 - [ ] 验证 TDMA observation window 门禁：窗口外、schedule CRC 不匹配、reference slot 不匹配的样本不得进入 DPLL。
-- [ ] 验证两板 TDMA 硬件基础到 DPLL 输入链：COM5/COM6 在真实 PIO 25 MHz 环路中产出板端 timestamp evidence，报告 `timestamp_resolution_ns`、window late/jitter、sample CRC 和 phase error，不使用 host 侧耗时代替板端证据。
+- [ ] 验证两板 TDMA 硬件基础到 DPLL 输入链：COM5/COM6 在真实 PIO 25 MHz 环路中产出板端 timestamp evidence，报告 `timestamp_resolution_ns`、window late/jitter、sample CRC 和 phase error，不使用 host 侧耗时代替板端证据；窗口调度未落地前，HIL 只允许把 VDC gate 窗口拒绝记录为诊断状态，不得标记为 DPLL lock evidence。
 - [x] 固化两板 RefMem TDMA -> VDC envelope 诊断查询脚本：`tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 在 `DELTA/ACK_NACK/FENCE/QUALITY` 交换后查询 `SYSTem:REFMEM:SYNC:TDMA:VDC?`，记录 bridge/gate/CRC/timestamp evidence。
 - [ ] 验证 `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 收敛状态链，并记录 lock_time、RMS/peak offset 和 outlier ratio。
 - [ ] 验证 DCO slew/phase pull：core1 读取稳定 snapshot，late/半更新 snapshot 不得产生 FIRE_LOAD。

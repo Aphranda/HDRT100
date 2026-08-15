@@ -211,7 +211,7 @@ bool refmem_vdc_bridge_build_data_envelope(
     const uint64_t late_ns = start_ns > window_start_ns ? start_ns - window_start_ns : 0u;
 
     envelope->frame_version = VDC_DOMAIN_TDMA_FRAME_VERSION;
-    envelope->frame_seq = header.seq32;
+    envelope->frame_seq = tdma->completed_seq;
     envelope->schedule_epoch = schedule->schedule_epoch;
     envelope->slot_index = header.source_slot;
     envelope->source_slot_id = header.source_slot;
@@ -224,7 +224,7 @@ bool refmem_vdc_bridge_build_data_envelope(
     envelope->payload_crc32 = header.payload_crc32;
     envelope->quality_flags = 0u;
 
-    envelope->timestamp.sample_seq = header.seq32;
+    envelope->timestamp.sample_seq = tdma->completed_seq;
     envelope->timestamp.schedule_epoch = schedule->schedule_epoch;
     envelope->timestamp.slot_index = header.source_slot;
     envelope->timestamp.source_slot_id = header.source_slot;

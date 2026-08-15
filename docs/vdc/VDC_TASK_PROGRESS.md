@@ -43,9 +43,40 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-008 - COM5/COM6 VDC data-window diagnostic gate
+
+- 状态：完成并已通过 COM5/COM6 HIL；正式 schedule wait / hardware latch 待实现
+- 日期：2026-08-16
+- 任务目标：
+  - 复盘 COM5/COM6 `refmem_spi_hil_validate.py` 失败原因，区分真实物理链路问题和 VDC schedule/window 问题。
+  - 保持 HAOFV 边界：RefMem 只提供 frame/payload/CRC/timestamp evidence，VDC gate 负责 schedule/window 判定，DPLL 不消费诊断 timestamp。
+- 完成内容：
+  - 确认 COM5/COM6 线序检测、25 MHz PIO TDMA RAW/HELLO/EPOCH/DELTA 均已通过，失败点为 `ACK_NACK` 的 VDC gate `BAD_FRAME`。
+  - 失败原因收敛为当前 TDMA service 收到 intent 后立即执行，尚未按 `VdcTdmaScheduleProfile` 等待 `REFMEM_DATA_WINDOW`；诊断 timestamp 落在默认 data window 外时会被 VDC gate 拒绝。
+  - `refmem_vdc_bridge` 的 `frame_seq/sample_seq` 改为 TDMA `completed_seq`，避免把 RefMem 业务 `seq32/ack_seq32` 和物理 TDMA frame evidence 混用。
+  - HIL 脚本保留对 RefMem RX、frame CRC、payload CRC、payload class 和 source slot 的检查；若 VDC gate 因窗口相位拒绝诊断样本，记录为“diagnostic timestamp outside active VDC data window”，不再误判为物理链路失败。
+- 验证结果：
+  - `python -m py_compile tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_vdc_bridge_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815183936`，package CRC `0x690AF5D4`。
+  - OTA 到 COM5/COM6 后查询 `SYST:FW:BUILD?` 均为 `"20260815183936"`，`SYST:OTA:STAT?` 均为 `"COMMITTED"`。
+  - `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6 --out-dir build-rtos-multicore-smoke\refmem_spi_hil_vdc` 通过；报告确认 25 MHz PIO TDMA RAW/HELLO/EPOCH/DELTA/ACK/FENCE/QUALITY 双向链路成功，frame/payload CRC 有效。
+  - HIL 报告中 `B_QUALITY_A` 的 VDC data evidence 为 `REJECTED` / `VDC_GATE_BAD_FRAME`，脚本记录为 `diagnostic timestamp outside active VDC data window`，用于证明当前还缺少按 active VDC data window 执行的 TDMA scheduler，不作为 100 ns DPLL evidence。
+- 还需完成：
+  - core1/PIO TDMA 必须按 active VDC schedule 等待 data/observation window，并增加硬件 timestamp latch；当前诊断 gate 通过或窗口拒绝都不得作为 100 ns DPLL lock evidence。
+- 关联文件：
+  - `components/distributed_refmem/src/refmem_vdc_bridge.c`
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+- 下一步：
+  - 实现 core1/PIO 按 `VdcTdmaScheduleProfile` 等待 `REFMEM_DATA_WINDOW` / `VDC_OBSERVATION_WINDOW` 的执行路径，再接硬件 timestamp latch。
+
 ### VDC-TASK-20260816-007 - Two-board RefMem TDMA VDC evidence HIL script
 
-- 状态：完成脚本编译检查；板端 COM5/COM6 执行待烧录后运行
+- 状态：完成脚本编译检查；COM5/COM6 首次复跑暴露 VDC data window 调度缺口，已转入 VDC-TASK-20260816-008
 - 日期：2026-08-16
 - 任务目标：
   - 将 `SYSTem:REFMEM:SYNC:TDMA:VDC?` 纳入两板 RefMem PIO TDMA HIL 验收。
