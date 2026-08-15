@@ -8,6 +8,26 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-017 - Quality gate negative HIL script
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 将 `TDMA timeout -> RefMem quality gate reject -> SystemManager config gate reject -> OTA restore` 固化成可重复 HIL 脚本。
+  - 避免后续用手工 SCPI 命令制造 TDMA timeout 后忘记恢复板卡运行态。
+- 完成内容：
+  - 新增 `tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`。
+  - 脚本读取初始 `SYSTem:CONFigure:STAT?` 和 `SYSTem:REFMEM:SYNC:TDMA:STATus?`，确认初始 config gate ready。
+  - 脚本发送短窗口 `SYSTem:REFMEM:SYNC:TDMA:RX` 且不发 TX，轮询 TDMA timeout，并确认 `SYSTem:CONFigure:STAT?` 进入 `ready=0, gate_state=2`。
+  - 支持 `--restore-package` 和 `--expected-build`，在负向验证后调用 OTA send + boot/commit 恢复板卡，并再次确认 config gate ready。
+  - 修正 `SYSTem:CONFigure:STAT?` 解析：首字段 build id 是带引号数字字符串，不能被当成 ready 字段。
+- 验证结果：
+  - `python -m py_compile tools\refmem_quality_gate_hil_validate\refmem_quality_gate_hil_validate.py` 通过。
+  - COM5 执行 `python tools\refmem_quality_gate_hil_validate\refmem_quality_gate_hil_validate.py COM5 --expected-build 20260815053147 --restore-package build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --out-dir build-rtos-multicore-smoke\refmem_quality_gate_COM5_20260815053147_scripted_r3` 通过。
+  - 报告路径：`build-rtos-multicore-smoke\refmem_quality_gate_COM5_20260815053147_scripted_r3\summary.json`。
+- 关联文件：
+  - `tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`
+
 ### REFMEM-TASK-20260815-016 - Quality gate RUN gate integration
 
 - 状态：完成
@@ -26,8 +46,8 @@ Last updated: 2026-08-15
   - 正向：COM5/COM6 查询 `SYSTem:CONFigure:STAT?` 均返回 `ready=1, gate_state=1, target_mask=15, ack_flags=15, nack_flags=0`。
   - 负向：COM5 执行 `SYSTem:REFMEM:SYNC:TDMA:RX 1000,25000000,16,17,18,23` 且不发 TX 后，`TDMA:STATus?` 显示 `state=5, timeout_count=1, last_result=3, last_error=3`，`SYSTem:CONFigure:STAT?` 变为 `ready=0, gate_state=2`。
   - 恢复：COM5 重新 OTA 同一 package 后恢复 `ready=1, gate_state=1`；COM6 保持 `ready=1, gate_state=1`。
-- 还需完成：
-  - 将 quality gate 负向流程固化成专用 HIL 脚本，避免后续手工命令重复。
+- 后续闭环：
+  - quality gate 负向流程已在 `REFMEM-TASK-20260815-017` 固化为 HIL 脚本。
 - 关联文件：
   - `components/distributed_refmem/inc/distributed_refmem.h`
   - `components/distributed_refmem/src/distributed_refmem.c`
