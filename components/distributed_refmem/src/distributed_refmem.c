@@ -4,6 +4,7 @@
 
 #include "drv_flash.h"
 #include "osal.h"
+#include "board_config.h"
 #include "project_config.h"
 
 #include "refmem_application_model.h"
@@ -13,17 +14,54 @@
 #include "refmem_realtime_tdma.h"
 #include "refmem_slot_claim.h"
 #include "refmem_spi_physical_adapter.h"
+#include "refmem_sync.h"
 #include "refmem_table_registry.h"
 #include "refmem_vector_table.h"
 
 #define DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT 16u
 #define DISTRIBUTED_REFMEM_SOURCE_INSTANCE_REFMEM_AO 0u
+#define DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_QUEUE_COUNT 8u
+#define DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH 1u
+#define DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN 1u
+
+typedef enum {
+    DISTRIBUTED_REFMEM_AUTO_INTENT_NONE = 0u,
+    DISTRIBUTED_REFMEM_AUTO_INTENT_TX_NODE_LOAD = 1u,
+    DISTRIBUTED_REFMEM_AUTO_INTENT_RX_WINDOW = 2u,
+} distributed_refmem_auto_intent_t;
 
 typedef struct {
     uint32_t instance_id;
     distributed_refmem_node_load_owner_t owner;
     void *context;
 } distributed_refmem_node_load_owner_entry_t;
+
+typedef struct {
+    uint32_t enabled;
+    uint8_t local_slot;
+    uint8_t target_mask;
+    uint32_t epoch_id;
+    uint32_t run_id;
+    uint32_t baud_hz;
+    uint32_t deadline_us;
+    refmem_spi_physical_pin_config_t pins;
+    uint32_t pending_instance[DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_QUEUE_COUNT];
+    uint32_t pending_count;
+    uint32_t active_intent;
+    uint32_t active_instance_id;
+    uint32_t active_intent_seq;
+    uint32_t last_processed_completed_seq;
+    uint32_t next_seq32;
+    uint32_t submitted_tx_count;
+    uint32_t submitted_rx_count;
+    uint32_t applied_rx_count;
+    uint32_t failed_apply_count;
+    uint32_t dropped_pending_count;
+    uint32_t last_rx_result;
+    uint32_t last_frame_type;
+    uint32_t last_source_slot;
+    uint32_t last_error;
+} distributed_refmem_node_load_auto_sync_t;
 
 static refmem_vector_table_t s_distributed_refmem_table __attribute__((aligned(4)));
 static refmem_command_slot_t s_refmem_command_slot;
@@ -32,8 +70,75 @@ static refmem_spi_physical_adapter_t s_refmem_realtime_spi;
 static distributed_refmem_node_load_owner_entry_t
     s_node_load_owners[DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT];
 static distributed_refmem_status_t s_status;
+static refmem_sync_context_t s_refmem_sync_context;
+static distributed_refmem_node_load_auto_sync_t s_node_load_auto_sync;
 static uint32_t s_service_count;
 static bool s_initialized;
+
+static void distributed_refmem_node_load_auto_init(void)
+{
+    memset(&s_node_load_auto_sync, 0, sizeof(s_node_load_auto_sync));
+    s_node_load_auto_sync.enabled = 0u;
+    s_node_load_auto_sync.local_slot = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    s_node_load_auto_sync.target_mask = 0xFFu;
+    s_node_load_auto_sync.epoch_id = DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH;
+    s_node_load_auto_sync.run_id = DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN;
+    s_node_load_auto_sync.baud_hz = BOARD_REFMEM_SPI_BAUD_HZ;
+    s_node_load_auto_sync.deadline_us = 1000000u;
+    s_node_load_auto_sync.pins.rx_pin = BOARD_REFMEM_SPI_RX_PIN;
+    s_node_load_auto_sync.pins.csn_pin = BOARD_REFMEM_SPI_CSN_PIN;
+    s_node_load_auto_sync.pins.sck_pin = BOARD_REFMEM_SPI_SCK_PIN;
+    s_node_load_auto_sync.pins.tx_pin = BOARD_REFMEM_SPI_TX_PIN;
+    s_node_load_auto_sync.next_seq32 = 1u;
+    (void)refmem_sync_init(&s_refmem_sync_context,
+                           s_node_load_auto_sync.local_slot,
+                           s_node_load_auto_sync.epoch_id,
+                           s_node_load_auto_sync.run_id);
+}
+
+static bool distributed_refmem_node_load_auto_enqueue(uint32_t instance_id)
+{
+    if (instance_id == 0u ||
+        instance_id >= REFMEM_APP_MODEL_INSTANCE_COUNT) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < s_node_load_auto_sync.pending_count; i++) {
+        if (s_node_load_auto_sync.pending_instance[i] == instance_id) {
+            return true;
+        }
+    }
+    if (s_node_load_auto_sync.pending_count >=
+        DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_QUEUE_COUNT) {
+        s_node_load_auto_sync.dropped_pending_count++;
+        s_node_load_auto_sync.last_error = 1u;
+        return false;
+    }
+
+    s_node_load_auto_sync.pending_instance[s_node_load_auto_sync.pending_count] =
+        instance_id;
+    s_node_load_auto_sync.pending_count++;
+    return true;
+}
+
+static void distributed_refmem_node_load_auto_pop_front(void)
+{
+    if (s_node_load_auto_sync.pending_count == 0u) {
+        return;
+    }
+    for (uint32_t i = 1u; i < s_node_load_auto_sync.pending_count; i++) {
+        s_node_load_auto_sync.pending_instance[i - 1u] =
+            s_node_load_auto_sync.pending_instance[i];
+    }
+    s_node_load_auto_sync.pending_count--;
+    s_node_load_auto_sync.pending_instance[s_node_load_auto_sync.pending_count] = 0u;
+}
+
+static bool distributed_refmem_tdma_busy(const refmem_realtime_tdma_snapshot_t *snapshot)
+{
+    return snapshot != NULL &&
+           snapshot->intent_seq > snapshot->completed_seq;
+}
 
 static uint32_t distributed_refmem_u32_payload_crc32(const uint32_t *fields,
                                                      uint32_t field_count)
@@ -314,6 +419,213 @@ static bool distributed_refmem_tdma_receive(void *context,
     return poll_result == REFMEM_SPI_PHYSICAL_RX_POLL_DONE;
 }
 
+static bool distributed_refmem_apply_node_load_sync_payload_internal(
+    const uint8_t *payload,
+    uint16_t payload_size)
+{
+    refmem_node_load_entry_t entry;
+    if (!refmem_node_load_sync_decode_delta_payload(payload,
+                                                   payload_size,
+                                                   NULL,
+                                                   &entry)) {
+        return false;
+    }
+
+    return refmem_application_model_stage_scpi_node_config(entry.node_id,
+                                                           entry.instance_id,
+                                                           entry.role_mask,
+                                                           entry.persona_mask,
+                                                           entry.enabled,
+                                                           entry.required,
+                                                           entry.load_order);
+}
+
+static void distributed_refmem_node_load_auto_process_completed(
+    const refmem_realtime_tdma_snapshot_t *snapshot)
+{
+    if (snapshot == NULL ||
+        s_node_load_auto_sync.active_intent == DISTRIBUTED_REFMEM_AUTO_INTENT_NONE ||
+        snapshot->completed_seq == s_node_load_auto_sync.last_processed_completed_seq ||
+        snapshot->completed_seq < s_node_load_auto_sync.active_intent_seq) {
+        return;
+    }
+
+    s_node_load_auto_sync.last_processed_completed_seq = snapshot->completed_seq;
+    if (s_node_load_auto_sync.active_intent ==
+        DISTRIBUTED_REFMEM_AUTO_INTENT_TX_NODE_LOAD) {
+        distributed_refmem_node_load_auto_pop_front();
+        s_node_load_auto_sync.active_intent = DISTRIBUTED_REFMEM_AUTO_INTENT_NONE;
+        s_node_load_auto_sync.active_instance_id = 0u;
+        return;
+    }
+
+    if (s_node_load_auto_sync.active_intent ==
+        DISTRIBUTED_REFMEM_AUTO_INTENT_RX_WINDOW) {
+        uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX];
+        size_t frame_size = 0u;
+        if (snapshot->last_result == REFMEM_REALTIME_TDMA_RESULT_FRAME_READY &&
+            distributed_refmem_get_realtime_tdma_frame(frame,
+                                                       sizeof(frame),
+                                                       &frame_size)) {
+            refmem_sync_rx_snapshot_t rx;
+            const refmem_sync_rx_result_t result =
+                refmem_sync_receive_frame(&s_refmem_sync_context,
+                                          frame,
+                                          frame_size,
+                                          &rx);
+            s_node_load_auto_sync.last_rx_result = result;
+            s_node_load_auto_sync.last_frame_type = rx.header.frame_type;
+            s_node_load_auto_sync.last_source_slot = rx.source_slot;
+            if (result == REFMEM_SYNC_RX_ACCEPTED &&
+                rx.header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_DELTA &&
+                distributed_refmem_apply_node_load_sync_payload_internal(
+                    rx.payload,
+                    rx.payload_size)) {
+                s_node_load_auto_sync.applied_rx_count++;
+                s_node_load_auto_sync.last_error = 0u;
+            } else if (result == REFMEM_SYNC_RX_ACCEPTED &&
+                       rx.header.frame_type != (uint8_t)REFMEM_SYNC_FRAME_DELTA) {
+                s_node_load_auto_sync.last_error = 0u;
+            } else {
+                s_node_load_auto_sync.failed_apply_count++;
+                s_node_load_auto_sync.last_error = 2u;
+            }
+        }
+        s_node_load_auto_sync.active_intent = DISTRIBUTED_REFMEM_AUTO_INTENT_NONE;
+        s_node_load_auto_sync.active_instance_id = 0u;
+    }
+}
+
+static bool distributed_refmem_node_load_auto_submit_tx(void)
+{
+    if (s_node_load_auto_sync.pending_count == 0u) {
+        return false;
+    }
+
+    refmem_node_load_entry_t entry;
+    const uint32_t instance_id = s_node_load_auto_sync.pending_instance[0];
+    if (!refmem_application_model_get_staging_node_load_entry(instance_id, &entry)) {
+        distributed_refmem_node_load_auto_pop_front();
+        s_node_load_auto_sync.failed_apply_count++;
+        s_node_load_auto_sync.last_error = 3u;
+        return false;
+    }
+
+    uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX];
+    size_t frame_size = 0u;
+    const uint32_t seq32 = s_node_load_auto_sync.next_seq32++;
+    if (s_node_load_auto_sync.next_seq32 == 0u) {
+        s_node_load_auto_sync.next_seq32 = 1u;
+    }
+
+    refmem_application_model_load_snapshot_t load;
+    refmem_application_model_get_load_snapshot(&load);
+    if (!refmem_node_load_sync_build_delta_frame(&entry,
+                                                 s_node_load_auto_sync.local_slot,
+                                                 s_node_load_auto_sync.target_mask,
+                                                 s_node_load_auto_sync.epoch_id,
+                                                 s_node_load_auto_sync.run_id,
+                                                 seq32,
+                                                 load.load_seq,
+                                                 osal_tick_ms(),
+                                                 frame,
+                                                 sizeof(frame),
+                                                 &frame_size)) {
+        s_node_load_auto_sync.last_error = 4u;
+        return false;
+    }
+
+    const refmem_realtime_tdma_intent_config_t config = {
+        .window_epoch = s_node_load_auto_sync.epoch_id,
+        .window_index = seq32,
+        .deadline_us = s_node_load_auto_sync.deadline_us,
+        .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
+        .baud_hz = s_node_load_auto_sync.baud_hz,
+        .pins = s_node_load_auto_sync.pins,
+        .frame = frame,
+        .frame_size = frame_size,
+    };
+    if (!refmem_realtime_tdma_submit_tx(&s_refmem_realtime_tdma, &config)) {
+        s_node_load_auto_sync.last_error = 5u;
+        return false;
+    }
+
+    refmem_realtime_tdma_snapshot_t snapshot;
+    (void)refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &snapshot);
+    s_node_load_auto_sync.active_intent = DISTRIBUTED_REFMEM_AUTO_INTENT_TX_NODE_LOAD;
+    s_node_load_auto_sync.active_instance_id = instance_id;
+    s_node_load_auto_sync.active_intent_seq = snapshot.intent_seq;
+    s_node_load_auto_sync.submitted_tx_count++;
+    s_node_load_auto_sync.last_error = 0u;
+    return true;
+}
+
+static bool distributed_refmem_node_load_auto_submit_rx(void)
+{
+    const uint32_t seq32 = s_node_load_auto_sync.next_seq32++;
+    if (s_node_load_auto_sync.next_seq32 == 0u) {
+        s_node_load_auto_sync.next_seq32 = 1u;
+    }
+
+    const refmem_realtime_tdma_intent_config_t config = {
+        .window_epoch = s_node_load_auto_sync.epoch_id,
+        .window_index = seq32,
+        .deadline_us = s_node_load_auto_sync.deadline_us,
+        .role = REFMEM_SPI_PHYSICAL_ROLE_SLAVE,
+        .baud_hz = s_node_load_auto_sync.baud_hz,
+        .pins = s_node_load_auto_sync.pins,
+        .frame = NULL,
+        .frame_size = 0u,
+    };
+    if (!refmem_realtime_tdma_submit_rx(&s_refmem_realtime_tdma, &config)) {
+        s_node_load_auto_sync.last_error = 6u;
+        return false;
+    }
+
+    refmem_realtime_tdma_snapshot_t snapshot;
+    (void)refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &snapshot);
+    s_node_load_auto_sync.active_intent = DISTRIBUTED_REFMEM_AUTO_INTENT_RX_WINDOW;
+    s_node_load_auto_sync.active_instance_id = 0u;
+    s_node_load_auto_sync.active_intent_seq = snapshot.intent_seq;
+    s_node_load_auto_sync.submitted_rx_count++;
+    s_node_load_auto_sync.last_error = 0u;
+    return true;
+}
+
+static void distributed_refmem_node_load_auto_service(void)
+{
+    if (s_node_load_auto_sync.enabled == 0u) {
+        return;
+    }
+
+    refmem_realtime_tdma_snapshot_t snapshot;
+    if (!refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &snapshot)) {
+        s_node_load_auto_sync.last_error = 7u;
+        return;
+    }
+
+    distributed_refmem_node_load_auto_process_completed(&snapshot);
+
+    if (distributed_refmem_tdma_busy(&snapshot)) {
+        if (s_node_load_auto_sync.pending_count != 0u &&
+            s_node_load_auto_sync.active_intent ==
+                DISTRIBUTED_REFMEM_AUTO_INTENT_RX_WINDOW) {
+            refmem_realtime_tdma_abort(&s_refmem_realtime_tdma);
+        }
+        return;
+    }
+
+    if (s_node_load_auto_sync.pending_count != 0u) {
+        (void)distributed_refmem_node_load_auto_submit_tx();
+        return;
+    }
+
+    if (s_node_load_auto_sync.active_intent ==
+        DISTRIBUTED_REFMEM_AUTO_INTENT_NONE) {
+        (void)distributed_refmem_node_load_auto_submit_rx();
+    }
+}
+
 static void distributed_refmem_refresh_directory_flags_locked(void)
 {
     refmem_vector_header_region_t *header = distributed_refmem_header();
@@ -407,6 +719,7 @@ bool distributed_refmem_init(void)
     if (!refmem_command_init(&s_refmem_command_slot, 0u)) {
         return false;
     }
+    distributed_refmem_node_load_auto_init();
     static const refmem_realtime_tdma_ops_t tdma_ops = {
         .transmit = distributed_refmem_tdma_transmit,
         .receive = distributed_refmem_tdma_receive,
@@ -492,6 +805,7 @@ void distributed_refmem_service(void)
     distributed_refmem_publish_status_locked();
 
     osal_critical_exit();
+    distributed_refmem_node_load_auto_service();
 }
 
 bool distributed_refmem_get_realtime_tdma(refmem_realtime_tdma_snapshot_t *snapshot)
@@ -742,6 +1056,7 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
                                                         required,
                                                         load_order);
     if (staged) {
+        (void)distributed_refmem_node_load_auto_enqueue(instance_id);
         (void)distributed_refmem_command_ack(node_id, REFMEM_VECTOR_REGION_ACK_CMD);
         return true;
     }
@@ -1137,6 +1452,8 @@ bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
             slot_id,
             output_index);
     if (loaded) {
+        (void)distributed_refmem_node_load_auto_enqueue(
+            REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE);
         (void)distributed_refmem_command_ack(slot_id, REFMEM_VECTOR_REGION_ACK_CMD);
         return true;
     }
@@ -1187,22 +1504,84 @@ bool distributed_refmem_build_node_load_sync_frame(uint32_t instance_id,
 bool distributed_refmem_apply_node_load_sync_payload(const uint8_t *payload,
                                                      uint16_t payload_size)
 {
-    refmem_node_load_entry_t entry;
-    if (!s_initialized ||
-        !refmem_node_load_sync_decode_delta_payload(payload,
-                                                   payload_size,
-                                                   NULL,
-                                                   &entry)) {
+    if (!s_initialized) {
         return false;
     }
 
-    return refmem_application_model_stage_scpi_node_config(entry.node_id,
-                                                           entry.instance_id,
-                                                           entry.role_mask,
-                                                           entry.persona_mask,
-                                                           entry.enabled,
-                                                           entry.required,
-                                                           entry.load_order);
+    return distributed_refmem_apply_node_load_sync_payload_internal(payload,
+                                                                    payload_size);
+}
+
+bool distributed_refmem_configure_node_load_auto_sync(
+    uint32_t enabled,
+    uint32_t local_slot,
+    uint32_t target_mask,
+    uint32_t baud_hz,
+    uint32_t deadline_us,
+    const refmem_spi_physical_pin_config_t *pins)
+{
+    if (!s_initialized ||
+        enabled > 1u ||
+        local_slot >= DISTRIBUTED_REFMEM_NODE_COUNT ||
+        target_mask > 0xFFu ||
+        deadline_us == 0u ||
+        pins == NULL) {
+        return false;
+    }
+
+    if (s_node_load_auto_sync.active_intent != DISTRIBUTED_REFMEM_AUTO_INTENT_NONE ||
+        s_node_load_auto_sync.enabled != enabled) {
+        refmem_realtime_tdma_abort(&s_refmem_realtime_tdma);
+    }
+
+    s_node_load_auto_sync.enabled = enabled;
+    s_node_load_auto_sync.local_slot = (uint8_t)local_slot;
+    s_node_load_auto_sync.target_mask = (uint8_t)target_mask;
+    s_node_load_auto_sync.baud_hz =
+        baud_hz == 0u ? BOARD_REFMEM_SPI_BAUD_HZ : baud_hz;
+    s_node_load_auto_sync.deadline_us = deadline_us;
+    s_node_load_auto_sync.pins = *pins;
+    s_node_load_auto_sync.active_intent = DISTRIBUTED_REFMEM_AUTO_INTENT_NONE;
+    s_node_load_auto_sync.active_instance_id = 0u;
+    s_node_load_auto_sync.active_intent_seq = 0u;
+    s_node_load_auto_sync.last_processed_completed_seq = 0u;
+    s_node_load_auto_sync.last_error = 0u;
+    return refmem_sync_init(&s_refmem_sync_context,
+                            s_node_load_auto_sync.local_slot,
+                            s_node_load_auto_sync.epoch_id,
+                            s_node_load_auto_sync.run_id);
+}
+
+void distributed_refmem_get_node_load_auto_sync(
+    distributed_refmem_node_load_auto_sync_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+
+    memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->enabled = s_node_load_auto_sync.enabled;
+    snapshot->local_slot = s_node_load_auto_sync.local_slot;
+    snapshot->target_mask = s_node_load_auto_sync.target_mask;
+    snapshot->baud_hz = s_node_load_auto_sync.baud_hz;
+    snapshot->deadline_us = s_node_load_auto_sync.deadline_us;
+    snapshot->rx_pin = s_node_load_auto_sync.pins.rx_pin;
+    snapshot->csn_pin = s_node_load_auto_sync.pins.csn_pin;
+    snapshot->sck_pin = s_node_load_auto_sync.pins.sck_pin;
+    snapshot->tx_pin = s_node_load_auto_sync.pins.tx_pin;
+    snapshot->pending_count = s_node_load_auto_sync.pending_count;
+    snapshot->active_intent = s_node_load_auto_sync.active_intent;
+    snapshot->active_instance_id = s_node_load_auto_sync.active_instance_id;
+    snapshot->next_seq32 = s_node_load_auto_sync.next_seq32;
+    snapshot->submitted_tx_count = s_node_load_auto_sync.submitted_tx_count;
+    snapshot->submitted_rx_count = s_node_load_auto_sync.submitted_rx_count;
+    snapshot->applied_rx_count = s_node_load_auto_sync.applied_rx_count;
+    snapshot->failed_apply_count = s_node_load_auto_sync.failed_apply_count;
+    snapshot->dropped_pending_count = s_node_load_auto_sync.dropped_pending_count;
+    snapshot->last_rx_result = s_node_load_auto_sync.last_rx_result;
+    snapshot->last_frame_type = s_node_load_auto_sync.last_frame_type;
+    snapshot->last_source_slot = s_node_load_auto_sync.last_source_slot;
+    snapshot->last_error = s_node_load_auto_sync.last_error;
 }
 
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot)

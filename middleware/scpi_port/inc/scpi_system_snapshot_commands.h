@@ -41,6 +41,8 @@ scpi_result_t scpi_cmd_refmem_sync_quality_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_peer_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_quality_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_adapter_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_sync_auto(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_sync_auto_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_node_tx(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_tx(scpi_t *context);
@@ -112,6 +114,8 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:SYNC:PEER?", .callback = scpi_cmd_refmem_sync_peer_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:QUALity?", .callback = scpi_cmd_refmem_sync_quality_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:ADAPter?", .callback = scpi_cmd_refmem_sync_adapter_q}, \
+    {.pattern = "SYSTem:REFMEM:SYNC:AUTO", .callback = scpi_cmd_refmem_sync_auto}, \
+    {.pattern = "SYSTem:REFMEM:SYNC:AUTO?", .callback = scpi_cmd_refmem_sync_auto_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:STATus?", .callback = scpi_cmd_refmem_sync_tdma_status_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:NODE:TX", .callback = scpi_cmd_refmem_sync_tdma_node_tx}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:TX", .callback = scpi_cmd_refmem_sync_tdma_tx}, \

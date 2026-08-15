@@ -1652,6 +1652,75 @@ scpi_result_t scpi_cmd_refmem_sync_adapter_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_sync_auto(scpi_t *context)
+{
+    uint32_t enabled = 0u;
+    uint32_t local_slot = 0u;
+    uint32_t target_mask = 0xFFu;
+    uint32_t baud_hz = BOARD_REFMEM_SPI_BAUD_HZ;
+    uint32_t deadline_us = 1000000u;
+    refmem_spi_physical_pin_config_t pins = {
+        .rx_pin = BOARD_REFMEM_SPI_RX_PIN,
+        .csn_pin = BOARD_REFMEM_SPI_CSN_PIN,
+        .sck_pin = BOARD_REFMEM_SPI_SCK_PIN,
+        .tx_pin = BOARD_REFMEM_SPI_TX_PIN,
+    };
+
+    if (!scpi_port_read_u32(context, &enabled)) {
+        return SCPI_RES_ERR;
+    }
+    (void)SCPI_ParamUInt32(context, &local_slot, FALSE);
+    (void)SCPI_ParamUInt32(context, &target_mask, FALSE);
+    (void)SCPI_ParamUInt32(context, &baud_hz, FALSE);
+    (void)SCPI_ParamUInt32(context, &deadline_us, FALSE);
+    (void)SCPI_ParamUInt32(context, &pins.rx_pin, FALSE);
+    (void)SCPI_ParamUInt32(context, &pins.csn_pin, FALSE);
+    (void)SCPI_ParamUInt32(context, &pins.sck_pin, FALSE);
+    (void)SCPI_ParamUInt32(context, &pins.tx_pin, FALSE);
+
+    if (!distributed_refmem_configure_node_load_auto_sync(enabled,
+                                                          local_slot,
+                                                          target_mask,
+                                                          baud_hz,
+                                                          deadline_us,
+                                                          &pins)) {
+        scpi_port_push_exec_error(context, "REFMEM_SYNC_AUTO");
+        return SCPI_RES_ERR;
+    }
+
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_refmem_sync_auto_q(scpi_t *context)
+{
+    distributed_refmem_node_load_auto_sync_snapshot_t snapshot;
+    distributed_refmem_get_node_load_auto_sync(&snapshot);
+
+    SCPI_ResultUInt32(context, snapshot.enabled);
+    SCPI_ResultUInt32(context, snapshot.local_slot);
+    SCPI_ResultUInt32(context, snapshot.target_mask);
+    SCPI_ResultUInt32(context, snapshot.baud_hz);
+    SCPI_ResultUInt32(context, snapshot.deadline_us);
+    SCPI_ResultUInt32(context, snapshot.rx_pin);
+    SCPI_ResultUInt32(context, snapshot.csn_pin);
+    SCPI_ResultUInt32(context, snapshot.sck_pin);
+    SCPI_ResultUInt32(context, snapshot.tx_pin);
+    SCPI_ResultUInt32(context, snapshot.pending_count);
+    SCPI_ResultUInt32(context, snapshot.active_intent);
+    SCPI_ResultUInt32(context, snapshot.active_instance_id);
+    SCPI_ResultUInt32(context, snapshot.next_seq32);
+    SCPI_ResultUInt32(context, snapshot.submitted_tx_count);
+    SCPI_ResultUInt32(context, snapshot.submitted_rx_count);
+    SCPI_ResultUInt32(context, snapshot.applied_rx_count);
+    SCPI_ResultUInt32(context, snapshot.failed_apply_count);
+    SCPI_ResultUInt32(context, snapshot.dropped_pending_count);
+    SCPI_ResultUInt32(context, snapshot.last_rx_result);
+    SCPI_ResultUInt32(context, snapshot.last_frame_type);
+    SCPI_ResultUInt32(context, snapshot.last_source_slot);
+    SCPI_ResultUInt32(context, snapshot.last_error);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
 {
     refmem_realtime_tdma_snapshot_t snapshot;

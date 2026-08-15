@@ -140,6 +140,31 @@ typedef struct {
     distributed_refmem_slot_guard_t guard;
 } distributed_refmem_runtime_protection_snapshot_t;
 
+typedef struct {
+    uint32_t enabled;
+    uint32_t local_slot;
+    uint32_t target_mask;
+    uint32_t baud_hz;
+    uint32_t deadline_us;
+    uint32_t rx_pin;
+    uint32_t csn_pin;
+    uint32_t sck_pin;
+    uint32_t tx_pin;
+    uint32_t pending_count;
+    uint32_t active_intent;
+    uint32_t active_instance_id;
+    uint32_t next_seq32;
+    uint32_t submitted_tx_count;
+    uint32_t submitted_rx_count;
+    uint32_t applied_rx_count;
+    uint32_t failed_apply_count;
+    uint32_t dropped_pending_count;
+    uint32_t last_rx_result;
+    uint32_t last_frame_type;
+    uint32_t last_source_slot;
+    uint32_t last_error;
+} distributed_refmem_node_load_auto_sync_snapshot_t;
+
 bool distributed_refmem_init(void);
 void distributed_refmem_service(void);
 void distributed_refmem_realtime_run_once(void);
@@ -220,5 +245,14 @@ bool distributed_refmem_build_node_load_sync_frame(uint32_t instance_id,
                                                    size_t *frame_size);
 bool distributed_refmem_apply_node_load_sync_payload(const uint8_t *payload,
                                                      uint16_t payload_size);
+bool distributed_refmem_configure_node_load_auto_sync(
+    uint32_t enabled,
+    uint32_t local_slot,
+    uint32_t target_mask,
+    uint32_t baud_hz,
+    uint32_t deadline_us,
+    const refmem_spi_physical_pin_config_t *pins);
+void distributed_refmem_get_node_load_auto_sync(
+    distributed_refmem_node_load_auto_sync_snapshot_t *snapshot);
 
 #endif

@@ -8,6 +8,28 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-044 - Configurable NodeLoad auto sync service
+
+- 状态：完成 host/build 验证；板端 HIL 待执行
+- 日期：2026-08-15
+- 任务目标：
+  - 推进风险评审 §3.4 子项 B2：NodeLoad DELTA 不再依赖维护命令逐帧触发，改由 RefMemAO service 和 core1 TDMA 自动运行。
+  - 自动运行必须可配置，默认关闭；SCPI 只设置运行策略或提交 LOAD intent，不承担对端 frame 搬运。
+- 完成内容：
+  - `DistributedRefMemAO` 增加 NodeLoad auto sync 队列，`LOAD:NODE` / `ModelTurntable LOAD` staging 成功后将 instance id 加入 pending 队列。
+  - `distributed_refmem_service()` 在临界区外推进 auto sync：有 pending NodeLoad 时提交 TDMA TX；无 pending 时按配置提交 RX window；收到 RX frame 后由 RefMem Sync state machine 校验，再交给 ApplicationModel staging。
+  - 新增 `distributed_refmem_configure_node_load_auto_sync()` 和 `distributed_refmem_get_node_load_auto_sync()`，支持 enable、local slot、target mask、baud、deadline 和 PIO SPI pins。
+  - 新增维护命令 `SYSTem:REFMEM:SYNC:AUTO` / `SYSTem:REFMEM:SYNC:AUTO?`；默认关闭，开启后才会自动占用 PIO SPI transport。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_node_load_sync_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，15/15 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `git diff --check` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815160049`，package CRC `0x11683118`。
+- 后续动作：
+  - 执行完整 host/docs/build 验证。
+  - 固化 COM5/COM6 HIL 脚本：两板先分别开启 AUTO，再只对源板下发两个 `LOAD:NODE`，确认目标板 staging/table/claim/quality 同步；随后反向执行。
+
 ### REFMEM-TASK-20260815-043 - NodeLoad sync delta foundation
 
 - 状态：完成 host/build 验证；板端 HIL 待执行
