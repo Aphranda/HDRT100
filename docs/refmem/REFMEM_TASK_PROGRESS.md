@@ -8,9 +8,33 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-028 - Optimize LOAD:SD bounded read chunk
+
+- 状态：完成 COM5 板端闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 在不破坏 HAOFV 边界的前提下优化 `SYSTem:REFMEM:LOAD:SD` 耗时。
+  - 保持 SCPI 只发起 load 意图和输出 snapshot，SD/FatFs 仍归 StorageAO，RefMem staging 仍归 DistributedRefMemAO。
+- 完成内容：
+  - `STORAGE_MANAGER_FILE_READ_MAX_BYTES` 从 128B 提高到 512B，扩大 StorageAO 内部 bounded read job 缓冲。
+  - `SCPI_REFMEM_PACKAGE_READ_CHUNK` 从 128B 提高到 512B，让 `LOAD:SD` 读取 4800B RMTP 时从约 38 个 read job 降到约 10 个 read job。
+  - 公开 `SYSTem:STORage:FILE:READ?` 的 `SCPI_STORAGE_MMEM_READ_BYTES_MAX` 仍保持 128B，避免普通 SCPI 文件读取响应突然变长。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815110412`，package CRC `0x81CE4C7E`。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - COM5 已通过 OTA/commit 升级到 build `20260815110412`。
+  - COM5 写入当前 HIL manifest、profile、mission、cal 和 `/refmem/app_model.rmtp` 后，`SYSTem:REFMEM:LOAD:SD` 单次加载加后续状态查询总耗时约 `6.944 s`；返回 `STAGED`，Storage 最后一块 `FILE_READ` 为 192B，错误队列为 0。
+  - COM5 执行 `python -u tools\refmem_pack_write\refmem_pack_write.py COM5 --timeout 10 --load-timeout 30 --chunk 256 --package build-rtos-multicore-smoke\sdcard_full_tables_20260815110412\refmem\app_model.rmtp --out-dir build-rtos-multicore-smoke\refmem_pack_write_COM5_20260815110412_512b_load` 通过。
+- 结论：
+  - `LOAD:SD` 首轮优化有效，耗时从约 37 秒降到 7 秒量级。
+  - 无参 `SYSTem:REFMEM:LOAD:SD` 在本轮干净串行测试中未复现 `Missing parameter`；此前污染来自命令行引号错误和同一 COM 口并发访问造成的响应串扰。
+- 后续动作：
+  - 若后续需要继续压缩到 1 秒级，需要在 StorageAO 增加真正的 bounded stream read job，减少 SCPI 回调内反复 post/wait Storage job。
+
 ### REFMEM-TASK-20260815-027 - StorageAO/RefMem LOAD:SD HIL deep dive
 
-- 状态：完成 COM6 板端闭环，COM5 需单独恢复/重刷
+- 状态：完成 COM6 板端闭环；COM5 已在后续任务中恢复并重刷
 - 日期：2026-08-15
 - 任务目标：
   - 深挖 `/refmem/app_model.rmtp` 通过 Storage SCPI 写入时反复撞到 `RUNNING`、最终 `RENAME_FAILED` 的原因。
@@ -45,9 +69,8 @@ Last updated: 2026-08-15
   - COM6 执行 `python -u tools\refmem_pack_write\refmem_pack_write.py COM6 --timeout 10 --load-timeout 60 --chunk 256 --package build-rtos-multicore-smoke\sdcard_full_tables_20260815103459\refmem\app_model.rmtp --out-dir build-rtos-multicore-smoke\refmem_pack_write_COM6_20260815104540_load_wait_fixed` 通过；`SYSTem:REFMEM:LOAD:SD` 返回 `STAGED`，staging package CRC `2994534464`，Storage job `DONE`，错误队列为 0。
   - 发现通用 Storage FILE 写事务仍是 RAM buffer 型，`STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES=8192`，不能用该接口直接上传 523 KB OTA package；大文件 OTA 仍应走 OTA AO/portable OTA 流式入口，Storage 文件接口后续若要支持大文件需设计流式后端。
 - 后续动作：
-  - COM5 仍停留在旧 `LOAD:SD` 触发后的不可响应/不可访问状态，需要手动复位或重新上电后再 OTA 到 `20260815104540`。
   - 将 `LOAD:SD` 37 s 耗时继续优化：优先减少逐 128 B 文件读 job 的重复调度，或在 StorageAO 提供 bounded stream read job。
-  - 修复无参 `SYSTem:REFMEM:LOAD:SD` 在错误队列留下 `Missing parameter` 的可观测污染。
+  - 继续确认无参 `SYSTem:REFMEM:LOAD:SD` 的错误队列行为，区分真实 parser 污染和 PC 侧命令串扰。
 - 关联文件：
   - `application/src/app_tasks.c`
   - `components/storage_manager/src/storage_manager.c`

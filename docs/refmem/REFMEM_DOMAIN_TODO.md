@@ -284,11 +284,13 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 板端验证 `SYSTem:REFMEM:LOAD:SD` 在当前 SD package 未有效 staging 时返回固定 `REJECTED` snapshot，不改 active，并通过 `SYSTem:COMMand:ACK?` 暴露 `TABLE_PACKAGE_STAGE` NACK。
 - [ ] 扩展 `SYSTem:REFMEM:LOAD:SD` 板端验证：覆盖无 SD、manifest 缺失、manifest OK 且 package valid 三种路径，并确认 valid package 的 TableRegistry per-table staging CRC。
   - [x] COM6 覆盖 manifest OK + 9 表 package valid 正向路径：通用 Storage SCPI 写入 `/refmem/app_model.rmtp`，HIL manifest gate OK，`LOAD:SD` 返回 `STAGED`。
+  - [x] COM5 覆盖 512B bounded read 优化后的 manifest OK + 9 表 package valid 正向路径：`LOAD:SD` 返回 `STAGED`，错误队列为 0。
   - [ ] 覆盖无 SD 路径。
   - [ ] 覆盖 manifest 缺失路径。
   - [ ] 增加 TableRegistry per-table staging CRC 查询脚本化断言，避免只检查 `STAGED` 字符串。
-- [ ] 优化 `SYSTem:REFMEM:LOAD:SD` 耗时：当前 4800B package 通过 128B Storage read job 分段加载约 37 s；后续需要 bounded stream read job 或更大的 StorageAO 读事务，仍保持 SCPI 只发起意图。
-- [ ] 修复无参 `SYSTem:REFMEM:LOAD:SD` 在错误队列留下 `Missing parameter` 的可观测污染。
+- [x] 首轮优化 `SYSTem:REFMEM:LOAD:SD` 耗时：StorageAO 内部 bounded read 从 128B 提到 512B，4800B package 加载和状态查询在 COM5 上约 6.944 s。
+- [ ] 二轮优化 `SYSTem:REFMEM:LOAD:SD` 耗时：后续需要 bounded stream read job 或更大的 StorageAO 读事务，仍保持 SCPI 只发起意图。
+- [x] 复核无参 `SYSTem:REFMEM:LOAD:SD` 错误队列污染：本轮干净串行测试未复现，之前为 PC 侧引号错误/同 COM 并发访问导致的响应串扰。
 - [x] 板端验证 `SYSTem:STORage:FILE:WRITe:BEGIN/DATA/END` 上传 `/refmem/app_model.rmtp`，再用 `FILE:INFO?`、`FILE:READ?` 和 `SYSTem:REFMEM:LOAD:SD` 完成正向闭环。
 - [x] 板端验证通用 Storage 文件管理闭环：目录 create/rename/catalog/delete，文件 write/info/read/rename/delete。
 - [ ] 增加 table registry 验证：CRC 正确但 owner validation 失败时不得激活。
