@@ -10,6 +10,7 @@
 #include "refmem_command.h"
 #include "refmem_quality.h"
 #include "refmem_realtime_tdma.h"
+#include "refmem_slot_claim.h"
 #include "refmem_spi_physical_adapter.h"
 #include "refmem_table_registry.h"
 #include "refmem_vector_table.h"
@@ -131,6 +132,51 @@ static bool distributed_refmem_execute_node_load_owner(uint32_t instance_id,
         return false;
     }
     return entry->owner(instance_id, slot_id, payload_ref, entry->context);
+}
+
+static bool distributed_refmem_slot_claim_gate_ready(void)
+{
+    refmem_slot_claim_map_t claim_map;
+    refmem_slot_claim_gate_status_t claim_gate;
+    if (!refmem_slot_claim_derive_map(refmem_application_model_get_generic_node_table(),
+                                      refmem_application_model_get_board_capability_table(),
+                                      refmem_application_model_get_node_load_table(),
+                                      refmem_application_model_get_fb_instance_table(),
+                                      &claim_map)) {
+        return false;
+    }
+    return refmem_slot_claim_gate_evaluate(&claim_map, &claim_gate);
+}
+
+static bool distributed_refmem_flash_activation_safe(void)
+{
+    distributed_refmem_runtime_protection_snapshot_t protection;
+    distributed_refmem_get_runtime_protection(&protection);
+    const bool ram_entry_ok =
+        protection.ram_resident_required == 0u ||
+        (protection.flags & DISTRIBUTED_REFMEM_PROT_RAM_RESIDENT_REQUIRED) != 0u;
+    const bool flash_lockout_ok =
+        protection.flash_lockout_supported == 0u ||
+        protection.flash_lockout_online != 0u;
+    const bool entry_owner_ok =
+        protection.entry_table_owner == DISTRIBUTED_REFMEM_OWNER_SHARED;
+    return ram_entry_ok && flash_lockout_ok && entry_owner_ok;
+}
+
+static refmem_command_reason_t distributed_refmem_activation_nack_reason(uint32_t result)
+{
+    switch ((refmem_table_activation_result_t)result) {
+    case REFMEM_TABLE_ACTIVATE_ERR_GATE:
+        return REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
+    case REFMEM_TABLE_ACTIVATE_ERR_IMAGE_TOO_LARGE:
+        return REFMEM_COMMAND_REASON_PAYLOAD_CRC_MISMATCH;
+    case REFMEM_TABLE_ACTIVATE_ERR_BAD_ARGUMENT:
+    case REFMEM_TABLE_ACTIVATE_ERR_NO_VALID_STAGING:
+    case REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED:
+    case REFMEM_TABLE_ACTIVATE_OK:
+    default:
+        return REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH;
+    }
 }
 
 static refmem_vector_header_slot_t *distributed_refmem_header(void)
@@ -816,6 +862,96 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
     (void)distributed_refmem_command_nack(local_target,
                                           REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
                                           REFMEM_VECTOR_SLOT_ACK_CMD);
+    return false;
+}
+
+bool distributed_refmem_activate_staging(uint32_t realtime_idle)
+{
+    if (!s_initialized) {
+        return false;
+    }
+
+    refmem_table_image_descriptor_t staging;
+    if (!refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_STAGING,
+                                                    &staging)) {
+        return false;
+    }
+
+    const uint32_t fields[] = {
+        staging.table_mask,
+        staging.package_crc32,
+        staging.table_seq,
+        realtime_idle,
+    };
+    const uint32_t payload_crc32 = distributed_refmem_u32_payload_crc32(
+        fields,
+        (uint32_t)(sizeof(fields) / sizeof(fields[0])));
+    const uint32_t local_target = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    const uint32_t target_mask = (uint32_t)(1u << local_target);
+    refmem_command_request_t request = {
+        .command_seq = 0u,
+        .source_node = DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
+        .source_instance = DISTRIBUTED_REFMEM_SOURCE_INSTANCE_REFMEM_AO,
+        .target_mask = target_mask,
+        .required_mask = target_mask,
+        .command_type = REFMEM_COMMAND_TYPE_TABLE_PACKAGE_ACTIVATE,
+        .command_class = REFMEM_COMMAND_CLASS_CONFIG,
+        .payload_kind = REFMEM_COMMAND_PAYLOAD_STAGING_REF,
+        .payload_ref = staging.package_crc32,
+        .payload_size = (uint32_t)sizeof(fields),
+        .payload_crc32 = payload_crc32,
+        .issue_epoch = 0u,
+        .run_id = 0u,
+        .timeout_us = 50000u,
+    };
+
+    if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
+        return false;
+    }
+
+    osal_critical_enter();
+    const refmem_command_take_result_t take_result =
+        refmem_command_try_take(&s_refmem_command_slot,
+                                local_target,
+                                0u,
+                                0u,
+                                payload_crc32,
+                                REFMEM_VECTOR_SLOT_ACK_CMD);
+    osal_critical_exit();
+    if (take_result != REFMEM_COMMAND_TAKE_TAKEN) {
+        return false;
+    }
+
+    refmem_application_model_load_snapshot_t load;
+    refmem_application_model_get_load_snapshot(&load);
+    const refmem_table_activation_gate_t gate = {
+        .refmem_idle = load.mode == REFMEM_APP_MODEL_MODE_IDLE ? 1u : 0u,
+        .realtime_idle = realtime_idle != 0u ? 1u : 0u,
+        .flash_safe = distributed_refmem_flash_activation_safe() ? 1u : 0u,
+        .crc_ok = staging.package_crc32 != 0u &&
+                  staging.state >= REFMEM_TABLE_VALIDATION_CRC_OK ? 1u : 0u,
+        .owner_ok = staging.state == REFMEM_TABLE_VALIDATION_OWNER_OK ? 1u : 0u,
+        .slot_claim_ok = distributed_refmem_slot_claim_gate_ready() ? 1u : 0u,
+        .deployment_gate_ok =
+            refmem_application_model_get_snapshot()->valid != 0u &&
+                    distributed_refmem_quality_gate_ready()
+                ? 1u
+                : 0u,
+        .command_ack_ok = 1u,
+    };
+
+    const bool activated = refmem_table_registry_activate_staging(&gate);
+    refmem_table_registry_snapshot_t registry;
+    refmem_table_registry_get_snapshot(&registry);
+    if (activated) {
+        (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_SLOT_ACK_CMD);
+        return true;
+    }
+
+    (void)distributed_refmem_command_nack(
+        local_target,
+        distributed_refmem_activation_nack_reason(registry.last_error),
+        REFMEM_VECTOR_SLOT_ACK_CMD);
     return false;
 }
 

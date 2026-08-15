@@ -77,12 +77,12 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 增加 TableRegistry 可观测生命周期字段：`EMPTY/STAGED/CRC_OK/OWNER_OK/ACTIVE/ROLLBACKABLE/FAILED`。
 - [x] 实现 registry 级真实 active/staging/rollbackable table image 切换：`.rmtp` package bytes 进入私有 staging buffer，activation gate 通过后旧 active descriptor/buffer 进入 rollbackable，staging descriptor/buffer 切为 active；metadata-only staging 或失败 staging 必须清空 payload，继续以 `IMAGE_NOT_LOADED` 阻断伪切换。
 - [x] 定义并落地 table image descriptor：active/staging/rollbackable 只由 descriptor、seq、CRC bundle、state 和 evidence 对外可见，完整表数据不得写入 RefMem 向量表。
-- [ ] 增加完整 activation gate：RefMem load mode、产品实时 idle/park、flash lockout/RAM-resident 入口、CRC bundle、owner validation、SlotClaimMap、DeploymentGate 和 command ACK 必须全部通过后才能切 active；当前 registry 级 gate 字段已存在，仍需接入真实系统状态与跨节点 ACK/FENCE。
+- [ ] 增加完整 activation gate：RefMem load mode、产品实时 idle/park、flash lockout/RAM-resident 入口、CRC bundle、owner validation、SlotClaimMap、DeploymentGate 和 command ACK 必须全部通过后才能切 active；当前单板 gate 已接入 RefMem idle、realtime idle、runtime protection、CRC/owner、SlotClaim、quality/DeploymentGate 和 local command take，仍需接跨节点 ACK/FENCE 与 staging stable table view。
 - [ ] 实现 table dump/load 镜像规则：dump 只导出稳定 snapshot，load 只能进入 staging，不得直接覆盖 active。
 - [x] 增加 owner validation contract 首版入口：`refmem_table_registry_validate_staging()` 只校验当前 staging snapshot 的 CRC/lint/error 结果，不执行 active 替换。
 - [ ] 实现真实 owner validation callback 调度；CRC 通过后仍必须由表 owner 检查字段范围、逻辑一致性、资源冲突和运行门禁。
 - [ ] owner validation callback 结果必须写入 TableRegistry：table id、owner id、validator id、result、reason、evidence index 和失败阶段。
-- [x] 将 `SYSTem:REFMEM:LOAD:SD` 从 manifest 占位升级为 `.rmtp` table image parser 首版，校验 header、table directory、payload CRC、package CRC 和每表 CRC；当前仍只写 staging snapshot，不替换 active。
+- [x] 将 `SYSTem:REFMEM:LOAD:SD` 从 manifest 占位升级为 `.rmtp` table image parser 首版，校验 header、table directory、payload CRC、package CRC 和每表 CRC；当前只写 staging，active 替换必须通过 `SYSTem:REFMEM:LOAD:ACTivate` intent。
 - [x] 将 `.rmtp` 中的 `ApplicationMap`、`BoardCapabilityTable`、`GenericNodeTable` 和 `NodeLoadTable` 从 64 字节占位 payload 升级为固定 u32 表镜像；`RefMemTableRegistry` 在 package CRC 通过后解析这四张表并调用 application contract 做 owner validation。
 - [x] 将 RMTP table image 二进制生成逻辑收敛为共享基础件 `tools/refmem_table_image/refmem_table_image.py`，独立 package 工具和 SD System Pack staging 复用同一份 header、directory、表顺序、CRC 和默认表 payload。
 - [x] 将 `.rmtp` package validation summary 写入 `RefMemTableRegistry` per-table staging entry：descriptor 保留 package CRC，entry 使用 table directory CRC；全 9 张 canonical 表 owner validation 通过后 staging descriptor 进入 `OWNER_OK`，但真实 active image buffer 未落地前仍不得激活。
@@ -98,6 +98,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 修复 StorageSCPI 写入 `/refmem/app_model.rmtp` 时反复撞 `RUNNING` 的结构性原因：StorageAO 显式 job 优先于 boot snapshot，Storage task 优先级高于 UI，UI 在 Storage job active 时让路；确认问题不是 RefMem PIO-SPI 与 SD 共用总线，而是 SD/LCD 共用 SPI 和服务优先级叠加。
 - [x] 修复 FatFs 原子替换阶段 `RENAME_FAILED` 的兜底路径：text/binary 写入收敛为公共 bytes helper，临时文件 rename 失败后直写目标文件并清理 tmp，避免 `.rmtp` CRC 已匹配但替换失败导致 job 卡死或失败。
 - [x] 增加 `SYSTem:REFMEM:TABle? [table_id]` 维护查询，观察 registry、active/staging CRC、validation state 和 evidence；保持在 `SYSTem:REFMEM:*` 命名空间内。
+- [x] 增加 `SYSTem:REFMEM:LOAD:ACTivate` 和 `SYSTem:REFMEM:TABle:IMAGe?` 维护入口：SCPI 只提交 activation intent 或读取 descriptor，`DistributedRefMemAO` 通过 `TABLE_PACKAGE_ACTIVATE` command slot 执行 registry 级 activation。
 - [ ] 重新 OTA COM5/COM6 并执行 `refmem_pack_write` + `refmem_scpi_load_validate`，确认 9 表 `.rmtp` 写入、读取、`LOAD:SD` staging 和 registry image lifecycle 在最小系统板上闭环通过。
 
 ## P1 - SlotClaimMap 与自组网协调
@@ -294,7 +295,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 板端验证 `SYSTem:STORage:FILE:WRITe:BEGIN/DATA/END` 上传 `/refmem/app_model.rmtp`，再用 `FILE:INFO?`、`FILE:READ?` 和 `SYSTem:REFMEM:LOAD:SD` 完成正向闭环。
 - [x] 板端验证通用 Storage 文件管理闭环：目录 create/rename/catalog/delete，文件 write/info/read/rename/delete。
 - [ ] 增加 table registry 验证：CRC 正确但 owner validation 失败时不得激活。
-- [ ] 增加 table image activation 验证：staging validated 后 active CRC bundle、table seq、rollbackable CRC 和 `SYSTem:REFMEM:TABle?` 状态按预期变化。
+- [x] 增加 table image activation 验证：COM5/COM6 build `20260815121205` 已通过 `LOAD:SD -> LOAD:ACTivate -> TABle:IMAGe? -> TABle? 0..8`，确认 active CRC bundle、table seq、staging 清零和 `ACTIVE` 状态按预期变化；首轮没有旧 active package bytes，因此 rollbackable descriptor 为空，后续需增加二次 activation 回滚验证。
 - [ ] 增加 activation 失败回滚验证：owner validation 失败、SlotClaim 冲突、DeploymentGate 拒绝和 ACK timeout 都不得污染旧 active image。
 - [x] 增加 TableRegistry 纯 C 单元测试入口：`tools/tests/run_refmem_table_registry_tests.ps1`，覆盖 active descriptor、staging activation、gate 失败保持 active 不变、rollbackable descriptor 和无有效 staging 拒绝。
 - [x] 增加 SlotClaim gate 正向验证入口：`tools/multicore_board_validate` 和 pytest HIL 查询 `SYSTem:REFMEM:CLAIM?` 与 `SYSTem:CONFigure:STAT?`，确认默认 profile gate ready 一致。

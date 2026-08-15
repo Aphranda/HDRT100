@@ -153,6 +153,9 @@ python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port
   through generic `SYSTem:STORage:FILE:WRITe:*` SCPI commands, reads back the
   first bytes with `SYSTem:STORage:FILE:READ?`, and can run
   `SYSTem:REFMEM:LOAD:SD` for the RefMem staging gate.
+- `refmem_table_registry_validate/refmem_table_registry_validate.py`: validates
+  RMTP package/table CRCs against `SYSTem:REFMEM:TABle?`; pass `--activate` to
+  verify `SYSTem:REFMEM:LOAD:ACTivate` and active image descriptor switching.
 - `storage_scpi_validate/storage_scpi_validate.py`: board-side validation for
   generic StorageAO file and directory CRUD. It covers directory create,
   catalog, rename and delete, plus file write transaction, info, readback,

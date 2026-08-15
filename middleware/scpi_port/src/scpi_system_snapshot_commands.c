@@ -71,6 +71,9 @@ static void scpi_refmem_result_load_snapshot(scpi_t *context,
 static void scpi_refmem_result_board_load_snapshot(
     scpi_t *context,
     const refmem_board_capability_load_snapshot_t *snapshot);
+static void scpi_refmem_result_table_image_descriptor(
+    scpi_t *context,
+    const refmem_table_image_descriptor_t *descriptor);
 static bool scpi_refmem_sync_ensure_initialized(void);
 static uint32_t scpi_refmem_sync_build_id_crc32(void);
 static bool scpi_refmem_sync_build_hello_frame(uint8_t source_slot,
@@ -566,6 +569,34 @@ scpi_result_t scpi_cmd_refmem_load_board(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_load_activate(scpi_t *context)
+{
+    const bool activated =
+        distributed_refmem_activate_staging(scpi_refmem_realtime_idle() ? 1u : 0u);
+
+    refmem_table_registry_snapshot_t snapshot;
+    refmem_table_registry_get_snapshot(&snapshot);
+    refmem_table_image_descriptor_t active;
+    refmem_table_image_descriptor_t staging;
+    refmem_table_image_descriptor_t rollbackable;
+    (void)refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_ACTIVE, &active);
+    (void)refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_STAGING, &staging);
+    (void)refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_ROLLBACKABLE,
+                                                    &rollbackable);
+
+    SCPI_ResultText(context, activated ? "ACTIVE" : "REJECTED");
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.table_count);
+    SCPI_ResultUInt32(context, snapshot.active_table_mask);
+    SCPI_ResultUInt32(context, snapshot.staging_table_mask);
+    SCPI_ResultUInt32(context, snapshot.registry_crc32);
+    SCPI_ResultUInt32(context, snapshot.last_error);
+    scpi_refmem_result_table_image_descriptor(context, &active);
+    scpi_refmem_result_table_image_descriptor(context, &staging);
+    scpi_refmem_result_table_image_descriptor(context, &rollbackable);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_load_status_q(scpi_t *context)
 {
     refmem_application_model_load_snapshot_t snapshot;
@@ -613,6 +644,21 @@ scpi_result_t scpi_cmd_refmem_table_q(scpi_t *context)
     SCPI_ResultUInt32(context, entry.last_result);
     SCPI_ResultUInt32(context, entry.evidence_index);
     SCPI_ResultUInt32(context, entry.flags);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_table_image_q(scpi_t *context)
+{
+    uint32_t role = REFMEM_TABLE_IMAGE_ACTIVE;
+    (void)SCPI_ParamUInt32(context, &role, FALSE);
+
+    refmem_table_image_descriptor_t descriptor;
+    if (!refmem_table_registry_get_image_descriptor((refmem_table_image_role_t)role,
+                                                    &descriptor)) {
+        return SCPI_RES_ERR;
+    }
+
+    scpi_refmem_result_table_image_descriptor(context, &descriptor);
     return SCPI_RES_OK;
 }
 
@@ -1918,6 +1964,21 @@ static void scpi_refmem_result_board_load_snapshot(
     SCPI_ResultUInt32(context, snapshot->staging_active_default_slot);
     SCPI_ResultUInt32(context, snapshot->staging_online_required);
     SCPI_ResultUInt32(context, snapshot->last_error);
+}
+
+static void scpi_refmem_result_table_image_descriptor(
+    scpi_t *context,
+    const refmem_table_image_descriptor_t *descriptor)
+{
+    SCPI_ResultUInt32(context, descriptor->version);
+    SCPI_ResultUInt32(context, descriptor->role);
+    SCPI_ResultUInt32(context, descriptor->state);
+    SCPI_ResultUInt32(context, descriptor->table_mask);
+    SCPI_ResultUInt32(context, descriptor->package_crc32);
+    SCPI_ResultUInt32(context, descriptor->table_seq);
+    SCPI_ResultUInt32(context, descriptor->path_hash);
+    SCPI_ResultUInt32(context, descriptor->last_result);
+    SCPI_ResultUInt32(context, descriptor->evidence_index);
 }
 
 static bool scpi_refmem_sync_ensure_initialized(void)

@@ -27,6 +27,9 @@ HEADER_SIZE = 64
 TABLE_COUNT = 9
 TABLE_MASK_ALL = (1 << TABLE_COUNT) - 1
 VALIDATION_OWNER_OK = 3
+VALIDATION_ACTIVE = 4
+VALIDATION_ROLLBACKABLE = 5
+TABLE_FLAG_ACTIVE_PRESENT = 0x00000001
 TABLE_FLAG_STAGING_PRESENT = 0x00000002
 TABLE_FLAG_CRC_OK = 0x00000004
 TABLE_FLAG_OWNER_OK = 0x00000008
@@ -80,6 +83,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--settle", type=float, default=1.0)
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--load-sd", action="store_true", help="run SYSTem:REFMEM:LOAD:SD before CRC checks")
+    parser.add_argument("--activate", action="store_true", help="activate staged package and validate active CRCs")
     return parser.parse_args()
 
 
@@ -252,8 +256,30 @@ def check_load_status(response: str, package: PackageSummary) -> None:
         raise AssertionError(f"last error is non-zero: {fields[21]}")
 
 
-def check_table_response(response: str, expected: TableDirectoryEntry) -> None:
+def check_table_response(response: str, expected: TableDirectoryEntry, *, activated: bool = False) -> None:
     fields = table_fields(response)
+    if activated:
+        checks = {
+            "version": fields[0] == 1,
+            "table_count": fields[1] == TABLE_COUNT,
+            "active_mask": fields[2] == TABLE_MASK_ALL,
+            "staging_mask": fields[3] == 0,
+            "registry_error": fields[5] == 0,
+            "table_id": fields[6] == expected.table_id,
+            "image_size": fields[10] == expected.size,
+            "active_crc": fields[11] == expected.crc32,
+            "staging_crc": fields[12] == 0,
+            "validation_state": fields[13] == VALIDATION_ACTIVE,
+            "last_result": fields[15] == 0,
+            "flags": (fields[17] & (TABLE_FLAG_ACTIVE_PRESENT | TABLE_FLAG_CRC_OK | TABLE_FLAG_OWNER_OK)) ==
+                     (TABLE_FLAG_ACTIVE_PRESENT | TABLE_FLAG_CRC_OK | TABLE_FLAG_OWNER_OK),
+        }
+        bad = [name for name, ok in checks.items() if not ok]
+        if bad:
+            table_name = TABLE_NAMES[expected.table_id]
+            raise AssertionError(f"{table_name} active registry mismatch {bad}: {fields}")
+        return
+
     checks = {
         "version": fields[0] == 1,
         "table_count": fields[1] == TABLE_COUNT,
@@ -274,7 +300,61 @@ def check_table_response(response: str, expected: TableDirectoryEntry) -> None:
         raise AssertionError(f"{table_name} registry mismatch {bad}: {fields}")
 
 
-def run_validation(execute, package: PackageSummary, *, load_sd: bool, load_timeout_s: float) -> list[Record]:
+def image_fields(response: str) -> list[int]:
+    fields = parse_csv_response(response)
+    if len(fields) != 9:
+        raise AssertionError(f"TABle:IMAGe field_count={len(fields)} expected=9")
+    try:
+        return [int(field.strip().strip('"'), 0) for field in fields]
+    except ValueError as exc:
+        raise AssertionError(f"TABle:IMAGe response contains non-integer field: {response!r}") from exc
+
+
+def check_image_response(response: str, *, role: int, state: int, table_mask: int, package: PackageSummary) -> None:
+    fields = image_fields(response)
+    checks = {
+        "version": fields[0] == 1,
+        "role": fields[1] == role,
+        "state": fields[2] == state,
+        "table_mask": fields[3] == table_mask,
+        "package_crc32": fields[4] == (package.package_crc32 if table_mask != 0 else 0),
+        "last_result": fields[7] == 0,
+    }
+    bad = [name for name, ok in checks.items() if not ok]
+    if bad:
+        raise AssertionError(f"image descriptor mismatch {bad}: {fields}")
+
+
+def check_activate_response(response: str, package: PackageSummary) -> None:
+    fields = parse_csv_response(response)
+    if len(fields) != 34:
+        raise AssertionError(f"LOAD:ACTivate field_count={len(fields)} expected=34")
+    if fields[0] != "ACTIVE":
+        raise AssertionError(f"LOAD:ACTivate did not activate: {response!r}")
+    values = [int(field.strip().strip('"'), 0) for field in fields[1:]]
+    if values[0] != 1 or values[1] != TABLE_COUNT:
+        raise AssertionError(f"unexpected registry header: {values[:6]}")
+    if values[2] != TABLE_MASK_ALL or values[3] != 0 or values[5] != 0:
+        raise AssertionError(f"unexpected registry masks/error: {values[:6]}")
+    active = values[6:15]
+    staging = values[15:24]
+    rollbackable = values[24:33]
+    if active[1] != 0 or active[2] != VALIDATION_ACTIVE:
+        raise AssertionError(f"active image descriptor invalid: {active}")
+    if active[3] != TABLE_MASK_ALL or active[4] != package.package_crc32:
+        raise AssertionError(f"active image package mismatch: {active}")
+    if staging[1] != 1 or staging[2] != 0 or staging[3] != 0:
+        raise AssertionError(f"staging image descriptor was not cleared: {staging}")
+    if rollbackable[1] != 2:
+        raise AssertionError(f"rollbackable image role mismatch: {rollbackable}")
+
+
+def run_validation(execute,
+                   package: PackageSummary,
+                   *,
+                   load_sd: bool,
+                   activate: bool,
+                   load_timeout_s: float) -> list[Record]:
     records: list[Record] = []
 
     def run(command: str, checker, timeout_s: float | None = None) -> None:
@@ -296,9 +376,28 @@ def run_validation(execute, package: PackageSummary, *, load_sd: bool, load_time
             lambda response: check_command_ack(response, command_type=16, payload_size=76))
 
     run("SYSTem:REFMEM:LOAD:STATus?", lambda response: check_load_status(response, package))
+    if activate:
+        run("SYSTem:REFMEM:LOAD:ACTivate", lambda response: check_activate_response(response, package))
+        run("SYSTem:COMMand:ACK?",
+            lambda response: check_command_ack(response, command_type=17, payload_size=16))
+        run("SYSTem:REFMEM:TABle:IMAGe? 0",
+            lambda response: check_image_response(response,
+                                                  role=0,
+                                                  state=VALIDATION_ACTIVE,
+                                                  table_mask=TABLE_MASK_ALL,
+                                                  package=package))
+        run("SYSTem:REFMEM:TABle:IMAGe? 1",
+            lambda response: check_image_response(response,
+                                                  role=1,
+                                                  state=0,
+                                                  table_mask=0,
+                                                  package=package))
+
     for entry in package.entries:
         run(f"SYSTem:REFMEM:TABle? {entry.table_id}",
-            lambda response, expected=entry: check_table_response(response, expected))
+            lambda response, expected=entry: check_table_response(response,
+                                                                  expected,
+                                                                  activated=activate))
     run("SYSTem:ERRor?", check_no_scpi_error)
     return records
 
@@ -364,7 +463,11 @@ def main() -> int:
     execute, close_handles = make_execute(args)
     records: list[Record] = []
     try:
-        records = run_validation(execute, package, load_sd=args.load_sd, load_timeout_s=args.load_timeout)
+        records = run_validation(execute,
+                                 package,
+                                 load_sd=args.load_sd,
+                                 activate=args.activate,
+                                 load_timeout_s=args.load_timeout)
     finally:
         for handle in close_handles:
             try:

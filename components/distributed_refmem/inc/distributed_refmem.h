@@ -196,6 +196,7 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
                                              uint32_t table_crc32_count,
                                              uint32_t owner_validated_table_mask,
                                              uint32_t first_bad_table);
+bool distributed_refmem_activate_staging(uint32_t realtime_idle);
 bool distributed_refmem_stage_board_capability(uint32_t board_id,
                                                uint32_t board_uuid_crc32,
                                                uint32_t capability_mask,
