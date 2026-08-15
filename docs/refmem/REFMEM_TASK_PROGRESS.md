@@ -25,6 +25,8 @@ Last updated: 2026-08-15
   - `python tools\docs_check\docs_check.py` 通过，warnings=0。
   - `python tools\checks\check_scpi_usb_namespace.py --root .` 通过。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815085709`，package CRC `0x1C61EB50`。
+  - COM5 执行 `python tools\ota_boot_commit\ota_boot_commit.py COM5 --expected-build 20260815085709 --out-dir build-rtos-multicore-smoke\ota_commit_COM5_20260815085709` 通过，`SYSTem:FW:BUILD?` 返回 `20260815085709`，`SYSTem:OTA:COMMit` 返回 `"OK"`，错误队列为 `0,"No error"`。
+  - COM6 执行 `python tools\ota_boot_commit\ota_boot_commit.py COM6 --expected-build 20260815085709 --out-dir build-rtos-multicore-smoke\ota_commit_COM6_20260815085709` 通过，`SYSTem:FW:BUILD?` 返回 `20260815085709`，`SYSTem:OTA:COMMit` 返回 `"OK"`，错误队列为 `0,"No error"`。
 - 后续闭环：
   - 后续必须引入真实 staging/active/rollbackable table image buffer 和业务表切换后，才能恢复 activation 成功路径。
 - 关联文件：
