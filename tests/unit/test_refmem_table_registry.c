@@ -668,6 +668,153 @@ static int test_package_stage_uses_table_crc_and_partial_owner_state(void)
     return failed;
 }
 
+static int test_package_image_activation_switches_active_and_rollbackable(void)
+{
+    int failed = 0;
+    uint8_t package[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
+    refmem_table_package_validation_t validation;
+    const size_t package_size = build_test_package(package, sizeof(package), true);
+    const refmem_application_model_snapshot_t model = make_active_model();
+    refmem_application_model_load_snapshot_t load = make_valid_load();
+    refmem_table_activation_gate_t gate = make_pass_gate();
+    refmem_table_image_descriptor_t active;
+    refmem_table_image_descriptor_t staging;
+    refmem_table_image_descriptor_t rollbackable;
+    refmem_table_registry_entry_t node_load_entry;
+    refmem_table_registry_snapshot_t snapshot;
+
+    failed += expect_bool("contract package validates for image",
+                          refmem_table_registry_validate_package(package,
+                                                                 package_size,
+                                                                 &validation),
+                          true);
+    load.staging_package_crc32 = validation.package_crc32;
+
+    refmem_table_registry_init(&model);
+    failed += expect_bool("stage package image",
+                          refmem_table_registry_stage_package_image(&load,
+                                                                    package,
+                                                                    package_size,
+                                                                    &validation),
+                          true);
+    failed += expect_bool("activate image",
+                          refmem_table_registry_activate_staging(&gate),
+                          true);
+    failed += expect_bool("get active image",
+                          refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_ACTIVE,
+                                                                     &active),
+                          true);
+    failed += expect_bool("get staging image",
+                          refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_STAGING,
+                                                                     &staging),
+                          true);
+    failed += expect_bool("get rollbackable image",
+                          refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_ROLLBACKABLE,
+                                                                     &rollbackable),
+                          true);
+    failed += expect_bool("get active nodeload entry",
+                          refmem_table_registry_get_entry(REFMEM_APP_TABLE_NODE_LOAD,
+                                                          &node_load_entry),
+                          true);
+
+    failed += expect_u32("active image state", active.state, REFMEM_TABLE_VALIDATION_ACTIVE);
+    failed += expect_u32("active image package", active.package_crc32, validation.package_crc32);
+    failed += expect_u32("active image seq", active.table_seq, 2u);
+    failed += expect_u32("staging cleared", staging.state, REFMEM_TABLE_VALIDATION_EMPTY);
+    failed += expect_u32("rollback initially empty",
+                         rollbackable.state,
+                         REFMEM_TABLE_VALIDATION_EMPTY);
+    failed += expect_u32("nodeload active crc",
+                         node_load_entry.active_crc32,
+                         validation.table_crc32[REFMEM_APP_TABLE_NODE_LOAD]);
+    failed += expect_u32("nodeload staging cleared", node_load_entry.staging_crc32, 0u);
+    failed += expect_u32("nodeload active state",
+                         node_load_entry.validation_state,
+                         REFMEM_TABLE_VALIDATION_ACTIVE);
+
+    refmem_table_registry_get_snapshot(&snapshot);
+    failed += expect_u32("snapshot active mask",
+                         snapshot.active_table_mask,
+                         REFMEM_APP_TABLE_MASK_ALL);
+    failed += expect_u32("snapshot staging mask", snapshot.staging_table_mask, 0u);
+    failed += expect_u32("snapshot last error", snapshot.last_error, REFMEM_TABLE_ACTIVATE_OK);
+
+    failed += expect_bool("stage package image again",
+                          refmem_table_registry_stage_package_image(&load,
+                                                                    package,
+                                                                    package_size,
+                                                                    &validation),
+                          true);
+    failed += expect_bool("activate image again",
+                          refmem_table_registry_activate_staging(&gate),
+                          true);
+    failed += expect_bool("get rollbackable after second activate",
+                          refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_ROLLBACKABLE,
+                                                                     &rollbackable),
+                          true);
+    failed += expect_u32("rollbackable state",
+                         rollbackable.state,
+                         REFMEM_TABLE_VALIDATION_ROLLBACKABLE);
+    failed += expect_u32("rollbackable package",
+                         rollbackable.package_crc32,
+                         validation.package_crc32);
+    failed += expect_u32("rollbackable seq", rollbackable.table_seq, 2u);
+    return failed;
+}
+
+static int test_metadata_staging_clears_stale_package_image(void)
+{
+    int failed = 0;
+    uint8_t package[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
+    refmem_table_package_validation_t validation;
+    const size_t package_size = build_test_package(package, sizeof(package), true);
+    const refmem_application_model_snapshot_t model = make_active_model();
+    refmem_application_model_load_snapshot_t load = make_valid_load();
+    refmem_table_activation_gate_t gate = make_pass_gate();
+    refmem_table_image_descriptor_t staging;
+    refmem_table_registry_snapshot_t snapshot;
+
+    failed += expect_bool("contract package validates before stale test",
+                          refmem_table_registry_validate_package(package,
+                                                                 package_size,
+                                                                 &validation),
+                          true);
+    load.staging_package_crc32 = validation.package_crc32;
+
+    refmem_table_registry_init(&model);
+    failed += expect_bool("stage package image before metadata-only staging",
+                          refmem_table_registry_stage_package_image(&load,
+                                                                    package,
+                                                                    package_size,
+                                                                    &validation),
+                          true);
+    failed += expect_bool("stage metadata-only table",
+                          refmem_table_registry_stage_table(REFMEM_APP_TABLE_NODE_LOAD,
+                                                            0x22223333u,
+                                                            REFMEM_TABLE_VALIDATION_OWNER_OK,
+                                                            REFMEM_TABLE_PACKAGE_OK),
+                          true);
+    failed += expect_bool("metadata-only staging cannot activate stale image",
+                          refmem_table_registry_activate_staging(&gate),
+                          false);
+    failed += expect_bool("get staging after metadata-only activation reject",
+                          refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_STAGING,
+                                                                     &staging),
+                          true);
+    failed += expect_u32("metadata-only staging remains owner-ok",
+                         staging.state,
+                         REFMEM_TABLE_VALIDATION_OWNER_OK);
+    failed += expect_u32("metadata-only staging reject reason",
+                         staging.last_result,
+                         REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED);
+
+    refmem_table_registry_get_snapshot(&snapshot);
+    failed += expect_u32("metadata-only snapshot last error",
+                         snapshot.last_error,
+                         REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -679,6 +826,8 @@ int main(void)
     failed += test_package_owner_validation_rejects_placeholder_tables();
     failed += test_package_owner_validation_accepts_contract_tables();
     failed += test_package_stage_uses_table_crc_and_partial_owner_state();
+    failed += test_package_image_activation_switches_active_and_rollbackable();
+    failed += test_metadata_staging_clears_stale_package_image();
 
     if (failed != 0) {
         (void)printf("refmem_table_registry tests failed: %d\n", failed);

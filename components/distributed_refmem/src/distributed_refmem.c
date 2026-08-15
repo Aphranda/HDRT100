@@ -710,6 +710,8 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
                                              uint32_t package_crc32,
                                              uint32_t package_valid,
                                              uint32_t package_error,
+                                             const uint8_t *package_data,
+                                             size_t package_size,
                                              const uint32_t *table_crc32,
                                              uint32_t table_crc32_count,
                                              uint32_t owner_validated_table_mask,
@@ -800,7 +802,10 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
             validation.table_crc32[i] =
                 (table_crc32 != NULL && i < table_crc32_count) ? table_crc32[i] : 0u;
         }
-        (void)refmem_table_registry_stage_package_validation(&snapshot, &validation);
+        (void)refmem_table_registry_stage_package_image(&snapshot,
+                                                        package_data,
+                                                        package_size,
+                                                        &validation);
     }
 
     if (staged) {

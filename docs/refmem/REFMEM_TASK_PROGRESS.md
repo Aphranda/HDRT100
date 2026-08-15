@@ -8,6 +8,33 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-031 - Registry image lifecycle buffers
+
+- 状态：完成 COM5/COM6 板端闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 将 `RefMemTableRegistry` 从 descriptor/CRC staging 推进到 registry 级真实 package image 生命周期。
+  - 保持 HAOFV 边界：完整 `.rmtp` bytes 只进入 `DistributedRefMemAO` / `RefMemTableRegistry` 私有 buffer，向量表和 SCPI 查询只暴露 descriptor、CRC、state、seq 和 evidence 摘要。
+- 完成内容：
+  - `RefMemTableRegistry` 新增 active/staging/rollbackable 三组静态 image buffer 和 size，单包上限 `REFMEM_TABLE_IMAGE_BUFFER_SIZE=8192`。
+  - 新增 `refmem_table_registry_stage_package_image()`，在 package/header/table CRC 与 owner validation summary 通过后复制完整 package bytes 到 staging image。
+  - `refmem_table_registry_activate_staging()` 已能在 gate 通过且 staging bytes 存在时执行 registry 级切换：旧 active 进入 rollbackable，staging 进入 active，per-table active CRC 从 staging CRC 更新，staging descriptor/payload 清空。
+  - metadata-only staging、失败 staging 或空 package staging 会清空 staging payload；activation 继续返回 `IMAGE_NOT_LOADED`，避免复用上一轮 package bytes 形成伪 active。
+  - `SYSTem:REFMEM:LOAD:SD` 现在把 StorageAO 读取到的 package bytes 随 package validation summary 一起交给 `DistributedRefMemAO`，SCPI 仍不直接写 TableRegistry 或 active fact。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过；新增 stale payload 回归断言。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815115843`，package CRC `0x15FE50D0`。
+  - COM5 OTA 到 build `20260815115843` 并 `SYSTem:OTA:COMMit` 通过，错误队列为 0。
+  - COM6 OTA 到 build `20260815115843` 并 `SYSTem:OTA:COMMit` 通过，错误队列为 0。
+  - COM5 执行 `python -u tools\refmem_table_registry_validate\refmem_table_registry_validate.py COM5 --package build-rtos-multicore-smoke\sdcard_full_tables_20260815110412\refmem\app_model.rmtp --load-sd --timeout 10 --load-timeout 30 --out-dir build-rtos-multicore-smoke\refmem_table_registry_COM5_20260815115843_image_lifecycle` 通过。
+  - COM6 执行 `python -u tools\refmem_table_registry_validate\refmem_table_registry_validate.py COM6 --package build-rtos-multicore-smoke\sdcard_full_tables_20260815110412\refmem\app_model.rmtp --load-sd --timeout 10 --load-timeout 30 --out-dir build-rtos-multicore-smoke\refmem_table_registry_COM6_20260815115843_image_lifecycle` 通过。
+  - COM5/COM6 均执行 `tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py --skip-sd` 通过，确认 `LOAD:NODE`、`LOAD:BOARD` 和 command ACK/NACK 路径未被 staging payload 生命周期改动破坏。
+- 结论：
+  - P0 的 registry 级真实 active/staging/rollbackable image buffer 切换已经落地；向量表仍只承载摘要，符合 HAOFV。
+  - activation 后 active package 到业务 stable table view 的解析、owner access/release、真实 owner validation callback 调度和跨节点 activation ACK/FENCE 仍是后续 P0/P2/P3 工作。
+
 ### REFMEM-TASK-20260815-030 - NodeLoadTable staging image
 
 - 状态：完成 COM5 板端闭环

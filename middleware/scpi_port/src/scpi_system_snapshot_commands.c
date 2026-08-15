@@ -384,6 +384,8 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
                                                     REFMEM_TABLE_PACKAGE_ERR_TOO_SMALL,
                                                     NULL,
                                                     0u,
+                                                    NULL,
+                                                    0u,
                                                     0u,
                                                     0u);
         refmem_application_model_load_snapshot_t snapshot;
@@ -410,6 +412,8 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
                                                     0u,
                                                     0u,
                                                     REFMEM_TABLE_PACKAGE_ERR_TOO_SMALL,
+                                                    NULL,
+                                                    0u,
                                                     NULL,
                                                     0u,
                                                     0u,
@@ -452,6 +456,8 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
                                                 validation.package_crc32,
                                                 package_valid ? 1u : 0u,
                                                 validation.error,
+                                                package_valid ? s_refmem_package_buffer : NULL,
+                                                package_valid ? package_size : 0u,
                                                 validation.table_crc32,
                                                 REFMEM_TABLE_REGISTRY_COUNT,
                                                 validation.owner_validated_table_mask,

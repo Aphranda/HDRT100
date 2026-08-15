@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面。
 
@@ -211,6 +211,8 @@ RefMem table image activation 是 `DistributedRefMemAO` 的内部表驱动事务
 | `active_image` | 当前 RUN gate 和业务 AO/FB 使用的稳定表集合。 | RefMemAO 管理的 active descriptor / table buffer。 | 对业务 snapshot 可见。 |
 | `staging_image` | SCPI、SD 或类似 OTA 加载后的候选表集合。 | RefMemAO 私有 staging buffer 或外部 table image descriptor。 | 只对维护查询和 validator 可见。 |
 | `rollbackable_image` | 最近一次被替换的旧 active 表集合。 | RefMemAO 保留的 rollback descriptor / table buffer。 | 只对回滚和诊断 evidence 可见。 |
+
+当前实现中，`.rmtp` package image 字节保存在 `RefMemTableRegistry` 私有 active/staging/rollbackable buffer 中，向量表和 `SYSTem:REFMEM:TABle?` 只暴露 descriptor、CRC、state、seq 和 evidence 摘要。metadata-only staging（例如单表 CRC staging、`LOAD:NODE` 首版 staging 或失败 staging）必须清空 staging payload；只有 `stage_package_image()` 成功复制了完整 package 字节后，activation 才能使用该 staging image，避免旧 package buffer 被误激活。
 
 activation 状态必须比 load mode 更细：
 
@@ -1258,7 +1260,7 @@ SCPI / SD
   -> 后续 ACTIVATE 才允许替换 active
 ```
 
-`SYSTem:REFMEM:LOAD:SD [path]` 扫描 SD `/manifest.idx`，随后读取并校验 RefMem table image；默认路径为 `/refmem/app_model.rmtp`，可用可选 path 覆盖。StorageAO/FB 负责 SD/FatFs、manifest scan 和文件读写；SCPI 不直接写 TableRegistry，`DistributedRefMemAO` 通过 `TABLE_PACKAGE_STAGE` command slot 消费 StorageAO 给出的 path hash、manifest 摘要、package CRC 和 table CRC 摘要，随后写 RefMem staging 并 ACK/NACK。当前 parser 已校验 `.rmtp` header、table directory、payload CRC、package CRC 和单表 CRC，但仍只写 staging load snapshot，不替换 active image。`RefMemTableRegistry` 的 staging descriptor 记录 package CRC，table entry 记录各自 table directory CRC；ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality 全 9 张 canonical 表均为固定 u32 wire payload，并通过 owner validation 后进入 OWNER_OK。真实 active/staging/rollbackable image buffer 未落地前，activation 仍必须返回 `IMAGE_NOT_LOADED`，不得只切 descriptor/CRC 宣称 active image 已替换。
+`SYSTem:REFMEM:LOAD:SD [path]` 扫描 SD `/manifest.idx`，随后读取并校验 RefMem table image；默认路径为 `/refmem/app_model.rmtp`，可用可选 path 覆盖。StorageAO/FB 负责 SD/FatFs、manifest scan 和文件读写；SCPI 不直接写 TableRegistry，`DistributedRefMemAO` 通过 `TABLE_PACKAGE_STAGE` command slot 消费 StorageAO 给出的 path hash、manifest 摘要、package CRC、package bytes 和 table CRC 摘要，随后写 RefMem staging 并 ACK/NACK。当前 parser 已校验 `.rmtp` header、table directory、payload CRC、package CRC 和单表 CRC，并把完整 package bytes 复制到 `RefMemTableRegistry` 私有 staging image buffer；activation gate 通过后，registry 会将旧 active descriptor/buffer 移入 rollbackable，再把 staging descriptor/buffer 切为 active。`RefMemTableRegistry` 的 staging descriptor 记录 package CRC，table entry 记录各自 table directory CRC；ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality 全 9 张 canonical 表均为固定 u32 wire payload，并通过 owner validation 后进入 OWNER_OK。下一步仍需把 activation 后的 active image 解析为业务可读的 stable table view，并接入真实 owner validation callback 调度。
 
 `SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 允许 SCPI 提交一条 NodeLoad 候选到 staging，用于调试和自组网协调前的节点实例化验证；SCPI 只调用 RefMem intent API，`DistributedRefMemAO` 通过 `NODE_LOAD_STAGE` command slot take 后，由 RefMemAO owner 更新私有 staging `DistributedNodeLoadTable` 镜像、执行 NodeLoadTable contract validation、计算整表 CRC，并只把 table 3 `NodeLoadTable` 的 staging CRC、OWNER_OK/FAILED 状态和 evidence 摘要发布到 `RefMemTableRegistry`。该入口不直接覆盖 active `NodeLoadTable`，也不修改 NodeSlot live fact；多条 `LOAD:NODE` 可在同一 staging 表镜像上累积候选，直到后续 activation/abort/rollback 机制处理。
 
@@ -1338,16 +1340,16 @@ table directory 每项 16 字节：
 - `refmem_application_model.h/.c`：落地 ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality、静态 linter、package CRC 和 load staging snapshot。
 - `refmem_slot_claim.h/.c`：首版派生 `SlotClaimMap`，从 GenericNode、BoardCapability、NodeLoad 和 FB instance 生成 A0-A7 resolved assignment、candidate/assigned/conflict/overflow 计数、loaded instance mask 和 CRC。
 - `refmem_realtime_contract.h/.c`：首版派生 `RealtimeCapabilityContract`，从 NodeLoad、FB instance、GenericNode 和 SlotClaimMap resolved assignment 生成实例级资源/IO/类 IP 核能力契约；保留 default-slot fallback 仅用于过渡。
-- `SYSTem:REFMEM:LOAD:SD`：已接入 Storage manifest 扫描和 `.rmtp` table image parser，可校验 header、directory、payload CRC、package CRC 和单表 CRC；SCPI 只提交 StorageAO 结果摘要，`DistributedRefMemAO` 通过 `TABLE_PACKAGE_STAGE` command slot 写 staging 并 ACK/NACK，当前仍不执行 active 切换。
+- `SYSTem:REFMEM:LOAD:SD`：已接入 Storage manifest 扫描和 `.rmtp` table image parser，可校验 header、directory、payload CRC、package CRC 和单表 CRC；SCPI 只提交 StorageAO 结果摘要和 package bytes，`DistributedRefMemAO` 通过 `TABLE_PACKAGE_STAGE` command slot 写 staging 并 ACK/NACK，registry 级 activation 已能切换 active/staging/rollbackable image descriptor 和私有 bytes buffer。
 - `SYSTem:REFMEM:LOAD:NODE`：已支持通过 SCPI inline 提交 NodeLoad 候选到私有 staging `DistributedNodeLoadTable` image，按候选表重新执行 NodeLoadTable contract validation，并把 table 3 staging CRC 和 validation state 发布到 TableRegistry；尚未执行 active/rollbackable image 切换。
 - `SYSTem:REFMEM:LOAD:STATus?`：已可查询 load sequence、source、RefMem load mode、staging state、manifest、active/staging CRC、lint/error 和当前候选。
 - `SYSTem:REFMEM:LOAD:BOARD` / `SYSTem:REFMEM:LOAD:BOARD:STATus?`：已支持通过 SCPI inline 提交单条 BoardCapability 候选到 staging snapshot，校验 board 范围、`REFMEM+VDC` baseline 和默认 slot 范围；SCPI 已收敛为 RefMem intent，`DistributedRefMemAO` 通过 `BOARD_CAPABILITY_STAGE` command slot 写 staging 并 ACK/NACK；尚未形成多条 staging BoardCapabilityTable image。
-- `refmem_table_registry_activate_staging()`：已落地 registry 级 activation gate，但在真实 table image buffer 和业务表切换未实现前显式拒绝 active 替换，返回 `IMAGE_NOT_LOADED` 并保留 staging descriptor；不得只切 descriptor/CRC 伪装为 active 切换。
+- `refmem_table_registry_activate_staging()`：已落地 registry 级 activation gate 和真实 package image bytes 切换；无 package bytes 的 metadata-only staging 仍返回 `IMAGE_NOT_LOADED` 并保留 staging descriptor，禁止用旧 staging buffer 伪装 active 替换。
 - `refmem_table_registry_get_image_descriptor()`：已可读取 active/staging/rollbackable descriptor，用于后续维护查询和 activation 验证脚本。
 
 尚未形成完整实现的部分：
 
-- 真实 active/staging/rollbackable table buffer 双镜像切换和 owner validation callback。
+- activation 后 active image 到业务 stable table view 的解析、release/access 规则和 owner validation callback 调度。
 - `SlotClaimMap` RJ45 运行期聚合、自组网协调和 candidate overflow evidence；本地 SlotClaim gate 已接入 DeploymentGate/RUN gate。
 - `RefMemSlotContract` 派生代码、字段级 owner 写权限、seqlock/双缓冲快照和 subscription 分发。
 - `refmem_command.h/.c`、ACK/NACK 原子命令槽和 completion/fence 语义。

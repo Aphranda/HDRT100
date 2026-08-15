@@ -9,6 +9,7 @@
 
 #define REFMEM_TABLE_REGISTRY_VERSION 1u
 #define REFMEM_TABLE_REGISTRY_COUNT   9u
+#define REFMEM_TABLE_IMAGE_BUFFER_SIZE 8192u
 
 #define REFMEM_TABLE_FLAG_ACTIVE_PRESENT  0x00000001u
 #define REFMEM_TABLE_FLAG_STAGING_PRESENT 0x00000002u
@@ -63,6 +64,7 @@ typedef enum {
     REFMEM_TABLE_ACTIVATE_ERR_NO_VALID_STAGING = 2u,
     REFMEM_TABLE_ACTIVATE_ERR_GATE = 3u,
     REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED = 4u,
+    REFMEM_TABLE_ACTIVATE_ERR_IMAGE_TOO_LARGE = 5u,
 } refmem_table_activation_result_t;
 
 typedef struct {
@@ -132,6 +134,11 @@ void refmem_table_registry_refresh_staging(const refmem_application_model_load_s
 bool refmem_table_registry_validate_staging(const refmem_application_model_load_snapshot_t *load);
 bool refmem_table_registry_stage_package_validation(
     const refmem_application_model_load_snapshot_t *load,
+    const refmem_table_package_validation_t *validation);
+bool refmem_table_registry_stage_package_image(
+    const refmem_application_model_load_snapshot_t *load,
+    const uint8_t *data,
+    size_t size,
     const refmem_table_package_validation_t *validation);
 bool refmem_table_registry_stage_table(uint32_t table_id,
                                        uint32_t staging_crc32,

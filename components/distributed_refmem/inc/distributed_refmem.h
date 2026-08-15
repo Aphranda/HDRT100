@@ -2,6 +2,7 @@
 #define DISTRIBUTED_REFMEM_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define DISTRIBUTED_REFMEM_TABLE_SIZE       65536u
@@ -189,6 +190,8 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
                                              uint32_t package_crc32,
                                              uint32_t package_valid,
                                              uint32_t package_error,
+                                             const uint8_t *package_data,
+                                             size_t package_size,
                                              const uint32_t *table_crc32,
                                              uint32_t table_crc32_count,
                                              uint32_t owner_validated_table_mask,
