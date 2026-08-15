@@ -43,6 +43,38 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-011 - RefMem TDMA consumes VDC data window plan
+
+- 状态：完成 host/build 验证；COM5/COM6 HIL 待后续烧录轮次执行
+- 日期：2026-08-16
+- 任务目标：
+  - 让 RefMem data frame 成为 VDC/TDMA schedule 上的 payload，而不是收到 intent 后立即执行。
+  - 保持 HAOFV 边界：RefMem 不计算 TDMA 相位，只向 VDC manager 请求 `REFMEM_DATA_WINDOW` 计划；core1 realtime 只消费计划并执行窗口。
+- 完成内容：
+  - `refmem_realtime_tdma_intent_config_t` 增加 VDC window plan 字段：plan valid、window class、schedule CRC、window start/end、guard start/end。
+  - `refmem_realtime_tdma_snapshot_t` 增加窗口计划和执行证据：window miss count、wait_ns、late_ns、window/guard 起止。
+  - `refmem_realtime_tdma_core1_service()` 在未到 guard 前保持 pending 并返回 `WAITING_FOR_WINDOW`；错过 payload window 或 guard end 时返回 `WINDOW_MISSED`；进入 payload window 后才调用 TX/RX ops。
+  - `DistributedRefMemAO` 的 NodeLoad AUTO TX/RX 提交前调用 `vdc_dpll_manager_plan_tdma_window(VDC_DOMAIN_WINDOW_REFMEM_DATA, ...)`，把 VDC-owned data window plan 下发给 core1 service。
+  - `SYSTem:REFMEM:SYNC:TDMA:STATus?` 追加 VDC window plan 和 wait/late/miss evidence 字段，保留旧字段顺序。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815191550`，package CRC `0x25D841EE`。
+- 还需完成：
+  - COM5/COM6 烧录后验证 NodeLoad AUTO 在真实 PIO 25 MHz 环路中产生 `vdc_window_plan_valid=1`、wait/late/miss evidence。
+  - 将同一机制扩展到 `VDC_OBSERVATION_WINDOW` 的 SYNC sample，并接硬件 timestamp latch。
+  - 同步完整 SCPI 指令表中的 `SYSTem:REFMEM:SYNC:TDMA:STATus?` 追加字段。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_realtime_tdma.h`
+  - `components/distributed_refmem/src/refmem_realtime_tdma.c`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tests/unit/test_refmem_realtime_tdma.c`
+- 下一步：
+  - 提交推送后进入硬件 timestamp latch / observation window sample bring-up。
+
 ### VDC-TASK-20260816-010 - VDC quality table and error budget snapshot
 
 - 状态：完成 host/build 验证；板端查询待后续 HIL 轮次执行

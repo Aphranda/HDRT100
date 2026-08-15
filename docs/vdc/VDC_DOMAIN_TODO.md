@@ -36,7 +36,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 | 优先级 | 风险项 | 当前状态 | 纠偏目标 |
 |---:|---|---|---|
 | P0 | `VdcSyncAO / SyncDpllFB / VdcVector` 尚未实体化。 | `vdc_domain.c` 仍是单体 domain core，`vdc_dpll_manager` 仍是兼容 wrapper，`task_vdc_sync` 只是 1 ms service 壳。 | 建立 VDC AO/FB 内部边界：SCPI/System 只能投递 command/event，`VdcSyncAO` 拥有 schedule/profile/cal binding，`SyncDpllFB` 唯一写 offset/rate/lock，`VdcVector` 发布稳定 snapshot。 |
-| P0 | TDMA plan 未被 core1/PIO 消费。 | `SYSTem:SYNC:VDC:TDMA:PLAN?` 能查询计划，但 `refmem_realtime_tdma` 收到 intent 后仍立即执行。 | TDMA intent 增加 window plan / target window / guard 字段，core1 在 RAM resident realtime loop 中等待窗口并记录 late/jitter/timeout evidence。 |
+| P0 | TDMA plan 未被 core1/PIO 消费。 | `refmem_realtime_tdma` intent 已增加 VDC data window plan 字段，NodeLoad AUTO TX/RX 会从 VDC manager 获取 `REFMEM_DATA_WINDOW` 计划；core1 service 已能在 guard 前保持 pending、窗口错过时拒绝、进入 payload window 后执行。 | 继续把该路径接到真实 PIO timestamp latch，并把 `VDC_OBSERVATION_WINDOW` 的 SYNC sample 变成正式 DPLL 输入。 |
 | P0 | 缺少硬件 timestamp latch。 | 当前板端 evidence 仍来自 `time_us_64()*1000` 或 `board_uptime_ms()*1e6`，只能做诊断。 | 增加 PIO/DMA/IRQ/core1 capture latch，正式 DPLL sample 必须 `timestamp_source=HARDWARE_TICK` 且 `timestamp_resolution_ns <= 100`。 |
 | P0 | DPLL 算法未真正更新 clock model。 | `vdc_domain_submit_tdma_evidence()` 只做门禁、计数和简化状态推进，未根据 phase/frequency error 更新 `period_adjust_ppb` / `phase_offset_ns`。 | 将 PI/linreg 或等价 servo 收敛到 `SyncDpllFB`，实现 offset/rate、outlier、step/slew、sanity limit、reset 和 staged profile。 |
 | P1 | VDC snapshot 尚未发布到 RefMem `VdcSlot`。 | RefMem application model 有 VDC/DPLL 区域字段，但 VDC 主域未按唯一 writer、guard、sequence/CRC 发布。 | 定义 `VdcSlot` 字段级 contract，VDC owner 写 snapshot/quality/fault/evidence，RefMem 只镜像和同步。 |
@@ -115,7 +115,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 在 COM5/COM6 已验证 RefMem data TDMA 环路基础上，增加两板帧级 timestamp bring-up：每个 `REFMEM_DELTA/ACK/FENCE/QUALITY/IDLE_BEACON` 帧都产生 TDMA/VDC timestamp evidence；高优先级 `VDC_OBSERVATION_WINDOW` 形成正式 `VdcDpllSample`，再反向或双向测量 delay/evidence。
 - [x] 增加 RefMem data frame 到 VDC TDMA frame envelope 的桥接基础件：`DELTA/ACK_NACK/FENCE/QUALITY` 可以映射到 `REFMEM_DATA_WINDOW` 并带诊断 timestamp evidence；该桥接不得计算 offset/rate，也不得把诊断 timestamp 标成 DPLL eligible。
 - [x] 将当前 TDMA snapshot 的软件时间戳明确限定为诊断 evidence：若来源为 `time_us_64()*1000`，必须暴露 `timestamp_resolution_ns=1000`，不得进入 100 ns DPLL lock gate。
-- [ ] 将 RefMem TDMA TX/RX 从“收到 intent 后立即执行”升级为按 `VdcTdmaScheduleProfile` 的 `REFMEM_DATA_WINDOW` 执行：core1/PIO 必须等待窗口、记录 late/jitter，并在窗口外明确返回 gate evidence；首版已落地 `vdc_domain_plan_tdma_window()` 和 `SYSTem:SYNC:VDC:TDMA:PLAN?` 只读计划查询，后续需要由 core1 TDMA service 消费该计划并真正等待窗口。HIL 当前允许诊断样本因未调度而被 VDC gate 拒绝，但这不算正式 TDMA schedule 通过。
+- [x] 将 RefMem TDMA TX/RX 从“收到 intent 后立即执行”升级为按 `VdcTdmaScheduleProfile` 的 `REFMEM_DATA_WINDOW` 执行：core1/PIO 必须等待窗口、记录 late/jitter，并在窗口外明确返回 gate evidence；首版已落地 `vdc_domain_plan_tdma_window()` 和 `SYSTem:SYNC:VDC:TDMA:PLAN?` 只读计划查询，`refmem_realtime_tdma` intent 已携带 VDC data window plan，core1 service 会在 guard 前等待、错过 payload window 时返回 `WINDOW_MISSED`。后续 HIL 需要确认 COM5/COM6 真实 25 MHz PIO 环路中的窗口 wait/late evidence。
 - [ ] 增加硬实时 timestamp latch 路径：PIO/DMA/IRQ/core1 采集本地 tick，转换或映射为 ns 字段，并声明实际分辨率；DPLL 正式样本要求 `timestamp_resolution_ns <= 100`。
 - [ ] 实现 DCO snapshot 生成：DPLL 输出通过 `VdcDcoControl` 提交给 core1，core1 只读稳定 snapshot 并执行 slew/phase pull。
 - [ ] 实现 outlier gate、jitter window、phase error 和 frequency error 统计；首版已落地 VDC-owned `VdcQualityTable` / `VdcErrorBudget` 快照，能记录 accepted/rejected sample、offset RMS/max、jitter、timestamp freshness、resolution 和 gate reject，frequency error / outlier policy 后续接真实 servo。

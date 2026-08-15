@@ -13,6 +13,7 @@
     REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE_SOFTWARE_US
 #define REFMEM_REALTIME_TDMA_TIMESTAMP_FLAGS \
     REFMEM_REALTIME_TDMA_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
+#define REFMEM_REALTIME_TDMA_ERROR_WINDOW_MISSED 101u
 
 static uint64_t refmem_realtime_tdma_now_ns(void)
 {
@@ -33,6 +34,14 @@ static uint32_t refmem_realtime_tdma_elapsed_ns(uint64_t start_ns,
     }
     const uint64_t elapsed_ns = done_ns - start_ns;
     return elapsed_ns > UINT32_MAX ? UINT32_MAX : (uint32_t)elapsed_ns;
+}
+
+static uint32_t refmem_realtime_tdma_delta_ns(uint64_t end_ns,
+                                              uint64_t start_ns)
+{
+    return end_ns > start_ns
+               ? refmem_realtime_tdma_elapsed_ns(start_ns, end_ns)
+               : 0u;
 }
 
 static void refmem_realtime_tdma_split_u64(uint64_t value,
@@ -120,6 +129,13 @@ static bool refmem_realtime_tdma_submit(refmem_realtime_tdma_service_t *service,
     service->sck_pin = config->pins.sck_pin;
     service->tx_pin = config->pins.tx_pin;
     service->deadline_1e3ns = config->deadline_1e3ns;
+    service->vdc_window_plan_valid = config->vdc_window_plan_valid;
+    service->vdc_window_class = config->vdc_window_class;
+    service->vdc_schedule_crc32 = config->vdc_schedule_crc32;
+    service->vdc_window_start_ns = config->vdc_window_start_ns;
+    service->vdc_window_end_ns = config->vdc_window_end_ns;
+    service->vdc_guard_start_ns = config->vdc_guard_start_ns;
+    service->vdc_guard_end_ns = config->vdc_guard_end_ns;
     service->frame_size = (uint32_t)config->frame_size;
     service->submit_time_ns = refmem_realtime_tdma_now_ns();
     if (config->frame_size != 0u && config->frame != NULL) {
@@ -227,6 +243,11 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
     refmem_spi_physical_pin_config_t pins;
     uint32_t baud_hz;
     uint32_t deadline_1e3ns;
+    uint32_t vdc_window_plan_valid;
+    uint64_t vdc_window_start_ns;
+    uint64_t vdc_window_end_ns;
+    uint64_t vdc_guard_start_ns;
+    uint64_t vdc_guard_end_ns;
     size_t frame_size;
     while (true) {
         const uint32_t seq_begin = refmem_realtime_tdma_load(&service->intent_guard);
@@ -241,6 +262,11 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
         pins.tx_pin = service->tx_pin;
         baud_hz = service->baud_hz;
         deadline_1e3ns = service->deadline_1e3ns;
+        vdc_window_plan_valid = service->vdc_window_plan_valid;
+        vdc_window_start_ns = service->vdc_window_start_ns;
+        vdc_window_end_ns = service->vdc_window_end_ns;
+        vdc_guard_start_ns = service->vdc_guard_start_ns;
+        vdc_guard_end_ns = service->vdc_guard_end_ns;
         frame_size = (size_t)service->frame_size;
         if (frame_size > sizeof(frame)) {
             frame_size = sizeof(frame);
@@ -252,6 +278,43 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
         if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
             break;
         }
+    }
+
+    if (vdc_window_plan_valid != 0u) {
+        uint64_t now_ns = refmem_realtime_tdma_now_ns();
+        if (now_ns < vdc_guard_start_ns) {
+            refmem_realtime_tdma_begin_result_write(service);
+            service->armed = 1u;
+            service->vdc_window_wait_ns =
+                refmem_realtime_tdma_delta_ns(vdc_guard_start_ns, now_ns);
+            service->vdc_window_late_ns = 0u;
+            service->last_result = REFMEM_REALTIME_TDMA_RESULT_WAITING_FOR_WINDOW;
+            service->state = REFMEM_REALTIME_TDMA_STATE_ARMED;
+            refmem_realtime_tdma_end_result_write(service);
+            return;
+        }
+        if (now_ns > vdc_guard_end_ns || now_ns > vdc_window_end_ns) {
+            refmem_realtime_tdma_begin_result_write(service);
+            service->completed_seq = intent_seq;
+            service->armed = 0u;
+            service->vdc_window_miss_count++;
+            service->vdc_window_wait_ns = 0u;
+            service->vdc_window_late_ns =
+                refmem_realtime_tdma_delta_ns(now_ns, vdc_window_start_ns);
+            service->last_error = REFMEM_REALTIME_TDMA_ERROR_WINDOW_MISSED;
+            service->last_result = REFMEM_REALTIME_TDMA_RESULT_WINDOW_MISSED;
+            service->state = REFMEM_REALTIME_TDMA_STATE_ERROR;
+            refmem_realtime_tdma_end_result_write(service);
+            return;
+        }
+        while (now_ns < vdc_window_start_ns) {
+            now_ns = refmem_realtime_tdma_now_ns();
+        }
+        refmem_realtime_tdma_begin_result_write(service);
+        service->vdc_window_wait_ns = 0u;
+        service->vdc_window_late_ns =
+            refmem_realtime_tdma_delta_ns(now_ns, vdc_window_start_ns);
+        refmem_realtime_tdma_end_result_write(service);
     }
 
     refmem_realtime_tdma_exec_status_t exec_status = {
@@ -361,6 +424,21 @@ bool refmem_realtime_tdma_get_snapshot(const refmem_realtime_tdma_service_t *ser
         snapshot->sck_pin = service->sck_pin;
         snapshot->tx_pin = service->tx_pin;
         snapshot->deadline_1e3ns = service->deadline_1e3ns;
+        snapshot->vdc_window_plan_valid = service->vdc_window_plan_valid;
+        snapshot->vdc_window_class = service->vdc_window_class;
+        snapshot->vdc_schedule_crc32 = service->vdc_schedule_crc32;
+        refmem_realtime_tdma_split_u64(service->vdc_window_start_ns,
+                                       &snapshot->vdc_window_start_ns_lo,
+                                       &snapshot->vdc_window_start_ns_hi);
+        refmem_realtime_tdma_split_u64(service->vdc_window_end_ns,
+                                       &snapshot->vdc_window_end_ns_lo,
+                                       &snapshot->vdc_window_end_ns_hi);
+        refmem_realtime_tdma_split_u64(service->vdc_guard_start_ns,
+                                       &snapshot->vdc_guard_start_ns_lo,
+                                       &snapshot->vdc_guard_start_ns_hi);
+        refmem_realtime_tdma_split_u64(service->vdc_guard_end_ns,
+                                       &snapshot->vdc_guard_end_ns_lo,
+                                       &snapshot->vdc_guard_end_ns_hi);
         snapshot->frame_size = service->frame_size;
         snapshot->reject_count = service->reject_count;
         refmem_realtime_tdma_split_u64(service->submit_time_ns,
@@ -394,6 +472,9 @@ bool refmem_realtime_tdma_get_snapshot(const refmem_realtime_tdma_service_t *ser
         snapshot->timestamp_resolution_ns =
             REFMEM_REALTIME_TDMA_TIMESTAMP_RESOLUTION_NS;
         snapshot->timestamp_flags = REFMEM_REALTIME_TDMA_TIMESTAMP_FLAGS;
+        snapshot->vdc_window_miss_count = service->vdc_window_miss_count;
+        snapshot->vdc_window_wait_ns = service->vdc_window_wait_ns;
+        snapshot->vdc_window_late_ns = service->vdc_window_late_ns;
         refmem_realtime_tdma_split_u64(service->core1_arm_time_ns,
                                        &snapshot->core1_arm_time_ns_lo,
                                        &snapshot->core1_arm_time_ns_hi);
@@ -414,7 +495,9 @@ bool refmem_realtime_tdma_get_snapshot(const refmem_realtime_tdma_service_t *ser
     if (snapshot->intent_seq > snapshot->completed_seq && abort_seq < snapshot->intent_seq) {
         snapshot->state = REFMEM_REALTIME_TDMA_STATE_PENDING;
         snapshot->armed = 1u;
-        snapshot->last_result = REFMEM_REALTIME_TDMA_RESULT_ACCEPTED;
+        if (snapshot->last_result != REFMEM_REALTIME_TDMA_RESULT_WAITING_FOR_WINDOW) {
+            snapshot->last_result = REFMEM_REALTIME_TDMA_RESULT_ACCEPTED;
+        }
     } else if (snapshot->completed_seq == snapshot->intent_seq && result_frame_size != 0u) {
         snapshot->frame_size = result_frame_size;
     }

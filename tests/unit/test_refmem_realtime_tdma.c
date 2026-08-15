@@ -273,6 +273,99 @@ static int test_rx_result_frame_is_readable(void)
     return failed;
 }
 
+static int test_vdc_window_plan_defers_until_guard(void)
+{
+    int failed = 0;
+    refmem_realtime_tdma_service_t service;
+    refmem_realtime_tdma_snapshot_t snapshot;
+    fake_ops_context_t fake = {.tx_ok = true, .rx_ok = true};
+    const uint8_t frame[] = {0x52u, 0x4Du, 0x01u, 0x00u};
+    const refmem_realtime_tdma_intent_config_t config = {
+        .window_epoch = 1u,
+        .window_index = 1u,
+        .deadline_1e3ns = 25u,
+        .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
+        .baud_hz = 25000000u,
+        .vdc_window_plan_valid = 1u,
+        .vdc_window_class = 2u,
+        .vdc_schedule_crc32 = 0x12345678u,
+        .vdc_window_start_ns = 100000000u,
+        .vdc_window_end_ns = 100100000u,
+        .vdc_guard_start_ns = 99990000u,
+        .vdc_guard_end_ns = 100101000u,
+        .frame = frame,
+        .frame_size = sizeof(frame),
+    };
+
+    (void)refmem_realtime_tdma_init(&service);
+    (void)refmem_realtime_tdma_bind_ops(&service, &s_fake_ops, &fake);
+    failed += expect_bool("submit planned tx",
+                          refmem_realtime_tdma_submit_tx(&service, &config),
+                          true);
+    refmem_realtime_tdma_core1_service(&service);
+    (void)refmem_realtime_tdma_get_snapshot(&service, &snapshot);
+    failed += expect_u32("waiting result",
+                         snapshot.last_result,
+                         REFMEM_REALTIME_TDMA_RESULT_WAITING_FOR_WINDOW);
+    failed += expect_u32("no tx before guard", fake.tx_calls, 0u);
+    failed += expect_u32("plan valid snapshot", snapshot.vdc_window_plan_valid, 1u);
+    failed += expect_u32("plan crc snapshot", snapshot.vdc_schedule_crc32, 0x12345678u);
+
+    for (uint32_t i = 0u; i < 1200u; i++) {
+        refmem_realtime_tdma_core1_service(&service);
+        (void)refmem_realtime_tdma_get_snapshot(&service, &snapshot);
+        if (snapshot.state == REFMEM_REALTIME_TDMA_STATE_DONE) {
+            break;
+        }
+    }
+    failed += expect_u32("planned done", snapshot.state, REFMEM_REALTIME_TDMA_STATE_DONE);
+    failed += expect_u32("planned ready",
+                         snapshot.last_result,
+                         REFMEM_REALTIME_TDMA_RESULT_FRAME_READY);
+    failed += expect_u32("tx after window", fake.tx_calls, 1u);
+    return failed;
+}
+
+static int test_vdc_window_plan_rejects_missed_window(void)
+{
+    int failed = 0;
+    refmem_realtime_tdma_service_t service;
+    refmem_realtime_tdma_snapshot_t snapshot;
+    fake_ops_context_t fake = {.tx_ok = true, .rx_ok = true};
+    const uint8_t frame[] = {0x52u, 0x4Du, 0x01u, 0x00u};
+    const refmem_realtime_tdma_intent_config_t config = {
+        .window_epoch = 1u,
+        .window_index = 1u,
+        .deadline_1e3ns = 25u,
+        .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
+        .baud_hz = 25000000u,
+        .vdc_window_plan_valid = 1u,
+        .vdc_window_class = 2u,
+        .vdc_schedule_crc32 = 0x12345678u,
+        .vdc_window_start_ns = 1u,
+        .vdc_window_end_ns = 10u,
+        .vdc_guard_start_ns = 1u,
+        .vdc_guard_end_ns = 20u,
+        .frame = frame,
+        .frame_size = sizeof(frame),
+    };
+
+    (void)refmem_realtime_tdma_init(&service);
+    (void)refmem_realtime_tdma_bind_ops(&service, &s_fake_ops, &fake);
+    failed += expect_bool("submit missed tx",
+                          refmem_realtime_tdma_submit_tx(&service, &config),
+                          true);
+    refmem_realtime_tdma_core1_service(&service);
+    (void)refmem_realtime_tdma_get_snapshot(&service, &snapshot);
+    failed += expect_u32("missed state", snapshot.state, REFMEM_REALTIME_TDMA_STATE_ERROR);
+    failed += expect_u32("missed result",
+                         snapshot.last_result,
+                         REFMEM_REALTIME_TDMA_RESULT_WINDOW_MISSED);
+    failed += expect_u32("missed count", snapshot.vdc_window_miss_count, 1u);
+    failed += expect_u32("no tx after miss", fake.tx_calls, 0u);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -281,6 +374,8 @@ int main(void)
     failed += test_rejects_overrun();
     failed += test_rx_timeout_maps_to_result();
     failed += test_rx_result_frame_is_readable();
+    failed += test_vdc_window_plan_defers_until_guard();
+    failed += test_vdc_window_plan_rejects_missed_window();
     if (failed != 0) {
         (void)printf("refmem_realtime_tdma tests failed: %d\n", failed);
         return 1;

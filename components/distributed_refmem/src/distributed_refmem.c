@@ -18,6 +18,7 @@
 #include "refmem_sync.h"
 #include "refmem_table_registry.h"
 #include "refmem_vector_table.h"
+#include "vdc_dpll_manager.h"
 
 #define DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT 16u
 #define DISTRIBUTED_REFMEM_SOURCE_INSTANCE_REFMEM_AO 0u
@@ -132,6 +133,31 @@ static bool distributed_refmem_node_load_auto_enqueue(uint32_t instance_id)
     s_node_load_auto_sync.pending_instance[s_node_load_auto_sync.pending_count] =
         instance_id;
     s_node_load_auto_sync.pending_count++;
+    return true;
+}
+
+static bool distributed_refmem_fill_vdc_data_window_plan(
+    refmem_realtime_tdma_intent_config_t *config)
+{
+    vdc_tdma_window_plan_t plan;
+    vdc_gate_result_t gate;
+    if (config == NULL) {
+        return false;
+    }
+    if (!vdc_dpll_manager_plan_tdma_window(VDC_DOMAIN_WINDOW_REFMEM_DATA,
+                                           VDC_DPLL_MANAGER_PLAN_NOW_NS,
+                                           &plan,
+                                           &gate)) {
+        (void)gate;
+        return false;
+    }
+    config->vdc_window_plan_valid = plan.valid;
+    config->vdc_window_class = plan.window_class;
+    config->vdc_schedule_crc32 = plan.schedule_crc32;
+    config->vdc_window_start_ns = plan.window_start_ns;
+    config->vdc_window_end_ns = plan.window_end_ns;
+    config->vdc_guard_start_ns = plan.guard_start_ns;
+    config->vdc_guard_end_ns = plan.guard_end_ns;
     return true;
 }
 
@@ -569,7 +595,7 @@ static bool distributed_refmem_node_load_auto_submit_tx(void)
         return false;
     }
 
-    const refmem_realtime_tdma_intent_config_t config = {
+    refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = s_node_load_auto_sync.epoch_id,
         .window_index = seq32,
         .deadline_1e3ns = s_node_load_auto_sync.deadline_1e3ns,
@@ -579,6 +605,10 @@ static bool distributed_refmem_node_load_auto_submit_tx(void)
         .frame = frame,
         .frame_size = frame_size,
     };
+    if (!distributed_refmem_fill_vdc_data_window_plan(&config)) {
+        s_node_load_auto_sync.last_error = 12u;
+        return false;
+    }
     if (!refmem_realtime_tdma_submit_tx(&s_refmem_realtime_tdma, &config)) {
         s_node_load_auto_sync.last_error = 5u;
         return false;
@@ -601,7 +631,7 @@ static bool distributed_refmem_node_load_auto_submit_rx(void)
         s_node_load_auto_sync.next_seq32 = 1u;
     }
 
-    const refmem_realtime_tdma_intent_config_t config = {
+    refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = s_node_load_auto_sync.epoch_id,
         .window_index = seq32,
         .deadline_1e3ns = s_node_load_auto_sync.deadline_1e3ns,
@@ -611,6 +641,10 @@ static bool distributed_refmem_node_load_auto_submit_rx(void)
         .frame = NULL,
         .frame_size = 0u,
     };
+    if (!distributed_refmem_fill_vdc_data_window_plan(&config)) {
+        s_node_load_auto_sync.last_error = 13u;
+        return false;
+    }
     if (!refmem_realtime_tdma_submit_rx(&s_refmem_realtime_tdma, &config)) {
         s_node_load_auto_sync.last_error = 6u;
         return false;

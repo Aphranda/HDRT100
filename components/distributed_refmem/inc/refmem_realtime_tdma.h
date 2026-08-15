@@ -34,6 +34,8 @@ typedef enum {
     REFMEM_REALTIME_TDMA_RESULT_OVERRUN = 4u,
     REFMEM_REALTIME_TDMA_RESULT_BAD_ARGUMENT = 5u,
     REFMEM_REALTIME_TDMA_RESULT_BUSY = 6u,
+    REFMEM_REALTIME_TDMA_RESULT_WAITING_FOR_WINDOW = 7u,
+    REFMEM_REALTIME_TDMA_RESULT_WINDOW_MISSED = 8u,
 } refmem_realtime_tdma_result_t;
 
 typedef enum {
@@ -107,6 +109,20 @@ typedef struct {
     uint32_t timestamp_source;
     uint32_t timestamp_resolution_ns;
     uint32_t timestamp_flags;
+    uint32_t vdc_window_plan_valid;
+    uint32_t vdc_window_class;
+    uint32_t vdc_schedule_crc32;
+    uint32_t vdc_window_miss_count;
+    uint32_t vdc_window_wait_ns;
+    uint32_t vdc_window_late_ns;
+    uint32_t vdc_window_start_ns_lo;
+    uint32_t vdc_window_start_ns_hi;
+    uint32_t vdc_window_end_ns_lo;
+    uint32_t vdc_window_end_ns_hi;
+    uint32_t vdc_guard_start_ns_lo;
+    uint32_t vdc_guard_start_ns_hi;
+    uint32_t vdc_guard_end_ns_lo;
+    uint32_t vdc_guard_end_ns_hi;
     uint32_t submit_time_ns_lo;
     uint32_t submit_time_ns_hi;
     uint32_t core1_arm_time_ns_lo;
@@ -125,6 +141,13 @@ typedef struct {
     refmem_spi_physical_role_t role;
     uint32_t baud_hz;
     refmem_spi_physical_pin_config_t pins;
+    uint32_t vdc_window_plan_valid;
+    uint32_t vdc_window_class;
+    uint32_t vdc_schedule_crc32;
+    uint64_t vdc_window_start_ns;
+    uint64_t vdc_window_end_ns;
+    uint64_t vdc_guard_start_ns;
+    uint64_t vdc_guard_end_ns;
     const uint8_t *frame;
     size_t frame_size;
 } refmem_realtime_tdma_intent_config_t;
@@ -146,6 +169,13 @@ typedef struct {
     volatile uint32_t sck_pin;
     volatile uint32_t tx_pin;
     volatile uint32_t deadline_1e3ns;
+    volatile uint32_t vdc_window_plan_valid;
+    volatile uint32_t vdc_window_class;
+    volatile uint32_t vdc_schedule_crc32;
+    volatile uint64_t vdc_window_start_ns;
+    volatile uint64_t vdc_window_end_ns;
+    volatile uint64_t vdc_guard_start_ns;
+    volatile uint64_t vdc_guard_end_ns;
     volatile uint32_t frame_size;
     volatile uint32_t reject_count;
     volatile uint64_t submit_time_ns;
@@ -165,6 +195,9 @@ typedef struct {
     volatile uint32_t last_error;
     volatile uint32_t result_frame_size;
     volatile uint32_t timing_intent_seq;
+    volatile uint32_t vdc_window_miss_count;
+    volatile uint32_t vdc_window_wait_ns;
+    volatile uint32_t vdc_window_late_ns;
     volatile uint64_t core1_arm_time_ns;
     volatile uint64_t core1_start_time_ns;
     volatile uint64_t core1_done_time_ns;
