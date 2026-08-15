@@ -65,7 +65,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] P0: `SYSTem:REFMEM:LOAD:NODE` 不能只校验单条 node/instance 范围后标记 validated；必须形成 staging NodeLoadTable image，并按候选表重新校验实例、资源、IO、事件/数据连接和 RUN gate。
 - [x] P1: `GenericNodeTable` linter 不得强制 `BoardCapabilityTable[i]` 与 `GenericNodeTable[i]` 的 slot、UUID、persona、hw profile 一一相等；GenericNode 只校验 A0-A7 通用 slot substrate，物理身份和能力由 BoardCapability/SlotClaim 约束。
 - [x] P2: 旧 `refmem_realtime_contract_derive()` 仍通过 `active_default_slot` 查找 board，后续必须降级为 legacy/internal 或删除，生产路径只允许使用 SlotClaimMap resolved assignment。
-- [ ] P3: `SYSTem:REFMEM:LOAD:*` 后续需要全部接入 command slot；`SYSTem:REFMEM:LOAD:NODE` 已完成首版，`LOAD:SD` / `LOAD:BOARD` 仍需收敛。SCPI 只能 post staging/activation intent，由 RefMemAO owner take 后 ACK/NACK。
+- [ ] P3: `SYSTem:REFMEM:LOAD:*` 后续需要全部接入 command slot；`SYSTem:REFMEM:LOAD:NODE` 和 `LOAD:BOARD` 已完成首版，`LOAD:SD` 仍需收敛。SCPI 只能 post staging/activation intent，由 RefMemAO owner take 后 ACK/NACK。
 - [ ] P5: `refmem_vector_table.h` 不应向普通模块公开可变 header/node pointer accessor；可变写入口应收敛到 `distributed_refmem.c` 或 RefMemAO owner API，对外只暴露 snapshot/validated publish helper。
 
 ## P0 - 表镜像与加载闭环
@@ -158,7 +158,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 增加 command slot 最小单元测试：重复 post、空闲 take、非目标 take、ACK/NACK 位图、timeout 标记、clear seq 防误清。
 - [x] 将 `SYSTem:REFMEM:LOAD:NODE` 首版接入 command slot：接口层解析参数后调用 RefMem intent 入口，RefMem 原子清理已完成 command、post `NODE_LOAD_STAGE`、写 NodeLoad staging snapshot 并 ACK/NACK。
 - [x] 将 `CONFigure:MODEl:TURNtable:LOAD` 首版接入 command slot：接口层调用 RefMem intent 入口，RefMem post `NODE_LOAD_STAGE`，AO/FB owner 通过注册回调执行加载，完成后写 ACK/NACK；完整 `CONFigure:MODEl:*:LOAD` 家族仍需逐项接入。
-- [ ] 将 `SYSTem:REFMEM:LOAD:SD` 和 `SYSTem:REFMEM:LOAD:BOARD` 接入 command slot：StorageAO/RefMemAO 仍保持职责分离，board capability staging 不能绕过 command completion。
+- [x] 将 `SYSTem:REFMEM:LOAD:BOARD` 接入 command slot：SCPI 解析字段后只调用 RefMem intent，`DistributedRefMemAO` post `BOARD_CAPABILITY_STAGE`、本地 owner take、写 BoardCapability staging snapshot 并 ACK/NACK；`board_id` 仅作为 profile/candidate payload，不作为 A0-A7 target slot。
+- [ ] 将 `SYSTem:REFMEM:LOAD:SD` 接入 command slot：StorageAO/RefMemAO 仍保持职责分离，SD 文件读取和 `.rmtp` staging 不能绕过 command completion。
 - [ ] 将其余模型加载动作接入 command slot：`CONFigure:MODEl:*:LOAD` 接口层 accepted 后只 post `CONFIG_STAGE` 或 `NODE_LOAD_STAGE`，由 RefMem owner 完成 staging 并 ACK/NACK。
 - [x] 将现有 `system_manager` 配置 ACK 迁移或映射到 RefMem AckCommandSlot snapshot。
 - [x] 扩展 command NACK reason 查询表，覆盖 resource busy、RUN denied、payload CRC、epoch mismatch、dup seq、timeout、permission denied，并通过 `SYSTem:COMMand:NACK?` 暴露同一底层 reason id。
@@ -276,6 +277,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 新增 RefMem 基础件 smoke 验证脚本：顺序查询 build、claim、table、NodeLoad staging、command ACK、slot contract summary，脚本必须打开一次串口并在退出时关闭。
 - [ ] 板端记录 `SYSTem:REFMEM:STATus?`、`SYSTem:REFMEM:NODE?`、`SYSTem:REFMEM:LOAD:STATus?`。
 - [ ] 板端验证 `SYSTem:REFMEM:LOAD:NODE` 合法候选 staged、非法 node/instance rejected。
+- [x] 板端验证 `SYSTem:REFMEM:LOAD:BOARD` 合法候选 ACK、非法 board_id NACK，并确认 `SYSTem:COMMand:ACK?` 暴露 `BOARD_CAPABILITY_STAGE` completion。
 - [ ] 板端验证 `SYSTem:REFMEM:LOAD:SD` 在无 SD、manifest 缺失、manifest OK 三种路径下返回固定 snapshot 且不改 active。
 - [x] 板端验证 `SYSTem:STORage:FILE:WRITe:BEGIN/DATA/END` 上传 `/refmem/app_model.rmtp`，再用 `FILE:INFO?`、`FILE:READ?` 和 `SYSTem:REFMEM:LOAD:SD` 完成正向闭环。
 - [x] 板端验证通用 Storage 文件管理闭环：目录 create/rename/catalog/delete，文件 write/info/read/rename/delete。

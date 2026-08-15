@@ -14,6 +14,7 @@
 #include "refmem_vector_table.h"
 
 #define DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT 16u
+#define DISTRIBUTED_REFMEM_SOURCE_INSTANCE_REFMEM_AO 0u
 
 typedef struct {
     uint32_t instance_id;
@@ -693,6 +694,91 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
     }
 
     (void)distributed_refmem_command_nack(node_id,
+                                          REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
+                                          REFMEM_VECTOR_SLOT_ACK_CMD);
+    return false;
+}
+
+bool distributed_refmem_stage_board_capability(uint32_t board_id,
+                                               uint32_t board_uuid_crc32,
+                                               uint32_t capability_mask,
+                                               uint32_t io_constraint_mask,
+                                               uint32_t ip_core_mask,
+                                               uint32_t default_persona_mask,
+                                               uint32_t hw_profile_crc32,
+                                               uint32_t active_default_slot,
+                                               uint32_t online_required)
+{
+    if (!s_initialized) {
+        return false;
+    }
+
+    const uint32_t fields[] = {
+        board_id,
+        board_uuid_crc32,
+        capability_mask,
+        io_constraint_mask,
+        ip_core_mask,
+        default_persona_mask,
+        hw_profile_crc32,
+        active_default_slot,
+        online_required,
+    };
+    const uint32_t payload_crc32 = distributed_refmem_u32_payload_crc32(
+        fields,
+        (uint32_t)(sizeof(fields) / sizeof(fields[0])));
+    const uint32_t local_target = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    const uint32_t target_mask = (uint32_t)(1u << local_target);
+    refmem_command_request_t request = {
+        .command_seq = 0u,
+        .source_node = DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
+        .source_instance = DISTRIBUTED_REFMEM_SOURCE_INSTANCE_REFMEM_AO,
+        .target_mask = target_mask,
+        .required_mask = target_mask,
+        .command_type = REFMEM_COMMAND_TYPE_BOARD_CAPABILITY_STAGE,
+        .command_class = REFMEM_COMMAND_CLASS_CONFIG,
+        .payload_kind = REFMEM_COMMAND_PAYLOAD_INLINE_SMALL,
+        .payload_ref = board_id,
+        .payload_size = (uint32_t)sizeof(fields),
+        .payload_crc32 = payload_crc32,
+        .issue_epoch = 0u,
+        .run_id = 0u,
+        .timeout_us = 50000u,
+    };
+
+    if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
+        return false;
+    }
+
+    osal_critical_enter();
+    const refmem_command_take_result_t take_result =
+        refmem_command_try_take(&s_refmem_command_slot,
+                                local_target,
+                                0u,
+                                0u,
+                                payload_crc32,
+                                REFMEM_VECTOR_SLOT_ACK_CMD);
+    osal_critical_exit();
+    if (take_result != REFMEM_COMMAND_TAKE_TAKEN) {
+        return false;
+    }
+
+    const bool staged =
+        refmem_application_model_stage_scpi_board_capability(board_id,
+                                                             board_uuid_crc32,
+                                                             capability_mask,
+                                                             io_constraint_mask,
+                                                             ip_core_mask,
+                                                             default_persona_mask,
+                                                             hw_profile_crc32,
+                                                             active_default_slot,
+                                                             online_required);
+    if (staged) {
+        (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_SLOT_ACK_CMD);
+        return true;
+    }
+
+    (void)distributed_refmem_command_nack(local_target,
                                           REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
                                           REFMEM_VECTOR_SLOT_ACK_CMD);
     return false;

@@ -179,6 +179,15 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
                                         uint32_t enabled,
                                         uint32_t required,
                                         uint32_t load_order);
+bool distributed_refmem_stage_board_capability(uint32_t board_id,
+                                               uint32_t board_uuid_crc32,
+                                               uint32_t capability_mask,
+                                               uint32_t io_constraint_mask,
+                                               uint32_t ip_core_mask,
+                                               uint32_t default_persona_mask,
+                                               uint32_t hw_profile_crc32,
+                                               uint32_t active_default_slot,
+                                               uint32_t online_required);
 bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
                                                    uint32_t output_index);
 

@@ -101,6 +101,16 @@ def load_fields(response: str, *, has_prefix: bool) -> list[str]:
     return fields
 
 
+def board_load_fields(response: str, *, has_prefix: bool) -> list[str]:
+    fields = parse_csv_response(response)
+    expected = 19 if has_prefix else 18
+    if len(fields) != expected:
+        raise AssertionError(f"field_count={len(fields)} expected={expected}")
+    if has_prefix:
+        fields = fields[1:]
+    return fields
+
+
 def expect_status_idle(response: str) -> None:
     fields = load_fields(response, has_prefix=False)
     if fields[3] != "0":
@@ -151,6 +161,78 @@ def expect_command_node_load_ack(response: str, *, node_id: int, instance_id: in
     bad = [name for name, ok in checks.items() if not ok]
     if bad:
         raise AssertionError(f"unexpected command ACK fields {bad}: {fields}")
+
+
+def expect_board_staged(response: str, *, board_id: str) -> None:
+    fields = board_load_fields(response, has_prefix=True)
+    if response.split(",", 1)[0] != '"STAGED"':
+        raise AssertionError("board capability load was not staged")
+    if fields[2] != "0" or fields[3] != "2":
+        raise AssertionError(f"unexpected mode/staging: {fields[2:4]}")
+    if fields[6] != "0" or fields[7] != "0" or fields[8] != board_id or fields[17] != "0":
+        raise AssertionError(f"unexpected board staging fields: {fields[6:18]}")
+
+
+def expect_board_rejected(response: str, *, board_id: str) -> None:
+    fields = board_load_fields(response, has_prefix=True)
+    if response.split(",", 1)[0] != '"REJECTED"':
+        raise AssertionError("invalid board capability load was not rejected")
+    if fields[2] != "0" or fields[3] != "3":
+        raise AssertionError(f"unexpected reject mode/staging: {fields[2:4]}")
+    if fields[8] != board_id or fields[17] == "0":
+        raise AssertionError(f"unexpected rejected board fields: {fields[8:18]}")
+
+
+def expect_command_board_load_ack(response: str, *, board_id: int) -> None:
+    fields = [int(part.strip().strip('"'), 0) for part in parse_csv_response(response)]
+    if len(fields) < 28:
+        raise AssertionError(f"field_count={len(fields)} expected>=28")
+    target_mask = 1
+    checks = {
+        "schema": fields[0] == 1,
+        "state_acked": fields[1] == 4,
+        "source_node": fields[3] == 0,
+        "target": fields[5] == target_mask,
+        "required": fields[6] == target_mask,
+        "command_type": fields[7] == 15,
+        "command_class": fields[8] == 1,
+        "payload_kind": fields[9] == 1,
+        "payload_ref": fields[10] == board_id,
+        "payload_size": fields[11] == 36,
+        "taken": fields[17] == target_mask,
+        "ack": fields[18] == target_mask,
+        "nack": fields[19] == 0,
+        "busy": fields[20] == 0,
+        "timeout": fields[21] == 0,
+        "reason": fields[22] == 0,
+    }
+    bad = [name for name, ok in checks.items() if not ok]
+    if bad:
+        raise AssertionError(f"unexpected board command ACK fields {bad}: {fields}")
+
+
+def expect_command_board_load_nack(response: str, *, board_id: int) -> None:
+    fields = [int(part.strip().strip('"'), 0) for part in parse_csv_response(response)]
+    if len(fields) < 28:
+        raise AssertionError(f"field_count={len(fields)} expected>=28")
+    target_mask = 1
+    checks = {
+        "schema": fields[0] == 1,
+        "state_nacked": fields[1] == 5,
+        "source_node": fields[3] == 0,
+        "target": fields[5] == target_mask,
+        "required": fields[6] == target_mask,
+        "command_type": fields[7] == 15,
+        "command_class": fields[8] == 1,
+        "payload_ref": fields[10] == board_id,
+        "taken": fields[17] == target_mask,
+        "ack": fields[18] == 0,
+        "nack": fields[19] == target_mask,
+        "reason": fields[22] == 1,
+    }
+    bad = [name for name, ok in checks.items() if not ok]
+    if bad:
+        raise AssertionError(f"unexpected board command NACK fields {bad}: {fields}")
 
 
 def expect_sd_response(response: str) -> None:
@@ -212,6 +294,16 @@ def run_validation(execute, *, skip_sd: bool) -> list[Record]:
         ("SYSTem:REFMEM:TABle? 3",
          lambda response: expect_table_response(response, table_id="3", min_staging_mask=0x1FF)),
         ("SYSTem:REFMEM:LOAD:NODE 8,9,32,32,1,0,0", expect_node_rejected),
+        ("SYSTem:REFMEM:LOAD:BOARD 5,2952790021,49153,0,0,32,0,5,0",
+         lambda response: expect_board_staged(response, board_id="5")),
+        ("SYSTem:COMMand:ACK?",
+         lambda response: expect_command_board_load_ack(response, board_id=5)),
+        ("SYSTem:REFMEM:TABle? 1",
+         lambda response: expect_table_response(response, table_id="1", min_staging_mask=0x02)),
+        ("SYSTem:REFMEM:LOAD:BOARD 16,2952790032,49153,0,0,32,0,5,0",
+         lambda response: expect_board_rejected(response, board_id="16")),
+        ("SYSTem:COMMand:ACK?",
+         lambda response: expect_command_board_load_nack(response, board_id=16)),
     ]
     if not skip_sd:
         tests.append(("SYSTem:REFMEM:LOAD:SD", expect_sd_response))

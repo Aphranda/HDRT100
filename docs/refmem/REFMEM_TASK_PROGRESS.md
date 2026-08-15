@@ -8,6 +8,37 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-023 - LOAD:BOARD via RefMem command slot
+
+- 状态：完成首版闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 将 `SYSTem:REFMEM:LOAD:BOARD` 从 SCPI 直接调用 BoardCapability staging API 收敛到 `DistributedRefMemAO` command slot / staging 路径。
+  - 验证 `board_id` 只作为板卡/profile 候选 payload，不被误用为 A0-A7 target slot。
+- 完成内容：
+  - 新增 `REFMEM_COMMAND_TYPE_BOARD_CAPABILITY_STAGE` 和 `distributed_refmem_stage_board_capability()`。
+  - `SYSTem:REFMEM:LOAD:BOARD` 改为调用 RefMem intent API；`DistributedRefMemAO` 原子清理已完成 command、post `BOARD_CAPABILITY_STAGE`、由本地 RefMem owner take、调用 `refmem_application_model_stage_scpi_board_capability()`，随后 ACK/NACK。
+  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 增加 BoardCapability 正向/负向验证：有效 board 候选应 ACK，非法 `board_id=16` 应 NACK。
+  - 修正验证脚本参数格式：当前 SCPI 数字解析不接受 `0x...`，脚本改为十进制参数，避免把 parser `-101 Invalid character` 误判为 RefMem 卡死。
+- 验证结果：
+  - `python -m py_compile tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py` 通过。
+  - `python tools\checks\check_scpi_usb_namespace.py --root .` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_command_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815082900`，package CRC `0xF913F583`。
+  - COM5/COM6 OTA 写入、boot 和 commit 到 build `20260815082900` 通过，错误队列均为 `0,"No error"`。
+  - COM5 执行 `python tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py COM5 --skip-sd --out-dir build-rtos-multicore-smoke\refmem_load_COM5_20260815082900_board_command_slot_r3` 通过。
+  - COM6 执行 `python tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py COM6 --skip-sd --out-dir build-rtos-multicore-smoke\refmem_load_COM6_20260815082900_board_command_slot_r3` 通过。
+- 后续闭环：
+  - `LOAD:BOARD` 仍是单条 staging snapshot，不是完整 BoardCapabilityTable active/staging/rollbackable image；P0 仍需升级为真实表镜像。
+  - `SYSTem:REFMEM:LOAD:SD` 仍需接入 command slot，并保持 StorageAO/RefMemAO 职责分离。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_command.h`
+  - `components/distributed_refmem/inc/distributed_refmem.h`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+
 ### REFMEM-TASK-20260815-022 - LOAD:NODE via RefMem command slot
 
 - 状态：完成首版闭环

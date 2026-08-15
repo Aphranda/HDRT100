@@ -504,15 +504,15 @@ scpi_result_t scpi_cmd_refmem_load_board(scpi_t *context)
     }
 
     const bool staged =
-        refmem_application_model_stage_scpi_board_capability(board_id,
-                                                             board_uuid_crc32,
-                                                             capability_mask,
-                                                             io_constraint_mask,
-                                                             ip_core_mask,
-                                                             default_persona_mask,
-                                                             hw_profile_crc32,
-                                                             active_default_slot,
-                                                             online_required);
+        distributed_refmem_stage_board_capability(board_id,
+                                                  board_uuid_crc32,
+                                                  capability_mask,
+                                                  io_constraint_mask,
+                                                  ip_core_mask,
+                                                  default_persona_mask,
+                                                  hw_profile_crc32,
+                                                  active_default_slot,
+                                                  online_required);
 
     refmem_board_capability_load_snapshot_t snapshot;
     refmem_application_model_get_board_load_snapshot(&snapshot);
