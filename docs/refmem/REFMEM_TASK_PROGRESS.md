@@ -8,6 +8,34 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-013 - P4.5 SPI frame legacy removal
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 在 TDMA HIL 通过后删除 `SYSTem:REFMEM:SYNC:SPI:*` 的帧级阻塞命令，避免后续继续通过 core0/SCPI 直驱 RefMem frame transport。
+  - 保留 `SPI:ARM/DISarm/STATus?/LINE:*/RAW:*` 作为 bring-up 诊断入口。
+- 完成内容：
+  - 从 SCPI 命令表删除 `SYSTem:REFMEM:SYNC:SPI:RX?`、`SPI:HELLo`、`SPI:EPOCh`、`SPI:DELTa`、`SPI:ACK`、`SPI:FENCe`、`SPI:QUALity:FRAMe`。
+  - 删除上述命令实现和 `scpi_refmem_sync_spi_send_result()`，消除 core0 直发 RefMem frame 的维护路径。
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 改为 TDMA-only frame transport；RAW 仍作为线序/物理链路诊断。
+  - HIL frame plan 改为直接使用 `SYSTem:REFMEM:SYNC:HELLo?/EPOCh?/DELTa?/ACK?/FENCe?/QUALity:FRAMe?` 生成 frame，再通过 `TDMA:TX/RX/FRAMe?` 完成两板交换。
+- 验证结果：
+  - `python -m py_compile tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815045059`，package CRC `0x732BD11F`。
+  - COM5/COM6 OTA 提交通过，均返回 `SYSTem:FW:BUILD? => "20260815045059"`。
+  - Negative check：`SYSTem:REFMEM:SYNC:SPI:HELLo` 和 `SYSTem:REFMEM:SYNC:SPI:RX?` 已返回 `Undefined header`，确认旧 SPI frame 入口不再注册。
+  - Positive check：`SYSTem:REFMEM:SYNC:SPI:ARM`、`SYSTem:REFMEM:SYNC:SPI:RAW:TX` 和 `SYSTem:REFMEM:SYNC:TDMA:STATus?` 仍可用。
+  - `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6 --transport tdma --out-dir build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815045059_tdma_spi_frame_removed` 通过。
+  - HIL 报告路径：`build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815045059_tdma_spi_frame_removed\refmem_spi_hil_report.json`。
+- 还需完成：
+  - 将 TDMA window timeout、DMA overrun、missed window 和 physical adapter error 正式映射到 `DistributedConnectionQualityTable`。
+- 关联文件：
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+
 ### REFMEM-TASK-20260815-012 - P4.5 COM5/COM6 core1 TDMA HIL 闭环
 
 - 状态：完成

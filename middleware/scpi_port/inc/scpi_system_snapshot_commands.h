@@ -31,13 +31,6 @@ scpi_result_t scpi_cmd_refmem_sync_spi_line_drive(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_spi_line_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_spi_raw_tx(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_spi_raw_rx_q(scpi_t *context);
-scpi_result_t scpi_cmd_refmem_sync_spi_rx_q(scpi_t *context);
-scpi_result_t scpi_cmd_refmem_sync_spi_hello(scpi_t *context);
-scpi_result_t scpi_cmd_refmem_sync_spi_epoch(scpi_t *context);
-scpi_result_t scpi_cmd_refmem_sync_spi_delta(scpi_t *context);
-scpi_result_t scpi_cmd_refmem_sync_spi_ack(scpi_t *context);
-scpi_result_t scpi_cmd_refmem_sync_spi_fence(scpi_t *context);
-scpi_result_t scpi_cmd_refmem_sync_spi_quality_frame(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_mirror_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_ack_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_fence_status_q(scpi_t *context);
@@ -101,13 +94,6 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:SYNC:SPI:LINE:STATus?", .callback = scpi_cmd_refmem_sync_spi_line_status_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:SPI:RAW:TX", .callback = scpi_cmd_refmem_sync_spi_raw_tx}, \
     {.pattern = "SYSTem:REFMEM:SYNC:SPI:RAW:RX?", .callback = scpi_cmd_refmem_sync_spi_raw_rx_q}, \
-    {.pattern = "SYSTem:REFMEM:SYNC:SPI:RX?", .callback = scpi_cmd_refmem_sync_spi_rx_q}, \
-    {.pattern = "SYSTem:REFMEM:SYNC:SPI:HELLo", .callback = scpi_cmd_refmem_sync_spi_hello}, \
-    {.pattern = "SYSTem:REFMEM:SYNC:SPI:EPOCh", .callback = scpi_cmd_refmem_sync_spi_epoch}, \
-    {.pattern = "SYSTem:REFMEM:SYNC:SPI:DELTa", .callback = scpi_cmd_refmem_sync_spi_delta}, \
-    {.pattern = "SYSTem:REFMEM:SYNC:SPI:ACK", .callback = scpi_cmd_refmem_sync_spi_ack}, \
-    {.pattern = "SYSTem:REFMEM:SYNC:SPI:FENCe", .callback = scpi_cmd_refmem_sync_spi_fence}, \
-    {.pattern = "SYSTem:REFMEM:SYNC:SPI:QUALity:FRAMe", .callback = scpi_cmd_refmem_sync_spi_quality_frame}, \
     {.pattern = "SYSTem:REFMEM:SYNC:MIRRor?", .callback = scpi_cmd_refmem_sync_mirror_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:ACK:STATus?", .callback = scpi_cmd_refmem_sync_ack_status_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:FENCe:STATus?", .callback = scpi_cmd_refmem_sync_fence_status_q}, \

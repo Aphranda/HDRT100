@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Validate two-board RefMem Sync over the physical SPI adapter.
+"""Validate two-board RefMem Sync over the core1 TDMA physical adapter.
 
 This is the P4.5 bridge-away test: the PC no longer moves hex frames between
 boards. It only starts RX on the receiver and starts TX on the sender; the
-RefMem frame itself crosses the physical SPI wires.
+RefMem frame itself crosses the physical PIO+DMA wires. SPI RAW operations are
+kept only as line diagnostics before the TDMA frame exchange.
 """
 
 from __future__ import annotations
@@ -119,19 +120,6 @@ def parse_ints(response: str) -> list[int]:
     return values
 
 
-def expect_response_frame(response: str, expected_type: int) -> tuple[bool, str]:
-    fields = parse_csv(response)
-    if not fields or fields[0].strip('"') != "OK":
-        return False, f"tx not OK: {response}"
-    ints = parse_ints(response)
-    if len(ints) < 2:
-        return False, f"tx response too short: {response}"
-    frame_type = ints[1]
-    if frame_type != expected_type:
-        return False, f"tx frame type {frame_type} != {expected_type}: {response}"
-    return True, "OK"
-
-
 def expect_tdma_tx(response: str) -> tuple[bool, str]:
     fields = parse_csv(response)
     if not fields or fields[0].strip('"') != "ACCEPTED":
@@ -197,21 +185,6 @@ def extract_frame_hex(response: str) -> str:
     if not frame_hex or not re.fullmatch(r"[0-9A-Fa-f]+", frame_hex):
         raise RuntimeError(f"frame builder response has no frame hex: {response}")
     return frame_hex
-
-
-def spi_command_to_frame_builder(command: str) -> str:
-    replacements = {
-        "SYSTem:REFMEM:SYNC:SPI:HELLo": "SYSTem:REFMEM:SYNC:HELLo?",
-        "SYSTem:REFMEM:SYNC:SPI:EPOCh": "SYSTem:REFMEM:SYNC:EPOCh?",
-        "SYSTem:REFMEM:SYNC:SPI:DELTa": "SYSTem:REFMEM:SYNC:DELTa?",
-        "SYSTem:REFMEM:SYNC:SPI:ACK": "SYSTem:REFMEM:SYNC:ACK?",
-        "SYSTem:REFMEM:SYNC:SPI:FENCe": "SYSTem:REFMEM:SYNC:FENCe?",
-        "SYSTem:REFMEM:SYNC:SPI:QUALity:FRAMe": "SYSTem:REFMEM:SYNC:QUALity:FRAMe?",
-    }
-    for old, new in replacements.items():
-        if command.startswith(old):
-            return new + command[len(old):]
-    raise RuntimeError(f"cannot map SPI command to frame builder: {command}")
 
 
 def raw_checksum(seed: int, count: int) -> int:
@@ -336,47 +309,6 @@ def read_observed_map(io_preflight: dict[str, object],
     return parse_line_map(text)
 
 
-def exchange(name: str,
-             sender_name: str,
-             sender: serial.Serial,
-             sender_pins: SpiPins,
-             receiver_name: str,
-             receiver: serial.Serial,
-             receiver_pins: SpiPins,
-             tx_command: str,
-             expected_type: int,
-             expected_source: int,
-             baud: int,
-             rx_timeout_ms: int,
-             timeout_s: float) -> ExchangeResult:
-    arm_rx = arm_spi(receiver, ROLE_SLAVE, baud, receiver_pins, timeout_s)
-    arm_tx = arm_spi(sender, ROLE_MASTER, baud, sender_pins, timeout_s)
-    if not arm_rx.startswith('"OK"') or not arm_tx.startswith('"OK"'):
-        return ExchangeResult(name, sender_name, receiver_name, tx_command,
-                              arm_tx, arm_rx, False, "SPI arm failed")
-
-    rx_holder: dict[str, str] = {}
-
-    def rx_worker() -> None:
-        rx_holder["response"] = query(receiver,
-                                      f"SYSTem:REFMEM:SYNC:SPI:RX? {rx_timeout_ms}",
-                                      timeout_s + (rx_timeout_ms / 1000.0) + 2.0)
-
-    thread = threading.Thread(target=rx_worker, daemon=True)
-    thread.start()
-    time.sleep(0.15)
-    tx_response = query(sender, tx_command, timeout_s)
-    thread.join(timeout_s + (rx_timeout_ms / 1000.0) + 3.0)
-    rx_response = rx_holder.get("response", "<rx-thread-timeout>")
-
-    tx_ok, tx_reason = expect_response_frame(tx_response, expected_type)
-    rx_ok, rx_reason = expect_rx(rx_response, expected_type, expected_source)
-    passed = tx_ok and rx_ok
-    reason = "OK" if passed else f"{tx_reason}; {rx_reason}"
-    return ExchangeResult(name, sender_name, receiver_name, tx_command,
-                          tx_response, rx_response, passed, reason)
-
-
 def tdma_exchange(name: str,
                   sender_name: str,
                   sender: serial.Serial,
@@ -393,12 +325,11 @@ def tdma_exchange(name: str,
     query(sender, "SYSTem:REFMEM:SYNC:TDMA:ABORt", timeout_s)
     query(receiver, "SYSTem:REFMEM:SYNC:TDMA:ABORt", timeout_s)
 
-    frame_builder = spi_command_to_frame_builder(tx_command)
-    frame_response = query(sender, frame_builder, timeout_s)
+    frame_response = query(sender, tx_command, timeout_s)
     try:
         frame_hex = extract_frame_hex(frame_response)
     except RuntimeError as exc:
-        return ExchangeResult(name, sender_name, receiver_name, frame_builder,
+        return ExchangeResult(name, sender_name, receiver_name, tx_command,
                               frame_response, "<not-started>", False, str(exc))
 
     rx_deadline_us = rx_timeout_ms * 1000
@@ -487,7 +418,7 @@ def main() -> int:
     parser.add_argument("--port-a", default="COM5")
     parser.add_argument("--port-b", default="COM6")
     parser.add_argument("--baud", type=int, default=25000000)
-    parser.add_argument("--transport", choices=["spi", "tdma"], default="spi")
+    parser.add_argument("--transport", choices=["tdma"], default="tdma")
     parser.add_argument("--serial-baud", type=int, default=115200)
     parser.add_argument("--timeout-s", type=float, default=2.0)
     parser.add_argument("--rx-timeout-ms", type=int, default=3000)
@@ -559,38 +490,37 @@ def main() -> int:
 
         plan = [
             ("A_HELLO_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:SPI:HELLo 0,2,0", HELLO_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:HELLo? 0,2,0", HELLO_TYPE, 0),
             ("B_HELLO_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:SPI:HELLo 1,1,0", HELLO_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:HELLo? 1,1,0", HELLO_TYPE, 1),
             ("A_EPOCH_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:SPI:EPOCh 0,2,0", EPOCH_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:EPOCh? 0,2,0", EPOCH_TYPE, 0),
             ("B_EPOCH_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:SPI:EPOCh 1,1,0", EPOCH_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:EPOCh? 1,1,0", EPOCH_TYPE, 1),
             ("A_DELTA_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:SPI:DELTa 0,2,0,0,3,1,2768240641,1", DELTA_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:DELTa? 0,2,0,0,3,1,2768240641,1", DELTA_TYPE, 0),
             ("B_ACK_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:SPI:ACK 1,1,0", ACK_NACK_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:ACK? 1,1,0", ACK_NACK_TYPE, 1),
             ("B_DELTA_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:SPI:DELTa 1,1,0,1,3,1,3053453314,1", DELTA_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:DELTa? 1,1,0,1,3,1,3053453314,1", DELTA_TYPE, 1),
             ("A_ACK_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:SPI:ACK 0,2,0", ACK_NACK_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:ACK? 0,2,0", ACK_NACK_TYPE, 0),
             ("A_FENCE_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:SPI:FENCe 0,2,0,1,1,2,3,1000", FENCE_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:FENCe? 0,2,0,1,1,2,3,1000", FENCE_TYPE, 0),
             ("B_FENCE_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:SPI:FENCe 1,1,0,1,1,1,3,1000", FENCE_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:FENCe? 1,1,0,1,1,1,3,1000", FENCE_TYPE, 1),
             ("A_QUALITY_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:SPI:QUALity:FRAMe 0,2,0,1,1,1", QUALITY_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:QUALity:FRAMe? 0,2,0,1,1,1", QUALITY_TYPE, 0),
             ("B_QUALITY_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:SPI:QUALity:FRAMe 1,1,0,1,1,0", QUALITY_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:QUALity:FRAMe? 1,1,0,1,1,0", QUALITY_TYPE, 1),
         ]
 
         if not failures:
             for item in plan:
-                exchange_fn = tdma_exchange if args.transport == "tdma" else exchange
-                result = exchange_fn(*item,
-                                     baud=args.baud,
-                                     rx_timeout_ms=args.rx_timeout_ms,
-                                     timeout_s=args.timeout_s)
+                result = tdma_exchange(*item,
+                                       baud=args.baud,
+                                       rx_timeout_ms=args.rx_timeout_ms,
+                                       timeout_s=args.timeout_s)
                 results.append(result)
                 if not result.passed:
                     failures.append(f"{result.name}: {result.reason}")
