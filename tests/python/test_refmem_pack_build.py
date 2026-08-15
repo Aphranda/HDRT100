@@ -26,6 +26,7 @@ def test_refmem_package_header_and_directory_are_consistent() -> None:
 
 def test_refmem_package_table_entries_match_payloads() -> None:
     package, entries = refmem_pack_build.build_package()
+    assert refmem_pack_build.BOARD_CAPABILITY_COUNT == refmem_pack_build.NODE_COUNT
     expected_sizes = {
         0: 6 * 4,
         1: 8 + refmem_pack_build.BOARD_CAPABILITY_COUNT * 9 * 4,

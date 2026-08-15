@@ -279,7 +279,7 @@ static int test_board_identity_does_not_bind_slot(void)
     return failed;
 }
 
-static int test_candidate_overflow_blocks_gate(void)
+static int test_board_capability_over_capacity_rejected(void)
 {
     int failed = 0;
     refmem_generic_node_table_t nodes;
@@ -287,21 +287,19 @@ static int test_candidate_overflow_blocks_gate(void)
     refmem_node_load_table_t loads;
     refmem_fb_instance_table_t instances;
     refmem_slot_claim_map_t map;
-    refmem_slot_claim_gate_status_t gate;
 
     make_generic_nodes(&nodes, REFMEM_APP_MODEL_NODE_COUNT);
-    make_boards(&boards, 9u);
-    boards.board[8].active_default_slot = 0u;
+    make_boards(&boards, REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT);
+    boards.board_count = REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT + 1u;
     make_loads(&loads, &instances);
 
-    (void)derive_gate(&nodes, &boards, &loads, &instances, &map, &gate);
-    failed += expect_u32("overflow ready", gate.ready, 0u);
-    failed += expect_u32("overflow candidates", map.candidate_count, 9u);
-    failed += expect_u32("overflow assigned", map.assigned_count, 8u);
-    failed += expect_u32("overflow count", map.overflow_count, 1u);
-    failed += expect_u32("overflow reason", gate.first_reason, REFMEM_SLOT_CLAIM_REASON_OVERFLOW);
-    failed += expect_u32("overflow evidence count", map.evidence_count, 1u);
-    failed += expect_u32("overflow evidence candidate", map.evidence[0].candidate_id, 8u);
+    failed += expect_bool("board capability rejects over capacity",
+                          refmem_slot_claim_derive_map(&nodes,
+                                                       &boards,
+                                                       &loads,
+                                                       &instances,
+                                                       &map),
+                          false);
     return failed;
 }
 
@@ -420,6 +418,29 @@ static int test_claim_propose_frame_crc_validation(void)
     failed += expect_u32("claim propose header crc detects mutation",
                          (uint32_t)refmem_claim_propose_frame_validate(&frame),
                          REFMEM_CLAIM_FRAME_BAD_HEADER_CRC);
+
+    refmem_slot_claim_proposal_t max_proposal[REFMEM_CLAIM_FRAME_PROPOSAL_MAX];
+    (void)memset(max_proposal, 0, sizeof(max_proposal));
+    for (uint32_t i = 0u; i < REFMEM_CLAIM_FRAME_PROPOSAL_MAX; i++) {
+        max_proposal[i].candidate_id = i;
+        max_proposal[i].board_id = i;
+        max_proposal[i].board_uuid_crc32 = 0xB0000000u + i;
+        max_proposal[i].preferred_slot_id = i % REFMEM_APP_MODEL_NODE_COUNT;
+        max_proposal[i].capability_mask =
+            REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM | REFMEM_APP_CAP_VDC;
+    }
+    failed += expect_bool("claim propose accepts max candidates",
+                          refmem_claim_propose_frame_init(&frame,
+                                                          2u,
+                                                          101u,
+                                                          0u,
+                                                          0xB0000000u,
+                                                          max_proposal,
+                                                          REFMEM_CLAIM_FRAME_PROPOSAL_MAX),
+                          true);
+    failed += expect_u32("claim propose max validate",
+                         (uint32_t)refmem_claim_propose_frame_validate(&frame),
+                         REFMEM_CLAIM_FRAME_OK);
 
     failed += expect_bool("claim propose rejects too many",
                           refmem_claim_propose_frame_init(&frame,
@@ -576,7 +597,7 @@ int main(void)
     failed += test_duplicate_claim_blocks_gate();
     failed += test_missing_uuid_blocks_strict_claim();
     failed += test_board_identity_does_not_bind_slot();
-    failed += test_candidate_overflow_blocks_gate();
+    failed += test_board_capability_over_capacity_rejected();
     failed += test_stale_claim_blocks_gate();
     failed += test_claim_crc_blocks_gate();
     failed += test_map_crc_blocks_gate();

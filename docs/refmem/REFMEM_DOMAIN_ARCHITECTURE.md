@@ -444,7 +444,7 @@ RUN gate 只能消费 `target_committed` 后的 snapshot。任何处于 encoded/
 
 ### BoardCapabilityTable
 
-`BoardCapabilityTable` 描述当前 profile 中可见物理板、模型板或调试节点的基础能力。它回答“B0-B4/Bx 这块物理或模型节点能做什么”，不回答“它当前占用哪个 A0-A7 slot”，也不直接表达业务装载关系。
+`BoardCapabilityTable` 描述当前 profile 中可见物理板、模型板或调试节点的基础能力。它回答“B0-B7 这块物理或模型节点能做什么”，不回答“它当前占用哪个 A0-A7 slot”，也不直接表达业务装载关系。当前产品 wire contract 固定 8 条 board capability 记录；后续单板 9 到 16 个候选节点的反向验证属于 `SlotClaimProposal` / `SlotClaimEvidence`，不得扩展为第 9 个 BoardCapability active slot。
 
 | 字段 | 含义 | 约束 |
 |---|---|---|
@@ -472,6 +472,7 @@ BoardCapabilityTable(B0-Bx)
 
 - B0-Bx 的能力来自物理板、最小系统约束、产品硬件约束或 System Pack。
 - A0-A7 的 GenericNode 只表达 slot substrate、claim policy 和 active assignment 结果，不应永久代表某个硬件功能。
+- 当前 BoardCapabilityTable 与 A0-A7 active slot 容量保持 8 条固定 wire payload；16 个候选上限只用于 SlotClaim proposal 和 overflow evidence，不参与 BoardCapability table CRC。
 - `B2.LinkSwitcherAO` 默认可以装载到 A2，但只要 capability、IO 约束、类 IP 核、事件和数据连接通过，也可以装载到其他 A0-A7 slot。
 - 没有 `REFMEM + VDC` baseline 的物理节点不得进入 distributed RUN；缺少 `VDC_DPLL` 只影响 DPLL owner 候选，不影响普通 VDC 参与节点。
 - 板卡能力必须支持通过 SD System Pack 和受控 SCPI staging 加载。固件内置表只作为 default/factory profile；SD/SCPI 加载的 BoardCapabilityTable 只能进入 staging image，必须经过 CRC、版本兼容、owner validation、IO 约束检查、类 IP 核能力检查和 DeploymentGate 后才能激活。
@@ -1268,7 +1269,7 @@ SCPI / SD
 
 `SYSTem:REFMEM:LOAD:SD [path]` 扫描 SD `/manifest.idx`，随后读取并校验 RefMem table image；默认路径为 `/refmem/app_model.rmtp`，可用可选 path 覆盖。StorageAO/FB 负责 SD/FatFs、manifest scan 和文件读写；SCPI 不直接写 TableRegistry，`DistributedRefMemAO` 通过 `TABLE_PACKAGE_STAGE` command slot 消费 StorageAO 给出的 path hash、manifest 摘要、package CRC、package bytes 和 table CRC 摘要，随后写 RefMem staging 并 ACK/NACK。当前 parser 已校验 `.rmtp` header、table directory、payload CRC、package CRC 和单表 CRC，并把完整 package bytes 复制到 `RefMemTableRegistry` 私有 staging image buffer；activation gate 通过后，registry 会将旧 active descriptor/buffer 移入 rollbackable，再把 staging descriptor/buffer 切为 active。`RefMemTableRegistry` 的 staging descriptor 记录 package CRC，table entry 记录各自 table directory CRC；ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality 全 9 张 canonical 表均为固定 u32 wire payload，并通过 owner validation 后进入 OWNER_OK。activation 成功后，`DistributedRefMemAO` 触发 application model 从 active stable table view 解析 runtime snapshot，后续 SCPI/SystemManager/SlotClaim/RUN gate 的 getter 读取 runtime snapshot；真实 owner validation callback 调度仍需后续接入。
 
-`SYSTem:REFMEM:LOAD:ACTivate` 是维护/调试入口，只提交 activation intent，不直接改 active 表。`DistributedRefMemAO` 通过 `TABLE_PACKAGE_ACTIVATE` command slot take 后组装 activation gate：RefMem load mode 必须 idle，realtime/trigger 必须 idle，runtime protection 必须具备 RAM-resident / entry owner / flash lockout online 证据，staging descriptor 必须 `CRC_OK + OWNER_OK`，SlotClaim 和 DeploymentGate 必须通过，当前本地 command take 视作 local ACK gate。gate 通过后才调用 `refmem_table_registry_activate_staging()`；成功后再调用 application model owner 解析 active table views 并更新 `active_package_crc32`，失败返回 `REJECTED` 并通过 `SYSTem:COMMand:ACK?` 暴露 ACK/NACK。该入口当前完成 registry 级 descriptor/buffer 切换和本地 runtime snapshot 切换，后续仍需接跨节点 FENCE/ACK 和 staging stable table view 预解析。
+`SYSTem:REFMEM:LOAD:ACTivate` 是维护/调试入口，只提交 activation intent，不直接改 active 表。`DistributedRefMemAO` 通过 `TABLE_PACKAGE_ACTIVATE` command slot take 后组装 activation gate：RefMem load mode 必须 idle，realtime/trigger 必须 idle，runtime protection 必须具备 RAM-resident / entry owner / flash lockout online 证据，staging descriptor 必须 `CRC_OK + OWNER_OK`，SlotClaim 和 DeploymentGate 必须通过，当前本地 command take 视作 local ACK gate。registry 切换前必须先由 application model owner 对 staging stable table view 做预解析，预解析失败返回 `STAGING_VIEW_INVALID` 并保持旧 active 不变；gate 通过后才调用 `refmem_table_registry_activate_staging()`，成功后提交已预解析的 pending runtime snapshot 并更新 `active_package_crc32`。失败返回 `REJECTED` 并通过 `SYSTem:COMMand:ACK?` 暴露 ACK/NACK。该入口当前完成 registry 级 descriptor/buffer 切换、本地 runtime snapshot 两阶段切换和 staging view 预解析，后续仍需接跨节点 FENCE/ACK。
 
 `SYSTem:REFMEM:TABle:VIEW? [role],[table_id]` 通过 TableRegistry access/release 读取指定 image 的单表只读 view 摘要，返回 `version,role,table_id,table_seq,package_crc32,table_crc32,image_offset,image_size,first_u32`。它用于证明 active/staging/rollbackable bytes 可以按 RMTP directory 稳定访问，不用于 dump 完整表；完整 dump/load 规则仍需后续按 P0 独立实现。
 

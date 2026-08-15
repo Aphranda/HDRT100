@@ -8,6 +8,47 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-035 - Staging table view pre-parse activation gate
+
+- 状态：完成 COM5/COM6 板端闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 收掉 active image 已切换但 application runtime snapshot 解析失败的理论窗口。
+  - 保持 HAOFV 边界：SCPI 只提交 activation intent；`DistributedRefMemAO` 调度，`RefMemTableRegistry` 管 image，`refmem_application_model` 作为 owner 预解析 staging stable view。
+- 完成内容：
+  - 新增 `refmem_application_model_prepare_staging_table_views()`，从 staging image 借出 9 张 canonical 表并解析到 pending runtime snapshot。
+  - 新增 `refmem_application_model_commit_prepared_table_views()` / `discard_prepared_table_views()`，registry activation 成功后才提交 pending，失败时丢弃。
+  - `distributed_refmem_activate_staging()` 在调用 `refmem_table_registry_activate_staging()` 前先执行 staging view 预解析；预解析失败时记录 `STAGING_VIEW_INVALID`，并通过 command slot NACK。
+  - 新增 `REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID` 和 `REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED`，并同步 `SYSTem:COMMand:NACK?` reason table。
+  - `test_refmem_table_registry.c` 增加 prepare/commit 断言：prepare 不改变 active getter，commit 后才切到 package runtime snapshot，pending 只能提交一次。
+  - `tools/refmem_table_registry_validate/refmem_table_registry_validate.py` 增加 preflight error queue drain，避免 Storage/OTA 历史错误污染本轮验证；summary 只将 `FAIL` 计入失败。
+  - `tools/storage_file_upload/storage_file_upload.py` 增加 StorageAO job idle 等待和 active write transaction abort preflight，避免目录/删除/写入 job 交错。
+  - `tools/scpi_query/scpi_query.py` 修正 `INFO? "path"` 这类带参数查询识别，并新增 `tools/scpi_query/refmem_storage_info_probe.scpi` 作为 RefMem HIL SD 依赖探测命令集。
+  - `BoardCapabilityTable` 当前产品 wire contract 固定为 8 条 A0-A7 能力记录；`CLAIM_CANDIDATE_MAX = 16` 只保留给 SlotClaim proposal / overflow evidence，不复用为 BoardCapability 表容量。
+  - `scpi_refmem_read_package()` 先通过 StorageAO file info 获取真实文件大小，再按剩余长度分块读取，避免最后一块 512 字节越过文件尾导致 `LOAD:SD` 读包失败。
+  - `tools/sd_fs_build/sd_fs_build.py` 固化生成 `manifest_refmem_hil.idx`，用于 RefMem HIL，只要求 profile、mission、cal 和 RefMem `.rmtp` 四个小文件。
+  - 新增 `tools/scpi_query/refmem_file_read_probe.scpi`，用于通过 Storage `FILE:READ?` 探测 `/refmem/app_model.rmtp` 头尾读取。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python -m py_compile tools\refmem_table_registry_validate\refmem_table_registry_validate.py` 通过。
+  - `python -m py_compile tools\storage_file_upload\storage_file_upload.py` 通过。
+  - `python -m py_compile tools\scpi_query\scpi_query.py` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `python -m pytest tests\python\test_refmem_pack_build.py -q` 通过，2 passed；pytest cache 写入 `.pytest_cache` 因权限被拒绝产生 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过，最终生成 build id `20260815135119`，package CRC `0x1801DEA8`。
+  - `python tools\sd_fs_build\sd_fs_build.py --build-dir build-rtos-multicore-smoke --output-dir build-rtos-multicore-smoke\sdcard_8slot_20260815135119 --clean --no-zip --no-reports` 通过，生成 8 槽位 `.rmtp` size `4512`，package CRC `0x31062D02`，BoardCapability table size `296`。
+  - COM5 OTA 到 build `20260815135119` 并 boot commit 成功；上传 8 槽位 HIL 文件集合成功。
+  - COM5 执行 `refmem_table_registry_validate.py COM5 --package build-rtos-multicore-smoke\sdcard_8slot_20260815135119\refmem\app_model.rmtp --load-sd --activate` 通过：`LOAD:SD` 返回 `STAGED`，`LOAD:ACTivate` 返回 `ACTIVE`，active image table mask `511`，BoardCapability table size `296`，最终 `SYSTem:ERRor?` 为 `0,"No error"`。
+  - COM6 OTA 到 build `20260815135119` 并 boot commit 成功；上传 8 槽位 HIL 文件集合成功。
+  - COM6 首次 `LOAD:SD` 在读包阶段返回 `REJECTED`，随后 `refmem_file_read_probe.scpi` 证明 `/refmem/app_model.rmtp` 头尾 Storage read 正常；复跑 `refmem_table_registry_validate.py COM6 --load-sd --activate` 通过，active image table mask `511`，BoardCapability table size `296`，最终 `SYSTem:ERRor?` 为 `0,"No error"`。
+- 过程记录：
+  - 全量 System Pack manifest 要求 `/update/RP2350_TRIG_UPDATE.pkg`，通用 Storage write API 当前单事务上限 8192 bytes，不能用它上传 523 KB OTA 包；本轮 RefMem HIL 改用 `manifest_refmem_hil.idx`，只要求 profile、mission、cal 和 RefMem `.rmtp` 四个小文件，不绕过 StorageAO manifest gate。
+  - COM5 首次覆盖 manifest 后出现一次 `manifest_status=8 / missing_count=1`，单独 `SYSTem:SD:MANifest?` 随后返回 OK；该现象计入后续 StorageAO manifest scan/job 时序观察，不阻塞本轮 RefMem activation gate 结论。
+  - COM6 最终 build 首次 `LOAD:SD` 后、Storage read probe 后复跑成功，继续作为 StorageAO job/manifest 首轮时序支线观察项。
+- 后续动作：
+  - 继续接入真实 owner validation callback 调度和跨节点 ACK/FENCE。
+
 ### REFMEM-TASK-20260815-034 - Active table views to application runtime snapshot
 
 - 状态：完成 COM5/COM6 板端闭环

@@ -69,6 +69,18 @@ def execute(ser, command: str, timeout_s: float) -> str:
     return read_response(ser, timeout_s)
 
 
+def wait_storage_job_idle(ser, timeout_s: float) -> str:
+    deadline = time.monotonic() + timeout_s
+    last_response = ""
+    while time.monotonic() < deadline:
+        last_response = execute(ser, "SYSTem:STORage:JOB?", min(1.0, timeout_s))
+        fields = parse_csv_response(last_response)
+        if fields and fields[0] not in ("QUEUED", "RUNNING"):
+            return last_response
+        time.sleep(0.1)
+    raise TimeoutError(f"storage job did not finish: {last_response!r}")
+
+
 def parent_dirs(remote_path: str) -> list[str]:
     parts = [part for part in remote_path.strip("/").split("/")[:-1] if part]
     dirs: list[str] = []
@@ -133,6 +145,21 @@ def expect_info(response: str, remote_path: str, size: int) -> None:
         raise AssertionError(f"path mismatch {fields[7]!r} != {remote_path!r}")
 
 
+def abort_active_write_transaction(ser, records: list[Record], timeout_s: float) -> None:
+    command = "SYSTem:STORage:FILE:WRITe:STATus?"
+    response = execute(ser, command, timeout_s)
+    fields = parse_csv_response(response)
+    records.append(Record(command, response, "PASS" if fields else "INFO", "preflight"))
+    print(f"{records[-1].status} {command} => {response}")
+    if len(fields) < 2 or int(fields[0], 0) == 0:
+        return
+
+    txn_id = int(fields[1], 0)
+    command = f"SYSTem:STORage:FILE:WRITe:ABORt {txn_id}"
+    response = execute(ser, command, timeout_s)
+    append_record(records, command, response, lambda r: expect_prefix(r, "OK"), allow_fail=True)
+
+
 def upload_one(ser,
                records: list[Record],
                local_path: Path,
@@ -146,10 +173,16 @@ def upload_one(ser,
         command = f'SYSTem:STORage:DIRectory:CREate "{directory}"'
         response = execute(ser, command, timeout_s)
         append_record(records, command, response, lambda r: expect_prefix(r, "CREATED"), allow_fail=True)
+        job_response = wait_storage_job_idle(ser, timeout_s)
+        records.append(Record("SYSTem:STORage:JOB?", job_response, "PASS", "idle"))
+        print(f"PASS SYSTem:STORage:JOB? => {job_response}")
 
     command = f'SYSTem:STORage:FILE:DELete "{remote_path}"'
     response = execute(ser, command, timeout_s)
     append_record(records, command, response, lambda r: expect_prefix(r, "DELETED"), allow_fail=True)
+    job_response = wait_storage_job_idle(ser, timeout_s)
+    records.append(Record("SYSTem:STORage:JOB?", job_response, "PASS", "idle"))
+    print(f"PASS SYSTem:STORage:JOB? => {job_response}")
 
     command = f'SYSTem:STORage:FILE:WRITe:BEGIN "{remote_path}",{len(payload)},{crc}'
     response = execute(ser, command, timeout_s)
@@ -206,6 +239,7 @@ def main() -> int:
 
     records: list[Record] = []
     with open_serial_port(args.port, args.baud, args.timeout, args.settle) as ser:
+        abort_active_write_transaction(ser, records, args.timeout)
         for local, remote in args.file:
             local_path = Path(local)
             if not local_path.exists():

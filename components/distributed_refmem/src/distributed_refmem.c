@@ -172,6 +172,8 @@ static refmem_command_reason_t distributed_refmem_activation_nack_reason(uint32_
         return REFMEM_COMMAND_REASON_RESOURCE_BUSY;
     case REFMEM_TABLE_ACTIVATE_ERR_IMAGE_TOO_LARGE:
         return REFMEM_COMMAND_REASON_PAYLOAD_CRC_MISMATCH;
+    case REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID:
+        return REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
     case REFMEM_TABLE_ACTIVATE_ERR_BAD_ARGUMENT:
     case REFMEM_TABLE_ACTIVATE_ERR_NO_VALID_STAGING:
     case REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED:
@@ -942,15 +944,46 @@ bool distributed_refmem_activate_staging(uint32_t realtime_idle)
         .command_ack_ok = 1u,
     };
 
+    const bool staging_candidate_ready =
+        staging.state == REFMEM_TABLE_VALIDATION_OWNER_OK &&
+        staging.table_mask == REFMEM_APP_TABLE_MASK_ALL &&
+        staging.package_crc32 != 0u;
+    const bool gate_ready_for_preparse =
+        gate.refmem_idle != 0u &&
+        gate.realtime_idle != 0u &&
+        gate.flash_safe != 0u &&
+        gate.crc_ok != 0u &&
+        gate.owner_ok != 0u &&
+        gate.slot_claim_ok != 0u &&
+        gate.deployment_gate_ok != 0u &&
+        gate.command_ack_ok != 0u;
+
+    if (staging_candidate_ready &&
+        gate_ready_for_preparse &&
+        !refmem_application_model_prepare_staging_table_views()) {
+        (void)refmem_table_registry_note_activation_result(
+            REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID);
+        refmem_application_model_discard_prepared_table_views();
+        (void)distributed_refmem_command_nack(
+            local_target,
+            distributed_refmem_activation_nack_reason(
+                REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID),
+            REFMEM_VECTOR_SLOT_ACK_CMD);
+        return false;
+    }
+
     const bool activated = refmem_table_registry_activate_staging(&gate);
     refmem_table_registry_snapshot_t registry;
     refmem_table_registry_get_snapshot(&registry);
     if (activated) {
-        (void)refmem_application_model_apply_active_table_views();
+        if (!refmem_application_model_commit_prepared_table_views()) {
+            (void)refmem_application_model_apply_active_table_views();
+        }
         (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_SLOT_ACK_CMD);
         return true;
     }
 
+    refmem_application_model_discard_prepared_table_views();
     (void)distributed_refmem_command_nack(
         local_target,
         distributed_refmem_activation_nack_reason(registry.last_error),

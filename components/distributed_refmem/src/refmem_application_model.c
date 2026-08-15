@@ -399,6 +399,24 @@ static bool s_staging_node_load_valid;
 static bool s_active_tables_from_image;
 static bool s_initialized;
 
+typedef struct {
+    refmem_application_map_t application_map;
+    refmem_board_capability_table_t board_capability;
+    refmem_generic_node_table_t generic_node;
+    refmem_node_load_table_t node_load;
+    refmem_fb_instance_table_t fb_instance;
+    refmem_event_link_table_t event_link;
+    refmem_data_link_table_t data_link;
+    refmem_deployment_gate_table_t deployment_gate;
+    refmem_connection_quality_table_t connection_quality;
+    uint32_t table_crc32[REFMEM_APP_TABLE_CONNECTION_QUALITY + 1u];
+    uint32_t package_crc32;
+    uint32_t table_seq;
+} refmem_model_parsed_tables_t;
+
+static refmem_model_parsed_tables_t s_pending_tables;
+static bool s_pending_tables_valid;
+
 static bool refmem_model_instance_enabled(const refmem_fb_instance_entry_t *instance);
 static void refmem_model_copy_text(char *dst, size_t dst_size, const char *src);
 static void refmem_model_finish_load_idle(void);
@@ -1431,13 +1449,14 @@ static void refmem_model_finish_load_idle(void)
 
 typedef bool (*refmem_model_parse_table_view_fn)(const uint8_t *data, size_t size, void *table);
 
-static bool refmem_model_parse_active_view(uint32_t table_id,
-                                           refmem_model_parse_table_view_fn parser,
-                                           void *table,
-                                           uint32_t *table_crc32,
-                                           uint32_t *package_crc32,
-                                           uint32_t *table_seq,
-                                           bool *context_set)
+static bool refmem_model_parse_image_view(refmem_table_image_role_t role,
+                                          uint32_t table_id,
+                                          refmem_model_parse_table_view_fn parser,
+                                          void *table,
+                                          uint32_t *table_crc32,
+                                          uint32_t *package_crc32,
+                                          uint32_t *table_seq,
+                                          bool *context_set)
 {
     if (parser == NULL ||
         table == NULL ||
@@ -1449,7 +1468,7 @@ static bool refmem_model_parse_active_view(uint32_t table_id,
     }
 
     refmem_table_view_t view;
-    if (!refmem_table_registry_access_table(REFMEM_TABLE_IMAGE_ACTIVE, table_id, &view)) {
+    if (!refmem_table_registry_access_table(role, table_id, &view)) {
         return false;
     }
 
@@ -1473,128 +1492,181 @@ static bool refmem_model_parse_active_view(uint32_t table_id,
     return ok && released;
 }
 
-bool refmem_application_model_apply_active_table_views(void)
+static bool refmem_model_parse_image_views(refmem_table_image_role_t role,
+                                           refmem_model_parsed_tables_t *parsed)
 {
-    if (!s_initialized) {
-        (void)refmem_application_model_init();
+    if (parsed == NULL) {
+        return false;
     }
 
-    refmem_application_map_t application_map;
-    refmem_board_capability_table_t board_capability;
-    refmem_generic_node_table_t generic_node;
-    refmem_node_load_table_t node_load;
-    refmem_fb_instance_table_t fb_instance;
-    refmem_event_link_table_t event_link;
-    refmem_data_link_table_t data_link;
-    refmem_deployment_gate_table_t deployment_gate;
-    refmem_connection_quality_table_t connection_quality;
-    uint32_t table_crc32[REFMEM_APP_TABLE_CONNECTION_QUALITY + 1u] = {0u};
-    uint32_t package_crc32 = 0u;
-    uint32_t table_seq = 0u;
+    memset(parsed, 0, sizeof(*parsed));
     bool context_set = false;
 
-    if (!refmem_model_parse_active_view(REFMEM_APP_TABLE_APPLICATION_MAP,
-                                        refmem_model_parse_application_map_view,
-                                        &application_map,
-                                        &table_crc32[REFMEM_APP_TABLE_APPLICATION_MAP],
-                                        &package_crc32,
-                                        &table_seq,
-                                        &context_set) ||
-        !refmem_model_parse_active_view(REFMEM_APP_TABLE_BOARD_CAPABILITY,
-                                        refmem_model_parse_board_capability_view,
-                                        &board_capability,
-                                        &table_crc32[REFMEM_APP_TABLE_BOARD_CAPABILITY],
-                                        &package_crc32,
-                                        &table_seq,
-                                        &context_set) ||
-        !refmem_model_parse_active_view(REFMEM_APP_TABLE_GENERIC_NODE,
-                                        refmem_model_parse_generic_node_view,
-                                        &generic_node,
-                                        &table_crc32[REFMEM_APP_TABLE_GENERIC_NODE],
-                                        &package_crc32,
-                                        &table_seq,
-                                        &context_set) ||
-        !refmem_model_parse_active_view(REFMEM_APP_TABLE_NODE_LOAD,
-                                        refmem_model_parse_node_load_view,
-                                        &node_load,
-                                        &table_crc32[REFMEM_APP_TABLE_NODE_LOAD],
-                                        &package_crc32,
-                                        &table_seq,
-                                        &context_set) ||
-        !refmem_model_parse_active_view(REFMEM_APP_TABLE_FB_INSTANCE,
-                                        refmem_model_parse_fb_instance_view,
-                                        &fb_instance,
-                                        &table_crc32[REFMEM_APP_TABLE_FB_INSTANCE],
-                                        &package_crc32,
-                                        &table_seq,
-                                        &context_set) ||
-        !refmem_model_parse_active_view(REFMEM_APP_TABLE_EVENT_LINK,
-                                        refmem_model_parse_event_link_view,
-                                        &event_link,
-                                        &table_crc32[REFMEM_APP_TABLE_EVENT_LINK],
-                                        &package_crc32,
-                                        &table_seq,
-                                        &context_set) ||
-        !refmem_model_parse_active_view(REFMEM_APP_TABLE_DATA_LINK,
-                                        refmem_model_parse_data_link_view,
-                                        &data_link,
-                                        &table_crc32[REFMEM_APP_TABLE_DATA_LINK],
-                                        &package_crc32,
-                                        &table_seq,
-                                        &context_set) ||
-        !refmem_model_parse_active_view(REFMEM_APP_TABLE_DEPLOYMENT_GATE,
-                                        refmem_model_parse_deployment_gate_view,
-                                        &deployment_gate,
-                                        &table_crc32[REFMEM_APP_TABLE_DEPLOYMENT_GATE],
-                                        &package_crc32,
-                                        &table_seq,
-                                        &context_set) ||
-        !refmem_model_parse_active_view(REFMEM_APP_TABLE_CONNECTION_QUALITY,
-                                        refmem_model_parse_connection_quality_view,
-                                        &connection_quality,
-                                        &table_crc32[REFMEM_APP_TABLE_CONNECTION_QUALITY],
-                                        &package_crc32,
-                                        &table_seq,
-                                        &context_set)) {
+    if (!refmem_model_parse_image_view(role,
+                                       REFMEM_APP_TABLE_APPLICATION_MAP,
+                                       refmem_model_parse_application_map_view,
+                                       &parsed->application_map,
+                                       &parsed->table_crc32[REFMEM_APP_TABLE_APPLICATION_MAP],
+                                       &parsed->package_crc32,
+                                       &parsed->table_seq,
+                                       &context_set) ||
+        !refmem_model_parse_image_view(role,
+                                       REFMEM_APP_TABLE_BOARD_CAPABILITY,
+                                       refmem_model_parse_board_capability_view,
+                                       &parsed->board_capability,
+                                       &parsed->table_crc32[REFMEM_APP_TABLE_BOARD_CAPABILITY],
+                                       &parsed->package_crc32,
+                                       &parsed->table_seq,
+                                       &context_set) ||
+        !refmem_model_parse_image_view(role,
+                                       REFMEM_APP_TABLE_GENERIC_NODE,
+                                       refmem_model_parse_generic_node_view,
+                                       &parsed->generic_node,
+                                       &parsed->table_crc32[REFMEM_APP_TABLE_GENERIC_NODE],
+                                       &parsed->package_crc32,
+                                       &parsed->table_seq,
+                                       &context_set) ||
+        !refmem_model_parse_image_view(role,
+                                       REFMEM_APP_TABLE_NODE_LOAD,
+                                       refmem_model_parse_node_load_view,
+                                       &parsed->node_load,
+                                       &parsed->table_crc32[REFMEM_APP_TABLE_NODE_LOAD],
+                                       &parsed->package_crc32,
+                                       &parsed->table_seq,
+                                       &context_set) ||
+        !refmem_model_parse_image_view(role,
+                                       REFMEM_APP_TABLE_FB_INSTANCE,
+                                       refmem_model_parse_fb_instance_view,
+                                       &parsed->fb_instance,
+                                       &parsed->table_crc32[REFMEM_APP_TABLE_FB_INSTANCE],
+                                       &parsed->package_crc32,
+                                       &parsed->table_seq,
+                                       &context_set) ||
+        !refmem_model_parse_image_view(role,
+                                       REFMEM_APP_TABLE_EVENT_LINK,
+                                       refmem_model_parse_event_link_view,
+                                       &parsed->event_link,
+                                       &parsed->table_crc32[REFMEM_APP_TABLE_EVENT_LINK],
+                                       &parsed->package_crc32,
+                                       &parsed->table_seq,
+                                       &context_set) ||
+        !refmem_model_parse_image_view(role,
+                                       REFMEM_APP_TABLE_DATA_LINK,
+                                       refmem_model_parse_data_link_view,
+                                       &parsed->data_link,
+                                       &parsed->table_crc32[REFMEM_APP_TABLE_DATA_LINK],
+                                       &parsed->package_crc32,
+                                       &parsed->table_seq,
+                                       &context_set) ||
+        !refmem_model_parse_image_view(role,
+                                       REFMEM_APP_TABLE_DEPLOYMENT_GATE,
+                                       refmem_model_parse_deployment_gate_view,
+                                       &parsed->deployment_gate,
+                                       &parsed->table_crc32[REFMEM_APP_TABLE_DEPLOYMENT_GATE],
+                                       &parsed->package_crc32,
+                                       &parsed->table_seq,
+                                       &context_set) ||
+        !refmem_model_parse_image_view(role,
+                                       REFMEM_APP_TABLE_CONNECTION_QUALITY,
+                                       refmem_model_parse_connection_quality_view,
+                                       &parsed->connection_quality,
+                                       &parsed->table_crc32[REFMEM_APP_TABLE_CONNECTION_QUALITY],
+                                       &parsed->package_crc32,
+                                       &parsed->table_seq,
+                                       &context_set)) {
         return false;
     }
 
-    if (!refmem_application_contract_validate_application_map(&application_map) ||
-        !refmem_application_contract_validate_slot_substrate(&generic_node, &board_capability) ||
-        !refmem_application_contract_validate_node_load_table(&node_load, &application_map)) {
-        return false;
+    return refmem_application_contract_validate_application_map(&parsed->application_map) &&
+           refmem_application_contract_validate_slot_substrate(&parsed->generic_node,
+                                                              &parsed->board_capability) &&
+           refmem_application_contract_validate_node_load_table(&parsed->node_load,
+                                                                &parsed->application_map);
+}
+
+static void refmem_model_apply_parsed_tables(const refmem_model_parsed_tables_t *parsed)
+{
+    if (parsed == NULL) {
+        return;
     }
 
-    s_active_application_map = application_map;
-    s_active_board_capability_table = board_capability;
-    s_active_generic_node_table = generic_node;
-    s_active_node_load_table = node_load;
-    s_active_fb_instance_table = fb_instance;
-    s_active_event_link_table = event_link;
-    s_active_data_link_table = data_link;
-    s_active_deployment_gate = deployment_gate;
-    s_active_connection_quality = connection_quality;
+    s_active_application_map = parsed->application_map;
+    s_active_board_capability_table = parsed->board_capability;
+    s_active_generic_node_table = parsed->generic_node;
+    s_active_node_load_table = parsed->node_load;
+    s_active_fb_instance_table = parsed->fb_instance;
+    s_active_event_link_table = parsed->event_link;
+    s_active_data_link_table = parsed->data_link;
+    s_active_deployment_gate = parsed->deployment_gate;
+    s_active_connection_quality = parsed->connection_quality;
     s_active_tables_from_image = true;
 
     s_snapshot.version = REFMEM_APP_MODEL_VERSION;
     s_snapshot.valid = 1u;
     s_snapshot.target_node_mask = s_active_application_map.target_node_mask;
     s_snapshot.table_mask = REFMEM_APP_TABLE_MASK_ALL;
-    s_snapshot.application_map_crc32 = table_crc32[REFMEM_APP_TABLE_APPLICATION_MAP];
-    s_snapshot.board_capability_crc32 = table_crc32[REFMEM_APP_TABLE_BOARD_CAPABILITY];
-    s_snapshot.generic_node_crc32 = table_crc32[REFMEM_APP_TABLE_GENERIC_NODE];
-    s_snapshot.node_load_crc32 = table_crc32[REFMEM_APP_TABLE_NODE_LOAD];
-    s_snapshot.fb_instance_crc32 = table_crc32[REFMEM_APP_TABLE_FB_INSTANCE];
-    s_snapshot.event_link_crc32 = table_crc32[REFMEM_APP_TABLE_EVENT_LINK];
-    s_snapshot.data_link_crc32 = table_crc32[REFMEM_APP_TABLE_DATA_LINK];
-    s_snapshot.deployment_gate_crc32 = table_crc32[REFMEM_APP_TABLE_DEPLOYMENT_GATE];
-    s_snapshot.connection_quality_crc32 = table_crc32[REFMEM_APP_TABLE_CONNECTION_QUALITY];
-    s_snapshot.package_crc32 = package_crc32;
+    s_snapshot.application_map_crc32 = parsed->table_crc32[REFMEM_APP_TABLE_APPLICATION_MAP];
+    s_snapshot.board_capability_crc32 = parsed->table_crc32[REFMEM_APP_TABLE_BOARD_CAPABILITY];
+    s_snapshot.generic_node_crc32 = parsed->table_crc32[REFMEM_APP_TABLE_GENERIC_NODE];
+    s_snapshot.node_load_crc32 = parsed->table_crc32[REFMEM_APP_TABLE_NODE_LOAD];
+    s_snapshot.fb_instance_crc32 = parsed->table_crc32[REFMEM_APP_TABLE_FB_INSTANCE];
+    s_snapshot.event_link_crc32 = parsed->table_crc32[REFMEM_APP_TABLE_EVENT_LINK];
+    s_snapshot.data_link_crc32 = parsed->table_crc32[REFMEM_APP_TABLE_DATA_LINK];
+    s_snapshot.deployment_gate_crc32 = parsed->table_crc32[REFMEM_APP_TABLE_DEPLOYMENT_GATE];
+    s_snapshot.connection_quality_crc32 = parsed->table_crc32[REFMEM_APP_TABLE_CONNECTION_QUALITY];
+    s_snapshot.package_crc32 = parsed->package_crc32;
     s_snapshot.lint_error_count = 0u;
     s_snapshot.first_lint_error = REFMEM_APP_LINT_OK;
-    s_load_snapshot.active_package_crc32 = package_crc32;
+    s_load_snapshot.active_package_crc32 = parsed->package_crc32;
     s_board_load_snapshot.active_crc32 = s_snapshot.board_capability_crc32;
+}
+
+bool refmem_application_model_apply_active_table_views(void)
+{
+    if (!s_initialized) {
+        (void)refmem_application_model_init();
+    }
+
+    refmem_model_parsed_tables_t parsed;
+    if (!refmem_model_parse_image_views(REFMEM_TABLE_IMAGE_ACTIVE, &parsed)) {
+        return false;
+    }
+    refmem_model_apply_parsed_tables(&parsed);
     return true;
+}
+
+bool refmem_application_model_prepare_staging_table_views(void)
+{
+    if (!s_initialized) {
+        (void)refmem_application_model_init();
+    }
+
+    s_pending_tables_valid = false;
+    if (!refmem_model_parse_image_views(REFMEM_TABLE_IMAGE_STAGING, &s_pending_tables)) {
+        memset(&s_pending_tables, 0, sizeof(s_pending_tables));
+        return false;
+    }
+
+    s_pending_tables_valid = true;
+    return true;
+}
+
+bool refmem_application_model_commit_prepared_table_views(void)
+{
+    if (!s_pending_tables_valid) {
+        return false;
+    }
+
+    refmem_model_apply_parsed_tables(&s_pending_tables);
+    memset(&s_pending_tables, 0, sizeof(s_pending_tables));
+    s_pending_tables_valid = false;
+    return true;
+}
+
+void refmem_application_model_discard_prepared_table_views(void)
+{
+    memset(&s_pending_tables, 0, sizeof(s_pending_tables));
+    s_pending_tables_valid = false;
 }
 
 static bool refmem_model_make_staging_node_load_table(
@@ -1709,6 +1781,7 @@ bool refmem_application_model_init(void)
 
     memset(&s_staging_node_load_table, 0, sizeof(s_staging_node_load_table));
     s_staging_node_load_valid = false;
+    refmem_application_model_discard_prepared_table_views();
     s_active_tables_from_image = false;
 
     s_initialized = true;

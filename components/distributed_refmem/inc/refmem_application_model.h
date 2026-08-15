@@ -15,7 +15,7 @@
 #define REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT    11u
 #define REFMEM_APP_MODEL_QUALITY_COUNT             8u
 #define REFMEM_APP_MODEL_CLAIM_CANDIDATE_MAX       16u
-#define REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT    REFMEM_APP_MODEL_CLAIM_CANDIDATE_MAX
+#define REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT    REFMEM_APP_MODEL_NODE_COUNT
 #define REFMEM_APP_MODEL_SD_MANIFEST_OK            1u
 
 #define REFMEM_APP_INSTANCE_TEMPLATE_MODEL_TURNTABLE 10u
@@ -577,6 +577,9 @@ bool refmem_application_model_stage_scpi_board_capability(uint32_t board_id,
                                                           uint32_t active_default_slot,
                                                           uint32_t online_required);
 bool refmem_application_model_apply_active_table_views(void);
+bool refmem_application_model_prepare_staging_table_views(void);
+bool refmem_application_model_commit_prepared_table_views(void);
+void refmem_application_model_discard_prepared_table_views(void);
 const refmem_application_map_t *refmem_application_model_get_application_map(void);
 const refmem_board_capability_table_t *refmem_application_model_get_board_capability_table(void);
 const refmem_generic_node_table_t *refmem_application_model_get_generic_node_table(void);

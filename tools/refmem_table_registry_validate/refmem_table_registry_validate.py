@@ -389,7 +389,8 @@ def run_validation(execute,
                    *,
                    load_sd: bool,
                    activate: bool,
-                   load_timeout_s: float) -> list[Record]:
+                   load_timeout_s: float,
+                   preflight_timeout_s: float) -> list[Record]:
     records: list[Record] = []
 
     def run(command: str, checker, timeout_s: float | None = None) -> None:
@@ -404,6 +405,8 @@ def run_validation(execute,
         if record.status != "PASS":
             raise SystemExit(1)
         time.sleep(0.05)
+
+    drain_preflight_error_queue(execute, records, preflight_timeout_s)
 
     if load_sd:
         run("SYSTem:REFMEM:LOAD:SD", lambda response: check_load_sd_response(response, package), load_timeout_s)
@@ -444,6 +447,22 @@ def run_validation(execute,
     return records
 
 
+def drain_preflight_error_queue(execute, records: list[Record], timeout_s: float) -> None:
+    for _ in range(8):
+        response = execute("SYSTem:ERRor?", timeout_s)
+        fields = parse_csv_response(response)
+        if len(fields) >= 2 and fields[0] == "0":
+            records.append(Record("SYSTem:ERRor?", response, "PASS", "preflight clean"))
+            print(f"PASS SYSTem:ERRor? => {response}")
+            return
+        records.append(Record("SYSTem:ERRor?", response, "INFO", "preflight stale error drained"))
+        print(f"INFO SYSTem:ERRor? => {response}")
+        time.sleep(0.05)
+    records.append(Record("SYSTem:ERRor?", response, "FAIL", "preflight error queue did not drain"))
+    print(f"FAIL SYSTem:ERRor? => {response}")
+    raise SystemExit(1)
+
+
 def check_command_ack(response: str, *, command_type: int, payload_size: int) -> None:
     fields = parse_csv_response(response)
     if len(fields) < 28:
@@ -481,9 +500,9 @@ def write_outputs(out_dir: Path, records: list[Record], package: PackageSummary)
             handle.write(f"# {record.status} {record.reason}\n")
 
     summary = {
-        "passed": all(record.status == "PASS" for record in records),
+        "passed": not any(record.status == "FAIL" for record in records),
         "total": len(records),
-        "failed": sum(1 for record in records if record.status != "PASS"),
+        "failed": sum(1 for record in records if record.status == "FAIL"),
         "package": str(package.path),
         "package_size": package.total_size,
         "package_crc32": f"{package.package_crc32:08X}",
@@ -509,7 +528,8 @@ def main() -> int:
                                  package,
                                  load_sd=args.load_sd,
                                  activate=args.activate,
-                                 load_timeout_s=args.load_timeout)
+                                 load_timeout_s=args.load_timeout,
+                                 preflight_timeout_s=args.timeout)
     finally:
         for handle in close_handles:
             try:
@@ -519,7 +539,7 @@ def main() -> int:
 
     out_dir = args.out_dir or (ROOT / "build" / f"refmem_table_registry_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     write_outputs(out_dir, records, package)
-    failed = sum(1 for record in records if record.status != "PASS")
+    failed = sum(1 for record in records if record.status == "FAIL")
     print(f"summary: passed={failed == 0} failed={failed} out_dir={out_dir}")
     return 0 if failed == 0 else 1
 

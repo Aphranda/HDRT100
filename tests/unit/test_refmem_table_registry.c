@@ -921,6 +921,65 @@ static int test_application_model_applies_active_table_views(void)
     return failed;
 }
 
+static int test_application_model_prepares_staging_before_commit(void)
+{
+    int failed = 0;
+    uint8_t package[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
+    refmem_table_package_validation_t validation;
+    const size_t package_size = build_test_package(package, sizeof(package), true);
+    refmem_application_model_load_snapshot_t load = make_valid_load();
+    refmem_table_activation_gate_t gate = make_pass_gate();
+
+    failed += expect_bool("init application model for staging prepare",
+                          refmem_application_model_init(),
+                          true);
+    failed += expect_bool("contract package validates for staging prepare",
+                          refmem_table_registry_validate_package(package,
+                                                                 package_size,
+                                                                 &validation),
+                          true);
+    load.staging_package_crc32 = validation.package_crc32;
+    failed += expect_bool("stage package image for staging prepare",
+                          refmem_table_registry_stage_package_image(&load,
+                                                                    package,
+                                                                    package_size,
+                                                                    &validation),
+                          true);
+    failed += expect_bool("prepare staging views",
+                          refmem_application_model_prepare_staging_table_views(),
+                          true);
+
+    const refmem_board_capability_table_t *boards_before =
+        refmem_application_model_get_board_capability_table();
+    failed += expect_u32("prepare does not change active getter",
+                         boards_before->board[0].io_constraint_mask,
+                         REFMEM_APP_IO_SMA_IN |
+                             REFMEM_APP_IO_SMA_OUT |
+                             REFMEM_APP_IO_RJ45_SYNC);
+
+    failed += expect_bool("activate after staging prepare",
+                          refmem_table_registry_activate_staging(&gate),
+                          true);
+    failed += expect_bool("commit prepared staging views",
+                          refmem_application_model_commit_prepared_table_views(),
+                          true);
+
+    const refmem_application_model_snapshot_t *snapshot =
+        refmem_application_model_get_snapshot();
+    const refmem_board_capability_table_t *boards_after =
+        refmem_application_model_get_board_capability_table();
+    failed += expect_u32("prepared commit package crc",
+                         snapshot->package_crc32,
+                         validation.package_crc32);
+    failed += expect_u32("prepared commit changes active getter",
+                         boards_after->board[0].io_constraint_mask,
+                         REFMEM_APP_IO_PIO_SPI_SYNC);
+    failed += expect_bool("prepared commit is single-use",
+                          refmem_application_model_commit_prepared_table_views(),
+                          false);
+    return failed;
+}
+
 static int test_activation_rejects_unreleased_table_view(void)
 {
     int failed = 0;
@@ -995,6 +1054,7 @@ int main(void)
     failed += test_metadata_staging_clears_stale_package_image();
     failed += test_active_table_view_access_release();
     failed += test_application_model_applies_active_table_views();
+    failed += test_application_model_prepares_staging_before_commit();
     failed += test_activation_rejects_unreleased_table_view();
 
     if (failed != 0) {

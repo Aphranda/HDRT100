@@ -21,6 +21,7 @@ Last updated: 2026-08-14
 | `REFMEM_TASK_PROGRESS.md` | RefMem 主域任务进度，记录阶段性工作、验证结果和后续动作。 | RefMem 新任务完成后追加记录。 |
 | `REFMEM_SYNC_ARCHITECTURE.md` | RefMem Sync 内部架构，定义总线无关同步协议、adapter 边界、RMA/fence/quality 约束。 | RefMem 同步协议的 canonical 架构说明。 |
 | `REFMEM_MIN_SYSTEM_PLAYBOOK.md` | RefMem 最小系统板 bring-up 记录，维护当前两板线序、端口、验证和执行日志。 | 只记录当前最小系统板实际操作，不写架构约束。 |
+| `REFMEM_DOMAIN_RISK_REVIEW.md` | RefMem 主域独立风险评审，记录 P0-P3 结构偏差、HAOFV 边界风险和纠偏结论。 | 作为 P0/P1 代码修改前的审查输入。 |
 
 ## 当前状态摘要
 

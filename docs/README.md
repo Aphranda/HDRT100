@@ -118,6 +118,7 @@ docs/
 | `refmem/REFMEM_TASK_PROGRESS.md` | Distributed RefMem 内部主域任务进度。 |
 | `refmem/REFMEM_SYNC_ARCHITECTURE.md` | Distributed RefMem Sync 内部架构，定义总线无关同步协议和 adapter 边界。 |
 | `refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md` | Distributed RefMem 最小系统板 bring-up 记录，维护当前两板线序和验证步骤。 |
+| `refmem/REFMEM_DOMAIN_RISK_REVIEW.md` | Distributed RefMem 主域风险评审，记录 P0-P3 架构偏差、HAOFV 边界风险和纠偏结论。 |
 | `vdc/README.md` | VDC 内部主域 README。 |
 | `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间、DPLL、timestamp、HOLDOVER 和质量门禁。 |
 | `vdc/VDC_DOMAIN_TODO.md` | VDC 内部主域待办，跟踪数据契约、DPLL、RefMem 映射、组件化和验证。 |

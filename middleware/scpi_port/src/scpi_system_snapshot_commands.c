@@ -155,6 +155,7 @@ static const scpi_command_reason_entry_t s_command_reason_table[] = {
     {REFMEM_COMMAND_REASON_DUP_SEQ_CRC_MISMATCH, 2u, 0u, 1u, 10u, "DUP_SEQ_CRC_MISMATCH"},
     {REFMEM_COMMAND_REASON_TIMEOUT, 3u, 1u, 1u, 11u, "TIMEOUT"},
     {REFMEM_COMMAND_REASON_PERMISSION_DENIED, 2u, 0u, 1u, 12u, "PERMISSION_DENIED"},
+    {REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED, 2u, 0u, 1u, 13u, "CONFIG_VALIDATION_FAILED"},
 };
 
 static const scpi_command_reason_entry_t *
@@ -1890,12 +1891,32 @@ static bool scpi_refmem_read_package(const char *path,
     }
 
     *returned_size = 0u;
+    uint32_t info_job_id = 0u;
+    if (!storage_manager_post_file_info_job(path, &info_job_id) ||
+        !scpi_refmem_wait_storage_job(info_job_id)) {
+        return false;
+    }
+
+    storage_manager_job_result_t info_job;
+    storage_manager_get_job_result(&info_job);
+    if (info_job.id != info_job_id ||
+        info_job.state != STORAGE_MANAGER_JOB_STATE_DONE ||
+        info_job.is_dir ||
+        info_job.size == 0u ||
+        info_job.size > buffer_size) {
+        return false;
+    }
+
     uint32_t offset = 0u;
-    while (*returned_size < buffer_size) {
+    while (offset < info_job.size) {
+        const uint32_t remaining = info_job.size - offset;
+        const uint32_t read_length = remaining > SCPI_REFMEM_PACKAGE_READ_CHUNK ?
+                                         SCPI_REFMEM_PACKAGE_READ_CHUNK :
+                                         remaining;
         uint32_t job_id = 0u;
         if (!storage_manager_post_file_read_job(path,
                                                 offset,
-                                                SCPI_REFMEM_PACKAGE_READ_CHUNK,
+                                                read_length,
                                                 &job_id)) {
             return false;
         }
@@ -1912,6 +1933,7 @@ static bool scpi_refmem_read_package(const char *path,
         }
         if (read_info.returned == 0u ||
             read_info.returned > sizeof(s_refmem_package_chunk) ||
+            read_info.returned > read_length ||
             *returned_size + read_info.returned > buffer_size) {
             return false;
         }
@@ -1920,13 +1942,10 @@ static bool scpi_refmem_read_package(const char *path,
             buffer[*returned_size + i] = s_refmem_package_chunk[i];
         }
         *returned_size += read_info.returned;
-        if (read_info.eof) {
-            return true;
-        }
         offset += read_info.returned;
     }
 
-    return false;
+    return *returned_size == info_job.size;
 }
 
 static bool scpi_refmem_model_mode_idle(void)

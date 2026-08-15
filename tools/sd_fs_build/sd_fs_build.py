@@ -325,14 +325,17 @@ def write_zip(output_dir: Path, zip_path: Path) -> None:
 def write_manifest_idx(output_dir: Path,
                        package_manifest: dict[str, Any],
                        files: dict[str, dict[str, Any]]) -> None:
-    required = (
+    refmem_hil_required = (
         ("profile", "profile"),
         ("mission", "mission"),
         ("calibration", "calibration"),
         ("refmem_table_image", "refmem"),
+    )
+    required = (
+        *refmem_hil_required,
         ("ota_package", "package"),
     )
-    lines = [
+    common_lines = [
         "magic=RP2350_TRIG_SD",
         f"schema={SCHEMA_VERSION}",
         f"product_id={package_manifest['product_id']}",
@@ -344,6 +347,10 @@ def write_manifest_idx(output_dir: Path,
         "default.mission=/mission/recipe.json",
         "default.calibration=/cal/board_cal.json",
         "default.refmem=/refmem/app_model.rmtp",
+    ]
+
+    lines = [
+        *common_lines,
         "default.ota_package=/update/RP2350_TRIG_UPDATE.pkg",
     ]
     for object_type, key in required:
@@ -353,6 +360,19 @@ def write_manifest_idx(output_dir: Path,
             f"size={info['size']},crc32={crc32_text(info['crc32'])}"
         )
     (output_dir / "manifest.idx").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+    hil_lines = list(common_lines)
+    for object_type, key in refmem_hil_required:
+        info = files[key]
+        hil_lines.append(
+            f"required={info['sd_path']},type={object_type},"
+            f"size={info['size']},crc32={crc32_text(info['crc32'])}"
+        )
+    (output_dir / "manifest_refmem_hil.idx").write_text(
+        "\n".join(hil_lines) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
 def parse_args() -> argparse.Namespace:

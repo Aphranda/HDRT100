@@ -76,9 +76,14 @@ def read_serial_line(ser: serial.Serial, deadline: float) -> str | None:
     return None if line is None else normalize_line(line)
 
 
+def is_scpi_query(command: str) -> bool:
+    header = command.strip().split(maxsplit=1)[0]
+    return "?" in header
+
+
 def read_response(ser: serial.Serial, command: str, timeout_s: float) -> str:
     deadline = time.monotonic() + timeout_s
-    is_query = command.strip().endswith("?")
+    is_query = is_scpi_query(command)
 
     while time.monotonic() < deadline:
         line = read_serial_line(ser, deadline)

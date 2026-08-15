@@ -1317,6 +1317,20 @@ bool refmem_table_registry_activate_staging(const refmem_table_activation_gate_t
     return true;
 }
 
+bool refmem_table_registry_note_activation_result(refmem_table_activation_result_t result)
+{
+    if (result == REFMEM_TABLE_ACTIVATE_OK) {
+        return false;
+    }
+
+    if (s_staging_image.state != REFMEM_TABLE_VALIDATION_EMPTY) {
+        s_staging_image.last_result = (uint32_t)result;
+    }
+    s_snapshot.last_error = (uint32_t)result;
+    refmem_table_registry_refresh_snapshot();
+    return true;
+}
+
 bool refmem_table_registry_get_image_descriptor(refmem_table_image_role_t role,
                                                 refmem_table_image_descriptor_t *descriptor)
 {

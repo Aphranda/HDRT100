@@ -66,6 +66,7 @@ typedef enum {
     REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED = 4u,
     REFMEM_TABLE_ACTIVATE_ERR_IMAGE_TOO_LARGE = 5u,
     REFMEM_TABLE_ACTIVATE_ERR_IMAGE_BUSY = 6u,
+    REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID = 7u,
 } refmem_table_activation_result_t;
 
 typedef struct {
@@ -159,6 +160,7 @@ bool refmem_table_registry_stage_table(uint32_t table_id,
                                        uint32_t validation_state,
                                        uint32_t last_result);
 bool refmem_table_registry_activate_staging(const refmem_table_activation_gate_t *gate);
+bool refmem_table_registry_note_activation_result(refmem_table_activation_result_t result);
 bool refmem_table_registry_get_image_descriptor(refmem_table_image_role_t role,
                                                 refmem_table_image_descriptor_t *descriptor);
 bool refmem_table_registry_access_table(refmem_table_image_role_t role,
