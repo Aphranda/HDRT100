@@ -5,9 +5,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "refmem_sync_frame.h"
 #include "refmem_spi_physical_adapter.h"
 
-#define REFMEM_REALTIME_TDMA_FRAME_MAX 320u
+#define REFMEM_REALTIME_TDMA_FRAME_MAX \
+    (REFMEM_SYNC_FRAME_HEADER_SIZE + REFMEM_SYNC_FRAME_PAYLOAD_MAX)
 
 typedef enum {
     REFMEM_REALTIME_TDMA_STATE_UNINIT = 0u,
@@ -40,6 +42,7 @@ typedef enum {
     REFMEM_REALTIME_TDMA_EXEC_RX_OK = 2u,
     REFMEM_REALTIME_TDMA_EXEC_TIMEOUT = 3u,
     REFMEM_REALTIME_TDMA_EXEC_ERROR = 4u,
+    REFMEM_REALTIME_TDMA_EXEC_PENDING = 5u,
 } refmem_realtime_tdma_exec_result_t;
 
 typedef struct {

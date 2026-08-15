@@ -97,9 +97,7 @@ static bool distributed_refmem_tdma_receive(void *context,
                                             refmem_realtime_tdma_exec_status_t *status)
 {
     refmem_spi_physical_adapter_t *adapter = (refmem_spi_physical_adapter_t *)context;
-    if (adapter == NULL || status == NULL ||
-        role != REFMEM_SPI_PHYSICAL_ROLE_SLAVE ||
-        !refmem_spi_physical_adapter_arm(adapter, role, baud_hz, pins)) {
+    if (adapter == NULL || status == NULL || role != REFMEM_SPI_PHYSICAL_ROLE_SLAVE) {
         if (status != NULL) {
             status->result = REFMEM_REALTIME_TDMA_EXEC_ERROR;
             status->error = REFMEM_REALTIME_TDMA_RESULT_BAD_ARGUMENT;
@@ -108,19 +106,43 @@ static bool distributed_refmem_tdma_receive(void *context,
     }
 
     size_t frame_size = 0u;
-    const bool ok = refmem_spi_physical_adapter_receive(
-        adapter,
-        frame,
-        frame_capacity,
-        &frame_size,
-        distributed_refmem_deadline_us_to_ms(deadline_us));
     refmem_spi_physical_snapshot_t snapshot;
+    if (!adapter->rx_capture_active) {
+        if (!refmem_spi_physical_adapter_arm(adapter, role, baud_hz, pins) ||
+            !refmem_spi_physical_adapter_receive_begin(
+                adapter,
+                frame_capacity,
+                distributed_refmem_deadline_us_to_ms(deadline_us))) {
+            (void)refmem_spi_physical_adapter_get_snapshot(adapter, &snapshot);
+            status->frame_size = 0u;
+            status->error = snapshot.last_error;
+            status->result = REFMEM_REALTIME_TDMA_EXEC_ERROR;
+            return false;
+        }
+
+        (void)refmem_spi_physical_adapter_get_snapshot(adapter, &snapshot);
+        status->frame_size = 0u;
+        status->error = snapshot.last_error;
+        status->result = REFMEM_REALTIME_TDMA_EXEC_PENDING;
+        return false;
+    }
+
+    const refmem_spi_physical_rx_poll_result_t poll_result =
+        refmem_spi_physical_adapter_receive_poll(adapter,
+                                                 frame,
+                                                 frame_capacity,
+                                                 &frame_size);
     (void)refmem_spi_physical_adapter_get_snapshot(adapter, &snapshot);
     status->frame_size = frame_size;
     status->error = snapshot.last_error;
-    status->result = ok ? REFMEM_REALTIME_TDMA_EXEC_RX_OK
-                        : REFMEM_REALTIME_TDMA_EXEC_TIMEOUT;
-    return ok;
+    if (poll_result == REFMEM_SPI_PHYSICAL_RX_POLL_PENDING) {
+        status->result = REFMEM_REALTIME_TDMA_EXEC_PENDING;
+        return false;
+    }
+    status->result = poll_result == REFMEM_SPI_PHYSICAL_RX_POLL_DONE
+                         ? REFMEM_REALTIME_TDMA_EXEC_RX_OK
+                         : REFMEM_REALTIME_TDMA_EXEC_TIMEOUT;
+    return poll_result == REFMEM_SPI_PHYSICAL_RX_POLL_DONE;
 }
 
 static void distributed_refmem_refresh_directory_flags_locked(void)

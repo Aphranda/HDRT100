@@ -1873,10 +1873,6 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_tx(scpi_t *context)
         scpi_port_push_exec_error(context, "REFMEM_SYNC_TDMA_TX_HEX");
         return SCPI_RES_ERR;
     }
-    if (!refmem_pio_spi_adapter_send(&s_refmem_sync.adapter, frame, frame_size)) {
-        scpi_port_push_exec_error(context, "REFMEM_SYNC_TDMA_TX_FRAME");
-        return SCPI_RES_ERR;
-    }
 
     const refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = s_refmem_sync.context.active_epoch_id,

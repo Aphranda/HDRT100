@@ -201,7 +201,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - [x] 为 TDMA service 增加 physical ops 边界，并在 `DistributedRefMemAO` 中绑定 PIO+DMA physical adapter wrapper；core1 service 已可通过 intent 执行真实 `transmit/receive`。
   - [x] 增加维护入口 `SYSTem:REFMEM:SYNC:TDMA:TX/RX/FRAMe?/ABORt`，支持 post TDMA intent、读取 TDMA result frame 并进入 RefMem Sync decode。
   - [x] `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 增加 `--transport tdma`，复用现有 frame builder 和 pin remap，以 TDMA intent 路径跑 HELLO/EPOCH/DELTA/ACK/FENCE/QUALITY。
-  - [ ] 用 COM5/COM6 实板执行 `--transport tdma` HIL，确认不再依赖 `SYSTem:REFMEM:SYNC:SPI:*` 帧级阻塞命令。
+  - [x] 用 COM5/COM6 实板执行 `--transport tdma` HIL，确认不再依赖 `SYSTem:REFMEM:SYNC:SPI:*` 帧级阻塞命令。
   - [ ] 在 TDMA HIL 通过后，将 `SYSTem:REFMEM:SYNC:SPI:*` 帧级阻塞命令降级为 legacy/diagnostic 或删除，仅保留 line/raw bring-up 必要入口。
   - [ ] 增加 TDMA window timeout、DMA overrun、missed window 和 physical adapter error 到 `DistributedConnectionQualityTable` 的正式映射。
 - [x] 阶段 3：实现最小 `REFMEM_DELTA` test field，通过 SCPI 搬运从 A 板发布到 B 板 mirror、B 板发布到 A 板 mirror，并切换到 sync mirror snapshot visible。

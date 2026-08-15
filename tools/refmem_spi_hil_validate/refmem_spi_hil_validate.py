@@ -142,6 +142,32 @@ def expect_tdma_tx(response: str) -> tuple[bool, str]:
     return True, "OK"
 
 
+def tdma_intent_seq(response: str) -> int:
+    values = parse_ints(response)
+    return values[0] if values else 0
+
+
+def wait_tdma_rx_armed(ser: serial.Serial,
+                       intent_seq: int,
+                       timeout_s: float) -> tuple[bool, str]:
+    deadline = time.monotonic() + timeout_s
+    last_status = "<not-polled>"
+    while time.monotonic() < deadline:
+        last_status = query(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", timeout_s)
+        values = parse_ints(last_status)
+        if len(values) >= 6:
+            state = values[0]
+            armed = values[2]
+            active_intent = values[4]
+            completed = values[5]
+            if active_intent >= intent_seq and armed == 1 and completed < active_intent:
+                return True, last_status
+            if active_intent >= intent_seq and state == 5 and completed >= active_intent:
+                return False, last_status
+        time.sleep(0.01)
+    return False, last_status
+
+
 def expect_rx(response: str, expected_type: int, expected_source: int) -> tuple[bool, str]:
     fields = parse_csv(response)
     if not fields or fields[0].strip('"') != "ACCEPTED":
@@ -364,6 +390,9 @@ def tdma_exchange(name: str,
                   baud: int,
                   rx_timeout_ms: int,
                   timeout_s: float) -> ExchangeResult:
+    query(sender, "SYSTem:REFMEM:SYNC:TDMA:ABORt", timeout_s)
+    query(receiver, "SYSTem:REFMEM:SYNC:TDMA:ABORt", timeout_s)
+
     frame_builder = spi_command_to_frame_builder(tx_command)
     frame_response = query(sender, frame_builder, timeout_s)
     try:
@@ -383,10 +412,15 @@ def tdma_exchange(name: str,
         return ExchangeResult(name, sender_name, receiver_name, rx_command,
                               frame_response, rx_start, False, "TDMA RX start failed")
 
-    time.sleep(0.05)
+    rx_intent_seq = tdma_intent_seq(rx_start)
+    rx_armed, rx_status = wait_tdma_rx_armed(receiver, rx_intent_seq, timeout_s)
+    if not rx_armed:
+        return ExchangeResult(name, sender_name, receiver_name, rx_command,
+                              frame_response, rx_status, False, "TDMA RX arm gate failed")
+
     tdma_tx_command = (
         "SYSTem:REFMEM:SYNC:TDMA:TX "
-        f"{frame_hex},{baud},{rx_deadline_us},{sender_pins.rx},{sender_pins.csn},"
+        f"\"{frame_hex}\",{baud},{rx_deadline_us},{sender_pins.rx},{sender_pins.csn},"
         f"{sender_pins.sck},{sender_pins.tx}"
     )
     tx_response = query(sender, tdma_tx_command, timeout_s)

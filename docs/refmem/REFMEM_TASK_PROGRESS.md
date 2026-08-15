@@ -8,6 +8,42 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-012 - P4.5 COM5/COM6 core1 TDMA HIL 闭环
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 将 RefMem Sync 的两板物理验证从 SCPI 阻塞帧级命令收敛到 core1 realtime TDMA service。
+  - 证明 PC 只投递 RX/TX intent 和读取 snapshot，`HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 帧通过真实 PIO+DMA 物理链路完成。
+- 完成内容：
+  - 修正 `SYSTem:REFMEM:SYNC:TDMA:TX`：SCPI 层只解码 hex 并提交 TDMA intent，不再在 core0 直接调用 physical adapter 发送帧。
+  - 固化 HIL 脚本的 TDMA hex 字符串参数，避免未加引号的 A-F hex 被 SCPI lexer 当作数字/指数解析。
+  - 将 `refmem_spi_physical_adapter_receive()` 拆成 begin/poll 异步 RX 基础能力；blocking receive 保持兼容并复用同一解析逻辑。
+  - 将 TDMA RX 从长时间阻塞 core1 改为每轮 core1 loop poll 一次，`PENDING` 时保持 ARMED/ACCEPTED 快照，不提前写 completed_seq。
+  - 将 `REFMEM_REALTIME_TDMA_FRAME_MAX` 对齐到 RefMem Sync 协议 MTU：`REFMEM_SYNC_FRAME_HEADER_SIZE + REFMEM_SYNC_FRAME_PAYLOAD_MAX`。
+  - HIL 脚本在 TDMA exchange 前清理两端上一次 intent，并用 `TDMA:STATus?` 做 receiver arm gate。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过。
+  - `python -m py_compile tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815043100`，package CRC `0x49E7D77C`。
+  - COM5/COM6 OTA 提交通过，均返回 `SYSTem:FW:BUILD? => "20260815043100"`。
+  - `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6 --transport tdma --out-dir build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815043100_tdma_mtu` 通过。
+  - HIL 报告路径：`build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815043100_tdma_mtu\refmem_spi_hil_report.json`。
+  - 报告中 `A_RAW_B`、`B_RAW_A`、双向 `HELLO/EPOCH/DELTA/ACK/FENCE/QUALITY` 全部 passed；最终 TDMA snapshot 显示 A/B `ready_count=12`、`timeout_count=0`、`overrun_count=0`、`reject_count=0`。
+- 还需完成：
+  - 将 `SYSTem:REFMEM:SYNC:SPI:*` 帧级阻塞命令降级为 legacy/diagnostic 或删除，仅保留 line/raw bring-up 必要入口。
+  - 将 TDMA window timeout、DMA overrun、missed window 和 physical adapter error 正式映射到 `DistributedConnectionQualityTable`。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_realtime_tdma.h`
+  - `components/distributed_refmem/inc/refmem_spi_physical_adapter.h`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `components/distributed_refmem/src/refmem_realtime_tdma.c`
+  - `components/distributed_refmem/src/refmem_spi_physical_adapter.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+- 下一步：
+  - 收敛 `SYSTem:REFMEM:SYNC:SPI:*` 帧级阻塞命令，并把 TDMA 质量计数并入 RefMem quality/evidence。
+
 ### REFMEM-TASK-20260815-011 - P4.5 core1 TDMA service contract 收敛
 
 - 状态：完成 service contract、physical ops 绑定与构建闭环；SCPI 维护路径迁移和 HIL 待继续

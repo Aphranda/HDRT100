@@ -225,6 +225,78 @@ static uint32_t refmem_spi_physical_dma_remaining(void)
     return dma_channel_hw_addr((uint)s_refmem_spi_rx_dma_channel)->transfer_count;
 }
 
+static uint64_t refmem_spi_physical_now_us(void)
+{
+    return to_us_since_boot(get_absolute_time());
+}
+
+static bool refmem_spi_physical_time_reached(uint64_t deadline_us)
+{
+    return (int64_t)(refmem_spi_physical_now_us() - deadline_us) >= 0;
+}
+
+static bool refmem_spi_physical_parse_received_frame(refmem_spi_physical_adapter_t *adapter,
+                                                     size_t received_words,
+                                                     uint8_t *frame,
+                                                     size_t frame_capacity,
+                                                     size_t *frame_size)
+{
+    if (frame_size != NULL) {
+        *frame_size = 0u;
+    }
+    if (adapter == NULL || frame == NULL || frame_size == NULL ||
+        received_words < REFMEM_SPI_PACKET_HEADER_SIZE) {
+        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_TIMEOUT);
+        return false;
+    }
+
+    uint8_t packet_header[REFMEM_SPI_PACKET_HEADER_SIZE];
+    for (uint32_t i = 0u; i < REFMEM_SPI_PACKET_HEADER_SIZE; i++) {
+        packet_header[i] = (uint8_t)(s_refmem_spi_rx_dma_words[i] & 0xFFu);
+    }
+
+    const uint16_t packet_size =
+        (uint16_t)packet_header[2] | ((uint16_t)packet_header[3] << 8u);
+    if (packet_header[0] != REFMEM_SPI_PACKET_MAGIC0 ||
+        packet_header[1] != REFMEM_SPI_PACKET_MAGIC1 ||
+        packet_size == 0u) {
+        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_BAD_PACKET);
+        return false;
+    }
+    if (packet_size > frame_capacity) {
+        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_PAYLOAD_TOO_LARGE);
+        return false;
+    }
+    if (received_words < (size_t)packet_size + REFMEM_SPI_PACKET_HEADER_SIZE) {
+        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_TIMEOUT);
+        return false;
+    }
+
+    for (uint16_t i = 0u; i < packet_size; i++) {
+        frame[i] = (uint8_t)(s_refmem_spi_rx_dma_words[REFMEM_SPI_PACKET_HEADER_SIZE + i] &
+                             0xFFu);
+    }
+
+    refmem_sync_frame_header_t header;
+    const uint8_t *payload = NULL;
+    uint16_t payload_size = 0u;
+    if (refmem_sync_frame_validate(frame,
+                                   packet_size,
+                                   &header,
+                                   &payload,
+                                   &payload_size) != REFMEM_SYNC_FRAME_OK) {
+        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_BAD_FRAME);
+        return false;
+    }
+
+    *frame_size = packet_size;
+    adapter->snapshot.rx_count++;
+    adapter->snapshot.last_rx_size = packet_size;
+    adapter->snapshot.last_error = REFMEM_SPI_PHYSICAL_ERROR_NONE;
+    refmem_spi_physical_fill_static_snapshot(adapter);
+    return true;
+}
+
 static bool refmem_spi_physical_capture_words(size_t max_words,
                                               bool wait_full,
                                               uint32_t timeout_ms,
@@ -455,61 +527,126 @@ bool refmem_spi_physical_adapter_receive(refmem_spi_physical_adapter_t *adapter,
         return false;
     }
 
-    size_t received_words = 0u;
-    if (!refmem_spi_physical_capture_words(frame_capacity + REFMEM_SPI_PACKET_HEADER_SIZE,
-                                           false,
-                                           timeout_ms,
-                                           &received_words) ||
-        received_words < REFMEM_SPI_PACKET_HEADER_SIZE) {
-        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_TIMEOUT);
+    if (!refmem_spi_physical_adapter_receive_begin(adapter, frame_capacity, timeout_ms)) {
         return false;
     }
 
-    uint8_t packet_header[REFMEM_SPI_PACKET_HEADER_SIZE];
-    for (uint32_t i = 0u; i < REFMEM_SPI_PACKET_HEADER_SIZE; i++) {
-        packet_header[i] = (uint8_t)(s_refmem_spi_rx_dma_words[i] & 0xFFu);
+    while (true) {
+        const refmem_spi_physical_rx_poll_result_t result =
+            refmem_spi_physical_adapter_receive_poll(adapter,
+                                                     frame,
+                                                     frame_capacity,
+                                                     frame_size);
+        if (result == REFMEM_SPI_PHYSICAL_RX_POLL_DONE) {
+            return true;
+        }
+        if (result == REFMEM_SPI_PHYSICAL_RX_POLL_ERROR) {
+            return false;
+        }
+        tight_loop_contents();
     }
+}
 
-    const uint16_t packet_size =
-        (uint16_t)packet_header[2] | ((uint16_t)packet_header[3] << 8u);
-    if (packet_header[0] != REFMEM_SPI_PACKET_MAGIC0 ||
-        packet_header[1] != REFMEM_SPI_PACKET_MAGIC1 ||
-        packet_size == 0u) {
-        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_BAD_PACKET);
-        return false;
-    }
-    if (packet_size > frame_capacity) {
-        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_PAYLOAD_TOO_LARGE);
-        return false;
-    }
-    if (received_words < (size_t)packet_size + REFMEM_SPI_PACKET_HEADER_SIZE) {
-        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_TIMEOUT);
-        return false;
-    }
-
-    for (uint16_t i = 0u; i < packet_size; i++) {
-        frame[i] = (uint8_t)(s_refmem_spi_rx_dma_words[REFMEM_SPI_PACKET_HEADER_SIZE + i] &
-                             0xFFu);
-    }
-
-    refmem_sync_frame_header_t header;
-    const uint8_t *payload = NULL;
-    uint16_t payload_size = 0u;
-    if (refmem_sync_frame_validate(frame,
-                                   packet_size,
-                                   &header,
-                                   &payload,
-                                   &payload_size) != REFMEM_SYNC_FRAME_OK) {
-        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_BAD_FRAME);
+bool refmem_spi_physical_adapter_receive_begin(refmem_spi_physical_adapter_t *adapter,
+                                               size_t frame_capacity,
+                                               uint32_t timeout_ms)
+{
+    if (adapter == NULL || frame_capacity == 0u || !adapter->armed ||
+        adapter->role != REFMEM_SPI_PHYSICAL_ROLE_SLAVE ||
+        frame_capacity + REFMEM_SPI_PACKET_HEADER_SIZE > REFMEM_SPI_RX_DMA_WORD_MAX ||
+        !refmem_spi_physical_ensure_rx_dma()) {
+        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_BAD_ARGUMENT);
         return false;
     }
 
-    *frame_size = packet_size;
-    adapter->snapshot.rx_count++;
-    adapter->snapshot.last_rx_size = packet_size;
-    adapter->snapshot.last_error = REFMEM_SPI_PHYSICAL_ERROR_NONE;
-    refmem_spi_physical_fill_static_snapshot(adapter);
+    refmem_spi_physical_rx_prepare();
+    dma_channel_abort((uint)s_refmem_spi_rx_dma_channel);
+
+    const size_t max_words = frame_capacity + REFMEM_SPI_PACKET_HEADER_SIZE;
+    dma_channel_config dma_cfg =
+        dma_channel_get_default_config((uint)s_refmem_spi_rx_dma_channel);
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&dma_cfg, false);
+    channel_config_set_write_increment(&dma_cfg, true);
+    channel_config_set_dreq(&dma_cfg, DREQ_PIO0_RX0 + BOARD_REFMEM_SPI_RX_SM);
+    dma_channel_configure((uint)s_refmem_spi_rx_dma_channel,
+                          &dma_cfg,
+                          s_refmem_spi_rx_dma_words,
+                          &BOARD_REFMEM_SPI_PIO->rxf[BOARD_REFMEM_SPI_RX_SM],
+                          max_words,
+                          true);
+
+    adapter->rx_capture_active = true;
+    adapter->rx_capture_wait_full = false;
+    adapter->rx_capture_max_words = max_words;
+    adapter->rx_capture_last_remaining = (uint32_t)max_words;
+    adapter->rx_capture_deadline_us =
+        refmem_spi_physical_now_us() + (uint64_t)(timeout_ms == 0u ?
+                                                  REFMEM_SPI_DEFAULT_TIMEOUT_MS :
+                                                  timeout_ms) * 1000u;
+    adapter->rx_capture_last_change_us = refmem_spi_physical_now_us();
     return true;
+}
+
+refmem_spi_physical_rx_poll_result_t refmem_spi_physical_adapter_receive_poll(
+    refmem_spi_physical_adapter_t *adapter,
+    uint8_t *frame,
+    size_t frame_capacity,
+    size_t *frame_size)
+{
+    if (frame_size != NULL) {
+        *frame_size = 0u;
+    }
+    if (adapter == NULL || frame == NULL || frame_size == NULL ||
+        !adapter->rx_capture_active) {
+        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_BAD_ARGUMENT);
+        return REFMEM_SPI_PHYSICAL_RX_POLL_ERROR;
+    }
+
+    bool should_finish = false;
+    if (!dma_channel_is_busy((uint)s_refmem_spi_rx_dma_channel)) {
+        should_finish = true;
+    } else {
+        const uint32_t remaining = refmem_spi_physical_dma_remaining();
+        if (remaining != adapter->rx_capture_last_remaining) {
+            adapter->rx_capture_last_remaining = remaining;
+            adapter->rx_capture_last_change_us = refmem_spi_physical_now_us();
+        }
+        const size_t moved = adapter->rx_capture_max_words - (size_t)remaining;
+        if (!adapter->rx_capture_wait_full &&
+            moved != 0u &&
+            refmem_spi_physical_now_us() - adapter->rx_capture_last_change_us >=
+                REFMEM_SPI_RX_STABLE_US) {
+            should_finish = true;
+        } else if (refmem_spi_physical_time_reached(adapter->rx_capture_deadline_us)) {
+            should_finish = true;
+        }
+    }
+
+    if (!should_finish) {
+        return REFMEM_SPI_PHYSICAL_RX_POLL_PENDING;
+    }
+
+    const bool completed = !dma_channel_is_busy((uint)s_refmem_spi_rx_dma_channel);
+    const uint32_t remaining_before_abort = refmem_spi_physical_dma_remaining();
+    if (!completed) {
+        dma_channel_abort((uint)s_refmem_spi_rx_dma_channel);
+    }
+
+    adapter->rx_capture_active = false;
+    const size_t moved = adapter->rx_capture_max_words - (size_t)remaining_before_abort;
+    if (moved < REFMEM_SPI_PACKET_HEADER_SIZE) {
+        refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_TIMEOUT);
+        return REFMEM_SPI_PHYSICAL_RX_POLL_ERROR;
+    }
+
+    return refmem_spi_physical_parse_received_frame(adapter,
+                                                    moved,
+                                                    frame,
+                                                    frame_capacity,
+                                                    frame_size)
+               ? REFMEM_SPI_PHYSICAL_RX_POLL_DONE
+               : REFMEM_SPI_PHYSICAL_RX_POLL_ERROR;
 }
 
 bool refmem_spi_physical_adapter_receive_raw(refmem_spi_physical_adapter_t *adapter,

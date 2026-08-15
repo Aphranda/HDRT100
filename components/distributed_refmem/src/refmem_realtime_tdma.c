@@ -231,6 +231,16 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
         exec_status.error = REFMEM_REALTIME_TDMA_RESULT_BAD_ARGUMENT;
     }
 
+    if (exec_status.result == REFMEM_REALTIME_TDMA_EXEC_PENDING) {
+        refmem_realtime_tdma_begin_result_write(service);
+        service->armed = 1u;
+        service->last_error = exec_status.error;
+        service->last_result = REFMEM_REALTIME_TDMA_RESULT_ACCEPTED;
+        service->state = REFMEM_REALTIME_TDMA_STATE_ARMED;
+        refmem_realtime_tdma_end_result_write(service);
+        return;
+    }
+
     refmem_realtime_tdma_begin_result_write(service);
     service->completed_seq = intent_seq;
     service->armed = 0u;
