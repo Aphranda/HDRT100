@@ -8,6 +8,73 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-010 - P4.5 PIO+DMA physical adapter 25 MHz 闭环
+
+- 状态：完成当前 HIL；core1 TDMA service 化待继续
+- 日期：2026-08-15
+- 任务目标：
+  - 按 VDC/TDMA 架构纠偏 P4.5 physical adapter：不得使用 RP2350 内置 SPI，也不得把 SIO bitbang 当作闭环结论。
+  - 使用真实线序检测结果驱动 PIO SPI pin plan，在 COM5/COM6 两块最小系统板之间完成真实物理链路 RefMem Sync 帧闭环。
+  - 目标速率提升到 25 MHz，避免继续以低速 PC 搬运或逐字节轮询掩盖架构问题。
+- 完成内容：
+  - 新增 `components/distributed_refmem/src/refmem_spi_physical.pio`，提供 PIO TX byte 和 PIO RX byte state machine。
+  - `refmem_spi_physical_adapter.c` 从内置 `spi0`/SIO bitbang 纠偏为 PIO TX、PIO RX 和 DMA RX 缓冲；CPU 不再逐 bit 或逐字节搬运 RX FIFO。
+  - `board_config.h` 增加 RefMem PIO transport 的 PIO/SM 资源定义，默认 baud 改为 25 MHz。
+  - `tools/two_board_io_validate/two_board_io_validate.py` 支持 auto/detect 模式，并把 observed remap 写入报告。
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 默认使用 auto remap 和 25 MHz，根据实测 OUT->IN map 推导双向 PIO SPI pin plan。
+  - 新增 `tools/refmem_spi_line_activity/refmem_spi_line_activity.py`，用于慢速长 RAW:TX 时观察对端输入 mask，证明 PIO TX 已在真实线束上活动。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke` 通过，build `20260815031915`，package CRC `0xD5A25528`。
+  - COM5/COM6 均 OTA 写入、boot 并 commit 到 build `20260815031915`。
+  - `python tools\refmem_spi_line_activity\refmem_spi_line_activity.py --sender COM5 --receiver COM6 --sender-to-receiver 1,2,0,3 --baud 1000 --count 256 --seed 255` 显示 B 侧 IN0/IN2 有高低变化，证明 PIO TX 的 RX/SCK 已过线。
+  - `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6 --baud 1000000 --out-dir build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815031915_pio_dma_1m` 通过。
+  - `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6 --out-dir build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815031915_pio_dma_25m` 通过。
+  - 25 MHz 报告记录：线序 preflight PASS，A->B remap `[1,2,0,3]`，B->A remap `[2,1,0,3]`；`RAW/HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 14 个 exchange 全部 PASS；`failures=[]`。
+- 还需完成：
+  - 当前 HIL 仍由 SCPI 在帧级触发 TX/RX。产品化下一步必须把 PIO+DMA physical adapter 接入 core1 realtime TDMA service，core0 只配置窗口和帧意图，core1 发布 frame-ready/timeout/overrun snapshot。
+  - PIO/SM/DMA 资源需要接入 ResourceArbiter 和 RealtimeCapabilityContract，避免维护 HIL 直接抢占现有 `sync_io` 资源。
+- 关联文件：
+  - `components/distributed_refmem/src/refmem_spi_physical.pio`
+  - `components/distributed_refmem/src/refmem_spi_physical_adapter.c`
+  - `components/distributed_refmem/inc/refmem_spi_physical_adapter.h`
+  - `boards/rp2350_trig/inc/board_config.h`
+  - `tools/two_board_io_validate/two_board_io_validate.py`
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+  - `tools/refmem_spi_line_activity/refmem_spi_line_activity.py`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+  - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
+
+### REFMEM-TASK-20260815-009 - P4.5 SPI physical adapter 首次接入与线级阻塞定位
+
+- 状态：部分完成，HIL 阻塞在物理线级 preflight
+- 日期：2026-08-15
+- 任务目标：
+  - 按 P4.5 要求，把 RefMem Sync 从 PC/SCPI hex 搬运推进到真实两板 SPI 物理链路。
+  - 保持 HAOFV 边界：SCPI 只作为维护触发和诊断入口，RefMem frame 仍由 RefMem Sync validate/receive 处理，不让 Vector 承载数据。
+  - 在 COM5/COM6 两块最小系统板上验证 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 真实过线。
+- 完成内容：
+  - 新增 `refmem_spi_physical_adapter.h/.c`，使用 `spi0` 的 debug bring-up profile：RX16、CS17、SCK18、TX19，默认 500 kHz。
+  - `SYSTem:REFMEM:SYNC:SPI:*` 增加 ARM/DISarm/STATus、frame TX/RX、raw byte TX/RX 和 line release/drive/status 维护入口。
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 固化三层验证：先扫线，再 raw byte，再 RefMem frame；PC 只触发 TX/RX，不搬运 frame hex。
+  - build `20260815022459` 已通过 OTA 写入并在 COM5/COM6 上 commit，双板 `SYSTem:FW:BUILD?` 均返回该 build。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke` 通过，package CRC `0xAE0FFEB2`。
+  - `python -m py_compile tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py` 通过。
+  - OTA COM5/COM6 正常进入 `READY_TO_REBOOT` 并完成 `SYSTem:OTA:COMMit`。
+  - `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6 --out-dir build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815022459_linefull` 失败在 line preflight。
+  - 六条线级检查均读 0：A_CS_B、A_SCK_B、A_TX_B_RX、B_CS_A、B_SCK_A、B_TX_A_RX。因此当前不是 RefMem frame/CRC/target 语义问题，也不是 raw SPI 负载问题，而是 GPIO16-19 互联未成立或 COM5/COM6 对应板未按该线序连接。
+- 下一步：
+  - 按 playbook 接线后重跑同一 HIL：`SCK18-SCK18`、`CS17-CS17`、`A_TX19 -> B_RX16`、`B_TX19 -> A_RX16`、`GND-GND`。
+  - 线级 preflight 通过后，再进入 raw byte 和 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` frame 层闭环。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_spi_physical_adapter.h`
+  - `components/distributed_refmem/src/refmem_spi_physical_adapter.c`
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+  - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
+  - `docs/refmem/REFMEM_DOMAIN_TODO.md`
+
 ### REFMEM-TASK-20260815-008 - Host GCC 单元测试断言门禁
 
 - 状态：完成

@@ -39,6 +39,19 @@
 #define BOARD_SD_SPI_MISO_PIN BOARD_SPI_MISO_PIN
 #define BOARD_SD_SPI_CS_PIN 15u
 
+/* Debug minimum two-board RefMem PIO-SPI transport.
+ * This is a P4.5 bring-up profile. It uses PIO for bit timing and only lets
+ * CPU/SCPI trigger frame-level TX/RX transactions. It overlaps the debug
+ * SYNC_IO groups and must only be armed while the RefMem SPI HIL owns them. */
+#define BOARD_REFMEM_SPI_PIO pio0
+#define BOARD_REFMEM_SPI_TX_SM 2u
+#define BOARD_REFMEM_SPI_RX_SM 3u
+#define BOARD_REFMEM_SPI_RX_PIN 16u
+#define BOARD_REFMEM_SPI_CSN_PIN 17u
+#define BOARD_REFMEM_SPI_SCK_PIN 18u
+#define BOARD_REFMEM_SPI_TX_PIN 19u
+#define BOARD_REFMEM_SPI_BAUD_HZ 25000000u
+
 #define BOARD_I2C_ENABLED 0
 #define BOARD_I2C_PORT i2c0
 #define BOARD_I2C_SDA_PIN 8u

@@ -185,6 +185,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_pio_spi_adapter.c
         components/distributed_refmem/src/refmem_quality.c
         components/distributed_refmem/src/refmem_realtime_contract.c
+        components/distributed_refmem/src/refmem_spi_physical_adapter.c
         components/distributed_refmem/src/refmem_slot_claim.c
         components/distributed_refmem/src/refmem_sync.c
         components/distributed_refmem/src/refmem_sync_frame.c
@@ -321,6 +322,7 @@ function(project_configure_app_target target_name app_name linker_script)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/seq_step.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/enc_count.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/biss_tap_rx.pio)
+    pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/distributed_refmem/src/refmem_spi_physical.pio)
 
     pico_enable_stdio_uart(${target_name} ${PROJECT_ENABLE_UART_STDIO})
     pico_enable_stdio_usb(${target_name} ${PROJECT_EFFECTIVE_USB_STDIO})

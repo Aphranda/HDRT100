@@ -222,6 +222,54 @@ python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 
 python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --visa-a USB::... --visa-b USB::... --slot-a 0 --slot-b 1 --epoch 1 --run 1
 ```
 
+## Physical PIO SPI Adapter HIL
+
+真实 PIO/SPI 物理链路验证使用 `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`。该脚本不再由 PC 搬运 RefMem frame hex；PC 只负责在接收侧启动 RX，在发送侧触发 TX，frame 必须经过板间 PIO+DMA 物理链路。
+
+当前 debug bring-up profile 使用四根输出线到对端四根输入线，线序必须由 `two_board_io_validate.py` 实测，不假设固定直通：
+
+| 方向 | 当前实测 remap |
+|---|---|
+| COM5 A -> COM6 B | `OUT0->IN1, OUT1->IN2, OUT2->IN0, OUT3->IN3` |
+| COM6 B -> COM5 A | `OUT0->IN2, OUT1->IN1, OUT2->IN0, OUT3->IN3` |
+
+由当前 remap 推导的 PIO SPI pin plan：
+
+| 方向 | Master CS | Master SCK | Master TX | Slave RX | Slave CS | Slave SCK |
+|---|---:|---:|---:|---:|---:|---:|
+| A -> B | GPIO21 | GPIO22 | GPIO23 | GPIO16 | GPIO17 | GPIO18 |
+| B -> A | GPIO22 | GPIO21 | GPIO23 | GPIO16 | GPIO17 | GPIO18 |
+
+推荐执行：
+
+```powershell
+python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6 --out-dir build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6
+```
+
+脚本分三层验证：
+
+```text
+line preflight:
+  REALtime:IO:PROFile?
+  two_board_io_validate auto remap
+  derive PIO SPI pin plan from observed OUT->IN map
+raw byte:
+  A RAW:TX -> B RAW:RX?
+  B RAW:TX -> A RAW:RX?
+RefMem frame:
+  HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY
+```
+
+2026-08-15 记录：
+
+- build `20260815022459` 使用固定硬件 SPI/直通线序假设，在线级 preflight 失败；该结果证明不能假设 GPIO16-19 直连。
+- build `20260815025153` 短暂改成 SIO bitbang 诊断后被纠偏：该路径不符合 VDC TDMA/PIO 架构，不作为闭环结论。
+- build `20260815031915` 使用 PIO TX、PIO RX 和 DMA 接收缓冲，COM5/COM6 均 OTA commit。
+- `build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815031915_pio_dma_1m` 通过，证明 PIO+DMA 帧链路稳定。
+- `build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815031915_pio_dma_25m` 通过，25 MHz 下完成 `RAW/HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 双向闭环。
+
+当前仍未完成的产品化项：把维护命令触发式 TX/RX 升级为 core1 realtime TDMA service。最终运行态应由 core0 配置窗口和帧意图，core1/PIO/DMA 在 TDMA window 内自循环，SCPI 只读取 snapshot 和 quality evidence。
+
 脚本执行顺序：
 
 ```text
