@@ -320,6 +320,7 @@ bool sync_io_init(const sync_io_config_t *config)
 
     if (!sync_io_claim_sm(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, "capture") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, "output") ||
+        !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_MODEL_SCHED_SM, "model_sched") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, "pulse") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM, "rj45_trigger") ||
         !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX0_SM, "aux0") ||

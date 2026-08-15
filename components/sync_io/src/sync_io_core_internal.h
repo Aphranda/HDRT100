@@ -14,6 +14,7 @@
 #define SYNC_IO_TRACE_ERROR 3u
 #define SYNC_IO_SEQ_STEP_DMA_CH  0u
 #define SYNC_IO_ENC_COUNT_DMA_CH 1u
+#define SYNC_IO_MODEL_PULSE_DMA_CH 2u
 #define SYNC_IO_SHARED_DMA_IRQ   DMA_IRQ_0
 #define SYNC_IO_DMA_OVERFLOW_DELTA_THRESHOLD 1u
 
@@ -55,6 +56,10 @@ typedef enum {
     SYNC_IO_TRACE_BISS_TAP_DISARM   = 81u,
     SYNC_IO_TRACE_BISS_TAP_FAIL     = 82u,
     SYNC_IO_TRACE_BISS_TAP_FORWARD  = 83u,
+    SYNC_IO_TRACE_MODEL_ARM         = 90u,
+    SYNC_IO_TRACE_MODEL_DISARM      = 91u,
+    SYNC_IO_TRACE_MODEL_FAIL        = 92u,
+    SYNC_IO_TRACE_MODEL_RUNTIME     = 93u,
 } sync_io_trace_event_t;
 
 void sync_io_core_trace(sync_io_trace_event_t event_id,

@@ -41,6 +41,24 @@ typedef struct {
     uint32_t dma_restart_count;
 } sync_io_enc_count_runtime_t;
 
+typedef struct {
+    uint32_t delay_us;
+    uint32_t high_us;
+} sync_io_model_pulse_entry_t;
+
+typedef struct {
+    bool running;
+    bool pio_enabled;
+    bool dma_busy;
+    bool tx_fifo_empty;
+    bool tx_fifo_full;
+    uint32_t total_pulses;
+    uint32_t completed_pulses;
+    uint32_t transfer_count;
+    uint32_t elapsed_us;
+    uint32_t fault_code;
+} sync_io_model_pulse_runtime_t;
+
 typedef enum {
     SYNC_IO_AUX0 = 0,
     SYNC_IO_AUX1,
@@ -86,6 +104,13 @@ void sync_io_debug_model_release(void);
 uint32_t sync_io_debug_model_read_input_mask(void);
 uint32_t sync_io_debug_model_get_output_enable_mask(void);
 uint32_t sync_io_debug_model_get_output_value_mask(void);
+bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
+                                      const sync_io_model_pulse_entry_t *entries,
+                                      uint32_t entry_count,
+                                      bool rising_edge);
+void sync_io_model_pulse_schedule_disarm(void);
+bool sync_io_model_pulse_schedule_is_running(void);
+void sync_io_model_pulse_schedule_get_runtime(sync_io_model_pulse_runtime_t *runtime);
 bool sync_io_aux_set_mode(sync_io_aux_channel_t channel, sync_io_aux_mode_t mode);
 bool sync_io_aux_write(sync_io_aux_channel_t channel, bool level);
 bool sync_io_aux_read(sync_io_aux_channel_t channel, bool *level);

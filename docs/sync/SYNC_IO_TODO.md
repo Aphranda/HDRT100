@@ -22,12 +22,12 @@ Last updated: 2026-08-15
 
 目标：验证“到点出边沿”的硬实时承诺，避免模型转台继续依赖 core0 软件定时和 debug GPIO 写操作。
 
-- [ ] 定义模型脉冲输出 mode 或受控 realtime primitive：输入为 bounded pulse plan，输出为 PIO/DMA 运行态 snapshot。
-- [ ] `ModelTurntableAO` 只生成扫描脉冲计划和状态事实，不直接翻 GPIO。
-- [ ] `sync_io` 作为 realtime IO owner 负责装载 PIO 程序、DMA/FIFO、输出引脚方向和安全释放。
-- [ ] PIO 计划必须支持 `delay_us/ticks`、`pulse_width_us/ticks`、边沿极性、最大脉冲数、late/overflow 计数。
-- [ ] runtime snapshot 至少覆盖 `running`、`scheduled_count`、`completed_count`、`late_count`、`drop_count`、`last_error`、PIO/DMA 状态。
-- [ ] 停止/FAULT/RESET 必须恢复输出安全态并释放资源。
+- [x] 定义模型脉冲输出受控 realtime primitive：输入为 bounded pulse plan，输出为 PIO/DMA 运行态 snapshot。
+- [x] `ModelTurntableAO` 只生成扫描脉冲计划和状态事实，不直接翻 GPIO。
+- [x] `sync_io` 作为 realtime IO owner 负责装载 PIO 程序、DMA/FIFO、输出引脚方向和安全释放。
+- [ ] PIO 计划必须支持 `delay_us/ticks`、`pulse_width_us/ticks`、边沿极性、最大脉冲数、late/overflow 计数。（已完成 delay/pulse/edge/max；late/overflow 计数待 HIL 后补齐。）
+- [ ] runtime snapshot 至少覆盖 `running`、`scheduled_count`、`completed_count`、`late_count`、`drop_count`、`last_error`、PIO/DMA 状态。（已完成 running/total/completed/fault/PIO/DMA/FIFO；late/drop 待补。）
+- [ ] 停止/FAULT/RESET 必须恢复输出安全态并释放资源。（已完成 STOP/timeout FAULT；RESET 统一 release 待接入。）
 - [ ] 增加纯 C 或 host 可执行测试覆盖计划生成：扫描起止、步长、加减速、脉宽、边沿、越界和 0 step 拒绝。
 - [ ] 增加板端 HIL：两板或单板 loopback 捕获模型转台输出脉冲，验证数量、方向、安全释放和 runtime snapshot。
 
@@ -36,6 +36,7 @@ Last updated: 2026-08-15
 - 不把 `ModelTurntableAO` 写成固定 A slot 或固定 GPIO。
 - 不绕过 TriggerFB/resource owner 直接抢 PIO/DMA。
 - 不让 SCPI 直接驱动边沿；SCPI 只能配置、启动意图或查询 snapshot。
+- 模型预约输出当前是 `sync_io` primitive，不进入产品 Trigger mode table；后续如开放为正式 mode，必须补 `sync_io_mode_ops_t.hw` 和资源仲裁表。
 
 ## P1 - 真实最小物理链路 IO 支撑
 

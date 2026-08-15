@@ -185,3 +185,14 @@ Last updated: 2026-08-15
 - 验证：`cmake --build build-codex-rj45-interface` 通过，生成 factory/update 产物。
 - 风险：`ARM_IN`、`EXT_CLK_IN` 仍是语义占位，旧低层宏只做 pull-down/诊断采样；后续需要迁移到 AUX0/AUX1 并接入 TriggerFB 资格/外部时钟逻辑。
 - 涉及文件：`boards/rp2350_trig/inc/board_config.h`，`components/sync_io/inc/sync_io_hw_profile.h`，`components/sync_io/src/sync_io.c`，`components/sync_trigger/src/trigger_fb.c`，`docs/interface/SCPI_COMMANDS.md`，`docs/sync/SYNC_IO_ARCHITECTURE.md`，`docs/trigger/TRIGGER_SYNC_TODO.md`，`docs/sync/SYNC_IO_TODO.md`，`docs/communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md`，`docs/sync/SYNC_IO_TASK_PROGRESS.md`。
+
+### SYNC_IO-TASK-20260815-001 - ModelTurntableAO PIO 预约输出首版
+
+- 目标：完成当前 P0 的第一段闭环，让 `ModelTurntableAO` 不再依赖 `time_us_64()` 主循环软件翻 GPIO 输出脉冲，而是生成 bounded pulse plan，由 `sync_io` realtime primitive 使用 PIO/DMA 到点输出边沿。
+- 完成：新增 `sync_io_model_sched.c`，提供 `sync_io_model_pulse_schedule_arm/disarm/is_running/get_runtime`；首版使用 `pio1/sm1 + DMA2`，1 MHz tick，支持 `delay_us`、`high_us`、上升/下降有效边沿、最多 256 个脉冲和 PIO/DMA/FIFO runtime snapshot。
+- 完成：`sync_io.pio` 增加 active-high / active-low 两个预约脉冲程序；`board_config.h` 明确 `BOARD_SYNC_MODEL_SCHED_SM=1`，与产品主触发 `pio1/sm0` 隔离。
+- 完成：`ModelTurntableAO` 改为在 start 时根据扫描起止、步长、速度/加速度和脉宽生成计划并提交给 `sync_io`；service 只读取 runtime snapshot 更新 emitted/phase/current_position，不再直接写 debug GPIO。
+- 验证：`cmake --build build-rtos-multicore-smoke` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`。
+- 风险：本轮只完成编译闭环，尚未烧录和示波/loopback 验证真实边沿；late/drop/overflow 计数、RESET 统一 release、Host C 计划生成断言仍在 P0/P3 待办。
+- 后续：优先补单板或两板 loopback HIL，捕获模型转台输出脉冲数量、宽度、完成态和 abort；随后再推进 RefMem 真实最小 transport，不继续扩大静态表模型。
+- 涉及文件：`CMakeLists.txt`，`boards/rp2350_trig/inc/board_config.h`，`components/model_turntable/src/model_turntable.c`，`components/sync_io/inc/sync_io.h`，`components/sync_io/src/sync_io.c`，`components/sync_io/src/sync_io.pio`，`components/sync_io/src/sync_io_core_internal.h`，`components/sync_io/src/sync_io_model_sched.c`，`docs/sync/SYNC_IO_ARCHITECTURE.md`，`docs/sync/SYNC_IO_TODO.md`，`docs/sync/SYNC_IO_TASK_PROGRESS.md`。

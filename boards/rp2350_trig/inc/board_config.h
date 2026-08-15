@@ -74,6 +74,9 @@
 #define BOARD_SYNC_AUX3_SM 3u
 
 #define BOARD_SYNC_OUTPUT_SM 0u
+/* Dedicated model/simulation scheduled pulse channel.  It is intentionally
+ * separate from the product trigger output mode on pio1/sm0. */
+#define BOARD_SYNC_MODEL_SCHED_SM 1u
 /* SYNC_CLK_OUT is a framework/AUX signal, not main OUT2. */
 #define BOARD_SYNC_CLOCK_SM BOARD_SYNC_AUX2_SM
 #define BOARD_SYNC_GATE_SM 2u

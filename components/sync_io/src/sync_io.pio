@@ -25,6 +25,34 @@ delay_high:
     out pins, 1
 .wrap
 
+.program sync_model_sched_pulse_high
+.wrap_target
+    pull block
+    out x, 32
+model_high_delay_low:
+    jmp x-- model_high_delay_low
+    set pins, 1
+    pull block
+    out x, 32
+model_high_delay_high:
+    jmp x-- model_high_delay_high
+    set pins, 0
+.wrap
+
+.program sync_model_sched_pulse_low
+.wrap_target
+    pull block
+    out x, 32
+model_low_delay_low:
+    jmp x-- model_low_delay_low
+    set pins, 0
+    pull block
+    out x, 32
+model_low_delay_high:
+    jmp x-- model_low_delay_high
+    set pins, 1
+.wrap
+
 .program sync_passthrough_1bit
 .wrap_target
 passthrough_loop:
@@ -101,6 +129,27 @@ static inline void sync_aux_output_program_init(PIO pio,
     sm_config_set_out_shift(&c, true, false, 32);
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_pins(pio, sm, 0);
+}
+
+static inline void sync_model_sched_pulse_program_init(PIO pio,
+                                                       uint sm,
+                                                       uint offset,
+                                                       uint pin,
+                                                       bool active_high,
+                                                       float clkdiv)
+{
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    pio_sm_config c = active_high
+        ? sync_model_sched_pulse_high_program_get_default_config(offset)
+        : sync_model_sched_pulse_low_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, pin, 1);
+    sm_config_set_out_shift(&c, true, false, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv(&c, clkdiv);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, active_high ? 0u : 1u);
 }
 
 static inline void sync_passthrough_1bit_program_init(PIO pio,

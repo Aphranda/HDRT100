@@ -14,13 +14,13 @@
 #define MODEL_TURNTABLE_MIN_INTERVAL_US    1000u
 #define MODEL_TURNTABLE_MAX_INTERVAL_US    10000000u
 #define MODEL_TURNTABLE_DEFAULT_TIMEOUT_MS (-1)
+#define MODEL_TURNTABLE_MAX_SCHEDULE_PULSES 256u
 
 typedef struct {
     bool initialized;
     bool loaded;
     bool configured;
     bool running;
-    bool output_asserted;
     uint32_t phase;
     uint32_t total_pulses;
     uint32_t emitted_pulses;
@@ -31,14 +31,13 @@ typedef struct {
     uint32_t max_interval_us;
     uint32_t last_interval_us;
     uint32_t fault_code;
-    uint64_t next_pulse_us;
-    uint64_t pulse_release_us;
     uint64_t start_us;
     double current_position;
     double direction;
     double abs_step;
     uint32_t slot_id;
     uint32_t output_index;
+    sync_io_model_pulse_entry_t schedule[MODEL_TURNTABLE_MAX_SCHEDULE_PULSES];
     model_turntable_trigger_config_t trigger;
     model_turntable_motion_config_t motion;
 } model_turntable_context_t;
@@ -145,10 +144,41 @@ static bool model_turntable_valid_motion_config(const model_turntable_motion_con
            config->acceleration_units_per_s2 > 0.0;
 }
 
-static bool model_turntable_write_output(bool asserted)
+static bool model_turntable_build_schedule(void)
 {
-    const bool level = s_turntable.trigger.rising_edge ? asserted : !asserted;
-    return sync_io_debug_model_write_pin(s_turntable.output_index, true, level);
+    if (s_turntable.total_pulses == 0u ||
+        s_turntable.total_pulses > MODEL_TURNTABLE_MAX_SCHEDULE_PULSES) {
+        s_turntable.fault_code = 2u;
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < s_turntable.total_pulses; i++) {
+        uint32_t delay_us = 0u;
+        if (i > 0u) {
+            const uint32_t start_interval_us = model_turntable_interval_for_next_pulse(i);
+            delay_us = start_interval_us > s_turntable.trigger.pulse_width_us
+                ? start_interval_us - s_turntable.trigger.pulse_width_us
+                : 0u;
+            s_turntable.last_interval_us = start_interval_us;
+        }
+        s_turntable.schedule[i].delay_us = delay_us;
+        s_turntable.schedule[i].high_us = s_turntable.trigger.pulse_width_us;
+    }
+
+    return true;
+}
+
+static void model_turntable_update_phase_from_pulses(uint32_t completed_pulses)
+{
+    if (completed_pulses >= s_turntable.total_pulses) {
+        s_turntable.phase = MODEL_TURNTABLE_PHASE_DONE;
+    } else if (completed_pulses < s_turntable.accel_pulses) {
+        s_turntable.phase = MODEL_TURNTABLE_PHASE_ACCEL;
+    } else if (completed_pulses < (s_turntable.accel_pulses + s_turntable.cruise_pulses)) {
+        s_turntable.phase = MODEL_TURNTABLE_PHASE_CRUISE;
+    } else {
+        s_turntable.phase = MODEL_TURNTABLE_PHASE_DECEL;
+    }
 }
 
 bool model_turntable_init(void)
@@ -227,20 +257,26 @@ bool model_turntable_start(void)
     }
 
     model_turntable_recompute_plan();
+    if (!model_turntable_build_schedule()) {
+        return false;
+    }
+
+    if (!sync_io_model_pulse_schedule_arm(s_turntable.output_index,
+                                          s_turntable.schedule,
+                                          s_turntable.total_pulses,
+                                          s_turntable.trigger.rising_edge)) {
+        s_turntable.fault_code = 3u;
+        s_turntable.phase = MODEL_TURNTABLE_PHASE_FAULT;
+        return false;
+    }
+
     s_turntable.running = true;
-    s_turntable.output_asserted = false;
     s_turntable.phase = MODEL_TURNTABLE_PHASE_ACCEL;
     s_turntable.emitted_pulses = 0u;
     s_turntable.last_interval_us = 0u;
     s_turntable.current_position = s_turntable.trigger.start;
     s_turntable.start_us = time_us_64();
-    s_turntable.next_pulse_us = s_turntable.start_us;
-    s_turntable.pulse_release_us = 0u;
     s_turntable.fault_code = 0u;
-
-    (void)sync_io_debug_model_write_pin(s_turntable.output_index,
-                                        true,
-                                        !s_turntable.trigger.rising_edge);
     return true;
 }
 
@@ -251,11 +287,8 @@ void model_turntable_stop(void)
     }
 
     s_turntable.running = false;
-    s_turntable.output_asserted = false;
     s_turntable.phase = MODEL_TURNTABLE_PHASE_IDLE;
-    (void)sync_io_debug_model_write_pin(s_turntable.output_index,
-                                        false,
-                                        false);
+    sync_io_model_pulse_schedule_disarm();
 }
 
 void model_turntable_service(void)
@@ -271,47 +304,32 @@ void model_turntable_service(void)
         s_turntable.running = false;
         s_turntable.phase = MODEL_TURNTABLE_PHASE_FAULT;
         s_turntable.fault_code = 1u;
-        (void)sync_io_debug_model_write_pin(s_turntable.output_index, false, false);
+        sync_io_model_pulse_schedule_disarm();
         return;
     }
 
-    if (s_turntable.output_asserted && now >= s_turntable.pulse_release_us) {
-        (void)model_turntable_write_output(false);
-        s_turntable.output_asserted = false;
-    }
-
-    if (now < s_turntable.next_pulse_us || s_turntable.output_asserted) {
-        return;
-    }
-
-    if (s_turntable.emitted_pulses >= s_turntable.total_pulses) {
+    sync_io_model_pulse_runtime_t runtime;
+    sync_io_model_pulse_schedule_get_runtime(&runtime);
+    if (runtime.fault_code != 0u) {
         s_turntable.running = false;
-        s_turntable.phase = MODEL_TURNTABLE_PHASE_DONE;
-        (void)sync_io_debug_model_write_pin(s_turntable.output_index, false, false);
+        s_turntable.phase = MODEL_TURNTABLE_PHASE_FAULT;
+        s_turntable.fault_code = runtime.fault_code;
         return;
     }
 
-    (void)model_turntable_write_output(true);
-    s_turntable.output_asserted = true;
-    s_turntable.pulse_release_us = now + s_turntable.trigger.pulse_width_us;
-    s_turntable.current_position =
-        s_turntable.trigger.start +
-        (s_turntable.direction * s_turntable.abs_step * (double)s_turntable.emitted_pulses);
-
-    s_turntable.emitted_pulses++;
-    const uint32_t next_index = s_turntable.emitted_pulses;
-    if (next_index < s_turntable.accel_pulses) {
-        s_turntable.phase = MODEL_TURNTABLE_PHASE_ACCEL;
-    } else if (next_index < (s_turntable.accel_pulses + s_turntable.cruise_pulses)) {
-        s_turntable.phase = MODEL_TURNTABLE_PHASE_CRUISE;
-    } else if (next_index < s_turntable.total_pulses) {
-        s_turntable.phase = MODEL_TURNTABLE_PHASE_DECEL;
-    } else {
-        s_turntable.phase = MODEL_TURNTABLE_PHASE_DONE;
+    s_turntable.emitted_pulses = runtime.completed_pulses;
+    if (s_turntable.emitted_pulses > 0u) {
+        s_turntable.current_position =
+            s_turntable.trigger.start +
+            (s_turntable.direction *
+             s_turntable.abs_step *
+             (double)(s_turntable.emitted_pulses - 1u));
     }
 
-    s_turntable.last_interval_us = model_turntable_interval_for_next_pulse(next_index);
-    s_turntable.next_pulse_us = now + s_turntable.last_interval_us;
+    model_turntable_update_phase_from_pulses(s_turntable.emitted_pulses);
+    if (s_turntable.phase == MODEL_TURNTABLE_PHASE_DONE && !runtime.running) {
+        s_turntable.running = false;
+    }
 }
 
 void model_turntable_get_status(model_turntable_status_t *status)

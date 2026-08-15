@@ -67,6 +67,7 @@ PIO / DMA / IRQ
 |---|---|---|
 | hardware profile | `components/sync_io/inc/sync_io_hw_profile.h` | 固定语义 IO、合法 pin group、AUX 方向、编译期断言。 |
 | sync_io core | `components/sync_io/src/sync_io.c` | PIO 程序加载、公共 pulse/capture/clock/AUX 原语、trace helper、共享 IRQ 分发。 |
+| model scheduled pulse primitive | `components/sync_io/src/sync_io_model_sched.c` | 模型/仿真 AO 的 bounded pulse plan 装载，使用独立 PIO/DMA 输出预约边沿。 |
 | mode table | `components/sync_io/inc/sync_io_mode.h` | mode id、资源、PIO/SM/DMA/IRQ 元数据、validate/arm/disarm/is_running。 |
 | SEQ_STEP mode | `sync_io_mode_seq_step.c` | 外部触发沿驱动序列输出，PIO/DMA 自主步进。 |
 | ENC_COUNT mode | `sync_io_mode_enc_count.c` | 编码器 A/B/Z 计数，目标计数触发输出。 |
@@ -111,11 +112,13 @@ RP2350 的 3 个 PIO block 都预留给同步触发和底层 realtime IO。状�
 | `pio0/sm0` | capture primitive | 主输入组采样。 |
 | `pio0/sm2` | RJ45 input / gate interpretation | 硬件语义为 `RJ45_TRIG_IN`，gate 只是 mode 解释。 |
 | `pio1/sm0` | `SEQ_STEP` / `ENC_COUNT` / main output primitive | 当前共享 SM，运行互斥由 TriggerFB/resource owner 保证。 |
+| `pio1/sm1` | model scheduled pulse primitive | 模型/仿真预约输出，当前由 `sync_io` 按 bounded plan 装载，不作为产品 Trigger mode。 |
 | `pio1/sm2` | `PULSE_OUT` primitive | 第二路 pulse 输出，不能与占用主输出总线的 mode 冲突。 |
 | `pio1/sm3` | `RJ45_TRIG_OUT` primitive | 历史 `MARK:*` 只是兼容入口。 |
 | `pio2/sm0..sm3` | AUX / BiSS / SYNC_CLK_OUT / future CAL_RING | AUX0/1 固定输入，AUX2/3 固定输出；persona 切换必须互斥。 |
 | `DMA0` | `SEQ_STEP` | 与 `ENC_COUNT` 共享 `DMA_IRQ_0`，不可并发。 |
 | `DMA1` | `ENC_COUNT` | 与 `SEQ_STEP` 共享 IRQ，ISR 入口已有互斥断言。 |
+| `DMA2` | model scheduled pulse primitive | 不使用共享 DMA IRQ；由 runtime snapshot 轮询 DMA/FIFO/elapsed 状态。 |
 
 任何新增 mode 必须在 `sync_io_mode_ops_t.hw` 中显式声明 PIO block、SM、DMA channel 和 IRQ，不允许只靠代码注释表达资源占用。
 
@@ -127,7 +130,7 @@ RP2350 的 3 个 PIO block 都预留给同步触发和底层 realtime IO。状�
 | `ENC_COUNT` | IN0/IN1/IN2 = A/B/Z | OUT0 目标触发 | `pio1/sm0 + DMA1 + DMA_IRQ_0` | 已实现。 |
 | `BISS_TAP` | AUX0/AUX1 | AUX2/AUX3 | `pio2` 多 SM | 已实现调试/通信准备能力。 |
 | `SYNC_CLK_OUT` | 无 | AUX2 | `pio2/sm2` | 已迁移到 AUX2。 |
-| model scheduled pulse | 由 NodeLoad/RealtimeCapability 决定 | 调试 overlay 或产品 profile 输出 | 待定 PIO/DMA primitive | P0 待办。 |
+| model scheduled pulse | 由 NodeLoad/RealtimeCapability 决定 | 调试 overlay 或产品 profile 输出 | `pio1/sm1 + DMA2` primitive | 已有首版 bounded plan；HIL 待补。 |
 | RefMem minimal transport | 由 adapter profile 决定 | 由 adapter profile 决定 | 待定 PIO/PIO-like transport | P1 待办。 |
 | CAL_RING | AUX0 输入 | AUX3 输出 | `pio2/sm0/sm3` 候选 | 后续同步链路原型。 |
 
