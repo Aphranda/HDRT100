@@ -18,6 +18,45 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 | SOEM / EtherCAT DC | reference clock、传播延时测量、initial sync、周期性 drift compensation、同步输出/输入 timestamp。 | 用于 DTC100 自定义 VDC/DC 思想：校准链路 delay，DPLL 形成 DC，预测分发使用共同时间，T2/READY 回读质量；不采用 EtherCAT 协议、ESC 寄存器或硬件 DC 单元依赖。 |
 | IEC 61499 | 固定 AO/FB owner、event/data boundary、deployment consistency。 | 用于约束 `VdcSyncAO / SyncDpllFB / HoldoverFB / RelockFB` 的静态 owner 和事件边界；不做动态 FB 部署。 |
 
+## 2026-08-16 HAOFV 对齐评审
+
+总体结论：当前 VDC 主域方向正确，已经避免把 VDC 做成裸 SCPI 域或 RefMem 子函数；`VdcTdmaScheduleProfile`、window class、frame envelope、diagnostic timestamp gate 和 TDMA window planner 都符合“VDC 拥有共同时间，RefMem 只同步共同事实，core1/PIO 只执行硬实时动作”的 HAOFV 主线。但当前实现仍处于主域契约和诊断闭环阶段，尚未形成完整 `VdcSyncAO / SyncDpllFB / VdcVector / VdcQualityGateFB` 运行结构。以下风险必须作为后续 VDC 主线优先级，而不是继续扩大旁路脚本或只读查询。
+
+### 符合 HAOFV 的部分
+
+- [x] VDC 已被定义为 HAOFV 内部基础主域，和 Distributed RefMem 并列；没有新增裸 `VDC:*` / `DPLL:*` 顶级 SCPI 域。
+- [x] RefMem -> VDC 的桥接保持单向证据语义：RefMem 只提供 frame/payload/CRC/timestamp evidence，不计算 offset/rate，不发布 VDC lock。
+- [x] `time_us_64()*1000` 诊断时间戳已明确标记为 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，不能进入 100 ns DPLL lock gate。
+- [x] TDMA window class 已区分 `VDC_OBSERVATION_WINDOW`、`REFMEM_DATA_WINDOW` 和 `IDLE_BEACON`，普通 RefMem 数据不能进入 observation window。
+- [x] `vdc_domain_plan_tdma_window()` 已把窗口相位、guard、wait、late 和 missed 计算收敛到 VDC owner 侧，SCPI 只读查询不提交 intent。
+- [x] `VdcDcoControl` 已有结构契约，后续 core1/PIO 可以只读稳定 snapshot，不需要直接访问 DPLL 内部状态。
+
+### 必须纠偏的待办
+
+| 优先级 | 风险项 | 当前状态 | 纠偏目标 |
+|---:|---|---|---|
+| P0 | `VdcSyncAO / SyncDpllFB / VdcVector` 尚未实体化。 | `vdc_domain.c` 仍是单体 domain core，`vdc_dpll_manager` 仍是兼容 wrapper，`task_vdc_sync` 只是 1 ms service 壳。 | 建立 VDC AO/FB 内部边界：SCPI/System 只能投递 command/event，`VdcSyncAO` 拥有 schedule/profile/cal binding，`SyncDpllFB` 唯一写 offset/rate/lock，`VdcVector` 发布稳定 snapshot。 |
+| P0 | TDMA plan 未被 core1/PIO 消费。 | `SYSTem:SYNC:VDC:TDMA:PLAN?` 能查询计划，但 `refmem_realtime_tdma` 收到 intent 后仍立即执行。 | TDMA intent 增加 window plan / target window / guard 字段，core1 在 RAM resident realtime loop 中等待窗口并记录 late/jitter/timeout evidence。 |
+| P0 | 缺少硬件 timestamp latch。 | 当前板端 evidence 仍来自 `time_us_64()*1000` 或 `board_uptime_ms()*1e6`，只能做诊断。 | 增加 PIO/DMA/IRQ/core1 capture latch，正式 DPLL sample 必须 `timestamp_source=HARDWARE_TICK` 且 `timestamp_resolution_ns <= 100`。 |
+| P0 | DPLL 算法未真正更新 clock model。 | `vdc_domain_submit_tdma_evidence()` 只做门禁、计数和简化状态推进，未根据 phase/frequency error 更新 `period_adjust_ppb` / `phase_offset_ns`。 | 将 PI/linreg 或等价 servo 收敛到 `SyncDpllFB`，实现 offset/rate、outlier、step/slew、sanity limit、reset 和 staged profile。 |
+| P1 | VDC snapshot 尚未发布到 RefMem `VdcSlot`。 | RefMem application model 有 VDC/DPLL 区域字段，但 VDC 主域未按唯一 writer、guard、sequence/CRC 发布。 | 定义 `VdcSlot` 字段级 contract，VDC owner 写 snapshot/quality/fault/evidence，RefMem 只镜像和同步。 |
+| P1 | RUN gate 未消费 VDC quality/error budget。 | RUN gate 已有 RefMem quality 约束，VDC lock/holdover/error budget 尚未进入统一门禁。 | `VdcQualityTable`、`VdcErrorBudget`、`VdcGateResult` 接入 SystemManager RUN gate 和 report evidence。 |
+| P1 | `CONFigure:SYNC:VDC:DPLL`、`SYNC:*` 仍是 accepted stub 或固定回复。 | SCPI 入口未进入 VdcSyncAO command/event，也未写 staging profile。 | `CONFigure:SYNC:*` 写 VDC/System Pack staging，`SYNC:CHECk/STARt/STOP/RELock/HOLDover` 进入 VdcSyncAO event，查询只读 snapshot。 |
+| P1 | `READ:SYNC:*?` 仍大量固定返回值。 | 产品读接口没有完全来自 VDC snapshot、quality、gate 和 RefMem freshness。 | 产品测试上位机读取路径必须覆盖 lock state、quality、active profile CRC、gate reject、holdover age、reference slot 和 evidence index。 |
+| P2 | `VdcReferenceClockTable` / failover 尚未冻结。 | 默认 profile 固定 reference slot，板端 `PLAN?` 当前显示 local/reference 均为默认 0。 | 首版可固定 A0，但必须形成表结构、priority、candidate、current source、loss/failover reason 和 SlotClaim/NodeLoad 绑定。 |
+| P2 | `VdcCalibrationBinding` 尚未接入。 | active link delay、cal CRC 变化不会驱动 VDC relock 或 invalidation。 | VDC 只消费 Calibration active result；cal CRC/delay 变化后旧 lock/check 失效，进入 CHECKING/RELOCKING 并记录 gate evidence。 |
+| P2 | DCO snapshot 未形成跨核稳定消费路径。 | C 结构已存在，但 core1 还没有 seqlock/double-buffer 读取、半更新拒绝和 stale 策略。 | 增加 DCO shared snapshot guard，core1 只读稳定 DCO，late/半更新/stale 时拒绝 FIRE_LOAD。 |
+| P2 | `IDLE_BEACON` 未落地。 | 无业务数据时没有持续 observation/freshness 样本。 | 在 TDMA cycle 中加入 idle beacon 或等价 sync frame，维持 DPLL sample freshness 和 holdover age。 |
+| P3 | VDC 代码组件化不足。 | `components/vdc_domain` 只有 `vdc_domain.h/.c`。 | 拆分 `vdc_clock_model`、`vdc_dpll`、`vdc_quality`、`vdc_timestamp`，并保留 `vdc_domain` 作为聚合/owner API。 |
+
+### 后续执行顺序建议
+
+1. P0 先做 `TDMA plan -> refmem_realtime_tdma intent -> core1 wait window`，让当前 25 MHz 两板链路真正受 VDC schedule 约束。
+2. P0 紧接硬件 timestamp latch，把 observation window 样本从诊断时间戳升级为 DPLL eligible evidence。
+3. P0/P1 实现 `SyncDpllFB` 的真实 offset/rate servo，并发布 `VdcClockModel` / `VdcDcoControl` 稳定 snapshot。
+4. P1 接 `VdcSlot`、`VdcQualityTable`、`VdcErrorBudget` 到 RefMem 和 RUN gate。
+5. P1/P2 再完善 SCPI staging、ReferenceClockTable、CalibrationBinding、Holdover/Relock 和 System Pack 持久化。
+
 ## P0 - 文档主域建立
 
 - [x] 建立 `docs/vdc/README.md`。
