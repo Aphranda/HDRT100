@@ -235,6 +235,34 @@ def expect_command_board_load_nack(response: str, *, board_id: int) -> None:
         raise AssertionError(f"unexpected board command NACK fields {bad}: {fields}")
 
 
+def expect_command_sd_load_done(response: str) -> None:
+    fields = [int(part.strip().strip('"'), 0) for part in parse_csv_response(response)]
+    if len(fields) < 28:
+        raise AssertionError(f"field_count={len(fields)} expected>=28")
+    target_mask = 1
+    completed = fields[1] in (4, 5)
+    terminal_mask_ok = (
+        (fields[1] == 4 and fields[18] == target_mask and fields[19] == 0) or
+        (fields[1] == 5 and fields[18] == 0 and fields[19] == target_mask)
+    )
+    checks = {
+        "schema": fields[0] == 1,
+        "completed": completed,
+        "source_node": fields[3] == 0,
+        "target": fields[5] == target_mask,
+        "required": fields[6] == target_mask,
+        "command_type": fields[7] == 16,
+        "command_class": fields[8] == 1,
+        "payload_kind": fields[9] == 4,
+        "payload_size": fields[11] == 76,
+        "taken": fields[17] == target_mask,
+        "terminal": terminal_mask_ok,
+    }
+    bad = [name for name, ok in checks.items() if not ok]
+    if bad:
+        raise AssertionError(f"unexpected SD command fields {bad}: {fields}")
+
+
 def expect_sd_response(response: str) -> None:
     fields = load_fields(response, has_prefix=True)
     prefix = response.split(",", 1)[0]
@@ -307,6 +335,7 @@ def run_validation(execute, *, skip_sd: bool) -> list[Record]:
     ]
     if not skip_sd:
         tests.append(("SYSTem:REFMEM:LOAD:SD", expect_sd_response))
+        tests.append(("SYSTem:COMMand:ACK?", expect_command_sd_load_done))
 
     records: list[Record] = []
     for command, check in tests:

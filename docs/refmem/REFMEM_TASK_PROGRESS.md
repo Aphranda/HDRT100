@@ -8,6 +8,38 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-024 - LOAD:SD via RefMem command slot
+
+- 状态：完成首版闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 将 `SYSTem:REFMEM:LOAD:SD` 的 RefMem staging 和 TableRegistry package validation 收敛到 `DistributedRefMemAO` command slot。
+  - 保持 StorageAO/RefMemAO 职责边界：SD/FatFs/manifest/file read 属于 StorageAO，RefMem staging/ACK/NACK 属于 RefMemAO。
+- 完成内容：
+  - 新增 `REFMEM_COMMAND_TYPE_TABLE_PACKAGE_STAGE` 和 `distributed_refmem_stage_sd_system_pack()`。
+  - `SYSTem:REFMEM:LOAD:SD` 改为先通过 StorageManager 获取 manifest/package validation 摘要，再调用 RefMem intent API；SCPI 不再直接调用 `refmem_application_model_stage_sd_system_pack()` 或 `refmem_table_registry_stage_package_validation()`。
+  - Storage 前置 job busy/incomplete 也转换为 `REJECTED` load snapshot 和 command NACK，避免写命令无 completion。
+  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 增加 `LOAD:SD` 后的 `SYSTem:COMMand:ACK?` 验证，确认 command type 为 `TABLE_PACKAGE_STAGE`。
+- 验证结果：
+  - `python -m py_compile tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py` 通过。
+  - `python tools\checks\check_scpi_usb_namespace.py --root .` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_command_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815084755`，package CRC `0xE5D9FCC9`。
+  - COM5/COM6 OTA 写入、boot 和 commit 到 build `20260815084755` 通过，错误队列均为 `0,"No error"`。
+  - COM5 执行 `python tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py COM5 --out-dir build-rtos-multicore-smoke\refmem_load_COM5_20260815084755_sd_command_slot` 通过；当前 SD package 未有效 staging，`LOAD:SD` 返回 `REJECTED`，`SYSTem:COMMand:ACK?` 返回 `TABLE_PACKAGE_STAGE` NACK。
+  - COM6 执行 `python tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke\refmem_load_COM6_20260815084755_sd_command_slot` 通过；结果同 COM5。
+  - `python tools\docs_check\docs_check.py` 通过，warnings=0。
+- 后续闭环：
+  - 继续扩展 SD HIL：覆盖无 SD、manifest 缺失、manifest OK 且 package valid 三类路径，并校验 TableRegistry per-table staging CRC。
+  - `LOAD:SD` 仍不执行 active image 切换；P0 仍需实现真实 active/staging/rollbackable table image。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_command.h`
+  - `components/distributed_refmem/inc/distributed_refmem.h`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+
 ### REFMEM-TASK-20260815-023 - LOAD:BOARD via RefMem command slot
 
 - 状态：完成首版闭环

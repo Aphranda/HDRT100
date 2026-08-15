@@ -11,6 +11,7 @@
 #include "refmem_quality.h"
 #include "refmem_realtime_tdma.h"
 #include "refmem_spi_physical_adapter.h"
+#include "refmem_table_registry.h"
 #include "refmem_vector_table.h"
 
 #define DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT 16u
@@ -694,6 +695,119 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
     }
 
     (void)distributed_refmem_command_nack(node_id,
+                                          REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
+                                          REFMEM_VECTOR_SLOT_ACK_CMD);
+    return false;
+}
+
+bool distributed_refmem_stage_sd_system_pack(const char *path,
+                                             uint32_t path_hash,
+                                             uint32_t manifest_status,
+                                             uint32_t manifest_schema,
+                                             uint32_t manifest_required_count,
+                                             uint32_t manifest_missing_count,
+                                             const char *manifest_build_id,
+                                             uint32_t package_crc32,
+                                             uint32_t package_valid,
+                                             uint32_t package_error,
+                                             const uint32_t *table_crc32,
+                                             uint32_t table_crc32_count,
+                                             uint32_t owner_validated_table_mask,
+                                             uint32_t first_bad_table)
+{
+    if (!s_initialized) {
+        return false;
+    }
+
+    uint32_t fields[10u + REFMEM_TABLE_REGISTRY_COUNT];
+    fields[0] = path_hash;
+    fields[1] = manifest_status;
+    fields[2] = manifest_schema;
+    fields[3] = manifest_required_count;
+    fields[4] = manifest_missing_count;
+    fields[5] = package_crc32;
+    fields[6] = package_valid;
+    fields[7] = package_error;
+    fields[8] = owner_validated_table_mask;
+    fields[9] = first_bad_table;
+    for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {
+        fields[10u + i] =
+            (table_crc32 != NULL && i < table_crc32_count) ? table_crc32[i] : 0u;
+    }
+
+    const uint32_t payload_crc32 = distributed_refmem_u32_payload_crc32(
+        fields,
+        (uint32_t)(sizeof(fields) / sizeof(fields[0])));
+    const uint32_t local_target = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    const uint32_t target_mask = (uint32_t)(1u << local_target);
+    refmem_command_request_t request = {
+        .command_seq = 0u,
+        .source_node = DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
+        .source_instance = DISTRIBUTED_REFMEM_SOURCE_INSTANCE_REFMEM_AO,
+        .target_mask = target_mask,
+        .required_mask = target_mask,
+        .command_type = REFMEM_COMMAND_TYPE_TABLE_PACKAGE_STAGE,
+        .command_class = REFMEM_COMMAND_CLASS_CONFIG,
+        .payload_kind = REFMEM_COMMAND_PAYLOAD_STAGING_REF,
+        .payload_ref = path_hash,
+        .payload_size = (uint32_t)sizeof(fields),
+        .payload_crc32 = payload_crc32,
+        .issue_epoch = 0u,
+        .run_id = 0u,
+        .timeout_us = 50000u,
+    };
+
+    if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
+        return false;
+    }
+
+    osal_critical_enter();
+    const refmem_command_take_result_t take_result =
+        refmem_command_try_take(&s_refmem_command_slot,
+                                local_target,
+                                0u,
+                                0u,
+                                payload_crc32,
+                                REFMEM_VECTOR_SLOT_ACK_CMD);
+    osal_critical_exit();
+    if (take_result != REFMEM_COMMAND_TAKE_TAKEN) {
+        return false;
+    }
+
+    const bool staged =
+        refmem_application_model_stage_sd_system_pack(path,
+                                                      path_hash,
+                                                      manifest_status,
+                                                      manifest_schema,
+                                                      manifest_required_count,
+                                                      manifest_missing_count,
+                                                      manifest_build_id,
+                                                      package_crc32,
+                                                      package_valid,
+                                                      package_error);
+    if (staged && package_valid != 0u) {
+        refmem_application_model_load_snapshot_t snapshot;
+        refmem_table_package_validation_t validation = {0};
+        refmem_application_model_get_load_snapshot(&snapshot);
+        validation.valid = package_valid;
+        validation.error = package_error;
+        validation.package_crc32 = package_crc32;
+        validation.table_count = REFMEM_TABLE_REGISTRY_COUNT;
+        validation.owner_validated_table_mask = owner_validated_table_mask;
+        validation.first_bad_table = first_bad_table;
+        for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {
+            validation.table_crc32[i] =
+                (table_crc32 != NULL && i < table_crc32_count) ? table_crc32[i] : 0u;
+        }
+        (void)refmem_table_registry_stage_package_validation(&snapshot, &validation);
+    }
+
+    if (staged) {
+        (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_SLOT_ACK_CMD);
+        return true;
+    }
+
+    (void)distributed_refmem_command_nack(local_target,
                                           REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
                                           REFMEM_VECTOR_SLOT_ACK_CMD);
     return false;

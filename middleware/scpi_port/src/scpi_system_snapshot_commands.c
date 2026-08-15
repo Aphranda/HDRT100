@@ -357,24 +357,6 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    uint32_t job_id = 0u;
-    if (!storage_manager_post_manifest_scan_job(&job_id)) {
-        scpi_port_push_exec_error(context, "REFMEM_SD_JOB_BUSY");
-        return SCPI_RES_ERR;
-    }
-    (void)scpi_refmem_wait_storage_job(job_id);
-
-    storage_manager_job_result_t job;
-    storage_manager_get_job_result(&job);
-    if (job.id != job_id ||
-        job.state == STORAGE_MANAGER_JOB_STATE_QUEUED ||
-        job.state == STORAGE_MANAGER_JOB_STATE_RUNNING) {
-        scpi_port_push_exec_error(context, "REFMEM_SD_JOB_INCOMPLETE");
-        return SCPI_RES_ERR;
-    }
-
-    storage_manager_vector_t vector;
-    storage_manager_get_vector(&vector);
     const char *load_path = (path != NULL && path_len > 0u) ? path : SCPI_REFMEM_PACKAGE_PATH;
     char path_buffer[96];
     if (path != NULL && path_len > 0u) {
@@ -384,6 +366,61 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
         path_buffer[path_len] = '\0';
         load_path = path_buffer;
     }
+
+    uint32_t job_id = 0u;
+    if (!storage_manager_post_manifest_scan_job(&job_id)) {
+        const bool staged =
+            distributed_refmem_stage_sd_system_pack(load_path,
+                                                    0u,
+                                                    STORAGE_MANAGER_MANIFEST_IO_ERROR,
+                                                    0u,
+                                                    0u,
+                                                    1u,
+                                                    "",
+                                                    0u,
+                                                    0u,
+                                                    REFMEM_TABLE_PACKAGE_ERR_TOO_SMALL,
+                                                    NULL,
+                                                    0u,
+                                                    0u,
+                                                    0u);
+        refmem_application_model_load_snapshot_t snapshot;
+        refmem_application_model_get_load_snapshot(&snapshot);
+        SCPI_ResultText(context, staged ? "STAGED" : "REJECTED");
+        scpi_refmem_result_load_snapshot(context, &snapshot);
+        return SCPI_RES_OK;
+    }
+    (void)scpi_refmem_wait_storage_job(job_id);
+
+    storage_manager_job_result_t job;
+    storage_manager_get_job_result(&job);
+    if (job.id != job_id ||
+        job.state == STORAGE_MANAGER_JOB_STATE_QUEUED ||
+        job.state == STORAGE_MANAGER_JOB_STATE_RUNNING) {
+        const bool staged =
+            distributed_refmem_stage_sd_system_pack(load_path,
+                                                    job.path_hash,
+                                                    STORAGE_MANAGER_MANIFEST_IO_ERROR,
+                                                    0u,
+                                                    0u,
+                                                    1u,
+                                                    "",
+                                                    0u,
+                                                    0u,
+                                                    REFMEM_TABLE_PACKAGE_ERR_TOO_SMALL,
+                                                    NULL,
+                                                    0u,
+                                                    0u,
+                                                    0u);
+        refmem_application_model_load_snapshot_t snapshot;
+        refmem_application_model_get_load_snapshot(&snapshot);
+        SCPI_ResultText(context, staged ? "STAGED" : "REJECTED");
+        scpi_refmem_result_load_snapshot(context, &snapshot);
+        return SCPI_RES_OK;
+    }
+
+    storage_manager_vector_t vector;
+    storage_manager_get_vector(&vector);
 
     uint8_t package_buffer[SCPI_REFMEM_LOAD_MAX_BYTES];
     size_t package_size = 0u;
@@ -404,22 +441,23 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context)
     }
 
     const bool staged =
-        refmem_application_model_stage_sd_system_pack(load_path,
-                                                      package_read ? job.path_hash : 0u,
-                                                      (uint32_t)vector.manifest_status,
-                                                      vector.manifest_schema,
-                                                      vector.manifest_required_count,
-                                                      vector.manifest_missing_count,
-                                                      vector.manifest_build_id,
-                                                      validation.package_crc32,
-                                                      package_valid ? 1u : 0u,
-                                                      validation.error);
+        distributed_refmem_stage_sd_system_pack(load_path,
+                                                package_read ? job.path_hash : 0u,
+                                                (uint32_t)vector.manifest_status,
+                                                vector.manifest_schema,
+                                                vector.manifest_required_count,
+                                                vector.manifest_missing_count,
+                                                vector.manifest_build_id,
+                                                validation.package_crc32,
+                                                package_valid ? 1u : 0u,
+                                                validation.error,
+                                                validation.table_crc32,
+                                                REFMEM_TABLE_REGISTRY_COUNT,
+                                                validation.owner_validated_table_mask,
+                                                validation.first_bad_table);
 
     refmem_application_model_load_snapshot_t snapshot;
     refmem_application_model_get_load_snapshot(&snapshot);
-    if (staged && package_valid) {
-        (void)refmem_table_registry_stage_package_validation(&snapshot, &validation);
-    }
     SCPI_ResultText(context, staged ? "STAGED" : "REJECTED");
     scpi_refmem_result_load_snapshot(context, &snapshot);
     return SCPI_RES_OK;
