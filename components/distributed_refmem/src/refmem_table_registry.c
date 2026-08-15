@@ -17,6 +17,7 @@ static uint8_t s_rollbackable_image_buffer[REFMEM_TABLE_IMAGE_BUFFER_SIZE];
 static size_t s_active_image_size;
 static size_t s_staging_image_size;
 static size_t s_rollbackable_image_size;
+static uint32_t s_image_access_count[3];
 static uint32_t s_table_seq;
 
 #define REFMEM_TABLE_WIRE_U32_SIZE 4u
@@ -142,6 +143,13 @@ static bool refmem_table_registry_validate_event_link(
 static bool refmem_table_registry_validate_data_link(const uint8_t *data, size_t size);
 static bool refmem_table_registry_validate_deployment_gate(const uint8_t *data, size_t size);
 static bool refmem_table_registry_validate_connection_quality(const uint8_t *data, size_t size);
+
+static bool refmem_table_registry_find_package_table(const uint8_t *data,
+                                                     size_t size,
+                                                     uint32_t table_id,
+                                                     uint32_t *table_offset,
+                                                     uint32_t *table_size,
+                                                     uint32_t *table_crc32);
 
 static uint32_t refmem_table_registry_crc32_update(uint32_t crc, const void *data, size_t size)
 {
@@ -709,6 +717,62 @@ static uint32_t refmem_table_package_crc32(const uint8_t *data, size_t size)
     return ~crc;
 }
 
+static bool refmem_table_registry_find_package_table(const uint8_t *data,
+                                                     size_t size,
+                                                     uint32_t table_id,
+                                                     uint32_t *table_offset,
+                                                     uint32_t *table_size,
+                                                     uint32_t *table_crc32)
+{
+    if (data == NULL ||
+        table_offset == NULL ||
+        table_size == NULL ||
+        table_crc32 == NULL ||
+        table_id >= REFMEM_TABLE_REGISTRY_COUNT ||
+        size < REFMEM_TABLE_PACKAGE_HEADER_SIZE) {
+        return false;
+    }
+
+    const uint32_t magic = refmem_table_read_u32_le(&data[0]);
+    const uint32_t version = refmem_table_read_u32_le(&data[4]);
+    const uint32_t header_size = refmem_table_read_u32_le(&data[8]);
+    const uint32_t total_size = refmem_table_read_u32_le(&data[12]);
+    const uint32_t table_count = refmem_table_read_u32_le(&data[16]);
+    const uint32_t table_dir_size = refmem_table_read_u32_le(&data[20]);
+    if (magic != REFMEM_TABLE_PACKAGE_MAGIC ||
+        version != REFMEM_TABLE_PACKAGE_VERSION ||
+        header_size != REFMEM_TABLE_PACKAGE_HEADER_SIZE ||
+        total_size != size ||
+        table_count != REFMEM_TABLE_REGISTRY_COUNT ||
+        table_dir_size != table_count * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE ||
+        header_size + table_dir_size > size) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < table_count; i++) {
+        const size_t cursor = header_size + i * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE;
+        const uint32_t entry_table_id = refmem_table_read_u32_le(&data[cursor + 0u]);
+        const uint32_t entry_offset = refmem_table_read_u32_le(&data[cursor + 4u]);
+        const uint32_t entry_size = refmem_table_read_u32_le(&data[cursor + 8u]);
+        const uint32_t entry_crc32 = refmem_table_read_u32_le(&data[cursor + 12u]);
+        if (entry_table_id != table_id) {
+            continue;
+        }
+        if (entry_offset < header_size + table_dir_size ||
+            entry_offset > size ||
+            entry_size > size - entry_offset ||
+            refmem_table_package_crc32(&data[entry_offset], entry_size) != entry_crc32) {
+            return false;
+        }
+        *table_offset = entry_offset;
+        *table_size = entry_size;
+        *table_crc32 = entry_crc32;
+        return true;
+    }
+
+    return false;
+}
+
 static uint32_t refmem_table_registry_crc32(void)
 {
     uint32_t crc = 2166136261u;
@@ -848,6 +912,7 @@ void refmem_table_registry_init(const refmem_application_model_snapshot_t *model
     s_active_image_size = 0u;
     s_staging_image_size = 0u;
     s_rollbackable_image_size = 0u;
+    (void)memset(s_image_access_count, 0, sizeof(s_image_access_count));
     s_table_seq = 0u;
 
     for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {
@@ -1180,6 +1245,16 @@ bool refmem_table_registry_activate_staging(const refmem_table_activation_gate_t
         return false;
     }
 
+    if (s_image_access_count[REFMEM_TABLE_IMAGE_ACTIVE] != 0u ||
+        s_image_access_count[REFMEM_TABLE_IMAGE_STAGING] != 0u ||
+        s_image_access_count[REFMEM_TABLE_IMAGE_ROLLBACKABLE] != 0u) {
+        s_staging_image.state = REFMEM_TABLE_VALIDATION_OWNER_OK;
+        s_staging_image.last_result = REFMEM_TABLE_ACTIVATE_ERR_IMAGE_BUSY;
+        s_snapshot.last_error = REFMEM_TABLE_ACTIVATE_ERR_IMAGE_BUSY;
+        refmem_table_registry_refresh_snapshot();
+        return false;
+    }
+
     if (s_staging_image_size == 0u) {
         s_staging_image.state = REFMEM_TABLE_VALIDATION_OWNER_OK;
         s_staging_image.last_result = REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED;
@@ -1262,6 +1337,85 @@ bool refmem_table_registry_get_image_descriptor(refmem_table_image_role_t role,
     default:
         return false;
     }
+}
+
+bool refmem_table_registry_access_table(refmem_table_image_role_t role,
+                                        uint32_t table_id,
+                                        refmem_table_view_t *view)
+{
+    if (view == NULL ||
+        table_id >= REFMEM_TABLE_REGISTRY_COUNT ||
+        role > REFMEM_TABLE_IMAGE_ROLLBACKABLE) {
+        return false;
+    }
+
+    const uint8_t *image = NULL;
+    size_t image_size = 0u;
+    const refmem_table_image_descriptor_t *descriptor = NULL;
+    switch (role) {
+    case REFMEM_TABLE_IMAGE_ACTIVE:
+        image = s_active_image_buffer;
+        image_size = s_active_image_size;
+        descriptor = &s_active_image;
+        break;
+    case REFMEM_TABLE_IMAGE_STAGING:
+        image = s_staging_image_buffer;
+        image_size = s_staging_image_size;
+        descriptor = &s_staging_image;
+        break;
+    case REFMEM_TABLE_IMAGE_ROLLBACKABLE:
+        image = s_rollbackable_image_buffer;
+        image_size = s_rollbackable_image_size;
+        descriptor = &s_rollbackable_image;
+        break;
+    default:
+        return false;
+    }
+
+    if (descriptor == NULL ||
+        image_size == 0u ||
+        (descriptor->table_mask & (1u << table_id)) == 0u) {
+        return false;
+    }
+
+    uint32_t table_offset = 0u;
+    uint32_t table_size = 0u;
+    uint32_t table_crc32 = 0u;
+    if (!refmem_table_registry_find_package_table(image,
+                                                  image_size,
+                                                  table_id,
+                                                  &table_offset,
+                                                  &table_size,
+                                                  &table_crc32)) {
+        return false;
+    }
+
+    (void)memset(view, 0, sizeof(*view));
+    view->version = REFMEM_TABLE_REGISTRY_VERSION;
+    view->role = (uint32_t)role;
+    view->table_id = table_id;
+    view->table_seq = descriptor->table_seq;
+    view->package_crc32 = descriptor->package_crc32;
+    view->table_crc32 = table_crc32;
+    view->image_offset = table_offset;
+    view->image_size = table_size;
+    view->data = &image[table_offset];
+    view->size = table_size;
+    s_image_access_count[role]++;
+    return true;
+}
+
+bool refmem_table_registry_release_table(const refmem_table_view_t *view)
+{
+    if (view == NULL ||
+        view->version != REFMEM_TABLE_REGISTRY_VERSION ||
+        view->role > REFMEM_TABLE_IMAGE_ROLLBACKABLE ||
+        s_image_access_count[view->role] == 0u) {
+        return false;
+    }
+
+    s_image_access_count[view->role]--;
+    return true;
 }
 
 bool refmem_table_registry_validate_package(const uint8_t *data,

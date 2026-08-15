@@ -815,6 +815,119 @@ static int test_metadata_staging_clears_stale_package_image(void)
     return failed;
 }
 
+static int test_active_table_view_access_release(void)
+{
+    int failed = 0;
+    uint8_t package[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
+    refmem_table_package_validation_t validation;
+    const size_t package_size = build_test_package(package, sizeof(package), true);
+    const refmem_application_model_snapshot_t model = make_active_model();
+    refmem_application_model_load_snapshot_t load = make_valid_load();
+    refmem_table_activation_gate_t gate = make_pass_gate();
+    refmem_table_view_t view;
+
+    failed += expect_bool("contract package validates for view",
+                          refmem_table_registry_validate_package(package,
+                                                                 package_size,
+                                                                 &validation),
+                          true);
+    load.staging_package_crc32 = validation.package_crc32;
+
+    refmem_table_registry_init(&model);
+    failed += expect_bool("stage package image for view",
+                          refmem_table_registry_stage_package_image(&load,
+                                                                    package,
+                                                                    package_size,
+                                                                    &validation),
+                          true);
+    failed += expect_bool("activate image for view",
+                          refmem_table_registry_activate_staging(&gate),
+                          true);
+    failed += expect_bool("access active nodeload view",
+                          refmem_table_registry_access_table(REFMEM_TABLE_IMAGE_ACTIVE,
+                                                            REFMEM_APP_TABLE_NODE_LOAD,
+                                                            &view),
+                          true);
+    failed += expect_u32("view role", view.role, REFMEM_TABLE_IMAGE_ACTIVE);
+    failed += expect_u32("view table id", view.table_id, REFMEM_APP_TABLE_NODE_LOAD);
+    failed += expect_u32("view package crc", view.package_crc32, validation.package_crc32);
+    failed += expect_u32("view table crc",
+                         view.table_crc32,
+                         validation.table_crc32[REFMEM_APP_TABLE_NODE_LOAD]);
+    failed += expect_u32("view size",
+                         (uint32_t)view.size,
+                         sizeof(refmem_node_load_table_t));
+    failed += expect_u32("view first word",
+                         view.size >= sizeof(uint32_t) ? view.data[0] : 0u,
+                         REFMEM_APP_MODEL_VERSION);
+    failed += expect_bool("release active nodeload view",
+                          refmem_table_registry_release_table(&view),
+                          true);
+    failed += expect_bool("double release rejected",
+                          refmem_table_registry_release_table(&view),
+                          false);
+    return failed;
+}
+
+static int test_activation_rejects_unreleased_table_view(void)
+{
+    int failed = 0;
+    uint8_t package[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
+    refmem_table_package_validation_t validation;
+    const size_t package_size = build_test_package(package, sizeof(package), true);
+    const refmem_application_model_snapshot_t model = make_active_model();
+    refmem_application_model_load_snapshot_t load = make_valid_load();
+    refmem_table_activation_gate_t gate = make_pass_gate();
+    refmem_table_view_t view;
+    refmem_table_image_descriptor_t staging;
+
+    failed += expect_bool("contract package validates for busy",
+                          refmem_table_registry_validate_package(package,
+                                                                 package_size,
+                                                                 &validation),
+                          true);
+    load.staging_package_crc32 = validation.package_crc32;
+
+    refmem_table_registry_init(&model);
+    failed += expect_bool("stage package image for busy first",
+                          refmem_table_registry_stage_package_image(&load,
+                                                                    package,
+                                                                    package_size,
+                                                                    &validation),
+                          true);
+    failed += expect_bool("activate image for busy first",
+                          refmem_table_registry_activate_staging(&gate),
+                          true);
+    failed += expect_bool("access active table before second activation",
+                          refmem_table_registry_access_table(REFMEM_TABLE_IMAGE_ACTIVE,
+                                                            REFMEM_APP_TABLE_APPLICATION_MAP,
+                                                            &view),
+                          true);
+    failed += expect_bool("stage package image for busy second",
+                          refmem_table_registry_stage_package_image(&load,
+                                                                    package,
+                                                                    package_size,
+                                                                    &validation),
+                          true);
+    failed += expect_bool("activation blocked by unreleased view",
+                          refmem_table_registry_activate_staging(&gate),
+                          false);
+    failed += expect_bool("get busy staging descriptor",
+                          refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_STAGING,
+                                                                     &staging),
+                          true);
+    failed += expect_u32("busy staging result",
+                         staging.last_result,
+                         REFMEM_TABLE_ACTIVATE_ERR_IMAGE_BUSY);
+    failed += expect_bool("release active table after busy",
+                          refmem_table_registry_release_table(&view),
+                          true);
+    failed += expect_bool("activation succeeds after release",
+                          refmem_table_registry_activate_staging(&gate),
+                          true);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -828,6 +941,8 @@ int main(void)
     failed += test_package_stage_uses_table_crc_and_partial_owner_state();
     failed += test_package_image_activation_switches_active_and_rollbackable();
     failed += test_metadata_staging_clears_stale_package_image();
+    failed += test_active_table_view_access_release();
+    failed += test_activation_rejects_unreleased_table_view();
 
     if (failed != 0) {
         (void)printf("refmem_table_registry tests failed: %d\n", failed);

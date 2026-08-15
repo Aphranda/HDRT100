@@ -16,6 +16,7 @@ scpi_result_t scpi_cmd_refmem_load_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_board_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_table_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_table_image_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_table_view_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_quality_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_init(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_hello_q(scpi_t *context);
@@ -84,6 +85,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:LOAD:STATus?", .callback = scpi_cmd_refmem_load_status_q}, \
     {.pattern = "SYSTem:REFMEM:LOAD:BOARD:STATus?", .callback = scpi_cmd_refmem_load_board_status_q}, \
     {.pattern = "SYSTem:REFMEM:TABle:IMAGe?", .callback = scpi_cmd_refmem_table_image_q}, \
+    {.pattern = "SYSTem:REFMEM:TABle:VIEW?", .callback = scpi_cmd_refmem_table_view_q}, \
     {.pattern = "SYSTem:REFMEM:TABle?", .callback = scpi_cmd_refmem_table_q}, \
     {.pattern = "SYSTem:REFMEM:QUALity?", .callback = scpi_cmd_refmem_quality_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:INITialize", .callback = scpi_cmd_refmem_sync_init}, \

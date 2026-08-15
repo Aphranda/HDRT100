@@ -77,8 +77,10 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 增加 TableRegistry 可观测生命周期字段：`EMPTY/STAGED/CRC_OK/OWNER_OK/ACTIVE/ROLLBACKABLE/FAILED`。
 - [x] 实现 registry 级真实 active/staging/rollbackable table image 切换：`.rmtp` package bytes 进入私有 staging buffer，activation gate 通过后旧 active descriptor/buffer 进入 rollbackable，staging descriptor/buffer 切为 active；metadata-only staging 或失败 staging 必须清空 payload，继续以 `IMAGE_NOT_LOADED` 阻断伪切换。
 - [x] 定义并落地 table image descriptor：active/staging/rollbackable 只由 descriptor、seq、CRC bundle、state 和 evidence 对外可见，完整表数据不得写入 RefMem 向量表。
+- [x] 定义并落地 stable table view access/release：`refmem_table_registry_access_table()` 只借出 const payload view、CRC、offset、size 和 seq，`release_table()` 释放 reader guard；未 release 的 view 会让 activation 返回 `IMAGE_BUSY`。
 - [ ] 增加完整 activation gate：RefMem load mode、产品实时 idle/park、flash lockout/RAM-resident 入口、CRC bundle、owner validation、SlotClaimMap、DeploymentGate 和 command ACK 必须全部通过后才能切 active；当前单板 gate 已接入 RefMem idle、realtime idle、runtime protection、CRC/owner、SlotClaim、quality/DeploymentGate 和 local command take，仍需接跨节点 ACK/FENCE 与 staging stable table view。
 - [ ] 实现 table dump/load 镜像规则：dump 只导出稳定 snapshot，load 只能进入 staging，不得直接覆盖 active。
+- [ ] 将 active package view 解析为业务结构表 snapshot：ApplicationMap、BoardCapability、GenericNode、NodeLoad 等后续读取 active profile 时必须逐步切到 activated stable view，而不是继续使用编译内置表。
 - [x] 增加 owner validation contract 首版入口：`refmem_table_registry_validate_staging()` 只校验当前 staging snapshot 的 CRC/lint/error 结果，不执行 active 替换。
 - [ ] 实现真实 owner validation callback 调度；CRC 通过后仍必须由表 owner 检查字段范围、逻辑一致性、资源冲突和运行门禁。
 - [ ] owner validation callback 结果必须写入 TableRegistry：table id、owner id、validator id、result、reason、evidence index 和失败阶段。
@@ -99,6 +101,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 修复 FatFs 原子替换阶段 `RENAME_FAILED` 的兜底路径：text/binary 写入收敛为公共 bytes helper，临时文件 rename 失败后直写目标文件并清理 tmp，避免 `.rmtp` CRC 已匹配但替换失败导致 job 卡死或失败。
 - [x] 增加 `SYSTem:REFMEM:TABle? [table_id]` 维护查询，观察 registry、active/staging CRC、validation state 和 evidence；保持在 `SYSTem:REFMEM:*` 命名空间内。
 - [x] 增加 `SYSTem:REFMEM:LOAD:ACTivate` 和 `SYSTem:REFMEM:TABle:IMAGe?` 维护入口：SCPI 只提交 activation intent 或读取 descriptor，`DistributedRefMemAO` 通过 `TABLE_PACKAGE_ACTIVATE` command slot 执行 registry 级 activation。
+- [x] 增加 `SYSTem:REFMEM:TABle:VIEW? [role],[table_id]` 维护查询：通过 access/release 读取 table view 摘要，验证 RMTP directory 中 active/staging/rollbackable payload 可稳定定位，仍不导出完整 table 数据。
 - [ ] 重新 OTA COM5/COM6 并执行 `refmem_pack_write` + `refmem_scpi_load_validate`，确认 9 表 `.rmtp` 写入、读取、`LOAD:SD` staging 和 registry image lifecycle 在最小系统板上闭环通过。
 
 ## P1 - SlotClaimMap 与自组网协调

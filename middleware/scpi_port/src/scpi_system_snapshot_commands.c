@@ -74,6 +74,7 @@ static void scpi_refmem_result_board_load_snapshot(
 static void scpi_refmem_result_table_image_descriptor(
     scpi_t *context,
     const refmem_table_image_descriptor_t *descriptor);
+static uint32_t scpi_refmem_read_u32_le(const uint8_t *data);
 static bool scpi_refmem_sync_ensure_initialized(void);
 static uint32_t scpi_refmem_sync_build_id_crc32(void);
 static bool scpi_refmem_sync_build_hello_frame(uint8_t source_slot,
@@ -659,6 +660,35 @@ scpi_result_t scpi_cmd_refmem_table_image_q(scpi_t *context)
     }
 
     scpi_refmem_result_table_image_descriptor(context, &descriptor);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_table_view_q(scpi_t *context)
+{
+    uint32_t role = REFMEM_TABLE_IMAGE_ACTIVE;
+    uint32_t table_id = REFMEM_APP_TABLE_APPLICATION_MAP;
+    (void)SCPI_ParamUInt32(context, &role, FALSE);
+    (void)SCPI_ParamUInt32(context, &table_id, FALSE);
+
+    refmem_table_view_t view;
+    if (!refmem_table_registry_access_table((refmem_table_image_role_t)role,
+                                            table_id,
+                                            &view)) {
+        return SCPI_RES_ERR;
+    }
+
+    const uint32_t first_u32 =
+        view.size >= sizeof(uint32_t) ? scpi_refmem_read_u32_le(view.data) : 0u;
+    SCPI_ResultUInt32(context, view.version);
+    SCPI_ResultUInt32(context, view.role);
+    SCPI_ResultUInt32(context, view.table_id);
+    SCPI_ResultUInt32(context, view.table_seq);
+    SCPI_ResultUInt32(context, view.package_crc32);
+    SCPI_ResultUInt32(context, view.table_crc32);
+    SCPI_ResultUInt32(context, view.image_offset);
+    SCPI_ResultUInt32(context, view.image_size);
+    SCPI_ResultUInt32(context, first_u32);
+    (void)refmem_table_registry_release_table(&view);
     return SCPI_RES_OK;
 }
 
@@ -1979,6 +2009,17 @@ static void scpi_refmem_result_table_image_descriptor(
     SCPI_ResultUInt32(context, descriptor->path_hash);
     SCPI_ResultUInt32(context, descriptor->last_result);
     SCPI_ResultUInt32(context, descriptor->evidence_index);
+}
+
+static uint32_t scpi_refmem_read_u32_le(const uint8_t *data)
+{
+    if (data == NULL) {
+        return 0u;
+    }
+    return ((uint32_t)data[0]) |
+           ((uint32_t)data[1] << 8) |
+           ((uint32_t)data[2] << 16) |
+           ((uint32_t)data[3] << 24);
 }
 
 static bool scpi_refmem_sync_ensure_initialized(void)

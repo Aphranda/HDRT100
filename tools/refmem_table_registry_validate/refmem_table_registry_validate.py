@@ -325,6 +325,29 @@ def check_image_response(response: str, *, role: int, state: int, table_mask: in
         raise AssertionError(f"image descriptor mismatch {bad}: {fields}")
 
 
+def check_table_view_response(response: str, expected: TableDirectoryEntry, package: PackageSummary) -> None:
+    fields = parse_csv_response(response)
+    if len(fields) != 9:
+        raise AssertionError(f"TABle:VIEW field_count={len(fields)} expected=9")
+    try:
+        values = [int(field.strip().strip('"'), 0) for field in fields]
+    except ValueError as exc:
+        raise AssertionError(f"TABle:VIEW response contains non-integer field: {response!r}") from exc
+    checks = {
+        "version": values[0] == 1,
+        "role": values[1] == 0,
+        "table_id": values[2] == expected.table_id,
+        "package_crc32": values[4] == package.package_crc32,
+        "table_crc32": values[5] == expected.crc32,
+        "offset": values[6] == expected.offset,
+        "size": values[7] == expected.size,
+        "first_u32": values[8] == FORMAT_VERSION,
+    }
+    bad = [name for name, ok in checks.items() if not ok]
+    if bad:
+        raise AssertionError(f"{TABLE_NAMES[expected.table_id]} table view mismatch {bad}: {values}")
+
+
 def check_activate_response(response: str, package: PackageSummary) -> None:
     fields = parse_csv_response(response)
     if len(fields) != 34:
@@ -392,6 +415,12 @@ def run_validation(execute,
                                                   state=0,
                                                   table_mask=0,
                                                   package=package))
+        for table_id in (0, 3):
+            entry = package.entries[table_id]
+            run(f"SYSTem:REFMEM:TABle:VIEW? 0,{table_id}",
+                lambda response, expected=entry: check_table_view_response(response,
+                                                                           expected,
+                                                                           package))
 
     for entry in package.entries:
         run(f"SYSTem:REFMEM:TABle? {entry.table_id}",

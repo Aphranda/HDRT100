@@ -168,6 +168,8 @@ static refmem_command_reason_t distributed_refmem_activation_nack_reason(uint32_
     switch ((refmem_table_activation_result_t)result) {
     case REFMEM_TABLE_ACTIVATE_ERR_GATE:
         return REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
+    case REFMEM_TABLE_ACTIVATE_ERR_IMAGE_BUSY:
+        return REFMEM_COMMAND_REASON_RESOURCE_BUSY;
     case REFMEM_TABLE_ACTIVATE_ERR_IMAGE_TOO_LARGE:
         return REFMEM_COMMAND_REASON_PAYLOAD_CRC_MISMATCH;
     case REFMEM_TABLE_ACTIVATE_ERR_BAD_ARGUMENT:

@@ -8,6 +8,34 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-033 - Stable table view access/release
+
+- 状态：完成 COM5/COM6 板端闭环
+- 日期：2026-08-15
+- 任务目标：
+  - 在 registry 级 image activation 后，提供稳定的单表只读 view，避免后续业务 AO/FB 直接拼 RMTP offset 或读取裸 buffer。
+  - 保持 HAOFV 边界：TableRegistry 借出 const payload view，向量表和 SCPI 仍只输出摘要，不承载完整 table 数据。
+- 完成内容：
+  - 新增 `refmem_table_view_t`，包含 role、table id、table seq、package CRC、table CRC、image offset、image size 和 const payload pointer。
+  - 新增 `refmem_table_registry_access_table(role, table_id, view)` / `refmem_table_registry_release_table(view)`，通过 RMTP directory 和 table CRC 定位 payload。
+  - 增加 reader guard：active/staging/rollbackable 任一 image 存在未 release view 时，activation 返回 `IMAGE_BUSY`，避免表指针悬挂。
+  - 新增 `SYSTem:REFMEM:TABle:VIEW? [role],[table_id]`，通过 access/release 读取 view 摘要：`version,role,table_id,table_seq,package_crc32,table_crc32,image_offset,image_size,first_u32`。
+  - `tools/refmem_table_registry_validate.py --activate` 增加 active table 0 和 table 3 view 摘要断言。
+- 当前验证：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过，覆盖 active view access/release、double release reject、unreleased view 阻断 activation。
+  - `python -m py_compile tools\refmem_table_registry_validate\refmem_table_registry_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815122901`，package CRC `0xDDB83D74`。
+  - `python -u tools\ota_send\ota_send.py COM5 build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python -u tools\ota_boot_commit\ota_boot_commit.py COM5 --expected-build 20260815122901 --out-dir build-rtos-multicore-smoke\ota_commit_COM5_20260815122901_refmem_view` 通过。
+  - `python -u tools\refmem_table_registry_validate\refmem_table_registry_validate.py COM5 --package build-rtos-multicore-smoke\sdcard_full_tables_20260815110412\refmem\app_model.rmtp --load-sd --activate --timeout 10 --load-timeout 30 --out-dir build-rtos-multicore-smoke\refmem_table_registry_COM5_20260815122901_view` 通过。
+  - `python -u tools\ota_send\ota_send.py COM6 build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python -u tools\ota_boot_commit\ota_boot_commit.py COM6 --expected-build 20260815122901 --out-dir build-rtos-multicore-smoke\ota_commit_COM6_20260815122901_refmem_view` 通过。
+  - `python -u tools\refmem_table_registry_validate\refmem_table_registry_validate.py COM6 --package build-rtos-multicore-smoke\sdcard_full_tables_20260815110412\refmem\app_model.rmtp --load-sd --activate --timeout 10 --load-timeout 30 --out-dir build-rtos-multicore-smoke\refmem_table_registry_COM6_20260815122901_view` 通过。
+  - COM5/COM6 均确认 `LOAD:SD`、`LOAD:ACTivate`、`TABle:IMAGe?`、`TABle:VIEW? 0,0`、`TABle:VIEW? 0,3`、9 张 `TABle?` 和 `SYSTem:ERRor?` 闭环通过。
+- 后续动作：
+  - 下一步把 active package view 解析为业务结构表 snapshot，并逐步替换继续读取编译内置表的路径。
+
 ### REFMEM-TASK-20260815-032 - Table package activation command
 
 - 状态：完成 COM5/COM6 板端闭环

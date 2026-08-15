@@ -65,6 +65,7 @@ typedef enum {
     REFMEM_TABLE_ACTIVATE_ERR_GATE = 3u,
     REFMEM_TABLE_ACTIVATE_ERR_IMAGE_NOT_LOADED = 4u,
     REFMEM_TABLE_ACTIVATE_ERR_IMAGE_TOO_LARGE = 5u,
+    REFMEM_TABLE_ACTIVATE_ERR_IMAGE_BUSY = 6u,
 } refmem_table_activation_result_t;
 
 typedef struct {
@@ -128,6 +129,19 @@ typedef struct {
     uint32_t first_bad_table;
 } refmem_table_package_validation_t;
 
+typedef struct {
+    uint32_t version;
+    uint32_t role;
+    uint32_t table_id;
+    uint32_t table_seq;
+    uint32_t package_crc32;
+    uint32_t table_crc32;
+    uint32_t image_offset;
+    uint32_t image_size;
+    const uint8_t *data;
+    size_t size;
+} refmem_table_view_t;
+
 void refmem_table_registry_init(const refmem_application_model_snapshot_t *model);
 void refmem_table_registry_refresh_active(const refmem_application_model_snapshot_t *model);
 void refmem_table_registry_refresh_staging(const refmem_application_model_load_snapshot_t *load);
@@ -147,6 +161,10 @@ bool refmem_table_registry_stage_table(uint32_t table_id,
 bool refmem_table_registry_activate_staging(const refmem_table_activation_gate_t *gate);
 bool refmem_table_registry_get_image_descriptor(refmem_table_image_role_t role,
                                                 refmem_table_image_descriptor_t *descriptor);
+bool refmem_table_registry_access_table(refmem_table_image_role_t role,
+                                        uint32_t table_id,
+                                        refmem_table_view_t *view);
+bool refmem_table_registry_release_table(const refmem_table_view_t *view);
 bool refmem_table_registry_validate_package(const uint8_t *data,
                                             size_t size,
                                             refmem_table_package_validation_t *validation);
