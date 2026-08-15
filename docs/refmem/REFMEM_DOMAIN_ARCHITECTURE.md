@@ -884,7 +884,7 @@ last_pass_tick
 | 字段 | 含义 | 约束 |
 |---|---|---|
 | `quality_id` | 质量记录编号。 | 可按 node、link、slot 或 event link 建立。 |
-| `scope` | 质量范围。 | `NODE`、`RJ45_LINK`、`SLOT`、`EVENT_LINK`、`DATA_LINK`。 |
+| `scope` | 质量范围。 | `NODE`、`RJ45_LINK`、`SLOT`、`EVENT_LINK`、`DATA_LINK`、`TRANSPORT_ADAPTER`。 |
 | `source_node/target_node` | 源/目标节点。 | 本地项可 target=self。 |
 | `seq_expected/seq_last` | sequence 检查。 | 检测丢帧和乱序。 |
 | `crc_error_count` | CRC 错误计数。 | 进入 evidence。 |
@@ -896,6 +896,15 @@ last_pass_tick
 | `last_error_tick` | 最近错误时间。 | 使用回绕安全差值计算。 |
 | `p99/p999` | 延迟或误差分布。 | 支撑产品化报告。 |
 | `evidence_index` | 证据索引。 | 指向 FaultEvidenceSlot 或 SD 日志。 |
+
+运行态质量表由 `RefMemAO`/`DistributedRefMemAO` 从各 owner 的只读 snapshot 派生，不热写 active static `DistributedConnectionQualityTable`。本地物理链路至少包含两个 `TRANSPORT_ADAPTER` 派生 entry：
+
+| Runtime entry | 来源 | 映射规则 |
+|---|---|---|
+| Local adapter | PIO SPI adapter snapshot + RefMem Sync quality counter | CRC、stale、drop、timeout、last_error 和 latency class 反映线级 bring-up/诊断质量。 |
+| TDMA service | core1 realtime TDMA snapshot | `timeout_count` 表示 TDMA window timeout；`late_count` 表示 intent 被拒绝或错过窗口；`drop_count` 表示 DMA overrun/physical execution error；`last_error` 保留 physical adapter 最近错误；`seq_expected/seq_last` 反映 intent/completed 序列。 |
+
+SCPI 只能通过 `SYSTem:REFMEM:QUALity? [index]` 读取该派生视图，不能直接修改 quality entry。TDMA frame payload 不进入向量表；向量表和 quality table 只承载 seq、CRC、error、timeout 和 evidence 摘要。
 
 ## 核心数据面
 

@@ -129,17 +129,64 @@ static int test_remote_quality_mapping(void)
     return failed;
 }
 
+static int test_realtime_tdma_mapping(void)
+{
+    int failed = 0;
+    refmem_sync_context_t sync;
+    refmem_realtime_tdma_snapshot_t tdma;
+    refmem_connection_quality_entry_t entry;
+
+    (void)refmem_sync_init(&sync, 2u, 7u, 8u);
+    (void)memset(&tdma, 0, sizeof(tdma));
+    tdma.intent_seq = 11u;
+    tdma.completed_seq = 10u;
+    tdma.service_count = 123u;
+    tdma.window_index = 4u;
+    tdma.deadline_us = 2500u;
+    tdma.timeout_count = 3u;
+    tdma.overrun_count = 5u;
+    tdma.reject_count = 7u;
+    tdma.last_error = 9u;
+
+    failed += expect_bool("tdma map",
+                          refmem_quality_map_realtime_tdma(&sync, &tdma, &entry),
+                          true);
+    failed += expect_u32("tdma quality id",
+                         entry.quality_id,
+                         REFMEM_QUALITY_RUNTIME_TDMA_SERVICE_ID);
+    failed += expect_u32("tdma scope", entry.scope, REFMEM_APP_QUALITY_TRANSPORT_ADAPTER);
+    failed += expect_u32("tdma source", entry.source_node, 2u);
+    failed += expect_u32("tdma target", entry.target_node, 2u);
+    failed += expect_u32("tdma expected", entry.seq_expected, 12u);
+    failed += expect_u32("tdma last", entry.seq_last, 10u);
+    failed += expect_u32("tdma late", entry.late_count, 7u);
+    failed += expect_u32("tdma drop", entry.drop_count, 5u);
+    failed += expect_u32("tdma timeout", entry.timeout_count, 3u);
+    failed += expect_u32("tdma last error", entry.last_error, 9u);
+    failed += expect_u32("tdma tick", entry.last_error_tick, 123u);
+    failed += expect_u32("tdma p99", entry.p99, 2500u);
+    failed += expect_u32("tdma evidence", entry.evidence_index, 4u);
+    return failed;
+}
+
 static int test_runtime_table(void)
 {
     int failed = 0;
     refmem_sync_context_t sync;
     refmem_pio_spi_adapter_snapshot_t adapter;
+    refmem_realtime_tdma_snapshot_t tdma;
     refmem_quality_runtime_table_t table;
 
     (void)refmem_sync_init(&sync, 0u, 7u, 8u);
     (void)memset(&adapter, 0, sizeof(adapter));
     adapter.tx_count = 1u;
     adapter.latency_class_us = 50u;
+    (void)memset(&tdma, 0, sizeof(tdma));
+    tdma.intent_seq = 5u;
+    tdma.completed_seq = 4u;
+    tdma.timeout_count = 1u;
+    tdma.overrun_count = 2u;
+    tdma.reject_count = 3u;
 
     sync.remote_quality[1].seen = 1u;
     sync.remote_quality[1].source_slot = 1u;
@@ -153,23 +200,34 @@ static int test_runtime_table(void)
                           refmem_quality_build_runtime_table(0x12345678u,
                                                              &sync,
                                                              &adapter,
+                                                             &tdma,
                                                              &table),
                           true);
     failed += expect_u32("table version", table.version, REFMEM_APP_MODEL_VERSION);
-    failed += expect_u32("table count", table.entry_count, 2u);
+    failed += expect_u32("table count", table.entry_count, 3u);
     failed += expect_u32("table crc", table.active_table_crc32, 0x12345678u);
     failed += expect_u32("table local", table.local_slot, 0u);
     failed += expect_u32("table epoch", table.epoch_id, 7u);
     failed += expect_u32("table run", table.run_id, 8u);
 
     const refmem_connection_quality_entry_t *local = refmem_quality_get_entry(&table, 0u);
-    const refmem_connection_quality_entry_t *remote = refmem_quality_get_entry(&table, 1u);
-    const refmem_connection_quality_entry_t *missing = refmem_quality_get_entry(&table, 2u);
+    const refmem_connection_quality_entry_t *tdma_entry = refmem_quality_get_entry(&table, 1u);
+    const refmem_connection_quality_entry_t *remote = refmem_quality_get_entry(&table, 2u);
+    const refmem_connection_quality_entry_t *missing = refmem_quality_get_entry(&table, 3u);
     failed += expect_bool("local entry present", local != NULL, true);
+    failed += expect_bool("tdma entry present", tdma_entry != NULL, true);
     failed += expect_bool("remote entry present", remote != NULL, true);
     failed += expect_bool("missing entry absent", missing != NULL, false);
     if (local != NULL) {
         failed += expect_u32("local entry scope", local->scope, REFMEM_APP_QUALITY_TRANSPORT_ADAPTER);
+    }
+    if (tdma_entry != NULL) {
+        failed += expect_u32("runtime tdma id",
+                             tdma_entry->quality_id,
+                             REFMEM_QUALITY_RUNTIME_TDMA_SERVICE_ID);
+        failed += expect_u32("runtime tdma late", tdma_entry->late_count, 3u);
+        failed += expect_u32("runtime tdma drop", tdma_entry->drop_count, 2u);
+        failed += expect_u32("runtime tdma timeout", tdma_entry->timeout_count, 1u);
     }
     if (remote != NULL) {
         failed += expect_u32("runtime remote id", remote->quality_id, 2u);
@@ -203,6 +261,7 @@ int main(void)
     int failed = 0;
     failed += test_local_adapter_mapping();
     failed += test_remote_quality_mapping();
+    failed += test_realtime_tdma_mapping();
     failed += test_runtime_table();
     failed += test_rejects_invalid_inputs();
 

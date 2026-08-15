@@ -8,6 +8,33 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-014 - TDMA quality runtime mapping
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 将 core1 realtime TDMA service 的 window timeout、DMA/physical overrun、missed window 和 physical adapter error 纳入 `DistributedConnectionQualityTable` 派生运行态视图。
+  - 保持 active static `ConnectionQualityTable` 只作为契约/CRC 来源，不被 SCPI 或维护 bridge 热写。
+- 完成内容：
+  - `refmem_quality.h/.c` 增加 TDMA service runtime entry，`quality_id=0x54444D41`，scope 为 `REFMEM_APP_QUALITY_TRANSPORT_ADAPTER`。
+  - 映射规则：TDMA `timeout_count -> timeout_count`，`reject_count -> late_count`，`overrun_count -> drop_count`，`last_error -> last_error`，`intent_seq/completed_seq -> seq_expected/seq_last`。
+  - `SYSTem:REFMEM:QUALity?` 查询时读取 `distributed_refmem_get_realtime_tdma()` snapshot，并把 TDMA entry 放在 index 1；index 0 仍为本地 PIO SPI adapter 诊断 entry，后续 remote QUALITY entry 依次追加。
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 补齐 `TRANSPORT_ADAPTER` scope 和 TDMA 派生映射规则。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_quality_tests.ps1` 通过 host GCC 断言执行。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过 host GCC 断言执行。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815051252`，package CRC `0x5B12BF64`。
+  - COM5/COM6 OTA 提交通过，均返回 `SYSTem:FW:BUILD? => "20260815051252"`。
+  - COM5/COM6 查询 `SYSTem:REFMEM:QUALity? 1` 可见 TDMA runtime entry；HIL 前 entry_count 为 2，HIL 后 entry_count 为 3（追加 remote QUALITY entry）。
+  - `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6 --transport tdma --out-dir build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815051252_tdma_quality_mapping` 通过。
+- 还需完成：
+  - 将 TDMA quality entry 接入 DeploymentGate/RUN gate evidence 消费规则。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_quality.h`
+  - `components/distributed_refmem/src/refmem_quality.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tests/unit/test_refmem_quality.c`
+
 ### REFMEM-TASK-20260815-013 - P4.5 SPI frame legacy removal
 
 - 状态：完成
@@ -29,8 +56,8 @@ Last updated: 2026-08-15
   - Positive check：`SYSTem:REFMEM:SYNC:SPI:ARM`、`SYSTem:REFMEM:SYNC:SPI:RAW:TX` 和 `SYSTem:REFMEM:SYNC:TDMA:STATus?` 仍可用。
   - `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6 --transport tdma --out-dir build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815045059_tdma_spi_frame_removed` 通过。
   - HIL 报告路径：`build-rtos-multicore-smoke\refmem_spi_hil_COM5_COM6_20260815045059_tdma_spi_frame_removed\refmem_spi_hil_report.json`。
-- 还需完成：
-  - 将 TDMA window timeout、DMA overrun、missed window 和 physical adapter error 正式映射到 `DistributedConnectionQualityTable`。
+- 后续闭环：
+  - TDMA window timeout、DMA overrun、missed window 和 physical adapter error 到 `DistributedConnectionQualityTable` 的正式映射已在 `REFMEM-TASK-20260815-014` 完成。
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`

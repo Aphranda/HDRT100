@@ -544,6 +544,11 @@ scpi_result_t scpi_cmd_refmem_quality_q(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
+    refmem_realtime_tdma_snapshot_t tdma;
+    if (!distributed_refmem_get_realtime_tdma(&tdma)) {
+        return SCPI_RES_ERR;
+    }
+
     const refmem_application_model_snapshot_t *model =
         refmem_application_model_get_snapshot();
     refmem_quality_runtime_table_t table;
@@ -551,6 +556,7 @@ scpi_result_t scpi_cmd_refmem_quality_q(scpi_t *context)
             model != NULL ? model->connection_quality_crc32 : 0u,
             &s_refmem_sync.context,
             &adapter,
+            &tdma,
             &table)) {
         return SCPI_RES_ERR;
     }

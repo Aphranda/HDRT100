@@ -23,7 +23,7 @@ bool refmem_quality_map_local_adapter(
     refmem_sync_get_quality(sync, &sync_quality);
 
     refmem_quality_clear_entry(entry);
-    entry->quality_id = 0u;
+    entry->quality_id = REFMEM_QUALITY_RUNTIME_LOCAL_ADAPTER_ID;
     entry->scope = REFMEM_APP_QUALITY_TRANSPORT_ADAPTER;
     entry->source_node = sync->local_slot;
     entry->target_node = sync->local_slot;
@@ -39,6 +39,34 @@ bool refmem_quality_map_local_adapter(
     entry->p99 = adapter->latency_class_us;
     entry->p999 = adapter->latency_class_us;
     entry->evidence_index = adapter->rx_pending;
+    return true;
+}
+
+bool refmem_quality_map_realtime_tdma(
+    const refmem_sync_context_t *sync,
+    const refmem_realtime_tdma_snapshot_t *tdma,
+    refmem_connection_quality_entry_t *entry)
+{
+    if (sync == NULL || tdma == NULL || entry == NULL ||
+        sync->local_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return false;
+    }
+
+    refmem_quality_clear_entry(entry);
+    entry->quality_id = REFMEM_QUALITY_RUNTIME_TDMA_SERVICE_ID;
+    entry->scope = REFMEM_APP_QUALITY_TRANSPORT_ADAPTER;
+    entry->source_node = sync->local_slot;
+    entry->target_node = sync->local_slot;
+    entry->seq_expected = tdma->intent_seq + 1u;
+    entry->seq_last = tdma->completed_seq;
+    entry->late_count = tdma->reject_count;
+    entry->drop_count = tdma->overrun_count;
+    entry->timeout_count = tdma->timeout_count;
+    entry->last_error = tdma->last_error;
+    entry->last_error_tick = tdma->service_count;
+    entry->p99 = tdma->deadline_us;
+    entry->p999 = tdma->deadline_us;
+    entry->evidence_index = tdma->window_index;
     return true;
 }
 
@@ -76,6 +104,7 @@ bool refmem_quality_build_runtime_table(
     uint32_t active_table_crc32,
     const refmem_sync_context_t *sync,
     const refmem_pio_spi_adapter_snapshot_t *adapter,
+    const refmem_realtime_tdma_snapshot_t *tdma,
     refmem_quality_runtime_table_t *table)
 {
     if (sync == NULL || adapter == NULL || table == NULL ||
@@ -94,6 +123,17 @@ bool refmem_quality_build_runtime_table(
         return false;
     }
     table->entry_count = 1u;
+
+    if (tdma != NULL) {
+        if (table->entry_count >= REFMEM_QUALITY_RUNTIME_ENTRY_COUNT) {
+            table->overflow_count++;
+        } else if (refmem_quality_map_realtime_tdma(
+                       sync,
+                       tdma,
+                       &table->entry[table->entry_count])) {
+            table->entry_count++;
+        }
+    }
 
     for (uint32_t source = 0u; source < REFMEM_SYNC_NODE_COUNT; source++) {
         const refmem_sync_remote_quality_snapshot_t *remote = &sync->remote_quality[source];
