@@ -8,6 +8,32 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-016 - Quality gate RUN gate integration
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 将 `refmem_quality_evaluate_deployment_gate()` 接入产品 config RUN gate。
+  - 保持 `SystemManager` 只消费 `DistributedRefMemAO` 的 quality gate 结果，不直接读取 TDMA mailbox 或 physical adapter counter。
+- 完成内容：
+  - `DistributedRefMemAO` 增加 `distributed_refmem_quality_gate_ready()`，内部从 core1 TDMA snapshot 派生 runtime quality entry，并调用 quality gate evaluator。
+  - `system_manager` 的 config gate 同时检查 distributed config、SlotClaim gate 和 RefMem quality gate；任一失败时 `ready=0`、`gate_state=2`、ACK 清空/NACK target mask。
+  - 修复 `distributed_refmem.h` 与 `refmem_quality.h` 的 include 循环，公开 API 只暴露布尔 quality gate，不泄漏 quality table 内部类型。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815053147`，package CRC `0x190D53A9`。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_quality_tests.ps1` 通过 host GCC 断言执行。
+  - COM5/COM6 OTA 提交通过，均返回 `SYSTem:FW:BUILD? => "20260815053147"`。
+  - 正向：COM5/COM6 查询 `SYSTem:CONFigure:STAT?` 均返回 `ready=1, gate_state=1, target_mask=15, ack_flags=15, nack_flags=0`。
+  - 负向：COM5 执行 `SYSTem:REFMEM:SYNC:TDMA:RX 1000,25000000,16,17,18,23` 且不发 TX 后，`TDMA:STATus?` 显示 `state=5, timeout_count=1, last_result=3, last_error=3`，`SYSTem:CONFigure:STAT?` 变为 `ready=0, gate_state=2`。
+  - 恢复：COM5 重新 OTA 同一 package 后恢复 `ready=1, gate_state=1`；COM6 保持 `ready=1, gate_state=1`。
+- 还需完成：
+  - 将 quality gate 负向流程固化成专用 HIL 脚本，避免后续手工命令重复。
+- 关联文件：
+  - `components/distributed_refmem/inc/distributed_refmem.h`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `components/system_manager/src/system_manager.c`
+  - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+
 ### REFMEM-TASK-20260815-015 - Quality gate evaluator
 
 - 状态：完成基础件，SystemManager 接入待继续
@@ -23,8 +49,8 @@ Last updated: 2026-08-15
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_quality_tests.ps1` 通过 host GCC 断言执行。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815052521`，package CRC `0x346FB00F`。
-- 还需完成：
-  - 将 quality gate evaluator 接入 `system_manager` config RUN gate，并补板端负向验证：TDMA timeout、late/drop 或 last_error 时拒绝 RUN 或 latch fault。
+- 后续闭环：
+  - `system_manager` config RUN gate 接入和 TDMA timeout 板端负向验证已在 `REFMEM-TASK-20260815-016` 完成。
 - 关联文件：
   - `components/distributed_refmem/inc/refmem_quality.h`
   - `components/distributed_refmem/src/refmem_quality.c`

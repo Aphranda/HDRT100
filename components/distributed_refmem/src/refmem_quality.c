@@ -52,11 +52,23 @@ bool refmem_quality_map_realtime_tdma(
         return false;
     }
 
+    return refmem_quality_map_realtime_tdma_slot(sync->local_slot, tdma, entry);
+}
+
+bool refmem_quality_map_realtime_tdma_slot(
+    uint32_t local_slot,
+    const refmem_realtime_tdma_snapshot_t *tdma,
+    refmem_connection_quality_entry_t *entry)
+{
+    if (tdma == NULL || entry == NULL || local_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return false;
+    }
+
     refmem_quality_clear_entry(entry);
     entry->quality_id = REFMEM_QUALITY_RUNTIME_TDMA_SERVICE_ID;
     entry->scope = REFMEM_APP_QUALITY_TRANSPORT_ADAPTER;
-    entry->source_node = sync->local_slot;
-    entry->target_node = sync->local_slot;
+    entry->source_node = local_slot;
+    entry->target_node = local_slot;
     entry->seq_expected = tdma->intent_seq + 1u;
     entry->seq_last = tdma->completed_seq;
     entry->late_count = tdma->reject_count;

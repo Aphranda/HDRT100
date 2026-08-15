@@ -55,6 +55,11 @@ static bool system_manager_refmem_claim_gate_ready(void)
     return refmem_slot_claim_gate_evaluate(&claim_map, &claim_gate);
 }
 
+static bool system_manager_refmem_quality_gate_ready(void)
+{
+    return distributed_refmem_quality_gate_ready();
+}
+
 static const system_manager_mode_entry_t s_system_mode_template[4] = {
     { .mode_id = RESOURCE_ARBITER_MODE_BOOT, .run_allowed = 0u, .ota_allowed = 0u, .fault_allowed = 1u, .name = "BOOT" },
     { .mode_id = RESOURCE_ARBITER_MODE_RUN, .run_allowed = 1u, .ota_allowed = 0u, .fault_allowed = 1u, .name = "RUN" },
@@ -258,15 +263,18 @@ bool system_manager_init(void)
 
     const bool config_valid = distributed_config_validate();
     const bool refmem_claim_valid = system_manager_refmem_claim_gate_ready();
+    const bool refmem_quality_valid = system_manager_refmem_quality_gate_ready();
     s_config_gate_status.ack_flags =
-        (config_valid && refmem_claim_valid) ? s_config_gate_status.target_mask : 0u;
+        (config_valid && refmem_claim_valid && refmem_quality_valid) ?
+        s_config_gate_status.target_mask : 0u;
     s_config_gate_status.nack_flags =
-        (config_valid && refmem_claim_valid) ? 0u : s_config_gate_status.target_mask;
+        (config_valid && refmem_claim_valid && refmem_quality_valid) ?
+        0u : s_config_gate_status.target_mask;
     s_config_gate_status.run_id = s_config_gate_status.build_crc32 ^
                                   s_config_gate_status.hw_profile_crc32 ^
                                   s_config_gate_status.config_crc32 ^
                                   s_config_gate_status.epoch;
-    s_config_gate_status.ready = config_valid && refmem_claim_valid;
+    s_config_gate_status.ready = config_valid && refmem_claim_valid && refmem_quality_valid;
     s_config_gate_status.gate_state = s_config_gate_status.ready ? 1u : 2u;
     s_initialized = true;
     return config_valid;
@@ -287,8 +295,10 @@ void system_manager_service(void)
     s_config_gate_status.service_count++;
     s_config_gate_status.last_service_ms = now_ms;
     const bool refmem_claim_valid = system_manager_refmem_claim_gate_ready();
+    const bool refmem_quality_valid = system_manager_refmem_quality_gate_ready();
     const bool gate_ready = s_config_gate_status.nack_flags == 0u &&
                             refmem_claim_valid &&
+                            refmem_quality_valid &&
                             s_config_gate_status.config_crc32 != 0u;
     s_config_gate_status.ready = gate_ready;
     s_config_gate_status.gate_state = gate_ready ? 1u : 2u;

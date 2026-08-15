@@ -53,6 +53,10 @@ bool refmem_quality_map_realtime_tdma(
     const refmem_sync_context_t *sync,
     const refmem_realtime_tdma_snapshot_t *tdma,
     refmem_connection_quality_entry_t *entry);
+bool refmem_quality_map_realtime_tdma_slot(
+    uint32_t local_slot,
+    const refmem_realtime_tdma_snapshot_t *tdma,
+    refmem_connection_quality_entry_t *entry);
 bool refmem_quality_map_remote_sync(
     const refmem_sync_remote_quality_snapshot_t *remote,
     refmem_connection_quality_entry_t *entry);

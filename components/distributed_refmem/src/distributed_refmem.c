@@ -1,10 +1,13 @@
 #include "distributed_refmem.h"
 
+#include <string.h>
+
 #include "drv_flash.h"
 #include "osal.h"
 #include "project_config.h"
 
 #include "refmem_application_model.h"
+#include "refmem_quality.h"
 #include "refmem_realtime_tdma.h"
 #include "refmem_spi_physical_adapter.h"
 #include "refmem_vector_table.h"
@@ -352,6 +355,40 @@ bool distributed_refmem_submit_realtime_tdma_rx(
 void distributed_refmem_abort_realtime_tdma(void)
 {
     refmem_realtime_tdma_abort(&s_refmem_realtime_tdma);
+}
+
+bool distributed_refmem_quality_gate_ready(void)
+{
+    const refmem_quality_gate_threshold_t threshold = {
+        .max_crc_error_count = 0u,
+        .max_stale_count = 0u,
+        .max_late_count = 0u,
+        .max_drop_count = 0u,
+        .max_timeout_count = 0u,
+        .require_no_last_error = 1u,
+    };
+
+    refmem_realtime_tdma_snapshot_t tdma;
+    if (!refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &tdma)) {
+        return false;
+    }
+
+    refmem_quality_runtime_table_t table;
+    memset(&table, 0, sizeof(table));
+    table.version = REFMEM_APP_MODEL_VERSION;
+    table.entry_count = 1u;
+    table.local_slot = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    if (!refmem_quality_map_realtime_tdma_slot(DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
+                                               &tdma,
+                                               &table.entry[0])) {
+        return false;
+    }
+
+    refmem_deployment_gate_entry_t gate;
+    if (!refmem_quality_evaluate_deployment_gate(&table, &threshold, &gate)) {
+        return false;
+    }
+    return gate.last_state == REFMEM_APP_GATE_PASS;
 }
 
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot)

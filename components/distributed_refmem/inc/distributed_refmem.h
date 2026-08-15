@@ -4,8 +4,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "refmem_realtime_tdma.h"
-
 #define DISTRIBUTED_REFMEM_TABLE_SIZE       65536u
 #define DISTRIBUTED_REFMEM_LAYOUT_VERSION   1u
 #define DISTRIBUTED_REFMEM_NODE_COUNT       8u
@@ -51,6 +49,8 @@
 #define DISTRIBUTED_REFMEM_GATEWAY_SIZE     2048u
 #define DISTRIBUTED_REFMEM_SERVICE_SIZE     2048u
 #define DISTRIBUTED_REFMEM_TLV_SIZE         2048u
+
+#include "refmem_realtime_tdma.h"
 
 typedef enum {
     DISTRIBUTED_REFMEM_NODE_MISSING = 0,
@@ -149,5 +149,6 @@ bool distributed_refmem_submit_realtime_tdma_tx(
 bool distributed_refmem_submit_realtime_tdma_rx(
     const refmem_realtime_tdma_intent_config_t *config);
 void distributed_refmem_abort_realtime_tdma(void);
+bool distributed_refmem_quality_gate_ready(void);
 
 #endif
