@@ -75,6 +75,46 @@ static vdc_tdma_timestamp_evidence_t make_hardware_sample(
     return evidence;
 }
 
+static vdc_tdma_frame_envelope_t make_frame(
+    const vdc_tdma_schedule_profile_t *schedule,
+    uint32_t frame_seq,
+    uint32_t window_class,
+    uint32_t payload_class,
+    uint64_t window_start_ns)
+{
+    vdc_tdma_frame_envelope_t frame;
+    (void)memset(&frame, 0, sizeof(frame));
+    frame.frame_version = VDC_DOMAIN_TDMA_FRAME_VERSION;
+    frame.frame_seq = frame_seq;
+    frame.schedule_epoch = schedule->schedule_epoch;
+    frame.slot_index = schedule->local_slot_id;
+    frame.source_slot_id = schedule->local_slot_id;
+    frame.reference_slot_id = schedule->reference_slot_id;
+    frame.window_class = window_class;
+    frame.payload_class = payload_class;
+    frame.window_start_ns = window_start_ns;
+    frame.schedule_crc32 = schedule->schedule_crc32;
+    frame.frame_crc32 = 0x3000u + frame_seq;
+    frame.payload_crc32 = 0x4000u + frame_seq;
+    frame.timestamp.sample_seq = frame_seq;
+    frame.timestamp.schedule_epoch = schedule->schedule_epoch;
+    frame.timestamp.slot_index = schedule->local_slot_id;
+    frame.timestamp.source_slot_id = schedule->local_slot_id;
+    frame.timestamp.reference_slot_id = schedule->reference_slot_id;
+    frame.timestamp.payload_class = payload_class;
+    frame.timestamp.expected_window_start_ns = window_start_ns;
+    frame.timestamp.observed_time_ns = window_start_ns + 10u;
+    frame.timestamp.done_time_ns = window_start_ns + 20u;
+    frame.timestamp.apply_time_ns = window_start_ns + 30u;
+    frame.timestamp.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_SOFTWARE_US;
+    frame.timestamp.timestamp_resolution_ns = 1000u;
+    frame.timestamp.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    frame.timestamp.schedule_crc32 = schedule->schedule_crc32;
+    frame.timestamp.frame_crc32 = frame.frame_crc32;
+    frame.timestamp.sample_crc32 = 0x5000u + frame_seq;
+    return frame;
+}
+
 static int test_default_schedule_and_clock(void)
 {
     int failed = 0;
@@ -88,6 +128,12 @@ static int test_default_schedule_and_clock(void)
                           true);
     failed += expect_u32("reference slot", schedule.reference_slot_id, 0u);
     failed += expect_u32("local slot", schedule.local_slot_id, 1u);
+    failed += expect_u32("refmem window offset",
+                         schedule.refmem_data_window_offset_ns,
+                         VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_OFFSET_NS);
+    failed += expect_u32("idle window offset",
+                         schedule.idle_beacon_window_offset_ns,
+                         VDC_DOMAIN_DEFAULT_IDLE_WINDOW_OFFSET_NS);
 
     vdc_domain_default_clock_model(&model,
                                    schedule.schedule_epoch,
@@ -177,6 +223,74 @@ static int test_gate_rejects_schedule_and_window_mismatch(void)
     failed += expect_u32("window reject code",
                          gate.reject_code,
                          VDC_DOMAIN_GATE_WINDOW_BOUND);
+
+    schedule.refmem_data_window_offset_ns = 0u;
+    schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
+    failed += expect_bool("overlap rejected",
+                          vdc_domain_schedule_validate(&schedule),
+                          false);
+    return failed;
+}
+
+static int test_frame_envelope_window_contract(void)
+{
+    int failed = 0;
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_tdma_frame_envelope_t frame;
+    vdc_gate_result_t gate;
+
+    vdc_domain_default_schedule(&schedule, 1u, 0u);
+    frame = make_frame(&schedule,
+                       1u,
+                       VDC_DOMAIN_WINDOW_REFMEM_DATA,
+                       VDC_DOMAIN_PAYLOAD_REFMEM_DELTA,
+                       schedule.refmem_data_window_offset_ns);
+    failed += expect_bool("refmem data frame accepted as quality frame",
+                          vdc_domain_validate_tdma_frame_envelope(&schedule,
+                                                                   &frame,
+                                                                   false,
+                                                                   &gate),
+                          true);
+    failed += expect_bool("refmem data frame rejected as dpll sample",
+                          vdc_domain_validate_tdma_frame_envelope(&schedule,
+                                                                   &frame,
+                                                                   true,
+                                                                   &gate),
+                          false);
+    failed += expect_u32("refmem reject dpll code",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_PAYLOAD_NOT_DPLL_SAMPLE);
+
+    frame.payload_class = VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE;
+    frame.timestamp.payload_class = VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE;
+    failed += expect_bool("sync sample forbidden in refmem window",
+                          vdc_domain_validate_tdma_frame_envelope(&schedule,
+                                                                   &frame,
+                                                                   false,
+                                                                   &gate),
+                          false);
+    failed += expect_u32("payload window reject code",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_PAYLOAD_WINDOW_FORBIDDEN);
+
+    frame = make_frame(&schedule,
+                       2u,
+                       VDC_DOMAIN_WINDOW_VDC_OBSERVATION,
+                       VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE,
+                       schedule.observation_window_offset_ns);
+    frame.source_slot_id = schedule.reference_slot_id;
+    frame.slot_index = schedule.reference_slot_id;
+    frame.timestamp.source_slot_id = schedule.reference_slot_id;
+    frame.timestamp.slot_index = schedule.reference_slot_id;
+    frame.timestamp.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    frame.timestamp.timestamp_resolution_ns = 50u;
+    frame.timestamp.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+    failed += expect_bool("observation frame accepted as dpll sample",
+                          vdc_domain_validate_tdma_frame_envelope(&schedule,
+                                                                   &frame,
+                                                                   true,
+                                                                   &gate),
+                          true);
     return failed;
 }
 
@@ -226,6 +340,7 @@ int main(void)
     failed += test_default_schedule_and_clock();
     failed += test_gate_rejects_diagnostic_timestamp();
     failed += test_gate_rejects_schedule_and_window_mismatch();
+    failed += test_frame_envelope_window_contract();
     failed += test_context_accepts_samples_until_locked();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);

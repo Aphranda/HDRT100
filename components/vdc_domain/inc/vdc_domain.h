@@ -10,6 +10,11 @@
 #define VDC_DOMAIN_DEFAULT_GUARD_NS 1000u
 #define VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS 100u
 #define VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32 0x56444301u
+#define VDC_DOMAIN_TDMA_FRAME_VERSION 1u
+#define VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_OFFSET_NS 20000u
+#define VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_WIDTH_NS 800000u
+#define VDC_DOMAIN_DEFAULT_IDLE_WINDOW_OFFSET_NS 900000u
+#define VDC_DOMAIN_DEFAULT_IDLE_WINDOW_WIDTH_NS 50000u
 
 #define VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE   0x00000002u
@@ -34,6 +39,12 @@ typedef enum {
 } vdc_domain_payload_class_t;
 
 typedef enum {
+    VDC_DOMAIN_WINDOW_VDC_OBSERVATION = 1u,
+    VDC_DOMAIN_WINDOW_REFMEM_DATA = 2u,
+    VDC_DOMAIN_WINDOW_IDLE_BEACON = 3u,
+} vdc_domain_tdma_window_class_t;
+
+typedef enum {
     VDC_DOMAIN_TIMESTAMP_SOURCE_NONE = 0u,
     VDC_DOMAIN_TIMESTAMP_SOURCE_SOFTWARE_US = 1u,
     VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK = 2u,
@@ -52,6 +63,9 @@ typedef enum {
     VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE = 9u,
     VDC_DOMAIN_GATE_TIMESTAMP_RESOLUTION = 10u,
     VDC_DOMAIN_GATE_WINDOW_BOUND = 11u,
+    VDC_DOMAIN_GATE_BAD_FRAME = 12u,
+    VDC_DOMAIN_GATE_BAD_WINDOW_CLASS = 13u,
+    VDC_DOMAIN_GATE_PAYLOAD_WINDOW_FORBIDDEN = 14u,
 } vdc_domain_gate_code_t;
 
 typedef struct {
@@ -61,6 +75,10 @@ typedef struct {
     uint32_t period_ns;
     uint32_t observation_window_offset_ns;
     uint32_t observation_window_width_ns;
+    uint32_t refmem_data_window_offset_ns;
+    uint32_t refmem_data_window_width_ns;
+    uint32_t idle_beacon_window_offset_ns;
+    uint32_t idle_beacon_window_width_ns;
     uint32_t guard_before_ns;
     uint32_t guard_after_ns;
     uint32_t reference_slot_id;
@@ -124,6 +142,23 @@ typedef struct {
     uint32_t sample_crc32;
     uint32_t quality_flags;
 } vdc_tdma_timestamp_evidence_t;
+
+typedef struct {
+    uint32_t frame_version;
+    uint32_t frame_seq;
+    uint32_t schedule_epoch;
+    uint32_t slot_index;
+    uint32_t source_slot_id;
+    uint32_t reference_slot_id;
+    uint32_t window_class;
+    uint32_t payload_class;
+    uint64_t window_start_ns;
+    uint32_t schedule_crc32;
+    uint32_t frame_crc32;
+    uint32_t payload_crc32;
+    uint32_t quality_flags;
+    vdc_tdma_timestamp_evidence_t timestamp;
+} vdc_tdma_frame_envelope_t;
 
 typedef struct {
     uint32_t passed;
@@ -192,6 +227,11 @@ bool vdc_domain_clock_model_local_to_vdc_ns(const vdc_clock_model_t *model,
 bool vdc_domain_validate_tdma_timestamp_evidence(
     const vdc_tdma_schedule_profile_t *profile,
     const vdc_tdma_timestamp_evidence_t *evidence,
+    bool require_dpll_eligible,
+    vdc_gate_result_t *gate);
+bool vdc_domain_validate_tdma_frame_envelope(
+    const vdc_tdma_schedule_profile_t *profile,
+    const vdc_tdma_frame_envelope_t *frame,
     bool require_dpll_eligible,
     vdc_gate_result_t *gate);
 bool vdc_domain_init(vdc_domain_context_t *context);

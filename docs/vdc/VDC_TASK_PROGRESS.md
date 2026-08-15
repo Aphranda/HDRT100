@@ -43,6 +43,36 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-004 - TDMA frame envelope and window class contract
+
+- 状态：完成 host 验证；硬件 PIO timestamp latch 待接入
+- 日期：2026-08-16
+- 任务目标：
+  - 将“每一帧首先是 TDMA/VDC frame envelope，RefMem 只是 payload class”落成 C 契约。
+  - 将 `VDC_OBSERVATION_WINDOW`、`REFMEM_DATA_WINDOW` 和 `IDLE_BEACON` 纳入同一 `VdcTdmaScheduleProfile`。
+  - 防止 RefMem data frame 或诊断 timestamp 被当成 DPLL 样本进入 lock gate。
+- 完成内容：
+  - `VdcTdmaScheduleProfile` 增加 RefMem data window 和 idle beacon window 的 offset/width 字段，schedule CRC 覆盖所有窗口定义。
+  - 新增 `vdc_domain_tdma_window_class_t` 和 `vdc_tdma_frame_envelope_t`。
+  - 新增 `vdc_domain_validate_tdma_frame_envelope()`，校验 frame version、schedule epoch/CRC、source/reference slot、window class、payload class、frame/payload CRC、timestamp source/resolution 和窗口边界。
+  - `VDC_OBSERVATION_WINDOW` 只允许 `SYNC_SAMPLE/IDLE_BEACON`，并复用 timestamp evidence gate；要求 DPLL eligibility 时必须是硬件 tick、分辨率不大于 `100 ns`。
+  - `REFMEM_DATA_WINDOW` 只允许 `REFMEM_DELTA/ACK_NACK_FENCE_QUALITY`，可以携带诊断 timestamp 和 quality evidence，但在要求 DPLL 样本时必须拒绝。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，16/16 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815180148`，package CRC `0x4AF89705`。
+- 还需完成：
+  - 将真实 PIO/DMA/IRQ/core1 timestamp latch 接到 frame envelope 的 `timestamp` 字段。
+  - 将 frame envelope 接入现有 RefMem PIO SPI adapter 的 TX/RX 路径，使 COM5/COM6 板端同步报告不再依赖 host 侧耗时。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 增加 DCO snapshot / core1 消费契约，或者先把 frame envelope 映射到 RefMem TDMA adapter 的板端 evidence 输出。
+
 ### VDC-TASK-20260816-003 - VDC domain core contract landing
 
 - 状态：完成 host/build 验证；硬件 timestamp latch 和真实 servo 待实现

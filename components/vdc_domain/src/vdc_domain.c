@@ -40,6 +40,96 @@ static void vdc_domain_gate_fail(vdc_gate_result_t *gate,
     gate->reject_evidence = evidence;
 }
 
+static bool vdc_domain_range_in_period(uint32_t offset_ns,
+                                       uint32_t width_ns,
+                                       uint32_t period_ns)
+{
+    if (period_ns == 0u || width_ns == 0u || offset_ns >= period_ns) {
+        return false;
+    }
+    return (uint64_t)offset_ns + (uint64_t)width_ns <= (uint64_t)period_ns;
+}
+
+static bool vdc_domain_ranges_overlap(uint32_t offset_a_ns,
+                                      uint32_t width_a_ns,
+                                      uint32_t offset_b_ns,
+                                      uint32_t width_b_ns)
+{
+    const uint64_t a_begin = offset_a_ns;
+    const uint64_t a_end = a_begin + width_a_ns;
+    const uint64_t b_begin = offset_b_ns;
+    const uint64_t b_end = b_begin + width_b_ns;
+    return a_begin < b_end && b_begin < a_end;
+}
+
+static bool vdc_domain_guarded_observation_overlaps(uint32_t obs_offset_ns,
+                                                    uint32_t obs_width_ns,
+                                                    uint32_t guard_before_ns,
+                                                    uint32_t guard_after_ns,
+                                                    uint32_t other_offset_ns,
+                                                    uint32_t other_width_ns)
+{
+    const uint32_t guarded_offset =
+        obs_offset_ns > guard_before_ns ? obs_offset_ns - guard_before_ns : 0u;
+    const uint64_t guarded_end =
+        (uint64_t)obs_offset_ns + (uint64_t)obs_width_ns +
+        (uint64_t)guard_after_ns;
+    const uint64_t guarded_width =
+        guarded_end > guarded_offset ? guarded_end - guarded_offset : 0u;
+    if (guarded_width > UINT32_MAX) {
+        return true;
+    }
+    return vdc_domain_ranges_overlap(guarded_offset,
+                                     (uint32_t)guarded_width,
+                                     other_offset_ns,
+                                     other_width_ns);
+}
+
+static bool vdc_domain_window_contract(
+    const vdc_tdma_schedule_profile_t *profile,
+    uint32_t window_class,
+    uint32_t *offset_ns,
+    uint32_t *width_ns)
+{
+    if (profile == NULL || offset_ns == NULL || width_ns == NULL) {
+        return false;
+    }
+
+    switch ((vdc_domain_tdma_window_class_t)window_class) {
+    case VDC_DOMAIN_WINDOW_VDC_OBSERVATION:
+        *offset_ns = profile->observation_window_offset_ns;
+        *width_ns = profile->observation_window_width_ns;
+        return true;
+    case VDC_DOMAIN_WINDOW_REFMEM_DATA:
+        *offset_ns = profile->refmem_data_window_offset_ns;
+        *width_ns = profile->refmem_data_window_width_ns;
+        return true;
+    case VDC_DOMAIN_WINDOW_IDLE_BEACON:
+        *offset_ns = profile->idle_beacon_window_offset_ns;
+        *width_ns = profile->idle_beacon_window_width_ns;
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool vdc_domain_payload_allowed_for_window(uint32_t window_class,
+                                                  uint32_t payload_class)
+{
+    switch ((vdc_domain_tdma_window_class_t)window_class) {
+    case VDC_DOMAIN_WINDOW_VDC_OBSERVATION:
+        return payload_class == VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE ||
+               payload_class == VDC_DOMAIN_PAYLOAD_IDLE_BEACON;
+    case VDC_DOMAIN_WINDOW_REFMEM_DATA:
+        return payload_class == VDC_DOMAIN_PAYLOAD_REFMEM_DELTA ||
+               payload_class == VDC_DOMAIN_PAYLOAD_ACK_NACK_FENCE_QUALITY;
+    case VDC_DOMAIN_WINDOW_IDLE_BEACON:
+        return payload_class == VDC_DOMAIN_PAYLOAD_IDLE_BEACON;
+    default:
+        return false;
+    }
+}
+
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
                                  uint32_t local_slot_id,
                                  uint32_t reference_slot_id)
@@ -55,6 +145,10 @@ void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
     profile->period_ns = VDC_DOMAIN_DEFAULT_PERIOD_NS;
     profile->observation_window_offset_ns = 0u;
     profile->observation_window_width_ns = VDC_DOMAIN_DEFAULT_OBSERVATION_WIDTH_NS;
+    profile->refmem_data_window_offset_ns = VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_OFFSET_NS;
+    profile->refmem_data_window_width_ns = VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_WIDTH_NS;
+    profile->idle_beacon_window_offset_ns = VDC_DOMAIN_DEFAULT_IDLE_WINDOW_OFFSET_NS;
+    profile->idle_beacon_window_width_ns = VDC_DOMAIN_DEFAULT_IDLE_WINDOW_WIDTH_NS;
     profile->guard_before_ns = VDC_DOMAIN_DEFAULT_GUARD_NS;
     profile->guard_after_ns = VDC_DOMAIN_DEFAULT_GUARD_NS;
     profile->reference_slot_id =
@@ -99,6 +193,10 @@ uint32_t vdc_domain_schedule_crc32(const vdc_tdma_schedule_profile_t *profile)
     hash = vdc_domain_hash_u32(hash, profile->period_ns);
     hash = vdc_domain_hash_u32(hash, profile->observation_window_offset_ns);
     hash = vdc_domain_hash_u32(hash, profile->observation_window_width_ns);
+    hash = vdc_domain_hash_u32(hash, profile->refmem_data_window_offset_ns);
+    hash = vdc_domain_hash_u32(hash, profile->refmem_data_window_width_ns);
+    hash = vdc_domain_hash_u32(hash, profile->idle_beacon_window_offset_ns);
+    hash = vdc_domain_hash_u32(hash, profile->idle_beacon_window_width_ns);
     hash = vdc_domain_hash_u32(hash, profile->guard_before_ns);
     hash = vdc_domain_hash_u32(hash, profile->guard_after_ns);
     hash = vdc_domain_hash_u32(hash, profile->reference_slot_id);
@@ -111,16 +209,39 @@ bool vdc_domain_schedule_validate(const vdc_tdma_schedule_profile_t *profile)
     if (profile == NULL ||
         profile->enabled == 0u ||
         profile->period_ns == 0u ||
-        profile->observation_window_width_ns == 0u ||
         profile->reference_slot_id >= VDC_DOMAIN_NODE_COUNT ||
-        profile->local_slot_id >= VDC_DOMAIN_NODE_COUNT ||
-        profile->observation_window_offset_ns >= profile->period_ns) {
+        profile->local_slot_id >= VDC_DOMAIN_NODE_COUNT) {
         return false;
     }
-    const uint64_t window_end =
-        (uint64_t)profile->observation_window_offset_ns +
-        (uint64_t)profile->observation_window_width_ns;
-    if (window_end > profile->period_ns) {
+    if (!vdc_domain_range_in_period(profile->observation_window_offset_ns,
+                                    profile->observation_window_width_ns,
+                                    profile->period_ns) ||
+        !vdc_domain_range_in_period(profile->refmem_data_window_offset_ns,
+                                    profile->refmem_data_window_width_ns,
+                                    profile->period_ns) ||
+        !vdc_domain_range_in_period(profile->idle_beacon_window_offset_ns,
+                                    profile->idle_beacon_window_width_ns,
+                                    profile->period_ns)) {
+        return false;
+    }
+    if (vdc_domain_guarded_observation_overlaps(
+            profile->observation_window_offset_ns,
+            profile->observation_window_width_ns,
+            profile->guard_before_ns,
+            profile->guard_after_ns,
+            profile->refmem_data_window_offset_ns,
+            profile->refmem_data_window_width_ns) ||
+        vdc_domain_guarded_observation_overlaps(
+            profile->observation_window_offset_ns,
+            profile->observation_window_width_ns,
+            profile->guard_before_ns,
+            profile->guard_after_ns,
+            profile->idle_beacon_window_offset_ns,
+            profile->idle_beacon_window_width_ns) ||
+        vdc_domain_ranges_overlap(profile->refmem_data_window_offset_ns,
+                                  profile->refmem_data_window_width_ns,
+                                  profile->idle_beacon_window_offset_ns,
+                                  profile->idle_beacon_window_width_ns)) {
         return false;
     }
     return profile->schedule_crc32 == vdc_domain_schedule_crc32(profile);
@@ -294,6 +415,154 @@ bool vdc_domain_validate_tdma_timestamp_evidence(
         gate->reject_slot = evidence->source_slot_id;
         gate->reject_evidence = evidence->sample_seq;
         gate->last_pass_seq = evidence->sample_seq;
+    }
+    return true;
+}
+
+bool vdc_domain_validate_tdma_frame_envelope(
+    const vdc_tdma_schedule_profile_t *profile,
+    const vdc_tdma_frame_envelope_t *frame,
+    bool require_dpll_eligible,
+    vdc_gate_result_t *gate)
+{
+    uint32_t expected_offset_ns = 0u;
+    uint32_t expected_width_ns = 0u;
+
+    if (gate != NULL) {
+        memset(gate, 0, sizeof(*gate));
+    }
+    if (profile == NULL || frame == NULL) {
+        vdc_domain_gate_fail(gate, VDC_DOMAIN_GATE_BAD_ARGUMENT, 0u, 0u);
+        return false;
+    }
+    if (!vdc_domain_schedule_validate(profile)) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BAD_SCHEDULE,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+    if (frame->frame_version != VDC_DOMAIN_TDMA_FRAME_VERSION ||
+        frame->frame_crc32 == 0u ||
+        frame->payload_crc32 == 0u) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BAD_FRAME,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+    if (frame->schedule_crc32 != profile->schedule_crc32) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_SCHEDULE_CRC_MISMATCH,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+    if (frame->schedule_epoch != profile->schedule_epoch) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_EPOCH_MISMATCH,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+    if (frame->reference_slot_id != profile->reference_slot_id) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_REFERENCE_MISMATCH,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+    if (frame->source_slot_id >= VDC_DOMAIN_NODE_COUNT ||
+        frame->slot_index >= VDC_DOMAIN_NODE_COUNT) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_SOURCE_OUT_OF_RANGE,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+    if (!vdc_domain_window_contract(profile,
+                                    frame->window_class,
+                                    &expected_offset_ns,
+                                    &expected_width_ns)) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BAD_WINDOW_CLASS,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+    if (!vdc_domain_payload_allowed_for_window(frame->window_class,
+                                               frame->payload_class)) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_PAYLOAD_WINDOW_FORBIDDEN,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+
+    const uint64_t cycle_offset =
+        frame->window_start_ns % (uint64_t)profile->period_ns;
+    if (cycle_offset != expected_offset_ns) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_WINDOW_BOUND,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+
+    const uint64_t window_min =
+        frame->window_start_ns > profile->guard_before_ns
+            ? frame->window_start_ns - profile->guard_before_ns
+            : 0u;
+    const uint64_t window_max =
+        frame->window_start_ns + (uint64_t)expected_width_ns +
+        (uint64_t)profile->guard_after_ns;
+    if (frame->timestamp.observed_time_ns < window_min ||
+        frame->timestamp.observed_time_ns > window_max ||
+        frame->timestamp.timestamp_source == VDC_DOMAIN_TIMESTAMP_SOURCE_NONE ||
+        frame->timestamp.timestamp_resolution_ns == 0u ||
+        frame->timestamp.schedule_crc32 != profile->schedule_crc32 ||
+        frame->timestamp.schedule_epoch != profile->schedule_epoch ||
+        frame->timestamp.source_slot_id != frame->source_slot_id ||
+        frame->timestamp.reference_slot_id != frame->reference_slot_id ||
+        frame->timestamp.payload_class != frame->payload_class ||
+        frame->timestamp.frame_crc32 != frame->frame_crc32 ||
+        frame->timestamp.sample_seq != frame->frame_seq ||
+        frame->timestamp.sample_crc32 == 0u) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BAD_FRAME,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+
+    if (frame->window_class == VDC_DOMAIN_WINDOW_VDC_OBSERVATION) {
+        if (frame->timestamp.expected_window_start_ns != frame->window_start_ns) {
+            vdc_domain_gate_fail(gate,
+                                 VDC_DOMAIN_GATE_WINDOW_BOUND,
+                                 frame->source_slot_id,
+                                 frame->frame_seq);
+            return false;
+        }
+        return vdc_domain_validate_tdma_timestamp_evidence(profile,
+                                                           &frame->timestamp,
+                                                           require_dpll_eligible,
+                                                           gate);
+    }
+
+    if (require_dpll_eligible) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_PAYLOAD_NOT_DPLL_SAMPLE,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+
+    if (gate != NULL) {
+        gate->passed = 1u;
+        gate->reject_code = VDC_DOMAIN_GATE_PASS;
+        gate->reject_slot = frame->source_slot_id;
+        gate->reject_evidence = frame->frame_seq;
+        gate->last_pass_seq = frame->frame_seq;
     }
     return true;
 }
