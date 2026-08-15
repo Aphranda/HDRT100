@@ -34,14 +34,14 @@ Last updated: 2026-08-15
 
 ## 3. P0 高风险项
 
-### 3.1 跨核 seqlock 写入非原子、无 release fence
+### 3.1 跨核 seqlock 写入非原子、无 release fence（已纠偏）
 
 写侧用普通 `guard++`，读侧用 `__atomic_load_n(..., __ATOMIC_ACQUIRE)`。RP2350 双核下读核可能先看到偶数 guard（误判「写完成」）而数据尚未可见。同一模式出现在三处：
 
 - [refmem_realtime_tdma.c:13-31](components/distributed_refmem/src/refmem_realtime_tdma.c#L13-L31) — intent/result 双 guard。
 - [refmem_command.c:12-17](components/distributed_refmem/src/refmem_command.c#L12-L17) — command slot guard。
 
-建议：写侧改为 `__atomic_add_fetch(&guard, 1, __ATOMIC_RELEASE)`。这是双核目标上最实打实的正确性问题。
+纠偏：`refmem_realtime_tdma` 的 intent/result guard 和 `refmem_command` 的 command guard 写侧已统一通过本地 helper 调用 `__atomic_add_fetch(..., __ATOMIC_RELEASE)`；读侧继续使用 `__atomic_load_n(..., __ATOMIC_ACQUIRE)`，形成跨核 seqlock guard 的 acquire/release 配对。
 
 ### 3.2 板能力数组线格式 16 条 vs 语义 8（已纠偏）
 

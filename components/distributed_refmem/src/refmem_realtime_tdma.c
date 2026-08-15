@@ -10,24 +10,29 @@ static uint32_t refmem_realtime_tdma_load(const volatile uint32_t *value)
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
 }
 
+static void refmem_realtime_tdma_store_guard(volatile uint32_t *guard)
+{
+    (void)__atomic_add_fetch(guard, 1u, __ATOMIC_RELEASE);
+}
+
 static void refmem_realtime_tdma_begin_intent_write(refmem_realtime_tdma_service_t *service)
 {
-    service->intent_guard++;
+    refmem_realtime_tdma_store_guard(&service->intent_guard);
 }
 
 static void refmem_realtime_tdma_end_intent_write(refmem_realtime_tdma_service_t *service)
 {
-    service->intent_guard++;
+    refmem_realtime_tdma_store_guard(&service->intent_guard);
 }
 
 static void refmem_realtime_tdma_begin_result_write(refmem_realtime_tdma_service_t *service)
 {
-    service->result_guard++;
+    refmem_realtime_tdma_store_guard(&service->result_guard);
 }
 
 static void refmem_realtime_tdma_end_result_write(refmem_realtime_tdma_service_t *service)
 {
-    service->result_guard++;
+    refmem_realtime_tdma_store_guard(&service->result_guard);
 }
 
 static bool refmem_realtime_tdma_has_pending(const refmem_realtime_tdma_service_t *service)

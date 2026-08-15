@@ -7,14 +7,19 @@ static uint32_t refmem_command_load(const volatile uint32_t *value)
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
 }
 
+static void refmem_command_store_guard(volatile uint32_t *guard)
+{
+    (void)__atomic_add_fetch(guard, 1u, __ATOMIC_RELEASE);
+}
+
 static void refmem_command_begin_write(refmem_command_slot_t *slot)
 {
-    slot->guard++;
+    refmem_command_store_guard(&slot->guard);
 }
 
 static void refmem_command_end_write(refmem_command_slot_t *slot)
 {
-    slot->guard++;
+    refmem_command_store_guard(&slot->guard);
 }
 
 static uint32_t refmem_command_node_bit(uint32_t node)

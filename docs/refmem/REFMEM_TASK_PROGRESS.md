@@ -8,6 +8,25 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-036 - Cross-core seqlock guard release fence
+
+- 状态：完成 host/build 验证
+- 日期：2026-08-15
+- 任务目标：
+  - 修复风险评审 §3.1：跨核 seqlock/guard 写侧普通自增缺少 release fence，读侧 acquire 无法保证读取到完整可见的数据快照。
+  - 保持 HAOFV 边界：`refmem_realtime_tdma` 仍由 core0 发布 intent、core1 发布 result；`refmem_command` 仍由 command slot owner 处理 ACK/NACK，不引入跨层业务逻辑。
+- 完成内容：
+  - `refmem_realtime_tdma.c` 新增 guard release increment helper，intent/result begin/end write 均通过 `__atomic_add_fetch(..., __ATOMIC_RELEASE)` 发布 guard。
+  - `refmem_command.c` 新增 command guard release increment helper，command slot begin/end write 均通过 release 语义发布 guard。
+  - 扫描 `components/distributed_refmem`，确认无 `guard++` 残留。
+- 验证结果：
+  - `rg -n "guard\+\+|\+\+.*guard" components\distributed_refmem -S` 无残留匹配。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_command_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_contract_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815140755`，package CRC `0x8FC40ACD`。
+
 ### REFMEM-TASK-20260815-035 - Staging table view pre-parse activation gate
 
 - 状态：完成 COM5/COM6 板端闭环

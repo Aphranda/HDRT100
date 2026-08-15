@@ -60,7 +60,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 本节记录本轮代码审查发现的 HAOFV 偏离点，必须逐步消除，不能继续作为“已知临时实现”隐含存在。
 
-- [ ] P0: 风险评审 §3.1 跨核 seqlock/guard 写侧必须使用 release 语义；`refmem_realtime_tdma` 的 intent/result guard 和 `refmem_command` 的 command guard 不能再用普通 `++`，读侧 acquire 与写侧 release 必须成对。
+- [x] P0: 风险评审 §3.1 跨核 seqlock/guard 写侧必须使用 release 语义；`refmem_realtime_tdma` 的 intent/result guard 和 `refmem_command` 的 command guard 已从普通 `++` 收敛为 `__atomic_add_fetch(..., __ATOMIC_RELEASE)`，读侧 acquire 与写侧 release 成对。
 - [x] P0: 风险评审 §3.2 `BoardCapabilityTable` 当前产品 wire payload 固定 8 条；`CLAIM_CANDIDATE_MAX=16` 只保留给 SlotClaim candidate/overflow evidence，不能复用为 BoardCapability 表容量。
 - [ ] P0: 风险评审 §3.3 DeploymentGate/SlotClaimGate 评估结果必须真正 gate；调用方不能只检查 evaluator 是否运行成功，还必须检查 `ready/pass` 结果并记录拒绝证据。
 - [ ] P0: 风险评审 §3.10 `OWNER_OK` 只能由 owner validation 结果置位；`present + CRC` 只能进入 `CRC_OK`，不得伪装为 owner 语义通过。
