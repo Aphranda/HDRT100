@@ -35,6 +35,16 @@
 #define SCPI_REFMEM_SYNC_DEFAULT_MTU SCPI_REFMEM_SYNC_FRAME_MAX
 #define SCPI_REFMEM_SYNC_DEFAULT_LATENCY_US 50u
 #define SCPI_REFMEM_SYNC_SPI_RAW_MAX 256u
+#define SCPI_COMMAND_ACK_SCHEMA_VERSION 1u
+
+typedef struct {
+    uint32_t reason_id;
+    uint32_t severity;
+    uint32_t retryable;
+    uint32_t blocking;
+    uint32_t detail_code;
+    const char *name;
+} scpi_command_reason_entry_t;
 
 typedef struct {
     refmem_sync_context_t context;
@@ -122,6 +132,37 @@ static bool scpi_refmem_sync_hex_decode(const char *hex,
                                         uint8_t *output,
                                         size_t output_size,
                                         size_t *decoded_size);
+static const scpi_command_reason_entry_t *
+scpi_command_find_reason(uint32_t reason_id);
+
+static const scpi_command_reason_entry_t s_command_reason_table[] = {
+    {REFMEM_COMMAND_REASON_NONE, 0u, 0u, 0u, 0u, "NONE"},
+    {REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH, 2u, 0u, 1u, 1u, "CONFIG_CRC_MISMATCH"},
+    {REFMEM_COMMAND_REASON_HW_PROFILE_MISMATCH, 2u, 0u, 1u, 2u, "HW_PROFILE_MISMATCH"},
+    {REFMEM_COMMAND_REASON_NODE_STALE, 2u, 1u, 1u, 3u, "NODE_STALE"},
+    {REFMEM_COMMAND_REASON_NODE_FAULT, 3u, 0u, 1u, 4u, "NODE_FAULT"},
+    {REFMEM_COMMAND_REASON_FLASH_LOCKOUT_UNREADY, 3u, 1u, 1u, 5u, "FLASH_LOCKOUT_UNREADY"},
+    {REFMEM_COMMAND_REASON_RESOURCE_BUSY, 2u, 1u, 1u, 6u, "RESOURCE_BUSY"},
+    {REFMEM_COMMAND_REASON_RUN_STATE_DENIED, 2u, 0u, 1u, 7u, "RUN_STATE_DENIED"},
+    {REFMEM_COMMAND_REASON_PAYLOAD_CRC_MISMATCH, 2u, 0u, 1u, 8u, "PAYLOAD_CRC_MISMATCH"},
+    {REFMEM_COMMAND_REASON_EPOCH_MISMATCH, 2u, 1u, 1u, 9u, "EPOCH_MISMATCH"},
+    {REFMEM_COMMAND_REASON_DUP_SEQ_CRC_MISMATCH, 2u, 0u, 1u, 10u, "DUP_SEQ_CRC_MISMATCH"},
+    {REFMEM_COMMAND_REASON_TIMEOUT, 3u, 1u, 1u, 11u, "TIMEOUT"},
+    {REFMEM_COMMAND_REASON_PERMISSION_DENIED, 2u, 0u, 1u, 12u, "PERMISSION_DENIED"},
+};
+
+static const scpi_command_reason_entry_t *
+scpi_command_find_reason(uint32_t reason_id)
+{
+    for (uint32_t i = 0u;
+         i < (uint32_t)(sizeof(s_command_reason_table) / sizeof(s_command_reason_table[0]));
+         i++) {
+        if (s_command_reason_table[i].reason_id == reason_id) {
+            return &s_command_reason_table[i];
+        }
+    }
+    return NULL;
+}
 
 scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context)
 {
@@ -2393,6 +2434,73 @@ scpi_result_t scpi_cmd_config_nack_reason_q(scpi_t *context)
         distributed_config_get_nack_reason_table();
     SCPI_ResultUInt32(context, table->version);
     SCPI_ResultUInt32(context, table->reason_count);
+    SCPI_ResultUInt32(context, reason->reason_id);
+    SCPI_ResultUInt32(context, reason->severity);
+    SCPI_ResultUInt32(context, reason->retryable);
+    SCPI_ResultUInt32(context, reason->blocking);
+    SCPI_ResultUInt32(context, reason->detail_code);
+    SCPI_ResultText(context, reason->name);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_command_ack_q(scpi_t *context)
+{
+    refmem_command_snapshot_t snapshot;
+    if (!distributed_refmem_get_command_snapshot(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, SCPI_COMMAND_ACK_SCHEMA_VERSION);
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.command_seq);
+    SCPI_ResultUInt32(context, snapshot.source_node);
+    SCPI_ResultUInt32(context, snapshot.source_instance);
+    SCPI_ResultUInt32(context, snapshot.target_mask);
+    SCPI_ResultUInt32(context, snapshot.required_mask);
+    SCPI_ResultUInt32(context, snapshot.command_type);
+    SCPI_ResultUInt32(context, snapshot.command_class);
+    SCPI_ResultUInt32(context, snapshot.payload_kind);
+    SCPI_ResultUInt32(context, snapshot.payload_ref);
+    SCPI_ResultUInt32(context, snapshot.payload_size);
+    SCPI_ResultUInt32(context, snapshot.payload_crc32);
+    SCPI_ResultUInt32(context, snapshot.issue_epoch);
+    SCPI_ResultUInt32(context, snapshot.run_id);
+    SCPI_ResultUInt32(context, snapshot.issue_tick32);
+    SCPI_ResultUInt32(context, snapshot.timeout_us);
+    SCPI_ResultUInt32(context, snapshot.taken_flags);
+    SCPI_ResultUInt32(context, snapshot.ack_flags);
+    SCPI_ResultUInt32(context, snapshot.nack_flags);
+    SCPI_ResultUInt32(context, snapshot.busy_flags);
+    SCPI_ResultUInt32(context, snapshot.timeout_flags);
+    SCPI_ResultUInt32(context, snapshot.last_reason);
+    SCPI_ResultUInt32(context, snapshot.last_reason_slot);
+    SCPI_ResultUInt32(context, snapshot.reason_table_crc32);
+    SCPI_ResultUInt32(context, snapshot.evidence_index);
+    SCPI_ResultUInt32(context, snapshot.clear_seq);
+    SCPI_ResultUInt32(context, snapshot.last_completed_seq);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_command_nack_reason_q(scpi_t *context)
+{
+    refmem_command_snapshot_t snapshot;
+    if (!distributed_refmem_get_command_snapshot(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t reason_id = snapshot.last_reason;
+    (void)SCPI_ParamUInt32(context, &reason_id, FALSE);
+
+    const scpi_command_reason_entry_t *reason =
+        scpi_command_find_reason(reason_id);
+    if (reason == NULL) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, SCPI_COMMAND_ACK_SCHEMA_VERSION);
+    SCPI_ResultUInt32(context,
+                      (uint32_t)(sizeof(s_command_reason_table) /
+                                 sizeof(s_command_reason_table[0])));
     SCPI_ResultUInt32(context, reason->reason_id);
     SCPI_ResultUInt32(context, reason->severity);
     SCPI_ResultUInt32(context, reason->retryable);

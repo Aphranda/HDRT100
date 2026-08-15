@@ -48,6 +48,8 @@ scpi_result_t scpi_cmd_runtime_protection_q(scpi_t *context);
 scpi_result_t scpi_cmd_config_gate_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_config_ack_q(scpi_t *context);
 scpi_result_t scpi_cmd_config_nack_reason_q(scpi_t *context);
+scpi_result_t scpi_cmd_command_ack_q(scpi_t *context);
+scpi_result_t scpi_cmd_command_nack_reason_q(scpi_t *context);
 scpi_result_t scpi_cmd_scpi_run_allow_q(scpi_t *context);
 scpi_result_t scpi_cmd_config_role_q(scpi_t *context);
 scpi_result_t scpi_cmd_config_loop_q(scpi_t *context);
@@ -65,6 +67,8 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:CONFigure:CAL?", .callback = scpi_cmd_config_calibration_q}, \
     {.pattern = "SYSTem:CONFigure:ACK?", .callback = scpi_cmd_config_ack_q}, \
     {.pattern = "SYSTem:CONFigure:NACK?", .callback = scpi_cmd_config_nack_reason_q}, \
+    {.pattern = "SYSTem:COMMand:ACK?", .callback = scpi_cmd_command_ack_q}, \
+    {.pattern = "SYSTem:COMMand:NACK?", .callback = scpi_cmd_command_nack_reason_q}, \
     {.pattern = "SYSTem:SCPI:RUN:ALLOW?", .callback = scpi_cmd_scpi_run_allow_q}, \
     {.pattern = "SYSTem:REFMEM:STATus?", .callback = scpi_cmd_refmem_status_q}, \
     {.pattern = "SYSTem:REFMEM:NODE?", .callback = scpi_cmd_refmem_node_q}, \

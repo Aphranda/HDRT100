@@ -8,6 +8,34 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-021 - Generic command ACK/NACK SCPI view
+
+- 状态：完成
+- 日期：2026-08-15
+- 任务目标：
+  - 增加通用 command slot 维护视图，避免继续把 `SYSTem:CONFigure:ACK?` 当成所有 command 的查询入口。
+  - 保持单一 ACK/NACK 事实源：新接口直接读取 `DistributedRefMemAO` 的 `AckCommandSlot` snapshot，不另建状态。
+- 完成内容：
+  - 新增 `SYSTem:COMMand:ACK?`，返回 schema version、state、command seq、source/target、command type/class、payload 摘要、taken/ACK/NACK/busy/timeout flags、last reason、evidence、clear seq 和 last completed seq。
+  - 新增 `SYSTem:COMMand:NACK? [reason_id]`，默认读取当前 command snapshot 的 `last_reason`，也可按 reason id 查询 RefMem command reason 表。
+  - `SYSTem:CONFigure:ACK? / NACK?` 继续只作为 `CONFIG_ACTIVATE` 的配置门禁兼容视图。
+  - `tools/model_turntable_load_validate/model_turntable_load_validate.py` 增加 `SYSTem:COMMand:ACK?` 和 `SYSTem:COMMand:NACK?` 检查，验证 `NODE_LOAD_STAGE` command 的 ACK 事实。
+- 验证结果：
+  - `python -m py_compile tools\model_turntable_load_validate\model_turntable_load_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_command_tests.ps1` 通过。
+  - `python tools\docs_check\docs_check.py` 通过。
+  - `python tools\checks\check_scpi_usb_namespace.py --root .` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815080110`，package CRC `0x093AC676`。
+  - COM5/COM6 OTA 写入、boot 和 commit 到 build `20260815080110` 通过，错误队列均为 `0,"No error"`。
+  - COM5 执行 `python tools\model_turntable_load_validate\model_turntable_load_validate.py COM5 --expected-build 20260815080110 --slot 1 --output 0 --out-dir build-rtos-multicore-smoke\model_turntable_load_COM5_20260815080110_command_ack` 通过。
+  - COM6 执行 `python tools\model_turntable_load_validate\model_turntable_load_validate.py COM6 --expected-build 20260815080110 --slot 1 --output 0 --out-dir build-rtos-multicore-smoke\model_turntable_load_COM6_20260815080110_command_ack` 通过。
+- 后续闭环：
+  - 后续 START/STOP、activation、resource job 接入 command slot 后，统一用 `SYSTem:COMMand:*` 验证 command completion；配置上位机仍可读取 `SYSTem:CONFigure:*` 兼容视图。
+- 关联文件：
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/model_turntable_load_validate/model_turntable_load_validate.py`
+
 ### REFMEM-TASK-20260815-020 - ModelTurntable LOAD via RefMem command slot
 
 - 状态：完成首版闭环

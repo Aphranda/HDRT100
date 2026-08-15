@@ -159,10 +159,10 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 将 `CONFigure:MODEl:TURNtable:LOAD` 首版接入 command slot：接口层调用 RefMem intent 入口，RefMem post `NODE_LOAD_STAGE`，AO/FB owner 通过注册回调执行加载，完成后写 ACK/NACK；完整 `CONFigure:MODEl:*:LOAD` 家族仍需逐项接入。
 - [ ] 将其余模型加载动作接入 command slot：`CONFigure:MODEl:*:LOAD` 接口层 accepted 后只 post `CONFIG_STAGE` 或 `NODE_LOAD_STAGE`，由 RefMem owner 完成 staging 并 ACK/NACK。
 - [x] 将现有 `system_manager` 配置 ACK 迁移或映射到 RefMem AckCommandSlot snapshot。
-- [ ] 扩展 NACK reason 表，补齐 resource busy、RUN denied、payload CRC、epoch mismatch、dup seq、timeout、permission denied。
+- [x] 扩展 command NACK reason 查询表，覆盖 resource busy、RUN denied、payload CRC、epoch mismatch、dup seq、timeout、permission denied，并通过 `SYSTem:COMMand:NACK?` 暴露同一底层 reason id。
 - [ ] 定义 completion 语义：`local_posted`、`target_taken`、`target_acked`、`all_required_acked`、`durable_committed`。
 - [ ] 定义 memory order / fence 规则：payload 写入先于 command publish，ACK/NACK 写入先于 status publish。
-- [ ] 评估是否新增 `SYSTem:COMMand:ACK? / NACK?`，并保持 `SYSTem:CONFigure:*` 为兼容配置视图。
+- [x] 新增 `SYSTem:COMMand:ACK? / NACK?` 通用 command slot 维护视图，并保持 `SYSTem:CONFigure:*` 只作为配置门禁兼容视图。
 
 ## P4 - RefMem Sync Protocol 与 RMA Window
 

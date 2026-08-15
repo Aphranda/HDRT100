@@ -1128,7 +1128,7 @@ Reason 表至少覆盖：
 | `TIMEOUT` | 命令超时。 |
 | `PERMISSION_DENIED` | 权限不足。 |
 
-现有 `SYSTem:CONFigure:ACK?` / `SYSTem:CONFigure:NACK?` 是 `AckCommandSlot` 的配置门禁视图。后续如果增加 `SYSTem:COMMand:ACK?` / `SYSTem:COMMand:NACK?`，应读取同一底层 command slot，不另建一套 ACK/NACK 事实。
+`SYSTem:COMMand:ACK?` / `SYSTem:COMMand:NACK?` 是通用 command slot 维护视图，直接读取同一底层 `AckCommandSlot` snapshot 和 reason 表。`SYSTem:CONFigure:ACK?` / `SYSTem:CONFigure:NACK?` 只保留为配置门禁兼容视图，并且只映射 `CONFIG_ACTIVATE` command，不得把 `NODE_LOAD_STAGE`、`START`、`STOP` 等非配置激活命令混入配置 ACK 事实。
 
 ### Snapshot 与并发契约
 

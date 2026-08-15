@@ -113,6 +113,61 @@ def check_config_ack_ready(response: str) -> tuple[bool, str]:
     return True, "OK"
 
 
+def check_command_ack_node_load(response: str, slot_id: int, output_index: int) -> tuple[bool, str]:
+    fields = parse_ints(response)
+    if len(fields) < 28:
+        return False, f"command ACK response too short: {response}"
+    version = fields[0]
+    state = fields[1]
+    source_instance = fields[4]
+    target = fields[5]
+    required = fields[6]
+    command_type = fields[7]
+    command_class = fields[8]
+    payload_kind = fields[9]
+    payload_ref = fields[10]
+    payload_size = fields[11]
+    taken = fields[17]
+    ack = fields[18]
+    nack = fields[19]
+    busy = fields[20]
+    timeout = fields[21]
+    last_reason = fields[22]
+    if version != 1:
+        return False, f"command ACK schema version mismatch: {version}"
+    target_mask = 1 << slot_id
+    if (
+        state != 4
+        or source_instance != 10
+        or target != target_mask
+        or required != target_mask
+        or command_type != 14
+        or command_class != 1
+        or payload_kind != 1
+        or payload_ref != output_index
+        or payload_size != 8
+        or taken != target_mask
+        or ack != target_mask
+        or nack != 0
+        or busy != 0
+        or timeout != 0
+        or last_reason != 0
+    ):
+        return False, f"unexpected command ACK fields: {fields}"
+    return True, "OK"
+
+
+def check_command_nack_none(response: str) -> tuple[bool, str]:
+    fields = parse_ints(response)
+    if len(fields) < 7:
+        return False, f"command NACK response too short: {response}"
+    if fields[0] != 1 or fields[2] != 0:
+        return False, f"unexpected command NACK reason fields: {fields}"
+    if "NONE" not in response:
+        return False, f"command NACK reason name missing: {response}"
+    return True, "OK"
+
+
 def check_refmem_load_staging(response: str, slot_id: int) -> tuple[bool, str]:
     fields = parse_ints(response)
     if len(fields) < 22:
@@ -222,6 +277,22 @@ def main() -> int:
                         "READ:MODEl:TURNtable:LOAD?",
                         args.timeout,
                         lambda response: check_loaded(response, args.slot, args.output)):
+            failures.append(steps[-1].reason)
+
+        if not run_step(steps,
+                        ser,
+                        "command_ack_node_load",
+                        "SYSTem:COMMand:ACK?",
+                        args.timeout,
+                        lambda response: check_command_ack_node_load(response, args.slot, args.output)):
+            failures.append(steps[-1].reason)
+
+        if not run_step(steps,
+                        ser,
+                        "command_nack_none",
+                        "SYSTem:COMMand:NACK?",
+                        args.timeout,
+                        check_command_nack_none):
             failures.append(steps[-1].reason)
 
         if not run_step(steps,
