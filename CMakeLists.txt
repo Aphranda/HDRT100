@@ -183,6 +183,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_application_model.c
         components/distributed_refmem/src/refmem_claim_protocol.c
         components/distributed_refmem/src/refmem_command.c
+        components/distributed_refmem/src/refmem_node_load_sync.c
         components/distributed_refmem/src/refmem_pio_spi_adapter.c
         components/distributed_refmem/src/refmem_quality.c
         components/distributed_refmem/src/refmem_realtime_tdma.c

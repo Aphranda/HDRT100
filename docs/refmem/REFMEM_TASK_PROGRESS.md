@@ -8,6 +8,31 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-043 - NodeLoad sync delta foundation
+
+- 状态：完成 host/build 验证；板端 HIL 待执行
+- 日期：2026-08-15
+- 任务目标：
+  - 推进风险评审 §3.4 子项 B：建立两板真实 NodeLoad 同步所需的数据语义和 RefMemAO apply 入口。
+  - 保持 HAOFV 边界：RefMem Sync 只承载受控 DELTA；ApplicationModel 仍由 DistributedRefMemAO owner staging；SCPI 不直接改对端表。
+- 完成内容：
+  - 新增 `refmem_node_load_sync.h/.c`，定义 NodeLoad entry 到 RefMem DELTA payload/frame 的固定编码和解码。
+  - 新增 `test_refmem_node_load_sync.c` 和 runner，覆盖 payload roundtrip、frame roundtrip、mirror 可见性和非法 entry 拒绝。
+  - `ApplicationModel` 增加 `refmem_application_model_get_staging_node_load_entry()`，只导出当前 staging NodeLoad entry 的 const copy。
+  - `DistributedRefMemAO` 增加 `distributed_refmem_build_node_load_sync_frame()` 和 `distributed_refmem_apply_node_load_sync_payload()`；源端从 staging entry 生成 NodeLoad DELTA，目标端解码后通过 ApplicationModel staging API 合并到本地 staging image。
+  - 新增维护入口 `SYSTem:REFMEM:SYNC:TDMA:NODE:TX`：源板不再需要 PC 搬运 frame hex，可从本地 staging entry 直接提交 TDMA TX intent。
+  - `SYSTem:REFMEM:SYNC:RX` 和 `SYSTem:REFMEM:SYNC:TDMA:FRAMe?` 收到 NodeLoad DELTA 后会交给 RefMemAO apply staging；非 NodeLoad DELTA 仍只更新 sync mirror。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_node_load_sync_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，15/15 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `git diff --check` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815154736`，package CRC `0xE10EC500`。
+- 后续动作：
+  - 补全自动 RX/TX 调度：当前仍需要维护面触发目标板 RX/FRAMe 查询，不满足最终“只对源板下发 SCPI LOAD intent”的验收。
+  - 用 COM5/COM6 跑双向两节点同步 HIL，确认 X->Y 与 Y->X 的 NodeLoad staging、TableRegistry CRC、SlotClaimMap 和 quality/evidence 一致。
+
 ### REFMEM-TASK-20260815-042 - P0 risk 3.4 fake TX correction
 
 - 状态：子项 A 完成 host/build 验证；子项 B 两板真实同步待实现

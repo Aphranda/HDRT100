@@ -2765,6 +2765,27 @@ const refmem_application_model_snapshot_t *refmem_application_model_get_snapshot
     return &s_snapshot;
 }
 
+bool refmem_application_model_get_staging_node_load_entry(
+    uint32_t instance_id,
+    refmem_node_load_entry_t *entry)
+{
+    if (!s_initialized) {
+        (void)refmem_application_model_init();
+    }
+    if (entry == NULL || !s_staging_node_load_valid) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < s_staging_node_load_table.load_count; i++) {
+        const refmem_node_load_entry_t *candidate = &s_staging_node_load_table.load[i];
+        if (candidate->instance_id == instance_id) {
+            *entry = *candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
 void refmem_application_model_get_load_snapshot(refmem_application_model_load_snapshot_t *snapshot)
 {
     if (snapshot == NULL) {

@@ -590,6 +590,9 @@ const refmem_data_link_table_t *refmem_application_model_get_data_link_table(voi
 const refmem_deployment_gate_table_t *refmem_application_model_get_deployment_gate(void);
 const refmem_connection_quality_table_t *refmem_application_model_get_connection_quality(void);
 const refmem_application_model_snapshot_t *refmem_application_model_get_snapshot(void);
+bool refmem_application_model_get_staging_node_load_entry(
+    uint32_t instance_id,
+    refmem_node_load_entry_t *entry);
 void refmem_application_model_get_load_snapshot(refmem_application_model_load_snapshot_t *snapshot);
 void refmem_application_model_get_board_load_snapshot(refmem_board_capability_load_snapshot_t *snapshot);
 

@@ -8,6 +8,7 @@
 
 #include "refmem_application_model.h"
 #include "refmem_command.h"
+#include "refmem_node_load_sync.h"
 #include "refmem_quality.h"
 #include "refmem_realtime_tdma.h"
 #include "refmem_slot_claim.h"
@@ -1146,6 +1147,62 @@ bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
                                               : REFMEM_COMMAND_REASON_CONFIG_CRC_MISMATCH,
                                           REFMEM_VECTOR_REGION_ACK_CMD);
     return false;
+}
+
+bool distributed_refmem_build_node_load_sync_frame(uint32_t instance_id,
+                                                   uint8_t source_slot,
+                                                   uint8_t target_mask,
+                                                   uint32_t epoch_id,
+                                                   uint32_t run_id,
+                                                   uint32_t seq32,
+                                                   uint32_t compact_time,
+                                                   uint8_t *frame,
+                                                   size_t frame_capacity,
+                                                   size_t *frame_size)
+{
+    refmem_node_load_entry_t entry;
+    if (!s_initialized ||
+        !refmem_application_model_get_staging_node_load_entry(instance_id, &entry)) {
+        if (frame_size != NULL) {
+            *frame_size = 0u;
+        }
+        return false;
+    }
+
+    refmem_application_model_load_snapshot_t load;
+    refmem_application_model_get_load_snapshot(&load);
+    return refmem_node_load_sync_build_delta_frame(&entry,
+                                                   source_slot,
+                                                   target_mask,
+                                                   epoch_id,
+                                                   run_id,
+                                                   seq32,
+                                                   load.load_seq,
+                                                   compact_time,
+                                                   frame,
+                                                   frame_capacity,
+                                                   frame_size);
+}
+
+bool distributed_refmem_apply_node_load_sync_payload(const uint8_t *payload,
+                                                     uint16_t payload_size)
+{
+    refmem_node_load_entry_t entry;
+    if (!s_initialized ||
+        !refmem_node_load_sync_decode_delta_payload(payload,
+                                                   payload_size,
+                                                   NULL,
+                                                   &entry)) {
+        return false;
+    }
+
+    return refmem_application_model_stage_scpi_node_config(entry.node_id,
+                                                           entry.instance_id,
+                                                           entry.role_mask,
+                                                           entry.persona_mask,
+                                                           entry.enabled,
+                                                           entry.required,
+                                                           entry.load_order);
 }
 
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot)

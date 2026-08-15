@@ -208,5 +208,17 @@ bool distributed_refmem_stage_board_capability(uint32_t board_id,
                                                uint32_t online_required);
 bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
                                                    uint32_t output_index);
+bool distributed_refmem_build_node_load_sync_frame(uint32_t instance_id,
+                                                   uint8_t source_slot,
+                                                   uint8_t target_mask,
+                                                   uint32_t epoch_id,
+                                                   uint32_t run_id,
+                                                   uint32_t seq32,
+                                                   uint32_t compact_time,
+                                                   uint8_t *frame,
+                                                   size_t frame_capacity,
+                                                   size_t *frame_size);
+bool distributed_refmem_apply_node_load_sync_payload(const uint8_t *payload,
+                                                     uint16_t payload_size);
 
 #endif
