@@ -148,7 +148,7 @@ typedef struct {
     uint32_t local_slot;
     uint32_t target_mask;
     uint32_t baud_hz;
-    uint32_t deadline_us;
+    uint32_t deadline_1e3ns;
     uint32_t uplink_duplex_mode;
     uint32_t uplink_rx_pin;
     uint32_t uplink_sck_pin;
@@ -258,7 +258,7 @@ bool distributed_refmem_configure_node_load_auto_sync(
     uint32_t local_slot,
     uint32_t target_mask,
     uint32_t baud_hz,
-    uint32_t deadline_us,
+    uint32_t deadline_1e3ns,
     uint32_t uplink_duplex_mode,
     const refmem_spi_physical_pin_config_t *uplink_adapter_pins,
     uint32_t downlink_duplex_mode,

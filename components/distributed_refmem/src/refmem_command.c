@@ -145,7 +145,7 @@ bool refmem_command_try_post(refmem_command_slot_t *slot,
     slot->issue_epoch = request->issue_epoch;
     slot->run_id = request->run_id;
     slot->issue_tick32 = issue_tick32;
-    slot->timeout_us = request->timeout_us;
+    slot->timeout_1e3ns = request->timeout_1e3ns;
     slot->taken_flags = 0u;
     slot->ack_flags = 0u;
     slot->nack_flags = 0u;
@@ -273,12 +273,12 @@ bool refmem_command_mark_timeout(refmem_command_slot_t *slot,
                                  uint32_t now_tick32,
                                  uint32_t evidence_index)
 {
-    if (slot == NULL || !refmem_command_is_active(slot) || slot->timeout_us == 0u) {
+    if (slot == NULL || !refmem_command_is_active(slot) || slot->timeout_1e3ns == 0u) {
         return false;
     }
 
     const uint32_t elapsed = now_tick32 - slot->issue_tick32;
-    if (elapsed < slot->timeout_us) {
+    if (elapsed < slot->timeout_1e3ns) {
         return false;
     }
 
@@ -328,7 +328,7 @@ bool refmem_command_clear(refmem_command_slot_t *slot, uint32_t clear_seq)
     slot->issue_epoch = 0u;
     slot->run_id = 0u;
     slot->issue_tick32 = 0u;
-    slot->timeout_us = 0u;
+    slot->timeout_1e3ns = 0u;
     slot->taken_flags = 0u;
     slot->ack_flags = 0u;
     slot->nack_flags = 0u;
@@ -372,7 +372,7 @@ bool refmem_command_get_snapshot(const refmem_command_slot_t *slot,
         snapshot->issue_epoch = slot->issue_epoch;
         snapshot->run_id = slot->run_id;
         snapshot->issue_tick32 = slot->issue_tick32;
-        snapshot->timeout_us = slot->timeout_us;
+        snapshot->timeout_1e3ns = slot->timeout_1e3ns;
         snapshot->taken_flags = slot->taken_flags;
         snapshot->ack_flags = slot->ack_flags;
         snapshot->nack_flags = slot->nack_flags;
@@ -417,7 +417,7 @@ bool refmem_command_to_sync_command_payload(const refmem_command_snapshot_t *sna
     payload->payload_ref = snapshot->payload_ref;
     payload->payload_size = snapshot->payload_size;
     payload->payload_crc32 = snapshot->payload_crc32;
-    payload->timeout_us = snapshot->timeout_us;
+    payload->timeout_1e3ns = snapshot->timeout_1e3ns;
     return true;
 }
 

@@ -160,7 +160,7 @@ static void system_manager_publish_config_command(bool gate_ready,
         .payload_crc32 = s_config_gate_status.config_crc32,
         .issue_epoch = s_config_gate_status.epoch,
         .run_id = s_config_gate_status.run_id,
-        .timeout_us = 100000u,
+        .timeout_1e3ns = 100000u,
     };
 
     if (!distributed_refmem_command_try_post(&request, now_ms)) {

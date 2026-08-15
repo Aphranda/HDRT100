@@ -76,8 +76,8 @@ bool refmem_quality_map_realtime_tdma_slot(
     entry->timeout_count = tdma->timeout_count;
     entry->last_error = tdma->last_error;
     entry->last_error_tick = tdma->service_count;
-    entry->p99 = tdma->deadline_us;
-    entry->p999 = tdma->deadline_us;
+    entry->p99 = tdma->deadline_1e3ns;
+    entry->p999 = tdma->deadline_1e3ns;
     entry->evidence_index = tdma->window_index;
     return true;
 }
@@ -106,8 +106,8 @@ bool refmem_quality_map_remote_sync(
     entry->timeout_count = remote->timeout_count;
     entry->last_error = remote->last_error;
     entry->last_error_tick = remote->last_frame_seq32;
-    entry->p99 = remote->p99_us;
-    entry->p999 = remote->p999_us;
+    entry->p99 = remote->p99_1e3ns;
+    entry->p999 = remote->p999_1e3ns;
     entry->evidence_index = remote->evidence_index;
     return true;
 }

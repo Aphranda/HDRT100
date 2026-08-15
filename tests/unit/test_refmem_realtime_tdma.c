@@ -16,13 +16,13 @@ static bool fake_transmit(void *context,
                           refmem_spi_physical_role_t role,
                           uint32_t baud_hz,
                           const refmem_spi_physical_pin_config_t *pins,
-                          uint32_t deadline_us,
+                          uint32_t deadline_1e3ns,
                           refmem_realtime_tdma_exec_status_t *status)
 {
     (void)frame;
     (void)baud_hz;
     (void)pins;
-    (void)deadline_us;
+    (void)deadline_1e3ns;
     fake_ops_context_t *fake = (fake_ops_context_t *)context;
     fake->tx_calls++;
     status->frame_size = frame_size;
@@ -39,14 +39,14 @@ static bool fake_receive(void *context,
                          refmem_spi_physical_role_t role,
                          uint32_t baud_hz,
                          const refmem_spi_physical_pin_config_t *pins,
-                         uint32_t deadline_us,
+                         uint32_t deadline_1e3ns,
                          refmem_realtime_tdma_exec_status_t *status)
 {
     (void)frame;
     (void)frame_capacity;
     (void)baud_hz;
     (void)pins;
-    (void)deadline_us;
+    (void)deadline_1e3ns;
     fake_ops_context_t *fake = (fake_ops_context_t *)context;
     fake->rx_calls++;
     if (frame_capacity >= 4u) {
@@ -92,6 +92,32 @@ static int expect_bool(const char *name, bool actual, bool expected)
     return 0;
 }
 
+static uint64_t join_u64(uint32_t lo, uint32_t hi)
+{
+    return ((uint64_t)hi << 32u) | (uint64_t)lo;
+}
+
+static int expect_nonzero_u64(const char *name, uint64_t actual)
+{
+    if (actual == 0u) {
+        (void)printf("%s: expected nonzero got 0\n", name);
+        return 1;
+    }
+    return 0;
+}
+
+static int expect_u64_ge(const char *name, uint64_t actual, uint64_t expected_min)
+{
+    if (actual < expected_min) {
+        (void)printf("%s: expected >= %llu got %llu\n",
+                     name,
+                     (unsigned long long)expected_min,
+                     (unsigned long long)actual);
+        return 1;
+    }
+    return 0;
+}
+
 static int test_init_snapshot(void)
 {
     int failed = 0;
@@ -103,6 +129,13 @@ static int test_init_snapshot(void)
     failed += expect_u32("state", snapshot.state, REFMEM_REALTIME_TDMA_STATE_IDLE);
     failed += expect_u32("owner", snapshot.owner_core, 1u);
     failed += expect_u32("intent seq", snapshot.intent_seq, 0u);
+    failed += expect_u32("timestamp source",
+                         snapshot.timestamp_source,
+                         REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE_SOFTWARE_US);
+    failed += expect_u32("timestamp resolution ns", snapshot.timestamp_resolution_ns, 1000u);
+    failed += expect_u32("timestamp diagnostic flag",
+                         snapshot.timestamp_flags,
+                         REFMEM_REALTIME_TDMA_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
     return failed;
 }
 
@@ -116,7 +149,7 @@ static int test_tx_intent_completes_on_core1_service(void)
     const refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = 7u,
         .window_index = 3u,
-        .deadline_us = 25u,
+        .deadline_1e3ns = 25u,
         .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
         .baud_hz = 25000000u,
         .frame = frame,
@@ -139,6 +172,27 @@ static int test_tx_intent_completes_on_core1_service(void)
     failed += expect_u32("ready count", snapshot.ready_count, 1u);
     failed += expect_u32("ready result", snapshot.last_result, REFMEM_REALTIME_TDMA_RESULT_FRAME_READY);
     failed += expect_u32("tx calls", fake.tx_calls, 1u);
+    const uint64_t submit_ns =
+        join_u64(snapshot.submit_time_ns_lo, snapshot.submit_time_ns_hi);
+    const uint64_t arm_ns =
+        join_u64(snapshot.core1_arm_time_ns_lo, snapshot.core1_arm_time_ns_hi);
+    const uint64_t start_ns =
+        join_u64(snapshot.core1_start_time_ns_lo, snapshot.core1_start_time_ns_hi);
+    const uint64_t done_ns =
+        join_u64(snapshot.core1_done_time_ns_lo, snapshot.core1_done_time_ns_hi);
+    failed += expect_nonzero_u64("submit time", submit_ns);
+    failed += expect_u64_ge("arm >= submit", arm_ns, submit_ns);
+    failed += expect_u64_ge("start >= arm", start_ns, arm_ns);
+    failed += expect_u64_ge("done >= start", done_ns, start_ns);
+    failed += expect_u32("elapsed ns",
+                         snapshot.core1_elapsed_ns,
+                         (uint32_t)(done_ns - start_ns));
+    failed += expect_u32("timestamp source tx",
+                         snapshot.timestamp_source,
+                         REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE_SOFTWARE_US);
+    failed += expect_u32("timestamp flags tx",
+                         snapshot.timestamp_flags,
+                         REFMEM_REALTIME_TDMA_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
     return failed;
 }
 
@@ -172,7 +226,7 @@ static int test_rx_timeout_maps_to_result(void)
     refmem_realtime_tdma_snapshot_t snapshot;
     fake_ops_context_t fake = {.tx_ok = true, .rx_ok = false};
     const refmem_realtime_tdma_intent_config_t config = {
-        .deadline_us = 1000u,
+        .deadline_1e3ns = 1000u,
         .role = REFMEM_SPI_PHYSICAL_ROLE_SLAVE,
     };
 
@@ -197,7 +251,7 @@ static int test_rx_result_frame_is_readable(void)
     uint8_t frame[8];
     size_t frame_size = 0u;
     const refmem_realtime_tdma_intent_config_t config = {
-        .deadline_us = 1000u,
+        .deadline_1e3ns = 1000u,
         .role = REFMEM_SPI_PHYSICAL_ROLE_SLAVE,
     };
 

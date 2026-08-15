@@ -292,7 +292,7 @@ Domain AO/FB fact changed
 | `payload_ref` | payload 引用。 |
 | `payload_size` | payload 长度。 |
 | `payload_crc32` | payload 摘要。 |
-| `timeout_us` | 超时。 |
+| `timeout_1e3ns` | 超时。 |
 
 ### REFMEM_ACK_NACK
 
@@ -318,7 +318,7 @@ Domain AO/FB fact changed
 | `required_mask` | 必须完成可见性切换的节点。 |
 | `min_table_seq` | 需要达到的最小 table seq。 |
 | `crc_bundle` | 需要一致的 CRC 摘要。 |
-| `deadline_us` | 超时。 |
+| `deadline_1e3ns` | 超时。 |
 
 ### REFMEM_QUALITY
 
@@ -334,7 +334,7 @@ Domain AO/FB fact changed
 | `late_count` | late 计数。 |
 | `timeout_count` | timeout 计数。 |
 | `last_error` | 最近错误。 |
-| `p99_us` / `p999_us` | 可选延迟分布。 |
+| `p99_1e3ns` / `p999_1e3ns` | 可选延迟分布。 |
 | `evidence_index` | evidence 索引。 |
 
 ### Runtime Quality Snapshot

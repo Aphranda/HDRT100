@@ -39,9 +39,40 @@ VdcSyncAO
 + TimestampDictionary
 ```
 
-首阶段先完成文档主域和架构边界，不修改代码。
+首阶段先完成文档主域和架构边界，并把现有 RefMem/TDMA 诊断字段收敛到不会冒充 100 ns DPLL evidence 的代码形态。
 
 ## 任务记录
+
+### VDC-TASK-20260816-002 - TDMA diagnostic timestamp and 1e3ns deadline contract
+
+- 状态：完成 host/build 验证；硬件 latch 和 DPLL gate 待实现
+- 日期：2026-08-16
+- 任务目标：
+  - 将 RefMem realtime TDMA 的 deadline 接口收敛为 `deadline_1e3ns`，与 VDC 以 ns 为基础单位的命名一致。
+  - 给当前 TDMA snapshot 增加板端时间戳诊断字段，但明确来源仍是 `time_us_64()*1000`，分辨率为 `1000 ns`，不得作为 100 ns DPLL lock evidence。
+  - 保持 `SYSTem:REFMEM:SYNC:TDMA:STATus?` 既有字段顺序稳定，新增 timestamp 字段只追加。
+- 完成内容：
+  - `refmem_realtime_tdma` 新增 `timestamp_source`、`timestamp_resolution_ns`、`timestamp_flags`、submit/core1 arm/start/done 时间和 `core1_elapsed_ns` snapshot。
+  - `distributed_refmem`、RefMem sync frame、RefMem command timeout、quality snapshot、SCPI handler 和 HIL 脚本统一使用 `deadline_1e3ns` / `timeout_1e3ns` / `p99_1e3ns` / `p999_1e3ns` 语义。
+  - PIO SPI physical adapter 的公开 timeout 参数收敛为 `timeout_1e6ns`；内部仍使用 Pico SDK 的微秒 API 执行等待，但接口语义不再暴露 `timeout_ms`。
+  - VDC 文档补充每帧都是 TDMA/VDC envelope，DPLL 维护是总线时序骨架，RefMem 作为 payload class 搭载。
+- 验证结果：
+  - `python -m py_compile tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py tools\refmem_quality_gate_hil_validate\refmem_quality_gate_hil_validate.py tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，15/15 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815174141`，package CRC `0x58997C54`。
+- 还需完成：
+  - 实现 PIO/DMA/IRQ/core1 硬件 timestamp latch，使正式 DPLL 样本满足 `timestamp_resolution_ns <= 100`。
+  - 增加 COM5/COM6 板端脚本，采集每帧 payload class、schedule CRC、frame/sample CRC、late/jitter 和 phase error。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_realtime_tdma.h`
+  - `components/distributed_refmem/src/refmem_realtime_tdma.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+- 下一步：
+  - 冻结 `VdcTDMATimestampEvidence` C 结构和正式 `VDC_OBSERVATION_WINDOW` sample gate。
 
 ### VDC-TASK-20260816-001 - Two-board TDMA baseline to DPLL input contract
 
@@ -50,17 +81,19 @@ VdcSyncAO
 - 任务目标：
   - 明确 COM5/COM6 两板真实 TDMA/PIO 环路已经形成后续 DPLL 的硬件基础。
   - 防止把 RefMem frame 同步成功、host 侧耗时或微秒软件时间戳误判为 100 ns 级 DPLL evidence。
-  - 将 RefMem data TDMA window 和 VDC observation window 从架构上拆开。
+  - 将 RefMem data TDMA window 和 VDC observation window 收敛为同一总线 TDMA cycle 下的不同 window class，并明确帧级 TDMA/VDC envelope。
 - 完成内容：
   - `VDC_DOMAIN_ARCHITECTURE.md` 增加 Two-board TDMA hardware baseline，记录无 CS 3-wire PIO SPI、25 MHz、core1 realtime TDMA service 和 RefMem `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 的关系。
-  - 定义两类 TDMA 窗口：`REFMEM_DATA_WINDOW` 用于共同事实同步，`VDC_OBSERVATION_WINDOW` 用于 DPLL timestamp observation。
+  - 定义 TDMA frame envelope：每一帧先表达 schedule、slot、frame_seq、timestamp evidence、CRC 和 payload class，RefMem 只是 payload。
+  - 定义两类 TDMA window class：`VDC_OBSERVATION_WINDOW` 用于高优先级 DPLL timestamp observation，`REFMEM_DATA_WINDOW` 在同一 VDC/TDMA 骨架上同步共同事实。
+  - 明确总线在同步数据过程中也维护 DPLL；总线在循环维护 DPLL 时可以顺带同步 RefMem；无业务数据时仍需要 `IDLE_BEACON` 或等价同步帧维持 freshness。
   - 明确 DPLL 只能消费板端硬实时 timestamp sample；`time_us_64()*1000` 只能作为诊断时间戳，必须报告 `timestamp_resolution_ns=1000`，不得作为 100 ns evidence。
   - `VDC_DOMAIN_TODO.md` 增加 `VdcTDMATimestampEvidence`、两板 observation window bring-up、timestamp resolution gate 和 COM5/COM6 板端 evidence 验证项。
 - 验证结果：
   - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
 - 还需完成：
   - 实现 PIO/DMA/IRQ/core1 timestamp latch，使 `timestamp_resolution_ns <= 100` 的样本进入 DPLL gate。
-  - 增加 COM5/COM6 板端脚本，记录 expected/observed/apply timestamp、late/jitter、sample CRC 和 phase error。
+  - 增加 COM5/COM6 板端脚本，记录每帧 expected/observed/apply timestamp、late/jitter、sample CRC、payload class 和 phase error。
 - 关联文件：
   - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
   - `docs/vdc/VDC_DOMAIN_TODO.md`

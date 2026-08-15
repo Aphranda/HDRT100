@@ -135,8 +135,8 @@ TDMA deterministic observation window
 
 | 控制环 | 执行者 | 时间尺度 | 主要输入 | 主要输出 | 不允许做的事 |
 |---|---|---:|---|---|---|
-| TDMA 硬实时环 | PIO / DMA / core1 realtime | us 级窗口，ns 级 timestamp | active TDMA schedule、reference edge、local tick | capture timestamp、sync frame、FIRE_LOAD edge | 计算 DPLL、访问 SCPI/SD/USB、修改 offset/rate |
-| DPLL 锁相环 | `VdcSyncAO / SyncDpllFB` | ms 级 service tick | validated timestamp sample、active calibration delay、profile | offset/rate、phase error、lock state、quality | 直接驱动 PIO 输出、绕过 RefMem/Vector 写其他域事实 |
+| TDMA 硬实时环 | PIO / DMA / core1 realtime | 1e3ns 级窗口，ns timestamp | active TDMA schedule、reference edge、local tick | capture timestamp、sync frame、FIRE_LOAD edge | 计算 DPLL、访问 SCPI/SD/USB、修改 offset/rate |
+| DPLL 锁相环 | `VdcSyncAO / SyncDpllFB` | 1e6ns 级 service tick | validated timestamp sample、active calibration delay、profile | offset/rate、phase error、lock state、quality | 直接驱动 PIO 输出、绕过 RefMem/Vector 写其他域事实 |
 | 低频驯服环 | `HoldoverFB / VdcQualityGateFB` | s 级窗口 | rate history、temperature/aging evidence、holdover age | drift bound、dispersion、servo profile evidence、persistent compensation candidate | 在 RUN 热写 flash、改变实时 tick source、直接修正 local_tick |
 
 该模型的关键点是：TDMA 只保证 DPLL 观测样本的确定性和低干扰，不等于共同时间已经锁定；DPLL 只修改 VDC 的 `offset/rate/quality`，不直接发硬实时边沿；core1/PIO 只消费稳定 VDC snapshot 进行相位牵引或预测输出。
@@ -148,7 +148,7 @@ TDMA schedule 必须给 VDC 保留固定同步观测窗口。该窗口用于发�
 | 字段 | 含义 |
 |---|---|
 | `tdma_epoch` | 当前 TDMA 周期或 schedule epoch。 |
-| `tdma_period_ns` | 标称 TDMA 周期，例如 1 ms；实际数值来自 active profile。 |
+| `tdma_period_ns` | 标称 TDMA 周期，例如 `1000000 ns`；实际数值来自 active profile。 |
 | `sync_window_offset_ns` | 同步窗口相对周期起点的偏移。 |
 | `sync_window_width_ns` | 同步窗口宽度。 |
 | `guard_before_ns / guard_after_ns` | 同步窗口前后保护时间。 |
@@ -170,16 +170,47 @@ TDMA schedule 必须给 VDC 保留固定同步观测窗口。该窗口用于发�
 - 已具备 TDMA 承载 DPLL 的硬件基础：两板之间可以在受控窗口内完成真实 TX/RX，而不是依赖 PC 搬运 frame hex。
 - 当前已验证的是 RefMem data TDMA window 和 NodeLoad/quality 同步，不等价于 VDC DPLL 已锁定。
 - 当前链路已有 schedule、slot、direction、deadline、timeout、CRC 和 quality evidence 的雏形，但还缺少 DPLL 可用的硬件 timestamp evidence。
-- 后续 DPLL 只能消费 VDC observation window 产生的 timestamp sample，不能直接把 RefMem frame 成功、host 侧耗时或 `time_us_64()` 软件时间当作 100 ns 级同步证据。
+- 后续 DPLL 只能消费 VDC observation window 产生的 timestamp sample，不能直接把 RefMem frame 成功、host 侧耗时或 `time_us_64()*1000` 诊断时间当作 100 ns 级同步证据。
 
-在该基线之上，VDC 需要把 TDMA 拆成两类窗口：
+在该基线之上，VDC 需要把同一条总线的 TDMA cycle 划分成不同 window class。它们不是两套互不相关的 TDMA，而是同一个 active schedule 中的不同 slot：DPLL/VDC 维护是总线时序骨架的主约束，RefMem 数据同步是在该骨架上搭载 payload。
 
 | 窗口 | 用途 | 可承载内容 | 禁止 |
 |---|---|---|---|
-| `REFMEM_DATA_WINDOW` | 分布式共同事实同步。 | `DELTA/ACK_NACK/FENCE/QUALITY`、NodeLoad、quality evidence。 | 计算 offset/rate，发布 VDC lock。 |
-| `VDC_OBSERVATION_WINDOW` | DPLL 时间观测。 | reference edge、SYNC timestamp、compact timestamp、sample CRC。 | 普通 RefMem delta、SD/OTA payload、维护日志。 |
+| `VDC_OBSERVATION_WINDOW` | 周期维护 DPLL/VDC。 | reference edge、SYNC timestamp、compact timestamp、sample CRC。 | 普通 RefMem delta、SD/OTA payload、维护日志。 |
+| `REFMEM_DATA_WINDOW` | 在 VDC TDMA 骨架上同步共同事实。 | `DELTA/ACK_NACK/FENCE/QUALITY`、NodeLoad、quality evidence。 | 计算 offset/rate，发布 VDC lock。 |
 
-`REFMEM_DATA_WINDOW` 可以复用现有 PIO SPI physical adapter 和 TDMA mailbox；`VDC_OBSERVATION_WINDOW` 必须增加硬件 timestamp latch，形成 `expected_ns / observed_ns / delay_ns / phase_error_ns / quality_flags` 样本后再交给 `VdcSyncAO / SyncDpllFB`。
+窗口是调度单位，帧是协议单位。每一帧首先都是 `TDMA/VDC frame envelope`，必须服务共同时间维护；业务数据只是该 envelope 上的 payload class。也就是说，RefMem frame 不应被理解为“只同步数据的普通 SPI 包”，而应被理解为“携带 RefMem payload 的 TDMA/VDC 帧”。
+
+```text
+TDMA/VDC frame envelope
+  -> preamble / frame boundary
+  -> schedule_epoch / slot_index / frame_seq
+  -> reference_slot_id / source_slot_id
+  -> compact timestamp or timestamp latch reference
+  -> schedule_crc32 / frame_crc32
+  -> payload_class
+  -> payload bytes
+```
+
+| payload class | 作用 | DPLL 关系 |
+|---|---|---|
+| `SYNC_SAMPLE` | reference edge 或同步观测样本。 | 必须进入 timestamp validation；合格后进入 DPLL。 |
+| `REFMEM_DELTA` | 共同事实变化同步。 | 帧边界和 RX/TX timestamp 仍可作为质量或 DPLL candidate；payload 不参与 DPLL 计算。 |
+| `ACK_NACK/FENCE/QUALITY` | completion、fence 和质量证据。 | 用于 freshness/quality gate；不写 offset/rate。 |
+| `IDLE_BEACON` | 无业务数据时维持时钟、slot 和 membership。 | 可持续提供 DPLL 样本和 holdover freshness。 |
+
+因此，总线在同步数据过程中也必须维护 DPLL；总线在循环维护 DPLL 时可以顺带同步 RefMem。没有业务数据时仍应发 `IDLE_BEACON` 或等价同步帧，避免 DPLL 样本中断。
+
+同一 TDMA cycle 的运行顺序应由 `VdcTdmaScheduleProfile` 冻结。首版可以固定为：
+
+```text
+cycle[k]
+  -> VDC_OBSERVATION_WINDOW  高优先级 reference / sync sample
+  -> REFMEM_DATA_WINDOW      搭载 RefMem delta / ACK / FENCE / QUALITY，同时记录帧级 timestamp
+  -> IDLE_BEACON_OR_GUARD    无数据时维持 DPLL freshness，有数据时提供方向切换和故障恢复余量
+```
+
+`REFMEM_DATA_WINDOW` 可以复用现有 PIO SPI physical adapter 和 TDMA mailbox；所有帧都应尽量形成硬件 timestamp evidence。`VDC_OBSERVATION_WINDOW` 是最高质量、最高优先级的 DPLL 样本窗口，必须增加硬件 timestamp latch，形成 `expected_ns / observed_ns / delay_ns / phase_error_ns / quality_flags` 样本后再交给 `VdcSyncAO / SyncDpllFB`。RefMem 数据同步可以携带当前 VDC snapshot、quality 和 evidence 摘要，但不能反向拥有 DPLL 状态。
 
 首版两板 DPLL bring-up 建议采用固定 reference：
 
@@ -286,7 +317,7 @@ TDMA/DPLL 融合后，VDC 状态机需要区分“TDMA schedule 可用”和“V
 |---|---|
 | `servo_type` | `PI`、`LINREG` 或产品自定义类型。 |
 | `kp_q16` / `ki_q16` | PI 环路参数。 |
-| `update_period_us` | DPLL 更新周期。 |
+| `update_period_1e3ns` | DPLL 更新周期。 |
 | `first_step_threshold_ns` | 初始大偏差是否允许 step。 |
 | `step_threshold_ns` | 运行中超过该偏差时是否 step 或拒绝。 |
 | `sanity_freq_limit_ppb` | 频率修正 sanity limit，超限触发 reset/fault。 |
@@ -433,7 +464,7 @@ VDC snapshot 至少需要覆盖：
 | `freq_error_ppb` | 当前频率误差估计。 |
 | `jitter_rms_ns` | 同步残差 RMS。 |
 | `jitter_pk_ns` | 同步残差峰值或窗口峰值。 |
-| `holdover_age_us` | 进入 HOLDOVER 后的持续时间。 |
+| `holdover_age_1e3ns` | 进入 HOLDOVER 后的持续时间。 |
 | `lock_state` | `OFF/CHECKING/LOCKING/LOCKED/HOLDOVER/RELOCKING/FAULT`。 |
 | `lock_quality` | 门禁质量等级或位图。 |
 | `active_cal_crc` | 当前用于修正 link delay 的校准表 CRC。 |

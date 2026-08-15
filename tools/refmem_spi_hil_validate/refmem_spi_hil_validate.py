@@ -320,7 +320,7 @@ def tdma_exchange(name: str,
                   expected_type: int,
                   expected_source: int,
                   baud: int,
-                  rx_timeout_ms: int,
+                  rx_timeout_1e6ns: int,
                   timeout_s: float) -> ExchangeResult:
     query(sender, "SYSTem:REFMEM:SYNC:TDMA:ABORt", timeout_s)
     query(receiver, "SYSTem:REFMEM:SYNC:TDMA:ABORt", timeout_s)
@@ -332,10 +332,10 @@ def tdma_exchange(name: str,
         return ExchangeResult(name, sender_name, receiver_name, tx_command,
                               frame_response, "<not-started>", False, str(exc))
 
-    rx_deadline_us = rx_timeout_ms * 1000
+    rx_deadline_1e3ns = rx_timeout_1e6ns * 1000
     rx_command = (
         "SYSTem:REFMEM:SYNC:TDMA:RX "
-        f"{rx_deadline_us},{baud},{receiver_pins.rx},{receiver_pins.csn},"
+        f"{rx_deadline_1e3ns},{baud},{receiver_pins.rx},{receiver_pins.csn},"
         f"{receiver_pins.sck},{receiver_pins.tx}"
     )
     rx_start = query(receiver, rx_command, timeout_s)
@@ -351,12 +351,12 @@ def tdma_exchange(name: str,
 
     tdma_tx_command = (
         "SYSTem:REFMEM:SYNC:TDMA:TX "
-        f"\"{frame_hex}\",{baud},{rx_deadline_us},{sender_pins.rx},{sender_pins.csn},"
+        f"\"{frame_hex}\",{baud},{rx_deadline_1e3ns},{sender_pins.rx},{sender_pins.csn},"
         f"{sender_pins.sck},{sender_pins.tx}"
     )
     tx_response = query(sender, tdma_tx_command, timeout_s)
 
-    deadline = time.monotonic() + timeout_s + (rx_timeout_ms / 1000.0) + 2.0
+    deadline = time.monotonic() + timeout_s + (rx_timeout_1e6ns / 1000.0) + 2.0
     rx_response = "<tdma-frame-timeout>"
     while time.monotonic() < deadline:
         candidate = query(receiver, "SYSTem:REFMEM:SYNC:TDMA:FRAMe?", timeout_s)
@@ -381,10 +381,10 @@ def raw_exchange(name: str,
                  receiver: serial.Serial,
                  receiver_pins: SpiPins,
                  baud: int,
-                 rx_timeout_ms: int,
+                 rx_timeout_1e6ns: int,
                  timeout_s: float) -> ExchangeResult:
     tx_command = f"SYSTem:REFMEM:SYNC:SPI:RAW:TX {RAW_BYTE_COUNT},{RAW_SEED}"
-    rx_command = f"SYSTem:REFMEM:SYNC:SPI:RAW:RX? {RAW_BYTE_COUNT},{RAW_SEED},{rx_timeout_ms}"
+    rx_command = f"SYSTem:REFMEM:SYNC:SPI:RAW:RX? {RAW_BYTE_COUNT},{RAW_SEED},{rx_timeout_1e6ns}"
     arm_rx = arm_spi(receiver, ROLE_SLAVE, baud, receiver_pins, timeout_s)
     arm_tx = arm_spi(sender, ROLE_MASTER, baud, sender_pins, timeout_s)
     if not arm_rx.startswith('"OK"') or not arm_tx.startswith('"OK"'):
@@ -396,13 +396,13 @@ def raw_exchange(name: str,
     def rx_worker() -> None:
         rx_holder["response"] = query(receiver,
                                       rx_command,
-                                      timeout_s + (rx_timeout_ms / 1000.0) + 2.0)
+                                      timeout_s + (rx_timeout_1e6ns / 1000.0) + 2.0)
 
     thread = threading.Thread(target=rx_worker, daemon=True)
     thread.start()
     time.sleep(0.15)
     tx_response = query(sender, tx_command, timeout_s)
-    thread.join(timeout_s + (rx_timeout_ms / 1000.0) + 3.0)
+    thread.join(timeout_s + (rx_timeout_1e6ns / 1000.0) + 3.0)
     rx_response = rx_holder.get("response", "<rx-thread-timeout>")
 
     tx_ok, tx_reason = expect_raw_tx(tx_response, RAW_BYTE_COUNT, RAW_SEED)
@@ -421,7 +421,7 @@ def main() -> int:
     parser.add_argument("--transport", choices=["tdma"], default="tdma")
     parser.add_argument("--serial-baud", type=int, default=115200)
     parser.add_argument("--timeout-s", type=float, default=2.0)
-    parser.add_argument("--rx-timeout-ms", type=int, default=3000)
+    parser.add_argument("--rx-timeout-1e6ns", type=int, default=3000)
     parser.add_argument("--line-remap-a-to-b", default="auto")
     parser.add_argument("--line-remap-b-to-a", default="auto")
     parser.add_argument("--skip-io-preflight", action="store_true")
@@ -481,7 +481,7 @@ def main() -> int:
             for item in raw_plan:
                 result = raw_exchange(*item,
                                       baud=args.baud,
-                                      rx_timeout_ms=args.rx_timeout_ms,
+                                      rx_timeout_1e6ns=args.rx_timeout_1e6ns,
                                       timeout_s=args.timeout_s)
                 results.append(result)
                 if not result.passed:
@@ -519,7 +519,7 @@ def main() -> int:
             for item in plan:
                 result = tdma_exchange(*item,
                                        baud=args.baud,
-                                       rx_timeout_ms=args.rx_timeout_ms,
+                                       rx_timeout_1e6ns=args.rx_timeout_1e6ns,
                                        timeout_s=args.timeout_s)
                 results.append(result)
                 if not result.passed:

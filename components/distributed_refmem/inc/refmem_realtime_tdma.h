@@ -45,6 +45,15 @@ typedef enum {
     REFMEM_REALTIME_TDMA_EXEC_PENDING = 5u,
 } refmem_realtime_tdma_exec_result_t;
 
+typedef enum {
+    REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE_NONE = 0u,
+    REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE_SOFTWARE_US = 1u,
+    REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE_HARDWARE_TICK = 2u,
+} refmem_realtime_tdma_timestamp_source_t;
+
+#define REFMEM_REALTIME_TDMA_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
+#define REFMEM_REALTIME_TDMA_TIMESTAMP_FLAG_DPLL_ELIGIBLE   0x00000002u
+
 typedef struct {
     refmem_realtime_tdma_exec_result_t result;
     uint32_t error;
@@ -58,7 +67,7 @@ typedef struct {
                      refmem_spi_physical_role_t role,
                      uint32_t baud_hz,
                      const refmem_spi_physical_pin_config_t *pins,
-                     uint32_t deadline_us,
+                     uint32_t deadline_1e3ns,
                      refmem_realtime_tdma_exec_status_t *status);
     bool (*receive)(void *context,
                     uint8_t *frame,
@@ -66,7 +75,7 @@ typedef struct {
                     refmem_spi_physical_role_t role,
                     uint32_t baud_hz,
                     const refmem_spi_physical_pin_config_t *pins,
-                    uint32_t deadline_us,
+                    uint32_t deadline_1e3ns,
                     refmem_realtime_tdma_exec_status_t *status);
 } refmem_realtime_tdma_ops_t;
 
@@ -87,7 +96,7 @@ typedef struct {
     uint32_t csn_pin;
     uint32_t sck_pin;
     uint32_t tx_pin;
-    uint32_t deadline_us;
+    uint32_t deadline_1e3ns;
     uint32_t frame_size;
     uint32_t ready_count;
     uint32_t timeout_count;
@@ -95,12 +104,24 @@ typedef struct {
     uint32_t reject_count;
     uint32_t last_result;
     uint32_t last_error;
+    uint32_t timestamp_source;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
+    uint32_t submit_time_ns_lo;
+    uint32_t submit_time_ns_hi;
+    uint32_t core1_arm_time_ns_lo;
+    uint32_t core1_arm_time_ns_hi;
+    uint32_t core1_start_time_ns_lo;
+    uint32_t core1_start_time_ns_hi;
+    uint32_t core1_done_time_ns_lo;
+    uint32_t core1_done_time_ns_hi;
+    uint32_t core1_elapsed_ns;
 } refmem_realtime_tdma_snapshot_t;
 
 typedef struct {
     uint32_t window_epoch;
     uint32_t window_index;
-    uint32_t deadline_us;
+    uint32_t deadline_1e3ns;
     refmem_spi_physical_role_t role;
     uint32_t baud_hz;
     refmem_spi_physical_pin_config_t pins;
@@ -124,9 +145,10 @@ typedef struct {
     volatile uint32_t csn_pin;
     volatile uint32_t sck_pin;
     volatile uint32_t tx_pin;
-    volatile uint32_t deadline_us;
+    volatile uint32_t deadline_1e3ns;
     volatile uint32_t frame_size;
     volatile uint32_t reject_count;
+    volatile uint64_t submit_time_ns;
     uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX];
 
     /* Core1 writer: realtime execution snapshot. */
@@ -142,6 +164,11 @@ typedef struct {
     volatile uint32_t last_result;
     volatile uint32_t last_error;
     volatile uint32_t result_frame_size;
+    volatile uint32_t timing_intent_seq;
+    volatile uint64_t core1_arm_time_ns;
+    volatile uint64_t core1_start_time_ns;
+    volatile uint64_t core1_done_time_ns;
+    volatile uint32_t core1_elapsed_ns;
     uint8_t result_frame[REFMEM_REALTIME_TDMA_FRAME_MAX];
 
     const refmem_realtime_tdma_ops_t *ops;

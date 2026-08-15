@@ -2,8 +2,50 @@
 
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico/time.h"
+#endif
+
 #define REFMEM_REALTIME_TDMA_OWNER_CORE1 1u
 #define REFMEM_REALTIME_TDMA_ERROR_NO_OPS 100u
+#define REFMEM_REALTIME_TDMA_TIMESTAMP_RESOLUTION_NS 1000u
+#define REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE \
+    REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE_SOFTWARE_US
+#define REFMEM_REALTIME_TDMA_TIMESTAMP_FLAGS \
+    REFMEM_REALTIME_TDMA_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
+
+static uint64_t refmem_realtime_tdma_now_ns(void)
+{
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    return time_us_64() * 1000ull;
+#else
+    static uint64_t s_host_fake_time_ns;
+    s_host_fake_time_ns += 100000ull;
+    return s_host_fake_time_ns;
+#endif
+}
+
+static uint32_t refmem_realtime_tdma_elapsed_ns(uint64_t start_ns,
+                                                uint64_t done_ns)
+{
+    if (done_ns <= start_ns) {
+        return 0u;
+    }
+    const uint64_t elapsed_ns = done_ns - start_ns;
+    return elapsed_ns > UINT32_MAX ? UINT32_MAX : (uint32_t)elapsed_ns;
+}
+
+static void refmem_realtime_tdma_split_u64(uint64_t value,
+                                           uint32_t *lo,
+                                           uint32_t *hi)
+{
+    if (lo != NULL) {
+        *lo = (uint32_t)(value & 0xFFFFFFFFull);
+    }
+    if (hi != NULL) {
+        *hi = (uint32_t)(value >> 32u);
+    }
+}
 
 static uint32_t refmem_realtime_tdma_load(const volatile uint32_t *value)
 {
@@ -77,8 +119,9 @@ static bool refmem_realtime_tdma_submit(refmem_realtime_tdma_service_t *service,
     service->csn_pin = config->pins.csn_pin;
     service->sck_pin = config->pins.sck_pin;
     service->tx_pin = config->pins.tx_pin;
-    service->deadline_us = config->deadline_us;
+    service->deadline_1e3ns = config->deadline_1e3ns;
     service->frame_size = (uint32_t)config->frame_size;
+    service->submit_time_ns = refmem_realtime_tdma_now_ns();
     if (config->frame_size != 0u && config->frame != NULL) {
         memcpy(service->frame, config->frame, config->frame_size);
     }
@@ -165,6 +208,13 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
             service->state = REFMEM_REALTIME_TDMA_STATE_IDLE;
             service->last_result = REFMEM_REALTIME_TDMA_RESULT_NONE;
         } else {
+            if (service->timing_intent_seq != intent_seq) {
+                service->timing_intent_seq = intent_seq;
+                service->core1_arm_time_ns = refmem_realtime_tdma_now_ns();
+                service->core1_start_time_ns = 0ull;
+                service->core1_done_time_ns = 0ull;
+                service->core1_elapsed_ns = 0u;
+            }
             service->armed = 1u;
             service->state = REFMEM_REALTIME_TDMA_STATE_ARMED;
         }
@@ -176,7 +226,7 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
     refmem_spi_physical_role_t role;
     refmem_spi_physical_pin_config_t pins;
     uint32_t baud_hz;
-    uint32_t deadline_us;
+    uint32_t deadline_1e3ns;
     size_t frame_size;
     while (true) {
         const uint32_t seq_begin = refmem_realtime_tdma_load(&service->intent_guard);
@@ -190,7 +240,7 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
         pins.sck_pin = service->sck_pin;
         pins.tx_pin = service->tx_pin;
         baud_hz = service->baud_hz;
-        deadline_us = service->deadline_us;
+        deadline_1e3ns = service->deadline_1e3ns;
         frame_size = (size_t)service->frame_size;
         if (frame_size > sizeof(frame)) {
             frame_size = sizeof(frame);
@@ -209,6 +259,14 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
         .error = 0u,
         .frame_size = frame_size,
     };
+    uint64_t core1_start_time_ns = service->core1_start_time_ns;
+    if (core1_start_time_ns == 0ull) {
+        core1_start_time_ns = refmem_realtime_tdma_now_ns();
+        refmem_realtime_tdma_begin_result_write(service);
+        service->core1_start_time_ns = core1_start_time_ns;
+        refmem_realtime_tdma_end_result_write(service);
+    }
+
     bool ok = false;
     if (service->ops == NULL) {
         exec_status.result = REFMEM_REALTIME_TDMA_EXEC_ERROR;
@@ -220,7 +278,7 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
                                     role,
                                     baud_hz,
                                     &pins,
-                                    deadline_us,
+                                    deadline_1e3ns,
                                     &exec_status);
     } else if (intent_type == REFMEM_REALTIME_TDMA_INTENT_RX_WINDOW) {
         ok = service->ops->receive(service->ops_context,
@@ -229,7 +287,7 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
                                    role,
                                    baud_hz,
                                    &pins,
-                                   deadline_us,
+                                   deadline_1e3ns,
                                    &exec_status);
     } else {
         exec_status.result = REFMEM_REALTIME_TDMA_EXEC_ERROR;
@@ -246,11 +304,15 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
         return;
     }
 
+    const uint64_t core1_done_time_ns = refmem_realtime_tdma_now_ns();
     refmem_realtime_tdma_begin_result_write(service);
     service->completed_seq = intent_seq;
     service->armed = 0u;
     service->last_error = exec_status.error;
     service->result_frame_size = (uint32_t)exec_status.frame_size;
+    service->core1_done_time_ns = core1_done_time_ns;
+    service->core1_elapsed_ns =
+        refmem_realtime_tdma_elapsed_ns(core1_start_time_ns, core1_done_time_ns);
     if (ok &&
         exec_status.result == REFMEM_REALTIME_TDMA_EXEC_RX_OK &&
         exec_status.frame_size <= sizeof(service->result_frame)) {
@@ -298,9 +360,12 @@ bool refmem_realtime_tdma_get_snapshot(const refmem_realtime_tdma_service_t *ser
         snapshot->csn_pin = service->csn_pin;
         snapshot->sck_pin = service->sck_pin;
         snapshot->tx_pin = service->tx_pin;
-        snapshot->deadline_us = service->deadline_us;
+        snapshot->deadline_1e3ns = service->deadline_1e3ns;
         snapshot->frame_size = service->frame_size;
         snapshot->reject_count = service->reject_count;
+        refmem_realtime_tdma_split_u64(service->submit_time_ns,
+                                       &snapshot->submit_time_ns_lo,
+                                       &snapshot->submit_time_ns_hi);
         const uint32_t seq_end = refmem_realtime_tdma_load(&service->intent_guard);
         if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
             break;
@@ -324,6 +389,21 @@ bool refmem_realtime_tdma_get_snapshot(const refmem_realtime_tdma_service_t *ser
         snapshot->overrun_count = service->overrun_count;
         snapshot->last_result = service->last_result;
         snapshot->last_error = service->last_error;
+        snapshot->timestamp_source =
+            (uint32_t)REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE;
+        snapshot->timestamp_resolution_ns =
+            REFMEM_REALTIME_TDMA_TIMESTAMP_RESOLUTION_NS;
+        snapshot->timestamp_flags = REFMEM_REALTIME_TDMA_TIMESTAMP_FLAGS;
+        refmem_realtime_tdma_split_u64(service->core1_arm_time_ns,
+                                       &snapshot->core1_arm_time_ns_lo,
+                                       &snapshot->core1_arm_time_ns_hi);
+        refmem_realtime_tdma_split_u64(service->core1_start_time_ns,
+                                       &snapshot->core1_start_time_ns_lo,
+                                       &snapshot->core1_start_time_ns_hi);
+        refmem_realtime_tdma_split_u64(service->core1_done_time_ns,
+                                       &snapshot->core1_done_time_ns_lo,
+                                       &snapshot->core1_done_time_ns_hi);
+        snapshot->core1_elapsed_ns = service->core1_elapsed_ns;
         result_frame_size = service->result_frame_size;
         const uint32_t seq_end = refmem_realtime_tdma_load(&service->result_guard);
         if (seq_begin == seq_end && (seq_end & 1u) == 0u) {

@@ -13,10 +13,10 @@
 #define REFMEM_SPI_PACKET_MAGIC0 0x52u
 #define REFMEM_SPI_PACKET_MAGIC1 0x4Du
 #define REFMEM_SPI_PACKET_HEADER_SIZE 4u
-#define REFMEM_SPI_DEFAULT_TIMEOUT_MS 1000u
+#define REFMEM_SPI_DEFAULT_TIMEOUT_1E6NS 1000u
 #define REFMEM_SPI_RX_DMA_WORD_MAX \
     (REFMEM_SPI_PACKET_HEADER_SIZE + REFMEM_SYNC_FRAME_HEADER_SIZE + REFMEM_SYNC_FRAME_PAYLOAD_MAX)
-#define REFMEM_SPI_RX_STABLE_US 1000
+#define REFMEM_SPI_RX_STABLE_1E3NS 1000u
 
 typedef enum {
     REFMEM_SPI_PHYSICAL_ERROR_NONE = 0u,
@@ -189,11 +189,11 @@ static bool refmem_spi_physical_ensure_rx_dma(void)
     return s_refmem_spi_rx_dma_channel >= 0;
 }
 
-static absolute_time_t refmem_spi_physical_deadline(uint32_t timeout_ms)
+static absolute_time_t refmem_spi_physical_deadline(uint32_t timeout_1e6ns)
 {
-    const uint32_t effective_timeout = timeout_ms == 0u
-        ? REFMEM_SPI_DEFAULT_TIMEOUT_MS
-        : timeout_ms;
+    const uint32_t effective_timeout = timeout_1e6ns == 0u
+        ? REFMEM_SPI_DEFAULT_TIMEOUT_1E6NS
+        : timeout_1e6ns;
     return make_timeout_time_ms(effective_timeout);
 }
 
@@ -228,14 +228,14 @@ static uint32_t refmem_spi_physical_dma_remaining(void)
     return dma_channel_hw_addr((uint)s_refmem_spi_rx_dma_channel)->transfer_count;
 }
 
-static uint64_t refmem_spi_physical_now_us(void)
+static uint64_t refmem_spi_physical_now_1e3ns(void)
 {
     return to_us_since_boot(get_absolute_time());
 }
 
-static bool refmem_spi_physical_time_reached(uint64_t deadline_us)
+static bool refmem_spi_physical_time_reached(uint64_t deadline_1e3ns)
 {
-    return (int64_t)(refmem_spi_physical_now_us() - deadline_us) >= 0;
+    return (int64_t)(refmem_spi_physical_now_1e3ns() - deadline_1e3ns) >= 0;
 }
 
 static bool refmem_spi_physical_parse_received_frame(refmem_spi_physical_adapter_t *adapter,
@@ -302,7 +302,7 @@ static bool refmem_spi_physical_parse_received_frame(refmem_spi_physical_adapter
 
 static bool refmem_spi_physical_capture_words(size_t max_words,
                                               bool wait_full,
-                                              uint32_t timeout_ms,
+                                              uint32_t timeout_1e6ns,
                                               size_t *received_words)
 {
     if (received_words != NULL) {
@@ -331,7 +331,7 @@ static bool refmem_spi_physical_capture_words(size_t max_words,
                           max_words,
                           true);
 
-    const absolute_time_t deadline = refmem_spi_physical_deadline(timeout_ms);
+    const absolute_time_t deadline = refmem_spi_physical_deadline(timeout_1e6ns);
     uint32_t last_remaining = (uint32_t)max_words;
     absolute_time_t last_change = get_absolute_time();
     while (dma_channel_is_busy((uint)s_refmem_spi_rx_dma_channel)) {
@@ -344,7 +344,7 @@ static bool refmem_spi_physical_capture_words(size_t max_words,
         if (!wait_full &&
             moved != 0u &&
             absolute_time_diff_us(last_change, get_absolute_time()) >=
-                REFMEM_SPI_RX_STABLE_US) {
+                REFMEM_SPI_RX_STABLE_1E3NS) {
             break;
         }
         if (refmem_spi_physical_deadline_expired(deadline)) {
@@ -530,7 +530,7 @@ bool refmem_spi_physical_adapter_receive(refmem_spi_physical_adapter_t *adapter,
                                          uint8_t *frame,
                                          size_t frame_capacity,
                                          size_t *frame_size,
-                                         uint32_t timeout_ms)
+                                         uint32_t timeout_1e6ns)
 {
     if (frame_size != NULL) {
         *frame_size = 0u;
@@ -542,7 +542,7 @@ bool refmem_spi_physical_adapter_receive(refmem_spi_physical_adapter_t *adapter,
         return false;
     }
 
-    if (!refmem_spi_physical_adapter_receive_begin(adapter, frame_capacity, timeout_ms)) {
+    if (!refmem_spi_physical_adapter_receive_begin(adapter, frame_capacity, timeout_1e6ns)) {
         return false;
     }
 
@@ -564,7 +564,7 @@ bool refmem_spi_physical_adapter_receive(refmem_spi_physical_adapter_t *adapter,
 
 bool refmem_spi_physical_adapter_receive_begin(refmem_spi_physical_adapter_t *adapter,
                                                size_t frame_capacity,
-                                               uint32_t timeout_ms)
+                                               uint32_t timeout_1e6ns)
 {
     if (adapter == NULL || frame_capacity == 0u || !adapter->armed ||
         adapter->role != REFMEM_SPI_PHYSICAL_ROLE_SLAVE ||
@@ -595,11 +595,11 @@ bool refmem_spi_physical_adapter_receive_begin(refmem_spi_physical_adapter_t *ad
     adapter->rx_capture_wait_full = false;
     adapter->rx_capture_max_words = max_words;
     adapter->rx_capture_last_remaining = (uint32_t)max_words;
-    adapter->rx_capture_deadline_us =
-        refmem_spi_physical_now_us() + (uint64_t)(timeout_ms == 0u ?
-                                                  REFMEM_SPI_DEFAULT_TIMEOUT_MS :
-                                                  timeout_ms) * 1000u;
-    adapter->rx_capture_last_change_us = refmem_spi_physical_now_us();
+    adapter->rx_capture_deadline_1e3ns =
+        refmem_spi_physical_now_1e3ns() + (uint64_t)(timeout_1e6ns == 0u ?
+                                                  REFMEM_SPI_DEFAULT_TIMEOUT_1E6NS :
+                                                  timeout_1e6ns) * 1000u;
+    adapter->rx_capture_last_change_1e3ns = refmem_spi_physical_now_1e3ns();
     return true;
 }
 
@@ -625,15 +625,15 @@ refmem_spi_physical_rx_poll_result_t refmem_spi_physical_adapter_receive_poll(
         const uint32_t remaining = refmem_spi_physical_dma_remaining();
         if (remaining != adapter->rx_capture_last_remaining) {
             adapter->rx_capture_last_remaining = remaining;
-            adapter->rx_capture_last_change_us = refmem_spi_physical_now_us();
+            adapter->rx_capture_last_change_1e3ns = refmem_spi_physical_now_1e3ns();
         }
         const size_t moved = adapter->rx_capture_max_words - (size_t)remaining;
         if (!adapter->rx_capture_wait_full &&
             moved != 0u &&
-            refmem_spi_physical_now_us() - adapter->rx_capture_last_change_us >=
-                REFMEM_SPI_RX_STABLE_US) {
+            refmem_spi_physical_now_1e3ns() - adapter->rx_capture_last_change_1e3ns >=
+                REFMEM_SPI_RX_STABLE_1E3NS) {
             should_finish = true;
-        } else if (refmem_spi_physical_time_reached(adapter->rx_capture_deadline_us)) {
+        } else if (refmem_spi_physical_time_reached(adapter->rx_capture_deadline_1e3ns)) {
             should_finish = true;
         }
     }
@@ -668,7 +668,7 @@ bool refmem_spi_physical_adapter_receive_raw(refmem_spi_physical_adapter_t *adap
                                              uint8_t *buffer,
                                              size_t expected_size,
                                              size_t *received_size,
-                                             uint32_t timeout_ms)
+                                             uint32_t timeout_1e6ns)
 {
     if (received_size != NULL) {
         *received_size = 0u;
@@ -683,7 +683,7 @@ bool refmem_spi_physical_adapter_receive_raw(refmem_spi_physical_adapter_t *adap
     size_t received_words_count = 0u;
     if (!refmem_spi_physical_capture_words(expected_size,
                                            true,
-                                           timeout_ms,
+                                           timeout_1e6ns,
                                            &received_words_count)) {
         refmem_spi_physical_set_error(adapter, REFMEM_SPI_PHYSICAL_ERROR_TIMEOUT);
         *received_size = received_words_count;

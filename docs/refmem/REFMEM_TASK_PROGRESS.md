@@ -4,9 +4,29 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-15
+Last updated: 2026-08-16
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
+
+### REFMEM-TASK-20260816-047 - TDMA time-unit naming and diagnostic timestamp snapshot
+
+- 状态：完成 host/build 验证；板端 DPLL timestamp latch 待实现
+- 日期：2026-08-16
+- 任务目标：
+  - 统一 RefMem realtime TDMA 对外 deadline 口径：deadline 字段改为 `deadline_1e3ns`，质量字段改为 `p99_1e3ns/p999_1e3ns`。
+  - 暴露当前 core1 realtime TDMA 诊断时间戳，作为后续 VDC/DPLL bring-up 的过渡 evidence，但不进入 100 ns lock gate。
+- 完成内容：
+  - `refmem_realtime_tdma` snapshot 追加 submit/core1 arm/start/done/elapsed ns 字段，并声明 `timestamp_source=SOFTWARE_US`、`timestamp_resolution_ns=1000`、`timestamp_flags=DIAGNOSTIC_ONLY`。
+  - `DistributedRefMemAO` AUTO 配置、FENCE payload、QUALITY payload、RefMem command timeout、SCPI 维护命令和三份 HIL 脚本统一到 `deadline_1e3ns` / `timeout_1e3ns` 命名。
+  - `refmem_spi_physical_adapter` 公开 RX timeout 参数改为 `timeout_1e6ns`，保持内部 SDK 等待实现不扩散到协议命名。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，15/15 host test scripts passed。
+  - `python -m py_compile tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py tools\refmem_quality_gate_hil_validate\refmem_quality_gate_hil_validate.py tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815174141`，package CRC `0x58997C54`。
+- 后续动作：
+  - 继续 VDC `VdcTDMATimestampEvidence` 和硬件 timestamp latch；RefMem 只提供 payload、quality 和 evidence，不拥有 DPLL offset/rate。
 
 ### REFMEM-TASK-20260815-046 - NodeLoad AUTO 3-wire uplink/downlink adapter correction
 
@@ -1489,7 +1509,7 @@ Last updated: 2026-08-15
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260814142748`，package CRC `0xE3F75DB7`。
   - COM5/COM6 均 OTA 并 commit 到 build `20260814142748`。
   - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814142748 --out-dir build-rtos-multicore-smoke\refmem_sync_fence_hil_COM5_COM6_20260814142748` 通过，55 条记录全部 PASS。
-  - HIL 关键结果：两板 build id 均为 `20260814142748`；SlotClaimMap CRC 均为 `386979554`；A->B 与 B->A FENCE 在对端 mirror visible 且 `min_table_seq=3` 时 passed；A->B `min_table_seq=99,deadline_us=0` 时 failed，`missing_mask=2,timed_out=1,last_reason=3`。
+  - HIL 关键结果：两板 build id 均为 `20260814142748`；SlotClaimMap CRC 均为 `386979554`；A->B 与 B->A FENCE 在对端 mirror visible 且 `min_table_seq=3` 时 passed；A->B `min_table_seq=99,deadline_1e3ns=0` 时 failed，`missing_mask=2,timed_out=1,last_reason=3`。
 - 还需完成：
   - 将 FENCE snapshot 接入正式 `refmem_command.h/.c` completion、DeploymentGate 和 `DistributedConnectionQualityTable`。
   - 实现 `REFMEM_QUALITY` frame，把 adapter CRC/drop/late/timeout 计数作为总线无关质量事实发布。

@@ -99,7 +99,7 @@ typedef struct {
     uint32_t payload_crc32;
     uint32_t issue_epoch;
     uint32_t run_id;
-    uint32_t timeout_us;
+    uint32_t timeout_1e3ns;
 } refmem_command_request_t;
 
 typedef struct {
@@ -118,7 +118,7 @@ typedef struct {
     uint32_t issue_epoch;
     uint32_t run_id;
     uint32_t issue_tick32;
-    uint32_t timeout_us;
+    uint32_t timeout_1e3ns;
     uint32_t taken_flags;
     uint32_t ack_flags;
     uint32_t nack_flags;
@@ -148,7 +148,7 @@ typedef struct {
     volatile uint32_t issue_epoch;
     volatile uint32_t run_id;
     volatile uint32_t issue_tick32;
-    volatile uint32_t timeout_us;
+    volatile uint32_t timeout_1e3ns;
     volatile uint32_t taken_flags;
     volatile uint32_t ack_flags;
     volatile uint32_t nack_flags;

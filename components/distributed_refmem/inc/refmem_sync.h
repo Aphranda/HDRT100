@@ -114,8 +114,8 @@ typedef struct {
     uint32_t late_count;
     uint32_t timeout_count;
     uint32_t last_error;
-    uint32_t p99_us;
-    uint32_t p999_us;
+    uint32_t p99_1e3ns;
+    uint32_t p999_1e3ns;
     uint32_t evidence_index;
     uint32_t last_frame_seq32;
     uint32_t received_count;

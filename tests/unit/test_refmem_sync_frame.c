@@ -343,7 +343,7 @@ static int test_all_payload_contracts_roundtrip(void)
     command.payload_ref = 0xC000u;
     command.payload_size = 16u;
     command.payload_crc32 = 0xAABBCCDDu;
-    command.timeout_us = 10000u;
+    command.timeout_1e3ns = 10000u;
     failed += roundtrip_payload("command header init",
                                 REFMEM_SYNC_FRAME_COMMAND,
                                 &command,
@@ -373,7 +373,7 @@ static int test_all_payload_contracts_roundtrip(void)
     fence.config_crc32 = epoch.config_crc32;
     fence.calibration_crc32 = epoch.calibration_crc32;
     fence.sync_profile_crc32 = epoch.sync_profile_crc32;
-    fence.deadline_us = 50000u;
+    fence.deadline_1e3ns = 50000u;
     failed += roundtrip_payload("fence header init",
                                 REFMEM_SYNC_FRAME_FENCE,
                                 &fence,
@@ -391,8 +391,8 @@ static int test_all_payload_contracts_roundtrip(void)
     quality.late_count = 3u;
     quality.timeout_count = 4u;
     quality.last_error = 9u;
-    quality.p99_us = 80u;
-    quality.p999_us = 120u;
+    quality.p99_1e3ns = 80u;
+    quality.p999_1e3ns = 120u;
     quality.evidence_index = 88u;
     failed += roundtrip_payload("quality header init",
                                 REFMEM_SYNC_FRAME_QUALITY,

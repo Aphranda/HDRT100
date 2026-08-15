@@ -115,7 +115,7 @@ static bool scpi_refmem_sync_build_fence_frame(uint8_t source_slot,
                                                uint32_t fence_scope,
                                                uint32_t required_mask,
                                                uint32_t min_table_seq,
-                                               uint32_t deadline_us,
+                                               uint32_t deadline_1e3ns,
                                                uint8_t *frame,
                                                size_t frame_capacity,
                                                size_t *frame_size);
@@ -1024,7 +1024,7 @@ scpi_result_t scpi_cmd_refmem_sync_fence_q(scpi_t *context)
     uint32_t fence_scope = 1u;
     uint32_t required_mask = target_mask;
     uint32_t min_table_seq = 0u;
-    uint32_t deadline_us = 1000u;
+    uint32_t deadline_1e3ns = 1000u;
     (void)SCPI_ParamUInt32(context, &source_slot, FALSE);
     (void)SCPI_ParamUInt32(context, &target_mask, FALSE);
     (void)SCPI_ParamUInt32(context, &seq32, FALSE);
@@ -1032,7 +1032,7 @@ scpi_result_t scpi_cmd_refmem_sync_fence_q(scpi_t *context)
     (void)SCPI_ParamUInt32(context, &fence_scope, FALSE);
     (void)SCPI_ParamUInt32(context, &required_mask, FALSE);
     (void)SCPI_ParamUInt32(context, &min_table_seq, FALSE);
-    (void)SCPI_ParamUInt32(context, &deadline_us, FALSE);
+    (void)SCPI_ParamUInt32(context, &deadline_1e3ns, FALSE);
     if (source_slot >= REFMEM_SYNC_NODE_COUNT ||
         target_mask > 0xFFu ||
         required_mask > 0xFFu) {
@@ -1051,7 +1051,7 @@ scpi_result_t scpi_cmd_refmem_sync_fence_q(scpi_t *context)
                                             fence_scope,
                                             required_mask,
                                             min_table_seq,
-                                            deadline_us,
+                                            deadline_1e3ns,
                                             frame,
                                             sizeof(frame),
                                             &frame_size)) {
@@ -1334,8 +1334,8 @@ scpi_result_t scpi_cmd_refmem_sync_quality_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, quality->late_count);
     SCPI_ResultUInt32(context, quality->timeout_count);
     SCPI_ResultUInt32(context, quality->last_error);
-    SCPI_ResultUInt32(context, quality->p99_us);
-    SCPI_ResultUInt32(context, quality->p999_us);
+    SCPI_ResultUInt32(context, quality->p99_1e3ns);
+    SCPI_ResultUInt32(context, quality->p999_1e3ns);
     SCPI_ResultUInt32(context, quality->evidence_index);
     SCPI_ResultUInt32(context, quality->last_frame_seq32);
     SCPI_ResultUInt32(context, quality->received_count);
@@ -1581,12 +1581,12 @@ scpi_result_t scpi_cmd_refmem_sync_spi_raw_rx_q(scpi_t *context)
 
     uint32_t expected_size = 0u;
     uint32_t seed = 0xA5u;
-    uint32_t timeout_ms = 1000u;
+    uint32_t timeout_1e6ns = 1000u;
     if (!scpi_port_read_u32(context, &expected_size)) {
         return SCPI_RES_ERR;
     }
     (void)SCPI_ParamUInt32(context, &seed, FALSE);
-    (void)SCPI_ParamUInt32(context, &timeout_ms, FALSE);
+    (void)SCPI_ParamUInt32(context, &timeout_1e6ns, FALSE);
     if (expected_size == 0u ||
         expected_size > SCPI_REFMEM_SYNC_SPI_RAW_MAX ||
         seed > 0xFFu) {
@@ -1599,7 +1599,7 @@ scpi_result_t scpi_cmd_refmem_sync_spi_raw_rx_q(scpi_t *context)
                                                  buffer,
                                                  expected_size,
                                                  &received_size,
-                                                 timeout_ms)) {
+                                                 timeout_1e6ns)) {
         scpi_port_push_exec_error(context, "REFMEM_SYNC_SPI_RAW_RX");
         return SCPI_RES_ERR;
     }
@@ -1659,7 +1659,7 @@ scpi_result_t scpi_cmd_refmem_sync_auto(scpi_t *context)
     uint32_t local_slot = 0u;
     uint32_t target_mask = 0xFFu;
     uint32_t baud_hz = BOARD_REFMEM_SPI_BAUD_HZ;
-    uint32_t deadline_us = 1000000u;
+    uint32_t deadline_1e3ns = 1000000u;
     uint32_t uplink_duplex_mode = DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF;
     uint32_t downlink_duplex_mode = DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF;
     refmem_spi_physical_pin_config_t uplink_adapter_pins = {
@@ -1681,7 +1681,7 @@ scpi_result_t scpi_cmd_refmem_sync_auto(scpi_t *context)
     (void)SCPI_ParamUInt32(context, &local_slot, FALSE);
     (void)SCPI_ParamUInt32(context, &target_mask, FALSE);
     (void)SCPI_ParamUInt32(context, &baud_hz, FALSE);
-    (void)SCPI_ParamUInt32(context, &deadline_us, FALSE);
+    (void)SCPI_ParamUInt32(context, &deadline_1e3ns, FALSE);
     (void)SCPI_ParamUInt32(context, &uplink_duplex_mode, FALSE);
     (void)SCPI_ParamUInt32(context, &uplink_adapter_pins.rx_pin, FALSE);
     (void)SCPI_ParamUInt32(context, &uplink_adapter_pins.sck_pin, FALSE);
@@ -1695,7 +1695,7 @@ scpi_result_t scpi_cmd_refmem_sync_auto(scpi_t *context)
                                                           local_slot,
                                                           target_mask,
                                                           baud_hz,
-                                                          deadline_us,
+                                                          deadline_1e3ns,
                                                           uplink_duplex_mode,
                                                           &uplink_adapter_pins,
                                                           downlink_duplex_mode,
@@ -1716,7 +1716,7 @@ scpi_result_t scpi_cmd_refmem_sync_auto_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.local_slot);
     SCPI_ResultUInt32(context, snapshot.target_mask);
     SCPI_ResultUInt32(context, snapshot.baud_hz);
-    SCPI_ResultUInt32(context, snapshot.deadline_us);
+    SCPI_ResultUInt32(context, snapshot.deadline_1e3ns);
     SCPI_ResultUInt32(context, snapshot.uplink_duplex_mode);
     SCPI_ResultUInt32(context, snapshot.uplink_rx_pin);
     SCPI_ResultUInt32(context, snapshot.uplink_sck_pin);
@@ -1764,7 +1764,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.csn_pin);
     SCPI_ResultUInt32(context, snapshot.sck_pin);
     SCPI_ResultUInt32(context, snapshot.tx_pin);
-    SCPI_ResultUInt32(context, snapshot.deadline_us);
+    SCPI_ResultUInt32(context, snapshot.deadline_1e3ns);
     SCPI_ResultUInt32(context, snapshot.frame_size);
     SCPI_ResultUInt32(context, snapshot.ready_count);
     SCPI_ResultUInt32(context, snapshot.timeout_count);
@@ -1772,6 +1772,18 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.reject_count);
     SCPI_ResultUInt32(context, snapshot.last_result);
     SCPI_ResultUInt32(context, snapshot.last_error);
+    SCPI_ResultUInt32(context, snapshot.timestamp_source);
+    SCPI_ResultUInt32(context, snapshot.timestamp_resolution_ns);
+    SCPI_ResultUInt32(context, snapshot.timestamp_flags);
+    SCPI_ResultUInt32(context, snapshot.submit_time_ns_lo);
+    SCPI_ResultUInt32(context, snapshot.submit_time_ns_hi);
+    SCPI_ResultUInt32(context, snapshot.core1_arm_time_ns_lo);
+    SCPI_ResultUInt32(context, snapshot.core1_arm_time_ns_hi);
+    SCPI_ResultUInt32(context, snapshot.core1_start_time_ns_lo);
+    SCPI_ResultUInt32(context, snapshot.core1_start_time_ns_hi);
+    SCPI_ResultUInt32(context, snapshot.core1_done_time_ns_lo);
+    SCPI_ResultUInt32(context, snapshot.core1_done_time_ns_hi);
+    SCPI_ResultUInt32(context, snapshot.core1_elapsed_ns);
     return SCPI_RES_OK;
 }
 
@@ -1784,7 +1796,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_node_tx(scpi_t *context)
     uint32_t instance_id = 0u;
     uint32_t target_mask = 0xFFu;
     uint32_t baud_hz = BOARD_REFMEM_SPI_BAUD_HZ;
-    uint32_t deadline_us = 1000u;
+    uint32_t deadline_1e3ns = 1000u;
     refmem_spi_physical_pin_config_t pins = {
         .rx_pin = BOARD_REFMEM_SPI_RX_PIN,
         .csn_pin = BOARD_REFMEM_SPI_CSN_PIN,
@@ -1796,7 +1808,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_node_tx(scpi_t *context)
     }
     (void)SCPI_ParamUInt32(context, &target_mask, FALSE);
     (void)SCPI_ParamUInt32(context, &baud_hz, FALSE);
-    (void)SCPI_ParamUInt32(context, &deadline_us, FALSE);
+    (void)SCPI_ParamUInt32(context, &deadline_1e3ns, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.rx_pin, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.csn_pin, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.sck_pin, FALSE);
@@ -1825,7 +1837,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_node_tx(scpi_t *context)
     const refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = s_refmem_sync.context.active_epoch_id,
         .window_index = seq32,
-        .deadline_us = deadline_us,
+        .deadline_1e3ns = deadline_1e3ns,
         .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
         .baud_hz = baud_hz,
         .pins = pins,
@@ -1846,7 +1858,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_node_tx(scpi_t *context)
     SCPI_ResultUInt32(context, seq32);
     SCPI_ResultUInt32(context, target_mask);
     SCPI_ResultUInt32(context, baud_hz);
-    SCPI_ResultUInt32(context, deadline_us);
+    SCPI_ResultUInt32(context, deadline_1e3ns);
     return SCPI_RES_OK;
 }
 
@@ -1863,7 +1875,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_tx(scpi_t *context)
     }
 
     uint32_t baud_hz = BOARD_REFMEM_SPI_BAUD_HZ;
-    uint32_t deadline_us = 1000u;
+    uint32_t deadline_1e3ns = 1000u;
     refmem_spi_physical_pin_config_t pins = {
         .rx_pin = BOARD_REFMEM_SPI_RX_PIN,
         .csn_pin = BOARD_REFMEM_SPI_CSN_PIN,
@@ -1873,7 +1885,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_tx(scpi_t *context)
     uint8_t frame[SCPI_REFMEM_SYNC_FRAME_MAX];
     size_t frame_size = 0u;
     (void)SCPI_ParamUInt32(context, &baud_hz, FALSE);
-    (void)SCPI_ParamUInt32(context, &deadline_us, FALSE);
+    (void)SCPI_ParamUInt32(context, &deadline_1e3ns, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.rx_pin, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.csn_pin, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.sck_pin, FALSE);
@@ -1890,7 +1902,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_tx(scpi_t *context)
     const refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = s_refmem_sync.context.active_epoch_id,
         .window_index = s_refmem_sync.tx_seq32,
-        .deadline_us = deadline_us,
+        .deadline_1e3ns = deadline_1e3ns,
         .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
         .baud_hz = baud_hz,
         .pins = pins,
@@ -1908,7 +1920,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_tx(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.intent_seq);
     SCPI_ResultUInt32(context, (uint32_t)frame_size);
     SCPI_ResultUInt32(context, baud_hz);
-    SCPI_ResultUInt32(context, deadline_us);
+    SCPI_ResultUInt32(context, deadline_1e3ns);
     SCPI_ResultUInt32(context, pins.rx_pin);
     SCPI_ResultUInt32(context, pins.csn_pin);
     SCPI_ResultUInt32(context, pins.sck_pin);
@@ -1923,14 +1935,14 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_rx(scpi_t *context)
     }
 
     uint32_t baud_hz = BOARD_REFMEM_SPI_BAUD_HZ;
-    uint32_t deadline_us = 1000000u;
+    uint32_t deadline_1e3ns = 1000000u;
     refmem_spi_physical_pin_config_t pins = {
         .rx_pin = BOARD_REFMEM_SPI_RX_PIN,
         .csn_pin = BOARD_REFMEM_SPI_CSN_PIN,
         .sck_pin = BOARD_REFMEM_SPI_SCK_PIN,
         .tx_pin = BOARD_REFMEM_SPI_TX_PIN,
     };
-    (void)SCPI_ParamUInt32(context, &deadline_us, FALSE);
+    (void)SCPI_ParamUInt32(context, &deadline_1e3ns, FALSE);
     (void)SCPI_ParamUInt32(context, &baud_hz, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.rx_pin, FALSE);
     (void)SCPI_ParamUInt32(context, &pins.csn_pin, FALSE);
@@ -1940,7 +1952,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_rx(scpi_t *context)
     const refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = s_refmem_sync.context.active_epoch_id,
         .window_index = s_refmem_sync.tx_seq32,
-        .deadline_us = deadline_us,
+        .deadline_1e3ns = deadline_1e3ns,
         .role = REFMEM_SPI_PHYSICAL_ROLE_SLAVE,
         .baud_hz = baud_hz,
         .pins = pins,
@@ -1956,7 +1968,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_rx(scpi_t *context)
     (void)distributed_refmem_get_realtime_tdma(&snapshot);
     SCPI_ResultText(context, "ACCEPTED");
     SCPI_ResultUInt32(context, snapshot.intent_seq);
-    SCPI_ResultUInt32(context, deadline_us);
+    SCPI_ResultUInt32(context, deadline_1e3ns);
     SCPI_ResultUInt32(context, baud_hz);
     SCPI_ResultUInt32(context, pins.rx_pin);
     SCPI_ResultUInt32(context, pins.csn_pin);
@@ -2465,7 +2477,7 @@ static bool scpi_refmem_sync_build_fence_frame(uint8_t source_slot,
                                                uint32_t fence_scope,
                                                uint32_t required_mask,
                                                uint32_t min_table_seq,
-                                               uint32_t deadline_us,
+                                               uint32_t deadline_1e3ns,
                                                uint8_t *frame,
                                                size_t frame_capacity,
                                                size_t *frame_size)
@@ -2486,7 +2498,7 @@ static bool scpi_refmem_sync_build_fence_frame(uint8_t source_slot,
     payload.config_crc32 = model != NULL ? model->application_map_crc32 : 0u;
     payload.calibration_crc32 = model != NULL ? model->deployment_gate_crc32 : 0u;
     payload.sync_profile_crc32 = model != NULL ? model->connection_quality_crc32 : 0u;
-    payload.deadline_us = deadline_us;
+    payload.deadline_1e3ns = deadline_1e3ns;
 
     refmem_sync_frame_header_t header;
     if (!refmem_sync_frame_header_init(&header,
@@ -2551,8 +2563,8 @@ static bool scpi_refmem_sync_build_quality_frame(uint8_t source_slot,
     } else if (counters.target_mismatch_count != 0u) {
         payload.last_error = REFMEM_SYNC_RX_TARGET_MISMATCH;
     }
-    payload.p99_us = 0u;
-    payload.p999_us = 0u;
+    payload.p99_1e3ns = 0u;
+    payload.p999_1e3ns = 0u;
     payload.evidence_index = 0u;
 
     refmem_sync_frame_header_t header;
@@ -2803,7 +2815,7 @@ scpi_result_t scpi_cmd_command_ack_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.issue_epoch);
     SCPI_ResultUInt32(context, snapshot.run_id);
     SCPI_ResultUInt32(context, snapshot.issue_tick32);
-    SCPI_ResultUInt32(context, snapshot.timeout_us);
+    SCPI_ResultUInt32(context, snapshot.timeout_1e3ns);
     SCPI_ResultUInt32(context, snapshot.taken_flags);
     SCPI_ResultUInt32(context, snapshot.ack_flags);
     SCPI_ResultUInt32(context, snapshot.nack_flags);

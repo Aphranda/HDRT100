@@ -51,7 +51,8 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 
 - [ ] 冻结 `VdcClockModel` 字段、单位、writer、reader 和 snapshot 策略。
 - [ ] 冻结 `VdcTdmaScheduleProfile`，覆盖 TDMA 周期、同步窗口、guard、reference slot、schedule version 和 CRC。
-- [ ] 冻结 TDMA window class：`REFMEM_DATA_WINDOW` 只承载共同事实同步，`VDC_OBSERVATION_WINDOW` 只承载 DPLL timestamp observation；两者必须分别有 slot/action、guard、CRC、quality 和禁止项。
+- [ ] 冻结 TDMA frame envelope：每一帧都必须先表达 schedule_epoch、slot_index、frame_seq、source/reference slot、timestamp evidence、schedule CRC、frame CRC 和 payload class；RefMem 数据只能作为 payload class 搭载。
+- [ ] 冻结 TDMA window class：`VDC_OBSERVATION_WINDOW` 是高优先级 DPLL 样本窗口，`REFMEM_DATA_WINDOW` 在同一 VDC/TDMA 骨架上搭载共同事实同步；两者必须分别有 slot/action、guard、CRC、quality 和禁止项。
 - [ ] 冻结 `VdcTDMATimestampEvidence`，字段单位统一为 ns，至少覆盖 expected_window_start、arm/start/done/apply timestamp、late_ns、jitter_ns、schedule_crc32、frame/sample CRC 和 `timestamp_resolution_ns`。
 - [ ] 冻结 `VdcReferenceClockTable`，首版固定 A0，后续支持 priority / failover。
 - [ ] 冻结 `VdcDpllState` 字段、单位、writer、reader 和 snapshot 策略。
@@ -72,8 +73,8 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 实现 `local_tick -> vdc_time64_ns` 映射函数。
 - [ ] 实现 SYNC DPLL offset/rate 更新。
 - [ ] 实现 TDMA observation window 输入门禁：只有来自 active schedule、正确 reference slot、正确 schedule CRC 和同步窗口内的 timestamp sample 才能进入 DPLL。
-- [ ] 在 COM5/COM6 已验证 RefMem data TDMA 环路基础上，增加两板 `VDC_OBSERVATION_WINDOW` bring-up：X 输出 reference edge / sync frame，Y 捕获硬件 timestamp 并形成 `VdcDpllSample`，再反向或双向测量 delay/evidence。
-- [ ] 将当前 TDMA snapshot 的软件时间戳明确限定为诊断 evidence：若来源为 `time_us_64()*1000`，必须暴露 `timestamp_resolution_ns=1000`，不得进入 100 ns DPLL lock gate。
+- [ ] 在 COM5/COM6 已验证 RefMem data TDMA 环路基础上，增加两板帧级 timestamp bring-up：每个 `REFMEM_DELTA/ACK/FENCE/QUALITY/IDLE_BEACON` 帧都产生 TDMA/VDC timestamp evidence；高优先级 `VDC_OBSERVATION_WINDOW` 形成正式 `VdcDpllSample`，再反向或双向测量 delay/evidence。
+- [x] 将当前 TDMA snapshot 的软件时间戳明确限定为诊断 evidence：若来源为 `time_us_64()*1000`，必须暴露 `timestamp_resolution_ns=1000`，不得进入 100 ns DPLL lock gate。
 - [ ] 增加硬实时 timestamp latch 路径：PIO/DMA/IRQ/core1 采集本地 tick，转换或映射为 ns 字段，并声明实际分辨率；DPLL 正式样本要求 `timestamp_resolution_ns <= 100`。
 - [ ] 实现 DCO snapshot 生成：DPLL 输出通过 `VdcDcoControl` 提交给 core1，core1 只读稳定 snapshot 并执行 slew/phase pull。
 - [ ] 实现 outlier gate、jitter window、phase error 和 frequency error 统计。
