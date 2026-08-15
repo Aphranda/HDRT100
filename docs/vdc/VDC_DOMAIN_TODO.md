@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-08-14
+Last updated: 2026-08-16
 
 本文档维护 Virtual Distributed Clock / VDC Domain 的独立待办。这里不记录普通开发流水账，只记录会影响共同时间、timestamp、offset/rate、DPLL、HOLDOVER/RELOCK、VDC quality、RefMem 映射和 RUN gate 的架构与实现事项。
 
@@ -51,6 +51,8 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 
 - [ ] 冻结 `VdcClockModel` 字段、单位、writer、reader 和 snapshot 策略。
 - [ ] 冻结 `VdcTdmaScheduleProfile`，覆盖 TDMA 周期、同步窗口、guard、reference slot、schedule version 和 CRC。
+- [ ] 冻结 TDMA window class：`REFMEM_DATA_WINDOW` 只承载共同事实同步，`VDC_OBSERVATION_WINDOW` 只承载 DPLL timestamp observation；两者必须分别有 slot/action、guard、CRC、quality 和禁止项。
+- [ ] 冻结 `VdcTDMATimestampEvidence`，字段单位统一为 ns，至少覆盖 expected_window_start、arm/start/done/apply timestamp、late_ns、jitter_ns、schedule_crc32、frame/sample CRC 和 `timestamp_resolution_ns`。
 - [ ] 冻结 `VdcReferenceClockTable`，首版固定 A0，后续支持 priority / failover。
 - [ ] 冻结 `VdcDpllState` 字段、单位、writer、reader 和 snapshot 策略。
 - [ ] 冻结 `VdcDcoControl`，覆盖 DPLL 输出到 core1/PIO 的 `base_local_tick64`、`base_vdc_time64_ns`、`period_adjust_ppb/rate_q32`、`phase_offset_ns`、`slew_limit_ppb` 和 `dco_update_seq`。
@@ -70,6 +72,9 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 实现 `local_tick -> vdc_time64_ns` 映射函数。
 - [ ] 实现 SYNC DPLL offset/rate 更新。
 - [ ] 实现 TDMA observation window 输入门禁：只有来自 active schedule、正确 reference slot、正确 schedule CRC 和同步窗口内的 timestamp sample 才能进入 DPLL。
+- [ ] 在 COM5/COM6 已验证 RefMem data TDMA 环路基础上，增加两板 `VDC_OBSERVATION_WINDOW` bring-up：X 输出 reference edge / sync frame，Y 捕获硬件 timestamp 并形成 `VdcDpllSample`，再反向或双向测量 delay/evidence。
+- [ ] 将当前 TDMA snapshot 的软件时间戳明确限定为诊断 evidence：若来源为 `time_us_64()*1000`，必须暴露 `timestamp_resolution_ns=1000`，不得进入 100 ns DPLL lock gate。
+- [ ] 增加硬实时 timestamp latch 路径：PIO/DMA/IRQ/core1 采集本地 tick，转换或映射为 ns 字段，并声明实际分辨率；DPLL 正式样本要求 `timestamp_resolution_ns <= 100`。
 - [ ] 实现 DCO snapshot 生成：DPLL 输出通过 `VdcDcoControl` 提交给 core1，core1 只读稳定 snapshot 并执行 slew/phase pull。
 - [ ] 实现 outlier gate、jitter window、phase error 和 frequency error 统计。
 - [ ] 实现 servo reset 策略，区分 step reset、profile reset、calibration reset 和 fault reset。
@@ -137,6 +142,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 验证 VDC unlocked 时禁止 RUN / `FIRE_LOAD`。
 - [ ] 验证 LOCKED 后 T2/READY timestamp 映射到 VDC 时间。
 - [ ] 验证 TDMA observation window 门禁：窗口外、schedule CRC 不匹配、reference slot 不匹配的样本不得进入 DPLL。
+- [ ] 验证两板 TDMA 硬件基础到 DPLL 输入链：COM5/COM6 在真实 PIO 25 MHz 环路中产出板端 timestamp evidence，报告 `timestamp_resolution_ns`、window late/jitter、sample CRC 和 phase error，不使用 host 侧耗时代替板端证据。
 - [ ] 验证 `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 收敛状态链，并记录 lock_time、RMS/peak offset 和 outlier ratio。
 - [ ] 验证 DCO slew/phase pull：core1 读取稳定 snapshot，late/半更新 snapshot 不得产生 FIRE_LOAD。
 - [ ] 验证低频驯服环：wander、temperature/aging compensation candidate 和 HOLDOVER drift bound 只影响 error budget 或下一轮 profile。

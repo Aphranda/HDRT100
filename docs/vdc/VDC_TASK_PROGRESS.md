@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-14
+Last updated: 2026-08-16
 
 本文档记录 Virtual Distributed Clock / VDC Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `VDC_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
@@ -42,6 +42,30 @@ VdcSyncAO
 首阶段先完成文档主域和架构边界，不修改代码。
 
 ## 任务记录
+
+### VDC-TASK-20260816-001 - Two-board TDMA baseline to DPLL input contract
+
+- 状态：完成文档收敛；代码和板端 DPLL 采样待实现
+- 日期：2026-08-16
+- 任务目标：
+  - 明确 COM5/COM6 两板真实 TDMA/PIO 环路已经形成后续 DPLL 的硬件基础。
+  - 防止把 RefMem frame 同步成功、host 侧耗时或微秒软件时间戳误判为 100 ns 级 DPLL evidence。
+  - 将 RefMem data TDMA window 和 VDC observation window 从架构上拆开。
+- 完成内容：
+  - `VDC_DOMAIN_ARCHITECTURE.md` 增加 Two-board TDMA hardware baseline，记录无 CS 3-wire PIO SPI、25 MHz、core1 realtime TDMA service 和 RefMem `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 的关系。
+  - 定义两类 TDMA 窗口：`REFMEM_DATA_WINDOW` 用于共同事实同步，`VDC_OBSERVATION_WINDOW` 用于 DPLL timestamp observation。
+  - 明确 DPLL 只能消费板端硬实时 timestamp sample；`time_us_64()*1000` 只能作为诊断时间戳，必须报告 `timestamp_resolution_ns=1000`，不得作为 100 ns evidence。
+  - `VDC_DOMAIN_TODO.md` 增加 `VdcTDMATimestampEvidence`、两板 observation window bring-up、timestamp resolution gate 和 COM5/COM6 板端 evidence 验证项。
+- 验证结果：
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+- 还需完成：
+  - 实现 PIO/DMA/IRQ/core1 timestamp latch，使 `timestamp_resolution_ns <= 100` 的样本进入 DPLL gate。
+  - 增加 COM5/COM6 板端脚本，记录 expected/observed/apply timestamp、late/jitter、sample CRC 和 phase error。
+- 关联文件：
+  - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+- 下一步：
+  - 清理当前 TDMA timestamp 代码草稿，确保过渡诊断字段不冒充 100 ns DPLL evidence；随后进入 `VDC_OBSERVATION_WINDOW` 的 C 结构和 SCPI snapshot 落地。
 
 ### VDC-TASK-20260814-005 - TDMA + DPLL 融合架构补充
 

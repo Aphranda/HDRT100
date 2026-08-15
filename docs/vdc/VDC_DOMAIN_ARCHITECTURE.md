@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-08-14
+Last updated: 2026-08-16
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Virtual Distributed Clock / VDC 内部主域。VDC Domain 不是对外 SCPI 主域，也不是 `SYNC_IO` 的一个普通算法函数，而是整个分布式硬实时系统的核心基础件，负责让多节点形成同一条可验证、可门禁、可报告的共同时间轴。
 
@@ -162,6 +162,58 @@ TDMA schedule 必须给 VDC 保留固定同步观测窗口。该窗口用于发�
 - 普通 RefMem delta、维护数据、日志、SD/OTA payload 不能进入同步观测窗口。
 - TDMA schedule 更新只能走 VDC/System Pack staging 和 activation，不得在 RUN 中热改窗口位置。
 - `schedule_crc32` 必须进入 VDC profile CRC 和 RefMem version bundle；不一致时拒绝 LOCK。
+
+#### Two-board TDMA Hardware Baseline
+
+当前 COM5/COM6 两块最小系统板已经形成真实物理环路。该环路使用无 CS 的 3-wire PIO SPI adapter，在 25 MHz 下通过 core1 realtime TDMA service 承载 RefMem `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 和 NodeLoad AUTO 同步。该结果说明：
+
+- 已具备 TDMA 承载 DPLL 的硬件基础：两板之间可以在受控窗口内完成真实 TX/RX，而不是依赖 PC 搬运 frame hex。
+- 当前已验证的是 RefMem data TDMA window 和 NodeLoad/quality 同步，不等价于 VDC DPLL 已锁定。
+- 当前链路已有 schedule、slot、direction、deadline、timeout、CRC 和 quality evidence 的雏形，但还缺少 DPLL 可用的硬件 timestamp evidence。
+- 后续 DPLL 只能消费 VDC observation window 产生的 timestamp sample，不能直接把 RefMem frame 成功、host 侧耗时或 `time_us_64()` 软件时间当作 100 ns 级同步证据。
+
+在该基线之上，VDC 需要把 TDMA 拆成两类窗口：
+
+| 窗口 | 用途 | 可承载内容 | 禁止 |
+|---|---|---|---|
+| `REFMEM_DATA_WINDOW` | 分布式共同事实同步。 | `DELTA/ACK_NACK/FENCE/QUALITY`、NodeLoad、quality evidence。 | 计算 offset/rate，发布 VDC lock。 |
+| `VDC_OBSERVATION_WINDOW` | DPLL 时间观测。 | reference edge、SYNC timestamp、compact timestamp、sample CRC。 | 普通 RefMem delta、SD/OTA payload、维护日志。 |
+
+`REFMEM_DATA_WINDOW` 可以复用现有 PIO SPI physical adapter 和 TDMA mailbox；`VDC_OBSERVATION_WINDOW` 必须增加硬件 timestamp latch，形成 `expected_ns / observed_ns / delay_ns / phase_error_ns / quality_flags` 样本后再交给 `VdcSyncAO / SyncDpllFB`。
+
+首版两板 DPLL bring-up 建议采用固定 reference：
+
+```text
+Board X: reference slot
+  -> 在 VDC_OBSERVATION_WINDOW 输出 reference edge / sync frame
+
+Board Y: follower slot
+  -> 在同一窗口捕获 RX edge timestamp
+  -> 校验 schedule_crc32、reference_slot_id、seq、CRC、window bound
+  -> 形成 VdcDpllSample
+  -> SyncDpllFB 更新 offset/rate/quality
+
+反向或双向测量:
+  -> 用于 delay 校准、对称性检查和 fault evidence
+```
+
+该过程必须保留 HAOFV owner 边界：
+
+- TDMA/core1/PIO 只执行窗口和采样。
+- Timestamp service 只展开 compact timestamp、扩展 tick 和写样本 ring。
+- `VdcSyncAO / SyncDpllFB` 是 offset/rate/lock 的唯一 writer。
+- RefMem 只镜像 VDC snapshot、quality、fault 和 evidence，不计算 DPLL。
+- SCPI 只配置 staging profile、发起动作事务或读取 snapshot。
+
+100 ns 目标的工程门禁如下：
+
+| 项 | 要求 |
+|---|---|
+| 时间单位 | 所有 TDMA/DPLL timestamp 字段统一使用 `ns`。 |
+| 分辨率声明 | snapshot 必须暴露 `timestamp_resolution_ns`，不能只靠字段名暗示精度。 |
+| DPLL 准入 | `timestamp_resolution_ns <= 100` 且样本来自硬实时 latch，才允许进入正式 DPLL lock gate。 |
+| 过渡实现 | `time_us_64() * 1000` 只能作为诊断时间戳，必须报告 `timestamp_resolution_ns=1000`，不得作为 100 ns evidence。 |
+| 观测字段 | 至少包含 expected window start、arm/start/done/apply timestamp、late_ns、jitter_ns、schedule_crc32 和 frame/sample CRC。 |
 
 #### DPLL Servo And DCO Contract
 
