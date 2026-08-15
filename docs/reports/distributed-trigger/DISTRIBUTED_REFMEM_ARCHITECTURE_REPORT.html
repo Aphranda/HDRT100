@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Distributed RefMem Architecture 架构报告</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+body { font-family:"等线","SimSun","Microsoft YaHei",sans-serif; background:#d0d0d0; display:flex; flex-direction:column; align-items:center; padding:20px; gap:24px; }
+@media print {
+  @page { size:1120px 630px; margin:0; }
+  body { background:#fff; padding:0; gap:0; }
+  .page { box-shadow:none; margin:0; width:1120px; min-height:630px; break-after:page; page-break-after:always; break-inside:avoid; page-break-inside:avoid; }
+}
+.page { background:#fff; width:1120px; min-height:630px; box-shadow:0 2px 8px rgba(0,0,0,.15); display:flex; flex-direction:column; }
+.page-header { padding:16px 44px 12px; display:flex; justify-content:space-between; align-items:center; border-bottom:8px solid #d0d6e4; min-height:60px; font-size:12px; color:#666; }
+.main { flex:1; display:flex; flex-direction:column; justify-content:center; padding:16px 44px; min-height:0; }
+.page-footer { padding:10px 44px 14px; border-top:8px solid #d0d6e4; display:flex; justify-content:space-between; align-items:center; font-size:9px; color:#aaa; }
+.page-num { font-size:10px; color:#999; }
+.cover-page { justify-content:center; align-items:center; text-align:center; }
+.cover-page .page-header { padding-top:48px; justify-content:space-between; }
+.cover-title { font-size:31px; font-weight:800; color:#1a1a1a; margin-bottom:12px; line-height:1.25; }
+.cover-divider { width:80px; height:4px; background:#1F3864; margin:28px auto; }
+.cover-subtitle { font-size:16px; color:#1F3864; margin-bottom:52px; }
+.cover-info { font-size:14px; color:#666; line-height:2; }
+.h1 { font-size:24px; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
+.sub { font-size:13px; color:#666; margin-bottom:18px; }
+.h2 { font-size:16px; font-weight:700; color:#1F3864; margin:14px 0 8px; padding-bottom:6px; border-bottom:2px solid #1F3864; }
+.row2 { display:flex; gap:20px; }
+.row3 { display:flex; gap:16px; }
+.col2,.col3 { flex:1; min-width:0; }
+table { width:100%; border-collapse:collapse; font-size:12px; border:1.5px solid #333; margin-bottom:12px; }
+thead th { background:#1F3864; color:#fff; font-size:12px; font-weight:600; padding:8px 10px; text-align:left; border:1px solid #1a2e52; }
+tbody td { padding:7px 10px; border:1px solid #bbb; color:#1a1a1a; vertical-align:top; line-height:1.45; }
+tbody tr:nth-child(even) td { background:#f2f6fc; }
+td.c, th.c { text-align:center; }
+td.b { font-weight:700; }
+.card { border:1px solid #ddd; border-radius:6px; overflow:hidden; flex:1; height:100%; }
+.card-h { padding:9px 13px; font-size:13px; font-weight:700; color:#fff; display:flex; align-items:center; gap:8px; }
+.card-b { padding:12px 14px; background:#fafafa; font-size:12px; line-height:1.55; min-height:118px; }
+.cb .card-h { background:#1565c0; } .cg .card-h { background:#2e7d32; } .co .card-h { background:#e65100; } .cp .card-h { background:#6a1b9a; }
+.bar { margin-top:10px; padding:11px 18px; background:linear-gradient(90deg,#1F3864,#283593); color:#fff; border-radius:4px; text-align:center; font-size:13px; font-weight:600; }
+.bar span { color:#ffcc80; font-size:15px; }
+.flow { display:flex; align-items:flex-start; gap:0; padding:6px 0 14px; }
+.step { flex:1; text-align:center; }
+.step-num { width:36px; height:36px; border-radius:50%; background:#1F3864; color:#fff; font-size:14px; font-weight:700; display:flex; align-items:center; justify-content:center; margin:0 auto 7px; }
+.step-title { font-size:12px; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
+.step-desc { font-size:10.5px; color:#555; line-height:1.35; padding:0 4px; }
+.arrow { display:flex; align-items:center; padding-top:7px; flex-shrink:0; }
+.arrow-l { width:26px; height:3px; background:#1F3864; }
+.arrow-h { width:0; height:0; border-top:6px solid transparent; border-bottom:6px solid transparent; border-left:11px solid #1F3864; }
+.img-wrap { text-align:center; margin-bottom:11px; border:1px solid #e0e0e0; border-radius:4px; padding:7px; background:#fafafa; }
+svg text { font-family:"等线","Microsoft YaHei",sans-serif; }
+.note { font-size:10px; color:#777; line-height:1.45; margin-top:6px; }
+.val { font-family:"Consolas","Courier New",monospace; font-weight:700; }
+.compact-page .main { justify-content:flex-start; padding-top:12px; padding-bottom:10px; }
+.compact-page .h1 { font-size:22px; margin-bottom:3px; }
+.compact-page .sub { font-size:12.4px; margin-bottom:11px; }
+.compact-page .h2 { font-size:15.2px; margin:9px 0 6px; padding-bottom:4px; }
+.compact-page table { font-size:11.7px; margin-bottom:8px; }
+.compact-page thead th { font-size:11.7px; padding:5px 9px; }
+.compact-page tbody td { padding:4.5px 9px; line-height:1.34; }
+.compact-page .bar { margin-top:5px; padding:8px 14px; font-size:12.2px; }
+.compact-page .bar span { font-size:13px; }
+.tight table { font-size:10.8px; }
+.tight thead th { font-size:10.8px; padding:5px 7px; }
+.tight tbody td { padding:4.2px 7px; line-height:1.28; }
+</style>
+</head>
+<body>
+<div class="page cover-page">
+  <div class="page-header"><span>Distributed RefMem Architecture</span><span>Detailed Report</span></div>
+  <div class="main">
+    <h1 class="cover-title">Distributed RefMem<br>Architecture 架构报告</h1>
+    <div class="cover-divider"></div>
+    <div class="cover-subtitle">HAOFV · Fixed Vector Regions · A0-A7 Logical Slots · RMTP 九表模型 · TDMA/VDC 同步闭环</div>
+    <div class="cover-info">DTC100 / RP2350B 当前产品化架构 &nbsp;|&nbsp; 2026 年 8 月<br>详细版，用于反射内存基础件、最小系统板同步和后续代码闭环审核</div>
+  </div>
+  <div class="page-footer"><span>Distributed RefMem Architecture | Detailed Report</span><span><span class="page-num">1 / 9</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><span>Distributed RefMem Architecture</span><span>HAOFV Layering</span></div>
+  <div class="main">
+    <div class="h1">总体定位：RefMem 是共同事实基础件，不是业务执行层</div>
+    <div class="sub">RefMem Domain 回答“全系统当前共同事实是什么”，VDC 回答“共同时间是什么”，Trigger/Loop/core1/PIO 才回答“何时输出边沿”。</div>
+    <div class="img-wrap">
+      <svg viewBox="0 0 1000 300">
+        <defs><marker id="arr1" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0,0 10,4 0,8" fill="#1F3864"/></marker></defs>
+        <rect x="100" y="18" width="800" height="36" rx="5" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/><text x="500" y="42" text-anchor="middle" font-size="14" font-weight="700">SCPI / UI / System Pack：只提交 intent、查询 snapshot、写 staging package</text>
+        <rect x="100" y="72" width="800" height="42" rx="5" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/><text x="500" y="96" text-anchor="middle" font-size="14" font-weight="700">SystemAO / ConfigGate / Domain AO：生命周期、门禁、状态迁移和 owner validation</text>
+        <rect x="100" y="132" width="245" height="62" rx="5" fill="#fff3e0" stroke="#e65100" stroke-width="2"/><text x="222" y="157" text-anchor="middle" font-size="14" font-weight="700">Distributed RefMem</text><text x="222" y="177" text-anchor="middle" font-size="11">共同事实、表镜像、ACK、quality、evidence</text>
+        <rect x="378" y="132" width="245" height="62" rx="5" fill="#ede7f6" stroke="#512da8" stroke-width="2"/><text x="500" y="157" text-anchor="middle" font-size="14" font-weight="700">VDC Domain</text><text x="500" y="177" text-anchor="middle" font-size="11">共同时间、offset/rate、DPLL、holdover</text>
+        <rect x="655" y="132" width="245" height="62" rx="5" fill="#fce4ec" stroke="#ad1457" stroke-width="2"/><text x="778" y="157" text-anchor="middle" font-size="14" font-weight="700">Trigger / Loop</text><text x="778" y="177" text-anchor="middle" font-size="11">序列、角度阈、T_fire_base、FIRE_LOAD</text>
+        <rect x="100" y="226" width="800" height="42" rx="5" fill="#fafafa" stroke="#546e7a" stroke-width="2"/><text x="500" y="250" text-anchor="middle" font-size="14" font-weight="700">core1 realtime / PIO / DMA / Transport Adapter：硬实时小载荷、timestamp、边沿输出</text>
+        <line x1="500" y1="54" x2="500" y2="72" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr1)"/>
+        <line x1="500" y1="114" x2="500" y2="132" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr1)"/>
+        <line x1="222" y1="194" x2="222" y2="226" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr1)"/>
+        <line x1="500" y1="194" x2="500" y2="226" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr1)"/>
+        <line x1="778" y1="194" x2="778" y2="226" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr1)"/>
+        <path d="M345 163 H378" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr1)"/><path d="M623 163 H655" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr1)"/>
+      </svg>
+    </div>
+    <table>
+      <thead><tr><th>层级</th><th>输入</th><th>输出</th><th>禁止事项</th></tr></thead>
+      <tbody>
+        <tr><td class="b">SCPI/UI</td><td>测试员、调试上位机、System Pack 文件</td><td>配置/动作意图、Storage 写事务、RefMem load intent</td><td>直接写 active region、直接改业务状态、绕过 AO/FB owner</td></tr>
+        <tr><td class="b">AO/FB owner</td><td>事件、命令槽、staging package、snapshot</td><td>状态迁移、owner validation、RUN gate、ACK/NACK</td><td>跨域直接写事实字段、运行中热替换 active image</td></tr>
+        <tr><td class="b">RefMem Domain</td><td>owner 发布的小事实、RMTP 表镜像、同步帧</td><td>64 KB fixed regions、active/staging/rollbackable、quality/evidence</td><td>承载 SD 文件、OTA payload、日志全文或业务波形</td></tr>
+        <tr><td class="b">core1/PIO</td><td>FIRE_LOAD、TDMA intent、timestamp ring</td><td>指定 tick 边沿、capture timestamp、最小 realtime summary</td><td>访问 SCPI/SD/USB、计算 VDC offset/rate、写完整表数据</td></tr>
+      </tbody>
+    </table>
+    <div class="bar">关键边界：<span>Vector region 是固定事实存储区；A0-A7 才是可装载逻辑 slot。</span></div>
+  </div>
+  <div class="page-footer"><span>Distributed RefMem Architecture | Detailed Report</span><span><span class="page-num">2 / 9</span></span></div>
+</div>
+
+<div class="page compact-page tight">
+  <div class="page-header"><span>Distributed RefMem Architecture</span><span>64 KB Capacity Map</span></div>
+  <div class="main">
+    <div class="h1">64 KB Distributed Vector：16 个固定 Region，而不是 16 个可替换槽</div>
+    <div class="sub">Vector directory 固定 16 项，总大小 65536 字节；任何 offset/size/顺序变化都必须提升 layout_version。</div>
+    <div class="img-wrap">
+      <svg viewBox="0 0 1000 150">
+        <rect x="40" y="36" width="920" height="32" fill="#f5f5f5" stroke="#333" stroke-width="1.5"/>
+        <g font-size="9" fill="#111">
+          <rect x="40" y="36" width="14.375" height="32" fill="#bbdefb"/><text x="47" y="29" text-anchor="middle">Hdr</text>
+          <rect x="54.375" y="36" width="14.375" height="32" fill="#c8e6c9"/><text x="61.5" y="82" text-anchor="middle">Sys</text>
+          <rect x="68.75" y="36" width="28.75" height="32" fill="#dcedc8"/><text x="83" y="29" text-anchor="middle">Role</text>
+          <rect x="97.5" y="36" width="28.75" height="32" fill="#ede7f6"/><text x="112" y="82" text-anchor="middle">VDC</text>
+          <rect x="126.25" y="36" width="57.5" height="32" fill="#ffe0b2"/><text x="155" y="29" text-anchor="middle">Loop</text>
+          <rect x="183.75" y="36" width="28.75" height="32" fill="#f8bbd0"/><text x="198" y="82" text-anchor="middle">DPLL</text>
+          <rect x="212.5" y="36" width="57.5" height="32" fill="#e1f5fe"/><text x="241" y="29" text-anchor="middle">Node[8]</text>
+          <rect x="270" y="36" width="115" height="32" fill="#ffccbc"/><text x="327" y="82" text-anchor="middle">Trigger[8]</text>
+          <rect x="385" y="36" width="115" height="32" fill="#d7ccc8"/><text x="442" y="29" text-anchor="middle">IO[8]</text>
+          <rect x="500" y="36" width="115" height="32" fill="#c5cae9"/><text x="557" y="82" text-anchor="middle">Calibration</text>
+          <rect x="615" y="36" width="115" height="32" fill="#b2dfdb"/><text x="672" y="29" text-anchor="middle">Statistics</text>
+          <rect x="730" y="36" width="57.5" height="32" fill="#fff9c4"/><text x="759" y="82" text-anchor="middle">AckCmd</text>
+          <rect x="787.5" y="36" width="86.25" height="32" fill="#ffcdd2"/><text x="831" y="29" text-anchor="middle">Fault</text>
+          <rect x="873.75" y="36" width="28.75" height="32" fill="#d1c4e9"/><text x="888" y="82" text-anchor="middle">GW</text>
+          <rect x="902.5" y="36" width="28.75" height="32" fill="#cfd8dc"/><text x="917" y="29" text-anchor="middle">Svc</text>
+          <rect x="931.25" y="36" width="28.75" height="32" fill="#f0f4c3"/><text x="945" y="82" text-anchor="middle">TLV</text>
+        </g>
+        <text x="40" y="110" font-size="11" fill="#666">0x0000</text><text x="930" y="110" font-size="11" fill="#666">0x10000 / 65536 B</text>
+        <text x="500" y="132" text-anchor="middle" font-size="12" font-weight="700" fill="#1F3864">Fixed Region Directory: region_count=16, directory_crc32 protects offset/size/order</text>
+      </svg>
+    </div>
+    <table>
+      <thead><tr><th>Region</th><th class="c">ID</th><th class="c">Offset</th><th class="c">Size</th><th>内容</th><th>唯一写入边界</th></tr></thead>
+      <tbody>
+        <tr><td class="b">Header/Directory</td><td class="c">0</td><td class="c val">0x0000</td><td class="c">1 KB</td><td>magic、layout、region directory、CRC、core/flash lockout 摘要</td><td>RefMem Domain</td></tr>
+        <tr><td class="b">SystemRegion</td><td class="c">1</td><td class="c val">0x0400</td><td class="c">1 KB</td><td>system mode、run_id、fault latch、release gate</td><td>SystemAO / ConfigGate</td></tr>
+        <tr><td class="b">RoleRegion</td><td class="c">2</td><td class="c val">0x0800</td><td class="c">2 KB</td><td>role map、hw_profile、persona、feature mask</td><td>SystemAO / profile loader</td></tr>
+        <tr><td class="b">VdcRegion</td><td class="c">3</td><td class="c val">0x1000</td><td class="c">2 KB</td><td>VDC snapshot、offset/rate、lock quality、holdover</td><td>VdcSyncAO / SyncDpllFB</td></tr>
+        <tr><td class="b">LoopRegion</td><td class="c">4</td><td class="c val">0x1800</td><td class="c">4 KB</td><td>active sequence、angle threshold、scan index、T_fire_base 摘要</td><td>LoopEngineAO</td></tr>
+        <tr><td class="b">DpllRegion</td><td class="c">5</td><td class="c val">0x2800</td><td class="c">2 KB</td><td>角度预测 DPLL 状态、compare 捕获、e_pll</td><td>AngleDpll owner</td></tr>
+        <tr><td class="b">NodeRegion[8]</td><td class="c">6</td><td class="c val">0x3000</td><td class="c">4 KB</td><td>A0-A7 心跳、装载摘要、状态、错误、stale</td><td>节点 owner / RefMem Sync mirror</td></tr>
+        <tr><td class="b">TriggerRegion[8]</td><td class="c">7</td><td class="c val">0x4000</td><td class="c">8 KB</td><td>armed、fire seq、late、T2、ready timeout</td><td>core1 realtime 摘要 owner</td></tr>
+        <tr><td class="b">IoRegion[8]</td><td class="c">8</td><td class="c val">0x6000</td><td class="c">8 KB</td><td>SMA/RJ45/BiSS/模型信号、边沿计数、链路状态</td><td>IO owner / LinkSwitcherAO</td></tr>
+        <tr><td class="b">CalibrationRegion</td><td class="c">9</td><td class="c val">0x8000</td><td class="c">8 KB</td><td>link delay、cal CRC、staging/active/version/quality</td><td>CalibrationAO</td></tr>
+        <tr><td class="b">StatisticsRegion</td><td class="c">10</td><td class="c val">0xA000</td><td class="c">8 KB</td><td>e_vdc/e_act/e_pll、p99/p999、CRC/seq/late 分布</td><td>Statistics / Measure owner</td></tr>
+        <tr><td class="b">AckCommandRegion</td><td class="c">11</td><td class="c val">0xC000</td><td class="c">4 KB</td><td>command seq、ACK/NACK、busy、timeout、reason</td><td>Command owner + target ACK</td></tr>
+        <tr><td class="b">FaultEvidenceRegion</td><td class="c">12</td><td class="c val">0xD000</td><td class="c">6 KB</td><td>fault_code、source、epoch/run、关键证据索引</td><td>SystemAO / DiagnosticsAO</td></tr>
+        <tr><td class="b">GatewayRegion</td><td class="c">13</td><td class="c val">0xE800</td><td class="c">2 KB</td><td>A3/VNA/host 状态、采集状态</td><td>GatewayAO</td></tr>
+        <tr><td class="b">ServiceRegion</td><td class="c">14</td><td class="c val">0xF000</td><td class="c">2 KB</td><td>OTA、Storage、UI、维护摘要</td><td>对应 service owner</td></tr>
+        <tr><td class="b">TlvExtension</td><td class="c">15</td><td class="c val">0xF800</td><td class="c">2 KB</td><td>versioned TLV、未来扩展</td><td>owner by TLV type</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>Distributed RefMem Architecture | Detailed Report</span><span><span class="page-num">3 / 9</span></span></div>
+</div>
+
+<div class="page compact-page">
+  <div class="page-header"><span>Distributed RefMem Architecture</span><span>64 KB Block Diagram</span></div>
+  <div class="main">
+    <div class="h1">64 KB 容量框图：固定地址空间、固定 region 目录、固定 owner 边界</div>
+    <div class="sub">这张图按真实地址递增展开 64 KB Distributed Vector；它表达内存定义区，不表达节点装载槽。</div>
+    <div class="img-wrap">
+      <svg viewBox="0 0 1000 390">
+        <defs>
+          <linearGradient id="memg" x1="0" x2="1"><stop offset="0%" stop-color="#e3f2fd"/><stop offset="100%" stop-color="#f8fbff"/></linearGradient>
+        </defs>
+        <rect x="58" y="26" width="884" height="332" rx="8" fill="#fff" stroke="#1F3864" stroke-width="2.5"/>
+        <text x="500" y="20" text-anchor="middle" font-size="13" font-weight="700" fill="#1F3864">DistributedVectorTable = 65536 B / 0x10000, layout_version=1, region_count=16</text>
+
+        <g font-size="10.5">
+          <rect x="78" y="44" width="150" height="28" fill="#bbdefb" stroke="#555"/><text x="86" y="62">0x0000 Header 1KB</text>
+          <rect x="228" y="44" width="150" height="28" fill="#c8e6c9" stroke="#555"/><text x="236" y="62">0x0400 System 1KB</text>
+          <rect x="378" y="44" width="150" height="28" fill="#dcedc8" stroke="#555"/><text x="386" y="62">0x0800 Role 2KB</text>
+          <rect x="528" y="44" width="150" height="28" fill="#ede7f6" stroke="#555"/><text x="536" y="62">0x1000 VDC 2KB</text>
+          <rect x="678" y="44" width="244" height="28" fill="#ffe0b2" stroke="#555"/><text x="686" y="62">0x1800 Loop 4KB</text>
+
+          <rect x="78" y="92" width="150" height="28" fill="#f8bbd0" stroke="#555"/><text x="86" y="110">0x2800 DPLL 2KB</text>
+          <rect x="228" y="92" width="244" height="28" fill="#e1f5fe" stroke="#555"/><text x="236" y="110">0x3000 NodeRegion[8] 4KB</text>
+          <rect x="472" y="92" width="450" height="28" fill="#ffccbc" stroke="#555"/><text x="480" y="110">0x4000 TriggerRegion[8] 8KB</text>
+
+          <rect x="78" y="140" width="422" height="28" fill="#d7ccc8" stroke="#555"/><text x="86" y="158">0x6000 IoRegion[8] 8KB</text>
+          <rect x="500" y="140" width="422" height="28" fill="#c5cae9" stroke="#555"/><text x="508" y="158">0x8000 CalibrationRegion 8KB</text>
+
+          <rect x="78" y="188" width="422" height="28" fill="#b2dfdb" stroke="#555"/><text x="86" y="206">0xA000 StatisticsRegion 8KB</text>
+          <rect x="500" y="188" width="211" height="28" fill="#fff9c4" stroke="#555"/><text x="508" y="206">0xC000 AckCommand 4KB</text>
+          <rect x="711" y="188" width="211" height="28" fill="#ffcdd2" stroke="#555"/><text x="719" y="206">0xD000 Fault 6KB</text>
+
+          <rect x="78" y="236" width="211" height="28" fill="#d1c4e9" stroke="#555"/><text x="86" y="254">0xE800 Gateway 2KB</text>
+          <rect x="289" y="236" width="211" height="28" fill="#cfd8dc" stroke="#555"/><text x="297" y="254">0xF000 Service 2KB</text>
+          <rect x="500" y="236" width="211" height="28" fill="#f0f4c3" stroke="#555"/><text x="508" y="254">0xF800 TLV 2KB</text>
+          <rect x="711" y="236" width="211" height="28" fill="#fff" stroke="#555" stroke-dasharray="5 3"/><text x="719" y="254">0x10000 End</text>
+        </g>
+
+        <rect x="78" y="296" width="270" height="44" rx="5" fill="url(#memg)" stroke="#1565c0" stroke-width="1.6"/>
+        <text x="213" y="314" text-anchor="middle" font-size="12" font-weight="700">Region Directory</text>
+        <text x="213" y="333" text-anchor="middle" font-size="10.5">16 × {offset,size} + directory_crc32</text>
+        <rect x="365" y="296" width="270" height="44" rx="5" fill="#fff3e0" stroke="#e65100" stroke-width="1.6"/>
+        <text x="500" y="314" text-anchor="middle" font-size="12" font-weight="700">Table Image 不在 Vector 内</text>
+        <text x="500" y="333" text-anchor="middle" font-size="10.5">RMTP bytes 存 TableRegistry buffer / SD file</text>
+        <rect x="652" y="296" width="270" height="44" rx="5" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.6"/>
+        <text x="787" y="314" text-anchor="middle" font-size="12" font-weight="700">A0-A7 不等于 Region 0-7</text>
+        <text x="787" y="333" text-anchor="middle" font-size="10.5">A0-A7 是 logical slot，由 NodeLoad/SlotClaim 管理</text>
+      </svg>
+    </div>
+    <div class="row2">
+      <div class="col2">
+        <table>
+          <thead><tr><th>容量组</th><th>合计</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="b">控制与配置区</td><td>1+1+2+4 KB</td><td>Header、System、Role、Loop，承载布局、模式、profile 和序列摘要。</td></tr>
+            <tr><td class="b">同步与实时区</td><td>2+2+8 KB</td><td>VDC、DPLL、Trigger，承载共同时间、角度预测和硬实时执行摘要。</td></tr>
+            <tr><td class="b">节点与 IO 区</td><td>4+8 KB</td><td>NodeRegion[8] 和 IoRegion[8]，承载 A0-A7 心跳、装载摘要和 IO 镜像。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col2">
+        <table>
+          <thead><tr><th>容量组</th><th>合计</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="b">校准/统计/证据</td><td>8+8+6 KB</td><td>Calibration、Statistics、FaultEvidence，支持 T2、quality 和报告闭环。</td></tr>
+            <tr><td class="b">命令与服务</td><td>4+2+2+2 KB</td><td>AckCommand、Gateway、Service、TLV，支持维护、网关和扩展摘要。</td></tr>
+            <tr><td class="b">总容量</td><td class="val">64 KB</td><td>所有 region 精确覆盖到 `0x10000`，directory 校验必须验证表尾精确覆盖。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Distributed RefMem Architecture | Detailed Report</span><span><span class="page-num">4 / 9</span></span></div>
+</div>
+
+<div class="page compact-page">
+  <div class="page-header"><span>Distributed RefMem Architecture</span><span>A0-A7 Slots And 9 Tables</span></div>
+  <div class="main">
+    <div class="h1">逻辑槽位与静态模型：节点可加载到任意 A0-A7，表必须整体激活</div>
+    <div class="sub">A0-A7 是全环唯一逻辑 slot substrate；BoardCapability 是多板能力资源综合表；节点实例由 NodeLoad 绑定到 slot。</div>
+    <div class="row2">
+      <div class="col2">
+        <div class="h2">A0-A7 逻辑 slot 语义</div>
+        <table>
+          <thead><tr><th>对象</th><th>含义</th><th>上限/容量</th></tr></thead>
+          <tbody>
+            <tr><td class="b">A0-A7</td><td>全环 8 个可装载逻辑 slot，不固定产品角色。</td><td>active slot count = 8</td></tr>
+            <tr><td class="b">同板多实例</td><td>一块板可加载模拟网分和模拟转台等多个实例。</td><td>candidate proposal max = 16</td></tr>
+            <tr><td class="b">NodeRegion[8]</td><td>只保存 A0-A7 心跳和装载摘要，不是新 slot 空间。</td><td>8 × 512 B = 4 KB</td></tr>
+            <tr><td class="b">SlotClaimMap</td><td>协调 physical board 到 logical slot 的 active assignment。</td><td>overflow 必须进入 evidence</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col2">
+        <div class="h2">九张静态表容量</div>
+        <table>
+          <thead><tr><th>ID</th><th>表</th><th class="c">条目数</th><th>作用</th></tr></thead>
+          <tbody>
+            <tr><td class="c">0</td><td class="b">ApplicationMap</td><td class="c">1</td><td>application/profile/layout/target mask</td></tr>
+            <tr><td class="c">1</td><td class="b">BoardCapability</td><td class="c">8</td><td>多板能力、IO、IP 核、默认 persona</td></tr>
+            <tr><td class="c">2</td><td class="b">GenericNode</td><td class="c">8</td><td>通用 slot 基座、claim policy、fail policy</td></tr>
+            <tr><td class="c">3</td><td class="b">NodeLoad</td><td class="c">11</td><td>profile 到 A0-A7 的实例装载</td></tr>
+            <tr><td class="c">4</td><td class="b">FbInstance</td><td class="c">11</td><td>AO/FB 实例、owner、资源、region ref</td></tr>
+            <tr><td class="c">5</td><td class="b">EventLink</td><td class="c">11</td><td>START/STOP/FIRE/DONE/FAULT/ACK 事件路径</td></tr>
+            <tr><td class="c">6</td><td class="b">DataLink</td><td class="c">14</td><td>region_path、writer、reader、生命周期、快照策略</td></tr>
+            <tr><td class="c">7</td><td class="b">DeploymentGate</td><td class="c">11</td><td>layout/node/instance/resource/io/writer/event/data/config/cal/quality</td></tr>
+            <tr><td class="c">8</td><td class="b">ConnectionQuality</td><td class="c">8</td><td>stale、CRC、seq、late、drop、timeout、evidence</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="img-wrap">
+      <svg viewBox="0 0 1000 190">
+        <defs><marker id="arr2" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0,0 10,4 0,8" fill="#1F3864"/></marker></defs>
+        <rect x="40" y="26" width="180" height="48" rx="5" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/><text x="130" y="48" text-anchor="middle" font-size="13" font-weight="700">BoardCapability</text><text x="130" y="64" text-anchor="middle" font-size="10">physical board resources</text>
+        <rect x="280" y="26" width="180" height="48" rx="5" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/><text x="370" y="48" text-anchor="middle" font-size="13" font-weight="700">GenericNode</text><text x="370" y="64" text-anchor="middle" font-size="10">A0-A7 substrate</text>
+        <rect x="520" y="26" width="180" height="48" rx="5" fill="#fff3e0" stroke="#e65100" stroke-width="2"/><text x="610" y="48" text-anchor="middle" font-size="13" font-weight="700">NodeLoad</text><text x="610" y="64" text-anchor="middle" font-size="10">slot -> instance load</text>
+        <rect x="760" y="26" width="180" height="48" rx="5" fill="#ede7f6" stroke="#512da8" stroke-width="2"/><text x="850" y="48" text-anchor="middle" font-size="13" font-weight="700">Fb/Event/Data</text><text x="850" y="64" text-anchor="middle" font-size="10">owner, link, writer</text>
+        <rect x="210" y="118" width="580" height="48" rx="5" fill="#f5f5f5" stroke="#546e7a" stroke-width="2"/><text x="500" y="141" text-anchor="middle" font-size="14" font-weight="700">Node Model Candidate -> RMTP Package Image -> TableRegistry staging</text><text x="500" y="158" text-anchor="middle" font-size="10.5">单张表可单独生成和校验，但进入 active 必须合并为完整 9 表 package</text>
+        <line x1="220" y1="50" x2="280" y2="50" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr2)"/>
+        <line x1="460" y1="50" x2="520" y2="50" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr2)"/>
+        <line x1="700" y1="50" x2="760" y2="50" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr2)"/>
+        <path d="M130 74 V98 H500 V118" fill="none" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr2)"/>
+        <path d="M850 74 V98 H500 V118" fill="none" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr2)"/>
+      </svg>
+    </div>
+    <div class="bar">规则：<span>产品路径不存在“单表 active”；LOAD:NODE/BOARD 只是 draft，最终必须生成完整 RMTP image。</span></div>
+  </div>
+  <div class="page-footer"><span>Distributed RefMem Architecture | Detailed Report</span><span><span class="page-num">5 / 9</span></span></div>
+</div>
+
+<div class="page compact-page">
+  <div class="page-header"><span>Distributed RefMem Architecture</span><span>RMTP And Activation</span></div>
+  <div class="main">
+    <div class="h1">加载与激活：Storage 写文件，RefMem 只加载表镜像，active 切换必须可回滚</div>
+    <div class="sub">向量表不承载 `.rmtp` bytes；TableRegistry 私有 buffer 保存 active/staging/rollbackable image，Vector 只暴露 CRC、状态和 evidence。</div>
+    <div class="flow">
+      <div class="step"><div class="step-num">1</div><div class="step-title">StorageAO</div><div class="step-desc">写入 /refmem/app_model.rmtp，校验文件 CRC</div></div><div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-title">LOAD:SD / INLINE</div><div class="step-desc">SCPI 提交 load intent，不直接写 active</div></div><div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-title">Package Check</div><div class="step-desc">magic、size、payload CRC、per-table CRC</div></div><div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-title">Owner Validate</div><div class="step-desc">字段范围、writer、资源、IO、门禁</div></div><div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step"><div class="step-num">5</div><div class="step-title">ACTivate</div><div class="step-desc">staging -> active，旧 active -> rollbackable</div></div>
+    </div>
+    <div class="row2">
+      <div class="col2">
+        <div class="h2">RMTP 容量契约</div>
+        <table>
+          <thead><tr><th>项目</th><th>当前值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="b">Package magic</td><td class="val">RMTP</td><td>RefMem Table Package</td></tr>
+            <tr><td class="b">Header</td><td>64 B</td><td>format、total_size、table_count、payload_crc32、package_crc32</td></tr>
+            <tr><td class="b">Directory</td><td>9 × 16 B</td><td>table_id、offset、size、crc32</td></tr>
+            <tr><td class="b">Table count</td><td>9</td><td>ApplicationMap 到 ConnectionQuality</td></tr>
+            <tr><td class="b">Image buffer</td><td>8192 B</td><td>TableRegistry active/staging/rollbackable 私有 buffer 上限</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col2">
+        <div class="h2">激活 Gate</div>
+        <table>
+          <thead><tr><th>Gate</th><th>通过条件</th><th>失败行为</th></tr></thead>
+          <tbody>
+            <tr><td class="b">RefMem idle</td><td>load mode IDLE，无并发表事务</td><td>NACK / busy evidence</td></tr>
+            <tr><td class="b">Realtime idle</td><td>core1/trigger/sequence/pulse counter 可 park</td><td>保留 staging</td></tr>
+            <tr><td class="b">Flash safe</td><td>RAM-resident、lockout/park、entry owner 有证据</td><td>拒绝 activation</td></tr>
+            <tr><td class="b">CRC + owner</td><td>CRC_OK 与 OWNER_OK 不能混淆</td><td>FAILED + first_bad_table</td></tr>
+            <tr><td class="b">Slot/Gate</td><td>SlotClaim、DeploymentGate、quality 通过</td><td>禁止进入 RUN</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>入口</th><th>输入产物</th><th>合并规则</th><th>最终 TableRegistry 产物</th></tr></thead>
+      <tbody>
+        <tr><td class="b">LOAD:SD</td><td>SD 上完整 `.rmtp`</td><td>直接解析 9 表 package</td><td>原始 package image</td></tr>
+        <tr><td class="b">LOAD:NODE</td><td>一条 NodeLoad 候选</td><td>active 9 表 + NodeLoad draft + BoardCapability draft</td><td>新生成的完整 9 表 inline RMTP image</td></tr>
+        <tr><td class="b">LOAD:BOARD</td><td>一条 BoardCapability 候选</td><td>active 9 表 + BoardCapability draft + NodeLoad draft</td><td>新生成的完整 9 表 inline RMTP image</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>Distributed RefMem Architecture | Detailed Report</span><span><span class="page-num">6 / 9</span></span></div>
+</div>
+
+<div class="page">
+  <div class="page-header"><span>Distributed RefMem Architecture</span><span>Sync / TDMA / VDC Closed Loop</span></div>
+  <div class="main">
+    <div class="h1">同步闭环：RefMem 是 core0 状态机，TDMA/PIO 是最小真实物理链路</div>
+    <div class="sub">首版最小系统板优先用 PIO SPI 承载 DELTA/ACK/FENCE/QUALITY；后续 BISS-C/RJ45/UART 都作为 transport adapter 接入同一协议。</div>
+    <div class="img-wrap">
+      <svg viewBox="0 0 1000 280">
+        <defs><marker id="arr3" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0,0 10,4 0,8" fill="#1F3864"/></marker></defs>
+        <rect x="60" y="26" width="200" height="58" rx="6" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/><text x="160" y="50" text-anchor="middle" font-size="13" font-weight="700">DistributedRefMemAO</text><text x="160" y="69" text-anchor="middle" font-size="10.5">core0 state machine</text>
+        <rect x="330" y="26" width="200" height="58" rx="6" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/><text x="430" y="50" text-anchor="middle" font-size="13" font-weight="700">RefMemSyncProtocol</text><text x="430" y="69" text-anchor="middle" font-size="10.5">HELLO/EPOCH/DELTA/ACK/FENCE</text>
+        <rect x="600" y="26" width="200" height="58" rx="6" fill="#fff3e0" stroke="#e65100" stroke-width="2"/><text x="700" y="50" text-anchor="middle" font-size="13" font-weight="700">PIO SPI Adapter</text><text x="700" y="69" text-anchor="middle" font-size="10.5">core1 / PIO / DMA TDMA</text>
+        <rect x="330" y="132" width="200" height="58" rx="6" fill="#ede7f6" stroke="#512da8" stroke-width="2"/><text x="430" y="156" text-anchor="middle" font-size="13" font-weight="700">VDC Snapshot</text><text x="430" y="175" text-anchor="middle" font-size="10.5">offset/rate/lock/quality</text>
+        <rect x="600" y="132" width="200" height="58" rx="6" fill="#fce4ec" stroke="#ad1457" stroke-width="2"/><text x="700" y="156" text-anchor="middle" font-size="13" font-weight="700">Loop / Trigger</text><text x="700" y="175" text-anchor="middle" font-size="10.5">T_fire_base / FIRE_LOAD</text>
+        <rect x="60" y="216" width="740" height="38" rx="5" fill="#fafafa" stroke="#546e7a" stroke-width="2"/><text x="430" y="240" text-anchor="middle" font-size="13" font-weight="700">Peer board mirror visible -> ACK/NACK -> quality/evidence -> RUN gate</text>
+        <line x1="260" y1="55" x2="330" y2="55" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr3)"/>
+        <line x1="530" y1="55" x2="600" y2="55" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr3)"/>
+        <path d="M800 55 H915 V235 H800" fill="none" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr3)"/>
+        <path d="M330 161 H260 V235 H60" fill="none" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr3)"/>
+        <line x1="530" y1="161" x2="600" y2="161" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr3)"/>
+        <line x1="700" y1="84" x2="700" y2="132" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr3)"/>
+        <line x1="700" y1="190" x2="700" y2="216" stroke="#1F3864" stroke-width="2.2" marker-end="url(#arr3)"/>
+        <text x="855" y="132" text-anchor="middle" font-size="11" fill="#666">physical line</text>
+      </svg>
+    </div>
+    <table>
+      <thead><tr><th>帧/事实</th><th>架构作用</th><th>进入 Vector 的内容</th><th>不进入 Vector 的内容</th></tr></thead>
+      <tbody>
+        <tr><td class="b">HELLO / EPOCH</td><td>节点发现、epoch/run/table seq 对齐</td><td>node freshness、active CRC、adapter capability 摘要</td><td>完整节点配置表、文件 payload</td></tr>
+        <tr><td class="b">DELTA</td><td>小事实同步，引用白名单 region 字段</td><td>seq、crc、field ref、value summary</td><td>任意远端地址写、裸内存拷贝</td></tr>
+        <tr><td class="b">COMMAND / ACK_NACK</td><td>命令意图、take、busy、完成或拒绝</td><td>AckCommandRegion 位图、reason、evidence</td><td>耗时业务动作本体</td></tr>
+        <tr><td class="b">FENCE / QUALITY</td><td>收束可见性，记录 stale/drop/late/timeout</td><td>ConnectionQuality runtime view、DeploymentGate 输入</td><td>波形、日志全文、SD 文件</td></tr>
+      </tbody>
+    </table>
+    <div class="bar">同步原则：<span>RefMem 同步的是可验证的小事实；VDC 提供共同时间；PIO/TDMA 提供确定性观测窗口。</span></div>
+  </div>
+  <div class="page-footer"><span>Distributed RefMem Architecture | Detailed Report</span><span><span class="page-num">7 / 9</span></span></div>
+</div>
+
+<div class="page compact-page">
+  <div class="page-header"><span>Distributed RefMem Architecture</span><span>Owner / Guard / Quality</span></div>
+  <div class="main">
+    <div class="h1">表驱动隔离：owner、sequence、CRC、seqlock/guard 都是 region 契约元素</div>
+    <div class="sub">向量表不承载大数据，但承载保护事实；它解决“谁能写、何时有效、读到的是不是一致快照”的问题。</div>
+    <div class="row3">
+      <div class="col3"><div class="card cb"><div class="card-h">唯一 Writer</div><div class="card-b">DataLink 声明 region_path、writer_instance、reader_mask 和 permission。多 writer 是 DeploymentGate 的拒绝项，不允许用 SCPI 临时绕过。</div></div></div>
+      <div class="col3"><div class="card cg"><div class="card-h">Guard / Seqlock</div><div class="card-b">region guard 至少包含 seq、owner、writer、crc、stale、write_epoch、write_tick。跨核共享区仍要用 owner、sequence、CRC 或 seqlock。</div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">Flash Lockout</div><div class="card-b">core1 关键入口必须 RAM-resident，flash erase/program 前必须 park/lockout，并把请求、ACK、release、timeout 写入 header 保护摘要。</div></div></div>
+    </div>
+    <div class="h2">字段级契约</div>
+    <table>
+      <thead><tr><th>契约项</th><th>来源表/region</th><th>工程作用</th></tr></thead>
+      <tbody>
+        <tr><td class="b">地址与类型</td><td>Vector directory + DataLink</td><td>固定 region id、offset、size；字段类型、单位、值域、生命周期明确。</td></tr>
+        <tr><td class="b">写权限</td><td>DataLink writer_instance + permission</td><td>只允许 owner 写 active fact；配置写只能进入 staging 或 command slot。</td></tr>
+        <tr><td class="b">一致性</td><td>Region guard、snapshot_policy</td><td>DIRECT_ATOMIC、SEQLOCK、DOUBLE_BUFFER、EVIDENCE_REF 区分不同读写策略。</td></tr>
+        <tr><td class="b">错误归因</td><td>FaultEvidenceRegion、quality table</td><td>late、stale、CRC、seq、timeout 必须可查询、可报告、可清除。</td></tr>
+        <tr><td class="b">运行门禁</td><td>DeploymentGate + runtime quality</td><td>layout、node、instance、resource、IO、writer、event、data、config、cal/sync、quality 全部参与 RUN gate。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>冲突类型</th><th>不能只靠向量表解决的原因</th><th>当前架构处理方式</th></tr></thead>
+      <tbody>
+        <tr><td class="b">双核同时访问 RAM 结构</td><td>不同 core 可能读到半更新字段。</td><td>owner + sequence + CRC + seqlock/双缓冲，reader 发现 seq 变化则重读。</td></tr>
+        <tr><td class="b">core0 flash erase/program</td><td>core1 从 XIP flash 取指会被阻塞或出错。</td><td>RAM-resident section、flash lockout/park、entry table owner 归属写入 Header。</td></tr>
+        <tr><td class="b">两个节点 claim 同一 A slot</td><td>Vector region 固定，不等于可分配 slot。</td><td>SlotClaimMap 协调，冲突进入 evidence；超出 8 active 或 16 candidate 直接拒绝。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>Distributed RefMem Architecture | Detailed Report</span><span><span class="page-num">8 / 9</span></span></div>
+</div>
+
+<div class="page compact-page">
+  <div class="page-header"><span>Distributed RefMem Architecture</span><span>Implementation Status And Gates</span></div>
+  <div class="main">
+    <div class="h1">当前实现状态：结构闭环已成形，下一步优先最小真实链路和字段级契约</div>
+    <div class="sub">当前已完成 Vector region 重命名、RMTP 完整 package staging、active/staging/rollbackable 切换和 host/build 验证；硬件 HIL 与字段级 guard 仍需继续闭环。</div>
+    <div class="row2">
+      <div class="col2">
+        <div class="h2">已落地组件</div>
+        <table>
+          <thead><tr><th>组件</th><th>当前能力</th></tr></thead>
+          <tbody>
+            <tr><td class="b">refmem_vector_table</td><td>64 KB fixed region layout、region_count=16、directory CRC、header CRC。</td></tr>
+            <tr><td class="b">refmem_application_model</td><td>九张表、linter、LOAD:NODE/BOARD draft、完整 inline RMTP image。</td></tr>
+            <tr><td class="b">refmem_table_registry</td><td>active/staging/rollbackable buffer、package validation、access/release、activation。</td></tr>
+            <tr><td class="b">refmem_slot_claim</td><td>A0-A7 assignment、candidate、conflict/overflow/evidence、本地 gate。</td></tr>
+            <tr><td class="b">refmem_sync / pio_spi_adapter</td><td>总线无关帧、HELLO/EPOCH/DELTA/ACK/FENCE/QUALITY、PIO SPI skeleton 和单元测试。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col2">
+        <div class="h2">优先闭环门禁</div>
+        <table>
+          <thead><tr><th>优先级</th><th>目标</th><th>完成判据</th></tr></thead>
+          <tbody>
+            <tr><td class="b">P0</td><td>core1 flash park/lockout 故障注入</td><td>erase/program 前完整握手；timeout/fault 可复现。</td></tr>
+            <tr><td class="b">P0</td><td>PIO SPI 最小物理链路</td><td>两板真实线跑通 DELTA/ACK/FENCE/QUALITY。</td></tr>
+            <tr><td class="b">P1</td><td>ModelTurntableAO PIO 预约输出</td><td>到点出边沿，捕获 T2/READY 证据。</td></tr>
+            <tr><td class="b">P1</td><td>Region guard / SlotContract 派生</td><td>DataLink -> field contract，owner/seq/crc/stale 检查可运行。</td></tr>
+            <tr><td class="b">P2</td><td>SlotClaim 自组网协调</td><td>多板冲突、同板多实例、candidate overflow 有 ACK/NACK/evidence。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="h2">当前审核结论</div>
+    <table>
+      <thead><tr><th>问题</th><th>当前结论</th><th>后续审核重点</th></tr></thead>
+      <tbody>
+        <tr><td class="b">Vector 16 槽是什么</td><td>固定 region directory，不是可替换节点槽位。</td><td>所有文档/代码继续避免把 region 和 logical slot 混用。</td></tr>
+        <tr><td class="b">BoardCapabilityTable 是否每节点一份</td><td>不是；它是系统级多板能力资源综合表。</td><td>加载时可改单条 draft，但 active 必须整体 package。</td></tr>
+        <tr><td class="b">一块板加载 9 个节点是否可验证</td><td>可作为反向验证 candidate，但 active slot 仍只有 8，candidate 上限 16。</td><td>overflow 和冲突必须走 SlotClaim evidence。</td></tr>
+        <tr><td class="b">RefMem 是否偏离 HAOFV</td><td>当前已回到 AO/FB owner + 表驱动 + snapshot 边界。</td><td>禁止新增绕过 owner 的 SCPI direct write。</td></tr>
+      </tbody>
+    </table>
+    <div class="bar">下一步建议：<span>先完成 P0 硬件闭环，再继续扩展字段级 region contract 和自组网协调。</span></div>
+  </div>
+  <div class="page-footer"><span>Distributed RefMem Architecture | Detailed Report</span><span><span class="page-num">9 / 9</span></span></div>
+</div>
+</body>
+</html>
