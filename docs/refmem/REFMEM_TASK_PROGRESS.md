@@ -8,6 +8,32 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-018 - Command slot foundation
+
+- 状态：完成基础件
+- 日期：2026-08-15
+- 任务目标：
+  - 将 `AckCommandSlot` 从文档契约落到可执行 C 基础件。
+  - 为后续 `CONFigure:MODEl:*:LOAD`、NodeLoad staging、配置 activation 和跨节点 ACK/NACK 收敛提供统一数据面。
+- 完成内容：
+  - 新增 `components/distributed_refmem/inc/refmem_command.h` 和 `components/distributed_refmem/src/refmem_command.c`。
+  - 实现 `try_post`、`try_take`、`ack`、`nack`、`mark_timeout`、`clear` 和 seqlock snapshot。
+  - 字段与 `REFMEM_COMMAND` / `REFMEM_ACK_NACK` payload 对齐，提供 `refmem_command_to_sync_command_payload()` 与 `refmem_command_to_sync_ack_payload()`。
+  - TAKE 只做目标、epoch/run_id 和 payload CRC 检查；耗时动作仍必须由 AO/FB service tick 执行，避免违反 HAOFV owner 边界。
+  - 新增 `tests/unit/test_refmem_command.c` 和 `tools/tests/run_refmem_command_tests.ps1`，并纳入 `tools/tests/run_host_unit_tests.ps1`。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_command_tests.ps1` 通过 host GCC 断言执行。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815060551`，package CRC `0x06B0C911`。
+- 后续闭环：
+  - 将模型加载动作接入 command slot：SCPI accepted 后只 post `NODE_LOAD_STAGE` 或 `CONFIG_STAGE`，由 RefMem owner ACK/NACK。
+  - 将现有 `system_manager` 配置 ACK 映射到同一 command snapshot，避免 ACK/NACK 事实分裂。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_command.h`
+  - `components/distributed_refmem/src/refmem_command.c`
+  - `tests/unit/test_refmem_command.c`
+  - `tools/tests/run_refmem_command_tests.ps1`
+
 ### REFMEM-TASK-20260815-017 - Quality gate negative HIL script
 
 - 状态：完成

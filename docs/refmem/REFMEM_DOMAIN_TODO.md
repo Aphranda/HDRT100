@@ -153,8 +153,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 文档定义命令槽原子 Take/Clear 语义，执行动作保持在临界区外。
 - [x] 文档定义 `command_seq`、`source_node`、`target_mask`、`required_mask`、`command_type`、`payload_ref`、`payload_crc32`、`issue_epoch/run_id`、`timeout_us`。
 - [x] 文档定义 ACK/NACK/busy/timeout 位图、last NACK reason、last NACK node、reason table CRC 和 evidence index。
-- [ ] 新增 `refmem_command.h/.c`，实现 `try_post`、`try_take`、`ack`、`nack`、`clear`。
-- [ ] 增加 command slot 最小单元测试：重复 post、空闲 take、非目标 take、ACK/NACK 位图、timeout 标记、clear seq 防误清。
+- [x] 新增 `refmem_command.h/.c`，实现 `try_post`、`try_take`、`ack`、`nack`、`timeout`、`clear` 和 sync payload 映射。
+- [x] 增加 command slot 最小单元测试：重复 post、空闲 take、非目标 take、ACK/NACK 位图、timeout 标记、clear seq 防误清。
 - [ ] 将模型加载动作接入 command slot：`CONFigure:MODEl:*:LOAD` 接口层 accepted 后只 post `CONFIG_STAGE` 或 `NODE_LOAD_STAGE`，由 RefMem owner 完成 staging 并 ACK/NACK。
 - [ ] 将现有 `system_manager` 配置 ACK 迁移或映射到 RefMem AckCommandSlot snapshot。
 - [ ] 扩展 NACK reason 表，补齐 resource busy、RUN denied、payload CRC、epoch mismatch、dup seq、timeout、permission denied。
@@ -248,7 +248,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 新增 `refmem_sync_frame.h/.c`，落地总线无关帧头、HELLO/EPOCH/DELTA payload、encode/decode 和 CRC 校验。
 - [x] 新增 `refmem_sync_hello.h/.c`，将 board capability、adapter caps 和版本 CRC 打包为标准 HELLO frame。
 - [x] 新增 `refmem_pio_spi_adapter.h/.c`，落地首版 transport caps、send/poll skeleton 和 counters snapshot。
-- [ ] 新增 `refmem_command.h/.c`。
+- [x] 新增 `refmem_command.h/.c`。
 - [x] 新增 `refmem_quality.h/.c`。
 - [ ] 让旧 `distributed_refmem.h/.c` 过渡为兼容 wrapper 或逐步拆空。
 - [ ] 修改根 `CMakeLists.txt`，从直接列源文件过渡到组件化文件列表。
@@ -295,3 +295,4 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 增加 RealtimeCapabilityContract 纯 C 单元测试入口：`tools/tests/run_refmem_realtime_contract_tests.ps1`，覆盖 PIO SPI transport 到 resource/io/ip_core claim 的映射，以及缺少 DMA 或 adapter IP 时拒绝。
 - [x] 增加 RefMem Sync HELLO 纯 C 单元测试入口：`tools/tests/run_refmem_sync_hello_tests.ps1`，覆盖 board capability + adapter caps 生成 HELLO payload、编码为 frame、adapter RX staging poll 和字段校验。
 - [x] 增加 RefMem Quality 派生视图纯 C 单元测试入口：`tools/tests/run_refmem_quality_tests.ps1`，覆盖本地 adapter 计数、remote QUALITY snapshot、runtime table 拼装和越界查询。
+- [x] 增加 RefMem Command Slot 纯 C 单元测试入口：`tools/tests/run_refmem_command_tests.ps1`，覆盖 post/take/ack/nack/timeout/clear 和 sync COMMAND/ACK_NACK payload 映射。

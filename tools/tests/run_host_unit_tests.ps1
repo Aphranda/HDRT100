@@ -18,6 +18,7 @@ $scripts = @(
     "run_portable_log_tests.ps1",
     "run_portable_ota_tests.ps1",
     "run_refmem_application_contract_tests.ps1",
+    "run_refmem_command_tests.ps1",
     "run_refmem_pio_spi_adapter_tests.ps1",
     "run_refmem_quality_tests.ps1",
     "run_refmem_realtime_contract_tests.ps1",
