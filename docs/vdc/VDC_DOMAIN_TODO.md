@@ -145,6 +145,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 验证 LOCKED 后 T2/READY timestamp 映射到 VDC 时间。
 - [ ] 验证 TDMA observation window 门禁：窗口外、schedule CRC 不匹配、reference slot 不匹配的样本不得进入 DPLL。
 - [ ] 验证两板 TDMA 硬件基础到 DPLL 输入链：COM5/COM6 在真实 PIO 25 MHz 环路中产出板端 timestamp evidence，报告 `timestamp_resolution_ns`、window late/jitter、sample CRC 和 phase error，不使用 host 侧耗时代替板端证据。
+- [x] 固化两板 RefMem TDMA -> VDC envelope 诊断查询脚本：`tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 在 `DELTA/ACK_NACK/FENCE/QUALITY` 交换后查询 `SYSTem:REFMEM:SYNC:TDMA:VDC?`，记录 bridge/gate/CRC/timestamp evidence。
 - [ ] 验证 `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 收敛状态链，并记录 lock_time、RMS/peak offset 和 outlier ratio。
 - [ ] 验证 DCO slew/phase pull：core1 读取稳定 snapshot，late/半更新 snapshot 不得产生 FIRE_LOAD。
 - [ ] 验证低频驯服环：wander、temperature/aging compensation candidate 和 HOLDOVER drift bound 只影响 error budget 或下一轮 profile。

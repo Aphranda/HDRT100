@@ -43,6 +43,32 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-007 - Two-board RefMem TDMA VDC evidence HIL script
+
+- 状态：完成脚本编译检查；板端 COM5/COM6 执行待烧录后运行
+- 日期：2026-08-16
+- 任务目标：
+  - 将 `SYSTem:REFMEM:SYNC:TDMA:VDC?` 纳入两板 RefMem PIO TDMA HIL 验收。
+  - 对 `DELTA/ACK_NACK/FENCE/QUALITY` 交换记录 VDC bridge/gate/CRC/timestamp evidence，作为后续硬件 timestamp latch 的对照基线。
+- 完成内容：
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 的 `ExchangeResult` 增加 `vdc_response/vdc_passed/vdc_reason`。
+  - `tdma_exchange()` 在 RX frame 处理后查询接收板 `SYSTem:REFMEM:SYNC:TDMA:VDC? <receiver_local_slot>,<reference_slot>`。
+  - 对支持的 RefMem data evidence frame 要求 VDC bridge `ACCEPTED`、gate pass、window class 为 `REFMEM_DATA`、timestamp 为 `SOFTWARE_US/1000 ns/DIAGNOSTIC_ONLY`。
+  - `HELLO/EPOCH` 仍只记录为非 data evidence，不作为 VDC bridge 通过条件。
+- 验证结果：
+  - `python -m py_compile tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815182630`，package CRC `0x8ABF373F`。
+- 还需完成：
+  - 烧录包含 `SYSTem:REFMEM:SYNC:TDMA:VDC?` 的固件到 COM5/COM6。
+  - 运行 `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6`，保存 report。
+- 关联文件：
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+- 下一步：
+  - 跑全量 host/build 验证，通过后提交推送，再进入烧录和 COM5/COM6 HIL。
+
 ### VDC-TASK-20260816-006 - RefMem TDMA data frame to VDC envelope bridge
 
 - 状态：完成 host 验证；仍为诊断 timestamp，硬件 latch 待实现

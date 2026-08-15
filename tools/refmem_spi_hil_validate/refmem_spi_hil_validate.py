@@ -51,6 +51,9 @@ class ExchangeResult:
     rx_response: str
     passed: bool
     reason: str
+    vdc_response: str = ""
+    vdc_passed: bool = False
+    vdc_reason: str = ""
 
 
 @dataclass
@@ -174,6 +177,45 @@ def expect_rx(response: str, expected_type: int, expected_source: int) -> tuple[
         return False, f"rx frame type {frame_type} != {expected_type}"
     if source_slot != expected_source:
         return False, f"rx source {source_slot} != {expected_source}"
+    return True, "OK"
+
+
+def expect_vdc_evidence(response: str,
+                        expected_type: int,
+                        expected_source: int) -> tuple[bool, str]:
+    fields = parse_csv(response)
+    if not fields or fields[0].strip('"') != "ACCEPTED":
+        return False, f"vdc evidence not accepted: {response}"
+    ints = parse_ints(response)
+    if len(ints) < 29:
+        return False, f"vdc evidence response too short: {response}"
+    result = ints[0]
+    frame_type = ints[1]
+    source_slot = ints[2]
+    gate_passed = ints[6]
+    gate_reject = ints[7]
+    window_class = ints[16]
+    payload_class = ints[17]
+    timestamp_source = ints[23]
+    timestamp_resolution_ns = ints[24]
+    timestamp_flags = ints[25]
+    if result != 0 or gate_passed != 1 or gate_reject != 0:
+        return False, f"vdc gate result={result} passed={gate_passed} reject={gate_reject}"
+    if frame_type != expected_type:
+        return False, f"vdc frame type {frame_type} != {expected_type}"
+    if source_slot != expected_source:
+        return False, f"vdc source {source_slot} != {expected_source}"
+    if window_class != 2:
+        return False, f"vdc window class {window_class} != REFMEM_DATA"
+    if expected_type == DELTA_TYPE and payload_class != 2:
+        return False, f"vdc payload class {payload_class} != REFMEM_DELTA"
+    if expected_type in {ACK_NACK_TYPE, FENCE_TYPE, QUALITY_TYPE} and payload_class != 3:
+        return False, f"vdc payload class {payload_class} != ACK_NACK_FENCE_QUALITY"
+    if timestamp_source != 1 or timestamp_resolution_ns != 1000 or timestamp_flags != 1:
+        return False, (
+            "vdc diagnostic timestamp mismatch: "
+            f"source={timestamp_source} resolution={timestamp_resolution_ns} flags={timestamp_flags}"
+        )
     return True, "OK"
 
 
@@ -319,6 +361,8 @@ def tdma_exchange(name: str,
                   tx_command: str,
                   expected_type: int,
                   expected_source: int,
+                  receiver_local_slot: int,
+                  vdc_reference_slot: int,
                   baud: int,
                   rx_timeout_1e6ns: int,
                   timeout_s: float) -> ExchangeResult:
@@ -367,10 +411,24 @@ def tdma_exchange(name: str,
 
     tx_ok, tx_reason = expect_tdma_tx(tx_response)
     rx_ok, rx_reason = expect_rx(rx_response, expected_type, expected_source)
-    passed = tx_ok and rx_ok
-    reason = "OK" if passed else f"{tx_reason}; {rx_reason}"
+    vdc_response = query(
+        receiver,
+        f"SYSTem:REFMEM:SYNC:TDMA:VDC? {receiver_local_slot},{vdc_reference_slot}",
+        timeout_s,
+    )
+    vdc_supported = expected_type in {DELTA_TYPE, ACK_NACK_TYPE, FENCE_TYPE, QUALITY_TYPE}
+    if vdc_supported:
+        vdc_ok, vdc_reason = expect_vdc_evidence(vdc_response,
+                                                 expected_type,
+                                                 expected_source)
+    else:
+        vdc_ok = True
+        vdc_reason = "not a RefMem data evidence frame"
+    passed = tx_ok and rx_ok and vdc_ok
+    reason = "OK" if passed else f"{tx_reason}; {rx_reason}; {vdc_reason}"
     return ExchangeResult(name, sender_name, receiver_name, tdma_tx_command,
-                          tx_response, rx_response, passed, reason)
+                          tx_response, rx_response, passed, reason,
+                          vdc_response, vdc_ok, vdc_reason)
 
 
 def raw_exchange(name: str,
@@ -422,6 +480,7 @@ def main() -> int:
     parser.add_argument("--serial-baud", type=int, default=115200)
     parser.add_argument("--timeout-s", type=float, default=2.0)
     parser.add_argument("--rx-timeout-1e6ns", type=int, default=3000)
+    parser.add_argument("--vdc-reference-slot", type=int, default=0)
     parser.add_argument("--line-remap-a-to-b", default="auto")
     parser.add_argument("--line-remap-b-to-a", default="auto")
     parser.add_argument("--skip-io-preflight", action="store_true")
@@ -490,34 +549,35 @@ def main() -> int:
 
         plan = [
             ("A_HELLO_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:HELLo? 0,2,0", HELLO_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:HELLo? 0,2,0", HELLO_TYPE, 0, 1),
             ("B_HELLO_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:HELLo? 1,1,0", HELLO_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:HELLo? 1,1,0", HELLO_TYPE, 1, 0),
             ("A_EPOCH_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:EPOCh? 0,2,0", EPOCH_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:EPOCh? 0,2,0", EPOCH_TYPE, 0, 1),
             ("B_EPOCH_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:EPOCh? 1,1,0", EPOCH_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:EPOCh? 1,1,0", EPOCH_TYPE, 1, 0),
             ("A_DELTA_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:DELTa? 0,2,0,0,3,1,2768240641,1", DELTA_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:DELTa? 0,2,0,0,3,1,2768240641,1", DELTA_TYPE, 0, 1),
             ("B_ACK_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:ACK? 1,1,0", ACK_NACK_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:ACK? 1,1,0", ACK_NACK_TYPE, 1, 0),
             ("B_DELTA_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:DELTa? 1,1,0,1,3,1,3053453314,1", DELTA_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:DELTa? 1,1,0,1,3,1,3053453314,1", DELTA_TYPE, 1, 0),
             ("A_ACK_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:ACK? 0,2,0", ACK_NACK_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:ACK? 0,2,0", ACK_NACK_TYPE, 0, 1),
             ("A_FENCE_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:FENCe? 0,2,0,1,1,2,3,1000", FENCE_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:FENCe? 0,2,0,1,1,2,3,1000", FENCE_TYPE, 0, 1),
             ("B_FENCE_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:FENCe? 1,1,0,1,1,1,3,1000", FENCE_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:FENCe? 1,1,0,1,1,1,3,1000", FENCE_TYPE, 1, 0),
             ("A_QUALITY_B", "A", ser_a, a_master_to_b, "B", ser_b, b_slave_from_a,
-             "SYSTem:REFMEM:SYNC:QUALity:FRAMe? 0,2,0,1,1,1", QUALITY_TYPE, 0),
+             "SYSTem:REFMEM:SYNC:QUALity:FRAMe? 0,2,0,1,1,1", QUALITY_TYPE, 0, 1),
             ("B_QUALITY_A", "B", ser_b, b_master_to_a, "A", ser_a, a_slave_from_b,
-             "SYSTem:REFMEM:SYNC:QUALity:FRAMe? 1,1,0,1,1,0", QUALITY_TYPE, 1),
+             "SYSTem:REFMEM:SYNC:QUALity:FRAMe? 1,1,0,1,1,0", QUALITY_TYPE, 1, 0),
         ]
 
         if not failures:
             for item in plan:
                 result = tdma_exchange(*item,
+                                       vdc_reference_slot=args.vdc_reference_slot,
                                        baud=args.baud,
                                        rx_timeout_1e6ns=args.rx_timeout_1e6ns,
                                        timeout_s=args.timeout_s)
