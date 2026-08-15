@@ -53,7 +53,7 @@ Last updated: 2026-08-15
 
 纠偏结论：当前产品 `BoardCapabilityTable` 固定 8 条 wire payload，与 A0-A7 active slot 容量一致；`CLAIM_CANDIDATE_MAX = 16` 只属于 `SlotClaimProposal` / overflow evidence，不复用为 BoardCapability 表容量。未来如果需要扩展 BoardCapability，必须通过新的 table schema/layout version，而不是改变当前 v1 表的隐含大小。
 
-### 3.3 部署门禁结果被丢弃——门禁从未真正 gate
+### 3.3 部署门禁结果被丢弃——门禁从未真正 gate（已纠偏）
 
 [refmem_application_model.c:1178-1189](components/distributed_refmem/src/refmem_application_model.c#L1178-L1189)：
 
@@ -63,7 +63,7 @@ if (!refmem_slot_claim_gate_evaluate(&claim_map, &claim_gate)) return false;
 return true;
 ```
 
-`claim_gate` 算完从不检查。只要 `gate_evaluate` 调用成功就返回 `true`，无论门禁是否真的通过。整张 DeploymentGate 表 + 评估逻辑存在，但 pass/fail/reject 全被丢弃。
+纠偏：当前 `refmem_slot_claim_gate_evaluate()` 返回值已经表示 `ready`，但调用端仍改为显式检查 `evaluate && claim_gate.ready`。`refmem_application_model` 的静态表 validation、`DistributedRefMemAO` activation gate 和 `SystemManager` RUN gate 均不再依赖 evaluator 返回值的隐含语义。
 
 ### 3.4 假 TX：SCPI 同步链路「成功」却不发一个 bit
 

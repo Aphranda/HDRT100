@@ -8,6 +8,25 @@ Last updated: 2026-08-15
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260815-037 - SlotClaimGate explicit ready gating
+
+- 状态：完成 host/build 验证
+- 日期：2026-08-15
+- 任务目标：
+  - 修复风险评审 §3.3：DeploymentGate/SlotClaimGate 调用端必须真正以 gate ready 结果作为放行条件。
+  - 保持 HAOFV 边界：RefMemAO 和 SystemManager 只消费 RefMem 派生的门禁事实，不绕过 SlotClaimMap 或 DeploymentGate。
+- 完成内容：
+  - `refmem_application_model.c` 静态表 validation 改为显式检查 `refmem_slot_claim_gate_evaluate(...) && claim_gate.ready`。
+  - `distributed_refmem.c` activation gate 改为显式检查 `evaluate && ready`。
+  - `system_manager.c` RUN gate 改为显式检查 `evaluate && ready`。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_application_contract_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815141111`，package CRC `0xCE53713F`。
+
 ### REFMEM-TASK-20260815-036 - Cross-core seqlock guard release fence
 
 - 状态：完成 host/build 验证

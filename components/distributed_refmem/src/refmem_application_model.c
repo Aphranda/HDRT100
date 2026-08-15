@@ -1184,7 +1184,8 @@ static bool refmem_model_validate_gate_and_quality(void)
                                       &claim_map)) {
         return false;
     }
-    if (!refmem_slot_claim_gate_evaluate(&claim_map, &claim_gate)) {
+    if (!refmem_slot_claim_gate_evaluate(&claim_map, &claim_gate) ||
+        claim_gate.ready == 0u) {
         return false;
     }
     return true;

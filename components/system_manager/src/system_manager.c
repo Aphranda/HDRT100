@@ -200,7 +200,8 @@ static bool system_manager_refmem_claim_gate_ready(void)
                                       &claim_map)) {
         return false;
     }
-    return refmem_slot_claim_gate_evaluate(&claim_map, &claim_gate);
+    return refmem_slot_claim_gate_evaluate(&claim_map, &claim_gate) &&
+           claim_gate.ready != 0u;
 }
 
 static bool system_manager_refmem_quality_gate_ready(void)
