@@ -152,6 +152,12 @@ static bool vdc_domain_payload_allowed_for_window(uint32_t window_class,
     }
 }
 
+static bool vdc_domain_payload_requires_reference_sync(uint32_t payload_class)
+{
+    return payload_class == VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE ||
+           payload_class == VDC_DOMAIN_PAYLOAD_IDLE_BEACON;
+}
+
 static uint32_t vdc_domain_saturate_u64_to_u32(uint64_t value)
 {
     return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
@@ -1346,6 +1352,31 @@ bool vdc_domain_validate_tdma_frame_envelope(
                                                frame->payload_class)) {
         vdc_domain_gate_fail(gate,
                              VDC_DOMAIN_GATE_PAYLOAD_WINDOW_FORBIDDEN,
+                             frame->source_slot_id,
+                             frame->frame_seq);
+        return false;
+    }
+    if (vdc_domain_payload_requires_reference_sync(frame->payload_class)) {
+        const uint64_t expected_next_frame_start_ns =
+            UINT64_MAX - frame->window_start_ns < (uint64_t)profile->period_ns
+                ? UINT64_MAX
+                : frame->window_start_ns + (uint64_t)profile->period_ns;
+        if (frame->reference_sync_valid == 0u ||
+            frame->reference_seq_id != frame->frame_seq ||
+            frame->reference_frame_id != frame->frame_seq ||
+            frame->reference_sync_slot_id != frame->reference_slot_id ||
+            frame->reference_time_ns != frame->window_start_ns ||
+            frame->next_frame_start_ns != expected_next_frame_start_ns ||
+            frame->reference_schedule_crc32 != profile->schedule_crc32) {
+            vdc_domain_gate_fail(gate,
+                                 VDC_DOMAIN_GATE_BAD_FRAME,
+                                 frame->source_slot_id,
+                                 frame->frame_seq);
+            return false;
+        }
+    } else if (frame->reference_sync_valid != 0u) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BAD_FRAME,
                              frame->source_slot_id,
                              frame->frame_seq);
         return false;

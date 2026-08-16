@@ -43,6 +43,39 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260817-007 - EtherCAT DC-style reference sync frame
+
+- 状态：完成；代码、文档、host 测试、构建、COM5/COM6 OTA、只读 SCPI smoke 和 accepted-only HIL 已闭环。
+- 日期：2026-08-17
+- 任务目标：
+  - 按 EtherCAT DC 的 reference clock 思路，把 VDC sync/idle TDMA short frame 从“窗口计划推断时间”升级为“帧内显式携带 reference time 语义”。
+  - 保持 HAOFV 边界：reference sync 仍是公共 TDMA payload/envelope 的一部分，VDC 只编解码和 gate，不建立私有 transport。
+- 完成内容：
+  - `vdc_tdma_frame_envelope_t` 增加 reference sync block：`reference_sync_valid`、`reference_seq_id`、`reference_frame_id`、`reference_sync_slot_id`、`reference_time_ns`、`next_frame_start_ns`、`reference_schedule_crc32` 和 `reference_flags`。
+  - `vdc_tdma_payload_build_frame()` 对 `VDC_SYNC_SAMPLE/IDLE_BEACON` 自动写入 reference sync block，并将帧大小扩展到 `216` 字节；新增字段纳入 payload CRC 和 frame CRC。
+  - `vdc_tdma_payload_parse_frame()` 解析 reference sync block；`vdc_domain_validate_tdma_frame_envelope()` 要求 sync/idle frame 必须携带一致的 reference sync block，否则 `BAD_FRAME`。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过；新增测试验证 build/parse 保留 reference sync 字段，并验证缺失 reference sync block 的 observation frame 会被 gate 拒绝。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过 18/18。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=135。
+  - `python tools\docs_check\docs_check.py` 通过；仍有既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 和 `VDC_DOMAIN_RISK_REVIEW.md` 文件名 warning。
+  - 固件构建：`cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260816181709`，package CRC `0xB9F108EC`。
+  - OTA：`python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --expected-build 20260816181709 --max-workers 2` 通过，两板均升级提交到 `20260816181709`。
+  - 板端只读 smoke：COM5/COM6 `SYSTem:SYNC:VDC:PATH:DELay?` 均返回默认 active path-delay table；`SYSTem:ERRor?` 均为 `0,"No error"`。
+  - 两板 accepted-only HIL：`python tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py --port-x COM5 --port-y COM6 --name-x COM5 --name-y COM6 --expected-build 20260816181709 --poll-timeout 90 --output-index 2 --observed-mask 4 --pulse-count 4096 --pulse-high-ns 1000 --accepted-only --reverse` 通过；COM5->COM6 `accepted=0->7 observer_accepted=0->6 source=HARDWARE_TICK resolution_ns=100 flags=DPLL_ELIGIBLE gate=PASS`，COM6->COM5 `accepted=0->3 observer_accepted=0->3 source=HARDWARE_TICK resolution_ns=100 flags=DPLL_ELIGIBLE gate=PASS`。
+- 还需完成：
+  - reference sync frame 仍需接入真实 PIO transport 连续循环，并与 delay-measure frame 共用沿途 timestamp 证据。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/inc/vdc_tdma_payload.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `components/vdc_domain/src/vdc_tdma_payload.c`
+  - `tests/unit/test_vdc_domain.c`
+  - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+- 下一步：
+  - 继续实现 delay-measure frame：reference 发起回环，沿途节点写入 hardware timestamp，reference 计算并发布 active `PATH_DELAY`。
+
 ### VDC-TASK-20260817-006 - EtherCAT DC-style active path delay table
 
 - 状态：完成；代码、文档、host 测试、构建、COM5/COM6 OTA、只读 SCPI smoke 和 accepted-only HIL 已闭环。

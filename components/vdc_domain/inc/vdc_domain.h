@@ -219,6 +219,14 @@ typedef struct {
     uint32_t frame_crc32;
     uint32_t payload_crc32;
     uint32_t quality_flags;
+    uint32_t reference_sync_valid;
+    uint32_t reference_seq_id;
+    uint32_t reference_frame_id;
+    uint32_t reference_sync_slot_id;
+    uint64_t reference_time_ns;
+    uint64_t next_frame_start_ns;
+    uint32_t reference_schedule_crc32;
+    uint32_t reference_flags;
     vdc_tdma_timestamp_evidence_t timestamp;
 } vdc_tdma_frame_envelope_t;
 

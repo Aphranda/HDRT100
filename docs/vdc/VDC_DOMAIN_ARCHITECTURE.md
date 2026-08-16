@@ -270,10 +270,10 @@ DPLL 的输出不是直接修改本地硬件 timer，而是更新 VDC clock mode
 | `OFFSET` 偏移校正 | `VdcClockModel.phase_offset_ns` / `VdcDcoControl.phase_offset_ns`。 | 已由 `SyncDpllFB` accepted evidence 更新，且 quality 使用更新前入相残差。 | 需要接入真实 accepted hardware sample 后验证收敛速度和稳态 RMS。 |
 | `DRIFT_CORR` 漂移校正 | `period_adjust_ppb` / 后续 `rate_q32`。 | 已用 sample period 和 KI 产生首版 rate pull。 | 需要低频 discipline 统计 wander/temperature/aging，并区分快速 DPLL 与慢速驯服。 |
 | `PATH_DELAY` 传播延时 | `VdcPathDelayTable`、`VdcCalibrationBinding.delay_ns`、`VdcErrorBudget.path_delay_ns`。 | 已有 active path-delay table contract、CRC、slot lookup 和只读维护查询；compact observation 通过 active 表计算 `T_reference + PATH_DELAY`。 | 尚未形成 delay-measure frame、沿途 timestamp 回环计算、cal CRC 失效触发 relock 和多跳路径统计。 |
-| reference sync frame | TDMA `VDC_OBSERVATION_WINDOW` + `VDC_SYNC_SAMPLE/IDLE_BEACON`。 | payload 已挂到公共 TDMA；当前 self-test 仍是 diagnostic evidence。 | 帧内还缺 reference time / next frame start / slot time 的正式字段语义，以及硬件 timestamp spine 对 eligible 的闭环。 |
+| reference sync frame | TDMA `VDC_OBSERVATION_WINDOW` + `VDC_SYNC_SAMPLE/IDLE_BEACON`。 | payload 已挂到公共 TDMA；frame envelope 已显式编码 `reference_time_ns`、`next_frame_start_ns`、reference seq/frame/slot 和 schedule CRC，gate 会拒绝缺失或不一致的 reference sync block。 | 仍需把该 reference sync frame 接入真实 PIO transport 的连续循环，并与 delay-measure frame 共享沿途 timestamp 证据。 |
 | DC 时间驱动 TDMA | `vdc_domain_plan_tdma_window()` 和后续 core1 scheduler/DCO。 | 当前可按 active schedule 规划窗口，RefMem data window 已受 TDMA plan 约束。 | 还未由 `T_effective = local_time + offset/rate` 反驱 core1/PIO TDMA frame/slot 边界。 |
 
-因此，当前 DPLL 已经具备“offset/rate servo 内核”，但还不等于完整 DC。完整 DC 必须补齐 `reference time -> path delay -> effective time -> TDMA slot` 的闭环：reference slot 发出带时间语义的 sync/idle frame，接收 slot 用硬件 timestamp latch 得到 `T_local_rx`，VDC owner 使用 active `PATH_DELAY` 计算入相误差并更新 `OFFSET/DRIFT_CORR`，core1 再消费 DCO snapshot 调整后续 TDMA 和 FIRE_LOAD。
+因此，当前 DPLL 已经具备“offset/rate servo 内核”，但还不等于完整 DC。完整 DC 必须补齐 `reference time -> path delay -> effective time -> TDMA slot` 的闭环：reference slot 已能发出带 `reference_time_ns / next_frame_start_ns` 语义的 sync/idle frame，接收 slot 后续需要用硬件 timestamp latch 得到 `T_local_rx`，VDC owner 使用 active `PATH_DELAY` 计算入相误差并更新 `OFFSET/DRIFT_CORR`，core1 再消费 DCO snapshot 调整后续 TDMA 和 FIRE_LOAD。
 
 VDC clock model 需要同时表达标称周期和修正量：
 

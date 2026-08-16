@@ -270,12 +270,27 @@ bool vdc_tdma_payload_build_frame(
     envelope->schedule_epoch = schedule->schedule_epoch;
     envelope->slot_index = plan->slot_index;
     envelope->source_slot_id = plan->source_slot_id;
-    envelope->reference_slot_id = plan->reference_slot_id;
+    envelope->reference_sync_slot_id = plan->reference_slot_id;
     envelope->window_class = plan->window_class;
     envelope->payload_class = payload_class;
     envelope->window_start_ns = plan->window_start_ns;
     envelope->schedule_crc32 = schedule->schedule_crc32;
     envelope->quality_flags = local_timestamp.quality_flags;
+    envelope->reference_sync_valid =
+        (payload_class == VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE ||
+         payload_class == VDC_DOMAIN_PAYLOAD_IDLE_BEACON)
+            ? 1u
+            : 0u;
+    envelope->reference_seq_id = frame_seq;
+    envelope->reference_frame_id = frame_seq;
+    envelope->reference_slot_id = plan->reference_slot_id;
+    envelope->reference_time_ns = plan->window_start_ns;
+    envelope->next_frame_start_ns =
+        UINT64_MAX - plan->window_start_ns < (uint64_t)schedule->period_ns
+            ? UINT64_MAX
+            : plan->window_start_ns + (uint64_t)schedule->period_ns;
+    envelope->reference_schedule_crc32 = schedule->schedule_crc32;
+    envelope->reference_flags = 0u;
     envelope->timestamp = local_timestamp;
     envelope->timestamp.sample_seq = frame_seq;
     envelope->timestamp.schedule_epoch = schedule->schedule_epoch;
@@ -324,6 +339,14 @@ bool vdc_tdma_payload_build_frame(
     put_u32(frame, 164u, envelope->timestamp.timestamp_resolution_ns);
     put_u32(frame, 168u, envelope->timestamp.timestamp_flags);
     put_u32(frame, 172u, envelope->timestamp.quality_flags);
+    put_u32(frame, 176u, envelope->reference_sync_valid);
+    put_u32(frame, 180u, envelope->reference_seq_id);
+    put_u32(frame, 184u, envelope->reference_frame_id);
+    put_u32(frame, 188u, envelope->reference_sync_slot_id);
+    put_u64(frame, 192u, envelope->reference_time_ns);
+    put_u64(frame, 200u, envelope->next_frame_start_ns);
+    put_u32(frame, 208u, envelope->reference_schedule_crc32);
+    put_u32(frame, 212u, envelope->reference_flags);
 
     const uint32_t payload_crc =
         vdc_tdma_payload_crc32(&frame[72u], VDC_TDMA_PAYLOAD_FRAME_SIZE - 72u);
@@ -458,6 +481,14 @@ bool vdc_tdma_payload_parse_frame(
     envelope->timestamp.timestamp_resolution_ns = get_u32(frame, 164u);
     envelope->timestamp.timestamp_flags = get_u32(frame, 168u);
     envelope->timestamp.quality_flags = get_u32(frame, 172u);
+    envelope->reference_sync_valid = get_u32(frame, 176u);
+    envelope->reference_seq_id = get_u32(frame, 180u);
+    envelope->reference_frame_id = get_u32(frame, 184u);
+    envelope->reference_sync_slot_id = get_u32(frame, 188u);
+    envelope->reference_time_ns = get_u64(frame, 192u);
+    envelope->next_frame_start_ns = get_u64(frame, 200u);
+    envelope->reference_schedule_crc32 = get_u32(frame, 208u);
+    envelope->reference_flags = get_u32(frame, 212u);
     envelope->timestamp.schedule_crc32 = envelope->schedule_crc32;
     envelope->timestamp.frame_crc32 = envelope->frame_crc32;
     envelope->timestamp.sample_crc32 = envelope->payload_crc32;

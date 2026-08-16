@@ -199,6 +199,16 @@ static vdc_tdma_frame_envelope_t make_frame(
     frame.timestamp.schedule_crc32 = schedule->schedule_crc32;
     frame.timestamp.frame_crc32 = frame.frame_crc32;
     frame.timestamp.sample_crc32 = 0x5000u + frame_seq;
+    if (payload_class == VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE ||
+        payload_class == VDC_DOMAIN_PAYLOAD_IDLE_BEACON) {
+        frame.reference_sync_valid = 1u;
+        frame.reference_seq_id = frame_seq;
+        frame.reference_frame_id = frame_seq;
+        frame.reference_sync_slot_id = schedule->reference_slot_id;
+        frame.reference_time_ns = window_start_ns;
+        frame.next_frame_start_ns = window_start_ns + schedule->period_ns;
+        frame.reference_schedule_crc32 = schedule->schedule_crc32;
+    }
     return frame;
 }
 
@@ -1119,6 +1129,16 @@ static int test_frame_envelope_window_contract(void)
                                                                    true,
                                                                    &gate),
                           true);
+    frame.reference_sync_valid = 0u;
+    failed += expect_bool("observation frame rejects missing reference sync",
+                          vdc_domain_validate_tdma_frame_envelope(&schedule,
+                                                                   &frame,
+                                                                   true,
+                                                                   &gate),
+                          false);
+    failed += expect_u32("missing reference sync gate",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_BAD_FRAME);
     return failed;
 }
 
@@ -1238,6 +1258,15 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
     failed += expect_u32("vdc payload status",
                          payload_status.result,
                          VDC_TDMA_PAYLOAD_OK);
+    failed += expect_u32("vdc reference sync valid",
+                         envelope.reference_sync_valid,
+                         1u);
+    failed += expect_u32("vdc reference seq",
+                         envelope.reference_seq_id,
+                         1u);
+    failed += expect_u64("vdc reference time",
+                         envelope.reference_time_ns,
+                         plan.window_start_ns);
 
     failed += expect_bool("common tdma init", tdma_service_init(&service), true);
     failed += expect_bool("vdc payload register",
@@ -1441,6 +1470,12 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
     failed += expect_u32("parsed diagnostic source",
                          parsed.timestamp.timestamp_source,
                          VDC_DOMAIN_TIMESTAMP_SOURCE_SOFTWARE_US);
+    failed += expect_u32("parsed reference sync valid",
+                         parsed.reference_sync_valid,
+                         1u);
+    failed += expect_u64("parsed next frame",
+                         parsed.next_frame_start_ns,
+                         plan.window_start_ns + schedule.period_ns);
     failed += expect_bool("diagnostic tdma not dpll eligible",
                           vdc_tdma_payload_parse_frame(
                               &schedule,
@@ -1562,6 +1597,12 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
                                   &parsed,
                                   &payload_status),
                               true);
+        failed += expect_u32("hardware parse reference valid",
+                             parsed.reference_sync_valid,
+                             1u);
+        failed += expect_u64("hardware parse next frame",
+                             parsed.next_frame_start_ns,
+                             window_start_ns + schedule.period_ns);
         failed += expect_bool("submit parsed tdma evidence",
                               vdc_domain_submit_tdma_evidence(
                                   &context,

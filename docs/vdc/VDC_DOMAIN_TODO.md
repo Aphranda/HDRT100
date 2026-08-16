@@ -72,7 +72,7 @@ EtherCAT DC-style 对照缺口：
 
 - [x] 已具备本地 DC clock model 雏形：`base_local_tick64 + phase_offset_ns + period_adjust_ppb` 可以表达 `LOCAL_TIME + OFFSET + DRIFT_CORR`。
 - [x] 已具备 reference slot / observation window / `VDC_SYNC_SAMPLE` payload 的 TDMA 骨架。
-- [ ] 冻结 reference sync frame 的时间语义：至少包含 `T_reference_ns`、`frame_id/slot_id`、`next_frame_start_ns`、`seq_id`、schedule/profile CRC 和 frame CRC；不能只依赖窗口计划推断 reference time。
+- [x] 冻结 reference sync frame 的时间语义首版：VDC sync/idle TDMA short frame envelope 已显式携带 `reference_time_ns`、`next_frame_start_ns`、`reference_seq_id`、`reference_frame_id`、`reference_sync_slot_id`、schedule CRC 和 frame CRC；frame gate 要求 `reference_time_ns == window_start_ns`、`next_frame_start_ns == window_start_ns + period`，不能只依赖窗口计划推断 reference time。
 - [ ] 冻结 delay-measure frame：reference 发起回环测量，沿途节点写入本地 hardware timestamp，reference 回环后计算每个 slot 的 `PATH_DELAY`，再作为 active calibration/VDC profile 下发。
 - [x] 将 `PATH_DELAY` 从单帧 evidence 字段升级为 active 表首版：`VdcPathDelayTable` 包含 source/reference slot、方向、delay_ns、jitter/stddev、cal_crc、freshness、writer、update_seq 和 table CRC；默认 8 slot 零延迟表用于 bring-up，`SYSTem:SYNC:VDC:PATH:DELay?` 只读查询 active entry。
 - [x] DPLL phase error 公式已在 compact observation/context 路径显式使用 active `PATH_DELAY`：`T_local_rx - (T_reference + PATH_DELAY)` 形成入相误差，再由现有 `corrected_phase_error` 加 `OFFSET`；无 active table 的旧展开 API 保持零延迟兼容语义。
