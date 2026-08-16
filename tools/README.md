@@ -44,6 +44,11 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `SYSTem:OTA:BOOT`, tolerates the expected USB CDC reset/re-enumeration,
   reopens the port, verifies build/slot/error state, and sends
   `SYSTem:OTA:COMMit`.
+- `ota_multi_update/ota_multi_update.py`: multi-board OTA orchestrator. It
+  enumerates USB CDC ports, probes `*IDN?` / `SYSTem:FW:BUILD?`, filters online
+  DTC100/RP2350_TRIG boards, then runs `ota_send.py` and `ota_boot_commit.py`
+  in parallel with one worker per discovered board by default. Unified package
+  build id is read from the package header and used for commit verification.
 - `scpi_legacy_validate/scpi_legacy_validate.py`: removed-command validator.
   It sends each legacy command one by one, then queries `SYSTem:ERRor?` and
   requires `-113,"Undefined header"` for every entry. Use this instead of
