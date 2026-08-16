@@ -43,6 +43,12 @@ Last updated: 2026-08-16
   - build `20260816031400`，OTA package CRC `0x0F669557`。
   - COM5/COM6 均 OTA 到 build `20260816031400`；`ota_boot_commit.py` 两次均因启动日志污染误判失败，独立 `scpi_query` 确认 `SYST:OTA:STAT? -> "COMMITTED",1,"NONE",5`、`SYST:OTA:SLOT? -> 2,0,2,0,0`、`SYST:ERR? -> 0,"No error"`。
   - COM5/COM6 启用最小合法 observer 后，`OBServer?` 返回 40 字段，其中 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`、`dictionary_profile_crc32=974530568`；关闭后返回 40 个零字段。
+
+### SYNC_IO-TASK-20260816-005 - VDC observer HIL script 固化
+
+- 状态：完成并通过 COM5/COM6。
+- 完成：新增 `tools/vdc_observer_validate/vdc_observer_validate.py`，固化 observer disable/enable/query/disable/error 验证流程，避免后续继续手写串口命令。
+- 验证：`python tools\vdc_observer_validate\vdc_observer_validate.py COM5 COM6 --expected-build 20260816031400` 通过，两板均确认 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
 - 风险：当前仍依赖显式配置的 `next_base_time_l32_ns`、`sample_period_ns`、event id 和 frame CRC；真实 PIO/DMA timestamp latch 和 COM5/COM6 HIL 证据待后续补齐。
 - 后续：补 HIL，把 dictionary CRC、edge index、timestamp source/resolution、profile CRC 和 VDC gate result 写入报告。
 - 涉及文件：`components/vdc_dpll_manager/inc/vdc_dpll_manager.h`，`components/vdc_dpll_manager/src/vdc_dpll_manager.c`，`docs/sync/SYNC_IO_TODO.md`。

@@ -175,6 +175,12 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 - 验证：
   - dry-run 命令生成仍为 128 条，`OBServer?` 固定响应解析为 40 字段。
   - COM5/COM6 build `20260816031400` 上，启用最小合法 observer 后查询返回 40 字段，关闭后返回 40 个零字段，错误队列为空。
+
+### SCPI-TASK-20260816-039 - VDC observer validation script
+
+- 状态：完成。
+- 完成：新增 `tools/vdc_observer_validate/vdc_observer_validate.py`，把 `SYSTem:SYNC:VDC:OBServer` / `OBServer?` 的启停、40 字段和 CRC 证据验证固化为脚本。
+- 验证：COM5/COM6 运行通过，build 均为 `20260816031400`。
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_sync_commands.h`
   - `middleware/scpi_port/src/scpi_sync_commands.c`

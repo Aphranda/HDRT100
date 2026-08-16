@@ -101,6 +101,16 @@ VdcSyncAO
   - COM5/COM6 启用最小合法 observer 后查询到 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`、`dictionary_profile_crc32=974530568`；关闭后 40 字段全零。
 - 注意：
   - `ota_boot_commit.py` 在本轮两块板上都被启动日志污染输出误判失败，独立 `scpi_query` 已确认 commit 实际成功；后续可优化该脚本的启动日志过滤。
+
+### VDC-TASK-20260816-020 - VDC observer HIL validator script
+
+- 状态：完成脚本固化和 COM5/COM6 验证。
+- 完成：
+  - 新增 `tools/vdc_observer_validate/vdc_observer_validate.py`，统一串口生命周期、关闭态检查、启用态配置、40 字段解析、schedule/dictionary CRC 校验、最终关闭和错误队列检查。
+  - 更新 `tools/README.md`，把该脚本列入闭环验证工具。
+- 验证：
+  - `python tools\vdc_observer_validate\vdc_observer_validate.py COM5 COM6 --expected-build 20260816031400` 通过。
+  - COM5/COM6 均返回 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
   - COM5/COM6 验证 raw word -> compact observation -> VDC gate 的板端证据。
 - 关联文件：
   - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`

@@ -76,6 +76,11 @@ Get-Content -Path tools\README.md -Encoding UTF8
   management, checks identity/build/core/VDC/DPLL/config/SlotClaim snapshots,
   verifies default SlotClaim evidence is empty, and can compare build id and
   SlotClaimMap CRC before later RJ45 `CLAIM_*` tests are enabled.
+- `vdc_observer_validate/vdc_observer_validate.py`: VDC raw capture observer
+  maintenance runner. It opens one or more CDC ports, verifies the safe disable
+  path, enables the observer with a minimal explicit config, asserts the 40-field
+  `SYSTem:SYNC:VDC:OBServer?` evidence layout, checks schedule/dictionary CRCs,
+  disables again, and records a transcript.
 - `refmem_sync_hil_validate/refmem_sync_hil_validate.py`: two-board RefMem Sync
   HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY runner. It initializes each board's
   `SYSTem:REFMEM:SYNC` maintenance context, checks build/SlotClaim/adapter
