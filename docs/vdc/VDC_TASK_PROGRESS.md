@@ -45,7 +45,7 @@ VdcSyncAO
 
 ### VDC-TASK-20260816-017 - Manager-side Sync IO observer pump
 
-- 状态：完成 host/build 验证；默认关闭，真实 PIO/DMA timestamp latch 和 HIL 待后续实现
+- 状态：完成 host/build 验证和 COM5/COM6 默认 observer 查询；默认关闭，真实 PIO/DMA timestamp latch 和启用态 HIL 待后续实现
 - 日期：2026-08-16
 - 任务目标：
   - 将 `sync_io_read_capture_words()` 到 VDC compact observation 的任务接线落到 manager 层。
@@ -63,8 +63,11 @@ VdcSyncAO
   - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
   - `git diff --check` 通过，仅有既有 CRLF 提示。
   - `cmake --build build-rtos-multicore-smoke` 通过，最新生成 build id `20260816024745`，package CRC `0x028BC853`。
+  - COM5/COM6 均通过 OTA 更新并 commit 到 build `20260816024745`；两板 `SYST:OTA:STAT?` 均返回 `"COMMITTED",1,"NONE",5`。
+  - COM5 查询 `SYST:SYNC:VDC:OBServer?` 返回 18 个零字段，符合默认 disabled observer；`SYST:SYNC:VDC:STAT?` 返回 `1,1,170836,3552,106131,170836`，错误队列为 `0,"No error"`。
+  - COM6 查询 `SYST:SYNC:VDC:OBServer?` 返回 18 个零字段，符合默认 disabled observer；`SYST:SYNC:VDC:STAT?` 返回 `1,1,50875,3554,34170,50875`，错误队列为 `0,"No error"`。
 - 还需完成：
-  - 增加 HIL 报告，输出 observer status、dictionary CRC、profile CRC、timestamp source/resolution 和 gate evidence。
+  - 增加启用态 HIL 报告，输出 observer status、dictionary CRC、profile CRC、timestamp source/resolution 和 gate evidence。
   - 将真实 PIO/DMA/core1 timestamp latch 接入 observer 配置来源，避免人工配置 base tick。
   - COM5/COM6 验证 raw word -> compact observation -> VDC gate 的板端证据。
 - 关联文件：

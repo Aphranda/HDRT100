@@ -130,7 +130,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 
 ### SCPI-TASK-20260816-036 - VDC raw capture observer 维护查询
 
-- 状态：完成离线和构建验证；板端 USBTMC/CDC 查询待下一轮 HIL 执行。
+- 状态：完成离线、构建和 COM5/COM6 板端查询验证。
 - 日期：2026-08-16
 - 任务目标：
   - 为 VDC manager 的 SYNC_IO raw capture observer 增加只读维护查询。
@@ -145,8 +145,12 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
   - `git diff --check` 通过，仅有既有 CRLF 提示。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260816024745`，package CRC `0x028BC853`。
+  - COM5 OTA 到 build `20260816024745` 并 commit：`SYST:OTA:STAT? -> "COMMITTED",1,"NONE",5`。
+  - COM6 OTA 到 build `20260816024745` 并 commit：首次 boot/commit 工具输出被启动日志污染，复查 `SYST:FW:BUILD? -> "20260816024745"`、`SYST:OTA:SLOT? -> 2,0,2,0,0`、`SYST:OTA:STAT? -> "COMMITTED",1,"NONE",5`、`SYST:ERR? -> 0,"No error"`。
+  - COM5 查询 `SYST:SYNC:VDC:OBServer? -> 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0`，`SYST:SYNC:VDC:STAT? -> 1,1,170836,3552,106131,170836`，`SYST:ERR? -> 0,"No error"`。
+  - COM6 查询 `SYST:SYNC:VDC:OBServer? -> 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0`，`SYST:SYNC:VDC:STAT? -> 1,1,50875,3554,34170,50875`，`SYST:ERR? -> 0,"No error"`。
 - 还需完成：
-  - COM5/COM6 板端查询 `SYSTem:SYNC:VDC:OBServer?`，并把返回字段纳入两板 VDC/TDMA HIL 报告。
+  - 把返回字段纳入两板 VDC/TDMA HIL 报告，并在 observer 启用后验证 raw/submitted/accepted/rejected 计数变化。
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_sync_commands.h`
   - `middleware/scpi_port/src/scpi_sync_commands.c`

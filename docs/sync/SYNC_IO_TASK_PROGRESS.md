@@ -20,6 +20,7 @@ Last updated: 2026-08-16
 - 验证：`python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
 - 验证：`git diff --check` 通过，仅有既有 CRLF 提示。
 - 验证：`cmake --build build-rtos-multicore-smoke` 通过，最新生成 build id `20260816024745`，package CRC `0x028BC853`。
+- 验证：COM5/COM6 均 OTA 到 build `20260816024745` 并 commit；两板 `SYST:SYNC:VDC:OBServer?` 均返回 18 个零字段，符合默认 disabled observer；`SYST:ERR?` 均为 `0,"No error"`。
 - 风险：当前仍依赖显式配置的 `next_base_time_l32_ns`、`sample_period_ns`、event id 和 frame CRC；真实 PIO/DMA timestamp latch 和 COM5/COM6 HIL 证据待后续补齐。
 - 后续：补 HIL，把 dictionary CRC、edge index、timestamp source/resolution、profile CRC 和 VDC gate result 写入报告。
 - 涉及文件：`components/vdc_dpll_manager/inc/vdc_dpll_manager.h`，`components/vdc_dpll_manager/src/vdc_dpll_manager.c`，`docs/sync/SYNC_IO_TODO.md`。
