@@ -921,7 +921,7 @@ static int test_sync_io_adapter_to_vdc_submit(void)
                          1u);
     failed += expect_i32("sync io vdc phase",
                          snapshot.dpll.last_phase_error_ns,
-                         0);
+                         40);
     return failed;
 }
 
@@ -1511,6 +1511,7 @@ static int test_dco_control_contract(void)
     model = context.clock;
     model.phase_offset_ns = -25;
     model.period_adjust_ppb = 100;
+    model.slew_limit_ppb = context.servo.sanity_freq_limit_ppb + 1000u;
     model.base_local_tick64 = 500u;
     model.base_vdc_time64_ns = 1000000u;
     failed += expect_bool("publish clock model",
@@ -1529,6 +1530,12 @@ static int test_dco_control_contract(void)
     failed += expect_u32("dco source model seq",
                          snapshot.dco.source_model_seq,
                          snapshot.clock.model_seq);
+    failed += expect_u32("clock slew follows servo",
+                         snapshot.clock.slew_limit_ppb,
+                         context.servo.sanity_freq_limit_ppb);
+    failed += expect_u32("dco slew follows servo",
+                         snapshot.dco.slew_limit_ppb,
+                         context.servo.sanity_freq_limit_ppb);
 
     dco = snapshot.dco;
     dco.slew_limit_ppb = context.servo.sanity_freq_limit_ppb + 1u;
@@ -1887,10 +1894,10 @@ static int test_dpll_slews_phase_and_pulls_rate_after_lock(void)
                          VDC_DOMAIN_LOCK_LOCKED);
     failed += expect_i32("ki rate pull",
                          snapshot.clock.period_adjust_ppb,
-                         -625);
+                         0);
     failed += expect_i32("budget applied rate",
                          snapshot.error_budget.freq_offset_ppb,
-                         625);
+                         0);
     return failed;
 }
 
@@ -1931,7 +1938,7 @@ static int test_dpll_acquisition_accepts_large_initial_phase(void)
                          VDC_DOMAIN_LOCK_PHASE_LOCK);
     failed += expect_i32("acquisition residual slews",
                          snapshot.dpll.last_phase_error_ns,
-                         100000);
+                         200000);
 
     for (uint32_t i = 4u; i <= 6u; i++) {
         vdc_tdma_timestamp_evidence_t evidence =
@@ -1968,6 +1975,59 @@ static int test_dpll_acquisition_accepts_large_initial_phase(void)
                          snapshot.quality.lock_quality_tier,
                          VDC_DOMAIN_LOCK_QUALITY_FINE_100NS);
     failed += expect_u32("acquisition healthy after fine stability",
+                         snapshot.quality.health_state,
+                         VDC_DOMAIN_HEALTH_HEALTHY);
+    return failed;
+}
+
+static int test_dpll_large_step_does_not_fine_lock_same_sample(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+
+    failed += expect_bool("init one step quality",
+                          vdc_domain_init(&context),
+                          true);
+    vdc_domain_set_ready(&context, true);
+    context.servo.lock_acceptance_threshold_ns =
+        VDC_DOMAIN_LOCK_TIER_COARSE_NS;
+    context.servo.first_step_threshold_ns = 100000u;
+
+    for (uint32_t i = 1u; i <= context.servo.lock_sample_count; i++) {
+        vdc_tdma_timestamp_evidence_t evidence =
+            make_hardware_sample(&context.schedule, i, 90000);
+        failed += expect_bool("submit one step phase",
+                              vdc_domain_submit_tdma_evidence(&context,
+                                                              &evidence),
+                              true);
+    }
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("large step no fine tier",
+                         snapshot.quality.lock_quality_tier,
+                         VDC_DOMAIN_LOCK_QUALITY_NONE);
+    failed += expect_u32("large step no healthy",
+                         snapshot.quality.health_state,
+                         VDC_DOMAIN_HEALTH_DEGRADED);
+    failed += expect_u32("large step peak retained",
+                         snapshot.dpll.max_abs_offset_ns,
+                         90000);
+
+    for (uint32_t i = context.servo.lock_sample_count + 1u;
+         i <= context.servo.lock_sample_count * 2u;
+         i++) {
+        vdc_tdma_timestamp_evidence_t evidence =
+            make_hardware_sample(&context.schedule, i, 90000);
+        failed += expect_bool("submit stable after step",
+                              vdc_domain_submit_tdma_evidence(&context,
+                                                              &evidence),
+                              true);
+    }
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("large step reaches fine after stability",
+                         snapshot.quality.lock_quality_tier,
+                         VDC_DOMAIN_LOCK_QUALITY_FINE_100NS);
+    failed += expect_u32("large step healthy after stability",
                          snapshot.quality.health_state,
                          VDC_DOMAIN_HEALTH_HEALTHY);
     return failed;
@@ -2020,6 +2080,7 @@ int main(void)
     failed += test_dpll_rejects_servo_outlier();
     failed += test_dpll_slews_phase_and_pulls_rate_after_lock();
     failed += test_dpll_acquisition_accepts_large_initial_phase();
+    failed += test_dpll_large_step_does_not_fine_lock_same_sample();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);
         return 1;

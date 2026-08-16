@@ -11,6 +11,7 @@
 #define VDC_DOMAIN_DEFAULT_FRESHNESS_LIMIT_1E3NS 1000000u
 #define VDC_DOMAIN_DEFAULT_HOLDOVER_DRIFT_BOUND_NS_S 1000u
 #define VDC_DOMAIN_ACQUISITION_GUARD_NS 0u
+#define VDC_DOMAIN_DEFAULT_SANITY_FREQ_LIMIT_PPB 50000u
 
 static uint32_t vdc_domain_hash_u32(uint32_t hash, uint32_t value)
 {
@@ -675,6 +676,8 @@ static void vdc_domain_update_clock_from_evidence(
     const uint32_t next_dco_seq = context->dco.dco_update_seq + 1u;
     int32_t frequency_error_ppb = context->dpll.last_frequency_error_ppb;
     int32_t phase_rate_pull_ppb = 0;
+    const int32_t input_residual_ns =
+        vdc_domain_corrected_phase_error_ns(context, evidence);
     if (context->dpll.accepted_sample_count > 1u &&
         evidence->expected_window_start_ns >
             context->dpll.last_expected_window_start_ns &&
@@ -698,7 +701,7 @@ static void vdc_domain_update_clock_from_evidence(
         context->servo.update_period_1e3ns != 0u &&
         context->dpll.accepted_sample_count >= context->servo.lock_sample_count) {
         const int64_t phase_ppb =
-            ((int64_t)evidence->phase_error_ns * 1000000ll) /
+            ((int64_t)input_residual_ns * 1000000ll) /
             (int64_t)context->servo.update_period_1e3ns;
         phase_rate_pull_ppb = vdc_domain_scale_q16_i32(
             vdc_domain_clamp_ppb(phase_ppb,
@@ -707,9 +710,12 @@ static void vdc_domain_update_clock_from_evidence(
     }
 
     const int32_t phase_target_ns =
-        vdc_domain_negate_scaled_q16_i32(evidence->phase_error_ns,
-                                         context->servo.kp_q16);
-    const uint32_t abs_phase_ns = vdc_domain_abs_i32(evidence->phase_error_ns);
+        vdc_domain_clamp_i64_to_i32(
+            (int64_t)context->clock.phase_offset_ns +
+            (int64_t)vdc_domain_negate_scaled_q16_i32(
+                input_residual_ns,
+                context->servo.kp_q16));
+    const uint32_t abs_phase_ns = vdc_domain_abs_i32(input_residual_ns);
     const bool allow_first_step =
         context->dpll.accepted_sample_count <= 1u &&
         abs_phase_ns <= context->servo.first_step_threshold_ns;
@@ -738,6 +744,7 @@ static void vdc_domain_update_clock_from_evidence(
     context->clock.nominal_period_ns = context->schedule.period_ns;
     context->clock.phase_offset_ns = phase_offset_ns;
     context->clock.period_adjust_ppb = period_adjust_ppb;
+    context->clock.slew_limit_ppb = context->servo.sanity_freq_limit_ppb;
     context->clock.tdma_schedule_crc32 = context->schedule.schedule_crc32;
     context->clock.servo_profile_crc32 = context->servo.servo_profile_crc32;
 
@@ -794,7 +801,7 @@ void vdc_domain_default_servo(vdc_servo_profile_t *profile)
     profile->update_period_1e3ns = 1000u;
     profile->first_step_threshold_ns = 100000u;
     profile->step_threshold_ns = 10000u;
-    profile->sanity_freq_limit_ppb = 50000u;
+    profile->sanity_freq_limit_ppb = VDC_DOMAIN_DEFAULT_SANITY_FREQ_LIMIT_PPB;
     profile->offset_lock_threshold_ns = VDC_DOMAIN_LOCK_TIER_FINE_NS;
     profile->debug_lock_threshold_ns = VDC_DOMAIN_LOCK_TIER_DEBUG_NS;
     profile->coarse_lock_threshold_ns = VDC_DOMAIN_LOCK_TIER_COARSE_NS;
@@ -893,7 +900,7 @@ void vdc_domain_default_clock_model(vdc_clock_model_t *model,
     model->nominal_period_ns = VDC_DOMAIN_DEFAULT_PERIOD_NS;
     model->period_adjust_ppb = 0;
     model->phase_offset_ns = 0;
-    model->slew_limit_ppb = 50000u;
+    model->slew_limit_ppb = VDC_DOMAIN_DEFAULT_SANITY_FREQ_LIMIT_PPB;
     model->tdma_schedule_crc32 = schedule_crc32;
     model->servo_profile_crc32 = VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32;
 }
@@ -1524,6 +1531,7 @@ bool vdc_domain_init(vdc_domain_context_t *context)
                                    0u,
                                    0u,
                                    context->schedule.schedule_crc32);
+    context->clock.slew_limit_ppb = context->servo.sanity_freq_limit_ppb;
     context->dpll.state = VDC_DOMAIN_LOCK_OFF;
     context->dpll.schedule_crc32 = context->schedule.schedule_crc32;
     context->dpll.servo_profile_crc32 = context->servo.servo_profile_crc32;
@@ -1590,6 +1598,7 @@ bool vdc_domain_publish_clock_model(vdc_domain_context_t *context,
 
     context->clock = *model;
     context->clock.model_seq++;
+    context->clock.slew_limit_ppb = context->servo.sanity_freq_limit_ppb;
     vdc_domain_default_dco_control(&context->dco,
                                    &context->clock,
                                    context->dpll.state);
@@ -1688,10 +1697,10 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
         return false;
     }
 
-    const int32_t predicted_residual_ns =
+    const int32_t input_residual_ns =
         vdc_domain_corrected_phase_error_ns(context, evidence);
     const uint32_t abs_predicted_residual =
-        vdc_domain_abs_i32(predicted_residual_ns);
+        vdc_domain_abs_i32(input_residual_ns);
     if (!acquisition_window &&
         context->dpll.accepted_sample_count != 0u &&
         context->servo.outlier_threshold_ns != 0u &&
@@ -1717,16 +1726,15 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
     context->dpll.accepted_sample_count++;
     vdc_domain_update_clock_from_evidence(context, evidence);
 
-    vdc_tdma_timestamp_evidence_t residual_evidence = *evidence;
-    residual_evidence.phase_error_ns =
-        vdc_domain_corrected_phase_error_ns(context, evidence);
+    vdc_tdma_timestamp_evidence_t input_evidence = *evidence;
+    input_evidence.phase_error_ns = input_residual_ns;
     const uint32_t abs_phase =
-        vdc_domain_abs_i32(residual_evidence.phase_error_ns);
+        vdc_domain_abs_i32(input_evidence.phase_error_ns);
 
     context->dpll.last_sample_seq = evidence->sample_seq;
     context->dpll.last_reject_code = VDC_DOMAIN_GATE_PASS;
-    context->dpll.last_phase_error_ns = residual_evidence.phase_error_ns;
-    context->dpll.last_offset_ns = residual_evidence.phase_error_ns;
+    context->dpll.last_phase_error_ns = input_evidence.phase_error_ns;
+    context->dpll.last_offset_ns = input_evidence.phase_error_ns;
     context->dpll.jitter_pk_ns =
         evidence->jitter_ns > context->dpll.jitter_pk_ns
             ? evidence->jitter_ns
@@ -1758,7 +1766,7 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
     }
 
     vdc_domain_sync_dco_lock_state(context);
-    vdc_domain_record_accepted_sample(context, &residual_evidence);
+    vdc_domain_record_accepted_sample(context, &input_evidence);
     return true;
 }
 

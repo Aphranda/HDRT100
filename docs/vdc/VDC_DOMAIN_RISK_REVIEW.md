@@ -79,8 +79,8 @@ Last updated: 2026-08-17
 | 项 | 状态 | 位置 | 说明 |
 |---|---|---|---|
 | wrap tracker 高 32 位被重置 | 已纠偏（2026-08-17） | [vdc_domain.c:1615](components/vdc_domain/src/vdc_domain.c#L1615) → [vdc_timestamp.c:241-252](components/vdc_domain/src/vdc_timestamp.c#L241-L252) | 新增 `vdc_wrap_tracker_reanchor()`，发布 timestamp dictionary 时只更新低 32 位锚点，不清 `tick_hi64/wrap_count/backward_reject_count`；单测覆盖 reanchor 后仍保持 `0x1_0000_0000` 高位。 |
-| 锁质量用残差非入相 | 待纠偏 | [vdc_domain.c:1701-1705](components/vdc_domain/src/vdc_domain.c#L1701-L1705) | lock 判据与 quality tier 用**校正后**残差（`phase_error + phase_offset`），非入相误差；90µs 阶跃一步校正后报 `FINE_100NS/LOCKED`，offset 统计系统性偏小。 |
-| slew_limit 硬编码 | 待纠偏 | [vdc_domain.c:879](components/vdc_domain/src/vdc_domain.c#L879) | `clock.slew_limit_ppb = 50000` 永不同步 `servo.sanity_freq_limit_ppb`；DCO 校验 [:977](components/vdc_domain/src/vdc_domain.c#L977) 会拒绝收紧后的 profile。 |
+| 锁质量用残差非入相 | 已纠偏（2026-08-17） | [vdc_domain.c:1697-1766](components/vdc_domain/src/vdc_domain.c#L1697-L1766) | `SyncDpllFB` 锁状态、quality tier、offset/error budget 统一使用本帧更新前入相残差；DPLL phase correction 仍更新 clock model，但不能把同帧修正后的残差冒充 fine lock。新增 90 us first-step 回归测试，证明大阶跃可拉入但不能同帧 `FINE_100NS/HEALTHY`。 |
+| slew_limit 硬编码 | 已纠偏（2026-08-17） | [vdc_domain.c:801](components/vdc_domain/src/vdc_domain.c#L801), [vdc_domain.c:1598](components/vdc_domain/src/vdc_domain.c#L1598) | 默认 `sanity_freq_limit_ppb` 提为命名常量；context init、accepted evidence 更新和 `publish_clock_model()` 都把 `clock/dco.slew_limit_ppb` 收敛到 active `servo.sanity_freq_limit_ppb`，避免收紧 profile 后 DCO snapshot 自校验失败。 |
 | ENC_COUNT DMA IRQ 死 | 待纠偏 | [sync_io_mode_enc_count.c:147](components/sync_io/src/sync_io_mode_enc_count.c#L147) | DMA transfer count 设 `0xFFFFFFFF` 永不完成，IRQ 不触发；`fire_count`/`dma_restart_count`/overflow 检测全死。 |
 | SEQ_STEP gate 绑死 +3 | 已澄清，待移出风险项 | [seq_step.pio:48](components/sync_io/src/seq_step.pio#L48) | `wait 1 pin,3` 是固定 GATE 输入 GPIO19；触发源 wait 指令已在 `seq_step_program_init_common()` 中按 GPIO16-19 offset patch。该项不是当前故障，但文档仍需从风险表移到设计说明。 |
 | 共享 SM 无互斥 | 待纠偏 | [sync_io_mode_seq_step.c:155](components/sync_io/src/sync_io_mode_seq_step.c#L155) / [enc_count.c:117](components/sync_io/src/sync_io_mode_enc_count.c#L117) | SEQ_STEP 与 ENC_COUNT 共用 `BOARD_SYNC_OUTPUT_SM`，各自 arm 互不检查；唯一 guard 是 NDEBUG 下消失的 assert。 |
@@ -133,7 +133,8 @@ Last updated: 2026-08-17
 | 2 | 修 `accepted_sample_count` 重置（§3.2） | 已纠偏；`accepted_sample_count` 当前按连续锁相获取 streak 使用。 |
 | 3 | 钳 `seq_width` 到 4 或参数化 PIO（§3.3） | 已纠偏；当前绑定 `BOARD_SYNC_OUTPUT_PIN_COUNT=4`，未做可变宽 PIO 程序。 |
 | 4 | 修 wrap tracker 高位重置（§5.1） | 已纠偏；下一步可进入锁质量口径和 sync_io 剩余边界 bug。 |
-| 5 | 清 sync_io 边界 bug（§4 + §5 剩余） | 部分已纠偏：`word_span_ns` 溢出、DMA produced 整圈丢字、SEQ gate 前置校验、ENC_COUNT 运行中 ISR 注入、model completion 饱和、ambiguous 基线已完成；SM 互斥、假 fire、非 capture DMA claim 仍待处理。 |
-| 6 | 补 manager/sync_io 单测（§7.1/7.3） | 高风险集成层当前零 host 覆盖。 |
-| 7 | 统一文档漂移（§6） | 先删不存在的 `task_vdc_sync`/`task_dpll` 壳描述与过期 TODO 状态，再对齐枚举/公式/SCPI 树。 |
-| 8 | 专项审 `components/tdma` 本体（§1 范围外） | TDMA 是 VDC 稳定性的前置条件，`tdma_service.c` 尚未逐行审。 |
+| 5 | 清 VDC DPLL 质量口径和 slew limit（§5.2/§5.3） | 已纠偏：lock/quality/error budget 改为入相残差口径，`slew_limit_ppb` 跟随 active servo sanity limit。 |
+| 6 | 清 sync_io 边界 bug（§4 + §5 剩余） | 部分已纠偏：`word_span_ns` 溢出、DMA produced 整圈丢字、SEQ gate 前置校验、ENC_COUNT 运行中 ISR 注入、model completion 饱和、ambiguous 基线已完成；SM 互斥、假 fire、非 capture DMA claim 仍待处理。 |
+| 7 | 补 manager/sync_io 单测（§7.1/7.3） | 高风险集成层当前零 host 覆盖。 |
+| 8 | 统一文档漂移（§6） | 先删不存在的 `task_vdc_sync`/`task_dpll` 壳描述与过期 TODO 状态，再对齐枚举/公式/SCPI 树。 |
+| 9 | 专项审 `components/tdma` 本体（§1 范围外） | TDMA 是 VDC 稳定性的前置条件，`tdma_service.c` 尚未逐行审。 |

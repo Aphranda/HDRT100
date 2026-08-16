@@ -43,6 +43,41 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260817-004 - DPLL lock quality residual and slew-limit closure
+
+- 状态：完成代码、host 单元验证、构建、文档检查、COM5/COM6 OTA、只读 SCPI/HIL 复查和 EtherCAT DC-style 对照评审；板端 HIL 仍卡在 timestamp eligibility，需在后续硬件 timestamp latch/observer 链路继续收敛。
+- 日期：2026-08-17
+- 任务目标：
+  - 纠偏 `VDC_DOMAIN_RISK_REVIEW.md` 中 `锁质量用残差非入相` 和 `slew_limit 硬编码` 两项风险。
+  - 保持 HAOFV 边界：SCPI/脚本只配置和读取镜像，`SyncDpllFB` 才能写 clock model、DCO snapshot、lock 和 quality。
+- 完成内容：
+  - `vdc_domain_submit_tdma_evidence()` 在每帧 accepted path 中先计算更新前入相残差；lock state、quality tier、offset/error budget 和 outlier 口径均使用该入相残差。
+  - `vdc_domain_update_clock_from_evidence()` 使用更新前入相残差驱动 phase correction 和 KI rate pull，避免 raw phase 在 offset 已抵消后继续重复拉频。
+  - `clock.slew_limit_ppb` 在 init、accepted evidence 更新和 `publish_clock_model()` 中统一跟随 active `servo.sanity_freq_limit_ppb`；默认 sanity limit 提为命名常量。
+  - 单测更新 `sync_io` compact observation 的入相 phase 口径，并新增 90 us first-step 回归：大阶跃允许快速拉入，但不能同帧或未连续稳定时发布 `FINE_100NS/HEALTHY`。
+  - 对照 EtherCAT DC 拆解当前 VDC：已具备 `LOCAL_TIME + OFFSET + DRIFT_CORR` 的 clock model 雏形和 TDMA observation payload 骨架；仍缺 reference sync frame 的时间语义、delay-measure 沿途 timestamp、active `PATH_DELAY` 表、`T_local_rx + OFFSET - (T_reference + PATH_DELAY)` 显式公式，以及 DCO 反驱 core1 TDMA frame/slot。
+  - `VDC_DOMAIN_ARCHITECTURE.md` 增加 RP2350 仿 DC 五层拆解；`VDC_DOMAIN_TODO.md` 增加 EtherCAT DC-style 对照缺口和低频 log 记录项。
+- 验证结果：
+  - `python tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py --port-x COM5 --port-y COM6 --name-x COM5 --name-y COM6 --expected-build 20260816165320 --poll-timeout 90 --pulse-count 4096 --pulse-high-ns 1000 --reverse` 基线失败：`accepted count did not grow: 0 -> 0`；readiness/observer 显示当前仍未形成 DPLL accepted hardware evidence。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260816171400`，package CRC `0x4FEAE6F7`。
+  - `python tools\docs_check\docs_check.py` 通过；保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 和 `VDC_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过，COM5/COM6 均升级并 commit 到 build `20260816171400`。
+  - COM5/COM6 只读 SCPI 复查通过：`SYSTem:ERRor?` 均为 `0,"No error"`，`SYSTem:SYNC:VDC:DCO?` valid，`clock/dco.slew_limit_ppb=50000` 与 active servo sanity limit 一致。
+  - 新固件 HIL 复跑仍失败于 COM5->COM6：`accepted count did not grow: 0 -> 0`。HIL 后 COM5 `SYSTem:SYNC:VDC:LOCK:READiness?` 显示 reject code `9`（`TIMESTAMP_NOT_ELIGIBLE`），`SYSTem:SYNC:VDC:TDMA:STATus?` 显示 VDC sync sample 活动，说明后续断点在 TDMA timestamp spine / hardware latch eligibility，而不是本轮 DPLL quality 口径。
+- 还需完成：
+  - 观察低频 log / VDC readiness / observer / latch 镜像，定位 accepted count 不增长的硬件 timestamp eligibility 断点。
+  - 补齐维护域低频 log 对 VDC/TDMA/observer 关键镜像的周期落盘，作为后续锁相优化的异常调查基础。
+- 关联文件：
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `tests/unit/test_vdc_domain.c`
+  - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+  - `docs/vdc/VDC_DOMAIN_RISK_REVIEW.md`
+- 下一步：
+  - 优先定位 `TIMESTAMP_NOT_ELIGIBLE` 断点，使 TDMA observation window 的硬件 latch 样本进入 accepted path；随后实现 reference sync frame、delay-measure frame 和 active `PATH_DELAY` 表。
+
 ### VDC-TASK-20260817-003 - sync_io P2 DMA and counter safety closure
 
 - 状态：完成代码、host 单元验证、构建、文档检查、COM5/COM6 OTA 和只读 SCPI 复查。

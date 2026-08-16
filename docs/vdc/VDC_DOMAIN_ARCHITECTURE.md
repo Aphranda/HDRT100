@@ -260,6 +260,21 @@ Board Y: follower slot
 
 DPLL 的输出不是直接修改本地硬件 timer，而是更新 VDC clock model 的受控参数。core1 读取该 snapshot，把未来 `vdc_time` 映射到 `local_fire_tick`，通过小步 slew 或 phase pull 消化相位误差。
 
+#### RP2350 仿 DC 时钟拆解
+
+参考 EtherCAT DC 的拆法，DTC100 的 RP2350 VDC 不应只理解为一个 PI 算法，而应拆成“本地时间引擎 + reference sync frame + path delay + DPLL servo + TDMA 事件调度”五个可验证层。
+
+| DC 机制 | RP2350/VDC 对应项 | 当前状态 | 缺口 |
+|---|---|---|---|
+| `LOCAL_TIME` 本地 64 bit 时间 | `base_local_tick64`、硬件 latch tick、TDMA boot-time ns。 | 已有 64 bit ns 映射和 wrap tracker；当前 HIL 仍多处来自诊断时间或 latch 镜像。 | 需要把 core1/PIO latch 的硬件 tick 作为正式 `LOCAL_TIME` 输入，并持续发布低频镜像。 |
+| `OFFSET` 偏移校正 | `VdcClockModel.phase_offset_ns` / `VdcDcoControl.phase_offset_ns`。 | 已由 `SyncDpllFB` accepted evidence 更新，且 quality 使用更新前入相残差。 | 需要接入真实 accepted hardware sample 后验证收敛速度和稳态 RMS。 |
+| `DRIFT_CORR` 漂移校正 | `period_adjust_ppb` / 后续 `rate_q32`。 | 已用 sample period 和 KI 产生首版 rate pull。 | 需要低频 discipline 统计 wander/temperature/aging，并区分快速 DPLL 与慢速驯服。 |
+| `PATH_DELAY` 传播延时 | `VdcCalibrationBinding.delay_ns`、`VdcErrorBudget.path_delay_ns`。 | evidence 有 `delay_ns` 字段，error budget 可记录。 | 尚未形成 active path delay 表、delay-measure frame、沿途 timestamp 回环计算和 cal CRC 失效策略。 |
+| reference sync frame | TDMA `VDC_OBSERVATION_WINDOW` + `VDC_SYNC_SAMPLE/IDLE_BEACON`。 | payload 已挂到公共 TDMA；当前 self-test 仍是 diagnostic evidence。 | 帧内还缺 reference time / next frame start / slot time 的正式字段语义，以及硬件 timestamp spine 对 eligible 的闭环。 |
+| DC 时间驱动 TDMA | `vdc_domain_plan_tdma_window()` 和后续 core1 scheduler/DCO。 | 当前可按 active schedule 规划窗口，RefMem data window 已受 TDMA plan 约束。 | 还未由 `T_effective = local_time + offset/rate` 反驱 core1/PIO TDMA frame/slot 边界。 |
+
+因此，当前 DPLL 已经具备“offset/rate servo 内核”，但还不等于完整 DC。完整 DC 必须补齐 `reference time -> path delay -> effective time -> TDMA slot` 的闭环：reference slot 发出带时间语义的 sync/idle frame，接收 slot 用硬件 timestamp latch 得到 `T_local_rx`，VDC owner 使用 active `PATH_DELAY` 计算入相误差并更新 `OFFSET/DRIFT_CORR`，core1 再消费 DCO snapshot 调整后续 TDMA 和 FIRE_LOAD。
+
 VDC clock model 需要同时表达标称周期和修正量：
 
 | 字段 | 含义 |
