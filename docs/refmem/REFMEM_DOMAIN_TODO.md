@@ -42,12 +42,13 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | 1 | Host C 断言门禁 | 18 个 C 单元测试必须由 host gcc 编译并执行断言；compile-only 只能作为无 host gcc 时的降级信息，不算完整验证通过。 |
 | 2 | S0 flash/core1 park-lockout | Flash erase/program 前必须完成 core1 park/lockout/RAM-resident 入口握手，并加入故障注入；该门禁优先于继续扩大 RefMem 表模型。 |
 | 3 | 真实最小 transport | 至少两块板通过一条真实物理链路运行 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY`，不再只依赖 PC hex bridge 或本地 stub。 |
-| 4 | PIO 预约输出路径 | `ModelTurntableAO` 或等价模型必须走真实 PIO scheduled fire，验证“到点出边沿”的硬实时承诺。 |
-| 5 | NodeLoad staging/activation | `CONFigure:MODEl:TURNtable:LOAD` 不再只改本地变量，而是形成 NodeLoadTable staging image；可查询、可验证、可拒绝、可激活、可回滚。 |
-| 6 | Command / ACK / NACK 基础件 | SCPI 只 post command，owner take 后 ACK/NACK；启动、停止、配置激活和模型加载都能形成闭环状态。 |
-| 7 | RefMemSlotContract | 每个 slot/字段有唯一 writer、权限、guard、snapshot 策略和 stale 规则；业务 AO 不能直接裸写共享内存。 |
-| 8 | Quality / Evidence | CRC/drop/late/timeout/stale/claim conflict 等进入质量表和 evidence，可由维护接口和报告读取。 |
-| 9 | 业务模型闭环 | 在以上基础上逐个接入 `ModelTurntableAO`、`ModelVnaAO`、`LinkSwitcherAO`、`PulseDistributorAO`、`VnaGatewayAO`。 |
+| 4 | TDMA 可预测可靠性 | TDMA 不是“尽力而为发送”；每个 payload 必须有窗口命中、deadline、miss reason、retry/backoff、ACK/FENCE completion 和可查询 evidence。NodeLoad AUTO 必须证明单条 delta 不会因一次 `WINDOW_MISSED` 静默丢失。 |
+| 5 | PIO 预约输出路径 | `ModelTurntableAO` 或等价模型必须走真实 PIO scheduled fire，验证“到点出边沿”的硬实时承诺。 |
+| 6 | NodeLoad staging/activation | `CONFigure:MODEl:TURNtable:LOAD` 不再只改本地变量，而是形成 NodeLoadTable staging image；可查询、可验证、可拒绝、可激活、可回滚。 |
+| 7 | Command / ACK / NACK 基础件 | SCPI 只 post command，owner take 后 ACK/NACK；启动、停止、配置激活和模型加载都能形成闭环状态。 |
+| 8 | RefMemSlotContract | 每个 slot/字段有唯一 writer、权限、guard、snapshot 策略和 stale 规则；业务 AO 不能直接裸写共享内存。 |
+| 9 | Quality / Evidence | CRC/drop/late/timeout/stale/claim conflict 等进入质量表和 evidence，可由维护接口和报告读取。 |
+| 10 | 业务模型闭环 | 在以上基础上逐个接入 `ModelTurntableAO`、`ModelVnaAO`、`LinkSwitcherAO`、`PulseDistributorAO`、`VnaGatewayAO`。 |
 
 近期不做：
 
@@ -68,6 +69,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] P0: 风险评审 §3.4 子项 B1：定义 NodeLoad entry -> RefMem DELTA 的总线无关编解码基础件，并接入 `DistributedRefMemAO` staging apply；新增 `SYSTem:REFMEM:SYNC:TDMA:NODE:TX` 从本板 staging entry 生成真实 TDMA TX intent，接收端 `TDMA:FRAMe?` 可将 NodeLoad DELTA 交给 RefMemAO staging。
 - [x] P0: 风险评审 §3.4 子项 B2：将 NodeLoad DELTA 发送/接收从维护命令触发升级为 RefMemAO/core1 TDMA 自运行窗口；新增 `SYSTem:REFMEM:SYNC:AUTO` / `AUTO?`，默认关闭，可由 SCPI 配置 enable、local slot、target mask、baud、deadline、uplink adapter 和 downlink adapter。两组 adapter 均按无 CS 的 3-wire SPI contract 表达 `duplex_mode,rx,sck,tx`，其中 uplink adapter 用于接收上一个板卡的数据，downlink adapter 用于下发数据到下一个板卡；开启后 RefMemAO service 自动提交 pending NodeLoad TX 或 RX window，core1 TDMA 只执行 PIO/DMA。
 - [x] P0: 风险评审 §3.4 子项 B2.1：修正 AUTO RX 与 `LOAD:NODE` 的门禁冲突；`LOAD:SD` / `LOAD:BOARD` 继续要求 realtime idle，`LOAD:NODE` 可由 `DistributedRefMemAO` 判定并抢占自身 AUTO RX window，随后进入 NodeLoad pending TX 队列。SCPI 不直接 abort TDMA，不绕过 RefMemAO owner。
+- [ ] P0: TDMA/AUTO NodeLoad 可靠性必须补齐 ACK/重发/fence completion。当前公共 TDMA 已能按窗口执行并记录 `WINDOW_MISSED`，但 AUTO NodeLoad 仍存在“单发 DELTA + 对端 RX window 必须命中”的缺陷；P0 验收要求每条 NodeLoad delta 都有 `origin_encoded -> transport_sent -> target_validated -> target_committed -> acked/fenced` completion 证据，missed window 必须触发有界 retry/backoff，不能静默丢失。
 - [x] P0: 风险评审 §3.4 子项 B3：COM5/COM6 HIL 验收双向两节点同步：X 加载两个节点同步到 Y，Y 加载两个节点同步回 X；验证 NodeLoad staging、TableRegistry CRC、SlotClaimMap、quality/evidence 查询一致。当前 B3 验收使用无 CS 的 3-wire SPI AUTO 配置，区分 uplink adapter（接收上一个板卡）和 downlink adapter（下发到下一个板卡），可配置 half/full duplex mode，不退回 PC frame hex bridge。已用 build `20260815165314` 在 COM5/COM6 完成双向两节点同步，HIL 记录位于 `build-rtos-multicore-smoke/refmem_node_load_auto_hil_COM5_COM6_20260815165314/`。
 - [x] P0: 风险评审 §3.10 `OWNER_OK` 只能由 owner validation 结果置位；`refresh_active()` 的编译内置 active entry 已降级为 `ACTIVE_PRESENT|CRC_OK`，不再由 `present + CRC` 伪造 owner provenance。
 - [x] P0: 风险评审 §3.11 `SYSTem:REFMEM:LOAD:NODE` / `LOAD:BOARD` staging 不能停在 metadata-only 死胡同；`LOAD:NODE` 已形成私有 NodeLoadTable draft，`LOAD:BOARD` 已形成私有 BoardCapabilityTable draft，单表 draft 已合并为完整 Node Model Candidate，并生成可 activation、可 rollback、可 runtime parse 的 9 表 inline RMTP package image。产品路径不允许单表独立激活或降级为仅诊断入口。
@@ -222,7 +224,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - [x] 建立 `refmem_realtime_tdma` service contract：core0 writer 只发布 intent mailbox，core1 writer 只发布 runtime/result snapshot，查询端通过 seqlock 合成状态，避免跨核共享字段双 writer。
   - [x] 将 `refmem_realtime_tdma` 从 RefMem 私有实现抽为 `components/tdma` 基础件；RefMem 侧仅保留兼容适配层，旧 `SYSTem:REFMEM:SYNC:TDMA:*` 查询/控制字段不变，实际调度、scheduled window、transport ops 和 payload binding 由 `tdma_service` 执行。
   - [x] 将 RefMem TDMA payload 注册收敛为标准 contract：`refmem_tdma_payload_register()` 集中注册 `REFMEM_DELTA` 和 `REFMEM_ACK_FENCE`，`refmem_realtime_tdma` 只调用该入口；公共 `tdma_service` submit 阶段拒绝未注册 payload。build `20260816103607` 已在 COM5/COM6 重跑 NodeLoad AUTO 双向两节点同步通过。
-  - [ ] 为 AUTO NodeLoad 增加 ACK/重发或 fence completion：当前窗口 missed 时可能丢失单发 DELTA，HIL 已观察到一次 B->A 只应用 1/2 帧后重跑通过；后续不能依赖偶然窗口命中作为可靠同步语义。
+  - [ ] P0: 为 AUTO NodeLoad 增加 ACK/重发或 fence completion：当前窗口 missed 时可能丢失单发 DELTA，HIL 已观察到一次 B->A 只应用 1/2 帧后重跑通过；后续不能依赖偶然窗口命中作为可靠同步语义。验收时必须故障注入 `WINDOW_MISSED`、RX timeout 和 duplicate seq，确认未 ACK 的 delta 会在后续 TDMA window 有界重发，已 ACK 的 delta 不重复提交 staging。
   - [x] 抽离后复测 COM5/COM6 NodeLoad AUTO 双向两节点同步：X 板只通过 SCPI 加载两个节点并经 TDMA/PIO 同步到 Y 板，随后 Y 板加载两个节点同步回 X 板；验收已验证 NodeLoad staging CRC、SlotClaimMap、AUTO applied count、last frame type/source 和错误队列。build `20260816095934` 记录位于 `build-rtos-multicore-smoke/refmem_node_load_auto_hil_COM5_COM6_20260816095934_tdma_component/`。
   - [x] 抽离后复测 COM5/COM6 NodeLoad AUTO 空闲维护：同步完成后继续观察两板 RX window 自运行，确认 `pending_count=0`、`last_error=0`、`submitted_rx_count` 和 TDMA `service_count/completed_seq` 继续增长；记录位于 `build-rtos-multicore-smoke/refmem_node_load_auto_hil_COM5_COM6_20260816095934_auto_maintenance/`。
   - [x] 将 TDMA service 接入 `DistributedRefMemAO` 初始化、core1 realtime loop 和维护查询 `SYSTem:REFMEM:SYNC:TDMA:STATus?`。

@@ -50,8 +50,9 @@ SCPI maintenance
 | P0.0 | 建立 VDC lock readiness 只读入口，明确当前卡在 observer、dictionary、timestamp eligibility、accepted sample、gate 还是 DPLL state。 | `SYSTem:SYNC:VDC:LOCK:READiness?` 和 HIL 脚本能在 COM5/COM6 上报告 `input_ready=0,locked=0,reason=TIMESTAMP_NOT_ELIGIBLE`，且不改变 DPLL 状态。 |
 | P0.1 | 把 observer 手工 expected window/base 配置收敛到 active TDMA observation window，并继续接真实 PIO edge latch。 | `SYSTem:SYNC:VDC:OBServer:TDMA` 已按 `VdcTdmaScheduleProfile` 配置 observer 最小实例，并由 manager arm `sync_io` timestamp window；当前低速诊断采样仍报告 `DIAGNOSTIC_ONLY` 并被 gate 拒绝，后续必须由固件内部在 observation window 内预约边沿和采样，不能依赖 PC 串口赶窗口。 |
 | P0.2 | 让 `VDC_OBSERVATION_WINDOW` 样本通过 DPLL gate。 | 已增加 TDMA observer self-test foundation：RX 侧周期性 arm observation window 并启动 capture，TX 侧用 PIO/DMA 主输出组发 pulse train，latched word 携带命中的周期窗口起点。10 MHz capture 采用 DMA ring、窗口外 word 跳过、core1 有界消费和 VDC 侧批量读取，避免把窗口外诊断数据变成 core1 饥饿；COM5/COM6 HIL 仍需验证 `accepted_sample_count` 增长、`last_gate_reject_code=0`、sample/frame CRC 被记录，窗口外或 CRC 错误仍拒绝。 |
-| P0.3 | 实现 `SyncDpllFB` 最小环路滤波器，使用 accepted sample 计算 phase error / frequency error，经 PI 或等价 servo、限幅和 reset policy 调节 VDC clock model 的 offset/rate，并发布 DCO snapshot。 | `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 状态链必须由环路滤波器收敛驱动，而不是 sample count 伪锁定；报告 lock_time、last/rms/max offset、freq_offset_ppb、period_adjust_ppb、outlier/reset 次数。 |
-| P0.4 | core1 只读稳定 DCO snapshot，形成 VDC 同步输出/预约触发基础。 | core1 拒绝 stale/半更新 DCO，正常 snapshot 下可以按 VDC time 装载 FIRE_LOAD 或同步输出。 |
+| P0.3 | TDMA 基础件形成时间可预期的稳定闭环。 | TDMA 每个 short/long frame window 必须有可计算 start/end/guard/deadline、core1 arm/start/done timestamp、miss/late reason、payload completion 和 retry/fence 策略；RefMem AUTO NodeLoad 不能因一次 `WINDOW_MISSED` 静默丢失 delta，VDC DPLL sample 不能由不稳定 TDMA 维护。 |
+| P0.4 | 实现 `SyncDpllFB` 最小环路滤波器，使用 accepted sample 计算 phase error / frequency error，经 PI 或等价 servo、限幅和 reset policy 调节 VDC clock model 的 offset/rate，并发布 DCO snapshot。 | `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 状态链必须由环路滤波器收敛驱动，而不是 sample count 伪锁定；报告 lock_time、last/rms/max offset、freq_offset_ppb、period_adjust_ppb、outlier/reset 次数。 |
+| P0.5 | core1 只读稳定 DCO snapshot，形成 VDC 同步输出/预约触发基础。 | core1 拒绝 stale/半更新 DCO，正常 snapshot 下可以按 VDC time 装载 FIRE_LOAD 或同步输出。 |
 | P1 | 将 VDC quality/error budget 纳入 RUN gate，并把 VDC snapshot 映射到 RefMem。 | VDC unlocked/质量不达标时 RUN/FIRE_LOAD 被拒绝；LOCKED 后 RefMem 只镜像 VDC 共同时间事实。 |
 
 当前主线结论：先完成 P0.0-P0.3，再回到 RefMem 表模型扩展；否则表模型继续扩大会超过当前两板硬件闭环的验证能力。
@@ -66,6 +67,7 @@ DPLL 稳定性要求：
 TDMA 最小实例约束：
 
 - `components/tdma` 是唯一 TDMA scheduler / PIO transport / timestamp spine 基础件；VDC 不建立私有 TDMA 实现，只注册/消费 `VDC_SYNC_SAMPLE`、`IDLE_BEACON` 等 payload，并读取 TDMA 产生的 scheduled window 与 timestamp evidence。
+- TDMA 稳定性是 DPLL/VDC 的前置条件：每一帧必须先维护共同时间骨架，再搭载 payload；`WINDOW_MISSED`、late、timeout、CRC/drop 必须进入 quality/evidence，并驱动 retry、fence 或 holdover，而不能被当成普通日志。
 - `SYSTem:SYNC:VDC:OBServer:TDMA` 只允许从 VDC active schedule 读取 `VDC_OBSERVATION_WINDOW` 并配置 observer，不允许由 SCPI 直接提供或修改 DPLL lock evidence。
 - `TDMA_WINDOW_BASE` 只能说明 compact observation 的 expected/base 时间来自 active TDMA 计划；`sync_io` timestamp window 使用 capture timer 同一时间基 arm，支持按 TDMA period 周期性匹配，只有整个 capture word 落在某个 observation window 内才可能去掉 `DIAGNOSTIC_ONLY`，并且 compact observation 必须使用命中的窗口起点作为 expected window。
 - 只有 PIO/DMA/IRQ/core1 在 observation window 内形成真正 edge latch，且 timestamp metadata 为 `HARDWARE_TICK + DPLL_ELIGIBLE + resolution<=100ns + !DIAGNOSTIC_ONLY`，VDC gate 才能接受样本。
@@ -88,6 +90,7 @@ TDMA 最小实例约束：
 |---:|---|---|---|
 | P0 | `VdcSyncAO / SyncDpllFB / VdcVector` 尚未实体化。 | `vdc_domain.c` 仍是单体 domain core，`vdc_dpll_manager` 仍是兼容 wrapper，`task_vdc_sync` 只是 1 ms service 壳。 | 建立 VDC AO/FB 内部边界：SCPI/System 只能投递 command/event，`VdcSyncAO` 拥有 schedule/profile/cal binding，`SyncDpllFB` 唯一写 offset/rate/lock，`VdcVector` 发布稳定 snapshot。 |
 | P0 | TDMA plan 未被 core1/PIO 消费。 | `components/tdma` 已成为唯一 scheduler/transport/timestamp spine；RefMem 通过 `refmem_tdma_payload_register()` 注册 DELTA/ACK_FENCE，VDC 通过 `vdc_tdma_payload_register()` 注册 SYNC_SAMPLE/IDLE_BEACON；NodeLoad AUTO TX/RX 会从 VDC manager 获取 `REFMEM_DATA_WINDOW` 计划，core1 service 已能在 guard 前保持 pending、窗口错过时拒绝、进入 payload window 后执行。 | 继续把该路径接到真实 PIO timestamp latch，并把 `VDC_OBSERVATION_WINDOW` 的 SYNC sample 变成正式 DPLL 输入。 |
+| P0 | TDMA payload completion 仍不够可靠。 | COM5/COM6 回归曾观察到 AUTO NodeLoad 首次 B->A 只应用 1/2 帧，TDMA snapshot 记录 `WINDOW_MISSED`；重跑通过说明链路可用，但当前仍缺少强 completion。 | TDMA/RefMem 必须补 ACK/重发/fence completion 和故障注入，保证 missed window 不会造成静默丢帧；该项优先于继续扩大 VDC DPLL 锁定算法。 |
 | P0 | 缺少硬件 timestamp latch。 | 当前板端 evidence 仍来自 `time_us_64()*1000` 或 `board_uptime_ms()*1e6`，只能做诊断。 | 增加 PIO/DMA/IRQ/core1 capture latch，正式 DPLL sample 必须 `timestamp_source=HARDWARE_TICK` 且 `timestamp_resolution_ns <= 100`。 |
 | P0 | DPLL 算法未真正更新 clock model。 | `vdc_domain_submit_tdma_evidence()` 只做门禁、计数和简化状态推进，未根据 phase/frequency error 更新 `period_adjust_ppb` / `phase_offset_ns`。 | 将 PI/linreg 或等价 servo 收敛到 `SyncDpllFB`，实现 offset/rate、outlier、step/slew、sanity limit、reset 和 staged profile。 |
 | P1 | VDC snapshot 尚未发布到 RefMem `VdcSlot`。 | RefMem application model 有 VDC/DPLL 区域字段，但 VDC 主域未按唯一 writer、guard、sequence/CRC 发布。 | 定义 `VdcSlot` 字段级 contract，VDC owner 写 snapshot/quality/fault/evidence，RefMem 只镜像和同步。 |

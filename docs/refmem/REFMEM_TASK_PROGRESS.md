@@ -27,7 +27,7 @@ Last updated: 2026-08-16
   - COM5/COM6 多线程 OTA 到 `20260816103607` 通过。
   - 首次 AUTO HIL 运行 A->B 通过、B->A 只收到 1/2 帧，现场状态显示接收侧 TDMA `WINDOW_MISSED`，不是 payload registry 拒绝；随后重跑完整 HIL 通过，记录位于 `build-rtos-multicore-smoke\refmem_auto_tdma_payload_regression_retry\records.json`。
 - 后续动作：
-  - 将 AUTO NodeLoad 从“单发 TX + 对端 RX 窗口命中”升级为 ACK/重发/fence completion，避免窗口 missed 后丢失一个 NodeLoad delta。
+  - P0 优先将 AUTO NodeLoad 从“单发 TX + 对端 RX 窗口命中”升级为 ACK/重发/fence completion，避免窗口 missed 后丢失一个 NodeLoad delta。TDMA 的核心验收是时间可预期和 completion 可证明，不能只以重跑成功作为产品级可靠性证据。
   - 继续将 long frame payload 用同样 registry 方式接入 OTA/config/log，不得绕过 `components/tdma`。
 
 ### REFMEM-TASK-20260816-048 - TDMA component extraction baseline

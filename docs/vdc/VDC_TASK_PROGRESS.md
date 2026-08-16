@@ -63,7 +63,7 @@ VdcSyncAO
   - `python tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py --port-a COM5 --port-b COM6 --out-dir build-rtos-multicore-smoke\refmem_auto_tdma_payload_regression_retry --sync-timeout-s 15` 通过，验证 RefMem 作为公共 TDMA payload 后仍能完成 A->B、B->A 双向两节点 AUTO 同步和 maintenance。
 - 还需完成：
   - 将公共 TDMA 的 timestamp source 从软件诊断升级为 core1 PIO/DMA hardware latch，形成 `HARDWARE_TICK + DPLL_ELIGIBLE + <=100 ns` 样本。
-  - 为 AUTO 单发窗口中的 `WINDOW_MISSED` 增加 ACK/重发或 fence completion 策略，避免后续把偶发丢帧当成同步成功。
+  - P0 优先为 TDMA/AUTO 单发窗口中的 `WINDOW_MISSED` 增加 ACK/重发或 fence completion 策略，避免后续把偶发丢帧当成同步成功；VDC DPLL 不能建立在不可证明 completion 的 TDMA 维护循环上。
 - 关联文件：
   - `components/tdma/inc/tdma_service.h`
   - `components/tdma/src/tdma_service.c`
