@@ -8,6 +8,33 @@ Last updated: 2026-08-16
 
 本文档记录 SYNC_IO / Trigger 同步重构相关任务的闭环验证、风险和后续动作。
 
+### SYNC_IO-TASK-20260816-007 - timer1 hardware tick diagnostic latch
+
+- 状态：完成代码、host/build 和 COM5/COM6 HIL。
+- 目标：把上一阶段 `time_us_64()*1000` 软件微秒 latch 升级为本地硬件 tick 时间基，同时不把 core1 drain FIFO 时刻冒充为 PIO 边沿硬锁存。
+- 完成：
+  - `sync_io` 初始化 `timer1_hw`，source 选 `CLK_SYS`，保留 SDK/default `timer0`。
+  - `sync_io_capture_latch_service_core1()` 在 core1 搬运 PIO capture FIFO 时读取 `timer1` raw tick，并按 `clk_sys` 转换为 ns。
+  - `REALtime:IO:SAMPle:LATCh?` 返回字段扩展为 9 项：`initialized,capture_running,capture_sample_hz,dropped_capture_words,latched_capture_words,dropped_latched_capture_words,capture_latch_source,capture_latch_resolution_ns,capture_latch_flags`。
+  - VDC compact observation 保留 latch fact 自己声明的 timestamp source/resolution/flags；dictionary 只做 event/source slot/reference slot/payload class 语义匹配，不覆盖采样事实。
+  - VDC gate 拒绝 source 与 dictionary 不一致的 compact sample，并拒绝带 `DIAGNOSTIC_ONLY` 的 hardware tick sample 进入 DPLL lock gate。
+- 边界：
+  - 本阶段报告 `HARDWARE_TICK / <=100 ns / DIAGNOSTIC_ONLY`。
+  - 时间戳仍发生在 core1 drain FIFO 时刻，不等同于 PIO 边沿硬件锁存；只能作为 TDMA/VDC bring-up 诊断证据。
+  - 后续仍需 PIO/DMA/IRQ/core1 edge latch，才允许生成 `DPLL_ELIGIBLE` observation sample。
+- 验证：
+  - `python -m py_compile tools\vdc_latch_validate\vdc_latch_validate.py tools\vdc_observer_validate\vdc_observer_validate.py tools\realtime_scpi_validate\realtime_scpi_validate.py` 通过。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 通过，generated=66。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=128。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有既有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816040434`，OTA package CRC `0x84D58EA6`。
+  - COM5/COM6 均 OTA 到 build `20260816040434` 并 commit；两板 `SYSTem:ERRor?` 均为 `0,"No error"`。
+  - `python tools\vdc_latch_validate\vdc_latch_validate.py COM5 COM6 --expected-build 20260816040434 --out-dir build-rtos-multicore-smoke\vdc_latch_validate_20260816040434` 通过：COM5 `latched=118->270, observer_raw=0->274, source=2, resolution_ns=4, flags=1`，COM6 `latched=118->270, observer_raw=0->276, source=2, resolution_ns=4, flags=1`。
+  - `python tools\vdc_observer_validate\vdc_observer_validate.py COM5 COM6 --expected-build 20260816040434 --out-dir build-rtos-multicore-smoke\vdc_observer_validate_20260816040434` 通过，两板 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
+
 ### SYNC_IO-TASK-20260816-006 - core1 capture latch phase 1
 
 - 状态：完成代码、host/build 和 COM5/COM6 HIL。
@@ -27,7 +54,7 @@ Last updated: 2026-08-16
   - COM5/COM6 均 OTA 到 build `20260816034347` 并 commit；`SYSTem:ERRor?` 均为 `0,"No error"`。
   - `python tools\vdc_latch_validate\vdc_latch_validate.py COM5 COM6 --expected-build 20260816034347 --out-dir build-rtos-multicore-smoke\vdc_latch_validate_20260816034347_v2` 通过：COM5 `latched=117->270, observer_raw=31->307`，COM6 `latched=120->272, observer_raw=31->310`。
   - `python tools\vdc_observer_validate\vdc_observer_validate.py COM5 COM6 --expected-build 20260816034347 --out-dir build-rtos-multicore-smoke\vdc_observer_validate_20260816034347` 通过，两板 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
-- 后续：升级为 PIO/DMA/IRQ/core1 hardware tick latch，形成 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 的 VDC observation sample。
+- 后续：先升级为 `timer1/CLK_SYS` hardware tick diagnostic latch，再继续推进 PIO/DMA/IRQ/core1 edge latch，最终形成 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 的 VDC observation sample。
 
 ### SYNC_IO-TASK-20260816-002 - VDC raw capture observer 接线
 

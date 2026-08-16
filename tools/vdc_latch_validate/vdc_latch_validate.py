@@ -20,10 +20,10 @@ if str(ROOT / "tools") not in sys.path:
 from scpi_common.scpi_serial import open_serial_port, read_serial_line_idle  # noqa: E402
 
 
-LATCH_FIELD_COUNT = 8
+LATCH_FIELD_COUNT = 9
 OBSERVER_FIELD_COUNT = 40
-TIMESTAMP_SOURCE_SOFTWARE_US = 1
-TIMESTAMP_RESOLUTION_NS_SOFTWARE_US = 1000
+TIMESTAMP_SOURCE_HARDWARE_TICK = 2
+TIMESTAMP_FLAG_DIAGNOSTIC_ONLY = 0x00000001
 
 
 @dataclass(frozen=True)
@@ -36,6 +36,7 @@ class LatchStatus:
     dropped_latched_capture_words: int
     capture_latch_source: int
     capture_latch_resolution_ns: int
+    capture_latch_flags: int
 
     @classmethod
     def parse(cls, response: str) -> "LatchStatus":
@@ -194,10 +195,12 @@ def validate_port(port: str, args: argparse.Namespace) -> dict[str, object]:
 
         time.sleep(args.capture_s)
         during = LatchStatus.parse(run(ser, "REALtime:IO:SAMPle:LATCh?"))
-        require(during.capture_latch_source == TIMESTAMP_SOURCE_SOFTWARE_US,
+        require(during.capture_latch_source == TIMESTAMP_SOURCE_HARDWARE_TICK,
                 f"{port}: unexpected timestamp source {during.capture_latch_source}")
-        require(during.capture_latch_resolution_ns == TIMESTAMP_RESOLUTION_NS_SOFTWARE_US,
+        require(0 < during.capture_latch_resolution_ns <= 100,
                 f"{port}: unexpected timestamp resolution {during.capture_latch_resolution_ns}")
+        require((during.capture_latch_flags & TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) != 0,
+                f"{port}: latch must remain diagnostic-only: flags={during.capture_latch_flags}")
         require(during.latched_capture_words >= before.latched_capture_words,
                 f"{port}: latch counter regressed {before} -> {during}")
         observer_during = int_fields(run(ser, "SYST:SYNC:VDC:OBServer?"),
@@ -232,6 +235,7 @@ def validate_port(port: str, args: argparse.Namespace) -> dict[str, object]:
         "observer_rejected_during": observer_during[9],
         "timestamp_source": during.capture_latch_source,
         "timestamp_resolution_ns": during.capture_latch_resolution_ns,
+        "timestamp_flags": during.capture_latch_flags,
         "records": records,
     }
 
@@ -266,7 +270,8 @@ def main() -> int:
                 f"latched={result['latched_before']}->{result['latched_during']} "
                 f"observer_raw={result['observer_raw_before']}->{result['observer_raw_during']} "
                 f"source={result['timestamp_source']} "
-                f"resolution_ns={result['timestamp_resolution_ns']}"
+                f"resolution_ns={result['timestamp_resolution_ns']} "
+                f"flags={result['timestamp_flags']}"
             )
     except AssertionError as exc:
         print(f"FAIL {exc}")

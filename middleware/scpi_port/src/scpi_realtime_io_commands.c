@@ -365,6 +365,7 @@ scpi_result_t scpi_cmd_sample_latch_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.dropped_latched_capture_words);
     SCPI_ResultUInt32(context, status.capture_latch_source);
     SCPI_ResultUInt32(context, status.capture_latch_resolution_ns);
+    SCPI_ResultUInt32(context, status.capture_latch_flags);
     return SCPI_RES_OK;
 }
 

@@ -30,6 +30,9 @@ typedef struct {
     uint32_t frame_crc32;
     uint32_t max_backward_ticks;
     uint32_t quality_flags;
+    uint32_t timestamp_source;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
     bool sample0_lsb;
 } vdc_sync_io_capture_decode_config_t;
 

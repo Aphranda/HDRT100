@@ -899,8 +899,11 @@ bool vdc_domain_expand_compact_observation(
         return false;
     }
     if (compact->frame_crc32 == 0u || compact->sample_crc32 == 0u ||
+        compact->timestamp_source == VDC_DOMAIN_TIMESTAMP_SOURCE_NONE ||
+        compact->timestamp_resolution_ns == 0u ||
         entry.source_slot_id >= VDC_DOMAIN_NODE_COUNT ||
         entry.reference_slot_id != profile->reference_slot_id ||
+        compact->timestamp_source != entry.source ||
         (entry.payload_class != VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE &&
          entry.payload_class != VDC_DOMAIN_PAYLOAD_IDLE_BEACON)) {
         vdc_domain_gate_fail(gate,
@@ -942,9 +945,9 @@ bool vdc_domain_expand_compact_observation(
     evidence->phase_error_ns = vdc_domain_clamp_i64_to_i32(
         (int64_t)observed_tick64 -
         (int64_t)compact->expected_window_start_ns);
-    evidence->timestamp_source = entry.source;
-    evidence->timestamp_resolution_ns = entry.resolution_ns;
-    evidence->timestamp_flags = entry.default_flags;
+    evidence->timestamp_source = compact->timestamp_source;
+    evidence->timestamp_resolution_ns = compact->timestamp_resolution_ns;
+    evidence->timestamp_flags = compact->timestamp_flags;
     evidence->schedule_crc32 = profile->schedule_crc32;
     evidence->frame_crc32 = compact->frame_crc32;
     evidence->sample_crc32 = compact->sample_crc32;

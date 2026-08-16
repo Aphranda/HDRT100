@@ -279,7 +279,7 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 
 `SYSTem:SYNC:VDC:OBServer?` 是只读维护入口，用于查询 VDC manager 从 `sync_io_read_capture_latched()` 消费 capture word 的 observer 证据。它以前 18 字段保留 enabled、batch、raw/no-edge/ambiguous/submitted/accepted/rejected、last raw word、event id、tick_l32 和 gate reject 等状态；后续字段追加 event/mask/window/frame CRC、schedule/dictionary CRC、edge index 和 timestamp dictionary 展开结果。该查询不得启动 capture、不得改变 observer 配置、不得作为 DPLL lock evidence 本身。
 
-`REALtime:IO:SAMPle:LATCh?` 是 SYNC_IO 维护查询入口，用于查看 core1 capture latch ring 是否从 PIO capture FIFO 形成了带 timestamp metadata 的本地 IO fact。当前字段为 `initialized,capture_running,capture_sample_hz,dropped_capture_words,latched_capture_words,dropped_latched_capture_words,capture_latch_source,capture_latch_resolution_ns`。首版 timestamp source 仍为 `SOFTWARE_US`、resolution 为 `1000 ns`，只能作为 hardware bring-up 诊断，不允许进入 100 ns DPLL lock gate。
+`REALtime:IO:SAMPle:LATCh?` 是 SYNC_IO 维护查询入口，用于查看 core1 capture latch ring 是否从 PIO capture FIFO 形成了带 timestamp metadata 的本地 IO fact。当前字段为 `initialized,capture_running,capture_sample_hz,dropped_capture_words,latched_capture_words,dropped_latched_capture_words,capture_latch_source,capture_latch_resolution_ns,capture_latch_flags`。当前 timestamp source 来自 `timer1/CLK_SYS` 硬件 tick，resolution 可低于 `100 ns`；但 source 仍带 `DIAGNOSTIC_ONLY` flag，因为本阶段时间戳发生在 core1 drain FIFO 时刻，不等同于 PIO 边沿硬件锁存，不允许进入 DPLL lock gate。
 
 ## 7. 通信、实时和测量
 

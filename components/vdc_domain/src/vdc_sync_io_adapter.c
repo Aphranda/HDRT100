@@ -39,7 +39,9 @@ vdc_sync_io_capture_result_t vdc_sync_io_capture_word_to_compact_observation(
         config->valid == 0u ||
         config->observed_mask == 0u ||
         config->sample_period_ns == 0u ||
-        config->frame_crc32 == 0u) {
+        config->frame_crc32 == 0u ||
+        config->timestamp_source == 0u ||
+        config->timestamp_resolution_ns == 0u) {
         return VDC_SYNC_IO_CAPTURE_BAD_ARGUMENT;
     }
 
@@ -102,5 +104,8 @@ vdc_sync_io_capture_result_t vdc_sync_io_capture_word_to_compact_observation(
         config->quality_flags |
         ((found_index & 0xFFu) << 16) |
         ((*last_sample_mask & VDC_SYNC_IO_CAPTURE_SAMPLE_MASK) << 24);
+    compact->timestamp_source = config->timestamp_source;
+    compact->timestamp_resolution_ns = config->timestamp_resolution_ns;
+    compact->timestamp_flags = config->timestamp_flags;
     return VDC_SYNC_IO_CAPTURE_OK;
 }

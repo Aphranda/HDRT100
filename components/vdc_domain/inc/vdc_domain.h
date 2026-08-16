@@ -183,6 +183,9 @@ typedef struct {
     uint32_t jitter_ns;
     uint32_t delay_ns;
     uint32_t quality_flags;
+    uint32_t timestamp_source;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
 } vdc_compact_observation_sample_t;
 
 typedef struct {

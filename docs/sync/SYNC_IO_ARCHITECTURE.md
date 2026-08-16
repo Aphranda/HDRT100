@@ -178,13 +178,13 @@ RP2350 的 3 个 PIO block 都预留给同步触发和底层 realtime IO。状�
 
 `sync_io_read_capture_words()` 是 SYNC_IO 的底层 raw IO observation primitive。它从 `sync_capture_4bit` PIO RX FIFO 读取 32-bit raw capture word；每个 word 表示 8 个连续的 4-bit 输入采样。该接口只提供本机 IO fact，不解释业务语义，不计算 DPLL，不写 Trigger/RefMem/VDC 状态。
 
-多核运行时推荐上层消费 `sync_io_read_capture_latched()`，而不是直接抢读 PIO FIFO。该接口由 core1 realtime loop 作为唯一 writer，把 raw word 搬运到 bounded latch ring，并附带 `sample_seq`、`base_time_l32_ns`、`sample_period_ns`、timestamp source/resolution/flags 和 drop evidence。phase 1 latch 仍使用 `time_us_64()*1000`，必须报告 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`；它只是硬件 bring-up 诊断，不是 100 ns DPLL evidence。
+多核运行时推荐上层消费 `sync_io_read_capture_latched()`，而不是直接抢读 PIO FIFO。该接口由 core1 realtime loop 作为唯一 writer，把 raw word 搬运到 bounded latch ring，并附带 `sample_seq`、`base_time_l32_ns`、`sample_period_ns`、timestamp source/resolution/flags 和 drop evidence。当前 latch 使用 `timer1/CLK_SYS` hardware tick，报告 `HARDWARE_TICK / <=100 ns / DIAGNOSTIC_ONLY`；它仍只是硬件 bring-up 诊断，因为时间戳发生在 core1 drain FIFO 时刻，不是 PIO 边沿硬锁存，不得作为 DPLL lock evidence。
 
 典型消费者如下：
 
 | 消费方 | 解释方式 | 边界 |
 |---|---|---|
-| VDC / TDMA | 通过 `sync_io_read_capture_latched()` 读取 core1 latch fact，再由 `VdcSyncIoAdapter` 把 raw word 转为 `VdcCompactObservationSample`，最后经 timestamp dictionary、wrap tracker 和 VDC gate。 | phase 1 只声明 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`；后续硬件 tick latch 达到 `<=100 ns` 后，资格仍由 VDC active profile 判定。 |
+| VDC / TDMA | 通过 `sync_io_read_capture_latched()` 读取 core1 latch fact，再由 `VdcSyncIoAdapter` 把 raw word 转为 `VdcCompactObservationSample`，最后经 timestamp dictionary、wrap tracker 和 VDC gate。 | 当前只声明 `HARDWARE_TICK / <=100 ns / DIAGNOSTIC_ONLY`；dictionary 不得覆盖 latch fact 的 source/resolution/flags，后续只有 PIO edge latch 产生 `DPLL_ELIGIBLE` 后才允许进入 lock gate。 |
 | 转台输入 / 脉冲计数 | 上层 AO/FB 根据语义 IO、edge mask 和计数规则解释脉冲。 | `sync_io` 不改变扫描角度、序列状态或产品 RUN 状态。 |
 | READY / GATE / ARM / AUX 状态 | 维护面或 owner 读取 raw level/edge 后形成 snapshot/evidence。 | 不临时驱动 IO，不跨板阻塞查询。 |
 | 调试/线序检测 | HIL 脚本读取 raw word、edge index、mask 和 timing evidence。 | 调试结论不得绕过正式 profile、owner 和 gate。 |

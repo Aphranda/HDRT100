@@ -432,7 +432,7 @@ VDC Domain 首版冻结以下基础表。字段可以分阶段实现，但 owner
 | `VdcServoProfile` | 保存 DPLL/servo 参数、step/slew、sanity limit 和 reset 策略。 | `VdcSyncAO / profile loader` |
 | `VdcQualityTable` | 保存 jitter、RMS、peak、stale、holdover age、lock quality。 | `VdcQualityGateFB` |
 | `VdcErrorBudget` | 保存 offset/rate/delay/dispersion/root distance 等误差预算。 | `VdcQualityGateFB` |
-| `VdcTimestampDictionary` | 把 compact timestamp 的 source/event 展开为节点、端口和信号语义。 | `VdcSyncAO / profile loader` |
+| `VdcTimestampDictionary` | 把 compact timestamp 的 event/source 与节点、端口和信号语义绑定，并校验采样事实声明的 source/resolution。 | `VdcSyncAO / profile loader` |
 | `VdcWrapTracker` | 扩展 `tick_l32` 和 `seq_delta`，形成 64 位时间和完整序号。 | `timestamp service / VdcSyncAO` |
 | `VdcCalibrationBinding` | 绑定 active calibration CRC、link delay 和使用范围。 | `VdcSyncAO` 只读 CAL active 结果后发布绑定 |
 | `VdcDcSyncPipeline` | 保存 reference、initial sync、drift compensation 和 locked gate 阶段结果。 | `VdcSyncAO` |
@@ -442,7 +442,7 @@ VDC Domain 首版冻结以下基础表。字段可以分阶段实现，但 owner
 
 ### Timestamp Dictionary 与 Wrap Tracker
 
-`VdcTimestampDictionary` 是 compact timestamp 的语义展开表，不承载实时数据。它由 `VdcSyncAO / profile loader` 从 active profile 或 System Pack 加载，字段至少包含 `event_id`、`source_slot_id`、`reference_slot_id`、`source`、`resolution_ns`、`default_flags`、`port_id`、`signal_id` 和 `payload_class`。表必须带 `version`、`entry_count`、`profile_crc32` 和 `dictionary_crc32`；版本、CRC、entry 有效性、event id 唯一性不通过时，timestamp sample 不得进入 DPLL。
+`VdcTimestampDictionary` 是 compact timestamp 的语义绑定表，不承载实时数据。它由 `VdcSyncAO / profile loader` 从 active profile 或 System Pack 加载，字段至少包含 `event_id`、`source_slot_id`、`reference_slot_id`、期望 `source`、期望 `resolution_ns`、`default_flags`、`port_id`、`signal_id` 和 `payload_class`。采样事实的实际 `timestamp_source/timestamp_resolution_ns/timestamp_flags` 必须来自 latch fact；dictionary 只能校验 source/resolution 与 active profile 一致，并补充节点、端口、信号和 payload 语义，不能把 `DIAGNOSTIC_ONLY` 样本抬高为 `DPLL_ELIGIBLE`。表必须带 `version`、`entry_count`、`profile_crc32` 和 `dictionary_crc32`；版本、CRC、entry 有效性、event id 唯一性不通过时，timestamp sample 不得进入 DPLL。
 
 `VdcWrapTracker` 是 timestamp service 的局部扩展状态，只把 `tick_l32` 扩展成 `local_tick64`，不写 offset/rate，也不写 VDC lock。首版规则为：
 
@@ -451,9 +451,9 @@ VDC Domain 首版冻结以下基础表。字段可以分阶段实现，但 owner
 - `tick_l32` 小幅倒退默认拒绝；只有调用方明确给出 `max_backward_ticks` 才允许有限乱序。
 - `tick_l32` 从低值跳回接近 `0xFFFFFFFF` 判定为 stale/pre-wrap 样本并拒绝。
 
-`VdcCompactObservationSample` 是 PIO/DMA/core1 capture fact 进入 VDC 的最小载荷。它只包含 `sample_seq`、`event_id`、`tick_l32`、expected window、CRC 和质量摘要；VDC owner 必须先用 active `VdcTimestampDictionary` 展开 event，再用 `VdcWrapTracker` 扩展 tick，最后生成 `VdcTDMATimestampEvidence` 并经过 observation window gate。禁止 realtime IO、RefMem、SCPI 或 storage 直接构造 DPLL accepted sample。
+`VdcCompactObservationSample` 是 PIO/DMA/core1 capture fact 进入 VDC 的最小载荷。它包含 `sample_seq`、`event_id`、`tick_l32`、expected window、CRC、质量摘要和 latch fact 声明的 timestamp source/resolution/flags；VDC owner 必须先用 active `VdcTimestampDictionary` 校验 event/source 语义，再用 `VdcWrapTracker` 扩展 tick，最后生成 `VdcTDMATimestampEvidence` 并经过 observation window gate。禁止 realtime IO、RefMem、SCPI 或 storage 直接构造 DPLL accepted sample。
 
-`VdcSyncIoAdapter` 是 VDC 侧的 raw capture word 适配层。它可以把 `sync_capture_4bit` 的 8 个 4-bit sample word 按 `sample_period_ns`、edge event id 和 observed mask 转换为 `VdcCompactObservationSample`；它不访问 `sync_io` 内部状态，不计算 DPLL，也不声明样本可锁相。样本是否具备 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 资格，只由 active `VdcTimestampDictionary` 和 VDC gate 判定。
+`VdcSyncIoAdapter` 是 VDC 侧的 raw capture word 适配层。它可以把 `sync_capture_4bit` 的 8 个 4-bit sample word 按 `sample_period_ns`、edge event id、observed mask 和 latch timestamp metadata 转换为 `VdcCompactObservationSample`；它不访问 `sync_io` 内部状态，不计算 DPLL，也不声明样本可锁相。样本是否具备 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 资格，由 latch fact 的 flags、active `VdcTimestampDictionary` 校验结果和 VDC gate 共同判定。
 
 ### 核心字段
 

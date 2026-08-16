@@ -100,6 +100,9 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
             .frame_crc32 = config.frame_crc32,
             .max_backward_ticks = config.max_backward_ticks,
             .quality_flags = config.quality_flags,
+            .timestamp_source = words[i].timestamp_source,
+            .timestamp_resolution_ns = words[i].timestamp_resolution_ns,
+            .timestamp_flags = words[i].timestamp_flags,
             .sample0_lsb = config.sample0_lsb,
         };
         const vdc_sync_io_capture_result_t result =

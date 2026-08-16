@@ -43,6 +43,37 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-022 - Timer1 hardware tick latch admission guard
+
+- 状态：完成代码、host/build 和 COM5/COM6 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 把 SYNC_IO core1 latch 的时间戳从软件微秒时间基升级到 `timer1/CLK_SYS` hardware tick。
+  - 修正 VDC compact observation contract，确保采样事实的 timestamp source/resolution/flags 只能来自 latch fact，不能由 dictionary 默认值抬高。
+- 完成内容：
+  - `VdcCompactObservationSample` 增加 `timestamp_source`、`timestamp_resolution_ns`、`timestamp_flags`。
+  - `VdcSyncIoAdapter` 要求 decode config 显式提供 timestamp metadata，并复制到 compact sample。
+  - `vdc_dpll_manager_sync_io_observer_service()` 把 `sync_io_read_capture_latched()` 输出的 timestamp metadata 传入 adapter。
+  - `vdc_domain_expand_compact_observation()` 拒绝 source 与 dictionary 不一致的 compact sample，并使用 compact sample 的 timestamp metadata 生成 evidence。
+  - 单元测试覆盖 diagnostic source elevation、diagnostic hardware flag rejection 和 adapter timestamp 透传。
+- 边界：
+  - 当前可报告 `HARDWARE_TICK / <=100 ns / DIAGNOSTIC_ONLY`，用于 TDMA/VDC bring-up 和 HIL 观测。
+  - 因为 timestamp 仍是在 core1 drain FIFO 时刻读取，尚未实现 PIO edge latch；VDC gate 必须继续拒绝其作为正式 DPLL lock evidence。
+- 验证结果：
+  - `python -m py_compile tools\vdc_latch_validate\vdc_latch_validate.py tools\vdc_observer_validate\vdc_observer_validate.py tools\realtime_scpi_validate\realtime_scpi_validate.py` 通过。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 通过，generated=66。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=128。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有既有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816040434`，OTA package CRC `0x84D58EA6`。
+  - COM5/COM6 均 OTA 到 build `20260816040434` 并 commit；两板 `SYSTem:ERRor?` 均为 `0,"No error"`。
+  - `vdc_latch_validate.py` 通过：COM5 `latched=118->270, observer_raw=0->274, source=2, resolution_ns=4, flags=1`，COM6 `latched=118->270, observer_raw=0->276, source=2, resolution_ns=4, flags=1`。
+  - `vdc_observer_validate.py` 通过，两板 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
+- 下一步：
+  - 继续实现 PIO/DMA/IRQ/core1 edge latch，使 `DPLL_ELIGIBLE` 样本进入 observation window。
+
 ### VDC-TASK-20260816-021 - Sync IO core1 latch observer source
 
 - 状态：完成代码、host/build 和 COM5/COM6 HIL。
@@ -67,7 +98,7 @@ VdcSyncAO
   - `vdc_latch_validate.py` 通过：COM5 `latched=117->270, observer_raw=31->307`，COM6 `latched=120->272, observer_raw=31->310`，两板 timestamp source/resolution 均为 `1 / 1000 ns`。
   - `vdc_observer_validate.py` 通过，两板 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
 - 还需完成：
-  - 把 phase 1 的 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY` latch 升级为 PIO/DMA/IRQ/core1 hardware tick latch。
+  - 把 phase 1 的 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY` latch 升级为 hardware tick diagnostic latch，再继续推进 PIO/DMA/IRQ/core1 edge latch。
   - 在 COM5/COM6 上补启用态 HIL，记录 latch counter、observer submitted/accepted/rejected、timestamp source/resolution 和 gate result。
 - 关联文件：
   - `components/sync_io/inc/sync_io.h`
@@ -169,7 +200,7 @@ VdcSyncAO
 - 完成内容：
   - 新增 `vdc_sync_io_adapter.h/.c`。
   - `vdc_sync_io_capture_word_to_compact_observation()` 支持 8 个 4-bit sample word、observed mask、rising/falling event id、sample period、base time 和 expected window。
-  - adapter 输出 `VdcCompactObservationSample`，由 VDC active dictionary 决定 source/resolution/flags；adapter 本身不声明样本可进入 DPLL。
+  - adapter 输出 `VdcCompactObservationSample`；当前已纠偏为 latch fact 提供实际 source/resolution/flags，VDC active dictionary 只校验语义并补 source/reference slot 与 payload class，adapter 本身不声明样本可进入 DPLL。
   - 单元测试覆盖 rising edge 解码、no edge、ambiguous edge，以及 adapter 输出通过 `vdc_domain_submit_compact_observation()` 进入 VDC gate。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
@@ -198,7 +229,7 @@ VdcSyncAO
   - 新增 `VdcCompactObservationSample`，作为 PIO/DMA/core1 capture fact 的最小载荷：`sample_seq`、`event_id`、`tick_l32`、expected window、CRC 和质量字段。
   - `vdc_domain_context_t` 增加 active `VdcTimestampDictionary` 与 `VdcWrapTracker`。
   - 新增 `vdc_domain_publish_timestamp_dictionary()`，要求 dictionary CRC、版本和 profile CRC 与 active TDMA schedule 匹配，发布时重置 wrap tracker。
-  - 新增 `vdc_domain_expand_compact_observation()`，按 dictionary 展开 event/source/resolution/flags，按 wrap tracker 扩展 tick，再生成 `VdcTDMATimestampEvidence` 并经过 observation window gate。
+  - 新增 `vdc_domain_expand_compact_observation()`，按 dictionary 校验 event/source 语义，按 wrap tracker 扩展 tick，再用 compact sample 自带的 source/resolution/flags 生成 `VdcTDMATimestampEvidence` 并经过 observation window gate。
   - 新增 `vdc_domain_submit_compact_observation()` 和 `vdc_dpll_manager_submit_compact_observation()` wrapper，后续 `task_vdc_sync` 可通过 manager 投递 capture fact。
   - 单元测试覆盖 compact observation 展开、dictionary CRC 拒绝、stale tick 拒绝、context submit accepted/rejected 计数。
 - 验证结果：
@@ -229,7 +260,7 @@ VdcSyncAO
 - 完成内容：
   - `vdc_timestamp.h/.c` 增加 `VdcTimestampDictionary`：`event_id`、source/reference slot、source、resolution、default flags、port/signal 和 payload class。
   - dictionary 增加版本号、entry_count、profile CRC、dictionary CRC、entry 有效性和 event id 唯一性校验。
-  - 新增 `vdc_timestamp_dictionary_apply()`，把 compact latch sample 按 dictionary 展开为正式 timestamp source/resolution/flags/slot。
+  - 新增 `vdc_timestamp_dictionary_apply()`，用于历史 latch sample 的 dictionary 展开；当前 compact observation admission 已收敛为 dictionary 校验 source/resolution，实际 flags 由 latch fact 提供。
   - 新增 `VdcWrapTracker`，支持 `tick_l32` 正向扩展、正向回绕识别、stale/pre-wrap 拒绝和小幅倒退容差。
   - 单元测试覆盖 dictionary CRC 篡改、重复 event id、compact sample 展开、tick 回绕和 stale/backward 拒绝。
 - 验证结果：

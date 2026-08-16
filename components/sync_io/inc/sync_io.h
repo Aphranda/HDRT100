@@ -21,6 +21,7 @@ typedef struct {
     uint32_t dropped_latched_capture_words;
     uint32_t capture_latch_source;
     uint32_t capture_latch_resolution_ns;
+    uint32_t capture_latch_flags;
 } sync_io_status_t;
 
 typedef struct {

@@ -464,6 +464,9 @@ static int test_compact_observation_contract(void)
     compact.sample_crc32 = 0x2222u;
     compact.jitter_ns = 3u;
     compact.delay_ns = 4u;
+    compact.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    compact.timestamp_resolution_ns = 50u;
+    compact.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
 
     failed += expect_bool("compact observation expands",
                           vdc_domain_expand_compact_observation(&schedule,
@@ -503,6 +506,38 @@ static int test_compact_observation_contract(void)
                          VDC_DOMAIN_GATE_BAD_FRAME);
     dictionary.dictionary_crc32 ^= 1u;
 
+    compact.tick_l32 = 20u;
+    compact.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_SOFTWARE_US;
+    compact.timestamp_resolution_ns = 1000u;
+    compact.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    failed += expect_bool("compact rejects diagnostic source elevation",
+                          vdc_domain_expand_compact_observation(&schedule,
+                                                                 &dictionary,
+                                                                 &tracker,
+                                                                 &compact,
+                                                                 &evidence,
+                                                                 &gate),
+                          false);
+    failed += expect_u32("diagnostic source gate",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_BAD_FRAME);
+
+    compact.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    compact.timestamp_resolution_ns = 50u;
+    compact.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    failed += expect_bool("compact rejects diagnostic hardware flag",
+                          vdc_domain_expand_compact_observation(&schedule,
+                                                                 &dictionary,
+                                                                 &tracker,
+                                                                 &compact,
+                                                                 &evidence,
+                                                                 &gate),
+                          false);
+    failed += expect_u32("diagnostic flag gate",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE);
+
+    compact.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
     compact.tick_l32 = 0xFFFFFF00u;
     failed += expect_bool("compact rejects stale tick",
                           vdc_domain_expand_compact_observation(&schedule,
@@ -550,6 +585,9 @@ static int test_context_submits_compact_observation(void)
     compact.frame_crc32 = 0x3333u;
     compact.sample_crc32 = 0x4444u;
     compact.jitter_ns = 2u;
+    compact.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    compact.timestamp_resolution_ns = 50u;
+    compact.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
     failed += expect_bool("submit compact observation",
                           vdc_domain_submit_compact_observation(&context,
                                                                 &compact),
@@ -600,6 +638,9 @@ static int test_sync_io_adapter_contract(void)
     config.sample_period_ns = 40u;
     config.expected_window_start_ns = 0u;
     config.frame_crc32 = 0x5555u;
+    config.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    config.timestamp_resolution_ns = 50u;
+    config.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
     config.sample0_lsb = true;
 
     const uint32_t raw_rising_at_sample2 =
@@ -622,6 +663,15 @@ static int test_sync_io_adapter_contract(void)
                           compact.sample_crc32 != 0u,
                           true);
     failed += expect_u32("sync io adapter last mask", last_sample_mask, 1u);
+    failed += expect_u32("sync io adapter timestamp source",
+                         compact.timestamp_source,
+                         VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK);
+    failed += expect_u32("sync io adapter timestamp resolution",
+                         compact.timestamp_resolution_ns,
+                         50u);
+    failed += expect_u32("sync io adapter timestamp flags",
+                         compact.timestamp_flags,
+                         VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE);
 
     config.previous_sample_mask = last_sample_mask;
     failed += expect_u32("sync io adapter no edge",
@@ -678,6 +728,9 @@ static int test_sync_io_adapter_to_vdc_submit(void)
     config.sample_period_ns = 40u;
     config.expected_window_start_ns = 0u;
     config.frame_crc32 = 0x6666u;
+    config.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    config.timestamp_resolution_ns = 50u;
+    config.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
     config.sample0_lsb = true;
     failed += expect_u32("sync io vdc adapter result",
                          vdc_sync_io_capture_word_to_compact_observation(

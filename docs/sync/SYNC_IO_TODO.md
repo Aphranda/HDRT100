@@ -93,9 +93,10 @@ Last updated: 2026-08-16
 - [x] 增加 observer 的 SCPI 维护查询：`SYSTem:SYNC:VDC:OBServer?` 返回 raw/no-edge/ambiguous/submitted/accepted/rejected、last raw word、event id、tick_l32 和 gate reject。
 - [x] 增加 observer 的 SCPI 维护配置：`SYSTem:SYNC:VDC:OBServer` 支持无参数/`0` 安全关闭，启用态必须显式给出 batch、event id、mask、tick base、sample period、window 和 frame CRC；该命令不启动 capture、不改变 DPLL lock。
 - [x] 增加 observer 的板端 HIL 证据字段：`OBServer?` 追加 event/mask/window/frame CRC、schedule/dictionary CRC、dictionary profile CRC、edge index、timestamp source/resolution/flags、source/reference slot 和 payload class；真实硬件 timestamp latch 仍按 VDC P3 待办推进。
-- [x] 增加 core1 capture latch ring phase 1：core1 从 PIO capture FIFO 搬运 raw word，附带 sample seq、base time、sample period、timestamp source/resolution/flags 后供 VDC manager 消费；当前标记为 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`。
-- [x] 增加 `REALtime:IO:SAMPle:LATCh?` 维护查询，暴露 capture running、采样率、raw FIFO drop、latched word、latch drop 和 timestamp source/resolution。
-- [ ] 将 phase 1 软件微秒 latch 升级为 PIO/DMA/IRQ/core1 hardware tick latch，正式 DPLL 样本必须声明 `HARDWARE_TICK` 且 `timestamp_resolution_ns <= 100`。
+- [x] 增加 core1 capture latch ring phase 1：core1 从 PIO capture FIFO 搬运 raw word，附带 sample seq、base time、sample period、timestamp source/resolution/flags 后供 VDC manager 消费；首版标记为 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`。
+- [x] 增加 `REALtime:IO:SAMPle:LATCh?` 维护查询，暴露 capture running、采样率、raw FIFO drop、latched word、latch drop、timestamp source/resolution 和 timestamp flags。
+- [x] 将 core1 drain FIFO 时间基升级为 `timer1/CLK_SYS` hardware tick，报告 `HARDWARE_TICK / <=100 ns / DIAGNOSTIC_ONLY`；它仍不是 PIO 边沿硬锁存，不允许进入 DPLL lock gate。
+- [ ] 将 diagnostic hardware tick latch 升级为 PIO/DMA/IRQ/core1 edge latch，正式 DPLL 样本必须声明 `HARDWARE_TICK`、`timestamp_resolution_ns <= 100` 且 `DPLL_ELIGIBLE`。
 - [ ] 将同一 raw observation primitive 用于转台输入/脉冲计数验证，形成独立于 VDC 的 AO/FB 解释路径。
 - [ ] late `FIRE_LOAD` 必须由 realtime owner 拒绝并发布 evidence。
 - [ ] IO quality 与 RefMem `DistributedConnectionQualityTable` 对齐：CRC/drop/late/timeout/stale 不重复造字段。

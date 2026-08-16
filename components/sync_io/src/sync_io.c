@@ -9,8 +9,8 @@
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 #include "hardware/pio.h"
+#include "hardware/timer.h"
 #include "osal.h"
-#include "pico/time.h"
 #include "resource_arbiter.h"
 #include "biss_tap_rx.pio.h"
 #include "sync_io_hw_profile.h"
@@ -29,8 +29,9 @@
 #define SYNC_IO_CLOCK_SM            BOARD_SYNC_AUX2_SM
 #define SYNC_IO_CLOCK_PIN           BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN
 #define SYNC_IO_CAPTURE_LATCH_RING_SIZE 32u
-#define SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_SOFTWARE_US 1u
+#define SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK 2u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
+#define SYNC_IO_CAPTURE_LATCH_TIMER timer1_hw
 
 typedef struct {
     bool initialized;
@@ -47,6 +48,8 @@ typedef struct {
     uint32_t dropped_capture_words;
     uint32_t latched_capture_words;
     uint32_t dropped_latched_capture_words;
+    uint32_t capture_latch_tick_hz;
+    uint32_t capture_latch_resolution_ns;
     uint32_t capture_latch_write;
     uint32_t capture_latch_read;
     uint32_t capture_latch_seq;
@@ -191,6 +194,55 @@ static uint32_t sync_io_capture_sample_period_ns(uint32_t sample_hz)
         period_ns = 1u;
     }
     return period_ns > UINT32_MAX ? UINT32_MAX : (uint32_t)period_ns;
+}
+
+static uint64_t sync_io_capture_latch_read_ticks64(void)
+{
+    uint32_t hi = SYNC_IO_CAPTURE_LATCH_TIMER->timerawh;
+    uint32_t lo;
+    do {
+        lo = SYNC_IO_CAPTURE_LATCH_TIMER->timerawl;
+        const uint32_t next_hi = SYNC_IO_CAPTURE_LATCH_TIMER->timerawh;
+        if (hi == next_hi) {
+            break;
+        }
+        hi = next_hi;
+    } while (true);
+    return ((uint64_t)hi << 32u) | lo;
+}
+
+static uint64_t sync_io_capture_latch_ticks_to_ns(uint64_t ticks)
+{
+    const uint32_t hz = s_sync_io.capture_latch_tick_hz != 0u
+                            ? s_sync_io.capture_latch_tick_hz
+                            : clock_get_hz(clk_sys);
+    const uint64_t seconds = ticks / (uint64_t)hz;
+    const uint64_t remainder = ticks % (uint64_t)hz;
+    return seconds * 1000000000ull +
+           (remainder * 1000000000ull) / (uint64_t)hz;
+}
+
+static uint32_t sync_io_capture_latch_resolution_ns(uint32_t tick_hz)
+{
+    if (tick_hz == 0u) {
+        return 0u;
+    }
+    const uint64_t resolution =
+        (1000000000ull + (uint64_t)tick_hz - 1ull) / (uint64_t)tick_hz;
+    return resolution > UINT32_MAX ? UINT32_MAX : (uint32_t)resolution;
+}
+
+static void sync_io_capture_latch_timer_init(void)
+{
+    SYNC_IO_CAPTURE_LATCH_TIMER->pause = 1u;
+    SYNC_IO_CAPTURE_LATCH_TIMER->source = TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS;
+    SYNC_IO_CAPTURE_LATCH_TIMER->timelw = 0u;
+    SYNC_IO_CAPTURE_LATCH_TIMER->timehw = 0u;
+    SYNC_IO_CAPTURE_LATCH_TIMER->pause = 0u;
+
+    s_sync_io.capture_latch_tick_hz = clock_get_hz(clk_sys);
+    s_sync_io.capture_latch_resolution_ns =
+        sync_io_capture_latch_resolution_ns(s_sync_io.capture_latch_tick_hz);
 }
 
 static void sync_io_capture_latch_reset_locked(void)
@@ -371,6 +423,7 @@ bool sync_io_init(const sync_io_config_t *config)
     s_sync_io.biss_tap_offset = (uint)pio_add_program(BOARD_SYNC_PIO_AUX, &biss_tap_rx_program);
 
     sync_io_configure_static_inputs();
+    sync_io_capture_latch_timer_init();
 
     sync_capture_4bit_program_init(BOARD_SYNC_PIO_FAST,
                                    BOARD_SYNC_CAPTURE_SM,
@@ -511,7 +564,9 @@ void sync_io_capture_latch_service_core1(void)
 
     while (!pio_sm_is_rx_fifo_empty(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM)) {
         const uint32_t raw_word = pio_sm_get(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM);
-        const uint64_t latch_time_ns = time_us_64() * 1000ull;
+        const uint64_t latch_ticks = sync_io_capture_latch_read_ticks64();
+        const uint64_t latch_time_ns =
+            sync_io_capture_latch_ticks_to_ns(latch_ticks);
         const uint32_t base_time_l32_ns =
             (uint32_t)((latch_time_ns > word_span_ns)
                            ? (latch_time_ns - word_span_ns)
@@ -532,8 +587,8 @@ void sync_io_capture_latch_service_core1(void)
         slot->sample_seq = ++s_sync_io.capture_latch_seq;
         slot->base_time_l32_ns = base_time_l32_ns;
         slot->sample_period_ns = sample_period_ns;
-        slot->timestamp_source = SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_SOFTWARE_US;
-        slot->timestamp_resolution_ns = 1000u;
+        slot->timestamp_source = SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK;
+        slot->timestamp_resolution_ns = s_sync_io.capture_latch_resolution_ns;
         slot->timestamp_flags = SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
         slot->dropped_before = s_sync_io.dropped_latched_capture_words;
         s_sync_io.capture_latch_write = next_write;
@@ -970,8 +1025,9 @@ void sync_io_get_status(sync_io_status_t *status)
     status->dropped_capture_words = s_sync_io.dropped_capture_words;
     status->latched_capture_words = s_sync_io.latched_capture_words;
     status->dropped_latched_capture_words = s_sync_io.dropped_latched_capture_words;
-    status->capture_latch_source = SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_SOFTWARE_US;
-    status->capture_latch_resolution_ns = 1000u;
+    status->capture_latch_source = SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    status->capture_latch_resolution_ns = s_sync_io.capture_latch_resolution_ns;
+    status->capture_latch_flags = SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
 }
 
 void sync_io_set_expected_ready_mask(uint32_t mask)
