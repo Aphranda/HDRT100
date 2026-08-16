@@ -246,6 +246,16 @@ Board Y: follower slot
 | 过渡实现 | `time_us_64() * 1000` 只能作为诊断时间戳，必须报告 `timestamp_resolution_ns=1000`，不得作为 100 ns evidence。 |
 | 观测字段 | 至少包含 expected window start、arm/start/done/apply timestamp、late_ns、jitter_ns、schedule_crc32 和 frame/sample CRC。 |
 
+初步硬件 bring-up 允许把 DPLL 进入 `LOCKED` 的接纳阈值放宽为三档，但必须保留质量等级，不能把粗锁定冒充产品级同步：
+
+| 等级 | 阈值 | 用途 | RUN 门禁语义 |
+|---:|---:|---|---|
+| `FINE_100NS` | 100 ns | 产品目标和最终锁定质量。 | 可作为正式 `HEALTHY` 候选。 |
+| `DEBUG_1US` | 1,000 ns | 调试阶段确认 DPLL 收敛方向和频率拉入。 | 只能说明调试锁定，不能通过产品 RUN 质量门禁。 |
+| `COARSE_10US` | 10,000 ns | 两板最小系统、PIO latch、TDMA window bring-up 的粗锁定。 | 只能作为硬件闭环初步证据，不能作为正式触发时间基准。 |
+
+实现上 `offset_lock_threshold_ns` 保持 100 ns 产品目标；`lock_acceptance_threshold_ns` 可在维护/bring-up profile 中放宽到 1 us 或 10 us，让状态机进入 `LOCKED` 以便观察 DPLL 后续行为。`VdcQualityTable.lock_quality_tier` 必须同时发布实际质量等级，`HEALTHY` 仍要求 `FINE_100NS`、freshness 和 gate 全部通过。
+
 #### DPLL Servo And DCO Contract
 
 DPLL 的输出不是直接修改本地硬件 timer，而是更新 VDC clock model 的受控参数。core1 读取该 snapshot，把未来 `vdc_time` 映射到 `local_fire_tick`，通过小步 slew 或 phase pull 消化相位误差。
@@ -321,7 +331,10 @@ TDMA/DPLL 融合后，VDC 状态机需要区分“TDMA schedule 可用”和“V
 | `first_step_threshold_ns` | 初始大偏差是否允许 step。 |
 | `step_threshold_ns` | 运行中超过该偏差时是否 step 或拒绝。 |
 | `sanity_freq_limit_ppb` | 频率修正 sanity limit，超限触发 reset/fault。 |
-| `offset_lock_threshold_ns` | LOCKED 判据的 offset 阈值。 |
+| `offset_lock_threshold_ns` | 产品级 fine lock 阈值，默认 100 ns。 |
+| `debug_lock_threshold_ns` | 调试级 lock 质量阈值，默认 1 us。 |
+| `coarse_lock_threshold_ns` | 粗锁定质量阈值，默认 10 us。 |
+| `lock_acceptance_threshold_ns` | 当前 profile 允许进入 `LOCKED` 的最大阈值；bring-up 可放宽，但不得高于 coarse 阈值。 |
 | `lock_sample_count` | 连续满足阈值的样本数。 |
 | `outlier_threshold_ns` | 样本剔除阈值。 |
 | `reset_policy` | `PROFILE_CHANGE/CAL_CHANGE/FREQ_LIMIT/STEP_LIMIT/FAULT` 的 reset 策略。 |
@@ -484,7 +497,7 @@ VDC snapshot 至少需要覆盖：
 | `jitter_pk_ns` | 同步残差峰值或窗口峰值。 |
 | `holdover_age_1e3ns` | 进入 HOLDOVER 后的持续时间。 |
 | `lock_state` | `OFF/CHECKING/LOCKING/LOCKED/HOLDOVER/RELOCKING/FAULT`。 |
-| `lock_quality` | 门禁质量等级或位图。 |
+| `lock_quality` | `NONE/COARSE_10US/DEBUG_1US/FINE_100NS`，由 last/rms/max offset 的最差值分类。 |
 | `active_cal_crc` | 当前用于修正 link delay 的校准表 CRC。 |
 | `timestamp_dict_crc` | timestamp dictionary 版本。 |
 | `sync_profile_crc` | 同步参数、DPLL 参数和 gate limit CRC。 |
@@ -581,7 +594,7 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 - `SYSTem:SYNC:VDC:TDMA:PLAN?` 只输出 active schedule 的窗口计划和 gate evidence，不提交 TDMA intent，也不改变 RefMem 或 DPLL 状态。
 - `SYSTem:SYNC:VDC:LOCK:READiness?` 只读取 VDC 最小实例的锁定输入条件和阻塞原因，区分 `input_ready` 与 `locked`；它不启动 capture，不提交样本，不写 offset/rate/lock。
 - `SYSTem:SYNC:VDC:OBServer:TDMA` 按 active `VDC_OBSERVATION_WINDOW` 配置 observer 的 expected window/base，是最小实例 bring-up 入口；它不启动 capture，不提升 timestamp flags，不写 DPLL。
-- `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` 是维护态两板 bring-up 入口：RX 角色由 VDC manager 按 active TDMA schedule 周期性 arm observation window 并启动 SYNC_IO capture，TX 角色由 SyncIO PIO/DMA 主输出组发送参考 pulse train；命令本身不构造 sample、不写 lock/offset/rate，验收只能来自 `OBServer?` / `LOCK:READiness?` 的 gate evidence。
+- `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` 是维护态 VDC/TDMA bring-up 入口：TX 角色向公共 TDMA service 提交 `VDC_SYNC_SAMPLE` short frame intent，RX 角色由 VDC manager 按 active TDMA schedule 周期性 arm observation window 并启动 SYNC_IO capture。当前 TX self-test evidence 必须保持 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，只能证明 TDMA payload 到 VDC gate 的诊断通路；命令不写 lock/offset/rate，正式 DPLL lock 仍必须等待 PIO edge latch 产生 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 样本。
 - `SYSTem:SYNC:VDC:OBServer` 只配置 VDC manager 的 SYNC_IO raw capture observer；无参数或 `0` 关闭 observer，启用态必须由维护工具显式给出 event id、tick base、sample period、window 和 frame CRC，不启动 capture、不伪造 lock evidence。
 - `SYSTem:SYNC:VDC:OBServer?` 只读取 observer 证据计数、当前配置 CRC/字典 CRC 和最近一次 dictionary 展开结果；它是 HIL 证据视图，不是 DPLL lock 判据。
 - 禁止新增 `VDC:*`、`DPLL:*`、`STATus:VDC?`、`STATus:DPLL?`。

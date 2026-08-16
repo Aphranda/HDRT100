@@ -27,6 +27,9 @@ static vdc_domain_context_t s_vdc_domain;
 static tdma_service_service_t s_vdc_tdma_service;
 static bool s_vdc_tdma_registered;
 static uint32_t s_vdc_tdma_self_test_frame_seq;
+static vdc_tdma_timestamp_evidence_t s_vdc_tdma_self_test_evidence;
+static uint32_t s_vdc_tdma_self_test_evidence_seq;
+static uint32_t s_vdc_tdma_self_test_submitted_seq;
 static bool s_vdc_ready;
 static bool s_dpll_ready;
 
@@ -118,6 +121,19 @@ static void vdc_dpll_manager_observation_self_test_service(void)
             tdma.intent_seq != 0u &&
             tdma.completed_seq == tdma.intent_seq) {
             osal_critical_enter();
+            if (s_vdc_tdma_self_test_evidence_seq == tdma.completed_seq &&
+                s_vdc_tdma_self_test_submitted_seq != tdma.completed_seq) {
+                vdc_tdma_timestamp_evidence_t evidence =
+                    s_vdc_tdma_self_test_evidence;
+                evidence.timestamp_source =
+                    (vdc_domain_timestamp_source_t)tdma.timestamp_source;
+                evidence.timestamp_resolution_ns =
+                    tdma.timestamp_resolution_ns;
+                evidence.timestamp_flags = tdma.timestamp_flags;
+                (void)vdc_domain_submit_tdma_evidence(&s_vdc_domain,
+                                                       &evidence);
+                s_vdc_tdma_self_test_submitted_seq = tdma.completed_seq;
+            }
             if (s_observation_self_test.active &&
                 s_observation_self_test.started_ms == status.started_ms) {
                 s_observation_self_test.active = false;
@@ -418,7 +434,12 @@ bool vdc_dpll_manager_init(void)
     memset(&s_published_snapshot, 0, sizeof(s_published_snapshot));
     memset(&s_observation_self_test, 0, sizeof(s_observation_self_test));
     memset(&s_vdc_tdma_service, 0, sizeof(s_vdc_tdma_service));
+    memset(&s_vdc_tdma_self_test_evidence,
+           0,
+           sizeof(s_vdc_tdma_self_test_evidence));
     s_vdc_tdma_self_test_frame_seq = 0u;
+    s_vdc_tdma_self_test_evidence_seq = 0u;
+    s_vdc_tdma_self_test_submitted_seq = 0u;
     if (!vdc_domain_init(&s_vdc_domain)) {
         return false;
     }
@@ -753,6 +774,12 @@ bool vdc_dpll_manager_start_observation_self_test(
             osal_critical_exit();
             return false;
         }
+
+        osal_critical_enter();
+        s_vdc_tdma_self_test_evidence = envelope.timestamp;
+        s_vdc_tdma_self_test_evidence_seq =
+            s_vdc_tdma_service.intent_seq;
+        osal_critical_exit();
     }
 
     osal_critical_enter();

@@ -171,6 +171,79 @@ static int32_t vdc_domain_clamp_i64_to_i32(int64_t value)
     return (int32_t)value;
 }
 
+static uint32_t vdc_domain_lock_acceptance_threshold_ns(
+    const vdc_servo_profile_t *servo)
+{
+    uint32_t threshold_ns = 0u;
+    uint32_t coarse_ns = VDC_DOMAIN_LOCK_TIER_COARSE_NS;
+
+    if (servo == NULL) {
+        return VDC_DOMAIN_LOCK_TIER_FINE_NS;
+    }
+
+    threshold_ns = servo->lock_acceptance_threshold_ns != 0u
+        ? servo->lock_acceptance_threshold_ns
+        : servo->offset_lock_threshold_ns;
+    if (threshold_ns == 0u) {
+        threshold_ns = VDC_DOMAIN_LOCK_TIER_FINE_NS;
+    }
+
+    if (servo->coarse_lock_threshold_ns != 0u) {
+        coarse_ns = servo->coarse_lock_threshold_ns;
+    }
+    return threshold_ns > coarse_ns ? coarse_ns : threshold_ns;
+}
+
+static uint32_t vdc_domain_lock_quality_tier_for_error(
+    const vdc_servo_profile_t *servo,
+    uint32_t error_ns)
+{
+    uint32_t fine_ns = VDC_DOMAIN_LOCK_TIER_FINE_NS;
+    uint32_t debug_ns = VDC_DOMAIN_LOCK_TIER_DEBUG_NS;
+    uint32_t coarse_ns = VDC_DOMAIN_LOCK_TIER_COARSE_NS;
+
+    if (servo != NULL) {
+        if (servo->offset_lock_threshold_ns != 0u) {
+            fine_ns = servo->offset_lock_threshold_ns;
+        }
+        if (servo->debug_lock_threshold_ns != 0u) {
+            debug_ns = servo->debug_lock_threshold_ns;
+        }
+        if (servo->coarse_lock_threshold_ns != 0u) {
+            coarse_ns = servo->coarse_lock_threshold_ns;
+        }
+    }
+
+    if (error_ns <= fine_ns) {
+        return VDC_DOMAIN_LOCK_QUALITY_FINE_100NS;
+    }
+    if (error_ns <= debug_ns) {
+        return VDC_DOMAIN_LOCK_QUALITY_DEBUG_1US;
+    }
+    if (error_ns <= coarse_ns) {
+        return VDC_DOMAIN_LOCK_QUALITY_COARSE_10US;
+    }
+    return VDC_DOMAIN_LOCK_QUALITY_NONE;
+}
+
+static uint32_t vdc_domain_lock_quality_error_ns(
+    const vdc_domain_context_t *context)
+{
+    uint32_t error_ns = 0u;
+
+    if (context == NULL) {
+        return 0u;
+    }
+    error_ns = context->quality.rms_offset_ns;
+    if (context->quality.max_abs_offset_ns > error_ns) {
+        error_ns = context->quality.max_abs_offset_ns;
+    }
+    if (vdc_domain_abs_i32(context->quality.last_offset_ns) > error_ns) {
+        error_ns = vdc_domain_abs_i32(context->quality.last_offset_ns);
+    }
+    return error_ns;
+}
+
 static int32_t vdc_domain_clamp_ppb(int64_t value, uint32_t limit_ppb)
 {
     const int64_t limit = (int64_t)limit_ppb;
@@ -237,12 +310,32 @@ static void vdc_domain_refresh_quality_state(vdc_domain_context_t *context)
 
     context->quality.valid = 1u;
     context->quality.lock_state = context->dpll.state;
+    context->quality.lock_acceptance_threshold_ns =
+        vdc_domain_lock_acceptance_threshold_ns(&context->servo);
+    context->quality.fine_lock_threshold_ns =
+        context->servo.offset_lock_threshold_ns != 0u
+            ? context->servo.offset_lock_threshold_ns
+            : VDC_DOMAIN_LOCK_TIER_FINE_NS;
+    context->quality.debug_lock_threshold_ns =
+        context->servo.debug_lock_threshold_ns != 0u
+            ? context->servo.debug_lock_threshold_ns
+            : VDC_DOMAIN_LOCK_TIER_DEBUG_NS;
+    context->quality.coarse_lock_threshold_ns =
+        context->servo.coarse_lock_threshold_ns != 0u
+            ? context->servo.coarse_lock_threshold_ns
+            : VDC_DOMAIN_LOCK_TIER_COARSE_NS;
+    context->quality.lock_quality_tier =
+        context->quality.accepted_sample_count != 0u
+            ? vdc_domain_lock_quality_tier_for_error(
+                  &context->servo,
+                  vdc_domain_lock_quality_error_ns(context))
+            : VDC_DOMAIN_LOCK_QUALITY_NONE;
     if (context->dpll.state == VDC_DOMAIN_LOCK_FAULT) {
         context->quality.health_state = VDC_DOMAIN_HEALTH_FAULT;
     } else if (context->dpll.state == VDC_DOMAIN_LOCK_LOCKED &&
                context->gate.passed != 0u &&
-               context->quality.rms_offset_ns <=
-                   context->servo.offset_lock_threshold_ns &&
+               context->quality.lock_quality_tier >=
+                   VDC_DOMAIN_LOCK_QUALITY_FINE_100NS &&
                context->quality.freshness_limit_1e3ns != 0u &&
                context->quality.last_sample_age_1e3ns <=
                    context->quality.freshness_limit_1e3ns) {
@@ -503,7 +596,10 @@ void vdc_domain_default_servo(vdc_servo_profile_t *profile)
     profile->first_step_threshold_ns = 100000u;
     profile->step_threshold_ns = 10000u;
     profile->sanity_freq_limit_ppb = 50000u;
-    profile->offset_lock_threshold_ns = 100u;
+    profile->offset_lock_threshold_ns = VDC_DOMAIN_LOCK_TIER_FINE_NS;
+    profile->debug_lock_threshold_ns = VDC_DOMAIN_LOCK_TIER_DEBUG_NS;
+    profile->coarse_lock_threshold_ns = VDC_DOMAIN_LOCK_TIER_COARSE_NS;
+    profile->lock_acceptance_threshold_ns = VDC_DOMAIN_LOCK_TIER_COARSE_NS;
     profile->lock_sample_count = 4u;
     profile->outlier_threshold_ns = 10000u;
     profile->reset_policy = 0u;
@@ -1335,7 +1431,8 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
     } else if (context->dpll.accepted_sample_count < VDC_DOMAIN_PHASE_LOCK_SAMPLES) {
         context->dpll.state = VDC_DOMAIN_LOCK_FREQ_LOCK;
     } else if (context->dpll.accepted_sample_count < context->servo.lock_sample_count ||
-               abs_phase > context->servo.offset_lock_threshold_ns) {
+               abs_phase >
+                   vdc_domain_lock_acceptance_threshold_ns(&context->servo)) {
         context->dpll.state = VDC_DOMAIN_LOCK_PHASE_LOCK;
     } else {
         context->dpll.state = VDC_DOMAIN_LOCK_LOCKED;

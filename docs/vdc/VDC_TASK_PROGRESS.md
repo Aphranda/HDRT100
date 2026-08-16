@@ -43,6 +43,63 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-033 - DPLL lock quality tiers for bring-up
+
+- 状态：完成代码、SCPI 字段、单元测试、构建、COM5/COM6 OTA 和 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 初步验证阶段允许 DPLL 锁定接纳阈值按 100 ns、1 us、10 us 三档放宽。
+  - 保持 HAOFV 语义：调试粗锁定不能冒充产品级 `HEALTHY/RUN` 质量门禁。
+- 完成内容：
+  - `vdc_servo_profile_t` 增加 `debug_lock_threshold_ns`、`coarse_lock_threshold_ns` 和 `lock_acceptance_threshold_ns`。
+  - `vdc_quality_table_t` 增加 `lock_quality_tier` 以及当前 fine/debug/coarse/acceptance 阈值快照。
+  - 默认 profile 保持 100 ns fine 目标，同时把 bring-up 接纳阈值设为 10 us；`LOCKED` 可用于观察收敛，`HEALTHY` 仍必须达到 `FINE_100NS`。
+  - `READ:SYNC:QUALity?` 尾部追加 `lock_quality_tier,fine_lock_threshold_ns,debug_lock_threshold_ns,coarse_lock_threshold_ns,lock_acceptance_threshold_ns`。
+  - HIL 验证脚本更新字段数，并确认 diagnostic TDMA self-test 不产生 lock tier。
+- 验证结果：
+  - `python -m py_compile tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816120839`，package CRC `0xC3F91EE3`。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件名 warning。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过，COM5/COM6 均 commit 到 `20260816120839`。
+  - `python tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py --port-a COM5 --port-b COM6 --expected-build 20260816120839` 通过：COM5/COM6 均为 `source=1 resolution_ns=1000 flags=0x1 vdc_gate=9 lock_tier=0 lock_accept_ns=10000`。
+- 还需完成：
+  - 后续 SCPI profile 配置需要能在维护态选择 `COARSE_10US / DEBUG_1US / FINE_100NS` 接纳阈值；当前先落基础字段和默认 bring-up profile。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
+- 下一步：
+  - 运行 VDC 单元测试、主机构建、固件构建和 COM5/COM6 HIL，验证字段兼容和 self-test gate 语义。
+
+### VDC-TASK-20260816-032 - VDC TDMA self-test enters gate
+
+- 状态：完成代码、脚本增强、构建和 COM5/COM6 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 让 VDC self-test 不只停在 TDMA service intent 完成，还要把 `VDC_SYNC_SAMPLE` frame 的 timestamp evidence 送入 VDC gate。
+  - 保持证据诚实：当前 TDMA self-test 仍是 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，只能被 VDC gate 拒绝，不能产生 lock。
+- 完成内容：
+  - `vdc_dpll_manager` 保存 self-test 生成的 `VdcTDMATimestampEvidence`，在公共 TDMA service 完成对应 intent 后提交给 `vdc_domain_submit_tdma_evidence()`。
+  - VDC gate 按 `TIMESTAMP_NOT_ELIGIBLE` 拒绝该 diagnostic evidence，并更新 quality/rejected 计数。
+  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py` 增加 `READ:SYNC:QUALity?` 验证，要求 rejected sample 增长、`last_reject_code=9`、timestamp resolution 为 1000 ns。
+- 验证结果：
+  - `python -m py_compile tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816115630`，package CRC `0xF14C9338`。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过，COM5/COM6 均 commit 到 `20260816115630`。
+  - `python tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py --port-a COM5 --port-b COM6 --expected-build 20260816115630` 通过：COM5/COM6 均为 `ready=0->1 intent=1 completed=1 payload=1 source=1 resolution_ns=1000 flags=0x1 vdc_rejected=0->1 vdc_gate=9`。
+- 还需完成：
+  - self-test 已闭合到 VDC gate，但仍不是 DPLL lock evidence；下一步必须接真正 PIO edge latch / timestamp spine。
+  - 将 TDMA service 的硬件 timestamp source 从软件诊断升级为 observation window 内的 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE`。
+- 关联文件：
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
+- 下一步：
+  - 继续 P0.2：把 TDMA observation window 的真实 edge latch 接入 `VdcTDMATimestampEvidence`，使 gate 能从拒绝 diagnostic evidence 推进到接受硬件样本。
+
 ### VDC-TASK-20260816-031 - VDC self-test mounted on TDMA service
 
 - 状态：完成代码、脚本语义纠偏、host/build 验证和 COM5/COM6 HIL。

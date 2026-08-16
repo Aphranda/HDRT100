@@ -23,11 +23,17 @@ from scpi_common.scpi_serial import open_serial_port, read_serial_line_idle  # n
 
 SELFTEST_FIELD_COUNT = 16
 TDMA_STATUS_FIELD_COUNT = 19
+SYNC_QUALITY_FIELD_COUNT = 17
 TDMA_RESULT_FRAME_READY = 2
 TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE = 1
 TIMESTAMP_SOURCE_SOFTWARE_US = 1
 TIMESTAMP_FLAG_DIAGNOSTIC_ONLY = 0x00000001
 TIMESTAMP_FLAG_DPLL_ELIGIBLE = 0x00000002
+VDC_GATE_TIMESTAMP_NOT_ELIGIBLE = 9
+VDC_LOCK_QUALITY_NONE = 0
+VDC_LOCK_TIER_FINE_NS = 100
+VDC_LOCK_TIER_DEBUG_NS = 1000
+VDC_LOCK_TIER_COARSE_NS = 10000
 
 
 @dataclass
@@ -44,6 +50,12 @@ class BoardResult:
     timestamp_source: int
     timestamp_resolution_ns: int
     timestamp_flags: int
+    quality_rejected_before: int
+    quality_rejected_after: int
+    quality_last_reject_code: int
+    quality_last_timestamp_resolution_ns: int
+    quality_lock_tier: int
+    quality_lock_acceptance_threshold_ns: int
     selftest_status: list[int]
 
 
@@ -131,6 +143,16 @@ def tdma_status(response: str) -> list[int]:
         raise AssertionError(f"non-integer TDMA status: {response}") from exc
 
 
+def sync_quality(response: str) -> list[int]:
+    fields = parse_csv_response(response)
+    if len(fields) != SYNC_QUALITY_FIELD_COUNT:
+        raise AssertionError(f"malformed sync quality: {response}")
+    try:
+        return [int(field.strip().strip('"'), 0) for field in fields[1:]]
+    except ValueError as exc:
+        raise AssertionError(f"non-integer sync quality: {response}") from exc
+
+
 def selftest_command(args: argparse.Namespace) -> str:
     values = (
         1,
@@ -153,14 +175,19 @@ def run_board(name: str, port: str, ser, args: argparse.Namespace) -> BoardResul
         raise AssertionError(f"{name}: build mismatch {build} != {args.expected_build}")
 
     before = tdma_status(query(ser, "SYST:SYNC:VDC:TDMA:STATus?", args.timeout))
+    quality_before = sync_quality(query(ser, "READ:SYNC:QUALity?", args.timeout))
     if query(ser, selftest_command(args), args.timeout) != "1":
         raise AssertionError(f"{name}: VDC TDMA self-test command rejected")
 
     after = before
+    quality_after = quality_before
     deadline = time.monotonic() + args.poll_timeout
     while time.monotonic() < deadline:
         after = tdma_status(query(ser, "SYST:SYNC:VDC:TDMA:STATus?", args.timeout))
-        if after[5] == after[4] and after[9] > before[9]:
+        quality_after = sync_quality(query(ser, "READ:SYNC:QUALity?", args.timeout))
+        if (after[5] == after[4] and
+                after[9] > before[9] and
+                quality_after[8] > quality_before[8]):
             break
         time.sleep(0.05)
 
@@ -181,6 +208,37 @@ def run_board(name: str, port: str, ser, args: argparse.Namespace) -> BoardResul
         raise AssertionError(f"{name}: DIAGNOSTIC_ONLY flag missing: 0x{after[17]:X}")
     if (after[17] & TIMESTAMP_FLAG_DPLL_ELIGIBLE) != 0:
         raise AssertionError(f"{name}: DPLL_ELIGIBLE flag must not be set: 0x{after[17]:X}")
+    if quality_after[8] <= quality_before[8]:
+        raise AssertionError(
+            f"{name}: VDC rejected sample did not increase: "
+            f"{quality_before} -> {quality_after}"
+        )
+    if quality_after[7] != quality_before[7]:
+        raise AssertionError(
+            f"{name}: diagnostic sample changed accepted count: "
+            f"{quality_before[7]} -> {quality_after[7]}"
+        )
+    if quality_after[6] != VDC_GATE_TIMESTAMP_NOT_ELIGIBLE:
+        raise AssertionError(
+            f"{name}: quality last_reject_code {quality_after[6]} "
+            f"!= TIMESTAMP_NOT_ELIGIBLE"
+        )
+    if quality_after[9] != 1000:
+        raise AssertionError(
+            f"{name}: quality timestamp resolution {quality_after[9]} != 1000ns"
+        )
+    if quality_before[7] == 0 and quality_after[11] != VDC_LOCK_QUALITY_NONE:
+        raise AssertionError(f"{name}: diagnostic sample must not set lock tier")
+    if quality_after[12] != VDC_LOCK_TIER_FINE_NS:
+        raise AssertionError(f"{name}: fine threshold {quality_after[12]} != 100ns")
+    if quality_after[13] != VDC_LOCK_TIER_DEBUG_NS:
+        raise AssertionError(f"{name}: debug threshold {quality_after[13]} != 1000ns")
+    if quality_after[14] != VDC_LOCK_TIER_COARSE_NS:
+        raise AssertionError(f"{name}: coarse threshold {quality_after[14]} != 10000ns")
+    if quality_after[15] != VDC_LOCK_TIER_COARSE_NS:
+        raise AssertionError(
+            f"{name}: bring-up acceptance threshold {quality_after[15]} != 10000ns"
+        )
 
     return BoardResult(
         name=name,
@@ -195,6 +253,12 @@ def run_board(name: str, port: str, ser, args: argparse.Namespace) -> BoardResul
         timestamp_source=after[15],
         timestamp_resolution_ns=after[16],
         timestamp_flags=after[17],
+        quality_rejected_before=quality_before[8],
+        quality_rejected_after=quality_after[8],
+        quality_last_reject_code=quality_after[6],
+        quality_last_timestamp_resolution_ns=quality_after[9],
+        quality_lock_tier=quality_after[11],
+        quality_lock_acceptance_threshold_ns=quality_after[15],
         selftest_status=selftest,
     )
 
@@ -236,7 +300,11 @@ def main() -> int:
             f"payload={result.payload_class} "
             f"source={result.timestamp_source} "
             f"resolution_ns={result.timestamp_resolution_ns} "
-            f"flags=0x{result.timestamp_flags:X}"
+            f"flags=0x{result.timestamp_flags:X} "
+            f"vdc_rejected={result.quality_rejected_before}->{result.quality_rejected_after} "
+            f"vdc_gate={result.quality_last_reject_code} "
+            f"lock_tier={result.quality_lock_tier} "
+            f"lock_accept_ns={result.quality_lock_acceptance_threshold_ns}"
         )
     print(f"summary: passed=True out_dir={out_dir}")
     return 0

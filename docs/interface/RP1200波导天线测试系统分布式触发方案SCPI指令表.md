@@ -197,7 +197,7 @@ SCPI 只允许写 command/config slot；state、summary、ACK/NACK、result、he
 | `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 同步域维护查询：虚拟 DC 服务 ready、lock_state、service_count 和 sync_seq |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 同步域维护查询：VDC DPLL ready、state、service_count 和 update_seq |
 | `SYSTem:SYNC:VDC:LOCK:READiness?` |  | `vdc lock readiness block` | 同步域维护查询：读取 VDC/DPLL 最小实例锁定输入条件、阻塞原因、timestamp eligibility、observer 计数和 dictionary/profile CRC；只读，不写 lock/offset/rate |
-| `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` | `[role],[output_index],[observed_mask],[initial_sample_mask],[sample_period_ns],[pulse_period_ns],[pulse_high_ns],[pulse_count],[frame_crc32],[start_delay_ns]` | `1` | 同步域维护动作：启动 RX observation/capture 或 TX PIO pulse train 的两板 bring-up；`start_delay_ns` 缺省 `1000000000`，不写 DPLL |
+| `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` | `[role],[output_index],[observed_mask],[initial_sample_mask],[sample_period_ns],[pulse_period_ns],[pulse_high_ns],[pulse_count],[frame_crc32],[start_delay_ns]` | `1` | 同步域维护动作：TX 提交公共 TDMA `VDC_SYNC_SAMPLE` 诊断 frame，RX 启动 observation/capture；当前 evidence 为 `SOFTWARE_US/1000ns/DIAGNOSTIC_ONLY`，不写 DPLL |
 | `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?` |  | `vdc selftest block` | 同步域维护查询：读取 self-test 配置、CRC、错误和 first window start |
 | `SYSTem:SYNC:VDC:OBServer:TDMA` | `[enabled],[initial_sample_mask],[sample_period_ns],[frame_crc32]` | `1` | 同步域维护配置：按 active `VDC_OBSERVATION_WINDOW` 配置 observer expected/base 时间；不启动 capture，不提升 timestamp flags |
 | `SYSTem:SYNC:VDC:OBServer` | `[enabled],...` | `1` | 同步域维护配置：无参数或 `0` 关闭 raw capture observer；`1` 时显式配置 batch、event、mask、tick、window 和 frame CRC，不启动 capture |
@@ -401,7 +401,7 @@ seq,node,channel,t2_tick,status,error_code,temperature
 | `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 同步域维护查询：读取虚拟 DC 服务 ready、lock_state、service_count 和 sync_seq |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 同步域维护查询：读取 VDC DPLL ready、state、service_count 和 update_seq |
 | `SYSTem:SYNC:VDC:LOCK:READiness?` |  | `vdc lock readiness block` | 同步域维护查询：读取锁定输入条件和 DPLL 锁定状态；用于区分 observer/dictionary/timestamp/gate/servo 阻塞点 |
-| `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` | `[role],[output_index],[observed_mask],[initial_sample_mask],[sample_period_ns],[pulse_period_ns],[pulse_high_ns],[pulse_count],[frame_crc32],[start_delay_ns]` | `1` | 同步域维护动作：启动 RX observation/capture 或 TX PIO pulse train 的两板 bring-up；`start_delay_ns` 缺省 `1000000000`，不写 DPLL |
+| `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` | `[role],[output_index],[observed_mask],[initial_sample_mask],[sample_period_ns],[pulse_period_ns],[pulse_high_ns],[pulse_count],[frame_crc32],[start_delay_ns]` | `1` | 同步域维护动作：TX 提交公共 TDMA `VDC_SYNC_SAMPLE` 诊断 frame，RX 启动 observation/capture；当前 evidence 为 `SOFTWARE_US/1000ns/DIAGNOSTIC_ONLY`，不写 DPLL |
 | `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?` |  | `vdc selftest block` | 同步域维护查询：读取 self-test 配置、CRC、错误和 first window start |
 | `SYSTem:SYNC:VDC:OBServer:TDMA` | `[enabled],[initial_sample_mask],[sample_period_ns],[frame_crc32]` | `1` | 同步域维护配置：按 active TDMA observation window 建立 observer 最小实例，不写 DPLL |
 | `SYSTem:SYNC:VDC:OBServer` | `[enabled],...` | `1` | 同步域维护配置：启停 VDC manager raw capture observer；不启动 SYNC_IO capture，不改变 DPLL lock |
@@ -695,8 +695,8 @@ SYNC 域挂到主线后的行为规则：
 | 配置检查 | cal_id 存在、CRC 匹配、未过期、NODE 链路方向匹配 | `READ:SYNC:LINK?` |
 | 启动同步 | 最近一次 active `SYNC:CHECk` 通过，目标节点版本和新鲜度有效 | `READ:SYNC:CHECk?` |
 | 进入 OBSERVED | 至少收到一轮有效同步帧，seq/CRC 正常 | `READ:SYNC:STATe?` |
-| 进入 LOCKED | 连续 `lock_count` 次 e_vdc 落入 `lock_window_ns`，offset/rate 估计稳定 | `READ:SYNC:HEALth?` |
-| 触发运行 | required_lock=1 时必须 LOCKED，且 e_vdc、age、CRC、seq、节点新鲜度低于门限 | `READ:SYNC:STATe?` |
+| 进入 LOCKED | 连续 `lock_count` 次 e_vdc 落入当前 `lock_acceptance_threshold_ns`；初步 bring-up 可选 10 us / 1 us / 100 ns 三档 | `READ:SYNC:HEALth?`、`READ:SYNC:QUALity?` |
+| 触发运行 | required_lock=1 时必须 LOCKED，且 `lock_quality_tier=FINE_100NS`、e_vdc、age、CRC、seq、节点新鲜度低于门限 | `READ:SYNC:STATe?` |
 | HOLDOVER 恢复 | 重锁后只恢复同步锁定，不自动恢复 TRIG RUN | `READ:SYNC:STATe?`、`SYSTem:CONFigure:ACK?` |
 
 ### 9.10 DPLL 调试范围
@@ -719,14 +719,14 @@ SYNC 域挂到主线后的行为规则：
 |---|---|---|---|
 | `CONFigure:SYNC:CALibration` | `<cal_id>,<cal_crc>,<max_age_s>` | `1` | 绑定同步使用的校准表到 staging 配置 |
 | `CONFigure:SYNC:RING` | `<origin>,<node_order>,<period_us>,<bitrate>,<timeout_ms>,<crc_limit>` | `1` | 配置 RJ45_SYNC_RING；`node_order` 每一跳必须匹配同方向 NODE 校准链路 |
-| `CONFigure:SYNC:VDC:DPLL` | `<lock_window_ns>,<lock_count>,<holdover_ms>,<relock_ms>,<profile>` | `1` | 配置虚拟 DC 时钟同步 DPLL 的锁定、保持和重锁判据 |
+| `CONFigure:SYNC:VDC:DPLL` | `<lock_acceptance_threshold_ns>,<lock_count>,<holdover_ms>,<relock_ms>,<profile>` | `1` | 配置虚拟 DC 时钟同步 DPLL 的锁定、保持和重锁判据；维护 bring-up 可用 10000/1000/100 ns 三档，正式运行仍要求 100 ns quality tier |
 | `CONFigure:SYNC:GATE` | `<required_lock>,<max_age_ms>,<max_evdc_p99_ns>,<allow_holdover>` | `1` | 配置触发运行门禁 |
 
 ### 10.2 同步字段
 
 | 字段组 | 字段 | 说明 |
 |---|---|---|
-| `param` | `table_seq, sync_id, cal_id, cal_crc`<br>`epoch, run_id, max_age_s, origin`<br>`node_order, period_us, bitrate, lock_window_ns`<br>`holdover_ms, relock_ms, dpll_profile, gate_profile` | 同步使用的校准表、环路配置、DPLL profile、版本上下文和锁定判据 |
+| `param` | `table_seq, sync_id, cal_id, cal_crc`<br>`epoch, run_id, max_age_s, origin`<br>`node_order, period_us, bitrate, lock_acceptance_threshold_ns`<br>`holdover_ms, relock_ms, dpll_profile, gate_profile` | 同步使用的校准表、环路配置、DPLL profile、版本上下文和锁定判据 |
 | `health` | `slot_seq, owner, crc, stale`<br>`crc_count, seq_error, drop_count, relock_count`<br>`evdc_p99_ns, evdc_p999_ns, late_count, stale_count`<br>`holdover_count, fault_count, gate_state, reject_reason` | 同步环健康度、虚拟 DC 残差、节点新鲜度和运行门禁依据 |
 | `node` | `node, role, freshness, stale`<br>`local_tick, dc_tick, offset_tick, rate_q32`<br>`last_seq, age_ms, link_delay_ns, lock_state`<br>`crc_count, seq_error, fault_code, flags` | 单节点本地 tick、DPLL 估计结果、校准链路 delay 使用值和 `OK/STALE/MISSING/INVALID/FAULT` 新鲜度 |
 | `check` | `check_state, target_config, cal_id, cal_crc`<br>`sync_id, sync_crc, node_order, topology_ok`<br>`missing_link, expired_link, direction_mismatch, node_freshness`<br>`missing_node, stale_node, invalid_node, reject_reason` | 启动前定位缺失链路、过期校准表、方向错误、节点新鲜度和门禁拒绝原因 |
@@ -777,12 +777,12 @@ READ:SYNC:STATe?
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
 | `CONFigure:SYNC:LIMit` | `<profile>[,<key=value>[,...]]` | `1` | 选择同步质量门限档位；调试时可追加字段覆盖，未写字段保持 profile 展开值 |
-| `READ:SYNC:QUALity?` | `[sync_id]` | `quality block` | 读取质量结论、e_vdc 分布、错误计数、重锁计数、链路年龄和门禁拒绝原因 |
+| `READ:SYNC:QUALity?` | `[sync_id]` | `quality block` | 读取质量结论、e_vdc 分布、错误计数、链路年龄、门禁拒绝原因和 100 ns / 1 us / 10 us 锁定质量等级 |
 | `READ:SYNC:VERSion?` |  | `version block` | 读取同步配置版本、绑定校准版本、固件版本、硬件 profile 和最近激活时间 |
 | `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 读取同步域虚拟 DC 服务内部状态；产品报告优先用 `READ:SYNC:STATe?` |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 读取 VDC DPLL 内部状态；用于维护和闭环调试 |
 | `SYSTem:SYNC:VDC:LOCK:READiness?` |  | `vdc lock readiness block` | 读取最小 VDC 实例锁定就绪证据；`input_ready` 与 `locked` 分离，当前诊断 latch 应停在 timestamp not eligible |
-| `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` | `[role],[output_index],[observed_mask],[initial_sample_mask],[sample_period_ns],[pulse_period_ns],[pulse_high_ns],[pulse_count],[frame_crc32],[start_delay_ns]` | `1` | 维护态两板 VDC bring-up：RX 侧周期性 observation window + capture，TX 侧主输出组 PIO/DMA pulse train；`start_delay_ns` 缺省 `1000000000`，不写 DPLL lock/offset/rate |
+| `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` | `[role],[output_index],[observed_mask],[initial_sample_mask],[sample_period_ns],[pulse_period_ns],[pulse_high_ns],[pulse_count],[frame_crc32],[start_delay_ns]` | `1` | 维护态 VDC/TDMA bring-up：TX 提交公共 TDMA `VDC_SYNC_SAMPLE` 诊断 frame，RX 侧周期性 observation window + capture；不写 DPLL lock/offset/rate |
 | `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?` |  | `vdc selftest block` | 读取 self-test 最近一次配置、schedule CRC、错误码、start delay 和 first window start |
 | `SYSTem:SYNC:VDC:OBServer:TDMA` | `[enabled],[initial_sample_mask],[sample_period_ns],[frame_crc32]` | `1` | 从 active `VDC_OBSERVATION_WINDOW` 自动配置 observer expected/base 时间；用于最小实例 bring-up，不启动 capture，不改变 DPLL |
 | `SYSTem:SYNC:VDC:OBServer` | `[enabled],...` | `1` | 配置 SYNC_IO raw capture 到 VDC compact observation 的 observer；无参数或 `0` 关闭，启用态必须提供完整时间戳和 gate 参数 |
@@ -953,7 +953,7 @@ owner task 后续接入。
 | `sequence block` | `query_plan_id,query_index,sequence_crc,state_count,index_valid,state_id...` | 查询配置序列库；支持读取指定序列摘要或任意一条状态引用 |
 | `sequence check block` | `plan_id,state_count,sequence_crc,state_range_ok,map_crc_ok,switch_range_ok,pol_range_ok,freq_range_ok,wave_range_ok,duplicate_state,missing_state,reject_reason` | 详细预检结果；`TEST+` 可选读取，调试上位机可显示逐项诊断，功能上不替代 active sequence 查询 |
 | `sequence active block` | `active_plan_id,active_crc,state_count,valid,last_check_state,reject_reason` | 查询当前活动序列；测试上位机 START 前确认将要执行的 active sequence |
-| `quality block` | `result,p99,p999,count,crc_error,seq_error,late_count,relock_count,stale_count,holdover_count,epoch,run_id` | 同步和测试质量统计 |
+| `quality block` | `state,last_offset_ns,rms_offset_ns,max_abs_offset_ns,freq_offset_ppb,jitter_pk_ns,last_sample_age_1e3ns,last_reject_code,accepted_sample_count,rejected_sample_count,last_timestamp_resolution_ns,health_state,lock_quality_tier,fine_lock_threshold_ns,debug_lock_threshold_ns,coarse_lock_threshold_ns,lock_acceptance_threshold_ns` | VDC 同步质量统计；`lock_quality_tier=1/2/3` 对应 10 us / 1 us / 100 ns，只有 100 ns fine tier 可作为正式 RUN 质量依据 |
 | `ack block` | `command_seq,target_mask,ack_flags,nack_flags,busy_flags,timeout_flags,nack_reason[node]` | 分布式命令完成态；写命令返回 accepted 后由该 block 闭环 |
 | `fault block` | `fault_code,source_node,first_ts,last_ts,evidence_seq,sticky,recoverable,text` | 故障锁存证据 |
 | `run summary block` | `run_id,plan_id,start_time,stop_time,complete_state,angle_start,angle_stop,angle_step,angle_count,angle_hit_count,missed_angle_pulse_count,seq_count,total_trigger_count,late_count,fault_count,sync_state,config_crc,sequence_crc,cal_crc,reject_reason` | RUN 后摘要；测试上位机用于报告和复盘，不作为 RUN 中控制节拍 |
@@ -964,7 +964,7 @@ owner task 后续接入。
 | `vdc block` | `ready,lock_state,service_count,first_service_ms,last_service_ms,sync_seq` | 同步域维护字段；产品上位机优先使用 `READ:SYNC:STATe?` |
 | `dpll block` | `ready,state,service_count,first_service_ms,last_service_ms,update_seq` | 开发验证兼容字段；用于扫描/转台 DPLL 任务观测 |
 | `vdc lock readiness block` | `input_ready,locked,reason,lock_state,health_state,accepted_sample_count,rejected_sample_count,last_reject_code,observer_enabled,observer_submitted,observer_accepted,observer_rejected,observer_last_gate,last_timestamp_source,last_timestamp_resolution_ns,last_timestamp_flags,timestamp_dpll_eligible,dictionary_entry_count,dictionary_crc32,dictionary_profile_crc32,schedule_crc32,last_payload_class,last_source_slot_id,last_reference_slot_id` | `SYSTem:SYNC:VDC:LOCK:READiness?` 固定字段；用于确认 VDC 最小实例卡在 observer、dictionary、timestamp eligibility、gate 还是 DPLL servo，不改变状态 |
-| `vdc selftest block` | `active,role,output_index,observed_mask,initial_sample_mask,sample_period_ns,pulse_period_ns,pulse_high_ns,pulse_count,frame_crc32,schedule_crc32,last_error,started_ms,start_delay_ns,first_window_start_lo,first_window_start_hi` | `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?` 固定字段；用于记录两板 TDMA observer bring-up 的 RX/TX 参数和 active schedule 摘要 |
+| `vdc selftest block` | `active,role,output_index,observed_mask,initial_sample_mask,sample_period_ns,pulse_period_ns,pulse_high_ns,pulse_count,frame_crc32,schedule_crc32,last_error,started_ms,start_delay_ns,first_window_start_lo,first_window_start_hi` | `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?` 固定字段；用于记录 VDC/TDMA selftest 的 RX/TX 参数、active schedule 摘要和诊断 gate 证据 |
 | `vdc observer block` | `enabled,max_words_per_service,service_count,raw_word_count,no_edge_count,ambiguous_edge_count,bad_argument_count,submitted_count,accepted_count,rejected_count,last_capture_result,last_raw_word,last_sample_seq,last_event_id,last_tick_l32,last_gate_reject_code,previous_sample_mask,next_base_time_l32_ns,rising_event_id,falling_event_id,observed_mask,initial_sample_mask,sample_period_ns,expected_window_start_lo,expected_window_start_hi,frame_crc32,max_backward_ticks,quality_flags,sample0_lsb,schedule_crc32,dictionary_crc32,dictionary_entry_count,dictionary_profile_crc32,last_edge_index,last_timestamp_source,last_timestamp_resolution_ns,last_timestamp_flags,last_source_slot_id,last_reference_slot_id,last_payload_class` | `SYSTem:SYNC:VDC:OBServer?` 固定字段；前 18 字段保留原 observer 计数，后续字段用于 HIL 记录配置、CRC、edge index 和 timestamp dictionary 展开证据 |
 | `vdc observer config` | `enabled,max_words_per_service,rising_event_id,falling_event_id,observed_mask,initial_sample_mask,next_base_time_l32_ns,sample_period_ns,expected_window_start_lo,expected_window_start_hi,frame_crc32,max_backward_ticks,quality_flags,sample0_lsb` | `SYSTem:SYNC:VDC:OBServer` 的启用态参数；无参数或 `enabled=0` 表示关闭并清零 observer，配置不启动 capture；`quality_flags bit31` 表示 expected/base 时间来自 active TDMA observation window |
 

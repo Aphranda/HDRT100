@@ -182,6 +182,11 @@ scpi_result_t scpi_sync_quality_q(scpi_t *context)
     SCPI_ResultUInt32(context, quality != NULL ? quality->rejected_sample_count : 0u);
     SCPI_ResultUInt32(context, quality != NULL ? quality->last_timestamp_resolution_ns : 0u);
     SCPI_ResultUInt32(context, quality != NULL ? quality->health_state : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->lock_quality_tier : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->fine_lock_threshold_ns : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->debug_lock_threshold_ns : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->coarse_lock_threshold_ns : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->lock_acceptance_threshold_ns : 0u);
     return SCPI_RES_OK;
 }
 

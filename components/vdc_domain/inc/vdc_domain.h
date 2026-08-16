@@ -11,6 +11,9 @@
 #define VDC_DOMAIN_DEFAULT_OBSERVATION_WIDTH_NS 10000u
 #define VDC_DOMAIN_DEFAULT_GUARD_NS 1000u
 #define VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS 100u
+#define VDC_DOMAIN_LOCK_TIER_FINE_NS 100u
+#define VDC_DOMAIN_LOCK_TIER_DEBUG_NS 1000u
+#define VDC_DOMAIN_LOCK_TIER_COARSE_NS 10000u
 #define VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32 0x56444301u
 #define VDC_DOMAIN_TDMA_FRAME_VERSION 1u
 #define VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_OFFSET_NS 20000u
@@ -62,6 +65,13 @@ typedef enum {
 } vdc_domain_health_state_t;
 
 typedef enum {
+    VDC_DOMAIN_LOCK_QUALITY_NONE = 0u,
+    VDC_DOMAIN_LOCK_QUALITY_COARSE_10US = 1u,
+    VDC_DOMAIN_LOCK_QUALITY_DEBUG_1US = 2u,
+    VDC_DOMAIN_LOCK_QUALITY_FINE_100NS = 3u,
+} vdc_domain_lock_quality_t;
+
+typedef enum {
     VDC_DOMAIN_GATE_PASS = 0u,
     VDC_DOMAIN_GATE_DISABLED = 1u,
     VDC_DOMAIN_GATE_BAD_ARGUMENT = 2u,
@@ -108,6 +118,9 @@ typedef struct {
     uint32_t step_threshold_ns;
     uint32_t sanity_freq_limit_ppb;
     uint32_t offset_lock_threshold_ns;
+    uint32_t debug_lock_threshold_ns;
+    uint32_t coarse_lock_threshold_ns;
+    uint32_t lock_acceptance_threshold_ns;
     uint32_t lock_sample_count;
     uint32_t outlier_threshold_ns;
     uint32_t reset_policy;
@@ -239,6 +252,7 @@ typedef struct {
     uint32_t update_seq;
     uint32_t health_state;
     uint32_t lock_state;
+    uint32_t lock_quality_tier;
     uint32_t quality_flags;
     uint32_t accepted_sample_count;
     uint32_t rejected_sample_count;
@@ -252,6 +266,10 @@ typedef struct {
     uint64_t last_sample_time_ns;
     uint32_t last_sample_age_1e3ns;
     uint32_t freshness_limit_1e3ns;
+    uint32_t lock_acceptance_threshold_ns;
+    uint32_t fine_lock_threshold_ns;
+    uint32_t debug_lock_threshold_ns;
+    uint32_t coarse_lock_threshold_ns;
     int32_t last_offset_ns;
     uint32_t rms_offset_ns;
     uint32_t max_abs_offset_ns;

@@ -1453,6 +1453,98 @@ static int test_context_accepts_samples_until_locked(void)
     return failed;
 }
 
+static int test_dpll_lock_quality_tiers(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+
+    failed += expect_bool("init coarse tier", vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    for (uint32_t i = 1u; i <= context.servo.lock_sample_count; i++) {
+        vdc_tdma_timestamp_evidence_t evidence =
+            make_hardware_sample(&context.schedule, i, 5000);
+        failed += expect_bool("submit coarse tier",
+                              vdc_domain_submit_tdma_evidence(&context, &evidence),
+                              true);
+    }
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("coarse tier locked",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_LOCKED);
+    failed += expect_u32("coarse tier quality",
+                         snapshot.quality.lock_quality_tier,
+                         VDC_DOMAIN_LOCK_QUALITY_COARSE_10US);
+    failed += expect_u32("coarse tier degraded",
+                         snapshot.quality.health_state,
+                         VDC_DOMAIN_HEALTH_DEGRADED);
+    failed += expect_u32("coarse acceptance threshold",
+                         snapshot.quality.lock_acceptance_threshold_ns,
+                         VDC_DOMAIN_LOCK_TIER_COARSE_NS);
+
+    failed += expect_bool("init debug tier", vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    for (uint32_t i = 1u; i <= context.servo.lock_sample_count; i++) {
+        vdc_tdma_timestamp_evidence_t evidence =
+            make_hardware_sample(&context.schedule, i, 500);
+        failed += expect_bool("submit debug tier",
+                              vdc_domain_submit_tdma_evidence(&context, &evidence),
+                              true);
+    }
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("debug tier locked",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_LOCKED);
+    failed += expect_u32("debug tier quality",
+                         snapshot.quality.lock_quality_tier,
+                         VDC_DOMAIN_LOCK_QUALITY_DEBUG_1US);
+    failed += expect_u32("debug tier degraded",
+                         snapshot.quality.health_state,
+                         VDC_DOMAIN_HEALTH_DEGRADED);
+
+    failed += expect_bool("init fine tier", vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    for (uint32_t i = 1u; i <= context.servo.lock_sample_count; i++) {
+        vdc_tdma_timestamp_evidence_t evidence =
+            make_hardware_sample(&context.schedule, i, 50);
+        failed += expect_bool("submit fine tier",
+                              vdc_domain_submit_tdma_evidence(&context, &evidence),
+                              true);
+    }
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("fine tier locked",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_LOCKED);
+    failed += expect_u32("fine tier quality",
+                         snapshot.quality.lock_quality_tier,
+                         VDC_DOMAIN_LOCK_QUALITY_FINE_100NS);
+    failed += expect_u32("fine tier healthy",
+                         snapshot.quality.health_state,
+                         VDC_DOMAIN_HEALTH_HEALTHY);
+
+    failed += expect_bool("init product threshold", vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    context.servo.lock_acceptance_threshold_ns = VDC_DOMAIN_LOCK_TIER_FINE_NS;
+    for (uint32_t i = 1u; i <= context.servo.lock_sample_count; i++) {
+        vdc_tdma_timestamp_evidence_t evidence =
+            make_hardware_sample(&context.schedule, i, 500);
+        failed += expect_bool("submit product threshold",
+                              vdc_domain_submit_tdma_evidence(&context, &evidence),
+                              true);
+    }
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("product threshold phase lock",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_PHASE_LOCK);
+    failed += expect_u32("product threshold tier",
+                         snapshot.quality.lock_quality_tier,
+                         VDC_DOMAIN_LOCK_QUALITY_DEBUG_1US);
+    failed += expect_u32("product acceptance threshold",
+                         snapshot.quality.lock_acceptance_threshold_ns,
+                         VDC_DOMAIN_LOCK_TIER_FINE_NS);
+    return failed;
+}
+
 static int test_dpll_updates_clock_rate_from_sample_period(void)
 {
     int failed = 0;
@@ -1603,6 +1695,7 @@ int main(void)
     failed += test_vdc_tdma_payload_mounts_on_common_tdma();
     failed += test_dco_control_contract();
     failed += test_context_accepts_samples_until_locked();
+    failed += test_dpll_lock_quality_tiers();
     failed += test_context_submits_compact_observation();
     failed += test_sync_io_adapter_to_vdc_submit();
     failed += test_quality_age_updates_on_service();
