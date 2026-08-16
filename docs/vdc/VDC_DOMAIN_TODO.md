@@ -99,8 +99,8 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [x] 冻结 `VdcServoProfile`，覆盖 servo_type、kp/ki、update period、step threshold、sanity limit 和 reset policy。
 - [x] 冻结 `VdcQualityTable` 字段、质量窗口、统计口径和 RUN gate 门限。
 - [x] 冻结 `VdcErrorBudget`，覆盖 offset RMS/max、frequency skew、path delay、dispersion 和 root distance 等价字段。
-- [ ] 冻结 `VdcTimestampDictionary` 表格式、CRC、版本兼容和 System Pack 导入策略。
-- [ ] 冻结 `VdcWrapTracker` 的 tick/seq 扩展规则和回绕安全差分。
+- [x] 冻结 `VdcTimestampDictionary` 表格式、CRC 和版本兼容；System Pack 导入策略另列 P7。
+- [x] 冻结 `VdcWrapTracker` 的 tick 扩展规则和回绕安全差分；完整 seq_delta 扩展随 capture ring 落地继续补齐。
 - [ ] 冻结 `VdcCalibrationBinding`，定义 active cal CRC、link key、delay_ns 和失效策略。
 - [ ] 冻结 `VdcDcSyncPipeline`，定义 reference select、initial sync、drift compensation、LOCKED publish 和 T2 validation 阶段。
 - [ ] 冻结 `VdcDisciplineModel`，定义 aging compensation、temperature compensation、wander、holdover drift bound、discipline window 和持久化 profile seq。

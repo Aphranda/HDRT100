@@ -440,6 +440,17 @@ VDC Domain 首版冻结以下基础表。字段可以分阶段实现，但 owner
 | `VdcDisciplineModel` | 保存长期漂移、温度/老化补偿候选和持久化 profile seq。 | `HoldoverFB / VdcQualityGateFB` |
 | `VdcGateResult` | 给 RUN gate 的 lock/quality/reject/evidence 输出。 | `VdcSyncAO` |
 
+### Timestamp Dictionary 与 Wrap Tracker
+
+`VdcTimestampDictionary` 是 compact timestamp 的语义展开表，不承载实时数据。它由 `VdcSyncAO / profile loader` 从 active profile 或 System Pack 加载，字段至少包含 `event_id`、`source_slot_id`、`reference_slot_id`、`source`、`resolution_ns`、`default_flags`、`port_id`、`signal_id` 和 `payload_class`。表必须带 `version`、`entry_count`、`profile_crc32` 和 `dictionary_crc32`；版本、CRC、entry 有效性、event id 唯一性不通过时，timestamp sample 不得进入 DPLL。
+
+`VdcWrapTracker` 是 timestamp service 的局部扩展状态，只把 `tick_l32` 扩展成 `local_tick64`，不写 offset/rate，也不写 VDC lock。首版规则为：
+
+- `tick_l32` 正向递增时直接拼接当前高 32 位。
+- `tick_l32` 从接近 `0xFFFFFFFF` 回到低值且差值超过半量程时，判定为一次正向回绕并递增高 32 位。
+- `tick_l32` 小幅倒退默认拒绝；只有调用方明确给出 `max_backward_ticks` 才允许有限乱序。
+- `tick_l32` 从低值跳回接近 `0xFFFFFFFF` 判定为 stale/pre-wrap 样本并拒绝。
+
 ### 核心字段
 
 VDC snapshot 至少需要覆盖：

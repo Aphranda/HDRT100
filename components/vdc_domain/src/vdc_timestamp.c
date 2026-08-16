@@ -2,6 +2,18 @@
 
 #include <string.h>
 
+#define VDC_TIMESTAMP_CRC_OFFSET 2166136261u
+#define VDC_TIMESTAMP_CRC_PRIME 16777619u
+
+static uint32_t vdc_timestamp_hash_u32(uint32_t hash, uint32_t value)
+{
+    for (uint32_t i = 0u; i < 4u; i++) {
+        hash ^= (value >> (i * 8u)) & 0xFFu;
+        hash *= VDC_TIMESTAMP_CRC_PRIME;
+    }
+    return hash;
+}
+
 void vdc_timestamp_init_software_us_diagnostic(
     vdc_timestamp_latch_sample_t *sample,
     uint32_t event_id,
@@ -109,4 +121,160 @@ bool vdc_timestamp_observed_in_window(uint64_t expected_window_start_ns,
         expected_window_start_ns + (uint64_t)window_width_ns +
         (uint64_t)guard_after_ns;
     return observed_time_ns >= window_min && observed_time_ns <= window_max;
+}
+
+void vdc_timestamp_dictionary_init(vdc_timestamp_dictionary_t *dictionary,
+                                   uint32_t profile_crc32)
+{
+    if (dictionary == NULL) {
+        return;
+    }
+
+    (void)memset(dictionary, 0, sizeof(*dictionary));
+    dictionary->valid = 1u;
+    dictionary->version = VDC_TIMESTAMP_DICTIONARY_VERSION;
+    dictionary->profile_crc32 = profile_crc32;
+    dictionary->dictionary_crc32 = vdc_timestamp_dictionary_crc32(dictionary);
+}
+
+uint32_t vdc_timestamp_dictionary_crc32(
+    const vdc_timestamp_dictionary_t *dictionary)
+{
+    uint32_t hash = VDC_TIMESTAMP_CRC_OFFSET;
+    if (dictionary == NULL) {
+        return 0u;
+    }
+
+    hash = vdc_timestamp_hash_u32(hash, dictionary->valid);
+    hash = vdc_timestamp_hash_u32(hash, dictionary->version);
+    hash = vdc_timestamp_hash_u32(hash, dictionary->entry_count);
+    hash = vdc_timestamp_hash_u32(hash, dictionary->profile_crc32);
+    for (uint32_t i = 0u; i < dictionary->entry_count &&
+                         i < VDC_TIMESTAMP_DICTIONARY_MAX_ENTRIES;
+         i++) {
+        const vdc_timestamp_dictionary_entry_t *entry =
+            &dictionary->entries[i];
+        hash = vdc_timestamp_hash_u32(hash, entry->valid);
+        hash = vdc_timestamp_hash_u32(hash, entry->event_id);
+        hash = vdc_timestamp_hash_u32(hash, entry->source_slot_id);
+        hash = vdc_timestamp_hash_u32(hash, entry->reference_slot_id);
+        hash = vdc_timestamp_hash_u32(hash, entry->source);
+        hash = vdc_timestamp_hash_u32(hash, entry->resolution_ns);
+        hash = vdc_timestamp_hash_u32(hash, entry->default_flags);
+        hash = vdc_timestamp_hash_u32(hash, entry->port_id);
+        hash = vdc_timestamp_hash_u32(hash, entry->signal_id);
+        hash = vdc_timestamp_hash_u32(hash, entry->payload_class);
+    }
+    return hash;
+}
+
+bool vdc_timestamp_dictionary_validate(
+    const vdc_timestamp_dictionary_t *dictionary)
+{
+    if (dictionary == NULL ||
+        dictionary->valid == 0u ||
+        dictionary->version != VDC_TIMESTAMP_DICTIONARY_VERSION ||
+        dictionary->entry_count > VDC_TIMESTAMP_DICTIONARY_MAX_ENTRIES ||
+        dictionary->dictionary_crc32 !=
+            vdc_timestamp_dictionary_crc32(dictionary)) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < dictionary->entry_count; i++) {
+        const vdc_timestamp_dictionary_entry_t *entry =
+            &dictionary->entries[i];
+        if (entry->valid == 0u ||
+            entry->event_id == 0u ||
+            entry->source == VDC_TIMESTAMP_SOURCE_NONE ||
+            entry->resolution_ns == 0u) {
+            return false;
+        }
+        for (uint32_t j = i + 1u; j < dictionary->entry_count; j++) {
+            if (entry->event_id == dictionary->entries[j].event_id) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool vdc_timestamp_dictionary_find(
+    const vdc_timestamp_dictionary_t *dictionary,
+    uint32_t event_id,
+    vdc_timestamp_dictionary_entry_t *entry)
+{
+    if (!vdc_timestamp_dictionary_validate(dictionary) || event_id == 0u) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < dictionary->entry_count; i++) {
+        if (dictionary->entries[i].event_id == event_id) {
+            if (entry != NULL) {
+                *entry = dictionary->entries[i];
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+bool vdc_timestamp_dictionary_apply(
+    const vdc_timestamp_dictionary_t *dictionary,
+    vdc_timestamp_latch_sample_t *sample)
+{
+    vdc_timestamp_dictionary_entry_t entry;
+
+    if (sample == NULL ||
+        sample->valid == 0u ||
+        !vdc_timestamp_dictionary_find(dictionary, sample->event_id, &entry)) {
+        return false;
+    }
+
+    sample->source_slot_id = entry.source_slot_id;
+    sample->reference_slot_id = entry.reference_slot_id;
+    sample->source = entry.source;
+    sample->resolution_ns = entry.resolution_ns;
+    sample->flags = entry.default_flags;
+    return true;
+}
+
+void vdc_wrap_tracker_init(vdc_wrap_tracker_t *tracker,
+                           uint32_t initial_tick_l32)
+{
+    if (tracker == NULL) {
+        return;
+    }
+
+    (void)memset(tracker, 0, sizeof(*tracker));
+    tracker->valid = 1u;
+    tracker->last_tick_l32 = initial_tick_l32;
+}
+
+bool vdc_wrap_tracker_extend_tick(vdc_wrap_tracker_t *tracker,
+                                  uint32_t tick_l32,
+                                  uint32_t max_backward_ticks,
+                                  uint64_t *tick64)
+{
+    if (tracker == NULL || tracker->valid == 0u || tick64 == NULL) {
+        return false;
+    }
+
+    if (tick_l32 < tracker->last_tick_l32) {
+        const uint32_t backward_delta = tracker->last_tick_l32 - tick_l32;
+        if (backward_delta > VDC_TIMESTAMP_WRAP_HALF_RANGE) {
+            tracker->tick_hi64 += 1ull << 32u;
+            tracker->wrap_count++;
+        } else if (backward_delta > max_backward_ticks) {
+            tracker->backward_reject_count++;
+            return false;
+        }
+    } else if (tick_l32 - tracker->last_tick_l32 >
+               VDC_TIMESTAMP_WRAP_HALF_RANGE) {
+        tracker->backward_reject_count++;
+        return false;
+    }
+
+    tracker->last_tick_l32 = tick_l32;
+    *tick64 = tracker->tick_hi64 | (uint64_t)tick_l32;
+    return true;
 }

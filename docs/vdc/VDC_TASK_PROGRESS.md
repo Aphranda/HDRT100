@@ -43,6 +43,37 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-014 - Timestamp dictionary and wrap tracker contract
+
+- 状态：完成 host/build 验证；capture ring 的完整 `seq_delta` 扩展待后续实现
+- 日期：2026-08-16
+- 任务目标：
+  - 冻结 compact timestamp 展开和 32 位 tick 回绕扩展的基础规则，避免后续 PIO latch 直接把裸 event/tick 写进 DPLL。
+  - 保持 HAOFV 边界：dictionary 和 wrap tracker 只生成 timestamp sample 的事实字段，不承载业务数据，不写 VDC offset/rate/lock。
+- 完成内容：
+  - `vdc_timestamp.h/.c` 增加 `VdcTimestampDictionary`：`event_id`、source/reference slot、source、resolution、default flags、port/signal 和 payload class。
+  - dictionary 增加版本号、entry_count、profile CRC、dictionary CRC、entry 有效性和 event id 唯一性校验。
+  - 新增 `vdc_timestamp_dictionary_apply()`，把 compact latch sample 按 dictionary 展开为正式 timestamp source/resolution/flags/slot。
+  - 新增 `VdcWrapTracker`，支持 `tick_l32` 正向扩展、正向回绕识别、stale/pre-wrap 拒绝和小幅倒退容差。
+  - 单元测试覆盖 dictionary CRC 篡改、重复 event id、compact sample 展开、tick 回绕和 stale/backward 拒绝。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+- 还需完成：
+  - 将 PIO/DMA capture ring 的 compact event/tick 接入 dictionary + wrap tracker。
+  - 增加 System Pack / SD / SCPI profile loader 对 timestamp dictionary 的导入、激活和回滚。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_timestamp.h`
+  - `components/vdc_domain/src/vdc_timestamp.c`
+  - `tests/unit/test_vdc_domain.c`
+  - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+- 下一步：
+  - 继续 `VDC_OBSERVATION_WINDOW` 的 hardware latch bring-up，先把 capture ring sample 接到该基础件，再进入 DPLL admission。
+
 ### VDC-TASK-20260816-013 - Timestamp contract split
 
 - 状态：完成 host/build 验证；真实 PIO/DMA timestamp latch 待后续实现

@@ -298,6 +298,122 @@ static int test_timestamp_contract_helpers(void)
     return failed;
 }
 
+static int test_timestamp_dictionary_contract(void)
+{
+    int failed = 0;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_timestamp_dictionary_entry_t entry;
+    vdc_timestamp_latch_sample_t sample;
+
+    vdc_timestamp_dictionary_init(&dictionary, 0x12345678u);
+    failed += expect_bool("empty dictionary valid",
+                          vdc_timestamp_dictionary_validate(&dictionary),
+                          true);
+
+    dictionary.entry_count = 2u;
+    dictionary.entries[0].valid = 1u;
+    dictionary.entries[0].event_id = 10u;
+    dictionary.entries[0].source_slot_id = 1u;
+    dictionary.entries[0].reference_slot_id = 0u;
+    dictionary.entries[0].source = VDC_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    dictionary.entries[0].resolution_ns = 50u;
+    dictionary.entries[0].default_flags = VDC_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+    dictionary.entries[0].port_id = 3u;
+    dictionary.entries[0].signal_id = 4u;
+    dictionary.entries[0].payload_class = VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE;
+    dictionary.entries[1] = dictionary.entries[0];
+    dictionary.entries[1].event_id = 11u;
+    dictionary.entries[1].payload_class = VDC_DOMAIN_PAYLOAD_IDLE_BEACON;
+    dictionary.dictionary_crc32 =
+        vdc_timestamp_dictionary_crc32(&dictionary);
+
+    failed += expect_bool("dictionary valid",
+                          vdc_timestamp_dictionary_validate(&dictionary),
+                          true);
+    failed += expect_bool("dictionary find",
+                          vdc_timestamp_dictionary_find(&dictionary,
+                                                        10u,
+                                                        &entry),
+                          true);
+    failed += expect_u32("dictionary port", entry.port_id, 3u);
+    failed += expect_u32("dictionary signal", entry.signal_id, 4u);
+
+    (void)memset(&sample, 0, sizeof(sample));
+    sample.valid = 1u;
+    sample.event_id = 10u;
+    sample.expected_window_start_ns = 1000u;
+    sample.observed_time_ns = 1008u;
+    failed += expect_bool("dictionary apply",
+                          vdc_timestamp_dictionary_apply(&dictionary, &sample),
+                          true);
+    failed += expect_u32("expanded source slot", sample.source_slot_id, 1u);
+    failed += expect_u32("expanded reference slot", sample.reference_slot_id, 0u);
+    failed += expect_u32("expanded source",
+                         sample.source,
+                         VDC_TIMESTAMP_SOURCE_HARDWARE_TICK);
+    failed += expect_u32("expanded resolution", sample.resolution_ns, 50u);
+    failed += expect_u32("expanded flags",
+                         sample.flags,
+                         VDC_TIMESTAMP_FLAG_DPLL_ELIGIBLE);
+
+    dictionary.entries[1].event_id = 10u;
+    dictionary.dictionary_crc32 =
+        vdc_timestamp_dictionary_crc32(&dictionary);
+    failed += expect_bool("duplicate event rejected",
+                          vdc_timestamp_dictionary_validate(&dictionary),
+                          false);
+
+    dictionary.entries[1].event_id = 11u;
+    dictionary.dictionary_crc32 ^= 1u;
+    failed += expect_bool("dictionary crc rejected",
+                          vdc_timestamp_dictionary_validate(&dictionary),
+                          false);
+    return failed;
+}
+
+static int test_wrap_tracker_contract(void)
+{
+    int failed = 0;
+    vdc_wrap_tracker_t tracker;
+    uint64_t tick64 = 0u;
+
+    vdc_wrap_tracker_init(&tracker, 0xFFFFFFF0u);
+    failed += expect_bool("wrap initial forward",
+                          vdc_wrap_tracker_extend_tick(&tracker,
+                                                       0xFFFFFFF8u,
+                                                       0u,
+                                                       &tick64),
+                          true);
+    failed += expect_u64("wrap initial tick", tick64, 0xFFFFFFF8ull);
+    failed += expect_bool("wrap forward",
+                          vdc_wrap_tracker_extend_tick(&tracker,
+                                                       0x00000008u,
+                                                       0u,
+                                                       &tick64),
+                          true);
+    failed += expect_u64("wrap extended tick", tick64, 0x100000008ull);
+    failed += expect_u32("wrap count", tracker.wrap_count, 1u);
+    failed += expect_bool("stale pre-wrap tick rejected",
+                          vdc_wrap_tracker_extend_tick(&tracker,
+                                                       0xFFFFFF00u,
+                                                       0u,
+                                                       &tick64),
+                          false);
+    failed += expect_u32("stale reject count",
+                         tracker.backward_reject_count,
+                         1u);
+    failed += expect_bool("small backward rejected by zero tolerance",
+                          vdc_wrap_tracker_extend_tick(&tracker,
+                                                       0x00000004u,
+                                                       0u,
+                                                       &tick64),
+                          false);
+    failed += expect_u32("backward reject count",
+                         tracker.backward_reject_count,
+                         2u);
+    return failed;
+}
+
 static int test_gate_rejects_schedule_and_window_mismatch(void)
 {
     int failed = 0;
@@ -657,6 +773,8 @@ int main(void)
     int failed = 0;
     failed += test_default_schedule_and_clock();
     failed += test_timestamp_contract_helpers();
+    failed += test_timestamp_dictionary_contract();
+    failed += test_wrap_tracker_contract();
     failed += test_gate_rejects_diagnostic_timestamp();
     failed += test_gate_rejects_schedule_and_window_mismatch();
     failed += test_frame_envelope_window_contract();
