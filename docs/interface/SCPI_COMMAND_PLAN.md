@@ -275,9 +275,11 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 
 `SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]` 是只读维护入口，用于复现 active `VdcTdmaScheduleProfile` 对 observation/data/idle window 的计划结果。它返回当前或指定 `now_ns` 对应的窗口起止、guard、wait_ns、late_ns、inside/missed 标志、schedule CRC 和 gate；不得作为产品上位机控制入口。
 
-`SYSTem:SYNC:VDC:OBServer [enabled],...` 是维护配置入口，用于启停 VDC manager 消费 `sync_io_read_capture_words()` 的 observer。无参数或 `enabled=0` 只关闭 observer 并清零状态；`enabled=1` 必须显式提供 batch、rising/falling event id、observed mask、initial mask、base tick、sample period、expected window start 和 frame CRC。该命令不得启动 SYNC_IO capture，不得绕过 timestamp dictionary/gate，也不得作为 DPLL lock evidence 本身。
+`SYSTem:SYNC:VDC:OBServer [enabled],...` 是维护配置入口，用于启停 VDC manager 消费 SYNC_IO latched capture fact 的 observer。无参数或 `enabled=0` 只关闭 observer 并清零状态；`enabled=1` 必须显式提供 batch、rising/falling event id、observed mask、initial mask、base tick、sample period、expected window start 和 frame CRC。该命令不得启动 SYNC_IO capture，不得绕过 timestamp dictionary/gate，也不得作为 DPLL lock evidence 本身。
 
-`SYSTem:SYNC:VDC:OBServer?` 是只读维护入口，用于查询 VDC manager 从 `sync_io_read_capture_words()` 消费 raw capture word 的 observer 证据。它以前 18 字段保留 enabled、batch、raw/no-edge/ambiguous/submitted/accepted/rejected、last raw word、event id、tick_l32 和 gate reject 等状态；后续字段追加 event/mask/window/frame CRC、schedule/dictionary CRC、edge index 和 timestamp dictionary 展开结果。该查询不得启动 capture、不得改变 observer 配置、不得作为 DPLL lock evidence 本身。
+`SYSTem:SYNC:VDC:OBServer?` 是只读维护入口，用于查询 VDC manager 从 `sync_io_read_capture_latched()` 消费 capture word 的 observer 证据。它以前 18 字段保留 enabled、batch、raw/no-edge/ambiguous/submitted/accepted/rejected、last raw word、event id、tick_l32 和 gate reject 等状态；后续字段追加 event/mask/window/frame CRC、schedule/dictionary CRC、edge index 和 timestamp dictionary 展开结果。该查询不得启动 capture、不得改变 observer 配置、不得作为 DPLL lock evidence 本身。
+
+`REALtime:IO:SAMPle:LATCh?` 是 SYNC_IO 维护查询入口，用于查看 core1 capture latch ring 是否从 PIO capture FIFO 形成了带 timestamp metadata 的本地 IO fact。当前字段为 `initialized,capture_running,capture_sample_hz,dropped_capture_words,latched_capture_words,dropped_latched_capture_words,capture_latch_source,capture_latch_resolution_ns`。首版 timestamp source 仍为 `SOFTWARE_US`、resolution 为 `1000 ns`，只能作为 hardware bring-up 诊断，不允许进入 100 ns DPLL lock gate。
 
 ## 7. 通信、实时和测量
 

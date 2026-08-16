@@ -10,6 +10,7 @@
 #include "hardware/irq.h"
 #include "hardware/pio.h"
 #include "osal.h"
+#include "pico/time.h"
 #include "resource_arbiter.h"
 #include "biss_tap_rx.pio.h"
 #include "sync_io_hw_profile.h"
@@ -27,6 +28,9 @@
 #define SYNC_IO_CLOCK_PIO           BOARD_SYNC_PIO_AUX
 #define SYNC_IO_CLOCK_SM            BOARD_SYNC_AUX2_SM
 #define SYNC_IO_CLOCK_PIN           BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN
+#define SYNC_IO_CAPTURE_LATCH_RING_SIZE 32u
+#define SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_SOFTWARE_US 1u
+#define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 
 typedef struct {
     bool initialized;
@@ -41,9 +45,15 @@ typedef struct {
     uint32_t capture_sample_hz;
     uint32_t sync_clock_hz;
     uint32_t dropped_capture_words;
+    uint32_t latched_capture_words;
+    uint32_t dropped_latched_capture_words;
+    uint32_t capture_latch_write;
+    uint32_t capture_latch_read;
+    uint32_t capture_latch_seq;
     uint32_t debug_model_output_enable_mask;
     uint32_t debug_model_output_value_mask;
     sync_io_aux_mode_t aux_modes[SYNC_IO_AUX_COUNT];
+    sync_io_capture_latched_word_t capture_latch_ring[SYNC_IO_CAPTURE_LATCH_RING_SIZE];
 } sync_io_context_t;
 
 static sync_io_context_t s_sync_io;
@@ -169,6 +179,27 @@ static float sync_io_clkdiv_for_instruction_rate(uint32_t instruction_hz)
     }
 
     return clkdiv;
+}
+
+static uint32_t sync_io_capture_sample_period_ns(uint32_t sample_hz)
+{
+    if (sample_hz == 0u) {
+        return 0u;
+    }
+    uint64_t period_ns = 1000000000ull / (uint64_t)sample_hz;
+    if (period_ns == 0u) {
+        period_ns = 1u;
+    }
+    return period_ns > UINT32_MAX ? UINT32_MAX : (uint32_t)period_ns;
+}
+
+static void sync_io_capture_latch_reset_locked(void)
+{
+    s_sync_io.capture_latch_write = 0u;
+    s_sync_io.capture_latch_read = 0u;
+    s_sync_io.capture_latch_seq = 0u;
+    s_sync_io.latched_capture_words = 0u;
+    s_sync_io.dropped_latched_capture_words = 0u;
 }
 
 static bool sync_io_claim_sm(PIO pio, uint sm, const char *name)
@@ -420,6 +451,9 @@ bool sync_io_start_capture(uint32_t sample_hz)
                       BOARD_SYNC_CAPTURE_SM,
                       sync_io_clkdiv_for_instruction_rate(sample_hz));
     pio_sm_restart(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM);
+    osal_critical_enter();
+    sync_io_capture_latch_reset_locked();
+    osal_critical_exit();
     pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, true);
 
     s_sync_io.capture_sample_hz = sample_hz;
@@ -462,6 +496,70 @@ size_t sync_io_read_capture_words(uint32_t *buffer, size_t max_words)
                       (uint32_t)count);
     }
 
+    return count;
+}
+
+void sync_io_capture_latch_service_core1(void)
+{
+    if (!s_sync_io.initialized || !s_sync_io.capture_running) {
+        return;
+    }
+
+    const uint32_t sample_period_ns =
+        sync_io_capture_sample_period_ns(s_sync_io.capture_sample_hz);
+    const uint32_t word_span_ns = sample_period_ns * 8u;
+
+    while (!pio_sm_is_rx_fifo_empty(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM)) {
+        const uint32_t raw_word = pio_sm_get(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM);
+        const uint64_t latch_time_ns = time_us_64() * 1000ull;
+        const uint32_t base_time_l32_ns =
+            (uint32_t)((latch_time_ns > word_span_ns)
+                           ? (latch_time_ns - word_span_ns)
+                           : 0ull);
+
+        osal_critical_enter();
+        const uint32_t next_write =
+            (s_sync_io.capture_latch_write + 1u) % SYNC_IO_CAPTURE_LATCH_RING_SIZE;
+        if (next_write == s_sync_io.capture_latch_read) {
+            s_sync_io.dropped_latched_capture_words++;
+            osal_critical_exit();
+            continue;
+        }
+
+        sync_io_capture_latched_word_t *slot =
+            &s_sync_io.capture_latch_ring[s_sync_io.capture_latch_write];
+        slot->raw_word = raw_word;
+        slot->sample_seq = ++s_sync_io.capture_latch_seq;
+        slot->base_time_l32_ns = base_time_l32_ns;
+        slot->sample_period_ns = sample_period_ns;
+        slot->timestamp_source = SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_SOFTWARE_US;
+        slot->timestamp_resolution_ns = 1000u;
+        slot->timestamp_flags = SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+        slot->dropped_before = s_sync_io.dropped_latched_capture_words;
+        s_sync_io.capture_latch_write = next_write;
+        s_sync_io.latched_capture_words++;
+        osal_critical_exit();
+    }
+}
+
+size_t sync_io_read_capture_latched(sync_io_capture_latched_word_t *buffer,
+                                    size_t max_words)
+{
+    if (!s_sync_io.initialized || buffer == NULL || max_words == 0u) {
+        return 0u;
+    }
+
+    size_t count = 0u;
+    osal_critical_enter();
+    while (count < max_words &&
+           s_sync_io.capture_latch_read != s_sync_io.capture_latch_write) {
+        buffer[count] =
+            s_sync_io.capture_latch_ring[s_sync_io.capture_latch_read];
+        s_sync_io.capture_latch_read =
+            (s_sync_io.capture_latch_read + 1u) % SYNC_IO_CAPTURE_LATCH_RING_SIZE;
+        count++;
+    }
+    osal_critical_exit();
     return count;
 }
 
@@ -870,6 +968,10 @@ void sync_io_get_status(sync_io_status_t *status)
     status->capture_sample_hz = s_sync_io.capture_sample_hz;
     status->sync_clock_hz = s_sync_io.sync_clock_hz;
     status->dropped_capture_words = s_sync_io.dropped_capture_words;
+    status->latched_capture_words = s_sync_io.latched_capture_words;
+    status->dropped_latched_capture_words = s_sync_io.dropped_latched_capture_words;
+    status->capture_latch_source = SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_SOFTWARE_US;
+    status->capture_latch_resolution_ns = 1000u;
 }
 
 void sync_io_set_expected_ready_mask(uint32_t mask)

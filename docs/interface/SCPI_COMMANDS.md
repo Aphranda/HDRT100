@@ -118,6 +118,7 @@ UART/RS485/BiSS-C 等外部或板间通信能力统一归入 `COMMunication:*`�
 | `REALtime:IO:OUTPut:RELease` | 释放维护态静态输出，恢复即时脉冲输出路径。 |
 | `REALtime:IO:SAMPle:RATE <Hz>` / `REALtime:IO:SAMPle:RATE?` | 设置或查询输入采样率。 |
 | `REALtime:IO:SAMPle:STATe <ON|OFF>` / `REALtime:IO:SAMPle:STATe?` | 启停或查询输入采样状态。 |
+| `REALtime:IO:SAMPle:LATCh?` | 查询 core1 capture latch 维护状态，返回 `initialized,capture_running,capture_sample_hz,dropped_capture_words,latched_capture_words,dropped_latched_capture_words,capture_latch_source,capture_latch_resolution_ns`。当前首版为 `SOFTWARE_US/1000 ns/DIAGNOSTIC_ONLY` 诊断 latch，不作为 100 ns DPLL lock 证据。 |
 | `REALtime:IO:CLOCk:FREQuency <Hz>` / `REALtime:IO:CLOCk:FREQuency?` | 设置或查询 `SYNC_CLK_OUT` 维护输出频率。 |
 | `REALtime:IO:CLOCk:STATe <ON|OFF>` / `REALtime:IO:CLOCk:STATe?` | 启停或查询同步时钟维护输出状态。 |
 | `REALtime:IO:SYNC?` | 查询同步 IO 维护快照。 |
@@ -255,6 +256,7 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 | 命令 | 说明 |
 |---|---|
 | `REALtime:IO:SYNC?` | 返回同步 IO 维护状态：初始化状态、采样状态、时钟状态、采样率、时钟频率、采样溢出计数。 |
+| `REALtime:IO:SAMPle:LATCh?` | 返回 core1 从 PIO capture FIFO 搬运到 latch ring 的状态：初始化、采样运行、采样率、raw FIFO drop、latched word、latch drop、timestamp source 和 timestamp resolution。 |
 | `REALtime:STATus?` | 返回实时触发维护状态：模式、状态、源引脚、seq_index、enc_target、enc_count、trigger_count、rollover_count、error_code。 |
 | `SYSTem:RESource?` | 返回资源仲裁摘要：`active_resources,last_conflict_resources,request_owner,holder_owner`。用于调试触发模式、AUX persona、PIO/DMA/SD/OTA 等资源冲突。 |
 

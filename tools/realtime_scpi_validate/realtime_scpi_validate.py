@@ -72,6 +72,7 @@ COMMAND_ARGS = {
 MIN_FIELDS = {
     "REALtime:STATus?": 9,
     "REALtime:IO:SYNC?": 6,
+    "REALtime:IO:SAMPle:LATCh?": 8,
     "REALtime:IO:PROFile?": 8,
     "REALtime:IO:INPut:LEVel?": 3,
     "REALtime:IO:OUTPut:MASK?": 3,

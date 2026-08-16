@@ -353,6 +353,21 @@ scpi_result_t scpi_cmd_sample_state_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sample_latch_q(scpi_t *context)
+{
+    sync_io_status_t status;
+    sync_io_get_status(&status);
+    SCPI_ResultBool(context, status.initialized ? TRUE : FALSE);
+    SCPI_ResultBool(context, status.capture_running ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.capture_sample_hz);
+    SCPI_ResultUInt32(context, status.dropped_capture_words);
+    SCPI_ResultUInt32(context, status.latched_capture_words);
+    SCPI_ResultUInt32(context, status.dropped_latched_capture_words);
+    SCPI_ResultUInt32(context, status.capture_latch_source);
+    SCPI_ResultUInt32(context, status.capture_latch_resolution_ns);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_clock_freq(scpi_t *context)
 {
     if (scpi_port_reject_if_run_forbidden(

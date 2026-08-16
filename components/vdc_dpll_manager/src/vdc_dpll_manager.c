@@ -61,7 +61,7 @@ static void vdc_dpll_manager_sync_io_observer_reset_status_locked(void)
 
 static void vdc_dpll_manager_sync_io_observer_service(void)
 {
-    uint32_t words[VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS];
+    sync_io_capture_latched_word_t words[VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS];
     size_t count = 0u;
     vdc_dpll_manager_sync_io_observer_config_t config;
 
@@ -73,7 +73,7 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
         return;
     }
 
-    count = sync_io_read_capture_words(words, config.max_words_per_service);
+    count = sync_io_read_capture_latched(words, config.max_words_per_service);
     if (count == 0u) {
         return;
     }
@@ -83,8 +83,7 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
     for (size_t i = 0u; i < count; i++) {
         vdc_compact_observation_sample_t compact;
         uint32_t last_sample_mask = s_sync_io_observer_status.previous_sample_mask;
-        const uint32_t sample_seq =
-            s_sync_io_observer_status.raw_word_count + 1u;
+        const uint32_t sample_seq = words[i].sample_seq;
         vdc_sync_io_capture_decode_config_t decode = {
             .valid = 1u,
             .sample_seq = sample_seq,
@@ -93,9 +92,10 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
             .observed_mask = config.observed_mask,
             .previous_sample_mask =
                 s_sync_io_observer_status.previous_sample_mask,
-            .base_time_l32_ns =
-                s_sync_io_observer_status.next_base_time_l32_ns,
-            .sample_period_ns = config.sample_period_ns,
+            .base_time_l32_ns = words[i].base_time_l32_ns,
+            .sample_period_ns = words[i].sample_period_ns != 0u
+                                    ? words[i].sample_period_ns
+                                    : config.sample_period_ns,
             .expected_window_start_ns = config.expected_window_start_ns,
             .frame_crc32 = config.frame_crc32,
             .max_backward_ticks = config.max_backward_ticks,
@@ -104,18 +104,19 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
         };
         const vdc_sync_io_capture_result_t result =
             vdc_sync_io_capture_word_to_compact_observation(&decode,
-                                                            words[i],
+                                                            words[i].raw_word,
                                                             &compact,
                                                             &last_sample_mask);
 
         s_sync_io_observer_status.raw_word_count++;
         s_sync_io_observer_status.last_capture_result = (uint32_t)result;
-        s_sync_io_observer_status.last_raw_word = words[i];
+        s_sync_io_observer_status.last_raw_word = words[i].raw_word;
         s_sync_io_observer_status.last_sample_seq = sample_seq;
         s_sync_io_observer_status.previous_sample_mask =
             last_sample_mask & config.observed_mask;
-        s_sync_io_observer_status.next_base_time_l32_ns +=
-            config.sample_period_ns * VDC_SYNC_IO_CAPTURE_SAMPLES_PER_WORD;
+        s_sync_io_observer_status.next_base_time_l32_ns =
+            words[i].base_time_l32_ns +
+            decode.sample_period_ns * VDC_SYNC_IO_CAPTURE_SAMPLES_PER_WORD;
 
         switch (result) {
         case VDC_SYNC_IO_CAPTURE_OK:
@@ -123,16 +124,16 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
                 vdc_timestamp_dictionary_entry_t entry;
                 s_sync_io_observer_status.last_edge_index =
                     (compact.quality_flags >> 16u) & 0xFFu;
+                s_sync_io_observer_status.last_timestamp_source =
+                    words[i].timestamp_source;
+                s_sync_io_observer_status.last_timestamp_resolution_ns =
+                    words[i].timestamp_resolution_ns;
+                s_sync_io_observer_status.last_timestamp_flags =
+                    words[i].timestamp_flags;
                 if (vdc_timestamp_dictionary_find(
                         &s_vdc_domain.timestamp_dictionary,
                         compact.event_id,
                         &entry)) {
-                    s_sync_io_observer_status.last_timestamp_source =
-                        entry.source;
-                    s_sync_io_observer_status.last_timestamp_resolution_ns =
-                        entry.resolution_ns;
-                    s_sync_io_observer_status.last_timestamp_flags =
-                        entry.default_flags;
                     s_sync_io_observer_status.last_source_slot_id =
                         entry.source_slot_id;
                     s_sync_io_observer_status.last_reference_slot_id =
@@ -140,9 +141,6 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
                     s_sync_io_observer_status.last_payload_class =
                         entry.payload_class;
                 } else {
-                    s_sync_io_observer_status.last_timestamp_source = 0u;
-                    s_sync_io_observer_status.last_timestamp_resolution_ns = 0u;
-                    s_sync_io_observer_status.last_timestamp_flags = 0u;
                     s_sync_io_observer_status.last_source_slot_id = 0u;
                     s_sync_io_observer_status.last_reference_slot_id = 0u;
                     s_sync_io_observer_status.last_payload_class = 0u;

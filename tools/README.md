@@ -81,6 +81,10 @@ Get-Content -Path tools\README.md -Encoding UTF8
   path, enables the observer with a minimal explicit config, asserts the 40-field
   `SYSTem:SYNC:VDC:OBServer?` evidence layout, checks schedule/dictionary CRCs,
   disables again, and records a transcript.
+- `vdc_latch_validate/vdc_latch_validate.py`: Sync IO core1 capture latch smoke
+  runner. It starts capture through the realtime SCPI maintenance path, reads
+  `REALtime:IO:SAMPle:LATCh?`, verifies the diagnostic timestamp
+  source/resolution, stops capture, and records a transcript.
 - `refmem_sync_hil_validate/refmem_sync_hil_validate.py`: two-board RefMem Sync
   HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY runner. It initializes each board's
   `SYSTem:REFMEM:SYNC` maintenance context, checks build/SlotClaim/adapter

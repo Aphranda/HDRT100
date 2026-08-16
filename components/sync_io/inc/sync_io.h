@@ -17,7 +17,22 @@ typedef struct {
     uint32_t capture_sample_hz;
     uint32_t sync_clock_hz;
     uint32_t dropped_capture_words;
+    uint32_t latched_capture_words;
+    uint32_t dropped_latched_capture_words;
+    uint32_t capture_latch_source;
+    uint32_t capture_latch_resolution_ns;
 } sync_io_status_t;
+
+typedef struct {
+    uint32_t raw_word;
+    uint32_t sample_seq;
+    uint32_t base_time_l32_ns;
+    uint32_t sample_period_ns;
+    uint32_t timestamp_source;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
+    uint32_t dropped_before;
+} sync_io_capture_latched_word_t;
 
 typedef struct {
     bool running;
@@ -84,6 +99,9 @@ bool sync_io_init(const sync_io_config_t *config);
 bool sync_io_start_capture(uint32_t sample_hz);
 void sync_io_stop_capture(void);
 size_t sync_io_read_capture_words(uint32_t *buffer, size_t max_words);
+void sync_io_capture_latch_service_core1(void);
+size_t sync_io_read_capture_latched(sync_io_capture_latched_word_t *buffer,
+                                    size_t max_words);
 bool sync_io_fire_pulse_cycles(uint32_t high_cycles);
 bool sync_io_fire_pulse_us(uint32_t high_us);
 bool sync_io_fire_pulse_out_cycles(uint32_t high_cycles);

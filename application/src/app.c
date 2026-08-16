@@ -176,6 +176,7 @@ void app_storage_service(void)
 void app_realtime_run_once(void)
 {
     diagnostics_record_core1_loop();
+    sync_io_capture_latch_service_core1();
     distributed_refmem_realtime_run_once();
     model_turntable_service();
     sync_trigger_service();

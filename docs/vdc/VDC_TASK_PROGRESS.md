@@ -43,6 +43,40 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-021 - Sync IO core1 latch observer source
+
+- 状态：完成代码、host/build 和 COM5/COM6 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 将 VDC observer 的输入源从直接读取 PIO raw FIFO，改为读取 SYNC_IO owner 发布的 core1 latched capture fact。
+  - 保持 HAOFV 边界：SYNC_IO/core1 只产本地 IO timestamp fact；VDC manager 只做 adapter 和提交；VDC domain 继续执行 dictionary/wrap/gate/DPLL admission。
+- 完成内容：
+  - `app_realtime_run_once()` 调用 `sync_io_capture_latch_service_core1()`，让 core1 realtime loop 负责搬运 capture FIFO。
+  - `sync_io_capture_latched_word_t` 携带 raw word、sample seq、base time、sample period、timestamp source/resolution/flags 和 drop evidence。
+  - `vdc_dpll_manager_sync_io_observer_service()` 改为读取 `sync_io_read_capture_latched()`；last timestamp evidence 使用 latch fact 的 source/resolution/flags，dictionary 只补节点和 payload 语义。
+  - 新增 `REALtime:IO:SAMPle:LATCh?` 只读查询，给 HIL 读取 latch source/resolution 和 drop 证据。
+- 验证结果：
+  - `python -m py_compile tools\vdc_latch_validate\vdc_latch_validate.py tools\vdc_observer_validate\vdc_observer_validate.py tools\realtime_scpi_validate\realtime_scpi_validate.py` 通过。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 生成 66 条，包含 `REALtime:IO:SAMPle:LATCh?`。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=128。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816034347`，OTA package CRC `0x962F5B65`。
+  - COM5/COM6 均 OTA 到 build `20260816034347` 并 commit；两板 `SYSTem:ERRor?` 均为 `0,"No error"`。
+  - `vdc_latch_validate.py` 通过：COM5 `latched=117->270, observer_raw=31->307`，COM6 `latched=120->272, observer_raw=31->310`，两板 timestamp source/resolution 均为 `1 / 1000 ns`。
+  - `vdc_observer_validate.py` 通过，两板 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
+- 还需完成：
+  - 把 phase 1 的 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY` latch 升级为 PIO/DMA/IRQ/core1 hardware tick latch。
+  - 在 COM5/COM6 上补启用态 HIL，记录 latch counter、observer submitted/accepted/rejected、timestamp source/resolution 和 gate result。
+- 关联文件：
+  - `components/sync_io/inc/sync_io.h`
+  - `components/sync_io/src/sync_io.c`
+  - `application/src/app.c`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `middleware/scpi_port/inc/scpi_realtime_io_commands.h`
+  - `middleware/scpi_port/src/scpi_realtime_io_commands.c`
+
 ### VDC-TASK-20260816-017 - Manager-side Sync IO observer pump
 
 - 状态：完成 host/build 验证和 COM5/COM6 默认 observer 查询；默认关闭，真实 PIO/DMA timestamp latch 和启用态 HIL 待后续实现

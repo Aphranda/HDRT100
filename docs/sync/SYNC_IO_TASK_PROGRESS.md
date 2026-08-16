@@ -8,6 +8,27 @@ Last updated: 2026-08-16
 
 本文档记录 SYNC_IO / Trigger 同步重构相关任务的闭环验证、风险和后续动作。
 
+### SYNC_IO-TASK-20260816-006 - core1 capture latch phase 1
+
+- 状态：完成代码、host/build 和 COM5/COM6 HIL。
+- 目标：把 PIO capture FIFO 从 core0 轮询 raw word，推进为 core1 realtime 侧搬运的 timestamped capture fact，供 VDC observer 消费。
+- 完成：`sync_io_capture_latch_service_core1()` 在 core1 realtime loop 中从 `sync_capture_4bit` RX FIFO 读取 raw word，写入 bounded latch ring；每个 word 附带 `sample_seq`、`base_time_l32_ns`、`sample_period_ns`、timestamp source/resolution/flags 和 drop counter。
+- 完成：`vdc_dpll_manager` 改为读取 `sync_io_read_capture_latched()`，不再直接消费 PIO FIFO；dictionary 只补 source/reference/payload 语义，不覆盖 latch 自身声明的 timestamp source/resolution/flags。
+- 完成：新增 `REALtime:IO:SAMPle:LATCh?`，返回 `initialized,capture_running,capture_sample_hz,dropped_capture_words,latched_capture_words,dropped_latched_capture_words,capture_latch_source,capture_latch_resolution_ns`。
+- 边界：本阶段 timestamp 仍来自 `time_us_64()*1000`，固定报告 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`；它只能作为 bring-up 诊断，不允许进入 100 ns DPLL lock gate。
+- 验证：
+  - `python -m py_compile tools\vdc_latch_validate\vdc_latch_validate.py tools\vdc_observer_validate\vdc_observer_validate.py tools\realtime_scpi_validate\realtime_scpi_validate.py` 通过。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 生成 66 条，包含 `REALtime:IO:SAMPle:LATCh?`。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=128。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816034347`，OTA package CRC `0x962F5B65`。
+  - COM5/COM6 均 OTA 到 build `20260816034347` 并 commit；`SYSTem:ERRor?` 均为 `0,"No error"`。
+  - `python tools\vdc_latch_validate\vdc_latch_validate.py COM5 COM6 --expected-build 20260816034347 --out-dir build-rtos-multicore-smoke\vdc_latch_validate_20260816034347_v2` 通过：COM5 `latched=117->270, observer_raw=31->307`，COM6 `latched=120->272, observer_raw=31->310`。
+  - `python tools\vdc_observer_validate\vdc_observer_validate.py COM5 COM6 --expected-build 20260816034347 --out-dir build-rtos-multicore-smoke\vdc_observer_validate_20260816034347` 通过，两板 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
+- 后续：升级为 PIO/DMA/IRQ/core1 hardware tick latch，形成 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 的 VDC observation sample。
+
 ### SYNC_IO-TASK-20260816-002 - VDC raw capture observer 接线
 
 - 目标：把 `sync_io_read_capture_words()` 产出的 raw IO fact 接到 VDC compact observation path，同时保持 SYNC_IO 不解释 TDMA/DPLL 语义。
