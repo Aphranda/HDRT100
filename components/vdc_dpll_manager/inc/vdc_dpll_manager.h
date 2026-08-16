@@ -38,6 +38,27 @@ typedef struct {
 } vdc_dpll_manager_dpll_status_t;
 
 typedef struct {
+    bool valid;
+    uint32_t service_count;
+    uint32_t accepted_update_count;
+    uint32_t unchanged_count;
+    uint32_t invalid_count;
+    uint32_t last_error;
+    uint32_t last_service_ms;
+    uint32_t last_dco_update_seq;
+    uint32_t source_model_seq;
+    uint32_t lock_state;
+    int32_t phase_offset_ns;
+    int32_t period_adjust_ppb;
+    uint64_t base_local_tick64;
+    uint64_t base_vdc_time64_ns;
+    uint32_t nominal_period_ns;
+    uint32_t slew_limit_ppb;
+    uint32_t tdma_schedule_crc32;
+    uint32_t servo_profile_crc32;
+} vdc_dpll_manager_dco_consumer_status_t;
+
+typedef struct {
     bool enabled;
     uint32_t max_words_per_service;
     uint32_t rising_event_id;
@@ -135,6 +156,8 @@ void vdc_dpll_manager_dpll_service(void);
 void vdc_dpll_manager_tdma_core1_service(void);
 void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status);
 void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status);
+void vdc_dpll_manager_get_dco_consumer_status(
+    vdc_dpll_manager_dco_consumer_status_t *status);
 bool vdc_dpll_manager_configure_sync_io_observer(
     const vdc_dpll_manager_sync_io_observer_config_t *config);
 bool vdc_dpll_manager_configure_sync_io_observer_tdma(

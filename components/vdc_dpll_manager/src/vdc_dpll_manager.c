@@ -22,6 +22,8 @@ static vdc_dpll_manager_sync_io_observer_config_t s_sync_io_observer_config;
 static vdc_dpll_manager_sync_io_observer_status_t s_sync_io_observer_status;
 static vdc_dpll_manager_vdc_status_t s_published_vdc_status;
 static vdc_dpll_manager_dpll_status_t s_published_dpll_status;
+static vdc_dpll_manager_dco_consumer_status_t s_dco_consumer_status;
+static vdc_dpll_manager_dco_consumer_status_t s_published_dco_consumer_status;
 static vdc_dpll_manager_sync_io_observer_status_t
     s_published_sync_io_observer_status;
 static vdc_domain_snapshot_t s_published_snapshot;
@@ -489,6 +491,10 @@ bool vdc_dpll_manager_init(void)
     memset(&s_sync_io_observer_status, 0, sizeof(s_sync_io_observer_status));
     memset(&s_published_vdc_status, 0, sizeof(s_published_vdc_status));
     memset(&s_published_dpll_status, 0, sizeof(s_published_dpll_status));
+    memset(&s_dco_consumer_status, 0, sizeof(s_dco_consumer_status));
+    memset(&s_published_dco_consumer_status,
+           0,
+           sizeof(s_published_dco_consumer_status));
     memset(&s_published_sync_io_observer_status,
            0,
            sizeof(s_published_sync_io_observer_status));
@@ -934,18 +940,65 @@ void vdc_dpll_manager_dpll_service(void)
 {
     const uint32_t now_ms = board_uptime_ms();
     vdc_domain_snapshot_t snapshot;
+    bool snapshot_ok = false;
 
     osal_critical_enter();
-    (void)vdc_domain_get_snapshot(&s_vdc_domain, &snapshot);
+    snapshot_ok = vdc_domain_get_snapshot(&s_vdc_domain, &snapshot);
     if (s_dpll_status.service_count == 0u) {
         s_dpll_status.first_service_ms = now_ms;
     }
     s_dpll_status.service_count++;
     s_dpll_status.last_service_ms = now_ms;
     s_dpll_status.ready = s_dpll_ready;
-    s_dpll_status.state = snapshot.dpll.state;
-    s_dpll_status.update_seq = snapshot.dpll.update_seq;
+    s_dpll_status.state = snapshot_ok ? snapshot.dpll.state : 0u;
+    s_dpll_status.update_seq = snapshot_ok ? snapshot.dpll.update_seq : 0u;
+
+    s_dco_consumer_status.service_count++;
+    s_dco_consumer_status.last_service_ms = now_ms;
+    if (!snapshot_ok) {
+        s_dco_consumer_status.valid = false;
+        s_dco_consumer_status.last_error = 1u;
+    } else if (!vdc_domain_dco_control_validate(&snapshot.schedule,
+                                                &snapshot.servo,
+                                                &snapshot.dco)) {
+        s_dco_consumer_status.valid = false;
+        s_dco_consumer_status.invalid_count++;
+        s_dco_consumer_status.last_error = 2u;
+    } else {
+        if (snapshot.dco.dco_update_seq ==
+            s_dco_consumer_status.last_dco_update_seq) {
+            s_dco_consumer_status.unchanged_count++;
+        } else {
+            s_dco_consumer_status.accepted_update_count++;
+        }
+
+        s_dco_consumer_status.valid = true;
+        s_dco_consumer_status.last_error = 0u;
+        s_dco_consumer_status.last_dco_update_seq =
+            snapshot.dco.dco_update_seq;
+        s_dco_consumer_status.source_model_seq =
+            snapshot.dco.source_model_seq;
+        s_dco_consumer_status.lock_state = snapshot.dco.lock_state;
+        s_dco_consumer_status.phase_offset_ns =
+            snapshot.dco.phase_offset_ns;
+        s_dco_consumer_status.period_adjust_ppb =
+            snapshot.dco.period_adjust_ppb;
+        s_dco_consumer_status.base_local_tick64 =
+            snapshot.dco.base_local_tick64;
+        s_dco_consumer_status.base_vdc_time64_ns =
+            snapshot.dco.base_vdc_time64_ns;
+        s_dco_consumer_status.nominal_period_ns =
+            snapshot.dco.nominal_period_ns;
+        s_dco_consumer_status.slew_limit_ppb =
+            snapshot.dco.slew_limit_ppb;
+        s_dco_consumer_status.tdma_schedule_crc32 =
+            snapshot.dco.tdma_schedule_crc32;
+        s_dco_consumer_status.servo_profile_crc32 =
+            snapshot.dco.servo_profile_crc32;
+    }
+
     s_published_dpll_status = s_dpll_status;
+    s_published_dco_consumer_status = s_dco_consumer_status;
     osal_critical_exit();
 }
 
@@ -973,6 +1026,18 @@ void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status)
 
     osal_critical_enter();
     *status = s_published_dpll_status;
+    osal_critical_exit();
+}
+
+void vdc_dpll_manager_get_dco_consumer_status(
+    vdc_dpll_manager_dco_consumer_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+
+    osal_critical_enter();
+    *status = s_published_dco_consumer_status;
     osal_critical_exit();
 }
 

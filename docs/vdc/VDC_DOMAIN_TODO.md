@@ -53,7 +53,7 @@ SCPI maintenance
 | P0.3 | TDMA 基础件形成时间可预期的稳定闭环。 | TDMA 每个 short/long frame window 必须有可计算 start/end/guard/deadline、core1 arm/start/done timestamp、miss/late reason、payload completion 和 retry/fence 策略；VDC self-test 已增加 scheduled window contract 单测和 COM5/COM6 HIL，确认未到 guard/window 时不会提前执行，进入窗口后能完成 `FRAME_READY`；当前 2 ms arm-ahead 是 bring-up 驻留策略，后续需要替换为真正 core1 scheduler/timer 或 PIO/DMA deadline 驱动；RefMem AUTO NodeLoad 不能因一次 `WINDOW_MISSED` 静默丢失 delta，VDC DPLL sample 不能由不稳定 TDMA 维护。 |
 | P0.4 | TDMA 作为 HAOFV system node 纳入 NodeLoad/SlotClaim。 | VDC 继续只注册 `VDC_SYNC_SAMPLE` / `IDLE_BEACON` payload，不拥有 16-24 物理通讯环路；TDMA 节点声明 scheduler、PIO transport、DMA、core1 service、short/long frame capacity 和 payload registry，DeploymentGate 检测与 RefMem、业务 overlay 或第二 TDMA owner 的资源冲突。 |
 | P0.5 | 实现 `SyncDpllFB` 最小环路滤波器，使用 accepted sample 计算 phase error / frequency error，经 PI 或等价 servo、限幅和 reset policy 调节 VDC clock model 的 offset/rate，并发布 DCO snapshot。 | `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 状态链必须由环路滤波器收敛驱动，而不是 sample count 伪锁定；初步验证允许 `lock_acceptance_threshold_ns` 按 10 us / 1 us / 100 ns 三档收敛，但 `READ:SYNC:QUALity?` 必须暴露 `lock_quality_tier`，且 `HEALTHY/RUN` 仍要求 100 ns fine tier；报告 lock_time、last/rms/max offset、freq_offset_ppb、period_adjust_ppb、outlier/reset 次数。 |
-| P0.6 | core1 只读稳定 DCO snapshot，形成 VDC 同步输出/预约触发基础。 | core1 拒绝 stale/半更新 DCO，正常 snapshot 下可以按 VDC time 装载 FIRE_LOAD 或同步输出。 |
+| P0.6 | core1 只读稳定 DCO snapshot，形成 VDC 同步输出/预约触发基础。 | 已增加 core1 DCO consumer mirror 和 `SYSTem:SYNC:VDC:DCO?` 只读查询，能验证 DCO snapshot valid、update seq、lock_state、phase/rate、CRC 和 invalid/stale 计数；并修复 rejected sample 后 DCO lock_state 不随 DPLL 回落的问题。下一步 core1 需要用该稳定 DCO 装载 FIRE_LOAD 或同步输出。 |
 | P1 | 将 VDC quality/error budget 纳入 RUN gate，并把 VDC snapshot 映射到 RefMem。 | VDC unlocked/质量不达标时 RUN/FIRE_LOAD 被拒绝；LOCKED 后 RefMem 只镜像 VDC 共同时间事实。 |
 | P1 | 诊断运行策略收敛到 VdcSyncAO command/config。 | 调试阶段允许 SCPI 启停 VDC observer/self-test 诊断；产品阶段由配置决定是否随系统自动运行。无论启停来源如何，实时诊断循环必须在内部运行并发布 VdcVector/诊断镜像，SCPI 查询只读当时镜像，不能参与 lock/offset/rate 实时计算。 |
 
@@ -64,7 +64,7 @@ DPLL 稳定性要求：
 - `SyncDpllFB` 是 offset/rate/lock/DCO snapshot 的唯一 writer；SCPI 调试命令只能写 staging profile 或易失调试覆盖，不能直接写 clock model。
 - 环路滤波器首版至少要覆盖 `phase_error_ns`、`frequency_error_ppb`、`kp/ki`、`slew_limit_ppb`、`step_threshold_ns`、`outlier_threshold_ns` 和 `reset_policy`。
 - accepted sample 进入后必须先通过 outlier/sanity gate，再进入环路滤波器；超限样本只能更新 quality/gate evidence，不能污染 offset/rate。
-- `VdcClockModel.period_adjust_ppb`、`phase_offset_ns` 和 `VdcDcoControl` 必须来自同一个稳定 snapshot seq，core1 只能读取完整 snapshot。
+- `VdcClockModel.period_adjust_ppb`、`phase_offset_ns` 和 `VdcDcoControl` 必须来自同一个稳定 snapshot seq，core1 只能读取完整 snapshot；当前 core1 DCO consumer mirror 已能暴露 accepted/unchanged/invalid 计数和最后消费的 DCO seq。
 - bring-up profile 可把 LOCKED 接纳阈值放宽到 10 us 或 1 us，但 `VdcQualityTable.lock_quality_tier` 必须明确区分 `COARSE_10US / DEBUG_1US / FINE_100NS`；只有 `FINE_100NS` 才能进入正式 `HEALTHY/RUN` 质量门禁。
 
 TDMA 最小实例约束：

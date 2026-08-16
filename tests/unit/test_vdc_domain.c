@@ -1503,6 +1503,9 @@ static int test_context_accepts_samples_until_locked(void)
     failed += expect_u32("checking after reject",
                          snapshot.dpll.state,
                          VDC_DOMAIN_LOCK_CHECKING);
+    failed += expect_u32("dco checking after reject",
+                         snapshot.dco.lock_state,
+                         VDC_DOMAIN_LOCK_CHECKING);
     failed += expect_u32("quality bad count",
                          snapshot.quality.consecutive_bad_samples,
                          1u);

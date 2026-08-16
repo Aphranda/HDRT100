@@ -353,6 +353,19 @@ static void vdc_domain_refresh_quality_state(vdc_domain_context_t *context)
     }
 }
 
+static void vdc_domain_sync_dco_lock_state(vdc_domain_context_t *context)
+{
+    if (context == NULL ||
+        context->dco.valid == 0u ||
+        context->dco.lock_state == context->dpll.state) {
+        return;
+    }
+
+    context->dco.lock_state = context->dpll.state;
+    context->dco.dco_update_seq++;
+    context->dpll.update_seq++;
+}
+
 static void vdc_domain_refresh_quality_age(vdc_domain_context_t *context,
                                            uint64_t now_ns)
 {
@@ -1278,6 +1291,7 @@ void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready)
     } else if (context->dpll.state == VDC_DOMAIN_LOCK_OFF) {
         context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
     }
+    vdc_domain_sync_dco_lock_state(context);
 }
 
 void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns)
@@ -1294,11 +1308,13 @@ void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns)
 
     if (context->ready == 0u) {
         context->dpll.state = VDC_DOMAIN_LOCK_OFF;
+        vdc_domain_sync_dco_lock_state(context);
         vdc_domain_refresh_quality_state(context);
         return;
     }
     if (context->dpll.state == VDC_DOMAIN_LOCK_OFF) {
         context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
+        vdc_domain_sync_dco_lock_state(context);
     }
     vdc_domain_refresh_quality_age(context, now_ns);
 }
@@ -1379,6 +1395,7 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
         if (context->ready != 0u) {
             context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
         }
+        vdc_domain_sync_dco_lock_state(context);
         vdc_domain_record_rejected_sample(context, evidence, &gate);
         return false;
     }
@@ -1398,6 +1415,7 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
         if (context->ready != 0u) {
             context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
         }
+        vdc_domain_sync_dco_lock_state(context);
         vdc_domain_record_rejected_sample(context, evidence, &gate);
         return false;
     }

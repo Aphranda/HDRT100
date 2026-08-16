@@ -312,6 +312,32 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_dco_q(scpi_t *context)
+{
+    vdc_dpll_manager_dco_consumer_status_t status;
+    vdc_dpll_manager_get_dco_consumer_status(&status);
+
+    SCPI_ResultBool(context, status.valid ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.service_count);
+    SCPI_ResultUInt32(context, status.accepted_update_count);
+    SCPI_ResultUInt32(context, status.unchanged_count);
+    SCPI_ResultUInt32(context, status.invalid_count);
+    SCPI_ResultUInt32(context, status.last_error);
+    SCPI_ResultUInt32(context, status.last_service_ms);
+    SCPI_ResultUInt32(context, status.last_dco_update_seq);
+    SCPI_ResultUInt32(context, status.source_model_seq);
+    SCPI_ResultUInt32(context, status.lock_state);
+    SCPI_ResultInt32(context, status.phase_offset_ns);
+    SCPI_ResultInt32(context, status.period_adjust_ppb);
+    scpi_sync_result_u64_parts(context, status.base_local_tick64);
+    scpi_sync_result_u64_parts(context, status.base_vdc_time64_ns);
+    SCPI_ResultUInt32(context, status.nominal_period_ns);
+    SCPI_ResultUInt32(context, status.slew_limit_ppb);
+    SCPI_ResultUInt32(context, status.tdma_schedule_crc32);
+    SCPI_ResultUInt32(context, status.servo_profile_crc32);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_tdma_plan_q(scpi_t *context)
 {
     uint32_t window_class = VDC_DOMAIN_WINDOW_REFMEM_DATA;

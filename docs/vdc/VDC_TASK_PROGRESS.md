@@ -43,6 +43,42 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-037 - Core1 consumes stable DCO mirror
+
+- 状态：完成代码、host 单元验证、构建、COM5/COM6 OTA 和 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 将 `VdcDcoControl` 从 domain snapshot 字段推进为 core1 实时循环可验证的只读消费契约。
+  - 保持 HAOFV 边界：`SyncDpllFB` 仍是 offset/rate/lock/DCO 的唯一 writer，core1 只读并镜像 DCO，SCPI 只读查询镜像，不写 DCO。
+- 完成内容：
+  - `vdc_dpll_manager` 增加 `vdc_dpll_manager_dco_consumer_status_t`，在 core1 DPLL service 中读取 `vdc_domain` snapshot，调用 `vdc_domain_dco_control_validate()` 验证 DCO contract。
+  - DCO consumer mirror 记录 `valid/service_count/accepted_update_count/unchanged_count/invalid_count/last_error/last_dco_update_seq/source_model_seq/lock_state/phase_offset_ns/period_adjust_ppb/base tick/base vdc/schedule CRC/servo CRC`。
+  - 新增只读 SCPI `SYSTem:SYNC:VDC:DCO?`，用于调试上位机查询 core1 已消费的 DCO 镜像。
+  - HIL 复查发现 rejected diagnostic/self-test 后 DPLL 会回到 `CHECKING`，但 DCO `lock_state` 仍停留在 `LOCKED`；已在 `vdc_domain` 内增加 DCO lock_state 同步 helper，并用单元测试覆盖 rejected sample 后 DCO 也回到 `CHECKING`。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260816134351`，package CRC `0xB9EAD5C4`。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过，COM5/COM6 均 commit 到 `20260816134351`。
+  - `python tools\scpi_query\scpi_query.py COM5 "SYSTem:FW:BUILD?" "SYSTem:SYNC:VDC:DCO?" "SYSTem:SYNC:VDC:DPLL:STATus?"` 通过：初始 DCO/DPLL 均为 `CHECKING`，`valid=1 invalid_count=0 last_error=0`。
+  - `python tools\scpi_query\scpi_query.py COM6 "SYSTem:FW:BUILD?" "SYSTem:SYNC:VDC:DCO?" "SYSTem:SYNC:VDC:DPLL:STATus?"` 通过：初始 DCO/DPLL 均为 `CHECKING`，`valid=1 invalid_count=0 last_error=0`。
+  - `python tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py --port-a COM5 --port-b COM6 --expected-build 20260816134351 --poll-timeout 5` 通过，diagnostic-only evidence 仍被 gate 拒绝。
+  - `python tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py --port-x COM5 --port-y COM6 --expected-build 20260816134351 --poll-timeout 30 --pulse-count 2200 --sample-period-ns 1000 --pulse-high-ns 2000 --output-index 2 --observed-mask 4 --reverse` 通过：X->Y `accepted=0->11`，Y->X `accepted=0->9`，两向均 `state=LOCKED source=HARDWARE_TICK resolution_ns=1000 flags=DPLL_ELIGIBLE gate=PASS`。
+  - 锁相脚本释放后再次查询 `SYSTem:SYNC:VDC:DCO?` 和 `SYSTem:SYNC:VDC:DPLL:STATus?`：COM5/COM6 均显示 DCO `lock_state=CHECKING` 与 DPLL `state=CHECKING` 一致，未继续发布 stale `LOCKED` DCO。
+- 还需完成：
+  - core1 当前只验证并镜像 DCO，还没有用 DCO 装载 PIO `FIRE_LOAD` 或同步输出。
+  - DCO half-update/stale 拒绝目前依赖 critical snapshot 和 seq 计数；后续跨核共享区需要 seqlock/double-buffer contract。
+  - 当前仍是 GPIO4-7 bring-up coarse lock；产品路径仍需要 TDMA 通讯 timestamp evidence 和 100 ns fine tier。
+- 关联文件：
+  - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `middleware/scpi_port/inc/scpi_sync_commands.h`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 将 core1 DCO mirror 接到最小 PIO 同步输出或 FIRE_LOAD 装载路径，并继续推进 TDMA 通讯 timestamp evidence 替代 GPIO4-7 调试观测。
+
 ### VDC-TASK-20260816-036 - GPIO4-7 overlay validates coarse VDC lock
 
 - 状态：完成代码、host 单元验证、构建、COM5/COM6 OTA 和双向 HIL。
