@@ -695,7 +695,7 @@ SYNC 域挂到主线后的行为规则：
 | 配置检查 | cal_id 存在、CRC 匹配、未过期、NODE 链路方向匹配 | `READ:SYNC:LINK?` |
 | 启动同步 | 最近一次 active `SYNC:CHECk` 通过，目标节点版本和新鲜度有效 | `READ:SYNC:CHECk?` |
 | 进入 OBSERVED | 至少收到一轮有效同步帧，seq/CRC 正常 | `READ:SYNC:STATe?` |
-| 进入 LOCKED | 连续 `lock_count` 次 e_vdc 落入当前 `lock_acceptance_threshold_ns`；初步 bring-up 可选 10 us / 1 us / 100 ns 三档 | `READ:SYNC:HEALth?`、`READ:SYNC:QUALity?` |
+| 进入 LOCKED | 连续 `lock_count` 次 e_vdc 落入当前 `lock_acceptance_threshold_ns`；默认 bring-up 为 1 us，维护阶段可临时放宽到 10 us，正式质量仍看 100 ns fine tier | `READ:SYNC:HEALth?`、`READ:SYNC:QUALity?` |
 | 触发运行 | required_lock=1 时必须 LOCKED，且 `lock_quality_tier=FINE_100NS`、e_vdc、age、CRC、seq、节点新鲜度低于门限 | `READ:SYNC:STATe?` |
 | HOLDOVER 恢复 | 重锁后只恢复同步锁定，不自动恢复 TRIG RUN | `READ:SYNC:STATe?`、`SYSTem:CONFigure:ACK?` |
 
@@ -719,7 +719,7 @@ SYNC 域挂到主线后的行为规则：
 |---|---|---|---|
 | `CONFigure:SYNC:CALibration` | `<cal_id>,<cal_crc>,<max_age_s>` | `1` | 绑定同步使用的校准表到 staging 配置 |
 | `CONFigure:SYNC:RING` | `<origin>,<node_order>,<period_us>,<bitrate>,<timeout_ms>,<crc_limit>` | `1` | 配置 RJ45_SYNC_RING；`node_order` 每一跳必须匹配同方向 NODE 校准链路 |
-| `CONFigure:SYNC:VDC:DPLL` | `<lock_acceptance_threshold_ns>,<lock_count>,<holdover_ms>,<relock_ms>,<profile>` | `1` | 配置虚拟 DC 时钟同步 DPLL 的锁定、保持和重锁判据；维护 bring-up 可用 10000/1000/100 ns 三档，正式运行仍要求 100 ns quality tier |
+| `CONFigure:SYNC:VDC:DPLL` | `<lock_acceptance_threshold_ns>,<lock_count>,<holdover_ms>,<relock_ms>,<profile>` | `1` | 配置虚拟 DC 时钟同步 DPLL 的锁定、保持和重锁判据；默认 bring-up 为 1000 ns，维护阶段可临时放宽到 10000 ns，正式运行仍要求 100 ns quality tier |
 | `CONFigure:SYNC:GATE` | `<required_lock>,<max_age_ms>,<max_evdc_p99_ns>,<allow_holdover>` | `1` | 配置触发运行门禁 |
 
 ### 10.2 同步字段
@@ -953,7 +953,7 @@ owner task 后续接入。
 | `sequence block` | `query_plan_id,query_index,sequence_crc,state_count,index_valid,state_id...` | 查询配置序列库；支持读取指定序列摘要或任意一条状态引用 |
 | `sequence check block` | `plan_id,state_count,sequence_crc,state_range_ok,map_crc_ok,switch_range_ok,pol_range_ok,freq_range_ok,wave_range_ok,duplicate_state,missing_state,reject_reason` | 详细预检结果；`TEST+` 可选读取，调试上位机可显示逐项诊断，功能上不替代 active sequence 查询 |
 | `sequence active block` | `active_plan_id,active_crc,state_count,valid,last_check_state,reject_reason` | 查询当前活动序列；测试上位机 START 前确认将要执行的 active sequence |
-| `quality block` | `state,last_offset_ns,rms_offset_ns,max_abs_offset_ns,freq_offset_ppb,jitter_pk_ns,last_sample_age_1e3ns,last_reject_code,accepted_sample_count,rejected_sample_count,last_timestamp_resolution_ns,health_state,lock_quality_tier,fine_lock_threshold_ns,debug_lock_threshold_ns,coarse_lock_threshold_ns,lock_acceptance_threshold_ns` | VDC 同步质量统计；`lock_quality_tier=1/2/3` 对应 10 us / 1 us / 100 ns，只有 100 ns fine tier 可作为正式 RUN 质量依据 |
+| `quality block` | `state,last_offset_ns,rms_offset_ns,max_abs_offset_ns,freq_offset_ppb,jitter_pk_ns,last_sample_age_1e3ns,last_reject_code,accepted_sample_count,rejected_sample_count,last_timestamp_resolution_ns,health_state,lock_quality_tier,fine_lock_threshold_ns,debug_lock_threshold_ns,coarse_lock_threshold_ns,lock_acceptance_threshold_ns` | VDC 同步质量统计；`lock_quality_tier=1/2/3` 对应 10 us / 1 us / 100 ns，按连续稳定样本晋级，只有 100 ns fine tier 可作为正式 RUN 质量依据 |
 | `ack block` | `command_seq,target_mask,ack_flags,nack_flags,busy_flags,timeout_flags,nack_reason[node]` | 分布式命令完成态；写命令返回 accepted 后由该 block 闭环 |
 | `fault block` | `fault_code,source_node,first_ts,last_ts,evidence_seq,sticky,recoverable,text` | 故障锁存证据 |
 | `run summary block` | `run_id,plan_id,start_time,stop_time,complete_state,angle_start,angle_stop,angle_step,angle_count,angle_hit_count,missed_angle_pulse_count,seq_count,total_trigger_count,late_count,fault_count,sync_state,config_crc,sequence_crc,cal_crc,reject_reason` | RUN 后摘要；测试上位机用于报告和复盘，不作为 RUN 中控制节拍 |

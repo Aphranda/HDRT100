@@ -259,6 +259,9 @@ typedef struct {
     uint32_t rejected_sample_count;
     uint32_t consecutive_good_samples;
     uint32_t consecutive_bad_samples;
+    uint32_t consecutive_coarse_samples;
+    uint32_t consecutive_debug_samples;
+    uint32_t consecutive_fine_samples;
     uint32_t last_sample_seq;
     uint32_t last_reject_code;
     uint32_t last_timestamp_source;

@@ -254,7 +254,7 @@ Board Y: follower slot
 | `DEBUG_1US` | 1,000 ns | 调试阶段确认 DPLL 收敛方向和频率拉入。 | 只能说明调试锁定，不能通过产品 RUN 质量门禁。 |
 | `COARSE_10US` | 10,000 ns | 两板最小系统、PIO latch、TDMA window bring-up 的粗锁定。 | 只能作为硬件闭环初步证据，不能作为正式触发时间基准。 |
 
-实现上 `offset_lock_threshold_ns` 保持 100 ns 产品目标；`lock_acceptance_threshold_ns` 可在维护/bring-up profile 中放宽到 1 us 或 10 us，让状态机进入 `LOCKED` 以便观察 DPLL 后续行为。`VdcQualityTable.lock_quality_tier` 必须同时发布实际质量等级，`HEALTHY` 仍要求 `FINE_100NS`、freshness 和 gate 全部通过。
+实现上 `offset_lock_threshold_ns` 保持 100 ns 产品目标；默认 bring-up profile 的 `lock_acceptance_threshold_ns` 为 1 us，必要时维护 profile 才允许临时放宽到 10 us。这样系统可以先进入可观测 `LOCKED`，再由 DPLL 持续拉相位。`VdcQualityTable.lock_quality_tier` 按连续稳定样本发布实际质量等级，历史 `max_abs_offset_ns` 只作为诊断峰值保留，不能永久阻断后续 fine tier 晋级；`HEALTHY` 仍要求 `FINE_100NS`、freshness 和 gate 全部通过。
 
 #### DPLL Servo And DCO Contract
 

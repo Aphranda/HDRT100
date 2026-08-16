@@ -24,12 +24,16 @@ from scpi_common.scpi_serial import open_serial_port, read_serial_line_idle  # n
 LOCK_READINESS_FIELD_COUNT = 24
 OBSERVER_FIELD_COUNT = 40
 SYNC_QUALITY_FIELD_COUNT = 17
+MODEL_PULSE_FIELD_COUNT = 10
+SAMPLE_WINDOW_FIELD_COUNT = 13
 
 TIMESTAMP_SOURCE_HARDWARE_TICK = 2
 TIMESTAMP_FLAG_DIAGNOSTIC_ONLY = 0x00000001
 TIMESTAMP_FLAG_DPLL_ELIGIBLE = 0x00000002
 VDC_GATE_PASS = 0
 VDC_LOCK_LOCKED = 5
+VDC_HEALTH_HEALTHY = 4
+VDC_LOCK_QUALITY_FINE_100NS = 3
 
 
 @dataclass
@@ -47,12 +51,23 @@ class DirectionResult:
     observer_gate: int
     dpll_state: int
     health_state: int
+    lock_quality_tier: int
     timestamp_source: int
     timestamp_resolution_ns: int
     timestamp_flags: int
     input_ready: int
     locked: int
     reason: int
+    model_running: int
+    model_pio_enabled: int
+    model_dma_busy: int
+    model_total_pulses: int
+    model_completed_pulses: int
+    model_transfer_count: int
+    sample_window_armed: int
+    sample_window_periodic: int
+    sample_window_period_ns: int
+    sample_window_sample_period_ns: int
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,10 +81,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--settle", type=float, default=1.0)
     parser.add_argument("--poll-timeout", type=float, default=8.0)
     parser.add_argument("--sample-period-ns", type=int, default=100)
-    parser.add_argument("--pulse-period-ns", type=int, default=1001000)
+    parser.add_argument("--pulse-period-ns", type=int, default=1000000)
     parser.add_argument("--pulse-high-ns", type=int, default=1000)
     parser.add_argument("--pulse-count", type=int, default=512)
     parser.add_argument("--start-delay-ns", type=int, default=1000000000)
+    parser.add_argument("--max-resolution-ns", type=int, default=100)
     parser.add_argument("--output-index", type=int, default=0)
     parser.add_argument("--observed-mask", type=int, default=1)
     parser.add_argument("--expected-build")
@@ -207,9 +223,28 @@ def run_direction(source_name: str,
                            LOCK_READINESS_FIELD_COUNT)
     observer_after = observer_before
     quality_after = quality_before
+    model_after = int_fields(query(source,
+                                   "REALtime:IO:MODel:PULSe:SCHEDule?",
+                                   args.timeout),
+                             MODEL_PULSE_FIELD_COUNT)
+    window_after = int_fields(query(target,
+                                    "REALtime:IO:SAMPle:WINDow?",
+                                    args.timeout),
+                              SAMPLE_WINDOW_FIELD_COUNT)
+    armed_window = window_after
 
     deadline = time.monotonic() + args.poll_timeout
     while time.monotonic() < deadline:
+        model_after = int_fields(query(source,
+                                       "REALtime:IO:MODel:PULSe:SCHEDule?",
+                                       args.timeout),
+                                 MODEL_PULSE_FIELD_COUNT)
+        window_after = int_fields(query(target,
+                                        "REALtime:IO:SAMPle:WINDow?",
+                                        args.timeout),
+                                  SAMPLE_WINDOW_FIELD_COUNT)
+        if window_after[0] != 0:
+            armed_window = window_after
         observer_after = int_fields(query(target, "SYST:SYNC:VDC:OBServer?",
                                           args.timeout),
                                     OBSERVER_FIELD_COUNT)
@@ -219,6 +254,8 @@ def run_direction(source_name: str,
                                      args.timeout),
                                LOCK_READINESS_FIELD_COUNT)
         if (quality_after[7] > quality_before[7] and
+                quality_after[10] == VDC_HEALTH_HEALTHY and
+                quality_after[11] == VDC_LOCK_QUALITY_FINE_100NS and
                 readiness[1] == 1 and
                 readiness[3] == VDC_LOCK_LOCKED):
             break
@@ -230,16 +267,32 @@ def run_direction(source_name: str,
     if quality_after[7] <= quality_before[7]:
         raise AssertionError(
             f"{source_name}->{target_name}: accepted count did not grow: "
-            f"{quality_before[7]} -> {quality_after[7]}"
+            f"{quality_before[7]} -> {quality_after[7]} "
+            f"model={model_after} observer={observer_after} "
+            f"window={window_after} armed_window={armed_window} "
+            f"readiness={readiness}"
         )
     if observer_after[8] <= observer_before[8]:
         raise AssertionError(
             f"{source_name}->{target_name}: observer accepted count did not grow: "
-            f"{observer_before[8]} -> {observer_after[8]}"
+            f"{observer_before[8]} -> {observer_after[8]} "
+            f"model={model_after} observer={observer_after} "
+            f"window={window_after} armed_window={armed_window} "
+            f"readiness={readiness}"
         )
     if readiness[1] != 1 or readiness[3] != VDC_LOCK_LOCKED:
         raise AssertionError(
             f"{source_name}->{target_name}: not locked readiness={readiness}"
+        )
+    if quality_after[10] != VDC_HEALTH_HEALTHY:
+        raise AssertionError(
+            f"{source_name}->{target_name}: health not healthy: "
+            f"{quality_before} -> {quality_after}"
+        )
+    if quality_after[11] != VDC_LOCK_QUALITY_FINE_100NS:
+        raise AssertionError(
+            f"{source_name}->{target_name}: quality tier not fine: "
+            f"{quality_before} -> {quality_after}"
         )
     if readiness[12] != VDC_GATE_PASS:
         raise AssertionError(
@@ -249,9 +302,10 @@ def run_direction(source_name: str,
         raise AssertionError(
             f"{source_name}->{target_name}: source {readiness[13]} != HARDWARE_TICK"
         )
-    if readiness[14] <= 0 or readiness[14] > 1000:
+    if readiness[14] <= 0 or readiness[14] > args.max_resolution_ns:
         raise AssertionError(
-            f"{source_name}->{target_name}: resolution {readiness[14]}ns invalid"
+            f"{source_name}->{target_name}: resolution {readiness[14]}ns "
+            f"> {args.max_resolution_ns}ns"
         )
     if (readiness[15] & TIMESTAMP_FLAG_DPLL_ELIGIBLE) == 0:
         raise AssertionError(
@@ -276,12 +330,23 @@ def run_direction(source_name: str,
         observer_gate=readiness[12],
         dpll_state=readiness[3],
         health_state=readiness[4],
+        lock_quality_tier=quality_after[11],
         timestamp_source=readiness[13],
         timestamp_resolution_ns=readiness[14],
         timestamp_flags=readiness[15],
         input_ready=readiness[0],
         locked=readiness[1],
         reason=readiness[2],
+        model_running=model_after[0],
+        model_pio_enabled=model_after[1],
+        model_dma_busy=model_after[2],
+        model_total_pulses=model_after[5],
+        model_completed_pulses=model_after[6],
+        model_transfer_count=model_after[7],
+        sample_window_armed=window_after[0],
+        sample_window_periodic=window_after[1],
+        sample_window_period_ns=window_after[6],
+        sample_window_sample_period_ns=window_after[7],
     )
 
 
@@ -329,6 +394,7 @@ def main() -> int:
         "pulse_period_ns": args.pulse_period_ns,
         "pulse_high_ns": args.pulse_high_ns,
         "pulse_count": args.pulse_count,
+        "max_resolution_ns": args.max_resolution_ns,
         "results": [asdict(result) for result in results],
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n",
@@ -338,8 +404,9 @@ def main() -> int:
             f"PASS {result.source_name}->{result.target_name} "
             f"accepted={result.accepted_before}->{result.accepted_after} "
             f"observer_accepted={result.observer_accepted_before}->{result.observer_accepted_after} "
-            f"state={result.dpll_state} locked={result.locked} "
-            f"source={result.timestamp_source} "
+        f"state={result.dpll_state} locked={result.locked} "
+        f"health={result.health_state} tier={result.lock_quality_tier} "
+        f"source={result.timestamp_source} "
             f"resolution_ns={result.timestamp_resolution_ns} "
             f"flags=0x{result.timestamp_flags:X} gate={result.observer_gate}"
         )

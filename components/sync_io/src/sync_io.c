@@ -37,7 +37,7 @@
 #define SYNC_IO_CAPTURE_DMA_RING_BITS 15u
 #define SYNC_IO_CAPTURE_DMA_RING_BYTES \
     (SYNC_IO_CAPTURE_DMA_RING_WORDS * sizeof(uint32_t))
-#define SYNC_IO_CAPTURE_LATCH_SERVICE_MAX_WORDS 128u
+#define SYNC_IO_CAPTURE_LATCH_SERVICE_MAX_WORDS 2048u
 #define SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK 2u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DPLL_ELIGIBLE   0x00000002u
@@ -63,6 +63,8 @@ typedef struct {
     uint32_t capture_latch_write;
     uint32_t capture_latch_read;
     uint32_t capture_latch_seq;
+    uint32_t capture_latch_previous_sample_mask;
+    bool capture_latch_edge_state_valid;
     uint32_t capture_dma_read_seq;
     uint32_t capture_dma_produced_seq;
     uint32_t capture_dma_last_write_index;
@@ -352,8 +354,45 @@ static void sync_io_capture_latch_reset_locked(void)
     s_sync_io.capture_latch_write = 0u;
     s_sync_io.capture_latch_read = 0u;
     s_sync_io.capture_latch_seq = 0u;
+    s_sync_io.capture_latch_previous_sample_mask =
+        s_sync_io.capture_timestamp_window_initial_sample_mask &
+        s_sync_io.capture_timestamp_window_observed_mask;
+    s_sync_io.capture_latch_edge_state_valid = false;
     s_sync_io.latched_capture_words = 0u;
     s_sync_io.dropped_latched_capture_words = 0u;
+}
+
+static uint32_t sync_io_capture_sample_at(uint32_t raw_word,
+                                          uint32_t sample_index)
+{
+    const uint32_t index = 7u - sample_index;
+    return (raw_word >> (index * 4u)) & 0x0Fu;
+}
+
+static bool sync_io_capture_word_has_observed_edge(uint32_t raw_word,
+                                                   uint32_t observed_mask)
+{
+    if (observed_mask == 0u) {
+        return true;
+    }
+
+    uint32_t previous =
+        s_sync_io.capture_latch_previous_sample_mask & observed_mask;
+    bool edge_found = false;
+
+    for (uint32_t i = 0u; i < 8u; i++) {
+        const uint32_t current =
+            sync_io_capture_sample_at(raw_word, i) & observed_mask;
+        if (s_sync_io.capture_latch_edge_state_valid &&
+            current != previous) {
+            edge_found = true;
+        }
+        previous = current;
+        s_sync_io.capture_latch_edge_state_valid = true;
+    }
+
+    s_sync_io.capture_latch_previous_sample_mask = previous;
+    return edge_found;
 }
 
 static bool sync_io_capture_latch_word_in_window(uint64_t word_start_ns,
@@ -505,7 +544,7 @@ static void sync_io_capture_latch_discard_outside_window(
     if (available > SYNC_IO_CAPTURE_DMA_RING_WORDS) {
         s_sync_io.dropped_capture_words +=
             available - SYNC_IO_CAPTURE_DMA_RING_WORDS;
-        s_sync_io.capture_timebase_valid = false;
+        s_sync_io.capture_latch_edge_state_valid = false;
         read_seq = produced - SYNC_IO_CAPTURE_DMA_RING_WORDS;
         s_sync_io.capture_dma_read_seq = read_seq;
         available = SYNC_IO_CAPTURE_DMA_RING_WORDS;
@@ -878,7 +917,7 @@ static bool sync_io_capture_dma_pop(uint32_t *raw_word,
     if (available > SYNC_IO_CAPTURE_DMA_RING_WORDS) {
         overflow_count = available - SYNC_IO_CAPTURE_DMA_RING_WORDS;
         s_sync_io.dropped_capture_words += overflow_count;
-        s_sync_io.capture_timebase_valid = false;
+        s_sync_io.capture_latch_edge_state_valid = false;
         read_seq = produced - SYNC_IO_CAPTURE_DMA_RING_WORDS;
         s_sync_io.capture_dma_read_seq = read_seq;
         available = SYNC_IO_CAPTURE_DMA_RING_WORDS;
@@ -954,6 +993,19 @@ void sync_io_capture_latch_service_core1(void)
         const uint32_t base_time_l32_ns =
             (uint32_t)word_start_ns;
         uint64_t matched_window_start_ns = 0u;
+        uint32_t observed_mask_for_edge = 0u;
+
+        osal_critical_enter();
+        if (s_sync_io.capture_timestamp_window_armed) {
+            observed_mask_for_edge =
+                s_sync_io.capture_timestamp_window_observed_mask;
+        }
+        osal_critical_exit();
+        if (observed_mask_for_edge != 0u &&
+            !sync_io_capture_word_has_observed_edge(raw_word,
+                                                    observed_mask_for_edge)) {
+            continue;
+        }
 
         osal_critical_enter();
         const uint32_t next_write =
@@ -1044,7 +1096,7 @@ bool sync_io_capture_arm_periodic_timestamp_window(uint64_t window_start_ns,
         window_width_ns == 0u ||
         sample_period_ns == 0u ||
         observed_mask == 0u ||
-        (period_ns != 0u && period_ns <= window_width_ns) ||
+        (period_ns != 0u && period_ns < window_width_ns) ||
         (observed_mask & ~0x0Fu) != 0u ||
         (initial_sample_mask & ~0x0Fu) != 0u) {
         return false;
@@ -1489,6 +1541,32 @@ void sync_io_get_status(sync_io_status_t *status)
     status->capture_latch_source = SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK;
     status->capture_latch_resolution_ns = s_sync_io.capture_latch_resolution_ns;
     status->capture_latch_flags = SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    status->capture_timestamp_window_armed =
+        s_sync_io.capture_timestamp_window_armed ? 1u : 0u;
+    status->capture_timestamp_window_periodic =
+        s_sync_io.capture_timestamp_window_periodic ? 1u : 0u;
+    status->capture_timestamp_window_start_lo =
+        (uint32_t)(s_sync_io.capture_timestamp_window_start_ns & 0xFFFFFFFFull);
+    status->capture_timestamp_window_start_hi =
+        (uint32_t)(s_sync_io.capture_timestamp_window_start_ns >> 32u);
+    status->capture_timestamp_window_end_lo =
+        (uint32_t)(s_sync_io.capture_timestamp_window_end_ns & 0xFFFFFFFFull);
+    status->capture_timestamp_window_end_hi =
+        (uint32_t)(s_sync_io.capture_timestamp_window_end_ns >> 32u);
+    status->capture_timestamp_window_period_ns =
+        s_sync_io.capture_timestamp_window_period_ns;
+    status->capture_timestamp_window_sample_period_ns =
+        s_sync_io.capture_timestamp_window_sample_period_ns;
+    status->capture_timestamp_window_observed_mask =
+        s_sync_io.capture_timestamp_window_observed_mask;
+    status->capture_timestamp_window_initial_sample_mask =
+        s_sync_io.capture_timestamp_window_initial_sample_mask;
+    status->capture_timebase_valid =
+        s_sync_io.capture_timebase_valid ? 1u : 0u;
+    status->capture_timebase_start_lo =
+        (uint32_t)(s_sync_io.capture_timebase_start_ns & 0xFFFFFFFFull);
+    status->capture_timebase_start_hi =
+        (uint32_t)(s_sync_io.capture_timebase_start_ns >> 32u);
 }
 
 void sync_io_get_capture_debug(sync_io_capture_debug_t *debug)

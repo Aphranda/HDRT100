@@ -22,6 +22,19 @@ typedef struct {
     uint32_t capture_latch_source;
     uint32_t capture_latch_resolution_ns;
     uint32_t capture_latch_flags;
+    uint32_t capture_timestamp_window_armed;
+    uint32_t capture_timestamp_window_periodic;
+    uint32_t capture_timestamp_window_start_lo;
+    uint32_t capture_timestamp_window_start_hi;
+    uint32_t capture_timestamp_window_end_lo;
+    uint32_t capture_timestamp_window_end_hi;
+    uint32_t capture_timestamp_window_period_ns;
+    uint32_t capture_timestamp_window_sample_period_ns;
+    uint32_t capture_timestamp_window_observed_mask;
+    uint32_t capture_timestamp_window_initial_sample_mask;
+    uint32_t capture_timebase_valid;
+    uint32_t capture_timebase_start_lo;
+    uint32_t capture_timebase_start_hi;
 } sync_io_status_t;
 
 typedef struct {
@@ -77,6 +90,11 @@ typedef struct {
     uint32_t delay_us;
     uint32_t high_us;
 } sync_io_model_pulse_entry_t;
+
+typedef struct {
+    uint32_t delay_ns;
+    uint32_t high_ns;
+} sync_io_model_pulse_entry_ns_t;
 
 typedef struct {
     bool running;
@@ -156,10 +174,22 @@ bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
                                       const sync_io_model_pulse_entry_t *entries,
                                       uint32_t entry_count,
                                       bool rising_edge);
+bool sync_io_model_pulse_schedule_arm_ns(
+    uint32_t output_index,
+    const sync_io_model_pulse_entry_ns_t *entries,
+    uint32_t entry_count,
+    bool rising_edge,
+    uint32_t tick_period_ns);
 bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
                                        const sync_io_model_pulse_entry_t *entries,
                                        uint32_t entry_count,
                                        bool rising_edge);
+bool sync_io_output_pulse_schedule_arm_ns(
+    uint32_t output_index,
+    const sync_io_model_pulse_entry_ns_t *entries,
+    uint32_t entry_count,
+    bool rising_edge,
+    uint32_t tick_period_ns);
 void sync_io_model_pulse_schedule_disarm(void);
 bool sync_io_model_pulse_schedule_is_running(void);
 void sync_io_model_pulse_schedule_get_runtime(sync_io_model_pulse_runtime_t *runtime);

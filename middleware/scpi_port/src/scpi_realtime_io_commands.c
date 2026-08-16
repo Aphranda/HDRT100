@@ -300,6 +300,24 @@ scpi_result_t scpi_cmd_model_output_release(scpi_t *context)
     return scpi_port_result_ok(context);
 }
 
+scpi_result_t scpi_cmd_model_pulse_schedule_q(scpi_t *context)
+{
+    sync_io_model_pulse_runtime_t runtime;
+    sync_io_model_pulse_schedule_get_runtime(&runtime);
+
+    SCPI_ResultBool(context, runtime.running ? TRUE : FALSE);
+    SCPI_ResultBool(context, runtime.pio_enabled ? TRUE : FALSE);
+    SCPI_ResultBool(context, runtime.dma_busy ? TRUE : FALSE);
+    SCPI_ResultBool(context, runtime.tx_fifo_empty ? TRUE : FALSE);
+    SCPI_ResultBool(context, runtime.tx_fifo_full ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, runtime.total_pulses);
+    SCPI_ResultUInt32(context, runtime.completed_pulses);
+    SCPI_ResultUInt32(context, runtime.transfer_count);
+    SCPI_ResultUInt32(context, runtime.elapsed_us);
+    SCPI_ResultUInt32(context, runtime.fault_code);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sample_rate(scpi_t *context)
 {
     if (scpi_port_reject_if_run_forbidden(
@@ -366,6 +384,27 @@ scpi_result_t scpi_cmd_sample_latch_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.capture_latch_source);
     SCPI_ResultUInt32(context, status.capture_latch_resolution_ns);
     SCPI_ResultUInt32(context, status.capture_latch_flags);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sample_window_q(scpi_t *context)
+{
+    sync_io_status_t status;
+    sync_io_get_status(&status);
+
+    SCPI_ResultUInt32(context, status.capture_timestamp_window_armed);
+    SCPI_ResultUInt32(context, status.capture_timestamp_window_periodic);
+    SCPI_ResultUInt32(context, status.capture_timestamp_window_start_lo);
+    SCPI_ResultUInt32(context, status.capture_timestamp_window_start_hi);
+    SCPI_ResultUInt32(context, status.capture_timestamp_window_end_lo);
+    SCPI_ResultUInt32(context, status.capture_timestamp_window_end_hi);
+    SCPI_ResultUInt32(context, status.capture_timestamp_window_period_ns);
+    SCPI_ResultUInt32(context, status.capture_timestamp_window_sample_period_ns);
+    SCPI_ResultUInt32(context, status.capture_timestamp_window_observed_mask);
+    SCPI_ResultUInt32(context, status.capture_timestamp_window_initial_sample_mask);
+    SCPI_ResultUInt32(context, status.capture_timebase_valid);
+    SCPI_ResultUInt32(context, status.capture_timebase_start_lo);
+    SCPI_ResultUInt32(context, status.capture_timebase_start_hi);
     return SCPI_RES_OK;
 }
 

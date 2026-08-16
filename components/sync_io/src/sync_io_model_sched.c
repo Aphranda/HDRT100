@@ -14,7 +14,9 @@
 
 #define SYNC_IO_MODEL_PULSE_MAX_ENTRIES 4096u
 #define SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY 2u
-#define SYNC_IO_MODEL_PULSE_TICK_HZ 1000000u
+#define SYNC_IO_MODEL_PULSE_US_TICK_HZ 1000000u
+#define SYNC_IO_MODEL_PULSE_DEFAULT_TICK_PERIOD_NS 100u
+#define SYNC_IO_MODEL_PULSE_SECTION_OVERHEAD_TICKS 3u
 
 typedef struct {
     bool running;
@@ -26,18 +28,23 @@ typedef struct {
     uint32_t total_pulses;
     uint32_t completed_pulses;
     uint32_t total_duration_us;
+    uint32_t total_duration_ns;
+    uint32_t tick_period_ns;
     uint32_t fault_code;
     uint64_t start_us;
-    uint32_t words[SYNC_IO_MODEL_PULSE_MAX_ENTRIES * SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY];
-    uint32_t completion_us[SYNC_IO_MODEL_PULSE_MAX_ENTRIES];
+    uint32_t words[SYNC_IO_MODEL_PULSE_MAX_ENTRIES *
+                   SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY];
+    uint32_t completion_ns[SYNC_IO_MODEL_PULSE_MAX_ENTRIES];
 } sync_io_model_pulse_t;
 
 static sync_io_model_pulse_t s_model_pulse;
+static sync_io_model_pulse_entry_ns_t
+    s_model_pulse_compat_entries[SYNC_IO_MODEL_PULSE_MAX_ENTRIES];
 
 static float sync_io_model_clkdiv_for_tick_rate(uint32_t tick_hz)
 {
     if (tick_hz == 0u) {
-        tick_hz = SYNC_IO_MODEL_PULSE_TICK_HZ;
+        tick_hz = SYNC_IO_MODEL_PULSE_US_TICK_HZ;
     }
 
     const uint32_t sys_hz = clock_get_hz(clk_sys);
@@ -48,14 +55,60 @@ static float sync_io_model_clkdiv_for_tick_rate(uint32_t tick_hz)
     return clkdiv;
 }
 
-static uint32_t sync_io_model_delay_word(uint32_t delay_us)
+static uint32_t sync_io_model_tick_hz_from_period_ns(uint32_t tick_period_ns)
 {
-    return delay_us == 0u ? 0u : delay_us - 1u;
+    if (tick_period_ns == 0u) {
+        tick_period_ns = SYNC_IO_MODEL_PULSE_DEFAULT_TICK_PERIOD_NS;
+    }
+    const uint64_t hz =
+        (1000000000ull + (uint64_t)tick_period_ns - 1ull) /
+        (uint64_t)tick_period_ns;
+    return hz > UINT32_MAX ? UINT32_MAX : (uint32_t)hz;
 }
 
-static uint32_t sync_io_model_high_word(uint32_t high_us)
+static uint32_t sync_io_model_ns_to_ticks(uint32_t ns, uint32_t tick_period_ns)
 {
-    return high_us <= 1u ? 0u : high_us - 1u;
+    if (ns == 0u || tick_period_ns == 0u) {
+        return 0u;
+    }
+    return (ns + tick_period_ns - 1u) / tick_period_ns;
+}
+
+static uint32_t sync_io_model_delay_ticks_for_duration(uint32_t ns,
+                                                       uint32_t tick_period_ns)
+{
+    const uint32_t requested_ticks =
+        sync_io_model_ns_to_ticks(ns, tick_period_ns);
+    if (requested_ticks <= SYNC_IO_MODEL_PULSE_SECTION_OVERHEAD_TICKS) {
+        return 0u;
+    }
+    return requested_ticks - SYNC_IO_MODEL_PULSE_SECTION_OVERHEAD_TICKS;
+}
+
+static uint32_t sync_io_model_high_ticks_for_duration(uint32_t ns,
+                                                      uint32_t tick_period_ns)
+{
+    const uint32_t requested_ticks =
+        sync_io_model_ns_to_ticks(ns, tick_period_ns);
+    if (requested_ticks <= SYNC_IO_MODEL_PULSE_SECTION_OVERHEAD_TICKS) {
+        return 1u;
+    }
+    return requested_ticks - SYNC_IO_MODEL_PULSE_SECTION_OVERHEAD_TICKS;
+}
+
+static uint32_t sync_io_model_delay_word(uint32_t delay_ticks)
+{
+    return delay_ticks == 0u ? 0u : delay_ticks - 1u;
+}
+
+static uint32_t sync_io_model_high_word(uint32_t high_ticks)
+{
+    return high_ticks <= 1u ? 0u : high_ticks - 1u;
+}
+
+static uint32_t sync_io_model_saturate_u64_to_u32(uint64_t value)
+{
+    return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
 }
 
 static bool sync_io_model_output_index_valid(uint32_t output_index)
@@ -82,10 +135,11 @@ static void sync_io_model_update_completion(void)
         return;
     }
 
-    const uint64_t elapsed64 = time_us_64() - s_model_pulse.start_us;
-    const uint32_t elapsed = elapsed64 > UINT32_MAX ? UINT32_MAX : (uint32_t)elapsed64;
+    const uint64_t elapsed_ns =
+        (time_us_64() - s_model_pulse.start_us) * 1000ull;
     while (s_model_pulse.completed_pulses < s_model_pulse.total_pulses &&
-           elapsed >= s_model_pulse.completion_us[s_model_pulse.completed_pulses]) {
+           elapsed_ns >=
+               s_model_pulse.completion_ns[s_model_pulse.completed_pulses]) {
         s_model_pulse.completed_pulses++;
     }
 
@@ -99,14 +153,20 @@ static void sync_io_model_update_completion(void)
 
 static bool sync_io_pulse_schedule_arm_on_pin(uint32_t output_pin,
                                               uint32_t trace_output_index,
-                                              const sync_io_model_pulse_entry_t *entries,
+                                              const sync_io_model_pulse_entry_ns_t *entries,
                                               uint32_t entry_count,
-                                              bool rising_edge)
+                                              bool rising_edge,
+                                              uint32_t tick_period_ns)
 {
+    const uint32_t sanitized_tick_period_ns =
+        tick_period_ns != 0u
+            ? tick_period_ns
+            : SYNC_IO_MODEL_PULSE_DEFAULT_TICK_PERIOD_NS;
     if (!sync_io_core_initialized() ||
         entries == NULL ||
         entry_count == 0u ||
-        entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES) {
+        entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES ||
+        sanitized_tick_period_ns == 0u) {
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            entry_count,
@@ -116,19 +176,31 @@ static bool sync_io_pulse_schedule_arm_on_pin(uint32_t output_pin,
 
     sync_io_model_pulse_schedule_disarm();
 
-    uint32_t cumulative_us = 0u;
+    uint64_t cumulative_ns = 0u;
     for (uint32_t i = 0u; i < entry_count; i++) {
-        if (entries[i].high_us == 0u) {
+        const uint32_t delay_ticks =
+            sync_io_model_delay_ticks_for_duration(
+                entries[i].delay_ns,
+                sanitized_tick_period_ns);
+        const uint32_t high_ticks =
+            sync_io_model_high_ticks_for_duration(
+                entries[i].high_ns,
+                sanitized_tick_period_ns);
+        if (high_ticks == 0u) {
             sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                                SYNC_IO_TRACE_ERROR,
                                i,
                                1u);
             return false;
         }
-        s_model_pulse.words[(i * 2u) + 0u] = sync_io_model_delay_word(entries[i].delay_us);
-        s_model_pulse.words[(i * 2u) + 1u] = sync_io_model_high_word(entries[i].high_us);
-        cumulative_us += entries[i].delay_us + entries[i].high_us;
-        s_model_pulse.completion_us[i] = cumulative_us;
+        s_model_pulse.words[(i * 2u) + 0u] =
+            sync_io_model_delay_word(delay_ticks);
+        s_model_pulse.words[(i * 2u) + 1u] =
+            sync_io_model_high_word(high_ticks);
+        cumulative_ns += entries[i].delay_ns;
+        cumulative_ns += entries[i].high_ns;
+        s_model_pulse.completion_ns[i] =
+            sync_io_model_saturate_u64_to_u32(cumulative_ns);
     }
 
     const pio_program_t *program = rising_edge
@@ -150,7 +222,11 @@ static bool sync_io_pulse_schedule_arm_on_pin(uint32_t output_pin,
     s_model_pulse.active_high = rising_edge;
     s_model_pulse.total_pulses = entry_count;
     s_model_pulse.completed_pulses = 0u;
-    s_model_pulse.total_duration_us = cumulative_us;
+    s_model_pulse.total_duration_ns =
+        sync_io_model_saturate_u64_to_u32(cumulative_ns);
+    s_model_pulse.total_duration_us =
+        sync_io_model_saturate_u64_to_u32((cumulative_ns + 999ull) / 1000ull);
+    s_model_pulse.tick_period_ns = sanitized_tick_period_ns;
     s_model_pulse.fault_code = 0u;
 
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm, false);
@@ -163,7 +239,8 @@ static bool sync_io_pulse_schedule_arm_on_pin(uint32_t output_pin,
                                         s_model_pulse.output_pin,
                                         rising_edge,
                                         sync_io_model_clkdiv_for_tick_rate(
-                                            SYNC_IO_MODEL_PULSE_TICK_HZ));
+                                            sync_io_model_tick_hz_from_period_ns(
+                                                sanitized_tick_period_ns)));
 
     dma_channel_abort(s_model_pulse.dma_ch);
     dma_channel_set_irq0_enabled(s_model_pulse.dma_ch, false);
@@ -207,13 +284,47 @@ bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
                            output_index);
         return false;
     }
+    if (entries == NULL ||
+        entry_count == 0u ||
+        entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < entry_count; i++) {
+        s_model_pulse_compat_entries[i].delay_ns = entries[i].delay_us * 1000u;
+        s_model_pulse_compat_entries[i].high_ns = entries[i].high_us * 1000u;
+    }
+
+    return sync_io_pulse_schedule_arm_on_pin(
+        BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index,
+        output_index,
+        s_model_pulse_compat_entries,
+        entry_count,
+        rising_edge,
+        1000u);
+}
+
+bool sync_io_model_pulse_schedule_arm_ns(
+    uint32_t output_index,
+    const sync_io_model_pulse_entry_ns_t *entries,
+    uint32_t entry_count,
+    bool rising_edge,
+    uint32_t tick_period_ns)
+{
+    if (!sync_io_model_output_index_valid(output_index)) {
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
+                           SYNC_IO_TRACE_ERROR,
+                           entry_count,
+                           output_index);
+        return false;
+    }
 
     return sync_io_pulse_schedule_arm_on_pin(
         BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index,
         output_index,
         entries,
         entry_count,
-        rising_edge);
+        rising_edge,
+        tick_period_ns);
 }
 
 bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
@@ -228,13 +339,47 @@ bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
                            output_index);
         return false;
     }
+    if (entries == NULL ||
+        entry_count == 0u ||
+        entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < entry_count; i++) {
+        s_model_pulse_compat_entries[i].delay_ns = entries[i].delay_us * 1000u;
+        s_model_pulse_compat_entries[i].high_ns = entries[i].high_us * 1000u;
+    }
+
+    return sync_io_pulse_schedule_arm_on_pin(
+        BOARD_SYNC_OUTPUT_BASE_PIN + output_index,
+        output_index,
+        s_model_pulse_compat_entries,
+        entry_count,
+        rising_edge,
+        1000u);
+}
+
+bool sync_io_output_pulse_schedule_arm_ns(
+    uint32_t output_index,
+    const sync_io_model_pulse_entry_ns_t *entries,
+    uint32_t entry_count,
+    bool rising_edge,
+    uint32_t tick_period_ns)
+{
+    if (!sync_io_main_output_index_valid(output_index)) {
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
+                           SYNC_IO_TRACE_ERROR,
+                           entry_count,
+                           output_index);
+        return false;
+    }
 
     return sync_io_pulse_schedule_arm_on_pin(
         BOARD_SYNC_OUTPUT_BASE_PIN + output_index,
         output_index,
         entries,
         entry_count,
-        rising_edge);
+        rising_edge,
+        tick_period_ns);
 }
 
 void sync_io_model_pulse_schedule_disarm(void)

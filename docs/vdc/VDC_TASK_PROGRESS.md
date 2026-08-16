@@ -43,6 +43,45 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-038 - 100 ns GPIO overlay acquisition reaches VDC LOCKED
+
+- 状态：完成代码、host 单元验证、构建、COM5/COM6 OTA 和双向 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 支持“大初始相位差先粗接纳，DPLL 后续慢慢追到细锁”的 acquisition 行为。
+  - 把 GPIO4-7 bring-up 从 1 us coarse lock 推进到 `HARDWARE_TICK / 100 ns / DPLL_ELIGIBLE` 两板闭环。
+  - 保持 HAOFV 边界：SCPI 只配置/查询 observer 和 self-test，不写 lock/offset/rate；`SyncDpllFB` 仍是 DCO/lock/quality 唯一 writer。
+- 完成内容：
+  - `sync_io_model_sched` 增加 ns 级 pulse schedule API，VDC self-test 使用 100 ns tick 预约模型输出。
+  - `vdc_domain` 增加 acquisition admission：未锁定/重锁阶段允许整帧相位差进入 DPLL，锁定后用 DCO phase offset 平移 admission window；质量/锁定使用 DCO 校正后的 residual phase，不把初始大相位差冒充 fine lock。
+  - `sync_io` capture latch 在 timestamp window armed 时进行边沿压缩，只向上层发布有观测边沿的 word；DMA 覆盖后重新同步边沿前态，不再永久清掉 capture timebase。
+  - 新增只读维护查询 `REALtime:IO:MODel:PULSe:SCHEDule?` 和 `REALtime:IO:SAMPle:WINDow?`，用于 HIL 定位 PIO/DMA scheduler、timestamp window 和 capture timebase。
+  - `tools/vdc_gpio_lock_validate.py` 固化 100 ns 验证、TX scheduler 状态和 RX timestamp window 证据输出。
+- 验证结果：
+  - `python -m py_compile tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py` 通过。
+  - `tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260816150506`，package CRC `0x1DC450F4`。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过，COM5/COM6 均 commit 到 `20260816150506`。
+  - `python tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py --port-x COM5 --port-y COM6 --expected-build 20260816150506 --poll-timeout 90 --pulse-count 4096 --pulse-high-ns 1000` 通过：`accepted=63->113 observer_accepted=0->47 state=LOCKED source=HARDWARE_TICK resolution_ns=100 flags=DPLL_ELIGIBLE gate=PASS`。
+  - `python tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py --port-x COM6 --port-y COM5 --name-x COM6 --name-y COM5 --expected-build 20260816150506 --poll-timeout 90 --pulse-count 4096 --pulse-high-ns 1000 --output-index 2 --observed-mask 4` 通过：`accepted=0->82 observer_accepted=0->81 state=LOCKED source=HARDWARE_TICK resolution_ns=100 flags=DPLL_ELIGIBLE gate=PASS`。
+- 还需完成：
+  - 当前 fine lock 仍依赖 GPIO4-7 调试 overlay；产品路径必须迁移到 GPIO16-24 TDMA 通讯帧 timestamp spine。
+  - 已将默认 bring-up acceptance 收敛为 1 us，并在 acquisition 阶段使用受限大步进 phase slew 加快粗拉入；后续仍需在真实 TDMA timestamp path 上调 DPLL 环路参数并发布 lock_time、rms/peak offset、outlier 比例。
+  - `lock_quality_tier` 已改为由连续 coarse/debug/fine 样本晋级，历史 `max_abs_offset_ns` 只保留为诊断峰值；产品 `HEALTHY/RUN` 仍必须等待连续 100 ns fine 样本。
+  - `HEALTHY/RUN` 仍必须只消费 fine tier，不允许把 GPIO overlay bring-up 直接当产品同步依据。
+- 关联文件：
+  - `components/sync_io/inc/sync_io.h`
+  - `components/sync_io/src/sync_io.c`
+  - `components/sync_io/src/sync_io_model_sched.c`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `middleware/scpi_port/inc/scpi_realtime_io_commands.h`
+  - `middleware/scpi_port/src/scpi_realtime_io_commands.c`
+  - `tests/unit/test_vdc_domain.c`
+  - `tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py`
+- 下一步：
+  - 把相同 acquisition/residual/DCO 机制迁移到公共 TDMA payload timestamp，逐步减少 GPIO4-7 overlay 对锁相验证的依赖。
+
 ### VDC-TASK-20260816-037 - Core1 consumes stable DCO mirror
 
 - 状态：完成代码、host 单元验证、构建、COM5/COM6 OTA 和 HIL。

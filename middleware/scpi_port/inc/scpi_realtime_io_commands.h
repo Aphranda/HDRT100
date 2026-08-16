@@ -26,11 +26,13 @@ scpi_result_t scpi_cmd_model_input_level_q(scpi_t *context);
 scpi_result_t scpi_cmd_model_output_mask(scpi_t *context);
 scpi_result_t scpi_cmd_model_output_mask_q(scpi_t *context);
 scpi_result_t scpi_cmd_model_output_release(scpi_t *context);
+scpi_result_t scpi_cmd_model_pulse_schedule_q(scpi_t *context);
 scpi_result_t scpi_cmd_sample_rate(scpi_t *context);
 scpi_result_t scpi_cmd_sample_rate_q(scpi_t *context);
 scpi_result_t scpi_cmd_sample_state(scpi_t *context);
 scpi_result_t scpi_cmd_sample_state_q(scpi_t *context);
 scpi_result_t scpi_cmd_sample_latch_q(scpi_t *context);
+scpi_result_t scpi_cmd_sample_window_q(scpi_t *context);
 scpi_result_t scpi_cmd_sample_debug_q(scpi_t *context);
 scpi_result_t scpi_cmd_clock_freq(scpi_t *context);
 scpi_result_t scpi_cmd_clock_freq_q(scpi_t *context);
@@ -62,11 +64,13 @@ scpi_result_t scpi_cmd_status_q(scpi_t *context);
     {.pattern = "REALtime:IO:MODel:OUTPut:MASK", .callback = scpi_cmd_model_output_mask}, \
     {.pattern = "REALtime:IO:MODel:OUTPut:MASK?", .callback = scpi_cmd_model_output_mask_q}, \
     {.pattern = "REALtime:IO:MODel:OUTPut:RELease", .callback = scpi_cmd_model_output_release}, \
+    {.pattern = "REALtime:IO:MODel:PULSe:SCHEDule?", .callback = scpi_cmd_model_pulse_schedule_q}, \
     {.pattern = "REALtime:IO:SAMPle:RATE", .callback = scpi_cmd_sample_rate}, \
     {.pattern = "REALtime:IO:SAMPle:RATE?", .callback = scpi_cmd_sample_rate_q}, \
     {.pattern = "REALtime:IO:SAMPle:STATe", .callback = scpi_cmd_sample_state}, \
     {.pattern = "REALtime:IO:SAMPle:STATe?", .callback = scpi_cmd_sample_state_q}, \
     {.pattern = "REALtime:IO:SAMPle:LATCh?", .callback = scpi_cmd_sample_latch_q}, \
+    {.pattern = "REALtime:IO:SAMPle:WINDow?", .callback = scpi_cmd_sample_window_q}, \
     {.pattern = "REALtime:IO:SAMPle:DBG?", .callback = scpi_cmd_sample_debug_q}, \
     {.pattern = "REALtime:IO:CLOCk:FREQuency", .callback = scpi_cmd_clock_freq}, \
     {.pattern = "REALtime:IO:CLOCk:FREQuency?", .callback = scpi_cmd_clock_freq_q}, \

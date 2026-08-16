@@ -235,9 +235,9 @@ def run_board(name: str, port: str, ser, args: argparse.Namespace) -> BoardResul
         raise AssertionError(f"{name}: debug threshold {quality_after[13]} != 1000ns")
     if quality_after[14] != VDC_LOCK_TIER_COARSE_NS:
         raise AssertionError(f"{name}: coarse threshold {quality_after[14]} != 10000ns")
-    if quality_after[15] != VDC_LOCK_TIER_COARSE_NS:
+    if quality_after[15] != VDC_LOCK_TIER_DEBUG_NS:
         raise AssertionError(
-            f"{name}: bring-up acceptance threshold {quality_after[15]} != 10000ns"
+            f"{name}: bring-up acceptance threshold {quality_after[15]} != 1000ns"
         )
 
     return BoardResult(

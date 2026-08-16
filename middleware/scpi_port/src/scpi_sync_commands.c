@@ -482,7 +482,7 @@ scpi_result_t scpi_cmd_sync_vdc_observer_tdma(scpi_t *context)
 {
     uint32_t enabled = 1u;
     uint32_t initial_sample_mask = 0u;
-    uint32_t sample_period_ns = 1000u;
+    uint32_t sample_period_ns = 100u;
     uint32_t frame_crc32 = 0u;
 
     (void)SCPI_ParamUInt32(context, &enabled, FALSE);

@@ -35,7 +35,7 @@ Last updated: 2026-08-16
 | `SYSTem:CORE?` | 查询核心运行状态：core1 是否启用、core0/core1 循环计数、core0/core1 最近一次心跳毫秒时间戳。 |
 | `SYSTem:RTOS:STATus?` | 查询 FreeRTOS heap 和任务栈水位。 |
 | `SYSTem:LOOP:STATus?` | 查询 `task_loop_engine` 的只读维护状态：是否 ready、service_count、first_service_ms、last_service_ms。 |
-| `READ:SYNC:QUALity?` | 查询 VDC 同步质量主视图：`state,last_offset_ns,rms_offset_ns,max_abs_offset_ns,freq_offset_ppb,jitter_pk_ns,last_sample_age_1e3ns,last_reject_code,accepted_sample_count,rejected_sample_count,last_timestamp_resolution_ns,health_state,lock_quality_tier,fine_lock_threshold_ns,debug_lock_threshold_ns,coarse_lock_threshold_ns,lock_acceptance_threshold_ns`。`lock_quality_tier=1/2/3` 分别对应 10 us / 1 us / 100 ns；初步验证可放宽 acceptance，但产品 `HEALTHY/RUN` 仍以 100 ns fine tier 为准。 |
+| `READ:SYNC:QUALity?` | 查询 VDC 同步质量主视图：`state,last_offset_ns,rms_offset_ns,max_abs_offset_ns,freq_offset_ppb,jitter_pk_ns,last_sample_age_1e3ns,last_reject_code,accepted_sample_count,rejected_sample_count,last_timestamp_resolution_ns,health_state,lock_quality_tier,fine_lock_threshold_ns,debug_lock_threshold_ns,coarse_lock_threshold_ns,lock_acceptance_threshold_ns`。`lock_quality_tier=1/2/3` 分别对应 10 us / 1 us / 100 ns；默认 bring-up acceptance 为 1 us，产品 `HEALTHY/RUN` 仍以连续 100 ns fine tier 为准。 |
 | `SYSTem:SYNC:VDC:STATus?` | 查询 `task_vdc_sync` 的只读维护状态：是否 ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq。 |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` | 查询 `task_dpll` 的只读维护状态：是否 ready、state、service_count、first_service_ms、last_service_ms、update_seq。 |
 | `SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]` | 查询 VDC TDMA 窗口计划；默认 `window_class=2` 即 `REFMEM_DATA_WINDOW`，不带时间参数时使用当前板端时间。返回窗口起止、guard、wait_ns、late_ns、inside/missed 标志、schedule CRC 和 gate 结果。 |
@@ -121,9 +121,11 @@ UART/RS485/BiSS-C 等外部或板间通信能力统一归入 `COMMunication:*`�
 | `REALtime:IO:INPut:LEVel?` | 查询 active input group 当前电平，返回 `input_base,input_count,level_mask`。 |
 | `REALtime:IO:OUTPut:MASK <mask>` / `REALtime:IO:OUTPut:MASK?` | 维护态静态驱动 active output group，供线序检测使用。 |
 | `REALtime:IO:OUTPut:RELease` | 释放维护态静态输出，恢复即时脉冲输出路径。 |
+| `REALtime:IO:MODel:PULSe:SCHEDule?` | 查询模型 PIO/DMA pulse scheduler 状态，返回 running、PIO/DMA 状态、total/completed pulse、transfer count、elapsed 和 fault，用于 VDC GPIO overlay HIL 定位 TX 侧。 |
 | `REALtime:IO:SAMPle:RATE <Hz>` / `REALtime:IO:SAMPle:RATE?` | 设置或查询输入采样率。 |
 | `REALtime:IO:SAMPle:STATe <ON|OFF>` / `REALtime:IO:SAMPle:STATe?` | 启停或查询输入采样状态。 |
 | `REALtime:IO:SAMPle:LATCh?` | 查询 core1 capture latch 维护状态，返回 `initialized,capture_running,capture_sample_hz,dropped_capture_words,latched_capture_words,dropped_latched_capture_words,capture_latch_source,capture_latch_resolution_ns,capture_latch_flags`。当前使用 `timer1/CLK_SYS` 硬件 tick，但仍置 `DIAGNOSTIC_ONLY`，不作为 DPLL lock 证据。 |
+| `REALtime:IO:SAMPle:WINDow?` | 查询当前 timestamp window 镜像，返回 armed、periodic、window start/end、period/sample period、observed mask、initial mask 和 capture timebase，用于 VDC GPIO overlay HIL 定位 RX 侧。 |
 | `REALtime:IO:CLOCk:FREQuency <Hz>` / `REALtime:IO:CLOCk:FREQuency?` | 设置或查询 `SYNC_CLK_OUT` 维护输出频率。 |
 | `REALtime:IO:CLOCk:STATe <ON|OFF>` / `REALtime:IO:CLOCk:STATe?` | 启停或查询同步时钟维护输出状态。 |
 | `REALtime:IO:SYNC?` | 查询同步 IO 维护快照。 |

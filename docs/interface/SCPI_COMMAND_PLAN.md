@@ -293,6 +293,8 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 
 `REALtime:IO:SAMPle:LATCh?` 是 SYNC_IO 维护查询入口，用于查看 core1 capture latch ring 是否从 PIO capture FIFO 形成了带 timestamp metadata 的本地 IO fact。当前字段为 `initialized,capture_running,capture_sample_hz,dropped_capture_words,latched_capture_words,dropped_latched_capture_words,capture_latch_source,capture_latch_resolution_ns,capture_latch_flags`。当前 timestamp source 来自 `timer1/CLK_SYS` 硬件 tick，resolution 可低于 `100 ns`；但 source 仍带 `DIAGNOSTIC_ONLY` flag，因为本阶段时间戳发生在 core1 drain FIFO 时刻，不等同于 PIO 边沿硬件锁存，不允许进入 DPLL lock gate。
 
+`REALtime:IO:MODel:PULSe:SCHEDule?` 和 `REALtime:IO:SAMPle:WINDow?` 是 GPIO4-7 VDC bring-up overlay 的只读维护入口。前者查询 TX 模型 pulse scheduler 的运行、PIO/DMA、pulse 完成和 fault 状态；后者查询 RX timestamp window 的 armed、period、sample period、observed mask 和 capture timebase 镜像。二者只用于定位 overlay HIL，不写 DPLL lock/offset/rate，也不替代最终 GPIO16-24 TDMA timestamp spine。
+
 ## 7. 通信、实时和测量
 
 ### 7.1 通信域
