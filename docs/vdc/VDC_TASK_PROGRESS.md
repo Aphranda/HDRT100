@@ -43,6 +43,38 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260817-002 - P2 timestamp and capture baseline risk closure
+
+- 状态：完成代码、host 单元验证、构建、文档检查、COM5/COM6 OTA 和只读 SCPI 复查。
+- 日期：2026-08-17
+- 任务目标：
+  - 按 `VDC_DOMAIN_RISK_REVIEW.md` 继续关闭会影响 DPLL timestamp 输入正确性的 P2 项。
+  - 将已经纠偏的风险显式标为“已纠偏”，避免后续重复排查同一问题。
+- 完成内容：
+  - `sync_io_capture_latch_service_core1()` 的 capture word span 改为 64 位计算，`sample_hz==1` 时 `8 * sample_period_ns` 不再溢出；`sync_io` 内部定义本层 `SYNC_IO_CAPTURE_WORD_SAMPLES=8`，不反向依赖 VDC adapter。
+  - 新增 `vdc_wrap_tracker_reanchor()`，发布 timestamp dictionary 时只重设低 32 位锚点，不清 `tick_hi64/wrap_count/backward_reject_count`，避免运行超过 4.29 s 后重新加载 dictionary 破坏扩展 tick。
+  - `vdc_sync_io_capture_word_to_compact_observation()` 在 ambiguous word 上改为消费完整 word 的末样本作为下一 word 基线，避免半截基线制造伪边沿。
+  - `VDC_DOMAIN_RISK_REVIEW.md` 增加风险状态列，已纠偏项改为“已纠偏”，未完成项保持“待纠偏/部分已纠偏/待文档化”。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260816164242`，package CRC `0xE447BA21`。
+  - `python tools\docs_check\docs_check.py` 通过；保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 和 `VDC_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过；COM5/COM6 均启动并 commit 到 build `20260816164242`。
+  - COM5/COM6 只读 SCPI 复查通过：`SYSTem:FW:BUILD?` 均为 `20260816164242`，`SYSTem:SYNC:VDC:DCO?` 显示 DCO consumer valid 且 `last_error=0`，`SYSTem:ERRor?` 均为 `0,"No error"`。
+- 还需完成：
+  - 继续处理待纠偏项：DMA 丢字、ENC_COUNT ISR 注入、completion 饱和、共享 SM 互斥、fire 假成功、非 capture DMA claim、RX self-test timeout。
+- 关联文件：
+  - `components/sync_io/src/sync_io.c`
+  - `components/vdc_domain/inc/vdc_timestamp.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `components/vdc_domain/src/vdc_sync_io_adapter.c`
+  - `components/vdc_domain/src/vdc_timestamp.c`
+  - `tests/unit/test_vdc_domain.c`
+  - `docs/vdc/VDC_DOMAIN_RISK_REVIEW.md`
+- 下一步：
+  - 进入 sync_io 剩余 P2 边界 bug：优先处理 DMA 丢字和共享 SM/owner 互斥。
+
 ### VDC-TASK-20260817-001 - P1 DPLL correctness risk closure
 
 - 状态：完成代码、host 单元验证、构建、文档检查、COM5/COM6 OTA 和只读 SCPI 复查。

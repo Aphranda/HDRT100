@@ -1629,7 +1629,7 @@ bool vdc_domain_publish_timestamp_dictionary(
     }
 
     context->timestamp_dictionary = *dictionary;
-    vdc_wrap_tracker_init(&context->wrap_tracker, initial_tick_l32);
+    vdc_wrap_tracker_reanchor(&context->wrap_tracker, initial_tick_l32);
     return true;
 }
 

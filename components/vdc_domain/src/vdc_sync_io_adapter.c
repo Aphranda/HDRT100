@@ -74,6 +74,15 @@ vdc_sync_io_capture_result_t vdc_sync_io_capture_word_to_compact_observation(
         previous = current;
     }
 
+    if (ambiguous) {
+        previous =
+            vdc_sync_io_adapter_sample_at(
+                raw_word,
+                VDC_SYNC_IO_CAPTURE_SAMPLES_PER_WORD - 1u,
+                config->sample0_lsb) &
+            config->observed_mask;
+    }
+
     *last_sample_mask = previous;
     if (ambiguous) {
         return VDC_SYNC_IO_CAPTURE_AMBIGUOUS_EDGE;

@@ -571,6 +571,16 @@ static int test_wrap_tracker_contract(void)
                                                        &tick64),
                           true);
     failed += expect_u64("open anchor wrapped tick", tick64, 0x100000010ull);
+    vdc_wrap_tracker_reanchor(&tracker, 0x00000020u);
+    failed += expect_bool("reanchor preserves high word",
+                          vdc_wrap_tracker_extend_tick(&tracker,
+                                                       0x00000030u,
+                                                       0u,
+                                                       &tick64),
+                          true);
+    failed += expect_u64("reanchor extended tick",
+                         tick64,
+                         0x100000030ull);
     return failed;
 }
 
@@ -849,6 +859,9 @@ static int test_sync_io_adapter_contract(void)
                              &compact,
                              &last_sample_mask),
                          VDC_SYNC_IO_CAPTURE_AMBIGUOUS_EDGE);
+    failed += expect_u32("sync io adapter ambiguous final mask",
+                         last_sample_mask,
+                         0u);
     return failed;
 }
 

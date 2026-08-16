@@ -41,7 +41,7 @@ Last updated: 2026-08-17
 
 后果：core1 DCO 消费者 [vdc_dpll_manager.c:981-991](components/vdc_dpll_manager/src/vdc_dpll_manager.c#L981-L991) 用 `snapshot.dco.dco_update_seq == last_dco_update_seq` 判 `unchanged_count`，由于序列恒为 `2`，**每次新快照都被判为「未变化」、`accepted_update_count` 永不增长**——正是提交 `bb82117`（mirror dco consumption on core1）要验证的消费路径。正确写法已在 `vdc_domain_publish_dco_control`（[vdc_domain.c:1588-1598](components/vdc_domain/src/vdc_domain.c#L1588-L1598)）示范：先存 seq、调 `default_dco_control`、再恢复并自增；`update_clock_from_evidence` 未照做。
 
-处置状态（2026-08-17）：已修复。`vdc_domain_update_clock_from_evidence()` 在派生 DCO 前保存 `next_dco_seq`，调用 `vdc_domain_default_dco_control()` 后恢复该序号，避免默认初始化把序号重置为 `1`。`test_dco_control_contract()` 已覆盖 accepted evidence 更新后 DCO seq 必须单调前进。
+处置状态（2026-08-17）：已纠偏。`vdc_domain_update_clock_from_evidence()` 在派生 DCO 前保存 `next_dco_seq`，调用 `vdc_domain_default_dco_control()` 后恢复该序号，避免默认初始化把序号重置为 `1`。`test_dco_control_contract()` 已覆盖 accepted evidence 更新后 DCO seq 必须单调前进。
 
 ### 3.2 `accepted_sample_count` 只增不重置——锁是单调计数伪锁定
 
@@ -49,7 +49,7 @@ Last updated: 2026-08-17
 
 后果：单次瞬态 reject 把 LOCKED 打到 CHECKING，但下一个 accepted sample（计数仍 ≥ `lock_sample_count`）直接跳回 LOCKED——「连续 accepted sample」从不成立。与 TODO 自身目标矛盾（[VDC_DOMAIN_TODO.md:186](docs/vdc/VDC_DOMAIN_TODO.md#L186)「连续 accepted sample」、[:55](docs/vdc/VDC_DOMAIN_TODO.md#L55)「sample count 伪锁定」）。需要在 reject 时清零计数或维护连续 streak，而不是累计值。
 
-处置状态（2026-08-17）：已修复为“连续 accepted streak”语义。gate reject 和 servo outlier 统一清零 `accepted_sample_count`、连续质量计数和频率估计基线；恢复样本可重新进入 `INITIAL_SYNC/FREQ_LOCK/PHASE_LOCK`，但不能一帧直接回到 `LOCKED`。`test_context_accepts_samples_until_locked()` 与 `test_dpll_rejects_servo_outlier()` 已覆盖该契约。
+处置状态（2026-08-17）：已纠偏为“连续 accepted streak”语义。gate reject 和 servo outlier 统一清零 `accepted_sample_count`、连续质量计数和频率估计基线；恢复样本可重新进入 `INITIAL_SYNC/FREQ_LOCK/PHASE_LOCK`，但不能一帧直接回到 `LOCKED`。`test_context_accepts_samples_until_locked()` 与 `test_dpll_rejects_servo_outlier()` 已覆盖该契约。
 
 ### 3.3 `seq_width` 接受 1..8，但输出组只有 4 脚、PIO 硬编码 `out pins, 4`
 
@@ -57,39 +57,39 @@ Last updated: 2026-08-17
 
 后果：width 5..8 会让 `pio_sm_set_consecutive_pindirs(..., width, true)` 静默把 **GPIO25（LCD 背光）/ 26 / 27（AUX）/ 28（SYNC_CLK_OUT）** 重配成 PIO 输出并输出损坏序列；同时 `sm_config_set_out_shift` 用请求 width、`out pins` 固定 4，两者失配使 shift/auto-pull 脱同步。需要把 width 上限钳到 4（或让 PIO 程序按 width 参数化，二选一，当前两者不一致）。
 
-处置状态（2026-08-17）：已修复。`SYNC_IO_SEQ_STEP_MODE_MAX_WIDTH` 改为板级 `BOARD_SYNC_OUTPUT_PIN_COUNT`，当前产品为 4；`sync_io_seq_step_arm()` 的 gate 参数校验前移到 DMA/IRQ/SM 操作之前，非法 gate 不再先停硬件资源。
+处置状态（2026-08-17）：已纠偏。`SYNC_IO_SEQ_STEP_MODE_MAX_WIDTH` 改为板级 `BOARD_SYNC_OUTPUT_PIN_COUNT`，当前产品为 4；`sync_io_seq_step_arm()` 的 gate 参数校验前移到 DMA/IRQ/SM 操作之前，非法 gate 不再先停硬件资源。
 
 ---
 
 ## 4. P2 真 bug（边缘/边界触发）
 
-| 项 | 位置 | 说明 |
-|---|---|---|
-| uint32 溢出 | [sync_io.c:973](components/sync_io/src/sync_io.c#L973) | `word_span_ns = sample_period_ns * 8u` 在 `sample_hz==1`（1e9×8=8e9）时溢出，corrupt 采集基准时间戳与窗口匹配。 |
-| DMA 丢字 | [sync_io.c:249](components/sync_io/src/sync_io.c#L249) | DMA 在两次调用间恰好写满 8192 字时 `write_index == last_write_index`，`produced` delta 判 0，静默丢 8192 字。 |
-| arm 先改后验 | [sync_io_mode_seq_step.c:126](components/sync_io/src/sync_io_mode_seq_step.c#L126) | `arm` 先关共享 DMA IRQ 与 `BOARD_SYNC_OUTPUT_SM`，再校验 `trigger_pin`；非法 gate 早退时 IRQ/SM 永久停掉。 |
-| ISR 被踩 | [sync_io_mode_enc_count.c:233](components/sync_io/src/sync_io_mode_enc_count.c#L233) | `get_count` 用 `pio_sm_exec(mov isr,x)` 注入，会落在运行中程序的 `in pins,3` 与 `mov osr,isr` 之间，破坏当前解码样本。 |
-| 完成计数饱和 | [sync_io_model_sched.c:202](components/sync_io/src/sync_io_model_sched.c#L202) | `completion_ns[i]` 经 `saturate_u64_to_u32`，>4.29s 的 schedule 把所有脉冲提前标「已完成」。 |
-| 半截基线 | [vdc_sync_io_adapter.c:63-77](components/vdc_domain/src/vdc_sync_io_adapter.c#L63-L77) | ambiguous 边沿提前 `break`，把中间样本而非末样本写进 `*last_sample_mask`；下一 word 相对错误基线产生伪边沿。 |
+| 项 | 状态 | 位置 | 说明 |
+|---|---|---|---|
+| uint32 溢出 | 已纠偏（2026-08-17） | [sync_io.c:973](components/sync_io/src/sync_io.c#L973) | `word_span_ns` 已改为 64 位计算，`sample_hz==1` 时 8e9 ns 不再溢出；`sync_io` 不反向依赖 VDC adapter 常量，使用本层 `SYNC_IO_CAPTURE_WORD_SAMPLES=8`。 |
+| DMA 丢字 | 待纠偏 | [sync_io.c:249](components/sync_io/src/sync_io.c#L249) | DMA 在两次调用间恰好写满 8192 字时 `write_index == last_write_index`，`produced` delta 判 0，静默丢 8192 字。 |
+| arm 先改后验 | 已纠偏（2026-08-17） | [sync_io_mode_seq_step.c:126](components/sync_io/src/sync_io_mode_seq_step.c#L126) | gate 参数校验已前移到 DMA/IRQ/SM 操作之前；非法 gate 不再先停共享 DMA IRQ 或输出 SM。 |
+| ISR 被踩 | 待纠偏 | [sync_io_mode_enc_count.c:233](components/sync_io/src/sync_io_mode_enc_count.c#L233) | `get_count` 用 `pio_sm_exec(mov isr,x)` 注入，会落在运行中程序的 `in pins,3` 与 `mov osr,isr` 之间，破坏当前解码样本。 |
+| 完成计数饱和 | 待纠偏 | [sync_io_model_sched.c:202](components/sync_io/src/sync_io_model_sched.c#L202) | `completion_ns[i]` 经 `saturate_u64_to_u32`，>4.29s 的 schedule 把所有脉冲提前标「已完成」。 |
+| 半截基线 | 已纠偏（2026-08-17） | [vdc_sync_io_adapter.c:63-77](components/vdc_domain/src/vdc_sync_io_adapter.c#L63-L77) | ambiguous word 不再把中间样本写入 `*last_sample_mask`；现在会消费完整 word 的末样本作为下一 word 基线，单测覆盖 final mask。 |
 
 ---
 
 ## 5. P2 半接线路径（报成功/有效但实际不生效或不可靠）
 
-| 项 | 位置 | 说明 |
-|---|---|---|
-| wrap tracker 高 32 位被重置 | [vdc_domain.c:1615](components/vdc_domain/src/vdc_domain.c#L1615) → [vdc_timestamp.c:241-252](components/vdc_domain/src/vdc_timestamp.c#L241-L252) | 发布 timestamp dictionary 时 `vdc_wrap_tracker_init` `memset` 清零 `tick_hi64`；observer 播种（[vdc_dpll_manager.c:673-678](components/vdc_dpll_manager/src/vdc_dpll_manager.c#L673-L678)）的高位被抹掉。>4.29s uptime 后时间戳错 2³² ns。两路审查独立命中。 |
-| 锁质量用残差非入相 | [vdc_domain.c:1701-1705](components/vdc_domain/src/vdc_domain.c#L1701-L1705) | lock 判据与 quality tier 用**校正后**残差（`phase_error + phase_offset`），非入相误差；90µs 阶跃一步校正后报 `FINE_100NS/LOCKED`，offset 统计系统性偏小。 |
-| slew_limit 硬编码 | [vdc_domain.c:879](components/vdc_domain/src/vdc_domain.c#L879) | `clock.slew_limit_ppb = 50000` 永不同步 `servo.sanity_freq_limit_ppb`；DCO 校验 [:977](components/vdc_domain/src/vdc_domain.c#L977) 会拒绝收紧后的 profile。 |
-| ENC_COUNT DMA IRQ 死 | [sync_io_mode_enc_count.c:147](components/sync_io/src/sync_io_mode_enc_count.c#L147) | DMA transfer count 设 `0xFFFFFFFF` 永不完成，IRQ 不触发；`fire_count`/`dma_restart_count`/overflow 检测全死。 |
-| SEQ_STEP gate 绑死 +3 | [seq_step.pio:48](components/sync_io/src/seq_step.pio#L48) | gated 程序 `wait 1 pin, 3` 绑 `in_pin_base+3`，仅 `trigger_pin==4` 时 gate 正确；5/6/7 静默绑到 GPIO8/9/10。 |
-| 共享 SM 无互斥 | [sync_io_mode_seq_step.c:155](components/sync_io/src/sync_io_mode_seq_step.c#L155) / [enc_count.c:117](components/sync_io/src/sync_io_mode_enc_count.c#L117) | SEQ_STEP 与 ENC_COUNT 共用 `BOARD_SYNC_OUTPUT_SM`，各自 arm 互不检查；唯一 guard 是 NDEBUG 下消失的 assert。 |
-| fire 报成功 SM 已禁用 | [sync_io.c:1134/1279](components/sync_io/src/sync_io.c#L1134) | `fire_pulse_on_sm` 不检查目标 SM enabled；debug output-mask 禁用 SM 后仍返回 true，脉冲实际没出。 |
-| DMA 通道未 claim | [sync_io.c:763](components/sync_io/src/sync_io.c#L763) 等 | ENC_COUNT(ch1)/SEQ_STEP(ch0)/model(ch2) 未 `dma_channel_claim`，其他子系统可能抢占同一通道。 |
-| Z 脉冲 IRQ 无 handler | [enc_count.pio:46](components/sync_io/src/enc_count.pio#L46) | `irq 0` 每 Z 沿置位，但只注册了 DMA IRQ handler，转数计数无人服务。 |
-| 死遥测 | [vdc_dpll_manager.c:425-427](components/vdc_dpll_manager/src/vdc_dpll_manager.c#L425-L427) | `next_base_time_l32_ns` 写入并发布，但 decode 从未读它；缺硬件 base 时回退逻辑未接线。 |
-| RX self-test 超时忽略 lead | [vdc_dpll_manager.c:161-173](components/vdc_dpll_manager/src/vdc_dpll_manager.c#L161-L173) | RX 拆除超时 = `start_delay + period×count + 250ms`；1s schedule 下 ~250ms 就 disarm，而观测窗口最远可到 ~1s 后，自测永远采不到自己生成的脉冲串。 |
-| wrap 边界严格 `>` | [vdc_timestamp.c:280-292](components/vdc_domain/src/vdc_timestamp.c#L280-L292) | 后退量恰为 `0x80000000` 被判为后退（非 wrap）；真前跳分支却递增 `backward_reject_count`（命名误导）。现实周期下无实际故障，仅建议文档化。 |
+| 项 | 状态 | 位置 | 说明 |
+|---|---|---|---|
+| wrap tracker 高 32 位被重置 | 已纠偏（2026-08-17） | [vdc_domain.c:1615](components/vdc_domain/src/vdc_domain.c#L1615) → [vdc_timestamp.c:241-252](components/vdc_domain/src/vdc_timestamp.c#L241-L252) | 新增 `vdc_wrap_tracker_reanchor()`，发布 timestamp dictionary 时只更新低 32 位锚点，不清 `tick_hi64/wrap_count/backward_reject_count`；单测覆盖 reanchor 后仍保持 `0x1_0000_0000` 高位。 |
+| 锁质量用残差非入相 | 待纠偏 | [vdc_domain.c:1701-1705](components/vdc_domain/src/vdc_domain.c#L1701-L1705) | lock 判据与 quality tier 用**校正后**残差（`phase_error + phase_offset`），非入相误差；90µs 阶跃一步校正后报 `FINE_100NS/LOCKED`，offset 统计系统性偏小。 |
+| slew_limit 硬编码 | 待纠偏 | [vdc_domain.c:879](components/vdc_domain/src/vdc_domain.c#L879) | `clock.slew_limit_ppb = 50000` 永不同步 `servo.sanity_freq_limit_ppb`；DCO 校验 [:977](components/vdc_domain/src/vdc_domain.c#L977) 会拒绝收紧后的 profile。 |
+| ENC_COUNT DMA IRQ 死 | 待纠偏 | [sync_io_mode_enc_count.c:147](components/sync_io/src/sync_io_mode_enc_count.c#L147) | DMA transfer count 设 `0xFFFFFFFF` 永不完成，IRQ 不触发；`fire_count`/`dma_restart_count`/overflow 检测全死。 |
+| SEQ_STEP gate 绑死 +3 | 已澄清，待移出风险项 | [seq_step.pio:48](components/sync_io/src/seq_step.pio#L48) | `wait 1 pin,3` 是固定 GATE 输入 GPIO19；触发源 wait 指令已在 `seq_step_program_init_common()` 中按 GPIO16-19 offset patch。该项不是当前故障，但文档仍需从风险表移到设计说明。 |
+| 共享 SM 无互斥 | 待纠偏 | [sync_io_mode_seq_step.c:155](components/sync_io/src/sync_io_mode_seq_step.c#L155) / [enc_count.c:117](components/sync_io/src/sync_io_mode_enc_count.c#L117) | SEQ_STEP 与 ENC_COUNT 共用 `BOARD_SYNC_OUTPUT_SM`，各自 arm 互不检查；唯一 guard 是 NDEBUG 下消失的 assert。 |
+| fire 报成功 SM 已禁用 | 待纠偏 | [sync_io.c:1134/1279](components/sync_io/src/sync_io.c#L1134) | `fire_pulse_on_sm` 不检查目标 SM enabled；debug output-mask 禁用 SM 后仍返回 true，脉冲实际没出。 |
+| DMA 通道未 claim | 部分已纠偏，待补齐 | [sync_io.c:763](components/sync_io/src/sync_io.c#L763) 等 | capture DMA 已 claim；ENC_COUNT(ch1)/SEQ_STEP(ch0)/model(ch2) 仍需纳入统一 claim/owner 机制，避免其他子系统抢占。 |
+| Z 脉冲 IRQ 无 handler | 待纠偏 | [enc_count.pio:46](components/sync_io/src/enc_count.pio#L46) | `irq 0` 每 Z 沿置位，但只注册了 DMA IRQ handler，转数计数无人服务。 |
+| 死遥测 | 待纠偏 | [vdc_dpll_manager.c:425-427](components/vdc_dpll_manager/src/vdc_dpll_manager.c#L425-L427) | `next_base_time_l32_ns` 写入并发布，但 decode 从未读它；缺硬件 base 时回退逻辑未接线。 |
+| RX self-test 超时忽略 lead | 待纠偏 | [vdc_dpll_manager.c:161-173](components/vdc_dpll_manager/src/vdc_dpll_manager.c#L161-L173) | RX 拆除超时 = `start_delay + period×count + 250ms`；1s schedule 下 ~250ms 就 disarm，而观测窗口最远可到 ~1s 后，自测永远采不到自己生成的脉冲串。 |
+| wrap 边界严格 `>` | 待文档化 | [vdc_timestamp.c:280-292](components/vdc_domain/src/vdc_timestamp.c#L280-L292) | 后退量恰为 `0x80000000` 被判为后退（非 wrap）；真前跳分支却递增 `backward_reject_count`（命名误导）。现实周期下无实际故障，仅建议文档化。 |
 
 ---
 
@@ -129,11 +129,11 @@ Last updated: 2026-08-17
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 1 | 修 `dco_update_seq` 单调性（§3.1） | 已完成；后续板端需复查 `SYSTem:SYNC:VDC:DCO?` 中 `accepted_update_count` 是否随真实 evidence 增长。 |
-| 2 | 修 `accepted_sample_count` 重置（§3.2） | 已完成；`accepted_sample_count` 当前按连续锁相获取 streak 使用。 |
-| 3 | 钳 `seq_width` 到 4 或参数化 PIO（§3.3） | 已完成；当前绑定 `BOARD_SYNC_OUTPUT_PIN_COUNT=4`，未做可变宽 PIO 程序。 |
-| 4 | 修 wrap tracker 高位重置（§5.1） | 两路独立命中，>4.29s 后时间戳整体错位，直接影响 DPLL 输入正确性。 |
-| 5 | 清 sync_io 边界 bug（§4 + §5 剩余） | 溢出、丢字、ISR 破坏、SM 无互斥、假 fire——批量处理，多数改动小。 |
+| 1 | 修 `dco_update_seq` 单调性（§3.1） | 已纠偏；后续板端需复查 `SYSTem:SYNC:VDC:DCO?` 中 `accepted_update_count` 是否随真实 evidence 增长。 |
+| 2 | 修 `accepted_sample_count` 重置（§3.2） | 已纠偏；`accepted_sample_count` 当前按连续锁相获取 streak 使用。 |
+| 3 | 钳 `seq_width` 到 4 或参数化 PIO（§3.3） | 已纠偏；当前绑定 `BOARD_SYNC_OUTPUT_PIN_COUNT=4`，未做可变宽 PIO 程序。 |
+| 4 | 修 wrap tracker 高位重置（§5.1） | 已纠偏；下一步可进入锁质量口径和 sync_io 剩余边界 bug。 |
+| 5 | 清 sync_io 边界 bug（§4 + §5 剩余） | 部分已纠偏：`word_span_ns` 溢出、SEQ gate 前置校验、ambiguous 基线已完成；DMA 丢字、ISR 注入、completion 饱和、SM 互斥、假 fire 仍待处理。 |
 | 6 | 补 manager/sync_io 单测（§7.1/7.3） | 高风险集成层当前零 host 覆盖。 |
 | 7 | 统一文档漂移（§6） | 先删不存在的 `task_vdc_sync`/`task_dpll` 壳描述与过期 TODO 状态，再对齐枚举/公式/SCPI 树。 |
 | 8 | 专项审 `components/tdma` 本体（§1 范围外） | TDMA 是 VDC 稳定性的前置条件，`tdma_service.c` 尚未逐行审。 |

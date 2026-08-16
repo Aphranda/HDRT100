@@ -113,6 +113,8 @@ bool vdc_timestamp_dictionary_apply(
 void vdc_wrap_tracker_init(vdc_wrap_tracker_t *tracker,
                            uint32_t initial_tick_l32);
 void vdc_wrap_tracker_init_open(vdc_wrap_tracker_t *tracker);
+void vdc_wrap_tracker_reanchor(vdc_wrap_tracker_t *tracker,
+                               uint32_t initial_tick_l32);
 bool vdc_wrap_tracker_extend_tick(vdc_wrap_tracker_t *tracker,
                                   uint32_t tick_l32,
                                   uint32_t max_backward_ticks,

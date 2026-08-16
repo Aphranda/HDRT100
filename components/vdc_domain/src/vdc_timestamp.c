@@ -261,6 +261,22 @@ void vdc_wrap_tracker_init_open(vdc_wrap_tracker_t *tracker)
     tracker->valid = 1u;
 }
 
+void vdc_wrap_tracker_reanchor(vdc_wrap_tracker_t *tracker,
+                               uint32_t initial_tick_l32)
+{
+    if (tracker == NULL) {
+        return;
+    }
+
+    if (tracker->valid == 0u) {
+        vdc_wrap_tracker_init(tracker, initial_tick_l32);
+        return;
+    }
+
+    tracker->anchor_valid = 1u;
+    tracker->last_tick_l32 = initial_tick_l32;
+}
+
 bool vdc_wrap_tracker_extend_tick(vdc_wrap_tracker_t *tracker,
                                   uint32_t tick_l32,
                                   uint32_t max_backward_ticks,

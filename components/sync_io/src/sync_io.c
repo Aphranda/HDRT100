@@ -38,6 +38,7 @@
 #define SYNC_IO_CAPTURE_DMA_RING_BYTES \
     (SYNC_IO_CAPTURE_DMA_RING_WORDS * sizeof(uint32_t))
 #define SYNC_IO_CAPTURE_LATCH_SERVICE_MAX_WORDS 2048u
+#define SYNC_IO_CAPTURE_WORD_SAMPLES 8u
 #define SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK 2u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DPLL_ELIGIBLE   0x00000002u
@@ -530,7 +531,7 @@ static uint32_t sync_io_capture_latch_flags_for_word(uint64_t word_start_ns,
 
 static void sync_io_capture_latch_discard_outside_window(
     uint32_t produced,
-    uint32_t word_span_ns)
+    uint64_t word_span_ns)
 {
     if (!s_sync_io.capture_timestamp_window_armed ||
         !s_sync_io.capture_timebase_valid ||
@@ -970,7 +971,8 @@ void sync_io_capture_latch_service_core1(void)
 
     const uint32_t sample_period_ns =
         sync_io_capture_sample_period_ns(s_sync_io.capture_sample_hz);
-    const uint32_t word_span_ns = sample_period_ns * 8u;
+    const uint64_t word_span_ns =
+        (uint64_t)sample_period_ns * SYNC_IO_CAPTURE_WORD_SAMPLES;
     const uint32_t produced = sync_io_capture_dma_produced_words();
 
     sync_io_capture_latch_discard_outside_window(produced, word_span_ns);
