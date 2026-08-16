@@ -1,4 +1,5 @@
 #include "vdc_domain.h"
+#include "vdc_sync_io_adapter.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -581,6 +582,124 @@ static int test_context_submits_compact_observation(void)
     return failed;
 }
 
+static int test_sync_io_adapter_contract(void)
+{
+    int failed = 0;
+    vdc_sync_io_capture_decode_config_t config;
+    vdc_compact_observation_sample_t compact;
+    uint32_t last_sample_mask = 0u;
+
+    (void)memset(&config, 0, sizeof(config));
+    config.valid = 1u;
+    config.sample_seq = 12u;
+    config.rising_event_id = 41u;
+    config.falling_event_id = 42u;
+    config.observed_mask = 0x1u;
+    config.previous_sample_mask = 0u;
+    config.base_time_l32_ns = 100u;
+    config.sample_period_ns = 40u;
+    config.expected_window_start_ns = 0u;
+    config.frame_crc32 = 0x5555u;
+    config.sample0_lsb = true;
+
+    const uint32_t raw_rising_at_sample2 =
+        (1u << 8) | (1u << 12) | (1u << 16) | (1u << 20) |
+        (1u << 24) | (1u << 28);
+    failed += expect_u32("sync io adapter rising result",
+                         vdc_sync_io_capture_word_to_compact_observation(
+                             &config,
+                             raw_rising_at_sample2,
+                             &compact,
+                             &last_sample_mask),
+                         VDC_SYNC_IO_CAPTURE_OK);
+    failed += expect_u32("sync io adapter valid", compact.valid, 1u);
+    failed += expect_u32("sync io adapter event", compact.event_id, 41u);
+    failed += expect_u32("sync io adapter tick", compact.tick_l32, 180u);
+    failed += expect_u32("sync io adapter frame crc",
+                         compact.frame_crc32,
+                         0x5555u);
+    failed += expect_bool("sync io adapter sample crc nonzero",
+                          compact.sample_crc32 != 0u,
+                          true);
+    failed += expect_u32("sync io adapter last mask", last_sample_mask, 1u);
+
+    config.previous_sample_mask = last_sample_mask;
+    failed += expect_u32("sync io adapter no edge",
+                         vdc_sync_io_capture_word_to_compact_observation(
+                             &config,
+                             0x11111111u,
+                             &compact,
+                             &last_sample_mask),
+                         VDC_SYNC_IO_CAPTURE_NO_EDGE);
+
+    config.previous_sample_mask = 0u;
+    failed += expect_u32("sync io adapter ambiguous",
+                         vdc_sync_io_capture_word_to_compact_observation(
+                             &config,
+                             0x00000001u,
+                             &compact,
+                             &last_sample_mask),
+                         VDC_SYNC_IO_CAPTURE_AMBIGUOUS_EDGE);
+    return failed;
+}
+
+static int test_sync_io_adapter_to_vdc_submit(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_sync_io_capture_decode_config_t config;
+    vdc_compact_observation_sample_t compact;
+    vdc_domain_snapshot_t snapshot;
+    uint32_t last_sample_mask = 0u;
+
+    failed += expect_bool("sync io vdc context init",
+                          vdc_domain_init(&context),
+                          true);
+    vdc_domain_set_ready(&context, true);
+    make_timestamp_dictionary_for_schedule(&context.schedule,
+                                           &dictionary,
+                                           51u,
+                                           VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE);
+    failed += expect_bool("sync io vdc dictionary publish",
+                          vdc_domain_publish_timestamp_dictionary(&context,
+                                                                  &dictionary,
+                                                                  0u),
+                          true);
+
+    (void)memset(&config, 0, sizeof(config));
+    config.valid = 1u;
+    config.sample_seq = 1u;
+    config.rising_event_id = 51u;
+    config.falling_event_id = 52u;
+    config.observed_mask = 0x1u;
+    config.previous_sample_mask = 0u;
+    config.base_time_l32_ns = 0u;
+    config.sample_period_ns = 40u;
+    config.expected_window_start_ns = 0u;
+    config.frame_crc32 = 0x6666u;
+    config.sample0_lsb = true;
+    failed += expect_u32("sync io vdc adapter result",
+                         vdc_sync_io_capture_word_to_compact_observation(
+                             &config,
+                             0x11111110u,
+                             &compact,
+                             &last_sample_mask),
+                         VDC_SYNC_IO_CAPTURE_OK);
+    failed += expect_bool("sync io vdc submit",
+                          vdc_domain_submit_compact_observation(&context,
+                                                                &compact),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("sync io vdc accepted",
+                         snapshot.dpll.accepted_sample_count,
+                         1u);
+    failed += expect_i32("sync io vdc phase",
+                         snapshot.dpll.last_phase_error_ns,
+                         40);
+    return failed;
+}
+
 static int test_gate_rejects_schedule_and_window_mismatch(void)
 {
     int failed = 0;
@@ -943,6 +1062,7 @@ int main(void)
     failed += test_timestamp_dictionary_contract();
     failed += test_wrap_tracker_contract();
     failed += test_compact_observation_contract();
+    failed += test_sync_io_adapter_contract();
     failed += test_gate_rejects_diagnostic_timestamp();
     failed += test_gate_rejects_schedule_and_window_mismatch();
     failed += test_frame_envelope_window_contract();
@@ -950,6 +1070,7 @@ int main(void)
     failed += test_dco_control_contract();
     failed += test_context_accepts_samples_until_locked();
     failed += test_context_submits_compact_observation();
+    failed += test_sync_io_adapter_to_vdc_submit();
     failed += test_quality_age_updates_on_service();
     failed += test_dpll_updates_clock_rate_from_sample_period();
     if (failed != 0) {

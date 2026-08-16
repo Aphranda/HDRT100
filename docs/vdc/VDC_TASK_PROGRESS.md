@@ -43,6 +43,34 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-016 - Sync IO capture adapter contract
+
+- 状态：完成 host/build 验证；`sync_io_read_capture_words()` 到 adapter 的任务接线和板端 HIL 待后续实现
+- 日期：2026-08-16
+- 任务目标：
+  - 参考 RefMem 的适配层思路，在 VDC 侧建立 raw capture word 到 compact observation 的稳定 contract。
+  - 保持 HAOFV 边界：adapter 只解析边沿和生成 compact fact，不访问 `sync_io` 内部状态，不写 DPLL offset/rate/lock。
+- 完成内容：
+  - 新增 `vdc_sync_io_adapter.h/.c`。
+  - `vdc_sync_io_capture_word_to_compact_observation()` 支持 8 个 4-bit sample word、observed mask、rising/falling event id、sample period、base time 和 expected window。
+  - adapter 输出 `VdcCompactObservationSample`，由 VDC active dictionary 决定 source/resolution/flags；adapter 本身不声明样本可进入 DPLL。
+  - 单元测试覆盖 rising edge 解码、no edge、ambiguous edge，以及 adapter 输出通过 `vdc_domain_submit_compact_observation()` 进入 VDC gate。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+- 还需完成：
+  - 在 `task_vdc_sync` 或 core1 realtime 边界读取 `sync_io_read_capture_words()` / capture ring，将真实 word 投递到 adapter。
+  - 对 COM5/COM6 增加 HIL 证据：raw word、edge index、event id、tick_l32、dictionary CRC、gate result。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_sync_io_adapter.h`
+  - `components/vdc_domain/src/vdc_sync_io_adapter.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 接实际 capture source，但仍不得把默认 1 MHz capture 或软件时间戳冒充为 100 ns hardware evidence。
+
 ### VDC-TASK-20260816-015 - Compact observation evidence gate
 
 - 状态：完成 host/build 验证；真实 PIO/DMA capture ring 尚未接入

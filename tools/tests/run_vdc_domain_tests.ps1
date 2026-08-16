@@ -10,6 +10,7 @@ $build = Join-Path $repo $BuildDir
 $vdcInclude = Join-Path $repo "components\vdc_domain\inc"
 $testSource = Join-Path $repo "tests\unit\test_vdc_domain.c"
 $vdcSource = Join-Path $repo "components\vdc_domain\src\vdc_domain.c"
+$vdcSyncIoAdapterSource = Join-Path $repo "components\vdc_domain\src\vdc_sync_io_adapter.c"
 $vdcTimestampSource = Join-Path $repo "components\vdc_domain\src\vdc_timestamp.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
@@ -62,7 +63,7 @@ if (-not $hostCc) {
 
 if ($hostCc) {
     $exe = Join-Path $build "test_vdc_domain.exe"
-    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$vdcInclude" $testSource $vdcSource $vdcTimestampSource -o $exe
+    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$vdcInclude" $testSource $vdcSource $vdcSyncIoAdapterSource $vdcTimestampSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -82,7 +83,7 @@ if (-not (Test-Path $ArmGcc)) {
     throw "No host C compiler found and ARM GCC not found at $ArmGcc"
 }
 
-foreach ($source in @($testSource, $vdcSource, $vdcTimestampSource)) {
+foreach ($source in @($testSource, $vdcSource, $vdcSyncIoAdapterSource, $vdcTimestampSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$vdcInclude" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {

@@ -1,5 +1,6 @@
 add_library(vdc_domain STATIC
     src/vdc_domain.c
+    src/vdc_sync_io_adapter.c
     src/vdc_timestamp.c
 )
 

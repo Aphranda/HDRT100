@@ -453,6 +453,8 @@ VDC Domain 首版冻结以下基础表。字段可以分阶段实现，但 owner
 
 `VdcCompactObservationSample` 是 PIO/DMA/core1 capture fact 进入 VDC 的最小载荷。它只包含 `sample_seq`、`event_id`、`tick_l32`、expected window、CRC 和质量摘要；VDC owner 必须先用 active `VdcTimestampDictionary` 展开 event，再用 `VdcWrapTracker` 扩展 tick，最后生成 `VdcTDMATimestampEvidence` 并经过 observation window gate。禁止 realtime IO、RefMem、SCPI 或 storage 直接构造 DPLL accepted sample。
 
+`VdcSyncIoAdapter` 是 VDC 侧的 raw capture word 适配层。它可以把 `sync_capture_4bit` 的 8 个 4-bit sample word 按 `sample_period_ns`、edge event id 和 observed mask 转换为 `VdcCompactObservationSample`；它不访问 `sync_io` 内部状态，不计算 DPLL，也不声明样本可锁相。样本是否具备 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 资格，只由 active `VdcTimestampDictionary` 和 VDC gate 判定。
+
 ### 核心字段
 
 VDC snapshot 至少需要覆盖：
