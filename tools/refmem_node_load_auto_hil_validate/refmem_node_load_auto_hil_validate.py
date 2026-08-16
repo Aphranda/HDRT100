@@ -36,6 +36,8 @@ ADAPTER_DUPLEX_HALF = 1
 NODE_LOAD_TABLE_ID = 3
 NODE_LOAD_TABLE_MASK = 1 << NODE_LOAD_TABLE_ID
 NODE_LOAD_DELTA_FRAME_TYPE = 3
+MIN_SYSTEM_ADAPTER_PROFILE = "min-system-gpio16-24"
+IO_PREFLIGHT_ADAPTER_PROFILE = "io-preflight"
 
 
 @dataclass(frozen=True)
@@ -268,6 +270,35 @@ def slave_pins(receiver_profile: IoProfile, receiver_to_sender: list[int]) -> Ad
     )
 
 
+def min_system_adapter_plan(board: str) -> AdapterPlan:
+    if board == "A":
+        return AdapterPlan(
+            uplink_duplex_mode=ADAPTER_DUPLEX_HALF,
+            uplink_adapter=AdapterPins(16, 18, 23),
+            downlink_duplex_mode=ADAPTER_DUPLEX_HALF,
+            downlink_adapter=AdapterPins(16, 22, 23),
+        )
+    if board == "B":
+        return AdapterPlan(
+            uplink_duplex_mode=ADAPTER_DUPLEX_HALF,
+            uplink_adapter=AdapterPins(16, 18, 23),
+            downlink_duplex_mode=ADAPTER_DUPLEX_HALF,
+            downlink_adapter=AdapterPins(16, 21, 23),
+        )
+    raise ValueError(f"unknown board {board!r}")
+
+
+def write_io_preflight_result(out_dir: Path,
+                              io_preflight: dict[str, object] | None) -> None:
+    if io_preflight is None:
+        return
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "io_preflight_result.json").write_text(
+        json.dumps(io_preflight, indent=2),
+        encoding="utf-8",
+    )
+
+
 def run_io_preflight(args: argparse.Namespace) -> dict[str, object]:
     quiesce_records: list[dict[str, str]] = []
     for port in (args.port_a, args.port_b):
@@ -304,16 +335,31 @@ def run_io_preflight(args: argparse.Namespace) -> dict[str, object]:
         "--out-dir", str(preflight_dir),
         "--timeout", str(args.timeout_s),
     ]
-    completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
+    preflight_timeout_s = max(10.0, args.timeout_s * 8.0)
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=preflight_timeout_s,
+        )
+        returncode = completed.returncode
+        stdout = completed.stdout
+        stderr = completed.stderr
+    except subprocess.TimeoutExpired as exc:
+        returncode = 124
+        stdout = exc.stdout or ""
+        stderr = (exc.stderr or "") + f"\n<timeout:{preflight_timeout_s:.1f}s>"
     summary_path = preflight_dir / "summary.json"
     summary: dict[str, object] = {}
     if summary_path.exists():
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
     return {
         "command": command,
-        "returncode": completed.returncode,
-        "stdout": completed.stdout,
-        "stderr": completed.stderr,
+        "returncode": returncode,
+        "stdout": stdout,
+        "stderr": stderr,
         "summary_path": str(summary_path),
         "summary": summary,
         "quiesce": quiesce_records,
@@ -350,7 +396,7 @@ def run_checked(records: list[Record],
     except AssertionError as exc:
         record = Record(board, command, response, "FAIL", str(exc))
     records.append(record)
-    print(f"{record.status} {board} {command} => {response}")
+    print(f"{record.status} {board} {command} => {response}", flush=True)
     if record.status != "PASS":
         raise SystemExit(1)
     return response
@@ -384,20 +430,21 @@ def wait_auto_rx(records: list[Record],
                  board: str,
                  ser: serial.Serial,
                  *,
-                 timeout_s: float,
+                 query_timeout_s: float,
+                 sync_timeout_s: float,
                  poll_s: float) -> list[int]:
-    deadline = time.monotonic() + timeout_s
+    deadline = time.monotonic() + sync_timeout_s
     last_response = "<not-polled>"
     while time.monotonic() < deadline:
-        last_response = query(ser, "SYSTem:REFMEM:SYNC:AUTO?", timeout_s)
+        last_response = query(ser, "SYSTem:REFMEM:SYNC:AUTO?", query_timeout_s)
         values = auto_values(last_response)
         if values[0] == 1 and values[14] == AUTO_INTENT_RX_WINDOW:
             records.append(Record(board, "SYSTem:REFMEM:SYNC:AUTO?", last_response, "PASS", "rx window active"))
-            print(f"PASS {board} SYSTem:REFMEM:SYNC:AUTO? => {last_response}")
+            print(f"PASS {board} SYSTem:REFMEM:SYNC:AUTO? => {last_response}", flush=True)
             return values
         time.sleep(poll_s)
     records.append(Record(board, "SYSTem:REFMEM:SYNC:AUTO?", last_response, "FAIL", "rx window timeout"))
-    print(f"FAIL {board} SYSTem:REFMEM:SYNC:AUTO? => {last_response}")
+    print(f"FAIL {board} SYSTem:REFMEM:SYNC:AUTO? => {last_response}", flush=True)
     raise SystemExit(1)
 
 
@@ -405,32 +452,34 @@ def wait_auto_maintenance(records: list[Record],
                           board: str,
                           ser: serial.Serial,
                           *,
-                          timeout_s: float,
+                          query_timeout_s: float,
+                          sync_timeout_s: float,
                           poll_s: float,
                           maintenance_s: float) -> None:
     first_auto = wait_auto_rx(records,
                               board,
                               ser,
-                              timeout_s=timeout_s,
+                              query_timeout_s=query_timeout_s,
+                              sync_timeout_s=sync_timeout_s,
                               poll_s=poll_s)
-    first_tdma_response = query(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", timeout_s)
+    first_tdma_response = query(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", query_timeout_s)
     first_tdma = tdma_status_values(first_tdma_response)
     records.append(Record(board,
                           "SYSTem:REFMEM:SYNC:TDMA:STATus?",
                           first_tdma_response,
                           "PASS",
                           "maintenance baseline"))
-    print(f"PASS {board} SYSTem:REFMEM:SYNC:TDMA:STATus? => {first_tdma_response}")
+    print(f"PASS {board} SYSTem:REFMEM:SYNC:TDMA:STATus? => {first_tdma_response}", flush=True)
 
     time.sleep(maintenance_s)
 
-    deadline = time.monotonic() + timeout_s
+    deadline = time.monotonic() + sync_timeout_s
     last_auto_response = "<not-polled>"
     last_tdma_response = "<not-polled>"
     while time.monotonic() < deadline:
-        last_auto_response = query(ser, "SYSTem:REFMEM:SYNC:AUTO?", timeout_s)
+        last_auto_response = query(ser, "SYSTem:REFMEM:SYNC:AUTO?", query_timeout_s)
         last_auto = auto_values(last_auto_response)
-        last_tdma_response = query(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", timeout_s)
+        last_tdma_response = query(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", query_timeout_s)
         last_tdma = tdma_status_values(last_tdma_response)
         rx_progress = last_auto[18] > first_auto[18]
         core1_progress = last_tdma[3] > first_tdma[3] or last_tdma[5] > first_tdma[5]
@@ -450,8 +499,8 @@ def wait_auto_maintenance(records: list[Record],
                                   last_tdma_response,
                                   "PASS",
                                   "core1 tdma progressed"))
-            print(f"PASS {board} SYSTem:REFMEM:SYNC:AUTO? => {last_auto_response}")
-            print(f"PASS {board} SYSTem:REFMEM:SYNC:TDMA:STATus? => {last_tdma_response}")
+            print(f"PASS {board} SYSTem:REFMEM:SYNC:AUTO? => {last_auto_response}", flush=True)
+            print(f"PASS {board} SYSTem:REFMEM:SYNC:TDMA:STATus? => {last_tdma_response}", flush=True)
             return
         time.sleep(poll_s)
 
@@ -465,8 +514,8 @@ def wait_auto_maintenance(records: list[Record],
                           last_tdma_response,
                           "FAIL",
                           "core1 tdma did not progress cleanly"))
-    print(f"FAIL {board} SYSTem:REFMEM:SYNC:AUTO? => {last_auto_response}")
-    print(f"FAIL {board} SYSTem:REFMEM:SYNC:TDMA:STATus? => {last_tdma_response}")
+    print(f"FAIL {board} SYSTem:REFMEM:SYNC:AUTO? => {last_auto_response}", flush=True)
+    print(f"FAIL {board} SYSTem:REFMEM:SYNC:TDMA:STATus? => {last_tdma_response}", flush=True)
     raise SystemExit(1)
 
 
@@ -477,12 +526,13 @@ def wait_sync_applied(records: list[Record],
                       base_applied: int,
                       expected_count: int,
                       expected_source_slot: int,
-                      timeout_s: float,
+                      query_timeout_s: float,
+                      sync_timeout_s: float,
                       poll_s: float) -> list[int]:
-    deadline = time.monotonic() + timeout_s
+    deadline = time.monotonic() + sync_timeout_s
     last_response = "<not-polled>"
     while time.monotonic() < deadline:
-        last_response = query(ser, "SYSTem:REFMEM:SYNC:AUTO?", timeout_s)
+        last_response = query(ser, "SYSTem:REFMEM:SYNC:AUTO?", query_timeout_s)
         values = auto_values(last_response)
         if (values[19] >= base_applied + expected_count and
                 values[22] == 0 and
@@ -490,11 +540,11 @@ def wait_sync_applied(records: list[Record],
                 values[24] == expected_source_slot and
                 values[25] == 0):
             records.append(Record(board, "SYSTem:REFMEM:SYNC:AUTO?", last_response, "PASS", "node load applied"))
-            print(f"PASS {board} SYSTem:REFMEM:SYNC:AUTO? => {last_response}")
+            print(f"PASS {board} SYSTem:REFMEM:SYNC:AUTO? => {last_response}", flush=True)
             return values
         time.sleep(poll_s)
     records.append(Record(board, "SYSTem:REFMEM:SYNC:AUTO?", last_response, "FAIL", "apply timeout"))
-    print(f"FAIL {board} SYSTem:REFMEM:SYNC:AUTO? => {last_response}")
+    print(f"FAIL {board} SYSTem:REFMEM:SYNC:AUTO? => {last_response}", flush=True)
     raise SystemExit(1)
 
 
@@ -558,7 +608,12 @@ def run_direction(records: list[Record],
                   timeout_s: float,
                   sync_timeout_s: float,
                   poll_s: float) -> None:
-    peer_auto = wait_auto_rx(records, peer_name, peer, timeout_s=sync_timeout_s, poll_s=poll_s)
+    peer_auto = wait_auto_rx(records,
+                             peer_name,
+                             peer,
+                             query_timeout_s=timeout_s,
+                             sync_timeout_s=sync_timeout_s,
+                             poll_s=poll_s)
     source_auto = auto_values(query(source, "SYSTem:REFMEM:SYNC:AUTO?", timeout_s))
     base_source_tx = source_auto[17]
     base_peer_applied = peer_auto[19]
@@ -578,7 +633,8 @@ def run_direction(records: list[Record],
                       base_applied=base_peer_applied,
                       expected_count=len(loads),
                       expected_source_slot=source_slot,
-                      timeout_s=sync_timeout_s,
+                      query_timeout_s=timeout_s,
+                      sync_timeout_s=sync_timeout_s,
                       poll_s=poll_s)
 
     source_after = auto_values(query(source, "SYSTem:REFMEM:SYNC:AUTO?", timeout_s))
@@ -603,10 +659,10 @@ def drain_errors(records: list[Record], board: str, ser: serial.Serial, timeout_
         fields = parse_csv(response)
         if len(fields) >= 2 and fields[0].strip('"') == "0":
             records.append(Record(board, "SYSTem:ERRor?", response, "PASS", "error queue clean"))
-            print(f"PASS {board} SYSTem:ERRor? => {response}")
+            print(f"PASS {board} SYSTem:ERRor? => {response}", flush=True)
             return
         records.append(Record(board, "SYSTem:ERRor?", response, "INFO", "stale error drained"))
-        print(f"INFO {board} SYSTem:ERRor? => {response}")
+        print(f"INFO {board} SYSTem:ERRor? => {response}", flush=True)
         time.sleep(0.05)
 
 
@@ -627,6 +683,15 @@ def main() -> int:
     parser.add_argument("--downlink-adapter-a", default="")
     parser.add_argument("--uplink-adapter-b", default="")
     parser.add_argument("--downlink-adapter-b", default="")
+    parser.add_argument(
+        "--adapter-profile",
+        choices=(MIN_SYSTEM_ADAPTER_PROFILE, IO_PREFLIGHT_ADAPTER_PROFILE),
+        default=MIN_SYSTEM_ADAPTER_PROFILE,
+        help=(
+            "default uses the current GPIO16-24 TDMA comm loop; "
+            "io-preflight derives pins from REALtime:IO overlay wiring"
+        ),
+    )
     parser.add_argument("--line-remap-a-to-b", default="auto")
     parser.add_argument("--line-remap-b-to-a", default="auto")
     parser.add_argument("--skip-io-preflight", action="store_true")
@@ -672,10 +737,18 @@ def main() -> int:
     io_preflight: dict[str, object] | None = None
     remap_a_to_b = explicit_line_map(args.line_remap_a_to_b)
     remap_b_to_a = explicit_line_map(args.line_remap_b_to_a)
-    if explicit_a.uplink_adapter is None and not args.skip_io_preflight:
+    use_io_preflight = (
+        explicit_a.uplink_adapter is None and
+        args.adapter_profile == IO_PREFLIGHT_ADAPTER_PROFILE
+    )
+    if use_io_preflight and not args.skip_io_preflight:
         io_preflight = run_io_preflight(args)
-    if explicit_a.uplink_adapter is None and (remap_a_to_b is None or remap_b_to_a is None):
+    if use_io_preflight and (remap_a_to_b is None or remap_b_to_a is None):
         if io_preflight is None or io_preflight["returncode"] != 0:
+            write_io_preflight_result(args.out_dir, io_preflight)
+            if io_preflight is not None:
+                print(io_preflight.get("stdout", ""), end="", flush=True)
+                print(io_preflight.get("stderr", ""), end="", file=sys.stderr, flush=True)
             raise SystemExit("IO preflight is required for auto line remap")
         if remap_a_to_b is None:
             remap_a_to_b = read_observed_map(io_preflight, "A", "B")
@@ -691,6 +764,9 @@ def main() -> int:
         if explicit_a.uplink_adapter is not None and explicit_b.uplink_adapter is not None:
             plan_a = explicit_a
             plan_b = explicit_b
+        elif args.adapter_profile == MIN_SYSTEM_ADAPTER_PROFILE:
+            plan_a = min_system_adapter_plan("A")
+            plan_b = min_system_adapter_plan("B")
         else:
             profile_a = read_io_profile(ser_a, args.timeout_s)
             profile_b = read_io_profile(ser_b, args.timeout_s)
@@ -752,13 +828,15 @@ def main() -> int:
         wait_auto_maintenance(records,
                               "A",
                               ser_a,
-                              timeout_s=args.sync_timeout_s,
+                              query_timeout_s=args.timeout_s,
+                              sync_timeout_s=args.sync_timeout_s,
                               poll_s=args.poll_s,
                               maintenance_s=args.maintenance_s)
         wait_auto_maintenance(records,
                               "B",
                               ser_b,
-                              timeout_s=args.sync_timeout_s,
+                              query_timeout_s=args.timeout_s,
+                              sync_timeout_s=args.sync_timeout_s,
                               poll_s=args.poll_s,
                               maintenance_s=args.maintenance_s)
 
@@ -783,7 +861,7 @@ def main() -> int:
         }, indent=2),
         encoding="utf-8",
     )
-    print(f"PASS RefMem NodeLoad AUTO HIL records: {out_dir / 'records.json'}")
+    print(f"PASS RefMem NodeLoad AUTO HIL records: {out_dir / 'records.json'}", flush=True)
     return 0
 
 

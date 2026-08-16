@@ -8,6 +8,24 @@ Last updated: 2026-08-16
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260816-050 - NodeLoad AUTO HIL default adapter profile correction
+
+- 状态：完成工具修复并通过 COM5/COM6 默认 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 修复 `refmem_node_load_auto_hil_validate.py` 默认路径误用 `REALtime:IO` 线序预检推导 RefMem TDMA adapter 的问题。
+  - 保持 HAOFV 边界：GPIO16-24 是 TDMA/RefMem 通讯环路；GPIO4-7 和 `REALtime:IO` 是业务/观测 overlay，不能作为 RefMem transport 默认推导来源。
+- 完成内容：
+  - 脚本新增 `--adapter-profile`，默认 `min-system-gpio16-24`，直接使用当前两板最小系统已验证的 3-wire uplink/downlink adapter：A `uplink=16,18,23`、A `downlink=16,22,23`，B `uplink=16,18,23`、B `downlink=16,21,23`。
+  - `io-preflight` 改为显式 profile，只用于 REALtime IO overlay 线序诊断；该路径失败时会写出 `io_preflight_result.json`，避免只返回一句错误。
+  - 修复脚本生命周期问题：IO preflight 子进程增加超时，轮询等待拆分为“单条 SCPI 查询 timeout”和“同步总 timeout”，关键输出立即 flush，避免超时后残留 Python 进程占住 COM 口。
+- 验证结果：
+  - `python -m py_compile tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py` 通过。
+  - `python tools\two_board_io_validate\two_board_io_validate.py --port-a COM5 --port-b COM6 --name-a A --name-b B --expect-a-to-b auto --expect-b-to-a auto --out-dir build-rtos-multicore-smoke\debug_refmem_io_preflight_manual --timeout 2` 快速失败，证实 REALtime IO overlay 当前不等同于 RefMem TDMA 通讯环路。
+  - `python tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py --port-a COM5 --port-b COM6 --timeout-s 2 --sync-timeout-s 30 --maintenance-s 0.5` 默认参数通过，记录位于 `build-rtos-multicore-smoke\refmem_node_load_auto_hil_20260816235020\records.json`。
+- 后续动作：
+  - 继续 P0 的 ACK/重发/fence completion；当前 maintenance 阶段仍可在 TDMA snapshot 中观察到 `WINDOW_MISSED` 质量证据，不能把“重跑通过”替代产品级可靠性。
+
 ### REFMEM-TASK-20260816-049 - RefMem payload standard TDMA registration
 
 - 状态：完成代码、host/build 验证和 COM5/COM6 AUTO HIL 回归。

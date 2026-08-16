@@ -123,6 +123,7 @@ docs/
 | `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间、DPLL、timestamp、HOLDOVER 和质量门禁。 |
 | `vdc/VDC_DOMAIN_TODO.md` | VDC 内部主域待办，跟踪数据契约、DPLL、RefMem 映射、组件化和验证。 |
 | `vdc/VDC_TASK_PROGRESS.md` | VDC 内部主域任务进度。 |
+| `vdc/VDC_DOMAIN_RISK_REVIEW.md` | VDC/DPLL 主域风险评审，记录共同时间、DPLL、硬实时 capture/fire 和文档漂移风险。 |
 | `communication/README.md` | 通信域 README。 |
 | `measure/README.md` | 测量域 README。 |
 | `storage/README.md` | 存储与证据域 README。 |

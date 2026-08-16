@@ -212,7 +212,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 目标：在不绑定 BISS-C 的前提下，用两块最小系统板和最简单 PIO SPI 风格 adapter 验证 RefMem Sync Protocol 的最小分布式闭环。当前端口、线序和已验证记录放在 `REFMEM_MIN_SYSTEM_PLAYBOOK.md`。
 
-- [x] 阶段 0：固化线序与串口生命周期检查，确保 `REALtime:IO:PROFile?`、输出 release、线序检测和脚本退出清理稳定；`refmem_sync_hil_validate.py --preflight-io` 会在协议交换前调用 `two_board_io_validate.py` 并把结果写入同一报告目录。
+- [x] 阶段 0：固化线序与串口生命周期检查。注意当前最小系统 RefMem/TDMA 通讯环路使用 GPIO16-24 的 uplink/downlink adapter；`REALtime:IO:PROFile?`、输出 release 和 `two_board_io_validate.py` 只验证 GPIO4-7/21-24 业务/观测 overlay，不能作为 RefMem transport 默认 pin 推导来源。`refmem_node_load_auto_hil_validate.py` 默认使用 `min-system-gpio16-24` adapter profile；只有显式 `--adapter-profile io-preflight` 时才调用 IO overlay 线序预检，并把失败证据写入报告目录。
 - [x] 阶段 1：新增 PIO SPI adapter skeleton，提供 adapter id、state、MTU、tx/rx counter、CRC/drop/timeout/last error snapshot。
 - [x] 阶段 1：定义 PIO SPI adapter caps 与 `BoardCapabilityTable` / `RealtimeCapabilityContract` 的映射关系。
 - [x] 阶段 2 前置：增加 PIO SPI adapter 单帧 RX staging / loopback 注入能力，先验证 HELLO frame 可被 adapter 接收、缓存、poll 和计数。
