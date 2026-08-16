@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the VDC TDMA observer self-test over two wired boards."""
+"""Validate the VDC self-test path mounted on the common TDMA service."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import time
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,42 +21,30 @@ if str(ROOT / "tools") not in sys.path:
 from scpi_common.scpi_serial import open_serial_port, read_serial_line_idle  # noqa: E402
 
 
-OBSERVER_FIELD_COUNT = 40
-READINESS_FIELD_COUNT = 24
 SELFTEST_FIELD_COUNT = 16
-TIMESTAMP_SOURCE_HARDWARE_TICK = 2
-TIMESTAMP_FLAG_DPLL_ELIGIBLE = 0x00000002
+TDMA_STATUS_FIELD_COUNT = 19
+TDMA_RESULT_FRAME_READY = 2
+TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE = 1
+TIMESTAMP_SOURCE_SOFTWARE_US = 1
 TIMESTAMP_FLAG_DIAGNOSTIC_ONLY = 0x00000001
-GATE_PASS = 0
+TIMESTAMP_FLAG_DPLL_ELIGIBLE = 0x00000002
 
 
 @dataclass
-class IoProfile:
-    input_base: int
-    input_count: int
-    output_base: int
-    output_count: int
-    trig_in_pin: int
-    rj45_in_pin: int
-    trig_out_pin: int
-    rj45_out_pin: int
-
-
-@dataclass
-class DirectionResult:
-    source: str
-    target: str
-    output_index: int
-    observed_input_index: int
-    observed_mask: int
-    accepted_before: int
-    accepted_after: int
-    submitted_after: int
-    rejected_after: int
-    gate_after: int
+class BoardResult:
+    name: str
+    port: str
+    build: str
+    ready_before: int
+    ready_after: int
+    intent_seq: int
+    completed_seq: int
+    last_result: int
+    payload_class: int
     timestamp_source: int
     timestamp_resolution_ns: int
     timestamp_flags: int
+    selftest_status: list[int]
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,12 +56,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=2.0)
     parser.add_argument("--settle", type=float, default=1.0)
-    parser.add_argument("--line-settle", type=float, default=0.05)
     parser.add_argument("--poll-timeout", type=float, default=3.0)
     parser.add_argument("--sample-period-ns", type=int, default=100)
     parser.add_argument("--pulse-period-ns", type=int, default=2000)
     parser.add_argument("--pulse-high-ns", type=int, default=1000)
-    parser.add_argument("--pulse-count", type=int, default=4096)
+    parser.add_argument("--pulse-count", type=int, default=16)
     parser.add_argument("--start-delay-ns", type=int, default=1000000000)
     parser.add_argument("--expected-build")
     parser.add_argument("--out-dir", type=Path)
@@ -118,13 +104,6 @@ def query(ser, command: str, timeout_s: float) -> str:
     return "<timeout>"
 
 
-def cleanup_command(ser, command: str, timeout_s: float) -> None:
-    try:
-        query(ser, command, timeout_s)
-    except Exception:
-        pass
-
-
 def parse_csv_response(response: str) -> list[str]:
     try:
         return next(csv.reader([response], skipinitialspace=True))
@@ -142,47 +121,22 @@ def int_fields(response: str, expected_count: int) -> list[int]:
         raise AssertionError(f"non-integer response: {response}") from exc
 
 
-def read_profile(ser, timeout_s: float) -> IoProfile:
-    values = int_fields(query(ser, "REALtime:IO:PROFile?", timeout_s), 8)
-    return IoProfile(*values[:8])
+def tdma_status(response: str) -> list[int]:
+    fields = parse_csv_response(response)
+    if len(fields) != TDMA_STATUS_FIELD_COUNT or fields[0].strip().strip('"') != "OK":
+        raise AssertionError(f"malformed TDMA status: {response}")
+    try:
+        return [int(field.strip().strip('"'), 0) for field in fields[1:]]
+    except ValueError as exc:
+        raise AssertionError(f"non-integer TDMA status: {response}") from exc
 
 
-def read_input_mask(ser, timeout_s: float) -> int:
-    values = int_fields(query(ser, "REALtime:IO:INPut:LEVel?", timeout_s), 3)
-    return values[2]
-
-
-def release_outputs(ser, timeout_s: float) -> None:
-    query(ser, "REALtime:IO:OUTPut:MASK 0", timeout_s)
-    query(ser, "REALtime:IO:OUTPut:RELease", timeout_s)
-
-
-def detect_first_wire(source, target, source_profile: IoProfile, target_profile: IoProfile,
-                      timeout_s: float, settle_s: float) -> tuple[int, int]:
-    count = min(source_profile.output_count, target_profile.input_count)
-    release_outputs(source, timeout_s)
-    time.sleep(settle_s)
-    for output_index in range(count):
-        query(source, f"REALtime:IO:OUTPut:MASK {1 << output_index}", timeout_s)
-        time.sleep(settle_s)
-        observed = read_input_mask(target, timeout_s) & ((1 << target_profile.input_count) - 1)
-        query(source, "REALtime:IO:OUTPut:MASK 0", timeout_s)
-        time.sleep(settle_s)
-        if observed != 0 and observed & (observed - 1) == 0:
-            return output_index, observed.bit_length() - 1
-    raise AssertionError("no single-wire output->input mapping detected")
-
-
-def selftest_command(role: int,
-                     output_index: int,
-                     observed_mask: int,
-                     initial_sample_mask: int,
-                     args: argparse.Namespace) -> str:
+def selftest_command(args: argparse.Namespace) -> str:
     values = (
-        role,
-        output_index,
-        observed_mask,
-        initial_sample_mask,
+        1,
+        0,
+        1,
+        0,
         args.sample_period_ns,
         args.pulse_period_ns,
         args.pulse_high_ns,
@@ -193,84 +147,56 @@ def selftest_command(role: int,
     return "SYST:SYNC:VDC:OBServer:TDMA:SELFtest " + ",".join(str(v) for v in values)
 
 
-def run_direction(source_name: str, source, source_profile: IoProfile,
-                  target_name: str, target, target_profile: IoProfile,
-                  args: argparse.Namespace) -> DirectionResult:
-    output_index, input_index = detect_first_wire(source,
-                                                  target,
-                                                  source_profile,
-                                                  target_profile,
-                                                  args.timeout,
-                                                  args.line_settle)
-    observed_mask = 1 << input_index
-    initial_sample_mask = read_input_mask(target, args.timeout) & observed_mask
+def run_board(name: str, port: str, ser, args: argparse.Namespace) -> BoardResult:
+    build = query(ser, "SYST:FW:BUILD?", args.timeout)
+    if args.expected_build and build != f'"{args.expected_build}"':
+        raise AssertionError(f"{name}: build mismatch {build} != {args.expected_build}")
 
-    query(target, "SYST:SYNC:VDC:OBServer 0", args.timeout)
-    before = int_fields(query(target, "SYST:SYNC:VDC:OBServer?", args.timeout),
-                        OBSERVER_FIELD_COUNT)
-    rx_cmd = selftest_command(2, 0, observed_mask, initial_sample_mask, args)
-    tx_cmd = selftest_command(1, output_index, 1, 0, args)
+    before = tdma_status(query(ser, "SYST:SYNC:VDC:TDMA:STATus?", args.timeout))
+    if query(ser, selftest_command(args), args.timeout) != "1":
+        raise AssertionError(f"{name}: VDC TDMA self-test command rejected")
+
     after = before
-    readiness = [0] * READINESS_FIELD_COUNT
-    try:
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            rx_future = executor.submit(query, target, rx_cmd, args.timeout)
-            tx_future = executor.submit(query, source, tx_cmd, args.timeout)
-            if rx_future.result() != "1":
-                raise AssertionError(f"{target_name}: RX self-test command rejected")
-            if tx_future.result() != "1":
-                raise AssertionError(f"{source_name}: TX self-test command rejected")
-        if len(int_fields(query(target, "SYST:SYNC:VDC:OBServer:TDMA:SELFtest?", args.timeout),
-                          SELFTEST_FIELD_COUNT)) != SELFTEST_FIELD_COUNT:
-            raise AssertionError(f"{target_name}: malformed self-test status")
+    deadline = time.monotonic() + args.poll_timeout
+    while time.monotonic() < deadline:
+        after = tdma_status(query(ser, "SYST:SYNC:VDC:TDMA:STATus?", args.timeout))
+        if after[5] == after[4] and after[9] > before[9]:
+            break
+        time.sleep(0.05)
 
-        deadline = time.monotonic() + args.poll_timeout
-        while time.monotonic() < deadline:
-            after = int_fields(query(target, "SYST:SYNC:VDC:OBServer?", args.timeout),
-                               OBSERVER_FIELD_COUNT)
-            readiness = int_fields(query(target, "SYST:SYNC:VDC:LOCK:READiness?", args.timeout),
-                                   READINESS_FIELD_COUNT)
-            if after[8] > before[8] and after[15] == GATE_PASS:
-                break
-            time.sleep(0.05)
-    finally:
-        cleanup_command(target, "REALtime:IO:SAMPle:STATe 0", args.timeout)
-        cleanup_command(target, "SYST:SYNC:VDC:OBServer 0", args.timeout)
-        try:
-            release_outputs(source, args.timeout)
-        except Exception:
-            pass
+    selftest = int_fields(query(ser, "SYST:SYNC:VDC:OBServer:TDMA:SELFtest?", args.timeout),
+                          SELFTEST_FIELD_COUNT)
 
-    if after[8] <= before[8]:
-        print(f"{target_name}: observer_before={before}")
-        print(f"{target_name}: observer_after={after}")
-        print(f"{target_name}: readiness={readiness}")
-        print(f"{target_name}: selftest={int_fields(query(target, 'SYST:SYNC:VDC:OBServer:TDMA:SELFtest?', args.timeout), SELFTEST_FIELD_COUNT)}")
-        raise AssertionError(f"{target_name}: accepted sample did not increase")
-    if after[15] != GATE_PASS:
-        raise AssertionError(f"{target_name}: VDC gate did not pass: {after[15]}")
-    if readiness[13] != TIMESTAMP_SOURCE_HARDWARE_TICK:
-        raise AssertionError(f"{target_name}: bad timestamp source: {readiness[13]}")
-    if readiness[14] <= 0 or readiness[14] > 100:
-        raise AssertionError(f"{target_name}: bad timestamp resolution: {readiness[14]}")
-    if (readiness[15] & TIMESTAMP_FLAG_DPLL_ELIGIBLE) == 0:
-        raise AssertionError(f"{target_name}: DPLL eligible flag missing: {readiness[15]}")
-    if (readiness[15] & TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) != 0:
-        raise AssertionError(f"{target_name}: diagnostic flag still set: {readiness[15]}")
+    if after[9] <= before[9]:
+        raise AssertionError(f"{name}: TDMA ready_count did not increase: {before} -> {after}")
+    if after[13] != TDMA_RESULT_FRAME_READY:
+        raise AssertionError(f"{name}: TDMA last_result {after[13]} != FRAME_READY")
+    if after[8] != TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE:
+        raise AssertionError(f"{name}: payload_class {after[8]} != VDC_SYNC_SAMPLE")
+    if after[15] != TIMESTAMP_SOURCE_SOFTWARE_US:
+        raise AssertionError(f"{name}: timestamp source {after[15]} != SOFTWARE_US")
+    if after[16] != 1000:
+        raise AssertionError(f"{name}: timestamp resolution {after[16]} != 1000ns")
+    if (after[17] & TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0:
+        raise AssertionError(f"{name}: DIAGNOSTIC_ONLY flag missing: 0x{after[17]:X}")
+    if (after[17] & TIMESTAMP_FLAG_DPLL_ELIGIBLE) != 0:
+        raise AssertionError(f"{name}: DPLL_ELIGIBLE flag must not be set: 0x{after[17]:X}")
 
-    return DirectionResult(source_name,
-                           target_name,
-                           output_index,
-                           input_index,
-                           observed_mask,
-                           before[8],
-                           after[8],
-                           after[7],
-                           after[9],
-                           after[15],
-                           readiness[13],
-                           readiness[14],
-                           readiness[15])
+    return BoardResult(
+        name=name,
+        port=port,
+        build=build,
+        ready_before=before[9],
+        ready_after=after[9],
+        intent_seq=after[4],
+        completed_seq=after[5],
+        last_result=after[13],
+        payload_class=after[8],
+        timestamp_source=after[15],
+        timestamp_resolution_ns=after[16],
+        timestamp_flags=after[17],
+        selftest_status=selftest,
+    )
 
 
 def main() -> int:
@@ -290,38 +216,25 @@ def main() -> int:
                                                      args.baud,
                                                      args.timeout,
                                                      args.settle))
-        build_a = query(ser_a, "SYST:FW:BUILD?", args.timeout)
-        build_b = query(ser_b, "SYST:FW:BUILD?", args.timeout)
-        if args.expected_build:
-            expected = f'"{args.expected_build}"'
-            if build_a != expected or build_b != expected:
-                raise SystemExit(f"build mismatch: {args.port_a}={build_a} {args.port_b}={build_b}")
-
-        profile_a = read_profile(ser_a, args.timeout)
-        profile_b = read_profile(ser_b, args.timeout)
-        release_outputs(ser_a, args.timeout)
-        release_outputs(ser_b, args.timeout)
-
         results = [
-            run_direction(args.name_a, ser_a, profile_a, args.name_b, ser_b, profile_b, args),
-            run_direction(args.name_b, ser_b, profile_b, args.name_a, ser_a, profile_a, args),
+            run_board(args.name_a, args.port_a, ser_a, args),
+            run_board(args.name_b, args.port_b, ser_b, args),
         ]
 
     summary = {
         "passed": True,
-        "build": {args.name_a: build_a, args.name_b: build_b},
         "ports": {args.name_a: args.port_a, args.name_b: args.port_b},
-        "profiles": {args.name_a: asdict(profile_a), args.name_b: asdict(profile_b)},
-        "directions": [asdict(result) for result in results],
+        "results": [asdict(result) for result in results],
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n",
                                           encoding="utf-8")
     for result in results:
         print(
-            f"PASS {result.source}->{result.target} "
-            f"OUT{result.output_index}->IN{result.observed_input_index} "
-            f"accepted={result.accepted_before}->{result.accepted_after} "
-            f"gate={result.gate_after} source={result.timestamp_source} "
+            f"PASS {result.name} {result.port} "
+            f"ready={result.ready_before}->{result.ready_after} "
+            f"intent={result.intent_seq} completed={result.completed_seq} "
+            f"payload={result.payload_class} "
+            f"source={result.timestamp_source} "
             f"resolution_ns={result.timestamp_resolution_ns} "
             f"flags=0x{result.timestamp_flags:X}"
         )

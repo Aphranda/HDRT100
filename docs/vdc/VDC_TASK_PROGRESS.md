@@ -43,9 +43,39 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-031 - VDC self-test mounted on TDMA service
+
+- 状态：完成代码、脚本语义纠偏、host/build 验证和 COM5/COM6 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 保持 VDC 由公共 TDMA 产生和维护，同时允许 VDC self-test 事务并行运行。
+  - 移除 VDC self-test 对 SyncIO 主输出组 pulse train 的直接占用，避免把 GPIO16-24 TDMA 通讯环路误当业务模型 IO。
+  - self-test 只能证明 TDMA scheduler / VDC payload / window evidence 通路，不得伪造 DPLL lock。
+- 完成内容：
+  - `vdc_dpll_manager` 将内部 `tdma_service` 绑定为 VDC self-test transport，并在 core1 realtime loop 中服务。
+  - `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest role=1` 改为构造 `VDC_SYNC_SAMPLE` short frame 并提交到公共 TDMA service；`role=2/3` 仍可同时配置 RX observer/capture。
+  - self-test TX evidence 固定为 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，可通过 `SYSTem:SYNC:VDC:TDMA:STATus?` 验证 intent 完成、payload class 和 timestamp flags，但不能让 DPLL gate 通过。
+  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py` 不再探测或驱动 `REALtime:IO:OUTPut` 主输出线，改为验证每块板的 VDC TDMA self-test intent。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816114847`，package CRC `0x9445A68E`。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过，COM5/COM6 均 commit 到 `20260816114847`。
+  - `python tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py --port-a COM5 --port-b COM6 --expected-build 20260816114847` 通过：COM5 `ready=0->1 intent=1 completed=1 payload=1 source=1 resolution_ns=1000 flags=0x1`，COM6 同样通过。
+- 还需完成：
+  - 接入真正 PIO edge latch，把 TDMA observation window 内的 timestamp 升级为 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE`。
+  - 将 VDC self-test 的 RX 观测证据与 TDMA frame/result evidence 合并成板端报告，不使用 host 耗时作为锁相证据。
+- 关联文件：
+  - `application/src/app.c`
+  - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
+- 下一步：
+  - 运行 VDC host tests、全量 host unit tests、固件构建和 COM5/COM6 self-test 回归；通过后进入 edge latch / DPLL eligible evidence。
+
 ### VDC-TASK-20260816-030 - DPLL servo minimum loop
 
-- 状态：完成代码、host/build 验证；实板 DPLL lock 仍待 GPIO4-7 overlay / 真实 edge latch 闭环。
+- 状态：完成代码、host/build 验证；实板 DPLL lock 仍待 TDMA observation edge latch 闭环。
 - 日期：2026-08-16
 - 任务目标：
   - 将 VDC DPLL 从 accepted sample 直接写 offset/rate 的首版推进为可门禁、可限幅、可测试的最小 servo。
@@ -61,7 +91,7 @@ VdcSyncAO
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
   - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816112835`，package CRC `0x90764B0A`。
 - 还需完成：
-  - 真实 COM5/COM6 板端 DPLL lock 仍不能只靠 host 仿真确认；需要先把 VDC self-test 观测对象从 16-24 通讯环路纠偏到 GPIO4-7 overlay，或完成真正 TDMA edge latch 后再做硬件闭环。
+  - 真实 COM5/COM6 板端 DPLL lock 仍不能只靠 host 仿真确认；VDC 本体继续基于 TDMA observation window，GPIO4-7 只作为模型/业务 overlay，正式锁相仍需要真正 TDMA edge latch。
   - core1 读取稳定 `VdcDcoControl` 并执行 phase pull / FIRE_LOAD 的路径仍未接入。
   - HOLDOVER / RELOCK / servo reset policy 仍未实现。
 - 关联文件：
@@ -69,7 +99,7 @@ VdcSyncAO
   - `components/vdc_domain/src/vdc_domain.c`
   - `tests/unit/test_vdc_domain.c`
 - 下一步：
-  - 先完成 VDC HIL 自测的资源边界纠偏：16-24 只作为 TDMA 基础通讯环路，GPIO4-7 承载模型/观测 overlay；随后再验证 accepted hardware sample 是否能在两板上驱动 DPLL lock。
+  - 先完成 VDC self-test 到公共 TDMA service 的资源边界纠偏；随后接入真正 TDMA edge latch，再验证 accepted hardware sample 是否能在两板上驱动 DPLL lock。
 
 ### VDC-TASK-20260816-029 - VDC payload mounted on common TDMA
 

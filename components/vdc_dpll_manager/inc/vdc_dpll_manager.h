@@ -132,6 +132,7 @@ void vdc_dpll_manager_set_vdc_ready(bool ready);
 void vdc_dpll_manager_set_dpll_ready(bool ready);
 void vdc_dpll_manager_vdc_service(void);
 void vdc_dpll_manager_dpll_service(void);
+void vdc_dpll_manager_tdma_core1_service(void);
 void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status);
 void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status);
 bool vdc_dpll_manager_configure_sync_io_observer(

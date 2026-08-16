@@ -23,11 +23,10 @@ static vdc_dpll_manager_sync_io_observer_status_t
 static vdc_domain_snapshot_t s_published_snapshot;
 static bool s_published_snapshot_valid;
 static vdc_dpll_manager_observation_self_test_status_t s_observation_self_test;
-static sync_io_model_pulse_entry_t
-    s_observation_self_test_entries[VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES];
 static vdc_domain_context_t s_vdc_domain;
 static tdma_service_service_t s_vdc_tdma_service;
 static bool s_vdc_tdma_registered;
+static uint32_t s_vdc_tdma_self_test_frame_seq;
 static bool s_vdc_ready;
 static bool s_dpll_ready;
 
@@ -40,6 +39,64 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
     bool periodic,
     uint32_t start_delay_ns);
 
+static bool vdc_dpll_manager_tdma_self_test_transmit(
+    void *context,
+    const uint8_t *frame,
+    size_t frame_size,
+    tdma_service_role_t role,
+    uint32_t baud_hz,
+    const tdma_service_pin_config_t *pins,
+    uint32_t deadline_1e3ns,
+    tdma_service_exec_status_t *status)
+{
+    (void)context;
+    (void)frame;
+    (void)role;
+    (void)baud_hz;
+    (void)pins;
+    (void)deadline_1e3ns;
+    if (status == NULL || frame == NULL || frame_size == 0u) {
+        return false;
+    }
+    status->result = tdma_service_EXEC_TX_OK;
+    status->error = 0u;
+    status->frame_size = frame_size;
+    status->timestamp_source = tdma_service_TIMESTAMP_SOURCE_SOFTWARE_US;
+    status->timestamp_resolution_ns = 1000u;
+    status->timestamp_flags = tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    return true;
+}
+
+static bool vdc_dpll_manager_tdma_self_test_receive(
+    void *context,
+    uint8_t *frame,
+    size_t frame_capacity,
+    tdma_service_role_t role,
+    uint32_t baud_hz,
+    const tdma_service_pin_config_t *pins,
+    uint32_t deadline_1e3ns,
+    tdma_service_exec_status_t *status)
+{
+    (void)context;
+    (void)frame;
+    (void)frame_capacity;
+    (void)role;
+    (void)baud_hz;
+    (void)pins;
+    (void)deadline_1e3ns;
+    if (status != NULL) {
+        status->result = tdma_service_EXEC_TIMEOUT;
+        status->error = tdma_service_RESULT_TIMEOUT;
+        status->frame_size = 0u;
+    }
+    return false;
+}
+
+static const tdma_service_ops_t s_vdc_tdma_self_test_ops = {
+    .transmit = vdc_dpll_manager_tdma_self_test_transmit,
+    .receive = vdc_dpll_manager_tdma_self_test_receive,
+};
+
 static void vdc_dpll_manager_observation_self_test_service(void)
 {
     vdc_dpll_manager_observation_self_test_status_t status;
@@ -50,8 +107,30 @@ static void vdc_dpll_manager_observation_self_test_service(void)
     osal_critical_exit();
 
     if (!status.active ||
-        (status.role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) == 0u ||
         status.started_ms == 0u) {
+        return;
+    }
+
+    if ((status.role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_TX) != 0u &&
+        (status.role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) == 0u) {
+        tdma_service_snapshot_t tdma;
+        if (tdma_service_get_snapshot(&s_vdc_tdma_service, &tdma) &&
+            tdma.intent_seq != 0u &&
+            tdma.completed_seq == tdma.intent_seq) {
+            osal_critical_enter();
+            if (s_observation_self_test.active &&
+                s_observation_self_test.started_ms == status.started_ms) {
+                s_observation_self_test.active = false;
+                if (tdma.last_result != tdma_service_RESULT_FRAME_READY) {
+                    s_observation_self_test.last_error = tdma.last_result;
+                }
+            }
+            osal_critical_exit();
+        }
+        return;
+    }
+
+    if ((status.role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) == 0u) {
         return;
     }
 
@@ -339,11 +418,15 @@ bool vdc_dpll_manager_init(void)
     memset(&s_published_snapshot, 0, sizeof(s_published_snapshot));
     memset(&s_observation_self_test, 0, sizeof(s_observation_self_test));
     memset(&s_vdc_tdma_service, 0, sizeof(s_vdc_tdma_service));
+    s_vdc_tdma_self_test_frame_seq = 0u;
     if (!vdc_domain_init(&s_vdc_domain)) {
         return false;
     }
     if (!tdma_service_init(&s_vdc_tdma_service) ||
-        !vdc_tdma_payload_register(&s_vdc_tdma_service)) {
+        !vdc_tdma_payload_register(&s_vdc_tdma_service) ||
+        !tdma_service_bind_ops(&s_vdc_tdma_service,
+                               &s_vdc_tdma_self_test_ops,
+                               NULL)) {
         return false;
     }
     s_vdc_tdma_registered = true;
@@ -601,32 +684,70 @@ bool vdc_dpll_manager_start_observation_self_test(
     }
 
     if ((config->role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_TX) != 0u) {
-        const uint32_t high_us = vdc_dpll_manager_ns_to_ceil_us(pulse_high_ns);
-        const uint32_t period_us =
-            vdc_dpll_manager_ns_to_ceil_us(pulse_period_ns);
-        uint64_t wait_ns =
-            (uint64_t)plan.wait_ns + (uint64_t)config->start_delay_ns;
-        if (wait_ns > UINT32_MAX) {
-            wait_ns = UINT32_MAX;
+        uint8_t frame[VDC_TDMA_PAYLOAD_FRAME_SIZE];
+        size_t frame_size = 0u;
+        vdc_tdma_window_plan_t tx_plan = plan;
+        vdc_tdma_frame_envelope_t envelope;
+        vdc_tdma_payload_status_t payload_status;
+
+        tx_plan.window_start_ns += (uint64_t)config->start_delay_ns;
+        tx_plan.window_end_ns += (uint64_t)config->start_delay_ns;
+        tx_plan.guard_start_ns += (uint64_t)config->start_delay_ns;
+        tx_plan.guard_end_ns += (uint64_t)config->start_delay_ns;
+
+        s_vdc_tdma_self_test_frame_seq++;
+        if (s_vdc_tdma_self_test_frame_seq == 0u) {
+            s_vdc_tdma_self_test_frame_seq = 1u;
         }
-        const uint32_t wait_us = vdc_dpll_manager_ns_to_ceil_us((uint32_t)wait_ns);
-        if (high_us == 0u || period_us <= high_us) {
-            return false;
-        }
-        for (uint32_t i = 0u; i < pulse_count; i++) {
-            s_observation_self_test_entries[i].delay_us = period_us - high_us;
-            s_observation_self_test_entries[i].high_us = high_us;
-        }
-        s_observation_self_test_entries[0].delay_us = wait_us == 0u ? 1u : wait_us;
-        if (!sync_io_output_pulse_schedule_arm(config->output_index,
-                                               s_observation_self_test_entries,
-                                               pulse_count,
-                                               true)) {
+
+        if (!vdc_tdma_payload_build_frame(&s_vdc_domain.schedule,
+                                          &tx_plan,
+                                          VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE,
+                                          s_vdc_tdma_self_test_frame_seq,
+                                          NULL,
+                                          frame,
+                                          sizeof(frame),
+                                          &frame_size,
+                                          &envelope,
+                                          &payload_status)) {
+            (void)payload_status;
             if ((config->role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) != 0u) {
                 sync_io_stop_capture();
                 sync_io_capture_disarm_timestamp_window();
             }
             status.last_error = 2u;
+            osal_critical_enter();
+            s_observation_self_test = status;
+            osal_critical_exit();
+            return false;
+        }
+
+        const tdma_service_intent_config_t tdma_config = {
+            .window_epoch = tx_plan.schedule_epoch,
+            .window_index = tx_plan.slot_index,
+            .deadline_1e3ns = vdc_dpll_manager_ns_to_ceil_us(
+                (uint32_t)(tx_plan.window_end_ns - tx_plan.window_start_ns)),
+            .role = TDMA_SERVICE_ROLE_MASTER,
+            .baud_hz = 25000000u,
+            .pins = {0},
+            .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+            .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE,
+            .scheduled_window_valid = 0u,
+            .scheduled_window_class = tx_plan.window_class,
+            .schedule_crc32 = tx_plan.schedule_crc32,
+            .scheduled_window_start_ns = tx_plan.window_start_ns,
+            .scheduled_window_end_ns = tx_plan.window_end_ns,
+            .scheduled_guard_start_ns = tx_plan.guard_start_ns,
+            .scheduled_guard_end_ns = tx_plan.guard_end_ns,
+            .frame = frame,
+            .frame_size = frame_size,
+        };
+        if (!tdma_service_submit_tx(&s_vdc_tdma_service, &tdma_config)) {
+            if ((config->role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) != 0u) {
+                sync_io_stop_capture();
+                sync_io_capture_disarm_timestamp_window();
+            }
+            status.last_error = 3u;
             osal_critical_enter();
             s_observation_self_test = status;
             osal_critical_exit();
@@ -712,6 +833,11 @@ void vdc_dpll_manager_dpll_service(void)
     s_dpll_status.update_seq = snapshot.dpll.update_seq;
     s_published_dpll_status = s_dpll_status;
     osal_critical_exit();
+}
+
+void vdc_dpll_manager_tdma_core1_service(void)
+{
+    tdma_service_core1_service(&s_vdc_tdma_service);
 }
 
 void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status)

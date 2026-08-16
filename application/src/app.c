@@ -180,6 +180,7 @@ void app_realtime_run_once(void)
     vdc_dpll_manager_vdc_service();
     vdc_dpll_manager_set_dpll_ready(true);
     vdc_dpll_manager_dpll_service();
+    vdc_dpll_manager_tdma_core1_service();
     sync_io_capture_latch_service_core1();
     distributed_refmem_realtime_run_once();
     model_turntable_service();
