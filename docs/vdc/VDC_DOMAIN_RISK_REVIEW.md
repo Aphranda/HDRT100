@@ -66,10 +66,10 @@ Last updated: 2026-08-17
 | 项 | 状态 | 位置 | 说明 |
 |---|---|---|---|
 | uint32 溢出 | 已纠偏（2026-08-17） | [sync_io.c:973](components/sync_io/src/sync_io.c#L973) | `word_span_ns` 已改为 64 位计算，`sample_hz==1` 时 8e9 ns 不再溢出；`sync_io` 不反向依赖 VDC adapter 常量，使用本层 `SYNC_IO_CAPTURE_WORD_SAMPLES=8`。 |
-| DMA 丢字 | 待纠偏 | [sync_io.c:249](components/sync_io/src/sync_io.c#L249) | DMA 在两次调用间恰好写满 8192 字时 `write_index == last_write_index`，`produced` delta 判 0，静默丢 8192 字。 |
+| DMA 丢字 | 已纠偏（2026-08-17） | [sync_io.c:249](components/sync_io/src/sync_io.c#L249) | capture produced 计数已改为优先使用 DMA `transfer_count` 推导总产出 words，不再只依赖 ring write index；恰好写满 8192 words 回到同一 index 时仍能看到 produced 增长。 |
 | arm 先改后验 | 已纠偏（2026-08-17） | [sync_io_mode_seq_step.c:126](components/sync_io/src/sync_io_mode_seq_step.c#L126) | gate 参数校验已前移到 DMA/IRQ/SM 操作之前；非法 gate 不再先停共享 DMA IRQ 或输出 SM。 |
-| ISR 被踩 | 待纠偏 | [sync_io_mode_enc_count.c:233](components/sync_io/src/sync_io_mode_enc_count.c#L233) | `get_count` 用 `pio_sm_exec(mov isr,x)` 注入，会落在运行中程序的 `in pins,3` 与 `mov osr,isr` 之间，破坏当前解码样本。 |
-| 完成计数饱和 | 待纠偏 | [sync_io_model_sched.c:202](components/sync_io/src/sync_io_model_sched.c#L202) | `completion_ns[i]` 经 `saturate_u64_to_u32`，>4.29s 的 schedule 把所有脉冲提前标「已完成」。 |
+| ISR 被踩 | 已纠偏（2026-08-17） | [sync_io_mode_enc_count.c:233](components/sync_io/src/sync_io_mode_enc_count.c#L233) | `sync_io_enc_count_get_count()` 不再向运行中的 PIO SM 注入 `mov isr,x/push` 指令；查询只消费已有 RX snapshot 并返回安全镜像。当前 PIO 尚未主动发布精确 live count，后续应由 ENC/PCNT 基础件增加无扰动 snapshot。 |
+| 完成计数饱和 | 已纠偏（2026-08-17） | [sync_io_model_sched.c:202](components/sync_io/src/sync_io_model_sched.c#L202) | `completion_ns[]` 已改为 64 位累计 ns，`sync_io_model_update_completion()` 不再因 >4.29 s schedule 饱和而提前标记全部完成；对外 runtime 的 `total_duration_ns` 仍保持 32 位饱和显示。 |
 | 半截基线 | 已纠偏（2026-08-17） | [vdc_sync_io_adapter.c:63-77](components/vdc_domain/src/vdc_sync_io_adapter.c#L63-L77) | ambiguous word 不再把中间样本写入 `*last_sample_mask`；现在会消费完整 word 的末样本作为下一 word 基线，单测覆盖 final mask。 |
 
 ---
@@ -133,7 +133,7 @@ Last updated: 2026-08-17
 | 2 | 修 `accepted_sample_count` 重置（§3.2） | 已纠偏；`accepted_sample_count` 当前按连续锁相获取 streak 使用。 |
 | 3 | 钳 `seq_width` 到 4 或参数化 PIO（§3.3） | 已纠偏；当前绑定 `BOARD_SYNC_OUTPUT_PIN_COUNT=4`，未做可变宽 PIO 程序。 |
 | 4 | 修 wrap tracker 高位重置（§5.1） | 已纠偏；下一步可进入锁质量口径和 sync_io 剩余边界 bug。 |
-| 5 | 清 sync_io 边界 bug（§4 + §5 剩余） | 部分已纠偏：`word_span_ns` 溢出、SEQ gate 前置校验、ambiguous 基线已完成；DMA 丢字、ISR 注入、completion 饱和、SM 互斥、假 fire 仍待处理。 |
+| 5 | 清 sync_io 边界 bug（§4 + §5 剩余） | 部分已纠偏：`word_span_ns` 溢出、DMA produced 整圈丢字、SEQ gate 前置校验、ENC_COUNT 运行中 ISR 注入、model completion 饱和、ambiguous 基线已完成；SM 互斥、假 fire、非 capture DMA claim 仍待处理。 |
 | 6 | 补 manager/sync_io 单测（§7.1/7.3） | 高风险集成层当前零 host 覆盖。 |
 | 7 | 统一文档漂移（§6） | 先删不存在的 `task_vdc_sync`/`task_dpll` 壳描述与过期 TODO 状态，再对齐枚举/公式/SCPI 树。 |
 | 8 | 专项审 `components/tdma` 本体（§1 范围外） | TDMA 是 VDC 稳定性的前置条件，`tdma_service.c` 尚未逐行审。 |

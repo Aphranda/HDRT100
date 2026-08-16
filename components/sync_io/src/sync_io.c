@@ -242,11 +242,17 @@ static uint32_t sync_io_capture_dma_produced_words(void)
         (uint32_t)(((write_addr - ring_base) &
                     (SYNC_IO_CAPTURE_DMA_RING_BYTES - 1u)) /
                    sizeof(uint32_t));
+    const uint32_t transfer_remaining =
+        dma_hw->ch[SYNC_IO_CAPTURE_DMA_CH].transfer_count;
+    const uint32_t transfer_produced = UINT32_MAX - transfer_remaining;
 
     osal_critical_enter();
     if (!s_sync_io.capture_dma_write_index_valid) {
         s_sync_io.capture_dma_last_write_index = write_index;
         s_sync_io.capture_dma_write_index_valid = true;
+    }
+    if (transfer_produced >= s_sync_io.capture_dma_produced_seq) {
+        s_sync_io.capture_dma_produced_seq = transfer_produced;
     } else if (write_index != s_sync_io.capture_dma_last_write_index) {
         const uint32_t last = s_sync_io.capture_dma_last_write_index;
         const uint32_t delta =
@@ -254,8 +260,8 @@ static uint32_t sync_io_capture_dma_produced_words(void)
                 ? write_index - last
                 : (SYNC_IO_CAPTURE_DMA_RING_WORDS - last) + write_index;
         s_sync_io.capture_dma_produced_seq += delta;
-        s_sync_io.capture_dma_last_write_index = write_index;
     }
+    s_sync_io.capture_dma_last_write_index = write_index;
     const uint32_t produced = s_sync_io.capture_dma_produced_seq;
     osal_critical_exit();
     return produced;

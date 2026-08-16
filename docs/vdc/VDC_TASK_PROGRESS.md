@@ -43,6 +43,34 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260817-003 - sync_io P2 DMA and counter safety closure
+
+- 状态：完成代码、host 单元验证、构建、文档检查、COM5/COM6 OTA 和只读 SCPI 复查。
+- 日期：2026-08-17
+- 任务目标：
+  - 纠偏 `VDC_DOMAIN_RISK_REVIEW.md` 中剩余的三项明确 P2 bug：capture DMA 整圈丢字、ENC_COUNT 查询踩 ISR、模型 pulse scheduler 完成计数饱和。
+  - 保持 HAOFV 实时边界：查询接口不能通过运行中 PIO 指令注入破坏实时 SM。
+- 完成内容：
+  - `sync_io_capture_dma_produced_words()` 改为优先用 DMA `transfer_count` 推导 produced words，ring write index 只作为回退/镜像更新；恰好写满 8192 words 回到同一 index 时不再静默丢字。
+  - `sync_io_enc_count_get_count()` 删除运行中 `pio_sm_exec(mov isr,x)` / `push` 注入，只消费已有 RX FIFO snapshot 并返回安全镜像，避免破坏 `enc_count.pio` 内部 ISR/OSR 解码流程。
+  - `sync_io_model_sched` 的 `completion_ns[]` 改为 64 位累计 ns，长于 4.29 s 的 pulse schedule 不再因 32 位饱和提前标记完成。
+  - `VDC_DOMAIN_RISK_REVIEW.md` 将 DMA 丢字、ISR 被踩、完成计数饱和更新为“已纠偏”。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260816165320`，package CRC `0x9078EBED`。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `python tools\docs_check\docs_check.py` 通过；保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 和 `VDC_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 传输和 slot commit 完成，但 reboot 后脚本首次 `SYSTem:FW:BUILD?` 超时导致工具返回失败；后续单独复查确认 COM5/COM6 均已运行 build `20260816165320`，slot committed，`SYSTem:ERRor?` 为 `0,"No error"`。
+  - COM5/COM6 只读 SCPI 复查通过：`SYSTem:SYNC:VDC:DCO?` 显示 DCO consumer valid 且 `last_error=0`，`SYSTem:SYNC:VDC:LOCK:READiness?` 当前仍因未启动 observation/self-test 而未锁定。
+- 还需完成：
+  - ENC_COUNT 精确 live count 仍需后续由 PIO 主动发布无扰动 snapshot 或迁移到 PCNT 基础件；本轮先关闭“查询破坏实时 SM”的 bug。
+- 关联文件：
+  - `components/sync_io/src/sync_io.c`
+  - `components/sync_io/src/sync_io_mode_enc_count.c`
+  - `components/sync_io/src/sync_io_model_sched.c`
+  - `docs/vdc/VDC_DOMAIN_RISK_REVIEW.md`
+- 下一步：
+  - 进入共享 SM/owner 互斥、fire 假成功和非 capture DMA claim。
+
 ### VDC-TASK-20260817-002 - P2 timestamp and capture baseline risk closure
 
 - 状态：完成代码、host 单元验证、构建、文档检查、COM5/COM6 OTA 和只读 SCPI 复查。

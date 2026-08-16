@@ -22,6 +22,7 @@ typedef struct {
     uint dma_ch;
     volatile uint32_t fire_count;
     volatile uint32_t dma_restart_count;
+    volatile uint32_t last_count;
 } sync_io_enc_count_t;
 
 static sync_io_enc_count_t s_enc;
@@ -159,6 +160,7 @@ bool sync_io_enc_count_arm(uint32_t target,
 
     s_enc.fire_count = 0u;
     s_enc.dma_restart_count = 0u;
+    s_enc.last_count = 0u;
     s_enc_dma_overflow_latched = false;
     s_enc_trace_sample_valid = false;
     s_enc.running = true;
@@ -230,21 +232,13 @@ uint32_t sync_io_enc_count_get_count(void)
         return 0u;
     }
 
-    pio_sm_exec(BOARD_SYNC_PIO_WAVE, s_enc.sm,
-                pio_encode_mov(pio_isr, pio_x));
-    pio_sm_exec(BOARD_SYNC_PIO_WAVE, s_enc.sm,
-                pio_encode_push(false, false));
-
-    if (pio_sm_is_rx_fifo_empty(BOARD_SYNC_PIO_WAVE, s_enc.sm)) {
-        return 0u;
+    while (!pio_sm_is_rx_fifo_empty(BOARD_SYNC_PIO_WAVE, s_enc.sm)) {
+        const uint32_t remaining = pio_sm_get(BOARD_SYNC_PIO_WAVE, s_enc.sm);
+        if (remaining <= s_enc.target) {
+            s_enc.last_count = s_enc.target - remaining;
+        }
     }
-
-    const uint32_t remaining = pio_sm_get(BOARD_SYNC_PIO_WAVE, s_enc.sm);
-
-    if (remaining > s_enc.target) {
-        return 0u;
-    }
-    return s_enc.target - remaining;
+    return s_enc.last_count;
 }
 
 bool sync_io_enc_count_is_running(void)

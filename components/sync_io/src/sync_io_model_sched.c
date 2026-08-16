@@ -34,7 +34,7 @@ typedef struct {
     uint64_t start_us;
     uint32_t words[SYNC_IO_MODEL_PULSE_MAX_ENTRIES *
                    SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY];
-    uint32_t completion_ns[SYNC_IO_MODEL_PULSE_MAX_ENTRIES];
+    uint64_t completion_ns[SYNC_IO_MODEL_PULSE_MAX_ENTRIES];
 } sync_io_model_pulse_t;
 
 static sync_io_model_pulse_t s_model_pulse;
@@ -199,8 +199,7 @@ static bool sync_io_pulse_schedule_arm_on_pin(uint32_t output_pin,
             sync_io_model_high_word(high_ticks);
         cumulative_ns += entries[i].delay_ns;
         cumulative_ns += entries[i].high_ns;
-        s_model_pulse.completion_ns[i] =
-            sync_io_model_saturate_u64_to_u32(cumulative_ns);
+        s_model_pulse.completion_ns[i] = cumulative_ns;
     }
 
     const pio_program_t *program = rising_edge
