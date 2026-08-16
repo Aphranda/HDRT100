@@ -196,6 +196,7 @@ SCPI 只允许写 command/config slot；state、summary、ACK/NACK、result、he
 | `SYSTem:LOOP:STATus?` |  | `loop block` | 系统维护查询：loop_engine ready、service_count 和 service 时间 |
 | `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 同步域维护查询：虚拟 DC 服务 ready、lock_state、service_count 和 sync_seq |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 同步域维护查询：VDC DPLL ready、state、service_count 和 update_seq |
+| `SYSTem:SYNC:VDC:OBServer` | `[enabled],...` | `1` | 同步域维护配置：无参数或 `0` 关闭 raw capture observer；`1` 时显式配置 batch、event、mask、tick、window 和 frame CRC，不启动 capture |
 | `SYSTem:SYNC:VDC:OBServer?` |  | `vdc observer block` | 同步域维护查询：读取 VDC manager 消费 SYNC_IO raw capture word 的 observer 计数和最近 gate 证据；只读，不启动 capture |
 
 HTML 分页将系统域拆成两页：系统状态与日志、系统门禁与分布式表。
@@ -395,6 +396,7 @@ seq,node,channel,t2_tick,status,error_code,temperature
 | `SYSTem:PROTection:STATus?` |  | `runtime protection block` | 读取 RAM-resident、flash lockout/park、entry owner 和保护状态 |
 | `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 同步域维护查询：读取虚拟 DC 服务 ready、lock_state、service_count 和 sync_seq |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 同步域维护查询：读取 VDC DPLL ready、state、service_count 和 update_seq |
+| `SYSTem:SYNC:VDC:OBServer` | `[enabled],...` | `1` | 同步域维护配置：启停 VDC manager raw capture observer；不启动 SYNC_IO capture，不改变 DPLL lock |
 | `SYSTem:SYNC:VDC:OBServer?` |  | `vdc observer block` | 同步域维护查询：读取 raw capture observer 状态、计数和最近样本证据 |
 | `SYSTem:CONFigure:ROLE?` | `[node_id]` | `role block` | 查询 NodeRoleMap |
 | `SYSTem:CONFigure:LOOP?` | `[layer_id]` | `loop block` | 查询 LoopPlan 层级和数组循环编排 |
@@ -771,6 +773,7 @@ READ:SYNC:STATe?
 | `READ:SYNC:VERSion?` |  | `version block` | 读取同步配置版本、绑定校准版本、固件版本、硬件 profile 和最近激活时间 |
 | `SYSTem:SYNC:VDC:STATus?` |  | `vdc block` | 读取同步域虚拟 DC 服务内部状态；产品报告优先用 `READ:SYNC:STATe?` |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` |  | `dpll block` | 读取 VDC DPLL 内部状态；用于维护和闭环调试 |
+| `SYSTem:SYNC:VDC:OBServer` | `[enabled],...` | `1` | 配置 SYNC_IO raw capture 到 VDC compact observation 的 observer；无参数或 `0` 关闭，启用态必须提供完整时间戳和 gate 参数 |
 | `SYSTem:SYNC:VDC:OBServer?` |  | `vdc observer block` | 读取 SYNC_IO raw capture 到 VDC compact observation 的 observer 状态；只读维护证据，不改变 DPLL |
 | `SYSTem:SYNC:VDC:DPLL:TUNE` | `<bandwidth_hz>,<damping>,<max_slew_ppm>` | `1` | 按等效传递函数参数覆盖 VDC 虚拟环路滤波器，仅用于调试 |
 | `SYSTem:SYNC:VDC:DPLL:COEFficient` | `<kp_q31>,<ki_q31>,<max_slew_ppm>` | `1` | 直接覆盖离散 PI 环路系数 |
@@ -949,6 +952,7 @@ owner task 后续接入。
 | `vdc block` | `ready,lock_state,service_count,first_service_ms,last_service_ms,sync_seq` | 同步域维护字段；产品上位机优先使用 `READ:SYNC:STATe?` |
 | `dpll block` | `ready,state,service_count,first_service_ms,last_service_ms,update_seq` | 开发验证兼容字段；用于扫描/转台 DPLL 任务观测 |
 | `vdc observer block` | `enabled,max_words_per_service,service_count,raw_word_count,no_edge_count,ambiguous_edge_count,bad_argument_count,submitted_count,accepted_count,rejected_count,last_capture_result,last_raw_word,last_sample_seq,last_event_id,last_tick_l32,last_gate_reject_code,previous_sample_mask,next_base_time_l32_ns` | `SYSTem:SYNC:VDC:OBServer?` 固定字段；用于 HIL 记录 raw capture observer 是否真实提交 VDC gate |
+| `vdc observer config` | `enabled,max_words_per_service,rising_event_id,falling_event_id,observed_mask,initial_sample_mask,next_base_time_l32_ns,sample_period_ns,expected_window_start_lo,expected_window_start_hi,frame_crc32,max_backward_ticks,quality_flags,sample0_lsb` | `SYSTem:SYNC:VDC:OBServer` 的启用态参数；无参数或 `enabled=0` 表示关闭并清零 observer，配置不启动 capture |
 
 ### 14.2 二进制 block
 

@@ -264,6 +264,7 @@ VDC/DPLL 层级：
 SYSTem:SYNC:VDC:STATus?
 SYSTem:SYNC:VDC:DPLL:STATus?
 SYSTem:SYNC:VDC:TDMA:PLAN?
+SYSTem:SYNC:VDC:OBServer
 SYSTem:SYNC:VDC:OBServer?
 SYSTem:SYNC:VDC:DPLL:TUNE
 SYSTem:SYNC:VDC:DPLL:COEFficient
@@ -273,6 +274,8 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 ```
 
 `SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]` 是只读维护入口，用于复现 active `VdcTdmaScheduleProfile` 对 observation/data/idle window 的计划结果。它返回当前或指定 `now_ns` 对应的窗口起止、guard、wait_ns、late_ns、inside/missed 标志、schedule CRC 和 gate；不得作为产品上位机控制入口。
+
+`SYSTem:SYNC:VDC:OBServer [enabled],...` 是维护配置入口，用于启停 VDC manager 消费 `sync_io_read_capture_words()` 的 observer。无参数或 `enabled=0` 只关闭 observer 并清零状态；`enabled=1` 必须显式提供 batch、rising/falling event id、observed mask、initial mask、base tick、sample period、expected window start 和 frame CRC。该命令不得启动 SYNC_IO capture，不得绕过 timestamp dictionary/gate，也不得作为 DPLL lock evidence 本身。
 
 `SYSTem:SYNC:VDC:OBServer?` 是只读维护入口，用于查询 VDC manager 从 `sync_io_read_capture_words()` 消费 raw capture word 的 observer 证据。它只返回 enabled、batch、raw/no-edge/ambiguous/submitted/accepted/rejected、last raw word、event id、tick_l32 和 gate reject 等状态；不得启动 capture、不得改变 observer 配置、不得作为 DPLL lock evidence 本身。
 
@@ -488,6 +491,7 @@ SYSTem
   SYNC:VDC:STATus?
   SYNC:VDC:DPLL:STATus?
   SYNC:VDC:TDMA:PLAN?
+  SYNC:VDC:OBServer
   SYNC:VDC:OBServer?
   SYNC:VDC:DPLL:TUNE
   SYNC:VDC:DPLL:COEFficient / COEFficient?

@@ -558,6 +558,8 @@ READ:SYNC:QUALity?
 SYSTem:SYNC:VDC:STATus?
 SYSTem:SYNC:VDC:DPLL:STATus?
 SYSTem:SYNC:VDC:TDMA:PLAN?
+SYSTem:SYNC:VDC:OBServer
+SYSTem:SYNC:VDC:OBServer?
 SYSTem:SYNC:VDC:DPLL:TUNE
 SYSTem:SYNC:VDC:DPLL:COEFficient
 SYSTem:SYNC:VDC:DPLL:DEFAult
@@ -570,6 +572,8 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 - `READ:SYNC:*?` 给产品上位机读取同步状态。
 - `SYSTem:SYNC:VDC:*` 给维护工具读取和调试底层 VDC/DPLL。
 - `SYSTem:SYNC:VDC:TDMA:PLAN?` 只输出 active schedule 的窗口计划和 gate evidence，不提交 TDMA intent，也不改变 RefMem 或 DPLL 状态。
+- `SYSTem:SYNC:VDC:OBServer` 只配置 VDC manager 的 SYNC_IO raw capture observer；无参数或 `0` 关闭 observer，启用态必须由维护工具显式给出 event id、tick base、sample period、window 和 frame CRC，不启动 capture、不伪造 lock evidence。
+- `SYSTem:SYNC:VDC:OBServer?` 只读取 observer 证据计数和最近 gate 结果。
 - 禁止新增 `VDC:*`、`DPLL:*`、`STATus:VDC?`、`STATus:DPLL?`。
 
 ## 目标代码形态

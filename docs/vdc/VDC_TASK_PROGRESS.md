@@ -69,6 +69,22 @@ VdcSyncAO
 - 还需完成：
   - 增加启用态 HIL 报告，输出 observer status、dictionary CRC、profile CRC、timestamp source/resolution 和 gate evidence。
   - 将真实 PIO/DMA/core1 timestamp latch 接入 observer 配置来源，避免人工配置 base tick。
+
+### VDC-TASK-20260816-018 - VDC observer maintenance configuration
+
+- 状态：完成代码、文档、build 和两板启停态验证。
+- 本轮完成：
+  - 新增 `SYSTem:SYNC:VDC:OBServer` 维护配置命令；无参数或 `enabled=0` 关闭 observer 并重置 status。
+  - 启用态参数进入 `vdc_dpll_manager_configure_sync_io_observer()`，复用 manager 合法性检查：batch 上限、event id、observed mask、sample period、frame CRC 和初始 mask。
+  - 保持 HAOFV 边界：SCPI 只写维护配置，不启动 SYNC_IO capture，不提交伪造 timestamp，不越过 VDC dictionary/gate。
+- 验证：
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 生成 128 条，包含 `SYSTem:SYNC:VDC:OBServer -> 1`。
+  - `tools\tests\run_vdc_domain_tests.ps1` 通过；`tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 17/17 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build `20260816030427`，OTA package CRC `0x5D46BBBD`。
+  - COM5/COM6 均 OTA boot/commit 到 build `20260816030427`。
+  - COM5/COM6 启用 `SYST:SYNC:VDC:OBServer 1,1,1,2,1,0,0,1000,0,0,1` 后查询得到 `enabled=1,max_words_per_service=1`；关闭后 observer 查询回到 disabled 全零字段，错误队列均为 `0,"No error"`。
+- 下一步：
+  - 在真实 timestamp latch/dictionary 配置到位后，再验证 raw/submitted/accepted/rejected 计数变化。
   - COM5/COM6 验证 raw word -> compact observation -> VDC gate 的板端证据。
 - 关联文件：
   - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`

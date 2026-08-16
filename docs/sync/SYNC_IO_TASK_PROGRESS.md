@@ -21,6 +21,18 @@ Last updated: 2026-08-16
 - 验证：`git diff --check` 通过，仅有既有 CRLF 提示。
 - 验证：`cmake --build build-rtos-multicore-smoke` 通过，最新生成 build id `20260816024745`，package CRC `0x028BC853`。
 - 验证：COM5/COM6 均 OTA 到 build `20260816024745` 并 commit；两板 `SYST:SYNC:VDC:OBServer?` 均返回 18 个零字段，符合默认 disabled observer；`SYST:ERR?` 均为 `0,"No error"`。
+
+### SYNC_IO-TASK-20260816-003 - VDC raw capture observer 维护配置
+
+- 状态：完成代码、文档、build 和 COM5/COM6 启停态 HIL。
+- 完成：新增 `SYSTem:SYNC:VDC:OBServer` 维护配置命令；无参数或 `0` 只关闭 observer 并清零状态，避免产品枚举或误调用时打开采集链路。
+- 完成：启用态要求显式给出 batch、rising/falling event id、observed mask、initial mask、base tick、sample period、expected window start 和 frame CRC，随后交由 `vdc_dpll_manager_configure_sync_io_observer()` 做合法性检查。
+- 边界：该命令只配置 VDC manager observer，不启动 `sync_io` capture，不直接写 DPLL，不把 raw word 当作 lock evidence。
+- 验证：
+  - build `20260816030427`，OTA package CRC `0x5D46BBBD`。
+  - COM5/COM6 均 OTA boot/commit 成功，`SYSTem:FW:BUILD?` 返回 `"20260816030427"`，`SYSTem:ERRor?` 返回 `0,"No error"`。
+  - COM5/COM6 执行无参数 `SYST:SYNC:VDC:OBServer` 均返回 `1`，查询返回 disabled 全零字段。
+  - COM5/COM6 执行 `SYST:SYNC:VDC:OBServer 1,1,1,2,1,0,0,1000,0,0,1` 均返回 `1`，查询显示 `enabled=1,max_words_per_service=1`；随后 `SYST:SYNC:VDC:OBServer 0` 关闭后查询回到 disabled 全零字段。
 - 风险：当前仍依赖显式配置的 `next_base_time_l32_ns`、`sample_period_ns`、event id 和 frame CRC；真实 PIO/DMA timestamp latch 和 COM5/COM6 HIL 证据待后续补齐。
 - 后续：补 HIL，把 dictionary CRC、edge index、timestamp source/resolution、profile CRC 和 VDC gate result 写入报告。
 - 涉及文件：`components/vdc_dpll_manager/inc/vdc_dpll_manager.h`，`components/vdc_dpll_manager/src/vdc_dpll_manager.c`，`docs/sync/SYNC_IO_TODO.md`。

@@ -91,6 +91,7 @@ Last updated: 2026-08-16
 - [ ] VDC 只消费 timestamp 样本或输出 fire time，不让 `sync_io` 计算 VDC offset/rate。
 - [x] 将 `sync_io_read_capture_words()` 到 VDC `VdcSyncIoAdapter` 的任务接线固化：`vdc_dpll_manager` 增加默认关闭的 raw capture observer，记录 raw word、event id、tick_l32、capture result 和 VDC gate result。
 - [x] 增加 observer 的 SCPI 维护查询：`SYSTem:SYNC:VDC:OBServer?` 返回 raw/no-edge/ambiguous/submitted/accepted/rejected、last raw word、event id、tick_l32 和 gate reject。
+- [x] 增加 observer 的 SCPI 维护配置：`SYSTem:SYNC:VDC:OBServer` 支持无参数/`0` 安全关闭，启用态必须显式给出 batch、event id、mask、tick base、sample period、window 和 frame CRC；该命令不启动 capture、不改变 DPLL lock。
 - [ ] 增加 observer 的板端 HIL 证据，记录 dictionary CRC、edge index、profile CRC、timestamp source/resolution 和 accepted/rejected 证据。
 - [ ] 将同一 raw observation primitive 用于转台输入/脉冲计数验证，形成独立于 VDC 的 AO/FB 解释路径。
 - [ ] late `FIRE_LOAD` 必须由 realtime owner 拒绝并发布 evidence。

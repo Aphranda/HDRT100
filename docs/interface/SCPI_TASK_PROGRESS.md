@@ -151,6 +151,20 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - COM6 查询 `SYST:SYNC:VDC:OBServer? -> 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0`，`SYST:SYNC:VDC:STAT? -> 1,1,50875,3554,34170,50875`，`SYST:ERR? -> 0,"No error"`。
 - 还需完成：
   - 把返回字段纳入两板 VDC/TDMA HIL 报告，并在 observer 启用后验证 raw/submitted/accepted/rejected 计数变化。
+
+### SCPI-TASK-20260816-037 - VDC raw capture observer 维护配置
+
+- 状态：完成命令注册、代码实现、文档同步和 COM5/COM6 板端验证。
+- 完成：
+  - 新增 `SYSTem:SYNC:VDC:OBServer`，固定返回 `1` 表示配置请求已被 manager 接受。
+  - 无参数或 `0` 执行安全关闭并清零状态，兼容产品命令自动枚举验证。
+  - `1` 启用态要求完整参数：`max_words_per_service,rising_event_id,falling_event_id,observed_mask,initial_sample_mask,next_base_time_l32_ns,sample_period_ns,expected_window_start_lo,expected_window_start_hi,frame_crc32[,max_backward_ticks,quality_flags,sample0_lsb]`。
+- 边界：
+  - 该命令属于 `SYSTem:SYNC:VDC:*` 维护域，不进入现场测试最小指令集。
+  - 不启动 `REALtime:IO:SAMPle:STATe`，不直接写 DPLL 状态，不替代 `READ:SYNC:QUALity?` 的产品质量视图。
+- 验证：
+  - 产品命令生成：`product_scpi_validate.py --dry-run` 输出 `generated=128`，包含 `SYSTem:SYNC:VDC:OBServer -> 1`。
+  - COM5/COM6：无参数关闭返回 `1`；启用态最小合法参数返回 `1` 且查询显示 `enabled=1,max_words_per_service=1`；关闭后查询为 disabled 全零字段；错误队列均为空。
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_sync_commands.h`
   - `middleware/scpi_port/src/scpi_sync_commands.c`

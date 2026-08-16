@@ -779,6 +779,7 @@
 <tr><td><code>SYSTem:LOOP:STATus?</code></td><td></td><td>loop block</td><td>系统维护查询：loop_engine ready、service_count 和 service 时间。</td></tr>
 <tr><td><code>VDC:STAT?</code> / <code>STATus:VDC?</code></td><td></td><td>vdc block</td><td>兼容开发验证查询：虚拟 DC 任务 ready、lock_state、service_count 和 sync_seq</td></tr>
 <tr><td><code>DPLL:STAT?</code> / <code>STATus:DPLL?</code></td><td></td><td>dpll block</td><td>兼容开发验证查询：转台/扫描 DPLL 任务 ready、state、service_count 和 update_seq</td></tr>
+<tr><td><code>SYSTem:SYNC:VDC:OBServer</code></td><td><code>[enabled],...</code></td><td>1</td><td>同步域维护配置：无参数或 <code>0</code> 关闭 raw capture observer；<code>1</code> 时显式配置 batch、event、mask、tick、window 和 frame CRC，不启动 capture</td></tr>
 <tr><td><code>SYSTem:SYNC:VDC:OBServer?</code></td><td></td><td>vdc observer block</td><td>同步域维护查询：读取 VDC manager 消费 SYNC_IO raw capture word 的 observer 计数和最近 gate 证据；只读，不启动 capture</td></tr>
 <tr><td><code>SYSTem:CONFigure:STAT?</code></td><td></td><td>门禁摘要</td><td>查询配置门禁状态，确认是否允许进入运行</td></tr>
 <tr><td><code>SYSTem:CONFigure:ROLE?</code></td><td><code>[node_id]</code></td><td>角色条目</td><td>查询 NodeRoleMap</td></tr>
@@ -1996,6 +1997,7 @@ READ:SYNC:STATe?</code></pre>
 <tr><td><code>vdc block</code></td><td><div class="field-pairs"><code>ready</code><code>lock_state</code><code>service_count</code><code>first_service_ms</code><code>last_service_ms</code><code>sync_seq</code></div></td><td>开发验证兼容字段；产品上位机优先使用 <code>READ:SYNC:STATe?</code>。</td></tr>
 <tr><td><code>dpll block</code></td><td><div class="field-pairs"><code>ready</code><code>state</code><code>service_count</code><code>first_service_ms</code><code>last_service_ms</code><code>update_seq</code></div></td><td>开发验证兼容字段；用于扫描/转台 DPLL 任务观测。</td></tr>
 <tr><td><code>vdc observer block</code></td><td><div class="field-pairs"><code>enabled</code><code>max_words_per_service</code><code>service_count</code><code>raw_word_count</code><code>no_edge_count</code><code>ambiguous_edge_count</code><code>bad_argument_count</code><code>submitted_count</code><code>accepted_count</code><code>rejected_count</code><code>last_capture_result</code><code>last_raw_word</code><code>last_sample_seq</code><code>last_event_id</code><code>last_tick_l32</code><code>last_gate_reject_code</code><code>previous_sample_mask</code><code>next_base_time_l32_ns</code></div></td><td><code>SYSTem:SYNC:VDC:OBServer?</code> 固定字段；用于 HIL 记录 raw capture observer 是否真实提交 VDC gate。</td></tr>
+<tr><td><code>vdc observer config</code></td><td><div class="field-pairs"><code>enabled</code><code>max_words_per_service</code><code>rising_event_id</code><code>falling_event_id</code><code>observed_mask</code><code>initial_sample_mask</code><code>next_base_time_l32_ns</code><code>sample_period_ns</code><code>expected_window_start_lo</code><code>expected_window_start_hi</code><code>frame_crc32</code><code>max_backward_ticks</code><code>quality_flags</code><code>sample0_lsb</code></div></td><td><code>SYSTem:SYNC:VDC:OBServer</code> 的启用态参数；无参数或 <code>enabled=0</code> 表示关闭并清零 observer，配置不启动 capture。</td></tr>
 </tbody>
 </table>
   </div>

@@ -299,6 +299,57 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_plan_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_observer(scpi_t *context)
+{
+    vdc_dpll_manager_sync_io_observer_config_t config = {0};
+    uint32_t enabled = 0u;
+    uint32_t expected_window_start_lo = 0u;
+    uint32_t expected_window_start_hi = 0u;
+    uint32_t sample0_lsb = 0u;
+
+    const scpi_bool_t has_enabled =
+        SCPI_ParamUInt32(context, &enabled, FALSE);
+    if (has_enabled != TRUE || enabled == 0u) {
+        config.enabled = false;
+        if (!vdc_dpll_manager_configure_sync_io_observer(&config)) {
+            return SCPI_RES_ERR;
+        }
+        goto accepted;
+    }
+
+    config.enabled = true;
+    if (!scpi_port_read_u32(context, &config.max_words_per_service) ||
+        !scpi_port_read_u32(context, &config.rising_event_id) ||
+        !scpi_port_read_u32(context, &config.falling_event_id) ||
+        !scpi_port_read_u32(context, &config.observed_mask) ||
+        !scpi_port_read_u32(context, &config.initial_sample_mask) ||
+        !scpi_port_read_u32(context, &config.next_base_time_l32_ns) ||
+        !scpi_port_read_u32(context, &config.sample_period_ns) ||
+        !scpi_port_read_u32(context, &expected_window_start_lo) ||
+        !scpi_port_read_u32(context, &expected_window_start_hi) ||
+        !scpi_port_read_u32(context, &config.frame_crc32)) {
+        return SCPI_RES_ERR;
+    }
+
+    (void)SCPI_ParamUInt32(context, &config.max_backward_ticks, FALSE);
+    (void)SCPI_ParamUInt32(context, &config.quality_flags, FALSE);
+    (void)SCPI_ParamUInt32(context, &sample0_lsb, FALSE);
+
+    config.expected_window_start_ns =
+        ((uint64_t)expected_window_start_hi << 32u) |
+        (uint64_t)expected_window_start_lo;
+    config.sample0_lsb = sample0_lsb != 0u;
+
+    if (!vdc_dpll_manager_configure_sync_io_observer(&config)) {
+        scpi_port_push_exec_error(context, "VDC_OBSERVER_CONFIG");
+        return SCPI_RES_ERR;
+    }
+
+accepted:
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_observer_q(scpi_t *context)
 {
     vdc_dpll_manager_sync_io_observer_status_t status;
