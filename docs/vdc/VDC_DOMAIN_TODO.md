@@ -47,7 +47,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 | P2 | `VdcCalibrationBinding` 尚未接入。 | active link delay、cal CRC 变化不会驱动 VDC relock 或 invalidation。 | VDC 只消费 Calibration active result；cal CRC/delay 变化后旧 lock/check 失效，进入 CHECKING/RELOCKING 并记录 gate evidence。 |
 | P2 | DCO snapshot 未形成跨核稳定消费路径。 | C 结构已存在，但 core1 还没有 seqlock/double-buffer 读取、半更新拒绝和 stale 策略。 | 增加 DCO shared snapshot guard，core1 只读稳定 DCO，late/半更新/stale 时拒绝 FIRE_LOAD。 |
 | P2 | `IDLE_BEACON` 未落地。 | 无业务数据时没有持续 observation/freshness 样本。 | 在 TDMA cycle 中加入 idle beacon 或等价 sync frame，维持 DPLL sample freshness 和 holdover age。 |
-| P3 | VDC 代码组件化不足。 | `components/vdc_domain` 只有 `vdc_domain.h/.c`。 | 拆分 `vdc_clock_model`、`vdc_dpll`、`vdc_quality`、`vdc_timestamp`，并保留 `vdc_domain` 作为聚合/owner API。 |
+| P3 | VDC 代码组件化不足。 | `vdc_timestamp` 已先行拆出，`clock_model`、`dpll`、`quality` 仍在 `vdc_domain` 单体内。 | 继续拆分 `vdc_clock_model`、`vdc_dpll`、`vdc_quality`，并保留 `vdc_domain` 作为聚合/owner API。 |
 
 ### 后续执行顺序建议
 
@@ -157,7 +157,7 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 - [ ] 新增 `vdc_clock_model.h/.c`。
 - [ ] 新增 `vdc_dpll.h/.c`。
 - [ ] 新增 `vdc_quality.h/.c`。
-- [ ] 新增 `vdc_timestamp.h/.c`。
+- [x] 新增 `vdc_timestamp.h/.c`。
 - [x] 让旧 `components/vdc_dpll_manager/` 过渡为兼容 wrapper 或逐步拆空。
 - [ ] 修改 `application/src/app_tasks.c`，让 `task_vdc_sync` 直接服务 VDC Domain owner。
 - [ ] 修改 SCPI VDC/SYNC 查询，保持读取 snapshot，不直接访问内部状态。

@@ -200,6 +200,104 @@ static int test_gate_rejects_diagnostic_timestamp(void)
     return failed;
 }
 
+static int test_timestamp_contract_helpers(void)
+{
+    int failed = 0;
+    vdc_timestamp_latch_sample_t sample;
+    vdc_timestamp_admission_code_t code = VDC_TIMESTAMP_ADMISSION_PASS;
+
+    vdc_timestamp_init_software_us_diagnostic(&sample,
+                                              7u,
+                                              1u,
+                                              0u,
+                                              123000u);
+    failed += expect_u32("software diagnostic valid", sample.valid, 1u);
+    failed += expect_u32("software diagnostic source",
+                         sample.source,
+                         VDC_TIMESTAMP_SOURCE_SOFTWARE_US);
+    failed += expect_u32("software diagnostic resolution",
+                         sample.resolution_ns,
+                         1000u);
+    failed += expect_u32("software diagnostic flags",
+                         sample.flags,
+                         VDC_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
+    failed += expect_bool("software diagnostic rejected for dpll",
+                          vdc_timestamp_dpll_admission_check(
+                              sample.source,
+                              sample.resolution_ns,
+                              sample.flags,
+                              VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS,
+                              &code),
+                          false);
+    failed += expect_u32("software diagnostic reject code",
+                         code,
+                         VDC_TIMESTAMP_ADMISSION_NOT_ELIGIBLE);
+
+    vdc_timestamp_init_hardware_tick_sample(
+        &sample,
+        8u,
+        1u,
+        0u,
+        1000000u,
+        1000010u,
+        VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS + 1u,
+        VDC_TIMESTAMP_FLAG_DPLL_ELIGIBLE);
+    failed += expect_bool("hardware resolution rejected",
+                          vdc_timestamp_dpll_admission_check(
+                              sample.source,
+                              sample.resolution_ns,
+                              sample.flags,
+                              VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS,
+                              &code),
+                          false);
+    failed += expect_u32("hardware resolution reject code",
+                         code,
+                         VDC_TIMESTAMP_ADMISSION_RESOLUTION);
+
+    sample.resolution_ns = VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS;
+    sample.flags = VDC_TIMESTAMP_FLAG_DPLL_ELIGIBLE |
+                   VDC_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    failed += expect_bool("hardware diagnostic flag rejected",
+                          vdc_timestamp_dpll_admission_check(
+                              sample.source,
+                              sample.resolution_ns,
+                              sample.flags,
+                              VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS,
+                              &code),
+                          false);
+    failed += expect_u32("hardware diagnostic reject code",
+                         code,
+                         VDC_TIMESTAMP_ADMISSION_NOT_ELIGIBLE);
+
+    sample.flags = VDC_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+    failed += expect_bool("hardware eligible accepted",
+                          vdc_timestamp_dpll_admission_check(
+                              sample.source,
+                              sample.resolution_ns,
+                              sample.flags,
+                              VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS,
+                              &code),
+                          true);
+    failed += expect_u32("hardware eligible pass",
+                         code,
+                         VDC_TIMESTAMP_ADMISSION_PASS);
+    failed += expect_bool("timestamp inside guarded window",
+                          vdc_timestamp_observed_in_window(1000u,
+                                                           900u,
+                                                           100u,
+                                                           100u,
+                                                           50u),
+                          true);
+    failed += expect_bool("timestamp outside guarded window",
+                          vdc_timestamp_observed_in_window(1000u,
+                                                           1151u,
+                                                           100u,
+                                                           100u,
+                                                           50u),
+                          false);
+    return failed;
+}
+
 static int test_gate_rejects_schedule_and_window_mismatch(void)
 {
     int failed = 0;
@@ -558,6 +656,7 @@ int main(void)
 {
     int failed = 0;
     failed += test_default_schedule_and_clock();
+    failed += test_timestamp_contract_helpers();
     failed += test_gate_rejects_diagnostic_timestamp();
     failed += test_gate_rejects_schedule_and_window_mismatch();
     failed += test_frame_envelope_window_contract();

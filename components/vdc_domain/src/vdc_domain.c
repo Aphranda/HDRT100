@@ -42,6 +42,24 @@ static void vdc_domain_gate_fail(vdc_gate_result_t *gate,
     gate->reject_evidence = evidence;
 }
 
+static vdc_domain_gate_code_t vdc_domain_timestamp_admission_to_gate(
+    vdc_timestamp_admission_code_t code)
+{
+    switch (code) {
+    case VDC_TIMESTAMP_ADMISSION_PASS:
+        return VDC_DOMAIN_GATE_PASS;
+    case VDC_TIMESTAMP_ADMISSION_RESOLUTION:
+        return VDC_DOMAIN_GATE_TIMESTAMP_RESOLUTION;
+    case VDC_TIMESTAMP_ADMISSION_BAD_ARGUMENT:
+        return VDC_DOMAIN_GATE_BAD_ARGUMENT;
+    case VDC_TIMESTAMP_ADMISSION_WINDOW_BOUND:
+        return VDC_DOMAIN_GATE_WINDOW_BOUND;
+    case VDC_TIMESTAMP_ADMISSION_NOT_ELIGIBLE:
+    default:
+        return VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE;
+    }
+}
+
 static bool vdc_domain_range_in_period(uint32_t offset_ns,
                                        uint32_t width_ns,
                                        uint32_t period_ns)
@@ -662,41 +680,33 @@ bool vdc_domain_validate_tdma_timestamp_evidence(
                              evidence->sample_seq);
         return false;
     }
-    if (require_dpll_eligible &&
-        ((evidence->timestamp_flags & VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE) == 0u ||
-         (evidence->timestamp_flags & VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) != 0u ||
-         evidence->timestamp_source != VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK)) {
-        vdc_domain_gate_fail(gate,
-                             VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE,
-                             evidence->source_slot_id,
-                             evidence->sample_seq);
-        return false;
-    }
-    if (require_dpll_eligible &&
-        (evidence->timestamp_resolution_ns == 0u ||
-         evidence->timestamp_resolution_ns >
-             VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS)) {
-        vdc_domain_gate_fail(gate,
-                             VDC_DOMAIN_GATE_TIMESTAMP_RESOLUTION,
-                             evidence->source_slot_id,
-                             evidence->sample_seq);
-        return false;
+    if (require_dpll_eligible) {
+        vdc_timestamp_admission_code_t timestamp_code =
+            VDC_TIMESTAMP_ADMISSION_PASS;
+        if (!vdc_timestamp_dpll_admission_check(
+                evidence->timestamp_source,
+                evidence->timestamp_resolution_ns,
+                evidence->timestamp_flags,
+                VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS,
+                &timestamp_code)) {
+            vdc_domain_gate_fail(
+                gate,
+                vdc_domain_timestamp_admission_to_gate(timestamp_code),
+                evidence->source_slot_id,
+                evidence->sample_seq);
+            return false;
+        }
     }
 
     const uint64_t cycle_offset =
         evidence->expected_window_start_ns % (uint64_t)profile->period_ns;
-    const uint64_t window_min = evidence->expected_window_start_ns >
-                                        profile->guard_before_ns
-                                    ? evidence->expected_window_start_ns -
-                                          profile->guard_before_ns
-                                    : 0u;
-    const uint64_t window_max =
-        evidence->expected_window_start_ns +
-        (uint64_t)profile->observation_window_width_ns +
-        (uint64_t)profile->guard_after_ns;
     if (cycle_offset != profile->observation_window_offset_ns ||
-        evidence->observed_time_ns < window_min ||
-        evidence->observed_time_ns > window_max) {
+        !vdc_timestamp_observed_in_window(
+            evidence->expected_window_start_ns,
+            evidence->observed_time_ns,
+            profile->observation_window_width_ns,
+            profile->guard_before_ns,
+            profile->guard_after_ns)) {
         vdc_domain_gate_fail(gate,
                              VDC_DOMAIN_GATE_WINDOW_BOUND,
                              evidence->source_slot_id,
@@ -804,15 +814,11 @@ bool vdc_domain_validate_tdma_frame_envelope(
         return false;
     }
 
-    const uint64_t window_min =
-        frame->window_start_ns > profile->guard_before_ns
-            ? frame->window_start_ns - profile->guard_before_ns
-            : 0u;
-    const uint64_t window_max =
-        frame->window_start_ns + (uint64_t)expected_width_ns +
-        (uint64_t)profile->guard_after_ns;
-    if (frame->timestamp.observed_time_ns < window_min ||
-        frame->timestamp.observed_time_ns > window_max ||
+    if (!vdc_timestamp_observed_in_window(frame->window_start_ns,
+                                          frame->timestamp.observed_time_ns,
+                                          expected_width_ns,
+                                          profile->guard_before_ns,
+                                          profile->guard_after_ns) ||
         frame->timestamp.timestamp_source == VDC_DOMAIN_TIMESTAMP_SOURCE_NONE ||
         frame->timestamp.timestamp_resolution_ns == 0u ||
         frame->timestamp.schedule_crc32 != profile->schedule_crc32 ||

@@ -43,6 +43,36 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-013 - Timestamp contract split
+
+- 状态：完成 host/build 验证；真实 PIO/DMA timestamp latch 待后续实现
+- 日期：2026-08-16
+- 任务目标：
+  - 将 DPLL timestamp admission 的基础规则从 `vdc_domain.c` 单体中拆出，形成后续硬件 latch、timestamp dictionary 和 wrap tracker 的接入口。
+  - 保持 HAOFV 边界：timestamp 基础件只判断 source/resolution/flag/window，`SyncDpllFB` / VDC owner 仍是 offset/rate/lock 唯一 writer。
+- 完成内容：
+  - 新增 `vdc_timestamp.h/.c`，定义 `SOFTWARE_US`、`HARDWARE_TICK`、`DIAGNOSTIC_ONLY`、`DPLL_ELIGIBLE`、latch sample 和 admission code。
+  - `vdc_domain_validate_tdma_timestamp_evidence()` 改为调用 `vdc_timestamp_dpll_admission_check()`；诊断时间戳、非硬件 tick 和超出 `100 ns` 分辨率的样本仍被拒绝进入 DPLL。
+  - `vdc_timestamp_observed_in_window()` 统一 expected/observed window + guard 判断，为后续 PIO capture ring 映射提供公共规则。
+  - 单元测试增加 timestamp helper 覆盖：软件诊断样本拒绝、硬件 tick 诊断标志拒绝、分辨率超限拒绝、`<=100 ns` 硬件样本通过。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+- 还需完成：
+  - 接入真实 PIO/DMA/IRQ/core1 timestamp latch，产出 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 的 observation sample。
+  - 冻结 `VdcTimestampDictionary` 和 `VdcWrapTracker`，把 compact timestamp 展开为节点、端口、信号语义和 64 位本地 tick。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_timestamp.h`
+  - `components/vdc_domain/src/vdc_timestamp.c`
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 继续 P3/P4，按 HAOFV 边界把硬件 capture ring 和 `VDC_OBSERVATION_WINDOW` sample bring-up 接到该 contract。
+
 ### VDC-TASK-20260816-012 - DPLL sample commits VDC clock and DCO snapshot
 
 - 状态：完成 host/build 验证；真实 servo 和硬件 timestamp latch 待后续实现

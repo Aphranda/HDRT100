@@ -230,6 +230,7 @@ set(PROJECT_APP_SOURCES
         components/ui_manager/src/status_ui.c
         components/ui_manager/src/ui_manager.c
         components/vdc_domain/src/vdc_domain.c
+        components/vdc_domain/src/vdc_timestamp.c
         components/vdc_dpll_manager/src/vdc_dpll_manager.c
         drivers/mcu/spi/src/drv_spi.c
         drivers/mcu/i2c/src/drv_i2c.c
