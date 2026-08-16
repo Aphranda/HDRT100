@@ -14,7 +14,7 @@
 #include "sync_io_hw_profile.h"
 
 #define SYNC_IO_SEQ_STEP_MODE_MAX_LENGTH 256u
-#define SYNC_IO_SEQ_STEP_MODE_MAX_WIDTH  8u
+#define SYNC_IO_SEQ_STEP_MODE_MAX_WIDTH  BOARD_SYNC_OUTPUT_PIN_COUNT
 
 typedef struct {
     bool running;
@@ -115,6 +115,17 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
         return false;
     }
 
+    if (gate_enabled && !sync_io_seq_step_trigger_pin_valid(trigger_pin)) {
+        LOG_ERROR("sync_io",
+                  "seq_step: gate mode requires trigger_pin in GPIO16..GPIO19, "
+                  "got %lu", (unsigned long)trigger_pin);
+        sync_io_core_trace(SYNC_IO_TRACE_SEQ_GATE_INVALID,
+                           SYNC_IO_TRACE_ERROR,
+                           trigger_pin,
+                           0u);
+        return false;
+    }
+
     if (s_seq_step.running) {
         sync_io_seq_step_disarm();
     } else {
@@ -126,17 +137,6 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
     dma_hw->ints0 = dma_hw->ints0;
     irq_set_enabled(SYNC_IO_SHARED_DMA_IRQ, false);
     dma_channel_set_irq0_enabled(SYNC_IO_SEQ_STEP_DMA_CH, false);
-
-    if (gate_enabled && !sync_io_seq_step_trigger_pin_valid(trigger_pin)) {
-        LOG_ERROR("sync_io",
-                  "seq_step: gate mode requires trigger_pin in GPIO16..GPIO19, "
-                  "got %lu", (unsigned long)trigger_pin);
-        sync_io_core_trace(SYNC_IO_TRACE_SEQ_GATE_INVALID,
-                           SYNC_IO_TRACE_ERROR,
-                           trigger_pin,
-                           0u);
-        return false;
-    }
 
     const pio_program_t *prog = gate_enabled
         ? &seq_step_gated_program

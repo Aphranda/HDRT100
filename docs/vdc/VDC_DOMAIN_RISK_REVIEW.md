@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_RISK_REVIEW.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`
-Last updated: 2026-08-16
+Last updated: 2026-08-17
 
 本文档是 `components/vdc_domain`、`components/vdc_dpll_manager`、`components/sync_io` 代码与 `docs/vdc` 文档的一次风险评审记录，用于收敛共同时间（Virtual Distributed Clock / VDC）、DPLL 锁相与硬实时 capture/fire 层中的正确性缺陷、半接线路径、文档漂移和测试缺口。所有文件:行号以评审当日（2026-08-16）的工作树为准。
 
@@ -41,17 +41,23 @@ Last updated: 2026-08-16
 
 后果：core1 DCO 消费者 [vdc_dpll_manager.c:981-991](components/vdc_dpll_manager/src/vdc_dpll_manager.c#L981-L991) 用 `snapshot.dco.dco_update_seq == last_dco_update_seq` 判 `unchanged_count`，由于序列恒为 `2`，**每次新快照都被判为「未变化」、`accepted_update_count` 永不增长**——正是提交 `bb82117`（mirror dco consumption on core1）要验证的消费路径。正确写法已在 `vdc_domain_publish_dco_control`（[vdc_domain.c:1588-1598](components/vdc_domain/src/vdc_domain.c#L1588-L1598)）示范：先存 seq、调 `default_dco_control`、再恢复并自增；`update_clock_from_evidence` 未照做。
 
+处置状态（2026-08-17）：已修复。`vdc_domain_update_clock_from_evidence()` 在派生 DCO 前保存 `next_dco_seq`，调用 `vdc_domain_default_dco_control()` 后恢复该序号，避免默认初始化把序号重置为 `1`。`test_dco_control_contract()` 已覆盖 accepted evidence 更新后 DCO seq 必须单调前进。
+
 ### 3.2 `accepted_sample_count` 只增不重置——锁是单调计数伪锁定
 
 [vdc_domain.c:1698](components/vdc_domain/src/vdc_domain.c#L1698) 对 `accepted_sample_count` 只 `++`，无任何重置路径；reject 路径 [vdc_domain.c:1661-1693](components/vdc_domain/src/vdc_domain.c#L1661-L1693) 只把 state 置 `CHECKING`，计数保留；状态链 [vdc_domain.c:1727-1739](components/vdc_domain/src/vdc_domain.c#L1727-L1739) 纯由累计计数驱动。
 
 后果：单次瞬态 reject 把 LOCKED 打到 CHECKING，但下一个 accepted sample（计数仍 ≥ `lock_sample_count`）直接跳回 LOCKED——「连续 accepted sample」从不成立。与 TODO 自身目标矛盾（[VDC_DOMAIN_TODO.md:186](docs/vdc/VDC_DOMAIN_TODO.md#L186)「连续 accepted sample」、[:55](docs/vdc/VDC_DOMAIN_TODO.md#L55)「sample count 伪锁定」）。需要在 reject 时清零计数或维护连续 streak，而不是累计值。
 
+处置状态（2026-08-17）：已修复为“连续 accepted streak”语义。gate reject 和 servo outlier 统一清零 `accepted_sample_count`、连续质量计数和频率估计基线；恢复样本可重新进入 `INITIAL_SYNC/FREQ_LOCK/PHASE_LOCK`，但不能一帧直接回到 `LOCKED`。`test_context_accepts_samples_until_locked()` 与 `test_dpll_rejects_servo_outlier()` 已覆盖该契约。
+
 ### 3.3 `seq_width` 接受 1..8，但输出组只有 4 脚、PIO 硬编码 `out pins, 4`
 
 [sync_io_mode_seq_step.c:17](components/sync_io/src/sync_io_mode_seq_step.c#L17) 定义 `MAX_WIDTH = 8`，[:53-54](components/sync_io/src/sync_io_mode_seq_step.c#L53-L54) 校验接受 `1..8`；但输出组只有 `BOARD_SYNC_OUTPUT_PIN_COUNT = 4`（GPIO21-24），且 [seq_step.pio:18](components/sync_io/src/seq_step.pio#L18) 指令硬编码 `out pins, 4`。
 
 后果：width 5..8 会让 `pio_sm_set_consecutive_pindirs(..., width, true)` 静默把 **GPIO25（LCD 背光）/ 26 / 27（AUX）/ 28（SYNC_CLK_OUT）** 重配成 PIO 输出并输出损坏序列；同时 `sm_config_set_out_shift` 用请求 width、`out pins` 固定 4，两者失配使 shift/auto-pull 脱同步。需要把 width 上限钳到 4（或让 PIO 程序按 width 参数化，二选一，当前两者不一致）。
+
+处置状态（2026-08-17）：已修复。`SYNC_IO_SEQ_STEP_MODE_MAX_WIDTH` 改为板级 `BOARD_SYNC_OUTPUT_PIN_COUNT`，当前产品为 4；`sync_io_seq_step_arm()` 的 gate 参数校验前移到 DMA/IRQ/SM 操作之前，非法 gate 不再先停硬件资源。
 
 ---
 
@@ -123,9 +129,9 @@ Last updated: 2026-08-16
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 1 | 修 `dco_update_seq` 单调性（§3.1） | 直接破坏 core1 DCO 消费特性，改动小、有 `publish_dco_control` 现成正确写法。 |
-| 2 | 修 `accepted_sample_count` 重置（§3.2） | 否则 LOCKED 形同虚设；reject 清零或改连续 streak。 |
-| 3 | 钳 `seq_width` 到 4 或参数化 PIO（§3.3） | 会静默重配 GPIO25-28，唯一涉及硬件脚损坏的项。 |
+| 1 | 修 `dco_update_seq` 单调性（§3.1） | 已完成；后续板端需复查 `SYSTem:SYNC:VDC:DCO?` 中 `accepted_update_count` 是否随真实 evidence 增长。 |
+| 2 | 修 `accepted_sample_count` 重置（§3.2） | 已完成；`accepted_sample_count` 当前按连续锁相获取 streak 使用。 |
+| 3 | 钳 `seq_width` 到 4 或参数化 PIO（§3.3） | 已完成；当前绑定 `BOARD_SYNC_OUTPUT_PIN_COUNT=4`，未做可变宽 PIO 程序。 |
 | 4 | 修 wrap tracker 高位重置（§5.1） | 两路独立命中，>4.29s 后时间戳整体错位，直接影响 DPLL 输入正确性。 |
 | 5 | 清 sync_io 边界 bug（§4 + §5 剩余） | 溢出、丢字、ISR 破坏、SM 无互斥、假 fire——批量处理，多数改动小。 |
 | 6 | 补 manager/sync_io 单测（§7.1/7.3） | 高风险集成层当前零 host 覆盖。 |

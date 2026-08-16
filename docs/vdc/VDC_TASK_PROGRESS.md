@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-16
+Last updated: 2026-08-17
 
 本文档记录 Virtual Distributed Clock / VDC Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `VDC_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
@@ -42,6 +42,38 @@ VdcSyncAO
 首阶段先完成文档主域和架构边界，并把现有 RefMem/TDMA 诊断字段收敛到不会冒充 100 ns DPLL evidence 的代码形态。
 
 ## 任务记录
+
+### VDC-TASK-20260817-001 - P1 DPLL correctness risk closure
+
+- 状态：完成代码、host 单元验证、构建、文档检查、COM5/COM6 OTA 和只读 SCPI 复查。
+- 日期：2026-08-17
+- 任务目标：
+  - 按 `VDC_DOMAIN_RISK_REVIEW.md` 优先关闭 P1 风险：DCO 更新序列非单调、accepted 样本伪锁定、SEQ_STEP 输出宽度越界。
+  - 保持 HAOFV 边界：`SyncDpllFB/VDC owner` 仍是 offset/rate/lock/DCO 的唯一 writer，`sync_io` 只提供硬实时 IO 基础能力，SCPI/脚本不写锁相状态。
+- 完成内容：
+  - `vdc_domain_update_clock_from_evidence()` 保存并恢复 `next_dco_seq`，accepted evidence 派生 DCO 后不再被 `vdc_domain_default_dco_control()` 重置为固定序号。
+  - 新增 VDC lock acquisition reset helper；gate reject 和 servo outlier 清零连续 accepted streak、连续质量计数和频率估计基线，防止下一条好样本直接伪锁回 `LOCKED`。
+  - `SYNC_IO_SEQ_STEP_MODE_MAX_WIDTH` 绑定 `BOARD_SYNC_OUTPUT_PIN_COUNT`，当前产品输出组限制为 GPIO21-24 四线；gate 参数校验前移到 DMA/IRQ/SM 操作之前。
+  - 单元测试补充 DCO evidence seq 单调性、reject 后 accepted streak reset、outlier 后不能立即 relock。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260816163100`，package CRC `0x84D37534`。
+  - `python tools\docs_check\docs_check.py` 通过；保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 和 `VDC_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过；COM5/COM6 均启动并 commit 到 build `20260816163100`。
+  - COM5/COM6 只读 SCPI 复查通过：`SYSTem:FW:BUILD?` 均为 `20260816163100`，`SYSTem:SYNC:VDC:DCO?` 显示 DCO consumer valid、accepted update 计数持续增长且 `last_error=0`，`SYSTem:SYNC:VDC:LOCK:READiness?` 当前仍因未启动 observation/self-test 而未锁定。
+  - SD runtime log 读回通过：COM5 `/logs/run` 已有 `run_000001.log`..`run_000006.log`，COM6 已有 `run_000001.log`..`run_000005.log`；`MMEM:READ?` 可读最新日志。一次命令行引号错误和 `SYST:ERR?` 缩写误用产生了 `-101` 日志，已用 `*CLS` 清除，最终 `SYSTem:ERRor?` 为 `0,"No error"`。
+- 还需完成：
+  - 继续处理 `VDC_DOMAIN_RISK_REVIEW.md` 中 P2 风险，下一优先级是 wrap tracker 高 32 位重置、sync_io 边界 bug 和 manager/sync_io 覆盖缺口。
+  - 启动 VDC observation/self-test 后继续复查 GPIO overlay 锁相日志中的 reject/recovery 行为。
+- 关联文件：
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `components/sync_io/src/sync_io_mode_seq_step.c`
+  - `tests/unit/test_vdc_domain.c`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+  - `docs/vdc/VDC_DOMAIN_RISK_REVIEW.md`
+- 下一步：
+  - 进入 P2 风险修复：优先处理 wrap tracker 高 32 位重置与 sync_io 边界 bug，然后再启动 VDC observation/self-test 进行锁相质量优化。
 
 ### VDC-TASK-20260816-039 - TDMA timestamp spine gates DPLL eligibility
 

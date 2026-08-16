@@ -566,6 +566,22 @@ static void vdc_domain_record_rejected_sample(
     vdc_domain_refresh_quality_state(context);
 }
 
+static void vdc_domain_reset_lock_acquisition(vdc_domain_context_t *context)
+{
+    if (context == NULL) {
+        return;
+    }
+
+    context->dpll.accepted_sample_count = 0u;
+    context->dpll.last_expected_window_start_ns = 0u;
+    context->dpll.last_observed_time_ns = 0u;
+    context->quality.accepted_sample_count = 0u;
+    context->quality.consecutive_good_samples = 0u;
+    context->quality.consecutive_coarse_samples = 0u;
+    context->quality.consecutive_debug_samples = 0u;
+    context->quality.consecutive_fine_samples = 0u;
+}
+
 static void vdc_domain_record_accepted_sample(
     vdc_domain_context_t *context,
     const vdc_tdma_timestamp_evidence_t *evidence)
@@ -656,6 +672,7 @@ static void vdc_domain_update_clock_from_evidence(
         return;
     }
 
+    const uint32_t next_dco_seq = context->dco.dco_update_seq + 1u;
     int32_t frequency_error_ppb = context->dpll.last_frequency_error_ppb;
     int32_t phase_rate_pull_ppb = 0;
     if (context->dpll.accepted_sample_count > 1u &&
@@ -727,7 +744,7 @@ static void vdc_domain_update_clock_from_evidence(
     vdc_domain_default_dco_control(&context->dco,
                                    &context->clock,
                                    context->dpll.state);
-    context->dco.dco_update_seq++;
+    context->dco.dco_update_seq = next_dco_seq;
     context->dpll.update_seq++;
 
     context->error_budget.freq_offset_ppb = -period_adjust_ppb;
@@ -1662,6 +1679,7 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
         context->dpll.rejected_sample_count++;
         context->dpll.last_reject_code = gate.reject_code;
         context->dpll.update_seq++;
+        vdc_domain_reset_lock_acquisition(context);
         if (context->ready != 0u) {
             context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
         }
@@ -1686,6 +1704,7 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
         context->dpll.rejected_sample_count++;
         context->dpll.last_reject_code = gate.reject_code;
         context->dpll.update_seq++;
+        vdc_domain_reset_lock_acquisition(context);
         if (context->ready != 0u) {
             context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
         }

@@ -1535,6 +1535,18 @@ static int test_dco_control_contract(void)
     failed += expect_i32("published dco phase",
                          snapshot.dco.phase_offset_ns,
                          33);
+
+    const uint32_t seq_before_evidence = snapshot.dco.dco_update_seq;
+    vdc_domain_set_ready(&context, true);
+    vdc_tdma_timestamp_evidence_t evidence =
+        make_hardware_sample(&context.schedule, 1u, 0);
+    failed += expect_bool("submit evidence updates dco",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_bool("dco evidence seq monotonic",
+                          snapshot.dco.dco_update_seq > seq_before_evidence,
+                          true);
     return failed;
 }
 
@@ -1594,6 +1606,12 @@ static int test_context_accepts_samples_until_locked(void)
                           false);
     (void)vdc_domain_get_snapshot(&context, &snapshot);
     failed += expect_u32("rejected", snapshot.dpll.rejected_sample_count, 1u);
+    failed += expect_u32("accepted streak reset",
+                         snapshot.dpll.accepted_sample_count,
+                         0u);
+    failed += expect_u32("quality accepted streak reset",
+                         snapshot.quality.accepted_sample_count,
+                         0u);
     failed += expect_u32("checking after reject",
                          snapshot.dpll.state,
                          VDC_DOMAIN_LOCK_CHECKING);
@@ -1606,6 +1624,19 @@ static int test_context_accepts_samples_until_locked(void)
     failed += expect_u32("quality reject code",
                          snapshot.quality.gate_reject_code,
                          VDC_DOMAIN_GATE_REFERENCE_MISMATCH);
+
+    vdc_tdma_timestamp_evidence_t recovery =
+        make_hardware_sample(&context.schedule, 6u, 0);
+    failed += expect_bool("recovery evidence accepted",
+                          vdc_domain_submit_tdma_evidence(&context, &recovery),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("recovery starts new streak",
+                         snapshot.dpll.accepted_sample_count,
+                         1u);
+    failed += expect_bool("no immediate relock after reject",
+                          snapshot.dpll.state != VDC_DOMAIN_LOCK_LOCKED,
+                          true);
     return failed;
 }
 
@@ -1779,7 +1810,7 @@ static int test_dpll_rejects_servo_outlier(void)
     (void)vdc_domain_get_snapshot(&context, &snapshot);
     failed += expect_u32("outlier accepted count",
                          snapshot.dpll.accepted_sample_count,
-                         context.servo.lock_sample_count);
+                         0u);
     failed += expect_u32("outlier rejected count",
                          snapshot.dpll.rejected_sample_count,
                          1u);
@@ -1789,6 +1820,21 @@ static int test_dpll_rejects_servo_outlier(void)
     failed += expect_u32("outlier quality code",
                          snapshot.quality.gate_reject_code,
                          VDC_DOMAIN_GATE_SERVO_OUTLIER);
+
+    vdc_tdma_timestamp_evidence_t recovery =
+        make_hardware_sample(&context.schedule,
+                             context.servo.lock_sample_count + 2u,
+                             0);
+    failed += expect_bool("submit recovery after outlier",
+                          vdc_domain_submit_tdma_evidence(&context, &recovery),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("outlier recovery streak",
+                         snapshot.dpll.accepted_sample_count,
+                         1u);
+    failed += expect_bool("outlier no immediate relock",
+                          snapshot.dpll.state != VDC_DOMAIN_LOCK_LOCKED,
+                          true);
     return failed;
 }
 
