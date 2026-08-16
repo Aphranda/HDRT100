@@ -298,3 +298,29 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_plan_q(scpi_t *context)
     SCPI_ResultUInt32(context, gate.reject_evidence);
     return SCPI_RES_OK;
 }
+
+scpi_result_t scpi_cmd_sync_vdc_observer_q(scpi_t *context)
+{
+    vdc_dpll_manager_sync_io_observer_status_t status;
+    vdc_dpll_manager_get_sync_io_observer_status(&status);
+
+    SCPI_ResultBool(context, status.enabled ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.max_words_per_service);
+    SCPI_ResultUInt32(context, status.service_count);
+    SCPI_ResultUInt32(context, status.raw_word_count);
+    SCPI_ResultUInt32(context, status.no_edge_count);
+    SCPI_ResultUInt32(context, status.ambiguous_edge_count);
+    SCPI_ResultUInt32(context, status.bad_argument_count);
+    SCPI_ResultUInt32(context, status.submitted_count);
+    SCPI_ResultUInt32(context, status.accepted_count);
+    SCPI_ResultUInt32(context, status.rejected_count);
+    SCPI_ResultUInt32(context, status.last_capture_result);
+    SCPI_ResultUInt32(context, status.last_raw_word);
+    SCPI_ResultUInt32(context, status.last_sample_seq);
+    SCPI_ResultUInt32(context, status.last_event_id);
+    SCPI_ResultUInt32(context, status.last_tick_l32);
+    SCPI_ResultUInt32(context, status.last_gate_reject_code);
+    SCPI_ResultUInt32(context, status.previous_sample_mask);
+    SCPI_ResultUInt32(context, status.next_base_time_l32_ns);
+    return SCPI_RES_OK;
+}

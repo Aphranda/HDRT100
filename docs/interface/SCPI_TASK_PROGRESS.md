@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_TASK_PROGRESS.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-16
 
 本文档用于记录 Distributed Hard Real-Time Trigger System 中 SCPI 指令模块拆分、产品命令树收敛、
 板端烧录验证和工具闭环进度。每完成一个阶段，都应追加任务记录，说明目标、完成内容、
@@ -127,6 +127,35 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   为后续 UART/RS485 通信接口扩展预留稳定命令树。
 
 ## 任务记录
+
+### SCPI-TASK-20260816-036 - VDC raw capture observer 维护查询
+
+- 状态：完成离线和构建验证；板端 USBTMC/CDC 查询待下一轮 HIL 执行。
+- 日期：2026-08-16
+- 任务目标：
+  - 为 VDC manager 的 SYNC_IO raw capture observer 增加只读维护查询。
+  - 保持 SCPI 边界：查询只读 snapshot，不启动 capture、不配置 observer、不投递 VDC 样本。
+- 完成内容：
+  - 新增 `SYSTem:SYNC:VDC:OBServer?`，返回 enabled、batch、raw/no-edge/ambiguous/bad-argument/submitted/accepted/rejected、last raw word、event id、tick_l32、gate reject 和 next base tick。
+  - 同步 `SCPI_COMMANDS.md`、`SCPI_COMMAND_PLAN.md`、正式指令表 Markdown 和 HTML 的 observer block 字段。
+- 验证结果：
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=127。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有既有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260816024745`，package CRC `0x028BC853`。
+- 还需完成：
+  - COM5/COM6 板端查询 `SYSTem:SYNC:VDC:OBServer?`，并把返回字段纳入两板 VDC/TDMA HIL 报告。
+- 关联文件：
+  - `middleware/scpi_port/inc/scpi_sync_commands.h`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
+  - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
+  - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`
+- 下一步：
+  - 在真实 timestamp latch 或 observer 配置来源落地后，扩展 HIL 脚本验证 raw word -> compact observation -> VDC gate 证据链。
 
 ### SCPI-TASK-20260813-035 - 通信主域增加 UART 入口
 

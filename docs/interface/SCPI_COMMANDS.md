@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-08-14
+Last updated: 2026-08-16
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -38,6 +38,7 @@ Last updated: 2026-08-14
 | `SYSTem:SYNC:VDC:STATus?` | 查询 `task_vdc_sync` 的只读维护状态：是否 ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq。 |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` | 查询 `task_dpll` 的只读维护状态：是否 ready、state、service_count、first_service_ms、last_service_ms、update_seq。 |
 | `SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]` | 查询 VDC TDMA 窗口计划；默认 `window_class=2` 即 `REFMEM_DATA_WINDOW`，不带时间参数时使用当前板端时间。返回窗口起止、guard、wait_ns、late_ns、inside/missed 标志、schedule CRC 和 gate 结果。 |
+| `SYSTem:SYNC:VDC:OBServer?` | 查询 VDC 对 SYNC_IO raw capture observer 的只读维护状态：启用状态、batch 上限、raw/no-edge/ambiguous/submitted/accepted/rejected 计数、最近 raw word、event_id、tick_l32 和 gate reject。该命令不启动 capture、不投递样本。 |
 | `SYSTem:CONFigure:STAT?` | 查询配置门禁状态：build id、ready、gate_state、service_count、epoch、run_id、版本号、ACK/NACK/busy/timeout 位和 CRC 快照（build/hw/role/loop/action/calibration/config）。当前 ready 同时受分布式配置 CRC 和 RefMem SlotClaim gate 约束；claim 冲突、错绑、overflow 或 required slot 缺失会使 ready=0。 |
 | `SYSTem:CONFigure:ROLE? [node_id]` | 查询静态 `NodeRoleMap` 条目；省略 `node_id` 时查询 0。返回 `version,node_count,target_mask,input_base_pin,output_base_pin,aux_base_pin,node_id,role,persona,feature_mask`。 |
 | `SYSTem:CONFigure:LOOP? [layer_id]` | 查询静态 `LoopPlan` 层条目；省略 `layer_id` 时查询 0。返回 `version,node_loop_count,array_loop_count,layer_count,default_wait_rule,layer_id,node_id,action_id,wait_rule`。 |

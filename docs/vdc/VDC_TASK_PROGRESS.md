@@ -55,19 +55,25 @@ VdcSyncAO
   - observer 默认关闭；启用时读取 bounded raw word batch，调用 `vdc_sync_io_capture_word_to_compact_observation()`，再提交 `vdc_domain_submit_compact_observation()`。
   - status 记录 raw/no-edge/ambiguous/bad-argument/submitted/accepted/rejected 计数，以及 last raw word、event id、tick_l32 和 gate reject code。
   - observer 不自动启动 SYNC_IO capture，不使用 `board_uptime_ms()` 构造 DPLL timestamp；timestamp base、sample period、event id、frame CRC 必须由上游显式配置。
+  - 新增 `SYSTem:SYNC:VDC:OBServer?` 只读维护查询，用于 HIL 读取 observer status；查询不启动 capture、不投递样本、不改变 DPLL。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=127。
   - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
   - `git diff --check` 通过，仅有既有 CRLF 提示。
-  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260816024252`，package CRC `0x0C9F20BA`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，最新生成 build id `20260816024745`，package CRC `0x028BC853`。
 - 还需完成：
-  - 增加 SCPI/维护查询或 HIL-only 查询，输出 observer status、dictionary CRC、profile CRC、timestamp source/resolution 和 gate evidence。
+  - 增加 HIL 报告，输出 observer status、dictionary CRC、profile CRC、timestamp source/resolution 和 gate evidence。
   - 将真实 PIO/DMA/core1 timestamp latch 接入 observer 配置来源，避免人工配置 base tick。
   - COM5/COM6 验证 raw word -> compact observation -> VDC gate 的板端证据。
 - 关联文件：
   - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
   - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `middleware/scpi_port/inc/scpi_sync_commands.h`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
   - `docs/sync/SYNC_IO_TODO.md`
   - `docs/sync/SYNC_IO_TASK_PROGRESS.md`
   - `docs/vdc/VDC_DOMAIN_TODO.md`

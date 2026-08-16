@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMAND_PLAN.md`
 Related: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-16
 
 本文档记录 Distributed Hard Real-Time Trigger System 当前 SCPI 固件架构、命令域边界、owner 归属和后续收敛待办。`DTC100` 暂作为当前设备型号和 `*IDN?` 字段保留。它不是历史流水账，也不是上位机最终指令手册：
 
@@ -264,6 +264,7 @@ VDC/DPLL 层级：
 SYSTem:SYNC:VDC:STATus?
 SYSTem:SYNC:VDC:DPLL:STATus?
 SYSTem:SYNC:VDC:TDMA:PLAN?
+SYSTem:SYNC:VDC:OBServer?
 SYSTem:SYNC:VDC:DPLL:TUNE
 SYSTem:SYNC:VDC:DPLL:COEFficient
 SYSTem:SYNC:VDC:DPLL:OVERRide?
@@ -272,6 +273,8 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 ```
 
 `SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]` 是只读维护入口，用于复现 active `VdcTdmaScheduleProfile` 对 observation/data/idle window 的计划结果。它返回当前或指定 `now_ns` 对应的窗口起止、guard、wait_ns、late_ns、inside/missed 标志、schedule CRC 和 gate；不得作为产品上位机控制入口。
+
+`SYSTem:SYNC:VDC:OBServer?` 是只读维护入口，用于查询 VDC manager 从 `sync_io_read_capture_words()` 消费 raw capture word 的 observer 证据。它只返回 enabled、batch、raw/no-edge/ambiguous/submitted/accepted/rejected、last raw word、event id、tick_l32 和 gate reject 等状态；不得启动 capture、不得改变 observer 配置、不得作为 DPLL lock evidence 本身。
 
 ## 7. 通信、实时和测量
 
@@ -484,6 +487,8 @@ SYSTem
   CALibration:LIMit:DEFAult
   SYNC:VDC:STATus?
   SYNC:VDC:DPLL:STATus?
+  SYNC:VDC:TDMA:PLAN?
+  SYNC:VDC:OBServer?
   SYNC:VDC:DPLL:TUNE
   SYNC:VDC:DPLL:COEFficient / COEFficient?
   SYNC:VDC:DPLL:OVERRide?
