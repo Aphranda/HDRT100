@@ -43,6 +43,33 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-035 - SyncIO capture timebase aligns with TDMA epoch
+
+- 状态：完成代码、host 单元验证、构建、COM5/COM6 OTA 和 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 让 `sync_io` PIO/DMA capture word 的时间基准与 TDMA/VDC window planner 使用同一个 boot-time ns epoch。
+  - 保持 HAOFV 边界：`sync_io` 只产出 timestamp evidence，VDC gate 决定是否接纳，SCPI 不写 lock/offset/rate。
+- 完成内容：
+  - `sync_io_start_capture()` 的 `capture_timebase_start_ns` 改为 common boot-time ns；板上使用 `time_us_64()*1000`，host fallback 保留 latch timer tick 转换。
+  - `sync_io_capture_time_now_ns()` 返回同一 common boot-time ns，避免被 reset 的 latch timer epoch 与 TDMA schedule epoch 分裂。
+  - TDMA scheduled intent 的 near-window arm-ahead 从 250 us 调整到 2 ms，保证当前 1 ms bring-up schedule 下 core1 service 能稳定驻留到 10 us observation window；这仍是基础件策略，后续应由真正 core1 scheduler/timer 替代长驻留。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816124128`，package CRC `0x8A060D1F`。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过，COM5/COM6 均 commit 到 `20260816124128`。
+  - `python tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py --port-a COM5 --port-b COM6 --expected-build 20260816124128 --poll-timeout 5` 通过：COM5/COM6 均 `ready=0->1 payload=1 source=1 resolution_ns=1000 flags=0x1 vdc_gate=9 lock_tier=0 lock_accept_ns=10000`。
+- 还需完成：
+  - 增加 RX/PIO capture HIL，验证 `SYSTem:SYNC:VDC:OBServer:TDMA` 周期窗口内真实 capture word 能带 `HARDWARE_TICK` 进入 VDC observer。
+  - 将 2 ms arm-ahead 驻留替换为 TDMA core1 scheduler/timer 或 PIO/DMA deadline 驱动，减少 core1 忙等。
+- 关联文件：
+  - `components/sync_io/src/sync_io.c`
+  - `components/tdma/src/tdma_service.c`
+- 下一步：
+  - 编写并固化 VDC RX capture HIL 脚本，验证 GPIO4-7 overlay 或已连接观测输入上的 observation evidence；然后进入 DPLL accepted sample 和 lock 收敛闭环。
+
 ### VDC-TASK-20260816-034 - VDC self-test uses scheduled TDMA window
 
 - 状态：完成代码、host 单元验证、构建、COM5/COM6 OTA 和 HIL。

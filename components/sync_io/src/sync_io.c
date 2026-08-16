@@ -18,6 +18,10 @@
 #include "storage_manager.h"
 #include "sync_io.pio.h"
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico/time.h"
+#endif
+
 #define SYNC_IO_DEFAULT_CAPTURE_HZ  1000000u
 #define SYNC_IO_DEFAULT_CLOCK_HZ    1000000u
 #define SYNC_IO_MIN_HZ              1u
@@ -255,6 +259,7 @@ static bool sync_io_capture_dma_configure(void)
     return true;
 }
 
+#if !defined(PICO_ON_DEVICE) || !PICO_ON_DEVICE
 static uint64_t sync_io_capture_latch_read_ticks64(void)
 {
     uint32_t hi = SYNC_IO_CAPTURE_LATCH_TIMER->timerawh;
@@ -280,6 +285,7 @@ static uint64_t sync_io_capture_latch_ticks_to_ns(uint64_t ticks)
     return seconds * 1000000000ull +
            (remainder * 1000000000ull) / (uint64_t)hz;
 }
+#endif
 
 static uint32_t sync_io_capture_latch_resolution_ns(uint32_t tick_hz)
 {
@@ -289,6 +295,15 @@ static uint32_t sync_io_capture_latch_resolution_ns(uint32_t tick_hz)
     const uint64_t resolution =
         (1000000000ull + (uint64_t)tick_hz - 1ull) / (uint64_t)tick_hz;
     return resolution > UINT32_MAX ? UINT32_MAX : (uint32_t)resolution;
+}
+
+static uint64_t sync_io_common_time_now_ns(void)
+{
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    return time_us_64() * 1000ull;
+#else
+    return sync_io_capture_latch_ticks_to_ns(sync_io_capture_latch_read_ticks64());
+#endif
 }
 
 static void sync_io_capture_latch_timer_init(void)
@@ -778,8 +793,7 @@ bool sync_io_start_capture(uint32_t sample_hz)
         return false;
     }
 
-    const uint64_t capture_start_ns =
-        sync_io_capture_latch_ticks_to_ns(sync_io_capture_latch_read_ticks64());
+    const uint64_t capture_start_ns = sync_io_common_time_now_ns();
     osal_critical_enter();
     sync_io_capture_latch_reset_locked();
     s_sync_io.capture_dma_read_seq = 0u;
@@ -969,8 +983,7 @@ bool sync_io_capture_time_now_ns(uint64_t *now_ns)
         return false;
     }
 
-    *now_ns =
-        sync_io_capture_latch_ticks_to_ns(sync_io_capture_latch_read_ticks64());
+    *now_ns = sync_io_common_time_now_ns();
     return true;
 }
 

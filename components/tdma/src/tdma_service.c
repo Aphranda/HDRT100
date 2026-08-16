@@ -14,7 +14,7 @@
 #define tdma_service_DEFAULT_TIMESTAMP_FLAGS \
     tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
 #define tdma_service_ERROR_WINDOW_MISSED 101u
-#define tdma_service_WINDOW_ARM_AHEAD_NS 250000u
+#define tdma_service_WINDOW_ARM_AHEAD_NS 2000000u
 
 static uint64_t tdma_service_now_ns(void)
 {
