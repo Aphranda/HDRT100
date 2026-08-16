@@ -10,6 +10,10 @@
 #include "vdc_sync_io_adapter.h"
 #include "vdc_tdma_payload.h"
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico/time.h"
+#endif
+
 #define VDC_DPLL_MANAGER_SELF_TEST_CLEANUP_MARGIN_MS 250u
 
 static vdc_dpll_manager_vdc_status_t s_vdc_status;
@@ -181,7 +185,11 @@ static void vdc_dpll_manager_observation_self_test_service(void)
 
 static uint64_t vdc_dpll_manager_now_ns(void)
 {
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    return time_us_64() * 1000ull;
+#else
     return (uint64_t)board_uptime_ms() * 1000000ull;
+#endif
 }
 
 static bool vdc_dpll_manager_sync_io_observer_config_valid(
@@ -550,7 +558,7 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
     vdc_dpll_manager_sync_io_observer_config_t config = {0};
     vdc_tdma_window_plan_t plan;
     vdc_gate_result_t gate;
-    uint64_t now_ns = VDC_DPLL_MANAGER_PLAN_NOW_NS;
+    uint64_t now_ns = vdc_dpll_manager_now_ns();
     const uint32_t sanitized_sample_period_ns =
         sample_period_ns != 0u ? sample_period_ns : 1000u;
 
@@ -558,10 +566,6 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
         sync_io_capture_disarm_timestamp_window();
         config.enabled = false;
         return vdc_dpll_manager_configure_sync_io_observer(&config);
-    }
-
-    if (!sync_io_capture_time_now_ns(&now_ns)) {
-        return false;
     }
 
     if (!vdc_dpll_manager_plan_tdma_window(
@@ -624,7 +628,7 @@ bool vdc_dpll_manager_start_observation_self_test(
 {
     vdc_tdma_window_plan_t plan;
     vdc_gate_result_t gate;
-    uint64_t now_ns = VDC_DPLL_MANAGER_PLAN_NOW_NS;
+    uint64_t now_ns = vdc_dpll_manager_now_ns();
     vdc_dpll_manager_observation_self_test_status_t status = {0};
 
     if (config == NULL ||
@@ -652,8 +656,7 @@ bool vdc_dpll_manager_start_observation_self_test(
         return false;
     }
 
-    if (!sync_io_capture_time_now_ns(&now_ns) ||
-        !vdc_dpll_manager_plan_tdma_window(VDC_DOMAIN_WINDOW_VDC_OBSERVATION,
+    if (!vdc_dpll_manager_plan_tdma_window(VDC_DOMAIN_WINDOW_VDC_OBSERVATION,
                                            now_ns,
                                            &plan,
                                            &gate)) {
@@ -753,7 +756,7 @@ bool vdc_dpll_manager_start_observation_self_test(
             .pins = {0},
             .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
             .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE,
-            .scheduled_window_valid = 0u,
+            .scheduled_window_valid = 1u,
             .scheduled_window_class = tx_plan.window_class,
             .schedule_crc32 = tx_plan.schedule_crc32,
             .scheduled_window_start_ns = tx_plan.window_start_ns,

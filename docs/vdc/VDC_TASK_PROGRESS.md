@@ -43,6 +43,35 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-034 - VDC self-test uses scheduled TDMA window
+
+- 状态：完成代码、host 单元验证、构建、COM5/COM6 OTA 和 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 修复 VDC self-test TX intent 构造了 `VDC_OBSERVATION_WINDOW` 但没有让公共 TDMA service 按窗口执行的问题。
+  - 让 self-test 继续只作为 diagnostic evidence，但其 frame 执行必须受 TDMA active schedule 的 wait/late/miss 约束。
+- 完成内容：
+  - `vdc_dpll_manager_start_observation_self_test()` 提交 `VDC_SYNC_SAMPLE` short frame 时将 `scheduled_window_valid` 置为 1，并携带 window class、schedule CRC、window start/end 和 guard start/end。
+  - `tdma_service_core1_service()` 增加 near-window arm-ahead 驻留：距离 guard 很远时保持 `WAITING_FOR_WINDOW`，进入可控提前量后由 TDMA core1 service 等到 window 再执行 payload，避免依赖主循环碰巧命中 10 us 窗口。
+  - `vdc_dpll_manager_start_observation_self_test()` 和 `SYSTem:SYNC:VDC:OBServer:TDMA` 改用 TDMA 执行时基规划窗口；板上为 `time_us_64()*1000`，`sync_io_capture_time_now_ns()` 只保留为 capture latch 证据时基，不能作为 TDMA 调度 now。
+  - `test_vdc_tdma_payload_mounts_on_common_tdma()` 增加 windowed TDMA intent 覆盖：未到 guard/window 时 `tdma_service_core1_service()` 必须返回 `WAITING_FOR_WINDOW` 且不能提前 transmit，进入窗口后必须完成 `FRAME_READY`。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816123106`，package CRC `0xDABA31B6`。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过，COM5/COM6 均 commit 到 `20260816123106`。
+  - `python tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py --port-a COM5 --port-b COM6 --expected-build 20260816123106 --poll-timeout 5` 通过：COM5/COM6 均 `ready=0->1 payload=1 source=1 resolution_ns=1000 flags=0x1 vdc_gate=9 lock_tier=0 lock_accept_ns=10000`。
+- 还需完成：
+  - 继续接入真正 PIO edge latch，把 observation window 内样本升级为 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE`。
+  - TDMA completion/retry/fence 仍需完善，避免 RefMem/VDC payload 因一次 missed/timeout 静默丢失。
+- 关联文件：
+  - `components/tdma/src/tdma_service.c`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 进入 P0.2/P0.3 的真实 timestamp latch、completion/retry/fence 和 DPLL accepted sample 闭环。
+
 ### VDC-TASK-20260816-033 - DPLL lock quality tiers for bring-up
 
 - 状态：完成代码、SCPI 字段、单元测试、构建、COM5/COM6 OTA 和 HIL。

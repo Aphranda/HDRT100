@@ -14,6 +14,7 @@
 #define tdma_service_DEFAULT_TIMESTAMP_FLAGS \
     tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
 #define tdma_service_ERROR_WINDOW_MISSED 101u
+#define tdma_service_WINDOW_ARM_AHEAD_NS 250000u
 
 static uint64_t tdma_service_now_ns(void)
 {
@@ -42,6 +43,15 @@ static uint32_t tdma_service_delta_ns(uint64_t end_ns,
     return end_ns > start_ns
                ? tdma_service_elapsed_ns(start_ns, end_ns)
                : 0u;
+}
+
+static uint64_t tdma_service_wait_until_ns(uint64_t target_ns)
+{
+    uint64_t now_ns = tdma_service_now_ns();
+    while (now_ns < target_ns) {
+        now_ns = tdma_service_now_ns();
+    }
+    return now_ns;
 }
 
 static void tdma_service_split_u64(uint64_t value,
@@ -379,15 +389,23 @@ void tdma_service_core1_service(tdma_service_service_t *service)
     if (scheduled_window_valid != 0u) {
         uint64_t now_ns = tdma_service_now_ns();
         if (now_ns < scheduled_guard_start_ns) {
-            tdma_service_begin_result_write(service);
-            service->armed = 1u;
-            service->scheduled_window_wait_ns =
+            const uint32_t wait_ns =
                 tdma_service_delta_ns(scheduled_guard_start_ns, now_ns);
-            service->scheduled_window_late_ns = 0u;
-            service->last_result = tdma_service_RESULT_WAITING_FOR_WINDOW;
-            service->state = tdma_service_STATE_ARMED;
-            tdma_service_end_result_write(service);
-            return;
+            if (wait_ns <= tdma_service_WINDOW_ARM_AHEAD_NS) {
+                now_ns = tdma_service_wait_until_ns(scheduled_guard_start_ns);
+            } else {
+                tdma_service_begin_result_write(service);
+                service->armed = 1u;
+                service->scheduled_window_wait_ns = wait_ns;
+                service->scheduled_window_late_ns = 0u;
+                service->last_result = tdma_service_RESULT_WAITING_FOR_WINDOW;
+                service->state = tdma_service_STATE_ARMED;
+                tdma_service_end_result_write(service);
+                return;
+            }
+        }
+        if (now_ns < scheduled_window_start_ns) {
+            now_ns = tdma_service_wait_until_ns(scheduled_window_start_ns);
         }
         if (now_ns > scheduled_guard_end_ns || now_ns > scheduled_window_end_ns) {
             tdma_service_begin_result_write(service);
@@ -402,9 +420,6 @@ void tdma_service_core1_service(tdma_service_service_t *service)
             service->state = tdma_service_STATE_ERROR;
             tdma_service_end_result_write(service);
             return;
-        }
-        while (now_ns < scheduled_window_start_ns) {
-            now_ns = tdma_service_now_ns();
         }
         tdma_service_begin_result_write(service);
         service->scheduled_window_wait_ns = 0u;

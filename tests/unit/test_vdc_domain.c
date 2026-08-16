@@ -1178,6 +1178,65 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
                          snapshot.timestamp_flags,
                          tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
 
+    tdma_service_service_t window_service;
+    failed += expect_bool("windowed tdma init",
+                          tdma_service_init(&window_service),
+                          true);
+    failed += expect_bool("windowed vdc payload register",
+                          vdc_tdma_payload_register(&window_service),
+                          true);
+    failed += expect_bool("windowed tdma bind",
+                          tdma_service_bind_ops(&window_service,
+                                                &s_fake_tdma_ops,
+                                                &fake),
+                          true);
+    const tdma_service_intent_config_t windowed_tx_config = {
+        .window_epoch = schedule.schedule_epoch,
+        .window_index = 1u,
+        .deadline_1e3ns = 25u,
+        .role = TDMA_SERVICE_ROLE_MASTER,
+        .baud_hz = 25000000u,
+        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE,
+        .scheduled_window_valid = 1u,
+        .scheduled_window_class = VDC_DOMAIN_WINDOW_VDC_OBSERVATION,
+        .schedule_crc32 = schedule.schedule_crc32,
+        .scheduled_window_start_ns = 1000000000ull,
+        .scheduled_window_end_ns = 1000010000ull,
+        .scheduled_guard_start_ns = 999900000ull,
+        .scheduled_guard_end_ns = 1000011000ull,
+        .frame = frame,
+        .frame_size = frame_size,
+    };
+    failed += expect_bool("submit windowed vdc payload",
+                          tdma_service_submit_tx(&window_service,
+                                                 &windowed_tx_config),
+                          true);
+    tdma_service_core1_service(&window_service);
+    (void)tdma_service_get_snapshot(&window_service, &snapshot);
+    failed += expect_u32("windowed tdma waits",
+                         snapshot.last_result,
+                         tdma_service_RESULT_WAITING_FOR_WINDOW);
+    failed += expect_u32("windowed tdma not ready early",
+                         fake.tx_count,
+                         1u);
+    for (uint32_t i = 0u; i < 12000u; i++) {
+        tdma_service_core1_service(&window_service);
+        (void)tdma_service_get_snapshot(&window_service, &snapshot);
+        if (snapshot.state == tdma_service_STATE_DONE) {
+            break;
+        }
+    }
+    failed += expect_u32("windowed tdma done",
+                         snapshot.state,
+                         tdma_service_STATE_DONE);
+    failed += expect_u32("windowed tdma ready",
+                         snapshot.last_result,
+                         tdma_service_RESULT_FRAME_READY);
+    failed += expect_u32("windowed tdma tx after window",
+                         fake.tx_count,
+                         2u);
+
     const tdma_service_intent_config_t unregistered_refmem = {
         .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
         .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA,
