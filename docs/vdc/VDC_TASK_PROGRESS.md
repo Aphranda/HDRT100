@@ -43,6 +43,32 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-039 - TDMA timestamp spine gates DPLL eligibility
+
+- 状态：完成代码、host 单元验证和构建。
+- 日期：2026-08-16
+- 任务目标：
+  - 将 DPLL eligible 判定前移到公共 `components/tdma` timestamp spine，避免 VDC/RefMem payload 或 adapter 私自把普通帧标记为锁相证据。
+  - 修复 VDC payload parser 对 frame 内旧 timestamp flags 的信任风险，确保 DPLL 证据必须来自 TDMA 执行镜像。
+- 完成内容：
+  - `tdma_service_publish_exec_timestamp()` 增加公共门禁：只有 scheduled window 有效、window class 为 `VDC_OBSERVATION`、payload 为 `VDC_SYNC_SAMPLE/IDLE_BEACON`、timestamp source 为 `HARDWARE_TICK`、resolution `<=100 ns` 且非 diagnostic-only 时，才保留 `DPLL_ELIGIBLE`。
+  - `vdc_tdma_payload_parse_frame()` 改为以 TDMA snapshot 的 core1 done timestamp 判定执行镜像是否存在；在 `require_dpll_eligible=true` 时，没有 TDMA 执行时间戳直接返回 `TIMESTAMP_NOT_ELIGIBLE`。
+  - 单元测试增加 unwindowed hardware tick 负例：adapter 即使上报 `HARDWARE_TICK / 50 ns / DPLL_ELIGIBLE`，未进入 `VDC_OBSERVATION` window 时也会被 TDMA spine 清掉 eligible，VDC parser 必须拒绝。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260816153413`，package CRC `0x06B015BC`。
+- 还需完成：
+  - 继续把产品路径的真实 PIO/DMA/core1 timestamp latch 接到公共 TDMA observation window，而不是依赖 GPIO4-7 overlay。
+  - RefMem AUTO 同步仍需补 completion/retry/fence，防止 `WINDOW_MISSED` 导致静默丢帧。
+- 关联文件：
+  - `components/tdma/inc/tdma_service.h`
+  - `components/tdma/src/tdma_service.c`
+  - `components/vdc_domain/src/vdc_tdma_payload.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 在两板 COM5/COM6 上 OTA 新 build，复查 TDMA diagnostic self-test 和 RefMem AUTO 同步；随后推进真实 TDMA/VDC timestamp latch 闭环。
+
 ### VDC-TASK-20260816-038 - 100 ns GPIO overlay acquisition reaches VDC LOCKED
 
 - 状态：完成代码、host 单元验证、构建、COM5/COM6 OTA 和双向 HIL。

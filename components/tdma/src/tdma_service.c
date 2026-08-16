@@ -117,9 +117,27 @@ static void tdma_service_publish_exec_timestamp(
     if (status != NULL &&
         status->timestamp_source != tdma_service_TIMESTAMP_SOURCE_NONE &&
         status->timestamp_resolution_ns != 0u) {
+        uint32_t flags = status->timestamp_flags;
+        const bool eligible_window =
+            service->scheduled_window_valid != 0u &&
+            service->scheduled_window_class ==
+                TDMA_SERVICE_WINDOW_CLASS_VDC_OBSERVATION &&
+            (service->payload_class ==
+                 TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE ||
+             service->payload_class ==
+                 TDMA_SERVICE_PAYLOAD_CLASS_IDLE_BEACON);
+        const bool eligible_timestamp =
+            status->timestamp_source ==
+                tdma_service_TIMESTAMP_SOURCE_HARDWARE_TICK &&
+            status->timestamp_resolution_ns <=
+                TDMA_SERVICE_TIMESTAMP_RESOLUTION_LIMIT_NS &&
+            (flags & tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
+        if (!eligible_window || !eligible_timestamp) {
+            flags &= ~tdma_service_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+        }
         service->timestamp_source = status->timestamp_source;
         service->timestamp_resolution_ns = status->timestamp_resolution_ns;
-        service->timestamp_flags = status->timestamp_flags;
+        service->timestamp_flags = flags;
         return;
     }
     tdma_service_set_default_timestamp(service);

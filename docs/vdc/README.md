@@ -17,6 +17,7 @@ Last updated: 2026-08-14
 | `VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间事实、owner、数据模型、跨域关系和目标代码形态。 | VDC 主域 canonical 架构入口。 |
 | `VDC_DOMAIN_TODO.md` | VDC 主域独立待办，维护文档同步、数据契约、DPLL、HOLDOVER、RefMem 映射、组件化和验证事项。 | 只记录未完成事项，不写验证流水账。 |
 | `VDC_TASK_PROGRESS.md` | VDC 主域任务进度，记录阶段性工作、验证结果和后续动作。 | VDC 新任务完成后追加记录。 |
+| `VDC_DOMAIN_RISK_REVIEW.md` | VDC/DPLL 风险评审记录，收敛正确性缺陷、半接线路径、文档漂移和测试缺口。 | 评审/纠偏时更新，不写普通流水账。 |
 
 ## 当前主线摘要
 

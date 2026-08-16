@@ -38,6 +38,20 @@ static void vdc_tdma_payload_set_status(vdc_tdma_payload_status_t *status,
     }
 }
 
+static void vdc_tdma_payload_gate_reject(vdc_gate_result_t *gate,
+                                         vdc_domain_gate_code_t code,
+                                         uint32_t slot,
+                                         uint32_t evidence)
+{
+    if (gate == NULL) {
+        return;
+    }
+    memset(gate, 0, sizeof(*gate));
+    gate->reject_code = (uint32_t)code;
+    gate->reject_slot = slot;
+    gate->reject_evidence = evidence;
+}
+
 static bool vdc_tdma_payload_allowed(uint32_t window_class,
                                      uint32_t payload_class)
 {
@@ -468,7 +482,7 @@ bool vdc_tdma_payload_parse_frame(
         join_u64(tdma->core1_start_time_ns_lo, tdma->core1_start_time_ns_hi);
     const uint64_t done_ns =
         join_u64(tdma->core1_done_time_ns_lo, tdma->core1_done_time_ns_hi);
-    if (start_ns != 0u && done_ns != 0u) {
+    if (done_ns != 0u) {
         envelope->timestamp.arm_time_ns = arm_ns;
         envelope->timestamp.start_time_ns = start_ns;
         envelope->timestamp.observed_time_ns = start_ns;
@@ -485,6 +499,18 @@ bool vdc_tdma_payload_parse_frame(
             tdma->timestamp_resolution_ns;
         envelope->timestamp.timestamp_flags =
             vdc_tdma_payload_timestamp_flags(tdma->timestamp_flags);
+    } else if (require_dpll_eligible) {
+        vdc_tdma_payload_gate_reject(&gate,
+                                     VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE,
+                                     envelope->source_slot_id,
+                                     envelope->frame_seq);
+        vdc_tdma_payload_set_status(status,
+                                    VDC_TDMA_PAYLOAD_GATE_REJECTED,
+                                    envelope->payload_class,
+                                    envelope->frame_crc32,
+                                    envelope->payload_crc32,
+                                    &gate);
+        return false;
     }
 
     if (!vdc_domain_validate_tdma_frame_envelope(schedule,

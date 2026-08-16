@@ -1178,6 +1178,72 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
                          snapshot.timestamp_flags,
                          tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
 
+    fake.timestamp_source = tdma_service_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    fake.timestamp_resolution_ns = 50u;
+    fake.timestamp_flags = tdma_service_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+    failed += expect_bool("rebuild unwindowed hardware frame",
+                          vdc_tdma_payload_build_frame(
+                              &schedule,
+                              &plan,
+                              VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE,
+                              2u,
+                              &evidence,
+                              frame,
+                              sizeof(frame),
+                              &frame_size,
+                              &envelope,
+                              &payload_status),
+                          true);
+    failed += expect_bool("submit unwindowed hardware vdc payload",
+                          tdma_service_submit_tx(&service, &tx_config),
+                          true);
+    tdma_service_core1_service(&service);
+    (void)tdma_service_get_snapshot(&service, &snapshot);
+    failed += expect_u32("unwindowed hardware source kept",
+                         snapshot.timestamp_source,
+                         tdma_service_TIMESTAMP_SOURCE_HARDWARE_TICK);
+    failed += expect_u32("unwindowed dpll flag cleared",
+                         snapshot.timestamp_flags &
+                             tdma_service_TIMESTAMP_FLAG_DPLL_ELIGIBLE,
+                         0u);
+    snapshot.core1_start_time_ns_lo =
+        (uint32_t)(plan.window_start_ns & 0xFFFFFFFFull);
+    snapshot.core1_start_time_ns_hi =
+        (uint32_t)(plan.window_start_ns >> 32u);
+    snapshot.core1_done_time_ns_lo =
+        (uint32_t)((plan.window_start_ns + 50u) & 0xFFFFFFFFull);
+    snapshot.core1_done_time_ns_hi =
+        (uint32_t)((plan.window_start_ns + 50u) >> 32u);
+    failed += expect_bool("unwindowed hardware vdc not dpll eligible",
+                          vdc_tdma_payload_parse_frame(
+                              &schedule,
+                              &snapshot,
+                              frame,
+                              frame_size,
+                              true,
+                              &parsed,
+                              &payload_status),
+                          false);
+    failed += expect_u32("unwindowed hardware gate",
+                         payload_status.gate.reject_code,
+                         VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE);
+    failed += expect_bool("rebuild baseline vdc tdma frame",
+                          vdc_tdma_payload_build_frame(
+                              &schedule,
+                              &plan,
+                              VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE,
+                              1u,
+                              &evidence,
+                              frame,
+                              sizeof(frame),
+                              &frame_size,
+                              &envelope,
+                              &payload_status),
+                          true);
+    fake.timestamp_source = 0u;
+    fake.timestamp_resolution_ns = 0u;
+    fake.timestamp_flags = 0u;
+
     tdma_service_service_t window_service;
     failed += expect_bool("windowed tdma init",
                           tdma_service_init(&window_service),
@@ -1219,7 +1285,7 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
                          tdma_service_RESULT_WAITING_FOR_WINDOW);
     failed += expect_u32("windowed tdma not ready early",
                          fake.tx_count,
-                         1u);
+                         2u);
     for (uint32_t i = 0u; i < 12000u; i++) {
         tdma_service_core1_service(&window_service);
         (void)tdma_service_get_snapshot(&window_service, &snapshot);
@@ -1235,7 +1301,7 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
                          tdma_service_RESULT_FRAME_READY);
     failed += expect_u32("windowed tdma tx after window",
                          fake.tx_count,
-                         2u);
+                         3u);
 
     const tdma_service_intent_config_t unregistered_refmem = {
         .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
@@ -1294,6 +1360,7 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
     fake.timestamp_flags = tdma_service_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
     for (uint32_t seq = 1u; seq <= 4u; seq++) {
         const uint64_t window_start_ns =
+            2000000000ull +
             (uint64_t)(seq - 1u) * schedule.period_ns +
             schedule.observation_window_offset_ns;
         evidence = make_hardware_sample(&schedule, seq, 0);
@@ -1332,11 +1399,38 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
                                   &envelope,
                                   &payload_status),
                               true);
+        const tdma_service_intent_config_t hardware_tx_config = {
+            .window_epoch = schedule.schedule_epoch,
+            .window_index = seq,
+            .deadline_1e3ns = 25u,
+            .role = TDMA_SERVICE_ROLE_MASTER,
+            .baud_hz = 25000000u,
+            .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+            .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE,
+            .scheduled_window_valid = 1u,
+            .scheduled_window_class = VDC_DOMAIN_WINDOW_VDC_OBSERVATION,
+            .schedule_crc32 = schedule.schedule_crc32,
+            .scheduled_window_start_ns = window_start_ns,
+            .scheduled_window_end_ns = window_start_ns +
+                schedule.observation_window_width_ns,
+            .scheduled_guard_start_ns = window_start_ns,
+            .scheduled_guard_end_ns = window_start_ns +
+                schedule.observation_window_width_ns,
+            .frame = frame,
+            .frame_size = frame_size,
+        };
         failed += expect_bool("submit hardware vdc payload",
-                              tdma_service_submit_tx(&service, &tx_config),
+                              tdma_service_submit_tx(&service,
+                                                     &hardware_tx_config),
                               true);
-        tdma_service_core1_service(&service);
-        (void)tdma_service_get_snapshot(&service, &snapshot);
+        for (uint32_t i = 0u; i < 12000u; i++) {
+            tdma_service_core1_service(&service);
+            (void)tdma_service_get_snapshot(&service, &snapshot);
+            if (snapshot.completed_seq == snapshot.intent_seq &&
+                snapshot.last_result == tdma_service_RESULT_FRAME_READY) {
+                break;
+            }
+        }
         snapshot.core1_arm_time_ns_lo = (uint32_t)(window_start_ns & 0xFFFFFFFFull);
         snapshot.core1_arm_time_ns_hi = (uint32_t)(window_start_ns >> 32u);
         snapshot.core1_start_time_ns_lo = (uint32_t)(window_start_ns & 0xFFFFFFFFull);
