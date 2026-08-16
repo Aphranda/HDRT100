@@ -92,7 +92,12 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
             .observed_mask = config.observed_mask,
             .previous_sample_mask =
                 s_sync_io_observer_status.previous_sample_mask,
-            .base_time_l32_ns = words[i].base_time_l32_ns,
+            .base_time_l32_ns =
+                (config.quality_flags &
+                 VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE) != 0u
+                    ? (uint32_t)(config.expected_window_start_ns &
+                                 0xFFFFFFFFull)
+                    : words[i].base_time_l32_ns,
             .sample_period_ns = words[i].sample_period_ns != 0u
                                     ? words[i].sample_period_ns
                                     : config.sample_period_ns,

@@ -32,32 +32,18 @@ READINESS_TIMESTAMP_NOT_ELIGIBLE = 5
 @dataclass(frozen=True)
 class ObserverConfig:
     enabled: int = 1
-    max_words_per_service: int = 8
-    rising_event_id: int = 1
-    falling_event_id: int = 2
-    observed_mask: int = 1
     initial_sample_mask: int = 1
-    next_base_time_l32_ns: int = 0
     sample_period_ns: int = 1000
-    expected_window_start_lo: int = 0
-    expected_window_start_hi: int = 0
-    frame_crc32: int = 1
+    frame_crc32: int = 0
 
     def command(self) -> str:
         values = (
             self.enabled,
-            self.max_words_per_service,
-            self.rising_event_id,
-            self.falling_event_id,
-            self.observed_mask,
             self.initial_sample_mask,
-            self.next_base_time_l32_ns,
             self.sample_period_ns,
-            self.expected_window_start_lo,
-            self.expected_window_start_hi,
             self.frame_crc32,
         )
-        return "SYST:SYNC:VDC:OBServer " + ",".join(str(value) for value in values)
+        return "SYST:SYNC:VDC:OBServer:TDMA " + ",".join(str(value) for value in values)
 
 
 def parse_args() -> argparse.Namespace:
@@ -177,6 +163,14 @@ def validate_port(port: str, args: argparse.Namespace) -> dict[str, object]:
                 f"{port}: observer enable command rejected")
         before_observer = int_fields(run(ser, "SYST:SYNC:VDC:OBServer?"),
                                      OBSERVER_FIELD_COUNT)
+        require(before_observer[1] == 8,
+                f"{port}: TDMA observer batch mismatch: {before_observer[1]}")
+        require(before_observer[21] == observer_config.initial_sample_mask,
+                f"{port}: TDMA initial mask mismatch: {before_observer[21]}")
+        require(before_observer[23] != 0 or before_observer[24] != 0,
+                f"{port}: TDMA expected window is missing")
+        require((before_observer[27] & 0x80000000) != 0,
+                f"{port}: TDMA base quality flag missing: {before_observer[27]}")
         before_ready = int_fields(run(ser, "SYST:SYNC:VDC:LOCK:READiness?"),
                                   READINESS_FIELD_COUNT)
         require(before_ready[0] == 0 and before_ready[1] == 0,

@@ -48,7 +48,7 @@ SCPI maintenance
 | 优先级 | 闭环目标 | 验收证据 |
 |---:|---|---|
 | P0.0 | 建立 VDC lock readiness 只读入口，明确当前卡在 observer、dictionary、timestamp eligibility、accepted sample、gate 还是 DPLL state。 | `SYSTem:SYNC:VDC:LOCK:READiness?` 和 HIL 脚本能在 COM5/COM6 上报告 `input_ready=0,locked=0,reason=TIMESTAMP_NOT_ELIGIBLE`，且不改变 DPLL 状态。 |
-| P0.1 | 把 TDMA observation window 的真实 PIO edge latch 接入 `SyncIO capture fact`，替换当前 core1 drain FIFO 诊断时间戳。 | `REALtime:IO:SAMPle:LATCh?` 仍报告 `HARDWARE_TICK/resolution<=100ns`，但正式 observation 样本不再带 `DIAGNOSTIC_ONLY`。 |
+| P0.1 | 把 observer 手工 expected window/base 配置收敛到 active TDMA observation window，并继续接真实 PIO edge latch。 | `SYSTem:SYNC:VDC:OBServer:TDMA` 能按 `VdcTdmaScheduleProfile` 配置 observer 最小实例；当前仍报告 `DIAGNOSTIC_ONLY` 并被 gate 拒绝，后续 PIO edge latch 到位后正式 observation 样本不再带 `DIAGNOSTIC_ONLY`。 |
 | P0.2 | 让 `VDC_OBSERVATION_WINDOW` 样本通过 DPLL gate。 | COM5/COM6 `accepted_sample_count` 增长、`last_gate_reject_code=0`、sample/frame CRC 被记录；窗口外或 CRC 错误仍拒绝。 |
 | P0.3 | 实现 `SyncDpllFB` 最小环路滤波器，使用 accepted sample 计算 phase error / frequency error，经 PI 或等价 servo、限幅和 reset policy 调节 VDC clock model 的 offset/rate，并发布 DCO snapshot。 | `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 状态链必须由环路滤波器收敛驱动，而不是 sample count 伪锁定；报告 lock_time、last/rms/max offset、freq_offset_ppb、period_adjust_ppb、outlier/reset 次数。 |
 | P0.4 | core1 只读稳定 DCO snapshot，形成 VDC 同步输出/预约触发基础。 | core1 拒绝 stale/半更新 DCO，正常 snapshot 下可以按 VDC time 装载 FIRE_LOAD 或同步输出。 |
@@ -62,6 +62,12 @@ DPLL 稳定性要求：
 - 环路滤波器首版至少要覆盖 `phase_error_ns`、`frequency_error_ppb`、`kp/ki`、`slew_limit_ppb`、`step_threshold_ns`、`outlier_threshold_ns` 和 `reset_policy`。
 - accepted sample 进入后必须先通过 outlier/sanity gate，再进入环路滤波器；超限样本只能更新 quality/gate evidence，不能污染 offset/rate。
 - `VdcClockModel.period_adjust_ppb`、`phase_offset_ns` 和 `VdcDcoControl` 必须来自同一个稳定 snapshot seq，core1 只能读取完整 snapshot。
+
+TDMA 最小实例约束：
+
+- `SYSTem:SYNC:VDC:OBServer:TDMA` 只允许从 VDC active schedule 读取 `VDC_OBSERVATION_WINDOW` 并配置 observer，不允许由 SCPI 直接提供或修改 DPLL lock evidence。
+- `TDMA_WINDOW_BASE` 只能说明 compact observation 的 expected/base 时间来自 active TDMA 计划；只要 `sync_io` latch 仍在 core1 drain FIFO 时刻取时间戳，就必须继续携带 `DIAGNOSTIC_ONLY`。
+- 只有 PIO/DMA/IRQ/core1 在 observation window 内形成真正 edge latch，且 timestamp metadata 为 `HARDWARE_TICK + DPLL_ELIGIBLE + resolution<=100ns + !DIAGNOSTIC_ONLY`，VDC gate 才能接受样本。
 
 ### 符合 HAOFV 的部分
 

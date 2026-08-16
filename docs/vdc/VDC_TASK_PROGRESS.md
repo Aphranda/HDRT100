@@ -43,6 +43,46 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-025 - TDMA observation window observer bring-up
+
+- 状态：完成代码、文档、host/build 和 COM5/COM6 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 将 VDC observer 的最小实例配置从手工 expected window/base 收敛到 active `VdcTdmaScheduleProfile` 的 `VDC_OBSERVATION_WINDOW`。
+  - 保持 HAOFV 边界：SCPI 只请求 VDC manager 按 active schedule 配置 observer，不启动 capture，不提交样本，不写 DPLL lock/offset/rate。
+  - 保持时间戳诚实：TDMA window base 不能把 core1 drain FIFO timestamp 提升为 DPLL eligible。
+- 完成内容：
+  - 新增 `SYSTem:SYNC:VDC:OBServer:TDMA [enabled],[initial_sample_mask],[sample_period_ns],[frame_crc32]`。
+  - `OBServer:TDMA` 通过 `vdc_dpll_manager_plan_tdma_window(VDC_OBSERVATION_WINDOW)` 获取 active observation window，配置 observer 的 `expected_window_start_ns`、`next_base_time_l32_ns` 和 frame CRC。
+  - `vdc_dpll_manager` 新增 `VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE`，adapter decode 在该标志下使用 active TDMA window start 作为 compact observation base time。
+  - `sync_io` latch 输出的 `timestamp_source/resolution/flags` 仍作为唯一 timestamp metadata 来源；当前仍为 `HARDWARE_TICK / 4 ns / DIAGNOSTIC_ONLY`，因此 readiness 必须继续停在 `TIMESTAMP_NOT_ELIGIBLE`。
+  - `vdc_lock_readiness_validate.py` 改为使用 `OBServer:TDMA`，并检查 expected window 与 `quality_flags bit31`。
+- 验证结果：
+  - `python -m py_compile tools\vdc_lock_readiness_validate\vdc_lock_readiness_validate.py` 通过。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=130，`SYSTem:SYNC:VDC:OBServer:TDMA -> 1`。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有既有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816050037`，OTA package CRC `0xDFBCAF42`。
+  - COM5 OTA/commit 到 build `20260816050037`，`ota_boot_commit.py` 通过。
+  - COM6 OTA 到 build `20260816050037`，`ota_boot_commit.py` 被启动日志串扰误判；独立查询确认 `SYST:FW:BUILD? -> "20260816050037"`、`SYST:OTA:STAT? -> "COMMITTED",1,"NONE",5`、`SYST:ERR? -> 0,"No error"`。
+  - `python tools\vdc_lock_readiness_validate\vdc_lock_readiness_validate.py COM5 COM6 --expected-build 20260816050037 --out-dir build-rtos-multicore-smoke\vdc_lock_readiness_validate_20260816050037_tdma` 通过：COM5/COM6 均为 `reason=5,submitted=1,accepted=0,rejected=1,gate=9,source=2,resolution_ns=4,flags=1`。
+- 还需完成：
+  - P0.1 后半段：让 PIO/DMA/IRQ/core1 在 `VDC_OBSERVATION_WINDOW` 内形成真实 edge latch，不再依赖 core1 drain FIFO timestamp。
+  - P0.2：样本 metadata 满足 `HARDWARE_TICK + DPLL_ELIGIBLE + resolution<=100ns + !DIAGNOSTIC_ONLY` 后，验证 `accepted_count` 增长且 gate pass。
+- 关联文件：
+  - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `middleware/scpi_port/inc/scpi_sync_commands.h`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+  - `tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
+- 下一步：
+  - 实现真正的 observation-window edge latch，优先利用已存在的 TDMA 计划和 `BOARD_SYNC_TIMESTAMP_SM` 预留资源，避免新增旁路同步机制。
+
 ### VDC-TASK-20260816-024 - VDC lock readiness minimum instance gate
 
 - 状态：完成代码、文档、host/build 和 COM5/COM6 HIL。

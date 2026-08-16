@@ -416,6 +416,62 @@ scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_observer_tdma(scpi_t *context)
+{
+    vdc_dpll_manager_sync_io_observer_config_t config = {0};
+    vdc_tdma_window_plan_t plan;
+    vdc_gate_result_t gate;
+    uint32_t enabled = 1u;
+    uint32_t initial_sample_mask = 0u;
+    uint32_t sample_period_ns = 1000u;
+    uint32_t frame_crc32 = 0u;
+
+    (void)SCPI_ParamUInt32(context, &enabled, FALSE);
+    if (enabled == 0u) {
+        config.enabled = false;
+        if (!vdc_dpll_manager_configure_sync_io_observer(&config)) {
+            return SCPI_RES_ERR;
+        }
+        goto accepted;
+    }
+
+    (void)SCPI_ParamUInt32(context, &initial_sample_mask, FALSE);
+    (void)SCPI_ParamUInt32(context, &sample_period_ns, FALSE);
+    (void)SCPI_ParamUInt32(context, &frame_crc32, FALSE);
+
+    if (!vdc_dpll_manager_plan_tdma_window(
+            VDC_DOMAIN_WINDOW_VDC_OBSERVATION,
+            VDC_DPLL_MANAGER_PLAN_NOW_NS,
+            &plan,
+            &gate)) {
+        scpi_port_push_exec_error(context, "VDC_OBSERVER_TDMA_PLAN");
+        return SCPI_RES_ERR;
+    }
+
+    config.enabled = true;
+    config.max_words_per_service = VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS;
+    config.rising_event_id = 1u;
+    config.falling_event_id = 2u;
+    config.observed_mask = 1u;
+    config.initial_sample_mask = initial_sample_mask;
+    config.next_base_time_l32_ns =
+        (uint32_t)(plan.window_start_ns & 0xFFFFFFFFull);
+    config.sample_period_ns = sample_period_ns != 0u ? sample_period_ns : 1000u;
+    config.expected_window_start_ns = plan.window_start_ns;
+    config.frame_crc32 = frame_crc32 != 0u ? frame_crc32 : plan.schedule_crc32;
+    config.quality_flags =
+        VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE;
+
+    if (!vdc_dpll_manager_configure_sync_io_observer(&config)) {
+        scpi_port_push_exec_error(context, "VDC_OBSERVER_TDMA_CONFIG");
+        return SCPI_RES_ERR;
+    }
+
+accepted:
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_observer(scpi_t *context)
 {
     vdc_dpll_manager_sync_io_observer_config_t config = {0};

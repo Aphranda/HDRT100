@@ -87,10 +87,11 @@ Get-Content -Path tools\README.md -Encoding UTF8
   source/resolution/flags, forces one observer edge, verifies that the VDC gate
   rejects it as diagnostic-only, stops capture, and records a transcript.
 - `vdc_lock_readiness_validate/vdc_lock_readiness_validate.py`: VDC/DPLL minimum
-  instance readiness runner. It enables the observer, starts Sync IO capture,
-  queries `SYSTem:SYNC:VDC:LOCK:READiness?`, and verifies the current
-  diagnostic path remains blocked at `TIMESTAMP_NOT_ELIGIBLE` instead of
-  reporting a false lock.
+  instance readiness runner. It configures the observer through
+  `SYSTem:SYNC:VDC:OBServer:TDMA`, starts Sync IO capture, queries
+  `SYSTem:SYNC:VDC:LOCK:READiness?`, and verifies the current diagnostic path
+  remains blocked at `TIMESTAMP_NOT_ELIGIBLE` instead of reporting a false
+  lock.
 - `refmem_sync_hil_validate/refmem_sync_hil_validate.py`: two-board RefMem Sync
   HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY runner. It initializes each board's
   `SYSTem:REFMEM:SYNC` maintenance context, checks build/SlotClaim/adapter
