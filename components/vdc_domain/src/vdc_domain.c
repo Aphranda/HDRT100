@@ -872,7 +872,7 @@ bool vdc_domain_validate_tdma_timestamp_evidence(
                 evidence->timestamp_source,
                 evidence->timestamp_resolution_ns,
                 evidence->timestamp_flags,
-                VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS,
+                VDC_DOMAIN_DPLL_ADMISSION_TIMESTAMP_RESOLUTION_LIMIT_NS,
                 &timestamp_code)) {
             vdc_domain_gate_fail(
                 gate,

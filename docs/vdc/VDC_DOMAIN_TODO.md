@@ -55,6 +55,7 @@ SCPI maintenance
 | P0.5 | 实现 `SyncDpllFB` 最小环路滤波器，使用 accepted sample 计算 phase error / frequency error，经 PI 或等价 servo、限幅和 reset policy 调节 VDC clock model 的 offset/rate，并发布 DCO snapshot。 | `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 状态链必须由环路滤波器收敛驱动，而不是 sample count 伪锁定；初步验证允许 `lock_acceptance_threshold_ns` 按 10 us / 1 us / 100 ns 三档收敛，但 `READ:SYNC:QUALity?` 必须暴露 `lock_quality_tier`，且 `HEALTHY/RUN` 仍要求 100 ns fine tier；报告 lock_time、last/rms/max offset、freq_offset_ppb、period_adjust_ppb、outlier/reset 次数。 |
 | P0.6 | core1 只读稳定 DCO snapshot，形成 VDC 同步输出/预约触发基础。 | core1 拒绝 stale/半更新 DCO，正常 snapshot 下可以按 VDC time 装载 FIRE_LOAD 或同步输出。 |
 | P1 | 将 VDC quality/error budget 纳入 RUN gate，并把 VDC snapshot 映射到 RefMem。 | VDC unlocked/质量不达标时 RUN/FIRE_LOAD 被拒绝；LOCKED 后 RefMem 只镜像 VDC 共同时间事实。 |
+| P1 | 诊断运行策略收敛到 VdcSyncAO command/config。 | 调试阶段允许 SCPI 启停 VDC observer/self-test 诊断；产品阶段由配置决定是否随系统自动运行。无论启停来源如何，实时诊断循环必须在内部运行并发布 VdcVector/诊断镜像，SCPI 查询只读当时镜像，不能参与 lock/offset/rate 实时计算。 |
 
 当前主线结论：先完成 P0.0-P0.3，再回到 RefMem 表模型扩展；否则表模型继续扩大会超过当前两板硬件闭环的验证能力。
 
@@ -74,8 +75,9 @@ TDMA 最小实例约束：
 - TDMA 稳定性是 DPLL/VDC 的前置条件：每一帧必须先维护共同时间骨架，再搭载 payload；`WINDOW_MISSED`、late、timeout、CRC/drop 必须进入 quality/evidence，并驱动 retry、fence 或 holdover，而不能被当成普通日志。
 - `SYSTem:SYNC:VDC:OBServer:TDMA` 只允许从 VDC active schedule 读取 `VDC_OBSERVATION_WINDOW` 并配置 observer，不允许由 SCPI 直接提供或修改 DPLL lock evidence。
 - `TDMA_WINDOW_BASE` 只能说明 compact observation 的 expected/base 时间来自 active TDMA 计划；`sync_io` timestamp window 使用 capture timer 同一时间基 arm，支持按 TDMA period 周期性匹配，只有整个 capture word 落在某个 observation window 内才可能去掉 `DIAGNOSTIC_ONLY`，并且 compact observation 必须使用命中的窗口起点作为 expected window。
-- 只有 PIO/DMA/IRQ/core1 在 observation window 内形成真正 edge latch，且 timestamp metadata 为 `HARDWARE_TICK + DPLL_ELIGIBLE + resolution<=100ns + !DIAGNOSTIC_ONLY`，VDC gate 才能接受样本。
+- 只有 PIO/DMA/IRQ/core1 在 observation window 内形成真正 edge latch，且 timestamp metadata 为 `HARDWARE_TICK + DPLL_ELIGIBLE + !DIAGNOSTIC_ONLY`，VDC gate 才能接受样本；bring-up admission 可临时接纳 `resolution<=1000ns` 的 coarse/debug lock，但产品 `HEALTHY/RUN` fine gate 仍必须达到 `resolution<=100ns`。
 - 两板最小闭环必须增加固件内部预约测试边沿：一块板输出 PIO/DMA reference pulse train，另一块板在周期性 TDMA observation window 内采样并提交 observation；PC/SCPI 只能配置和读取结果，不能承担 10us 窗口内的实时动作。
+- 调试最小系统的锁相观测临时走 GPIO4-7 业务/观测 overlay：X 板用 `sync_io_model_pulse_schedule_arm()` 在 GPIO4 等 overlay 线上装载 PIO/DMA reference pulse train，Y 板用 `sync_io` capture 观测 GPIO4-7 并把 word-level timestamp fact 交给 VDC observer。GPIO16-24 继续只归 TDMA 通讯环路。最终产品不保留 GPIO4-7 锁相观测依赖，锁相稳定后必须迁移到 TDMA 通讯帧/时间戳证据。
 
 ### 符合 HAOFV 的部分
 

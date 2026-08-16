@@ -43,6 +43,46 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-036 - GPIO4-7 overlay validates coarse VDC lock
+
+- 状态：完成代码、host 单元验证、构建、COM5/COM6 OTA 和双向 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 在不占用 GPIO16-24 TDMA 通讯环路的前提下，使用 GPIO4-7 调试 overlay 验证 VDC/DPLL 的硬件 timestamp 入口和粗锁定路径。
+  - 保持 HAOFV 边界：GPIO4-7 只作为最小系统 bring-up 观测线，产品路径后续必须迁移到 TDMA 通讯帧/时间戳证据；`HEALTHY/RUN` 仍要求 100 ns fine tier。
+- 完成内容：
+  - `PROJECT_SYNC_IO_INPUT_BASE_PIN` 默认切换到 GPIO4，使 `sync_io` capture 观察调试 overlay，而不是复用 GPIO16-24 TDMA 物理通讯线。
+  - `sync_io` DMA produced 计数改为根据 DMA write address 计算，capture ring 扩大到 8192 words，latch ring 扩大到 128，service batch 扩大到 128，避免高频脉冲下 ring 进度被 `transfer_count` 误判。
+  - timestamp window 匹配从“capture word 必须完全包含在 window 内”调整为 word/window overlap，适配当前 word-level PIO capture 粒度。
+  - VDC self-test TX 侧通过 `sync_io_model_pulse_schedule_arm()` 在 observation window 附近预约 GPIO4-7 pulse train；RX 侧由 observer/capture 生成 `HARDWARE_TICK / 1000 ns / DPLL_ELIGIBLE` evidence 并进入 DPLL admission。
+  - DPLL bring-up admission 临时允许 `timestamp_resolution_ns <= 1000` 形成 coarse/debug lock；正式 `HEALTHY/RUN` 质量门禁不放宽，后续仍必须收敛到 100 ns fine tier。
+- 验证结果：
+  - `python -m py_compile tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260816132834`，package CRC `0x4EC7EEB0`。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过，COM5/COM6 均 commit 到 `20260816132834`。
+  - `python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port-x COM5 --port-y COM6 --line-settle 0.1` 通过：`COM5.GPIO4/5/7 -> COM6.GPIO4/5/7`，`COM6.GPIO6 -> COM5.GPIO6`。
+  - `python tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py --port-a COM5 --port-b COM6 --expected-build 20260816132834 --poll-timeout 5` 通过：TDMA diagnostic self-test 仍以 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY` 被 gate 拒绝，不冒充锁相信号。
+  - `python tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py --port-x COM5 --port-y COM6 --expected-build 20260816132834 --poll-timeout 30 --pulse-count 2200 --sample-period-ns 1000 --pulse-high-ns 2000` 通过：X->Y `accepted=0->7 observer_accepted=0->7 state=LOCKED source=HARDWARE_TICK resolution_ns=1000 flags=DPLL_ELIGIBLE gate=PASS`。
+  - `python tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py --port-x COM5 --port-y COM6 --expected-build 20260816132834 --poll-timeout 30 --pulse-count 2200 --sample-period-ns 1000 --pulse-high-ns 2000 --output-index 2 --observed-mask 4 --reverse` 通过：X->Y `accepted=14->30 observer_accepted=0->15`，Y->X `accepted=0->5 observer_accepted=0->4`，两向均 `state=LOCKED source=HARDWARE_TICK resolution_ns=1000 flags=DPLL_ELIGIBLE gate=PASS`。
+- 还需完成：
+  - 当前是 1 us resolution coarse lock；产品 `HEALTHY/RUN` 仍需要 100 ns fine lock tier。
+  - GPIO4-7 只是最小系统调试观测，最终应把 lock evidence 迁移到 TDMA 通讯帧/时间戳 spine。
+  - VDC 诊断循环后续应由内部 AO/FB 持续运行并发布 FIFO/vector 镜像，SCPI 只读快照或配置启停，不参与实时 lock/offset/rate。
+- 关联文件：
+  - `CMakeLists.txt`
+  - `boards/rp2350_trig/inc/board_config.h`
+  - `components/sync_io/src/sync_io.c`
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+  - `tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py`
+- 下一步：
+  - 先保持 GPIO4-7 bring-up 证据作为最小硬件闭环，再推进 TDMA 通讯 timestamp evidence、DCO snapshot core1 消费和 100 ns fine tier 收敛。
+
 ### VDC-TASK-20260816-035 - SyncIO capture timebase aligns with TDMA epoch
 
 - 状态：完成代码、host 单元验证、构建、COM5/COM6 OTA 和 HIL。

@@ -32,7 +32,7 @@ set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA va
 set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
 set(PROJECT_USE_FREERTOS ON CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
 set(PROJECT_USE_MULTICORE ON CACHE BOOL "Run realtime trigger service on RP2350 core1")
-set(PROJECT_SYNC_IO_INPUT_BASE_PIN 16 CACHE STRING "Contiguous 4-pin SYNC_IO input base pin for the active board/debug profile")
+set(PROJECT_SYNC_IO_INPUT_BASE_PIN 4 CACHE STRING "Contiguous 4-pin SYNC_IO input base pin for the active board/debug profile")
 set(PROJECT_SYNC_IO_OUTPUT_BASE_PIN 21 CACHE STRING "Contiguous 4-pin SYNC_IO output base pin for the active board/debug profile")
 set_property(CACHE PROJECT_OTA_DEFAULT_BOOT_MODE PROPERTY STRINGS COPY_TO_ACTIVE DIRECT_AB)
 set_property(CACHE PROJECT_USB_DEFAULT_MODE PROPERTY STRINGS CDC USBTMC)

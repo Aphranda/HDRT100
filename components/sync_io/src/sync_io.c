@@ -32,12 +32,12 @@
 #define SYNC_IO_CLOCK_PIO           BOARD_SYNC_PIO_AUX
 #define SYNC_IO_CLOCK_SM            BOARD_SYNC_AUX2_SM
 #define SYNC_IO_CLOCK_PIN           BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN
-#define SYNC_IO_CAPTURE_LATCH_RING_SIZE 32u
-#define SYNC_IO_CAPTURE_DMA_RING_WORDS 2048u
-#define SYNC_IO_CAPTURE_DMA_RING_BITS 13u
+#define SYNC_IO_CAPTURE_LATCH_RING_SIZE 128u
+#define SYNC_IO_CAPTURE_DMA_RING_WORDS 8192u
+#define SYNC_IO_CAPTURE_DMA_RING_BITS 15u
 #define SYNC_IO_CAPTURE_DMA_RING_BYTES \
     (SYNC_IO_CAPTURE_DMA_RING_WORDS * sizeof(uint32_t))
-#define SYNC_IO_CAPTURE_LATCH_SERVICE_MAX_WORDS 32u
+#define SYNC_IO_CAPTURE_LATCH_SERVICE_MAX_WORDS 128u
 #define SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK 2u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DPLL_ELIGIBLE   0x00000002u
@@ -64,6 +64,9 @@ typedef struct {
     uint32_t capture_latch_read;
     uint32_t capture_latch_seq;
     uint32_t capture_dma_read_seq;
+    uint32_t capture_dma_produced_seq;
+    uint32_t capture_dma_last_write_index;
+    bool capture_dma_write_index_valid;
     uint64_t capture_timebase_start_ns;
     bool capture_timebase_valid;
     bool capture_timestamp_window_armed;
@@ -225,9 +228,34 @@ static uint32_t sync_io_capture_dma_produced_words(void)
         return 0u;
     }
 
-    const uint32_t remaining =
-        dma_hw->ch[SYNC_IO_CAPTURE_DMA_CH].transfer_count;
-    return UINT32_MAX - remaining;
+    if (!s_sync_io.capture_running) {
+        return s_sync_io.capture_dma_produced_seq;
+    }
+
+    const uintptr_t ring_base = (uintptr_t)s_sync_io_capture_dma_ring;
+    const uintptr_t write_addr =
+        (uintptr_t)dma_hw->ch[SYNC_IO_CAPTURE_DMA_CH].write_addr;
+    const uint32_t write_index =
+        (uint32_t)(((write_addr - ring_base) &
+                    (SYNC_IO_CAPTURE_DMA_RING_BYTES - 1u)) /
+                   sizeof(uint32_t));
+
+    osal_critical_enter();
+    if (!s_sync_io.capture_dma_write_index_valid) {
+        s_sync_io.capture_dma_last_write_index = write_index;
+        s_sync_io.capture_dma_write_index_valid = true;
+    } else if (write_index != s_sync_io.capture_dma_last_write_index) {
+        const uint32_t last = s_sync_io.capture_dma_last_write_index;
+        const uint32_t delta =
+            write_index >= last
+                ? write_index - last
+                : (SYNC_IO_CAPTURE_DMA_RING_WORDS - last) + write_index;
+        s_sync_io.capture_dma_produced_seq += delta;
+        s_sync_io.capture_dma_last_write_index = write_index;
+    }
+    const uint32_t produced = s_sync_io.capture_dma_produced_seq;
+    osal_critical_exit();
+    return produced;
 }
 
 static bool sync_io_capture_dma_configure(void)
@@ -360,7 +388,7 @@ static bool sync_io_capture_latch_word_in_window(uint64_t word_start_ns,
         }
     }
 
-    if (word_start_ns < window_start_ns || word_end_ns > window_end_ns) {
+    if (word_end_ns < window_start_ns || word_start_ns > window_end_ns) {
         return false;
     }
 
@@ -797,6 +825,9 @@ bool sync_io_start_capture(uint32_t sample_hz)
     osal_critical_enter();
     sync_io_capture_latch_reset_locked();
     s_sync_io.capture_dma_read_seq = 0u;
+    s_sync_io.capture_dma_produced_seq = 0u;
+    s_sync_io.capture_dma_last_write_index = 0u;
+    s_sync_io.capture_dma_write_index_valid = true;
     s_sync_io.capture_timebase_start_ns = capture_start_ns;
     s_sync_io.capture_timebase_valid = true;
     osal_critical_exit();
@@ -821,6 +852,7 @@ void sync_io_stop_capture(void)
     osal_critical_enter();
     s_sync_io.capture_running = false;
     s_sync_io.capture_timebase_valid = false;
+    s_sync_io.capture_dma_write_index_valid = false;
     osal_critical_exit();
     sync_io_trace(SYNC_IO_TRACE_CAPTURE_STOP,
                   SYNC_IO_TRACE_INFO,

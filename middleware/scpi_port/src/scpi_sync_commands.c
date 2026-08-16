@@ -243,7 +243,8 @@ static bool scpi_sync_vdc_timestamp_is_dpll_eligible(uint32_t source,
 {
     return source == VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK &&
            resolution_ns > 0u &&
-           resolution_ns <= VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS &&
+           resolution_ns <=
+               VDC_DOMAIN_DPLL_ADMISSION_TIMESTAMP_RESOLUTION_LIMIT_NS &&
            (flags & VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE) != 0u &&
            (flags & VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
 }
@@ -485,7 +486,7 @@ scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest(scpi_t *context)
     config.observed_mask = 1u;
     config.initial_sample_mask = 0u;
     config.sample_period_ns = 100u;
-    config.pulse_period_ns = 2000u;
+    config.pulse_period_ns = VDC_DOMAIN_DEFAULT_PERIOD_NS;
     config.pulse_high_ns = 1000u;
     config.pulse_count = VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES;
     config.frame_crc32 = 0u;
