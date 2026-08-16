@@ -96,6 +96,11 @@ void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status);
 void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status);
 bool vdc_dpll_manager_configure_sync_io_observer(
     const vdc_dpll_manager_sync_io_observer_config_t *config);
+bool vdc_dpll_manager_configure_sync_io_observer_tdma(
+    bool enabled,
+    uint32_t initial_sample_mask,
+    uint32_t sample_period_ns,
+    uint32_t frame_crc32);
 void vdc_dpll_manager_get_sync_io_observer_status(
     vdc_dpll_manager_sync_io_observer_status_t *status);
 bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot);

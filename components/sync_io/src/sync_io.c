@@ -31,6 +31,7 @@
 #define SYNC_IO_CAPTURE_LATCH_RING_SIZE 32u
 #define SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK 2u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
+#define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DPLL_ELIGIBLE   0x00000002u
 #define SYNC_IO_CAPTURE_LATCH_TIMER timer1_hw
 
 typedef struct {
@@ -53,6 +54,12 @@ typedef struct {
     uint32_t capture_latch_write;
     uint32_t capture_latch_read;
     uint32_t capture_latch_seq;
+    bool capture_timestamp_window_armed;
+    uint64_t capture_timestamp_window_start_ns;
+    uint64_t capture_timestamp_window_end_ns;
+    uint32_t capture_timestamp_window_sample_period_ns;
+    uint32_t capture_timestamp_window_observed_mask;
+    uint32_t capture_timestamp_window_initial_sample_mask;
     uint32_t debug_model_output_enable_mask;
     uint32_t debug_model_output_value_mask;
     sync_io_aux_mode_t aux_modes[SYNC_IO_AUX_COUNT];
@@ -252,6 +259,30 @@ static void sync_io_capture_latch_reset_locked(void)
     s_sync_io.capture_latch_seq = 0u;
     s_sync_io.latched_capture_words = 0u;
     s_sync_io.dropped_latched_capture_words = 0u;
+}
+
+static uint32_t sync_io_capture_latch_flags_for_word(uint64_t word_start_ns,
+                                                     uint64_t word_end_ns,
+                                                     uint32_t sample_period_ns)
+{
+    uint32_t flags = SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    const uint64_t word_span_ns =
+        word_end_ns > word_start_ns ? word_end_ns - word_start_ns : 0ull;
+
+    if (!s_sync_io.capture_timestamp_window_armed ||
+        sample_period_ns == 0u ||
+        word_span_ns == 0u ||
+        word_start_ns < s_sync_io.capture_timestamp_window_start_ns ||
+        word_end_ns > s_sync_io.capture_timestamp_window_end_ns ||
+        sample_period_ns != s_sync_io.capture_timestamp_window_sample_period_ns ||
+        s_sync_io.capture_timestamp_window_observed_mask == 0u) {
+        return flags;
+    }
+
+    flags &= ~SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    flags |= SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+    s_sync_io.capture_timestamp_window_armed = false;
+    return flags;
 }
 
 static bool sync_io_claim_sm(PIO pio, uint sm, const char *name)
@@ -567,10 +598,10 @@ void sync_io_capture_latch_service_core1(void)
         const uint64_t latch_ticks = sync_io_capture_latch_read_ticks64();
         const uint64_t latch_time_ns =
             sync_io_capture_latch_ticks_to_ns(latch_ticks);
+        const uint64_t word_start_ns =
+            latch_time_ns > word_span_ns ? latch_time_ns - word_span_ns : 0ull;
         const uint32_t base_time_l32_ns =
-            (uint32_t)((latch_time_ns > word_span_ns)
-                           ? (latch_time_ns - word_span_ns)
-                           : 0ull);
+            (uint32_t)word_start_ns;
 
         osal_critical_enter();
         const uint32_t next_write =
@@ -589,7 +620,10 @@ void sync_io_capture_latch_service_core1(void)
         slot->sample_period_ns = sample_period_ns;
         slot->timestamp_source = SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK;
         slot->timestamp_resolution_ns = s_sync_io.capture_latch_resolution_ns;
-        slot->timestamp_flags = SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+        slot->timestamp_flags =
+            sync_io_capture_latch_flags_for_word(word_start_ns,
+                                                 latch_time_ns,
+                                                 sample_period_ns);
         slot->dropped_before = s_sync_io.dropped_latched_capture_words;
         s_sync_io.capture_latch_write = next_write;
         s_sync_io.latched_capture_words++;
@@ -616,6 +650,57 @@ size_t sync_io_read_capture_latched(sync_io_capture_latched_word_t *buffer,
     }
     osal_critical_exit();
     return count;
+}
+
+bool sync_io_capture_time_now_ns(uint64_t *now_ns)
+{
+    if (!s_sync_io.initialized || now_ns == NULL) {
+        return false;
+    }
+
+    *now_ns =
+        sync_io_capture_latch_ticks_to_ns(sync_io_capture_latch_read_ticks64());
+    return true;
+}
+
+bool sync_io_capture_arm_timestamp_window(uint64_t window_start_ns,
+                                          uint32_t window_width_ns,
+                                          uint32_t sample_period_ns,
+                                          uint32_t observed_mask,
+                                          uint32_t initial_sample_mask)
+{
+    if (!s_sync_io.initialized ||
+        window_width_ns == 0u ||
+        sample_period_ns == 0u ||
+        observed_mask == 0u ||
+        (observed_mask & ~0x0Fu) != 0u ||
+        (initial_sample_mask & ~0x0Fu) != 0u) {
+        return false;
+    }
+
+    osal_critical_enter();
+    s_sync_io.capture_timestamp_window_armed = true;
+    s_sync_io.capture_timestamp_window_start_ns = window_start_ns;
+    s_sync_io.capture_timestamp_window_end_ns =
+        window_start_ns + (uint64_t)window_width_ns;
+    s_sync_io.capture_timestamp_window_sample_period_ns = sample_period_ns;
+    s_sync_io.capture_timestamp_window_observed_mask = observed_mask & 0x0Fu;
+    s_sync_io.capture_timestamp_window_initial_sample_mask =
+        initial_sample_mask & observed_mask & 0x0Fu;
+    osal_critical_exit();
+    return true;
+}
+
+void sync_io_capture_disarm_timestamp_window(void)
+{
+    osal_critical_enter();
+    s_sync_io.capture_timestamp_window_armed = false;
+    s_sync_io.capture_timestamp_window_start_ns = 0u;
+    s_sync_io.capture_timestamp_window_end_ns = 0u;
+    s_sync_io.capture_timestamp_window_sample_period_ns = 0u;
+    s_sync_io.capture_timestamp_window_observed_mask = 0u;
+    s_sync_io.capture_timestamp_window_initial_sample_mask = 0u;
+    osal_critical_exit();
 }
 
 static bool sync_io_fire_pulse_on_sm(uint sm, uint32_t high_cycles)

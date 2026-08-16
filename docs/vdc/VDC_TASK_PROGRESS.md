@@ -43,6 +43,42 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-026 - SyncIO timestamp window gate for VDC observation
+
+- 状态：完成代码、host/build 和 COM5/COM6 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 在 `sync_io` 内增加 timestamp window 基础件，使 VDC/TDMA 可以 arm 一个绝对 ns observation window。
+  - 让 `OBServer:TDMA` 的配置逻辑下沉到 `vdc_dpll_manager`，SCPI 只提交维护意图，不直接拼跨域细节。
+  - 修复 VDC plan 与 capture latch 使用不同时间基的问题，保证后续 eligible 样本有机会通过 window gate。
+- 完成内容：
+  - `sync_io` 新增 `sync_io_capture_time_now_ns()`，返回 capture latch timer1/CLK_SYS 的当前 ns 时间。
+  - `sync_io` 新增 `sync_io_capture_arm_timestamp_window()` / `sync_io_capture_disarm_timestamp_window()`；只有整个 capture word 落在已 arm window 内，且 sample period/observed mask 匹配时，word 才可能携带 `DPLL_ELIGIBLE`，否则继续 `DIAGNOSTIC_ONLY`。
+  - `vdc_dpll_manager_configure_sync_io_observer_tdma()` 负责读取 capture time、规划 `VDC_OBSERVATION_WINDOW`、配置 observer、arm timestamp window，并在关闭 observer 时 disarm window。
+  - `vdc_dpll_manager_sync_io_observer_service()` 对 eligible word 保留实际 latch base time；只有非 eligible 诊断 bring-up 才使用 TDMA window base 辅助观察。
+  - `scpi_cmd_sync_vdc_observer_tdma()` 简化为调用 manager API，不再直接访问 VDC plan 或 SyncIO window。
+- 验证结果：
+  - `python -m py_compile tools\vdc_lock_readiness_validate\vdc_lock_readiness_validate.py` 通过。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=130。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有既有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816051125`，OTA package CRC `0x618FCB41`。
+  - COM5/COM6 均 OTA/commit 到 build `20260816051125`。
+  - `python tools\vdc_lock_readiness_validate\vdc_lock_readiness_validate.py COM5 COM6 --expected-build 20260816051125 --out-dir build-rtos-multicore-smoke\vdc_lock_readiness_validate_20260816051125_window` 通过：COM5/COM6 均为 `reason=5,submitted=1,accepted=0,rejected=1,gate=9,source=2,resolution_ns=4,flags=1`。
+- 还需完成：
+  - 两板最小闭环不能依赖 PC 串口赶 10us observation window；下一步需要固件内部按 TDMA window 预约测试边沿和采样。
+  - 真实 PIO edge latch 到位后，验证 `DPLL_ELIGIBLE` 样本 accepted_count 增长、gate pass、sample/frame CRC 记录正常。
+- 关联文件：
+  - `components/sync_io/inc/sync_io.h`
+  - `components/sync_io/src/sync_io.c`
+  - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+- 下一步：
+  - 做 `TDMA observation self-test edge` 最小基础件：发送板预约 window 内输出，接收板 window 内采样，SCPI 只读取两板 result。
+
 ### VDC-TASK-20260816-025 - TDMA observation window observer bring-up
 
 - 状态：完成代码、文档、host/build 和 COM5/COM6 HIL。

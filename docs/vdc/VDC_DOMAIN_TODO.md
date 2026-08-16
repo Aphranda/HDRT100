@@ -48,7 +48,7 @@ SCPI maintenance
 | 优先级 | 闭环目标 | 验收证据 |
 |---:|---|---|
 | P0.0 | 建立 VDC lock readiness 只读入口，明确当前卡在 observer、dictionary、timestamp eligibility、accepted sample、gate 还是 DPLL state。 | `SYSTem:SYNC:VDC:LOCK:READiness?` 和 HIL 脚本能在 COM5/COM6 上报告 `input_ready=0,locked=0,reason=TIMESTAMP_NOT_ELIGIBLE`，且不改变 DPLL 状态。 |
-| P0.1 | 把 observer 手工 expected window/base 配置收敛到 active TDMA observation window，并继续接真实 PIO edge latch。 | `SYSTem:SYNC:VDC:OBServer:TDMA` 能按 `VdcTdmaScheduleProfile` 配置 observer 最小实例；当前仍报告 `DIAGNOSTIC_ONLY` 并被 gate 拒绝，后续 PIO edge latch 到位后正式 observation 样本不再带 `DIAGNOSTIC_ONLY`。 |
+| P0.1 | 把 observer 手工 expected window/base 配置收敛到 active TDMA observation window，并继续接真实 PIO edge latch。 | `SYSTem:SYNC:VDC:OBServer:TDMA` 已按 `VdcTdmaScheduleProfile` 配置 observer 最小实例，并由 manager arm `sync_io` timestamp window；当前低速诊断采样仍报告 `DIAGNOSTIC_ONLY` 并被 gate 拒绝，后续必须由固件内部在 observation window 内预约边沿和采样，不能依赖 PC 串口赶窗口。 |
 | P0.2 | 让 `VDC_OBSERVATION_WINDOW` 样本通过 DPLL gate。 | COM5/COM6 `accepted_sample_count` 增长、`last_gate_reject_code=0`、sample/frame CRC 被记录；窗口外或 CRC 错误仍拒绝。 |
 | P0.3 | 实现 `SyncDpllFB` 最小环路滤波器，使用 accepted sample 计算 phase error / frequency error，经 PI 或等价 servo、限幅和 reset policy 调节 VDC clock model 的 offset/rate，并发布 DCO snapshot。 | `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 状态链必须由环路滤波器收敛驱动，而不是 sample count 伪锁定；报告 lock_time、last/rms/max offset、freq_offset_ppb、period_adjust_ppb、outlier/reset 次数。 |
 | P0.4 | core1 只读稳定 DCO snapshot，形成 VDC 同步输出/预约触发基础。 | core1 拒绝 stale/半更新 DCO，正常 snapshot 下可以按 VDC time 装载 FIRE_LOAD 或同步输出。 |
@@ -66,8 +66,9 @@ DPLL 稳定性要求：
 TDMA 最小实例约束：
 
 - `SYSTem:SYNC:VDC:OBServer:TDMA` 只允许从 VDC active schedule 读取 `VDC_OBSERVATION_WINDOW` 并配置 observer，不允许由 SCPI 直接提供或修改 DPLL lock evidence。
-- `TDMA_WINDOW_BASE` 只能说明 compact observation 的 expected/base 时间来自 active TDMA 计划；只要 `sync_io` latch 仍在 core1 drain FIFO 时刻取时间戳，就必须继续携带 `DIAGNOSTIC_ONLY`。
+- `TDMA_WINDOW_BASE` 只能说明 compact observation 的 expected/base 时间来自 active TDMA 计划；`sync_io` timestamp window 使用 capture timer 同一时间基 arm，只有整个 capture word 落在 window 内才可能去掉 `DIAGNOSTIC_ONLY`。
 - 只有 PIO/DMA/IRQ/core1 在 observation window 内形成真正 edge latch，且 timestamp metadata 为 `HARDWARE_TICK + DPLL_ELIGIBLE + resolution<=100ns + !DIAGNOSTIC_ONLY`，VDC gate 才能接受样本。
+- 两板最小闭环必须增加固件内部预约测试边沿：一块板按 TDMA window 输出边沿，另一块板在同一 window 采样并提交 observation；PC/SCPI 只能配置和读取结果，不能承担 10us 窗口内的实时动作。
 
 ### 符合 HAOFV 的部分
 

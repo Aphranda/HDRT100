@@ -94,7 +94,9 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
                 s_sync_io_observer_status.previous_sample_mask,
             .base_time_l32_ns =
                 (config.quality_flags &
-                 VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE) != 0u
+                 VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE) != 0u &&
+                        (words[i].timestamp_flags &
+                         VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE) == 0u
                     ? (uint32_t)(config.expected_window_start_ns &
                                  0xFFFFFFFFull)
                     : words[i].base_time_l32_ns,
@@ -244,11 +246,78 @@ bool vdc_dpll_manager_configure_sync_io_observer(
     if (!vdc_dpll_manager_sync_io_observer_config_valid(config)) {
         return false;
     }
+    if (!config->enabled) {
+        sync_io_capture_disarm_timestamp_window();
+    }
 
     osal_critical_enter();
     s_sync_io_observer_config = *config;
     vdc_dpll_manager_sync_io_observer_reset_status_locked();
     osal_critical_exit();
+    return true;
+}
+
+bool vdc_dpll_manager_configure_sync_io_observer_tdma(
+    bool enabled,
+    uint32_t initial_sample_mask,
+    uint32_t sample_period_ns,
+    uint32_t frame_crc32)
+{
+    vdc_dpll_manager_sync_io_observer_config_t config = {0};
+    vdc_tdma_window_plan_t plan;
+    vdc_gate_result_t gate;
+    uint64_t now_ns = VDC_DPLL_MANAGER_PLAN_NOW_NS;
+    const uint32_t sanitized_sample_period_ns =
+        sample_period_ns != 0u ? sample_period_ns : 1000u;
+
+    if (!enabled) {
+        sync_io_capture_disarm_timestamp_window();
+        config.enabled = false;
+        return vdc_dpll_manager_configure_sync_io_observer(&config);
+    }
+
+    if (!sync_io_capture_time_now_ns(&now_ns)) {
+        return false;
+    }
+
+    if (!vdc_dpll_manager_plan_tdma_window(
+            VDC_DOMAIN_WINDOW_VDC_OBSERVATION,
+            now_ns,
+            &plan,
+            &gate)) {
+        return false;
+    }
+
+    config.enabled = true;
+    config.max_words_per_service = VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS;
+    config.rising_event_id = 1u;
+    config.falling_event_id = 2u;
+    config.observed_mask = 1u;
+    config.initial_sample_mask = initial_sample_mask;
+    config.next_base_time_l32_ns =
+        (uint32_t)(plan.window_start_ns & 0xFFFFFFFFull);
+    config.sample_period_ns = sanitized_sample_period_ns;
+    config.expected_window_start_ns = plan.window_start_ns;
+    config.frame_crc32 = frame_crc32 != 0u ? frame_crc32 : plan.schedule_crc32;
+    config.quality_flags =
+        VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE;
+
+    if (!vdc_dpll_manager_configure_sync_io_observer(&config)) {
+        return false;
+    }
+
+    if (!sync_io_capture_arm_timestamp_window(
+            plan.window_start_ns,
+            (uint32_t)(plan.window_end_ns - plan.window_start_ns),
+            sanitized_sample_period_ns,
+            config.observed_mask,
+            initial_sample_mask)) {
+        sync_io_capture_disarm_timestamp_window();
+        (void)vdc_dpll_manager_configure_sync_io_observer(
+            &(vdc_dpll_manager_sync_io_observer_config_t){0});
+        return false;
+    }
+
     return true;
 }
 

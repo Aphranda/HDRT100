@@ -103,6 +103,13 @@ size_t sync_io_read_capture_words(uint32_t *buffer, size_t max_words);
 void sync_io_capture_latch_service_core1(void);
 size_t sync_io_read_capture_latched(sync_io_capture_latched_word_t *buffer,
                                     size_t max_words);
+bool sync_io_capture_time_now_ns(uint64_t *now_ns);
+bool sync_io_capture_arm_timestamp_window(uint64_t window_start_ns,
+                                          uint32_t window_width_ns,
+                                          uint32_t sample_period_ns,
+                                          uint32_t observed_mask,
+                                          uint32_t initial_sample_mask);
+void sync_io_capture_disarm_timestamp_window(void);
 bool sync_io_fire_pulse_cycles(uint32_t high_cycles);
 bool sync_io_fire_pulse_us(uint32_t high_us);
 bool sync_io_fire_pulse_out_cycles(uint32_t high_cycles);
