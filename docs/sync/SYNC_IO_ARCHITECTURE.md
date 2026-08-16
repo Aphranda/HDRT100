@@ -174,6 +174,21 @@ RP2350 的 3 个 PIO block 都预留给同步触发和底层 realtime IO。状�
 | 高频边沿 | PIO/DMA/IRQ 计数器或 ring，不输出文本日志。 |
 | 分布式事实 | 由 RefMem snapshot/quality/evidence 承接，不由 `sync_io` 直接跨节点查询。 |
 
+### 通用 IO 观测器
+
+`sync_io_read_capture_words()` 是 SYNC_IO 的通用 raw IO observation primitive。它从 `sync_capture_4bit` PIO RX FIFO 读取 32-bit raw capture word；每个 word 表示 8 个连续的 4-bit 输入采样。该接口只提供本机 IO fact，不解释业务语义，不计算 DPLL，不写 Trigger/RefMem/VDC 状态。
+
+典型消费者如下：
+
+| 消费方 | 解释方式 | 边界 |
+|---|---|---|
+| VDC / TDMA | 通过 `VdcSyncIoAdapter` 把 raw word 转为 `VdcCompactObservationSample`，再经 timestamp dictionary、wrap tracker 和 VDC gate。 | `sync_io` 不声明 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE`，资格由 VDC active profile 判定。 |
+| 转台输入 / 脉冲计数 | 上层 AO/FB 根据语义 IO、edge mask 和计数规则解释脉冲。 | `sync_io` 不改变扫描角度、序列状态或产品 RUN 状态。 |
+| READY / GATE / ARM / AUX 状态 | 维护面或 owner 读取 raw level/edge 后形成 snapshot/evidence。 | 不临时驱动 IO，不跨板阻塞查询。 |
+| 调试/线序检测 | HIL 脚本读取 raw word、edge index、mask 和 timing evidence。 | 调试结论不得绕过正式 profile、owner 和 gate。 |
+
+因此 `sync_io_read_capture_words()` 可以观测 TDMA 通讯/同步 PIO 线，也可以观测转台输入或其他数字输入；它的归属是 SYNC_IO，而不是 VDC/RefMem/Trigger 的私有实现。上层必须通过各自的 adapter / dictionary / AO/FB contract 解释 raw fact。
+
 ## 双核与 Flash 安全
 
 RTOS + 双核 AMP 下：

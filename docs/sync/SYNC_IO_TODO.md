@@ -85,9 +85,12 @@ Last updated: 2026-08-15
 
 目标：IO 的运行事实进入共同事实和共同时间链路，但不反向污染 IO owner。
 
+- [x] 明确 `sync_io_read_capture_words()` 是通用 4 路 raw IO observation primitive，可观测 TDMA PIO 线、转台输入、READY/GATE/ARM/AUX 等数字输入；业务语义由上层 adapter / AO/FB contract 解释。
 - [ ] 定义 IoSlot 字段级 publish helper：level/count/runtime/error/quality 只由 IO owner 发布。
 - [ ] 通过 RefMemSlotContract 校验 IO fact writer、值域、timestamp、version 和 stale。
 - [ ] VDC 只消费 timestamp 样本或输出 fire time，不让 `sync_io` 计算 VDC offset/rate。
+- [ ] 将 `sync_io_read_capture_words()` 到 VDC `VdcSyncIoAdapter` 的任务接线固化，记录 raw word、edge index、event id、tick_l32、dictionary CRC 和 VDC gate result。
+- [ ] 将同一 raw observation primitive 用于转台输入/脉冲计数验证，形成独立于 VDC 的 AO/FB 解释路径。
 - [ ] late `FIRE_LOAD` 必须由 realtime owner 拒绝并发布 evidence。
 - [ ] IO quality 与 RefMem `DistributedConnectionQualityTable` 对齐：CRC/drop/late/timeout/stale 不重复造字段。
 

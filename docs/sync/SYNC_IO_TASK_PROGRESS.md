@@ -8,6 +8,16 @@ Last updated: 2026-08-15
 
 本文档记录 SYNC_IO / Trigger 同步重构相关任务的闭环验证、风险和后续动作。
 
+### SYNC_IO-TASK-20260816-001 - 通用 IO 观测器归属纠偏
+
+- 目标：明确 `sync_io_read_capture_words()` 的架构归属，避免把通用 raw IO capture primitive 误写成 VDC/TDMA 私有能力。
+- 完成：`SYNC_IO_ARCHITECTURE.md` 增加“通用 IO 观测器”章节，说明该接口读取 `sync_capture_4bit` PIO RX FIFO，每个 32-bit word 表示 8 个连续 4-bit 输入采样。
+- 完成：明确该接口可观测 TDMA 通讯/同步 PIO 线、转台输入脉冲、READY/GATE/ARM/AUX 状态和调试线序，但只提供 raw IO fact，不解释业务语义，不写 DPLL/Trigger/RefMem/VDC。
+- 完成：`SYNC_IO_TODO.md` P5 增加 raw observation 到 VDC adapter、转台输入/脉冲计数解释路径的后续接线项。
+- 验证：`python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+- 风险：当前只是文档归属纠偏；代码中 `sync_io_read_capture_words()` 到 `VdcSyncIoAdapter`、转台输入 AO/FB 的实际任务接线仍未完成。
+- 后续：实现 `sync_io` raw capture word 到 VDC compact observation 的任务接线，并为转台输入/脉冲计数建立独立解释路径，避免复用 VDC 语义。
+
 ### SYNC_IO-TASK-20260815-001 - 建立 IO 三分标准文档
 
 - 目标：按 HAOFV 架构把 `docs/sync` 的 IO 文档收敛为架构、待办、任务进度三份标准入口，避免资源规划、重构计划和评审待办继续分叉。
