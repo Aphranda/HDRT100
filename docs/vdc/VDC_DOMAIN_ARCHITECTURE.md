@@ -573,7 +573,7 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 - `SYSTem:SYNC:VDC:*` 给维护工具读取和调试底层 VDC/DPLL。
 - `SYSTem:SYNC:VDC:TDMA:PLAN?` 只输出 active schedule 的窗口计划和 gate evidence，不提交 TDMA intent，也不改变 RefMem 或 DPLL 状态。
 - `SYSTem:SYNC:VDC:OBServer` 只配置 VDC manager 的 SYNC_IO raw capture observer；无参数或 `0` 关闭 observer，启用态必须由维护工具显式给出 event id、tick base、sample period、window 和 frame CRC，不启动 capture、不伪造 lock evidence。
-- `SYSTem:SYNC:VDC:OBServer?` 只读取 observer 证据计数和最近 gate 结果。
+- `SYSTem:SYNC:VDC:OBServer?` 只读取 observer 证据计数、当前配置 CRC/字典 CRC 和最近一次 dictionary 展开结果；它是 HIL 证据视图，不是 DPLL lock 判据。
 - 禁止新增 `VDC:*`、`DPLL:*`、`STATus:VDC?`、`STATus:DPLL?`。
 
 ## 目标代码形态

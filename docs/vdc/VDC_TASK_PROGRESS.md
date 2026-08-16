@@ -85,6 +85,22 @@ VdcSyncAO
   - COM5/COM6 启用 `SYST:SYNC:VDC:OBServer 1,1,1,2,1,0,0,1000,0,0,1` 后查询得到 `enabled=1,max_words_per_service=1`；关闭后 observer 查询回到 disabled 全零字段，错误队列均为 `0,"No error"`。
 - 下一步：
   - 在真实 timestamp latch/dictionary 配置到位后，再验证 raw/submitted/accepted/rejected 计数变化。
+
+### VDC-TASK-20260816-019 - VDC observer evidence snapshot fields
+
+- 状态：完成代码、文档、build 和 COM5/COM6 查询验证。
+- 本轮完成：
+  - `vdc_dpll_manager_sync_io_observer_status_t` 追加 observer 配置字段和 VDC 证据字段。
+  - manager 在 capture word 解析出 compact observation 时记录 `last_edge_index`，并尝试通过 active `VdcTimestampDictionary` 展开 timestamp source/resolution/flags、source/reference slot 和 payload class。
+  - `SYSTem:SYNC:VDC:OBServer?` 保持原 18 字段前缀不变，后续追加 22 个证据字段，合计 40 字段。
+- 验证：
+  - `product_scpi_validate.py --dry-run` 生成 128 条，`OBServer?` 解析为 40 字段。
+  - VDC 单测通过，host 17/17 通过，docs check 通过但保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - build `20260816031400`，OTA package CRC `0x0F669557`。
+  - COM5/COM6 均独立查询确认 committed：`SYST:FW:BUILD? -> "20260816031400"`、`SYST:OTA:STAT? -> "COMMITTED",1,"NONE",5`。
+  - COM5/COM6 启用最小合法 observer 后查询到 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`、`dictionary_profile_crc32=974530568`；关闭后 40 字段全零。
+- 注意：
+  - `ota_boot_commit.py` 在本轮两块板上都被启动日志污染输出误判失败，独立 `scpi_query` 已确认 commit 实际成功；后续可优化该脚本的启动日志过滤。
   - COM5/COM6 验证 raw word -> compact observation -> VDC gate 的板端证据。
 - 关联文件：
   - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`

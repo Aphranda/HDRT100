@@ -373,5 +373,27 @@ scpi_result_t scpi_cmd_sync_vdc_observer_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.last_gate_reject_code);
     SCPI_ResultUInt32(context, status.previous_sample_mask);
     SCPI_ResultUInt32(context, status.next_base_time_l32_ns);
+    SCPI_ResultUInt32(context, status.rising_event_id);
+    SCPI_ResultUInt32(context, status.falling_event_id);
+    SCPI_ResultUInt32(context, status.observed_mask);
+    SCPI_ResultUInt32(context, status.initial_sample_mask);
+    SCPI_ResultUInt32(context, status.sample_period_ns);
+    SCPI_ResultUInt32(context, status.expected_window_start_lo);
+    SCPI_ResultUInt32(context, status.expected_window_start_hi);
+    SCPI_ResultUInt32(context, status.frame_crc32);
+    SCPI_ResultUInt32(context, status.max_backward_ticks);
+    SCPI_ResultUInt32(context, status.quality_flags);
+    SCPI_ResultUInt32(context, status.sample0_lsb);
+    SCPI_ResultUInt32(context, status.schedule_crc32);
+    SCPI_ResultUInt32(context, status.dictionary_crc32);
+    SCPI_ResultUInt32(context, status.dictionary_entry_count);
+    SCPI_ResultUInt32(context, status.dictionary_profile_crc32);
+    SCPI_ResultUInt32(context, status.last_edge_index);
+    SCPI_ResultUInt32(context, status.last_timestamp_source);
+    SCPI_ResultUInt32(context, status.last_timestamp_resolution_ns);
+    SCPI_ResultUInt32(context, status.last_timestamp_flags);
+    SCPI_ResultUInt32(context, status.last_source_slot_id);
+    SCPI_ResultUInt32(context, status.last_reference_slot_id);
+    SCPI_ResultUInt32(context, status.last_payload_class);
     return SCPI_RES_OK;
 }

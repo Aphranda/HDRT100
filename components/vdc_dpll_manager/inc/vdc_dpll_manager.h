@@ -62,6 +62,28 @@ typedef struct {
     uint32_t last_gate_reject_code;
     uint32_t previous_sample_mask;
     uint32_t next_base_time_l32_ns;
+    uint32_t rising_event_id;
+    uint32_t falling_event_id;
+    uint32_t observed_mask;
+    uint32_t initial_sample_mask;
+    uint32_t sample_period_ns;
+    uint32_t expected_window_start_lo;
+    uint32_t expected_window_start_hi;
+    uint32_t frame_crc32;
+    uint32_t max_backward_ticks;
+    uint32_t quality_flags;
+    uint32_t sample0_lsb;
+    uint32_t schedule_crc32;
+    uint32_t dictionary_crc32;
+    uint32_t dictionary_entry_count;
+    uint32_t dictionary_profile_crc32;
+    uint32_t last_edge_index;
+    uint32_t last_timestamp_source;
+    uint32_t last_timestamp_resolution_ns;
+    uint32_t last_timestamp_flags;
+    uint32_t last_source_slot_id;
+    uint32_t last_reference_slot_id;
+    uint32_t last_payload_class;
 } vdc_dpll_manager_sync_io_observer_status_t;
 
 bool vdc_dpll_manager_init(void);

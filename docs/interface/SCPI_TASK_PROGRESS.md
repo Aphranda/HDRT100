@@ -165,6 +165,16 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 - 验证：
   - 产品命令生成：`product_scpi_validate.py --dry-run` 输出 `generated=128`，包含 `SYSTem:SYNC:VDC:OBServer -> 1`。
   - COM5/COM6：无参数关闭返回 `1`；启用态最小合法参数返回 `1` 且查询显示 `enabled=1,max_words_per_service=1`；关闭后查询为 disabled 全零字段；错误队列均为空。
+
+### SCPI-TASK-20260816-038 - VDC observer 40-field evidence query
+
+- 状态：完成代码、文档和 COM5/COM6 板端验证。
+- 完成：
+  - `SYSTem:SYNC:VDC:OBServer?` 保留前 18 个原始状态字段，追加 22 个配置/证据字段。
+  - 新字段覆盖 event id、observed mask、sample period、expected window、frame CRC、schedule CRC、dictionary CRC、dictionary profile CRC、edge index 和 timestamp dictionary 展开结果。
+- 验证：
+  - dry-run 命令生成仍为 128 条，`OBServer?` 固定响应解析为 40 字段。
+  - COM5/COM6 build `20260816031400` 上，启用最小合法 observer 后查询返回 40 字段，关闭后返回 40 个零字段，错误队列为空。
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_sync_commands.h`
   - `middleware/scpi_port/src/scpi_sync_commands.c`

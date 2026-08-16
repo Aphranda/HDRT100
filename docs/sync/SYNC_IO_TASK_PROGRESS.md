@@ -33,6 +33,16 @@ Last updated: 2026-08-16
   - COM5/COM6 均 OTA boot/commit 成功，`SYSTem:FW:BUILD?` 返回 `"20260816030427"`，`SYSTem:ERRor?` 返回 `0,"No error"`。
   - COM5/COM6 执行无参数 `SYST:SYNC:VDC:OBServer` 均返回 `1`，查询返回 disabled 全零字段。
   - COM5/COM6 执行 `SYST:SYNC:VDC:OBServer 1,1,1,2,1,0,0,1000,0,0,1` 均返回 `1`，查询显示 `enabled=1,max_words_per_service=1`；随后 `SYST:SYNC:VDC:OBServer 0` 关闭后查询回到 disabled 全零字段。
+
+### SYNC_IO-TASK-20260816-004 - VDC observer HIL evidence fields
+
+- 状态：完成代码、文档、build 和 COM5/COM6 启停态字段验证。
+- 完成：`SYSTem:SYNC:VDC:OBServer?` 在原 18 字段之后追加配置和证据字段：rising/falling event、observed mask、initial mask、sample period、expected window、frame CRC、schedule CRC、dictionary CRC/profile CRC、edge index、timestamp source/resolution/flags、source/reference slot 和 payload class。
+- 边界：关闭态仍保持 40 字段全零；启用态只暴露 observer 配置和 VDC dictionary/profile 证据，不启动 capture，不把空 FIFO 或软件时间当作 DPLL lock。
+- 验证：
+  - build `20260816031400`，OTA package CRC `0x0F669557`。
+  - COM5/COM6 均 OTA 到 build `20260816031400`；`ota_boot_commit.py` 两次均因启动日志污染误判失败，独立 `scpi_query` 确认 `SYST:OTA:STAT? -> "COMMITTED",1,"NONE",5`、`SYST:OTA:SLOT? -> 2,0,2,0,0`、`SYST:ERR? -> 0,"No error"`。
+  - COM5/COM6 启用最小合法 observer 后，`OBServer?` 返回 40 字段，其中 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`、`dictionary_profile_crc32=974530568`；关闭后返回 40 个零字段。
 - 风险：当前仍依赖显式配置的 `next_base_time_l32_ns`、`sample_period_ns`、event id 和 frame CRC；真实 PIO/DMA timestamp latch 和 COM5/COM6 HIL 证据待后续补齐。
 - 后续：补 HIL，把 dictionary CRC、edge index、timestamp source/resolution、profile CRC 和 VDC gate result 写入报告。
 - 涉及文件：`components/vdc_dpll_manager/inc/vdc_dpll_manager.h`，`components/vdc_dpll_manager/src/vdc_dpll_manager.c`，`docs/sync/SYNC_IO_TODO.md`。

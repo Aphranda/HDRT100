@@ -119,6 +119,35 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
 
         switch (result) {
         case VDC_SYNC_IO_CAPTURE_OK:
+            {
+                vdc_timestamp_dictionary_entry_t entry;
+                s_sync_io_observer_status.last_edge_index =
+                    (compact.quality_flags >> 16u) & 0xFFu;
+                if (vdc_timestamp_dictionary_find(
+                        &s_vdc_domain.timestamp_dictionary,
+                        compact.event_id,
+                        &entry)) {
+                    s_sync_io_observer_status.last_timestamp_source =
+                        entry.source;
+                    s_sync_io_observer_status.last_timestamp_resolution_ns =
+                        entry.resolution_ns;
+                    s_sync_io_observer_status.last_timestamp_flags =
+                        entry.default_flags;
+                    s_sync_io_observer_status.last_source_slot_id =
+                        entry.source_slot_id;
+                    s_sync_io_observer_status.last_reference_slot_id =
+                        entry.reference_slot_id;
+                    s_sync_io_observer_status.last_payload_class =
+                        entry.payload_class;
+                } else {
+                    s_sync_io_observer_status.last_timestamp_source = 0u;
+                    s_sync_io_observer_status.last_timestamp_resolution_ns = 0u;
+                    s_sync_io_observer_status.last_timestamp_flags = 0u;
+                    s_sync_io_observer_status.last_source_slot_id = 0u;
+                    s_sync_io_observer_status.last_reference_slot_id = 0u;
+                    s_sync_io_observer_status.last_payload_class = 0u;
+                }
+            }
             s_sync_io_observer_status.submitted_count++;
             s_sync_io_observer_status.last_event_id = compact.event_id;
             s_sync_io_observer_status.last_tick_l32 = compact.tick_l32;
@@ -229,6 +258,34 @@ void vdc_dpll_manager_get_sync_io_observer_status(
     status->enabled = s_sync_io_observer_config.enabled;
     status->max_words_per_service =
         s_sync_io_observer_config.max_words_per_service;
+    if (s_sync_io_observer_config.enabled) {
+        status->rising_event_id = s_sync_io_observer_config.rising_event_id;
+        status->falling_event_id = s_sync_io_observer_config.falling_event_id;
+        status->observed_mask = s_sync_io_observer_config.observed_mask;
+        status->initial_sample_mask =
+            s_sync_io_observer_config.initial_sample_mask;
+        status->sample_period_ns =
+            s_sync_io_observer_config.sample_period_ns;
+        status->expected_window_start_lo =
+            (uint32_t)(s_sync_io_observer_config.expected_window_start_ns &
+                       0xFFFFFFFFull);
+        status->expected_window_start_hi =
+            (uint32_t)(s_sync_io_observer_config.expected_window_start_ns >>
+                       32u);
+        status->frame_crc32 = s_sync_io_observer_config.frame_crc32;
+        status->max_backward_ticks =
+            s_sync_io_observer_config.max_backward_ticks;
+        status->quality_flags = s_sync_io_observer_config.quality_flags;
+        status->sample0_lsb =
+            s_sync_io_observer_config.sample0_lsb ? 1u : 0u;
+        status->schedule_crc32 = s_vdc_domain.schedule.schedule_crc32;
+        status->dictionary_crc32 =
+            s_vdc_domain.timestamp_dictionary.dictionary_crc32;
+        status->dictionary_entry_count =
+            s_vdc_domain.timestamp_dictionary.entry_count;
+        status->dictionary_profile_crc32 =
+            s_vdc_domain.timestamp_dictionary.profile_crc32;
+    }
     osal_critical_exit();
 }
 

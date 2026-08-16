@@ -277,7 +277,7 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 
 `SYSTem:SYNC:VDC:OBServer [enabled],...` 是维护配置入口，用于启停 VDC manager 消费 `sync_io_read_capture_words()` 的 observer。无参数或 `enabled=0` 只关闭 observer 并清零状态；`enabled=1` 必须显式提供 batch、rising/falling event id、observed mask、initial mask、base tick、sample period、expected window start 和 frame CRC。该命令不得启动 SYNC_IO capture，不得绕过 timestamp dictionary/gate，也不得作为 DPLL lock evidence 本身。
 
-`SYSTem:SYNC:VDC:OBServer?` 是只读维护入口，用于查询 VDC manager 从 `sync_io_read_capture_words()` 消费 raw capture word 的 observer 证据。它只返回 enabled、batch、raw/no-edge/ambiguous/submitted/accepted/rejected、last raw word、event id、tick_l32 和 gate reject 等状态；不得启动 capture、不得改变 observer 配置、不得作为 DPLL lock evidence 本身。
+`SYSTem:SYNC:VDC:OBServer?` 是只读维护入口，用于查询 VDC manager 从 `sync_io_read_capture_words()` 消费 raw capture word 的 observer 证据。它以前 18 字段保留 enabled、batch、raw/no-edge/ambiguous/submitted/accepted/rejected、last raw word、event id、tick_l32 和 gate reject 等状态；后续字段追加 event/mask/window/frame CRC、schedule/dictionary CRC、edge index 和 timestamp dictionary 展开结果。该查询不得启动 capture、不得改变 observer 配置、不得作为 DPLL lock evidence 本身。
 
 ## 7. 通信、实时和测量
 
