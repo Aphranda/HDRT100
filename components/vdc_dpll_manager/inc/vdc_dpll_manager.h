@@ -7,8 +7,16 @@
 #include "vdc_domain.h"
 
 #define VDC_DPLL_MANAGER_PLAN_NOW_NS UINT64_MAX
-#define VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS 8u
+#define VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS 32u
 #define VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE 0x80000000u
+#define VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES 4096u
+
+typedef enum {
+    VDC_DPLL_MANAGER_SELF_TEST_ROLE_NONE = 0u,
+    VDC_DPLL_MANAGER_SELF_TEST_ROLE_TX = 1u,
+    VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX = 2u,
+    VDC_DPLL_MANAGER_SELF_TEST_ROLE_TX_RX = 3u,
+} vdc_dpll_manager_self_test_role_t;
 
 typedef struct {
     bool ready;
@@ -43,6 +51,37 @@ typedef struct {
     uint32_t quality_flags;
     bool sample0_lsb;
 } vdc_dpll_manager_sync_io_observer_config_t;
+
+typedef struct {
+    uint32_t role;
+    uint32_t output_index;
+    uint32_t observed_mask;
+    uint32_t initial_sample_mask;
+    uint32_t sample_period_ns;
+    uint32_t pulse_period_ns;
+    uint32_t pulse_high_ns;
+    uint32_t pulse_count;
+    uint32_t frame_crc32;
+    uint32_t start_delay_ns;
+} vdc_dpll_manager_observation_self_test_config_t;
+
+typedef struct {
+    bool active;
+    uint32_t role;
+    uint32_t output_index;
+    uint32_t observed_mask;
+    uint32_t initial_sample_mask;
+    uint32_t sample_period_ns;
+    uint32_t pulse_period_ns;
+    uint32_t pulse_high_ns;
+    uint32_t pulse_count;
+    uint32_t frame_crc32;
+    uint32_t schedule_crc32;
+    uint32_t last_error;
+    uint32_t started_ms;
+    uint32_t start_delay_ns;
+    uint64_t first_window_start_ns;
+} vdc_dpll_manager_observation_self_test_status_t;
 
 typedef struct {
     bool enabled;
@@ -101,6 +140,10 @@ bool vdc_dpll_manager_configure_sync_io_observer_tdma(
     uint32_t initial_sample_mask,
     uint32_t sample_period_ns,
     uint32_t frame_crc32);
+bool vdc_dpll_manager_start_observation_self_test(
+    const vdc_dpll_manager_observation_self_test_config_t *config);
+void vdc_dpll_manager_get_observation_self_test_status(
+    vdc_dpll_manager_observation_self_test_status_t *status);
 void vdc_dpll_manager_get_sync_io_observer_status(
     vdc_dpll_manager_sync_io_observer_status_t *status);
 bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot);

@@ -43,6 +43,69 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-028 - DMA capture window budget correction
+
+- 状态：完成代码、构建、COM5 启动验证；COM6 硬件恢复后待双向 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 修复 10 MHz self-test capture 的 core1 无界 DMA 消费，防止 realtime loop 长时间不返回并造成 USB/SCPI 假死。
+  - 保持 timestamp 证据诚实：只丢弃 TDMA observation window 外的采样 backlog，窗口内 word 仍完整保留给 observer/DPLL gate；不得伪造 `DPLL_ELIGIBLE`。
+- 完成内容：
+  - `sync_io` 的 capture FIFO 改由 DMA channel 3 环形缓存搬运；core1 每次最多处理 128 个 word。
+  - timestamp window 已 arm 时，core1 根据 capture timebase 和 DMA word sequence 跳到下一个可能的 observation window，只保留窗口内 raw word；窗口外数据不进入 latch ring，也不计为 DMA overflow。
+  - `VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS` 从 8 提升到 32，确保一个 10 us / 100 ns observation window 的完整 word 集能在 VDC task 一次 service 中消费。
+  - 修复“第一 observation window 尚未到达”被误判为窗口过期的边界条件；`start_delay_ns` 和 16 字段 self-test status 已同步到三份 SCPI 文档。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816063518`，OTA package CRC `0x85EC2ABA`。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `python -m py_compile tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py` 通过。
+  - COM5 已 OTA/boot/commit 到 `20260816063518`；`SYST:LOOP:STAT? -> 1,281272,3557,260133`，`SYST:ERR? -> 0,"No error"`。TX-only self-test 返回 `1`，PIO/DMA pulse schedule 成功 arm，错误队列为空。
+  - COM6 在旧版 10 MHz DMA self-test 后 USB CDC 句柄不可用，OTA 传输超时，且 `picotool load -f` 无法将对应 USB device 强制重启入 BOOTSEL；需物理复位或重新插拔后再 OTA 到 `20260816063518`。
+- 还需完成：
+  - COM6 恢复后 OTA/commit 两板，并运行 `tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py --port-a COM5 --port-b COM6 --expected-build 20260816063518`。
+  - 验收必须同时满足 X->Y、Y->X `accepted_count` 增长、gate=0、source=2、resolution<=100 ns、`DPLL_ELIGIBLE=1`、`DIAGNOSTIC_ONLY=0` 和两板 core loop 持续增长。
+- 关联文件：
+  - `components/sync_io/src/sync_io.c`
+  - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
+  - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
+- 下一步：
+  - 恢复 COM6 后先验证 DMA budget 修复不再造成 core1/USB 假死，再完成两板双向 VDC timestamp closure。
+
+### VDC-TASK-20260816-027 - TDMA observer self-test edge foundation
+
+- 状态：完成代码和本地构建；COM5/COM6 HIL 待烧录后执行。
+- 日期：2026-08-16
+- 任务目标：
+  - 不再依赖 PC 串口赶 `VDC_OBSERVATION_WINDOW`，建立固件内部 RX observation + TX PIO pulse train 的两板 bring-up 基础。
+  - 保持 HAOFV 边界：SCPI 只启动维护 self-test；`vdc_dpll_manager` 规划 active TDMA window；`sync_io` 装载 capture/window 和 PIO/DMA 输出；VDC gate 仍按 dictionary、CRC、timestamp flags 裁决。
+- 完成内容：
+  - `sync_io` timestamp window 支持按 TDMA period 重复匹配，并在 latched word 中记录命中的 `matched_window_start_ns`，避免后续周期样本继续使用第一周期 expected window。
+  - `sync_io_model_sched` 的 PIO/DMA scheduled pulse primitive 增加主输出组入口 `sync_io_output_pulse_schedule_arm()`；旧 debug model 入口保留。
+  - `vdc_dpll_manager` 新增 observation self-test API，支持 RX 侧启动周期性 TDMA observer + capture，TX 侧用主输出组发 PIO pulse train。
+  - 新增 `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` / `SELFtest?` 维护命令；该命令不写 lock/offset/rate，只启动 bring-up 事务和读取状态。
+  - 新增 `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`，自动检测两板线序，并分别验证 X->Y、Y->X 的 RX accepted sample、gate pass 和 `DPLL_ELIGIBLE` timestamp metadata。
+- 验证结果：
+  - `python -m py_compile tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py` 通过。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=132，包含 self-test 命令。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `cmake --build build-rtos-multicore-smoke` 通过，当前 build id `20260816052515`，OTA package CRC `0x59359177`。
+- 还需完成：
+  - 烧录 COM5/COM6 并运行 `vdc_tdma_selftest_validate.py`，确认真实两板线上的 accepted sample 和 gate pass。
+  - 若 accepted sample 仍不稳定，下一步应调整 self-test pulse density、capture sample period 或补真正 PIO edge timestamp latch；不得用脚本伪造 accepted evidence。
+- 关联文件：
+  - `components/sync_io/inc/sync_io.h`
+  - `components/sync_io/src/sync_io.c`
+  - `components/sync_io/src/sync_io_model_sched.c`
+  - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `middleware/scpi_port/inc/scpi_sync_commands.h`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
+- 下一步：
+  - COM5/COM6 OTA 后执行两板 HIL；通过后再推进 `SyncDpllFB` servo/outlier 和 core1 DCO snapshot 消费。
+
 ### VDC-TASK-20260816-026 - SyncIO timestamp window gate for VDC observation
 
 - 状态：完成代码、host/build 和 COM5/COM6 HIL。

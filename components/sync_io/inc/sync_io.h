@@ -28,6 +28,7 @@ typedef struct {
     uint32_t raw_word;
     uint32_t sample_seq;
     uint32_t base_time_l32_ns;
+    uint64_t matched_window_start_ns;
     uint32_t sample_period_ns;
     uint32_t timestamp_source;
     uint32_t timestamp_resolution_ns;
@@ -109,6 +110,12 @@ bool sync_io_capture_arm_timestamp_window(uint64_t window_start_ns,
                                           uint32_t sample_period_ns,
                                           uint32_t observed_mask,
                                           uint32_t initial_sample_mask);
+bool sync_io_capture_arm_periodic_timestamp_window(uint64_t window_start_ns,
+                                                   uint32_t window_width_ns,
+                                                   uint32_t period_ns,
+                                                   uint32_t sample_period_ns,
+                                                   uint32_t observed_mask,
+                                                   uint32_t initial_sample_mask);
 void sync_io_capture_disarm_timestamp_window(void);
 bool sync_io_fire_pulse_cycles(uint32_t high_cycles);
 bool sync_io_fire_pulse_us(uint32_t high_us);
@@ -134,6 +141,10 @@ bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
                                       const sync_io_model_pulse_entry_t *entries,
                                       uint32_t entry_count,
                                       bool rising_edge);
+bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
+                                       const sync_io_model_pulse_entry_t *entries,
+                                       uint32_t entry_count,
+                                       bool rising_edge);
 void sync_io_model_pulse_schedule_disarm(void);
 bool sync_io_model_pulse_schedule_is_running(void);
 void sync_io_model_pulse_schedule_get_runtime(sync_io_model_pulse_runtime_t *runtime);

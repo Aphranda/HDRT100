@@ -92,6 +92,12 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `SYSTem:SYNC:VDC:LOCK:READiness?`, and verifies the current diagnostic path
   remains blocked at `TIMESTAMP_NOT_ELIGIBLE` instead of reporting a false
   lock.
+- `vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`: two-board VDC
+  TDMA observer bring-up runner. It detects one usable SYNC_IO line in each
+  direction, starts RX-side `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest`, starts
+  TX-side PIO/DMA pulse train self-test, and requires the RX observer to report
+  accepted sample growth, gate pass, hardware-tick timestamp source, <=100 ns
+  resolution, and `DPLL_ELIGIBLE` without `DIAGNOSTIC_ONLY`.
 - `refmem_sync_hil_validate/refmem_sync_hil_validate.py`: two-board RefMem Sync
   HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY runner. It initializes each board's
   `SYSTem:REFMEM:SYNC` maintenance context, checks build/SlotClaim/adapter

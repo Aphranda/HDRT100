@@ -29,6 +29,9 @@
 #define SYNC_IO_CLOCK_SM            BOARD_SYNC_AUX2_SM
 #define SYNC_IO_CLOCK_PIN           BOARD_SYNC_AUX_SYNC_CLK_OUT_PIN
 #define SYNC_IO_CAPTURE_LATCH_RING_SIZE 32u
+#define SYNC_IO_CAPTURE_DMA_RING_WORDS 2048u
+#define SYNC_IO_CAPTURE_DMA_RING_BITS 13u
+#define SYNC_IO_CAPTURE_LATCH_SERVICE_MAX_WORDS 128u
 #define SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK 2u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DPLL_ELIGIBLE   0x00000002u
@@ -54,14 +57,20 @@ typedef struct {
     uint32_t capture_latch_write;
     uint32_t capture_latch_read;
     uint32_t capture_latch_seq;
+    uint32_t capture_dma_read_seq;
+    uint64_t capture_timebase_start_ns;
+    bool capture_timebase_valid;
     bool capture_timestamp_window_armed;
+    bool capture_timestamp_window_periodic;
     uint64_t capture_timestamp_window_start_ns;
     uint64_t capture_timestamp_window_end_ns;
+    uint32_t capture_timestamp_window_period_ns;
     uint32_t capture_timestamp_window_sample_period_ns;
     uint32_t capture_timestamp_window_observed_mask;
     uint32_t capture_timestamp_window_initial_sample_mask;
     uint32_t debug_model_output_enable_mask;
     uint32_t debug_model_output_value_mask;
+    uint32_t capture_dma_ring[SYNC_IO_CAPTURE_DMA_RING_WORDS];
     sync_io_aux_mode_t aux_modes[SYNC_IO_AUX_COUNT];
     sync_io_capture_latched_word_t capture_latch_ring[SYNC_IO_CAPTURE_LATCH_RING_SIZE];
 } sync_io_context_t;
@@ -203,6 +212,46 @@ static uint32_t sync_io_capture_sample_period_ns(uint32_t sample_hz)
     return period_ns > UINT32_MAX ? UINT32_MAX : (uint32_t)period_ns;
 }
 
+static uint32_t sync_io_capture_dma_produced_words(void)
+{
+    if (!s_sync_io.initialized) {
+        return 0u;
+    }
+
+    const uint32_t remaining =
+        dma_hw->ch[SYNC_IO_CAPTURE_DMA_CH].transfer_count;
+    return UINT32_MAX - remaining;
+}
+
+static bool sync_io_capture_dma_configure(void)
+{
+    if (!dma_channel_is_claimed(SYNC_IO_CAPTURE_DMA_CH)) {
+        return false;
+    }
+
+    dma_channel_abort(SYNC_IO_CAPTURE_DMA_CH);
+    dma_channel_set_irq0_enabled(SYNC_IO_CAPTURE_DMA_CH, false);
+
+    dma_channel_config dma_cfg =
+        dma_channel_get_default_config(SYNC_IO_CAPTURE_DMA_CH);
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&dma_cfg, false);
+    channel_config_set_write_increment(&dma_cfg, true);
+    channel_config_set_ring(&dma_cfg, true, SYNC_IO_CAPTURE_DMA_RING_BITS);
+    channel_config_set_dreq(
+        &dma_cfg,
+        pio_get_dreq(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, false));
+
+    dma_channel_configure(
+        SYNC_IO_CAPTURE_DMA_CH,
+        &dma_cfg,
+        s_sync_io.capture_dma_ring,
+        &BOARD_SYNC_PIO_FAST->rxf[BOARD_SYNC_CAPTURE_SM],
+        UINT32_MAX,
+        false);
+    return true;
+}
+
 static uint64_t sync_io_capture_latch_read_ticks64(void)
 {
     uint32_t hi = SYNC_IO_CAPTURE_LATCH_TIMER->timerawh;
@@ -261,19 +310,126 @@ static void sync_io_capture_latch_reset_locked(void)
     s_sync_io.dropped_latched_capture_words = 0u;
 }
 
+static bool sync_io_capture_latch_word_in_window(uint64_t word_start_ns,
+                                                 uint64_t word_end_ns,
+                                                 uint64_t *matched_window_start_ns)
+{
+    uint64_t window_start_ns = s_sync_io.capture_timestamp_window_start_ns;
+    uint64_t window_end_ns = s_sync_io.capture_timestamp_window_end_ns;
+
+    if (s_sync_io.capture_timestamp_window_periodic) {
+        const uint32_t period_ns = s_sync_io.capture_timestamp_window_period_ns;
+        const uint32_t width_ns =
+            (uint32_t)(s_sync_io.capture_timestamp_window_end_ns -
+                       s_sync_io.capture_timestamp_window_start_ns);
+        if (period_ns == 0u || width_ns == 0u) {
+            return false;
+        }
+
+        uint64_t cycle = 0u;
+        if (word_start_ns > s_sync_io.capture_timestamp_window_start_ns) {
+            cycle =
+                (word_start_ns - s_sync_io.capture_timestamp_window_start_ns) /
+                (uint64_t)period_ns;
+        }
+        window_start_ns =
+            s_sync_io.capture_timestamp_window_start_ns +
+            cycle * (uint64_t)period_ns;
+        window_end_ns = window_start_ns + (uint64_t)width_ns;
+        if (word_start_ns > window_end_ns) {
+            window_start_ns += period_ns;
+            window_end_ns += period_ns;
+        }
+    }
+
+    if (word_start_ns < window_start_ns || word_end_ns > window_end_ns) {
+        return false;
+    }
+
+    if (matched_window_start_ns != NULL) {
+        *matched_window_start_ns = window_start_ns;
+    }
+    return true;
+}
+
+static bool sync_io_capture_latch_next_window_start(uint64_t word_start_ns,
+                                                    uint64_t word_end_ns,
+                                                    uint64_t *window_start_ns,
+                                                    uint64_t *window_end_ns)
+{
+    uint64_t candidate_start = s_sync_io.capture_timestamp_window_start_ns;
+    uint64_t candidate_end = s_sync_io.capture_timestamp_window_end_ns;
+
+    if (!s_sync_io.capture_timestamp_window_armed) {
+        return false;
+    }
+
+    if (s_sync_io.capture_timestamp_window_periodic) {
+        const uint32_t period_ns =
+            s_sync_io.capture_timestamp_window_period_ns;
+        const uint64_t width_ns =
+            s_sync_io.capture_timestamp_window_end_ns -
+            s_sync_io.capture_timestamp_window_start_ns;
+        if (period_ns == 0u || width_ns == 0u) {
+            return false;
+        }
+
+        if (word_start_ns > candidate_start) {
+            candidate_start +=
+                ((word_start_ns - candidate_start) / (uint64_t)period_ns) *
+                (uint64_t)period_ns;
+            candidate_end = candidate_start + width_ns;
+            if (word_start_ns > candidate_end ||
+                word_end_ns > candidate_end) {
+                candidate_start += (uint64_t)period_ns;
+                candidate_end += (uint64_t)period_ns;
+            }
+        }
+    }
+
+    if (word_start_ns < candidate_start) {
+        /* The current word precedes the first eligible window. */
+    } else if (word_start_ns >= candidate_start &&
+               word_end_ns <= candidate_end) {
+        return false;
+    } else if (!s_sync_io.capture_timestamp_window_periodic) {
+        return false;
+    } else {
+        candidate_start +=
+            (uint64_t)s_sync_io.capture_timestamp_window_period_ns;
+        candidate_end +=
+            (uint64_t)s_sync_io.capture_timestamp_window_period_ns;
+    }
+
+    if (window_start_ns != NULL) {
+        *window_start_ns = candidate_start;
+    }
+    if (window_end_ns != NULL) {
+        *window_end_ns = candidate_end;
+    }
+    return true;
+}
+
 static uint32_t sync_io_capture_latch_flags_for_word(uint64_t word_start_ns,
                                                      uint64_t word_end_ns,
-                                                     uint32_t sample_period_ns)
+                                                     uint32_t sample_period_ns,
+                                                     uint64_t *matched_window_start_ns)
 {
     uint32_t flags = SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
     const uint64_t word_span_ns =
         word_end_ns > word_start_ns ? word_end_ns - word_start_ns : 0ull;
 
-    if (!s_sync_io.capture_timestamp_window_armed ||
+    if (matched_window_start_ns != NULL) {
+        *matched_window_start_ns = 0u;
+    }
+
+    if (!s_sync_io.capture_timebase_valid ||
+        !s_sync_io.capture_timestamp_window_armed ||
         sample_period_ns == 0u ||
         word_span_ns == 0u ||
-        word_start_ns < s_sync_io.capture_timestamp_window_start_ns ||
-        word_end_ns > s_sync_io.capture_timestamp_window_end_ns ||
+        !sync_io_capture_latch_word_in_window(word_start_ns,
+                                              word_end_ns,
+                                              matched_window_start_ns) ||
         sample_period_ns != s_sync_io.capture_timestamp_window_sample_period_ns ||
         s_sync_io.capture_timestamp_window_observed_mask == 0u) {
         return flags;
@@ -281,8 +437,74 @@ static uint32_t sync_io_capture_latch_flags_for_word(uint64_t word_start_ns,
 
     flags &= ~SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
     flags |= SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
-    s_sync_io.capture_timestamp_window_armed = false;
+    if (!s_sync_io.capture_timestamp_window_periodic) {
+        s_sync_io.capture_timestamp_window_armed = false;
+    }
     return flags;
+}
+
+static void sync_io_capture_latch_discard_outside_window(
+    uint32_t produced,
+    uint32_t word_span_ns)
+{
+    if (!s_sync_io.capture_timestamp_window_armed ||
+        !s_sync_io.capture_timebase_valid ||
+        word_span_ns == 0u) {
+        return;
+    }
+
+    osal_critical_enter();
+    uint32_t read_seq = s_sync_io.capture_dma_read_seq;
+    uint32_t available = produced - read_seq;
+    if (available > SYNC_IO_CAPTURE_DMA_RING_WORDS) {
+        s_sync_io.dropped_capture_words +=
+            available - SYNC_IO_CAPTURE_DMA_RING_WORDS;
+        s_sync_io.capture_timebase_valid = false;
+        read_seq = produced - SYNC_IO_CAPTURE_DMA_RING_WORDS;
+        s_sync_io.capture_dma_read_seq = read_seq;
+        available = SYNC_IO_CAPTURE_DMA_RING_WORDS;
+    }
+
+    if (available != 0u) {
+        const uint64_t capture_start_ns = s_sync_io.capture_timebase_start_ns;
+        const uint64_t word_start_ns =
+            capture_start_ns + (uint64_t)read_seq * word_span_ns;
+        const uint64_t word_end_ns = word_start_ns + word_span_ns;
+        uint64_t next_window_start_ns = 0u;
+        uint64_t next_window_end_ns = 0u;
+
+        if (sync_io_capture_latch_word_in_window(word_start_ns,
+                                                 word_end_ns,
+                                                 NULL)) {
+            osal_critical_exit();
+            return;
+        }
+
+        if (sync_io_capture_latch_next_window_start(
+                word_start_ns,
+                word_end_ns,
+                &next_window_start_ns,
+                &next_window_end_ns)) {
+            (void)next_window_end_ns;
+            const uint64_t delta_ns =
+                next_window_start_ns > capture_start_ns
+                    ? next_window_start_ns - capture_start_ns
+                    : 0u;
+            uint64_t target_seq =
+                (delta_ns + word_span_ns - 1u) / word_span_ns;
+            if (target_seq < read_seq) {
+                target_seq = read_seq;
+            }
+            if (target_seq > produced) {
+                target_seq = produced;
+            }
+            s_sync_io.capture_dma_read_seq = (uint32_t)target_seq;
+        } else {
+            /* A one-shot window has expired; no diagnostic backlog is useful. */
+            s_sync_io.capture_dma_read_seq = produced;
+        }
+    }
+    osal_critical_exit();
 }
 
 static bool sync_io_claim_sm(PIO pio, uint sm, const char *name)
@@ -445,6 +667,16 @@ bool sync_io_init(const sync_io_config_t *config)
         return false;
     }
 
+    if (dma_channel_is_claimed(SYNC_IO_CAPTURE_DMA_CH)) {
+        LOG_ERROR("sync_io", "capture DMA channel already claimed");
+        sync_io_trace(SYNC_IO_TRACE_INIT_FAIL,
+                      SYNC_IO_TRACE_ERROR,
+                      3u,
+                      SYNC_IO_CAPTURE_DMA_CH);
+        return false;
+    }
+    dma_channel_claim(SYNC_IO_CAPTURE_DMA_CH);
+
     s_sync_io.capture_offset = (uint)pio_add_program(BOARD_SYNC_PIO_FAST, &sync_capture_4bit_program);
     s_sync_io.pulse_offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE, &sync_pulse_program);
     s_sync_io.clock_offset = (uint)pio_add_program(SYNC_IO_CLOCK_PIO, &sync_clock_program);
@@ -535,13 +767,28 @@ bool sync_io_start_capture(uint32_t sample_hz)
                       BOARD_SYNC_CAPTURE_SM,
                       sync_io_clkdiv_for_instruction_rate(sample_hz));
     pio_sm_restart(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM);
+    if (!sync_io_capture_dma_configure()) {
+        sync_io_trace(SYNC_IO_TRACE_CAPTURE_FAIL,
+                      SYNC_IO_TRACE_ERROR,
+                      sample_hz,
+                      2u);
+        return false;
+    }
+
+    const uint64_t capture_start_ns =
+        sync_io_capture_latch_ticks_to_ns(sync_io_capture_latch_read_ticks64());
     osal_critical_enter();
     sync_io_capture_latch_reset_locked();
+    s_sync_io.capture_dma_read_seq = 0u;
+    s_sync_io.capture_timebase_start_ns = capture_start_ns;
+    s_sync_io.capture_timebase_valid = true;
     osal_critical_exit();
-    pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, true);
 
     s_sync_io.capture_sample_hz = sample_hz;
     s_sync_io.capture_running = true;
+    dma_start_channel_mask(1u << SYNC_IO_CAPTURE_DMA_CH);
+    pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, true);
+
     sync_io_trace(SYNC_IO_TRACE_CAPTURE_START, SYNC_IO_TRACE_INFO, sample_hz, 0u);
     return true;
 }
@@ -553,11 +800,59 @@ void sync_io_stop_capture(void)
     }
 
     pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, false);
+    dma_channel_abort(SYNC_IO_CAPTURE_DMA_CH);
+    osal_critical_enter();
     s_sync_io.capture_running = false;
+    s_sync_io.capture_timebase_valid = false;
+    osal_critical_exit();
     sync_io_trace(SYNC_IO_TRACE_CAPTURE_STOP,
                   SYNC_IO_TRACE_INFO,
                   s_sync_io.capture_sample_hz,
                   s_sync_io.dropped_capture_words);
+}
+
+static bool sync_io_capture_dma_pop(uint32_t *raw_word,
+                                    uint32_t *capture_word_seq)
+{
+    if (raw_word == NULL || capture_word_seq == NULL ||
+        !s_sync_io.capture_running) {
+        return false;
+    }
+
+    const uint32_t produced = sync_io_capture_dma_produced_words();
+    bool overflowed = false;
+    uint32_t overflow_count = 0u;
+
+    osal_critical_enter();
+    uint32_t read_seq = s_sync_io.capture_dma_read_seq;
+    uint32_t available = produced - read_seq;
+    if (available > SYNC_IO_CAPTURE_DMA_RING_WORDS) {
+        overflow_count = available - SYNC_IO_CAPTURE_DMA_RING_WORDS;
+        s_sync_io.dropped_capture_words += overflow_count;
+        s_sync_io.capture_timebase_valid = false;
+        read_seq = produced - SYNC_IO_CAPTURE_DMA_RING_WORDS;
+        s_sync_io.capture_dma_read_seq = read_seq;
+        available = SYNC_IO_CAPTURE_DMA_RING_WORDS;
+        overflowed = true;
+    }
+    if (available == 0u) {
+        osal_critical_exit();
+        return false;
+    }
+
+    *capture_word_seq = read_seq;
+    *raw_word =
+        s_sync_io.capture_dma_ring[read_seq & (SYNC_IO_CAPTURE_DMA_RING_WORDS - 1u)];
+    s_sync_io.capture_dma_read_seq = read_seq + 1u;
+    osal_critical_exit();
+
+    if (overflowed) {
+        sync_io_trace(SYNC_IO_TRACE_CAPTURE_DROP,
+                      SYNC_IO_TRACE_WARN,
+                      s_sync_io.dropped_capture_words,
+                      overflow_count);
+    }
+    return true;
 }
 
 size_t sync_io_read_capture_words(uint32_t *buffer, size_t max_words)
@@ -567,17 +862,13 @@ size_t sync_io_read_capture_words(uint32_t *buffer, size_t max_words)
     }
 
     size_t count = 0u;
-    while (count < max_words && !pio_sm_is_rx_fifo_empty(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM)) {
-        buffer[count] = pio_sm_get(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM);
+    while (count < max_words) {
+        uint32_t capture_word_seq = 0u;
+        if (!sync_io_capture_dma_pop(&buffer[count], &capture_word_seq)) {
+            break;
+        }
+        (void)capture_word_seq;
         count++;
-    }
-
-    if (pio_sm_is_rx_fifo_full(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM)) {
-        s_sync_io.dropped_capture_words++;
-        sync_io_trace(SYNC_IO_TRACE_CAPTURE_DROP,
-                      SYNC_IO_TRACE_WARN,
-                      s_sync_io.dropped_capture_words,
-                      (uint32_t)count);
     }
 
     return count;
@@ -592,16 +883,28 @@ void sync_io_capture_latch_service_core1(void)
     const uint32_t sample_period_ns =
         sync_io_capture_sample_period_ns(s_sync_io.capture_sample_hz);
     const uint32_t word_span_ns = sample_period_ns * 8u;
+    const uint32_t produced = sync_io_capture_dma_produced_words();
 
-    while (!pio_sm_is_rx_fifo_empty(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM)) {
-        const uint32_t raw_word = pio_sm_get(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM);
-        const uint64_t latch_ticks = sync_io_capture_latch_read_ticks64();
-        const uint64_t latch_time_ns =
-            sync_io_capture_latch_ticks_to_ns(latch_ticks);
+    sync_io_capture_latch_discard_outside_window(produced, word_span_ns);
+
+    for (uint32_t processed = 0u;
+         processed < SYNC_IO_CAPTURE_LATCH_SERVICE_MAX_WORDS;
+         processed++) {
+        uint32_t raw_word = 0u;
+        uint32_t capture_word_seq = 0u;
+        if (!sync_io_capture_dma_pop(&raw_word, &capture_word_seq)) {
+            break;
+        }
+
+        osal_critical_enter();
+        const uint64_t capture_start_ns = s_sync_io.capture_timebase_start_ns;
+        osal_critical_exit();
         const uint64_t word_start_ns =
-            latch_time_ns > word_span_ns ? latch_time_ns - word_span_ns : 0ull;
+            capture_start_ns + (uint64_t)capture_word_seq * word_span_ns;
+        const uint64_t word_end_ns = word_start_ns + word_span_ns;
         const uint32_t base_time_l32_ns =
             (uint32_t)word_start_ns;
+        uint64_t matched_window_start_ns = 0u;
 
         osal_critical_enter();
         const uint32_t next_write =
@@ -619,11 +922,16 @@ void sync_io_capture_latch_service_core1(void)
         slot->base_time_l32_ns = base_time_l32_ns;
         slot->sample_period_ns = sample_period_ns;
         slot->timestamp_source = SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK;
-        slot->timestamp_resolution_ns = s_sync_io.capture_latch_resolution_ns;
+        slot->timestamp_resolution_ns =
+            sample_period_ns > s_sync_io.capture_latch_resolution_ns
+                ? sample_period_ns
+                : s_sync_io.capture_latch_resolution_ns;
         slot->timestamp_flags =
             sync_io_capture_latch_flags_for_word(word_start_ns,
-                                                 latch_time_ns,
-                                                 sample_period_ns);
+                                                 word_end_ns,
+                                                 sample_period_ns,
+                                                 &matched_window_start_ns);
+        slot->matched_window_start_ns = matched_window_start_ns;
         slot->dropped_before = s_sync_io.dropped_latched_capture_words;
         s_sync_io.capture_latch_write = next_write;
         s_sync_io.latched_capture_words++;
@@ -669,10 +977,26 @@ bool sync_io_capture_arm_timestamp_window(uint64_t window_start_ns,
                                           uint32_t observed_mask,
                                           uint32_t initial_sample_mask)
 {
+    return sync_io_capture_arm_periodic_timestamp_window(window_start_ns,
+                                                        window_width_ns,
+                                                        0u,
+                                                        sample_period_ns,
+                                                        observed_mask,
+                                                        initial_sample_mask);
+}
+
+bool sync_io_capture_arm_periodic_timestamp_window(uint64_t window_start_ns,
+                                                   uint32_t window_width_ns,
+                                                   uint32_t period_ns,
+                                                   uint32_t sample_period_ns,
+                                                   uint32_t observed_mask,
+                                                   uint32_t initial_sample_mask)
+{
     if (!s_sync_io.initialized ||
         window_width_ns == 0u ||
         sample_period_ns == 0u ||
         observed_mask == 0u ||
+        (period_ns != 0u && period_ns <= window_width_ns) ||
         (observed_mask & ~0x0Fu) != 0u ||
         (initial_sample_mask & ~0x0Fu) != 0u) {
         return false;
@@ -680,9 +1004,11 @@ bool sync_io_capture_arm_timestamp_window(uint64_t window_start_ns,
 
     osal_critical_enter();
     s_sync_io.capture_timestamp_window_armed = true;
+    s_sync_io.capture_timestamp_window_periodic = period_ns != 0u;
     s_sync_io.capture_timestamp_window_start_ns = window_start_ns;
     s_sync_io.capture_timestamp_window_end_ns =
         window_start_ns + (uint64_t)window_width_ns;
+    s_sync_io.capture_timestamp_window_period_ns = period_ns;
     s_sync_io.capture_timestamp_window_sample_period_ns = sample_period_ns;
     s_sync_io.capture_timestamp_window_observed_mask = observed_mask & 0x0Fu;
     s_sync_io.capture_timestamp_window_initial_sample_mask =
@@ -695,8 +1021,10 @@ void sync_io_capture_disarm_timestamp_window(void)
 {
     osal_critical_enter();
     s_sync_io.capture_timestamp_window_armed = false;
+    s_sync_io.capture_timestamp_window_periodic = false;
     s_sync_io.capture_timestamp_window_start_ns = 0u;
     s_sync_io.capture_timestamp_window_end_ns = 0u;
+    s_sync_io.capture_timestamp_window_period_ns = 0u;
     s_sync_io.capture_timestamp_window_sample_period_ns = 0u;
     s_sync_io.capture_timestamp_window_observed_mask = 0u;
     s_sync_io.capture_timestamp_window_initial_sample_mask = 0u;

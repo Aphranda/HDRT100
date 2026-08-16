@@ -441,6 +441,66 @@ scpi_result_t scpi_cmd_sync_vdc_observer_tdma(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest(scpi_t *context)
+{
+    vdc_dpll_manager_observation_self_test_config_t config = {0};
+
+    config.role = VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX;
+    config.output_index = 0u;
+    config.observed_mask = 1u;
+    config.initial_sample_mask = 0u;
+    config.sample_period_ns = 100u;
+    config.pulse_period_ns = 2000u;
+    config.pulse_high_ns = 1000u;
+    config.pulse_count = VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES;
+    config.frame_crc32 = 0u;
+    config.start_delay_ns = 1000000000u;
+
+    (void)SCPI_ParamUInt32(context, &config.role, FALSE);
+    (void)SCPI_ParamUInt32(context, &config.output_index, FALSE);
+    (void)SCPI_ParamUInt32(context, &config.observed_mask, FALSE);
+    (void)SCPI_ParamUInt32(context, &config.initial_sample_mask, FALSE);
+    (void)SCPI_ParamUInt32(context, &config.sample_period_ns, FALSE);
+    (void)SCPI_ParamUInt32(context, &config.pulse_period_ns, FALSE);
+    (void)SCPI_ParamUInt32(context, &config.pulse_high_ns, FALSE);
+    (void)SCPI_ParamUInt32(context, &config.pulse_count, FALSE);
+    (void)SCPI_ParamUInt32(context, &config.frame_crc32, FALSE);
+    (void)SCPI_ParamUInt32(context, &config.start_delay_ns, FALSE);
+
+    if (!vdc_dpll_manager_start_observation_self_test(&config)) {
+        scpi_port_push_exec_error(context, "VDC_OBSERVER_TDMA_SELFTEST");
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest_q(scpi_t *context)
+{
+    vdc_dpll_manager_observation_self_test_status_t status;
+    vdc_dpll_manager_get_observation_self_test_status(&status);
+
+    SCPI_ResultBool(context, status.active ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.role);
+    SCPI_ResultUInt32(context, status.output_index);
+    SCPI_ResultUInt32(context, status.observed_mask);
+    SCPI_ResultUInt32(context, status.initial_sample_mask);
+    SCPI_ResultUInt32(context, status.sample_period_ns);
+    SCPI_ResultUInt32(context, status.pulse_period_ns);
+    SCPI_ResultUInt32(context, status.pulse_high_ns);
+    SCPI_ResultUInt32(context, status.pulse_count);
+    SCPI_ResultUInt32(context, status.frame_crc32);
+    SCPI_ResultUInt32(context, status.schedule_crc32);
+    SCPI_ResultUInt32(context, status.last_error);
+    SCPI_ResultUInt32(context, status.started_ms);
+    SCPI_ResultUInt32(context, status.start_delay_ns);
+    SCPI_ResultUInt32(context,
+                      (uint32_t)(status.first_window_start_ns & 0xFFFFFFFFull));
+    SCPI_ResultUInt32(context, (uint32_t)(status.first_window_start_ns >> 32u));
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_observer(scpi_t *context)
 {
     vdc_dpll_manager_sync_io_observer_config_t config = {0};

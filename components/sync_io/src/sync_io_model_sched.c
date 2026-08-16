@@ -12,7 +12,7 @@
 #include "sync_io.pio.h"
 #include "sync_io_core_internal.h"
 
-#define SYNC_IO_MODEL_PULSE_MAX_ENTRIES 256u
+#define SYNC_IO_MODEL_PULSE_MAX_ENTRIES 4096u
 #define SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY 2u
 #define SYNC_IO_MODEL_PULSE_TICK_HZ 1000000u
 
@@ -63,6 +63,11 @@ static bool sync_io_model_output_index_valid(uint32_t output_index)
     return output_index < BOARD_DEBUG_MODEL_GPIO_PIN_COUNT;
 }
 
+static bool sync_io_main_output_index_valid(uint32_t output_index)
+{
+    return output_index < BOARD_SYNC_OUTPUT_PIN_COUNT;
+}
+
 static void sync_io_model_release_pin(void)
 {
     gpio_set_function(s_model_pulse.output_pin, GPIO_FUNC_SIO);
@@ -92,20 +97,20 @@ static void sync_io_model_update_completion(void)
     }
 }
 
-bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
-                                      const sync_io_model_pulse_entry_t *entries,
-                                      uint32_t entry_count,
-                                      bool rising_edge)
+static bool sync_io_pulse_schedule_arm_on_pin(uint32_t output_pin,
+                                              uint32_t trace_output_index,
+                                              const sync_io_model_pulse_entry_t *entries,
+                                              uint32_t entry_count,
+                                              bool rising_edge)
 {
     if (!sync_io_core_initialized() ||
-        !sync_io_model_output_index_valid(output_index) ||
         entries == NULL ||
         entry_count == 0u ||
         entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES) {
         sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            entry_count,
-                           output_index);
+                           trace_output_index);
         return false;
     }
 
@@ -141,7 +146,7 @@ bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
     s_model_pulse.offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE, program);
     s_model_pulse.sm = BOARD_SYNC_MODEL_SCHED_SM;
     s_model_pulse.dma_ch = SYNC_IO_MODEL_PULSE_DMA_CH;
-    s_model_pulse.output_pin = BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index;
+    s_model_pulse.output_pin = output_pin;
     s_model_pulse.active_high = rising_edge;
     s_model_pulse.total_pulses = entry_count;
     s_model_pulse.completed_pulses = 0u;
@@ -185,8 +190,51 @@ bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
     sync_io_core_trace(SYNC_IO_TRACE_MODEL_ARM,
                        SYNC_IO_TRACE_INFO,
                        entry_count,
-                       ((output_index & 0xFFu) << 8) | (rising_edge ? 1u : 0u));
+                       ((trace_output_index & 0xFFu) << 8) |
+                           (rising_edge ? 1u : 0u));
     return true;
+}
+
+bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
+                                      const sync_io_model_pulse_entry_t *entries,
+                                      uint32_t entry_count,
+                                      bool rising_edge)
+{
+    if (!sync_io_model_output_index_valid(output_index)) {
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
+                           SYNC_IO_TRACE_ERROR,
+                           entry_count,
+                           output_index);
+        return false;
+    }
+
+    return sync_io_pulse_schedule_arm_on_pin(
+        BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index,
+        output_index,
+        entries,
+        entry_count,
+        rising_edge);
+}
+
+bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
+                                       const sync_io_model_pulse_entry_t *entries,
+                                       uint32_t entry_count,
+                                       bool rising_edge)
+{
+    if (!sync_io_main_output_index_valid(output_index)) {
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
+                           SYNC_IO_TRACE_ERROR,
+                           entry_count,
+                           output_index);
+        return false;
+    }
+
+    return sync_io_pulse_schedule_arm_on_pin(
+        BOARD_SYNC_OUTPUT_BASE_PIN + output_index,
+        output_index,
+        entries,
+        entry_count,
+        rising_edge);
 }
 
 void sync_io_model_pulse_schedule_disarm(void)
