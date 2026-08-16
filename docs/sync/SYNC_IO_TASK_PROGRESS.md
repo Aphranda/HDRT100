@@ -8,6 +8,23 @@ Last updated: 2026-08-16
 
 本文档记录 SYNC_IO / Trigger 同步重构相关任务的闭环验证、风险和后续动作。
 
+### SYNC_IO-TASK-20260816-008 - TDMA window capture budget
+
+- 状态：代码、构建和 COM5 单板验证完成；COM6 物理恢复后待两板 HIL。
+- 目标：解决 10 MHz capture self-test 中 core1 无界消费 DMA ring，避免窗口外采样拖垮 realtime loop 和 USB/SCPI。
+- 完成：
+  - `sync_io` capture 使用 DMA channel 3 环形缓存，core1 每次最多处理 128 个 word。
+  - capture timestamp window 已 arm 时，依据硬件 tick timebase 和 DMA word sequence 跳过窗口外 backlog，只把 observation window 内 raw word 写入 latch ring。
+  - 窗口外跳过不计为 DMA overflow；真实 ring 溢出仍清除 timebase valid 并保留 drop evidence，不能伪造 `DPLL_ELIGIBLE`。
+  - VDC observer 单次批量从 8 提升到 32，覆盖一个 10 us / 100 ns observation window 的完整 word 集。
+- 验证：
+  - `cmake --build build-rtos-multicore-smoke` 通过，最终 build `20260816065050`，package CRC `0x65948FE3`。
+  - 17/17 host unit test scripts、VDC tests、SCPI dry-run、docs check 通过。
+  - COM5 已 OTA/boot/commit 到 `20260816065050`，`SYST:LOOP:STAT?` 持续增长，TX-only PIO/DMA self-test 成功。
+  - COM6 在旧版高负载 self-test 后 CDC 不响应；OTA 和 picotool 强制 BOOTSEL 均无法完成，需物理复位或重新插拔后再部署最终包。
+- 后续：
+  - COM6 恢复后使用 `tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py` 完成 X->Y、Y->X 双向验证；必须看到 accepted sample、gate pass、hardware tick、`DPLL_ELIGIBLE` 且无 `DIAGNOSTIC_ONLY`。
+
 ### SYNC_IO-TASK-20260816-007 - timer1 hardware tick diagnostic latch
 
 - 状态：完成代码、host/build 和 COM5/COM6 HIL。
