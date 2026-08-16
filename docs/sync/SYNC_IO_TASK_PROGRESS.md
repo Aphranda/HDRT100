@@ -4,9 +4,23 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/storage/LOG_SYSTEM_TODO.md`
-Last updated: 2026-08-15
+Last updated: 2026-08-16
 
 本文档记录 SYNC_IO / Trigger 同步重构相关任务的闭环验证、风险和后续动作。
+
+### SYNC_IO-TASK-20260816-002 - VDC raw capture observer 接线
+
+- 目标：把 `sync_io_read_capture_words()` 产出的 raw IO fact 接到 VDC compact observation path，同时保持 SYNC_IO 不解释 TDMA/DPLL 语义。
+- 完成：`vdc_dpll_manager` 增加默认关闭的 sync_io observer 配置和状态 API；启用后每次 VDC service 读取 bounded raw word batch，经 `VdcSyncIoAdapter` 转为 `VdcCompactObservationSample`，再提交 VDC dictionary/wrap/gate。
+- 完成：observer 状态记录 raw word、capture result、sample seq、event id、tick_l32、accepted/rejected/gate reject 计数；不自动启动 capture，不用 `board_uptime_ms()` 伪造硬件 timestamp。
+- 验证：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+- 验证：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+- 验证：`python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+- 验证：`git diff --check` 通过，仅有既有 CRLF 提示。
+- 验证：`cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260816024252`，package CRC `0x0C9F20BA`。
+- 风险：当前仍依赖显式配置的 `next_base_time_l32_ns`、`sample_period_ns`、event id 和 frame CRC；真实 PIO/DMA timestamp latch、SCPI 查询和 COM5/COM6 HIL 证据待后续补齐。
+- 后续：补板端维护查询和 HIL，把 dictionary CRC、edge index、timestamp source/resolution、profile CRC 和 VDC gate result 写入报告。
+- 涉及文件：`components/vdc_dpll_manager/inc/vdc_dpll_manager.h`，`components/vdc_dpll_manager/src/vdc_dpll_manager.c`，`docs/sync/SYNC_IO_TODO.md`。
 
 ### SYNC_IO-TASK-20260816-001 - 通用 IO 观测器归属纠偏
 

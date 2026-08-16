@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TODO.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TODO.md`
-Last updated: 2026-08-15
+Last updated: 2026-08-16
 
 本文档维护 `sync_io`、底层 realtime IO、PIO/DMA/IRQ mode driver、语义 IO 和板端验证的当前可执行待办。这里不记录普通流水账；完成闭环写入 `SYNC_IO_TASK_PROGRESS.md`。
 
@@ -89,7 +89,8 @@ Last updated: 2026-08-15
 - [ ] 定义 IoSlot 字段级 publish helper：level/count/runtime/error/quality 只由 IO owner 发布。
 - [ ] 通过 RefMemSlotContract 校验 IO fact writer、值域、timestamp、version 和 stale。
 - [ ] VDC 只消费 timestamp 样本或输出 fire time，不让 `sync_io` 计算 VDC offset/rate。
-- [ ] 将 `sync_io_read_capture_words()` 到 VDC `VdcSyncIoAdapter` 的任务接线固化，记录 raw word、edge index、event id、tick_l32、dictionary CRC 和 VDC gate result。
+- [x] 将 `sync_io_read_capture_words()` 到 VDC `VdcSyncIoAdapter` 的任务接线固化：`vdc_dpll_manager` 增加默认关闭的 raw capture observer，记录 raw word、event id、tick_l32、capture result 和 VDC gate result。
+- [ ] 增加 observer 的板端 HIL / SCPI 维护查询，记录 dictionary CRC、edge index、profile CRC、timestamp source/resolution 和 accepted/rejected 证据。
 - [ ] 将同一 raw observation primitive 用于转台输入/脉冲计数验证，形成独立于 VDC 的 AO/FB 解释路径。
 - [ ] late `FIRE_LOAD` 必须由 realtime owner 拒绝并发布 evidence。
 - [ ] IO quality 与 RefMem `DistributedConnectionQualityTable` 对齐：CRC/drop/late/timeout/stale 不重复造字段。

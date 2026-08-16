@@ -43,6 +43,37 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-017 - Manager-side Sync IO observer pump
+
+- 状态：完成 host/build 验证；默认关闭，真实 PIO/DMA timestamp latch 和 HIL 待后续实现
+- 日期：2026-08-16
+- 任务目标：
+  - 将 `sync_io_read_capture_words()` 到 VDC compact observation 的任务接线落到 manager 层。
+  - 保持 HAOFV 边界：SYNC_IO 只产 raw IO fact，VDC manager 负责适配和提交，VDC domain 负责 dictionary/wrap/gate/DPLL admission。
+- 完成内容：
+  - `vdc_dpll_manager` 增加 `vdc_dpll_manager_sync_io_observer_config_t` 和 status snapshot。
+  - observer 默认关闭；启用时读取 bounded raw word batch，调用 `vdc_sync_io_capture_word_to_compact_observation()`，再提交 `vdc_domain_submit_compact_observation()`。
+  - status 记录 raw/no-edge/ambiguous/bad-argument/submitted/accepted/rejected 计数，以及 last raw word、event id、tick_l32 和 gate reject code。
+  - observer 不自动启动 SYNC_IO capture，不使用 `board_uptime_ms()` 构造 DPLL timestamp；timestamp base、sample period、event id、frame CRC 必须由上游显式配置。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有既有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260816024252`，package CRC `0x0C9F20BA`。
+- 还需完成：
+  - 增加 SCPI/维护查询或 HIL-only 查询，输出 observer status、dictionary CRC、profile CRC、timestamp source/resolution 和 gate evidence。
+  - 将真实 PIO/DMA/core1 timestamp latch 接入 observer 配置来源，避免人工配置 base tick。
+  - COM5/COM6 验证 raw word -> compact observation -> VDC gate 的板端证据。
+- 关联文件：
+  - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `docs/sync/SYNC_IO_TODO.md`
+  - `docs/sync/SYNC_IO_TASK_PROGRESS.md`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+- 下一步：
+  - 优先补真实 timestamp latch 或维护查询；在该证据出现前，observer 不能被当作 100 ns DPLL lock 已闭环。
+
 ### VDC-TASK-20260816-016 - Sync IO capture adapter contract
 
 - 状态：完成 host/build 验证；`sync_io_read_capture_words()` 到 adapter 的任务接线和板端 HIL 待后续实现

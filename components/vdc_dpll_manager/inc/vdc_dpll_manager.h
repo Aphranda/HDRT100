@@ -7,6 +7,7 @@
 #include "vdc_domain.h"
 
 #define VDC_DPLL_MANAGER_PLAN_NOW_NS UINT64_MAX
+#define VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS 8u
 
 typedef struct {
     bool ready;
@@ -26,6 +27,43 @@ typedef struct {
     uint32_t update_seq;
 } vdc_dpll_manager_dpll_status_t;
 
+typedef struct {
+    bool enabled;
+    uint32_t max_words_per_service;
+    uint32_t rising_event_id;
+    uint32_t falling_event_id;
+    uint32_t observed_mask;
+    uint32_t initial_sample_mask;
+    uint32_t next_base_time_l32_ns;
+    uint32_t sample_period_ns;
+    uint64_t expected_window_start_ns;
+    uint32_t frame_crc32;
+    uint32_t max_backward_ticks;
+    uint32_t quality_flags;
+    bool sample0_lsb;
+} vdc_dpll_manager_sync_io_observer_config_t;
+
+typedef struct {
+    bool enabled;
+    uint32_t max_words_per_service;
+    uint32_t service_count;
+    uint32_t raw_word_count;
+    uint32_t no_edge_count;
+    uint32_t ambiguous_edge_count;
+    uint32_t bad_argument_count;
+    uint32_t submitted_count;
+    uint32_t accepted_count;
+    uint32_t rejected_count;
+    uint32_t last_capture_result;
+    uint32_t last_raw_word;
+    uint32_t last_sample_seq;
+    uint32_t last_event_id;
+    uint32_t last_tick_l32;
+    uint32_t last_gate_reject_code;
+    uint32_t previous_sample_mask;
+    uint32_t next_base_time_l32_ns;
+} vdc_dpll_manager_sync_io_observer_status_t;
+
 bool vdc_dpll_manager_init(void);
 void vdc_dpll_manager_set_vdc_ready(bool ready);
 void vdc_dpll_manager_set_dpll_ready(bool ready);
@@ -33,6 +71,10 @@ void vdc_dpll_manager_vdc_service(void);
 void vdc_dpll_manager_dpll_service(void);
 void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status);
 void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status);
+bool vdc_dpll_manager_configure_sync_io_observer(
+    const vdc_dpll_manager_sync_io_observer_config_t *config);
+void vdc_dpll_manager_get_sync_io_observer_status(
+    vdc_dpll_manager_sync_io_observer_status_t *status);
 bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot);
 bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
                                        uint64_t now_ns,
