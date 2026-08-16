@@ -77,6 +77,7 @@ typedef enum {
     VDC_DOMAIN_GATE_BAD_FRAME = 12u,
     VDC_DOMAIN_GATE_BAD_WINDOW_CLASS = 13u,
     VDC_DOMAIN_GATE_PAYLOAD_WINDOW_FORBIDDEN = 14u,
+    VDC_DOMAIN_GATE_SERVO_OUTLIER = 15u,
 } vdc_domain_gate_code_t;
 
 typedef struct {

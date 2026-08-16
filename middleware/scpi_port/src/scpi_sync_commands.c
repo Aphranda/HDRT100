@@ -356,6 +356,36 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_plan_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_tdma_status_q(scpi_t *context)
+{
+    tdma_service_snapshot_t snapshot;
+    if (!vdc_dpll_manager_get_tdma_snapshot(&snapshot)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.owner_core);
+    SCPI_ResultUInt32(context, snapshot.armed);
+    SCPI_ResultUInt32(context, snapshot.service_count);
+    SCPI_ResultUInt32(context, snapshot.intent_seq);
+    SCPI_ResultUInt32(context, snapshot.completed_seq);
+    SCPI_ResultUInt32(context, snapshot.intent_type);
+    SCPI_ResultUInt32(context, snapshot.frame_class);
+    SCPI_ResultUInt32(context, snapshot.payload_class);
+    SCPI_ResultUInt32(context, snapshot.ready_count);
+    SCPI_ResultUInt32(context, snapshot.timeout_count);
+    SCPI_ResultUInt32(context, snapshot.overrun_count);
+    SCPI_ResultUInt32(context, snapshot.reject_count);
+    SCPI_ResultUInt32(context, snapshot.last_result);
+    SCPI_ResultUInt32(context, snapshot.last_error);
+    SCPI_ResultUInt32(context, snapshot.timestamp_source);
+    SCPI_ResultUInt32(context, snapshot.timestamp_resolution_ns);
+    SCPI_ResultUInt32(context, snapshot.timestamp_flags);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context)
 {
     vdc_domain_snapshot_t snapshot;

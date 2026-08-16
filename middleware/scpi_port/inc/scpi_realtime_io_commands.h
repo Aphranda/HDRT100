@@ -31,6 +31,7 @@ scpi_result_t scpi_cmd_sample_rate_q(scpi_t *context);
 scpi_result_t scpi_cmd_sample_state(scpi_t *context);
 scpi_result_t scpi_cmd_sample_state_q(scpi_t *context);
 scpi_result_t scpi_cmd_sample_latch_q(scpi_t *context);
+scpi_result_t scpi_cmd_sample_debug_q(scpi_t *context);
 scpi_result_t scpi_cmd_clock_freq(scpi_t *context);
 scpi_result_t scpi_cmd_clock_freq_q(scpi_t *context);
 scpi_result_t scpi_cmd_clock_state(scpi_t *context);
@@ -66,6 +67,7 @@ scpi_result_t scpi_cmd_status_q(scpi_t *context);
     {.pattern = "REALtime:IO:SAMPle:STATe", .callback = scpi_cmd_sample_state}, \
     {.pattern = "REALtime:IO:SAMPle:STATe?", .callback = scpi_cmd_sample_state_q}, \
     {.pattern = "REALtime:IO:SAMPle:LATCh?", .callback = scpi_cmd_sample_latch_q}, \
+    {.pattern = "REALtime:IO:SAMPle:DBG?", .callback = scpi_cmd_sample_debug_q}, \
     {.pattern = "REALtime:IO:CLOCk:FREQuency", .callback = scpi_cmd_clock_freq}, \
     {.pattern = "REALtime:IO:CLOCk:FREQuency?", .callback = scpi_cmd_clock_freq_q}, \
     {.pattern = "REALtime:IO:CLOCk:STATe", .callback = scpi_cmd_clock_state}, \

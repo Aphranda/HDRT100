@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "tdma_service.h"
 #include "vdc_domain.h"
 
 #define VDC_DPLL_MANAGER_PLAN_NOW_NS UINT64_MAX
@@ -147,6 +148,7 @@ void vdc_dpll_manager_get_observation_self_test_status(
 void vdc_dpll_manager_get_sync_io_observer_status(
     vdc_dpll_manager_sync_io_observer_status_t *status);
 bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot);
+bool vdc_dpll_manager_get_tdma_snapshot(tdma_service_snapshot_t *snapshot);
 bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
                                        uint64_t now_ns,
                                        vdc_tdma_window_plan_t *plan,

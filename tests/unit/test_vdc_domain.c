@@ -9,6 +9,9 @@
 typedef struct {
     uint8_t rx_frame[TDMA_SERVICE_FRAME_MAX];
     size_t rx_frame_size;
+    uint32_t timestamp_source;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
     uint32_t tx_count;
     uint32_t rx_count;
 } fake_tdma_ops_context_t;
@@ -35,6 +38,9 @@ static bool fake_tdma_transmit(void *context,
     status->result = tdma_service_EXEC_TX_OK;
     status->error = 0u;
     status->frame_size = frame_size;
+    status->timestamp_source = fake->timestamp_source;
+    status->timestamp_resolution_ns = fake->timestamp_resolution_ns;
+    status->timestamp_flags = fake->timestamp_flags;
     return true;
 }
 
@@ -62,6 +68,9 @@ static bool fake_tdma_receive(void *context,
     status->result = tdma_service_EXEC_RX_OK;
     status->error = 0u;
     status->frame_size = fake->rx_frame_size;
+    status->timestamp_source = fake->timestamp_source;
+    status->timestamp_resolution_ns = fake->timestamp_resolution_ns;
+    status->timestamp_flags = fake->timestamp_flags;
     return true;
 }
 
@@ -1074,6 +1083,8 @@ static int test_tdma_window_plan_contract(void)
 static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
 {
     int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t domain_snapshot;
     vdc_tdma_schedule_profile_t schedule;
     vdc_tdma_window_plan_t plan;
     vdc_tdma_frame_envelope_t envelope;
@@ -1157,6 +1168,15 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
                          snapshot.payload_class,
                          TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE);
     failed += expect_u32("vdc tx count", fake.tx_count, 1u);
+    failed += expect_u32("default tdma timestamp source",
+                         snapshot.timestamp_source,
+                         tdma_service_TIMESTAMP_SOURCE_SOFTWARE_US);
+    failed += expect_u32("default tdma timestamp resolution",
+                         snapshot.timestamp_resolution_ns,
+                         1000u);
+    failed += expect_u32("default tdma timestamp flags",
+                         snapshot.timestamp_flags,
+                         tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
 
     const tdma_service_intent_config_t unregistered_refmem = {
         .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
@@ -1205,6 +1225,99 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
     failed += expect_u32("diagnostic tdma gate",
                          payload_status.gate.reject_code,
                          VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE);
+
+    failed += expect_bool("vdc domain init for tdma evidence",
+                          vdc_domain_init(&context),
+                          true);
+    vdc_domain_set_ready(&context, true);
+    fake.timestamp_source = tdma_service_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    fake.timestamp_resolution_ns = 50u;
+    fake.timestamp_flags = tdma_service_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+    for (uint32_t seq = 1u; seq <= 4u; seq++) {
+        const uint64_t window_start_ns =
+            (uint64_t)(seq - 1u) * schedule.period_ns +
+            schedule.observation_window_offset_ns;
+        evidence = make_hardware_sample(&schedule, seq, 0);
+        evidence.expected_window_start_ns = window_start_ns;
+        evidence.arm_time_ns = window_start_ns;
+        evidence.start_time_ns = window_start_ns;
+        evidence.observed_time_ns = window_start_ns;
+        evidence.done_time_ns = window_start_ns + 50u;
+        evidence.apply_time_ns = evidence.done_time_ns;
+        failed += expect_bool("build hardware vdc tdma frame",
+                              vdc_tdma_payload_build_frame(
+                                  &schedule,
+                                  &(vdc_tdma_window_plan_t){
+                                      .valid = 1u,
+                                      .window_class =
+                                          VDC_DOMAIN_WINDOW_VDC_OBSERVATION,
+                                      .schedule_epoch = schedule.schedule_epoch,
+                                      .slot_index = schedule.local_slot_id,
+                                      .source_slot_id = schedule.local_slot_id,
+                                      .reference_slot_id =
+                                          schedule.reference_slot_id,
+                                      .window_start_ns = window_start_ns,
+                                      .window_end_ns = window_start_ns +
+                                          schedule.observation_window_width_ns,
+                                      .guard_start_ns = window_start_ns,
+                                      .guard_end_ns = window_start_ns +
+                                          schedule.observation_window_width_ns,
+                                      .schedule_crc32 = schedule.schedule_crc32,
+                                  },
+                                  VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE,
+                                  seq,
+                                  &evidence,
+                                  frame,
+                                  sizeof(frame),
+                                  &frame_size,
+                                  &envelope,
+                                  &payload_status),
+                              true);
+        failed += expect_bool("submit hardware vdc payload",
+                              tdma_service_submit_tx(&service, &tx_config),
+                              true);
+        tdma_service_core1_service(&service);
+        (void)tdma_service_get_snapshot(&service, &snapshot);
+        snapshot.core1_arm_time_ns_lo = (uint32_t)(window_start_ns & 0xFFFFFFFFull);
+        snapshot.core1_arm_time_ns_hi = (uint32_t)(window_start_ns >> 32u);
+        snapshot.core1_start_time_ns_lo = (uint32_t)(window_start_ns & 0xFFFFFFFFull);
+        snapshot.core1_start_time_ns_hi = (uint32_t)(window_start_ns >> 32u);
+        snapshot.core1_done_time_ns_lo =
+            (uint32_t)((window_start_ns + 50u) & 0xFFFFFFFFull);
+        snapshot.core1_done_time_ns_hi =
+            (uint32_t)((window_start_ns + 50u) >> 32u);
+        failed += expect_u32("hardware tdma timestamp source",
+                             snapshot.timestamp_source,
+                             tdma_service_TIMESTAMP_SOURCE_HARDWARE_TICK);
+        failed += expect_u32("hardware tdma timestamp resolution",
+                             snapshot.timestamp_resolution_ns,
+                             50u);
+        failed += expect_u32("hardware tdma timestamp flags",
+                             snapshot.timestamp_flags,
+                             tdma_service_TIMESTAMP_FLAG_DPLL_ELIGIBLE);
+        failed += expect_bool("parse hardware vdc tdma frame",
+                              vdc_tdma_payload_parse_frame(
+                                  &schedule,
+                                  &snapshot,
+                                  frame,
+                                  frame_size,
+                                  true,
+                                  &parsed,
+                                  &payload_status),
+                              true);
+        failed += expect_bool("submit parsed tdma evidence",
+                              vdc_domain_submit_tdma_evidence(
+                                  &context,
+                                  &parsed.timestamp),
+                              true);
+    }
+    (void)vdc_domain_get_snapshot(&context, &domain_snapshot);
+    failed += expect_u32("tdma evidence locks dpll",
+                         domain_snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_LOCKED);
+    failed += expect_u32("tdma evidence accepted",
+                         domain_snapshot.dpll.accepted_sample_count,
+                         4u);
     return failed;
 }
 
@@ -1372,6 +1485,85 @@ static int test_dpll_updates_clock_rate_from_sample_period(void)
     return failed;
 }
 
+static int test_dpll_rejects_servo_outlier(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_tdma_timestamp_evidence_t first;
+    vdc_tdma_timestamp_evidence_t outlier;
+
+    failed += expect_bool("init outlier", vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    context.servo.outlier_threshold_ns = 100u;
+
+    first = make_hardware_sample(&context.schedule, 1u, 0);
+    outlier = make_hardware_sample(&context.schedule, 2u, 200);
+    failed += expect_bool("submit first outlier sample",
+                          vdc_domain_submit_tdma_evidence(&context, &first),
+                          true);
+    failed += expect_bool("submit outlier sample",
+                          vdc_domain_submit_tdma_evidence(&context, &outlier),
+                          false);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("outlier accepted count",
+                         snapshot.dpll.accepted_sample_count,
+                         1u);
+    failed += expect_u32("outlier rejected count",
+                         snapshot.dpll.rejected_sample_count,
+                         1u);
+    failed += expect_u32("outlier reject code",
+                         snapshot.dpll.last_reject_code,
+                         VDC_DOMAIN_GATE_SERVO_OUTLIER);
+    failed += expect_u32("outlier quality code",
+                         snapshot.quality.gate_reject_code,
+                         VDC_DOMAIN_GATE_SERVO_OUTLIER);
+    return failed;
+}
+
+static int test_dpll_slews_phase_and_pulls_rate_after_lock(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_tdma_timestamp_evidence_t evidence;
+
+    failed += expect_bool("init slew", vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+    context.servo.step_threshold_ns = 10u;
+
+    evidence = make_hardware_sample(&context.schedule, 1u, 0);
+    failed += expect_bool("submit zero phase",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    evidence = make_hardware_sample(&context.schedule, 2u, 50);
+    failed += expect_bool("submit slewed phase",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("slewed phase offset",
+                         snapshot.clock.phase_offset_ns,
+                         -10);
+
+    for (uint32_t i = 3u; i <= context.servo.lock_sample_count; i++) {
+        evidence = make_hardware_sample(&context.schedule, i, 10);
+        failed += expect_bool("submit lock phase",
+                              vdc_domain_submit_tdma_evidence(&context, &evidence),
+                              true);
+    }
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("slew lock state",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_LOCKED);
+    failed += expect_i32("ki rate pull",
+                         snapshot.clock.period_adjust_ppb,
+                         -625);
+    failed += expect_i32("budget applied rate",
+                         snapshot.error_budget.freq_offset_ppb,
+                         625);
+    return failed;
+}
+
 static int test_quality_age_updates_on_service(void)
 {
     int failed = 0;
@@ -1415,6 +1607,8 @@ int main(void)
     failed += test_sync_io_adapter_to_vdc_submit();
     failed += test_quality_age_updates_on_service();
     failed += test_dpll_updates_clock_rate_from_sample_period();
+    failed += test_dpll_rejects_servo_outlier();
+    failed += test_dpll_slews_phase_and_pulls_rate_after_lock();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);
         return 1;

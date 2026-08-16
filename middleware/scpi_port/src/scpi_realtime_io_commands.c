@@ -369,6 +369,25 @@ scpi_result_t scpi_cmd_sample_latch_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sample_debug_q(scpi_t *context)
+{
+    sync_io_capture_debug_t debug;
+    sync_io_get_capture_debug(&debug);
+    SCPI_ResultBool(context, debug.initialized ? TRUE : FALSE);
+    SCPI_ResultBool(context, debug.capture_running ? TRUE : FALSE);
+    SCPI_ResultBool(context, debug.pio_enabled ? TRUE : FALSE);
+    SCPI_ResultBool(context, debug.dma_busy ? TRUE : FALSE);
+    SCPI_ResultBool(context, debug.rx_fifo_empty ? TRUE : FALSE);
+    SCPI_ResultBool(context, debug.rx_fifo_full ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, debug.dma_transfer_count);
+    SCPI_ResultUInt32(context, debug.dma_write_addr_lsb);
+    SCPI_ResultUInt32(context, debug.dma_ring_addr_lsb);
+    SCPI_ResultUInt32(context, debug.dma_ring_align_mask);
+    SCPI_ResultUInt32(context, debug.capture_dma_read_seq);
+    SCPI_ResultUInt32(context, debug.produced_words);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_clock_freq(scpi_t *context)
 {
     if (scpi_port_reject_if_run_forbidden(

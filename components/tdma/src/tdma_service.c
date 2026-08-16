@@ -8,10 +8,10 @@
 
 #define tdma_service_OWNER_CORE1 1u
 #define tdma_service_ERROR_NO_OPS 100u
-#define tdma_service_TIMESTAMP_RESOLUTION_NS 1000u
-#define tdma_service_TIMESTAMP_SOURCE \
+#define tdma_service_DEFAULT_TIMESTAMP_RESOLUTION_NS 1000u
+#define tdma_service_DEFAULT_TIMESTAMP_SOURCE \
     tdma_service_TIMESTAMP_SOURCE_SOFTWARE_US
-#define tdma_service_TIMESTAMP_FLAGS \
+#define tdma_service_DEFAULT_TIMESTAMP_FLAGS \
     tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
 #define tdma_service_ERROR_WINDOW_MISSED 101u
 
@@ -84,6 +84,35 @@ static void tdma_service_begin_result_write(tdma_service_service_t *service)
 static void tdma_service_end_result_write(tdma_service_service_t *service)
 {
     tdma_service_store_guard(&service->result_guard);
+}
+
+static void tdma_service_set_default_timestamp(tdma_service_service_t *service)
+{
+    if (service == NULL) {
+        return;
+    }
+    service->timestamp_source = (uint32_t)tdma_service_DEFAULT_TIMESTAMP_SOURCE;
+    service->timestamp_resolution_ns =
+        tdma_service_DEFAULT_TIMESTAMP_RESOLUTION_NS;
+    service->timestamp_flags = tdma_service_DEFAULT_TIMESTAMP_FLAGS;
+}
+
+static void tdma_service_publish_exec_timestamp(
+    tdma_service_service_t *service,
+    const tdma_service_exec_status_t *status)
+{
+    if (service == NULL) {
+        return;
+    }
+    if (status != NULL &&
+        status->timestamp_source != tdma_service_TIMESTAMP_SOURCE_NONE &&
+        status->timestamp_resolution_ns != 0u) {
+        service->timestamp_source = status->timestamp_source;
+        service->timestamp_resolution_ns = status->timestamp_resolution_ns;
+        service->timestamp_flags = status->timestamp_flags;
+        return;
+    }
+    tdma_service_set_default_timestamp(service);
 }
 
 static bool tdma_service_has_pending(const tdma_service_service_t *service)
@@ -192,6 +221,7 @@ bool tdma_service_init(tdma_service_service_t *service)
     service->state = tdma_service_STATE_IDLE;
     service->owner_core = tdma_service_OWNER_CORE1;
     service->last_result = tdma_service_RESULT_NONE;
+    tdma_service_set_default_timestamp(service);
     return true;
 }
 
@@ -439,6 +469,7 @@ void tdma_service_core1_service(tdma_service_service_t *service)
     service->armed = 0u;
     service->last_error = exec_status.error;
     service->result_frame_size = (uint32_t)exec_status.frame_size;
+    tdma_service_publish_exec_timestamp(service, &exec_status);
     service->core1_done_time_ns = core1_done_time_ns;
     service->core1_elapsed_ns =
         tdma_service_elapsed_ns(core1_start_time_ns, core1_done_time_ns);
@@ -535,11 +566,9 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
         snapshot->overrun_count = service->overrun_count;
         snapshot->last_result = service->last_result;
         snapshot->last_error = service->last_error;
-        snapshot->timestamp_source =
-            (uint32_t)tdma_service_TIMESTAMP_SOURCE;
-        snapshot->timestamp_resolution_ns =
-            tdma_service_TIMESTAMP_RESOLUTION_NS;
-        snapshot->timestamp_flags = tdma_service_TIMESTAMP_FLAGS;
+        snapshot->timestamp_source = service->timestamp_source;
+        snapshot->timestamp_resolution_ns = service->timestamp_resolution_ns;
+        snapshot->timestamp_flags = service->timestamp_flags;
         snapshot->scheduled_window_miss_count = service->scheduled_window_miss_count;
         snapshot->scheduled_window_wait_ns = service->scheduled_window_wait_ns;
         snapshot->scheduled_window_late_ns = service->scheduled_window_late_ns;

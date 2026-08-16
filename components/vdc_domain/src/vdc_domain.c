@@ -183,6 +183,37 @@ static int32_t vdc_domain_clamp_ppb(int64_t value, uint32_t limit_ppb)
     return vdc_domain_clamp_i64_to_i32(value);
 }
 
+static int32_t vdc_domain_scale_q16_i32(int32_t value, int32_t gain_q16)
+{
+    const int64_t scaled =
+        ((int64_t)value * (int64_t)gain_q16) / 65536ll;
+    return vdc_domain_clamp_i64_to_i32(scaled);
+}
+
+static int32_t vdc_domain_negate_scaled_q16_i32(int32_t value, int32_t gain_q16)
+{
+    const int64_t scaled =
+        -(((int64_t)value * (int64_t)gain_q16) / 65536ll);
+    return vdc_domain_clamp_i64_to_i32(scaled);
+}
+
+static int32_t vdc_domain_slew_i32(int32_t current,
+                                   int32_t target,
+                                   uint32_t max_step)
+{
+    const int64_t delta = (int64_t)target - (int64_t)current;
+    if (max_step == 0u || delta == 0ll) {
+        return target;
+    }
+    if (delta > (int64_t)max_step) {
+        return current + (int32_t)max_step;
+    }
+    if (delta < -(int64_t)max_step) {
+        return current - (int32_t)max_step;
+    }
+    return target;
+}
+
 static uint64_t vdc_domain_evidence_time_ns(
     const vdc_tdma_timestamp_evidence_t *evidence)
 {
@@ -353,6 +384,7 @@ static void vdc_domain_update_clock_from_evidence(
     }
 
     int32_t frequency_error_ppb = context->dpll.last_frequency_error_ppb;
+    int32_t phase_rate_pull_ppb = 0;
     if (context->dpll.accepted_sample_count > 1u &&
         evidence->expected_window_start_ns >
             context->dpll.last_expected_window_start_ns &&
@@ -372,6 +404,35 @@ static void vdc_domain_update_clock_from_evidence(
                                  context->servo.sanity_freq_limit_ppb);
     }
 
+    if (context->servo.ki_q16 != 0 &&
+        context->servo.update_period_1e3ns != 0u &&
+        context->dpll.accepted_sample_count >= context->servo.lock_sample_count) {
+        const int64_t phase_ppb =
+            ((int64_t)evidence->phase_error_ns * 1000000ll) /
+            (int64_t)context->servo.update_period_1e3ns;
+        phase_rate_pull_ppb = vdc_domain_scale_q16_i32(
+            vdc_domain_clamp_ppb(phase_ppb,
+                                 context->servo.sanity_freq_limit_ppb),
+            context->servo.ki_q16);
+    }
+
+    const int32_t phase_target_ns =
+        vdc_domain_negate_scaled_q16_i32(evidence->phase_error_ns,
+                                         context->servo.kp_q16);
+    const bool allow_first_step =
+        context->dpll.accepted_sample_count <= 1u &&
+        vdc_domain_abs_i32(evidence->phase_error_ns) <=
+            context->servo.first_step_threshold_ns;
+    const int32_t phase_offset_ns = allow_first_step
+        ? phase_target_ns
+        : vdc_domain_slew_i32(context->clock.phase_offset_ns,
+                              phase_target_ns,
+                              context->servo.step_threshold_ns);
+    const int32_t period_adjust_ppb =
+        -vdc_domain_clamp_ppb((int64_t)frequency_error_ppb +
+                                  (int64_t)phase_rate_pull_ppb,
+                              context->servo.sanity_freq_limit_ppb);
+
     context->dpll.last_frequency_error_ppb = frequency_error_ppb;
     context->dpll.last_expected_window_start_ns =
         evidence->expected_window_start_ns;
@@ -383,8 +444,8 @@ static void vdc_domain_update_clock_from_evidence(
     context->clock.base_local_tick64 = evidence->observed_time_ns;
     context->clock.base_vdc_time64_ns = evidence->observed_time_ns;
     context->clock.nominal_period_ns = context->schedule.period_ns;
-    context->clock.phase_offset_ns = -evidence->phase_error_ns;
-    context->clock.period_adjust_ppb = -frequency_error_ppb;
+    context->clock.phase_offset_ns = phase_offset_ns;
+    context->clock.period_adjust_ppb = period_adjust_ppb;
     context->clock.tdma_schedule_crc32 = context->schedule.schedule_crc32;
     context->clock.servo_profile_crc32 = context->servo.servo_profile_crc32;
 
@@ -394,8 +455,9 @@ static void vdc_domain_update_clock_from_evidence(
     context->dco.dco_update_seq++;
     context->dpll.update_seq++;
 
-    context->error_budget.freq_offset_ppb = frequency_error_ppb;
-    context->error_budget.freq_skew_ppb = vdc_domain_abs_i32(frequency_error_ppb);
+    context->error_budget.freq_offset_ppb = -period_adjust_ppb;
+    context->error_budget.freq_skew_ppb =
+        vdc_domain_abs_i32(-period_adjust_ppb);
 }
 
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
@@ -1226,6 +1288,24 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
     }
 
     const uint32_t abs_phase = vdc_domain_abs_i32(evidence->phase_error_ns);
+    if (context->dpll.accepted_sample_count != 0u &&
+        context->servo.outlier_threshold_ns != 0u &&
+        abs_phase > context->servo.outlier_threshold_ns) {
+        vdc_domain_gate_fail(&gate,
+                             VDC_DOMAIN_GATE_SERVO_OUTLIER,
+                             evidence->source_slot_id,
+                             evidence->sample_seq);
+        context->gate = gate;
+        context->dpll.rejected_sample_count++;
+        context->dpll.last_reject_code = gate.reject_code;
+        context->dpll.update_seq++;
+        if (context->ready != 0u) {
+            context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
+        }
+        vdc_domain_record_rejected_sample(context, evidence, &gate);
+        return false;
+    }
+
     context->gate = gate;
     context->dpll.accepted_sample_count++;
     context->dpll.last_sample_seq = evidence->sample_seq;

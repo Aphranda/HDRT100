@@ -97,6 +97,9 @@ typedef struct {
     tdma_service_exec_result_t result;
     uint32_t error;
     size_t frame_size;
+    uint32_t timestamp_source;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
 } tdma_service_exec_status_t;
 
 typedef struct {
@@ -237,6 +240,9 @@ typedef struct {
     volatile uint32_t last_result;
     volatile uint32_t last_error;
     volatile uint32_t result_frame_size;
+    volatile uint32_t timestamp_source;
+    volatile uint32_t timestamp_resolution_ns;
+    volatile uint32_t timestamp_flags;
     volatile uint32_t timing_intent_seq;
     volatile uint32_t scheduled_window_miss_count;
     volatile uint32_t scheduled_window_wait_ns;

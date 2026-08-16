@@ -25,6 +25,21 @@ typedef struct {
 } sync_io_status_t;
 
 typedef struct {
+    bool initialized;
+    bool capture_running;
+    bool pio_enabled;
+    bool dma_busy;
+    bool rx_fifo_empty;
+    bool rx_fifo_full;
+    uint32_t dma_transfer_count;
+    uint32_t dma_write_addr_lsb;
+    uint32_t dma_ring_addr_lsb;
+    uint32_t dma_ring_align_mask;
+    uint32_t capture_dma_read_seq;
+    uint32_t produced_words;
+} sync_io_capture_debug_t;
+
+typedef struct {
     uint32_t raw_word;
     uint32_t sample_seq;
     uint32_t base_time_l32_ns;
@@ -156,6 +171,7 @@ void sync_io_biss_tap_disarm(void);
 bool sync_io_biss_tap_is_running(void);
 bool sync_io_biss_tap_read_frame_word(uint32_t *word);
 void sync_io_get_status(sync_io_status_t *status);
+void sync_io_get_capture_debug(sync_io_capture_debug_t *debug);
 
 /* ── SEQ_STEP 编码序列步进 ── */
 

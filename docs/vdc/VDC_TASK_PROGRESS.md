@@ -43,6 +43,34 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-030 - DPLL servo minimum loop
+
+- 状态：完成代码、host/build 验证；实板 DPLL lock 仍待 GPIO4-7 overlay / 真实 edge latch 闭环。
+- 日期：2026-08-16
+- 任务目标：
+  - 将 VDC DPLL 从 accepted sample 直接写 offset/rate 的首版推进为可门禁、可限幅、可测试的最小 servo。
+  - 保持 HAOFV 边界：`SyncDpllFB` 语义仍在 VDC owner 内部执行，SCPI/TDMA/SYNC_IO 只提供配置、payload、timestamp fact 或 snapshot，不直接写 lock/offset/rate。
+- 完成内容：
+  - 新增 `VDC_DOMAIN_GATE_SERVO_OUTLIER`，accepted path 在进入 DPLL 统计前按 `outlier_threshold_ns` 拒绝异常 phase sample，并把拒绝码写入 quality/evidence。
+  - DPLL phase correction 改为使用 `kp_q16` 计算目标 offset，并按 `step_threshold_ns` slew；首个样本在 `first_step_threshold_ns` 内允许 coarse step。
+  - DPLL rate correction 保留 sample period frequency estimator；达到 `lock_sample_count` 后，使用 `ki_q16` 将持续 phase error 转为 rate pull，统一受 `sanity_freq_limit_ppb` 限幅。
+  - `VdcClockModel` 和 `VdcDcoControl` 继续作为 DPLL 输出快照，`VdcErrorBudget.freq_offset_ppb/freq_skew_ppb` 记录实际应用的 rate correction。
+  - 单元测试新增 servo outlier、phase slew 和锁定后 rate pull 覆盖，同时保留公共 TDMA hardware timestamp evidence 进入 DPLL lock 的 host 仿真路径。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816112835`，package CRC `0x90764B0A`。
+- 还需完成：
+  - 真实 COM5/COM6 板端 DPLL lock 仍不能只靠 host 仿真确认；需要先把 VDC self-test 观测对象从 16-24 通讯环路纠偏到 GPIO4-7 overlay，或完成真正 TDMA edge latch 后再做硬件闭环。
+  - core1 读取稳定 `VdcDcoControl` 并执行 phase pull / FIRE_LOAD 的路径仍未接入。
+  - HOLDOVER / RELOCK / servo reset policy 仍未实现。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 先完成 VDC HIL 自测的资源边界纠偏：16-24 只作为 TDMA 基础通讯环路，GPIO4-7 承载模型/观测 overlay；随后再验证 accepted hardware sample 是否能在两板上驱动 DPLL lock。
+
 ### VDC-TASK-20260816-029 - VDC payload mounted on common TDMA
 
 - 状态：完成代码、host/build 验证；COM5/COM6 已完成 RefMem AUTO 回归。

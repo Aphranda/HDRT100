@@ -20,6 +20,7 @@ scpi_result_t scpi_sync_coef_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_tdma_plan_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_tdma_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_tdma(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_observer_tdma_selftest(scpi_t *context);
@@ -55,6 +56,7 @@ scpi_result_t scpi_cmd_sync_vdc_observer_q(scpi_t *context);
     {.pattern = "SYSTem:SYNC:VDC:STATus?", .callback = scpi_cmd_sync_vdc_status_q}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:STATus?", .callback = scpi_cmd_sync_vdc_dpll_status_q}, \
     {.pattern = "SYSTem:SYNC:VDC:TDMA:PLAN?", .callback = scpi_cmd_sync_vdc_tdma_plan_q}, \
+    {.pattern = "SYSTem:SYNC:VDC:TDMA:STATus?", .callback = scpi_cmd_sync_vdc_tdma_status_q}, \
     {.pattern = "SYSTem:SYNC:VDC:LOCK:READiness?", .callback = scpi_cmd_sync_vdc_lock_readiness_q}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?", .callback = scpi_cmd_sync_vdc_observer_tdma_selftest_q}, \
     {.pattern = "SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest", .callback = scpi_cmd_sync_vdc_observer_tdma_selftest}, \

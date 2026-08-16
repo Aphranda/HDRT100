@@ -167,7 +167,7 @@ TDMA 最小实例约束：
 ## P3 - DPLL / Clock Model
 
 - [x] 实现 `local_tick -> vdc_time64_ns` 映射函数。
-- [ ] 实现 SYNC DPLL offset/rate 更新；首版已由 `vdc_domain_submit_tdma_evidence()` 在 accepted hardware sample 后更新 `VdcClockModel` / `VdcDcoControl` 的 phase offset 和 period adjust，并记录 frequency error / skew，后续仍需接 PI/linreg servo、outlier gate、reset policy 和真实硬件 timestamp latch。
+- [x] 实现 SYNC DPLL offset/rate 更新首版：`vdc_domain_submit_tdma_evidence()` 在 accepted hardware sample 后通过 `kp_q16` 生成 phase correction、按 `step_threshold_ns` slew、按 sample period 估计 frequency error，并在达到 lock sample 后用 `ki_q16` 对持续 phase error 产生 rate pull；结果发布到 `VdcClockModel` / `VdcDcoControl`，并记录 frequency error / skew。
 - [x] 实现 TDMA observation window 输入门禁：只有来自 active schedule、正确 reference slot、正确 schedule CRC 和同步窗口内的 timestamp sample 才能进入 DPLL。
 - [ ] 在 COM5/COM6 已验证 RefMem data TDMA 环路基础上，增加两板帧级 timestamp bring-up：每个 `REFMEM_DELTA/ACK/FENCE/QUALITY/IDLE_BEACON` 帧都产生 TDMA/VDC timestamp evidence；高优先级 `VDC_OBSERVATION_WINDOW` 形成正式 `VdcDpllSample`，再反向或双向测量 delay/evidence。当前已具备 PIO raw capture word -> core1 latch ring -> manager observer -> compact observation -> dictionary -> wrap tracker -> evidence gate 的 VDC 入口，并可通过 `REALtime:IO:SAMPle:LATCh?` 查询 latch 状态、通过 `SYSTem:SYNC:VDC:OBServer` 安全关闭/显式配置 observer、通过 `SYSTem:SYNC:VDC:OBServer?` 读取 observer 状态、配置 CRC、dictionary CRC、edge index 和 dictionary 展开证据；observer 默认关闭，latch 时间基已升级为 `timer1/CLK_SYS` 的 `HARDWARE_TICK / <=100 ns / DIAGNOSTIC_ONLY`，默认 bring-up dictionary 和 open-anchor wrap 已接入，COM5/COM6 已验证 forced edge 会 `submitted=1,accepted=0,rejected=1,gate=TIMESTAMP_NOT_ELIGIBLE`；真实 PIO edge latch 和配置来源尚未接入。
 - [x] 增加 RefMem data frame 到 VDC TDMA frame envelope 的桥接基础件：`DELTA/ACK_NACK/FENCE/QUALITY` 可以映射到 `REFMEM_DATA_WINDOW` 并带诊断 timestamp evidence；该桥接不得计算 offset/rate，也不得把诊断 timestamp 标成 DPLL eligible。
@@ -176,11 +176,11 @@ TDMA 最小实例约束：
 - [x] 将 RefMem TDMA TX/RX 从“收到 intent 后立即执行”升级为按 `VdcTdmaScheduleProfile` 的 `REFMEM_DATA_WINDOW` 执行：core1/PIO 必须等待窗口、记录 late/jitter，并在窗口外明确返回 gate evidence；首版已落地 `vdc_domain_plan_tdma_window()` 和 `SYSTem:SYNC:VDC:TDMA:PLAN?` 只读计划查询，`refmem_realtime_tdma` intent 已携带 VDC data window plan，core1 service 会在 guard 前等待、错过 payload window 时返回 `WINDOW_MISSED`。后续 HIL 需要确认 COM5/COM6 真实 25 MHz PIO 环路中的窗口 wait/late evidence。
 - [ ] 增加硬实时 timestamp latch 路径：PIO/DMA/IRQ/core1 采集本地 tick，转换或映射为 ns 字段，并声明实际分辨率；DPLL 正式样本要求 `timestamp_resolution_ns <= 100`。VDC 侧已增加 `VdcSyncIoAdapter` 和 `VdcCompactObservationSample` contract，SYNC_IO 已完成 core1 latch ring、周期性 timestamp window gate、主输出 PIO pulse train self-test 和 `REALtime:IO:SAMPle:LATCh?`；当前 self-test 仍需 COM5/COM6 HIL 验证，后续必须把 core1 drain FIFO 时间戳升级为真正 edge latch，再作为长期 DPLL lock evidence。
 - [ ] 实现 DCO snapshot 生成：DPLL 输出通过 `VdcDcoControl` 提交给 core1，core1 只读稳定 snapshot 并执行 slew/phase pull；当前 VDC owner 已在 accepted sample 后派生 DCO snapshot，core1 稳定读取和 slew/phase pull 尚未接入。
-- [ ] 实现 outlier gate、jitter window、phase error 和 frequency error 统计；首版已落地 VDC-owned `VdcQualityTable` / `VdcErrorBudget` 快照，能记录 accepted/rejected sample、offset RMS/max、jitter、timestamp freshness、resolution 和 gate reject，frequency error / outlier policy 后续接真实 servo。
+- [x] 实现 outlier gate、jitter window、phase error 和 frequency error 统计首版：DPLL accepted path 更新 RMS/max/jitter/frequency，servo outlier 会以 `VDC_DOMAIN_GATE_SERVO_OUTLIER` 拒绝样本并写入 quality/evidence。
 - [ ] 实现 servo reset 策略，区分 step reset、profile reset、calibration reset 和 fault reset。
 - [ ] 实现 reference node 选择和 reference loss/failover 记录；首版可固定 A0。
 - [ ] 实现 error budget 累积，HOLDOVER 中按 drift bound 增长 dispersion。
-- [ ] 实现 `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 分阶段判据。
+- [x] 实现 `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 分阶段判据首版；状态链由连续 accepted sample、offset lock threshold 和 `lock_sample_count` 驱动，后续还需接 reference loss、quality aging 和 reset policy。
 - [ ] 实现 `LOCKED -> HOLDOVER` 判据。
 - [ ] 实现 `HOLDOVER -> RELOCKING -> LOCKED/FAULT` 判据。
 - [ ] 增加虚拟环路滤波器调试接口，但默认不要求上位机调节。

@@ -31,6 +31,8 @@
 #define SYNC_IO_CAPTURE_LATCH_RING_SIZE 32u
 #define SYNC_IO_CAPTURE_DMA_RING_WORDS 2048u
 #define SYNC_IO_CAPTURE_DMA_RING_BITS 13u
+#define SYNC_IO_CAPTURE_DMA_RING_BYTES \
+    (SYNC_IO_CAPTURE_DMA_RING_WORDS * sizeof(uint32_t))
 #define SYNC_IO_CAPTURE_LATCH_SERVICE_MAX_WORDS 32u
 #define SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK 2u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
@@ -70,12 +72,13 @@ typedef struct {
     uint32_t capture_timestamp_window_initial_sample_mask;
     uint32_t debug_model_output_enable_mask;
     uint32_t debug_model_output_value_mask;
-    uint32_t capture_dma_ring[SYNC_IO_CAPTURE_DMA_RING_WORDS];
     sync_io_aux_mode_t aux_modes[SYNC_IO_AUX_COUNT];
     sync_io_capture_latched_word_t capture_latch_ring[SYNC_IO_CAPTURE_LATCH_RING_SIZE];
 } sync_io_context_t;
 
 static sync_io_context_t s_sync_io;
+static uint32_t s_sync_io_capture_dma_ring[SYNC_IO_CAPTURE_DMA_RING_WORDS]
+    __attribute__((aligned(SYNC_IO_CAPTURE_DMA_RING_BYTES)));
 
 void sync_io_core_trace(sync_io_trace_event_t event_id,
                         uint8_t severity,
@@ -245,7 +248,7 @@ static bool sync_io_capture_dma_configure(void)
     dma_channel_configure(
         SYNC_IO_CAPTURE_DMA_CH,
         &dma_cfg,
-        s_sync_io.capture_dma_ring,
+        s_sync_io_capture_dma_ring,
         &BOARD_SYNC_PIO_FAST->rxf[BOARD_SYNC_CAPTURE_SM],
         UINT32_MAX,
         false);
@@ -842,7 +845,7 @@ static bool sync_io_capture_dma_pop(uint32_t *raw_word,
 
     *capture_word_seq = read_seq;
     *raw_word =
-        s_sync_io.capture_dma_ring[read_seq & (SYNC_IO_CAPTURE_DMA_RING_WORDS - 1u)];
+        s_sync_io_capture_dma_ring[read_seq & (SYNC_IO_CAPTURE_DMA_RING_WORDS - 1u)];
     s_sync_io.capture_dma_read_seq = read_seq + 1u;
     osal_critical_exit();
 
@@ -1441,6 +1444,34 @@ void sync_io_get_status(sync_io_status_t *status)
     status->capture_latch_source = SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK;
     status->capture_latch_resolution_ns = s_sync_io.capture_latch_resolution_ns;
     status->capture_latch_flags = SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+}
+
+void sync_io_get_capture_debug(sync_io_capture_debug_t *debug)
+{
+    if (debug == NULL) {
+        return;
+    }
+
+    debug->initialized = s_sync_io.initialized;
+    debug->capture_running = s_sync_io.capture_running;
+    debug->pio_enabled =
+        sync_io_core_sm_is_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM);
+    debug->dma_busy = dma_channel_is_busy(SYNC_IO_CAPTURE_DMA_CH);
+    debug->rx_fifo_empty =
+        pio_sm_is_rx_fifo_empty(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM);
+    debug->rx_fifo_full =
+        pio_sm_is_rx_fifo_full(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM);
+    debug->dma_transfer_count =
+        dma_hw->ch[SYNC_IO_CAPTURE_DMA_CH].transfer_count;
+    debug->dma_write_addr_lsb =
+        (uint32_t)((uintptr_t)dma_hw->ch[SYNC_IO_CAPTURE_DMA_CH].write_addr &
+                   0xFFFFFFFFu);
+    debug->dma_ring_addr_lsb =
+        (uint32_t)((uintptr_t)s_sync_io_capture_dma_ring & 0xFFFFFFFFu);
+    debug->dma_ring_align_mask =
+        debug->dma_ring_addr_lsb & (SYNC_IO_CAPTURE_DMA_RING_BYTES - 1u);
+    debug->capture_dma_read_seq = s_sync_io.capture_dma_read_seq;
+    debug->produced_words = sync_io_capture_dma_produced_words();
 }
 
 void sync_io_set_expected_ready_mask(uint32_t mask)

@@ -5,8 +5,10 @@
 #include "board.h"
 #include "osal.h"
 #include "sync_io.h"
+#include "tdma_service.h"
 #include "vdc_domain.h"
 #include "vdc_sync_io_adapter.h"
+#include "vdc_tdma_payload.h"
 
 #define VDC_DPLL_MANAGER_SELF_TEST_CLEANUP_MARGIN_MS 250u
 
@@ -24,6 +26,8 @@ static vdc_dpll_manager_observation_self_test_status_t s_observation_self_test;
 static sync_io_model_pulse_entry_t
     s_observation_self_test_entries[VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES];
 static vdc_domain_context_t s_vdc_domain;
+static tdma_service_service_t s_vdc_tdma_service;
+static bool s_vdc_tdma_registered;
 static bool s_vdc_ready;
 static bool s_dpll_ready;
 
@@ -334,9 +338,15 @@ bool vdc_dpll_manager_init(void)
            sizeof(s_published_sync_io_observer_status));
     memset(&s_published_snapshot, 0, sizeof(s_published_snapshot));
     memset(&s_observation_self_test, 0, sizeof(s_observation_self_test));
+    memset(&s_vdc_tdma_service, 0, sizeof(s_vdc_tdma_service));
     if (!vdc_domain_init(&s_vdc_domain)) {
         return false;
     }
+    if (!tdma_service_init(&s_vdc_tdma_service) ||
+        !vdc_tdma_payload_register(&s_vdc_tdma_service)) {
+        return false;
+    }
+    s_vdc_tdma_registered = true;
     s_vdc_status.last_service_ms = now_ms;
     s_dpll_status.last_service_ms = now_ms;
     s_published_vdc_status = s_vdc_status;
@@ -738,6 +748,20 @@ bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot)
         *snapshot = s_published_snapshot;
         result = true;
     }
+    osal_critical_exit();
+    return result;
+}
+
+bool vdc_dpll_manager_get_tdma_snapshot(tdma_service_snapshot_t *snapshot)
+{
+    bool result = false;
+    if (snapshot == NULL) {
+        return false;
+    }
+
+    osal_critical_enter();
+    result = s_vdc_tdma_registered &&
+             tdma_service_get_snapshot(&s_vdc_tdma_service, snapshot);
     osal_critical_exit();
     return result;
 }
