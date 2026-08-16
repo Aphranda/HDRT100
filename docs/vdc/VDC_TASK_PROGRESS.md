@@ -43,6 +43,34 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260817-008 - VDC 自动运行长监控
+
+- 状态：完成工具落盘和 COM5/COM6 180 s 双向采样；监控结果显示当前 bring-up 链路可持续产生 accepted 样本，但锁相稳定性未闭环。
+- 日期：2026-08-17
+- 任务目标：
+  - 将 VDC 设置为自动运行采样，长时间观察 COM5/COM6 两板锁相稳定性。
+  - 保持 HAOFV 边界：维护侧只 arm observer/self-test 并读取 `VdcVector`/DCO/quality 镜像，不直接写 offset、rate、lock 或 accepted counter。
+- 完成内容：
+  - 新增 `tools/vdc_long_monitor/vdc_long_monitor.py`。
+  - 工具支持 COM5/COM6 双向交替运行；每个窗口自动执行 RX/TX `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest`，周期采集 `READ:SYNC:QUALity?`、`SYSTem:SYNC:VDC:LOCK:READiness?`、`SYSTem:SYNC:VDC:OBServer?`、`SYSTem:SYNC:VDC:DCO?`、`SYSTem:SYNC:VDC:PATH:DELay?`、`REALtime:IO:MODel:PULSe:SCHEDule?` 和 `REALtime:IO:SAMPle:WINDow?`。
+  - 输出 `samples.csv`、`events.jsonl` 和 `summary.json`，用于复盘 accepted/rejected、gate、timestamp source/resolution/flags、offset/rate、DCO phase/rate 和 path delay 镜像。
+- 验证结果：
+  - `python -m py_compile tools\vdc_long_monitor\vdc_long_monitor.py` 通过。
+  - 30 s 双向冒烟通过：COM5->COM6 `accepted+=97`，COM6->COM5 `accepted+=92`，两向均 `HARDWARE_TICK / 100 ns / DPLL_ELIGIBLE / gate=PASS`。
+  - 180 s 双向交替监控：`build-rtos-multicore-smoke\vdc_long_monitor_20260817_022915`，请求 180 s、实际 189.2 s、11 个窗口、accepted delta 总计 1496、7 个窗口最终 `gate=PASS`、4 个窗口最终 `VDC_DOMAIN_GATE_WINDOW_BOUND`。
+  - 采样点统计：67 行采样中 55 行 `timestamp_source=HARDWARE_TICK` 且 `resolution_ns=100`，12 行为窗口外或停机后的无效镜像；`observer_gate` 为 `PASS` 的 55 行、`WINDOW_BOUND` 的 12 行。
+  - 锁相质量统计：`lock_quality_tier` 中 `FINE_100NS` 只出现 2/67 行，`DEBUG_1US` 29/67 行，`COARSE_10US` 4/67 行；`locked=1` 31/67 行。
+  - 稳定性问题：`last_offset_ns` 出现 `553600 ns` 级跳变，`max_abs_offset_ns_max=963800`，`freq_offset_ppb` 达到 `+/-50000` 限幅；说明当前重复 arm 调试路径能供样，但尚不能证明 1 us/100 ns 长稳锁相。
+- 还需完成：
+  - 将自动运行从 host 周期重装收敛为固件内部连续 observation/idle beacon 或 core1 TDMA scheduler 续窗，避免释放/重装边界把最后 evidence 留在 `WINDOW_BOUND`。
+  - 结合低频维护 log 分析 offset 跳变来源：window base、phase unwrap、path delay、DCO slew 或 overlay 边沿相位。
+- 关联文件：
+  - `tools/vdc_long_monitor/vdc_long_monitor.py`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+  - `docs/vdc/VDC_TASK_PROGRESS.md`
+- 下一步：
+  - 优先纠偏 `WINDOW_BOUND` 和 offset/rate 跳变，再继续做 DPLL 细锁定参数优化。
+
 ### VDC-TASK-20260817-007 - EtherCAT DC-style reference sync frame
 
 - 状态：完成；代码、文档、host 测试、构建、COM5/COM6 OTA、只读 SCPI smoke 和 accepted-only HIL 已闭环。
