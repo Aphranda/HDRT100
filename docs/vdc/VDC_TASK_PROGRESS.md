@@ -43,6 +43,46 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-024 - VDC lock readiness minimum instance gate
+
+- 状态：完成代码、文档、host/build 和 COM5/COM6 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 按最快形成 DPLL 锁定和 VDC 同步的方向，重排 VDC P0 优先级。
+  - 建立不绕过 HAOFV 的 VDC 最小实例观测入口：TDMA schedule、timestamp dictionary、SYNC_IO observer adapter、DPLL gate 和 VdcVector 只读快照。
+  - 固化 readiness HIL，明确当前阻塞在 diagnostic timestamp，而不是误报 DPLL lock。
+- 完成内容：
+  - `VDC_DOMAIN_TODO.md` 增加 DPLL 锁定 / VDC 同步最快闭环优先级，定义 P0.0-P0.4：readiness、PIO edge latch、eligible sample admission、DPLL 环路滤波器、DCO snapshot。
+  - 新增 `SYSTem:SYNC:VDC:LOCK:READiness?`，返回 `input_ready` 与 `locked` 两个独立布尔值，并输出 reason、DPLL/quality 状态、observer 计数、timestamp eligibility、dictionary/profile CRC 和最近 payload/source/reference。
+  - 新增 `tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py`，用 COM5/COM6 验证 observer 启用、采样启动、forced edge、VDC gate 拒绝和 readiness reason。
+  - 同步 `SCPI_COMMANDS.md`、`SCPI_COMMAND_PLAN.md`、中文 SCPI 指令表、`VDC_DOMAIN_ARCHITECTURE.md` 和 `tools/README.md`。
+- 验证结果：
+  - `python -m py_compile tools\vdc_lock_readiness_validate\vdc_lock_readiness_validate.py tools\vdc_latch_validate\vdc_latch_validate.py tools\vdc_observer_validate\vdc_observer_validate.py tools\product_scpi_validate\product_scpi_validate.py` 通过。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=129，包含 `SYSTem:SYNC:VDC:LOCK:READiness?`。
+  - `python tools\realtime_scpi_validate\realtime_scpi_validate.py --dry-run` 通过，generated=66。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有既有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816044803`，OTA package CRC `0x5DB51D7B`。
+  - COM5 OTA 到 build `20260816044803`，`ota_boot_commit.py` 被启动日志串扰误判失败；独立查询确认 `SYST:FW:BUILD? -> "20260816044803"`、`SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`、`SYST:ERR? -> 0,"No error"`。
+  - COM6 OTA/commit 到 build `20260816044803`，`ota_boot_commit.py` 通过。
+  - `python tools\vdc_lock_readiness_validate\vdc_lock_readiness_validate.py COM5 COM6 --expected-build 20260816044803 --out-dir build-rtos-multicore-smoke\vdc_lock_readiness_validate_20260816044803` 通过：COM5/COM6 均为 `reason=5,submitted=1,accepted=0,rejected=1,gate=9,source=2,resolution_ns=4,flags=1`。
+- 还需完成：
+  - P0.1 接真实 PIO edge latch，使 observation sample 不再带 `DIAGNOSTIC_ONLY`。
+  - P0.2 验证 `DPLL_ELIGIBLE` 样本 accepted_count 增长且 `last_gate_reject_code=0`。
+  - P0.3 实现 `SyncDpllFB` 最小环路滤波器，由 phase/frequency error 调节 VDC clock model 的 offset/rate，不能继续依赖 sample count 伪锁定。
+- 关联文件：
+  - `middleware/scpi_port/inc/scpi_sync_commands.h`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+  - `tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+  - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+  - `docs/interface/SCPI_COMMANDS.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
+- 下一步：
+  - 优先把 TDMA/PIO 基础件的真实 edge timestamp latch 接到 VDC observation window，形成可被 DPLL gate 接受的最小硬件样本。
+
 ### VDC-TASK-20260816-023 - Default observer dictionary and open wrap anchor
 
 - 状态：完成代码、host/build 和 COM5/COM6 HIL。

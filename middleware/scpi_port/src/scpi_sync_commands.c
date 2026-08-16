@@ -221,6 +221,63 @@ static void scpi_sync_result_u64_parts(scpi_t *context, uint64_t value)
     SCPI_ResultUInt32(context, (uint32_t)(value >> 32u));
 }
 
+typedef enum {
+    SCPI_SYNC_VDC_LOCK_READY = 0u,
+    SCPI_SYNC_VDC_LOCK_SNAPSHOT_UNAVAILABLE = 1u,
+    SCPI_SYNC_VDC_LOCK_OBSERVER_DISABLED = 2u,
+    SCPI_SYNC_VDC_LOCK_DICTIONARY_EMPTY = 3u,
+    SCPI_SYNC_VDC_LOCK_NO_ACCEPTED_SAMPLE = 4u,
+    SCPI_SYNC_VDC_LOCK_TIMESTAMP_NOT_ELIGIBLE = 5u,
+    SCPI_SYNC_VDC_LOCK_GATE_REJECTED = 6u,
+    SCPI_SYNC_VDC_LOCK_NOT_LOCKED = 7u,
+} scpi_sync_vdc_lock_readiness_reason_t;
+
+static bool scpi_sync_vdc_timestamp_is_dpll_eligible(uint32_t source,
+                                                     uint32_t resolution_ns,
+                                                     uint32_t flags)
+{
+    return source == VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK &&
+           resolution_ns > 0u &&
+           resolution_ns <= VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS &&
+           (flags & VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE) != 0u &&
+           (flags & VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
+}
+
+static scpi_sync_vdc_lock_readiness_reason_t scpi_sync_vdc_lock_readiness_reason(
+    bool has_snapshot,
+    const vdc_domain_snapshot_t *snapshot,
+    const vdc_dpll_manager_sync_io_observer_status_t *observer)
+{
+    if (!has_snapshot || snapshot == NULL || snapshot->quality.valid == 0u) {
+        return SCPI_SYNC_VDC_LOCK_SNAPSHOT_UNAVAILABLE;
+    }
+    if (observer == NULL || !observer->enabled) {
+        return SCPI_SYNC_VDC_LOCK_OBSERVER_DISABLED;
+    }
+    if (observer->dictionary_entry_count == 0u ||
+        observer->dictionary_crc32 == 0u ||
+        observer->dictionary_profile_crc32 != snapshot->schedule.schedule_crc32) {
+        return SCPI_SYNC_VDC_LOCK_DICTIONARY_EMPTY;
+    }
+    if (!scpi_sync_vdc_timestamp_is_dpll_eligible(
+            observer->last_timestamp_source,
+            observer->last_timestamp_resolution_ns,
+            observer->last_timestamp_flags)) {
+        return SCPI_SYNC_VDC_LOCK_TIMESTAMP_NOT_ELIGIBLE;
+    }
+    if (snapshot->quality.accepted_sample_count == 0u) {
+        return SCPI_SYNC_VDC_LOCK_NO_ACCEPTED_SAMPLE;
+    }
+    if (snapshot->quality.last_reject_code != VDC_DOMAIN_GATE_PASS ||
+        observer->last_gate_reject_code != VDC_DOMAIN_GATE_PASS) {
+        return SCPI_SYNC_VDC_LOCK_GATE_REJECTED;
+    }
+    if (snapshot->dpll.state != VDC_DOMAIN_LOCK_LOCKED) {
+        return SCPI_SYNC_VDC_LOCK_NOT_LOCKED;
+    }
+    return SCPI_SYNC_VDC_LOCK_READY;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_status_q(scpi_t *context)
 {
     vdc_dpll_manager_vdc_status_t status;
@@ -296,6 +353,66 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_plan_q(scpi_t *context)
     SCPI_ResultUInt32(context, gate.reject_code);
     SCPI_ResultUInt32(context, gate.reject_slot);
     SCPI_ResultUInt32(context, gate.reject_evidence);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context)
+{
+    vdc_domain_snapshot_t snapshot;
+    vdc_dpll_manager_sync_io_observer_status_t observer;
+    const bool has_snapshot = vdc_dpll_manager_get_snapshot(&snapshot);
+    bool timestamp_eligible = false;
+    bool input_ready = false;
+    bool locked = false;
+    scpi_sync_vdc_lock_readiness_reason_t reason;
+
+    vdc_dpll_manager_get_sync_io_observer_status(&observer);
+    timestamp_eligible =
+        scpi_sync_vdc_timestamp_is_dpll_eligible(
+            observer.last_timestamp_source,
+            observer.last_timestamp_resolution_ns,
+            observer.last_timestamp_flags);
+    reason = scpi_sync_vdc_lock_readiness_reason(has_snapshot,
+                                                 has_snapshot ? &snapshot : NULL,
+                                                 &observer);
+    input_ready = has_snapshot &&
+                  observer.enabled &&
+                  observer.dictionary_entry_count != 0u &&
+                  observer.dictionary_crc32 != 0u &&
+                  observer.dictionary_profile_crc32 ==
+                      snapshot.schedule.schedule_crc32 &&
+                  timestamp_eligible &&
+                  snapshot.quality.accepted_sample_count != 0u &&
+                  snapshot.quality.last_reject_code == VDC_DOMAIN_GATE_PASS &&
+                  observer.last_gate_reject_code == VDC_DOMAIN_GATE_PASS;
+    locked = has_snapshot &&
+             snapshot.dpll.state == VDC_DOMAIN_LOCK_LOCKED &&
+             input_ready;
+
+    SCPI_ResultBool(context, input_ready ? TRUE : FALSE);
+    SCPI_ResultBool(context, locked ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, (uint32_t)reason);
+    SCPI_ResultUInt32(context, has_snapshot ? snapshot.dpll.state : 0u);
+    SCPI_ResultUInt32(context, has_snapshot ? snapshot.quality.health_state : 0u);
+    SCPI_ResultUInt32(context, has_snapshot ? snapshot.quality.accepted_sample_count : 0u);
+    SCPI_ResultUInt32(context, has_snapshot ? snapshot.quality.rejected_sample_count : 0u);
+    SCPI_ResultUInt32(context, has_snapshot ? snapshot.quality.last_reject_code : 0u);
+    SCPI_ResultUInt32(context, observer.enabled ? 1u : 0u);
+    SCPI_ResultUInt32(context, observer.submitted_count);
+    SCPI_ResultUInt32(context, observer.accepted_count);
+    SCPI_ResultUInt32(context, observer.rejected_count);
+    SCPI_ResultUInt32(context, observer.last_gate_reject_code);
+    SCPI_ResultUInt32(context, observer.last_timestamp_source);
+    SCPI_ResultUInt32(context, observer.last_timestamp_resolution_ns);
+    SCPI_ResultUInt32(context, observer.last_timestamp_flags);
+    SCPI_ResultBool(context, timestamp_eligible ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, observer.dictionary_entry_count);
+    SCPI_ResultUInt32(context, observer.dictionary_crc32);
+    SCPI_ResultUInt32(context, observer.dictionary_profile_crc32);
+    SCPI_ResultUInt32(context, has_snapshot ? snapshot.schedule.schedule_crc32 : 0u);
+    SCPI_ResultUInt32(context, observer.last_payload_class);
+    SCPI_ResultUInt32(context, observer.last_source_slot_id);
+    SCPI_ResultUInt32(context, observer.last_reference_slot_id);
     return SCPI_RES_OK;
 }
 

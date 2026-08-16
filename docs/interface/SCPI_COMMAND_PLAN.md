@@ -264,6 +264,7 @@ VDC/DPLL 层级：
 SYSTem:SYNC:VDC:STATus?
 SYSTem:SYNC:VDC:DPLL:STATus?
 SYSTem:SYNC:VDC:TDMA:PLAN?
+SYSTem:SYNC:VDC:LOCK:READiness?
 SYSTem:SYNC:VDC:OBServer
 SYSTem:SYNC:VDC:OBServer?
 SYSTem:SYNC:VDC:DPLL:TUNE
@@ -274,6 +275,8 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 ```
 
 `SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]` 是只读维护入口，用于复现 active `VdcTdmaScheduleProfile` 对 observation/data/idle window 的计划结果。它返回当前或指定 `now_ns` 对应的窗口起止、guard、wait_ns、late_ns、inside/missed 标志、schedule CRC 和 gate；不得作为产品上位机控制入口。
+
+`SYSTem:SYNC:VDC:LOCK:READiness?` 是只读维护入口，用于判断当前 VDC/DPLL 最小实例是否已经具备锁定输入条件，并区分“输入已就绪”和“DPLL 已锁定”。它返回 `input_ready,locked,reason,lock_state,health_state,accepted_sample_count,rejected_sample_count,last_reject_code,observer_enabled,observer_submitted,observer_accepted,observer_rejected,observer_last_gate,last_timestamp_source,last_timestamp_resolution_ns,last_timestamp_flags,timestamp_dpll_eligible,dictionary_entry_count,dictionary_crc32,dictionary_profile_crc32,schedule_crc32,last_payload_class,last_source_slot_id,last_reference_slot_id`。该查询不得启动 capture、不得提交样本、不得写 lock/offset/rate；当前诊断 latch 应报告 `reason=5` 即 timestamp not eligible。
 
 `SYSTem:SYNC:VDC:OBServer [enabled],...` 是维护配置入口，用于启停 VDC manager 消费 SYNC_IO latched capture fact 的 observer。无参数或 `enabled=0` 只关闭 observer 并清零状态；`enabled=1` 必须显式提供 batch、rising/falling event id、observed mask、initial mask、base tick、sample period、expected window start 和 frame CRC。该命令不得启动 SYNC_IO capture，不得绕过 timestamp dictionary/gate，也不得作为 DPLL lock evidence 本身。
 

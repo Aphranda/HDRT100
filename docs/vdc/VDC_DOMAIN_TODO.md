@@ -22,6 +22,47 @@ VDC Domain 可以借鉴成熟时间同步项目和工业 DC 思想，但不直�
 
 总体结论：当前 VDC 主域方向正确，已经避免把 VDC 做成裸 SCPI 域或 RefMem 子函数；`VdcTdmaScheduleProfile`、window class、frame envelope、diagnostic timestamp gate 和 TDMA window planner 都符合“VDC 拥有共同时间，RefMem 只同步共同事实，core1/PIO 只执行硬实时动作”的 HAOFV 主线。但当前实现仍处于主域契约和诊断闭环阶段，尚未形成完整 `VdcSyncAO / SyncDpllFB / VdcVector / VdcQualityGateFB` 运行结构。以下风险必须作为后续 VDC 主线优先级，而不是继续扩大旁路脚本或只读查询。
 
+## DPLL 锁定 / VDC 同步最快闭环优先级
+
+当前 TDMA 基础件已经具备形成 VDC 的最小骨架：active `VdcTdmaScheduleProfile` 定义 observation/data/idle window，RefMem data frame 可以作为 payload class 搭载在 TDMA frame envelope 中，SYNC_IO/core1 latch 可以产出带 timestamp metadata 的本地 IO fact，VDC observer adapter 可以把 fact 展开为 compact observation，再由 timestamp dictionary、wrap tracker 和 DPLL gate 统一裁决。后续优先级必须围绕这条最小实例推进，不能绕过 HAOFV 直接由 SCPI 或脚本伪造 offset/rate/lock。
+
+最小实例定义：
+
+```text
+VdcSyncAO
+  owns active schedule/profile/dictionary
+  reads SyncIO capture facts through observer adapter
+
+SyncDpllFB
+  only accepts DPLL_ELIGIBLE timestamp evidence from VDC_OBSERVATION_WINDOW
+  only writer of offset/rate/lock/DCO snapshot
+
+VdcVector
+  publishes readiness, quality, gate, clock model and DCO snapshot
+
+SCPI maintenance
+  configures observer bring-up knobs and reads VdcVector
+  never writes lock state, offset, rate or accepted sample counters
+```
+
+| 优先级 | 闭环目标 | 验收证据 |
+|---:|---|---|
+| P0.0 | 建立 VDC lock readiness 只读入口，明确当前卡在 observer、dictionary、timestamp eligibility、accepted sample、gate 还是 DPLL state。 | `SYSTem:SYNC:VDC:LOCK:READiness?` 和 HIL 脚本能在 COM5/COM6 上报告 `input_ready=0,locked=0,reason=TIMESTAMP_NOT_ELIGIBLE`，且不改变 DPLL 状态。 |
+| P0.1 | 把 TDMA observation window 的真实 PIO edge latch 接入 `SyncIO capture fact`，替换当前 core1 drain FIFO 诊断时间戳。 | `REALtime:IO:SAMPle:LATCh?` 仍报告 `HARDWARE_TICK/resolution<=100ns`，但正式 observation 样本不再带 `DIAGNOSTIC_ONLY`。 |
+| P0.2 | 让 `VDC_OBSERVATION_WINDOW` 样本通过 DPLL gate。 | COM5/COM6 `accepted_sample_count` 增长、`last_gate_reject_code=0`、sample/frame CRC 被记录；窗口外或 CRC 错误仍拒绝。 |
+| P0.3 | 实现 `SyncDpllFB` 最小环路滤波器，使用 accepted sample 计算 phase error / frequency error，经 PI 或等价 servo、限幅和 reset policy 调节 VDC clock model 的 offset/rate，并发布 DCO snapshot。 | `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 状态链必须由环路滤波器收敛驱动，而不是 sample count 伪锁定；报告 lock_time、last/rms/max offset、freq_offset_ppb、period_adjust_ppb、outlier/reset 次数。 |
+| P0.4 | core1 只读稳定 DCO snapshot，形成 VDC 同步输出/预约触发基础。 | core1 拒绝 stale/半更新 DCO，正常 snapshot 下可以按 VDC time 装载 FIRE_LOAD 或同步输出。 |
+| P1 | 将 VDC quality/error budget 纳入 RUN gate，并把 VDC snapshot 映射到 RefMem。 | VDC unlocked/质量不达标时 RUN/FIRE_LOAD 被拒绝；LOCKED 后 RefMem 只镜像 VDC 共同时间事实。 |
+
+当前主线结论：先完成 P0.0-P0.3，再回到 RefMem 表模型扩展；否则表模型继续扩大会超过当前两板硬件闭环的验证能力。
+
+DPLL 稳定性要求：
+
+- `SyncDpllFB` 是 offset/rate/lock/DCO snapshot 的唯一 writer；SCPI 调试命令只能写 staging profile 或易失调试覆盖，不能直接写 clock model。
+- 环路滤波器首版至少要覆盖 `phase_error_ns`、`frequency_error_ppb`、`kp/ki`、`slew_limit_ppb`、`step_threshold_ns`、`outlier_threshold_ns` 和 `reset_policy`。
+- accepted sample 进入后必须先通过 outlier/sanity gate，再进入环路滤波器；超限样本只能更新 quality/gate evidence，不能污染 offset/rate。
+- `VdcClockModel.period_adjust_ppb`、`phase_offset_ns` 和 `VdcDcoControl` 必须来自同一个稳定 snapshot seq，core1 只能读取完整 snapshot。
+
 ### 符合 HAOFV 的部分
 
 - [x] VDC 已被定义为 HAOFV 内部基础主域，和 Distributed RefMem 并列；没有新增裸 `VDC:*` / `DPLL:*` 顶级 SCPI 域。
