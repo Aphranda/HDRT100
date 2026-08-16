@@ -251,7 +251,7 @@ static uint32_t sync_io_capture_dma_produced_words(void)
         s_sync_io.capture_dma_last_write_index = write_index;
         s_sync_io.capture_dma_write_index_valid = true;
     }
-    if (transfer_produced >= s_sync_io.capture_dma_produced_seq) {
+    if (transfer_produced > s_sync_io.capture_dma_produced_seq) {
         s_sync_io.capture_dma_produced_seq = transfer_produced;
     } else if (write_index != s_sync_io.capture_dma_last_write_index) {
         const uint32_t last = s_sync_io.capture_dma_last_write_index;

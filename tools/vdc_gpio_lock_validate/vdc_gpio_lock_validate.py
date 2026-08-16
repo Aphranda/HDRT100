@@ -89,6 +89,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-index", type=int, default=0)
     parser.add_argument("--observed-mask", type=int, default=1)
     parser.add_argument("--expected-build")
+    parser.add_argument("--accepted-only", action="store_true",
+                        help="validate the hardware timestamp accepted path without requiring FINE/HEALTHY lock")
     parser.add_argument("--reverse", action="store_true",
                         help="also validate Y -> X after X -> Y")
     parser.add_argument("--out-dir", type=Path)
@@ -253,25 +255,26 @@ def run_direction(source_name: str,
         readiness = int_fields(query(target, "SYST:SYNC:VDC:LOCK:READiness?",
                                      args.timeout),
                                LOCK_READINESS_FIELD_COUNT)
-        if (quality_after[7] > quality_before[7] and
-                quality_after[10] == VDC_HEALTH_HEALTHY and
-                quality_after[11] == VDC_LOCK_QUALITY_FINE_100NS and
-                readiness[1] == 1 and
-                readiness[3] == VDC_LOCK_LOCKED):
-            break
+        if observer_after[8] > observer_before[8]:
+            if args.accepted_only:
+                if (quality_after[7] > 0 and
+                        readiness[12] == VDC_GATE_PASS and
+                        readiness[13] == TIMESTAMP_SOURCE_HARDWARE_TICK and
+                        0 < readiness[14] <= args.max_resolution_ns and
+                        (readiness[15] & TIMESTAMP_FLAG_DPLL_ELIGIBLE) != 0 and
+                        (readiness[15] & TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0):
+                    break
+            elif (quality_after[7] > quality_before[7] and
+                  quality_after[10] == VDC_HEALTH_HEALTHY and
+                  quality_after[11] == VDC_LOCK_QUALITY_FINE_100NS and
+                  readiness[1] == 1 and
+                  readiness[3] == VDC_LOCK_LOCKED):
+                break
         time.sleep(0.05)
 
     release_runtime(source, args.timeout)
     release_runtime(target, args.timeout)
 
-    if quality_after[7] <= quality_before[7]:
-        raise AssertionError(
-            f"{source_name}->{target_name}: accepted count did not grow: "
-            f"{quality_before[7]} -> {quality_after[7]} "
-            f"model={model_after} observer={observer_after} "
-            f"window={window_after} armed_window={armed_window} "
-            f"readiness={readiness}"
-        )
     if observer_after[8] <= observer_before[8]:
         raise AssertionError(
             f"{source_name}->{target_name}: observer accepted count did not grow: "
@@ -280,20 +283,38 @@ def run_direction(source_name: str,
             f"window={window_after} armed_window={armed_window} "
             f"readiness={readiness}"
         )
-    if readiness[1] != 1 or readiness[3] != VDC_LOCK_LOCKED:
-        raise AssertionError(
-            f"{source_name}->{target_name}: not locked readiness={readiness}"
-        )
-    if quality_after[10] != VDC_HEALTH_HEALTHY:
-        raise AssertionError(
-            f"{source_name}->{target_name}: health not healthy: "
-            f"{quality_before} -> {quality_after}"
-        )
-    if quality_after[11] != VDC_LOCK_QUALITY_FINE_100NS:
-        raise AssertionError(
-            f"{source_name}->{target_name}: quality tier not fine: "
-            f"{quality_before} -> {quality_after}"
-        )
+    if args.accepted_only:
+        if quality_after[7] == 0:
+            raise AssertionError(
+                f"{source_name}->{target_name}: quality accepted count is still zero: "
+                f"{quality_before[7]} -> {quality_after[7]} "
+                f"model={model_after} observer={observer_after} "
+                f"window={window_after} armed_window={armed_window} "
+                f"readiness={readiness}"
+            )
+    else:
+        if quality_after[7] <= quality_before[7]:
+            raise AssertionError(
+                f"{source_name}->{target_name}: accepted count did not grow: "
+                f"{quality_before[7]} -> {quality_after[7]} "
+                f"model={model_after} observer={observer_after} "
+                f"window={window_after} armed_window={armed_window} "
+                f"readiness={readiness}"
+            )
+        if readiness[1] != 1 or readiness[3] != VDC_LOCK_LOCKED:
+            raise AssertionError(
+                f"{source_name}->{target_name}: not locked readiness={readiness}"
+            )
+        if quality_after[10] != VDC_HEALTH_HEALTHY:
+            raise AssertionError(
+                f"{source_name}->{target_name}: health not healthy: "
+                f"{quality_before} -> {quality_after}"
+            )
+        if quality_after[11] != VDC_LOCK_QUALITY_FINE_100NS:
+            raise AssertionError(
+                f"{source_name}->{target_name}: quality tier not fine: "
+                f"{quality_before} -> {quality_after}"
+            )
     if readiness[12] != VDC_GATE_PASS:
         raise AssertionError(
             f"{source_name}->{target_name}: observer gate {readiness[12]} != PASS"

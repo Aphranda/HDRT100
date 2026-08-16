@@ -43,6 +43,42 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260817-005 - VDC accepted-count capture DMA produced closure
+
+- 状态：完成；accepted-count 断点已定位、修复、构建、OTA，并用 COM5/COM6 GPIO overlay accepted-only HIL 两向复验。
+- 日期：2026-08-17
+- 任务目标：
+  - 将 EtherCAT DC-style 对照项纳入 `VDC_DOMAIN_TODO.md` 后，优先解决两板 GPIO overlay HIL 中 `accepted_sample_count=0` 的问题。
+  - 保持 HAOFV 边界：修复 SYNC_IO capture/latch 基础件，不绕过 VDC gate 或伪造 DPLL accepted sample。
+- 发现：
+  - `vdc_gpio_lock_validate.py` 失败时 model pulse 已完成 4096 个脉冲，但 observer raw/submitted/accepted 计数全为 0。
+  - 静态 probe 证明 COM5 GPIO6 可被 COM6 GPIO6 读到，物理 debug overlay 可用。
+  - `REALtime:IO:SAMPle:DBG?` 显示 capture running、PIO enabled、DMA busy，但 `produced_words=0` 且 `dma_transfer_count=0xFFFFFFFF`。
+  - 根因是 `sync_io_capture_dma_produced_words()` 在 `transfer_produced == produced_seq == 0` 时直接采用 transfer counter，导致无限 DMA 模式下永远不走 ring write-index delta。
+- 完成内容：
+  - 将 `transfer_produced >= capture_dma_produced_seq` 改为严格 `>`；只有 transfer counter 真正前进时才采用它，否则继续用 write index delta 推导 produced words。
+  - 固化 `tools/scpi_query/model_gpio_probe.scpi`、`model_gpio_drive_g6.scpi` 和 `sample_capture_debug_probe.scpi`，用于后续低频/SCPI 断点复查。
+  - `vdc_gpio_lock_validate.py` 增加 `--accepted-only` 分层验收：只验证本轮 observer accepted 增长、VDC quality accepted 非零、gate/source/resolution/flags 为硬件 DPLL eligible；完整模式仍要求 `LOCKED + HEALTHY + FINE_100NS`。
+- 验证结果：
+  - Host 单元：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过 18/18。
+  - 文档检查：`python tools\docs_check\docs_check.py` 通过；仍有既有 risk-review 文件名 warning。
+  - 固件构建：`cmake --build build-rtos-multicore-smoke -j 4` 通过，最终 build id `20260816175137`，package CRC `0xFB86122E`。
+  - OTA：`python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --expected-build 20260816175137 --max-workers 2 --verbose` 通过；COM5/COM6 均升级并提交到 `20260816175137`，两板 `SYSTem:ERRor?` 均为 `0,"No error"`。
+  - capture debug：COM6 `REALtime:IO:SAMPle:DBG?` 中 `dma_transfer_count=4294967295` 时 `produced_words` 已增长到 `18887974`，证明 infinite DMA ring produced accounting 已恢复。
+  - 两板 HIL：`python tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py --port-x COM5 --port-y COM6 --name-x COM5 --name-y COM6 --expected-build 20260816175137 --poll-timeout 90 --output-index 2 --observed-mask 4 --pulse-count 4096 --pulse-high-ns 1000 --accepted-only --reverse` 通过；COM5->COM6 `accepted=0->1 observer_accepted=0->1 state=PHASE_LOCK locked=0 health=DEGRADED tier=NONE source=HARDWARE_TICK resolution_ns=100 flags=DPLL_ELIGIBLE gate=PASS`，COM6->COM5 `accepted=0->4 observer_accepted=0->4 state=LOCKED locked=1 health=LOCK_CANDIDATE tier=NONE source=HARDWARE_TICK resolution_ns=100 flags=DPLL_ELIGIBLE gate=PASS`。
+- 还需完成：
+  - accepted path 已闭环；后续不再把 `accepted_sample_count=0` 作为当前阻塞点。
+  - `HEALTHY/FINE_100NS` 仍未完成，归入 P0.5：补齐 DC-style reference sync frame、delay-measure、active `PATH_DELAY` 表和 DCO 反驱 TDMA 后继续优化 DPLL 锁相。
+- 关联文件：
+  - `components/sync_io/src/sync_io.c`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+  - `docs/vdc/VDC_TASK_PROGRESS.md`
+  - `tools/scpi_query/model_gpio_probe.scpi`
+  - `tools/scpi_query/model_gpio_drive_g6.scpi`
+  - `tools/scpi_query/sample_capture_debug_probe.scpi`
+- 下一步：
+  - 进入 P0.5 DPLL/DC 锁相优化；本轮不再扩大 SCPI 或脚本旁路。
+
 ### VDC-TASK-20260817-004 - DPLL lock quality residual and slew-limit closure
 
 - 状态：完成代码、host 单元验证、构建、文档检查、COM5/COM6 OTA、只读 SCPI/HIL 复查和 EtherCAT DC-style 对照评审；板端 HIL 仍卡在 timestamp eligibility，需在后续硬件 timestamp latch/observer 链路继续收敛。
