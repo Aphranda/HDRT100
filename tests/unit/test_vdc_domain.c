@@ -414,6 +414,173 @@ static int test_wrap_tracker_contract(void)
     return failed;
 }
 
+static void make_timestamp_dictionary_for_schedule(
+    const vdc_tdma_schedule_profile_t *schedule,
+    vdc_timestamp_dictionary_t *dictionary,
+    uint32_t event_id,
+    uint32_t payload_class)
+{
+    vdc_timestamp_dictionary_init(dictionary, schedule->schedule_crc32);
+    dictionary->entry_count = 1u;
+    dictionary->entries[0].valid = 1u;
+    dictionary->entries[0].event_id = event_id;
+    dictionary->entries[0].source_slot_id = schedule->reference_slot_id;
+    dictionary->entries[0].reference_slot_id = schedule->reference_slot_id;
+    dictionary->entries[0].source = VDC_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    dictionary->entries[0].resolution_ns = 50u;
+    dictionary->entries[0].default_flags = VDC_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+    dictionary->entries[0].port_id = 1u;
+    dictionary->entries[0].signal_id = 2u;
+    dictionary->entries[0].payload_class = payload_class;
+    dictionary->dictionary_crc32 =
+        vdc_timestamp_dictionary_crc32(dictionary);
+}
+
+static int test_compact_observation_contract(void)
+{
+    int failed = 0;
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_wrap_tracker_t tracker;
+    vdc_compact_observation_sample_t compact;
+    vdc_tdma_timestamp_evidence_t evidence;
+    vdc_gate_result_t gate;
+
+    vdc_domain_default_schedule(&schedule, 0u, 0u);
+    make_timestamp_dictionary_for_schedule(&schedule,
+                                           &dictionary,
+                                           21u,
+                                           VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE);
+    vdc_wrap_tracker_init(&tracker, 0u);
+
+    (void)memset(&compact, 0, sizeof(compact));
+    compact.valid = 1u;
+    compact.sample_seq = 1u;
+    compact.event_id = 21u;
+    compact.tick_l32 = 10u;
+    compact.expected_window_start_ns = schedule.observation_window_offset_ns;
+    compact.frame_crc32 = 0x1111u;
+    compact.sample_crc32 = 0x2222u;
+    compact.jitter_ns = 3u;
+    compact.delay_ns = 4u;
+
+    failed += expect_bool("compact observation expands",
+                          vdc_domain_expand_compact_observation(&schedule,
+                                                                 &dictionary,
+                                                                 &tracker,
+                                                                 &compact,
+                                                                 &evidence,
+                                                                 &gate),
+                          true);
+    failed += expect_u32("compact gate pass",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_PASS);
+    failed += expect_u32("compact evidence source",
+                         evidence.timestamp_source,
+                         VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK);
+    failed += expect_u32("compact evidence resolution",
+                         evidence.timestamp_resolution_ns,
+                         50u);
+    failed += expect_u32("compact evidence flags",
+                         evidence.timestamp_flags,
+                         VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE);
+    failed += expect_i32("compact phase error",
+                         evidence.phase_error_ns,
+                         10);
+
+    dictionary.dictionary_crc32 ^= 1u;
+    failed += expect_bool("compact rejects bad dictionary crc",
+                          vdc_domain_expand_compact_observation(&schedule,
+                                                                 &dictionary,
+                                                                 &tracker,
+                                                                 &compact,
+                                                                 &evidence,
+                                                                 &gate),
+                          false);
+    failed += expect_u32("bad dictionary gate",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_BAD_FRAME);
+    dictionary.dictionary_crc32 ^= 1u;
+
+    compact.tick_l32 = 0xFFFFFF00u;
+    failed += expect_bool("compact rejects stale tick",
+                          vdc_domain_expand_compact_observation(&schedule,
+                                                                 &dictionary,
+                                                                 &tracker,
+                                                                 &compact,
+                                                                 &evidence,
+                                                                 &gate),
+                          false);
+    failed += expect_u32("stale tick gate",
+                         gate.reject_code,
+                         VDC_DOMAIN_GATE_BAD_FRAME);
+    return failed;
+}
+
+static int test_context_submits_compact_observation(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_compact_observation_sample_t compact;
+
+    failed += expect_bool("compact context init",
+                          vdc_domain_init(&context),
+                          true);
+    vdc_domain_set_ready(&context, true);
+    make_timestamp_dictionary_for_schedule(&context.schedule,
+                                           &dictionary,
+                                           31u,
+                                           VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE);
+    failed += expect_bool("publish timestamp dictionary",
+                          vdc_domain_publish_timestamp_dictionary(&context,
+                                                                  &dictionary,
+                                                                  0u),
+                          true);
+
+    (void)memset(&compact, 0, sizeof(compact));
+    compact.valid = 1u;
+    compact.sample_seq = 1u;
+    compact.event_id = 31u;
+    compact.tick_l32 = 5u;
+    compact.expected_window_start_ns =
+        context.schedule.observation_window_offset_ns;
+    compact.frame_crc32 = 0x3333u;
+    compact.sample_crc32 = 0x4444u;
+    compact.jitter_ns = 2u;
+    failed += expect_bool("submit compact observation",
+                          vdc_domain_submit_compact_observation(&context,
+                                                                &compact),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("compact accepted count",
+                         snapshot.dpll.accepted_sample_count,
+                         1u);
+    failed += expect_u32("compact gate pass snapshot",
+                         snapshot.gate.reject_code,
+                         VDC_DOMAIN_GATE_PASS);
+    failed += expect_u32("compact quality source",
+                         snapshot.quality.last_timestamp_source,
+                         VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK);
+
+    compact.sample_seq = 2u;
+    compact.event_id = 99u;
+    compact.tick_l32 = 10u;
+    failed += expect_bool("submit compact bad event",
+                          vdc_domain_submit_compact_observation(&context,
+                                                                &compact),
+                          false);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("compact rejected count",
+                         snapshot.dpll.rejected_sample_count,
+                         1u);
+    failed += expect_u32("compact reject gate",
+                         snapshot.gate.reject_code,
+                         VDC_DOMAIN_GATE_BAD_FRAME);
+    return failed;
+}
+
 static int test_gate_rejects_schedule_and_window_mismatch(void)
 {
     int failed = 0;
@@ -775,12 +942,14 @@ int main(void)
     failed += test_timestamp_contract_helpers();
     failed += test_timestamp_dictionary_contract();
     failed += test_wrap_tracker_contract();
+    failed += test_compact_observation_contract();
     failed += test_gate_rejects_diagnostic_timestamp();
     failed += test_gate_rejects_schedule_and_window_mismatch();
     failed += test_frame_envelope_window_contract();
     failed += test_tdma_window_plan_contract();
     failed += test_dco_control_contract();
     failed += test_context_accepts_samples_until_locked();
+    failed += test_context_submits_compact_observation();
     failed += test_quality_age_updates_on_service();
     failed += test_dpll_updates_clock_rate_from_sample_period();
     if (failed != 0) {

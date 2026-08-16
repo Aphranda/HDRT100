@@ -147,3 +147,34 @@ bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
     osal_critical_exit();
     return result;
 }
+
+bool vdc_dpll_manager_publish_timestamp_dictionary(
+    const vdc_timestamp_dictionary_t *dictionary,
+    uint32_t initial_tick_l32)
+{
+    bool result = false;
+    if (dictionary == NULL) {
+        return false;
+    }
+
+    osal_critical_enter();
+    result = vdc_domain_publish_timestamp_dictionary(&s_vdc_domain,
+                                                     dictionary,
+                                                     initial_tick_l32);
+    osal_critical_exit();
+    return result;
+}
+
+bool vdc_dpll_manager_submit_compact_observation(
+    const vdc_compact_observation_sample_t *compact)
+{
+    bool result = false;
+    if (compact == NULL) {
+        return false;
+    }
+
+    osal_critical_enter();
+    result = vdc_domain_submit_compact_observation(&s_vdc_domain, compact);
+    osal_critical_exit();
+    return result;
+}

@@ -172,6 +172,20 @@ typedef struct {
 } vdc_tdma_timestamp_evidence_t;
 
 typedef struct {
+    uint32_t valid;
+    uint32_t sample_seq;
+    uint32_t event_id;
+    uint32_t tick_l32;
+    uint32_t max_backward_ticks;
+    uint64_t expected_window_start_ns;
+    uint32_t frame_crc32;
+    uint32_t sample_crc32;
+    uint32_t jitter_ns;
+    uint32_t delay_ns;
+    uint32_t quality_flags;
+} vdc_compact_observation_sample_t;
+
+typedef struct {
     uint32_t frame_version;
     uint32_t frame_seq;
     uint32_t schedule_epoch;
@@ -308,6 +322,8 @@ typedef struct {
     vdc_quality_table_t quality;
     vdc_error_budget_t error_budget;
     vdc_gate_result_t gate;
+    vdc_timestamp_dictionary_t timestamp_dictionary;
+    vdc_wrap_tracker_t wrap_tracker;
 } vdc_domain_context_t;
 
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
@@ -341,6 +357,13 @@ bool vdc_domain_validate_tdma_frame_envelope(
     const vdc_tdma_frame_envelope_t *frame,
     bool require_dpll_eligible,
     vdc_gate_result_t *gate);
+bool vdc_domain_expand_compact_observation(
+    const vdc_tdma_schedule_profile_t *profile,
+    const vdc_timestamp_dictionary_t *dictionary,
+    vdc_wrap_tracker_t *wrap_tracker,
+    const vdc_compact_observation_sample_t *compact,
+    vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_gate_result_t *gate);
 bool vdc_domain_plan_tdma_window(const vdc_tdma_schedule_profile_t *profile,
                                  uint32_t window_class,
                                  uint64_t now_ns,
@@ -353,8 +376,15 @@ bool vdc_domain_publish_clock_model(vdc_domain_context_t *context,
                                     const vdc_clock_model_t *model);
 bool vdc_domain_publish_dco_control(vdc_domain_context_t *context,
                                     const vdc_dco_control_t *dco);
+bool vdc_domain_publish_timestamp_dictionary(
+    vdc_domain_context_t *context,
+    const vdc_timestamp_dictionary_t *dictionary,
+    uint32_t initial_tick_l32);
 bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
                                      const vdc_tdma_timestamp_evidence_t *evidence);
+bool vdc_domain_submit_compact_observation(
+    vdc_domain_context_t *context,
+    const vdc_compact_observation_sample_t *compact);
 bool vdc_domain_get_snapshot(const vdc_domain_context_t *context,
                              vdc_domain_snapshot_t *snapshot);
 

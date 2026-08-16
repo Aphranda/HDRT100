@@ -38,5 +38,10 @@ bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
                                        uint64_t now_ns,
                                        vdc_tdma_window_plan_t *plan,
                                        vdc_gate_result_t *gate);
+bool vdc_dpll_manager_publish_timestamp_dictionary(
+    const vdc_timestamp_dictionary_t *dictionary,
+    uint32_t initial_tick_l32);
+bool vdc_dpll_manager_submit_compact_observation(
+    const vdc_compact_observation_sample_t *compact);
 
 #endif

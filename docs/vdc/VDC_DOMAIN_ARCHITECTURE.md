@@ -451,6 +451,8 @@ VDC Domain 首版冻结以下基础表。字段可以分阶段实现，但 owner
 - `tick_l32` 小幅倒退默认拒绝；只有调用方明确给出 `max_backward_ticks` 才允许有限乱序。
 - `tick_l32` 从低值跳回接近 `0xFFFFFFFF` 判定为 stale/pre-wrap 样本并拒绝。
 
+`VdcCompactObservationSample` 是 PIO/DMA/core1 capture fact 进入 VDC 的最小载荷。它只包含 `sample_seq`、`event_id`、`tick_l32`、expected window、CRC 和质量摘要；VDC owner 必须先用 active `VdcTimestampDictionary` 展开 event，再用 `VdcWrapTracker` 扩展 tick，最后生成 `VdcTDMATimestampEvidence` 并经过 observation window gate。禁止 realtime IO、RefMem、SCPI 或 storage 直接构造 DPLL accepted sample。
+
 ### 核心字段
 
 VDC snapshot 至少需要覆盖：

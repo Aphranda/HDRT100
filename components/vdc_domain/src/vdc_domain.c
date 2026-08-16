@@ -868,6 +868,94 @@ bool vdc_domain_validate_tdma_frame_envelope(
     return true;
 }
 
+bool vdc_domain_expand_compact_observation(
+    const vdc_tdma_schedule_profile_t *profile,
+    const vdc_timestamp_dictionary_t *dictionary,
+    vdc_wrap_tracker_t *wrap_tracker,
+    const vdc_compact_observation_sample_t *compact,
+    vdc_tdma_timestamp_evidence_t *evidence,
+    vdc_gate_result_t *gate)
+{
+    vdc_timestamp_dictionary_entry_t entry;
+    uint64_t observed_tick64 = 0u;
+
+    if (gate != NULL) {
+        memset(gate, 0, sizeof(*gate));
+    }
+    if (evidence != NULL) {
+        memset(evidence, 0, sizeof(*evidence));
+    }
+    if (profile == NULL || dictionary == NULL || wrap_tracker == NULL ||
+        compact == NULL || evidence == NULL || compact->valid == 0u) {
+        vdc_domain_gate_fail(gate, VDC_DOMAIN_GATE_BAD_ARGUMENT, 0u, 0u);
+        return false;
+    }
+    if (!vdc_domain_schedule_validate(profile) ||
+        !vdc_timestamp_dictionary_find(dictionary, compact->event_id, &entry)) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BAD_FRAME,
+                             profile->local_slot_id,
+                             compact->sample_seq);
+        return false;
+    }
+    if (compact->frame_crc32 == 0u || compact->sample_crc32 == 0u ||
+        entry.source_slot_id >= VDC_DOMAIN_NODE_COUNT ||
+        entry.reference_slot_id != profile->reference_slot_id ||
+        (entry.payload_class != VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE &&
+         entry.payload_class != VDC_DOMAIN_PAYLOAD_IDLE_BEACON)) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BAD_FRAME,
+                             entry.source_slot_id,
+                             compact->sample_seq);
+        return false;
+    }
+    if (!vdc_wrap_tracker_extend_tick(wrap_tracker,
+                                      compact->tick_l32,
+                                      compact->max_backward_ticks,
+                                      &observed_tick64)) {
+        vdc_domain_gate_fail(gate,
+                             VDC_DOMAIN_GATE_BAD_FRAME,
+                             entry.source_slot_id,
+                             compact->sample_seq);
+        return false;
+    }
+
+    evidence->sample_seq = compact->sample_seq;
+    evidence->schedule_epoch = profile->schedule_epoch;
+    evidence->slot_index = entry.source_slot_id;
+    evidence->source_slot_id = entry.source_slot_id;
+    evidence->reference_slot_id = entry.reference_slot_id;
+    evidence->payload_class = entry.payload_class;
+    evidence->expected_window_start_ns = compact->expected_window_start_ns;
+    evidence->arm_time_ns = observed_tick64;
+    evidence->start_time_ns = observed_tick64;
+    evidence->observed_time_ns = observed_tick64;
+    evidence->done_time_ns = observed_tick64;
+    evidence->apply_time_ns = observed_tick64;
+    evidence->late_ns =
+        observed_tick64 > compact->expected_window_start_ns
+            ? vdc_domain_saturate_u64_to_u32(
+                  observed_tick64 - compact->expected_window_start_ns)
+            : 0u;
+    evidence->jitter_ns = compact->jitter_ns;
+    evidence->delay_ns = compact->delay_ns;
+    evidence->phase_error_ns = vdc_domain_clamp_i64_to_i32(
+        (int64_t)observed_tick64 -
+        (int64_t)compact->expected_window_start_ns);
+    evidence->timestamp_source = entry.source;
+    evidence->timestamp_resolution_ns = entry.resolution_ns;
+    evidence->timestamp_flags = entry.default_flags;
+    evidence->schedule_crc32 = profile->schedule_crc32;
+    evidence->frame_crc32 = compact->frame_crc32;
+    evidence->sample_crc32 = compact->sample_crc32;
+    evidence->quality_flags = compact->quality_flags;
+
+    return vdc_domain_validate_tdma_timestamp_evidence(profile,
+                                                       evidence,
+                                                       true,
+                                                       gate);
+}
+
 bool vdc_domain_plan_tdma_window(const vdc_tdma_schedule_profile_t *profile,
                                  uint32_t window_class,
                                  uint64_t now_ns,
@@ -985,6 +1073,9 @@ bool vdc_domain_init(vdc_domain_context_t *context)
     vdc_domain_default_dco_control(&context->dco,
                                    &context->clock,
                                    context->dpll.state);
+    vdc_timestamp_dictionary_init(&context->timestamp_dictionary,
+                                  context->schedule.schedule_crc32);
+    vdc_wrap_tracker_init(&context->wrap_tracker, 0u);
     return true;
 }
 
@@ -1065,6 +1156,22 @@ bool vdc_domain_publish_dco_control(vdc_domain_context_t *context,
     return true;
 }
 
+bool vdc_domain_publish_timestamp_dictionary(
+    vdc_domain_context_t *context,
+    const vdc_timestamp_dictionary_t *dictionary,
+    uint32_t initial_tick_l32)
+{
+    if (context == NULL || dictionary == NULL ||
+        !vdc_timestamp_dictionary_validate(dictionary) ||
+        dictionary->profile_crc32 != context->schedule.schedule_crc32) {
+        return false;
+    }
+
+    context->timestamp_dictionary = *dictionary;
+    vdc_wrap_tracker_init(&context->wrap_tracker, initial_tick_l32);
+    return true;
+}
+
 bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
                                      const vdc_tdma_timestamp_evidence_t *evidence)
 {
@@ -1127,6 +1234,37 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
     vdc_domain_update_clock_from_evidence(context, evidence);
     vdc_domain_record_accepted_sample(context, evidence);
     return true;
+}
+
+bool vdc_domain_submit_compact_observation(
+    vdc_domain_context_t *context,
+    const vdc_compact_observation_sample_t *compact)
+{
+    vdc_tdma_timestamp_evidence_t evidence;
+    vdc_gate_result_t gate;
+
+    if (context == NULL || compact == NULL) {
+        return false;
+    }
+
+    if (!vdc_domain_expand_compact_observation(&context->schedule,
+                                               &context->timestamp_dictionary,
+                                               &context->wrap_tracker,
+                                               compact,
+                                               &evidence,
+                                               &gate)) {
+        context->gate = gate;
+        context->dpll.rejected_sample_count++;
+        context->dpll.last_reject_code = gate.reject_code;
+        context->dpll.update_seq++;
+        if (context->ready != 0u) {
+            context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
+        }
+        vdc_domain_record_rejected_sample(context, &evidence, &gate);
+        return false;
+    }
+
+    return vdc_domain_submit_tdma_evidence(context, &evidence);
 }
 
 bool vdc_domain_get_snapshot(const vdc_domain_context_t *context,

@@ -43,6 +43,38 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-015 - Compact observation evidence gate
+
+- 状态：完成 host/build 验证；真实 PIO/DMA capture ring 尚未接入
+- 日期：2026-08-16
+- 任务目标：
+  - 参考 RefMem 的表契约思路，把 capture fact 进入 VDC 的路径收敛为 active dictionary + wrap tracker + evidence gate，而不是让 realtime IO 直接构造 DPLL sample。
+  - 保持 HAOFV 边界：VDC owner 展开 timestamp fact 并执行 gate；`sync_io`/core1 只提供 compact observation，不写 offset/rate/lock。
+- 完成内容：
+  - 新增 `VdcCompactObservationSample`，作为 PIO/DMA/core1 capture fact 的最小载荷：`sample_seq`、`event_id`、`tick_l32`、expected window、CRC 和质量字段。
+  - `vdc_domain_context_t` 增加 active `VdcTimestampDictionary` 与 `VdcWrapTracker`。
+  - 新增 `vdc_domain_publish_timestamp_dictionary()`，要求 dictionary CRC、版本和 profile CRC 与 active TDMA schedule 匹配，发布时重置 wrap tracker。
+  - 新增 `vdc_domain_expand_compact_observation()`，按 dictionary 展开 event/source/resolution/flags，按 wrap tracker 扩展 tick，再生成 `VdcTDMATimestampEvidence` 并经过 observation window gate。
+  - 新增 `vdc_domain_submit_compact_observation()` 和 `vdc_dpll_manager_submit_compact_observation()` wrapper，后续 `task_vdc_sync` 可通过 manager 投递 capture fact。
+  - 单元测试覆盖 compact observation 展开、dictionary CRC 拒绝、stale tick 拒绝、context submit accepted/rejected 计数。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 文件命名 warning。
+  - `git diff --check` 通过，仅有 CRLF 提示。
+  - `cmake --build build-rtos-multicore-smoke` 通过。
+- 还需完成：
+  - 将 `sync_io` / PIO capture ring 的 raw word 转换为 `VdcCompactObservationSample`。
+  - 增加板端 COM5/COM6 HIL：真实 PIO observation sample 报告 source、resolution、late、phase error、CRC 和 gate result。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 进入 `sync_io` capture word 到 `VdcCompactObservationSample` 的最小接线，仍不得把软件时间戳标成 100 ns hardware evidence。
+
 ### VDC-TASK-20260816-014 - Timestamp dictionary and wrap tracker contract
 
 - 状态：完成 host/build 验证；capture ring 的完整 `seq_delta` 扩展待后续实现
