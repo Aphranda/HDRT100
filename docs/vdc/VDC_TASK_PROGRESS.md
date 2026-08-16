@@ -56,13 +56,13 @@ VdcSyncAO
   - `VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS` 从 8 提升到 32，确保一个 10 us / 100 ns observation window 的完整 word 集能在 VDC task 一次 service 中消费。
   - 修复“第一 observation window 尚未到达”被误判为窗口过期的边界条件；`start_delay_ns` 和 16 字段 self-test status 已同步到三份 SCPI 文档。
 - 验证结果：
-  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816063518`，OTA package CRC `0x85EC2ABA`。
+  - `cmake --build build-rtos-multicore-smoke` 通过，最终 build id `20260816065050`，OTA package CRC `0x65948FE3`。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
   - `python -m py_compile tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py` 通过。
-  - COM5 已 OTA/boot/commit 到 `20260816063518`；`SYST:LOOP:STAT? -> 1,281272,3557,260133`，`SYST:ERR? -> 0,"No error"`。TX-only self-test 返回 `1`，PIO/DMA pulse schedule 成功 arm，错误队列为空。
-  - COM6 在旧版 10 MHz DMA self-test 后 USB CDC 句柄不可用，OTA 传输超时，且 `picotool load -f` 无法将对应 USB device 强制重启入 BOOTSEL；需物理复位或重新插拔后再 OTA 到 `20260816063518`。
+  - COM5 已 OTA/boot/commit 到前置验证 build `20260816063518`；`SYST:LOOP:STAT? -> 1,281272,3557,260133`，`SYST:ERR? -> 0,"No error"`。TX-only self-test 返回 `1`，PIO/DMA pulse schedule 成功 arm，错误队列为空。最终双板闭环前 COM5 也需更新到 `20260816065050`。
+  - COM6 在旧版 10 MHz DMA self-test 后 USB CDC 句柄不可用，OTA 传输超时，且 `picotool load -f` 无法将对应 USB device 强制重启入 BOOTSEL；需物理复位或重新插拔后再 OTA 到 `20260816065050`。
 - 还需完成：
-  - COM6 恢复后 OTA/commit 两板，并运行 `tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py --port-a COM5 --port-b COM6 --expected-build 20260816063518`。
+  - COM6 恢复后 OTA/commit 两板，并运行 `tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py --port-a COM5 --port-b COM6 --expected-build 20260816065050`。
   - 验收必须同时满足 X->Y、Y->X `accepted_count` 增长、gate=0、source=2、resolution<=100 ns、`DPLL_ELIGIBLE=1`、`DIAGNOSTIC_ONLY=0` 和两板 core loop 持续增长。
 - 关联文件：
   - `components/sync_io/src/sync_io.c`
