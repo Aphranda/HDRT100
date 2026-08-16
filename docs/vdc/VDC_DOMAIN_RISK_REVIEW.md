@@ -97,7 +97,7 @@ Last updated: 2026-08-17
 
 1. **TODO 状态过期自相矛盾**。[VDC_DOMAIN_TODO.md:101](docs/vdc/VDC_DOMAIN_TODO.md#L101)「DPLL 未真正更新 clock model」已过期——代码已实现（`vdc_domain_update_clock_from_evidence`），且同文档 P3[:173](docs/vdc/VDC_DOMAIN_TODO.md#L173) 已标 `[x]`。
 
-2. **假任务壳**。[VDC_DOMAIN_ARCHITECTURE.md:604](docs/vdc/VDC_DOMAIN_ARCHITECTURE.md#L604) / [VDC_DOMAIN_TODO.md:97](docs/vdc/VDC_DOMAIN_TODO.md#L97) 声称 `task_vdc_sync`/`task_dpll` 状态壳已存在——全库 grep 无该符号，真实路径是 `vdc_dpll_manager_vdc_service()/dpll_service()/tdma_core1_service()`（`app.c`）。该命名还传播到 `RTOS_HAOFV_ARCHITECTURE.md`、`RTOS_HAOFV_TODO.md`、`HAOFV_MAINTENANCE_TODO.md`。
+2. **假任务壳**。处置状态（2026-08-17）：已开始纠偏。代码侧新增 `vdc_sync_ao_service()`、`sync_dpll_fb_service()` 和 `tdma_component_core1_service()` HAOFV 语义入口，`application/src/app.c` 的 core1 realtime loop 已改用新入口；历史 `vdc_dpll_manager_vdc_service()/dpll_service()/tdma_core1_service()` 保留为兼容 wrapper。文档侧仍需继续把旧 `task_vdc_sync` / `task_dpll` 叙述替换为 `VdcSyncAO / SyncDpllFB / VdcVector` 和 Angle DPLL 后续 owner。
 
 3. **lock_state 枚举漂移**。[VDC_DOMAIN_ARCHITECTURE.md:499](docs/vdc/VDC_DOMAIN_ARCHITECTURE.md#L499) 含 `LOCKING`；真实枚举（[vdc_domain.h:28-38](components/vdc_domain/inc/vdc_domain.h#L28-L38)）是 `OFF/CHECKING/INITIAL_SYNC/FREQ_LOCK/PHASE_LOCK/LOCKED/HOLDOVER/RELOCKING/FAULT`（无 `LOCKING`）。同文档状态机表（:535-545）是对的，仅此 token 过期。
 
@@ -136,5 +136,5 @@ Last updated: 2026-08-17
 | 5 | 清 VDC DPLL 质量口径和 slew limit（§5.2/§5.3） | 已纠偏：lock/quality/error budget 改为入相残差口径，`slew_limit_ppb` 跟随 active servo sanity limit。 |
 | 6 | 清 sync_io 边界 bug（§4 + §5 剩余） | 部分已纠偏：`word_span_ns` 溢出、DMA produced 整圈丢字、SEQ gate 前置校验、ENC_COUNT 运行中 ISR 注入、model completion 饱和、ambiguous 基线已完成；SM 互斥、假 fire、非 capture DMA claim 仍待处理。 |
 | 7 | 补 manager/sync_io 单测（§7.1/7.3） | 高风险集成层当前零 host 覆盖。 |
-| 8 | 统一文档漂移（§6） | 先删不存在的 `task_vdc_sync`/`task_dpll` 壳描述与过期 TODO 状态，再对齐枚举/公式/SCPI 树。 |
+| 8 | 统一文档漂移（§6） | 已开始纠偏：代码侧已有 HAOFV 语义 service 入口，旧 manager service 降为 wrapper；下一步继续清旧 `task_vdc_sync`/`task_dpll` 文档叙述，并对齐枚举/公式/SCPI 树。 |
 | 9 | 专项审 `components/tdma` 本体（§1 范围外） | TDMA 是 VDC 稳定性的前置条件，`tdma_service.c` 尚未逐行审。 |

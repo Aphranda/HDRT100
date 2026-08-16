@@ -109,11 +109,11 @@ TDMA 最小实例约束：
 
 | 优先级 | 风险项 | 当前状态 | 纠偏目标 |
 |---:|---|---|---|
-| P0 | `VdcSyncAO / SyncDpllFB / VdcVector` 尚未实体化。 | `vdc_domain.c` 仍是单体 domain core，`vdc_dpll_manager` 仍是兼容 wrapper，`task_vdc_sync` 只是 1 ms service 壳。 | 建立 VDC AO/FB 内部边界：SCPI/System 只能投递 command/event，`VdcSyncAO` 拥有 schedule/profile/cal binding，`SyncDpllFB` 唯一写 offset/rate/lock，`VdcVector` 发布稳定 snapshot。 |
+| P0 | `VdcSyncAO / SyncDpllFB / VdcVector` 尚未完全实体化。 | 已新增 `vdc_sync_ao_service()`、`sync_dpll_fb_service()` 和 `tdma_component_core1_service()` 语义入口，core1 realtime loop 已改用新入口；旧 `vdc_dpll_manager_*_service()` 保留为兼容 wrapper。当前 `vdc_domain.c` 仍是单体 domain core，`vdc_dpll_manager` 仍承载集成层、observer/self-test 和 snapshot 发布。 | 继续建立 VDC AO/FB 内部边界：SCPI/System 只能投递 command/event，`VdcSyncAO` 拥有 schedule/profile/cal binding，`SyncDpllFB` 唯一写 offset/rate/lock，`VdcVector` 发布稳定 snapshot。 |
 | P0 | TDMA plan 未被 core1/PIO 消费。 | `components/tdma` 已成为唯一 scheduler/transport/timestamp spine；RefMem 通过 `refmem_tdma_payload_register()` 注册 DELTA/ACK_FENCE，VDC 通过 `vdc_tdma_payload_register()` 注册 SYNC_SAMPLE/IDLE_BEACON；NodeLoad AUTO TX/RX 会从 VDC manager 获取 `REFMEM_DATA_WINDOW` 计划，core1 service 已能在 guard 前保持 pending、窗口错过时拒绝、进入 payload window 后执行。 | 继续把该路径接到真实 PIO timestamp latch，并把 `VDC_OBSERVATION_WINDOW` 的 SYNC sample 变成正式 DPLL 输入。 |
 | P0 | TDMA payload completion 仍不够可靠。 | COM5/COM6 回归曾观察到 AUTO NodeLoad 首次 B->A 只应用 1/2 帧，TDMA snapshot 记录 `WINDOW_MISSED`；重跑通过说明链路可用，但当前仍缺少强 completion。 | TDMA/RefMem 必须补 ACK/重发/fence completion 和故障注入，保证 missed window 不会造成静默丢帧；该项优先于继续扩大 VDC DPLL 锁定算法。 |
 | P0 | 缺少硬件 timestamp latch。 | 当前板端 evidence 仍来自 `time_us_64()*1000` 或 `board_uptime_ms()*1e6`，只能做诊断。 | 增加 PIO/DMA/IRQ/core1 capture latch，正式 DPLL sample 必须 `timestamp_source=HARDWARE_TICK` 且 `timestamp_resolution_ns <= 100`。 |
-| P0 | DPLL 算法未真正更新 clock model。 | `vdc_domain_submit_tdma_evidence()` 只做门禁、计数和简化状态推进，未根据 phase/frequency error 更新 `period_adjust_ppb` / `phase_offset_ns`。 | 将 PI/linreg 或等价 servo 收敛到 `SyncDpllFB`，实现 offset/rate、outlier、step/slew、sanity limit、reset 和 staged profile。 |
+| P0 | DPLL servo 仍需从 domain 单体中拆成 `SyncDpllFB`。 | 当前 `vdc_domain_submit_tdma_evidence()` 已根据 phase/frequency error 更新 `period_adjust_ppb` / `phase_offset_ns`，并发布 DCO snapshot；但实现仍位于 `vdc_domain.c` 单体内部，尚未形成独立 `SyncDpllFB` action/state table 和 profile staging。 | 将现有 PI/servo、outlier、step/slew、sanity limit、reset 和 staged profile 收敛到 `SyncDpllFB` 组件边界，保持 offset/rate/lock/DCO 唯一 writer。 |
 | P1 | VDC snapshot 尚未发布到 RefMem `VdcSlot`。 | RefMem application model 有 VDC/DPLL 区域字段，但 VDC 主域未按唯一 writer、guard、sequence/CRC 发布。 | 定义 `VdcSlot` 字段级 contract，VDC owner 写 snapshot/quality/fault/evidence，RefMem 只镜像和同步。 |
 | P1 | RUN gate 未消费 VDC quality/error budget。 | RUN gate 已有 RefMem quality 约束，VDC lock/holdover/error budget 尚未进入统一门禁。 | `VdcQualityTable`、`VdcErrorBudget`、`VdcGateResult` 接入 SystemManager RUN gate 和 report evidence。 |
 | P1 | `CONFigure:SYNC:VDC:DPLL`、`SYNC:*` 仍是 accepted stub 或固定回复。 | SCPI 入口未进入 VdcSyncAO command/event，也未写 staging profile。 | `CONFigure:SYNC:*` 写 VDC/System Pack staging，`SYNC:CHECk/STARt/STOP/RELock/HOLDover` 进入 VdcSyncAO event，查询只读 snapshot。 |
@@ -235,7 +235,7 @@ TDMA 最小实例约束：
 - [ ] 新增 `vdc_quality.h/.c`。
 - [x] 新增 `vdc_timestamp.h/.c`。
 - [x] 让旧 `components/vdc_dpll_manager/` 过渡为兼容 wrapper 或逐步拆空。
-- [ ] 修改 `application/src/app_tasks.c`，让 `task_vdc_sync` 直接服务 VDC Domain owner。
+- [x] 修改 core1 realtime loop，让 VDC 执行入口使用 `vdc_sync_ao_service()` / `sync_dpll_fb_service()` / `tdma_component_core1_service()` HAOFV 语义命名；旧 `vdc_dpll_manager_*_service()` 仅保留为兼容 wrapper。
 - [ ] 修改 SCPI VDC/SYNC 查询，保持读取 snapshot，不直接访问内部状态。
 
 ## P7 - SCPI / System Pack 接入

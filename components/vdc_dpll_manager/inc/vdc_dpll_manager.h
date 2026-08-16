@@ -151,6 +151,9 @@ typedef struct {
 bool vdc_dpll_manager_init(void);
 void vdc_dpll_manager_set_vdc_ready(bool ready);
 void vdc_dpll_manager_set_dpll_ready(bool ready);
+void vdc_sync_ao_service(void);
+void sync_dpll_fb_service(void);
+void tdma_component_core1_service(void);
 void vdc_dpll_manager_vdc_service(void);
 void vdc_dpll_manager_dpll_service(void);
 void vdc_dpll_manager_tdma_core1_service(void);

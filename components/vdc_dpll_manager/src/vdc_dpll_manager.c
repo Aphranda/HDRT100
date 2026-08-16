@@ -554,7 +554,7 @@ void vdc_dpll_manager_set_dpll_ready(bool ready)
     osal_critical_exit();
 }
 
-void vdc_dpll_manager_vdc_service(void)
+void vdc_sync_ao_service(void)
 {
     const uint32_t now_ms = board_uptime_ms();
     vdc_domain_snapshot_t snapshot;
@@ -577,6 +577,11 @@ void vdc_dpll_manager_vdc_service(void)
     s_published_snapshot_valid = true;
     s_published_vdc_status = s_vdc_status;
     osal_critical_exit();
+}
+
+void vdc_dpll_manager_vdc_service(void)
+{
+    vdc_sync_ao_service();
 }
 
 bool vdc_dpll_manager_configure_sync_io_observer(
@@ -949,7 +954,7 @@ void vdc_dpll_manager_get_sync_io_observer_status(
     osal_critical_exit();
 }
 
-void vdc_dpll_manager_dpll_service(void)
+void sync_dpll_fb_service(void)
 {
     const uint32_t now_ms = board_uptime_ms();
     vdc_domain_snapshot_t snapshot;
@@ -1015,9 +1020,19 @@ void vdc_dpll_manager_dpll_service(void)
     osal_critical_exit();
 }
 
-void vdc_dpll_manager_tdma_core1_service(void)
+void vdc_dpll_manager_dpll_service(void)
+{
+    sync_dpll_fb_service();
+}
+
+void tdma_component_core1_service(void)
 {
     tdma_service_core1_service(&s_vdc_tdma_service);
+}
+
+void vdc_dpll_manager_tdma_core1_service(void)
+{
+    tdma_component_core1_service();
 }
 
 void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status)

@@ -43,6 +43,40 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260817-009 - HAOFV service boundary naming closure
+
+- 状态：完成代码入口纠偏、文档待办/风险状态同步、host/build 验证、COM5/COM6 OTA 和 accepted-only HIL；完整 AO/FB 文件级拆分仍是后续任务。
+- 日期：2026-08-17
+- 任务目标：
+  - 按 HAOFV 逐步规范 VDC，先纠正代码中 `vdc_dpll_manager_*_service()` 与文档中 `VdcSyncAO / SyncDpllFB / VdcVector` 的 owner 边界命名不一致。
+  - 保持小步迁移：不一次性重构 `vdc_domain.c` 和 `vdc_dpll_manager.c`，先建立稳定语义入口，再继续拆分内部实现。
+- 完成内容：
+  - 新增 `vdc_sync_ao_service()`：承载 VdcSyncAO 语义，服务 observation self-test、SYNC_IO observer、VDC domain snapshot 发布和 VdcVector 状态刷新。
+  - 新增 `sync_dpll_fb_service()`：承载 SyncDpllFB/core1 DCO consumer 语义，读取稳定 VDC snapshot，验证并镜像 DCO snapshot。
+  - 新增 `tdma_component_core1_service()`：承载公共 TDMA component core1 service 语义。
+  - `application/src/app.c` 的 `app_realtime_run_once()` 改用上述 HAOFV 语义入口；旧 `vdc_dpll_manager_vdc_service()`、`vdc_dpll_manager_dpll_service()`、`vdc_dpll_manager_tdma_core1_service()` 保留为兼容 wrapper。
+  - `VDC_DOMAIN_TODO.md` 更新 P0 状态：DPLL 已能更新 clock model，但仍需从 `vdc_domain.c` 单体中拆成独立 `SyncDpllFB`。
+  - `VDC_DOMAIN_RISK_REVIEW.md` 将“假任务壳”从未纠偏改为已开始纠偏，并记录后续仍需清文档旧叙述。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `python tools\docs_check\docs_check.py` 通过；仍有既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 和 `VDC_DOMAIN_RISK_REVIEW.md` 文件名 warning。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，生成 build id `20260816183723`，package CRC `0xB62B9E77`。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --expected-build 20260816183723 --max-workers 2` 通过，两板均升级到 build `20260816183723`。
+  - COM5/COM6 只读 smoke 通过：`SYST:FW:BUILD?` 均为 `"20260816183723"`，`SYST:SYNC:VDC:DCO?` valid，`SYST:ERR?` 均为 `0,"No error"`。
+  - `python tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py --port-x COM5 --port-y COM6 --name-x COM5 --name-y COM6 --expected-build 20260816183723 --poll-timeout 90 --output-index 2 --observed-mask 4 --pulse-count 4096 --pulse-high-ns 1000 --accepted-only --reverse` 通过；COM5->COM6 `accepted=0->5 observer_accepted=0->1 source=HARDWARE_TICK resolution_ns=100 flags=DPLL_ELIGIBLE gate=PASS`，COM6->COM5 `accepted=0->6 observer_accepted=0->5 source=HARDWARE_TICK resolution_ns=100 flags=DPLL_ELIGIBLE gate=PASS`。
+- 还需完成：
+  - 后续继续把 `vdc_domain.c` 中的 servo/quality/clock model 拆为 `vdc_dpll`、`vdc_quality`、`vdc_clock_model`，并让 SCPI 入口只投递 VdcSyncAO command/event 或只读 VdcVector。
+  - 继续清理 `docs/arch` 和 `docs/interface` 中旧 `task_vdc_sync` / `task_dpll` 叙述。
+- 关联文件：
+  - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `application/src/app.c`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+  - `docs/vdc/VDC_DOMAIN_RISK_REVIEW.md`
+- 下一步：
+  - 继续处理 VDC 自动运行 `WINDOW_BOUND` 稳定性问题，或拆分 `SyncDpllFB` 内部文件边界。
+
 ### VDC-TASK-20260817-008 - VDC 自动运行长监控
 
 - 状态：完成工具落盘和 COM5/COM6 180 s 双向采样；监控结果显示当前 bring-up 链路可持续产生 accepted 样本，但锁相稳定性未闭环。
