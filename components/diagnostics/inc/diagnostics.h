@@ -21,6 +21,10 @@ typedef struct {
     uint32_t queue_dropped_count;
     uint32_t queue_bytes;
     uint32_t queue_high_watermark;
+    uint32_t persistent_queue_dropped_count;
+    uint32_t persistent_queue_dropped_bytes;
+    uint32_t persistent_queue_bytes;
+    uint32_t persistent_queue_high_watermark;
 } diagnostics_status_t;
 
 typedef struct {

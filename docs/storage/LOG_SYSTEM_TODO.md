@@ -4,7 +4,7 @@ Status: Active
 Domain: LOG
 Canonical: `docs/storage/LOG_SYSTEM_TODO.md`
 Related: `docs/interface/SCPI_COMMANDS.md`, `docs/storage/SD_TODO.md`
-Last updated: 2026-07-07
+Last updated: 2026-08-17
 
 本文档跟踪 RP2350_TRIG 的统一 LOG/TRACE 体系。目标不是把所有信息都打印到 USB CDC，
 而是分层保留调试证据：串口 LOG 给人快速观察，二进制 TRACE 给机器稳定解码，
@@ -75,7 +75,8 @@ SNAPSHOT/REPORT 给故障闭环归档。
 - [ ] 为 LOG 增加 module/domain 级开关：全局最小等级 + 单域覆盖。
 - [ ] 增加周期日志限速策略，避免 health/debug 日志干扰 SCPI、OTA 和 binary block。
 - [x] 将 `portable_log_port` 从同步直写演进为 ring buffer + service flush，缩短 critical section 并为多 backend 做准备。
-- [ ] 增加 `/logs/run` 文本日志落盘 job，必须走 StorageAO，禁止在 SCPI 回调或 IRQ 中直接写 SD。
+- [x] 增加 `/logs/run` 文本日志落盘后台 sink：`portable_log_port` 只维护 RAM 持久化队列，`StorageAO` 在显式 job 空闲时按阈值/周期分片写 SD；禁止在 SCPI 回调、core1、PIO/DMA/IRQ 中直接写 SD。
+- [ ] 将 `/logs/run` sink 升级为按行切分、轮转、容量保护和 boot/run/fault 一致索引。
 - [ ] 增加 ring buffer 快照命令：查询最近 N 条文本 LOG 或 trace 摘要，避免必须拔卡。
 - [ ] 将板端验证工具统一收集 `queries.txt`、`log_status`、`trace_last`、`snapshot_last`。
 - [ ] 为 OTA 传输期间定义静默策略：暂停周期 LOG，仅保留 ERROR 和二进制 trace 计数。
@@ -94,9 +95,11 @@ SNAPSHOT/REPORT 给故障闭环归档。
 - 硬实时 PIO/DMA/IRQ 路径不得调用 `printf`、`LOG_*`、FatFs、StorageAO job 或阻塞式 trace 写入。
 - IRQ 中只允许维护必要计数、锁存状态或投递极小事件；详细证据在管理面采样、DISARM 或 FAULT 后补齐。
 - USB CDC 与 SCPI 共通道，调试日志必须可降级或关闭，OTA binary block 期间必须避免周期文本日志。
+- `/logs/run` 运行日志落盘由 StorageAO 后台 service 执行；实时核心只允许通过已有状态/FIFO/Vector 摘要间接暴露诊断事实，不得格式化文本或访问 SD。
 
 ## HAOFV 约束
 
 - LOG 底层遵循表驱动：等级名称、跨层等级映射、后续 backend 策略和 domain 过滤策略都应由静态表描述。
 - LOG 流程代码只负责校验、查表、格式化和投递，不应散落 `switch`/`if` 决策树。
 - `third_party/portable_log` 只保存平台无关规则；RP2350 输出通道、时间戳和后续多 backend 策略放在 `middleware/portable_log_port`。
+- `StorageVector` 只发布 last log sequence、bytes、path hash、pending/drop/error 摘要；日志正文保存在 `/logs/run/*.log`，不得放入 Vector。

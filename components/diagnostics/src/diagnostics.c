@@ -134,6 +134,10 @@ void diagnostics_get_status(diagnostics_status_t *status)
     status->queue_dropped_count = log_status.queue_dropped_count;
     status->queue_bytes = log_status.queue_bytes;
     status->queue_high_watermark = log_status.queue_high_watermark;
+    status->persistent_queue_dropped_count = log_status.persistent_queue_dropped_count;
+    status->persistent_queue_dropped_bytes = log_status.persistent_queue_dropped_bytes;
+    status->persistent_queue_bytes = log_status.persistent_queue_bytes;
+    status->persistent_queue_high_watermark = log_status.persistent_queue_high_watermark;
 }
 
 void diagnostics_record_core0_loop(void)

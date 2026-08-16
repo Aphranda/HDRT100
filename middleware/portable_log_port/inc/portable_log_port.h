@@ -3,6 +3,7 @@
 
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef enum {
@@ -22,6 +23,10 @@ typedef struct {
     uint32_t queue_dropped_count;
     uint32_t queue_bytes;
     uint32_t queue_high_watermark;
+    uint32_t persistent_queue_dropped_count;
+    uint32_t persistent_queue_dropped_bytes;
+    uint32_t persistent_queue_bytes;
+    uint32_t persistent_queue_high_watermark;
 } portable_log_port_status_t;
 
 void portable_log_port_init(void);
@@ -37,5 +42,7 @@ void portable_log_port_vwrite(portable_log_port_level_t level,
 bool portable_log_port_set_min_level(portable_log_port_level_t level);
 portable_log_port_level_t portable_log_port_get_min_level(void);
 void portable_log_port_get_status(portable_log_port_status_t *status);
+size_t portable_log_port_persistent_peek(char *buffer, size_t buffer_size);
+void portable_log_port_persistent_discard(size_t byte_count);
 
 #endif

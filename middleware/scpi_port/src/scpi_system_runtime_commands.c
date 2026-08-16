@@ -8,6 +8,7 @@
 #include "project_build_info.h"
 #include "project_config.h"
 #include "scpi_port_internal.h"
+#include "storage_manager.h"
 
 scpi_result_t scpi_cmd_core_tst_q(scpi_t *context)
 {
@@ -101,6 +102,21 @@ scpi_result_t scpi_cmd_log_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.queue_dropped_count);
     SCPI_ResultUInt32(context, status.queue_bytes);
     SCPI_ResultUInt32(context, status.queue_high_watermark);
+    SCPI_ResultUInt32(context, status.persistent_queue_dropped_count);
+    SCPI_ResultUInt32(context, status.persistent_queue_dropped_bytes);
+    SCPI_ResultUInt32(context, status.persistent_queue_bytes);
+    SCPI_ResultUInt32(context, status.persistent_queue_high_watermark);
+
+    storage_manager_vector_t storage;
+    storage_manager_get_vector(&storage);
+    SCPI_ResultUInt32(context, storage.last_log_id);
+    SCPI_ResultUInt32(context, storage.last_log_bytes);
+    SCPI_ResultUInt32(context, storage.last_log_path_hash);
+    SCPI_ResultUInt32(context, storage.last_log_error);
+    SCPI_ResultUInt32(context, storage.log_segment_count);
+    SCPI_ResultUInt32(context, storage.log_flushed_bytes);
+    SCPI_ResultUInt32(context, storage.log_attempt_error);
+    SCPI_ResultText(context, storage.last_log_path);
     return SCPI_RES_OK;
 }
 

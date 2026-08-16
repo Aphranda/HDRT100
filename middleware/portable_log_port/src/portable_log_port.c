@@ -7,6 +7,7 @@
 enum {
     PORTABLE_LOG_PORT_LINE_BUFFER_SIZE = 192,
     PORTABLE_LOG_PORT_QUEUE_SIZE = 2048,
+    PORTABLE_LOG_PORT_PERSISTENT_QUEUE_SIZE = 4096,
     PORTABLE_LOG_PORT_SERVICE_BYTES_DEFAULT = 256,
 };
 
@@ -14,11 +15,18 @@ static bool s_log_initialized;
 static portable_log_t s_log;
 static char s_log_line_buffer[PORTABLE_LOG_PORT_LINE_BUFFER_SIZE];
 static char s_log_queue[PORTABLE_LOG_PORT_QUEUE_SIZE];
+static char s_log_persistent_queue[PORTABLE_LOG_PORT_PERSISTENT_QUEUE_SIZE];
 static uint32_t s_log_queue_head;
 static uint32_t s_log_queue_tail;
 static uint32_t s_log_queue_count;
 static uint32_t s_log_queue_high_watermark;
 static uint32_t s_log_queue_dropped_count;
+static uint32_t s_log_persistent_queue_head;
+static uint32_t s_log_persistent_queue_tail;
+static uint32_t s_log_persistent_queue_count;
+static uint32_t s_log_persistent_queue_high_watermark;
+static uint32_t s_log_persistent_queue_dropped_count;
+static uint32_t s_log_persistent_queue_dropped_bytes;
 
 typedef struct {
     portable_log_port_level_t port_level;
@@ -64,6 +72,11 @@ static uint32_t portable_log_port_queue_space(void)
     return (uint32_t)PORTABLE_LOG_PORT_QUEUE_SIZE - s_log_queue_count;
 }
 
+static uint32_t portable_log_port_persistent_queue_space(void)
+{
+    return (uint32_t)PORTABLE_LOG_PORT_PERSISTENT_QUEUE_SIZE - s_log_persistent_queue_count;
+}
+
 static bool portable_log_port_queue_push(const char *text, size_t length)
 {
     if (length > (size_t)portable_log_port_queue_space()) {
@@ -82,6 +95,29 @@ static bool portable_log_port_queue_push(const char *text, size_t length)
     s_log_queue_count += (uint32_t)length;
     if (s_log_queue_count > s_log_queue_high_watermark) {
         s_log_queue_high_watermark = s_log_queue_count;
+    }
+    return true;
+}
+
+static bool portable_log_port_persistent_queue_push(const char *text, size_t length)
+{
+    if (length > (size_t)portable_log_port_persistent_queue_space()) {
+        s_log_persistent_queue_dropped_count++;
+        s_log_persistent_queue_dropped_bytes += (uint32_t)length;
+        return false;
+    }
+
+    for (size_t i = 0u; i < length; i++) {
+        s_log_persistent_queue[s_log_persistent_queue_head] = text[i];
+        s_log_persistent_queue_head++;
+        if (s_log_persistent_queue_head >= (uint32_t)PORTABLE_LOG_PORT_PERSISTENT_QUEUE_SIZE) {
+            s_log_persistent_queue_head = 0u;
+        }
+    }
+
+    s_log_persistent_queue_count += (uint32_t)length;
+    if (s_log_persistent_queue_count > s_log_persistent_queue_high_watermark) {
+        s_log_persistent_queue_high_watermark = s_log_persistent_queue_count;
     }
     return true;
 }
@@ -109,7 +145,9 @@ static bool portable_log_port_emit(void *user, const char *text, size_t length)
         return false;
     }
 
-    return portable_log_port_queue_push(text, length);
+    const bool usb_ok = portable_log_port_queue_push(text, length);
+    (void)portable_log_port_persistent_queue_push(text, length);
+    return usb_ok;
 }
 
 static void portable_log_port_lock(void *user)
@@ -153,6 +191,12 @@ void portable_log_port_init(void)
     s_log_queue_count = 0u;
     s_log_queue_high_watermark = 0u;
     s_log_queue_dropped_count = 0u;
+    s_log_persistent_queue_head = 0u;
+    s_log_persistent_queue_tail = 0u;
+    s_log_persistent_queue_count = 0u;
+    s_log_persistent_queue_high_watermark = 0u;
+    s_log_persistent_queue_dropped_count = 0u;
+    s_log_persistent_queue_dropped_bytes = 0u;
     osal_critical_exit();
     portable_log_port_init_once();
 }
@@ -238,5 +282,49 @@ void portable_log_port_get_status(portable_log_port_status_t *status)
     status->queue_dropped_count = s_log_queue_dropped_count;
     status->queue_bytes = s_log_queue_count;
     status->queue_high_watermark = s_log_queue_high_watermark;
+    status->persistent_queue_dropped_count = s_log_persistent_queue_dropped_count;
+    status->persistent_queue_dropped_bytes = s_log_persistent_queue_dropped_bytes;
+    status->persistent_queue_bytes = s_log_persistent_queue_count;
+    status->persistent_queue_high_watermark = s_log_persistent_queue_high_watermark;
+    osal_critical_exit();
+}
+
+size_t portable_log_port_persistent_peek(char *buffer, size_t buffer_size)
+{
+    if (buffer == NULL || buffer_size == 0u) {
+        return 0u;
+    }
+
+    portable_log_port_init_once();
+
+    osal_critical_enter();
+    const size_t copy_count = s_log_persistent_queue_count < (uint32_t)buffer_size ?
+                                  (size_t)s_log_persistent_queue_count :
+                                  buffer_size;
+    uint32_t index = s_log_persistent_queue_tail;
+    for (size_t i = 0u; i < copy_count; i++) {
+        buffer[i] = s_log_persistent_queue[index];
+        index++;
+        if (index >= (uint32_t)PORTABLE_LOG_PORT_PERSISTENT_QUEUE_SIZE) {
+            index = 0u;
+        }
+    }
+    osal_critical_exit();
+    return copy_count;
+}
+
+void portable_log_port_persistent_discard(size_t byte_count)
+{
+    portable_log_port_init_once();
+
+    osal_critical_enter();
+    size_t discard_count = byte_count;
+    if (discard_count > (size_t)s_log_persistent_queue_count) {
+        discard_count = (size_t)s_log_persistent_queue_count;
+    }
+    s_log_persistent_queue_tail =
+        (s_log_persistent_queue_tail + (uint32_t)discard_count) %
+        (uint32_t)PORTABLE_LOG_PORT_PERSISTENT_QUEUE_SIZE;
+    s_log_persistent_queue_count -= (uint32_t)discard_count;
     osal_critical_exit();
 }

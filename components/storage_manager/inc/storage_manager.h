@@ -88,6 +88,17 @@ typedef struct {
     uint32_t last_trace_event_count;
     char last_trace_kind[16];
     char last_trace_path[96];
+    uint32_t last_log_id;
+    uint32_t last_log_path_hash;
+    uint32_t last_log_error;
+    uint32_t last_log_bytes;
+    uint32_t log_segment_count;
+    uint32_t log_flushed_bytes;
+    uint32_t log_pending_bytes;
+    uint32_t log_dropped_count;
+    uint32_t log_dropped_bytes;
+    uint32_t log_attempt_error;
+    char last_log_path[96];
     uint32_t last_fault_report_id;
     uint32_t last_fault_report_path_hash;
     uint32_t last_fault_report_error;

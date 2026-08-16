@@ -4,7 +4,7 @@ Status: Active
 Domain: SD
 Canonical: `docs/storage/SD_TODO.md`
 Related: `docs/storage/SD_TASK_PROGRESS.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`
-Last updated: 2026-08-14
+Last updated: 2026-08-17
 
 本文档定义 RP2350_TRIG 的 SD 卡系统。SD 卡不是简单 OTA 介质，而是 App 侧 **System Pack 介质 + 持久化观测层**，用于任务配置、校准补偿、Pack/Ref 版本管理、Vector/反射内存快照、脉冲异常 trace、运行报告、产测结果和离线 OTA。
 
@@ -48,6 +48,7 @@ SD System Pack        = 历史事实、任务包、校准包、证据包
 | `PackFB` | StorageFB 内部子功能块，扫描、校验、checkout System Pack。 |
 | `RefFB` | StorageFB 内部子功能块，解析和事务切换 `active/previous/factory/candidate`。 |
 | `SnapshotFB` | StorageFB 内部子功能块，写 snapshot/report，并关联 active pack 摘要。 |
+| `RuntimeLogSinkFB` | StorageFB 内部子功能块，从 LOG RAM 持久化队列分片取文本，在显式 job 空闲时写入 `/logs/run`。 |
 | `StorageVector` | 发布卡状态、job 摘要、pack/ref 摘要、最近 snapshot/trace/report 摘要。 |
 | `Resource Arbiter` | 串行化 `SPI0 + SD`、`SPI0 + LCD`、`FLASH`。 |
 | `FatFs Port / sd_card driver` | 只提供文件系统和 block 访问，不保存业务状态。 |
@@ -59,7 +60,7 @@ SCPI/UI/PC tool intent
   -> storage_manager_post_event()
   -> StorageAO
   -> StorageFB
-     -> RefFB / PackFB / SnapshotFB
+     -> RefFB / PackFB / SnapshotFB / RuntimeLogSinkFB
   -> Resource Arbiter
   -> FatFs / sd_card
   -> StorageVector summary
@@ -80,6 +81,12 @@ OFFLINE_OTA selected
 pulse fault captured
   -> DiagnosticsAO FAULT_LATCHED
   -> StorageAO WRITE_SNAPSHOT + WRITE_TRACE
+
+runtime LOG line emitted on core0 management plane
+  -> portable_log_port RAM persistence queue
+  -> StorageAO RuntimeLogSinkFB
+  -> /logs/run/run_XXXXXX.log
+  -> StorageVector log segment summary
 ```
 
 ## 3. System Pack 与 Git-like 模型

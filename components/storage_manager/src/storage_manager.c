@@ -8,6 +8,7 @@
 #include "fatfs_port.h"
 #include "osal.h"
 #include "ota_crc32.h"
+#include "portable_log_port.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
 #include "pico/time.h"
@@ -29,6 +30,9 @@
 #define STORAGE_MANAGER_MANIFEST_MAX_LINE 160u
 #define STORAGE_MANAGER_SNAPSHOT_MAX_BYTES 768u
 #define STORAGE_MANAGER_FAULT_REPORT_MAX_BYTES 1024u
+#define STORAGE_MANAGER_RUNTIME_LOG_CHUNK_MAX_BYTES 1024u
+#define STORAGE_MANAGER_RUNTIME_LOG_FLUSH_THRESHOLD_BYTES 512u
+#define STORAGE_MANAGER_RUNTIME_LOG_FLUSH_PERIOD_MS 5000u
 #define STORAGE_MANAGER_FILE_READ_MAX_BYTES 512u
 #define STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES 8192u
 #define STORAGE_MANAGER_CATALOG_PAGE_MAX_BYTES 384u
@@ -101,6 +105,7 @@ static uint8_t s_boot_snapshot_step;
 static storage_manager_write_snapshot_t s_write_snapshot;
 static uint8_t s_write_buffer[STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES];
 static uint32_t s_next_write_txn_id;
+static uint32_t s_runtime_log_last_attempt_ms;
 
 static const storage_manager_write_contract_t s_write_contracts[] = {
     {
@@ -147,6 +152,7 @@ static const char *const s_system_pack_dirs[] = {
     "/reports/fault",
     "/reports/acceptance",
     "/logs",
+    "/logs/run",
     "/update",
     "/update/compat",
     "/factory",
@@ -211,6 +217,7 @@ bool storage_manager_init(void)
     memset(s_write_buffer, 0, sizeof(s_write_buffer));
     s_next_job_id = 1u;
     s_next_write_txn_id = 1u;
+    s_runtime_log_last_attempt_ms = 0u;
     s_boot_snapshot_pending = true;
     s_boot_snapshot_due_ms = storage_now_ms() + STORAGE_MANAGER_BOOT_SNAPSHOT_DELAY_MS;
     s_boot_snapshot_step = 0u;
@@ -544,6 +551,34 @@ static void storage_publish_trace_result(const char *kind,
     storage_copy_field(s_storage_vector.last_trace_path,
                        sizeof(s_storage_vector.last_trace_path),
                        path);
+}
+
+static void storage_publish_runtime_log_result(uint32_t sequence,
+                                               const char *path,
+                                               uint32_t byte_count,
+                                               uint32_t error)
+{
+    s_storage_vector.log_attempt_error = error;
+    if (error == STORAGE_MANAGER_ERROR_NONE) {
+        s_storage_vector.last_log_id = sequence;
+        s_storage_vector.last_log_error = STORAGE_MANAGER_ERROR_NONE;
+        s_storage_vector.last_log_bytes = byte_count;
+        s_storage_vector.last_log_path_hash = storage_hash_path(path);
+        s_storage_vector.log_segment_count++;
+        s_storage_vector.log_flushed_bytes += byte_count;
+        storage_copy_field(s_storage_vector.last_log_path,
+                           sizeof(s_storage_vector.last_log_path),
+                           path);
+    }
+}
+
+static void storage_publish_runtime_log_queue_status(void)
+{
+    portable_log_port_status_t status;
+    portable_log_port_get_status(&status);
+    s_storage_vector.log_pending_bytes = status.persistent_queue_bytes;
+    s_storage_vector.log_dropped_count = status.persistent_queue_dropped_count;
+    s_storage_vector.log_dropped_bytes = status.persistent_queue_dropped_bytes;
 }
 
 static void storage_publish_fault_report_result(uint32_t sequence,
@@ -2968,6 +3003,112 @@ bool storage_manager_write_trace(const char *kind)
     return true;
 }
 
+static bool storage_manager_write_runtime_log_segment(void)
+{
+    char payload[STORAGE_MANAGER_RUNTIME_LOG_CHUNK_MAX_BYTES + 1u];
+    const size_t payload_size =
+        portable_log_port_persistent_peek(payload, STORAGE_MANAGER_RUNTIME_LOG_CHUNK_MAX_BYTES);
+    if (payload_size == 0u) {
+        storage_publish_runtime_log_queue_status();
+        return true;
+    }
+    payload[payload_size] = '\0';
+
+    if (!storage_manager_probe()) {
+        storage_publish_runtime_log_result(0u, "", 0u, s_storage_vector.storage_error);
+        storage_publish_runtime_log_queue_status();
+        return false;
+    }
+
+    if (!storage_acquire_sd_resource()) {
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
+        storage_publish_runtime_log_result(0u, "", 0u, STORAGE_MANAGER_ERROR_RESOURCE_BUSY);
+        storage_publish_runtime_log_queue_status();
+        return false;
+    }
+
+    fatfs_port_status_t status = fatfs_port_make_directory("/logs");
+    if (status == FATFS_PORT_STATUS_OK) {
+        status = fatfs_port_make_directory("/logs/run");
+    }
+    if (status != FATFS_PORT_STATUS_OK) {
+        storage_release_sd_resource();
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_WRITE_FAILED;
+        storage_publish_runtime_log_result(0u, "", 0u, STORAGE_MANAGER_ERROR_WRITE_FAILED);
+        storage_publish_runtime_log_queue_status();
+        return false;
+    }
+
+    uint32_t max_sequence = 0u;
+    status = fatfs_port_find_max_sequence("/logs/run", "run_", ".log", &max_sequence);
+    if (status != FATFS_PORT_STATUS_OK || max_sequence >= 999999u) {
+        storage_release_sd_resource();
+        s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_SEQUENCE;
+        storage_publish_runtime_log_result(0u, "", 0u, STORAGE_MANAGER_ERROR_SEQUENCE);
+        storage_publish_runtime_log_queue_status();
+        return false;
+    }
+
+    const uint32_t sequence = max_sequence + 1u;
+    char final_path[96];
+    char tmp_path[96];
+    (void)snprintf(final_path,
+                   sizeof(final_path),
+                   "/logs/run/run_%06lu.log",
+                   (unsigned long)sequence);
+    (void)snprintf(tmp_path, sizeof(tmp_path), "/logs/run/run.tmp");
+
+    status = fatfs_port_write_text_file_atomic(final_path, tmp_path, payload);
+    storage_release_sd_resource();
+
+    if (status != FATFS_PORT_STATUS_OK) {
+        const uint32_t error = status == FATFS_PORT_STATUS_RENAME_FAILED ?
+                                   STORAGE_MANAGER_ERROR_RENAME_FAILED :
+                                   STORAGE_MANAGER_ERROR_WRITE_FAILED;
+        s_storage_vector.storage_error = error;
+        storage_publish_runtime_log_result(sequence, final_path, (uint32_t)payload_size, error);
+        storage_publish_runtime_log_queue_status();
+        return false;
+    }
+
+    portable_log_port_persistent_discard(payload_size);
+    s_storage_vector.state = STORAGE_MANAGER_STATE_CARD_READY;
+    s_storage_vector.fs_mounted = true;
+    s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_NONE;
+    storage_publish_runtime_log_result(sequence,
+                                       final_path,
+                                       (uint32_t)payload_size,
+                                       STORAGE_MANAGER_ERROR_NONE);
+    storage_publish_runtime_log_queue_status();
+    return true;
+}
+
+static void storage_manager_service_runtime_log(uint64_t start_us, uint32_t budget_us)
+{
+    storage_publish_runtime_log_queue_status();
+
+    if (storage_budget_elapsed(start_us, budget_us)) {
+        return;
+    }
+
+    if (s_storage_vector.log_pending_bytes == 0u) {
+        return;
+    }
+
+    const uint32_t now_ms = storage_now_ms();
+    const bool threshold_reached =
+        s_storage_vector.log_pending_bytes >= STORAGE_MANAGER_RUNTIME_LOG_FLUSH_THRESHOLD_BYTES;
+    const bool period_elapsed =
+        (uint32_t)(now_ms - s_runtime_log_last_attempt_ms) >=
+        STORAGE_MANAGER_RUNTIME_LOG_FLUSH_PERIOD_MS;
+    if (!threshold_reached && !period_elapsed) {
+        return;
+    }
+
+    s_runtime_log_last_attempt_ms = now_ms;
+    (void)storage_manager_write_runtime_log_segment();
+}
+
 bool storage_manager_write_fault_report(void)
 {
     if (!storage_manager_probe()) {
@@ -3138,6 +3279,11 @@ void storage_manager_service(uint32_t budget_us)
         return;
     }
 
+    if (storage_budget_elapsed(start_us, budget_us)) {
+        return;
+    }
+
+    storage_manager_service_runtime_log(start_us, budget_us);
     if (storage_budget_elapsed(start_us, budget_us)) {
         return;
     }

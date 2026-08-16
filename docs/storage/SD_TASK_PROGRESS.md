@@ -55,6 +55,44 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
 
 ## 任务记录
 
+### SD-TASK-20260817-001 - StorageAO 运行日志持久化 sink 闭环
+
+- 状态：完成
+- 日期：2026-08-17
+- 任务目标：
+  - 补齐 HAOFV 维护主域中的运行时文本日志落盘能力，便于后续异常调查。
+  - 保持实时边界：core1、PIO/DMA/IRQ、SCPI 回调不直接访问 SD/FatFs。
+  - 解决 UI 连续占用 `SPI0+LCD` 时 StorageAO 后台 `/logs/run` sink 被资源仲裁饿死的问题。
+- 完成内容：
+  - `portable_log_port` 增加 RAM 持久化队列，和 USB 输出队列分离。
+  - `StorageAO` 增加 RuntimeLogSinkFB 后台逻辑：显式 job 空闲时按阈值/周期写 `/logs/run/run_XXXXXX.log`，原子写成功后才 discard RAM 队列。
+  - `StorageVector` 增加 log segment 摘要：last id、bytes、path hash、pending/drop、flushed bytes、last successful path 和最近尝试错误；Vector 不保存日志正文。
+  - `SYSTem:LOG:STATus?` 追加持久化队列和 StorageAO log segment 摘要字段。
+  - UI 管理任务在 SD 已挂载且 runtime log pending 时跳过本轮 LCD 刷新，让出 `SPI0` 给 StorageAO 维护证据落盘。
+  - `/logs/run` 纳入 System Pack 默认目录。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，最终 build id `20260816161700`。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
+  - `python tools\docs_check\docs_check.py` 通过，仍只有既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 和 `VDC_DOMAIN_RISK_REVIEW.md` 命名警告。
+  - `python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --max-workers 2 --verbose` 通过，COM5/COM6 均升级到 `20260816161700`。
+  - COM5：`SYST:LOG:STAT?` 发布 `last_log_id=4`、`last_log_bytes=327`、`last_log_error=0`、`log_segment_count=1`、`log_flushed_bytes=327`、`log_attempt_error=0`、path=`/logs/run/run_000004.log`。
+  - COM5：`MMEM:CAT:PAGE? "/logs/run",0,8` 返回 `run_000004.log,327,FILE`，`MMEM:READ? "/logs/run/run_000004.log",0,128` 返回 128 B 文本日志 hex，`SYST:ERR? -> 0,"No error"`。
+  - COM6：`SYST:LOG:STAT?` 发布 `last_log_id=3`、`last_log_bytes=327`、`last_log_error=0`、`log_segment_count=1`、`log_flushed_bytes=327`、`log_attempt_error=0`、path=`/logs/run/run_000003.log`。
+  - COM6：`MMEM:CAT:PAGE? "/logs/run",0,8` 返回 `run_000003.log,327,FILE`，`MMEM:READ? "/logs/run/run_000003.log",0,128` 返回 128 B 文本日志 hex，`SYST:ERR? -> 0,"No error"`。
+- 还需完成：
+  - 后续增加按行切分、日志轮转、容量保护和 fault evidence bundle 中的 log tail 索引。
+  - 后续把 `*CLS` 非查询无 ACK 的脚本退出码问题收敛到 SCPI 工具或命令策略中；本轮验证已改用不含 `*CLS` 的命令文件。
+- 关联文件：
+  - `middleware/portable_log_port/`
+  - `components/diagnostics/`
+  - `components/storage_manager/`
+  - `components/ui_manager/src/ui_manager.c`
+  - `docs/storage/LOG_SYSTEM_TODO.md`
+  - `docs/storage/SD_TODO.md`
+  - `docs/arch/HAOFV_MAINTENANCE_TODO.md`
+- 下一步：
+  - 继续 RefMem/VDC 主线；运行日志后续作为异常调查基础件使用，不进入实时核心。
+
 ### SD-TASK-20260706-031 - READY 期望 mask 运行时接入口
 
 - 状态：完成

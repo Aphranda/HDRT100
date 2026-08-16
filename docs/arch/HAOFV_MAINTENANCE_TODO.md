@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_MAINTENANCE_TODO.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-17
 
 本文档用于独立维护 Distributed Hard Real-Time Trigger System 对 HAOFV 架构的符合性待办。`DTC100` 保留为当前设备型号，`RP2350_TRIG` 保留为历史工程和构建产物名。
 这里不记录普通功能开发流水账，而是记录会影响 owner、层次边界、反射内存事实、
@@ -32,6 +32,35 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 | `暂停` | 暂不推进，但不是技术阻塞。 |
 
 ## 当前架构审查结论
+
+### HAOFV-MAINT-20260817-013 - 维护主域补齐运行日志持久化 sink
+
+- 状态：完成
+- 问题：
+  - core0 管理面已有 `DiagnosticsAO` 文本日志和 `StorageAO` trace/snapshot/fault evidence，但运行期文本日志只从 USB/SCPI 共通道输出。
+  - 故障调查需要在 SD 上保留 `/logs/run` 文本证据；如果直接从 SCPI 回调、实时核心或日志 emit 回调写 FatFs，会破坏 HAOFV 的 owner、资源仲裁和硬实时边界。
+- 影响：
+  - 没有 SD 运行日志时，启动日志、维护事件和偶发资源冲突只能依赖串口抓取，复盘不稳定。
+  - 如果日志落盘绕过 StorageAO，后续会与 SD System Pack、OTA、LCD、fault evidence 和 Resource Arbiter 产生隐藏冲突。
+- 完成：
+  - [x] `portable_log_port` 增加 RAM 持久化队列，只保存待落盘文本，不访问 FatFs/SD。
+  - [x] `StorageAO` 在显式 job 空闲时由后台 RuntimeLogSinkFB 分片写 `/logs/run/run_XXXXXX.log`，写成功后才确认消费 RAM 队列。
+  - [x] UI 管理任务在 SD 已挂载且 runtime log pending 时跳过本轮 LCD 刷新，避免 `SPI0+LCD` 连续占用饿死 `SPI0+SD` 维护证据落盘。
+  - [x] `StorageVector` 只发布 last_log_id、bytes、path_hash、pending/drop/error 等摘要，不承载日志正文。
+  - [x] `SYSTem:LOG:STATus?` 追加持久化队列和最近 StorageAO log segment 摘要。
+  - [x] `/logs/run` 纳入 System Pack 默认目录。
+- 待办：
+  - [x] 烧录 COM5/COM6 并用 SD 读回验证 `/logs/run` segment。
+  - [ ] 增加按行切分、日志轮转、容量保护和 fault evidence bundle 中的 log tail 索引。
+  - [ ] 后续将 StorageAO/DiagnosticsAO 命名进一步收敛到完整 Maintenance 主域图中。
+- 关联文件：
+  - `middleware/portable_log_port/`
+  - `components/diagnostics/`
+  - `components/storage_manager/`
+  - `docs/storage/LOG_SYSTEM_TODO.md`
+  - `docs/storage/SD_TODO.md`
+- 下一步：
+  - 完成板端验证后，将本条状态改为完成，并把验证记录追加到 `docs/storage/SD_TASK_PROGRESS.md`。
 
 ### HAOFV-MAINT-20260813-012 - VDC 内部主域建立
 

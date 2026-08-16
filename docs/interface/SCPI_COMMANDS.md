@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-08-16
+Last updated: 2026-08-17
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -31,7 +31,7 @@ Last updated: 2026-08-16
 | `SYSTem:USB:BOOT` | 立即重启，重启后按 Product Config 选择 USB mode。 |
 | `SYSTem:LOG:LEVel <0..3>` | 设置文本日志最小输出等级：`0=DEBUG`、`1=INFO`、`2=WARN`、`3=ERROR`。默认 `INFO`。 |
 | `SYSTem:LOG:LEVel?` | 查询当前文本日志最小输出等级，返回名称和值。 |
-| `SYSTem:LOG:STATus?` | 查询文本日志统计：当前等级、等级值、DEBUG/INFO/WARN/ERROR 发出计数、过滤丢弃计数、截断计数、输出失败计数，以及队列丢弃数、当前队列字节数、队列高水位。 |
+| `SYSTem:LOG:STATus?` | 查询文本日志统计：当前等级、等级值、DEBUG/INFO/WARN/ERROR 发出计数、过滤丢弃计数、截断计数、输出失败计数、USB 队列丢弃/字节/高水位、RAM 持久化队列丢弃/丢弃字节/待写字节/高水位，以及 StorageAO 最近成功 `/logs/run` segment 的 id、bytes、path_hash、error、segment_count、flushed_bytes、最近尝试错误和 path。 |
 | `SYSTem:CORE?` | 查询核心运行状态：core1 是否启用、core0/core1 循环计数、core0/core1 最近一次心跳毫秒时间戳。 |
 | `SYSTem:RTOS:STATus?` | 查询 FreeRTOS heap 和任务栈水位。 |
 | `SYSTem:LOOP:STATus?` | 查询 `task_loop_engine` 的只读维护状态：是否 ready、service_count、first_service_ms、last_service_ms。 |

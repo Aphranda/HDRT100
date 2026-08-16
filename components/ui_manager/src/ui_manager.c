@@ -47,6 +47,11 @@ void ui_manager_service(void)
         storage.current_job_state == STORAGE_MANAGER_JOB_STATE_RUNNING) {
         return;
     }
+    if (storage.card_present &&
+        storage.fs_mounted &&
+        storage.log_pending_bytes > 0u) {
+        return;
+    }
 
     if (key_sample != s_key_sample) {
         s_key_sample = key_sample;
