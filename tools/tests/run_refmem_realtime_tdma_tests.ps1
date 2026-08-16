@@ -8,8 +8,10 @@ $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $build = Join-Path $repo $BuildDir
 $refmemInclude = Join-Path $repo "components\distributed_refmem\inc"
+$tdmaInclude = Join-Path $repo "components\tdma\inc"
 $testSource = Join-Path $repo "tests\unit\test_refmem_realtime_tdma.c"
 $serviceSource = Join-Path $repo "components\distributed_refmem\src\refmem_realtime_tdma.c"
+$tdmaSource = Join-Path $repo "components\tdma\src\tdma_service.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -46,7 +48,7 @@ if (-not $hostCc) {
 
 if ($hostCc) {
     $exe = Join-Path $build "test_refmem_realtime_tdma.exe"
-    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" $testSource $serviceSource -o $exe
+    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" $testSource $serviceSource $tdmaSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -63,9 +65,9 @@ if (-not (Test-Path $compiler)) {
     throw "No host C compiler found and ARM GCC not found"
 }
 
-foreach ($source in @($testSource, $serviceSource)) {
+foreach ($source in @($testSource, $serviceSource, $tdmaSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
-    & $compiler -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" -c $source -o $object
+    & $compiler -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }

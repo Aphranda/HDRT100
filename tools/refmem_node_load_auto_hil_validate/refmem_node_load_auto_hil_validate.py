@@ -30,6 +30,7 @@ AUTO_FIELD_COUNT = 26
 LOAD_STATUS_FIELD_COUNT = 24
 TABLE_FIELD_COUNT = 18
 CLAIM_FIELD_COUNT = 30
+TDMA_STATUS_MIN_FIELD_COUNT = 24
 AUTO_INTENT_RX_WINDOW = 2
 ADAPTER_DUPLEX_HALF = 1
 NODE_LOAD_TABLE_ID = 3
@@ -121,6 +122,13 @@ def query(ser: serial.Serial, command: str, timeout_s: float) -> str:
     return read_serial_line(ser, timeout_s)
 
 
+def try_query(ser: serial.Serial, command: str, timeout_s: float) -> str:
+    try:
+        return query(ser, command, timeout_s)
+    except serial.SerialException as exc:
+        return f"<serial-error:{exc}>"
+
+
 def parse_csv(response: str) -> list[str]:
     try:
         return next(csv.reader([response], skipinitialspace=True))
@@ -178,6 +186,18 @@ def table_values(response: str) -> list[int]:
 
 def claim_values(response: str) -> list[int]:
     return parse_int_fields(response, CLAIM_FIELD_COUNT, "CLAIM?")
+
+
+def tdma_status_values(response: str) -> list[int]:
+    fields = parse_csv(response)
+    if len(fields) < TDMA_STATUS_MIN_FIELD_COUNT:
+        raise AssertionError(
+            f"TDMA:STATus field_count={len(fields)} expected>={TDMA_STATUS_MIN_FIELD_COUNT}: {response!r}"
+        )
+    try:
+        return [int(field.strip().strip('"'), 0) for field in fields]
+    except ValueError as exc:
+        raise AssertionError(f"TDMA:STATus contains non-integer field: {response!r}") from exc
 
 
 def check_no_error(response: str) -> None:
@@ -249,6 +269,28 @@ def slave_pins(receiver_profile: IoProfile, receiver_to_sender: list[int]) -> Ad
 
 
 def run_io_preflight(args: argparse.Namespace) -> dict[str, object]:
+    quiesce_records: list[dict[str, str]] = []
+    for port in (args.port_a, args.port_b):
+        try:
+            with serial.Serial(port, args.baud, timeout=0.05, write_timeout=1.0) as ser:
+                time.sleep(0.2)
+                for command in (
+                        "SYSTem:REFMEM:SYNC:AUTO 0",
+                        "REALtime:IO:OUTPut:MASK 0",
+                        "REALtime:IO:OUTPut:RELease"):
+                    response = try_query(ser, command, args.timeout_s)
+                    quiesce_records.append({
+                        "port": port,
+                        "command": command,
+                        "response": response,
+                    })
+        except serial.SerialException as exc:
+            quiesce_records.append({
+                "port": port,
+                "command": "open",
+                "response": f"<serial-error:{exc}>",
+            })
+
     preflight_dir = args.out_dir / "io_preflight"
     command = [
         sys.executable,
@@ -274,6 +316,7 @@ def run_io_preflight(args: argparse.Namespace) -> dict[str, object]:
         "stderr": completed.stderr,
         "summary_path": str(summary_path),
         "summary": summary,
+        "quiesce": quiesce_records,
     }
 
 
@@ -355,6 +398,75 @@ def wait_auto_rx(records: list[Record],
         time.sleep(poll_s)
     records.append(Record(board, "SYSTem:REFMEM:SYNC:AUTO?", last_response, "FAIL", "rx window timeout"))
     print(f"FAIL {board} SYSTem:REFMEM:SYNC:AUTO? => {last_response}")
+    raise SystemExit(1)
+
+
+def wait_auto_maintenance(records: list[Record],
+                          board: str,
+                          ser: serial.Serial,
+                          *,
+                          timeout_s: float,
+                          poll_s: float,
+                          maintenance_s: float) -> None:
+    first_auto = wait_auto_rx(records,
+                              board,
+                              ser,
+                              timeout_s=timeout_s,
+                              poll_s=poll_s)
+    first_tdma_response = query(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", timeout_s)
+    first_tdma = tdma_status_values(first_tdma_response)
+    records.append(Record(board,
+                          "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+                          first_tdma_response,
+                          "PASS",
+                          "maintenance baseline"))
+    print(f"PASS {board} SYSTem:REFMEM:SYNC:TDMA:STATus? => {first_tdma_response}")
+
+    time.sleep(maintenance_s)
+
+    deadline = time.monotonic() + timeout_s
+    last_auto_response = "<not-polled>"
+    last_tdma_response = "<not-polled>"
+    while time.monotonic() < deadline:
+        last_auto_response = query(ser, "SYSTem:REFMEM:SYNC:AUTO?", timeout_s)
+        last_auto = auto_values(last_auto_response)
+        last_tdma_response = query(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", timeout_s)
+        last_tdma = tdma_status_values(last_tdma_response)
+        rx_progress = last_auto[18] > first_auto[18]
+        core1_progress = last_tdma[3] > first_tdma[3] or last_tdma[5] > first_tdma[5]
+        if (last_auto[0] == 1 and
+                last_auto[13] == 0 and
+                last_auto[20] == first_auto[20] and
+                last_auto[21] == first_auto[21] and
+                last_auto[25] == 0 and
+                (rx_progress or core1_progress)):
+            records.append(Record(board,
+                                  "SYSTem:REFMEM:SYNC:AUTO?",
+                                  last_auto_response,
+                                  "PASS",
+                                  "auto maintenance progressed"))
+            records.append(Record(board,
+                                  "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+                                  last_tdma_response,
+                                  "PASS",
+                                  "core1 tdma progressed"))
+            print(f"PASS {board} SYSTem:REFMEM:SYNC:AUTO? => {last_auto_response}")
+            print(f"PASS {board} SYSTem:REFMEM:SYNC:TDMA:STATus? => {last_tdma_response}")
+            return
+        time.sleep(poll_s)
+
+    records.append(Record(board,
+                          "SYSTem:REFMEM:SYNC:AUTO?",
+                          last_auto_response,
+                          "FAIL",
+                          "auto maintenance did not progress cleanly"))
+    records.append(Record(board,
+                          "SYSTem:REFMEM:SYNC:TDMA:STATus?",
+                          last_tdma_response,
+                          "FAIL",
+                          "core1 tdma did not progress cleanly"))
+    print(f"FAIL {board} SYSTem:REFMEM:SYNC:AUTO? => {last_auto_response}")
+    print(f"FAIL {board} SYSTem:REFMEM:SYNC:TDMA:STATus? => {last_tdma_response}")
     raise SystemExit(1)
 
 
@@ -510,6 +622,7 @@ def main() -> int:
     parser.add_argument("--timeout-s", type=float, default=2.0)
     parser.add_argument("--sync-timeout-s", type=float, default=10.0)
     parser.add_argument("--poll-s", type=float, default=0.05)
+    parser.add_argument("--maintenance-s", type=float, default=2.5)
     parser.add_argument("--uplink-adapter-a", default="")
     parser.add_argument("--downlink-adapter-a", default="")
     parser.add_argument("--uplink-adapter-b", default="")
@@ -635,6 +748,19 @@ def main() -> int:
                       args.timeout_s,
                       args.sync_timeout_s,
                       args.poll_s)
+
+        wait_auto_maintenance(records,
+                              "A",
+                              ser_a,
+                              timeout_s=args.sync_timeout_s,
+                              poll_s=args.poll_s,
+                              maintenance_s=args.maintenance_s)
+        wait_auto_maintenance(records,
+                              "B",
+                              ser_b,
+                              timeout_s=args.sync_timeout_s,
+                              poll_s=args.poll_s,
+                              maintenance_s=args.maintenance_s)
 
         run_checked(records, "A", ser_a, "SYSTem:ERRor?", args.timeout_s, check_no_error)
         run_checked(records, "B", ser_b, "SYSTem:ERRor?", args.timeout_s, check_no_error)

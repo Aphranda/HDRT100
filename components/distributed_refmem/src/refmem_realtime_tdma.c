@@ -2,147 +2,206 @@
 
 #include <string.h>
 
-#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
-#include "pico/time.h"
-#endif
-
-#define REFMEM_REALTIME_TDMA_OWNER_CORE1 1u
-#define REFMEM_REALTIME_TDMA_ERROR_NO_OPS 100u
-#define REFMEM_REALTIME_TDMA_TIMESTAMP_RESOLUTION_NS 1000u
-#define REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE \
-    REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE_SOFTWARE_US
-#define REFMEM_REALTIME_TDMA_TIMESTAMP_FLAGS \
-    REFMEM_REALTIME_TDMA_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
-#define REFMEM_REALTIME_TDMA_ERROR_WINDOW_MISSED 101u
-
-static uint64_t refmem_realtime_tdma_now_ns(void)
+static tdma_service_role_t refmem_realtime_tdma_to_service_role(
+    refmem_spi_physical_role_t role)
 {
-#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
-    return time_us_64() * 1000ull;
-#else
-    static uint64_t s_host_fake_time_ns;
-    s_host_fake_time_ns += 100000ull;
-    return s_host_fake_time_ns;
-#endif
-}
-
-static uint32_t refmem_realtime_tdma_elapsed_ns(uint64_t start_ns,
-                                                uint64_t done_ns)
-{
-    if (done_ns <= start_ns) {
-        return 0u;
-    }
-    const uint64_t elapsed_ns = done_ns - start_ns;
-    return elapsed_ns > UINT32_MAX ? UINT32_MAX : (uint32_t)elapsed_ns;
-}
-
-static uint32_t refmem_realtime_tdma_delta_ns(uint64_t end_ns,
-                                              uint64_t start_ns)
-{
-    return end_ns > start_ns
-               ? refmem_realtime_tdma_elapsed_ns(start_ns, end_ns)
-               : 0u;
-}
-
-static void refmem_realtime_tdma_split_u64(uint64_t value,
-                                           uint32_t *lo,
-                                           uint32_t *hi)
-{
-    if (lo != NULL) {
-        *lo = (uint32_t)(value & 0xFFFFFFFFull);
-    }
-    if (hi != NULL) {
-        *hi = (uint32_t)(value >> 32u);
+    switch (role) {
+    case REFMEM_SPI_PHYSICAL_ROLE_MASTER:
+        return TDMA_SERVICE_ROLE_MASTER;
+    case REFMEM_SPI_PHYSICAL_ROLE_SLAVE:
+        return TDMA_SERVICE_ROLE_SLAVE;
+    case REFMEM_SPI_PHYSICAL_ROLE_DISABLED:
+    default:
+        return TDMA_SERVICE_ROLE_DISABLED;
     }
 }
 
-static uint32_t refmem_realtime_tdma_load(const volatile uint32_t *value)
+static refmem_spi_physical_role_t refmem_realtime_tdma_from_service_role(
+    tdma_service_role_t role)
 {
-    return __atomic_load_n(value, __ATOMIC_ACQUIRE);
+    switch (role) {
+    case TDMA_SERVICE_ROLE_MASTER:
+        return REFMEM_SPI_PHYSICAL_ROLE_MASTER;
+    case TDMA_SERVICE_ROLE_SLAVE:
+        return REFMEM_SPI_PHYSICAL_ROLE_SLAVE;
+    case TDMA_SERVICE_ROLE_DISABLED:
+    default:
+        return REFMEM_SPI_PHYSICAL_ROLE_DISABLED;
+    }
 }
 
-static void refmem_realtime_tdma_store_guard(volatile uint32_t *guard)
+static tdma_service_pin_config_t refmem_realtime_tdma_to_service_pins(
+    const refmem_spi_physical_pin_config_t *pins)
 {
-    (void)__atomic_add_fetch(guard, 1u, __ATOMIC_RELEASE);
+    tdma_service_pin_config_t mapped = {0};
+    if (pins != NULL) {
+        mapped.rx_pin = pins->rx_pin;
+        mapped.csn_pin = pins->csn_pin;
+        mapped.sck_pin = pins->sck_pin;
+        mapped.tx_pin = pins->tx_pin;
+    }
+    return mapped;
 }
 
-static void refmem_realtime_tdma_begin_intent_write(refmem_realtime_tdma_service_t *service)
+static refmem_spi_physical_pin_config_t refmem_realtime_tdma_from_service_pins(
+    const tdma_service_pin_config_t *pins)
 {
-    refmem_realtime_tdma_store_guard(&service->intent_guard);
+    refmem_spi_physical_pin_config_t mapped = {0};
+    if (pins != NULL) {
+        mapped.rx_pin = pins->rx_pin;
+        mapped.csn_pin = pins->csn_pin;
+        mapped.sck_pin = pins->sck_pin;
+        mapped.tx_pin = pins->tx_pin;
+    }
+    return mapped;
 }
 
-static void refmem_realtime_tdma_end_intent_write(refmem_realtime_tdma_service_t *service)
+static bool refmem_realtime_tdma_transmit_bridge(
+    void *context,
+    const uint8_t *frame,
+    size_t frame_size,
+    tdma_service_role_t role,
+    uint32_t baud_hz,
+    const tdma_service_pin_config_t *pins,
+    uint32_t deadline_1e3ns,
+    tdma_service_exec_status_t *status)
 {
-    refmem_realtime_tdma_store_guard(&service->intent_guard);
-}
-
-static void refmem_realtime_tdma_begin_result_write(refmem_realtime_tdma_service_t *service)
-{
-    refmem_realtime_tdma_store_guard(&service->result_guard);
-}
-
-static void refmem_realtime_tdma_end_result_write(refmem_realtime_tdma_service_t *service)
-{
-    refmem_realtime_tdma_store_guard(&service->result_guard);
-}
-
-static bool refmem_realtime_tdma_has_pending(const refmem_realtime_tdma_service_t *service)
-{
-    const uint32_t intent_seq = refmem_realtime_tdma_load(&service->intent_seq);
-    const uint32_t completed_seq = refmem_realtime_tdma_load(&service->completed_seq);
-    const uint32_t abort_seq = refmem_realtime_tdma_load(&service->abort_seq);
-    return intent_seq > completed_seq && abort_seq < intent_seq;
-}
-
-static bool refmem_realtime_tdma_submit(refmem_realtime_tdma_service_t *service,
-                                        const refmem_realtime_tdma_intent_config_t *config,
-                                        refmem_realtime_tdma_intent_t intent)
-{
-    if (service == NULL || config == NULL ||
-        (intent == REFMEM_REALTIME_TDMA_INTENT_TX_FRAME &&
-         (config->frame == NULL || config->frame_size == 0u)) ||
-        config->frame_size > REFMEM_REALTIME_TDMA_FRAME_MAX) {
-        if (service != NULL) {
-            refmem_realtime_tdma_begin_intent_write(service);
-            service->reject_count++;
-            refmem_realtime_tdma_end_intent_write(service);
-        }
+    refmem_realtime_tdma_service_t *service =
+        (refmem_realtime_tdma_service_t *)context;
+    if (service == NULL || service->ops == NULL ||
+        service->ops->transmit == NULL) {
         return false;
     }
+    const refmem_spi_physical_pin_config_t refmem_pins =
+        refmem_realtime_tdma_from_service_pins(pins);
+    return service->ops->transmit(service->ops_context,
+                                  frame,
+                                  frame_size,
+                                  refmem_realtime_tdma_from_service_role(role),
+                                  baud_hz,
+                                  &refmem_pins,
+                                  deadline_1e3ns,
+                                  status);
+}
 
-    if (refmem_realtime_tdma_has_pending(service)) {
-        refmem_realtime_tdma_begin_intent_write(service);
-        service->reject_count++;
-        refmem_realtime_tdma_end_intent_write(service);
+static bool refmem_realtime_tdma_receive_bridge(
+    void *context,
+    uint8_t *frame,
+    size_t frame_capacity,
+    tdma_service_role_t role,
+    uint32_t baud_hz,
+    const tdma_service_pin_config_t *pins,
+    uint32_t deadline_1e3ns,
+    tdma_service_exec_status_t *status)
+{
+    refmem_realtime_tdma_service_t *service =
+        (refmem_realtime_tdma_service_t *)context;
+    if (service == NULL || service->ops == NULL ||
+        service->ops->receive == NULL) {
         return false;
     }
+    const refmem_spi_physical_pin_config_t refmem_pins =
+        refmem_realtime_tdma_from_service_pins(pins);
+    const size_t refmem_capacity =
+        frame_capacity > REFMEM_REALTIME_TDMA_FRAME_MAX
+            ? REFMEM_REALTIME_TDMA_FRAME_MAX
+            : frame_capacity;
+    return service->ops->receive(service->ops_context,
+                                 frame,
+                                 refmem_capacity,
+                                 refmem_realtime_tdma_from_service_role(role),
+                                 baud_hz,
+                                 &refmem_pins,
+                                 deadline_1e3ns,
+                                 status);
+}
 
-    refmem_realtime_tdma_begin_intent_write(service);
-    service->intent_seq++;
-    service->window_epoch = config->window_epoch;
-    service->window_index = config->window_index;
-    service->intent_type = (uint32_t)intent;
-    service->role = (uint32_t)config->role;
-    service->baud_hz = config->baud_hz;
-    service->rx_pin = config->pins.rx_pin;
-    service->csn_pin = config->pins.csn_pin;
-    service->sck_pin = config->pins.sck_pin;
-    service->tx_pin = config->pins.tx_pin;
-    service->deadline_1e3ns = config->deadline_1e3ns;
-    service->vdc_window_plan_valid = config->vdc_window_plan_valid;
-    service->vdc_window_class = config->vdc_window_class;
-    service->vdc_schedule_crc32 = config->vdc_schedule_crc32;
-    service->vdc_window_start_ns = config->vdc_window_start_ns;
-    service->vdc_window_end_ns = config->vdc_window_end_ns;
-    service->vdc_guard_start_ns = config->vdc_guard_start_ns;
-    service->vdc_guard_end_ns = config->vdc_guard_end_ns;
-    service->frame_size = (uint32_t)config->frame_size;
-    service->submit_time_ns = refmem_realtime_tdma_now_ns();
-    if (config->frame_size != 0u && config->frame != NULL) {
-        memcpy(service->frame, config->frame, config->frame_size);
+static const tdma_service_ops_t s_refmem_realtime_tdma_bridge_ops = {
+    .transmit = refmem_realtime_tdma_transmit_bridge,
+    .receive = refmem_realtime_tdma_receive_bridge,
+};
+
+static tdma_service_intent_config_t refmem_realtime_tdma_to_service_config(
+    const refmem_realtime_tdma_intent_config_t *config)
+{
+    tdma_service_intent_config_t mapped = {0};
+    if (config != NULL) {
+        mapped.window_epoch = config->window_epoch;
+        mapped.window_index = config->window_index;
+        mapped.deadline_1e3ns = config->deadline_1e3ns;
+        mapped.role = refmem_realtime_tdma_to_service_role(config->role);
+        mapped.baud_hz = config->baud_hz;
+        mapped.pins = refmem_realtime_tdma_to_service_pins(&config->pins);
+        mapped.frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT;
+        mapped.payload_class = TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA;
+        mapped.scheduled_window_valid = config->vdc_window_plan_valid;
+        mapped.scheduled_window_class = config->vdc_window_class;
+        mapped.schedule_crc32 = config->vdc_schedule_crc32;
+        mapped.scheduled_window_start_ns = config->vdc_window_start_ns;
+        mapped.scheduled_window_end_ns = config->vdc_window_end_ns;
+        mapped.scheduled_guard_start_ns = config->vdc_guard_start_ns;
+        mapped.scheduled_guard_end_ns = config->vdc_guard_end_ns;
+        mapped.frame = config->frame;
+        mapped.frame_size = config->frame_size;
     }
-    refmem_realtime_tdma_end_intent_write(service);
-    return true;
+    return mapped;
+}
+
+static void refmem_realtime_tdma_from_service_snapshot(
+    const tdma_service_snapshot_t *source,
+    refmem_realtime_tdma_snapshot_t *target)
+{
+    memset(target, 0, sizeof(*target));
+    target->state = source->state;
+    target->owner_core = source->owner_core;
+    target->armed = source->armed;
+    target->service_count = source->service_count;
+    target->intent_seq = source->intent_seq;
+    target->completed_seq = source->completed_seq;
+    target->dropped_seq = source->dropped_seq;
+    target->window_epoch = source->window_epoch;
+    target->window_index = source->window_index;
+    target->intent_type = source->intent_type;
+    target->role = source->role;
+    target->baud_hz = source->baud_hz;
+    target->rx_pin = source->rx_pin;
+    target->csn_pin = source->csn_pin;
+    target->sck_pin = source->sck_pin;
+    target->tx_pin = source->tx_pin;
+    target->deadline_1e3ns = source->deadline_1e3ns;
+    target->frame_size = source->frame_size;
+    target->ready_count = source->ready_count;
+    target->timeout_count = source->timeout_count;
+    target->overrun_count = source->overrun_count;
+    target->reject_count = source->reject_count;
+    target->last_result = source->last_result;
+    target->last_error = source->last_error;
+    target->timestamp_source = source->timestamp_source;
+    target->timestamp_resolution_ns = source->timestamp_resolution_ns;
+    target->timestamp_flags = source->timestamp_flags;
+    target->vdc_window_plan_valid = source->scheduled_window_valid;
+    target->vdc_window_class = source->scheduled_window_class;
+    target->vdc_schedule_crc32 = source->schedule_crc32;
+    target->vdc_window_miss_count = source->scheduled_window_miss_count;
+    target->vdc_window_wait_ns = source->scheduled_window_wait_ns;
+    target->vdc_window_late_ns = source->scheduled_window_late_ns;
+    target->vdc_window_start_ns_lo = source->scheduled_window_start_ns_lo;
+    target->vdc_window_start_ns_hi = source->scheduled_window_start_ns_hi;
+    target->vdc_window_end_ns_lo = source->scheduled_window_end_ns_lo;
+    target->vdc_window_end_ns_hi = source->scheduled_window_end_ns_hi;
+    target->vdc_guard_start_ns_lo = source->scheduled_guard_start_ns_lo;
+    target->vdc_guard_start_ns_hi = source->scheduled_guard_start_ns_hi;
+    target->vdc_guard_end_ns_lo = source->scheduled_guard_end_ns_lo;
+    target->vdc_guard_end_ns_hi = source->scheduled_guard_end_ns_hi;
+    target->submit_time_ns_lo = source->submit_time_ns_lo;
+    target->submit_time_ns_hi = source->submit_time_ns_hi;
+    target->core1_arm_time_ns_lo = source->core1_arm_time_ns_lo;
+    target->core1_arm_time_ns_hi = source->core1_arm_time_ns_hi;
+    target->core1_start_time_ns_lo = source->core1_start_time_ns_lo;
+    target->core1_start_time_ns_hi = source->core1_start_time_ns_hi;
+    target->core1_done_time_ns_lo = source->core1_done_time_ns_lo;
+    target->core1_done_time_ns_hi = source->core1_done_time_ns_hi;
+    target->core1_elapsed_ns = source->core1_elapsed_ns;
 }
 
 bool refmem_realtime_tdma_init(refmem_realtime_tdma_service_t *service)
@@ -152,9 +211,30 @@ bool refmem_realtime_tdma_init(refmem_realtime_tdma_service_t *service)
     }
 
     memset(service, 0, sizeof(*service));
-    service->state = REFMEM_REALTIME_TDMA_STATE_IDLE;
-    service->owner_core = REFMEM_REALTIME_TDMA_OWNER_CORE1;
-    service->last_result = REFMEM_REALTIME_TDMA_RESULT_NONE;
+    if (!tdma_service_init(&service->scheduler)) {
+        return false;
+    }
+
+    const tdma_service_payload_binding_t refmem_delta = {
+        .used = 1u,
+        .producer_id = 1u,
+        .consumer_id = 1u,
+        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA,
+        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+        .max_payload_size = REFMEM_REALTIME_TDMA_FRAME_MAX,
+        .flags = 0u,
+    };
+    const tdma_service_payload_binding_t refmem_ack_fence = {
+        .used = 1u,
+        .producer_id = 1u,
+        .consumer_id = 1u,
+        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_ACK_FENCE,
+        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+        .max_payload_size = REFMEM_REALTIME_TDMA_FRAME_MAX,
+        .flags = 0u,
+    };
+    (void)tdma_service_register_payload(&service->scheduler, &refmem_delta);
+    (void)tdma_service_register_payload(&service->scheduler, &refmem_ack_fence);
     return true;
 }
 
@@ -166,22 +246,35 @@ bool refmem_realtime_tdma_bind_ops(refmem_realtime_tdma_service_t *service,
         ops->transmit == NULL || ops->receive == NULL) {
         return false;
     }
-
     service->ops = ops;
     service->ops_context = ops_context;
-    return true;
+    return tdma_service_bind_ops(&service->scheduler,
+                                 &s_refmem_realtime_tdma_bridge_ops,
+                                 service);
 }
 
-bool refmem_realtime_tdma_submit_tx(refmem_realtime_tdma_service_t *service,
-                                    const refmem_realtime_tdma_intent_config_t *config)
+bool refmem_realtime_tdma_submit_tx(
+    refmem_realtime_tdma_service_t *service,
+    const refmem_realtime_tdma_intent_config_t *config)
 {
-    return refmem_realtime_tdma_submit(service, config, REFMEM_REALTIME_TDMA_INTENT_TX_FRAME);
+    if (service == NULL || config == NULL) {
+        return false;
+    }
+    const tdma_service_intent_config_t mapped =
+        refmem_realtime_tdma_to_service_config(config);
+    return tdma_service_submit_tx(&service->scheduler, &mapped);
 }
 
-bool refmem_realtime_tdma_submit_rx(refmem_realtime_tdma_service_t *service,
-                                    const refmem_realtime_tdma_intent_config_t *config)
+bool refmem_realtime_tdma_submit_rx(
+    refmem_realtime_tdma_service_t *service,
+    const refmem_realtime_tdma_intent_config_t *config)
 {
-    return refmem_realtime_tdma_submit(service, config, REFMEM_REALTIME_TDMA_INTENT_RX_WINDOW);
+    if (service == NULL || config == NULL) {
+        return false;
+    }
+    const tdma_service_intent_config_t mapped =
+        refmem_realtime_tdma_to_service_config(config);
+    return tdma_service_submit_rx(&service->scheduler, &mapped);
 }
 
 void refmem_realtime_tdma_abort(refmem_realtime_tdma_service_t *service)
@@ -189,354 +282,46 @@ void refmem_realtime_tdma_abort(refmem_realtime_tdma_service_t *service)
     if (service == NULL) {
         return;
     }
-
-    refmem_realtime_tdma_begin_intent_write(service);
-    service->abort_seq = service->intent_seq;
-    refmem_realtime_tdma_end_intent_write(service);
+    tdma_service_abort(&service->scheduler);
 }
 
 void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
 {
-    if (service == NULL || service->state == REFMEM_REALTIME_TDMA_STATE_UNINIT) {
+    if (service == NULL) {
         return;
     }
-
-    const uint32_t intent_seq = refmem_realtime_tdma_load(&service->intent_seq);
-    const uint32_t abort_seq = refmem_realtime_tdma_load(&service->abort_seq);
-    if (intent_seq <= service->completed_seq) {
-        refmem_realtime_tdma_begin_result_write(service);
-        service->service_count++;
-        service->armed = 0u;
-        if (service->state == REFMEM_REALTIME_TDMA_STATE_UNINIT) {
-            service->state = REFMEM_REALTIME_TDMA_STATE_IDLE;
-        }
-        refmem_realtime_tdma_end_result_write(service);
-        return;
-    }
-
-    refmem_realtime_tdma_begin_result_write(service);
-    service->service_count++;
-    if (intent_seq > service->completed_seq) {
-        if (abort_seq >= intent_seq) {
-            service->dropped_seq = intent_seq;
-            service->completed_seq = intent_seq;
-            service->armed = 0u;
-            service->state = REFMEM_REALTIME_TDMA_STATE_IDLE;
-            service->last_result = REFMEM_REALTIME_TDMA_RESULT_NONE;
-        } else {
-            if (service->timing_intent_seq != intent_seq) {
-                service->timing_intent_seq = intent_seq;
-                service->core1_arm_time_ns = refmem_realtime_tdma_now_ns();
-                service->core1_start_time_ns = 0ull;
-                service->core1_done_time_ns = 0ull;
-                service->core1_elapsed_ns = 0u;
-            }
-            service->armed = 1u;
-            service->state = REFMEM_REALTIME_TDMA_STATE_ARMED;
-        }
-    }
-    refmem_realtime_tdma_end_result_write(service);
-
-    uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX];
-    uint32_t intent_type;
-    refmem_spi_physical_role_t role;
-    refmem_spi_physical_pin_config_t pins;
-    uint32_t baud_hz;
-    uint32_t deadline_1e3ns;
-    uint32_t vdc_window_plan_valid;
-    uint64_t vdc_window_start_ns;
-    uint64_t vdc_window_end_ns;
-    uint64_t vdc_guard_start_ns;
-    uint64_t vdc_guard_end_ns;
-    size_t frame_size;
-    while (true) {
-        const uint32_t seq_begin = refmem_realtime_tdma_load(&service->intent_guard);
-        if ((seq_begin & 1u) != 0u) {
-            continue;
-        }
-        intent_type = service->intent_type;
-        role = (refmem_spi_physical_role_t)service->role;
-        pins.rx_pin = service->rx_pin;
-        pins.csn_pin = service->csn_pin;
-        pins.sck_pin = service->sck_pin;
-        pins.tx_pin = service->tx_pin;
-        baud_hz = service->baud_hz;
-        deadline_1e3ns = service->deadline_1e3ns;
-        vdc_window_plan_valid = service->vdc_window_plan_valid;
-        vdc_window_start_ns = service->vdc_window_start_ns;
-        vdc_window_end_ns = service->vdc_window_end_ns;
-        vdc_guard_start_ns = service->vdc_guard_start_ns;
-        vdc_guard_end_ns = service->vdc_guard_end_ns;
-        frame_size = (size_t)service->frame_size;
-        if (frame_size > sizeof(frame)) {
-            frame_size = sizeof(frame);
-        }
-        if (frame_size != 0u) {
-            memcpy(frame, service->frame, frame_size);
-        }
-        const uint32_t seq_end = refmem_realtime_tdma_load(&service->intent_guard);
-        if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
-            break;
-        }
-    }
-
-    if (vdc_window_plan_valid != 0u) {
-        uint64_t now_ns = refmem_realtime_tdma_now_ns();
-        if (now_ns < vdc_guard_start_ns) {
-            refmem_realtime_tdma_begin_result_write(service);
-            service->armed = 1u;
-            service->vdc_window_wait_ns =
-                refmem_realtime_tdma_delta_ns(vdc_guard_start_ns, now_ns);
-            service->vdc_window_late_ns = 0u;
-            service->last_result = REFMEM_REALTIME_TDMA_RESULT_WAITING_FOR_WINDOW;
-            service->state = REFMEM_REALTIME_TDMA_STATE_ARMED;
-            refmem_realtime_tdma_end_result_write(service);
-            return;
-        }
-        if (now_ns > vdc_guard_end_ns || now_ns > vdc_window_end_ns) {
-            refmem_realtime_tdma_begin_result_write(service);
-            service->completed_seq = intent_seq;
-            service->armed = 0u;
-            service->vdc_window_miss_count++;
-            service->vdc_window_wait_ns = 0u;
-            service->vdc_window_late_ns =
-                refmem_realtime_tdma_delta_ns(now_ns, vdc_window_start_ns);
-            service->last_error = REFMEM_REALTIME_TDMA_ERROR_WINDOW_MISSED;
-            service->last_result = REFMEM_REALTIME_TDMA_RESULT_WINDOW_MISSED;
-            service->state = REFMEM_REALTIME_TDMA_STATE_ERROR;
-            refmem_realtime_tdma_end_result_write(service);
-            return;
-        }
-        while (now_ns < vdc_window_start_ns) {
-            now_ns = refmem_realtime_tdma_now_ns();
-        }
-        refmem_realtime_tdma_begin_result_write(service);
-        service->vdc_window_wait_ns = 0u;
-        service->vdc_window_late_ns =
-            refmem_realtime_tdma_delta_ns(now_ns, vdc_window_start_ns);
-        refmem_realtime_tdma_end_result_write(service);
-    }
-
-    refmem_realtime_tdma_exec_status_t exec_status = {
-        .result = REFMEM_REALTIME_TDMA_EXEC_NONE,
-        .error = 0u,
-        .frame_size = frame_size,
-    };
-    uint64_t core1_start_time_ns = service->core1_start_time_ns;
-    if (core1_start_time_ns == 0ull) {
-        core1_start_time_ns = refmem_realtime_tdma_now_ns();
-        refmem_realtime_tdma_begin_result_write(service);
-        service->core1_start_time_ns = core1_start_time_ns;
-        refmem_realtime_tdma_end_result_write(service);
-    }
-
-    bool ok = false;
-    if (service->ops == NULL) {
-        exec_status.result = REFMEM_REALTIME_TDMA_EXEC_ERROR;
-        exec_status.error = REFMEM_REALTIME_TDMA_ERROR_NO_OPS;
-    } else if (intent_type == REFMEM_REALTIME_TDMA_INTENT_TX_FRAME) {
-        ok = service->ops->transmit(service->ops_context,
-                                    frame,
-                                    frame_size,
-                                    role,
-                                    baud_hz,
-                                    &pins,
-                                    deadline_1e3ns,
-                                    &exec_status);
-    } else if (intent_type == REFMEM_REALTIME_TDMA_INTENT_RX_WINDOW) {
-        ok = service->ops->receive(service->ops_context,
-                                   frame,
-                                   sizeof(frame),
-                                   role,
-                                   baud_hz,
-                                   &pins,
-                                   deadline_1e3ns,
-                                   &exec_status);
-    } else {
-        exec_status.result = REFMEM_REALTIME_TDMA_EXEC_ERROR;
-        exec_status.error = REFMEM_REALTIME_TDMA_RESULT_BAD_ARGUMENT;
-    }
-
-    if (exec_status.result == REFMEM_REALTIME_TDMA_EXEC_PENDING) {
-        refmem_realtime_tdma_begin_result_write(service);
-        service->armed = 1u;
-        service->last_error = exec_status.error;
-        service->last_result = REFMEM_REALTIME_TDMA_RESULT_ACCEPTED;
-        service->state = REFMEM_REALTIME_TDMA_STATE_ARMED;
-        refmem_realtime_tdma_end_result_write(service);
-        return;
-    }
-
-    const uint64_t core1_done_time_ns = refmem_realtime_tdma_now_ns();
-    refmem_realtime_tdma_begin_result_write(service);
-    service->completed_seq = intent_seq;
-    service->armed = 0u;
-    service->last_error = exec_status.error;
-    service->result_frame_size = (uint32_t)exec_status.frame_size;
-    service->core1_done_time_ns = core1_done_time_ns;
-    service->core1_elapsed_ns =
-        refmem_realtime_tdma_elapsed_ns(core1_start_time_ns, core1_done_time_ns);
-    if (ok &&
-        exec_status.result == REFMEM_REALTIME_TDMA_EXEC_RX_OK &&
-        exec_status.frame_size <= sizeof(service->result_frame)) {
-        memcpy(service->result_frame, frame, exec_status.frame_size);
-    }
-    if (ok &&
-        (exec_status.result == REFMEM_REALTIME_TDMA_EXEC_TX_OK ||
-         exec_status.result == REFMEM_REALTIME_TDMA_EXEC_RX_OK)) {
-        service->ready_count++;
-        service->last_result = REFMEM_REALTIME_TDMA_RESULT_FRAME_READY;
-        service->state = REFMEM_REALTIME_TDMA_STATE_DONE;
-    } else if (exec_status.result == REFMEM_REALTIME_TDMA_EXEC_TIMEOUT) {
-        service->timeout_count++;
-        service->last_result = REFMEM_REALTIME_TDMA_RESULT_TIMEOUT;
-        service->state = REFMEM_REALTIME_TDMA_STATE_ERROR;
-    } else {
-        service->overrun_count++;
-        service->last_result = REFMEM_REALTIME_TDMA_RESULT_OVERRUN;
-        service->state = REFMEM_REALTIME_TDMA_STATE_ERROR;
-    }
-    refmem_realtime_tdma_end_result_write(service);
+    tdma_service_core1_service(&service->scheduler);
 }
 
-bool refmem_realtime_tdma_get_snapshot(const refmem_realtime_tdma_service_t *service,
-                                       refmem_realtime_tdma_snapshot_t *snapshot)
+bool refmem_realtime_tdma_get_snapshot(
+    const refmem_realtime_tdma_service_t *service,
+    refmem_realtime_tdma_snapshot_t *snapshot)
 {
     if (service == NULL || snapshot == NULL) {
         return false;
     }
-
-    uint32_t abort_seq;
-    while (true) {
-        const uint32_t seq_begin = refmem_realtime_tdma_load(&service->intent_guard);
-        if ((seq_begin & 1u) != 0u) {
-            continue;
-        }
-        snapshot->intent_seq = service->intent_seq;
-        abort_seq = service->abort_seq;
-        snapshot->window_epoch = service->window_epoch;
-        snapshot->window_index = service->window_index;
-        snapshot->intent_type = service->intent_type;
-        snapshot->role = service->role;
-        snapshot->baud_hz = service->baud_hz;
-        snapshot->rx_pin = service->rx_pin;
-        snapshot->csn_pin = service->csn_pin;
-        snapshot->sck_pin = service->sck_pin;
-        snapshot->tx_pin = service->tx_pin;
-        snapshot->deadline_1e3ns = service->deadline_1e3ns;
-        snapshot->vdc_window_plan_valid = service->vdc_window_plan_valid;
-        snapshot->vdc_window_class = service->vdc_window_class;
-        snapshot->vdc_schedule_crc32 = service->vdc_schedule_crc32;
-        refmem_realtime_tdma_split_u64(service->vdc_window_start_ns,
-                                       &snapshot->vdc_window_start_ns_lo,
-                                       &snapshot->vdc_window_start_ns_hi);
-        refmem_realtime_tdma_split_u64(service->vdc_window_end_ns,
-                                       &snapshot->vdc_window_end_ns_lo,
-                                       &snapshot->vdc_window_end_ns_hi);
-        refmem_realtime_tdma_split_u64(service->vdc_guard_start_ns,
-                                       &snapshot->vdc_guard_start_ns_lo,
-                                       &snapshot->vdc_guard_start_ns_hi);
-        refmem_realtime_tdma_split_u64(service->vdc_guard_end_ns,
-                                       &snapshot->vdc_guard_end_ns_lo,
-                                       &snapshot->vdc_guard_end_ns_hi);
-        snapshot->frame_size = service->frame_size;
-        snapshot->reject_count = service->reject_count;
-        refmem_realtime_tdma_split_u64(service->submit_time_ns,
-                                       &snapshot->submit_time_ns_lo,
-                                       &snapshot->submit_time_ns_hi);
-        const uint32_t seq_end = refmem_realtime_tdma_load(&service->intent_guard);
-        if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
-            break;
-        }
+    tdma_service_snapshot_t source;
+    if (!tdma_service_get_snapshot(&service->scheduler, &source)) {
+        return false;
     }
-
-    uint32_t result_frame_size = 0u;
-    while (true) {
-        const uint32_t seq_begin = refmem_realtime_tdma_load(&service->result_guard);
-        if ((seq_begin & 1u) != 0u) {
-            continue;
-        }
-        snapshot->state = service->state;
-        snapshot->owner_core = service->owner_core;
-        snapshot->armed = service->armed;
-        snapshot->service_count = service->service_count;
-        snapshot->completed_seq = service->completed_seq;
-        snapshot->dropped_seq = service->dropped_seq;
-        snapshot->ready_count = service->ready_count;
-        snapshot->timeout_count = service->timeout_count;
-        snapshot->overrun_count = service->overrun_count;
-        snapshot->last_result = service->last_result;
-        snapshot->last_error = service->last_error;
-        snapshot->timestamp_source =
-            (uint32_t)REFMEM_REALTIME_TDMA_TIMESTAMP_SOURCE;
-        snapshot->timestamp_resolution_ns =
-            REFMEM_REALTIME_TDMA_TIMESTAMP_RESOLUTION_NS;
-        snapshot->timestamp_flags = REFMEM_REALTIME_TDMA_TIMESTAMP_FLAGS;
-        snapshot->vdc_window_miss_count = service->vdc_window_miss_count;
-        snapshot->vdc_window_wait_ns = service->vdc_window_wait_ns;
-        snapshot->vdc_window_late_ns = service->vdc_window_late_ns;
-        refmem_realtime_tdma_split_u64(service->core1_arm_time_ns,
-                                       &snapshot->core1_arm_time_ns_lo,
-                                       &snapshot->core1_arm_time_ns_hi);
-        refmem_realtime_tdma_split_u64(service->core1_start_time_ns,
-                                       &snapshot->core1_start_time_ns_lo,
-                                       &snapshot->core1_start_time_ns_hi);
-        refmem_realtime_tdma_split_u64(service->core1_done_time_ns,
-                                       &snapshot->core1_done_time_ns_lo,
-                                       &snapshot->core1_done_time_ns_hi);
-        snapshot->core1_elapsed_ns = service->core1_elapsed_ns;
-        result_frame_size = service->result_frame_size;
-        const uint32_t seq_end = refmem_realtime_tdma_load(&service->result_guard);
-        if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
-            break;
-        }
-    }
-
-    if (snapshot->intent_seq > snapshot->completed_seq && abort_seq < snapshot->intent_seq) {
-        snapshot->state = REFMEM_REALTIME_TDMA_STATE_PENDING;
-        snapshot->armed = 1u;
-        if (snapshot->last_result != REFMEM_REALTIME_TDMA_RESULT_WAITING_FOR_WINDOW) {
-            snapshot->last_result = REFMEM_REALTIME_TDMA_RESULT_ACCEPTED;
-        }
-    } else if (snapshot->completed_seq == snapshot->intent_seq && result_frame_size != 0u) {
-        snapshot->frame_size = result_frame_size;
-    }
-
+    refmem_realtime_tdma_from_service_snapshot(&source, snapshot);
     return true;
 }
 
-bool refmem_realtime_tdma_get_result_frame(const refmem_realtime_tdma_service_t *service,
-                                           uint8_t *frame,
-                                           size_t frame_capacity,
-                                           size_t *frame_size)
+bool refmem_realtime_tdma_get_result_frame(
+    const refmem_realtime_tdma_service_t *service,
+    uint8_t *frame,
+    size_t frame_capacity,
+    size_t *frame_size)
 {
-    if (frame_size != NULL) {
-        *frame_size = 0u;
-    }
-    if (service == NULL || frame == NULL || frame_size == NULL || frame_capacity == 0u) {
+    if (service == NULL) {
+        if (frame_size != NULL) {
+            *frame_size = 0u;
+        }
         return false;
     }
-
-    while (true) {
-        const uint32_t seq_begin = refmem_realtime_tdma_load(&service->result_guard);
-        if ((seq_begin & 1u) != 0u) {
-            continue;
-        }
-        const size_t result_size = (size_t)service->result_frame_size;
-        const uint32_t last_result = service->last_result;
-        if (result_size == 0u || result_size > frame_capacity ||
-            last_result != REFMEM_REALTIME_TDMA_RESULT_FRAME_READY) {
-            const uint32_t seq_end = refmem_realtime_tdma_load(&service->result_guard);
-            if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
-                return false;
-            }
-            continue;
-        }
-        memcpy(frame, service->result_frame, result_size);
-        *frame_size = result_size;
-        const uint32_t seq_end = refmem_realtime_tdma_load(&service->result_guard);
-        if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
-            return true;
-        }
-    }
+    return tdma_service_get_result_frame(&service->scheduler,
+                                         frame,
+                                         frame_capacity,
+                                         frame_size);
 }

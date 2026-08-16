@@ -220,6 +220,9 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 阶段 2：将当前 SCPI 搬运通路切到真实 PIO SPI 物理 adapter service，保留相同 frame/peer/quality 语义。当前 `SYSTem:REFMEM:SYNC:SPI:*` 只触发帧级 TX/RX；RefMem frame 已在 COM5/COM6 的真实 PIO+DMA 物理链路上以 25 MHz 完成 `RAW/HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 双向闭环。
 - [ ] 阶段 2 后续：将 PIO SPI physical adapter 从维护命令触发升级为 core1 realtime TDMA service，core0 只提交帧/窗口意图，PIO+DMA 在 TDMA window 内自行运行，core1 只处理 frame-ready/timeout 摘要。
   - [x] 建立 `refmem_realtime_tdma` service contract：core0 writer 只发布 intent mailbox，core1 writer 只发布 runtime/result snapshot，查询端通过 seqlock 合成状态，避免跨核共享字段双 writer。
+  - [x] 将 `refmem_realtime_tdma` 从 RefMem 私有实现抽为 `components/tdma` 基础件；RefMem 侧仅保留兼容适配层，旧 `SYSTem:REFMEM:SYNC:TDMA:*` 查询/控制字段不变，实际调度、scheduled window、transport ops 和 payload binding 由 `tdma_service` 执行。
+  - [x] 抽离后复测 COM5/COM6 NodeLoad AUTO 双向两节点同步：X 板只通过 SCPI 加载两个节点并经 TDMA/PIO 同步到 Y 板，随后 Y 板加载两个节点同步回 X 板；验收已验证 NodeLoad staging CRC、SlotClaimMap、AUTO applied count、last frame type/source 和错误队列。build `20260816095934` 记录位于 `build-rtos-multicore-smoke/refmem_node_load_auto_hil_COM5_COM6_20260816095934_tdma_component/`。
+  - [x] 抽离后复测 COM5/COM6 NodeLoad AUTO 空闲维护：同步完成后继续观察两板 RX window 自运行，确认 `pending_count=0`、`last_error=0`、`submitted_rx_count` 和 TDMA `service_count/completed_seq` 继续增长；记录位于 `build-rtos-multicore-smoke/refmem_node_load_auto_hil_COM5_COM6_20260816095934_auto_maintenance/`。
   - [x] 将 TDMA service 接入 `DistributedRefMemAO` 初始化、core1 realtime loop 和维护查询 `SYSTem:REFMEM:SYNC:TDMA:STATus?`。
   - [x] 为 TDMA service 增加 physical ops 边界，并在 `DistributedRefMemAO` 中绑定 PIO+DMA physical adapter wrapper；core1 service 已可通过 intent 执行真实 `transmit/receive`。
   - [x] 增加维护入口 `SYSTem:REFMEM:SYNC:TDMA:TX/RX/FRAMe?/ABORt`，支持 post TDMA intent、读取 TDMA result frame 并进入 RefMem Sync decode。

@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $build = Join-Path $repo $BuildDir
 $refmemInclude = Join-Path $repo "components\distributed_refmem\inc"
+$tdmaInclude = Join-Path $repo "components\tdma\inc"
 $otaInclude = Join-Path $repo "components\ota_manager\inc"
 $testSource = Join-Path $repo "tests\unit\test_refmem_sync_hello.c"
 $helloSource = Join-Path $repo "components\distributed_refmem\src\refmem_sync_hello.c"
@@ -64,7 +65,7 @@ if (-not $hostCc) {
 
 if ($hostCc) {
     $exe = Join-Path $build "test_refmem_sync_hello.exe"
-    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$otaInclude" $testSource $helloSource $syncFrameSource $adapterSource -o $exe
+    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" $testSource $helloSource $syncFrameSource $adapterSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -86,7 +87,7 @@ if (-not (Test-Path $ArmGcc)) {
 
 foreach ($source in @($testSource, $helloSource, $syncFrameSource, $adapterSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
-    & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$otaInclude" -c $source -o $object
+    & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }

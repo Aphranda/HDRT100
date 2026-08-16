@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import Iterator
+import re
 import time
 
 try:
@@ -55,3 +56,95 @@ def read_serial_line_idle(ser: serial.Serial,
     if not raw:
         return None
     return bytes(raw).decode(encoding, errors="replace").strip()
+
+
+def is_scpi_log_line(line: str) -> bool:
+    """Return true for diagnostic text sharing the USB CDC stream."""
+    text = line.strip()
+    maybe_log = text[1:] if text.startswith('"[') else text
+    return (
+        not text
+        or maybe_log.startswith("[")
+        or maybe_log.startswith("log:")
+        or " initialized" in maybe_log
+        or " service initialized" in maybe_log
+    )
+
+
+def trim_embedded_scpi_log(line: str) -> str:
+    """Remove a trailing diagnostic log fragment appended after a response."""
+    match = re.search(r'(?<!^)\[\s*\d+\]\s+(?:DBG|INF|WRN|ERR)\s+', line)
+    return line[:match.start()].strip() if match else line.strip()
+
+
+def strip_scpi_ack_prefix(line: str) -> str:
+    """Drop standalone or leading OK acknowledgements before query data."""
+    text = line.strip()
+    if text in {'"OK"', "OK", 'OK"'}:
+        return ""
+    if text.startswith('"OK[') or text.startswith("OK["):
+        return ""
+    if text.startswith('"OK"['):
+        return text[4:].strip()
+    if text.startswith('OK"['):
+        return text[3:].strip()
+    if text.startswith('"OK"') and len(text) > 4:
+        return text[4:].strip()
+    return text
+
+
+def is_scpi_query(command: str) -> bool:
+    header = command.strip().split(maxsplit=1)[0]
+    return "?" in header
+
+
+def _csv_uints_match(line: str, count: int) -> bool:
+    return re.fullmatch(r"\s*\d+\s*" + (r",\s*\d+\s*" * (count - 1)), line) is not None
+
+
+def scpi_response_matches_command(command: str, line: str) -> bool:
+    """Screen obvious boot logs and stale responses for command-sensitive tools."""
+    header = command.strip().split(maxsplit=1)[0].upper()
+    text = strip_scpi_ack_prefix(trim_embedded_scpi_log(line))
+    if not text or is_scpi_log_line(text):
+        return False
+
+    if header in {"SYST:FW:BUILD?", "SYSTEM:FW:BUILD?", "SYST:FW:BUILD?", "SYSTEM:FW:BUILD?"}:
+        return re.fullmatch(r'"[^"]+"', text) is not None
+    if header == "*IDN?":
+        return text.count(",") >= 3
+    if header in {"SYST:OTA:SLOT?", "SYSTEM:OTA:SLOT?"}:
+        return _csv_uints_match(text, 5)
+    if header in {"SYST:OTA:TXN?", "SYSTEM:OTA:TXN?"}:
+        return _csv_uints_match(text, 8)
+    if header in {"SYST:OTA:STAT?", "SYSTEM:OTA:STAT?"}:
+        return re.fullmatch(r'"[^"]+",\s*\d+,\s*"[^"]+",\s*\d+', text) is not None
+    if header in {"SYST:OTA:RES?", "SYSTEM:OTA:RES?"}:
+        return re.fullmatch(r'\d+,\s*"[^"]+",\s*"[^"]+",\s*\d+,\s*\d+,\s*\d+', text) is not None
+    if header in {"SYST:ERR?", "SYSTEM:ERR?", "SYST:ERROR?", "SYSTEM:ERROR?"}:
+        return re.fullmatch(r'-?\d+(?:,.*)?', text) is not None
+    if is_scpi_query(command):
+        return text not in {'"OK"', "OK", "1"}
+    return text in {'"OK"', "OK", "1"} or re.fullmatch(r"\d+", text) is not None
+
+
+def read_scpi_response(ser: serial.Serial,
+                       command: str,
+                       timeout_s: float,
+                       *,
+                       require_match: bool = False) -> str:
+    """Read a command response while filtering startup logs on the CDC stream."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        line = read_serial_line_idle(ser, deadline)
+        if line is None or is_scpi_log_line(line):
+            continue
+        line = strip_scpi_ack_prefix(trim_embedded_scpi_log(line))
+        if not line:
+            continue
+        if require_match and not scpi_response_matches_command(command, line):
+            continue
+        if is_scpi_query(command) and line in {'"OK"', "OK", "1"}:
+            continue
+        return line
+    return "<timeout>"

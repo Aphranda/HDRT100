@@ -227,6 +227,7 @@ set(PROJECT_APP_SOURCES
         components/sync_io/src/sync_io_mode_biss_tap.c
         components/sync_io/src/sync_io_mode_enc_count.c
         components/sync_io/src/sync_io_mode_seq_step.c
+        components/tdma/src/tdma_service.c
         components/ui_manager/src/status_ui.c
         components/ui_manager/src/ui_manager.c
         components/vdc_domain/src/vdc_domain.c
@@ -351,6 +352,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/components/system_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_trigger/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/tdma/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/ui_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/vdc_domain/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/vdc_dpll_manager/inc

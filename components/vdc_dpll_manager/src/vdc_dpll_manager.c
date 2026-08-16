@@ -8,10 +8,18 @@
 #include "vdc_domain.h"
 #include "vdc_sync_io_adapter.h"
 
+#define VDC_DPLL_MANAGER_SELF_TEST_CLEANUP_MARGIN_MS 250u
+
 static vdc_dpll_manager_vdc_status_t s_vdc_status;
 static vdc_dpll_manager_dpll_status_t s_dpll_status;
 static vdc_dpll_manager_sync_io_observer_config_t s_sync_io_observer_config;
 static vdc_dpll_manager_sync_io_observer_status_t s_sync_io_observer_status;
+static vdc_dpll_manager_vdc_status_t s_published_vdc_status;
+static vdc_dpll_manager_dpll_status_t s_published_dpll_status;
+static vdc_dpll_manager_sync_io_observer_status_t
+    s_published_sync_io_observer_status;
+static vdc_domain_snapshot_t s_published_snapshot;
+static bool s_published_snapshot_valid;
 static vdc_dpll_manager_observation_self_test_status_t s_observation_self_test;
 static sync_io_model_pulse_entry_t
     s_observation_self_test_entries[VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES];
@@ -27,6 +35,50 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
     uint32_t frame_crc32,
     bool periodic,
     uint32_t start_delay_ns);
+
+static void vdc_dpll_manager_observation_self_test_service(void)
+{
+    vdc_dpll_manager_observation_self_test_status_t status;
+    bool should_stop_rx = false;
+
+    osal_critical_enter();
+    status = s_observation_self_test;
+    osal_critical_exit();
+
+    if (!status.active ||
+        (status.role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) == 0u ||
+        status.started_ms == 0u) {
+        return;
+    }
+
+    const uint64_t duration_ns =
+        (uint64_t)status.start_delay_ns +
+        (uint64_t)status.pulse_period_ns * (uint64_t)status.pulse_count;
+    uint64_t timeout_ms = (duration_ns + 999999ull) / 1000000ull;
+    timeout_ms += VDC_DPLL_MANAGER_SELF_TEST_CLEANUP_MARGIN_MS;
+    if (timeout_ms > UINT32_MAX) {
+        timeout_ms = UINT32_MAX;
+    }
+
+    const uint32_t elapsed_ms = board_uptime_ms() - status.started_ms;
+    if (elapsed_ms >= (uint32_t)timeout_ms) {
+        should_stop_rx = true;
+    }
+
+    if (!should_stop_rx) {
+        return;
+    }
+
+    sync_io_stop_capture();
+    sync_io_capture_disarm_timestamp_window();
+
+    osal_critical_enter();
+    if (s_observation_self_test.active &&
+        s_observation_self_test.started_ms == status.started_ms) {
+        s_observation_self_test.active = false;
+    }
+    osal_critical_exit();
+}
 
 static uint64_t vdc_dpll_manager_now_ns(void)
 {
@@ -87,6 +139,46 @@ static void vdc_dpll_manager_sync_io_observer_reset_status_locked(void)
         s_sync_io_observer_config.next_base_time_l32_ns;
 }
 
+static void vdc_dpll_manager_publish_sync_io_observer_locked(void)
+{
+    vdc_dpll_manager_sync_io_observer_status_t status =
+        s_sync_io_observer_status;
+
+    status.enabled = s_sync_io_observer_config.enabled;
+    status.max_words_per_service =
+        s_sync_io_observer_config.max_words_per_service;
+    if (s_sync_io_observer_config.enabled) {
+        status.rising_event_id = s_sync_io_observer_config.rising_event_id;
+        status.falling_event_id = s_sync_io_observer_config.falling_event_id;
+        status.observed_mask = s_sync_io_observer_config.observed_mask;
+        status.initial_sample_mask =
+            s_sync_io_observer_config.initial_sample_mask;
+        status.sample_period_ns =
+            s_sync_io_observer_config.sample_period_ns;
+        status.expected_window_start_lo =
+            (uint32_t)(s_sync_io_observer_config.expected_window_start_ns &
+                       0xFFFFFFFFull);
+        status.expected_window_start_hi =
+            (uint32_t)(s_sync_io_observer_config.expected_window_start_ns >>
+                       32u);
+        status.frame_crc32 = s_sync_io_observer_config.frame_crc32;
+        status.max_backward_ticks =
+            s_sync_io_observer_config.max_backward_ticks;
+        status.quality_flags = s_sync_io_observer_config.quality_flags;
+        status.sample0_lsb =
+            s_sync_io_observer_config.sample0_lsb ? 1u : 0u;
+        status.schedule_crc32 = s_vdc_domain.schedule.schedule_crc32;
+        status.dictionary_crc32 =
+            s_vdc_domain.timestamp_dictionary.dictionary_crc32;
+        status.dictionary_entry_count =
+            s_vdc_domain.timestamp_dictionary.entry_count;
+        status.dictionary_profile_crc32 =
+            s_vdc_domain.timestamp_dictionary.profile_crc32;
+    }
+
+    s_published_sync_io_observer_status = status;
+}
+
 static void vdc_dpll_manager_sync_io_observer_service(void)
 {
     sync_io_capture_latched_word_t words[VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS];
@@ -107,10 +199,14 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
     }
 
     osal_critical_enter();
-    s_sync_io_observer_status.service_count++;
+    vdc_dpll_manager_sync_io_observer_status_t status =
+        s_sync_io_observer_status;
+    status.service_count++;
+    osal_critical_exit();
+
     for (size_t i = 0u; i < count; i++) {
         vdc_compact_observation_sample_t compact;
-        uint32_t last_sample_mask = s_sync_io_observer_status.previous_sample_mask;
+        uint32_t last_sample_mask = status.previous_sample_mask;
         const uint32_t sample_seq = words[i].sample_seq;
         vdc_sync_io_capture_decode_config_t decode = {
             .valid = 1u,
@@ -119,7 +215,7 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
             .falling_event_id = config.falling_event_id,
             .observed_mask = config.observed_mask,
             .previous_sample_mask =
-                s_sync_io_observer_status.previous_sample_mask,
+                status.previous_sample_mask,
             .base_time_l32_ns =
                 (config.quality_flags &
                  VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE) != 0u &&
@@ -151,13 +247,13 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
                                                             &compact,
                                                             &last_sample_mask);
 
-        s_sync_io_observer_status.raw_word_count++;
-        s_sync_io_observer_status.last_capture_result = (uint32_t)result;
-        s_sync_io_observer_status.last_raw_word = words[i].raw_word;
-        s_sync_io_observer_status.last_sample_seq = sample_seq;
-        s_sync_io_observer_status.previous_sample_mask =
+        status.raw_word_count++;
+        status.last_capture_result = (uint32_t)result;
+        status.last_raw_word = words[i].raw_word;
+        status.last_sample_seq = sample_seq;
+        status.previous_sample_mask =
             last_sample_mask & config.observed_mask;
-        s_sync_io_observer_status.next_base_time_l32_ns =
+        status.next_base_time_l32_ns =
             words[i].base_time_l32_ns +
             decode.sample_period_ns * VDC_SYNC_IO_CAPTURE_SAMPLES_PER_WORD;
 
@@ -165,55 +261,61 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
         case VDC_SYNC_IO_CAPTURE_OK:
             {
                 vdc_timestamp_dictionary_entry_t entry;
-                s_sync_io_observer_status.last_edge_index =
+                status.last_edge_index =
                     (compact.quality_flags >> 16u) & 0xFFu;
-                s_sync_io_observer_status.last_timestamp_source =
+                status.last_timestamp_source =
                     words[i].timestamp_source;
-                s_sync_io_observer_status.last_timestamp_resolution_ns =
+                status.last_timestamp_resolution_ns =
                     words[i].timestamp_resolution_ns;
-                s_sync_io_observer_status.last_timestamp_flags =
+                status.last_timestamp_flags =
                     words[i].timestamp_flags;
+                osal_critical_enter();
                 if (vdc_timestamp_dictionary_find(
                         &s_vdc_domain.timestamp_dictionary,
                         compact.event_id,
                         &entry)) {
-                    s_sync_io_observer_status.last_source_slot_id =
+                    status.last_source_slot_id =
                         entry.source_slot_id;
-                    s_sync_io_observer_status.last_reference_slot_id =
+                    status.last_reference_slot_id =
                         entry.reference_slot_id;
-                    s_sync_io_observer_status.last_payload_class =
+                    status.last_payload_class =
                         entry.payload_class;
                 } else {
-                    s_sync_io_observer_status.last_source_slot_id = 0u;
-                    s_sync_io_observer_status.last_reference_slot_id = 0u;
-                    s_sync_io_observer_status.last_payload_class = 0u;
+                    status.last_source_slot_id = 0u;
+                    status.last_reference_slot_id = 0u;
+                    status.last_payload_class = 0u;
                 }
             }
-            s_sync_io_observer_status.submitted_count++;
-            s_sync_io_observer_status.last_event_id = compact.event_id;
-            s_sync_io_observer_status.last_tick_l32 = compact.tick_l32;
+            status.submitted_count++;
+            status.last_event_id = compact.event_id;
+            status.last_tick_l32 = compact.tick_l32;
             if (vdc_domain_submit_compact_observation(&s_vdc_domain, &compact)) {
-                s_sync_io_observer_status.accepted_count++;
-                s_sync_io_observer_status.last_gate_reject_code =
+                status.accepted_count++;
+                status.last_gate_reject_code =
                     VDC_DOMAIN_GATE_PASS;
             } else {
-                s_sync_io_observer_status.rejected_count++;
-                s_sync_io_observer_status.last_gate_reject_code =
+                status.rejected_count++;
+                status.last_gate_reject_code =
                     s_vdc_domain.gate.reject_code;
             }
+            osal_critical_exit();
             break;
         case VDC_SYNC_IO_CAPTURE_NO_EDGE:
-            s_sync_io_observer_status.no_edge_count++;
+            status.no_edge_count++;
             break;
         case VDC_SYNC_IO_CAPTURE_AMBIGUOUS_EDGE:
-            s_sync_io_observer_status.ambiguous_edge_count++;
+            status.ambiguous_edge_count++;
             break;
         case VDC_SYNC_IO_CAPTURE_BAD_ARGUMENT:
         default:
-            s_sync_io_observer_status.bad_argument_count++;
+            status.bad_argument_count++;
             break;
         }
     }
+
+    osal_critical_enter();
+    s_sync_io_observer_status = status;
+    vdc_dpll_manager_publish_sync_io_observer_locked();
     osal_critical_exit();
 }
 
@@ -225,12 +327,21 @@ bool vdc_dpll_manager_init(void)
     memset(&s_dpll_status, 0, sizeof(s_dpll_status));
     memset(&s_sync_io_observer_config, 0, sizeof(s_sync_io_observer_config));
     memset(&s_sync_io_observer_status, 0, sizeof(s_sync_io_observer_status));
+    memset(&s_published_vdc_status, 0, sizeof(s_published_vdc_status));
+    memset(&s_published_dpll_status, 0, sizeof(s_published_dpll_status));
+    memset(&s_published_sync_io_observer_status,
+           0,
+           sizeof(s_published_sync_io_observer_status));
+    memset(&s_published_snapshot, 0, sizeof(s_published_snapshot));
     memset(&s_observation_self_test, 0, sizeof(s_observation_self_test));
     if (!vdc_domain_init(&s_vdc_domain)) {
         return false;
     }
     s_vdc_status.last_service_ms = now_ms;
     s_dpll_status.last_service_ms = now_ms;
+    s_published_vdc_status = s_vdc_status;
+    s_published_dpll_status = s_dpll_status;
+    s_published_snapshot_valid = false;
     s_vdc_ready = false;
     s_dpll_ready = false;
     return true;
@@ -242,6 +353,7 @@ void vdc_dpll_manager_set_vdc_ready(bool ready)
     s_vdc_ready = ready;
     s_vdc_status.ready = ready;
     vdc_domain_set_ready(&s_vdc_domain, ready);
+    s_published_vdc_status = s_vdc_status;
     osal_critical_exit();
 }
 
@@ -250,6 +362,7 @@ void vdc_dpll_manager_set_dpll_ready(bool ready)
     osal_critical_enter();
     s_dpll_ready = ready;
     s_dpll_status.ready = ready;
+    s_published_dpll_status = s_dpll_status;
     osal_critical_exit();
 }
 
@@ -258,6 +371,7 @@ void vdc_dpll_manager_vdc_service(void)
     const uint32_t now_ms = board_uptime_ms();
     vdc_domain_snapshot_t snapshot;
 
+    vdc_dpll_manager_observation_self_test_service();
     vdc_dpll_manager_sync_io_observer_service();
 
     osal_critical_enter();
@@ -271,6 +385,9 @@ void vdc_dpll_manager_vdc_service(void)
     s_vdc_status.ready = s_vdc_ready;
     s_vdc_status.lock_state = snapshot.dpll.state;
     s_vdc_status.sync_seq++;
+    s_published_snapshot = snapshot;
+    s_published_snapshot_valid = true;
+    s_published_vdc_status = s_vdc_status;
     osal_critical_exit();
 }
 
@@ -287,6 +404,7 @@ bool vdc_dpll_manager_configure_sync_io_observer(
     osal_critical_enter();
     s_sync_io_observer_config = *config;
     vdc_dpll_manager_sync_io_observer_reset_status_locked();
+    vdc_dpll_manager_publish_sync_io_observer_locked();
     osal_critical_exit();
     return true;
 }
@@ -446,6 +564,14 @@ bool vdc_dpll_manager_start_observation_self_test(
         plan.window_start_ns + (uint64_t)config->start_delay_ns;
 
     if ((config->role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) != 0u) {
+        if (!sync_io_start_capture(sample_hz)) {
+            status.last_error = 1u;
+            osal_critical_enter();
+            s_observation_self_test = status;
+            osal_critical_exit();
+            return false;
+        }
+
         if (!vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
                 true,
                 config->observed_mask,
@@ -453,8 +579,9 @@ bool vdc_dpll_manager_start_observation_self_test(
                 config->sample_period_ns,
                 config->frame_crc32,
                 true,
-                config->start_delay_ns) ||
-            !sync_io_start_capture(sample_hz)) {
+                config->start_delay_ns)) {
+            sync_io_stop_capture();
+            sync_io_capture_disarm_timestamp_window();
             status.last_error = 1u;
             osal_critical_enter();
             s_observation_self_test = status;
@@ -485,6 +612,10 @@ bool vdc_dpll_manager_start_observation_self_test(
                                                s_observation_self_test_entries,
                                                pulse_count,
                                                true)) {
+            if ((config->role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) != 0u) {
+                sync_io_stop_capture();
+                sync_io_capture_disarm_timestamp_window();
+            }
             status.last_error = 2u;
             osal_critical_enter();
             s_observation_self_test = status;
@@ -569,6 +700,7 @@ void vdc_dpll_manager_dpll_service(void)
     s_dpll_status.ready = s_dpll_ready;
     s_dpll_status.state = snapshot.dpll.state;
     s_dpll_status.update_seq = snapshot.dpll.update_seq;
+    s_published_dpll_status = s_dpll_status;
     osal_critical_exit();
 }
 
@@ -579,8 +711,7 @@ void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status)
     }
 
     osal_critical_enter();
-    *status = s_vdc_status;
-    status->ready = s_vdc_ready;
+    *status = s_published_vdc_status;
     osal_critical_exit();
 }
 
@@ -591,8 +722,7 @@ void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status)
     }
 
     osal_critical_enter();
-    *status = s_dpll_status;
-    status->ready = s_dpll_ready;
+    *status = s_published_dpll_status;
     osal_critical_exit();
 }
 
@@ -604,7 +734,10 @@ bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot)
     }
 
     osal_critical_enter();
-    result = vdc_domain_get_snapshot(&s_vdc_domain, snapshot);
+    if (s_published_snapshot_valid) {
+        *snapshot = s_published_snapshot;
+        result = true;
+    }
     osal_critical_exit();
     return result;
 }

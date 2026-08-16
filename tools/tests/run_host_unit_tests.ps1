@@ -22,6 +22,7 @@ $scripts = @(
     "run_refmem_node_load_sync_tests.ps1",
     "run_refmem_pio_spi_adapter_tests.ps1",
     "run_refmem_quality_tests.ps1",
+    "run_refmem_realtime_tdma_tests.ps1",
     "run_refmem_realtime_contract_tests.ps1",
     "run_refmem_slot_claim_tests.ps1",
     "run_refmem_sync_frame_tests.ps1",

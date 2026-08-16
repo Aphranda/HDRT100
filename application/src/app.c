@@ -176,6 +176,10 @@ void app_storage_service(void)
 void app_realtime_run_once(void)
 {
     diagnostics_record_core1_loop();
+    vdc_dpll_manager_set_vdc_ready(true);
+    vdc_dpll_manager_vdc_service();
+    vdc_dpll_manager_set_dpll_ready(true);
+    vdc_dpll_manager_dpll_service();
     sync_io_capture_latch_service_core1();
     distributed_refmem_realtime_run_once();
     model_turntable_service();

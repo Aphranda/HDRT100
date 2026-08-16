@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,10 @@ except ImportError as exc:  # pragma: no cover - bench dependency
 
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.scpi_common.scpi_serial import read_scpi_response  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,41 +37,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def read_serial_line(ser: serial.Serial, deadline: float) -> str | None:
-    raw = bytearray()
-    while time.monotonic() < deadline:
-        ch = ser.read(1)
-        if not ch:
-            continue
-        raw.extend(ch)
-        if ch == b"\n":
-            break
-    if not raw:
-        return None
-    return bytes(raw).decode("utf-8", errors="replace").strip()
-
-
-def is_log_line(line: str) -> bool:
-    maybe_log = line[1:] if line.startswith('"[') else line
-    return (
-        not line
-        or maybe_log.startswith("[")
-        or maybe_log.startswith("log:")
-        or "service initialized" in maybe_log
-    )
-
-
-def command(ser: serial.Serial, text: str, timeout_s: float) -> str:
+def command(ser: serial.Serial,
+            text: str,
+            timeout_s: float,
+            *,
+            require_match: bool = False) -> str:
     ser.reset_input_buffer()
     ser.write((text + "\n").encode("ascii"))
     ser.flush()
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        line = read_serial_line(ser, deadline)
-        if line is None or is_log_line(line):
-            continue
-        return line
-    return "<timeout>"
+    return read_scpi_response(ser, text, timeout_s, require_match=require_match)
 
 
 def open_port(port: str, baud: int, reopen_timeout: float, settle: float, timeout_s: float) -> serial.Serial:
@@ -108,7 +87,7 @@ def run(args: argparse.Namespace) -> int:
             "SYSTem:OTA:SLOT?",
             "SYSTem:ERRor?",
         ):
-            response = command(ser, text, args.timeout)
+            response = command(ser, text, args.timeout, require_match=True)
             records.append({"command": text, "response": response})
             print(f"{text} => {response}")
 

@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $build = Join-Path $repo $BuildDir
 $refmemInclude = Join-Path $repo "components\distributed_refmem\inc"
+$tdmaInclude = Join-Path $repo "components\tdma\inc"
 $vdcInclude = Join-Path $repo "components\vdc_domain\inc"
 $otaInclude = Join-Path $repo "components\ota_manager\inc"
 $testSource = Join-Path $repo "tests\unit\test_refmem_vdc_bridge.c"
@@ -65,7 +66,7 @@ if (-not $hostCc) {
 }
 
 $sources = @($testSource, $bridgeSource, $frameSource, $vdcSource, $vdcTimestampSource)
-$includes = @("-I$refmemInclude", "-I$vdcInclude", "-I$otaInclude")
+$includes = @("-I$refmemInclude", "-I$tdmaInclude", "-I$vdcInclude", "-I$otaInclude")
 
 if ($hostCc) {
     $exe = Join-Path $build "test_refmem_vdc_bridge.exe"

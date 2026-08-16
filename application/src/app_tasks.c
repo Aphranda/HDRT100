@@ -11,7 +11,6 @@
 #include "loop_engine.h"
 #include "osal.h"
 #include "ui_manager.h"
-#include "vdc_dpll_manager.h"
 
 static void task_system(void *context)
 {
@@ -91,22 +90,6 @@ static void task_loop_engine(void *context)
     }
 }
 
-static void task_vdc_sync(void *context)
-{
-    (void)context;
-
-    while (true) {
-        if (!app_is_ready()) {
-            osal_task_delay_ms(1u);
-            continue;
-        }
-
-        vdc_dpll_manager_set_vdc_ready(true);
-        vdc_dpll_manager_vdc_service();
-        osal_task_delay_ms(1u);
-    }
-}
-
 static void task_calibration(void *context)
 {
     (void)context;
@@ -119,22 +102,6 @@ static void task_calibration(void *context)
 
         calibration_manager_set_ready(true);
         calibration_manager_service();
-        osal_task_delay_ms(1u);
-    }
-}
-
-static void task_dpll(void *context)
-{
-    (void)context;
-
-    while (true) {
-        if (!app_is_ready()) {
-            osal_task_delay_ms(1u);
-            continue;
-        }
-
-        vdc_dpll_manager_set_dpll_ready(true);
-        vdc_dpll_manager_dpll_service();
         osal_task_delay_ms(1u);
     }
 }
@@ -217,9 +184,7 @@ bool app_tasks_create_all(void)
         {.name = "scpi", .entry = task_scpi, .context = NULL, .stack_words = 3072u, .priority = 3u},
         {.name = "refmem_sync", .entry = task_refmem_sync, .context = NULL, .stack_words = 2048u, .priority = 4u},
         {.name = "loop_engine", .entry = task_loop_engine, .context = NULL, .stack_words = 3072u, .priority = 3u},
-        {.name = "vdc_sync", .entry = task_vdc_sync, .context = NULL, .stack_words = 2048u, .priority = 4u},
         {.name = "calibration", .entry = task_calibration, .context = NULL, .stack_words = 2048u, .priority = 3u},
-        {.name = "dpll", .entry = task_dpll, .context = NULL, .stack_words = 2048u, .priority = 3u},
         {.name = "cfg_gate", .entry = task_config_gate, .context = NULL, .stack_words = 2048u, .priority = 3u},
         {.name = "ota", .entry = task_ota, .context = NULL, .stack_words = 1536u, .priority = 3u},
         {.name = "storage", .entry = task_storage, .context = NULL, .stack_words = 3072u, .priority = 3u},

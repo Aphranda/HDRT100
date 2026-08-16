@@ -118,6 +118,13 @@ def query(ser, command: str, timeout_s: float) -> str:
     return "<timeout>"
 
 
+def cleanup_command(ser, command: str, timeout_s: float) -> None:
+    try:
+        query(ser, command, timeout_s)
+    except Exception:
+        pass
+
+
 def parse_csv_response(response: str) -> list[str]:
     try:
         return next(csv.reader([response], skipinitialspace=True))
@@ -203,32 +210,36 @@ def run_direction(source_name: str, source, source_profile: IoProfile,
                         OBSERVER_FIELD_COUNT)
     rx_cmd = selftest_command(2, 0, observed_mask, initial_sample_mask, args)
     tx_cmd = selftest_command(1, output_index, 1, 0, args)
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        rx_future = executor.submit(query, target, rx_cmd, args.timeout)
-        tx_future = executor.submit(query, source, tx_cmd, args.timeout)
-        if rx_future.result() != "1":
-            raise AssertionError(f"{target_name}: RX self-test command rejected")
-        if tx_future.result() != "1":
-            raise AssertionError(f"{source_name}: TX self-test command rejected")
-    if len(int_fields(query(target, "SYST:SYNC:VDC:OBServer:TDMA:SELFtest?", args.timeout),
-                      SELFTEST_FIELD_COUNT)) != SELFTEST_FIELD_COUNT:
-        raise AssertionError(f"{target_name}: malformed self-test status")
-
-    deadline = time.monotonic() + args.poll_timeout
     after = before
     readiness = [0] * READINESS_FIELD_COUNT
-    while time.monotonic() < deadline:
-        after = int_fields(query(target, "SYST:SYNC:VDC:OBServer?", args.timeout),
-                           OBSERVER_FIELD_COUNT)
-        readiness = int_fields(query(target, "SYST:SYNC:VDC:LOCK:READiness?", args.timeout),
-                               READINESS_FIELD_COUNT)
-        if after[8] > before[8] and after[15] == GATE_PASS:
-            break
-        time.sleep(0.05)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            rx_future = executor.submit(query, target, rx_cmd, args.timeout)
+            tx_future = executor.submit(query, source, tx_cmd, args.timeout)
+            if rx_future.result() != "1":
+                raise AssertionError(f"{target_name}: RX self-test command rejected")
+            if tx_future.result() != "1":
+                raise AssertionError(f"{source_name}: TX self-test command rejected")
+        if len(int_fields(query(target, "SYST:SYNC:VDC:OBServer:TDMA:SELFtest?", args.timeout),
+                          SELFTEST_FIELD_COUNT)) != SELFTEST_FIELD_COUNT:
+            raise AssertionError(f"{target_name}: malformed self-test status")
 
-    query(target, "REALtime:IO:SAMPle:STATe 0", args.timeout)
-    query(target, "SYST:SYNC:VDC:OBServer 0", args.timeout)
-    release_outputs(source, args.timeout)
+        deadline = time.monotonic() + args.poll_timeout
+        while time.monotonic() < deadline:
+            after = int_fields(query(target, "SYST:SYNC:VDC:OBServer?", args.timeout),
+                               OBSERVER_FIELD_COUNT)
+            readiness = int_fields(query(target, "SYST:SYNC:VDC:LOCK:READiness?", args.timeout),
+                                   READINESS_FIELD_COUNT)
+            if after[8] > before[8] and after[15] == GATE_PASS:
+                break
+            time.sleep(0.05)
+    finally:
+        cleanup_command(target, "REALtime:IO:SAMPle:STATe 0", args.timeout)
+        cleanup_command(target, "SYST:SYNC:VDC:OBServer 0", args.timeout)
+        try:
+            release_outputs(source, args.timeout)
+        except Exception:
+            pass
 
     if after[8] <= before[8]:
         print(f"{target_name}: observer_before={before}")

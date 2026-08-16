@@ -65,6 +65,7 @@ DPLL 稳定性要求：
 
 TDMA 最小实例约束：
 
+- `components/tdma` 是唯一 TDMA scheduler / PIO transport / timestamp spine 基础件；VDC 不建立私有 TDMA 实现，只注册/消费 `VDC_SYNC_SAMPLE`、`IDLE_BEACON` 等 payload，并读取 TDMA 产生的 scheduled window 与 timestamp evidence。
 - `SYSTem:SYNC:VDC:OBServer:TDMA` 只允许从 VDC active schedule 读取 `VDC_OBSERVATION_WINDOW` 并配置 observer，不允许由 SCPI 直接提供或修改 DPLL lock evidence。
 - `TDMA_WINDOW_BASE` 只能说明 compact observation 的 expected/base 时间来自 active TDMA 计划；`sync_io` timestamp window 使用 capture timer 同一时间基 arm，支持按 TDMA period 周期性匹配，只有整个 capture word 落在某个 observation window 内才可能去掉 `DIAGNOSTIC_ONLY`，并且 compact observation 必须使用命中的窗口起点作为 expected window。
 - 只有 PIO/DMA/IRQ/core1 在 observation window 内形成真正 edge latch，且 timestamp metadata 为 `HARDWARE_TICK + DPLL_ELIGIBLE + resolution<=100ns + !DIAGNOSTIC_ONLY`，VDC gate 才能接受样本。
@@ -76,6 +77,7 @@ TDMA 最小实例约束：
 - [x] RefMem -> VDC 的桥接保持单向证据语义：RefMem 只提供 frame/payload/CRC/timestamp evidence，不计算 offset/rate，不发布 VDC lock。
 - [x] `time_us_64()*1000` 诊断时间戳已明确标记为 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，不能进入 100 ns DPLL lock gate。
 - [x] TDMA window class 已区分 `VDC_OBSERVATION_WINDOW`、`REFMEM_DATA_WINDOW` 和 `IDLE_BEACON`，普通 RefMem 数据不能进入 observation window。
+- [x] 已建立 `components/tdma` 基础件首版；RefMem 旧 `refmem_realtime_tdma` 已降为适配层，后续 VDC observation、RefMem delta/ack/fence 和 long frame payload 必须挂到同一 TDMA scheduler。
 - [x] `vdc_domain_plan_tdma_window()` 已把窗口相位、guard、wait、late 和 missed 计算收敛到 VDC owner 侧，SCPI 只读查询不提交 intent。
 - [x] `VdcDcoControl` 已有结构契约，后续 core1/PIO 可以只读稳定 snapshot，不需要直接访问 DPLL 内部状态。
 

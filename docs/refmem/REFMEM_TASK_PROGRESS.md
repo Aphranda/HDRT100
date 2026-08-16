@@ -8,6 +8,32 @@ Last updated: 2026-08-16
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260816-048 - TDMA component extraction baseline
+
+- 状态：完成并通过 COM5/COM6 RefMem 同步 HIL
+- 日期：2026-08-16
+- 任务目标：
+  - 解决 “VDC 一套 TDMA、REFMEM 一套 realtime_tdma” 的命名和所有权混乱。
+  - 将 TDMA scheduler / PIO transport / timestamp spine 抽为 `components/tdma` 基础件；RefMem 和 VDC 只作为 payload producer/consumer 挂载，不再拥有私有 TDMA scheduler。
+- 完成内容：
+  - 新增 `components/tdma/inc/tdma_service.h`、`components/tdma/src/tdma_service.c`，承载 core0 intent mailbox、core1 result snapshot、scheduled window、transport ops、短帧/长帧和 payload binding 基础契约。
+  - `components/distributed_refmem/inc/src/refmem_realtime_tdma.*` 改为 RefMem 兼容适配层：旧 SCPI/quality/HIL API 保持字段不变，实际执行委托给 `tdma_service`。
+  - RefMem DELTA 与 ACK/FENCE payload 作为 short frame payload binding 注册到 TDMA service；后续 VDC sync sample、idle beacon、OTA/config/log long frame 走同一基础件扩展。
+  - 修正抽离后首轮 HIL 暴露的容量边界：`tdma_service` 保留 long frame 1024 字节上限，RefMem 物理适配层在 receive bridge 中按 `REFMEM_REALTIME_TDMA_FRAME_MAX` 收敛短帧接收容量，避免把长帧能力误传给 RefMem PIO RX DMA 上限校验。
+  - `application/src/app.c` 将 VDC/DPLL service 收敛到 core1 realtime loop，core0 RTOS task 不再运行 VDC/DPLL 维护循环。
+  - `tools/tests/run_host_unit_tests.ps1` 将 `run_refmem_realtime_tdma_tests.ps1` 纳入总门禁，避免 TDMA 兼容层只编译不执行。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18 host test scripts passed。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，生成 build id `20260816095934`，package CRC `0x99D513A9`。
+  - COM5/COM6 OTA send、boot 和 commit 到 build `20260816095934` 通过，两板 `SYSTem:FW:BUILD?` 均返回 `"20260816095934"`，错误队列均为 `0,"No error"`。
+  - 执行 `python tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py --port-a COM5 --port-b COM6 --out-dir build-rtos-multicore-smoke\refmem_node_load_auto_hil_COM5_COM6_20260816095934_tdma_component` 通过。
+  - HIL 证据：A->B 只对 COM5 下发两条 `LOAD:NODE` 后，COM6 `applied_rx_count` 增长到 2，`last_frame_type=3`，NodeLoad TableRegistry CRC 与 COM5 一致；B->A 只对 COM6 下发两条 `LOAD:NODE` 后，COM5 `applied_rx_count` 增长到 2，`last_frame_type=3`，NodeLoad TableRegistry CRC 与 COM6 一致。
+  - 增强版 AUTO 维护验证通过：`tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py` 在 IO preflight 前先关闭残留 AUTO 并释放 `REALtime:IO`；同步完成后继续观察两板自动 RX 维护，确认 `pending_count=0`、`last_error=0`、`submitted_rx_count` 和 TDMA `service_count/completed_seq` 继续增长。记录位于 `build-rtos-multicore-smoke\refmem_node_load_auto_hil_COM5_COM6_20260816095934_auto_maintenance\records.json`。
+  - 两方向 `SYSTem:REFMEM:CLAIM? 5` 返回一致的 SlotClaimMap 摘要，最终两板 `SYSTem:ERRor?` 均为 `0,"No error"`。
+- 后续动作：
+  - 继续把 VDC observation sample、idle beacon 和 long frame payload 从文档契约落到 `components/tdma` 的 producer/consumer 注册机制。
+
 ### REFMEM-TASK-20260816-047 - TDMA time-unit naming and diagnostic timestamp snapshot
 
 - 状态：完成 host/build 验证；板端 DPLL timestamp latch 待实现
