@@ -1,9 +1,74 @@
 #include "vdc_domain.h"
 #include "vdc_sync_io_adapter.h"
+#include "vdc_tdma_payload.h"
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+
+typedef struct {
+    uint8_t rx_frame[TDMA_SERVICE_FRAME_MAX];
+    size_t rx_frame_size;
+    uint32_t tx_count;
+    uint32_t rx_count;
+} fake_tdma_ops_context_t;
+
+static bool fake_tdma_transmit(void *context,
+                               const uint8_t *frame,
+                               size_t frame_size,
+                               tdma_service_role_t role,
+                               uint32_t baud_hz,
+                               const tdma_service_pin_config_t *pins,
+                               uint32_t deadline_1e3ns,
+                               tdma_service_exec_status_t *status)
+{
+    fake_tdma_ops_context_t *fake = (fake_tdma_ops_context_t *)context;
+    (void)frame;
+    (void)role;
+    (void)baud_hz;
+    (void)pins;
+    (void)deadline_1e3ns;
+    if (fake == NULL || status == NULL) {
+        return false;
+    }
+    fake->tx_count++;
+    status->result = tdma_service_EXEC_TX_OK;
+    status->error = 0u;
+    status->frame_size = frame_size;
+    return true;
+}
+
+static bool fake_tdma_receive(void *context,
+                              uint8_t *frame,
+                              size_t frame_capacity,
+                              tdma_service_role_t role,
+                              uint32_t baud_hz,
+                              const tdma_service_pin_config_t *pins,
+                              uint32_t deadline_1e3ns,
+                              tdma_service_exec_status_t *status)
+{
+    fake_tdma_ops_context_t *fake = (fake_tdma_ops_context_t *)context;
+    (void)role;
+    (void)baud_hz;
+    (void)pins;
+    (void)deadline_1e3ns;
+    if (fake == NULL || frame == NULL || status == NULL ||
+        fake->rx_frame_size == 0u ||
+        fake->rx_frame_size > frame_capacity) {
+        return false;
+    }
+    memcpy(frame, fake->rx_frame, fake->rx_frame_size);
+    fake->rx_count++;
+    status->result = tdma_service_EXEC_RX_OK;
+    status->error = 0u;
+    status->frame_size = fake->rx_frame_size;
+    return true;
+}
+
+static const tdma_service_ops_t s_fake_tdma_ops = {
+    .transmit = fake_tdma_transmit,
+    .receive = fake_tdma_receive,
+};
 
 static int expect_bool(const char *name, bool actual, bool expected)
 {
@@ -1006,6 +1071,143 @@ static int test_tdma_window_plan_contract(void)
     return failed;
 }
 
+static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
+{
+    int failed = 0;
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_tdma_window_plan_t plan;
+    vdc_tdma_frame_envelope_t envelope;
+    vdc_tdma_frame_envelope_t parsed;
+    vdc_tdma_payload_status_t payload_status;
+    vdc_tdma_timestamp_evidence_t evidence;
+    vdc_gate_result_t gate;
+    tdma_service_service_t service;
+    tdma_service_snapshot_t snapshot;
+    fake_tdma_ops_context_t fake = {0};
+    uint8_t frame[VDC_TDMA_PAYLOAD_FRAME_SIZE];
+    size_t frame_size = 0u;
+
+    vdc_domain_default_schedule(&schedule, 0u, 0u);
+    failed += expect_bool("vdc observation plan",
+                          vdc_domain_plan_tdma_window(
+                              &schedule,
+                              VDC_DOMAIN_WINDOW_VDC_OBSERVATION,
+                              0u,
+                              &plan,
+                              &gate),
+                          true);
+    evidence = make_hardware_sample(&schedule, 1u, 0);
+    evidence.expected_window_start_ns = plan.window_start_ns;
+    evidence.arm_time_ns = plan.guard_start_ns;
+    evidence.start_time_ns = plan.window_start_ns;
+    evidence.observed_time_ns = plan.window_start_ns;
+    evidence.done_time_ns = plan.window_start_ns + 100u;
+    evidence.apply_time_ns = evidence.done_time_ns;
+
+    failed += expect_bool("build vdc tdma frame",
+                          vdc_tdma_payload_build_frame(
+                              &schedule,
+                              &plan,
+                              VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE,
+                              1u,
+                              &evidence,
+                              frame,
+                              sizeof(frame),
+                              &frame_size,
+                              &envelope,
+                              &payload_status),
+                          true);
+    failed += expect_u32("vdc frame size",
+                         (uint32_t)frame_size,
+                         VDC_TDMA_PAYLOAD_FRAME_SIZE);
+    failed += expect_u32("vdc payload status",
+                         payload_status.result,
+                         VDC_TDMA_PAYLOAD_OK);
+
+    failed += expect_bool("common tdma init", tdma_service_init(&service), true);
+    failed += expect_bool("vdc payload register",
+                          vdc_tdma_payload_register(&service),
+                          true);
+    failed += expect_bool("common tdma bind",
+                          tdma_service_bind_ops(&service,
+                                                &s_fake_tdma_ops,
+                                                &fake),
+                          true);
+
+    const tdma_service_intent_config_t tx_config = {
+        .window_epoch = schedule.schedule_epoch,
+        .window_index = 1u,
+        .deadline_1e3ns = 25u,
+        .role = TDMA_SERVICE_ROLE_MASTER,
+        .baud_hz = 25000000u,
+        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE,
+        .frame = frame,
+        .frame_size = frame_size,
+    };
+    failed += expect_bool("submit vdc payload",
+                          tdma_service_submit_tx(&service, &tx_config),
+                          true);
+    tdma_service_core1_service(&service);
+    (void)tdma_service_get_snapshot(&service, &snapshot);
+    failed += expect_u32("vdc tdma ready",
+                         snapshot.last_result,
+                         tdma_service_RESULT_FRAME_READY);
+    failed += expect_u32("vdc tdma payload class",
+                         snapshot.payload_class,
+                         TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE);
+    failed += expect_u32("vdc tx count", fake.tx_count, 1u);
+
+    const tdma_service_intent_config_t unregistered_refmem = {
+        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA,
+        .frame = frame,
+        .frame_size = 4u,
+    };
+    failed += expect_bool("unregistered refmem rejected on vdc tdma",
+                          tdma_service_submit_tx(&service,
+                                                 &unregistered_refmem),
+                          false);
+
+    memset(&snapshot, 0, sizeof(snapshot));
+    snapshot.intent_seq = 1u;
+    snapshot.completed_seq = 1u;
+    snapshot.last_result = tdma_service_RESULT_FRAME_READY;
+    snapshot.payload_class = TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE;
+    snapshot.timestamp_source = tdma_service_TIMESTAMP_SOURCE_SOFTWARE_US;
+    snapshot.timestamp_resolution_ns = 1000u;
+    snapshot.timestamp_flags = tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    snapshot.core1_start_time_ns_lo = 1u;
+    snapshot.core1_done_time_ns_lo = 2u;
+    failed += expect_bool("parse diagnostic vdc tdma frame",
+                          vdc_tdma_payload_parse_frame(
+                              &schedule,
+                              &snapshot,
+                              frame,
+                              frame_size,
+                              false,
+                              &parsed,
+                              &payload_status),
+                          true);
+    failed += expect_u32("parsed diagnostic source",
+                         parsed.timestamp.timestamp_source,
+                         VDC_DOMAIN_TIMESTAMP_SOURCE_SOFTWARE_US);
+    failed += expect_bool("diagnostic tdma not dpll eligible",
+                          vdc_tdma_payload_parse_frame(
+                              &schedule,
+                              &snapshot,
+                              frame,
+                              frame_size,
+                              true,
+                              &parsed,
+                              &payload_status),
+                          false);
+    failed += expect_u32("diagnostic tdma gate",
+                         payload_status.gate.reject_code,
+                         VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE);
+    return failed;
+}
+
 static int test_dco_control_contract(void)
 {
     int failed = 0;
@@ -1206,6 +1408,7 @@ int main(void)
     failed += test_gate_rejects_schedule_and_window_mismatch();
     failed += test_frame_envelope_window_contract();
     failed += test_tdma_window_plan_contract();
+    failed += test_vdc_tdma_payload_mounts_on_common_tdma();
     failed += test_dco_control_contract();
     failed += test_context_accepts_samples_until_locked();
     failed += test_context_submits_compact_observation();

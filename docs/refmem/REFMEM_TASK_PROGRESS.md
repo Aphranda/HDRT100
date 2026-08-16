@@ -8,6 +8,28 @@ Last updated: 2026-08-16
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260816-049 - RefMem payload standard TDMA registration
+
+- 状态：完成代码、host/build 验证和 COM5/COM6 AUTO HIL 回归。
+- 日期：2026-08-16
+- 任务目标：
+  - RefMem 作为公共 TDMA payload producer/consumer 接入，不能在 `refmem_realtime_tdma` 兼容适配层里临时声明 binding。
+  - 保持 HAOFV 边界：`DistributedRefMemAO` 负责 RefMem payload contract，`components/tdma` 只执行统一 scheduler/transport/timestamp spine。
+- 完成内容：
+  - 新增 `refmem_tdma_payload.h/.c`，集中注册 `REFMEM_DELTA` 和 `REFMEM_ACK_FENCE` short-frame payload binding。
+  - `refmem_realtime_tdma_init()` 改为调用 `refmem_tdma_payload_register()`；自身继续只做旧 API 到公共 `tdma_service` 的兼容适配。
+  - `tdma_service` submit 阶段校验 `frame_class/payload_class/max_payload_size`，未注册 payload 不允许进入 core1 intent mailbox。
+  - RefMem host 单测增加标准注册断言：`REFMEM_DELTA` / `REFMEM_ACK_FENCE` 可提交，未注册 VDC payload 在 RefMem-only TDMA service 中被拒绝。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，生成 build id `20260816103607`。
+  - COM5/COM6 多线程 OTA 到 `20260816103607` 通过。
+  - 首次 AUTO HIL 运行 A->B 通过、B->A 只收到 1/2 帧，现场状态显示接收侧 TDMA `WINDOW_MISSED`，不是 payload registry 拒绝；随后重跑完整 HIL 通过，记录位于 `build-rtos-multicore-smoke\refmem_auto_tdma_payload_regression_retry\records.json`。
+- 后续动作：
+  - 将 AUTO NodeLoad 从“单发 TX + 对端 RX 窗口命中”升级为 ACK/重发/fence completion，避免窗口 missed 后丢失一个 NodeLoad delta。
+  - 继续将 long frame payload 用同样 registry 方式接入 OTA/config/log，不得绕过 `components/tdma`。
+
 ### REFMEM-TASK-20260816-048 - TDMA component extraction baseline
 
 - 状态：完成并通过 COM5/COM6 RefMem 同步 HIL

@@ -137,6 +137,8 @@ typedef struct {
     uint32_t tx_pin;
     uint32_t deadline_1e3ns;
     uint32_t frame_size;
+    uint32_t frame_class;
+    uint32_t payload_class;
     uint32_t ready_count;
     uint32_t timeout_count;
     uint32_t overrun_count;
@@ -208,6 +210,8 @@ typedef struct {
     volatile uint32_t sck_pin;
     volatile uint32_t tx_pin;
     volatile uint32_t deadline_1e3ns;
+    volatile uint32_t frame_class;
+    volatile uint32_t payload_class;
     volatile uint32_t scheduled_window_valid;
     volatile uint32_t scheduled_window_class;
     volatile uint32_t schedule_crc32;

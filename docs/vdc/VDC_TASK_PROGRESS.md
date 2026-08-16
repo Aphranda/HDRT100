@@ -43,6 +43,36 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-029 - VDC payload mounted on common TDMA
+
+- 状态：完成代码、host/build 验证；COM5/COM6 已完成 RefMem AUTO 回归。
+- 日期：2026-08-16
+- 任务目标：
+  - 将 VDC 从私有 TDMA 语义中收敛到 `components/tdma` 公共基础件。
+  - VDC 只负责 `VDC_SYNC_SAMPLE` / `IDLE_BEACON` payload 编解码、门禁和 timestamp evidence，不拥有第二套 scheduler/transport。
+- 完成内容：
+  - `tdma_service` 增加 `frame_class` / `payload_class` intent 和 snapshot 字段，并在 submit 阶段检查 payload registry。
+  - 新增 `vdc_tdma_payload.h/.c`：注册 VDC sync sample 与 idle beacon short-frame payload；使用固定小端布局编码 `VdcTdmaFrameEnvelope`，校验 frame CRC、payload CRC、schedule/window/payload gate。
+  - `vdc_tdma_payload_parse_frame()` 将公共 TDMA snapshot 的执行时间戳映射回 VDC evidence；当前公共 TDMA 仍声明 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，因此只能作为质量/诊断证据，不能进入 100 ns DPLL lock gate。
+  - `components/vdc_domain/CMakeLists.txt`、主固件 CMake 和 VDC host 单测脚本已接入新源。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过，覆盖 VDC payload 注册、公共 TDMA submit、未注册 payload 拒绝、CRC parse 和 diagnostic timestamp DPLL gate reject。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过，确认 RefMem payload 标准注册未被破坏。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，生成 build id `20260816103607`，package CRC `0x5B3FC367`。
+  - COM5/COM6 多线程 OTA 到 `20260816103607` 通过。
+  - `python tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py --port-a COM5 --port-b COM6 --out-dir build-rtos-multicore-smoke\refmem_auto_tdma_payload_regression_retry --sync-timeout-s 15` 通过，验证 RefMem 作为公共 TDMA payload 后仍能完成 A->B、B->A 双向两节点 AUTO 同步和 maintenance。
+- 还需完成：
+  - 将公共 TDMA 的 timestamp source 从软件诊断升级为 core1 PIO/DMA hardware latch，形成 `HARDWARE_TICK + DPLL_ELIGIBLE + <=100 ns` 样本。
+  - 为 AUTO 单发窗口中的 `WINDOW_MISSED` 增加 ACK/重发或 fence completion 策略，避免后续把偶发丢帧当成同步成功。
+- 关联文件：
+  - `components/tdma/inc/tdma_service.h`
+  - `components/tdma/src/tdma_service.c`
+  - `components/vdc_domain/inc/vdc_tdma_payload.h`
+  - `components/vdc_domain/src/vdc_tdma_payload.c`
+  - `tests/unit/test_vdc_domain.c`
+- 下一步：
+  - 继续把 VDC observation window 的真实 PIO/DMA/core1 timestamp latch 接到公共 TDMA frame，驱动 DPLL offset/rate 收敛。
+
 ### VDC-TASK-20260816-028 - DMA capture window budget correction
 
 - 状态：完成代码、构建、COM5 启动验证；COM6 硬件恢复后待双向 HIL。

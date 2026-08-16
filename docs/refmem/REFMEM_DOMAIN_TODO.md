@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Last updated: 2026-08-15
+Last updated: 2026-08-16
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的当前可执行待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、RefMemAO、A0-A7 通用逻辑插槽、节点装载、SlotClaim 协调、表镜像、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
 
@@ -221,6 +221,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 阶段 2 后续：将 PIO SPI physical adapter 从维护命令触发升级为 core1 realtime TDMA service，core0 只提交帧/窗口意图，PIO+DMA 在 TDMA window 内自行运行，core1 只处理 frame-ready/timeout 摘要。
   - [x] 建立 `refmem_realtime_tdma` service contract：core0 writer 只发布 intent mailbox，core1 writer 只发布 runtime/result snapshot，查询端通过 seqlock 合成状态，避免跨核共享字段双 writer。
   - [x] 将 `refmem_realtime_tdma` 从 RefMem 私有实现抽为 `components/tdma` 基础件；RefMem 侧仅保留兼容适配层，旧 `SYSTem:REFMEM:SYNC:TDMA:*` 查询/控制字段不变，实际调度、scheduled window、transport ops 和 payload binding 由 `tdma_service` 执行。
+  - [x] 将 RefMem TDMA payload 注册收敛为标准 contract：`refmem_tdma_payload_register()` 集中注册 `REFMEM_DELTA` 和 `REFMEM_ACK_FENCE`，`refmem_realtime_tdma` 只调用该入口；公共 `tdma_service` submit 阶段拒绝未注册 payload。build `20260816103607` 已在 COM5/COM6 重跑 NodeLoad AUTO 双向两节点同步通过。
+  - [ ] 为 AUTO NodeLoad 增加 ACK/重发或 fence completion：当前窗口 missed 时可能丢失单发 DELTA，HIL 已观察到一次 B->A 只应用 1/2 帧后重跑通过；后续不能依赖偶然窗口命中作为可靠同步语义。
   - [x] 抽离后复测 COM5/COM6 NodeLoad AUTO 双向两节点同步：X 板只通过 SCPI 加载两个节点并经 TDMA/PIO 同步到 Y 板，随后 Y 板加载两个节点同步回 X 板；验收已验证 NodeLoad staging CRC、SlotClaimMap、AUTO applied count、last frame type/source 和错误队列。build `20260816095934` 记录位于 `build-rtos-multicore-smoke/refmem_node_load_auto_hil_COM5_COM6_20260816095934_tdma_component/`。
   - [x] 抽离后复测 COM5/COM6 NodeLoad AUTO 空闲维护：同步完成后继续观察两板 RX window 自运行，确认 `pending_count=0`、`last_error=0`、`submitted_rx_count` 和 TDMA `service_count/completed_seq` 继续增长；记录位于 `build-rtos-multicore-smoke/refmem_node_load_auto_hil_COM5_COM6_20260816095934_auto_maintenance/`。
   - [x] 将 TDMA service 接入 `DistributedRefMemAO` 初始化、core1 realtime loop 和维护查询 `SYSTem:REFMEM:SYNC:TDMA:STATus?`。

@@ -215,27 +215,7 @@ bool refmem_realtime_tdma_init(refmem_realtime_tdma_service_t *service)
         return false;
     }
 
-    const tdma_service_payload_binding_t refmem_delta = {
-        .used = 1u,
-        .producer_id = 1u,
-        .consumer_id = 1u,
-        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA,
-        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
-        .max_payload_size = REFMEM_REALTIME_TDMA_FRAME_MAX,
-        .flags = 0u,
-    };
-    const tdma_service_payload_binding_t refmem_ack_fence = {
-        .used = 1u,
-        .producer_id = 1u,
-        .consumer_id = 1u,
-        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_ACK_FENCE,
-        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
-        .max_payload_size = REFMEM_REALTIME_TDMA_FRAME_MAX,
-        .flags = 0u,
-    };
-    (void)tdma_service_register_payload(&service->scheduler, &refmem_delta);
-    (void)tdma_service_register_payload(&service->scheduler, &refmem_ack_fence);
-    return true;
+    return refmem_tdma_payload_register(&service->scheduler);
 }
 
 bool refmem_realtime_tdma_bind_ops(refmem_realtime_tdma_service_t *service,

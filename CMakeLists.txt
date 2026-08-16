@@ -194,6 +194,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_sync_frame.c
         components/distributed_refmem/src/refmem_sync_hello.c
         components/distributed_refmem/src/refmem_table_registry.c
+        components/distributed_refmem/src/refmem_tdma_payload.c
         components/distributed_refmem/src/refmem_vector_table.c
         components/distributed_refmem/src/refmem_vdc_bridge.c
         components/event_bus/src/event_bus.c
@@ -232,6 +233,7 @@ set(PROJECT_APP_SOURCES
         components/ui_manager/src/ui_manager.c
         components/vdc_domain/src/vdc_domain.c
         components/vdc_domain/src/vdc_sync_io_adapter.c
+        components/vdc_domain/src/vdc_tdma_payload.c
         components/vdc_domain/src/vdc_timestamp.c
         components/vdc_dpll_manager/src/vdc_dpll_manager.c
         drivers/mcu/spi/src/drv_spi.c

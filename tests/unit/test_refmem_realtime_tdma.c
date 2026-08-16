@@ -139,6 +139,54 @@ static int test_init_snapshot(void)
     return failed;
 }
 
+static int test_refmem_payload_registration_contract(void)
+{
+    int failed = 0;
+    tdma_service_service_t service;
+    uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX] = {0x52u, 0x4Du};
+
+    const tdma_service_intent_config_t delta = {
+        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA,
+        .frame = frame,
+        .frame_size = sizeof(frame),
+    };
+    const tdma_service_intent_config_t ack_fence = {
+        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_ACK_FENCE,
+        .frame = frame,
+        .frame_size = sizeof(frame),
+    };
+    const tdma_service_intent_config_t vdc_without_registration = {
+        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE,
+        .frame = frame,
+        .frame_size = 4u,
+    };
+
+    failed += expect_bool("tdma init", tdma_service_init(&service), true);
+    failed += expect_bool("refmem payload register",
+                          refmem_tdma_payload_register(&service),
+                          true);
+    failed += expect_bool("delta payload accepted",
+                          tdma_service_submit_tx(&service, &delta),
+                          true);
+    tdma_service_abort(&service);
+    tdma_service_core1_service(&service);
+
+    failed += expect_bool("ack fence payload accepted",
+                          tdma_service_submit_tx(&service, &ack_fence),
+                          true);
+    tdma_service_abort(&service);
+    tdma_service_core1_service(&service);
+
+    failed += expect_bool("unregistered vdc payload rejected",
+                          tdma_service_submit_tx(&service,
+                                                 &vdc_without_registration),
+                          false);
+    return failed;
+}
+
 static int test_tx_intent_completes_on_core1_service(void)
 {
     int failed = 0;
@@ -370,6 +418,7 @@ int main(void)
 {
     int failed = 0;
     failed += test_init_snapshot();
+    failed += test_refmem_payload_registration_contract();
     failed += test_tx_intent_completes_on_core1_service();
     failed += test_rejects_overrun();
     failed += test_rx_timeout_maps_to_result();

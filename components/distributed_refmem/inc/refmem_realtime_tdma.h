@@ -5,12 +5,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "refmem_sync_frame.h"
 #include "refmem_spi_physical_adapter.h"
+#include "refmem_tdma_payload.h"
 #include "tdma_service.h"
 
-#define REFMEM_REALTIME_TDMA_FRAME_MAX \
-    (REFMEM_SYNC_FRAME_HEADER_SIZE + REFMEM_SYNC_FRAME_PAYLOAD_MAX)
+#define REFMEM_REALTIME_TDMA_FRAME_MAX REFMEM_TDMA_PAYLOAD_FRAME_MAX
 
 typedef enum {
     REFMEM_REALTIME_TDMA_STATE_UNINIT = tdma_service_STATE_UNINIT,

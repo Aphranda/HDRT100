@@ -94,6 +94,31 @@ static bool tdma_service_has_pending(const tdma_service_service_t *service)
     return intent_seq > completed_seq && abort_seq < intent_seq;
 }
 
+static bool tdma_service_payload_registered(
+    const tdma_service_service_t *service,
+    uint32_t frame_class,
+    uint32_t payload_class,
+    size_t frame_size)
+{
+    if (service == NULL ||
+        payload_class == TDMA_SERVICE_PAYLOAD_CLASS_NONE ||
+        (frame_class != TDMA_SERVICE_FRAME_CLASS_SHORT &&
+         frame_class != TDMA_SERVICE_FRAME_CLASS_LONG)) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < TDMA_SERVICE_PAYLOAD_REGISTRY_COUNT; i++) {
+        const tdma_service_payload_binding_t *binding =
+            &service->payload_binding[i];
+        if (binding->used != 0u &&
+            binding->payload_class == payload_class &&
+            binding->frame_class == frame_class) {
+            return frame_size <= binding->max_payload_size;
+        }
+    }
+    return false;
+}
+
 static bool tdma_service_submit(tdma_service_service_t *service,
                                         const tdma_service_intent_config_t *config,
                                         tdma_service_intent_t intent)
@@ -107,6 +132,16 @@ static bool tdma_service_submit(tdma_service_service_t *service,
             service->reject_count++;
             tdma_service_end_intent_write(service);
         }
+        return false;
+    }
+
+    if (!tdma_service_payload_registered(service,
+                                         config->frame_class,
+                                         config->payload_class,
+                                         config->frame_size)) {
+        tdma_service_begin_intent_write(service);
+        service->reject_count++;
+        tdma_service_end_intent_write(service);
         return false;
     }
 
@@ -129,6 +164,8 @@ static bool tdma_service_submit(tdma_service_service_t *service,
     service->sck_pin = config->pins.sck_pin;
     service->tx_pin = config->pins.tx_pin;
     service->deadline_1e3ns = config->deadline_1e3ns;
+    service->frame_class = config->frame_class;
+    service->payload_class = config->payload_class;
     service->scheduled_window_valid = config->scheduled_window_valid;
     service->scheduled_window_class = config->scheduled_window_class;
     service->schedule_crc32 = config->schedule_crc32;
@@ -453,6 +490,8 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
         snapshot->sck_pin = service->sck_pin;
         snapshot->tx_pin = service->tx_pin;
         snapshot->deadline_1e3ns = service->deadline_1e3ns;
+        snapshot->frame_class = service->frame_class;
+        snapshot->payload_class = service->payload_class;
         snapshot->scheduled_window_valid = service->scheduled_window_valid;
         snapshot->scheduled_window_class = service->scheduled_window_class;
         snapshot->schedule_crc32 = service->schedule_crc32;
