@@ -372,6 +372,72 @@ static int test_timestamp_dictionary_contract(void)
     return failed;
 }
 
+static int test_default_timestamp_dictionary_contract(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_compact_observation_sample_t compact;
+    vdc_domain_snapshot_t snapshot;
+    vdc_timestamp_dictionary_entry_t entry;
+
+    failed += expect_bool("default dictionary init",
+                          vdc_domain_init(&context),
+                          true);
+    failed += expect_bool("default dictionary valid",
+                          vdc_timestamp_dictionary_validate(
+                              &context.timestamp_dictionary),
+                          true);
+    failed += expect_u32("default dictionary count",
+                         context.timestamp_dictionary.entry_count,
+                         2u);
+    failed += expect_bool("default dictionary event 1",
+                          vdc_timestamp_dictionary_find(
+                              &context.timestamp_dictionary,
+                              1u,
+                              &entry),
+                          true);
+    failed += expect_u32("default event 1 source",
+                         entry.source,
+                         VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK);
+    failed += expect_u32("default event 1 payload",
+                         entry.payload_class,
+                         VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE);
+    failed += expect_bool("default dictionary event 2",
+                          vdc_timestamp_dictionary_find(
+                              &context.timestamp_dictionary,
+                              2u,
+                              &entry),
+                          true);
+    failed += expect_u32("default event 2 source",
+                         entry.source,
+                         VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK);
+    failed += expect_u32("default event 2 payload",
+                         entry.payload_class,
+                         VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE);
+
+    vdc_domain_set_ready(&context, true);
+    (void)memset(&compact, 0, sizeof(compact));
+    compact.valid = 1u;
+    compact.sample_seq = 1u;
+    compact.event_id = 2u;
+    compact.tick_l32 = 0xF0000000u;
+    compact.expected_window_start_ns = 0u;
+    compact.frame_crc32 = 0x1111u;
+    compact.sample_crc32 = 0x2222u;
+    compact.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    compact.timestamp_resolution_ns = 4u;
+    compact.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    failed += expect_bool("default dictionary diagnostic rejected",
+                          vdc_domain_submit_compact_observation(&context,
+                                                                &compact),
+                          false);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("default diagnostic gate",
+                         snapshot.quality.gate_reject_code,
+                         VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE);
+    return failed;
+}
+
 static int test_wrap_tracker_contract(void)
 {
     int failed = 0;
@@ -412,6 +478,25 @@ static int test_wrap_tracker_contract(void)
     failed += expect_u32("backward reject count",
                          tracker.backward_reject_count,
                          2u);
+
+    vdc_wrap_tracker_init_open(&tracker);
+    failed += expect_bool("open anchor accepts high first tick",
+                          vdc_wrap_tracker_extend_tick(&tracker,
+                                                       0xF0000000u,
+                                                       0u,
+                                                       &tick64),
+                          true);
+    failed += expect_u64("open anchor high tick", tick64, 0xF0000000ull);
+    failed += expect_u32("open anchor valid",
+                         tracker.anchor_valid,
+                         1u);
+    failed += expect_bool("open anchor forward wrap",
+                          vdc_wrap_tracker_extend_tick(&tracker,
+                                                       0x00000010u,
+                                                       0u,
+                                                       &tick64),
+                          true);
+    failed += expect_u64("open anchor wrapped tick", tick64, 0x100000010ull);
     return failed;
 }
 
@@ -1113,6 +1198,7 @@ int main(void)
     failed += test_default_schedule_and_clock();
     failed += test_timestamp_contract_helpers();
     failed += test_timestamp_dictionary_contract();
+    failed += test_default_timestamp_dictionary_contract();
     failed += test_wrap_tracker_contract();
     failed += test_compact_observation_contract();
     failed += test_sync_io_adapter_contract();

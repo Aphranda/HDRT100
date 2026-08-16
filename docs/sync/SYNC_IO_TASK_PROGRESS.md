@@ -34,6 +34,7 @@ Last updated: 2026-08-16
   - COM5/COM6 均 OTA 到 build `20260816040434` 并 commit；两板 `SYSTem:ERRor?` 均为 `0,"No error"`。
   - `python tools\vdc_latch_validate\vdc_latch_validate.py COM5 COM6 --expected-build 20260816040434 --out-dir build-rtos-multicore-smoke\vdc_latch_validate_20260816040434` 通过：COM5 `latched=118->270, observer_raw=0->274, source=2, resolution_ns=4, flags=1`，COM6 `latched=118->270, observer_raw=0->276, source=2, resolution_ns=4, flags=1`。
   - `python tools\vdc_observer_validate\vdc_observer_validate.py COM5 COM6 --expected-build 20260816040434 --out-dir build-rtos-multicore-smoke\vdc_observer_validate_20260816040434` 通过，两板 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
+  - 后续 gate 增强验证见 `VDC-TASK-20260816-023`：COM5/COM6 在 build `20260816042527` 上 forced edge 均进入 observer，且 `submitted=1,accepted=0,rejected=1,gate=9`，证明 `DIAGNOSTIC_ONLY` hardware tick 没有进入 DPLL accepted path。
 
 ### SYNC_IO-TASK-20260816-006 - core1 capture latch phase 1
 

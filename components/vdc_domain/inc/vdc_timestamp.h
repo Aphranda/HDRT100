@@ -60,6 +60,7 @@ typedef struct {
 
 typedef struct {
     uint32_t valid;
+    uint32_t anchor_valid;
     uint32_t last_tick_l32;
     uint64_t tick_hi64;
     uint32_t wrap_count;
@@ -111,6 +112,7 @@ bool vdc_timestamp_dictionary_apply(
     vdc_timestamp_latch_sample_t *sample);
 void vdc_wrap_tracker_init(vdc_wrap_tracker_t *tracker,
                            uint32_t initial_tick_l32);
+void vdc_wrap_tracker_init_open(vdc_wrap_tracker_t *tracker);
 bool vdc_wrap_tracker_extend_tick(vdc_wrap_tracker_t *tracker,
                                   uint32_t tick_l32,
                                   uint32_t max_backward_ticks,

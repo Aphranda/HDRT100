@@ -570,6 +570,33 @@ void vdc_domain_default_dco_control(vdc_dco_control_t *dco,
     dco->servo_profile_crc32 = model->servo_profile_crc32;
 }
 
+static void vdc_domain_default_timestamp_dictionary(
+    vdc_timestamp_dictionary_t *dictionary,
+    const vdc_tdma_schedule_profile_t *schedule)
+{
+    if (dictionary == NULL || schedule == NULL) {
+        return;
+    }
+
+    vdc_timestamp_dictionary_init(dictionary, schedule->schedule_crc32);
+    dictionary->entry_count = 2u;
+    for (uint32_t i = 0u; i < dictionary->entry_count; i++) {
+        vdc_timestamp_dictionary_entry_t *entry = &dictionary->entries[i];
+        entry->valid = 1u;
+        entry->event_id = i + 1u;
+        entry->source_slot_id = schedule->local_slot_id;
+        entry->reference_slot_id = schedule->reference_slot_id;
+        entry->source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
+        entry->resolution_ns = VDC_DOMAIN_DEFAULT_TIMESTAMP_RESOLUTION_LIMIT_NS;
+        entry->default_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+        entry->port_id = 0u;
+        entry->signal_id = i + 1u;
+        entry->payload_class = VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE;
+    }
+    dictionary->dictionary_crc32 =
+        vdc_timestamp_dictionary_crc32(dictionary);
+}
+
 bool vdc_domain_clock_model_local_to_vdc_ns(const vdc_clock_model_t *model,
                                             uint64_t local_tick64,
                                             uint64_t *vdc_time64_ns)
@@ -1076,9 +1103,9 @@ bool vdc_domain_init(vdc_domain_context_t *context)
     vdc_domain_default_dco_control(&context->dco,
                                    &context->clock,
                                    context->dpll.state);
-    vdc_timestamp_dictionary_init(&context->timestamp_dictionary,
-                                  context->schedule.schedule_crc32);
-    vdc_wrap_tracker_init(&context->wrap_tracker, 0u);
+    vdc_domain_default_timestamp_dictionary(&context->timestamp_dictionary,
+                                            &context->schedule);
+    vdc_wrap_tracker_init_open(&context->wrap_tracker);
     return true;
 }
 

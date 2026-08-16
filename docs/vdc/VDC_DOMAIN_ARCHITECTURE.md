@@ -444,8 +444,11 @@ VDC Domain 首版冻结以下基础表。字段可以分阶段实现，但 owner
 
 `VdcTimestampDictionary` 是 compact timestamp 的语义绑定表，不承载实时数据。它由 `VdcSyncAO / profile loader` 从 active profile 或 System Pack 加载，字段至少包含 `event_id`、`source_slot_id`、`reference_slot_id`、期望 `source`、期望 `resolution_ns`、`default_flags`、`port_id`、`signal_id` 和 `payload_class`。采样事实的实际 `timestamp_source/timestamp_resolution_ns/timestamp_flags` 必须来自 latch fact；dictionary 只能校验 source/resolution 与 active profile 一致，并补充节点、端口、信号和 payload 语义，不能把 `DIAGNOSTIC_ONLY` 样本抬高为 `DPLL_ELIGIBLE`。表必须带 `version`、`entry_count`、`profile_crc32` 和 `dictionary_crc32`；版本、CRC、entry 有效性、event id 唯一性不通过时，timestamp sample 不得进入 DPLL。
 
+默认 bring-up profile 不能是空 dictionary。`vdc_domain_init()` 至少发布 event 1/2 两个本机 observation event，期望 source 为 `HARDWARE_TICK`、payload 为 `SYNC_SAMPLE`，用于让维护态 observer 样本走到 timestamp admission gate。该默认表只解决语义绑定，不改变 latch fact 的 flags；当前 `DIAGNOSTIC_ONLY` 样本必须被拒绝为 `TIMESTAMP_NOT_ELIGIBLE`。
+
 `VdcWrapTracker` 是 timestamp service 的局部扩展状态，只把 `tick_l32` 扩展成 `local_tick64`，不写 offset/rate，也不写 VDC lock。首版规则为：
 
+- 默认 VDC context 使用 open-anchor：第一帧真实 `tick_l32` 建立锚点，不因启动时低 32 位已大于半量程而被误判 stale。
 - `tick_l32` 正向递增时直接拼接当前高 32 位。
 - `tick_l32` 从接近 `0xFFFFFFFF` 回到低值且差值超过半量程时，判定为一次正向回绕并递增高 32 位。
 - `tick_l32` 小幅倒退默认拒绝；只有调用方明确给出 `max_backward_ticks` 才允许有限乱序。

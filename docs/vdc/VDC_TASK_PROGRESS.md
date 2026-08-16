@@ -43,6 +43,28 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260816-023 - Default observer dictionary and open wrap anchor
+
+- 状态：完成代码、host/build 和 COM5/COM6 HIL。
+- 日期：2026-08-16
+- 任务目标：
+  - 修复默认 VDC timestamp dictionary 为空导致 observer 样本先被 `BAD_FRAME` 拒绝的问题。
+  - 修复 VDC 启动后第一帧 `tick_l32` 可能大于半量程而被 wrap tracker 当作 stale 的问题。
+  - 在板端验证 diagnostic hardware tick 样本会进入 VDC admission，并被 `TIMESTAMP_NOT_ELIGIBLE` 正确拒绝。
+- 完成内容：
+  - `vdc_domain_init()` 现在发布最小 bring-up dictionary：event 1/2 均绑定为本机 `HARDWARE_TICK` observation sample，payload 为 `SYNC_SAMPLE`。
+  - `VdcWrapTracker` 增加 `anchor_valid` 和 `vdc_wrap_tracker_init_open()`；默认 VDC context 使用 open-anchor，让第一帧真实 tick 建立本地锚点。
+  - `vdc_latch_validate.py` 通过 `initial_sample_mask=1` 强制制造一个 falling event，断言 `submitted` 增长、`accepted` 不增长、`rejected` 增长、`last_gate_reject_code=9`。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，17/17 host test scripts passed。
+  - `cmake --build build-rtos-multicore-smoke` 通过，build id `20260816042527`，OTA package CRC `0xDF65F48F`。
+  - COM5/COM6 均 OTA 到 build `20260816042527` 并 commit；两板 `SYSTem:ERRor?` 均为 `0,"No error"`。
+  - `python tools\vdc_latch_validate\vdc_latch_validate.py COM5 COM6 --expected-build 20260816042527 --out-dir build-rtos-multicore-smoke\vdc_latch_validate_20260816042527_gate` 通过：COM5 `submitted=1,accepted=0,rejected=1,gate=9,source=2,resolution_ns=4,flags=1`；COM6 `submitted=1,accepted=0,rejected=1,gate=9,source=2,resolution_ns=4,flags=1`。
+  - `python tools\vdc_observer_validate\vdc_observer_validate.py COM5 COM6 --expected-build 20260816042527 --out-dir build-rtos-multicore-smoke\vdc_observer_validate_20260816042527` 通过，两板 `schedule_crc32=974530568`、`dictionary_crc32=4263841859`。
+- 下一步：
+  - 继续实现 PIO edge latch 或 DMA/IRQ timestamp 入口；只有去掉 `DIAGNOSTIC_ONLY` 且置 `DPLL_ELIGIBLE` 后，`accepted_count` 才应该增长。
+
 ### VDC-TASK-20260816-022 - Timer1 hardware tick latch admission guard
 
 - 状态：完成代码、host/build 和 COM5/COM6 HIL。

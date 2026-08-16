@@ -247,7 +247,18 @@ void vdc_wrap_tracker_init(vdc_wrap_tracker_t *tracker,
 
     (void)memset(tracker, 0, sizeof(*tracker));
     tracker->valid = 1u;
+    tracker->anchor_valid = 1u;
     tracker->last_tick_l32 = initial_tick_l32;
+}
+
+void vdc_wrap_tracker_init_open(vdc_wrap_tracker_t *tracker)
+{
+    if (tracker == NULL) {
+        return;
+    }
+
+    (void)memset(tracker, 0, sizeof(*tracker));
+    tracker->valid = 1u;
 }
 
 bool vdc_wrap_tracker_extend_tick(vdc_wrap_tracker_t *tracker,
@@ -257,6 +268,13 @@ bool vdc_wrap_tracker_extend_tick(vdc_wrap_tracker_t *tracker,
 {
     if (tracker == NULL || tracker->valid == 0u || tick64 == NULL) {
         return false;
+    }
+
+    if (tracker->anchor_valid == 0u) {
+        tracker->anchor_valid = 1u;
+        tracker->last_tick_l32 = tick_l32;
+        *tick64 = (uint64_t)tick_l32;
+        return true;
     }
 
     if (tick_l32 < tracker->last_tick_l32) {

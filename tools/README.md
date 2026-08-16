@@ -84,7 +84,8 @@ Get-Content -Path tools\README.md -Encoding UTF8
 - `vdc_latch_validate/vdc_latch_validate.py`: Sync IO core1 capture latch smoke
   runner. It starts capture through the realtime SCPI maintenance path, reads
   `REALtime:IO:SAMPle:LATCh?`, verifies the hardware-tick diagnostic timestamp
-  source/resolution/flags, stops capture, and records a transcript.
+  source/resolution/flags, forces one observer edge, verifies that the VDC gate
+  rejects it as diagnostic-only, stops capture, and records a transcript.
 - `refmem_sync_hil_validate/refmem_sync_hil_validate.py`: two-board RefMem Sync
   HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY runner. It initializes each board's
   `SYSTem:REFMEM:SYNC` maintenance context, checks build/SlotClaim/adapter

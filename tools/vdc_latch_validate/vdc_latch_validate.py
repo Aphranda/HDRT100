@@ -24,6 +24,7 @@ LATCH_FIELD_COUNT = 9
 OBSERVER_FIELD_COUNT = 40
 TIMESTAMP_SOURCE_HARDWARE_TICK = 2
 TIMESTAMP_FLAG_DIAGNOSTIC_ONLY = 0x00000001
+VDC_GATE_TIMESTAMP_NOT_ELIGIBLE = 9
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,7 @@ class ObserverConfig:
     rising_event_id: int = 1
     falling_event_id: int = 2
     observed_mask: int = 1
-    initial_sample_mask: int = 0
+    initial_sample_mask: int = 1
     next_base_time_l32_ns: int = 0
     sample_period_ns: int = 1000
     expected_window_start_lo: int = 0
@@ -210,6 +211,17 @@ def validate_port(port: str, args: argparse.Namespace) -> dict[str, object]:
                 f"{observer_before[3]} -> {observer_during[3]}")
         require(observer_during[0] == 1 and observer_during[1] == observer_config.max_words_per_service,
                 f"{port}: observer config not active: {observer_during[:2]}")
+        require(observer_during[7] > observer_before[7],
+                f"{port}: forced edge was not submitted: "
+                f"{observer_before[7]} -> {observer_during[7]}")
+        require(observer_during[8] == observer_before[8],
+                f"{port}: diagnostic latch was accepted by VDC gate: "
+                f"{observer_before[8]} -> {observer_during[8]}")
+        require(observer_during[9] > observer_before[9],
+                f"{port}: diagnostic latch was not rejected by VDC gate: "
+                f"{observer_before[9]} -> {observer_during[9]}")
+        require(observer_during[15] == VDC_GATE_TIMESTAMP_NOT_ELIGIBLE,
+                f"{port}: unexpected VDC gate reject code {observer_during[15]}")
 
         write(ser, "REALtime:IO:SAMPle:STATe 0")
         stopped = LatchStatus.parse(run(ser, "REALtime:IO:SAMPle:LATCh?"))
@@ -232,7 +244,9 @@ def validate_port(port: str, args: argparse.Namespace) -> dict[str, object]:
         "observer_raw_during": observer_during[3],
         "observer_no_edge_during": observer_during[4],
         "observer_submitted_during": observer_during[7],
+        "observer_accepted_during": observer_during[8],
         "observer_rejected_during": observer_during[9],
+        "observer_gate_reject_code": observer_during[15],
         "timestamp_source": during.capture_latch_source,
         "timestamp_resolution_ns": during.capture_latch_resolution_ns,
         "timestamp_flags": during.capture_latch_flags,
@@ -269,6 +283,10 @@ def main() -> int:
                 f"PASS {port} build={result['build']} "
                 f"latched={result['latched_before']}->{result['latched_during']} "
                 f"observer_raw={result['observer_raw_before']}->{result['observer_raw_during']} "
+                f"submitted={result['observer_submitted_during']} "
+                f"accepted={result['observer_accepted_during']} "
+                f"rejected={result['observer_rejected_during']} "
+                f"gate={result['observer_gate_reject_code']} "
                 f"source={result['timestamp_source']} "
                 f"resolution_ns={result['timestamp_resolution_ns']} "
                 f"flags={result['timestamp_flags']}"
