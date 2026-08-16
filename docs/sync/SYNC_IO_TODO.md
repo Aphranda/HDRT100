@@ -16,7 +16,8 @@ Last updated: 2026-08-16
 | 2 | 真实最小物理链路配合 RefMem | 至少两板通过真实物理 IO 运行 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY`，IO 侧提供 resource、runtime、quality 证据。 |
 | 3 | ARM_IN / EXT_CLK_IN 运行逻辑 | AUX0/AUX1 从语义占位升级为可验证运行路径，接入 TriggerFB/Sync owner 和资源门禁。 |
 | 4 | mode runtime self-test | SEQ_STEP、ENC_COUNT、BISS_TAP、模型脉冲输出均有板端 loopback 或外部回放验证。 |
-| 5 | sync_io 组件化继续拆分 | `sync_io.c` 只保留 core 初始化和公共基础设施，脉冲、capture、clock、AUX、debug model 分模块维护。 |
+| 5 | TDMA IO resource node contract | GPIO16-24 基础通讯环路、PIO transport、DMA 和 core1 TDMA service 必须由 TDMA system node 统一声明和占用；SYNC_IO 只提供硬件 primitive/snapshot，不让 VDC/RefMem/业务 overlay 直接重复 claim。 |
+| 6 | sync_io 组件化继续拆分 | `sync_io.c` 只保留 core 初始化和公共基础设施，脉冲、capture、clock、AUX、debug model 分模块维护。 |
 
 ## P0 - PIO 预约输出路径
 
@@ -44,6 +45,7 @@ Last updated: 2026-08-16
 
 - [ ] 为最小两板 transport adapter 定义 IO profile：输入/输出 pin group、方向、PIO/SM/DMA/IRQ、速率、MTU 和半/全双工规则。
 - [ ] 建立 `sync_io` transport primitive 或 mode driver，承接 RefMem Sync frame 发送/接收，不把物理层写进 RefMem 协议层。
+- [ ] 将 GPIO16-24 基础通讯环路归入 TDMA system node 的 IO/resource claim：节点加载到 A0-A7 任意逻辑插槽时，必须声明 uplink/downlink adapter、PIO/SM/DMA、core1 service、short/long frame capacity 和 payload registry；DeploymentGate 必须拒绝第二个 TDMA owner 或业务 overlay 复用 16-24。
 - [ ] adapter runtime snapshot 覆盖 tx/rx、CRC/drop/timeout、direction conflict、rx_pending、last_error 和 timestamp source。
 - [ ] RefMem HIL 脚本读取 IO runtime snapshot，和 RefMem `QUALITY` 计数互相印证。
 - [ ] 两板 COM5/COM6 或当前可用端口完成真实线 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY`。
@@ -97,6 +99,7 @@ Last updated: 2026-08-16
 - [x] 增加 `REALtime:IO:SAMPle:LATCh?` 维护查询，暴露 capture running、采样率、raw FIFO drop、latched word、latch drop、timestamp source/resolution 和 timestamp flags。
 - [x] 将 core1 drain FIFO 时间基升级为 `timer1/CLK_SYS` hardware tick，报告 `HARDWARE_TICK / <=100 ns / DIAGNOSTIC_ONLY`；它仍不是 PIO 边沿硬锁存，不允许进入 DPLL lock gate。
 - [ ] 将 diagnostic hardware tick latch 升级为 PIO/DMA/IRQ/core1 edge latch，正式 DPLL 样本必须声明 `HARDWARE_TICK`、`timestamp_resolution_ns <= 100` 且 `DPLL_ELIGIBLE`。
+- [ ] 固化观测域选择：GPIO16-24 只能作为 TDMA 基础通讯环路被 capture/transport owner 使用；GPIO4-7 作为最小系统业务/观测 overlay，可用于转台输入、READY/TRIG/LINK_SWITCH 等模型信号，不能被 TDMA transport 复用。
 - [ ] 将同一 raw observation primitive 用于转台输入/脉冲计数验证，形成独立于 VDC 的 AO/FB 解释路径。
 - [ ] late `FIRE_LOAD` 必须由 realtime owner 拒绝并发布 evidence。
 - [ ] IO quality 与 RefMem `DistributedConnectionQualityTable` 对齐：CRC/drop/late/timeout/stale 不重复造字段。
