@@ -865,6 +865,97 @@ static int test_sync_io_adapter_contract(void)
     return failed;
 }
 
+static int test_path_delay_table_drives_compact_phase(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_compact_observation_sample_t compact;
+    vdc_path_delay_table_t table;
+    vdc_path_delay_entry_t entry;
+
+    failed += expect_bool("path table init",
+                          vdc_domain_init(&context),
+                          true);
+    failed += expect_bool("default path table valid",
+                          vdc_domain_path_delay_table_validate(
+                              &context.path_delay),
+                          true);
+    failed += expect_bool("default path lookup",
+                          vdc_domain_path_delay_lookup(&context.path_delay,
+                                                       0u,
+                                                       0u,
+                                                       &entry),
+                          true);
+    failed += expect_u32("default path delay",
+                         entry.delay_ns,
+                         0u);
+
+    table = context.path_delay;
+    table.update_seq++;
+    table.entries[0].delay_ns = 7u;
+    table.entries[0].jitter_ns = 2u;
+    table.entries[0].stddev_ns = 1u;
+    table.entries[0].cal_crc32 = 0xCA1B0001u;
+    table.entries[0].freshness_1e3ns = 3u;
+    table.entries[0].writer = context.schedule.reference_slot_id;
+    table.entries[0].update_seq++;
+    table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
+    failed += expect_bool("publish path delay table",
+                          vdc_domain_publish_path_delay_table(&context,
+                                                              &table),
+                          true);
+
+    table.table_crc32 ^= 1u;
+    failed += expect_bool("reject bad path crc",
+                          vdc_domain_publish_path_delay_table(&context,
+                                                              &table),
+                          false);
+
+    vdc_domain_set_ready(&context, true);
+    make_timestamp_dictionary_for_schedule(&context.schedule,
+                                           &dictionary,
+                                           41u,
+                                           VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE);
+    failed += expect_bool("publish path dictionary",
+                          vdc_domain_publish_timestamp_dictionary(&context,
+                                                                  &dictionary,
+                                                                  0u),
+                          true);
+
+    (void)memset(&compact, 0, sizeof(compact));
+    compact.valid = 1u;
+    compact.sample_seq = 1u;
+    compact.event_id = 41u;
+    compact.tick_l32 = 20u;
+    compact.expected_window_start_ns =
+        context.schedule.observation_window_offset_ns;
+    compact.frame_crc32 = 0x5555u;
+    compact.sample_crc32 = 0x6666u;
+    compact.jitter_ns = 2u;
+    compact.delay_ns = 99u;
+    compact.timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    compact.timestamp_resolution_ns = 50u;
+    compact.timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+
+    failed += expect_bool("submit path corrected compact",
+                          vdc_domain_submit_compact_observation(&context,
+                                                                &compact),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("path corrected phase",
+                         snapshot.dpll.last_phase_error_ns,
+                         13);
+    failed += expect_u32("path delay from table",
+                         snapshot.error_budget.path_delay_ns,
+                         7u);
+    failed += expect_u32("snapshot path crc",
+                         snapshot.path_delay.table_crc32,
+                         context.path_delay.table_crc32);
+    return failed;
+}
+
 static int test_sync_io_adapter_to_vdc_submit(void)
 {
     int failed = 0;
@@ -2074,6 +2165,7 @@ int main(void)
     failed += test_context_accepts_samples_until_locked();
     failed += test_dpll_lock_quality_tiers();
     failed += test_context_submits_compact_observation();
+    failed += test_path_delay_table_drives_compact_phase();
     failed += test_sync_io_adapter_to_vdc_submit();
     failed += test_quality_age_updates_on_service();
     failed += test_dpll_updates_clock_rate_from_sample_period();

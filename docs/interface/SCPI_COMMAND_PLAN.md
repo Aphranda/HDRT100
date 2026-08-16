@@ -264,6 +264,7 @@ VDC/DPLL 层级：
 SYSTem:SYNC:VDC:STATus?
 SYSTem:SYNC:VDC:DPLL:STATus?
 SYSTem:SYNC:VDC:TDMA:PLAN?
+SYSTem:SYNC:VDC:PATH:DELay?
 SYSTem:SYNC:VDC:LOCK:READiness?
 SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest
 SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?
@@ -278,6 +279,8 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 ```
 
 `SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]` 是只读维护入口，用于复现 active `VdcTdmaScheduleProfile` 对 observation/data/idle window 的计划结果。它返回当前或指定 `now_ns` 对应的窗口起止、guard、wait_ns、late_ns、inside/missed 标志、schedule CRC 和 gate；不得作为产品上位机控制入口。
+
+`SYSTem:SYNC:VDC:PATH:DELay? [source_slot],[reference_slot]` 是只读维护入口，用于读取 active `VdcPathDelayTable`。默认读取本地 slot 到 reference slot 的 entry；返回 `status,version,update_seq,entry_count,schedule_crc32,table_crc32,valid,source_slot_id,reference_slot_id,direction,delay_ns,jitter_ns,stddev_ns,cal_crc32,freshness_1e3ns,writer,entry_update_seq`。它只能读取 VDC snapshot，不能写校准结果，不能触发 delay-measure，也不能改变 DPLL lock/offset/rate。
 
 `SYSTem:SYNC:VDC:LOCK:READiness?` 是只读维护入口，用于判断当前 VDC/DPLL 最小实例是否已经具备锁定输入条件，并区分“输入已就绪”和“DPLL 已锁定”。它返回 `input_ready,locked,reason,lock_state,health_state,accepted_sample_count,rejected_sample_count,last_reject_code,observer_enabled,observer_submitted,observer_accepted,observer_rejected,observer_last_gate,last_timestamp_source,last_timestamp_resolution_ns,last_timestamp_flags,timestamp_dpll_eligible,dictionary_entry_count,dictionary_crc32,dictionary_profile_crc32,schedule_crc32,last_payload_class,last_source_slot_id,last_reference_slot_id`。该查询不得启动 capture、不得提交样本、不得写 lock/offset/rate；当前诊断 latch 应报告 `reason=5` 即 timestamp not eligible。
 
@@ -507,6 +510,7 @@ SYSTem
   SYNC:VDC:STATus?
   SYNC:VDC:DPLL:STATus?
   SYNC:VDC:TDMA:PLAN?
+  SYNC:VDC:PATH:DELay?
   SYNC:VDC:OBServer
   SYNC:VDC:OBServer?
   SYNC:VDC:DPLL:TUNE

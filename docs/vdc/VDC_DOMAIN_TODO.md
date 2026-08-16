@@ -74,8 +74,9 @@ EtherCAT DC-style 对照缺口：
 - [x] 已具备 reference slot / observation window / `VDC_SYNC_SAMPLE` payload 的 TDMA 骨架。
 - [ ] 冻结 reference sync frame 的时间语义：至少包含 `T_reference_ns`、`frame_id/slot_id`、`next_frame_start_ns`、`seq_id`、schedule/profile CRC 和 frame CRC；不能只依赖窗口计划推断 reference time。
 - [ ] 冻结 delay-measure frame：reference 发起回环测量，沿途节点写入本地 hardware timestamp，reference 回环后计算每个 slot 的 `PATH_DELAY`，再作为 active calibration/VDC profile 下发。
-- [ ] 将 `PATH_DELAY` 从单帧 evidence 字段升级为 active 表：包含 source/reference slot、方向、delay_ns、jitter/stddev、cal_crc、freshness、writer 和失效策略。
-- [ ] DPLL phase error 公式必须显式使用 `T_local_rx + OFFSET - (T_reference + PATH_DELAY)`；当前 accepted path 已使用入相残差，但 `PATH_DELAY` 仍未进入 active binding。
+- [x] 将 `PATH_DELAY` 从单帧 evidence 字段升级为 active 表首版：`VdcPathDelayTable` 包含 source/reference slot、方向、delay_ns、jitter/stddev、cal_crc、freshness、writer、update_seq 和 table CRC；默认 8 slot 零延迟表用于 bring-up，`SYSTem:SYNC:VDC:PATH:DELay?` 只读查询 active entry。
+- [x] DPLL phase error 公式已在 compact observation/context 路径显式使用 active `PATH_DELAY`：`T_local_rx - (T_reference + PATH_DELAY)` 形成入相误差，再由现有 `corrected_phase_error` 加 `OFFSET`；无 active table 的旧展开 API 保持零延迟兼容语义。
+- [ ] 补齐 PATH_DELAY 失效策略：cal CRC、freshness、reference/source slot 变化或 delay-measure 失败时必须让旧 lock 失效并进入 `CHECKING/RELOCKING`。
 - [ ] core1 TDMA scheduler 必须消费 DCO snapshot 形成 `T_effective`，用共同时间预约 frame/slot 起点；当前只完成窗口计划和部分 data-window 执行，尚未由 DCO 反驱 TDMA 边界。
 - [ ] 低频维护 log 需要周期记录 DC 五元组：`LOCAL_TIME`、`OFFSET`、`DRIFT_CORR/period_adjust_ppb`、`PATH_DELAY`、`LOCK_STATUS/quality`，用于后续锁相优化和异常调查。
 

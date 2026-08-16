@@ -269,7 +269,7 @@ DPLL 的输出不是直接修改本地硬件 timer，而是更新 VDC clock mode
 | `LOCAL_TIME` 本地 64 bit 时间 | `base_local_tick64`、硬件 latch tick、TDMA boot-time ns。 | 已有 64 bit ns 映射和 wrap tracker；当前 HIL 仍多处来自诊断时间或 latch 镜像。 | 需要把 core1/PIO latch 的硬件 tick 作为正式 `LOCAL_TIME` 输入，并持续发布低频镜像。 |
 | `OFFSET` 偏移校正 | `VdcClockModel.phase_offset_ns` / `VdcDcoControl.phase_offset_ns`。 | 已由 `SyncDpllFB` accepted evidence 更新，且 quality 使用更新前入相残差。 | 需要接入真实 accepted hardware sample 后验证收敛速度和稳态 RMS。 |
 | `DRIFT_CORR` 漂移校正 | `period_adjust_ppb` / 后续 `rate_q32`。 | 已用 sample period 和 KI 产生首版 rate pull。 | 需要低频 discipline 统计 wander/temperature/aging，并区分快速 DPLL 与慢速驯服。 |
-| `PATH_DELAY` 传播延时 | `VdcCalibrationBinding.delay_ns`、`VdcErrorBudget.path_delay_ns`。 | evidence 有 `delay_ns` 字段，error budget 可记录。 | 尚未形成 active path delay 表、delay-measure frame、沿途 timestamp 回环计算和 cal CRC 失效策略。 |
+| `PATH_DELAY` 传播延时 | `VdcPathDelayTable`、`VdcCalibrationBinding.delay_ns`、`VdcErrorBudget.path_delay_ns`。 | 已有 active path-delay table contract、CRC、slot lookup 和只读维护查询；compact observation 通过 active 表计算 `T_reference + PATH_DELAY`。 | 尚未形成 delay-measure frame、沿途 timestamp 回环计算、cal CRC 失效触发 relock 和多跳路径统计。 |
 | reference sync frame | TDMA `VDC_OBSERVATION_WINDOW` + `VDC_SYNC_SAMPLE/IDLE_BEACON`。 | payload 已挂到公共 TDMA；当前 self-test 仍是 diagnostic evidence。 | 帧内还缺 reference time / next frame start / slot time 的正式字段语义，以及硬件 timestamp spine 对 eligible 的闭环。 |
 | DC 时间驱动 TDMA | `vdc_domain_plan_tdma_window()` 和后续 core1 scheduler/DCO。 | 当前可按 active schedule 规划窗口，RefMem data window 已受 TDMA plan 约束。 | 还未由 `T_effective = local_time + offset/rate` 反驱 core1/PIO TDMA frame/slot 边界。 |
 
@@ -589,6 +589,7 @@ READ:SYNC:QUALity?
 SYSTem:SYNC:VDC:STATus?
 SYSTem:SYNC:VDC:DPLL:STATus?
 SYSTem:SYNC:VDC:TDMA:PLAN?
+SYSTem:SYNC:VDC:PATH:DELay?
 SYSTem:SYNC:VDC:LOCK:READiness?
 SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest
 SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?
@@ -607,6 +608,7 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 - `READ:SYNC:*?` 给产品上位机读取同步状态。
 - `SYSTem:SYNC:VDC:*` 给维护工具读取和调试底层 VDC/DPLL。
 - `SYSTem:SYNC:VDC:TDMA:PLAN?` 只输出 active schedule 的窗口计划和 gate evidence，不提交 TDMA intent，也不改变 RefMem 或 DPLL 状态。
+- `SYSTem:SYNC:VDC:PATH:DELay? [source_slot],[reference_slot]` 只读取 active `VdcPathDelayTable` 中的传播延时、jitter、stddev、cal CRC、freshness 和 writer；它不写校准结果，不触发 delay-measure，不改变 DPLL。
 - `SYSTem:SYNC:VDC:LOCK:READiness?` 只读取 VDC 最小实例的锁定输入条件和阻塞原因，区分 `input_ready` 与 `locked`；它不启动 capture，不提交样本，不写 offset/rate/lock。
 - `SYSTem:SYNC:VDC:OBServer:TDMA` 按 active `VDC_OBSERVATION_WINDOW` 配置 observer 的 expected window/base，是最小实例 bring-up 入口；它不启动 capture，不提升 timestamp flags，不写 DPLL。
 - `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` 是维护态 VDC/TDMA bring-up 入口：TX 角色向公共 TDMA service 提交 `VDC_SYNC_SAMPLE` short frame intent，RX 角色由 VDC manager 按 active TDMA schedule 周期性 arm observation window 并启动 SYNC_IO capture。当前 TX self-test evidence 必须保持 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，只能证明 TDMA payload 到 VDC gate 的诊断通路；命令不写 lock/offset/rate，正式 DPLL lock 仍必须等待 PIO edge latch 产生 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE` 样本。

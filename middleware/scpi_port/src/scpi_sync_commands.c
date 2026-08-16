@@ -418,6 +418,59 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_path_delay_q(scpi_t *context)
+{
+    vdc_domain_snapshot_t snapshot;
+    vdc_path_delay_entry_t entry;
+    uint32_t source_slot_id = 0u;
+    uint32_t reference_slot_id = 0u;
+    const bool has_snapshot = vdc_dpll_manager_get_snapshot(&snapshot);
+
+    if (!has_snapshot) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+
+    source_slot_id = snapshot.schedule.local_slot_id;
+    reference_slot_id = snapshot.schedule.reference_slot_id;
+    (void)SCPI_ParamUInt32(context, &source_slot_id, FALSE);
+    (void)SCPI_ParamUInt32(context, &reference_slot_id, FALSE);
+
+    if (!vdc_domain_path_delay_lookup(&snapshot.path_delay,
+                                      source_slot_id,
+                                      reference_slot_id,
+                                      &entry)) {
+        SCPI_ResultText(context, "MISSING");
+        SCPI_ResultUInt32(context, source_slot_id);
+        SCPI_ResultUInt32(context, reference_slot_id);
+        SCPI_ResultUInt32(context, snapshot.path_delay.version);
+        SCPI_ResultUInt32(context, snapshot.path_delay.update_seq);
+        SCPI_ResultUInt32(context, snapshot.path_delay.entry_count);
+        SCPI_ResultUInt32(context, snapshot.path_delay.schedule_crc32);
+        SCPI_ResultUInt32(context, snapshot.path_delay.table_crc32);
+        return SCPI_RES_OK;
+    }
+
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, snapshot.path_delay.version);
+    SCPI_ResultUInt32(context, snapshot.path_delay.update_seq);
+    SCPI_ResultUInt32(context, snapshot.path_delay.entry_count);
+    SCPI_ResultUInt32(context, snapshot.path_delay.schedule_crc32);
+    SCPI_ResultUInt32(context, snapshot.path_delay.table_crc32);
+    SCPI_ResultUInt32(context, entry.valid);
+    SCPI_ResultUInt32(context, entry.source_slot_id);
+    SCPI_ResultUInt32(context, entry.reference_slot_id);
+    SCPI_ResultUInt32(context, entry.direction);
+    SCPI_ResultUInt32(context, entry.delay_ns);
+    SCPI_ResultUInt32(context, entry.jitter_ns);
+    SCPI_ResultUInt32(context, entry.stddev_ns);
+    SCPI_ResultUInt32(context, entry.cal_crc32);
+    SCPI_ResultUInt32(context, entry.freshness_1e3ns);
+    SCPI_ResultUInt32(context, entry.writer);
+    SCPI_ResultUInt32(context, entry.update_seq);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context)
 {
     vdc_domain_snapshot_t snapshot;

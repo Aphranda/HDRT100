@@ -21,6 +21,8 @@
 #define VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_WIDTH_NS 800000u
 #define VDC_DOMAIN_DEFAULT_IDLE_WINDOW_OFFSET_NS 900000u
 #define VDC_DOMAIN_DEFAULT_IDLE_WINDOW_WIDTH_NS 50000u
+#define VDC_DOMAIN_PATH_DELAY_TABLE_VERSION 1u
+#define VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT VDC_DOMAIN_NODE_COUNT
 
 #define VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY VDC_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
 #define VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE   VDC_TIMESTAMP_FLAG_DPLL_ELIGIBLE
@@ -301,6 +303,30 @@ typedef struct {
 } vdc_error_budget_t;
 
 typedef struct {
+    uint32_t valid;
+    uint32_t source_slot_id;
+    uint32_t reference_slot_id;
+    uint32_t direction;
+    uint32_t delay_ns;
+    uint32_t jitter_ns;
+    uint32_t stddev_ns;
+    uint32_t cal_crc32;
+    uint32_t freshness_1e3ns;
+    uint32_t writer;
+    uint32_t update_seq;
+} vdc_path_delay_entry_t;
+
+typedef struct {
+    uint32_t valid;
+    uint32_t version;
+    uint32_t update_seq;
+    uint32_t entry_count;
+    uint32_t schedule_crc32;
+    uint32_t table_crc32;
+    vdc_path_delay_entry_t entries[VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT];
+} vdc_path_delay_table_t;
+
+typedef struct {
     uint32_t state;
     uint32_t update_seq;
     uint32_t accepted_sample_count;
@@ -332,6 +358,7 @@ typedef struct {
     vdc_dpll_state_t dpll;
     vdc_quality_table_t quality;
     vdc_error_budget_t error_budget;
+    vdc_path_delay_table_t path_delay;
     vdc_gate_result_t gate;
 } vdc_domain_snapshot_t;
 
@@ -347,6 +374,7 @@ typedef struct {
     vdc_dpll_state_t dpll;
     vdc_quality_table_t quality;
     vdc_error_budget_t error_budget;
+    vdc_path_delay_table_t path_delay;
     vdc_gate_result_t gate;
     vdc_timestamp_dictionary_t timestamp_dictionary;
     vdc_wrap_tracker_t wrap_tracker;
@@ -373,6 +401,17 @@ bool vdc_domain_clock_model_local_to_vdc_ns(const vdc_clock_model_t *model,
 bool vdc_domain_dco_control_validate(const vdc_tdma_schedule_profile_t *schedule,
                                      const vdc_servo_profile_t *servo,
                                      const vdc_dco_control_t *dco);
+void vdc_domain_default_path_delay_table(
+    vdc_path_delay_table_t *table,
+    const vdc_tdma_schedule_profile_t *schedule);
+uint32_t vdc_domain_path_delay_table_crc32(
+    const vdc_path_delay_table_t *table);
+bool vdc_domain_path_delay_table_validate(
+    const vdc_path_delay_table_t *table);
+bool vdc_domain_path_delay_lookup(const vdc_path_delay_table_t *table,
+                                  uint32_t source_slot_id,
+                                  uint32_t reference_slot_id,
+                                  vdc_path_delay_entry_t *entry);
 bool vdc_domain_validate_tdma_timestamp_evidence(
     const vdc_tdma_schedule_profile_t *profile,
     const vdc_tdma_timestamp_evidence_t *evidence,
@@ -406,6 +445,9 @@ bool vdc_domain_publish_timestamp_dictionary(
     vdc_domain_context_t *context,
     const vdc_timestamp_dictionary_t *dictionary,
     uint32_t initial_tick_l32);
+bool vdc_domain_publish_path_delay_table(
+    vdc_domain_context_t *context,
+    const vdc_path_delay_table_t *table);
 bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
                                      const vdc_tdma_timestamp_evidence_t *evidence);
 bool vdc_domain_submit_compact_observation(

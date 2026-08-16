@@ -43,6 +43,41 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260817-006 - EtherCAT DC-style active path delay table
+
+- 状态：完成；代码、文档、host 测试、构建、COM5/COM6 OTA、只读 SCPI smoke 和 accepted-only HIL 已闭环。
+- 日期：2026-08-17
+- 任务目标：
+  - 按 EtherCAT DC 的 `T_local_rx + OFFSET - (T_reference + PATH_DELAY)` 思路，把 VDC 的 `PATH_DELAY` 从单帧临时字段升级为 active 表驱动基础能力。
+  - 保持 HAOFV 边界：路径延迟由 VDC owner 的 active table/snapshot 提供；SCPI 只读，不写 delay，不触发 DPLL 锁相。
+- 完成内容：
+  - 新增 `VdcPathDelayTable` / `VdcPathDelayEntry`：包含 source/reference slot、direction、delay_ns、jitter/stddev、cal_crc、freshness、writer、update_seq 和 table CRC。
+  - `vdc_domain_init()` 建立默认 8 slot 零延迟 active table；`vdc_domain_publish_path_delay_table()` 要求版本、CRC、slot 和 schedule CRC 全部通过后才替换 active table。
+  - `vdc_domain_submit_compact_observation()` 展开硬件 observation 时使用 active `PATH_DELAY` 计算 `T_local_rx - (T_reference + PATH_DELAY)`，再由现有 OFFSET 修正路径进入 DPLL；无 active table 的旧展开 API 保持零延迟兼容语义。
+  - 新增只读维护查询 `SYSTem:SYNC:VDC:PATH:DELay? [source_slot],[reference_slot]`，从 VDC snapshot 读取 active path-delay entry，不写校准结果，不触发 delay-measure，不改变 lock/offset/rate。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过；新增单测验证 active table CRC、发布、lookup，以及 `compact.delay_ns=99` 被 active table `delay_ns=7` 覆盖后 phase error 为 `13 ns`。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过 18/18。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=135，包含 `SYSTem:SYNC:VDC:PATH:DELay?`。
+  - `python tools\docs_check\docs_check.py` 通过；仍有既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 和 `VDC_DOMAIN_RISK_REVIEW.md` 文件名 warning。
+  - 固件构建：`cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260816180353`，package CRC `0x48266FF4`。
+  - OTA：`python tools\ota_multi_update\ota_multi_update.py build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --ports COM5 COM6 --expected-build 20260816180353 --max-workers 2` 通过，两板均升级提交到 `20260816180353`。
+  - 板端只读 smoke：COM5/COM6 `SYSTem:SYNC:VDC:PATH:DELay?` 均返回 `"OK",1,1,8,974530568,2521155060,1,0,0,0,0,0,0,974530568,0,0,1`；`SYSTem:ERRor?` 均为 `0,"No error"`。
+  - 两板 accepted-only HIL：`python tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py --port-x COM5 --port-y COM6 --name-x COM5 --name-y COM6 --expected-build 20260816180353 --poll-timeout 90 --output-index 2 --observed-mask 4 --pulse-count 4096 --pulse-high-ns 1000 --accepted-only --reverse` 通过；COM5->COM6 `accepted=0->9 observer_accepted=0->9 source=HARDWARE_TICK resolution_ns=100 flags=DPLL_ELIGIBLE gate=PASS`，COM6->COM5 `accepted=0->1 observer_accepted=0->1 source=HARDWARE_TICK resolution_ns=100 flags=DPLL_ELIGIBLE gate=PASS`。
+- 还需完成：
+  - delay-measure frame、沿途 timestamp 回环计算、cal CRC/freshness 失效后 relock 仍是后续任务。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `middleware/scpi_port/inc/scpi_sync_commands.h`
+  - `middleware/scpi_port/src/scpi_sync_commands.c`
+  - `tests/unit/test_vdc_domain.c`
+  - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+  - `docs/interface/SCPI_COMMAND_PLAN.md`
+- 下一步：
+  - 继续 EtherCAT DC-style delay-measure frame 和 cal CRC/freshness 失效后 relock。
+
 ### VDC-TASK-20260817-005 - VDC accepted-count capture DMA produced closure
 
 - 状态：完成；accepted-count 断点已定位、修复、构建、OTA，并用 COM5/COM6 GPIO overlay accepted-only HIL 两向复验。
