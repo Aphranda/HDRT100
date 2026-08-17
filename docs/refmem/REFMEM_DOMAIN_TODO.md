@@ -203,7 +203,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 冻结正常运行禁止周期整表刷新：owner fact 变化只产生 dirty descriptor 和局部 delta；完整 snapshot 只用于节点加入、epoch/CRC 失配、stale 恢复或显式维护，并走 long-frame 分片。
 - [ ] 实现通用 dirty queue：记录 slot/field/generation/dirty mask/target mask/priority/deadline，状态事实允许合并，command/event 必须使用有界队列。
 - [ ] 实现 per-target generation completion：`transport_sent` 不清 dirty，只有 required target ACK/fence 后清对应 generation；旧 ACK 不得清除发送期间产生的新 dirty。
-- [ ] 按 criticality 将 dirty delta 映射到 TDMA：critical delta 使用 224 B 以内净载荷的 short frame；background delta 和 bootstrap/resync 使用 maintenance long frame、分片与续传。
+- [ ] 按 criticality 将 dirty delta 映射到 TDMA：realtime binding 已将 critical delta 净载荷限制为 224 B；仍需实现 dirty queue，并把 background delta 和 bootstrap/resync 接到 maintenance long frame、分片与续传。
 - [x] 定义首版 PIO SPI transport adapter skeleton：adapter id、send/poll 占位、MTU、可选 RX timestamp 能力位、链路计数和错误上报。
 - [ ] 定义 RefMem RMA Window 抽象：每个节点只暴露受控 slot mirror，不暴露任意地址。
 - [ ] 定义 delta completion 语义：`origin_encoded`、`adapter_queued`、`transport_sent`、`target_received`、`target_validated`、`target_committed`、`visible_in_snapshot`。

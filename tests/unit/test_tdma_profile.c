@@ -210,7 +210,7 @@ static int test_foundation_profile_rejects_budget_overcommit(void)
 
     (void)tdma_foundation_profile_default(&profile, 11u, 0u, 0u,
                                           TDMA_ADAPTER_PIO_SPI);
-    profile.resource.cycle_capacity_bytes = 900u;
+    profile.resource.cycle_capacity_bytes = 800u;
     profile.profile_crc32 = tdma_foundation_profile_crc32(&profile);
     failed += expect_bool("cycle budget overcommit",
                           tdma_foundation_profile_validate(&profile, &result),

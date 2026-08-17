@@ -186,6 +186,9 @@ scpi_result_t scpi_cmd_refmem_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.local_heartbeat);
     SCPI_ResultUInt32(context, status.service_count);
     SCPI_ResultUInt32(context, status.flags);
+    SCPI_ResultUInt32(context, status.initialized);
+    SCPI_ResultUInt32(context, status.init_stage);
+    SCPI_ResultUInt32(context, status.init_error);
     return SCPI_RES_OK;
 }
 

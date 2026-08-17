@@ -18,6 +18,7 @@
 
 #define TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK 0x01u
 #define TDMA_TRANSPORT_FLAG_IDLE_BEACON 0x02u
+#define TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE 0x04u
 
 typedef enum {
     TDMA_TRANSPORT_FRAME_CLASS_SHORT = 1u,
@@ -93,5 +94,12 @@ tdma_transport_route_t tdma_transport_frame_route(
 bool tdma_transport_frame_advance_hop(uint8_t *packet,
                                       size_t packet_size,
                                       tdma_transport_result_t *result);
+bool tdma_transport_frame_patch_flight_payload(
+    uint8_t *packet,
+    size_t packet_size,
+    size_t payload_offset,
+    const uint8_t *data,
+    size_t data_size,
+    tdma_transport_result_t *result);
 
 #endif

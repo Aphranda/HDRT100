@@ -231,6 +231,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_service.c
         components/tdma/src/tdma_profile.c
         components/tdma/src/tdma_payload_registry.c
+        components/tdma/src/tdma_process_image_map.c
         components/tdma/src/tdma_ring_runtime.c
         components/tdma/src/tdma_traffic_scheduler.c
         components/tdma/src/tdma_runtime_owner.c

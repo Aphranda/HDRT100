@@ -144,6 +144,8 @@ static int test_refmem_payload_registration_contract(void)
     int failed = 0;
     tdma_service_service_t service;
     uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX] = {0x52u, 0x4Du};
+    uint8_t oversized_frame[REFMEM_REALTIME_TDMA_FRAME_MAX + 1u] = {0x52u,
+                                                                    0x4Du};
 
     const tdma_service_intent_config_t delta = {
         .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
@@ -163,7 +165,16 @@ static int test_refmem_payload_registration_contract(void)
         .frame = frame,
         .frame_size = 4u,
     };
+    const tdma_service_intent_config_t oversized_delta = {
+        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA,
+        .frame = oversized_frame,
+        .frame_size = sizeof(oversized_frame),
+    };
 
+    failed += expect_u32("critical delta payload max",
+                         REFMEM_TDMA_CRITICAL_DELTA_PAYLOAD_MAX,
+                         224u);
     failed += expect_bool("tdma init", tdma_service_init(&service), true);
     failed += expect_bool("refmem payload register",
                           refmem_tdma_payload_register(&service),
@@ -183,6 +194,10 @@ static int test_refmem_payload_registration_contract(void)
     failed += expect_bool("unregistered vdc payload rejected",
                           tdma_service_submit_tx(&service,
                                                  &vdc_without_registration),
+                          false);
+    failed += expect_bool("oversized realtime delta rejected",
+                          tdma_service_submit_tx(&service,
+                                                 &oversized_delta),
                           false);
     return failed;
 }

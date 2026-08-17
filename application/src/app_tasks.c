@@ -34,7 +34,7 @@ static void task_usb_device(void *context)
     (void)context;
 
     while (true) {
-        if (!app_is_ready()) {
+        if (!app_is_control_plane_ready()) {
             osal_task_delay_ms(1u);
             continue;
         }
@@ -49,7 +49,7 @@ static void task_scpi(void *context)
     (void)context;
 
     while (true) {
-        if (!app_is_ready()) {
+        if (!app_is_control_plane_ready()) {
             osal_task_delay_ms(1u);
             continue;
         }

@@ -24,10 +24,12 @@
 #endif
 
 static bool s_app_ready;
+static bool s_app_control_plane_ready;
 
 bool app_init(void)
 {
     s_app_ready = false;
+    s_app_control_plane_ready = false;
     diagnostics_housekeeping_init();
     LOG_INFO("app", "application initialized");
 
@@ -56,6 +58,9 @@ bool app_init(void)
         diagnostics_mark_fault("usb", "USB SCPI initialization failed");
         return false;
     }
+    s_app_control_plane_ready = true;
+#else
+    s_app_control_plane_ready = true;
 #endif
 
     if (!resource_arbiter_init()) {
@@ -138,6 +143,11 @@ bool app_init(void)
 bool app_is_ready(void)
 {
     return s_app_ready;
+}
+
+bool app_is_control_plane_ready(void)
+{
+    return s_app_control_plane_ready;
 }
 
 void app_usb_device_service(void)

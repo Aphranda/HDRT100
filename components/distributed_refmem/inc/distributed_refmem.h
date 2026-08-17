@@ -78,6 +78,18 @@ typedef enum {
     DISTRIBUTED_REFMEM_NODE_TYPE_TEST_AGENT = 4,
 } distributed_refmem_node_type_t;
 
+typedef enum {
+    DISTRIBUTED_REFMEM_INIT_STAGE_UNINIT = 0u,
+    DISTRIBUTED_REFMEM_INIT_STAGE_APP_MODEL = 1u,
+    DISTRIBUTED_REFMEM_INIT_STAGE_TDMA_OWNER = 2u,
+    DISTRIBUTED_REFMEM_INIT_STAGE_COMMAND_SLOT = 3u,
+    DISTRIBUTED_REFMEM_INIT_STAGE_NODE_LOAD_AUTO = 4u,
+    DISTRIBUTED_REFMEM_INIT_STAGE_TDMA_OPS = 5u,
+    DISTRIBUTED_REFMEM_INIT_STAGE_TDMA_PROFILE = 6u,
+    DISTRIBUTED_REFMEM_INIT_STAGE_VECTOR_TABLE = 7u,
+    DISTRIBUTED_REFMEM_INIT_STAGE_READY = 8u,
+} distributed_refmem_init_stage_t;
+
 typedef struct {
     uint32_t table_size;
     uint32_t layout_version;
@@ -87,6 +99,9 @@ typedef struct {
     uint32_t local_heartbeat;
     uint32_t service_count;
     uint32_t flags;
+    uint32_t initialized;
+    uint32_t init_stage;
+    uint32_t init_error;
 } distributed_refmem_status_t;
 
 typedef struct {

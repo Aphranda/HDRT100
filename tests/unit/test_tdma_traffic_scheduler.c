@@ -138,6 +138,36 @@ static int test_gate_and_priority(void)
     return failed;
 }
 
+static int test_default_profile_fits_runtime_slot_pool(void)
+{
+    int failed = 0;
+    tdma_foundation_profile_t profile;
+    tdma_traffic_scheduler_t scheduler;
+    tdma_traffic_scheduler_slot_t slots[TDMA_TRAFFIC_SCHEDULER_RUNTIME_SLOT_COUNT];
+    uint32_t total_depth = 0u;
+
+    failed += expect_bool("default profile runtime",
+                          tdma_foundation_profile_default(
+                              &profile, 1u, 0u, 0u, TDMA_ADAPTER_PIO_SPI),
+                          true);
+    for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
+        total_depth += profile.resource.traffic[i].queue_depth;
+    }
+    failed += expect_bool("runtime slot budget",
+                          total_depth <= TDMA_TRAFFIC_SCHEDULER_RUNTIME_SLOT_COUNT,
+                          true);
+    failed += expect_bool("runtime init",
+                          tdma_traffic_scheduler_init(
+                              &scheduler,
+                              slots,
+                              TDMA_TRAFFIC_SCHEDULER_RUNTIME_SLOT_COUNT),
+                          true);
+    failed += expect_bool("runtime configure",
+                          tdma_traffic_scheduler_configure(&scheduler, &profile),
+                          true);
+    return failed;
+}
+
 static int test_overflow_policies(void)
 {
     int failed = 0;
@@ -258,6 +288,13 @@ static int test_short_long_class_gate(void)
     failed += expect_u32("long storage accepted",
                          tdma_traffic_scheduler_enqueue(&scheduler, &storage),
                          TDMA_TRAFFIC_SCHEDULER_OK);
+
+    tdma_traffic_request_t process_image =
+        make_request(TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE, 14u, now_ns);
+    failed += expect_u32("short process image accepted",
+                         tdma_traffic_scheduler_enqueue(&scheduler,
+                                                        &process_image),
+                         TDMA_TRAFFIC_SCHEDULER_OK);
     return failed;
 }
 
@@ -330,6 +367,7 @@ int main(void)
 {
     int failed = 0;
     failed += test_gate_and_priority();
+    failed += test_default_profile_fits_runtime_slot_pool();
     failed += test_overflow_policies();
     failed += test_budget_and_deadline();
     failed += test_short_long_class_gate();

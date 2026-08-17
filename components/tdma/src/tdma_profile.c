@@ -254,8 +254,9 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
         &profile->resource.traffic[TDMA_TRAFFIC_VDC_REALTIME],
         TDMA_TRAFFIC_VDC_REALTIME,
         TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE) |
-            TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_IDLE_BEACON),
-        128u, 2u, 4u, 10000u,
+            TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_IDLE_BEACON) |
+            TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE),
+        292u, 1u, 2u, 10000u,
         TDMA_TRAFFIC_FLAG_TIME_AWARE_GATE | TDMA_TRAFFIC_FLAG_STRICT_RESERVED,
         TDMA_OVERFLOW_FAULT);
     tdma_profile_set_traffic(
@@ -263,7 +264,7 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
         TDMA_TRAFFIC_REFMEM_REALTIME,
         TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_REFMEM_DELTA) |
             TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_REFMEM_ACK_FENCE),
-        584u, 2u, 8u, 1000000u,
+        292u, 1u, 3u, 1000000u,
         TDMA_TRAFFIC_FLAG_TIME_AWARE_GATE | TDMA_TRAFFIC_FLAG_STRICT_RESERVED |
             TDMA_TRAFFIC_FLAG_RELIABLE,
         TDMA_OVERFLOW_BACKPRESSURE);
@@ -271,7 +272,7 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
         &profile->resource.traffic[TDMA_TRAFFIC_CONFIG_CONTROL],
         TDMA_TRAFFIC_CONFIG_CONTROL,
         TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_CONFIG_CONTROL),
-        128u, 1u, 4u, 100000000u,
+        128u, 1u, 1u, 100000000u,
         TDMA_TRAFFIC_FLAG_RELIABLE | TDMA_TRAFFIC_FLAG_SHAPED |
             TDMA_TRAFFIC_FLAG_PREEMPTIBLE,
         TDMA_OVERFLOW_BACKPRESSURE);
@@ -280,7 +281,7 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
         TDMA_TRAFFIC_RELIABLE_BULK,
         TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_OTA_BULK) |
             TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_STORAGE_BULK),
-        0u, 1u, 4u, 0u,
+        0u, 1u, 1u, 0u,
         TDMA_TRAFFIC_FLAG_RELIABLE | TDMA_TRAFFIC_FLAG_SHAPED |
             TDMA_TRAFFIC_FLAG_PREEMPTIBLE,
         TDMA_OVERFLOW_BACKPRESSURE);
@@ -288,7 +289,7 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
         &profile->resource.traffic[TDMA_TRAFFIC_LOG_BEST_EFFORT],
         TDMA_TRAFFIC_LOG_BEST_EFFORT,
         TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_LOG_STREAM),
-        0u, 1u, 8u, 0u,
+        0u, 1u, 1u, 0u,
         TDMA_TRAFFIC_FLAG_SHAPED | TDMA_TRAFFIC_FLAG_PREEMPTIBLE,
         TDMA_OVERFLOW_DROP_OLDEST);
     profile->profile_crc32 = tdma_foundation_profile_crc32(profile);

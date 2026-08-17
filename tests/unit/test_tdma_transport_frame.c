@@ -44,7 +44,8 @@ int main(void)
         .origin_slot_id = 2u,
         .transport_sequence = 17u,
         .payload_class = 2u,
-        .flags = TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK,
+        .flags = TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK |
+                 TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE,
         .schedule_crc32 = 0x11223344u,
         .ring_profile_crc32 = 0x55667788u,
         .hop_limit = 4u,
@@ -92,6 +93,31 @@ int main(void)
 
     const uint32_t identity_crc32 = view.identity_crc32;
     const uint32_t transport_crc32 = view.transport_crc32;
+    const uint8_t flight_patch[] = {0xA5u, 0x5Au};
+    failed += expect_bool("patch flight payload",
+                          tdma_transport_frame_patch_flight_payload(
+                              packet,
+                              packet_size,
+                              1u,
+                              flight_patch,
+                              sizeof(flight_patch),
+                              &result),
+                          true);
+    failed += expect_bool("decode patched payload",
+                          tdma_transport_frame_decode(packet,
+                                                      packet_size,
+                                                      &view,
+                                                      &result),
+                          true);
+    failed += expect_u32("flight identity stable",
+                         view.identity_crc32,
+                         identity_crc32);
+    failed += expect_bool("flight transport crc changes",
+                          view.transport_crc32 != transport_crc32,
+                          true);
+    failed += expect_u32("flight payload byte 1", view.payload[1], 0xA5u);
+    failed += expect_u32("flight payload byte 2", view.payload[2], 0x5Au);
+    const uint32_t patched_transport_crc32 = view.transport_crc32;
     failed += expect_bool("advance hop 1",
                           tdma_transport_frame_advance_hop(packet,
                                                            packet_size,
@@ -108,7 +134,7 @@ int main(void)
                          view.identity_crc32,
                          identity_crc32);
     failed += expect_bool("transport crc changes",
-                          view.transport_crc32 != transport_crc32,
+                          view.transport_crc32 != patched_transport_crc32,
                           true);
     failed += expect_u32("origin feedback route",
                          tdma_transport_frame_route(&view, 2u),
@@ -198,6 +224,7 @@ int main(void)
     uint8_t long_packet[TDMA_TRANSPORT_FRAME_HEADER_SIZE + sizeof(payload)];
     tdma_transport_frame_build_t long_build = build;
     long_build.frame_class = TDMA_TRANSPORT_FRAME_CLASS_LONG;
+    long_build.flags &= ~TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE;
     failed += expect_bool("encode long",
                           tdma_transport_frame_encode(&long_build,
                                                       long_packet,

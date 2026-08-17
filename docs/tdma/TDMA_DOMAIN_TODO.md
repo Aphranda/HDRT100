@@ -60,7 +60,12 @@ Last updated: 2026-08-17
 - [x] 建立 `TdmaRingAdapterOps` 契约，由 adapter 的 start/stop/service evidence 驱动 `up_running/down_running`；未绑定 adapter 时明确报告 `ADAPTER_MISSING`。
 - [x] 冻结 reference TX / feedback RX 相关门禁：sequence、frame CRC、schedule CRC、时间戳顺序、feedback timeout、硬件 latch 标志和 `<=100 ns` 分辨率必须同时成立。
 - [x] 建立与业务 payload 解耦的 32 B `TdmaTransportFrame`：固定小端 wire layout、SHORT/LONG、origin/sequence、schedule/ring CRC、identity CRC、hop count/limit 和 transport CRC。
-- [ ] 将 RefMem critical delta 内帧限制到 260 B 以内：36 B RefMem header + 最多 224 B delta；更大 delta 进入分片或 background/bulk 路径。
+- [x] 为 EtherCAT-style 飞行短帧增加 `FLIGHT_MUTABLE` slice 更新契约：identity 只绑定不可变路由身份，segment owner CRC/version 保护局部数据，transport CRC 随 hop/内容更新。
+- [x] 将 RefMem realtime binding 内帧限制到 260 B：36 B RefMem header + 最多 224 B critical delta；总线无关协议仍保留 292 B 理论上限，更大 delta 必须进入分片或 background/bulk 路径。
+- [x] 建立 `TdmaProcessImageMap` C 契约与 host validator：segment owner、payload class、offset、length、flags 和 map CRC；拒绝重叠、越界、重复 ID、非法 owner 和状态/命令策略冲突。
+- [ ] 将 `TdmaProcessImageMap` 编码为正式 System Pack 表并接 DeploymentGate；运行态 generation、dirty mask、target 和 segment CRC 属于 process image 段头，不写入静态 map。
+- [ ] 实现 process image active/shadow 双缓冲：domain task 只写 shadow，core1 只在 cycle boundary swap，PIO/DMA 只读 active。
+- [ ] 冻结 compact VDC flight segment 和 critical RefMem flight segment wire format；当前 216 B VDC 诊断帧不能成为最终 process image。
 - [ ] core1 TDMA runtime 同时服务 `TDMA_UP_LEG` 和 `TDMA_DOWN_LEG`。
 - [ ] 空闲无业务 payload 时持续发送/接收 `IDLE_BEACON` 或等价 freshness 帧。
 - [x] runtime snapshot 暴露 `up_running/down_running/ring_seq/last_error`、adapter lifecycle、idle beacon 计数和反馈相关字段；running 来自 adapter，但不单独等同于硬件闭环 evidence。
@@ -87,6 +92,7 @@ Last updated: 2026-08-17
 
 - [ ] PIO SPI adapter 只作为最小系统 bring-up adapter，不能成为架构绑定。
 - [ ] PIO SPI adapter 只解析 `TdmaTransportFrame`，不得再校验或假设 `refmem_sync_frame`；VDC、RefMem、OTA、SD、LOG 内帧由各域自行验证。
+- [ ] PIO SPI adapter 实现 RX/TX 重叠的 byte/block cut-through：只修改本节点获授权 segment，测量每 hop pipeline delay；未取得实测证据前仍标记 store-and-forward bring-up。
 - [ ] BISS-C adapter 作为后续类 IP 核，提供编码/解码、timestamp、CRC 和 quality。
 - [ ] UART / RS485 adapter 明确 MTU、latency、timeout 和降级质量语义。
 - [ ] 所有 adapter 复用同一 TDMA payload/window/completion contract。

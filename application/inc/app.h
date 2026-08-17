@@ -5,6 +5,7 @@
 
 bool app_init(void);
 bool app_is_ready(void);
+bool app_is_control_plane_ready(void);
 void app_realtime_run_once(void);
 void app_usb_device_service(void);
 void app_scpi_service(void);

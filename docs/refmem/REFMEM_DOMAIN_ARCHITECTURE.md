@@ -114,6 +114,7 @@ owner 提交 local fact
 - 自动同步阶段只发送 critical dirty delta、ACK/fence、heartbeat 和 VDC short frame；未变化字段不消耗 TDMA 带宽。
 - 首次节点加入、epoch/layout/CRC 不一致、stale 恢复或显式维护请求时，才允许生成 full snapshot/resync；该过程必须分片、走 `LONG` maintenance window，并可暂停/续传，不能退化为周期整表刷新。
 - 大型静态表通过 System Pack staging/activate 和 CRC bundle 管理；运行期 RefMem 只传播必要 descriptor、版本、CRC 和局部事实。
+- 在 flight process image 中，RefMem publisher 只写 `TdmaProcessImageMap` 分配给本地 slot 的 inactive shadow segment；它不直接操作 PIO、DMA 或 active TDMA buffer。core1 cycle swap 后，transport adapter 才消费该稳定 segment。
 
 ## HAOFV 层级
 
@@ -1233,6 +1234,8 @@ SYSTem:REFMEM:TABle?
 SYSTem:REFMEM:TABle:IMAGe?
 SYSTem:REFMEM:TABle:VIEW?
 ```
+
+`SYSTem:REFMEM:STATus?` 的前 8 个字段保持为 `table_size,layout_version,table_seq,local_node_id,node_count,local_heartbeat,service_count,flags`。从初始化可观测性固化后追加 `initialized,init_stage,init_error`，其中 `init_stage` 使用 `DISTRIBUTED_REFMEM_INIT_STAGE_*` 固定枚举，正常完成为 `READY=8`，`init_error=0` 表示无初始化错误；失败时 `init_error` 等于失败阶段码。
 
 SCPI callback 只能读取 RefMem snapshot 或提交受控 owner 意图，不能临时触发跨板查询，也不能直接修改 state、summary、result、health、quality 或 evidence slot。RefMem 向量表不承载 `app_model.rmtp` 文件数据；它只保存 state、size、CRC、path hash、table registry、load snapshot 和 evidence 等事实摘要。完整文件数据属于 StorageAO 私有事务 buffer 或 SD/FatFs 后端对象。
 

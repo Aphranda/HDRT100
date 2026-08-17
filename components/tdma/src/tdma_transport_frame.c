@@ -131,7 +131,6 @@ static uint32_t tdma_transport_identity_crc32(
     crc = tdma_transport_crc32_update_u8(crc, view->hop_limit);
     crc = tdma_transport_crc32_update_le32(crc, view->schedule_crc32);
     crc = tdma_transport_crc32_update_le32(crc, view->ring_profile_crc32);
-    crc = tdma_transport_crc32_update(crc, view->payload, view->payload_size);
     return ~crc;
 }
 
@@ -161,6 +160,8 @@ static bool tdma_transport_build_valid(
            build->payload_class != 0u && build->payload_class <= UINT8_MAX &&
            build->flags <= UINT8_MAX && build->hop_limit != 0u &&
            build->hop_limit <= TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT &&
+           ((build->flags & TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE) == 0u ||
+            build->frame_class == TDMA_TRANSPORT_FRAME_CLASS_SHORT) &&
            (build->payload_size == 0u || build->payload != NULL);
 }
 
@@ -321,7 +322,9 @@ bool tdma_transport_frame_decode(const uint8_t *packet,
     if (view->origin_slot_id >= TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT ||
         view->payload_class == 0u || view->hop_limit == 0u ||
         view->hop_limit > TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT ||
-        view->hop_count > view->hop_limit) {
+        view->hop_count > view->hop_limit ||
+        ((view->flags & TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE) != 0u &&
+         view->frame_class != TDMA_TRANSPORT_FRAME_CLASS_SHORT)) {
         tdma_transport_set_result(result, TDMA_TRANSPORT_BAD_ROUTE);
         return false;
     }
@@ -336,6 +339,51 @@ bool tdma_transport_frame_decode(const uint8_t *packet,
         return false;
     }
 
+    tdma_transport_set_result(result, TDMA_TRANSPORT_OK);
+    return true;
+}
+
+bool tdma_transport_frame_patch_flight_payload(
+    uint8_t *packet,
+    size_t packet_size,
+    size_t payload_offset,
+    const uint8_t *data,
+    size_t data_size,
+    tdma_transport_result_t *result)
+{
+    tdma_transport_frame_view_t view;
+    if (packet == NULL || (data_size != 0u && data == NULL)) {
+        tdma_transport_set_result(result, TDMA_TRANSPORT_BAD_ARGUMENT);
+        return false;
+    }
+    if (!tdma_transport_frame_decode(packet, packet_size, &view, result)) {
+        return false;
+    }
+    if (view.frame_class != TDMA_TRANSPORT_FRAME_CLASS_SHORT ||
+        (view.flags & TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE) == 0u) {
+        tdma_transport_set_result(result,
+                                  TDMA_TRANSPORT_FRAME_CLASS_REJECTED);
+        return false;
+    }
+    if (payload_offset > view.payload_size ||
+        data_size > view.payload_size - payload_offset) {
+        tdma_transport_set_result(result,
+                                  TDMA_TRANSPORT_CAPACITY_REJECTED);
+        return false;
+    }
+
+    if (data_size != 0u) {
+        memcpy(packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE + payload_offset,
+               data,
+               data_size);
+    }
+    tdma_transport_write_le32(packet,
+                              TDMA_TRANSPORT_OFFSET_TRANSPORT_CRC,
+                              0u);
+    tdma_transport_write_le32(
+        packet,
+        TDMA_TRANSPORT_OFFSET_TRANSPORT_CRC,
+        tdma_transport_packet_crc32(packet, packet_size));
     tdma_transport_set_result(result, TDMA_TRANSPORT_OK);
     return true;
 }

@@ -8,6 +8,28 @@ Last updated: 2026-08-17
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
+### REFMEM-TASK-20260817-052 - RefMem 初始化阶段码固化
+
+- 状态：完成代码、接口文档、构建和 COM5/COM6 板端验证。
+- 日期：2026-08-17
+- 任务目标：
+  - 固化 `distributed_refmem_init()` 的初始化阶段码，避免 HIL 闭环失败时只能看到 `core1=0` 或 `service_count=0`。
+  - 保持 `SYSTem:REFMEM:STATus?` 既有前 8 个字段不变，追加 `initialized,init_stage,init_error` 作为永久诊断字段。
+- 完成内容：
+  - `distributed_refmem_status_t` 增加公开 `DISTRIBUTED_REFMEM_INIT_STAGE_*` 枚举，覆盖 app model、TDMA owner、command slot、NodeLoad AUTO、TDMA ops、TDMA profile、vector table 和 ready。
+  - `distributed_refmem_init()` 的临时数字阶段替换为固定枚举；失败时 `init_error` 记录失败阶段，成功时 `init_stage=READY`、`init_error=0`。
+  - `distributed_refmem_publish_status_locked()` 每次刷新时同步 `initialized`，避免 service 后状态字段漂移。
+  - `SCPI_COMMANDS.md` 同步 `SYSTem:REFMEM:STATus?` 的 11 字段返回格式。
+- 验证结果：
+  - `run_tdma_profile_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 通过。
+  - `run_tdma_traffic_scheduler_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 通过。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，生成 build id `20260817104554`。
+  - COM5 经 BOOTSEL factory UF2 恢复到 build `20260817104554` 后，`SYSTem:REFMEM:STATus?` 返回 `65536,1,97043,0,8,97042,97042,7,1,8,0`，末尾 `initialized,init_stage,init_error=1,8,0`。
+  - COM6 经 OTA boot/commit 到 build `20260817104554` 后，`SYSTem:REFMEM:STATus?` 返回 `65536,1,22775,0,8,22774,22774,7,1,8,0`，末尾 `initialized,init_stage,init_error=1,8,0`。
+  - 两板 `SYSTem:ERRor?` 均返回 `0,"No error"`。
+- 后续动作：
+  - 初始化阶段码已可用于后续定位；若再次出现 `core1_loop_count=0`、RefMem service 不递增或 `init_error!=0`，优先按 `init_stage/init_error` 映射到 app model、TDMA owner、NodeLoad AUTO、TDMA profile 或 vector table 阶段，而不是继续盲目扩大 heap。
+
 ### REFMEM-TASK-20260817-051 - 事件驱动局部同步约束冻结
 
 - 状态：完成架构与待办细化；通用 dirty queue 和 per-target generation completion 尚未实现。

@@ -203,7 +203,7 @@ TDMA_FOUNDATION_PROFILE_WIRE_WORDS = 71
 TDMA_ADAPTER_PIO_SPI = 1
 TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN = 0x00000001
 TDMA_RESOURCE_UNUSED = 0xFFFFFFFF
-TDMA_PAYLOAD_MASK = 0x000001FE
+TDMA_PAYLOAD_MASK = 0x000003FE
 
 
 @dataclass(frozen=True)
@@ -545,8 +545,8 @@ def build_tdma_foundation_profile_payload() -> bytes:
         32768,
     ]
     traffic = [
-        (0, (1 << 1) | (1 << 4), 128, 2, 4, 10_000, 0x03, 0),
-        (1, (1 << 2) | (1 << 3), 584, 2, 8, 1_000_000, 0x07, 1),
+        (0, (1 << 1) | (1 << 4) | (1 << 9), 292, 1, 4, 10_000, 0x03, 0),
+        (1, (1 << 2) | (1 << 3), 292, 1, 8, 1_000_000, 0x07, 1),
         (2, 1 << 6, 128, 1, 4, 100_000_000, 0x1C, 1),
         (3, (1 << 5) | (1 << 8), 0, 1, 4, 0, 0x1C, 1),
         (4, 1 << 7, 0, 1, 8, 0, 0x18, 2),

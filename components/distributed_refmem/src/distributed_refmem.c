@@ -414,11 +414,21 @@ static void distributed_refmem_publish_status_locked(void)
     s_status.local_heartbeat = local_node->heartbeat;
     s_status.service_count = s_service_count;
     s_status.flags = header->flags;
+    s_status.initialized = s_initialized ? 1u : 0u;
 }
 
 static uint32_t distributed_refmem_header_crc_locked(void)
 {
     return refmem_vector_header_crc(&s_distributed_refmem_table);
+}
+
+static bool distributed_refmem_mark_init_failed(distributed_refmem_init_stage_t stage)
+{
+    s_initialized = false;
+    s_status.initialized = 0u;
+    s_status.init_stage = (uint32_t)stage;
+    s_status.init_error = (uint32_t)stage;
+    return false;
 }
 
 static uint32_t distributed_refmem_deadline_1e3ns_to_ms(uint32_t deadline_1e3ns)
@@ -818,28 +828,40 @@ static void distributed_refmem_publish_runtime_locked(void)
 
 bool distributed_refmem_init(void)
 {
+    memset(&s_status, 0, sizeof(s_status));
+    s_initialized = false;
+    s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_APP_MODEL;
     if (!refmem_application_model_init()) {
-        return false;
+        return distributed_refmem_mark_init_failed(
+            DISTRIBUTED_REFMEM_INIT_STAGE_APP_MODEL);
     }
+    s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_TDMA_OWNER;
     tdma_service_service_t *tdma_owner = tdma_runtime_owner_get();
     if (tdma_owner == NULL ||
         !refmem_realtime_tdma_init_shared(&s_refmem_realtime_tdma,
                                           tdma_owner)) {
-        return false;
+        return distributed_refmem_mark_init_failed(
+            DISTRIBUTED_REFMEM_INIT_STAGE_TDMA_OWNER);
     }
+    s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_COMMAND_SLOT;
     if (!refmem_command_init(&s_refmem_command_slot, 0u)) {
-        return false;
+        return distributed_refmem_mark_init_failed(
+            DISTRIBUTED_REFMEM_INIT_STAGE_COMMAND_SLOT);
     }
+    s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_NODE_LOAD_AUTO;
     distributed_refmem_node_load_auto_init();
     static const refmem_realtime_tdma_ops_t tdma_ops = {
         .transmit = distributed_refmem_tdma_transmit,
         .receive = distributed_refmem_tdma_receive,
     };
+    s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_TDMA_OPS;
     if (!refmem_realtime_tdma_bind_ops(&s_refmem_realtime_tdma,
                                        &tdma_ops,
                                        &s_refmem_realtime_spi)) {
-        return false;
+        return distributed_refmem_mark_init_failed(
+            DISTRIBUTED_REFMEM_INIT_STAGE_TDMA_OPS);
     }
+    s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_TDMA_PROFILE;
     uint32_t tdma_schedule_crc32 = 0u;
     const tdma_foundation_profile_t *tdma_profile =
         refmem_application_model_get_tdma_foundation_profile();
@@ -849,8 +871,10 @@ bool distributed_refmem_init(void)
         !distributed_refmem_apply_tdma_foundation_profile(
             tdma_profile,
             tdma_schedule_crc32)) {
-        return false;
+        return distributed_refmem_mark_init_failed(
+            DISTRIBUTED_REFMEM_INIT_STAGE_TDMA_PROFILE);
     }
+    s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_VECTOR_TABLE;
 
     osal_critical_enter();
 
@@ -889,6 +913,8 @@ bool distributed_refmem_init(void)
 
     s_service_count = 0u;
     s_initialized = true;
+    s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_READY;
+    s_status.init_error = 0u;
     distributed_refmem_publish_status_locked();
 
     osal_critical_exit();

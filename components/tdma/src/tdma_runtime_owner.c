@@ -20,7 +20,7 @@ bool tdma_runtime_owner_init(void)
     tdma_traffic_scheduler_slot_t *slots = NULL;
 #if defined(PROJECT_USE_FREERTOS) && PROJECT_USE_FREERTOS
     slots = pvPortMalloc(sizeof(tdma_traffic_scheduler_slot_t) *
-                         TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT);
+                         TDMA_TRAFFIC_SCHEDULER_RUNTIME_SLOT_COUNT);
 #else
     slots = s_tdma_traffic_slots;
 #endif
@@ -28,7 +28,7 @@ bool tdma_runtime_owner_init(void)
         slots != NULL &&
         tdma_traffic_scheduler_init(&s_tdma_traffic_scheduler,
                                     slots,
-                                    TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT) &&
+                                    TDMA_TRAFFIC_SCHEDULER_RUNTIME_SLOT_COUNT) &&
         tdma_service_init(&s_tdma_runtime_owner) &&
         tdma_service_bind_traffic_scheduler(&s_tdma_runtime_owner,
                                             &s_tdma_traffic_scheduler);

@@ -123,7 +123,7 @@ adapter 每次 core1 service 返回。未绑定 adapter 时，runtime 必须保�
 
 ```text
 UP reference TX sequence == DOWN feedback RX sequence
-UP reference frame CRC    == DOWN feedback frame CRC
+UP reference identity CRC == DOWN feedback identity CRC
 adapter schedule CRC      == active schedule CRC
 reference_tx_timestamp    <= feedback_rx_timestamp
 feedback round trip       <= feedback_timeout_ns
@@ -167,7 +167,7 @@ OTA、SD 或 LOG 的内部格式。首版 wire header 固定为 32 B、小端编
 | 12 | payload class / flags / hop count / hop limit | 4 B | 业务类型、反馈要求和环路转发约束。 |
 | 16 | schedule CRC | 4 B | 绑定 active TDMA schedule。 |
 | 20 | ring profile CRC | 4 B | 绑定 active ring topology。 |
-| 24 | identity CRC | 4 B | 覆盖不随 hop 改变的头字段和 payload，整圈保持不变。 |
+| 24 | identity CRC | 4 B | 覆盖不随 hop 和飞行更新改变的路由身份字段，整圈保持不变。 |
 | 28 | transport CRC | 4 B | 覆盖当前 hop 字段和完整 packet，每 hop 转发后重算。 |
 
 长度与运行规则冻结为：
@@ -181,6 +181,10 @@ OTA、SD 或 LOG 的内部格式。首版 wire header 固定为 32 B、小端编
 而不是把两个域的内部结构强行合成一个共享 payload。VDC 和 RefMem 仍分别拥有
 内部 payload schema、CRC 和 completion；TDMA 只拥有外层 transport、顺序和窗口。
 
+对最终飞行模式，允许把多个域的固定小段放入同一个 `CYCLIC_PROCESS_IMAGE`
+短帧，但各段仍由 `TdmaProcessImageMap` 明确 owner、offset、length、generation 和
+segment CRC，不能让 VDC 直接写 RefMem 段或让 RefMem 直接写 VDC 段。
+
 硬约束：
 
 - `VDC_REALTIME`、`REFMEM_REALTIME` 只能进入 `SHORT` 队列。
@@ -190,6 +194,50 @@ OTA、SD 或 LOG 的内部格式。首版 wire header 固定为 32 B、小端编
 - 当前 RefMem 内帧理论最大为 292 B，不能直接再套短帧外层。PIO ring adapter 接入前必须把 critical delta 的 RefMem 内帧限制为 260 B，其中 RefMem 头 36 B、净 delta 最多 224 B；更大事实使用分片、background delta 或后续专用 bulk class。
 - RefMem 不做周期整表刷新。TDMA short queue 只接收由 dirty fact 触发、已经局部编码的 critical delta；首次加入或失步恢复的 full snapshot 只能走 maintenance long-frame 分片。
 - `hop_limit` 防止错误拓扑无限转发；origin 收到 `hop_count > 0` 且 identity 匹配的返回帧后停止转发，并形成 feedback candidate。
+
+### EtherCAT-style 飞行处理
+
+自动同步短帧参考 EtherCAT processing-on-the-fly 思想，但不复刻 EtherCAT 协议。
+节点不等待完整短帧落 RAM 后再重新发送，而是在固定 byte offset 到达时读取或替换
+自己拥有的 process-image segment，其余字节保持流水转发。长帧仍可采用有界
+store-and-forward/fragment 方式，因为它只在 maintenance gate 内运行。
+
+目标数据路径：
+
+```text
+Domain AO / FB local fact commit
+  -> DistributedRefMemAO marks dirty descriptor
+  -> RefMemPublishFB encodes compact local segment
+  -> write inactive TdmaProcessImage shadow buffer
+  -> core1 swaps shadow/active at TDMA cycle boundary
+  -> PIO RX/TX + DMA forwards SHORT frame
+  -> local owned offset: read input segment / insert prepared output segment
+  -> advance hop + update transport CRC
+  -> origin receives feedback identity and process image
+```
+
+每个节点如何把本节点数据装入 TDMA，由 `TdmaProcessImageMap` 决定：
+
+| 字段 | 作用 |
+|---|---|
+| `segment_id` | 固定 process-image 段编号。 |
+| `owner_slot_id` | 唯一写 owner；一块物理板可承载多个逻辑 slot。 |
+| `payload_class` | VDC compact sample、critical RefMem delta、ACK/quality 等段语义。 |
+| `byte_offset / byte_length` | 在 260 B short payload 中的固定位置和容量。 |
+| `generation / dirty_mask` | 本周期是否有新事实及其版本。 |
+| `target_mask` | 哪些节点需要消费或 ACK。 |
+| `segment_crc / policy` | 段内完整性、合并、重试和 deadline 策略。 |
+
+约束：
+
+- `TdmaProcessImageMap` 来自 active System Pack / DeploymentGate，不能由节点在 RUN 中自行抢占 offset。
+- core0/domain task 只写 inactive shadow；PIO/DMA 只读 active buffer。cycle boundary 由 core1 唯一 owner 原子切换，避免半更新段上总线。
+- 无 dirty 时段头发布 `NO_UPDATE` 或等价 generation 状态，对端不得重复提交旧值。
+- 状态事实可合并为最新 generation；command/event 使用独立有界队列，不塞进可覆盖的状态段。
+- `FLIGHT_MUTABLE` 只允许 `SHORT`。identity CRC 不覆盖可变 payload；每个 segment 自带 owner CRC/version，transport CRC 覆盖当前 hop 的完整 packet。
+- origin TX 与 feedback RX 的闭环相关使用 immutable identity CRC、sequence、schedule CRC 和 ring CRC，不能比较飞行前后的 mutable payload CRC。
+- 当前 216 B VDC 诊断内帧可作为 bring-up 的独立短帧，但不是最终 process-image 形态；产品飞行帧应使用 compact VDC sample，把余量留给 critical RefMem delta 和 ACK/quality。
+- RP2350 首版可以先实现有界 byte/block cut-through；只有 PIO/DMA 实测证明 RX/TX 重叠和固定 pipeline delay 后，才宣称飞行模式成立。
 
 ## Adapter 边界
 
@@ -320,6 +368,7 @@ components/tdma/
   inc/tdma_profile.h
   inc/tdma_service.h
   inc/tdma_payload_registry.h
+  inc/tdma_process_image_map.h
   inc/tdma_ring_runtime.h
   inc/tdma_traffic_scheduler.h
   inc/tdma_runtime_owner.h
@@ -327,6 +376,7 @@ components/tdma/
   src/tdma_profile.c
   src/tdma_service.c
   src/tdma_payload_registry.c
+  src/tdma_process_image_map.c
   src/tdma_ring_runtime.c
   src/tdma_traffic_scheduler.c
   src/tdma_runtime_owner.c

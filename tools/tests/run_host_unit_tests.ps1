@@ -26,6 +26,7 @@ $scripts = @(
     "run_refmem_realtime_contract_tests.ps1",
     "run_tdma_profile_tests.ps1",
     "run_tdma_payload_registry_tests.ps1",
+    "run_tdma_process_image_map_tests.ps1",
     "run_tdma_ring_runtime_tests.ps1",
     "run_tdma_traffic_scheduler_tests.ps1",
     "run_tdma_service_scheduler_tests.ps1",
