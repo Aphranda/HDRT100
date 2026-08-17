@@ -43,6 +43,37 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260817-012 - TDMA Foundation owner boundary correction
+
+- 状态：完成文档边界纠偏、验证和构建；代码中 `VdcTdmaScheduleProfile` 暂保留 ring 字段作为过渡 observation 视图，后续迁入 TDMA Foundation profile。
+- 日期：2026-08-17
+- 任务目标：
+  - 响应架构纠偏：上行/下行 TDMA 是基础件，不是 VDC 中的组件。
+  - 保持 HAOFV：TDMA owner 管 runtime、payload registry、adapter、ring completion evidence；VDC owner 只消费 observation timestamp evidence 并写 offset/rate/lock。
+- 完成内容：
+  - 新建 `docs/tdma/` 主域三件套和 README，把 TDMA Foundation 定义为 HAOFV 内部基础主域。
+  - 更新 HAOFV 顶层架构和文档治理索引，将 TDMA 与 VDC、RefMem 并列为内部主域。
+  - `VDC_DOMAIN_ARCHITECTURE.md` 的 TDMA/DPLL 融合模型改为 “TDMA Foundation + DPLL”，明确 VDC 只读绑定 active schedule / observation window。
+  - `VDC_DOMAIN_TODO.md` 的正常环路闭环从“VDC 内部 TDMA 反馈环路”改为“VDC 对接 TDMA Foundation 常驻环路”。
+  - 保留 `SYSTem:SYNC:VDC:TDMA:*` 为 VDC maintenance projection，不表示 VDC 拥有 TDMA。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过 ARM GCC 编译门禁；当前环境未找到 host gcc，因此 host 执行跳过。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 通过，输出 `vdc_domain tests passed`。
+  - `python tools\docs_check\docs_check.py` 通过，`files=90 warnings=2`；仅保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 和 `VDC_DOMAIN_RISK_REVIEW.md` 命名 warning。
+  - `python -m py_compile tools\docs_check\docs_check.py` 通过。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，生成 build id `20260817043820`，package CRC `0xB91E63B5`。
+- 还需完成：
+  - 后续将 `TDMARingProfile` 从 `VdcTdmaScheduleProfile` 迁入 TDMA profile / System Pack / DeploymentGate；VDC 只保留 observation binding、schedule CRC 和 evidence gate。
+  - 后续新增 TDMA maintenance projection 时，优先挂到系统维护命名空间并由 TDMA owner 提供 snapshot。
+- 关联文件：
+  - `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
+  - `docs/tdma/TDMA_DOMAIN_TODO.md`
+  - `docs/arch/HAOFV_ARCHITECTURE.md`
+  - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+- 下一步：
+  - 运行验证；验证通过后继续按 TDMA TODO 推进 runtime/component 拆分和两板同时上/下行 HIL。
+
 ### VDC-TASK-20260817-011 - TDMARingProfile schedule contract
 
 - 状态：完成首版代码契约、N 节点 ring plan helper 和 host 单元测试；System Pack staging、DeploymentGate 资源冲突检查和 core1 ring runtime 仍为后续任务。

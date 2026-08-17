@@ -27,6 +27,7 @@ docs/
   trigger/        产品触发、序列、角度、core1 实时执行
   sync/           SYNC 动作、SYNC_IO、同步链路落地
   calibration/    CAL link、delay、参数、版本、质量
+  tdma/           上行/下行 TDMA、payload registry、adapter 和环路 completion 基础件
   refmem/         分布式向量表、命令槽、ACK/NACK、节点事实
   vdc/            虚拟 DC、共同时间、DPLL、HOLDOVER、时间质量
   communication/  BiSS-C、UART、RS485、RJ45 后端维护
@@ -55,6 +56,7 @@ docs/
 | `trigger/` | `trigger/README.md` | 产品触发、序列、角度、core1 实时执行 |
 | `sync/` | `sync/README.md` | SYNC 动作、SYNC_IO、同步链路和硬实时 IO 落地 |
 | `calibration/` | `calibration/README.md` | CAL link、delay、参数、版本和质量 |
+| `tdma/` | `tdma/README.md` | 上行/下行 TDMA、payload registry、adapter、ring runtime 和 completion evidence 基础件 |
 | `refmem/` | `refmem/README.md` | 分布式向量表、命令槽、ACK/NACK、同步架构和最小系统板操作 |
 | `vdc/` | `vdc/README.md` | 虚拟 DC、共同时间、DPLL、HOLDOVER 和时间质量 |
 | `communication/` | `communication/README.md` | BiSS-C、UART、RS485 和通信维护 |
@@ -79,6 +81,7 @@ docs/
 | ARCH/PRODUCT | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 面向 Distributed Hard Real-Time Trigger System 的产品系统架构特化，服从 HAOFV 顶层约束。 |
 | ARCH/FUTURE | `arch/ARCH_FUTURE_APPLICATION_PLAN.md` | 当前产品完成后的应用场景、跨平台移植、版本分层和开源生态路线图。 |
 | SYNC_IO | `sync/SYNC_IO_ARCHITECTURE.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
+| TDMA | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件主域，定义上/下行 TDMA、payload registry、adapter、ring runtime、completion evidence 和 HAOFV system node 边界。 |
 | TRIGGER | `trigger/TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
 | OTA | `OTA_SYSTEM_DESIGN.md` | 历史 OTA 主方案入口；后续迁移方向见 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`。 |
@@ -97,6 +100,7 @@ docs/
 | SCPI | `interface/SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
 | SD | `storage/SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
 | Documentation | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
+| TDMA | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 基础件、上/下行 runtime、adapter 和环路闭环验证记录写入本文件。 |
 | 其他领域 | 新建或补齐 `<DOMAIN>_TASK_PROGRESS.md` | 后续新闭环记录优先建立领域进度文件，不再追加到全局历史文件。 |
 | 全局历史 | `TASK_PROGRESS.md` | 只保留跨域历史和迁移前记录；除跨域总览外不再作为默认新任务入口。 |
 
@@ -114,6 +118,10 @@ docs/
 | `trigger/README.md` | 触发域 README。 |
 | `sync/README.md` | 同步域 README。 |
 | `calibration/README.md` | 校准域 README。 |
+| `tdma/README.md` | TDMA 基础件主域 README。 |
+| `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件架构，定义上/下行 TDMA、payload registry、adapter、ring runtime 和 HAOFV 边界。 |
+| `tdma/TDMA_DOMAIN_TODO.md` | TDMA 基础件待办，跟踪 runtime、reliability、system node、adapter 和 HIL 验收。 |
+| `tdma/TDMA_TASK_PROGRESS.md` | TDMA 基础件任务进度。 |
 | `refmem/README.md` | 反射内存域 README。 |
 | `refmem/REFMEM_DOMAIN_ARCHITECTURE.md` | Distributed RefMem 内部主域架构，定义 RefMem Domain 的职责边界、静态分布式应用模型和目标代码形态。 |
 | `refmem/REFMEM_DOMAIN_TODO.md` | Distributed RefMem 内部主域待办，跟踪分布式应用模型、slot 契约、ACK/NACK、sync protocol 和组件化。 |
@@ -260,6 +268,7 @@ docs/
 
 - 查系统边界：先读 `arch/HAOFV_ARCHITECTURE.md`。
 - 查 VDC/DPLL：先读 `vdc/VDC_DOMAIN_ARCHITECTURE.md`，再读 `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`；底层 IO 链路见 `sync/SYNC_IO_ARCHITECTURE.md`。
+- 查上/下行 TDMA 与环路基础件：先读 `tdma/TDMA_DOMAIN_ARCHITECTURE.md`，再读 `refmem/REFMEM_SYNC_ARCHITECTURE.md` 和 `vdc/VDC_DOMAIN_ARCHITECTURE.md` 的消费边界。
 - 查当前运行板约束：读 `hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`。
 - 查产品板约束：读 `hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`，再读最新网表和 IO 约束。
 - 查 IO/PIO 资源和 realtime IO 边界：先读 `sync/SYNC_IO_ARCHITECTURE.md`。

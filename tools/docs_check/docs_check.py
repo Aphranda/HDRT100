@@ -36,6 +36,7 @@ ALLOWED_PREFIXES = {
     "VALIDATION",
     "LEGACY",
     "VDC",
+    "TDMA",
 }
 
 ALLOWED_SUFFIXES = {

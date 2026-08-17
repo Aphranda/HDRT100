@@ -11,6 +11,10 @@
 #define TDMA_SERVICE_PAYLOAD_REGISTRY_COUNT 8u
 #define tdma_service_FRAME_MAX TDMA_SERVICE_FRAME_MAX
 #define TDMA_SERVICE_TIMESTAMP_RESOLUTION_LIMIT_NS 100u
+#define TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN 0x00000001u
+#define TDMA_SERVICE_RING_ERROR_NONE 0u
+#define TDMA_SERVICE_RING_ERROR_BAD_CONFIG 1u
+#define TDMA_SERVICE_RING_ERROR_EVIDENCE_MISSING 2u
 
 typedef enum {
     TDMA_SERVICE_WINDOW_CLASS_NONE = 0u,
@@ -182,7 +186,37 @@ typedef struct {
     uint32_t core1_done_time_ns_lo;
     uint32_t core1_done_time_ns_hi;
     uint32_t core1_elapsed_ns;
+    uint32_t ring_enabled;
+    uint32_t ring_config_seq;
+    uint32_t ring_service_seq;
+    uint32_t ring_node_count;
+    uint32_t ring_local_slot_id;
+    uint32_t ring_reference_slot_id;
+    uint32_t ring_up_group_id;
+    uint32_t ring_down_group_id;
+    uint32_t ring_flags;
+    uint32_t ring_up_configured;
+    uint32_t ring_down_configured;
+    uint32_t ring_up_running;
+    uint32_t ring_down_running;
+    uint32_t ring_seq;
+    uint32_t ring_last_error;
+    uint32_t simultaneous_feedback_loop_evidence;
+    uint32_t ring_profile_crc32;
+    uint32_t ring_schedule_crc32;
 } tdma_service_snapshot_t;
+
+typedef struct {
+    uint32_t enabled;
+    uint32_t node_count;
+    uint32_t local_slot_id;
+    uint32_t reference_slot_id;
+    uint32_t up_group_id;
+    uint32_t down_group_id;
+    uint32_t flags;
+    uint32_t ring_profile_crc32;
+    uint32_t schedule_crc32;
+} tdma_service_ring_runtime_config_t;
 
 typedef struct {
     uint32_t window_epoch;
@@ -233,6 +267,16 @@ typedef struct {
     volatile uint32_t frame_size;
     volatile uint32_t reject_count;
     volatile uint64_t submit_time_ns;
+    volatile uint32_t ring_enabled;
+    volatile uint32_t ring_config_seq;
+    volatile uint32_t ring_node_count;
+    volatile uint32_t ring_local_slot_id;
+    volatile uint32_t ring_reference_slot_id;
+    volatile uint32_t ring_up_group_id;
+    volatile uint32_t ring_down_group_id;
+    volatile uint32_t ring_flags;
+    volatile uint32_t ring_profile_crc32;
+    volatile uint32_t ring_schedule_crc32;
     uint8_t frame[tdma_service_FRAME_MAX];
 
     /* Core1 writer: realtime execution snapshot. */
@@ -259,6 +303,14 @@ typedef struct {
     volatile uint64_t core1_start_time_ns;
     volatile uint64_t core1_done_time_ns;
     volatile uint32_t core1_elapsed_ns;
+    volatile uint32_t ring_service_seq;
+    volatile uint32_t ring_up_configured;
+    volatile uint32_t ring_down_configured;
+    volatile uint32_t ring_up_running;
+    volatile uint32_t ring_down_running;
+    volatile uint32_t ring_seq;
+    volatile uint32_t ring_last_error;
+    volatile uint32_t simultaneous_feedback_loop_evidence;
     uint8_t result_frame[tdma_service_FRAME_MAX];
 
     const tdma_service_ops_t *ops;
@@ -272,6 +324,9 @@ bool tdma_service_bind_ops(tdma_service_service_t *service,
                                    void *ops_context);
 bool tdma_service_register_payload(tdma_service_service_t *service,
                                    const tdma_service_payload_binding_t *binding);
+bool tdma_service_configure_ring_runtime(
+    tdma_service_service_t *service,
+    const tdma_service_ring_runtime_config_t *config);
 bool tdma_service_submit_tx(tdma_service_service_t *service,
                                     const tdma_service_intent_config_t *config);
 bool tdma_service_submit_rx(tdma_service_service_t *service,

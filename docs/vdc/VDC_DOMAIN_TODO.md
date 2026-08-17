@@ -45,23 +45,23 @@ SCPI maintenance
   never writes lock state, offset, rate or accepted sample counters
 ```
 
-### 正常 TDMA 环路闭环完善方案
+### 正常 TDMA 环路闭环对接方案
 
-基于当前状态，VDC/DPLL 已经具备 active schedule、TDMA payload registry、VDC sync/idle payload、DPLL gate、clock model、DCO snapshot、节点/leg 长监控和 GPIO overlay HIL 证据；但当前仍主要依赖维护脚本交替触发单向 leg，尚未形成固件内部同时运行的实时反馈环路。正常闭环的目标是把 `TDMA_UP_LEG` 与 `TDMA_DOWN_LEG` 作为同一个 ring runtime 的两个同时运行通道，由 core1/PIO/DMA 持续执行，VDC 只消费环路产生的 timestamp evidence，SCPI/host 只读取结果。
+基于当前状态，VDC/DPLL 已经具备 active schedule 视图、VDC sync/idle payload、DPLL gate、clock model、DCO snapshot、节点/leg 长监控和 GPIO overlay HIL 证据；但当前仍主要依赖维护脚本交替触发单向 leg，尚未形成固件内部同时运行的实时反馈环路。这里的架构边界需要明确：`TDMA_UP_LEG` 与 `TDMA_DOWN_LEG` 是 TDMA Foundation 的基础 runtime，不是 VDC 组件；VDC 的目标是消费 TDMA Foundation 产生的 observation timestamp evidence，再由 `SyncDpllFB` 更新 offset/rate/quality。TDMA 主域待办见 `docs/tdma/TDMA_DOMAIN_TODO.md`。
 
 闭环主线按以下阶段推进：
 
 | 阶段 | 目标 | 关键输出 | 验收口径 |
 |---:|---|---|---|
-| R0 | 固化 ring profile 和资源声明。 | `TDMARingProfile` / `VdcTdmaScheduleProfile` 明确节点数、ring 顺序、UP/DOWN 组、slot、guard、period、payload class 和 profile CRC。 | 两板、三板、五板都能用同一结构表达，不写死 `COM5/COM6` 或固定物理角色。 |
-| R1 | core1 同时运行上行组和下行组。 | TDMA runtime 同时 arm TX/RX，输出 `up_running/down_running`、slot seq、miss/late/timeout、direction conflict 和 resource claim evidence。 | 空闲无业务时仍持续运行 `IDLE_BEACON`，host 不参与窗口续装；`simultaneous_feedback_loop_evidence` 可由固件事实置位。 |
-| R2 | 建立环路 timestamp evidence。 | 每个 ring frame 至少记录 reference TX、每 hop RX/TX、feedback RX、frame CRC、schedule CRC、timestamp source/resolution/flags。 | DPLL accepted sample 必须来自同一圈 ring evidence，`HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE / !DIAGNOSTIC_ONLY`。 |
+| R0 | 从 TDMA Foundation 只读绑定 ring profile 和资源声明。 | TDMA profile 明确节点数、ring 顺序、UP/DOWN 组、slot、guard、period、payload class 和 profile CRC；VDC 只保存 observation 绑定和 CRC。 | 两板、三板、五板都能用同一结构表达，不写死 `COM5/COM6` 或固定物理角色。 |
+| R1 | 消费 core1 同时运行的上行组和下行组。 | TDMA runtime 同时 arm TX/RX，输出 `up_running/down_running`、slot seq、miss/late/timeout、direction conflict 和 resource claim evidence。 | VDC 不拥有 runtime；空闲无业务时仍持续运行 `IDLE_BEACON`，host 不参与窗口续装。 |
+| R2 | 消费环路 timestamp evidence。 | 每个 ring frame 至少记录 reference TX、每 hop RX/TX、feedback RX、frame CRC、schedule CRC、timestamp source/resolution/flags。 | DPLL accepted sample 必须来自同一圈 TDMA ring evidence，`HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE / !DIAGNOSTIC_ONLY`。 |
 | R3 | 完成 delay measure 与 active path-delay 表。 | 借鉴 EtherCAT DC 的传播延时测量：reference 发起 delay-measure frame，沿 ring 写入本地 timestamp，回到 reference 后计算每 hop delay/jitter/freshness。 | `VdcPathDelayTable` 不再只是默认零延迟；cal/profile CRC 变化会触发 CHECKING/RELOCKING。 |
 | R4 | VdcSyncAO 常驻锁相。 | VdcSyncAO 拥有 auto-run 配置，周期性产生 `VDC_SYNC_SAMPLE/IDLE_BEACON`，SyncDpllFB 从 ring evidence 更新 offset/rate/quality。 | 5 min 常驻运行无 host 续窗，quality/freshness 持续刷新，`WINDOW_BOUND/BAD_FRAME` 为 0 或可定位。 |
 | R5 | 长监控升级为只读健康评估。 | `vdc_long_monitor` 不再触发闭环，只读取每节点、每 leg、整环 quality、DCO、delay、gate 和 RefMem mirror，并输出 SVG。 | 报告同时给出 node/leg 质量和整环闭环质量，明确区分 `leg_monitor_passed` 与 `loop_health_passed`。 |
 | R6 | N 节点 ring 扩展。 | `B0.UP -> B1.DOWN -> ... -> Bn.UP -> B0.DOWN` 的 hop 表、slot 表、delay 表和 quality 聚合。 | 3 节点、5 节点只扩展表项和 schedule，不改变 VDC/DPLL 算法主线。 |
 
-正常闭环中，单向下发只能作为 open-loop reference，不能作为 DPLL 闭环证据；交替 `X->Y` / `Y->X` 只能用于 leg bring-up、线序检查、delay 校准或方向性故障定位。只有上行组和下行组在同一固件运行周期内同时工作，并且反馈 evidence 能实时回到 VDC owner，才允许报告整环闭环成立。
+正常闭环中，单向下发只能作为 open-loop reference，不能作为 DPLL 闭环证据；交替 `X->Y` / `Y->X` 只能用于 leg bring-up、线序检查、delay 校准或方向性故障定位。只有 TDMA Foundation 的上行组和下行组在同一固件运行周期内同时工作，并且反馈 evidence 能实时被 VDC owner 消费，才允许 VDC 报告整环闭环输入成立。
 
 | 优先级 | 闭环目标 | 验收证据 |
 |---:|---|---|
@@ -73,10 +73,10 @@ SCPI maintenance
 | P0.4 | TDMA 作为 HAOFV system node 纳入 NodeLoad/SlotClaim。 | VDC 继续只注册 `VDC_SYNC_SAMPLE` / `IDLE_BEACON` payload，不拥有 16-24 物理通讯环路；TDMA 节点声明 scheduler、PIO transport、DMA、core1 service、short/long frame capacity 和 payload registry，DeploymentGate 检测与 RefMem、业务 overlay 或第二 TDMA owner 的资源冲突。 |
 | P0.5 | 实现 `SyncDpllFB` 最小环路滤波器，使用 accepted sample 计算 phase error / frequency error，经 PI 或等价 servo、限幅和 reset policy 调节 VDC clock model 的 offset/rate，并发布 DCO snapshot。 | `INITIAL_SYNC -> FREQ_LOCK -> PHASE_LOCK -> LOCKED` 状态链必须由环路滤波器收敛驱动，而不是 sample count 伪锁定；当前已把 reject 策略拆成软/硬两类：`WINDOW_BOUND` 和 `SERVO_OUTLIER` 不进入 DPLL 更新，但保留 offset/rate/accepted history 并进入 `RELOCKING`，由后续有效样本拉回；CRC、epoch、source、payload、timestamp eligibility/resolution 等硬拒绝才重新捕获。lock state、quality tier 和 offset/error budget 已改为本帧更新前入相残差口径，DPLL 同帧 phase correction 不能冒充 fine lock；默认 bring-up 先按 1 us debug threshold 进入可观测锁定，acquisition 阶段允许更大的受限 phase slew 加快拉入，rate 估计必须跨多个 TDMA 周期并受 slew limit 限制，避免单个异常 delta 直接撞到 `+/-50000 ppb`；后续必须由连续 100 ns fine 样本把 `lock_quality_tier` 晋级到 `FINE_100NS`；`HEALTHY/RUN` 仍要求 100 ns fine tier；报告 lock_time、last/rms/max offset、freq_offset_ppb、period_adjust_ppb、outlier/reset 次数。 |
 | P0.5a | 固化 VDC 节点/leg 长监控，并避免把 leg 自测误判为实时闭环。 | 已新增 `tools/vdc_long_monitor/vdc_long_monitor.py`，通过维护侧循环 arm RX/TX `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` 观察每个节点或单向 TDMA leg；该工具只配置/读取 observer 和模型输出，不写 offset/rate/lock，符合 HAOFV 维护侧边界。2026-08-17 COM5/COM6 180 s 双向交替监控结果：11 个窗口、accepted delta 1496、7 个窗口最终 `gate=PASS`、4 个窗口最终 `VDC_DOMAIN_GATE_WINDOW_BOUND`，采样点 55/67 为 `HARDWARE_TICK/100 ns/DPLL_ELIGIBLE`、12/67 为窗口外或停机后的无效镜像；offset 出现 `553600 ns` 级跳变，说明当前 bring-up 能观察 leg 样本输入，但不能证明实时反馈环路。监控报告必须显式区分 `leg_monitor_passed` 与 `simultaneous_feedback_loop_evidence`。 |
-| P0.5b | 将 VDC observation / idle beacon 从 host 周期重装升级为固件内部同时运行的 TDMA 反馈环路。 | 当前空闲态 `READ:SYNC:QUALity?` 会归零，`LOCK:READiness?` 显示 observer disabled，说明 VDC 还不是常驻锁相；60 s 监控中仍有 `WINDOW_BOUND`。下一步由 `VdcSyncAO` 拥有自动运行配置，core1 TDMA scheduler 同时驱动 TDMA 上行组和下行组：reference/sync frame 下发、RX timestamp/quality/completion evidence 实时回传，周期性产生 `VDC_SYNC_SAMPLE/IDLE_BEACON`。SCPI 只能启停调试策略和读取镜像，不能承担实时窗口重装或反馈回传。验收：空闲无业务数据时仍持续刷新 quality/freshness，连续 5 min 无 `WINDOW_BOUND` 最终态，observer 不因 host 查询而 disarm，`simultaneous_feedback_loop_evidence=true`。 |
-| P0.5b-0 | 冻结 `TDMARingProfile` / ring schedule 字段。 | 首版代码契约已落入 `VdcTdmaScheduleProfile`：包含 ring version、simultaneous UP/DOWN flag、active node count、local/reference index、UP/DOWN group、upstream/downstream/feedback slot、ring profile CRC，并纳入 schedule CRC 和 host 单测。后续还需把该 profile 接入 RefMem/System Pack staging 与 DeploymentGate 资源冲突校验。 |
+| P0.5b | 将 VDC observation / idle beacon 从 host 周期重装升级为消费 TDMA Foundation 常驻环路。 | 当前空闲态 `READ:SYNC:QUALity?` 会归零，`LOCK:READiness?` 显示 observer disabled，说明 VDC 还不是常驻锁相；60 s 监控中仍有 `WINDOW_BOUND`。下一步由 TDMA Foundation 同时驱动上行组和下行组，周期性提供 `VDC_SYNC_SAMPLE/IDLE_BEACON` timestamp evidence；`VdcSyncAO` 只拥有同步动作、profile 绑定和 DPLL 输入门禁。SCPI 只能启停调试策略和读取镜像，不能承担实时窗口重装或反馈回传。验收：空闲无业务数据时仍持续刷新 quality/freshness，连续 5 min 无 `WINDOW_BOUND` 最终态，observer 不因 host 查询而 disarm，TDMA snapshot 的 `simultaneous_feedback_loop_evidence=true` 且 VDC evidence 可追溯。 |
+| P0.5b-0 | 将 `TDMARingProfile` / ring schedule 字段迁出为 TDMA Foundation owner。 | 首版代码契约仍落入 `VdcTdmaScheduleProfile`，作为过渡 observation 视图：包含 ring version、simultaneous UP/DOWN flag、active node count、local/reference index、UP/DOWN group、upstream/downstream/feedback slot、ring profile CRC，并纳入 schedule CRC 和 host 单测。后续应迁入 TDMA profile / System Pack staging 与 DeploymentGate，VDC 只读绑定。 |
 | P0.5b-1 | 将两节点反馈环路抽象扩展为 N 节点 TDMA ring。 | 首版已新增 `vdc_domain_plan_tdma_ring()`，可从 active `VdcTdmaScheduleProfile` 读取 local/reference/upstream/downstream/feedback、active node count、from-reference hops、to-feedback hops 和 profile CRC；单测覆盖 8 槽默认环与 5 节点 profile。后续还需把 hop 表、delay 表项、quality 聚合和 reference/failover 表接入 runtime，不允许把每个节点写成独立点对点特例。 |
-| P0.5b-2 | 建立 core1 TDMA ring runtime 同时收发模型。 | 当前 HIL 仍是 host 维护脚本交替 arm 单向 leg。下一步 core1 必须同时管理 UP/DOWN 组的 TX/RX state、PIO/SM/DMA resource、ring slot seq、frame pending、late/miss/timeout 和 direction conflict。验收：无业务 payload 时仍持续 IDLE_BEACON；SCPI 查询不会 disarm；runtime snapshot 暴露 `up_running/down_running/ring_seq/last_error`。 |
+| P0.5b-2 | 对接 TDMA Foundation 的 core1 ring runtime 同时收发模型。 | 当前 HIL 仍是 host 维护脚本交替 arm 单向 leg。下一步由 TDMA Foundation 管理 UP/DOWN 组的 TX/RX state、PIO/SM/DMA resource、ring slot seq、frame pending、late/miss/timeout 和 direction conflict；VDC 只消费 snapshot/evidence。验收：无业务 payload 时仍持续 IDLE_BEACON；SCPI 查询不会 disarm；runtime snapshot 暴露 `up_running/down_running/ring_seq/last_error`。 |
 | P0.5b-3 | 定义 ring frame timestamp evidence。 | 当前 evidence 可记录局部 window 和 observer 状态，但缺少同一圈 ring 的 reference TX、每 hop RX/TX、feedback RX 组合证据。下一步冻结 `VdcRingTimestampEvidence`：包含 ring_seq、hop_id、source/ref slot、reference_time_ns、local_rx_tick、local_tx_tick、feedback_rx_tick、path_delay_id、frame/schedule CRC、timestamp source/resolution/flags。验收：DPLL accepted sample 必须能追溯到同一圈 ring evidence。 |
 | P0.5b-4 | 实现 delay-measure frame 与 active path-delay 更新流程。 | 已有 `VdcPathDelayTable` active 表和只读查询，但 delay 仍是默认/静态。借鉴 EtherCAT DC 环路测时思想，reference 发起 delay-measure frame，沿途节点写入硬件 timestamp，回到 reference 后计算每 hop delay/jitter/freshness，并由 Calibration/VDC staging 激活。验收：任一 hop delay 失效、cal CRC 改变或 freshness 超限时，VDC 进入 CHECKING/RELOCKING，不沿用旧 lock。 |
 | P0.5b-5 | 将 VDC long monitor 从触发工具升级为只读健康评估。 | 当前 `vdc_long_monitor` 已改为声明 `LEG_SELFTEST_MONITOR`，但仍可触发单向 self-test。后续真正环路运行后，该工具默认只读 `VdcVector`、TDMA ring runtime、PathDelayTable、DCO、quality 和 RefMem mirror；触发 self-test 只能作为显式 bring-up 模式。验收：报告输出 node/leg 质量与整环质量，`loop_health_passed` 只由固件内同时运行 ring evidence 决定。 |
@@ -159,9 +159,9 @@ TDMA 最小实例约束：
 
 ### 后续执行顺序建议
 
-1. 先冻结 `TDMARingProfile`：节点数、ring 顺序、UP/DOWN 组、slot、guard、payload class、profile CRC 和资源声明。
-2. 再让 core1 TDMA runtime 同时运行 UP/DOWN 两组：先空闲 `IDLE_BEACON`，再挂 `VDC_SYNC_SAMPLE` 和 RefMem payload。
-3. 补齐 ring timestamp evidence：reference TX、每 hop RX/TX、feedback RX、schedule/frame CRC、timestamp source/resolution/flags。
+1. 先由 TDMA Foundation 冻结 `TDMARingProfile`：节点数、ring 顺序、UP/DOWN 组、slot、guard、payload class、profile CRC 和资源声明。
+2. 再由 TDMA Foundation 让 core1 TDMA runtime 同时运行 UP/DOWN 两组：先空闲 `IDLE_BEACON`，再挂 `VDC_SYNC_SAMPLE` 和 RefMem payload。
+3. 由 TDMA Foundation 补齐 ring timestamp evidence：reference TX、每 hop RX/TX、feedback RX、schedule/frame CRC、timestamp source/resolution/flags；VDC 只消费合格样本。
 4. 实现 delay-measure frame 和 active `VdcPathDelayTable` 更新/失效策略，避免 DPLL 用默认零延迟长期运行。
 5. 让 `VdcSyncAO` 常驻锁相，`SyncDpllFB` 只消费 ring evidence，core1 只读 DCO snapshot 驱动后续 TDMA/FIRE_LOAD。
 6. 把 `vdc_long_monitor` 切成默认只读健康评估；self-test 只保留为显式 bring-up 模式。
@@ -199,9 +199,9 @@ TDMA 最小实例约束：
 ## P2 - VDC 数据契约冻结
 
 - [x] 冻结 `VdcClockModel` 字段、单位、writer、reader 和 snapshot 策略。
-- [x] 冻结 `VdcTdmaScheduleProfile`，覆盖 TDMA 周期、同步窗口、guard、reference slot、schedule version、`TDMARingProfile` 和 CRC。
+- [x] 冻结过渡期 `VdcTdmaScheduleProfile`，覆盖 TDMA 周期、同步窗口、guard、reference slot、schedule version、`TDMARingProfile` 和 CRC；后续 ring owner 迁入 TDMA Foundation，VDC 只读绑定 observation profile。
 - [x] 冻结 TDMA frame envelope：每一帧都必须先表达 schedule_epoch、slot_index、frame_seq、source/reference slot、timestamp evidence、schedule CRC、frame CRC 和 payload class；RefMem 数据只能作为 payload class 搭载。
-- [x] 冻结 TDMA window class：`VDC_OBSERVATION_WINDOW` 是高优先级 DPLL 样本窗口，`REFMEM_DATA_WINDOW` 在同一 VDC/TDMA 骨架上搭载共同事实同步；两者必须分别有 slot/action、guard、CRC、quality 和禁止项。
+- [x] 冻结 TDMA window class：`VDC_OBSERVATION_WINDOW` 是高优先级 DPLL 样本窗口，`REFMEM_DATA_WINDOW` 在同一 TDMA Foundation 骨架上搭载共同事实同步；两者必须分别有 slot/action、guard、CRC、quality 和禁止项。
 - [x] 冻结 `VdcTDMATimestampEvidence`，字段单位统一为 ns，至少覆盖 expected_window_start、arm/start/done/apply timestamp、late_ns、jitter_ns、schedule_crc32、frame/sample CRC 和 `timestamp_resolution_ns`。
 - [ ] 冻结 `VdcReferenceClockTable`，首版固定 A0，后续支持 priority / failover。
 - [x] 冻结 `VdcDpllState` 字段、单位、writer、reader 和 snapshot 策略。

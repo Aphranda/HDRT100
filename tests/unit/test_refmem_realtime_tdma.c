@@ -414,6 +414,97 @@ static int test_vdc_window_plan_rejects_missed_window(void)
     return failed;
 }
 
+static int test_common_tdma_ring_runtime_contract(void)
+{
+    int failed = 0;
+    tdma_service_service_t service;
+    tdma_service_snapshot_t snapshot;
+    const tdma_service_ring_runtime_config_t ring = {
+        .enabled = 1u,
+        .node_count = 4u,
+        .local_slot_id = 1u,
+        .reference_slot_id = 0u,
+        .up_group_id = 1u,
+        .down_group_id = 2u,
+        .flags = TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN,
+        .ring_profile_crc32 = 0x11223344u,
+        .schedule_crc32 = 0x55667788u,
+    };
+    const tdma_service_ring_runtime_config_t bad_same_leg = {
+        .enabled = 1u,
+        .node_count = 4u,
+        .local_slot_id = 1u,
+        .reference_slot_id = 0u,
+        .up_group_id = 1u,
+        .down_group_id = 1u,
+        .flags = TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN,
+        .ring_profile_crc32 = 0x11223344u,
+        .schedule_crc32 = 0x55667788u,
+    };
+
+    failed += expect_bool("common tdma init", tdma_service_init(&service), true);
+    failed += expect_bool("reject same leg ring",
+                          tdma_service_configure_ring_runtime(&service,
+                                                              &bad_same_leg),
+                          false);
+    failed += expect_bool("configure ring runtime",
+                          tdma_service_configure_ring_runtime(&service, &ring),
+                          true);
+    failed += expect_bool("ring snapshot",
+                          tdma_service_get_snapshot(&service, &snapshot),
+                          true);
+    failed += expect_u32("ring enabled", snapshot.ring_enabled, 1u);
+    failed += expect_u32("ring config seq", snapshot.ring_config_seq, 1u);
+    failed += expect_u32("ring node count", snapshot.ring_node_count, 4u);
+    failed += expect_u32("ring local slot", snapshot.ring_local_slot_id, 1u);
+    failed += expect_u32("ring reference slot",
+                         snapshot.ring_reference_slot_id,
+                         0u);
+    failed += expect_u32("ring up group", snapshot.ring_up_group_id, 1u);
+    failed += expect_u32("ring down group", snapshot.ring_down_group_id, 2u);
+    failed += expect_u32("ring profile crc",
+                         snapshot.ring_profile_crc32,
+                         0x11223344u);
+    failed += expect_u32("ring schedule crc",
+                         snapshot.ring_schedule_crc32,
+                         0x55667788u);
+    failed += expect_u32("ring feedback evidence initially false",
+                         snapshot.simultaneous_feedback_loop_evidence,
+                         0u);
+
+    tdma_service_core1_service(&service);
+    failed += expect_bool("ring runtime snapshot",
+                          tdma_service_get_snapshot(&service, &snapshot),
+                          true);
+    failed += expect_u32("ring service seq", snapshot.ring_service_seq, 1u);
+    failed += expect_u32("ring up configured",
+                         snapshot.ring_up_configured,
+                         1u);
+    failed += expect_u32("ring down configured",
+                         snapshot.ring_down_configured,
+                         1u);
+    failed += expect_u32("ring up running", snapshot.ring_up_running, 1u);
+    failed += expect_u32("ring down running", snapshot.ring_down_running, 1u);
+    failed += expect_u32("ring seq", snapshot.ring_seq, 1u);
+    failed += expect_u32("ring last error",
+                         snapshot.ring_last_error,
+                         TDMA_SERVICE_RING_ERROR_NONE);
+    failed += expect_u32("ring still does not fake closed-loop evidence",
+                         snapshot.simultaneous_feedback_loop_evidence,
+                         0u);
+
+    failed += expect_bool("disable ring",
+                          tdma_service_configure_ring_runtime(&service, NULL),
+                          true);
+    tdma_service_core1_service(&service);
+    (void)tdma_service_get_snapshot(&service, &snapshot);
+    failed += expect_u32("ring disabled", snapshot.ring_enabled, 0u);
+    failed += expect_u32("ring disabled not running",
+                         snapshot.ring_up_running | snapshot.ring_down_running,
+                         0u);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -425,6 +516,7 @@ int main(void)
     failed += test_rx_result_frame_is_readable();
     failed += test_vdc_window_plan_defers_until_guard();
     failed += test_vdc_window_plan_rejects_missed_window();
+    failed += test_common_tdma_ring_runtime_contract();
     if (failed != 0) {
         (void)printf("refmem_realtime_tdma tests failed: %d\n", failed);
         return 1;
