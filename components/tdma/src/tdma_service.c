@@ -96,61 +96,6 @@ static void tdma_service_end_result_write(tdma_service_service_t *service)
     tdma_service_store_guard(&service->result_guard);
 }
 
-static bool tdma_service_ring_config_valid(
-    const tdma_service_ring_runtime_config_t *config)
-{
-    if (config == NULL || config->enabled == 0u) {
-        return true;
-    }
-    return config->node_count >= 2u &&
-           config->local_slot_id < config->node_count &&
-           config->reference_slot_id < config->node_count &&
-           config->up_group_id != 0u &&
-           config->down_group_id != 0u &&
-           config->up_group_id != config->down_group_id &&
-           (config->flags & TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN) != 0u &&
-           config->ring_profile_crc32 != 0u &&
-           config->schedule_crc32 != 0u;
-}
-
-static void tdma_service_ring_runtime_service(tdma_service_service_t *service)
-{
-    if (service == NULL) {
-        return;
-    }
-
-    const uint32_t enabled = tdma_service_load(&service->ring_enabled);
-    const uint32_t up_group = tdma_service_load(&service->ring_up_group_id);
-    const uint32_t down_group = tdma_service_load(&service->ring_down_group_id);
-    const uint32_t flags = tdma_service_load(&service->ring_flags);
-    const bool up_down_ready =
-        enabled != 0u &&
-        up_group != 0u &&
-        down_group != 0u &&
-        up_group != down_group &&
-        (flags & TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN) != 0u;
-
-    service->ring_service_seq++;
-    service->ring_up_configured = up_group != 0u ? 1u : 0u;
-    service->ring_down_configured = down_group != 0u ? 1u : 0u;
-    service->ring_up_running = up_down_ready ? 1u : 0u;
-    service->ring_down_running = up_down_ready ? 1u : 0u;
-    if (up_down_ready) {
-        service->ring_seq++;
-        service->ring_last_error = TDMA_SERVICE_RING_ERROR_NONE;
-    } else if (enabled != 0u) {
-        service->ring_last_error = TDMA_SERVICE_RING_ERROR_BAD_CONFIG;
-    } else {
-        service->ring_last_error = TDMA_SERVICE_RING_ERROR_NONE;
-    }
-
-    /*
-     * The runtime shell can prove both legs are configured and serviced, but
-     * real loop evidence must wait for hardware RX/TX timestamp correlation.
-     */
-    service->simultaneous_feedback_loop_evidence = 0u;
-}
-
 static void tdma_service_set_default_timestamp(tdma_service_service_t *service)
 {
     if (service == NULL) {
@@ -297,6 +242,9 @@ bool tdma_service_init(tdma_service_service_t *service)
                                     TDMA_SERVICE_LONG_FRAME_MAX)) {
         return false;
     }
+    if (!tdma_ring_runtime_init(&service->ring_runtime)) {
+        return false;
+    }
     tdma_service_set_default_timestamp(service);
     return true;
 }
@@ -326,46 +274,8 @@ bool tdma_service_configure_ring_runtime(
     tdma_service_service_t *service,
     const tdma_service_ring_runtime_config_t *config)
 {
-    if (service == NULL || !tdma_service_ring_config_valid(config)) {
-        return false;
-    }
-
-    tdma_service_begin_intent_write(service);
-    service->ring_config_seq++;
-    if (config == NULL || config->enabled == 0u) {
-        service->ring_enabled = 0u;
-        service->ring_node_count = 0u;
-        service->ring_local_slot_id = 0u;
-        service->ring_reference_slot_id = 0u;
-        service->ring_up_group_id = 0u;
-        service->ring_down_group_id = 0u;
-        service->ring_flags = 0u;
-        service->ring_profile_crc32 = 0u;
-        service->ring_schedule_crc32 = 0u;
-    } else {
-        service->ring_enabled = 1u;
-        service->ring_node_count = config->node_count;
-        service->ring_local_slot_id = config->local_slot_id;
-        service->ring_reference_slot_id = config->reference_slot_id;
-        service->ring_up_group_id = config->up_group_id;
-        service->ring_down_group_id = config->down_group_id;
-        service->ring_flags = config->flags;
-        service->ring_profile_crc32 = config->ring_profile_crc32;
-        service->ring_schedule_crc32 = config->schedule_crc32;
-    }
-    tdma_service_end_intent_write(service);
-
-    tdma_service_begin_result_write(service);
-    service->ring_up_configured =
-        service->ring_up_group_id != 0u ? 1u : 0u;
-    service->ring_down_configured =
-        service->ring_down_group_id != 0u ? 1u : 0u;
-    service->ring_up_running = 0u;
-    service->ring_down_running = 0u;
-    service->ring_last_error = TDMA_SERVICE_RING_ERROR_NONE;
-    service->simultaneous_feedback_loop_evidence = 0u;
-    tdma_service_end_result_write(service);
-    return true;
+    return service != NULL &&
+           tdma_ring_runtime_configure(&service->ring_runtime, config);
 }
 
 bool tdma_service_configure_foundation_profile(
@@ -448,9 +358,7 @@ void tdma_service_core1_service(tdma_service_service_t *service)
         return;
     }
 
-    tdma_service_begin_result_write(service);
-    tdma_service_ring_runtime_service(service);
-    tdma_service_end_result_write(service);
+    tdma_ring_runtime_service(&service->ring_runtime);
 
     const uint32_t intent_seq = tdma_service_load(&service->intent_seq);
     const uint32_t abort_seq = tdma_service_load(&service->abort_seq);
@@ -700,16 +608,6 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
                                        &snapshot->scheduled_guard_end_ns_hi);
         snapshot->frame_size = service->frame_size;
         snapshot->reject_count = service->reject_count;
-        snapshot->ring_enabled = service->ring_enabled;
-        snapshot->ring_config_seq = service->ring_config_seq;
-        snapshot->ring_node_count = service->ring_node_count;
-        snapshot->ring_local_slot_id = service->ring_local_slot_id;
-        snapshot->ring_reference_slot_id = service->ring_reference_slot_id;
-        snapshot->ring_up_group_id = service->ring_up_group_id;
-        snapshot->ring_down_group_id = service->ring_down_group_id;
-        snapshot->ring_flags = service->ring_flags;
-        snapshot->ring_profile_crc32 = service->ring_profile_crc32;
-        snapshot->ring_schedule_crc32 = service->ring_schedule_crc32;
         snapshot->foundation_profile_crc32 = service->foundation_profile_crc32;
         snapshot->foundation_owner_instance_id = service->foundation_owner_instance_id;
         snapshot->adapter_type = service->adapter_type;
@@ -766,15 +664,6 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
                                        &snapshot->core1_done_time_ns_lo,
                                        &snapshot->core1_done_time_ns_hi);
         snapshot->core1_elapsed_ns = service->core1_elapsed_ns;
-        snapshot->ring_service_seq = service->ring_service_seq;
-        snapshot->ring_up_configured = service->ring_up_configured;
-        snapshot->ring_down_configured = service->ring_down_configured;
-        snapshot->ring_up_running = service->ring_up_running;
-        snapshot->ring_down_running = service->ring_down_running;
-        snapshot->ring_seq = service->ring_seq;
-        snapshot->ring_last_error = service->ring_last_error;
-        snapshot->simultaneous_feedback_loop_evidence =
-            service->simultaneous_feedback_loop_evidence;
         result_frame_size = service->result_frame_size;
         const uint32_t seq_end = tdma_service_load(&service->result_guard);
         if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
@@ -806,6 +695,31 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
     snapshot->payload_registry_last_result = registry_snapshot.last_result;
     snapshot->payload_registry_last_payload_class =
         registry_snapshot.last_payload_class;
+
+    tdma_ring_runtime_snapshot_t ring_snapshot;
+    if (!tdma_ring_runtime_get_snapshot(&service->ring_runtime, &ring_snapshot)) {
+        return false;
+    }
+    snapshot->ring_enabled = ring_snapshot.enabled;
+    snapshot->ring_config_seq = ring_snapshot.config_seq;
+    snapshot->ring_config_reject_count = ring_snapshot.config_reject_count;
+    snapshot->ring_service_seq = ring_snapshot.service_seq;
+    snapshot->ring_node_count = ring_snapshot.node_count;
+    snapshot->ring_local_slot_id = ring_snapshot.local_slot_id;
+    snapshot->ring_reference_slot_id = ring_snapshot.reference_slot_id;
+    snapshot->ring_up_group_id = ring_snapshot.up_group_id;
+    snapshot->ring_down_group_id = ring_snapshot.down_group_id;
+    snapshot->ring_flags = ring_snapshot.flags;
+    snapshot->ring_up_configured = ring_snapshot.up_configured;
+    snapshot->ring_down_configured = ring_snapshot.down_configured;
+    snapshot->ring_up_running = ring_snapshot.up_running;
+    snapshot->ring_down_running = ring_snapshot.down_running;
+    snapshot->ring_seq = ring_snapshot.ring_seq;
+    snapshot->ring_last_error = ring_snapshot.last_reason;
+    snapshot->simultaneous_feedback_loop_evidence =
+        ring_snapshot.simultaneous_feedback_loop_evidence;
+    snapshot->ring_profile_crc32 = ring_snapshot.ring_profile_crc32;
+    snapshot->ring_schedule_crc32 = ring_snapshot.schedule_crc32;
 
     return true;
 }

@@ -14,6 +14,7 @@ TDMA Domain 负责：
 - 管理 PIO/SM/DMA/core1 service 资源声明、payload registry、short/long frame capacity 和 adapter 边界。
 - 管理 RMTP `TdmaFoundationProfile` 正式表的 staging、CRC、owner/resource gate、active 和 rollbackable 生命周期。
 - 通过独立 `TdmaPayloadRegistry` 管理 payload binding、whitelist、frame capacity、admission 和只读水位。
+- 通过独立 `TdmaRingRuntime` 管理 ring config、双向 runtime、reason code 和闭环 evidence 边界。
 - 管理 TSN-style traffic class、准入、周期预算、time-aware gate、整形、背压和逐流质量；VDC/RefMem 预留资源，配置/OTA/LOG 使用受控维护或剩余预算。
 - 为 VDC 提供 observation window、timestamp evidence 和质量摘要。
 - 为 RefMem 提供 payload window、delta/ACK/fence/quality 承载和可靠性证据。

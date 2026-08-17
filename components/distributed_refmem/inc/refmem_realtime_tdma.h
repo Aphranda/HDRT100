@@ -140,6 +140,7 @@ typedef struct {
     uint32_t payload_whitelist_mask;
     uint32_t ring_enabled;
     uint32_t ring_config_seq;
+    uint32_t ring_config_reject_count;
     uint32_t ring_node_count;
     uint32_t ring_local_slot_id;
     uint32_t ring_reference_slot_id;

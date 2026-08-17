@@ -208,6 +208,7 @@ static void refmem_realtime_tdma_from_service_snapshot(
     target->payload_whitelist_mask = source->payload_whitelist_mask;
     target->ring_enabled = source->ring_enabled;
     target->ring_config_seq = source->ring_config_seq;
+    target->ring_config_reject_count = source->ring_config_reject_count;
     target->ring_node_count = source->ring_node_count;
     target->ring_local_slot_id = source->ring_local_slot_id;
     target->ring_reference_slot_id = source->ring_reference_slot_id;

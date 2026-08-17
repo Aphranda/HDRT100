@@ -1824,6 +1824,7 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.payload_registry_reject_count);
     SCPI_ResultUInt32(context, snapshot.payload_registry_last_result);
     SCPI_ResultUInt32(context, snapshot.payload_registry_last_payload_class);
+    SCPI_ResultUInt32(context, snapshot.ring_config_reject_count);
     return SCPI_RES_OK;
 }
 

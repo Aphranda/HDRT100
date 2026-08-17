@@ -42,6 +42,42 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
 
 ## 任务记录
 
+### TDMA-TASK-20260817-006 - TdmaRingRuntime 基础件拆分
+
+- 状态：完成独立基础件、service 聚合接入、reason code、21/21 host 门禁和 A/B 固件构建；硬件 HIL 尚未执行。
+- 日期：2026-08-17
+- 任务目标：
+  - 将 ring config、core1 runtime 推进和 ring snapshot 从 `tdma_service.c` 单体拆出。
+  - 保持现有 `tdma_service_configure_ring_runtime()` 和维护 snapshot 字段兼容。
+  - 冻结 adapter/scheduler/timestamp 后续共用的 ring reason code。
+- 完成内容：
+  - 新增 `tdma_ring_runtime.h/.c`，独立维护 config/result seqlock、config/reject/service/ring seq 和双向运行状态。
+  - `tdma_service` 改为聚合 `tdma_ring_runtime_t`，配置、core1 service 和 snapshot 均通过基础件 API 完成。
+  - 保留原有 ring snapshot 字段，并新增 `ring_config_reject_count`；维护查询只在末尾追加新字段。
+  - 配置校验把 UP/DOWN group 缺失或相同明确映射为 `DIRECTION_CONFLICT`，其余 topology/flag/CRC 错误映射为 `BAD_CONFIG`。
+  - 冻结 `EVIDENCE_MISSING`、`ADAPTER_MISSING`、`TIMESTAMP_MISSING`、`PAYLOAD_STARVATION`、`WINDOW_MISSED` 和 `RESOURCE_CONFLICT` 编号，供后续 owner 接入。
+  - runtime service 仍强制保持 `simultaneous_feedback_loop_evidence=0`，未提供软件直接置位接口。
+  - 新增独立 host 单测及测试脚本，并纳入全量 host 列表。
+- 验证结果：
+  - `run_tdma_ring_runtime_tests.ps1` 通过。
+  - `run_refmem_realtime_tdma_tests.ps1` 通过，包含 config reject 和兼容 snapshot 断言。
+  - `run_vdc_domain_tests.ps1` 通过。
+  - `run_host_unit_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 通过，21/21 host scripts passed。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过 A/B 双目标；build id `20260817063552`，package CRC `0xF15A8DA6`。
+  - 本轮没有烧录板卡，不形成 UP/DOWN 同时物理运行或硬件闭环 evidence。
+- 还需完成：
+  - 建立五类固定队列、time-aware gate 和 reason-to-quality 映射。
+  - 由 adapter/timestamp correlation 提供其余 reason 的真实发布源。
+- 关联文件：
+  - `components/tdma/inc/tdma_ring_runtime.h`
+  - `components/tdma/src/tdma_ring_runtime.c`
+  - `components/tdma/inc/tdma_service.h`
+  - `components/tdma/src/tdma_service.c`
+  - `tests/unit/test_tdma_ring_runtime.c`
+  - `tools/tests/run_tdma_ring_runtime_tests.ps1`
+- 下一步：
+  - 全量闭环后进入五类固定队列和 time-aware gate 的数据结构设计。
+
 ### TDMA-TASK-20260817-005 - TdmaPayloadRegistry 基础件拆分
 
 - 状态：完成独立基础件、service 聚合接入、维护快照、20/20 host 门禁和 A/B 固件构建；未执行硬件 HIL。
@@ -66,7 +102,7 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
   - `cmake --build build-rtos-multicore-smoke -j 4` 通过 A/B 双目标；build id `20260817061911`，package CRC `0x75320FF1`。
   - 本轮没有烧录板卡，不形成 UP/DOWN 同时运行或硬件闭环 evidence。
 - 还需完成：
-  - 将 ring runtime 拆成 `tdma_ring_runtime.*`。
+  - ring runtime 已由 TDMA-TASK-20260817-006 拆出。
   - 在 registry admission 之上建立五类固定队列和 time-aware gate。
   - 将 registry reject/deadline/budget 统计并入正式 `TdmaQualityVector`。
 - 关联文件：
@@ -77,7 +113,7 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
   - `tests/unit/test_tdma_payload_registry.c`
   - `tools/tests/run_tdma_payload_registry_tests.ps1`
 - 下一步：
-  - 按同一聚合模式拆分 `TdmaRingRuntime`，冻结 reason code 与 snapshot 后再实现 scheduler queue。
+  - ring runtime 与 reason code 已完成；继续 scheduler queue runtime。
 
 ### TDMA-TASK-20260817-004 - Active Profile 到公共 Runtime 的激活闭环
 

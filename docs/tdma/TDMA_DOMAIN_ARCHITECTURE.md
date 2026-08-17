@@ -243,21 +243,40 @@ components/tdma/
   inc/tdma_profile.h
   inc/tdma_service.h
   inc/tdma_payload_registry.h
-  inc/tdma_ring_runtime.h        # 后续可拆
+  inc/tdma_ring_runtime.h
   src/tdma_profile.c
   src/tdma_service.c
   src/tdma_payload_registry.c
-  src/tdma_ring_runtime.c        # 后续可拆
+  src/tdma_ring_runtime.c
 ```
 
 过渡规则：
 
 - `TdmaPayloadRegistry` 已从 `tdma_service.c` 拆出；`tdma_service` 保留聚合 API，并委托注册、whitelist、capacity 和 admission。
 - registry snapshot 发布 config seq、registration seq、used、admitted、reject、last result 和 last payload class，供 DeploymentGate、Diagnostics 和后续 scheduler 查询。
-- ring runtime 暂时仍在 `tdma_service.c`，下一步按相同方式拆出，并保留聚合 API。
+- `TdmaRingRuntime` 已从 `tdma_service.c` 拆出；`tdma_service` 保留聚合配置与 snapshot API，并委托 ring config、core1 service 和 seqlock snapshot。
+- ring runtime 发布 config/reject/service/ring seq、双向 configured/running、last reason 和 feedback evidence；`running` 仅表示 runtime 同周期推进，不表示物理反馈闭环成立。
 - RefMem 侧 `refmem_realtime_tdma` 只保留兼容 adapter，不再拥有调度器。
 - VDC 侧 `SYSTem:SYNC:VDC:TDMA:*` 只能作为 VDC maintenance projection，不能表示 VDC 拥有 TDMA。
 - 后续新增 TDMA maintenance command 时，应挂载在系统维护命名空间，例如 `SYSTem:TDMA:*`，并保持对外产品业务命令不直接操作 TDMA。
+
+### Ring reason code
+
+`TdmaRingRuntime` 冻结以下诊断原因，后续 adapter、scheduler 和 quality vector 只能映射这些稳定语义，不能各自发明错误编号：
+
+| Reason | 含义 |
+|---|---|
+| `NONE` | 当前无 ring fault。 |
+| `BAD_CONFIG` | 节点数、slot、flag 或 CRC 不合法。 |
+| `EVIDENCE_MISSING` | runtime 已推进，但缺少闭环证据。 |
+| `DIRECTION_CONFLICT` | UP/DOWN group 缺失、相同或方向冲突。 |
+| `ADAPTER_MISSING` | active profile 没有可执行 transport adapter。 |
+| `TIMESTAMP_MISSING` | 缺少符合约束的硬件 timestamp。 |
+| `PAYLOAD_STARVATION` | 预留窗口没有获得要求的 payload/beacon。 |
+| `WINDOW_MISSED` | runtime 未命中 active schedule window。 |
+| `RESOURCE_CONFLICT` | PIO/SM/DMA/IO/IP claim 冲突。 |
+
+当前首版直接产生 `BAD_CONFIG` 和 `DIRECTION_CONFLICT`；其余 reason 已冻结编号，待 adapter、time-aware scheduler 和 timestamp correlation 接入后按 owner 边界发布。
 
 ## 验证门禁
 

@@ -15,6 +15,7 @@ $payloadSource = Join-Path $repo "components\distributed_refmem\src\refmem_tdma_
 $tdmaSource = Join-Path $repo "components\tdma\src\tdma_service.c"
 $tdmaProfileSource = Join-Path $repo "components\tdma\src\tdma_profile.c"
 $tdmaRegistrySource = Join-Path $repo "components\tdma\src\tdma_payload_registry.c"
+$tdmaRingSource = Join-Path $repo "components\tdma\src\tdma_ring_runtime.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -51,7 +52,7 @@ if (-not $hostCc) {
 
 if ($hostCc) {
     $exe = Join-Path $build "test_refmem_realtime_tdma.exe"
-    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" $testSource $serviceSource $payloadSource $tdmaSource $tdmaProfileSource $tdmaRegistrySource -o $exe
+    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" $testSource $serviceSource $payloadSource $tdmaSource $tdmaProfileSource $tdmaRegistrySource $tdmaRingSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -68,7 +69,7 @@ if (-not (Test-Path $compiler)) {
     throw "No host C compiler found and ARM GCC not found"
 }
 
-foreach ($source in @($testSource, $serviceSource, $payloadSource, $tdmaSource, $tdmaProfileSource, $tdmaRegistrySource)) {
+foreach ($source in @($testSource, $serviceSource, $payloadSource, $tdmaSource, $tdmaProfileSource, $tdmaRegistrySource, $tdmaRingSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $compiler -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {

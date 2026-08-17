@@ -455,6 +455,9 @@ static int test_common_tdma_ring_runtime_contract(void)
                           true);
     failed += expect_u32("ring enabled", snapshot.ring_enabled, 1u);
     failed += expect_u32("ring config seq", snapshot.ring_config_seq, 1u);
+    failed += expect_u32("ring config reject count",
+                         snapshot.ring_config_reject_count,
+                         1u);
     failed += expect_u32("ring node count", snapshot.ring_node_count, 4u);
     failed += expect_u32("ring local slot", snapshot.ring_local_slot_id, 1u);
     failed += expect_u32("ring reference slot",
