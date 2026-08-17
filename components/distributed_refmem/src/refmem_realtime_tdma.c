@@ -2,6 +2,10 @@
 
 #include <string.h>
 
+#if !defined(PICO_ON_DEVICE) || !PICO_ON_DEVICE
+static tdma_service_service_t s_refmem_realtime_tdma_host_scheduler;
+#endif
+
 static tdma_service_role_t refmem_realtime_tdma_to_service_role(
     refmem_spi_physical_role_t role)
 {
@@ -121,6 +125,12 @@ static const tdma_service_ops_t s_refmem_realtime_tdma_bridge_ops = {
     .receive = refmem_realtime_tdma_receive_bridge,
 };
 
+static const tdma_service_service_t *refmem_realtime_tdma_scheduler_const(
+    const refmem_realtime_tdma_service_t *service)
+{
+    return service != NULL ? service->scheduler : NULL;
+}
+
 static tdma_service_intent_config_t refmem_realtime_tdma_to_service_config(
     const refmem_realtime_tdma_intent_config_t *config)
 {
@@ -148,6 +158,7 @@ static tdma_service_intent_config_t refmem_realtime_tdma_to_service_config(
 }
 
 static void refmem_realtime_tdma_from_service_snapshot(
+    const refmem_realtime_tdma_service_t *service,
     const tdma_service_snapshot_t *source,
     refmem_realtime_tdma_snapshot_t *target)
 {
@@ -156,8 +167,15 @@ static void refmem_realtime_tdma_from_service_snapshot(
     target->owner_core = source->owner_core;
     target->armed = source->armed;
     target->service_count = source->service_count;
-    target->intent_seq = source->intent_seq;
-    target->completed_seq = source->completed_seq;
+    target->intent_seq =
+        source->traffic_scheduler_configured != 0u
+            ? service->last_submit_seq
+            : source->intent_seq;
+    target->completed_seq =
+        source->traffic_scheduler_configured != 0u
+            ? source->traffic_scheduler_completed_seq[
+                  TDMA_TRAFFIC_REFMEM_REALTIME]
+            : source->completed_seq;
     target->dropped_seq = source->dropped_seq;
     target->window_epoch = source->window_epoch;
     target->window_index = source->window_index;
@@ -232,6 +250,38 @@ static void refmem_realtime_tdma_from_service_snapshot(
     target->payload_registry_last_result = source->payload_registry_last_result;
     target->payload_registry_last_payload_class =
         source->payload_registry_last_payload_class;
+    if (source->traffic_scheduler_configured != 0u) {
+        target->last_result = source->traffic_class_last_result[
+            TDMA_TRAFFIC_REFMEM_REALTIME];
+        target->last_error = source->traffic_class_last_error[
+            TDMA_TRAFFIC_REFMEM_REALTIME];
+        target->timestamp_source = source->traffic_class_timestamp_source[
+            TDMA_TRAFFIC_REFMEM_REALTIME];
+        target->timestamp_resolution_ns =
+            source->traffic_class_timestamp_resolution_ns[
+                TDMA_TRAFFIC_REFMEM_REALTIME];
+        target->timestamp_flags = source->traffic_class_timestamp_flags[
+            TDMA_TRAFFIC_REFMEM_REALTIME];
+        target->frame_size = source->traffic_class_result_frame_size[
+            TDMA_TRAFFIC_REFMEM_REALTIME];
+    }
+    target->traffic_scheduler_configured =
+        source->traffic_scheduler_configured;
+    target->traffic_scheduler_enqueue_seq =
+        source->traffic_scheduler_enqueue_seq;
+    target->traffic_scheduler_dispatch_seq =
+        source->traffic_scheduler_dispatch_seq;
+    target->traffic_scheduler_queued_count =
+        source->traffic_scheduler_queued_count;
+    target->traffic_scheduler_fault_latched =
+        source->traffic_scheduler_fault_latched;
+    target->traffic_scheduler_last_result =
+        source->traffic_scheduler_last_result;
+    target->traffic_scheduler_last_class =
+        source->traffic_scheduler_last_class;
+    memcpy(target->traffic_scheduler_completed_seq,
+           source->traffic_scheduler_completed_seq,
+           sizeof(target->traffic_scheduler_completed_seq));
 }
 
 bool refmem_realtime_tdma_init(refmem_realtime_tdma_service_t *service)
@@ -241,11 +291,28 @@ bool refmem_realtime_tdma_init(refmem_realtime_tdma_service_t *service)
     }
 
     memset(service, 0, sizeof(*service));
-    if (!tdma_service_init(&service->scheduler)) {
+#if !defined(PICO_ON_DEVICE) || !PICO_ON_DEVICE
+    service->scheduler = &s_refmem_realtime_tdma_host_scheduler;
+#else
+    return false;
+#endif
+    if (!tdma_service_init(service->scheduler)) {
         return false;
     }
 
-    return refmem_tdma_payload_register(&service->scheduler);
+    return refmem_tdma_payload_register(service->scheduler);
+}
+
+bool refmem_realtime_tdma_init_shared(
+    refmem_realtime_tdma_service_t *service,
+    tdma_service_service_t *scheduler)
+{
+    if (service == NULL || scheduler == NULL) {
+        return false;
+    }
+    memset(service, 0, sizeof(*service));
+    service->scheduler = scheduler;
+    return refmem_tdma_payload_register(service->scheduler);
 }
 
 bool refmem_realtime_tdma_bind_ops(refmem_realtime_tdma_service_t *service,
@@ -258,7 +325,8 @@ bool refmem_realtime_tdma_bind_ops(refmem_realtime_tdma_service_t *service,
     }
     service->ops = ops;
     service->ops_context = ops_context;
-    return tdma_service_bind_ops(&service->scheduler,
+    return service->scheduler != NULL &&
+           tdma_service_bind_ops(service->scheduler,
                                  &s_refmem_realtime_tdma_bridge_ops,
                                  service);
 }
@@ -268,8 +336,8 @@ bool refmem_realtime_tdma_configure_foundation_profile(
     const tdma_foundation_profile_t *profile,
     uint32_t schedule_crc32)
 {
-    return service != NULL &&
-           tdma_service_configure_foundation_profile(&service->scheduler,
+    return service != NULL && service->scheduler != NULL &&
+           tdma_service_configure_foundation_profile(service->scheduler,
                                                      profile,
                                                      schedule_crc32);
 }
@@ -283,7 +351,16 @@ bool refmem_realtime_tdma_submit_tx(
     }
     const tdma_service_intent_config_t mapped =
         refmem_realtime_tdma_to_service_config(config);
-    return tdma_service_submit_tx(&service->scheduler, &mapped);
+    if (service->scheduler == NULL ||
+        !tdma_service_submit_tx(service->scheduler, &mapped)) {
+        return false;
+    }
+    tdma_service_snapshot_t snapshot;
+    if (tdma_service_get_snapshot(service->scheduler, &snapshot) &&
+        snapshot.traffic_scheduler_configured != 0u) {
+        service->last_submit_seq = snapshot.traffic_scheduler_enqueue_seq;
+    }
+    return true;
 }
 
 bool refmem_realtime_tdma_submit_rx(
@@ -295,7 +372,16 @@ bool refmem_realtime_tdma_submit_rx(
     }
     const tdma_service_intent_config_t mapped =
         refmem_realtime_tdma_to_service_config(config);
-    return tdma_service_submit_rx(&service->scheduler, &mapped);
+    if (service->scheduler == NULL ||
+        !tdma_service_submit_rx(service->scheduler, &mapped)) {
+        return false;
+    }
+    tdma_service_snapshot_t snapshot;
+    if (tdma_service_get_snapshot(service->scheduler, &snapshot) &&
+        snapshot.traffic_scheduler_configured != 0u) {
+        service->last_submit_seq = snapshot.traffic_scheduler_enqueue_seq;
+    }
+    return true;
 }
 
 void refmem_realtime_tdma_abort(refmem_realtime_tdma_service_t *service)
@@ -303,7 +389,9 @@ void refmem_realtime_tdma_abort(refmem_realtime_tdma_service_t *service)
     if (service == NULL) {
         return;
     }
-    tdma_service_abort(&service->scheduler);
+    if (service->scheduler != NULL) {
+        tdma_service_abort(service->scheduler);
+    }
 }
 
 void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
@@ -311,7 +399,9 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
     if (service == NULL) {
         return;
     }
-    tdma_service_core1_service(&service->scheduler);
+    if (service->scheduler != NULL) {
+        tdma_service_core1_service(service->scheduler);
+    }
 }
 
 bool refmem_realtime_tdma_get_snapshot(
@@ -322,10 +412,12 @@ bool refmem_realtime_tdma_get_snapshot(
         return false;
     }
     tdma_service_snapshot_t source;
-    if (!tdma_service_get_snapshot(&service->scheduler, &source)) {
+    const tdma_service_service_t *scheduler =
+        refmem_realtime_tdma_scheduler_const(service);
+    if (scheduler == NULL || !tdma_service_get_snapshot(scheduler, &source)) {
         return false;
     }
-    refmem_realtime_tdma_from_service_snapshot(&source, snapshot);
+    refmem_realtime_tdma_from_service_snapshot(service, &source, snapshot);
     return true;
 }
 
@@ -341,7 +433,20 @@ bool refmem_realtime_tdma_get_result_frame(
         }
         return false;
     }
-    return tdma_service_get_result_frame(&service->scheduler,
+    const tdma_service_service_t *scheduler =
+        refmem_realtime_tdma_scheduler_const(service);
+    if (scheduler == NULL) {
+        return false;
+    }
+    if (scheduler->traffic_scheduler != NULL) {
+        return tdma_service_get_class_result_frame(
+            scheduler,
+            TDMA_TRAFFIC_REFMEM_REALTIME,
+            frame,
+            frame_capacity,
+            frame_size);
+    }
+    return tdma_service_get_result_frame(scheduler,
                                          frame,
                                          frame_capacity,
                                          frame_size);

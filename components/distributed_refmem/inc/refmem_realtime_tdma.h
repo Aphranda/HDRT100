@@ -160,6 +160,14 @@ typedef struct {
     uint32_t payload_registry_reject_count;
     uint32_t payload_registry_last_result;
     uint32_t payload_registry_last_payload_class;
+    uint32_t traffic_scheduler_configured;
+    uint32_t traffic_scheduler_enqueue_seq;
+    uint32_t traffic_scheduler_dispatch_seq;
+    uint32_t traffic_scheduler_queued_count;
+    uint32_t traffic_scheduler_fault_latched;
+    uint32_t traffic_scheduler_last_result;
+    uint32_t traffic_scheduler_last_class;
+    uint32_t traffic_scheduler_completed_seq[TDMA_TRAFFIC_CLASS_COUNT];
 } refmem_realtime_tdma_snapshot_t;
 
 typedef struct {
@@ -181,12 +189,16 @@ typedef struct {
 } refmem_realtime_tdma_intent_config_t;
 
 typedef struct {
-    tdma_service_service_t scheduler;
+    tdma_service_service_t *scheduler;
+    uint32_t last_submit_seq;
     const refmem_realtime_tdma_ops_t *ops;
     void *ops_context;
 } refmem_realtime_tdma_service_t;
 
 bool refmem_realtime_tdma_init(refmem_realtime_tdma_service_t *service);
+bool refmem_realtime_tdma_init_shared(
+    refmem_realtime_tdma_service_t *service,
+    tdma_service_service_t *scheduler);
 bool refmem_realtime_tdma_bind_ops(refmem_realtime_tdma_service_t *service,
                                    const refmem_realtime_tdma_ops_t *ops,
                                    void *ops_context);

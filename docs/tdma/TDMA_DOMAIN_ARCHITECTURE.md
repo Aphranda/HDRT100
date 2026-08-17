@@ -163,9 +163,25 @@ TDMA Foundation 吸收 TSN 的确定性资源治理思想，但不绑定 IEEE 80
 |---|---|---|---|
 | `VDC_REALTIME` | `VDC_SYNC_SAMPLE`、`IDLE_BEACON` | 最高优先级；固定 observation/idle gate；严格预留；禁止 OTA、配置和 LOG 借用 guard band。 | 记录 fault/quality，不能静默丢弃后继续报告 LOCKED。 |
 | `REFMEM_REALTIME` | `REFMEM_DELTA`、`REFMEM_ACK_FENCE` | 固定 data gate；预留周期字节数和帧数；可靠 completion；不得侵占 VDC gate。 | 有界重试并向 producer 背压，超限 NACK/fence fault。 |
-| `CONFIG_CONTROL` | System Pack、配置 staging/activate 控制帧 | 可靠、整形、可抢占；只在 maintenance 或剩余预算中运行。 | producer 背压；不得阻塞 core1。 |
-| `OTA_BULK` | OTA package chunk | 批量、可靠、可抢占；默认无硬预留，只消耗显式 bulk budget。 | 暂停 producer 并续传，不挤占实时窗口。 |
-| `LOG_BEST_EFFORT` | LOG/trace 摘要 | 最低优先级、整形、可抢占；只使用剩余预算。 | 丢最旧记录并增加 drop counter，不能阻塞实时链路。 |
+| `CONFIG_CONTROL` | System Pack、配置 staging/activate 控制帧 | 可靠、整形、可被实时流让行；只在 maintenance 或剩余预算中运行。 | producer 背压；不得阻塞 core1。 |
+| `OTA_BULK` | OTA package chunk | 批量、可靠、可被实时流让行；默认无硬预留，只消耗显式 bulk budget。 | 暂停 producer 并续传，不挤占实时窗口。 |
+| `LOG_BEST_EFFORT` | LOG/trace 摘要 | 最低优先级、整形、可被实时流让行；只使用剩余预算。 | 丢最旧记录并增加 drop counter，不能阻塞实时链路。 |
+
+调度优先级是冻结的三级结构，不允许由运行期动态优先级改写：
+
+```text
+VDC_REALTIME
+  > REFMEM_REALTIME
+    > CONFIG_CONTROL / OTA_BULK / LOG_BEST_EFFORT
+```
+
+- `VDC_REALTIME` 永远先于 RefMem 和维护流出队，承担共同时间 observation、idle freshness 和 DPLL timestamp spine。
+- `REFMEM_REALTIME` 只在没有可执行 VDC 帧时出队，不能借用或延长 VDC guard/window。
+- VDC 帧尚未到 guard 但已预约时，RefMem 只有能在该 guard 前完整结束才可启动；否则保持排队并让出 adapter。
+- 配置、OTA、LOG 统一属于低优先级 maintenance traffic；三者内部可按可靠性和吞吐排序，但不能提升到 RefMem 之上。
+- maintenance gate 默认关闭。只有 `TdmaSchedulerAO` 确认当前不在同步阶段，或 active schedule 进入显式 maintenance window 时才允许打开；SCPI、OTA producer、LOG producer 都无权自行开门。
+- 低优先级帧不得抢占实时短帧，也不得在已知的下一实时 guard 前启动一个无法在 guard 前完成的传输。首版 adapter 只在 frame boundary 调度，不宣称字节级或 bit 级抢占。
+- 同步阶段新到达的 VDC/RefMem 帧不能被 maintenance backlog 阻挡；如果 adapter 已经执行 maintenance frame，则说明 maintenance gate/窗口规划错误，必须计入 quality/fault，而不能把延迟归咎于实时流。
 
 `tdma_foundation_profile_t` 是上述资源治理的 active contract，必须由 System Pack / DeploymentGate 激活并冻结：
 
@@ -216,6 +232,8 @@ System Pack / SCPI staging
 资源与流控规则：
 
 - VDC/RefMem 使用 time-aware gate 和 guard band；OTA/配置/LOG 不得通过动态优先级反转进入这些窗口。
+- 公共 runtime 只能有一个 `TdmaSchedulerAO`；VDC、RefMem 和维护 producer 注册到同一 payload registry/traffic scheduler，core1 每轮只推进一次公共 service。
+- `maintenance_gate_open` 是 TDMA owner 的内部事实，默认关闭；业务域和维护命令只能提交 intent，不能直接修改门状态。
 - core1 只推进已准入队列和 gate，不等待 producer；背压通过 command/vector evidence 返回对应 AO/FB。
 - System Pack 激活前必须检查所有 class 的总预算、adapter MTU、窗口容量、DMA/SM/IO claim 和 queue RAM 水位；超配直接由 DeploymentGate 拒绝。
 - profile owner 必须唯一对应一个已加载的 `TdmaSchedulerAO`；owner 的 NodeLoad、SlotClaim、RealtimeCapabilityContract、IO/IP claim 和 adapter 资源必须一致。

@@ -1825,6 +1825,17 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.payload_registry_last_result);
     SCPI_ResultUInt32(context, snapshot.payload_registry_last_payload_class);
     SCPI_ResultUInt32(context, snapshot.ring_config_reject_count);
+    SCPI_ResultUInt32(context, snapshot.traffic_scheduler_configured);
+    SCPI_ResultUInt32(context, snapshot.traffic_scheduler_enqueue_seq);
+    SCPI_ResultUInt32(context, snapshot.traffic_scheduler_dispatch_seq);
+    SCPI_ResultUInt32(context, snapshot.traffic_scheduler_queued_count);
+    SCPI_ResultUInt32(context, snapshot.traffic_scheduler_fault_latched);
+    SCPI_ResultUInt32(context, snapshot.traffic_scheduler_last_result);
+    SCPI_ResultUInt32(context, snapshot.traffic_scheduler_last_class);
+    for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
+        SCPI_ResultUInt32(context,
+                          snapshot.traffic_scheduler_completed_seq[i]);
+    }
     return SCPI_RES_OK;
 }
 

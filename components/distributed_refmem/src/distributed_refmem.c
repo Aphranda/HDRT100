@@ -13,6 +13,7 @@
 #include "refmem_node_load_sync.h"
 #include "refmem_quality.h"
 #include "refmem_realtime_tdma.h"
+#include "tdma_runtime_owner.h"
 #include "refmem_slot_claim.h"
 #include "refmem_spi_physical_adapter.h"
 #include "refmem_sync.h"
@@ -820,7 +821,10 @@ bool distributed_refmem_init(void)
     if (!refmem_application_model_init()) {
         return false;
     }
-    if (!refmem_realtime_tdma_init(&s_refmem_realtime_tdma)) {
+    tdma_service_service_t *tdma_owner = tdma_runtime_owner_get();
+    if (tdma_owner == NULL ||
+        !refmem_realtime_tdma_init_shared(&s_refmem_realtime_tdma,
+                                          tdma_owner)) {
         return false;
     }
     if (!refmem_command_init(&s_refmem_command_slot, 0u)) {
@@ -897,7 +901,8 @@ void distributed_refmem_realtime_run_once(void)
         return;
     }
 
-    refmem_realtime_tdma_core1_service(&s_refmem_realtime_tdma);
+    /* The single TdmaSchedulerAO is advanced by tdma_component_core1_service.
+     * RefMem consumes its result here and must not run a second scheduler. */
 }
 
 void distributed_refmem_service(void)

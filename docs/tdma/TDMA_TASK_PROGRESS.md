@@ -42,6 +42,44 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
 
 ## 任务记录
 
+### TDMA-TASK-20260817-007 - 唯一 runtime owner 与三级 traffic scheduler
+
+- 状态：完成软件调度基础件、公共 owner、三级门禁、per-class completion token、23/23 host 门禁和 A/B 固件构建；尚未形成两板物理闭环 evidence。
+- 日期：2026-08-17
+- 任务目标：
+  - 判断当前 TDMA 是否足以支撑 VDC 闭环，并先关闭软件调度与 owner 层的阻断项。
+  - 冻结 `VDC_REALTIME > REFMEM_REALTIME > maintenance`，低优先级流不抢占实时短帧。
+  - 消除 VDC/RefMem 各自维护 TDMA service 的双 runtime 现象。
+- 完成内容：
+  - 新增 `TdmaTrafficScheduler`，实现五类固定队列、周期预算、deadline、time-aware gate、maintenance gate、fault/backpressure/drop-oldest/drop-newest 和基础质量计数。
+  - maintenance gate 默认关闭；配置、OTA、LOG 只有 TDMA owner 确认不同步或进入显式维护窗口后才可执行。
+  - 新增 `tdma_runtime_owner.*`；VDC 注册 observation payload，RefMem 注册 data payload 并绑定物理 adapter，二者共享唯一 service，core1 每轮只推进一次。
+  - 调度帧池从 128 KiB FreeRTOS heap 一次性申请，避免 32 个 long-frame 槽进入 `.bss`；申请失败直接阻止应用初始化。
+  - 修正优先级重排下的序号语义：service 内部执行序号与 scheduler enqueue token 分离，并为五类流发布持久 completion token，避免 VDC 后入队先完成时误确认 RefMem intent。
+  - result/error/timestamp/frame completion 按 traffic class 独立持久化；VDC 读取 VDC completion metadata，RefMem 读取 RefMem completion frame，后完成的低优先级流不再覆盖实时流证据。
+  - `SYSTem:REFMEM:SYNC:TDMA:STATus?` 在旧字段末尾追加 scheduler 配置、enqueue/dispatch、队列水位、fault、last result/class 和五类 completion token。
+  - 新增 service/scheduler 集成测试，证明配置先入队时仍按 VDC、RefMem、配置顺序执行；maintenance gate 关闭时配置帧保持排队。
+- 验证结果：
+  - `run_tdma_traffic_scheduler_tests.ps1` 通过。
+  - `run_tdma_service_scheduler_tests.ps1` 通过。
+  - `run_refmem_realtime_tdma_tests.ps1` 和 `run_vdc_domain_tests.ps1` 通过。
+  - `run_host_unit_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 通过，23/23 host scripts passed。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过 A/B 双目标；build id `20260817073126`，package CRC `0xEDF7B9AF`。
+  - 本轮未烧录板卡；`simultaneous_feedback_loop_evidence` 仍为 0，不能据此进入产品 DPLL 闭环调参。
+- 还需完成：
+  - 实现同时 UP/DOWN adapter runtime、IDLE_BEACON 和硬件 RX/TX timestamp correlation。
+  - 发布正式 `TdmaQualityVector` 并完成两板 HIL。
+- 关联文件：
+  - `components/tdma/inc/tdma_traffic_scheduler.h`
+  - `components/tdma/src/tdma_traffic_scheduler.c`
+  - `components/tdma/inc/tdma_runtime_owner.h`
+  - `components/tdma/src/tdma_runtime_owner.c`
+  - `components/tdma/inc/tdma_service.h`
+  - `components/tdma/src/tdma_service.c`
+  - `tests/unit/test_tdma_service_scheduler.c`
+- 下一步：
+  - 先完成 per-class completion metadata，再接 adapter/timestamp correlation；硬件证据通过后才进入 DPLL 闭环。
+
 ### TDMA-TASK-20260817-006 - TdmaRingRuntime 基础件拆分
 
 - 状态：完成独立基础件、service 聚合接入、reason code、21/21 host 门禁和 A/B 固件构建；硬件 HIL 尚未执行。

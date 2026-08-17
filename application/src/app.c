@@ -14,6 +14,7 @@
 #include "storage_manager.h"
 #include "system_manager.h"
 #include "sync_trigger.h"
+#include "tdma_runtime_owner.h"
 #include "sync_io.h"
 #include "trigger_measure.h"
 #include "ui_manager.h"
@@ -79,6 +80,11 @@ bool app_init(void)
 
     if (!calibration_manager_init()) {
         diagnostics_mark_fault("calibration", "calibration manager initialization failed");
+        return false;
+    }
+
+    if (!tdma_runtime_owner_init()) {
+        diagnostics_mark_fault("tdma", "TDMA runtime owner initialization failed");
         return false;
     }
 

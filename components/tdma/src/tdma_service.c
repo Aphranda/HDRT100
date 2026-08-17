@@ -164,6 +164,84 @@ static bool tdma_service_payload_registered(
                                        frame_size);
 }
 
+static uint32_t tdma_service_estimated_duration_ns(
+    const tdma_service_intent_config_t *config,
+    tdma_service_intent_t intent)
+{
+    if (config == NULL) {
+        return 0u;
+    }
+    uint64_t duration_ns = (uint64_t)config->deadline_1e3ns * 1000ull;
+    if (intent == tdma_service_INTENT_TX_FRAME && config->baud_hz != 0u &&
+        config->frame_size != 0u) {
+        const uint64_t wire_ns =
+            (((uint64_t)config->frame_size * 8ull * 1000000000ull) +
+             config->baud_hz - 1u) /
+            config->baud_hz;
+        if (wire_ns > duration_ns) {
+            duration_ns = wire_ns;
+        }
+    }
+    return duration_ns > UINT32_MAX ? UINT32_MAX : (uint32_t)duration_ns;
+}
+
+static bool tdma_service_enqueue_scheduled(
+    tdma_service_service_t *service,
+    const tdma_service_intent_config_t *config,
+    tdma_service_intent_t intent)
+{
+    if (service == NULL || service->traffic_scheduler == NULL ||
+        config == NULL) {
+        return false;
+    }
+    const tdma_traffic_request_t request = {
+        .intent_type = (uint32_t)intent,
+        .role = (uint32_t)config->role,
+        .baud_hz = config->baud_hz,
+        .rx_pin = config->pins.rx_pin,
+        .csn_pin = config->pins.csn_pin,
+        .sck_pin = config->pins.sck_pin,
+        .tx_pin = config->pins.tx_pin,
+        .deadline_1e3ns = config->deadline_1e3ns,
+        .frame_class = config->frame_class,
+        .payload_class = config->payload_class,
+        .window_epoch = config->window_epoch,
+        .window_index = config->window_index,
+        .scheduled_window_valid = config->scheduled_window_valid,
+        .scheduled_window_class = config->scheduled_window_class,
+        .schedule_crc32 = config->schedule_crc32,
+        .scheduled_window_start_ns = config->scheduled_window_start_ns,
+        .scheduled_window_end_ns = config->scheduled_window_end_ns,
+        .scheduled_guard_start_ns = config->scheduled_guard_start_ns,
+        .scheduled_guard_end_ns = config->scheduled_guard_end_ns,
+        .enqueue_time_ns = tdma_service_now_ns(),
+        .estimated_duration_ns =
+            tdma_service_estimated_duration_ns(config, intent),
+        .frame_size = config->frame_size,
+        .frame = config->frame,
+    };
+    const tdma_traffic_scheduler_result_t result =
+        tdma_traffic_scheduler_enqueue(service->traffic_scheduler, &request);
+    if (result != TDMA_TRAFFIC_SCHEDULER_OK &&
+        result != TDMA_TRAFFIC_SCHEDULER_DROPPED_OLDEST) {
+        tdma_service_begin_intent_write(service);
+        service->reject_count++;
+        tdma_service_end_intent_write(service);
+        return false;
+    }
+
+    tdma_traffic_scheduler_snapshot_t scheduler_snapshot;
+    if (!tdma_traffic_scheduler_get_snapshot(service->traffic_scheduler,
+                                              &scheduler_snapshot)) {
+        return false;
+    }
+    tdma_service_begin_intent_write(service);
+    service->scheduler_submit_seq = scheduler_snapshot.enqueue_seq;
+    service->submit_time_ns = request.enqueue_time_ns;
+    tdma_service_end_intent_write(service);
+    return true;
+}
+
 static bool tdma_service_submit(tdma_service_service_t *service,
                                         const tdma_service_intent_config_t *config,
                                         tdma_service_intent_t intent)
@@ -188,6 +266,10 @@ static bool tdma_service_submit(tdma_service_service_t *service,
         service->reject_count++;
         tdma_service_end_intent_write(service);
         return false;
+    }
+
+    if (service->traffic_scheduler != NULL) {
+        return tdma_service_enqueue_scheduled(service, config, intent);
     }
 
     if (tdma_service_has_pending(service)) {
@@ -263,6 +345,29 @@ bool tdma_service_bind_ops(tdma_service_service_t *service,
     return true;
 }
 
+bool tdma_service_bind_traffic_scheduler(
+    tdma_service_service_t *service,
+    tdma_traffic_scheduler_t *scheduler)
+{
+    if (service == NULL || scheduler == NULL) {
+        return false;
+    }
+    service->traffic_scheduler = scheduler;
+    return true;
+}
+
+bool tdma_service_set_maintenance_gate(tdma_service_service_t *service,
+                                       bool open)
+{
+    if (service == NULL) {
+        return false;
+    }
+    __atomic_store_n(&service->maintenance_gate_open,
+                     open ? 1u : 0u,
+                     __ATOMIC_RELEASE);
+    return true;
+}
+
 bool tdma_service_register_payload(tdma_service_service_t *service,
                                    const tdma_service_payload_binding_t *binding)
 {
@@ -296,6 +401,11 @@ bool tdma_service_configure_foundation_profile(
             profile->resource.payload_whitelist_mask,
             profile->resource.short_frame_capacity,
             profile->resource.long_frame_capacity)) {
+        return false;
+    }
+    if (service->traffic_scheduler != NULL &&
+        !tdma_traffic_scheduler_configure(service->traffic_scheduler,
+                                          profile)) {
         return false;
     }
 
@@ -352,6 +462,98 @@ void tdma_service_abort(tdma_service_service_t *service)
     tdma_service_end_intent_write(service);
 }
 
+static bool tdma_service_dispatch_next_scheduled(
+    tdma_service_service_t *service)
+{
+    if (service == NULL || service->traffic_scheduler == NULL ||
+        tdma_service_has_pending(service)) {
+        return false;
+    }
+    tdma_traffic_dispatch_t dispatch;
+    const tdma_traffic_scheduler_result_t result =
+        tdma_traffic_scheduler_select(service->traffic_scheduler,
+                                      tdma_service_now_ns(),
+                                      tdma_service_load(
+                                          &service->maintenance_gate_open) != 0u,
+                                      &dispatch);
+    if (result != TDMA_TRAFFIC_SCHEDULER_OK) {
+        return false;
+    }
+
+    tdma_service_begin_intent_write(service);
+    service->intent_seq++;
+    service->window_epoch = dispatch.request.window_epoch;
+    service->window_index = dispatch.request.window_index;
+    service->intent_type = dispatch.request.intent_type;
+    service->role = dispatch.request.role;
+    service->baud_hz = dispatch.request.baud_hz;
+    service->rx_pin = dispatch.request.rx_pin;
+    service->csn_pin = dispatch.request.csn_pin;
+    service->sck_pin = dispatch.request.sck_pin;
+    service->tx_pin = dispatch.request.tx_pin;
+    service->deadline_1e3ns = dispatch.request.deadline_1e3ns;
+    service->frame_class = dispatch.request.frame_class;
+    service->payload_class = dispatch.request.payload_class;
+    service->scheduled_window_valid =
+        dispatch.request.scheduled_window_valid;
+    service->scheduled_window_class =
+        dispatch.request.scheduled_window_class;
+    service->schedule_crc32 = dispatch.request.schedule_crc32;
+    service->scheduled_window_start_ns =
+        dispatch.request.scheduled_window_start_ns;
+    service->scheduled_window_end_ns =
+        dispatch.request.scheduled_window_end_ns;
+    service->scheduled_guard_start_ns =
+        dispatch.request.scheduled_guard_start_ns;
+    service->scheduled_guard_end_ns =
+        dispatch.request.scheduled_guard_end_ns;
+    service->frame_size = (uint32_t)dispatch.request.frame_size;
+    service->submit_time_ns = dispatch.request.enqueue_time_ns;
+    service->active_traffic_class = dispatch.traffic_class;
+    service->active_scheduler_sequence = dispatch.sequence;
+    if (dispatch.request.frame_size != 0u) {
+        memcpy(service->frame,
+               dispatch.frame,
+               dispatch.request.frame_size);
+    }
+    tdma_service_end_intent_write(service);
+    return true;
+}
+
+static void tdma_service_complete_scheduled(
+    tdma_service_service_t *service,
+    tdma_traffic_completion_t completion)
+{
+    if (service == NULL || service->traffic_scheduler == NULL ||
+        service->active_traffic_class >= TDMA_TRAFFIC_CLASS_COUNT) {
+        return;
+    }
+    const uint32_t traffic_class = service->active_traffic_class;
+    service->traffic_class_last_result[traffic_class] = service->last_result;
+    service->traffic_class_last_error[traffic_class] = service->last_error;
+    service->traffic_class_timestamp_source[traffic_class] =
+        service->timestamp_source;
+    service->traffic_class_timestamp_resolution_ns[traffic_class] =
+        service->timestamp_resolution_ns;
+    service->traffic_class_timestamp_flags[traffic_class] =
+        service->timestamp_flags;
+    const uint32_t frame_size =
+        service->last_result == tdma_service_RESULT_FRAME_READY &&
+                service->intent_type == tdma_service_INTENT_RX_WINDOW &&
+                service->result_frame_size <= tdma_service_FRAME_MAX
+            ? service->result_frame_size
+            : 0u;
+    service->traffic_class_result_frame_size[traffic_class] = frame_size;
+    if (frame_size != 0u) {
+        memcpy(service->traffic_class_result_frame[traffic_class],
+               service->result_frame,
+               frame_size);
+    }
+    (void)tdma_traffic_scheduler_complete(service->traffic_scheduler,
+                                          traffic_class,
+                                          completion);
+}
+
 void tdma_service_core1_service(tdma_service_service_t *service)
 {
     if (service == NULL || service->state == tdma_service_STATE_UNINIT) {
@@ -359,6 +561,8 @@ void tdma_service_core1_service(tdma_service_service_t *service)
     }
 
     tdma_ring_runtime_service(&service->ring_runtime);
+
+    (void)tdma_service_dispatch_next_scheduled(service);
 
     const uint32_t intent_seq = tdma_service_load(&service->intent_seq);
     const uint32_t abort_seq = tdma_service_load(&service->abort_seq);
@@ -377,6 +581,8 @@ void tdma_service_core1_service(tdma_service_service_t *service)
     service->service_count++;
     if (intent_seq > service->completed_seq) {
         if (abort_seq >= intent_seq) {
+            tdma_service_complete_scheduled(service,
+                                            TDMA_TRAFFIC_COMPLETION_DROP);
             service->dropped_seq = intent_seq;
             service->completed_seq = intent_seq;
             service->armed = 0u;
@@ -395,6 +601,9 @@ void tdma_service_core1_service(tdma_service_service_t *service)
         }
     }
     tdma_service_end_result_write(service);
+    if (abort_seq >= intent_seq) {
+        return;
+    }
 
     uint8_t frame[tdma_service_FRAME_MAX];
     uint32_t intent_type;
@@ -471,6 +680,8 @@ void tdma_service_core1_service(tdma_service_service_t *service)
             service->last_error = tdma_service_ERROR_WINDOW_MISSED;
             service->last_result = tdma_service_RESULT_WINDOW_MISSED;
             service->state = tdma_service_STATE_ERROR;
+            tdma_service_complete_scheduled(
+                service, TDMA_TRAFFIC_COMPLETION_WINDOW_MISSED);
             tdma_service_end_result_write(service);
             return;
         }
@@ -552,14 +763,23 @@ void tdma_service_core1_service(tdma_service_service_t *service)
         service->ready_count++;
         service->last_result = tdma_service_RESULT_FRAME_READY;
         service->state = tdma_service_STATE_DONE;
+        tdma_service_complete_scheduled(
+            service,
+            service->scheduled_window_late_ns != 0u
+                ? TDMA_TRAFFIC_COMPLETION_LATE
+                : TDMA_TRAFFIC_COMPLETION_SENT);
     } else if (exec_status.result == tdma_service_EXEC_TIMEOUT) {
         service->timeout_count++;
         service->last_result = tdma_service_RESULT_TIMEOUT;
         service->state = tdma_service_STATE_ERROR;
+        tdma_service_complete_scheduled(service,
+                                        TDMA_TRAFFIC_COMPLETION_RETRY);
     } else {
         service->overrun_count++;
         service->last_result = tdma_service_RESULT_OVERRUN;
         service->state = tdma_service_STATE_ERROR;
+        tdma_service_complete_scheduled(
+            service, TDMA_TRAFFIC_COMPLETION_ADAPTER_ERROR);
     }
     tdma_service_end_result_write(service);
 }
@@ -608,6 +828,8 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
                                        &snapshot->scheduled_guard_end_ns_hi);
         snapshot->frame_size = service->frame_size;
         snapshot->reject_count = service->reject_count;
+        snapshot->traffic_scheduler_enqueue_seq =
+            service->scheduler_submit_seq;
         snapshot->foundation_profile_crc32 = service->foundation_profile_crc32;
         snapshot->foundation_owner_instance_id = service->foundation_owner_instance_id;
         snapshot->adapter_type = service->adapter_type;
@@ -664,6 +886,20 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
                                        &snapshot->core1_done_time_ns_lo,
                                        &snapshot->core1_done_time_ns_hi);
         snapshot->core1_elapsed_ns = service->core1_elapsed_ns;
+        for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
+            snapshot->traffic_class_last_result[i] =
+                service->traffic_class_last_result[i];
+            snapshot->traffic_class_last_error[i] =
+                service->traffic_class_last_error[i];
+            snapshot->traffic_class_timestamp_source[i] =
+                service->traffic_class_timestamp_source[i];
+            snapshot->traffic_class_timestamp_resolution_ns[i] =
+                service->traffic_class_timestamp_resolution_ns[i];
+            snapshot->traffic_class_timestamp_flags[i] =
+                service->traffic_class_timestamp_flags[i];
+            snapshot->traffic_class_result_frame_size[i] =
+                service->traffic_class_result_frame_size[i];
+        }
         result_frame_size = service->result_frame_size;
         const uint32_t seq_end = tdma_service_load(&service->result_guard);
         if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
@@ -721,6 +957,48 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
     snapshot->ring_profile_crc32 = ring_snapshot.ring_profile_crc32;
     snapshot->ring_schedule_crc32 = ring_snapshot.schedule_crc32;
 
+    if (service->traffic_scheduler != NULL) {
+        tdma_traffic_scheduler_snapshot_t scheduler_snapshot;
+        if (!tdma_traffic_scheduler_get_snapshot(service->traffic_scheduler,
+                                                  &scheduler_snapshot)) {
+            return false;
+        }
+        snapshot->traffic_scheduler_configured =
+            scheduler_snapshot.configured;
+        snapshot->traffic_scheduler_enqueue_seq =
+            scheduler_snapshot.enqueue_seq;
+        snapshot->traffic_scheduler_dispatch_seq =
+            scheduler_snapshot.dispatch_seq;
+        snapshot->traffic_scheduler_fault_latched =
+            scheduler_snapshot.fault_latched;
+        snapshot->traffic_scheduler_last_result =
+            scheduler_snapshot.last_result;
+        snapshot->traffic_scheduler_last_class =
+            scheduler_snapshot.last_traffic_class;
+        uint32_t queued_count = 0u;
+        for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
+            queued_count += scheduler_snapshot.traffic[i].current_depth;
+            snapshot->traffic_scheduler_completed_seq[i] =
+                scheduler_snapshot.traffic[i].last_completed_sequence;
+        }
+        snapshot->traffic_scheduler_queued_count = queued_count;
+        snapshot->intent_seq = scheduler_snapshot.enqueue_seq;
+        snapshot->completed_seq = 0u;
+        for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
+            if (snapshot->traffic_scheduler_completed_seq[i] >
+                snapshot->completed_seq) {
+                snapshot->completed_seq =
+                    snapshot->traffic_scheduler_completed_seq[i];
+            }
+        }
+        if (snapshot->traffic_scheduler_queued_count != 0u ||
+            service->intent_seq > service->completed_seq) {
+            snapshot->state = tdma_service_STATE_PENDING;
+            snapshot->armed = 1u;
+            snapshot->last_result = tdma_service_RESULT_ACCEPTED;
+        }
+    }
+
     return true;
 }
 
@@ -752,6 +1030,49 @@ bool tdma_service_get_result_frame(const tdma_service_service_t *service,
             continue;
         }
         memcpy(frame, service->result_frame, result_size);
+        *frame_size = result_size;
+        const uint32_t seq_end = tdma_service_load(&service->result_guard);
+        if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
+            return true;
+        }
+    }
+}
+
+bool tdma_service_get_class_result_frame(
+    const tdma_service_service_t *service,
+    uint32_t traffic_class,
+    uint8_t *frame,
+    size_t frame_capacity,
+    size_t *frame_size)
+{
+    if (frame_size != NULL) {
+        *frame_size = 0u;
+    }
+    if (service == NULL || traffic_class >= TDMA_TRAFFIC_CLASS_COUNT ||
+        frame == NULL || frame_size == NULL || frame_capacity == 0u) {
+        return false;
+    }
+    while (true) {
+        const uint32_t seq_begin = tdma_service_load(&service->result_guard);
+        if ((seq_begin & 1u) != 0u) {
+            continue;
+        }
+        const size_t result_size =
+            service->traffic_class_result_frame_size[traffic_class];
+        const uint32_t last_result =
+            service->traffic_class_last_result[traffic_class];
+        if (result_size == 0u || result_size > frame_capacity ||
+            last_result != tdma_service_RESULT_FRAME_READY) {
+            const uint32_t seq_end =
+                tdma_service_load(&service->result_guard);
+            if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
+                return false;
+            }
+            continue;
+        }
+        memcpy(frame,
+               service->traffic_class_result_frame[traffic_class],
+               result_size);
         *frame_size = result_size;
         const uint32_t seq_end = tdma_service_load(&service->result_guard);
         if (seq_begin == seq_end && (seq_end & 1u) == 0u) {

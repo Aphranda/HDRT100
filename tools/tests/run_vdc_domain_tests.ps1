@@ -19,6 +19,7 @@ $tdmaSource = Join-Path $repo "components\tdma\src\tdma_service.c"
 $tdmaProfileSource = Join-Path $repo "components\tdma\src\tdma_profile.c"
 $tdmaRegistrySource = Join-Path $repo "components\tdma\src\tdma_payload_registry.c"
 $tdmaRingSource = Join-Path $repo "components\tdma\src\tdma_ring_runtime.c"
+$tdmaSchedulerSource = Join-Path $repo "components\tdma\src\tdma_traffic_scheduler.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -74,7 +75,7 @@ if (-not $hostCc) {
 
 if ($hostCc) {
     $exe = Join-Path $build "test_vdc_domain.exe"
-    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$vdcInclude" "-I$tdmaInclude" $testSource $vdcSource $vdcSyncIoAdapterSource $vdcTdmaPayloadSource $vdcTimestampSource $tdmaSource $tdmaProfileSource $tdmaRegistrySource $tdmaRingSource -o $exe
+    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$vdcInclude" "-I$tdmaInclude" $testSource $vdcSource $vdcSyncIoAdapterSource $vdcTdmaPayloadSource $vdcTimestampSource $tdmaSource $tdmaProfileSource $tdmaRegistrySource $tdmaRingSource $tdmaSchedulerSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -94,7 +95,7 @@ if (-not (Test-Path $ArmGcc)) {
     throw "No host C compiler found and ARM GCC not found at $ArmGcc"
 }
 
-foreach ($source in @($testSource, $vdcSource, $vdcSyncIoAdapterSource, $vdcTdmaPayloadSource, $vdcTimestampSource, $tdmaSource, $tdmaProfileSource, $tdmaRegistrySource, $tdmaRingSource)) {
+foreach ($source in @($testSource, $vdcSource, $vdcSyncIoAdapterSource, $vdcTdmaPayloadSource, $vdcTimestampSource, $tdmaSource, $tdmaProfileSource, $tdmaRegistrySource, $tdmaRingSource, $tdmaSchedulerSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$vdcInclude" "-I$tdmaInclude" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {

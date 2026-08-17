@@ -8,6 +8,7 @@
 #include "tdma_payload_registry.h"
 #include "tdma_profile.h"
 #include "tdma_ring_runtime.h"
+#include "tdma_traffic_scheduler.h"
 
 #define TDMA_SERVICE_SHORT_FRAME_MAX 292u
 #define TDMA_SERVICE_LONG_FRAME_MAX 1024u
@@ -225,6 +226,20 @@ typedef struct {
     uint32_t payload_registry_reject_count;
     uint32_t payload_registry_last_result;
     uint32_t payload_registry_last_payload_class;
+    uint32_t traffic_scheduler_configured;
+    uint32_t traffic_scheduler_enqueue_seq;
+    uint32_t traffic_scheduler_dispatch_seq;
+    uint32_t traffic_scheduler_queued_count;
+    uint32_t traffic_scheduler_fault_latched;
+    uint32_t traffic_scheduler_last_result;
+    uint32_t traffic_scheduler_last_class;
+    uint32_t traffic_scheduler_completed_seq[TDMA_TRAFFIC_CLASS_COUNT];
+    uint32_t traffic_class_last_result[TDMA_TRAFFIC_CLASS_COUNT];
+    uint32_t traffic_class_last_error[TDMA_TRAFFIC_CLASS_COUNT];
+    uint32_t traffic_class_timestamp_source[TDMA_TRAFFIC_CLASS_COUNT];
+    uint32_t traffic_class_timestamp_resolution_ns[TDMA_TRAFFIC_CLASS_COUNT];
+    uint32_t traffic_class_timestamp_flags[TDMA_TRAFFIC_CLASS_COUNT];
+    uint32_t traffic_class_result_frame_size[TDMA_TRAFFIC_CLASS_COUNT];
 } tdma_service_snapshot_t;
 
 typedef tdma_ring_runtime_config_t tdma_service_ring_runtime_config_t;
@@ -277,6 +292,10 @@ typedef struct {
     volatile uint64_t scheduled_guard_end_ns;
     volatile uint32_t frame_size;
     volatile uint32_t reject_count;
+    volatile uint32_t scheduler_submit_seq;
+    volatile uint32_t active_traffic_class;
+    volatile uint32_t active_scheduler_sequence;
+    volatile uint32_t maintenance_gate_open;
     volatile uint64_t submit_time_ns;
     volatile uint32_t foundation_profile_crc32;
     volatile uint32_t foundation_owner_instance_id;
@@ -319,17 +338,32 @@ typedef struct {
     volatile uint64_t core1_done_time_ns;
     volatile uint32_t core1_elapsed_ns;
     uint8_t result_frame[tdma_service_FRAME_MAX];
+    volatile uint32_t traffic_class_last_result[TDMA_TRAFFIC_CLASS_COUNT];
+    volatile uint32_t traffic_class_last_error[TDMA_TRAFFIC_CLASS_COUNT];
+    volatile uint32_t traffic_class_timestamp_source[TDMA_TRAFFIC_CLASS_COUNT];
+    volatile uint32_t
+        traffic_class_timestamp_resolution_ns[TDMA_TRAFFIC_CLASS_COUNT];
+    volatile uint32_t traffic_class_timestamp_flags[TDMA_TRAFFIC_CLASS_COUNT];
+    volatile uint32_t traffic_class_result_frame_size[TDMA_TRAFFIC_CLASS_COUNT];
+    uint8_t traffic_class_result_frame[TDMA_TRAFFIC_CLASS_COUNT]
+                                      [tdma_service_FRAME_MAX];
 
     const tdma_service_ops_t *ops;
     void *ops_context;
     tdma_payload_registry_t payload_registry;
     tdma_ring_runtime_t ring_runtime;
+    tdma_traffic_scheduler_t *traffic_scheduler;
 } tdma_service_service_t;
 
 bool tdma_service_init(tdma_service_service_t *service);
 bool tdma_service_bind_ops(tdma_service_service_t *service,
                                    const tdma_service_ops_t *ops,
                                    void *ops_context);
+bool tdma_service_bind_traffic_scheduler(
+    tdma_service_service_t *service,
+    tdma_traffic_scheduler_t *scheduler);
+bool tdma_service_set_maintenance_gate(tdma_service_service_t *service,
+                                       bool open);
 bool tdma_service_register_payload(tdma_service_service_t *service,
                                    const tdma_service_payload_binding_t *binding);
 bool tdma_service_configure_ring_runtime(
@@ -351,5 +385,11 @@ bool tdma_service_get_result_frame(const tdma_service_service_t *service,
                                            uint8_t *frame,
                                            size_t frame_capacity,
                                            size_t *frame_size);
+bool tdma_service_get_class_result_frame(
+    const tdma_service_service_t *service,
+    uint32_t traffic_class,
+    uint8_t *frame,
+    size_t frame_capacity,
+    size_t *frame_size);
 
 #endif
