@@ -42,9 +42,118 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
 
 ## 任务记录
 
+### TDMA-TASK-20260817-005 - TdmaPayloadRegistry 基础件拆分
+
+- 状态：完成独立基础件、service 聚合接入、维护快照、20/20 host 门禁和 A/B 固件构建；未执行硬件 HIL。
+- 日期：2026-08-17
+- 任务目标：
+  - 将 payload binding、whitelist、capacity 和 admission 从 `tdma_service.c` 单体拆出。
+  - 保持 VDC/RefMem 既有注册 API 和 RX-window 语义不变。
+  - 为后续逐类队列、policing 和 DeploymentGate 提供可查询的 registry 水位。
+- 完成内容：
+  - 新增 `tdma_payload_registry.h/.c`，支持固定 8-entry registry、binding 注册/替换、active whitelist、short/long capacity 和 frame admission。
+  - registry 使用独立 seqlock snapshot，发布 config seq、registration seq、used、admitted、reject、last result 和 last payload class。
+  - `tdma_service_register_payload()` 和 submit admission 改为委托 registry；对外 API 名称和 producer 调用方式保持不变。
+  - foundation profile 激活时同步配置 registry whitelist 和 capacity；如果现有 binding 与候选 profile 不兼容，runtime profile 配置拒绝。
+  - 保留 RX window 的 `frame_size=0` 语义，它表示接收窗口尚无 payload，不按空 TX frame 拒绝。
+  - RefMem 兼容 snapshot 和 `SYSTem:REFMEM:SYNC:TDMA:STATus?` 在末尾追加 registry 水位字段。
+  - 新增独立 host 单测及测试脚本，并纳入全量门禁。
+- 验证结果：
+  - `run_tdma_payload_registry_tests.ps1` 通过。
+  - `run_refmem_realtime_tdma_tests.ps1` 通过，包含 profile 配置后 registry seq/binding 集成断言。
+  - `run_vdc_domain_tests.ps1` 通过。
+  - `run_host_unit_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 通过，20/20 host scripts passed。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过 A/B 双目标；build id `20260817061911`，package CRC `0x75320FF1`。
+  - 本轮没有烧录板卡，不形成 UP/DOWN 同时运行或硬件闭环 evidence。
+- 还需完成：
+  - 将 ring runtime 拆成 `tdma_ring_runtime.*`。
+  - 在 registry admission 之上建立五类固定队列和 time-aware gate。
+  - 将 registry reject/deadline/budget 统计并入正式 `TdmaQualityVector`。
+- 关联文件：
+  - `components/tdma/inc/tdma_payload_registry.h`
+  - `components/tdma/src/tdma_payload_registry.c`
+  - `components/tdma/inc/tdma_service.h`
+  - `components/tdma/src/tdma_service.c`
+  - `tests/unit/test_tdma_payload_registry.c`
+  - `tools/tests/run_tdma_payload_registry_tests.ps1`
+- 下一步：
+  - 按同一聚合模式拆分 `TdmaRingRuntime`，冻结 reason code 与 snapshot 后再实现 scheduler queue。
+
+### TDMA-TASK-20260817-004 - Active Profile 到公共 Runtime 的激活闭环
+
+- 状态：完成配置事务闭环、维护可观测性、定向 host 单测和 A/B 固件构建；未执行两板硬件闭环。
+- 日期：2026-08-17
+- 任务目标：
+  - 让 RMTP 第 10 张 `TdmaFoundationProfile` 在激活后真正配置公共 TDMA runtime，而不是只停留在 active table view。
+  - 在 TableRegistry 切换前拒绝与当前 VDC ring/schedule 不一致的 candidate，避免 active 表和 runtime 半提交。
+  - 保持维护查询只读，并为后续 HIL 暴露 profile、ring 和 feedback evidence。
+- 完成内容：
+  - `refmem_realtime_tdma` 增加正式 foundation-profile 配置入口，业务上层不再访问内部 `scheduler` 成员。
+  - prepared table views 增加 TDMA profile 的受控 copy getter；commit/discard 后 getter 立即失效。
+  - VDC ring plan 增加 `cycle_period_ns`，作为 TDMA profile 的跨域只读调度契约。
+  - 激活门禁比较 node count、local/reference、upstream/downstream、feedback、ring flags、ring/profile CRC、schedule CRC 和 cycle period。
+  - factory profile 在 `distributed_refmem_init()` 中通过同一门禁装入 runtime；System Pack candidate 在 registry 激活和 model commit 后自动装入 runtime。
+  - 新增 `REFMEM_TABLE_ACTIVATE_ERR_RUNTIME_PROFILE`，不一致候选映射为配置验证失败 NACK。
+  - `SYSTem:REFMEM:SYNC:TDMA:STATus?` 在原字段末尾追加 profile CRC、owner、adapter、whitelist、ring config/runtime 和 feedback evidence。
+- 验证结果：
+  - `run_refmem_realtime_tdma_tests.ps1` 使用 Vivado MinGW GCC 通过。
+  - `run_refmem_table_registry_tests.ps1` 使用 Vivado MinGW GCC 通过。
+  - `run_vdc_domain_tests.ps1` 使用 Vivado MinGW GCC 通过。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过 A/B 双目标；build id `20260817060622`，package CRC `0x0271E168`。
+  - 本轮没有烧录两板，也没有产生同时 UP/DOWN、硬件 timestamp correlation 或 `simultaneous_feedback_loop_evidence=1` 的 HIL 证据。
+- 还需完成：
+  - payload registry 已由 TDMA-TASK-20260817-005 拆出；ring runtime 仍待拆分。
+  - 实现五类固定队列、time-aware gate、policing/backpressure 和 `TdmaQualityVector`。
+  - 在两板固件中同时常驻运行 UP/DOWN leg，再进入闭环 timestamp HIL。
+- 关联文件：
+  - `components/distributed_refmem/inc/refmem_realtime_tdma.h`
+  - `components/distributed_refmem/src/refmem_realtime_tdma.c`
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `components/distributed_refmem/src/distributed_refmem.c`
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+- 下一步：
+  - 先拆分 `TdmaPayloadRegistry` 并建立可查询的 admission snapshot，再实现逐类固定队列。
+
+### TDMA-TASK-20260817-003 - RMTP Foundation Profile 与 DeploymentGate 闭环
+
+- 状态：完成正式表镜像、跨表资源门禁、host 全量验证和固件构建；profile activation hook 已由 TDMA-TASK-20260817-004 完成。
+- 日期：2026-08-17
+- 任务目标：
+  - 将 TDMA foundation profile 从独立 C contract 升级为可由 SD/System Pack staging、激活和回滚的正式 RMTP 表。
+  - 在激活前完成 owner、NodeLoad、SlotClaim、RealtimeCapabilityContract、物理 IO、payload 和容量一致性检查。
+  - 冻结可供后续 time-aware scheduler 使用的周期容量、guard band 与 queue RAM 契约。
+- 完成内容：
+  - RMTP 表数量由 9 扩展为 10，新增 table id 9 `TdmaFoundationProfile`，owner 标记为 `TDMA_AO`。
+  - 新增 71-word 固定 `u32 little-endian` profile row；编码/解码逐字段执行，不依赖 C struct padding。
+  - profile 增加 cycle period、cycle capacity、guard band 和 queue RAM capacity；validator 拒绝总预留预算、单类 MTU 和队列 RAM overcommit。
+  - staged candidate 必须恰好存在一个已加载 `TdmaSchedulerAO`，profile owner 必须匹配 NodeLoad local slot、owner resource claim、IO/IP claim 和 SlotClaim/RealtimeCapabilityContract。
+  - TDMA adapter IO 改由 foundation owner 独占；业务 FB 只能通过 payload/intent 使用 TDMA，不能重复声明 adapter IO。
+  - Python System Pack 生成器、pack builder、registry HIL validator 和 SCPI load validator 全部改为从统一 10 表定义派生 table count、mask 和 stage payload size。
+  - active profile 到公共 runtime 的自动配置与 VDC schedule 交叉门禁已由 TDMA-TASK-20260817-004 补齐。
+- 验证结果：
+  - `run_host_unit_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 通过，19/19 host scripts passed。
+  - `python -m pytest tests\python\test_refmem_pack_build.py -q` 通过，2 passed；仅保留 OneDrive `.pytest_cache` warning。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有两项 risk review 文件名 warning。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过；最终 build id 和 package CRC 见本次提交记录。
+- 还需完成：
+  - 建立五类固定队列、time-aware gate、policing/backpressure 和 `TdmaQualityVector`。
+  - 在两板硬件上同时运行 UP/DOWN leg，并用硬件 timestamp correlation 置位真实闭环 evidence。
+- 关联文件：
+  - `components/tdma/inc/tdma_profile.h`
+  - `components/tdma/src/tdma_profile.c`
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `components/distributed_refmem/src/refmem_application_model.c`
+  - `components/distributed_refmem/src/refmem_table_registry.c`
+  - `tools/refmem_table_image/refmem_table_image.py`
+- 下一步：
+  - profile activation hook 已闭环；继续逐类固定队列与 time-aware gate。
+
 ### TDMA-TASK-20260817-002 - Foundation profile、HAOFV owner 与 TSN-style 流治理
 
-- 状态：完成首版代码契约与 host 单元验证；RMTP profile 表和真实逐流 scheduler 尚待实现。
+- 状态：完成首版代码契约与 host 单元验证；RMTP profile 表已由 TDMA-TASK-20260817-003 补齐，真实逐流 scheduler 尚待实现。
 - 日期：2026-08-17
 - 任务目标：
   - 将 `TDMARingProfile` owner 从 VDC 迁入 TDMA Foundation。
@@ -65,8 +174,7 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
   - `python tools\docs_check\docs_check.py` 通过，保留既有两项 risk review 文件名 warning。
   - `cmake --build build-rtos-multicore-smoke -j 4` 通过，最终 build id `20260817051719`，package CRC `0x086043EE`。
 - 还需完成：
-  - 将 foundation/traffic profile 作为正式 RMTP/System Pack 表镜像，而不是只保留 C contract。
-  - DeploymentGate 对 staged candidate 执行唯一 owner、总预算、MTU、queue RAM、DMA/SM/IO claim 和 payload compatibility 校验。
+  - 正式 RMTP/System Pack 表镜像和 DeploymentGate staged-candidate 校验已由 TDMA-TASK-20260817-003 完成。
   - 实现 core1 逐类队列、time-aware gate、policing/backpressure 和质量计数。
 - 关联文件：
   - `components/tdma/inc/tdma_profile.h`
@@ -77,7 +185,7 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
   - `components/distributed_refmem/inc/refmem_application_model.h`
   - `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 - 下一步：
-  - 先完成 host/doc/build 闭环，再设计 RMTP `TdmaFoundationProfile` 表项和 scheduler queue runtime。
+  - RMTP 表项和 activation hook 已完成；继续 scheduler queue runtime。
 
 ### TDMA-TASK-20260817-001 - 上/下行 TDMA 边界升格为基础件
 

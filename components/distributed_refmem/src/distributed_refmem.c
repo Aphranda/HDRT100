@@ -330,6 +330,44 @@ static bool distributed_refmem_flash_activation_safe(void)
     return ram_entry_ok && flash_lockout_ok && entry_owner_ok;
 }
 
+static bool distributed_refmem_tdma_profile_activation_ready(
+    const tdma_foundation_profile_t *profile,
+    uint32_t *schedule_crc32)
+{
+    tdma_profile_result_t profile_result = TDMA_PROFILE_BAD_ARGUMENT;
+    vdc_tdma_ring_plan_t plan;
+    if (profile == NULL || schedule_crc32 == NULL ||
+        !tdma_foundation_profile_validate(profile, &profile_result) ||
+        profile->resource.short_frame_capacity > TDMA_SERVICE_SHORT_FRAME_MAX ||
+        profile->resource.long_frame_capacity > TDMA_SERVICE_LONG_FRAME_MAX ||
+        !vdc_dpll_manager_plan_tdma_ring(&plan) || plan.valid == 0u ||
+        plan.schedule_crc32 == 0u ||
+        profile->ring.node_count != plan.ring_node_count ||
+        profile->ring.local_index != plan.local_slot_id ||
+        profile->ring.reference_index != plan.reference_slot_id ||
+        profile->ring.upstream_slot_id != plan.upstream_slot_id ||
+        profile->ring.downstream_slot_id != plan.downstream_slot_id ||
+        profile->ring.feedback_slot_id != plan.feedback_slot_id ||
+        profile->ring.flags != plan.ring_flags ||
+        profile->ring.profile_crc32 != plan.ring_profile_crc32 ||
+        profile->resource.cycle_period_ns != plan.cycle_period_ns) {
+        return false;
+    }
+
+    *schedule_crc32 = plan.schedule_crc32;
+    return true;
+}
+
+static bool distributed_refmem_apply_tdma_foundation_profile(
+    const tdma_foundation_profile_t *profile,
+    uint32_t schedule_crc32)
+{
+    return refmem_realtime_tdma_configure_foundation_profile(
+        &s_refmem_realtime_tdma,
+        profile,
+        schedule_crc32);
+}
+
 static refmem_command_reason_t distributed_refmem_activation_nack_reason(uint32_t result)
 {
     switch ((refmem_table_activation_result_t)result) {
@@ -340,6 +378,7 @@ static refmem_command_reason_t distributed_refmem_activation_nack_reason(uint32_
     case REFMEM_TABLE_ACTIVATE_ERR_IMAGE_TOO_LARGE:
         return REFMEM_COMMAND_REASON_PAYLOAD_CRC_MISMATCH;
     case REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID:
+    case REFMEM_TABLE_ACTIVATE_ERR_RUNTIME_PROFILE:
         return REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
     case REFMEM_TABLE_ACTIVATE_ERR_BAD_ARGUMENT:
     case REFMEM_TABLE_ACTIVATE_ERR_NO_VALID_STAGING:
@@ -795,6 +834,17 @@ bool distributed_refmem_init(void)
     if (!refmem_realtime_tdma_bind_ops(&s_refmem_realtime_tdma,
                                        &tdma_ops,
                                        &s_refmem_realtime_spi)) {
+        return false;
+    }
+    uint32_t tdma_schedule_crc32 = 0u;
+    const tdma_foundation_profile_t *tdma_profile =
+        refmem_application_model_get_tdma_foundation_profile();
+    if (!distributed_refmem_tdma_profile_activation_ready(
+            tdma_profile,
+            &tdma_schedule_crc32) ||
+        !distributed_refmem_apply_tdma_foundation_profile(
+            tdma_profile,
+            tdma_schedule_crc32)) {
         return false;
     }
 
@@ -1387,26 +1437,56 @@ bool distributed_refmem_activate_staging(uint32_t realtime_idle)
         gate.deployment_gate_ok != 0u &&
         gate.command_ack_ok != 0u;
 
-    if (staging_candidate_ready &&
-        gate_ready_for_preparse &&
-        !refmem_application_model_prepare_staging_table_views()) {
-        (void)refmem_table_registry_note_activation_result(
-            REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID);
-        refmem_application_model_discard_prepared_table_views();
-        (void)distributed_refmem_command_nack(
-            local_target,
-            distributed_refmem_activation_nack_reason(
-                REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID),
-            REFMEM_VECTOR_REGION_ACK_CMD);
-        return false;
+    tdma_foundation_profile_t prepared_tdma_profile;
+    uint32_t prepared_tdma_schedule_crc32 = 0u;
+    if (staging_candidate_ready && gate_ready_for_preparse) {
+        if (!refmem_application_model_prepare_staging_table_views()) {
+            (void)refmem_table_registry_note_activation_result(
+                REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID);
+            refmem_application_model_discard_prepared_table_views();
+            (void)distributed_refmem_command_nack(
+                local_target,
+                distributed_refmem_activation_nack_reason(
+                    REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID),
+                REFMEM_VECTOR_REGION_ACK_CMD);
+            return false;
+        }
+        if (!refmem_application_model_get_prepared_tdma_foundation_profile(
+                &prepared_tdma_profile) ||
+            !distributed_refmem_tdma_profile_activation_ready(
+                &prepared_tdma_profile,
+                &prepared_tdma_schedule_crc32)) {
+            (void)refmem_table_registry_note_activation_result(
+                REFMEM_TABLE_ACTIVATE_ERR_RUNTIME_PROFILE);
+            refmem_application_model_discard_prepared_table_views();
+            (void)distributed_refmem_command_nack(
+                local_target,
+                distributed_refmem_activation_nack_reason(
+                    REFMEM_TABLE_ACTIVATE_ERR_RUNTIME_PROFILE),
+                REFMEM_VECTOR_REGION_ACK_CMD);
+            return false;
+        }
     }
 
     const bool activated = refmem_table_registry_activate_staging(&gate);
     refmem_table_registry_snapshot_t registry;
     refmem_table_registry_get_snapshot(&registry);
     if (activated) {
-        if (!refmem_application_model_commit_prepared_table_views()) {
-            (void)refmem_application_model_apply_active_table_views();
+        const bool model_applied =
+            refmem_application_model_commit_prepared_table_views() ||
+            refmem_application_model_apply_active_table_views();
+        if (!model_applied ||
+            !distributed_refmem_apply_tdma_foundation_profile(
+                &prepared_tdma_profile,
+                prepared_tdma_schedule_crc32)) {
+            (void)refmem_table_registry_note_activation_result(
+                REFMEM_TABLE_ACTIVATE_ERR_RUNTIME_PROFILE);
+            (void)distributed_refmem_command_nack(
+                local_target,
+                distributed_refmem_activation_nack_reason(
+                    REFMEM_TABLE_ACTIVATE_ERR_RUNTIME_PROFILE),
+                REFMEM_VECTOR_REGION_ACK_CMD);
+            return false;
         }
         (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_REGION_ACK_CMD);
         return true;

@@ -46,6 +46,7 @@ static const uint32_t s_table_image_size[REFMEM_TABLE_REGISTRY_COUNT] = {
                            REFMEM_TABLE_WIRE_DEPLOYMENT_GATE_WORDS),
     REFMEM_TABLE_WIRE_SIZE(REFMEM_APP_MODEL_QUALITY_COUNT,
                            REFMEM_TABLE_WIRE_CONNECTION_QUALITY_WORDS),
+    TDMA_FOUNDATION_PROFILE_TABLE_WIRE_SIZE,
 };
 
 typedef struct {
@@ -143,6 +144,12 @@ static bool refmem_table_registry_validate_event_link(
 static bool refmem_table_registry_validate_data_link(const uint8_t *data, size_t size);
 static bool refmem_table_registry_validate_deployment_gate(const uint8_t *data, size_t size);
 static bool refmem_table_registry_validate_connection_quality(const uint8_t *data, size_t size);
+static bool refmem_table_registry_validate_tdma_foundation_profile(
+    const uint8_t *data,
+    size_t size,
+    const uint8_t *fb_data,
+    size_t fb_size,
+    const refmem_node_load_table_t *loads);
 
 static bool refmem_table_registry_find_package_table(const uint8_t *data,
                                                      size_t size,
@@ -343,6 +350,7 @@ static bool refmem_table_registry_validate_package_owner_contract(
     const uint32_t data_id = REFMEM_APP_TABLE_DATA_LINK;
     const uint32_t gate_id = REFMEM_APP_TABLE_DEPLOYMENT_GATE;
     const uint32_t quality_id = REFMEM_APP_TABLE_CONNECTION_QUALITY;
+    const uint32_t tdma_id = REFMEM_APP_TABLE_TDMA_FOUNDATION_PROFILE;
 
     if (!refmem_table_registry_parse_application_map(data + table_offset[app_id],
                                                      table_size[app_id],
@@ -427,6 +435,18 @@ static bool refmem_table_registry_validate_package_owner_contract(
                                                            table_size[quality_id])) {
         if (first_bad_table != NULL) {
             *first_bad_table = quality_id;
+        }
+        return false;
+    }
+
+    if (!refmem_table_registry_validate_tdma_foundation_profile(
+            data + table_offset[tdma_id],
+            table_size[tdma_id],
+            data + table_offset[fb_id],
+            table_size[fb_id],
+            &node_load_table)) {
+        if (first_bad_table != NULL) {
+            *first_bad_table = tdma_id;
         }
         return false;
     }
@@ -685,6 +705,102 @@ static bool refmem_table_registry_validate_connection_quality(const uint8_t *dat
     return true;
 }
 
+static bool refmem_table_registry_validate_tdma_foundation_profile(
+    const uint8_t *data,
+    size_t size,
+    const uint8_t *fb_data,
+    size_t fb_size,
+    const refmem_node_load_table_t *loads)
+{
+    tdma_foundation_profile_t profile;
+    tdma_profile_result_t result = TDMA_PROFILE_BAD_ARGUMENT;
+    uint32_t instance_count = 0u;
+    if (!tdma_foundation_profile_decode_table(data, size, &profile, &result) ||
+        loads == NULL ||
+        !refmem_table_registry_validate_wire_header(
+            fb_data,
+            fb_size,
+            REFMEM_APP_MODEL_INSTANCE_COUNT,
+            REFMEM_TABLE_WIRE_FB_INSTANCE_WORDS,
+            &instance_count) ||
+        profile.owner_instance_id >= instance_count) {
+        return false;
+    }
+
+    const size_t row_size = REFMEM_TABLE_WIRE_FB_INSTANCE_WORDS *
+                            REFMEM_TABLE_WIRE_U32_SIZE;
+    const size_t owner_offset = REFMEM_TABLE_WIRE_HEADER_WORDS *
+                                    REFMEM_TABLE_WIRE_U32_SIZE +
+                                profile.owner_instance_id * row_size;
+    refmem_fb_instance_wire_entry_t owner;
+    if (!refmem_table_registry_parse_fb_instance_entry(&fb_data[owner_offset], &owner)) {
+        return false;
+    }
+
+    const uint32_t required_resource = REFMEM_APP_RESOURCE_DMA |
+                                       REFMEM_APP_RESOURCE_CORE1_RT |
+                                       REFMEM_APP_RESOURCE_TDMA_SCHEDULER |
+        ((profile.resource.adapter_type == TDMA_ADAPTER_PIO_SPI ||
+          profile.resource.adapter_type == TDMA_ADAPTER_BISS_C)
+             ? REFMEM_APP_RESOURCE_PIO
+             : 0u);
+    if (owner.instance_id != profile.owner_instance_id ||
+        owner.enable_condition == 0u ||
+        owner.domain != REFMEM_APP_DOMAIN_TDMA ||
+        owner.fb_type != REFMEM_APP_FB_TDMA_SCHEDULER ||
+        (owner.resource_claim & required_resource) != required_resource ||
+        profile.resource.io_claim_mask == 0u ||
+        (profile.resource.ip_core_claim_mask & REFMEM_APP_IP_TDMA_SCHEDULER) == 0u ||
+        (profile.resource.io_claim_mask & ~owner.io_claim) != 0u ||
+        (profile.resource.ip_core_claim_mask & ~owner.ip_core_claim) != 0u) {
+        return false;
+    }
+
+    uint32_t tdma_owner_count = 0u;
+    uint32_t owner_load_count = 0u;
+    for (uint32_t i = 0u; i < instance_count; i++) {
+        refmem_fb_instance_wire_entry_t entry;
+        const size_t offset = REFMEM_TABLE_WIRE_HEADER_WORDS *
+                                  REFMEM_TABLE_WIRE_U32_SIZE +
+                              i * row_size;
+        if (!refmem_table_registry_parse_fb_instance_entry(&fb_data[offset], &entry)) {
+            return false;
+        }
+        if (entry.enable_condition != 0u &&
+            entry.domain == REFMEM_APP_DOMAIN_TDMA &&
+            entry.fb_type == REFMEM_APP_FB_TDMA_SCHEDULER) {
+            tdma_owner_count++;
+        }
+    }
+
+    for (uint32_t i = 0u; i < loads->load_count; i++) {
+        const refmem_node_load_entry_t *load = &loads->load[i];
+        if (load->enabled == 0u || load->instance_id >= instance_count) {
+            continue;
+        }
+        if (load->instance_id == profile.owner_instance_id) {
+            if (load->node_id != profile.ring.local_index) {
+                return false;
+            }
+            owner_load_count++;
+            continue;
+        }
+        if (load->node_id == profile.ring.local_index) {
+            const size_t offset = REFMEM_TABLE_WIRE_HEADER_WORDS *
+                                      REFMEM_TABLE_WIRE_U32_SIZE +
+                                  load->instance_id * row_size;
+            refmem_fb_instance_wire_entry_t entry;
+            if (!refmem_table_registry_parse_fb_instance_entry(&fb_data[offset], &entry) ||
+                (entry.enable_condition != 0u &&
+                 (entry.io_claim & profile.resource.io_claim_mask) != 0u)) {
+                return false;
+            }
+        }
+    }
+
+    return tdma_owner_count == 1u && owner_load_count == 1u;
+}
+
 static uint32_t refmem_table_package_crc32_zero_field(const uint8_t *data,
                                                       size_t size,
                                                       uint32_t zero_offset)
@@ -808,6 +924,8 @@ static uint32_t refmem_table_registry_active_crc(const refmem_application_model_
         return model->deployment_gate_crc32;
     case REFMEM_APP_TABLE_CONNECTION_QUALITY:
         return model->connection_quality_crc32;
+    case REFMEM_APP_TABLE_TDMA_FOUNDATION_PROFILE:
+        return model->tdma_foundation_profile_table_crc32;
     default:
         return 0u;
     }
@@ -918,6 +1036,9 @@ void refmem_table_registry_init(const refmem_application_model_snapshot_t *model
     for (uint32_t i = 0u; i < REFMEM_TABLE_REGISTRY_COUNT; i++) {
         s_registry[i].table_id = i;
         s_registry[i].owner = REFMEM_TABLE_OWNER_REFMEM_AO;
+        if (i == REFMEM_APP_TABLE_TDMA_FOUNDATION_PROFILE) {
+            s_registry[i].owner = REFMEM_TABLE_OWNER_TDMA_AO;
+        }
         s_registry[i].layout_version = REFMEM_APP_MODEL_VERSION;
         s_registry[i].image_offset = 0u;
         for (uint32_t j = 0u; j < i; j++) {

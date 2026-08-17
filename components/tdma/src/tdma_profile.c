@@ -6,6 +6,35 @@
 #define TDMA_PROFILE_CRC_PRIME 16777619u
 #define TDMA_PROFILE_DEFAULT_SHORT_CAPACITY 292u
 #define TDMA_PROFILE_DEFAULT_LONG_CAPACITY 1024u
+#define TDMA_PROFILE_DEFAULT_CYCLE_PERIOD_NS 1000000u
+#define TDMA_PROFILE_DEFAULT_CYCLE_CAPACITY 1024u
+#define TDMA_PROFILE_DEFAULT_GUARD_BAND 128u
+#define TDMA_PROFILE_DEFAULT_QUEUE_MEMORY 32768u
+
+static bool tdma_profile_write_u32_le(uint8_t *data,
+                                      size_t size,
+                                      size_t *cursor,
+                                      uint32_t value)
+{
+    if (data == NULL || cursor == NULL || *cursor > size ||
+        size - *cursor < sizeof(uint32_t)) {
+        return false;
+    }
+    data[*cursor + 0u] = (uint8_t)(value & 0xFFu);
+    data[*cursor + 1u] = (uint8_t)((value >> 8u) & 0xFFu);
+    data[*cursor + 2u] = (uint8_t)((value >> 16u) & 0xFFu);
+    data[*cursor + 3u] = (uint8_t)((value >> 24u) & 0xFFu);
+    *cursor += sizeof(uint32_t);
+    return true;
+}
+
+static uint32_t tdma_profile_read_u32_le(const uint8_t *data)
+{
+    return ((uint32_t)data[0]) |
+           ((uint32_t)data[1] << 8u) |
+           ((uint32_t)data[2] << 16u) |
+           ((uint32_t)data[3] << 24u);
+}
 
 static uint32_t tdma_profile_hash_u32(uint32_t hash, uint32_t value)
 {
@@ -161,6 +190,10 @@ uint32_t tdma_foundation_profile_crc32(const tdma_foundation_profile_t *profile)
     hash = tdma_profile_hash_u32(hash, profile->resource.short_frame_capacity);
     hash = tdma_profile_hash_u32(hash, profile->resource.long_frame_capacity);
     hash = tdma_profile_hash_u32(hash, profile->resource.payload_whitelist_mask);
+    hash = tdma_profile_hash_u32(hash, profile->resource.cycle_period_ns);
+    hash = tdma_profile_hash_u32(hash, profile->resource.cycle_capacity_bytes);
+    hash = tdma_profile_hash_u32(hash, profile->resource.guard_band_bytes);
+    hash = tdma_profile_hash_u32(hash, profile->resource.queue_memory_capacity_bytes);
     for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
         const tdma_traffic_class_profile_t *traffic = &profile->resource.traffic[i];
         hash = tdma_profile_hash_u32(hash, traffic->class_id);
@@ -213,6 +246,10 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
     profile->resource.short_frame_capacity = TDMA_PROFILE_DEFAULT_SHORT_CAPACITY;
     profile->resource.long_frame_capacity = TDMA_PROFILE_DEFAULT_LONG_CAPACITY;
     profile->resource.payload_whitelist_mask = TDMA_PAYLOAD_FOUNDATION_DEFAULT_MASK;
+    profile->resource.cycle_period_ns = TDMA_PROFILE_DEFAULT_CYCLE_PERIOD_NS;
+    profile->resource.cycle_capacity_bytes = TDMA_PROFILE_DEFAULT_CYCLE_CAPACITY;
+    profile->resource.guard_band_bytes = TDMA_PROFILE_DEFAULT_GUARD_BAND;
+    profile->resource.queue_memory_capacity_bytes = TDMA_PROFILE_DEFAULT_QUEUE_MEMORY;
     tdma_profile_set_traffic(
         &profile->resource.traffic[TDMA_TRAFFIC_VDC_REALTIME],
         TDMA_TRAFFIC_VDC_REALTIME,
@@ -301,6 +338,15 @@ bool tdma_foundation_profile_validate(const tdma_foundation_profile_t *profile,
         return false;
     }
     uint32_t classified_payload_mask = 0u;
+    uint64_t reserved_bytes = 0u;
+    uint64_t queue_bytes = 0u;
+    if (profile->resource.cycle_period_ns == 0u ||
+        profile->resource.cycle_capacity_bytes == 0u ||
+        profile->resource.guard_band_bytes >= profile->resource.cycle_capacity_bytes ||
+        profile->resource.queue_memory_capacity_bytes == 0u) {
+        tdma_profile_set_result(result, TDMA_PROFILE_CAPACITY_INVALID);
+        return false;
+    }
     for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
         const tdma_traffic_class_profile_t *traffic = &profile->resource.traffic[i];
         if (traffic->class_id != i || traffic->payload_mask == 0u ||
@@ -314,6 +360,15 @@ bool tdma_foundation_profile_validate(const tdma_foundation_profile_t *profile,
             return false;
         }
         classified_payload_mask |= traffic->payload_mask;
+        reserved_bytes += traffic->reserved_bytes_per_cycle;
+        queue_bytes += (uint64_t)traffic->queue_depth *
+                       (uint64_t)profile->resource.long_frame_capacity;
+    }
+    if (reserved_bytes > (uint64_t)profile->resource.cycle_capacity_bytes -
+                             profile->resource.guard_band_bytes ||
+        queue_bytes > profile->resource.queue_memory_capacity_bytes) {
+        tdma_profile_set_result(result, TDMA_PROFILE_CAPACITY_INVALID);
+        return false;
     }
     if (classified_payload_mask != profile->resource.payload_whitelist_mask ||
         (profile->resource.traffic[TDMA_TRAFFIC_VDC_REALTIME].flags &
@@ -332,4 +387,135 @@ bool tdma_foundation_profile_validate(const tdma_foundation_profile_t *profile,
 
     tdma_profile_set_result(result, TDMA_PROFILE_OK);
     return true;
+}
+
+bool tdma_foundation_profile_encode_table(const tdma_foundation_profile_t *profile,
+                                          uint8_t *data,
+                                          size_t size)
+{
+    tdma_profile_result_t result = TDMA_PROFILE_BAD_ARGUMENT;
+    if (data == NULL || size != TDMA_FOUNDATION_PROFILE_TABLE_WIRE_SIZE ||
+        !tdma_foundation_profile_validate(profile, &result)) {
+        return false;
+    }
+
+    size_t cursor = 0u;
+#define TDMA_WRITE(value) \
+    do { \
+        if (!tdma_profile_write_u32_le(data, size, &cursor, (value))) { \
+            return false; \
+        } \
+    } while (0)
+    TDMA_WRITE(TDMA_FOUNDATION_PROFILE_TABLE_VERSION);
+    TDMA_WRITE(TDMA_FOUNDATION_PROFILE_TABLE_COUNT);
+    TDMA_WRITE(profile->version);
+    TDMA_WRITE(profile->enabled);
+    TDMA_WRITE(profile->owner_instance_id);
+    TDMA_WRITE(profile->ring.version);
+    TDMA_WRITE(profile->ring.flags);
+    TDMA_WRITE(profile->ring.node_count);
+    TDMA_WRITE(profile->ring.local_index);
+    TDMA_WRITE(profile->ring.reference_index);
+    TDMA_WRITE(profile->ring.up_group_id);
+    TDMA_WRITE(profile->ring.down_group_id);
+    TDMA_WRITE(profile->ring.upstream_slot_id);
+    TDMA_WRITE(profile->ring.downstream_slot_id);
+    TDMA_WRITE(profile->ring.feedback_slot_id);
+    TDMA_WRITE(profile->ring.profile_crc32);
+    TDMA_WRITE(profile->resource.adapter_type);
+    TDMA_WRITE(profile->resource.pio_block_id);
+    TDMA_WRITE(profile->resource.up_state_machine_id);
+    TDMA_WRITE(profile->resource.down_state_machine_id);
+    TDMA_WRITE(profile->resource.tx_dma_channel_id);
+    TDMA_WRITE(profile->resource.rx_dma_channel_id);
+    TDMA_WRITE(profile->resource.core1_service_id);
+    TDMA_WRITE(profile->resource.io_claim_mask);
+    TDMA_WRITE(profile->resource.ip_core_claim_mask);
+    TDMA_WRITE(profile->resource.short_frame_capacity);
+    TDMA_WRITE(profile->resource.long_frame_capacity);
+    TDMA_WRITE(profile->resource.payload_whitelist_mask);
+    TDMA_WRITE(profile->resource.cycle_period_ns);
+    TDMA_WRITE(profile->resource.cycle_capacity_bytes);
+    TDMA_WRITE(profile->resource.guard_band_bytes);
+    TDMA_WRITE(profile->resource.queue_memory_capacity_bytes);
+    for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
+        const tdma_traffic_class_profile_t *traffic = &profile->resource.traffic[i];
+        TDMA_WRITE(traffic->class_id);
+        TDMA_WRITE(traffic->payload_mask);
+        TDMA_WRITE(traffic->reserved_bytes_per_cycle);
+        TDMA_WRITE(traffic->max_frames_per_cycle);
+        TDMA_WRITE(traffic->queue_depth);
+        TDMA_WRITE(traffic->deadline_ns);
+        TDMA_WRITE(traffic->flags);
+        TDMA_WRITE(traffic->overflow_policy);
+    }
+    TDMA_WRITE(profile->profile_crc32);
+#undef TDMA_WRITE
+    return cursor == size;
+}
+
+bool tdma_foundation_profile_decode_table(const uint8_t *data,
+                                          size_t size,
+                                          tdma_foundation_profile_t *profile,
+                                          tdma_profile_result_t *result)
+{
+    tdma_profile_set_result(result, TDMA_PROFILE_BAD_ARGUMENT);
+    if (data == NULL || profile == NULL ||
+        size != TDMA_FOUNDATION_PROFILE_TABLE_WIRE_SIZE ||
+        tdma_profile_read_u32_le(&data[0]) != TDMA_FOUNDATION_PROFILE_TABLE_VERSION ||
+        tdma_profile_read_u32_le(&data[4]) != TDMA_FOUNDATION_PROFILE_TABLE_COUNT) {
+        return false;
+    }
+
+    memset(profile, 0, sizeof(*profile));
+    size_t cursor = 8u;
+#define TDMA_READ(target) \
+    do { \
+        (target) = tdma_profile_read_u32_le(&data[cursor]); \
+        cursor += sizeof(uint32_t); \
+    } while (0)
+    TDMA_READ(profile->version);
+    TDMA_READ(profile->enabled);
+    TDMA_READ(profile->owner_instance_id);
+    TDMA_READ(profile->ring.version);
+    TDMA_READ(profile->ring.flags);
+    TDMA_READ(profile->ring.node_count);
+    TDMA_READ(profile->ring.local_index);
+    TDMA_READ(profile->ring.reference_index);
+    TDMA_READ(profile->ring.up_group_id);
+    TDMA_READ(profile->ring.down_group_id);
+    TDMA_READ(profile->ring.upstream_slot_id);
+    TDMA_READ(profile->ring.downstream_slot_id);
+    TDMA_READ(profile->ring.feedback_slot_id);
+    TDMA_READ(profile->ring.profile_crc32);
+    TDMA_READ(profile->resource.adapter_type);
+    TDMA_READ(profile->resource.pio_block_id);
+    TDMA_READ(profile->resource.up_state_machine_id);
+    TDMA_READ(profile->resource.down_state_machine_id);
+    TDMA_READ(profile->resource.tx_dma_channel_id);
+    TDMA_READ(profile->resource.rx_dma_channel_id);
+    TDMA_READ(profile->resource.core1_service_id);
+    TDMA_READ(profile->resource.io_claim_mask);
+    TDMA_READ(profile->resource.ip_core_claim_mask);
+    TDMA_READ(profile->resource.short_frame_capacity);
+    TDMA_READ(profile->resource.long_frame_capacity);
+    TDMA_READ(profile->resource.payload_whitelist_mask);
+    TDMA_READ(profile->resource.cycle_period_ns);
+    TDMA_READ(profile->resource.cycle_capacity_bytes);
+    TDMA_READ(profile->resource.guard_band_bytes);
+    TDMA_READ(profile->resource.queue_memory_capacity_bytes);
+    for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
+        tdma_traffic_class_profile_t *traffic = &profile->resource.traffic[i];
+        TDMA_READ(traffic->class_id);
+        TDMA_READ(traffic->payload_mask);
+        TDMA_READ(traffic->reserved_bytes_per_cycle);
+        TDMA_READ(traffic->max_frames_per_cycle);
+        TDMA_READ(traffic->queue_depth);
+        TDMA_READ(traffic->deadline_ns);
+        TDMA_READ(traffic->flags);
+        TDMA_READ(traffic->overflow_policy);
+    }
+    TDMA_READ(profile->profile_crc32);
+#undef TDMA_READ
+    return cursor == size && tdma_foundation_profile_validate(profile, result);
 }

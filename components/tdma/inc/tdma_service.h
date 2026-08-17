@@ -5,12 +5,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "tdma_payload_registry.h"
 #include "tdma_profile.h"
 
 #define TDMA_SERVICE_SHORT_FRAME_MAX 292u
 #define TDMA_SERVICE_LONG_FRAME_MAX 1024u
 #define TDMA_SERVICE_FRAME_MAX TDMA_SERVICE_LONG_FRAME_MAX
-#define TDMA_SERVICE_PAYLOAD_REGISTRY_COUNT 8u
+#define TDMA_SERVICE_PAYLOAD_REGISTRY_COUNT TDMA_PAYLOAD_REGISTRY_COUNT
 #define tdma_service_FRAME_MAX TDMA_SERVICE_FRAME_MAX
 #define TDMA_SERVICE_TIMESTAMP_RESOLUTION_LIMIT_NS 100u
 #define TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN
@@ -32,8 +33,8 @@ typedef enum {
 } tdma_service_role_t;
 
 typedef enum {
-    TDMA_SERVICE_FRAME_CLASS_SHORT = 1u,
-    TDMA_SERVICE_FRAME_CLASS_LONG = 2u,
+    TDMA_SERVICE_FRAME_CLASS_SHORT = TDMA_PAYLOAD_FRAME_CLASS_SHORT,
+    TDMA_SERVICE_FRAME_CLASS_LONG = TDMA_PAYLOAD_FRAME_CLASS_LONG,
 } tdma_service_frame_class_t;
 
 typedef enum {
@@ -55,15 +56,7 @@ typedef struct {
     uint32_t tx_pin;
 } tdma_service_pin_config_t;
 
-typedef struct {
-    uint32_t used;
-    uint32_t producer_id;
-    uint32_t consumer_id;
-    uint32_t payload_class;
-    uint32_t frame_class;
-    uint32_t max_payload_size;
-    uint32_t flags;
-} tdma_service_payload_binding_t;
+typedef tdma_payload_binding_t tdma_service_payload_binding_t;
 
 typedef enum {
     tdma_service_STATE_UNINIT = 0u,
@@ -223,6 +216,13 @@ typedef struct {
     uint32_t payload_whitelist_mask;
     uint32_t io_claim_mask;
     uint32_t ip_core_claim_mask;
+    uint32_t payload_registry_config_seq;
+    uint32_t payload_registry_registration_seq;
+    uint32_t payload_registry_used_count;
+    uint32_t payload_registry_admitted_count;
+    uint32_t payload_registry_reject_count;
+    uint32_t payload_registry_last_result;
+    uint32_t payload_registry_last_payload_class;
 } tdma_service_snapshot_t;
 
 typedef struct {
@@ -348,7 +348,7 @@ typedef struct {
 
     const tdma_service_ops_t *ops;
     void *ops_context;
-    tdma_service_payload_binding_t payload_binding[TDMA_SERVICE_PAYLOAD_REGISTRY_COUNT];
+    tdma_payload_registry_t payload_registry;
 } tdma_service_service_t;
 
 bool tdma_service_init(tdma_service_service_t *service);

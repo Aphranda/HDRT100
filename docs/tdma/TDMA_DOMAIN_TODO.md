@@ -22,19 +22,23 @@ Last updated: 2026-08-17
 - [x] 在 `tdma_service_snapshot_t` 增加 ring runtime 字段：enabled、config seq、service seq、node count、local/reference slot、UP/DOWN group、running state、ring seq、last error、profile CRC、schedule CRC。
 - [x] 增加 `tdma_service_configure_ring_runtime()`，由 TDMA owner 接收 active ring profile/runtime 配置。
 - [x] 增加单元测试，验证公共 TDMA ring runtime 不伪造 closed-loop evidence。
+- [x] RefMem 兼容层提供正式 foundation-profile 配置入口，并将 profile/ring 字段投影到只读 snapshot。
+- [x] `SYSTem:REFMEM:SYNC:TDMA:STATus?` 保留旧字段顺序并追加 active profile、ring config/runtime 和 feedback evidence。
 - [ ] 将 ring runtime 从 `tdma_service.c` 单体拆成 `tdma_ring_runtime.*`，保留 `tdma_service` 聚合 API。
-- [ ] 将 payload registry 从 `tdma_service.c` 单体拆成 `tdma_payload_registry.*`，支持 System Pack / DeploymentGate 查询。
+- [x] 将 payload registry 从 `tdma_service.c` 单体拆成 `tdma_payload_registry.*`，支持 System Pack / DeploymentGate 查询。
+- [x] registry snapshot 暴露 config/registration seq、used/admitted/reject 水位和 last result，并追加到 TDMA 维护查询末尾。
 - [ ] 增加 ring runtime reason code：direction conflict、adapter missing、timestamp missing、payload starvation、window missed、resource conflict。
 
 ## P2 - HAOFV System Node / Resource Claim
 
 - [x] 将 TDMA 表达为可装载 HAOFV system node / FB instance；首版增加唯一 `TdmaSchedulerAO` owner、TDMA baseline capability 和 DeploymentGate check。
 - [x] 建立 `tdma_foundation_profile_t`，声明 ring、adapter、PIO/SM、DMA、core1 service、short/long capacity、payload whitelist、traffic class 和 IO/IP claim，并由 `tdma_service` 冻结到 runtime snapshot。
-- [ ] 将 foundation profile 纳入 RMTP/System Pack 正式表镜像，并从 NodeLoad / SlotClaim / RealtimeCapabilityContract 派生 owner 与资源绑定；当前首版 owner 已在默认应用模型中表达，profile 仍是独立 C contract。
-- [ ] DeploymentGate 拒绝第二个 TDMA owner。
-- [ ] DeploymentGate 拒绝业务模型复用 TDMA communication ring IO。
-- [ ] DeploymentGate 拒绝 VDC/RefMem payload class 与 active TDMA profile 不一致。
-- [ ] 支持板卡能力通过 SD System Pack 和 SCPI staging 加载，不能在代码中写死模型实例。
+- [x] 将 foundation profile 纳入 RMTP/System Pack 第 10 张正式表镜像，并从 NodeLoad / SlotClaim / RealtimeCapabilityContract 派生 owner 与资源绑定。
+- [x] DeploymentGate 拒绝第二个 TDMA owner。
+- [x] DeploymentGate 拒绝业务模型复用 TDMA communication adapter IO。
+- [x] DeploymentGate 拒绝缺失 VDC/RefMem foundation payload 或 traffic class 重叠的 profile。
+- [x] 支持板卡能力通过 SD System Pack 和 SCPI staging 加载，不能在代码中写死模型实例。
+- [x] 将 prepared `TdmaFoundationProfile` 与 VDC ring、schedule CRC 和 cycle period 交叉校验，激活成功后由 TDMA owner 自动配置 runtime。
 
 ## P2A - TSN-style 资源管理与流控
 
@@ -43,7 +47,7 @@ Last updated: 2026-08-17
 - [x] payload registry 按 active foundation profile whitelist 做 admission，拒绝未登记 payload。
 - [ ] TDMA scheduler 建立逐类固定队列和 time-aware gate；VDC/RefMem 使用硬预留，配置/OTA/LOG 只使用 maintenance 或剩余预算。
 - [ ] 实现逐流 policing、backpressure、drop/retry/deadline/budget overrun 计数，并发布 `TdmaQualityVector`。
-- [ ] DeploymentGate 校验总窗口预算、MTU、queue RAM、DMA/SM/IO claim，不允许 overcommit。
+- [x] DeploymentGate 首版校验总周期预算、guard band、short/long MTU、queue RAM、PIO/SM/DMA/IO/IP claim，不允许 profile overcommit；后续补板级 DMA channel/PIO block 全局仲裁表。
 - [ ] OTA 支持续传和 producer pause；LOG 允许 drop-oldest，但二者都不得阻塞 core1 或侵占 guard band。
 - [ ] 按 RefMem region/slot criticality 拆分 critical delta 与 background delta，避免全部 64 KB 事实同步都占用硬预留窗口。
 - [ ] 多环/冗余阶段评估 FRER-style sequence 与 duplicate elimination；首版不宣称冗余能力。
@@ -52,7 +56,7 @@ Last updated: 2026-08-17
 
 - [ ] core1 TDMA runtime 同时服务 `TDMA_UP_LEG` 和 `TDMA_DOWN_LEG`。
 - [ ] 空闲无业务 payload 时持续发送/接收 `IDLE_BEACON` 或等价 freshness 帧。
-- [ ] runtime snapshot 暴露 `up_running/down_running/ring_seq/last_error`。
+- [x] runtime snapshot 暴露 `up_running/down_running/ring_seq/last_error`；当前仅代表 runtime service 状态，不等同于硬件闭环 evidence。
 - [ ] `simultaneous_feedback_loop_evidence` 只由硬件 RX/TX timestamp 相关性置位。
 - [ ] host 监控工具默认只读 TDMA runtime，不通过串口查询参与续窗。
 

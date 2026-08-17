@@ -1799,6 +1799,31 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.core1_done_time_ns_lo);
     SCPI_ResultUInt32(context, snapshot.core1_done_time_ns_hi);
     SCPI_ResultUInt32(context, snapshot.core1_elapsed_ns);
+    SCPI_ResultUInt32(context, snapshot.foundation_profile_crc32);
+    SCPI_ResultUInt32(context, snapshot.foundation_owner_instance_id);
+    SCPI_ResultUInt32(context, snapshot.adapter_type);
+    SCPI_ResultUInt32(context, snapshot.payload_whitelist_mask);
+    SCPI_ResultUInt32(context, snapshot.ring_enabled);
+    SCPI_ResultUInt32(context, snapshot.ring_config_seq);
+    SCPI_ResultUInt32(context, snapshot.ring_node_count);
+    SCPI_ResultUInt32(context, snapshot.ring_local_slot_id);
+    SCPI_ResultUInt32(context, snapshot.ring_reference_slot_id);
+    SCPI_ResultUInt32(context, snapshot.ring_up_group_id);
+    SCPI_ResultUInt32(context, snapshot.ring_down_group_id);
+    SCPI_ResultUInt32(context, snapshot.ring_profile_crc32);
+    SCPI_ResultUInt32(context, snapshot.ring_schedule_crc32);
+    SCPI_ResultUInt32(context, snapshot.ring_up_running);
+    SCPI_ResultUInt32(context, snapshot.ring_down_running);
+    SCPI_ResultUInt32(context, snapshot.ring_seq);
+    SCPI_ResultUInt32(context, snapshot.ring_last_error);
+    SCPI_ResultUInt32(context, snapshot.simultaneous_feedback_loop_evidence);
+    SCPI_ResultUInt32(context, snapshot.payload_registry_config_seq);
+    SCPI_ResultUInt32(context, snapshot.payload_registry_registration_seq);
+    SCPI_ResultUInt32(context, snapshot.payload_registry_used_count);
+    SCPI_ResultUInt32(context, snapshot.payload_registry_admitted_count);
+    SCPI_ResultUInt32(context, snapshot.payload_registry_reject_count);
+    SCPI_ResultUInt32(context, snapshot.payload_registry_last_result);
+    SCPI_ResultUInt32(context, snapshot.payload_registry_last_payload_class);
     return SCPI_RES_OK;
 }
 

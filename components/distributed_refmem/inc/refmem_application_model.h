@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "distributed_refmem.h"
+#include "tdma_profile.h"
 
 #define REFMEM_APP_MODEL_VERSION                   1u
 #define REFMEM_APP_MODEL_NODE_COUNT                DISTRIBUTED_REFMEM_NODE_COUNT
@@ -251,6 +252,7 @@ typedef enum {
     REFMEM_APP_LINT_BAD_BOARD_CAPABILITY = 12u,
     REFMEM_APP_LINT_BAD_REALTIME_CONTRACT = 13u,
     REFMEM_APP_LINT_TDMA_OWNER_CONFLICT = 14u,
+    REFMEM_APP_LINT_BAD_TDMA_PROFILE = 15u,
 } refmem_app_lint_error_t;
 
 typedef enum {
@@ -263,6 +265,7 @@ typedef enum {
     REFMEM_APP_TABLE_DATA_LINK = 6u,
     REFMEM_APP_TABLE_DEPLOYMENT_GATE = 7u,
     REFMEM_APP_TABLE_CONNECTION_QUALITY = 8u,
+    REFMEM_APP_TABLE_TDMA_FOUNDATION_PROFILE = 9u,
 } refmem_app_table_id_t;
 
 #define REFMEM_APP_TABLE_MASK_ALL ((1u << REFMEM_APP_TABLE_APPLICATION_MAP) | \
@@ -273,7 +276,8 @@ typedef enum {
                                    (1u << REFMEM_APP_TABLE_EVENT_LINK) | \
                                    (1u << REFMEM_APP_TABLE_DATA_LINK) | \
                                    (1u << REFMEM_APP_TABLE_DEPLOYMENT_GATE) | \
-                                   (1u << REFMEM_APP_TABLE_CONNECTION_QUALITY))
+                                   (1u << REFMEM_APP_TABLE_CONNECTION_QUALITY) | \
+                                   (1u << REFMEM_APP_TABLE_TDMA_FOUNDATION_PROFILE))
 
 typedef enum {
     REFMEM_APP_LOAD_SOURCE_DEFAULT = 0u,
@@ -503,6 +507,7 @@ typedef struct {
     uint32_t data_link_crc32;
     uint32_t deployment_gate_crc32;
     uint32_t connection_quality_crc32;
+    uint32_t tdma_foundation_profile_table_crc32;
     uint32_t package_crc32;
     uint32_t lint_error_count;
     uint32_t first_lint_error;
@@ -588,6 +593,8 @@ bool refmem_application_model_apply_active_table_views(void);
 bool refmem_application_model_prepare_staging_table_views(void);
 bool refmem_application_model_commit_prepared_table_views(void);
 void refmem_application_model_discard_prepared_table_views(void);
+bool refmem_application_model_get_prepared_tdma_foundation_profile(
+    tdma_foundation_profile_t *profile);
 const refmem_application_map_t *refmem_application_model_get_application_map(void);
 const refmem_board_capability_table_t *refmem_application_model_get_board_capability_table(void);
 const refmem_generic_node_table_t *refmem_application_model_get_generic_node_table(void);
@@ -597,6 +604,7 @@ const refmem_event_link_table_t *refmem_application_model_get_event_link_table(v
 const refmem_data_link_table_t *refmem_application_model_get_data_link_table(void);
 const refmem_deployment_gate_table_t *refmem_application_model_get_deployment_gate(void);
 const refmem_connection_quality_table_t *refmem_application_model_get_connection_quality(void);
+const tdma_foundation_profile_t *refmem_application_model_get_tdma_foundation_profile(void);
 const refmem_application_model_snapshot_t *refmem_application_model_get_snapshot(void);
 bool refmem_application_model_get_staging_node_load_entry(
     uint32_t instance_id,

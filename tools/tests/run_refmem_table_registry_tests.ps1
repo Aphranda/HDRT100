@@ -16,6 +16,7 @@ $registrySource = Join-Path $repo "components\distributed_refmem\src\refmem_tabl
 $appContractSource = Join-Path $repo "components\distributed_refmem\src\refmem_application_contract.c"
 $realtimeContractSource = Join-Path $repo "components\distributed_refmem\src\refmem_realtime_contract.c"
 $claimSource = Join-Path $repo "components\distributed_refmem\src\refmem_slot_claim.c"
+$tdmaProfileSource = Join-Path $repo "components\tdma\src\tdma_profile.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -69,7 +70,7 @@ if ($hostCc) {
     $exe = Join-Path $build "test_refmem_table_registry.exe"
     & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" `
         $testSource $appModelSource $registrySource $appContractSource `
-        $realtimeContractSource $claimSource -o $exe
+        $realtimeContractSource $claimSource $tdmaProfileSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -89,7 +90,7 @@ if (-not (Test-Path $ArmGcc)) {
     throw "No host C compiler found and ARM GCC not found at $ArmGcc"
 }
 
-foreach ($source in @($testSource, $appModelSource, $registrySource, $appContractSource, $realtimeContractSource, $claimSource)) {
+foreach ($source in @($testSource, $appModelSource, $registrySource, $appContractSource, $realtimeContractSource, $claimSource, $tdmaProfileSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {

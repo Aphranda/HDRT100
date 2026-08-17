@@ -73,6 +73,7 @@ static refmem_application_model_snapshot_t make_active_model(void)
     model.data_link_crc32 = 0x10000007u;
     model.deployment_gate_crc32 = 0x10000008u;
     model.connection_quality_crc32 = 0x10000009u;
+    model.tdma_foundation_profile_table_crc32 = 0x1000000Au;
     model.package_crc32 = 0xA5A50001u;
     return model;
 }
@@ -133,7 +134,8 @@ static void make_valid_board_table(refmem_board_capability_table_t *table)
                                           REFMEM_APP_CAP_DMA |
                                           REFMEM_APP_CAP_CORE1_RT;
         table->board[i].io_constraint_mask = REFMEM_APP_IO_PIO_SPI_SYNC;
-        table->board[i].ip_core_mask = REFMEM_APP_IP_PIO_SPI_SYNC_DELTA;
+        table->board[i].ip_core_mask = REFMEM_APP_IP_PIO_SPI_SYNC_DELTA |
+                                       REFMEM_APP_IP_TDMA_SCHEDULER;
         table->board[i].default_persona_mask = REFMEM_APP_PERSONA_SPARE;
         table->board[i].active_default_slot = i;
         table->board[i].online_required = 1u;
@@ -208,10 +210,19 @@ static void append_valid_fb_instance_table(uint8_t *payload, size_t *payload_siz
     const uint32_t header[] = {REFMEM_APP_MODEL_VERSION, REFMEM_APP_MODEL_INSTANCE_COUNT};
     append_repeated_u32(payload, payload_size, header, 2u);
     for (uint32_t i = 0u; i < REFMEM_APP_MODEL_INSTANCE_COUNT; i++) {
+        const bool tdma_owner = i == 11u;
         const uint32_t row[] = {
-            i, i % REFMEM_APP_MODEL_NODE_COUNT, REFMEM_APP_DOMAIN_SYSTEM,
-            REFMEM_APP_FB_SYSTEM_AO, REFMEM_APP_FB_SYSTEM_AO, 0x90000000u + i,
-            1u, i < 2u ? 1u : 0u, 0u, 0u, 0u, 1000u,
+            i, tdma_owner ? 0u : i % REFMEM_APP_MODEL_NODE_COUNT,
+            tdma_owner ? REFMEM_APP_DOMAIN_TDMA : REFMEM_APP_DOMAIN_SYSTEM,
+            tdma_owner ? REFMEM_APP_FB_TDMA_SCHEDULER : REFMEM_APP_FB_SYSTEM_AO,
+            tdma_owner ? REFMEM_APP_FB_TDMA_SCHEDULER : REFMEM_APP_FB_SYSTEM_AO,
+            0x90000000u + i,
+            1u, (i < 2u || tdma_owner) ? 1u : 0u,
+            tdma_owner ? 0x00000198u : 0u,
+            tdma_owner ? REFMEM_APP_IO_PIO_SPI_SYNC : 0u,
+            tdma_owner ? (REFMEM_APP_IP_PIO_SPI_SYNC_DELTA |
+                          REFMEM_APP_IP_TDMA_SCHEDULER) : 0u,
+            1000u,
             REFMEM_VECTOR_REGION_SYSTEM, REFMEM_VECTOR_REGION_STATS,
             0u, 0u, 0u, 0u, 0u, 1u,
         };
@@ -274,6 +285,25 @@ static void append_valid_connection_quality_table(uint8_t *payload, size_t *payl
     }
 }
 
+static void append_valid_tdma_foundation_profile(uint8_t *payload,
+                                                 size_t *payload_size)
+{
+    tdma_foundation_profile_t profile;
+    uint8_t wire[TDMA_FOUNDATION_PROFILE_TABLE_WIRE_SIZE];
+    (void)tdma_foundation_profile_default(&profile,
+                                          11u,
+                                          0u,
+                                          0u,
+                                          TDMA_ADAPTER_PIO_SPI);
+    profile.resource.io_claim_mask = REFMEM_APP_IO_PIO_SPI_SYNC;
+    profile.resource.ip_core_claim_mask = REFMEM_APP_IP_PIO_SPI_SYNC_DELTA |
+                                          REFMEM_APP_IP_TDMA_SCHEDULER;
+    profile.profile_crc32 = tdma_foundation_profile_crc32(&profile);
+    (void)tdma_foundation_profile_encode_table(&profile, wire, sizeof(wire));
+    (void)memcpy(&payload[*payload_size], wire, sizeof(wire));
+    *payload_size += sizeof(wire);
+}
+
 static size_t build_test_package(uint8_t *package,
                                  size_t package_capacity,
                                  bool fixed_contract_tables)
@@ -331,6 +361,11 @@ static size_t build_test_package(uint8_t *package,
         } else if (fixed_contract_tables && table_id == REFMEM_APP_TABLE_CONNECTION_QUALITY) {
             const size_t before = payload_size;
             append_valid_connection_quality_table(payload, &payload_size);
+            table_size[table_id] = (uint32_t)(payload_size - before);
+        } else if (fixed_contract_tables &&
+                   table_id == REFMEM_APP_TABLE_TDMA_FOUNDATION_PROFILE) {
+            const size_t before = payload_size;
+            append_valid_tdma_foundation_profile(payload, &payload_size);
             table_size[table_id] = (uint32_t)(payload_size - before);
         } else {
             table_size[table_id] = 64u;
@@ -918,6 +953,8 @@ static int test_application_model_applies_active_table_views(void)
         refmem_application_model_get_board_capability_table();
     const refmem_fb_instance_table_t *instances =
         refmem_application_model_get_fb_instance_table();
+    const tdma_foundation_profile_t *tdma =
+        refmem_application_model_get_tdma_foundation_profile();
     failed += expect_u32("application snapshot package crc",
                          snapshot->package_crc32,
                          validation.package_crc32);
@@ -930,6 +967,16 @@ static int test_application_model_applies_active_table_views(void)
     failed += expect_u32("active fb table parsed from wire",
                          instances->instance[1].domain,
                          REFMEM_APP_DOMAIN_SYSTEM);
+    failed += expect_u32("active tdma profile table crc",
+                         snapshot->tdma_foundation_profile_table_crc32,
+                         validation.table_crc32[
+                             REFMEM_APP_TABLE_TDMA_FOUNDATION_PROFILE]);
+    failed += expect_u32("active tdma owner from package",
+                         tdma->owner_instance_id,
+                         11u);
+    failed += expect_u32("active tdma adapter from package",
+                         tdma->resource.adapter_type,
+                         TDMA_ADAPTER_PIO_SPI);
     return failed;
 }
 
@@ -961,13 +1008,23 @@ static int test_application_model_prepares_staging_before_commit(void)
                           refmem_application_model_prepare_staging_table_views(),
                           true);
 
+    tdma_foundation_profile_t prepared_tdma;
+    failed += expect_bool("prepared tdma profile is readable",
+                          refmem_application_model_get_prepared_tdma_foundation_profile(
+                              &prepared_tdma),
+                          true);
+    failed += expect_u32("prepared tdma owner",
+                         prepared_tdma.owner_instance_id,
+                         11u);
+
     const refmem_board_capability_table_t *boards_before =
         refmem_application_model_get_board_capability_table();
     failed += expect_u32("prepare does not change active getter",
                          boards_before->board[0].io_constraint_mask,
-                         REFMEM_APP_IO_SMA_IN |
-                             REFMEM_APP_IO_SMA_OUT |
-                             REFMEM_APP_IO_RJ45_SYNC);
+                          REFMEM_APP_IO_SMA_IN |
+                              REFMEM_APP_IO_SMA_OUT |
+                              REFMEM_APP_IO_RJ45_SYNC |
+                              REFMEM_APP_IO_PIO_SPI_SYNC);
 
     failed += expect_bool("activate after staging prepare",
                           refmem_table_registry_activate_staging(&gate),
@@ -988,6 +1045,10 @@ static int test_application_model_prepares_staging_before_commit(void)
                          REFMEM_APP_IO_PIO_SPI_SYNC);
     failed += expect_bool("prepared commit is single-use",
                           refmem_application_model_commit_prepared_table_views(),
+                          false);
+    failed += expect_bool("prepared tdma profile invalid after commit",
+                          refmem_application_model_get_prepared_tdma_foundation_profile(
+                              &prepared_tdma),
                           false);
     return failed;
 }

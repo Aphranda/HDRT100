@@ -19,6 +19,11 @@ except ImportError as exc:  # pragma: no cover - bench dependency
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from tools.refmem_table_image import refmem_table_image
+
+TABLE_COUNT = refmem_table_image.TABLE_COUNT
 
 
 @dataclass
@@ -256,7 +261,7 @@ def expect_command_sd_load_done(response: str) -> None:
         "command_type": fields[7] == 16,
         "command_class": fields[8] == 1,
         "payload_kind": fields[9] == 4,
-        "payload_size": fields[11] == 76,
+        "payload_size": fields[11] == (10 + TABLE_COUNT) * 4,
         "taken": fields[17] == target_mask,
         "terminal": terminal_mask_ok,
     }
@@ -283,11 +288,11 @@ def expect_table_response(response: str, *, table_id: str, min_staging_mask: int
     fields = parse_csv_response(response)
     if len(fields) != 18:
         raise AssertionError(f"field_count={len(fields)} expected=18")
-    if fields[0] != "1" or fields[1] != "9":
+    if fields[0] != "1" or fields[1] != str(TABLE_COUNT):
         raise AssertionError(f"unexpected registry header: {fields[0:2]}")
     if fields[6] != table_id:
         raise AssertionError(f"unexpected table id: {fields[6]}")
-    if int(fields[2], 0) != 0x1FF:
+    if int(fields[2], 0) != (1 << TABLE_COUNT) - 1:
         raise AssertionError(f"active mask is not complete: {fields[2]}")
     if int(fields[3], 0) < min_staging_mask:
         raise AssertionError(f"staging mask too small: {fields[3]} < {min_staging_mask}")

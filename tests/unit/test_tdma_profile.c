@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 
 static int expect_u32(const char *name, uint32_t actual, uint32_t expected)
 {
@@ -160,6 +161,75 @@ static int test_non_pio_adapter_does_not_claim_state_machines(void)
     return failed;
 }
 
+static int test_foundation_profile_wire_roundtrip(void)
+{
+    int failed = 0;
+    uint8_t wire[TDMA_FOUNDATION_PROFILE_TABLE_WIRE_SIZE];
+    tdma_foundation_profile_t source;
+    tdma_foundation_profile_t decoded;
+    tdma_profile_result_t result = TDMA_PROFILE_BAD_ARGUMENT;
+
+    (void)tdma_foundation_profile_default(&source, 11u, 0u, 0u,
+                                          TDMA_ADAPTER_PIO_SPI);
+    source.resource.io_claim_mask = 0x40u;
+    source.resource.ip_core_claim_mask = 0xC0u;
+    source.profile_crc32 = tdma_foundation_profile_crc32(&source);
+    failed += expect_bool("wire encode",
+                          tdma_foundation_profile_encode_table(&source,
+                                                               wire,
+                                                               sizeof(wire)),
+                          true);
+    failed += expect_bool("wire decode",
+                          tdma_foundation_profile_decode_table(wire,
+                                                               sizeof(wire),
+                                                               &decoded,
+                                                               &result),
+                          true);
+    failed += expect_u32("wire owner", decoded.owner_instance_id, 11u);
+    failed += expect_u32("wire profile crc", decoded.profile_crc32,
+                         source.profile_crc32);
+    failed += expect_bool("wire exact profile",
+                          memcmp(&source, &decoded, sizeof(source)) == 0,
+                          true);
+
+    wire[12] ^= 1u;
+    failed += expect_bool("wire crc rejection",
+                          tdma_foundation_profile_decode_table(wire,
+                                                               sizeof(wire),
+                                                               &decoded,
+                                                               &result),
+                          false);
+    return failed;
+}
+
+static int test_foundation_profile_rejects_budget_overcommit(void)
+{
+    int failed = 0;
+    tdma_foundation_profile_t profile;
+    tdma_profile_result_t result = TDMA_PROFILE_OK;
+
+    (void)tdma_foundation_profile_default(&profile, 11u, 0u, 0u,
+                                          TDMA_ADAPTER_PIO_SPI);
+    profile.resource.cycle_capacity_bytes = 900u;
+    profile.profile_crc32 = tdma_foundation_profile_crc32(&profile);
+    failed += expect_bool("cycle budget overcommit",
+                          tdma_foundation_profile_validate(&profile, &result),
+                          false);
+    failed += expect_u32("cycle budget result", result,
+                         TDMA_PROFILE_CAPACITY_INVALID);
+
+    (void)tdma_foundation_profile_default(&profile, 11u, 0u, 0u,
+                                          TDMA_ADAPTER_PIO_SPI);
+    profile.resource.queue_memory_capacity_bytes = 4096u;
+    profile.profile_crc32 = tdma_foundation_profile_crc32(&profile);
+    failed += expect_bool("queue memory overcommit",
+                          tdma_foundation_profile_validate(&profile, &result),
+                          false);
+    failed += expect_u32("queue memory result", result,
+                         TDMA_PROFILE_CAPACITY_INVALID);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -167,6 +237,8 @@ int main(void)
     failed += test_ring_rejects_direction_and_topology_conflicts();
     failed += test_foundation_rejects_resource_and_payload_conflicts();
     failed += test_non_pio_adapter_does_not_claim_state_machines();
+    failed += test_foundation_profile_wire_roundtrip();
+    failed += test_foundation_profile_rejects_budget_overcommit();
 
     if (failed != 0) {
         (void)printf("tdma_profile tests failed: %d\n", failed);

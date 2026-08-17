@@ -30,6 +30,10 @@ EVENT_LINK_COUNT = refmem_table_image.EVENT_LINK_COUNT
 DATA_LINK_COUNT = refmem_table_image.DATA_LINK_COUNT
 DEPLOYMENT_CHECK_COUNT = refmem_table_image.DEPLOYMENT_CHECK_COUNT
 QUALITY_COUNT = refmem_table_image.QUALITY_COUNT
+TDMA_FOUNDATION_PROFILE_WIRE_WORDS = (
+    refmem_table_image.TDMA_FOUNDATION_PROFILE_WIRE_WORDS
+)
+TDMA_PROFILE_TABLE_COUNT = refmem_table_image.TDMA_PROFILE_TABLE_COUNT
 crc32 = refmem_table_image.crc32
 build_package = refmem_table_image.build_package
 

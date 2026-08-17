@@ -10,7 +10,7 @@ from dataclasses import dataclass
 MAGIC = b"RMTP"
 FORMAT_VERSION = 1
 HEADER_SIZE = 64
-TABLE_COUNT = 9
+TABLE_COUNT = 10
 TABLE_NAMES = (
     "ApplicationMap",
     "BoardCapability",
@@ -21,6 +21,7 @@ TABLE_NAMES = (
     "DataLink",
     "DeploymentGate",
     "ConnectionQuality",
+    "TdmaFoundationProfile",
 )
 
 NODE_COUNT = 8
@@ -61,6 +62,7 @@ IO_RJ45_SYNC = 0x00000004
 IO_LINK_CONTROL = 0x00000008
 IO_BISS_C = 0x00000010
 IO_UART_RS485 = 0x00000020
+IO_PIO_SPI_SYNC = 0x00000040
 
 IP_PULSE_CAPTURE = 0x00000001
 IP_PULSE_FIRE = 0x00000002
@@ -195,6 +197,14 @@ REGION_GATEWAY = 13
 REGION_SERVICE = 14
 REGION_TLV = 15
 
+TDMA_PROFILE_TABLE_VERSION = 1
+TDMA_PROFILE_TABLE_COUNT = 1
+TDMA_FOUNDATION_PROFILE_WIRE_WORDS = 71
+TDMA_ADAPTER_PIO_SPI = 1
+TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN = 0x00000001
+TDMA_RESOURCE_UNUSED = 0xFFFFFFFF
+TDMA_PAYLOAD_MASK = 0x000000FE
+
 
 @dataclass(frozen=True)
 class TableEntry:
@@ -206,6 +216,15 @@ class TableEntry:
 
 def crc32(data: bytes) -> int:
     return binascii.crc32(data) & 0xFFFFFFFF
+
+
+def _fnv1a_u32(values: tuple[int, ...] | list[int]) -> int:
+    value = 2166136261
+    for item in values:
+        for shift in range(0, 32, 8):
+            value ^= (item >> shift) & 0xFF
+            value = (value * 16777619) & 0xFFFFFFFF
+    return value
 
 
 def _pack_u32_table(version: int,
@@ -238,9 +257,9 @@ def build_board_capability_payload() -> bytes:
     rows = [
         (0, 0xB0000000, CAP_BASELINE | CAP_PIO | CAP_DMA | CAP_RJ45 |
          CAP_CORE1_RT | CAP_SMA_IN | CAP_SMA_OUT,
-         IO_SMA_IN | IO_SMA_OUT | IO_RJ45_SYNC,
+         IO_SMA_IN | IO_SMA_OUT | IO_RJ45_SYNC | IO_PIO_SPI_SYNC,
          IP_PULSE_CAPTURE | IP_PULSE_FIRE | IP_RJ45_SYNC_DELTA |
-         IP_VDC_DPLL | IP_TDMA_SCHEDULER,
+         IP_VDC_DPLL | IP_PIO_SPI_SYNC_DELTA | IP_TDMA_SCHEDULER,
          PERSONA_TRIGGER_MASTER, 0, 0, 1),
         (1, 0xB0000001, CAP_BASELINE | CAP_PIO | CAP_DMA | CAP_RJ45 |
          CAP_CORE1_RT | CAP_SMA_IN | CAP_SMA_OUT,
@@ -378,7 +397,7 @@ def build_fb_instance_payload() -> bytes:
          0x00000080, IP_PULSE_FIRE, 500, REGION_IO, REGION_STATS, 0, 0, 0, 0, 8, 1),
         (11, 0, DOMAIN_TDMA, FB_TDMA_SCHEDULER, FB_TDMA_SCHEDULER,
          _hash_text("Foundation.TdmaSchedulerAO"), 1, 1, 0x00000198,
-         IO_RJ45_SYNC, IP_TDMA_SCHEDULER, 100,
+         IO_PIO_SPI_SYNC, IP_PIO_SPI_SYNC_DELTA | IP_TDMA_SCHEDULER, 100,
          REGION_SERVICE, REGION_STATS, 0, 0, 0, 0, 9, 1),
     ]
     return _pack_u32_table(FORMAT_VERSION, FB_INSTANCE_COUNT, rows, FB_INSTANCE_COUNT)
@@ -493,6 +512,57 @@ def build_connection_quality_payload() -> bytes:
     return bytes(payload)
 
 
+def build_tdma_foundation_profile_payload() -> bytes:
+    ring = [
+        1,
+        TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN,
+        NODE_COUNT,
+        0,
+        0,
+        1,
+        2,
+        NODE_COUNT - 1,
+        1,
+        0,
+    ]
+    ring_crc = _fnv1a_u32(ring)
+    resource = [
+        TDMA_ADAPTER_PIO_SPI,
+        0,
+        0,
+        1,
+        0,
+        1,
+        1,
+        IO_PIO_SPI_SYNC,
+        IP_PIO_SPI_SYNC_DELTA | IP_TDMA_SCHEDULER,
+        292,
+        1024,
+        TDMA_PAYLOAD_MASK,
+        1_000_000,
+        1024,
+        128,
+        32768,
+    ]
+    traffic = [
+        (0, (1 << 1) | (1 << 4), 128, 2, 4, 10_000, 0x03, 0),
+        (1, (1 << 2) | (1 << 3), 584, 2, 8, 1_000_000, 0x07, 1),
+        (2, 1 << 6, 128, 1, 4, 100_000_000, 0x1C, 1),
+        (3, 1 << 5, 0, 1, 4, 0, 0x1C, 1),
+        (4, 1 << 7, 0, 1, 8, 0, 0x18, 2),
+    ]
+    traffic_words = [item for row in traffic for item in row]
+    profile_crc = _fnv1a_u32([1, 1, 11, ring_crc, *resource, *traffic_words])
+    profile = [1, 1, 11, *ring, ring_crc, *resource, *traffic_words, profile_crc]
+    assert len(profile) == TDMA_FOUNDATION_PROFILE_WIRE_WORDS
+    return struct.pack(
+        "<" + "I" * (2 + len(profile)),
+        TDMA_PROFILE_TABLE_VERSION,
+        TDMA_PROFILE_TABLE_COUNT,
+        *profile,
+    )
+
+
 def build_table_payload(table_id: int, name: str) -> bytes:
     if table_id == 0:
         return build_application_map_payload()
@@ -512,6 +582,8 @@ def build_table_payload(table_id: int, name: str) -> bytes:
         return build_deployment_gate_payload()
     if table_id == 8:
         return build_connection_quality_payload()
+    if table_id == 9:
+        return build_tdma_foundation_profile_payload()
     raise ValueError(f"unknown RefMem table {table_id}: {name}")
 
 

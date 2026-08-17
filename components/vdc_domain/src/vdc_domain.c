@@ -1819,6 +1819,7 @@ bool vdc_domain_plan_tdma_ring(const vdc_tdma_schedule_profile_t *profile,
     plan->ring_flags = profile->ring_binding.flags;
     plan->ring_profile_crc32 = profile->ring_binding.profile_crc32;
     plan->schedule_crc32 = profile->schedule_crc32;
+    plan->cycle_period_ns = profile->period_ns;
     return true;
 }
 

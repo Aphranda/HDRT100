@@ -230,6 +230,7 @@ set(PROJECT_APP_SOURCES
         components/sync_io/src/sync_io_mode_seq_step.c
         components/tdma/src/tdma_service.c
         components/tdma/src/tdma_profile.c
+        components/tdma/src/tdma_payload_registry.c
         components/ui_manager/src/status_ui.c
         components/ui_manager/src/ui_manager.c
         components/vdc_domain/src/vdc_domain.c

@@ -134,6 +134,31 @@ typedef struct {
     uint32_t core1_done_time_ns_lo;
     uint32_t core1_done_time_ns_hi;
     uint32_t core1_elapsed_ns;
+    uint32_t foundation_profile_crc32;
+    uint32_t foundation_owner_instance_id;
+    uint32_t adapter_type;
+    uint32_t payload_whitelist_mask;
+    uint32_t ring_enabled;
+    uint32_t ring_config_seq;
+    uint32_t ring_node_count;
+    uint32_t ring_local_slot_id;
+    uint32_t ring_reference_slot_id;
+    uint32_t ring_up_group_id;
+    uint32_t ring_down_group_id;
+    uint32_t ring_profile_crc32;
+    uint32_t ring_schedule_crc32;
+    uint32_t ring_up_running;
+    uint32_t ring_down_running;
+    uint32_t ring_seq;
+    uint32_t ring_last_error;
+    uint32_t simultaneous_feedback_loop_evidence;
+    uint32_t payload_registry_config_seq;
+    uint32_t payload_registry_registration_seq;
+    uint32_t payload_registry_used_count;
+    uint32_t payload_registry_admitted_count;
+    uint32_t payload_registry_reject_count;
+    uint32_t payload_registry_last_result;
+    uint32_t payload_registry_last_payload_class;
 } refmem_realtime_tdma_snapshot_t;
 
 typedef struct {
@@ -164,6 +189,10 @@ bool refmem_realtime_tdma_init(refmem_realtime_tdma_service_t *service);
 bool refmem_realtime_tdma_bind_ops(refmem_realtime_tdma_service_t *service,
                                    const refmem_realtime_tdma_ops_t *ops,
                                    void *ops_context);
+bool refmem_realtime_tdma_configure_foundation_profile(
+    refmem_realtime_tdma_service_t *service,
+    const tdma_foundation_profile_t *profile,
+    uint32_t schedule_crc32);
 bool refmem_realtime_tdma_submit_tx(
     refmem_realtime_tdma_service_t *service,
     const refmem_realtime_tdma_intent_config_t *config);

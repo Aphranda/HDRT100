@@ -2,14 +2,20 @@
 #define TDMA_PROFILE_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define TDMA_RING_PROFILE_VERSION 1u
 #define TDMA_FOUNDATION_PROFILE_VERSION 1u
+#define TDMA_FOUNDATION_PROFILE_TABLE_VERSION 1u
 #define TDMA_RING_NODE_MAX 8u
 #define TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN 0x00000001u
 #define TDMA_TRAFFIC_CLASS_COUNT 5u
 #define TDMA_RESOURCE_ID_UNUSED UINT32_MAX
+#define TDMA_FOUNDATION_PROFILE_TABLE_COUNT 1u
+#define TDMA_FOUNDATION_PROFILE_WIRE_WORDS 71u
+#define TDMA_FOUNDATION_PROFILE_TABLE_WIRE_SIZE \
+    ((2u + TDMA_FOUNDATION_PROFILE_WIRE_WORDS) * sizeof(uint32_t))
 
 #define TDMA_PAYLOAD_BIT(payload_class) (1u << (payload_class))
 #define TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE 1u
@@ -110,6 +116,10 @@ typedef struct {
     uint32_t short_frame_capacity;
     uint32_t long_frame_capacity;
     uint32_t payload_whitelist_mask;
+    uint32_t cycle_period_ns;
+    uint32_t cycle_capacity_bytes;
+    uint32_t guard_band_bytes;
+    uint32_t queue_memory_capacity_bytes;
     tdma_traffic_class_profile_t traffic[TDMA_TRAFFIC_CLASS_COUNT];
 } tdma_resource_profile_t;
 
@@ -138,5 +148,12 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
                                      uint32_t adapter_type);
 bool tdma_foundation_profile_validate(const tdma_foundation_profile_t *profile,
                                       tdma_profile_result_t *result);
+bool tdma_foundation_profile_encode_table(const tdma_foundation_profile_t *profile,
+                                          uint8_t *data,
+                                          size_t size);
+bool tdma_foundation_profile_decode_table(const uint8_t *data,
+                                          size_t size,
+                                          tdma_foundation_profile_t *profile,
+                                          tdma_profile_result_t *result);
 
 #endif

@@ -172,14 +172,54 @@ TDMA Foundation 吸收 TSN 的确定性资源治理思想，但不绑定 IEEE 80
 - `owner_instance_id` 唯一标识 `TdmaSchedulerAO / TdmaRuntimeFB` owner。
 - `ring` 冻结节点顺序、reference、UP/DOWN group 和 topology CRC。
 - `resource` 冻结 adapter、PIO block、两组 SM、TX/RX DMA、core1 service、IO/IP claim、short/long frame capacity 和 payload whitelist。
+- `resource` 同时冻结 `cycle_period_ns`、周期容量、guard band 和 queue RAM 总容量，使资源门禁不依赖运行期猜测。
 - `traffic[]` 冻结逐类 payload mask、每周期预留字节、每周期最大帧数、队列深度、deadline、gate/shaping/preemption 标志和 overflow policy。
 - 所有 payload 必须且只能归入一个 traffic class；未登记 payload 在 registry admission 阶段拒绝。
+
+`TdmaFoundationProfile` 已作为 RMTP/System Pack 的第 10 张正式表：
+
+```text
+table id       : 9
+table name     : TdmaFoundationProfile
+wire format    : fixed u32 little-endian
+row count      : 1
+row words      : 71
+table lifecycle: staging -> CRC -> owner/resource gate -> active -> rollbackable
+table owner    : TDMA AO
+```
+
+不能直接序列化编译器 C struct。编码器和解码器必须逐字段处理，保证 RP2350、后续 MCU/SoC 和 host System Pack 工具得到相同布局与 CRC。
+
+### 激活事务
+
+第 10 张表不是只供诊断读取的配置副本。它和其余九张 RMTP 表共同参与以下事务：
+
+```text
+System Pack / SCPI staging
+  -> 10-table CRC + owner/resource validation
+  -> prepare candidate table views
+  -> TDMA profile 与当前 VDC ring/schedule/cycle 交叉门禁
+  -> TableRegistry active/rollbackable 切换
+  -> application model commit
+  -> TDMA owner 配置公共 runtime
+  -> maintenance snapshot 发布 profile/ring evidence
+```
+
+激活约束：
+
+- candidate profile 必须与当前 VDC ring 的 node count、local/reference、upstream/downstream、feedback、ring flags 和 topology CRC 一致。
+- `cycle_period_ns` 必须与 VDC schedule 周期一致；TDMA runtime 记录同一 `schedule_crc32`，不能自行生成另一个时间表。
+- profile、VDC schedule 或 runtime capacity 任一不一致时，激活以 `RUNTIME_PROFILE` 原因拒绝，active runtime 不接受候选配置。
+- 固件启动时内置 factory profile 也通过同一交叉门禁装入 runtime；它只是无 System Pack 时的受控默认值。
+- `SYSTem:REFMEM:SYNC:TDMA:STATus?` 仅作为维护投影，在既有字段后追加 profile CRC、owner、adapter、whitelist、ring config/runtime 和 feedback evidence，不驱动窗口续期。
 
 资源与流控规则：
 
 - VDC/RefMem 使用 time-aware gate 和 guard band；OTA/配置/LOG 不得通过动态优先级反转进入这些窗口。
 - core1 只推进已准入队列和 gate，不等待 producer；背压通过 command/vector evidence 返回对应 AO/FB。
 - System Pack 激活前必须检查所有 class 的总预算、adapter MTU、窗口容量、DMA/SM/IO claim 和 queue RAM 水位；超配直接由 DeploymentGate 拒绝。
+- profile owner 必须唯一对应一个已加载的 `TdmaSchedulerAO`；owner 的 NodeLoad、SlotClaim、RealtimeCapabilityContract、IO/IP claim 和 adapter 资源必须一致。
+- TDMA communication adapter IO 只能由 TDMA owner 占用；业务 AO/FB 通过 payload/intent 使用 TDMA，不得重复声明物理 ring IO。
 - 可借鉴 TSN policing：逐流统计 late、deadline miss、drop、retry、backpressure 和 budget overrun，并写 `TdmaQualityVector`。
 - 多路径或多环冗余后续可借鉴 FRER 的 sequence/duplicate elimination，但首版两板单环不引入无证据的冗余成功状态。
 - RefMem 后续应按 region/slot criticality 拆分 critical delta 与 background delta；首版 `REFMEM_REALTIME` 先承载 delta/ACK/fence，运行测得水位后再细分，不能默认所有 64 KB 事实都占用硬预留带宽。
@@ -202,17 +242,19 @@ TDMA Foundation 吸收 TSN 的确定性资源治理思想，但不绑定 IEEE 80
 components/tdma/
   inc/tdma_profile.h
   inc/tdma_service.h
+  inc/tdma_payload_registry.h
   inc/tdma_ring_runtime.h        # 后续可拆
-  inc/tdma_payload_registry.h    # 后续可拆
   src/tdma_profile.c
   src/tdma_service.c
+  src/tdma_payload_registry.c
   src/tdma_ring_runtime.c        # 后续可拆
-  src/tdma_payload_registry.c    # 后续可拆
 ```
 
 过渡规则：
 
-- 首版可以继续保留 `tdma_service.h/.c` 单体，但公开 snapshot 必须表达 ring runtime 和 payload registry 边界。
+- `TdmaPayloadRegistry` 已从 `tdma_service.c` 拆出；`tdma_service` 保留聚合 API，并委托注册、whitelist、capacity 和 admission。
+- registry snapshot 发布 config seq、registration seq、used、admitted、reject、last result 和 last payload class，供 DeploymentGate、Diagnostics 和后续 scheduler 查询。
+- ring runtime 暂时仍在 `tdma_service.c`，下一步按相同方式拆出，并保留聚合 API。
 - RefMem 侧 `refmem_realtime_tdma` 只保留兼容 adapter，不再拥有调度器。
 - VDC 侧 `SYSTem:SYNC:VDC:TDMA:*` 只能作为 VDC maintenance projection，不能表示 VDC 拥有 TDMA。
 - 后续新增 TDMA maintenance command 时，应挂载在系统维护命名空间，例如 `SYSTem:TDMA:*`，并保持对外产品业务命令不直接操作 TDMA。

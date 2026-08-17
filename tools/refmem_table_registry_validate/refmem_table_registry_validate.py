@@ -19,12 +19,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from tools.scpi_common.scpi_serial import open_serial_port, read_serial_line_idle
+from tools.refmem_table_image import refmem_table_image
 
 
-MAGIC = b"RMTP"
-FORMAT_VERSION = 1
-HEADER_SIZE = 64
-TABLE_COUNT = 9
+MAGIC = refmem_table_image.MAGIC
+FORMAT_VERSION = refmem_table_image.FORMAT_VERSION
+HEADER_SIZE = refmem_table_image.HEADER_SIZE
+TABLE_COUNT = refmem_table_image.TABLE_COUNT
 TABLE_MASK_ALL = (1 << TABLE_COUNT) - 1
 VALIDATION_OWNER_OK = 3
 VALIDATION_ACTIVE = 4
@@ -34,17 +35,7 @@ TABLE_FLAG_STAGING_PRESENT = 0x00000002
 TABLE_FLAG_CRC_OK = 0x00000004
 TABLE_FLAG_OWNER_OK = 0x00000008
 
-TABLE_NAMES = (
-    "ApplicationMap",
-    "BoardCapability",
-    "GenericNode",
-    "NodeLoad",
-    "FbInstance",
-    "EventLink",
-    "DataLink",
-    "DeploymentGate",
-    "ConnectionQuality",
-)
+TABLE_NAMES = refmem_table_image.TABLE_NAMES
 
 
 @dataclass(frozen=True)
@@ -411,7 +402,11 @@ def run_validation(execute,
     if load_sd:
         run("SYSTem:REFMEM:LOAD:SD", lambda response: check_load_sd_response(response, package), load_timeout_s)
         run("SYSTem:COMMand:ACK?",
-            lambda response: check_command_ack(response, command_type=16, payload_size=76))
+            lambda response: check_command_ack(
+                response,
+                command_type=16,
+                payload_size=(10 + TABLE_COUNT) * 4,
+            ))
 
     run("SYSTem:REFMEM:LOAD:STATus?", lambda response: check_load_status(response, package))
     if activate:

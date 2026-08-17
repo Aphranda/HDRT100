@@ -202,6 +202,35 @@ static void refmem_realtime_tdma_from_service_snapshot(
     target->core1_done_time_ns_lo = source->core1_done_time_ns_lo;
     target->core1_done_time_ns_hi = source->core1_done_time_ns_hi;
     target->core1_elapsed_ns = source->core1_elapsed_ns;
+    target->foundation_profile_crc32 = source->foundation_profile_crc32;
+    target->foundation_owner_instance_id = source->foundation_owner_instance_id;
+    target->adapter_type = source->adapter_type;
+    target->payload_whitelist_mask = source->payload_whitelist_mask;
+    target->ring_enabled = source->ring_enabled;
+    target->ring_config_seq = source->ring_config_seq;
+    target->ring_node_count = source->ring_node_count;
+    target->ring_local_slot_id = source->ring_local_slot_id;
+    target->ring_reference_slot_id = source->ring_reference_slot_id;
+    target->ring_up_group_id = source->ring_up_group_id;
+    target->ring_down_group_id = source->ring_down_group_id;
+    target->ring_profile_crc32 = source->ring_profile_crc32;
+    target->ring_schedule_crc32 = source->ring_schedule_crc32;
+    target->ring_up_running = source->ring_up_running;
+    target->ring_down_running = source->ring_down_running;
+    target->ring_seq = source->ring_seq;
+    target->ring_last_error = source->ring_last_error;
+    target->simultaneous_feedback_loop_evidence =
+        source->simultaneous_feedback_loop_evidence;
+    target->payload_registry_config_seq = source->payload_registry_config_seq;
+    target->payload_registry_registration_seq =
+        source->payload_registry_registration_seq;
+    target->payload_registry_used_count = source->payload_registry_used_count;
+    target->payload_registry_admitted_count =
+        source->payload_registry_admitted_count;
+    target->payload_registry_reject_count = source->payload_registry_reject_count;
+    target->payload_registry_last_result = source->payload_registry_last_result;
+    target->payload_registry_last_payload_class =
+        source->payload_registry_last_payload_class;
 }
 
 bool refmem_realtime_tdma_init(refmem_realtime_tdma_service_t *service)
@@ -231,6 +260,17 @@ bool refmem_realtime_tdma_bind_ops(refmem_realtime_tdma_service_t *service,
     return tdma_service_bind_ops(&service->scheduler,
                                  &s_refmem_realtime_tdma_bridge_ops,
                                  service);
+}
+
+bool refmem_realtime_tdma_configure_foundation_profile(
+    refmem_realtime_tdma_service_t *service,
+    const tdma_foundation_profile_t *profile,
+    uint32_t schedule_crc32)
+{
+    return service != NULL &&
+           tdma_service_configure_foundation_profile(&service->scheduler,
+                                                     profile,
+                                                     schedule_crc32);
 }
 
 bool refmem_realtime_tdma_submit_tx(

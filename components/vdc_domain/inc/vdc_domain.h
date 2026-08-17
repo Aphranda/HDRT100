@@ -266,6 +266,7 @@ typedef struct {
     uint32_t ring_flags;
     uint32_t ring_profile_crc32;
     uint32_t schedule_crc32;
+    uint32_t cycle_period_ns;
 } vdc_tdma_ring_plan_t;
 
 typedef struct {

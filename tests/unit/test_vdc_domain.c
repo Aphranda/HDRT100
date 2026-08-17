@@ -364,6 +364,9 @@ static int test_tdma_ring_plan_contract(void)
     failed += expect_u32("ring plan node count",
                          plan.ring_node_count,
                          VDC_DOMAIN_NODE_COUNT);
+    failed += expect_u32("ring plan cycle period",
+                         plan.cycle_period_ns,
+                         schedule.period_ns);
     failed += expect_u32("ring plan local", plan.local_slot_id, 2u);
     failed += expect_u32("ring plan reference", plan.reference_slot_id, 0u);
     failed += expect_u32("ring plan upstream", plan.upstream_slot_id, 1u);

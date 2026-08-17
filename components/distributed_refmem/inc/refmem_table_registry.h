@@ -8,7 +8,7 @@
 #include "refmem_application_model.h"
 
 #define REFMEM_TABLE_REGISTRY_VERSION 1u
-#define REFMEM_TABLE_REGISTRY_COUNT   9u
+#define REFMEM_TABLE_REGISTRY_COUNT   10u
 #define REFMEM_TABLE_IMAGE_BUFFER_SIZE 8192u
 
 #define REFMEM_TABLE_FLAG_ACTIVE_PRESENT  0x00000001u
@@ -40,6 +40,7 @@ typedef enum {
     REFMEM_TABLE_OWNER_VDC_AO = 2u,
     REFMEM_TABLE_OWNER_TRIGGER_AO = 3u,
     REFMEM_TABLE_OWNER_GATEWAY_AO = 4u,
+    REFMEM_TABLE_OWNER_TDMA_AO = 5u,
 } refmem_table_owner_t;
 
 typedef enum {
@@ -67,6 +68,7 @@ typedef enum {
     REFMEM_TABLE_ACTIVATE_ERR_IMAGE_TOO_LARGE = 5u,
     REFMEM_TABLE_ACTIVATE_ERR_IMAGE_BUSY = 6u,
     REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID = 7u,
+    REFMEM_TABLE_ACTIVATE_ERR_RUNTIME_PROFILE = 8u,
 } refmem_table_activation_result_t;
 
 typedef struct {

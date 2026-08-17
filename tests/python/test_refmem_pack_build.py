@@ -37,6 +37,7 @@ def test_refmem_package_table_entries_match_payloads() -> None:
         6: 8 + refmem_pack_build.DATA_LINK_COUNT * 15 * 4,
         7: 8 + refmem_pack_build.DEPLOYMENT_CHECK_COUNT * 9 * 4,
         8: 8 + refmem_pack_build.QUALITY_COUNT * 16 * 4,
+        9: (2 + refmem_pack_build.TDMA_FOUNDATION_PROFILE_WIRE_WORDS) * 4,
     }
     expected_counts = {
         1: refmem_pack_build.NODE_COUNT,
@@ -47,6 +48,7 @@ def test_refmem_package_table_entries_match_payloads() -> None:
         6: refmem_pack_build.DATA_LINK_COUNT,
         7: refmem_pack_build.DEPLOYMENT_CHECK_COUNT,
         8: refmem_pack_build.QUALITY_COUNT,
+        9: refmem_pack_build.TDMA_PROFILE_TABLE_COUNT,
     }
 
     for index, entry in enumerate(entries):

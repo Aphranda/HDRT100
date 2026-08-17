@@ -207,28 +207,16 @@ static bool tdma_service_has_pending(const tdma_service_service_t *service)
 }
 
 static bool tdma_service_payload_registered(
-    const tdma_service_service_t *service,
+    tdma_service_service_t *service,
     uint32_t frame_class,
     uint32_t payload_class,
     size_t frame_size)
 {
-    if (service == NULL ||
-        payload_class == TDMA_SERVICE_PAYLOAD_CLASS_NONE ||
-        (frame_class != TDMA_SERVICE_FRAME_CLASS_SHORT &&
-         frame_class != TDMA_SERVICE_FRAME_CLASS_LONG)) {
-        return false;
-    }
-
-    for (uint32_t i = 0u; i < TDMA_SERVICE_PAYLOAD_REGISTRY_COUNT; i++) {
-        const tdma_service_payload_binding_t *binding =
-            &service->payload_binding[i];
-        if (binding->used != 0u &&
-            binding->payload_class == payload_class &&
-            binding->frame_class == frame_class) {
-            return frame_size <= binding->max_payload_size;
-        }
-    }
-    return false;
+    return service != NULL &&
+           tdma_payload_registry_admit(&service->payload_registry,
+                                       frame_class,
+                                       payload_class,
+                                       frame_size);
 }
 
 static bool tdma_service_submit(tdma_service_service_t *service,
@@ -304,6 +292,11 @@ bool tdma_service_init(tdma_service_service_t *service)
     service->state = tdma_service_STATE_IDLE;
     service->owner_core = tdma_service_OWNER_CORE1;
     service->last_result = tdma_service_RESULT_NONE;
+    if (!tdma_payload_registry_init(&service->payload_registry,
+                                    TDMA_SERVICE_SHORT_FRAME_MAX,
+                                    TDMA_SERVICE_LONG_FRAME_MAX)) {
+        return false;
+    }
     tdma_service_set_default_timestamp(service);
     return true;
 }
@@ -325,36 +318,8 @@ bool tdma_service_bind_ops(tdma_service_service_t *service,
 bool tdma_service_register_payload(tdma_service_service_t *service,
                                    const tdma_service_payload_binding_t *binding)
 {
-    if (service == NULL || binding == NULL ||
-        binding->payload_class == TDMA_SERVICE_PAYLOAD_CLASS_NONE ||
-        (binding->frame_class != TDMA_SERVICE_FRAME_CLASS_SHORT &&
-         binding->frame_class != TDMA_SERVICE_FRAME_CLASS_LONG) ||
-        binding->max_payload_size > TDMA_SERVICE_FRAME_MAX) {
-        return false;
-    }
-    if (binding->frame_class == TDMA_SERVICE_FRAME_CLASS_SHORT &&
-        binding->max_payload_size > TDMA_SERVICE_SHORT_FRAME_MAX) {
-        return false;
-    }
-    if (service->payload_whitelist_mask != 0u &&
-        (binding->payload_class >= 32u ||
-         (service->payload_whitelist_mask &
-          TDMA_PAYLOAD_BIT(binding->payload_class)) == 0u)) {
-        return false;
-    }
-
-    for (uint32_t i = 0u; i < TDMA_SERVICE_PAYLOAD_REGISTRY_COUNT; i++) {
-        tdma_service_payload_binding_t *entry = &service->payload_binding[i];
-        if (entry->used == 0u ||
-            (entry->producer_id == binding->producer_id &&
-             entry->consumer_id == binding->consumer_id &&
-             entry->payload_class == binding->payload_class)) {
-            *entry = *binding;
-            entry->used = 1u;
-            return true;
-        }
-    }
-    return false;
+    return service != NULL &&
+           tdma_payload_registry_register(&service->payload_registry, binding);
 }
 
 bool tdma_service_configure_ring_runtime(
@@ -414,6 +379,13 @@ bool tdma_service_configure_foundation_profile(
         profile->resource.short_frame_capacity > TDMA_SERVICE_SHORT_FRAME_MAX ||
         profile->resource.long_frame_capacity > TDMA_SERVICE_LONG_FRAME_MAX ||
         schedule_crc32 == 0u) {
+        return false;
+    }
+    if (!tdma_payload_registry_configure(
+            &service->payload_registry,
+            profile->resource.payload_whitelist_mask,
+            profile->resource.short_frame_capacity,
+            profile->resource.long_frame_capacity)) {
         return false;
     }
 
@@ -819,6 +791,21 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
     } else if (snapshot->completed_seq == snapshot->intent_seq && result_frame_size != 0u) {
         snapshot->frame_size = result_frame_size;
     }
+
+    tdma_payload_registry_snapshot_t registry_snapshot;
+    if (!tdma_payload_registry_get_snapshot(&service->payload_registry,
+                                            &registry_snapshot)) {
+        return false;
+    }
+    snapshot->payload_registry_config_seq = registry_snapshot.config_seq;
+    snapshot->payload_registry_registration_seq =
+        registry_snapshot.registration_seq;
+    snapshot->payload_registry_used_count = registry_snapshot.used_count;
+    snapshot->payload_registry_admitted_count = registry_snapshot.admitted_count;
+    snapshot->payload_registry_reject_count = registry_snapshot.reject_count;
+    snapshot->payload_registry_last_result = registry_snapshot.last_result;
+    snapshot->payload_registry_last_payload_class =
+        registry_snapshot.last_payload_class;
 
     return true;
 }
