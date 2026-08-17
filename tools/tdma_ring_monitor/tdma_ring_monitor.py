@@ -357,7 +357,6 @@ def main() -> int:
         ROOT / "build-rtos-multicore-smoke" /
         f"tdma_ring_monitor_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     out_dir.mkdir(parents=True, exist_ok=True)
-
     with ExitStack() as stack:
         ser_a = stack.enter_context(open_serial_port(args.port_a,
                                                      args.baud,
@@ -434,13 +433,22 @@ def main() -> int:
 
     svg_path = out_dir / SUMMARY_SVG_NAME
     write_svg(svg_path, boards, results, args.duration_s)
+    archive_dir: Path | None = None
     if not args.no_plot_archive:
-        archive = args.plot_archive_dir
-        archive.mkdir(parents=True, exist_ok=True)
-        (archive / SUMMARY_SVG_NAME).write_text(svg_path.read_text(encoding="utf-8"),
+        # Mirror into a stable docs/temp archive, same layout as the VDC
+        # long monitor: docs/temp/vdc_long_monitor/<out_dir.name>/
+        archive_dir = args.plot_archive_dir / out_dir.name
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        (archive_dir / SUMMARY_SVG_NAME).write_text(
+            svg_path.read_text(encoding="utf-8"), encoding="utf-8")
+        (archive_dir / "summary.json").write_text(
+            json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        (archive_dir / "summary.txt").write_text("\n".join(lines) + "\n",
                                                 encoding="utf-8")
 
     print("\n".join(lines))
+    if archive_dir is not None:
+        print(f"plot_archive_dir={archive_dir}")
     print(f"summary: passed={passed} out_dir={out_dir}")
     return 0 if passed else 1
 
