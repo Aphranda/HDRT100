@@ -26,7 +26,10 @@ Last updated: 2026-08-17
 - [x] P0.5-2：ring adapter 首版发布生命周期 evidence：`adapter_started/start_count/stop_count/service_count/last_error`、`up_running/down_running`、idle beacon TX/RX 计数和 timestamp source/resolution/flags。
   - 完成：adapter 经 `tdma_ring_adapter_status_t` 发布上述字段并投影到 runtime snapshot；idle beacon 计数与 running 由物理 TX/RX 钩子驱动，未接物理前计数保持 0。
 - [ ] P0.5-3：实现两板同时 UP/DOWN 常驻短帧：空闲时持续发送/接收 `IDLE_BEACON` 或等价 process image short frame，不依赖 host 交替下发 `TX/RX` 维护命令维持窗口。
-  - 进行中：`tdma_pio_spi_phys` 常驻物理层（无 CS 3-wire、25 MHz、downlink master TX + uplink slave RX 双 SM 同时 arm）已实现并由 `tdma_runtime_owner` 经 adapter 注册表接入（`TDMA_ADAPTER_PIO_SPI`）；ring adapter 增加 REFERENCE/FORWARD role（reference 板发新 beacon，其他节点收帧后 `advance_hop` 转发并保持 identity CRC），`set_phys_ctrl`/`set_phys` 连接物理层；host 单测覆盖常驻收发、转发 hop/identity 保持、phys arm/disarm 和 adapter_type 切换（SPI/BISS-C 注册、未注册类型解绑报 `ADAPTER_MISSING`）。两板烧录 HIL 尚未执行。
+  - 进行中：`tdma_pio_spi_phys` 常驻物理层已改为**半双工单环**（每板下行 TX master + 上行 RX slave 两个独立 SM；实测对称接线：每板下行 SCK=24/TX=23、上行 SCK=19/RX=18）。ring adapter 有 REFERENCE/FORWARD role，`set_phys_ctrl`/`set_phys` 连接物理层。
+  - RX 可靠性（2026-08-18）：rx_byte SM 重写为 pico-examples 标准 **autopush 模式**（in_shift autopush threshold=8），根治手动 X 计数器导致的字节边界漂移（坏帧从 ~45% 降到 ~0）；DMA 双缓冲捕获 + magic 帧头扫描对齐（EtherCAT 式帧头锁定）；`SYSTem:SYNC:VDC:TDMA:PHYS?` 暴露 rx_bad/busy/magic_fail/magic 对齐分布诊断。
+  - 发送（2026-08-18）：TSN 式确定性发送（每 TDMA cycle 固定相位发 beacon，替代 now-last 节流——后者因 sleep_until 提前唤醒跳过 ~40% tick）；当前**每 2 cycle 发一帧（~500 Hz）**：两板 core1 tick 自由运行导致 1 kHz 时接收查询与帧速率相等、性能随相位在 23%~92% 波动；500 Hz 时查询有 2 倍余量，环稳定 ~74% 好帧且 rx_bad≈0。**1 kHz 满速需要共享时基（P0.5-5 硬件 timestamp/DPLL）**。
+  - OTA 安全（2026-08-18）：core1 在 OTA 会话期间跳过 TDMA service（`ota_ao_is_active`），flash lockout poll 保持紧凑，两板 OTA 稳定 PASS。两板烧录 HIL 常驻验证已跑（`tdma_ring_monitor/ring_rate_measure.py`）。
 - [ ] P0.5-4：冻结并验证最小 feedback correlation：reference TX sequence、feedback RX sequence、identity CRC、schedule CRC、reference TX timestamp、feedback RX timestamp、round trip 和 timeout 必须来自同一圈 ring。
   - 进行中：`TdmaRingRuntime` correlation 逻辑已在，host 回环单测验证 sequence/identity CRC/schedule CRC/round trip 路径成立；物理 timestamp 证据待 P0.5-3 后产生。
 - [ ] P0.5-5：只有当 timestamp 为 `HARDWARE_TICK`、分辨率 `<=100 ns`、带硬件 latch 标志且非 diagnostic-only 时，才允许 `simultaneous_feedback_loop_evidence=1`，并允许 VDC/DPLL 接受该样本。
