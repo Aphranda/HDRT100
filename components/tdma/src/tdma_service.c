@@ -383,6 +383,16 @@ bool tdma_service_configure_ring_runtime(
            tdma_ring_runtime_configure(&service->ring_runtime, config);
 }
 
+bool tdma_service_bind_ring_adapter(tdma_service_service_t *service,
+                                    const tdma_ring_adapter_ops_t *ops,
+                                    void *context)
+{
+    return service != NULL &&
+           tdma_ring_runtime_bind_adapter(&service->ring_runtime,
+                                          ops,
+                                          context);
+}
+
 bool tdma_service_configure_foundation_profile(
     tdma_service_service_t *service,
     const tdma_foundation_profile_t *profile,
@@ -419,6 +429,7 @@ bool tdma_service_configure_foundation_profile(
         .flags = profile->ring.flags,
         .ring_profile_crc32 = profile->ring.profile_crc32,
         .schedule_crc32 = schedule_crc32,
+        .feedback_timeout_ns = profile->resource.cycle_period_ns,
     };
     tdma_service_begin_intent_write(service);
     service->foundation_profile_crc32 = profile->profile_crc32;
@@ -791,6 +802,8 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
         return false;
     }
 
+    memset(snapshot, 0, sizeof(*snapshot));
+
     uint32_t abort_seq;
     while (true) {
         const uint32_t seq_begin = tdma_service_load(&service->intent_guard);
@@ -956,6 +969,29 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
         ring_snapshot.simultaneous_feedback_loop_evidence;
     snapshot->ring_profile_crc32 = ring_snapshot.ring_profile_crc32;
     snapshot->ring_schedule_crc32 = ring_snapshot.schedule_crc32;
+    snapshot->ring_feedback_timeout_ns = ring_snapshot.feedback_timeout_ns;
+    snapshot->ring_adapter_started = ring_snapshot.adapter_started;
+    snapshot->ring_adapter_start_count = ring_snapshot.adapter_start_count;
+    snapshot->ring_adapter_stop_count = ring_snapshot.adapter_stop_count;
+    snapshot->ring_adapter_service_count = ring_snapshot.adapter_service_count;
+    snapshot->ring_adapter_last_error = ring_snapshot.adapter_last_error;
+    snapshot->ring_up_tx_sequence = ring_snapshot.up_tx_sequence;
+    snapshot->ring_down_rx_sequence = ring_snapshot.down_rx_sequence;
+    snapshot->ring_up_tx_frame_crc32 = ring_snapshot.up_tx_frame_crc32;
+    snapshot->ring_down_rx_frame_crc32 = ring_snapshot.down_rx_frame_crc32;
+    snapshot->ring_timestamp_resolution_ns =
+        ring_snapshot.timestamp_resolution_ns;
+    snapshot->ring_timestamp_flags = ring_snapshot.timestamp_flags;
+    snapshot->ring_idle_beacon_tx_count = ring_snapshot.idle_beacon_tx_count;
+    snapshot->ring_idle_beacon_rx_count = ring_snapshot.idle_beacon_rx_count;
+    snapshot->ring_feedback_round_trip_ns =
+        ring_snapshot.feedback_round_trip_ns;
+    tdma_service_split_u64(ring_snapshot.reference_tx_timestamp_ns,
+                           &snapshot->ring_reference_tx_timestamp_ns_lo,
+                           &snapshot->ring_reference_tx_timestamp_ns_hi);
+    tdma_service_split_u64(ring_snapshot.feedback_rx_timestamp_ns,
+                           &snapshot->ring_feedback_rx_timestamp_ns_lo,
+                           &snapshot->ring_feedback_rx_timestamp_ns_hi);
 
     if (service->traffic_scheduler != NULL) {
         tdma_traffic_scheduler_snapshot_t scheduler_snapshot;

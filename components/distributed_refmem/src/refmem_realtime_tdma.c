@@ -240,6 +240,31 @@ static void refmem_realtime_tdma_from_service_snapshot(
     target->ring_last_error = source->ring_last_error;
     target->simultaneous_feedback_loop_evidence =
         source->simultaneous_feedback_loop_evidence;
+    target->ring_feedback_timeout_ns = source->ring_feedback_timeout_ns;
+    target->ring_adapter_started = source->ring_adapter_started;
+    target->ring_adapter_start_count = source->ring_adapter_start_count;
+    target->ring_adapter_stop_count = source->ring_adapter_stop_count;
+    target->ring_adapter_service_count = source->ring_adapter_service_count;
+    target->ring_adapter_last_error = source->ring_adapter_last_error;
+    target->ring_up_tx_sequence = source->ring_up_tx_sequence;
+    target->ring_down_rx_sequence = source->ring_down_rx_sequence;
+    target->ring_up_tx_frame_crc32 = source->ring_up_tx_frame_crc32;
+    target->ring_down_rx_frame_crc32 = source->ring_down_rx_frame_crc32;
+    target->ring_timestamp_resolution_ns =
+        source->ring_timestamp_resolution_ns;
+    target->ring_timestamp_flags = source->ring_timestamp_flags;
+    target->ring_idle_beacon_tx_count = source->ring_idle_beacon_tx_count;
+    target->ring_idle_beacon_rx_count = source->ring_idle_beacon_rx_count;
+    target->ring_feedback_round_trip_ns =
+        source->ring_feedback_round_trip_ns;
+    target->ring_reference_tx_timestamp_ns_lo =
+        source->ring_reference_tx_timestamp_ns_lo;
+    target->ring_reference_tx_timestamp_ns_hi =
+        source->ring_reference_tx_timestamp_ns_hi;
+    target->ring_feedback_rx_timestamp_ns_lo =
+        source->ring_feedback_rx_timestamp_ns_lo;
+    target->ring_feedback_rx_timestamp_ns_hi =
+        source->ring_feedback_rx_timestamp_ns_hi;
     target->payload_registry_config_seq = source->payload_registry_config_seq;
     target->payload_registry_registration_seq =
         source->payload_registry_registration_seq;

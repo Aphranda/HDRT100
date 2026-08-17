@@ -1836,6 +1836,25 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
         SCPI_ResultUInt32(context,
                           snapshot.traffic_scheduler_completed_seq[i]);
     }
+    SCPI_ResultUInt32(context, snapshot.ring_feedback_timeout_ns);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_started);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_start_count);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_stop_count);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_service_count);
+    SCPI_ResultUInt32(context, snapshot.ring_up_tx_sequence);
+    SCPI_ResultUInt32(context, snapshot.ring_down_rx_sequence);
+    SCPI_ResultUInt32(context, snapshot.ring_up_tx_frame_crc32);
+    SCPI_ResultUInt32(context, snapshot.ring_down_rx_frame_crc32);
+    SCPI_ResultUInt32(context, snapshot.ring_timestamp_resolution_ns);
+    SCPI_ResultUInt32(context, snapshot.ring_timestamp_flags);
+    SCPI_ResultUInt32(context, snapshot.ring_idle_beacon_tx_count);
+    SCPI_ResultUInt32(context, snapshot.ring_idle_beacon_rx_count);
+    SCPI_ResultUInt32(context, snapshot.ring_feedback_round_trip_ns);
+    SCPI_ResultUInt32(context, snapshot.ring_reference_tx_timestamp_ns_lo);
+    SCPI_ResultUInt32(context, snapshot.ring_reference_tx_timestamp_ns_hi);
+    SCPI_ResultUInt32(context, snapshot.ring_feedback_rx_timestamp_ns_lo);
+    SCPI_ResultUInt32(context, snapshot.ring_feedback_rx_timestamp_ns_hi);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_last_error);
     return SCPI_RES_OK;
 }
 

@@ -205,6 +205,25 @@ typedef struct {
     uint32_t simultaneous_feedback_loop_evidence;
     uint32_t ring_profile_crc32;
     uint32_t ring_schedule_crc32;
+    uint32_t ring_feedback_timeout_ns;
+    uint32_t ring_adapter_started;
+    uint32_t ring_adapter_start_count;
+    uint32_t ring_adapter_stop_count;
+    uint32_t ring_adapter_service_count;
+    uint32_t ring_adapter_last_error;
+    uint32_t ring_up_tx_sequence;
+    uint32_t ring_down_rx_sequence;
+    uint32_t ring_up_tx_frame_crc32;
+    uint32_t ring_down_rx_frame_crc32;
+    uint32_t ring_timestamp_resolution_ns;
+    uint32_t ring_timestamp_flags;
+    uint32_t ring_idle_beacon_tx_count;
+    uint32_t ring_idle_beacon_rx_count;
+    uint32_t ring_feedback_round_trip_ns;
+    uint32_t ring_reference_tx_timestamp_ns_lo;
+    uint32_t ring_reference_tx_timestamp_ns_hi;
+    uint32_t ring_feedback_rx_timestamp_ns_lo;
+    uint32_t ring_feedback_rx_timestamp_ns_hi;
     uint32_t foundation_profile_crc32;
     uint32_t foundation_owner_instance_id;
     uint32_t adapter_type;
@@ -369,6 +388,9 @@ bool tdma_service_register_payload(tdma_service_service_t *service,
 bool tdma_service_configure_ring_runtime(
     tdma_service_service_t *service,
     const tdma_service_ring_runtime_config_t *config);
+bool tdma_service_bind_ring_adapter(tdma_service_service_t *service,
+                                    const tdma_ring_adapter_ops_t *ops,
+                                    void *context);
 bool tdma_service_configure_foundation_profile(
     tdma_service_service_t *service,
     const tdma_foundation_profile_t *profile,

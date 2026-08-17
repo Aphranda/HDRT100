@@ -42,6 +42,38 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
 
 ## 任务记录
 
+### TDMA-TASK-20260817-008 - 双向 adapter 与硬件反馈证据契约
+
+- 状态：完成 ring adapter/runtime 证据基础件和 host 测试；PIO SPI 双向物理 adapter、常驻 IDLE beacon 和两板 HIL 尚未完成。
+- 日期：2026-08-17
+- 任务目标：
+  - 消除 ring profile 配置成功后直接报告 `up_running/down_running=1` 的假运行状态。
+  - 为同时 UP/DOWN runtime 冻结 adapter lifecycle 和 reference TX / feedback RX 硬件时间戳相关条件。
+- 完成内容：
+  - `TdmaRingRuntime` 新增 `TdmaRingAdapterOps.start/stop/service`，core1 只接受 adapter 返回的 configured/running 和事件证据。
+  - 未绑定 adapter 时保持两条 leg 停止并报告 `ADAPTER_MISSING`；profile 只表示配置，不表示物理运行。
+  - 闭环相关同时检查 sequence、frame CRC、schedule CRC、timestamp 顺序、feedback timeout、`HARDWARE_LATCHED`、非诊断标志和 `<=100 ns` 分辨率。
+  - snapshot 增加 adapter start/stop/service 计数、adapter 原始错误码、idle beacon TX/RX 计数、reference/feedback sequence、CRC、timestamp 和 round-trip。
+  - `SYSTem:REFMEM:SYNC:TDMA:STATus?` 只在原响应末尾追加上述维护字段，不改变旧字段顺序。
+- 验证结果：
+  - `run_tdma_ring_runtime_tests.ps1` 通过：无 adapter 不运行；诊断时间戳不产生闭环证据；匹配硬件证据产生闭环；sequence mismatch 立即撤销证据。
+  - `run_tdma_service_scheduler_tests.ps1`、`run_vdc_domain_tests.ps1` 和 `run_refmem_realtime_tdma_tests.ps1` 通过。
+  - 修复 `tdma_service_get_snapshot()` 未清零输出结构的问题，避免未绑定 traffic scheduler 时读取未初始化的兼容字段。
+  - `run_host_unit_tests.ps1 -HostGccDir D:\\Xilinx\\2025.2\\tps\\mingw\\10.0.0\\win64.o\\nt\\bin` 通过，23/23 host scripts passed。
+  - A/B 双目标构建通过；build id `20260817075745`，package CRC32 `0x8AEF6A19`。
+- 还需完成：
+  - 为最小系统 PIO SPI adapter 增加独立 RX/TX pin group、双 SM 同时 arm 和异步 DMA service。
+  - 由 adapter 常驻生成/接收 `IDLE_BEACON`，并发布真实 PIO/DMA timestamp evidence。
+  - 两板 HIL 通过后才允许 TDMA snapshot 报告物理反馈闭环成立。
+- 关联文件：
+  - `components/tdma/inc/tdma_ring_runtime.h`
+  - `components/tdma/src/tdma_ring_runtime.c`
+  - `components/tdma/inc/tdma_service.h`
+  - `components/tdma/src/tdma_service.c`
+  - `tests/unit/test_tdma_ring_runtime.c`
+- 下一步：
+  - 将可配置的 GPIO16-24 PIO SPI 双向 adapter 挂到 `TdmaRingAdapterOps`，先取得 running/idle evidence，再补硬件 timestamp correlation。
+
 ### TDMA-TASK-20260817-007 - 唯一 runtime owner 与三级 traffic scheduler
 
 - 状态：完成软件调度基础件、公共 owner、三级门禁、per-class completion token、23/23 host 门禁和 A/B 固件构建；尚未形成两板物理闭环 evidence。

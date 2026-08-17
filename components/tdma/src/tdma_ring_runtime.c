@@ -2,6 +2,10 @@
 
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico/time.h"
+#endif
+
 static uint32_t tdma_ring_runtime_load(const volatile uint32_t *value)
 {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
@@ -18,6 +22,66 @@ static void tdma_ring_runtime_set_reason(tdma_ring_runtime_reason_t *reason,
     if (reason != NULL) {
         *reason = value;
     }
+}
+
+static uint64_t tdma_ring_runtime_now_ns(void)
+{
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    return to_us_since_boot(get_absolute_time()) * 1000ull;
+#else
+    static uint64_t host_now_ns;
+    host_now_ns += 1000ull;
+    return host_now_ns;
+#endif
+}
+
+static void tdma_ring_runtime_stop_adapter(tdma_ring_runtime_t *runtime)
+{
+    if (runtime->adapter_started != 0u) {
+        if (runtime->adapter_ops != NULL &&
+            runtime->adapter_ops->stop != NULL) {
+            runtime->adapter_ops->stop(runtime->adapter_context);
+        }
+        runtime->adapter_started = 0u;
+        runtime->adapter_config_seq = 0u;
+        runtime->adapter_stop_count++;
+    }
+}
+
+static bool tdma_ring_runtime_feedback_correlated(
+    const tdma_ring_runtime_t *runtime,
+    const tdma_ring_adapter_status_t *status,
+    uint32_t *round_trip_ns)
+{
+    if (round_trip_ns != NULL) {
+        *round_trip_ns = 0u;
+    }
+    if (runtime == NULL || status == NULL || round_trip_ns == NULL ||
+        status->up_running == 0u || status->down_running == 0u ||
+        status->up_tx_sequence == 0u ||
+        status->up_tx_sequence != status->down_rx_sequence ||
+        status->up_tx_frame_crc32 == 0u ||
+        status->up_tx_frame_crc32 != status->down_rx_frame_crc32 ||
+        status->schedule_crc32 != runtime->schedule_crc32 ||
+        status->timestamp_resolution_ns == 0u ||
+        status->timestamp_resolution_ns > 100u ||
+        (status->timestamp_flags &
+         TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) == 0u ||
+        (status->timestamp_flags &
+         TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) != 0u ||
+        status->reference_tx_timestamp_ns == 0ull ||
+        status->feedback_rx_timestamp_ns <
+            status->reference_tx_timestamp_ns) {
+        return false;
+    }
+    const uint64_t delta = status->feedback_rx_timestamp_ns -
+                           status->reference_tx_timestamp_ns;
+    if (delta > UINT32_MAX || runtime->feedback_timeout_ns == 0u ||
+        delta > runtime->feedback_timeout_ns) {
+        return false;
+    }
+    *round_trip_ns = (uint32_t)delta;
+    return true;
 }
 
 bool tdma_ring_runtime_init(tdma_ring_runtime_t *runtime)
@@ -49,7 +113,8 @@ bool tdma_ring_runtime_validate_config(
         config->local_slot_id >= config->node_count ||
         config->reference_slot_id >= config->node_count ||
         (config->flags & TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN) == 0u ||
-        config->ring_profile_crc32 == 0u || config->schedule_crc32 == 0u) {
+        config->ring_profile_crc32 == 0u || config->schedule_crc32 == 0u ||
+        config->feedback_timeout_ns == 0u) {
         tdma_ring_runtime_set_reason(reason,
                                      TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
         return false;
@@ -86,6 +151,7 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->flags = 0u;
         runtime->ring_profile_crc32 = 0u;
         runtime->schedule_crc32 = 0u;
+        runtime->feedback_timeout_ns = 0u;
     } else {
         runtime->enabled = 1u;
         runtime->node_count = config->node_count;
@@ -96,6 +162,7 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->flags = config->flags;
         runtime->ring_profile_crc32 = config->ring_profile_crc32;
         runtime->schedule_crc32 = config->schedule_crc32;
+        runtime->feedback_timeout_ns = config->feedback_timeout_ns;
     }
     tdma_ring_runtime_write_guard(&runtime->config_guard);
 
@@ -106,6 +173,34 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
     runtime->down_running = 0u;
     runtime->last_reason = TDMA_RING_RUNTIME_REASON_NONE;
     runtime->simultaneous_feedback_loop_evidence = 0u;
+    runtime->up_tx_sequence = 0u;
+    runtime->down_rx_sequence = 0u;
+    runtime->up_tx_frame_crc32 = 0u;
+    runtime->down_rx_frame_crc32 = 0u;
+    runtime->timestamp_resolution_ns = 0u;
+    runtime->timestamp_flags = 0u;
+    runtime->idle_beacon_tx_count = 0u;
+    runtime->idle_beacon_rx_count = 0u;
+    runtime->feedback_round_trip_ns = 0u;
+    runtime->reference_tx_timestamp_ns = 0ull;
+    runtime->feedback_rx_timestamp_ns = 0ull;
+    tdma_ring_runtime_write_guard(&runtime->result_guard);
+    return true;
+}
+
+bool tdma_ring_runtime_bind_adapter(tdma_ring_runtime_t *runtime,
+                                    const tdma_ring_adapter_ops_t *ops,
+                                    void *context)
+{
+    if (runtime == NULL || ops == NULL || ops->start == NULL ||
+        ops->stop == NULL || ops->service == NULL) {
+        return false;
+    }
+    tdma_ring_runtime_write_guard(&runtime->result_guard);
+    tdma_ring_runtime_stop_adapter(runtime);
+    runtime->adapter_ops = ops;
+    runtime->adapter_context = context;
+    runtime->last_reason = TDMA_RING_RUNTIME_REASON_NONE;
     tdma_ring_runtime_write_guard(&runtime->result_guard);
     return true;
 }
@@ -120,26 +215,115 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     const uint32_t up_group = tdma_ring_runtime_load(&runtime->up_group_id);
     const uint32_t down_group = tdma_ring_runtime_load(&runtime->down_group_id);
     const uint32_t flags = tdma_ring_runtime_load(&runtime->flags);
-    const bool up_down_ready =
+    const bool up_down_config_ready =
         enabled != 0u && up_group != 0u && down_group != 0u &&
         up_group != down_group &&
         (flags & TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN) != 0u;
 
+    tdma_ring_adapter_status_t adapter_status;
+    memset(&adapter_status, 0, sizeof(adapter_status));
+    bool adapter_service_ok = false;
+    tdma_ring_runtime_reason_t reason = TDMA_RING_RUNTIME_REASON_NONE;
+    if (!up_down_config_ready) {
+        tdma_ring_runtime_stop_adapter(runtime);
+        if (enabled != 0u) {
+            reason = TDMA_RING_RUNTIME_REASON_BAD_CONFIG;
+        }
+    } else if (runtime->adapter_ops == NULL) {
+        reason = TDMA_RING_RUNTIME_REASON_ADAPTER_MISSING;
+    } else {
+        if (runtime->adapter_started == 0u ||
+            runtime->adapter_config_seq != runtime->config_seq) {
+            tdma_ring_runtime_stop_adapter(runtime);
+            tdma_ring_runtime_config_t config = {
+                .enabled = enabled,
+                .node_count = runtime->node_count,
+                .local_slot_id = runtime->local_slot_id,
+                .reference_slot_id = runtime->reference_slot_id,
+                .up_group_id = up_group,
+                .down_group_id = down_group,
+                .flags = flags,
+                .ring_profile_crc32 = runtime->ring_profile_crc32,
+                .schedule_crc32 = runtime->schedule_crc32,
+                .feedback_timeout_ns = runtime->feedback_timeout_ns,
+            };
+            if (runtime->adapter_ops->start(runtime->adapter_context,
+                                            &config)) {
+                runtime->adapter_started = 1u;
+                runtime->adapter_config_seq = runtime->config_seq;
+                runtime->adapter_start_count++;
+            } else {
+                reason = TDMA_RING_RUNTIME_REASON_ADAPTER_MISSING;
+            }
+        }
+        if (runtime->adapter_started != 0u) {
+            adapter_service_ok = runtime->adapter_ops->service(
+                runtime->adapter_context,
+                tdma_ring_runtime_now_ns(),
+                &adapter_status);
+            runtime->adapter_service_count++;
+            if (!adapter_service_ok) {
+                reason = TDMA_RING_RUNTIME_REASON_EVIDENCE_MISSING;
+            }
+        }
+    }
+
+    uint32_t round_trip_ns = 0u;
+    const bool feedback_correlated = adapter_service_ok &&
+        tdma_ring_runtime_feedback_correlated(runtime,
+                                              &adapter_status,
+                                              &round_trip_ns);
+    if (adapter_service_ok && adapter_status.up_running != 0u &&
+        adapter_status.down_running != 0u && !feedback_correlated &&
+        reason == TDMA_RING_RUNTIME_REASON_NONE) {
+        const bool hardware_timestamp_eligible =
+            adapter_status.reference_tx_timestamp_ns != 0ull &&
+            adapter_status.feedback_rx_timestamp_ns >=
+                adapter_status.reference_tx_timestamp_ns &&
+            adapter_status.feedback_rx_timestamp_ns -
+                    adapter_status.reference_tx_timestamp_ns <=
+                runtime->feedback_timeout_ns &&
+            adapter_status.timestamp_resolution_ns != 0u &&
+            adapter_status.timestamp_resolution_ns <= 100u &&
+            (adapter_status.timestamp_flags &
+             TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) != 0u &&
+            (adapter_status.timestamp_flags &
+             TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
+        reason = hardware_timestamp_eligible
+                     ? TDMA_RING_RUNTIME_REASON_EVIDENCE_MISSING
+                     : TDMA_RING_RUNTIME_REASON_TIMESTAMP_MISSING;
+    }
+
     tdma_ring_runtime_write_guard(&runtime->result_guard);
     runtime->service_seq++;
-    runtime->up_configured = up_group != 0u ? 1u : 0u;
-    runtime->down_configured = down_group != 0u ? 1u : 0u;
-    runtime->up_running = up_down_ready ? 1u : 0u;
-    runtime->down_running = up_down_ready ? 1u : 0u;
-    if (up_down_ready) {
+    runtime->up_configured = adapter_service_ok
+                                 ? adapter_status.up_configured
+                                 : (up_group != 0u ? 1u : 0u);
+    runtime->down_configured = adapter_service_ok
+                                   ? adapter_status.down_configured
+                                   : (down_group != 0u ? 1u : 0u);
+    runtime->up_running = adapter_service_ok ? adapter_status.up_running : 0u;
+    runtime->down_running = adapter_service_ok ? adapter_status.down_running : 0u;
+    if (runtime->up_running != 0u && runtime->down_running != 0u) {
         runtime->ring_seq++;
-        runtime->last_reason = TDMA_RING_RUNTIME_REASON_NONE;
-    } else if (enabled != 0u) {
-        runtime->last_reason = TDMA_RING_RUNTIME_REASON_BAD_CONFIG;
-    } else {
-        runtime->last_reason = TDMA_RING_RUNTIME_REASON_NONE;
     }
-    runtime->simultaneous_feedback_loop_evidence = 0u;
+    runtime->last_reason = (uint32_t)reason;
+    runtime->simultaneous_feedback_loop_evidence =
+        feedback_correlated ? 1u : 0u;
+    runtime->up_tx_sequence = adapter_status.up_tx_sequence;
+    runtime->down_rx_sequence = adapter_status.down_rx_sequence;
+    runtime->up_tx_frame_crc32 = adapter_status.up_tx_frame_crc32;
+    runtime->down_rx_frame_crc32 = adapter_status.down_rx_frame_crc32;
+    runtime->timestamp_resolution_ns = adapter_status.timestamp_resolution_ns;
+    runtime->timestamp_flags = adapter_status.timestamp_flags;
+    runtime->adapter_last_error = adapter_status.last_error;
+    runtime->idle_beacon_tx_count = adapter_status.idle_beacon_tx_count;
+    runtime->idle_beacon_rx_count = adapter_status.idle_beacon_rx_count;
+    runtime->feedback_round_trip_ns = round_trip_ns;
+    runtime->reference_tx_timestamp_ns =
+        adapter_status.reference_tx_timestamp_ns;
+    runtime->feedback_rx_timestamp_ns =
+        adapter_status.feedback_rx_timestamp_ns;
     tdma_ring_runtime_write_guard(&runtime->result_guard);
 }
 
@@ -167,6 +351,7 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         snapshot->flags = runtime->flags;
         snapshot->ring_profile_crc32 = runtime->ring_profile_crc32;
         snapshot->schedule_crc32 = runtime->schedule_crc32;
+        snapshot->feedback_timeout_ns = runtime->feedback_timeout_ns;
         const uint32_t guard_end =
             tdma_ring_runtime_load(&runtime->config_guard);
         if (guard_begin == guard_end && (guard_end & 1u) == 0u) {
@@ -190,6 +375,24 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         snapshot->last_reason = runtime->last_reason;
         snapshot->simultaneous_feedback_loop_evidence =
             runtime->simultaneous_feedback_loop_evidence;
+        snapshot->adapter_started = runtime->adapter_started;
+        snapshot->adapter_start_count = runtime->adapter_start_count;
+        snapshot->adapter_stop_count = runtime->adapter_stop_count;
+        snapshot->adapter_service_count = runtime->adapter_service_count;
+        snapshot->adapter_last_error = runtime->adapter_last_error;
+        snapshot->up_tx_sequence = runtime->up_tx_sequence;
+        snapshot->down_rx_sequence = runtime->down_rx_sequence;
+        snapshot->up_tx_frame_crc32 = runtime->up_tx_frame_crc32;
+        snapshot->down_rx_frame_crc32 = runtime->down_rx_frame_crc32;
+        snapshot->timestamp_resolution_ns = runtime->timestamp_resolution_ns;
+        snapshot->timestamp_flags = runtime->timestamp_flags;
+        snapshot->idle_beacon_tx_count = runtime->idle_beacon_tx_count;
+        snapshot->idle_beacon_rx_count = runtime->idle_beacon_rx_count;
+        snapshot->feedback_round_trip_ns = runtime->feedback_round_trip_ns;
+        snapshot->reference_tx_timestamp_ns =
+            runtime->reference_tx_timestamp_ns;
+        snapshot->feedback_rx_timestamp_ns =
+            runtime->feedback_rx_timestamp_ns;
         const uint32_t guard_end =
             tdma_ring_runtime_load(&runtime->result_guard);
         if (guard_begin == guard_end && (guard_end & 1u) == 0u) {

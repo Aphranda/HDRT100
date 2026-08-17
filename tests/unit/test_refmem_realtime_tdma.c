@@ -429,6 +429,7 @@ static int test_common_tdma_ring_runtime_contract(void)
         .flags = TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN,
         .ring_profile_crc32 = 0x11223344u,
         .schedule_crc32 = 0x55667788u,
+        .feedback_timeout_ns = 10000u,
     };
     const tdma_service_ring_runtime_config_t bad_same_leg = {
         .enabled = 1u,
@@ -440,6 +441,7 @@ static int test_common_tdma_ring_runtime_contract(void)
         .flags = TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN,
         .ring_profile_crc32 = 0x11223344u,
         .schedule_crc32 = 0x55667788u,
+        .feedback_timeout_ns = 10000u,
     };
 
     failed += expect_bool("common tdma init", tdma_service_init(&service), true);
@@ -486,12 +488,12 @@ static int test_common_tdma_ring_runtime_contract(void)
     failed += expect_u32("ring down configured",
                          snapshot.ring_down_configured,
                          1u);
-    failed += expect_u32("ring up running", snapshot.ring_up_running, 1u);
-    failed += expect_u32("ring down running", snapshot.ring_down_running, 1u);
-    failed += expect_u32("ring seq", snapshot.ring_seq, 1u);
+    failed += expect_u32("ring up awaits adapter", snapshot.ring_up_running, 0u);
+    failed += expect_u32("ring down awaits adapter", snapshot.ring_down_running, 0u);
+    failed += expect_u32("ring seq", snapshot.ring_seq, 0u);
     failed += expect_u32("ring last error",
                          snapshot.ring_last_error,
-                         TDMA_SERVICE_RING_ERROR_NONE);
+                         TDMA_RING_RUNTIME_REASON_ADAPTER_MISSING);
     failed += expect_u32("ring still does not fake closed-loop evidence",
                          snapshot.simultaneous_feedback_loop_evidence,
                          0u);

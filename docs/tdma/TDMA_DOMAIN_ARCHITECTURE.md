@@ -114,6 +114,28 @@ Bn.UP -> B0.DOWN
 - 单向下发只能证明 leg 可用，不能证明闭环；host 交替 `X->Y` / `Y->X` 只能作为 bring-up 或故障定位。
 - `simultaneous_feedback_loop_evidence` 只有在固件内部同时运行两条 leg，并且 RX/TX timestamp 相关性证明反馈回到 reference 后才能置位。
 
+`TdmaRingRuntime` 不得再从 profile 中存在 `up_group_id/down_group_id` 直接推导
+`up_running/down_running`。profile 只能证明两条 leg 已配置；运行状态必须由 active
+adapter 每次 core1 service 返回。未绑定 adapter 时，runtime 必须保持两条 leg
+停止并报告 `ADAPTER_MISSING`，不能用软件状态补成成功。
+
+首版反馈相关条件冻结为：
+
+```text
+UP reference TX sequence == DOWN feedback RX sequence
+UP reference frame CRC    == DOWN feedback frame CRC
+adapter schedule CRC      == active schedule CRC
+reference_tx_timestamp    <= feedback_rx_timestamp
+feedback round trip       <= feedback_timeout_ns
+timestamp resolution      <= 100 ns
+timestamp flags           = HARDWARE_LATCHED and not DIAGNOSTIC_ONLY
+```
+
+任一条件不满足时 `simultaneous_feedback_loop_evidence=0`。序号、帧或 schedule
+不一致归 `EVIDENCE_MISSING`；时间戳来源、分辨率、顺序或超时不满足归
+`TIMESTAMP_MISSING`。该证据只表达 TDMA 物理反馈环成立，VDC 仍需独立执行
+DPLL sample gate、锁定质量和 HOLDOVER 判断。
+
 ## Window 与 Payload
 
 TDMA window 是调度单位，payload 是业务载荷单位。
@@ -262,10 +284,14 @@ components/tdma/
   inc/tdma_service.h
   inc/tdma_payload_registry.h
   inc/tdma_ring_runtime.h
+  inc/tdma_traffic_scheduler.h
+  inc/tdma_runtime_owner.h
   src/tdma_profile.c
   src/tdma_service.c
   src/tdma_payload_registry.c
   src/tdma_ring_runtime.c
+  src/tdma_traffic_scheduler.c
+  src/tdma_runtime_owner.c
 ```
 
 过渡规则：
@@ -273,7 +299,7 @@ components/tdma/
 - `TdmaPayloadRegistry` 已从 `tdma_service.c` 拆出；`tdma_service` 保留聚合 API，并委托注册、whitelist、capacity 和 admission。
 - registry snapshot 发布 config seq、registration seq、used、admitted、reject、last result 和 last payload class，供 DeploymentGate、Diagnostics 和后续 scheduler 查询。
 - `TdmaRingRuntime` 已从 `tdma_service.c` 拆出；`tdma_service` 保留聚合配置与 snapshot API，并委托 ring config、core1 service 和 seqlock snapshot。
-- ring runtime 发布 config/reject/service/ring seq、双向 configured/running、last reason 和 feedback evidence；`running` 仅表示 runtime 同周期推进，不表示物理反馈闭环成立。
+- ring runtime 发布 config/reject/service/ring seq、双向 configured/running、adapter lifecycle、idle beacon 计数、reference TX / feedback RX 序号、CRC、时间戳、round trip、last reason 和 feedback evidence；`running` 必须来自 adapter，仍不单独等价于物理反馈闭环成立。
 - RefMem 侧 `refmem_realtime_tdma` 只保留兼容 adapter，不再拥有调度器。
 - VDC 侧 `SYSTem:SYNC:VDC:TDMA:*` 只能作为 VDC maintenance projection，不能表示 VDC 拥有 TDMA。
 - 后续新增 TDMA maintenance command 时，应挂载在系统维护命名空间，例如 `SYSTem:TDMA:*`，并保持对外产品业务命令不直接操作 TDMA。
