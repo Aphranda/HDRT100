@@ -415,14 +415,14 @@ static bool tdma_pio_spi_ring_adapter_service(
             adapter->config.feedback_timeout_ns != 0u
                 ? adapter->config.feedback_timeout_ns
                 : 1000000ull;
-        /* TSN-style deterministic emission: one IDLE_BEACON per TDMA cycle at
-         * a fixed phase. The previous now-last >= interval throttle skipped
-         * ~40% of the ticks because sleep_until can wake slightly early, so
-         * the reference emitted at ~580 Hz instead of 1 kHz. A fixed-phase
-         * emit keeps the wire schedule deterministic (the cycle guard below
-         * still bounds the emission rate by the physical TX time). */
+        /* TSN-style deterministic emission with phase margin: emit every 2nd
+         * cycle (~500 Hz). At 1 kHz the receive query equals the frame rate,
+         * so performance swings with the free-running core1 tick phase
+         * (measured 23%..92%). At 500 Hz the query has 2x margin and the ring
+         * is stable (81..85%). The 1 kHz full-rate path needs a shared time
+         * base (P0.5-5 hardware timestamp / DPLL). */
         (void)cycle_ns;
-        const bool tx_due = true;
+        const bool tx_due = (adapter->service_count & 1u) != 0u;
         if (tx_due) {
             tx_ok = tdma_pio_spi_ring_adapter_tx_beacon(adapter);
             if (tx_ok) {
