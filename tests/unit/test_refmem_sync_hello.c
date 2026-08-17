@@ -60,7 +60,7 @@ static int test_hello_payload_and_adapter_poll(void)
 
     (void)memset(&board, 0, sizeof(board));
     board.capability_mask =
-        REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM | REFMEM_APP_CAP_VDC |
+        REFMEM_APP_CAP_BASELINE |
         REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT;
     board.io_constraint_mask = REFMEM_APP_IO_PIO_SPI_SYNC;
     board.ip_core_mask = REFMEM_APP_IP_PIO_SPI_SYNC_DELTA;

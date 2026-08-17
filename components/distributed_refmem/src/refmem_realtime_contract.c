@@ -29,6 +29,9 @@ uint32_t refmem_realtime_contract_resource_capability_mask(uint32_t resource_cla
     if ((resource_claim & REFMEM_APP_RESOURCE_CORE1_RT) != 0u) {
         capability |= REFMEM_APP_CAP_CORE1_RT;
     }
+    if ((resource_claim & REFMEM_APP_RESOURCE_TDMA_SCHEDULER) != 0u) {
+        capability |= REFMEM_APP_CAP_TDMA;
+    }
     return capability;
 }
 
@@ -87,6 +90,10 @@ uint32_t refmem_realtime_contract_ip_capability_mask(uint32_t ip_core_claim)
     }
     if ((ip_core_claim & REFMEM_APP_IP_PIO_SPI_SYNC_DELTA) != 0u) {
         capability |= REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT;
+    }
+    if ((ip_core_claim & REFMEM_APP_IP_TDMA_SCHEDULER) != 0u) {
+        capability |= REFMEM_APP_CAP_TDMA | REFMEM_APP_CAP_PIO |
+                      REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT;
     }
     return capability;
 }

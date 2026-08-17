@@ -8,11 +8,11 @@
 
 #define REFMEM_APP_MODEL_VERSION                   1u
 #define REFMEM_APP_MODEL_NODE_COUNT                DISTRIBUTED_REFMEM_NODE_COUNT
-#define REFMEM_APP_MODEL_NODE_LOAD_COUNT           11u
-#define REFMEM_APP_MODEL_INSTANCE_COUNT            11u
+#define REFMEM_APP_MODEL_NODE_LOAD_COUNT           12u
+#define REFMEM_APP_MODEL_INSTANCE_COUNT            12u
 #define REFMEM_APP_MODEL_EVENT_LINK_COUNT          11u
 #define REFMEM_APP_MODEL_DATA_LINK_COUNT           14u
-#define REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT    11u
+#define REFMEM_APP_MODEL_DEPLOYMENT_CHECK_COUNT    12u
 #define REFMEM_APP_MODEL_QUALITY_COUNT             8u
 #define REFMEM_APP_MODEL_CLAIM_CANDIDATE_MAX       16u
 #define REFMEM_APP_MODEL_BOARD_CAPABILITY_COUNT    REFMEM_APP_MODEL_NODE_COUNT
@@ -45,9 +45,11 @@
 #define REFMEM_APP_CAP_UART_RS485                  0x00002000u
 #define REFMEM_APP_CAP_REFMEM                      0x00004000u
 #define REFMEM_APP_CAP_VDC                         0x00008000u
+#define REFMEM_APP_CAP_TDMA                        0x00010000u
 #define REFMEM_APP_CAP_BASELINE                    (REFMEM_APP_CAP_BOARD | \
                                                     REFMEM_APP_CAP_REFMEM | \
-                                                    REFMEM_APP_CAP_VDC)
+                                                    REFMEM_APP_CAP_VDC | \
+                                                    REFMEM_APP_CAP_TDMA)
 
 #define REFMEM_APP_PERSONA_TRIGGER_MASTER          0x00000001u
 #define REFMEM_APP_PERSONA_DISTRIBUTED_TRIGGER     0x00000002u
@@ -64,6 +66,7 @@
 #define REFMEM_APP_RESOURCE_LCD                    0x00000020u
 #define REFMEM_APP_RESOURCE_RJ45                   0x00000040u
 #define REFMEM_APP_RESOURCE_CORE1_RT               0x00000080u
+#define REFMEM_APP_RESOURCE_TDMA_SCHEDULER         0x00000100u
 
 #define REFMEM_APP_IO_SMA_IN                       0x00000001u
 #define REFMEM_APP_IO_SMA_OUT                      0x00000002u
@@ -88,6 +91,7 @@
 #define REFMEM_APP_IP_RJ45_SYNC_DELTA              0x00000010u
 #define REFMEM_APP_IP_VDC_DPLL                     0x00000020u
 #define REFMEM_APP_IP_PIO_SPI_SYNC_DELTA           0x00000040u
+#define REFMEM_APP_IP_TDMA_SCHEDULER               0x00000080u
 
 typedef enum {
     REFMEM_APP_FAIL_STOP = 0u,
@@ -105,6 +109,7 @@ typedef enum {
     REFMEM_APP_DOMAIN_REFMEM = 5u,
     REFMEM_APP_DOMAIN_DIAG = 6u,
     REFMEM_APP_DOMAIN_GATEWAY = 7u,
+    REFMEM_APP_DOMAIN_TDMA = 8u,
 } refmem_app_domain_t;
 
 typedef enum {
@@ -121,6 +126,7 @@ typedef enum {
     REFMEM_APP_FB_PULSE_COUNTER = 10u,
     REFMEM_APP_FB_INSTRUMENT_CONTROLLER = 11u,
     REFMEM_APP_FB_LINK_SWITCHER = 12u,
+    REFMEM_APP_FB_TDMA_SCHEDULER = 13u,
 } refmem_app_fb_type_t;
 
 typedef enum {
@@ -203,6 +209,7 @@ typedef enum {
     REFMEM_APP_GATE_CONFIG = 8u,
     REFMEM_APP_GATE_CAL_SYNC = 9u,
     REFMEM_APP_GATE_QUALITY = 10u,
+    REFMEM_APP_GATE_TDMA = 11u,
 } refmem_app_gate_check_t;
 
 typedef enum {
@@ -243,6 +250,7 @@ typedef enum {
     REFMEM_APP_LINT_BAD_SLOT_CLAIM = 11u,
     REFMEM_APP_LINT_BAD_BOARD_CAPABILITY = 12u,
     REFMEM_APP_LINT_BAD_REALTIME_CONTRACT = 13u,
+    REFMEM_APP_LINT_TDMA_OWNER_CONFLICT = 14u,
 } refmem_app_lint_error_t;
 
 typedef enum {

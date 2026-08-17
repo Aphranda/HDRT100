@@ -185,6 +185,8 @@ static void make_valid_node_load_table(refmem_node_load_table_t *table)
          REFMEM_APP_PERSONA_MODEL_INSTRUMENTS, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY, 0u},
         {10u, 1u, 1u, 4u, 10u, REFMEM_APP_ROLE_MODEL_TURNTABLE | REFMEM_APP_ROLE_TEST_AGENT,
          REFMEM_APP_PERSONA_MODEL_INSTRUMENTS, 0u, 0u, REFMEM_APP_FAIL_REPORT_ONLY, 1u},
+        {11u, 1u, 1u, 0u, 11u, REFMEM_APP_ROLE_BOARD,
+         REFMEM_APP_PERSONA_TRIGGER_MASTER, 1u, 1u, REFMEM_APP_FAIL_STOP, 4u},
     };
 
     (void)memset(table, 0, sizeof(*table));

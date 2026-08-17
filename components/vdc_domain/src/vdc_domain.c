@@ -87,24 +87,6 @@ static bool vdc_domain_ranges_overlap(uint32_t offset_a_ns,
     return a_begin < b_end && b_begin < a_end;
 }
 
-static uint32_t vdc_domain_previous_ring_slot(uint32_t slot_id,
-                                              uint32_t node_count)
-{
-    if (node_count == 0u) {
-        return 0u;
-    }
-    return slot_id == 0u ? node_count - 1u : slot_id - 1u;
-}
-
-static uint32_t vdc_domain_next_ring_slot(uint32_t slot_id,
-                                          uint32_t node_count)
-{
-    if (node_count == 0u) {
-        return 0u;
-    }
-    return (slot_id + 1u) % node_count;
-}
-
 static uint32_t vdc_domain_ring_forward_distance(uint32_t from_slot_id,
                                                  uint32_t to_slot_id,
                                                  uint32_t node_count)
@@ -889,22 +871,10 @@ void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
         reference_slot_id < VDC_DOMAIN_NODE_COUNT ? reference_slot_id : 0u;
     profile->local_slot_id =
         local_slot_id < VDC_DOMAIN_NODE_COUNT ? local_slot_id : 0u;
-    profile->ring_profile_version = VDC_DOMAIN_TDMA_RING_PROFILE_VERSION;
-    profile->ring_flags = VDC_DOMAIN_TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN;
-    profile->ring_node_count = VDC_DOMAIN_NODE_COUNT;
-    profile->ring_local_index = profile->local_slot_id;
-    profile->ring_reference_index = profile->reference_slot_id;
-    profile->up_leg_group_id = VDC_DOMAIN_TDMA_RING_UP_GROUP_ID;
-    profile->down_leg_group_id = VDC_DOMAIN_TDMA_RING_DOWN_GROUP_ID;
-    profile->upstream_slot_id =
-        vdc_domain_previous_ring_slot(profile->local_slot_id,
-                                      profile->ring_node_count);
-    profile->downstream_slot_id =
-        vdc_domain_next_ring_slot(profile->local_slot_id,
-                                  profile->ring_node_count);
-    profile->feedback_slot_id = profile->reference_slot_id;
-    profile->ring_profile_crc32 =
-        vdc_domain_ring_profile_crc32(profile);
+    (void)tdma_ring_profile_default(&profile->ring_binding,
+                                    profile->local_slot_id,
+                                    profile->reference_slot_id,
+                                    VDC_DOMAIN_NODE_COUNT);
     profile->schedule_crc32 = vdc_domain_schedule_crc32(profile);
 }
 
@@ -935,22 +905,10 @@ void vdc_domain_default_servo(vdc_servo_profile_t *profile)
 
 uint32_t vdc_domain_ring_profile_crc32(const vdc_tdma_schedule_profile_t *profile)
 {
-    uint32_t hash = VDC_DOMAIN_CRC_OFFSET;
     if (profile == NULL) {
         return 0u;
     }
-
-    hash = vdc_domain_hash_u32(hash, profile->ring_profile_version);
-    hash = vdc_domain_hash_u32(hash, profile->ring_flags);
-    hash = vdc_domain_hash_u32(hash, profile->ring_node_count);
-    hash = vdc_domain_hash_u32(hash, profile->ring_local_index);
-    hash = vdc_domain_hash_u32(hash, profile->ring_reference_index);
-    hash = vdc_domain_hash_u32(hash, profile->up_leg_group_id);
-    hash = vdc_domain_hash_u32(hash, profile->down_leg_group_id);
-    hash = vdc_domain_hash_u32(hash, profile->upstream_slot_id);
-    hash = vdc_domain_hash_u32(hash, profile->downstream_slot_id);
-    hash = vdc_domain_hash_u32(hash, profile->feedback_slot_id);
-    return hash;
+    return tdma_ring_profile_crc32(&profile->ring_binding);
 }
 
 uint32_t vdc_domain_schedule_crc32(const vdc_tdma_schedule_profile_t *profile)
@@ -974,17 +932,7 @@ uint32_t vdc_domain_schedule_crc32(const vdc_tdma_schedule_profile_t *profile)
     hash = vdc_domain_hash_u32(hash, profile->guard_after_ns);
     hash = vdc_domain_hash_u32(hash, profile->reference_slot_id);
     hash = vdc_domain_hash_u32(hash, profile->local_slot_id);
-    hash = vdc_domain_hash_u32(hash, profile->ring_profile_version);
-    hash = vdc_domain_hash_u32(hash, profile->ring_flags);
-    hash = vdc_domain_hash_u32(hash, profile->ring_node_count);
-    hash = vdc_domain_hash_u32(hash, profile->ring_local_index);
-    hash = vdc_domain_hash_u32(hash, profile->ring_reference_index);
-    hash = vdc_domain_hash_u32(hash, profile->up_leg_group_id);
-    hash = vdc_domain_hash_u32(hash, profile->down_leg_group_id);
-    hash = vdc_domain_hash_u32(hash, profile->upstream_slot_id);
-    hash = vdc_domain_hash_u32(hash, profile->downstream_slot_id);
-    hash = vdc_domain_hash_u32(hash, profile->feedback_slot_id);
-    hash = vdc_domain_hash_u32(hash, profile->ring_profile_crc32);
+    hash = vdc_domain_hash_u32(hash, profile->ring_binding.profile_crc32);
     return hash;
 }
 
@@ -997,24 +945,9 @@ bool vdc_domain_schedule_validate(const vdc_tdma_schedule_profile_t *profile)
         profile->local_slot_id >= VDC_DOMAIN_NODE_COUNT) {
         return false;
     }
-    if (profile->ring_profile_version != VDC_DOMAIN_TDMA_RING_PROFILE_VERSION ||
-        profile->ring_node_count < 2u ||
-        profile->ring_node_count > VDC_DOMAIN_NODE_COUNT ||
-        profile->ring_local_index >= profile->ring_node_count ||
-        profile->ring_reference_index >= profile->ring_node_count ||
-        profile->upstream_slot_id >= profile->ring_node_count ||
-        profile->downstream_slot_id >= profile->ring_node_count ||
-        profile->feedback_slot_id >= profile->ring_node_count ||
-        profile->local_slot_id != profile->ring_local_index ||
-        profile->reference_slot_id != profile->ring_reference_index ||
-        (profile->ring_flags &
-         VDC_DOMAIN_TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN) == 0u ||
-        profile->up_leg_group_id == 0u ||
-        profile->down_leg_group_id == 0u ||
-        profile->up_leg_group_id == profile->down_leg_group_id ||
-        profile->upstream_slot_id == profile->local_slot_id ||
-        profile->downstream_slot_id == profile->local_slot_id ||
-        profile->ring_profile_crc32 != vdc_domain_ring_profile_crc32(profile)) {
+    if (!tdma_ring_profile_validate(&profile->ring_binding, NULL) ||
+        profile->local_slot_id != profile->ring_binding.local_index ||
+        profile->reference_slot_id != profile->ring_binding.reference_index) {
         return false;
     }
     if (!vdc_domain_range_in_period(profile->observation_window_offset_ns,
@@ -1867,24 +1800,24 @@ bool vdc_domain_plan_tdma_ring(const vdc_tdma_schedule_profile_t *profile,
     }
 
     plan->valid = 1u;
-    plan->ring_node_count = profile->ring_node_count;
+    plan->ring_node_count = profile->ring_binding.node_count;
     plan->local_slot_id = profile->local_slot_id;
     plan->reference_slot_id = profile->reference_slot_id;
-    plan->upstream_slot_id = profile->upstream_slot_id;
-    plan->downstream_slot_id = profile->downstream_slot_id;
-    plan->feedback_slot_id = profile->feedback_slot_id;
+    plan->upstream_slot_id = profile->ring_binding.upstream_slot_id;
+    plan->downstream_slot_id = profile->ring_binding.downstream_slot_id;
+    plan->feedback_slot_id = profile->ring_binding.feedback_slot_id;
     plan->from_reference_hops =
         vdc_domain_ring_forward_distance(profile->reference_slot_id,
                                          profile->local_slot_id,
-                                         profile->ring_node_count);
+                                         profile->ring_binding.node_count);
     plan->to_feedback_hops =
         vdc_domain_ring_forward_distance(profile->local_slot_id,
-                                         profile->feedback_slot_id,
-                                         profile->ring_node_count);
+                                         profile->ring_binding.feedback_slot_id,
+                                         profile->ring_binding.node_count);
     plan->is_reference_slot =
         profile->local_slot_id == profile->reference_slot_id ? 1u : 0u;
-    plan->ring_flags = profile->ring_flags;
-    plan->ring_profile_crc32 = profile->ring_profile_crc32;
+    plan->ring_flags = profile->ring_binding.flags;
+    plan->ring_profile_crc32 = profile->ring_binding.profile_crc32;
     plan->schedule_crc32 = profile->schedule_crc32;
     return true;
 }

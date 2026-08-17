@@ -67,7 +67,7 @@ static void make_pio_spi_contract_inputs(refmem_node_load_entry_t *load,
 
     node->node_id = 0u;
     node->capability_mask =
-        REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM | REFMEM_APP_CAP_VDC |
+        REFMEM_APP_CAP_BASELINE |
         REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT;
 
     claim_map->version = REFMEM_SLOT_CLAIM_VERSION;

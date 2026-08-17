@@ -31,7 +31,7 @@ static int expect_bool(const char *name, bool actual, bool expected)
 
 static uint32_t baseline_caps(void)
 {
-    return REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM | REFMEM_APP_CAP_VDC;
+    return REFMEM_APP_CAP_BASELINE;
 }
 
 static void make_generic_nodes(refmem_generic_node_table_t *table)

@@ -5,13 +5,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "tdma_profile.h"
+
 #define TDMA_SERVICE_SHORT_FRAME_MAX 292u
 #define TDMA_SERVICE_LONG_FRAME_MAX 1024u
 #define TDMA_SERVICE_FRAME_MAX TDMA_SERVICE_LONG_FRAME_MAX
 #define TDMA_SERVICE_PAYLOAD_REGISTRY_COUNT 8u
 #define tdma_service_FRAME_MAX TDMA_SERVICE_FRAME_MAX
 #define TDMA_SERVICE_TIMESTAMP_RESOLUTION_LIMIT_NS 100u
-#define TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN 0x00000001u
+#define TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN
 #define TDMA_SERVICE_RING_ERROR_NONE 0u
 #define TDMA_SERVICE_RING_ERROR_BAD_CONFIG 1u
 #define TDMA_SERVICE_RING_ERROR_EVIDENCE_MISSING 2u
@@ -36,11 +38,14 @@ typedef enum {
 
 typedef enum {
     TDMA_SERVICE_PAYLOAD_CLASS_NONE = 0u,
-    TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE = 1u,
-    TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA = 2u,
-    TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_ACK_FENCE = 3u,
-    TDMA_SERVICE_PAYLOAD_CLASS_IDLE_BEACON = 4u,
-    TDMA_SERVICE_PAYLOAD_CLASS_OTA_CONFIG_LOG = 5u,
+    TDMA_SERVICE_PAYLOAD_CLASS_VDC_SYNC_SAMPLE = TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE,
+    TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA = TDMA_PAYLOAD_CLASS_REFMEM_DELTA,
+    TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_ACK_FENCE = TDMA_PAYLOAD_CLASS_REFMEM_ACK_FENCE,
+    TDMA_SERVICE_PAYLOAD_CLASS_IDLE_BEACON = TDMA_PAYLOAD_CLASS_IDLE_BEACON,
+    TDMA_SERVICE_PAYLOAD_CLASS_OTA_BULK = TDMA_PAYLOAD_CLASS_OTA_BULK,
+    TDMA_SERVICE_PAYLOAD_CLASS_CONFIG_CONTROL = TDMA_PAYLOAD_CLASS_CONFIG_CONTROL,
+    TDMA_SERVICE_PAYLOAD_CLASS_LOG_STREAM = TDMA_PAYLOAD_CLASS_LOG_STREAM,
+    TDMA_SERVICE_PAYLOAD_CLASS_OTA_CONFIG_LOG = TDMA_SERVICE_PAYLOAD_CLASS_OTA_BULK,
 } tdma_service_payload_class_t;
 
 typedef struct {
@@ -204,6 +209,20 @@ typedef struct {
     uint32_t simultaneous_feedback_loop_evidence;
     uint32_t ring_profile_crc32;
     uint32_t ring_schedule_crc32;
+    uint32_t foundation_profile_crc32;
+    uint32_t foundation_owner_instance_id;
+    uint32_t adapter_type;
+    uint32_t pio_block_id;
+    uint32_t up_state_machine_id;
+    uint32_t down_state_machine_id;
+    uint32_t tx_dma_channel_id;
+    uint32_t rx_dma_channel_id;
+    uint32_t core1_service_id;
+    uint32_t short_frame_capacity;
+    uint32_t long_frame_capacity;
+    uint32_t payload_whitelist_mask;
+    uint32_t io_claim_mask;
+    uint32_t ip_core_claim_mask;
 } tdma_service_snapshot_t;
 
 typedef struct {
@@ -277,6 +296,20 @@ typedef struct {
     volatile uint32_t ring_flags;
     volatile uint32_t ring_profile_crc32;
     volatile uint32_t ring_schedule_crc32;
+    volatile uint32_t foundation_profile_crc32;
+    volatile uint32_t foundation_owner_instance_id;
+    volatile uint32_t adapter_type;
+    volatile uint32_t pio_block_id;
+    volatile uint32_t up_state_machine_id;
+    volatile uint32_t down_state_machine_id;
+    volatile uint32_t tx_dma_channel_id;
+    volatile uint32_t rx_dma_channel_id;
+    volatile uint32_t core1_service_id;
+    volatile uint32_t short_frame_capacity;
+    volatile uint32_t long_frame_capacity;
+    volatile uint32_t payload_whitelist_mask;
+    volatile uint32_t io_claim_mask;
+    volatile uint32_t ip_core_claim_mask;
     uint8_t frame[tdma_service_FRAME_MAX];
 
     /* Core1 writer: realtime execution snapshot. */
@@ -327,6 +360,10 @@ bool tdma_service_register_payload(tdma_service_service_t *service,
 bool tdma_service_configure_ring_runtime(
     tdma_service_service_t *service,
     const tdma_service_ring_runtime_config_t *config);
+bool tdma_service_configure_foundation_profile(
+    tdma_service_service_t *service,
+    const tdma_foundation_profile_t *profile,
+    uint32_t schedule_crc32);
 bool tdma_service_submit_tx(tdma_service_service_t *service,
                                     const tdma_service_intent_config_t *config);
 bool tdma_service_submit_rx(tdma_service_service_t *service,

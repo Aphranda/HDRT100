@@ -16,6 +16,7 @@ $bridgeSource = Join-Path $repo "components\distributed_refmem\src\refmem_vdc_br
 $frameSource = Join-Path $repo "components\distributed_refmem\src\refmem_sync_frame.c"
 $vdcSource = Join-Path $repo "components\vdc_domain\src\vdc_domain.c"
 $vdcTimestampSource = Join-Path $repo "components\vdc_domain\src\vdc_timestamp.c"
+$tdmaProfileSource = Join-Path $repo "components\tdma\src\tdma_profile.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -65,7 +66,7 @@ if (-not $hostCc) {
     $hostCc = Get-ToolPath "clang"
 }
 
-$sources = @($testSource, $bridgeSource, $frameSource, $vdcSource, $vdcTimestampSource)
+$sources = @($testSource, $bridgeSource, $frameSource, $vdcSource, $vdcTimestampSource, $tdmaProfileSource)
 $includes = @("-I$refmemInclude", "-I$tdmaInclude", "-I$vdcInclude", "-I$otaInclude")
 
 if ($hostCc) {

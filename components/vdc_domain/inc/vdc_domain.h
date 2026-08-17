@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "tdma_profile.h"
 #include "vdc_timestamp.h"
 
 #define VDC_DOMAIN_NODE_COUNT 8u
@@ -17,10 +18,6 @@
 #define VDC_DOMAIN_LOCK_TIER_COARSE_NS 10000u
 #define VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32 0x56444301u
 #define VDC_DOMAIN_TDMA_FRAME_VERSION 1u
-#define VDC_DOMAIN_TDMA_RING_PROFILE_VERSION 1u
-#define VDC_DOMAIN_TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN 0x00000001u
-#define VDC_DOMAIN_TDMA_RING_UP_GROUP_ID 1u
-#define VDC_DOMAIN_TDMA_RING_DOWN_GROUP_ID 2u
 #define VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_OFFSET_NS 20000u
 #define VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_WIDTH_NS 800000u
 #define VDC_DOMAIN_DEFAULT_IDLE_WINDOW_OFFSET_NS 900000u
@@ -112,17 +109,7 @@ typedef struct {
     uint32_t guard_after_ns;
     uint32_t reference_slot_id;
     uint32_t local_slot_id;
-    uint32_t ring_profile_version;
-    uint32_t ring_flags;
-    uint32_t ring_node_count;
-    uint32_t ring_local_index;
-    uint32_t ring_reference_index;
-    uint32_t up_leg_group_id;
-    uint32_t down_leg_group_id;
-    uint32_t upstream_slot_id;
-    uint32_t downstream_slot_id;
-    uint32_t feedback_slot_id;
-    uint32_t ring_profile_crc32;
+    tdma_ring_profile_t ring_binding;
     uint32_t schedule_crc32;
 } vdc_tdma_schedule_profile_t;
 

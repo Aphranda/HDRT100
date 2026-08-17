@@ -12,6 +12,7 @@ TDMA Domain 负责：
 
 - 定义上行/下行 TDMA runtime、ring profile、window、guard、deadline 和 completion evidence。
 - 管理 PIO/SM/DMA/core1 service 资源声明、payload registry、short/long frame capacity 和 adapter 边界。
+- 管理 TSN-style traffic class、准入、周期预算、time-aware gate、整形、背压和逐流质量；VDC/RefMem 预留资源，配置/OTA/LOG 使用受控维护或剩余预算。
 - 为 VDC 提供 observation window、timestamp evidence 和质量摘要。
 - 为 RefMem 提供 payload window、delta/ACK/fence/quality 承载和可靠性证据。
 - 为后续 BISS-C、PIO SPI、UART、RS485 等 transport adapter 提供统一调度骨架。

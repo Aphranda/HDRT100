@@ -505,6 +505,69 @@ static int test_common_tdma_ring_runtime_contract(void)
     return failed;
 }
 
+static int test_foundation_profile_freezes_runtime_resources(void)
+{
+    int failed = 0;
+    tdma_service_service_t service;
+    tdma_service_snapshot_t snapshot;
+    tdma_foundation_profile_t profile;
+    const tdma_service_payload_binding_t allowed = {
+        .producer_id = 1u,
+        .consumer_id = 2u,
+        .payload_class = TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA,
+        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+        .max_payload_size = 64u,
+    };
+    const tdma_service_payload_binding_t forbidden = {
+        .producer_id = 3u,
+        .consumer_id = 4u,
+        .payload_class = 8u,
+        .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
+        .max_payload_size = 64u,
+    };
+
+    (void)tdma_service_init(&service);
+    failed += expect_bool("foundation default",
+                          tdma_foundation_profile_default(&profile,
+                                                          12u,
+                                                          1u,
+                                                          0u,
+                                                          TDMA_ADAPTER_PIO_SPI),
+                          true);
+    profile.resource.io_claim_mask = 0x00000003u;
+    profile.resource.ip_core_claim_mask = 0x00000005u;
+    profile.profile_crc32 = tdma_foundation_profile_crc32(&profile);
+    failed += expect_bool("foundation activate",
+                          tdma_service_configure_foundation_profile(&service,
+                                                                    &profile,
+                                                                    0xAABBCCDDu),
+                          true);
+    failed += expect_bool("allowed payload",
+                          tdma_service_register_payload(&service, &allowed),
+                          true);
+    failed += expect_bool("forbidden payload",
+                          tdma_service_register_payload(&service, &forbidden),
+                          false);
+    (void)tdma_service_get_snapshot(&service, &snapshot);
+    failed += expect_u32("foundation crc",
+                         snapshot.foundation_profile_crc32,
+                         profile.profile_crc32);
+    failed += expect_u32("foundation owner",
+                         snapshot.foundation_owner_instance_id,
+                         12u);
+    failed += expect_u32("foundation adapter",
+                         snapshot.adapter_type,
+                         TDMA_ADAPTER_PIO_SPI);
+    failed += expect_u32("foundation up sm", snapshot.up_state_machine_id, 0u);
+    failed += expect_u32("foundation down sm", snapshot.down_state_machine_id, 1u);
+    failed += expect_u32("foundation payload whitelist",
+                         snapshot.payload_whitelist_mask,
+                         TDMA_PAYLOAD_FOUNDATION_DEFAULT_MASK);
+    failed += expect_u32("foundation io claim", snapshot.io_claim_mask, 0x00000003u);
+    failed += expect_u32("foundation ip claim", snapshot.ip_core_claim_mask, 0x00000005u);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -517,6 +580,7 @@ int main(void)
     failed += test_vdc_window_plan_defers_until_guard();
     failed += test_vdc_window_plan_rejects_missed_window();
     failed += test_common_tdma_ring_runtime_contract();
+    failed += test_foundation_profile_freezes_runtime_resources();
     if (failed != 0) {
         (void)printf("refmem_realtime_tdma tests failed: %d\n", failed);
         return 1;

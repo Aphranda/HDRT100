@@ -149,7 +149,7 @@ python tools\refmem_network_validate\refmem_network_validate.py --port-a COM3 --
 
 - 两板 `*IDN?` 可通信。
 - 两板 build id 一致。
-- 两板具备 `REFMEM + VDC` baseline。
+- 两板具备 `REFMEM + VDC + TDMA` baseline。
 - SlotClaim gate ready。
 - 默认 evidence 为空。
 - SlotClaimMap CRC 一致。

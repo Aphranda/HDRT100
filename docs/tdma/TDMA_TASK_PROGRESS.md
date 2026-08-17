@@ -42,6 +42,43 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
 
 ## 任务记录
 
+### TDMA-TASK-20260817-002 - Foundation profile、HAOFV owner 与 TSN-style 流治理
+
+- 状态：完成首版代码契约与 host 单元验证；RMTP profile 表和真实逐流 scheduler 尚待实现。
+- 日期：2026-08-17
+- 任务目标：
+  - 将 `TDMARingProfile` owner 从 VDC 迁入 TDMA Foundation。
+  - 将 TDMA 表达为 HAOFV 可装载 system node，并冻结运行期资源声明。
+  - 面向 VDC、RefMem、配置、OTA 和 LOG，吸收 TSN 的流分类、准入、time-aware gate、整形和背压思想。
+- 完成内容：
+  - 新增 `tdma_profile.h/.c`，定义 `tdma_ring_profile_t`、`tdma_foundation_profile_t`、adapter、PIO/SM/DMA/core1 resource、frame capacity、payload whitelist 和 profile CRC。
+  - `vdc_tdma_schedule_profile_t` 改为只读嵌入 `ring_binding`；VDC schedule CRC 绑定 TDMA ring CRC，ring topology/CRC 校验由 TDMA owner 实现。
+  - `tdma_service_configure_foundation_profile()` 将 owner、adapter、PIO/SM/DMA、core1 service、capacity、IO/IP claim、payload whitelist 和 profile CRC 冻结到 runtime snapshot。
+  - payload registry 按 active whitelist 做 admission，未登记 payload 被拒绝。
+  - 固定五类 traffic class：VDC realtime、RefMem realtime、config control、OTA bulk、LOG best effort；每类定义周期预算、帧数、队列深度、deadline、gate/shaping/preemption 和 overflow policy。
+  - RefMem Application Model 增加 TDMA baseline capability、`TdmaSchedulerAO` instance、NodeLoad、resource/IP claim 和 DeploymentGate check；默认模型只允许一个 active TDMA owner。
+- 验证结果：
+  - `run_tdma_profile_tests.ps1` 使用 Vivado MinGW GCC host 执行通过。
+  - `run_vdc_domain_tests.ps1` 使用 Vivado MinGW GCC host 执行通过。
+  - `run_host_unit_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 全部通过，19/19 脚本均执行 host 测试。
+  - `python -m pytest tests\python\test_refmem_pack_build.py -q` 通过，2 passed；仅有 OneDrive `.pytest_cache` 无法写入 warning，不影响测试结果。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有两项 risk review 文件名 warning。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，最终 build id `20260817051719`，package CRC `0x086043EE`。
+- 还需完成：
+  - 将 foundation/traffic profile 作为正式 RMTP/System Pack 表镜像，而不是只保留 C contract。
+  - DeploymentGate 对 staged candidate 执行唯一 owner、总预算、MTU、queue RAM、DMA/SM/IO claim 和 payload compatibility 校验。
+  - 实现 core1 逐类队列、time-aware gate、policing/backpressure 和质量计数。
+- 关联文件：
+  - `components/tdma/inc/tdma_profile.h`
+  - `components/tdma/src/tdma_profile.c`
+  - `components/tdma/inc/tdma_service.h`
+  - `components/tdma/src/tdma_service.c`
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/distributed_refmem/inc/refmem_application_model.h`
+  - `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
+- 下一步：
+  - 先完成 host/doc/build 闭环，再设计 RMTP `TdmaFoundationProfile` 表项和 scheduler queue runtime。
+
 ### TDMA-TASK-20260817-001 - 上/下行 TDMA 边界升格为基础件
 
 - 状态：完成首版边界升级、文档主域、单元测试和构建验证；后续进入 TDMA system node / 同时 UP-DOWN runtime。

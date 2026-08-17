@@ -145,6 +145,45 @@ TransportAdapter 是可替换物理承载，不改变 TDMA 语义。
 
 Adapter 不得直接写 VDC、RefMem 或 Trigger active fact。它只能返回 TX/RX 执行结果、frame、timestamp metadata 和错误计数。
 
+## TSN-style 资源治理与流控
+
+TDMA Foundation 吸收 TSN 的确定性资源治理思想，但不绑定 IEEE 802.1 协议、以太网帧格式或交换机实现。系统复用的是 traffic class、准入控制、time-aware gate、guard band、整形、背压、逐流质量和可选冗余消重；物理传输仍由 PIO SPI、BISS-C、UART、RS485 或后续 adapter 承载。
+
+| TSN 可借鉴机制 | 本系统映射 | 明确边界 |
+|---|---|---|
+| 802.1Qbv time-aware shaping | TDMA window/gate、guard band、active schedule CRC。 | 不实现以太网 gate control list；由 `TdmaSchedulerAO` 驱动本地 adapter gate。 |
+| 802.1Qci per-stream filtering/policing | payload whitelist、traffic budget、deadline、queue depth、drop/backpressure counter。 | 未通过 admission 的流不进入 core1 队列。 |
+| 802.1Qav credit shaping | 配置、OTA、LOG 的 token/credit 或 deficit 预算。 | 不用于 VDC/RefMem 硬预留流，避免实时窗口受动态 credit 影响。 |
+| 802.1Qbu frame preemption | maintenance/bulk 帧仅在 frame boundary 可让位。 | 首版不宣称 adapter 支持字节级或 bit 级抢占。 |
+| 802.1CB FRER | 后续多环 sequence、replication、duplicate elimination。 | 单环阶段不伪造冗余 evidence。 |
+
+首版固定五类流：
+
+| Traffic class | Payload | 调度与资源规则 | 溢出策略 |
+|---|---|---|---|
+| `VDC_REALTIME` | `VDC_SYNC_SAMPLE`、`IDLE_BEACON` | 最高优先级；固定 observation/idle gate；严格预留；禁止 OTA、配置和 LOG 借用 guard band。 | 记录 fault/quality，不能静默丢弃后继续报告 LOCKED。 |
+| `REFMEM_REALTIME` | `REFMEM_DELTA`、`REFMEM_ACK_FENCE` | 固定 data gate；预留周期字节数和帧数；可靠 completion；不得侵占 VDC gate。 | 有界重试并向 producer 背压，超限 NACK/fence fault。 |
+| `CONFIG_CONTROL` | System Pack、配置 staging/activate 控制帧 | 可靠、整形、可抢占；只在 maintenance 或剩余预算中运行。 | producer 背压；不得阻塞 core1。 |
+| `OTA_BULK` | OTA package chunk | 批量、可靠、可抢占；默认无硬预留，只消耗显式 bulk budget。 | 暂停 producer 并续传，不挤占实时窗口。 |
+| `LOG_BEST_EFFORT` | LOG/trace 摘要 | 最低优先级、整形、可抢占；只使用剩余预算。 | 丢最旧记录并增加 drop counter，不能阻塞实时链路。 |
+
+`tdma_foundation_profile_t` 是上述资源治理的 active contract，必须由 System Pack / DeploymentGate 激活并冻结：
+
+- `owner_instance_id` 唯一标识 `TdmaSchedulerAO / TdmaRuntimeFB` owner。
+- `ring` 冻结节点顺序、reference、UP/DOWN group 和 topology CRC。
+- `resource` 冻结 adapter、PIO block、两组 SM、TX/RX DMA、core1 service、IO/IP claim、short/long frame capacity 和 payload whitelist。
+- `traffic[]` 冻结逐类 payload mask、每周期预留字节、每周期最大帧数、队列深度、deadline、gate/shaping/preemption 标志和 overflow policy。
+- 所有 payload 必须且只能归入一个 traffic class；未登记 payload 在 registry admission 阶段拒绝。
+
+资源与流控规则：
+
+- VDC/RefMem 使用 time-aware gate 和 guard band；OTA/配置/LOG 不得通过动态优先级反转进入这些窗口。
+- core1 只推进已准入队列和 gate，不等待 producer；背压通过 command/vector evidence 返回对应 AO/FB。
+- System Pack 激活前必须检查所有 class 的总预算、adapter MTU、窗口容量、DMA/SM/IO claim 和 queue RAM 水位；超配直接由 DeploymentGate 拒绝。
+- 可借鉴 TSN policing：逐流统计 late、deadline miss、drop、retry、backpressure 和 budget overrun，并写 `TdmaQualityVector`。
+- 多路径或多环冗余后续可借鉴 FRER 的 sequence/duplicate elimination，但首版两板单环不引入无证据的冗余成功状态。
+- RefMem 后续应按 region/slot criticality 拆分 critical delta 与 background delta；首版 `REFMEM_REALTIME` 先承载 delta/ACK/fence，运行测得水位后再细分，不能默认所有 64 KB 事实都占用硬预留带宽。
+
 ## 跨域契约
 
 | 消费域 | 从 TDMA 读取 | 向 TDMA 提交 | 禁止 |
@@ -161,9 +200,11 @@ Adapter 不得直接写 VDC、RefMem 或 Trigger active fact。它只能返回 T
 
 ```text
 components/tdma/
+  inc/tdma_profile.h
   inc/tdma_service.h
   inc/tdma_ring_runtime.h        # 后续可拆
   inc/tdma_payload_registry.h    # 后续可拆
+  src/tdma_profile.c
   src/tdma_service.c
   src/tdma_ring_runtime.c        # 后续可拆
   src/tdma_payload_registry.c    # 后续可拆
@@ -190,4 +231,3 @@ TDMA Domain 最小验证必须覆盖：
 - VDC observation window 的硬件 timestamp eligibility。
 - 两板同时上/下行 HIL，host 只读监控。
 - 后续 3 节点、5 节点只扩展 profile 表，不改算法主线。
-

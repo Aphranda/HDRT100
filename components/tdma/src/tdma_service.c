@@ -336,6 +336,12 @@ bool tdma_service_register_payload(tdma_service_service_t *service,
         binding->max_payload_size > TDMA_SERVICE_SHORT_FRAME_MAX) {
         return false;
     }
+    if (service->payload_whitelist_mask != 0u &&
+        (binding->payload_class >= 32u ||
+         (service->payload_whitelist_mask &
+          TDMA_PAYLOAD_BIT(binding->payload_class)) == 0u)) {
+        return false;
+    }
 
     for (uint32_t i = 0u; i < TDMA_SERVICE_PAYLOAD_REGISTRY_COUNT; i++) {
         tdma_service_payload_binding_t *entry = &service->payload_binding[i];
@@ -395,6 +401,50 @@ bool tdma_service_configure_ring_runtime(
     service->simultaneous_feedback_loop_evidence = 0u;
     tdma_service_end_result_write(service);
     return true;
+}
+
+bool tdma_service_configure_foundation_profile(
+    tdma_service_service_t *service,
+    const tdma_foundation_profile_t *profile,
+    uint32_t schedule_crc32)
+{
+    tdma_profile_result_t result = TDMA_PROFILE_BAD_ARGUMENT;
+    if (service == NULL || profile == NULL ||
+        !tdma_foundation_profile_validate(profile, &result) ||
+        profile->resource.short_frame_capacity > TDMA_SERVICE_SHORT_FRAME_MAX ||
+        profile->resource.long_frame_capacity > TDMA_SERVICE_LONG_FRAME_MAX ||
+        schedule_crc32 == 0u) {
+        return false;
+    }
+
+    const tdma_service_ring_runtime_config_t ring = {
+        .enabled = profile->enabled,
+        .node_count = profile->ring.node_count,
+        .local_slot_id = profile->ring.local_index,
+        .reference_slot_id = profile->ring.reference_index,
+        .up_group_id = profile->ring.up_group_id,
+        .down_group_id = profile->ring.down_group_id,
+        .flags = profile->ring.flags,
+        .ring_profile_crc32 = profile->ring.profile_crc32,
+        .schedule_crc32 = schedule_crc32,
+    };
+    tdma_service_begin_intent_write(service);
+    service->foundation_profile_crc32 = profile->profile_crc32;
+    service->foundation_owner_instance_id = profile->owner_instance_id;
+    service->adapter_type = profile->resource.adapter_type;
+    service->pio_block_id = profile->resource.pio_block_id;
+    service->up_state_machine_id = profile->resource.up_state_machine_id;
+    service->down_state_machine_id = profile->resource.down_state_machine_id;
+    service->tx_dma_channel_id = profile->resource.tx_dma_channel_id;
+    service->rx_dma_channel_id = profile->resource.rx_dma_channel_id;
+    service->core1_service_id = profile->resource.core1_service_id;
+    service->short_frame_capacity = profile->resource.short_frame_capacity;
+    service->long_frame_capacity = profile->resource.long_frame_capacity;
+    service->payload_whitelist_mask = profile->resource.payload_whitelist_mask;
+    service->io_claim_mask = profile->resource.io_claim_mask;
+    service->ip_core_claim_mask = profile->resource.ip_core_claim_mask;
+    tdma_service_end_intent_write(service);
+    return tdma_service_configure_ring_runtime(service, &ring);
 }
 
 bool tdma_service_submit_tx(tdma_service_service_t *service,
@@ -688,6 +738,20 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
         snapshot->ring_flags = service->ring_flags;
         snapshot->ring_profile_crc32 = service->ring_profile_crc32;
         snapshot->ring_schedule_crc32 = service->ring_schedule_crc32;
+        snapshot->foundation_profile_crc32 = service->foundation_profile_crc32;
+        snapshot->foundation_owner_instance_id = service->foundation_owner_instance_id;
+        snapshot->adapter_type = service->adapter_type;
+        snapshot->pio_block_id = service->pio_block_id;
+        snapshot->up_state_machine_id = service->up_state_machine_id;
+        snapshot->down_state_machine_id = service->down_state_machine_id;
+        snapshot->tx_dma_channel_id = service->tx_dma_channel_id;
+        snapshot->rx_dma_channel_id = service->rx_dma_channel_id;
+        snapshot->core1_service_id = service->core1_service_id;
+        snapshot->short_frame_capacity = service->short_frame_capacity;
+        snapshot->long_frame_capacity = service->long_frame_capacity;
+        snapshot->payload_whitelist_mask = service->payload_whitelist_mask;
+        snapshot->io_claim_mask = service->io_claim_mask;
+        snapshot->ip_core_claim_mask = service->ip_core_claim_mask;
         tdma_service_split_u64(service->submit_time_ns,
                                        &snapshot->submit_time_ns_lo,
                                        &snapshot->submit_time_ns_hi);

@@ -28,12 +28,25 @@ Last updated: 2026-08-17
 
 ## P2 - HAOFV System Node / Resource Claim
 
-- [ ] 将 TDMA 表达为可装载 HAOFV system node / FB instance。
-- [ ] 在 NodeLoad / SlotClaim / RealtimeCapabilityContract 中声明 TDMA scheduler、PIO transport、DMA、core1 service、short/long frame capacity、payload registry、UP/DOWN group 和 adapter。
+- [x] 将 TDMA 表达为可装载 HAOFV system node / FB instance；首版增加唯一 `TdmaSchedulerAO` owner、TDMA baseline capability 和 DeploymentGate check。
+- [x] 建立 `tdma_foundation_profile_t`，声明 ring、adapter、PIO/SM、DMA、core1 service、short/long capacity、payload whitelist、traffic class 和 IO/IP claim，并由 `tdma_service` 冻结到 runtime snapshot。
+- [ ] 将 foundation profile 纳入 RMTP/System Pack 正式表镜像，并从 NodeLoad / SlotClaim / RealtimeCapabilityContract 派生 owner 与资源绑定；当前首版 owner 已在默认应用模型中表达，profile 仍是独立 C contract。
 - [ ] DeploymentGate 拒绝第二个 TDMA owner。
 - [ ] DeploymentGate 拒绝业务模型复用 TDMA communication ring IO。
 - [ ] DeploymentGate 拒绝 VDC/RefMem payload class 与 active TDMA profile 不一致。
 - [ ] 支持板卡能力通过 SD System Pack 和 SCPI staging 加载，不能在代码中写死模型实例。
+
+## P2A - TSN-style 资源管理与流控
+
+- [x] 冻结五类 traffic class：VDC realtime、RefMem realtime、config control、OTA bulk、LOG best effort。
+- [x] 为每类流定义 payload mask、周期预留字节、每周期最大帧数、队列深度、deadline、gate/shaping/preemption 和 overflow policy。
+- [x] payload registry 按 active foundation profile whitelist 做 admission，拒绝未登记 payload。
+- [ ] TDMA scheduler 建立逐类固定队列和 time-aware gate；VDC/RefMem 使用硬预留，配置/OTA/LOG 只使用 maintenance 或剩余预算。
+- [ ] 实现逐流 policing、backpressure、drop/retry/deadline/budget overrun 计数，并发布 `TdmaQualityVector`。
+- [ ] DeploymentGate 校验总窗口预算、MTU、queue RAM、DMA/SM/IO claim，不允许 overcommit。
+- [ ] OTA 支持续传和 producer pause；LOG 允许 drop-oldest，但二者都不得阻塞 core1 或侵占 guard band。
+- [ ] 按 RefMem region/slot criticality 拆分 critical delta 与 background delta，避免全部 64 KB 事实同步都占用硬预留窗口。
+- [ ] 多环/冗余阶段评估 FRER-style sequence 与 duplicate elimination；首版不宣称冗余能力。
 
 ## P3 - 上/下行同时运行
 

@@ -362,7 +362,8 @@ TDMA Foundation
 - VDC 不能把 TDMA ring 配置就绪当作 DPLL 闭环证据；必须等待硬件 RX/TX timestamp 相关性证明。
 - RefMem 不能绕过 payload registry 独占 transport；所有 delta、ACK、fence 都必须走 TDMA payload/window/completion 契约。
 - Trigger/Loop/OTA/Diagnostics 可以读取 TDMA quality 或注册低频 payload，但不能绕过 TDMA owner 直接控制 PIO/SM/DMA。
-- TDMA 作为 HAOFV system node 装载时必须声明 PIO、DMA、core1 service、adapter、GPIO、UP/DOWN group、MTU 和 payload whitelist，供 DeploymentGate 做资源互斥。
+- TDMA 作为 HAOFV system node 装载时必须声明 PIO/SM、DMA、core1 service、adapter、GPIO、UP/DOWN group、MTU、payload whitelist 和逐类 traffic budget，供 DeploymentGate 做资源互斥与流量准入。
+- TDMA 吸收 TSN-style time-aware gate、guard band、shaping、backpressure 和逐流 policing；VDC/RefMem 使用硬预留流，配置/OTA/LOG 只能使用 maintenance 或剩余预算，不得产生优先级反转。
 
 ### Hardware Service Layer
 

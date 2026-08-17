@@ -37,6 +37,7 @@
 #define REFMEM_APP_INSTANCE_B3_CALIBRATION      8u
 #define REFMEM_APP_INSTANCE_B4_MODEL_VNA        9u
 #define REFMEM_APP_INSTANCE_B4_MODEL_TT         10u
+#define REFMEM_APP_INSTANCE_TDMA_FOUNDATION     11u
 
 static const refmem_application_map_t s_application_map = {
     .version = REFMEM_APP_MODEL_VERSION,
@@ -57,7 +58,8 @@ static const refmem_board_capability_table_t s_board_capability_table = {
                             REFMEM_APP_CAP_SMA_OUT,
          REFMEM_APP_IO_SMA_IN | REFMEM_APP_IO_SMA_OUT | REFMEM_APP_IO_RJ45_SYNC,
          REFMEM_APP_IP_PULSE_CAPTURE | REFMEM_APP_IP_PULSE_FIRE |
-             REFMEM_APP_IP_RJ45_SYNC_DELTA | REFMEM_APP_IP_VDC_DPLL,
+             REFMEM_APP_IP_RJ45_SYNC_DELTA | REFMEM_APP_IP_VDC_DPLL |
+             REFMEM_APP_IP_TDMA_SCHEDULER,
          REFMEM_APP_PERSONA_TRIGGER_MASTER, 0u, 0u, 1u},
         {1u, 0xB0000001u, REFMEM_APP_CAP_BASELINE | REFMEM_APP_CAP_PIO |
                             REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_RJ45 |
@@ -179,6 +181,9 @@ static const refmem_node_load_table_t s_node_load_table = {
          REFMEM_APP_ROLE_MODEL_TURNTABLE | REFMEM_APP_ROLE_TEST_AGENT,
          REFMEM_APP_PERSONA_MODEL_INSTRUMENTS, 0u, 0u,
          REFMEM_APP_FAIL_REPORT_ONLY, 1u},
+        {11u, 1u, 1u, 0u, REFMEM_APP_INSTANCE_TDMA_FOUNDATION,
+         REFMEM_APP_ROLE_BOARD, REFMEM_APP_PERSONA_TRIGGER_MASTER,
+         1u, 1u, REFMEM_APP_FAIL_STOP, 4u},
     },
 };
 
@@ -248,6 +253,14 @@ static const refmem_fb_instance_table_t s_fb_instance_table = {
          REFMEM_APP_RESOURCE_PIO | REFMEM_APP_RESOURCE_DMA | REFMEM_APP_RESOURCE_CORE1_RT,
          REFMEM_APP_IO_MODEL_TURNTABLE_PULSE, REFMEM_APP_IP_PULSE_FIRE, 500u,
          REFMEM_VECTOR_REGION_IO, REFMEM_VECTOR_REGION_STATS, 0u, 0u, 0u, 0u, 8u, 1u},
+        {REFMEM_APP_INSTANCE_TDMA_FOUNDATION, 0u, REFMEM_APP_DOMAIN_TDMA,
+         REFMEM_APP_FB_TDMA_SCHEDULER, REFMEM_APP_FB_TDMA_SCHEDULER,
+         "Foundation.TdmaSchedulerAO", 1u, 1u,
+         REFMEM_APP_RESOURCE_PIO | REFMEM_APP_RESOURCE_DMA |
+             REFMEM_APP_RESOURCE_CORE1_RT | REFMEM_APP_RESOURCE_TDMA_SCHEDULER,
+         REFMEM_APP_IO_RJ45_SYNC, REFMEM_APP_IP_TDMA_SCHEDULER, 100u,
+         REFMEM_VECTOR_REGION_SERVICE, REFMEM_VECTOR_REGION_STATS,
+         0u, 0u, 0u, 0u, 9u, 1u},
     },
 };
 
@@ -369,6 +382,7 @@ static const refmem_deployment_gate_table_t s_deployment_gate = {
         {REFMEM_APP_GATE_CONFIG, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_SYSTEM, 0u},
         {REFMEM_APP_GATE_CAL_SYNC, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_CAL, 0u},
         {REFMEM_APP_GATE_QUALITY, 1u, REFMEM_APP_GATE_LATCH_FAULT, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_STATS, 0u},
+        {REFMEM_APP_GATE_TDMA, 1u, REFMEM_APP_GATE_REJECT_RUN, REFMEM_APP_GATE_PASS, 0u, 0u, 0u, REFMEM_VECTOR_REGION_SERVICE, 0u},
     },
 };
 
@@ -1682,7 +1696,7 @@ static bool refmem_model_validate_instances(void)
         if (instance->instance_id != i ||
             instance->default_node_id >= REFMEM_APP_MODEL_NODE_COUNT ||
             instance->instance_name == NULL ||
-            instance->domain > REFMEM_APP_DOMAIN_GATEWAY ||
+            instance->domain > REFMEM_APP_DOMAIN_TDMA ||
             instance->state_region_ref >= REFMEM_VECTOR_REGION_COUNT ||
             instance->health_region_ref >= REFMEM_VECTOR_REGION_COUNT ||
             instance->event_first > s_event_link_table.event_link_count ||
@@ -1813,7 +1827,8 @@ static bool refmem_model_validate_resource_claims(void)
     const uint32_t exclusive_resource_mask = REFMEM_APP_RESOURCE_FLASH |
                                             REFMEM_APP_RESOURCE_SD |
                                             REFMEM_APP_RESOURCE_USB |
-                                            REFMEM_APP_RESOURCE_LCD;
+                                            REFMEM_APP_RESOURCE_LCD |
+                                            REFMEM_APP_RESOURCE_TDMA_SCHEDULER;
 
     for (uint32_t i = 0u; i < s_node_load_table.load_count; i++) {
         const refmem_node_load_entry_t *left_load = &s_node_load_table.load[i];
@@ -1846,6 +1861,25 @@ static bool refmem_model_validate_resource_claims(void)
     }
 
     return true;
+}
+
+static bool refmem_model_validate_tdma_owner(void)
+{
+    uint32_t owner_count = 0u;
+    for (uint32_t i = 0u; i < s_node_load_table.load_count; i++) {
+        const refmem_node_load_entry_t *load = &s_node_load_table.load[i];
+        const refmem_fb_instance_entry_t *instance =
+            refmem_model_instance_by_id(load->instance_id);
+        if (!refmem_model_node_load_enabled(load) ||
+            !refmem_model_instance_enabled(instance)) {
+            continue;
+        }
+        if (instance->domain == REFMEM_APP_DOMAIN_TDMA &&
+            instance->fb_type == REFMEM_APP_FB_TDMA_SCHEDULER) {
+            owner_count++;
+        }
+    }
+    return owner_count == 1u;
 }
 
 static bool refmem_model_validate_io_claims(void)
@@ -1988,6 +2022,10 @@ static void refmem_model_lint(uint32_t *error_count, uint32_t *first_error)
                            first_error);
     refmem_model_lint_note(refmem_model_validate_resource_claims(),
                            REFMEM_APP_LINT_RESOURCE_CONFLICT,
+                           error_count,
+                           first_error);
+    refmem_model_lint_note(refmem_model_validate_tdma_owner(),
+                           REFMEM_APP_LINT_TDMA_OWNER_CONFLICT,
                            error_count,
                            first_error);
     refmem_model_lint_note(refmem_model_validate_io_claims(),
@@ -2360,6 +2398,9 @@ bool refmem_application_model_validate(void)
 
 bool refmem_application_model_init(void)
 {
+    s_active_tables_from_image = false;
+    refmem_application_model_discard_prepared_table_views();
+
     s_snapshot.version = REFMEM_APP_MODEL_VERSION;
     s_snapshot.target_node_mask = s_application_map.target_node_mask;
     s_snapshot.table_mask = REFMEM_APP_TABLE_MASK_ALL;
@@ -2412,9 +2453,6 @@ bool refmem_application_model_init(void)
     memset(&s_staging_board_capability_table, 0, sizeof(s_staging_board_capability_table));
     s_staging_node_load_valid = false;
     s_staging_board_capability_valid = false;
-    refmem_application_model_discard_prepared_table_views();
-    s_active_tables_from_image = false;
-
     s_initialized = true;
     refmem_table_registry_init(&s_snapshot);
     return s_snapshot.valid != 0u;

@@ -156,24 +156,24 @@ TDMA schedule 必须给 VDC 保留固定同步观测窗口。该窗口用于发�
 | `schedule_crc32` | TDMA schedule profile 摘要。 |
 | `schedule_version` | schedule layout/version，用于跨节点一致性。 |
 
-过渡期 `VdcTdmaScheduleProfile` 仍保留首版 `TDMARingProfile` 字段，用于让 VDC observation profile 能校验自己消费的是哪一份 active TDMA schedule；但这些字段的 owner 是 TDMA Foundation，后续应迁移到 TDMA profile / System Pack / DeploymentGate，再由 VDC 只读绑定。当前 C 契约已经冻结以下字段：
+`TDMARingProfile` 已迁入 TDMA Foundation 的 `tdma_ring_profile_t`。`VdcTdmaScheduleProfile` 只嵌入只读 `ring_binding`，用于校验 observation profile 消费的是哪一份 active TDMA schedule；VDC 不再定义或拥有 ring 字段。System Pack / DeploymentGate 的正式表镜像接入仍由 TDMA 待办继续推进。当前 C 契约冻结以下绑定字段：
 
 | 字段 | 含义 |
 |---|---|
-| `ring_profile_version` | ring profile 结构版本，首版为 `1`。 |
-| `ring_flags` | 环路能力标志；必须包含 `SIMULTANEOUS_UP_DOWN`，用于区分实时反馈环路和单向 leg 自测。 |
-| `ring_node_count` | 当前 active ring 节点数，上限为 8 个逻辑槽位。 |
-| `ring_local_index` / `ring_reference_index` | 本地 slot 与 reference slot 在 active ring 中的索引。 |
-| `up_leg_group_id` / `down_leg_group_id` | TDMA Foundation 同时运行的上行组和下行组资源声明，二者不能相同。 |
-| `upstream_slot_id` / `downstream_slot_id` | 本地节点在 ring 中的上游和下游槽位。 |
-| `feedback_slot_id` | 一圈反馈 evidence 回到的目标槽位，首版通常等于 reference slot。 |
-| `ring_profile_crc32` | 只覆盖 ring 字段的 CRC；`schedule_crc32` 再覆盖 window、slot 和 ring CRC。 |
+| `ring_binding.version` | ring profile 结构版本，首版为 `1`。 |
+| `ring_binding.flags` | 环路能力标志；必须包含 `SIMULTANEOUS_UP_DOWN`，用于区分实时反馈环路和单向 leg 自测。 |
+| `ring_binding.node_count` | 当前 active ring 节点数，上限为 8 个逻辑槽位。 |
+| `ring_binding.local_index / reference_index` | 本地 slot 与 reference slot 在 active ring 中的索引。 |
+| `ring_binding.up_group_id / down_group_id` | TDMA Foundation 同时运行的上行组和下行组资源声明，二者不能相同。 |
+| `ring_binding.upstream_slot_id / downstream_slot_id` | 本地节点在 ring 中的上游和下游槽位。 |
+| `ring_binding.feedback_slot_id` | 一圈反馈 evidence 回到的目标槽位，首版通常等于 reference slot。 |
+| `ring_binding.profile_crc32` | 只覆盖 ring 字段的 CRC；`schedule_crc32` 再绑定 window、slot 和 ring CRC。 |
 
 规则：
 
 - 同步窗口只承载 reference edge、timestamp capture 和必要的同步帧摘要。
 - 普通 RefMem delta、维护数据、日志、SD/OTA payload 不能进入同步观测窗口。
-- TDMA schedule 更新只能走 VDC/System Pack staging 和 activation，不得在 RUN 中热改窗口位置。
+- TDMA schedule 更新只能走 TDMA/System Pack staging 和 activation；VDC 只绑定 observation 视图，不得在 RUN 中热改窗口位置。
 - `schedule_crc32` 必须进入 VDC profile CRC 和 RefMem version bundle；不一致时拒绝 LOCK。
 
 #### Two-board TDMA Hardware Baseline

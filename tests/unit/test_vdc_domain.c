@@ -262,56 +262,47 @@ static int test_tdma_ring_profile_contract(void)
     uint32_t original_schedule_crc = 0u;
 
     vdc_domain_default_schedule(&schedule, 2u, 0u);
-    original_ring_crc = schedule.ring_profile_crc32;
+    original_ring_crc = schedule.ring_binding.profile_crc32;
     original_schedule_crc = schedule.schedule_crc32;
 
     failed += expect_bool("ring schedule valid",
                           vdc_domain_schedule_validate(&schedule),
                           true);
     failed += expect_u32("ring profile version",
-                         schedule.ring_profile_version,
-                         VDC_DOMAIN_TDMA_RING_PROFILE_VERSION);
+                         schedule.ring_binding.version,
+                         TDMA_RING_PROFILE_VERSION);
     failed += expect_u32("ring simultaneous flag",
-                         schedule.ring_flags &
-                             VDC_DOMAIN_TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN,
-                         VDC_DOMAIN_TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN);
+                         schedule.ring_binding.flags &
+                             TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN,
+                         TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN);
     failed += expect_u32("ring node count",
-                         schedule.ring_node_count,
+                         schedule.ring_binding.node_count,
                          VDC_DOMAIN_NODE_COUNT);
-    failed += expect_u32("ring local index", schedule.ring_local_index, 2u);
+    failed += expect_u32("ring local index", schedule.ring_binding.local_index, 2u);
     failed += expect_u32("ring reference index",
-                         schedule.ring_reference_index,
+                         schedule.ring_binding.reference_index,
                          0u);
-    failed += expect_u32("ring upstream", schedule.upstream_slot_id, 1u);
-    failed += expect_u32("ring downstream", schedule.downstream_slot_id, 3u);
-    failed += expect_u32("ring feedback", schedule.feedback_slot_id, 0u);
+    failed += expect_u32("ring upstream", schedule.ring_binding.upstream_slot_id, 1u);
+    failed += expect_u32("ring downstream", schedule.ring_binding.downstream_slot_id, 3u);
+    failed += expect_u32("ring feedback", schedule.ring_binding.feedback_slot_id, 0u);
     failed += expect_bool("ring crc nonzero",
-                          schedule.ring_profile_crc32 != 0u,
+                          schedule.ring_binding.profile_crc32 != 0u,
                           true);
 
-    schedule.downstream_slot_id = 4u;
+    schedule.ring_binding.downstream_slot_id = 4u;
     failed += expect_bool("stale ring crc rejected",
                           vdc_domain_schedule_validate(&schedule),
                           false);
-    schedule.ring_profile_crc32 =
+    schedule.ring_binding.profile_crc32 =
         vdc_domain_ring_profile_crc32(&schedule);
-    failed += expect_bool("stale schedule crc rejected",
+    schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
+    failed += expect_bool("bad ring topology rejected",
                           vdc_domain_schedule_validate(&schedule),
                           false);
-    schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
-    failed += expect_bool("updated ring schedule valid",
-                          vdc_domain_schedule_validate(&schedule),
-                          true);
-    failed += expect_bool("ring crc changes",
-                          schedule.ring_profile_crc32 != original_ring_crc,
-                          true);
-    failed += expect_bool("schedule crc changes",
-                          schedule.schedule_crc32 != original_schedule_crc,
-                          true);
 
     vdc_domain_default_schedule(&schedule, 1u, 0u);
-    schedule.ring_node_count = 1u;
-    schedule.ring_profile_crc32 =
+    schedule.ring_binding.node_count = 1u;
+    schedule.ring_binding.profile_crc32 =
         vdc_domain_ring_profile_crc32(&schedule);
     schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
     failed += expect_bool("one node ring rejected",
@@ -319,8 +310,8 @@ static int test_tdma_ring_profile_contract(void)
                           false);
 
     vdc_domain_default_schedule(&schedule, 1u, 0u);
-    schedule.up_leg_group_id = schedule.down_leg_group_id;
-    schedule.ring_profile_crc32 =
+    schedule.ring_binding.up_group_id = schedule.ring_binding.down_group_id;
+    schedule.ring_binding.profile_crc32 =
         vdc_domain_ring_profile_crc32(&schedule);
     schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
     failed += expect_bool("same leg group rejected",
@@ -328,23 +319,29 @@ static int test_tdma_ring_profile_contract(void)
                           false);
 
     vdc_domain_default_schedule(&schedule, 2u, 0u);
-    schedule.ring_node_count = 5u;
-    schedule.ring_local_index = 2u;
+    schedule.ring_binding.node_count = 5u;
+    schedule.ring_binding.local_index = 2u;
     schedule.local_slot_id = 2u;
-    schedule.ring_reference_index = 0u;
+    schedule.ring_binding.reference_index = 0u;
     schedule.reference_slot_id = 0u;
-    schedule.upstream_slot_id = 1u;
-    schedule.downstream_slot_id = 3u;
-    schedule.feedback_slot_id = 0u;
-    schedule.ring_profile_crc32 =
+    schedule.ring_binding.upstream_slot_id = 1u;
+    schedule.ring_binding.downstream_slot_id = 3u;
+    schedule.ring_binding.feedback_slot_id = 0u;
+    schedule.ring_binding.profile_crc32 =
         vdc_domain_ring_profile_crc32(&schedule);
     schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
     failed += expect_bool("five node ring valid",
                           vdc_domain_schedule_validate(&schedule),
                           true);
+    failed += expect_bool("ring crc changes",
+                          schedule.ring_binding.profile_crc32 != original_ring_crc,
+                          true);
+    failed += expect_bool("schedule crc changes",
+                          schedule.schedule_crc32 != original_schedule_crc,
+                          true);
 
-    schedule.downstream_slot_id = 5u;
-    schedule.ring_profile_crc32 =
+    schedule.ring_binding.downstream_slot_id = 5u;
+    schedule.ring_binding.profile_crc32 =
         vdc_domain_ring_profile_crc32(&schedule);
     schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
     failed += expect_bool("out of active ring slot rejected",
@@ -393,15 +390,15 @@ static int test_tdma_ring_plan_contract(void)
                          0u);
 
     vdc_domain_default_schedule(&schedule, 2u, 0u);
-    schedule.ring_node_count = 5u;
-    schedule.ring_local_index = 2u;
+    schedule.ring_binding.node_count = 5u;
+    schedule.ring_binding.local_index = 2u;
     schedule.local_slot_id = 2u;
-    schedule.ring_reference_index = 0u;
+    schedule.ring_binding.reference_index = 0u;
     schedule.reference_slot_id = 0u;
-    schedule.upstream_slot_id = 1u;
-    schedule.downstream_slot_id = 3u;
-    schedule.feedback_slot_id = 0u;
-    schedule.ring_profile_crc32 =
+    schedule.ring_binding.upstream_slot_id = 1u;
+    schedule.ring_binding.downstream_slot_id = 3u;
+    schedule.ring_binding.feedback_slot_id = 0u;
+    schedule.ring_binding.profile_crc32 =
         vdc_domain_ring_profile_crc32(&schedule);
     schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
     failed += expect_bool("ring plan five node",
@@ -414,8 +411,8 @@ static int test_tdma_ring_plan_contract(void)
                          plan.to_feedback_hops,
                          3u);
 
-    schedule.ring_node_count = 1u;
-    schedule.ring_profile_crc32 =
+    schedule.ring_binding.node_count = 1u;
+    schedule.ring_binding.profile_crc32 =
         vdc_domain_ring_profile_crc32(&schedule);
     schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
     failed += expect_bool("ring plan rejects invalid",

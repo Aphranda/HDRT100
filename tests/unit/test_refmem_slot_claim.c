@@ -92,7 +92,7 @@ static void make_generic_nodes(refmem_generic_node_table_t *table, uint32_t node
         table->node[i].node_id = i;
         table->node[i].node_uuid_crc32 = 0xB0000000u + i;
         table->node[i].capability_mask =
-            REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM | REFMEM_APP_CAP_VDC |
+            REFMEM_APP_CAP_BASELINE |
             REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT;
         table->node[i].claim_policy = REFMEM_APP_CLAIM_STRICT_UUID;
         table->node[i].claim_priority = 100u - i;
@@ -113,7 +113,7 @@ static void make_boards(refmem_board_capability_table_t *table, uint32_t board_c
         table->board[i].board_id = i;
         table->board[i].board_uuid_crc32 = 0xB0000000u + i;
         table->board[i].capability_mask =
-            REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM | REFMEM_APP_CAP_VDC |
+            REFMEM_APP_CAP_BASELINE |
             REFMEM_APP_CAP_PIO | REFMEM_APP_CAP_DMA | REFMEM_APP_CAP_CORE1_RT;
         table->board[i].hw_profile_crc32 = 0x1000u + i;
         table->board[i].active_default_slot = i;
@@ -427,7 +427,7 @@ static int test_claim_propose_frame_crc_validation(void)
         max_proposal[i].board_uuid_crc32 = 0xB0000000u + i;
         max_proposal[i].preferred_slot_id = i % REFMEM_APP_MODEL_NODE_COUNT;
         max_proposal[i].capability_mask =
-            REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM | REFMEM_APP_CAP_VDC;
+            REFMEM_APP_CAP_BASELINE;
     }
     failed += expect_bool("claim propose accepts max candidates",
                           refmem_claim_propose_frame_init(&frame,
@@ -465,8 +465,7 @@ static int test_claim_hello_and_commit_frames(void)
     (void)memset(&hello, 0, sizeof(hello));
     hello.board_id = 1u;
     hello.board_uuid_crc32 = 0xB0000001u;
-    hello.capability_mask = REFMEM_APP_CAP_BOARD | REFMEM_APP_CAP_REFMEM |
-                            REFMEM_APP_CAP_VDC;
+    hello.capability_mask = REFMEM_APP_CAP_BASELINE;
     hello.active_slot_id = 1u;
     hello.baseline_ready = 1u;
     hello.vdc_ready = 1u;

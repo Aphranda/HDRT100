@@ -484,9 +484,9 @@ static bool refmem_table_registry_validate_fb_instance(
         if (!refmem_table_registry_parse_fb_instance_entry(&data[cursor], &entry) ||
             entry.instance_id != i ||
             entry.default_node_id >= REFMEM_APP_MODEL_NODE_COUNT ||
-            entry.domain > REFMEM_APP_DOMAIN_GATEWAY ||
-            entry.ao_type > REFMEM_APP_FB_LINK_SWITCHER ||
-            entry.fb_type > REFMEM_APP_FB_LINK_SWITCHER ||
+            entry.domain > REFMEM_APP_DOMAIN_TDMA ||
+            entry.ao_type > REFMEM_APP_FB_TDMA_SCHEDULER ||
+            entry.fb_type > REFMEM_APP_FB_TDMA_SCHEDULER ||
             entry.instance_name_hash == 0u ||
             entry.version == 0u ||
             entry.enable_condition > 1u ||
