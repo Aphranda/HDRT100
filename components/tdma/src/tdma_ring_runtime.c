@@ -333,6 +333,9 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     runtime->idle_beacon_tx_count = adapter_status.idle_beacon_tx_count;
     runtime->idle_beacon_rx_count = adapter_status.idle_beacon_rx_count;
     runtime->feedback_round_trip_ns = round_trip_ns;
+    runtime->adapter_tx_count = adapter_status.tx_count;
+    runtime->adapter_rx_count = adapter_status.rx_count;
+    runtime->adapter_rx_bad_count = adapter_status.rx_bad_count;
     runtime->reference_tx_timestamp_ns =
         adapter_status.reference_tx_timestamp_ns;
     runtime->feedback_rx_timestamp_ns =
@@ -402,6 +405,9 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         snapshot->idle_beacon_tx_count = runtime->idle_beacon_tx_count;
         snapshot->idle_beacon_rx_count = runtime->idle_beacon_rx_count;
         snapshot->feedback_round_trip_ns = runtime->feedback_round_trip_ns;
+        snapshot->adapter_tx_count = runtime->adapter_tx_count;
+        snapshot->adapter_rx_count = runtime->adapter_rx_count;
+        snapshot->adapter_rx_bad_count = runtime->adapter_rx_bad_count;
         snapshot->reference_tx_timestamp_ns =
             runtime->reference_tx_timestamp_ns;
         snapshot->feedback_rx_timestamp_ns =

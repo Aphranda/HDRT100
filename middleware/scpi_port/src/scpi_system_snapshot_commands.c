@@ -1858,6 +1858,9 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.ring_feedback_rx_timestamp_ns_lo);
     SCPI_ResultUInt32(context, snapshot.ring_feedback_rx_timestamp_ns_hi);
     SCPI_ResultUInt32(context, snapshot.ring_adapter_last_error);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_tx_count);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_rx_count);
+    SCPI_ResultUInt32(context, snapshot.ring_adapter_rx_bad_count);
     return SCPI_RES_OK;
 }
 

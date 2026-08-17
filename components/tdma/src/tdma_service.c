@@ -1022,6 +1022,9 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
     snapshot->ring_adapter_stop_count = ring_snapshot.adapter_stop_count;
     snapshot->ring_adapter_service_count = ring_snapshot.adapter_service_count;
     snapshot->ring_adapter_last_error = ring_snapshot.adapter_last_error;
+    snapshot->ring_adapter_tx_count = ring_snapshot.adapter_tx_count;
+    snapshot->ring_adapter_rx_count = ring_snapshot.adapter_rx_count;
+    snapshot->ring_adapter_rx_bad_count = ring_snapshot.adapter_rx_bad_count;
     snapshot->ring_up_tx_sequence = ring_snapshot.up_tx_sequence;
     snapshot->ring_down_rx_sequence = ring_snapshot.down_rx_sequence;
     snapshot->ring_up_tx_frame_crc32 = ring_snapshot.up_tx_frame_crc32;

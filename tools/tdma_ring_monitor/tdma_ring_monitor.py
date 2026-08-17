@@ -38,7 +38,7 @@ if str(ROOT / "tools") not in sys.path:
 
 from scpi_common.scpi_serial import open_serial_port, read_serial_line_idle  # noqa: E402
 
-TDMA_STATUS_FIELD_COUNT = 107
+TDMA_STATUS_FIELD_COUNT = 110
 
 RING_ENABLED = 54
 RING_NODE_COUNT = 56
@@ -68,6 +68,9 @@ RING_REF_TX_TS_HI = 103
 RING_FB_RX_TS_LO = 104
 RING_FB_RX_TS_HI = 105
 RING_ADAPTER_LAST_ERROR = 106
+RING_ADAPTER_TX_COUNT = 107
+RING_ADAPTER_RX_COUNT = 108
+RING_ADAPTER_RX_BAD_COUNT = 109
 
 REASON_NAMES = {
     0: "NONE",

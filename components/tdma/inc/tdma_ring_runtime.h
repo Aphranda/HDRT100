@@ -50,6 +50,9 @@ typedef struct {
     uint32_t idle_beacon_tx_count;
     uint32_t idle_beacon_rx_count;
     uint32_t last_error;
+    uint32_t tx_count;
+    uint32_t rx_count;
+    uint32_t rx_bad_count;
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
 } tdma_ring_adapter_status_t;
@@ -98,6 +101,9 @@ typedef struct {
     uint32_t idle_beacon_tx_count;
     uint32_t idle_beacon_rx_count;
     uint32_t feedback_round_trip_ns;
+    uint32_t adapter_tx_count;
+    uint32_t adapter_rx_count;
+    uint32_t adapter_rx_bad_count;
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
 } tdma_ring_runtime_snapshot_t;
@@ -140,6 +146,9 @@ typedef struct {
     volatile uint32_t idle_beacon_tx_count;
     volatile uint32_t idle_beacon_rx_count;
     volatile uint32_t feedback_round_trip_ns;
+    volatile uint32_t adapter_tx_count;
+    volatile uint32_t adapter_rx_count;
+    volatile uint32_t adapter_rx_bad_count;
     volatile uint64_t reference_tx_timestamp_ns;
     volatile uint64_t feedback_rx_timestamp_ns;
     const tdma_ring_adapter_ops_t *adapter_ops;

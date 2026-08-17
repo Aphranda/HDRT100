@@ -458,6 +458,9 @@ static bool tdma_pio_spi_ring_adapter_service(
     status->idle_beacon_tx_count = adapter->idle_beacon_tx_count;
     status->idle_beacon_rx_count = adapter->idle_beacon_rx_count;
     status->last_error = adapter->last_error;
+    status->tx_count = adapter->tx_count;
+    status->rx_count = adapter->rx_count;
+    status->rx_bad_count = adapter->rx_bad_count;
     status->reference_tx_timestamp_ns = adapter->reference_tx_timestamp_ns;
     status->feedback_rx_timestamp_ns = adapter->feedback_rx_timestamp_ns;
     return true;

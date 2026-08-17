@@ -246,6 +246,9 @@ static void refmem_realtime_tdma_from_service_snapshot(
     target->ring_adapter_stop_count = source->ring_adapter_stop_count;
     target->ring_adapter_service_count = source->ring_adapter_service_count;
     target->ring_adapter_last_error = source->ring_adapter_last_error;
+    target->ring_adapter_tx_count = source->ring_adapter_tx_count;
+    target->ring_adapter_rx_count = source->ring_adapter_rx_count;
+    target->ring_adapter_rx_bad_count = source->ring_adapter_rx_bad_count;
     target->ring_up_tx_sequence = source->ring_up_tx_sequence;
     target->ring_down_rx_sequence = source->ring_down_rx_sequence;
     target->ring_up_tx_frame_crc32 = source->ring_up_tx_frame_crc32;

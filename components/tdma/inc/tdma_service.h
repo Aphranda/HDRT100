@@ -211,6 +211,9 @@ typedef struct {
     uint32_t ring_adapter_stop_count;
     uint32_t ring_adapter_service_count;
     uint32_t ring_adapter_last_error;
+    uint32_t ring_adapter_tx_count;
+    uint32_t ring_adapter_rx_count;
+    uint32_t ring_adapter_rx_bad_count;
     uint32_t ring_up_tx_sequence;
     uint32_t ring_down_rx_sequence;
     uint32_t ring_up_tx_frame_crc32;
