@@ -474,12 +474,16 @@ int main(void)
                                        tdma_pio_spi_ring_adapter_ops(),
                                        &adapter);
 
-        /* First service: no frame received yet, nothing to forward. */
+        /* First service: no frame received yet; the slave pushes a
+         * placeholder beacon to keep the full-duplex PIO pull fed, so the
+         * ring stays up (up=1) but down stays 0. */
         tdma_ring_runtime_service(&runtime);
         (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
-        failed += expect_u32("forward node starts in evidence missing",
+        failed += expect_u32("forward node placeholder up", snapshot.up_running, 1u);
+        failed += expect_u32("forward node down idle", snapshot.down_running, 0u);
+        failed += expect_u32("forward node no ring fault",
                              snapshot.last_reason,
-                             TDMA_RING_RUNTIME_REASON_EVIDENCE_MISSING);
+                             TDMA_RING_RUNTIME_REASON_NONE);
 
         /* Inject a reference beacon (hop 0) and service: it must be forwarded
          * with hop advanced and identity preserved. */

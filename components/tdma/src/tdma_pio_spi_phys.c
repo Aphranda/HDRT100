@@ -9,7 +9,19 @@
 #include "pico/time.h"
 #include "tdma_pio_spi.pio.h"
 
-#define TDMA_PIO_SPI_DEFAULT_BAUD_HZ 25000000u
+#define TDMA_PIO_SPI_DEFAULT_BAUD_HZ 1000000u
+
+/* Fixed frame window: 4-byte packet header + 32-byte TdmaTransportFrame idle
+ * beacon. Every ring frame is exactly this long, so the RX DMA completes at a
+ * known frame boundary. */
+#define TDMA_PIO_SPI_FIXED_RX_WORDS \
+    (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_FRAME_HEADER_SIZE)
+
+/* Bounded TX FIFO wait: core1 must stay predictable (HAOFV). If the downlink
+ * SM stops consuming (e.g. the config plane disarms it while core1 is mid
+ * frame), put_blocking would hang core1 forever and break the flash lockout
+ * protocol. Instead we wait at most this long per word and fail the frame. */
+#define TDMA_PIO_SPI_TX_PUT_TIMEOUT_1E3NS 500u
 
 static bool s_tdma_pio_spi_programs_loaded;
 static uint s_tdma_pio_spi_tx_offset;
@@ -24,10 +36,8 @@ static void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys,
         return;
     }
     phys->snapshot.last_error = error;
-    if (error == TDMA_PIO_SPI_PHYS_ERROR_TIMEOUT) {
-        phys->snapshot.rx_timeout_count++;
-    } else if (error == TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET ||
-               error == TDMA_PIO_SPI_PHYS_ERROR_PAYLOAD_TOO_LARGE) {
+    if (error == TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET ||
+        error == TDMA_PIO_SPI_PHYS_ERROR_PAYLOAD_TOO_LARGE) {
         phys->snapshot.rx_bad_count++;
     }
 }
@@ -37,23 +47,20 @@ static bool tdma_pio_spi_phys_ensure_programs(void)
     if (s_tdma_pio_spi_programs_loaded) {
         return true;
     }
-    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO, &tdma_pio_spi_tx_byte_program) ||
-        !pio_can_add_program(BOARD_TDMA_SPI_PIO, &tdma_pio_spi_rx_byte_program)) {
+    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_tx_byte_program) ||
+        !pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_rx_byte_program)) {
         return false;
     }
     s_tdma_pio_spi_tx_offset =
-        (uint)pio_add_program(BOARD_TDMA_SPI_PIO, &tdma_pio_spi_tx_byte_program);
+        (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
+                              &tdma_pio_spi_tx_byte_program);
     s_tdma_pio_spi_rx_offset =
-        (uint)pio_add_program(BOARD_TDMA_SPI_PIO, &tdma_pio_spi_rx_byte_program);
+        (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
+                              &tdma_pio_spi_rx_byte_program);
     s_tdma_pio_spi_programs_loaded = true;
     return true;
-}
-
-/* role 0 -> slot 0 downlink SCK, role 1 -> slot 1 downlink SCK. */
-static uint32_t tdma_pio_spi_phys_downlink_sck(uint32_t role)
-{
-    return role == 0u ? BOARD_TDMA_SPI_DOWNLINK_SCK_PIN_SLOT0
-                      : BOARD_TDMA_SPI_DOWNLINK_SCK_PIN_SLOT1;
 }
 
 static void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys)
@@ -61,40 +68,10 @@ static void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys)
     phys->snapshot.armed = phys->armed ? 1u : 0u;
     phys->snapshot.role = phys->role;
     phys->snapshot.baud_hz = phys->baud_hz;
-    phys->snapshot.downlink_sck_pin = phys->downlink_sck_pin;
-    phys->snapshot.downlink_tx_pin = phys->downlink_tx_pin;
-    phys->snapshot.uplink_rx_pin = phys->uplink_rx_pin;
-    phys->snapshot.uplink_sck_pin = phys->uplink_sck_pin;
-}
-
-static void tdma_pio_spi_phys_master_init(tdma_pio_spi_phys_t *phys)
-{
-    /* Downlink master SM: drive SCK + TX(MOSI), no CS. */
-    tdma_pio_spi_tx_byte_program_init(BOARD_TDMA_SPI_PIO,
-                                      BOARD_TDMA_SPI_MASTER_SM,
-                                      s_tdma_pio_spi_tx_offset,
-                                      phys->downlink_tx_pin,
-                                      phys->downlink_sck_pin,
-                                      phys->baud_hz);
-    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
-    pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
-    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM, true);
-}
-
-static void tdma_pio_spi_phys_slave_init(tdma_pio_spi_phys_t *phys)
-{
-    /* Uplink slave SM: sample RX + SCK from the previous board, no CS.
-     * The uplink TX pin is owned by the downlink master direction and is not
-     * reconfigured here. */
-    tdma_pio_spi_rx_byte_program_init(BOARD_TDMA_SPI_PIO,
-                                      BOARD_TDMA_SPI_SLAVE_SM,
-                                      s_tdma_pio_spi_rx_offset,
-                                      phys->uplink_rx_pin,
-                                      UINT32_MAX,
-                                      phys->uplink_sck_pin);
-    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
-    pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
-    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, true);
+    phys->snapshot.tx_sck_pin = phys->tx_sck_pin;
+    phys->snapshot.tx_pin = phys->tx_pin;
+    phys->snapshot.rx_sck_pin = phys->rx_sck_pin;
+    phys->snapshot.rx_pin = phys->rx_pin;
 }
 
 static uint64_t tdma_pio_spi_phys_now_1e3ns(void)
@@ -118,20 +95,80 @@ static bool tdma_pio_spi_phys_ensure_rx_dma(void)
 
 static void tdma_pio_spi_phys_rx_prepare(tdma_pio_spi_phys_t *phys)
 {
-    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, false);
-    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
-    pio_sm_restart(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
-    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, true);
-    (void)phys;
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, false);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, true);
 }
 
-/* Resident RX uses a fixed frame window (4-byte packet header + 32-byte
- * TdmaTransportFrame idle beacon) so the DMA completes at a known frame
- * boundary. Non-blocking: the core1 TDMA service is never stalled waiting
- * for RX; each service round checks DMA progress and picks up a frame only
- * when it is complete. */
-#define TDMA_PIO_SPI_FIXED_RX_WORDS \
-    (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_FRAME_HEADER_SIZE)
+/* Half-duplex ring: the pin set is symmetric across boards (measured wiring,
+ * see board_config.h), so every ring node uses the same downlink TX leg
+ * (SCK=24, TX=23) and uplink RX leg (SCK=19, RX=18). */
+static void tdma_pio_spi_phys_configure(tdma_pio_spi_phys_t *phys)
+{
+    phys->tx_sm = BOARD_TDMA_SPI_MASTER_SM;
+    phys->tx_pin = BOARD_TDMA_SPI_DOWNLINK_TX_PIN;
+    phys->tx_sck_pin = BOARD_TDMA_SPI_DOWNLINK_SCK_PIN;
+    phys->rx_sm = BOARD_TDMA_SPI_SLAVE_SM;
+    phys->rx_pin = BOARD_TDMA_SPI_UPLINK_RX_PIN;
+    phys->rx_sck_pin = BOARD_TDMA_SPI_UPLINK_SCK_PIN;
+
+    tdma_pio_spi_tx_byte_program_init(BOARD_TDMA_SPI_PIO,
+                                      phys->tx_sm,
+                                      s_tdma_pio_spi_tx_offset,
+                                      phys->tx_pin,
+                                      phys->tx_sck_pin,
+                                      phys->baud_hz);
+    tdma_pio_spi_rx_byte_program_init(BOARD_TDMA_SPI_PIO,
+                                      phys->rx_sm,
+                                      s_tdma_pio_spi_rx_offset,
+                                      phys->rx_pin,
+                                      UINT32_MAX, /* no CS pin on the ring */
+                                      phys->rx_sck_pin);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, true);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, true);
+}
+
+/* Non-blocking RX: arm the DMA once, then pick up a complete fixed-size frame
+ * when it has arrived. The core1 TDMA service is never stalled. */
+static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys,
+                                     size_t max_words)
+{
+    if (phys == NULL || max_words == 0u ||
+        max_words > TDMA_PIO_SPI_RX_DMA_WORD_MAX ||
+        !tdma_pio_spi_phys_ensure_rx_dma()) {
+        return false;
+    }
+    if (phys->rx_capture_active) {
+        return true; /* already armed for this capture window. */
+    }
+
+    dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+    tdma_pio_spi_phys_rx_prepare(phys);
+
+    dma_channel_config dma_cfg =
+        dma_channel_get_default_config((uint)s_tdma_pio_spi_rx_dma_channel);
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&dma_cfg, false);
+    channel_config_set_write_increment(&dma_cfg, true);
+    channel_config_set_dreq(&dma_cfg, DREQ_PIO0_RX0 + phys->rx_sm);
+    dma_channel_configure((uint)s_tdma_pio_spi_rx_dma_channel,
+                          &dma_cfg,
+                          s_tdma_pio_spi_rx_dma_words,
+                          &BOARD_TDMA_SPI_PIO->rxf[phys->rx_sm],
+                          max_words,
+                          true);
+
+    phys->rx_capture_active = true;
+    phys->rx_capture_max_words = max_words;
+    phys->rx_capture_last_remaining = (uint32_t)max_words;
+    phys->rx_capture_last_change_1e3ns = tdma_pio_spi_phys_now_1e3ns();
+    return true;
+}
 
 static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
                                             size_t max_words,
@@ -142,32 +179,13 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
     }
     if (phys == NULL || received_words == NULL ||
         max_words == 0u ||
-        max_words > TDMA_PIO_SPI_RX_DMA_WORD_MAX ||
-        !tdma_pio_spi_phys_ensure_rx_dma()) {
+        max_words > TDMA_PIO_SPI_RX_DMA_WORD_MAX) {
         return false;
     }
-
     if (!phys->rx_capture_active) {
-        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
-        tdma_pio_spi_phys_rx_prepare(phys);
-
-        dma_channel_config dma_cfg =
-            dma_channel_get_default_config((uint)s_tdma_pio_spi_rx_dma_channel);
-        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
-        channel_config_set_read_increment(&dma_cfg, false);
-        channel_config_set_write_increment(&dma_cfg, true);
-        channel_config_set_dreq(&dma_cfg, DREQ_PIO0_RX0 + BOARD_TDMA_SPI_SLAVE_SM);
-        dma_channel_configure((uint)s_tdma_pio_spi_rx_dma_channel,
-                              &dma_cfg,
-                              s_tdma_pio_spi_rx_dma_words,
-                              &BOARD_TDMA_SPI_PIO->rxf[BOARD_TDMA_SPI_SLAVE_SM],
-                              max_words,
-                              true);
-
-        phys->rx_capture_active = true;
-        phys->rx_capture_max_words = max_words;
-        phys->rx_capture_last_remaining = (uint32_t)max_words;
-        phys->rx_capture_last_change_1e3ns = tdma_pio_spi_phys_now_1e3ns();
+        /* No capture window open yet: arm it. The frame is not ready until a
+         * later service round. */
+        tdma_pio_spi_phys_rx_arm(phys, max_words);
         return false;
     }
 
@@ -199,6 +217,13 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
     }
     phys->rx_capture_active = false;
+    /* Re-arm immediately so the next frame is captured with no dead window:
+     * the rx_byte SM pushes one word per byte into the RX FIFO; without a
+     * running DMA the FIFO fills (8 deep) and the SM stalls, which corrupts
+     * or drops the next frame. The next frame cannot arrive before this
+     * re-arm completes (frame interval >> service period), so the FIFO reset
+     * in rx_prepare cannot lose an in-flight frame. */
+    tdma_pio_spi_phys_rx_arm(phys, max_words);
     *received_words = moved;
     return true;
 }
@@ -216,22 +241,17 @@ bool tdma_pio_spi_phys_arm(void *context,
         return false;
     }
 
-    phys->role = config->local_slot_id == 0u ? 0u : 1u;
+    phys->role = (config->local_slot_id == config->reference_slot_id)
+                     ? TDMA_PIO_SPI_ROLE_MASTER
+                     : TDMA_PIO_SPI_ROLE_SLAVE;
     phys->baud_hz = TDMA_PIO_SPI_DEFAULT_BAUD_HZ;
-    phys->downlink_sck_pin = tdma_pio_spi_phys_downlink_sck(phys->role);
-    phys->downlink_tx_pin = BOARD_TDMA_SPI_DOWNLINK_TX_PIN;
-    phys->uplink_rx_pin = BOARD_TDMA_SPI_UPLINK_RX_PIN;
-    phys->uplink_sck_pin = BOARD_TDMA_SPI_UPLINK_SCK_PIN;
-
-    tdma_pio_spi_phys_master_init(phys);
-    tdma_pio_spi_phys_slave_init(phys);
+    tdma_pio_spi_phys_configure(phys);
 
     phys->armed = true;
     phys->rx_capture_active = false;
     phys->snapshot.tx_count = 0u;
     phys->snapshot.rx_count = 0u;
     phys->snapshot.rx_bad_count = 0u;
-    phys->snapshot.rx_timeout_count = 0u;
     phys->snapshot.tx_busy_count = 0u;
     phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_NONE;
     tdma_pio_spi_phys_fill_static_snapshot(phys);
@@ -244,21 +264,35 @@ void tdma_pio_spi_phys_disarm(void *context)
     if (phys == NULL || !phys->armed) {
         return;
     }
-    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM, false);
-    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, false);
-    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
-    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
-    gpio_set_function(phys->downlink_sck_pin, GPIO_FUNC_SIO);
-    gpio_set_function(phys->downlink_tx_pin, GPIO_FUNC_SIO);
-    gpio_set_function(phys->uplink_rx_pin, GPIO_FUNC_SIO);
-    gpio_set_function(phys->uplink_sck_pin, GPIO_FUNC_SIO);
-    gpio_set_dir(phys->downlink_sck_pin, GPIO_IN);
-    gpio_set_dir(phys->downlink_tx_pin, GPIO_IN);
-    gpio_set_dir(phys->uplink_rx_pin, GPIO_IN);
-    gpio_set_dir(phys->uplink_sck_pin, GPIO_IN);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, false);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, false);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    gpio_set_function(phys->tx_sck_pin, GPIO_FUNC_SIO);
+    gpio_set_function(phys->tx_pin, GPIO_FUNC_SIO);
+    gpio_set_function(phys->rx_sck_pin, GPIO_FUNC_SIO);
+    gpio_set_function(phys->rx_pin, GPIO_FUNC_SIO);
+    gpio_set_dir(phys->tx_sck_pin, GPIO_IN);
+    gpio_set_dir(phys->tx_pin, GPIO_IN);
+    gpio_set_dir(phys->rx_sck_pin, GPIO_IN);
+    gpio_set_dir(phys->rx_pin, GPIO_IN);
     phys->armed = false;
     phys->rx_capture_active = false;
     tdma_pio_spi_phys_fill_static_snapshot(phys);
+}
+
+static bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
+                                     uint32_t word)
+{
+    const uint64_t deadline_1e3ns =
+        tdma_pio_spi_phys_now_1e3ns() + TDMA_PIO_SPI_TX_PUT_TIMEOUT_1E3NS;
+    while (pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO, phys->tx_sm)) {
+        if (tdma_pio_spi_phys_now_1e3ns() >= deadline_1e3ns) {
+            return false; /* SM stopped: do not hang core1. */
+        }
+    }
+    pio_sm_put(BOARD_TDMA_SPI_PIO, phys->tx_sm, word);
+    return true;
 }
 
 bool tdma_pio_spi_phys_tx(void *context,
@@ -275,10 +309,7 @@ bool tdma_pio_spi_phys_tx(void *context,
         }
         return false;
     }
-    /* The master SM drains the TX FIFO autonomously; a non-empty FIFO means
-     * the previous frame is still shifting out, so a new TX must wait for the
-     * next service round (TX_BUSY) instead of being silently dropped. */
-    if (!pio_sm_is_tx_fifo_empty(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM)) {
+    if (!pio_sm_is_tx_fifo_empty(BOARD_TDMA_SPI_PIO, phys->tx_sm)) {
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
         phys->snapshot.tx_busy_count++;
         return false;
@@ -291,14 +322,18 @@ bool tdma_pio_spi_phys_tx(void *context,
         (uint8_t)(packet_size >> 8u),
     };
     for (uint32_t i = 0u; i < TDMA_PIO_SPI_PACKET_HEADER_SIZE; i++) {
-        pio_sm_put_blocking(BOARD_TDMA_SPI_PIO,
-                            BOARD_TDMA_SPI_MASTER_SM,
-                            ((uint32_t)header[i]) << 24u);
+        if (!tdma_pio_spi_phys_tx_put(phys, ((uint32_t)header[i]) << 24u)) {
+            tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
+            phys->snapshot.tx_busy_count++;
+            return false;
+        }
     }
     for (size_t i = 0u; i < packet_size; i++) {
-        pio_sm_put_blocking(BOARD_TDMA_SPI_PIO,
-                            BOARD_TDMA_SPI_MASTER_SM,
-                            ((uint32_t)packet[i]) << 24u);
+        if (!tdma_pio_spi_phys_tx_put(phys, ((uint32_t)packet[i]) << 24u)) {
+            tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
+            phys->snapshot.tx_busy_count++;
+            return false;
+        }
     }
 
     phys->snapshot.tx_count++;
@@ -334,8 +369,6 @@ bool tdma_pio_spi_phys_rx(void *context,
     if (!tdma_pio_spi_phys_capture_words(phys,
                                          TDMA_PIO_SPI_FIXED_RX_WORDS,
                                          &received_words)) {
-        /* Non-blocking: no complete frame yet. Not an error; the next service
-         * round picks it up. */
         return false;
     }
     if (received_words < TDMA_PIO_SPI_PACKET_HEADER_SIZE) {

@@ -23,6 +23,37 @@ bitloop_rx:
     push block
 .wrap
 
+; Full-duplex master: drives SCK + MOSI while sampling MISO on the same
+; exchange. Each byte is pulled from TX FIFO, shifted out on MOSI, sampled on
+; MISO and pushed to RX FIFO (one SPI transfer per byte).
+.program tdma_pio_spi_fd_master
+.side_set 1
+.wrap_target
+    pull block        side 0
+    set x, 7          side 0
+bitloop_fd:
+    out pins, 1       side 0 [1]
+    in pins, 1        side 1 [1]
+    jmp x-- bitloop_fd side 0 [1]
+    push block        side 0
+.wrap
+
+; Full-duplex slave: samples MOSI on the master clock while driving MISO with
+; the response byte from TX FIFO (one SPI transfer per byte).
+.program tdma_pio_spi_fd_slave
+.wrap_target
+    wait 0 gpio 0
+    pull block
+    set x, 7
+bitloop_fds:
+    wait 1 gpio 1
+    in pins, 1
+    out pins, 1
+    wait 0 gpio 1
+    jmp x-- bitloop_fds
+    push block
+.wrap
+
 % c-sdk {
 
 #include <stdint.h>
@@ -93,6 +124,69 @@ static inline void tdma_pio_spi_rx_byte_program_init(PIO pio,
     sm_config_set_in_pins(&c, rx_pin);
     sm_config_set_in_shift(&c, false, false, 32);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+/* Full-duplex master init: out pins = MOSI, side-set = SCK, in pins = MISO.
+ * The SM shifts the TX byte out on MOSI while sampling MISO into the RX FIFO
+ * on the same clock exchange. */
+static inline void tdma_pio_spi_fd_master_program_init(PIO pio,
+                                                       uint sm,
+                                                       uint offset,
+                                                       uint mosi_pin,
+                                                       uint sck_pin,
+                                                       uint miso_pin,
+                                                       uint32_t baud_hz)
+{
+    pio_gpio_init(pio, mosi_pin);
+    pio_gpio_init(pio, sck_pin);
+    pio_gpio_init(pio, miso_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, mosi_pin, 1, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, sck_pin, 1, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, miso_pin, 1, false);
+    gpio_pull_down(miso_pin);
+
+    pio_sm_config c = tdma_pio_spi_fd_master_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, mosi_pin, 1);
+    sm_config_set_sideset_pins(&c, sck_pin);
+    sm_config_set_in_pins(&c, miso_pin);
+    sm_config_set_out_shift(&c, false, false, 32);
+    sm_config_set_in_shift(&c, false, false, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_NONE);
+    sm_config_set_clkdiv(&c, tdma_pio_spi_clkdiv_for_baud(baud_hz));
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0);
+}
+
+/* Full-duplex slave init: in pins = MOSI, out pins = MISO, sck sampled on
+ * gpio. The SM samples the master's MOSI and drives the response byte on MISO
+ * during the same exchange. */
+static inline void tdma_pio_spi_fd_slave_program_init(PIO pio,
+                                                      uint sm,
+                                                      uint offset,
+                                                      uint mosi_pin,
+                                                      uint sck_pin,
+                                                      uint miso_pin)
+{
+    pio->instr_mem[offset + 0u] = (uint16_t)pio_encode_nop();
+    pio->instr_mem[offset + 3u] = (uint16_t)pio_encode_wait_gpio(true, sck_pin);
+    pio->instr_mem[offset + 6u] = (uint16_t)pio_encode_wait_gpio(false, sck_pin);
+
+    pio_gpio_init(pio, mosi_pin);
+    pio_gpio_init(pio, sck_pin);
+    pio_gpio_init(pio, miso_pin);
+    gpio_pull_down(mosi_pin);
+    gpio_pull_down(sck_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, mosi_pin, 1, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, sck_pin, 1, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, miso_pin, 1, true);
+
+    pio_sm_config c = tdma_pio_spi_fd_slave_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, mosi_pin);
+    sm_config_set_out_pins(&c, miso_pin, 1);
+    sm_config_set_in_shift(&c, false, false, 32);
+    sm_config_set_out_shift(&c, false, false, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_NONE);
     pio_sm_init(pio, sm, offset, &c);
 }
 

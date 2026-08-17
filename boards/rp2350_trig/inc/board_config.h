@@ -52,25 +52,27 @@
 #define BOARD_REFMEM_SPI_TX_PIN 19u
 #define BOARD_REFMEM_SPI_BAUD_HZ 25000000u
 
-/* TDMA resident ring physical layer (P0.5-3 bring-up, no-CS 3-wire SPI).
- * Reuses the verified min-system pin set (docs/refmem/REFMEM_TASK_PROGRESS.md
- * REFMEM-TASK-20260816-050): uplink (slave RX from previous board) is
- * (rx=16, sck=18) and downlink (master TX to next board) uses tx=23 with the
- * SCK selected by ring slot (slot 0 -> 22, slot 1 -> 21). Both SMs stay
- * armed together and the core1 TDMA service drives frame-level TX/RX. */
+/* TDMA resident ring physical layer (P0.5-3 bring-up, ring + half duplex).
+ * Every board carries two independent legs. Wiring measured after the
+ * symmetric rewire (tools/tdma_ring_monitor/line_map_check.py):
+ *   - Downlink TX leg (SPI master): drives SCK + data toward the next board.
+ *       every board: SCK=24, TX=23
+ *       A.24 -> B.19, A.23 -> B.18        (A downlink -> B uplink)
+ *       B.24 -> A.19, B.23 -> A.18        (B downlink -> A uplink)
+ *   - Uplink RX leg (SPI slave): follows the previous board's SCK.
+ *       every board: SCK=19, RX=18
+ * The pin set is symmetric across boards, so a ring of N boards uses the same
+ * firmware on every node (C_n downlink 24/23 -> C_{n+1} uplink 19/18). */
 #define BOARD_TDMA_SPI_PIO pio0
 #define BOARD_TDMA_SPI_MASTER_SM 2u
 #define BOARD_TDMA_SPI_SLAVE_SM 3u
-#define BOARD_TDMA_SPI_UPLINK_RX_PIN 16u
-#define BOARD_TDMA_SPI_UPLINK_SCK_PIN 18u
-/* Measured min-system wiring (tools/tdma_ring_monitor/line_map_check.py):
- *   A(slot0).22 -> B.18, A.23 -> B.16        (A downlink -> B uplink)
- *   B(slot1).19 -> A.18, B.23 -> A.16        (B downlink -> A uplink)
- * GPIO21 on the B side is not wired, so slot 1 uses GPIO19 as downlink SCK. */
-#define BOARD_TDMA_SPI_DOWNLINK_SCK_PIN_SLOT0 22u
-#define BOARD_TDMA_SPI_DOWNLINK_SCK_PIN_SLOT1 19u
+#define BOARD_TDMA_SPI_UPLINK_RX_PIN 18u
+#define BOARD_TDMA_SPI_UPLINK_SCK_PIN 19u
+#define BOARD_TDMA_SPI_DOWNLINK_SCK_PIN 24u
 #define BOARD_TDMA_SPI_DOWNLINK_TX_PIN 23u
-#define BOARD_TDMA_SPI_BAUD_HZ 25000000u
+/* 25 MHz produced intermittent slave reception on the measured wiring; use
+ * 1 MHz to validate timing margins during bring-up. */
+#define BOARD_TDMA_SPI_BAUD_HZ 1000000u
 
 #define BOARD_I2C_ENABLED 0
 #define BOARD_I2C_PORT i2c0

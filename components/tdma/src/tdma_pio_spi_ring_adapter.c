@@ -406,11 +406,11 @@ static bool tdma_pio_spi_ring_adapter_service(
     bool tx_ok = false;
     bool rx_ok = false;
     if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE) {
-        /* Reference node originates one IDLE_BEACON per TDMA cycle
-         * (cycle_period_ns is carried in feedback_timeout_ns by the profile)
-         * instead of following the core1 bare-loop frequency, and receives the
-         * returned frame (hop > 0, identity preserved) on the DOWN leg. Only
-         * this node may produce simultaneous_feedback_loop_evidence. */
+        /* Reference node is the ring origin: it emits one IDLE_BEACON per
+         * TDMA cycle on the downlink TX leg and receives the same frame back
+         * (hop advanced, identity preserved) on the uplink RX leg after it
+         * has travelled once around the ring. Only this node may produce
+         * simultaneous_feedback_loop_evidence. */
         const uint64_t cycle_ns =
             adapter->config.feedback_timeout_ns != 0u
                 ? adapter->config.feedback_timeout_ns
@@ -434,13 +434,19 @@ static bool tdma_pio_spi_ring_adapter_service(
         }
         rx_ok = tdma_pio_spi_ring_adapter_rx_once(adapter);
     } else {
-        /* Forward node receives the frame from the previous board and
-         * re-emits it toward the next board immediately (its TX rate is
-         * naturally bounded by the reference node); the frame returns to the
-         * reference node. up/down_running prove ring service, not feedback. */
+        /* Follower node (half-duplex ring): receives the frame from the
+         * previous board on the uplink RX leg and re-emits it toward the next
+         * board on the downlink TX leg, keeping origin/sequence/identity CRC
+         * unchanged and advancing hop/transport CRC. When nothing arrived
+         * this round there is nothing to forward and nothing is emitted: a
+         * foreign placeholder beacon would race the reference frame around
+         * the ring and corrupt the reference's feedback correlation. The TX
+         * leg stays ready (up_running=1). */
         rx_ok = tdma_pio_spi_ring_adapter_rx_once(adapter);
         if (rx_ok) {
             tx_ok = tdma_pio_spi_ring_adapter_tx_forward(adapter);
+        } else {
+            tx_ok = true; /* idle round: nothing received, nothing to emit. */
         }
     }
     if (!tx_ok) {
