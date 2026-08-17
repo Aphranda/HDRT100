@@ -254,6 +254,177 @@ static int test_default_schedule_and_clock(void)
     return failed;
 }
 
+static int test_tdma_ring_profile_contract(void)
+{
+    int failed = 0;
+    vdc_tdma_schedule_profile_t schedule;
+    uint32_t original_ring_crc = 0u;
+    uint32_t original_schedule_crc = 0u;
+
+    vdc_domain_default_schedule(&schedule, 2u, 0u);
+    original_ring_crc = schedule.ring_profile_crc32;
+    original_schedule_crc = schedule.schedule_crc32;
+
+    failed += expect_bool("ring schedule valid",
+                          vdc_domain_schedule_validate(&schedule),
+                          true);
+    failed += expect_u32("ring profile version",
+                         schedule.ring_profile_version,
+                         VDC_DOMAIN_TDMA_RING_PROFILE_VERSION);
+    failed += expect_u32("ring simultaneous flag",
+                         schedule.ring_flags &
+                             VDC_DOMAIN_TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN,
+                         VDC_DOMAIN_TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN);
+    failed += expect_u32("ring node count",
+                         schedule.ring_node_count,
+                         VDC_DOMAIN_NODE_COUNT);
+    failed += expect_u32("ring local index", schedule.ring_local_index, 2u);
+    failed += expect_u32("ring reference index",
+                         schedule.ring_reference_index,
+                         0u);
+    failed += expect_u32("ring upstream", schedule.upstream_slot_id, 1u);
+    failed += expect_u32("ring downstream", schedule.downstream_slot_id, 3u);
+    failed += expect_u32("ring feedback", schedule.feedback_slot_id, 0u);
+    failed += expect_bool("ring crc nonzero",
+                          schedule.ring_profile_crc32 != 0u,
+                          true);
+
+    schedule.downstream_slot_id = 4u;
+    failed += expect_bool("stale ring crc rejected",
+                          vdc_domain_schedule_validate(&schedule),
+                          false);
+    schedule.ring_profile_crc32 =
+        vdc_domain_ring_profile_crc32(&schedule);
+    failed += expect_bool("stale schedule crc rejected",
+                          vdc_domain_schedule_validate(&schedule),
+                          false);
+    schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
+    failed += expect_bool("updated ring schedule valid",
+                          vdc_domain_schedule_validate(&schedule),
+                          true);
+    failed += expect_bool("ring crc changes",
+                          schedule.ring_profile_crc32 != original_ring_crc,
+                          true);
+    failed += expect_bool("schedule crc changes",
+                          schedule.schedule_crc32 != original_schedule_crc,
+                          true);
+
+    vdc_domain_default_schedule(&schedule, 1u, 0u);
+    schedule.ring_node_count = 1u;
+    schedule.ring_profile_crc32 =
+        vdc_domain_ring_profile_crc32(&schedule);
+    schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
+    failed += expect_bool("one node ring rejected",
+                          vdc_domain_schedule_validate(&schedule),
+                          false);
+
+    vdc_domain_default_schedule(&schedule, 1u, 0u);
+    schedule.up_leg_group_id = schedule.down_leg_group_id;
+    schedule.ring_profile_crc32 =
+        vdc_domain_ring_profile_crc32(&schedule);
+    schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
+    failed += expect_bool("same leg group rejected",
+                          vdc_domain_schedule_validate(&schedule),
+                          false);
+
+    vdc_domain_default_schedule(&schedule, 2u, 0u);
+    schedule.ring_node_count = 5u;
+    schedule.ring_local_index = 2u;
+    schedule.local_slot_id = 2u;
+    schedule.ring_reference_index = 0u;
+    schedule.reference_slot_id = 0u;
+    schedule.upstream_slot_id = 1u;
+    schedule.downstream_slot_id = 3u;
+    schedule.feedback_slot_id = 0u;
+    schedule.ring_profile_crc32 =
+        vdc_domain_ring_profile_crc32(&schedule);
+    schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
+    failed += expect_bool("five node ring valid",
+                          vdc_domain_schedule_validate(&schedule),
+                          true);
+
+    schedule.downstream_slot_id = 5u;
+    schedule.ring_profile_crc32 =
+        vdc_domain_ring_profile_crc32(&schedule);
+    schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
+    failed += expect_bool("out of active ring slot rejected",
+                          vdc_domain_schedule_validate(&schedule),
+                          false);
+    return failed;
+}
+
+static int test_tdma_ring_plan_contract(void)
+{
+    int failed = 0;
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_tdma_ring_plan_t plan;
+
+    vdc_domain_default_schedule(&schedule, 2u, 0u);
+    failed += expect_bool("ring plan default",
+                          vdc_domain_plan_tdma_ring(&schedule, &plan),
+                          true);
+    failed += expect_u32("ring plan valid", plan.valid, 1u);
+    failed += expect_u32("ring plan node count",
+                         plan.ring_node_count,
+                         VDC_DOMAIN_NODE_COUNT);
+    failed += expect_u32("ring plan local", plan.local_slot_id, 2u);
+    failed += expect_u32("ring plan reference", plan.reference_slot_id, 0u);
+    failed += expect_u32("ring plan upstream", plan.upstream_slot_id, 1u);
+    failed += expect_u32("ring plan downstream", plan.downstream_slot_id, 3u);
+    failed += expect_u32("ring plan from reference",
+                         plan.from_reference_hops,
+                         2u);
+    failed += expect_u32("ring plan to feedback",
+                         plan.to_feedback_hops,
+                         6u);
+    failed += expect_u32("ring plan not reference",
+                         plan.is_reference_slot,
+                         0u);
+
+    vdc_domain_default_schedule(&schedule, 0u, 0u);
+    failed += expect_bool("ring plan reference slot",
+                          vdc_domain_plan_tdma_ring(&schedule, &plan),
+                          true);
+    failed += expect_u32("ring plan reference flag",
+                         plan.is_reference_slot,
+                         1u);
+    failed += expect_u32("ring plan reference hops",
+                         plan.from_reference_hops,
+                         0u);
+
+    vdc_domain_default_schedule(&schedule, 2u, 0u);
+    schedule.ring_node_count = 5u;
+    schedule.ring_local_index = 2u;
+    schedule.local_slot_id = 2u;
+    schedule.ring_reference_index = 0u;
+    schedule.reference_slot_id = 0u;
+    schedule.upstream_slot_id = 1u;
+    schedule.downstream_slot_id = 3u;
+    schedule.feedback_slot_id = 0u;
+    schedule.ring_profile_crc32 =
+        vdc_domain_ring_profile_crc32(&schedule);
+    schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
+    failed += expect_bool("ring plan five node",
+                          vdc_domain_plan_tdma_ring(&schedule, &plan),
+                          true);
+    failed += expect_u32("five node from reference",
+                         plan.from_reference_hops,
+                         2u);
+    failed += expect_u32("five node to feedback",
+                         plan.to_feedback_hops,
+                         3u);
+
+    schedule.ring_node_count = 1u;
+    schedule.ring_profile_crc32 =
+        vdc_domain_ring_profile_crc32(&schedule);
+    schedule.schedule_crc32 = vdc_domain_schedule_crc32(&schedule);
+    failed += expect_bool("ring plan rejects invalid",
+                          vdc_domain_plan_tdma_ring(&schedule, &plan),
+                          false);
+    failed += expect_u32("ring plan invalid zeroed", plan.valid, 0u);
+    return failed;
+}
+
 static int test_gate_rejects_diagnostic_timestamp(void)
 {
     int failed = 0;
@@ -1928,6 +2099,46 @@ static int test_dpll_updates_clock_rate_from_sample_period(void)
     return failed;
 }
 
+static int test_dpll_rate_estimator_waits_and_slews(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_tdma_timestamp_evidence_t evidence;
+
+    failed += expect_bool("init rate slew", vdc_domain_init(&context), true);
+    vdc_domain_set_ready(&context, true);
+
+    evidence = make_hardware_sample(&context.schedule, 1u, 0);
+    failed += expect_bool("submit rate anchor",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    evidence = make_hardware_sample(&context.schedule, 2u, 1000);
+    failed += expect_bool("submit short rate sample",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("short sample holds rate",
+                         snapshot.dpll.last_frequency_error_ppb,
+                         0);
+    failed += expect_i32("short sample holds adjust",
+                         snapshot.clock.period_adjust_ppb,
+                         0);
+
+    evidence = make_hardware_sample(&context.schedule, 17u, 16000);
+    failed += expect_bool("submit slewed rate sample",
+                          vdc_domain_submit_tdma_evidence(&context, &evidence),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_i32("rate slew limited",
+                         snapshot.dpll.last_frequency_error_ppb,
+                         6250);
+    failed += expect_i32("rate adjust slew limited",
+                         snapshot.clock.period_adjust_ppb,
+                         -6250);
+    return failed;
+}
+
 static int test_dpll_rejects_servo_outlier(void)
 {
     int failed = 0;
@@ -1960,15 +2171,18 @@ static int test_dpll_rejects_servo_outlier(void)
                           vdc_domain_submit_tdma_evidence(&context, &outlier),
                           false);
     (void)vdc_domain_get_snapshot(&context, &snapshot);
-    failed += expect_u32("outlier accepted count",
+    failed += expect_u32("outlier retains accepted count",
                          snapshot.dpll.accepted_sample_count,
-                         0u);
+                         context.servo.lock_sample_count);
     failed += expect_u32("outlier rejected count",
                          snapshot.dpll.rejected_sample_count,
                          1u);
     failed += expect_u32("outlier reject code",
                          snapshot.dpll.last_reject_code,
                          VDC_DOMAIN_GATE_SERVO_OUTLIER);
+    failed += expect_u32("outlier relocking state",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_RELOCKING);
     failed += expect_u32("outlier quality code",
                          snapshot.quality.gate_reject_code,
                          VDC_DOMAIN_GATE_SERVO_OUTLIER);
@@ -1981,12 +2195,12 @@ static int test_dpll_rejects_servo_outlier(void)
                           vdc_domain_submit_tdma_evidence(&context, &recovery),
                           true);
     (void)vdc_domain_get_snapshot(&context, &snapshot);
-    failed += expect_u32("outlier recovery streak",
+    failed += expect_u32("outlier recovery keeps history",
                          snapshot.dpll.accepted_sample_count,
-                         1u);
-    failed += expect_bool("outlier no immediate relock",
-                          snapshot.dpll.state != VDC_DOMAIN_LOCK_LOCKED,
-                          true);
+                         context.servo.lock_sample_count + 1u);
+    failed += expect_u32("outlier recovery relocks",
+                         snapshot.dpll.state,
+                         VDC_DOMAIN_LOCK_LOCKED);
     return failed;
 }
 
@@ -2191,6 +2405,8 @@ int main(void)
 {
     int failed = 0;
     failed += test_default_schedule_and_clock();
+    failed += test_tdma_ring_profile_contract();
+    failed += test_tdma_ring_plan_contract();
     failed += test_timestamp_contract_helpers();
     failed += test_timestamp_dictionary_contract();
     failed += test_default_timestamp_dictionary_contract();
@@ -2210,6 +2426,7 @@ int main(void)
     failed += test_sync_io_adapter_to_vdc_submit();
     failed += test_quality_age_updates_on_service();
     failed += test_dpll_updates_clock_rate_from_sample_period();
+    failed += test_dpll_rate_estimator_waits_and_slews();
     failed += test_dpll_rejects_servo_outlier();
     failed += test_dpll_slews_phase_and_pulls_rate_after_lock();
     failed += test_dpll_acquisition_accepts_large_initial_phase();

@@ -16,7 +16,7 @@ Last updated: 2026-08-16
 | 2 | 真实最小物理链路配合 RefMem | 至少两板通过真实物理 IO 运行 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY`，IO 侧提供 resource、runtime、quality 证据。 |
 | 3 | ARM_IN / EXT_CLK_IN 运行逻辑 | AUX0/AUX1 从语义占位升级为可验证运行路径，接入 TriggerFB/Sync owner 和资源门禁。 |
 | 4 | mode runtime self-test | SEQ_STEP、ENC_COUNT、BISS_TAP、模型脉冲输出均有板端 loopback 或外部回放验证。 |
-| 5 | TDMA IO resource node contract | GPIO16-24 基础通讯环路、PIO transport、DMA 和 core1 TDMA service 必须由 TDMA system node 统一声明和占用；SYNC_IO 只提供硬件 primitive/snapshot，不让 VDC/RefMem/业务 overlay 直接重复 claim。 |
+| 5 | TDMA IO resource node contract | GPIO16-24 基础通讯环路必须拆成同时运行的 TDMA 上行组/下行组，由 TDMA system node 统一声明 PIO transport、DMA 和 core1 TDMA service；SYNC_IO 只提供硬件 primitive/snapshot，不让 VDC/RefMem/业务 overlay 直接重复 claim。 |
 | 6 | sync_io 组件化继续拆分 | `sync_io.c` 只保留 core 初始化和公共基础设施，脉冲、capture、clock、AUX、debug model 分模块维护。 |
 
 ## P0 - PIO 预约输出路径
@@ -43,9 +43,9 @@ Last updated: 2026-08-16
 
 目标：配合 RefMem P4.5，把当前 PC hex bridge 换成真实最小链路时，IO 层有明确 owner、profile、状态和验证证据。
 
-- [ ] 为最小两板 transport adapter 定义 IO profile：输入/输出 pin group、方向、PIO/SM/DMA/IRQ、速率、MTU 和半/全双工规则。
+- [ ] 为最小两板 transport adapter 定义 IO profile：TDMA 上行组、TDMA 下行组、输入/输出 pin group、方向、PIO/SM/DMA/IRQ、速率、MTU 和同时运行规则。
 - [ ] 建立 `sync_io` transport primitive 或 mode driver，承接 RefMem Sync frame 发送/接收，不把物理层写进 RefMem 协议层。
-- [ ] 将 GPIO16-24 基础通讯环路归入 TDMA system node 的 IO/resource claim：节点加载到 A0-A7 任意逻辑插槽时，必须声明 uplink/downlink adapter、PIO/SM/DMA、core1 service、short/long frame capacity 和 payload registry；DeploymentGate 必须拒绝第二个 TDMA owner 或业务 overlay 复用 16-24。
+- [ ] 将 GPIO16-24 基础通讯环路归入 TDMA system node 的 IO/resource claim：节点加载到 A0-A7 任意逻辑插槽时，必须声明 uplink/downlink adapter、PIO/SM/DMA、core1 service、short/long frame capacity 和 payload registry；uplink 与 downlink 必须能同时运行，才能为 VDC/DPLL 提供实时反馈闭环；DeploymentGate 必须拒绝第二个 TDMA owner 或业务 overlay 复用 16-24。
 - [ ] adapter runtime snapshot 覆盖 tx/rx、CRC/drop/timeout、direction conflict、rx_pending、last_error 和 timestamp source。
 - [ ] RefMem HIL 脚本读取 IO runtime snapshot，和 RefMem `QUALITY` 计数互相印证。
 - [ ] 两板 COM5/COM6 或当前可用端口完成真实线 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY`。

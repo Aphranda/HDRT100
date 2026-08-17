@@ -39,6 +39,7 @@ Last updated: 2026-08-17
 | `SYSTem:SYNC:VDC:STATus?` | 查询 `task_vdc_sync` 的只读维护状态：是否 ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq。 |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` | 查询 `task_dpll` 的只读维护状态：是否 ready、state、service_count、first_service_ms、last_service_ms、update_seq。 |
 | `SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]` | 查询 VDC TDMA 窗口计划；默认 `window_class=2` 即 `REFMEM_DATA_WINDOW`，不带时间参数时使用当前板端时间。返回窗口起止、guard、wait_ns、late_ns、inside/missed 标志、schedule CRC 和 gate 结果。 |
+| `SYSTem:SYNC:VDC:TDMA:RING?` | 查询 active TDMA ring profile 的只读计划：节点数、本地/reference/upstream/downstream/feedback slot、hop 数、simultaneous flag、ring CRC 和 schedule CRC；不提交 TDMA intent，不启动闭环。 |
 | `SYSTem:SYNC:VDC:LOCK:READiness?` | 查询 VDC/DPLL 最小实例锁定就绪证据：input_ready、locked、阻塞原因、DPLL/quality 状态、observer 计数、timestamp eligibility、dictionary/profile CRC 和最近 payload/source/reference。该命令只读，不启动 capture，不写 lock/offset/rate。 |
 | `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest [role],[output_index],[observed_mask],[initial_sample_mask],[sample_period_ns],[pulse_period_ns],[pulse_high_ns],[pulse_count],[frame_crc32],[start_delay_ns]` | 维护态 VDC/TDMA bring-up：TX 角色提交公共 TDMA `VDC_SYNC_SAMPLE` short frame intent，RX 角色按 active observation window 周期性启动 observer/capture。当前 TX evidence 为 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，只验证 TDMA payload 到 VDC gate 的诊断通路；返回 `1`，不写 lock/offset/rate。 |
 | `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest?` | 查询 self-test 最近一次配置和计划摘要：active、role、output、mask、sample/pulse 参数、frame/schedule CRC、error、start time、start delay 和 first window start。 |

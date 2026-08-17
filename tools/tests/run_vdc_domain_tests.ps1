@@ -1,5 +1,6 @@
 param(
     [string]$BuildDir = "build-vdc-domain-tests",
+    [string]$HostGccDir = "",
     [string]$ArmGcc = ""
 )
 
@@ -17,6 +18,10 @@ $vdcTimestampSource = Join-Path $repo "components\vdc_domain\src\vdc_timestamp.c
 $tdmaSource = Join-Path $repo "components\tdma\src\tdma_service.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
+
+if ($HostGccDir -and (Test-Path $HostGccDir)) {
+    $env:PATH = "$HostGccDir;$env:PATH"
+}
 
 function Get-ToolPath {
     param([string]$Name)

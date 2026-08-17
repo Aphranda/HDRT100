@@ -388,6 +388,32 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_plan_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sync_vdc_tdma_ring_q(scpi_t *context)
+{
+    vdc_tdma_ring_plan_t plan;
+
+    if (!vdc_dpll_manager_plan_tdma_ring(&plan)) {
+        SCPI_ResultText(context, "REJECTED");
+        return SCPI_RES_OK;
+    }
+
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, plan.valid);
+    SCPI_ResultUInt32(context, plan.ring_node_count);
+    SCPI_ResultUInt32(context, plan.local_slot_id);
+    SCPI_ResultUInt32(context, plan.reference_slot_id);
+    SCPI_ResultUInt32(context, plan.upstream_slot_id);
+    SCPI_ResultUInt32(context, plan.downstream_slot_id);
+    SCPI_ResultUInt32(context, plan.feedback_slot_id);
+    SCPI_ResultUInt32(context, plan.from_reference_hops);
+    SCPI_ResultUInt32(context, plan.to_feedback_hops);
+    SCPI_ResultUInt32(context, plan.is_reference_slot);
+    SCPI_ResultUInt32(context, plan.ring_flags);
+    SCPI_ResultUInt32(context, plan.ring_profile_crc32);
+    SCPI_ResultUInt32(context, plan.schedule_crc32);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_sync_vdc_tdma_status_q(scpi_t *context)
 {
     tdma_service_snapshot_t snapshot;

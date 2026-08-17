@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="960" viewBox="0 0 1440 960">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<style>
+text{font-family:Segoe UI,Microsoft YaHei,Arial,sans-serif}
+.title{font-size:26px;font-weight:700;fill:#111827}
+.subtitle{font-size:14px;fill:#475569}
+.label{font-size:13px;fill:#334155}
+.tick{font-size:11px;fill:#64748b}
+.legend{font-size:12px;fill:#334155}
+.small{font-size:11px;fill:#64748b}
+.curve-tag{font-size:11px;fill:#1f2937}
+</style>
+<text class="title" x="88" y="38">VDC DPLL 节点 / TDMA leg 长时间监控质量</text>
+<text class="subtitle" x="88" y="64">TDMA feedback loop COM5&lt;-&gt;COM6 / LEG_SELFTEST_MONITOR / elapsed 39.6s / windows 2 (OK 1, FAIL 1) / accepted delta 230 / offset [0, 0] ns / RMS max 25 ns / freq [0, 0] ppb</text>
+<text class="subtitle" x="88" y="84">leg monitor passed=false ; realtime loop proven=false ; failed windows=1 ; gate reject code 11 = WINDOW_BOUND</text>
+<rect x="418.6" y="116.0" width="261.0" height="260.0" fill="#fecaca" opacity="0.38"/><rect x="418.6" y="410.0" width="261.0" height="185.0" fill="#fecaca" opacity="0.38"/><rect x="418.6" y="629.0" width="261.0" height="150.0" fill="#fecaca" opacity="0.38"/><rect x="418.6" y="813.0" width="261.0" height="115.0" fill="#fecaca" opacity="0.38"/>
+<rect x="45.2" y="116.0" width="85.7" height="260.0" fill="#fee2e2" opacity="0.70"/><rect x="45.2" y="410.0" width="85.7" height="185.0" fill="#fee2e2" opacity="0.70"/><rect x="45.2" y="629.0" width="85.7" height="150.0" fill="#fee2e2" opacity="0.70"/><rect x="45.2" y="813.0" width="85.7" height="115.0" fill="#fee2e2" opacity="0.70"/><rect x="375.8" y="116.0" width="85.7" height="260.0" fill="#fee2e2" opacity="0.70"/><rect x="375.8" y="410.0" width="85.7" height="185.0" fill="#fee2e2" opacity="0.70"/><rect x="375.8" y="629.0" width="85.7" height="150.0" fill="#fee2e2" opacity="0.70"/><rect x="375.8" y="813.0" width="85.7" height="115.0" fill="#fee2e2" opacity="0.70"/><rect x="584.5" y="116.0" width="85.7" height="260.0" fill="#fee2e2" opacity="0.70"/><rect x="584.5" y="410.0" width="85.7" height="185.0" fill="#fee2e2" opacity="0.70"/><rect x="584.5" y="629.0" width="85.7" height="150.0" fill="#fee2e2" opacity="0.70"/><rect x="584.5" y="813.0" width="85.7" height="115.0" fill="#fee2e2" opacity="0.70"/><rect x="636.8" y="116.0" width="85.7" height="260.0" fill="#fee2e2" opacity="0.70"/><rect x="636.8" y="410.0" width="85.7" height="185.0" fill="#fee2e2" opacity="0.70"/><rect x="636.8" y="629.0" width="85.7" height="150.0" fill="#fee2e2" opacity="0.70"/><rect x="636.8" y="813.0" width="85.7" height="115.0" fill="#fee2e2" opacity="0.70"/><rect x="1094.8" y="116.0" width="85.7" height="260.0" fill="#fee2e2" opacity="0.70"/><rect x="1094.8" y="410.0" width="85.7" height="185.0" fill="#fee2e2" opacity="0.70"/><rect x="1094.8" y="629.0" width="85.7" height="150.0" fill="#fee2e2" opacity="0.70"/><rect x="1094.8" y="813.0" width="85.7" height="115.0" fill="#fee2e2" opacity="0.70"/><rect x="1148.6" y="116.0" width="85.7" height="260.0" fill="#fee2e2" opacity="0.70"/><rect x="1148.6" y="410.0" width="85.7" height="185.0" fill="#fee2e2" opacity="0.70"/><rect x="1148.6" y="629.0" width="85.7" height="150.0" fill="#fee2e2" opacity="0.70"/><rect x="1148.6" y="813.0" width="85.7" height="115.0" fill="#fee2e2" opacity="0.70"/><rect x="1200.2" y="116.0" width="85.7" height="260.0" fill="#fee2e2" opacity="0.70"/><rect x="1200.2" y="410.0" width="85.7" height="185.0" fill="#fee2e2" opacity="0.70"/><rect x="1200.2" y="629.0" width="85.7" height="150.0" fill="#fee2e2" opacity="0.70"/><rect x="1200.2" y="813.0" width="85.7" height="115.0" fill="#fee2e2" opacity="0.70"/><rect x="1304.2" y="116.0" width="85.7" height="260.0" fill="#fee2e2" opacity="0.70"/><rect x="1304.2" y="410.0" width="85.7" height="185.0" fill="#fee2e2" opacity="0.70"/><rect x="1304.2" y="629.0" width="85.7" height="150.0" fill="#fee2e2" opacity="0.70"/><rect x="1304.2" y="813.0" width="85.7" height="115.0" fill="#fee2e2" opacity="0.70"/>
+<rect x="88" y="116" width="1310" height="260" fill="#fbfdff" stroke="#cbd5e1"/>
+<text class="label" x="88" y="106">Offset quality (us)</text>
+<line x1="88.0" y1="116" x2="88.0" y2="376" stroke="#d7dde8" stroke-width="1"/>
+<line x1="306.3" y1="116" x2="306.3" y2="376" stroke="#d7dde8" stroke-width="1"/>
+<line x1="524.7" y1="116" x2="524.7" y2="376" stroke="#d7dde8" stroke-width="1"/>
+<line x1="743.0" y1="116" x2="743.0" y2="376" stroke="#d7dde8" stroke-width="1"/>
+<line x1="961.3" y1="116" x2="961.3" y2="376" stroke="#d7dde8" stroke-width="1"/>
+<line x1="1179.7" y1="116" x2="1179.7" y2="376" stroke="#d7dde8" stroke-width="1"/>
+<line x1="1398.0" y1="116" x2="1398.0" y2="376" stroke="#d7dde8" stroke-width="1"/>
+<line x1="88" y1="116.0" x2="1398" y2="116.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="120.0" text-anchor="end">662</text>
+<line x1="88" y1="168.0" x2="1398" y2="168.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="172.0" text-anchor="end">499</text>
+<line x1="88" y1="220.0" x2="1398" y2="220.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="224.0" text-anchor="end">335</text>
+<line x1="88" y1="272.0" x2="1398" y2="272.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="276.0" text-anchor="end">171</text>
+<line x1="88" y1="324.0" x2="1398" y2="324.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="328.0" text-anchor="end">7.21</text>
+<line x1="88" y1="376.0" x2="1398" y2="376.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="380.0" text-anchor="end">-157</text>
+<rect x="88" y="410" width="1310" height="185" fill="#fbfdff" stroke="#cbd5e1"/>
+<text class="label" x="88" y="400">Frequency correction (ppb)</text>
+<line x1="88.0" y1="410" x2="88.0" y2="595" stroke="#d7dde8" stroke-width="1"/>
+<line x1="306.3" y1="410" x2="306.3" y2="595" stroke="#d7dde8" stroke-width="1"/>
+<line x1="524.7" y1="410" x2="524.7" y2="595" stroke="#d7dde8" stroke-width="1"/>
+<line x1="743.0" y1="410" x2="743.0" y2="595" stroke="#d7dde8" stroke-width="1"/>
+<line x1="961.3" y1="410" x2="961.3" y2="595" stroke="#d7dde8" stroke-width="1"/>
+<line x1="1179.7" y1="410" x2="1179.7" y2="595" stroke="#d7dde8" stroke-width="1"/>
+<line x1="1398.0" y1="410" x2="1398.0" y2="595" stroke="#d7dde8" stroke-width="1"/>
+<line x1="88" y1="410.0" x2="1398" y2="410.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="414.0" text-anchor="end">9.4k</text>
+<line x1="88" y1="447.0" x2="1398" y2="447.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="451.0" text-anchor="end">5.6k</text>
+<line x1="88" y1="484.0" x2="1398" y2="484.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="488.0" text-anchor="end">1.9k</text>
+<line x1="88" y1="521.0" x2="1398" y2="521.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="525.0" text-anchor="end">-1.9k</text>
+<line x1="88" y1="558.0" x2="1398" y2="558.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="562.0" text-anchor="end">-5.6k</text>
+<line x1="88" y1="595.0" x2="1398" y2="595.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="599.0" text-anchor="end">-9.4k</text>
+<rect x="88" y="629" width="1310" height="150" fill="#fbfdff" stroke="#cbd5e1"/>
+<text class="label" x="88" y="619">Observer counters (count)</text>
+<line x1="88.0" y1="629" x2="88.0" y2="779" stroke="#d7dde8" stroke-width="1"/>
+<line x1="306.3" y1="629" x2="306.3" y2="779" stroke="#d7dde8" stroke-width="1"/>
+<line x1="524.7" y1="629" x2="524.7" y2="779" stroke="#d7dde8" stroke-width="1"/>
+<line x1="743.0" y1="629" x2="743.0" y2="779" stroke="#d7dde8" stroke-width="1"/>
+<line x1="961.3" y1="629" x2="961.3" y2="779" stroke="#d7dde8" stroke-width="1"/>
+<line x1="1179.7" y1="629" x2="1179.7" y2="779" stroke="#d7dde8" stroke-width="1"/>
+<line x1="1398.0" y1="629" x2="1398.0" y2="779" stroke="#d7dde8" stroke-width="1"/>
+<line x1="88" y1="629.0" x2="1398" y2="629.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="633.0" text-anchor="end">185</text>
+<line x1="88" y1="659.0" x2="1398" y2="659.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="663.0" text-anchor="end">145</text>
+<line x1="88" y1="689.0" x2="1398" y2="689.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="693.0" text-anchor="end">105</text>
+<line x1="88" y1="719.0" x2="1398" y2="719.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="723.0" text-anchor="end">66</text>
+<line x1="88" y1="749.0" x2="1398" y2="749.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="753.0" text-anchor="end">26</text>
+<line x1="88" y1="779.0" x2="1398" y2="779.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="783.0" text-anchor="end">-14</text>
+<rect x="88" y="813" width="1310" height="115" fill="#fbfdff" stroke="#cbd5e1"/>
+<text class="label" x="88" y="803">Lock status / tier / gate (state)</text>
+<line x1="88.0" y1="813" x2="88.0" y2="928" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="88.0" y="950" text-anchor="middle">0s</text>
+<line x1="306.3" y1="813" x2="306.3" y2="928" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="306.3" y="950" text-anchor="middle">4.95s</text>
+<line x1="524.7" y1="813" x2="524.7" y2="928" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="524.7" y="950" text-anchor="middle">9.91s</text>
+<line x1="743.0" y1="813" x2="743.0" y2="928" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="743.0" y="950" text-anchor="middle">15s</text>
+<line x1="961.3" y1="813" x2="961.3" y2="928" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="961.3" y="950" text-anchor="middle">20s</text>
+<line x1="1179.7" y1="813" x2="1179.7" y2="928" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="1179.7" y="950" text-anchor="middle">25s</text>
+<line x1="1398.0" y1="813" x2="1398.0" y2="928" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="1398.0" y="950" text-anchor="middle">30s</text>
+<line x1="88" y1="813.0" x2="1398" y2="813.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="817.0" text-anchor="end">3.50</text>
+<line x1="88" y1="836.0" x2="1398" y2="836.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="840.0" text-anchor="end">2.70</text>
+<line x1="88" y1="859.0" x2="1398" y2="859.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="863.0" text-anchor="end">1.90</text>
+<line x1="88" y1="882.0" x2="1398" y2="882.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="886.0" text-anchor="end">1.10</text>
+<line x1="88" y1="905.0" x2="1398" y2="905.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="909.0" text-anchor="end">0.30</text>
+<line x1="88" y1="928.0" x2="1398" y2="928.0" stroke="#d7dde8" stroke-width="1"/>
+<text class="tick" x="78" y="932.0" text-anchor="end">-0.50</text>
+<polyline points="88.0,326.3 418.6,326.3 471.6,326.3 524.0,326.3 574.9,326.3 627.3,326.3 679.6,326.3 1137.7,326.3 1191.4,326.3 1243.1,326.3 1295.4,358.1 1347.0,326.3 1398.0,326.3" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="88.0,326.3 418.6,326.3 471.6,326.3 524.0,326.3 574.9,326.3 627.3,326.3 679.6,326.3 1137.7,326.3 1191.4,324.3 1243.1,310.9 1295.4,264.6 1347.0,326.3 1398.0,326.3" fill="none" stroke="#059669" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="88.0,150.5 418.6,150.5 471.6,150.5 524.0,150.5 574.9,150.5 627.3,150.5 679.6,150.5 1137.7,150.5 1191.4,133.9 1243.1,133.9 1295.4,133.9 1347.0,133.9 1398.0,133.9" fill="none" stroke="#d97706" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1264.0" y="332.8" width="120.0" height="16.5" rx="4" fill="#ffffff" stroke="#2563eb" opacity="0.92"/>
+<circle cx="1273.0" cy="340.8" r="3.0" fill="#2563eb"/>
+<text class="curve-tag" x="1386.0" y="344.8" text-anchor="end">last offset us 0</text>
+<rect x="1250.0" y="315.8" width="134.0" height="16.5" rx="4" fill="#ffffff" stroke="#059669" opacity="0.92"/>
+<circle cx="1259.0" cy="323.8" r="3.0" fill="#059669"/>
+<text class="curve-tag" x="1386.0" y="327.8" text-anchor="end">RMS offset us 0.03</text>
+<rect x="1278.0" y="123.4" width="106.0" height="16.5" rx="4" fill="#ffffff" stroke="#d97706" opacity="0.92"/>
+<circle cx="1287.0" cy="131.4" r="3.0" fill="#d97706"/>
+<text class="curve-tag" x="1386.0" y="135.4" text-anchor="end">max abs us 606</text>
+<polyline points="88.0,458.0 418.6,458.0 471.6,502.5 524.0,502.5 574.9,502.5 627.3,502.5 679.6,502.5 1137.7,502.5 1191.4,502.5 1243.1,502.5 1295.4,595.0 1347.0,502.5 1398.0,502.5" fill="none" stroke="#7c3aed" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="88.0,547.0 418.6,547.0 471.6,502.5 524.0,502.5 574.9,502.5 627.3,502.5 679.6,502.5 1137.7,502.5 1191.4,502.5 1243.1,502.5 1295.4,502.5 1347.0,454.7 1398.0,502.5" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1257.0" y="492.0" width="127.0" height="16.5" rx="4" fill="#ffffff" stroke="#7c3aed" opacity="0.92"/>
+<circle cx="1266.0" cy="500.0" r="3.0" fill="#7c3aed"/>
+<text class="curve-tag" x="1386.0" y="504.0" text-anchor="end">freq offset ppb 0</text>
+<rect x="1264.0" y="509.0" width="120.0" height="16.5" rx="4" fill="#ffffff" stroke="#0f766e" opacity="0.92"/>
+<circle cx="1273.0" cy="517.0" r="3.0" fill="#0f766e"/>
+<text class="curve-tag" x="1386.0" y="521.0" text-anchor="end">DCO adjust ppb 0</text>
+<polyline points="88.0,768.7 418.6,768.7 471.6,749.0 524.0,718.0 574.9,687.0 627.3,650.7 679.6,650.7 1137.7,768.7 1191.4,758.1 1243.1,746.0 1295.4,727.8 1347.0,714.2 1398.0,712.7" fill="none" stroke="#0284c7" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="88.0,768.7 418.6,768.7 471.6,767.1 524.0,762.6 574.9,760.3 627.3,757.3 679.6,757.3 1137.7,768.7 1191.4,764.9 1243.1,755.8 1295.4,741.4 1347.0,727.1 1398.0,726.3" fill="none" stroke="#dc2626" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="88.0,768.7 418.6,768.7 471.6,747.5 524.0,711.9 574.9,678.7 627.3,639.3 679.6,639.3 1137.7,768.7 1191.4,754.3 1243.1,733.1 1295.4,700.6 1347.0,672.6 1398.0,670.3" fill="none" stroke="#475569" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.75"/>
+<rect x="1299.0" y="702.2" width="85.0" height="16.5" rx="4" fill="#ffffff" stroke="#0284c7" opacity="0.92"/>
+<circle cx="1308.0" cy="710.2" r="3.0" fill="#0284c7"/>
+<text class="curve-tag" x="1386.0" y="714.2" text-anchor="end">accepted 74</text>
+<rect x="1299.0" y="719.2" width="85.0" height="16.5" rx="4" fill="#ffffff" stroke="#dc2626" opacity="0.92"/>
+<circle cx="1308.0" cy="727.2" r="3.0" fill="#dc2626"/>
+<text class="curve-tag" x="1386.0" y="731.2" text-anchor="end">rejected 56</text>
+<rect x="1285.0" y="659.8" width="99.0" height="16.5" rx="4" fill="#ffffff" stroke="#475569" opacity="0.92"/>
+<circle cx="1294.0" cy="667.8" r="3.0" fill="#475569"/>
+<text class="curve-tag" x="1386.0" y="671.8" text-anchor="end">submitted 130</text>
+<line x1="88" y1="905.0" x2="1398" y2="905.0" stroke="#e2e8f0"/>
+<text class="tick" x="78" y="909.0" text-anchor="end">locked</text>
+<line x1="88" y1="869.0" x2="1398" y2="869.0" stroke="#e2e8f0"/>
+<text class="tick" x="78" y="873.0" text-anchor="end">tier</text>
+<line x1="88" y1="834.0" x2="1398" y2="834.0" stroke="#e2e8f0"/>
+<text class="tick" x="78" y="838.0" text-anchor="end">gate</text>
+<circle cx="88.0" cy="905.0" r="3.1" fill="#16a34a" opacity="0.22"/><circle cx="88.0" cy="869.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="88.0" cy="834.0" r="2.6" fill="#16a34a" opacity="0.75"/><circle cx="418.6" cy="905.0" r="3.1" fill="#16a34a" opacity="0.22"/><circle cx="418.6" cy="869.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="418.6" cy="834.0" r="2.6" fill="#16a34a" opacity="0.75"/><circle cx="471.6" cy="891.0" r="3.1" fill="#16a34a" opacity="0.95"/><circle cx="471.6" cy="848.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="471.6" cy="834.0" r="2.6" fill="#16a34a" opacity="0.75"/><circle cx="524.0" cy="891.0" r="3.1" fill="#16a34a" opacity="0.95"/><circle cx="524.0" cy="848.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="524.0" cy="834.0" r="2.6" fill="#16a34a" opacity="0.75"/><circle cx="574.9" cy="891.0" r="3.1" fill="#16a34a" opacity="0.95"/><circle cx="574.9" cy="848.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="574.9" cy="834.0" r="2.6" fill="#16a34a" opacity="0.75"/><circle cx="627.3" cy="905.0" r="3.1" fill="#16a34a" opacity="0.22"/><circle cx="627.3" cy="848.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="627.3" cy="834.0" r="2.6" fill="#ef4444" opacity="0.95"/><circle cx="679.6" cy="905.0" r="3.1" fill="#16a34a" opacity="0.22"/><circle cx="679.6" cy="848.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="679.6" cy="834.0" r="2.6" fill="#ef4444" opacity="0.95"/><circle cx="1137.7" cy="905.0" r="3.1" fill="#16a34a" opacity="0.22"/><circle cx="1137.7" cy="869.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="1137.7" cy="834.0" r="2.6" fill="#16a34a" opacity="0.75"/><circle cx="1191.4" cy="891.0" r="3.1" fill="#16a34a" opacity="0.95"/><circle cx="1191.4" cy="862.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="1191.4" cy="834.0" r="2.6" fill="#ef4444" opacity="0.95"/><circle cx="1243.1" cy="905.0" r="3.1" fill="#16a34a" opacity="0.22"/><circle cx="1243.1" cy="869.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="1243.1" cy="834.0" r="2.6" fill="#ef4444" opacity="0.95"/><circle cx="1295.4" cy="891.0" r="3.1" fill="#16a34a" opacity="0.95"/><circle cx="1295.4" cy="869.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="1295.4" cy="834.0" r="2.6" fill="#16a34a" opacity="0.75"/><circle cx="1347.0" cy="905.0" r="3.1" fill="#16a34a" opacity="0.22"/><circle cx="1347.0" cy="848.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="1347.0" cy="834.0" r="2.6" fill="#ef4444" opacity="0.95"/><circle cx="1398.0" cy="891.0" r="3.1" fill="#16a34a" opacity="0.95"/><circle cx="1398.0" cy="848.0" r="3.0" fill="#9333ea" opacity="0.75"/><circle cx="1398.0" cy="834.0" r="2.6" fill="#16a34a" opacity="0.75"/>
+<rect x="1180.0" y="824.0" width="206" height="76" rx="5" fill="#ffffff" stroke="#cbd5e1" opacity="0.94"/>
+<text class="curve-tag" x="1194.0" y="844.0">gate: PASS</text>
+<text class="curve-tag" x="1194.0" y="865.0">tier: 3</text>
+<text class="curve-tag" x="1194.0" y="886.0">locked: 1</text>
+<text class="small" x="88" y="944">红色背景/标记表示当前 sample 的 gate 或 reject 状态不是 PASS；每条曲线右侧标签为末端值。该图监控节点/单向 leg，实时环路闭环需固件内上行组和下行组同时运行。</text>
+</svg>

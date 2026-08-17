@@ -156,6 +156,19 @@ TDMA schedule 必须给 VDC 保留固定同步观测窗口。该窗口用于发�
 | `schedule_crc32` | TDMA schedule profile 摘要。 |
 | `schedule_version` | schedule layout/version，用于跨节点一致性。 |
 
+`VdcTdmaScheduleProfile` 同时承载首版 `TDMARingProfile` 字段，避免 TDMA window、UP/DOWN 物理组和 VDC feedback ring 被拆成多份不一致配置。当前 C 契约已经冻结以下字段：
+
+| 字段 | 含义 |
+|---|---|
+| `ring_profile_version` | ring profile 结构版本，首版为 `1`。 |
+| `ring_flags` | 环路能力标志；必须包含 `SIMULTANEOUS_UP_DOWN`，用于区分实时反馈环路和单向 leg 自测。 |
+| `ring_node_count` | 当前 active ring 节点数，上限为 8 个逻辑槽位。 |
+| `ring_local_index` / `ring_reference_index` | 本地 slot 与 reference slot 在 active ring 中的索引。 |
+| `up_leg_group_id` / `down_leg_group_id` | 同时运行的上行组和下行组资源声明，二者不能相同。 |
+| `upstream_slot_id` / `downstream_slot_id` | 本地节点在 ring 中的上游和下游槽位。 |
+| `feedback_slot_id` | 一圈反馈 evidence 回到的目标槽位，首版通常等于 reference slot。 |
+| `ring_profile_crc32` | 只覆盖 ring 字段的 CRC；`schedule_crc32` 再覆盖 window、slot 和 ring CRC。 |
+
 规则：
 
 - 同步窗口只承载 reference edge、timestamp capture 和必要的同步帧摘要。
@@ -165,14 +178,42 @@ TDMA schedule 必须给 VDC 保留固定同步观测窗口。该窗口用于发�
 
 #### Two-board TDMA Hardware Baseline
 
-当前 COM5/COM6 两块最小系统板已经形成真实物理环路。该环路使用无 CS 的 3-wire PIO SPI adapter，在 25 MHz 下通过 core1 realtime TDMA service 承载 RefMem `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 和 NodeLoad AUTO 同步。该结果说明：
+当前 COM5/COM6 两块最小系统板正在搭建 TDMA 物理环路。该环路不是一条单向下发链路，也不是由 host 脚本交替 `COM5->COM6` / `COM6->COM5` 拼出来的伪闭环；产品化闭环必须由两组同时运行的单向 TDMA 通道组成：
+
+```text
+TDMA_UP_LEG    : Board X 上行组 -> Board Y 下行组
+TDMA_DOWN_LEG  : Board Y 上行组 -> Board X 下行组
+
+VDC feedback loop = TDMA_UP_LEG + TDMA_DOWN_LEG 同时运行
+```
+
+扩展到 3 个、5 个或更多节点时，拓扑保持同一条环路规则：每个物理节点都有上行组和下行组，相邻节点按上行到下行串接，最后一个节点再回到 reference 节点。节点数量增加只改变环路上的 hop 数、delay 表项和 schedule slot 数，不改变 VDC/DPLL 的闭环原则。
+
+```text
+N-node TDMA feedback ring
+
+B0.UP -> B1.DOWN
+B1.UP -> B2.DOWN
+B2.UP -> B3.DOWN
+...
+Bn.UP -> B0.DOWN
+
+reference frame / timestamp evidence / quality feedback
+  -> 沿同一条 ring 持续流动
+  -> 每个节点锁存 RX/TX timestamp
+  -> reference 或 VdcSyncAO 聚合一圈 evidence 后更新 delay、offset、rate 和 quality
+```
+
+该设计可借鉴 EtherCAT DC 的环路思想：reference 节点发出带参考时间语义的同步帧，沿途节点用本地硬件时钟锁存 RX/TX 时间，反馈方向把接收侧时间事实、质量和完成证据实时带回；VDC owner 再用 active `PATH_DELAY` 和 timestamp evidence 分离传播延时、相位 offset、频率 drift。这里借鉴的是环路测时、reference clock、delay compensation 和 distributed clock 的工程方法，不采用 EtherCAT 协议、ESC 寄存器模型或主从枚举机制。
+
+当前 bring-up 阶段使用 PIO SPI adapter 和 TDMA service 验证单向 leg、payload、CRC、window 和 quality；这只能证明每条 leg 可用，不能单独证明实时 DPLL 闭环。真正的 VDC/DPLL 闭环要求上行组和下行组在固件内持续同时运行，host 监控工具只读取 `VdcVector`、TDMA quality、timestamp evidence 和 DCO snapshot。
 
 - 已具备 TDMA 承载 DPLL 的硬件基础：两板之间可以在受控窗口内完成真实 TX/RX，而不是依赖 PC 搬运 frame hex。
 - 当前已验证的是 RefMem data TDMA window 和 NodeLoad/quality 同步，不等价于 VDC DPLL 已锁定。
-- 当前链路已有 schedule、slot、direction、deadline、timeout、CRC 和 quality evidence 的雏形，但还缺少 DPLL 可用的硬件 timestamp evidence。
+- 当前链路已有 schedule、slot、direction、deadline、timeout、CRC 和 quality evidence 的雏形，但还缺少同时运行的反馈 leg 和 DPLL 可用的硬件 timestamp evidence。
 - 后续 DPLL 只能消费 VDC observation window 产生的 timestamp sample，不能直接把 RefMem frame 成功、host 侧耗时或 `time_us_64()*1000` 诊断时间当作 100 ns 级同步证据。
 
-在该基线之上，VDC 需要把同一条总线的 TDMA cycle 划分成不同 window class。它们不是两套互不相关的 TDMA，而是同一个 active schedule 中的不同 slot：DPLL/VDC 维护是总线时序骨架的主约束，RefMem 数据同步是在该骨架上搭载 payload。
+在该基线之上，VDC 需要把同一个 TDMA 环路的 active cycle 划分成不同 window class。它们不是两套互不相关的 TDMA，而是同一个 active schedule 中的不同 slot：DPLL/VDC 维护是总线时序骨架的主约束，RefMem 数据同步是在该骨架上搭载 payload。
 
 | 窗口 | 用途 | 可承载内容 | 禁止 |
 |---|---|---|---|
@@ -212,21 +253,28 @@ cycle[k]
 
 `REFMEM_DATA_WINDOW` 可以复用现有 PIO SPI physical adapter 和 TDMA mailbox；所有帧都应尽量形成硬件 timestamp evidence。`VDC_OBSERVATION_WINDOW` 是最高质量、最高优先级的 DPLL 样本窗口，必须增加硬件 timestamp latch，形成 `expected_ns / observed_ns / delay_ns / phase_error_ns / quality_flags` 样本后再交给 `VdcSyncAO / SyncDpllFB`。RefMem 数据同步可以携带当前 VDC snapshot、quality 和 evidence 摘要，但不能反向拥有 DPLL 状态。
 
-首版两板 DPLL bring-up 建议采用固定 reference：
+首版两板 DPLL bring-up 建议采用固定 reference，但必须按实时反馈环路运行：
 
 ```text
-Board X: reference slot
-  -> 在 VDC_OBSERVATION_WINDOW 输出 reference edge / sync frame
+cycle[k]
+  TDMA_UP_LEG:
+    reference slot 输出 reference edge / sync frame
+    follower slot 捕获 RX edge timestamp
 
-Board Y: follower slot
-  -> 在同一窗口捕获 RX edge timestamp
-  -> 校验 schedule_crc32、reference_slot_id、seq、CRC、window bound
-  -> 形成 VdcDpllSample
-  -> SyncDpllFB 更新 offset/rate/quality
+  TDMA_DOWN_LEG:
+    follower slot 回传 RX timestamp / quality / completion evidence
+    reference slot 捕获反馈帧 timestamp
 
-反向或双向测量:
-  -> 用于 delay 校准、对称性检查和 fault evidence
+  VdcSyncAO:
+    校验 schedule_crc32、reference_slot_id、seq、CRC、window bound
+    组合 reference timestamp、follower timestamp、feedback timestamp 和 active PATH_DELAY
+
+  SyncDpllFB:
+    形成 VdcDpllSample
+    更新 offset/rate/quality
 ```
+
+单向下发只能建立开环 reference，不足以判断实时误差是否被拉回；交替运行 `X->Y` 和 `Y->X` 只能作为 leg bring-up、delay 校准或方向性故障诊断，不能替代同时运行的反馈环路。
 
 该过程必须保留 HAOFV owner 边界：
 
@@ -589,6 +637,7 @@ READ:SYNC:QUALity?
 SYSTem:SYNC:VDC:STATus?
 SYSTem:SYNC:VDC:DPLL:STATus?
 SYSTem:SYNC:VDC:TDMA:PLAN?
+SYSTem:SYNC:VDC:TDMA:RING?
 SYSTem:SYNC:VDC:PATH:DELay?
 SYSTem:SYNC:VDC:LOCK:READiness?
 SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest
@@ -608,6 +657,7 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 - `READ:SYNC:*?` 给产品上位机读取同步状态。
 - `SYSTem:SYNC:VDC:*` 给维护工具读取和调试底层 VDC/DPLL。
 - `SYSTem:SYNC:VDC:TDMA:PLAN?` 只输出 active schedule 的窗口计划和 gate evidence，不提交 TDMA intent，也不改变 RefMem 或 DPLL 状态。
+- `SYSTem:SYNC:VDC:TDMA:RING?` 只输出 active ring profile 对本地节点的计划结果，包括 local/reference/upstream/downstream/feedback slot、hop 数、simultaneous flag、ring CRC 和 schedule CRC；它不提交 TDMA intent，不启动 observer，不写 DPLL。
 - `SYSTem:SYNC:VDC:PATH:DELay? [source_slot],[reference_slot]` 只读取 active `VdcPathDelayTable` 中的传播延时、jitter、stddev、cal CRC、freshness 和 writer；它不写校准结果，不触发 delay-measure，不改变 DPLL。
 - `SYSTem:SYNC:VDC:LOCK:READiness?` 只读取 VDC 最小实例的锁定输入条件和阻塞原因，区分 `input_ready` 与 `locked`；它不启动 capture，不提交样本，不写 offset/rate/lock。
 - `SYSTem:SYNC:VDC:OBServer:TDMA` 按 active `VDC_OBSERVATION_WINDOW` 配置 observer 的 expected window/base，是最小实例 bring-up 入口；它不启动 capture，不提升 timestamp flags，不写 DPLL。

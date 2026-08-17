@@ -37,6 +37,7 @@ docs/
   validation/     HIL、工具验证、闭环验证记录和脚本说明
   release/        发布门禁、打印/PDF、产品冻结 checklist
   reports/        当前产品 HTML/PDF 输出、打印和交付件
+  temp/           阶段性调试、验证和绘图归档
   legacy/         PinProbe、历史报告、最初版 HTML、外部迁入资料
   archive/        废弃路径说明、旧索引和批量迁移记录
 ```
@@ -64,6 +65,7 @@ docs/
 | `validation/` | `validation/README.md` | HIL、工具验证、任务进度和闭环验证记录 |
 | `release/` | `release/README.md` | 发布门禁、打印/PDF、产品冻结 checklist |
 | `reports/` | `reports/README.md` | 当前产品 HTML/PDF 输出、打印和交付件 |
+| `temp/` | `temp/README.md` | 阶段性调试、验证和绘图归档 |
 | `legacy/` | `legacy/README.md` | PinProbe、历史报告、最初版 HTML 和外部迁入资料 |
 | `archive/` | `archive/README.md` | 废弃路径说明、旧索引和批量迁移记录 |
 
@@ -134,6 +136,7 @@ docs/
 | `reports/README.md` | 报告输出域 README。 |
 | `reports/scpi/README.md` | SCPI 报告输出 README。 |
 | `reports/distributed-trigger/README.md` | 分布式触发报告输出 README。 |
+| `temp/README.md` | 阶段性调试、验证和绘图归档入口。 |
 | `legacy/README.md` | 历史资料域 README。 |
 | `legacy/pinprobe/README.md` | PinProbe A1 历史资料 README。 |
 | `legacy/rp1200/README.md` | RP1200 历史资料 README。 |

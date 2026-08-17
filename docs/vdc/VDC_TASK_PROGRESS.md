@@ -43,6 +43,76 @@ VdcSyncAO
 
 ## 任务记录
 
+### VDC-TASK-20260817-011 - TDMARingProfile schedule contract
+
+- 状态：完成首版代码契约、N 节点 ring plan helper 和 host 单元测试；System Pack staging、DeploymentGate 资源冲突检查和 core1 ring runtime 仍为后续任务。
+- 日期：2026-08-17
+- 任务目标：
+  - 按正常 TDMA 反馈环路待办 `P0.5b-0`，把节点数、ring 顺序、UP/DOWN 组、reference/feedback slot 和 profile CRC 固化为 `VdcTdmaScheduleProfile` 的一部分。
+  - 在配置层先区分“单向 leg 自测”和“固件内部同时 UP/DOWN 反馈环路”，避免长监控继续把交替 self-test 当成闭环。
+- 完成内容：
+  - `vdc_tdma_schedule_profile_t` 增加 `TDMARingProfile` 字段：`ring_profile_version`、`ring_flags`、`ring_node_count`、`ring_local_index`、`ring_reference_index`、`up_leg_group_id`、`down_leg_group_id`、`upstream_slot_id`、`downstream_slot_id`、`feedback_slot_id` 和 `ring_profile_crc32`。
+  - 新增 `vdc_domain_ring_profile_crc32()`；`vdc_domain_schedule_crc32()` 覆盖 ring 字段和 ring CRC。
+  - `vdc_domain_schedule_validate()` 增加 ring profile 校验：节点数 2-8、slot/index 范围、local/reference 一致、UP/DOWN 组非零且不同、必须带 `SIMULTANEOUS_UP_DOWN` flag、ring CRC 与 schedule CRC 都必须匹配。
+  - 默认 schedule 生成 8 槽容量的 ring profile，并根据 local slot 自动生成 upstream/downstream slot；该默认不绑定物理 B0/B1 或具体业务节点。
+  - 单元测试覆盖默认 ring profile、CRC stale 拒绝、单节点非法、UP/DOWN 组冲突、5 节点 profile 和 active slot 越界拒绝。
+  - 新增 `vdc_domain_plan_tdma_ring()`，把 active profile 翻译为本地 ring plan：local/reference/upstream/downstream/feedback、active node count、from-reference hops、to-feedback hops、reference flag、ring CRC 和 schedule CRC。
+  - 新增只读维护命令 `SYSTem:SYNC:VDC:TDMA:RING?`，用于 HIL 和后续 runtime 验收读取 active ring profile；该命令不提交 TDMA intent，不启动 observer，不写 DPLL。
+  - 单元测试覆盖默认 8 槽 ring plan、reference slot plan、5 节点 plan 和非法 profile 返回空 plan。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 通过，输出 `vdc_domain tests passed`。
+  - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=136，包含 `SYSTem:SYNC:VDC:TDMA:RING?`。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 `REFMEM_DOMAIN_RISK_REVIEW.md` 和 `VDC_DOMAIN_RISK_REVIEW.md` 文件名 warning。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，生成 build id `20260817042216`，package CRC `0x9317FB9A`。
+- 还需完成：
+  - 将 ring profile 接入 RefMem/System Pack staging 和 DeploymentGate，检查 GPIO16-24、PIO/SM、DMA、UP/DOWN group 与其他节点能力的资源冲突。
+  - 继续 P0.5b-2：建立 core1 同时 UP/DOWN runtime，并把 ring plan 暴露为只读 runtime/profile snapshot。
+- 关联文件：
+  - `components/vdc_domain/inc/vdc_domain.h`
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `tests/unit/test_vdc_domain.c`
+  - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+- 下一步：
+  - 在 TDMA service/runtime 层增加 ring runtime snapshot 与 `up_running/down_running` 证据，避免 host 侧 self-test 参与实时闭环。
+
+### VDC-TASK-20260817-010 - DPLL soft reject and observer evidence review
+
+- 状态：完成代码改动、host 单测、固件构建和 OTA；HIL 暴露出当前问题已前移到 SYNC_IO latch/observer 证据链，SD log 已验证可读但默认粒度不足。
+- 日期：2026-08-17
+- 任务目标：
+  - 针对长时间锁相曲线中 `WINDOW_BOUND`、offset spike 和 `freq_offset_ppb` 撞到 `+/-50000 ppb` 的问题，先优化 DPLL 的拒绝策略和频率估计策略。
+  - 保持 HAOFV 边界：坏样本不能进入 DPLL offset/rate 更新；SCPI/SD/log 只提供维护证据，不直接写 lock/offset/rate。
+- 完成内容：
+  - 将 DPLL reject 拆成软/硬两类：`WINDOW_BOUND` 和 `SERVO_OUTLIER` 不进入 DPLL 更新，但保留 clock model、accepted history 和 rate anchor，状态降为 `RELOCKING`；CRC、epoch、source、payload、timestamp eligibility/resolution 等硬拒绝仍重新捕获。
+  - 频率估计从逐样本瞬时差分改为跨多个 TDMA 周期后更新，并加入 rate slew limit，避免单个异常 delta 把 DCO 直接拉到 `+/-50000 ppb`。
+  - `run_vdc_domain_tests.ps1` 增加 `-HostGccDir` 参数，支持 Vivado MinGW GCC：`D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin`。
+  - `sync_io_capture_latched_word_t` 增加 `previous_sample_mask`，用于后续对齐 latch 层和 VDC observer 层的边沿前态。
+  - 使用 SD/Storage 只读路径确认 `/logs/run/run_xxxxxx.log` 可以通过 `MMEM:READ?` 分片导出；默认 INFO 日志只记录 TX model pulse arm，缺少 RX observer/capture 摘要。
+  - 曾尝试在 `vdc_dpll_manager` 自测生命周期加入 `LOG_INFO` 摘要，但该日志会通过 CDC 异步输出，可能污染 SCPI 响应并打断 HIL 脚本，已撤回。后续需要 SD-only trace 或脚本级异步日志过滤能力。
+- 验证结果：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 通过，实际执行 host 单测。
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 通过，18/18。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，曾生成 build `20260817021230`、`20260817022719`、`20260817023313`。
+  - COM5/COM6 OTA 到 build `20260817023313` 通过。
+  - HIL accepted-only 未通过：COM5->COM6 / COM6->COM5 均出现 observer accepted 不增长。早期现象为 `raw_word_count>0` 且 `last_capture_result=NO_EDGE`，说明 latch/observer 前态或旧 word 队列可能不一致；清理 arm 前旧队列后变成 `raw_word_count=0`，说明还需通过新增 SD log 继续定位 window arm、capture latch 和实际线序/边沿是否命中。
+  - SD log 读取已验证：`SYSTem:LOG:STATus?` 给出最近 `/logs/run/run_xxxxxx.log`，`MMEM:READ?` 可分片读出日志；现有默认日志只记录 TX `sync_io model pulse schedule armed`，缺少 RX observer/capture 摘要。
+- 还需完成：
+  - 设计不会污染 CDC 响应的 SD-only/trace-only VDC observer 摘要日志，或先增强 HIL 脚本异步日志过滤能力。
+  - 复跑 accepted-only HIL 后读取 COM5/COM6 `/logs/run/run_xxxxxx.log` 或 trace 文件，确认是未 latch 到边沿、no-edge、ambiguous，还是 gate reject。
+  - 若新增日志证明窗口内无 raw word，优先回查 GPIO overlay 线序、`output_index -> pin` 映射、`observed_mask` 和 periodic timestamp window 的 read_seq 对齐。
+- 关联文件：
+  - `components/vdc_domain/src/vdc_domain.c`
+  - `components/sync_io/inc/sync_io.h`
+  - `components/sync_io/src/sync_io.c`
+  - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
+  - `tests/unit/test_vdc_domain.c`
+  - `tools/tests/run_vdc_domain_tests.ps1`
+  - `docs/vdc/VDC_DOMAIN_TODO.md`
+  - `docs/vdc/VDC_TASK_PROGRESS.md`
+- 下一步：
+  - 先让日志/trace 证据不污染 SCPI 生命周期，再做两板 HIL 复盘，决定修 `sync_io` 窗口/线序路径还是继续 DPLL servo 细化。
+
 ### VDC-TASK-20260817-009 - HAOFV service boundary naming closure
 
 - 状态：完成代码入口纠偏、文档待办/风险状态同步、host/build 验证、COM5/COM6 OTA 和 accepted-only HIL；完整 AO/FB 文件级拆分仍是后续任务。

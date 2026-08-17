@@ -264,6 +264,7 @@ VDC/DPLL 层级：
 SYSTem:SYNC:VDC:STATus?
 SYSTem:SYNC:VDC:DPLL:STATus?
 SYSTem:SYNC:VDC:TDMA:PLAN?
+SYSTem:SYNC:VDC:TDMA:RING?
 SYSTem:SYNC:VDC:PATH:DELay?
 SYSTem:SYNC:VDC:LOCK:READiness?
 SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest
@@ -279,6 +280,8 @@ SYSTem:SYNC:VDC:DPLL:DEFAult
 ```
 
 `SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]` 是只读维护入口，用于复现 active `VdcTdmaScheduleProfile` 对 observation/data/idle window 的计划结果。它返回当前或指定 `now_ns` 对应的窗口起止、guard、wait_ns、late_ns、inside/missed 标志、schedule CRC 和 gate；不得作为产品上位机控制入口。
+
+`SYSTem:SYNC:VDC:TDMA:RING?` 是只读维护入口，用于复现 active `TDMARingProfile` 对本地节点的 ring 计划结果。它返回 `status,valid,ring_node_count,local_slot_id,reference_slot_id,upstream_slot_id,downstream_slot_id,feedback_slot_id,from_reference_hops,to_feedback_hops,is_reference_slot,ring_flags,ring_profile_crc32,schedule_crc32`。该查询只读 profile，不提交 TDMA intent，不启动 observer，不写 DPLL。
 
 `SYSTem:SYNC:VDC:PATH:DELay? [source_slot],[reference_slot]` 是只读维护入口，用于读取 active `VdcPathDelayTable`。默认读取本地 slot 到 reference slot 的 entry；返回 `status,version,update_seq,entry_count,schedule_crc32,table_crc32,valid,source_slot_id,reference_slot_id,direction,delay_ns,jitter_ns,stddev_ns,cal_crc32,freshness_1e3ns,writer,entry_update_seq`。它只能读取 VDC snapshot，不能写校准结果，不能触发 delay-measure，也不能改变 DPLL lock/offset/rate。
 

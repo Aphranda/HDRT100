@@ -26,6 +26,8 @@ OBSERVER_FIELD_COUNT = 40
 SYNC_QUALITY_FIELD_COUNT = 17
 MODEL_PULSE_FIELD_COUNT = 10
 SAMPLE_WINDOW_FIELD_COUNT = 13
+REALTIME_IO_PROFILE_FIELD_COUNT = 8
+MODEL_IO_PROFILE_FIELD_COUNT = 4
 
 TIMESTAMP_SOURCE_HARDWARE_TICK = 2
 TIMESTAMP_FLAG_DIAGNOSTIC_ONLY = 0x00000001
@@ -195,6 +197,46 @@ def validate_build(name: str, ser, args: argparse.Namespace) -> str:
     if args.expected_build and build != f'"{args.expected_build}"':
         raise AssertionError(f"{name}: build mismatch {build} != {args.expected_build}")
     return build
+
+
+def validate_gpio_overlay_profile(name: str, ser, args: argparse.Namespace) -> None:
+    realtime_profile = int_fields(query(ser, "REALtime:IO:PROFile?",
+                                        args.timeout),
+                                  REALTIME_IO_PROFILE_FIELD_COUNT)
+    model_profile = int_fields(query(ser, "REALtime:IO:MODel:PROFile?",
+                                     args.timeout),
+                               MODEL_IO_PROFILE_FIELD_COUNT)
+
+    input_base = realtime_profile[0]
+    input_count = realtime_profile[1]
+    model_base = model_profile[0]
+    model_count = model_profile[1]
+    uart_enabled = model_profile[3]
+
+    if input_base != model_base or input_count < model_count:
+        raise AssertionError(
+            f"{name}: VDC GPIO overlay profile mismatch: "
+            f"REALtime:IO input={input_base}..{input_base + input_count - 1}, "
+            f"model_overlay={model_base}..{model_base + model_count - 1}. "
+            "Accepted-only VDC GPIO HIL requires the capture input group to "
+            "observe the GPIO4..7 model overlay. Reconfigure the active build "
+            "with -DPROJECT_SYNC_IO_INPUT_BASE_PIN=4. GPIO16..24 is the "
+            "TDMA/RefMem transport path and must not be used as this overlay."
+        )
+    if args.output_index >= model_count:
+        raise AssertionError(
+            f"{name}: output-index {args.output_index} exceeds model overlay "
+            f"pin count {model_count}"
+        )
+    if args.observed_mask == 0 or args.observed_mask >= (1 << input_count):
+        raise AssertionError(
+            f"{name}: observed-mask 0x{args.observed_mask:X} does not fit "
+            f"capture input count {input_count}"
+        )
+    if uart_enabled != 0:
+        raise AssertionError(
+            f"{name}: GPIO4/5 UART is enabled, model overlay cannot be used"
+        )
 
 
 def run_direction(source_name: str,
@@ -392,6 +434,8 @@ def main() -> int:
                                                      args.settle))
         builds[args.name_x] = validate_build(args.name_x, ser_x, args)
         builds[args.name_y] = validate_build(args.name_y, ser_y, args)
+        validate_gpio_overlay_profile(args.name_x, ser_x, args)
+        validate_gpio_overlay_profile(args.name_y, ser_y, args)
         results.append(run_direction(args.name_x,
                                      args.port_x,
                                      ser_x,

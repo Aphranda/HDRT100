@@ -384,7 +384,7 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
             .falling_event_id = config.falling_event_id,
             .observed_mask = config.observed_mask,
             .previous_sample_mask =
-                status.previous_sample_mask,
+                words[i].previous_sample_mask & config.observed_mask,
             .base_time_l32_ns =
                 (config.quality_flags &
                  VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE) != 0u &&
@@ -852,7 +852,6 @@ bool vdc_dpll_manager_start_observation_self_test(
             osal_critical_exit();
             return false;
         }
-
         const tdma_service_intent_config_t tdma_config = {
             .window_epoch = tx_plan.schedule_epoch,
             .window_index = tx_plan.slot_index,
@@ -1119,6 +1118,19 @@ bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
                                          now_ns,
                                          plan,
                                          gate);
+    osal_critical_exit();
+    return result;
+}
+
+bool vdc_dpll_manager_plan_tdma_ring(vdc_tdma_ring_plan_t *plan)
+{
+    bool result = false;
+    if (plan == NULL) {
+        return false;
+    }
+
+    osal_critical_enter();
+    result = vdc_domain_plan_tdma_ring(&s_vdc_domain.schedule, plan);
     osal_critical_exit();
     return result;
 }

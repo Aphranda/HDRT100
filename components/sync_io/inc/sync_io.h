@@ -55,6 +55,7 @@ typedef struct {
 typedef struct {
     uint32_t raw_word;
     uint32_t sample_seq;
+    uint32_t previous_sample_mask;
     uint32_t base_time_l32_ns;
     uint64_t matched_window_start_ns;
     uint32_t sample_period_ns;

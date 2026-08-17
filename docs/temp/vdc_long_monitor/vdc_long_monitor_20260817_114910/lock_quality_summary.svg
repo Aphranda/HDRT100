@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="820" viewBox="0 0 1280 820">
+  <defs>
+    <style>
+      .bg { fill: #f7f8fb; }
+      .panel { fill: #ffffff; stroke: #d8dee9; stroke-width: 1.2; }
+      .panel-soft { fill: #f9fbff; stroke: #d8dee9; stroke-width: 1.2; }
+      .title { font: 700 28px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #172033; }
+      .sub { font: 15px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #5b6678; }
+      .h2 { font: 700 18px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #172033; }
+      .label { font: 13px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #596579; }
+      .tiny { font: 10px Consolas, "Courier New", monospace; fill: #667085; }
+      .state-label { font: 10px Consolas, "Courier New", monospace; fill: #344054; }
+      .code { font: 12px Consolas, "Courier New", monospace; fill: #344054; }
+      .num { font: 700 24px Consolas, "Courier New", monospace; fill: #172033; }
+      .ok { fill: #dff4e8; stroke: #49a675; }
+      .warn { fill: #fff2d8; stroke: #d99022; }
+      .bad { fill: #ffe2e2; stroke: #d85d5d; }
+      .green { fill: #3ca16f; }
+      .red { fill: #df6b6b; }
+      .blue { fill: #4e7dd9; }
+      .orange { fill: #e69b32; }
+      .violet { fill: #7866cc; }
+      .grid { stroke: #e6ebf2; stroke-width: 1; }
+      .axis { stroke: #98a2b3; stroke-width: 1.2; }
+      .line-offset { fill: none; stroke: #4e7dd9; stroke-width: 3; }
+      .line-rms { fill: none; stroke: #e69b32; stroke-width: 3; }
+      .line-phase { fill: none; stroke: #7866cc; stroke-width: 2.4; stroke-dasharray: 7 5; }
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1280" height="820"/>
+  <text class="title" x="44" y="52">DPLL 节点长监控评估</text>
+  <text class="sub" x="44" y="80">数据源：vdc_long_monitor_20260817_114910，TDMA feedback loop COM5&lt;-&gt;COM6，COM5=&quot;20260817032921&quot;, COM6=&quot;20260817032921&quot;，duration=39.6s，windows=2。</text>
+
+  <g transform="translate(44 112)">
+    <rect class="panel" x="0" y="0" width="284" height="114" rx="10"/>
+    <text class="label" x="20" y="30">leg 监控窗口通过率</text>
+    <text class="num" x="20" y="66">1 / 2</text>
+    <text class="label" x="20" y="92">失败原因：GATE_REJECT:1</text>
+  </g>
+  <g transform="translate(348 112)">
+    <rect class="panel" x="0" y="0" width="284" height="114" rx="10"/>
+    <text class="label" x="20" y="30">accepted 总增量</text>
+    <text class="num" x="20" y="66">230</text>
+    <text class="label" x="20" y="92">窗口范围：74..156</text>
+  </g>
+  <g transform="translate(652 112)">
+    <rect class="panel" x="0" y="0" width="284" height="114" rx="10"/>
+    <text class="label" x="20" y="30">timestamp 质量</text>
+    <text class="num" x="20" y="66">100 ns</text>
+    <text class="label" x="20" y="92">目标：HARDWARE_TICK + DPLL_ELIGIBLE</text>
+  </g>
+  <g transform="translate(956 112)">
+    <rect class="panel" x="0" y="0" width="284" height="114" rx="10"/>
+    <text class="label" x="20" y="30">offset / freq 范围</text>
+    <text class="num" x="20" y="66">0..0 ns</text>
+    <text class="label" x="20" y="92">freq=0..0 ppb</text>
+  </g>
+
+  <g transform="translate(44 256)">
+    <rect class="panel" x="0" y="0" width="560" height="246" rx="10"/>
+    <text class="h2" x="20" y="34">窗口吞吐：accepted / rejected</text>
+    <line class="axis" x1="72" y1="198" x2="540" y2="198"/>
+    <line class="axis" x1="72" y1="54" x2="72" y2="198"/>
+    <line class="grid" x1="72" y1="150" x2="540" y2="150"/>
+    <line class="grid" x1="72" y1="102" x2="540" y2="102"/>
+    <text class="tiny" x="20" y="202">0</text>
+    <text class="tiny" x="16" y="154">52</text>
+    <text class="tiny" x="16" y="106">104</text>
+    <rect class="green" x="170.0" y="54.0" width="18.0" height="144.0"/><rect class="red" x="190.0" y="184.2" width="18.0" height="13.8"/><text class="tiny" x="179.0" y="218.0">W1</text><rect class="green" x="404.0" y="129.7" width="18.0" height="68.3"/><rect class="red" x="424.0" y="146.3" width="18.0" height="51.7"/><text class="tiny" x="413.0" y="218.0">W2</text>
+    <rect class="green" x="430" y="22" width="14" height="14"/><text class="label" x="450" y="34">accepted</text>
+    <rect class="red" x="430" y="44" width="14" height="14"/><text class="label" x="450" y="56">rejected</text>
+  </g>
+
+  <g transform="translate(636 256)">
+    <rect class="panel" x="0" y="0" width="604" height="246" rx="10"/>
+    <text class="h2" x="20" y="34">相位与 DCO 质量</text>
+    <line class="axis" x1="72" y1="198" x2="540" y2="198"/>
+    <line class="axis" x1="72" y1="54" x2="72" y2="198"/>
+    <line class="grid" x1="72" y1="150" x2="540" y2="150"/>
+    <line class="grid" x1="72" y1="102" x2="540" y2="102"/>
+    <polyline class="line-offset" points="189.0,126.0 423.0,126.0"/>
+    <polyline class="line-rms" points="189.0,198.0 423.0,54.0"/>
+    <polyline class="line-phase" points="189.0,198.0 423.0,54.0"/>
+    <text class="tiny" x="20" y="202">min</text>
+    <text class="tiny" x="20" y="58">max</text>
+    <rect class="blue" x="394" y="22" width="14" height="14"/><text class="label" x="414" y="34">last offset</text>
+    <rect class="orange" x="394" y="44" width="14" height="14"/><text class="label" x="414" y="56">RMS offset</text>
+    <rect class="violet" x="394" y="66" width="14" height="14"/><text class="label" x="414" y="78">DCO phase</text>
+  </g>
+
+  <g transform="translate(44 530)">
+    <rect class="panel" x="0" y="0" width="1196" height="136" rx="10"/>
+    <text class="h2" x="20" y="34">节点 / TDMA leg 最终状态条</text>
+    <rect class="bad" x="72.0" y="66" width="542.0" height="38" rx="6"/><text class="state-label" x="80.0" y="90">W1 COM5 UP -&gt; COM6 DOWN</text><rect class="ok" x="622.0" y="66" width="542.0" height="38" rx="6"/><text class="state-label" x="630.0" y="90">W2 COM6 UP -&gt; COM5 DOWN</text>
+    <text class="label" x="72" y="122">绿色=窗口最终 gate PASS；红色=窗口最终未通过。该条用于观察节点或单向 leg 质量；实时环路闭环需上/下行组同时运行。</text>
+  </g>
+
+  <g transform="translate(44 700)">
+    <rect class="panel-soft" x="0" y="0" width="1196" height="78" rx="10"/>
+    <text class="h2" x="20" y="30">评估结论</text>
+    <text class="label" x="20" y="56">有效但未稳定：accepted evidence 已恢复，但仍存在 gate/relock/window 收尾问题。 当前结果是节点/单向 leg 监控，不证明实时环路闭环；实时闭环必须由固件同时运行 TDMA 上行组和下行组。</text>
+  </g>
+</svg>

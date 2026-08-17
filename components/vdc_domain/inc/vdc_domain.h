@@ -17,6 +17,10 @@
 #define VDC_DOMAIN_LOCK_TIER_COARSE_NS 10000u
 #define VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32 0x56444301u
 #define VDC_DOMAIN_TDMA_FRAME_VERSION 1u
+#define VDC_DOMAIN_TDMA_RING_PROFILE_VERSION 1u
+#define VDC_DOMAIN_TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN 0x00000001u
+#define VDC_DOMAIN_TDMA_RING_UP_GROUP_ID 1u
+#define VDC_DOMAIN_TDMA_RING_DOWN_GROUP_ID 2u
 #define VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_OFFSET_NS 20000u
 #define VDC_DOMAIN_DEFAULT_REFMEM_WINDOW_WIDTH_NS 800000u
 #define VDC_DOMAIN_DEFAULT_IDLE_WINDOW_OFFSET_NS 900000u
@@ -108,6 +112,17 @@ typedef struct {
     uint32_t guard_after_ns;
     uint32_t reference_slot_id;
     uint32_t local_slot_id;
+    uint32_t ring_profile_version;
+    uint32_t ring_flags;
+    uint32_t ring_node_count;
+    uint32_t ring_local_index;
+    uint32_t ring_reference_index;
+    uint32_t up_leg_group_id;
+    uint32_t down_leg_group_id;
+    uint32_t upstream_slot_id;
+    uint32_t downstream_slot_id;
+    uint32_t feedback_slot_id;
+    uint32_t ring_profile_crc32;
     uint32_t schedule_crc32;
 } vdc_tdma_schedule_profile_t;
 
@@ -251,6 +266,22 @@ typedef struct {
 } vdc_tdma_window_plan_t;
 
 typedef struct {
+    uint32_t valid;
+    uint32_t ring_node_count;
+    uint32_t local_slot_id;
+    uint32_t reference_slot_id;
+    uint32_t upstream_slot_id;
+    uint32_t downstream_slot_id;
+    uint32_t feedback_slot_id;
+    uint32_t from_reference_hops;
+    uint32_t to_feedback_hops;
+    uint32_t is_reference_slot;
+    uint32_t ring_flags;
+    uint32_t ring_profile_crc32;
+    uint32_t schedule_crc32;
+} vdc_tdma_ring_plan_t;
+
+typedef struct {
     uint32_t passed;
     uint32_t reject_code;
     uint32_t reject_slot;
@@ -392,6 +423,7 @@ void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
                                  uint32_t local_slot_id,
                                  uint32_t reference_slot_id);
 void vdc_domain_default_servo(vdc_servo_profile_t *profile);
+uint32_t vdc_domain_ring_profile_crc32(const vdc_tdma_schedule_profile_t *profile);
 uint32_t vdc_domain_schedule_crc32(const vdc_tdma_schedule_profile_t *profile);
 bool vdc_domain_schedule_validate(const vdc_tdma_schedule_profile_t *profile);
 void vdc_domain_default_clock_model(vdc_clock_model_t *model,
@@ -442,6 +474,8 @@ bool vdc_domain_plan_tdma_window(const vdc_tdma_schedule_profile_t *profile,
                                  uint64_t now_ns,
                                  vdc_tdma_window_plan_t *plan,
                                  vdc_gate_result_t *gate);
+bool vdc_domain_plan_tdma_ring(const vdc_tdma_schedule_profile_t *profile,
+                               vdc_tdma_ring_plan_t *plan);
 bool vdc_domain_init(vdc_domain_context_t *context);
 void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready);
 void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns);

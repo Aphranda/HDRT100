@@ -377,14 +377,21 @@ static uint32_t sync_io_capture_sample_at(uint32_t raw_word,
 }
 
 static bool sync_io_capture_word_has_observed_edge(uint32_t raw_word,
-                                                   uint32_t observed_mask)
+                                                   uint32_t observed_mask,
+                                                   uint32_t *previous_sample_mask)
 {
     if (observed_mask == 0u) {
+        if (previous_sample_mask != NULL) {
+            *previous_sample_mask = 0u;
+        }
         return true;
     }
 
     uint32_t previous =
         s_sync_io.capture_latch_previous_sample_mask & observed_mask;
+    if (previous_sample_mask != NULL) {
+        *previous_sample_mask = previous;
+    }
     bool edge_found = false;
 
     for (uint32_t i = 0u; i < 8u; i++) {
@@ -868,6 +875,7 @@ bool sync_io_start_capture(uint32_t sample_hz)
     }
 
     const uint64_t capture_start_ns = sync_io_common_time_now_ns();
+
     osal_critical_enter();
     sync_io_capture_latch_reset_locked();
     s_sync_io.capture_dma_read_seq = 0u;
@@ -1009,9 +1017,11 @@ void sync_io_capture_latch_service_core1(void)
                 s_sync_io.capture_timestamp_window_observed_mask;
         }
         osal_critical_exit();
+        uint32_t word_previous_sample_mask = 0u;
         if (observed_mask_for_edge != 0u &&
             !sync_io_capture_word_has_observed_edge(raw_word,
-                                                    observed_mask_for_edge)) {
+                                                    observed_mask_for_edge,
+                                                    &word_previous_sample_mask)) {
             continue;
         }
 
@@ -1028,6 +1038,7 @@ void sync_io_capture_latch_service_core1(void)
             &s_sync_io.capture_latch_ring[s_sync_io.capture_latch_write];
         slot->raw_word = raw_word;
         slot->sample_seq = ++s_sync_io.capture_latch_seq;
+        slot->previous_sample_mask = word_previous_sample_mask;
         slot->base_time_l32_ns = base_time_l32_ns;
         slot->sample_period_ns = sample_period_ns;
         slot->timestamp_source = SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK;

@@ -12,6 +12,9 @@
 #define VDC_DOMAIN_DEFAULT_HOLDOVER_DRIFT_BOUND_NS_S 1000u
 #define VDC_DOMAIN_ACQUISITION_GUARD_NS 0u
 #define VDC_DOMAIN_DEFAULT_SANITY_FREQ_LIMIT_PPB 50000u
+#define VDC_DOMAIN_RATE_MIN_OBSERVATION_CYCLES 8u
+#define VDC_DOMAIN_RATE_SLEW_DIVISOR 8u
+#define VDC_DOMAIN_RATE_MIN_SLEW_LIMIT_PPB 1000u
 
 static uint32_t vdc_domain_hash_u32(uint32_t hash, uint32_t value)
 {
@@ -82,6 +85,37 @@ static bool vdc_domain_ranges_overlap(uint32_t offset_a_ns,
     const uint64_t b_begin = offset_b_ns;
     const uint64_t b_end = b_begin + width_b_ns;
     return a_begin < b_end && b_begin < a_end;
+}
+
+static uint32_t vdc_domain_previous_ring_slot(uint32_t slot_id,
+                                              uint32_t node_count)
+{
+    if (node_count == 0u) {
+        return 0u;
+    }
+    return slot_id == 0u ? node_count - 1u : slot_id - 1u;
+}
+
+static uint32_t vdc_domain_next_ring_slot(uint32_t slot_id,
+                                          uint32_t node_count)
+{
+    if (node_count == 0u) {
+        return 0u;
+    }
+    return (slot_id + 1u) % node_count;
+}
+
+static uint32_t vdc_domain_ring_forward_distance(uint32_t from_slot_id,
+                                                 uint32_t to_slot_id,
+                                                 uint32_t node_count)
+{
+    if (node_count == 0u || from_slot_id >= node_count ||
+        to_slot_id >= node_count) {
+        return 0u;
+    }
+    return to_slot_id >= from_slot_id
+               ? to_slot_id - from_slot_id
+               : node_count - from_slot_id + to_slot_id;
 }
 
 static bool vdc_domain_guarded_observation_overlaps(uint32_t obs_offset_ns,
@@ -418,6 +452,42 @@ static int32_t vdc_domain_slew_i32(int32_t current,
     return target;
 }
 
+static uint64_t vdc_domain_rate_observation_min_ns(
+    const vdc_domain_context_t *context)
+{
+    if (context == NULL) {
+        return 0u;
+    }
+
+    uint64_t min_ns =
+        (uint64_t)context->schedule.period_ns *
+        (uint64_t)VDC_DOMAIN_RATE_MIN_OBSERVATION_CYCLES;
+    const uint64_t servo_update_ns =
+        (uint64_t)context->servo.update_period_1e3ns * 1000ull;
+    if (servo_update_ns > min_ns) {
+        min_ns = servo_update_ns;
+    }
+    return min_ns;
+}
+
+static uint32_t vdc_domain_frequency_slew_limit_ppb(
+    const vdc_domain_context_t *context)
+{
+    if (context == NULL || context->servo.sanity_freq_limit_ppb == 0u) {
+        return 0u;
+    }
+
+    uint32_t limit =
+        context->servo.sanity_freq_limit_ppb / VDC_DOMAIN_RATE_SLEW_DIVISOR;
+    if (limit < VDC_DOMAIN_RATE_MIN_SLEW_LIMIT_PPB) {
+        limit = VDC_DOMAIN_RATE_MIN_SLEW_LIMIT_PPB;
+    }
+    if (limit > context->servo.sanity_freq_limit_ppb) {
+        limit = context->servo.sanity_freq_limit_ppb;
+    }
+    return limit;
+}
+
 static uint64_t vdc_domain_evidence_time_ns(
     const vdc_tdma_timestamp_evidence_t *evidence)
 {
@@ -594,6 +664,17 @@ static void vdc_domain_reset_lock_acquisition(vdc_domain_context_t *context)
     context->quality.consecutive_fine_samples = 0u;
 }
 
+static bool vdc_domain_reject_requires_reacquire(uint32_t reject_code)
+{
+    switch ((vdc_domain_gate_code_t)reject_code) {
+    case VDC_DOMAIN_GATE_WINDOW_BOUND:
+    case VDC_DOMAIN_GATE_SERVO_OUTLIER:
+        return false;
+    default:
+        return true;
+    }
+}
+
 static void vdc_domain_record_accepted_sample(
     vdc_domain_context_t *context,
     const vdc_tdma_timestamp_evidence_t *evidence)
@@ -687,6 +768,7 @@ static void vdc_domain_update_clock_from_evidence(
     const uint32_t next_dco_seq = context->dco.dco_update_seq + 1u;
     int32_t frequency_error_ppb = context->dpll.last_frequency_error_ppb;
     int32_t phase_rate_pull_ppb = 0;
+    bool update_rate_anchor = context->dpll.accepted_sample_count <= 1u;
     const int32_t input_residual_ns =
         vdc_domain_corrected_phase_error_ns(context, evidence);
     if (context->dpll.accepted_sample_count > 1u &&
@@ -699,13 +781,23 @@ static void vdc_domain_update_clock_from_evidence(
         const uint64_t observed_delta =
             evidence->observed_time_ns -
             context->dpll.last_observed_time_ns;
-        const int64_t delta_error =
-            (int64_t)observed_delta - (int64_t)expected_delta;
-        const int64_t raw_ppb =
-            (delta_error * 1000000000ll) / (int64_t)expected_delta;
-        frequency_error_ppb =
-            vdc_domain_clamp_ppb(raw_ppb,
-                                 context->servo.sanity_freq_limit_ppb);
+        if (expected_delta >= vdc_domain_rate_observation_min_ns(context)) {
+            const int64_t delta_error =
+                (int64_t)observed_delta - (int64_t)expected_delta;
+            const int64_t raw_ppb =
+                (delta_error * 1000000000ll) / (int64_t)expected_delta;
+            const int32_t target_frequency_error_ppb =
+                vdc_domain_clamp_ppb(raw_ppb,
+                                     context->servo.sanity_freq_limit_ppb);
+            frequency_error_ppb =
+                vdc_domain_slew_i32(
+                    context->dpll.last_frequency_error_ppb,
+                    target_frequency_error_ppb,
+                    vdc_domain_frequency_slew_limit_ppb(context));
+            update_rate_anchor = true;
+        }
+    } else if (context->dpll.accepted_sample_count > 1u) {
+        update_rate_anchor = true;
     }
 
     if (context->servo.ki_q16 != 0 &&
@@ -743,9 +835,11 @@ static void vdc_domain_update_clock_from_evidence(
                               context->servo.sanity_freq_limit_ppb);
 
     context->dpll.last_frequency_error_ppb = frequency_error_ppb;
-    context->dpll.last_expected_window_start_ns =
-        evidence->expected_window_start_ns;
-    context->dpll.last_observed_time_ns = evidence->observed_time_ns;
+    if (update_rate_anchor) {
+        context->dpll.last_expected_window_start_ns =
+            evidence->expected_window_start_ns;
+        context->dpll.last_observed_time_ns = evidence->observed_time_ns;
+    }
 
     context->clock.valid = 1u;
     context->clock.model_seq++;
@@ -795,6 +889,22 @@ void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
         reference_slot_id < VDC_DOMAIN_NODE_COUNT ? reference_slot_id : 0u;
     profile->local_slot_id =
         local_slot_id < VDC_DOMAIN_NODE_COUNT ? local_slot_id : 0u;
+    profile->ring_profile_version = VDC_DOMAIN_TDMA_RING_PROFILE_VERSION;
+    profile->ring_flags = VDC_DOMAIN_TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN;
+    profile->ring_node_count = VDC_DOMAIN_NODE_COUNT;
+    profile->ring_local_index = profile->local_slot_id;
+    profile->ring_reference_index = profile->reference_slot_id;
+    profile->up_leg_group_id = VDC_DOMAIN_TDMA_RING_UP_GROUP_ID;
+    profile->down_leg_group_id = VDC_DOMAIN_TDMA_RING_DOWN_GROUP_ID;
+    profile->upstream_slot_id =
+        vdc_domain_previous_ring_slot(profile->local_slot_id,
+                                      profile->ring_node_count);
+    profile->downstream_slot_id =
+        vdc_domain_next_ring_slot(profile->local_slot_id,
+                                  profile->ring_node_count);
+    profile->feedback_slot_id = profile->reference_slot_id;
+    profile->ring_profile_crc32 =
+        vdc_domain_ring_profile_crc32(profile);
     profile->schedule_crc32 = vdc_domain_schedule_crc32(profile);
 }
 
@@ -823,6 +933,26 @@ void vdc_domain_default_servo(vdc_servo_profile_t *profile)
     profile->servo_profile_crc32 = VDC_DOMAIN_DEFAULT_SERVO_PROFILE_CRC32;
 }
 
+uint32_t vdc_domain_ring_profile_crc32(const vdc_tdma_schedule_profile_t *profile)
+{
+    uint32_t hash = VDC_DOMAIN_CRC_OFFSET;
+    if (profile == NULL) {
+        return 0u;
+    }
+
+    hash = vdc_domain_hash_u32(hash, profile->ring_profile_version);
+    hash = vdc_domain_hash_u32(hash, profile->ring_flags);
+    hash = vdc_domain_hash_u32(hash, profile->ring_node_count);
+    hash = vdc_domain_hash_u32(hash, profile->ring_local_index);
+    hash = vdc_domain_hash_u32(hash, profile->ring_reference_index);
+    hash = vdc_domain_hash_u32(hash, profile->up_leg_group_id);
+    hash = vdc_domain_hash_u32(hash, profile->down_leg_group_id);
+    hash = vdc_domain_hash_u32(hash, profile->upstream_slot_id);
+    hash = vdc_domain_hash_u32(hash, profile->downstream_slot_id);
+    hash = vdc_domain_hash_u32(hash, profile->feedback_slot_id);
+    return hash;
+}
+
 uint32_t vdc_domain_schedule_crc32(const vdc_tdma_schedule_profile_t *profile)
 {
     uint32_t hash = VDC_DOMAIN_CRC_OFFSET;
@@ -844,6 +974,17 @@ uint32_t vdc_domain_schedule_crc32(const vdc_tdma_schedule_profile_t *profile)
     hash = vdc_domain_hash_u32(hash, profile->guard_after_ns);
     hash = vdc_domain_hash_u32(hash, profile->reference_slot_id);
     hash = vdc_domain_hash_u32(hash, profile->local_slot_id);
+    hash = vdc_domain_hash_u32(hash, profile->ring_profile_version);
+    hash = vdc_domain_hash_u32(hash, profile->ring_flags);
+    hash = vdc_domain_hash_u32(hash, profile->ring_node_count);
+    hash = vdc_domain_hash_u32(hash, profile->ring_local_index);
+    hash = vdc_domain_hash_u32(hash, profile->ring_reference_index);
+    hash = vdc_domain_hash_u32(hash, profile->up_leg_group_id);
+    hash = vdc_domain_hash_u32(hash, profile->down_leg_group_id);
+    hash = vdc_domain_hash_u32(hash, profile->upstream_slot_id);
+    hash = vdc_domain_hash_u32(hash, profile->downstream_slot_id);
+    hash = vdc_domain_hash_u32(hash, profile->feedback_slot_id);
+    hash = vdc_domain_hash_u32(hash, profile->ring_profile_crc32);
     return hash;
 }
 
@@ -854,6 +995,26 @@ bool vdc_domain_schedule_validate(const vdc_tdma_schedule_profile_t *profile)
         profile->period_ns == 0u ||
         profile->reference_slot_id >= VDC_DOMAIN_NODE_COUNT ||
         profile->local_slot_id >= VDC_DOMAIN_NODE_COUNT) {
+        return false;
+    }
+    if (profile->ring_profile_version != VDC_DOMAIN_TDMA_RING_PROFILE_VERSION ||
+        profile->ring_node_count < 2u ||
+        profile->ring_node_count > VDC_DOMAIN_NODE_COUNT ||
+        profile->ring_local_index >= profile->ring_node_count ||
+        profile->ring_reference_index >= profile->ring_node_count ||
+        profile->upstream_slot_id >= profile->ring_node_count ||
+        profile->downstream_slot_id >= profile->ring_node_count ||
+        profile->feedback_slot_id >= profile->ring_node_count ||
+        profile->local_slot_id != profile->ring_local_index ||
+        profile->reference_slot_id != profile->ring_reference_index ||
+        (profile->ring_flags &
+         VDC_DOMAIN_TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN) == 0u ||
+        profile->up_leg_group_id == 0u ||
+        profile->down_leg_group_id == 0u ||
+        profile->up_leg_group_id == profile->down_leg_group_id ||
+        profile->upstream_slot_id == profile->local_slot_id ||
+        profile->downstream_slot_id == profile->local_slot_id ||
+        profile->ring_profile_crc32 != vdc_domain_ring_profile_crc32(profile)) {
         return false;
     }
     if (!vdc_domain_range_in_period(profile->observation_window_offset_ns,
@@ -1694,6 +1855,40 @@ bool vdc_domain_plan_tdma_window(const vdc_tdma_schedule_profile_t *profile,
     return true;
 }
 
+bool vdc_domain_plan_tdma_ring(const vdc_tdma_schedule_profile_t *profile,
+                               vdc_tdma_ring_plan_t *plan)
+{
+    if (plan != NULL) {
+        memset(plan, 0, sizeof(*plan));
+    }
+    if (profile == NULL || plan == NULL ||
+        !vdc_domain_schedule_validate(profile)) {
+        return false;
+    }
+
+    plan->valid = 1u;
+    plan->ring_node_count = profile->ring_node_count;
+    plan->local_slot_id = profile->local_slot_id;
+    plan->reference_slot_id = profile->reference_slot_id;
+    plan->upstream_slot_id = profile->upstream_slot_id;
+    plan->downstream_slot_id = profile->downstream_slot_id;
+    plan->feedback_slot_id = profile->feedback_slot_id;
+    plan->from_reference_hops =
+        vdc_domain_ring_forward_distance(profile->reference_slot_id,
+                                         profile->local_slot_id,
+                                         profile->ring_node_count);
+    plan->to_feedback_hops =
+        vdc_domain_ring_forward_distance(profile->local_slot_id,
+                                         profile->feedback_slot_id,
+                                         profile->ring_node_count);
+    plan->is_reference_slot =
+        profile->local_slot_id == profile->reference_slot_id ? 1u : 0u;
+    plan->ring_flags = profile->ring_flags;
+    plan->ring_profile_crc32 = profile->ring_profile_crc32;
+    plan->schedule_crc32 = profile->schedule_crc32;
+    return true;
+}
+
 bool vdc_domain_init(vdc_domain_context_t *context)
 {
     if (context == NULL) {
@@ -1882,9 +2077,14 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
         context->dpll.rejected_sample_count++;
         context->dpll.last_reject_code = gate.reject_code;
         context->dpll.update_seq++;
-        vdc_domain_reset_lock_acquisition(context);
+        if (vdc_domain_reject_requires_reacquire(gate.reject_code)) {
+            vdc_domain_reset_lock_acquisition(context);
+        }
         if (context->ready != 0u) {
-            context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
+            context->dpll.state =
+                vdc_domain_reject_requires_reacquire(gate.reject_code)
+                    ? VDC_DOMAIN_LOCK_CHECKING
+                    : VDC_DOMAIN_LOCK_RELOCKING;
         }
         vdc_domain_sync_dco_lock_state(context);
         vdc_domain_record_rejected_sample(context, evidence, &gate);
@@ -1907,9 +2107,8 @@ bool vdc_domain_submit_tdma_evidence(vdc_domain_context_t *context,
         context->dpll.rejected_sample_count++;
         context->dpll.last_reject_code = gate.reject_code;
         context->dpll.update_seq++;
-        vdc_domain_reset_lock_acquisition(context);
         if (context->ready != 0u) {
-            context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
+            context->dpll.state = VDC_DOMAIN_LOCK_RELOCKING;
         }
         vdc_domain_sync_dco_lock_state(context);
         vdc_domain_record_rejected_sample(context, evidence, &gate);
