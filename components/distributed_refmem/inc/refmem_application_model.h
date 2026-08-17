@@ -605,6 +605,10 @@ const refmem_data_link_table_t *refmem_application_model_get_data_link_table(voi
 const refmem_deployment_gate_table_t *refmem_application_model_get_deployment_gate(void);
 const refmem_connection_quality_table_t *refmem_application_model_get_connection_quality(void);
 const tdma_foundation_profile_t *refmem_application_model_get_tdma_foundation_profile(void);
+/* Re-derive the TDMA foundation profile ring for a new local slot and refresh
+ * the profile CRC. Used by the TDMA ring role maintenance command so the same
+ * firmware can run as reference or forward node. */
+bool refmem_application_model_set_tdma_ring_local_slot(uint32_t local_slot_id);
 const refmem_application_model_snapshot_t *refmem_application_model_get_snapshot(void);
 bool refmem_application_model_get_staging_node_load_entry(
     uint32_t instance_id,

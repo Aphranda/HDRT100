@@ -93,13 +93,15 @@ uint32_t tdma_ring_profile_crc32(const tdma_ring_profile_t *profile)
     hash = tdma_profile_hash_u32(hash, profile->version);
     hash = tdma_profile_hash_u32(hash, profile->flags);
     hash = tdma_profile_hash_u32(hash, profile->node_count);
-    hash = tdma_profile_hash_u32(hash, profile->local_index);
     hash = tdma_profile_hash_u32(hash, profile->reference_index);
     hash = tdma_profile_hash_u32(hash, profile->up_group_id);
     hash = tdma_profile_hash_u32(hash, profile->down_group_id);
-    hash = tdma_profile_hash_u32(hash, profile->upstream_slot_id);
-    hash = tdma_profile_hash_u32(hash, profile->downstream_slot_id);
     hash = tdma_profile_hash_u32(hash, profile->feedback_slot_id);
+    /* Ring profile CRC identifies the ring-wide topology (nodes, reference,
+     * UP/DOWN groups, feedback). Per-board perspective fields (local_index,
+     * upstream/downstream slot) are intentionally excluded so that every
+     * board of the same ring computes the same ring CRC and validates each
+     * other's TDMA frames on the wire (P0.5-3 resident ring). */
     return hash;
 }
 

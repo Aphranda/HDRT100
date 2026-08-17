@@ -103,6 +103,62 @@ static tdma_service_intent_config_t make_intent(uint32_t payload_class,
     return intent;
 }
 
+typedef struct {
+    uint32_t started;
+    uint32_t service_count;
+    uint32_t marker;
+} mock_ring_adapter_t;
+
+static bool mock_ring_start(void *context,
+                            const tdma_ring_runtime_config_t *config)
+{
+    mock_ring_adapter_t *adapter = (mock_ring_adapter_t *)context;
+    if (adapter == NULL || config == NULL || config->enabled == 0u) {
+        return false;
+    }
+    adapter->started = 1u;
+    return true;
+}
+
+static void mock_ring_stop(void *context)
+{
+    mock_ring_adapter_t *adapter = (mock_ring_adapter_t *)context;
+    if (adapter != NULL) {
+        adapter->started = 0u;
+    }
+}
+
+static bool mock_ring_service(void *context,
+                              uint64_t now_ns,
+                              tdma_ring_adapter_status_t *status)
+{
+    mock_ring_adapter_t *adapter = (mock_ring_adapter_t *)context;
+    (void)now_ns;
+    if (adapter == NULL || status == NULL || adapter->started == 0u) {
+        return false;
+    }
+    adapter->service_count++;
+    status->up_configured = 1u;
+    status->down_configured = 1u;
+    status->up_running = 1u;
+    status->down_running = 1u;
+    status->up_tx_sequence = adapter->marker;
+    status->down_rx_sequence = adapter->marker;
+    return true;
+}
+
+static const tdma_ring_adapter_ops_t s_mock_spi_ring_ops = {
+    .start = mock_ring_start,
+    .stop = mock_ring_stop,
+    .service = mock_ring_service,
+};
+
+static const tdma_ring_adapter_ops_t s_mock_bissc_ring_ops = {
+    .start = mock_ring_start,
+    .stop = mock_ring_stop,
+    .service = mock_ring_service,
+};
+
 int main(void)
 {
     int failed = 0;
@@ -212,6 +268,85 @@ int main(void)
                          snapshot.traffic_class_timestamp_resolution_ns[
                              TDMA_TRAFFIC_CONFIG_CONTROL],
                          0xC1u);
+
+    /* --- HAOFV adapter boundary: registered implementations are selected by
+     * the active profile adapter_type; unregistered types unbind. --- */
+    {
+        mock_ring_adapter_t spi_ring = {.marker = 0x11u};
+        mock_ring_adapter_t bissc_ring = {.marker = 0x22u};
+        tdma_ring_runtime_snapshot_t ring_snap;
+
+        failed += expect_u32("register spi impl",
+                             tdma_service_register_adapter_impl(
+                                 &service,
+                                 TDMA_ADAPTER_PIO_SPI,
+                                 &s_mock_spi_ring_ops,
+                                 &spi_ring),
+                             1u);
+        failed += expect_u32("register bissc impl",
+                             tdma_service_register_adapter_impl(
+                                 &service,
+                                 TDMA_ADAPTER_BISS_C,
+                                 &s_mock_bissc_ring_ops,
+                                 &bissc_ring),
+                             1u);
+
+        /* PIO SPI profile binds the SPI implementation. */
+        (void)tdma_foundation_profile_default(
+            &profile, 1u, 0u, 0u, TDMA_ADAPTER_PIO_SPI);
+        failed += expect_u32("configure pio spi profile",
+                             tdma_service_configure_foundation_profile(
+                                 &service, &profile, 0x12345678u),
+                             1u);
+        tdma_service_core1_service(&service);
+        failed += expect_u32("ring runtime adapter bound (spi)",
+                             tdma_ring_runtime_get_snapshot(
+                                 &service.ring_runtime, &ring_snap),
+                             1u);
+        failed += expect_u32("spi adapter started",
+                             ring_snap.adapter_started, 1u);
+        failed += expect_u32("spi adapter running",
+                             ring_snap.up_running |
+                                 ring_snap.down_running,
+                             1u);
+        failed += expect_u32("spi adapter marker",
+                             ring_snap.up_tx_sequence, 0x11u);
+        failed += expect_u32("spi impl context serviced",
+                             spi_ring.service_count, 1u);
+
+        /* BISS-C profile switches to the BISS-C implementation. */
+        (void)tdma_foundation_profile_default(
+            &profile, 1u, 0u, 0u, TDMA_ADAPTER_BISS_C);
+        failed += expect_u32("configure bissc profile",
+                             tdma_service_configure_foundation_profile(
+                                 &service, &profile, 0x12345678u),
+                             1u);
+        tdma_service_core1_service(&service);
+        (void)tdma_ring_runtime_get_snapshot(&service.ring_runtime, &ring_snap);
+        failed += expect_u32("bissc adapter marker",
+                             ring_snap.up_tx_sequence, 0x22u);
+        failed += expect_u32("bissc impl context serviced",
+                             bissc_ring.service_count, 1u);
+        failed += expect_u32("spi impl stopped after switch",
+                             spi_ring.started, 0u);
+
+        /* UART is not registered: the ring runtime unbinds and reports
+         * ADAPTER_MISSING instead of running the wrong transport. */
+        (void)tdma_foundation_profile_default(
+            &profile, 1u, 0u, 0u, TDMA_ADAPTER_UART);
+        failed += expect_u32("configure uart profile",
+                             tdma_service_configure_foundation_profile(
+                                 &service, &profile, 0x12345678u),
+                             1u);
+        tdma_service_core1_service(&service);
+        (void)tdma_ring_runtime_get_snapshot(&service.ring_runtime, &ring_snap);
+        failed += expect_u32("unregistered adapter reports missing",
+                             ring_snap.last_reason,
+                             TDMA_RING_RUNTIME_REASON_ADAPTER_MISSING);
+        failed += expect_u32("unregistered adapter not running",
+                             ring_snap.up_running | ring_snap.down_running,
+                             0u);
+    }
 
     if (failed != 0) {
         return 1;

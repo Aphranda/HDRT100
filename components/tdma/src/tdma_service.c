@@ -375,6 +375,52 @@ bool tdma_service_register_payload(tdma_service_service_t *service,
            tdma_payload_registry_register(&service->payload_registry, binding);
 }
 
+bool tdma_service_register_adapter_impl(tdma_service_service_t *service,
+                                        uint32_t adapter_type,
+                                        const tdma_ring_adapter_ops_t *ops,
+                                        void *context)
+{
+    if (service == NULL || adapter_type == TDMA_ADAPTER_NONE ||
+        ops == NULL || ops->start == NULL || ops->stop == NULL ||
+        ops->service == NULL ||
+        service->adapter_impl_count >= TDMA_SERVICE_ADAPTER_IMPL_MAX) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < service->adapter_impl_count; i++) {
+        if (service->adapter_impls[i].adapter_type == adapter_type) {
+            service->adapter_impls[i].ops = ops;
+            service->adapter_impls[i].context = context;
+            return true;
+        }
+    }
+    service->adapter_impls[service->adapter_impl_count].adapter_type =
+        adapter_type;
+    service->adapter_impls[service->adapter_impl_count].ops = ops;
+    service->adapter_impls[service->adapter_impl_count].context = context;
+    service->adapter_impl_count++;
+    return true;
+}
+
+/* Bind the registered ring adapter implementation whose adapter_type matches
+ * the active foundation profile; unbind when the profile requests a transport
+ * that is not registered. This keeps the ring runtime transport-agnostic and
+ * lets future BISS-C / UART / RS485 adapters plug in without changing the
+ * scheduler contract. */
+static void tdma_service_apply_profile_adapter(tdma_service_service_t *service,
+                                               uint32_t adapter_type)
+{
+    for (uint32_t i = 0u; i < service->adapter_impl_count; i++) {
+        if (service->adapter_impls[i].adapter_type == adapter_type) {
+            (void)tdma_ring_runtime_bind_adapter(
+                &service->ring_runtime,
+                service->adapter_impls[i].ops,
+                service->adapter_impls[i].context);
+            return;
+        }
+    }
+    tdma_ring_runtime_unbind_adapter(&service->ring_runtime);
+}
+
 bool tdma_service_configure_ring_runtime(
     tdma_service_service_t *service,
     const tdma_service_ring_runtime_config_t *config)
@@ -447,6 +493,7 @@ bool tdma_service_configure_foundation_profile(
     service->io_claim_mask = profile->resource.io_claim_mask;
     service->ip_core_claim_mask = profile->resource.ip_core_claim_mask;
     tdma_service_end_intent_write(service);
+    tdma_service_apply_profile_adapter(service, profile->resource.adapter_type);
     return tdma_service_configure_ring_runtime(service, &ring);
 }
 

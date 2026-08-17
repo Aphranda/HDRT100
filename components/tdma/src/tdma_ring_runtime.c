@@ -205,6 +205,19 @@ bool tdma_ring_runtime_bind_adapter(tdma_ring_runtime_t *runtime,
     return true;
 }
 
+void tdma_ring_runtime_unbind_adapter(tdma_ring_runtime_t *runtime)
+{
+    if (runtime == NULL) {
+        return;
+    }
+    tdma_ring_runtime_write_guard(&runtime->result_guard);
+    tdma_ring_runtime_stop_adapter(runtime);
+    runtime->adapter_ops = NULL;
+    runtime->adapter_context = NULL;
+    runtime->last_reason = TDMA_RING_RUNTIME_REASON_NONE;
+    tdma_ring_runtime_write_guard(&runtime->result_guard);
+}
+
 void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
 {
     if (runtime == NULL) {

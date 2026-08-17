@@ -1,0 +1,170 @@
+#ifndef TDMA_PIO_SPI_RING_ADAPTER_H
+#define TDMA_PIO_SPI_RING_ADAPTER_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "tdma_ring_runtime.h"
+#include "tdma_transport_frame.h"
+
+/* TDMA PIO SPI ring adapter (bring-up).
+ *
+ * This adapter implements tdma_ring_adapter_ops_t for the minimum-system PIO
+ * SPI transport. It is transport-level only: it builds and parses
+ * TdmaTransportFrame packets (IDLE_BEACON short frames during bring-up) and
+ * publishes adapter lifecycle evidence (start/stop/service counts, UP/DOWN
+ * running state, idle beacon counters, sequence/identity CRC and timestamp
+ * metadata) into tdma_ring_adapter_status_t. It never fabricates
+ * simultaneous_feedback_loop_evidence: the TdmaRingRuntime only sets that bit
+ * when sequence/identity CRC/schedule CRC/timestamp correlation all hold.
+ *
+ * Physical layer contract (P0.5-3): the firmware binds optional phys_tx /
+ * phys_rx callbacks once the PIO/SM/DMA bidirectional legs are available.
+ * Without them the adapter reports no running legs and service() returns
+ * false, so the ring runtime reports EVIDENCE_MISSING instead of pretending
+ * the ring is up.
+ */
+
+#define TDMA_PIO_SPI_RING_ADAPTER_VERSION 1u
+#define TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH 8u
+
+typedef enum {
+    TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE = 0u,
+    TDMA_PIO_SPI_RING_ADAPTER_ERROR_BAD_ARGUMENT = 1u,
+    TDMA_PIO_SPI_RING_ADAPTER_ERROR_PHYS_MISSING = 2u,
+    TDMA_PIO_SPI_RING_ADAPTER_ERROR_TX_FAILED = 3u,
+    TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_BAD_FRAME = 4u,
+    TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_QUEUE_FULL = 5u,
+} tdma_pio_spi_ring_adapter_error_t;
+
+/* Ring node role (derived from the active ring config):
+ * - REFERENCE: local_slot == reference_slot. It originates IDLE_BEACON /
+ *   process-image short frames and correlates its own TX with the feedback
+ *   frame that returns around the ring (this is the only node that may
+ *   produce simultaneous_feedback_loop_evidence=1).
+ * - FORWARD: any other node. It receives the frame from the previous board
+ *   and re-emits it toward the next board, keeping origin/sequence/identity
+ *   CRC unchanged and advancing hop/transport CRC. Its up/down running state
+ *   proves the ring is serviced; feedback evidence stays 0 by design because
+ *   the feedback does not return to it. */
+typedef enum {
+    TDMA_PIO_SPI_RING_ROLE_REFERENCE = 0u,
+    TDMA_PIO_SPI_RING_ROLE_FORWARD = 1u,
+} tdma_pio_spi_ring_role_t;
+
+/* Optional resident physical-layer control. When set, start() arms the
+ * physical layer with the active ring config and stop() disarms it. */
+typedef bool (*tdma_pio_spi_ring_phys_arm_fn)(
+    void *context,
+    const tdma_ring_runtime_config_t *config);
+typedef void (*tdma_pio_spi_ring_phys_disarm_fn)(void *context);
+
+/* phys_tx pushes one complete packet onto the wire. On success it may fill
+ * *tx_timestamp_ns with the hardware latch timestamp (0 means no hardware
+ * timestamp is available for this TX). */
+typedef bool (*tdma_pio_spi_ring_tx_fn)(void *context,
+                                        const uint8_t *packet,
+                                        size_t packet_size,
+                                        uint64_t *tx_timestamp_ns);
+
+/* phys_rx pulls one complete packet received from the wire. It returns true
+ * when a packet is available and fills packet/packet_size/rx_timestamp_ns. */
+typedef bool (*tdma_pio_spi_ring_rx_fn)(void *context,
+                                        uint8_t *packet,
+                                        size_t packet_capacity,
+                                        size_t *packet_size,
+                                        uint64_t *rx_timestamp_ns);
+
+typedef struct {
+    uint32_t version;
+    uint32_t started;
+    uint32_t service_count;
+    uint32_t role;
+    uint32_t forward_count;
+    uint32_t up_sequence;
+    uint32_t down_rx_sequence;
+    uint32_t up_tx_frame_crc32;
+    uint32_t down_rx_frame_crc32;
+    uint32_t idle_beacon_tx_count;
+    uint32_t idle_beacon_rx_count;
+    uint32_t tx_count;
+    uint32_t rx_count;
+    uint32_t rx_bad_count;
+    uint32_t rx_drop_count;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
+    uint64_t reference_tx_timestamp_ns;
+    uint64_t feedback_rx_timestamp_ns;
+    uint32_t last_error;
+    uint32_t local_slot_id;
+    uint32_t schedule_crc32;
+    uint32_t ring_profile_crc32;
+    uint32_t feedback_timeout_ns;
+} tdma_pio_spi_ring_adapter_snapshot_t;
+
+typedef struct {
+    tdma_ring_runtime_config_t config;
+    bool configured;
+    tdma_pio_spi_ring_tx_fn phys_tx;
+    tdma_pio_spi_ring_rx_fn phys_rx;
+    void *phys_context;
+    tdma_pio_spi_ring_phys_arm_fn phys_arm;
+    tdma_pio_spi_ring_phys_disarm_fn phys_disarm;
+    void *phys_ctrl_context;
+    tdma_pio_spi_ring_role_t role;
+    uint32_t started;
+    uint32_t service_count;
+    uint32_t forward_count;
+    uint32_t up_sequence;
+    uint32_t down_rx_sequence;
+    uint32_t up_tx_frame_crc32;
+    uint32_t down_rx_frame_crc32;
+    uint32_t idle_beacon_tx_count;
+    uint32_t idle_beacon_rx_count;
+    uint32_t tx_count;
+    uint32_t rx_count;
+    uint32_t rx_bad_count;
+    uint32_t rx_drop_count;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
+    uint64_t reference_tx_timestamp_ns;
+    uint64_t feedback_rx_timestamp_ns;
+    uint32_t last_error;
+    uint8_t last_rx_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    size_t last_rx_packet_size;
+    uint64_t last_tx_ns;
+    struct {
+        uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        size_t packet_size;
+        uint64_t timestamp_ns;
+        bool valid;
+    } rx_queue[TDMA_PIO_SPI_RING_ADAPTER_RX_QUEUE_DEPTH];
+    uint32_t rx_queue_head;
+    uint32_t rx_queue_count;
+} tdma_pio_spi_ring_adapter_t;
+
+bool tdma_pio_spi_ring_adapter_init(tdma_pio_spi_ring_adapter_t *adapter);
+void tdma_pio_spi_ring_adapter_set_phys(tdma_pio_spi_ring_adapter_t *adapter,
+                                        tdma_pio_spi_ring_tx_fn tx,
+                                        tdma_pio_spi_ring_rx_fn rx,
+                                        void *phys_context);
+void tdma_pio_spi_ring_adapter_set_phys_ctrl(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_arm_fn arm,
+    tdma_pio_spi_ring_phys_disarm_fn disarm,
+    void *phys_ctrl_context);
+void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t resolution_ns,
+    uint32_t flags);
+bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
+                                         const uint8_t *packet,
+                                         size_t packet_size,
+                                         uint64_t rx_timestamp_ns);
+const tdma_ring_adapter_ops_t *tdma_pio_spi_ring_adapter_ops(void);
+bool tdma_pio_spi_ring_adapter_get_snapshot(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_adapter_snapshot_t *snapshot);
+
+#endif

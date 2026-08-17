@@ -281,4 +281,11 @@ bool distributed_refmem_configure_node_load_auto_sync(
 void distributed_refmem_get_node_load_auto_sync(
     distributed_refmem_node_load_auto_sync_snapshot_t *snapshot);
 
+/* TDMA ring role maintenance (P0.5-3): re-derive the VDC schedule and the TDMA
+ * foundation profile ring for a new local slot, then re-apply the profile so
+ * the ring runtime restarts the adapter with the matching REFERENCE/FORWARD
+ * role. The same firmware can therefore run as reference (local==reference)
+ * or forward node without a separate build. */
+bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id);
+
 #endif

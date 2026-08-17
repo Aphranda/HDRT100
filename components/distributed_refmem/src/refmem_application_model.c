@@ -3002,6 +3002,27 @@ const tdma_foundation_profile_t *refmem_application_model_get_tdma_foundation_pr
     return refmem_model_current_tdma_foundation_profile();
 }
 
+bool refmem_application_model_set_tdma_ring_local_slot(uint32_t local_slot_id)
+{
+    tdma_foundation_profile_t *profile =
+        s_active_tables_from_image ? &s_active_tdma_foundation_profile
+                                   : &s_tdma_foundation_profile;
+    if (local_slot_id >= TDMA_RING_NODE_MAX ||
+        local_slot_id == profile->ring.local_index) {
+        return false;
+    }
+    tdma_foundation_profile_t updated = *profile;
+    if (!tdma_ring_profile_default(&updated.ring,
+                                   local_slot_id,
+                                   updated.ring.reference_index,
+                                   updated.ring.node_count)) {
+        return false;
+    }
+    updated.profile_crc32 = tdma_foundation_profile_crc32(&updated);
+    *profile = updated;
+    return true;
+}
+
 const refmem_application_model_snapshot_t *refmem_application_model_get_snapshot(void)
 {
     if (!s_initialized) {

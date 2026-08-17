@@ -410,6 +410,11 @@ typedef struct {
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
                                  uint32_t local_slot_id,
                                  uint32_t reference_slot_id);
+/* Re-derive the ring binding for a new local slot and refresh the schedule
+ * CRC. Used by the TDMA ring role maintenance command (SYSTem:TDMA:RING:
+ * LOCAL) so the same firmware can run as reference or forward node. */
+void vdc_domain_set_schedule_local_slot(vdc_domain_context_t *context,
+                                        uint32_t local_slot_id);
 void vdc_domain_default_servo(vdc_servo_profile_t *profile);
 uint32_t vdc_domain_ring_profile_crc32(const vdc_tdma_schedule_profile_t *profile);
 uint32_t vdc_domain_schedule_crc32(const vdc_tdma_schedule_profile_t *profile);

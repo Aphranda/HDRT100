@@ -8,6 +8,7 @@
 #include "project_config.h"
 
 #include "distributed_refmem_vdc_bridge.h"
+#include "diagnostics.h"
 #include "refmem_application_model.h"
 #include "refmem_command.h"
 #include "refmem_node_load_sync.h"
@@ -80,6 +81,9 @@ static refmem_sync_context_t s_refmem_sync_context;
 static distributed_refmem_node_load_auto_sync_t s_node_load_auto_sync;
 static uint32_t s_service_count;
 static bool s_initialized;
+static uint32_t s_tdma_ring_log_last_ms;
+
+static void distributed_refmem_log_tdma_ring_service(void);
 
 static void distributed_refmem_node_load_auto_init(void)
 {
@@ -955,6 +959,39 @@ void distributed_refmem_service(void)
 
     osal_critical_exit();
     distributed_refmem_node_load_auto_service();
+    distributed_refmem_log_tdma_ring_service();
+}
+
+/* Low-frequency read-only TDMA ring maintenance log (P0.5-3 monitoring).
+ * The resident ring is owned and driven by the core1 TDMA service; this core0
+ * path only mirrors ring state into the LOG system every few seconds for
+ * post-hoc diagnosis, and never submits TX/RX intents. */
+static void distributed_refmem_log_tdma_ring_service(void)
+{
+    const uint32_t now_ms = osal_tick_ms();
+    if (now_ms - s_tdma_ring_log_last_ms < 5000u) {
+        return;
+    }
+    s_tdma_ring_log_last_ms = now_ms;
+
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_runtime_owner_get_ring_snapshot(&ring)) {
+        return;
+    }
+    LOG_INFO("tdma_ring",
+             "en=%lu up=%lu down=%lu seq=%lu reason=%lu ev=%lu "
+             "adapt_start=%lu svc=%lu beacon_tx=%lu beacon_rx=%lu rt_ns=%lu",
+             (unsigned long)ring.enabled,
+             (unsigned long)ring.up_running,
+             (unsigned long)ring.down_running,
+             (unsigned long)ring.ring_seq,
+             (unsigned long)ring.last_reason,
+             (unsigned long)ring.simultaneous_feedback_loop_evidence,
+             (unsigned long)ring.adapter_started,
+             (unsigned long)ring.adapter_service_count,
+             (unsigned long)ring.idle_beacon_tx_count,
+             (unsigned long)ring.idle_beacon_rx_count,
+             (unsigned long)ring.feedback_round_trip_ns);
 }
 
 bool distributed_refmem_get_realtime_tdma(refmem_realtime_tdma_snapshot_t *snapshot)
@@ -1823,6 +1860,29 @@ void distributed_refmem_get_node_load_auto_sync(
     snapshot->last_frame_type = s_node_load_auto_sync.last_frame_type;
     snapshot->last_source_slot = s_node_load_auto_sync.last_source_slot;
     snapshot->last_error = s_node_load_auto_sync.last_error;
+}
+
+bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id)
+{
+    if (!s_initialized) {
+        return false;
+    }
+    if (!vdc_dpll_manager_set_tdma_ring_local_slot(local_slot_id)) {
+        return false;
+    }
+    if (!refmem_application_model_set_tdma_ring_local_slot(local_slot_id)) {
+        return false;
+    }
+    const tdma_foundation_profile_t *profile =
+        refmem_application_model_get_tdma_foundation_profile();
+    uint32_t schedule_crc32 = 0u;
+    if (!distributed_refmem_tdma_profile_activation_ready(profile,
+                                                          &schedule_crc32) ||
+        !distributed_refmem_apply_tdma_foundation_profile(profile,
+                                                          schedule_crc32)) {
+        return false;
+    }
+    return true;
 }
 
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot)

@@ -2177,6 +2177,20 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context)
     return scpi_port_result_ok(context);
 }
 
+scpi_result_t scpi_cmd_system_tdma_ring_local(scpi_t *context)
+{
+    uint32_t local_slot = 0u;
+    if (!scpi_port_read_u32(context, &local_slot)) {
+        return SCPI_RES_ERR;
+    }
+    if (!distributed_refmem_set_tdma_ring_local_slot(local_slot)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_LOCAL");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, local_slot);
+    return SCPI_RES_OK;
+}
+
 static bool scpi_refmem_wait_storage_job(uint32_t job_id)
 {
     for (uint32_t i = 0u; i < SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS; i++) {

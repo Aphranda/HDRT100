@@ -263,6 +263,19 @@ typedef struct {
 
 typedef tdma_ring_runtime_config_t tdma_service_ring_runtime_config_t;
 
+#define TDMA_SERVICE_ADAPTER_IMPL_MAX 4u
+
+/* Registered ring adapter implementations, keyed by tdma_adapter_type_t
+ * (TDMA_ADAPTER_PIO_SPI now, TDMA_ADAPTER_BISS_C / UART / RS485 later).
+ * tdma_service_configure_foundation_profile() binds the implementation whose
+ * adapter_type matches the active profile, so the transport can switch
+ * without changing the ring runtime contract (HAOFV adapter boundary). */
+typedef struct {
+    uint32_t adapter_type;
+    const tdma_ring_adapter_ops_t *ops;
+    void *context;
+} tdma_service_adapter_impl_t;
+
 typedef struct {
     uint32_t window_epoch;
     uint32_t window_index;
@@ -372,6 +385,8 @@ typedef struct {
     tdma_payload_registry_t payload_registry;
     tdma_ring_runtime_t ring_runtime;
     tdma_traffic_scheduler_t *traffic_scheduler;
+    tdma_service_adapter_impl_t adapter_impls[TDMA_SERVICE_ADAPTER_IMPL_MAX];
+    uint32_t adapter_impl_count;
 } tdma_service_service_t;
 
 bool tdma_service_init(tdma_service_service_t *service);
@@ -385,6 +400,10 @@ bool tdma_service_set_maintenance_gate(tdma_service_service_t *service,
                                        bool open);
 bool tdma_service_register_payload(tdma_service_service_t *service,
                                    const tdma_service_payload_binding_t *binding);
+bool tdma_service_register_adapter_impl(tdma_service_service_t *service,
+                                        uint32_t adapter_type,
+                                        const tdma_ring_adapter_ops_t *ops,
+                                        void *context);
 bool tdma_service_configure_ring_runtime(
     tdma_service_service_t *service,
     const tdma_service_ring_runtime_config_t *config);

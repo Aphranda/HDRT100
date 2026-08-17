@@ -155,6 +155,7 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
 bool tdma_ring_runtime_bind_adapter(tdma_ring_runtime_t *runtime,
                                     const tdma_ring_adapter_ops_t *ops,
                                     void *context);
+void tdma_ring_runtime_unbind_adapter(tdma_ring_runtime_t *runtime);
 void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime);
 bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
                                     tdma_ring_runtime_snapshot_t *snapshot);

@@ -878,6 +878,24 @@ void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
     profile->schedule_crc32 = vdc_domain_schedule_crc32(profile);
 }
 
+void vdc_domain_set_schedule_local_slot(vdc_domain_context_t *context,
+                                        uint32_t local_slot_id)
+{
+    if (context == NULL ||
+        local_slot_id >= VDC_DOMAIN_NODE_COUNT ||
+        local_slot_id == context->schedule.local_slot_id) {
+        return;
+    }
+    vdc_tdma_schedule_profile_t updated = context->schedule;
+    updated.local_slot_id = local_slot_id;
+    (void)tdma_ring_profile_default(&updated.ring_binding,
+                                    updated.local_slot_id,
+                                    updated.reference_slot_id,
+                                    VDC_DOMAIN_NODE_COUNT);
+    updated.schedule_crc32 = vdc_domain_schedule_crc32(&updated);
+    context->schedule = updated;
+}
+
 void vdc_domain_default_servo(vdc_servo_profile_t *profile)
 {
     if (profile == NULL) {
@@ -931,7 +949,11 @@ uint32_t vdc_domain_schedule_crc32(const vdc_tdma_schedule_profile_t *profile)
     hash = vdc_domain_hash_u32(hash, profile->guard_before_ns);
     hash = vdc_domain_hash_u32(hash, profile->guard_after_ns);
     hash = vdc_domain_hash_u32(hash, profile->reference_slot_id);
-    hash = vdc_domain_hash_u32(hash, profile->local_slot_id);
+    /* The schedule CRC identifies the ring-wide schedule (windows, period,
+     * reference and ring topology). local_slot_id is the per-board ring
+     * identity and must NOT be part of it, otherwise two boards of the same
+     * ring compute different schedule CRCs and reject each other's TDMA
+     * frames on the wire (P0.5-3 two-board resident ring). */
     hash = vdc_domain_hash_u32(hash, profile->ring_binding.profile_crc32);
     return hash;
 }

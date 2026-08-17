@@ -7,6 +7,7 @@
 #include "osal.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
+#include "pico/time.h"
 
 #if !PROJECT_USE_FREERTOS || !PROJECT_USE_MULTICORE
 #error "feature/rtos-multicore-haofv requires PROJECT_USE_FREERTOS=ON and PROJECT_USE_MULTICORE=ON"
@@ -44,7 +45,17 @@ static void core1_realtime_entry(void)
         tight_loop_contents();
     }
 
+    /* HAOFV realtime core discipline: core1 runs on a fixed 1 ms (TDMA cycle)
+     * tick. Every round executes at a deterministic phase of the cycle so the
+     * TDMA/VDC window schedule (vdc_domain_plan_tdma_window) stays
+     * predictable; between ticks core1 waits instead of free-running. The
+     * flash lockout poll still runs on every tick (>= 1 kHz ACK response,
+     * well inside the core0 wait budget). */
+    const uint64_t tick_us = 1000ull;
+    uint64_t next_tick_us = to_us_since_boot(get_absolute_time()) + tick_us;
     while (true) {
+        sleep_until(from_us_since_boot(next_tick_us));
+        next_tick_us += tick_us;
         drv_flash_core1_lockout_poll();
         app_realtime_run_once();
         tight_loop_contents();

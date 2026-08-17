@@ -52,6 +52,26 @@
 #define BOARD_REFMEM_SPI_TX_PIN 19u
 #define BOARD_REFMEM_SPI_BAUD_HZ 25000000u
 
+/* TDMA resident ring physical layer (P0.5-3 bring-up, no-CS 3-wire SPI).
+ * Reuses the verified min-system pin set (docs/refmem/REFMEM_TASK_PROGRESS.md
+ * REFMEM-TASK-20260816-050): uplink (slave RX from previous board) is
+ * (rx=16, sck=18) and downlink (master TX to next board) uses tx=23 with the
+ * SCK selected by ring slot (slot 0 -> 22, slot 1 -> 21). Both SMs stay
+ * armed together and the core1 TDMA service drives frame-level TX/RX. */
+#define BOARD_TDMA_SPI_PIO pio0
+#define BOARD_TDMA_SPI_MASTER_SM 2u
+#define BOARD_TDMA_SPI_SLAVE_SM 3u
+#define BOARD_TDMA_SPI_UPLINK_RX_PIN 16u
+#define BOARD_TDMA_SPI_UPLINK_SCK_PIN 18u
+/* Measured min-system wiring (tools/tdma_ring_monitor/line_map_check.py):
+ *   A(slot0).22 -> B.18, A.23 -> B.16        (A downlink -> B uplink)
+ *   B(slot1).19 -> A.18, B.23 -> A.16        (B downlink -> A uplink)
+ * GPIO21 on the B side is not wired, so slot 1 uses GPIO19 as downlink SCK. */
+#define BOARD_TDMA_SPI_DOWNLINK_SCK_PIN_SLOT0 22u
+#define BOARD_TDMA_SPI_DOWNLINK_SCK_PIN_SLOT1 19u
+#define BOARD_TDMA_SPI_DOWNLINK_TX_PIN 23u
+#define BOARD_TDMA_SPI_BAUD_HZ 25000000u
+
 #define BOARD_I2C_ENABLED 0
 #define BOARD_I2C_PORT i2c0
 #define BOARD_I2C_SDA_PIN 8u

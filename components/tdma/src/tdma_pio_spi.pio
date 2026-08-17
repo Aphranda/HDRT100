@@ -1,0 +1,99 @@
+.program tdma_pio_spi_tx_byte
+.side_set 1
+
+.wrap_target
+    pull block        side 0
+    set x, 7         side 0
+bitloop:
+    out pins, 1      side 0 [1]
+    nop              side 1 [1]
+    jmp x-- bitloop  side 0 [1]
+.wrap
+
+.program tdma_pio_spi_rx_byte
+
+.wrap_target
+    wait 0 gpio 0
+    set x, 7
+bitloop_rx:
+    wait 1 gpio 1
+    in pins, 1
+    wait 0 gpio 1
+    jmp x-- bitloop_rx
+    push block
+.wrap
+
+% c-sdk {
+
+#include <stdint.h>
+
+#include "hardware/clocks.h"
+#include "hardware/pio_instructions.h"
+
+static inline float tdma_pio_spi_clkdiv_for_baud(uint32_t baud_hz)
+{
+    const uint32_t bit_cycles = 6u;
+    const uint32_t effective_baud = baud_hz == 0u ? 25000000u : baud_hz;
+    return (float)clock_get_hz(clk_sys) / (float)(effective_baud * bit_cycles);
+}
+
+static inline void tdma_pio_spi_tx_byte_program_init(PIO pio,
+                                                     uint sm,
+                                                     uint offset,
+                                                     uint tx_pin,
+                                                     uint sck_pin,
+                                                     uint32_t baud_hz)
+{
+    pio_gpio_init(pio, tx_pin);
+    pio_gpio_init(pio, sck_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_pin, 1, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, sck_pin, 1, true);
+
+    pio_sm_config c = tdma_pio_spi_tx_byte_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, tx_pin, 1);
+    sm_config_set_sideset_pins(&c, sck_pin);
+    sm_config_set_out_shift(&c, false, false, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv(&c, tdma_pio_spi_clkdiv_for_baud(baud_hz));
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0);
+}
+
+static inline void tdma_pio_spi_rx_byte_program_init(PIO pio,
+                                                     uint sm,
+                                                     uint offset,
+                                                     uint rx_pin,
+                                                     uint csn_pin,
+                                                     uint sck_pin)
+{
+    pio->instr_mem[offset + 0u] =
+        csn_pin == UINT32_MAX
+            ? (uint16_t)pio_encode_nop()
+            : (uint16_t)pio_encode_wait_gpio(false, csn_pin);
+    pio->instr_mem[offset + 2u] = (uint16_t)pio_encode_wait_gpio(true, sck_pin);
+    pio->instr_mem[offset + 4u] = (uint16_t)pio_encode_wait_gpio(false, sck_pin);
+
+    pio_gpio_init(pio, rx_pin);
+    if (csn_pin != UINT32_MAX) {
+        pio_gpio_init(pio, csn_pin);
+    }
+    pio_gpio_init(pio, sck_pin);
+    gpio_pull_down(rx_pin);
+    if (csn_pin != UINT32_MAX) {
+        gpio_pull_up(csn_pin);
+    }
+    gpio_pull_down(sck_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_pin, 1, false);
+    if (csn_pin != UINT32_MAX) {
+        pio_sm_set_consecutive_pindirs(pio, sm, csn_pin, 1, false);
+    }
+    pio_sm_set_consecutive_pindirs(pio, sm, sck_pin, 1, false);
+
+    pio_sm_config c = tdma_pio_spi_rx_byte_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, rx_pin);
+    sm_config_set_in_shift(&c, false, false, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+%}
