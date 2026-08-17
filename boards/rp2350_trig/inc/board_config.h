@@ -70,8 +70,8 @@
 #define BOARD_TDMA_SPI_UPLINK_SCK_PIN 19u
 #define BOARD_TDMA_SPI_DOWNLINK_SCK_PIN 24u
 #define BOARD_TDMA_SPI_DOWNLINK_TX_PIN 23u
-/* 25 MHz produced intermittent slave reception on the measured wiring; use
- * 1 MHz to validate timing margins during bring-up. */
+/* Start at 1 MHz for timing-margin bring-up with the new dual-buffer RX
+ * pipeline; raise stepwise (2/5/10/25 MHz) once lossless at each step. */
 #define BOARD_TDMA_SPI_BAUD_HZ 1000000u
 
 #define BOARD_I2C_ENABLED 0

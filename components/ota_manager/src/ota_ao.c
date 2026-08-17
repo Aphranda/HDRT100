@@ -117,3 +117,10 @@ bool ota_ao_get_metadata(ota_metadata_t *metadata)
 {
     return ota_metadata_load(metadata);
 }
+
+bool ota_ao_is_active(void)
+{
+    const uint32_t state = s_ota_context.vector.state;
+    return state >= (uint32_t)OTA_STATE_CHECK_PERMISSION &&
+           state <= (uint32_t)OTA_STATE_READY_TO_REBOOT;
+}

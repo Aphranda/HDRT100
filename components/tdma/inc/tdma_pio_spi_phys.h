@@ -41,6 +41,16 @@
     (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_SHORT_PACKET_MAX)
 #define TDMA_PIO_SPI_RX_STABLE_1E3NS 1000u
 
+/* Continuous RX capture ring (EtherCAT-style): the DMA runs in ring mode
+ * (write address wraps every TDMA_PIO_SPI_RX_RING_WORDS) and re-arms itself
+ * on completion IRQ, so the rx_byte SM is never blocked on a full RX FIFO.
+ * The service scans the ring for the packet magic instead of assuming the
+ * DMA capture started exactly at a frame boundary. */
+#define TDMA_PIO_SPI_RX_RING_WORDS 256u
+#define TDMA_PIO_SPI_RX_RING_LOG2 10u
+#define TDMA_PIO_SPI_FRAME_WORDS \
+    (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_FRAME_HEADER_SIZE)
+
 typedef enum {
     TDMA_PIO_SPI_PHYS_ERROR_NONE = 0u,
     TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT = 1u,
@@ -71,6 +81,35 @@ typedef struct {
     uint32_t tx_pin;
     uint32_t rx_sck_pin;
     uint32_t rx_pin;
+    /* RX capture diagnostics (bring-up): how often the DMA capture produced
+     * a partial frame, how often the rx_byte SM stalled on a full RX FIFO,
+     * and how often the bounded TX put timed out. */
+    uint32_t rx_partial_count;
+    uint32_t rx_stall_count;
+    uint32_t tx_timeout_count;
+    /* Last rejected frame header words and received word count, to identify
+     * byte-boundary drift (a shifted magic instead of a corrupted payload). */
+    uint32_t last_bad_header0;
+    uint32_t last_bad_header1;
+    uint32_t last_bad_header2;
+    uint32_t last_bad_header3;
+    uint32_t last_bad_words;
+    /* Capture path diagnostics: how often the service saw the DMA still
+     * busy (frame incomplete) vs completed with a shifted magic. */
+    uint32_t rx_busy_count;
+    uint32_t rx_magic_fail_count;
+    /* Partial words visible in the DMA buffer while busy (to identify the
+     * byte-boundary drift pattern). */
+    uint32_t rx_busy_word0;
+    uint32_t rx_busy_word1;
+    uint32_t rx_busy_word2;
+    uint32_t rx_busy_word3;
+    uint32_t rx_busy_moved; /* words moved so far while busy. */
+    /* Magic alignment distribution of completed captures: 0 = frame header
+     * at buffer start (aligned), 1..35 = header shifted (capture started
+     * mid-frame), plus magic_fail_count for header-not-found. */
+    uint32_t rx_magic_at_zero;
+    uint32_t rx_magic_at_shift;
 } tdma_pio_spi_phys_snapshot_t;
 
 typedef struct {

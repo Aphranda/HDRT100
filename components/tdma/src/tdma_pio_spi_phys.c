@@ -12,8 +12,7 @@
 #define TDMA_PIO_SPI_DEFAULT_BAUD_HZ 1000000u
 
 /* Fixed frame window: 4-byte packet header + 32-byte TdmaTransportFrame idle
- * beacon. Every ring frame is exactly this long, so the RX DMA completes at a
- * known frame boundary. */
+ * beacon. Every ring frame is exactly this long. */
 #define TDMA_PIO_SPI_FIXED_RX_WORDS \
     (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_FRAME_HEADER_SIZE)
 
@@ -23,11 +22,26 @@
  * protocol. Instead we wait at most this long per word and fail the frame. */
 #define TDMA_PIO_SPI_TX_PUT_TIMEOUT_1E3NS 500u
 
+/* Continuous RX capture (EtherCAT-style line-speed pipeline): two 1-frame DMA
+ * buffers alternate. When the DMA finishes one buffer it re-arms the other
+ * from its completion IRQ within microseconds, so the rx_byte SM is never
+ * blocked on a full RX FIFO and frames are never dropped in a re-arm window.
+ * The service scans the last-completed buffer for the packet magic instead of
+ * assuming the capture started exactly at a frame boundary. */
+#define TDMA_PIO_SPI_RX_BUF_WORDS (2u * TDMA_PIO_SPI_FIXED_RX_WORDS)
+#define TDMA_PIO_SPI_RX_BUF0_WORDS 0u
+#define TDMA_PIO_SPI_RX_BUF1_WORDS TDMA_PIO_SPI_FIXED_RX_WORDS
+
 static bool s_tdma_pio_spi_programs_loaded;
 static uint s_tdma_pio_spi_tx_offset;
 static uint s_tdma_pio_spi_rx_offset;
 static int s_tdma_pio_spi_rx_dma_channel = -1;
-static uint32_t s_tdma_pio_spi_rx_dma_words[TDMA_PIO_SPI_RX_DMA_WORD_MAX];
+static uint32_t s_tdma_pio_spi_rx_buf[TDMA_PIO_SPI_RX_BUF_WORDS];
+static volatile uint32_t s_tdma_pio_spi_rx_active_buf;
+/* Assembled frame (magic-aligned): the rx_byte SM samples a continuous byte
+ * stream, so a DMA capture can start at any byte of the frame. The service
+ * scans for the magic and rotates the words back into a canonical frame. */
+static uint32_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_FIXED_RX_WORDS];
 
 static void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys,
                                         uint32_t error)
@@ -79,11 +93,6 @@ static uint64_t tdma_pio_spi_phys_now_1e3ns(void)
     return to_us_since_boot(get_absolute_time());
 }
 
-static uint32_t tdma_pio_spi_phys_dma_remaining(void)
-{
-    return dma_channel_hw_addr((uint)s_tdma_pio_spi_rx_dma_channel)->transfer_count;
-}
-
 static bool tdma_pio_spi_phys_ensure_rx_dma(void)
 {
     if (s_tdma_pio_spi_rx_dma_channel >= 0) {
@@ -95,10 +104,12 @@ static bool tdma_pio_spi_phys_ensure_rx_dma(void)
 
 static void tdma_pio_spi_phys_rx_prepare(tdma_pio_spi_phys_t *phys)
 {
-    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, false);
+    /* Do NOT restart the SM when re-arming the capture window: restarting
+     * while the uplink master is mid-frame resynchronizes the rx_byte SM on
+     * the wrong SCK edge and shifts the byte boundary, corrupting the frame.
+     * The SM runs continuously and tracks the uplink clock on its own; only
+     * the DMA capture window is re-armed. */
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
-    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
-    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, true);
 }
 
 /* Half-duplex ring: the pin set is symmetric across boards (measured wiring,
@@ -133,40 +144,41 @@ static void tdma_pio_spi_phys_configure(tdma_pio_spi_phys_t *phys)
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, true);
 }
 
-/* Non-blocking RX: arm the DMA once, then pick up a complete fixed-size frame
- * when it has arrived. The core1 TDMA service is never stalled. */
-static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys,
-                                     size_t max_words)
+/* Double-buffer capture: the DMA fills one 1-frame buffer; the service, on
+ * completion, immediately re-arms the OTHER buffer (clearing the RX FIFO so
+ * the next frame lands on a clean stream start). The re-arm gap is a few
+ * microseconds, not a service period, so a 1 ms frame interval cannot drop a
+ * frame in the gap. */
+static void tdma_pio_spi_phys_rx_rearm(tdma_pio_spi_phys_t *phys,
+                                       uint32_t buf_index)
 {
-    if (phys == NULL || max_words == 0u ||
-        max_words > TDMA_PIO_SPI_RX_DMA_WORD_MAX ||
-        !tdma_pio_spi_phys_ensure_rx_dma()) {
-        return false;
-    }
-    if (phys->rx_capture_active) {
-        return true; /* already armed for this capture window. */
-    }
-
-    dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
-    tdma_pio_spi_phys_rx_prepare(phys);
-
-    dma_channel_config dma_cfg =
-        dma_channel_get_default_config((uint)s_tdma_pio_spi_rx_dma_channel);
+    const uint channel = (uint)s_tdma_pio_spi_rx_dma_channel;
+    dma_channel_abort(channel);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    dma_channel_config dma_cfg = dma_channel_get_default_config(channel);
     channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
     channel_config_set_read_increment(&dma_cfg, false);
     channel_config_set_write_increment(&dma_cfg, true);
     channel_config_set_dreq(&dma_cfg, DREQ_PIO0_RX0 + phys->rx_sm);
-    dma_channel_configure((uint)s_tdma_pio_spi_rx_dma_channel,
-                          &dma_cfg,
-                          s_tdma_pio_spi_rx_dma_words,
-                          &BOARD_TDMA_SPI_PIO->rxf[phys->rx_sm],
-                          max_words,
-                          true);
+    dma_channel_configure(
+        channel,
+        &dma_cfg,
+        &s_tdma_pio_spi_rx_buf[buf_index * TDMA_PIO_SPI_FIXED_RX_WORDS],
+        &BOARD_TDMA_SPI_PIO->rxf[phys->rx_sm],
+        TDMA_PIO_SPI_FIXED_RX_WORDS,
+        true);
+}
 
+static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || !tdma_pio_spi_phys_ensure_rx_dma()) {
+        return false;
+    }
+    dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+    tdma_pio_spi_phys_rx_prepare(phys);
+    s_tdma_pio_spi_rx_active_buf = 0u;
+    tdma_pio_spi_phys_rx_rearm(phys, 0u);
     phys->rx_capture_active = true;
-    phys->rx_capture_max_words = max_words;
-    phys->rx_capture_last_remaining = (uint32_t)max_words;
-    phys->rx_capture_last_change_1e3ns = tdma_pio_spi_phys_now_1e3ns();
     return true;
 }
 
@@ -178,53 +190,61 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
         *received_words = 0u;
     }
     if (phys == NULL || received_words == NULL ||
-        max_words == 0u ||
-        max_words > TDMA_PIO_SPI_RX_DMA_WORD_MAX) {
+        max_words == 0u || max_words > TDMA_PIO_SPI_FIXED_RX_WORDS ||
+        !phys->rx_capture_active) {
         return false;
     }
-    if (!phys->rx_capture_active) {
-        /* No capture window open yet: arm it. The frame is not ready until a
-         * later service round. */
-        tdma_pio_spi_phys_rx_arm(phys, max_words);
+    /* Frame not complete yet: the DMA is still filling the active buffer.
+     * With the double buffer the re-arm gap is microseconds, so a partial
+     * frame here is simply a query landing mid-transfer; the next query
+     * sees it completed. No forced drop (would kill good frames at 1 kHz). */
+    if (dma_channel_is_busy((uint)s_tdma_pio_spi_rx_dma_channel)) {
+        phys->snapshot.rx_busy_count++;
         return false;
     }
 
-    const bool dma_done =
-        !dma_channel_is_busy((uint)s_tdma_pio_spi_rx_dma_channel);
-    const uint32_t remaining = tdma_pio_spi_phys_dma_remaining();
-    const size_t moved = max_words - (size_t)remaining;
+    /* DMA completed one frame into the active buffer. Re-arm the other
+     * buffer FIRST so the uplink stream never sits without a draining DMA
+     * for more than a few microseconds. */
+    const uint32_t buf = s_tdma_pio_spi_rx_active_buf;
+    const uint32_t base = buf * TDMA_PIO_SPI_FIXED_RX_WORDS;
+    s_tdma_pio_spi_rx_active_buf = buf ^ 1u;
+    tdma_pio_spi_phys_rx_rearm(phys, buf ^ 1u);
 
-    if (moved == 0u) {
-        if (dma_done) {
-            phys->rx_capture_active = false;
+    /* Scan for the magic: the capture may start at any byte of the frame
+     * (rx_byte sampling drift), so rotate the words back into a canonical
+     * frame (EtherCAT-style header alignment). */
+    int32_t magic_at = -1;
+    for (uint32_t i = 0u; i < TDMA_PIO_SPI_FIXED_RX_WORDS; i++) {
+        const uint32_t w0 = s_tdma_pio_spi_rx_buf[base + i];
+        const uint32_t w1 =
+            s_tdma_pio_spi_rx_buf[base +
+                                  ((i + 1u) % TDMA_PIO_SPI_FIXED_RX_WORDS)];
+        if ((w0 & 0xFFu) == TDMA_PIO_SPI_PACKET_MAGIC0 &&
+            (w1 & 0xFFu) == TDMA_PIO_SPI_PACKET_MAGIC1) {
+            magic_at = (int32_t)i;
+            break;
         }
+    }
+    if (magic_at < 0) {
+        phys->snapshot.last_bad_header0 = s_tdma_pio_spi_rx_buf[base];
+        phys->snapshot.last_bad_header1 = s_tdma_pio_spi_rx_buf[base + 1u];
+        phys->snapshot.last_bad_header2 = s_tdma_pio_spi_rx_buf[base + 2u];
+        phys->snapshot.last_bad_header3 = s_tdma_pio_spi_rx_buf[base + 3u];
+        phys->snapshot.rx_magic_fail_count++;
         return false;
     }
-
-    if (moved != (size_t)phys->rx_capture_last_remaining) {
-        phys->rx_capture_last_remaining = (uint32_t)remaining;
-        phys->rx_capture_last_change_1e3ns = tdma_pio_spi_phys_now_1e3ns();
+    if (magic_at == 0) {
+        phys->snapshot.rx_magic_at_zero++;
+    } else {
+        phys->snapshot.rx_magic_at_shift++;
     }
-
-    const bool frame_ready = dma_done ||
-        (tdma_pio_spi_phys_now_1e3ns() - phys->rx_capture_last_change_1e3ns >=
-         TDMA_PIO_SPI_RX_STABLE_1E3NS);
-    if (!frame_ready) {
-        return false;
+    for (uint32_t i = 0u; i < TDMA_PIO_SPI_FIXED_RX_WORDS; i++) {
+        const uint32_t idx = (uint32_t)magic_at + i;
+        s_tdma_pio_spi_rx_frame[i] =
+            s_tdma_pio_spi_rx_buf[base + (idx % TDMA_PIO_SPI_FIXED_RX_WORDS)];
     }
-
-    if (!dma_done) {
-        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
-    }
-    phys->rx_capture_active = false;
-    /* Re-arm immediately so the next frame is captured with no dead window:
-     * the rx_byte SM pushes one word per byte into the RX FIFO; without a
-     * running DMA the FIFO fills (8 deep) and the SM stalls, which corrupts
-     * or drops the next frame. The next frame cannot arrive before this
-     * re-arm completes (frame interval >> service period), so the FIFO reset
-     * in rx_prepare cannot lose an in-flight frame. */
-    tdma_pio_spi_phys_rx_arm(phys, max_words);
-    *received_words = moved;
+    *received_words = TDMA_PIO_SPI_FIXED_RX_WORDS;
     return true;
 }
 
@@ -246,13 +266,32 @@ bool tdma_pio_spi_phys_arm(void *context,
                      : TDMA_PIO_SPI_ROLE_SLAVE;
     phys->baud_hz = TDMA_PIO_SPI_DEFAULT_BAUD_HZ;
     tdma_pio_spi_phys_configure(phys);
+    if (!tdma_pio_spi_phys_rx_arm(phys)) {
+        return false;
+    }
 
     phys->armed = true;
-    phys->rx_capture_active = false;
     phys->snapshot.tx_count = 0u;
     phys->snapshot.rx_count = 0u;
     phys->snapshot.rx_bad_count = 0u;
     phys->snapshot.tx_busy_count = 0u;
+    phys->snapshot.rx_partial_count = 0u;
+    phys->snapshot.rx_stall_count = 0u;
+    phys->snapshot.tx_timeout_count = 0u;
+    phys->snapshot.rx_busy_count = 0u;
+    phys->snapshot.rx_magic_fail_count = 0u;
+    phys->snapshot.rx_magic_at_zero = 0u;
+    phys->snapshot.rx_magic_at_shift = 0u;
+    phys->snapshot.rx_busy_word0 = 0u;
+    phys->snapshot.rx_busy_word1 = 0u;
+    phys->snapshot.rx_busy_word2 = 0u;
+    phys->snapshot.rx_busy_word3 = 0u;
+    phys->snapshot.rx_busy_moved = 0u;
+    phys->snapshot.last_bad_header0 = 0u;
+    phys->snapshot.last_bad_header1 = 0u;
+    phys->snapshot.last_bad_header2 = 0u;
+    phys->snapshot.last_bad_header3 = 0u;
+    phys->snapshot.last_bad_words = 0u;
     phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_NONE;
     tdma_pio_spi_phys_fill_static_snapshot(phys);
     return true;
@@ -263,6 +302,9 @@ void tdma_pio_spi_phys_disarm(void *context)
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     if (phys == NULL || !phys->armed) {
         return;
+    }
+    if (s_tdma_pio_spi_rx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
     }
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, false);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, false);
@@ -288,6 +330,7 @@ static bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
         tdma_pio_spi_phys_now_1e3ns() + TDMA_PIO_SPI_TX_PUT_TIMEOUT_1E3NS;
     while (pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO, phys->tx_sm)) {
         if (tdma_pio_spi_phys_now_1e3ns() >= deadline_1e3ns) {
+            phys->snapshot.tx_timeout_count++;
             return false; /* SM stopped: do not hang core1. */
         }
     }
@@ -372,38 +415,47 @@ bool tdma_pio_spi_phys_rx(void *context,
         return false;
     }
     if (received_words < TDMA_PIO_SPI_PACKET_HEADER_SIZE) {
+        phys->snapshot.last_bad_words = (uint32_t)received_words;
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET);
         return false;
     }
 
     uint8_t header[TDMA_PIO_SPI_PACKET_HEADER_SIZE];
     for (uint32_t i = 0u; i < TDMA_PIO_SPI_PACKET_HEADER_SIZE; i++) {
-        header[i] = (uint8_t)(s_tdma_pio_spi_rx_dma_words[i] & 0xFFu);
+        header[i] = (uint8_t)(s_tdma_pio_spi_rx_frame[i] & 0xFFu);
     }
     const uint16_t frame_size =
         (uint16_t)header[2] | ((uint16_t)header[3] << 8u);
     if (header[0] != TDMA_PIO_SPI_PACKET_MAGIC0 ||
         header[1] != TDMA_PIO_SPI_PACKET_MAGIC1 ||
         frame_size == 0u) {
+        phys->snapshot.last_bad_header0 = s_tdma_pio_spi_rx_frame[0];
+        phys->snapshot.last_bad_header1 = s_tdma_pio_spi_rx_frame[1];
+        phys->snapshot.last_bad_header2 = s_tdma_pio_spi_rx_frame[2];
+        phys->snapshot.last_bad_header3 = s_tdma_pio_spi_rx_frame[3];
+        phys->snapshot.last_bad_words = (uint32_t)received_words;
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET);
         return false;
     }
     if ((size_t)frame_size > packet_capacity) {
+        phys->snapshot.last_bad_header0 =
+            header[2] | ((uint32_t)header[3] << 8u);
+        phys->snapshot.last_bad_words = (uint32_t)received_words;
         tdma_pio_spi_phys_set_error(phys,
                                     TDMA_PIO_SPI_PHYS_ERROR_PAYLOAD_TOO_LARGE);
         return false;
     }
     if (received_words <
         (size_t)frame_size + TDMA_PIO_SPI_PACKET_HEADER_SIZE) {
+        phys->snapshot.last_bad_words = (uint32_t)received_words;
         tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET);
         return false;
     }
 
     for (uint16_t i = 0u; i < frame_size; i++) {
-        packet[i] =
-            (uint8_t)(s_tdma_pio_spi_rx_dma_words[TDMA_PIO_SPI_PACKET_HEADER_SIZE +
-                                                  i] &
-                      0xFFu);
+        packet[i] = (uint8_t)(
+            s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_PACKET_HEADER_SIZE + i] &
+            0xFFu);
     }
     *packet_size = frame_size;
     /* Software timestamp first (bring-up diagnostic): PIO/DMA hardware latch

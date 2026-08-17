@@ -415,15 +415,14 @@ static bool tdma_pio_spi_ring_adapter_service(
             adapter->config.feedback_timeout_ns != 0u
                 ? adapter->config.feedback_timeout_ns
                 : 1000000ull;
-        /* Tolerance for the core1 tick waking slightly early (sleep_until
-         * granularity) so one beacon is emitted per cycle instead of every
-         * other cycle; cycle/8 is far below half a cycle, so it cannot cause
-         * double emission. */
-        const uint64_t tx_interval_ns = cycle_ns - (cycle_ns >> 3u);
-        const bool tx_due =
-            adapter->last_tx_ns == 0ull ||
-            (now_ns >= adapter->last_tx_ns &&
-             now_ns - adapter->last_tx_ns >= tx_interval_ns);
+        /* TSN-style deterministic emission: one IDLE_BEACON per TDMA cycle at
+         * a fixed phase. The previous now-last >= interval throttle skipped
+         * ~40% of the ticks because sleep_until can wake slightly early, so
+         * the reference emitted at ~580 Hz instead of 1 kHz. A fixed-phase
+         * emit keeps the wire schedule deterministic (the cycle guard below
+         * still bounds the emission rate by the physical TX time). */
+        (void)cycle_ns;
+        const bool tx_due = true;
         if (tx_due) {
             tx_ok = tdma_pio_spi_ring_adapter_tx_beacon(adapter);
             if (tx_ok) {

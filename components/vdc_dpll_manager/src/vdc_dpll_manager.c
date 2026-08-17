@@ -5,6 +5,7 @@
 #include "board.h"
 #include "board_config.h"
 #include "osal.h"
+#include "ota_ao.h"
 #include "sync_io.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_service.h"
@@ -988,6 +989,12 @@ void vdc_dpll_manager_dpll_service(void)
 
 void tdma_component_core1_service(void)
 {
+    /* During an active OTA session the config plane erases/writes flash.
+     * Skip the TDMA service so the core1 lockout poll stays tight and the
+     * flash protocol never times out behind the ring beacon. */
+    if (ota_ao_is_active()) {
+        return;
+    }
     if (s_vdc_tdma_service != NULL) {
         tdma_service_core1_service(s_vdc_tdma_service);
     }

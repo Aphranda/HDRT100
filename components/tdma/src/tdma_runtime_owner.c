@@ -90,3 +90,11 @@ bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *snapshot
     return tdma_ring_runtime_get_snapshot(&s_tdma_runtime_owner.ring_runtime,
                                           snapshot);
 }
+
+bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot)
+{
+    if (!s_tdma_runtime_owner_initialized || snapshot == NULL) {
+        return false;
+    }
+    return tdma_pio_spi_phys_get_snapshot(&s_tdma_pio_spi_phys, snapshot);
+}

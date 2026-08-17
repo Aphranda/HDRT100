@@ -1,6 +1,7 @@
 #include "scpi_sync_commands.h"
 
 #include "project_config.h"
+#include "tdma_runtime_owner.h"
 #include "vdc_dpll_manager.h"
 
 scpi_result_t scpi_sync_state_q(scpi_t *context)
@@ -441,6 +442,47 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.timestamp_source);
     SCPI_ResultUInt32(context, snapshot.timestamp_resolution_ns);
     SCPI_ResultUInt32(context, snapshot.timestamp_flags);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
+{
+    tdma_pio_spi_phys_snapshot_t snapshot;
+    if (!tdma_runtime_owner_get_phys_snapshot(&snapshot)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+
+    SCPI_ResultUInt32(context, snapshot.armed);
+    SCPI_ResultUInt32(context, snapshot.role);
+    SCPI_ResultUInt32(context, snapshot.baud_hz);
+    SCPI_ResultUInt32(context, snapshot.tx_count);
+    SCPI_ResultUInt32(context, snapshot.rx_count);
+    SCPI_ResultUInt32(context, snapshot.rx_bad_count);
+    SCPI_ResultUInt32(context, snapshot.tx_busy_count);
+    SCPI_ResultUInt32(context, snapshot.rx_partial_count);
+    SCPI_ResultUInt32(context, snapshot.rx_stall_count);
+    SCPI_ResultUInt32(context, snapshot.tx_timeout_count);
+    SCPI_ResultUInt32(context, snapshot.last_error);
+    SCPI_ResultUInt32(context, snapshot.last_rx_size);
+    SCPI_ResultUInt32(context, snapshot.tx_sck_pin);
+    SCPI_ResultUInt32(context, snapshot.tx_pin);
+    SCPI_ResultUInt32(context, snapshot.rx_sck_pin);
+    SCPI_ResultUInt32(context, snapshot.rx_pin);
+    SCPI_ResultUInt32(context, snapshot.last_bad_header0);
+    SCPI_ResultUInt32(context, snapshot.last_bad_header1);
+    SCPI_ResultUInt32(context, snapshot.last_bad_header2);
+    SCPI_ResultUInt32(context, snapshot.last_bad_header3);
+    SCPI_ResultUInt32(context, snapshot.last_bad_words);
+    SCPI_ResultUInt32(context, snapshot.rx_busy_count);
+    SCPI_ResultUInt32(context, snapshot.rx_magic_fail_count);
+    SCPI_ResultUInt32(context, snapshot.rx_busy_word0);
+    SCPI_ResultUInt32(context, snapshot.rx_busy_word1);
+    SCPI_ResultUInt32(context, snapshot.rx_busy_word2);
+    SCPI_ResultUInt32(context, snapshot.rx_busy_word3);
+    SCPI_ResultUInt32(context, snapshot.rx_busy_moved);
+    SCPI_ResultUInt32(context, snapshot.rx_magic_at_zero);
+    SCPI_ResultUInt32(context, snapshot.rx_magic_at_shift);
     return SCPI_RES_OK;
 }
 
