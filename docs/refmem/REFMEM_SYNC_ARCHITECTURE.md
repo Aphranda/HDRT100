@@ -276,6 +276,35 @@ Domain AO/FB fact changed
 
 接收侧必须用 `RefMemSlotContract` 校验 writer、reader、宽度、值域、生命周期、snapshot policy 和 sync policy。
 
+#### Dirty Queue 与局部更新
+
+`REFMEM_DELTA` 的触发源只能是 owner fact commit、command publish、heartbeat/
+quality 更新或恢复流程，不能由固定周期“扫描并重发全表”产生。正常同步流水线为：
+
+```text
+fact commit
+  -> mark dirty generation
+  -> enqueue/coalesce delta descriptor
+  -> encode one or more SHORT payloads
+  -> wait target ACK / fence
+  -> clear acknowledged generation
+```
+
+dirty 状态至少区分：
+
+| 字段 | 说明 |
+|---|---|
+| `dirty_generation` | owner 最近一次产生该 dirty 位的 generation。 |
+| `encoded_generation` | 最近一次已编码进 delta 的 generation。 |
+| `acked_generation[target]` | 每个 required target 已确认可见的 generation。 |
+| `pending_target_mask` | 尚未完成 ACK/fence 的目标。 |
+| `retry_count/deadline` | 未完成 delta 的有界重发约束。 |
+
+合并规则：状态类 fact 在入 wire 前可以将同 slot/field 的多个更新合并为最新值；
+计数累加、命令和事件必须使用对应的 accumulate/command queue 语义，不能静默覆盖。
+完整表镜像只用于 bootstrap/resync，按 long-frame fragment 传输，并在完成 CRC/fence
+前保持旧 active snapshot 可见。
+
 ### REFMEM_COMMAND
 
 `REFMEM_COMMAND` 是 `AckCommandSlot` 的跨节点同步视图，不替代本地命令槽。
@@ -386,6 +415,7 @@ target_crc_ok
 target_owner_validated
 target_committed
 visible_in_snapshot
+target_acked_or_fenced
 ```
 
 RUN gate、SYNC epoch、配置激活和需要一致性的命令只能消费 `visible_in_snapshot` 后的事实。任何只到达 `target_received` 或 `target_committed` 之前的 delta 都不能改变对外 READ 结果和 RUN 判据。

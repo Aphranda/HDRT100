@@ -46,6 +46,20 @@ static bool tdma_traffic_scheduler_payload_class(
     return false;
 }
 
+static bool tdma_traffic_scheduler_frame_class_allowed(
+    uint32_t traffic_class,
+    uint32_t frame_class)
+{
+    if (traffic_class <= TDMA_TRAFFIC_REFMEM_REALTIME) {
+        return frame_class == TDMA_TRAFFIC_SCHEDULER_FRAME_CLASS_SHORT;
+    }
+    if (traffic_class == TDMA_TRAFFIC_CONFIG_CONTROL) {
+        return frame_class == TDMA_TRAFFIC_SCHEDULER_FRAME_CLASS_SHORT ||
+               frame_class == TDMA_TRAFFIC_SCHEDULER_FRAME_CLASS_LONG;
+    }
+    return frame_class == TDMA_TRAFFIC_SCHEDULER_FRAME_CLASS_LONG;
+}
+
 static tdma_traffic_scheduler_slot_t *tdma_traffic_scheduler_queue_head(
     tdma_traffic_scheduler_t *scheduler,
     uint32_t traffic_class)
@@ -341,6 +355,15 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
         (void)tdma_traffic_scheduler_note_result(
             scheduler,
             UINT32_MAX,
+            TDMA_TRAFFIC_SCHEDULER_CLASS_REJECTED);
+        tdma_traffic_scheduler_unlock(scheduler);
+        return TDMA_TRAFFIC_SCHEDULER_CLASS_REJECTED;
+    }
+    if (!tdma_traffic_scheduler_frame_class_allowed(traffic_class,
+                                                     request->frame_class)) {
+        (void)tdma_traffic_scheduler_note_result(
+            scheduler,
+            traffic_class,
             TDMA_TRAFFIC_SCHEDULER_CLASS_REJECTED);
         tdma_traffic_scheduler_unlock(scheduler);
         return TDMA_TRAFFIC_SCHEDULER_CLASS_REJECTED;

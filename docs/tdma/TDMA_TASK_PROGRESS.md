@@ -42,6 +42,41 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
 
 ## 任务记录
 
+### TDMA-TASK-20260817-009 - 通用 Transport Envelope 与长短帧门禁
+
+- 状态：完成 32 B transport envelope、SHORT/LONG 容量和 traffic-class 门禁的代码/host 单测；尚未接入 PIO SPI ring adapter。
+- 日期：2026-08-17
+- 任务目标：
+  - 解除物理 adapter 对 `refmem_sync_frame` 的绑定，使 VDC、RefMem、OTA、SD 和 LOG 可复用同一 transport。
+  - 自动同步阶段保持短帧和确定性；宽松同步或维护窗口允许可靠长帧。
+- 完成内容：
+  - 新增 `tdma_transport_frame.*`，使用固定 32 B、小端 wire header；编码不依赖 C struct padding。
+  - transport header 包含 frame class、origin、sequence、payload class、schedule/ring CRC、hop count/limit、identity CRC 和 transport CRC。
+  - identity CRC 不随 hop 改变；transport CRC 覆盖当前 hop 和完整 packet，每次转发重算。
+  - `SHORT` 总长上限 292 B、净载荷 260 B；`LONG` 总长上限 1024 B、净载荷 992 B。
+  - scheduler 冻结 VDC/RefMem realtime 只允许短帧，reliable bulk/LOG 只允许长帧，配置流可选择两者但仍受 maintenance gate 控制。
+  - 新增 `STORAGE_BULK` payload class，与 OTA 共同归入 reliable bulk traffic，不创建 SD 私有总线。
+- 验证结果：
+  - `run_tdma_transport_frame_tests.ps1` 通过，覆盖编解码、短/长帧、CRC、hop、origin feedback、hop limit 和短帧容量拒绝。
+  - `run_tdma_traffic_scheduler_tests.ps1` 通过，覆盖 long VDC 拒绝、short LOG 拒绝和 long STORAGE 接纳。
+  - `run_tdma_profile_tests.ps1` 通过，System Pack 生成器同步扩展 payload whitelist 和 reliable bulk mask。
+  - `run_host_unit_tests.ps1` 使用 Vivado MinGW GCC 全量通过，24/24 host scripts passed。
+  - `python -m pytest tests/python/test_refmem_pack_build.py -q` 通过，2 passed；仅保留 OneDrive `.pytest_cache` 权限 warning。
+  - `python tools/docs_check/docs_check.py` 通过，保留既有两项 risk review 文件名 warning。
+  - A/B 双目标构建通过；build id `20260817083335`，package CRC32 `0x0D7C870E`。
+- 还需完成：
+  - 将当前 RefMem 292 B 内帧收敛为短帧可承载的 260 B，critical delta 净载荷上限为 224 B。
+  - 建立 TDMA 所有的 PIO SPI ring adapter，同时常驻 RX/TX SM，并让 adapter 只处理外层 transport。
+  - 将 idle beacon、origin feedback 和硬件 timestamp evidence 接入 `TdmaRingAdapterOps`。
+- 关联文件：
+  - `components/tdma/inc/tdma_transport_frame.h`
+  - `components/tdma/src/tdma_transport_frame.c`
+  - `components/tdma/src/tdma_traffic_scheduler.c`
+  - `components/tdma/inc/tdma_profile.h`
+  - `tests/unit/test_tdma_transport_frame.c`
+- 下一步：
+  - 先完成 RefMem critical delta 的短帧分片边界，再实现 TDMA PIO SPI ring adapter，避免物理层继续理解业务帧。
+
 ### TDMA-TASK-20260817-008 - 双向 adapter 与硬件反馈证据契约
 
 - 状态：完成 ring adapter/runtime 证据基础件和 host 测试；PIO SPI 双向物理 adapter、常驻 IDLE beacon 和两板 HIL 尚未完成。

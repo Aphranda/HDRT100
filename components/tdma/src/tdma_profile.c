@@ -276,9 +276,10 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
             TDMA_TRAFFIC_FLAG_PREEMPTIBLE,
         TDMA_OVERFLOW_BACKPRESSURE);
     tdma_profile_set_traffic(
-        &profile->resource.traffic[TDMA_TRAFFIC_OTA_BULK],
-        TDMA_TRAFFIC_OTA_BULK,
-        TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_OTA_BULK),
+        &profile->resource.traffic[TDMA_TRAFFIC_RELIABLE_BULK],
+        TDMA_TRAFFIC_RELIABLE_BULK,
+        TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_OTA_BULK) |
+            TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_STORAGE_BULK),
         0u, 1u, 4u, 0u,
         TDMA_TRAFFIC_FLAG_RELIABLE | TDMA_TRAFFIC_FLAG_SHAPED |
             TDMA_TRAFFIC_FLAG_PREEMPTIBLE,

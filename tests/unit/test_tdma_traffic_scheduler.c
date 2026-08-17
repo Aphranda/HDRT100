@@ -188,6 +188,9 @@ static int test_overflow_policies(void)
         make_request(TDMA_PAYLOAD_CLASS_LOG_STREAM, 6u, now_ns);
     tdma_traffic_request_t log3 =
         make_request(TDMA_PAYLOAD_CLASS_LOG_STREAM, 7u, now_ns);
+    log1.frame_class = TDMA_TRAFFIC_SCHEDULER_FRAME_CLASS_LONG;
+    log2.frame_class = TDMA_TRAFFIC_SCHEDULER_FRAME_CLASS_LONG;
+    log3.frame_class = TDMA_TRAFFIC_SCHEDULER_FRAME_CLASS_LONG;
     (void)tdma_traffic_scheduler_enqueue(&scheduler, &log1);
     (void)tdma_traffic_scheduler_enqueue(&scheduler, &log2);
     failed += expect_u32("log drops oldest",
@@ -219,6 +222,42 @@ static int test_overflow_policies(void)
                          snapshot.traffic[TDMA_TRAFFIC_LOG_BEST_EFFORT]
                              .drop_count,
                          1u);
+    return failed;
+}
+
+static int test_short_long_class_gate(void)
+{
+    int failed = 0;
+    tdma_foundation_profile_t profile;
+    tdma_traffic_scheduler_t scheduler;
+    tdma_traffic_scheduler_slot_t slots[TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT];
+    const uint64_t now_ns = 4000000ull;
+
+    (void)tdma_foundation_profile_default(
+        &profile, 1u, 0u, 0u, TDMA_ADAPTER_PIO_SPI);
+    (void)tdma_traffic_scheduler_init(
+        &scheduler, slots, TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT);
+    (void)tdma_traffic_scheduler_configure(&scheduler, &profile);
+
+    tdma_traffic_request_t long_vdc =
+        make_request(TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE, 11u, now_ns);
+    long_vdc.frame_class = TDMA_TRAFFIC_SCHEDULER_FRAME_CLASS_LONG;
+    failed += expect_u32("long vdc rejected",
+                         tdma_traffic_scheduler_enqueue(&scheduler, &long_vdc),
+                         TDMA_TRAFFIC_SCHEDULER_CLASS_REJECTED);
+
+    tdma_traffic_request_t short_log =
+        make_request(TDMA_PAYLOAD_CLASS_LOG_STREAM, 12u, now_ns);
+    failed += expect_u32("short log rejected",
+                         tdma_traffic_scheduler_enqueue(&scheduler, &short_log),
+                         TDMA_TRAFFIC_SCHEDULER_CLASS_REJECTED);
+
+    tdma_traffic_request_t storage =
+        make_request(TDMA_PAYLOAD_CLASS_STORAGE_BULK, 13u, now_ns);
+    storage.frame_class = TDMA_TRAFFIC_SCHEDULER_FRAME_CLASS_LONG;
+    failed += expect_u32("long storage accepted",
+                         tdma_traffic_scheduler_enqueue(&scheduler, &storage),
+                         TDMA_TRAFFIC_SCHEDULER_OK);
     return failed;
 }
 
@@ -293,6 +332,7 @@ int main(void)
     failed += test_gate_and_priority();
     failed += test_overflow_policies();
     failed += test_budget_and_deadline();
+    failed += test_short_long_class_gate();
     if (failed != 0) {
         return 1;
     }

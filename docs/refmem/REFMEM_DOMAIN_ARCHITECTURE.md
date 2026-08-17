@@ -89,6 +89,32 @@ local vector fact
 - 发起端能通过 ACK/NACK、stale、drop、CRC error 和 visible counter 判断闭环是否完成。
 - 该链路不要求一开始就是完整 BISS-C 协议，也不要求 RefMem 与 BISS-C 绑定；只要求 transport adapter 的边界能承接后续 BISS-C codec、SYNC capture/fire、VDC timestamp、UART/RS485 或其他物理链路实现。
 
+### 事件驱动局部同步
+
+64 KB `DistributedVectorTable` 是本地共同事实空间，不是每周期广播的数据包。
+正常运行严禁重复刷新整表，跨板同步固定采用事件驱动的局部 delta：
+
+```text
+owner 提交 local fact
+  -> slot_seq / field_seq 递增
+  -> OR dirty_mask，并记录 target pending mask
+  -> RefMem publisher 只把 delta descriptor 入队
+  -> TDMA short-frame window 编码 critical delta
+  -> target validate / commit / snapshot visible
+  -> ACK 或 FENCE 完成
+  -> 仅清除已由 required target 确认、且 generation 未再次变化的 dirty 位
+```
+
+约束：
+
+- dirty 队列保存 `slot_id/field_id/generation/dirty_mask/target_mask/priority/deadline` 等描述符，不复制 64 KB 表。
+- 同一 slot 的状态事实可在尚未编码前合并：保留最新 generation，合并 dirty mask；command/event 不允许用“只保留最后一次”方式合并，必须进入有界命令队列。
+- `adapter_queued` 或 `transport_sent` 不能清 dirty。只有 required target 已 `visible_in_snapshot` 并返回 ACK，或对应 fence passed，才允许推进 `acked_generation`。
+- delta in-flight 期间 owner 再次更新同一字段时，新 generation 必须继续保持 dirty，旧 ACK 不能误清新事实。
+- 自动同步阶段只发送 critical dirty delta、ACK/fence、heartbeat 和 VDC short frame；未变化字段不消耗 TDMA 带宽。
+- 首次节点加入、epoch/layout/CRC 不一致、stale 恢复或显式维护请求时，才允许生成 full snapshot/resync；该过程必须分片、走 `LONG` maintenance window，并可暂停/续传，不能退化为周期整表刷新。
+- 大型静态表通过 System Pack staging/activate 和 CRC bundle 管理；运行期 RefMem 只传播必要 descriptor、版本、CRC 和局部事实。
+
 ## HAOFV 层级
 
 RefMem Domain 位于 HAOFV 的内部基础架构层：

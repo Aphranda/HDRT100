@@ -154,6 +154,43 @@ TDMA window 是调度单位，payload 是业务载荷单位。
 - RefMem data frame 可以携带 timestamp/quality 摘要，但 payload 本身不参与 DPLL 计算。
 - 无业务 payload 时仍需通过 idle beacon 或等价窗口维持 freshness。
 
+### Transport Envelope 与长短帧
+
+所有 adapter 共用同一层 `TdmaTransportFrame`，物理层不解析 VDC、RefMem、
+OTA、SD 或 LOG 的内部格式。首版 wire header 固定为 32 B、小端编码：
+
+| 偏移 | 字段 | 宽度 | 语义 |
+|---:|---|---:|---|
+| 0 | magic / version / frame class | 4 B | 识别 TDMA transport 和 `SHORT/LONG`。 |
+| 4 | packet size / header size / origin slot | 4 B | 固定边界、起点和总线截帧。 |
+| 8 | transport sequence | 4 B | reference TX 与 feedback RX 的主相关序号。 |
+| 12 | payload class / flags / hop count / hop limit | 4 B | 业务类型、反馈要求和环路转发约束。 |
+| 16 | schedule CRC | 4 B | 绑定 active TDMA schedule。 |
+| 20 | ring profile CRC | 4 B | 绑定 active ring topology。 |
+| 24 | identity CRC | 4 B | 覆盖不随 hop 改变的头字段和 payload，整圈保持不变。 |
+| 28 | transport CRC | 4 B | 覆盖当前 hop 字段和完整 packet，每 hop 转发后重算。 |
+
+长度与运行规则冻结为：
+
+| 帧级 | packet 上限 | 净 payload 上限 | 使用阶段 | 典型 payload |
+|---|---:|---:|---|---|
+| `SHORT` | 292 B | 260 B | 自动同步、硬实时环路常驻。 | `VDC_SYNC_SAMPLE`、`IDLE_BEACON`、critical `REFMEM_DELTA/ACK_FENCE`、小型控制。 |
+| `LONG` | 1024 B | 992 B | 宽松同步或显式 maintenance window。 | 配置块、`OTA_BULK`、`STORAGE_BULK`、批量 LOG/trace。 |
+
+这里的“短帧包含 VDC 和 RefMem”表示同一自动同步 cycle 内可安排多个独立短帧，
+而不是把两个域的内部结构强行合成一个共享 payload。VDC 和 RefMem 仍分别拥有
+内部 payload schema、CRC 和 completion；TDMA 只拥有外层 transport、顺序和窗口。
+
+硬约束：
+
+- `VDC_REALTIME`、`REFMEM_REALTIME` 只能进入 `SHORT` 队列。
+- reliable bulk、LOG best effort 只能进入 `LONG` 队列；配置流可按数据量选择短帧或长帧。
+- `LONG` 不得在严格自动同步阶段运行；只有 TDMA owner 打开 maintenance gate 且 active schedule 有足够 budget/guard 时才允许发送。
+- 当前 VDC 内帧为 216 B，加 32 B transport header 后为 248 B，满足 292 B 短帧上限。
+- 当前 RefMem 内帧理论最大为 292 B，不能直接再套短帧外层。PIO ring adapter 接入前必须把 critical delta 的 RefMem 内帧限制为 260 B，其中 RefMem 头 36 B、净 delta 最多 224 B；更大事实使用分片、background delta 或后续专用 bulk class。
+- RefMem 不做周期整表刷新。TDMA short queue 只接收由 dirty fact 触发、已经局部编码的 critical delta；首次加入或失步恢复的 full snapshot 只能走 maintenance long-frame 分片。
+- `hop_limit` 防止错误拓扑无限转发；origin 收到 `hop_count > 0` 且 identity 匹配的返回帧后停止转发，并形成 feedback candidate。
+
 ## Adapter 边界
 
 TransportAdapter 是可替换物理承载，不改变 TDMA 语义。
@@ -186,7 +223,7 @@ TDMA Foundation 吸收 TSN 的确定性资源治理思想，但不绑定 IEEE 80
 | `VDC_REALTIME` | `VDC_SYNC_SAMPLE`、`IDLE_BEACON` | 最高优先级；固定 observation/idle gate；严格预留；禁止 OTA、配置和 LOG 借用 guard band。 | 记录 fault/quality，不能静默丢弃后继续报告 LOCKED。 |
 | `REFMEM_REALTIME` | `REFMEM_DELTA`、`REFMEM_ACK_FENCE` | 固定 data gate；预留周期字节数和帧数；可靠 completion；不得侵占 VDC gate。 | 有界重试并向 producer 背压，超限 NACK/fence fault。 |
 | `CONFIG_CONTROL` | System Pack、配置 staging/activate 控制帧 | 可靠、整形、可被实时流让行；只在 maintenance 或剩余预算中运行。 | producer 背压；不得阻塞 core1。 |
-| `OTA_BULK` | OTA package chunk | 批量、可靠、可被实时流让行；默认无硬预留，只消耗显式 bulk budget。 | 暂停 producer 并续传，不挤占实时窗口。 |
+| `RELIABLE_BULK` | OTA package chunk、SD read/write block | 批量、可靠、只使用长帧；默认无硬预留，只消耗显式 maintenance/bulk budget。 | 暂停 producer 并续传，不挤占实时窗口。 |
 | `LOG_BEST_EFFORT` | LOG/trace 摘要 | 最低优先级、整形、可被实时流让行；只使用剩余预算。 | 丢最旧记录并增加 drop counter，不能阻塞实时链路。 |
 
 调度优先级是冻结的三级结构，不允许由运行期动态优先级改写：
@@ -286,12 +323,14 @@ components/tdma/
   inc/tdma_ring_runtime.h
   inc/tdma_traffic_scheduler.h
   inc/tdma_runtime_owner.h
+  inc/tdma_transport_frame.h
   src/tdma_profile.c
   src/tdma_service.c
   src/tdma_payload_registry.c
   src/tdma_ring_runtime.c
   src/tdma_traffic_scheduler.c
   src/tdma_runtime_owner.c
+  src/tdma_transport_frame.c
 ```
 
 过渡规则：

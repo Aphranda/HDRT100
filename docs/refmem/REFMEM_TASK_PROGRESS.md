@@ -4,9 +4,26 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-16
+Last updated: 2026-08-17
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
+
+### REFMEM-TASK-20260817-051 - 事件驱动局部同步约束冻结
+
+- 状态：完成架构与待办细化；通用 dirty queue 和 per-target generation completion 尚未实现。
+- 日期：2026-08-17
+- 任务目标：
+  - 明确 64 KB RefMem 不按周期整表广播，避免同步负载破坏 VDC/TDMA 实时性。
+  - 将触发、排队、局部更新、ACK/fence 清 dirty 的生命周期冻结为产品契约。
+- 完成内容：
+  - 正常同步改为 owner fact commit 触发 dirty descriptor，critical delta 进入 TDMA short frame。
+  - 状态事实允许在编码前按 slot/field 合并；命令、事件和累加量必须使用有界队列或 accumulate 语义。
+  - dirty 清除绑定 per-target ACK/fence 和 generation，禁止 `transport_sent` 后提前清除，也禁止旧 ACK 清除新更新。
+  - full snapshot 仅用于 bootstrap/resync/显式维护，必须走 long-frame 分片、CRC 和 fence，不允许周期整表刷新。
+- 验证结果：
+  - 本项为架构约束细化；当前已有 delta/dirty mask/frame/ACK/fence 基础契约，但尚无通用 dirty queue 的新增代码验证。
+- 后续动作：
+  - 在 TDMA PIO ring adapter 接通后，实现 dirty descriptor queue、critical/background 分级和 per-target generation completion。
 
 ### REFMEM-TASK-20260816-050 - NodeLoad AUTO HIL default adapter profile correction
 
