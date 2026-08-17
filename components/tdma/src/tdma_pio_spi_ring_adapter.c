@@ -369,6 +369,24 @@ static bool tdma_pio_spi_ring_adapter_rx_once(
                                                 rx_timestamp_ns);
 }
 
+/* Poll the uplink capture up to RX_POLLS times per service: at 4x the frame
+ * rate the DMA re-arm follows frame arrival within a fraction of a frame
+ * interval, shrinking the inter-frame noise window and removing phase
+ * sensitivity to the free-running core1 tick. */
+#define TDMA_PIO_SPI_RING_ADAPTER_RX_POLLS 4u
+
+static bool tdma_pio_spi_ring_adapter_rx_poll(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    bool rx_ok = false;
+    for (uint32_t i = 0u; i < TDMA_PIO_SPI_RING_ADAPTER_RX_POLLS; i++) {
+        if (tdma_pio_spi_ring_adapter_rx_once(adapter)) {
+            rx_ok = true;
+        }
+    }
+    return rx_ok;
+}
+
 static bool tdma_pio_spi_ring_adapter_service(
     void *context,
     uint64_t now_ns,
@@ -431,7 +449,7 @@ static bool tdma_pio_spi_ring_adapter_service(
         } else {
             tx_ok = true; /* throttled round: keep the UP leg running. */
         }
-        rx_ok = tdma_pio_spi_ring_adapter_rx_once(adapter);
+        rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter);
     } else {
         /* Follower node (half-duplex ring): receives the frame from the
          * previous board on the uplink RX leg and re-emits it toward the next
@@ -441,7 +459,7 @@ static bool tdma_pio_spi_ring_adapter_service(
          * foreign placeholder beacon would race the reference frame around
          * the ring and corrupt the reference's feedback correlation. The TX
          * leg stays ready (up_running=1). */
-        rx_ok = tdma_pio_spi_ring_adapter_rx_once(adapter);
+        rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter);
         if (rx_ok) {
             tx_ok = tdma_pio_spi_ring_adapter_tx_forward(adapter);
         } else {
