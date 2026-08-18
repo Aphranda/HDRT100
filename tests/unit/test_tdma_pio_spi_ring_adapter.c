@@ -47,6 +47,7 @@ typedef struct {
     uint64_t rx_timestamp_ns;
     uint32_t tx_calls;
     uint32_t rx_calls;
+    bool rx_pending;
 } loopback_phys_t;
 
 static bool loopback_tx(void *context,
@@ -61,6 +62,7 @@ static bool loopback_tx(void *context,
     }
     memcpy(phys->last_tx, packet, packet_size);
     phys->last_tx_size = packet_size;
+    phys->rx_pending = true;
     phys->tx_calls++;
     if (tx_timestamp_ns != NULL) {
         *tx_timestamp_ns = phys->tx_timestamp_ns;
@@ -76,13 +78,15 @@ static bool loopback_rx(void *context,
 {
     loopback_phys_t *phys = (loopback_phys_t *)context;
     if (phys == NULL || packet == NULL || packet_size == NULL ||
-        rx_timestamp_ns == NULL || phys->last_tx_size == 0u ||
+        rx_timestamp_ns == NULL || !phys->rx_pending ||
+        phys->last_tx_size == 0u ||
         phys->last_tx_size > packet_capacity) {
         return false;
     }
     memcpy(packet, phys->last_tx, phys->last_tx_size);
     *packet_size = phys->last_tx_size;
     *rx_timestamp_ns = phys->rx_timestamp_ns;
+    phys->rx_pending = false;
     phys->rx_calls++;
     return true;
 }
@@ -262,7 +266,20 @@ int main(void)
                              snapshot.feedback_rx_timestamp_ns,
                              1000500ull);
 
-        /* Second cycle advances sequence and counters. */
+        /* The second service round is the deterministic 500 Hz throttle
+         * margin: UP stays ready, but no new frame is emitted or consumed. */
+        tdma_ring_runtime_service(&runtime);
+        (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
+        failed += expect_u32("throttled up running", snapshot.up_running, 1u);
+        failed += expect_u32("throttled down idle", snapshot.down_running, 0u);
+        failed += expect_u32("throttled beacon tx unchanged",
+                             snapshot.idle_beacon_tx_count, 1u);
+        failed += expect_u32("throttled beacon rx unchanged",
+                             snapshot.idle_beacon_rx_count, 1u);
+        failed += expect_u32("throttled feedback closed",
+                             snapshot.simultaneous_feedback_loop_evidence, 0u);
+
+        /* Third service round emits the next beacon and feedback correlates. */
         tdma_ring_runtime_service(&runtime);
         (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
         failed += expect_u32("beacon tx advances",
