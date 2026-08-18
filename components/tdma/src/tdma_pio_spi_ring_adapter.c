@@ -389,6 +389,29 @@ static bool tdma_pio_spi_ring_adapter_rx_poll(
     return rx_ok;
 }
 
+static bool tdma_pio_spi_ring_adapter_forward_poll(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    bool *rx_ok)
+{
+    bool any_rx = false;
+    for (uint32_t i = 0u; i < TDMA_PIO_SPI_RING_ADAPTER_RX_POLLS; i++) {
+        if (!tdma_pio_spi_ring_adapter_rx_once(adapter)) {
+            continue;
+        }
+        any_rx = true;
+        if (!tdma_pio_spi_ring_adapter_tx_forward(adapter)) {
+            if (rx_ok != NULL) {
+                *rx_ok = any_rx;
+            }
+            return false;
+        }
+    }
+    if (rx_ok != NULL) {
+        *rx_ok = any_rx;
+    }
+    return true;
+}
+
 static bool tdma_pio_spi_ring_adapter_service(
     void *context,
     uint64_t now_ns,
@@ -434,15 +457,13 @@ static bool tdma_pio_spi_ring_adapter_service(
             adapter->config.feedback_timeout_ns != 0u
                 ? adapter->config.feedback_timeout_ns
                 : 1000000ull;
-        /* TSN-style deterministic emission with phase margin: emit every 2nd
-         * cycle (~500 Hz). At 1 kHz the receive query equals the frame rate,
-         * so performance swings with the free-running core1 tick phase
-         * (measured 23%..92%). At 500 Hz the query has 2x margin and the ring
-         * is stable (81..85%). The 1 kHz full-rate path needs a shared time
-         * base (P0.5-5 hardware timestamp / DPLL). */
+        /* Keep the bring-up beacon at 500 Hz while the closed-loop TDMA/DPLL
+         * pipeline is still being stabilized. The core1 TDMA service runs at
+         * 1 kHz today, so this divider avoids wall-clock phase misses while
+         * preserving the proven 2 ms beacon period. */
         (void)cycle_ns;
-        const bool tx_due = (adapter->service_count & 1u) != 0u;
-        if (tx_due) {
+        const bool emit_now = (adapter->service_count & 1u) == 0u;
+        if (emit_now) {
             tx_ok = tdma_pio_spi_ring_adapter_tx_beacon(adapter);
             if (tx_ok) {
                 adapter->last_tx_ns = now_ns;
@@ -460,12 +481,7 @@ static bool tdma_pio_spi_ring_adapter_service(
          * foreign placeholder beacon would race the reference frame around
          * the ring and corrupt the reference's feedback correlation. The TX
          * leg stays ready (up_running=1). */
-        rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter);
-        if (rx_ok) {
-            tx_ok = tdma_pio_spi_ring_adapter_tx_forward(adapter);
-        } else {
-            tx_ok = true; /* idle round: nothing received, nothing to emit. */
-        }
+        tx_ok = tdma_pio_spi_ring_adapter_forward_poll(adapter, &rx_ok);
     }
     if (!tx_ok) {
         return false;

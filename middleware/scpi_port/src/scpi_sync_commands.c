@@ -485,6 +485,11 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.rx_magic_at_shift);
     SCPI_ResultUInt32(context, snapshot.tx_csn_pin);
     SCPI_ResultUInt32(context, snapshot.rx_csn_pin);
+    SCPI_ResultUInt32(context, snapshot.rx_ring_overrun_count);
+    SCPI_ResultUInt32(context, snapshot.rx_dma_produced_words);
+    SCPI_ResultUInt32(context, snapshot.rx_scan_produced_words);
+    SCPI_ResultUInt32(context, snapshot.rx_dma_write_index);
+    SCPI_ResultUInt32(context, snapshot.rx_dma_channel);
     return SCPI_RES_OK;
 }
 

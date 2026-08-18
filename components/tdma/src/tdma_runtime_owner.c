@@ -2,6 +2,7 @@
 
 #include "tdma_pio_spi_phys.h"
 #include "tdma_pio_spi_ring_adapter.h"
+#include "vdc_timestamp_clock.h"
 
 #if defined(PROJECT_USE_FREERTOS) && PROJECT_USE_FREERTOS
 #include "FreeRTOS.h"
@@ -53,6 +54,11 @@ bool tdma_runtime_owner_init(void)
             tdma_pio_spi_phys_tx,
             tdma_pio_spi_phys_rx,
             &s_tdma_pio_spi_phys);
+        (void)vdc_timestamp_clock_init();
+        tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+            &s_tdma_pio_spi_ring_adapter,
+            vdc_timestamp_clock_resolution_ns(),
+            TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
         initialized = true;
     }
     if (!initialized) {

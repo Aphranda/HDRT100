@@ -9,6 +9,7 @@
 
 #include "distributed_refmem_vdc_bridge.h"
 #include "diagnostics.h"
+#include "ota_ao.h"
 #include "refmem_application_model.h"
 #include "refmem_command.h"
 #include "refmem_node_load_sync.h"
@@ -958,6 +959,9 @@ void distributed_refmem_service(void)
     distributed_refmem_publish_status_locked();
 
     osal_critical_exit();
+    if (ota_ao_is_active()) {
+        return;
+    }
     distributed_refmem_node_load_auto_service();
     distributed_refmem_log_tdma_ring_service();
 }
@@ -968,6 +972,9 @@ void distributed_refmem_service(void)
  * post-hoc diagnosis, and never submits TX/RX intents. */
 static void distributed_refmem_log_tdma_ring_service(void)
 {
+    if (ota_ao_is_active()) {
+        return;
+    }
     const uint32_t now_ms = osal_tick_ms();
     if (now_ms - s_tdma_ring_log_last_ms < 5000u) {
         return;

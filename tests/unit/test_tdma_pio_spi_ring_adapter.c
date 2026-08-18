@@ -48,6 +48,7 @@ typedef struct {
     uint32_t tx_calls;
     uint32_t rx_calls;
     bool rx_pending;
+    bool suppress_echo;
 } loopback_phys_t;
 
 static bool loopback_tx(void *context,
@@ -62,7 +63,9 @@ static bool loopback_tx(void *context,
     }
     memcpy(phys->last_tx, packet, packet_size);
     phys->last_tx_size = packet_size;
-    phys->rx_pending = true;
+    if (!phys->suppress_echo) {
+        phys->rx_pending = true;
+    }
     phys->tx_calls++;
     if (tx_timestamp_ns != NULL) {
         *tx_timestamp_ns = phys->tx_timestamp_ns;
@@ -231,6 +234,18 @@ int main(void)
                                   &adapter),
                               true);
 
+        /* First service is the deterministic 500 Hz throttle margin: the
+         * core1 service path runs at about 1 kHz, so the reference emits on
+         * every second service round. */
+        tdma_ring_runtime_service(&runtime);
+        (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
+        failed += expect_u32("pre-beacon up running", snapshot.up_running, 1u);
+        failed += expect_u32("pre-beacon down idle", snapshot.down_running, 0u);
+        failed += expect_u32("pre-beacon tx count",
+                             snapshot.idle_beacon_tx_count, 0u);
+        failed += expect_u32("pre-beacon rx count",
+                             snapshot.idle_beacon_rx_count, 0u);
+
         tdma_ring_runtime_service(&runtime);
         (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
         failed += expect_u32("up running loopback", snapshot.up_running, 1u);
@@ -266,7 +281,7 @@ int main(void)
                              snapshot.feedback_rx_timestamp_ns,
                              1000500ull);
 
-        /* The second service round is the deterministic 500 Hz throttle
+        /* The next service round is the deterministic 500 Hz throttle
          * margin: UP stays ready and DOWN stays fresh, but no new feedback
          * sequence is produced for closed-loop evidence. */
         tdma_ring_runtime_service(&runtime);
@@ -280,7 +295,8 @@ int main(void)
         failed += expect_u32("throttled feedback closed",
                              snapshot.simultaneous_feedback_loop_evidence, 0u);
 
-        /* Third service round emits the next beacon and feedback correlates. */
+        /* The following service round emits the next beacon and feedback
+         * correlates. */
         tdma_ring_runtime_service(&runtime);
         (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
         failed += expect_u32("beacon tx advances",
@@ -319,6 +335,7 @@ int main(void)
                                        &adapter);
 
         tdma_ring_runtime_service(&runtime);
+        tdma_ring_runtime_service(&runtime);
         (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
         failed += expect_u32("up running", snapshot.up_running, 1u);
         failed += expect_u32("down running", snapshot.down_running, 1u);
@@ -355,6 +372,7 @@ int main(void)
                                        tdma_pio_spi_ring_adapter_ops(),
                                        &adapter);
 
+        tdma_ring_runtime_service(&runtime);
         tdma_ring_runtime_service(&runtime);
         (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
         failed += expect_u32("diagnostic evidence rejected",
@@ -398,13 +416,14 @@ int main(void)
                                        tdma_pio_spi_ring_adapter_ops(),
                                        &adapter);
         tdma_ring_runtime_service(&runtime);
+        tdma_ring_runtime_service(&runtime);
 
         failed += expect_bool("adapter snapshot after service",
                               tdma_pio_spi_ring_adapter_get_snapshot(&adapter,
                                                                      &snap),
                               true);
         failed += expect_u32("started", snap.started, 1u);
-        failed += expect_u32("adapter service count", snap.service_count, 1u);
+        failed += expect_u32("adapter service count", snap.service_count, 2u);
         failed += expect_u32("adapter local slot",
                              snap.local_slot_id,
                              config.local_slot_id);
@@ -432,7 +451,7 @@ int main(void)
                              adapter.last_error,
                              TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_BAD_FRAME);
 
-        /* Recover: echo the current TX frame again. */
+        /* Recover: the next emitted beacon is echoed by the physical stub. */
         tdma_ring_runtime_service(&runtime);
         (void)tdma_ring_runtime_get_snapshot(&runtime, &ring_snap);
         failed += expect_u32("down running recovers",
@@ -476,6 +495,7 @@ int main(void)
         memset(&phys, 0, sizeof(phys));
         phys.tx_timestamp_ns = 2000000ull;
         phys.rx_timestamp_ns = 1500000ull;
+        phys.suppress_echo = true;
 
         tdma_ring_runtime_init(&runtime);
         tdma_ring_runtime_configure(&runtime, &config);

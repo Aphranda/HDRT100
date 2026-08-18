@@ -26,21 +26,29 @@ Last updated: 2026-08-18
 - [x] P0.5-2：ring adapter 首版发布生命周期 evidence：`adapter_started/start_count/stop_count/service_count/last_error`、`up_running/down_running`、idle beacon TX/RX 计数和 timestamp source/resolution/flags。
   - 完成：adapter 经 `tdma_ring_adapter_status_t` 发布上述字段并投影到 runtime snapshot；idle beacon 计数与 running 由物理 TX/RX 钩子驱动，未接物理前计数保持 0。
 - [x] P0.5-3：实现两板同时 UP/DOWN 常驻短帧：空闲时持续发送/接收 `IDLE_BEACON` 或等价 process image short frame，不依赖 host 交替下发 `TX/RX` 维护命令维持窗口。
-  - 进行中：`tdma_pio_spi_phys` 常驻物理层已改为**半双工单环**（每板下行 TX master + 上行 RX slave 两个独立 SM；实测对称接线：发送端闲置 RX/CS=`21`、TX/DATA=`23`、CLK=`24`，对端闲置 TX/CS=`16`、RX/DATA=`18`、CLK=`19`）。ring adapter 有 REFERENCE/FORWARD role，`set_phys_ctrl`/`set_phys` 连接物理层。
+  - 完成：`tdma_pio_spi_phys` 常驻物理层已改为**半双工单环**（每板下行 TX master + 上行 RX slave 两个独立 SM；实测对称接线：发送端闲置 RX/CS=`21`、TX/DATA=`23`、CLK=`24`，对端闲置 TX/CS=`16`、RX/DATA=`18`、CLK=`19`）。ring adapter 有 REFERENCE/FORWARD role，`set_phys_ctrl`/`set_phys` 连接物理层。
   - RX 可靠性（2026-08-18）：rx_byte SM 重写为 pico-examples 标准 **autopush 模式**（in_shift autopush threshold=8），根治手动 X 计数器导致的字节边界漂移（坏帧从 ~45% 降到 ~0）；DMA 双缓冲捕获 + magic 帧头扫描对齐（EtherCAT 式帧头锁定）；`SYSTem:SYNC:VDC:TDMA:PHYS?` 暴露 rx_bad/busy/magic_fail/magic 对齐分布诊断。
-  - 发送（2026-08-18）：TSN 式确定性发送（每 TDMA cycle 固定相位发 beacon，替代 now-last 节流——后者因 sleep_until 提前唤醒跳过 ~40% tick）；当前**每 2 cycle 发一帧（~500 Hz）**：两板 core1 tick 自由运行导致 1 kHz 时接收查询与帧速率相等、性能随相位在 23%~92% 波动；500 Hz 时查询有 2 倍余量，环稳定 ~74% 好帧且 rx_bad≈0。**1 kHz 满速需要共享时基（P0.5-5 硬件 timestamp/DPLL）**。
-  - OTA 安全（2026-08-18）：core1 在 OTA 会话期间跳过 TDMA service（`ota_ao_is_active`），flash lockout poll 保持紧凑，两板 OTA 稳定 PASS。两板烧录 HIL 常驻验证已跑（`tdma_ring_monitor/ring_rate_measure.py`）。
-  - HIL 收敛（2026-08-18 build `20260818063242`）：COM5 `91274BA197662714` 作为 reference slot0，COM6 `73E940D75B406BCD` 通过 `SYSTem:TDMA:RING:LOCAL 1` 切为 forward slot1；10 s 只读 monitor 显示两板 `up_running=1/down_running=1`、COM6 forward 收发约 `492.5 frame/s`，COM5 reference 发约 `493.0 frame/s`、收回约 `416.3 frame/s`，resident ring 已不依赖 host 续窗。
+  - 发送（2026-08-18）：reference 由 core1 TDMA service 二分频发送，当前 core1 service 约 1 kHz，因此 bring-up beacon 稳定为约 500 Hz；follower 收到一帧立即逐帧转发。1 kHz 试验显示软件 pipeline 的最坏情况延迟接近周期，暂不作为当前基线。
+  - OTA 安全（2026-08-18）：core1 在 OTA 会话期间跳过 TDMA service（`ota_ao_is_active`），RefMem TDMA 维护日志在 OTA 会话中静默，flash lockout poll 保持紧凑，两板 OTA 稳定 PASS。两板烧录 HIL 常驻验证已跑（`tdma_ring_monitor/ring_rate_measure.py`）。
+  - HIL 收敛（2026-08-18 build `20260818101157`）：COM5 `91274BA197662714` 作为 reference slot0，COM6 `73E940D75B406BCD` 通过 `SYSTem:TDMA:RING:LOCAL 1` 切为 forward slot1；15 s 只读速率窗口显示 COM5 reference TX `499.7 frame/s`、feedback RX `498.1 frame/s`，COM6 forward RX/TX `499.2 frame/s`，`phys_bad/magic_fail/shift/stall/ring_overrun` 均为 0 增长。
 - [x] P0.5-3A：验证 CS/frame-sync 三线单向腿是否消除 1 MHz 方向性丢帧。
   - 完成：下行链路发送端未用 RX/MISO 与接收端未用 TX/MISO 互连线改作 frame-sync/CS；按当前最小系统接线，`GPIO21->16` 为 CS，`GPIO23->18` 为 DATA，`GPIO24->19` 为 CLK。RX PIO 不再无条件连续采样，而是等待 CS 有效后按 SCK 采样；magic 扫描保留为保险和诊断。
   - 实测（2026-08-18 build `20260818072932`）：两板 OTA 后，`COM5->COM6` 与 `COM6->COM5` 都稳定在约 `473.6~473.7 frame/s`，`rx_bad=0`，方向性丢帧明显收敛。
   - 结论：当前最小系统下，CS/frame-sync 三线单向腿比无 CS 连续流更适合 1 MHz bring-up。
+- [x] P0.5-3B：TDMA PIO SPI bring-up adapter 速率阶梯与 10 MHz 指标优化。
+  - 已完成：在同一接线和同一 CS/frame-sync 物理层下完成 2/5/10/25 MHz A/B OTA 与 15 s 两板 HIL 方向统计。
+  - 阶梯结果：2 MHz 双向约 `486.6~486.8 frame/s`、`rx_bad=0`；5 MHz 双向约 `491.0~491.6 frame/s`、`rx_bad=0`；10 MHz 15 s 短窗口约 `490.7~490.9 frame/s`、`rx_bad=0`；25 MHz COM6 出现 `rx_bad` 增长并降到约 `452.7~461.8 frame/s`。
+  - 增强诊断结论（2026-08-18）：10 MHz 30 s 窗口仍约 `482 frame/s`，`rx_bad/magic_fail/shift/stall/tx_timeout` 均不增长，说明问题是完整帧漏收或 RX capture 空窗，不是 bit-level 数据损坏。
+  - 假锁修正（2026-08-18 build `20260818111944`）：外层 PIO-SPI packet magic 与内层 `TdmaTransportFrame` magic 都是 `54 44`，DMA 扫描指针错过真实外层头时会误锁内层 magic；物理层已增加二级 transport header 校验，要求外层长度与内层 packet size/version/class/header size 同时匹配。
+  - 当前 HIL 结论：10 MHz / 500 Hz / core1 service 二分频 / 连续 DMA ring / CS+DATA+CLK 已回到稳定基线；60 s 只读窗口显示 COM5 TX `500.1/s`、feedback RX `498.0/s`，COM6 RX/TX `498.4/s`，adapter `rx_bad=0`，phys `rx_bad/stall/tx_timeout/ring_overrun=0`。
+  - 当前结论：以 `10 MHz / 500 Hz / adapter rx_bad=0 / phys overrun=0` 作为后续 VDC/DPLL HIL 基线。1 kHz 升频留到 P0.5-4/5 硬件 timestamp latch 和闭环证据成立后再评估。
 - [ ] P0.5-4：冻结并验证最小 feedback correlation：reference TX sequence、feedback RX sequence、identity CRC、schedule CRC、reference TX timestamp、feedback RX timestamp、round trip 和 timeout 必须来自同一圈 ring。
-  - 进行中：`TdmaRingRuntime` correlation 逻辑已在，host 回环单测验证 sequence/identity CRC/schedule CRC/round trip 路径成立；两板 PIO SPI HIL 已证明 reference/forward 帧计数持续增长，但 PIO SPI `phys_tx` 仍返回 `0` timestamp，物理 round-trip correlation 仍未闭环。
+  - 进行中：`TdmaRingRuntime` correlation 逻辑已在，host 回环单测验证 sequence/identity CRC/schedule CRC/round trip 路径成立；两板 PIO SPI HIL 已证明 reference/forward 帧计数稳定接近 500 Hz。当前 TDMA 已接入共享 `timer1/CLK_SYS` 硬件 tick 诊断时间戳，TX/RX timestamp 非零、分辨率约 4 ns，但仍是 CPU 读取时间戳，不是 PIO 边沿 latch，因此物理 round-trip correlation 仍未闭环。
 - [ ] P0.5-5：只有当 timestamp 为 `HARDWARE_TICK`、分辨率 `<=100 ns`、带硬件 latch 标志且非 diagnostic-only 时，才允许 `simultaneous_feedback_loop_evidence=1`，并允许 VDC/DPLL 接受该样本。
-  - 进行中：runtime 门禁（`<=100 ns`、`HARDWARE_LATCHED`、非 `DIAGNOSTIC_ONLY`）已有 host 单测覆盖（无硬件 timestamp / diagnostic-only 均拒绝）；两板 HIL 当前最终状态为 `TIMESTAMP_MISSING`、`simultaneous_feedback_loop_evidence=0`，下一步必须在 PIO/DMA 边界补 reference TX / feedback RX 硬件 latch。
+  - 进行中：runtime 门禁（`<=100 ns`、`HARDWARE_LATCHED`、非 `DIAGNOSTIC_ONLY`）已有 host 单测覆盖（无硬件 timestamp / diagnostic-only 均拒绝）；两板 HIL 当前 timestamp source 已进入 `HARDWARE_TICK` 诊断阶段，`timestamp_resolution_ns=4`、`timestamp_flags=DIAGNOSTIC_ONLY`，最终状态仍为 `TIMESTAMP_MISSING`、`simultaneous_feedback_loop_evidence=0`。下一步必须在 PIO/DMA 边界补 reference TX / feedback RX 真实边沿 latch，再去掉 diagnostic-only。
 - [ ] P0.5-6：扩展 HIL 脚本为只读监控 TDMA runtime，不通过串口查询参与续窗；5 min 验收必须记录 `up_running=1`、`down_running=1`、`simultaneous_feedback_loop_evidence=1`、`BAD_FRAME=0`、`WINDOW_BOUND` 不作为最终态，并在 `docs/temp/vdc_long_monitor/` 输出 summary + SVG。
 - [ ] P0.5-7：P0.5 闭环通过后，再进入 DPLL 参数、水位和 reject 策略优化；在此之前 DPLL 曲线只能作为 leg/self-test 诊断参考，不能作为产品闭环质量结论。
+- [ ] P0.5-8：细分 `SYSTem:SYNC:VDC:TDMA:PHYS?` 中的 RX 扫描诊断：把当前 `rx_magic_fail_count` 拆成 candidate reject、idle scan miss、real magic miss 或等价字段，避免把“二级 header 拒绝假锁”误读成线路 bit-level 坏帧。
 
 ## P1 - Runtime 契约
 

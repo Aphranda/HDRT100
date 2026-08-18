@@ -9,7 +9,6 @@
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 #include "hardware/pio.h"
-#include "hardware/timer.h"
 #include "osal.h"
 #include "resource_arbiter.h"
 #include "biss_tap_rx.pio.h"
@@ -17,6 +16,7 @@
 #include "sync_io_core_internal.h"
 #include "storage_manager.h"
 #include "sync_io.pio.h"
+#include "vdc_timestamp_clock.h"
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico/time.h"
@@ -42,7 +42,6 @@
 #define SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK 2u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DPLL_ELIGIBLE   0x00000002u
-#define SYNC_IO_CAPTURE_LATCH_TIMER timer1_hw
 
 typedef struct {
     bool initialized;
@@ -299,40 +298,14 @@ static bool sync_io_capture_dma_configure(void)
 #if !defined(PICO_ON_DEVICE) || !PICO_ON_DEVICE
 static uint64_t sync_io_capture_latch_read_ticks64(void)
 {
-    uint32_t hi = SYNC_IO_CAPTURE_LATCH_TIMER->timerawh;
-    uint32_t lo;
-    do {
-        lo = SYNC_IO_CAPTURE_LATCH_TIMER->timerawl;
-        const uint32_t next_hi = SYNC_IO_CAPTURE_LATCH_TIMER->timerawh;
-        if (hi == next_hi) {
-            break;
-        }
-        hi = next_hi;
-    } while (true);
-    return ((uint64_t)hi << 32u) | lo;
+    return vdc_timestamp_clock_read_ticks64();
 }
 
 static uint64_t sync_io_capture_latch_ticks_to_ns(uint64_t ticks)
 {
-    const uint32_t hz = s_sync_io.capture_latch_tick_hz != 0u
-                            ? s_sync_io.capture_latch_tick_hz
-                            : clock_get_hz(clk_sys);
-    const uint64_t seconds = ticks / (uint64_t)hz;
-    const uint64_t remainder = ticks % (uint64_t)hz;
-    return seconds * 1000000000ull +
-           (remainder * 1000000000ull) / (uint64_t)hz;
+    return vdc_timestamp_clock_ticks_to_ns(ticks);
 }
 #endif
-
-static uint32_t sync_io_capture_latch_resolution_ns(uint32_t tick_hz)
-{
-    if (tick_hz == 0u) {
-        return 0u;
-    }
-    const uint64_t resolution =
-        (1000000000ull + (uint64_t)tick_hz - 1ull) / (uint64_t)tick_hz;
-    return resolution > UINT32_MAX ? UINT32_MAX : (uint32_t)resolution;
-}
 
 static uint64_t sync_io_common_time_now_ns(void)
 {
@@ -345,15 +318,10 @@ static uint64_t sync_io_common_time_now_ns(void)
 
 static void sync_io_capture_latch_timer_init(void)
 {
-    SYNC_IO_CAPTURE_LATCH_TIMER->pause = 1u;
-    SYNC_IO_CAPTURE_LATCH_TIMER->source = TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS;
-    SYNC_IO_CAPTURE_LATCH_TIMER->timelw = 0u;
-    SYNC_IO_CAPTURE_LATCH_TIMER->timehw = 0u;
-    SYNC_IO_CAPTURE_LATCH_TIMER->pause = 0u;
-
-    s_sync_io.capture_latch_tick_hz = clock_get_hz(clk_sys);
+    (void)vdc_timestamp_clock_init();
+    s_sync_io.capture_latch_tick_hz = vdc_timestamp_clock_tick_hz();
     s_sync_io.capture_latch_resolution_ns =
-        sync_io_capture_latch_resolution_ns(s_sync_io.capture_latch_tick_hz);
+        vdc_timestamp_clock_resolution_ns();
 }
 
 static void sync_io_capture_latch_reset_locked(void)

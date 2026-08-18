@@ -40,13 +40,13 @@
     (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_SHORT_PACKET_MAX)
 #define TDMA_PIO_SPI_RX_STABLE_US 1000u
 
-/* Continuous RX capture ring (EtherCAT-style): the DMA runs in ring mode
- * (write address wraps every TDMA_PIO_SPI_RX_RING_WORDS) and re-arms itself
- * on completion IRQ, so the rx_byte SM is never blocked on a full RX FIFO.
- * The service scans the ring for the packet magic instead of assuming the
- * DMA capture started exactly at a frame boundary. */
-#define TDMA_PIO_SPI_RX_RING_WORDS 256u
-#define TDMA_PIO_SPI_RX_RING_LOG2 10u
+/* Continuous RX capture ring (EtherCAT-style): the DMA stays armed for the
+ * entire session and wraps its write address in SRAM. The CPU only scans
+ * completed words for the outer magic/length header, so there is no
+ * per-frame abort, FIFO clear, or DMA reconfiguration gap. */
+#define TDMA_PIO_SPI_RX_RING_WORDS 512u
+#define TDMA_PIO_SPI_RX_RING_LOG2 11u
+#define TDMA_PIO_SPI_RX_DMA_CHANNEL 4u
 #define TDMA_PIO_SPI_FRAME_WORDS \
     (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_FRAME_HEADER_SIZE)
 
@@ -111,6 +111,11 @@ typedef struct {
      * mid-frame), plus magic_fail_count for header-not-found. */
     uint32_t rx_magic_at_zero;
     uint32_t rx_magic_at_shift;
+    uint32_t rx_ring_overrun_count;
+    uint32_t rx_dma_produced_words;
+    uint32_t rx_scan_produced_words;
+    uint32_t rx_dma_write_index;
+    uint32_t rx_dma_channel;
 } tdma_pio_spi_phys_snapshot_t;
 
 typedef struct {

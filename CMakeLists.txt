@@ -243,6 +243,7 @@ set(PROJECT_APP_SOURCES
         components/vdc_domain/src/vdc_domain.c
         components/vdc_domain/src/vdc_sync_io_adapter.c
         components/vdc_domain/src/vdc_tdma_payload.c
+        components/vdc_domain/src/vdc_timestamp_clock.c
         components/vdc_domain/src/vdc_timestamp.c
         components/vdc_dpll_manager/src/vdc_dpll_manager.c
         drivers/mcu/spi/src/drv_spi.c

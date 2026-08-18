@@ -72,9 +72,8 @@
 #define BOARD_TDMA_SPI_DOWNLINK_CSN_PIN 21u
 #define BOARD_TDMA_SPI_DOWNLINK_SCK_PIN 24u
 #define BOARD_TDMA_SPI_DOWNLINK_TX_PIN 23u
-/* Start at 1 MHz for timing-margin bring-up with the new dual-buffer RX
- * pipeline; raise stepwise (2/5/10/25 MHz) once lossless at each step. */
-#define BOARD_TDMA_SPI_BAUD_HZ 1000000u
+/* Optimization target rate after CS/frame-sync bring-up. */
+#define BOARD_TDMA_SPI_BAUD_HZ 10000000u
 
 #define BOARD_I2C_ENABLED 0
 #define BOARD_I2C_PORT i2c0
