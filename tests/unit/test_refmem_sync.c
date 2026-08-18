@@ -412,7 +412,7 @@ static int test_fence_commit(void)
     fence_payload.fence_scope = 1u;
     fence_payload.required_mask = 0x01u;
     fence_payload.min_table_seq = 1u;
-    fence_payload.deadline_1e3ns = 1000u;
+    fence_payload.deadline_us = 1000u;
     failed += expect_bool("make pass fence",
                           make_frame(REFMEM_SYNC_FRAME_FENCE,
                                      1u,
@@ -442,7 +442,7 @@ static int test_fence_commit(void)
 
     fence_payload.fence_seq = 11u;
     fence_payload.min_table_seq = 99u;
-    fence_payload.deadline_1e3ns = 0u;
+    fence_payload.deadline_us = 0u;
     failed += expect_bool("make failed fence",
                           make_frame(REFMEM_SYNC_FRAME_FENCE,
                                      1u,

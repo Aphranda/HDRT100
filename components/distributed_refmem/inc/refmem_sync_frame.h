@@ -103,7 +103,7 @@ typedef struct {
     uint32_t payload_ref;
     uint32_t payload_size;
     uint32_t payload_crc32;
-    uint32_t timeout_1e3ns;
+    uint32_t timeout_us;
 } refmem_sync_command_payload_t;
 
 typedef struct {
@@ -129,7 +129,7 @@ typedef struct {
     uint32_t config_crc32;
     uint32_t calibration_crc32;
     uint32_t sync_profile_crc32;
-    uint32_t deadline_1e3ns;
+    uint32_t deadline_us;
 } refmem_sync_fence_payload_t;
 
 typedef struct {
@@ -145,8 +145,8 @@ typedef struct {
     uint32_t late_count;
     uint32_t timeout_count;
     uint32_t last_error;
-    uint32_t p99_1e3ns;
-    uint32_t p999_1e3ns;
+    uint32_t p99_us;
+    uint32_t p999_us;
     uint32_t evidence_index;
 } refmem_sync_quality_payload_t;
 

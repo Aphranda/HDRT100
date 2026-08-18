@@ -1320,7 +1320,7 @@ VdcSyncAO
 - 完成内容：
   - `vdc_domain_snapshot_t` / `vdc_domain_context_t` 增加 `VdcQualityTable` 和 `VdcErrorBudget`。
   - `vdc_domain_submit_tdma_evidence()` 在 DPLL sample 通过或拒绝时同步更新 health state、sample counter、consecutive good/bad、timestamp source/resolution/flags、offset RMS/max、jitter、path delay、dispersion 和 root distance。
-  - `vdc_domain_service()` 增加 sample age 刷新，形成 `last_sample_age_1e3ns`，为后续 HOLDOVER / stale / RUN gate 提供基础字段。
+  - `vdc_domain_service()` 增加 sample age 刷新，形成 `last_sample_age_us`，为后续 HOLDOVER / stale / RUN gate 提供基础字段。
   - `vdc_dpll_manager_get_snapshot()` 提供只读 VDC snapshot 入口，保持 SCPI 读取 snapshot，不直接访问 VDC context。
   - `READ:SYNC:QUALity?` 从固定回复改为读取 VDC quality/error budget snapshot。
 - 验证结果：
@@ -1560,18 +1560,18 @@ VdcSyncAO
 - 下一步：
   - 增加板端帧级 timestamp evidence 输入路径，先让 COM5/COM6 在真实 PIO TDMA 环路中产出被 VDC gate 明确拒绝或接受的样本证据。
 
-### VDC-TASK-20260816-002 - TDMA diagnostic timestamp and 1e3ns deadline contract
+### VDC-TASK-20260816-002 - TDMA diagnostic timestamp and us deadline contract
 
 - 状态：完成 host/build 验证；硬件 latch 和 DPLL gate 待实现
 - 日期：2026-08-16
 - 任务目标：
-  - 将 RefMem realtime TDMA 的 deadline 接口收敛为 `deadline_1e3ns`，与 VDC 以 ns 为基础单位的命名一致。
+  - 将 RefMem realtime TDMA 的 deadline 接口收敛为 `deadline_us`，与 VDC 以 ns 为基础单位的命名一致。
   - 给当前 TDMA snapshot 增加板端时间戳诊断字段，但明确来源仍是 `time_us_64()*1000`，分辨率为 `1000 ns`，不得作为 100 ns DPLL lock evidence。
   - 保持 `SYSTem:REFMEM:SYNC:TDMA:STATus?` 既有字段顺序稳定，新增 timestamp 字段只追加。
 - 完成内容：
   - `refmem_realtime_tdma` 新增 `timestamp_source`、`timestamp_resolution_ns`、`timestamp_flags`、submit/core1 arm/start/done 时间和 `core1_elapsed_ns` snapshot。
-  - `distributed_refmem`、RefMem sync frame、RefMem command timeout、quality snapshot、SCPI handler 和 HIL 脚本统一使用 `deadline_1e3ns` / `timeout_1e3ns` / `p99_1e3ns` / `p999_1e3ns` 语义。
-  - PIO SPI physical adapter 的公开 timeout 参数收敛为 `timeout_1e6ns`；内部仍使用 Pico SDK 的微秒 API 执行等待，但接口语义不再暴露 `timeout_ms`。
+  - `distributed_refmem`、RefMem sync frame、RefMem command timeout、quality snapshot、SCPI handler 和 HIL 脚本统一使用 `deadline_us` / `timeout_us` / `p99_us` / `p999_us` 语义。
+  - PIO SPI physical adapter 的公开 RX timeout 参数收敛为 `timeout_ms`；内部仍使用 Pico SDK 的微秒 API 执行等待，但接口语义不再暴露旧的折算单位名。
   - VDC 文档补充每帧都是 TDMA/VDC envelope，DPLL 维护是总线时序骨架，RefMem 作为 payload class 搭载。
 - 验证结果：
   - `python -m py_compile tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py tools\refmem_quality_gate_hil_validate\refmem_quality_gate_hil_validate.py tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py` 通过。

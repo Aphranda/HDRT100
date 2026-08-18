@@ -35,7 +35,7 @@ Last updated: 2026-08-17
 | `SYSTem:CORE?` | 查询核心运行状态：core1 是否启用、core0/core1 循环计数、core0/core1 最近一次心跳毫秒时间戳。 |
 | `SYSTem:RTOS:STATus?` | 查询 FreeRTOS heap 和任务栈水位。 |
 | `SYSTem:LOOP:STATus?` | 查询 `task_loop_engine` 的只读维护状态：是否 ready、service_count、first_service_ms、last_service_ms。 |
-| `READ:SYNC:QUALity?` | 查询 VDC 同步质量主视图：`state,last_offset_ns,rms_offset_ns,max_abs_offset_ns,freq_offset_ppb,jitter_pk_ns,last_sample_age_1e3ns,last_reject_code,accepted_sample_count,rejected_sample_count,last_timestamp_resolution_ns,health_state,lock_quality_tier,fine_lock_threshold_ns,debug_lock_threshold_ns,coarse_lock_threshold_ns,lock_acceptance_threshold_ns`。`lock_quality_tier=1/2/3` 分别对应 10 us / 1 us / 100 ns；默认 bring-up acceptance 为 1 us，产品 `HEALTHY/RUN` 仍以连续 100 ns fine tier 为准。 |
+| `READ:SYNC:QUALity?` | 查询 VDC 同步质量主视图：`state,last_offset_ns,rms_offset_ns,max_abs_offset_ns,freq_offset_ppb,jitter_pk_ns,last_sample_age_us,last_reject_code,accepted_sample_count,rejected_sample_count,last_timestamp_resolution_ns,health_state,lock_quality_tier,fine_lock_threshold_ns,debug_lock_threshold_ns,coarse_lock_threshold_ns,lock_acceptance_threshold_ns`。`lock_quality_tier=1/2/3` 分别对应 10 us / 1 us / 100 ns；默认 bring-up acceptance 为 1 us，产品 `HEALTHY/RUN` 仍以连续 100 ns fine tier 为准。 |
 | `SYSTem:SYNC:VDC:STATus?` | 查询 `task_vdc_sync` 的只读维护状态：是否 ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq。 |
 | `SYSTem:SYNC:VDC:DPLL:STATus?` | 查询 `task_dpll` 的只读维护状态：是否 ready、state、service_count、first_service_ms、last_service_ms、update_seq。 |
 | `SYSTem:SYNC:VDC:TDMA:PLAN? [window_class],[now_ns_lo],[now_ns_hi]` | 查询 VDC TDMA 窗口计划；默认 `window_class=2` 即 `REFMEM_DATA_WINDOW`，不带时间参数时使用当前板端时间。返回窗口起止、guard、wait_ns、late_ns、inside/missed 标志、schedule CRC 和 gate 结果。 |

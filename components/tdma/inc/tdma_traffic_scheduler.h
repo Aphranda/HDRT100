@@ -46,7 +46,7 @@ typedef struct {
     uint32_t csn_pin;
     uint32_t sck_pin;
     uint32_t tx_pin;
-    uint32_t deadline_1e3ns;
+    uint32_t deadline_us;
     uint32_t frame_class;
     uint32_t payload_class;
     uint32_t window_epoch;
@@ -120,7 +120,7 @@ typedef struct {
     uint32_t csn_pin;
     uint32_t sck_pin;
     uint32_t tx_pin;
-    uint32_t deadline_1e3ns;
+    uint32_t deadline_us;
     uint32_t frame_class;
     uint32_t payload_class;
     uint32_t window_epoch;

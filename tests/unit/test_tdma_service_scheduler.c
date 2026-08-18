@@ -16,13 +16,13 @@ static bool mock_transmit(void *context,
                           tdma_service_role_t role,
                           uint32_t baud_hz,
                           const tdma_service_pin_config_t *pins,
-                          uint32_t deadline_1e3ns,
+                          uint32_t deadline_us,
                           tdma_service_exec_status_t *status)
 {
     (void)role;
     (void)baud_hz;
     (void)pins;
-    (void)deadline_1e3ns;
+    (void)deadline_us;
     mock_adapter_t *adapter = (mock_adapter_t *)context;
     if (adapter == NULL || frame == NULL || frame_size == 0u ||
         status == NULL || adapter->count >= 8u) {
@@ -43,7 +43,7 @@ static bool mock_receive(void *context,
                          tdma_service_role_t role,
                          uint32_t baud_hz,
                          const tdma_service_pin_config_t *pins,
-                         uint32_t deadline_1e3ns,
+                         uint32_t deadline_us,
                          tdma_service_exec_status_t *status)
 {
     (void)context;
@@ -52,7 +52,7 @@ static bool mock_receive(void *context,
     (void)role;
     (void)baud_hz;
     (void)pins;
-    (void)deadline_1e3ns;
+    (void)deadline_us;
     (void)status;
     return false;
 }
@@ -85,7 +85,7 @@ static tdma_service_intent_config_t make_intent(uint32_t payload_class,
                                                  uint8_t *frame)
 {
     const tdma_service_intent_config_t intent = {
-        .deadline_1e3ns = 1000u,
+        .deadline_us = 1000u,
         .role = TDMA_SERVICE_ROLE_MASTER,
         .baud_hz = 10000000u,
         .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,

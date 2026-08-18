@@ -67,7 +67,7 @@ static bool refmem_realtime_tdma_transmit_bridge(
     tdma_service_role_t role,
     uint32_t baud_hz,
     const tdma_service_pin_config_t *pins,
-    uint32_t deadline_1e3ns,
+    uint32_t deadline_us,
     tdma_service_exec_status_t *status)
 {
     refmem_realtime_tdma_service_t *service =
@@ -84,7 +84,7 @@ static bool refmem_realtime_tdma_transmit_bridge(
                                   refmem_realtime_tdma_from_service_role(role),
                                   baud_hz,
                                   &refmem_pins,
-                                  deadline_1e3ns,
+                                  deadline_us,
                                   status);
 }
 
@@ -95,7 +95,7 @@ static bool refmem_realtime_tdma_receive_bridge(
     tdma_service_role_t role,
     uint32_t baud_hz,
     const tdma_service_pin_config_t *pins,
-    uint32_t deadline_1e3ns,
+    uint32_t deadline_us,
     tdma_service_exec_status_t *status)
 {
     refmem_realtime_tdma_service_t *service =
@@ -116,7 +116,7 @@ static bool refmem_realtime_tdma_receive_bridge(
                                  refmem_realtime_tdma_from_service_role(role),
                                  baud_hz,
                                  &refmem_pins,
-                                 deadline_1e3ns,
+                                 deadline_us,
                                  status);
 }
 
@@ -138,7 +138,7 @@ static tdma_service_intent_config_t refmem_realtime_tdma_to_service_config(
     if (config != NULL) {
         mapped.window_epoch = config->window_epoch;
         mapped.window_index = config->window_index;
-        mapped.deadline_1e3ns = config->deadline_1e3ns;
+        mapped.deadline_us = config->deadline_us;
         mapped.role = refmem_realtime_tdma_to_service_role(config->role);
         mapped.baud_hz = config->baud_hz;
         mapped.pins = refmem_realtime_tdma_to_service_pins(&config->pins);
@@ -186,7 +186,7 @@ static void refmem_realtime_tdma_from_service_snapshot(
     target->csn_pin = source->csn_pin;
     target->sck_pin = source->sck_pin;
     target->tx_pin = source->tx_pin;
-    target->deadline_1e3ns = source->deadline_1e3ns;
+    target->deadline_us = source->deadline_us;
     target->frame_size = source->frame_size;
     target->ready_count = source->ready_count;
     target->timeout_count = source->timeout_count;

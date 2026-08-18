@@ -135,8 +135,8 @@ TDMA deterministic observation window
 
 | 控制环 | 执行者 | 时间尺度 | 主要输入 | 主要输出 | 不允许做的事 |
 |---|---|---:|---|---|---|
-| TDMA 硬实时环 | TDMA Foundation / PIO / DMA / core1 realtime | 1e3ns 级窗口，ns timestamp | active TDMA schedule、reference edge、local tick | capture timestamp、sync frame、ring/completion evidence | 计算 DPLL、访问 SCPI/SD/USB、修改 offset/rate |
-| DPLL 锁相环 | `VdcSyncAO / SyncDpllFB` | 1e6ns 级 service tick | validated timestamp sample、active calibration delay、profile | offset/rate、phase error、lock state、quality | 直接驱动 PIO 输出、绕过 RefMem/Vector 写其他域事实 |
+| TDMA 硬实时环 | TDMA Foundation / PIO / DMA / core1 realtime | us 级窗口，ns timestamp | active TDMA schedule、reference edge、local tick | capture timestamp、sync frame、ring/completion evidence | 计算 DPLL、访问 SCPI/SD/USB、修改 offset/rate |
+| DPLL 锁相环 | `VdcSyncAO / SyncDpllFB` | ms 级 service tick | validated timestamp sample、active calibration delay、profile | offset/rate、phase error、lock state、quality | 直接驱动 PIO 输出、绕过 RefMem/Vector 写其他域事实 |
 | 低频驯服环 | `HoldoverFB / VdcQualityGateFB` | s 级窗口 | rate history、temperature/aging evidence、holdover age | drift bound、dispersion、servo profile evidence、persistent compensation candidate | 在 RUN 热写 flash、改变实时 tick source、直接修正 local_tick |
 
 该模型的关键点是：TDMA 只保证 DPLL 观测样本的确定性和低干扰，不等于共同时间已经锁定；DPLL 只修改 VDC 的 `offset/rate/quality`，不直接发硬实时边沿；core1/PIO 只消费稳定 VDC snapshot 进行相位牵引或预测输出。
@@ -390,7 +390,7 @@ TDMA/DPLL 融合后，VDC 状态机需要区分“TDMA schedule 可用”和“V
 |---|---|
 | `servo_type` | `PI`、`LINREG` 或产品自定义类型。 |
 | `kp_q16` / `ki_q16` | PI 环路参数。 |
-| `update_period_1e3ns` | DPLL 更新周期。 |
+| `update_period_us` | DPLL 更新周期。 |
 | `first_step_threshold_ns` | 初始大偏差是否允许 step。 |
 | `step_threshold_ns` | 运行中超过该偏差时是否 step 或拒绝。 |
 | `sanity_freq_limit_ppb` | 频率修正 sanity limit，超限触发 reset/fault。 |
@@ -558,7 +558,7 @@ VDC snapshot 至少需要覆盖：
 | `freq_error_ppb` | 当前频率误差估计。 |
 | `jitter_rms_ns` | 同步残差 RMS。 |
 | `jitter_pk_ns` | 同步残差峰值或窗口峰值。 |
-| `holdover_age_1e3ns` | 进入 HOLDOVER 后的持续时间。 |
+| `holdover_age_us` | 进入 HOLDOVER 后的持续时间。 |
 | `lock_state` | `OFF/CHECKING/LOCKING/LOCKED/HOLDOVER/RELOCKING/FAULT`。 |
 | `lock_quality` | `NONE/COARSE_10US/DEBUG_1US/FINE_100NS`，由 last/rms/max offset 的最差值分类。 |
 | `active_cal_crc` | 当前用于修正 link delay 的校准表 CRC。 |

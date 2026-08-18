@@ -16,13 +16,13 @@ static bool fake_transmit(void *context,
                           refmem_spi_physical_role_t role,
                           uint32_t baud_hz,
                           const refmem_spi_physical_pin_config_t *pins,
-                          uint32_t deadline_1e3ns,
+                          uint32_t deadline_us,
                           refmem_realtime_tdma_exec_status_t *status)
 {
     (void)frame;
     (void)baud_hz;
     (void)pins;
-    (void)deadline_1e3ns;
+    (void)deadline_us;
     fake_ops_context_t *fake = (fake_ops_context_t *)context;
     fake->tx_calls++;
     status->frame_size = frame_size;
@@ -39,14 +39,14 @@ static bool fake_receive(void *context,
                          refmem_spi_physical_role_t role,
                          uint32_t baud_hz,
                          const refmem_spi_physical_pin_config_t *pins,
-                         uint32_t deadline_1e3ns,
+                         uint32_t deadline_us,
                          refmem_realtime_tdma_exec_status_t *status)
 {
     (void)frame;
     (void)frame_capacity;
     (void)baud_hz;
     (void)pins;
-    (void)deadline_1e3ns;
+    (void)deadline_us;
     fake_ops_context_t *fake = (fake_ops_context_t *)context;
     fake->rx_calls++;
     if (frame_capacity >= 4u) {
@@ -212,7 +212,7 @@ static int test_tx_intent_completes_on_core1_service(void)
     const refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = 7u,
         .window_index = 3u,
-        .deadline_1e3ns = 25u,
+        .deadline_us = 25u,
         .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
         .baud_hz = 25000000u,
         .frame = frame,
@@ -289,7 +289,7 @@ static int test_rx_timeout_maps_to_result(void)
     refmem_realtime_tdma_snapshot_t snapshot;
     fake_ops_context_t fake = {.tx_ok = true, .rx_ok = false};
     const refmem_realtime_tdma_intent_config_t config = {
-        .deadline_1e3ns = 1000u,
+        .deadline_us = 1000u,
         .role = REFMEM_SPI_PHYSICAL_ROLE_SLAVE,
     };
 
@@ -314,7 +314,7 @@ static int test_rx_result_frame_is_readable(void)
     uint8_t frame[8];
     size_t frame_size = 0u;
     const refmem_realtime_tdma_intent_config_t config = {
-        .deadline_1e3ns = 1000u,
+        .deadline_us = 1000u,
         .role = REFMEM_SPI_PHYSICAL_ROLE_SLAVE,
     };
 
@@ -346,7 +346,7 @@ static int test_vdc_window_plan_defers_until_guard(void)
     const refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = 1u,
         .window_index = 1u,
-        .deadline_1e3ns = 25u,
+        .deadline_us = 25u,
         .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
         .baud_hz = 25000000u,
         .vdc_window_plan_valid = 1u,
@@ -399,7 +399,7 @@ static int test_vdc_window_plan_rejects_missed_window(void)
     const refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = 1u,
         .window_index = 1u,
-        .deadline_1e3ns = 25u,
+        .deadline_us = 25u,
         .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
         .baud_hz = 25000000u,
         .vdc_window_plan_valid = 1u,

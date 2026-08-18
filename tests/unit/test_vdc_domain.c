@@ -22,7 +22,7 @@ static bool fake_tdma_transmit(void *context,
                                tdma_service_role_t role,
                                uint32_t baud_hz,
                                const tdma_service_pin_config_t *pins,
-                               uint32_t deadline_1e3ns,
+                               uint32_t deadline_us,
                                tdma_service_exec_status_t *status)
 {
     fake_tdma_ops_context_t *fake = (fake_tdma_ops_context_t *)context;
@@ -30,7 +30,7 @@ static bool fake_tdma_transmit(void *context,
     (void)role;
     (void)baud_hz;
     (void)pins;
-    (void)deadline_1e3ns;
+    (void)deadline_us;
     if (fake == NULL || status == NULL) {
         return false;
     }
@@ -50,14 +50,14 @@ static bool fake_tdma_receive(void *context,
                               tdma_service_role_t role,
                               uint32_t baud_hz,
                               const tdma_service_pin_config_t *pins,
-                              uint32_t deadline_1e3ns,
+                              uint32_t deadline_us,
                               tdma_service_exec_status_t *status)
 {
     fake_tdma_ops_context_t *fake = (fake_tdma_ops_context_t *)context;
     (void)role;
     (void)baud_hz;
     (void)pins;
-    (void)deadline_1e3ns;
+    (void)deadline_us;
     if (fake == NULL || frame == NULL || status == NULL ||
         fake->rx_frame_size == 0u ||
         fake->rx_frame_size > frame_capacity) {
@@ -1079,7 +1079,7 @@ static int test_path_delay_table_drives_compact_phase(void)
     table.entries[0].jitter_ns = 2u;
     table.entries[0].stddev_ns = 1u;
     table.entries[0].cal_crc32 = 0xCA1B0001u;
-    table.entries[0].freshness_1e3ns = 3u;
+    table.entries[0].freshness_us = 3u;
     table.entries[0].writer = context.schedule.reference_slot_id;
     table.entries[0].update_seq++;
     table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
@@ -1452,7 +1452,7 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
     const tdma_service_intent_config_t tx_config = {
         .window_epoch = schedule.schedule_epoch,
         .window_index = 1u,
-        .deadline_1e3ns = 25u,
+        .deadline_us = 25u,
         .role = TDMA_SERVICE_ROLE_MASTER,
         .baud_hz = 25000000u,
         .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
@@ -1563,7 +1563,7 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
     const tdma_service_intent_config_t windowed_tx_config = {
         .window_epoch = schedule.schedule_epoch,
         .window_index = 1u,
-        .deadline_1e3ns = 25u,
+        .deadline_us = 25u,
         .role = TDMA_SERVICE_ROLE_MASTER,
         .baud_hz = 25000000u,
         .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
@@ -1712,7 +1712,7 @@ static int test_vdc_tdma_payload_mounts_on_common_tdma(void)
         const tdma_service_intent_config_t hardware_tx_config = {
             .window_epoch = schedule.schedule_epoch,
             .window_index = seq,
-            .deadline_1e3ns = 25u,
+            .deadline_us = 25u,
             .role = TDMA_SERVICE_ROLE_MASTER,
             .baud_hz = 25000000u,
             .frame_class = TDMA_SERVICE_FRAME_CLASS_SHORT,
@@ -2395,8 +2395,8 @@ static int test_quality_age_updates_on_service(void)
                           true);
     vdc_domain_service(&context, 51000u);
     (void)vdc_domain_get_snapshot(&context, &snapshot);
-    failed += expect_u32("sample age 1e3ns",
-                         snapshot.quality.last_sample_age_1e3ns,
+    failed += expect_u32("sample age us",
+                         snapshot.quality.last_sample_age_us,
                          50u);
     return failed;
 }

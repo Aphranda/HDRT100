@@ -103,8 +103,8 @@ static int test_remote_quality_mapping(void)
     remote.late_count = 5u;
     remote.timeout_count = 6u;
     remote.last_error = 7u;
-    remote.p99_1e3ns = 99u;
-    remote.p999_1e3ns = 999u;
+    remote.p99_us = 99u;
+    remote.p999_us = 999u;
     remote.evidence_index = 12u;
     remote.last_frame_seq32 = 30u;
 
@@ -142,7 +142,7 @@ static int test_realtime_tdma_mapping(void)
     tdma.completed_seq = 10u;
     tdma.service_count = 123u;
     tdma.window_index = 4u;
-    tdma.deadline_1e3ns = 2500u;
+    tdma.deadline_us = 2500u;
     tdma.timeout_count = 3u;
     tdma.overrun_count = 5u;
     tdma.reject_count = 7u;

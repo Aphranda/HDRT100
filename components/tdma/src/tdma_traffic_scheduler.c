@@ -225,7 +225,7 @@ static bool tdma_traffic_scheduler_dispatch_head(
     dispatch->request.csn_pin = slot->csn_pin;
     dispatch->request.sck_pin = slot->sck_pin;
     dispatch->request.tx_pin = slot->tx_pin;
-    dispatch->request.deadline_1e3ns = slot->deadline_1e3ns;
+    dispatch->request.deadline_us = slot->deadline_us;
     dispatch->request.frame_class = slot->frame_class;
     dispatch->request.payload_class = slot->payload_class;
     dispatch->request.window_epoch = slot->window_epoch;
@@ -429,7 +429,7 @@ tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
     slot->csn_pin = request->csn_pin;
     slot->sck_pin = request->sck_pin;
     slot->tx_pin = request->tx_pin;
-    slot->deadline_1e3ns = request->deadline_1e3ns;
+    slot->deadline_us = request->deadline_us;
     slot->frame_class = request->frame_class;
     slot->payload_class = request->payload_class;
     slot->window_epoch = request->window_epoch;

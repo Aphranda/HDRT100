@@ -410,12 +410,12 @@ def configure_auto(records: list[Record],
                    local_slot: int,
                    target_mask: int,
                    baud_hz: int,
-                   deadline_1e3ns: int,
+                   deadline_us: int,
                    adapter_plan: AdapterPlan,
                    timeout_s: float) -> None:
     command = (
         f"SYSTem:REFMEM:SYNC:AUTO {enabled},{local_slot},{target_mask},"
-        f"{baud_hz},{deadline_1e3ns},"
+        f"{baud_hz},{deadline_us},"
         f"{adapter_plan.uplink_duplex_mode},"
         f"{adapter_plan.uplink_adapter.rx},{adapter_plan.uplink_adapter.sck},"
         f"{adapter_plan.uplink_adapter.tx},"
@@ -674,7 +674,7 @@ def main() -> int:
     parser.add_argument("--slot-a", type=int, default=0)
     parser.add_argument("--slot-b", type=int, default=1)
     parser.add_argument("--tdma-baud", type=int, default=25_000_000)
-    parser.add_argument("--deadline-1e3ns", type=int, default=1_000_000)
+    parser.add_argument("--deadline-us", type=int, default=1_000_000)
     parser.add_argument("--timeout-s", type=float, default=2.0)
     parser.add_argument("--sync-timeout-s", type=float, default=10.0)
     parser.add_argument("--poll-s", type=float, default=0.05)
@@ -790,7 +790,7 @@ def main() -> int:
                        local_slot=args.slot_a,
                        target_mask=mask_b,
                        baud_hz=args.tdma_baud,
-                       deadline_1e3ns=args.deadline_1e3ns,
+                       deadline_us=args.deadline_us,
                        adapter_plan=plan_a,
                        timeout_s=args.timeout_s)
         configure_auto(records,
@@ -800,7 +800,7 @@ def main() -> int:
                        local_slot=args.slot_b,
                        target_mask=mask_a,
                        baud_hz=args.tdma_baud,
-                       deadline_1e3ns=args.deadline_1e3ns,
+                       deadline_us=args.deadline_us,
                        adapter_plan=plan_b,
                        timeout_s=args.timeout_s)
 

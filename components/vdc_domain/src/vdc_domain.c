@@ -8,7 +8,7 @@
 #define VDC_DOMAIN_INITIAL_LOCK_SAMPLES 1u
 #define VDC_DOMAIN_FREQ_LOCK_SAMPLES 2u
 #define VDC_DOMAIN_PHASE_LOCK_SAMPLES 3u
-#define VDC_DOMAIN_DEFAULT_FRESHNESS_LIMIT_1E3NS 1000000u
+#define VDC_DOMAIN_DEFAULT_FRESHNESS_LIMIT_US 1000000u
 #define VDC_DOMAIN_DEFAULT_HOLDOVER_DRIFT_BOUND_NS_S 1000u
 #define VDC_DOMAIN_ACQUISITION_GUARD_NS 0u
 #define VDC_DOMAIN_DEFAULT_SANITY_FREQ_LIMIT_PPB 50000u
@@ -445,7 +445,7 @@ static uint64_t vdc_domain_rate_observation_min_ns(
         (uint64_t)context->schedule.period_ns *
         (uint64_t)VDC_DOMAIN_RATE_MIN_OBSERVATION_CYCLES;
     const uint64_t servo_update_ns =
-        (uint64_t)context->servo.update_period_1e3ns * 1000ull;
+        (uint64_t)context->servo.update_period_us * 1000ull;
     if (servo_update_ns > min_ns) {
         min_ns = servo_update_ns;
     }
@@ -535,9 +535,9 @@ static void vdc_domain_refresh_quality_state(vdc_domain_context_t *context)
                context->gate.passed != 0u &&
                context->quality.lock_quality_tier >=
                    VDC_DOMAIN_LOCK_QUALITY_FINE_100NS &&
-               context->quality.freshness_limit_1e3ns != 0u &&
-               context->quality.last_sample_age_1e3ns <=
-                   context->quality.freshness_limit_1e3ns) {
+               context->quality.freshness_limit_us != 0u &&
+               context->quality.last_sample_age_us <=
+                   context->quality.freshness_limit_us) {
         context->quality.health_state = VDC_DOMAIN_HEALTH_HEALTHY;
     } else if (context->dpll.state == VDC_DOMAIN_LOCK_PHASE_LOCK ||
                context->dpll.state == VDC_DOMAIN_LOCK_FREQ_LOCK) {
@@ -575,10 +575,10 @@ static void vdc_domain_refresh_quality_age(vdc_domain_context_t *context,
         now_ns >= context->quality.last_sample_time_ns
             ? now_ns - context->quality.last_sample_time_ns
             : 0u;
-    context->quality.last_sample_age_1e3ns =
+    context->quality.last_sample_age_us =
         vdc_domain_saturate_u64_to_u32(age_ns / 1000ull);
     if (context->dpll.state == VDC_DOMAIN_LOCK_HOLDOVER) {
-        context->dpll.holdover_age_1e3ns = context->quality.last_sample_age_1e3ns;
+        context->dpll.holdover_age_us = context->quality.last_sample_age_us;
     }
     vdc_domain_refresh_quality_state(context);
 }
@@ -593,8 +593,8 @@ static void vdc_domain_init_quality(vdc_domain_context_t *context)
     context->quality.valid = 1u;
     context->quality.health_state = VDC_DOMAIN_HEALTH_UNKNOWN;
     context->quality.lock_state = VDC_DOMAIN_LOCK_OFF;
-    context->quality.freshness_limit_1e3ns =
-        VDC_DOMAIN_DEFAULT_FRESHNESS_LIMIT_1E3NS;
+    context->quality.freshness_limit_us =
+        VDC_DOMAIN_DEFAULT_FRESHNESS_LIMIT_US;
     context->error_budget.valid = 1u;
     context->error_budget.holdover_drift_bound_ns_s =
         VDC_DOMAIN_DEFAULT_HOLDOVER_DRIFT_BOUND_NS_S;
@@ -713,7 +713,7 @@ static void vdc_domain_record_accepted_sample(
         evidence->timestamp_resolution_ns;
     context->quality.last_timestamp_flags = evidence->timestamp_flags;
     context->quality.last_sample_time_ns = vdc_domain_evidence_time_ns(evidence);
-    context->quality.last_sample_age_1e3ns = 0u;
+    context->quality.last_sample_age_us = 0u;
     context->quality.last_offset_ns = evidence->phase_error_ns;
     context->quality.rms_offset_ns = context->dpll.rms_offset_ns;
     context->quality.max_abs_offset_ns = context->dpll.max_abs_offset_ns;
@@ -783,11 +783,11 @@ static void vdc_domain_update_clock_from_evidence(
     }
 
     if (context->servo.ki_q16 != 0 &&
-        context->servo.update_period_1e3ns != 0u &&
+        context->servo.update_period_us != 0u &&
         context->dpll.accepted_sample_count >= context->servo.lock_sample_count) {
         const int64_t phase_ppb =
             ((int64_t)input_residual_ns * 1000000ll) /
-            (int64_t)context->servo.update_period_1e3ns;
+            (int64_t)context->servo.update_period_us;
         phase_rate_pull_ppb = vdc_domain_scale_q16_i32(
             vdc_domain_clamp_ppb(phase_ppb,
                                  context->servo.sanity_freq_limit_ppb),
@@ -907,7 +907,7 @@ void vdc_domain_default_servo(vdc_servo_profile_t *profile)
     profile->servo_type = 1u;
     profile->kp_q16 = 65536;
     profile->ki_q16 = 4096;
-    profile->update_period_1e3ns = 1000u;
+    profile->update_period_us = 1000u;
     profile->first_step_threshold_ns = 100000u;
     profile->step_threshold_ns = 10000u;
     profile->sanity_freq_limit_ppb = VDC_DOMAIN_DEFAULT_SANITY_FREQ_LIMIT_PPB;
@@ -1084,7 +1084,7 @@ uint32_t vdc_domain_path_delay_table_crc32(
         hash = vdc_domain_hash_u32(hash, entry->jitter_ns);
         hash = vdc_domain_hash_u32(hash, entry->stddev_ns);
         hash = vdc_domain_hash_u32(hash, entry->cal_crc32);
-        hash = vdc_domain_hash_u32(hash, entry->freshness_1e3ns);
+        hash = vdc_domain_hash_u32(hash, entry->freshness_us);
         hash = vdc_domain_hash_u32(hash, entry->writer);
         hash = vdc_domain_hash_u32(hash, entry->update_seq);
     }
@@ -1115,7 +1115,7 @@ void vdc_domain_default_path_delay_table(
         entry->jitter_ns = 0u;
         entry->stddev_ns = 0u;
         entry->cal_crc32 = schedule->schedule_crc32;
-        entry->freshness_1e3ns = 0u;
+        entry->freshness_us = 0u;
         entry->writer = schedule->reference_slot_id;
         entry->update_seq = 1u;
     }

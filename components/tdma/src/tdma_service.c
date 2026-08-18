@@ -171,7 +171,7 @@ static uint32_t tdma_service_estimated_duration_ns(
     if (config == NULL) {
         return 0u;
     }
-    uint64_t duration_ns = (uint64_t)config->deadline_1e3ns * 1000ull;
+    uint64_t duration_ns = (uint64_t)config->deadline_us * 1000ull;
     if (intent == tdma_service_INTENT_TX_FRAME && config->baud_hz != 0u &&
         config->frame_size != 0u) {
         const uint64_t wire_ns =
@@ -202,7 +202,7 @@ static bool tdma_service_enqueue_scheduled(
         .csn_pin = config->pins.csn_pin,
         .sck_pin = config->pins.sck_pin,
         .tx_pin = config->pins.tx_pin,
-        .deadline_1e3ns = config->deadline_1e3ns,
+        .deadline_us = config->deadline_us,
         .frame_class = config->frame_class,
         .payload_class = config->payload_class,
         .window_epoch = config->window_epoch,
@@ -290,7 +290,7 @@ static bool tdma_service_submit(tdma_service_service_t *service,
     service->csn_pin = config->pins.csn_pin;
     service->sck_pin = config->pins.sck_pin;
     service->tx_pin = config->pins.tx_pin;
-    service->deadline_1e3ns = config->deadline_1e3ns;
+    service->deadline_us = config->deadline_us;
     service->frame_class = config->frame_class;
     service->payload_class = config->payload_class;
     service->scheduled_window_valid = config->scheduled_window_valid;
@@ -549,7 +549,7 @@ static bool tdma_service_dispatch_next_scheduled(
     service->csn_pin = dispatch.request.csn_pin;
     service->sck_pin = dispatch.request.sck_pin;
     service->tx_pin = dispatch.request.tx_pin;
-    service->deadline_1e3ns = dispatch.request.deadline_1e3ns;
+    service->deadline_us = dispatch.request.deadline_us;
     service->frame_class = dispatch.request.frame_class;
     service->payload_class = dispatch.request.payload_class;
     service->scheduled_window_valid =
@@ -668,7 +668,7 @@ void tdma_service_core1_service(tdma_service_service_t *service)
     tdma_service_role_t role;
     tdma_service_pin_config_t pins;
     uint32_t baud_hz;
-    uint32_t deadline_1e3ns;
+    uint32_t deadline_us;
     uint32_t scheduled_window_valid;
     uint64_t scheduled_window_start_ns;
     uint64_t scheduled_window_end_ns;
@@ -687,7 +687,7 @@ void tdma_service_core1_service(tdma_service_service_t *service)
         pins.sck_pin = service->sck_pin;
         pins.tx_pin = service->tx_pin;
         baud_hz = service->baud_hz;
-        deadline_1e3ns = service->deadline_1e3ns;
+        deadline_us = service->deadline_us;
         scheduled_window_valid = service->scheduled_window_valid;
         scheduled_window_start_ns = service->scheduled_window_start_ns;
         scheduled_window_end_ns = service->scheduled_window_end_ns;
@@ -774,7 +774,7 @@ void tdma_service_core1_service(tdma_service_service_t *service)
                                     role,
                                     baud_hz,
                                     &pins,
-                                    deadline_1e3ns,
+                                    deadline_us,
                                     &exec_status);
     } else if (intent_type == tdma_service_INTENT_RX_WINDOW) {
         ok = service->ops->receive(service->ops_context,
@@ -783,7 +783,7 @@ void tdma_service_core1_service(tdma_service_service_t *service)
                                    role,
                                    baud_hz,
                                    &pins,
-                                   deadline_1e3ns,
+                                   deadline_us,
                                    &exec_status);
     } else {
         exec_status.result = tdma_service_EXEC_ERROR;
@@ -868,7 +868,7 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
         snapshot->csn_pin = service->csn_pin;
         snapshot->sck_pin = service->sck_pin;
         snapshot->tx_pin = service->tx_pin;
-        snapshot->deadline_1e3ns = service->deadline_1e3ns;
+        snapshot->deadline_us = service->deadline_us;
         snapshot->frame_class = service->frame_class;
         snapshot->payload_class = service->payload_class;
         snapshot->scheduled_window_valid = service->scheduled_window_valid;

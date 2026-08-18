@@ -118,7 +118,7 @@ typedef struct {
     uint32_t servo_type;
     int32_t kp_q16;
     int32_t ki_q16;
-    uint32_t update_period_1e3ns;
+    uint32_t update_period_us;
     uint32_t first_step_threshold_ns;
     uint32_t step_threshold_ns;
     uint32_t sanity_freq_limit_ppb;
@@ -297,8 +297,8 @@ typedef struct {
     uint32_t last_timestamp_resolution_ns;
     uint32_t last_timestamp_flags;
     uint64_t last_sample_time_ns;
-    uint32_t last_sample_age_1e3ns;
-    uint32_t freshness_limit_1e3ns;
+    uint32_t last_sample_age_us;
+    uint32_t freshness_limit_us;
     uint32_t lock_acceptance_threshold_ns;
     uint32_t fine_lock_threshold_ns;
     uint32_t debug_lock_threshold_ns;
@@ -338,7 +338,7 @@ typedef struct {
     uint32_t jitter_ns;
     uint32_t stddev_ns;
     uint32_t cal_crc32;
-    uint32_t freshness_1e3ns;
+    uint32_t freshness_us;
     uint32_t writer;
     uint32_t update_seq;
 } vdc_path_delay_entry_t;
@@ -366,7 +366,7 @@ typedef struct {
     uint32_t rms_offset_ns;
     uint32_t max_abs_offset_ns;
     uint32_t jitter_pk_ns;
-    uint32_t holdover_age_1e3ns;
+    uint32_t holdover_age_us;
     uint32_t schedule_crc32;
     uint32_t servo_profile_crc32;
     uint64_t last_expected_window_start_ns;

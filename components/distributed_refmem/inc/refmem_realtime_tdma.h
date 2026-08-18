@@ -71,7 +71,7 @@ typedef struct {
                      refmem_spi_physical_role_t role,
                      uint32_t baud_hz,
                      const refmem_spi_physical_pin_config_t *pins,
-                     uint32_t deadline_1e3ns,
+                     uint32_t deadline_us,
                      refmem_realtime_tdma_exec_status_t *status);
     bool (*receive)(void *context,
                     uint8_t *frame,
@@ -79,7 +79,7 @@ typedef struct {
                     refmem_spi_physical_role_t role,
                     uint32_t baud_hz,
                     const refmem_spi_physical_pin_config_t *pins,
-                    uint32_t deadline_1e3ns,
+                    uint32_t deadline_us,
                     refmem_realtime_tdma_exec_status_t *status);
 } refmem_realtime_tdma_ops_t;
 
@@ -100,7 +100,7 @@ typedef struct {
     uint32_t csn_pin;
     uint32_t sck_pin;
     uint32_t tx_pin;
-    uint32_t deadline_1e3ns;
+    uint32_t deadline_us;
     uint32_t frame_size;
     uint32_t ready_count;
     uint32_t timeout_count;
@@ -195,7 +195,7 @@ typedef struct {
 typedef struct {
     uint32_t window_epoch;
     uint32_t window_index;
-    uint32_t deadline_1e3ns;
+    uint32_t deadline_us;
     refmem_spi_physical_role_t role;
     uint32_t baud_hz;
     refmem_spi_physical_pin_config_t pins;

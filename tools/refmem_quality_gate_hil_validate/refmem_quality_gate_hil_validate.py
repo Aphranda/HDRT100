@@ -282,7 +282,7 @@ def main() -> int:
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=4.0)
     parser.add_argument("--settle", type=float, default=1.0)
-    parser.add_argument("--deadline-1e3ns", type=int, default=1000)
+    parser.add_argument("--deadline-us", type=int, default=1000)
     parser.add_argument("--tdma-timeout", type=float, default=3.0)
     parser.add_argument("--tdma-baud", type=int, default=25000000)
     parser.add_argument("--pins", default="16,17,18,23", help="rx,csn,sck,tx")
@@ -334,7 +334,7 @@ def main() -> int:
 
         rx_command = (
             "SYSTem:REFMEM:SYNC:TDMA:RX "
-            f"{args.deadline_1e3ns},{args.tdma_baud},{pins[0]},{pins[1]},{pins[2]},{pins[3]}"
+            f"{args.deadline_us},{args.tdma_baud},{pins[0]},{pins[1]},{pins[2]},{pins[3]}"
         )
         rx_response = query(ser, rx_command, args.timeout)
         rx_fields = parse_csv(rx_response)
@@ -422,7 +422,7 @@ def main() -> int:
         "started": started,
         "port": args.port,
         "build": build,
-        "deadline_1e3ns": args.deadline_1e3ns,
+        "deadline_us": args.deadline_us,
         "tdma_baud": args.tdma_baud,
         "pins": pins,
         "restore_package": str(args.restore_package) if args.restore_package else None,

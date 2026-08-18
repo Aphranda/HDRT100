@@ -121,7 +121,7 @@ typedef struct {
                      tdma_service_role_t role,
                      uint32_t baud_hz,
                      const tdma_service_pin_config_t *pins,
-                     uint32_t deadline_1e3ns,
+                     uint32_t deadline_us,
                      tdma_service_exec_status_t *status);
     bool (*receive)(void *context,
                     uint8_t *frame,
@@ -129,7 +129,7 @@ typedef struct {
                     tdma_service_role_t role,
                     uint32_t baud_hz,
                     const tdma_service_pin_config_t *pins,
-                    uint32_t deadline_1e3ns,
+                    uint32_t deadline_us,
                     tdma_service_exec_status_t *status);
 } tdma_service_ops_t;
 
@@ -150,7 +150,7 @@ typedef struct {
     uint32_t csn_pin;
     uint32_t sck_pin;
     uint32_t tx_pin;
-    uint32_t deadline_1e3ns;
+    uint32_t deadline_us;
     uint32_t frame_size;
     uint32_t frame_class;
     uint32_t payload_class;
@@ -282,7 +282,7 @@ typedef struct {
 typedef struct {
     uint32_t window_epoch;
     uint32_t window_index;
-    uint32_t deadline_1e3ns;
+    uint32_t deadline_us;
     tdma_service_role_t role;
     uint32_t baud_hz;
     tdma_service_pin_config_t pins;
@@ -315,7 +315,7 @@ typedef struct {
     volatile uint32_t csn_pin;
     volatile uint32_t sck_pin;
     volatile uint32_t tx_pin;
-    volatile uint32_t deadline_1e3ns;
+    volatile uint32_t deadline_us;
     volatile uint32_t frame_class;
     volatile uint32_t payload_class;
     volatile uint32_t scheduled_window_valid;

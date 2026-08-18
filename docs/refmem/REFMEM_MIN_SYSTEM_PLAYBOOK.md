@@ -193,7 +193,7 @@ python tools\two_board_io_validate\two_board_io_validate.py --port-a COM3 --port
 | `SYSTem:REFMEM:SYNC:EPOCh? <source_slot>,<target_mask>,<seq>` | 生成 EPOCH frame，返回 frame size、header 摘要和 hex frame。 |
 | `SYSTem:REFMEM:SYNC:DELTa? <source_slot>,<target_mask>,<seq>,<slot_id>,<slot_seq>,<field_id>,<value>,<dirty_mask>` | 生成最小 u32 DELTA test field frame。 |
 | `SYSTem:REFMEM:SYNC:ACK? <source_slot>,<target_mask>,<seq>` | 基于本板最近一次 RX snapshot 生成 ACK_NACK frame，返回 frame 摘要、被确认 seq、RX result 和 hex frame。 |
-| `SYSTem:REFMEM:SYNC:FENCe? <source_slot>,<target_mask>,<seq>,<fence_seq>,<scope>,<required_mask>,<min_table_seq>,<deadline_1e3ns>` | 生成最小 FENCE frame，用于验证 required 本地 slot 对指定 source mirror 的 visible/min seq 判定。 |
+| `SYSTem:REFMEM:SYNC:FENCe? <source_slot>,<target_mask>,<seq>,<fence_seq>,<scope>,<required_mask>,<min_table_seq>,<deadline_us>` | 生成最小 FENCE frame，用于验证 required 本地 slot 对指定 source mirror 的 visible/min seq 判定。 |
 | `SYSTem:REFMEM:SYNC:QUALity:FRAMe? <source_slot>,<target_mask>,<seq>,<quality_id>,<scope>,<target_slot>` | 生成 QUALITY frame，把本地 receive quality counter 和指定 peer seq 摘要发布给对端。 |
 | `SYSTem:REFMEM:SYNC:RX "<hex>"` | 将 hex frame 注入 adapter RX staging，poll 后送入 `refmem_sync_receive_frame()`。 |
 | `SYSTem:REFMEM:SYNC:MIRRor? <source_slot>` | 查询指定来源 slot 的最新 sync mirror snapshot。 |
@@ -349,7 +349,7 @@ A PEER?(B), B PEER?(A), A/B QUALITY?
 - 新增 `REFMEM_FENCE` receive snapshot 和 `SYSTem:REFMEM:SYNC:FENCe?` / `FENCe:STATus?` 维护入口；接收侧根据 source mirror visible 和 `min_table_seq` 生成 pass/fail/timeout snapshot。
 - COM5/COM6 均 OTA 并 commit 到 build `20260814142748`，package CRC `0xE3F75DB7`。
 - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814142748 --out-dir build-rtos-multicore-smoke\refmem_sync_fence_hil_COM5_COM6_20260814142748` 通过。
-- HIL 结果：55 条记录全部 PASS；A->B 和 B->A FENCE 在对端 mirror visible 且 `min_table_seq=3` 时 passed；A->B `min_table_seq=99,deadline_1e3ns=0` 时 failed，`missing_mask=2,timed_out=1,last_reason=3`。
+- HIL 结果：55 条记录全部 PASS；A->B 和 B->A FENCE 在对端 mirror visible 且 `min_table_seq=3` 时 passed；A->B `min_table_seq=99,deadline_us=0` 时 failed，`missing_mask=2,timed_out=1,last_reason=3`。
 - 新增 `REFMEM_QUALITY` remote snapshot 和 `SYSTem:REFMEM:SYNC:QUALity:FRAMe?` / `QUALity:STATus?` 维护入口；接收侧按 source slot 记录 quality id、scope、peer seq、CRC/stale/drop/timeout 和 last error。
 - COM5/COM6 均 OTA 并 commit 到 build `20260814143942`，package CRC `0x4D1483AE`。
 - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --expected-build 20260814143942 --out-dir build-rtos-multicore-smoke\refmem_sync_quality_hil_COM5_COM6_20260814143942` 通过。

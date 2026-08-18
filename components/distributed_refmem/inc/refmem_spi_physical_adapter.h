@@ -54,8 +54,8 @@ typedef struct {
     bool rx_capture_wait_full;
     size_t rx_capture_max_words;
     uint32_t rx_capture_last_remaining;
-    uint64_t rx_capture_deadline_1e3ns;
-    uint64_t rx_capture_last_change_1e3ns;
+    uint64_t rx_capture_deadline_us;
+    uint64_t rx_capture_last_change_us;
 } refmem_spi_physical_adapter_t;
 
 bool refmem_spi_physical_adapter_arm(refmem_spi_physical_adapter_t *adapter,
@@ -73,10 +73,10 @@ bool refmem_spi_physical_adapter_receive(refmem_spi_physical_adapter_t *adapter,
                                          uint8_t *frame,
                                          size_t frame_capacity,
                                          size_t *frame_size,
-                                         uint32_t timeout_1e6ns);
+                                         uint32_t timeout_ms);
 bool refmem_spi_physical_adapter_receive_begin(refmem_spi_physical_adapter_t *adapter,
                                                size_t frame_capacity,
-                                               uint32_t timeout_1e6ns);
+                                               uint32_t timeout_ms);
 refmem_spi_physical_rx_poll_result_t refmem_spi_physical_adapter_receive_poll(
     refmem_spi_physical_adapter_t *adapter,
     uint8_t *frame,
@@ -86,7 +86,7 @@ bool refmem_spi_physical_adapter_receive_raw(refmem_spi_physical_adapter_t *adap
                                              uint8_t *buffer,
                                              size_t expected_size,
                                              size_t *received_size,
-                                             uint32_t timeout_1e6ns);
+                                             uint32_t timeout_ms);
 void refmem_spi_physical_line_release(void);
 bool refmem_spi_physical_line_drive(uint32_t line_index, bool level);
 uint32_t refmem_spi_physical_line_sample(void);

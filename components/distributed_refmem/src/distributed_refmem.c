@@ -47,7 +47,7 @@ typedef struct {
     uint32_t epoch_id;
     uint32_t run_id;
     uint32_t baud_hz;
-    uint32_t deadline_1e3ns;
+    uint32_t deadline_us;
     uint32_t uplink_duplex_mode;
     uint32_t downlink_duplex_mode;
     refmem_spi_physical_pin_config_t uplink_adapter_pins;
@@ -94,7 +94,7 @@ static void distributed_refmem_node_load_auto_init(void)
     s_node_load_auto_sync.epoch_id = DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH;
     s_node_load_auto_sync.run_id = DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN;
     s_node_load_auto_sync.baud_hz = BOARD_REFMEM_SPI_BAUD_HZ;
-    s_node_load_auto_sync.deadline_1e3ns = 1000000u;
+    s_node_load_auto_sync.deadline_us = 1000000u;
     s_node_load_auto_sync.uplink_duplex_mode =
         DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF;
     s_node_load_auto_sync.downlink_duplex_mode =
@@ -435,12 +435,12 @@ static bool distributed_refmem_mark_init_failed(distributed_refmem_init_stage_t 
     return false;
 }
 
-static uint32_t distributed_refmem_deadline_1e3ns_to_ms(uint32_t deadline_1e3ns)
+static uint32_t distributed_refmem_deadline_us_to_ms(uint32_t deadline_us)
 {
-    if (deadline_1e3ns == 0u) {
+    if (deadline_us == 0u) {
         return 1u;
     }
-    const uint32_t rounded_ms = (deadline_1e3ns + 999u) / 1000u;
+    const uint32_t rounded_ms = (deadline_us + 999u) / 1000u;
     return rounded_ms == 0u ? 1u : rounded_ms;
 }
 
@@ -450,10 +450,10 @@ static bool distributed_refmem_tdma_transmit(void *context,
                                              refmem_spi_physical_role_t role,
                                              uint32_t baud_hz,
                                              const refmem_spi_physical_pin_config_t *pins,
-                                             uint32_t deadline_1e3ns,
+                                             uint32_t deadline_us,
                                              refmem_realtime_tdma_exec_status_t *status)
 {
-    (void)deadline_1e3ns;
+    (void)deadline_us;
     refmem_spi_physical_adapter_t *adapter = (refmem_spi_physical_adapter_t *)context;
     if (adapter == NULL || status == NULL ||
         role != REFMEM_SPI_PHYSICAL_ROLE_MASTER ||
@@ -481,7 +481,7 @@ static bool distributed_refmem_tdma_receive(void *context,
                                             refmem_spi_physical_role_t role,
                                             uint32_t baud_hz,
                                             const refmem_spi_physical_pin_config_t *pins,
-                                            uint32_t deadline_1e3ns,
+                                            uint32_t deadline_us,
                                             refmem_realtime_tdma_exec_status_t *status)
 {
     refmem_spi_physical_adapter_t *adapter = (refmem_spi_physical_adapter_t *)context;
@@ -500,7 +500,7 @@ static bool distributed_refmem_tdma_receive(void *context,
             !refmem_spi_physical_adapter_receive_begin(
                 adapter,
                 frame_capacity,
-                distributed_refmem_deadline_1e3ns_to_ms(deadline_1e3ns))) {
+                distributed_refmem_deadline_us_to_ms(deadline_us))) {
             (void)refmem_spi_physical_adapter_get_snapshot(adapter, &snapshot);
             status->frame_size = 0u;
             status->error = snapshot.last_error;
@@ -652,7 +652,7 @@ static bool distributed_refmem_node_load_auto_submit_tx(void)
     refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = s_node_load_auto_sync.epoch_id,
         .window_index = seq32,
-        .deadline_1e3ns = s_node_load_auto_sync.deadline_1e3ns,
+        .deadline_us = s_node_load_auto_sync.deadline_us,
         .role = REFMEM_SPI_PHYSICAL_ROLE_MASTER,
         .baud_hz = s_node_load_auto_sync.baud_hz,
         .pins = s_node_load_auto_sync.downlink_adapter_pins,
@@ -688,7 +688,7 @@ static bool distributed_refmem_node_load_auto_submit_rx(void)
     refmem_realtime_tdma_intent_config_t config = {
         .window_epoch = s_node_load_auto_sync.epoch_id,
         .window_index = seq32,
-        .deadline_1e3ns = s_node_load_auto_sync.deadline_1e3ns,
+        .deadline_us = s_node_load_auto_sync.deadline_us,
         .role = REFMEM_SPI_PHYSICAL_ROLE_SLAVE,
         .baud_hz = s_node_load_auto_sync.baud_hz,
         .pins = s_node_load_auto_sync.uplink_adapter_pins,
@@ -1257,7 +1257,7 @@ bool distributed_refmem_stage_node_load(uint32_t node_id,
         .payload_crc32 = payload_crc32,
         .issue_epoch = 0u,
         .run_id = 0u,
-        .timeout_1e3ns = 50000u,
+        .timeout_us = 50000u,
     };
 
     if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
@@ -1353,7 +1353,7 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
         .payload_crc32 = payload_crc32,
         .issue_epoch = 0u,
         .run_id = 0u,
-        .timeout_1e3ns = 50000u,
+        .timeout_us = 50000u,
     };
 
     if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
@@ -1453,7 +1453,7 @@ bool distributed_refmem_activate_staging(uint32_t realtime_idle)
         .payload_crc32 = payload_crc32,
         .issue_epoch = 0u,
         .run_id = 0u,
-        .timeout_1e3ns = 50000u,
+        .timeout_us = 50000u,
     };
 
     if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
@@ -1612,7 +1612,7 @@ bool distributed_refmem_stage_board_capability(uint32_t board_id,
         .payload_crc32 = payload_crc32,
         .issue_epoch = 0u,
         .run_id = 0u,
-        .timeout_1e3ns = 50000u,
+        .timeout_us = 50000u,
     };
 
     if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
@@ -1677,7 +1677,7 @@ bool distributed_refmem_stage_model_turntable_load(uint32_t slot_id,
         .payload_crc32 = payload_crc32,
         .issue_epoch = 0u,
         .run_id = 0u,
-        .timeout_1e3ns = 50000u,
+        .timeout_us = 50000u,
     };
 
     if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
@@ -1777,7 +1777,7 @@ bool distributed_refmem_configure_node_load_auto_sync(
     uint32_t local_slot,
     uint32_t target_mask,
     uint32_t baud_hz,
-    uint32_t deadline_1e3ns,
+    uint32_t deadline_us,
     uint32_t uplink_duplex_mode,
     const refmem_spi_physical_pin_config_t *uplink_adapter_pins,
     uint32_t downlink_duplex_mode,
@@ -1787,7 +1787,7 @@ bool distributed_refmem_configure_node_load_auto_sync(
         enabled > 1u ||
         local_slot >= DISTRIBUTED_REFMEM_NODE_COUNT ||
         target_mask > 0xFFu ||
-        deadline_1e3ns == 0u ||
+        deadline_us == 0u ||
         (uplink_duplex_mode != DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF &&
          uplink_duplex_mode != DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_FULL) ||
         (downlink_duplex_mode != DISTRIBUTED_REFMEM_ADAPTER_DUPLEX_HALF &&
@@ -1807,7 +1807,7 @@ bool distributed_refmem_configure_node_load_auto_sync(
     s_node_load_auto_sync.target_mask = (uint8_t)target_mask;
     s_node_load_auto_sync.baud_hz =
         baud_hz == 0u ? BOARD_REFMEM_SPI_BAUD_HZ : baud_hz;
-    s_node_load_auto_sync.deadline_1e3ns = deadline_1e3ns;
+    s_node_load_auto_sync.deadline_us = deadline_us;
     s_node_load_auto_sync.uplink_duplex_mode = uplink_duplex_mode;
     s_node_load_auto_sync.downlink_duplex_mode = downlink_duplex_mode;
     s_node_load_auto_sync.uplink_adapter_pins = *uplink_adapter_pins;
@@ -1835,7 +1835,7 @@ void distributed_refmem_get_node_load_auto_sync(
     snapshot->local_slot = s_node_load_auto_sync.local_slot;
     snapshot->target_mask = s_node_load_auto_sync.target_mask;
     snapshot->baud_hz = s_node_load_auto_sync.baud_hz;
-    snapshot->deadline_1e3ns = s_node_load_auto_sync.deadline_1e3ns;
+    snapshot->deadline_us = s_node_load_auto_sync.deadline_us;
     snapshot->uplink_duplex_mode = s_node_load_auto_sync.uplink_duplex_mode;
     snapshot->uplink_rx_pin = s_node_load_auto_sync.uplink_adapter_pins.rx_pin;
     snapshot->uplink_sck_pin = s_node_load_auto_sync.uplink_adapter_pins.sck_pin;

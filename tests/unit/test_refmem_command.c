@@ -45,7 +45,7 @@ static refmem_command_request_t make_request(uint32_t seq)
     request.payload_crc32 = 0xAABBCCDDu;
     request.issue_epoch = 7u;
     request.run_id = 9u;
-    request.timeout_1e3ns = 100u;
+    request.timeout_us = 100u;
     return request;
 }
 

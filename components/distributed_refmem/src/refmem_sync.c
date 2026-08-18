@@ -137,7 +137,7 @@ static bool refmem_sync_commit_fence(refmem_sync_context_t *context,
         fence->passed = 1u;
     }
 
-    if (fence->passed == 0u && fence_payload.deadline_1e3ns == 0u) {
+    if (fence->passed == 0u && fence_payload.deadline_us == 0u) {
         fence->timed_out = 1u;
     }
     return true;
@@ -171,8 +171,8 @@ static bool refmem_sync_commit_quality(refmem_sync_context_t *context,
     quality->late_count = quality_payload.late_count;
     quality->timeout_count = quality_payload.timeout_count;
     quality->last_error = quality_payload.last_error;
-    quality->p99_1e3ns = quality_payload.p99_1e3ns;
-    quality->p999_1e3ns = quality_payload.p999_1e3ns;
+    quality->p99_us = quality_payload.p99_us;
+    quality->p999_us = quality_payload.p999_us;
     quality->evidence_index = quality_payload.evidence_index;
     quality->last_frame_seq32 = header->seq32;
     quality->received_count++;

@@ -351,7 +351,7 @@ def csv_row(direction: Direction,
         "max_abs_offset_ns": q[2],
         "freq_offset_ppb": q[3],
         "jitter_pk_ns": q[4],
-        "sample_age_1e3ns": q[5],
+        "sample_age_us": q[5],
         "health_state": q[10],
         "lock_quality_tier": q[11],
         "input_ready": r[0],
@@ -385,7 +385,7 @@ def csv_row(direction: Direction,
         "dco_update_seq": dco[7],
         "path_delay_ns": pd[9],
         "path_delay_jitter_ns": pd[10],
-        "path_delay_freshness_1e3ns": pd[13],
+        "path_delay_freshness_us": pd[13],
     }
 
 

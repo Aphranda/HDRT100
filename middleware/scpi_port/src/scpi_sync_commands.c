@@ -177,7 +177,7 @@ scpi_result_t scpi_sync_quality_q(scpi_t *context)
     SCPI_ResultUInt32(context, budget != NULL ? budget->max_abs_offset_ns : 0u);
     SCPI_ResultInt32(context, budget != NULL ? budget->freq_offset_ppb : 0);
     SCPI_ResultUInt32(context, quality != NULL ? quality->jitter_pk_ns : 0u);
-    SCPI_ResultUInt32(context, quality != NULL ? quality->last_sample_age_1e3ns : 0u);
+    SCPI_ResultUInt32(context, quality != NULL ? quality->last_sample_age_us : 0u);
     SCPI_ResultUInt32(context, quality != NULL ? quality->last_reject_code : 0u);
     SCPI_ResultUInt32(context, quality != NULL ? quality->accepted_sample_count : 0u);
     SCPI_ResultUInt32(context, quality != NULL ? quality->rejected_sample_count : 0u);
@@ -533,7 +533,7 @@ scpi_result_t scpi_cmd_sync_vdc_path_delay_q(scpi_t *context)
     SCPI_ResultUInt32(context, entry.jitter_ns);
     SCPI_ResultUInt32(context, entry.stddev_ns);
     SCPI_ResultUInt32(context, entry.cal_crc32);
-    SCPI_ResultUInt32(context, entry.freshness_1e3ns);
+    SCPI_ResultUInt32(context, entry.freshness_us);
     SCPI_ResultUInt32(context, entry.writer);
     SCPI_ResultUInt32(context, entry.update_seq);
     return SCPI_RES_OK;

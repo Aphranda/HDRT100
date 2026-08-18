@@ -811,7 +811,7 @@ bool vdc_dpll_manager_start_observation_self_test(
         const tdma_service_intent_config_t tdma_config = {
             .window_epoch = tx_plan.schedule_epoch,
             .window_index = tx_plan.slot_index,
-            .deadline_1e3ns = vdc_dpll_manager_ns_to_ceil_us(
+            .deadline_us = vdc_dpll_manager_ns_to_ceil_us(
                 (uint32_t)(tx_plan.window_end_ns - tx_plan.window_start_ns)),
             .role = TDMA_SERVICE_ROLE_MASTER,
             .baud_hz = 25000000u,
