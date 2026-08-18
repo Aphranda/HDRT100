@@ -393,7 +393,7 @@ components/tdma/
 - `TdmaPayloadRegistry` 已从 `tdma_service.c` 拆出；`tdma_service` 保留聚合 API，并委托注册、whitelist、capacity 和 admission。
 - `TdmaRingRuntime` 已从 `tdma_service.c` 拆出；`tdma_service` 保留聚合配置与 snapshot API，并委托 ring config、core1 service 和 seqlock snapshot。
 - `TdmaPioSpiRingAdapter` 实现 `TdmaRingAdapterOps`，作为 PIO SPI bring-up transport 的 ring adapter；它只编解码 `TdmaTransportFrame`，维护 UP/DOWN sequence、identity CRC、idle beacon 计数和 timestamp 元数据，不接触 VDC/RefMem 内帧。
-- `TdmaPioSpiPhys` 是 PIO/DMA 常驻物理层（无 CS 3-wire、25 MHz、downlink master TX + uplink slave RX 双 SM 同时 arm）；它由 ring adapter 的 start/stop 回调经 `set_phys_ctrl` 驱动 arm/disarm，`set_phys` 提供帧级收发钩子。
+- `TdmaPioSpiPhys` 是 PIO/DMA 常驻物理层（当前最小系统为 frame-sync/CS + DATA + CLK 的三线单向腿：发送端闲置 RX/CS `GPIO21`、TX/DATA `GPIO23`、CLK `GPIO24` -> 对端闲置 TX/CS `GPIO16`、RX/DATA `GPIO18`、CLK `GPIO19`，downlink master TX + uplink slave RX 双 SM 同时 arm）；它由 ring adapter 的 start/stop 回调经 `set_phys_ctrl` 驱动 arm/disarm，`set_phys` 提供帧级收发钩子。CS 在这里表示点对点 `FRAME_SYNC`，不是多从机片选。
 - **Adapter 模块化边界（HAOFV）**：`tdma_service` 维护 `adapter_type -> TdmaRingAdapterOps` 注册表（`tdma_service_register_adapter_impl()`），`tdma_service_configure_foundation_profile()` 按 active profile 的 `resource.adapter_type` 绑定对应实现；未注册类型解绑并报告 `ADAPTER_MISSING`。当前注册 `TDMA_ADAPTER_PIO_SPI`；后续 `TDMA_ADAPTER_BISS_C / UART / RS485` 以独立 adapter 模块注册即可切换，不改变 ring runtime 契约。
 - RefMem 侧 `refmem_realtime_tdma` 只保留兼容 adapter，不再拥有调度器；其命令式 `refmem_spi_physical_adapter` 是历史 SCPI 驱动路径，TDMA 常驻环启用后由 ring owner 独占 pio0 SM2/SM3，业务维护路径不得再 arm 同一组 SM。
 - VDC 侧 `SYSTem:SYNC:VDC:TDMA:*` 只能作为 VDC maintenance projection，不能表示 VDC 拥有 TDMA。

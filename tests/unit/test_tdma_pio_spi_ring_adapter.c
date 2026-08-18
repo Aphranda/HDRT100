@@ -267,11 +267,12 @@ int main(void)
                              1000500ull);
 
         /* The second service round is the deterministic 500 Hz throttle
-         * margin: UP stays ready, but no new frame is emitted or consumed. */
+         * margin: UP stays ready and DOWN stays fresh, but no new feedback
+         * sequence is produced for closed-loop evidence. */
         tdma_ring_runtime_service(&runtime);
         (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
         failed += expect_u32("throttled up running", snapshot.up_running, 1u);
-        failed += expect_u32("throttled down idle", snapshot.down_running, 0u);
+        failed += expect_u32("throttled down fresh", snapshot.down_running, 1u);
         failed += expect_u32("throttled beacon tx unchanged",
                              snapshot.idle_beacon_tx_count, 1u);
         failed += expect_u32("throttled beacon rx unchanged",

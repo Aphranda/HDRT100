@@ -20,7 +20,13 @@
  * SM stops consuming (e.g. the config plane disarms it while core1 is mid
  * frame), put_blocking would hang core1 forever and break the flash lockout
  * protocol. Instead we wait at most this long per word and fail the frame. */
-#define TDMA_PIO_SPI_TX_PUT_TIMEOUT_1E3NS 500u
+#define TDMA_PIO_SPI_TX_PUT_TIMEOUT_US 500u
+
+/* CS is now the point-to-point frame-sync. After the fixed frame DMA completes,
+ * the sender can still hold CS low while the final shifted byte drains. Wait
+ * for CS idle before clearing FIFO/re-arming DMA, otherwise the RX SM can treat
+ * the low tail as the beginning of the next capture window. */
+#define TDMA_PIO_SPI_RX_CSN_IDLE_WAIT_US 500u
 
 /* Continuous RX capture (EtherCAT-style line-speed pipeline): two 1-frame DMA
  * buffers alternate. When the DMA finishes one buffer it re-arms the other
@@ -83,14 +89,31 @@ static void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys)
     phys->snapshot.role = phys->role;
     phys->snapshot.baud_hz = phys->baud_hz;
     phys->snapshot.tx_sck_pin = phys->tx_sck_pin;
+    phys->snapshot.tx_csn_pin = phys->tx_csn_pin;
     phys->snapshot.tx_pin = phys->tx_pin;
     phys->snapshot.rx_sck_pin = phys->rx_sck_pin;
+    phys->snapshot.rx_csn_pin = phys->rx_csn_pin;
     phys->snapshot.rx_pin = phys->rx_pin;
 }
 
-static uint64_t tdma_pio_spi_phys_now_1e3ns(void)
+static uint64_t tdma_pio_spi_phys_now_us(void)
 {
     return to_us_since_boot(get_absolute_time());
+}
+
+static uint32_t tdma_pio_spi_phys_frame_tail_us(const tdma_pio_spi_phys_t *phys,
+                                                size_t packet_size)
+{
+    const uint32_t baud_hz =
+        (phys != NULL && phys->baud_hz != 0u) ? phys->baud_hz : 1000000u;
+    const size_t packet_words = packet_size + TDMA_PIO_SPI_PACKET_HEADER_SIZE;
+    /* After the last pio_sm_put(), up to the joined TX FIFO depth plus the
+     * current OSR can still be on the wire. Keep CS active for that tail. */
+    const size_t tail_words = packet_words < 10u ? packet_words : 10u;
+    const uint64_t bit_us =
+        ((uint64_t)tail_words * 8ull * 1000000ull + baud_hz - 1ull) /
+        baud_hz;
+    return (uint32_t)bit_us + 10u;
 }
 
 static bool tdma_pio_spi_phys_ensure_rx_dma(void)
@@ -100,6 +123,23 @@ static bool tdma_pio_spi_phys_ensure_rx_dma(void)
     }
     s_tdma_pio_spi_rx_dma_channel = dma_claim_unused_channel(false);
     return s_tdma_pio_spi_rx_dma_channel >= 0;
+}
+
+static bool tdma_pio_spi_phys_wait_rx_csn_idle(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) {
+        return false;
+    }
+    const uint64_t deadline_us =
+        tdma_pio_spi_phys_now_us() + TDMA_PIO_SPI_RX_CSN_IDLE_WAIT_US;
+    while (!gpio_get(phys->rx_csn_pin)) {
+        if (tdma_pio_spi_phys_now_us() >= deadline_us) {
+            phys->snapshot.rx_stall_count++;
+            return false;
+        }
+        tight_loop_contents();
+    }
+    return true;
 }
 
 static void tdma_pio_spi_phys_rx_prepare(tdma_pio_spi_phys_t *phys)
@@ -114,15 +154,17 @@ static void tdma_pio_spi_phys_rx_prepare(tdma_pio_spi_phys_t *phys)
 
 /* Half-duplex ring: the pin set is symmetric across boards (measured wiring,
  * see board_config.h), so every ring node uses the same downlink TX leg
- * (SCK=24, TX=23) and uplink RX leg (SCK=19, RX=18). */
+ * (CS=21, TX=23, SCK=24) and uplink RX leg (CS=16, RX=18, SCK=19). */
 static void tdma_pio_spi_phys_configure(tdma_pio_spi_phys_t *phys)
 {
     phys->tx_sm = BOARD_TDMA_SPI_MASTER_SM;
     phys->tx_pin = BOARD_TDMA_SPI_DOWNLINK_TX_PIN;
     phys->tx_sck_pin = BOARD_TDMA_SPI_DOWNLINK_SCK_PIN;
+    phys->tx_csn_pin = BOARD_TDMA_SPI_DOWNLINK_CSN_PIN;
     phys->rx_sm = BOARD_TDMA_SPI_SLAVE_SM;
     phys->rx_pin = BOARD_TDMA_SPI_UPLINK_RX_PIN;
     phys->rx_sck_pin = BOARD_TDMA_SPI_UPLINK_SCK_PIN;
+    phys->rx_csn_pin = BOARD_TDMA_SPI_UPLINK_CSN_PIN;
 
     tdma_pio_spi_tx_byte_program_init(BOARD_TDMA_SPI_PIO,
                                       phys->tx_sm,
@@ -134,8 +176,11 @@ static void tdma_pio_spi_phys_configure(tdma_pio_spi_phys_t *phys)
                                       phys->rx_sm,
                                       s_tdma_pio_spi_rx_offset,
                                       phys->rx_pin,
-                                      UINT32_MAX, /* no CS pin on the ring */
+                                      phys->rx_csn_pin,
                                       phys->rx_sck_pin);
+    gpio_init(phys->tx_csn_pin);
+    gpio_set_dir(phys->tx_csn_pin, GPIO_OUT);
+    gpio_put(phys->tx_csn_pin, true);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);
     pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->tx_sm);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, true);
@@ -153,6 +198,7 @@ static void tdma_pio_spi_phys_rx_rearm(tdma_pio_spi_phys_t *phys,
                                        uint32_t buf_index)
 {
     const uint channel = (uint)s_tdma_pio_spi_rx_dma_channel;
+    (void)tdma_pio_spi_phys_wait_rx_csn_idle(phys);
     dma_channel_abort(channel);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
     dma_channel_config dma_cfg = dma_channel_get_default_config(channel);
@@ -264,7 +310,9 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->role = (config->local_slot_id == config->reference_slot_id)
                      ? TDMA_PIO_SPI_ROLE_MASTER
                      : TDMA_PIO_SPI_ROLE_SLAVE;
-    phys->baud_hz = TDMA_PIO_SPI_DEFAULT_BAUD_HZ;
+    phys->baud_hz = BOARD_TDMA_SPI_BAUD_HZ != 0u
+                        ? BOARD_TDMA_SPI_BAUD_HZ
+                        : TDMA_PIO_SPI_DEFAULT_BAUD_HZ;
     tdma_pio_spi_phys_configure(phys);
     if (!tdma_pio_spi_phys_rx_arm(phys)) {
         return false;
@@ -311,12 +359,16 @@ void tdma_pio_spi_phys_disarm(void *context)
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
     gpio_set_function(phys->tx_sck_pin, GPIO_FUNC_SIO);
+    gpio_set_function(phys->tx_csn_pin, GPIO_FUNC_SIO);
     gpio_set_function(phys->tx_pin, GPIO_FUNC_SIO);
     gpio_set_function(phys->rx_sck_pin, GPIO_FUNC_SIO);
+    gpio_set_function(phys->rx_csn_pin, GPIO_FUNC_SIO);
     gpio_set_function(phys->rx_pin, GPIO_FUNC_SIO);
     gpio_set_dir(phys->tx_sck_pin, GPIO_IN);
+    gpio_set_dir(phys->tx_csn_pin, GPIO_IN);
     gpio_set_dir(phys->tx_pin, GPIO_IN);
     gpio_set_dir(phys->rx_sck_pin, GPIO_IN);
+    gpio_set_dir(phys->rx_csn_pin, GPIO_IN);
     gpio_set_dir(phys->rx_pin, GPIO_IN);
     phys->armed = false;
     phys->rx_capture_active = false;
@@ -326,10 +378,10 @@ void tdma_pio_spi_phys_disarm(void *context)
 static bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
                                      uint32_t word)
 {
-    const uint64_t deadline_1e3ns =
-        tdma_pio_spi_phys_now_1e3ns() + TDMA_PIO_SPI_TX_PUT_TIMEOUT_1E3NS;
+    const uint64_t deadline_us =
+        tdma_pio_spi_phys_now_us() + TDMA_PIO_SPI_TX_PUT_TIMEOUT_US;
     while (pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO, phys->tx_sm)) {
-        if (tdma_pio_spi_phys_now_1e3ns() >= deadline_1e3ns) {
+        if (tdma_pio_spi_phys_now_us() >= deadline_us) {
             phys->snapshot.tx_timeout_count++;
             return false; /* SM stopped: do not hang core1. */
         }
@@ -364,8 +416,10 @@ bool tdma_pio_spi_phys_tx(void *context,
         (uint8_t)(packet_size & 0xFFu),
         (uint8_t)(packet_size >> 8u),
     };
+    gpio_put(phys->tx_csn_pin, false);
     for (uint32_t i = 0u; i < TDMA_PIO_SPI_PACKET_HEADER_SIZE; i++) {
         if (!tdma_pio_spi_phys_tx_put(phys, ((uint32_t)header[i]) << 24u)) {
+            gpio_put(phys->tx_csn_pin, true);
             tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
             phys->snapshot.tx_busy_count++;
             return false;
@@ -373,11 +427,14 @@ bool tdma_pio_spi_phys_tx(void *context,
     }
     for (size_t i = 0u; i < packet_size; i++) {
         if (!tdma_pio_spi_phys_tx_put(phys, ((uint32_t)packet[i]) << 24u)) {
+            gpio_put(phys->tx_csn_pin, true);
             tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
             phys->snapshot.tx_busy_count++;
             return false;
         }
     }
+    busy_wait_us_32(tdma_pio_spi_phys_frame_tail_us(phys, packet_size));
+    gpio_put(phys->tx_csn_pin, true);
 
     phys->snapshot.tx_count++;
     phys->snapshot.last_tx_size = (uint32_t)packet_size;

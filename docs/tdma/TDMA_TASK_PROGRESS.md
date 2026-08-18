@@ -42,6 +42,71 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
 
 ## 任务记录
 
+### TDMA-TASK-20260818-003 - PIO SPI 下行闲置数据线改作 FRAME_SYNC/CS
+
+- 状态：完成代码与文档更新，A/B 构建通过，两板 OTA 与方向性丢帧 HIL 通过；正式 closed-loop evidence 仍待硬件 timestamp latch。
+- 日期：2026-08-18
+- 任务目标：
+  - 修正 1 MHz 下 `COM5->COM6` 方向性丢帧的物理层对齐风险。
+  - 将发送端未用 RX/MISO 与接收端未用 TX/MISO 的互连线改作点对点 `FRAME_SYNC/CS`，让 RX PIO 在帧有效期间采样，而不是完全依赖无 CS 连续流 + magic 扫描恢复对齐。
+- 完成内容：
+  - `board_config.h` 冻结当前最小系统 TDMA 三线单向腿：发送端闲置 RX/CS `GPIO21`、TX/DATA `GPIO23`、CLK `GPIO24`，连接到对端闲置 TX/CS `GPIO16`、RX/DATA `GPIO18`、CLK `GPIO19`。
+  - `tdma_pio_spi_phys` 增加 `tx_csn_pin/rx_csn_pin`，TX 发帧前拉低 CS，尾部字节移出后拉高 CS；RX PIO 使用已有 `csn_pin` patch，等待 CS 有效后按 SCK 采样。
+  - RX DMA rearm 前等待 `RX_CSN` 回到空闲高电平，避免在一帧 CS 低尾部清 FIFO / 重新开 DMA。
+  - 保留 magic/header 扫描作为保险和诊断，不再把它作为唯一帧同步来源。
+- 验证结果：
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260818072932`，package CRC `0x15177089`。
+  - `ota_multi_update.py` 对 COM5/COM6 OTA PASS，两板均运行 build `20260818072932`。
+  - `SYSTem:SYNC:VDC:TDMA:PHYS?` 确认 TDMA PHYS 末尾为 `tx_csn=21, rx_csn=16`。
+  - `ring_rate_measure.py --window-s 15`：COM5 reference TX `494.9/s`、RX `473.7/s`、`rx_bad=0`；COM6 forward RX/TX `473.6/s`、`rx_bad=0`。与前一版 `COM5->COM6` 约 15% 丢帧、回传方向跟随丢帧相比，方向性丢帧已明显收敛。
+- 还需完成：
+  - 补 PIO/DMA 硬件 timestamp latch 后重新跑 5 min HIL，让 `simultaneous_feedback_loop_evidence` 从 `TIMESTAMP_MISSING` 进入正式闭环。
+  - 继续评估剩余 `~4%` TX/RX 速率差是否来自 500 Hz 发射节流、core1 service 相位、DMA rearm 窗口或后续需要的 ping-pong/ring DMA。
+- 关联文件：
+  - `boards/rp2350_trig/inc/board_config.h`
+  - `components/tdma/inc/tdma_pio_spi_phys.h`
+  - `components/tdma/src/tdma_pio_spi_phys.c`
+  - `docs/tdma/TDMA_DOMAIN_TODO.md`
+  - `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
+- 下一步：
+  - 在当前 `rx_bad=0` 基础上推进硬件 timestamp latch；若长时间 HIL 仍出现丢帧，再从“真实连续 DMA ring / DMA IRQ ping-pong / PIO frame-length RX 程序”方向继续收敛。
+
+### TDMA-TASK-20260818-002 - 两板 resident ring UP/DOWN HIL 与 freshness 语义收敛
+
+- 状态：完成代码修正、host 全量门禁、A/B 构建、两板 OTA 和短窗口 HIL；正式 closed-loop evidence 仍待硬件 timestamp latch。
+- 日期：2026-08-18
+- 任务目标：
+  - 回答当前 TDMA 是否已经是环路测试：每块板是否同时运行上行 RX 和下行 TX。
+  - 修正 `down_running` 只表示“本轮 service 恰好收到包”的瞬时语义，避免 500 Hz 发帧 / 1 kHz service 的间隔轮把实际运行中的 DOWN leg 清零。
+  - 保持 HAOFV evidence 边界：运行状态可以有 freshness，`simultaneous_feedback_loop_evidence` 仍只认新序列、CRC 和硬件 timestamp correlation。
+- 完成内容：
+  - `tdma_pio_spi_ring_adapter` 增加 `last_rx_service_ns`，`down_running` 改为 RX freshness window 内保持运行；收到坏帧仍撤销 DOWN running。
+  - `tdma_ring_runtime` 的 closed-loop evidence 增加“DOWN RX sequence 必须相对上一轮变化”的门禁，防止 throttled round 重用上一帧 feedback。
+  - 清理残留时间单位命名：`1e3ns` 代码/工具字段恢复为 `us`，SCPI 指令表中的 `last_sample_age_1e3ns` 改为 `last_sample_age_us`。
+- 验证结果：
+  - `run_tdma_pio_spi_ring_adapter_tests.ps1` 通过。
+  - `run_tdma_ring_runtime_tests.ps1` 通过。
+  - `run_host_unit_tests.ps1 -HostGccDir D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin` 通过，26/26。
+  - `python tools\docs_check\docs_check.py` 通过，保留既有 2 个 risk review 文件命名 warning。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260818063242`，package CRC `0x4A379A27`。
+  - `ota_multi_update.py` 对 COM5/COM6 OTA PASS，两板均运行 build `20260818063242`。
+  - `SYSTem:TDMA:RING:LOCAL 1` 将 COM6 切为 forward slot1 后，`ring_rate_measure.py --window-s 10` 显示：COM5 reference TX `493.0/s`、RX `416.3/s`、rx_bad `+1`；COM6 forward RX/TX `492.5/s`、rx_bad `+0`。
+  - `tdma_ring_monitor.py --duration-s 10` 显示 COM5/COM6 均 `up_running=1/down_running=1`；COM5 仍 `simultaneous_feedback_loop_evidence=0`、reason=`TIMESTAMP_MISSING`，因为当前 `tdma_pio_spi_phys_tx()` 还未产生硬件 TX timestamp。
+- 还需完成：
+  - P0.5-4/5：在 PIO/DMA 边界补 reference TX / feedback RX 硬件 latch，发布 `HARDWARE_TICK / <=100 ns / HARDWARE_LATCHED` timestamp，形成正式 `simultaneous_feedback_loop_evidence=1`。
+  - 将本地 slot 选择从手工 `SYSTem:TDMA:RING:LOCAL` 迁入 System Pack / SlotClaim / board UUID 派生流程，避免两板重启后都回到 slot0。
+- 关联文件：
+  - `components/tdma/inc/tdma_pio_spi_ring_adapter.h`
+  - `components/tdma/src/tdma_pio_spi_ring_adapter.c`
+  - `components/tdma/src/tdma_ring_runtime.c`
+  - `components/tdma/inc/tdma_pio_spi_phys.h`
+  - `components/tdma/src/tdma_pio_spi_phys.c`
+  - `tests/unit/test_tdma_pio_spi_ring_adapter.c`
+  - `tests/unit/test_tdma_ring_runtime.c`
+  - `tools/tdma_ring_monitor/tdma_field_parse.py`
+- 下一步：
+  - 进入 P0.5-5：先实现 PIO SPI bring-up adapter 的硬件 timestamp latch / metadata，再跑 5 min HIL 和 DPLL lock quality SVG。
+
 ### TDMA-TASK-20260818-001 - PIO SPI ring adapter host loopback evidence 模型收敛
 
 - 状态：完成 host 测试模型修正、host 单测、文档检查和 RTOS multicore smoke 构建；两板 HIL 待后续执行。
@@ -74,7 +139,7 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
   - 执行 P0.5-3 的固件侧：两板同时 UP/DOWN 常驻短帧，空闲持续 `IDLE_BEACON`，不依赖 host 交替维护命令。
   - 按 HAOFV adapter 边界预留模块化切换空间（当前 PIO SPI，后续 BISS-C/UART/RS485 可注册替换）。
 - 完成内容：
-  - 新增 `tdma_pio_spi_phys.h/.c`：无 CS 3-wire PIO SPI 常驻物理层（25 MHz，downlink master TX + uplink slave RX 双 SM 同时 arm，复用已验证的 `tx_byte/rx_byte` PIO 程序和 4B magic+length 定界）；`phys_arm` 按 ring config 的 local slot 选择 downlink SCK（slot 0 -> 22、slot 1 -> 21，对应实测线序）。
+  - 新增 `tdma_pio_spi_phys.h/.c`：首版为无 CS 3-wire PIO SPI 常驻物理层（downlink master TX + uplink slave RX 双 SM 同时 arm，复用已验证的 `tx_byte/rx_byte` PIO 程序和 4B magic+length 定界）；后续 TDMA-TASK-20260818-003 已将 bring-up 物理层修正为 `FRAME_SYNC/CS + DATA + CLK` 三线单向腿。
   - 新增 `tdma_pio_spi.pio`（TDMA 命名空间副本，避免 tdma 依赖 refmem 生成头）。
   - `tdma_pio_spi_ring_adapter` 增加 REFERENCE/FORWARD role：`local==reference` 时发新 `IDLE_BEACON` 并收环回帧；否则收上一板帧、`advance_hop` 转发（保持 origin/sequence/identity CRC、重算 transport CRC），`forward_count` 计入 snapshot；`set_phys_ctrl` 在 adapter start/stop 时驱动物理层 arm/disarm。
   - `tdma_service` 增加 adapter 注册表 `tdma_service_register_adapter_impl()`：`tdma_service_configure_foundation_profile()` 按 `resource.adapter_type` 绑定对应实现，未注册类型解绑并报 `ADAPTER_MISSING`；`tdma_ring_runtime_unbind_adapter()` 支持解绑。

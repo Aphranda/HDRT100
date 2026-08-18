@@ -237,6 +237,7 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     memset(&adapter_status, 0, sizeof(adapter_status));
     bool adapter_service_ok = false;
     tdma_ring_runtime_reason_t reason = TDMA_RING_RUNTIME_REASON_NONE;
+    const uint32_t previous_down_rx_sequence = runtime->down_rx_sequence;
     if (!up_down_config_ready) {
         tdma_ring_runtime_stop_adapter(runtime);
         if (enabled != 0u) {
@@ -283,6 +284,7 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
 
     uint32_t round_trip_ns = 0u;
     const bool feedback_correlated = adapter_service_ok &&
+        adapter_status.down_rx_sequence != previous_down_rx_sequence &&
         tdma_ring_runtime_feedback_correlated(runtime,
                                               &adapter_status,
                                               &round_trip_ns);

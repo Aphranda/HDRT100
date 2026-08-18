@@ -12,11 +12,12 @@
  *
  * P0.5-3 topology (ring + half duplex, one RX leg + one TX leg per board):
  * every board carries two independent PIO SMs:
- *   - TX leg (SPI master, downlink): drives SCK + data out toward the next
- *     board in the ring (C_n -> C_{n+1}). One TX direction only.
- *   - RX leg (SPI slave, uplink): follows the SCK driven by the previous
- *     board and samples the data coming from it (C_{n-1} -> C_n). One RX
- *     direction only.
+ *   - TX leg (SPI master, downlink): drives frame-sync/CS + SCK + data out
+ *     toward the next board in the ring (C_n -> C_{n+1}). One TX direction
+ *     only.
+ *   - RX leg (SPI slave, uplink): follows the frame-sync/CS and SCK driven by
+ *     the previous board and samples the data coming from it (C_{n-1} -> C_n).
+ *     One RX direction only.
  * The reference board (slot == reference_slot) originates one IDLE_BEACON per
  * TDMA cycle on its TX leg; every follower receives on its RX leg, advances
  * the hop and re-emits on its TX leg, so the frame travels once around the
@@ -24,10 +25,8 @@
  * frame back on the RX leg.
  *
  * Measured min-system wiring (tools/tdma_ring_monitor/line_map_check.py):
- *   A(slot0) downlink:  SCK=22 -> B.18, TX=23 -> B.16 (B uplink RX)
- *   B(slot1) downlink:  SCK=19 -> A.18, TX=23 -> A.16 (A uplink RX)
- * Both boards: uplink SCK=18, uplink RX=16, downlink TX=23. Only the
- * downlink SCK pin is slot-selected (slot0=22, slot1=19).
+ *   Cn downlink: CS=21, TX=23, SCK=24 -> Cn+1 uplink: CS=16, RX=18, SCK=19.
+ * The TX-side CS is a point-to-point frame-sync signal, not a bus chip select.
  *
  * This layer is byte/transport level only: it carries the 4-byte packet
  * header (magic + length) plus the TdmaTransportFrame body and never parses
@@ -39,7 +38,7 @@
 #define TDMA_PIO_SPI_PACKET_HEADER_SIZE 4u
 #define TDMA_PIO_SPI_RX_DMA_WORD_MAX \
     (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_SHORT_PACKET_MAX)
-#define TDMA_PIO_SPI_RX_STABLE_1E3NS 1000u
+#define TDMA_PIO_SPI_RX_STABLE_US 1000u
 
 /* Continuous RX capture ring (EtherCAT-style): the DMA runs in ring mode
  * (write address wraps every TDMA_PIO_SPI_RX_RING_WORDS) and re-arms itself
@@ -78,8 +77,10 @@ typedef struct {
     uint32_t last_rx_size;
     uint64_t last_rx_timestamp_ns;
     uint32_t tx_sck_pin;
+    uint32_t tx_csn_pin;
     uint32_t tx_pin;
     uint32_t rx_sck_pin;
+    uint32_t rx_csn_pin;
     uint32_t rx_pin;
     /* RX capture diagnostics (bring-up): how often the DMA capture produced
      * a partial frame, how often the rx_byte SM stalled on a full RX FIFO,
@@ -116,24 +117,25 @@ typedef struct {
     bool armed;
     uint32_t role;
     uint32_t baud_hz;
-    /* Downlink TX leg (SPI master, drives SCK + data toward next board). */
+    /* Downlink TX leg (SPI master, drives CS + SCK + data toward next board). */
     uint32_t tx_sm;
     uint32_t tx_sck_pin;
+    uint32_t tx_csn_pin;
     uint32_t tx_pin;
-    /* Uplink RX leg (SPI slave, follows previous board's SCK). */
+    /* Uplink RX leg (SPI slave, follows previous board's CS + SCK). */
     uint32_t rx_sm;
     uint32_t rx_sck_pin;
+    uint32_t rx_csn_pin;
     uint32_t rx_pin;
     tdma_pio_spi_phys_snapshot_t snapshot;
     bool rx_capture_active;
     size_t rx_capture_max_words;
     uint32_t rx_capture_last_remaining;
-    uint64_t rx_capture_last_change_1e3ns;
+    uint64_t rx_capture_last_change_us;
 } tdma_pio_spi_phys_t;
 
 /* Called by the ring adapter start() once the active ring config is known.
- * Both legs (downlink TX master + uplink RX slave) are armed together; the
- * downlink SCK pin is selected by the local ring slot. */
+ * Both legs (downlink TX master + uplink RX slave) are armed together. */
 bool tdma_pio_spi_phys_arm(void *context,
                            const tdma_ring_runtime_config_t *config);
 void tdma_pio_spi_phys_disarm(void *context);

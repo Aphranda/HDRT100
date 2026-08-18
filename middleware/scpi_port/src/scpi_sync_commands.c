@@ -483,6 +483,8 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.rx_busy_moved);
     SCPI_ResultUInt32(context, snapshot.rx_magic_at_zero);
     SCPI_ResultUInt32(context, snapshot.rx_magic_at_shift);
+    SCPI_ResultUInt32(context, snapshot.tx_csn_pin);
+    SCPI_ResultUInt32(context, snapshot.rx_csn_pin);
     return SCPI_RES_OK;
 }
 

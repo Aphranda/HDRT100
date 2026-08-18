@@ -96,6 +96,7 @@ typedef struct {
     uint32_t timestamp_flags;
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
+    uint64_t last_rx_service_ns;
     uint32_t last_error;
     uint32_t local_slot_id;
     uint32_t schedule_crc32;
@@ -130,6 +131,7 @@ typedef struct {
     uint32_t timestamp_flags;
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
+    uint64_t last_rx_service_ns;
     uint32_t last_error;
     uint8_t last_rx_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t last_rx_packet_size;

@@ -166,6 +166,7 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->down_rx_frame_crc32 = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
     adapter->feedback_rx_timestamp_ns = 0ull;
+    adapter->last_rx_service_ns = 0ull;
     adapter->last_rx_packet_size = 0u;
     adapter->last_tx_ns = 0ull;
     adapter->last_error = TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE;
@@ -189,6 +190,7 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
     adapter->down_rx_frame_crc32 = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
     adapter->feedback_rx_timestamp_ns = 0ull;
+    adapter->last_rx_service_ns = 0ull;
     adapter->last_rx_packet_size = 0u;
     adapter->rx_queue_head = 0u;
     adapter->rx_queue_count = 0u;
@@ -397,7 +399,6 @@ static bool tdma_pio_spi_ring_adapter_service(
     if (adapter == NULL || status == NULL) {
         return false;
     }
-    (void)now_ns;
     memset(status, 0, sizeof(*status));
     adapter->service_count++;
 
@@ -469,9 +470,28 @@ static bool tdma_pio_spi_ring_adapter_service(
     if (!tx_ok) {
         return false;
     }
+    if (rx_ok) {
+        adapter->last_rx_service_ns = now_ns;
+    }
 
     status->up_running = 1u;
-    status->down_running = rx_ok ? 1u : 0u;
+    if (rx_ok) {
+        status->down_running = 1u;
+    } else if (adapter->last_rx_service_ns != 0ull &&
+               adapter->last_error !=
+                   TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_BAD_FRAME) {
+        const uint64_t freshness_ns =
+            adapter->config.feedback_timeout_ns != 0u
+                ? (uint64_t)adapter->config.feedback_timeout_ns * 4ull
+                : 4000000ull;
+        status->down_running =
+            (now_ns >= adapter->last_rx_service_ns &&
+             now_ns - adapter->last_rx_service_ns <= freshness_ns)
+                ? 1u
+                : 0u;
+    } else {
+        status->down_running = 0u;
+    }
     status->up_tx_sequence = adapter->up_sequence;
     status->down_rx_sequence = adapter->down_rx_sequence;
     status->up_tx_frame_crc32 = adapter->up_tx_frame_crc32;
@@ -526,6 +546,7 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
     snapshot->timestamp_flags = adapter->timestamp_flags;
     snapshot->reference_tx_timestamp_ns = adapter->reference_tx_timestamp_ns;
     snapshot->feedback_rx_timestamp_ns = adapter->feedback_rx_timestamp_ns;
+    snapshot->last_rx_service_ns = adapter->last_rx_service_ns;
     snapshot->last_error = adapter->last_error;
     snapshot->local_slot_id = adapter->config.local_slot_id;
     snapshot->schedule_crc32 = adapter->config.schedule_crc32;

@@ -160,6 +160,8 @@ int main(void)
     adapter.status.timestamp_resolution_ns = 100u;
     adapter.status.timestamp_flags =
         TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED;
+    adapter.status.up_tx_sequence = 8u;
+    adapter.status.down_rx_sequence = 8u;
     tdma_ring_runtime_service(&runtime);
     (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
     failed += expect_u32("hardware feedback accepted",
@@ -176,6 +178,8 @@ int main(void)
                          2u);
 
     adapter.status.feedback_rx_timestamp_ns = 1020000ull;
+    adapter.status.up_tx_sequence = 9u;
+    adapter.status.down_rx_sequence = 9u;
     tdma_ring_runtime_service(&runtime);
     (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
     failed += expect_u32("feedback timeout rejects evidence",
@@ -186,7 +190,8 @@ int main(void)
                          TDMA_RING_RUNTIME_REASON_TIMESTAMP_MISSING);
 
     adapter.status.feedback_rx_timestamp_ns = 1000500ull;
-    adapter.status.down_rx_sequence = 8u;
+    adapter.status.up_tx_sequence = 10u;
+    adapter.status.down_rx_sequence = 11u;
     tdma_ring_runtime_service(&runtime);
     (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
     failed += expect_u32("sequence mismatch rejects feedback",

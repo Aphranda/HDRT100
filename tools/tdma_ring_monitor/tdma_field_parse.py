@@ -6,7 +6,7 @@ FIELDS = [
     "state", "owner_core", "armed", "service_count", "intent_seq",
     "completed_seq", "dropped_seq", "window_epoch", "window_index",
     "intent_type", "role", "baud_hz", "rx_pin", "csn_pin", "sck_pin",
-    "tx_pin", "deadline_1e3ns", "frame_size", "ready_count", "timeout_count",
+    "tx_pin", "deadline_us", "frame_size", "ready_count", "timeout_count",
     "overrun_count", "reject_count", "last_result", "last_error",
     "timestamp_source", "timestamp_resolution_ns", "timestamp_flags",
     "vdc_window_plan_valid", "vdc_window_class", "vdc_schedule_crc32",

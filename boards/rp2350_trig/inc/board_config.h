@@ -55,19 +55,21 @@
 /* TDMA resident ring physical layer (P0.5-3 bring-up, ring + half duplex).
  * Every board carries two independent legs. Wiring measured after the
  * symmetric rewire (tools/tdma_ring_monitor/line_map_check.py):
- *   - Downlink TX leg (SPI master): drives SCK + data toward the next board.
- *       every board: SCK=24, TX=23
- *       A.24 -> B.19, A.23 -> B.18        (A downlink -> B uplink)
- *       B.24 -> A.19, B.23 -> A.18        (B downlink -> A uplink)
- *   - Uplink RX leg (SPI slave): follows the previous board's SCK.
- *       every board: SCK=19, RX=18
+ *   - Downlink TX leg (SPI master): drives CS + data + SCK toward the next
+ *     board.
+ *       every board: CS=21, TX=23, SCK=24
+ *       Cn.21/23/24 -> Cn+1.16/18/19
+ *   - Uplink RX leg (SPI slave): follows the previous board's CS/SCK.
+ *       every board: CS=16, RX=18, SCK=19
  * The pin set is symmetric across boards, so a ring of N boards uses the same
- * firmware on every node (C_n downlink 24/23 -> C_{n+1} uplink 19/18). */
+ * firmware on every node (C_n downlink 21/23/24 -> C_{n+1} uplink 16/18/19). */
 #define BOARD_TDMA_SPI_PIO pio0
 #define BOARD_TDMA_SPI_MASTER_SM 2u
 #define BOARD_TDMA_SPI_SLAVE_SM 3u
+#define BOARD_TDMA_SPI_UPLINK_CSN_PIN 16u
 #define BOARD_TDMA_SPI_UPLINK_RX_PIN 18u
 #define BOARD_TDMA_SPI_UPLINK_SCK_PIN 19u
+#define BOARD_TDMA_SPI_DOWNLINK_CSN_PIN 21u
 #define BOARD_TDMA_SPI_DOWNLINK_SCK_PIN 24u
 #define BOARD_TDMA_SPI_DOWNLINK_TX_PIN 23u
 /* Start at 1 MHz for timing-margin bring-up with the new dual-buffer RX
