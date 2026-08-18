@@ -116,6 +116,12 @@ typedef struct {
     uint32_t rx_scan_produced_words;
     uint32_t rx_dma_write_index;
     uint32_t rx_dma_channel;
+    uint32_t tx_edge_count;
+    uint32_t rx_edge_count;
+    uint64_t last_tx_edge_timestamp_ns;
+    uint64_t last_tx_done_timestamp_ns;
+    uint64_t last_rx_edge_timestamp_ns;
+    uint64_t last_rx_extract_timestamp_ns;
 } tdma_pio_spi_phys_snapshot_t;
 
 typedef struct {

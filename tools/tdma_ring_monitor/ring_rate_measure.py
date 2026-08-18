@@ -41,7 +41,11 @@ PHYS_FIELDS = [
     "rx_busy_moved", "rx_magic_at_zero", "rx_magic_at_shift",
     "tx_csn_pin", "rx_csn_pin", "rx_ring_overrun_count",
     "rx_dma_produced_words", "rx_scan_produced_words", "rx_dma_write_index",
-    "rx_dma_channel",
+    "rx_dma_channel", "tx_edge_count", "rx_edge_count",
+    "last_tx_edge_timestamp_ns_lo", "last_tx_edge_timestamp_ns_hi",
+    "last_tx_done_timestamp_ns_lo", "last_tx_done_timestamp_ns_hi",
+    "last_rx_edge_timestamp_ns_lo", "last_rx_edge_timestamp_ns_hi",
+    "last_rx_extract_timestamp_ns_lo", "last_rx_extract_timestamp_ns_hi",
 ]
 
 
@@ -115,6 +119,14 @@ def phys_delta(s0: dict, s1: dict, key: str) -> int:
     return s1["phys"].get(key, -1) - s0["phys"].get(key, -1)
 
 
+def phys_u64(sample_data: dict, lo_key: str, hi_key: str) -> int:
+    lo = sample_data["phys"].get(lo_key, -1)
+    hi = sample_data["phys"].get(hi_key, -1)
+    if lo < 0 or hi < 0:
+        return -1
+    return (hi << 32) | lo
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--port-a", default="COM5")
@@ -165,6 +177,26 @@ def main() -> int:
               f"scan +{phys_delta(s0, s1, 'rx_scan_produced_words'):>6}  "
               f"write_idx {s1['phys'].get('rx_dma_write_index', -1):>4}  "
               f"ch {s1['phys'].get('rx_dma_channel', -1)}")
+        tx_edge_ns = phys_u64(s1,
+                              "last_tx_edge_timestamp_ns_lo",
+                              "last_tx_edge_timestamp_ns_hi")
+        tx_done_ns = phys_u64(s1,
+                              "last_tx_done_timestamp_ns_lo",
+                              "last_tx_done_timestamp_ns_hi")
+        rx_edge_ns = phys_u64(s1,
+                              "last_rx_edge_timestamp_ns_lo",
+                              "last_rx_edge_timestamp_ns_hi")
+        rx_extract_ns = phys_u64(s1,
+                                 "last_rx_extract_timestamp_ns_lo",
+                                 "last_rx_extract_timestamp_ns_hi")
+        tx_width_ns = tx_done_ns - tx_edge_ns if tx_edge_ns >= 0 and tx_done_ns >= 0 else -1
+        rx_extract_lag_ns = (rx_extract_ns - rx_edge_ns
+                             if rx_edge_ns > 0 and rx_extract_ns >= rx_edge_ns
+                             else -1)
+        print(f"  edge_latch    tx +{phys_delta(s0, s1, 'tx_edge_count'):>6}  "
+              f"rx +{phys_delta(s0, s1, 'rx_edge_count'):>6}  "
+              f"tx_width {tx_width_ns:>8} ns  "
+              f"rx_lag {rx_extract_lag_ns:>8} ns")
         print(f"  core1_loop    {s0['core1']:>9} -> {s1['core1']:>9}  +{s1['core1'] - s0['core1']:>6}  "
               f"{(s1['core1'] - s0['core1']) / elapsed:7.1f}/s")
     return 0

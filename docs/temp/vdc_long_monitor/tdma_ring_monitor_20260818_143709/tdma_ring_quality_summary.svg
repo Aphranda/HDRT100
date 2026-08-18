@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="480">
+<style>text{font-family:sans-serif;font-size:12px;fill:#222}</style>
+<text x="20" y="26" style="font-size:16px;font-weight:bold">TDMA ring runtime 5-min monitor</text>
+<text x="20" y="60" style="font-weight:bold">X_COM5 (COM5) FAIL</text>
+<text x="20" y="76">simultaneous_evidence!=1 (reference board)</text>
+<rect x="20" y="90" width="860" height="40" fill="#f4f4f4" stroke="#ccc"/>
+<polyline points="20.0,90.0 127.5,90.0 235.0,90.0 342.5,90.0 450.0,90.0 557.5,90.0 665.0,90.0 772.5,90.0" fill="none" stroke="#1a7f37" stroke-width="1.5"/>
+<text x="886" y="100" fill="#1a7f37">up</text>
+<polyline points="20.0,90.0 127.5,90.0 235.0,90.0 342.5,90.0 450.0,90.0 557.5,90.0 665.0,90.0 772.5,90.0" fill="none" stroke="#1976d2" stroke-width="1.5"/>
+<text x="886" y="100" fill="#1976d2">down</text>
+<polyline points="20.0,130.0 127.5,130.0 235.0,130.0 342.5,130.0 450.0,130.0 557.5,130.0 665.0,130.0 772.5,130.0" fill="none" stroke="#b8860b" stroke-width="1.5"/>
+<text x="886" y="100" fill="#b8860b">evid</text>
+<text x="20" y="146">ring_seq=79523 reason=TIMESTAMP_MISSING beacon_tx=42628 beacon_rx=35313 round_trip_ns=0 resolution_ns=0</text>
+<text x="20" y="150" style="font-weight:bold">Y_COM6 (COM6) PASS</text>
+<rect x="20" y="180" width="860" height="40" fill="#f4f4f4" stroke="#ccc"/>
+<polyline points="20.0,180.0 115.6,180.0 211.1,180.0 306.7,180.0 402.2,180.0 497.8,180.0 593.3,180.0 688.9,180.0 784.4,180.0 880.0,180.0" fill="none" stroke="#1a7f37" stroke-width="1.5"/>
+<text x="886" y="190" fill="#1a7f37">up</text>
+<polyline points="20.0,180.0 115.6,180.0 211.1,180.0 306.7,180.0 402.2,180.0 497.8,180.0 593.3,180.0 688.9,180.0 784.4,180.0 880.0,180.0" fill="none" stroke="#1976d2" stroke-width="1.5"/>
+<text x="886" y="190" fill="#1976d2">down</text>
+<polyline points="20.0,220.0 115.6,220.0 211.1,220.0 306.7,220.0 402.2,220.0 497.8,220.0 593.3,220.0 688.9,220.0 784.4,220.0 880.0,220.0" fill="none" stroke="#b8860b" stroke-width="1.5"/>
+<text x="886" y="190" fill="#b8860b">evid</text>
+<text x="20" y="236">ring_seq=89227 reason=TIMESTAMP_MISSING beacon_tx=11591 beacon_rx=41176 round_trip_ns=0 resolution_ns=0</text>
+<text x="20" y="468" style="font-size:10px">duration_s=10.0 tool=tdma_ring_monitor read-only ts=2026-08-18T06:37:34.835+00:00</text>
+</svg>

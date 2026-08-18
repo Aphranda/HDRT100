@@ -1,0 +1,7 @@
+TDMA ring runtime monitor summary
+duration_s=8.0 passed=False
+
+FAIL X_COM5 COM5 reference=True up=1 down=0 simultaneous=0 ring_seq=19639 reason=NONE adapter_started=1 service_count=2709124 beacon_tx=33461 beacon_rx=19639 round_trip_ns=0 resolution_ns=0
+    reasons: down_running!=1; simultaneous_evidence!=1 (reference board)
+FAIL Y_COM6 COM6 reference=True up=1 down=0 simultaneous=0 ring_seq=31457 reason=NONE adapter_started=1 service_count=2716324 beacon_tx=1358162 beacon_rx=31457 round_trip_ns=0 resolution_ns=0
+    reasons: down_running!=1; simultaneous_evidence!=1 (reference board)

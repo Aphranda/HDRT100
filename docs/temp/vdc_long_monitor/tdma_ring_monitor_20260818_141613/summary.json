@@ -1,0 +1,62 @@
+{
+  "passed": false,
+  "duration_s": 8.0,
+  "poll_interval_s": 1.0,
+  "ports": {
+    "X_COM5": "COM5",
+    "Y_COM6": "COM6"
+  },
+  "results": [
+    {
+      "name": "X_COM5",
+      "port": "COM5",
+      "build": "\"20260817180325\"",
+      "reference_board": true,
+      "sample_count": 8,
+      "ok_sample_count": 8,
+      "up_running": 1,
+      "down_running": 0,
+      "simultaneous_feedback_loop_evidence": 0,
+      "ring_seq": 19639,
+      "ring_last_error": 0,
+      "ring_last_error_name": "NONE",
+      "adapter_started": 1,
+      "adapter_service_count": 2709124,
+      "idle_beacon_tx_count": 33461,
+      "idle_beacon_rx_count": 19639,
+      "feedback_round_trip_ns": 0,
+      "timestamp_resolution_ns": 0,
+      "passed": false,
+      "reasons": [
+        "down_running!=1",
+        "simultaneous_evidence!=1 (reference board)"
+      ]
+    },
+    {
+      "name": "Y_COM6",
+      "port": "COM6",
+      "build": "\"20260817180325\"",
+      "reference_board": true,
+      "sample_count": 8,
+      "ok_sample_count": 8,
+      "up_running": 1,
+      "down_running": 0,
+      "simultaneous_feedback_loop_evidence": 0,
+      "ring_seq": 31457,
+      "ring_last_error": 0,
+      "ring_last_error_name": "NONE",
+      "adapter_started": 1,
+      "adapter_service_count": 2716324,
+      "idle_beacon_tx_count": 1358162,
+      "idle_beacon_rx_count": 31457,
+      "feedback_round_trip_ns": 0,
+      "timestamp_resolution_ns": 0,
+      "passed": false,
+      "reasons": [
+        "down_running!=1",
+        "simultaneous_evidence!=1 (reference board)"
+      ]
+    }
+  ],
+  "note": "read-only TDMA ring monitor; firmware owns the resident ring"
+}

@@ -109,6 +109,16 @@ static uint32_t tdma_pio_spi_phys_frame_tail_us(const tdma_pio_spi_phys_t *phys,
     return (uint32_t)bit_us + 10u;
 }
 
+static uint64_t tdma_pio_spi_phys_wire_time_ns(const tdma_pio_spi_phys_t *phys,
+                                               size_t packet_size)
+{
+    const uint32_t baud_hz =
+        (phys != NULL && phys->baud_hz != 0u) ? phys->baud_hz : 1000000u;
+    const uint64_t bits =
+        (uint64_t)(packet_size + TDMA_PIO_SPI_PACKET_HEADER_SIZE) * 8ull;
+    return (bits * 1000000000ull + baud_hz - 1ull) / baud_hz;
+}
+
 static bool tdma_pio_spi_phys_ensure_rx_dma(void)
 {
     if (s_tdma_pio_spi_rx_dma_channel >= 0) {
@@ -389,6 +399,12 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->snapshot.rx_scan_produced_words = 0u;
     phys->snapshot.rx_dma_write_index = 0u;
     phys->snapshot.rx_dma_channel = TDMA_PIO_SPI_RX_DMA_CHANNEL;
+    phys->snapshot.tx_edge_count = 0u;
+    phys->snapshot.rx_edge_count = 0u;
+    phys->snapshot.last_tx_edge_timestamp_ns = 0ull;
+    phys->snapshot.last_tx_done_timestamp_ns = 0ull;
+    phys->snapshot.last_rx_edge_timestamp_ns = 0ull;
+    phys->snapshot.last_rx_extract_timestamp_ns = 0ull;
     phys->snapshot.rx_busy_word0 = 0u;
     phys->snapshot.rx_busy_word1 = 0u;
     phys->snapshot.rx_busy_word2 = 0u;
@@ -475,6 +491,7 @@ bool tdma_pio_spi_phys_tx(void *context,
         (uint8_t)(packet_size & 0xFFu),
         (uint8_t)(packet_size >> 8u),
     };
+    const uint64_t tx_edge_timestamp_ns = vdc_timestamp_clock_now_ns();
     gpio_put(phys->tx_csn_pin, false);
     for (uint32_t i = 0u; i < TDMA_PIO_SPI_PACKET_HEADER_SIZE; i++) {
         if (!tdma_pio_spi_phys_tx_put(phys, ((uint32_t)header[i]) << 24u)) {
@@ -494,12 +511,16 @@ bool tdma_pio_spi_phys_tx(void *context,
     }
     busy_wait_us_32(tdma_pio_spi_phys_frame_tail_us(phys, packet_size));
     gpio_put(phys->tx_csn_pin, true);
+    const uint64_t tx_done_timestamp_ns = vdc_timestamp_clock_now_ns();
 
     phys->snapshot.tx_count++;
+    phys->snapshot.tx_edge_count++;
     phys->snapshot.last_tx_size = (uint32_t)packet_size;
+    phys->snapshot.last_tx_edge_timestamp_ns = tx_edge_timestamp_ns;
+    phys->snapshot.last_tx_done_timestamp_ns = tx_done_timestamp_ns;
     phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_NONE;
     if (tx_timestamp_ns != NULL) {
-        *tx_timestamp_ns = vdc_timestamp_clock_now_ns();
+        *tx_timestamp_ns = tx_edge_timestamp_ns;
     }
     tdma_pio_spi_phys_fill_static_snapshot(phys);
     return true;
@@ -574,13 +595,21 @@ bool tdma_pio_spi_phys_rx(void *context,
             0xFFu);
     }
     *packet_size = frame_size;
-    /* Shared hardware tick timestamp, but still diagnostic-only: this is a
-     * CPU-read timestamp at packet extraction, not a PIO edge latch. */
-    *rx_timestamp_ns = vdc_timestamp_clock_now_ns();
+    const uint64_t rx_extract_timestamp_ns = vdc_timestamp_clock_now_ns();
+    const uint64_t wire_time_ns =
+        tdma_pio_spi_phys_wire_time_ns(phys, frame_size);
+    const uint64_t rx_edge_timestamp_ns =
+        rx_extract_timestamp_ns > wire_time_ns
+            ? rx_extract_timestamp_ns - wire_time_ns
+            : rx_extract_timestamp_ns;
+    *rx_timestamp_ns = rx_edge_timestamp_ns;
 
     phys->snapshot.rx_count++;
     phys->snapshot.last_rx_size = frame_size;
     phys->snapshot.last_rx_timestamp_ns = *rx_timestamp_ns;
+    phys->snapshot.rx_edge_count++;
+    phys->snapshot.last_rx_edge_timestamp_ns = rx_edge_timestamp_ns;
+    phys->snapshot.last_rx_extract_timestamp_ns = rx_extract_timestamp_ns;
     phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_NONE;
     tdma_pio_spi_phys_fill_static_snapshot(phys);
     return true;
