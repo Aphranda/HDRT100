@@ -51,7 +51,7 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
   - 暂时将 BiSS + RJ45 Trigger 作为三线 SPI 使用，其中 RJ45 Trigger 作为 CS/frame-sync，复用既有 PIO 实现。
   - 接入 3 个 KEY、3 个 LED、4 路 SMA 输入和 4 路 SMA 输出，并避免旧调试 persona 抢占产品 IO。
 - 完成内容：
-  - TDMA 改用 PIO2 SM0/SM1：TX `CS=GPIO26/SCK=GPIO25/TX=GPIO29`，RX `CS=GPIO27/SCK=GPIO28/RX=GPIO24`；保持 10 MHz 和现有 CS/frame-sync PIO 协议。
+  - TDMA 改用 PIO2 SM0/SM1：TX `CS=GPIO26/SCK=GPIO25/TX=GPIO29`，RX `CS=GPIO27/SCK=GPIO28/RX=GPIO24`；保持现有 CS/frame-sync PIO 协议，初始默认 10 MHz。
   - ISO1452 控制迁移到 `DE=GPIO30/31/32`、`/RE=GPIO40/41/42`；上电关闭 driver、使能 receiver，TDMA arm 完成 PIO 配置后才开启 driver。
   - KEY1/2/3 映射到 GPIO2/6/7，低有效并上拉；LED SYSTEM/ARM/FAULT 映射到 GPIO3/8/9。
   - 板载 CH343 调试 stdio 迁移到 UART0 GPIO0/1；UART1 GPIO4/5 与 DE GPIO13 保留给外部 RS485，默认接收。
@@ -60,18 +60,36 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
   - 禁用占用 PIO2/GPIO24..29 的 legacy AUX/BiSS tap/sync clock/RJ45 marker persona；相关兼容 API 保留但返回不可用。
   - 禁用占用 GPIO4..7、会与 UART1/KEY2/KEY3 冲突的 legacy debug-model overlay。
   - TF 迁移到 SPI1 GPIO10..12/15（card detect GPIO14）；LCD 迁移到独立 SPI0 GPIO34..39，并按样板新规格改为 ST7735S、原生 RAM `80x160`、offset `(24,1)` 与硬复位。
+  - 产品样板 COM3 已确认 TF 卡 `CARD_READY`、SDHC/SDXC、FAT 挂载、目录/INFO/64 B 读回和递增 boot snapshot 写入；StorageAO 的资源 claim 从旧 `SPI0|SD` 收敛为产品板专用 `SD`（SPI1），不再与 LCD SPI0 互斥。
   - ST7735S 的硬件 `MV` 横屏在 offset `(1,26)` 和 `(1,24)` 下均出现逐行回绕斜切，因此控制器保持已验证稳定的原生竖屏扫描；刷新层将逻辑 `160x80` UI 顺时针软件旋转写入 `80x160` RAM。开机动画已适配横屏并经产品样板确认完整、无斜切；旧主页仍沿用大屏坐标，显示不全已转入正式待办。
+  - 新增三键纯事件层：35 ms 去抖、press/release、short、700 ms long 和 250 ms repeat；UI 产品路径切换为 160x80 单卡片四行布局，KEY1 上一页/长按返回、KEY2 详情、KEY3 下一页/长按连翻。
+  - 新增 `tdma_single_board_loopback.py`，只读检查单板 RJ45 输出回接输入后的预期频率/pin profile、UP/DOWN、sequence、TX/RX、坏帧和 overrun 增量；电气/数据 PASS 与硬件 timestamp feedback evidence 分层报告。
   - 产品 W25Q128JV 容量固定为 16 MiB；为兼容现有 bootloader/OTA 元数据，A/B 分区暂保持在低 4 MiB，剩余 12 MiB 待版本化分区迁移后启用。
 - 验证结果：
   - `build-rtos-multicore-smoke` A/B 固件链接和 update package 均成功；软件横屏最终 build id `20260818141125`，package CRC `0x294FCB21`。
   - `ota_multi_update.py` 对产品样板 COM3 OTA PASS，板端运行 build `20260818141125`；用户确认开机界面显示正常，主页显示不全作为后续 UI 重构输入。
   - `run_tdma_profile_tests.ps1` ARM/host 测试通过。
   - `run_tdma_pio_spi_ring_adapter_tests.ps1` ARM/host 测试通过。
+  - 三键 UI build `20260818151639`、package CRC `0x643A2D6A` 已通过 COM3 OTA boot/commit。
+  - 未接回环网线的 3 s 基线：profile 为 TX CS/SCK/DATA `26/25/29`、RX `27/28/24`、10 MHz；TX sequence 增长 1116，RX 保持 0，工具按预期报告 `down_running=0`。
+  - 产品样板 build `20260818154324` 单板网线回环连续两个 15 s 窗口通过电气/数据层验证：
+    第二轮 TX/RX 均增长 7230 帧，UP/DOWN 均运行，adapter/phys bad、magic fail 和
+    overrun 全部零增长。`ring_last_error=5(TIMESTAMP_MISSING)` 与
+    `simultaneous_feedback_loop_evidence=0` 符合当前 diagnostic-only timestamp 边界，
+    不作为 CS/CLK/DATA 回环失败，也不冒充正式时间戳闭环证据。
+  - 产品差分回环完成 `15/20/25 MHz` 阶梯：15 MHz build `20260818154958`
+    为 7344/7344 帧，20 MHz build `20260818155222` 为 7272/7272 帧，25 MHz
+    build `20260818155435` 的 15 s 为 7359/7359 帧；各档 adapter/phys bad、
+    magic fail、overrun 均零增长。25 MHz 追加 60 s 窗口为 29721/29721 帧且
+    全部错误仍为 0。当前样板保留 25 MHz 测试固件，干净构建默认仍为 10 MHz，
+    待长线缆、干扰和多板 HIL 后选择 20 或 25 MHz 量产档。
 - 还需完成：
   - 产品样板已确认三个 LED 均为低有效；ST7735S 背光 GPIO35 已确认低有效。
   - 逐项实测 KEY、SMA OUT1..4、SMA IN1..4 的通道编号和输入反序，再进行 TDMA 单跳与闭环 HIL。
   - 实测 ISO1452 DE 与 `/RE` 时序，确认空闲、arm、disarm 和复位期间不存在总线争用。
-  - 针对 `160x80` 小屏重构主页和功能页，不沿用 `240x135` 三列布局；按三键交互实现 KEY1 上一项/返回、KEY2 确认/进入、KEY3 下一项/切页。
+  - 产品样板人工确认 160x80 页面无裁切，并逐项确认三个按键短按/长按/重复的方向和手感。
+  - 单板 CS/CLK/DATA 电气与帧回环已通过；后续补 PIO/DMA 边沿硬件 timestamp latch，
+    再验收 `simultaneous_feedback_loop_evidence=1` 和正式 round-trip correlation。
 - 关联文件：
   - `boards/rp2350_trig/inc/board_config.h`
   - `boards/rp2350_trig/src/board.c`

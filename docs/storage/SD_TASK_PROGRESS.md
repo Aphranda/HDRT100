@@ -55,6 +55,40 @@ P0A/P0B 横向收口已完成好卡闭环；P0A 已补齐 FAT32 新卡非破坏�
 
 ## 任务记录
 
+### SD-TASK-20260818-001 - 产品样板 SPI1 TF 卡迁移与读写验证
+
+- 状态：完成产品板资源迁移、基础读写和有界日志轮转闭环；System Pack 缺包及长稳另列待办。
+- 日期：2026-08-18
+- 任务目标：
+  - 验证产品样板 TF 卡 GPIO/SPI1 迁移后的检测、挂载、目录、读和写路径。
+  - 移除旧板 LCD/SD 共用 SPI0 时遗留的资源互斥关系。
+- 完成内容：
+  - `StorageAO` 从旧 `SPI0|SD` claim 收敛为专用 `SD` claim；该资源在产品板隐含独占 SPI1，LCD 继续使用独立 `SPI0|LCD`。
+  - UI 资源摘要把存储占用更新为 `SPI1+SD`。
+  - RuntimeLogSinkFB 停止向遗留 `/logs/run` 大目录追加，改写 `/logs/runtime/log_000.log`..`log_127.log` 固定环；`cursor.idx` 原子保存跨重启序号，最大正文容量约 128 KiB。
+  - `sd_board_validate.py` 兼容扩展后的 `SYST:LOG:STAT?` 尾部路径，剥离与 SCPI 粘连的 INFO 日志，并把 SD 功能、System Pack 内容和 Trigger evidence 分成三类结论。
+  - System Pack 必需文件改用 `MMEM:INFO?` 直接确认，避免目录响应截断或 CDC 干扰造成假缺失。
+- 验证结果：
+  - A/B OTA 构建通过：build id `20260818143431`，package CRC `0x0F6FF44E`；`ota_multi_update.py` 对 COM3 PASS。
+  - `SYST:SD:STAT? -> "CARD_READY",1,1,"OK",0`；识别 `SDHC_SDXC`，block count `61067264`、capacity `30533632 KiB`，card/FatFs/mount 均为 1。
+  - 隔离后台 INFO 日志写入后，根目录 `MMEM:CAT?` 约 `0.107 s`，`MMEM:INFO? "/manifest.idx"` 约 `0.044 s`；连续三次 `MMEM:READ? "/manifest.idx",0,64` 均约 `0.1 s`、返回 64 B 且 job `DONE/error=0`。
+  - `SYST:SNAP:WRIT "boot"` 约 `0.781 s`，生成 `/snapshots/boot/boot_000149.json`；FILE_INFO 确认 458 B、error=0。
+  - 验证结束已把日志等级从临时 ERROR 恢复为 INFO。
+  - 新实现 A/B OTA 构建通过：build id `20260818145308`，package CRC `0x2567CCEF`；COM3 OTA boot/commit PASS。
+  - INFO 日志开启时，`last_log_id=133` 对应 `/logs/runtime/log_004.log`，符合 128 槽回绕规则；同一目录 CAT/INFO/64 B READ 成功，SD 保持 `CARD_READY`。
+  - 隔离 Trigger 副作用后的专用验收输出 `SD_FUNCTION=PASS`、`TRIGGER_EVIDENCE=PASS`；`SYSTEM_PACK=FAIL` 仅因 OTA 包缺失。
+- 还需完成：
+  - 卡上遗留 `/logs/run` 约 4140 个小文件，固件不再访问或追加；由 PC 工具离线归档，固件禁止自动删除用户证据。
+  - 当前卡 `/update` 只有 `compat` 目录，缺少 `RP2350_TRIG_UPDATE.pkg`；完整 System Pack 内容验收需另行补包。
+  - 还需执行环形日志掉电恢复、拔插卡和 24 h INFO 长稳，确认 cursor 回退最多造成单槽覆盖且不会破坏文件系统。
+- 关联文件：
+  - `components/storage_manager/src/storage_manager.c`
+  - `components/ui_manager/src/status_ui.c`
+  - `boards/rp2350_trig/inc/board_config.h`
+  - `docs/storage/SD_TODO.md`
+- 下一步：
+  - 补齐 `/update/RP2350_TRIG_UPDATE.pkg` 后复跑 System Pack；SD 长稳可与后续整板回归并行，当前主迁移进入三键事件层和 SMA IO 实测。
+
 ### SD-TASK-20260817-001 - StorageAO 运行日志持久化 sink 闭环
 
 - 状态：完成

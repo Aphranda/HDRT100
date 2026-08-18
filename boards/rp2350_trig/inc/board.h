@@ -5,9 +5,9 @@
 #include <stdint.h>
 
 typedef enum {
-    BOARD_KEY_1 = 0,
-    BOARD_KEY_2,
-    BOARD_KEY_3,
+    BOARD_KEY_LEFT = 0,
+    BOARD_KEY_CENTER,
+    BOARD_KEY_RIGHT,
     BOARD_KEY_COUNT,
 } board_key_t;
 

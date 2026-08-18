@@ -42,15 +42,15 @@ static bool board_init_leds(void)
 }
 
 static const uint32_t s_key_pins[BOARD_KEY_COUNT] = {
-    BOARD_KEY1_PIN,
-    BOARD_KEY2_PIN,
-    BOARD_KEY3_PIN,
+    [BOARD_KEY_LEFT] = BOARD_KEY_LEFT_PIN,
+    [BOARD_KEY_CENTER] = BOARD_KEY_CENTER_PIN,
+    [BOARD_KEY_RIGHT] = BOARD_KEY_RIGHT_PIN,
 };
 
 static const bool s_key_active_low[BOARD_KEY_COUNT] = {
-    BOARD_KEY1_ACTIVE_LOW != 0,
-    BOARD_KEY2_ACTIVE_LOW != 0,
-    BOARD_KEY3_ACTIVE_LOW != 0,
+    [BOARD_KEY_LEFT] = BOARD_KEY_LEFT_ACTIVE_LOW != 0,
+    [BOARD_KEY_CENTER] = BOARD_KEY_CENTER_ACTIVE_LOW != 0,
+    [BOARD_KEY_RIGHT] = BOARD_KEY_RIGHT_ACTIVE_LOW != 0,
 };
 
 static bool board_init_keys(void)
@@ -265,7 +265,7 @@ bool board_key_is_pressed(board_key_t key)
 
 bool board_key2_is_pressed(void)
 {
-    return board_key_is_pressed(BOARD_KEY_2);
+    return board_key_is_pressed(BOARD_KEY_CENTER);
 }
 
 uint32_t board_uptime_ms(void)

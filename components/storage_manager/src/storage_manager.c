@@ -33,6 +33,10 @@
 #define STORAGE_MANAGER_RUNTIME_LOG_CHUNK_MAX_BYTES 1024u
 #define STORAGE_MANAGER_RUNTIME_LOG_FLUSH_THRESHOLD_BYTES 512u
 #define STORAGE_MANAGER_RUNTIME_LOG_FLUSH_PERIOD_MS 5000u
+#define STORAGE_MANAGER_RUNTIME_LOG_SLOT_COUNT 128u
+#define STORAGE_MANAGER_RUNTIME_LOG_DIRECTORY "/logs/runtime"
+#define STORAGE_MANAGER_RUNTIME_LOG_CURSOR_PATH "/logs/runtime/cursor.idx"
+#define STORAGE_MANAGER_RUNTIME_LOG_CURSOR_TMP_PATH "/logs/runtime/cursor.tmp"
 #define STORAGE_MANAGER_FILE_READ_MAX_BYTES 512u
 #define STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES 8192u
 #define STORAGE_MANAGER_CATALOG_PAGE_MAX_BYTES 384u
@@ -106,6 +110,8 @@ static storage_manager_write_snapshot_t s_write_snapshot;
 static uint8_t s_write_buffer[STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES];
 static uint32_t s_next_write_txn_id;
 static uint32_t s_runtime_log_last_attempt_ms;
+static uint32_t s_runtime_log_next_sequence;
+static bool s_runtime_log_sequence_initialized;
 
 static const storage_manager_write_contract_t s_write_contracts[] = {
     {
@@ -153,6 +159,7 @@ static const char *const s_system_pack_dirs[] = {
     "/reports/acceptance",
     "/logs",
     "/logs/run",
+    STORAGE_MANAGER_RUNTIME_LOG_DIRECTORY,
     "/update",
     "/update/compat",
     "/factory",
@@ -218,6 +225,8 @@ bool storage_manager_init(void)
     s_next_job_id = 1u;
     s_next_write_txn_id = 1u;
     s_runtime_log_last_attempt_ms = 0u;
+    s_runtime_log_next_sequence = 1u;
+    s_runtime_log_sequence_initialized = false;
     s_boot_snapshot_pending = true;
     s_boot_snapshot_due_ms = storage_now_ms() + STORAGE_MANAGER_BOOT_SNAPSHOT_DELAY_MS;
     s_boot_snapshot_step = 0u;
@@ -322,8 +331,10 @@ static bool storage_error_is_retryable(uint32_t error)
 
 static bool storage_acquire_sd_resource(void)
 {
-    if (!resource_arbiter_acquire_owned(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                        RESOURCE_ARBITER_RESOURCE_SD,
+    /* Product hardware gives the TF card a dedicated SPI1 bus.  The SD
+     * resource therefore owns SPI1 implicitly and must not contend with the
+     * LCD's independent SPI0 resource. */
+    if (!resource_arbiter_acquire_owned(RESOURCE_ARBITER_RESOURCE_SD,
                                         "StorageAO")) {
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_RESOURCE_BUSY;
         return false;
@@ -334,8 +345,7 @@ static bool storage_acquire_sd_resource(void)
 
 static void storage_release_sd_resource(void)
 {
-    resource_arbiter_release_owned(RESOURCE_ARBITER_RESOURCE_SPI0 |
-                                   RESOURCE_ARBITER_RESOURCE_SD,
+    resource_arbiter_release_owned(RESOURCE_ARBITER_RESOURCE_SD,
                                    "StorageAO");
 }
 
@@ -3029,7 +3039,7 @@ static bool storage_manager_write_runtime_log_segment(void)
 
     fatfs_port_status_t status = fatfs_port_make_directory("/logs");
     if (status == FATFS_PORT_STATUS_OK) {
-        status = fatfs_port_make_directory("/logs/run");
+        status = fatfs_port_make_directory(STORAGE_MANAGER_RUNTIME_LOG_DIRECTORY);
     }
     if (status != FATFS_PORT_STATUS_OK) {
         storage_release_sd_resource();
@@ -3039,9 +3049,38 @@ static bool storage_manager_write_runtime_log_segment(void)
         return false;
     }
 
-    uint32_t max_sequence = 0u;
-    status = fatfs_port_find_max_sequence("/logs/run", "run_", ".log", &max_sequence);
-    if (status != FATFS_PORT_STATUS_OK || max_sequence >= 999999u) {
+    /* The legacy /logs/run directory may contain thousands of files and take
+     * seconds to scan or traverse.  Never append to it on product hardware.
+     * Recover a monotonic cursor from the new bounded ring directory instead. */
+    if (!s_runtime_log_sequence_initialized) {
+        char cursor_text[16];
+        size_t cursor_size = 0u;
+        status = fatfs_port_read_text_file(STORAGE_MANAGER_RUNTIME_LOG_CURSOR_PATH,
+                                           cursor_text,
+                                           sizeof(cursor_text),
+                                           &cursor_size);
+        uint32_t last_sequence = 0u;
+        if (status == FATFS_PORT_STATUS_OK) {
+            if (cursor_size == 0u ||
+                !storage_parse_u32(cursor_text, &last_sequence)) {
+                storage_release_sd_resource();
+                s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_SEQUENCE;
+                storage_publish_runtime_log_result(0u, "", 0u, STORAGE_MANAGER_ERROR_SEQUENCE);
+                storage_publish_runtime_log_queue_status();
+                return false;
+            }
+        } else if (status != FATFS_PORT_STATUS_PATH_NOT_FOUND) {
+            storage_release_sd_resource();
+            s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_SEQUENCE;
+            storage_publish_runtime_log_result(0u, "", 0u, STORAGE_MANAGER_ERROR_SEQUENCE);
+            storage_publish_runtime_log_queue_status();
+            return false;
+        }
+        s_runtime_log_next_sequence = last_sequence == UINT32_MAX ? 1u : last_sequence + 1u;
+        s_runtime_log_sequence_initialized = true;
+    }
+
+    if (s_runtime_log_next_sequence == 0u) {
         storage_release_sd_resource();
         s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_SEQUENCE;
         storage_publish_runtime_log_result(0u, "", 0u, STORAGE_MANAGER_ERROR_SEQUENCE);
@@ -3049,16 +3088,26 @@ static bool storage_manager_write_runtime_log_segment(void)
         return false;
     }
 
-    const uint32_t sequence = max_sequence + 1u;
+    const uint32_t sequence = s_runtime_log_next_sequence;
+    const uint32_t slot = (sequence - 1u) % STORAGE_MANAGER_RUNTIME_LOG_SLOT_COUNT;
     char final_path[96];
     char tmp_path[96];
     (void)snprintf(final_path,
                    sizeof(final_path),
-                   "/logs/run/run_%06lu.log",
-                   (unsigned long)sequence);
-    (void)snprintf(tmp_path, sizeof(tmp_path), "/logs/run/run.tmp");
+                   STORAGE_MANAGER_RUNTIME_LOG_DIRECTORY "/log_%03lu.log",
+                   (unsigned long)slot);
+    (void)snprintf(tmp_path,
+                   sizeof(tmp_path),
+                   STORAGE_MANAGER_RUNTIME_LOG_DIRECTORY "/log.tmp");
 
     status = fatfs_port_write_text_file_atomic(final_path, tmp_path, payload);
+    if (status == FATFS_PORT_STATUS_OK) {
+        char cursor_text[16];
+        (void)snprintf(cursor_text, sizeof(cursor_text), "%lu", (unsigned long)sequence);
+        status = fatfs_port_write_text_file_atomic(STORAGE_MANAGER_RUNTIME_LOG_CURSOR_PATH,
+                                                   STORAGE_MANAGER_RUNTIME_LOG_CURSOR_TMP_PATH,
+                                                   cursor_text);
+    }
     storage_release_sd_resource();
 
     if (status != FATFS_PORT_STATUS_OK) {
@@ -3072,6 +3121,7 @@ static bool storage_manager_write_runtime_log_segment(void)
     }
 
     portable_log_port_persistent_discard(payload_size);
+    s_runtime_log_next_sequence = sequence == UINT32_MAX ? 1u : sequence + 1u;
     s_storage_vector.state = STORAGE_MANAGER_STATE_CARD_READY;
     s_storage_vector.fs_mounted = true;
     s_storage_vector.storage_error = STORAGE_MANAGER_ERROR_NONE;

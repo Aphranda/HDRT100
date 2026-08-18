@@ -18,6 +18,14 @@ Bootloader 第一版不读取 SD/FatFs。SD 卡可插拔，文件系统和写入
 | P1 | Pack/Ref、profile/cal、mission/recipe、离线 OTA 和 schema/capability 校验形成事务化流程；ARM 前能把 SD 配置转换为事件和摘要，armed 状态拒绝关键配置热加载。 |
 | P2 | 报告、产测、工具、多卡兼容、热插拔、长稳和掉电恢复具备可重复验证矩阵；release 归档包含 SD image、manifest 和报告模板。 |
 
+## 产品样板迁移待办
+
+- [x] 产品 TF 卡迁移到独立 SPI1（GPIO10/11/12、CS GPIO15、CD GPIO14）；StorageAO 只申请 `SD` 资源，不能再与 LCD 的 `SPI0+LCD` 互斥。
+- [x] 在 COM3 产品样板完成 SDHC/SDXC 检测、FAT 挂载、根目录枚举、文件 INFO、64 B 内容读回和递增 boot snapshot 写入验证。
+- [x] RuntimeLogSinkFB 改为 `/logs/runtime` 128 槽固定环并使用原子 cursor；遗留 `/logs/run` 停止追加，产品板已验证 sequence 133 回绕到 slot 4。
+- [x] 更新 `sd_board_validate.py`：兼容 `SYST:LOG:STAT?` 尾部 path 和 CDC 日志粘连，分别报告 SD 功能、System Pack 内容和 Trigger evidence。
+- [ ] 完成 24 h INFO 日志、掉电恢复、热插拔和 cursor 损坏恢复矩阵；遗留 `/logs/run` 只允许 PC 工具离线归档。
+
 ## 1. 核心定位
 
 ```text
@@ -48,9 +56,9 @@ SD System Pack        = 历史事实、任务包、校准包、证据包
 | `PackFB` | StorageFB 内部子功能块，扫描、校验、checkout System Pack。 |
 | `RefFB` | StorageFB 内部子功能块，解析和事务切换 `active/previous/factory/candidate`。 |
 | `SnapshotFB` | StorageFB 内部子功能块，写 snapshot/report，并关联 active pack 摘要。 |
-| `RuntimeLogSinkFB` | StorageFB 内部子功能块，从 LOG RAM 持久化队列分片取文本，在显式 job 空闲时写入 `/logs/run`。 |
+| `RuntimeLogSinkFB` | StorageFB 内部子功能块，从 LOG RAM 持久化队列分片取文本，在显式 job 空闲时写入 `/logs/runtime` 128 槽固定环。 |
 | `StorageVector` | 发布卡状态、job 摘要、pack/ref 摘要、最近 snapshot/trace/report 摘要。 |
-| `Resource Arbiter` | 串行化 `SPI0 + SD`、`SPI0 + LCD`、`FLASH`。 |
+| `Resource Arbiter` | 串行化 `SPI1 + SD`、`SPI0 + LCD`、`FLASH`；产品板两条 SPI 总线相互独立。 |
 | `FatFs Port / sd_card driver` | 只提供文件系统和 block 访问，不保存业务状态。 |
 
 典型链路：
@@ -85,7 +93,7 @@ pulse fault captured
 runtime LOG line emitted on core0 management plane
   -> portable_log_port RAM persistence queue
   -> StorageAO RuntimeLogSinkFB
-  -> /logs/run/run_XXXXXX.log
+  -> /logs/runtime/log_000.log..log_127.log + cursor.idx
   -> StorageVector log segment summary
 ```
 

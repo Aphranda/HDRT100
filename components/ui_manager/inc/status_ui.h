@@ -4,7 +4,10 @@
 #include <stdbool.h>
 
 bool status_ui_init(void);
+void status_ui_key_previous(void);
 void status_ui_key_next(void);
+void status_ui_key_select(void);
+void status_ui_key_back(void);
 bool status_ui_render(void);
 bool status_ui_needs_render(void);
 

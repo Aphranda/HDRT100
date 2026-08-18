@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-08-17
+Last updated: 2026-08-18
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -31,9 +31,10 @@ Last updated: 2026-08-17
 | `SYSTem:USB:BOOT` | 立即重启，重启后按 Product Config 选择 USB mode。 |
 | `SYSTem:LOG:LEVel <0..3>` | 设置文本日志最小输出等级：`0=DEBUG`、`1=INFO`、`2=WARN`、`3=ERROR`。默认 `INFO`。 |
 | `SYSTem:LOG:LEVel?` | 查询当前文本日志最小输出等级，返回名称和值。 |
-| `SYSTem:LOG:STATus?` | 查询文本日志统计：当前等级、等级值、DEBUG/INFO/WARN/ERROR 发出计数、过滤丢弃计数、截断计数、输出失败计数、USB 队列丢弃/字节/高水位、RAM 持久化队列丢弃/丢弃字节/待写字节/高水位，以及 StorageAO 最近成功 `/logs/run` segment 的 id、bytes、path_hash、error、segment_count、flushed_bytes、最近尝试错误和 path。 |
+| `SYSTem:LOG:STATus?` | 查询文本日志统计：当前等级、等级值、DEBUG/INFO/WARN/ERROR 发出计数、过滤丢弃计数、截断计数、输出失败计数、USB 队列丢弃/字节/高水位、RAM 持久化队列丢弃/丢弃字节/待写字节/高水位，以及 StorageAO 最近成功 `/logs/runtime` 环形 segment 的 id、bytes、path_hash、error、segment_count、flushed_bytes、最近尝试错误和 path。 |
 | `SYSTem:CORE?` | 查询核心运行状态：core1 是否启用、core0/core1 循环计数、core0/core1 最近一次心跳毫秒时间戳。 |
 | `SYSTem:RTOS:STATus?` | 查询 FreeRTOS heap 和任务栈水位。 |
+| `SYSTem:UI:KEYs?` | 查询产品板三键只读验收快照：`raw_mask,stable_mask,event_sequence,last_key,last_type,left_short,left_long,left_repeat,center_short,center_long,center_repeat,right_short,right_long,right_repeat`。mask bit0..2 和 `last_key=1..3` 均按面板左/中/右排序（无事件为 0），`last_type=0 NONE / 1 PRESS / 2 RELEASE / 3 SHORT / 4 LONG / 5 REPEAT`；计数从本次启动开始累计。首件实测物理顺序为 GPIO7 / GPIO2 / GPIO6，分别对应网表 KEY3 / KEY1 / KEY2。 |
 | `SYSTem:LOOP:STATus?` | 查询 `task_loop_engine` 的只读维护状态：是否 ready、service_count、first_service_ms、last_service_ms。 |
 | `READ:SYNC:QUALity?` | 查询 VDC 同步质量主视图：`state,last_offset_ns,rms_offset_ns,max_abs_offset_ns,freq_offset_ppb,jitter_pk_ns,last_sample_age_us,last_reject_code,accepted_sample_count,rejected_sample_count,last_timestamp_resolution_ns,health_state,lock_quality_tier,fine_lock_threshold_ns,debug_lock_threshold_ns,coarse_lock_threshold_ns,lock_acceptance_threshold_ns`。`lock_quality_tier=1/2/3` 分别对应 10 us / 1 us / 100 ns；默认 bring-up acceptance 为 1 us，产品 `HEALTHY/RUN` 仍以连续 100 ns fine tier 为准。 |
 | `SYSTem:SYNC:VDC:STATus?` | 查询 `task_vdc_sync` 的只读维护状态：是否 ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq。 |

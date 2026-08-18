@@ -50,6 +50,16 @@ CATALOG_COMMANDS = (
     ("reports", 'MMEM:CAT? "/reports"'),
 )
 
+SYSTEM_PACK_FILE_COMMANDS = (
+    ("manifest_json", 'MMEM:INFO? "/manifest.json"', "/manifest.json"),
+    ("manifest_idx", 'MMEM:INFO? "/manifest.idx"', "/manifest.idx"),
+    ("update_package", 'MMEM:INFO? "/update/RP2350_TRIG_UPDATE.pkg"', "/update/RP2350_TRIG_UPDATE.pkg"),
+    ("active_profile", 'MMEM:INFO? "/profile/active.json"', "/profile/active.json"),
+    ("mission_recipe", 'MMEM:INFO? "/mission/recipe.json"', "/mission/recipe.json"),
+    ("mission_node_map", 'MMEM:INFO? "/mission/node_map.json"', "/mission/node_map.json"),
+    ("board_cal", 'MMEM:INFO? "/cal/board_cal.json"', "/cal/board_cal.json"),
+)
+
 RESOURCE_PIO1 = 1 << 4
 RESOURCE_PIO2 = 1 << 5
 RESOURCE_DMA = 1 << 6
@@ -93,12 +103,26 @@ def parse_args() -> argparse.Namespace:
 
 
 def normalize_scpi_line(line: str) -> str:
-    return line.strip()
+    normalized = line.strip()
+    # Diagnostics and SCPI share USB CDC.  If a log record is appended to a
+    # response without an intervening newline, retain the SCPI prefix only.
+    log_start = normalized.find("[", 1)
+    if log_start > 0:
+        normalized = normalized[:log_start].rstrip()
+    return normalized
 
 
 def is_log_line(line: str) -> bool:
     maybe_log = line[1:] if line.startswith('"') else line
-    return maybe_log.startswith("[") or maybe_log.startswith("log:")
+    if maybe_log.startswith("[") or maybe_log.startswith("log:"):
+        return True
+    # A read can begin in the middle of a diagnostic record after the opening
+    # '[' was consumed together with a preceding SCPI response.
+    close = maybe_log.find("]")
+    if close > 0 and maybe_log[:close].strip().isdigit():
+        tail = maybe_log[close + 1:].lstrip()
+        return tail.startswith(("DBG ", "INF ", "WRN ", "ERR "))
+    return False
 
 
 def is_log_or_ack(line: str) -> bool:
@@ -668,7 +692,11 @@ def main() -> int:
     multicore_trace = build_uses_multicore()
 
     failures: list[str] = []
-    commands = list(BASELINE_COMMANDS) + [command for _, command in CATALOG_COMMANDS]
+    system_pack_failures: list[str] = []
+    trigger_evidence_failures: list[str] = []
+    commands = (list(BASELINE_COMMANDS) +
+                [command for _, command in CATALOG_COMMANDS] +
+                [command for _, command, _ in SYSTEM_PACK_FILE_COMMANDS])
     if not args.skip_negative_path:
         commands.append('MMEM:CAT? "/../"')
         commands.append('MMEM:INFO? "/../"')
@@ -760,11 +788,19 @@ def main() -> int:
         except ValueError:
             level_value = 0xFFFFFFFF
         expect(level_value <= 3, failures, f"log level value is {log_status[1]!r}")
-        for index, field in enumerate(log_status[2:], start=2):
+        # Current firmware appends last_log_path after all numeric counters.
+        # Older firmware has no path field, so only exclude the tail when the
+        # expanded 33-field schema is present.
+        numeric_end = len(log_status) - 1 if len(log_status) >= 33 else len(log_status)
+        for index, field in enumerate(log_status[2:numeric_end], start=2):
             try:
                 int(field, 0)
             except ValueError:
                 failures.append(f"SYST:LOG:STAT? field {index} is not numeric: {field!r}")
+        if len(log_status) >= 33:
+            expect(log_status[-1] == "" or log_status[-1].startswith("/logs/"),
+                   failures,
+                   f"SYST:LOG:STAT? last_log_path is invalid: {log_status[-1]!r}")
 
     status = parse_csv_response(results["SYST:SD:STAT?"])
     expect(len(status) >= 5, failures, "SYST:SD:STAT? returned too few fields")
@@ -787,59 +823,59 @@ def main() -> int:
         expect(info[6] == "1", failures, "fs_mounted is not true in info")
 
     init_result = parse_csv_response(results["SYST:SD:INIT"])
-    expect(len(init_result) >= 7, failures, "SYST:SD:INIT returned too few fields")
+    expect(len(init_result) >= 7, system_pack_failures, "SYST:SD:INIT returned too few fields")
     if len(init_result) >= 7:
-        expect(init_result[0] == "OK", failures, f"SYST:SD:INIT status is {init_result[0]!r}, expected OK")
-        expect(init_result[1] == "OK", failures, f"SYST:SD:INIT manifest is {init_result[1]!r}, expected OK")
-        expect(init_result[2] == "1", failures, f"SYST:SD:INIT schema is {init_result[2]!r}, expected 1")
-        expect(init_result[3] not in ("", "<timeout>"), failures, "SYST:SD:INIT build_id is empty")
-        expect(int(init_result[4], 0) >= 4, failures, "SYST:SD:INIT required_count expected >= 4")
-        expect(init_result[5] == "0", failures, f"SYST:SD:INIT missing_count is {init_result[5]!r}, expected 0")
-        expect(init_result[6] == "0", failures, f"SYST:SD:INIT job error is {init_result[6]!r}, expected 0")
+        expect(init_result[0] == "OK", system_pack_failures, f"SYST:SD:INIT status is {init_result[0]!r}, expected OK")
+        expect(init_result[1] == "OK", system_pack_failures, f"SYST:SD:INIT manifest is {init_result[1]!r}, expected OK")
+        expect(init_result[2] == "1", system_pack_failures, f"SYST:SD:INIT schema is {init_result[2]!r}, expected 1")
+        expect(init_result[3] not in ("", "<timeout>"), system_pack_failures, "SYST:SD:INIT build_id is empty")
+        expect(int(init_result[4], 0) >= 4, system_pack_failures, "SYST:SD:INIT required_count expected >= 4")
+        expect(init_result[5] == "0", system_pack_failures, f"SYST:SD:INIT missing_count is {init_result[5]!r}, expected 0")
+        expect(init_result[6] == "0", system_pack_failures, f"SYST:SD:INIT job error is {init_result[6]!r}, expected 0")
 
     init_job = parse_csv_response(results.get(INIT_JOB_QUERY_KEY, ""))
-    expect(len(init_job) >= 8, failures, "INIT SYST:STOR:JOB? returned too few fields")
+    expect(len(init_job) >= 8, system_pack_failures, "INIT SYST:STOR:JOB? returned too few fields")
     if len(init_job) >= 8:
-        expect(init_job[0] == "DONE", failures, f"init job state is {init_job[0]!r}, expected DONE")
-        expect(init_job[2] == "SYSTEM_INIT", failures, f"init job type is {init_job[2]!r}, expected SYSTEM_INIT")
-        expect(init_job[3] == "/manifest.idx", failures, f"init job path is {init_job[3]!r}, expected /manifest.idx")
-        expect(int(init_job[4], 0) >= 4, failures, "init job required_count expected >= 4")
-        expect(init_job[5] == "MANIFEST", failures, f"init job kind is {init_job[5]!r}, expected MANIFEST")
-        expect(int(init_job[6], 0) != 0, failures, "init job path hash is zero")
-        expect(init_job[7] == "0", failures, f"init job error is {init_job[7]!r}, expected 0")
+        expect(init_job[0] == "DONE", system_pack_failures, f"init job state is {init_job[0]!r}, expected DONE")
+        expect(init_job[2] == "SYSTEM_INIT", system_pack_failures, f"init job type is {init_job[2]!r}, expected SYSTEM_INIT")
+        expect(init_job[3] == "/manifest.idx", system_pack_failures, f"init job path is {init_job[3]!r}, expected /manifest.idx")
+        expect(int(init_job[4], 0) >= 4, system_pack_failures, "init job required_count expected >= 4")
+        expect(init_job[5] == "MANIFEST", system_pack_failures, f"init job kind is {init_job[5]!r}, expected MANIFEST")
+        expect(int(init_job[6], 0) != 0, system_pack_failures, "init job path hash is zero")
+        expect(init_job[7] == "0", system_pack_failures, f"init job error is {init_job[7]!r}, expected 0")
 
     manifest = parse_csv_response(results["SYST:SD:MAN?"])
-    expect(len(manifest) >= 7, failures, "SYST:SD:MAN? returned too few fields")
+    expect(len(manifest) >= 7, system_pack_failures, "SYST:SD:MAN? returned too few fields")
     if len(manifest) >= 7:
-        expect(manifest[0] == "OK", failures, f"manifest status is {manifest[0]!r}, expected OK")
-        expect(manifest[1] == "1", failures, f"manifest schema is {manifest[1]!r}, expected 1")
-        expect(manifest[2] == "RP2350_TRIG", failures, f"manifest product is {manifest[2]!r}, expected RP2350_TRIG")
-        expect(manifest[3] == "rp2350_trig", failures, f"manifest hardware is {manifest[3]!r}, expected rp2350_trig")
-        expect(manifest[4] not in ("", "<timeout>"), failures, "manifest build_id is empty")
-        expect(int(manifest[5], 0) >= 4, failures, f"manifest required_count is {manifest[5]!r}, expected >= 4")
-        expect(manifest[6] == "0", failures, f"manifest missing_count is {manifest[6]!r}, expected 0")
+        expect(manifest[0] == "OK", system_pack_failures, f"manifest status is {manifest[0]!r}, expected OK")
+        expect(manifest[1] == "1", system_pack_failures, f"manifest schema is {manifest[1]!r}, expected 1")
+        expect(manifest[2] == "RP2350_TRIG", system_pack_failures, f"manifest product is {manifest[2]!r}, expected RP2350_TRIG")
+        expect(manifest[3] == "rp2350_trig", system_pack_failures, f"manifest hardware is {manifest[3]!r}, expected rp2350_trig")
+        expect(manifest[4] not in ("", "<timeout>"), system_pack_failures, "manifest build_id is empty")
+        expect(int(manifest[5], 0) >= 4, system_pack_failures, f"manifest required_count is {manifest[5]!r}, expected >= 4")
+        expect(manifest[6] == "0", system_pack_failures, f"manifest missing_count is {manifest[6]!r}, expected 0")
 
     manifest_job = parse_csv_response(results.get(MANIFEST_JOB_QUERY_KEY, ""))
-    expect(len(manifest_job) >= 8, failures, "manifest SYST:STOR:JOB? returned too few fields")
+    expect(len(manifest_job) >= 8, system_pack_failures, "manifest SYST:STOR:JOB? returned too few fields")
     if len(manifest_job) >= 8:
         expect(manifest_job[0] == "DONE",
-               failures,
+               system_pack_failures,
                f"manifest job state is {manifest_job[0]!r}, expected DONE")
         expect(manifest_job[2] == "MANIFEST_SCAN",
-               failures,
+               system_pack_failures,
                f"manifest job type is {manifest_job[2]!r}, expected MANIFEST_SCAN")
         expect(manifest_job[3] == "/manifest.idx",
-               failures,
+               system_pack_failures,
                f"manifest job path is {manifest_job[3]!r}, expected /manifest.idx")
         expect(int(manifest_job[4], 0) >= 4,
-               failures,
+               system_pack_failures,
                f"manifest job required_count is {manifest_job[4]!r}, expected >= 4")
         expect(manifest_job[5] == "MANIFEST",
-               failures,
+               system_pack_failures,
                f"manifest job kind is {manifest_job[5]!r}, expected MANIFEST")
-        expect(int(manifest_job[6], 0) != 0, failures, "manifest job path hash is zero")
+        expect(int(manifest_job[6], 0) != 0, system_pack_failures, "manifest job path hash is zero")
         expect(manifest_job[7] == "0",
-               failures,
+               system_pack_failures,
                f"manifest job error is {manifest_job[7]!r}, expected 0")
 
     job_start = parse_csv_response(results.get(STORAGE_JOB_INFO_KEY, ""))
@@ -864,22 +900,19 @@ def main() -> int:
     if sd_ready:
         root_entries = catalog_entries(results["MMEM:CAT?"])
         if "sdcard" in root_entries and "manifest.idx" not in root_entries:
-            failures.append("SD staging appears nested under /sdcard; copy the contents of build-sd-verify/sdcard to the card root")
+            system_pack_failures.append("SD staging appears nested under /sdcard; copy the contents of build-sd-verify/sdcard to the card root")
         for name in ("manifest.json", "manifest.idx", "update", "profile", "mission", "cal", "reports"):
-            expect(name in root_entries, failures, f"root catalog missing {name}")
+            expect(name in root_entries, system_pack_failures, f"root catalog missing {name}")
 
-        update_entries = catalog_entries(results['MMEM:CAT? "/update"'])
-        expect("RP2350_TRIG_UPDATE.pkg" in update_entries, failures, "/update missing RP2350_TRIG_UPDATE.pkg")
-
-        profile_entries = catalog_entries(results['MMEM:CAT? "/profile"'])
-        expect("active.json" in profile_entries, failures, "/profile missing active.json")
-
-        mission_entries = catalog_entries(results['MMEM:CAT? "/mission"'])
-        expect("recipe.json" in mission_entries, failures, "/mission missing recipe.json")
-        expect("node_map.json" in mission_entries, failures, "/mission missing node_map.json")
-
-        cal_entries = catalog_entries(results['MMEM:CAT? "/cal"'])
-        expect("board_cal.json" in cal_entries, failures, "/cal missing board_cal.json")
+        # Required content is confirmed with direct INFO queries.  A catalog
+        # response may be truncated or delayed by unrelated CDC traffic and
+        # must not create a false "missing file" result.
+        for name, command, path in SYSTEM_PACK_FILE_COMMANDS:
+            expect_file_info(results,
+                             command,
+                             path,
+                             "FILE",
+                             system_pack_failures)
 
     if not args.skip_negative_path:
         denied = parse_csv_response(results['MMEM:CAT? "/../"'])
@@ -955,6 +988,7 @@ def main() -> int:
                    failures,
                    f"/snapshots/boot catalog missing {snapshot_name}")
 
+    trigger_failure_start = len(failures)
     if not args.skip_snapshot and not args.skip_arm_snapshot:
         for command in (
             "TRIG:SOUR 17",
@@ -1309,23 +1343,46 @@ def main() -> int:
                    failures,
                    f"/reports/fault catalog missing {fault_report_name}")
 
+    trigger_evidence_failures.extend(failures[trigger_failure_start:])
+    del failures[trigger_failure_start:]
+
     lines = [f"{command} -> {response}" for command, response in results.items()]
     write_text(out_dir / "queries.txt", "\n".join(lines) + "\n")
 
+    all_failures = failures + system_pack_failures + trigger_evidence_failures
     summary = {
         "started": started,
         "port": args.port,
-        "passed": not failures,
+        "passed": not all_failures,
+        "sd_function_passed": not failures,
+        "system_pack_passed": not system_pack_failures,
+        "trigger_evidence_passed": not trigger_evidence_failures,
         "failures": failures,
+        "system_pack_failures": system_pack_failures,
+        "trigger_evidence_failures": trigger_evidence_failures,
         "results": results,
     }
     write_text(out_dir / "summary.json", json.dumps(summary, indent=2, ensure_ascii=False) + "\n")
-    summary_text = "PASS\n" if not failures else "FAIL\n" + "\n".join(f"- {item}" for item in failures) + "\n"
+    summary_lines = [
+        f"SD_FUNCTION={'PASS' if not failures else 'FAIL'}",
+        f"SYSTEM_PACK={'PASS' if not system_pack_failures else 'FAIL'}",
+        f"TRIGGER_EVIDENCE={'PASS' if not trigger_evidence_failures else 'FAIL'}",
+    ]
+    if failures:
+        summary_lines.append("SD function failures:")
+        summary_lines.extend(f"- {item}" for item in failures)
+    if system_pack_failures:
+        summary_lines.append("System Pack content failures:")
+        summary_lines.extend(f"- {item}" for item in system_pack_failures)
+    if trigger_evidence_failures:
+        summary_lines.append("Trigger evidence failures:")
+        summary_lines.extend(f"- {item}" for item in trigger_evidence_failures)
+    summary_text = "\n".join(summary_lines) + "\n"
     write_text(out_dir / "summary.txt", summary_text)
 
     print(f"out_dir={out_dir}")
     print(summary_text, end="")
-    return 0 if not failures else 1
+    return 0 if not all_failures else 1
 
 
 if __name__ == "__main__":

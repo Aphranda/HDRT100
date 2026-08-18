@@ -9,6 +9,7 @@
 #include "project_config.h"
 #include "scpi_port_internal.h"
 #include "storage_manager.h"
+#include "ui_manager.h"
 
 scpi_result_t scpi_cmd_core_tst_q(scpi_t *context)
 {
@@ -158,6 +159,25 @@ scpi_result_t scpi_cmd_rtos_status_q(scpi_t *context)
         SCPI_ResultUInt32(context, task->stack_free_words);
         SCPI_ResultUInt32(context, used_words);
         SCPI_ResultUInt32(context, task->priority);
+    }
+
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ui_keys_q(scpi_t *context)
+{
+    ui_manager_key_status_t status;
+    ui_manager_get_key_status(&status);
+
+    SCPI_ResultUInt32(context, status.raw_mask);
+    SCPI_ResultUInt32(context, status.stable_mask);
+    SCPI_ResultUInt32(context, status.event_sequence);
+    SCPI_ResultUInt32(context, status.last_event_key);
+    SCPI_ResultUInt32(context, (uint32_t)status.last_event_type);
+    for (uint32_t key = 0u; key < UI_MANAGER_KEY_COUNT; key++) {
+        SCPI_ResultUInt32(context, status.short_count[key]);
+        SCPI_ResultUInt32(context, status.long_count[key]);
+        SCPI_ResultUInt32(context, status.repeat_count[key]);
     }
 
     return SCPI_RES_OK;

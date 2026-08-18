@@ -35,6 +35,7 @@ set(PROJECT_USE_FREERTOS ON CACHE BOOL "Build the App firmware with the FreeRTOS
 set(PROJECT_USE_MULTICORE ON CACHE BOOL "Run realtime trigger service on RP2350 core1")
 set(PROJECT_SYNC_IO_INPUT_BASE_PIN 20 CACHE STRING "Product SMA input GPIO base (physical order IN4..IN1)")
 set(PROJECT_SYNC_IO_OUTPUT_BASE_PIN 16 CACHE STRING "Product SMA output GPIO base (OUT1..OUT4)")
+set(PROJECT_TDMA_SPI_BAUD_HZ 10000000 CACHE STRING "Product TDMA PIO-SPI bit rate")
 set_property(CACHE PROJECT_OTA_DEFAULT_BOOT_MODE PROPERTY STRINGS COPY_TO_ACTIVE DIRECT_AB)
 set_property(CACHE PROJECT_USB_DEFAULT_MODE PROPERTY STRINGS CDC USBTMC)
 
@@ -43,6 +44,13 @@ foreach(PROJECT_SYNC_IO_PIN_VAR IN ITEMS PROJECT_SYNC_IO_INPUT_BASE_PIN PROJECT_
         message(FATAL_ERROR "${PROJECT_SYNC_IO_PIN_VAR} must be an integer GPIO base pin")
     endif()
 endforeach()
+
+if(NOT "${PROJECT_TDMA_SPI_BAUD_HZ}" MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "PROJECT_TDMA_SPI_BAUD_HZ must be an integer frequency")
+endif()
+if(PROJECT_TDMA_SPI_BAUD_HZ LESS 1000000 OR PROJECT_TDMA_SPI_BAUD_HZ GREATER 25000000)
+    message(FATAL_ERROR "PROJECT_TDMA_SPI_BAUD_HZ must stay within the validated 1..25 MHz ladder")
+endif()
 
 math(EXPR PROJECT_SYNC_IO_INPUT_LAST_PIN "${PROJECT_SYNC_IO_INPUT_BASE_PIN} + 3")
 math(EXPR PROJECT_SYNC_IO_OUTPUT_LAST_PIN "${PROJECT_SYNC_IO_OUTPUT_BASE_PIN} + 3")
@@ -240,6 +248,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_runtime_owner.c
         components/tdma/src/tdma_transport_frame.c
         components/ui_manager/src/status_ui.c
+        components/ui_manager/src/ui_key_input.c
         components/ui_manager/src/ui_manager.c
         components/vdc_domain/src/vdc_domain.c
         components/vdc_domain/src/vdc_sync_io_adapter.c
@@ -419,6 +428,7 @@ function(project_configure_app_target target_name app_name linker_script)
         PROJECT_USE_MULTICORE=$<BOOL:${PROJECT_USE_MULTICORE}>
         PROJECT_SYNC_IO_INPUT_BASE_PIN=${PROJECT_SYNC_IO_INPUT_BASE_PIN}
         PROJECT_SYNC_IO_OUTPUT_BASE_PIN=${PROJECT_SYNC_IO_OUTPUT_BASE_PIN}
+        PROJECT_TDMA_SPI_BAUD_HZ=${PROJECT_TDMA_SPI_BAUD_HZ}
         PORTABLE_OTA_PORT_ENABLE_SESSION=1
         DRV_FLASH_LOCKOUT_PICO_RAM=1
         DRV_FLASH_LOCKOUT_USE_ARM_EVENTS=1

@@ -20,12 +20,23 @@
 /* Compatibility name used by the existing heartbeat path. */
 #define BOARD_STATUS_LED_PIN BOARD_LED_SYSTEM_PIN
 
+/* Net names from the product schematic. */
 #define BOARD_KEY1_PIN 2u
 #define BOARD_KEY2_PIN 6u
 #define BOARD_KEY3_PIN 7u
 #define BOARD_KEY1_ACTIVE_LOW 1
 #define BOARD_KEY2_ACTIVE_LOW 1
 #define BOARD_KEY3_ACTIVE_LOW 1
+
+/* Product-panel order verified on the first article (left -> center -> right).
+ * UI and SCPI key indices follow position, while the net-name definitions
+ * above remain unchanged as the electrical source of truth. */
+#define BOARD_KEY_LEFT_PIN BOARD_KEY3_PIN
+#define BOARD_KEY_CENTER_PIN BOARD_KEY1_PIN
+#define BOARD_KEY_RIGHT_PIN BOARD_KEY2_PIN
+#define BOARD_KEY_LEFT_ACTIVE_LOW BOARD_KEY3_ACTIVE_LOW
+#define BOARD_KEY_CENTER_ACTIVE_LOW BOARD_KEY1_ACTIVE_LOW
+#define BOARD_KEY_RIGHT_ACTIVE_LOW BOARD_KEY2_ACTIVE_LOW
 
 /* TF card: dedicated SPI1 bus. */
 #define BOARD_SPI_PORT spi1
@@ -87,7 +98,10 @@
 #define BOARD_TDMA_SPI_DOWNLINK_SCK_PIN 25u
 #define BOARD_TDMA_SPI_DOWNLINK_TX_PIN 29u
 /* Optimization target rate after CS/frame-sync bring-up. */
-#define BOARD_TDMA_SPI_BAUD_HZ 10000000u
+#ifndef PROJECT_TDMA_SPI_BAUD_HZ
+#define PROJECT_TDMA_SPI_BAUD_HZ 10000000u
+#endif
+#define BOARD_TDMA_SPI_BAUD_HZ PROJECT_TDMA_SPI_BAUD_HZ
 
 /* ISO1452 controls. /RE is active low and DE is active high. Board startup
  * enables receivers but leaves every differential driver disabled. */
