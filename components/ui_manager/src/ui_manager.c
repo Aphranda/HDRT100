@@ -7,7 +7,6 @@
 #include "board.h"
 #include "osal.h"
 #include "status_ui.h"
-#include "storage_manager.h"
 #include "ui_key_input.h"
 
 /* A full 160x80 RGB565 flush takes about 21 ms at the proven 10 MHz LCD SPI
@@ -111,22 +110,21 @@ static void ui_manager_dispatch_keys(ui_key_events_t events)
     const uint32_t key_center = 1u << (uint32_t)BOARD_KEY_CENTER;
     const uint32_t key_right = 1u << (uint32_t)BOARD_KEY_RIGHT;
 
-    if ((events.short_press_mask & key_left) != 0u) {
+    /* Dispatch the primary action on the debounced press edge.  Waiting for
+     * short_press_mask means waiting for release, which makes the panel feel
+     * unresponsive for as long as the operator holds a key. */
+    if ((events.pressed_mask & key_left) != 0u ||
+        (events.repeat_mask & key_left) != 0u) {
         status_ui_key_previous();
         s_dirty = true;
     }
-    if ((events.short_press_mask & key_center) != 0u ||
-        (events.long_press_mask & key_center) != 0u) {
+    if ((events.pressed_mask & key_center) != 0u) {
         status_ui_key_select();
         s_dirty = true;
     }
-    if ((events.short_press_mask & key_right) != 0u ||
+    if ((events.pressed_mask & key_right) != 0u ||
         (events.repeat_mask & key_right) != 0u) {
         status_ui_key_next();
-        s_dirty = true;
-    }
-    if ((events.long_press_mask & key_left) != 0u) {
-        status_ui_key_back();
         s_dirty = true;
     }
 }
@@ -171,21 +169,12 @@ void ui_manager_service(void)
     const uint32_t raw_key_mask = ui_manager_read_key_mask();
     const ui_key_events_t key_events =
         ui_key_input_update(&s_key_input, raw_key_mask, now_ms);
-    storage_manager_vector_t storage;
-
     ui_manager_publish_key_status(raw_key_mask, key_events);
     ui_manager_dispatch_keys(key_events);
 
-    storage_manager_get_vector(&storage);
-    if (storage.current_job_state == STORAGE_MANAGER_JOB_STATE_QUEUED ||
-        storage.current_job_state == STORAGE_MANAGER_JOB_STATE_RUNNING) {
-        return;
-    }
-    if (storage.card_present &&
-        storage.fs_mounted &&
-        storage.log_pending_bytes > 0u) {
-        return;
-    }
+    /* LCD is on dedicated SPI0 while the TF card is on SPI1.  SD work no
+     * longer blocks display refresh; the resource arbiter still protects the
+     * LCD itself inside status_ui_render(). */
 
     if ((uint32_t)(now_ms - s_last_refresh_ms) >= UI_MANAGER_REFRESH_PERIOD_MS) {
         s_dirty = true;

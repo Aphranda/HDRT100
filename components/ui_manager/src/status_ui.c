@@ -8,6 +8,7 @@
 #include "board.h"
 #include "diagnostics.h"
 #include "lcd_st7789.h"
+#include "led_manager.h"
 #include "osal.h"
 #include "ota_ao.h"
 #include "project_config.h"
@@ -16,6 +17,7 @@
 #include "sync_trigger.h"
 #include "u8g2.h"
 #include "u8g2_port.h"
+#include "vdc_dpll_manager.h"
 
 #define UI_WIDTH 160u
 #define UI_HEIGHT 80u
@@ -29,17 +31,37 @@
 
 typedef enum {
     UI_PAGE_OVERVIEW = 0,
+    UI_PAGE_SYNC,
+    UI_PAGE_VDC,
     UI_PAGE_TRIGGER,
-    UI_PAGE_OTA,
-    UI_PAGE_SD,
+    UI_PAGE_SYSTEM,
+    UI_PAGE_HEALTH,
     UI_PAGE_COUNT,
 } ui_page_t;
+
+enum {
+    UI_OVERVIEW_TDMA = 1u << 0,
+    UI_OVERVIEW_VDC = 1u << 1,
+    UI_OVERVIEW_DPLL = 1u << 2,
+    UI_OVERVIEW_TRIGGER = 1u << 3,
+    UI_OVERVIEW_SD = 1u << 4,
+    UI_OVERVIEW_FAULT = 1u << 5,
+};
 
 typedef struct {
     sync_trigger_summary_t trigger;
     ota_vector_t ota;
     storage_manager_vector_t storage;
     resource_arbiter_snapshot_t arbiter;
+    tdma_service_snapshot_t tdma;
+    vdc_domain_snapshot_t vdc;
+    diagnostics_status_t diagnostics;
+    diagnostics_core_status_t core;
+    led_manager_status_t led;
+    uint32_t heap_free_bytes;
+    uint32_t heap_min_free_bytes;
+    bool tdma_valid;
+    bool vdc_valid;
     bool fault_active;
     uint32_t uptime_ms;
 } ui_snapshot_t;
@@ -55,12 +77,44 @@ typedef struct {
     uint8_t tab_from_first;
     uint8_t tab_to_first;
     uint8_t tab_anim;
-    bool detail_active;
+    uint8_t subpage;
+    uint8_t overview_active_mask;
+    uint8_t overview_fault_mask;
+    bool cover_active;
+    bool cover_fault_active;
     bool boot_splash_active;
     bool initialized;
 } status_ui_t;
 
 static status_ui_t s_ui;
+
+/* Official GTS symbol, rasterized from the four #D60037 paths in
+ * docs/reports/distributed-trigger/...0804.html <g id="gts-logo">. */
+static const uint8_t s_gts_logo_xbm[] = {
+    0x00u, 0x00u, 0x00u, 0x1Eu, 0x80u, 0x01u, 0x7Fu, 0xE0u, 0x03u, 0xFFu, 0xF1u, 0x03u,
+    0xFFu, 0xE7u, 0x03u, 0xFFu, 0xDFu, 0x03u, 0xFFu, 0x3Fu, 0x03u, 0xFFu, 0x7Fu, 0x00u,
+    0xFEu, 0xFFu, 0x00u, 0xFEu, 0x1Fu, 0x00u, 0xFEu, 0xE0u, 0x02u, 0x0Cu, 0x7Cu, 0x07u,
+    0x80u, 0x3Fu, 0x07u, 0xF0u, 0x9Fu, 0x07u, 0xFCu, 0xCFu, 0x07u, 0xFCu, 0xE7u, 0x0Fu,
+    0xFCu, 0xF3u, 0x0Fu, 0xFCu, 0xF1u, 0x0Fu, 0xFCu, 0xF8u, 0x0Fu, 0x7Cu, 0xF0u, 0x07u,
+    0x18u, 0x80u, 0x03u, 0x00u, 0x00u, 0x00u,
+};
+
+static uint8_t ui_subpage_count(ui_page_t page)
+{
+    switch (page) {
+    case UI_PAGE_SYNC:
+        return 4u;
+    case UI_PAGE_VDC:
+    case UI_PAGE_HEALTH:
+        return 3u;
+    case UI_PAGE_SYSTEM:
+        return 4u;
+    case UI_PAGE_OVERVIEW:
+    case UI_PAGE_TRIGGER:
+    default:
+        return 2u;
+    }
+}
 
 extern const uint8_t u8g2_font_5x8_tr[];
 extern const uint8_t u8g2_font_6x10_tf[];
@@ -88,12 +142,16 @@ static const char *ui_page_to_label(ui_page_t page)
     switch (page) {
     case UI_PAGE_OVERVIEW:
         return "OVR";
+    case UI_PAGE_SYNC:
+        return "SYN";
+    case UI_PAGE_VDC:
+        return "VDC";
     case UI_PAGE_TRIGGER:
         return "TRG";
-    case UI_PAGE_OTA:
-        return "OTA";
-    case UI_PAGE_SD:
-        return "SD";
+    case UI_PAGE_SYSTEM:
+        return "SYS";
+    case UI_PAGE_HEALTH:
+        return "HLT";
     default:
         return "UNK";
     }
@@ -134,6 +192,51 @@ static const char *trigger_state_to_short(trig_state_t state)
 static const char *edge_to_short(trig_edge_t edge)
 {
     return edge == TRIG_EDGE_FALLING ? "FALL" : "RISE";
+}
+
+static const char *vdc_lock_to_short(uint32_t state)
+{
+    switch ((vdc_domain_lock_state_t)state) {
+    case VDC_DOMAIN_LOCK_OFF:
+        return "OFF";
+    case VDC_DOMAIN_LOCK_CHECKING:
+        return "CHECK";
+    case VDC_DOMAIN_LOCK_INITIAL_SYNC:
+        return "INIT";
+    case VDC_DOMAIN_LOCK_FREQ_LOCK:
+        return "FREQ";
+    case VDC_DOMAIN_LOCK_PHASE_LOCK:
+        return "PHASE";
+    case VDC_DOMAIN_LOCK_LOCKED:
+        return "LOCK";
+    case VDC_DOMAIN_LOCK_HOLDOVER:
+        return "HOLD";
+    case VDC_DOMAIN_LOCK_RELOCKING:
+        return "RELOCK";
+    case VDC_DOMAIN_LOCK_FAULT:
+        return "FAULT";
+    default:
+        return "UNK";
+    }
+}
+
+static const char *vdc_health_to_short(uint32_t state)
+{
+    switch ((vdc_domain_health_state_t)state) {
+    case VDC_DOMAIN_HEALTH_CHECKING:
+        return "CHECK";
+    case VDC_DOMAIN_HEALTH_DEGRADED:
+        return "DEGR";
+    case VDC_DOMAIN_HEALTH_LOCK_CANDIDATE:
+        return "CAND";
+    case VDC_DOMAIN_HEALTH_HEALTHY:
+        return "OK";
+    case VDC_DOMAIN_HEALTH_FAULT:
+        return "FAULT";
+    case VDC_DOMAIN_HEALTH_UNKNOWN:
+    default:
+        return "UNK";
+    }
 }
 
 static const char *arbiter_mode_to_short(resource_arbiter_mode_t mode)
@@ -495,6 +598,12 @@ static void capture_snapshot(ui_snapshot_t *snapshot)
     ota_ao_get_vector(&snapshot->ota);
     storage_manager_get_vector(&snapshot->storage);
     resource_arbiter_get_snapshot(&snapshot->arbiter);
+    snapshot->tdma_valid = vdc_dpll_manager_get_tdma_snapshot(&snapshot->tdma);
+    snapshot->vdc_valid = vdc_dpll_manager_get_snapshot(&snapshot->vdc);
+    diagnostics_get_status(&snapshot->diagnostics);
+    diagnostics_get_core_status(&snapshot->core);
+    led_manager_get_status(&snapshot->led);
+    osal_heap_get_status(&snapshot->heap_free_bytes, &snapshot->heap_min_free_bytes);
     snapshot->fault_active = diagnostics_has_fault();
     snapshot->uptime_ms = board_uptime_ms();
 }
@@ -505,6 +614,38 @@ static void draw_card(u8g2_t *u8g2, uint8_t x, uint8_t y, uint8_t w, uint8_t h, 
     u8g2_DrawHLine(u8g2, (u8g2_uint_t)(x + 1u), (u8g2_uint_t)(y + 12u), (u8g2_uint_t)(w - 2u));
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
     u8g2_DrawStr(u8g2, (u8g2_uint_t)(x + 4u), (u8g2_uint_t)(y + 9u), title);
+}
+
+static void draw_progress_card(u8g2_t *u8g2,
+                               uint8_t x,
+                               uint8_t y,
+                               uint8_t w,
+                               uint8_t h,
+                               const char *title,
+                               uint32_t permille)
+{
+    const uint32_t bounded = permille > 1000u ? 1000u : permille;
+    const uint8_t inner_w = (uint8_t)(w - 2u);
+    const uint8_t fill_w = (uint8_t)(((uint32_t)inner_w * bounded) / 1000u);
+
+    u8g2_DrawFrame(u8g2, x, y, w, h);
+    if (fill_w > 0u) {
+        u8g2_DrawBox(u8g2,
+                     (u8g2_uint_t)(x + 1u),
+                     (u8g2_uint_t)(y + 1u),
+                     fill_w,
+                     11u);
+    }
+    u8g2_DrawHLine(u8g2,
+                   (u8g2_uint_t)(x + 1u),
+                   (u8g2_uint_t)(y + 12u),
+                   inner_w);
+    u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
+    /* XOR keeps the title readable across both the filled and unfilled part
+     * of the progress header. */
+    u8g2_SetDrawColor(u8g2, 2u);
+    u8g2_DrawStr(u8g2, (u8g2_uint_t)(x + 4u), (u8g2_uint_t)(y + 9u), title);
+    u8g2_SetDrawColor(u8g2, 1u);
 }
 
 static void copy_fit_text(u8g2_t *u8g2, char *buffer, size_t buffer_size, const char *text, u8g2_uint_t max_width)
@@ -637,9 +778,11 @@ static void draw_page_tabs(u8g2_t *u8g2)
     };
     static const ui_page_t pages[] = {
         UI_PAGE_OVERVIEW,
+        UI_PAGE_SYNC,
+        UI_PAGE_VDC,
         UI_PAGE_TRIGGER,
-        UI_PAGE_OTA,
-        UI_PAGE_SD,
+        UI_PAGE_SYSTEM,
+        UI_PAGE_HEALTH,
     };
     const uint8_t active_page = (uint8_t)(s_ui.tab_anim > 0u ? s_ui.target_page : s_ui.page);
     const uint8_t previous_page = (uint8_t)s_ui.previous_page;
@@ -1049,17 +1192,18 @@ static void __attribute__((unused)) draw_sd_page(u8g2_t *u8g2, const ui_snapshot
  * product bring-up converges, but are no longer selected by draw_body(). */
 static void draw_product_header(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 {
-    static const char *const labels[] = {"OVR", "TRG", "OTA", "SD"};
-    const uint8_t tab_x = 64u;
-    const uint8_t tab_w = 24u;
+    static const char *const labels[] = {"OVR", "SYN", "VDC", "TRG", "SYS", "HLT"};
+    const uint8_t tab_x = 40u;
+    const uint8_t tab_w = 20u;
     const uint8_t active = (uint8_t)(s_ui.tab_anim > 0u ? s_ui.target_page : s_ui.page);
+    const uint8_t phase = (uint8_t)((snapshot->uptime_ms / 100u) % 20u);
+    const uint8_t triangle = phase <= 10u ? phase : (uint8_t)(20u - phase);
+    const uint8_t breath_radius = (uint8_t)(1u + (triangle / 5u));
 
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
-    draw_fit_str(u8g2,
-                 2u,
-                 10u,
-                 58u,
-                 snapshot->fault_active ? "DTC100 FLT" : "DTC100");
+    u8g2_DrawStr(u8g2, 1u, 10u, "DTC100");
+    u8g2_DrawCircle(u8g2, 35u, 6u, 3u, U8G2_DRAW_ALL);
+    u8g2_DrawDisc(u8g2, 35u, 6u, breath_radius, U8G2_DRAW_ALL);
     for (uint8_t page = 0u; page < (uint8_t)UI_PAGE_COUNT; page++) {
         const uint8_t x = (uint8_t)(tab_x + (page * tab_w));
         if (page == active) {
@@ -1068,8 +1212,51 @@ static void draw_product_header(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
         } else {
             u8g2_DrawFrame(u8g2, x, 1u, tab_w, 11u);
         }
-        draw_fit_str(u8g2, (u8g2_uint_t)(x + 4u), 9u, (u8g2_uint_t)(tab_w - 6u), labels[page]);
+        draw_fit_str(u8g2, (u8g2_uint_t)(x + 2u), 9u, (u8g2_uint_t)(tab_w - 3u), labels[page]);
         u8g2_SetDrawColor(u8g2, 1u);
+    }
+}
+
+static void draw_product_cover(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
+{
+    char build[12];
+    char status[24];
+    const uint8_t phase = (uint8_t)((snapshot->uptime_ms / 100u) % 20u);
+    const uint8_t triangle = phase <= 10u ? phase : (uint8_t)(20u - phase);
+    const uint8_t breath_radius = (uint8_t)(1u + (triangle / 5u));
+
+    s_ui.cover_fault_active = snapshot->fault_active || snapshot->led.fault_latched;
+    u8g2_DrawFrame(u8g2, 2u, 2u, 156u, 76u);
+    u8g2_DrawFrame(u8g2, 4u, 4u, 152u, 72u);
+    u8g2_DrawXBMP(u8g2, 18u, 8u, 20u, 22u, s_gts_logo_xbm);
+    u8g2_SetFont(u8g2, u8g2_font_6x13B_tf);
+    u8g2_DrawStr(u8g2, 48u, 22u, "DHRT100");
+    u8g2_DrawCircle(u8g2, 98u, 17u, 3u, U8G2_DRAW_ALL);
+    u8g2_DrawDisc(u8g2, 98u, 17u, breath_radius, U8G2_DRAW_ALL);
+    u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
+    u8g2_DrawStr(u8g2, 15u, 39u, "DISTRIBUTED HARD REAL-TIME");
+    u8g2_DrawStr(u8g2, 45u, 48u, "TRIGGER SYSTEM");
+    u8g2_DrawHLine(u8g2, 12u, 53u, 136u);
+    format_short_build(build, sizeof(build));
+    snprintf(status,
+             sizeof(status),
+             "%s  FW %s",
+             s_ui.cover_fault_active ? "FAULT" : "READY",
+             build);
+    draw_fit_str(u8g2, 37u, 64u, 90u, status);
+    u8g2_DrawStr(u8g2, 53u, 73u, "PRESS ANY KEY");
+}
+
+static void draw_overview_status_dot(u8g2_t *u8g2,
+                                     uint8_t x,
+                                     uint8_t y,
+                                     bool active,
+                                     bool blink)
+{
+    if (active || blink) {
+        u8g2_DrawDisc(u8g2, x, y, active ? 2u : 1u, U8G2_DRAW_ALL);
+    } else {
+        u8g2_DrawCircle(u8g2, x, y, 2u, U8G2_DRAW_ALL);
     }
 }
 
@@ -1077,56 +1264,358 @@ static void draw_product_overview(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 {
     char value[32];
     char uptime[12];
-    char resource[16];
     char build[12];
+    const bool blink = ((snapshot->uptime_ms / 250u) & 1u) != 0u;
 
-    draw_card(u8g2, 2u, 15u, 156u, 52u, s_ui.detail_active ? "OVERVIEW DETAIL" : "OVERVIEW");
-    if (s_ui.detail_active) {
+    s_ui.overview_active_mask = UI_OVERVIEW_FAULT;
+    s_ui.overview_fault_mask = 0u;
+    if (snapshot->tdma_valid && snapshot->tdma.ring_adapter_started != 0u) {
+        s_ui.overview_active_mask |= UI_OVERVIEW_TDMA;
+    }
+    if (snapshot->tdma_valid &&
+        (snapshot->tdma.ring_adapter_last_error != 0u ||
+         snapshot->tdma.ring_last_error != 0u)) {
+        s_ui.overview_fault_mask |= UI_OVERVIEW_TDMA;
+    }
+    if (snapshot->vdc_valid && snapshot->vdc.ready != 0u) {
+        s_ui.overview_active_mask |= UI_OVERVIEW_VDC;
+    }
+    if (snapshot->vdc_valid &&
+        snapshot->vdc.quality.health_state == VDC_DOMAIN_HEALTH_FAULT) {
+        s_ui.overview_fault_mask |= UI_OVERVIEW_VDC;
+    }
+    if (snapshot->vdc_valid && snapshot->vdc.dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
+        s_ui.overview_active_mask |= UI_OVERVIEW_DPLL;
+    }
+    if (snapshot->vdc_valid && snapshot->vdc.dpll.state == VDC_DOMAIN_LOCK_FAULT) {
+        s_ui.overview_fault_mask |= UI_OVERVIEW_DPLL;
+    }
+    if (snapshot->trigger.state != TRIG_STATE_IDLE) {
+        s_ui.overview_active_mask |= UI_OVERVIEW_TRIGGER;
+    }
+    if (snapshot->trigger.state == TRIG_STATE_FAULT) {
+        s_ui.overview_fault_mask |= UI_OVERVIEW_TRIGGER;
+    }
+    if (snapshot->storage.card_present && snapshot->storage.fs_mounted) {
+        s_ui.overview_active_mask |= UI_OVERVIEW_SD;
+    }
+    if ((snapshot->storage.card_present && !snapshot->storage.fs_mounted) ||
+        snapshot->storage.storage_error != 0u ||
+        snapshot->storage.job_error != 0u) {
+        s_ui.overview_fault_mask |= UI_OVERVIEW_SD;
+    }
+    if (snapshot->fault_active) {
+        s_ui.overview_fault_mask |= UI_OVERVIEW_FAULT;
+    }
+
+    draw_card(u8g2, 2u, 15u, 156u, 52u, s_ui.subpage > 0u ? "OVERVIEW SYSTEM" : "OVERVIEW STATUS");
+    if (s_ui.subpage > 0u) {
+        format_uptime(uptime, sizeof(uptime), snapshot->uptime_ms);
+        draw_kv_line(u8g2, 7u, 36u, 148u, "UPTIME", uptime);
+        format_short_build(build, sizeof(build));
+        draw_kv_line(u8g2, 7u, 45u, 148u, "FIRMWARE", build);
         snprintf(value,
                  sizeof(value),
-                 "GPIO%lu %s",
-                 (unsigned long)snapshot->trigger.trigger_source_pin,
-                 edge_to_short(snapshot->trigger.edge));
-        draw_kv_line(u8g2, 7u, 36u, 148u, "INPUT", value);
+                 "%s 0x%03lX",
+                 arbiter_mode_to_short(snapshot->arbiter.mode),
+                 (unsigned long)snapshot->arbiter.active_resources);
+        draw_kv_line(u8g2, 7u, 54u, 148u, "RESOURCE", value);
         snprintf(value,
                  sizeof(value),
-                 "%lu/%lu",
-                 (unsigned long)snapshot->trigger.trigger_count,
-                 (unsigned long)snapshot->trigger.output_count);
-        draw_kv_line(u8g2, 7u, 45u, 148u, "TRIG/OUT", value);
-        snprintf(value,
-                 sizeof(value),
-                 "%lu %luB",
-                 (unsigned long)snapshot->storage.last_log_id,
-                 (unsigned long)snapshot->storage.last_log_bytes);
-        draw_kv_line(u8g2, 7u, 54u, 148u, "LOG", value);
-        snprintf(value,
-                 sizeof(value),
-                 "%lu/%lu",
+                 "%s E%lu/%lu",
+                 snapshot->fault_active ? "FAULT" : "OK",
                  (unsigned long)snapshot->storage.storage_error,
                  (unsigned long)snapshot->storage.job_error);
-        draw_kv_line(u8g2, 7u, 63u, 148u, "SD ERR", value);
+        draw_kv_line(u8g2, 7u, 63u, 148u, "HEALTH", value);
+        return;
+    }
+
+    draw_overview_status_dot(u8g2, 10u, 38u,
+                    (s_ui.overview_active_mask & UI_OVERVIEW_TDMA) != 0u,
+                    blink && (s_ui.overview_fault_mask & UI_OVERVIEW_TDMA) != 0u);
+    draw_overview_status_dot(u8g2, 60u, 38u,
+                    (s_ui.overview_active_mask & UI_OVERVIEW_VDC) != 0u,
+                    blink && (s_ui.overview_fault_mask & UI_OVERVIEW_VDC) != 0u);
+    draw_overview_status_dot(u8g2, 110u, 38u,
+                    (s_ui.overview_active_mask & UI_OVERVIEW_DPLL) != 0u,
+                    blink && (s_ui.overview_fault_mask & UI_OVERVIEW_DPLL) != 0u);
+    draw_overview_status_dot(u8g2, 10u, 57u,
+                    (s_ui.overview_active_mask & UI_OVERVIEW_TRIGGER) != 0u,
+                    blink && (s_ui.overview_fault_mask & UI_OVERVIEW_TRIGGER) != 0u);
+    draw_overview_status_dot(u8g2, 60u, 57u,
+                    (s_ui.overview_active_mask & UI_OVERVIEW_SD) != 0u,
+                    blink && (s_ui.overview_fault_mask & UI_OVERVIEW_SD) != 0u);
+    draw_overview_status_dot(u8g2, 110u, 57u,
+                    (s_ui.overview_fault_mask & UI_OVERVIEW_FAULT) == 0u,
+                    blink && (s_ui.overview_fault_mask & UI_OVERVIEW_FAULT) != 0u);
+    u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
+    u8g2_DrawStr(u8g2, 16u, 41u, "TDMA");
+    u8g2_DrawStr(u8g2, 66u, 41u, "VDC");
+    u8g2_DrawStr(u8g2, 116u, 41u, "DPLL");
+    u8g2_DrawStr(u8g2, 16u, 60u, "TRG");
+    u8g2_DrawStr(u8g2, 66u, 60u, "SD");
+    u8g2_DrawStr(u8g2, 116u, 60u, "FLT");
+}
+
+static void draw_product_sync(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
+{
+    char value[32];
+    char rate[12];
+
+    draw_card(u8g2,
+              2u,
+              15u,
+              156u,
+              52u,
+              s_ui.subpage == 0u ? "SYNC OVERVIEW" :
+              (s_ui.subpage == 1u ? "TDMA LINK" :
+               (s_ui.subpage == 2u ? "TDMA FRAME DIAG" : "TDMA QUEUE WATER")));
+
+    if (s_ui.subpage == 0u) {
+        snprintf(value,
+                 sizeof(value),
+                 "%s TX%lu RX%lu",
+                 snapshot->tdma_valid && snapshot->tdma.ring_adapter_started != 0u ?
+                     "RUN" : "OFF",
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.ring_adapter_tx_count : 0ul,
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.ring_adapter_rx_count : 0ul);
+        draw_kv_line(u8g2, 7u, 36u, 148u, "TDMA", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%s",
+                 snapshot->vdc_valid ?
+                     vdc_health_to_short(snapshot->vdc.quality.health_state) : "NO VDC");
+        draw_kv_line(u8g2, 7u, 45u, 148u, "VDC", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%s",
+                 snapshot->vdc_valid ? vdc_lock_to_short(snapshot->vdc.dpll.state) : "NO DPLL");
+        draw_kv_line(u8g2, 7u, 54u, 148u, "DPLL", value);
+        snprintf(value,
+                 sizeof(value),
+                 "T%lu V%lu G%lu",
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.ring_adapter_last_error : 0ul,
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.quality.last_reject_code : 0ul,
+                 snapshot->vdc_valid ? (unsigned long)snapshot->vdc.gate.reject_code : 0ul);
+        draw_kv_line(u8g2, 7u, 63u, 148u, "CHAIN ERR", value);
+        return;
+    }
+
+    if (s_ui.subpage == 2u) {
+        snprintf(value,
+                 sizeof(value),
+                 "%lu/%lu",
+                 snapshot->tdma_valid ? (unsigned long)snapshot->tdma.ring_up_tx_sequence : 0ul,
+                 snapshot->tdma_valid ? (unsigned long)snapshot->tdma.ring_down_rx_sequence : 0ul);
+        draw_kv_line(u8g2, 7u, 36u, 148u, "SEQ TX/RX", value);
+
+        snprintf(value,
+                 sizeof(value),
+                 "%04lX/%04lX",
+                 snapshot->tdma_valid ?
+                     (unsigned long)(snapshot->tdma.ring_up_tx_frame_crc32 & 0xFFFFu) : 0ul,
+                 snapshot->tdma_valid ?
+                     (unsigned long)(snapshot->tdma.ring_down_rx_frame_crc32 & 0xFFFFu) : 0ul);
+        draw_kv_line(u8g2, 7u, 45u, 148u, "CRC TX/RX", value);
+
+        snprintf(value,
+                 sizeof(value),
+                 "%lu/%lu/%lu",
+                 snapshot->tdma_valid ? (unsigned long)snapshot->tdma.dropped_seq : 0ul,
+                 snapshot->tdma_valid ? (unsigned long)snapshot->tdma.timeout_count : 0ul,
+                 snapshot->tdma_valid ? (unsigned long)snapshot->tdma.overrun_count : 0ul);
+        draw_kv_line(u8g2, 7u, 54u, 148u, "DROP/T/O", value);
+
+        snprintf(value,
+                 sizeof(value),
+                 "%luns RES%lu",
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.ring_feedback_round_trip_ns : 0ul,
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.ring_timestamp_resolution_ns : 0ul);
+        draw_kv_line(u8g2, 7u, 63u, 148u, "RTT", value);
+        return;
+    }
+
+    if (s_ui.subpage == 3u) {
+        snprintf(value,
+                 sizeof(value),
+                 "%lu CFG%lu",
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.traffic_scheduler_queued_count : 0ul,
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.traffic_scheduler_configured : 0ul);
+        draw_kv_line(u8g2, 7u, 36u, 148u, "QUEUE", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%lu R%lu C%lu",
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.traffic_scheduler_fault_latched : 0ul,
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.traffic_scheduler_last_result : 0ul,
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.traffic_scheduler_last_class : 0ul);
+        draw_kv_line(u8g2, 7u, 45u, 148u, "SCHED", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%lu/%lu/%lu",
+                 snapshot->tdma_valid ? (unsigned long)snapshot->tdma.service_count : 0ul,
+                 snapshot->tdma_valid ? (unsigned long)snapshot->tdma.completed_seq : 0ul,
+                 snapshot->tdma_valid ? (unsigned long)snapshot->tdma.dropped_seq : 0ul);
+        draw_kv_line(u8g2, 7u, 54u, 148u, "SVC/DONE/DR", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%lu %lu/%lu",
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.scheduled_window_miss_count : 0ul,
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.scheduled_window_wait_ns : 0ul,
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.scheduled_window_late_ns : 0ul);
+        draw_kv_line(u8g2, 7u, 63u, 148u, "WIN M/W/L", value);
+        return;
+    }
+
+    snprintf(value,
+             sizeof(value),
+             "%s UP%lu DN%lu",
+             snapshot->tdma_valid && snapshot->tdma.ring_adapter_started != 0u ? "RUN" : "OFF",
+             snapshot->tdma_valid ? (unsigned long)snapshot->tdma.ring_up_running : 0ul,
+             snapshot->tdma_valid ? (unsigned long)snapshot->tdma.ring_down_running : 0ul);
+    draw_kv_line(u8g2, 7u, 36u, 148u, "LINK", value);
+
+    snprintf(value,
+             sizeof(value),
+             "%lu/%lu",
+             snapshot->tdma_valid ? (unsigned long)snapshot->tdma.ring_adapter_tx_count : 0ul,
+             snapshot->tdma_valid ? (unsigned long)snapshot->tdma.ring_adapter_rx_count : 0ul);
+    draw_kv_line(u8g2, 7u, 45u, 148u, "TX/RX", value);
+
+    snprintf(value,
+             sizeof(value),
+             "%lu E%lu",
+             snapshot->tdma_valid ? (unsigned long)snapshot->tdma.ring_adapter_rx_bad_count : 0ul,
+             snapshot->tdma_valid ? (unsigned long)snapshot->tdma.ring_adapter_last_error : 0ul);
+    draw_kv_line(u8g2, 7u, 54u, 148u, "BAD", value);
+
+    format_freq_hz(rate, sizeof(rate), snapshot->tdma_valid ? snapshot->tdma.baud_hz : 0u);
+    snprintf(value,
+             sizeof(value),
+             "%s N%lu R%lu",
+             rate,
+             snapshot->tdma_valid ? (unsigned long)snapshot->tdma.ring_local_slot_id : 0ul,
+             snapshot->tdma_valid ? (unsigned long)snapshot->tdma.ring_reference_slot_id : 0ul);
+    draw_kv_line(u8g2, 7u, 63u, 148u, "RATE", value);
+}
+
+static void draw_product_vdc(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
+{
+    char value[32];
+
+    draw_card(u8g2,
+              2u,
+              15u,
+              156u,
+              52u,
+              s_ui.subpage == 0u ? "VDC / DPLL" :
+              (s_ui.subpage == 1u ? "VDC SAMPLE WATER" : "DPLL DIAGNOSTICS"));
+
+    if (s_ui.subpage == 1u) {
+        snprintf(value,
+                 sizeof(value),
+                 "%lu/%lu",
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.quality.accepted_sample_count : 0ul,
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.quality.rejected_sample_count : 0ul);
+        draw_kv_line(u8g2, 7u, 36u, 148u, "ACCEPT/REJ", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%lu/%lu",
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.quality.consecutive_good_samples : 0ul,
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.quality.consecutive_bad_samples : 0ul);
+        draw_kv_line(u8g2, 7u, 45u, 148u, "GOOD/BAD", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%luus LIM%lu",
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.quality.last_sample_age_us : 0ul,
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.quality.freshness_limit_us : 0ul);
+        draw_kv_line(u8g2, 7u, 54u, 148u, "AGE", value);
+        snprintf(value,
+                 sizeof(value),
+                 "G%lu R%lu",
+                 snapshot->vdc_valid ? (unsigned long)snapshot->vdc.gate.reject_code : 0ul,
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.quality.last_reject_code : 0ul);
+        draw_kv_line(u8g2, 7u, 63u, 148u, "GATE", value);
+        return;
+    }
+
+    if (s_ui.subpage == 2u) {
+        snprintf(value,
+                 sizeof(value),
+                 "%ld/%luppb",
+                 snapshot->vdc_valid ?
+                     (long)snapshot->vdc.error_budget.freq_offset_ppb : 0l,
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.error_budget.freq_skew_ppb : 0ul);
+        draw_kv_line(u8g2, 7u, 36u, 148u, "FREQ/SKEW", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%lu/%luns",
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.error_budget.dispersion_ns : 0ul,
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.error_budget.root_distance_ns : 0ul);
+        draw_kv_line(u8g2, 7u, 45u, 148u, "DISP/ROOT", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%luus",
+                 snapshot->vdc_valid ? (unsigned long)snapshot->vdc.dpll.holdover_age_us : 0ul);
+        draw_kv_line(u8g2, 7u, 54u, 148u, "HOLDOVER", value);
+        snprintf(value,
+                 sizeof(value),
+                 "U%lu R%lu",
+                 snapshot->vdc_valid ? (unsigned long)snapshot->vdc.dpll.update_seq : 0ul,
+                 snapshot->vdc_valid ?
+                     (unsigned long)snapshot->vdc.dpll.last_reject_code : 0ul);
+        draw_kv_line(u8g2, 7u, 63u, 148u, "UPDATE", value);
         return;
     }
 
     snprintf(value,
              sizeof(value),
              "%s %s",
-             trigger_mode_to_short(snapshot->trigger.active_mode),
-             trigger_state_to_short(snapshot->trigger.state));
-    draw_kv_line(u8g2, 7u, 36u, 148u, "TRIGGER", value);
-    format_uptime(uptime, sizeof(uptime), snapshot->uptime_ms);
-    draw_kv_line(u8g2, 7u, 45u, 148u, "UPTIME", uptime);
+             snapshot->vdc_valid ?
+                 vdc_health_to_short(snapshot->vdc.quality.health_state) : "NO VDC",
+             snapshot->vdc_valid ? vdc_lock_to_short(snapshot->vdc.dpll.state) : "UNK");
+    draw_kv_line(u8g2, 7u, 36u, 148u, "STATE", value);
     snprintf(value,
              sizeof(value),
-             "%s %s",
-             snapshot->storage.card_present ? "CARD" : "NO CARD",
-             snapshot->storage.fs_mounted ? "MOUNT" : "NO FS");
-    draw_kv_line(u8g2, 7u, 54u, 148u, "SD", value);
-    format_resource_summary(resource, sizeof(resource), snapshot->arbiter.active_resources);
-    format_short_build(build, sizeof(build));
-    snprintf(value, sizeof(value), "%s B%s", resource, build);
-    draw_kv_line(u8g2, 7u, 63u, 148u, "RESOURCE", value);
+             "%ldns RMS%lu",
+             snapshot->vdc_valid ? (long)snapshot->vdc.dpll.last_offset_ns : 0l,
+             snapshot->vdc_valid ? (unsigned long)snapshot->vdc.dpll.rms_offset_ns : 0ul);
+    draw_kv_line(u8g2, 7u, 45u, 148u, "OFFSET", value);
+    snprintf(value,
+             sizeof(value),
+             "%lu/%luns",
+             snapshot->vdc_valid ? (unsigned long)snapshot->vdc.quality.last_jitter_ns : 0ul,
+             snapshot->vdc_valid ? (unsigned long)snapshot->vdc.quality.jitter_pk_ns : 0ul);
+    draw_kv_line(u8g2, 7u, 54u, 148u, "JIT/PK", value);
+    snprintf(value,
+             sizeof(value),
+             "%luus %ldppb",
+             snapshot->vdc_valid ? (unsigned long)snapshot->vdc.dpll.holdover_age_us : 0ul,
+             snapshot->vdc_valid ? (long)snapshot->vdc.dpll.last_frequency_error_ppb : 0l);
+    draw_kv_line(u8g2, 7u, 63u, 148u, "HOLD/FREQ", value);
 }
 
 static void draw_product_trigger(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
@@ -1134,7 +1623,7 @@ static void draw_product_trigger(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     char value[32];
     char duration[12];
 
-    draw_card(u8g2, 2u, 15u, 156u, 52u, s_ui.detail_active ? "TRIGGER DETAIL" : "TRIGGER");
+    draw_card(u8g2, 2u, 15u, 156u, 52u, s_ui.subpage > 0u ? "TRIGGER DIAG" : "TRIGGER");
     snprintf(value,
              sizeof(value),
              "%s %s",
@@ -1147,7 +1636,7 @@ static void draw_product_trigger(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
              (unsigned long)snapshot->trigger.trigger_source_pin,
              edge_to_short(snapshot->trigger.edge));
     draw_kv_line(u8g2, 7u, 45u, 148u, "SOURCE", value);
-    if (s_ui.detail_active) {
+    if (s_ui.subpage > 0u) {
         snprintf(value,
                  sizeof(value),
                  "%lu/%lu/%lu",
@@ -1179,7 +1668,13 @@ static void draw_product_ota(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     char progress[16];
     char rx[24];
 
-    draw_card(u8g2, 2u, 15u, 156u, 52u, s_ui.detail_active ? "OTA DETAIL" : "OTA");
+    draw_progress_card(u8g2,
+                       2u,
+                       15u,
+                       156u,
+                       52u,
+                       "SYS OTA",
+                       snapshot->ota.progress_permille);
     format_progress(progress, sizeof(progress), snapshot->ota.progress_permille);
     snprintf(value,
              sizeof(value),
@@ -1198,16 +1693,8 @@ static void draw_product_ota(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
              ota_slot_to_short_label(snapshot->ota.target_slot),
              ota_result_to_short_label((ota_result_t)snapshot->ota.last_result));
     draw_kv_line(u8g2, 7u, 54u, 148u, "TARGET", value);
-    if (s_ui.detail_active) {
-        snprintf(value,
-                 sizeof(value),
-                 "SEQ%lu EVT%lu",
-                 (unsigned long)snapshot->ota.sequence,
-                 (unsigned long)snapshot->ota.last_event);
-    } else {
-        copy_compact_error(value, sizeof(value), snapshot->ota.error_code);
-    }
-    draw_kv_line(u8g2, 7u, 63u, 148u, s_ui.detail_active ? "TRACE" : "ERROR", value);
+    copy_compact_error(value, sizeof(value), snapshot->ota.error_code);
+    draw_kv_line(u8g2, 7u, 63u, 148u, "ERROR", value);
 }
 
 static void draw_product_sd(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
@@ -1216,7 +1703,7 @@ static void draw_product_sd(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     char value[32];
     char capacity[16];
 
-    draw_card(u8g2, 2u, 15u, 156u, 52u, s_ui.detail_active ? "SD DETAIL" : "SD STORAGE");
+    draw_card(u8g2, 2u, 15u, 156u, 52u, "SYS SD STORAGE");
     snprintf(value,
              sizeof(value),
              "%s %s",
@@ -1225,56 +1712,228 @@ static void draw_product_sd(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     draw_kv_line(u8g2, 7u, 36u, 148u, "STATE", value);
     format_kib_compact(capacity, sizeof(capacity), storage->capacity_kib);
     draw_kv_line(u8g2, 7u, 45u, 148u, "CAPACITY", capacity);
-    if (s_ui.detail_active) {
+    snprintf(value,
+             sizeof(value),
+             "%s %lu/%lu",
+             storage_manifest_to_short(storage->manifest_status),
+             (unsigned long)storage->manifest_missing_count,
+             (unsigned long)storage->manifest_required_count);
+    draw_kv_line(u8g2, 7u, 54u, 148u, "PACK", value);
+    snprintf(value,
+             sizeof(value),
+             "%s %s E%lu/%lu",
+             storage_job_to_short(storage->current_job_type),
+             storage_job_state_to_short(storage->current_job_state),
+             (unsigned long)storage->storage_error,
+             (unsigned long)storage->job_error);
+    draw_kv_line(u8g2, 7u, 63u, 148u, "JOB", value);
+}
+
+static void draw_product_system(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
+{
+    char value[32];
+    char progress[16];
+    char build[12];
+
+    if (s_ui.subpage == 1u) {
+        draw_product_ota(u8g2, snapshot);
+        return;
+    }
+    if (s_ui.subpage == 2u) {
+        draw_product_sd(u8g2, snapshot);
+        return;
+    }
+
+    draw_card(u8g2,
+              2u,
+              15u,
+              156u,
+              52u,
+              s_ui.subpage == 0u ? "SYSTEM OVERVIEW" : "SYSTEM RESOURCES");
+    if (s_ui.subpage == 3u) {
         snprintf(value,
                  sizeof(value),
-                 "%lu %luB",
-                 (unsigned long)storage->last_log_id,
-                 (unsigned long)storage->last_log_bytes);
-        draw_kv_line(u8g2, 7u, 54u, 148u, "LOG", value);
+                 "%lu/%luB",
+                 (unsigned long)snapshot->heap_free_bytes,
+                 (unsigned long)snapshot->heap_min_free_bytes);
+        draw_kv_line(u8g2, 7u, 36u, 148u, "HEAP F/MIN", value);
+        snprintf(value,
+                 sizeof(value),
+                 "0x%03lX C%03lX",
+                 (unsigned long)snapshot->arbiter.active_resources,
+                 (unsigned long)snapshot->arbiter.last_conflict_resources);
+        draw_kv_line(u8g2, 7u, 45u, 148u, "RESOURCE", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%luB %s",
+                 (unsigned long)snapshot->storage.log_pending_bytes,
+                 storage_job_state_to_short(snapshot->storage.current_job_state));
+        draw_kv_line(u8g2, 7u, 54u, 148u, "SD PENDING", value);
         snprintf(value,
                  sizeof(value),
                  "%lu/%lu",
-                 (unsigned long)storage->storage_error,
-                 (unsigned long)storage->job_error);
-        draw_kv_line(u8g2, 7u, 63u, 148u, "ERROR", value);
-    } else {
-        snprintf(value,
-                 sizeof(value),
-                 "%s %lu/%lu",
-                 storage_manifest_to_short(storage->manifest_status),
-                 (unsigned long)storage->manifest_missing_count,
-                 (unsigned long)storage->manifest_required_count);
-        draw_kv_line(u8g2, 7u, 54u, 148u, "PACK", value);
-        snprintf(value,
-                 sizeof(value),
-                 "%s %s",
-                 storage_job_to_short(storage->current_job_type),
-                 storage_job_state_to_short(storage->current_job_state));
-        draw_kv_line(u8g2, 7u, 63u, 148u, "JOB", value);
+                 (unsigned long)snapshot->storage.storage_error,
+                 (unsigned long)snapshot->storage.job_error);
+        draw_kv_line(u8g2, 7u, 63u, 148u, "SD ERROR", value);
+        return;
     }
+
+    format_progress(progress, sizeof(progress), snapshot->ota.progress_permille);
+    snprintf(value,
+             sizeof(value),
+             "%s %s",
+             ota_state_to_short_label((ota_state_t)snapshot->ota.state),
+             progress);
+    draw_kv_line(u8g2, 7u, 36u, 148u, "OTA", value);
+    snprintf(value,
+             sizeof(value),
+             "%s %s",
+             snapshot->storage.card_present ? "CARD" : "NO CARD",
+             snapshot->storage.fs_mounted ? "MOUNT" : "NO FS");
+    draw_kv_line(u8g2, 7u, 45u, 148u, "SD", value);
+    snprintf(value,
+             sizeof(value),
+             "%s 0x%03lX",
+             arbiter_mode_to_short(snapshot->arbiter.mode),
+             (unsigned long)snapshot->arbiter.active_resources);
+    draw_kv_line(u8g2, 7u, 54u, 148u, "RESOURCE", value);
+    format_short_build(build, sizeof(build));
+    draw_kv_line(u8g2, 7u, 63u, 148u, "FIRMWARE", build);
+}
+
+static void draw_product_health(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
+{
+    char value[32];
+    const bool core_ok = snapshot->core.core1_enabled && !snapshot->led.core1_stale;
+
+    draw_card(u8g2,
+              2u,
+              15u,
+              156u,
+              52u,
+              s_ui.subpage == 0u ? "HEALTH OVERVIEW" :
+              (s_ui.subpage == 1u ? "HEALTH CORE / LED" : "HEALTH WATERMARK"));
+
+    if (s_ui.subpage == 1u) {
+        snprintf(value,
+                 sizeof(value),
+                 "%lu/%lu AGE%lu",
+                 (unsigned long)snapshot->core.core0_loop_count,
+                 (unsigned long)snapshot->core.core1_loop_count,
+                 (unsigned long)(snapshot->uptime_ms - snapshot->core.core1_last_ms));
+        draw_kv_line(u8g2, 7u, 36u, 148u, "CORE 0/1", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%s/%s/%s",
+                 led_manager_pattern_string(snapshot->led.system_pattern),
+                 led_manager_pattern_string(snapshot->led.arm_pattern),
+                 led_manager_pattern_string(snapshot->led.fault_pattern));
+        draw_kv_line(u8g2, 7u, 45u, 148u, "LED S/A/F", value);
+        snprintf(value,
+                 sizeof(value),
+                 "CFG%u SD%u H%lX",
+                 snapshot->led.config_ready ? 1u : 0u,
+                 snapshot->led.sd_ready ? 1u : 0u,
+                 (unsigned long)snapshot->led.health_flags);
+        draw_kv_line(u8g2, 7u, 54u, 148u, "READY", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%lu F%lu P%lu",
+                 (unsigned long)snapshot->led.event_sequence,
+                 (unsigned long)snapshot->led.fault_transition_count,
+                 (unsigned long)snapshot->led.pattern_transition_count);
+        draw_kv_line(u8g2, 7u, 63u, 148u, "EVENT", value);
+        return;
+    }
+
+    if (s_ui.subpage == 2u) {
+        snprintf(value,
+                 sizeof(value),
+                 "%lu/%luB",
+                 (unsigned long)snapshot->heap_free_bytes,
+                 (unsigned long)snapshot->heap_min_free_bytes);
+        draw_kv_line(u8g2, 7u, 36u, 148u, "HEAP F/MIN", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%lu/%luB",
+                 (unsigned long)snapshot->diagnostics.queue_bytes,
+                 (unsigned long)snapshot->diagnostics.queue_high_watermark);
+        draw_kv_line(u8g2, 7u, 45u, 148u, "LOG Q/HIGH", value);
+        snprintf(value,
+                 sizeof(value),
+                 "%lu/%luB",
+                 (unsigned long)snapshot->diagnostics.persistent_queue_bytes,
+                 (unsigned long)snapshot->diagnostics.persistent_queue_high_watermark);
+        draw_kv_line(u8g2, 7u, 54u, 148u, "PLOG Q/HIGH", value);
+        snprintf(value,
+                 sizeof(value),
+                 "T%lu SD%luB",
+                 snapshot->tdma_valid ?
+                     (unsigned long)snapshot->tdma.traffic_scheduler_queued_count : 0ul,
+                 (unsigned long)snapshot->storage.log_pending_bytes);
+        draw_kv_line(u8g2, 7u, 63u, 148u, "DOMAIN Q", value);
+        return;
+    }
+
+    draw_kv_line(u8g2,
+                 7u,
+                 36u,
+                 148u,
+                 "POLICY",
+                 led_manager_policy_string(snapshot->led.policy));
+    draw_kv_line(u8g2, 7u, 45u, 148u, "CORE1", core_ok ? "OK" : "STALE");
+    snprintf(value,
+             sizeof(value),
+             "T%lu V%lu SD%lu",
+             snapshot->tdma_valid ?
+                 (unsigned long)snapshot->tdma.ring_adapter_last_error : 0ul,
+             snapshot->vdc_valid ?
+                 (unsigned long)snapshot->vdc.quality.last_reject_code : 0ul,
+             (unsigned long)snapshot->storage.storage_error);
+    draw_kv_line(u8g2, 7u, 54u, 148u, "DOMAIN ERR", value);
+    snprintf(value,
+             sizeof(value),
+             "%s L%u",
+             snapshot->fault_active ? "FAULT" : "OK",
+             snapshot->led.fault_latched ? 1u : 0u);
+    draw_kv_line(u8g2, 7u, 63u, 148u, "GLOBAL", value);
 }
 
 static void draw_product_footer(u8g2_t *u8g2)
 {
+    char center[12];
+    const uint8_t count = ui_subpage_count(s_ui.page);
+
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
     u8g2_DrawHLine(u8g2, 0u, 69u, 160u);
-    u8g2_DrawStr(u8g2, 2u, 79u, s_ui.detail_active ? "L BACK" : "L <");
-    u8g2_DrawStr(u8g2, 58u, 79u, s_ui.detail_active ? "C LESS" : "C MORE");
+    u8g2_DrawStr(u8g2, 2u, 79u, "L <");
+    snprintf(center,
+             sizeof(center),
+             "C %c %u/%u",
+             s_ui.subpage + 1u >= count ? '^' : 'v',
+             (unsigned int)(s_ui.subpage + 1u),
+             (unsigned int)count);
+    u8g2_DrawStr(u8g2, 58u, 79u, center);
     u8g2_DrawStr(u8g2, 124u, 79u, "R >");
 }
 
 static void draw_body(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 {
     switch (s_ui.page) {
+    case UI_PAGE_SYNC:
+        draw_product_sync(u8g2, snapshot);
+        break;
+    case UI_PAGE_VDC:
+        draw_product_vdc(u8g2, snapshot);
+        break;
     case UI_PAGE_TRIGGER:
         draw_product_trigger(u8g2, snapshot);
         break;
-    case UI_PAGE_OTA:
-        draw_product_ota(u8g2, snapshot);
+    case UI_PAGE_SYSTEM:
+        draw_product_system(u8g2, snapshot);
         break;
-    case UI_PAGE_SD:
-        draw_product_sd(u8g2, snapshot);
+    case UI_PAGE_HEALTH:
+        draw_product_health(u8g2, snapshot);
         break;
     case UI_PAGE_OVERVIEW:
     default:
@@ -1301,39 +1960,24 @@ static uint16_t themed_background(uint16_t x, uint16_t y)
         }
         return (x < 80u) ? rgb565(11, 22, 32) : rgb565(14, 28, 34);
     }
-
-    if (y < 14u) {
-        switch (s_ui.page) {
-        case UI_PAGE_TRIGGER:
-            return rgb565(24, 35, 30);
-        case UI_PAGE_OTA:
-            return rgb565(35, 26, 39);
-        case UI_PAGE_SD:
-            return rgb565(20, 38, 32);
-        case UI_PAGE_OVERVIEW:
-        default:
-            return rgb565(13, 36, 47);
+    if (s_ui.cover_active) {
+        (void)x;
+        if (y >= 54u && y <= 66u) {
+            return rgb565(241, 245, 243);
         }
+        return rgb565(251, 251, 249);
+    }
+
+    /* Product pages use one continuous light canvas.  The old 240x135 theme
+     * split the body by x/y regions; after the move to 160x80 that left the
+     * overview visibly divided into two background colours. */
+    if (y < 14u) {
+        return rgb565(235, 243, 241);
     }
     if (y >= 68u) {
-        return rgb565(17, 27, 34);
+        return rgb565(232, 235, 234);
     }
-    if (s_ui.page == UI_PAGE_TRIGGER) {
-        return (x < 120u) ? rgb565(14, 25, 23) : rgb565(18, 30, 24);
-    }
-    if (s_ui.page == UI_PAGE_OTA) {
-        return (y < 70u) ? rgb565(22, 24, 38) : rgb565(28, 25, 34);
-    }
-    if (s_ui.page == UI_PAGE_SD) {
-        return (y < 68u) ? rgb565(15, 34, 31) : rgb565(20, 31, 30);
-    }
-    if (x < 76u) {
-        return rgb565(18, 30, 36);
-    }
-    if (x > 161u) {
-        return rgb565(22, 32, 40);
-    }
-    return rgb565(15, 24, 31);
+    return rgb565(248, 249, 247);
 }
 
 static uint16_t themed_foreground(uint16_t x, uint16_t y)
@@ -1350,46 +1994,97 @@ static uint16_t themed_foreground(uint16_t x, uint16_t y)
         }
         return rgb565(225, 236, 232);
     }
+    if (s_ui.cover_active) {
+        if (x >= 18u && x < 38u && y >= 8u && y < 30u) {
+            return rgb565(214, 0, 55);
+        }
+        if (x >= 94u && x <= 102u && y >= 13u && y <= 21u) {
+            return s_ui.cover_fault_active ? rgb565(196, 51, 45) : rgb565(35, 145, 75);
+        }
+        if (y >= 55u && y <= 65u) {
+            return s_ui.cover_fault_active ? rgb565(196, 51, 45) : rgb565(35, 126, 82);
+        }
+        if (y >= 68u) {
+            return rgb565(45, 91, 88);
+        }
+        return rgb565(31, 42, 43);
+    }
 
     if (y < 14u) {
+        if (x >= 31u && x <= 39u) {
+            return rgb565(35, 154, 91);
+        }
         switch (s_ui.page) {
+        case UI_PAGE_SYNC:
+            return rgb565(39, 101, 156);
+        case UI_PAGE_VDC:
+            return rgb565(38, 116, 111);
         case UI_PAGE_TRIGGER:
-            return rgb565(138, 238, 156);
-        case UI_PAGE_OTA:
-            return rgb565(211, 166, 255);
-        case UI_PAGE_SD:
-            return rgb565(124, 235, 189);
+            return rgb565(36, 126, 72);
+        case UI_PAGE_SYSTEM:
+            return rgb565(116, 70, 150);
+        case UI_PAGE_HEALTH:
+            return rgb565(164, 73, 39);
         case UI_PAGE_OVERVIEW:
         default:
-            return rgb565(115, 232, 222);
+            return rgb565(28, 122, 116);
         }
     }
     if (y >= 68u) {
-        return rgb565(246, 185, 77);
+        return rgb565(69, 79, 80);
+    }
+    if (s_ui.page == UI_PAGE_OVERVIEW && s_ui.subpage == 0u) {
+        uint8_t status_bit = 0u;
+        const bool top_dot = y >= 36u && y <= 40u;
+        const bool bottom_dot = y >= 55u && y <= 59u;
+        if ((top_dot || bottom_dot) && x >= 8u && x <= 12u) {
+            status_bit = top_dot ? UI_OVERVIEW_TDMA : UI_OVERVIEW_TRIGGER;
+        } else if ((top_dot || bottom_dot) && x >= 58u && x <= 62u) {
+            status_bit = top_dot ? UI_OVERVIEW_VDC : UI_OVERVIEW_SD;
+        } else if ((top_dot || bottom_dot) && x >= 108u && x <= 112u) {
+            status_bit = top_dot ? UI_OVERVIEW_DPLL : UI_OVERVIEW_FAULT;
+        }
+        if (status_bit != 0u) {
+            if ((s_ui.overview_fault_mask & status_bit) != 0u) {
+                return rgb565(196, 51, 45);
+            }
+            if ((s_ui.overview_active_mask & status_bit) != 0u) {
+                return rgb565(35, 145, 75);
+            }
+            return rgb565(190, 125, 0);
+        }
+    }
+    if (s_ui.page == UI_PAGE_SYNC) {
+        if (y > 45u && y < 55u) {
+            return rgb565(31, 105, 150);
+        }
+        return rgb565(32, 45, 55);
+    }
+    if (s_ui.page == UI_PAGE_VDC) {
+        if (y > 45u && y < 55u) {
+            return rgb565(24, 124, 117);
+        }
+        return rgb565(30, 48, 48);
     }
     if (s_ui.page == UI_PAGE_TRIGGER) {
         if (y > 45u && y < 55u) {
-            return rgb565(247, 208, 92);
+            return rgb565(181, 113, 0);
         }
-        return rgb565(205, 239, 214);
+        return rgb565(31, 45, 40);
     }
-    if (s_ui.page == UI_PAGE_OTA) {
+    if (s_ui.page == UI_PAGE_SYSTEM) {
         if (y > 50u && y < 66u) {
-            return rgb565(114, 218, 255);
+            return rgb565(31, 105, 150);
         }
-        return rgb565(234, 224, 246);
+        return rgb565(45, 38, 51);
     }
-    if (s_ui.page == UI_PAGE_SD) {
+    if (s_ui.page == UI_PAGE_HEALTH) {
         if (y > 46u && y < 56u) {
-            return rgb565(247, 212, 104);
+            return rgb565(181, 113, 0);
         }
-        return rgb565(217, 239, 226);
+        return rgb565(55, 40, 36);
     }
-    if ((x > 169u && x < 232u && y > 21u && y < 113u) ||
-        (x > 80u && x < 158u && y > 21u && y < 83u)) {
-        return rgb565(85, 211, 150);
-    }
-    return rgb565(220, 232, 229);
+    return rgb565(31, 42, 43);
 }
 
 static void flush_to_lcd(void)
@@ -1439,24 +2134,25 @@ static void draw_boot_splash_frame(uint8_t frame)
     u8g2_DrawBox(u8g2, 12u, 12u, 136u, 1u);
 
     u8g2_SetFont(u8g2, u8g2_font_6x13B_tf);
-    u8g2_DrawStr(u8g2, 47u, 29u, PROJECT_NAME);
+    u8g2_DrawStr(u8g2, 59u, 28u, "DHRT100");
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
-    u8g2_DrawStr(u8g2, 35u, 39u, "HAOFV CONTROL CORE");
+    u8g2_DrawStr(u8g2, 15u, 38u, "DISTRIBUTED HARD REAL-TIME");
+    u8g2_DrawStr(u8g2, 45u, 46u, "TRIGGER SYSTEM");
 
-    u8g2_DrawFrame(u8g2, 16u, 47u, 128u, 8u);
+    u8g2_DrawFrame(u8g2, 16u, 50u, 128u, 8u);
     if (bar_width > 0u) {
-        u8g2_DrawBox(u8g2, 18u, 49u, bar_width, 4u);
+        u8g2_DrawBox(u8g2, 18u, 52u, bar_width, 4u);
     }
 
     snprintf(text_buffer, sizeof(text_buffer), "BOOT %u%%", progress);
-    u8g2_DrawStr(u8g2, 16u, 66u, text_buffer);
+    u8g2_DrawStr(u8g2, 16u, 67u, text_buffer);
     snprintf(text_buffer,
              sizeof(text_buffer),
              "FW %lu.%lu.%lu",
              (unsigned long)PROJECT_VERSION_MAJOR,
              (unsigned long)PROJECT_VERSION_MINOR,
              (unsigned long)PROJECT_VERSION_PATCH);
-    u8g2_DrawStr(u8g2, 91u, 66u, text_buffer);
+    u8g2_DrawStr(u8g2, 91u, 67u, text_buffer);
 
     u8g2_DrawBox(u8g2, (u8g2_uint_t)(16u + (frame % 16u) * 8u), 70u, 10u, 2u);
 }
@@ -1496,6 +2192,22 @@ bool status_ui_init(void)
     s_ui.tab_to_first = 0u;
     s_ui.initialized = true;
     run_boot_splash();
+    s_ui.cover_active = true;
+    return true;
+}
+
+static bool dismiss_product_cover(void)
+{
+    if (!s_ui.cover_active) {
+        return false;
+    }
+
+    s_ui.cover_active = false;
+    s_ui.page = UI_PAGE_OVERVIEW;
+    s_ui.target_page = UI_PAGE_OVERVIEW;
+    s_ui.previous_page = UI_PAGE_OVERVIEW;
+    s_ui.subpage = 0u;
+    s_ui.tab_anim = 0u;
     return true;
 }
 
@@ -1504,48 +2216,69 @@ void status_ui_key_next(void)
     if (!s_ui.initialized) {
         return;
     }
+    if (dismiss_product_cover()) {
+        return;
+    }
     if (s_ui.tab_anim > 0u || s_ui.page != s_ui.target_page) {
         return;
     }
 
     s_ui.previous_page = s_ui.page;
-    s_ui.detail_active = false;
     s_ui.tab_from_first = tab_first_for_page((uint8_t)s_ui.previous_page,
                                              (uint8_t)UI_PAGE_COUNT,
                                              3u);
     s_ui.target_page = (ui_page_t)(((uint32_t)s_ui.page + 1u) % (uint32_t)UI_PAGE_COUNT);
+    if (s_ui.subpage >= ui_subpage_count(s_ui.target_page)) {
+        s_ui.subpage = (uint8_t)(ui_subpage_count(s_ui.target_page) - 1u);
+    }
     s_ui.tab_to_first = tab_first_for_page((uint8_t)s_ui.target_page,
                                            (uint8_t)UI_PAGE_COUNT,
                                            3u);
-    s_ui.tab_anim = UI_TAB_ANIM_STEPS;
+    s_ui.page = s_ui.target_page;
+    s_ui.tab_anim = 0u;
 }
 
 void status_ui_key_previous(void)
 {
-    if (!s_ui.initialized || s_ui.tab_anim > 0u || s_ui.page != s_ui.target_page) {
+    if (!s_ui.initialized) {
+        return;
+    }
+    if (dismiss_product_cover()) {
+        return;
+    }
+    if (s_ui.tab_anim > 0u || s_ui.page != s_ui.target_page) {
         return;
     }
 
     s_ui.previous_page = s_ui.page;
-    s_ui.detail_active = false;
     s_ui.tab_from_first = tab_first_for_page((uint8_t)s_ui.previous_page,
                                              (uint8_t)UI_PAGE_COUNT,
                                              3u);
     s_ui.target_page = s_ui.page == UI_PAGE_OVERVIEW ?
                            (ui_page_t)((uint32_t)UI_PAGE_COUNT - 1u) :
                            (ui_page_t)((uint32_t)s_ui.page - 1u);
+    if (s_ui.subpage >= ui_subpage_count(s_ui.target_page)) {
+        s_ui.subpage = (uint8_t)(ui_subpage_count(s_ui.target_page) - 1u);
+    }
     s_ui.tab_to_first = tab_first_for_page((uint8_t)s_ui.target_page,
                                            (uint8_t)UI_PAGE_COUNT,
                                            3u);
-    s_ui.tab_anim = UI_TAB_ANIM_STEPS;
+    s_ui.page = s_ui.target_page;
+    s_ui.tab_anim = 0u;
 }
 
 void status_ui_key_select(void)
 {
-    if (!s_ui.initialized || s_ui.tab_anim > 0u) {
+    if (!s_ui.initialized) {
         return;
     }
-    s_ui.detail_active = !s_ui.detail_active;
+    if (dismiss_product_cover()) {
+        return;
+    }
+    if (s_ui.tab_anim > 0u) {
+        return;
+    }
+    s_ui.subpage = (uint8_t)((s_ui.subpage + 1u) % ui_subpage_count(s_ui.page));
 }
 
 void status_ui_key_back(void)
@@ -1553,8 +2286,11 @@ void status_ui_key_back(void)
     if (!s_ui.initialized) {
         return;
     }
-    if (s_ui.detail_active) {
-        s_ui.detail_active = false;
+    if (dismiss_product_cover()) {
+        return;
+    }
+    if (s_ui.subpage > 0u) {
+        s_ui.subpage = 0u;
         return;
     }
     if (s_ui.page != UI_PAGE_OVERVIEW && s_ui.tab_anim == 0u) {
@@ -1564,7 +2300,8 @@ void status_ui_key_back(void)
                                                  3u);
         s_ui.target_page = UI_PAGE_OVERVIEW;
         s_ui.tab_to_first = 0u;
-        s_ui.tab_anim = UI_TAB_ANIM_STEPS;
+        s_ui.page = s_ui.target_page;
+        s_ui.tab_anim = 0u;
     }
 }
 
@@ -1593,9 +2330,13 @@ bool status_ui_render(void)
     }
 
     u8g2_ClearBuffer(u8g2);
-    draw_product_header(u8g2, &snapshot);
-    draw_body(u8g2, &snapshot);
-    draw_product_footer(u8g2);
+    if (s_ui.cover_active) {
+        draw_product_cover(u8g2, &snapshot);
+    } else {
+        draw_product_header(u8g2, &snapshot);
+        draw_body(u8g2, &snapshot);
+        draw_product_footer(u8g2);
+    }
 
     flush_to_lcd();
     if (s_ui.tab_anim > 0u) {
