@@ -27,6 +27,10 @@ static sync_io_biss_tap_runtime_t s_biss_tap;
 
 bool sync_io_biss_tap_mode_validate(const sync_io_biss_tap_mode_config_t *config)
 {
+#if !BOARD_SYNC_AUX_ENABLED
+    (void)config;
+    return false;
+#else
     if (config == NULL ||
         config->frame_bits == 0u ||
         config->frame_bits > SYNC_IO_BISS_TAP_MODE_MAX_FRAME_BITS ||
@@ -44,6 +48,7 @@ bool sync_io_biss_tap_mode_validate(const sync_io_biss_tap_mode_config_t *config
            sync_io_hw_aux_supports_input(1u) &&
            sync_io_hw_aux_supports_output(2u) &&
            sync_io_hw_aux_supports_output(3u);
+#endif
 }
 
 bool sync_io_biss_tap_mode_arm(const sync_io_biss_tap_mode_config_t *config)

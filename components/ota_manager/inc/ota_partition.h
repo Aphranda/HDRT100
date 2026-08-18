@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define OTA_FLASH_SIZE_BYTES             (4u * 1024u * 1024u)
+#define OTA_FLASH_SIZE_BYTES             (16u * 1024u * 1024u)
 #define OTA_BOOTLOADER_OFFSET            0x000000u
 #define OTA_BOOTLOADER_SIZE              0x040000u
 #define OTA_SLOT_A_OFFSET                0x040000u
@@ -16,11 +16,20 @@
 #define OTA_PRODUCT_CONFIG_SIZE          0x010000u
 #define OTA_SCRATCH_OFFSET               0x360000u
 #define OTA_SCRATCH_SIZE                 0x0A0000u
+/* Keep the established bootloader/A/B metadata map in the lower 4 MiB so
+ * field-updated boards remain compatible. The upper 12 MiB is intentionally
+ * unallocated until a versioned partition migration is introduced. */
+#define OTA_COMPAT_LAYOUT_SIZE           0x400000u
 #define OTA_APP_SIZE_WARN_THRESHOLD      (1200u * 1024u)
 #define OTA_APP_SIZE_FAIL_THRESHOLD      (1400u * 1024u)
 #define OTA_DEFAULT_TARGET_SLOT_OFFSET   OTA_SLOT_B_OFFSET
 #define OTA_DEFAULT_TARGET_SLOT_SIZE     OTA_SLOT_B_SIZE
 #define OTA_DEFAULT_APP_RUN_OFFSET       OTA_SLOT_A_OFFSET
+
+_Static_assert((OTA_SCRATCH_OFFSET + OTA_SCRATCH_SIZE) == OTA_COMPAT_LAYOUT_SIZE,
+               "legacy OTA layout must end at 4 MiB");
+_Static_assert(OTA_COMPAT_LAYOUT_SIZE <= OTA_FLASH_SIZE_BYTES,
+               "OTA layout exceeds physical flash");
 
 typedef enum {
     OTA_SLOT_NONE = 0,

@@ -60,6 +60,10 @@ static bool tdma_pio_spi_phys_ensure_programs(void)
     if (s_tdma_pio_spi_programs_loaded) {
         return true;
     }
+    if (pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM) ||
+        pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM)) {
+        return false;
+    }
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
                              &tdma_pio_spi_tx_byte_program) ||
         !pio_can_add_program(BOARD_TDMA_SPI_PIO,
@@ -72,6 +76,8 @@ static bool tdma_pio_spi_phys_ensure_programs(void)
     s_tdma_pio_spi_rx_offset =
         (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
                               &tdma_pio_spi_rx_byte_program);
+    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
+    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
     s_tdma_pio_spi_programs_loaded = true;
     return true;
 }
@@ -139,9 +145,8 @@ static void tdma_pio_spi_phys_rx_prepare(tdma_pio_spi_phys_t *phys)
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
 }
 
-/* Half-duplex ring: the pin set is symmetric across boards (measured wiring,
- * see board_config.h), so every ring node uses the same downlink TX leg
- * (CS=21, TX=23, SCK=24) and uplink RX leg (CS=16, RX=18, SCK=19). */
+/* Product-board SPI persona. Pin direction and PIO ownership are frozen in
+ * board_config.h; CS remains the point-to-point frame-sync signal. */
 static void tdma_pio_spi_phys_configure(tdma_pio_spi_phys_t *phys)
 {
     phys->tx_sm = BOARD_TDMA_SPI_MASTER_SM;
@@ -174,6 +179,14 @@ static void tdma_pio_spi_phys_configure(tdma_pio_spi_phys_t *phys)
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
     pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, true);
+}
+
+static void tdma_pio_spi_phys_set_line_drivers(bool enabled)
+{
+    /* DATA0, CLK1 and TRIG/CS have independent ISO1452 drivers. */
+    gpio_put(BOARD_UP_BISS_DE_PIN, enabled);
+    gpio_put(BOARD_DN_BISS_DE_PIN, enabled);
+    gpio_put(BOARD_TRIG_DE_PIN, enabled);
 }
 
 static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
@@ -378,7 +391,9 @@ bool tdma_pio_spi_phys_arm(void *context,
                         ? BOARD_TDMA_SPI_BAUD_HZ
                         : TDMA_PIO_SPI_DEFAULT_BAUD_HZ;
     tdma_pio_spi_phys_configure(phys);
+    tdma_pio_spi_phys_set_line_drivers(true);
     if (!tdma_pio_spi_phys_rx_arm(phys)) {
+        tdma_pio_spi_phys_set_line_drivers(false);
         return false;
     }
 
@@ -429,6 +444,7 @@ void tdma_pio_spi_phys_disarm(void *context)
     if (s_tdma_pio_spi_rx_dma_channel >= 0) {
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
     }
+    tdma_pio_spi_phys_set_line_drivers(false);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, false);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, false);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);

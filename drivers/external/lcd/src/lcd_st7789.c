@@ -67,17 +67,18 @@ static void lcd_write_cmd_data(uint8_t cmd, const uint8_t *data, size_t len)
 
 static uint8_t lcd_madctl_for_rotation(lcd_st7789_rotation_t rotation)
 {
+    /* ST7735S: MY/MX/MV plus BGR color order used by the 0.96-inch module. */
     switch (rotation) {
     case LCD_ST7789_ROTATION_0:
-        return 0x00u;
+        return 0xC8u;
     case LCD_ST7789_ROTATION_90:
-        return 0x70u;
+        return 0xA8u;
     case LCD_ST7789_ROTATION_180:
-        return 0xC0u;
+        return 0x08u;
     case LCD_ST7789_ROTATION_270:
-        return 0xA0u;
+        return 0x68u;
     default:
-        return 0x70u;
+        return 0xA8u;
     }
 }
 
@@ -86,20 +87,22 @@ static void lcd_apply_init_sequence(void)
     static const lcd_init_cmd_t init_cmds[] = {
         {LCD_CMD_SWRESET, {0}, 0, 150},
         {LCD_CMD_SLPOUT, {0}, 0, 120},
+        /* ST7735S frame-rate, inversion and power setup. */
+        {0xB1, {0x01, 0x2C, 0x2D}, 3, 0},
+        {0xB2, {0x01, 0x2C, 0x2D}, 3, 0},
+        {0xB3, {0x01, 0x2C, 0x2D, 0x01, 0x2C, 0x2D}, 6, 0},
+        {0xB4, {0x07}, 1, 0},
+        {0xC0, {0xA2, 0x02, 0x84}, 3, 0},
+        {0xC1, {0xC5}, 1, 0},
+        {0xC2, {0x0A, 0x00}, 2, 0},
+        {0xC3, {0x8A, 0x2A}, 2, 0},
+        {0xC4, {0x8A, 0xEE}, 2, 0},
+        {0xC5, {0x0E}, 1, 0},
         {LCD_CMD_COLMOD, {0x05}, 1, 0},
-        {0xB2, {0x0C, 0x0C, 0x00, 0x33, 0x33}, 5, 0},
-        {0xB7, {0x35}, 1, 0},
-        {0xBB, {0x19}, 1, 0},
-        {0xC0, {0x2C}, 1, 0},
-        {0xC2, {0x01}, 1, 0},
-        {0xC3, {0x12}, 1, 0},
-        {0xC4, {0x20}, 1, 0},
-        {0xC6, {0x01}, 1, 0},
-        {0xD0, {0xA4, 0xA1}, 2, 0},
-        {0xE0, {0xD0, 0x04, 0x0D, 0x11, 0x13, 0x2B, 0x3F, 0x54,
-                0x4C, 0x18, 0x0D, 0x0B, 0x1F, 0x23}, 14, 0},
-        {0xE1, {0xD0, 0x04, 0x0C, 0x11, 0x13, 0x2C, 0x3F, 0x44,
-                0x51, 0x2F, 0x1F, 0x1F, 0x20, 0x23}, 14, 0},
+        {0xE0, {0x02, 0x1C, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2D,
+                0x29, 0x25, 0x2B, 0x39, 0x00, 0x01, 0x03, 0x10}, 16, 0},
+        {0xE1, {0x03, 0x1D, 0x07, 0x06, 0x2E, 0x2C, 0x29, 0x2D,
+                0x2E, 0x2E, 0x37, 0x3F, 0x00, 0x00, 0x02, 0x10}, 16, 0},
         {LCD_CMD_INVON, {0}, 0, 0},
         {LCD_CMD_NORON, {0}, 0, 10},
         {LCD_CMD_DISPON, {0}, 0, 120},
@@ -121,6 +124,10 @@ bool lcd_st7789_init(const lcd_st7789_config_t *config)
 
     s_lcd = *config;
 
+    gpio_init(s_lcd.rst_pin);
+    gpio_put(s_lcd.rst_pin, 0);
+    gpio_set_dir(s_lcd.rst_pin, GPIO_OUT);
+
     gpio_init(s_lcd.dc_pin);
     gpio_set_dir(s_lcd.dc_pin, GPIO_OUT);
     gpio_put(s_lcd.dc_pin, 1);
@@ -133,7 +140,9 @@ bool lcd_st7789_init(const lcd_st7789_config_t *config)
     gpio_set_dir(s_lcd.bl_pin, GPIO_OUT);
     lcd_st7789_set_backlight(false);
 
-    osal_delay_ms(50u);
+    osal_delay_ms(20u);
+    gpio_put(s_lcd.rst_pin, 1);
+    osal_delay_ms(120u);
     lcd_apply_init_sequence();
 
     const uint8_t madctl = lcd_madctl_for_rotation(s_lcd.rotation);

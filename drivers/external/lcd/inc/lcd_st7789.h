@@ -16,6 +16,7 @@ typedef enum {
 
 typedef struct {
     spi_inst_t *spi;
+    uint32_t rst_pin;
     uint32_t dc_pin;
     uint32_t cs_pin;
     uint32_t bl_pin;

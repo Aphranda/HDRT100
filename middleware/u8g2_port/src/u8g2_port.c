@@ -16,12 +16,12 @@ static const u8x8_display_info_t s_u8g2_port_display_info = {
     /* i2c_bus_clock_100kHz = */ 4,
     /* data_setup_time_ns = */ 0,
     /* write_pulse_width_ns = */ 0,
-    /* tile_width = */ 30,
-    /* tile_height = */ 17,
+    /* tile_width = */ 20,
+    /* tile_height = */ 10,
     /* default_x_offset = */ 0,
     /* flipmode_x_offset = */ 0,
-    /* pixel_width = */ 240,
-    /* pixel_height = */ 136,
+    /* pixel_width = */ 160,
+    /* pixel_height = */ 80,
 };
 
 static uint8_t u8g2_port_display_cb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg_ptr)
@@ -42,10 +42,10 @@ static uint8_t u8g2_port_display_cb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, 
     }
 }
 
-void u8g2_port_setup_240x136(u8g2_t *u8g2, uint8_t *buffer)
+void u8g2_port_setup_160x80(u8g2_t *u8g2, uint8_t *buffer)
 {
     u8g2_SetupDisplay(u8g2, u8g2_port_display_cb, u8x8_cad_empty, u8x8_byte_empty, u8g2_port_gpio_and_delay);
-    u8g2_SetupBuffer(u8g2, buffer, 17, u8g2_ll_hvline_vertical_top_lsb, U8G2_R0);
+    u8g2_SetupBuffer(u8g2, buffer, 10, u8g2_ll_hvline_vertical_top_lsb, U8G2_R0);
 }
 
 uint8_t u8g2_port_gpio_and_delay(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg_ptr)

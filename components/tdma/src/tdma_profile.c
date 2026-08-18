@@ -234,7 +234,7 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
     profile->resource.adapter_type = adapter_type;
     if (adapter_type == TDMA_ADAPTER_PIO_SPI ||
         adapter_type == TDMA_ADAPTER_BISS_C) {
-        profile->resource.pio_block_id = 0u;
+        profile->resource.pio_block_id = 2u;
         profile->resource.up_state_machine_id = 0u;
         profile->resource.down_state_machine_id = 1u;
     } else {

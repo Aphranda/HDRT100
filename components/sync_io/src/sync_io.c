@@ -344,6 +344,33 @@ static uint32_t sync_io_capture_sample_at(uint32_t raw_word,
     return (raw_word >> (index * 4u)) & 0x0Fu;
 }
 
+static uint32_t sync_io_map_capture_word(uint32_t raw_word)
+{
+#if BOARD_SYNC_INPUT_BITS_REVERSED
+    /* Reverse the four input bits inside each of the eight packed samples:
+     * GPIO20..23 arrives as IN4..IN1, public masks are IN1..IN4. */
+    return ((raw_word & 0x11111111u) << 3u) |
+           ((raw_word & 0x22222222u) << 1u) |
+           ((raw_word & 0x44444444u) >> 1u) |
+           ((raw_word & 0x88888888u) >> 3u);
+#else
+    return raw_word;
+#endif
+}
+
+static uint32_t sync_io_map_input_mask(uint32_t physical_mask)
+{
+#if BOARD_SYNC_INPUT_BITS_REVERSED
+    physical_mask &= 0x0Fu;
+    return ((physical_mask & 0x01u) << 3u) |
+           ((physical_mask & 0x02u) << 1u) |
+           ((physical_mask & 0x04u) >> 1u) |
+           ((physical_mask & 0x08u) >> 3u);
+#else
+    return physical_mask;
+#endif
+}
+
 static bool sync_io_capture_word_has_observed_edge(uint32_t raw_word,
                                                    uint32_t observed_mask,
                                                    uint32_t *previous_sample_mask)
@@ -710,26 +737,53 @@ bool sync_io_init(const sync_io_config_t *config)
                                   ? config->sync_clock_hz
                                   : SYNC_IO_DEFAULT_CLOCK_HZ;
 
-    if (!pio_can_add_program(BOARD_SYNC_PIO_FAST, &sync_capture_4bit_program) ||
-        !pio_can_add_program(BOARD_SYNC_PIO_WAVE, &sync_pulse_program) ||
-        !pio_can_add_program(SYNC_IO_CLOCK_PIO, &sync_clock_program) ||
-        !pio_can_add_program(BOARD_SYNC_PIO_AUX, &sync_aux_output_program) ||
-        !pio_can_add_program(BOARD_SYNC_PIO_AUX, &sync_passthrough_1bit_program) ||
-        !pio_can_add_program(BOARD_SYNC_PIO_AUX, &biss_tap_rx_program)) {
+    bool pio_programs_fit =
+        pio_can_add_program(BOARD_SYNC_PIO_FAST, &sync_capture_4bit_program) &&
+        pio_can_add_program(BOARD_SYNC_PIO_WAVE, &sync_pulse_program);
+#if BOARD_SYNC_AUX_ENABLED
+    pio_programs_fit =
+        pio_programs_fit &&
+        pio_can_add_program(SYNC_IO_CLOCK_PIO, &sync_clock_program) &&
+        pio_can_add_program(BOARD_SYNC_PIO_AUX, &sync_aux_output_program) &&
+        pio_can_add_program(BOARD_SYNC_PIO_AUX,
+                            &sync_passthrough_1bit_program) &&
+        pio_can_add_program(BOARD_SYNC_PIO_AUX, &biss_tap_rx_program);
+#endif
+    if (!pio_programs_fit) {
         LOG_ERROR("sync_io", "not enough PIO instruction memory");
         sync_io_trace(SYNC_IO_TRACE_INIT_FAIL, SYNC_IO_TRACE_ERROR, 1u, 0u);
         return false;
     }
 
-    if (!sync_io_claim_sm(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, "capture") ||
-        !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, "output") ||
-        !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_MODEL_SCHED_SM, "model_sched") ||
-        !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, "pulse") ||
-        !sync_io_claim_sm(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM, "rj45_trigger") ||
-        !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX0_SM, "aux0") ||
-        !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX1_SM, "aux1") ||
-        !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX2_SM, "aux2") ||
-        !sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX3_SM, "aux3")) {
+    bool state_machines_claimed =
+        sync_io_claim_sm(BOARD_SYNC_PIO_FAST,
+                         BOARD_SYNC_CAPTURE_SM,
+                         "capture") &&
+        sync_io_claim_sm(BOARD_SYNC_PIO_WAVE,
+                         BOARD_SYNC_OUTPUT_SM,
+                         "output") &&
+        sync_io_claim_sm(BOARD_SYNC_PIO_WAVE,
+                         BOARD_SYNC_MODEL_SCHED_SM,
+                         "model_sched") &&
+        sync_io_claim_sm(BOARD_SYNC_PIO_WAVE,
+                         BOARD_SYNC_GATE_SM,
+                         "pulse");
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    state_machines_claimed =
+        state_machines_claimed &&
+        sync_io_claim_sm(BOARD_SYNC_PIO_WAVE,
+                         BOARD_SYNC_RJ45_TRIGGER_SM,
+                         "rj45_trigger");
+#endif
+#if BOARD_SYNC_AUX_ENABLED
+    state_machines_claimed =
+        state_machines_claimed &&
+        sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX0_SM, "aux0") &&
+        sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX1_SM, "aux1") &&
+        sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX2_SM, "aux2") &&
+        sync_io_claim_sm(BOARD_SYNC_PIO_AUX, BOARD_SYNC_AUX3_SM, "aux3");
+#endif
+    if (!state_machines_claimed) {
         sync_io_trace(SYNC_IO_TRACE_INIT_FAIL, SYNC_IO_TRACE_ERROR, 2u, 0u);
         return false;
     }
@@ -746,11 +800,13 @@ bool sync_io_init(const sync_io_config_t *config)
 
     s_sync_io.capture_offset = (uint)pio_add_program(BOARD_SYNC_PIO_FAST, &sync_capture_4bit_program);
     s_sync_io.pulse_offset = (uint)pio_add_program(BOARD_SYNC_PIO_WAVE, &sync_pulse_program);
+#if BOARD_SYNC_AUX_ENABLED
     s_sync_io.clock_offset = (uint)pio_add_program(SYNC_IO_CLOCK_PIO, &sync_clock_program);
     s_sync_io.aux_offset = (uint)pio_add_program(BOARD_SYNC_PIO_AUX, &sync_aux_output_program);
     s_sync_io.aux_passthrough_offset =
         (uint)pio_add_program(BOARD_SYNC_PIO_AUX, &sync_passthrough_1bit_program);
     s_sync_io.biss_tap_offset = (uint)pio_add_program(BOARD_SYNC_PIO_AUX, &biss_tap_rx_program);
+#endif
 
     sync_io_configure_static_inputs();
     sync_io_capture_latch_timer_init();
@@ -772,11 +828,14 @@ bool sync_io_init(const sync_io_config_t *config)
                             s_sync_io.pulse_offset,
                             BOARD_SYNC_PULSE_OUT_PIN);
 
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
     sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
                             BOARD_SYNC_RJ45_TRIGGER_SM,
                             s_sync_io.pulse_offset,
                             BOARD_SYNC_RJ45_TRIG_OUT_PIN);
+#endif
 
+#if BOARD_SYNC_AUX_ENABLED
     for (uint channel = 0u; channel < (uint)SYNC_IO_AUX_COUNT; channel++) {
         sync_aux_output_program_init(BOARD_SYNC_PIO_AUX,
                                      s_aux_sms[channel],
@@ -795,12 +854,19 @@ bool sync_io_init(const sync_io_config_t *config)
                             SYNC_IO_CLOCK_PIN,
                             sync_io_clkdiv_for_instruction_rate(clock_hz * 2u));
     sync_io_core_restore_aux_channel_input(SYNC_IO_CLOCK_PIN);
+#endif
 
     pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, false);
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, true);
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, true);
+#if BOARD_SYNC_AUX_ENABLED
     pio_sm_set_enabled(SYNC_IO_CLOCK_PIO, SYNC_IO_CLOCK_SM, false);
-    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM, true);
+#endif
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE,
+                       BOARD_SYNC_RJ45_TRIGGER_SM,
+                       true);
+#endif
 
     s_sync_io.capture_sample_hz = capture_hz;
     s_sync_io.sync_clock_hz = clock_hz;
@@ -912,8 +978,9 @@ static bool sync_io_capture_dma_pop(uint32_t *raw_word,
     }
 
     *capture_word_seq = read_seq;
-    *raw_word =
-        s_sync_io_capture_dma_ring[read_seq & (SYNC_IO_CAPTURE_DMA_RING_WORDS - 1u)];
+    *raw_word = sync_io_map_capture_word(
+        s_sync_io_capture_dma_ring[read_seq &
+                                   (SYNC_IO_CAPTURE_DMA_RING_WORDS - 1u)]);
     s_sync_io.capture_dma_read_seq = read_seq + 1u;
     osal_critical_exit();
 
@@ -1180,6 +1247,10 @@ bool sync_io_fire_pulse_out_us(uint32_t high_us)
 
 bool sync_io_start_clock(uint32_t frequency_hz)
 {
+#if !BOARD_SYNC_AUX_ENABLED
+    (void)frequency_hz;
+    return false;
+#else
     if (!s_sync_io.initialized || frequency_hz == 0u) {
         sync_io_trace(SYNC_IO_TRACE_CLOCK_FAIL,
                       SYNC_IO_TRACE_WARN,
@@ -1217,10 +1288,14 @@ bool sync_io_start_clock(uint32_t frequency_hz)
                   frequency_hz,
                   SYNC_IO_HW_SYNC_CLK_OUT_PIN);
     return true;
+#endif
 }
 
 void sync_io_stop_clock(void)
 {
+#if !BOARD_SYNC_AUX_ENABLED
+    return;
+#else
     if (!s_sync_io.initialized) {
         return;
     }
@@ -1237,11 +1312,17 @@ void sync_io_stop_clock(void)
                   SYNC_IO_TRACE_INFO,
                   s_sync_io.sync_clock_hz,
                   SYNC_IO_HW_SYNC_CLK_OUT_PIN);
+#endif
 }
 
 bool sync_io_fire_marker_cycles(uint32_t high_cycles)
 {
+#if !BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    (void)high_cycles;
+    return false;
+#else
     return sync_io_fire_pulse_on_sm(BOARD_SYNC_RJ45_TRIGGER_SM, high_cycles);
+#endif
 }
 
 bool sync_io_fire_marker_us(uint32_t high_us)
@@ -1251,7 +1332,12 @@ bool sync_io_fire_marker_us(uint32_t high_us)
 
 bool sync_io_fire_rj45_trigger_us(uint32_t high_us)
 {
+#if !BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    (void)high_us;
+    return false;
+#else
     return sync_io_fire_pulse_us_on_sm(BOARD_SYNC_RJ45_TRIGGER_SM, high_us);
+#endif
 }
 
 bool sync_io_debug_set_output_mask(uint32_t mask)
@@ -1265,7 +1351,11 @@ bool sync_io_debug_set_output_mask(uint32_t mask)
 
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, false);
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, false);
-    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM, false);
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
+    pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE,
+                       BOARD_SYNC_RJ45_TRIGGER_SM,
+                       false);
+#endif
 
     for (uint pin = 0u; pin < BOARD_SYNC_OUTPUT_PIN_COUNT; pin++) {
         const uint gpio = BOARD_SYNC_OUTPUT_BASE_PIN + pin;
@@ -1298,14 +1388,18 @@ void sync_io_debug_release_output_mask(void)
                             BOARD_SYNC_GATE_SM,
                             s_sync_io.pulse_offset,
                             BOARD_SYNC_PULSE_OUT_PIN);
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
     sync_pulse_program_init(BOARD_SYNC_PIO_WAVE,
                             BOARD_SYNC_RJ45_TRIGGER_SM,
                             s_sync_io.pulse_offset,
                             BOARD_SYNC_RJ45_TRIG_OUT_PIN);
+#endif
 
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, true);
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_GATE_SM, true);
+#if BOARD_SYNC_RJ45_TRIGGER_ENABLED
     pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_RJ45_TRIGGER_SM, true);
+#endif
 }
 
 uint32_t sync_io_debug_read_input_mask(void)
@@ -1316,11 +1410,16 @@ uint32_t sync_io_debug_read_input_mask(void)
             mask |= (1u << pin);
         }
     }
-    return mask;
+    return sync_io_map_input_mask(mask);
 }
 
 bool sync_io_debug_model_set_output_mask(uint32_t enable_mask, uint32_t value_mask)
 {
+#if !BOARD_DEBUG_MODEL_GPIO_ENABLED
+    (void)enable_mask;
+    (void)value_mask;
+    return false;
+#else
     if (!s_sync_io.initialized) {
         return false;
     }
@@ -1345,6 +1444,7 @@ bool sync_io_debug_model_set_output_mask(uint32_t enable_mask, uint32_t value_ma
     s_sync_io.debug_model_output_enable_mask = enable_mask;
     s_sync_io.debug_model_output_value_mask = value_mask & enable_mask;
     return true;
+#endif
 }
 
 bool sync_io_debug_model_write_pin(uint32_t pin_index, bool enable, bool value)
@@ -1373,6 +1473,9 @@ bool sync_io_debug_model_write_pin(uint32_t pin_index, bool enable, bool value)
 
 void sync_io_debug_model_release(void)
 {
+#if !BOARD_DEBUG_MODEL_GPIO_ENABLED
+    return;
+#else
     if (!s_sync_io.initialized) {
         return;
     }
@@ -1387,10 +1490,14 @@ void sync_io_debug_model_release(void)
 
     s_sync_io.debug_model_output_enable_mask = 0u;
     s_sync_io.debug_model_output_value_mask = 0u;
+#endif
 }
 
 uint32_t sync_io_debug_model_read_input_mask(void)
 {
+#if !BOARD_DEBUG_MODEL_GPIO_ENABLED
+    return 0u;
+#else
     uint32_t mask = 0u;
     for (uint pin = 0u; pin < BOARD_DEBUG_MODEL_GPIO_PIN_COUNT; pin++) {
         if (gpio_get(BOARD_DEBUG_MODEL_GPIO_BASE_PIN + pin)) {
@@ -1398,6 +1505,7 @@ uint32_t sync_io_debug_model_read_input_mask(void)
         }
     }
     return mask;
+#endif
 }
 
 uint32_t sync_io_debug_model_get_output_enable_mask(void)

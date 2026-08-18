@@ -17,9 +17,9 @@
 #include "u8g2.h"
 #include "u8g2_port.h"
 
-#define UI_WIDTH 240u
-#define UI_HEIGHT 135u
-#define UI_U8G2_HEIGHT 136u
+#define UI_WIDTH 160u
+#define UI_HEIGHT 80u
+#define UI_U8G2_HEIGHT 80u
 #define UI_MONO_BUFFER_SIZE ((UI_WIDTH * UI_U8G2_HEIGHT) / 8u)
 #define UI_FLUSH_PIXELS 120u
 #define UI_CARD_Y 22u
@@ -1075,13 +1075,13 @@ static bool mono_pixel_is_set(uint16_t x, uint16_t y)
 static uint16_t themed_background(uint16_t x, uint16_t y)
 {
     if (s_ui.boot_splash_active) {
-        if (y < 28u) {
+        if (y < 18u) {
             return rgb565(8, 29, 39);
         }
-        if (y > 104u) {
+        if (y > 62u) {
             return rgb565(19, 24, 34);
         }
-        return (x < 120u) ? rgb565(11, 22, 32) : rgb565(14, 28, 34);
+        return (x < 80u) ? rgb565(11, 22, 32) : rgb565(14, 28, 34);
     }
 
     if (y < 20u) {
@@ -1121,13 +1121,13 @@ static uint16_t themed_background(uint16_t x, uint16_t y)
 static uint16_t themed_foreground(uint16_t x, uint16_t y)
 {
     if (s_ui.boot_splash_active) {
-        if (y < 28u) {
+        if (y < 18u) {
             return rgb565(121, 237, 224);
         }
-        if (y > 104u) {
+        if (y > 62u) {
             return rgb565(248, 194, 86);
         }
-        if (x > 20u && x < 222u && y > 73u && y < 88u) {
+        if (x > 14u && x < 146u && y > 45u && y < 58u) {
             return rgb565(96, 219, 151);
         }
         return rgb565(225, 236, 232);
@@ -1176,12 +1176,19 @@ static uint16_t themed_foreground(uint16_t x, uint16_t y)
 
 static void flush_to_lcd(void)
 {
-    lcd_st7789_set_window(0u, 0u, (uint16_t)(UI_WIDTH - 1u), (uint16_t)(UI_HEIGHT - 1u));
+    /* Keep the ST7735S in its proven native 80x160 scan mode.  Hardware MV
+     * landscape mode produces a row-wrap skew on this module, so map the
+     * 160x80 logical UI clockwise into the portrait RAM window in software. */
+    lcd_st7789_set_window(0u, 0u, (uint16_t)(UI_HEIGHT - 1u), (uint16_t)(UI_WIDTH - 1u));
 
     size_t count = 0u;
-    for (uint16_t y = 0u; y < UI_HEIGHT; y++) {
-        for (uint16_t x = 0u; x < UI_WIDTH; x++) {
-            s_ui.line_buffer[count++] = mono_pixel_is_set(x, y) ? themed_foreground(x, y) : themed_background(x, y);
+    for (uint16_t panel_y = 0u; panel_y < UI_WIDTH; panel_y++) {
+        for (uint16_t panel_x = 0u; panel_x < UI_HEIGHT; panel_x++) {
+            const uint16_t logical_x = panel_y;
+            const uint16_t logical_y = (uint16_t)(UI_HEIGHT - 1u - panel_x);
+            s_ui.line_buffer[count++] = mono_pixel_is_set(logical_x, logical_y)
+                                           ? themed_foreground(logical_x, logical_y)
+                                           : themed_background(logical_x, logical_y);
             if (count == UI_FLUSH_PIXELS) {
                 lcd_st7789_write_rgb565(s_ui.line_buffer, count);
                 count = 0u;
@@ -1198,7 +1205,7 @@ static void draw_boot_splash_frame(uint8_t frame)
 {
     u8g2_t *u8g2 = &s_ui.u8g2;
     const uint8_t progress = (uint8_t)(((uint16_t)(frame + 1u) * 100u) / 16u);
-    const uint8_t bar_width = (uint8_t)(((uint16_t)188u * progress) / 100u);
+    const uint8_t bar_width = (uint8_t)(((uint16_t)124u * progress) / 100u);
     const uint8_t sweep = (uint8_t)((frame * 13u) % UI_WIDTH);
     char text_buffer[24];
 
@@ -1206,34 +1213,34 @@ static void draw_boot_splash_frame(uint8_t frame)
 
     for (uint8_t i = 0u; i < 5u; i++) {
         const uint8_t x = (uint8_t)((sweep + (i * 47u)) % UI_WIDTH);
-        u8g2_DrawVLine(u8g2, x, 28u, 70u);
+        u8g2_DrawVLine(u8g2, x, 18u, 42u);
     }
 
-    u8g2_DrawFrame(u8g2, 8u, 8u, 224u, 112u);
-    u8g2_DrawFrame(u8g2, 11u, 11u, 218u, 106u);
-    u8g2_DrawBox(u8g2, 18u, 18u, 204u, 1u);
+    u8g2_DrawFrame(u8g2, 4u, 4u, 152u, 72u);
+    u8g2_DrawFrame(u8g2, 6u, 6u, 148u, 68u);
+    u8g2_DrawBox(u8g2, 12u, 12u, 136u, 1u);
 
     u8g2_SetFont(u8g2, u8g2_font_6x13B_tf);
-    u8g2_DrawStr(u8g2, 44u, 44u, PROJECT_NAME);
+    u8g2_DrawStr(u8g2, 47u, 29u, PROJECT_NAME);
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
-    u8g2_DrawStr(u8g2, 55u, 57u, "HAOFV CONTROL CORE");
+    u8g2_DrawStr(u8g2, 35u, 39u, "HAOFV CONTROL CORE");
 
-    u8g2_DrawFrame(u8g2, 24u, 75u, 192u, 10u);
+    u8g2_DrawFrame(u8g2, 16u, 47u, 128u, 8u);
     if (bar_width > 0u) {
-        u8g2_DrawBox(u8g2, 26u, 77u, bar_width, 6u);
+        u8g2_DrawBox(u8g2, 18u, 49u, bar_width, 4u);
     }
 
     snprintf(text_buffer, sizeof(text_buffer), "BOOT %u%%", progress);
-    u8g2_DrawStr(u8g2, 24u, 98u, text_buffer);
+    u8g2_DrawStr(u8g2, 16u, 66u, text_buffer);
     snprintf(text_buffer,
              sizeof(text_buffer),
              "FW %lu.%lu.%lu",
              (unsigned long)PROJECT_VERSION_MAJOR,
              (unsigned long)PROJECT_VERSION_MINOR,
              (unsigned long)PROJECT_VERSION_PATCH);
-    u8g2_DrawStr(u8g2, 166u, 98u, text_buffer);
+    u8g2_DrawStr(u8g2, 91u, 66u, text_buffer);
 
-    u8g2_DrawBox(u8g2, (u8g2_uint_t)(24u + (frame % 16u) * 12u), 109u, 18u, 2u);
+    u8g2_DrawBox(u8g2, (u8g2_uint_t)(16u + (frame % 16u) * 8u), 70u, 10u, 2u);
 }
 
 static void run_boot_splash(void)
@@ -1262,7 +1269,7 @@ static void run_boot_splash(void)
 bool status_ui_init(void)
 {
     memset(&s_ui, 0, sizeof(s_ui));
-    u8g2_port_setup_240x136(&s_ui.u8g2, s_ui.mono_buffer);
+    u8g2_port_setup_160x80(&s_ui.u8g2, s_ui.mono_buffer);
     u8g2_SetFontMode(&s_ui.u8g2, 1);
     s_ui.page = UI_PAGE_OVERVIEW;
     s_ui.target_page = UI_PAGE_OVERVIEW;

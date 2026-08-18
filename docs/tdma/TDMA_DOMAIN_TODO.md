@@ -8,6 +8,13 @@ Last updated: 2026-08-18
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
+## 产品样板迁移
+
+- [x] ST7735S 保持原生 `80x160`、offset `(24,1)` 扫描，由刷新层把逻辑 `160x80` UI 软件旋转为横屏；产品样板已确认开机界面完整且不再斜切。
+- [ ] 重构主页和功能页以适配 `160x80` 小屏，不能继续沿用旧 `240x135` 三列布局；当前主页存在裁切、显示不全。
+- [ ] 将 KEY1/KEY2/KEY3 接入 UI：KEY1 上一项/返回、KEY2 确认/进入、KEY3 下一项/切页，并补消抖、短按和长按策略。
+- [ ] 完成产品样板 KEY、SMA OUT1..4、SMA IN1..4、ISO1452 DE/`/RE` 以及 TDMA BiSS+RJ45 单跳/闭环 HIL。
+
 ## P0 - 主域边界建立
 
 - [x] 建立 `docs/tdma/README.md`。

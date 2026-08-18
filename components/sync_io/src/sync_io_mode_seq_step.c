@@ -117,8 +117,12 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
 
     if (gate_enabled && !sync_io_seq_step_trigger_pin_valid(trigger_pin)) {
         LOG_ERROR("sync_io",
-                  "seq_step: gate mode requires trigger_pin in GPIO16..GPIO19, "
-                  "got %lu", (unsigned long)trigger_pin);
+                  "seq_step: gate mode requires trigger_pin in GPIO%lu..GPIO%lu, "
+                  "got %lu",
+                  (unsigned long)SYNC_IO_HW_MAIN_INPUT_BASE_PIN,
+                  (unsigned long)(SYNC_IO_HW_MAIN_INPUT_BASE_PIN +
+                                  SYNC_IO_HW_MAIN_INPUT_PIN_COUNT - 1u),
+                  (unsigned long)trigger_pin);
         sync_io_core_trace(SYNC_IO_TRACE_SEQ_GATE_INVALID,
                            SYNC_IO_TRACE_ERROR,
                            trigger_pin,
@@ -163,6 +167,7 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
                              s_seq_step.seq_sm,
                              s_seq_step.seq_offset,
                              trigger_pin,
+                             BOARD_SYNC_GATE_IN_PIN,
                              BOARD_SYNC_OUTPUT_BASE_PIN,
                              seq_width,
                              1.0f,

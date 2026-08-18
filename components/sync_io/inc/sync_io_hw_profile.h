@@ -8,11 +8,11 @@
 
 /* Active board hardware profile:
  * - PROJECT_SYNC_IO_INPUT_BASE_PIN..+3: contiguous SYNC_IO input group.
- * - input +2: ENC_COUNT Z software input.
- * - input +3: RJ45_TRIG_IN compatibility input; gate is mode semantics.
+ * - Product input GPIO20..23 is physically IN4..IN1 and is bit-reversed at
+ *   the capture boundary to expose logical IN1..IN4.
  * - PROJECT_SYNC_IO_OUTPUT_BASE_PIN..+3: contiguous SYNC_IO output group.
- * - output +3: RJ45_TRIG_OUT compatibility output; MARK:* is compatibility.
- * - GPIO26..29: AUX is fixed as two RX + two TX, reused by firmware persona.
+ * - Product GPIO24..29 and PIO2 belong to TDMA SPI; legacy AUX and marker
+ *   personas are disabled in this board profile.
  *
  * The active profile is selected by CMake/board profile. Product-board pinout
  * remains documented in docs/hardware/ and should use its own values.
@@ -58,18 +58,16 @@ _Static_assert(SYNC_IO_HW_MAIN_OUTPUT_PIN_COUNT == 4u, "SYNC_IO output count mus
 _Static_assert((SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN > (SYNC_IO_HW_MAIN_INPUT_BASE_PIN + 3u)) ||
                ((SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN + 3u) < SYNC_IO_HW_MAIN_INPUT_BASE_PIN),
                "SYNC_IO input and output groups must not overlap");
-_Static_assert(SYNC_IO_HW_RJ45_TRIG_IN_PIN == (SYNC_IO_HW_MAIN_INPUT_BASE_PIN + 3u),
-               "RJ45_TRIG_IN must be input group IN3");
-_Static_assert(SYNC_IO_HW_RJ45_TRIG_OUT_PIN == (SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN + 3u),
-               "RJ45_TRIG_OUT must be output group OUT3");
-_Static_assert(SYNC_IO_HW_ARM_IN_PIN == 26u, "ARM_IN must be AUX0/GPIO26");
-_Static_assert(SYNC_IO_HW_EXT_CLK_IN_PIN == 27u, "EXT_CLK_IN must be AUX1/GPIO27");
-_Static_assert(SYNC_IO_HW_SYNC_CLK_OUT_PIN == 28u, "SYNC_CLK_OUT must be AUX2/GPIO28");
-_Static_assert(SYNC_IO_HW_AUX3_PIN == 29u, "AUX3 must be GPIO29");
+_Static_assert(SYNC_IO_HW_MAIN_INPUT_BASE_PIN == 20u,
+               "product SMA input group must start at GPIO20");
+_Static_assert(SYNC_IO_HW_MAIN_OUTPUT_BASE_PIN == 16u,
+               "product SMA output group must start at GPIO16");
+_Static_assert(SYNC_IO_HW_RJ45_TRIG_IN_PIN == 27u,
+               "product RJ45 frame-sync input must be GPIO27");
+_Static_assert(SYNC_IO_HW_RJ45_TRIG_OUT_PIN == 26u,
+               "product RJ45 frame-sync output must be GPIO26");
 _Static_assert(BOARD_SYNC_MARKER_OUT_PIN == SYNC_IO_HW_RJ45_TRIG_OUT_PIN,
                "MARKER_OUT alias must resolve to RJ45_TRIG_OUT");
-_Static_assert(BOARD_SYNC_SYNC_CLK_OUT_PIN == SYNC_IO_HW_SYNC_CLK_OUT_PIN,
-               "SYNC_CLK_OUT must resolve to AUX2/GPIO28");
 
 static inline bool sync_io_hw_enc_pins_valid(uint32_t a_pin,
                                              uint32_t b_pin,
@@ -82,7 +80,8 @@ static inline bool sync_io_hw_enc_pins_valid(uint32_t a_pin,
 
 static inline bool sync_io_hw_aux_channel_valid(uint32_t channel)
 {
-    return channel < BOARD_SYNC_AUX_PIN_COUNT;
+    return BOARD_SYNC_AUX_ENABLED != 0 &&
+           channel < BOARD_SYNC_AUX_PIN_COUNT;
 }
 
 static inline bool sync_io_hw_aux_supports_input(uint32_t channel)

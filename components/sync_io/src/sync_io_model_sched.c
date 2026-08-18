@@ -113,7 +113,8 @@ static uint32_t sync_io_model_saturate_u64_to_u32(uint64_t value)
 
 static bool sync_io_model_output_index_valid(uint32_t output_index)
 {
-    return output_index < BOARD_DEBUG_MODEL_GPIO_PIN_COUNT;
+    return BOARD_DEBUG_MODEL_GPIO_ENABLED != 0 &&
+           output_index < BOARD_DEBUG_MODEL_GPIO_PIN_COUNT;
 }
 
 static bool sync_io_main_output_index_valid(uint32_t output_index)

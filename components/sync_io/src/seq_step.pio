@@ -38,25 +38,28 @@ enum seq_step_edge {
 /* ── 通用初始化 ── */
 static inline void seq_step_program_init_common(PIO pio, uint sm, uint offset,
                                                  uint trigger_in_pin,
+                                                 uint gate_in_pin,
                                                  uint output_base_pin,
                                                  uint output_width, float clkdiv,
                                                  bool has_gate)
 {
     uint in_pin_base = trigger_in_pin;
     uint trigger_offset = 0u;
+    uint gate_offset = 0u;
+    uint input_pin_count = 1u;
 
     if (has_gate) {
-        /* GATE 固定在 GPIO19 (in_pin_base=16 的 offset 3).
-         * 触发源必须在 GPIO16-19 范围内, 通过指令 patch 选择偏移. */
-        if (trigger_in_pin >= 16u && trigger_in_pin <= 19u) {
-            in_pin_base    = 16u;
-            trigger_offset = trigger_in_pin - 16u;
-        } else {
-            /* 触发源不在 GPIO16-19: 仍绑定 in_pin_base=trigger_in_pin,
-             * 但 GATE at offset 3 将指向错误引脚; 调用方需校验并拒绝. */
-            in_pin_base    = trigger_in_pin;
-            trigger_offset = 0u;
-        }
+        /* wait pin 的索引相对 in_pin_base。以 trigger/gate 中较小的引脚
+         * 为基址，并在装载程序后 patch 两者的 offset。 */
+        const uint input_pin_last = trigger_in_pin > gate_in_pin
+                                        ? trigger_in_pin
+                                        : gate_in_pin;
+        in_pin_base = trigger_in_pin < gate_in_pin
+                          ? trigger_in_pin
+                          : gate_in_pin;
+        trigger_offset = trigger_in_pin - in_pin_base;
+        gate_offset = gate_in_pin - in_pin_base;
+        input_pin_count = input_pin_last - in_pin_base + 1u;
     }
 
     /* 输入引脚 (gpio_set_dir 在 PIO 模式下无效, 必须用 PIO pindirs) */
@@ -65,11 +68,11 @@ static inline void seq_step_program_init_common(PIO pio, uint sm, uint offset,
     pio_sm_set_consecutive_pindirs(pio, sm, trigger_in_pin, 1, false);
 
     if (has_gate) {
-        for (uint p = 0u; p < 4u; p++) {
+        for (uint p = 0u; p < input_pin_count; p++) {
             pio_gpio_init(pio, in_pin_base + p);
             gpio_pull_down(in_pin_base + p);
         }
-        pio_sm_set_consecutive_pindirs(pio, sm, in_pin_base, 4, false);
+        pio_sm_set_consecutive_pindirs(pio, sm, in_pin_base, input_pin_count, false);
     }
 
     /* 输出引脚 */
@@ -90,10 +93,11 @@ static inline void seq_step_program_init_common(PIO pio, uint sm, uint offset,
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_pins(pio, sm, 0);
 
-    /* gate 模式下, 将 wait 指令的 pin index 打到正确的触发偏移 */
-    if (has_gate && trigger_offset != 0u) {
+    /* gate 模式下，将 wait 指令的 pin index patch 到实际 gate/trigger。 */
+    if (has_gate) {
         uint16_t *instr = (uint16_t *)&pio->instr_mem[offset];
-        /* seq_step_gated: instr[1]=wait 0 pin,0  instr[2]=wait 1 pin,0 */
+        /* instr[0]=gate; instr[1]/[2]=trigger 的两种电平。 */
+        instr[0] = (instr[0] & 0xFFE0u) | (gate_offset & 0x1Fu);
         instr[1] = (instr[1] & 0xFFE0u) | (trigger_offset & 0x1Fu);
         instr[2] = (instr[2] & 0xFFE0u) | (trigger_offset & 0x1Fu);
     }
@@ -121,18 +125,19 @@ static inline void seq_step_program_init(PIO pio, uint sm, uint offset,
                                           uint output_base_pin,
                                           uint output_width, float clkdiv)
 {
-    seq_step_program_init_common(pio, sm, offset, trigger_in_pin,
+    seq_step_program_init_common(pio, sm, offset, trigger_in_pin, trigger_in_pin,
                                   output_base_pin, output_width, clkdiv, false);
 }
 
 /* ── 新版接口 ── */
 static inline void seq_step_program_init_ex(PIO pio, uint sm, uint offset,
                                              uint trigger_in_pin,
+                                             uint gate_in_pin,
                                              uint output_base_pin,
                                              uint output_width, float clkdiv,
                                              bool has_gate, int edge)
 {
-    seq_step_program_init_common(pio, sm, offset, trigger_in_pin,
+    seq_step_program_init_common(pio, sm, offset, trigger_in_pin, gate_in_pin,
                                   output_base_pin, output_width, clkdiv, has_gate);
 
     if (edge == SEQ_STEP_EDGE_FALLING) {

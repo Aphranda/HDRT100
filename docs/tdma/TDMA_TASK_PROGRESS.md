@@ -42,6 +42,46 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
 
 ## 任务记录
 
+### TDMA-TASK-20260818-008 - 产品样板 IO 首轮迁移
+
+- 状态：软件映射、资源隔离、LCD 开机横屏板测和 COM3 OTA 完成；主页 UI 与其余产品 IO 待继续验证。
+- 日期：2026-08-18
+- 任务目标：
+  - 按 `RP2350B_QFN80_IO_CONSTRAINTS` 将现有 TDMA PIO-SPI 与板级 IO 迁移到产品样板。
+  - 暂时将 BiSS + RJ45 Trigger 作为三线 SPI 使用，其中 RJ45 Trigger 作为 CS/frame-sync，复用既有 PIO 实现。
+  - 接入 3 个 KEY、3 个 LED、4 路 SMA 输入和 4 路 SMA 输出，并避免旧调试 persona 抢占产品 IO。
+- 完成内容：
+  - TDMA 改用 PIO2 SM0/SM1：TX `CS=GPIO26/SCK=GPIO25/TX=GPIO29`，RX `CS=GPIO27/SCK=GPIO28/RX=GPIO24`；保持 10 MHz 和现有 CS/frame-sync PIO 协议。
+  - ISO1452 控制迁移到 `DE=GPIO30/31/32`、`/RE=GPIO40/41/42`；上电关闭 driver、使能 receiver，TDMA arm 完成 PIO 配置后才开启 driver。
+  - KEY1/2/3 映射到 GPIO2/6/7，低有效并上拉；LED SYSTEM/ARM/FAULT 映射到 GPIO3/8/9。
+  - 板载 CH343 调试 stdio 迁移到 UART0 GPIO0/1；UART1 GPIO4/5 与 DE GPIO13 保留给外部 RS485，默认接收。
+  - SMA OUT1..4 映射 GPIO16..19；SMA IN4..1 映射 GPIO20..23。采集边界对每个 4-bit sample 做 bit reverse，使公共 mask bit0..3 始终表示逻辑 IN1..4。
+  - SEQ gated PIO 移除 GPIO16..19 和 gate offset 3 的硬编码，按产品输入组与 `GATE_IN=GPIO20` patch 实际 wait-pin offset。
+  - 禁用占用 PIO2/GPIO24..29 的 legacy AUX/BiSS tap/sync clock/RJ45 marker persona；相关兼容 API 保留但返回不可用。
+  - 禁用占用 GPIO4..7、会与 UART1/KEY2/KEY3 冲突的 legacy debug-model overlay。
+  - TF 迁移到 SPI1 GPIO10..12/15（card detect GPIO14）；LCD 迁移到独立 SPI0 GPIO34..39，并按样板新规格改为 ST7735S、原生 RAM `80x160`、offset `(24,1)` 与硬复位。
+  - ST7735S 的硬件 `MV` 横屏在 offset `(1,26)` 和 `(1,24)` 下均出现逐行回绕斜切，因此控制器保持已验证稳定的原生竖屏扫描；刷新层将逻辑 `160x80` UI 顺时针软件旋转写入 `80x160` RAM。开机动画已适配横屏并经产品样板确认完整、无斜切；旧主页仍沿用大屏坐标，显示不全已转入正式待办。
+  - 产品 W25Q128JV 容量固定为 16 MiB；为兼容现有 bootloader/OTA 元数据，A/B 分区暂保持在低 4 MiB，剩余 12 MiB 待版本化分区迁移后启用。
+- 验证结果：
+  - `build-rtos-multicore-smoke` A/B 固件链接和 update package 均成功；软件横屏最终 build id `20260818141125`，package CRC `0x294FCB21`。
+  - `ota_multi_update.py` 对产品样板 COM3 OTA PASS，板端运行 build `20260818141125`；用户确认开机界面显示正常，主页显示不全作为后续 UI 重构输入。
+  - `run_tdma_profile_tests.ps1` ARM/host 测试通过。
+  - `run_tdma_pio_spi_ring_adapter_tests.ps1` ARM/host 测试通过。
+- 还需完成：
+  - 产品样板已确认三个 LED 均为低有效；ST7735S 背光 GPIO35 已确认低有效。
+  - 逐项实测 KEY、SMA OUT1..4、SMA IN1..4 的通道编号和输入反序，再进行 TDMA 单跳与闭环 HIL。
+  - 实测 ISO1452 DE 与 `/RE` 时序，确认空闲、arm、disarm 和复位期间不存在总线争用。
+  - 针对 `160x80` 小屏重构主页和功能页，不沿用 `240x135` 三列布局；按三键交互实现 KEY1 上一项/返回、KEY2 确认/进入、KEY3 下一项/切页。
+- 关联文件：
+  - `boards/rp2350_trig/inc/board_config.h`
+  - `boards/rp2350_trig/src/board.c`
+  - `components/tdma/src/tdma_pio_spi_phys.c`
+  - `components/sync_io/src/sync_io.c`
+  - `components/sync_io/src/seq_step.pio`
+  - `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
+- 下一步：
+  - 继续产品样板 KEY/SMA GPIO 冒烟验证，再接 BiSS/RJ45 线做 TDMA CS/CLK/TX 逻辑分析仪验证；主页 UI 按三键、小屏单卡片方案另行重构。
+
 ### TDMA-TASK-20260818-007 - PIO-SPI 外层包头假锁修正与 60 s HIL 回归
 
 - 状态：完成根因定位、代码修正、host/unit 全量验证、A/B 构建、两板 OTA 和 60 s HIL 回归。
