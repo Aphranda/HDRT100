@@ -14,6 +14,7 @@ scpi_result_t scpi_cmd_log_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_core_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_rtos_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_ui_keys_q(scpi_t *context);
+scpi_result_t scpi_cmd_led_status_q(scpi_t *context);
 
 #define SCPI_SYSTEM_RUNTIME_COMMANDS \
     {.pattern = "*TST?", .callback = scpi_cmd_core_tst_q}, \
@@ -26,6 +27,7 @@ scpi_result_t scpi_cmd_ui_keys_q(scpi_t *context);
     {.pattern = "SYSTem:LOG:STATus?", .callback = scpi_cmd_log_status_q}, \
     {.pattern = "SYSTem:CORE?", .callback = scpi_cmd_core_status_q}, \
     {.pattern = "SYSTem:RTOS:STATus?", .callback = scpi_cmd_rtos_status_q}, \
-    {.pattern = "SYSTem:UI:KEYs?", .callback = scpi_cmd_ui_keys_q}
+    {.pattern = "SYSTem:UI:KEYs?", .callback = scpi_cmd_ui_keys_q}, \
+    {.pattern = "SYSTem:LED:STATus?", .callback = scpi_cmd_led_status_q}
 
 #endif

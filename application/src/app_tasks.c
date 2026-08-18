@@ -9,6 +9,7 @@
 #include "calibration_manager.h"
 #include "diagnostics.h"
 #include "loop_engine.h"
+#include "led_manager.h"
 #include "osal.h"
 #include "ui_manager.h"
 
@@ -23,7 +24,9 @@ static void task_system(void *context)
     app_runtime_start_realtime_core();
 
     while (true) {
+        diagnostics_record_core0_loop();
         board_service();
+        led_manager_service(app_is_ready());
         app_diag_service();
         osal_task_delay_ms(1u);
     }

@@ -4,6 +4,7 @@
 #include "board.h"
 #include "diagnostics.h"
 #include "drv_flash.h"
+#include "led_manager.h"
 #include "osal.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
@@ -29,6 +30,7 @@ bool app_runtime_bringup(void)
     if (!board_init()) {
         app_runtime_fault_forever();
     }
+    led_manager_init();
 
     if (!app_init()) {
         diagnostics_mark_fault("app", "application initialization failed");

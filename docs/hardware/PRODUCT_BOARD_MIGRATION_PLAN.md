@@ -6,7 +6,7 @@ Target: RP2350B QFN-80 产品样板
 Canonical: `docs/hardware/PRODUCT_BOARD_MIGRATION_PLAN.md`
 Source of truth: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
 Related: `docs/storage/SD_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-08-18
+Last updated: 2026-08-19
 
 ## 1. 目标与验收口径
 
@@ -30,13 +30,13 @@ Last updated: 2026-08-18
 | 0 | UART0_TX / CH343 | M/B | P：COM7 连续启动日志、收发与重启压力测试。 |
 | 1 | UART0_RX / CH343 | M/B | P：与 GPIO0 一并验证输入路径。 |
 | 2 | KEY1，低有效，面板中键 | M/B/V | 首件已确认短按、长按和重复事件。 |
-| 3 | LED_SYSTEM，低有效 | M/B/V | 三灯点亮已确认；后续核对状态语义。 |
+| 3 | LED_SYSTEM，低有效 | M/B/V | 三灯点亮已确认；集中策略已实现，P：模式板测。 |
 | 4 | UART1_TX / RS485 | M/B | P：接收、发送、DE 时序和总线回环。 |
 | 5 | UART1_RX / RS485 | M/B | P：与 GPIO4/13 一并验证。 |
 | 6 | KEY2，低有效，面板右键 | M/B/V | 首件已确认短按、长按和重复事件。 |
 | 7 | KEY3，低有效，面板左键 | M/B/V | 首件已确认短按、长按事件。 |
-| 8 | LED_ARM/TRIGGER，低有效 | M/B/V | 三灯点亮已确认；P：ARM/触发语义测试。 |
-| 9 | LED_FAULT，低有效 | M/B/V | 三灯点亮已确认；P：FAULT 锁存/清除语义测试。 |
+| 8 | LED_ARM/TRIGGER，低有效 | M/B/V | 三灯点亮已确认；已接配置/ARM/触发事件，P：模式板测。 |
+| 9 | LED_FAULT，低有效 | M/B/V | 三灯点亮已确认；已接故障和 core1 stale，P：锁存/清除板测。 |
 | 10 | TF SPI1 SCK | M/B/V | COM3 已验证 SDHC/SDXC、FAT、读写。 |
 | 11 | TF SPI1 MOSI | M/B/V | 同 GPIO10。 |
 | 12 | TF SPI1 MISO | M/B/V | 同 GPIO10。 |
@@ -79,8 +79,10 @@ Last updated: 2026-08-18
 专用接口状态：
 
 - USB CDC `COM3` 已完成 OTA 和 SCPI 通信验证。
-- `COM3` 当前运行并已 commit build `20260818155435`（25 MHz TDMA 测试档）；
+- `COM3` 当前运行并已 commit build `20260818160934`（25 MHz TDMA、集中 LED 策略）；
   `SYST:UI:KEYS?` 已证明三键观测命令和左/中/右物理映射在产品样板生效。
+- `SYST:LED:STAT?` 已返回 `NORMAL / HEARTBEAT / OFF / OFF`，配置门、SD 与 core1
+  健康位均正常；连续查询捕获到绿灯每秒短亮且红黄保持灭。ARM/事件/故障模式仍待板测。
 - W25Q128JVSIQ 已按 16 MiB 编译并 OTA 运行；高 12 MiB 暂不纳入本轮迁移。
 - LCD SPI0 与 TF SPI1 已拆分，StorageAO 不再把 SD 与 LCD SPI0 互斥。
 
@@ -109,6 +111,8 @@ Last updated: 2026-08-18
   左 GPIO7(KEY3)、中 GPIO2(KEY1)、右 GPIO6(KEY2)，底栏改用 `L/C/R` 避免歧义。
 - [x] LCD 独占 SPI0 后将周期状态刷新从 250 ms（4 Hz）提升到 100 ms（10 Hz）；
   保持已验证的 LCD SPI0 10 MHz 时钟，按键脏帧和四步切页动画继续即时刷新。
+- [x] 建立三灯集中 owner 和 20 ms 模式发生器；增加 `SYSTem:LED:STATus?` 只读维护
+  快照，并用 core1 循环进度检测实时核连续 3 秒无心跳的致命状态。
 - [ ] 产品样板依次实测三个按键的短按、长按、重复与页面方向，确认无连击和误触。
 - [ ] 验证 LED_SYSTEM、LED_ARM/TRIGGER、LED_FAULT 的状态优先级。
 - [ ] SMA OUT1..4 逐路输出验证；SMA IN1..4 逐路输入和 bit reverse 验证。
@@ -123,7 +127,24 @@ SCPI 通道号一致；RS485 回环无方向冲突。
 
 ```text
 SYSTem:UI:KEYs?
+SYSTem:LED:STATus?
 ```
+
+三灯优先级固定为 `FATAL > FAULT > OTA > ARMED > DEGRADED > NORMAL > BOOT`：
+
+- 绿灯：BOOT/OTA 100 ms 快闪；配置门未 ready 双闪；正常或 ARMED 时每秒 100 ms 心跳。
+- 黄灯：未配置熄灭；已配置未 ARM 慢闪；ARM 后常亮；检测到触发计数增加后短灭
+  120 ms，未 ARM 时则短亮 120 ms；连续高速事件按 500 ms 最小间隔限频显示，计数不丢。
+- 红灯：诊断锁存、Trigger FAULT、OTA FAILED 或 Storage FAILED 时常亮；core1 在启动宽限
+  后连续 3 秒无循环进展时快闪并记录 `led_health/core1 heartbeat stale`。
+- 可选 SD 缺卡、无文件系统和普通路径/作业错误不直接点亮红灯，避免把维护介质状态误报为
+  系统硬故障；`sd_ready` 仍可从 LED 快照读取。
+
+模式枚举：`0 OFF / 1 ON / 2 HEARTBEAT / 3 SLOW_BLINK / 4 FAST_BLINK /
+5 DOUBLE_BLINK / 6 EVENT_PULSE`。策略枚举：`0 BOOT / 1 NORMAL / 2 DEGRADED /
+3 ARMED / 4 OTA / 5 FAULT / 6 FATAL`。`health_flags bit0=CORE1_STALE`，该位本次启动
+内锁存；当前通过重启清除。普通业务模块不得直接抢占三灯，初始化/RTOS 失效时仅保留
+`app_runtime_fault_forever()` 对绿灯的最低层 100 ms 翻转兜底。
 
 SMA 单板回环接线与命令：
 

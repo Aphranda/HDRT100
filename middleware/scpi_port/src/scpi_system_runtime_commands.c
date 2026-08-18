@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "diagnostics.h"
+#include "led_manager.h"
 #include "osal.h"
 #include "ota_ao.h"
 #include "project_build_info.h"
@@ -180,5 +181,35 @@ scpi_result_t scpi_cmd_ui_keys_q(scpi_t *context)
         SCPI_ResultUInt32(context, status.repeat_count[key]);
     }
 
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_led_status_q(scpi_t *context)
+{
+    led_manager_status_t status;
+    led_manager_get_status(&status);
+
+    SCPI_ResultText(context, led_manager_policy_string(status.policy));
+    SCPI_ResultUInt32(context, (uint32_t)status.policy);
+    SCPI_ResultText(context, led_manager_pattern_string(status.system_pattern));
+    SCPI_ResultUInt32(context, (uint32_t)status.system_pattern);
+    SCPI_ResultBool(context, status.system_level ? TRUE : FALSE);
+    SCPI_ResultText(context, led_manager_pattern_string(status.arm_pattern));
+    SCPI_ResultUInt32(context, (uint32_t)status.arm_pattern);
+    SCPI_ResultBool(context, status.arm_level ? TRUE : FALSE);
+    SCPI_ResultText(context, led_manager_pattern_string(status.fault_pattern));
+    SCPI_ResultUInt32(context, (uint32_t)status.fault_pattern);
+    SCPI_ResultBool(context, status.fault_level ? TRUE : FALSE);
+    SCPI_ResultBool(context, status.fault_latched ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.trigger_state);
+    SCPI_ResultUInt32(context, status.ota_state);
+    SCPI_ResultBool(context, status.config_ready ? TRUE : FALSE);
+    SCPI_ResultBool(context, status.sd_ready ? TRUE : FALSE);
+    SCPI_ResultBool(context, status.core1_stale ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.health_flags);
+    SCPI_ResultUInt32(context, status.event_sequence);
+    SCPI_ResultUInt32(context, status.trigger_pulse_count);
+    SCPI_ResultUInt32(context, status.fault_transition_count);
+    SCPI_ResultUInt32(context, status.pattern_transition_count);
     return SCPI_RES_OK;
 }
