@@ -1,6 +1,7 @@
 #include "sync_io.h"
 
 #include <assert.h>
+#include <string.h>
 
 #include "board_config.h"
 #include "diagnostics.h"
@@ -9,6 +10,8 @@
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 #include "hardware/pio.h"
+#include "hardware/pwm.h"
+#include "hardware/sync.h"
 #include "osal.h"
 #include "resource_arbiter.h"
 #include "biss_tap_rx.pio.h"
@@ -42,6 +45,10 @@
 #define SYNC_IO_CAPTURE_TIMESTAMP_SOURCE_HARDWARE_TICK 2u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define SYNC_IO_CAPTURE_TIMESTAMP_FLAG_DPLL_ELIGIBLE   0x00000002u
+#define SYNC_IO_SMA_FREQUENCY_MIN_HZ 1000000u
+#define SYNC_IO_SMA_FREQUENCY_MAX_HZ 50000000u
+#define SYNC_IO_SMA_FREQUENCY_MIN_GATE_US 100u
+#define SYNC_IO_SMA_FREQUENCY_MAX_GATE_US 1000u
 
 typedef struct {
     bool initialized;
@@ -86,6 +93,7 @@ typedef struct {
 } sync_io_context_t;
 
 static sync_io_context_t s_sync_io;
+static sync_io_sma_frequency_tx_status_t s_sma_frequency_tx;
 static uint32_t s_sync_io_capture_dma_ring[SYNC_IO_CAPTURE_DMA_RING_WORDS]
     __attribute__((aligned(SYNC_IO_CAPTURE_DMA_RING_BYTES)));
 
@@ -1411,6 +1419,218 @@ uint32_t sync_io_debug_read_input_mask(void)
         }
     }
     return sync_io_map_input_mask(mask);
+}
+
+static uint32_t sync_io_sma_public_input_pin(uint32_t input_channel)
+{
+    const uint32_t public_index = input_channel - 1u;
+#if BOARD_SYNC_INPUT_BITS_REVERSED
+    return BOARD_SYNC_INPUT_BASE_PIN +
+           (BOARD_SYNC_INPUT_PIN_COUNT - 1u - public_index);
+#else
+    return BOARD_SYNC_INPUT_BASE_PIN + public_index;
+#endif
+}
+
+static bool sync_io_sma_frequency_choose_pwm(uint32_t frequency_hz,
+                                             uint32_t system_clock_hz,
+                                             uint16_t *top,
+                                             uint16_t *div16,
+                                             uint32_t *actual_hz)
+{
+    if (frequency_hz == 0u || system_clock_hz == 0u ||
+        top == NULL || div16 == NULL || actual_hz == NULL) {
+        return false;
+    }
+
+    const uint64_t target_product =
+        ((uint64_t)system_clock_hz * 16ull + frequency_hz / 2u) /
+        frequency_hz;
+    uint64_t best_error = UINT64_MAX;
+    uint32_t best_period = 0u;
+    uint32_t best_div16 = 0u;
+
+    for (uint32_t period = 2u; period <= 65536u; period++) {
+        uint64_t candidate =
+            (target_product + period / 2u) / period;
+        if (candidate < 16u) {
+            candidate = 16u;
+        }
+        if (candidate > 4095u) {
+            continue;
+        }
+        const uint64_t product = (uint64_t)period * candidate;
+        const uint64_t error = product > target_product
+            ? product - target_product
+            : target_product - product;
+        if (error < best_error) {
+            best_error = error;
+            best_period = period;
+            best_div16 = (uint32_t)candidate;
+            if (error == 0u) {
+                break;
+            }
+        }
+    }
+
+    if (best_period == 0u || best_div16 == 0u) {
+        return false;
+    }
+    *top = (uint16_t)(best_period - 1u);
+    *div16 = (uint16_t)best_div16;
+    *actual_hz = (uint32_t)(((uint64_t)system_clock_hz * 16ull +
+                             ((uint64_t)best_period * best_div16) / 2ull) /
+                            ((uint64_t)best_period * best_div16));
+    return true;
+}
+
+void sync_io_sma_frequency_tx_stop(void)
+{
+    if (!s_sma_frequency_tx.running) {
+        return;
+    }
+
+    const uint32_t output_pin = s_sma_frequency_tx.output_pin;
+    const uint slice = pwm_gpio_to_slice_num(output_pin);
+    pwm_set_enabled(slice, false);
+    gpio_set_function(output_pin, GPIO_FUNC_SIO);
+    gpio_set_dir(output_pin, GPIO_OUT);
+    gpio_put(output_pin, false);
+    memset(&s_sma_frequency_tx, 0, sizeof(s_sma_frequency_tx));
+    sync_io_debug_release_output_mask();
+}
+
+bool sync_io_sma_frequency_tx_start(
+    uint32_t output_channel,
+    uint32_t frequency_hz,
+    sync_io_sma_frequency_tx_status_t *status)
+{
+    if (!s_sync_io.initialized ||
+        output_channel == 0u ||
+        output_channel > BOARD_SYNC_OUTPUT_PIN_COUNT ||
+        frequency_hz < SYNC_IO_SMA_FREQUENCY_MIN_HZ ||
+        frequency_hz > SYNC_IO_SMA_FREQUENCY_MAX_HZ ||
+        s_sync_io.capture_running ||
+        sync_io_seq_step_is_running() ||
+        sync_io_enc_count_is_running() ||
+        sync_io_model_pulse_schedule_is_running()) {
+        return false;
+    }
+
+    const uint32_t output_pin =
+        BOARD_SYNC_OUTPUT_BASE_PIN + output_channel - 1u;
+    const uint32_t system_clock_hz = clock_get_hz(clk_sys);
+    uint16_t top = 0u;
+    uint16_t div16 = 0u;
+    uint32_t actual_hz = 0u;
+    if (!sync_io_sma_frequency_choose_pwm(frequency_hz,
+                                          system_clock_hz,
+                                          &top,
+                                          &div16,
+                                          &actual_hz)) {
+        return false;
+    }
+
+    sync_io_sma_frequency_tx_stop();
+    if (!sync_io_debug_set_output_mask(0u)) {
+        return false;
+    }
+
+    const uint slice = pwm_gpio_to_slice_num(output_pin);
+    const uint channel = pwm_gpio_to_channel(output_pin);
+    pwm_config config = pwm_get_default_config();
+    pwm_config_set_wrap(&config, top);
+    pwm_config_set_clkdiv_int_frac4(&config,
+                                    div16 >> 4u,
+                                    (uint8_t)(div16 & 0x0Fu));
+    pwm_init(slice, &config, false);
+    gpio_set_function(output_pin, GPIO_FUNC_PWM);
+    pwm_set_chan_level(slice, channel, (uint16_t)(((uint32_t)top + 1u) / 2u));
+    pwm_set_enabled(slice, true);
+
+    s_sma_frequency_tx.running = true;
+    s_sma_frequency_tx.output_channel = output_channel;
+    s_sma_frequency_tx.output_pin = output_pin;
+    s_sma_frequency_tx.requested_hz = frequency_hz;
+    s_sma_frequency_tx.actual_hz = actual_hz;
+    s_sma_frequency_tx.system_clock_hz = system_clock_hz;
+    s_sma_frequency_tx.pwm_top = top;
+    s_sma_frequency_tx.pwm_div16 = div16;
+    if (status != NULL) {
+        *status = s_sma_frequency_tx;
+    }
+    return true;
+}
+
+void sync_io_sma_frequency_tx_get_status(
+    sync_io_sma_frequency_tx_status_t *status)
+{
+    if (status != NULL) {
+        *status = s_sma_frequency_tx;
+    }
+}
+
+bool sync_io_sma_frequency_rx_measure(
+    uint32_t input_channel,
+    uint32_t gate_us,
+    sync_io_sma_frequency_rx_result_t *result)
+{
+    if (!s_sync_io.initialized || result == NULL ||
+        input_channel == 0u ||
+        input_channel > BOARD_SYNC_INPUT_PIN_COUNT ||
+        gate_us < SYNC_IO_SMA_FREQUENCY_MIN_GATE_US ||
+        gate_us > SYNC_IO_SMA_FREQUENCY_MAX_GATE_US ||
+        s_sync_io.capture_running) {
+        return false;
+    }
+
+    const uint32_t input_pin = sync_io_sma_public_input_pin(input_channel);
+    if (pwm_gpio_to_channel(input_pin) != PWM_CHAN_B) {
+        return false;
+    }
+    const uint slice = pwm_gpio_to_slice_num(input_pin);
+    pwm_config config = pwm_get_default_config();
+    pwm_config_set_clkdiv_mode(&config, PWM_DIV_B_RISING);
+    pwm_config_set_clkdiv_int(&config, 1u);
+    pwm_config_set_wrap(&config, UINT16_MAX);
+
+    gpio_set_function(input_pin, GPIO_FUNC_PWM);
+    pwm_init(slice, &config, false);
+    pwm_set_counter(slice, 0u);
+    /* Keep the 16-bit edge counter inside one exact, non-preempted gate.
+     * At 50 MHz a 100 us gate contains only 5000 edges, well below wrap.
+     * Without this local IRQ guard, an RTOS/timer ISR can extend the gate by
+     * milliseconds and make the 16-bit counter wrap, which looks like link
+     * loss even though the physical input is healthy. */
+    const uint32_t interrupt_state = save_and_disable_interrupts();
+    const uint64_t started_us = time_us_64();
+    pwm_set_enabled(slice, true);
+    busy_wait_us_32(gate_us);
+    pwm_set_enabled(slice, false);
+    const uint64_t finished_us = time_us_64();
+    const uint32_t edge_count = pwm_get_counter(slice);
+    restore_interrupts(interrupt_state);
+
+    gpio_set_function(input_pin, GPIO_FUNC_PIO0);
+    gpio_set_dir(input_pin, GPIO_IN);
+    gpio_pull_down(input_pin);
+
+    uint64_t elapsed_us = finished_us - started_us;
+    if (elapsed_us == 0u) {
+        elapsed_us = gate_us;
+    }
+    memset(result, 0, sizeof(*result));
+    result->input_channel = input_channel;
+    result->input_pin = input_pin;
+    result->gate_us = gate_us;
+    result->elapsed_us = elapsed_us > UINT32_MAX
+        ? UINT32_MAX
+        : (uint32_t)elapsed_us;
+    result->edge_count = edge_count;
+    result->frequency_hz = (uint32_t)(
+        ((uint64_t)edge_count * 1000000ull + elapsed_us / 2ull) /
+        elapsed_us);
+    return true;
 }
 
 bool sync_io_debug_model_set_output_mask(uint32_t enable_mask, uint32_t value_mask)

@@ -413,6 +413,7 @@ function(project_configure_app_target target_name app_name linker_script)
         hardware_watchdog
         hardware_pio
         hardware_dma
+        hardware_pwm
         hardware_clocks
         hardware_flash
         ${PROJECT_APP_EXTRA_LIBS}

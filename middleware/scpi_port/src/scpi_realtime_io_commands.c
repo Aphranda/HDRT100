@@ -237,6 +237,75 @@ scpi_result_t scpi_cmd_output_release(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_sma_frequency_tx(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t output_channel;
+    uint32_t frequency_hz;
+    sync_io_sma_frequency_tx_status_t status;
+    if (!scpi_port_read_u32(context, &output_channel) ||
+        !scpi_port_read_u32(context, &frequency_hz) ||
+        !sync_io_sma_frequency_tx_start(output_channel,
+                                        frequency_hz,
+                                        &status)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, status.actual_hz);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sma_frequency_tx_q(scpi_t *context)
+{
+    sync_io_sma_frequency_tx_status_t status;
+    sync_io_sma_frequency_tx_get_status(&status);
+    SCPI_ResultBool(context, status.running ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.output_channel);
+    SCPI_ResultUInt32(context, status.output_pin);
+    SCPI_ResultUInt32(context, status.requested_hz);
+    SCPI_ResultUInt32(context, status.actual_hz);
+    SCPI_ResultUInt32(context, status.system_clock_hz);
+    SCPI_ResultUInt32(context, status.pwm_top);
+    SCPI_ResultUInt32(context, status.pwm_div16);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sma_frequency_rx_q(scpi_t *context)
+{
+    uint32_t input_channel;
+    uint32_t gate_us;
+    sync_io_sma_frequency_rx_result_t result;
+    if (!scpi_port_read_u32(context, &input_channel) ||
+        !scpi_port_read_u32(context, &gate_us) ||
+        !sync_io_sma_frequency_rx_measure(input_channel,
+                                          gate_us,
+                                          &result)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, result.input_channel);
+    SCPI_ResultUInt32(context, result.input_pin);
+    SCPI_ResultUInt32(context, result.gate_us);
+    SCPI_ResultUInt32(context, result.elapsed_us);
+    SCPI_ResultUInt32(context, result.edge_count);
+    SCPI_ResultUInt32(context, result.frequency_hz);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sma_frequency_stop(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+    sync_io_sma_frequency_tx_stop();
+    return scpi_port_result_ok(context);
+}
+
 scpi_result_t scpi_cmd_model_profile_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, BOARD_DEBUG_MODEL_GPIO_BASE_PIN);

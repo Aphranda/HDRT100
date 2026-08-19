@@ -115,7 +115,13 @@ Last updated: 2026-08-19
   快照，并用 core1 循环进度检测实时核连续 3 秒无心跳的致命状态。
 - [ ] 产品样板依次实测三个按键的短按、长按、重复与页面方向，确认无连击和误触。
 - [ ] 验证 LED_SYSTEM、LED_ARM/TRIGGER、LED_FAULT 的状态优先级。
-- [ ] SMA OUT1..4 逐路输出验证；SMA IN1..4 逐路输入和 bit reverse 验证。
+- [ ] SMA OUT1..4 逐路输出验证；SMA IN1..4 逐路输入和 bit reverse 验证。双板
+  8x8 线序矩阵已完成 OUT1/IN1 双向链路板测：build `20260819072041`，3/3 次
+  稳定检测到 `0010071E65B5CB38.OUT1 -> A1E549202D18ED6A.IN1` 和
+  `A1E549202D18ED6A.OUT1 -> 0010071E65B5CB38.IN1`，其余 62 个交叉点均为 0，
+  输出回落与释放正常；build `20260819091137` 又以 100 us 硬件计数门完成
+  1/2/5/10/15/20/25/30/35/40/45/50 MHz 双向扫频，每点重复 10 次，A->B 与
+  B->A 均稳定通过到 50 MHz（短门启停开销口径为 +/-5%）；其余通道仍待逐路接线扫描。
 - [x] 增加单板 `sma_single_board_loopback.py` 验收工具，固定检查产品 GPIO profile、
   四路同名直连和全 0/全 1 电平，并在退出时恢复输出 persona。
 - [ ] UART1/RS485 收发和 GPIO13 DE 时序验证。
@@ -158,6 +164,25 @@ OUT4 -> IN4
 ```powershell
 python tools\sma_loopback_validate\sma_single_board_loopback.py COM3 `
   --expected-build 20260818155435
+```
+
+SMA 双板线序矩阵命令（COM 仅作为临时传输端点，板卡始终按 `*IDN?` 唯一地址识别）：
+
+```powershell
+python tools\sma_loopback_validate\sma_two_board_matrix.py `
+  --board-a-id 0010071E65B5CB38 `
+  --board-b-id A1E549202D18ED6A `
+  --expected-build 20260819072041 --cycles 3
+```
+
+SMA OUT1/IN1 双板双向频率扫描命令：
+
+```powershell
+python tools\sma_loopback_validate\sma_two_board_frequency_sweep.py `
+  --board-a-id 0010071E65B5CB38 `
+  --board-b-id A1E549202D18ED6A `
+  --expected-build 20260819091137 --gate-us 100 --repeats 10 `
+  --max-error-ppm 50000
 ```
 
 ### P2：同步链路与板级诊断

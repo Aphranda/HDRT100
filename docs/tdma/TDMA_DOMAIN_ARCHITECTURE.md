@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-17
+Last updated: 2026-08-19
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -202,6 +202,169 @@ segment CRC，不能让 VDC 直接写 RefMem 段或让 RefMem 直接写 VDC 段�
 自己拥有的 process-image segment，其余字节保持流水转发。长帧仍可采用有界
 store-and-forward/fragment 方式，因为它只在 maintenance gate 内运行。
 
+这里的 ESC 是职责类比，不表示 RP2350 实现或兼容 EtherCAT Slave Controller：
+
+```text
+EtherCAT ESC processing-on-the-fly
+            |
+            v
+RP2350 core1 + PIO/DMA deterministic forwarding engine
+
+EtherCAT master/application stack
+            |
+            v
+RP2350 core0 RTOS/domain protocol and application plane
+```
+
+core1 不能调用 VDC、RefMem、Trigger 或其他业务解码器，也不能等待 core0 对当前
+飞行帧作出决定。core1 只执行由 active `TdmaProcessImageMap` 预先冻结的机械操作：
+
+- 识别 frame boundary，维护固定长度 cyclic frame 的 byte index。
+- 普通 byte 原样旁路到下行。
+- 到达本节点 input slice 时复制原始 byte，供 core0 在帧后解析。
+- 到达本节点 output slice 时写入 core0 在上一周期前已发布的 active TX image。
+- 按固定偏移更新 hop / working counter（WKC）和流式 transport CRC。
+- 采集 RX/TX edge timestamp、FIFO 水位、overrun 和 deadline evidence。
+
+上述操作是固定位置匹配，不是业务解析。core1 不根据 payload 内容选择代码路径；
+slot、offset、length、frame length 和 CRC policy 都来自已通过 DeploymentGate 的
+active wire plan，并在 RUN 中保持不变。
+
+#### core0/core1 双 FIFO 与所有权
+
+逻辑上，core0 与 core1 之间有两个方向相反的 SPSC FIFO。它们不是 PIO 的四字
+hardware FIFO，也不应逐 byte 跨核握手；推荐实现为“固定缓冲池 + descriptor ring”：
+
+```text
+                                  core0 RTOS/domain plane
+                         +-----------------------------------+
+                         | build next output / parse input   |
+                         +-----------------------------------+
+                             |                         ^
+        TX image FIFO        |                         | RX frame/slice FIFO
+        core0 -> core1       v                         | core1 -> core0
+                    +----------------+       +----------------+
+                    | TX descriptor  |       | RX descriptor  |
+                    | + double buffer|       | + buffer pool  |
+                    +----------------+       +----------------+
+                             |                         ^
+                             v                         |
+upstream PIO/DMA -> elastic FIFO -> core1 flight engine -> downstream PIO/DMA
+                                      |
+                                      +-- copy local input slice to RX buffer
+                                      +-- replace local output slice from TX image
+                                      +-- pass all other bytes unchanged
+```
+
+两个跨核 FIFO 的契约冻结为：
+
+| FIFO | producer -> consumer | 内容 | 硬实时规则 |
+|---|---|---|---|
+| `TDMA_TX_IMAGE_FIFO` | core0 -> core1 | 下一周期 process-image 输出版本的 descriptor；实际数据位于双缓冲或固定池。 | core1 在 frame boundary 原子锁定一个完整版本；无新版本时继续使用上一版本，绝不等待 core0。 |
+| `TDMA_RX_FRAME_FIFO` | core1 -> core0 | 已收帧或本节点 input slice 的 descriptor、长度、sequence、timestamp、quality；实际数据位于固定池。 | FIFO 满时只丢弃给 core0 的解析副本并增加 drop/quality counter，不能停止飞行转发。 |
+
+跨核 descriptor ring 使用 single-producer/single-consumer 语义：producer 填完 buffer
+后以 release 发布 head，consumer 以 acquire 读取；禁止在 core1 快速路径使用 mutex、
+动态内存、RTOS 阻塞队列或等待 core0 acknowledgement。buffer ownership 至少包含：
+
+```text
+TX: CORE0_INACTIVE -> CORE0_READY -> CORE1_ACTIVE -> CORE0_INACTIVE
+RX: FREE -> CORE1_FILL -> CORE0_PARSE -> FREE
+```
+
+`TDMA_TX_IMAGE_FIFO` 的名称表示数据流向，不表示 core1 在 byte 到达时向 core0 逐 byte
+请求数据。core0 必须提前构造完整 inactive image，再原子发布 generation；core1 在一帧
+开始时锁定 active generation，保证同一帧不会混用两个版本。core0 解析周期 N 的 RX
+副本并准备新数据，最早影响周期 N+1：
+
+```text
+cycle N wire       : core1 forwards, extracts input, inserts active TX generation G
+after cycle N      : core0 parses RX descriptor and builds inactive generation G+1
+cycle N+1 boundary : core1 atomically selects G+1 if ready; otherwise reuses G
+```
+
+#### core1 飞行替换算法
+
+目标 fast path 可表达为以下固定步骤，伪代码中的 map 已在 ARM 前展开，不进行运行期
+payload class 查询：
+
+```c
+on_cyclic_frame_start() {
+    tx_view = tx_image_acquire_or_reuse();
+    rx_view = rx_pool_try_acquire();
+    byte_index = 0;
+    crc = crc_init();
+}
+
+on_upstream_byte(uint8_t input) {
+    uint8_t output = input;
+
+    if (fixed_map_input_contains(byte_index) && rx_view != NULL) {
+        rx_view->data[fixed_map_input_index(byte_index)] = input;
+    }
+    if (fixed_map_output_contains(byte_index)) {
+        output = tx_view->data[fixed_map_output_index(byte_index)];
+    }
+    if (byte_index == fixed_map_hop_offset) {
+        output = input + 1u;
+    }
+    if (byte_index == fixed_map_wkc_offset) {
+        output = input + local_slice_exchange_succeeded;
+    }
+
+    downstream_put(output);
+    crc = crc_update(crc, output);
+    byte_index++;
+}
+
+on_cyclic_frame_end() {
+    rx_descriptor_publish_nonblocking(rx_view);
+}
+```
+
+实现可以按 byte、32-bit word 或固定 block 流水，不要求 CPU 为每个 byte 进入 IRQ。
+PIO/DMA 应承担搬运，core1 只处理包含本节点 slice、hop/WKC 或 CRC 的固定 block。上行
+与下行由不同板载时钟驱动时，二者之间必须保留有界 elastic FIFO；FIFO 深度覆盖晶振
+频差、PIO/DMA arbitration 和最坏 core1 响应抖动，不能假设两个时钟长期同相。
+
+#### CRC、WKC 与错误语义
+
+当前 V1 `TdmaTransportFrame` 的 `transport CRC` 位于 byte 28，而 mutable payload 从
+byte 32 开始。节点若在 CRC 已经发出后修改后续 payload，就无法在不缓存剩余帧的
+前提下写回正确 CRC。因此 V1 可以用于完整帧 store-and-forward、固定 block cut-through
+验证和只修改已延迟覆盖范围内的字段，但不能作为通用的零等待飞行替换最终格式。
+
+产品飞行帧 V2 应将 mutable integrity 字段放到帧尾：
+
+```text
++----------------+----------------------+----------+-----+---------------+
+| immutable head | cyclic process image | hop/path | WKC | transport CRC |
++----------------+----------------------+----------+-----+---------------+
+         pass / fixed-offset replace --------------------> trailing write
+```
+
+- immutable identity CRC 只覆盖 origin、sequence、schedule、ring plan、length 和 immutable flags。
+- transport CRC 覆盖节点实际发出的完整字节流，由 core1/PIO 边转发边累计并在帧尾写入。
+- 每个 owner segment 保留 generation/segment CRC，供 core0 事后判断本地业务数据是否可提交。
+- WKC 仅在本节点成功完成约定 slice exchange 时增加；origin 用期望 WKC 判断所有节点是否工作。
+- 输入 CRC 在帧尾才可验证，因此飞行转发是推测性 forwarding：错误帧可能已经离开节点，节点必须增加 error counter、使本地 RX descriptor 无效，并由 origin 的 CRC/WKC/sequence quality 拒绝该周期。
+- identity、sequence 和 ring CRC 仍用于 reference TX/feedback RX 闭环相关；mutable payload 和 WKC 不得进入 immutable identity 比较。
+
+#### 过载与故障策略
+
+| 条件 | 行为 |
+|---|---|
+| core0 没有发布新 TX generation | core1 继续使用上一版，增加 `tx_image_stale_count`；不得阻塞。 |
+| core0 消费 RX 过慢 / RX descriptor ring 满 | 丢弃解析副本，增加 `rx_mirror_drop_count`；wire forwarding 继续。 |
+| RX buffer pool 耗尽 | 不复制本地 input slice，本周期本地 WKC 不增加或 quality 标记无效；wire forwarding 继续。 |
+| core1 elastic FIFO 接近满/空 | 发布 high-water/underflow evidence；超限属于实时 adapter fault，不能静默报告 ring healthy。 |
+| downstream PIO/DMA 无法按 deadline 接收 | 中止或标记当前帧并增加 hard realtime fault；不得等待 core0恢复。 |
+| 输入尾部 CRC 错误 | 已飞行的下行帧不能撤回；本地副本无效并增加 CRC fault，origin 最终拒绝该周期。 |
+
+管理面 STOP/ARM/TRAIN/START、role、process-image map 和 buffer pool 配置由 core0
+提交，但只在 STOP/ARM 边界生效。START 后 core1 是 wire fast path 唯一 owner；SCPI、
+UI、LOG 和 core0 domain task 只能读取 snapshot 或通过 FIFO 发布下一周期数据。
+
 目标数据路径：
 
 ```text
@@ -238,6 +401,24 @@ Domain AO / FB local fact commit
 - origin TX 与 feedback RX 的闭环相关使用 immutable identity CRC、sequence、schedule CRC 和 ring CRC，不能比较飞行前后的 mutable payload CRC。
 - 当前 216 B VDC 诊断内帧可作为 bring-up 的独立短帧，但不是最终 process-image 形态；产品飞行帧应使用 compact VDC sample，把余量留给 critical RefMem delta 和 ACK/quality。
 - RP2350 首版可以先实现有界 byte/block cut-through；只有 PIO/DMA 实测证明 RX/TX 重叠和固定 pipeline delay 后，才宣称飞行模式成立。
+
+#### 当前实现与迁移阶段
+
+本节描述的是目标架构，不能用于宣称当前 PIO SPI bring-up 已具备 ESC 飞行能力。
+截至 2026-08-19，当前实现仍是：连续 RX DMA 捕获完整帧，ring adapter 在 core1
+service 中完整 decode，forward 节点调用 `advance_hop()` 重算 transport CRC，再把完整
+帧压入 TX PIO。已具备 `FLIGHT_MUTABLE`、固定 process-image map 基础和显式
+STOP/ARM/TRAIN/START，但尚未具备上述两个跨核 FIFO、elastic cut-through pipeline、
+WKC 和尾部 CRC V2。
+
+迁移顺序冻结为：
+
+1. 把完整帧 forward 从 1 kHz 普通 service 轮询移到有界 RX-complete 快速事件，先消除等待下一 tick 造成的漏帧；保持 V1 wire format。
+2. 引入 `TDMA_TX_IMAGE_FIFO`、`TDMA_RX_FRAME_FIFO`、固定 buffer pool 和跨核 ownership 单测；core1 仍可完整帧转发，但 core0 不再参与 wire deadline。
+3. 使用 active `TdmaProcessImageMap` 做固定 block 提取/替换，core1 不再调用业务 decode；记录 sequence gap、forward latency、FIFO waterline 和 mirror drop。
+4. 定义并门禁 V2 cyclic frame：尾部 transport CRC、WKC 和 immutable identity；V1/V2 不得在同一个 active ring 混跑。
+5. 实现 PIO/DMA RX/TX 重叠和 elastic FIFO，完成真正 cut-through；以示波器和 HIL 证明固定 per-hop delay、无 underflow/overrun、core0 拥塞不影响 wire。
+6. 最后接入硬件 timestamp/DPLL；DPLL 不得成为飞行转发的前置依赖。
 
 ## Adapter 边界
 

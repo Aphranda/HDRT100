@@ -110,6 +110,26 @@ typedef struct {
     uint32_t fault_code;
 } sync_io_model_pulse_runtime_t;
 
+typedef struct {
+    bool running;
+    uint32_t output_channel;
+    uint32_t output_pin;
+    uint32_t requested_hz;
+    uint32_t actual_hz;
+    uint32_t system_clock_hz;
+    uint32_t pwm_top;
+    uint32_t pwm_div16;
+} sync_io_sma_frequency_tx_status_t;
+
+typedef struct {
+    uint32_t input_channel;
+    uint32_t input_pin;
+    uint32_t gate_us;
+    uint32_t elapsed_us;
+    uint32_t edge_count;
+    uint32_t frequency_hz;
+} sync_io_sma_frequency_rx_result_t;
+
 typedef enum {
     SYNC_IO_AUX0 = 0,
     SYNC_IO_AUX1,
@@ -171,6 +191,17 @@ void sync_io_debug_model_release(void);
 uint32_t sync_io_debug_model_read_input_mask(void);
 uint32_t sync_io_debug_model_get_output_enable_mask(void);
 uint32_t sync_io_debug_model_get_output_value_mask(void);
+bool sync_io_sma_frequency_tx_start(
+    uint32_t output_channel,
+    uint32_t frequency_hz,
+    sync_io_sma_frequency_tx_status_t *status);
+void sync_io_sma_frequency_tx_stop(void);
+void sync_io_sma_frequency_tx_get_status(
+    sync_io_sma_frequency_tx_status_t *status);
+bool sync_io_sma_frequency_rx_measure(
+    uint32_t input_channel,
+    uint32_t gate_us,
+    sync_io_sma_frequency_rx_result_t *result);
 bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
                                       const sync_io_model_pulse_entry_t *entries,
                                       uint32_t entry_count,
