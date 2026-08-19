@@ -53,6 +53,7 @@
 #define BOARD_LCD_CS_PIN 37u
 #define BOARD_LCD_SCK_PIN 38u
 #define BOARD_LCD_MOSI_PIN 39u
+#define BOARD_LCD_SPI_BAUD_HZ 20000000u
 /* 0.96-inch ST7735S panel, native portrait RAM window 80(H) x 160(V).
  * The UI is rendered as 160x80 landscape and rotated in the flush path. */
 #define BOARD_LCD_WIDTH 80u

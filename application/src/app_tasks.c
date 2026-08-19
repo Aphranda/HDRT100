@@ -165,7 +165,7 @@ static void task_ui(void *context)
         }
 
         ui_manager_service();
-        osal_task_delay_ms(5u);
+        osal_task_delay_ms(1u);
     }
 }
 

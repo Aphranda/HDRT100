@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define UI_KEY_INPUT_COUNT 3u
-#define UI_KEY_INPUT_DEBOUNCE_MS 35u
+#define UI_KEY_INPUT_DEBOUNCE_MS 8u
 #define UI_KEY_INPUT_LONG_PRESS_MS 700u
 #define UI_KEY_INPUT_REPEAT_MS 250u
 

@@ -167,9 +167,9 @@ static bool board_init_lcd(void)
 void board_prepare_lcd_spi(void)
 {
     gpio_put(BOARD_LCD_CS_PIN, 1);
-    (void)spi_init(BOARD_LCD_SPI_PORT, BOARD_SPI_BAUD_HZ);
+    (void)spi_init(BOARD_LCD_SPI_PORT, BOARD_LCD_SPI_BAUD_HZ);
     spi_set_format(BOARD_LCD_SPI_PORT, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
-    (void)spi_set_baudrate(BOARD_LCD_SPI_PORT, BOARD_SPI_BAUD_HZ);
+    (void)spi_set_baudrate(BOARD_LCD_SPI_PORT, BOARD_LCD_SPI_BAUD_HZ);
     gpio_set_function(BOARD_LCD_SCK_PIN, GPIO_FUNC_SPI);
     gpio_set_function(BOARD_LCD_MOSI_PIN, GPIO_FUNC_SPI);
 }
