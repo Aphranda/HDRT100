@@ -3,8 +3,8 @@
 Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
-Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-08-16
+Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+Last updated: 2026-08-20
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Virtual Distributed Clock / VDC 内部主域。VDC Domain 不是对外 SCPI 主域，也不是 `SYNC_IO` 的一个普通算法函数，而是整个分布式硬实时系统的核心基础件，负责让多节点形成同一条可验证、可门禁、可报告的共同时间轴。
 
@@ -308,6 +308,8 @@ cycle[k]
 
 DPLL 的输出不是直接修改本地硬件 timer，而是更新 VDC clock model 的受控参数。core1 读取该 snapshot，把未来 `vdc_time` 映射到 `local_fire_tick`，通过小步 slew 或 phase pull 消化相位误差。
 
+硬件 timestamp latch 与 VDC lock 不存在循环依赖。PIO/DMA/IRQ 在同步 RX/TX 或业务边沿到来时只锁存自由运行的 `local_tick_raw`；该动作不要求 VDC 已锁定。VDC 使用这些 raw latch 和 reference/path-delay 语义形成 DPLL 样本，锁定后才把相同 raw tick 映射为共同时间。软件回调、完整帧 decode 或 core1 service 的读取时刻只能作为 diagnostic evidence。
+
 #### RP2350 仿 DC 时钟拆解
 
 参考 EtherCAT DC 的拆法，DTC100 的 RP2350 VDC 不应只理解为一个 PI 算法，而应拆成“本地时间引擎 + reference sync frame + path delay + DPLL servo + TDMA 事件调度”五个可验证层。
@@ -441,7 +443,7 @@ select reference node
 - propagation delay 只来自 Calibration active 表。
 - initial sync 结果必须带 profile CRC、cal CRC 和 timestamp dictionary CRC。
 - drift compensation 必须持续运行，不能只在启动时校一次。
-- sync output/input timestamp 必须进入 evidence，用于报告 `e_vdc/e_act/e_pll`。
+- sync output/input timestamp 必须进入 evidence，用于报告 `e_vdc/T2_error_ns/e_pll`。
 
 ### 首版 PIO/VDC 参考装配链
 
@@ -573,25 +575,60 @@ VDC snapshot 至少需要覆盖：
 
 ## 共同时间映射
 
-每个节点维护从本地 tick 到 VDC 的映射：
+每个节点维护从原始本地 tick 到 VDC 的带锚点仿射映射：
 
 ```text
-vdc_time = local_tick * rate + offset - calibrated_link_delay
+vdc_time = vdc_anchor
+         + (local_tick_raw - local_anchor) * corrected_rate
+         + phase_slew
 ```
 
 实现中可以使用定点形式：
 
 ```text
-vdc_time64_ns = local_tick64 * tick_ns * rate_q32 + offset_ns - delay_ns
+vdc_time64_ns = base_vdc_time64_ns
+              + scale(local_tick64 - base_local_tick64, rate_q32)
+              + phase_offset_ns
+```
+
+对外提供两个有 generation 约束的纯计算接口：
+
+```text
+vdc_from_local(raw_tick, map_generation) -> vdc_time
+local_from_vdc(target_vdc, stable_snapshot) -> local_deadline
 ```
 
 规则：
 
-- `local_tick64` 是原始观测事实，不能被 DPLL 修正。
+- `local_tick64` 是原始观测事实，不能被 DPLL 修正；硬件 latch 始终保存该值。
 - `offset/rate` 只能由 SYNC DPLL owner 写入。
-- `delay_ns` 只能来自 active calibration 绑定。
+- path delay 只用于构造同步观测或按 active calibration 绑定修正指定 evidence，不能被 Trigger 私自叠加到 clock model。
 - `vdc_time64_ns` 只有在 `LOCKED/HOLDOVER` 且质量门限通过时才可作为正式 RUN 基准。
 - Angle DPLL、Trigger、SCPI、Storage、Report 只能读取 VDC snapshot，不得写 offset/rate。
+- 正向映射必须返回所用 `map_generation` 和 mapping quality，供 T2 completion 追溯。
+- 反向映射必须使用一次稳定快照完成，不能在同一次计算中混读两个 generation。
+
+### `system_tick` 封装
+
+允许在 VDC API 上提供单调的 `system_tick`/`system_time` 只读视图，但它只是上述映射的封装：
+
+```text
+system_tick = vdc_from_local(local_tick_raw, current_map_generation)
+```
+
+它必须同时包含动态 offset、rate correction 和有界 phase slew。只加固定 offset 会在节点存在频偏时持续积累误差；直接改写原始 timer 又会破坏 latch 证据和 deadline 单调性。PIO 不直接读取该软件视图，而由 core1 使用 `local_from_vdc()` 把目标共同时间反算为本地硬件 deadline。
+
+### T2 预约映射边界
+
+完整流水线见 `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`。VDC 在该主线中只负责：
+
+1. 为 Trigger 发布 LOCKED/HOLDOVER、quality、calibration CRC 和稳定 `VdcMapSnapshot`。
+2. 在 arm guard 前将 `T_fire_target_vdc` 反算为 `T_fire_deadline_local`。
+3. 为预约绑定 `map_generation`；generation 在 guard 前变化时要求 Trigger 重新 PREPARE/fence。
+4. 将 `sync_io` 返回的 `T2_actual_local` 正向映射为 `T2_actual_vdc`，并发布 mapping quality。
+5. 拒绝 stale epoch、未知 generation、step 跨越、超出 HOLDOVER error budget 或缺少硬件 latch 的请求。
+
+VDC 不创建预约、不聚合 READY mask、不决定 retry/skip，也不直接装载 PIO。
 
 ## 状态机
 
@@ -616,10 +653,11 @@ vdc_time64_ns = local_tick64 * tick_ns * rate_q32 + offset_ns - delay_ns
 | RefMem | node freshness、epoch/run_id、deployment gate 输入。 | 作为 lock gate 和 stale 判据。 |
 | SYNC | check/start/stop/relock/holdover 事务。 | 转为 VdcSyncAO event，不直接操作 offset/rate。 |
 | Measure | T2/READY timestamp 和质量反馈。 | 进入质量统计和 evidence，不直接改变业务序列。 |
+| TDMA | clock-training reference TX、逐 hop RX/TX、feedback RX latch 及 schedule/ring quality。 | 校验硬件证据和 path delay，形成 DPLL sample；不拥有 transport。 |
 
 | 消费域 | 从 VDC 读取 | 使用限制 |
 |---|---|---|
-| Trigger | `vdc_time64_ns`、lock state、quality、active cal CRC。 | 只在 RUN gate 通过后生成 `FIRE_LOAD`。 |
+| Trigger | `VdcMapSnapshot`、lock/quality、active cal CRC、`local_from_vdc()` 和 `vdc_from_local()`。 | 只在 RUN gate 通过后生成预约；arm guard 前冻结 generation，实际 T2 必须从 raw latch 映射。 |
 | Loop / Angle DPLL | VDC snapshot、Compare timestamp。 | Angle DPLL 只生成 `T_fire_base`，不能写 VDC offset/rate。 |
 | RefMem | VDC snapshot、quality、fault、evidence。 | 保存共同事实，不计算 DPLL。 |
 | Report / Storage | VDC 版本、质量、T2 证据。 | 用于报告闭环和问题复现。 |

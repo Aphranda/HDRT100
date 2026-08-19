@@ -3,8 +3,8 @@
 Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/TRIGGER_SYNC_TODO.md`
-Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`
-Last updated: 2026-08-10
+Related: `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`
+Last updated: 2026-08-20
 
 本文档用于跟踪同步触发系统从当前 PIO IO 驱动，完善到工业产品级触发子系统所需的剩余工作。
 
@@ -99,12 +99,27 @@ Last updated: 2026-08-10
   CPU 维护 `offset_tick/rate_q32/dc_locked/late_count/last_seq`，PIO 只做
   短窗口倒计时和本地到点输出。
 
-- [ ] 新增本地预约触发队列。
-  主节点或上位机下发未来 `T_fire_i`，从节点提前装载 PIO `delta_ticks`；
-  late frame 只计数和告警，不在临界路径补救触发。
+- [ ] 在现有 `TriggerAO` 内新增 `TriggerReservationFB` 和有界预约队列，不建立第二个 Trigger owner。
+  预约项至少绑定 reservation/run/epoch/sequence、A0-A7 target mask、`T_fire_target_vdc`、
+  VDC map generation、calibration/schedule CRC、arm guard、late limit 和 completion timeout；
+  精确 wire layout 由 TDMA process-image map 后续交叉审核冻结。
+- [ ] 实现预约 ECC：`DRAFT -> PREPARED -> DISTRIBUTING -> WAIT_FENCE -> ARMED -> FIRED -> WAIT_T2 -> COMPLETED`。
+  同时覆盖 `REJECTED/CANCELLED/FAULT`；late、stale、map generation 变化、CRC、资源不足和
+  READY/fence timeout 必须 fail closed，不能在临界路径补救触发。
+- [ ] 实现 Trigger 拥有的 reservation/READY-NACK/fence/completion shadow segment publisher。
+  Trigger 只提交 payload intent；不得直接写 TDMA ring runtime、process-image active buffer 或 PIO FIFO。
+- [ ] 接入 VDC 反向映射和 arm guard。
+  arm guard 前稳定读取 `VdcMapSnapshot`，将 `T_fire_target_vdc` 转成
+  `T_fire_deadline_local`；generation 变化必须重新 PREPARE/fence，guard 后不得改变已装载 deadline。
+- [ ] 接入输出和设备 T2 完成事实。
+  `sync_io` 返回 `T2_actual_local` 原始硬件 latch，VDC 映射为 `T2_actual_vdc`，Trigger/Measure
+  计算 `T2_error_ns`；禁止用 CPU callback 时间或队列完成时间替代硬件实际边沿。
+- [ ] 增加 T2 预约单板闭环和多节点 HIL。
+  依次验证单板、2/3/5/8 节点的 PREPARE/READY/fence、late 拒绝、PIO 到点、T2 completion、
+  target mask 和故障注入；host 只读监控，不参与预约续窗。
 
 - [ ] 新增 DPLL 残差统计。
-  区分 `e_pll`（角度到时间预测，微秒级）和 `e_act`（设备动作残差，纳秒/百纳秒级），
+  区分 `e_pll`（角度到时间预测）和 `T2_error_ns`（设备动作残差），
   不混用验收指标。
 
 ## 产品化运行时架构待办（2026-08-10）
@@ -174,7 +189,7 @@ Last updated: 2026-08-10
 
 - [ ] 增加 RTOS 双核 HIL 验收矩阵。
   至少覆盖：启动后两核 alive 计数持续增长、SCPI baseline、单板 SMA/RJ45 IO 映射验证、
-  四板 ring 1e6 帧 CRC/乱序/断线故障注入、`FIRE_LOAD` late_count、READY/T2 捕获、
+  四板 ring 帧 CRC/乱序/断线故障注入、reservation late_count、READY/fence/T2 捕获、
   SD/OTA/UI 并发压力下实时核无阻塞、24h 长稳和看门狗故障证据落盘。
 
 ## 当前基线

@@ -3,8 +3,8 @@
 Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
-Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-08-18
+Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
+Last updated: 2026-08-20
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
@@ -115,6 +115,12 @@ Last updated: 2026-08-18
 - [ ] 实现 process image active/shadow 双缓冲：domain task 只写 shadow，core1 只在 cycle boundary swap，PIO/DMA 只读 active。
   - 进行中：TDMA owner 已提供双槽 TX image FIFO，core1 在完整 cyclic frame 边界锁定或复用一个 generation；active map 在 STOP 状态 staged、adapter start 时按 local slot 激活。正式 System Pack map 表和 domain dirty publisher 尚未接入。
 - [ ] 冻结 compact VDC flight segment 和 critical RefMem flight segment wire format；当前 216 B VDC 诊断帧不能成为最终 process image。
+- [ ] 将 T2 reservation/READY-NACK/fence/completion 四类语义段登记到 System Pack
+  `TdmaProcessImageMap`；segment 只定义 owner、offset、capacity、flags 和完整性策略，TDMA 不解析
+  Trigger 业务字段，精确 wire layout 必须经过契约登记与交叉审核后冻结。
+- [ ] 接入 Trigger shadow publisher 与 TDMA active/shadow boundary。
+  core0/Trigger domain 只能发布下一 generation 的 opaque segment；core1 在 cycle boundary 原子切换，
+  READY/fence/completion 只允许对应 owner slot 写固定 slice，禁止业务代码改 active image。
 - [ ] core1 TDMA runtime 同时服务 `TDMA_UP_LEG` 和 `TDMA_DOWN_LEG`。
   - 进行中：ring runtime 双向 service 和 PIO SPI physical callback 已接入；V1 完整帧 forward 已支持 active map 固定 offset input mirror/output replace、hop 和 transport CRC 更新。PIO/DMA RX/TX byte-level overlap 尚未实现。
 - [ ] 空闲无业务 payload 时持续发送/接收 `IDLE_BEACON` 或等价 freshness 帧。
@@ -130,6 +136,12 @@ Last updated: 2026-08-18
 - [ ] TDMA 每条 delta 必须有 `origin_encoded -> queued -> sent -> received -> validated -> committed -> acked/fenced` evidence。
 - [ ] `WINDOW_MISSED`、RX timeout、duplicate seq、CRC error 必须触发有界 retry/backoff 或明确 NACK。
 - [ ] 增加 quality table 映射：timeout、late、drop、overrun、direction conflict、timestamp missing。
+- [ ] 为 T2 预约发布有界 transport token 和质量计数：encoded、queued、window-open、sent、received、
+  validated、returned、fenced/completed，以及 prepare lead time、window wait、forward latency、late、
+  deadline miss、retry、NACK 和 timeout；计数只描述运输，不替代 Trigger 业务结论。
+- [ ] 定义 reservation/READY/fence/completion 的丢帧策略。
+  PREPARE 或 READY 丢失只允许在 arm guard 前有界重发；NACK、CRC、generation mismatch、window miss
+  或 fence timeout 必须 fail closed，不得跳过 fence ARM；completion 丢失可重传 evidence，不得重复执行动作。
 
 ## P5 - VDC Observation Evidence
 
@@ -156,4 +168,6 @@ Last updated: 2026-08-18
 - [ ] 验收 `up_running=1`、`down_running=1`、`simultaneous_feedback_loop_evidence=true`、`WINDOW_BOUND` 不作为最终态、`BAD_FRAME=0`。
 - [ ] 复测 RefMem AUTO NodeLoad 双向同步，确认 ACK/重发/fence 不依赖偶然窗口命中。
 - [ ] 复测 VDC observation，确认 DPLL accepted sample 可追溯到 TDMA ring evidence。
-- [ ] 扩展 3 节点、5 节点 profile，验证只扩表不改算法。
+- [ ] 增加 T2 预约分发 HIL：依次覆盖单板、2/3/5/8 节点 PREPARE/READY-NACK/fence/completion，
+  验证 target mask、generation、最坏 lead time、窗口容量、故障注入和 host 只读监控。
+- [ ] 扩展 A0-A7 profile，验证只扩表和容量，不改 flight、fence 与 completion 算法。

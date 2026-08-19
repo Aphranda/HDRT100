@@ -4,14 +4,16 @@ Status: Draft
 Domain: TRIGGER / Distributed Sync
 Target: RP2350_TRIG RP2350B QFN-80 四板系统
 Canonical: `docs/trigger/TRIGGER_FOUR_BOARD_DISTRIBUTED_PLAN.md`
-Last updated: 2026-08-04
+Last updated: 2026-08-20
 Related:
 
 - `docs/reports/distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html`
 - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
+- `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
 - `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
 - `docs/sync/SYNC_IO_ARCHITECTURE.md`
-- `docs/sync/SYNC_IO_ARCHITECTURE.md`
+- `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+- `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 - `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
 
 本文档把原 Zynq/EtherCAT/DC 分布式触发技术报告，改写为当前 RP2350B QFN-80
@@ -44,12 +46,12 @@ Related:
 |---|---|---|
 | DC 时间轴 | EtherCAT DC + FPGA 64-bit counter | 每板本地 tick + `offset/rate` 软件虚拟 DC |
 | `T_fire_base` | 主站 DPLL 生成未来 DC 绝对时间 | A0 下位机 DPLL 生成未来虚拟 DC tick，上位机只配置参数 |
-| `T_fire_i` | `T_fire_base + Δt_i` | 各板换算成本地 `delta_ticks` 后装载 PIO |
+| 预约目标 | `T_fire_target_vdc = T_fire_base + Δt_i` | 各板通过 VDC 反向映射换算成本地 deadline 后装载 PIO |
 | PDO 预约队列 | EtherCAT PDO 周期下发 | RJ45_SYNC_RING / USB / 本地控制链路提前下发 |
 | FPGA 本地比较 | PL 内绝对时间比较 | PIO 短窗口倒计时输出，CPU 维护 64-bit 时间 |
 | TDC/T2 回读 | FPGA TDC 捕获设备完成脉冲 | PIO 捕获窗口 + CPU 扩展时间戳；必要时外部示波器闭合 |
 | `e_dc` | EtherCAT DC/SYNC0 实测 | 虚拟 DC 同步残差 `e_vdc`，由同步帧边沿统计 |
-| `e_act` | `T2_i - T_fire_base - Δt_i` | 保留同一验收口径，但统计分辨率受 RP2350/PIO 限制 |
+| T2 动作误差 | `T2_error_ns = T2_actual_vdc - T_fire_target_vdc` | 实际边沿必须来自硬件 latch，统计分辨率受实现和标定限制 |
 | DPLL | 主站预测转台角度到时间 | A0 下位机运行并生成预约队列，各节点 PIO 输出已预约边沿 |
 
 ## 3. RP2350B IO 约束下的硬件分配
@@ -93,7 +95,7 @@ A3 RJ45_FWD_TRIG_OUT -> A0 RJ45_FWD_TRIG_IN
 每段均为点对点固定方向差分链路，不做多点总线仲裁，不在运行中切换方向。链路承担：
 
 - 同步帧 `SYNC`
-- 预约帧 `FIRE_LOAD`
+- 预约、READY/NACK、fence 和 completion process-image segment
 - 状态帧 `DONE / READY / FAULT`
 - 校准帧 `CAL_EDGE`
 
@@ -142,84 +144,81 @@ A1/A2/A3 SMA_INx: 设备 READY / 完成脉冲 / 回环测量
 
 ## 5. 时间模型
 
-每块板维护本地单调 tick：
+本节只定义 Trigger 对共同时间的消费方式。完整 T2 预约与时钟分发主线见
+`docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`；VDC 映射参数由 VDC Domain
+唯一维护，Trigger 不写 offset/rate。
+
+每块板维护不可调、单调递增的原始硬件 tick：
 
 ```text
-local_tick = clk_sys tick
-1 tick = 4 ns   when clk_sys = 250 MHz
+local_tick_raw = free-running hardware tick
 ```
 
-CPU 维护虚拟 DC 映射：
+硬件边沿先锁存 `local_tick_raw`，再由 VDC 稳定快照做正向映射：
 
 ```text
-dc_tick = local_tick * rate_q32 + offset_tick
+vdc_time = vdc_anchor
+         + (local_tick_raw - local_anchor) * corrected_rate
+         + phase_slew
+```
+
+Trigger 预约使用反向映射：
+
+```text
+T_fire_target_vdc -> local_from_vdc() -> T_fire_deadline_local -> PIO
 ```
 
 其中：
 
-- `offset_tick`：本板相对 A0 虚拟 DC 的相位偏移。
-- `rate_q32`：本板时钟相对 A0 的频率修正。
+- `system_tick` 是 VDC 对 `local_tick_raw` 的只读投影视图，包含动态 offset、rate 和受控 slew；不能退化成固定 offset，也不能成为第二个 owner。
+- `map_generation` 绑定预约使用的 VDC 快照；arm guard 前变化时必须重新计算、重新 PREPARE 和 fence。
 - `Δt_i`：通道、线缆、驱动器、接收阈值、设备动作延迟和期望相对 delay 的补偿量。
-- `T_fire_i = T_fire_base + Δt_i`。
+- `T_fire_target_vdc = T_fire_base + Δt_i`。
+- `T2_actual_local` 是输出或设备完成边沿的原始硬件 latch。
+- `T2_actual_vdc` 是 VDC 使用指定 map generation 映射后的完成事实。
 
-PIO 不维护完整 64-bit DC 时间。CPU 在安全提前量内把未来 `T_fire_i` 转成本地
-`delta_ticks`，装载给 PIO；PIO 只执行短窗口倒计时和输出。
+PIO 不维护完整 VDC。core1 在安全提前量和 arm guard 之前把未来
+`T_fire_target_vdc` 转成本地 deadline，装载给 PIO；PIO 只执行短窗口倒计时、输出和
+原始硬件 latch。已 ARM 的 deadline 不随下一代 VDC map 跳变。
 
-## 6. 帧格式建议
+## 6. Trigger 预约数据模型
 
-RJ45 同步环路首版使用“边沿时间戳 + 固定位宽 payload”的简单帧。第一个有效边沿
-用于时间戳，后续 payload 只用于语义和 CRC。
+Trigger 不拥有 TDMA wire frame。现有 `TriggerAO` 内增加 `TriggerReservationFB`，把业务预约发布到 TDMA 已登记的固定 process-image segment；TDMA 只搬运 opaque bytes，不解析通道、动作或补偿语义。
 
-```c
-typedef enum {
-    RING_SYNC      = 0x01,
-    RING_FIRE_LOAD = 0x02,
-    RING_A1_DONE   = 0x11,
-    RING_A2_DONE   = 0x12,
-    RING_MEAS_DONE = 0x13,
-    RING_FAULT     = 0x7F,
-} ring_frame_type_t;
+预约语义至少覆盖：
 
-typedef struct {
-    uint8_t  frame_type;
-    uint8_t  node_id;
-    uint16_t flags;
-    uint32_t sequence_id;
-    uint64_t t_fire_base;
-    int32_t  delta_ticks_or_value;
-    uint8_t  crc8;
-} ring_frame_t;
-```
+| 字段组 | Trigger 语义 |
+|---|---|
+| identity | reservation/run/epoch/sequence、origin slot、A0-A7 target mask。 |
+| target | `T_fire_target_vdc`、动作/通道、极性、脉宽和补偿引用。 |
+| clock binding | VDC quality、map generation、calibration CRC 和 TDMA schedule CRC。 |
+| gate | prepare lead time、arm guard、late limit、completion timeout 和 HOLDOVER policy。 |
+| completion | READY/NACK/fence mask、`T2_actual_local`、`T2_actual_vdc`、result 和 quality。 |
 
-推荐从 12.5 Mbps 固定位宽 NRZ 开始验证；稳定后再评估 20.833 Mbps。
-
-| 目标速率 | PIO cycles/bit @250 MHz | 用途 |
-|---:|---:|---|
-| 12.5 Mbps | 20 | 首版推荐，示波器和 CRC 验证裕量大 |
-| 16.667 Mbps | 15 | 中间档 |
-| 20.833 Mbps | 12 | 高速档，便于整周期 PIO 时序 |
-| 25 Mbps | 10 | 对收发器、隔离器和布线要求更高 |
+精确字段宽度、字节序和 segment offset 由 System Pack 与 TDMA process-image map 冻结；在交叉审核前，本节不定义第二套 `ring_frame_t`。
 
 ## 7. 业务时序
 
 一轮测试建议按以下流程执行：
 
-1. A0 通过 `SMA_IN1/GPIO23` 捕获转台 Compare Out 或位置脉冲。
-2. A0 扩展时间戳，更新 `position_count` 和 `sequence_id`。
-3. A0 的 DPLL 根据目标角度、当前速度估计和补偿表生成未来 `T_fire_base`。
-4. A0 通过 RJ45_SYNC_RING 下发 `RING_FIRE_LOAD(seq, T_fire_base, link_index, pol_index)`。
-5. A1/A2/A3 收到预约帧后换算本地 `delta_ticks`，装载 PIO `local_fire`。
-6. 到点后：
+1. 所有节点先用 TDMA 训练帧的 RX/TX 硬件 latch 建立并持续维护 VDC；只有合格 `LOCKED`，或预约 profile 明确允许的有界 HOLDOVER，才接收新预约。
+2. A0 通过 `SMA_IN1/GPIO23` 捕获转台 Compare Out 或位置脉冲，锁存原始 local tick 并映射到 VDC。
+3. A0 的 Angle DPLL 根据目标角度、当前速度估计和补偿表生成未来 `T_fire_base`；Angle DPLL 不写 VDC offset/rate。
+4. `TriggerReservationFB` 生成 `T_fire_target_vdc`，经 TDMA process image 飞行分发给目标节点。
+5. A1/A2/A3 校验 identity、VDC generation、资源和 lead time，返回 READY/NACK；A0 收齐同 generation READY 后发布 fence。
+6. 各目标节点在 arm guard 前冻结 VDC map，反算本地 deadline 并装载 PIO；没有有效 fence 不得 ARM。
+7. 到点后：
    - A1 输出 DUT/链路动作触发；
    - A2 输出馈源/极化动作触发；
    - A3 按相对 delay 输出 VNA 触发。
-7. 各板用 SMA 输入捕获设备完成/READY/T2，生成 `T2_i`。
-8. A1/A2/A3 通过环路返回 `DONE / MEAS_DONE / FAULT`。
-9. A0 计算 `e_i[k]`、`e_c[k]`、`e_act`，异常样本剔除后更新 DPLL 和慢速 `Δt_i`。
+8. PIO/DMA/IRQ 锁存输出边沿和设备 READY/T2 的 `T2_actual_local`；VDC 映射得到 `T2_actual_vdc`。
+9. A1/A2/A3 通过 TDMA completion segment 返回 DONE/MEAS_DONE/FAULT 和质量证据。
+10. A0 计算 `e_i[k]`、`e_c[k]`、`T2_error_ns`；异常样本不进入同步 DPLL，慢速 `Δt_i` 更新走独立校准流程。
 
 过期帧处理规则：
 
-- 若 `T_fire_i - now < t_margin_min`，本板标记 `late`，禁止临界路径补救触发。
+- 若 lead time 或 arm guard 不满足，本板标记 `late` 并 NACK，禁止临界路径补救触发。
+- map generation 在 arm guard 前变化时必须重新 PREPARE/fence；guard 后不得重算已装载 deadline。
 - CRC 错误、序号乱序、READY 超窗、链路超时均不进入 DPLL 环路滤波。
 - 正式采集期间只允许平滑微调补偿，禁止突变已经生效的触发计划。
 
@@ -231,10 +230,10 @@ typedef struct {
 
 ```text
 wait edge on RJ45_FWD_TRIG_IN
-capture relative counter
+hardware-latch local_tick_raw
 decode fixed bit-time payload
 optionally forward after fixed calibrated delay
-push timestamp/status to CPU
+push latch descriptor/status to core1
 ```
 
 ### 8.2 `local_fire`
@@ -242,9 +241,10 @@ push timestamp/status to CPU
 用于 `GPIO16..19/SMA_OUT1..4` 的预约触发输出：
 
 ```text
-pull delta_ticks, mask, pulse_width_ticks, polarity
-count down delta_ticks
+pull local_deadline, mask, pulse_width_ticks, polarity, reservation_id
+derive bounded delta from local_tick_raw and count down
 set selected SMA_OUT high/low
+hardware-latch actual output edge
 hold pulse_width_ticks
 return safe level
 ```
@@ -256,8 +256,8 @@ return safe level
 ```text
 CPU arms capture window
 PIO samples SMA_IN group
-on selected edge: push channel bitmap + window counter
-CPU expands to virtual DC timestamp
+on selected edge: hardware-latch local_tick_raw and push descriptor
+VDC maps raw latch to T2_actual_vdc using bound map generation
 ```
 
 实现时必须显式记录 PIO 检测循环的 `loop_cycles`。捕获分辨率取决于循环周期，
@@ -273,7 +273,7 @@ RP2350B 四板方案采用分层验收，继承原报告的命名，但指标按
 | 本地触发输出粒度 | `e_q` | 4 ns @250 MHz | PIO 倒计时粒度；实际输出含收发器、隔离器、阈值和线缆 |
 | 通道校准残差 | `e_io` | 首版 ≤ 10 ns；优化 ≤ 2.5 ns | SMA 输出、输入回读、线缆和设备阈值标定后的剩余残差 |
 | 同板近端响应 | `t_near` | 典型 50-300 ns；验收 ≤ 1 µs | SMA 输入到 SMA 输出快路径，不代表跨板同步 |
-| 设备动作残差 | `e_act` | 首版 P99.9 ≤ 300 ns；优化目标 ≤ 150 ns | `T2_i - T_fire_base - Δt_i`，由实测闭合 |
+| 设备动作残差 | `T2_error_ns` | 首版 P99.9 ≤ 300 ns；优化目标 ≤ 150 ns | `T2_actual_vdc - T_fire_target_vdc`，由实测闭合 |
 | DPLL 角度时间残差 | `e_pll` | 工程 P99.9 ≤ 50 µs；优化 ≤ 30 µs | 评价角度到时间映射，不与 ns 级动作同步混用 |
 | late 预约 | `late_count` | 正式采集为 0 | 通信抖动只影响是否 late，不改变已装载边沿 |
 
@@ -286,11 +286,13 @@ FPGA/TDC、硬件时间戳以太网或 EtherCAT DC 方案；RP2350B 四板原型
 |---|---|---|---|
 | `IDLE` | 全部 | 上电、未校准或未 ARM | 完成自检和链路检测 |
 | `SYNCING` | 全部 | RJ45 环路已连接 | `e_vdc` 收敛并锁定 |
-| `ARMED` | 全部 | 同步锁定、互锁闭合、输出安全 | 收到未来预约帧 |
-| `QUEUED` | A1/A2/A3 | PIO 已装载 `delta_ticks` | 到点输出或 late |
-| `FIRING` | A1/A2/A3 | 倒计时到点 | 输出脉宽结束并回到安全电平 |
+| `PREPARED` | 目标节点 | 预约 identity、VDC、资源和 lead time 通过 | 发布 READY 或 NACK |
+| `DISTRIBUTING` | A0/TDMA | 预约已进入 process image | 等待同 generation 环回 |
+| `WAIT_FENCE` | 全部 | 目标 READY 已发布 | 收齐 target mask 后 fence 或拒绝 |
+| `ARMED` | A1/A2/A3 | fence 有效且本地 deadline 已装载 | 到点输出、取消窗内取消或故障 |
+| `FIRED` | A1/A2/A3 | 输出边沿已产生并硬件锁存 | 等待设备 T2 或直接 completion |
 | `WAIT_T2` | A1/A2/A3 | 已输出动作触发 | 捕获 READY/T2 或超时 |
-| `ROUND_DONE` | A0 | 收到有效 DONE/MEAS_DONE | 更新残差和下一轮枚举 |
+| `COMPLETED` | A0 | 收到有效 completion mask | 更新残差和下一轮枚举 |
 | `HOLDOVER` | 全部 | 同步暂时丢失 | 恢复锁定或超时进入 FAULT |
 | `FAULT` | 全部 | CRC、late、超窗、互锁或硬件故障 | 人工或上位机清除后重新校准 |
 
@@ -313,7 +315,7 @@ FPGA/TDC、硬件时间戳以太网或 EtherCAT DC 方案；RP2350B 四板原型
 ### 11.3 业务动作校准
 
 - A1/A2/A3 分别对 DUT、馈源和 VNA 做动作触发与 READY 回读。
-- 计算 `T2_i - T_fire_base` 分布。
+- 计算 `T2_actual_vdc - T_fire_target_vdc` 分布。
 - 固定项写入 `Δt_i`，慢变项进入低带宽温漂/通道补偿。
 - READY 缺失、超窗、乱序样本只记录诊断，不进入校准平均。
 
@@ -347,8 +349,8 @@ FPGA/TDC、硬件时间戳以太网或 EtherCAT DC 方案；RP2350B 四板原型
 ### Phase 2：虚拟 DC 与预约触发
 
 - A0 周期发同步帧，A1/A2/A3 估计 `offset/rate`。
-- A0 发送未来 `FIRE_LOAD`。
-- A1/A2/A3 提前装载 PIO `local_fire`。
+- A0 通过 Trigger reservation segment 发送未来 `T_fire_target_vdc`。
+- A1/A2/A3 完成 READY/fence 后，使用绑定的 VDC map generation 提前装载 PIO `local_fire`。
 
 验收：
 
@@ -379,7 +381,7 @@ FPGA/TDC、硬件时间戳以太网或 EtherCAT DC 方案；RP2350B 四板原型
 
 验收：
 
-- `e_act` 由 T2/READY 或统一示波器实测闭合。
+- `T2_error_ns` 由 T2/READY 硬件 latch 或统一示波器实测闭合。
 - A1/A2/A3 超窗不触发有效射频采样。
 - 日志包含 seq、T_fire、T2、late、CRC、fault、温度和电源状态。
 
@@ -392,9 +394,9 @@ FPGA/TDC、硬件时间戳以太网或 EtherCAT DC 方案；RP2350B 四板原型
 
 验收：
 
-- `e_pll` 与 `e_act` 分开统计。
+- `e_pll` 与 `T2_error_ns` 分开统计。
 - `e_pll` P99.9 ≤ 50 µs 作为工程首版目标。
-- `e_act` 按 A1/A2/A3 设备动作实测分布冻结。
+- `T2_error_ns` 按 A1/A2/A3 设备动作实测分布冻结。
 - 正式测试期间上位机数据采样抖动不影响节点循环、动作节拍和触发边沿。
 
 ## 13. 软件/SCPI 接口建议
@@ -524,7 +526,7 @@ SYST:ERR:LAST?
 
 - 新版硬件只有一组 RJ45 触发输入和一组输出，天然适合链式/环式同步，不是三路并行星形广播。
 - 环路同步可以标定固定 hop delay，但无法仅靠单向环唯一分解每段传播延迟；需要线缆交叉测试、反向测试或外部示波器辅助。
-- RP2350 PIO 不能直接读取系统 timer。所有时间戳都必须通过窗口计数、采样索引或 CPU 扩展实现。
+- RP2350 PIO 指令不能直接读取完整 VDC，但 PIO/DMA/IRQ 边界必须形成与实际边沿相关的原始硬件 tick latch；CPU 只做 wrap extension、descriptor 搬运和 VDC 映射，软件读取时刻不能冒充硬件 latch。
 - `GPIO20..23` 输入物理顺序与通道编号相反，是固件和测试最容易踩坑的位置。
 - BiSS/RS422 口在本方案中不承担四板同步主链路，避免与编码器/协议功能互相污染。
 - 若现场 EMI 强，RJ45 差分链路、SMA 线缆、GND/FGND 单点策略、屏蔽层连接和 ISO1452 默认态必须按 PCB 评审清单闭环。

@@ -3,8 +3,8 @@
 Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
-Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-08-17
+Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
+Last updated: 2026-08-20
 
 本文档维护 Virtual Distributed Clock / VDC Domain 的独立待办。这里不记录普通开发流水账，只记录会影响共同时间、timestamp、offset/rate、DPLL、HOLDOVER/RELOCK、VDC quality、RefMem 映射和 RUN gate 的架构与实现事项。
 
@@ -220,6 +220,12 @@ TDMA 最小实例约束：
 ## P3 - DPLL / Clock Model
 
 - [x] 实现 `local_tick -> vdc_time64_ns` 映射函数。
+- [ ] 将现有正向映射收口为 `vdc_from_local(raw_tick, map_generation)`，并实现
+  `local_from_vdc(target_vdc, stable_snapshot)` 反向映射；两者必须返回/校验 epoch、generation、
+  quality 和 overflow/rounding 状态，增加定点 round-trip、wrap、负 offset 和 rate correction 单测。
+- [ ] 发布稳定 `VdcMapSnapshot` 并接入 core1 消费。
+  snapshot 至少覆盖 local/VDC anchor、rate、phase slew、quality、calibration/schedule CRC、epoch 和
+  generation；读取必须使用 seqlock、双缓冲或等价 guard，禁止半新半旧参数产生 deadline。
 - [x] 实现 SYNC DPLL offset/rate 更新首版：`vdc_domain_submit_tdma_evidence()` 在 accepted hardware sample 后通过 `kp_q16` 生成 phase correction、按 `step_threshold_ns` slew、按 sample period 估计 frequency error，并在达到 lock sample 后用 `ki_q16` 对持续 phase error 产生 rate pull；结果发布到 `VdcClockModel` / `VdcDcoControl`，并记录 frequency error / skew。
 - [x] 实现 TDMA observation window 输入门禁：只有来自 active schedule、正确 reference slot、正确 schedule CRC 和同步窗口内的 timestamp sample 才能进入 DPLL。
 - [ ] 在 COM5/COM6 已验证 RefMem data TDMA 环路基础上，增加两板帧级 timestamp bring-up：每个 `REFMEM_DELTA/ACK/FENCE/QUALITY/IDLE_BEACON` 帧都产生 TDMA/VDC timestamp evidence；高优先级 `VDC_OBSERVATION_WINDOW` 形成正式 `VdcDpllSample`，再反向或双向测量 delay/evidence。当前已具备 PIO raw capture word -> core1 latch ring -> manager observer -> compact observation -> dictionary -> wrap tracker -> evidence gate 的 VDC 入口，并可通过 `REALtime:IO:SAMPle:LATCh?` 查询 latch 状态、通过 `SYSTem:SYNC:VDC:OBServer` 安全关闭/显式配置 observer、通过 `SYSTem:SYNC:VDC:OBServer?` 读取 observer 状态、配置 CRC、dictionary CRC、edge index 和 dictionary 展开证据；observer 默认关闭，latch 时间基已升级为 `timer1/CLK_SYS` 的 `HARDWARE_TICK / <=100 ns / DIAGNOSTIC_ONLY`，默认 bring-up dictionary 和 open-anchor wrap 已接入，COM5/COM6 已验证 forced edge 会 `submitted=1,accepted=0,rejected=1,gate=TIMESTAMP_NOT_ELIGIBLE`；真实 PIO edge latch 和配置来源尚未接入。
@@ -227,7 +233,10 @@ TDMA 最小实例约束：
 - [x] 增加 VDC sync/idle payload 到公共 TDMA 的挂载基础件：`VDC_SYNC_SAMPLE` 和 `IDLE_BEACON` 使用统一 TDMA short frame registry，payload parse 会把 TDMA snapshot 映射为 VDC evidence；当前软件时间戳仍被 gate 为 diagnostic-only，不能进入 DPLL lock。
 - [x] 将当前 TDMA snapshot 的软件时间戳明确限定为诊断 evidence：若来源为 `time_us_64()*1000`，必须暴露 `timestamp_resolution_ns=1000`，不得进入 100 ns DPLL lock gate。
 - [x] 将 RefMem TDMA TX/RX 从“收到 intent 后立即执行”升级为按 `VdcTdmaScheduleProfile` 的 `REFMEM_DATA_WINDOW` 执行：core1/PIO 必须等待窗口、记录 late/jitter，并在窗口外明确返回 gate evidence；首版已落地 `vdc_domain_plan_tdma_window()` 和 `SYSTem:SYNC:VDC:TDMA:PLAN?` 只读计划查询，`refmem_realtime_tdma` intent 已携带 VDC data window plan，core1 service 会在 guard 前等待、错过 payload window 时返回 `WINDOW_MISSED`。后续 HIL 需要确认 COM5/COM6 真实 25 MHz PIO 环路中的窗口 wait/late evidence。
-- [ ] 增加硬实时 timestamp latch 路径：PIO/DMA/IRQ/core1 采集本地 tick，转换或映射为 ns 字段，并声明实际分辨率；DPLL 正式样本要求 `timestamp_resolution_ns <= 100`。VDC 侧已增加 `VdcSyncIoAdapter`、`VdcCompactObservationSample` contract 和共享 `VdcTimestampClock`；SYNC_IO 已完成 core1 latch ring、周期性 timestamp window gate 和 `REALtime:IO:SAMPle:LATCh?`；TDMA PIO-SPI ring 已能用共享 `timer1/CLK_SYS` 发布 4 ns resolution 的 diagnostic timestamp。当前 self-test 只验证 TDMA/VDC 通路 diagnostic evidence，后续必须把 CPU 读取完整包时间戳升级为真正 edge latch，再作为长期 DPLL lock evidence。
+- [ ] 增加真实硬实时 timestamp latch 路径：PIO/DMA/IRQ 在 RX/TX/输出/输入实际边沿锁存
+  `local_tick_raw`，core1 只搬运 descriptor，随后由 VDC 映射为 ns；DPLL 正式样本继续服从已登记的
+  hardware-latch 质量门禁。VDC 侧已有 `VdcSyncIoAdapter`、compact sample 和共享 clock；当前
+  TDMA 时间仍来自 CPU 读取完整包时刻并标记 diagnostic-only，不能作为训练闭环或 T2 actual。
 - [ ] 实现 DCO snapshot 生成：DPLL 输出通过 `VdcDcoControl` 提交给 core1，core1 只读稳定 snapshot 并执行 slew/phase pull；当前 VDC owner 已在 accepted sample 后派生 DCO snapshot，core1 稳定读取和 slew/phase pull 尚未接入。
 - [x] 实现 outlier gate、jitter window、phase error 和 frequency error 统计首版：DPLL accepted path 更新 RMS/max/jitter/frequency，servo outlier 会以 `VDC_DOMAIN_GATE_SERVO_OUTLIER` 拒绝样本并写入 quality/evidence；当前 `WINDOW_BOUND/SERVO_OUTLIER` 属于软拒绝，不清空 clock model 和 accepted history，硬拒绝才重新捕获。
 - [ ] 实现 servo reset 策略，区分 step reset、profile reset、calibration reset 和 fault reset。
@@ -246,6 +255,12 @@ TDMA 最小实例约束：
 - [ ] `SYNC:*` 动作统一转为 VdcSyncAO event，不直接写 offset/rate。
 - [ ] MEASure/T2 timestamp 进入 VDC quality 和 report evidence，但不直接修改业务序列。
 - [ ] Trigger/Loop/Angle DPLL 只能读取 VDC snapshot，不得写 VDC owner 字段。
+- [ ] 实现 T2 预约 clock binding：Trigger 在 arm guard 前调用 `local_from_vdc()`，绑定
+  `map_generation`、quality、calibration/schedule CRC；generation 变化时返回明确 stale/reprepare，
+  `LOCKED` 正常准入，`HOLDOVER` 按预约 error budget 准入，其余状态 fail closed。
+- [ ] 实现 T2 completion 映射：接收 `T2_actual_local` 原始 latch，按绑定 generation 生成
+  `T2_actual_vdc` 和 mapping quality；未知/淘汰 generation、软件时间戳或缺失 latch 必须拒绝，
+  不得由 VDC 代替 Trigger 计算业务 retry/skip。
 - [ ] VDC unlocked 或 quality 不达标时，RUN gate 禁止 `FIRE_LOAD`。
 - [ ] 冻结 `PIO_SM0: SYNC_RX_CAPTURE` 输入事件格式、FIFO word、DMA ring 和 timestamp sample 映射。
 - [ ] 冻结 `PIO_SM1: SYNC_TX_FIRE` 的 `FIRE_LOAD` 小载荷、target tick、polarity、width 和 late 拒绝规则。
@@ -294,6 +309,9 @@ TDMA 最小实例约束：
 - [ ] 故障注入 calibration CRC mismatch、timestamp dictionary mismatch、node stale。
 - [ ] 验证 VDC unlocked 时禁止 RUN / `FIRE_LOAD`。
 - [ ] 验证 LOCKED 后 T2/READY timestamp 映射到 VDC 时间。
+- [ ] 验证 T2 预约正反向闭环：同一 map generation 下
+  `T_fire_target_vdc -> local deadline -> hardware latch -> T2_actual_vdc`，记录量化误差、
+  `T2_error_ns`、generation 和 quality；在 map 更新、HOLDOVER、relock、wrap 和 late 注入下 fail closed。
 - [ ] 验证 TDMA observation window 门禁：窗口外、schedule CRC 不匹配、reference slot 不匹配的样本不得进入 DPLL。
 - [ ] 验证两板 TDMA 硬件基础到 DPLL 输入链：COM5/COM6 在真实 PIO 25 MHz 环路中产出板端 timestamp evidence，报告 `timestamp_resolution_ns`、window late/jitter、sample CRC 和 phase error，不使用 host 侧耗时代替板端证据；窗口调度未落地前，HIL 只允许把 VDC gate 窗口拒绝记录为诊断状态，不得标记为 DPLL lock evidence。
 - [x] 固化两板 RefMem TDMA -> VDC envelope 诊断查询脚本：`tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 在 `DELTA/ACK_NACK/FENCE/QUALITY` 交换后查询 `SYSTem:REFMEM:SYNC:TDMA:VDC?`，记录 bridge/gate/CRC/timestamp evidence。

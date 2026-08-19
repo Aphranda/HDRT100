@@ -3,8 +3,8 @@
 Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
-Related: `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-19
+Related: `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
+Last updated: 2026-08-20
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -402,6 +402,40 @@ Domain AO / FB local fact commit
 - 当前 216 B VDC 诊断内帧可作为 bring-up 的独立短帧，但不是最终 process-image 形态；产品飞行帧应使用 compact VDC sample，把余量留给 critical RefMem delta 和 ACK/quality。
 - RP2350 首版可以先实现有界 byte/block cut-through；只有 PIO/DMA 实测证明 RX/TX 重叠和固定 pipeline delay 后，才宣称飞行模式成立。
 
+#### T2 预约 process-image 分发
+
+完整跨域流水线见 `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`。TDMA 为 T2 预约提供确定性 channel，但预约语义仍由 Trigger owner 解释。建议在 active `TdmaProcessImageMap` 中登记四类固定 segment，精确字节布局待 System Pack 和交叉审核冻结：
+
+| segment 语义 | writer | TDMA 操作 | completion 条件 |
+|---|---|---|---|
+| reservation command | origin Trigger | 按固定 offset 飞行分发 opaque bytes。 | 同 generation 完整绕环且 transport quality 有效。 |
+| READY/NACK | each target Trigger | 仅替换 owner slot 获授权 slice，聚合 target mask。 | origin 看到所有目标 READY 或明确 NACK/timeout。 |
+| fence | origin Trigger/RefMem publisher | 广播同 reservation generation 的 commit/fence 事实。 | 所有目标看到匹配 fence，才允许本地 ARM。 |
+| completion | each target Trigger/Measure | 回填 actual latch、mapped time、result 和 quality 摘要。 | origin 收齐目标 completion mask 或超时结案。 |
+
+TDMA 必须提供以下 transport evidence，但不得据此改变 Trigger 状态机：
+
+- reservation/segment generation、ring sequence、schedule CRC、segment CRC 和 owner slot。
+- encoded、queued、window-open、sent、received、validated、returned、fenced/completed 的有界 token。
+- prepare lead time、window wait、forward latency、deadline miss、late、retry、NACK 和 timeout 计数。
+- READY/fence/completion mask 的 transport 镜像；业务是否满足由 Trigger 读取后判断。
+
+预约分发阶段为：
+
+```text
+PREPARE segment admitted
+  -> flight distribution
+  -> target READY/NACK slices
+  -> same-generation feedback reaches origin
+  -> fence segment distributed
+  -> local execution remains outside TDMA
+  -> completion slices return to origin
+```
+
+lead time 必须由 active schedule、node count、adapter pipeline、最坏环回窗口、arm guard 和本地装载预算计算，不能在 Trigger 或 TDMA 中写死。窗口不足时 TDMA 返回明确 late/window-missed evidence，不为赶上目标而跳过 READY/fence。
+
+clock-training frame 与 reservation segment 可共享 cyclic process image 和硬件 RX/TX latch 基础，但职责不同：训练 timestamp 提供给 VDC DPLL；预约段只消费 VDC 生成的目标时间。飞行转发在 VDC 未锁定时仍可运行诊断/训练流量，Trigger 是否允许 ARM 由 VDC quality gate 决定。
+
 #### 当前实现与迁移阶段
 
 本节描述的是目标架构，不能用于宣称当前 PIO SPI bring-up 已具备 ESC 飞行能力。
@@ -418,7 +452,8 @@ WKC 和尾部 CRC V2。
 3. 使用 active `TdmaProcessImageMap` 做固定 block 提取/替换，core1 不再调用业务 decode；记录 sequence gap、forward latency、FIFO waterline 和 mirror drop。
 4. 定义并门禁 V2 cyclic frame：尾部 transport CRC、WKC 和 immutable identity；V1/V2 不得在同一个 active ring 混跑。
 5. 实现 PIO/DMA RX/TX 重叠和 elastic FIFO，完成真正 cut-through；以示波器和 HIL 证明固定 per-hop delay、无 underflow/overrun、core0 拥塞不影响 wire。
-6. 最后接入硬件 timestamp/DPLL；DPLL 不得成为飞行转发的前置依赖。
+6. 接入 RX/TX 真实硬件 timestamp latch 和 VDC clock-training evidence；DPLL 不得成为飞行转发的前置依赖，但按 VDC 绝对时间 ARM 的 T2 预约必须通过 VDC quality gate。
+7. 接入 T2 reservation/READY-NACK/fence/completion segments，先闭合 store-and-forward 语义，再用 cut-through HIL 证明 lead time 和 per-hop 上界。
 
 ## Adapter 边界
 
@@ -536,7 +571,7 @@ System Pack / SCPI staging
 |---|---|---|---|
 | VDC | observation timestamp、schedule CRC、ring quality、late/miss。 | `VDC_SYNC_SAMPLE` / `IDLE_BEACON` payload registration 和 observation window profile。 | 直接拥有 transport，写 ring runtime，伪造 closed-loop evidence。 |
 | RefMem | data window completion、ACK/fence quality、adapter counters。 | `REFMEM_DELTA` / `REFMEM_ACK_FENCE` payload registration 和 pending delta intent。 | 把 TDMA 当作私有同步线程，绕过 payload registry。 |
-| Trigger / Loop | VDC snapshot、必要时读取 TDMA quality。 | 通过 VDC/Realtime 提交 FIRE_LOAD 或 trigger intent。 | 直接占用 TDMA communication ring。 |
+| Trigger / Loop | reservation/READY-NACK/fence/completion token、mask、window/late/quality；目标时间来自 VDC。 | 注册 opaque reservation segments 并提交 payload intent；Trigger 自己解释业务语义。 | 直接占用 ring、写 active image、要求 TDMA 解析动作或修改目标时间。 |
 | System / DeploymentGate | resource claim、runtime health、payload registry、adapter caps。 | profile staging、enable/disable、resource arbitration。 | 在 RUN 中热改 active ring。 |
 | Diagnostics / Report | TDMA snapshot、quality、evidence index、SVG/CSV 输入。 | 低频查询或显式 bring-up self-test。 | 通过 host 查询续装实时窗口。 |
 
@@ -610,5 +645,6 @@ TDMA Domain 最小验证必须覆盖：
 - 禁止伪造 `simultaneous_feedback_loop_evidence`。
 - RefMem delta 单发丢失后的 ACK/重发/fence completion。
 - VDC observation window 的硬件 timestamp eligibility。
+- T2 reservation/READY-NACK/fence/completion segment 的 owner、generation、mask、lead-time 和 fail-closed 行为。
 - 两板同时上/下行 HIL，host 只读监控。
-- 后续 3 节点、5 节点只扩展 profile 表，不改算法主线。
+- 后续 A0-A7 节点只扩展 profile 表和容量，不改算法主线。

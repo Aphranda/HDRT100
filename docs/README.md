@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-20
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -76,6 +76,7 @@ docs/
 | 领域 | 当前 canonical 主文档 | 说明 |
 |---|---|---|
 | ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口，定义组件约束、层次逻辑、Vector/Blackboard 和约束传递。 |
+| ARCH/T2 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | T2 预约与分布式时钟分发跨域主线，定义训练、VDC 映射、flight 分发、fence、本地执行和 completion。 |
 | VDC | `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间事实、同步 DPLL、HOLDOVER、时间质量和预测分发时间基准。 |
 | ARCH/VDC-DPLL | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | 既有 HAOFV VDC/DPLL 融合架构输入；后续逐步迁入 VDC canonical。 |
 | ARCH/PRODUCT | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 面向 Distributed Hard Real-Time Trigger System 的产品系统架构特化，服从 HAOFV 顶层约束。 |
@@ -164,6 +165,7 @@ docs/
 | 文件 | 定位 |
 |---|---|
 | `arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层产品架构主文档，阐述组件约束、层次逻辑和约束传播，不直接冻结硬件 pin map。 |
+| `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | HAOFV 下 T2 预约与分布式时钟分发主线；各 owner 的实现细项分别落入 Trigger、VDC、TDMA、RefMem 和 SYNC_IO。 |
 | `arch/HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，跟踪 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 |
 | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 既有融合架构输入；VDC 主域 canonical 见 `vdc/VDC_DOMAIN_ARCHITECTURE.md`。 |
 | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构特化，统一 DTC100 产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
