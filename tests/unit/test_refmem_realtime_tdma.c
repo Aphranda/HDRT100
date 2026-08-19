@@ -564,6 +564,16 @@ static int test_foundation_profile_freezes_runtime_resources(void)
     failed += expect_u32("foundation payload whitelist",
                          snapshot.payload_whitelist_mask,
                          TDMA_PAYLOAD_FOUNDATION_DEFAULT_MASK);
+    failed += expect_u32("foundation ring staged not started",
+                         snapshot.ring_enabled,
+                         0u);
+    failed += expect_bool("foundation ring arm",
+                          service.scheduler != NULL &&
+                              tdma_service_ring_arm(service.scheduler),
+                          true);
+    failed += expect_bool("foundation armed snapshot",
+                          refmem_realtime_tdma_get_snapshot(&service, &snapshot),
+                          true);
     failed += expect_u32("foundation ring enabled", snapshot.ring_enabled, 1u);
     failed += expect_u32("foundation ring profile",
                          snapshot.ring_profile_crc32,

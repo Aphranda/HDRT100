@@ -694,29 +694,71 @@ static void draw_fit_str(u8g2_t *u8g2, u8g2_uint_t x, u8g2_uint_t y, u8g2_uint_t
     }
 }
 
-static void draw_centered_str(u8g2_t *u8g2,
-                              u8g2_uint_t left,
-                              u8g2_uint_t width,
-                              u8g2_uint_t y,
-                              const char *text)
+static u8g2_uint_t tracked_str_width(u8g2_t *u8g2,
+                                     const char *text,
+                                     uint8_t tracked_chars,
+                                     uint8_t spacing)
 {
-    const u8g2_uint_t text_width = u8g2_GetStrWidth(u8g2, text);
+    u8g2_uint_t width = 0u;
+    const size_t len = strlen(text);
+
+    for (size_t i = 0u; i < len; i++) {
+        char glyph[2] = {text[i], '\0'};
+        width = (u8g2_uint_t)(width + u8g2_GetStrWidth(u8g2, glyph));
+        if (i + 1u < len && i + 1u < tracked_chars) {
+            width = (u8g2_uint_t)(width + spacing);
+        }
+    }
+
+    return width;
+}
+
+static void draw_tracked_str(u8g2_t *u8g2,
+                             u8g2_uint_t x,
+                             u8g2_uint_t y,
+                             const char *text,
+                             uint8_t tracked_chars,
+                             uint8_t spacing)
+{
+    const size_t len = strlen(text);
+
+    for (size_t i = 0u; i < len; i++) {
+        char glyph[2] = {text[i], '\0'};
+        u8g2_DrawStr(u8g2, x, y, glyph);
+        x = (u8g2_uint_t)(x + u8g2_GetStrWidth(u8g2, glyph));
+        if (i + 1u < len && i + 1u < tracked_chars) {
+            x = (u8g2_uint_t)(x + spacing);
+        }
+    }
+}
+
+static void draw_centered_tracked_str(u8g2_t *u8g2,
+                                      u8g2_uint_t left,
+                                      u8g2_uint_t width,
+                                      u8g2_uint_t y,
+                                      const char *text,
+                                      uint8_t tracked_chars,
+                                      uint8_t spacing)
+{
+    const u8g2_uint_t text_width = tracked_str_width(u8g2, text, tracked_chars, spacing);
     const u8g2_uint_t x = text_width < width ?
                               (u8g2_uint_t)(left + ((width - text_width) / 2u)) :
                               left;
 
-    u8g2_DrawStr(u8g2, x, y, text);
+    draw_tracked_str(u8g2, x, y, text, tracked_chars, spacing);
 }
 
-static void draw_centered_title_with_breath(u8g2_t *u8g2,
-                                            u8g2_uint_t left,
-                                            u8g2_uint_t width,
-                                            u8g2_uint_t text_y,
-                                            u8g2_uint_t breath_y,
-                                            const char *title,
-                                            uint8_t breath_radius)
+static void draw_tracked_title_with_breath(u8g2_t *u8g2,
+                                           u8g2_uint_t left,
+                                           u8g2_uint_t width,
+                                           u8g2_uint_t text_y,
+                                           u8g2_uint_t breath_y,
+                                           const char *title,
+                                           uint8_t tracked_chars,
+                                           uint8_t spacing,
+                                           uint8_t breath_radius)
 {
-    const u8g2_uint_t text_width = u8g2_GetStrWidth(u8g2, title);
+    const u8g2_uint_t text_width = tracked_str_width(u8g2, title, tracked_chars, spacing);
     const u8g2_uint_t breath_outer_radius = 3u;
     const u8g2_uint_t title_to_breath_gap = 5u;
     const u8g2_uint_t title_x = text_width < width ?
@@ -725,7 +767,7 @@ static void draw_centered_title_with_breath(u8g2_t *u8g2,
     const u8g2_uint_t breath_x =
         (u8g2_uint_t)(title_x + text_width + title_to_breath_gap + breath_outer_radius);
 
-    u8g2_DrawStr(u8g2, title_x, text_y, title);
+    draw_tracked_str(u8g2, title_x, text_y, title, tracked_chars, spacing);
     u8g2_DrawCircle(u8g2, breath_x, breath_y, breath_outer_radius, U8G2_DRAW_ALL);
     u8g2_DrawDisc(u8g2, breath_x, breath_y, breath_radius, U8G2_DRAW_ALL);
 }
@@ -1266,13 +1308,15 @@ static void draw_product_cover(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     u8g2_DrawFrame(u8g2, 4u, 4u, 152u, 72u);
     u8g2_DrawXBMP(u8g2, 18u, 8u, 20u, 22u, s_gts_logo_xbm);
     u8g2_SetFont(u8g2, u8g2_font_6x13B_tf);
-    draw_centered_title_with_breath(u8g2,
-                                    0u,
-                                    UI_WIDTH,
-                                    22u,
-                                    17u,
-                                    "DHRT100",
-                                    breath_radius);
+    draw_tracked_title_with_breath(u8g2,
+                                   0u,
+                                   UI_WIDTH,
+                                   22u,
+                                   17u,
+                                   "DHRT100",
+                                   4u,
+                                   2u,
+                                   breath_radius);
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
     u8g2_DrawStr(u8g2, 15u, 39u, "DISTRIBUTED HARD REAL-TIME");
     u8g2_DrawStr(u8g2, 45u, 48u, "TRIGGER SYSTEM");
@@ -2174,7 +2218,7 @@ static void draw_boot_splash_frame(uint8_t frame)
     u8g2_DrawBox(u8g2, 12u, 12u, 136u, 1u);
 
     u8g2_SetFont(u8g2, u8g2_font_6x13B_tf);
-    draw_centered_str(u8g2, 0u, UI_WIDTH, 28u, "DHRT100");
+    draw_centered_tracked_str(u8g2, 0u, UI_WIDTH, 28u, "DHRT100", 4u, 2u);
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
     u8g2_DrawStr(u8g2, 15u, 38u, "DISTRIBUTED HARD REAL-TIME");
     u8g2_DrawStr(u8g2, 45u, 46u, "TRIGGER SYSTEM");

@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "tdma_flight_fifo.h"
 #include "tdma_ring_runtime.h"
 #include "tdma_transport_frame.h"
 
@@ -116,6 +117,7 @@ typedef struct {
     tdma_pio_spi_ring_phys_disarm_fn phys_disarm;
     tdma_pio_spi_ring_phys_train_fn phys_train;
     void *phys_ctrl_context;
+    tdma_flight_fifo_t *flight_fifo;
     tdma_pio_spi_ring_role_t role;
     uint32_t started;
     uint32_t service_count;
@@ -164,6 +166,9 @@ void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
     tdma_pio_spi_ring_adapter_t *adapter,
     uint32_t resolution_ns,
     uint32_t flags);
+void tdma_pio_spi_ring_adapter_set_flight_fifo(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_flight_fifo_t *fifo);
 bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
                                          const uint8_t *packet,
                                          size_t packet_size,

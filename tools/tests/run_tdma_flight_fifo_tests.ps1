@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-tdma-pio-spi-ring-adapter-tests",
+    [string]$BuildDir = "build-tdma-flight-fifo-tests",
     [string]$HostGccDir = "",
     [string]$ArmGcc = ""
 )
@@ -9,12 +9,8 @@ $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $build = Join-Path $repo $BuildDir
 $include = Join-Path $repo "components\tdma\inc"
-$testSource = Join-Path $repo "tests\unit\test_tdma_pio_spi_ring_adapter.c"
-$adapterSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_adapter.c"
-$flightFifoSource = Join-Path $repo "components\tdma\src\tdma_flight_fifo.c"
-$runtimeSource = Join-Path $repo "components\tdma\src\tdma_ring_runtime.c"
-$transportSource = Join-Path $repo "components\tdma\src\tdma_transport_frame.c"
-$profileSource = Join-Path $repo "components\tdma\src\tdma_profile.c"
+$testSource = Join-Path $repo "tests\unit\test_tdma_flight_fifo.c"
+$fifoSource = Join-Path $repo "components\tdma\src\tdma_flight_fifo.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -28,10 +24,8 @@ if (-not $hostCc) {
 }
 
 if ($hostCc) {
-    $exe = Join-Path $build "test_tdma_pio_spi_ring_adapter.exe"
-    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$include" `
-        $testSource $adapterSource $flightFifoSource $runtimeSource $transportSource $profileSource `
-        -o $exe
+    $exe = Join-Path $build "test_tdma_flight_fifo.exe"
+    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$include" $testSource $fifoSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -39,7 +33,7 @@ if ($hostCc) {
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
-    Write-Host "tdma_pio_spi_ring_adapter host unit tests passed"
+    Write-Host "tdma_flight_fifo host unit tests passed"
     exit 0
 }
 
@@ -53,7 +47,7 @@ if (-not $ArmGcc -or -not (Test-Path $ArmGcc)) {
     throw "No host C compiler or ARM GCC found"
 }
 
-foreach ($source in @($testSource, $adapterSource, $flightFifoSource, $runtimeSource, $transportSource, $profileSource)) {
+foreach ($source in @($testSource, $fifoSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$include" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {
@@ -61,4 +55,4 @@ foreach ($source in @($testSource, $adapterSource, $flightFifoSource, $runtimeSo
     }
 }
 
-Write-Host "tdma_pio_spi_ring_adapter tests compiled with ARM GCC; host execution skipped"
+Write-Host "tdma_flight_fifo tests compiled with ARM GCC; host execution skipped"

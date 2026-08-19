@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "tdma_payload_registry.h"
+#include "tdma_flight_fifo.h"
 #include "tdma_profile.h"
 #include "tdma_ring_runtime.h"
 #include "tdma_traffic_scheduler.h"
@@ -386,6 +387,7 @@ typedef struct {
     const tdma_service_ops_t *ops;
     void *ops_context;
     tdma_payload_registry_t payload_registry;
+    tdma_flight_fifo_t flight_fifo;
     tdma_ring_runtime_t ring_runtime;
     tdma_service_ring_runtime_config_t ring_staged_config;
     tdma_traffic_scheduler_t *traffic_scheduler;
@@ -435,6 +437,19 @@ bool tdma_service_get_result_frame(const tdma_service_service_t *service,
                                            uint8_t *frame,
                                            size_t frame_capacity,
                                            size_t *frame_size);
+bool tdma_service_get_flight_fifo_snapshot(
+    const tdma_service_service_t *service,
+    tdma_flight_fifo_snapshot_t *snapshot);
+bool tdma_service_publish_flight_tx(tdma_service_service_t *service,
+                                    const uint8_t *data,
+                                    size_t data_size,
+                                    uint32_t generation,
+                                    uint32_t sequence,
+                                    uint32_t segment_mask);
+bool tdma_service_acquire_flight_rx(tdma_service_service_t *service,
+                                    tdma_flight_rx_view_t *view);
+bool tdma_service_release_flight_rx(tdma_service_service_t *service,
+                                    uint32_t slot_index);
 bool tdma_service_get_class_result_frame(
     const tdma_service_service_t *service,
     uint32_t traffic_class,

@@ -55,6 +55,9 @@ bool tdma_runtime_owner_init(void)
             tdma_pio_spi_phys_tx,
             tdma_pio_spi_phys_rx,
             &s_tdma_pio_spi_phys);
+        tdma_pio_spi_ring_adapter_set_flight_fifo(
+            &s_tdma_pio_spi_ring_adapter,
+            &s_tdma_runtime_owner.flight_fifo);
         (void)vdc_timestamp_clock_init();
         tdma_pio_spi_ring_adapter_set_timestamp_metadata(
             &s_tdma_pio_spi_ring_adapter,

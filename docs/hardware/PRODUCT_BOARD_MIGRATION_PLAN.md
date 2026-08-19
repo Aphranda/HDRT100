@@ -196,8 +196,10 @@ python tools\sma_loopback_validate\sma_two_board_frequency_sweep.py `
   当前仅作为短线单板裕量证据，量产默认频率待长线缆/干扰/多板测试后确定。
 - [ ] 继续检查 TRIG/UP/DN 三组 DE 与 `/RE` 的方向切换；完成硬件 timestamp
   latch 后再要求 `simultaneous_feedback_loop_evidence=1`，随后进入双板测试。
-- [x] 增加只读 `tdma_single_board_loopback.py` 验收工具；未接网线基线已确认
-  TX 约 500 frame/s、RX=0、`down_running=0`，且 10 MHz 与 GPIO26/25/29 -> 27/28/24 profile 正确。
+- [x] 增加 `tdma_single_board_loopback.py` 单板闭环验收工具；默认先执行
+  `STOP -> LOCAL 0 -> ARM -> TRAIN 4096 -> START` 再做只读检查。未接网线基线
+  已确认 TX 约 500 frame/s、RX=0、`down_running=0`，且 10 MHz 与
+  GPIO26/25/29 -> 27/28/24 profile 正确。
 - [ ] 两板单跳验证：10 MHz、帧 CRC、序号、超时和恢复。
 - [ ] 两板/多板闭环验证：转发、身份、时戳相关和长期误码。
 - [ ] 接入 GPIO33 `FAULT_IN`，验证故障锁存、快照、trace 和恢复。
@@ -210,7 +212,7 @@ python tools\sma_loopback_validate\sma_two_board_frequency_sweep.py `
 
 ```powershell
 python tools\tdma_ring_monitor\tdma_single_board_loopback.py COM3 `
-  --duration-s 60 --expected-build 20260818155435 --expected-baud-hz 25000000
+  --duration-s 60 --expected-build 20260819130134 --expected-baud-hz 25000000
 ```
 
 ## 4. 风险、保护与回滚

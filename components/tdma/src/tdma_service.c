@@ -327,6 +327,9 @@ bool tdma_service_init(tdma_service_service_t *service)
     if (!tdma_ring_runtime_init(&service->ring_runtime)) {
         return false;
     }
+    if (!tdma_flight_fifo_init(&service->flight_fifo)) {
+        return false;
+    }
     tdma_service_set_default_timestamp(service);
     return true;
 }
@@ -1115,6 +1118,47 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
     }
 
     return true;
+}
+
+bool tdma_service_get_flight_fifo_snapshot(
+    const tdma_service_service_t *service,
+    tdma_flight_fifo_snapshot_t *snapshot)
+{
+    if (service == NULL || snapshot == NULL) {
+        return false;
+    }
+    return tdma_flight_fifo_get_snapshot(&service->flight_fifo, snapshot);
+}
+
+bool tdma_service_publish_flight_tx(tdma_service_service_t *service,
+                                    const uint8_t *data,
+                                    size_t data_size,
+                                    uint32_t generation,
+                                    uint32_t sequence,
+                                    uint32_t segment_mask)
+{
+    return service != NULL &&
+           tdma_flight_fifo_core0_publish_tx(&service->flight_fifo,
+                                             data,
+                                             data_size,
+                                             generation,
+                                             sequence,
+                                             segment_mask);
+}
+
+bool tdma_service_acquire_flight_rx(tdma_service_service_t *service,
+                                    tdma_flight_rx_view_t *view)
+{
+    return service != NULL &&
+           tdma_flight_fifo_core0_acquire_rx(&service->flight_fifo, view);
+}
+
+bool tdma_service_release_flight_rx(tdma_service_service_t *service,
+                                    uint32_t slot_index)
+{
+    return service != NULL &&
+           tdma_flight_fifo_core0_release_rx(&service->flight_fifo,
+                                             slot_index);
 }
 
 bool tdma_service_get_result_frame(const tdma_service_service_t *service,

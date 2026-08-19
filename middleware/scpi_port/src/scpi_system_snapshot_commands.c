@@ -23,6 +23,7 @@
 #include "storage_manager.h"
 #include "system_manager.h"
 #include "sync_trigger.h"
+#include "tdma_runtime_owner.h"
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
 #define SCPI_REFMEM_PACKAGE_PATH "/refmem/app_model.rmtp"
@@ -2178,6 +2179,124 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context)
 {
     distributed_refmem_abort_realtime_tdma();
     return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    tdma_flight_fifo_snapshot_t snapshot;
+    if (owner == NULL ||
+        !tdma_service_get_flight_fifo_snapshot(owner, &snapshot)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.tx_publish_count);
+    SCPI_ResultUInt32(context, snapshot.tx_publish_reject_count);
+    SCPI_ResultUInt32(context, snapshot.tx_acquire_count);
+    SCPI_ResultUInt32(context, snapshot.tx_image_stale_count);
+    SCPI_ResultUInt32(context, snapshot.tx_reuse_count);
+    SCPI_ResultUInt32(context, snapshot.tx_release_count);
+    SCPI_ResultUInt32(context, snapshot.tx_ready_count);
+    SCPI_ResultUInt32(context, snapshot.tx_active_slot);
+    SCPI_ResultUInt32(context, snapshot.tx_active_generation);
+    SCPI_ResultUInt32(context, snapshot.rx_publish_count);
+    SCPI_ResultUInt32(context, snapshot.rx_mirror_drop_count);
+    SCPI_ResultUInt32(context, snapshot.rx_publish_drop_count);
+    SCPI_ResultUInt32(context, snapshot.rx_acquire_count);
+    SCPI_ResultUInt32(context, snapshot.rx_release_count);
+    SCPI_ResultUInt32(context, snapshot.rx_queued_count);
+    SCPI_ResultUInt32(context, snapshot.rx_parse_count);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_flight_tx(scpi_t *context)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    uint32_t byte_count = 32u;
+    uint32_t seed = 0xA5u;
+    uint32_t generation = 1u;
+    uint32_t sequence = 1u;
+    uint32_t segment_mask = 1u;
+    if (owner == NULL ||
+        !scpi_port_read_u32(context, &byte_count)) {
+        return SCPI_RES_ERR;
+    }
+    (void)SCPI_ParamUInt32(context, &seed, FALSE);
+    (void)SCPI_ParamUInt32(context, &generation, FALSE);
+    (void)SCPI_ParamUInt32(context, &sequence, FALSE);
+    (void)SCPI_ParamUInt32(context, &segment_mask, FALSE);
+    if (byte_count > TDMA_FLIGHT_PAYLOAD_CAPACITY ||
+        seed > UINT8_MAX || generation == 0u) {
+        return SCPI_RES_ERR;
+    }
+
+    uint8_t payload[TDMA_FLIGHT_PAYLOAD_CAPACITY];
+    uint32_t checksum = 0u;
+    for (uint32_t i = 0u; i < byte_count; i++) {
+        payload[i] = (uint8_t)(seed + i);
+        checksum += payload[i];
+    }
+
+    if (!tdma_service_publish_flight_tx(owner,
+                                        payload,
+                                        byte_count,
+                                        generation,
+                                        sequence,
+                                        segment_mask)) {
+        scpi_port_push_exec_error(context, "TDMA_FLIGHT_TX");
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, byte_count);
+    SCPI_ResultUInt32(context, checksum);
+    SCPI_ResultUInt32(context, seed);
+    SCPI_ResultUInt32(context, generation);
+    SCPI_ResultUInt32(context, sequence);
+    SCPI_ResultUInt32(context, segment_mask);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_flight_rx_q(scpi_t *context)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    tdma_flight_rx_view_t view;
+    if (owner == NULL ||
+        !tdma_service_acquire_flight_rx(owner, &view)) {
+        SCPI_ResultText(context, "EMPTY");
+        return SCPI_RES_OK;
+    }
+
+    uint32_t checksum = 0u;
+    for (uint32_t i = 0u; i < view.data_size; i++) {
+        checksum += view.data[i];
+    }
+    const uint32_t first_byte = view.data_size != 0u ? view.data[0] : 0u;
+    const uint32_t last_byte =
+        view.data_size != 0u ? view.data[view.data_size - 1u] : 0u;
+    const uint32_t data_size = view.data_size;
+    const uint32_t generation = view.generation;
+    const uint32_t sequence = view.sequence;
+    const uint32_t segment_mask = view.segment_mask;
+    const uint32_t timestamp_ns_lo =
+        (uint32_t)(view.timestamp_ns & 0xFFFFFFFFull);
+    const uint32_t timestamp_ns_hi = (uint32_t)(view.timestamp_ns >> 32u);
+    const uint32_t quality_flags = view.quality_flags;
+    (void)tdma_service_release_flight_rx(owner, view.slot_index);
+
+    SCPI_ResultText(context, "RX");
+    SCPI_ResultUInt32(context, data_size);
+    SCPI_ResultUInt32(context, checksum);
+    SCPI_ResultUInt32(context, first_byte);
+    SCPI_ResultUInt32(context, last_byte);
+    SCPI_ResultUInt32(context, generation);
+    SCPI_ResultUInt32(context, sequence);
+    SCPI_ResultUInt32(context, segment_mask);
+    SCPI_ResultUInt32(context, timestamp_ns_lo);
+    SCPI_ResultUInt32(context, timestamp_ns_hi);
+    SCPI_ResultUInt32(context, quality_flags);
+    return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_cmd_system_tdma_ring_local(scpi_t *context)

@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-08-18
+Last updated: 2026-08-19
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
@@ -41,6 +41,99 @@ TdmaSchedulerAO
 VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二者都不拥有上/下行 TDMA 环路。
 
 ## 任务记录
+
+### TDMA-TASK-20260819-003 - TDMA service 接管 flight FIFO 只读快照
+
+- 状态：完成 `tdma_service` 级 FIFO 挂载、只读 snapshot 入口和编译门修正；resident ring 行为不变。
+- 日期：2026-08-19
+- 任务目标：
+  - 把 `tdma_flight_fifo_t` 作为 TDMA owner 的内部固定池对象纳入 `tdma_service` 生命周期。
+  - 只提供 snapshot 读回，不改变现有 ring runtime/adapter fast path。
+  - 让编译/测试脚本明确把 `tdma_flight_fifo.c` 作为 `tdma_service.c` 的联动源文件。
+- 完成内容：
+  - `tdma_service_service_t` 新增 `flight_fifo` 成员，`tdma_service_init()` 内部执行 `tdma_flight_fifo_init()`。
+  - 新增 `tdma_service_get_flight_fifo_snapshot()`，由 TDMA owner 统一暴露 FIFO 状态。
+  - `run_tdma_service_scheduler_tests.ps1`、`run_refmem_realtime_tdma_tests.ps1`、`run_vdc_domain_tests.ps1` 补齐 `tdma_flight_fifo.c` 联动编译。
+  - `test_tdma_service_scheduler.c` 增加 FIFO snapshot 断言，确认 TDMA owner 已持有该基础件。
+- 验证结果：
+  - `run_tdma_service_scheduler_tests.ps1` host 通过。
+  - `run_refmem_realtime_tdma_tests.ps1` host 通过。
+  - `run_vdc_domain_tests.ps1` host 通过。
+  - `run_host_unit_tests.ps1` 全量通过 `27/27`。
+- 还需完成：
+  - 在 core1 cyclic frame boundary 接入 TX acquire/reuse，在 frame end 接入 RX publish。
+  - 之后再把 FIFO snapshot 挂到 SCPI/diagnostic path 的适当位置，继续保持只读和 owner 单写规则。
+- 关联文件：
+  - `components/tdma/inc/tdma_service.h`
+  - `components/tdma/src/tdma_service.c`
+  - `tools/tests/run_refmem_realtime_tdma_tests.ps1`
+  - `tools/tests/run_vdc_domain_tests.ps1`
+  - `tools/tests/run_tdma_service_scheduler_tests.ps1`
+  - `tests/unit/test_tdma_service_scheduler.c`
+- 下一步：
+  - 保持 resident ring 不变，把 FIFO 接入 core1 flight engine 的 frame 生命周期。
+
+### TDMA-TASK-20260819-002 - COM3 单板 TDMA 闭环烧录与训练验证
+
+- 状态：完成 OTA 烧录、boot/commit、单板 ring 准备流程自动化和 25 MHz 单板回环验证。
+- 日期：2026-08-19
+- 任务目标：
+  - 将当前 HAOFV 双 FIFO 基础件固件烧录到产品样板，并跑单板 RJ45 输出回接输入验证。
+  - 把单板闭环工具从只读检查升级为包含 `STOP -> LOCAL -> ARM -> TRAIN -> START` 的完整准备流程。
+  - 保持 HAOFV evidence 边界：电气/数据回环 PASS 不冒充正式 hardware timestamp closed-loop evidence。
+- 完成内容：
+  - `ota_multi_update.py` 对 COM3 产品样板升级 `RP2350_TRIG_UPDATE.pkg`，板端 build 从 `20260819123859` 切到 `20260819130134` 并完成 commit。
+  - `tdma_single_board_loopback.py` 默认自动执行 ring setup：`STOP`、`LOCAL 0`、`ARM`、`TRAIN 4096`、`START`，并在 summary 中记录每步响应和 armed/started 状态。
+  - 新增工具参数 `--skip-ring-setup`、`--local-slot`、`--train-cycles`、`--arm-wait`、`--start-wait`。
+  - COM7 调试串口已接入并识别；本轮控制和验证仍只使用 COM3 USB CDC，避免占用调试 UART。
+- 验证结果：
+  - OTA package：`build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260819130134`，package CRC `0x86934747`。
+  - 单板自动流程输出目录：`build-rtos-multicore-smoke/tdma_single_board_loopback_20260819_auto`。
+  - 自动流程确认：`ARM` 后 `ring_enabled=1`、`adapter_started=1`、up/down 尚未跑；`START` 后 `up_running=1`、`down_running=1`。
+  - 15 s / 25 MHz 回环 PASS：`ring_seq +14963`，`up_tx_sequence +7482`，`down_rx_sequence +7482`，`adapter_tx_count +7482`，`adapter_rx_count +7482`。
+  - `adapter_rx_bad_count`、`phys_rx_bad_count`、`phys_rx_magic_fail_count`、`phys_rx_ring_overrun_count` 增量均为 0。
+  - `ring_last_error=5(TIMESTAMP_MISSING)`、`simultaneous_feedback_loop_evidence=0`，符合当前未接 PIO/DMA 边沿硬件 timestamp latch 的边界。
+- 还需完成：
+  - 将 `TDMA_TX_IMAGE_FIFO`/`TDMA_RX_FRAME_FIFO` 接入 core1 flight engine 的 frame boundary/frame end。
+  - 补真实 PIO/DMA edge timestamp latch，满足 `timestamp_resolution_ns <= 100` 且 `HARDWARE_LATCHED` 后再要求 `simultaneous_feedback_loop_evidence=1`。
+  - 后续在双板/多板上验证 `TRAIN`、START 顺序、长线缆和干扰条件。
+- 关联文件：
+  - `tools/tdma_ring_monitor/tdma_single_board_loopback.py`
+  - `build-rtos-multicore-smoke/tdma_single_board_loopback_20260819_auto/summary.json`
+  - `build-rtos-multicore-smoke/ota_closed_loop_20260819/summary.json`
+- 下一步：
+  - 在不破坏现有 resident ring 的前提下，将双 FIFO 挂入 TDMA owner/flight engine，并补相应 SCPI snapshot。
+
+### TDMA-TASK-20260819-001 - HAOFV 双 FIFO 基础件首版
+
+- 状态：完成 core0/core1 双 FIFO 基础件、单元测试、ARM 编译门和固件构建；尚未接入 PIO/DMA 飞行引擎 fast path。
+- 日期：2026-08-19
+- 任务目标：
+  - 按 HAOFV/TDMA Foundation 架构先实现 core0/core1 之间的两个 SPSC FIFO。
+  - `TDMA_TX_IMAGE_FIFO` 支持 core0 提前发布完整 TX image，core1 在 frame boundary 锁定完整 generation，无新 generation 时复用上一版。
+  - `TDMA_RX_FRAME_FIFO` 支持 core1 非阻塞发布 RX frame/input slice 镜像，满队列或缓冲池耗尽时只丢弃 core0 解析副本并增加计数，不影响 wire forwarding。
+- 完成内容：
+  - 新增 `tdma_flight_fifo` 模块，使用固定 TX 双缓冲、RX 固定缓冲池和 descriptor ring，不使用动态内存、mutex、RTOS 阻塞队列或 core0 ACK。
+  - 冻结 TX ownership：`CORE0_INACTIVE -> CORE0_FILL -> CORE0_READY -> CORE1_ACTIVE -> CORE0_INACTIVE`。
+  - 冻结 RX ownership：`FREE -> CORE1_FILL -> CORE0_PARSE -> FREE`。
+  - snapshot 采用架构术语 `tx_image_stale_count` 和 `rx_mirror_drop_count`，并保留旧字段别名用于过渡。
+- 验证结果：
+  - Vivado/AMD MinGW GCC `D:\Xilinx\2025.2\tps\mingw\10.0.0\win64.o\nt\bin\gcc.exe` host 单元测试通过：`tdma_flight_fifo tests passed`。
+  - `run_tdma_process_image_map_tests.ps1` ARM 编译门通过。
+  - `run_tdma_ring_runtime_tests.ps1` ARM 编译门通过。
+  - `pico2-rtos-multicore-smoke` 固件构建通过并生成 `RP2350_TRIG_UPDATE.pkg`。
+- 还需完成：
+  - 将 `tdma_flight_fifo_t` 挂到 TDMA owner/flight engine 生命周期中，只允许 TDMA Foundation 暴露 snapshot 和受控 publish/acquire API。
+  - 在 core1 cyclic frame boundary 接入 TX acquire/reuse，在 frame end 接入 RX publish，保持 core1 不调用 VDC/RefMem/Trigger 业务解码器。
+  - 后续再补 PIO/DMA 固定 offset 飞行替换、尾部 CRC/WKC 和硬件 timestamp latch。
+- 关联文件：
+  - `components/tdma/inc/tdma_flight_fifo.h`
+  - `components/tdma/src/tdma_flight_fifo.c`
+  - `tests/unit/test_tdma_flight_fifo.c`
+  - `tools/tests/run_tdma_flight_fifo_tests.ps1`
+  - `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
+- 下一步：
+  - 按 HAOFV owner 边界把 FIFO 接入 TDMA runtime，而不是让 VDC、RefMem 或 Trigger 域直接触碰跨核缓冲。
 
 ### TDMA-TASK-20260818-008 - 产品样板 IO 首轮迁移
 

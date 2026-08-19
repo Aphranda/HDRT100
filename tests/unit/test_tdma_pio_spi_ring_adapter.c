@@ -142,6 +142,15 @@ static tdma_ring_runtime_config_t make_valid_config(void)
     return config;
 }
 
+static bool start_ring_data(tdma_ring_runtime_t *runtime)
+{
+    if (runtime == NULL) {
+        return false;
+    }
+    tdma_ring_runtime_service(runtime);
+    return tdma_ring_runtime_set_data_enabled(runtime, true);
+}
+
 int main(void)
 {
     int failed = 0;
@@ -176,6 +185,7 @@ int main(void)
                                   tdma_pio_spi_ring_adapter_ops(),
                                   &adapter),
                               true);
+        failed += expect_bool("start data", start_ring_data(&runtime), true);
         tdma_ring_runtime_service(&runtime);
         (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
         failed += expect_u32("adapter started", snapshot.adapter_started, 1u);
@@ -233,6 +243,7 @@ int main(void)
                                   tdma_pio_spi_ring_adapter_ops(),
                                   &adapter),
                               true);
+        failed += expect_bool("start data 2", start_ring_data(&runtime), true);
 
         /* First service is the deterministic 500 Hz throttle margin: the
          * core1 service path runs at about 1 kHz, so the reference emits on
@@ -333,6 +344,7 @@ int main(void)
         tdma_ring_runtime_bind_adapter(&runtime,
                                        tdma_pio_spi_ring_adapter_ops(),
                                        &adapter);
+        start_ring_data(&runtime);
 
         tdma_ring_runtime_service(&runtime);
         tdma_ring_runtime_service(&runtime);
@@ -371,6 +383,7 @@ int main(void)
         tdma_ring_runtime_bind_adapter(&runtime,
                                        tdma_pio_spi_ring_adapter_ops(),
                                        &adapter);
+        start_ring_data(&runtime);
 
         tdma_ring_runtime_service(&runtime);
         tdma_ring_runtime_service(&runtime);
@@ -415,6 +428,7 @@ int main(void)
         tdma_ring_runtime_bind_adapter(&runtime,
                                        tdma_pio_spi_ring_adapter_ops(),
                                        &adapter);
+        start_ring_data(&runtime);
         tdma_ring_runtime_service(&runtime);
         tdma_ring_runtime_service(&runtime);
 
@@ -511,6 +525,7 @@ int main(void)
         tdma_ring_runtime_bind_adapter(&runtime,
                                        tdma_pio_spi_ring_adapter_ops(),
                                        &adapter);
+        start_ring_data(&runtime);
 
         /* First service: no frame received yet; the slave pushes a
          * placeholder beacon to keep the full-duplex PIO pull fed, so the
@@ -643,6 +658,74 @@ int main(void)
         tdma_ring_runtime_configure(&runtime, NULL);
         tdma_ring_runtime_service(&runtime);
         failed += expect_u32("phys disarm called on stop", disarm_calls, 1u);
+    }
+
+    /* --- Flight FIFO bridge: core0 publishes a process-image descriptor,
+     * core1 emits it on the reference leg, and the echoed payload is mirrored
+     * back to core0 through the RX descriptor ring. --- */
+    {
+        tdma_ring_runtime_t runtime;
+        tdma_ring_runtime_snapshot_t snapshot;
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_flight_fifo_t fifo;
+        tdma_flight_rx_view_t rx_view;
+        loopback_phys_t phys;
+        const tdma_ring_runtime_config_t config = make_valid_config();
+        const uint8_t payload[] = {0xA5u, 0xA6u, 0xA7u, 0xA8u};
+
+        memset(&phys, 0, sizeof(phys));
+        phys.tx_timestamp_ns = 3000000ull;
+        phys.rx_timestamp_ns = 3000500ull;
+
+        tdma_ring_runtime_init(&runtime);
+        tdma_ring_runtime_configure(&runtime, &config);
+        tdma_pio_spi_ring_adapter_init(&adapter);
+        tdma_flight_fifo_init(&fifo);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
+        tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+            &adapter,
+            100u,
+            TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+        tdma_ring_runtime_bind_adapter(&runtime,
+                                       tdma_pio_spi_ring_adapter_ops(),
+                                       &adapter);
+        start_ring_data(&runtime);
+
+        failed += expect_bool("publish flight tx",
+                              tdma_flight_fifo_core0_publish_tx(&fifo,
+                                                                payload,
+                                                                sizeof(payload),
+                                                                9u,
+                                                                77u,
+                                                                0x3u),
+                              true);
+        tdma_ring_runtime_service(&runtime);
+        tdma_ring_runtime_service(&runtime);
+        (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
+        failed += expect_u32("flight sequence on wire",
+                             snapshot.up_tx_sequence, 1u);
+        if (tdma_flight_fifo_core0_acquire_rx(&fifo, &rx_view)) {
+            failed += expect_u32("flight rx generation", rx_view.generation, 1u);
+            failed += expect_u32("flight rx sequence", rx_view.sequence, 1u);
+            failed += expect_u32("flight rx size",
+                                 rx_view.data_size,
+                                 (uint32_t)sizeof(payload));
+            failed += expect_bool("flight payload mirrored",
+                                  memcmp(rx_view.data,
+                                         payload,
+                                         sizeof(payload)) == 0,
+                                  true);
+            failed += expect_bool("release flight rx",
+                                  tdma_flight_fifo_core0_release_rx(
+                                      &fifo, rx_view.slot_index),
+                                  true);
+        } else {
+            failed += expect_bool("acquire flight rx", false, true);
+        }
     }
 
     if (failed != 0) {

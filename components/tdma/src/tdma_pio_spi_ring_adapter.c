@@ -120,6 +120,16 @@ void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
     adapter->timestamp_flags = flags;
 }
 
+void tdma_pio_spi_ring_adapter_set_flight_fifo(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_flight_fifo_t *fifo)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    adapter->flight_fifo = fifo;
+}
+
 bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
                                          const uint8_t *packet,
                                          size_t packet_size,
@@ -201,18 +211,27 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
 static bool tdma_pio_spi_ring_adapter_tx_beacon(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
+    tdma_flight_tx_view_t tx_view;
+    const bool has_flight_tx =
+        adapter->flight_fifo != NULL &&
+        tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx_view);
     const uint32_t sequence = adapter->up_sequence + 1u;
     const tdma_transport_frame_build_t build = {
         .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
         .origin_slot_id = adapter->config.local_slot_id,
         .transport_sequence = sequence,
-        .payload_class = TDMA_PAYLOAD_CLASS_IDLE_BEACON,
-        .flags = TDMA_TRANSPORT_FLAG_IDLE_BEACON,
+        .payload_class = has_flight_tx
+                             ? TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE
+                             : TDMA_PAYLOAD_CLASS_IDLE_BEACON,
+        .flags = has_flight_tx
+                     ? (TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK |
+                        TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE)
+                     : TDMA_TRANSPORT_FLAG_IDLE_BEACON,
         .schedule_crc32 = adapter->config.schedule_crc32,
         .ring_profile_crc32 = adapter->config.ring_profile_crc32,
         .hop_limit = TDMA_PIO_SPI_RING_ADAPTER_BEACON_HOP_LIMIT,
-        .payload = NULL,
-        .payload_size = 0u,
+        .payload = has_flight_tx ? tx_view.data : NULL,
+        .payload_size = has_flight_tx ? tx_view.data_size : 0u,
     };
     uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t packet_size = 0u;
@@ -280,6 +299,17 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
     adapter->rx_count++;
     if ((view.flags & TDMA_TRANSPORT_FLAG_IDLE_BEACON) != 0u) {
         adapter->idle_beacon_rx_count++;
+    }
+    if (view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
+        adapter->flight_fifo != NULL) {
+        (void)tdma_flight_fifo_core1_publish_rx(adapter->flight_fifo,
+                                                view.payload,
+                                                view.payload_size,
+                                                view.transport_sequence,
+                                                view.transport_sequence,
+                                                0u,
+                                                rx_timestamp_ns,
+                                                adapter->timestamp_flags);
     }
     if (packet_size <= sizeof(adapter->last_rx_packet)) {
         memcpy(adapter->last_rx_packet, packet, packet_size);

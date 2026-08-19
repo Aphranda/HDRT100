@@ -167,6 +167,7 @@ int main(void)
     tdma_traffic_scheduler_slot_t slots[TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT];
     tdma_foundation_profile_t profile;
     tdma_service_snapshot_t snapshot;
+    tdma_flight_fifo_snapshot_t flight_snapshot;
     mock_adapter_t adapter = {0};
     const tdma_service_ops_t ops = {
         .transmit = mock_transmit,
@@ -241,6 +242,13 @@ int main(void)
     failed += expect_u32("snapshot",
                          tdma_service_get_snapshot(&service, &snapshot),
                          1u);
+    failed += expect_u32("flight snapshot",
+                         tdma_service_get_flight_fifo_snapshot(&service,
+                                                               &flight_snapshot),
+                         1u);
+    failed += expect_u32("flight fifo version",
+                         flight_snapshot.version,
+                         TDMA_FLIGHT_FIFO_VERSION);
     failed += expect_u32("queue drained",
                          snapshot.traffic_scheduler_queued_count,
                          0u);
