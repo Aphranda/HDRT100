@@ -1,0 +1,4 @@
+PASS
+- NOTE: formal feedback timestamp evidence pending: simultaneous=0, ring_last_error=5
+- NOTE: flight tx published: "OK",32,5776,165,1,1,1
+- NOTE: flight rx observed: "RX",32,5776,165,196,262,262,0,862264372,182,1

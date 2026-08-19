@@ -4,7 +4,8 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-20
+Version: 2
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
 
@@ -145,6 +146,18 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | 时间回绕 | `uint32_t timestamp_ms` 只能用于短时间差；时间差必须使用回绕安全写法 `int32_t diff = (int32_t)(t1 - t0)`，长时间事实需要 epoch 扩展。 |
 | Metadata failsafe | Bootloader 必须定义 metadata 双副本无效的强制恢复路径，禁止继续启动未知镜像。 |
 | FB 非阻塞 | FB action 必须立即返回；耗时动作返回 `FB_RESULT_BUSY` 且 `next_state=self`，由 AO service 后续 tick 分步推进。 |
+
+## 已冻结域契约登记（2026-08-19）
+
+以下条目只提供顶层可见性；契约内容和版本以 `docs/check/DOCS_REGISTRY.md` 及对应域 canonical 文档为事实源。
+
+| contract_id | 契约 | 域文档位置 | 顶层相关性 |
+|---|---|---|---|
+| `TDMA-REASON-01` | ring reason code 9 项冻结 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:583-599` | 错误码空间 TDMA 段。 |
+| `TDMA-SEQLOCK-01` | runtime snapshot 必须使用 seqlock | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:575,606` | 跨核共享事实的实现要求。 |
+| `TDMA-HOP-01` | `hop_limit` 归属 ring profile | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:196,477` | 分布式确定性通讯约束。 |
+| `REFMEM-260B-01` | `critical delta <= 260 B` | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:194` | RefMem 实时短帧容量约束。 |
+| `VDC-DPLL-01` | DPLL 准入要求 `timestamp_resolution_ns <= 100` 且来自硬实时 latch | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:293` | 分布式共同时间证据门禁。 |
 
 ## 分层职责
 
@@ -507,15 +520,25 @@ application/
   app.c                         # 主循环和调度入口
 
 components/
-  system_manager/               # 系统模式、资源仲裁、总调度
-  system_vector/                # SystemVector 总表和各域摘要定义
-  event_bus/                    # 轻量事件投递
-  function_block/               # 轻量 IEC 61499 子集基础类型和调度接口
-  sync_trigger/                 # 同步触发 Active Object
-  ota_manager/                  # OTA Active Object
-  storage_manager/              # SD 卡 / 文件管理
+  calibration_manager/          # 校准策略与校准事实
   diagnostics/                  # 诊断、错误码、运行日志
-  ui_manager/                   # LCD/按键 UI 调度，内部包含 status_ui 状态界面渲染模块
+  distributed_config/           # 分布式配置与部署事实
+  distributed_refmem/           # 分布式共同事实主域
+  event_bus/                    # 轻量事件投递
+  led_manager/                  # 产品 LED 策略
+  loop_engine/                  # 周期执行与模型循环
+  model_turntable/              # 转台业务模型
+  ota_manager/                  # OTA Active Object
+  product_config/               # 产品配置入口
+  resource_arbiter/             # 资源声明与互斥仲裁
+  storage_manager/              # SD 卡 / 文件管理
+  sync_io/                      # 同步 IO 与硬实时采集/输出
+  sync_trigger/                 # 同步触发 Active Object
+  system_manager/               # 系统模式与总调度
+  tdma/                         # 确定性通讯 foundation domain
+  ui_manager/                   # LCD/按键 UI 调度
+  vdc_domain/                   # 分布式共同时间主域
+  vdc_dpll_manager/             # VDC/DPLL 调度适配
 
 middleware/
   scpi_port/                    # SCPI 命令入口
@@ -546,6 +569,8 @@ third_party/
   portable_ota/                 # 平台无关 OTA 核心库
   freertos/                     # FreeRTOS Kernel（可选）
 ```
+
+组件目录以仓库实际结构为准；本节是架构归属快照，非目录事实源。
 
 ## 功能块模型
 
@@ -601,7 +626,7 @@ ECC 执行引擎遍历规则表，找到首条匹配的状态+事件+条件组�
 - **OtaFB**：15 条 ECC 规则，覆盖 9 个状态 + 10 个事件
 - **TriggerFB**：规则数量必须由代码中的 `TRIG_ECC_TABLE_COUNT` 或等价 `sizeof(s_ecc_table) / sizeof(s_ecc_table[0])` 导出，不允许文档手写固定数字作为事实源
 
-2026-08-13 的 TriggerFB 基线已经从早期的 58 条规则扩展到约 190 条规则，覆盖 8 个状态和约 75 个事件。旧的“58 条规则 / 6 个状态 / 20 个事件”只能作为历史记录，不能作为产品化规模判断。
+TriggerFB 规则数量以 `sizeof(s_ecc_table) / sizeof(s_ecc_table[0])` 或等价代码符号为准；历史规模数字仅为快照，非事实源，不能作为产品化规模判断。
 
 TriggerFB / OtaFB / SyncDpllFB 的 ECC 表必须增加以下静态检查：
 
@@ -825,6 +850,7 @@ typedef struct {
 | Storage | 300-399 | SD 卡挂载/读写/文件系统错误 |
 | UI | 400-499 | LCD 初始化/刷新失败 |
 | System | 500-599 | 资源死锁、模式切换冲突 |
+| TDMA | 600-699 | ring reason code 9 项：`NONE` / `BAD_CONFIG` / `EVIDENCE_MISSING` / `DIRECTION_CONFLICT` / `ADAPTER_MISSING` / `TIMESTAMP_MISSING` / `PAYLOAD_STARVATION` / `WINDOW_MISSED` / `RESOURCE_CONFLICT`；见 `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:583-599`。 |
 
 多故障同时发生时：`error_code` 记录最严重错误，`fault_summary` 位掩码保留所有故障位。
 

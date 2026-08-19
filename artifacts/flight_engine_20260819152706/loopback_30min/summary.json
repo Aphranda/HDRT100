@@ -1,0 +1,89 @@
+{
+  "port": "COM3",
+  "idn": "GTS,DTC100,0010071E65B5CB38,0.1.0",
+  "board_address": "0010071E65B5CB38",
+  "build": "20260819152706",
+  "duration_s": 1800.0,
+  "valid_sample_count": 1363,
+  "passed": true,
+  "electrical_data_loopback_passed": true,
+  "formal_feedback_evidence": false,
+  "ring_setup": {
+    "enabled": true,
+    "local_slot": 0,
+    "train_cycles": 4096,
+    "steps": [
+      {
+        "command": "SYSTem:TDMA:RING:STOP",
+        "response": "\"OK\""
+      },
+      {
+        "command": "SYSTem:TDMA:RING:LOCAL 0",
+        "response": "0"
+      },
+      {
+        "command": "SYSTem:TDMA:RING:ARM",
+        "response": "\"OK\""
+      },
+      {
+        "command": "SYSTem:TDMA:RING:TRAIN 4096",
+        "response": "4096"
+      },
+      {
+        "command": "SYSTem:TDMA:RING:START",
+        "response": "\"OK\""
+      }
+    ],
+    "armed": {
+      "ring_enabled": 1,
+      "adapter_started": 1,
+      "up_running": 0,
+      "down_running": 0
+    },
+    "started": {
+      "ring_enabled": 1,
+      "adapter_started": 1,
+      "up_running": 1,
+      "down_running": 1
+    }
+  },
+  "flight_tx_response": "\"OK\",32,5776,165,1,1,1",
+  "flight_rx_response": "\"RX\",32,5776,165,196,262,262,0,862264372,182,1",
+  "last": {
+    "ring_enabled": 1,
+    "adapter_started": 1,
+    "up_running": 1,
+    "down_running": 1,
+    "adapter_last_error": 0
+  },
+  "physical": {
+    "baud_hz": 25000000,
+    "tx_csn_pin": 26,
+    "tx_sck_pin": 25,
+    "tx_pin": 29,
+    "rx_csn_pin": 27,
+    "rx_sck_pin": 28,
+    "rx_pin": 24
+  },
+  "counter_deltas": {
+    "ring_seq": 1799453,
+    "up_tx_sequence": 899727,
+    "down_rx_sequence": 899727,
+    "adapter_tx_count": 899727,
+    "adapter_rx_count": 899727
+  },
+  "bad_deltas": {
+    "adapter_rx_bad_count": 0,
+    "phys_rx_bad_count": 0,
+    "phys_rx_magic_fail_count": 0,
+    "phys_rx_ring_overrun_count": 0
+  },
+  "ring_last_error": 5,
+  "simultaneous_feedback": 0,
+  "notes": [
+    "formal feedback timestamp evidence pending: simultaneous=0, ring_last_error=5",
+    "flight tx published: \"OK\",32,5776,165,1,1,1",
+    "flight rx observed: \"RX\",32,5776,165,196,262,262,0,862264372,182,1"
+  ],
+  "failures": []
+}

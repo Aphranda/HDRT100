@@ -111,6 +111,12 @@ docs/
 | `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` | 文档命名格式、层级关系、新增文件规则和迁移规则。 |
 | `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md` | 按产品主域目录化管理的目标结构、迁移批次、域映射和 gate。 |
 | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档体系迁移待办，跟踪元数据补齐、历史改名和索引维护。 |
+| `docs/check/DOCS_REGISTRY.md` | 文档契约登记表 + 条款落点表（自回归体系唯一事实源，配合 `tools/doc_regression_check.py`）。 |
+| `docs/check/DOCS_REGRESSION_PLAN.md` | 文档自回归体系实施规格（v3 归档版，源方案）。 |
+| `docs/check/DOCS_REGRESSION_TODO.md` | 文档自回归体系实施待办，跟踪 T1-T15 执行状态与每步反馈。 |
+| `docs/check/DOCS_REGRESSION_REVIEW.md` | 文档自回归体系实施经验总结（问题清单 + 解法 + 维护建议）。 |
+| `docs/check/submissions/README.md` | 核验提交单归档目录说明 + 模板（层间逐级核验，C11 交叉审核）。 |
+| `docs/check/submissions/TDMA_CROSS_REVIEW_01.md` | 首份核验提交单：HAOFV-879 seqlock 偏差（ACCEPT_WITH_DEVIATION，2026-08-19）。 |
 | `README.md` | 本索引文件，提供当前 `docs/` 文件归属。 |
 | `docs/README.md` | 文档治理域 README。 |
 | `arch/README.md` | 架构域 README。 |
@@ -145,6 +151,8 @@ docs/
 | `reports/scpi/README.md` | SCPI 报告输出 README。 |
 | `reports/distributed-trigger/README.md` | 分布式触发报告输出 README。 |
 | `temp/README.md` | 阶段性调试、验证和绘图归档入口。 |
+| `temp/TDMA_CODE_REVIEW.md` | 2026-08-19 TDMA flight/ring adapter 代码评审单（供 Codex 修复）。 |
+| `temp/HAOFV_REFRESH_PLAN.md` | 2026-08-19 HAOFV 顶层文档刷新任务单（规则 + 待办，供 Codex 执行，8-26 截止）。 |
 | `legacy/README.md` | 历史资料域 README。 |
 | `legacy/pinprobe/README.md` | PinProbe A1 历史资料 README。 |
 | `legacy/rp1200/README.md` | RP1200 历史资料 README。 |
@@ -178,6 +186,7 @@ docs/
 | `sync/SYNC_IO_ARCHITECTURE.md` | SYNC_IO / realtime IO 架构、PIO/DMA/IRQ 资源、语义 IO、mode driver 和同步链路边界。 |
 | `hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md` | 当前运行/调试最小系统板约束，用于软件架构、小步烧录和闭环验证。 |
 | `hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md` | 产品板硬件约束入口，由最新产品网表、IO 约束和生产输出派生。 |
+| `hardware/PRODUCT_BOARD_MIGRATION_PLAN.md` | 产品样板迁移方案与待办，静态映射到固件构建到样板实测三层收口。 |
 | `hardware/RP2350B_QFN80_IO_CONSTRAINTS.md` | RP2350B QFN-80 硬件版本 GPIO 分配与 IO 使用约束。 |
 | `hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel` | 最新产品板网表，是产品硬件约束刷新和网表评审的事实来源。 |
 | `communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C TAP Bridge、RJ45、SYNC_IO、AUX 两收两发和外围电路约束。 |

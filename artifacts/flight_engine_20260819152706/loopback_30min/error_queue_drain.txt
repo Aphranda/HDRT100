@@ -1,0 +1,41 @@
+# scpi_query transcript 2026-08-20T00:12:11
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< -200,"Execution error"
+> SYSTem:ERRor?
+< 0,"No error"
+> SYSTem:ERRor?
+< 0,"No error"
+> SYSTem:ERRor?
+< 0,"No error"
+> SYSTem:ERRor?
+< 0,"No error"
+> SYSTem:ERRor?
+< 0,"No error"

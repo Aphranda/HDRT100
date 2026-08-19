@@ -2,11 +2,11 @@
 
 Status: Active
 Domain: Hardware / Board Bring-up
-Target: RP2350B QFN-80 产品样板
-Canonical: `docs/hardware/PRODUCT_BOARD_MIGRATION_PLAN.md`
-Source of truth: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
-Related: `docs/storage/SD_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
 Last updated: 2026-08-19
+Related: `docs/storage/SD_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
+Canonical: `docs/hardware/PRODUCT_BOARD_MIGRATION_PLAN.md`
+Target: RP2350B QFN-80 产品样板
+Source of truth: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
 
 ## 1. 目标与验收口径
 

@@ -1,0 +1,18 @@
+#!/bin/sh
+# Doc self-regression gate: block commit when docs drift.
+set -e
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+echo "[pre-commit] docs_check..."
+python tools/docs_check/docs_check.py --strict-names || {
+    echo "docs_check FAILED - fix docs before committing"
+    exit 1
+}
+echo "[pre-commit] doc_regression..."
+python tools/doc_regression_check.py || {
+    echo "doc_regression FAILED - fix docs before committing"
+    exit 1
+}
+echo "[pre-commit] doc gates OK"
+echo "$(date +%s)" > .git/doc-verify-last
+exit 0

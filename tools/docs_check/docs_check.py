@@ -37,6 +37,7 @@ ALLOWED_PREFIXES = {
     "LEGACY",
     "VDC",
     "TDMA",
+    "PRODUCT",
 }
 
 ALLOWED_SUFFIXES = {
@@ -52,6 +53,8 @@ ALLOWED_SUFFIXES = {
     "COMMANDS",
     "ANALYSIS",
     "CONSTRAINTS",
+    "REGISTRY",
+    "REVIEW",
 }
 
 LEGACY_NAME_ALLOWLIST = {
@@ -104,6 +107,9 @@ def is_allowed_name(name: str) -> bool:
         return False
 
     stem = name[:-3]
+    # Tolerate a numeric run suffix: <PREFIX>_<TOPIC>_<SUFFIX>_<NN>.md
+    # (used by submission archives like TDMA_CROSS_REVIEW_01.md).
+    stem = re.sub(r"_\d+$", "", stem)
     parts = stem.split("_")
     if len(parts) < 2:
         return False
