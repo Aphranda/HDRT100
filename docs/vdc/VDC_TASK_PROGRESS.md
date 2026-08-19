@@ -355,7 +355,7 @@ VdcSyncAO
 - 完成内容：
   - `sync_io_capture_dma_produced_words()` 改为优先用 DMA `transfer_count` 推导 produced words，ring write index 只作为回退/镜像更新；恰好写满 8192 words 回到同一 index 时不再静默丢字。
   - `sync_io_enc_count_get_count()` 删除运行中 `pio_sm_exec(mov isr,x)` / `push` 注入，只消费已有 RX FIFO snapshot 并返回安全镜像，避免破坏 `enc_count.pio` 内部 ISR/OSR 解码流程。
-  - `sync_io_model_sched` 的 `completion_ns[]` 改为 64 位累计 ns，长于 4.29 s 的 pulse schedule 不再因 32 位饱和提前标记完成。
+  - `sync_io_model_sched` 已移除 `completion_ns[]` 大表，`completed_pulses` 改为由已编码 DMA/PIO 运行时状态和总时长反推；长于 4.29 s 的 pulse schedule 不再因完成表饱和提前标记完成。
   - `VDC_DOMAIN_RISK_REVIEW.md` 将 DMA 丢字、ISR 被踩、完成计数饱和更新为“已纠偏”。
 - 验证结果：
   - `cmake --build build-rtos-multicore-smoke -j 4` 通过，build id `20260816165320`，package CRC `0x9078EBED`。

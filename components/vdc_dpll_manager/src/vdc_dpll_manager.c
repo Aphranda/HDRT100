@@ -36,8 +36,6 @@ static vdc_domain_context_t s_vdc_domain;
 static tdma_service_service_t *s_vdc_tdma_service;
 static bool s_vdc_tdma_registered;
 static uint32_t s_vdc_tdma_self_test_frame_seq;
-static sync_io_model_pulse_entry_ns_t
-    s_vdc_self_test_pulse_entries[VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES];
 static vdc_tdma_timestamp_evidence_t s_vdc_tdma_self_test_evidence;
 static uint32_t s_vdc_tdma_self_test_evidence_seq;
 static uint32_t s_vdc_tdma_self_test_submitted_seq;
@@ -213,43 +211,23 @@ static uint32_t vdc_dpll_manager_observer_window_width_ns(
     return context->schedule.period_ns;
 }
 
-static bool vdc_dpll_manager_build_model_pulse_schedule(
+static bool vdc_dpll_manager_compute_first_pulse_delay(
     uint64_t first_window_start_ns,
     uint32_t window_offset_ns,
-    uint32_t pulse_period_ns,
-    uint32_t pulse_high_ns,
-    uint32_t pulse_count,
-    sync_io_model_pulse_entry_ns_t *entries)
+    uint32_t *first_delay_ns)
 {
-    if (entries == NULL ||
-        pulse_count == 0u ||
-        pulse_count > VDC_DPLL_MANAGER_SELF_TEST_MAX_PULSES ||
-        pulse_period_ns == 0u ||
-        pulse_high_ns == 0u ||
-        pulse_high_ns >= pulse_period_ns) {
+    if (first_delay_ns == NULL) {
         return false;
     }
 
-    uint64_t scheduled_elapsed_ns = 0u;
     const uint64_t now_ns = vdc_dpll_manager_now_ns();
-    for (uint32_t i = 0u; i < pulse_count; i++) {
-        const uint64_t target_ns =
-            first_window_start_ns + (uint64_t)window_offset_ns +
-            (uint64_t)i * (uint64_t)pulse_period_ns;
-        const uint64_t target_elapsed_ns =
-            target_ns > now_ns ? target_ns - now_ns : 0u;
-        if (target_elapsed_ns < scheduled_elapsed_ns) {
-            return false;
-        }
-
-        const uint64_t delay_ns = target_elapsed_ns - scheduled_elapsed_ns;
-        if (delay_ns > UINT32_MAX || pulse_high_ns > UINT32_MAX) {
-            return false;
-        }
-        entries[i].delay_ns = (uint32_t)delay_ns;
-        entries[i].high_ns = pulse_high_ns;
-        scheduled_elapsed_ns += delay_ns + pulse_high_ns;
+    const uint64_t target_ns =
+        first_window_start_ns + (uint64_t)window_offset_ns;
+    const uint64_t delay_ns = target_ns > now_ns ? target_ns - now_ns : 0u;
+    if (delay_ns > UINT32_MAX) {
+        return false;
     }
+    *first_delay_ns = (uint32_t)delay_ns;
     return true;
 }
 
@@ -753,6 +731,7 @@ bool vdc_dpll_manager_start_observation_self_test(
         vdc_tdma_frame_envelope_t envelope;
         vdc_tdma_payload_status_t payload_status;
         const uint32_t pulse_window_offset_ns = 2000u;
+        uint32_t first_pulse_delay_ns = 0u;
 
         tx_plan.window_start_ns += (uint64_t)config->start_delay_ns;
         tx_plan.window_end_ns += (uint64_t)config->start_delay_ns;
@@ -786,18 +765,18 @@ bool vdc_dpll_manager_start_observation_self_test(
             return false;
         }
 
-        if (!vdc_dpll_manager_build_model_pulse_schedule(
+        if (!vdc_dpll_manager_compute_first_pulse_delay(
                 tx_plan.window_start_ns,
                 pulse_window_offset_ns,
+                &first_pulse_delay_ns) ||
+            !sync_io_model_pulse_schedule_arm_periodic_ns(
+                config->output_index,
+                first_pulse_delay_ns,
                 pulse_period_ns,
                 pulse_high_ns,
                 pulse_count,
-                s_vdc_self_test_pulse_entries) ||
-            !sync_io_model_pulse_schedule_arm_ns(config->output_index,
-                                                 s_vdc_self_test_pulse_entries,
-                                                 pulse_count,
-                                                 true,
-                                                 100u)) {
+                true,
+                100u)) {
             if ((config->role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) != 0u) {
                 sync_io_stop_capture();
                 sync_io_capture_disarm_timestamp_window();

@@ -152,6 +152,12 @@ SECTIONS
     __binary_info_end = .;
     . = ALIGN(4);
 
+    .sync_io_dma_ring (NOLOAD): {
+        . = ALIGN(32768);
+        KEEP(*(.sync_io_dma_ring))
+        . = ALIGN(4);
+    } > RAM
+
     .ram_vector_table (NOLOAD): {
         *(.ram_vector_table)
     } > RAM

@@ -32,14 +32,13 @@ typedef struct {
     uint32_t tick_period_ns;
     uint32_t fault_code;
     uint64_t start_us;
+    uint64_t total_duration_ns64;
+    uint64_t completed_elapsed_ns;
     uint32_t words[SYNC_IO_MODEL_PULSE_MAX_ENTRIES *
                    SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY];
-    uint64_t completion_ns[SYNC_IO_MODEL_PULSE_MAX_ENTRIES];
 } sync_io_model_pulse_t;
 
 static sync_io_model_pulse_t s_model_pulse;
-static sync_io_model_pulse_entry_ns_t
-    s_model_pulse_compat_entries[SYNC_IO_MODEL_PULSE_MAX_ENTRIES];
 
 static float sync_io_model_clkdiv_for_tick_rate(uint32_t tick_hz)
 {
@@ -106,6 +105,44 @@ static uint32_t sync_io_model_high_word(uint32_t high_ticks)
     return high_ticks <= 1u ? 0u : high_ticks - 1u;
 }
 
+static uint32_t sync_io_model_delay_word_to_ticks(uint32_t word)
+{
+    return word == 0u ? 0u : word + 1u;
+}
+
+static uint32_t sync_io_model_high_word_to_ticks(uint32_t word)
+{
+    return word + 1u;
+}
+
+static uint64_t sync_io_model_word_ticks_to_ns(uint32_t ticks,
+                                               uint32_t tick_period_ns)
+{
+    if (ticks == 0u || tick_period_ns == 0u) {
+        return 0u;
+    }
+    return ((uint64_t)ticks + SYNC_IO_MODEL_PULSE_SECTION_OVERHEAD_TICKS) *
+           (uint64_t)tick_period_ns;
+}
+
+static uint64_t sync_io_model_pulse_duration_ns(uint32_t pulse_index)
+{
+    if (pulse_index >= s_model_pulse.total_pulses) {
+        return 0u;
+    }
+
+    const uint32_t delay_word =
+        s_model_pulse.words[(pulse_index * SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY) + 0u];
+    const uint32_t high_word =
+        s_model_pulse.words[(pulse_index * SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY) + 1u];
+    return sync_io_model_word_ticks_to_ns(
+               sync_io_model_delay_word_to_ticks(delay_word),
+               s_model_pulse.tick_period_ns) +
+           sync_io_model_word_ticks_to_ns(
+               sync_io_model_high_word_to_ticks(high_word),
+               s_model_pulse.tick_period_ns);
+}
+
 static uint32_t sync_io_model_saturate_u64_to_u32(uint64_t value)
 {
     return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
@@ -138,33 +175,53 @@ static void sync_io_model_update_completion(void)
 
     const uint64_t elapsed_ns =
         (time_us_64() - s_model_pulse.start_us) * 1000ull;
-    while (s_model_pulse.completed_pulses < s_model_pulse.total_pulses &&
-           elapsed_ns >=
-               s_model_pulse.completion_ns[s_model_pulse.completed_pulses]) {
+
+    uint64_t completed_elapsed_ns = s_model_pulse.completed_elapsed_ns;
+    while (s_model_pulse.completed_pulses < s_model_pulse.total_pulses) {
+        const uint64_t next_elapsed_ns =
+            completed_elapsed_ns +
+            sync_io_model_pulse_duration_ns(s_model_pulse.completed_pulses);
+        if (elapsed_ns < next_elapsed_ns) {
+            break;
+        }
         s_model_pulse.completed_pulses++;
+        completed_elapsed_ns = next_elapsed_ns;
     }
+    s_model_pulse.completed_elapsed_ns = completed_elapsed_ns;
 
     if (s_model_pulse.completed_pulses >= s_model_pulse.total_pulses &&
+        elapsed_ns >= s_model_pulse.total_duration_ns64 &&
         !dma_channel_is_busy(s_model_pulse.dma_ch) &&
         pio_sm_is_tx_fifo_empty(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm)) {
+        s_model_pulse.completed_pulses = s_model_pulse.total_pulses;
+        s_model_pulse.completed_elapsed_ns = s_model_pulse.total_duration_ns64;
         pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, s_model_pulse.sm, false);
         s_model_pulse.running = false;
     }
 }
 
-static bool sync_io_pulse_schedule_arm_on_pin(uint32_t output_pin,
-                                              uint32_t trace_output_index,
-                                              const sync_io_model_pulse_entry_ns_t *entries,
-                                              uint32_t entry_count,
-                                              bool rising_edge,
-                                              uint32_t tick_period_ns)
+static bool sync_io_pulse_schedule_arm_on_pin_common(
+    uint32_t output_pin,
+    uint32_t trace_output_index,
+    const sync_io_model_pulse_entry_t *entries_us,
+    const sync_io_model_pulse_entry_ns_t *entries_ns,
+    uint32_t periodic_first_delay_ns,
+    uint32_t periodic_period_ns,
+    uint32_t periodic_high_ns,
+    uint32_t entry_count,
+    bool rising_edge,
+    uint32_t tick_period_ns)
 {
     const uint32_t sanitized_tick_period_ns =
         tick_period_ns != 0u
             ? tick_period_ns
             : SYNC_IO_MODEL_PULSE_DEFAULT_TICK_PERIOD_NS;
+    const bool use_ns_entries = entries_ns != NULL;
+    const bool use_periodic_entries =
+        entries_us == NULL && entries_ns == NULL &&
+        periodic_period_ns != 0u && periodic_high_ns != 0u;
     if (!sync_io_core_initialized() ||
-        entries == NULL ||
+        (!use_periodic_entries && entries_us == NULL && entries_ns == NULL) ||
         entry_count == 0u ||
         entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES ||
         sanitized_tick_period_ns == 0u) {
@@ -179,13 +236,34 @@ static bool sync_io_pulse_schedule_arm_on_pin(uint32_t output_pin,
 
     uint64_t cumulative_ns = 0u;
     for (uint32_t i = 0u; i < entry_count; i++) {
+        uint32_t delay_ns = 0u;
+        uint32_t high_ns = 0u;
+        if (use_periodic_entries) {
+            if (periodic_high_ns >= periodic_period_ns) {
+                sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
+                                   SYNC_IO_TRACE_ERROR,
+                                   i,
+                                   3u);
+                return false;
+            }
+            delay_ns = i == 0u
+                ? periodic_first_delay_ns
+                : periodic_period_ns - periodic_high_ns;
+            high_ns = periodic_high_ns;
+        } else if (use_ns_entries) {
+            delay_ns = entries_ns[i].delay_ns;
+            high_ns = entries_ns[i].high_ns;
+        } else {
+            delay_ns = entries_us[i].delay_us * 1000u;
+            high_ns = entries_us[i].high_us * 1000u;
+        }
         const uint32_t delay_ticks =
             sync_io_model_delay_ticks_for_duration(
-                entries[i].delay_ns,
+                delay_ns,
                 sanitized_tick_period_ns);
         const uint32_t high_ticks =
             sync_io_model_high_ticks_for_duration(
-                entries[i].high_ns,
+                high_ns,
                 sanitized_tick_period_ns);
         if (high_ticks == 0u) {
             sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
@@ -198,9 +276,8 @@ static bool sync_io_pulse_schedule_arm_on_pin(uint32_t output_pin,
             sync_io_model_delay_word(delay_ticks);
         s_model_pulse.words[(i * 2u) + 1u] =
             sync_io_model_high_word(high_ticks);
-        cumulative_ns += entries[i].delay_ns;
-        cumulative_ns += entries[i].high_ns;
-        s_model_pulse.completion_ns[i] = cumulative_ns;
+        cumulative_ns += delay_ns;
+        cumulative_ns += high_ns;
     }
 
     const pio_program_t *program = rising_edge
@@ -222,8 +299,10 @@ static bool sync_io_pulse_schedule_arm_on_pin(uint32_t output_pin,
     s_model_pulse.active_high = rising_edge;
     s_model_pulse.total_pulses = entry_count;
     s_model_pulse.completed_pulses = 0u;
+    s_model_pulse.completed_elapsed_ns = 0u;
     s_model_pulse.total_duration_ns =
         sync_io_model_saturate_u64_to_u32(cumulative_ns);
+    s_model_pulse.total_duration_ns64 = cumulative_ns;
     s_model_pulse.total_duration_us =
         sync_io_model_saturate_u64_to_u32((cumulative_ns + 999ull) / 1000ull);
     s_model_pulse.tick_period_ns = sanitized_tick_period_ns;
@@ -272,6 +351,26 @@ static bool sync_io_pulse_schedule_arm_on_pin(uint32_t output_pin,
     return true;
 }
 
+static bool sync_io_pulse_schedule_arm_on_pin(
+    uint32_t output_pin,
+    uint32_t trace_output_index,
+    const sync_io_model_pulse_entry_ns_t *entries,
+    uint32_t entry_count,
+    bool rising_edge,
+    uint32_t tick_period_ns)
+{
+    return sync_io_pulse_schedule_arm_on_pin_common(output_pin,
+                                                    trace_output_index,
+                                                    NULL,
+                                                    entries,
+                                                    0u,
+                                                    0u,
+                                                    0u,
+                                                    entry_count,
+                                                    rising_edge,
+                                                    tick_period_ns);
+}
+
 bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
                                       const sync_io_model_pulse_entry_t *entries,
                                       uint32_t entry_count,
@@ -289,15 +388,14 @@ bool sync_io_model_pulse_schedule_arm(uint32_t output_index,
         entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES) {
         return false;
     }
-    for (uint32_t i = 0u; i < entry_count; i++) {
-        s_model_pulse_compat_entries[i].delay_ns = entries[i].delay_us * 1000u;
-        s_model_pulse_compat_entries[i].high_ns = entries[i].high_us * 1000u;
-    }
-
-    return sync_io_pulse_schedule_arm_on_pin(
+    return sync_io_pulse_schedule_arm_on_pin_common(
         BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index,
         output_index,
-        s_model_pulse_compat_entries,
+        entries,
+        NULL,
+        0u,
+        0u,
+        0u,
         entry_count,
         rising_edge,
         1000u);
@@ -327,6 +425,36 @@ bool sync_io_model_pulse_schedule_arm_ns(
         tick_period_ns);
 }
 
+bool sync_io_model_pulse_schedule_arm_periodic_ns(
+    uint32_t output_index,
+    uint32_t first_delay_ns,
+    uint32_t pulse_period_ns,
+    uint32_t pulse_high_ns,
+    uint32_t pulse_count,
+    bool rising_edge,
+    uint32_t tick_period_ns)
+{
+    if (!sync_io_model_output_index_valid(output_index)) {
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
+                           SYNC_IO_TRACE_ERROR,
+                           pulse_count,
+                           output_index);
+        return false;
+    }
+
+    return sync_io_pulse_schedule_arm_on_pin_common(
+        BOARD_DEBUG_MODEL_GPIO_BASE_PIN + output_index,
+        output_index,
+        NULL,
+        NULL,
+        first_delay_ns,
+        pulse_period_ns,
+        pulse_high_ns,
+        pulse_count,
+        rising_edge,
+        tick_period_ns);
+}
+
 bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
                                        const sync_io_model_pulse_entry_t *entries,
                                        uint32_t entry_count,
@@ -344,15 +472,14 @@ bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
         entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES) {
         return false;
     }
-    for (uint32_t i = 0u; i < entry_count; i++) {
-        s_model_pulse_compat_entries[i].delay_ns = entries[i].delay_us * 1000u;
-        s_model_pulse_compat_entries[i].high_ns = entries[i].high_us * 1000u;
-    }
-
-    return sync_io_pulse_schedule_arm_on_pin(
+    return sync_io_pulse_schedule_arm_on_pin_common(
         BOARD_SYNC_OUTPUT_BASE_PIN + output_index,
         output_index,
-        s_model_pulse_compat_entries,
+        entries,
+        NULL,
+        0u,
+        0u,
+        0u,
         entry_count,
         rising_edge,
         1000u);

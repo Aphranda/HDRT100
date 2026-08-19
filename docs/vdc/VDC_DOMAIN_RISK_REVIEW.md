@@ -69,7 +69,7 @@ Last updated: 2026-08-17
 | DMA 丢字 | 已纠偏（2026-08-17） | [sync_io.c:249](components/sync_io/src/sync_io.c#L249) | capture produced 计数已改为优先使用 DMA `transfer_count` 推导总产出 words，不再只依赖 ring write index；恰好写满 8192 words 回到同一 index 时仍能看到 produced 增长。 |
 | arm 先改后验 | 已纠偏（2026-08-17） | [sync_io_mode_seq_step.c:126](components/sync_io/src/sync_io_mode_seq_step.c#L126) | gate 参数校验已前移到 DMA/IRQ/SM 操作之前；非法 gate 不再先停共享 DMA IRQ 或输出 SM。 |
 | ISR 被踩 | 已纠偏（2026-08-17） | [sync_io_mode_enc_count.c:233](components/sync_io/src/sync_io_mode_enc_count.c#L233) | `sync_io_enc_count_get_count()` 不再向运行中的 PIO SM 注入 `mov isr,x/push` 指令；查询只消费已有 RX snapshot 并返回安全镜像。当前 PIO 尚未主动发布精确 live count，后续应由 ENC/PCNT 基础件增加无扰动 snapshot。 |
-| 完成计数饱和 | 已纠偏（2026-08-17） | [sync_io_model_sched.c:202](components/sync_io/src/sync_io_model_sched.c#L202) | `completion_ns[]` 已改为 64 位累计 ns，`sync_io_model_update_completion()` 不再因 >4.29 s schedule 饱和而提前标记全部完成；对外 runtime 的 `total_duration_ns` 仍保持 32 位饱和显示。 |
+| 完成计数饱和 | 已纠偏（2026-08-19） | [sync_io_model_sched.c:202](components/sync_io/src/sync_io_model_sched.c#L202) | `completion_ns[]` 已移除，`sync_io_model_update_completion()` 由 DMA/PIO 运行态和总时长反推完成进度，不再因 >4.29 s schedule 的完成表饱和提前标记全部完成；对外 runtime 的 `total_duration_ns` 仍保持 32 位饱和显示。 |
 | 半截基线 | 已纠偏（2026-08-17） | [vdc_sync_io_adapter.c:63-77](components/vdc_domain/src/vdc_sync_io_adapter.c#L63-L77) | ambiguous word 不再把中间样本写入 `*last_sample_mask`；现在会消费完整 word 的末样本作为下一 word 基线，单测覆盖 final mask。 |
 
 ---

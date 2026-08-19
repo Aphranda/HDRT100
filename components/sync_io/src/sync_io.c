@@ -95,6 +95,7 @@ typedef struct {
 static sync_io_context_t s_sync_io;
 static sync_io_sma_frequency_tx_status_t s_sma_frequency_tx;
 static uint32_t s_sync_io_capture_dma_ring[SYNC_IO_CAPTURE_DMA_RING_WORDS]
+    __attribute__((section(".sync_io_dma_ring")))
     __attribute__((aligned(SYNC_IO_CAPTURE_DMA_RING_BYTES)));
 
 void sync_io_core_trace(sync_io_trace_event_t event_id,

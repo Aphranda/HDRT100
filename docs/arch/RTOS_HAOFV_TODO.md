@@ -35,6 +35,25 @@ AMP 主线，不再新增裸机单核兼容工作；裸机/单核仅作为历史
 - [x] 当前分支默认构建和运行路径固化为 RTOS + 双核 AMP。
 - [ ] 将空壳逐步替换为真正 AO service，`app.c` 只保留启动编排。
 
+## P0-RAM - 内部 SRAM 优化
+
+目标：先把可证明不影响实时性能的 SRAM 浪费回收出来，再处理测试缓存、staging buffer 和任务栈。
+当前发布前门禁建议为：主 SRAM 链接余量不少于 96 KB；`SYSTem:RTOS:STATus?`
+显示 FreeRTOS heap 最低空闲不少于 24 KB；每个任务栈剩余不少于 25% 且不少于
+512 B；`task_ui` 栈剩余不少于 1 KB；SMA 50 MHz、TDMA 长线环路、OTA 和 core1
+heartbeat 验证不退化。
+
+- [x] 建立 RAM 优化分层方案：P0a 链接布局浪费，P0b 重复静态表，P0c 测试缓存，P0d staging pool，P0e task stack/heap。
+- [x] P0a：将 `s_sync_io_capture_dma_ring` 放入固定 `.sync_io_dma_ring` section，避免 32 KB 对齐对象在普通 `.bss` 中制造约 25 KB 空洞。
+- [x] P0b-1：删除 `sync_io_model_sched` 的 4096 项 us->ns 兼容临时表，legacy us 接口直接编码 DMA words。
+- [x] P0b-2：已用 DMA/PIO 运行态推导替代 `completion_ns[4096]`；保留 `completed_pulses` 查询语义，同时回收约 32 KB。
+- [x] P0c：移除 VDC self-test 的 4096 项 pulse cache，改为直接调用周期脉冲调度接口；保留 4096 脉冲维护能力，不影响正式 RUN。
+- [x] P0c-2：将诊断日志 RAM 队列从 2 KB/4 KB 收缩为 1 KB/2 KB；保留 high-watermark/drop 观测，只影响突发日志缓存深度。
+- [ ] P0d：梳理 RefMem active/staging/rollbackable image、Storage write buffer、OTA/package buffer 等 8 KB staging 生命周期，建立单 owner 固定池或互斥复用规则。
+- [ ] P0e：按板端水位重算 task stack；优先增加 `task_ui`，收缩 USB/loop/calibration/refmem 等明显富余任务，再评估将 `configTOTAL_HEAP_SIZE` 从 128 KB 降到 96 KB。
+- [x] P0f：增加 RAM 门禁脚本，解析 map 并在链接余量不达标时失败；heap、任务栈水位仍需板端 `SYSTem:RTOS:STATus?` 继续闭环。
+- [ ] P0g：每轮优化后执行 `cmake build`、板端 `SYSTem:RTOS:STATus?`、`SYSTem:CORE?`、SMA/TDMA/OTA 相关回归并记录到进展文档。
+
 ## P1 - RefMem 内部主域 / 反射内存主数据面
 
 详细待办以 `docs/refmem/REFMEM_DOMAIN_TODO.md` 为准；本节只保留 RTOS + 双核 AMP 视角下必须纳入发布门禁和任务拆分的事项。
