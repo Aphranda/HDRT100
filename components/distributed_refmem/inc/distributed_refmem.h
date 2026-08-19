@@ -287,5 +287,9 @@ void distributed_refmem_get_node_load_auto_sync(
  * role. The same firmware can therefore run as reference (local==reference)
  * or forward node without a separate build. */
 bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id);
+bool distributed_refmem_tdma_ring_arm(void);
+bool distributed_refmem_tdma_ring_train(uint32_t cycles);
+bool distributed_refmem_tdma_ring_start(void);
+bool distributed_refmem_tdma_ring_stop(void);
 
 #endif

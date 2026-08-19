@@ -617,6 +617,7 @@ int main(void)
         tdma_pio_spi_ring_adapter_set_phys_ctrl(&adapter,
                                                 phys_ctrl_stub_arm,
                                                 phys_ctrl_stub_disarm,
+                                                NULL,
                                                 &ctrl);
         tdma_pio_spi_ring_adapter_set_timestamp_metadata(
             &adapter,
@@ -632,6 +633,11 @@ int main(void)
         failed += expect_u32("phys arm got schedule crc",
                              arm_config_seq,
                              config.schedule_crc32);
+        failed += expect_u32("enable data after arm",
+                             tdma_ring_runtime_set_data_enabled(&runtime, true),
+                             1u);
+        tdma_ring_runtime_service(&runtime);
+        (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
         failed += expect_u32("up running with phys ctrl", snapshot.up_running, 1u);
 
         tdma_ring_runtime_configure(&runtime, NULL);

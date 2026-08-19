@@ -2194,6 +2194,47 @@ scpi_result_t scpi_cmd_system_tdma_ring_local(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context)
+{
+    if (!distributed_refmem_tdma_ring_arm()) {
+        scpi_port_push_exec_error(context, "TDMA_RING_ARM");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_system_tdma_ring_train(scpi_t *context)
+{
+    uint32_t cycles = 0u;
+    if (!scpi_port_read_u32(context, &cycles)) {
+        return SCPI_RES_ERR;
+    }
+    if (!distributed_refmem_tdma_ring_train(cycles)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_TRAIN");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, cycles);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_ring_start(scpi_t *context)
+{
+    if (!distributed_refmem_tdma_ring_start()) {
+        scpi_port_push_exec_error(context, "TDMA_RING_START");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_system_tdma_ring_stop(scpi_t *context)
+{
+    if (!distributed_refmem_tdma_ring_stop()) {
+        scpi_port_push_exec_error(context, "TDMA_RING_STOP");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
 static bool scpi_refmem_wait_storage_job(uint32_t job_id)
 {
     for (uint32_t i = 0u; i < SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS; i++) {

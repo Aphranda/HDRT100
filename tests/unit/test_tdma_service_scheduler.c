@@ -298,6 +298,11 @@ int main(void)
                              tdma_service_configure_foundation_profile(
                                  &service, &profile, 0x12345678u),
                              1u);
+        failed += expect_u32("arm pio spi ring",
+                             tdma_service_ring_arm(&service), 1u);
+        tdma_service_core1_service(&service);
+        failed += expect_u32("start pio spi ring",
+                             tdma_service_ring_start(&service), 1u);
         tdma_service_core1_service(&service);
         failed += expect_u32("ring runtime adapter bound (spi)",
                              tdma_ring_runtime_get_snapshot(
@@ -321,6 +326,11 @@ int main(void)
                              tdma_service_configure_foundation_profile(
                                  &service, &profile, 0x12345678u),
                              1u);
+        failed += expect_u32("arm bissc ring",
+                             tdma_service_ring_arm(&service), 1u);
+        tdma_service_core1_service(&service);
+        failed += expect_u32("start bissc ring",
+                             tdma_service_ring_start(&service), 1u);
         tdma_service_core1_service(&service);
         (void)tdma_ring_runtime_get_snapshot(&service.ring_runtime, &ring_snap);
         failed += expect_u32("bissc adapter marker",
@@ -338,6 +348,8 @@ int main(void)
                              tdma_service_configure_foundation_profile(
                                  &service, &profile, 0x12345678u),
                              1u);
+        failed += expect_u32("arm uart ring",
+                             tdma_service_ring_arm(&service), 1u);
         tdma_service_core1_service(&service);
         (void)tdma_ring_runtime_get_snapshot(&service.ring_runtime, &ring_snap);
         failed += expect_u32("unregistered adapter reports missing",

@@ -60,6 +60,7 @@ typedef struct {
 typedef struct {
     bool (*start)(void *context, const tdma_ring_runtime_config_t *config);
     void (*stop)(void *context);
+    bool (*train_clock)(void *context, uint32_t cycles);
     bool (*service)(void *context,
                     uint64_t now_ns,
                     tdma_ring_adapter_status_t *status);
@@ -149,6 +150,7 @@ typedef struct {
     volatile uint32_t adapter_tx_count;
     volatile uint32_t adapter_rx_count;
     volatile uint32_t adapter_rx_bad_count;
+    volatile uint32_t data_enabled;
     volatile uint64_t reference_tx_timestamp_ns;
     volatile uint64_t feedback_rx_timestamp_ns;
     const tdma_ring_adapter_ops_t *adapter_ops;
@@ -168,5 +170,9 @@ void tdma_ring_runtime_unbind_adapter(tdma_ring_runtime_t *runtime);
 void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime);
 bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
                                     tdma_ring_runtime_snapshot_t *snapshot);
+bool tdma_ring_runtime_set_data_enabled(tdma_ring_runtime_t *runtime,
+                                        bool enabled);
+bool tdma_ring_runtime_train_clock(tdma_ring_runtime_t *runtime,
+                                   uint32_t cycles);
 
 #endif

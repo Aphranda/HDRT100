@@ -184,8 +184,35 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
     runtime->feedback_round_trip_ns = 0u;
     runtime->reference_tx_timestamp_ns = 0ull;
     runtime->feedback_rx_timestamp_ns = 0ull;
+    runtime->data_enabled = 0u;
     tdma_ring_runtime_write_guard(&runtime->result_guard);
     return true;
+}
+
+bool tdma_ring_runtime_set_data_enabled(tdma_ring_runtime_t *runtime,
+                                        bool enabled)
+{
+    if (runtime == NULL || runtime->enabled == 0u ||
+        runtime->adapter_started == 0u) {
+        return false;
+    }
+    __atomic_store_n(&runtime->data_enabled,
+                     enabled ? 1u : 0u,
+                     __ATOMIC_RELEASE);
+    return true;
+}
+
+bool tdma_ring_runtime_train_clock(tdma_ring_runtime_t *runtime,
+                                   uint32_t cycles)
+{
+    if (runtime == NULL || cycles == 0u || runtime->enabled == 0u ||
+        runtime->adapter_started == 0u ||
+        tdma_ring_runtime_load(&runtime->data_enabled) != 0u ||
+        runtime->adapter_ops == NULL ||
+        runtime->adapter_ops->train_clock == NULL) {
+        return false;
+    }
+    return runtime->adapter_ops->train_clock(runtime->adapter_context, cycles);
 }
 
 bool tdma_ring_runtime_bind_adapter(tdma_ring_runtime_t *runtime,
@@ -270,7 +297,8 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
                 reason = TDMA_RING_RUNTIME_REASON_ADAPTER_MISSING;
             }
         }
-        if (runtime->adapter_started != 0u) {
+        if (runtime->adapter_started != 0u &&
+            tdma_ring_runtime_load(&runtime->data_enabled) != 0u) {
             adapter_service_ok = runtime->adapter_ops->service(
                 runtime->adapter_context,
                 tdma_ring_runtime_now_ns(),

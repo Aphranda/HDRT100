@@ -51,6 +51,10 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_frame_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_vdc_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_local(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_ring_train(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_ring_start(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_ring_stop(scpi_t *context);
 scpi_result_t scpi_cmd_core_vector_q(scpi_t *context);
 scpi_result_t scpi_cmd_runtime_protection_q(scpi_t *context);
 scpi_result_t scpi_cmd_config_gate_status_q(scpi_t *context);
@@ -126,6 +130,10 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:VDC?", .callback = scpi_cmd_refmem_sync_tdma_vdc_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \
     {.pattern = "SYSTem:TDMA:RING:LOCAL", .callback = scpi_cmd_system_tdma_ring_local}, \
+    {.pattern = "SYSTem:TDMA:RING:ARM", .callback = scpi_cmd_system_tdma_ring_arm}, \
+    {.pattern = "SYSTem:TDMA:RING:TRAIN", .callback = scpi_cmd_system_tdma_ring_train}, \
+    {.pattern = "SYSTem:TDMA:RING:START", .callback = scpi_cmd_system_tdma_ring_start}, \
+    {.pattern = "SYSTem:TDMA:RING:STOP", .callback = scpi_cmd_system_tdma_ring_stop}, \
     {.pattern = "SYSTem:CORE:VECTOR?", .callback = scpi_cmd_core_vector_q}, \
     {.pattern = "SYSTem:PROTection:STATus?", .callback = scpi_cmd_runtime_protection_q}, \
     {.pattern = "SYSTem:MODE:TABle?", .callback = scpi_cmd_system_mode_table_q}, \

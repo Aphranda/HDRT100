@@ -22,6 +22,7 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
 
 from scpi_common.scpi_serial import open_serial_port  # noqa: E402
+from scpi_common.board_identity import parse_idn_response  # noqa: E402
 from ring_rate_measure import PHYS_FIELDS, parse_named  # noqa: E402
 from tdma_ring_monitor import (  # noqa: E402
     RING_ADAPTER_LAST_ERROR,
@@ -83,6 +84,7 @@ def main() -> int:
     samples: list[dict] = []
     build = ""
     with open_serial_port(args.port, args.baud, args.timeout, args.settle) as ser:
+        identity = parse_idn_response(query(ser, "*IDN?", args.timeout))
         build = query(ser, "SYSTem:FW:BUILD?", args.timeout).strip('"')
         if args.expected_build and build != args.expected_build:
             raise SystemExit(f"build mismatch: {build} != {args.expected_build}")
@@ -171,6 +173,8 @@ def main() -> int:
 
     summary = {
         "port": args.port,
+        "idn": identity.idn,
+        "board_address": identity.address,
         "build": build,
         "duration_s": args.duration_s,
         "valid_sample_count": len(samples),

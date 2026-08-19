@@ -481,6 +481,63 @@ static bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
     return true;
 }
 
+bool tdma_pio_spi_phys_train_clock(void *context, uint32_t cycles)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys == NULL || !phys->armed || cycles == 0u ||
+        cycles > TDMA_PIO_SPI_TRAIN_CLOCK_MAX_CYCLES ||
+        (cycles & 7u) != 0u) {
+        if (phys != NULL) {
+            tdma_pio_spi_phys_set_error(phys,
+                                        TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT);
+        }
+        return false;
+    }
+    if (!pio_sm_is_tx_fifo_empty(BOARD_TDMA_SPI_PIO, phys->tx_sm)) {
+        tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
+        phys->snapshot.tx_busy_count++;
+        return false;
+    }
+
+    /* Training is deliberately not a frame: the peer RX SM remains blocked
+     * on CS high while its clock input and future DPLL see clean transitions.
+     * Zero-filled bytes also leave DATA and CLK low at the end. */
+    gpio_put(phys->tx_csn_pin, true);
+    const uint32_t byte_count = cycles / 8u;
+    for (uint32_t i = 0u; i < byte_count; i++) {
+        if (!tdma_pio_spi_phys_tx_put(phys, 0u)) {
+            gpio_put(phys->tx_csn_pin, true);
+            tdma_pio_spi_phys_set_error(phys,
+                                        TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
+            phys->snapshot.tx_busy_count++;
+            return false;
+        }
+    }
+
+    const uint64_t drain_deadline_us =
+        tdma_pio_spi_phys_now_us() + TDMA_PIO_SPI_TX_PUT_TIMEOUT_US;
+    while (!pio_sm_is_tx_fifo_empty(BOARD_TDMA_SPI_PIO, phys->tx_sm)) {
+        if (tdma_pio_spi_phys_now_us() >= drain_deadline_us) {
+            phys->snapshot.tx_timeout_count++;
+            tdma_pio_spi_phys_set_error(phys,
+                                        TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
+            return false;
+        }
+    }
+    /* FIFO empty means the last byte is in OSR. Wait one byte time so the SM
+     * reaches its blocking pull instruction whose side-set value is CLK low. */
+    const uint32_t baud_hz = phys->baud_hz != 0u
+                                 ? phys->baud_hz
+                                 : TDMA_PIO_SPI_DEFAULT_BAUD_HZ;
+    const uint32_t last_byte_us =
+        (uint32_t)((8000000ull + baud_hz - 1ull) / baud_hz) + 2u;
+    busy_wait_us_32(last_byte_us);
+    gpio_put(phys->tx_csn_pin, true);
+    phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_NONE;
+    tdma_pio_spi_phys_fill_static_snapshot(phys);
+    return true;
+}
+
 bool tdma_pio_spi_phys_tx(void *context,
                           const uint8_t *packet,
                           size_t packet_size,

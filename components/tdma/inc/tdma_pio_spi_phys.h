@@ -47,6 +47,8 @@
 #define TDMA_PIO_SPI_RX_RING_WORDS 512u
 #define TDMA_PIO_SPI_RX_RING_LOG2 11u
 #define TDMA_PIO_SPI_RX_DMA_CHANNEL 4u
+#define TDMA_PIO_SPI_TRAIN_CLOCK_DEFAULT_CYCLES 4096u
+#define TDMA_PIO_SPI_TRAIN_CLOCK_MAX_CYCLES 65536u
 #define TDMA_PIO_SPI_FRAME_WORDS \
     (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_FRAME_HEADER_SIZE)
 
@@ -150,6 +152,9 @@ typedef struct {
 bool tdma_pio_spi_phys_arm(void *context,
                            const tdma_ring_runtime_config_t *config);
 void tdma_pio_spi_phys_disarm(void *context);
+/* Emit idle clocks without opening a frame. CS stays high and DATA is zero;
+ * cycles must be a whole number of bytes. */
+bool tdma_pio_spi_phys_train_clock(void *context, uint32_t cycles);
 bool tdma_pio_spi_phys_get_snapshot(const tdma_pio_spi_phys_t *phys,
                                     tdma_pio_spi_phys_snapshot_t *snapshot);
 

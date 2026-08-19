@@ -1874,6 +1874,14 @@ bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id)
     if (!s_initialized) {
         return false;
     }
+    tdma_service_service_t *tdma_owner = tdma_runtime_owner_get();
+    tdma_ring_runtime_snapshot_t ring_snapshot;
+    if (tdma_owner == NULL ||
+        !tdma_ring_runtime_get_snapshot(&tdma_owner->ring_runtime,
+                                        &ring_snapshot) ||
+        ring_snapshot.enabled != 0u) {
+        return false;
+    }
     if (!vdc_dpll_manager_set_tdma_ring_local_slot(local_slot_id)) {
         return false;
     }
@@ -1890,6 +1898,31 @@ bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id)
         return false;
     }
     return true;
+}
+
+bool distributed_refmem_tdma_ring_arm(void)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    return s_initialized && owner != NULL && tdma_service_ring_arm(owner);
+}
+
+bool distributed_refmem_tdma_ring_train(uint32_t cycles)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    return s_initialized && owner != NULL &&
+           tdma_service_ring_train_clock(owner, cycles);
+}
+
+bool distributed_refmem_tdma_ring_start(void)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    return s_initialized && owner != NULL && tdma_service_ring_start(owner);
+}
+
+bool distributed_refmem_tdma_ring_stop(void)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    return s_initialized && owner != NULL && tdma_service_ring_stop(owner);
 }
 
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot)

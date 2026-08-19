@@ -5,9 +5,13 @@
     pull block        side 0
     set x, 7         side 0
 bitloop:
-    out pins, 1      side 0 [1]
-    nop              side 1 [1]
-    jmp x-- bitloop  side 0 [2]
+    ; Ten PIO cycles per bit: five low then five high.  DATA changes three
+    ; cycles before the rising sampling edge and remains stable through the
+    ; complete high phase.  This produces an exact 50% duty cycle at the
+    ; requested baud instead of the previous 5-low/2-high seven-cycle bit.
+    out pins, 1      side 0 [2]
+    nop              side 1 [4]
+    jmp x-- bitloop  side 0 [1]
 .wrap
 
 .program tdma_pio_spi_rx_byte
@@ -63,7 +67,7 @@ bitloop_fds:
 
 static inline float tdma_pio_spi_clkdiv_for_baud(uint32_t baud_hz)
 {
-    const uint32_t bit_cycles = 6u;
+    const uint32_t bit_cycles = 10u;
     const uint32_t effective_baud = baud_hz == 0u ? 25000000u : baud_hz;
     return (float)clock_get_hz(clk_sys) / (float)(effective_baud * bit_cycles);
 }

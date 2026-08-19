@@ -493,8 +493,37 @@ bool tdma_service_configure_foundation_profile(
     service->io_claim_mask = profile->resource.io_claim_mask;
     service->ip_core_claim_mask = profile->resource.ip_core_claim_mask;
     tdma_service_end_intent_write(service);
+    service->ring_staged_config = ring;
     tdma_service_apply_profile_adapter(service, profile->resource.adapter_type);
-    return tdma_service_configure_ring_runtime(service, &ring);
+    /* Product links start explicitly after both boards have roles assigned.
+     * Keep the adapter and all ISO1452 drivers stopped at boot/profile load. */
+    return tdma_service_configure_ring_runtime(service, NULL);
+}
+
+bool tdma_service_ring_arm(tdma_service_service_t *service)
+{
+    return service != NULL && service->ring_staged_config.enabled != 0u &&
+           tdma_service_configure_ring_runtime(
+               service, &service->ring_staged_config);
+}
+
+bool tdma_service_ring_train_clock(tdma_service_service_t *service,
+                                   uint32_t cycles)
+{
+    return service != NULL &&
+           tdma_ring_runtime_train_clock(&service->ring_runtime, cycles);
+}
+
+bool tdma_service_ring_start(tdma_service_service_t *service)
+{
+    return service != NULL &&
+           tdma_ring_runtime_set_data_enabled(&service->ring_runtime, true);
+}
+
+bool tdma_service_ring_stop(tdma_service_service_t *service)
+{
+    return service != NULL &&
+           tdma_service_configure_ring_runtime(service, NULL);
 }
 
 bool tdma_service_submit_tx(tdma_service_service_t *service,

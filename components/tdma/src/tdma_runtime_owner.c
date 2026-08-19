@@ -48,6 +48,7 @@ bool tdma_runtime_owner_init(void)
             &s_tdma_pio_spi_ring_adapter,
             tdma_pio_spi_phys_arm,
             tdma_pio_spi_phys_disarm,
+            tdma_pio_spi_phys_train_clock,
             &s_tdma_pio_spi_phys);
         tdma_pio_spi_ring_adapter_set_phys(
             &s_tdma_pio_spi_ring_adapter,

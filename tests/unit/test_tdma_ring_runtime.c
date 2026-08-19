@@ -148,6 +148,11 @@ int main(void)
     tdma_ring_runtime_service(&runtime);
     (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
     failed += expect_u32("adapter started", snapshot.adapter_started, 1u);
+    failed += expect_bool("start staged data",
+                          tdma_ring_runtime_set_data_enabled(&runtime, true),
+                          true);
+    tdma_ring_runtime_service(&runtime);
+    (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
     failed += expect_u32("up running with adapter", snapshot.up_running, 1u);
     failed += expect_u32("down running with adapter", snapshot.down_running, 1u);
     failed += expect_u32("diagnostic timestamp rejected",

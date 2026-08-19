@@ -387,6 +387,7 @@ typedef struct {
     void *ops_context;
     tdma_payload_registry_t payload_registry;
     tdma_ring_runtime_t ring_runtime;
+    tdma_service_ring_runtime_config_t ring_staged_config;
     tdma_traffic_scheduler_t *traffic_scheduler;
     tdma_service_adapter_impl_t adapter_impls[TDMA_SERVICE_ADAPTER_IMPL_MAX];
     uint32_t adapter_impl_count;
@@ -417,6 +418,11 @@ bool tdma_service_configure_foundation_profile(
     tdma_service_service_t *service,
     const tdma_foundation_profile_t *profile,
     uint32_t schedule_crc32);
+bool tdma_service_ring_arm(tdma_service_service_t *service);
+bool tdma_service_ring_train_clock(tdma_service_service_t *service,
+                                   uint32_t cycles);
+bool tdma_service_ring_start(tdma_service_service_t *service);
+bool tdma_service_ring_stop(tdma_service_service_t *service);
 bool tdma_service_submit_tx(tdma_service_service_t *service,
                                     const tdma_service_intent_config_t *config);
 bool tdma_service_submit_rx(tdma_service_service_t *service,

@@ -37,6 +37,11 @@ if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
 from scpi_common.scpi_serial import open_serial_port, read_serial_line_idle  # noqa: E402
+from scpi_common.board_identity import (  # noqa: E402
+    BoardIdentity,
+    normalize_build_response,
+    parse_idn_response,
+)
 
 TDMA_STATUS_FIELD_COUNT = 110
 
@@ -92,6 +97,7 @@ SUMMARY_SVG_NAME = "tdma_ring_quality_summary.svg"
 class BoardMonitor:
     name: str
     port: str
+    identity: BoardIdentity
     build: str
     samples: list[dict[str, Any]]
 
@@ -178,9 +184,13 @@ def sample_board(ser, timeout_s: float) -> list[int]:
 
 
 def monitor_board(name: str, ser, args: argparse.Namespace) -> BoardMonitor:
-    build = query(ser, "SYST:FW:BUILD?", args.timeout)
-    if args.expected_build and build != f'"{args.expected_build}"':
-        raise AssertionError(f"{name}: build mismatch {build} != {args.expected_build}")
+    try:
+        identity = parse_idn_response(query(ser, "*IDN?", args.timeout))
+    except ValueError as exc:
+        raise AssertionError(f"{name}: {exc}") from exc
+    build = normalize_build_response(query(ser, "SYST:FW:BUILD?", args.timeout))
+    if args.expected_build and build != args.expected_build:
+        raise AssertionError(f"{identity.address}: build mismatch {build} != {args.expected_build}")
 
     samples: list[dict[str, Any]] = []
     deadline = time.monotonic() + args.duration_s
@@ -197,8 +207,9 @@ def monitor_board(name: str, ser, args: argparse.Namespace) -> BoardMonitor:
         }
         samples.append(sample)
         time.sleep(args.poll_interval_s)
-    return BoardMonitor(name=name, port=args.port_a if name == args.name_a else args.port_b,
-                        build=build, samples=samples)
+    return BoardMonitor(name=name,
+                        port=args.port_a if name == args.name_a else args.port_b,
+                        identity=identity, build=build, samples=samples)
 
 
 def field(sample: dict[str, Any], index: int) -> int:
@@ -272,6 +283,8 @@ def board_result(name: str, board: BoardMonitor) -> dict[str, Any]:
     return {
         "name": board.name,
         "port": board.port,
+        "idn": board.identity.idn,
+        "board_address": board.identity.address,
         "build": board.build,
         "reference_board": reference,
         "sample_count": len(board.samples),
@@ -308,7 +321,7 @@ def write_svg(path: Path, boards: list[BoardMonitor], results: list[dict[str, An
         ok = result["passed"]
         color = "#1a7f37" if ok else "#c62828"
         lines.append(f'<text x="20" y="{base_y}" style="font-weight:bold">'
-                     f'{board.name} ({board.port}) {"PASS" if ok else "FAIL"}</text>')
+                     f'{board.identity.address} (port={board.port}) {"PASS" if ok else "FAIL"}</text>')
         if result["reasons"]:
             lines.append(f'<text x="20" y="{base_y + 16}">' +
                          " ; ".join(result["reasons"]) + "</text>")
@@ -374,6 +387,8 @@ def main() -> int:
             monitor_board(args.name_b, ser_b, args),
         ]
 
+    if boards[0].identity.address == boards[1].identity.address:
+        raise SystemExit(f"duplicate *IDN? board address: {boards[0].identity.address}")
     results = [board_result(board.name, board) for board in boards]
     passed = all(result["passed"] for result in results)
 
@@ -382,6 +397,14 @@ def main() -> int:
         "duration_s": args.duration_s,
         "poll_interval_s": args.poll_interval_s,
         "ports": {args.name_a: args.port_a, args.name_b: args.port_b},
+        "boards": {
+            board.identity.address: {
+                "port": board.port,
+                "label": board.name,
+                "idn": board.identity.idn,
+            }
+            for board in boards
+        },
         "results": results,
         "note": "read-only TDMA ring monitor; firmware owns the resident ring",
     }
@@ -393,7 +416,8 @@ def main() -> int:
              ""]
     for result in results:
         lines.append(
-            f"{'PASS' if result['passed'] else 'FAIL'} {result['name']} {result['port']} "
+            f"{'PASS' if result['passed'] else 'FAIL'} {result['board_address']} "
+            f"(port={result['port']}, label={result['name']}) "
             f"reference={result['reference_board']} "
             f"up={result['up_running']} down={result['down_running']} "
             f"simultaneous={result['simultaneous_feedback_loop_evidence']} "
@@ -409,7 +433,7 @@ def main() -> int:
 
     with open(out_dir / "samples.csv", "w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["board", "ts_iso", "elapsed_s", "ok",
+        writer.writerow(["board_address", "port", "ts_iso", "elapsed_s", "ok",
                          "ring_enabled", "up_running", "down_running", "ring_seq",
                          "ring_last_error", "simultaneous", "adapter_service_count",
                          "idle_beacon_tx", "idle_beacon_rx", "round_trip_ns",
@@ -417,7 +441,7 @@ def main() -> int:
         for board in boards:
             for sample in board.samples:
                 writer.writerow([
-                    board.name, sample["ts_iso"], sample["elapsed_s"],
+                    board.identity.address, board.port, sample["ts_iso"], sample["elapsed_s"],
                     int(sample["ok"]),
                     field(sample, RING_ENABLED),
                     field(sample, RING_UP_RUNNING),
