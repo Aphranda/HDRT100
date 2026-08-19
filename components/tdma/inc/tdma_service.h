@@ -7,6 +7,7 @@
 
 #include "tdma_payload_registry.h"
 #include "tdma_flight_fifo.h"
+#include "tdma_flight_engine.h"
 #include "tdma_profile.h"
 #include "tdma_ring_runtime.h"
 #include "tdma_traffic_scheduler.h"
@@ -388,6 +389,7 @@ typedef struct {
     void *ops_context;
     tdma_payload_registry_t payload_registry;
     tdma_flight_fifo_t flight_fifo;
+    tdma_flight_engine_t flight_engine;
     tdma_ring_runtime_t ring_runtime;
     tdma_service_ring_runtime_config_t ring_staged_config;
     tdma_traffic_scheduler_t *traffic_scheduler;
@@ -440,6 +442,12 @@ bool tdma_service_get_result_frame(const tdma_service_service_t *service,
 bool tdma_service_get_flight_fifo_snapshot(
     const tdma_service_service_t *service,
     tdma_flight_fifo_snapshot_t *snapshot);
+bool tdma_service_configure_flight_map(
+    tdma_service_service_t *service,
+    const tdma_process_image_map_t *map);
+bool tdma_service_get_flight_engine_snapshot(
+    const tdma_service_service_t *service,
+    tdma_flight_engine_snapshot_t *snapshot);
 bool tdma_service_publish_flight_tx(tdma_service_service_t *service,
                                     const uint8_t *data,
                                     size_t data_size,

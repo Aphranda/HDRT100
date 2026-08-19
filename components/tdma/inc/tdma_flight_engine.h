@@ -1,0 +1,81 @@
+#ifndef TDMA_FLIGHT_ENGINE_H
+#define TDMA_FLIGHT_ENGINE_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "tdma_flight_fifo.h"
+#include "tdma_process_image_map.h"
+
+#define TDMA_FLIGHT_ENGINE_VERSION 1u
+
+typedef enum {
+    TDMA_FLIGHT_ENGINE_OK = 0u,
+    TDMA_FLIGHT_ENGINE_BAD_ARGUMENT = 1u,
+    TDMA_FLIGHT_ENGINE_LENGTH_REJECTED = 2u,
+    TDMA_FLIGHT_ENGINE_TX_UNAVAILABLE = 3u,
+} tdma_flight_engine_result_t;
+
+typedef struct {
+    uint32_t input_segment_mask;
+    uint32_t output_segment_mask;
+    uint32_t input_bytes;
+    uint32_t output_bytes;
+} tdma_flight_engine_apply_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t configured;
+    uint32_t active;
+    uint32_t local_slot_id;
+    uint32_t map_crc32;
+    uint32_t map_generation;
+    uint32_t payload_size;
+    uint32_t local_segment_count;
+    uint32_t map_apply_count;
+    uint32_t input_bytes;
+    uint32_t output_bytes;
+    uint32_t tx_stale_reuse_count;
+    uint32_t map_reject_count;
+    uint32_t length_reject_count;
+    uint32_t tx_unavailable_count;
+} tdma_flight_engine_snapshot_t;
+
+typedef struct {
+    volatile uint32_t configured;
+    volatile uint32_t active;
+    volatile uint32_t map_sequence;
+    volatile uint32_t map_generation;
+    uint32_t local_slot_id;
+    tdma_process_image_map_t map;
+    volatile uint32_t map_apply_count;
+    volatile uint32_t input_bytes;
+    volatile uint32_t output_bytes;
+    volatile uint32_t tx_stale_reuse_count;
+    volatile uint32_t map_reject_count;
+    volatile uint32_t length_reject_count;
+    volatile uint32_t tx_unavailable_count;
+} tdma_flight_engine_t;
+
+bool tdma_flight_engine_init(tdma_flight_engine_t *engine);
+bool tdma_flight_engine_configure(tdma_flight_engine_t *engine,
+                                  const tdma_process_image_map_t *map);
+bool tdma_flight_engine_activate(tdma_flight_engine_t *engine,
+                                 uint32_t local_slot_id);
+void tdma_flight_engine_deactivate(tdma_flight_engine_t *engine);
+bool tdma_flight_engine_is_configured(const tdma_flight_engine_t *engine);
+bool tdma_flight_engine_is_active(const tdma_flight_engine_t *engine);
+bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
+                              const uint8_t *incoming,
+                              size_t incoming_size,
+                              const tdma_flight_tx_view_t *tx_view,
+                              uint8_t *output,
+                              size_t output_capacity,
+                              tdma_flight_engine_apply_t *applied,
+                              tdma_flight_engine_result_t *result);
+bool tdma_flight_engine_get_snapshot(
+    const tdma_flight_engine_t *engine,
+    tdma_flight_engine_snapshot_t *snapshot);
+
+#endif

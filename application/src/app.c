@@ -192,6 +192,7 @@ void app_storage_service(void)
 void app_realtime_run_once(void)
 {
     diagnostics_record_core1_loop();
+    diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CORE1);
     vdc_dpll_manager_set_vdc_ready(true);
     vdc_sync_ao_service();
     vdc_dpll_manager_set_dpll_ready(true);

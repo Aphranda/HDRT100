@@ -1,5 +1,7 @@
 #include "tdma_ring_runtime.h"
 
+#include "tdma_transport_frame.h"
+
 #include <string.h>
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
@@ -110,6 +112,7 @@ bool tdma_ring_runtime_validate_config(
         return false;
     }
     if (config->node_count < 2u ||
+        config->node_count > TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT ||
         config->local_slot_id >= config->node_count ||
         config->reference_slot_id >= config->node_count ||
         (config->flags & TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN) == 0u ||

@@ -1,12 +1,15 @@
 #include "diagnostics.h"
 
 #include <stdarg.h>
+#include <string.h>
 
+#include "drv_watchdog.h"
 #include "portable_log_port.h"
 #include "pico/stdlib.h"
 #include "project_config.h"
 
 #define DIAGNOSTICS_LOG_SERVICE_BYTES 256u
+#define DIAGNOSTICS_WATCHDOG_SERVICE_PERIOD_MS 100u
 
 static bool s_fault_latched;
 static volatile uint32_t s_core0_loop_count;
@@ -14,6 +17,24 @@ static volatile uint32_t s_core1_loop_count;
 static volatile uint32_t s_core0_last_ms;
 static volatile uint32_t s_core1_last_ms;
 static uint32_t s_housekeeping_last_ms;
+static volatile uint32_t s_watchdog_seen_mask;
+static uint32_t s_watchdog_expected_mask;
+static uint32_t s_watchdog_required_mask;
+static uint32_t s_watchdog_last_service_ms;
+static volatile bool s_watchdog_test_stall;
+static bool s_watchdog_stale_logged;
+static volatile uint32_t s_watchdog_status_sequence;
+static diagnostics_watchdog_status_t s_watchdog_status;
+
+static void diagnostics_watchdog_status_write_begin(void)
+{
+    (void)__atomic_add_fetch(&s_watchdog_status_sequence, 1u, __ATOMIC_ACQ_REL);
+}
+
+static void diagnostics_watchdog_status_write_end(void)
+{
+    (void)__atomic_add_fetch(&s_watchdog_status_sequence, 1u, __ATOMIC_RELEASE);
+}
 
 static void diagnostics_record_core_loop(volatile uint32_t *loop_count,
                                          volatile uint32_t *last_ms)
@@ -66,7 +87,36 @@ void diagnostics_init(void)
     s_core0_last_ms = 0u;
     s_core1_last_ms = 0u;
     s_housekeeping_last_ms = 0u;
+    s_watchdog_seen_mask = 0u;
+    s_watchdog_expected_mask = 0u;
+    s_watchdog_required_mask = 0u;
+    s_watchdog_last_service_ms = 0u;
+    s_watchdog_test_stall = false;
+    s_watchdog_stale_logged = false;
+    s_watchdog_status_sequence = 0u;
+    (void)memset(&s_watchdog_status, 0, sizeof(s_watchdog_status));
     portable_log_port_init();
+
+    drv_watchdog_reset_snapshot_t reset;
+    drv_watchdog_get_reset_snapshot(&reset);
+    s_watchdog_status.last_reset_watchdog = reset.watchdog_caused_reboot;
+    s_watchdog_status.last_reset_timeout = reset.watchdog_enable_caused_reboot;
+    s_watchdog_status.reset_reason = reset.reason;
+    s_watchdog_status.evidence_magic = reset.scratch[0];
+    s_watchdog_status.evidence_expected_mask = reset.scratch[1];
+    s_watchdog_status.evidence_seen_mask = reset.scratch[2] & 0xFFFFu;
+    s_watchdog_status.evidence_stale_mask = reset.scratch[2] >> 16u;
+    s_watchdog_status.evidence_core0_loop_count = reset.scratch[3] & 0xFFFFu;
+    s_watchdog_status.evidence_core1_loop_count = reset.scratch[3] >> 16u;
+
+    if (s_watchdog_status.last_reset_watchdog) {
+        LOG_WARN("watchdog", "previous reset=%s reason=0x%08lx expected=0x%08lx seen=0x%08lx stale=0x%08lx",
+                 s_watchdog_status.last_reset_timeout ? "TIMEOUT" : "SOFTWARE",
+                 (unsigned long)s_watchdog_status.reset_reason,
+                 (unsigned long)s_watchdog_status.evidence_expected_mask,
+                 (unsigned long)s_watchdog_status.evidence_seen_mask,
+                 (unsigned long)s_watchdog_status.evidence_stale_mask);
+    }
 }
 
 void diagnostics_service(uint32_t max_bytes)
@@ -165,6 +215,116 @@ void diagnostics_get_core_status(diagnostics_core_status_t *status)
 #else
     status->core1_enabled = false;
 #endif
+}
+
+void diagnostics_watchdog_configure(uint32_t expected_mask)
+{
+    s_watchdog_expected_mask = expected_mask;
+    s_watchdog_required_mask = (1u << DIAGNOSTICS_WATCHDOG_TASK_SYSTEM) |
+                               (1u << DIAGNOSTICS_WATCHDOG_TASK_CORE1);
+    s_watchdog_seen_mask = 0u;
+    s_watchdog_last_service_ms = to_ms_since_boot(get_absolute_time());
+    diagnostics_watchdog_status_write_begin();
+    s_watchdog_status.last_seen_mask = 0u;
+    s_watchdog_status.last_stale_mask = expected_mask;
+    s_watchdog_status.gate_required_mask = s_watchdog_required_mask;
+    diagnostics_watchdog_status_write_end();
+}
+
+void diagnostics_watchdog_enable(uint32_t timeout_ms)
+{
+    diagnostics_watchdog_status_write_begin();
+    s_watchdog_status.timeout_ms = timeout_ms;
+    s_watchdog_status.enabled = true;
+    diagnostics_watchdog_status_write_end();
+    drv_watchdog_enable(timeout_ms);
+}
+
+void diagnostics_watchdog_task_heartbeat(diagnostics_watchdog_task_t task)
+{
+    if ((uint32_t)task >= (uint32_t)DIAGNOSTICS_WATCHDOG_TASK_COUNT) {
+        return;
+    }
+
+    (void)__atomic_fetch_or(&s_watchdog_seen_mask, 1u << (uint32_t)task, __ATOMIC_RELEASE);
+}
+
+void diagnostics_watchdog_service(void)
+{
+    if (!s_watchdog_status.enabled) {
+        return;
+    }
+
+    const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+    if ((uint32_t)(now_ms - s_watchdog_last_service_ms) <
+        DIAGNOSTICS_WATCHDOG_SERVICE_PERIOD_MS) {
+        return;
+    }
+    s_watchdog_last_service_ms = now_ms;
+
+    const uint32_t seen_mask = __atomic_exchange_n(&s_watchdog_seen_mask, 0u, __ATOMIC_ACQ_REL);
+    uint32_t stale_mask = s_watchdog_expected_mask & ~seen_mask;
+    if (s_watchdog_test_stall) {
+        /* Validation-only path: leave a deterministic core1 marker in the
+         * retained evidence, then let the hardware watchdog expire. */
+        stale_mask |= 1u << DIAGNOSTICS_WATCHDOG_TASK_CORE1;
+    }
+    diagnostics_core_status_t core;
+    diagnostics_get_core_status(&core);
+    drv_watchdog_write_evidence(DIAGNOSTICS_WATCHDOG_EVIDENCE_MAGIC,
+                                s_watchdog_expected_mask,
+                                seen_mask,
+                                stale_mask,
+                                core.core0_loop_count,
+                                core.core1_loop_count);
+    diagnostics_watchdog_status_write_begin();
+    s_watchdog_status.last_seen_mask = seen_mask;
+    s_watchdog_status.last_stale_mask = stale_mask;
+    s_watchdog_status.supervisor_count++;
+    diagnostics_watchdog_status_write_end();
+
+    if ((stale_mask & s_watchdog_required_mask) == 0u) {
+        s_watchdog_stale_logged = false;
+        drv_watchdog_feed();
+        return;
+    }
+
+    if (!s_watchdog_stale_logged) {
+        s_watchdog_stale_logged = true;
+        LOG_ERROR("watchdog", "health gate stale=0x%08lx seen=0x%08lx; reset pending",
+                  (unsigned long)stale_mask,
+                  (unsigned long)seen_mask);
+    }
+}
+
+void diagnostics_watchdog_request_test_stall(void)
+{
+#if PROJECT_ENABLE_WATCHDOG_TEST
+    s_watchdog_test_stall = true;
+    LOG_WARN("watchdog", "validation stall requested; hardware reset expected");
+#endif
+}
+
+void diagnostics_get_watchdog_status(diagnostics_watchdog_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+
+    for (;;) {
+        const uint32_t sequence_before =
+            __atomic_load_n(&s_watchdog_status_sequence, __ATOMIC_ACQUIRE);
+        if ((sequence_before & 1u) != 0u) {
+            continue;
+        }
+        *status = s_watchdog_status;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t sequence_after =
+            __atomic_load_n(&s_watchdog_status_sequence, __ATOMIC_RELAXED);
+        if (sequence_before == sequence_after && (sequence_after & 1u) == 0u) {
+            return;
+        }
+    }
 }
 
 void diagnostics_heartbeat(uint32_t period_ms)

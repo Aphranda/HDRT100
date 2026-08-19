@@ -330,6 +330,9 @@ bool tdma_service_init(tdma_service_service_t *service)
     if (!tdma_flight_fifo_init(&service->flight_fifo)) {
         return false;
     }
+    if (!tdma_flight_engine_init(&service->flight_engine)) {
+        return false;
+    }
     tdma_service_set_default_timestamp(service);
     return true;
 }
@@ -1128,6 +1131,30 @@ bool tdma_service_get_flight_fifo_snapshot(
         return false;
     }
     return tdma_flight_fifo_get_snapshot(&service->flight_fifo, snapshot);
+}
+
+bool tdma_service_configure_flight_map(
+    tdma_service_service_t *service,
+    const tdma_process_image_map_t *map)
+{
+    if (service == NULL || map == NULL) {
+        return false;
+    }
+    tdma_ring_runtime_snapshot_t ring_snapshot;
+    if (!tdma_ring_runtime_get_snapshot(&service->ring_runtime,
+                                        &ring_snapshot) ||
+        ring_snapshot.enabled != 0u || ring_snapshot.adapter_started != 0u) {
+        return false;
+    }
+    return tdma_flight_engine_configure(&service->flight_engine, map);
+}
+
+bool tdma_service_get_flight_engine_snapshot(
+    const tdma_service_service_t *service,
+    tdma_flight_engine_snapshot_t *snapshot)
+{
+    return service != NULL && snapshot != NULL &&
+           tdma_flight_engine_get_snapshot(&service->flight_engine, snapshot);
 }
 
 bool tdma_service_publish_flight_tx(tdma_service_service_t *service,

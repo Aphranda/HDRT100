@@ -213,3 +213,108 @@ scpi_result_t scpi_cmd_led_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.pattern_transition_count);
     return SCPI_RES_OK;
 }
+
+scpi_result_t scpi_cmd_watchdog_status_q(scpi_t *context)
+{
+    diagnostics_watchdog_status_t status;
+    diagnostics_get_watchdog_status(&status);
+
+    SCPI_ResultBool(context, status.enabled ? TRUE : FALSE);
+    SCPI_ResultBool(context, status.last_reset_watchdog ? TRUE : FALSE);
+    SCPI_ResultBool(context, status.last_reset_timeout ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.timeout_ms);
+    SCPI_ResultUInt32(context, status.reset_reason);
+    SCPI_ResultUInt32(context, status.evidence_magic);
+    SCPI_ResultUInt32(context, status.evidence_expected_mask);
+    SCPI_ResultUInt32(context, status.evidence_seen_mask);
+    SCPI_ResultUInt32(context, status.evidence_stale_mask);
+    SCPI_ResultUInt32(context, status.evidence_core0_loop_count);
+    SCPI_ResultUInt32(context, status.evidence_core1_loop_count);
+    SCPI_ResultUInt32(context, status.gate_required_mask);
+    SCPI_ResultUInt32(context, status.last_seen_mask);
+    SCPI_ResultUInt32(context, status.last_stale_mask);
+    SCPI_ResultUInt32(context, status.supervisor_count);
+    return SCPI_RES_OK;
+}
+
+static const char *scpi_watchdog_reset_type(const diagnostics_watchdog_status_t *status)
+{
+    if (!status->last_reset_watchdog) {
+        return "POWER_OR_EXTERNAL";
+    }
+    return status->last_reset_timeout ? "WATCHDOG_TIMEOUT" : "SOFTWARE_REBOOT";
+}
+
+static const char *scpi_watchdog_task_name(uint32_t mask)
+{
+    static const char *const names[DIAGNOSTICS_WATCHDOG_TASK_COUNT] = {
+        "SYSTEM", "USB_DEVICE", "SCPI", "REFMEM_SYNC", "LOOP_ENGINE",
+        "CALIBRATION", "CONFIG_GATE", "OTA", "STORAGE", "UI", "CORE1",
+    };
+
+    if (mask == 0u) {
+        return "NONE";
+    }
+    if ((mask & (mask - 1u)) != 0u) {
+        return "MULTIPLE";
+    }
+    for (uint32_t i = 0u; i < (uint32_t)DIAGNOSTICS_WATCHDOG_TASK_COUNT; i++) {
+        if (mask == (1u << i)) {
+            return names[i];
+        }
+    }
+    return "UNKNOWN";
+}
+
+static const char *scpi_watchdog_cause(const diagnostics_watchdog_status_t *status)
+{
+    const uint32_t critical_stale = status->evidence_stale_mask &
+        ((1u << DIAGNOSTICS_WATCHDOG_TASK_SYSTEM) |
+         (1u << DIAGNOSTICS_WATCHDOG_TASK_CORE1));
+
+    if (!status->last_reset_timeout) {
+        return "NONE";
+    }
+    if (status->evidence_magic != DIAGNOSTICS_WATCHDOG_EVIDENCE_MAGIC) {
+        return "EVIDENCE_MISSING";
+    }
+    if (critical_stale == 0u) {
+        return "CORE0_SUPERVISOR_STALL";
+    }
+    if (critical_stale ==
+        (1u << DIAGNOSTICS_WATCHDOG_TASK_CORE1)) {
+        return "CORE1_STALL";
+    }
+    return "TASK_STALL";
+}
+
+scpi_result_t scpi_cmd_watchdog_log_q(scpi_t *context)
+{
+    diagnostics_watchdog_status_t status;
+    diagnostics_get_watchdog_status(&status);
+    const uint32_t critical_stale = status.evidence_stale_mask &
+        ((1u << DIAGNOSTICS_WATCHDOG_TASK_SYSTEM) |
+         (1u << DIAGNOSTICS_WATCHDOG_TASK_CORE1));
+    const bool evidence_valid = status.last_reset_timeout &&
+        status.evidence_magic == DIAGNOSTICS_WATCHDOG_EVIDENCE_MAGIC;
+
+    SCPI_ResultText(context, scpi_watchdog_reset_type(&status));
+    SCPI_ResultText(context, scpi_watchdog_cause(&status));
+    SCPI_ResultText(context, scpi_watchdog_task_name(critical_stale));
+    SCPI_ResultUInt32(context, status.reset_reason);
+    SCPI_ResultBool(context, evidence_valid ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.evidence_expected_mask);
+    SCPI_ResultUInt32(context, status.evidence_seen_mask);
+    SCPI_ResultUInt32(context, status.evidence_stale_mask);
+    SCPI_ResultUInt32(context, status.evidence_core0_loop_count);
+    SCPI_ResultUInt32(context, status.evidence_core1_loop_count);
+    return SCPI_RES_OK;
+}
+
+#if PROJECT_ENABLE_WATCHDOG_TEST
+scpi_result_t scpi_cmd_watchdog_test(scpi_t *context)
+{
+    diagnostics_watchdog_request_test_stall();
+    return scpi_port_result_ok(context);
+}
+#endif

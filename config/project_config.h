@@ -32,6 +32,10 @@ static const char g_project_build_id[] = "dev";
 #define PROJECT_HEALTH_LOG_PERIOD_MS 1000u
 #define PROJECT_WATCHDOG_TIMEOUT_MS 3000u
 
+#ifndef PROJECT_ENABLE_WATCHDOG_TEST
+#define PROJECT_ENABLE_WATCHDOG_TEST 0
+#endif
+
 #ifndef PROJECT_ENABLE_HEALTH_LOG
 #define PROJECT_ENABLE_HEALTH_LOG 0
 #endif

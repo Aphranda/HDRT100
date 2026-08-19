@@ -8,6 +8,34 @@ Last updated: 2026-08-19
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
+### TDMA-TASK-20260819-002 - EtherCAT-style fixed-offset flight processing
+
+- 状态：完成 V1 完整帧软件 flight engine；未宣称 PIO/DMA 真正 cut-through。
+- 日期：2026-08-19
+- 任务目标：在严格 HAOFV 边界下，把 core0 发布的 active TX image 与 core1 的 cyclic frame boundary 连接起来，用冻结的 `TdmaProcessImageMap` 执行本地 input/output block 交换。
+- 完成内容：
+  - 新增 `tdma_flight_engine`，只依赖 `TdmaProcessImageMap` 和 `tdma_flight_fifo`，不调用 VDC、RefMem 或 Trigger 解码器。
+  - map 只能在 ring STOP 状态由 TDMA service 配置；adapter START 时按 local slot 激活，RUN 中不允许改 offset。
+  - follower 收到 `CYCLIC_PROCESS_IMAGE + FLIGHT_MUTABLE` 后复制完整 payload，提取本地 input mask，并替换本地 `FLIGHT_WRITE` 固定段；随后使用现有 V1 API 更新 transport CRC 和 hop。
+  - active ring 明确限制为 2 至 8 节点；reference `hop_limit=node_count-1`，8 节点部署对应 7 hop。
+  - TX image 在同一 frame 的所有本地 output segment 中复用同一个 generation；没有新 generation 时复用上一版，首帧无 active image 时原样旁路并记录 `TX_UNAVAILABLE`。
+  - RX FIFO 满时只丢弃 core0 mirror，不影响 wire forward；新增 `SYSTem:TDMA:FLIGHT:PROCess?` 查询 map/byte/counter 证据。
+- 验证结果：
+  - `run_tdma_pio_spi_ring_adapter_tests.ps1` 通过，覆盖多 segment replacement、nonlocal byte preservation、generation reuse、长度拒绝和 RX mirror 满队列继续 forwarding。
+  - `run_tdma_process_image_map_tests.ps1` 通过。
+  - `RP2350_TRIG_UPDATE.pkg` 已用 OTA 写入 COM3 并重启/commit；build `20260819152706`，package CRC32 `0x81C762C4`。
+  - COM3 `TRAIN 4096` + `START` + 25 MHz 单板回环通过；坏帧、物理 RX 错误、ring overrun 增量均为 0。`TIMESTAMP_MISSING` 仍符合尚未接硬件 edge latch 的架构边界。
+- 还需完成：
+  - 将正式 System Pack/DeploymentGate process-image map、generation/dirty/target/segment CRC 头接入 TDMA owner。
+  - 实现尾部 CRC/WKC V2，并在 PIO/DMA 上证明 RX/TX overlap、固定 hop pipeline delay、无 underflow/overrun 后，才可称为严格 cut-through flight mode。
+  - 接入硬件 TX/RX edge timestamp latch。
+- 关联文件：
+  - `components/tdma/inc/tdma_flight_engine.h`
+  - `components/tdma/src/tdma_flight_engine.c`
+  - `components/tdma/src/tdma_pio_spi_ring_adapter.c`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+- 下一步：先定义正式 System Pack process-image table 的 wire contract，再把 map staged/active 双缓冲接入 DeploymentGate；不要在运行态开放串口 map 写入口。
+
 ## 记录规则
 
 每条任务记录使用以下格式：

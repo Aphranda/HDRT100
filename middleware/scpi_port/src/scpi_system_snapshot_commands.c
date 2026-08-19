@@ -2210,6 +2210,33 @@ scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    tdma_flight_engine_snapshot_t snapshot;
+    if (owner == NULL ||
+        !tdma_service_get_flight_engine_snapshot(owner, &snapshot)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.configured);
+    SCPI_ResultUInt32(context, snapshot.active);
+    SCPI_ResultUInt32(context, snapshot.local_slot_id);
+    SCPI_ResultUInt32(context, snapshot.map_crc32);
+    SCPI_ResultUInt32(context, snapshot.map_generation);
+    SCPI_ResultUInt32(context, snapshot.payload_size);
+    SCPI_ResultUInt32(context, snapshot.local_segment_count);
+    SCPI_ResultUInt32(context, snapshot.map_apply_count);
+    SCPI_ResultUInt32(context, snapshot.input_bytes);
+    SCPI_ResultUInt32(context, snapshot.output_bytes);
+    SCPI_ResultUInt32(context, snapshot.tx_stale_reuse_count);
+    SCPI_ResultUInt32(context, snapshot.map_reject_count);
+    SCPI_ResultUInt32(context, snapshot.length_reject_count);
+    SCPI_ResultUInt32(context, snapshot.tx_unavailable_count);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_flight_tx(scpi_t *context)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();

@@ -31,6 +31,7 @@ set(PROJECT_ENABLE_UART_STDIO OFF CACHE BOOL "Enable product debug stdio over UA
 set(PROJECT_ENABLE_LOG_UART_OUTPUT ON CACHE BOOL "Route live diagnostic LOG output to the product debug UART")
 set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors")
 set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA validation SCPI commands")
+set(PROJECT_ENABLE_WATCHDOG_TEST OFF CACHE BOOL "Enable destructive watchdog validation SCPI command")
 set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
 set(PROJECT_USE_FREERTOS ON CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
 set(PROJECT_USE_MULTICORE ON CACHE BOOL "Run realtime trigger service on RP2350 core1")
@@ -243,6 +244,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_profile.c
         components/tdma/src/tdma_payload_registry.c
         components/tdma/src/tdma_flight_fifo.c
+        components/tdma/src/tdma_flight_engine.c
         components/tdma/src/tdma_pio_spi_phys.c
         components/tdma/src/tdma_pio_spi_ring_adapter.c
         components/tdma/src/tdma_process_image_map.c
@@ -429,6 +431,7 @@ function(project_configure_app_target target_name app_name linker_script)
         PROJECT_ENABLE_UART_STDIO=$<BOOL:${PROJECT_ENABLE_UART_STDIO}>
         PROJECT_ENABLE_LOG_UART_OUTPUT=$<BOOL:${PROJECT_ENABLE_LOG_UART_OUTPUT}>
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
+        PROJECT_ENABLE_WATCHDOG_TEST=$<BOOL:${PROJECT_ENABLE_WATCHDOG_TEST}>
         PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>
         PROJECT_USE_FREERTOS=$<BOOL:${PROJECT_USE_FREERTOS}>
         PROJECT_USE_MULTICORE=$<BOOL:${PROJECT_USE_MULTICORE}>

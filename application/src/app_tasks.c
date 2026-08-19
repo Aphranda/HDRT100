@@ -11,6 +11,7 @@
 #include "loop_engine.h"
 #include "led_manager.h"
 #include "osal.h"
+#include "project_config.h"
 #include "ui_manager.h"
 
 static void task_system(void *context)
@@ -22,12 +23,16 @@ static void task_system(void *context)
     }
 
     app_runtime_start_realtime_core();
+    diagnostics_watchdog_configure((1u << DIAGNOSTICS_WATCHDOG_TASK_COUNT) - 1u);
+    diagnostics_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
 
     while (true) {
         diagnostics_record_core0_loop();
         board_service();
         led_manager_service(app_is_ready());
         app_diag_service();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_SYSTEM);
+        diagnostics_watchdog_service();
         osal_task_delay_ms(1u);
     }
 }
@@ -43,6 +48,7 @@ static void task_usb_device(void *context)
         }
 
         app_usb_device_service();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_USB_DEVICE);
         osal_task_delay_ms(1u);
     }
 }
@@ -58,6 +64,7 @@ static void task_scpi(void *context)
         }
 
         app_scpi_service();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_SCPI);
         osal_task_delay_ms(1u);
     }
 }
@@ -73,6 +80,7 @@ static void task_refmem_sync(void *context)
         }
 
         app_refmem_service();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_REFMEM_SYNC);
         osal_task_delay_ms(1u);
     }
 }
@@ -89,6 +97,7 @@ static void task_loop_engine(void *context)
 
         loop_engine_set_ready(true);
         loop_engine_service();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_LOOP_ENGINE);
         osal_task_delay_ms(1u);
     }
 }
@@ -105,6 +114,7 @@ static void task_calibration(void *context)
 
         calibration_manager_set_ready(true);
         calibration_manager_service();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CALIBRATION);
         osal_task_delay_ms(1u);
     }
 }
@@ -120,6 +130,7 @@ static void task_config_gate(void *context)
         }
 
         app_config_gate_service();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CONFIG_GATE);
         osal_task_delay_ms(1u);
     }
 }
@@ -135,6 +146,7 @@ static void task_ota(void *context)
         }
 
         app_ota_service();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_OTA);
         osal_task_delay_ms(1u);
     }
 }
@@ -150,6 +162,7 @@ static void task_storage(void *context)
         }
 
         app_storage_service();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_STORAGE);
         osal_task_delay_ms(1u);
     }
 }
@@ -165,6 +178,7 @@ static void task_ui(void *context)
         }
 
         ui_manager_service();
+        diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_UI);
         osal_task_delay_ms(1u);
     }
 }

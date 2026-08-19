@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "tdma_flight_fifo.h"
+#include "tdma_flight_engine.h"
 #include "tdma_ring_runtime.h"
 #include "tdma_transport_frame.h"
 
@@ -37,6 +38,7 @@ typedef enum {
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_TX_FAILED = 3u,
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_BAD_FRAME = 4u,
     TDMA_PIO_SPI_RING_ADAPTER_ERROR_RX_QUEUE_FULL = 5u,
+    TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT = 6u,
 } tdma_pio_spi_ring_adapter_error_t;
 
 /* Ring node role (derived from the active ring config):
@@ -105,6 +107,17 @@ typedef struct {
     uint32_t schedule_crc32;
     uint32_t ring_profile_crc32;
     uint32_t feedback_timeout_ns;
+    uint32_t flight_map_configured;
+    uint32_t flight_map_active;
+    uint32_t flight_map_crc32;
+    uint32_t flight_map_generation;
+    uint32_t flight_map_apply_count;
+    uint32_t flight_input_bytes;
+    uint32_t flight_output_bytes;
+    uint32_t flight_tx_stale_reuse_count;
+    uint32_t flight_map_reject_count;
+    uint32_t flight_length_reject_count;
+    uint32_t flight_tx_unavailable_count;
 } tdma_pio_spi_ring_adapter_snapshot_t;
 
 typedef struct {
@@ -118,6 +131,8 @@ typedef struct {
     tdma_pio_spi_ring_phys_train_fn phys_train;
     void *phys_ctrl_context;
     tdma_flight_fifo_t *flight_fifo;
+    tdma_flight_engine_t *flight_engine;
+    volatile uint32_t snapshot_guard;
     tdma_pio_spi_ring_role_t role;
     uint32_t started;
     uint32_t service_count;
@@ -169,6 +184,9 @@ void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
 void tdma_pio_spi_ring_adapter_set_flight_fifo(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_flight_fifo_t *fifo);
+void tdma_pio_spi_ring_adapter_set_flight_engine(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_flight_engine_t *engine);
 bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
                                          const uint8_t *packet,
                                          size_t packet_size,
