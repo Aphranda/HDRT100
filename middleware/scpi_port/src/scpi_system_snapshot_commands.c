@@ -2235,6 +2235,27 @@ scpi_result_t scpi_cmd_system_tdma_ring_stop(scpi_t *context)
     return scpi_port_result_ok(context);
 }
 
+scpi_result_t scpi_cmd_system_tdma_ring_log(scpi_t *context)
+{
+    scpi_bool_t enabled = FALSE;
+    if (SCPI_ParamBool(context, &enabled, TRUE) != TRUE) {
+        return SCPI_RES_ERR;
+    }
+    if (!distributed_refmem_set_tdma_ring_log_enabled(enabled ? true : false)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_LOG");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultBool(context, enabled);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_ring_log_q(scpi_t *context)
+{
+    SCPI_ResultBool(context,
+                    distributed_refmem_get_tdma_ring_log_enabled() ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
 static bool scpi_refmem_wait_storage_job(uint32_t job_id)
 {
     for (uint32_t i = 0u; i < SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS; i++) {

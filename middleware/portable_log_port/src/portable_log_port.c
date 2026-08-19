@@ -1,8 +1,12 @@
 #include "portable_log_port.h"
 
+#include "board_config.h"
+#include "hardware/gpio.h"
+#include "hardware/uart.h"
 #include "osal.h"
 #include "pico/stdlib.h"
 #include "portable_log.h"
+#include "project_config.h"
 
 enum {
     PORTABLE_LOG_PORT_LINE_BUFFER_SIZE = 192,
@@ -27,6 +31,7 @@ static uint32_t s_log_persistent_queue_count;
 static uint32_t s_log_persistent_queue_high_watermark;
 static uint32_t s_log_persistent_queue_dropped_count;
 static uint32_t s_log_persistent_queue_dropped_bytes;
+static bool s_uart_ready;
 
 typedef struct {
     portable_log_port_level_t port_level;
@@ -145,9 +150,13 @@ static bool portable_log_port_emit(void *user, const char *text, size_t length)
         return false;
     }
 
-    const bool usb_ok = portable_log_port_queue_push(text, length);
+#if PROJECT_ENABLE_LOG_UART_OUTPUT
+    const bool live_ok = portable_log_port_queue_push(text, length);
+#else
+    const bool live_ok = true;
+#endif
     (void)portable_log_port_persistent_queue_push(text, length);
-    return usb_ok;
+    return live_ok;
 }
 
 static void portable_log_port_lock(void *user)
@@ -168,6 +177,15 @@ static void portable_log_port_init_once(void)
         return;
     }
 
+#if PROJECT_ENABLE_LOG_UART_OUTPUT
+    if (!s_uart_ready) {
+        uart_init(BOARD_UART_PORT, BOARD_UART_BAUD_HZ);
+        gpio_set_function(BOARD_UART_TX_PIN, GPIO_FUNC_UART);
+        gpio_set_function(BOARD_UART_RX_PIN, GPIO_FUNC_UART);
+        s_uart_ready = true;
+    }
+#endif
+
     const portable_log_config_t config = {
         .time_ms = portable_log_port_time_ms,
         .emit = portable_log_port_emit,
@@ -185,6 +203,7 @@ static void portable_log_port_init_once(void)
 void portable_log_port_init(void)
 {
     s_log_initialized = false;
+    s_uart_ready = false;
     osal_critical_enter();
     s_log_queue_head = 0u;
     s_log_queue_tail = 0u;
@@ -205,6 +224,7 @@ void portable_log_port_service(uint32_t max_bytes)
 {
     portable_log_port_init_once();
 
+#if PROJECT_ENABLE_LOG_UART_OUTPUT
     uint32_t budget = max_bytes != 0u ? max_bytes : PORTABLE_LOG_PORT_SERVICE_BYTES_DEFAULT;
     while (budget > 0u) {
         char ch;
@@ -216,9 +236,12 @@ void portable_log_port_service(uint32_t max_bytes)
             break;
         }
 
-        putchar_raw(ch);
+        uart_putc_raw(BOARD_UART_PORT, ch);
         budget--;
     }
+#else
+    (void)max_bytes;
+#endif
 }
 
 void portable_log_port_vwrite(portable_log_port_level_t level,

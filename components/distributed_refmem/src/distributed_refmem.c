@@ -83,6 +83,7 @@ static distributed_refmem_node_load_auto_sync_t s_node_load_auto_sync;
 static uint32_t s_service_count;
 static bool s_initialized;
 static uint32_t s_tdma_ring_log_last_ms;
+static bool s_tdma_ring_log_enabled;
 
 static void distributed_refmem_log_tdma_ring_service(void);
 
@@ -835,6 +836,8 @@ bool distributed_refmem_init(void)
 {
     memset(&s_status, 0, sizeof(s_status));
     s_initialized = false;
+    s_tdma_ring_log_enabled = PROJECT_ENABLE_TDMA_RING_LOG ? true : false;
+    s_tdma_ring_log_last_ms = 0u;
     s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_APP_MODEL;
     if (!refmem_application_model_init()) {
         return distributed_refmem_mark_init_failed(
@@ -972,7 +975,7 @@ void distributed_refmem_service(void)
  * post-hoc diagnosis, and never submits TX/RX intents. */
 static void distributed_refmem_log_tdma_ring_service(void)
 {
-    if (ota_ao_is_active()) {
+    if (ota_ao_is_active() || !s_tdma_ring_log_enabled) {
         return;
     }
     const uint32_t now_ms = osal_tick_ms();
@@ -1923,6 +1926,24 @@ bool distributed_refmem_tdma_ring_stop(void)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
     return s_initialized && owner != NULL && tdma_service_ring_stop(owner);
+}
+
+bool distributed_refmem_set_tdma_ring_log_enabled(bool enabled)
+{
+    if (!s_initialized) {
+        return false;
+    }
+
+    s_tdma_ring_log_enabled = enabled;
+    if (!enabled) {
+        s_tdma_ring_log_last_ms = 0u;
+    }
+    return true;
+}
+
+bool distributed_refmem_get_tdma_ring_log_enabled(void)
+{
+    return s_tdma_ring_log_enabled;
 }
 
 void distributed_refmem_get_core_vector(distributed_refmem_core_vector_snapshot_t *snapshot)

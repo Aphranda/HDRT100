@@ -36,6 +36,14 @@ static const char g_project_build_id[] = "dev";
 #define PROJECT_ENABLE_HEALTH_LOG 0
 #endif
 
+#ifndef PROJECT_ENABLE_TDMA_RING_LOG
+#define PROJECT_ENABLE_TDMA_RING_LOG 0
+#endif
+
+#ifndef PROJECT_ENABLE_LOG_UART_OUTPUT
+#define PROJECT_ENABLE_LOG_UART_OUTPUT 1
+#endif
+
 #ifndef PROJECT_ENABLE_OTA_FAULT_INJECTION
 #define PROJECT_ENABLE_OTA_FAULT_INJECTION 0
 #endif

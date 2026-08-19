@@ -291,5 +291,7 @@ bool distributed_refmem_tdma_ring_arm(void);
 bool distributed_refmem_tdma_ring_train(uint32_t cycles);
 bool distributed_refmem_tdma_ring_start(void);
 bool distributed_refmem_tdma_ring_stop(void);
+bool distributed_refmem_set_tdma_ring_log_enabled(bool enabled);
+bool distributed_refmem_get_tdma_ring_log_enabled(void);
 
 #endif
