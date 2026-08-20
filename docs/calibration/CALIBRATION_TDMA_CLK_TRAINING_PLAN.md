@@ -1,12 +1,15 @@
-# TDMA SPI CLK 分级训练方案
+# 校准域 TDMA SPI CLK 分级训练方案
 
 Status: Active
-Domain: TDMA
-Canonical: `docs/tdma/TDMA_CLK_TRAINING_PLAN.md`
-Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
+Domain: CALIBRATION / TDMA Clock Training
+Canonical: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`
+Related: `docs/calibration/README.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
 Last updated: 2026-08-20
 
-本文档独立维护多板 TDMA SPI CLK 训练流程。第一阶段总结已经实现并完成四板 HIL 的
+本文档是校准域维护的多板 TDMA SPI CLK 训练事实源。校准域拥有 CLK/DATA/SYNC
+物理测量、双向时间传递、residence、endpoint bias、path-delay candidate、统计质量、
+generation/freshness 以及 EtherCAT DC 风格的训练状态和接受门禁；TDMA 只提供训练传输
+persona、PIO/SM/DMA/core1 资源和窗口编排。第一阶段总结已经实现并完成四板 HIL 的
 CLK 往返粗捕获；第二阶段规划使用编码 marker、PIO 过采样和板内相关匹配，把粗区间继续
 缩小。本文档中的第二阶段 wire 图样、阈值和新增 SCPI 拼写仍是 candidate，必须在实现、
 单元测试和 HIL 形成后再按文档登记流程冻结。
@@ -45,17 +48,19 @@ build 有效；其中任一项变化都要求重新训练。
 ```text
 SCPI/core0
   -> 有界原子 command slot
-  -> TdmaSchedulerAO / core1 唯一 owner
+  -> TdmaSchedulerAO / core1 transport owner
   -> TDMA adapter
   -> PIO TX / PIO forwarding / PIO RX + DMA
   -> guarded/seqlock 训练 snapshot
+  -> CalibrationAO 测量/统计/接受门禁
   -> SCPI status / host tool 只读采集
 ```
 
 必须保持以下边界：
 
 1. SCPI callback 不同步操作 PIO、DMA 或等待某个边沿，只校验参数并提交 intent。
-2. core1 是训练状态和 PIO persona 的唯一 owner；core0 不参与实时转发和相关计算热路径。
+2. core1 是 TDMA transport 状态和 PIO persona 的唯一 owner；CalibrationAO 拥有测量、统计、
+   calibration generation/freshness 和接受门禁，core0 不参与实时转发和相关计算热路径。
 3. follower 只透明再生 CLK 边沿，不解析 marker，不修改 marker。
 4. master PIO 自主发送和采样；CPU service 只收割固定大小结果，不参与边沿排序。
 5. snapshot 使用 guard/seqlock 发布；查询不能阻塞 core1。
@@ -479,6 +484,109 @@ commit sequence 必须在普通 TDMA persona 仍运行时完成。任一 active 
 | 重复性 | 四主多次重复无系统性 slot 偏移，mixed/reject 比例低于冻结阈值 |
 | 故障恢复 | 任一失败统一 STOP，普通 persona 可重建，不形成无限 CLK 环 |
 | DPLL 门禁 | 未满足 hardware-latched、非 diagnostic-only 前，VDC/DPLL 必须拒绝 |
+
+## 第三阶段：对称双面双向测距
+
+第三阶段不再把整圈 CLK RTT 平均分摊到各 link，而是利用每条相邻板卡链路上方向相反
+的 `CLK` 与 `DATA` 物理路径，执行双向同时对比法（对称双面双向测距、双程时间传递）。
+`SYNC` 是同一 `train_epoch/sequence` 的事务标记，负责把两条相反方向的边沿锁定在同一
+次测量中；它不是额外的传播延迟假设，也不承担业务 VDC 语义。
+
+### 单链路时间戳方程
+
+对链路 `A -> B`，约定 `CLK` 从 A 到 B，`DATA` 从 B 返回 A。原始 PIO 边沿 latch 记录：
+
+```text
+t1 = A.CLK_TX       # A 本地时钟：CLK 正向发送
+t2 = B.CLK_RX       # B 本地时钟：CLK 正向接收
+t3 = B.DATA_TX      # B 本地时钟：DATA 反向发送
+t4 = A.DATA_RX      # A 本地时钟：DATA 反向接收
+```
+
+B 端的本地 residence 为：
+
+```text
+residence_B = t3 - t2
+path_sum_AB = (t4 - t1) - residence_B
+```
+
+其中 `t4-t1` 和 `t3-t2` 分别只在单板 A、B 的本地时钟域内计算，因此不要求两个板卡
+在此刻已经共享同一个绝对时间零点；短测量窗口内的频率偏差必须作为 `clock_rate_error`
+和不确定度进入门禁。若正反向路径满足可接受的对称性：
+
+```text
+delay_A_to_B = path_sum_AB / 2
+```
+
+若正反向不完全对称，则只能发布：
+
+```text
+path_sum_AB = delay_A_to_B + delay_B_to_A
+asymmetry_ns = delay_A_to_B - delay_B_to_A
+```
+
+不能仅凭一次双程结果伪造两个单向 delay。需要单向结果时，使用等长线缆、收发器/PIO
+endpoint bias 校准、重复 epoch 统计和方向性校验共同形成 `asymmetry_bound`；超过 bound
+时保留 aggregate/path-sum，拒绝生成 per-link active entry。
+
+### PIO 原始测量与证据绑定
+
+三根线的原始 PIO persona 必须同时 arm `CLK_RX`、`CLK_TX`、`DATA_TX`、`DATA_RX` 和
+`SYNC` capture。一次 accepted sample 必须带有：
+
+- `train_epoch`、`train_seq`、`source_board_id`、`destination_board_id`、logical slot 和
+  direction；
+- `t1/t2/t3/t4` 的硬件 latch index、各自 source/resolution/flags、DMA count 和 overrun；
+- `residence_B`、`path_sum_AB`、`delay_mean/stddev/p99`、`asymmetry_bound`、endpoint bias
+  generation、topology/profile CRC 和 calibration generation；
+- `SYNC` 到四个边沿的关联状态，以及缺失、重复、乱序、极性、CRC、window miss 和 stale
+  原因。
+
+所有四个边沿必须来自同一 epoch 和同一 PIO persona。CPU 读取 timer、DMA 完成时刻、帧
+解析时刻只能作为 diagnostic evidence，不能替代 `t1..t4` 的 edge latch。任何一个方向
+缺失时，不得以单向值或默认零值补齐 path calibration。
+
+### 等长差分链路和四板 HIL 的定位
+
+单端转差分后使用严格等长网线，可以把物理传播差异压到较小范围，并使
+`delay_A_to_B ~= delay_B_to_A` 成为可验证的工程假设；它不能消除收发器、GPIO
+synchronizer、PIO pipeline、连接器和方向切换的 endpoint bias。因此必须先做板内同 persona
+loopback/bias reference，再做板间双程测量。
+
+四板环回不再是“为了弥补无法测量板间 delay”而存在，而是第三阶段的系统级验证：
+
+1. 逐条相邻链路执行 `SYNC + CLK(A->B) + DATA(B->A)` 双程测量，生成 per-link path-sum
+   和质量；
+2. 轮换 master，比较四板 cumulative sum 与整圈 edge RTT，检查遗漏、重复或方向性异常；
+3. 以四板 HIL 的残差、asymmetry 和 endpoint bias 作为 profile acceptance evidence。
+
+如果单链路双程证据、bias generation、等长拓扑和重复性门禁均通过，四板 HIL 不再是单向
+delay 可观测性的必要条件，但仍是 8 节点扩展前的系统级回归门禁。四板结果不能替代每条
+link 的 `t1..t4` 证据，也不能把整圈 aggregate 平均分摊为 link delay。
+
+### 第三阶段门禁和交付
+
+- `SYNC` epoch/sequence、板卡身份、拓扑/profile CRC 和 PIO persona 全部一致；
+- `t1..t4` 均为同一 trial 的 hardware-latched edge，分辨率满足正式校准门禁且不带
+  `DIAGNOSTIC_ONLY`；
+- B 端 residence、双程 path-sum、endpoint bias 和 clock-rate error 均有来源和 generation；
+- 等长线缆的对称性假设通过重复统计和四板 residual 检验，不通过时只发布 path-sum；
+- 缺边沿、重复边沿、SYNC/CRC/epoch 错、DMA overrun/stall、窗口超时或 freshness 失效时，
+  sample rejected，active calibration 保持不变；
+- 校准域发布 active per-link calibration，VDC 消费该结果形成 VDC/DPLL map；TDMA 只
+  承载 raw evidence、训练窗口和 failure propagation。
+
+### 第三阶段实施待办
+
+- [ ] P3-1：为相反方向 CLK/DATA/SYNC 定义同 epoch 的 PIO marker 和四边沿 capture origin。
+- [ ] P3-2：实现 `t1..t4` 证据关联、residence 扣除、path-sum 和 clock-rate error bound。
+- [ ] P3-3：完成同一 PIO persona 的板内 endpoint bias/reference loopback 校准。
+- [ ] P3-4：完成双向同时对比的 unit、fault injection 和双板 HIL；覆盖缺边沿、乱序、重复、
+  极性、SYNC/CRC 错、DMA overrun/stall、频率偏差和方向 asymmetry。
+- [ ] P3-5：完成四板逐链路 HIL 与 cumulative/整圈 residual 对比，固化 8 节点扩展前的
+  profile acceptance threshold。
+- [ ] P3-6：只有四时间戳 hardware latch、bias generation、重复统计和拓扑 freshness 全部
+  通过后，才生成 active per-link delay，清除对应 diagnostic-only 标志并交给 VDC/DPLL。
 
 完成编码 CLK RTT 后，下一阶段才是带 DATA/CS/CRC 的短 TRAIN frame、节点 residence 和
 `frame_complete_round_trip_ns`。只有完整帧 RTT 才能生成运行态 RX window、guard 和

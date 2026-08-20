@@ -3,7 +3,7 @@
 Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
-Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
+Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
 Last updated: 2026-08-20
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
@@ -78,92 +78,41 @@ Last updated: 2026-08-20
     - 进行中：PIO follower forwarding、master autonomous burst、返回首边沿捕获、硬件
       overlap 顺序判定、pulse limit 和返回超时已完成；START 前会重建普通 DATA/CS persona。
       chunk/gap marker 与返回 pulse count 归 P0.5-9c，尚未完成。
-  - [ ] P0.5-9c：完成第一阶段粗捕获收尾和第二阶段 coded CLK 精测。candidate 首选
-    `M255_MANCHESTER_20`，全环恶劣链路回退 `M255_MANCHESTER_40`；raw waveform 以
-    `CLK_SYS` 采样，目标是稳定选择正确的 4 ns lag bin。编码只提高唯一性/抗噪，不得把
-    250 MHz 单路 PIO 的硬件分辨率伪装成低于 4 ns。详细设计见
-    `docs/tdma/TDMA_CLK_TRAINING_PLAN.md`。
-    - [ ] P0.5-9c-0：完成第一阶段“脉冲组 + gap”marker、返回 pulse count 和 epoch 校验；
-      指数增长找到 `N_low/N_high` 后，重复点必须分类为 `ALL_NON_OVERLAP/MIXED/
-      ALL_OVERLAP`，缺失/重复脉冲是 rejected sample，不得归入 non-overlap。
-    - [x] P0.5-9c-1：固化离线码本比较工具。`tdma_clk_codebook_eval.py` 已覆盖最大长度
-      LFSR、Barker-13、NRZ/Manchester/differential-Manchester、raw-sample lag distance、
-      电平游程和 marker 时长，并有 Python 单测。
-    - [ ] P0.5-9c-2：形成 codebook golden vector：固定 candidate LFSR step、mask/seed、
-      Manchester 极性、bit order 和 raw waveform packing；C/Python 必须逐 bit/word 一致，
-      在实现和 HIL 前保持 candidate，不提前登记 wire contract。
-    - [ ] P0.5-9c-3：完成物理半码元 HIL。四板逐主测试 20/40/60/80 ns 电平，记录 pulse
-      missing、edge widening、polarity、返回计数和 peak margin；20 ns 未通过时整环选择
-      40 ns 或更宽档，不允许各节点使用不同 codebook。
-    - [ ] P0.5-9c-4：实现 CLK-only marker codec：动态 QUIET_LOW、Barker-13 SOF、
-      `HEADER16 + HEADER16_INV + HEADER_CRC8`、固定 m-sequence-255 TIMING、反相 Barker EOF。
-      epoch 放 header，禁止用 timing PN 循环移位编码 epoch，避免码相与 delay 混淆。
-    - [ ] P0.5-9c-5：实现 coded TX PIO `out pins,1` 和 oversampling RX PIO
-      `in pins,1`，增加编译/启动门禁证明 TDMA PIO2 instruction 总量可装入且只占现有两个
-      SM；follower 继续复用透明 CLK forwarding SM，不解析 marker。
-    - [ ] P0.5-9c-6：把 coded TX/RX DMA 正式接入 `TdmaFoundationProfile` resource claim。
-      TX channel、RX channel、waveform/capture buffer、DREQ 和最大 transfer words 必须被
-      DeploymentGate 验证，禁止 phys 层私自硬编码未声明 DMA channel。
-    - [ ] P0.5-9c-7：实现同步启动与 capture origin。顺序固定为生成有界 buffer、配置 RX
-      DMA、配置 TX DMA并预装 FIFO、清 IRQ/FIFO、`pio_enable_sm_mask_in_sync()` 启动；记录
-      `capture_origin`、`timing_field_tx_origin_sample` 和实际 DMA transfer count。
-    - [ ] P0.5-9c-8：实现 core1 raw-sample 相关器。只在第一阶段 bracket 对候选 lag 执行
-      32-bit XOR/popcount，输出 `best_lag/best_distance/second_distance/margin/polarity`；禁止
-      先解 Manchester bit，也禁止动态分配或遍历无界历史。
-    - [ ] P0.5-9c-9：实现 marker 接受门禁：SOF/EOF、header/inverse/CRC、epoch/master/
-      codebook、正常/反相 score、capture truncation、DMA done/overrun/stall 和相邻峰集合全部
-      合法才 accepted；阈值来自四板 HIL，不直接使用离线理想 Hamming 界限。
-    - [ ] P0.5-9c-10：实现同一 PIO persona 的 local endpoint bias 校准，并区分
-      `observed_spi_clk_rtt_ns` 与扣除 bias 后的 calibration candidate；无 bias 证据时不得把
-      master PIO/GPIO synchronizer/RX pipeline 固定延迟解释为线缆传播延迟。
-    - [ ] P0.5-9c-11：扩展 guarded snapshot/SCPI 状态，至少包含 codebook/epoch、半码元、
-      sample period、hardware resolution、integer lag、peak/second/margin、polarity、header/
-      CRC、DMA count、endpoint bias、accepted/rejected reason 和 lag histogram。
-    - [ ] P0.5-9c-12：把 `CLOCK_ACQUIRE -> CLOCK_CODED` 接入 TDMA owner 非阻塞状态机。
-      SCPI 只提交 intent；core1 独占 persona/buffer，任一错误统一恢复普通 DATA/CS persona并
-      停在 STOPPED，训练流程不自动 START。
-    - [ ] P0.5-9c-13：实现板内协调。最小闭环允许 host 按 `*IDN?` 唯一地址触发各节点；
-      产品闭环由 reference 在普通 TDMA persona 下发送 PREPARE、收齐 active-node ACK bitmap、
-      约定 commit sequence 后统一切换 training persona，禁止部分节点进入训练。
-    - [ ] P0.5-9c-14：扩展 `tdma_clk_train.py` 支持 coded 训练、四主轮换和 UTF-8
-      JSON/CSV/summary；工具只编排/评分，不在 host 重算实时 lag 作为唯一事实源。
-    - [ ] P0.5-9c-15：增加 unit/fault injection：golden vector、lag ±1 sample、反相、低
-      margin、epoch/CRC 错、edge 缺失/重复、capture 截断、DMA overrun/stall、ACK/commit miss、
-      profile/topology 中途变化和 persona 恢复。
-    - [ ] P0.5-9c-16：四板 HIL 关闭门禁。每个 master、每个 codebook/profile 至少重复
-      128 epoch，输出 lag histogram、mode、相邻 bin 比例、mean/stddev/p99、peak margin 和
-      reject reason；先验收 10/25/30 MHz，35 MHz 只作为实验档。单次 hardware resolution
-      始终诚实发布为 4 ns，小于 4 ns 的均值只标 statistical precision。
-  - [ ] P0.5-9d：接入主节点 coded CLK `capture_origin/timing_field_tx_origin` 和每节点
-    `clk_rx_edge/clk_tx_edge/clk_forward_residence` 的 PIO/DMA 硬件 evidence；第三阶段另记录
-    frame TX/RX first/complete。所有 evidence 携带 source/resolution/flags，软件读取时刻
-    只保留 diagnostic 语义。只有 hardware-latched、非 diagnostic-only 才能进入校准表。
-  - [ ] P0.5-9e：实现第三阶段短 TRAIN frame 和节点 residence evidence。按同一 train seq 关联完整
-    一圈；每节点计算本地 `tx_edge-rx_edge`，主节点计算 edge/SOF/complete RTT。精确 wire
-    layout 在实现和单元测试形成后登记冻结。
-  - [ ] P0.5-9f：实现四主节点轮换协调器。顺序来自唯一板卡地址绑定的 active topology，
-    不使用 COM 号；输出每个 slot 的 `W[slot]`、RTT min/max/mean/p99/stddev/jitter、节点
-    residence、aggregate/cumulative delay 和所有物理/调度错误增量。
-  - [ ] P0.5-9g：根据实测完整帧 RTT 生成 per-master acquisition timeout、RX window、guard
-    和 feedback timeout，并绑定 board ID/topology/profile/schedule/baud/frame/cal generation；
-    绑定改变或 freshness 超限必须使结果 stale 并进入 RELOCKING。
-  - [ ] P0.5-9h：明确单向环可观测边界。未增加反向测量、相邻链路隔离回环或等价双端
-    时间戳方程前，只发布整圈 aggregate、节点 residence 和证据充分的 cumulative delay；
-    禁止把 aggregate 平均分摊成独立 per-link 单向 delay。
-  - [ ] P0.5-9i：固化 host 工具，执行 `STOP -> APPLY -> clear -> ARM -> 四主节点训练 ->
-    calculate -> publish -> restore persona -> STOP`，按唯一地址输出 UTF-8 JSON/CSV/summary；
-    工具只编排维护态，不用 SCPI 轮询参与实时转发或时间戳生成；后续 START 由调用者显式触发。
-    - 进行中：`tools/tdma_ring_monitor/tdma_clk_train.py` 已固化第一阶段四主轮换、指数捕获、
-      二分、ARM 状态回读重试和 UTF-8 JSON/CSV/summary；只以 `*IDN?` 地址识别板卡。当前工具
-      在第一阶段结束后统一 STOP，不发布完整帧 wait/window，也不自动 START。
-  - [ ] P0.5-9j：增加 host/unit/HIL 门禁和故障注入：marker/seq/CRC 错、脉冲缺失/重复、
-    TX busy、RX stall、DMA overrun、window miss、master 中途掉线、拓扑/profile 变化、默认零表
-    拒绝；四板最低档通过后按 catalog 逐级提速，任一档失败全环回退最后一个 VALID 档。
-    - HIL 快照（2026-08-20，非规范事实源）：最终 build `20260820133035` 四板在 10 MHz
-      均为 `[400,500) ns`；25 MHz 为 NO.1~NO.3 `[400,440) ns`、NO.4 `[440,480) ns`；
-      30 MHz 单次均为 `[400,434) ns`。30 MHz 三次重复在 NO.1 的 13 脉冲点出现 mixed，
-      35 MHz 四主结果明显离散，因此均不能宣称固定一个 SPI 周期的精度。flags 保持
-      diagnostic-only，详细证据路径见独立训练文档。
+  - [ ] P0.5-9c：完成 TDMA 对校准训练的集成。详细 marker、码本、raw correlation、
+    bias/residence、统计和 HIL 门禁迁移到
+    `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`，TDMA 只跟踪 transport
+    acceptance 和资源执行状态。
+    - [x] P0.5-9c-1：保留 `tdma_clk_codebook_eval.py` 的 TDMA 工具入口和测试索引；码本
+      选择、golden vector 与阈值由校准域待办维护。
+    - [ ] P0.5-9c-2：实现 coded TX/RX persona 的 PIO/SM/DMA resource claim，并由
+      DeploymentGate 校验 channel、DREQ、buffer capacity 和 instruction/SM 使用量。
+    - [ ] P0.5-9c-3：实现有界 buffer、RX/TX DMA 预装、FIFO/IRQ 清理和同步启动；发布
+      capture origin、DMA transfer count 与 raw evidence index，不在 TDMA 解释 delay。
+    - [ ] P0.5-9c-4：将校准域的 accepted/rejected 结果通过 guarded/seqlock snapshot
+      投影给 TDMA，并在 topology/profile/schedule/calibration generation 变化时标 stale。
+    - [ ] P0.5-9c-5：训练失败统一恢复普通 DATA/CS persona 并停在 STOPPED；训练流程不得
+      自动 START，SCPI/host 不得参与实时相关或续装窗口。
+  - [ ] P0.5-9d：接收校准域发布的 raw edge/evidence index、quality、accepted/rejected、
+    `rx_window`、guard、timeout 和 freshness；TDMA 只做 snapshot 投影与 schedule/capacity
+    gate，不参与 residence/path-delay 计算。
+  - [ ] P0.5-9e：实现短 TRAIN frame 的 TDMA transport，按同一 train seq 关联 bounded
+    frame、DMA completion、ACK/commit 和失败原因；第三阶段的 `CLK`/`DATA` 双向同时对比、
+    四时间戳方程与校准结果由校准域维护。
+  - [ ] P0.5-9f：实现按唯一板卡地址和 active topology 的四主轮换协调，保存 master sequence、
+    transport counters、窗口命中和 persona 状态；不使用 COM 号作为拓扑键。
+  - [ ] P0.5-9g：把校准域的 acquisition/feedback timeout、RX window、guard 和 generation
+    接入 TDMA schedule；绑定变化或 freshness 超限必须拒绝运行并回到 RELOCKING/STOPPED。
+  - [ ] P0.5-9h：保持 TDMA 的可观测边界，只发布 transport/窗口 evidence；per-link delay、
+    aggregate/cumulative delay 和双向测距结论由校准域发布。
+  - [ ] P0.5-9i：固化 host 工具的 TDMA 编排路径：`STOP -> APPLY -> clear -> ARM ->
+    TRAIN_PREPARE/ACK/commit -> TRAIN -> publish/restore -> STOP`。工具只编排维护态，
+    不用 SCPI 轮询参与实时转发、相关或时间戳生成；后续 START 由调用者显式触发。
+    - 进行中：`tools/tdma_ring_monitor/tdma_clk_train.py` 已固化第一阶段四主轮换、ARM 状态
+      回读重试和 UTF-8 JSON/CSV/summary；详细校准评分迁移至校准域方案。
+  - [ ] P0.5-9j：增加 TDMA integration/unit/HIL 门禁和故障注入：PIO/DMA resource conflict、
+    TX busy、RX stall、DMA overrun、ACK/commit miss、window miss、persona 恢复、master 掉线、
+    拓扑/profile/calibration generation 变化和默认零表拒绝；训练失败全环回退最后一个 VALID
+    profile，并保留 transport failure evidence。
 
 ## P1 - Runtime 契约
 

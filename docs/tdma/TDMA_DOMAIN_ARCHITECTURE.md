@@ -3,7 +3,7 @@
 Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
-Related: `docs/tdma/TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
+Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Last updated: 2026-08-20
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
@@ -669,349 +669,72 @@ active 节点确认同一 profile CRC，并执行 STOP -> APPLY -> TRAIN -> STAR
 开放可审计的手动 staging/apply 和 `tools/tdma_ring_monitor/tdma_frequency_sweep.py`
 闭环扫频，避免形成两板不同速率的半连接状态。
 
-### EtherCAT DC 风格的训练参数与门禁
-
-这里借鉴 EtherCAT Distributed Clocks 在 bring-up 时使用的四类事实：端口链路状态、
-硬件接收/发送时间、传播延时校准、同步窗口裕量。借鉴的是测量和验收方法，不引入
-EtherCAT 协议、ESC 寄存器或主站状态机。本节是实现方案；训练状态、报告字段和计算
-边界先作为 candidate，精确训练帧 wire layout 在代码和单元测试形成后再按文档登记流程
-冻结。
-
-第一阶段完整操作流程、四板 HIL 结果和第二阶段“编码 marker + 相关峰 + 4 ns 过采样”
-实施计划独立维护在 `docs/tdma/TDMA_CLK_TRAINING_PLAN.md`。本节保留跨域架构边界，独立
-文档作为训练 runbook 和分阶段验收入口。
-
-#### 训练目标与边界
-
-四板环 `NO.1 -> NO.2 -> NO.3 -> NO.4 -> NO.1` 的训练需要回答三个不同问题：
-
-| 结果 | 测量对象 | 用途 |
-|---|---|---|
-| `spi_clk_round_trip_ns` | SPI TX CLK 的第一个训练边沿从主节点发出、逐节点再生转发并返回同一主节点 RX CLK 的时间。 | SPI CLK 基础训练；建立未知环路延迟的粗捕获窗口，验证 CLK 收发器、线缆和 PIO forwarding path。 |
-| `frame_sof_round_trip_ns` | TRAIN frame 首边沿发出到返回帧首边沿。 | 区分 edge path 与帧级转发 pipeline。 |
-| `frame_complete_round_trip_ns` | TRAIN frame 首边沿发出到完整返回帧接收完成。 | 直接生成该主节点的 RX 等待窗口和 feedback timeout。 |
-
-第一阶段测得的就是 SPI CLK 环路转发延迟。它包含每段 CLK 线缆/收发器传播和每个节点
-从 RX CLK 捕获到 TX CLK 再生的 forwarding residence，但不包含 DATA、CS/frame-sync、
-完整帧接收、CRC、固定 offset
-替换、转发排队和 RTOS service residence；TDMA 的 START/feedback timeout 必须依据
-`frame_complete_round_trip_ns`，不能依据脉冲重叠阈值。
-
-每个 active 节点轮流成为训练主节点，得到 `W[slot]`：
-
-```text
-W[slot] = frame_complete_rx_timestamp[slot] - frame_tx_start_timestamp[slot]
-```
-
-`W[slot]` 表示“该节点发出数据后，需要等待多久才能收到同一圈返回数据”。运行时不得
-在 core0 阻塞等待 `W[slot]`；TDMA scheduler 使用它预约 RX window 和 completion deadline。
-校准结果必须绑定唯一板卡地址、logical slot、物理线序/topology CRC、方向、operating
-profile CRC、schedule CRC、baud、frame class/length 和 calibration generation。任一绑定
-变化都使旧训练结果 stale，并触发重新训练。
-
-#### 训练状态机
-
-推荐由 TDMA owner 在维护态执行以下非阻塞状态机：
-
-```text
-STOPPED
-  -> PREPARED          相同 topology/profile/schedule，清错误增量和 stale RX/DMA
-  -> RX_ARMED          所有节点先开 RX capture，主节点尚未发送
-  -> CLOCK_ACQUIRE     指数增加 SPI CLK 脉冲数，得到 CLK forwarding RTT 粗区间
-  -> CLOCK_CODED       编码 CLK marker raw-sample 相关，定位 4 ns lag bin
-  -> FRAME_MEASURE     短 TRAIN frame 绕环，记录 SOF/EOF 与节点 residence
-  -> CALCULATE         计算每主节点 wait、guard、timeout 和质量
-  -> VALID             四个主节点均通过，结果绑定到当前 generation
-  -> START             启动普通 cyclic traffic
-
-任一阶段失败 -> RELOCKING -> STOPPED/PREPARED
-```
-
-`ARM` 只表示 PIO/DMA/RX window 已准备；`TRAIN` 只有在完整输出 accepted sample 和
-calibration result 后才表示训练完成。单次 SCPI 成功回执、发送了指定数量的空时钟或
-`ring_adapter_started=1` 都不能把状态提升为 `VALID`。
-
-#### 第一阶段：SPI CLK 转发基础训练
-
-所有节点先同时 ARM SPI RX CLK capture/forwarding。当前训练主节点在 TX CLK 发送一段
-脉冲，其他节点在 PIO/硬实时路径把 RX CLK 逐边沿再生到本节点 TX CLK，返回边沿由
-主节点独立 RX CLK SM/DMA 捕获；主节点只产生初始 burst，收到返回 burst 后不得再次
-转发，避免训练时钟在环上无限循环。该阶段不要求 DATA/CS 形成合法 SPI frame，输出
-事实明确命名为 `spi_clk_*`，不能泛化成已经完成 SPI DATA 或 TDMA frame 训练。
-
-脉冲数量不使用固定的 `10 -> 100 -> 1000` 大步长，而由配置给出 `pulse_count_start`，
-随后按 `pulse_growth_factor` 指数增加，直至检测到“返回首边沿发生在本次 TX burst 完成
-之前”或达到 `pulse_count_limit`。设实际硬件时间戳得到的 burst 持续时间为 `D(N)`：
-
-```text
-最后一个未重叠 burst: D(N_low)  <= spi_clk_round_trip
-第一个发生重叠 burst: spi_clk_round_trip < D(N_high)
-```
-
-这只建立 acquisition bracket。达到重叠后应使用同一主节点本地硬件 tick 直接计算：
-
-```text
-spi_clk_round_trip_ns = returned_clk_marker_rx_edge - clk_marker_tx_edge
-```
-
-最终精度由 edge latch 分辨率决定，不由脉冲数量步长决定。若尚未具备硬件 latch，可在
-`N_low..N_high` 间二分，把 diagnostic 粗区间收敛到一个训练时钟周期，但不得将该结果
-标记为 DPLL eligible。
-
-连续等间隔 CLK 容易把串扰、反射或上一 epoch 残留误认为返回。基础训练 marker 只编码
-在 CLK 上，使用不可歧义的“脉冲组 + gap”图样，并由 host/控制面关联 `train_epoch`；
-第二阶段再加入 CLK-only header/反码/CRC 和 timing code，DATA/CS TRAIN frame 留到第三
-阶段。节点必须完整再生 CLK marker，主节点必须同时校验图样、返回脉冲数和超时。
-
-当前第一阶段基础路径已由 `tdma_pio_spi_clk_forward`、`tdma_pio_spi_clk_burst` 和
-`tdma_pio_spi_clk_capture` 实现：follower 的 PIO SM 独立于 DATA/CS gate 做 RX CLK -> TX CLK
-逐边沿再生；master 的 burst SM 自主输出指定 pulse count，capture SM 用 PIO IRQ 记录返回
-首边沿。burst SM 在完成点检查返回 IRQ，从硬件顺序区分 overlap/non-overlap；core1 上的
-`tdma_pio_spi_phys_train_clock_service()` 只收割结果和执行超时，不参与边沿转发。SCPI
-`SYSTem:TDMA:RING:TRAIN` 只写入 `TdmaRingRuntime` command slot，禁止同步直达 PIO；
-`SYSTem:TDMA:RING:TRAIN:STATus?` 只读取 seqlock snapshot。训练替换 PIO persona 后，普通
-START 必须先 stop/re-arm adapter，恢复 DATA/CS PIO，不能从训练 persona 直接进入 cyclic
-service。
-
-2026-08-20 build `20260820133035` 四板 HIL 快照（非规范事实源）使用唯一板卡地址绑定的物理顺序和
-`tools/tdma_ring_monitor/tdma_clk_train.py` 轮换四个 master。最低档只得到
-`spi_clk_round_trip_ns < 1 us`；在 10 MHz 下，四个 master 均得到同一 diagnostic bracket：
-`400 ns <= spi_clk_round_trip_ns < 500 ns`。snapshot 的 timestamp flags 仍为
-`TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY`，所以该区间不能进入 DPLL。25 MHz 的单个
-40 ns 孤立脉冲未返回，表明下一步必须完成 P0.5-9c 的“脉冲组 + gap”marker、返回计数和
-epoch 校验；不能把缺失的窄脉冲当作 non-overlap 样本，也不能据此继续二分。
-
-#### 第二阶段：编码 CLK marker 精测
-
-第一阶段只把 `spi_clk_round_trip_ns` 收敛到约一个有效 pulse 周期。第二阶段继续保持
-CLK-only 和 follower 透明逐边沿转发，不引入 DATA/CS；master 发送已知编码 waveform，
-RX PIO 在 `CLK_SYS` raw-sample 域捕获返回 waveform，core1 在第一阶段 bracket 内执行有界
-相关。该阶段的目标是稳定定位正确的硬件 sample bin，不是解析业务 payload。
-
-##### 分辨率与码本选择
-
-产品当前 `BOARD_SYS_CLOCK_HZ=250 MHz`。单个 PIO SM 使用一条 `in pins,1` 时每个
-`CLK_SYS` 周期取得一个 sample，因此 hardware resolution 为 4 ns。编码能够增加正确 lag
-与相邻 lag 的 score margin、抵抗毛刺和缺码，但不能把单路 PIO 的单次硬分辨率变成 1 ns。
-小于 4 ns 的重复均值必须标为 statistical precision，并同时保留
-`hardware_resolution_ns=4`。
-
-码本评估由 `tools/tdma_ring_monitor/tdma_clk_codebook_eval.py` 生成最大长度 Galois LFSR
-序列并比较 NRZ、Manchester 和 differential-Manchester 在 raw-sample lag 下的 Hamming
-margin。当前 candidate 选择如下；它是设计输入，尚未冻结为 wire contract：
-
-| codebook candidate | timing code | 半码元/逻辑位 | timing field | 用途 |
-|---|---|---:|---:|---|
-| `M255_MANCHESTER_20` | width-8 m-sequence、candidate mask `0x8E`、seed `0x01` | 20/40 ns | 10.20 us | 默认性能档；最短电平 20 ns，4 ns raw correlation。 |
-| `M255_MANCHESTER_40` | 同一码本 | 40/80 ns | 20.40 us | 恶劣链路回退档；不改变 4 ns sample resolution。 |
-
-工具的无噪声模型中，M255 Manchester 有 382 个 waveform transition，相邻 4 ns lag 的
-理想 Hamming distance 为 383；同长度 NRZ 为 127。码长提高的是处理增益和错位拒绝裕量，
-不是硬件采样率。20 ns 半码元必须先通过四板 HIL；若脉冲缺失、展宽或 margin 不稳定，
-全环回退 40 ns 半码元，不允许单节点选择不同 codebook。
-
-##### CLK-only marker
-
-candidate marker 使用以下逻辑字段，全部展开为同一 Manchester waveform：
-
-```text
-QUIET_LOW
-  -> SOF Barker-13
-  -> HEADER16(version2, codebook2, epoch8, master_slot3, polarity1)
-  -> HEADER16_INV
-  -> HEADER_CRC8
-  -> TIMING m-sequence-255
-  -> EOF inverted-Barker-13
-  -> QUIET_LOW
-```
-
-固定 TIMING 字段单独用于 delay correlation。epoch 必须位于独立 header，禁止通过循环移位
-timing m-sequence 表达 epoch；否则码相变化会与 path delay 变化混淆。HEADER/INV/CRC、
-SOF/EOF 和动态 quiet guard 用于拒绝上一 epoch 残留、反射、极性错误和截断 capture。
-quiet guard 由第一阶段 `coarse_high_ns`、profile guard 和硬件恢复时间计算，不能硬编码为
-某个只适合当前四板线缆的常量。
-
-candidate 全 marker 在 20 ns 半码元下有 321 个逻辑位、约 3210 个 raw sample、约
-101 个 32-bit waveform word；40 ns 回退档约 201 word。最终 TX/capture word count 必须
-使用 checked arithmetic，从 codebook、header、coarse RTT、guard 和 DMA alignment 计算，
-并受 `TDMA_PIO_SPI_RX_RING_WORDS` 与 foundation profile capacity 门禁。CRC polynomial、
-bit order 和 codebook ID 必须等 C/Python golden vector 与 HIL 形成后再登记冻结。
-
-##### Raw-sample correlation
-
-相关器禁止先解 Manchester 逻辑位；否则时间分辨率会被重新量化到逻辑位周期。master 对
-固定 timing template `T` 和 RX capture `R` 的有限 lag 集合执行：
-
-```text
-D(k) = popcount(R[k : k+L] XOR T)
-k_best = argmin D(k)
-D_second = min(D(k)), k != k_best
-margin = D_second - D_best
-```
-
-约 50 ns bracket 在 4 ns 网格上最多约 14 个候选 lag，计算量有明确上限。core1 只能对
-固定窗口执行 32-bit XOR/popcount，不动态分配、不搜索无界历史。接受样本必须同时满足：
-
-- `D_best/L` 小于 active codebook/profile 的 HIL 冻结阈值；
-- `margin` 大于冻结阈值，正常极性 score 优于反相 score；
-- HEADER/INV/CRC、epoch、master、codebook、SOF/EOF 全部匹配；
-- TX/RX DMA 完成，capture 未截断，无 overrun/stall；
-- 重复 trial 的峰只落在允许的相邻 bin 集合，无孤立远端峰。
-
-最终 observed RTT 语义为：
-
-```text
-spi_clk_round_trip_ns
-  = capture_origin_ns
-  + (k_best - timing_field_tx_origin_sample) * sample_period_ns
-  - calibrated_local_endpoint_bias_ns
-```
-
-尚无 `calibrated_local_endpoint_bias_ns` 时只能发布 observed RTT，不得把 master 本地 PIO
-output、GPIO synchronizer 和 RX pipeline 固定延迟伪装成线缆传播延迟。重复 128 epoch 可
-发布 lag histogram、mode、相邻 bin 比例和 statistical mean；即使均值出现小于 4 ns 的
-变化，`timestamp_resolution_ns` 仍保持 4 ns。
-
-##### PIO/DMA 与 HAOFV ownership
-
-当前 TDMA PIO2 普通/第一阶段程序约占 24/32 条 instruction；coded TX 使用一条
-`out pins,1`，oversampling RX 使用一条 `in pins,1`，预计合计 26/32。master 复用现有两个
-SM 分别 TX/RX；follower 只运行已有 CLK forwarding SM，不解析 codebook。
-
-coded TX/RX 都由 DMA 驱动。TX DMA channel 必须进入 `TdmaFoundationProfile` resource
-claim，不能在 phys 层私自选择未声明 channel；RX DMA buffer 和 TX waveform buffer 在训练
-期间由 core1/adapter 独占，core0、SCPI、USB 和日志只能读取完成后的 guarded snapshot。
-master 必须先生成有界 buffer、配置 RX/TX DMA并预装 TX FIFO、清 IRQ/FIFO，再用
-`pio_enable_sm_mask_in_sync()` 同步启动两个 SM。snapshot 至少记录 capture origin、timing
-field TX origin、DMA transfer count、peak/second/margin、polarity、epoch/codebook 和
-hardware/statistical resolution。
-
-板内完整训练由显式指令触发，不在上电时自动注入 CLK。最小闭环允许 host 按 `*IDN?`
-唯一地址编排各板，但实时 capture/correlation 全在板内；产品闭环由 reference 在普通 TDMA
-persona 下完成 TRAIN_PREPARE/ACK/commit sequence，收齐 active-node bitmap 后统一切换
-training persona。训练结束统一恢复普通 persona并停在 STOPPED，后续 START 仍需显式触发。
-
-第二阶段完整码本评估、marker 字段、相关算法和 HIL 计划见
-`docs/tdma/TDMA_CLK_TRAINING_PLAN.md`。
-
-#### 第三阶段：短 TRAIN frame
-
-CLOCK_ACQUIRE 和 CLOCK_CODED 均通过后，主节点发送独立的短 TRAIN frame。该帧应保持固定小端编码、
-独立 CRC 和有界长度，并携带或关联以下事实：
-
-```text
-train_epoch / train_seq / master_slot / origin identity
-hop_count / topology CRC / operating profile CRC / schedule CRC
-reference TX edge / TX done
-每节点 RX edge / TX edge 或对应 evidence index
-返回 reference 的 RX edge / RX complete
-```
-
-中间节点在同一个本地时钟域计算自身 residence，不需要节点间时钟已经同步：
-
-```text
-residence_ns[i] = node_tx_edge[i] - node_rx_edge[i]
-```
-
-主节点按同一 `train_seq` 计算：
-
-```text
-frame_sof_round_trip_ns = feedback_rx_edge - reference_tx_edge
-frame_complete_round_trip_ns = feedback_rx_complete - reference_tx_edge
-ring_non_residence_ns = frame_sof_round_trip_ns - sum(residence_ns[i])
-```
-
-adapter 必须根据实际 frame length 和 active baud 计算 `frame_wire_time_ns`，不能复制某个
-固定帧长的手算值。store-and-forward 下首帧返回时间至少包含各跳 wire time 和节点
-residence；cut-through 下首帧返回主要包含 edge/pipeline delay，而完整返回仍需再包含一帧
-wire time。训练报告必须声明当前 adapter 是 `STORE_AND_FORWARD` 还是经 HIL 证明的
-`CUT_THROUGH`，不能混用两套公式。
-
-#### 四主节点轮换与可观测边界
-
-训练协调器按物理线序依次选择每个 active slot 为主节点。身份仍通过 `*IDN?` 唯一地址
-确认，COM 号只作为本次连接端口，不进入校准键。每轮其他节点保持 forward，完成后保存：
-
-```text
-master slot 0 -> W[0]
-master slot 1 -> W[1]
-...
-master slot N-1 -> W[N-1]
-```
-
-各 `W[i]` 的差异可定位主节点 TX/RX endpoint skew 或某节点被排除/包含时的 residence
-异常，并直接生成每节点等待窗口。但单向环中，所有完整 RTT 都经过同一组物理链路；仅靠
-轮换主节点的整圈 RTT 不能唯一分离每根线缆的单向传播延迟。首版允许发布：
-
-- 每个主节点的完整环回等待时间和 timeout；
-- 每个节点在自身同一时钟域内测得的 residence；
-- 整圈扣除 residence 后的 aggregate propagation/pipeline delay；
-- 在已有粗同步和合法 timestamp evidence 后形成的 reference-to-slot cumulative delay。
-
-独立 per-link 单向 delay 只有在增加反向测量、相邻链路隔离回环或等价的双端时间戳方程
-后才能发布。证据不足时不得把 aggregate delay 平均分摊到各 link，也不得把默认零表
-标记为有效 `PATH_DELAY`。
-
-#### 等待窗口和 timeout 生成
-
-每个主节点完成多次有效环回后，按 `frame_complete_round_trip_ns` 统计
-`min/max/mean/stddev/p99`。建议由 profile 提供 acquisition 和 guard 策略，计算语义为：
-
-```text
-expected_return_ns = frame_complete_round_trip_mean_ns
-rx_window_start_ns = expected_return_ns - guard_before_ns
-rx_window_end_ns   = expected_return_ns + guard_after_ns
-feedback_timeout_ns = max(frame_complete_round_trip_p99_ns + guard_after_ns,
-                          frame_complete_round_trip_max_ns + timestamp_margin_ns)
-```
-
-首次训练使用独立 `acquisition_timeout_ns`，必须覆盖 active node count、实际 wire time、
-store-and-forward residence 和 RTOS 最坏调度延迟；它不能复用稳态单周期 deadline。训练
-完成后再收紧 steady-state RX window。若 timeout 或 guard 不能放入 active TDMA cycle，
-该 operating profile 直接判为容量不成立，不能靠丢弃迟到反馈继续提速。
-
-#### 训练报告
-
-板端 snapshot、SCPI 只读投影和 host JSON 至少应能表达以下参数：
-
-| 类别 | 参数 | 训练用途 |
-|---|---|---|
-| 拓扑/配置 | `reference_slot`、`active_node_count`、`local_slot`、上/下行邻居、`profile_crc32`、`schedule_crc32` | 证明所有板在同一拓扑、同一速率和同一周期上训练；任何 CRC 不一致都拒绝进入测量态。 |
-| 训练控制 | `train_state`、`train_epoch/seq`、当前 master、pulse start/current/limit、chunk/gap、sample/accepted/rejected count | 区分本地空时钟已发送、CLK 已环回、frame 已环回和完整校准有效。 |
-| 主节点时间戳 | `clk_tx_first/done`、`returned_clk_rx_first`、frame `tx_edge/done`、`feedback_rx_edge/complete` | 分别计算 SPI CLK forwarding RTT 和 frame SOF/complete RTT。 |
-| 节点时间戳 | 每 slot 的 `clk_rx_edge/clk_tx_edge/clk_forward_residence` 及 frame `rx_edge/tx_edge/residence`、timestamp source/resolution/flags | 分离 CLK 再生延迟与帧转发延迟；`rx_extract` 只能作为软件排队诊断。 |
-| 延时校准 | SPI CLK/frame RTT 的 `min/max/mean/p99/stddev/jitter`、aggregate/cumulative delay、freshness、cal CRC、update seq | 先证明 CLK 基础训练，再生成每主节点 RX window/timeout并受控发布 active calibration。 |
-| 帧质量 | `rx_good`、`rx_bad`、`seq_gap`、`crc/magic_fail`、`rx_stall`、`tx_timeout`、`dma_overrun`、`window_miss` | 训练期间必须按增量计数，不能只读取累计总数或只看 `ring_up/down_running`。 |
-| 调度裕量 | `frame_wire_time`、acquisition/feedback timeout、guard、RX window、arm/start/done、late、window margin | 确认完整返回和方向切换在 guard 内，为下一速率档提供可量化余量。 |
-| 链路状态 | 每一跳 link up、RX 首帧时间、连续无帧时长、方向冲突/CSN 错误 | 区分物理断链、方向/线序错误和纯时序不满足；首跳没有 `rx_edge` 时不进入 path-delay 调参。 |
-
-`tx_done`、`rx_complete` 和 `rx_extract` 可以定位 wire completion、DMA 和软件排队，但不得
-替代 `rx_edge` 参与 DPLL phase sample。所有时间戳必须带 `timestamp_source`、
-`timestamp_resolution_ns` 和 `timestamp_flags`；只有硬件锁存、分辨率不大于 100 ns、
-且不带 `DIAGNOSTIC_ONLY` 的样本才能成为正式训练证据。
-
-整体执行顺序为：
-
-```text
-STOP all nodes
-  -> APPLY identical operating/topology profile
-  -> clear counters and stale RX FIFO
-  -> ARM all nodes
-  -> for each master: CLOCK_ACQUIRE -> CLOCK_CODED -> FRAME_MEASURE
-  -> calculate W[slot], guard and timeout
-  -> publish valid calibration only after all active masters pass
-  -> START cyclic traffic
-```
-
-训练通过条件：所有 active master 都收到匹配 epoch/seq/CRC 的返回 edge 和完整 TRAIN
-frame；每个节点产生有效 residence；identity、topology、schedule/profile CRC 连续一致；
-`rx_bad/seq_gap/magic_fail/stall/timeout/overrun/window_miss` 在 accepted 统计窗口内均为零；
-完整 RTT 持续刷新；生成的 timeout/window 能放入 profile 容量。任一条件失败时状态为
-`RELOCKING`，保留原始计数和失败原因，不得用默认 `delay_ns=0` 冒充已锁定。
-
-最低速率训练成功后，reference 按 operating-profile catalog 逐级提出下一档，所有 active
-节点共同 STOP/APPLY/ARM/TRAIN/START。每一档重新测量 wire time、RTT、jitter、guard 和
-错误增量；失败时全环回退最后一个 `VALID` profile，不能让单节点自行提速或降速。
+### EtherCAT DC 风格训练的 TDMA 边界
+
+训练的测量、校准和接受门禁属于 Calibration Domain；详细流程、双向时间传递、
+residence、endpoint bias、path-delay candidate、统计质量、generation/freshness 以及
+四板 HIL 证据的 canonical 文档是
+`docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`。TDMA 不复制这些公式，也不
+把观察到的 RTT 直接解释为线缆传播延迟。
+
+TDMA 只负责训练 transport/persona 和实时执行编排：
+
+- `TdmaSchedulerAO`/core1 是训练命令和 PIO persona 的唯一运行时 owner；core0/SCPI 只
+  提交有界 `TRAIN` intent 并读取 guarded/seqlock snapshot。
+- TDMA 声明并独占训练所需 PIO SM、DMA channel、FIFO、waveform/capture buffer 和 core1
+  预算；DeploymentGate 在 profile 激活时检查这些 resource claims。
+- reference 在普通 TDMA persona 下发 `TRAIN_PREPARE`，收齐 active-node ACK bitmap 后
+  提交 commit sequence；TDMA 统一切换所有节点的 training persona，禁止部分节点训练。
+- TDMA 提供 RX arm、训练窗口、acquisition/feedback timeout、persona 恢复和失败传播；
+  训练结束恢复普通 DATA/CS persona，并停在 STOPPED，后续 START 仍需显式触发。
+- PIO/DMA 负责边沿生成、透明转发和原始 capture；TDMA 只收割 bounded evidence，不在
+  core0 等待边沿，也不在 host 查询时维持实时窗口。
+
+Calibration Domain 消费 TDMA 提供的原始 edge evidence 和 transport quality，执行
+`CLOCK_ACQUIRE -> CLOCK_CODED -> FRAME_MEASURE -> CALCULATE -> VALID/RELOCKING`，并
+发布带 board/topology/profile/schedule/calibration generation 绑定的 active calibration。
+VDC 只消费 accepted calibration evidence，训练不得直接修改 VDC offset、rate 或 lock。
+
+#### 训练执行约束
+
+`ARM` 只表示 PIO/DMA/RX window 已准备；`TRAIN` 完成回执只表示 transport 流程收尾，
+不等价于 Calibration Domain 的 `VALID`。TDMA 提供 RX arm、训练窗口、acquisition/
+feedback timeout、persona 恢复和失败传播；训练结束恢复普通 DATA/CS persona，并停在
+STOPPED，后续 START 仍需显式触发。
+
+详细的 CLK/DATA/SYNC 测量、marker、timestamp latch、bias 扣除、residence 计算和 HIL
+验收规则见 `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`。TDMA 在本阶段只
+确认 persona 已切换、PIO/DMA 已 armed、bounded capture 已完成，并把原始 evidence 交给
+校准域；任何 diagnostic-only evidence 不得被 TDMA 或 VDC 当作正式校准。
+
+编码 marker、4 ns raw-sample 相关、PIO/DMA capture、endpoint bias 和 HIL 门禁均由校准域
+维护，详见 `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`。TDMA 只声明训练
+资源、同步启动/停止 persona，并转发 bounded raw evidence；host 不参与实时相关或窗口续装。
+
+#### 短 TRAIN frame 的 TDMA 边界
+
+短 TRAIN frame 的 wire layout、双向同时对比（`CLK` 正向、`DATA` 反向、`SYNC` 关联）、
+edge evidence、residence、RTT 公式和 store-and-forward/cut-through 判定由校准域定义。
+TDMA 只按 active profile 提供有界 frame buffer、发送/接收窗口、sequence 关联和 DMA
+completion evidence；不能在 adapter 层复制固定帧长或手算传播延迟。
+
+#### 四主节点轮换的 TDMA 边界
+
+TDMA 按校准域给出的 active topology 和 master sequence 逐次提供训练窗口，按唯一板卡
+地址关联 epoch/sequence，并保存 transport counters。四主节点 RTT、residence、aggregate
+或 per-link delay 的可观测性和发布规则由校准域决定；单向环的 aggregate 不得由 TDMA
+平均分摊为独立 link delay。
+
+#### 窗口、timeout 和质量摘要
+
+校准域根据 accepted evidence 计算 `rx_window`、`guard`、`acquisition_timeout` 和
+`feedback_timeout`，并发布带 freshness/calibration generation 的摘要。TDMA 负责把这些
+值纳入 active schedule 和容量门禁，拒绝无法放入 TDMA cycle 的 profile；TDMA snapshot
+只保留 transport quality、窗口命中、late/miss、DMA/PIO overrun 和 timeout evidence。
+
+训练执行顺序固定为 `STOP -> APPLY -> ARM -> TRAIN -> publish/restore -> STOP`，后续
+`START` 由调用者显式触发。训练证据必须带 source/resolution/flags；只有校准域确认的
+hardware-latched、非 `DIAGNOSTIC_ONLY` 样本才能进入 active calibration 或供 VDC 消费。
 
 资源与流控规则：
 
@@ -1030,6 +753,7 @@ frame；每个节点产生有效 residence；identity、topology、schedule/prof
 
 | 消费域 | 从 TDMA 读取 | 向 TDMA 提交 | 禁止 |
 |---|---|---|---|
+| Calibration | 原始 edge capture、transport quality、训练窗口/timeout evidence、sequence/counter。 | 训练 intent、active topology/profile、accepted calibration generation 和窗口摘要。 | 让 TDMA 计算 delay/bias/residence 或直接改 VDC offset/rate。 |
 | VDC | observation timestamp、schedule CRC、ring quality、late/miss。 | `VDC_SYNC_SAMPLE` / `IDLE_BEACON` payload registration 和 observation window profile。 | 直接拥有 transport，写 ring runtime，伪造 closed-loop evidence。 |
 | RefMem | data window completion、ACK/fence quality、adapter counters。 | `REFMEM_DELTA` / `REFMEM_ACK_FENCE` payload registration 和 pending delta intent。 | 把 TDMA 当作私有同步线程，绕过 payload registry。 |
 | Trigger / Loop | reservation/READY-NACK/fence/completion token、mask、window/late/quality；目标时间来自 VDC。 | 注册 opaque reservation segments 并提交 payload intent；Trigger 自己解释业务语义。 | 直接占用 ring、写 active image、要求 TDMA 解析动作或修改目标时间。 |

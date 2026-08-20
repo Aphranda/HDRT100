@@ -127,7 +127,7 @@ docs/
 | `calibration/README.md` | 校准域 README。 |
 | `tdma/README.md` | TDMA 基础件主域 README。 |
 | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件架构，定义上/下行 TDMA、payload registry、adapter、ring runtime 和 HAOFV 边界。 |
-| `tdma/TDMA_CLK_TRAINING_PLAN.md` | 多板 SPI CLK 分级训练方案，维护第一阶段流程/HIL 总结和第二阶段编码相关测距计划。 |
+| `calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` | 校准域维护多板 SPI CLK 训练、双向测量、residence/bias/path-delay 证据和 EtherCAT DC 风格门禁。 |
 | `tdma/TDMA_DOMAIN_TODO.md` | TDMA 基础件待办，跟踪 runtime、reliability、system node、adapter 和 HIL 验收。 |
 | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 基础件任务进度。 |
 | `refmem/README.md` | 反射内存域 README。 |
