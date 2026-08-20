@@ -5,7 +5,7 @@ Domain: Hardware / Board
 Target: RP2350B QFN-80
 Canonical: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
 Related: `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`, `docs/hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `IO约束.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-21
 
 本文档定义 RP2350_TRIG RP2350B QFN-80 硬件版本的实际 GPIO 分配与使用约束。
 本版本以 `docs/hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel` 为准；部分 PIO 引脚为
@@ -155,7 +155,8 @@ LCD 不使用 MISO。LCD 使用 SPI0，TF 卡使用 SPI1，两套 SPI 时钟不�
 - 非隔离侧 `12V_IN`、`5V`、`PWR_RETURN` 不得通过分压或保护网络连接到 RP2350 ADC。
 - 12 V 入口健康状态由 eFuse、比较器或电源 PG 生成数字信号，再经光耦或数字隔离送入 RP2350 GPIO。
 - `BOARD_CUR1` 使用 AMC1301 隔离放大器输出，ADC 侧 `VDD/GND/OUT` 必须与 RP2350 ADC
-  同域；被测侧参考 `FGND`，不得通过普通分压或非隔离放大器直接送入 RP2350 ADC。
+  同域；高侧被测端的 `GND1/VDD1` 必须以 `C_OUT` 为参考浮地供电，不得把 GND1 固定接
+  `FGND`。当前网表违反此项并已出现 U24 过热，修复前禁止带电电流验证。
 - GPIO45..47 当前最新网表未连接有效网络；固件不得周期性采样这些浮空 ADC，
   除非后续装配或改版明确接入同域模拟前端并刷新本文。
 - ADC 走线远离 QSPI、SPI 时钟、`VREG_LX` 和功率电感。
@@ -170,7 +171,7 @@ ADC 用于读取实际电压、电流和温度并记录趋势。过压、欠压�
 | ADC 信号 | 推荐前端 | 约束 |
 |---|---|---|
 | `BOARD_TEMP1` | TMP235 类模拟温度传感器 + 1 kOhm/10 nF RC | 靠近 RP2350 或板内代表性热区，并就近放置 100 nF 电源去耦。 |
-| `BOARD_CUR1` | `VCC12V/C_OUT` 分流电阻 + AMC1301 + 1 kOhm/10 nF RC | AMC1301 输出侧供电、地和 ADC 同域；输入侧参考 `FGND`。 |
+| `BOARD_CUR1` | `VCC12V/C_OUT` 高侧分流电阻 + AMC1301 + 输出 RC | 输出侧供电、地和 ADC 同域；输入侧使用以 `C_OUT` 为 0 V 的专用浮地电源。 |
 | GPIO45..47 / ADC5..7 | 当前最新网表未连接有效前端 | 固件初始化为未用 GPIO/ADC，不参与周期采样；后续若启用必须补充同域前端约束。 |
 
 隔离侧低速模拟输入参考连接：
@@ -187,21 +188,27 @@ ISO_DOMAIN_SIGNAL ---- R_DIV / R_LIMIT ----+---- 1k ---- GPIO43/44 ADC
 阻抗较高、需要更快连续采样或需要精密测量，应在分压和保护之后增加 3.3 V
 单电源、轨到轨输入输出、单位增益稳定的运放缓冲器。
 
-隔离侧可选负载电流检测参考连接：
+高侧负载电流检测参考连接：
 
 ```text
-FGND-side current sense / shunt
-              |
-              +--- AMC1301 isolation amplifier ---> 1k ---> GPIO44 ADC
-                                                        |
-                                                       10nF
-                                                        |
-                                                       GND
+VCC12V ---- R_SHUNT ---- C_OUT ---- multiple load boards
+   |                        |
+ VINP                     VINN + AMC1301 GND1
+                            |
+             isolated DC/DC floating secondary 0 V
+             isolated DC/DC floating secondary +5 V ---- AMC1301 VDD1
+
+AMC1301 VOUTP ---- output RC ---- GPIO44 ADC (GND/VDDISO_3V3 domain)
 
 12V_IN/eFuse PGOOD or FAULT
   -> optocoupler / digital isolator
   -> RP2350 GPIO status input
 ```
+
+当前网表的 U24.1=`VCC5V`、U24.4=`FGND`，而 U24.2/U24.3 通过 R18/R27 接
+`VCC12V/C_OUT`，导致约 12 V 输入共模直接施加在以 FGND 为参考的输入侧。C88/C89
+也接 FGND，改为浮地输入侧时必须一起改接浮地 GND1；C85 保持差分滤波。只更换 U24
+而不修改供电和滤波参考不能消除故障。
 
 分流电阻功耗按 `P = I^2 * R` 计算，并留足温升和脉冲功率裕量。12 V 入口保护
 和过流关断必须由 eFuse、比较器或电源开关独立完成，固件 ADC 只做遥测。

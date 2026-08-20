@@ -4,7 +4,7 @@ Status: Draft
 Domain: HARDWARE
 Canonical: `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`, `docs/hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel`
-Last updated: 2026-08-13
+Last updated: 2026-08-21
 
 本文档是后续产品板硬件约束的入口。产品板约束由最新产品网表 `Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel`、IO 约束、BOM/Gerber/PickAndPlace 和硬件评审共同派生，冻结隔离、电源域、连接器、保护器件、网表事实、GPIO 分配和可装配选项；HAOFV 只引用本入口，不直接维护具体 pin map。
 
@@ -49,7 +49,7 @@ Last updated: 2026-08-13
 | `U2/U9` | ISO7740FDBQR | 4 通道数字隔离器 | 用于 SMA PIO 输入/输出隔离；方向固定，不通过软件反转物理方向。 |
 | `U3/U4` | SN74LVC2G17 | 控制侧缓冲/整形 | 作为隔离器前后的逻辑整形，供电域必须与所在信号侧一致。 |
 | `U29/U30` | SN74LVC2G34 | 控制侧缓冲/驱动 | 用于低延迟逻辑缓冲；不得替代隔离边界。 |
-| `U24` | AMC1301DWVR | 12 V 输出电流隔离采样 | 输入侧测 `VCC12V/C_OUT` 分流电阻，输出侧 `BOARD_CUR1` 到 RP2350 ADC；外围不得绕过隔离。 |
+| `U24` | AMC1301DWVR | 12 V 输出电流隔离采样 | 当前网表把输入侧供电参考 FGND、输入却接 12 V 高侧，已板测过热并判为硬件阻塞；返修后输入侧必须随高侧分流器浮地。 |
 | `U23` | TMP235A2DBZR | 板载温度传感器 | 输出到 `BOARD_TEMP1`，低速 ADC 遥测。 |
 | `U13` | TPS259241DRCT | 12 V 前端 eFuse / 电子保险丝 | 前端需配合 TVS；FAULT/PGOOD 类状态不得跨域直连 MCU。 |
 | `U6` | LMR33630ADDAR | 12 V 到 5 V DC/DC | 输入在 `PWR_IN/VCC12V/FGND` 域，开关节点远离 ADC、USB 和晶振。 |
@@ -74,7 +74,7 @@ Last updated: 2026-08-13
 | `GND` | MCU/USB/本地域 | RP2350、USB1/USB2 ESD、CH343、MAX3485、LCD、TF、Flash、AMC1301 输出侧 | 本地域地；USB/CH343/RS485 无需隔离。 |
 | `FGND` | 线缆/功率域 | DC 输入、12 V、SMA/RJ45 外壳、线缆侧 ESD、ISO1452/ISO7740 线缆侧 | 与 MCU 域通过隔离器或单点可控耦合件交互。 |
 | `PWR_IN` | 12 V 输入前端 | DC1、TVS D16、TPS259241 输入 | TVS 靠近输入，eFuse 前端浪涌能力需评估。 |
-| `VCC12V` | 12 V 受控输出/总线 | RJ45 供电、分流电阻、功率链路 | 当前电流测量通过 AMC1301 隔离采样。 |
+| `VCC12V` | 12 V 受控输出/总线 | RJ45 供电、分流电阻、功率链路 | R28 高侧分流保留；AMC1301 输入侧必须使用以 `C_OUT` 为参考的专用浮地电源。 |
 | `VCC5V` | 线缆侧/功率侧 5 V | ISO1452、ISO7740 线缆侧、USB 调试供电输出 | 不得默认反灌 USB；调试供电需装配标记。 |
 | `VCCISO_5V` | 隔离电源 5 V | B0505MT 输出、TPS7A2033 输入 | 命名保留 ISO，必须结合实际电源路径核对。 |
 | `VDDISO_3V3` | MCU 本地域 3.3 V | RP2350、W25Q128、CH343、MAX3485、LCD、TF、AMC1301 输出侧 | 作为 MCU IO/ADC 参考域。 |
@@ -172,7 +172,7 @@ Last updated: 2026-08-13
 | ADC 信号 | 前端 | 约束 |
 |---|---|---|
 | `BOARD_TEMP1` | TMP235A2DBZR | 仅用于低速温度遥测。 |
-| `BOARD_CUR1` | AMC1301DWVR 输出 | 只测隔离放大器输出侧同域信号；输入侧分流电阻功耗和量程必须按最大 2 A 与实际 shunt 复核。 |
+| `BOARD_CUR1` | AMC1301DWVR 输出 | 当前首件前端无效；修版后只测隔离放大器输出侧同域信号，输入侧浮地供电、分流电阻功耗和量程必须按负载上限复核。 |
 | GPIO45..47 / ADC5..7 | 当前最新网表未连接有效前端 | 固件默认 disabled，不周期采样。 |
 
 保护和故障判断不得只依赖 ADC。12 V 过压、过流、短路必须由 eFuse、比较器或电源器件提供硬件保护，ADC 只做趋势记录、模块数量估计或报告证据。
@@ -200,13 +200,15 @@ Last updated: 2026-08-13
 | 存储/UI | TF mount、System Pack、LCD 刷新 | 不阻塞 SCPI 和 core1 heartbeat。 |
 | PIO/SMA | 4 入 4 出物理通道映射 | 每个 SMA 与软件通道一致，GPIO20..23 反序处理正确。 |
 | RJ45/BiSS/Trigger | UP/DN/TRIG DE/RE、差分收发、ESD 接地 | 默认态安全，方向控制独立。 |
-| ADC | 温度、电流、未用 ADC 状态 | `BOARD_CUR1` 量程合理，未用通道不浮空采样。 |
+| ADC | 温度、电流、未用 ADC 状态 | U24 输入侧共模修复且无异常温升，`BOARD_CUR1` 零点/量程合理，未用通道不浮空采样。 |
 | 隔离 | ISO1452/ISO7740/AMC1301/B0505MT 边界 | 无未受控跨域直流路径，地桥装配记录一致。 |
 | 长稳 | RTOS heap/stack、水位、heartbeat、日志 | 24h 或阶段性压力测试无死锁/异常复位。 |
 
 ## 后续待补
 
 - [ ] 基于 `Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel` 刷新网表评审和硬件约束。
+- [ ] 修正 U24 高侧测流：增加以 `C_OUT` 为参考的专用隔离 DC/DC 浮地次级，或改为
+  高侧监测器加数字隔离；替换已过热首件并完成限流上电验收。
 - [ ] 建立产品板版本号、网表版本、BOM/Gerber 版本和固件 board profile 的对应表。
 - [ ] 将本文 IO 摘要固化为 board profile 的机器可读 pin map，并生成 pin map CRC。
 - [ ] 把隔离、电源、ESD、连接器和装配选项形成发布冻结 checklist。

@@ -96,8 +96,10 @@ Source of truth: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
 因此输入脚相对输入侧地承受约 12 V 共模；隔离栅不能消除同一输入侧内部的共模越限。
 首件已出现 U24 明显发热和输出近低轨，必须保持断电，不能以“仍能运行”作为验收依据。
 
-返修必须先改变电气拓扑：将分流器移到低侧，或为 U24 输入侧提供以高侧分流器为参考的
-浮地电源；完成设计复核、替换疑似受损 U24、限流上电和示波器/万用表验收前，
+本产品用总线高侧电流阶梯判断加载板数，没有可用低侧回流采样点，因此 R28 保持高侧。
+返修必须为 U24 输入侧提供以 `C_OUT` 为参考的浮地电源；下一版也可改用集成隔离电源的
+高侧方案（如适合分流器量程的 AMC3302，封装不兼容需改板）或高侧监测器加数字隔离。
+完成设计复核、替换疑似受损 U24、限流上电和示波器/万用表验收前，
 `BOARD_CUR1` 只能发布 raw diagnostic fault，禁止生成 calibrated current 或参与保护闭环。
 固件门禁符号见 `DIAGNOSTICS_SENSOR_FLAG_CURRENT_FRONTEND_FAULT` 和
 `BOARD_AMC1301_OUTPUT_PLAUSIBLE_MIN_UV/MAX_UV`。
