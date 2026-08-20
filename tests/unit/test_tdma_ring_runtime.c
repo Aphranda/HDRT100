@@ -87,6 +87,9 @@ int main(void)
         .flags = TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN,
         .ring_profile_crc32 = 0x11223344u,
         .schedule_crc32 = 0x55667788u,
+        .operating_profile_crc32 = 0x99AABBCCu,
+        .baud_hz = 10000000u,
+        .cycle_period_ns = 1000u,
         .feedback_timeout_ns = 10000u,
     };
     tdma_ring_runtime_config_t valid = bad_direction;

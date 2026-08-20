@@ -50,8 +50,13 @@ endforeach()
 if(NOT "${PROJECT_TDMA_SPI_BAUD_HZ}" MATCHES "^[0-9]+$")
     message(FATAL_ERROR "PROJECT_TDMA_SPI_BAUD_HZ must be an integer frequency")
 endif()
-if(PROJECT_TDMA_SPI_BAUD_HZ LESS 1000000 OR PROJECT_TDMA_SPI_BAUD_HZ GREATER 25000000)
-    message(FATAL_ERROR "PROJECT_TDMA_SPI_BAUD_HZ must stay within the validated 1..25 MHz ladder")
+set(PROJECT_TDMA_SPI_SUPPORTED_BAUDS
+    10000000 25000000 30000000 35000000 40000000 45000000 50000000)
+list(FIND PROJECT_TDMA_SPI_SUPPORTED_BAUDS "${PROJECT_TDMA_SPI_BAUD_HZ}"
+     PROJECT_TDMA_SPI_BAUD_INDEX)
+if(PROJECT_TDMA_SPI_BAUD_INDEX EQUAL -1)
+    message(FATAL_ERROR
+        "PROJECT_TDMA_SPI_BAUD_HZ must select a frozen TDMA operating-profile rate: ${PROJECT_TDMA_SPI_SUPPORTED_BAUDS}")
 endif()
 
 math(EXPR PROJECT_SYNC_IO_INPUT_LAST_PIN "${PROJECT_SYNC_IO_INPUT_BASE_PIN} + 3")
@@ -241,6 +246,7 @@ set(PROJECT_APP_SOURCES
         components/sync_io/src/sync_io_mode_enc_count.c
         components/sync_io/src/sync_io_mode_seq_step.c
         components/tdma/src/tdma_service.c
+        components/tdma/src/tdma_operating_profile.c
         components/tdma/src/tdma_profile.c
         components/tdma/src/tdma_payload_registry.c
         components/tdma/src/tdma_flight_fifo.c
@@ -295,6 +301,7 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_system_diagnostics_commands.c
         middleware/scpi_port/src/scpi_system_runtime_commands.c
         middleware/scpi_port/src/scpi_system_snapshot_commands.c
+        middleware/scpi_port/src/scpi_tdma_commands.c
         middleware/scpi_port/src/scpi_trigger_commands.c
         middleware/u8g2_port/src/u8g2_port.c
         third_party/scpi-parser/libscpi/src/error.c

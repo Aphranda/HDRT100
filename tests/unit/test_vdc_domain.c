@@ -261,7 +261,24 @@ static int test_tdma_ring_profile_contract(void)
     uint32_t original_ring_crc = 0u;
     uint32_t original_schedule_crc = 0u;
 
-    vdc_domain_default_schedule(&schedule, 2u, 0u);
+    vdc_domain_default_schedule(&schedule, 1u, 0u);
+    failed += expect_bool("factory two-node schedule valid",
+                          vdc_domain_schedule_validate(&schedule),
+                          true);
+    failed += expect_u32("factory active node count",
+                         schedule.ring_binding.node_count,
+                         VDC_DOMAIN_DEFAULT_ACTIVE_NODE_COUNT);
+    failed += expect_u32("factory two-node upstream",
+                         schedule.ring_binding.upstream_slot_id,
+                         0u);
+    failed += expect_u32("factory two-node downstream",
+                         schedule.ring_binding.downstream_slot_id,
+                         0u);
+
+    failed += expect_bool("four node default schedule",
+                          vdc_domain_default_schedule_for_topology(
+                              &schedule, 2u, 0u, 4u),
+                          true);
     original_ring_crc = schedule.ring_binding.profile_crc32;
     original_schedule_crc = schedule.schedule_crc32;
 
@@ -277,7 +294,7 @@ static int test_tdma_ring_profile_contract(void)
                          TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN);
     failed += expect_u32("ring node count",
                          schedule.ring_binding.node_count,
-                         VDC_DOMAIN_NODE_COUNT);
+                         4u);
     failed += expect_u32("ring local index", schedule.ring_binding.local_index, 2u);
     failed += expect_u32("ring reference index",
                          schedule.ring_binding.reference_index,
@@ -318,7 +335,7 @@ static int test_tdma_ring_profile_contract(void)
                           vdc_domain_schedule_validate(&schedule),
                           false);
 
-    vdc_domain_default_schedule(&schedule, 2u, 0u);
+    (void)vdc_domain_default_schedule_for_topology(&schedule, 2u, 0u, 4u);
     schedule.ring_binding.node_count = 5u;
     schedule.ring_binding.local_index = 2u;
     schedule.local_slot_id = 2u;
@@ -356,14 +373,17 @@ static int test_tdma_ring_plan_contract(void)
     vdc_tdma_schedule_profile_t schedule;
     vdc_tdma_ring_plan_t plan;
 
-    vdc_domain_default_schedule(&schedule, 2u, 0u);
+    failed += expect_bool("four node ring plan schedule",
+                          vdc_domain_default_schedule_for_topology(
+                              &schedule, 2u, 0u, 4u),
+                          true);
     failed += expect_bool("ring plan default",
                           vdc_domain_plan_tdma_ring(&schedule, &plan),
                           true);
     failed += expect_u32("ring plan valid", plan.valid, 1u);
     failed += expect_u32("ring plan node count",
                          plan.ring_node_count,
-                         VDC_DOMAIN_NODE_COUNT);
+                         4u);
     failed += expect_u32("ring plan cycle period",
                          plan.cycle_period_ns,
                          schedule.period_ns);
@@ -376,7 +396,7 @@ static int test_tdma_ring_plan_contract(void)
                          2u);
     failed += expect_u32("ring plan to feedback",
                          plan.to_feedback_hops,
-                         6u);
+                         2u);
     failed += expect_u32("ring plan not reference",
                          plan.is_reference_slot,
                          0u);
@@ -392,7 +412,7 @@ static int test_tdma_ring_plan_contract(void)
                          plan.from_reference_hops,
                          0u);
 
-    vdc_domain_default_schedule(&schedule, 2u, 0u);
+    (void)vdc_domain_default_schedule_for_topology(&schedule, 2u, 0u, 4u);
     schedule.ring_binding.node_count = 5u;
     schedule.ring_binding.local_index = 2u;
     schedule.local_slot_id = 2u;
@@ -1320,7 +1340,10 @@ static int test_tdma_window_plan_contract(void)
     vdc_tdma_window_plan_t plan;
     vdc_gate_result_t gate;
 
-    vdc_domain_default_schedule(&schedule, 3u, 0u);
+    failed += expect_bool("window plan topology schedule",
+                          vdc_domain_default_schedule_for_topology(
+                              &schedule, 3u, 0u, 4u),
+                          true);
 
     failed += expect_bool("plan before data window",
                           vdc_domain_plan_tdma_window(&schedule,

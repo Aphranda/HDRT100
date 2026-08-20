@@ -3007,7 +3007,7 @@ bool refmem_application_model_set_tdma_ring_local_slot(uint32_t local_slot_id)
     tdma_foundation_profile_t *profile =
         s_active_tables_from_image ? &s_active_tdma_foundation_profile
                                    : &s_tdma_foundation_profile;
-    if (local_slot_id >= TDMA_RING_NODE_MAX) {
+    if (local_slot_id >= profile->ring.node_count) {
         return false;
     }
     if (local_slot_id == profile->ring.local_index) {

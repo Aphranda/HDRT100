@@ -17,6 +17,7 @@ $tdmaFlightSource = Join-Path $repo "components\tdma\src\tdma_flight_fifo.c"
 $tdmaFlightEngineSource = Join-Path $repo "components\tdma\src\tdma_flight_engine.c"
 $tdmaProcessMapSource = Join-Path $repo "components\tdma\src\tdma_process_image_map.c"
 $tdmaProfileSource = Join-Path $repo "components\tdma\src\tdma_profile.c"
+$tdmaOperatingProfileSource = Join-Path $repo "components\tdma\src\tdma_operating_profile.c"
 $tdmaRegistrySource = Join-Path $repo "components\tdma\src\tdma_payload_registry.c"
 $tdmaRingSource = Join-Path $repo "components\tdma\src\tdma_ring_runtime.c"
 $tdmaSchedulerSource = Join-Path $repo "components\tdma\src\tdma_traffic_scheduler.c"
@@ -56,7 +57,7 @@ if (-not $hostCc) {
 
 if ($hostCc) {
     $exe = Join-Path $build "test_refmem_realtime_tdma.exe"
-    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" $testSource $serviceSource $payloadSource $tdmaSource $tdmaFlightSource $tdmaFlightEngineSource $tdmaProcessMapSource $tdmaProfileSource $tdmaRegistrySource $tdmaRingSource $tdmaSchedulerSource -o $exe
+    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" $testSource $serviceSource $payloadSource $tdmaSource $tdmaFlightSource $tdmaFlightEngineSource $tdmaProcessMapSource $tdmaProfileSource $tdmaOperatingProfileSource $tdmaRegistrySource $tdmaRingSource $tdmaSchedulerSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -73,7 +74,7 @@ if (-not (Test-Path $compiler)) {
     throw "No host C compiler found and ARM GCC not found"
 }
 
-foreach ($source in @($testSource, $serviceSource, $payloadSource, $tdmaSource, $tdmaFlightSource, $tdmaFlightEngineSource, $tdmaProcessMapSource, $tdmaProfileSource, $tdmaRegistrySource, $tdmaRingSource, $tdmaSchedulerSource)) {
+foreach ($source in @($testSource, $serviceSource, $payloadSource, $tdmaSource, $tdmaFlightSource, $tdmaFlightEngineSource, $tdmaProcessMapSource, $tdmaProfileSource, $tdmaOperatingProfileSource, $tdmaRegistrySource, $tdmaRingSource, $tdmaSchedulerSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $compiler -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {

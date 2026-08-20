@@ -216,6 +216,23 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
                                      uint32_t reference_slot_id,
                                      uint32_t adapter_type)
 {
+    return tdma_foundation_profile_default_for_topology(
+        profile,
+        owner_instance_id,
+        local_slot_id,
+        reference_slot_id,
+        TDMA_PROFILE_DEFAULT_ACTIVE_NODE_COUNT,
+        adapter_type);
+}
+
+bool tdma_foundation_profile_default_for_topology(
+    tdma_foundation_profile_t *profile,
+    uint32_t owner_instance_id,
+    uint32_t local_slot_id,
+    uint32_t reference_slot_id,
+    uint32_t node_count,
+    uint32_t adapter_type)
+{
     if (profile == NULL || adapter_type == TDMA_ADAPTER_NONE ||
         adapter_type > TDMA_ADAPTER_RS485) {
         return false;
@@ -228,7 +245,7 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
     if (!tdma_ring_profile_default(&profile->ring,
                                    local_slot_id,
                                    reference_slot_id,
-                                   TDMA_RING_NODE_MAX)) {
+                                   node_count)) {
         return false;
     }
     profile->resource.adapter_type = adapter_type;

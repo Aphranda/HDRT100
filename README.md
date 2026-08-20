@@ -159,6 +159,9 @@ Required host tools:
 
 Preset build:
 
+The product release, validation, and debug presets all use FreeRTOS +
+multicore AMP. Single-core or bare-metal presets are bring-up-only paths.
+
 ```powershell
 cmake --preset pico2-release
 cmake --build --preset pico2-release

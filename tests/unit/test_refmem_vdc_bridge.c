@@ -169,7 +169,10 @@ static int test_ack_fence_quality_mapping(void)
     vdc_tdma_schedule_profile_t schedule;
     refmem_realtime_tdma_snapshot_t tdma;
 
-    vdc_domain_default_schedule(&schedule, 2u, 0u);
+    failed += expect_bool("control topology schedule",
+                          vdc_domain_default_schedule_for_topology(
+                              &schedule, 2u, 0u, 4u),
+                          true);
     make_ready_tdma(&tdma);
     for (uint32_t i = 0u; i < sizeof(frame_types); i++) {
         uint8_t frame[REFMEM_REALTIME_TDMA_FRAME_MAX];

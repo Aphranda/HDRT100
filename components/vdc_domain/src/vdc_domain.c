@@ -853,6 +853,26 @@ void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
     if (profile == NULL) {
         return;
     }
+    if (!vdc_domain_default_schedule_for_topology(
+            profile,
+            local_slot_id,
+            reference_slot_id,
+            VDC_DOMAIN_DEFAULT_ACTIVE_NODE_COUNT)) {
+        memset(profile, 0, sizeof(*profile));
+    }
+}
+
+bool vdc_domain_default_schedule_for_topology(
+    vdc_tdma_schedule_profile_t *profile,
+    uint32_t local_slot_id,
+    uint32_t reference_slot_id,
+    uint32_t node_count)
+{
+    if (profile == NULL || node_count < 2u ||
+        node_count > VDC_DOMAIN_NODE_COUNT || local_slot_id >= node_count ||
+        reference_slot_id >= node_count) {
+        return false;
+    }
 
     memset(profile, 0, sizeof(*profile));
     profile->enabled = 1u;
@@ -867,22 +887,24 @@ void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
     profile->idle_beacon_window_width_ns = VDC_DOMAIN_DEFAULT_IDLE_WINDOW_WIDTH_NS;
     profile->guard_before_ns = VDC_DOMAIN_DEFAULT_GUARD_NS;
     profile->guard_after_ns = VDC_DOMAIN_DEFAULT_GUARD_NS;
-    profile->reference_slot_id =
-        reference_slot_id < VDC_DOMAIN_NODE_COUNT ? reference_slot_id : 0u;
-    profile->local_slot_id =
-        local_slot_id < VDC_DOMAIN_NODE_COUNT ? local_slot_id : 0u;
-    (void)tdma_ring_profile_default(&profile->ring_binding,
-                                    profile->local_slot_id,
-                                    profile->reference_slot_id,
-                                    VDC_DOMAIN_NODE_COUNT);
+    profile->reference_slot_id = reference_slot_id;
+    profile->local_slot_id = local_slot_id;
+    if (!tdma_ring_profile_default(&profile->ring_binding,
+                                   profile->local_slot_id,
+                                   profile->reference_slot_id,
+                                   node_count)) {
+        memset(profile, 0, sizeof(*profile));
+        return false;
+    }
     profile->schedule_crc32 = vdc_domain_schedule_crc32(profile);
+    return true;
 }
 
 void vdc_domain_set_schedule_local_slot(vdc_domain_context_t *context,
                                         uint32_t local_slot_id)
 {
     if (context == NULL ||
-        local_slot_id >= VDC_DOMAIN_NODE_COUNT ||
+        local_slot_id >= context->schedule.ring_binding.node_count ||
         local_slot_id == context->schedule.local_slot_id) {
         return;
     }
@@ -891,7 +913,7 @@ void vdc_domain_set_schedule_local_slot(vdc_domain_context_t *context,
     (void)tdma_ring_profile_default(&updated.ring_binding,
                                     updated.local_slot_id,
                                     updated.reference_slot_id,
-                                    VDC_DOMAIN_NODE_COUNT);
+                                    updated.ring_binding.node_count);
     updated.schedule_crc32 = vdc_domain_schedule_crc32(&updated);
     context->schedule = updated;
 }

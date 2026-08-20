@@ -24,6 +24,7 @@ $sources = @(
     (Join-Path $repo "tests\unit\test_tdma_service_scheduler.c"),
     (Join-Path $repo "components\tdma\src\tdma_service.c"),
     (Join-Path $repo "components\tdma\src\tdma_profile.c"),
+    (Join-Path $repo "components\tdma\src\tdma_operating_profile.c"),
     (Join-Path $repo "components\tdma\src\tdma_payload_registry.c"),
     (Join-Path $repo "components\tdma\src\tdma_flight_fifo.c"),
     (Join-Path $repo "components\tdma\src\tdma_flight_engine.c"),

@@ -37,7 +37,7 @@ static int test_default_foundation_profile(void)
     failed += expect_bool("default profile",
                           tdma_foundation_profile_default(&profile,
                                                           7u,
-                                                          2u,
+                                                          1u,
                                                           0u,
                                                           TDMA_ADAPTER_PIO_SPI),
                           true);
@@ -46,13 +46,40 @@ static int test_default_foundation_profile(void)
                           true);
     failed += expect_u32("default result", result, TDMA_PROFILE_OK);
     failed += expect_u32("owner", profile.owner_instance_id, 7u);
-    failed += expect_u32("upstream", profile.ring.upstream_slot_id, 1u);
-    failed += expect_u32("downstream", profile.ring.downstream_slot_id, 3u);
+    failed += expect_u32("active node count",
+                         profile.ring.node_count,
+                         TDMA_PROFILE_DEFAULT_ACTIVE_NODE_COUNT);
+    failed += expect_u32("upstream", profile.ring.upstream_slot_id, 0u);
+    failed += expect_u32("downstream", profile.ring.downstream_slot_id, 0u);
     failed += expect_u32("feedback", profile.ring.feedback_slot_id, 0u);
     failed += expect_u32("required payloads",
                          profile.resource.payload_whitelist_mask &
                              TDMA_PAYLOAD_FOUNDATION_REQUIRED_MASK,
                          TDMA_PAYLOAD_FOUNDATION_REQUIRED_MASK);
+    return failed;
+}
+
+static int test_explicit_multi_node_foundation_profile(void)
+{
+    int failed = 0;
+    tdma_foundation_profile_t profile;
+    tdma_profile_result_t result = TDMA_PROFILE_BAD_ARGUMENT;
+
+    failed += expect_bool(
+        "four node profile",
+        tdma_foundation_profile_default_for_topology(
+            &profile, 7u, 2u, 0u, 4u, TDMA_ADAPTER_PIO_SPI),
+        true);
+    failed += expect_bool("four node profile valid",
+                          tdma_foundation_profile_validate(&profile, &result),
+                          true);
+    failed += expect_u32("four node count", profile.ring.node_count, 4u);
+    failed += expect_u32("four node upstream",
+                         profile.ring.upstream_slot_id,
+                         1u);
+    failed += expect_u32("four node downstream",
+                         profile.ring.downstream_slot_id,
+                         3u);
     return failed;
 }
 
@@ -234,6 +261,7 @@ int main(void)
 {
     int failed = 0;
     failed += test_default_foundation_profile();
+    failed += test_explicit_multi_node_foundation_profile();
     failed += test_ring_rejects_direction_and_topology_conflicts();
     failed += test_foundation_rejects_resource_and_payload_conflicts();
     failed += test_non_pio_adapter_does_not_claim_state_machines();

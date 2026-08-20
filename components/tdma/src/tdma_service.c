@@ -334,6 +334,10 @@ bool tdma_service_init(tdma_service_service_t *service)
     if (!tdma_flight_engine_init(&service->flight_engine)) {
         return false;
     }
+    if (!tdma_operating_profile_get(TDMA_OPERATING_PROFILE_DEFAULT_LEVEL,
+                                    &service->operating_profile)) {
+        return false;
+    }
     tdma_service_set_default_timestamp(service);
     return true;
 }
@@ -466,9 +470,29 @@ bool tdma_service_configure_foundation_profile(
             profile->resource.long_frame_capacity)) {
         return false;
     }
+    tdma_operating_profile_result_t operating_result;
+    if (!tdma_operating_profile_validate(&service->operating_profile,
+                                         &operating_result)) {
+        return false;
+    }
+    tdma_foundation_profile_t scheduler_profile = *profile;
+    scheduler_profile.resource.cycle_period_ns =
+        service->operating_profile.cycle_period_ns;
+    scheduler_profile.profile_crc32 =
+        tdma_foundation_profile_crc32(&scheduler_profile);
     if (service->traffic_scheduler != NULL &&
         !tdma_traffic_scheduler_configure(service->traffic_scheduler,
-                                          profile)) {
+                                          &scheduler_profile)) {
+        return false;
+    }
+
+    const uint32_t effective_schedule_crc32 =
+        tdma_operating_profile_schedule_crc32(
+            schedule_crc32, &service->operating_profile);
+    const uint64_t feedback_timeout_ns =
+        (uint64_t)service->operating_profile.cycle_period_ns *
+        (uint64_t)profile->ring.node_count;
+    if (effective_schedule_crc32 == 0u || feedback_timeout_ns > UINT32_MAX) {
         return false;
     }
 
@@ -481,8 +505,12 @@ bool tdma_service_configure_foundation_profile(
         .down_group_id = profile->ring.down_group_id,
         .flags = profile->ring.flags,
         .ring_profile_crc32 = profile->ring.profile_crc32,
-        .schedule_crc32 = schedule_crc32,
-        .feedback_timeout_ns = profile->resource.cycle_period_ns,
+        .schedule_crc32 = effective_schedule_crc32,
+        .operating_profile_crc32 =
+            service->operating_profile.profile_crc32,
+        .baud_hz = service->operating_profile.baud_hz,
+        .cycle_period_ns = service->operating_profile.cycle_period_ns,
+        .feedback_timeout_ns = (uint32_t)feedback_timeout_ns,
     };
     tdma_service_begin_intent_write(service);
     service->foundation_profile_crc32 = profile->profile_crc32;
@@ -500,11 +528,53 @@ bool tdma_service_configure_foundation_profile(
     service->io_claim_mask = profile->resource.io_claim_mask;
     service->ip_core_claim_mask = profile->resource.ip_core_claim_mask;
     tdma_service_end_intent_write(service);
+    service->ring_base_schedule_crc32 = schedule_crc32;
     service->ring_staged_config = ring;
     tdma_service_apply_profile_adapter(service, profile->resource.adapter_type);
     /* Product links start explicitly after both boards have roles assigned.
      * Keep the adapter and all ISO1452 drivers stopped at boot/profile load. */
     return tdma_service_configure_ring_runtime(service, NULL);
+}
+
+bool tdma_service_set_operating_profile(
+    tdma_service_service_t *service,
+    const tdma_operating_profile_t *profile)
+{
+    tdma_operating_profile_result_t result;
+    tdma_ring_runtime_snapshot_t snapshot;
+    if (service == NULL ||
+        !tdma_operating_profile_validate(profile, &result) ||
+        !tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
+        snapshot.enabled != 0u) {
+        return false;
+    }
+
+    tdma_service_ring_runtime_config_t staged = service->ring_staged_config;
+    if (staged.enabled != 0u) {
+        const uint32_t effective_schedule_crc32 =
+            tdma_operating_profile_schedule_crc32(
+                service->ring_base_schedule_crc32, profile);
+        const uint64_t feedback_timeout_ns =
+            (uint64_t)profile->cycle_period_ns *
+            (uint64_t)staged.node_count;
+        if (effective_schedule_crc32 == 0u ||
+            feedback_timeout_ns > UINT32_MAX) {
+            return false;
+        }
+        if (service->traffic_scheduler != NULL &&
+            !tdma_traffic_scheduler_set_cycle_period(
+                service->traffic_scheduler, profile->cycle_period_ns)) {
+            return false;
+        }
+        staged.schedule_crc32 = effective_schedule_crc32;
+        staged.operating_profile_crc32 = profile->profile_crc32;
+        staged.baud_hz = profile->baud_hz;
+        staged.cycle_period_ns = profile->cycle_period_ns;
+        staged.feedback_timeout_ns = (uint32_t)feedback_timeout_ns;
+    }
+    service->operating_profile = *profile;
+    service->ring_staged_config = staged;
+    return true;
 }
 
 bool tdma_service_ring_arm(tdma_service_service_t *service)

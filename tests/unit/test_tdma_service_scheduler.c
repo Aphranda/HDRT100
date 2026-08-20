@@ -166,6 +166,7 @@ int main(void)
     tdma_traffic_scheduler_t scheduler;
     tdma_traffic_scheduler_slot_t slots[TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT];
     tdma_foundation_profile_t profile;
+    tdma_operating_profile_t operating_profile;
     tdma_service_snapshot_t snapshot;
     tdma_flight_fifo_snapshot_t flight_snapshot;
     mock_adapter_t adapter = {0};
@@ -208,6 +209,39 @@ int main(void)
     failed += expect_u32("configure profile",
                          tdma_service_configure_foundation_profile(
                              &service, &profile, 0x12345678u),
+                         1u);
+    failed += expect_u32("factory active nodes",
+                         service.ring_staged_config.node_count,
+                         TDMA_PROFILE_DEFAULT_ACTIVE_NODE_COUNT);
+    failed += expect_u32("2 ms two-node feedback period",
+                         service.ring_staged_config.feedback_timeout_ns,
+                         4000000u);
+    failed += expect_u32("get 1 ms operating profile",
+                         tdma_operating_profile_get(8u, &operating_profile),
+                         1u);
+    failed += expect_u32("apply 1 ms operating profile",
+                         tdma_service_set_operating_profile(
+                             &service, &operating_profile),
+                         1u);
+    failed += expect_u32("1 ms two-node feedback period",
+                         service.ring_staged_config.feedback_timeout_ns,
+                         2000000u);
+    failed += expect_u32("get 100 us operating profile",
+                         tdma_operating_profile_get(14u, &operating_profile),
+                         1u);
+    failed += expect_u32("apply 100 us operating profile",
+                         tdma_service_set_operating_profile(
+                             &service, &operating_profile),
+                         1u);
+    failed += expect_u32("100 us two-node feedback period",
+                         service.ring_staged_config.feedback_timeout_ns,
+                         200000u);
+    failed += expect_u32("restore default operating profile",
+                         tdma_operating_profile_get(
+                             TDMA_OPERATING_PROFILE_DEFAULT_LEVEL,
+                             &operating_profile) &&
+                                 tdma_service_set_operating_profile(
+                                     &service, &operating_profile),
                          1u);
 
     tdma_service_intent_config_t config = make_intent(

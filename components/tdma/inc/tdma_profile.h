@@ -9,6 +9,7 @@
 #define TDMA_FOUNDATION_PROFILE_VERSION 1u
 #define TDMA_FOUNDATION_PROFILE_TABLE_VERSION 1u
 #define TDMA_RING_NODE_MAX 8u
+#define TDMA_PROFILE_DEFAULT_ACTIVE_NODE_COUNT 2u
 #define TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN 0x00000001u
 #define TDMA_TRAFFIC_CLASS_COUNT 5u
 #define TDMA_RESOURCE_ID_UNUSED UINT32_MAX
@@ -151,6 +152,13 @@ bool tdma_foundation_profile_default(tdma_foundation_profile_t *profile,
                                      uint32_t local_slot_id,
                                      uint32_t reference_slot_id,
                                      uint32_t adapter_type);
+bool tdma_foundation_profile_default_for_topology(
+    tdma_foundation_profile_t *profile,
+    uint32_t owner_instance_id,
+    uint32_t local_slot_id,
+    uint32_t reference_slot_id,
+    uint32_t node_count,
+    uint32_t adapter_type);
 bool tdma_foundation_profile_validate(const tdma_foundation_profile_t *profile,
                                       tdma_profile_result_t *result);
 bool tdma_foundation_profile_encode_table(const tdma_foundation_profile_t *profile,

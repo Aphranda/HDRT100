@@ -147,13 +147,18 @@ static void tdma_flight_engine_unlock_map(tdma_flight_engine_t *engine,
                      __ATOMIC_RELEASE);
 }
 
-static void tdma_flight_engine_read_map(
+static bool tdma_flight_engine_read_map(
     const tdma_flight_engine_t *engine,
     tdma_process_image_map_t *map,
     uint32_t *local_slot_id,
     uint32_t *map_generation)
 {
-    for (;;) {
+    if (engine == NULL || map == NULL) {
+        return false;
+    }
+    for (uint32_t retry = 0u;
+         retry < TDMA_FLIGHT_MAP_SNAPSHOT_RETRY_MAX;
+         retry++) {
         const uint32_t sequence_begin =
             __atomic_load_n(&engine->map_sequence, __ATOMIC_ACQUIRE);
         if ((sequence_begin & 1u) != 0u) {
@@ -170,9 +175,10 @@ static void tdma_flight_engine_read_map(
         const uint32_t sequence_end =
             __atomic_load_n(&engine->map_sequence, __ATOMIC_ACQUIRE);
         if (sequence_begin == sequence_end && (sequence_end & 1u) == 0u) {
-            return;
+            return true;
         }
     }
+    return false;
 }
 
 bool tdma_flight_engine_init(tdma_flight_engine_t *engine)
@@ -281,7 +287,14 @@ bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
     }
     tdma_process_image_map_t map;
     uint32_t local_slot_id = 0u;
-    tdma_flight_engine_read_map(engine, &map, &local_slot_id, NULL);
+    if (!tdma_flight_engine_read_map(engine,
+                                     &map,
+                                     &local_slot_id,
+                                     NULL)) {
+        tdma_flight_engine_set_result(result,
+                                      TDMA_FLIGHT_ENGINE_MAP_UNAVAILABLE);
+        return false;
+    }
 
     if (incoming_size != map.payload_size ||
         output_capacity < map.payload_size) {
@@ -368,7 +381,12 @@ bool tdma_flight_engine_classify_input(
     }
     tdma_process_image_map_t map;
     uint32_t local_slot_id = 0u;
-    tdma_flight_engine_read_map(engine, &map, &local_slot_id, NULL);
+    if (!tdma_flight_engine_read_map(engine,
+                                     &map,
+                                     &local_slot_id,
+                                     NULL)) {
+        return false;
+    }
     if (incoming_size != map.payload_size) {
         return false;
     }
@@ -393,7 +411,12 @@ bool tdma_flight_engine_commit_input(
     }
     tdma_process_image_map_t map;
     uint32_t local_slot_id = 0u;
-    tdma_flight_engine_read_map(engine, &map, &local_slot_id, NULL);
+    if (!tdma_flight_engine_read_map(engine,
+                                     &map,
+                                     &local_slot_id,
+                                     NULL)) {
+        return false;
+    }
     if (incoming_size != map.payload_size) {
         return false;
     }
@@ -435,10 +458,12 @@ bool tdma_flight_engine_get_snapshot(
     snapshot->configured = tdma_flight_engine_is_configured(engine) ? 1u : 0u;
     snapshot->active = tdma_flight_engine_is_active(engine) ? 1u : 0u;
     tdma_process_image_map_t map;
-    tdma_flight_engine_read_map(engine,
-                                &map,
-                                &snapshot->local_slot_id,
-                                &snapshot->map_generation);
+    if (!tdma_flight_engine_read_map(engine,
+                                     &map,
+                                     &snapshot->local_slot_id,
+                                     &snapshot->map_generation)) {
+        return false;
+    }
     snapshot->map_crc32 = snapshot->configured != 0u
                               ? map.map_crc32
                               : 0u;

@@ -179,6 +179,9 @@ static bool tdma_pio_spi_ring_adapter_start(
         config->up_group_id == config->down_group_id ||
         config->ring_profile_crc32 == 0u ||
         config->schedule_crc32 == 0u ||
+        config->operating_profile_crc32 == 0u ||
+        config->baud_hz < 1000000u || config->baud_hz > 50000000u ||
+        config->cycle_period_ns == 0u ||
         config->feedback_timeout_ns == 0u) {
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_BAD_ARGUMENT);
@@ -216,7 +219,7 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->feedback_rx_timestamp_ns = 0ull;
     adapter->last_rx_service_ns = 0ull;
     adapter->last_rx_packet_size = 0u;
-    adapter->last_tx_ns = 0ull;
+    adapter->next_tx_deadline_ns = 0ull;
     adapter->last_error = TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE;
     tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
     return true;
@@ -632,20 +635,55 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
          * (hop advanced, identity preserved) on the uplink RX leg after it
          * has travelled once around the ring. Only this node may produce
          * simultaneous_feedback_loop_evidence. */
-        const uint64_t cycle_ns =
+        /* A reference frame occupies one slot period per active node before
+         * its feedback can return. The runtime freezes feedback_timeout_ns as
+         * cycle_period_ns * node_count, so using it as the emission period
+         * preserves the proven two-board 1 ms -> 500 Hz cadence and scales
+         * deterministically for 3..8 nodes without a hard-coded divider. */
+        const uint64_t emission_period_ns =
             adapter->config.feedback_timeout_ns != 0u
                 ? adapter->config.feedback_timeout_ns
-                : 1000000ull;
-        /* Keep the bring-up beacon at 500 Hz while the closed-loop TDMA/DPLL
-         * pipeline is still being stabilized. The core1 TDMA service runs at
-         * 1 kHz today, so this divider avoids wall-clock phase misses while
-         * preserving the proven 2 ms beacon period. */
-        (void)cycle_ns;
-        const bool emit_now = (adapter->service_count & 1u) == 0u;
+                : adapter->config.cycle_period_ns;
+        bool emit_now = false;
+        if (adapter->next_tx_deadline_ns == 0ull ||
+            now_ns + emission_period_ns < now_ns) {
+            /* Preserve the bring-up behavior where the first service only
+             * establishes phase and the next service may emit. The backoff
+             * models at most one current core1 tick; steady state below is
+             * driven solely by absolute deadlines. */
+            const uint64_t phase_backoff_ns =
+                emission_period_ns < 1000000ull
+                    ? emission_period_ns
+                    : 1000000ull;
+            adapter->next_tx_deadline_ns =
+                now_ns + emission_period_ns - phase_backoff_ns;
+        } else if (now_ns + emission_period_ns <
+                   adapter->next_tx_deadline_ns) {
+            /* Monotonic clock restarted or wrapped relative to the saved
+             * deadline. Re-anchor without emitting a burst. */
+            adapter->next_tx_deadline_ns = now_ns + emission_period_ns;
+        } else {
+            emit_now = now_ns >= adapter->next_tx_deadline_ns;
+        }
         if (emit_now) {
+            const bool first_emission = adapter->idle_beacon_tx_count == 0u;
             tx_ok = tdma_pio_spi_ring_adapter_tx_beacon(adapter);
             if (tx_ok) {
-                adapter->last_tx_ns = now_ns;
+                /* Advance the absolute phase instead of restarting the
+                 * period at the actual (jittered) service time. This avoids
+                 * a nominal 2 ms cadence slipping to the third 1 ms RTOS
+                 * tick after a slightly late service. Missed deadlines are
+                 * coalesced: emit at most one frame per core1 service. */
+                if (first_emission) {
+                    adapter->next_tx_deadline_ns =
+                        now_ns + emission_period_ns;
+                } else {
+                    do {
+                        adapter->next_tx_deadline_ns += emission_period_ns;
+                    } while (adapter->next_tx_deadline_ns <= now_ns &&
+                             adapter->next_tx_deadline_ns >=
+                                 emission_period_ns);
+                }
             }
         } else {
             tx_ok = true; /* throttled round: keep the UP leg running. */

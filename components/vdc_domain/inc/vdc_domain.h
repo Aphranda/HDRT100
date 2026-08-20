@@ -8,6 +8,8 @@
 #include "vdc_timestamp.h"
 
 #define VDC_DOMAIN_NODE_COUNT 8u
+#define VDC_DOMAIN_DEFAULT_ACTIVE_NODE_COUNT \
+    TDMA_PROFILE_DEFAULT_ACTIVE_NODE_COUNT
 #define VDC_DOMAIN_DEFAULT_PERIOD_NS 1000000u
 #define VDC_DOMAIN_DEFAULT_OBSERVATION_WIDTH_NS 10000u
 #define VDC_DOMAIN_DEFAULT_GUARD_NS 1000u
@@ -410,6 +412,11 @@ typedef struct {
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
                                  uint32_t local_slot_id,
                                  uint32_t reference_slot_id);
+bool vdc_domain_default_schedule_for_topology(
+    vdc_tdma_schedule_profile_t *profile,
+    uint32_t local_slot_id,
+    uint32_t reference_slot_id,
+    uint32_t node_count);
 /* Re-derive the ring binding for a new local slot and refresh the schedule
  * CRC. Used by the TDMA ring role maintenance command (SYSTem:TDMA:RING:
  * LOCAL) so the same firmware can run as reference or forward node. */

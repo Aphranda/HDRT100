@@ -119,6 +119,9 @@ bool tdma_ring_runtime_validate_config(
         config->reference_slot_id >= config->node_count ||
         (config->flags & TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN) == 0u ||
         config->ring_profile_crc32 == 0u || config->schedule_crc32 == 0u ||
+        config->operating_profile_crc32 == 0u ||
+        config->baud_hz < 1000000u || config->baud_hz > 50000000u ||
+        config->cycle_period_ns == 0u ||
         config->feedback_timeout_ns == 0u) {
         tdma_ring_runtime_set_reason(reason,
                                      TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
@@ -156,6 +159,9 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->flags = 0u;
         runtime->ring_profile_crc32 = 0u;
         runtime->schedule_crc32 = 0u;
+        runtime->operating_profile_crc32 = 0u;
+        runtime->baud_hz = 0u;
+        runtime->cycle_period_ns = 0u;
         runtime->feedback_timeout_ns = 0u;
     } else {
         runtime->enabled = 1u;
@@ -167,6 +173,9 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->flags = config->flags;
         runtime->ring_profile_crc32 = config->ring_profile_crc32;
         runtime->schedule_crc32 = config->schedule_crc32;
+        runtime->operating_profile_crc32 = config->operating_profile_crc32;
+        runtime->baud_hz = config->baud_hz;
+        runtime->cycle_period_ns = config->cycle_period_ns;
         runtime->feedback_timeout_ns = config->feedback_timeout_ns;
     }
     tdma_ring_runtime_write_guard(&runtime->config_guard);
@@ -291,6 +300,9 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
                 .flags = flags,
                 .ring_profile_crc32 = runtime->ring_profile_crc32,
                 .schedule_crc32 = runtime->schedule_crc32,
+                .operating_profile_crc32 = runtime->operating_profile_crc32,
+                .baud_hz = runtime->baud_hz,
+                .cycle_period_ns = runtime->cycle_period_ns,
                 .feedback_timeout_ns = runtime->feedback_timeout_ns,
             };
             if (runtime->adapter_ops->start(runtime->adapter_context,
@@ -405,6 +417,9 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         snapshot->flags = runtime->flags;
         snapshot->ring_profile_crc32 = runtime->ring_profile_crc32;
         snapshot->schedule_crc32 = runtime->schedule_crc32;
+        snapshot->operating_profile_crc32 = runtime->operating_profile_crc32;
+        snapshot->baud_hz = runtime->baud_hz;
+        snapshot->cycle_period_ns = runtime->cycle_period_ns;
         snapshot->feedback_timeout_ns = runtime->feedback_timeout_ns;
         const uint32_t guard_end =
             tdma_ring_runtime_load(&runtime->config_guard);

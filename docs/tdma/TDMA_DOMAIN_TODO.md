@@ -157,6 +157,11 @@ Last updated: 2026-08-20
 
 - [ ] PIO SPI adapter 只作为最小系统 bring-up adapter，不能成为架构绑定。
   - 进行中：`tdma_pio_spi_ring_adapter` 定位为 bring-up transport adapter，物理钩子可替换；尚未绑定为唯一架构承载。
+- [ ] 优化 PIO RX 高速采样相位。当前产品板与线缆组合先以 25 MHz 为默认稳定档、
+  30 MHz 为工程高速档，35 MHz 及以上暂不开放；后续将 SCK 输入同步策略和
+  EARLY/CENTER/LATE 采样相位做成可选择的实验配置，使用现有 TDMA 频率扫描工具复测
+  30/35/40 MHz 的有效回环率、坏帧、magic reject、stall、timeout 和 overrun。只有在
+  两板长时间 HIL 与环境裕量验证通过后，才允许提高产品档位上限。
 - [x] PIO SPI adapter 只解析 `TdmaTransportFrame`，不得再校验或假设 `refmem_sync_frame`；VDC、RefMem、OTA、SD、LOG 内帧由各域自行验证。
   - 完成：`tdma_pio_spi_ring_adapter` 只编解码 `TdmaTransportFrame`（IDLE_BEACON 短帧），不接触 RefMem/VDC 内帧。
 - [ ] PIO SPI adapter 实现 RX/TX 重叠的 byte/block cut-through：只修改本节点获授权 segment，测量每 hop pipeline delay；未取得实测证据前仍标记 store-and-forward bring-up。

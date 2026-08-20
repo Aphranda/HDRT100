@@ -155,7 +155,7 @@ typedef struct {
     uint32_t last_error;
     uint8_t last_rx_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t last_rx_packet_size;
-    uint64_t last_tx_ns;
+    uint64_t next_tx_deadline_ns;
     struct {
         uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
         size_t packet_size;

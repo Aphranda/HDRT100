@@ -135,9 +135,13 @@ static tdma_ring_runtime_config_t make_valid_config(void)
         .flags = TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN,
         .ring_profile_crc32 = 0x11223344u,
         .schedule_crc32 = 0x55667788u,
-        /* 1 us cycle: with the host runtime advancing now_ns by 1 us per
-         * service round, the reference node sends one beacon per round. */
-        .feedback_timeout_ns = 1000u,
+        .operating_profile_crc32 = 0x99AABBCCu,
+        .baud_hz = 10000000u,
+        .cycle_period_ns = 1000u,
+        /* Two nodes at a 1 us slot period form a 2 us ring round. With the
+         * host runtime advancing now_ns by 1 us per service round, the
+         * reference node sends every second round. */
+        .feedback_timeout_ns = 2000u,
     };
     return config;
 }
@@ -178,6 +182,26 @@ static tdma_process_image_map_t make_flight_map(void)
             },
         },
     };
+    map.map_crc32 = tdma_process_image_map_crc32(&map);
+    return map;
+}
+
+static tdma_process_image_map_t make_eight_slot_flight_map(void)
+{
+    tdma_process_image_map_t map;
+    memset(&map, 0, sizeof(map));
+    map.version = TDMA_PROCESS_IMAGE_MAP_VERSION;
+    map.payload_size = TDMA_FLIGHT_SHORT_PAYLOAD_SIZE;
+    map.segment_count = TDMA_FLIGHT_SHORT_SLOT_COUNT;
+    for (uint32_t slot = 0u; slot < TDMA_FLIGHT_SHORT_SLOT_COUNT; slot++) {
+        map.segment[slot].used = 1u;
+        map.segment[slot].segment_id = slot;
+        map.segment[slot].owner_slot_id = slot;
+        map.segment[slot].payload_class = 1u;
+        map.segment[slot].byte_offset = slot * TDMA_FLIGHT_SHORT_SLOT_SIZE;
+        map.segment[slot].byte_length = TDMA_FLIGHT_SHORT_SLOT_SIZE;
+        map.segment[slot].flags = TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE;
+    }
     map.map_crc32 = tdma_process_image_map_crc32(&map);
     return map;
 }
@@ -349,6 +373,55 @@ int main(void)
                              snapshot.up_tx_sequence, 2u);
         failed += expect_u32("feedback still correlated",
                              snapshot.simultaneous_feedback_loop_evidence, 1u);
+    }
+
+    /* A late RTOS service tick must not restart the emission phase. With a
+     * 2 ms ring-round period and 1.4 ms service spacing, an elapsed-from-last
+     * algorithm emits every 2.8 ms. Absolute deadlines alternate one/two
+     * ticks and retain the configured average cadence. */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_ring_adapter_status_t status;
+        loopback_phys_t phys;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        static const uint64_t service_times_ns[] = {
+            1400000ull,
+            2800000ull,
+            4200000ull,
+            5600000ull,
+            7000000ull,
+            8400000ull,
+        };
+        config.cycle_period_ns = 1000000u;
+        config.feedback_timeout_ns = 2000000u;
+        memset(&phys, 0, sizeof(phys));
+        memset(&status, 0, sizeof(status));
+        phys.tx_timestamp_ns = 1000ull;
+        phys.rx_timestamp_ns = 1500ull;
+        failed += expect_bool("phase adapter init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        failed += expect_bool("phase adapter start",
+                              tdma_pio_spi_ring_adapter_ops()->start(
+                                  &adapter, &config),
+                              true);
+        for (uint32_t i = 0u;
+             i < (uint32_t)(sizeof(service_times_ns) /
+                            sizeof(service_times_ns[0]));
+             i++) {
+            failed += expect_bool("phase adapter service",
+                                  tdma_pio_spi_ring_adapter_ops()->service(
+                                      &adapter,
+                                      service_times_ns[i],
+                                      &status),
+                                  true);
+        }
+        failed += expect_u32("absolute phase beacon count",
+                             adapter.idle_beacon_tx_count,
+                             3u);
     }
 
     /* --- Timestamp gate: no hardware timestamp keeps evidence closed. --- */
@@ -791,6 +864,135 @@ int main(void)
                                   true);
         } else {
             failed += expect_bool("acquire flight rx", false, true);
+        }
+    }
+
+    /* A writer that dies while holding the map seqlock must not spin core1
+     * forever. All readers fail closed after the bounded retry budget. */
+    {
+        tdma_flight_engine_t engine;
+        tdma_process_image_map_t map = make_flight_map();
+        tdma_flight_engine_apply_t applied;
+        tdma_flight_engine_result_t result = TDMA_FLIGHT_ENGINE_OK;
+        tdma_flight_engine_snapshot_t engine_snapshot;
+        uint8_t input[64] = {0};
+        uint8_t output[64] = {0};
+        uint32_t input_mask = 0u;
+
+        failed += expect_bool("bounded map engine init",
+                              tdma_flight_engine_init(&engine), true);
+        failed += expect_bool("bounded map configure",
+                              tdma_flight_engine_configure(&engine, &map), true);
+        failed += expect_bool("bounded map activate",
+                              tdma_flight_engine_activate(&engine, 1u), true);
+        __atomic_store_n(&engine.map_sequence, 1u, __ATOMIC_RELEASE);
+        failed += expect_bool("bounded map apply rejects busy writer",
+                              tdma_flight_engine_apply(&engine,
+                                                       input,
+                                                       sizeof(input),
+                                                       NULL,
+                                                       output,
+                                                       sizeof(output),
+                                                       &applied,
+                                                       &result),
+                              false);
+        failed += expect_u32("bounded map unavailable result",
+                             result,
+                             TDMA_FLIGHT_ENGINE_MAP_UNAVAILABLE);
+        failed += expect_bool("bounded map classify rejects busy writer",
+                              tdma_flight_engine_classify_input(&engine,
+                                                                 input,
+                                                                 sizeof(input),
+                                                                 &input_mask),
+                              false);
+        failed += expect_bool("bounded map snapshot rejects busy writer",
+                              tdma_flight_engine_get_snapshot(
+                                  &engine, &engine_snapshot),
+                              false);
+    }
+
+    /* The wire map is always eight slots. Active 2/3/4/8-node topologies
+     * only change which mailbox headers are present and the target mask. */
+    {
+        static const uint32_t node_counts[] = {2u, 3u, 4u, 8u};
+        for (uint32_t topology = 0u;
+             topology < (uint32_t)(sizeof(node_counts) /
+                                   sizeof(node_counts[0]));
+             topology++) {
+            const uint32_t node_count = node_counts[topology];
+            const uint32_t active_mask = (1u << node_count) - 1u;
+            for (uint32_t local_slot = 0u;
+                 local_slot < node_count;
+                 local_slot++) {
+                tdma_flight_engine_t engine;
+                tdma_process_image_map_t map = make_eight_slot_flight_map();
+                tdma_flight_engine_snapshot_t engine_snapshot;
+                uint8_t input[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE] = {0};
+                uint32_t input_mask = 0u;
+
+                for (uint32_t source = 0u; source < node_count; source++) {
+                    uint8_t *mailbox =
+                        &input[source * TDMA_FLIGHT_SHORT_SLOT_SIZE];
+                    mailbox[0] = (uint8_t)(TDMA_FLIGHT_MAILBOX_MAGIC & 0xFFu);
+                    mailbox[1] =
+                        (uint8_t)(TDMA_FLIGHT_MAILBOX_MAGIC >> 8u);
+                    mailbox[TDMA_FLIGHT_MAILBOX_VERSION_OFFSET] =
+                        TDMA_FLIGHT_MAILBOX_VERSION;
+                    mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] =
+                        (uint8_t)source;
+                    mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] =
+                        (uint8_t)active_mask;
+                    mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET] =
+                        (uint8_t)(source + 1u);
+                }
+
+                failed += expect_bool("topology engine init",
+                                      tdma_flight_engine_init(&engine), true);
+                failed += expect_bool("topology map configure",
+                                      tdma_flight_engine_configure(
+                                          &engine, &map), true);
+                failed += expect_bool("topology map activate",
+                                      tdma_flight_engine_activate(
+                                          &engine, local_slot), true);
+                failed += expect_bool("topology classify",
+                                      tdma_flight_engine_classify_input(
+                                          &engine,
+                                          input,
+                                          sizeof(input),
+                                          &input_mask),
+                                      true);
+                failed += expect_u32("topology remote bitmap",
+                                     input_mask,
+                                     active_mask & ~(1u << local_slot));
+                failed += expect_bool("topology commit",
+                                      tdma_flight_engine_commit_input(
+                                          &engine,
+                                          input,
+                                          sizeof(input),
+                                          input_mask),
+                                      true);
+                failed += expect_bool("topology duplicate classify",
+                                      tdma_flight_engine_classify_input(
+                                          &engine,
+                                          input,
+                                          sizeof(input),
+                                          &input_mask),
+                                      true);
+                failed += expect_u32("topology duplicate bitmap",
+                                     input_mask,
+                                     0u);
+                failed += expect_bool("topology snapshot",
+                                      tdma_flight_engine_get_snapshot(
+                                          &engine, &engine_snapshot),
+                                      true);
+                failed += expect_u32("topology hit count",
+                                     engine_snapshot.rx_bitmap_hit_count,
+                                     node_count - 1u);
+                failed += expect_u32(
+                    "topology duplicate count",
+                    engine_snapshot.rx_bitmap_duplicate_count,
+                    node_count - 1u);
+            }
         }
     }
 

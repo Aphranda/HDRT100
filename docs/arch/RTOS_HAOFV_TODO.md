@@ -4,7 +4,7 @@ Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_HAOFV_TODO.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-08-15
+Last updated: 2026-08-20
 
 本文档只维护 RTOS + 双核 AMP 在 HAOFV 下的实施待办。已经完成的构建、烧录、
 板端 smoke、工具输出和水位记录放在 `RTOS_HAOFV_TASK_PROGRESS.md`。
@@ -221,7 +221,7 @@ heartbeat 验证不退化。
 - [ ] RUN 保存 epoch/run_id、四板 build/hw profile、配置 CRC、校准 CRC、T2/e_act/e_vdc/e_pll 统计。
 - [ ] RUN 后报告闭环覆盖 run summary、log、trace、snapshot、T2、fault evidence。
 - [ ] 验证上电、bootloader、看门狗、通信丢失和 FAULT 下的安全默认态。
-- [ ] release preset 明确 RTOS + 双核产品化门禁；单核/裸机仅保留 bring-up 路径。
+- [x] release preset 明确 RTOS + 双核产品化门禁；单核/裸机仅保留 bring-up 路径。
 - [ ] README、SCPI 命令文档、HIL 工具和生产测试流程同步更新。
 
 ## 验证要求

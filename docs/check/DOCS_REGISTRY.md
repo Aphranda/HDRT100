@@ -21,6 +21,7 @@ Last updated: 2026-08-20
 | REFMEM-260B-01 | refmem | critical delta ≤260B | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | refmem_sync.h | 常量比对 | 2026-08-19 | active |
 | VDC-DPLL-01 | vdc | DPLL 准入 resolution≤100ns | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_timestamp_clock.h | 符号存在性 | 2026-08-19 | active |
 | TDMA-FLIGHT-BITMAP-01 | tdma | SHORT process image 固定 8×32B，slot 前 8B 由 core1 生成 RX 位图 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_flight_engine.h | 常量与单测比对 | 2026-08-20 | pending |
+| TDMA-OPMODE-01 | tdma | SPI 速率与 TDMA 周期按离散 operating profile 成对切换，STOP 后生效 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_operating_profile.h | SCPI/状态机/单测比对 | 2026-08-20 | pending |
 
 ## 条款落点表
 

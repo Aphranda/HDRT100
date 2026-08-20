@@ -81,6 +81,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--block-size", type=int, default=512)
     parser.add_argument("--idn-filter", action="append",
                         help="substring accepted in *IDN?; may be repeated; default DTC100/RP2350_TRIG")
+    parser.add_argument("--serial-number", action="append",
+                        help="exact *IDN? serial/address whitelist; may be repeated")
     parser.add_argument("--expected-build",
                         help="expected build after commit; default reads unified package build id")
     parser.add_argument("--max-workers", type=int, default=0,
@@ -328,6 +330,19 @@ def main() -> int:
     started = time.monotonic()
 
     boards = discover_boards(args)
+    wanted_serials = set(args.serial_number or [])
+    if wanted_serials:
+        boards = [board for board in boards
+                  if board.serial_number in wanted_serials]
+        missing_serials = wanted_serials - {
+            board.serial_number for board in boards}
+        if missing_serials:
+            print("missing_serial_numbers=" + ",".join(sorted(missing_serials)),
+                  file=sys.stderr)
+            write_summary(out_dir, boards, [], image=image,
+                          expected_build=expected_build,
+                          dry_run=args.dry_run, elapsed_s=0.0)
+            return 2
     print(f"discovered_boards={len(boards)}")
     for board in boards:
         print(f"{board.port}: serial={board.serial_number} build={board.build_id} idn={board.idn}")

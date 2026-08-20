@@ -9,6 +9,7 @@
 #include "tdma_process_image_map.h"
 
 #define TDMA_FLIGHT_ENGINE_VERSION 2u
+#define TDMA_FLIGHT_MAP_SNAPSHOT_RETRY_MAX 64u
 
 #define TDMA_FLIGHT_SHORT_SLOT_COUNT 8u
 #define TDMA_FLIGHT_SHORT_SLOT_SIZE 32u
@@ -27,6 +28,7 @@ typedef enum {
     TDMA_FLIGHT_ENGINE_BAD_ARGUMENT = 1u,
     TDMA_FLIGHT_ENGINE_LENGTH_REJECTED = 2u,
     TDMA_FLIGHT_ENGINE_TX_UNAVAILABLE = 3u,
+    TDMA_FLIGHT_ENGINE_MAP_UNAVAILABLE = 4u,
 } tdma_flight_engine_result_t;
 
 typedef struct {

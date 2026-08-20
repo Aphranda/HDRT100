@@ -70,10 +70,16 @@ def check_preset(root: Path, preset_name: str, failures: list[str]) -> None:
         ok(f"{preset_name} disables UART stdio")
 
     use_freertos = str(cache_variables.get("PROJECT_USE_FREERTOS", "")).upper()
-    if use_freertos != "OFF":
-        fail(f"{preset_name} must set PROJECT_USE_FREERTOS=OFF until RTOS release equivalence is validated", failures)
+    if use_freertos != "ON":
+        fail(f"{preset_name} must set PROJECT_USE_FREERTOS=ON", failures)
     else:
-        ok(f"{preset_name} keeps FreeRTOS disabled")
+        ok(f"{preset_name} enables FreeRTOS")
+
+    use_multicore = str(cache_variables.get("PROJECT_USE_MULTICORE", "")).upper()
+    if use_multicore != "ON":
+        fail(f"{preset_name} must set PROJECT_USE_MULTICORE=ON", failures)
+    else:
+        ok(f"{preset_name} enables multicore AMP")
 
     default_boot_mode = str(cache_variables.get("PROJECT_OTA_DEFAULT_BOOT_MODE", "")).upper()
     if default_boot_mode != "DIRECT_AB":

@@ -588,7 +588,7 @@ table owner    : TDMA AO
 System Pack / SCPI staging
   -> 10-table CRC + owner/resource validation
   -> prepare candidate table views
-  -> TDMA profile 与当前 VDC ring/schedule/cycle 交叉门禁
+  -> TDMA profile + operating profile 与当前 VDC ring/schedule/cycle 交叉门禁
   -> TableRegistry active/rollbackable 切换
   -> application model commit
   -> TDMA owner 配置公共 runtime
@@ -598,10 +598,75 @@ System Pack / SCPI staging
 激活约束：
 
 - candidate profile 必须与当前 VDC ring 的 node count、local/reference、upstream/downstream、feedback、ring flags 和 topology CRC 一致。
-- `cycle_period_ns` 必须与 VDC schedule 周期一致；TDMA runtime 记录同一 `schedule_crc32`，不能自行生成另一个时间表。
+- 产品 DPLL 模式下 active operating profile 的 `cycle_period_ns` 必须与 VDC schedule 周期一致。PIO-SPI bring-up 且 timestamp 仍为 `DIAGNOSTIC_ONLY` 时，允许 wire cycle 是 VDC 基础周期的整数倍，但不得把这种状态作为 DPLL 准入证据。TDMA runtime 使用 `tdma_operating_profile_schedule_crc32()` 将基础 schedule CRC 与 operating-profile CRC 合成 effective schedule CRC；两板档位不同会在接收门禁中按 schedule mismatch 拒绝，不能继续运行成隐式异步环。
 - profile、VDC schedule 或 runtime capacity 任一不一致时，激活以 `RUNTIME_PROFILE` 原因拒绝，active runtime 不接受候选配置。
 - 固件启动时内置 factory profile 也通过同一交叉门禁装入 runtime；它只是无 System Pack 时的受控默认值。
 - `SYSTem:REFMEM:SYNC:TDMA:STATus?` 仅作为维护投影，在既有字段后追加 profile CRC、owner、adapter、whitelist、ring config/runtime 和 feedback evidence，不驱动窗口续期。
+
+### SPI 速率与 TDMA 周期 operating profile
+
+PIO-SPI bring-up adapter 不接受运行态任意改 baud 或 cycle。`tdma_operating_profile.h`
+冻结 `TDMA_OPERATING_PROFILE_COUNT` 个离散组合，每项同时携带 `level`、`baud_hz`、
+`cycle_period_ns`、`train_cycles`、`flags` 和 `profile_crc32`。档位表的唯一事实源是
+`tdma_operating_profile.c::s_tdma_operating_profiles`；现场查询应使用
+`SYSTem:TDMA:OPMode:CATalog?`，文档不得复制一份会漂移的硬编码表。
+
+当前实现快照（2026-08-20，非事实源）：level 0–6 保留原有 10/25/30/35/40/45/50 MHz
+与 2 ms wire 周期的兼容编号；level 7–13 使用相同频率梯度与 1 ms 周期；level 14–18
+仅保留通过 292 B wire frame 80% 链路负载门禁的 30/35/40/45/50 MHz 与 100 us 周期。
+10/25 MHz 在 100 us 下不进入 catalog。`app_runtime.c` 当前由 1 ms core1 tick 驱动，因此
+1 ms 与 100 us 仅作为可配置、可测量的 candidate 开放，不作为已满足调度实时性的
+证据；10 us 仍未进入 catalog。
+`TDMA_OPERATING_PROFILE_FLAG_HIL_VALIDATED` 只标记通过严格闭环门禁的安全档。
+当前 HIL 快照（2026-08-20，非事实源）已完整测试 catalog：2 ms 下 10/25/30 MHz
+严格短窗均为 100/A，35–50 MHz 不闭环；1 ms 下 10/25/30 MHz 能达到动态吞吐标准，
+但存在 RX bad 或 DMA overrun，35–50 MHz 不闭环；100 us 的目标回环率为 5000/s，
+当前 1 ms core1 service tick 只能达到约 1000/s，全部失败。恢复到 10 MHz/2 ms 后的
+30 秒窗口为 100/A，坏帧、stall、timeout、overrun 均为 0。由于尚未完成长稳与独立
+交叉审核，当前全部档位仍保持 candidate；未来自动策略不得把 candidate 当作降级落点。
+在 active-node、绝对 deadline 和 RX ring 容量修正后的定向复测中，level 1、8、9 的
+30 秒严格窗口均为 100/A；level 8 的 60 秒窗口也为 100/A，bad、stall、timeout、
+overrun 均为 0。该结果只覆盖上述三个 level，不替代其余 catalog 的既有失败结论。
+
+HIL 工具的回环吞吐标准随周期计算：`expected_loop_rate = 1e9 / (2 * cycle_period_ns)`，
+即 2 ms/1 ms/100 us 分别要求 250/500/5000 frame/s，并要求实测 TX/RX 中较小值至少
+达到目标的 90%。评分还同时扣除 adapter/physical bad frame、stall、TX timeout、DMA
+ring overrun 和 TX/RX 不平衡；原始计数与评分版本必须随每档 JSON 一起归档。
+
+SCPI 事务固定为：
+
+```text
+SYSTem:TDMA:OPMode:CATalog?       # 读取固件支持的完整离散组合
+SYSTem:TDMA:OPMode?               # active + staged + 计数 + last_result
+SYSTem:TDMA:OPMode:STAGe <level>  # 只改 staged，不碰线上 PIO
+SYSTem:TDMA:RING:STOP             # 两板都先停止
+SYSTem:TDMA:OPMode:APPLy          # STOP 状态才允许 active 切换
+SYSTem:TDMA:RING:ARM
+SYSTem:TDMA:RING:TRAIN <cycles>
+SYSTem:TDMA:RING:START
+```
+
+`STAGe` 可以在 ring 运行时准备候选档位，但 `APPLy` 在 runtime enabled/ARMED/RUN
+时必须返回错误。应用后，下一次 ARM 才把 active `baud_hz` 写入 PIO divider；reference
+按 `cycle_period_ns * node_count` 的完整环回周期发帧，follower 仍逐帧转发。不得继续读取
+编译常量或使用只适用于两板的 service-count 硬编码二分频。两板必须暂存并应用同一
+level，再执行 ARM/TRAIN/START。
+
+这里的 `node_count` 是当前物理环中实际活动节点数，不是 wire/process-image 的槽位容量。
+产品 factory profile 使用 `TDMA_PROFILE_DEFAULT_ACTIVE_NODE_COUNT`；最大拓扑仍由
+`TDMA_RING_NODE_MAX` 限制，SHORT 飞行处理布局仍固定为
+`TDMA_FLIGHT_SHORT_SLOT_COUNT` 个槽。3/4/8 板部署必须通过显式 topology profile 改变
+active node count，不能因为 wire 预留了 8 槽就把两板反馈周期放大为 8 个周期。
+reference 的发射相位使用绝对 deadline 累加；RTOS service 晚到时只合并漏掉的 deadline，
+每次 service 最多发送一帧，不允许用“本次实际发送时刻 + 周期”重新起算而累积 tick 抖动。
+连续 RX DMA ring 的容量由 `TDMA_PIO_SPI_RX_RING_WORDS` 冻结，并至少容纳三个
+`TDMA_PIO_SPI_RX_DMA_WORD_MAX`。这是飞行处理启用近 292 B SHORT process image 后的
+相位余量；不能沿用只针对 32 B idle beacon 的 512-word 缓冲。
+
+自动降级不能由单板因本地误码私自切档。后续自动策略必须由 reference 提议、所有
+active 节点确认同一 profile CRC，并执行 STOP -> APPLY -> TRAIN -> START；本阶段只
+开放可审计的手动 staging/apply 和 `tools/tdma_ring_monitor/tdma_frequency_sweep.py`
+闭环扫频，避免形成两板不同速率的半连接状态。
 
 资源与流控规则：
 
@@ -632,6 +697,7 @@ System Pack / SCPI staging
 
 ```text
 components/tdma/
+  inc/tdma_operating_profile.h
   inc/tdma_profile.h
   inc/tdma_service.h
   inc/tdma_payload_registry.h
@@ -643,6 +709,7 @@ components/tdma/
   inc/tdma_runtime_owner.h
   inc/tdma_transport_frame.h
   src/tdma_profile.c
+  src/tdma_operating_profile.c
   src/tdma_service.c
   src/tdma_payload_registry.c
   src/tdma_process_image_map.c

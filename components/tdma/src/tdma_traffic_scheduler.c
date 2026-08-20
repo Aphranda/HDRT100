@@ -331,6 +331,32 @@ bool tdma_traffic_scheduler_configure(
     return true;
 }
 
+bool tdma_traffic_scheduler_set_cycle_period(
+    tdma_traffic_scheduler_t *scheduler,
+    uint32_t cycle_period_ns)
+{
+    if (scheduler == NULL || cycle_period_ns == 0u ||
+        !tdma_traffic_scheduler_try_lock(scheduler)) {
+        return false;
+    }
+    if (scheduler->configured == 0u) {
+        tdma_traffic_scheduler_unlock(scheduler);
+        return true;
+    }
+    for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; i++) {
+        if (scheduler->queue[i].count != 0u) {
+            tdma_traffic_scheduler_unlock(scheduler);
+            return false;
+        }
+    }
+    scheduler->cycle_period_ns = cycle_period_ns;
+    scheduler->cycle_number = UINT64_MAX;
+    scheduler->cycle_bytes = 0u;
+    scheduler->cycle_seq++;
+    tdma_traffic_scheduler_unlock(scheduler);
+    return true;
+}
+
 tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
     tdma_traffic_scheduler_t *scheduler,
     const tdma_traffic_request_t *request)

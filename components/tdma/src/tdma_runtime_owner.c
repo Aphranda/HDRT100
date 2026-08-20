@@ -12,6 +12,7 @@ static tdma_service_service_t s_tdma_runtime_owner;
 static tdma_traffic_scheduler_t s_tdma_traffic_scheduler;
 static tdma_pio_spi_ring_adapter_t s_tdma_pio_spi_ring_adapter;
 static tdma_pio_spi_phys_t s_tdma_pio_spi_phys;
+static tdma_operating_profile_manager_t s_tdma_operating_profile_manager;
 #if !defined(PROJECT_USE_FREERTOS) || !PROJECT_USE_FREERTOS
 static tdma_traffic_scheduler_slot_t
     s_tdma_traffic_slots[TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT];
@@ -31,11 +32,19 @@ bool tdma_runtime_owner_init(void)
     slots = s_tdma_traffic_slots;
 #endif
     bool initialized = false;
+    tdma_operating_profile_t boot_profile;
     if (slots != NULL &&
+        tdma_operating_profile_find_baud(PROJECT_TDMA_SPI_BAUD_HZ,
+                                         &boot_profile) &&
+        tdma_operating_profile_manager_init(
+            &s_tdma_operating_profile_manager, boot_profile.level) &&
         tdma_traffic_scheduler_init(&s_tdma_traffic_scheduler,
                                     slots,
                                     TDMA_TRAFFIC_SCHEDULER_RUNTIME_SLOT_COUNT) &&
         tdma_service_init(&s_tdma_runtime_owner) &&
+        tdma_service_set_operating_profile(
+            &s_tdma_runtime_owner,
+            &s_tdma_operating_profile_manager.active) &&
         tdma_service_bind_traffic_scheduler(&s_tdma_runtime_owner,
                                             &s_tdma_traffic_scheduler) &&
         tdma_pio_spi_ring_adapter_init(&s_tdma_pio_spi_ring_adapter) &&
@@ -110,4 +119,45 @@ bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot
         return false;
     }
     return tdma_pio_spi_phys_get_snapshot(&s_tdma_pio_spi_phys, snapshot);
+}
+
+bool tdma_runtime_owner_get_operating_profile(
+    tdma_operating_profile_manager_t *snapshot)
+{
+    if (!s_tdma_runtime_owner_initialized || snapshot == NULL) {
+        return false;
+    }
+    *snapshot = s_tdma_operating_profile_manager;
+    return true;
+}
+
+bool tdma_runtime_owner_stage_operating_profile(uint32_t level)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_operating_profile_manager_stage(
+               &s_tdma_operating_profile_manager, level);
+}
+
+bool tdma_runtime_owner_apply_operating_profile(void)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    if (!s_tdma_runtime_owner_initialized ||
+        !tdma_ring_runtime_get_snapshot(&s_tdma_runtime_owner.ring_runtime,
+                                        &ring)) {
+        return false;
+    }
+    if (ring.enabled != 0u) {
+        return tdma_operating_profile_manager_apply(
+            &s_tdma_operating_profile_manager, false);
+    }
+    if (!tdma_service_set_operating_profile(
+            &s_tdma_runtime_owner,
+            &s_tdma_operating_profile_manager.staged)) {
+        s_tdma_operating_profile_manager.reject_count++;
+        s_tdma_operating_profile_manager.last_result =
+            TDMA_OPERATING_PROFILE_BAD_ARGUMENT;
+        return false;
+    }
+    return tdma_operating_profile_manager_apply(
+        &s_tdma_operating_profile_manager, true);
 }

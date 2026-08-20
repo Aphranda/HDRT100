@@ -44,8 +44,8 @@
  * entire session and wraps its write address in SRAM. The CPU only scans
  * completed words for the outer magic/length header, so there is no
  * per-frame abort, FIFO clear, or DMA reconfiguration gap. */
-#define TDMA_PIO_SPI_RX_RING_WORDS 512u
-#define TDMA_PIO_SPI_RX_RING_LOG2 11u
+#define TDMA_PIO_SPI_RX_RING_WORDS 1024u
+#define TDMA_PIO_SPI_RX_RING_LOG2 12u
 #define TDMA_PIO_SPI_RX_DMA_CHANNEL 4u
 #define TDMA_PIO_SPI_TRAIN_CLOCK_DEFAULT_CYCLES 4096u
 #define TDMA_PIO_SPI_TRAIN_CLOCK_MAX_CYCLES 65536u

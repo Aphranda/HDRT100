@@ -30,6 +30,7 @@
 #include "scpi_system_diagnostics_commands.h"
 #include "scpi_system_runtime_commands.h"
 #include "scpi_system_snapshot_commands.h"
+#include "scpi_tdma_commands.h"
 #include "scpi_trigger_commands.h"
 #include "scpi_usb_control.h"
 #include "sync_trigger.h"
@@ -260,6 +261,7 @@ static const scpi_command_t s_scpi_commands[] = {
     {.pattern = "SYSTem:VERSion?", .callback = SCPI_SystemVersionQ},
     SCPI_SYSTEM_DIAGNOSTICS_COMMANDS,
     SCPI_SYSTEM_SNAPSHOT_COMMANDS,
+    SCPI_TDMA_COMMANDS,
     SCPI_SYSTEM_ACCESS_COMMANDS,
     SCPI_LOOP_ENGINE_COMMANDS,
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION

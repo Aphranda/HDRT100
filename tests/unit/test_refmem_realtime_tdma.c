@@ -444,6 +444,9 @@ static int test_common_tdma_ring_runtime_contract(void)
         .flags = TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN,
         .ring_profile_crc32 = 0x11223344u,
         .schedule_crc32 = 0x55667788u,
+        .operating_profile_crc32 = 0x99AABBCCu,
+        .baud_hz = 10000000u,
+        .cycle_period_ns = 1000000u,
         .feedback_timeout_ns = 10000u,
     };
     const tdma_service_ring_runtime_config_t bad_same_leg = {
@@ -456,6 +459,9 @@ static int test_common_tdma_ring_runtime_contract(void)
         .flags = TDMA_SERVICE_RING_FLAG_SIMULTANEOUS_UP_DOWN,
         .ring_profile_crc32 = 0x11223344u,
         .schedule_crc32 = 0x55667788u,
+        .operating_profile_crc32 = 0x99AABBCCu,
+        .baud_hz = 10000000u,
+        .cycle_period_ns = 1000000u,
         .feedback_timeout_ns = 10000u,
     };
 
@@ -580,7 +586,9 @@ static int test_foundation_profile_freezes_runtime_resources(void)
                          profile.ring.profile_crc32);
     failed += expect_u32("foundation schedule",
                          snapshot.ring_schedule_crc32,
-                         0xAABBCCDDu);
+                         tdma_operating_profile_schedule_crc32(
+                             0xAABBCCDDu,
+                             &service.scheduler->operating_profile));
     failed += expect_u32("foundation evidence remains false",
                          snapshot.simultaneous_feedback_loop_evidence,
                          0u);

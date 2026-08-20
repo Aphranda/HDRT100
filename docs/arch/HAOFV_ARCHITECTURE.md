@@ -159,6 +159,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `REFMEM-260B-01` | `critical delta <= 260 B` | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:194` | RefMem 实时短帧容量约束。 |
 | `VDC-DPLL-01` | DPLL 准入要求 `timestamp_resolution_ns <= 100` 且来自硬实时 latch | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:293` | 分布式共同时间证据门禁。 |
 | `TDMA-FLIGHT-BITMAP-01` | SHORT process image 固定 8×32 B，每 slot 前 8 B 由 core1 快速分类生成 RX 位图 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | 8 板统一 wire plan、单写多读和 core0 按位图解析。 |
+| `TDMA-OPMODE-01` | SPI 速率与 TDMA 周期按离散 operating profile 成对切换，STOP 后生效 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | 确定性通讯的运行态配置与多板一致性门禁。 |
 
 ## 分层职责
 
@@ -378,6 +379,7 @@ TDMA Foundation
 - Trigger/Loop/OTA/Diagnostics 可以读取 TDMA quality 或注册低频 payload，但不能绕过 TDMA owner 直接控制 PIO/SM/DMA。
 - TDMA 作为 HAOFV system node 装载时必须声明 PIO/SM、DMA、core1 service、adapter、GPIO、UP/DOWN group、MTU、payload whitelist 和逐类 traffic budget，供 DeploymentGate 做资源互斥与流量准入。
 - TDMA 吸收 TSN-style time-aware gate、guard band、shaping、backpressure 和逐流 policing；VDC/RefMem 使用硬预留流，配置/OTA/LOG 只能使用 maintenance 或剩余预算，不得产生优先级反转。
+- TDMA 的物理速率与周期必须作为同一个离散 operating profile 由 TDMA owner 管理；SCPI 只能 staging，STOP 后 apply，下一次 ARM 才更新 PIO 和调度周期。两板 effective schedule CRC 不一致时必须拒绝帧，禁止运行态单板私自降级。
 
 ### Hardware Service Layer
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-08-15
+Last updated: 2026-08-20
 
 本文档用于记录 Distributed Hard Real-Time Trigger System 工程中基于 HAOFV 的 RTOS + 双核 AMP、
 分布式触发、模拟反射内存、任务拆分和板端烧录验证进度。每完成一个阶段，
@@ -115,6 +115,36 @@ RTOS 主线已经完成 `task_usb_device/task_scpi` 拆分、`task_refmem_sync` 
 CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 
 ## 任务记录
+
+### RTOS-DIST-TASK-20260820-001 - 双核发布门禁与 TDMA operating profile 全矩阵 HIL
+
+- 状态：完成
+- 日期：2026-08-20
+- 任务目标：
+  - 将产品 release/validation/debug 固化为 FreeRTOS + 双核 AMP，并让发布检查器拒绝单核产品配置。
+  - 通过 SCPI 开放 SPI 频率与 2 ms/1 ms/100 us TDMA 周期离散组合，完成两板 OTA 和全部档位评分。
+- 完成内容：
+  - operating profile 保留 level 0–6 的 2 ms 兼容编号，增加 1 ms 档和通过 292 B/80% 链路预算的 100 us 档，共 19 档。
+  - `SYSTem:TDMA:OPMode:*` 实现 catalog、active/staged 查询、stage 与 STOP 后 apply；profile CRC 合入 effective schedule CRC。
+  - `tdma_frequency_sweep.py` 按固件 catalog 全量枚举，使用动态回环率、坏帧、stall、timeout、overrun 和 TX/RX 平衡输出 0–100 分；支持失败继续和断点 resume。
+  - `ota_multi_update.py` 增加精确 `*IDN?` serial/address 白名单。
+- 验证结果：
+  - `pico2-release` 双核 RTOS A/B 构建与 `release_check=OK`；Build ID `20260820073255`，OTA package CRC32 `0xB6F8AADB`。
+  - 两板唯一地址 `0010071E65B5CB38`、`A1E549202D18ED6A` OTA/commit 成功，Build ID 与 19 档 catalog 回读一致。
+  - 19 档 10 秒窗口全部完成：2 ms 的 10/25/30 MHz 为 100/A 严格通过；35–50 MHz 为 0/F。1 ms 的 10/25/30 MHz 分别为 40/F、70/C、50/D，其余为 0/F。100 us 五档均为 0/F，目标 5000/s，实际最高约 1000/s。
+  - 恢复 level 0 后 30 秒复测 100/A：两板 up/down=1，physical bad、stall、TX timeout、DMA overrun 均为 0。
+  - `SYSTem:CORE?` 两板均返回 core1 online，heartbeat 约 92 万且增长；`SYSTem:RTOS:STATus?` heap free 为 27120，各任务 stack 水位均有余量；读取矩阵失败路径留下的执行错误后，错误队列回到 `0,"No error"`。
+- 还需完成：
+  - 定位 35 MHz 起链路不闭环的 PIO RX/信号完整性边界；消除 1 ms RX bad/DMA overrun。
+  - 100 us 必须迁移到 timer/PIO/DMA 驱动的 sub-ms core1 fast path，不能依赖当前 1 ms service tick。
+  - 当前档位 flags 保持 candidate，长稳和独立交叉审核通过后再标记 HIL validated。
+- 关联文件：
+  - `components/tdma/inc/tdma_operating_profile.h`
+  - `middleware/scpi_port/src/scpi_tdma_commands.c`
+  - `tools/tdma_ring_monitor/tdma_frequency_sweep.py`
+  - `build-product-release/tdma_profile_score_20260820/summary.json`
+- 下一步：
+  - 先优化 core1 RX/DMA 调度和 35 MHz 以上物理接收，再用相同 19 档评分工具复测并比较 score version 1。
 
 ### RTOS-DIST-TASK-20260813-009 - RefMem ACK/NACK 契约收敛
 

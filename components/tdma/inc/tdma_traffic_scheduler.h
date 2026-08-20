@@ -179,6 +179,9 @@ bool tdma_traffic_scheduler_init(
 bool tdma_traffic_scheduler_configure(
     tdma_traffic_scheduler_t *scheduler,
     const tdma_foundation_profile_t *profile);
+bool tdma_traffic_scheduler_set_cycle_period(
+    tdma_traffic_scheduler_t *scheduler,
+    uint32_t cycle_period_ns);
 tdma_traffic_scheduler_result_t tdma_traffic_scheduler_enqueue(
     tdma_traffic_scheduler_t *scheduler,
     const tdma_traffic_request_t *request);

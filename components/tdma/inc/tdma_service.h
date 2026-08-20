@@ -8,6 +8,7 @@
 #include "tdma_payload_registry.h"
 #include "tdma_flight_fifo.h"
 #include "tdma_flight_engine.h"
+#include "tdma_operating_profile.h"
 #include "tdma_profile.h"
 #include "tdma_ring_runtime.h"
 #include "tdma_traffic_scheduler.h"
@@ -392,6 +393,8 @@ typedef struct {
     tdma_flight_engine_t flight_engine;
     tdma_ring_runtime_t ring_runtime;
     tdma_service_ring_runtime_config_t ring_staged_config;
+    tdma_operating_profile_t operating_profile;
+    uint32_t ring_base_schedule_crc32;
     tdma_traffic_scheduler_t *traffic_scheduler;
     tdma_service_adapter_impl_t adapter_impls[TDMA_SERVICE_ADAPTER_IMPL_MAX];
     uint32_t adapter_impl_count;
@@ -422,6 +425,9 @@ bool tdma_service_configure_foundation_profile(
     tdma_service_service_t *service,
     const tdma_foundation_profile_t *profile,
     uint32_t schedule_crc32);
+bool tdma_service_set_operating_profile(
+    tdma_service_service_t *service,
+    const tdma_operating_profile_t *profile);
 bool tdma_service_ring_arm(tdma_service_service_t *service);
 bool tdma_service_ring_train_clock(tdma_service_service_t *service,
                                    uint32_t cycles);

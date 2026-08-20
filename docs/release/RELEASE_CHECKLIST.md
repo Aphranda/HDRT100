@@ -4,7 +4,7 @@ Status: Active
 Domain: RELEASE
 Canonical: `docs/release/RELEASE_CHECKLIST.md`
 Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-07-07
+Last updated: 2026-08-20
 
 Use this checklist for each firmware release candidate.
 
@@ -22,6 +22,8 @@ Use this checklist for each firmware release candidate.
 - `cmake --preset pico2-release`
 - `cmake --build --preset pico2-release`
 - `python tools/release_check/release_check.py --preset pico2-release --build-dir build`
+- Release preset explicitly enables `PROJECT_USE_FREERTOS=ON` and
+  `PROJECT_USE_MULTICORE=ON`; single-core/bare-metal presets are bring-up only.
 - No compiler warnings from project code.
 - `build/RP2350_TRIG_FACTORY.uf2` generated.
 - `build/RP2350_TRIG.bin` generated.

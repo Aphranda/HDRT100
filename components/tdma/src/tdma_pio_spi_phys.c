@@ -29,6 +29,13 @@
  * the low tail as the beginning of the next capture window. */
 #define TDMA_PIO_SPI_RX_CSN_IDLE_WAIT_US 500u
 
+/* The flight process image makes a short ring packet almost 300 words. Keep
+ * three complete maximum packets so a poll that observes an incomplete tail
+ * can safely wait through the next core1 service without DMA overwrite. */
+_Static_assert(TDMA_PIO_SPI_RX_RING_WORDS >=
+                   3u * TDMA_PIO_SPI_RX_DMA_WORD_MAX,
+               "TDMA SPI RX ring must hold three maximum short packets");
+
 static bool s_tdma_pio_spi_programs_loaded;
 static uint s_tdma_pio_spi_tx_offset;
 static uint s_tdma_pio_spi_rx_offset;
@@ -387,9 +394,7 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->role = (config->local_slot_id == config->reference_slot_id)
                      ? TDMA_PIO_SPI_ROLE_MASTER
                      : TDMA_PIO_SPI_ROLE_SLAVE;
-    phys->baud_hz = BOARD_TDMA_SPI_BAUD_HZ != 0u
-                        ? BOARD_TDMA_SPI_BAUD_HZ
-                        : TDMA_PIO_SPI_DEFAULT_BAUD_HZ;
+    phys->baud_hz = config->baud_hz;
     tdma_pio_spi_phys_configure(phys);
     tdma_pio_spi_phys_set_line_drivers(true);
     if (!tdma_pio_spi_phys_rx_arm(phys)) {
