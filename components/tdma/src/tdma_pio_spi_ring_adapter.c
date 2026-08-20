@@ -210,7 +210,16 @@ static bool tdma_pio_spi_ring_adapter_start(
         return false;
     }
     adapter->started = 1u;
+    /* These counters describe one armed ring session.  Keeping values from a
+     * previous topology makes a follower that has not received any frame look
+     * as if it is still forwarding traffic, and invalidates START readback. */
     adapter->forward_count = 0u;
+    adapter->idle_beacon_tx_count = 0u;
+    adapter->idle_beacon_rx_count = 0u;
+    adapter->tx_count = 0u;
+    adapter->rx_count = 0u;
+    adapter->rx_bad_count = 0u;
+    adapter->rx_drop_count = 0u;
     adapter->up_sequence = 0u;
     adapter->down_rx_sequence = 0u;
     adapter->up_tx_frame_crc32 = 0u;
@@ -219,6 +228,8 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->feedback_rx_timestamp_ns = 0ull;
     adapter->last_rx_service_ns = 0ull;
     adapter->last_rx_packet_size = 0u;
+    adapter->rx_queue_head = 0u;
+    adapter->rx_queue_count = 0u;
     adapter->next_tx_deadline_ns = 0ull;
     adapter->last_error = TDMA_PIO_SPI_RING_ADAPTER_ERROR_NONE;
     tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);

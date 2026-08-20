@@ -1088,9 +1088,22 @@ bool vdc_dpll_manager_plan_tdma_ring(vdc_tdma_ring_plan_t *plan)
 bool vdc_dpll_manager_set_tdma_ring_local_slot(uint32_t local_slot_id)
 {
     osal_critical_enter();
-    vdc_domain_set_schedule_local_slot(&s_vdc_domain, local_slot_id);
-    const bool changed =
-        s_vdc_domain.schedule.local_slot_id == local_slot_id;
+    const bool changed = vdc_domain_set_schedule_ring_topology(
+        &s_vdc_domain,
+        local_slot_id,
+        s_vdc_domain.schedule.reference_slot_id,
+        s_vdc_domain.schedule.ring_binding.node_count);
+    osal_critical_exit();
+    return changed;
+}
+
+bool vdc_dpll_manager_set_tdma_ring_topology(uint32_t local_slot_id,
+                                             uint32_t reference_slot_id,
+                                             uint32_t node_count)
+{
+    osal_critical_enter();
+    const bool changed = vdc_domain_set_schedule_ring_topology(
+        &s_vdc_domain, local_slot_id, reference_slot_id, node_count);
     osal_critical_exit();
     return changed;
 }

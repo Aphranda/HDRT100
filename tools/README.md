@@ -49,6 +49,10 @@ Get-Content -Path tools\README.md -Encoding UTF8
   DTC100/RP2350_TRIG boards, then runs `ota_send.py` and `ota_boot_commit.py`
   in parallel with one worker per discovered board by default. Unified package
   build id is read from the package header and used for commit verification.
+  Product-ring updates support 1–8 unique addresses; use
+  `--expected-board-count 4` plus repeated `--serial-number` values to make a
+  four-board, all-at-once update fail closed before Flash writes if any board
+  is missing or duplicated.
 - `scpi_legacy_validate/scpi_legacy_validate.py`: removed-command validator.
   It sends each legacy command one by one, then queries `SYSTem:ERRor?` and
   requires `-113,"Undefined header"` for every entry. Use this instead of

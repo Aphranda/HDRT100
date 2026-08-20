@@ -15,6 +15,10 @@ scpi_result_t scpi_cmd_log_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_core_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_rtos_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_ui_keys_q(scpi_t *context);
+scpi_result_t scpi_cmd_board_id_q(scpi_t *context);
+scpi_result_t scpi_cmd_board_no(scpi_t *context);
+scpi_result_t scpi_cmd_board_no_q(scpi_t *context);
+scpi_result_t scpi_cmd_board_map_q(scpi_t *context);
 scpi_result_t scpi_cmd_led_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_watchdog_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_watchdog_log_q(scpi_t *context);
@@ -34,6 +38,10 @@ scpi_result_t scpi_cmd_watchdog_test(scpi_t *context);
     {.pattern = "SYSTem:CORE?", .callback = scpi_cmd_core_status_q}, \
     {.pattern = "SYSTem:RTOS:STATus?", .callback = scpi_cmd_rtos_status_q}, \
     {.pattern = "SYSTem:UI:KEYs?", .callback = scpi_cmd_ui_keys_q}, \
+    {.pattern = "SYSTem:BOARD:ID?", .callback = scpi_cmd_board_id_q}, \
+    {.pattern = "SYSTem:BOARD:NO", .callback = scpi_cmd_board_no}, \
+    {.pattern = "SYSTem:BOARD:NO?", .callback = scpi_cmd_board_no_q}, \
+    {.pattern = "SYSTem:BOARD:MAP?", .callback = scpi_cmd_board_map_q}, \
     {.pattern = "SYSTem:LED:STATus?", .callback = scpi_cmd_led_status_q}, \
     {.pattern = "SYSTem:WATCHdog:STATus?", .callback = scpi_cmd_watchdog_status_q}, \
     {.pattern = "SYSTem:WATCHdog:LOG?", .callback = scpi_cmd_watchdog_log_q} \

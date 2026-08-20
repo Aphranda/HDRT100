@@ -422,6 +422,30 @@ int main(void)
         failed += expect_u32("absolute phase beacon count",
                              adapter.idle_beacon_tx_count,
                              3u);
+        adapter.rx_count = 7u;
+        adapter.rx_bad_count = 2u;
+        adapter.rx_drop_count = 1u;
+        adapter.rx_queue_head = 1u;
+        adapter.rx_queue_count = 1u;
+        tdma_pio_spi_ring_adapter_ops()->stop(&adapter);
+        failed += expect_bool("phase adapter restart",
+                              tdma_pio_spi_ring_adapter_ops()->start(
+                                  &adapter, &config),
+                              true);
+        failed += expect_u32("restart clears beacon count",
+                             adapter.idle_beacon_tx_count,
+                             0u);
+        failed += expect_u32("restart clears tx count", adapter.tx_count, 0u);
+        failed += expect_u32("restart clears rx count", adapter.rx_count, 0u);
+        failed += expect_u32("restart clears bad count",
+                             adapter.rx_bad_count,
+                             0u);
+        failed += expect_u32("restart clears drop count",
+                             adapter.rx_drop_count,
+                             0u);
+        failed += expect_u32("restart clears rx queue",
+                             adapter.rx_queue_count,
+                             0u);
     }
 
     /* --- Timestamp gate: no hardware timestamp keeps evidence closed. --- */

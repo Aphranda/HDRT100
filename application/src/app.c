@@ -1,6 +1,7 @@
 #include "app.h"
 
 #include "calibration_manager.h"
+#include "board_identity.h"
 #include "diagnostics.h"
 #include "drv_watchdog.h"
 #include "distributed_config.h"
@@ -32,6 +33,10 @@ bool app_init(void)
     s_app_ready = false;
     s_app_control_plane_ready = false;
     diagnostics_housekeeping_init();
+    if (!board_identity_init()) {
+        diagnostics_mark_fault("identity", "unique board identity initialization failed");
+        return false;
+    }
     LOG_INFO("app", "application initialized");
 
     const sync_io_config_t sync_io_config = {

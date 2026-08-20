@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage, clock-train, and start a two-board TDMA SPI ring by *IDN? address."""
+"""Stage, clock-train, and start a 2..8-board TDMA SPI ring by *IDN? address."""
 
 from __future__ import annotations
 
@@ -38,9 +38,16 @@ class Board:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reference-id", required=True)
-    parser.add_argument("--forward-id", required=True)
+    parser.add_argument("--board-id", action="append",
+                        help=("exact *IDN? address in physical ring order; "
+                              "repeat 2..8 times, first board is reference slot0"))
+    parser.add_argument("--reference-id",
+                        help="legacy two-board reference address")
+    parser.add_argument("--forward-id",
+                        help="legacy two-board forward address")
     parser.add_argument("--expected-build")
+    parser.add_argument("--level", type=int,
+                        help="TDMA operating level applied to every board while stopped")
     parser.add_argument("--cycles", type=int, default=4096)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
@@ -48,8 +55,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--start-wait", type=float, default=2.0)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--assign-no-only", action="store_true",
+                        help="write NO.1..NO.8 by the supplied *IDN? order and do not start TDMA")
     parser.add_argument("--out-dir", type=Path)
     return parser.parse_args()
+
+
+def resolve_board_ids(args: argparse.Namespace) -> list[str]:
+    if args.board_id:
+        if args.reference_id or args.forward_id:
+            raise ValueError(
+                "use either repeated --board-id or legacy two-board IDs")
+        board_ids = list(args.board_id)
+    else:
+        if not args.reference_id or not args.forward_id:
+            raise ValueError("provide 2..8 --board-id values")
+        board_ids = [args.reference_id, args.forward_id]
+    if len(board_ids) < 2 or len(board_ids) > 8:
+        raise ValueError("board count must be in [2, 8]")
+    if len(set(board_ids)) != len(board_ids):
+        raise ValueError("board IDs must be unique")
+    return board_ids
 
 
 def command(ser: serial.Serial, text: str, timeout_s: float) -> str:
@@ -66,7 +92,7 @@ def probe(port: str, args: argparse.Namespace) -> Board | None:
             time.sleep(args.settle)
             idn = command(ser, "*IDN?", args.timeout)
             identity = parse_idn_response(idn)
-            if identity.address not in {args.reference_id, args.forward_id}:
+            if identity.address not in set(args.board_ids):
                 return None
             build = command(ser, "SYSTem:FW:BUILD?", args.timeout).strip('"')
             return Board(port, identity.address, identity.idn, build)
@@ -92,16 +118,19 @@ def board_command(board: Board, text: str, args: argparse.Namespace) -> str:
             raise RuntimeError(
                 f"{board.port}: identity changed to {identity.address}, "
                 f"expected {board.address}")
-        response = command(ser, text, args.timeout)
         # Most action commands return a bare OK. The shared reader strips
         # that acknowledgement to protect query parsing, so represent the
         # resulting empty response explicitly; state is verified below.
         action = text.strip().split(maxsplit=1)[0].upper()
         ack_only_actions = {
             "SYSTEM:TDMA:RING:STOP", "SYST:TDMA:RING:STOP",
+            "SYSTEM:TDMA:RING:TOPOLOGY", "SYST:TDMA:RING:TOPOLOGY",
             "SYSTEM:TDMA:RING:ARM", "SYST:TDMA:RING:ARM",
             "SYSTEM:TDMA:RING:START", "SYST:TDMA:RING:START",
         }
+        response = command(
+            ser, text, min(args.timeout, 1.0)
+            if action in ack_only_actions else args.timeout)
         if response == "<timeout>" and action in ack_only_actions:
             return "OK(no payload; verified by state readback)"
         return response
@@ -114,7 +143,8 @@ def status(board: Board, args: argparse.Namespace) -> dict[str, int]:
         raise RuntimeError(
             f"{board.address}: TDMA field count {len(values)}, "
             f"expected {len(TDMA_FIELDS)}")
-    keys = ("ring_enabled", "ring_local_slot_id", "ring_reference_slot_id",
+    keys = ("ring_enabled", "ring_node_count", "ring_local_slot_id",
+            "ring_reference_slot_id",
             "ring_adapter_started", "ring_up_running", "ring_down_running",
             "ring_adapter_tx_count", "ring_adapter_rx_count",
             "ring_adapter_rx_bad_count")
@@ -145,13 +175,16 @@ def train(board: Board, args: argparse.Namespace) -> str:
 
 def main() -> int:
     args = parse_args()
-    if args.reference_id == args.forward_id:
-        raise SystemExit("reference-id and forward-id must differ")
+    try:
+        board_ids = resolve_board_ids(args)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    args.board_ids = board_ids
     if args.cycles <= 0 or args.cycles > 65536 or args.cycles % 8:
         raise SystemExit("cycles must be an 8-cycle multiple in [8, 65536]")
 
     boards = discover(args)
-    missing = {args.reference_id, args.forward_id} - set(boards)
+    missing = set(board_ids) - set(boards)
     if missing:
         raise SystemExit(f"boards not found by *IDN?: {', '.join(sorted(missing))}")
     if args.expected_build:
@@ -160,55 +193,129 @@ def main() -> int:
                 raise SystemExit(
                     f"{board.address}: build {board.build} != {args.expected_build}")
 
-    reference = boards[args.reference_id]
-    forward = boards[args.forward_id]
+    ordered = [boards[address] for address in board_ids]
+    reference = ordered[0]
+    start_order = ordered[1:] + [reference]
+    node_count = len(ordered)
     result: dict[str, object] = {
-        "reference_id": args.reference_id,
-        "forward_id": args.forward_id,
+        "reference_id": reference.address,
+        "board_ids": board_ids,
+        "node_count": node_count,
         "cycles": args.cycles,
         "boards": {address: asdict(board) for address, board in boards.items()},
         "sequence": [
-            "STOP both", "LOCAL reference=0 forward=1", "ARM both",
-            f"TRAIN forward={args.cycles}", f"TRAIN reference={args.cycles}",
-            "START forward", "START reference",
+            "STOP all",
+            f"TOPOLOGY node_count={node_count} slots=0..{node_count - 1} reference=0",
+            "ARM all", f"TRAIN all={args.cycles}",
+            "START forward slots", "START reference",
         ],
     }
     print(json.dumps(result, indent=2))
     if args.dry_run:
         return 0
 
+    if args.assign_no_only:
+        assignments = []
+        for slot, board in enumerate(ordered):
+            write_response = board_command(
+                board, f"SYSTem:BOARD:NO {slot + 1}", args)
+            readback = board_command(board, "SYSTem:BOARD:NO?", args)
+            assignments.append({board.address: {
+                "write": write_response,
+                "readback": readback,
+                "expected": str(slot + 1),
+                "passed": readback.strip().strip('"') == str(slot + 1),
+            }})
+        assignments_passed = all(
+            item[next(iter(item))]["passed"] for item in assignments)
+        result.update({"passed": True, "assignments": assignments,
+                       "slot_map": [{"no": slot + 1, "address": board.address}
+                                    for slot, board in enumerate(ordered)]})
+        out_dir = args.out_dir or (
+            ROOT / "build-rtos-multicore-smoke" /
+            f"tdma_assign_no_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "summary.json").write_text(
+            json.dumps(result, indent=2), encoding="utf-8")
+        print(json.dumps(result, indent=2))
+        print(f"out_dir={out_dir}")
+        result["passed"] = assignments_passed
+        (out_dir / "summary.json").write_text(
+            json.dumps(result, indent=2), encoding="utf-8")
+        return 0 if assignments_passed else 1
+
     acknowledgements: list[dict[str, str]] = []
-    for board in (reference, forward):
+    for board in ordered:
         acknowledgements.append({board.address: board_command(
             board, "SYSTem:TDMA:RING:STOP", args)})
-    acknowledgements.append({reference.address: board_command(
-        reference, "SYSTem:TDMA:RING:LOCAL 0", args)})
-    acknowledgements.append({forward.address: board_command(
-        forward, "SYSTem:TDMA:RING:LOCAL 1", args)})
+    if args.level is not None:
+        for board in ordered:
+            acknowledgements.append({board.address: board_command(
+                board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)})
+            acknowledgements.append({board.address: board_command(
+                board, "SYSTem:TDMA:OPMode:APPLy", args)})
+            active = board_command(board, "SYSTem:TDMA:OPMode?", args)
+            active_values = [int(value.strip().strip('"'), 0)
+                             for value in active.split(",")]
+            if not active_values or active_values[0] != args.level:
+                raise RuntimeError(
+                    f"{board.address}: active operating level is {active}")
+    for slot, board in enumerate(ordered):
+        acknowledgements.append({board.address: board_command(
+            board,
+            f"SYSTem:TDMA:RING:TOPology {node_count},{slot},0",
+            args)})
+        # Bind the operator-facing NO.1..NO.8 label to the physical ring slot.
+        # The board is still addressed and verified by *IDN? unique address;
+        # COM ports are only transport handles discovered by this tool.
+        acknowledgements.append({board.address: board_command(
+            board, f"SYSTem:BOARD:NO {slot + 1}", args)})
 
-    for board in (forward, reference):
+    for board in start_order:
         acknowledgements.append({board.address: board_command(
             board, "SYSTem:TDMA:RING:ARM", args)})
     armed = {board.address: wait_started(board, args)
-             for board in (forward, reference)}
+             for board in start_order}
 
-    for board in (forward, reference):
+    for board in start_order:
         acknowledgements.append({board.address: train(board, args)})
-    for board in (forward, reference):
+    before_start = {board.address: status(board, args) for board in ordered}
+    for board in start_order:
         acknowledgements.append({board.address: board_command(
             board, "SYSTem:TDMA:RING:START", args)})
 
     time.sleep(args.start_wait)
     final = {board.address: status(board, args)
-             for board in (reference, forward)}
+             for board in ordered}
+    counter_deltas = {
+        board.address: {
+            "tx": ((final[board.address]["ring_adapter_tx_count"] -
+                    before_start[board.address]["ring_adapter_tx_count"])
+                   & 0xFFFFFFFF),
+            "rx": ((final[board.address]["ring_adapter_rx_count"] -
+                    before_start[board.address]["ring_adapter_rx_count"])
+                   & 0xFFFFFFFF),
+        }
+        for board in ordered
+    }
     passed = (
-        final[reference.address]["ring_local_slot_id"] == 0
-        and final[forward.address]["ring_local_slot_id"] == 1
+        all(final[board.address]["ring_node_count"] == node_count
+            for board in ordered)
+        and all(final[board.address]["ring_local_slot_id"] == slot
+                for slot, board in enumerate(ordered))
+        and all(item["ring_reference_slot_id"] == 0 for item in final.values())
         and all(item["ring_adapter_started"] == 1 for item in final.values())
         and all(item["ring_up_running"] == 1 for item in final.values())
+        and all(item["ring_down_running"] == 1 for item in final.values())
+        and all(item["tx"] > 0 for item in counter_deltas.values())
+        and all(item["rx"] > 0 for item in counter_deltas.values())
     )
-    result.update({"passed": passed, "acknowledgements": acknowledgements,
-                   "armed": armed, "final": final})
+    result.update({"passed": passed,
+                   "slot_map": [{"no": slot + 1, "address": board.address}
+                                for slot, board in enumerate(ordered)],
+                   "acknowledgements": acknowledgements,
+                   "armed": armed, "before_start": before_start,
+                   "counter_deltas": counter_deltas, "final": final})
     out_dir = args.out_dir or (
         ROOT / "build-rtos-multicore-smoke" /
         f"tdma_start_ring_{datetime.now().strftime('%Y%m%d_%H%M%S')}")

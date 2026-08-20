@@ -258,6 +258,7 @@ static int test_tdma_ring_profile_contract(void)
 {
     int failed = 0;
     vdc_tdma_schedule_profile_t schedule;
+    vdc_domain_context_t context;
     uint32_t original_ring_crc = 0u;
     uint32_t original_schedule_crc = 0u;
 
@@ -305,6 +306,26 @@ static int test_tdma_ring_profile_contract(void)
     failed += expect_bool("ring crc nonzero",
                           schedule.ring_binding.profile_crc32 != 0u,
                           true);
+
+    (void)memset(&context, 0, sizeof(context));
+    context.schedule = schedule;
+    failed += expect_bool("set eight-node topology",
+                          vdc_domain_set_schedule_ring_topology(
+                              &context, 7u, 0u, 8u),
+                          true);
+    failed += expect_u32("eight-node local slot",
+                         context.schedule.local_slot_id,
+                         7u);
+    failed += expect_u32("eight-node upstream",
+                         context.schedule.ring_binding.upstream_slot_id,
+                         6u);
+    failed += expect_u32("eight-node downstream wraps",
+                         context.schedule.ring_binding.downstream_slot_id,
+                         0u);
+    failed += expect_bool("nine-node topology rejected",
+                          vdc_domain_set_schedule_ring_topology(
+                              &context, 0u, 0u, 9u),
+                          false);
 
     schedule.ring_binding.downstream_slot_id = 4u;
     failed += expect_bool("stale ring crc rejected",

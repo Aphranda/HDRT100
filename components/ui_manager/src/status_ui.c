@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "board.h"
+#include "board_identity.h"
 #include "diagnostics.h"
 #include "drv_watchdog.h"
 #include "lcd_st7789.h"
@@ -1286,7 +1287,9 @@ static void draw_product_header(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 {
     static const char *const labels[] = {"OVR", "SYN", "VDC", "TRG", "SYS", "HLT"};
     const uint8_t tab_x = 40u;
-    const uint8_t tab_w = 20u;
+    /* Keep a clear 28-pixel identity area at the upper-right.  The previous
+     * 6x20 tab layout occupied the whole row and painted over NO.n. */
+    const uint8_t tab_w = 16u;
     const uint8_t active = (uint8_t)(s_ui.tab_anim > 0u ? s_ui.target_page : s_ui.page);
     const uint8_t phase = (uint8_t)((snapshot->uptime_ms / 100u) % 20u);
     const uint8_t triangle = phase <= 10u ? phase : (uint8_t)(20u - phase);
@@ -1307,12 +1310,25 @@ static void draw_product_header(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
         draw_fit_str(u8g2, (u8g2_uint_t)(x + 2u), 9u, (u8g2_uint_t)(tab_w - 3u), labels[page]);
         u8g2_SetDrawColor(u8g2, 1u);
     }
+
+    /* Draw the logical board number last so it cannot be hidden by tabs. */
+    char no_label[8];
+    uint8_t logical_no = board_identity_get_no();
+    if (logical_no == 0u && snapshot->tdma_valid &&
+        snapshot->tdma.ring_local_slot_id < BOARD_IDENTITY_MAX_NODES) {
+        logical_no = (uint8_t)(snapshot->tdma.ring_local_slot_id + 1u);
+    }
+    if (logical_no != 0u) {
+        snprintf(no_label, sizeof(no_label), "NO.%u", (unsigned int)logical_no);
+        draw_fit_str(u8g2, 137u, 10u, 23u, no_label);
+    }
 }
 
 static void draw_product_cover(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
 {
     char build[12];
     char status[24];
+    char no_label[8];
     const uint8_t phase = (uint8_t)((snapshot->uptime_ms / 100u) % 20u);
     const uint8_t triangle = phase <= 10u ? phase : (uint8_t)(20u - phase);
     const uint8_t breath_radius = (uint8_t)(1u + (triangle / 5u));
@@ -1331,6 +1347,16 @@ static void draw_product_cover(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
                                    4u,
                                    2u,
                                    breath_radius);
+    uint8_t logical_no = board_identity_get_no();
+    if (logical_no == 0u && snapshot->tdma_valid &&
+        snapshot->tdma.ring_local_slot_id < BOARD_IDENTITY_MAX_NODES) {
+        logical_no = (uint8_t)(snapshot->tdma.ring_local_slot_id + 1u);
+    }
+    if (logical_no != 0u) {
+        snprintf(no_label, sizeof(no_label), "NO.%u", (unsigned int)logical_no);
+        u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
+        draw_fit_str(u8g2, 127u, 14u, 27u, no_label);
+    }
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
     u8g2_DrawStr(u8g2, 15u, 39u, "DISTRIBUTED HARD REAL-TIME");
     u8g2_DrawStr(u8g2, 45u, 48u, "TRIGGER SYSTEM");

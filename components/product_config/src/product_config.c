@@ -98,7 +98,6 @@ bool product_config_set_usb_mode(product_config_usb_mode_t mode)
     if (!product_config_usb_mode_is_valid((uint32_t)mode)) {
         return false;
     }
-
     product_config_record_t record = s_product_config;
     if (!product_config_record_is_valid(&record)) {
         product_config_set_default(&record);
@@ -106,8 +105,8 @@ bool product_config_set_usb_mode(product_config_usb_mode_t mode)
 
     record.magic = PRODUCT_CONFIG_MAGIC;
     record.version = PRODUCT_CONFIG_VERSION;
-    record.sequence++;
     record.usb_mode = (uint32_t)mode;
+    record.sequence++;
     record.crc32 = product_config_crc32(&record);
 
     uint8_t page[DRV_FLASH_PAGE_SIZE];

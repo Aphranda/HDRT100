@@ -21,6 +21,7 @@ Last updated: 2026-07-22
 - USBTMC 是设备类接口，不会像 BOOTSEL/UF2 那样挂载成磁盘；要刷 UF2 仍需进入 BOOTSEL，或先通过可用的重启路径切回 BOOTSEL。
 - `SYST:USB:MODE?` 返回 SCPI 字符串 `"CDC"` 或 `"USBTMC"`，脚本可直接按字符串内容判断当前模式。
 - `*IDN?` 当前格式为 `GTS,DTC100,<SERIAL>,0.1.0`，其中 `SERIAL` 使用板子唯一 ID，避免暴露板级/芯片命名。
+- 板卡逻辑编号不使用 COM 口绑定。`SYSTem:BOARD:ID?` 返回与 `*IDN?` 第三字段相同的唯一地址；`SYSTem:BOARD:NO?` 查询当前 `NO.1`–`NO.8`；`SYSTem:BOARD:NO <n>` 设置逻辑编号；`SYSTem:BOARD:MAP?` 返回 `<SERIAL>,<NO>` 映射。
 
 ## 统一规则
 

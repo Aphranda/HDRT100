@@ -1,0 +1,74 @@
+{
+  "passed": false,
+  "duration_s": 30.0,
+  "poll_interval_s": 1.0,
+  "ports": {
+    "ref_0010071E65B5CB38": "COM3",
+    "fwd_A1E549202D18ED6A": "COM4"
+  },
+  "boards": {
+    "0010071E65B5CB38": {
+      "port": "COM3",
+      "label": "ref_0010071E65B5CB38",
+      "idn": "GTS,DTC100,0010071E65B5CB38,0.1.0"
+    },
+    "A1E549202D18ED6A": {
+      "port": "COM4",
+      "label": "fwd_A1E549202D18ED6A",
+      "idn": "GTS,DTC100,A1E549202D18ED6A,0.1.0"
+    }
+  },
+  "results": [
+    {
+      "name": "ref_0010071E65B5CB38",
+      "port": "COM3",
+      "idn": "GTS,DTC100,0010071E65B5CB38,0.1.0",
+      "board_address": "0010071E65B5CB38",
+      "build": "20260820013405",
+      "reference_board": true,
+      "sample_count": 25,
+      "ok_sample_count": 24,
+      "up_running": 1,
+      "down_running": 1,
+      "simultaneous_feedback_loop_evidence": 0,
+      "ring_seq": 111999,
+      "ring_last_error": 5,
+      "ring_last_error_name": "TIMESTAMP_MISSING",
+      "adapter_started": 1,
+      "adapter_service_count": 112091,
+      "idle_beacon_tx_count": 56045,
+      "idle_beacon_rx_count": 11073,
+      "feedback_round_trip_ns": 0,
+      "timestamp_resolution_ns": 4,
+      "passed": false,
+      "reasons": [
+        "simultaneous_evidence!=1 (reference board)"
+      ]
+    },
+    {
+      "name": "fwd_A1E549202D18ED6A",
+      "port": "COM4",
+      "idn": "GTS,DTC100,A1E549202D18ED6A,0.1.0",
+      "board_address": "A1E549202D18ED6A",
+      "build": "20260820013405",
+      "reference_board": false,
+      "sample_count": 26,
+      "ok_sample_count": 25,
+      "up_running": 1,
+      "down_running": 1,
+      "simultaneous_feedback_loop_evidence": 0,
+      "ring_seq": 142366,
+      "ring_last_error": 5,
+      "ring_last_error_name": "TIMESTAMP_MISSING",
+      "adapter_started": 1,
+      "adapter_service_count": 145791,
+      "idle_beacon_tx_count": 0,
+      "idle_beacon_rx_count": 11161,
+      "feedback_round_trip_ns": 0,
+      "timestamp_resolution_ns": 4,
+      "passed": true,
+      "reasons": []
+    }
+  ],
+  "note": "read-only TDMA ring monitor; firmware owns the resident ring"
+}

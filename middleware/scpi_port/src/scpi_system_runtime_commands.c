@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "diagnostics.h"
+#include "board_identity.h"
 #include "led_manager.h"
 #include "osal.h"
 #include "ota_ao.h"
@@ -312,6 +313,40 @@ scpi_result_t scpi_cmd_watchdog_log_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.evidence_core1_loop_count);
     SCPI_ResultUInt32(context, status.evidence_core0_progress);
     SCPI_ResultUInt32(context, status.evidence_core1_progress);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_board_id_q(scpi_t *context)
+{
+    SCPI_ResultText(context, board_identity_serial());
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_board_no(scpi_t *context)
+{
+    uint32_t logical_no = 0u;
+    if (!scpi_port_read_u32(context, &logical_no) ||
+        !board_identity_set_no(logical_no)) {
+        scpi_port_push_exec_error(context, "BOARD_NO");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, logical_no);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_board_no_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, board_identity_get_no());
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_board_map_q(scpi_t *context)
+{
+    /* Stable machine-readable binding: unique address first, logical NO
+     * second.  The address is the only board identity; USB COM numbers are
+     * intentionally absent from this interface. */
+    SCPI_ResultText(context, board_identity_serial());
+    SCPI_ResultUInt32(context, board_identity_get_no());
     return SCPI_RES_OK;
 }
 

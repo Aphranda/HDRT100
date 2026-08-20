@@ -609,6 +609,9 @@ const tdma_foundation_profile_t *refmem_application_model_get_tdma_foundation_pr
  * the profile CRC. Used by the TDMA ring role maintenance command so the same
  * firmware can run as reference or forward node. */
 bool refmem_application_model_set_tdma_ring_local_slot(uint32_t local_slot_id);
+bool refmem_application_model_set_tdma_ring_topology(uint32_t local_slot_id,
+                                                     uint32_t reference_slot_id,
+                                                     uint32_t node_count);
 const refmem_application_model_snapshot_t *refmem_application_model_get_snapshot(void);
 bool refmem_application_model_get_staging_node_load_entry(
     uint32_t instance_id,

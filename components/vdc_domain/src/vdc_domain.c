@@ -903,19 +903,38 @@ bool vdc_domain_default_schedule_for_topology(
 void vdc_domain_set_schedule_local_slot(vdc_domain_context_t *context,
                                         uint32_t local_slot_id)
 {
-    if (context == NULL ||
-        local_slot_id >= context->schedule.ring_binding.node_count ||
-        local_slot_id == context->schedule.local_slot_id) {
+    if (context == NULL) {
         return;
+    }
+    (void)vdc_domain_set_schedule_ring_topology(
+        context,
+        local_slot_id,
+        context->schedule.reference_slot_id,
+        context->schedule.ring_binding.node_count);
+}
+
+bool vdc_domain_set_schedule_ring_topology(vdc_domain_context_t *context,
+                                           uint32_t local_slot_id,
+                                           uint32_t reference_slot_id,
+                                           uint32_t node_count)
+{
+    if (context == NULL || node_count < 2u ||
+        node_count > VDC_DOMAIN_NODE_COUNT || local_slot_id >= node_count ||
+        reference_slot_id >= node_count) {
+        return false;
     }
     vdc_tdma_schedule_profile_t updated = context->schedule;
     updated.local_slot_id = local_slot_id;
-    (void)tdma_ring_profile_default(&updated.ring_binding,
-                                    updated.local_slot_id,
-                                    updated.reference_slot_id,
-                                    updated.ring_binding.node_count);
+    updated.reference_slot_id = reference_slot_id;
+    if (!tdma_ring_profile_default(&updated.ring_binding,
+                                   updated.local_slot_id,
+                                   updated.reference_slot_id,
+                                   node_count)) {
+        return false;
+    }
     updated.schedule_crc32 = vdc_domain_schedule_crc32(&updated);
     context->schedule = updated;
+    return true;
 }
 
 void vdc_domain_default_servo(vdc_servo_profile_t *profile)

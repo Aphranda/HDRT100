@@ -182,6 +182,9 @@ bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
                                        vdc_gate_result_t *gate);
 bool vdc_dpll_manager_plan_tdma_ring(vdc_tdma_ring_plan_t *plan);
 bool vdc_dpll_manager_set_tdma_ring_local_slot(uint32_t local_slot_id);
+bool vdc_dpll_manager_set_tdma_ring_topology(uint32_t local_slot_id,
+                                             uint32_t reference_slot_id,
+                                             uint32_t node_count);
 bool vdc_dpll_manager_publish_timestamp_dictionary(
     const vdc_timestamp_dictionary_t *dictionary,
     uint32_t initial_tick_l32);

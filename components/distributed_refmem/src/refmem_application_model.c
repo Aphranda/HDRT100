@@ -3004,20 +3004,33 @@ const tdma_foundation_profile_t *refmem_application_model_get_tdma_foundation_pr
 
 bool refmem_application_model_set_tdma_ring_local_slot(uint32_t local_slot_id)
 {
+    const tdma_foundation_profile_t *profile =
+        refmem_model_current_tdma_foundation_profile();
+    return refmem_application_model_set_tdma_ring_topology(
+        local_slot_id, profile->ring.reference_index, profile->ring.node_count);
+}
+
+bool refmem_application_model_set_tdma_ring_topology(uint32_t local_slot_id,
+                                                     uint32_t reference_slot_id,
+                                                     uint32_t node_count)
+{
     tdma_foundation_profile_t *profile =
         s_active_tables_from_image ? &s_active_tdma_foundation_profile
                                    : &s_tdma_foundation_profile;
-    if (local_slot_id >= profile->ring.node_count) {
+    if (node_count < 2u || node_count > TDMA_RING_NODE_MAX ||
+        local_slot_id >= node_count || reference_slot_id >= node_count) {
         return false;
     }
-    if (local_slot_id == profile->ring.local_index) {
+    if (local_slot_id == profile->ring.local_index &&
+        reference_slot_id == profile->ring.reference_index &&
+        node_count == profile->ring.node_count) {
         return true;
     }
     tdma_foundation_profile_t updated = *profile;
     if (!tdma_ring_profile_default(&updated.ring,
                                    local_slot_id,
-                                   updated.ring.reference_index,
-                                   updated.ring.node_count)) {
+                                   reference_slot_id,
+                                   node_count)) {
         return false;
     }
     updated.profile_crc32 = tdma_foundation_profile_crc32(&updated);

@@ -32,6 +32,8 @@ PACKAGE_HEADER_SIZE = 512
 PACKAGE_BUILD_ID_OFFSET = 112
 PACKAGE_BUILD_ID_SIZE = 32
 DEFAULT_IDN_FILTERS = ("DTC100", "RP2350_TRIG")
+MAX_BOARD_COUNT = 8
+MAX_OTA_BLOCK_SIZE = 512
 
 
 @dataclass(frozen=True)
@@ -87,12 +89,36 @@ def parse_args() -> argparse.Namespace:
                         help="expected build after commit; default reads unified package build id")
     parser.add_argument("--max-workers", type=int, default=0,
                         help="parallel update workers; 0 means one worker per discovered board")
+    parser.add_argument("--expected-board-count", type=int,
+                        help="require this many unique *IDN? boards before any write (1..8)")
     parser.add_argument("--send-only", action="store_true", help="send OTA payload but do not boot/commit")
     parser.add_argument("--commit-only", action="store_true", help="skip send and only boot/commit pending image")
     parser.add_argument("--dry-run", action="store_true", help="only discover boards and print the update plan")
     parser.add_argument("--verbose", action="store_true", help="print child tool stdout/stderr for each board")
     parser.add_argument("--out-dir", type=Path, help="output directory for summary and per-board logs")
     return parser.parse_args()
+
+
+def validate_cli_args(args: argparse.Namespace) -> None:
+    if args.send_only and args.commit_only:
+        raise ValueError("--send-only and --commit-only are mutually exclusive")
+    if args.block_size < 1 or args.block_size > MAX_OTA_BLOCK_SIZE:
+        raise ValueError(
+            f"block size must be in range 1..{MAX_OTA_BLOCK_SIZE}")
+    if args.max_workers < 0 or args.max_workers > MAX_BOARD_COUNT:
+        raise ValueError(
+            f"max-workers must be in range 0..{MAX_BOARD_COUNT}")
+    if (args.expected_board_count is not None and
+            (args.expected_board_count < 1 or
+             args.expected_board_count > MAX_BOARD_COUNT)):
+        raise ValueError(
+            f"expected-board-count must be in range 1..{MAX_BOARD_COUNT}")
+    serial_numbers = list(args.serial_number or [])
+    if len(serial_numbers) > MAX_BOARD_COUNT:
+        raise ValueError(
+            f"at most {MAX_BOARD_COUNT} serial-number values are supported")
+    if len(set(serial_numbers)) != len(serial_numbers):
+        raise ValueError("serial-number values must be unique")
 
 
 def command(ser: serial.Serial, text: str, timeout_s: float) -> str:
@@ -316,8 +342,10 @@ def write_summary(out_dir: Path,
 
 def main() -> int:
     args = parse_args()
-    if args.send_only and args.commit_only:
-        raise SystemExit("--send-only and --commit-only are mutually exclusive")
+    try:
+        validate_cli_args(args)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     image = args.image.resolve()
     if not image.exists():
         raise SystemExit(f"image not found: {image}")
@@ -343,6 +371,21 @@ def main() -> int:
                           expected_build=expected_build,
                           dry_run=args.dry_run, elapsed_s=0.0)
             return 2
+    if len(boards) > MAX_BOARD_COUNT:
+        print(f"too_many_boards={len(boards)} max={MAX_BOARD_COUNT}",
+              file=sys.stderr)
+        write_summary(out_dir, boards, [], image=image,
+                      expected_build=expected_build,
+                      dry_run=args.dry_run, elapsed_s=0.0)
+        return 2
+    if (args.expected_board_count is not None and
+            len(boards) != args.expected_board_count):
+        print(f"board_count_mismatch={len(boards)} "
+              f"expected={args.expected_board_count}", file=sys.stderr)
+        write_summary(out_dir, boards, [], image=image,
+                      expected_build=expected_build,
+                      dry_run=args.dry_run, elapsed_s=0.0)
+        return 2
     print(f"discovered_boards={len(boards)}")
     for board in boards:
         print(f"{board.port}: serial={board.serial_number} build={board.build_id} idn={board.idn}")
@@ -350,7 +393,7 @@ def main() -> int:
         write_summary(out_dir, [], [], image=image, expected_build=expected_build, dry_run=args.dry_run, elapsed_s=0.0)
         return 2
 
-    workers = max(1, args.max_workers or len(boards))
+    workers = min(len(boards), max(1, args.max_workers or len(boards)))
     print(f"workers={workers}")
     print(f"image={image}")
     print(f"expected_build={expected_build or '<not-checked>'}")

@@ -2417,6 +2417,19 @@ void distributed_refmem_get_tdma_flight_sync_quality(
 
 bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id)
 {
+    const tdma_foundation_profile_t *profile =
+        refmem_application_model_get_tdma_foundation_profile();
+    if (profile == NULL) {
+        return false;
+    }
+    return distributed_refmem_set_tdma_ring_topology(
+        local_slot_id, profile->ring.reference_index, profile->ring.node_count);
+}
+
+bool distributed_refmem_set_tdma_ring_topology(uint32_t local_slot_id,
+                                               uint32_t reference_slot_id,
+                                               uint32_t node_count)
+{
     if (!s_initialized) {
         return false;
     }
@@ -2428,10 +2441,14 @@ bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id)
         ring_snapshot.enabled != 0u) {
         return false;
     }
-    if (!vdc_dpll_manager_set_tdma_ring_local_slot(local_slot_id)) {
+    if (!vdc_dpll_manager_set_tdma_ring_topology(local_slot_id,
+                                                 reference_slot_id,
+                                                 node_count)) {
         return false;
     }
-    if (!refmem_application_model_set_tdma_ring_local_slot(local_slot_id)) {
+    if (!refmem_application_model_set_tdma_ring_topology(local_slot_id,
+                                                         reference_slot_id,
+                                                         node_count)) {
         return false;
     }
     const tdma_foundation_profile_t *profile =

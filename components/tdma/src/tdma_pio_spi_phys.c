@@ -373,6 +373,17 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
     }
     /* Keep one trailing word so a split magic header can be completed by the
      * next DMA sample. */
+    const uint32_t bad_start = s_tdma_pio_spi_rx_scan_produced;
+    const uint32_t bad_available = produced - bad_start;
+    phys->snapshot.last_bad_header0 =
+        bad_available > 0u ? tdma_pio_spi_phys_rx_ring_word(bad_start) : 0u;
+    phys->snapshot.last_bad_header1 =
+        bad_available > 1u ? tdma_pio_spi_phys_rx_ring_word(bad_start + 1u) : 0u;
+    phys->snapshot.last_bad_header2 =
+        bad_available > 2u ? tdma_pio_spi_phys_rx_ring_word(bad_start + 2u) : 0u;
+    phys->snapshot.last_bad_header3 =
+        bad_available > 3u ? tdma_pio_spi_phys_rx_ring_word(bad_start + 3u) : 0u;
+    phys->snapshot.last_bad_words = bad_available;
     phys->snapshot.rx_magic_fail_count++;
     s_tdma_pio_spi_rx_scan_produced = produced > 0u ? produced - 1u : 0u;
     return false;
