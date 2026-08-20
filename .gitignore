@@ -70,6 +70,7 @@ desktop.ini
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-basetemp/
 .mypy_cache/
 .ruff_cache/
 
