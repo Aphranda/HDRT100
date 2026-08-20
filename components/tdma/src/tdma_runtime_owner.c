@@ -13,11 +13,81 @@ static tdma_traffic_scheduler_t s_tdma_traffic_scheduler;
 static tdma_pio_spi_ring_adapter_t s_tdma_pio_spi_ring_adapter;
 static tdma_pio_spi_phys_t s_tdma_pio_spi_phys;
 static tdma_operating_profile_manager_t s_tdma_operating_profile_manager;
+typedef enum {
+    TDMA_CAL_LOOPBACK_INTENT_NONE = 0u,
+    TDMA_CAL_LOOPBACK_INTENT_START = 1u,
+    TDMA_CAL_LOOPBACK_INTENT_STOP = 2u,
+} tdma_cal_loopback_intent_opcode_t;
+
+/* Core0 is the single producer and core1 is the single consumer.  The
+ * calibration domain may publish only this guarded intent; PIO/SM/DMA state
+ * remains private to the TDMA owner and is changed from core1 service only. */
+typedef struct {
+    volatile uint32_t guard;
+    uint32_t sequence;
+    uint32_t opcode;
+    uint32_t sample_hz;
+    uint32_t sample_words;
+    uint32_t epoch;
+} tdma_cal_loopback_intent_t;
+
+static tdma_cal_loopback_intent_t s_tdma_cal_loopback_intent;
+static volatile uint32_t s_tdma_cal_loopback_consumed_sequence;
+static uint32_t s_tdma_cal_loopback_next_sequence;
 #if !defined(PROJECT_USE_FREERTOS) || !PROJECT_USE_FREERTOS
 static tdma_traffic_scheduler_slot_t
     s_tdma_traffic_slots[TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT];
 #endif
 static bool s_tdma_runtime_owner_initialized;
+
+static void tdma_runtime_owner_cal_intent_write_begin(void)
+{
+    (void)__atomic_add_fetch(&s_tdma_cal_loopback_intent.guard,
+                             1u, __ATOMIC_ACQ_REL);
+}
+
+static void tdma_runtime_owner_cal_intent_write_end(void)
+{
+    (void)__atomic_add_fetch(&s_tdma_cal_loopback_intent.guard,
+                             1u, __ATOMIC_RELEASE);
+}
+
+static void tdma_runtime_owner_cal_intent_publish(
+    tdma_cal_loopback_intent_opcode_t opcode,
+    uint32_t sample_hz,
+    uint32_t sample_words,
+    uint32_t epoch)
+{
+    tdma_runtime_owner_cal_intent_write_begin();
+    s_tdma_cal_loopback_intent.sequence = ++s_tdma_cal_loopback_next_sequence;
+    s_tdma_cal_loopback_intent.opcode = (uint32_t)opcode;
+    s_tdma_cal_loopback_intent.sample_hz = sample_hz;
+    s_tdma_cal_loopback_intent.sample_words = sample_words;
+    s_tdma_cal_loopback_intent.epoch = epoch;
+    tdma_runtime_owner_cal_intent_write_end();
+}
+
+static bool tdma_runtime_owner_cal_intent_read(
+    tdma_cal_loopback_intent_t *intent)
+{
+    if (intent == NULL) {
+        return false;
+    }
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_tdma_cal_loopback_intent.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        *intent = s_tdma_cal_loopback_intent;
+        const uint32_t end = __atomic_load_n(
+            &s_tdma_cal_loopback_intent.guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            return true;
+        }
+    }
+    return false;
+}
 
 bool tdma_runtime_owner_init(void)
 {
@@ -171,4 +241,76 @@ bool tdma_runtime_owner_apply_operating_profile(void)
     }
     return tdma_operating_profile_manager_apply(
         &s_tdma_operating_profile_manager, true);
+}
+
+bool tdma_runtime_owner_cal_loopback_start(uint32_t sample_hz,
+                                           uint32_t sample_words,
+                                           uint32_t epoch)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    tdma_pio_spi_cal_loopback_snapshot_t loopback;
+    tdma_cal_loopback_intent_t pending;
+    if (!s_tdma_runtime_owner_initialized ||
+        !tdma_ring_runtime_get_snapshot(&s_tdma_runtime_owner.ring_runtime,
+                                        &ring) || ring.enabled != 0u ||
+        sample_words == 0u ||
+        sample_words > TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS ||
+        !tdma_pio_spi_phys_get_cal_loopback_snapshot(&s_tdma_pio_spi_phys,
+                                                     &loopback) ||
+        loopback.armed != 0u ||
+        !tdma_runtime_owner_cal_intent_read(&pending) ||
+        pending.sequence != __atomic_load_n(
+            &s_tdma_cal_loopback_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        return false;
+    }
+    tdma_runtime_owner_cal_intent_publish(TDMA_CAL_LOOPBACK_INTENT_START,
+                                          sample_hz, sample_words, epoch);
+    return true;
+}
+
+void tdma_runtime_owner_cal_loopback_stop(void)
+{
+    if (s_tdma_runtime_owner_initialized) {
+        /* STOP supersedes an unconsumed START.  Both are core0 publications;
+         * core1 will observe one complete seqlock record. */
+        tdma_runtime_owner_cal_intent_publish(TDMA_CAL_LOOPBACK_INTENT_STOP,
+                                              0u, 0u, 0u);
+    }
+}
+
+void tdma_runtime_owner_cal_loopback_service(void)
+{
+    if (!s_tdma_runtime_owner_initialized) {
+        return;
+    }
+    tdma_cal_loopback_intent_t intent;
+    if (tdma_runtime_owner_cal_intent_read(&intent) &&
+        intent.sequence != __atomic_load_n(
+            &s_tdma_cal_loopback_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        if (intent.opcode == TDMA_CAL_LOOPBACK_INTENT_START) {
+            tdma_ring_runtime_snapshot_t ring;
+            if (tdma_ring_runtime_get_snapshot(
+                    &s_tdma_runtime_owner.ring_runtime, &ring) &&
+                ring.enabled == 0u) {
+                (void)tdma_pio_spi_phys_cal_loopback_start(
+                    &s_tdma_pio_spi_phys,
+                    intent.sample_hz,
+                    intent.sample_words,
+                    intent.epoch);
+            }
+        } else if (intent.opcode == TDMA_CAL_LOOPBACK_INTENT_STOP) {
+            tdma_pio_spi_phys_cal_loopback_stop(&s_tdma_pio_spi_phys);
+        }
+        __atomic_store_n(&s_tdma_cal_loopback_consumed_sequence,
+                         intent.sequence, __ATOMIC_RELEASE);
+    }
+    tdma_pio_spi_phys_cal_loopback_service(&s_tdma_pio_spi_phys);
+}
+
+bool tdma_runtime_owner_get_cal_loopback_snapshot(
+    tdma_pio_spi_cal_loopback_snapshot_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_phys_get_cal_loopback_snapshot(&s_tdma_pio_spi_phys,
+                                                       snapshot);
 }

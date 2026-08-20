@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
@@ -17,8 +17,103 @@ Last updated: 2026-08-20
 | 校准域职责与 TDMA/VDC 边界 | `[x]` | 校准拥有测量与接受门禁，TDMA 负责传输与编排，VDC/DPLL 消费 accepted snapshot |
 | 第一阶段 CLK RTT 粗捕获 | `[x]` | 已完成板内最小实现和四板 HIL，仍为 diagnostic-only |
 | 第二阶段编码 marker/相关测距 | `[~]` | codebook 离线评估已完成，固件、PIO/DMA、相关器和 HIL 待实现 |
-| 第三阶段双向同时对比法 | `[ ]` | 已进入方案和任务拆分，尚无双板/四板实测结果 |
+| 第三阶段双向同时对比法 | `[~]` | 公式、reject gate 和单板纯 PIO 闭环已通过；endpoint bias 及双板/四板实测待完成 |
 | VDC/DPLL active calibration gate | `[ ]` | 依赖正式 hardware latch、bias、generation/freshness 和 P3 结果 |
+
+## CAL-TASK-20260821-001 - 单板回环双向测距预研
+
+- 状态：本轮单板前期算法和纯 PIO/DMA 闭环目标完成；结果保持 reference-only / diagnostic-only，
+  endpoint bias generation 和双板 P3 仍待完成。
+- 日期：2026-08-21。
+- 任务目标：
+  - 使用单板 TX/RX 三线回环先验证双向同时对比法的公式和 reject gate。
+  - 保持单板结果为 `REFERENCE_LOOPBACK`，不进入 active calibration 或 VDC/DPLL。
+  - 核对小板现有 resident TDMA loopback 的实际物理状态，为后续 PIO edge-latch 接入准备证据。
+- 完成内容：
+  - 新增 `calibration_bidirectional.h/.c`，实现 `t1..t4` 本地时钟域检查、
+    `residence_B = t3 - t2`、`path_sum = (t4 - t1) - residence_B`、endpoint bias 扣除、
+    clock-rate bound、DMA/epoch/persona/topology/bias gate 和 `active_eligible` 判定。
+  - 双板语义不比较 `t1` 与 `t2` 的绝对先后，只分别检查 A 域的 `t4>=t1` 与 B 域的 `t3>=t2`。
+  - 新增 `test_calibration_bidirectional.c` 和 `run_calibration_bidirectional_tests.ps1`；
+    覆盖有效回环样本、坏顺序、缺边沿、DMA 错误、persona/topology/bias/clock-rate/reference
+    policy、negative path 以及 hardware-latched 非回环样本。
+  - 将模块加入顶层 CMake，主固件 A/B 均完成重新编译和打包。
+  - PIO 回环已收敛到 `TdmaRuntimeOwner`：停止态复用 TDMA 已声明的 PIO、TX/RX SM 和
+    `TDMA_PIO_SPI_RX_DMA_CHANNEL`；`CALibration:LOOPback:STARt <words>` 只提交有界 intent，
+    `READ:CALibration:LOOPback?` 只读取 guarded raw/result snapshot。
+  - 固件端执行 `t1..t4` edge decode、SYNC/edge-mask/顺序门禁和现有
+    `calibration_bidirectional_evaluate()`；单板结果始终带 `REFERENCE_LOOPBACK` /
+    `DIAGNOSTIC_ONLY`，不会进入 active calibration 或 VDC。
+- 单板实测结果（诊断快照，非校准事实源）：
+  - 当前 USB CDC 枚举为 `COM8`，`COM7` 本轮未枚举；板卡地址为
+    `839E1AE79EA20F31`，运行 build 为 `20260820082350`。
+  - `tdma_single_board_loopback.py` 15 秒窗口完成 `STOP -> LOCAL -> ARM -> TRAIN -> START`；
+    TX/RX sequence 和 adapter TX/RX 均增长，adapter/phys bad、magic fail、ring overrun
+    均无增量。
+  - `TDMA:FLIGHT:TX` 本次返回超时，RX 仍为空；因此 flight FIFO 镜像未通过，不能把本次运行
+    记为飞行处理闭环。
+  - `simultaneous_feedback_loop_evidence=0`、`ring_last_error=TIMESTAMP_MISSING`，符合
+    当前没有 PIO/DMA 四边沿 latch 的预期；没有生成 `t1..t4`，没有生成 active delay。
+  - OTA 后 COM8 最终运行 build `20260820172113`，活动槽 A 已提交；板卡地址仍为
+    `839E1AE79EA20F31`，SCPI 错误队列为空。
+  - resident TDMA IO 对照确认 TX=`GPIO26/25/29`、RX=`GPIO27/28/24`；同一短回环线下
+    5 秒窗口 TX/RX 均前进 `1195` 帧且物理坏帧无增长，排除 IO 映射和接线错误。
+  - 纯 PIO 回环先后修正 capture SM 覆盖 TX pin direction、返回输入未显式 mux 到 PIO2，
+    并把 250 MHz 下过窄的 marker 扩展到可穿越 ISO1452 的有界窗口。
+  - 最终 DMA 完成 `128` words，sample period 为 `20 ns`；snapshot 为
+    `edge_mask=0xF`、`flags=0x7`、`reject_reason=NONE`、epoch `2`，四时间戳依次为
+    `1060/1120/2080/2140 ns`，SYNC 匹配且 `result_valid=1`。
+  - 固件端计算得到 residence `960 ns`、raw path-sum `120 ns`、reference delay estimate
+    `60 ns`；`active_eligible=0`，未写入 VDC/DPLL active fact。上述数值仅是该 build、
+    当前短线与收发器的诊断快照，不是 endpoint bias 或产品精度事实源。
+  - 连续 10 个独立 epoch 全部满足四边沿、PIO/DMA、SYNC、公式和 reference-only 门禁，
+    epoch 从 `3` 递增到 `12`，SCPI 错误队列为空；firmware-reported residence 范围为
+    `960..980 ns`、raw path-sum 为 `100..120 ns`、delay estimate 为 `50..60 ns`。
+  - 加入 core0 低频传感器 diagnostics 后，OTA build `20260820174134` 再完成 10 个独立
+    epoch；四边沿、PIO/DMA、SYNC、公式和 reference-only 门禁仍为 10/10 通过，
+    residence、raw path-sum 和 delay estimate 保持在前述诊断快照范围，证明 ADC service
+    未进入 core1 实时边沿路径。证据仍为 `REFERENCE_LOOPBACK + DIAGNOSTIC_ONLY`。
+  - 同一 build 上 `SYSTem:DIAGnostic:SENSors?` 连续读取确认板载温度与 RP2350 ADC8
+    内部温度有效且无热告警；电流前端输出近低轨并伴随 U24 明显发热，已判为硬件前端
+    故障并断电。电流值不得用于本任务的算法或 active calibration 结论。
+  - 10 轮结束并 STOP 后重新进入 resident TDMA persona，5 秒只读窗口 TX/RX 各增长
+    `1203` 帧，adapter/phys bad、magic fail、ring overrun 均无增长，证明 PIO2 SM/DMA
+    维护 persona 能退出并恢复 TDMA owner 运行态。
+- 验证命令与证据：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/tests/run_calibration_bidirectional_tests.ps1`
+    通过，输出 `calibration_bidirectional tests passed`。
+  - `cmake --build build-rtos-multicore-smoke -j 4` 通过，生成新的 A/B 固件和 update package。
+  - `python tools/tdma_ring_monitor/tdma_single_board_loopback.py COM8 --duration-s 15
+    --poll-interval-s 0.5 --out-dir build-rtos-multicore-smoke/tdma_single_loopback_current`
+    完成物理回环预检；原始摘要见该目录 `summary.json`。
+  - `python tools/calibration_loopback_validate/calibration_loopback_validate.py COM8
+    --out-dir build-rtos-multicore-smoke/calibration_loopback_com8_final` 通过；raw SCPI 和
+    snapshot 见该目录 `summary.json`。
+  - `python tools/calibration_loopback_validate/calibration_loopback_validate.py COM8 --runs 10
+    --out-dir build-rtos-multicore-smoke/calibration_loopback_com8_repeat10` 通过 10/10 轮；
+    每轮 snapshot、epoch 和诊断范围见该目录 `summary.json`。
+  - 传感器集成后的同 build 复验目录为
+    `build-rtos-multicore-smoke/calibration_loopback_com8_sensors_adc8/summary.json`，通过
+    10/10；随后因 U24 硬件过热主动断电，未把 TDMA persona 恢复工具的端口打开失败计为通过。
+  - 校准 STOP 后重新 ARM/START resident TDMA，再执行
+    `tdma_single_board_loopback.py --skip-ring-setup` 通过；persona 恢复证据见
+    `build-rtos-multicore-smoke/tdma_restore_after_calibration/summary.json`。
+- 还需完成：
+  - 将当前 10 轮短窗口扩展为长时间重复性/温漂统计，再补 bias generation/reference
+    profile；本次不清除 diagnostic-only。
+  - 先完成 bias/reference loopback，再执行双板 P3 HIL；当前结果不能清除 diagnostic-only。
+- 关联文件：
+  - `components/calibration_manager/inc/calibration_bidirectional.h`
+  - `components/calibration_manager/src/calibration_bidirectional.c`
+  - `tests/unit/test_calibration_bidirectional.c`
+  - `tools/tests/run_calibration_bidirectional_tests.ps1`
+  - `tools/tdma_ring_monitor/tdma_single_board_loopback.py`
+  - `tools/calibration_loopback_validate/calibration_loopback_validate.py`
+  - `build-rtos-multicore-smoke/tdma_single_loopback_current/summary.json`
+  - `build-rtos-multicore-smoke/calibration_loopback_com8_final/summary.json`
+  - `build-rtos-multicore-smoke/calibration_loopback_com8_repeat10/summary.json`
+  - `build-rtos-multicore-smoke/calibration_loopback_com8_sensors_adc8/summary.json`
+  - `build-rtos-multicore-smoke/tdma_restore_after_calibration/summary.json`
 
 ## CAL-TASK-20260820-002 - 校准域待办与任务记录建立
 

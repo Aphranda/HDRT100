@@ -130,6 +130,45 @@
 #define BOARD_RS485_UART_RX_PIN 5u
 #define BOARD_UART_DE_PIN 13u
 
+/* Product-board low-rate diagnostic ADC channels.  GPIO45..47 remain
+ * deliberately absent: the current schematic leaves them without a valid
+ * analogue front end and they must not be sampled periodically. */
+#define BOARD_TEMP1_ADC_PIN 43u
+#define BOARD_TEMP1_ADC_CHANNEL 3u
+#define BOARD_CUR1_ADC_PIN 44u
+#define BOARD_CUR1_ADC_CHANNEL 4u
+/* The product uses the RP2350B/QFN-80 ADC mux: internal temperature is ADC8.
+ * Keep this board fact explicit because the SDK's pico2 board default models
+ * RP2350A and would otherwise alias its temperature channel to ADC4. */
+#define BOARD_RP2350_TEMP_ADC_CHANNEL 8u
+#define BOARD_ADC_REFERENCE_UV 3300000u
+#define BOARD_ADC_SAMPLE_AVERAGE_COUNT 16u
+#define BOARD_DIAGNOSTIC_SENSOR_PERIOD_MS 500u
+
+/* TMP235A2 nominal transfer function: VOUT = offset + slope * temperature. */
+#define BOARD_TMP235_OFFSET_UV 500000
+#define BOARD_TMP235_SLOPE_UV_PER_C 10000
+#define BOARD_TEMP_WARN_MDEG_C 70000
+#define BOARD_TEMP_CRITICAL_MDEG_C 85000
+#define BOARD_RP2350_TEMP_WARN_MDEG_C 80000
+#define BOARD_RP2350_TEMP_CRITICAL_MDEG_C 95000
+
+/* AMC1301 single-output current estimate.  The schematic populates a nominal
+ * 20 milliohm shunt and exposes VOUTP only.  Common-mode/offset tolerance is
+ * board dependent, so this estimate stays explicitly uncalibrated until a
+ * per-board zero/gain generation is stored. */
+#define BOARD_AMC1301_NOMINAL_ZERO_UV 1440000
+/* Only VOUTP is routed.  AMC1301's nominal differential gain is 8.2 V/V;
+ * one output moves by half of that around the output common-mode voltage. */
+#define BOARD_AMC1301_NOMINAL_GAIN_MILLI 4100
+#define BOARD_CURRENT_SHUNT_UOHM 20000
+#define BOARD_CURRENT_ESTIMATE_CALIBRATED 0
+/* Diagnostic rail guard only, not an over-current protection threshold.  An
+ * output this close to either ADC rail cannot represent a trustworthy
+ * AMC1301 transfer and suppresses the derived current estimate. */
+#define BOARD_AMC1301_OUTPUT_PLAUSIBLE_MIN_UV 300000u
+#define BOARD_AMC1301_OUTPUT_PLAUSIBLE_MAX_UV 2600000u
+
 /* The legacy GPIO4..7 simulation overlay conflicts with UART1 and product
  * KEY2/KEY3. Keep its API present but reject activation on this board. */
 #define BOARD_DEBUG_MODEL_GPIO_ENABLED 0

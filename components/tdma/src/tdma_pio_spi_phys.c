@@ -42,6 +42,11 @@ static uint s_tdma_pio_spi_rx_offset;
 static uint s_tdma_pio_spi_clk_forward_offset;
 static uint s_tdma_pio_spi_clk_burst_offset;
 static uint s_tdma_pio_spi_clk_capture_offset;
+static uint s_tdma_pio_spi_cal_tx_offset;
+static uint s_tdma_pio_spi_cal_capture_offset;
+static uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
+    __attribute__((aligned(4)));
+static void tdma_pio_spi_phys_cal_decode(tdma_pio_spi_phys_t *phys);
 static int s_tdma_pio_spi_rx_dma_channel = -1;
 static uint32_t s_tdma_pio_spi_rx_ring[TDMA_PIO_SPI_RX_RING_WORDS]
     __attribute__((aligned(TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t))));
@@ -142,6 +147,16 @@ static bool tdma_pio_spi_phys_ensure_programs(void)
     s_tdma_pio_spi_clk_capture_offset =
         (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
                               &tdma_pio_spi_clk_capture_program);
+    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_cal_loopback_tx_program) ||
+        !pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_cal_loopback_capture_program)) {
+        return false;
+    }
+    s_tdma_pio_spi_cal_tx_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_cal_loopback_tx_program);
+    s_tdma_pio_spi_cal_capture_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_cal_loopback_capture_program);
     pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
     pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
     s_tdma_pio_spi_programs_loaded = true;
@@ -253,6 +268,33 @@ static void tdma_pio_spi_phys_set_line_drivers(bool enabled)
     gpio_put(BOARD_UP_BISS_DE_PIN, enabled);
     gpio_put(BOARD_DN_BISS_DE_PIN, enabled);
     gpio_put(BOARD_TRIG_DE_PIN, enabled);
+}
+
+static void tdma_pio_spi_phys_cal_cleanup(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) {
+        return;
+    }
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM, false);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, false);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
+    tdma_pio_spi_phys_set_line_drivers(false);
+    const uint32_t pins[] = {
+        BOARD_TDMA_SPI_UPLINK_RX_PIN,
+        BOARD_TDMA_SPI_DOWNLINK_SCK_PIN,
+        BOARD_TDMA_SPI_DOWNLINK_CSN_PIN,
+        BOARD_TDMA_SPI_UPLINK_CSN_PIN,
+        BOARD_TDMA_SPI_UPLINK_SCK_PIN,
+        BOARD_TDMA_SPI_DOWNLINK_TX_PIN,
+    };
+    for (uint32_t i = 0u; i < sizeof(pins) / sizeof(pins[0]); i++) {
+        gpio_set_function(pins[i], GPIO_FUNC_SIO);
+        gpio_set_dir(pins[i], GPIO_IN);
+    }
+    phys->armed = false;
+    phys->rx_capture_active = false;
+    tdma_pio_spi_phys_fill_static_snapshot(phys);
 }
 
 static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
@@ -697,6 +739,222 @@ void tdma_pio_spi_phys_train_clock_service(void *context, uint64_t now_ns)
         pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, false);
     }
     tdma_pio_spi_phys_clk_train_write_end(phys);
+}
+
+static void tdma_pio_spi_phys_cal_write_begin(tdma_pio_spi_phys_t *phys)
+{
+    (void)__atomic_add_fetch(&phys->cal_loopback_guard, 1u, __ATOMIC_RELEASE);
+}
+
+static void tdma_pio_spi_phys_cal_write_end(tdma_pio_spi_phys_t *phys)
+{
+    (void)__atomic_add_fetch(&phys->cal_loopback_guard, 1u, __ATOMIC_RELEASE);
+}
+
+static void tdma_pio_spi_phys_cal_reject(tdma_pio_spi_phys_t *phys,
+                                         uint32_t epoch,
+                                         uint32_t reason)
+{
+    tdma_pio_spi_phys_cal_write_begin(phys);
+    memset(&phys->cal_loopback, 0, sizeof(phys->cal_loopback));
+    phys->cal_loopback.complete = 1u;
+    phys->cal_loopback.reject_reason = reason;
+    phys->cal_loopback.epoch = epoch;
+    tdma_pio_spi_phys_cal_write_end(phys);
+}
+
+bool tdma_pio_spi_phys_cal_loopback_start(tdma_pio_spi_phys_t *phys,
+                                          uint32_t sample_hz,
+                                          uint32_t sample_words,
+                                          uint32_t epoch)
+{
+    if (phys == NULL || sample_words == 0u ||
+        sample_words > TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS ||
+        phys->cal_loopback_start_pending ||
+        phys->cal_loopback.armed != 0u) {
+        return false;
+    }
+    if (!tdma_pio_spi_phys_ensure_programs()) {
+        tdma_pio_spi_phys_cal_reject(phys, epoch, 1u);
+        return false;
+    }
+    phys->cal_loopback_sample_hz = sample_hz == 0u
+        ? TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ : sample_hz;
+    phys->cal_loopback_sample_words = sample_words;
+    phys->cal_loopback_epoch = epoch;
+    if (!phys->armed) {
+        phys->role = TDMA_PIO_SPI_ROLE_MASTER;
+        phys->baud_hz = BOARD_TDMA_SPI_BAUD_HZ;
+        phys->tx_sm = BOARD_TDMA_SPI_MASTER_SM;
+        phys->rx_sm = BOARD_TDMA_SPI_SLAVE_SM;
+        phys->tx_sck_pin = BOARD_TDMA_SPI_DOWNLINK_SCK_PIN;
+        phys->tx_csn_pin = BOARD_TDMA_SPI_DOWNLINK_CSN_PIN;
+        phys->tx_pin = BOARD_TDMA_SPI_DOWNLINK_TX_PIN;
+        phys->rx_sck_pin = BOARD_TDMA_SPI_UPLINK_SCK_PIN;
+        phys->rx_csn_pin = BOARD_TDMA_SPI_UPLINK_CSN_PIN;
+        phys->rx_pin = BOARD_TDMA_SPI_UPLINK_RX_PIN;
+        phys->armed = true;
+        tdma_pio_spi_phys_set_line_drivers(true);
+    }
+    phys->cal_loopback_start_pending = true;
+    phys->cal_loopback_stop_pending = false;
+    return true;
+}
+
+void tdma_pio_spi_phys_cal_loopback_stop(tdma_pio_spi_phys_t *phys)
+{
+    if (phys != NULL) {
+        phys->cal_loopback_stop_pending = true;
+    }
+}
+
+void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return;
+    if (!phys->armed && !phys->cal_loopback_start_pending) {
+        phys->cal_loopback_start_pending = false;
+        phys->cal_loopback_stop_pending = false;
+        return;
+    }
+    if (phys->cal_loopback.armed != 0u &&
+        s_tdma_pio_spi_rx_dma_channel >= 0 &&
+        dma_hw->ch[(uint)s_tdma_pio_spi_rx_dma_channel].transfer_count == 0u) {
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->cal_loopback_tx_sm, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->cal_loopback_capture_sm, false);
+        tdma_pio_spi_phys_cal_write_begin(phys);
+        phys->cal_loopback.produced_words = phys->cal_loopback.requested_words;
+        phys->cal_loopback.armed = 0u;
+        phys->cal_loopback.complete = 1u;
+        tdma_pio_spi_phys_cal_decode(phys);
+        tdma_pio_spi_phys_cal_write_end(phys);
+        tdma_pio_spi_phys_cal_cleanup(phys);
+    }
+    if (phys->cal_loopback_stop_pending) {
+        if (s_tdma_pio_spi_rx_dma_channel >= 0) {
+            dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+        }
+        if (phys->cal_loopback.armed != 0u) {
+            pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->cal_loopback_tx_sm, false);
+            pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->cal_loopback_capture_sm, false);
+        }
+        tdma_pio_spi_phys_cal_write_begin(phys);
+        phys->cal_loopback.armed = 0u;
+        phys->cal_loopback_stop_pending = false;
+        tdma_pio_spi_phys_cal_cleanup(phys);
+        tdma_pio_spi_phys_cal_write_end(phys);
+    }
+    if (!phys->cal_loopback_start_pending || phys->cal_loopback.armed != 0u) return;
+    const uint tx_sm = BOARD_TDMA_SPI_MASTER_SM;
+    const uint capture_sm = BOARD_TDMA_SPI_SLAVE_SM;
+    if (!tdma_pio_spi_phys_ensure_rx_dma()) {
+        phys->cal_loopback_start_pending = false;
+        tdma_pio_spi_phys_cal_reject(phys, phys->cal_loopback_epoch, 1u);
+        tdma_pio_spi_phys_cal_cleanup(phys);
+        return;
+    }
+    tdma_pio_spi_cal_loopback_tx_program_init(
+        BOARD_TDMA_SPI_PIO, tx_sm, s_tdma_pio_spi_cal_tx_offset);
+    tdma_pio_spi_cal_loopback_capture_program_init(
+        BOARD_TDMA_SPI_PIO, capture_sm, s_tdma_pio_spi_cal_capture_offset,
+        phys->cal_loopback_sample_hz);
+    memset(s_tdma_pio_spi_cal_ring, 0, sizeof(s_tdma_pio_spi_cal_ring));
+    dma_channel_config dc = dma_channel_get_default_config(
+        (uint)s_tdma_pio_spi_rx_dma_channel);
+    channel_config_set_transfer_data_size(&dc, DMA_SIZE_32);
+    channel_config_set_read_increment(&dc, false);
+    channel_config_set_write_increment(&dc, true);
+    channel_config_set_dreq(&dc, pio_get_dreq(BOARD_TDMA_SPI_PIO, capture_sm, false));
+    dma_channel_configure((uint)s_tdma_pio_spi_rx_dma_channel, &dc,
+                          s_tdma_pio_spi_cal_ring,
+                          &BOARD_TDMA_SPI_PIO->rxf[capture_sm],
+                          phys->cal_loopback_sample_words, false);
+    tdma_pio_spi_phys_cal_write_begin(phys);
+    memset(&phys->cal_loopback, 0, sizeof(phys->cal_loopback));
+    phys->cal_loopback.armed = 1u;
+    phys->cal_loopback.sample_hz = phys->cal_loopback_sample_hz;
+    phys->cal_loopback.sample_period_ns =
+        1000000000u / phys->cal_loopback_sample_hz;
+    phys->cal_loopback.requested_words = phys->cal_loopback_sample_words;
+    phys->cal_loopback.flags = TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_PIO_DMA |
+                               TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_DIAGNOSTIC_ONLY;
+    phys->cal_loopback.epoch = phys->cal_loopback_epoch;
+    phys->cal_loopback_tx_sm = tx_sm;
+    phys->cal_loopback_capture_sm = capture_sm;
+    phys->cal_loopback_start_pending = false;
+    tdma_pio_spi_phys_cal_write_end(phys);
+    dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_rx_dma_channel);
+    pio_enable_sm_mask_in_sync(BOARD_TDMA_SPI_PIO,
+                               (1u << tx_sm) | (1u << capture_sm));
+}
+
+static uint32_t tdma_pio_spi_cal_sample_byte(uint32_t word, uint32_t index)
+{
+    return (word >> (index * 8u)) & 0xFFu;
+}
+
+static void tdma_pio_spi_phys_cal_decode(tdma_pio_spi_phys_t *phys)
+{
+    uint32_t previous = 0u;
+    bool have_previous = false;
+    uint32_t found = 0u;
+    uint64_t times[4] = {0u, 0u, 0u, 0u};
+    uint32_t sync_edges = 0u;
+    const uint32_t period = phys->cal_loopback.sample_period_ns;
+    for (uint32_t w = 0u;
+         w < phys->cal_loopback.requested_words && found != 0x0Fu; w++) {
+        for (uint32_t i = 0u; i < 4u && found != 0x0Fu; i++) {
+            const uint32_t sample = tdma_pio_spi_cal_sample_byte(
+                s_tdma_pio_spi_cal_ring[w], i);
+            if (!have_previous) {
+                previous = sample;
+                have_previous = true;
+                continue;
+            }
+            const uint32_t rising = sample & ~previous;
+            const uint64_t t = ((uint64_t)w * 4ull + i) * period;
+            if ((rising & (1u << 2u)) != 0u) sync_edges |= 1u;
+            if ((rising & (1u << 3u)) != 0u) sync_edges |= 2u;
+            if ((rising & (1u << 1u)) != 0u && (found & 1u) == 0u) {
+                times[0] = t; found |= 1u;
+            }
+            if ((rising & (1u << 4u)) != 0u && (found & 2u) == 0u) {
+                times[1] = t; found |= 2u;
+            }
+            if ((rising & (1u << 5u)) != 0u && (found & 4u) == 0u) {
+                times[2] = t; found |= 4u;
+            }
+            if ((rising & (1u << 0u)) != 0u && (found & 8u) == 0u) {
+                times[3] = t; found |= 8u;
+            }
+            previous = sample;
+        }
+    }
+    phys->cal_loopback.edge_mask = found;
+    phys->cal_loopback.t1_clk_tx = times[0];
+    phys->cal_loopback.t2_clk_rx = times[1];
+    phys->cal_loopback.t3_data_tx = times[2];
+    phys->cal_loopback.t4_data_rx = times[3];
+    if (sync_edges == 3u) {
+        phys->cal_loopback.flags |=
+            TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_SYNC_MATCH;
+    }
+}
+
+bool tdma_pio_spi_phys_get_cal_loopback_snapshot(
+    const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_cal_loopback_snapshot_t *snapshot)
+{
+    if (phys == NULL || snapshot == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(&phys->cal_loopback_guard,
+                                               __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        *snapshot = phys->cal_loopback;
+        const uint32_t end = __atomic_load_n(&phys->cal_loopback_guard,
+                                             __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) return true;
+    }
+    return false;
 }
 
 bool tdma_pio_spi_phys_get_clk_train_snapshot(

@@ -51,6 +51,11 @@
 #define TDMA_PIO_SPI_TRAIN_CLOCK_MAX_CYCLES 65536u
 #define TDMA_PIO_SPI_TRAIN_RETURN_TIMEOUT_NS 100000000ull
 #define TDMA_PIO_SPI_CLK_TRAIN_SNAPSHOT_VERSION 1u
+#define TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS 256u
+#define TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ 50000000u
+#define TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_PIO_DMA (1u << 0u)
+#define TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_DIAGNOSTIC_ONLY (1u << 1u)
+#define TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_SYNC_MATCH (1u << 2u)
 #define TDMA_PIO_SPI_FRAME_WORDS \
     (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_FRAME_HEADER_SIZE)
 
@@ -105,6 +110,23 @@ typedef struct {
     uint64_t return_observed_timestamp_ns;
     uint64_t burst_duration_ns;
 } tdma_pio_spi_clk_train_snapshot_t;
+
+typedef struct {
+    uint32_t armed;
+    uint32_t complete;
+    uint32_t sample_hz;
+    uint32_t sample_period_ns;
+    uint32_t requested_words;
+    uint32_t produced_words;
+    uint32_t edge_mask;
+    uint32_t flags;
+    uint32_t reject_reason;
+    uint32_t epoch;
+    uint64_t t1_clk_tx;
+    uint64_t t2_clk_rx;
+    uint64_t t3_data_tx;
+    uint64_t t4_data_rx;
+} tdma_pio_spi_cal_loopback_snapshot_t;
 
 typedef struct {
     uint32_t armed;
@@ -188,6 +210,15 @@ typedef struct {
     volatile uint32_t clk_train_guard;
     tdma_pio_spi_clk_train_snapshot_t clk_train;
     uint64_t clk_train_return_deadline_ns;
+    volatile uint32_t cal_loopback_guard;
+    tdma_pio_spi_cal_loopback_snapshot_t cal_loopback;
+    volatile bool cal_loopback_start_pending;
+    volatile bool cal_loopback_stop_pending;
+    uint32_t cal_loopback_sample_hz;
+    uint32_t cal_loopback_sample_words;
+    uint32_t cal_loopback_epoch;
+    uint32_t cal_loopback_tx_sm;
+    uint32_t cal_loopback_capture_sm;
 } tdma_pio_spi_phys_t;
 
 /* Called by the ring adapter start() once the active ring config is known.
@@ -203,6 +234,15 @@ void tdma_pio_spi_phys_train_clock_service(void *context, uint64_t now_ns);
 bool tdma_pio_spi_phys_get_clk_train_snapshot(
     const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_clk_train_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_cal_loopback_start(tdma_pio_spi_phys_t *phys,
+                                          uint32_t sample_hz,
+                                          uint32_t sample_words,
+                                          uint32_t epoch);
+void tdma_pio_spi_phys_cal_loopback_stop(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_get_cal_loopback_snapshot(
+    const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_cal_loopback_snapshot_t *snapshot);
 bool tdma_pio_spi_phys_get_snapshot(const tdma_pio_spi_phys_t *phys,
                                     tdma_pio_spi_phys_snapshot_t *snapshot);
 

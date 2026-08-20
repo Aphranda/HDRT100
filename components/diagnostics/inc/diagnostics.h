@@ -5,6 +5,17 @@
 #include <stdint.h>
 
 #define DIAGNOSTICS_WATCHDOG_EVIDENCE_MAGIC 0x57445445u
+#define DIAGNOSTICS_SENSOR_SNAPSHOT_VERSION 2u
+#define DIAGNOSTICS_SENSOR_VALID_BOARD_TEMP (1u << 0u)
+#define DIAGNOSTICS_SENSOR_VALID_CHIP_TEMP (1u << 1u)
+#define DIAGNOSTICS_SENSOR_VALID_CURRENT_OUTPUT (1u << 2u)
+#define DIAGNOSTICS_SENSOR_FLAG_BOARD_TEMP_WARN (1u << 0u)
+#define DIAGNOSTICS_SENSOR_FLAG_BOARD_TEMP_CRITICAL (1u << 1u)
+#define DIAGNOSTICS_SENSOR_FLAG_CHIP_TEMP_WARN (1u << 2u)
+#define DIAGNOSTICS_SENSOR_FLAG_CHIP_TEMP_CRITICAL (1u << 3u)
+#define DIAGNOSTICS_SENSOR_FLAG_CURRENT_NOMINAL_ONLY (1u << 4u)
+#define DIAGNOSTICS_SENSOR_FLAG_CURRENT_CALIBRATED (1u << 5u)
+#define DIAGNOSTICS_SENSOR_FLAG_CURRENT_FRONTEND_FAULT (1u << 6u)
 
 typedef enum {
     DIAG_LEVEL_DEBUG = 0,
@@ -36,6 +47,31 @@ typedef struct {
     uint32_t core1_last_ms;
     bool core1_enabled;
 } diagnostics_core_status_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t valid_mask;
+    uint32_t flags;
+    uint32_t sample_count;
+    uint32_t sample_time_ms;
+    uint32_t adc_reference_uv;
+    uint32_t board_temp_raw;
+    uint32_t board_temp_uv;
+    int32_t board_temp_mdeg_c;
+    uint32_t chip_temp_raw;
+    uint32_t chip_temp_uv;
+    int32_t chip_temp_mdeg_c;
+    uint32_t current_output_raw;
+    uint32_t current_output_uv;
+    int32_t current_nominal_ma;
+    bool current_frontend_healthy;
+    bool current_calibrated;
+    int32_t current_zero_uv;
+    uint32_t current_gain_milli;
+    uint32_t current_shunt_uohm;
+    uint32_t current_output_plausible_min_uv;
+    uint32_t current_output_plausible_max_uv;
+} diagnostics_sensor_status_t;
 
 typedef enum {
     DIAGNOSTICS_WATCHDOG_TASK_SYSTEM = 0,
@@ -83,6 +119,7 @@ void diagnostics_get_status(diagnostics_status_t *status);
 void diagnostics_record_core0_loop(void);
 void diagnostics_record_core1_loop(void);
 void diagnostics_get_core_status(diagnostics_core_status_t *status);
+void diagnostics_get_sensor_status(diagnostics_sensor_status_t *status);
 void diagnostics_watchdog_configure(uint32_t expected_mask);
 void diagnostics_watchdog_enable(uint32_t timeout_ms);
 void diagnostics_watchdog_task_heartbeat(diagnostics_watchdog_task_t task);

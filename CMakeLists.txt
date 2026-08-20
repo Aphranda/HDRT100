@@ -192,6 +192,8 @@ set(PROJECT_APP_SOURCES
         third_party/portable_log/src/portable_log.c
         middleware/portable_log_port/src/portable_log_port.c
         components/calibration_manager/src/calibration_manager.c
+        components/calibration_manager/src/calibration_bidirectional.c
+        components/calibration_manager/src/calibration_pio_loopback.c
         components/board_identity/src/board_identity.c
         components/diagnostics/src/diagnostics.c
         components/distributed_config/src/distributed_config.c
@@ -424,6 +426,7 @@ function(project_configure_app_target target_name app_name linker_script)
         hardware_i2c
         hardware_uart
         hardware_watchdog
+        hardware_adc
         hardware_pio
         hardware_dma
         hardware_pwm

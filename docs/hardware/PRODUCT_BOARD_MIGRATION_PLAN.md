@@ -2,7 +2,7 @@
 
 Status: Active
 Domain: Hardware / Board Bring-up
-Last updated: 2026-08-19
+Last updated: 2026-08-21
 Related: `docs/storage/SD_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
 Canonical: `docs/hardware/PRODUCT_BOARD_MIGRATION_PLAN.md`
 Target: RP2350B QFN-80 产品样板
@@ -70,8 +70,8 @@ Source of truth: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
 | 40 | DN_BISS_/RE | M/B | P：默认接收使能和关闭接收实测。 |
 | 41 | TRIG_/RE | M/B | P：默认接收使能和关闭接收实测。 |
 | 42 | UP_BISS_/RE | M/B | P：默认接收使能和关闭接收实测。 |
-| 43 | ADC3 / BOARD_TEMP1 | P | 增加 ADC 采样、标定、范围检查和 SCPI/Vector 摘要。 |
-| 44 | ADC4 / BOARD_CUR1 | P | 增加 ADC 采样、零点/增益标定和过范围诊断。 |
+| 43 | ADC3 / BOARD_TEMP1 | M/B/V | core0 diagnostics 低频采样和 SCPI snapshot 已板测；换算仍按名义传递函数。 |
+| 44 | ADC4 / BOARD_CUR1 | M/B | 已接入 raw/µV、前端 plausibility 和 SCPI；U24 高侧共模接法存在硬件阻塞，禁止电流标定和继续带电验证。 |
 | 45 | NC / ADC5 | P | 显式初始化为未用输入，禁止周期 ADC 采样。 |
 | 46 | NC / ADC6 | P | 显式初始化为未用输入，禁止周期 ADC 采样。 |
 | 47 | NC / ADC7 | P | 显式初始化为未用输入，禁止周期 ADC 采样。 |
@@ -85,6 +85,22 @@ Source of truth: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
   健康位均正常；连续查询捕获到绿灯每秒短亮且红黄保持灭。ARM/事件/故障模式仍待板测。
 - W25Q128JVSIQ 已按 16 MiB 编译并 OTA 运行；高 12 MiB 暂不纳入本轮迁移。
 - LCD SPI0 与 TF SPI1 已拆分，StorageAO 不再把 SD 与 LCD SPI0 互斥。
+- COM8 在 build `20260820174134` 上完成传感器 snapshot 板测：`BOARD_TEMP1` 与 RP2350
+  内部温度读数稳定，ADC8 修正后热告警清除；该次运行中的 `BOARD_CUR1` 只有约
+  0.16 V，且 U24 明显发热，因此电流结果无效。上述值是故障定位快照，不是硬件规格。
+
+### BOARD_CUR1 硬件阻塞
+
+`Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel` 显示 U24 输入侧 `VDD1/GND1` 分别接
+`VCC5V/FGND`，而 `VINP/VINN` 经 R18/R27 接在 `VCC12V/C_OUT` 高侧分流器两端。
+因此输入脚相对输入侧地承受约 12 V 共模；隔离栅不能消除同一输入侧内部的共模越限。
+首件已出现 U24 明显发热和输出近低轨，必须保持断电，不能以“仍能运行”作为验收依据。
+
+返修必须先改变电气拓扑：将分流器移到低侧，或为 U24 输入侧提供以高侧分流器为参考的
+浮地电源；完成设计复核、替换疑似受损 U24、限流上电和示波器/万用表验收前，
+`BOARD_CUR1` 只能发布 raw diagnostic fault，禁止生成 calibrated current 或参与保护闭环。
+固件门禁符号见 `DIAGNOSTICS_SENSOR_FLAG_CURRENT_FRONTEND_FAULT` 和
+`BOARD_AMC1301_OUTPUT_PLAUSIBLE_MIN_UV/MAX_UV`。
 
 ## 3. 分阶段实施顺序
 

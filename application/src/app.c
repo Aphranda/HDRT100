@@ -209,6 +209,7 @@ void app_realtime_run_once(void)
     sync_dpll_fb_service();
     drv_watchdog_mark_progress(1u, 0x0103u);
     tdma_component_core1_service();
+    calibration_manager_service_core1();
     drv_watchdog_mark_progress(1u, 0x0104u);
     sync_io_capture_latch_service_core1();
     drv_watchdog_mark_progress(1u, 0x0105u);

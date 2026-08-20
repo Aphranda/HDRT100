@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md)
 拆成可执行的校准域任务。校准域拥有物理测量、residence、endpoint bias、path-delay、
@@ -109,6 +109,22 @@ path_sum_AB = (t4 - t1) - residence_B
   residual；为后续八节点扩展冻结 profile acceptance threshold。
 - `[ ]` P3-6：仅当四时间戳均 hardware-latched、bias generation、重复统计、拓扑 freshness
   和恢复门禁通过时，生成 active per-link delay 并交给 VDC/DPLL。
+
+### P3 单板回环预研
+
+- `[x]` 复用产品板 TX/RX 三线回环，确认单板维护态可以稳定进入 `STOP -> LOCAL -> ARM ->
+  TRAIN -> START`，并持续产生 TX/RX 物理层数据。
+- `[x]` 新增 `calibration_bidirectional` 纯 C 计算/门禁模块和 Vivado/GCC host 单测，验证
+  同板参考样本的 residence、raw path-sum、endpoint bias 扣除、delay estimate、坏顺序和
+  缺证据拒绝。
+- `[x]` 将单板回环结果接入 TDMA owner 持有的 `BOARD_TDMA_SPI_PIO`、既有 TX/RX SM 和
+  `TDMA_PIO_SPI_RX_DMA_CHANNEL` edge-latch evidence；
+  四边沿由 core1 收割，保留 `DIAGNOSTIC_ONLY`。
+- `[x]` 增加维护态 `CALibration:LOOPback:*` SCPI 触发/只读 snapshot，发布
+  reference-only loopback result、reject reason、latch resolution/flags；host 不传入实时边沿时间戳。
+- `[x]` 完成 COM8 连续 10 epoch 的四边沿/SYNC/公式验证，并在维护 persona STOP 后恢复
+  resident TDMA，确认 TX/RX 与物理错误计数门禁通过；结果仍为 diagnostic snapshot。
+- `[ ]` 在同一 PIO persona 下完成 endpoint bias/reference loopback 后，才进入双板 P3 HIL。
 
 ## 六、P4 VDC/DPLL 集成门禁
 

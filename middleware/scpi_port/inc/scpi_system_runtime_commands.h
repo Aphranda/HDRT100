@@ -13,6 +13,7 @@ scpi_result_t scpi_cmd_log_level(scpi_t *context);
 scpi_result_t scpi_cmd_log_level_q(scpi_t *context);
 scpi_result_t scpi_cmd_log_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_core_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_diagnostic_sensors_q(scpi_t *context);
 scpi_result_t scpi_cmd_rtos_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_ui_keys_q(scpi_t *context);
 scpi_result_t scpi_cmd_board_id_q(scpi_t *context);
@@ -36,6 +37,8 @@ scpi_result_t scpi_cmd_watchdog_test(scpi_t *context);
     {.pattern = "SYSTem:LOG:LEVel?", .callback = scpi_cmd_log_level_q}, \
     {.pattern = "SYSTem:LOG:STATus?", .callback = scpi_cmd_log_status_q}, \
     {.pattern = "SYSTem:CORE?", .callback = scpi_cmd_core_status_q}, \
+    {.pattern = "SYSTem:DIAGnostic:SENSors?", .callback = scpi_cmd_diagnostic_sensors_q}, \
+    {.pattern = "READ:DIAGnostic:SENSors?", .callback = scpi_cmd_diagnostic_sensors_q}, \
     {.pattern = "SYSTem:RTOS:STATus?", .callback = scpi_cmd_rtos_status_q}, \
     {.pattern = "SYSTem:UI:KEYs?", .callback = scpi_cmd_ui_keys_q}, \
     {.pattern = "SYSTem:BOARD:ID?", .callback = scpi_cmd_board_id_q}, \

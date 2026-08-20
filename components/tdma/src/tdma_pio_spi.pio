@@ -69,6 +69,28 @@ clk_burst_loop:
     wait 1 irq 3
 .wrap
 
+; Single-board calibration persona. GPIO25..29 map to CLK_TX, SYNC_TX,
+; SYNC_RX, CLK_RX and DATA_TX; only 25/26/29 are configured as outputs.
+; The returned DATA_RX is GPIO24. The waveform is autonomous and bounded.
+.program tdma_pio_spi_cal_loopback_tx
+.wrap_target
+    set pins, 0  [31] ; leading quiet lets capture establish initial state
+    set pins, 2  [31] ; SYNC_TX rising marker
+    set pins, 1  [31] ; CLK_TX rising edge (t1)
+    set pins, 0  [31]
+    set pins, 16 [31] ; DATA_TX rising edge (t3)
+    set pins, 0  [31]
+    irq set 1
+.wrap
+
+; Sample GPIO24..31 as one byte. The capture DMA packs four successive PIO
+; samples into one word. GPIO30/31 remain SIO-owned driver-enable pins; IN
+; observes their pad levels without changing their function or direction.
+.program tdma_pio_spi_cal_loopback_capture
+.wrap_target
+    in pins, 8
+.wrap
+
 ; Full-duplex master: drives SCK + MOSI while sampling MISO on the same
 ; exchange. Each byte is pulled from TX FIFO, shifted out on MOSI, sampled on
 ; MISO and pushed to RX FIFO (one SPI transfer per byte).
@@ -241,6 +263,53 @@ static inline void tdma_pio_spi_clk_capture_program_init(PIO pio,
     pio_sm_config c =
         tdma_pio_spi_clk_capture_program_get_default_config(offset);
     sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void tdma_pio_spi_cal_loopback_tx_program_init(PIO pio,
+                                                              uint sm,
+                                                              uint offset)
+{
+    pio_gpio_init(pio, 25u);
+    pio_gpio_init(pio, 26u);
+    pio_gpio_init(pio, 29u);
+    pio_sm_set_consecutive_pindirs(pio, sm, 25u, 2u, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, 29u, 1u, true);
+    pio_sm_config c =
+        tdma_pio_spi_cal_loopback_tx_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, 25u, 5u);
+    /* The board runs clk_sys at 250 MHz.  A divided 32-cycle SET marker is
+     * about 512 ns, long enough to traverse the ISO1452 + RJ45 loopback while
+     * remaining well inside the bounded DMA capture window. */
+    sm_config_set_clkdiv(&c, 4.0f);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0u);
+}
+
+static inline void tdma_pio_spi_cal_loopback_capture_program_init(
+    PIO pio, uint sm, uint offset, uint32_t sample_hz)
+{
+    const uint32_t effective_hz = sample_hz == 0u ? 50000000u : sample_hz;
+    /* Match the proven resident RX persona: explicitly mux every returned
+     * ISO1452 logic signal into the owning PIO block before sampling it. */
+    pio_gpio_init(pio, 24u);
+    pio_gpio_init(pio, 27u);
+    pio_gpio_init(pio, 28u);
+    gpio_pull_down(24u);
+    gpio_pull_down(27u);
+    gpio_pull_down(28u);
+    /* PIO pin directions are shared by the block.  Do not mark the complete
+     * GPIO24..29 sample window as input here: that would undo the TX SM's
+     * output ownership of GPIO25/26/29. */
+    pio_sm_set_consecutive_pindirs(pio, sm, 24u, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, 27u, 2u, false);
+    pio_sm_config c =
+        tdma_pio_spi_cal_loopback_capture_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, 24u);
+    sm_config_set_in_shift(&c, true, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&c,
+                         (float)clock_get_hz(clk_sys) / (float)effective_hz);
     pio_sm_init(pio, sm, offset, &c);
 }
 

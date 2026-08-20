@@ -136,6 +136,36 @@ scpi_result_t scpi_cmd_core_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_diagnostic_sensors_q(scpi_t *context)
+{
+    diagnostics_sensor_status_t status;
+    diagnostics_get_sensor_status(&status);
+
+    SCPI_ResultUInt32(context, status.version);
+    SCPI_ResultUInt32(context, status.valid_mask);
+    SCPI_ResultUInt32(context, status.flags);
+    SCPI_ResultUInt32(context, status.sample_count);
+    SCPI_ResultUInt32(context, status.sample_time_ms);
+    SCPI_ResultUInt32(context, status.adc_reference_uv);
+    SCPI_ResultUInt32(context, status.board_temp_raw);
+    SCPI_ResultUInt32(context, status.board_temp_uv);
+    SCPI_ResultInt32(context, status.board_temp_mdeg_c);
+    SCPI_ResultUInt32(context, status.chip_temp_raw);
+    SCPI_ResultUInt32(context, status.chip_temp_uv);
+    SCPI_ResultInt32(context, status.chip_temp_mdeg_c);
+    SCPI_ResultUInt32(context, status.current_output_raw);
+    SCPI_ResultUInt32(context, status.current_output_uv);
+    SCPI_ResultInt32(context, status.current_nominal_ma);
+    SCPI_ResultBool(context, status.current_calibrated ? TRUE : FALSE);
+    SCPI_ResultInt32(context, status.current_zero_uv);
+    SCPI_ResultUInt32(context, status.current_gain_milli);
+    SCPI_ResultUInt32(context, status.current_shunt_uohm);
+    SCPI_ResultBool(context, status.current_frontend_healthy ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, status.current_output_plausible_min_uv);
+    SCPI_ResultUInt32(context, status.current_output_plausible_max_uv);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_rtos_status_q(scpi_t *context)
 {
     uint32_t heap_free = 0u;

@@ -3,13 +3,18 @@
 #include <stdarg.h>
 #include <string.h>
 
+#include "board_config.h"
 #include "drv_watchdog.h"
+#include "hardware/adc.h"
 #include "portable_log_port.h"
 #include "pico/stdlib.h"
 #include "project_config.h"
 
 #define DIAGNOSTICS_LOG_SERVICE_BYTES 256u
 #define DIAGNOSTICS_WATCHDOG_SERVICE_PERIOD_MS 100u
+#define DIAGNOSTICS_ADC_FULL_SCALE 4095u
+#define DIAGNOSTICS_RP2350_TEMP_AT_27C_UV 706000
+#define DIAGNOSTICS_RP2350_TEMP_SLOPE_UV_PER_C 1721
 
 static bool s_fault_latched;
 static volatile uint32_t s_core0_loop_count;
@@ -25,6 +30,178 @@ static volatile bool s_watchdog_test_stall;
 static bool s_watchdog_stale_logged;
 static volatile uint32_t s_watchdog_status_sequence;
 static diagnostics_watchdog_status_t s_watchdog_status;
+static volatile uint32_t s_sensor_status_sequence;
+static diagnostics_sensor_status_t s_sensor_status;
+static uint32_t s_sensor_last_ms;
+
+static void diagnostics_sensor_status_write_begin(void)
+{
+    (void)__atomic_add_fetch(&s_sensor_status_sequence, 1u, __ATOMIC_ACQ_REL);
+}
+
+static void diagnostics_sensor_status_write_end(void)
+{
+    (void)__atomic_add_fetch(&s_sensor_status_sequence, 1u, __ATOMIC_RELEASE);
+}
+
+static uint16_t diagnostics_adc_read_average(uint32_t channel)
+{
+    adc_select_input(channel);
+    (void)adc_read(); /* Discard the first conversion after a mux change. */
+    uint32_t sum = 0u;
+    for (uint32_t i = 0u; i < BOARD_ADC_SAMPLE_AVERAGE_COUNT; i++) {
+        sum += adc_read();
+    }
+    return (uint16_t)((sum + BOARD_ADC_SAMPLE_AVERAGE_COUNT / 2u) /
+                      BOARD_ADC_SAMPLE_AVERAGE_COUNT);
+}
+
+static uint32_t diagnostics_adc_raw_to_uv(uint16_t raw)
+{
+    return (uint32_t)(((uint64_t)raw * BOARD_ADC_REFERENCE_UV +
+                       DIAGNOSTICS_ADC_FULL_SCALE / 2u) /
+                      DIAGNOSTICS_ADC_FULL_SCALE);
+}
+
+static int32_t diagnostics_tmp235_mdeg_c(uint32_t output_uv)
+{
+    return (int32_t)(((int64_t)output_uv - BOARD_TMP235_OFFSET_UV) * 1000ll /
+                     BOARD_TMP235_SLOPE_UV_PER_C);
+}
+
+static int32_t diagnostics_rp2350_mdeg_c(uint32_t output_uv)
+{
+    return 27000 -
+           (int32_t)(((int64_t)output_uv -
+                      DIAGNOSTICS_RP2350_TEMP_AT_27C_UV) * 1000ll /
+                     DIAGNOSTICS_RP2350_TEMP_SLOPE_UV_PER_C);
+}
+
+static int32_t diagnostics_current_nominal_ma(uint32_t output_uv)
+{
+    const int64_t delta_uv =
+        (int64_t)output_uv - BOARD_AMC1301_NOMINAL_ZERO_UV;
+    return (int32_t)(delta_uv * 1000000ll /
+                     ((int64_t)BOARD_AMC1301_NOMINAL_GAIN_MILLI *
+                      BOARD_CURRENT_SHUNT_UOHM));
+}
+
+static bool diagnostics_current_frontend_healthy(uint32_t output_uv)
+{
+    return output_uv >= BOARD_AMC1301_OUTPUT_PLAUSIBLE_MIN_UV &&
+           output_uv <= BOARD_AMC1301_OUTPUT_PLAUSIBLE_MAX_UV;
+}
+
+static uint32_t diagnostics_sensor_flags(int32_t board_mdeg_c,
+                                         int32_t chip_mdeg_c,
+                                         bool current_frontend_healthy)
+{
+    uint32_t flags = 0u;
+    if (!current_frontend_healthy) {
+        flags |= DIAGNOSTICS_SENSOR_FLAG_CURRENT_FRONTEND_FAULT;
+    } else if (BOARD_CURRENT_ESTIMATE_CALIBRATED) {
+        flags |= DIAGNOSTICS_SENSOR_FLAG_CURRENT_CALIBRATED;
+    } else {
+        flags |= DIAGNOSTICS_SENSOR_FLAG_CURRENT_NOMINAL_ONLY;
+    }
+    if (board_mdeg_c >= BOARD_TEMP_WARN_MDEG_C) {
+        flags |= DIAGNOSTICS_SENSOR_FLAG_BOARD_TEMP_WARN;
+    }
+    if (board_mdeg_c >= BOARD_TEMP_CRITICAL_MDEG_C) {
+        flags |= DIAGNOSTICS_SENSOR_FLAG_BOARD_TEMP_CRITICAL;
+    }
+    if (chip_mdeg_c >= BOARD_RP2350_TEMP_WARN_MDEG_C) {
+        flags |= DIAGNOSTICS_SENSOR_FLAG_CHIP_TEMP_WARN;
+    }
+    if (chip_mdeg_c >= BOARD_RP2350_TEMP_CRITICAL_MDEG_C) {
+        flags |= DIAGNOSTICS_SENSOR_FLAG_CHIP_TEMP_CRITICAL;
+    }
+    return flags;
+}
+
+static void diagnostics_sensor_sample(uint32_t now_ms)
+{
+    const uint16_t board_raw =
+        diagnostics_adc_read_average(BOARD_TEMP1_ADC_CHANNEL);
+    const uint16_t current_raw =
+        diagnostics_adc_read_average(BOARD_CUR1_ADC_CHANNEL);
+    const uint16_t chip_raw =
+        diagnostics_adc_read_average(BOARD_RP2350_TEMP_ADC_CHANNEL);
+    const uint32_t board_uv = diagnostics_adc_raw_to_uv(board_raw);
+    const uint32_t current_uv = diagnostics_adc_raw_to_uv(current_raw);
+    const uint32_t chip_uv = diagnostics_adc_raw_to_uv(chip_raw);
+    const int32_t board_mdeg_c = diagnostics_tmp235_mdeg_c(board_uv);
+    const int32_t chip_mdeg_c = diagnostics_rp2350_mdeg_c(chip_uv);
+    const bool current_frontend_healthy =
+        diagnostics_current_frontend_healthy(current_uv);
+    const uint32_t old_flags = s_sensor_status.flags;
+    const uint32_t flags = diagnostics_sensor_flags(board_mdeg_c,
+                                                    chip_mdeg_c,
+                                                    current_frontend_healthy);
+
+    diagnostics_sensor_status_write_begin();
+    s_sensor_status.version = DIAGNOSTICS_SENSOR_SNAPSHOT_VERSION;
+    s_sensor_status.valid_mask = DIAGNOSTICS_SENSOR_VALID_BOARD_TEMP |
+                                 DIAGNOSTICS_SENSOR_VALID_CHIP_TEMP;
+    if (current_frontend_healthy) {
+        s_sensor_status.valid_mask |=
+            DIAGNOSTICS_SENSOR_VALID_CURRENT_OUTPUT;
+    }
+    s_sensor_status.flags = flags;
+    s_sensor_status.sample_count++;
+    s_sensor_status.sample_time_ms = now_ms;
+    s_sensor_status.adc_reference_uv = BOARD_ADC_REFERENCE_UV;
+    s_sensor_status.board_temp_raw = board_raw;
+    s_sensor_status.board_temp_uv = board_uv;
+    s_sensor_status.board_temp_mdeg_c = board_mdeg_c;
+    s_sensor_status.chip_temp_raw = chip_raw;
+    s_sensor_status.chip_temp_uv = chip_uv;
+    s_sensor_status.chip_temp_mdeg_c = chip_mdeg_c;
+    s_sensor_status.current_output_raw = current_raw;
+    s_sensor_status.current_output_uv = current_uv;
+    s_sensor_status.current_nominal_ma = current_frontend_healthy
+        ? diagnostics_current_nominal_ma(current_uv)
+        : 0;
+    s_sensor_status.current_frontend_healthy = current_frontend_healthy;
+    s_sensor_status.current_calibrated =
+        current_frontend_healthy && BOARD_CURRENT_ESTIMATE_CALIBRATED != 0;
+    s_sensor_status.current_zero_uv = BOARD_AMC1301_NOMINAL_ZERO_UV;
+    s_sensor_status.current_gain_milli = BOARD_AMC1301_NOMINAL_GAIN_MILLI;
+    s_sensor_status.current_shunt_uohm = BOARD_CURRENT_SHUNT_UOHM;
+    s_sensor_status.current_output_plausible_min_uv =
+        BOARD_AMC1301_OUTPUT_PLAUSIBLE_MIN_UV;
+    s_sensor_status.current_output_plausible_max_uv =
+        BOARD_AMC1301_OUTPUT_PLAUSIBLE_MAX_UV;
+    diagnostics_sensor_status_write_end();
+
+    const uint32_t thermal_mask =
+        DIAGNOSTICS_SENSOR_FLAG_BOARD_TEMP_WARN |
+        DIAGNOSTICS_SENSOR_FLAG_BOARD_TEMP_CRITICAL |
+        DIAGNOSTICS_SENSOR_FLAG_CHIP_TEMP_WARN |
+        DIAGNOSTICS_SENSOR_FLAG_CHIP_TEMP_CRITICAL;
+    if ((flags & thermal_mask) != (old_flags & thermal_mask)) {
+        if ((flags & thermal_mask) != 0u) {
+            LOG_WARN("sensor", "thermal flags=0x%02lx board_mC=%ld chip_mC=%ld",
+                     (unsigned long)(flags & thermal_mask),
+                     (long)board_mdeg_c,
+                     (long)chip_mdeg_c);
+        } else {
+            LOG_INFO("sensor", "thermal warning cleared board_mC=%ld chip_mC=%ld",
+                     (long)board_mdeg_c,
+                     (long)chip_mdeg_c);
+        }
+    }
+    if ((flags & DIAGNOSTICS_SENSOR_FLAG_CURRENT_FRONTEND_FAULT) !=
+        (old_flags & DIAGNOSTICS_SENSOR_FLAG_CURRENT_FRONTEND_FAULT)) {
+        if (!current_frontend_healthy) {
+            LOG_ERROR("sensor", "current front-end implausible output_uV=%lu",
+                      (unsigned long)current_uv);
+        } else {
+            LOG_INFO("sensor", "current front-end plausible output_uV=%lu",
+                     (unsigned long)current_uv);
+        }
+    }
+}
 
 static void diagnostics_watchdog_status_write_begin(void)
 {
@@ -94,8 +271,16 @@ void diagnostics_init(void)
     s_watchdog_test_stall = false;
     s_watchdog_stale_logged = false;
     s_watchdog_status_sequence = 0u;
+    s_sensor_status_sequence = 0u;
+    s_sensor_last_ms = 0u;
     (void)memset(&s_watchdog_status, 0, sizeof(s_watchdog_status));
+    (void)memset(&s_sensor_status, 0, sizeof(s_sensor_status));
     portable_log_port_init();
+    adc_init();
+    adc_gpio_init(BOARD_TEMP1_ADC_PIN);
+    adc_gpio_init(BOARD_CUR1_ADC_PIN);
+    adc_set_temp_sensor_enabled(true);
+    diagnostics_sensor_sample(to_ms_since_boot(get_absolute_time()));
 
     drv_watchdog_reset_snapshot_t reset;
     drv_watchdog_get_reset_snapshot(&reset);
@@ -136,6 +321,12 @@ void diagnostics_housekeeping_service(void)
     const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
 
     diagnostics_service(DIAGNOSTICS_LOG_SERVICE_BYTES);
+
+    if ((uint32_t)(now_ms - s_sensor_last_ms) >=
+        BOARD_DIAGNOSTIC_SENSOR_PERIOD_MS) {
+        s_sensor_last_ms = now_ms;
+        diagnostics_sensor_sample(now_ms);
+    }
 
     if ((uint32_t)(now_ms - s_housekeeping_last_ms) >= PROJECT_LOOP_PERIOD_MS) {
         s_housekeeping_last_ms = now_ms;
@@ -217,6 +408,27 @@ void diagnostics_get_core_status(diagnostics_core_status_t *status)
 #else
     status->core1_enabled = false;
 #endif
+}
+
+void diagnostics_get_sensor_status(diagnostics_sensor_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+    for (;;) {
+        const uint32_t before = __atomic_load_n(&s_sensor_status_sequence,
+                                                __ATOMIC_ACQUIRE);
+        if ((before & 1u) != 0u) {
+            continue;
+        }
+        *status = s_sensor_status;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t after = __atomic_load_n(&s_sensor_status_sequence,
+                                               __ATOMIC_RELAXED);
+        if (before == after && (after & 1u) == 0u) {
+            return;
+        }
+    }
 }
 
 void diagnostics_watchdog_configure(uint32_t expected_mask)

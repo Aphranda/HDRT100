@@ -2,6 +2,51 @@
 
 #include "calibration_manager.h"
 
+scpi_result_t scpi_calibration_loopback_start(scpi_t *context)
+{
+    uint32_t words = 128u;
+    (void)SCPI_ParamUInt32(context, &words, FALSE);
+    if (!calibration_manager_start_loopback(words)) {
+        scpi_port_push_exec_error(context, "CAL_LOOPBACK_START_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, words);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_loopback_stop(scpi_t *context)
+{
+    calibration_manager_stop_loopback();
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_loopback_q(scpi_t *context)
+{
+    calibration_manager_loopback_snapshot_t snapshot;
+    if (!calibration_manager_get_loopback_snapshot(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.raw.armed);
+    SCPI_ResultUInt32(context, snapshot.raw.complete);
+    SCPI_ResultUInt32(context, snapshot.raw.sample_hz);
+    SCPI_ResultUInt32(context, snapshot.raw.sample_period_ns);
+    SCPI_ResultUInt32(context, snapshot.raw.produced_words);
+    SCPI_ResultUInt32(context, snapshot.raw.edge_mask);
+    SCPI_ResultUInt32(context, snapshot.raw.flags);
+    SCPI_ResultUInt32(context, snapshot.result.reject_reason);
+    SCPI_ResultUInt32(context, snapshot.raw.epoch);
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.raw.t1_clk_tx);
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.raw.t2_clk_rx);
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.raw.t3_data_tx);
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.raw.t4_data_rx);
+    SCPI_ResultUInt32(context, snapshot.result_valid);
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.result.residence_ns);
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.result.raw_path_sum_ns);
+    SCPI_ResultInt32(context, (int32_t)snapshot.result.delay_estimate_ns);
+    SCPI_ResultBool(context, snapshot.result.active_eligible ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_link_q(scpi_t *context)
 {
     calibration_manager_status_t status;
