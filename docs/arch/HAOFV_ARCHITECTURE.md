@@ -3,9 +3,9 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
+Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Last updated: 2026-08-20
-Version: 2
+Version: 3
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
 
@@ -39,12 +39,14 @@ HAOFV Architecture
 - `Domain Vector Tables`：各功能域独立向量表，例如 OTA、Trigger、Storage、UI。
 - `Distributed Vector Blackboard / RefMem Sync Domain`：分布式系统共同事实内部主域，维护 64 KB 反射内存向量表、静态分布式应用模型、slot owner、命令槽、ACK/NACK、stale、CRC 和 sequence。
 - `Virtual Distributed Clock / VDC Domain`：分布式系统共同时间内部主域，维护 `local_tick -> vdc_time` 映射、SYNC DPLL、HOLDOVER/RELOCK、timestamp dictionary、时间质量和预测分发时间基准。
+- `Calibration Domain`：分布式链路测量和校准事实内部主域，维护 CLK/DATA/SYNC 原始 edge evidence、双向时间传递、residence、endpoint bias、path-delay、active/staging generation 和接受门禁。
 - `TDMA Foundation Domain`：分布式系统确定性通讯骨架内部主域，维护上行/下行 TDMA、window、guard、payload registry、adapter、ring runtime、completion evidence 和质量摘要。
 - `Table-Driven State Machines`：状态转移、命令解析、资源冲突、错误码使用表驱动。
 - `Resource Arbiter`：统一管理 Flash、SPI、PIO、DMA、USB、LCD、SD 等资源互锁。
 - `RTE-like Service Layer`：上层不直接碰硬件，通过驱动和服务层访问外设。
 - `Bootloader/OTA Safety Chain`：App 接收和校验，Bootloader 启动选择、搬运、回滚。
 - `VDC/DPLL Core Infrastructure`：在 HAOFV 下形成共同时间事实、同步锁定、HOLDOVER/RELOCK、预测分发和 T2 质量闭环。
+- `T2 Reservation Architecture`：定义跨域预约、共同时间目标、READY/fence、本地 deadline、实际 T2 latch 和 completion evidence 的装配顺序，不新增运行 owner。
 
 完整分层如下：
 
@@ -58,7 +60,9 @@ IEC 61499-style Function Block Layer
 Time-Synchronized Vector Blackboard Layer
         ↓
 Virtual Distributed Clock / VDC Domain
-        ↓
+         ↓
+Calibration Domain
+         ↓
 Distributed Vector Blackboard / RefMem Sync Domain
         ↓
 TDMA Foundation Domain
@@ -76,9 +80,10 @@ Active Object 管运行，
 IEC 61499 风格功能块管逻辑，
 Vector Blackboard 管本节点事实，
 Distributed RefMem 管多节点共同事实，
+Calibration Domain 管链路测量和校准事实，
 VDC Domain 管多节点共同时间，
 TDMA Foundation 管上/下行确定性通讯骨架，
-PIO/DMA 管硬实时。
+T2 主线管预约装配，PIO/DMA 管硬实时。
 ```
 
 ## 约束逻辑
@@ -115,6 +120,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | Vector Blackboard | 保存事实、摘要、命令槽和版本；字段必须有唯一 writer、值域、生命周期和快照规则。 | `refmem/`、各 Domain Vector |
 | Distributed RefMem | HAOFV 内部基础主域；跨节点动作只能通过反射内存向量表、静态分布式应用模型、命令槽、ACK/NACK、stale、CRC、sequence 和同步帧表达。 | `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`、`docs/arch/RTOS_HAOFV_ARCHITECTURE.md`、`components/distributed_refmem/` |
 | VDC Domain | HAOFV 内部基础主域；形成多节点共同时间事实，维护 local tick 到 VDC 时间映射、SYNC DPLL、HOLDOVER/RELOCK、timestamp dictionary 和时间质量门禁。 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`、`docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`、`components/vdc_domain/` |
+| Calibration Domain | HAOFV 内部基础主域；测量 CLK/DATA/SYNC 链路 delay，维护双向时间传递、residence、endpoint bias、path-delay active/staging、generation/freshness 和校准接受门禁。 | `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`、`components/calibration_manager/` |
 | TDMA Foundation | HAOFV 内部基础主域；形成上行/下行确定性通讯骨架，维护 window、guard、payload registry、adapter、ring runtime、completion evidence 和质量摘要；VDC/RefMem 只能挂载 payload 或消费 evidence。 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`、`components/tdma/` |
 | Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源；Flash/XIP 双核安全是最高优先级硬约束。 | `arch/RTOS_HAOFV_ARCHITECTURE.md` |
 | Hardware Service | 封装 SDK/驱动细节；上层不直接调用板级 API。 | `components/`、`drivers/` |
@@ -153,13 +159,19 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 
 | contract_id | 契约 | 域文档位置 | 顶层相关性 |
 |---|---|---|---|
-| `TDMA-REASON-01` | ring reason code 9 项冻结 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:583-599` | 错误码空间 TDMA 段。 |
-| `TDMA-SEQLOCK-01` | runtime snapshot 必须使用 seqlock | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:575,606` | 跨核共享事实的实现要求。 |
-| `TDMA-HOP-01` | `hop_limit` 归属 ring profile | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:196,477` | 分布式确定性通讯约束。 |
+| `TDMA-REASON-01` | ring reason code 9 项冻结 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:805-819` | 错误码空间 TDMA 段。 |
+| `TDMA-SEQLOCK-01` | runtime snapshot 必须使用 seqlock | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:797` | 跨核共享事实的实现要求。 |
+| `TDMA-HOP-01` | `hop_limit` 归属 ring profile | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:196` | 分布式确定性通讯约束。 |
 | `REFMEM-260B-01` | `critical delta <= 260 B` | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:194` | RefMem 实时短帧容量约束。 |
 | `VDC-DPLL-01` | DPLL 准入要求 `timestamp_resolution_ns <= 100` 且来自硬实时 latch | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:293` | 分布式共同时间证据门禁。 |
-| `TDMA-FLIGHT-BITMAP-01` | SHORT process image 固定 8×32 B，每 slot 前 8 B 由 core1 快速分类生成 RX 位图 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | 8 板统一 wire plan、单写多读和 core0 按位图解析。 |
-| `TDMA-OPMODE-01` | SPI 速率与 TDMA 周期按离散 operating profile 成对切换，STOP 后生效 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | 确定性通讯的运行态配置与多板一致性门禁。 |
+
+登记表中另外两条 TDMA 扩展契约仍为 `pending`，顶层只显示其可见性，不把它们当作已冻结
+硬约束：
+
+| contract_id | 契约 | 域文档位置 | 状态 |
+|---|---|---|---|
+| `TDMA-FLIGHT-BITMAP-01` | SHORT process image 固定 8×32 B，slot 前 8 B 由 core1 生成 RX 位图 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:235,490` | pending |
+| `TDMA-OPMODE-01` | SPI 速率与 TDMA 周期按离散 operating profile 成对切换，STOP 后生效 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:606-610` | pending |
 
 ## 分层职责
 
@@ -179,6 +191,11 @@ Active Object 是功能域的运行容器。它负责：
 ```text
 OtaAO
 TriggerAO
+CalibrationAO
+VdcSyncAO
+TdmaSchedulerAO
+DistributedRefMemAO
+LoopEngineAO
 StorageAO
 UiAO
 DiagnosticsAO
@@ -348,6 +365,36 @@ SCPI / UI / System Pack
 + 完整 IEC 61499 runtime
 ```
 
+### Calibration Domain
+
+Calibration Domain 是链路测量和校准事实的唯一 owner。它不拥有 TDMA transport，也不拥有
+VDC offset/rate/lock；它把 PIO/DMA/IRQ 提供的原始边沿证据转换为带 topology、profile、
+schedule、bias 和 generation 绑定的 active calibration。
+
+底层训练和校准总装配为：
+
+```text
+CLK/DATA/SYNC physical edge
+  -> PIO/DMA/IRQ hardware latch
+  -> TDMA bounded training transport/evidence
+  -> CalibrationAO / CalibrationFB
+  -> CalibrationVector staging -> accepted active generation
+  -> VdcSyncAO / SyncDpllFB consume accepted path-delay evidence
+```
+
+校准域负责：
+
+- EtherCAT DC 风格训练状态、质量统计、freshness 和 accepted/rejected 门禁。
+- CLK/DATA/SYNC 双向同时对比、residence、endpoint bias、path-sum、方向不对称性和
+  per-link/cumulative delay 的发布边界。
+- `t1/t2/t3/t4` 硬件边沿证据与同一 `SYNC` epoch/sequence 的关联；CPU 读取时刻只能是
+  diagnostic evidence。
+- active/staging calibration、CRC、generation 及 topology/profile 变化后的失效和重训。
+
+TDMA 只负责训练 persona、`TRAIN_PREPARE/ACK/commit`、PIO/SM/DMA/core1 资源、RX/window/
+timeout 和 failure propagation。VDC 只消费 accepted calibration，不把 calibration 测量
+写入自己的 offset/rate writer。
+
 ### TDMA Foundation Domain
 
 TDMA Foundation 是 HAOFV 中的确定性通讯基础件。它不是 VDC 的子模块，也不是 RefMem 的私有同步线程，而是承接上行/下行 TDMA runtime、window/guard、payload registry、adapter、ring seq、miss/late/timeout、completion evidence 和质量摘要的内部主域。
@@ -380,6 +427,55 @@ TDMA Foundation
 - TDMA 作为 HAOFV system node 装载时必须声明 PIO/SM、DMA、core1 service、adapter、GPIO、UP/DOWN group、MTU、payload whitelist 和逐类 traffic budget，供 DeploymentGate 做资源互斥与流量准入。
 - TDMA 吸收 TSN-style time-aware gate、guard band、shaping、backpressure 和逐流 policing；VDC/RefMem 使用硬预留流，配置/OTA/LOG 只能使用 maintenance 或剩余预算，不得产生优先级反转。
 - TDMA 的物理速率与周期必须作为同一个离散 operating profile 由 TDMA owner 管理；SCPI 只能 staging，STOP 后 apply，下一次 ARM 才更新 PIO 和调度周期。两板 effective schedule CRC 不一致时必须拒绝帧，禁止运行态单板私自降级。
+
+### T2 预约与分布式时钟分发总装配
+
+T2 不是新的 owner，而是把 Calibration、VDC/DPLL、TDMA、Trigger、RefMem 和 sync_io
+串成一条可验证流水线。跨域主线以
+`docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` 为 canonical，顶层只保留 owner 和
+事实方向：
+
+```text
+local_tick_raw + hardware edge latch
+  -> Calibration accepted path-delay/bias
+  -> VDC DPLL: local_tick_raw <-> vdc_time map
+  -> TriggerReservationFB: T_fire_target_vdc
+  -> TDMA flight distribution: opaque reservation + READY/NACK
+  -> fence with reservation/map/calibration generation
+  -> VDC inverse map: T_fire_deadline_local
+  -> core1 + sync_io/PIO/DMA local deadline execution
+  -> hardware T2_actual_local latch
+  -> VDC forward map: T2_actual_vdc / T2_error
+  -> RefMem + TDMA completion evidence
+```
+
+硬约束：
+
+- `local_tick_raw` 自由运行、单调递增且不被 DPLL 回写；`system_tick` 是 VDC map 的只读
+  派生视图，不是通过固定 offset 永久修正的第二个计数器。
+- 硬件 latch 不依赖 VDC 已经 `LOCKED`；VDC 使用 raw latch 和 accepted calibration
+  形成 DPLL 样本，锁定后再把 raw tick 映射为共同时间。
+- Trigger 只拥有预约业务语义；TDMA 只传输 opaque reservation、READY/fence/completion；
+  RefMem 只保存共同事实；sync_io/PIO/DMA/IRQ 只执行 deadline 和锁存实际边沿。
+- map generation、calibration generation、schedule CRC 或 target mask 在 arm guard 前变化，
+  必须重新 PREPARE；arm guard 后不得通过软件临界路径静默改写已装载 deadline。
+- VDC 未满足正式质量门禁时，新的预约必须 fail closed；HOLDOVER 是否可预约由 profile
+  误差预算决定，不能由 TDMA ring running 状态替代。
+
+### 基础件向上收敛表
+
+顶层只收敛 owner、事实和门禁；算法参数、wire layout、PIO 指令和 profile 容量继续由下列
+canonical 文档维护：
+
+| 基础件 | 向上提供的事实 | 上层唯一消费者/决策者 | 顶层禁止的替代实现 |
+|---|---|---|---|
+| `sync_io` / PIO / DMA / IRQ | `local_tick_raw`、实际边沿 latch、source/resolution/flags、overrun evidence | Calibration、VDC、Trigger/Measure | CPU 读取 timer 或软件完成时刻冒充 edge latch。 |
+| Calibration | accepted path-delay、residence、endpoint bias、quality、CRC、generation/freshness | VDC/DPLL 和 T2 gate | TDMA 直接计算 delay，或 VDC 私自测量并写 calibration。 |
+| VDC / SYNC DPLL | `VdcMapSnapshot`、offset/rate、LOCKED/HOLDOVER/RELOCK、map generation | TriggerReservationFB、T2 completion mapping | Angle DPLL 或 Trigger 修改 VDC offset/rate。 |
+| TDMA Foundation | operating profile、UP/DOWN runtime、payload admission、window/guard、READY/fence/completion quality | 各 domain AO/FB 通过 payload/intent 使用 | 业务域直接控制 PIO/SM/DMA 或把 ring running 当作 VDC lock。 |
+| Distributed RefMem | slot owner、command、ACK/NACK、stale、CRC、sequence、completion fact | 各节点本地 AO/FB 和 Diagnostics | 跨节点裸地址写入、跨板查询阻塞实时路径。 |
+| T2 / Trigger | `T_fire_target_vdc`、reservation generation、READY mask、fence、`T2_actual_local/vdc`、error | Trigger/Measure 业务状态机 | 以收到帧时刻立即触发，或用软件时刻伪造 T2。 |
+| Watchdog / Diagnostics | reset cause、fault stage、owner heartbeat、last snapshot generation | System/DeploymentGate/Report | 看门狗只复位而不保留原因，或由 UI 日志作为唯一故障事实。 |
 
 ### Hardware Service Layer
 
@@ -492,8 +588,22 @@ OtaAO
 
 TriggerAO
   -> TriggerFB
+  -> TriggerReservationFB
   -> SafetyFB
   -> PioControlFB
+
+CalibrationAO
+  -> CalibrationFB
+  -> CalibrationQualityGateFB
+
+VdcSyncAO
+  -> TimestampValidationFB
+  -> SyncDpllFB
+  -> HoldoverFB / RelockFB
+
+TdmaSchedulerAO
+  -> TdmaRingRuntimeFB
+  -> TdmaPayloadAdmissionFB
 ```
 
 ### Resource Arbiter 负责互锁
@@ -523,6 +633,7 @@ application/
   app.c                         # 主循环和调度入口
 
 components/
+  board_identity/               # 板卡唯一身份与拓扑键
   calibration_manager/          # 校准策略与校准事实
   diagnostics/                  # 诊断、错误码、运行日志
   distributed_config/           # 分布式配置与部署事实
@@ -546,12 +657,15 @@ components/
 middleware/
   scpi_port/                    # SCPI 命令入口
   u8g2_port/                    # U8G2 显示适配
+  usbtmc_scpi_port/              # USBTMC/SCPI 传输适配
+  portable_log_port/            # 可移植日志适配
   portable_ota_port/            # portable_ota 产品适配器
   fatfs_port/                   # 后续 SD 文件系统适配
 
 drivers/
   mcu/
     flash/
+    i2c/
     spi/
     pio/
     dma/
@@ -573,7 +687,8 @@ third_party/
   freertos/                     # FreeRTOS Kernel（可选）
 ```
 
-组件目录以仓库实际结构为准；本节是架构归属快照，非目录事实源。
+`components/`、`drivers/` 和 `middleware/` 的目录名以上述仓库实际目录为准；本节只描述
+架构归属，新增/删除目录必须同步更新对应域 README，不把构建产物目录当作组件事实。
 
 ## 功能块模型
 
@@ -853,7 +968,7 @@ typedef struct {
 | Storage | 300-399 | SD 卡挂载/读写/文件系统错误 |
 | UI | 400-499 | LCD 初始化/刷新失败 |
 | System | 500-599 | 资源死锁、模式切换冲突 |
-| TDMA | 600-699 | ring reason code 9 项：`NONE` / `BAD_CONFIG` / `EVIDENCE_MISSING` / `DIRECTION_CONFLICT` / `ADAPTER_MISSING` / `TIMESTAMP_MISSING` / `PAYLOAD_STARVATION` / `WINDOW_MISSED` / `RESOURCE_CONFLICT`；见 `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:583-599`。 |
+| TDMA | 600-699 | ring reason code 9 项：`NONE` / `BAD_CONFIG` / `EVIDENCE_MISSING` / `DIRECTION_CONFLICT` / `ADAPTER_MISSING` / `TIMESTAMP_MISSING` / `PAYLOAD_STARVATION` / `WINDOW_MISSED` / `RESOURCE_CONFLICT`；见 `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:805-819`。 |
 
 多故障同时发生时：`error_code` 记录最严重错误，`fault_summary` 位掩码保留所有故障位。
 
@@ -1461,6 +1576,12 @@ SCPI/UI/Storage/OTA 只能投递 Trigger 事件或读取 TriggerVector 快照；
 相关状态。该路径仍遵守 HAOFV 分层：FreeRTOS 是控制核调度器，core1 是 TriggerAO
 运行容器，PIO/DMA/IRQ 是硬实时边沿执行层。
 
+基础件任务壳保持同一 owner 方向：core0 的 `task_calibration`、`task_vdc_sync`、
+`task_dpll` 和 `task_refmem_sync` 只推进各域控制面、Vector/快照和异步 job；core1 的
+`TdmaSchedulerAO`/realtime loop 独占 TDMA fast path、PIO/DMA persona、窗口和 deadline
+服务。`SyncDpllFB` 仍是 VDC offset/rate/lock 唯一 writer，CalibrationAO 的测量结果通过
+accepted snapshot 进入 VDC，不能由 task 或 SCPI 旁路写入。
+
 ### 必须遵守的约束
 
 - 业务组件禁止直接包含 `FreeRTOS.h`，只能通过 `osal/` 接口
@@ -1502,20 +1623,29 @@ owner 状态机闭环。任务划分、栈/堆水位、VDC/DPLL、CAL/SYNC 和�
 
 AO 单元测试通过 mock OSAL 和驱动层实现隔离：注入事件 → 执行 `ao_service()` → 验证状态转移和域向量变化。测试模式下可不限预算。
 
-## 第一阶段落地顺序
+## 当前基础件收敛顺序
 
-1. 新增 `components/system_vector/`，先放 `SystemVector`、`OtaVector`、`TriggerVector` 摘要。
-2. 新增 `components/system_manager/`，实现系统模式和资源仲裁。
-3. 新增 `components/function_block/`，实现轻量功能块基础类型。
-4. 新增 `components/event_bus/`，实现轻量事件投递。
-5. 改造 `ota_manager` 为 `OtaAO + OtaFB`，使用事件投递和 ECC 状态转移表。
-6. 改造同步触发上层为 `TriggerAO + TriggerFB`，底层继续复用 `sync_io`。
-7. SCPI 的 OTA 命令只写事件，不直接改 OTA 状态。
-8. `app_run_once()` 中加入 `system_manager_service()` 和各 AO service。
-9. 增加 `drivers/mcu/flash/`。
-10. 增加 OTA metadata 和 raw bin 校验。
-11. 拆出 Bootloader 工程。
-12. 接入 SD 卡和 FatFs 后扩展离线 OTA。
+顶层的实现顺序按“先形成可观测事实，再形成共同时间，最后开放预约执行”收敛；各项
+详细完成状态以对应 domain TODO 和代码为准：
+
+1. `sync_io`/PIO/DMA/IRQ 形成自由运行 `local_tick_raw`、真实 edge latch、source/
+   resolution/flags 和 overrun evidence；CPU 只搬运 descriptor。
+2. Calibration Domain 完成 `CLK/DATA/SYNC` 训练、双向时间传递、residence、endpoint bias、
+   path-delay active/staging、generation/freshness 和 accepted/rejected gate。
+3. TDMA Foundation 以唯一 `TdmaSchedulerAO` 运行 UP/DOWN ring、payload registry、operating
+   profile、window/guard、READY/fence 和 completion evidence；host 只做维护态编排和只读监控。
+4. VDC/DPLL 消费 accepted calibration 与硬件 latch，形成 `VdcMapSnapshot`、offset/rate、
+   `LOCKED/HOLDOVER/RELOCK` 和 map generation；`SyncDpllFB` 是 offset/rate/lock 唯一 writer。
+5. Distributed RefMem 通过固定 slot、command、ACK/NACK、stale、CRC 和 sequence 发布共同
+   事实；不绕过 TDMA payload registry，也不承担 DPLL 计算。
+6. TriggerReservationFB 消费 VDC map 生成 `T_fire_target_vdc`，经 TDMA opaque flight、READY/
+   fence 和 generation gate 分发；arm guard 后由 core1/sync_io 装载本地 deadline。
+7. PIO/DMA/IRQ 锁存 `T2_actual_local`，VDC 映射为 `T2_actual_vdc`，Trigger/Measure 形成
+   `T2_error`，RefMem/TDMA 发布 completion evidence。
+8. DeploymentGate 统一检查 node/profile/config/calibration/schedule/vector CRC、PIO/SM/DMA/
+   IO/IP claims、payload capacity 和 owner 唯一性；通过后才允许 RUN。
+9. Watchdog/Diagnostics 保存 reset cause、fault stage、heartbeat、last owner snapshot 和
+   generation；长稳测试必须能把复位原因与对应域 evidence 关联。
 
 ## 风险与约束
 
@@ -1527,7 +1657,7 @@ AO 单元测试通过 mock OSAL 和驱动层实现隔离：注入事件 → 执�
 | LCD/SD 共享 SPI 冲突 | 所有 SPI 使用走 Resource Arbiter + CS 互斥 |
 | SCPI 与日志共用 USB CDC | OTA 期间暂停周期日志或降低输出 |
 | 完整 IEC 61499 过重 | 只采用固定功能块、静态事件连接和表驱动 ECC |
-| 架构过度设计 | 第一阶段只落地 SystemVector、OtaVector、OtaAO/OtaFB、资源仲裁和 OTA |
+| 架构过度设计 | 依照“raw latch → calibration → VDC/DPLL → TDMA → T2”顺序逐层验收；未通过下层证据门禁时，上层只保留诊断能力 |
 | Flash 擦写阻塞主循环 | Flash job 分步异步执行，XIP 临界区保护，操作前后喂狗 |
 | 事件 payload 悬垂指针 | 内联拷贝 + 所有权约定 + ISR 只用无锁原子 |
 | Bootloader 被意外覆盖 | 写保护 + 边界硬编码检查 |
@@ -1549,6 +1679,8 @@ AO 单元测试通过 mock OSAL 和驱动层实现隔离：注入事件 → 执�
 实时保证：PIO/DMA + 管理域限时调度
 OTA 引擎：portable_ota 平台无关库
 RTOS 隔离：OSAL 抽象层
+共同时间：Calibration + VDC/DPLL + TDMA Foundation
+预约执行：T2 Reservation + TriggerReservationFB + sync_io
 ```
 
 这套方案比单纯表驱动更适合中型嵌入式系统，也比完整 AUTOSAR、完整 IEC 61499 运行时或重型 RTOS 架构更轻。它适合 RP2350_TRIG 后续扩展 OTA、SD 卡、LCD、SCPI、第三方库、Bootloader 和 RTOS。
