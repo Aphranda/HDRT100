@@ -761,6 +761,7 @@ int main(void)
                                                 phys_ctrl_stub_arm,
                                                 phys_ctrl_stub_disarm,
                                                 NULL,
+                                                NULL,
                                                 &ctrl);
         tdma_pio_spi_ring_adapter_set_timestamp_metadata(
             &adapter,

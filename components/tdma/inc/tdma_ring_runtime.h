@@ -6,7 +6,7 @@
 
 #include "tdma_profile.h"
 
-#define TDMA_RING_RUNTIME_VERSION 3u
+#define TDMA_RING_RUNTIME_VERSION 4u
 #define TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED 0x00000002u
 
@@ -64,6 +64,7 @@ typedef struct {
     bool (*start)(void *context, const tdma_ring_runtime_config_t *config);
     void (*stop)(void *context);
     bool (*train_clock)(void *context, uint32_t cycles);
+    void (*train_clock_service)(void *context, uint64_t now_ns);
     bool (*service)(void *context,
                     uint64_t now_ns,
                     tdma_ring_adapter_status_t *status);
@@ -111,6 +112,12 @@ typedef struct {
     uint32_t adapter_tx_count;
     uint32_t adapter_rx_count;
     uint32_t adapter_rx_bad_count;
+    uint32_t train_request_seq;
+    uint32_t train_accepted_seq;
+    uint32_t train_request_cycles;
+    uint32_t train_start_count;
+    uint32_t train_reject_count;
+    uint32_t training_dirty;
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
 } tdma_ring_runtime_snapshot_t;
@@ -160,6 +167,14 @@ typedef struct {
     volatile uint32_t adapter_rx_count;
     volatile uint32_t adapter_rx_bad_count;
     volatile uint32_t data_enabled;
+    volatile uint32_t train_command_seq;
+    volatile uint32_t train_command_cycles;
+    volatile uint32_t train_request_seq;
+    volatile uint32_t train_accepted_seq;
+    volatile uint32_t train_request_cycles;
+    volatile uint32_t train_start_count;
+    volatile uint32_t train_reject_count;
+    volatile uint32_t training_dirty;
     volatile uint64_t reference_tx_timestamp_ns;
     volatile uint64_t feedback_rx_timestamp_ns;
     const tdma_ring_adapter_ops_t *adapter_ops;

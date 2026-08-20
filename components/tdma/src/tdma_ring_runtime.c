@@ -199,6 +199,15 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
     runtime->reference_tx_timestamp_ns = 0ull;
     runtime->feedback_rx_timestamp_ns = 0ull;
     runtime->data_enabled = 0u;
+    runtime->train_request_seq =
+        tdma_ring_runtime_load(&runtime->train_command_seq);
+    __atomic_store_n(&runtime->train_accepted_seq,
+                     runtime->train_request_seq,
+                     __ATOMIC_RELEASE);
+    runtime->train_request_cycles = 0u;
+    runtime->train_start_count = 0u;
+    runtime->train_reject_count = 0u;
+    runtime->training_dirty = 0u;
     tdma_ring_runtime_write_guard(&runtime->result_guard);
     return true;
 }
@@ -206,8 +215,11 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
 bool tdma_ring_runtime_set_data_enabled(tdma_ring_runtime_t *runtime,
                                         bool enabled)
 {
-    if (runtime == NULL || runtime->enabled == 0u ||
-        runtime->adapter_started == 0u) {
+    if (runtime == NULL || tdma_ring_runtime_load(&runtime->enabled) == 0u ||
+        tdma_ring_runtime_load(&runtime->adapter_started) == 0u ||
+        (enabled &&
+         tdma_ring_runtime_load(&runtime->train_command_seq) !=
+             tdma_ring_runtime_load(&runtime->train_accepted_seq))) {
         return false;
     }
     __atomic_store_n(&runtime->data_enabled,
@@ -219,14 +231,27 @@ bool tdma_ring_runtime_set_data_enabled(tdma_ring_runtime_t *runtime,
 bool tdma_ring_runtime_train_clock(tdma_ring_runtime_t *runtime,
                                    uint32_t cycles)
 {
-    if (runtime == NULL || cycles == 0u || runtime->enabled == 0u ||
-        runtime->adapter_started == 0u ||
+    if (runtime == NULL || cycles == 0u ||
+        tdma_ring_runtime_load(&runtime->enabled) == 0u ||
+        tdma_ring_runtime_load(&runtime->adapter_started) == 0u ||
         tdma_ring_runtime_load(&runtime->data_enabled) != 0u ||
         runtime->adapter_ops == NULL ||
-        runtime->adapter_ops->train_clock == NULL) {
+        runtime->adapter_ops->train_clock == NULL ||
+        runtime->adapter_ops->train_clock_service == NULL) {
         return false;
     }
-    return runtime->adapter_ops->train_clock(runtime->adapter_context, cycles);
+    const uint32_t command_seq =
+        tdma_ring_runtime_load(&runtime->train_command_seq);
+    const uint32_t accepted_seq =
+        tdma_ring_runtime_load(&runtime->train_accepted_seq);
+    if (command_seq != accepted_seq) {
+        return false;
+    }
+    __atomic_store_n(&runtime->train_command_cycles, cycles, __ATOMIC_RELEASE);
+    __atomic_store_n(&runtime->train_command_seq,
+                     command_seq + 1u,
+                     __ATOMIC_RELEASE);
+    return true;
 }
 
 bool tdma_ring_runtime_bind_adapter(tdma_ring_runtime_t *runtime,
@@ -279,6 +304,13 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     bool adapter_service_ok = false;
     tdma_ring_runtime_reason_t reason = TDMA_RING_RUNTIME_REASON_NONE;
     const uint32_t previous_down_rx_sequence = runtime->down_rx_sequence;
+    const uint64_t now_ns = tdma_ring_runtime_now_ns();
+    uint32_t train_request_seq = runtime->train_request_seq;
+    uint32_t train_accepted_seq = runtime->train_accepted_seq;
+    uint32_t train_request_cycles = runtime->train_request_cycles;
+    uint32_t train_start_count = runtime->train_start_count;
+    uint32_t train_reject_count = runtime->train_reject_count;
+    uint32_t training_dirty = runtime->training_dirty;
     if (!up_down_config_ready) {
         tdma_ring_runtime_stop_adapter(runtime);
         if (enabled != 0u) {
@@ -314,11 +346,43 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
                 reason = TDMA_RING_RUNTIME_REASON_ADAPTER_MISSING;
             }
         }
-        if (runtime->adapter_started != 0u &&
-            tdma_ring_runtime_load(&runtime->data_enabled) != 0u) {
+        const uint32_t data_enabled =
+            tdma_ring_runtime_load(&runtime->data_enabled);
+        if (runtime->adapter_started != 0u && data_enabled == 0u) {
+            const uint32_t command_seq =
+                tdma_ring_runtime_load(&runtime->train_command_seq);
+            if (command_seq != train_accepted_seq) {
+                const uint32_t cycles =
+                    tdma_ring_runtime_load(&runtime->train_command_cycles);
+                train_request_seq = command_seq;
+                train_request_cycles = cycles;
+                train_accepted_seq = command_seq;
+                if (runtime->adapter_ops->train_clock != NULL &&
+                    runtime->adapter_ops->train_clock_service != NULL &&
+                    runtime->adapter_ops->train_clock(runtime->adapter_context,
+                                                      cycles)) {
+                    train_start_count++;
+                    training_dirty = 1u;
+                } else {
+                    train_reject_count++;
+                }
+            }
+            if (training_dirty != 0u &&
+                runtime->adapter_ops->train_clock_service != NULL) {
+                runtime->adapter_ops->train_clock_service(
+                    runtime->adapter_context, now_ns);
+            }
+        } else if (runtime->adapter_started != 0u &&
+                   data_enabled != 0u && training_dirty != 0u) {
+            /* Training replaces both PIO programs. Restore the normal DATA/CS
+             * persona before cyclic service is allowed to run. */
+            tdma_ring_runtime_stop_adapter(runtime);
+            training_dirty = 0u;
+        }
+        if (runtime->adapter_started != 0u && data_enabled != 0u) {
             adapter_service_ok = runtime->adapter_ops->service(
                 runtime->adapter_context,
-                tdma_ring_runtime_now_ns(),
+                now_ns,
                 &adapter_status);
             runtime->adapter_service_count++;
             if (!adapter_service_ok) {
@@ -383,6 +447,14 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
     runtime->adapter_tx_count = adapter_status.tx_count;
     runtime->adapter_rx_count = adapter_status.rx_count;
     runtime->adapter_rx_bad_count = adapter_status.rx_bad_count;
+    runtime->train_request_seq = train_request_seq;
+    __atomic_store_n(&runtime->train_accepted_seq,
+                     train_accepted_seq,
+                     __ATOMIC_RELEASE);
+    runtime->train_request_cycles = train_request_cycles;
+    runtime->train_start_count = train_start_count;
+    runtime->train_reject_count = train_reject_count;
+    runtime->training_dirty = training_dirty;
     runtime->reference_tx_timestamp_ns =
         adapter_status.reference_tx_timestamp_ns;
     runtime->feedback_rx_timestamp_ns =
@@ -467,6 +539,12 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         snapshot->adapter_tx_count = runtime->adapter_tx_count;
         snapshot->adapter_rx_count = runtime->adapter_rx_count;
         snapshot->adapter_rx_bad_count = runtime->adapter_rx_bad_count;
+        snapshot->train_request_seq = runtime->train_request_seq;
+        snapshot->train_accepted_seq = runtime->train_accepted_seq;
+        snapshot->train_request_cycles = runtime->train_request_cycles;
+        snapshot->train_start_count = runtime->train_start_count;
+        snapshot->train_reject_count = runtime->train_reject_count;
+        snapshot->training_dirty = runtime->training_dirty;
         snapshot->reference_tx_timestamp_ns =
             runtime->reference_tx_timestamp_ns;
         snapshot->feedback_rx_timestamp_ns =

@@ -3,8 +3,8 @@
 Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/README.md`
-Related: `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
-Last updated: 2026-08-17
+Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
+Last updated: 2026-08-20
 
 `docs/tdma/` 维护 TDMA 基础件主域。TDMA 在 HAOFV 中不是 VDC 的内部组件，而是底层确定性通讯与环路反馈基础件。
 
@@ -35,5 +35,6 @@ TDMA Domain 不负责：
 | 文件 | 定位 |
 |---|---|
 | `TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件架构、HAOFV 边界、上/下行环路、adapter 和跨域契约。 |
+| `TDMA_CLK_TRAINING_PLAN.md` | 多板 SPI CLK 分级训练：第一阶段流程/HIL 总结与第二阶段编码相关测距计划。 |
 | `TDMA_DOMAIN_TODO.md` | TDMA 基础件待办，跟踪 runtime、可靠性、HAOFV system node 和 HIL 验收。 |
 | `TDMA_TASK_PROGRESS.md` | TDMA 基础件任务进度、验证结果和可回溯记录。 |

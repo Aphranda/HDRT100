@@ -125,7 +125,11 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return re.fullmatch(r'-?\d+(?:,.*)?', text) is not None
     if is_scpi_query(command):
         return text not in {'"OK"', "OK", "1"}
-    return text in {'"OK"', "OK", "1"} or re.fullmatch(r"\d+", text) is not None
+    return (
+        text in {'"OK"', "OK", "1"}
+        or re.fullmatch(r"\d+", text) is not None
+        or re.fullmatch(r'-\d+(?:,.*)?', text) is not None
+    )
 
 
 def read_scpi_response(ser: serial.Serial,

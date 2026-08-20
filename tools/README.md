@@ -90,6 +90,10 @@ Get-Content -Path tools\README.md -Encoding UTF8
   from `*IDN?`, never by COM number. It correlates core1 bitmap scan/hit/drop,
   cross-core FIFO counters, and core0 RefMem mailbox accept/reject counters over
   a fixed window, then writes `summary.json` under `build-validation/`.
+- `tdma_ring_monitor/tdma_clk_codebook_eval.py`: deterministic CLK-only marker
+  evaluator. It generates maximal-length LFSR sequences, applies NRZ/Manchester/
+  differential-Manchester waveform encoding, and compares adjacent/raw-sample
+  lag discrimination inside the coarse RTT search window.
 - `vdc_observer_validate/vdc_observer_validate.py`: VDC raw capture observer
   maintenance runner. It opens one or more CDC ports, verifies the safe disable
   path, enables the observer with a minimal explicit config, asserts the 40-field

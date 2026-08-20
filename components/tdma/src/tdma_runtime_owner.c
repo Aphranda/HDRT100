@@ -58,6 +58,7 @@ bool tdma_runtime_owner_init(void)
             tdma_pio_spi_phys_arm,
             tdma_pio_spi_phys_disarm,
             tdma_pio_spi_phys_train_clock,
+            tdma_pio_spi_phys_train_clock_service,
             &s_tdma_pio_spi_phys);
         tdma_pio_spi_ring_adapter_set_phys(
             &s_tdma_pio_spi_ring_adapter,
@@ -119,6 +120,16 @@ bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot
         return false;
     }
     return tdma_pio_spi_phys_get_snapshot(&s_tdma_pio_spi_phys, snapshot);
+}
+
+bool tdma_runtime_owner_get_clk_train_snapshot(
+    tdma_pio_spi_clk_train_snapshot_t *snapshot)
+{
+    if (!s_tdma_runtime_owner_initialized || snapshot == NULL) {
+        return false;
+    }
+    return tdma_pio_spi_phys_get_clk_train_snapshot(&s_tdma_pio_spi_phys,
+                                                     snapshot);
 }
 
 bool tdma_runtime_owner_get_operating_profile(

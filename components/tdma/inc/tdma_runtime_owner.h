@@ -22,6 +22,8 @@ bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *snapshot
 /* Read-only physical-layer snapshot (RX capture stall/partial counters and
  * TX timeout counters) for bring-up diagnostics. */
 bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot);
+bool tdma_runtime_owner_get_clk_train_snapshot(
+    tdma_pio_spi_clk_train_snapshot_t *snapshot);
 bool tdma_runtime_owner_get_operating_profile(
     tdma_operating_profile_manager_t *snapshot);
 bool tdma_runtime_owner_stage_operating_profile(uint32_t level);

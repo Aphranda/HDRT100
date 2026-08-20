@@ -2420,6 +2420,59 @@ scpi_result_t scpi_cmd_system_tdma_ring_train(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_ring_train_status_q(scpi_t *context)
+{
+    tdma_pio_spi_clk_train_snapshot_t train;
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_runtime_owner_get_clk_train_snapshot(&train) ||
+        !tdma_runtime_owner_get_ring_snapshot(&ring)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_TRAIN_STATUS");
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultText(context, "CLKTRAIN");
+    SCPI_ResultUInt32(context, train.version);
+    SCPI_ResultUInt32(context, train.state);
+    SCPI_ResultUInt32(context, train.result);
+    SCPI_ResultUInt32(context, train.role);
+    SCPI_ResultUInt32(context, train.request_seq);
+    SCPI_ResultUInt32(context, train.service_count);
+    SCPI_ResultUInt32(context, train.baud_hz);
+    SCPI_ResultUInt32(context, train.requested_cycles);
+    SCPI_ResultUInt32(context, train.return_seen);
+    SCPI_ResultUInt32(context, train.return_before_tx_done);
+    SCPI_ResultUInt32(context, train.tx_sck_pin);
+    SCPI_ResultUInt32(context, train.rx_sck_pin);
+    SCPI_ResultUInt32(context, train.timestamp_resolution_ns);
+    SCPI_ResultUInt32(context, train.timestamp_flags);
+    SCPI_ResultUInt32(context,
+                      (uint32_t)(train.tx_start_timestamp_ns & 0xFFFFFFFFull));
+    SCPI_ResultUInt32(context,
+                      (uint32_t)(train.tx_start_timestamp_ns >> 32u));
+    SCPI_ResultUInt32(
+        context,
+        (uint32_t)(train.tx_done_observed_timestamp_ns & 0xFFFFFFFFull));
+    SCPI_ResultUInt32(
+        context,
+        (uint32_t)(train.tx_done_observed_timestamp_ns >> 32u));
+    SCPI_ResultUInt32(
+        context,
+        (uint32_t)(train.return_observed_timestamp_ns & 0xFFFFFFFFull));
+    SCPI_ResultUInt32(
+        context,
+        (uint32_t)(train.return_observed_timestamp_ns >> 32u));
+    SCPI_ResultUInt32(context,
+                      (uint32_t)(train.burst_duration_ns & 0xFFFFFFFFull));
+    SCPI_ResultUInt32(context,
+                      (uint32_t)(train.burst_duration_ns >> 32u));
+    SCPI_ResultUInt32(context, ring.train_request_seq);
+    SCPI_ResultUInt32(context, ring.train_accepted_seq);
+    SCPI_ResultUInt32(context, ring.train_start_count);
+    SCPI_ResultUInt32(context, ring.train_reject_count);
+    SCPI_ResultUInt32(context, ring.training_dirty);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_ring_start(scpi_t *context)
 {
     if (!distributed_refmem_tdma_ring_start()) {

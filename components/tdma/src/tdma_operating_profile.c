@@ -37,6 +37,10 @@ static const tdma_operating_profile_entry_t
         {40000000u, 100000u, 4096u, 0u},
         {45000000u, 100000u, 4096u, 0u},
         {50000000u, 100000u, 4096u, 0u},
+        /* Level 19: deliberately conservative 1 MHz bring-up profile.  It
+         * preserves all existing level numbers while providing maximum wire
+         * timing margin for multi-board path-delay characterization. */
+        {1000000u, 2000000u, 4096u, 0u},
     };
 
 static uint32_t tdma_operating_profile_hash_u32(uint32_t hash,

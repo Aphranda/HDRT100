@@ -95,6 +95,7 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     tdma_pio_spi_ring_phys_arm_fn arm,
     tdma_pio_spi_ring_phys_disarm_fn disarm,
     tdma_pio_spi_ring_phys_train_fn train,
+    tdma_pio_spi_ring_phys_train_service_fn train_service,
     void *phys_ctrl_context)
 {
     if (adapter == NULL) {
@@ -103,6 +104,7 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     adapter->phys_arm = arm;
     adapter->phys_disarm = disarm;
     adapter->phys_train = train;
+    adapter->phys_train_service = train_service;
     adapter->phys_ctrl_context = phys_ctrl_context;
 }
 
@@ -185,6 +187,7 @@ static bool tdma_pio_spi_ring_adapter_start(
         config->feedback_timeout_ns == 0u) {
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_BAD_ARGUMENT);
+        tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
         return false;
     }
     adapter->config = *config;
@@ -582,6 +585,18 @@ static bool tdma_pio_spi_ring_adapter_train_clock(void *context,
     return adapter->phys_train(adapter->phys_ctrl_context, cycles);
 }
 
+static void tdma_pio_spi_ring_adapter_train_clock_service(void *context,
+                                                          uint64_t now_ns)
+{
+    tdma_pio_spi_ring_adapter_t *adapter =
+        (tdma_pio_spi_ring_adapter_t *)context;
+    if (adapter == NULL || adapter->started == 0u ||
+        adapter->phys_train_service == NULL) {
+        return;
+    }
+    adapter->phys_train_service(adapter->phys_ctrl_context, now_ns);
+}
+
 static bool tdma_pio_spi_ring_adapter_forward_poll(
     tdma_pio_spi_ring_adapter_t *adapter,
     bool *rx_ok)
@@ -775,6 +790,7 @@ static const tdma_ring_adapter_ops_t s_tdma_pio_spi_ring_adapter_ops = {
     .start = tdma_pio_spi_ring_adapter_start,
     .stop = tdma_pio_spi_ring_adapter_stop,
     .train_clock = tdma_pio_spi_ring_adapter_train_clock,
+    .train_clock_service = tdma_pio_spi_ring_adapter_train_clock_service,
     .service = tdma_pio_spi_ring_adapter_service,
 };
 

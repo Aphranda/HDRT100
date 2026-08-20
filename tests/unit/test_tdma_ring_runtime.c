@@ -28,6 +28,9 @@ typedef struct {
     bool started;
     uint32_t start_count;
     uint32_t stop_count;
+    uint32_t train_count;
+    uint32_t train_service_count;
+    uint32_t train_cycles;
     tdma_ring_adapter_status_t status;
 } fake_ring_adapter_t;
 
@@ -65,9 +68,31 @@ static bool fake_ring_service(void *context,
     return true;
 }
 
+static bool fake_ring_train(void *context, uint32_t cycles)
+{
+    fake_ring_adapter_t *adapter = (fake_ring_adapter_t *)context;
+    if (adapter == NULL || !adapter->started || cycles == 0u) {
+        return false;
+    }
+    adapter->train_count++;
+    adapter->train_cycles = cycles;
+    return true;
+}
+
+static void fake_ring_train_service(void *context, uint64_t now_ns)
+{
+    fake_ring_adapter_t *adapter = (fake_ring_adapter_t *)context;
+    (void)now_ns;
+    if (adapter != NULL && adapter->started) {
+        adapter->train_service_count++;
+    }
+}
+
 static const tdma_ring_adapter_ops_t s_fake_ring_ops = {
     .start = fake_ring_start,
     .stop = fake_ring_stop,
+    .train_clock = fake_ring_train,
+    .train_clock_service = fake_ring_train_service,
     .service = fake_ring_service,
 };
 
@@ -219,6 +244,86 @@ int main(void)
                          snapshot.up_running | snapshot.down_running,
                          0u);
     failed += expect_u32("adapter stopped", adapter.stop_count, 1u);
+
+    /* Training is a core0 -> core1 command slot. Submission must not invoke
+     * the physical adapter inline, and START must restore the normal adapter
+     * persona before cyclic service resumes. */
+    {
+        tdma_ring_runtime_t train_runtime;
+        tdma_ring_runtime_snapshot_t train_snapshot;
+        fake_ring_adapter_t train_adapter = {0};
+        failed += expect_bool("train runtime init",
+                              tdma_ring_runtime_init(&train_runtime),
+                              true);
+        failed += expect_bool("train runtime configure",
+                              tdma_ring_runtime_configure(&train_runtime,
+                                                          &valid),
+                              true);
+        failed += expect_bool("train runtime bind",
+                              tdma_ring_runtime_bind_adapter(
+                                  &train_runtime,
+                                  &s_fake_ring_ops,
+                                  &train_adapter),
+                              true);
+        tdma_ring_runtime_service(&train_runtime);
+        failed += expect_bool("train submit accepted",
+                              tdma_ring_runtime_train_clock(&train_runtime,
+                                                            100u),
+                              true);
+        failed += expect_u32("train not inline", train_adapter.train_count, 0u);
+        failed += expect_bool("second pending train rejected",
+                              tdma_ring_runtime_train_clock(&train_runtime,
+                                                            1000u),
+                              false);
+        failed += expect_bool("start rejected while train pending",
+                              tdma_ring_runtime_set_data_enabled(&train_runtime,
+                                                                 true),
+                              false);
+        tdma_ring_runtime_service(&train_runtime);
+        (void)tdma_ring_runtime_get_snapshot(&train_runtime,
+                                             &train_snapshot);
+        failed += expect_u32("train starts on owner", train_adapter.train_count, 1u);
+        failed += expect_u32("train cycles delivered",
+                             train_adapter.train_cycles,
+                             100u);
+        failed += expect_u32("train service on owner",
+                             train_adapter.train_service_count,
+                             1u);
+        failed += expect_u32("train request published",
+                             train_snapshot.train_request_seq,
+                             1u);
+        failed += expect_u32("train accepted published",
+                             train_snapshot.train_accepted_seq,
+                             1u);
+        failed += expect_u32("training persona dirty",
+                             train_snapshot.training_dirty,
+                             1u);
+        failed += expect_bool("start accepted after train consume",
+                              tdma_ring_runtime_set_data_enabled(&train_runtime,
+                                                                 true),
+                              true);
+        tdma_ring_runtime_service(&train_runtime);
+        (void)tdma_ring_runtime_get_snapshot(&train_runtime,
+                                             &train_snapshot);
+        failed += expect_u32("training adapter stopped before data",
+                             train_adapter.stop_count,
+                             1u);
+        failed += expect_u32("adapter stopped for restore",
+                             train_snapshot.adapter_started,
+                             0u);
+        failed += expect_u32("training dirty cleared",
+                             train_snapshot.training_dirty,
+                             0u);
+        tdma_ring_runtime_service(&train_runtime);
+        (void)tdma_ring_runtime_get_snapshot(&train_runtime,
+                                             &train_snapshot);
+        failed += expect_u32("normal adapter restarted",
+                             train_adapter.start_count,
+                             2u);
+        failed += expect_u32("normal data service resumed",
+                             train_snapshot.adapter_service_count,
+                             1u);
+    }
 
     runtime.config_guard = 1u;
     failed += expect_bool("odd config guard is bounded",

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 import time
@@ -49,6 +50,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--level", type=int,
                         help="TDMA operating level applied to every board while stopped")
     parser.add_argument("--cycles", type=int, default=4096)
+    parser.add_argument("--train-chunk-cycles", type=int, default=0,
+                        help=("split the requested training total into bounded "
+                              "chunks; 0 sends one command (use 128 for the "
+                              "1 MHz bring-up profile)"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--settle", type=float, default=0.2)
@@ -138,7 +143,13 @@ def board_command(board: Board, text: str, args: argparse.Namespace) -> str:
 
 def status(board: Board, args: argparse.Namespace) -> dict[str, int]:
     raw = board_command(board, "SYSTem:REFMEM:SYNC:TDMA:STATus?", args)
-    values = [int(value.strip().strip('"'), 0) for value in raw.split(",")]
+    if raw == "<timeout>":
+        raise RuntimeError(f"{board.address}: TDMA status query timed out")
+    try:
+        values = [int(value.strip().strip('"'), 0) for value in raw.split(",")]
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{board.address}: invalid TDMA status response {raw!r}") from exc
     if len(values) != len(TDMA_FIELDS):
         raise RuntimeError(
             f"{board.address}: TDMA field count {len(values)}, "
@@ -154,23 +165,87 @@ def status(board: Board, args: argparse.Namespace) -> dict[str, int]:
 def wait_started(board: Board, args: argparse.Namespace) -> dict[str, int]:
     deadline = time.monotonic() + args.arm_wait
     last: dict[str, int] = {}
+    last_error = ""
     while time.monotonic() < deadline:
-        last = status(board, args)
+        try:
+            last = status(board, args)
+        except (OSError, RuntimeError, serial.SerialException) as exc:
+            last_error = str(exc)
+            time.sleep(0.1)
+            continue
         if last["ring_enabled"] == 1 and last["ring_adapter_started"] == 1:
             return last
         time.sleep(0.05)
-    raise RuntimeError(f"{board.address}: ARM timeout, last={last}")
-
-
-def train(board: Board, args: argparse.Namespace) -> str:
-    expected = str(args.cycles)
-    for _ in range(3):
-        response = board_command(
-            board, f"SYSTem:TDMA:RING:TRAIN {args.cycles}", args)
-        if response.strip().strip('"') == expected:
-            return response
     raise RuntimeError(
-        f"{board.address}: TRAIN did not acknowledge {args.cycles} cycles")
+        f"{board.address}: ARM timeout, last={last}, last_error={last_error}")
+
+
+def train(board: Board, args: argparse.Namespace) -> dict[str, object]:
+    chunk_cycles = args.train_chunk_cycles or args.cycles
+    remaining = args.cycles
+    responses: list[str] = []
+    completed_cycles = 0
+    with serial.Serial(board.port, args.baud, timeout=0.1,
+                       write_timeout=args.timeout) as ser:
+        time.sleep(args.settle)
+        identity = parse_idn_response(command(ser, "*IDN?", args.timeout))
+        if identity.address != board.address:
+            raise RuntimeError(
+                f"{board.port}: identity changed to {identity.address}, "
+                f"expected {board.address}")
+        while remaining > 0:
+            current = min(chunk_cycles, remaining)
+            before_raw = command(
+                ser, "SYSTem:TDMA:RING:TRAIN:STATus?", args.timeout)
+            before = next(csv.reader([before_raw]), [])
+            if len(before) != 28 or before[0].strip().strip('"') != "CLKTRAIN":
+                raise RuntimeError(
+                    f"{board.address}: invalid pre-TRAIN status {before_raw!r}")
+            previous_request_seq = int(before[5].strip().strip('"'), 0)
+            response = ""
+            for _ in range(3):
+                response = command(
+                    ser, f"SYSTem:TDMA:RING:TRAIN {current}", args.timeout)
+                responses.append(response)
+                if response.strip().strip('"') == str(current):
+                    break
+                time.sleep(0.05)
+            if response.strip().strip('"') != str(current):
+                raise RuntimeError(
+                    f"{board.address}: TRAIN chunk {current} failed after "
+                    f"{completed_cycles}/{args.cycles} cycles, response={response!r}")
+            deadline = time.monotonic() + args.timeout
+            train_snapshot: list[str] = []
+            while time.monotonic() < deadline:
+                train_raw = command(
+                    ser, "SYSTem:TDMA:RING:TRAIN:STATus?", args.timeout)
+                train_snapshot = next(csv.reader([train_raw]), [])
+                if (len(train_snapshot) == 28 and
+                        train_snapshot[0].strip().strip('"') == "CLKTRAIN"):
+                    state = int(train_snapshot[2].strip().strip('"'), 0)
+                    request_seq = int(
+                        train_snapshot[5].strip().strip('"'), 0)
+                    if request_seq != previous_request_seq and state in (1, 3, 4):
+                        if state == 4:
+                            raise RuntimeError(
+                                f"{board.address}: TRAIN {current} entered ERROR: "
+                                f"{train_raw}")
+                        break
+                time.sleep(0.02)
+            else:
+                raise RuntimeError(
+                    f"{board.address}: TRAIN {current} owner completion timeout, "
+                    f"last={train_snapshot}")
+            completed_cycles += current
+            remaining -= current
+    return {
+        "requested_cycles": args.cycles,
+        "chunk_cycles": chunk_cycles,
+        "chunk_count": (args.cycles + chunk_cycles - 1) // chunk_cycles,
+        "command_attempt_count": len(responses),
+        "completed_cycles": completed_cycles,
+        "last_response": responses[-1] if responses else "",
+    }
 
 
 def main() -> int:
@@ -182,6 +257,13 @@ def main() -> int:
     args.board_ids = board_ids
     if args.cycles <= 0 or args.cycles > 65536 or args.cycles % 8:
         raise SystemExit("cycles must be an 8-cycle multiple in [8, 65536]")
+    if (args.train_chunk_cycles < 0 or
+            (args.train_chunk_cycles != 0 and
+             (args.train_chunk_cycles > args.cycles or
+              args.train_chunk_cycles % 8 != 0))):
+        raise SystemExit(
+            "train-chunk-cycles must be 0 or an 8-cycle multiple not greater "
+            "than cycles")
 
     boards = discover(args)
     missing = set(board_ids) - set(boards)
@@ -202,6 +284,7 @@ def main() -> int:
         "board_ids": board_ids,
         "node_count": node_count,
         "cycles": args.cycles,
+        "train_chunk_cycles": args.train_chunk_cycles or args.cycles,
         "boards": {address: asdict(board) for address, board in boards.items()},
         "sequence": [
             "STOP all",

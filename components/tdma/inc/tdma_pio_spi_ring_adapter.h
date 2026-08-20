@@ -64,6 +64,8 @@ typedef bool (*tdma_pio_spi_ring_phys_arm_fn)(
 typedef void (*tdma_pio_spi_ring_phys_disarm_fn)(void *context);
 typedef bool (*tdma_pio_spi_ring_phys_train_fn)(void *context,
                                                 uint32_t cycles);
+typedef void (*tdma_pio_spi_ring_phys_train_service_fn)(void *context,
+                                                        uint64_t now_ns);
 
 /* phys_tx pushes one complete packet onto the wire. On success it may fill
  * *tx_timestamp_ns with the hardware latch timestamp (0 means no hardware
@@ -129,6 +131,7 @@ typedef struct {
     tdma_pio_spi_ring_phys_arm_fn phys_arm;
     tdma_pio_spi_ring_phys_disarm_fn phys_disarm;
     tdma_pio_spi_ring_phys_train_fn phys_train;
+    tdma_pio_spi_ring_phys_train_service_fn phys_train_service;
     void *phys_ctrl_context;
     tdma_flight_fifo_t *flight_fifo;
     tdma_flight_engine_t *flight_engine;
@@ -176,6 +179,7 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     tdma_pio_spi_ring_phys_arm_fn arm,
     tdma_pio_spi_ring_phys_disarm_fn disarm,
     tdma_pio_spi_ring_phys_train_fn train,
+    tdma_pio_spi_ring_phys_train_service_fn train_service,
     void *phys_ctrl_context);
 void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
     tdma_pio_spi_ring_adapter_t *adapter,

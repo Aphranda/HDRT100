@@ -1,0 +1,485 @@
+# TDMA SPI CLK 分级训练方案
+
+Status: Active
+Domain: TDMA
+Canonical: `docs/tdma/TDMA_CLK_TRAINING_PLAN.md`
+Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
+Last updated: 2026-08-20
+
+本文档独立维护多板 TDMA SPI CLK 训练流程。第一阶段总结已经实现并完成四板 HIL 的
+CLK 往返粗捕获；第二阶段规划使用编码 marker、PIO 过采样和板内相关匹配，把粗区间继续
+缩小。本文档中的第二阶段 wire 图样、阈值和新增 SCPI 拼写仍是 candidate，必须在实现、
+单元测试和 HIL 形成后再按文档登记流程冻结。
+
+## 结论先行
+
+- 第一阶段已经证明四板 CLK 可以逐节点透明转发并返回训练主节点，整圈 CLK RTT 位于
+  约 `400~500 ns` 的量级。
+- 第一阶段 overlap 判定只能提供 acquisition bracket；当前 timestamp flags 仍为
+  `TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY`，不能提交给 VDC/DPLL。
+- 第二阶段不再靠继续提高 SPI 频率缩窗。发送已知编码序列，主节点在约 `50 ns` 粗窗口内
+  识别相关峰对应的 chip 索引，再用 `CLK_SYS` 过采样确定 chip 内相位。
+- 训练执行必须驻留板内。SCPI 只提交 intent，core1 TDMA owner 推进状态机，PIO/DMA 完成
+  边沿级动作；PC 工具只做按唯一板卡地址的维护态编排、采集和评分。
+- 上电不得自动注入训练时钟。训练由显式指令触发，失败后统一回到 STOPPED；恢复普通
+  DATA/CS PIO persona 后，仍需显式 START 才进入周期 TDMA。
+
+## 身份、拓扑与本次基线
+
+板卡身份只使用 `*IDN?` 返回的唯一地址。COM 号是可变化的传输端点，不进入 topology、
+calibration key 或报告主键。
+
+| 逻辑位置 | 唯一板卡地址 |
+|---|---|
+| NO.1 | `0010071E65B5CB38` |
+| NO.2 | `2BD5090FE009FA2A` |
+| NO.3 | `A1E549202D18ED6A` |
+| NO.4 | `FB276192BEF9CCE1` |
+
+本次第一阶段结果来自 build `20260820133035`，物理顺序为
+`NO.1 -> NO.2 -> NO.3 -> NO.4 -> NO.1`。结果只对该拓扑、接线、收发器、profile 和
+build 有效；其中任一项变化都要求重新训练。
+
+## HAOFV 执行边界
+
+```text
+SCPI/core0
+  -> 有界原子 command slot
+  -> TdmaSchedulerAO / core1 唯一 owner
+  -> TDMA adapter
+  -> PIO TX / PIO forwarding / PIO RX + DMA
+  -> guarded/seqlock 训练 snapshot
+  -> SCPI status / host tool 只读采集
+```
+
+必须保持以下边界：
+
+1. SCPI callback 不同步操作 PIO、DMA 或等待某个边沿，只校验参数并提交 intent。
+2. core1 是训练状态和 PIO persona 的唯一 owner；core0 不参与实时转发和相关计算热路径。
+3. follower 只透明再生 CLK 边沿，不解析 marker，不修改 marker。
+4. master PIO 自主发送和采样；CPU service 只收割固定大小结果，不参与边沿排序。
+5. snapshot 使用 guard/seqlock 发布；查询不能阻塞 core1。
+6. host 工具不得通过高频 SCPI 轮询参与时间戳生成或维持 RX window。
+7. 只有硬件 latch、质量门禁、重复统计全部通过后，才能清除 diagnostic-only 标志。
+
+## 第一阶段：SPI CLK RTT 粗捕获
+
+### 测量对象
+
+第一阶段测量：
+
+```text
+spi_clk_round_trip_ns
+  = 主节点发出 CLK marker 首边沿
+  到同一 marker 绕环返回主节点 RX CLK 的时间
+```
+
+该值包含线缆、RS-422 收发器以及各 follower 的 CLK forwarding residence，但不包含
+DATA、CS/frame-sync、完整帧 CRC、飞行替换、帧队列和 RTOS 解析时间。因此第一阶段不能
+直接生成 TDMA 完整帧 feedback timeout。
+
+### 当前板内实现
+
+- `tdma_pio_spi_clk_forward`：follower 的 RX CLK -> TX CLK 逐边沿再生。
+- `tdma_pio_spi_clk_burst`：master 自主发送指定 pulse count。
+- `tdma_pio_spi_clk_capture`：master 捕获返回首边沿并设置 PIO IRQ。
+- burst PIO 在完成点读取返回 IRQ，以硬件顺序判断返回发生在 TX done 之前还是之后。
+- `tdma_pio_spi_phys_train_clock_service()` 只收割完成、超时和 snapshot，不参与边沿判定。
+- `TdmaRingRuntime` 通过 command slot 接收训练请求；训练 snapshot 由
+  `tdma_pio_spi_phys_get_clk_train_snapshot()` guarded 读取。
+
+当前指令面：
+
+```text
+SYSTem:TDMA:RING:TRAIN <cycles>
+SYSTem:TDMA:RING:TRAIN:STATus?
+```
+
+当前 `TRAIN <cycles>` 触发的是板内单个训练 trial，不是完整四主自动校准。完整第一阶段
+仍由 `tools/tdma_ring_monitor/tdma_clk_train.py` 编排，但所有实时动作和 overlap 判定已经
+驻留板内。
+
+### 完整训练流程
+
+#### 1. 全环准备
+
+1. 工具枚举串口，但只接受与调用参数中唯一板卡地址完全匹配的 `*IDN?` 结果。
+2. 对全部 active 节点执行 `RING:STOP`。
+3. 在 STOPPED 状态给全部节点 staging/apply 同一个 operating profile。
+4. 写入相同 node count，并按物理顺序设置每个节点的 local slot 和当前 master slot。
+5. 清除上一 epoch 的 RX/IRQ/FIFO/DMA 残留，生成新的 request sequence。
+
+#### 2. 建立一个 master 的训练 persona
+
+1. 先 ARM 所有 follower，再 ARM master，避免 master 注入时 follower 尚未转发。
+2. follower 接受一个训练请求后进入 `FORWARDING/FORWARD_ARMED`，只做 CLK 透明转发。
+3. master 保持 RX capture armed，然后接受指定 pulse count 的训练请求。
+4. master 只注入一次 burst；返回 burst 不再从 master 转发，避免形成无限 CLK 环。
+
+#### 3. 指数捕获
+
+从 `pulse_count_start` 开始，每个 decision point 可重复 `R` 次。按硬件 overlap 结果分类：
+
+| 分类 | 判据 | 含义 |
+|---|---|---|
+| `ALL_NON_OVERLAP` | `R` 次均在 TX done 后看到返回 | burst 持续时间仍短于 RTT |
+| `MIXED` | 同一点既有 overlap 又有 non-overlap | 位于抖动/亚稳过渡带，不可作为单一阈值 |
+| `ALL_OVERLAP` | `R` 次均在 TX done 前看到返回 | burst 持续时间已经长于 RTT |
+
+若当前点是 `ALL_NON_OVERLAP`，pulse count 按 growth factor 增长；找到第一个
+`ALL_OVERLAP` 后得到：
+
+```text
+D(N_low) <= spi_clk_round_trip_ns < D(N_high)
+```
+
+`MIXED` 必须单独记录，不能强制归入任一侧，也不能据此发布 DPLL eligible 结果。
+
+#### 4. 逐级缩窗
+
+1. 第一级使用指数搜索快速找到 RTT 所在数量级。
+2. 第二级在 `N_low..N_high` 内二分；启用多次重复时，可逐点扫描过渡区。
+3. 缩窗下限是一个有效训练 pulse/chip 周期，不是软件 timestamp 的 4 ns 名义分辨率。
+4. 若返回 pulse 缺失、重复、超时或 marker 不完整，该点是 rejected sample，不得当作
+   non-overlap。
+
+#### 5. 四主轮换
+
+依次让每个逻辑 slot 成为 master，其他节点保持 follower。每一轮都重新写 topology、重建
+训练 persona，并保存唯一板卡地址、profile、baud、`N_low/N_high`、duration bracket、
+mixed points、错误增量和 timestamp flags。
+
+#### 6. 统一收尾
+
+无论成功还是失败，工具最终都对全部节点执行 STOP。后续若进入正常 TDMA，必须重新
+ARM，使 adapter 重建普通 DATA/CS PIO persona，然后由显式 START 启动。训练脚本本身不
+自动 START。
+
+### 第一阶段四板 HIL 结果
+
+| SPI 档位 | NO.1 | NO.2 | NO.3 | NO.4 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 10 MHz | `[400,500) ns` | `[400,500) ns` | `[400,500) ns` | `[400,500) ns` | 四板一致，完成数量级捕获 |
+| 25 MHz | `[400,440) ns` | `[400,440) ns` | `[400,440) ns` | `[440,480) ns` | 有效 pulse group 从 10 个脉冲开始 |
+| 30 MHz | `[400,434) ns` | `[400,434) ns` | `[400,434) ns` | `[400,434) ns` | 单次结果可缩到约一个 SPI 周期 |
+| 35 MHz | `[458,486) ns` | `[400,429) ns` | `[486,515) ns` | `[486,515) ns` | 节点间明显离散，不作为有效精度档 |
+
+30 MHz 在每点重复三次时，NO.1 的 13 脉冲点出现 overlap/non-overlap 混合。这证明
+`[400,434) ns` 是一次 diagnostic bracket，不是稳定的固定 34 ns 测量精度。35 MHz 还受
+主频分频、PIO RX 采样相位和链路裕量影响，第二阶段不得依赖 35 MHz 强行提高精度。
+
+对应 HIL 证据目录：
+
+- `build-product-release/tdma_clk_train_20260820_213428`
+- `build-product-release/tdma_clk_train_20260820_213819`
+- `build-product-release/tdma_clk_train_20260820_214035`
+- `build-product-release/tdma_clk_train_20260820_214247`
+- `build-product-release/tdma_clk_train_20260820_214604`
+
+所有结果仍为 diagnostic-only。第一阶段的完成标准是“能可靠找到 CLK RTT 粗区间并暴露
+过渡抖动带”，不是“已经得到 path delay 或 DPLL 校准值”。
+
+## 第二阶段：编码 marker + 相关测距
+
+### 目标
+
+第二阶段把第一阶段得到的约 `50 ns` 粗窗口作为有界相关搜索范围。返回 marker 是已知编码
+序列；主节点识别相关峰对应的 chip 序号，再用过采样索引确定 chip 内位置：
+
+```text
+粗窗口        -> 限制可能的 lag 范围
+相关峰 chip   -> 判断返回的是第几个码元位置
+过采样 phase  -> 判断码元内第几个 4 ns sample
+```
+
+因此，即使 `50 ns` 内覆盖两个或多个候选 chip/亚码元，也不会再用“第一个看见的边沿”
+猜测 RTT。完整 marker 的上下文使每个候选位置可区分，相关峰负责消除码元索引歧义。
+
+候选计算形式：
+
+```text
+lag_sample = argmax corr(rx_samples, expected_marker)
+spi_clk_round_trip_ns = capture_origin_ns + lag_sample * sample_period_ns
+```
+
+若实现显式两级索引，也可表示为：
+
+```text
+spi_clk_round_trip_ns
+  = coarse_origin_ns
+  + chip_index * chip_period_ns
+  + phase_index * sample_period_ns
+```
+
+RP2350 当前 `BOARD_SYS_CLOCK_HZ=250 MHz`，单个 PIO SM 最快每条指令采一个输入样本，
+因此原始 `sample_period_ns=4 ns`。编码能够让相邻 sample 的判别峰更尖、降低错位概率，
+但不能把单路 GPIO/PIO 的硬件量化改成小于 4 ns。单次结果的时间分辨率仍发布为 4 ns；
+多次统计得到的小于 4 ns 的均值变化只能命名为 statistical precision，不能伪装成更高
+hardware resolution。未通过共同时间基准下的 PIO/DMA hardware latch HIL 前，结果不得
+写入 active calibration。
+
+### 最大分辨率边界
+
+| 层次 | 能达到的能力 | 编码是否能改善 |
+|---|---|---|
+| 单路 PIO 原始采样 | `CLK_SYS` 每周期一个 sample，即 4 ns/bin | 不能；这是当前硬下限 |
+| lag 唯一性 | 在粗窗口内唯一识别正确 4 ns bin | 能；由相关主峰和第二峰 margin 决定 |
+| 抗毛刺/缺码 | 多个边沿共同投票，不依赖单个返回边沿 | 能；序列越长、转换越密集，处理增益越高 |
+| 重复测量均值 | 自然抖动跨越相邻 bin 时，均值可小于 4 ns 变化 | 能改善统计精度，但不能提升单次硬分辨率 |
+| 保证小于 4 ns | 需要多相采样、外部 TDC、提高硬件采样时钟或等价硬件 | 不能仅靠编码实现 |
+
+当前最佳工程目标是“稳定选择正确的 4 ns bin”，并把 forwarding/synchronizer 产生的
+抖动带收敛为可统计的相邻 bin 分布。若产品最终要求保证 1~2 ns 单次分辨率，应单独评估
+外部 TDC、相移多路采样或更高采样时钟，不能继续增加码长来宣称实现。
+
+### 编码候选与物理约束
+
+`tools/tdma_ring_monitor/tdma_clk_codebook_eval.py` 已把码本选择固化为可重复计算：生成
+最大长度 Galois LFSR 序列，分别进行 NRZ、Manchester 和 differential-Manchester 展开，
+在 4 ns raw-sample 域比较相邻 lag Hamming distance、粗窗内最小错误 lag distance、
+电平游程和 marker 时长。当前 candidate 结果为：
+
+| timing code | 编码 | 半码元 | timing field 时长 | 转换数 | 相邻 4 ns 理想 Hamming 差 |
+|---|---|---:|---:|---:|---:|
+| Barker-13 | Manchester | 20 ns | 0.52 us | 19 | 19 |
+| m-sequence 31 | Manchester | 20 ns | 1.24 us | 46 | 47 |
+| m-sequence 63 | Manchester | 20 ns | 2.52 us | 94 | 95 |
+| m-sequence 127 | Manchester | 20 ns | 5.08 us | 190 | 191 |
+| **m-sequence 255** | **Manchester** | **20 ns** | **10.20 us** | **382** | **383** |
+
+同一码本的 Manchester 相邻 lag 判别力约为 NRZ 的三倍，并把最长无转换区限制为两个
+半码元。码长从 127 增加到 255 不改变 4 ns 分辨率，但把理想相邻 lag margin 从 191
+提高到 383；10.20 us timing field 对维护态训练仍足够短。因此第二阶段首选
+`M255_MANCHESTER_20`，恶劣链路回退到 `M255_MANCHESTER_40`：
+
+| codebook candidate | LFSR | seed | 半码元/逻辑位 | 最短/最长电平 | timing field |
+|---|---|---:|---:|---:|---:|
+| `M255_MANCHESTER_20` | width 8、Galois mask `0x8E` | `0x01` | 20/40 ns | 20/40 ns | 10.20 us |
+| `M255_MANCHESTER_40` | width 8、Galois mask `0x8E` | `0x01` | 40/80 ns | 40/80 ns | 20.40 us |
+
+LFSR candidate 的生成顺序为“输出 state LSB，state 右移；原 LSB 为 1 时 XOR mask”。该
+bit order、mask、seed 和 wire 波形在固件实现/HIL 前仍不是冻结契约；评估工具是当前
+candidate 的可重复事实源。
+
+选择 Manchester 而不是 differential-Manchester，是因为当前物理线序已经固定极性，
+普通 Manchester 的理想相邻 lag distance 多一个 sample。接收端仍同时计算反相信号的
+score；若反相 score 更优，报告 `POLARITY_MISMATCH`，不得静默接受为有效校准。
+
+最终图样还必须满足：
+
+- follower 无需知道 codebook，仍逐边沿透明转发。
+- epoch 不得通过循环移位 timing m-sequence 编码，否则“码相变化”会与“路径 delay 变化”
+  混淆。epoch 使用独立 header，并由反码和 CRC 校验。
+- 相关主峰与第二峰必须有明确 Hamming/correlation margin。
+- 物理最窄高/低电平先保持不小于第一阶段 HIL 证明可稳定返回的宽度。
+- 20 ns 半码元先作为性能 candidate；若脉冲缺失或 margin 不稳定，回退到 40 ns 半码元，
+  同时保留 4 ns raw-sample 相关能力。
+- marker 长度、capture window 和 DMA words 必须由命名常量/active profile 计算，不手写
+  某一频率的固定值。
+
+粗窗口不要求物理 chip 必须小于 `50 ns`：相关使用完整 marker，在粗窗口覆盖的所有候选
+lag 上比较。20 ns 半码元下，50 ns 粗窗覆盖 2.5 个半码元和 12.5 个 raw sample；40 ns
+回退档下仍可直接比较每个 4 ns lag。相关器绝不能先把 RX 解码成逻辑 bit 再做匹配，否则
+会把时间量化重新放大到 40/80 ns；必须直接在 Manchester raw waveform 上相关。
+
+### Candidate marker 格式
+
+第二阶段 v0 marker 建议由以下字段组成，全部使用同一 Manchester 半码元宽度：
+
+```text
+QUIET_LOW
+  -> SOF = Barker-13
+  -> HEADER16(version2, codebook2, epoch8, master_slot3, polarity1)
+  -> HEADER16_INV
+  -> HEADER_CRC8
+  -> TIMING = m-sequence 255
+  -> EOF = inverted Barker-13
+  -> QUIET_LOW
+```
+
+设计理由：
+
+- Barker-13 只负责快速找到 marker 边界，不承担最终 RTT 精度。
+- `HEADER16 + HEADER16_INV + CRC8` 证明 epoch/master/codebook 一致，并拒绝残留 marker。
+- 固定 `TIMING` 字段单独用于 lag correlation；epoch 变化不会移动 timing 码相。
+- EOF 和 quiet guard 用于证明完整捕获，并隔离相邻 trial。
+- quiet guard 由第一阶段 `coarse_high_ns + guard_margin_ns` 计算，不能固定成某个短延时。
+
+20 ns 半码元时，321 个逻辑位展开为约 3210 个 raw sample；按 32 sample/word 打包约为
+101 words。40 ns 回退档约为 201 words。capture window 还要增加 coarse RTT、前后 guard
+和 DMA 对齐，最终 word count 必须由 checked arithmetic 计算并与
+`TDMA_PIO_SPI_RX_RING_WORDS` 做容量门禁。
+
+header 的 CRC 多项式、bit endianness 和 codebook ID 仍是 candidate。它们在 C 编码器、
+Python golden vector、单元测试和板端 HIL 同时形成后再登记冻结。
+
+### Raw-sample 相关算法
+
+master 已知发送模板 `T[0..L-1]`，RX DMA 得到 `R[]`。第一阶段 bracket 转为有限 lag 集合
+`K`，对每个候选执行 32-bit XOR + popcount：
+
+```text
+D(k) = popcount(R[k : k+L] XOR T)
+k_best = argmin D(k)
+D_best = D(k_best)
+D_second = min(D(k)), k != k_best
+margin = D_second - D_best
+```
+
+50 ns bracket 在 4 ns 网格上最多只需约 14 个 lag 位置；评估工具默认还可使用 ±52 ns
+范围做 27 点保守搜索。m-sequence 255 Manchester 在无噪声模型中，相邻 4 ns 错位的
+Hamming distance 为 383，理论最近邻界限为 191 个 sample flips。191 只是理想码本指标，
+不能直接作为板端 accept threshold；真实阈值必须由四板 HIL 的 edge jitter、脉冲展宽和
+串扰分布冻结。
+
+板端接受条件至少同时包括：
+
+1. `D_best/L` 小于 codebook/profile 的最大错误率。
+2. `margin` 大于 HIL 冻结的最小主峰裕量。
+3. 正常极性 score 优于反相 score；否则报告极性错误。
+4. SOF/EOF 完整，HEADER/INV/CRC 正确，epoch/master/codebook 全部匹配。
+5. capture 未截断，TX/RX DMA 均完成且无 overrun/stall。
+6. 多次 trial 的 `k_best` 只落在允许的相邻 bin 集合，拒绝孤立远端峰。
+
+最终计算：
+
+```text
+spi_clk_round_trip_ns
+  = capture_origin_ns
+  + (k_best - timing_field_tx_origin_sample) * sample_period_ns
+  - calibrated_local_endpoint_bias_ns
+```
+
+`calibrated_local_endpoint_bias_ns` 必须来自同一 PIO persona 的本地校准；若尚未校准，结果
+只能发布 observed RTT，不得把 PIO output、GPIO synchronizer 和本机 RX pipeline 的固定
+延迟冒充线缆传播延迟。
+
+### 4 ns 以下的统计处理
+
+单次 `k_best` 是整数 sample。每个 master 建议重复 128 个 epoch，发布 lag histogram、
+mode、相邻 bin 比例、mean/stddev/p99 和 reject count。若自然抖动使结果在 `k` 与 `k+1`
+之间分布，可以计算亚 sample 均值供诊断和 DPLL 噪声模型使用，但 snapshot 必须同时保留：
+
+```text
+hardware_resolution_ns = 4
+integer_lag_sample
+lag_histogram[k-1..k+1]
+statistical_mean_ns
+statistical_confidence / sample_count
+```
+
+禁止仅发布小数均值并把 `hardware_resolution_ns` 改成 1 ns。PIO fractional divider 的指令
+仍在 `CLK_SYS` 边沿执行，不能产生可靠的 1/2/1/4-cycle 输入采样相位；仅调整 divider 或
+增加码长都不能突破当前 4 ns 单次硬量化。
+
+### 板内数据路径
+
+```text
+core1 选择 epoch/codebook
+  -> coded TX PIO 发送固定 marker
+  -> follower PIO 透明转发
+  -> master RX PIO 以 CLK_SYS 采样 RX CLK
+  -> DMA 写入固定大小 capture window
+  -> core1 在有界候选窗口内做相关/Hamming 匹配
+  -> guarded snapshot 发布 peak、margin、RTT 和质量
+```
+
+core1 相关器只处理固定上限的采样窗口，不动态分配内存，不遍历无界历史。原始样本先写入
+专用 DMA buffer；core0、SCPI、日志和 USB 不得访问正在写入的 buffer。完成后通过 generation
+翻转只读 buffer 或发布压缩 evidence。
+
+当前 PIO2 训练/普通程序约使用 24/32 条 instruction；coded TX 可使用一条
+`out pins,1`，oversampling RX 可使用一条 `in pins,1`，总量约 26/32。master 使用现有两个
+SM 分别 TX/RX，follower 继续只用 forwarding SM。coded TX 和 RX 都需要 DMA：RX 可复用
+训练 persona 当前的 RX DMA ownership，TX DMA 必须加入 `TdmaFoundationProfile` resource
+claim，不能在物理层私自硬编码一个未声明 channel。
+
+master 启动顺序必须是：生成固定 TX buffer 和 expected template、配置 RX DMA、配置 TX DMA
+并预装 FIFO、清 IRQ/FIFO、最后用 `pio_enable_sm_mask_in_sync()` 同时启动 TX/RX SM。leading
+quiet samples 吸收同步启动偏差；`capture_origin`、`timing_field_tx_origin_sample` 和 DMA
+transfer count 都写入同一 guarded snapshot。
+
+### 板内指令触发闭环
+
+目标产品行为是“训练流程在板卡中，通过指令触发执行”，分两步落地：
+
+1. **最小闭环**：保留 `tdma_clk_train.py` 按唯一地址向各板发准备/触发指令，但每个 trial、
+   重复统计、相关匹配和 snapshot 全部在板内完成。host 不参与实时判定。
+2. **产品闭环**：只向当前 reference 提交一次训练 intent。reference 在普通 TDMA persona 下
+   发送带 epoch/topology/profile/commit sequence 的 TRAIN control，收齐 active-node ACK
+   bitmap 后，在约定序号统一切换 training persona；四主轮换、计算和恢复均由板内协调器
+   完成。
+
+产品闭环时序：
+
+```text
+显式 SCPI intent
+  -> core0 command slot
+  -> core1 校验 STOPPED/maintenance gate
+  -> TRAIN_PREPARE(epoch, topology/profile CRC, commit_seq)
+  -> 收齐 active-node ACK bitmap
+  -> 到 commit_seq 统一切换 PIO persona
+  -> CLOCK_COARSE
+  -> CLOCK_CODED
+  -> 四主轮换与质量计算
+  -> 发布 VALID 或 FAILED snapshot
+  -> 全节点恢复普通 persona并停在 STOPPED
+```
+
+不能在切换到 CLK-only persona 后再依赖普通 DATA frame 协调节点，所以 PREPARE、ACK 和
+commit sequence 必须在普通 TDMA persona 仍运行时完成。任一 active 节点未 ACK、拓扑 CRC
+变化或 commit miss，都必须取消本 epoch，禁止部分节点进入训练。
+
+现有 `SYSTem:TDMA:RING:TRAIN <cycles>` 保留第一阶段单 trial 诊断语义。产品级“一条指令
+触发完整训练”的 SCPI 拼写、参数和状态字段在代码/测试完成前不在本文冻结；但它必须复用
+上述 command-slot 和 snapshot 边界，不能新增同步直达 PIO 的旁路。
+
+### 第二阶段实施待办
+
+- [ ] P2-1：冻结候选 codebook 生成器和离线自相关测试，覆盖主峰、第二峰、循环移位、反相、
+  单 chip 缺失/重复和上一 epoch 残留。
+  - 进行中：`tdma_clk_codebook_eval.py` 已完成最大长度 LFSR、NRZ/Manchester/
+    differential-Manchester 和 raw-sample lag margin 评估；当前首选 m-sequence 255 +
+    Manchester，仍需增加 marker header/CRC golden vector 和缺失/重复 edge 注入。
+- [ ] P2-2：用现有 CLK pulse HIL 扫描 `20/40/60/80 ns` 最窄高低电平，选择 robust chip；
+  失败自动回退，不用 35 MHz 结果作为精度前提。
+- [ ] P2-3：实现 coded TX PIO。marker、guard、epoch variant 和循环次数从固定 profile/FIFO
+  输入，不由 core1 逐边沿喂数。
+- [ ] P2-4：实现 master RX 过采样 PIO + DMA 固定窗口；TX epoch 和 RX capture 使用同一
+  `CLK_SYS` 时间基准，并记录真实硬件 capture origin。
+- [ ] P2-5：实现 core1 有界相关状态机，输出 `peak_index/peak_value/second_peak/margin`、
+  Hamming distance、accepted/rejected reason 和重复统计。
+- [ ] P2-6：把 `CLOCK_COARSE -> CLOCK_CODED` 接入 TDMA owner 非阻塞状态机；训练中禁止
+  core0/USB/日志影响 PIO/DMA buffer ownership。
+- [ ] P2-7：扩展 guarded snapshot，绑定唯一板卡地址、logical slot、topology/profile/
+  schedule CRC、baud、codebook ID、epoch、sample period 和 calibration generation。
+- [ ] P2-8：实现 TRAIN_PREPARE/ACK/commit sequence，先完成工具按唯一 ID 触发的最小闭环，
+  再完成 reference 单指令协调全环的产品闭环。
+- [ ] P2-9：扩展 `tdma_clk_train.py` 使用固件返回的相关结果，只做批量触发、UTF-8
+  JSON/CSV/summary 和评分；禁止 host 自己重算板端实时判定结果作为唯一事实源。
+- [ ] P2-10：增加 unit/HIL 门禁：码元错位、反相、缺失/重复、低 margin、DMA overrun、
+  capture truncation、master 掉线、ACK 缺失、commit miss、profile/topology 改变和恢复 persona。
+- [ ] P2-11：四个 master 每点至少重复 100 次，统计 min/max/mean/p99/stddev、peak margin 和
+  混合/拒绝比例；先在 10/25/30 MHz 验证，35 MHz 只保留实验档。
+- [ ] P2-12：只有真实 PIO/DMA hardware latch、重复门禁和跨主一致性通过后，才允许清除
+  `TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY`；随后再进入短 TRAIN frame 和完整 path-delay
+  校准。
+
+## 第二阶段验收门槛
+
+第二阶段完成至少需要同时满足：
+
+| 门禁 | 要求 |
+|---|---|
+| 身份 | 报告和 calibration key 只使用唯一板卡地址 + logical slot |
+| 协调 | 所有 active 节点同一 epoch、topology/profile CRC、commit sequence |
+| 实时边界 | TX/RX/forward/capture 在 PIO/DMA；core1 只做有界状态机和相关 |
+| 码元定位 | 主峰唯一，主峰/第二峰 margin 达到冻结阈值，无 epoch 歧义 |
+| 时间证据 | 同一硬件时间基准，sample period 和 latch flags 明确 |
+| 重复性 | 四主多次重复无系统性 slot 偏移，mixed/reject 比例低于冻结阈值 |
+| 故障恢复 | 任一失败统一 STOP，普通 persona 可重建，不形成无限 CLK 环 |
+| DPLL 门禁 | 未满足 hardware-latched、非 diagnostic-only 前，VDC/DPLL 必须拒绝 |
+
+完成编码 CLK RTT 后，下一阶段才是带 DATA/CS/CRC 的短 TRAIN frame、节点 residence 和
+`frame_complete_round_trip_ns`。只有完整帧 RTT 才能生成运行态 RX window、guard 和
+feedback timeout。

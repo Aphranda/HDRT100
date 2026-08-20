@@ -49,6 +49,8 @@
 #define TDMA_PIO_SPI_RX_DMA_CHANNEL 4u
 #define TDMA_PIO_SPI_TRAIN_CLOCK_DEFAULT_CYCLES 4096u
 #define TDMA_PIO_SPI_TRAIN_CLOCK_MAX_CYCLES 65536u
+#define TDMA_PIO_SPI_TRAIN_RETURN_TIMEOUT_NS 100000000ull
+#define TDMA_PIO_SPI_CLK_TRAIN_SNAPSHOT_VERSION 1u
 #define TDMA_PIO_SPI_FRAME_WORDS \
     (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_FRAME_HEADER_SIZE)
 
@@ -65,6 +67,44 @@ typedef enum {
     TDMA_PIO_SPI_ROLE_MASTER = 0u,
     TDMA_PIO_SPI_ROLE_SLAVE = 1u,
 } tdma_pio_spi_role_t;
+
+typedef enum {
+    TDMA_PIO_SPI_CLK_TRAIN_IDLE = 0u,
+    TDMA_PIO_SPI_CLK_TRAIN_FORWARDING = 1u,
+    TDMA_PIO_SPI_CLK_TRAIN_MASTER_RUNNING = 2u,
+    TDMA_PIO_SPI_CLK_TRAIN_MASTER_COMPLETE = 3u,
+    TDMA_PIO_SPI_CLK_TRAIN_ERROR = 4u,
+} tdma_pio_spi_clk_train_state_t;
+
+typedef enum {
+    TDMA_PIO_SPI_CLK_TRAIN_RESULT_NONE = 0u,
+    TDMA_PIO_SPI_CLK_TRAIN_RESULT_FORWARD_ARMED = 1u,
+    TDMA_PIO_SPI_CLK_TRAIN_RESULT_RETURN_OVERLAP = 2u,
+    TDMA_PIO_SPI_CLK_TRAIN_RESULT_NO_OVERLAP = 3u,
+    TDMA_PIO_SPI_CLK_TRAIN_RESULT_REJECTED = 4u,
+    TDMA_PIO_SPI_CLK_TRAIN_RESULT_RETURN_TIMEOUT = 5u,
+} tdma_pio_spi_clk_train_result_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t state;
+    uint32_t result;
+    uint32_t role;
+    uint32_t request_seq;
+    uint32_t service_count;
+    uint32_t baud_hz;
+    uint32_t requested_cycles;
+    uint32_t return_seen;
+    uint32_t return_before_tx_done;
+    uint32_t tx_sck_pin;
+    uint32_t rx_sck_pin;
+    uint32_t timestamp_resolution_ns;
+    uint32_t timestamp_flags;
+    uint64_t tx_start_timestamp_ns;
+    uint64_t tx_done_observed_timestamp_ns;
+    uint64_t return_observed_timestamp_ns;
+    uint64_t burst_duration_ns;
+} tdma_pio_spi_clk_train_snapshot_t;
 
 typedef struct {
     uint32_t armed;
@@ -145,6 +185,9 @@ typedef struct {
     size_t rx_capture_max_words;
     uint32_t rx_capture_last_remaining;
     uint64_t rx_capture_last_change_us;
+    volatile uint32_t clk_train_guard;
+    tdma_pio_spi_clk_train_snapshot_t clk_train;
+    uint64_t clk_train_return_deadline_ns;
 } tdma_pio_spi_phys_t;
 
 /* Called by the ring adapter start() once the active ring config is known.
@@ -152,9 +195,14 @@ typedef struct {
 bool tdma_pio_spi_phys_arm(void *context,
                            const tdma_ring_runtime_config_t *config);
 void tdma_pio_spi_phys_disarm(void *context);
-/* Emit idle clocks without opening a frame. CS stays high and DATA is zero;
- * cycles must be a whole number of bytes. */
+/* Submit first-stage SPI CLK training on the TDMA owner/core1 path. A forward
+ * node enters RX-CLK -> TX-CLK regeneration. The reference node starts an
+ * autonomous CLK burst and return-edge overlap detector. */
 bool tdma_pio_spi_phys_train_clock(void *context, uint32_t cycles);
+void tdma_pio_spi_phys_train_clock_service(void *context, uint64_t now_ns);
+bool tdma_pio_spi_phys_get_clk_train_snapshot(
+    const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_clk_train_snapshot_t *snapshot);
 bool tdma_pio_spi_phys_get_snapshot(const tdma_pio_spi_phys_t *phys,
                                     tdma_pio_spi_phys_snapshot_t *snapshot);
 

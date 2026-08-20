@@ -45,8 +45,10 @@ int main(void)
     failed += expect_bool("level 18", tdma_operating_profile_get(18u, &profile), true);
     failed += expect_u32("100 us baud", profile.baud_hz, 50000000u);
     failed += expect_u32("100 us period", profile.cycle_period_ns, 100000u);
-    failed += expect_bool("level 19 rejected",
-                          tdma_operating_profile_get(19u, &profile), false);
+    failed += expect_bool("level 19 low-speed",
+                          tdma_operating_profile_get(19u, &profile), true);
+    failed += expect_u32("1 MHz baud", profile.baud_hz, 1000000u);
+    failed += expect_u32("1 MHz period", profile.cycle_period_ns, 2000000u);
     failed += expect_bool("find 35 MHz",
                           tdma_operating_profile_find_baud(35000000u, &profile), true);
     failed += expect_u32("35 MHz level", profile.level, 3u);
