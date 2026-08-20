@@ -230,6 +230,8 @@ scpi_result_t scpi_cmd_watchdog_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.evidence_stale_mask);
     SCPI_ResultUInt32(context, status.evidence_core0_loop_count);
     SCPI_ResultUInt32(context, status.evidence_core1_loop_count);
+    SCPI_ResultUInt32(context, status.evidence_core0_progress);
+    SCPI_ResultUInt32(context, status.evidence_core1_progress);
     SCPI_ResultUInt32(context, status.gate_required_mask);
     SCPI_ResultUInt32(context, status.last_seen_mask);
     SCPI_ResultUInt32(context, status.last_stale_mask);
@@ -308,6 +310,8 @@ scpi_result_t scpi_cmd_watchdog_log_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.evidence_stale_mask);
     SCPI_ResultUInt32(context, status.evidence_core0_loop_count);
     SCPI_ResultUInt32(context, status.evidence_core1_loop_count);
+    SCPI_ResultUInt32(context, status.evidence_core0_progress);
+    SCPI_ResultUInt32(context, status.evidence_core1_progress);
     return SCPI_RES_OK;
 }
 

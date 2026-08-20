@@ -147,7 +147,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | Metadata failsafe | Bootloader 必须定义 metadata 双副本无效的强制恢复路径，禁止继续启动未知镜像。 |
 | FB 非阻塞 | FB action 必须立即返回；耗时动作返回 `FB_RESULT_BUSY` 且 `next_state=self`，由 AO service 后续 tick 分步推进。 |
 
-## 已冻结域契约登记（2026-08-19）
+## 已冻结域契约登记（2026-08-20）
 
 以下条目只提供顶层可见性；契约内容和版本以 `docs/check/DOCS_REGISTRY.md` 及对应域 canonical 文档为事实源。
 
@@ -158,6 +158,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `TDMA-HOP-01` | `hop_limit` 归属 ring profile | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:196,477` | 分布式确定性通讯约束。 |
 | `REFMEM-260B-01` | `critical delta <= 260 B` | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:194` | RefMem 实时短帧容量约束。 |
 | `VDC-DPLL-01` | DPLL 准入要求 `timestamp_resolution_ns <= 100` 且来自硬实时 latch | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:293` | 分布式共同时间证据门禁。 |
+| `TDMA-FLIGHT-BITMAP-01` | SHORT process image 固定 8×32 B，每 slot 前 8 B 由 core1 快速分类生成 RX 位图 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | 8 板统一 wire plan、单写多读和 core0 按位图解析。 |
 
 ## 分层职责
 

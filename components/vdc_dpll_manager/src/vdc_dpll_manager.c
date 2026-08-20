@@ -1036,16 +1036,16 @@ bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot)
 
 bool vdc_dpll_manager_get_tdma_snapshot(tdma_service_snapshot_t *snapshot)
 {
-    bool result = false;
     if (snapshot == NULL) {
         return false;
     }
 
-    osal_critical_enter();
-    result = s_vdc_tdma_registered && s_vdc_tdma_service != NULL &&
-             tdma_service_get_snapshot(s_vdc_tdma_service, snapshot);
-    osal_critical_exit();
-    return result;
+    /* Both values are published once by vdc_dpll_manager_init(), before core1
+     * starts, and never changed during runtime.  The service fields themselves
+     * use seqlock guards, so the read path must not contend on the global OSAL
+     * lock with the realtime writer. */
+    return s_vdc_tdma_registered && s_vdc_tdma_service != NULL &&
+           tdma_service_get_snapshot(s_vdc_tdma_service, snapshot);
 }
 
 bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,

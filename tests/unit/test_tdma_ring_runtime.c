@@ -217,6 +217,16 @@ int main(void)
                          0u);
     failed += expect_u32("adapter stopped", adapter.stop_count, 1u);
 
+    runtime.config_guard = 1u;
+    failed += expect_bool("odd config guard is bounded",
+                          tdma_ring_runtime_get_snapshot(&runtime, &snapshot),
+                          false);
+    runtime.config_guard = 0u;
+    runtime.result_guard = 1u;
+    failed += expect_bool("odd result guard is bounded",
+                          tdma_ring_runtime_get_snapshot(&runtime, &snapshot),
+                          false);
+
     if (failed != 0) {
         return 1;
     }

@@ -108,6 +108,8 @@ void diagnostics_init(void)
     s_watchdog_status.evidence_stale_mask = reset.scratch[2] >> 16u;
     s_watchdog_status.evidence_core0_loop_count = reset.scratch[3] & 0xFFFFu;
     s_watchdog_status.evidence_core1_loop_count = reset.scratch[3] >> 16u;
+    s_watchdog_status.evidence_core0_progress = reset.core0_progress;
+    s_watchdog_status.evidence_core1_progress = reset.core1_progress;
 
     if (s_watchdog_status.last_reset_watchdog) {
         LOG_WARN("watchdog", "previous reset=%s reason=0x%08lx expected=0x%08lx seen=0x%08lx stale=0x%08lx",

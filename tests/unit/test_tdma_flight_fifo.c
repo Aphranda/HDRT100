@@ -169,6 +169,65 @@ int main(void)
     failed += expect_u32("rx release count", snapshot.rx_release_count, 2u);
     failed += expect_u32("rx queued empty", snapshot.rx_queued_count, 0u);
 
+    failed += expect_bool("publish tx corrupt candidate",
+                          tdma_flight_fifo_core0_publish_tx(&fifo,
+                                                            tx2,
+                                                            sizeof(tx2),
+                                                            3u,
+                                                            102u,
+                                                            0x4u),
+                          true);
+    fifo.tx_ring[fifo.tx_tail % TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT].sequence++;
+    failed += expect_bool("reject corrupt tx descriptor without wedging",
+                          tdma_flight_fifo_core1_acquire_tx(&fifo, &tx_view),
+                          false);
+    failed += expect_bool("publish tx after corrupt descriptor",
+                          tdma_flight_fifo_core0_publish_tx(&fifo,
+                                                            tx0,
+                                                            sizeof(tx0),
+                                                            4u,
+                                                            103u,
+                                                            0x1u),
+                          true);
+    failed += expect_bool("acquire tx after corrupt descriptor",
+                          tdma_flight_fifo_core1_acquire_tx(&fifo, &tx_view),
+                          true);
+    failed += expect_u32("tx recovery sequence", tx_view.sequence, 103u);
+    tdma_flight_fifo_core1_release_tx(&fifo);
+
+    failed += expect_bool("publish rx corrupt candidate",
+                          tdma_flight_fifo_core1_publish_rx(&fifo,
+                                                            rx0,
+                                                            sizeof(rx0),
+                                                            12u,
+                                                            202u,
+                                                            0x10u,
+                                                            123656ull,
+                                                            0u),
+                          true);
+    fifo.rx_ring[fifo.rx_tail % TDMA_FLIGHT_RX_FRAME_SLOT_COUNT].sequence++;
+    failed += expect_bool("reject corrupt rx descriptor without wedging",
+                          tdma_flight_fifo_core0_acquire_rx(&fifo, &rx_view),
+                          false);
+    failed += expect_bool("publish rx after corrupt descriptor",
+                          tdma_flight_fifo_core1_publish_rx(&fifo,
+                                                            rx1,
+                                                            sizeof(rx1),
+                                                            13u,
+                                                            203u,
+                                                            0x20u,
+                                                            123756ull,
+                                                            0u),
+                          true);
+    failed += expect_bool("acquire rx after corrupt descriptor",
+                          tdma_flight_fifo_core0_acquire_rx(&fifo, &rx_view),
+                          true);
+    failed += expect_u32("rx recovery sequence", rx_view.sequence, 203u);
+    failed += expect_bool("release rx recovery",
+                          tdma_flight_fifo_core0_release_rx(
+                              &fifo, rx_view.slot_index),
+                          true);
+
     if (failed != 0) {
         return 1;
     }

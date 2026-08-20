@@ -4,9 +4,30 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-08-19
+Last updated: 2026-08-20
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
+
+### TDMA-TASK-20260820-001 - 八槽 RX 位图快路径
+
+- 状态：完成首版代码、主机/ARM 验证和两板 HIL；待 3..8 板扩展验证及契约交叉审核。
+- 日期：2026-08-20
+- 任务目标：按最大 8 板统一 process image，把 core0 RTOS 从无变化 slot 的快速过滤路径移出，同时保持单 writer、多方读取和 FIFO 非阻塞语义。
+- 完成内容：
+  - SHORT process image 固定为 8 × 32 B；每 slot 前 8 B 为 `magic/version/source_slot/target_mask/seq16` 快速头，后 24 B 对 core1 opaque。
+  - core1 只扫描 remote slot 快速头并生成 `input_segment_mask`；core0 RefMem 只解析命中 slot，空 mask 不再回退全帧扫描。
+  - TX/RX descriptor 同时校验 `slot_index/generation/sequence`；损坏项被丢弃并推进 ring，不阻塞 wire path。
+  - RX seq16 去重改为 classify/commit 两阶段：RX FIFO 发布成功后才提交，FIFO 满时同一 mailbox 可以重试。
+  - `SYSTem:TDMA:FLIGHT:PROCess?` 追加 bitmap scan/hit/duplicate 计数。
+  - 新增只读 `SYSTem:REFMEM:SYNC:FLIGHT?` 和 `tools/tdma_ring_monitor/flight_bitmap_validate.py`，按 `*IDN?` 唯一地址完成 2..8 板 core1/FIFO/core0 计数关联验收。
+- 验证结果：
+  - MinGW host unit test scripts 27/27 通过，包含 flight FIFO、payload registry、ring runtime、service scheduler 和 PIO SPI ring adapter。
+  - 双核 FreeRTOS A/B、Factory UF2 与 OTA package 构建通过。
+  - 两板均通过 `*IDN?` 唯一地址识别，ring 上下行进入 running，`ring_adapter_rx_bad_count=0`。
+  - 30 s 位图闭环中，转发节点 `map_apply +14921`、`bitmap_hit +14921`、`refmem_rx_accept +14922`；参考节点按设计不执行 map apply，`bitmap_hit +14916`、`refmem_rx_accept +14914`。
+  - 两板 `fifo_rx_drop=0`、`refmem_rx_reject=0`、`refmem_rx_bad=0`、`bitmap_duplicate=0`。
+  - 文档 strict names 和 doc regression 均通过。
+- 后续验证：扩展到 3..8 板，并在 1 ms/100 us/10 us 周期和更高 SPI 速率下记录负载、FIFO 水位、端到端延迟与丢弃计数。
 
 ### TDMA-TASK-20260819-002 - EtherCAT-style fixed-offset flight processing
 

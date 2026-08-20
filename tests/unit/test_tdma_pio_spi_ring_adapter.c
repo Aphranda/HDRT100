@@ -155,42 +155,25 @@ static tdma_process_image_map_t make_flight_map(void)
 {
     tdma_process_image_map_t map = {
         .version = TDMA_PROCESS_IMAGE_MAP_VERSION,
-        .payload_size = 12u,
-        .segment_count = 4u,
+        .payload_size = 64u,
+        .segment_count = 2u,
         .segment = {
             {
                 .used = 1u,
                 .segment_id = 0u,
-                .owner_slot_id = 1u,
+                .owner_slot_id = 0u,
                 .payload_class = 1u,
                 .byte_offset = 0u,
-                .byte_length = 2u,
+                .byte_length = 32u,
+                .flags = TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE,
             },
             {
                 .used = 1u,
                 .segment_id = 1u,
-                .owner_slot_id = 0u,
-                .payload_class = 1u,
-                .byte_offset = 2u,
-                .byte_length = 2u,
-                .flags = TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE,
-            },
-            {
-                .used = 1u,
-                .segment_id = 2u,
                 .owner_slot_id = 1u,
                 .payload_class = 1u,
-                .byte_offset = 4u,
-                .byte_length = 3u,
-                .flags = TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE,
-            },
-            {
-                .used = 1u,
-                .segment_id = 3u,
-                .owner_slot_id = 1u,
-                .payload_class = 1u,
-                .byte_offset = 8u,
-                .byte_length = 2u,
+                .byte_offset = 32u,
+                .byte_length = 32u,
                 .flags = TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE,
             },
         },
@@ -823,20 +806,23 @@ int main(void)
         loopback_phys_t phys;
         tdma_ring_runtime_config_t config = make_valid_config();
         tdma_process_image_map_t map = make_flight_map();
-        const uint8_t incoming[] = {
-            0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u,
-            0x16u, 0x17u, 0x18u, 0x19u, 0x1Au, 0x1Bu,
-        };
-        const uint8_t tx_image[] = {
-            0x80u, 0x81u, 0x82u, 0x83u, 0x84u, 0x85u,
-            0x86u, 0x87u, 0x88u, 0x89u, 0x8Au, 0x8Bu,
-        };
+        uint8_t incoming[64];
+        uint8_t tx_image[64];
         uint8_t incoming_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
         size_t incoming_packet_size = 0u;
         tdma_transport_result_t transport_result = TDMA_TRANSPORT_OK;
         tdma_transport_frame_view_t forwarded_view;
 
         memset(&phys, 0, sizeof(phys));
+        memset(incoming, 0x10, sizeof(incoming));
+        memset(tx_image, 0x80, sizeof(tx_image));
+        incoming[0] = 0x52u;
+        incoming[1] = 0x46u;
+        incoming[2] = 1u;
+        incoming[4] = 0u;
+        incoming[5] = 1u << 1u;
+        incoming[6] = 1u;
+        incoming[7] = 0u;
         phys.suppress_echo = true;
         config.local_slot_id = 1u;
         config.reference_slot_id = 0u;
@@ -899,7 +885,7 @@ int main(void)
                                   sizeof(tx_image),
                                   7u,
                                   40u,
-                                  (1u << 2u) | (1u << 3u)),
+                                  1u << 1u),
                               true);
         failed += expect_bool("flight incoming encode",
                               tdma_transport_frame_encode(&build,
@@ -925,22 +911,13 @@ int main(void)
         failed += expect_u32("flight forwarded hop",
                              forwarded_view.hop_count, 1u);
         failed += expect_bool("flight input segment unchanged",
-                              memcmp(forwarded_view.payload, incoming, 4u) == 0,
+                              memcmp(forwarded_view.payload, incoming, 32u) == 0,
                               true);
-        failed += expect_bool("flight local segment 2 replaced",
-                              memcmp(forwarded_view.payload + 4u,
-                                     tx_image + 4u,
-                                     3u) == 0,
+        failed += expect_bool("flight local slot replaced",
+                              memcmp(forwarded_view.payload + 32u,
+                                     tx_image + 32u,
+                                     32u) == 0,
                               true);
-        failed += expect_u32("flight gap unchanged",
-                             forwarded_view.payload[7], incoming[7]);
-        failed += expect_bool("flight local segment 3 replaced",
-                              memcmp(forwarded_view.payload + 8u,
-                                     tx_image + 8u,
-                                     2u) == 0,
-                              true);
-        failed += expect_u32("flight tail unchanged",
-                             forwarded_view.payload[10], incoming[10]);
         if (tdma_flight_fifo_core0_acquire_rx(&fifo, &rx_view)) {
             failed += expect_u32("flight input mask",
                                  rx_view.segment_mask, 1u << 0u);
@@ -974,7 +951,7 @@ int main(void)
         failed += expect_u32("flight stale generation reused",
                              adapter_snapshot.flight_tx_stale_reuse_count, 1u);
         failed += expect_u32("flight output byte accounting",
-                             adapter_snapshot.flight_output_bytes, 10u);
+                             adapter_snapshot.flight_output_bytes, 64u);
 
         tdma_transport_frame_build_t short_build = build;
         short_build.payload_size = sizeof(incoming) - 1u;
@@ -1021,7 +998,16 @@ int main(void)
                                                           &incoming_packet_size,
                                                           &transport_result),
                               true);
-        for (uint32_t i = 0u; i < TDMA_FLIGHT_RX_FRAME_SLOT_COUNT; i++) {
+        for (uint32_t i = 0u; i <= TDMA_FLIGHT_RX_FRAME_SLOT_COUNT; i++) {
+            incoming[6] = (uint8_t)(i + 2u);
+            failed += expect_bool("flight rx fill encode",
+                                  tdma_transport_frame_encode(
+                                      &build,
+                                      incoming_packet,
+                                      sizeof(incoming_packet),
+                                      &incoming_packet_size,
+                                      &transport_result),
+                                  true);
             failed += expect_bool("flight rx fill inject",
                                   tdma_pio_spi_ring_adapter_inject_rx(
                                       &adapter,
@@ -1038,16 +1024,57 @@ int main(void)
                               true);
         failed += expect_u32("flight rx mirror full drops",
                              fifo_snapshot.rx_mirror_drop_count, 1u);
+        failed += expect_bool("flight release one before retry",
+                              tdma_flight_fifo_core0_acquire_rx(&fifo,
+                                                                &rx_view),
+                              true);
+        failed += expect_bool("flight release retry space",
+                              tdma_flight_fifo_core0_release_rx(
+                                  &fifo, rx_view.slot_index),
+                              true);
+        failed += expect_bool("flight retry uncommitted mailbox",
+                              tdma_pio_spi_ring_adapter_inject_rx(
+                                  &adapter,
+                                  incoming_packet,
+                                  incoming_packet_size,
+                                  4500ull),
+                              true);
+        tdma_ring_runtime_service(&runtime);
+        bool retried_seq_seen = false;
+        while (tdma_flight_fifo_core0_acquire_rx(&fifo, &rx_view)) {
+            if (rx_view.data != NULL && rx_view.data_size == sizeof(incoming) &&
+                rx_view.data[6] == incoming[6]) {
+                retried_seq_seen = true;
+            }
+            failed += expect_bool("flight drain retry queue",
+                                  tdma_flight_fifo_core0_release_rx(
+                                      &fifo, rx_view.slot_index),
+                                  true);
+        }
+        failed += expect_bool("flight retry delivered after fifo space",
+                              retried_seq_seen,
+                              true);
         failed += expect_u32("flight forward survives rx full",
-                             adapter.forward_count, 7u);
+                             adapter.forward_count, 9u);
         (void)tdma_pio_spi_ring_adapter_get_snapshot(&adapter,
                                                      &adapter_snapshot);
         failed += expect_u32("flight successful map count",
-                             adapter_snapshot.flight_map_apply_count, 6u);
+                             adapter_snapshot.flight_map_apply_count, 8u);
         failed += expect_u32("flight successful stale count",
-                             adapter_snapshot.flight_tx_stale_reuse_count, 5u);
+                             adapter_snapshot.flight_tx_stale_reuse_count, 7u);
         failed += expect_u32("flight accumulated output bytes",
-                             adapter_snapshot.flight_output_bytes, 30u);
+                             adapter_snapshot.flight_output_bytes, 256u);
+        tdma_flight_engine_snapshot_t engine_snapshot;
+        failed += expect_bool("flight bitmap snapshot",
+                              tdma_flight_engine_get_snapshot(
+                                  &engine, &engine_snapshot),
+                              true);
+        failed += expect_u32("flight bitmap scans",
+                             engine_snapshot.rx_bitmap_scan_count, 8u);
+        failed += expect_u32("flight bitmap commits",
+                             engine_snapshot.rx_bitmap_hit_count, 6u);
+        failed += expect_u32("flight bitmap duplicates",
+                             engine_snapshot.rx_bitmap_duplicate_count, 1u);
     }
 
     if (failed != 0) {

@@ -81,6 +81,11 @@ Get-Content -Path tools\README.md -Encoding UTF8
   management, checks identity/build/core/VDC/DPLL/config/SlotClaim snapshots,
   verifies default SlotClaim evidence is empty, and can compare build id and
   SlotClaimMap CRC before later RJ45 `CLAIM_*` tests are enabled.
+- `tdma_ring_monitor/flight_bitmap_validate.py`: read-only 2..8 board cyclic
+  process-image validator. Boards are discovered by the unique address returned
+  from `*IDN?`, never by COM number. It correlates core1 bitmap scan/hit/drop,
+  cross-core FIFO counters, and core0 RefMem mailbox accept/reject counters over
+  a fixed window, then writes `summary.json` under `build-validation/`.
 - `vdc_observer_validate/vdc_observer_validate.py`: VDC raw capture observer
   maintenance runner. It opens one or more CDC ports, verifies the safe disable
   path, enables the observer with a minimal explicit config, asserts the 40-field

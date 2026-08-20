@@ -8,11 +8,14 @@
 #include "board.h"
 #include "calibration_manager.h"
 #include "diagnostics.h"
+#include "drv_watchdog.h"
 #include "loop_engine.h"
 #include "led_manager.h"
 #include "osal.h"
 #include "project_config.h"
 #include "ui_manager.h"
+
+#define APP_PROGRESS(task, phase) (((uint32_t)(task) << 8u) | (uint32_t)(phase))
 
 static void task_system(void *context)
 {
@@ -27,10 +30,14 @@ static void task_system(void *context)
     diagnostics_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
 
     while (true) {
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(1u, 1u));
         diagnostics_record_core0_loop();
         board_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(1u, 2u));
         led_manager_service(app_is_ready());
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(1u, 3u));
         app_diag_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(1u, 4u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_SYSTEM);
         diagnostics_watchdog_service();
         osal_task_delay_ms(1u);
@@ -47,7 +54,9 @@ static void task_usb_device(void *context)
             continue;
         }
 
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(2u, 1u));
         app_usb_device_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(2u, 2u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_USB_DEVICE);
         osal_task_delay_ms(1u);
     }
@@ -63,7 +72,9 @@ static void task_scpi(void *context)
             continue;
         }
 
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(3u, 1u));
         app_scpi_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(3u, 2u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_SCPI);
         osal_task_delay_ms(1u);
     }
@@ -79,7 +90,9 @@ static void task_refmem_sync(void *context)
             continue;
         }
 
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(4u, 1u));
         app_refmem_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(4u, 2u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_REFMEM_SYNC);
         osal_task_delay_ms(1u);
     }
@@ -95,8 +108,10 @@ static void task_loop_engine(void *context)
             continue;
         }
 
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(5u, 1u));
         loop_engine_set_ready(true);
         loop_engine_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(5u, 2u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_LOOP_ENGINE);
         osal_task_delay_ms(1u);
     }
@@ -112,8 +127,10 @@ static void task_calibration(void *context)
             continue;
         }
 
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(6u, 1u));
         calibration_manager_set_ready(true);
         calibration_manager_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(6u, 2u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CALIBRATION);
         osal_task_delay_ms(1u);
     }
@@ -129,7 +146,9 @@ static void task_config_gate(void *context)
             continue;
         }
 
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(7u, 1u));
         app_config_gate_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(7u, 2u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CONFIG_GATE);
         osal_task_delay_ms(1u);
     }
@@ -145,7 +164,9 @@ static void task_ota(void *context)
             continue;
         }
 
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(8u, 1u));
         app_ota_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(8u, 2u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_OTA);
         osal_task_delay_ms(1u);
     }
@@ -161,7 +182,9 @@ static void task_storage(void *context)
             continue;
         }
 
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(9u, 1u));
         app_storage_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(9u, 2u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_STORAGE);
         osal_task_delay_ms(1u);
     }
@@ -177,7 +200,9 @@ static void task_ui(void *context)
             continue;
         }
 
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(10u, 1u));
         ui_manager_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(10u, 2u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_UI);
         osal_task_delay_ms(1u);
     }

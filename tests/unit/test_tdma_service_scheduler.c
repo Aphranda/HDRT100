@@ -242,6 +242,19 @@ int main(void)
     failed += expect_u32("snapshot",
                          tdma_service_get_snapshot(&service, &snapshot),
                          1u);
+    service.intent_guard |= 1u;
+    failed += expect_u32("odd intent guard is bounded",
+                         tdma_service_get_snapshot(&service, &snapshot),
+                         0u);
+    service.intent_guard++;
+    service.result_guard |= 1u;
+    failed += expect_u32("odd result guard is bounded",
+                         tdma_service_get_snapshot(&service, &snapshot),
+                         0u);
+    service.result_guard++;
+    failed += expect_u32("snapshot recovers after guard closes",
+                         tdma_service_get_snapshot(&service, &snapshot),
+                         1u);
     failed += expect_u32("flight snapshot",
                          tdma_service_get_flight_fifo_snapshot(&service,
                                                                &flight_snapshot),

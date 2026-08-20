@@ -230,6 +230,47 @@ core1 不能调用 VDC、RefMem、Trigger 或其他业务解码器，也不能�
 slot、offset、length、frame length 和 CRC policy 都来自已通过 DeploymentGate 的
 active wire plan，并在 RUN 中保持不变。
 
+#### 八槽短帧与 RX 位图快路径
+
+首版多板 cyclic process image 固定使用 `tdma_flight_engine.h` 中的 wire 常量：短帧
+process-image payload 为 256 B，分成 8 个 32 B slot。A0-A7 各自是唯一 writer，
+任意 active 节点可以读取其他 slot；2/3/4 板与 8 板使用同一 wire plan，只改变
+`active_mask`，不改变 offset 或重新协商帧格式。transport 允许的 260 B SHORT payload
+中剩余 4 B 暂不分配给业务 slot。
+
+```text
+256 B cyclic payload = slot[0] ... slot[7]
+slot[n] = 8 B fast header + 24 B opaque domain payload
+```
+
+每个 slot 的 8 B 快速头冻结如下，具体数值必须引用 `TDMA_FLIGHT_MAILBOX_*` 常量：
+
+| byte | 字段 | core1 行为 |
+|---:|---|---|
+| 0..1 | `magic16` | 只判断是否为 compact mailbox。 |
+| 2 | `version` | 只接受当前 wire version。 |
+| 3 | `message_class` | 不解析；交给 core0/RefMem。 |
+| 4 | `source_slot` | 必须等于 `TdmaProcessImageMap.owner_slot_id`。 |
+| 5 | `target_mask` | 只检查本机 bit，形成 fan-out 读取条件。 |
+| 6..7 | `seq16` | 对每个 segment 去重；变化时置 RX 位图。 |
+| 8..31 | domain payload | core1 完全不解释。 |
+
+这 8 B 是 transport mailbox metadata，不是业务 payload decode。core1 在完整帧透传和
+本机 32 B slot 替换之外，只扫描 remote slot 的固定 8 B 头，输出
+`input_segment_mask`；mask 为 0 时不得向 RX FIFO 发布空 descriptor，也不得要求 core0
+回退为全帧扫描。core0 从 RX FIFO 取得完整帧副本后，只解析位图命中的 slot。由此把
+RTOS 调度抖动移出快速过滤路径，同时保持完整帧可供 core0 做 CRC、RefMem commit 和
+诊断。
+
+RX 去重状态采用 classify/commit 两阶段：classify 只产生候选 mask，不更新已见 seq；
+只有完整帧副本成功发布到 RX FIFO 后才提交该 slot 的 seq16。FIFO 满、buffer pool
+耗尽或 descriptor 发布失败时不得提前记住 seq，否则同一 mailbox 的后续重传会被错误
+过滤。core0 仍使用完整 seq32 和 RefMem 语义做最终重复、stale 与可见性判断。
+
+读写关系固定为“单写、多方读”：本节点只替换自己的 slot，读取则由其他 slot 的
+`target_mask` fan-out。节点间通信通过目标位图完成，不允许把“独立写 slot”误解为
+只能读取本机 slot。
+
 #### core0/core1 双 FIFO 与所有权
 
 逻辑上，core0 与 core1 之间有两个方向相反的 SPSC FIFO。它们不是 PIO 的四字
@@ -262,6 +303,12 @@ upstream PIO/DMA -> elastic FIFO -> core1 flight engine -> downstream PIO/DMA
 |---|---|---|---|
 | `TDMA_TX_IMAGE_FIFO` | core0 -> core1 | 下一周期 process-image 输出版本的 descriptor；实际数据位于双缓冲或固定池。 | core1 在 frame boundary 原子锁定一个完整版本；无新版本时继续使用上一版本，绝不等待 core0。 |
 | `TDMA_RX_FRAME_FIFO` | core1 -> core0 | 已收帧或本节点 input slice 的 descriptor、长度、sequence、timestamp、quality；实际数据位于固定池。 | FIFO 满时只丢弃给 core0 的解析副本并增加 drop/quality counter，不能停止飞行转发。 |
+
+TX/RX FIFO 不要求在同一 RTOS 时刻同步，也不能靠阻塞握手对齐。每个 ring descriptor
+都携带 `slot_index + generation + sequence`，consumer 只接受 descriptor 与目标 buffer
+slot 三者一致的版本；业务选择再由 `segment_mask` 完成。TX 在 cycle boundary 选择
+最新完整 generation，RX 保留该帧 sequence 和位图，因此 core0 即使稍后运行也不会把
+旧 descriptor 配到新 buffer。descriptor 异常只能丢弃并计数，不能让 core1 等待修复。
 
 跨核 descriptor ring 使用 single-producer/single-consumer 语义：producer 填完 buffer
 后以 release 发布 head，consumer 以 acquire 读取；禁止在 core1 快速路径使用 mutex、
@@ -438,18 +485,22 @@ clock-training frame 与 reservation segment 可共享 cyclic process image 和�
 
 #### 当前实现与迁移阶段
 
-本节描述的是目标架构，不能用于宣称当前 PIO SPI bring-up 已具备 ESC 飞行能力。
-截至 2026-08-19，当前实现仍是：连续 RX DMA 捕获完整帧，ring adapter 在 core1
-service 中完整 decode，forward 节点调用 `advance_hop()` 重算 transport CRC，再把完整
-帧压入 TX PIO。已具备 `FLIGHT_MUTABLE`、固定 process-image map 基础和显式
-STOP/ARM/TRAIN/START，但尚未具备上述两个跨核 FIFO、elastic cut-through pipeline、
-WKC 和尾部 CRC V2。
+本节描述的是分阶段实现，不能把固定块替换等同于完整 ESC cut-through。截止
+2026-08-20，当前实现已经具备 `TDMA_TX_IMAGE_FIFO`、`TDMA_RX_FRAME_FIFO`、固定
+buffer pool、descriptor 的 generation/sequence 一致性校验、8 × 32 B process-image
+map、本机 slot 替换，以及 core1 固定 8 B mailbox 头扫描和 RX segment bitmap。core0
+只解析 bitmap 命中的 slot，RX FIFO 满或 descriptor 损坏不会阻塞 wire path。
+
+当前 PIO SPI adapter 仍由连续 RX DMA 捕获完整帧，ring adapter 在 core1 service 中完成
+transport decode、固定块替换、`advance_hop()` 和 CRC 重算，再把完整帧压入 TX PIO。
+因此它属于有界 store-and-forward/固定块飞行处理验证，还没有 elastic byte-level
+cut-through、RX/TX DMA 重叠、WKC 和尾部 CRC V2，不能宣称具备最终 ESC 时延特性。
 
 迁移顺序冻结为：
 
-1. 把完整帧 forward 从 1 kHz 普通 service 轮询移到有界 RX-complete 快速事件，先消除等待下一 tick 造成的漏帧；保持 V1 wire format。
-2. 引入 `TDMA_TX_IMAGE_FIFO`、`TDMA_RX_FRAME_FIFO`、固定 buffer pool 和跨核 ownership 单测；core1 仍可完整帧转发，但 core0 不再参与 wire deadline。
-3. 使用 active `TdmaProcessImageMap` 做固定 block 提取/替换，core1 不再调用业务 decode；记录 sequence gap、forward latency、FIFO waterline 和 mirror drop。
+1. 已完成：把完整帧 forward 接入 core1 resident ring service，保持 V1 wire format；后续仍需把软件 service 抖动量化为 RX-complete deadline evidence。
+2. 已完成：引入 `TDMA_TX_IMAGE_FIFO`、`TDMA_RX_FRAME_FIFO`、固定 buffer pool、跨核 ownership 和 descriptor version 单测；core1 无需等待 core0。
+3. 已完成首版：active `TdmaProcessImageMap` 固定 block 替换，core1 只读 8 B 快速头并发布 RX bitmap；仍需补齐硬件 forward latency、FIFO waterline 和 sequence-gap HIL 门禁。
 4. 定义并门禁 V2 cyclic frame：尾部 transport CRC、WKC 和 immutable identity；V1/V2 不得在同一个 active ring 混跑。
 5. 实现 PIO/DMA RX/TX 重叠和 elastic FIFO，完成真正 cut-through；以示波器和 HIL 证明固定 per-hop delay、无 underflow/overrun、core0 拥塞不影响 wire。
 6. 接入 RX/TX 真实硬件 timestamp latch 和 VDC clock-training evidence；DPLL 不得成为飞行转发的前置依赖，但按 VDC 绝对时间 ARM 的 T2 预约必须通过 VDC quality gate。

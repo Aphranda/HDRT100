@@ -102,6 +102,7 @@ bool tdma_flight_fifo_core0_publish_tx(tdma_flight_fifo_t *fifo,
     const uint32_t ring_index = head % TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT;
     fifo->tx_ring[ring_index].slot_index = (uint32_t)slot_index;
     fifo->tx_ring[ring_index].generation = generation;
+    fifo->tx_ring[ring_index].sequence = sequence;
     tdma_flight_store_u32(&fifo->tx_head, head + 1u);
     tdma_flight_counter_inc(&fifo->tx_publish_count);
     return true;
@@ -140,20 +141,42 @@ bool tdma_flight_fifo_core1_acquire_tx(tdma_flight_fifo_t *fifo,
         const uint32_t ring_index = tail % TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT;
         const uint32_t slot_index =
             tdma_flight_load_u32(&fifo->tx_ring[ring_index].slot_index);
-        if (slot_index >= TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT ||
-            tdma_flight_load_u32(&fifo->tx_slots[slot_index].owner) !=
-                TDMA_FLIGHT_TX_OWNER_CORE0_READY) {
+        const bool descriptor_valid =
+            slot_index < TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT &&
+            tdma_flight_load_u32(&fifo->tx_slots[slot_index].owner) ==
+                TDMA_FLIGHT_TX_OWNER_CORE0_READY &&
+            tdma_flight_load_u32(&fifo->tx_slots[slot_index].generation) ==
+                tdma_flight_load_u32(&fifo->tx_ring[ring_index].generation) &&
+            tdma_flight_load_u32(&fifo->tx_slots[slot_index].sequence) ==
+                tdma_flight_load_u32(&fifo->tx_ring[ring_index].sequence);
+        if (!descriptor_valid) {
             tdma_flight_counter_inc(&fifo->tx_publish_reject_count);
-            return false;
+            if (slot_index < TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT &&
+                tdma_flight_load_u32(&fifo->tx_slots[slot_index].owner) ==
+                    TDMA_FLIGHT_TX_OWNER_CORE0_READY) {
+                tdma_flight_store_u32(
+                    &fifo->tx_slots[slot_index].owner,
+                    TDMA_FLIGHT_TX_OWNER_CORE0_INACTIVE);
+            }
+            tdma_flight_store_u32(&fifo->tx_tail, tail + 1u);
+            const uint32_t active =
+                tdma_flight_load_u32(&fifo->tx_active_slot);
+            if (active >= TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT) {
+                return false;
+            }
+            tdma_flight_counter_inc(&fifo->tx_image_stale_count);
+            tdma_flight_counter_inc(&fifo->tx_reuse_count);
+            view->reused_previous = true;
+        } else {
+            tdma_flight_fifo_core1_release_tx(fifo);
+            tdma_flight_store_u32(&fifo->tx_slots[slot_index].owner,
+                                  TDMA_FLIGHT_TX_OWNER_CORE1_ACTIVE);
+            tdma_flight_store_u32(&fifo->tx_tail, tail + 1u);
+            tdma_flight_store_u32(&fifo->tx_active_slot, slot_index);
+            tdma_flight_store_u32(&fifo->tx_active_generation,
+                                  fifo->tx_slots[slot_index].generation);
+            tdma_flight_counter_inc(&fifo->tx_acquire_count);
         }
-        tdma_flight_fifo_core1_release_tx(fifo);
-        tdma_flight_store_u32(&fifo->tx_slots[slot_index].owner,
-                              TDMA_FLIGHT_TX_OWNER_CORE1_ACTIVE);
-        tdma_flight_store_u32(&fifo->tx_tail, tail + 1u);
-        tdma_flight_store_u32(&fifo->tx_active_slot, slot_index);
-        tdma_flight_store_u32(&fifo->tx_active_generation,
-                              fifo->tx_slots[slot_index].generation);
-        tdma_flight_counter_inc(&fifo->tx_acquire_count);
     } else {
         const uint32_t active = tdma_flight_load_u32(&fifo->tx_active_slot);
         if (active >= TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT) {
@@ -239,6 +262,7 @@ bool tdma_flight_fifo_core1_publish_rx(tdma_flight_fifo_t *fifo,
     const uint32_t ring_index = head % TDMA_FLIGHT_RX_FRAME_SLOT_COUNT;
     fifo->rx_ring[ring_index].slot_index = (uint32_t)slot_index;
     fifo->rx_ring[ring_index].generation = generation;
+    fifo->rx_ring[ring_index].sequence = sequence;
     tdma_flight_store_u32(&slot->owner, TDMA_FLIGHT_RX_OWNER_CORE0_PARSE);
     tdma_flight_store_u32(&fifo->rx_head, head + 1u);
     tdma_flight_counter_inc(&fifo->rx_publish_count);
@@ -265,9 +289,20 @@ bool tdma_flight_fifo_core0_acquire_rx(tdma_flight_fifo_t *fifo,
         tdma_flight_load_u32(&fifo->rx_ring[ring_index].slot_index);
     if (slot_index >= TDMA_FLIGHT_RX_FRAME_SLOT_COUNT ||
         tdma_flight_load_u32(&fifo->rx_slots[slot_index].owner) !=
-            TDMA_FLIGHT_RX_OWNER_CORE0_PARSE) {
+            TDMA_FLIGHT_RX_OWNER_CORE0_PARSE ||
+        tdma_flight_load_u32(&fifo->rx_slots[slot_index].generation) !=
+            tdma_flight_load_u32(&fifo->rx_ring[ring_index].generation) ||
+        tdma_flight_load_u32(&fifo->rx_slots[slot_index].sequence) !=
+            tdma_flight_load_u32(&fifo->rx_ring[ring_index].sequence)) {
         tdma_flight_counter_inc(&fifo->rx_mirror_drop_count);
         tdma_flight_counter_inc(&fifo->rx_publish_drop_count);
+        if (slot_index < TDMA_FLIGHT_RX_FRAME_SLOT_COUNT &&
+            tdma_flight_load_u32(&fifo->rx_slots[slot_index].owner) ==
+                TDMA_FLIGHT_RX_OWNER_CORE0_PARSE) {
+            tdma_flight_store_u32(&fifo->rx_slots[slot_index].owner,
+                                  TDMA_FLIGHT_RX_OWNER_FREE);
+        }
+        tdma_flight_store_u32(&fifo->rx_tail, tail + 1u);
         return false;
     }
     tdma_flight_store_u32(&fifo->rx_tail, tail + 1u);

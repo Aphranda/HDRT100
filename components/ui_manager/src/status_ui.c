@@ -7,6 +7,7 @@
 
 #include "board.h"
 #include "diagnostics.h"
+#include "drv_watchdog.h"
 #include "lcd_st7789.h"
 #include "led_manager.h"
 #include "osal.h"
@@ -87,6 +88,10 @@ typedef struct {
 } status_ui_t;
 
 static status_ui_t s_ui;
+/* The aggregate snapshot grows with TDMA/VDC observability.  Keep it in the
+ * component's static RAM instead of consuming the UI task stack on every
+ * render. */
+static ui_snapshot_t s_snapshot;
 
 /* Official GTS symbol, rasterized from the four #D60037 paths in
  * docs/reports/distributed-trigger/...0804.html <g id="gts-logo">. */
@@ -594,15 +599,24 @@ static void format_resource_summary(char *buffer, size_t buffer_size, uint32_t r
 static void capture_snapshot(ui_snapshot_t *snapshot)
 {
     memset(snapshot, 0, sizeof(*snapshot));
+    drv_watchdog_mark_progress(0u, 0x0A11u);
     sync_trigger_get_summary(&snapshot->trigger);
+    drv_watchdog_mark_progress(0u, 0x0A12u);
     ota_ao_get_vector(&snapshot->ota);
+    drv_watchdog_mark_progress(0u, 0x0A13u);
     storage_manager_get_vector(&snapshot->storage);
+    drv_watchdog_mark_progress(0u, 0x0A14u);
     resource_arbiter_get_snapshot(&snapshot->arbiter);
+    drv_watchdog_mark_progress(0u, 0x0A15u);
     snapshot->tdma_valid = vdc_dpll_manager_get_tdma_snapshot(&snapshot->tdma);
+    drv_watchdog_mark_progress(0u, 0x0A16u);
     snapshot->vdc_valid = vdc_dpll_manager_get_snapshot(&snapshot->vdc);
+    drv_watchdog_mark_progress(0u, 0x0A17u);
     diagnostics_get_status(&snapshot->diagnostics);
+    drv_watchdog_mark_progress(0u, 0x0A18u);
     diagnostics_get_core_status(&snapshot->core);
     led_manager_get_status(&snapshot->led);
+    drv_watchdog_mark_progress(0u, 0x0A19u);
     osal_heap_get_status(&snapshot->heap_free_bytes, &snapshot->heap_min_free_bytes);
     snapshot->fault_active = diagnostics_has_fault();
     snapshot->uptime_ms = board_uptime_ms();
@@ -2391,7 +2405,7 @@ void status_ui_key_back(void)
 
 bool status_ui_render(void)
 {
-    ui_snapshot_t snapshot;
+    ui_snapshot_t *const snapshot = &s_snapshot;
 
     if (!s_ui.initialized) {
         return false;
@@ -2402,9 +2416,11 @@ bool status_ui_render(void)
                                         "StatusUI")) {
         return false;
     }
+    drv_watchdog_mark_progress(0u, 0x0A10u);
     board_prepare_lcd_spi();
 
-    capture_snapshot(&snapshot);
+    capture_snapshot(snapshot);
+    drv_watchdog_mark_progress(0u, 0x0A1Au);
 
     u8g2_t *u8g2 = &s_ui.u8g2;
     s_ui.frame++;
@@ -2415,14 +2431,15 @@ bool status_ui_render(void)
 
     u8g2_ClearBuffer(u8g2);
     if (s_ui.cover_active) {
-        draw_product_cover(u8g2, &snapshot);
+        draw_product_cover(u8g2, snapshot);
     } else {
-        draw_product_header(u8g2, &snapshot);
-        draw_body(u8g2, &snapshot);
+        draw_product_header(u8g2, snapshot);
+        draw_body(u8g2, snapshot);
         draw_product_footer(u8g2);
     }
 
     flush_to_lcd();
+    drv_watchdog_mark_progress(0u, 0x0A1Bu);
     if (s_ui.tab_anim > 0u) {
         s_ui.tab_anim--;
     }

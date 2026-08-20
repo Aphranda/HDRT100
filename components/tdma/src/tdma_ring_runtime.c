@@ -8,6 +8,8 @@
 #include "pico/time.h"
 #endif
 
+#define TDMA_RING_RUNTIME_SNAPSHOT_RETRY_LIMIT 64u
+
 static uint32_t tdma_ring_runtime_load(const volatile uint32_t *value)
 {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
@@ -383,7 +385,10 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         return false;
     }
 
-    while (true) {
+    bool config_copied = false;
+    for (uint32_t attempt = 0u;
+         attempt < TDMA_RING_RUNTIME_SNAPSHOT_RETRY_LIMIT;
+         attempt++) {
         const uint32_t guard_begin =
             tdma_ring_runtime_load(&runtime->config_guard);
         if ((guard_begin & 1u) != 0u) {
@@ -404,11 +409,17 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         const uint32_t guard_end =
             tdma_ring_runtime_load(&runtime->config_guard);
         if (guard_begin == guard_end && (guard_end & 1u) == 0u) {
+            config_copied = true;
             break;
         }
     }
+    if (!config_copied) {
+        return false;
+    }
 
-    while (true) {
+    for (uint32_t attempt = 0u;
+         attempt < TDMA_RING_RUNTIME_SNAPSHOT_RETRY_LIMIT;
+         attempt++) {
         const uint32_t guard_begin =
             tdma_ring_runtime_load(&runtime->result_guard);
         if ((guard_begin & 1u) != 0u) {
@@ -451,4 +462,5 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
             return true;
         }
     }
+    return false;
 }

@@ -21,6 +21,9 @@
 #include "refmem_sync.h"
 #include "refmem_table_registry.h"
 #include "refmem_vector_table.h"
+#include "tdma_flight_engine.h"
+#include "tdma_process_image_map.h"
+#include "tdma_profile.h"
 #include "vdc_dpll_manager.h"
 
 #define DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT 16u
@@ -28,6 +31,17 @@
 #define DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_QUEUE_COUNT 8u
 #define DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH 1u
 #define DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN 1u
+#define DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE \
+    TDMA_FLIGHT_SHORT_SLOT_SIZE
+#define DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE \
+    TDMA_FLIGHT_SHORT_PAYLOAD_SIZE
+#define DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT \
+    TDMA_FLIGHT_SHORT_SLOT_COUNT
+#define DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_INTERVAL_MS 1u
+#define DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_MAGIC \
+    TDMA_FLIGHT_MAILBOX_MAGIC
+#define DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_VERSION \
+    TDMA_FLIGHT_MAILBOX_VERSION
 
 typedef enum {
     DISTRIBUTED_REFMEM_AUTO_INTENT_NONE = 0u,
@@ -85,7 +99,460 @@ static bool s_initialized;
 static uint32_t s_tdma_ring_log_last_ms;
 static bool s_tdma_ring_log_enabled;
 
+typedef struct {
+    uint32_t enabled;
+    uint32_t local_slot;
+    uint32_t node_count;
+    uint32_t active_mask;
+    uint32_t reference_slot;
+    uint32_t remote_slot;
+    uint32_t publish_interval_ms;
+    uint32_t last_publish_ms;
+    uint32_t next_seq32;
+    uint32_t tx_publish_count;
+    uint32_t tx_reject_count;
+    uint32_t rx_acquire_count;
+    uint32_t rx_empty_count;
+    uint32_t rx_accept_count;
+    uint32_t rx_reject_count;
+    uint32_t rx_duplicate_skip_count;
+    uint32_t rx_bad_mailbox_count;
+    uint32_t rx_seen_mask;
+    uint32_t rx_last_seq_by_source[REFMEM_SYNC_NODE_COUNT];
+    uint32_t last_rx_result;
+    uint32_t last_frame_type;
+    uint32_t last_source_slot;
+    uint32_t last_seq32;
+    uint32_t last_value_u32;
+    uint32_t last_error;
+    refmem_sync_context_t context;
+    uint8_t tx_image[DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE];
+} distributed_refmem_tdma_flight_sync_t;
+
+static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;
+
+static uint32_t distributed_refmem_flight_input_offset_for_slot(uint32_t slot)
+{
+    return slot * DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE;
+}
+
+static uint32_t distributed_refmem_flight_publish_mask_for_slot(uint32_t slot)
+{
+    return slot < TDMA_PROCESS_IMAGE_SEGMENT_COUNT ? (1u << slot) : 0u;
+}
+
+static tdma_process_image_map_t distributed_refmem_default_flight_map(void)
+{
+    tdma_process_image_map_t map;
+    memset(&map, 0, sizeof(map));
+    map.version = TDMA_PROCESS_IMAGE_MAP_VERSION;
+    map.payload_size = DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE;
+    map.segment_count = DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT;
+    for (uint32_t slot = 0u;
+         slot < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT;
+         slot++) {
+        map.segment[slot].used = 1u;
+        map.segment[slot].segment_id = slot;
+        map.segment[slot].owner_slot_id = slot;
+        map.segment[slot].payload_class =
+            TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE;
+        map.segment[slot].byte_offset =
+            slot * DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE;
+        map.segment[slot].byte_length =
+            DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE;
+        map.segment[slot].flags = TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE;
+    }
+    map.map_crc32 = tdma_process_image_map_crc32(&map);
+    return map;
+}
+
 static void distributed_refmem_log_tdma_ring_service(void);
+
+static void distributed_refmem_tdma_flight_sync_init(void)
+{
+    memset(&s_tdma_flight_sync, 0, sizeof(s_tdma_flight_sync));
+    s_tdma_flight_sync.enabled = 1u;
+    s_tdma_flight_sync.local_slot = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    s_tdma_flight_sync.reference_slot = 0u;
+    s_tdma_flight_sync.remote_slot = 1u;
+    s_tdma_flight_sync.publish_interval_ms =
+        DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_INTERVAL_MS;
+    s_tdma_flight_sync.next_seq32 = 1u;
+    (void)refmem_sync_init(&s_tdma_flight_sync.context,
+                           (uint8_t)s_tdma_flight_sync.local_slot,
+                           DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH,
+                           DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN);
+}
+
+static void distributed_refmem_tdma_flight_sync_update_ring(
+    const tdma_ring_runtime_snapshot_t *ring)
+{
+    if (ring == NULL ||
+        ring->local_slot_id >= DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT ||
+        ring->node_count == 0u ||
+        ring->node_count > DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT) {
+        return;
+    }
+    if (s_tdma_flight_sync.local_slot == ring->local_slot_id &&
+        s_tdma_flight_sync.reference_slot == ring->reference_slot_id &&
+        s_tdma_flight_sync.node_count == ring->node_count) {
+        return;
+    }
+    s_tdma_flight_sync.local_slot = ring->local_slot_id;
+    s_tdma_flight_sync.reference_slot = ring->reference_slot_id;
+    s_tdma_flight_sync.node_count = ring->node_count;
+    s_tdma_flight_sync.active_mask =
+        ring->node_count >= 32u ? UINT32_MAX : ((1u << ring->node_count) - 1u);
+    s_tdma_flight_sync.remote_slot =
+        (ring->local_slot_id + 1u) % ring->node_count;
+    s_tdma_flight_sync.rx_seen_mask = 0u;
+    memset(s_tdma_flight_sync.rx_last_seq_by_source,
+           0,
+           sizeof(s_tdma_flight_sync.rx_last_seq_by_source));
+    (void)refmem_sync_init(&s_tdma_flight_sync.context,
+                           (uint8_t)s_tdma_flight_sync.local_slot,
+                           DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH,
+                           DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN);
+}
+
+static void distributed_refmem_put_le16(uint8_t *dst, uint16_t value)
+{
+    dst[0] = (uint8_t)(value & 0xFFu);
+    dst[1] = (uint8_t)(value >> 8u);
+}
+
+static void distributed_refmem_put_le32(uint8_t *dst, uint32_t value)
+{
+    dst[0] = (uint8_t)(value & 0xFFu);
+    dst[1] = (uint8_t)((value >> 8u) & 0xFFu);
+    dst[2] = (uint8_t)((value >> 16u) & 0xFFu);
+    dst[3] = (uint8_t)((value >> 24u) & 0xFFu);
+}
+
+static uint16_t distributed_refmem_get_le16(const uint8_t *src)
+{
+    return (uint16_t)(((uint16_t)src[0]) | ((uint16_t)src[1] << 8u));
+}
+
+static uint32_t distributed_refmem_get_le32(const uint8_t *src)
+{
+    return ((uint32_t)src[0]) |
+           ((uint32_t)src[1] << 8u) |
+           ((uint32_t)src[2] << 16u) |
+           ((uint32_t)src[3] << 24u);
+}
+
+static bool distributed_refmem_tdma_flight_build_compact_mailbox(
+    uint8_t source_slot,
+    uint8_t target_mask,
+    uint32_t seq32,
+    uint32_t value,
+    uint8_t *mailbox,
+    size_t mailbox_size)
+{
+    if (mailbox == NULL ||
+        mailbox_size < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE) {
+        return false;
+    }
+    memset(mailbox, 0, mailbox_size);
+    distributed_refmem_put_le16(&mailbox[0],
+                                DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_MAGIC);
+    mailbox[2] = DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_VERSION;
+    mailbox[3] = (uint8_t)REFMEM_SYNC_FRAME_DELTA;
+    mailbox[4] = source_slot;
+    mailbox[5] = target_mask;
+    distributed_refmem_put_le16(&mailbox[6], (uint16_t)(seq32 & 0xFFFFu));
+    distributed_refmem_put_le32(&mailbox[8], seq32);
+    distributed_refmem_put_le32(&mailbox[12], osal_tick_ms());
+    mailbox[16] = source_slot;
+    mailbox[17] = REFMEM_APP_DATA_U32;
+    distributed_refmem_put_le16(&mailbox[18], 0u);
+    distributed_refmem_put_le32(&mailbox[20], seq32);
+    distributed_refmem_put_le32(&mailbox[24], value);
+    distributed_refmem_put_le32(&mailbox[28], 1u);
+    return true;
+}
+
+static void distributed_refmem_tdma_flight_sync_store_mailbox(
+    uint8_t source_slot,
+    const uint8_t *mailbox,
+    size_t mailbox_size)
+{
+    if (source_slot >= DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT ||
+        mailbox == NULL ||
+        mailbox_size < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE) {
+        return;
+    }
+    memcpy(&s_tdma_flight_sync.tx_image[
+               distributed_refmem_flight_input_offset_for_slot(source_slot)],
+           mailbox,
+           DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE);
+}
+
+static bool distributed_refmem_tdma_flight_expand_compact_delta(
+    const uint8_t *mailbox,
+    size_t mailbox_size,
+    uint8_t *frame,
+    size_t frame_capacity,
+    size_t *frame_size)
+{
+    if (frame_size != NULL) {
+        *frame_size = 0u;
+    }
+    if (mailbox == NULL || frame == NULL || frame_size == NULL ||
+        mailbox_size < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE ||
+        distributed_refmem_get_le16(&mailbox[0]) !=
+            DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_MAGIC ||
+        mailbox[2] != DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_VERSION ||
+        mailbox[3] != (uint8_t)REFMEM_SYNC_FRAME_DELTA ||
+        mailbox[4] >= REFMEM_SYNC_NODE_COUNT) {
+        return false;
+    }
+
+    uint8_t payload[sizeof(refmem_sync_delta_header_t) + sizeof(uint32_t)];
+    refmem_sync_delta_header_t delta;
+    memset(&delta, 0, sizeof(delta));
+    const uint32_t seq32 = distributed_refmem_get_le32(&mailbox[8]);
+    delta.delta_id = distributed_refmem_get_le16(&mailbox[6]);
+    delta.slot_id = mailbox[16];
+    delta.payload_kind = mailbox[17];
+    delta.slot_seq = distributed_refmem_get_le32(&mailbox[20]);
+    delta.field_id = distributed_refmem_get_le16(&mailbox[18]);
+    delta.field_offset = 0u;
+    delta.field_width = sizeof(uint32_t);
+    delta.dirty_mask = distributed_refmem_get_le32(&mailbox[28]);
+    memcpy(payload, &delta, sizeof(delta));
+    memcpy(&payload[sizeof(delta)], &mailbox[24], sizeof(uint32_t));
+
+    refmem_sync_frame_header_t header;
+    if (!refmem_sync_frame_header_init(
+            &header,
+            REFMEM_SYNC_FRAME_DELTA,
+            REFMEM_SYNC_FRAME_FLAG_ACK_REQUEST,
+            mailbox[4],
+            mailbox[5],
+            DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH,
+            DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN,
+            seq32,
+            0u,
+            distributed_refmem_get_le32(&mailbox[12]),
+            payload,
+            sizeof(payload))) {
+        return false;
+    }
+    return refmem_sync_frame_encode(&header,
+                                    payload,
+                                    sizeof(payload),
+                                    frame,
+                                    frame_capacity,
+                                    frame_size);
+}
+
+static void distributed_refmem_tdma_flight_parse_mailbox(
+    const uint8_t *mailbox,
+    size_t mailbox_size)
+{
+    if (mailbox == NULL ||
+        mailbox_size < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE) {
+        s_tdma_flight_sync.rx_bad_mailbox_count++;
+        return;
+    }
+    if (distributed_refmem_get_le16(&mailbox[0]) !=
+        DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_MAGIC) {
+        s_tdma_flight_sync.rx_empty_count++;
+        return;
+    }
+
+    uint8_t frame[REFMEM_SYNC_FRAME_HEADER_SIZE +
+                  sizeof(refmem_sync_delta_header_t) + sizeof(uint32_t)];
+    size_t frame_size = 0u;
+    if (!distributed_refmem_tdma_flight_expand_compact_delta(mailbox,
+                                                             mailbox_size,
+                                                             frame,
+                                                             sizeof(frame),
+                                                             &frame_size)) {
+        s_tdma_flight_sync.rx_bad_mailbox_count++;
+        s_tdma_flight_sync.last_error = 2u;
+        return;
+    }
+
+    refmem_sync_frame_header_t header;
+    if (refmem_sync_frame_decode_header(frame,
+                                        frame_size,
+                                        &header) != REFMEM_SYNC_FRAME_OK ||
+        header.source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        s_tdma_flight_sync.rx_bad_mailbox_count++;
+        s_tdma_flight_sync.last_error = 7u;
+        return;
+    }
+    const uint32_t source_bit = 1u << header.source_slot;
+    refmem_sync_rx_snapshot_t rx;
+    const refmem_sync_rx_result_t result =
+        refmem_sync_receive_frame(&s_tdma_flight_sync.context,
+                                  frame,
+                                  frame_size,
+                                  &rx);
+    s_tdma_flight_sync.rx_seen_mask |= source_bit;
+    s_tdma_flight_sync.rx_last_seq_by_source[header.source_slot] = header.seq32;
+    s_tdma_flight_sync.last_rx_result = result;
+    s_tdma_flight_sync.last_frame_type = rx.header.frame_type;
+    s_tdma_flight_sync.last_source_slot = rx.source_slot;
+    s_tdma_flight_sync.last_seq32 = rx.header.seq32;
+    if (result == REFMEM_SYNC_RX_ACCEPTED) {
+        s_tdma_flight_sync.rx_accept_count++;
+        s_tdma_flight_sync.last_error = 0u;
+        if (rx.header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_DELTA &&
+            rx.payload != NULL &&
+            rx.payload_size >=
+                (uint16_t)(sizeof(refmem_sync_delta_header_t) + sizeof(uint32_t))) {
+            const uint8_t *value =
+                &rx.payload[sizeof(refmem_sync_delta_header_t)];
+            s_tdma_flight_sync.last_value_u32 =
+                ((uint32_t)value[0]) |
+                ((uint32_t)value[1] << 8u) |
+                ((uint32_t)value[2] << 16u) |
+                ((uint32_t)value[3] << 24u);
+        }
+    } else if (result == REFMEM_SYNC_RX_DUPLICATE_SEQ) {
+        s_tdma_flight_sync.rx_duplicate_skip_count++;
+        s_tdma_flight_sync.last_error = 0u;
+    } else {
+        s_tdma_flight_sync.rx_reject_count++;
+        s_tdma_flight_sync.last_error = 3u;
+    }
+}
+
+static void distributed_refmem_tdma_flight_sync_publish(
+    tdma_service_service_t *owner,
+    const tdma_ring_runtime_snapshot_t *ring)
+{
+    if (owner == NULL || ring == NULL ||
+        ring->enabled == 0u ||
+        ring->adapter_started == 0u ||
+        ring->node_count == 0u ||
+        ring->node_count > DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT ||
+        ring->local_slot_id >= ring->node_count) {
+        return;
+    }
+
+    const uint32_t now_ms = osal_tick_ms();
+    if (now_ms - s_tdma_flight_sync.last_publish_ms <
+        s_tdma_flight_sync.publish_interval_ms) {
+        return;
+    }
+    s_tdma_flight_sync.last_publish_ms = now_ms;
+
+    uint8_t frame[DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE];
+    size_t frame_size = 0u;
+    const uint32_t seq32 = s_tdma_flight_sync.next_seq32++;
+    if (s_tdma_flight_sync.next_seq32 == 0u) {
+        s_tdma_flight_sync.next_seq32 = 1u;
+    }
+    if (!distributed_refmem_tdma_flight_build_compact_mailbox(
+            (uint8_t)ring->local_slot_id,
+            (uint8_t)s_tdma_flight_sync.active_mask,
+            seq32,
+            s_service_count,
+            frame,
+            sizeof(frame))) {
+        s_tdma_flight_sync.tx_reject_count++;
+        s_tdma_flight_sync.last_error = 4u;
+        return;
+    }
+    frame_size = sizeof(frame);
+
+    distributed_refmem_tdma_flight_sync_store_mailbox(ring->local_slot_id,
+                                                      frame,
+                                                      frame_size);
+
+    if (tdma_service_publish_flight_tx(
+            owner,
+            s_tdma_flight_sync.tx_image,
+            sizeof(s_tdma_flight_sync.tx_image),
+            seq32,
+            seq32,
+            distributed_refmem_flight_publish_mask_for_slot(
+                ring->local_slot_id))) {
+        s_tdma_flight_sync.tx_publish_count++;
+    } else {
+        s_tdma_flight_sync.tx_reject_count++;
+        s_tdma_flight_sync.last_error = 5u;
+    }
+}
+
+static void distributed_refmem_tdma_flight_sync_receive(
+    tdma_service_service_t *owner,
+    const tdma_ring_runtime_snapshot_t *ring)
+{
+    if (owner == NULL || ring == NULL ||
+        ring->local_slot_id >=
+            DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT) {
+        return;
+    }
+
+    for (;;) {
+        tdma_flight_rx_view_t view;
+        if (!tdma_service_acquire_flight_rx(owner, &view)) {
+            break;
+        }
+        s_tdma_flight_sync.rx_acquire_count++;
+        if (view.data != NULL &&
+            view.data_size == DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE) {
+            uint32_t scan_mask = view.segment_mask;
+            scan_mask &= s_tdma_flight_sync.active_mask;
+            scan_mask &= ~(1u << ring->local_slot_id);
+            for (uint32_t slot = 0u;
+                 slot < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT;
+                 slot++) {
+                if ((scan_mask & (1u << slot)) == 0u) {
+                    continue;
+                }
+                const uint32_t offset =
+                    distributed_refmem_flight_input_offset_for_slot(slot);
+                const uint8_t *mailbox = &view.data[offset];
+                if (distributed_refmem_get_le16(mailbox) !=
+                        DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_MAGIC ||
+                    mailbox[2] !=
+                        DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_VERSION) {
+                    s_tdma_flight_sync.rx_empty_count++;
+                    continue;
+                }
+                if (mailbox[4] == ring->local_slot_id ||
+                    mailbox[4] >= s_tdma_flight_sync.node_count ||
+                    (mailbox[5] & (1u << ring->local_slot_id)) == 0u) {
+                    continue;
+                }
+                distributed_refmem_tdma_flight_parse_mailbox(
+                    mailbox,
+                    DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE);
+            }
+        } else {
+            s_tdma_flight_sync.rx_bad_mailbox_count++;
+            s_tdma_flight_sync.last_error = 6u;
+        }
+        (void)tdma_service_release_flight_rx(owner, view.slot_index);
+    }
+}
+
+static void distributed_refmem_tdma_flight_sync_service(void)
+{
+    if (s_tdma_flight_sync.enabled == 0u) {
+        return;
+    }
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    if (owner == NULL ||
+        __atomic_load_n(&owner->ring_runtime.enabled, __ATOMIC_ACQUIRE) == 0u) {
+        return;
+    }
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_ring_runtime_get_snapshot(&owner->ring_runtime, &ring)) {
+        s_tdma_flight_sync.last_error = 1u;
+        return;
+    }
+    distributed_refmem_tdma_flight_sync_update_ring(&ring);
+    distributed_refmem_tdma_flight_sync_receive(owner, &ring);
+    distributed_refmem_tdma_flight_sync_publish(owner, &ring);
+}
 
 static void distributed_refmem_node_load_auto_init(void)
 {
@@ -858,6 +1325,7 @@ bool distributed_refmem_init(void)
     }
     s_status.init_stage = DISTRIBUTED_REFMEM_INIT_STAGE_NODE_LOAD_AUTO;
     distributed_refmem_node_load_auto_init();
+    distributed_refmem_tdma_flight_sync_init();
     static const refmem_realtime_tdma_ops_t tdma_ops = {
         .transmit = distributed_refmem_tdma_transmit,
         .receive = distributed_refmem_tdma_receive,
@@ -966,6 +1434,7 @@ void distributed_refmem_service(void)
         return;
     }
     distributed_refmem_node_load_auto_service();
+    distributed_refmem_tdma_flight_sync_service();
     distributed_refmem_log_tdma_ring_service();
 }
 
@@ -1872,6 +2341,80 @@ void distributed_refmem_get_node_load_auto_sync(
     snapshot->last_error = s_node_load_auto_sync.last_error;
 }
 
+void distributed_refmem_get_tdma_flight_sync(
+    distributed_refmem_tdma_flight_sync_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+    memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->enabled = s_tdma_flight_sync.enabled;
+    snapshot->local_slot = s_tdma_flight_sync.local_slot;
+    snapshot->node_count = s_tdma_flight_sync.node_count;
+    snapshot->active_mask = s_tdma_flight_sync.active_mask;
+    snapshot->reference_slot = s_tdma_flight_sync.reference_slot;
+    snapshot->remote_slot = s_tdma_flight_sync.remote_slot;
+    snapshot->payload_size = DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE;
+    snapshot->mailbox_size = DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE;
+    snapshot->publish_interval_ms = s_tdma_flight_sync.publish_interval_ms;
+    snapshot->next_seq32 = s_tdma_flight_sync.next_seq32;
+    snapshot->tx_publish_count = s_tdma_flight_sync.tx_publish_count;
+    snapshot->tx_reject_count = s_tdma_flight_sync.tx_reject_count;
+    snapshot->rx_acquire_count = s_tdma_flight_sync.rx_acquire_count;
+    snapshot->rx_empty_count = s_tdma_flight_sync.rx_empty_count;
+    snapshot->rx_accept_count = s_tdma_flight_sync.rx_accept_count;
+    snapshot->rx_reject_count = s_tdma_flight_sync.rx_reject_count;
+    snapshot->rx_duplicate_skip_count =
+        s_tdma_flight_sync.rx_duplicate_skip_count;
+    snapshot->rx_bad_mailbox_count = s_tdma_flight_sync.rx_bad_mailbox_count;
+    snapshot->last_rx_result = s_tdma_flight_sync.last_rx_result;
+    snapshot->last_frame_type = s_tdma_flight_sync.last_frame_type;
+    snapshot->last_source_slot = s_tdma_flight_sync.last_source_slot;
+    snapshot->last_seq32 = s_tdma_flight_sync.last_seq32;
+    snapshot->last_value_u32 = s_tdma_flight_sync.last_value_u32;
+    snapshot->last_error = s_tdma_flight_sync.last_error;
+}
+
+bool distributed_refmem_get_tdma_flight_sync_peer(
+    uint32_t source_slot,
+    refmem_sync_peer_state_t *snapshot)
+{
+    if (snapshot == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return false;
+    }
+    const refmem_sync_peer_state_t *peer =
+        refmem_sync_get_peer(&s_tdma_flight_sync.context,
+                             (uint8_t)source_slot);
+    if (peer == NULL) {
+        return false;
+    }
+    *snapshot = *peer;
+    return true;
+}
+
+bool distributed_refmem_get_tdma_flight_sync_mirror(
+    uint32_t source_slot,
+    refmem_sync_mirror_snapshot_t *snapshot)
+{
+    if (snapshot == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
+        return false;
+    }
+    const refmem_sync_mirror_snapshot_t *mirror =
+        refmem_sync_get_mirror(&s_tdma_flight_sync.context,
+                               (uint8_t)source_slot);
+    if (mirror == NULL) {
+        return false;
+    }
+    *snapshot = *mirror;
+    return true;
+}
+
+void distributed_refmem_get_tdma_flight_sync_quality(
+    refmem_sync_quality_counters_t *snapshot)
+{
+    refmem_sync_get_quality(&s_tdma_flight_sync.context, snapshot);
+}
+
 bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id)
 {
     if (!s_initialized) {
@@ -1906,7 +2449,15 @@ bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id)
 bool distributed_refmem_tdma_ring_arm(void)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
-    return s_initialized && owner != NULL && tdma_service_ring_arm(owner);
+    if (!s_initialized || owner == NULL) {
+        return false;
+    }
+    const tdma_process_image_map_t map =
+        distributed_refmem_default_flight_map();
+    if (!tdma_service_configure_flight_map(owner, &map)) {
+        return false;
+    }
+    return tdma_service_ring_arm(owner);
 }
 
 bool distributed_refmem_tdma_ring_train(uint32_t cycles)

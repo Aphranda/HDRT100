@@ -111,6 +111,8 @@ Last updated: 2026-08-20
 - [x] 为 EtherCAT-style 飞行短帧增加 `FLIGHT_MUTABLE` slice 更新契约：identity 只绑定不可变路由身份，segment owner CRC/version 保护局部数据，transport CRC 随 hop/内容更新。
 - [x] 将 RefMem realtime binding 内帧限制到 260 B：36 B RefMem header + 最多 224 B critical delta；总线无关协议仍保留 292 B 理论上限，更大 delta 必须进入分片或 background/bulk 路径。
 - [x] 建立 `TdmaProcessImageMap` C 契约与 host validator：segment owner、payload class、offset、length、flags 和 map CRC；拒绝重叠、越界、重复 ID、非法 owner 和状态/命令策略冲突。
+- [x] 固定首版 8 × 32 B SHORT process image 和 slot 内 8 B 快速头；core1 生成 RX segment bitmap，core0 只解析命中 slot，2/3/4/8 板只改变 active mask。
+- [x] RX bitmap seq16 去重采用 classify/commit 两阶段；只有 RX descriptor 入队成功才提交，FIFO 满时允许同 mailbox 重试。
 - [ ] 将 `TdmaProcessImageMap` 编码为正式 System Pack 表并接 DeploymentGate；运行态 generation、dirty mask、target 和 segment CRC 属于 process image 段头，不写入静态 map。
 - [ ] 实现 process image active/shadow 双缓冲：domain task 只写 shadow，core1 只在 cycle boundary swap，PIO/DMA 只读 active。
   - 进行中：TDMA owner 已提供双槽 TX image FIFO，core1 在完整 cyclic frame 边界锁定或复用一个 generation；active map 在 STOP 状态 staged、adapter start 时按 local slot 激活。正式 System Pack map 表和 domain dirty publisher 尚未接入。

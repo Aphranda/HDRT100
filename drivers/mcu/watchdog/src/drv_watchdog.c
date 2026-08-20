@@ -11,6 +11,11 @@ void drv_watchdog_enable(uint32_t timeout_ms)
     watchdog_enable(timeout_ms, true);
 }
 
+void drv_watchdog_disable(void)
+{
+    watchdog_disable();
+}
+
 void drv_watchdog_feed(void)
 {
     watchdog_update();
@@ -38,6 +43,8 @@ void drv_watchdog_get_reset_snapshot(drv_watchdog_reset_snapshot_t *snapshot)
     for (uint32_t i = 0u; i < 4u; i++) {
         snapshot->scratch[i] = watchdog_hw->scratch[i];
     }
+    snapshot->core0_progress = watchdog_hw->scratch[5];
+    snapshot->core1_progress = watchdog_hw->scratch[6];
 }
 
 void drv_watchdog_write_evidence(uint32_t magic,
@@ -53,4 +60,11 @@ void drv_watchdog_write_evidence(uint32_t magic,
     watchdog_hw->scratch[2] = (seen_mask & 0xFFFFu) | ((stale_mask & 0xFFFFu) << 16u);
     watchdog_hw->scratch[3] = (core0_loop_count & 0xFFFFu) |
                               ((core1_loop_count & 0xFFFFu) << 16u);
+}
+
+void drv_watchdog_mark_progress(uint32_t core_index, uint32_t marker)
+{
+    if (core_index < 2u) {
+        watchdog_hw->scratch[5u + core_index] = marker;
+    }
 }

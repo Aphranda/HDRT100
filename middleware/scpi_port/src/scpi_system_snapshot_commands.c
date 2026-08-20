@@ -2181,6 +2181,38 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context)
     return scpi_port_result_ok(context);
 }
 
+scpi_result_t scpi_cmd_refmem_sync_flight_q(scpi_t *context)
+{
+    distributed_refmem_tdma_flight_sync_snapshot_t snapshot;
+    distributed_refmem_get_tdma_flight_sync(&snapshot);
+
+    SCPI_ResultUInt32(context, snapshot.enabled);
+    SCPI_ResultUInt32(context, snapshot.local_slot);
+    SCPI_ResultUInt32(context, snapshot.node_count);
+    SCPI_ResultUInt32(context, snapshot.active_mask);
+    SCPI_ResultUInt32(context, snapshot.reference_slot);
+    SCPI_ResultUInt32(context, snapshot.remote_slot);
+    SCPI_ResultUInt32(context, snapshot.payload_size);
+    SCPI_ResultUInt32(context, snapshot.mailbox_size);
+    SCPI_ResultUInt32(context, snapshot.publish_interval_ms);
+    SCPI_ResultUInt32(context, snapshot.next_seq32);
+    SCPI_ResultUInt32(context, snapshot.tx_publish_count);
+    SCPI_ResultUInt32(context, snapshot.tx_reject_count);
+    SCPI_ResultUInt32(context, snapshot.rx_acquire_count);
+    SCPI_ResultUInt32(context, snapshot.rx_empty_count);
+    SCPI_ResultUInt32(context, snapshot.rx_accept_count);
+    SCPI_ResultUInt32(context, snapshot.rx_reject_count);
+    SCPI_ResultUInt32(context, snapshot.rx_duplicate_skip_count);
+    SCPI_ResultUInt32(context, snapshot.rx_bad_mailbox_count);
+    SCPI_ResultUInt32(context, snapshot.last_rx_result);
+    SCPI_ResultUInt32(context, snapshot.last_frame_type);
+    SCPI_ResultUInt32(context, snapshot.last_source_slot);
+    SCPI_ResultUInt32(context, snapshot.last_seq32);
+    SCPI_ResultUInt32(context, snapshot.last_value_u32);
+    SCPI_ResultUInt32(context, snapshot.last_error);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
@@ -2234,6 +2266,9 @@ scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.map_reject_count);
     SCPI_ResultUInt32(context, snapshot.length_reject_count);
     SCPI_ResultUInt32(context, snapshot.tx_unavailable_count);
+    SCPI_ResultUInt32(context, snapshot.rx_bitmap_scan_count);
+    SCPI_ResultUInt32(context, snapshot.rx_bitmap_hit_count);
+    SCPI_ResultUInt32(context, snapshot.rx_bitmap_duplicate_count);
     return SCPI_RES_OK;
 }
 

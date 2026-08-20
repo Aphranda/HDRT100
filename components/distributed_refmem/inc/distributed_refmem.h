@@ -56,6 +56,7 @@
 
 #include "refmem_command.h"
 #include "refmem_realtime_tdma.h"
+#include "refmem_sync.h"
 
 typedef bool (*distributed_refmem_node_load_owner_t)(uint32_t instance_id,
                                                      uint32_t slot_id,
@@ -187,6 +188,33 @@ typedef struct {
     uint32_t last_error;
 } distributed_refmem_node_load_auto_sync_snapshot_t;
 
+typedef struct {
+    uint32_t enabled;
+    uint32_t local_slot;
+    uint32_t node_count;
+    uint32_t active_mask;
+    uint32_t reference_slot;
+    uint32_t remote_slot;
+    uint32_t payload_size;
+    uint32_t mailbox_size;
+    uint32_t publish_interval_ms;
+    uint32_t next_seq32;
+    uint32_t tx_publish_count;
+    uint32_t tx_reject_count;
+    uint32_t rx_acquire_count;
+    uint32_t rx_empty_count;
+    uint32_t rx_accept_count;
+    uint32_t rx_reject_count;
+    uint32_t rx_duplicate_skip_count;
+    uint32_t rx_bad_mailbox_count;
+    uint32_t last_rx_result;
+    uint32_t last_frame_type;
+    uint32_t last_source_slot;
+    uint32_t last_seq32;
+    uint32_t last_value_u32;
+    uint32_t last_error;
+} distributed_refmem_tdma_flight_sync_snapshot_t;
+
 bool distributed_refmem_init(void);
 void distributed_refmem_service(void);
 void distributed_refmem_realtime_run_once(void);
@@ -280,6 +308,16 @@ bool distributed_refmem_configure_node_load_auto_sync(
     const refmem_spi_physical_pin_config_t *downlink_adapter_pins);
 void distributed_refmem_get_node_load_auto_sync(
     distributed_refmem_node_load_auto_sync_snapshot_t *snapshot);
+void distributed_refmem_get_tdma_flight_sync(
+    distributed_refmem_tdma_flight_sync_snapshot_t *snapshot);
+bool distributed_refmem_get_tdma_flight_sync_peer(
+    uint32_t source_slot,
+    refmem_sync_peer_state_t *snapshot);
+bool distributed_refmem_get_tdma_flight_sync_mirror(
+    uint32_t source_slot,
+    refmem_sync_mirror_snapshot_t *snapshot);
+void distributed_refmem_get_tdma_flight_sync_quality(
+    refmem_sync_quality_counters_t *snapshot);
 
 /* TDMA ring role maintenance (P0.5-3): re-derive the VDC schedule and the TDMA
  * foundation profile ring for a new local slot, then re-apply the profile so

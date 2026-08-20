@@ -345,14 +345,36 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
         (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE ||
          adapter->flight_engine == NULL ||
          !tdma_flight_engine_is_active(adapter->flight_engine))) {
-        (void)tdma_flight_fifo_core1_publish_rx(adapter->flight_fifo,
-                                                view.payload,
-                                                view.payload_size,
-                                                view.transport_sequence,
-                                                view.transport_sequence,
-                                                0u,
-                                                rx_timestamp_ns,
-                                                adapter->timestamp_flags);
+        uint32_t input_mask = 0u;
+        if (adapter->flight_engine != NULL &&
+            tdma_flight_engine_is_active(adapter->flight_engine)) {
+            (void)tdma_flight_engine_classify_input(adapter->flight_engine,
+                                                    view.payload,
+                                                    view.payload_size,
+                                                    &input_mask);
+        }
+        if (input_mask != 0u ||
+            adapter->flight_engine == NULL ||
+            !tdma_flight_engine_is_active(adapter->flight_engine)) {
+            const bool published = tdma_flight_fifo_core1_publish_rx(
+                adapter->flight_fifo,
+                view.payload,
+                view.payload_size,
+                view.transport_sequence,
+                view.transport_sequence,
+                input_mask,
+                rx_timestamp_ns,
+                adapter->timestamp_flags);
+            if (published && input_mask != 0u &&
+                adapter->flight_engine != NULL &&
+                tdma_flight_engine_is_active(adapter->flight_engine)) {
+                (void)tdma_flight_engine_commit_input(
+                    adapter->flight_engine,
+                    view.payload,
+                    view.payload_size,
+                    input_mask);
+            }
+        }
     }
     if (packet_size <= sizeof(adapter->last_rx_packet)) {
         memcpy(adapter->last_rx_packet, packet, packet_size);
@@ -421,7 +443,7 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
             }
             if (adapter->flight_fifo != NULL &&
                 applied.input_segment_mask != 0u) {
-                (void)tdma_flight_fifo_core1_publish_rx(
+                const bool published = tdma_flight_fifo_core1_publish_rx(
                     adapter->flight_fifo,
                     incoming_view.payload,
                     incoming_view.payload_size,
@@ -431,6 +453,13 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
                     applied.input_segment_mask,
                     adapter->feedback_rx_timestamp_ns,
                     adapter->timestamp_flags);
+                if (published) {
+                    (void)tdma_flight_engine_commit_input(
+                        adapter->flight_engine,
+                        incoming_view.payload,
+                        incoming_view.payload_size,
+                        applied.input_segment_mask);
+                }
             }
         } else {
             /* Keep the transport path nonblocking, but expose the missed

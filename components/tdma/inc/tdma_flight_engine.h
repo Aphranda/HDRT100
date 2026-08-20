@@ -8,7 +8,19 @@
 #include "tdma_flight_fifo.h"
 #include "tdma_process_image_map.h"
 
-#define TDMA_FLIGHT_ENGINE_VERSION 1u
+#define TDMA_FLIGHT_ENGINE_VERSION 2u
+
+#define TDMA_FLIGHT_SHORT_SLOT_COUNT 8u
+#define TDMA_FLIGHT_SHORT_SLOT_SIZE 32u
+#define TDMA_FLIGHT_SHORT_PAYLOAD_SIZE \
+    (TDMA_FLIGHT_SHORT_SLOT_COUNT * TDMA_FLIGHT_SHORT_SLOT_SIZE)
+#define TDMA_FLIGHT_MAILBOX_MAGIC 0x4652u
+#define TDMA_FLIGHT_MAILBOX_VERSION 1u
+#define TDMA_FLIGHT_MAILBOX_FAST_HEADER_SIZE 8u
+#define TDMA_FLIGHT_MAILBOX_VERSION_OFFSET 2u
+#define TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET 4u
+#define TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET 5u
+#define TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET 6u
 
 typedef enum {
     TDMA_FLIGHT_ENGINE_OK = 0u,
@@ -40,6 +52,9 @@ typedef struct {
     uint32_t map_reject_count;
     uint32_t length_reject_count;
     uint32_t tx_unavailable_count;
+    uint32_t rx_bitmap_scan_count;
+    uint32_t rx_bitmap_hit_count;
+    uint32_t rx_bitmap_duplicate_count;
 } tdma_flight_engine_snapshot_t;
 
 typedef struct {
@@ -56,6 +71,11 @@ typedef struct {
     volatile uint32_t map_reject_count;
     volatile uint32_t length_reject_count;
     volatile uint32_t tx_unavailable_count;
+    uint32_t rx_seen_segment_mask;
+    uint16_t rx_last_seq16_by_segment[TDMA_PROCESS_IMAGE_SEGMENT_COUNT];
+    volatile uint32_t rx_bitmap_scan_count;
+    volatile uint32_t rx_bitmap_hit_count;
+    volatile uint32_t rx_bitmap_duplicate_count;
 } tdma_flight_engine_t;
 
 bool tdma_flight_engine_init(tdma_flight_engine_t *engine);
@@ -74,6 +94,16 @@ bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
                               size_t output_capacity,
                               tdma_flight_engine_apply_t *applied,
                               tdma_flight_engine_result_t *result);
+bool tdma_flight_engine_classify_input(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t *input_segment_mask);
+bool tdma_flight_engine_commit_input(
+    tdma_flight_engine_t *engine,
+    const uint8_t *incoming,
+    size_t incoming_size,
+    uint32_t input_segment_mask);
 bool tdma_flight_engine_get_snapshot(
     const tdma_flight_engine_t *engine,
     tdma_flight_engine_snapshot_t *snapshot);

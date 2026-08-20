@@ -15,6 +15,7 @@
     tdma_service_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY
 #define tdma_service_ERROR_WINDOW_MISSED 101u
 #define tdma_service_WINDOW_ARM_AHEAD_NS 2000000u
+#define TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT 64u
 
 static uint64_t tdma_service_now_ns(void)
 {
@@ -886,8 +887,11 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
 
     memset(snapshot, 0, sizeof(*snapshot));
 
-    uint32_t abort_seq;
-    while (true) {
+    uint32_t abort_seq = 0u;
+    bool intent_copied = false;
+    for (uint32_t attempt = 0u;
+         attempt < TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT;
+         attempt++) {
         const uint32_t seq_begin = tdma_service_load(&service->intent_guard);
         if ((seq_begin & 1u) != 0u) {
             continue;
@@ -944,12 +948,19 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
                                        &snapshot->submit_time_ns_hi);
         const uint32_t seq_end = tdma_service_load(&service->intent_guard);
         if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
+            intent_copied = true;
             break;
         }
     }
+    if (!intent_copied) {
+        return false;
+    }
 
     uint32_t result_frame_size = 0u;
-    while (true) {
+    bool result_copied = false;
+    for (uint32_t attempt = 0u;
+         attempt < TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT;
+         attempt++) {
         const uint32_t seq_begin = tdma_service_load(&service->result_guard);
         if ((seq_begin & 1u) != 0u) {
             continue;
@@ -998,8 +1009,12 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
         result_frame_size = service->result_frame_size;
         const uint32_t seq_end = tdma_service_load(&service->result_guard);
         if (seq_begin == seq_end && (seq_end & 1u) == 0u) {
+            result_copied = true;
             break;
         }
+    }
+    if (!result_copied) {
+        return false;
     }
 
     if (snapshot->intent_seq > snapshot->completed_seq && abort_seq < snapshot->intent_seq) {

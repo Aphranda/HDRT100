@@ -7,7 +7,7 @@
 
 #include "tdma_transport_frame.h"
 
-#define TDMA_FLIGHT_FIFO_VERSION 1u
+#define TDMA_FLIGHT_FIFO_VERSION 2u
 #define TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT 2u
 #define TDMA_FLIGHT_RX_FRAME_SLOT_COUNT 4u
 #define TDMA_FLIGHT_PAYLOAD_CAPACITY TDMA_TRANSPORT_SHORT_PAYLOAD_MAX
@@ -89,6 +89,7 @@ typedef struct {
 typedef struct {
     volatile uint32_t slot_index;
     volatile uint32_t generation;
+    volatile uint32_t sequence;
 } tdma_flight_fifo_descriptor_t;
 
 typedef struct {

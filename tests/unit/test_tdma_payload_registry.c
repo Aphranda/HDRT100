@@ -104,6 +104,14 @@ int main(void)
                          snapshot.payload_whitelist_mask,
                          TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_REFMEM_DELTA) |
                              TDMA_PAYLOAD_BIT(TDMA_PAYLOAD_CLASS_LOG_STREAM));
+    registry.guard |= 1u;
+    failed += expect_bool("odd snapshot guard is bounded",
+                          tdma_payload_registry_get_snapshot(&registry, &snapshot),
+                          false);
+    registry.guard++;
+    failed += expect_bool("snapshot recovers after guard closes",
+                          tdma_payload_registry_get_snapshot(&registry, &snapshot),
+                          true);
 
     if (failed != 0) {
         return 1;

@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#define TDMA_PAYLOAD_REGISTRY_SNAPSHOT_RETRY_LIMIT 64u
+
 static uint32_t tdma_payload_registry_load(const volatile uint32_t *value)
 {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
@@ -222,7 +224,9 @@ bool tdma_payload_registry_get_snapshot(
         return false;
     }
 
-    while (true) {
+    for (uint32_t attempt = 0u;
+         attempt < TDMA_PAYLOAD_REGISTRY_SNAPSHOT_RETRY_LIMIT;
+         attempt++) {
         const uint32_t guard_begin = tdma_payload_registry_load(&registry->guard);
         if ((guard_begin & 1u) != 0u) {
             continue;
@@ -243,4 +247,5 @@ bool tdma_payload_registry_get_snapshot(
             return true;
         }
     }
+    return false;
 }

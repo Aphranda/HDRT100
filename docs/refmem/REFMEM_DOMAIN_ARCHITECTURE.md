@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`
-Last updated: 2026-08-15
+Last updated: 2026-08-20
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面。
 
@@ -115,6 +115,25 @@ owner 提交 local fact
 - 首次节点加入、epoch/layout/CRC 不一致、stale 恢复或显式维护请求时，才允许生成 full snapshot/resync；该过程必须分片、走 `LONG` maintenance window，并可暂停/续传，不能退化为周期整表刷新。
 - 大型静态表通过 System Pack staging/activate 和 CRC bundle 管理；运行期 RefMem 只传播必要 descriptor、版本、CRC 和局部事实。
 - 在 flight process image 中，RefMem publisher 只写 `TdmaProcessImageMap` 分配给本地 slot 的 inactive shadow segment；它不直接操作 PIO、DMA 或 active TDMA buffer。core1 cycle swap 后，transport adapter 才消费该稳定 segment。
+
+### 八槽 compact mailbox 消费规则
+
+RefMem 在 TDMA SHORT 飞行帧中使用统一的 8 × 32 B process image。每个物理节点只写
+自己拥有的 32 B slot，但可以通过 slot 头部的 `target_mask` 读取任意其他 active slot，
+因此单 writer 不会隔离板间通信。每个 slot 的前 8 B 是 TDMA/core1 可快速判断的
+`magic/version/source_slot/target_mask/seq16` metadata，后 24 B 才由 core0 RefMem owner
+解释为 compact delta、ACK/fence、VDC 摘要或控制内容。
+
+core1 只校验固定头、按 source owner 和本机 target bit 生成 RX segment bitmap，并完成
+seq16 去重；去重状态只在 RX FIFO 成功接收完整副本后提交，FIFO 满时允许同 seq16
+重试。它不调用 `refmem_sync_receive_frame()`，不解释字段、dirty mask 或业务值。
+core0 从 `TDMA_RX_FRAME_FIFO` 取得完整 payload 后，严格按 `segment_mask` 扫描命中的
+32 B slot；空 mask 表示本周期没有需解析的新事实，禁止退化为全 8-slot 扫描。
+
+2/3/4/8 板只改变 active node mask，wire payload、slot offset 和 parser 不变。TX/RX
+跨核交接通过 descriptor 的 `slot_index/generation/sequence` 与 buffer 中同名版本相互
+校验，不依赖两个 FIFO 同时推进；RefMem generation/dirty/ACK 语义仍由 core0 owner
+维护，不能用 transport 的 seq16 代替完整 seq32 或可见性确认。
 
 ## HAOFV 层级
 

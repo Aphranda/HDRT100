@@ -2,6 +2,7 @@
 
 #include "calibration_manager.h"
 #include "diagnostics.h"
+#include "drv_watchdog.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
 #include "event_bus.h"
@@ -191,16 +192,27 @@ void app_storage_service(void)
 
 void app_realtime_run_once(void)
 {
+    drv_watchdog_mark_progress(1u, 0x0101u);
     diagnostics_record_core1_loop();
     diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_CORE1);
     vdc_dpll_manager_set_vdc_ready(true);
+    drv_watchdog_mark_progress(1u, 0x0111u);
     vdc_sync_ao_service();
+    drv_watchdog_mark_progress(1u, 0x0102u);
     vdc_dpll_manager_set_dpll_ready(true);
+    drv_watchdog_mark_progress(1u, 0x0112u);
     sync_dpll_fb_service();
+    drv_watchdog_mark_progress(1u, 0x0103u);
     tdma_component_core1_service();
+    drv_watchdog_mark_progress(1u, 0x0104u);
     sync_io_capture_latch_service_core1();
+    drv_watchdog_mark_progress(1u, 0x0105u);
     distributed_refmem_realtime_run_once();
+    drv_watchdog_mark_progress(1u, 0x0106u);
     model_turntable_service();
+    drv_watchdog_mark_progress(1u, 0x0107u);
     sync_trigger_service();
+    drv_watchdog_mark_progress(1u, 0x0108u);
     trigger_measure_service();   /* 同步自检: 门控测量非阻塞服务 */
+    drv_watchdog_mark_progress(1u, 0x0109u);
 }

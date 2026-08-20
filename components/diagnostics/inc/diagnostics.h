@@ -64,6 +64,8 @@ typedef struct {
     uint32_t evidence_stale_mask;
     uint32_t evidence_core0_loop_count;
     uint32_t evidence_core1_loop_count;
+    uint32_t evidence_core0_progress;
+    uint32_t evidence_core1_progress;
     uint32_t gate_required_mask;
     uint32_t last_seen_mask;
     uint32_t last_stale_mask;
