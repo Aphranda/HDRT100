@@ -50,6 +50,23 @@ Last updated: 2026-08-22
 - 还需完成：
   - M0-04 wire corpus；M0-05 v1 factory artifact checksum、BOOTSEL 实板恢复和独立回退报告。
 
+### FLASH-TASK-20260822-013 - M1-05 大 payload fail-closed 与 completion 负向语义
+
+- 状态：M1-05 进行中；固定 program-page owned payload 已保留，大 payload immutable provider 尚未
+  实现，因此超出固定 pool 的 App program intent 明确返回 `PROVIDER`，不调用 raw operation。
+- 日期：2026-08-22
+- 完成内容：
+  - `FlashTransactionFB` 在 requester/partition policy 通过后拒绝超出 owned payload pool 的 program
+    请求，避免 producer 可变 buffer 在排队或 service 间被别的任务修改。
+  - host fixture 覆盖 large payload no-raw、queue full、duplicate terminal completion 和 terminal
+    状态下 abort 拒绝；已有 page snapshot fixture 继续证明小 payload submit 时复制。
+- 验证结果：
+  - FlashTransaction host tests、release 构建通过；代码提交 `3b349a2 test(flash): fail closed on
+    aliased large payloads` 已推送。
+- 还需完成：
+  - generation/refcount immutable provider、producer reset/duplicate completion 持久化语义，以及
+    page/sector raw step 可注入的 abort fixture；完成后再评估 M1-03/M1-05 退出。
+
 ## 任务记录
 
 ### FLASH-TASK-20260822-010 - Policy gate reason/temperature Vector 与 COM8 闭环
