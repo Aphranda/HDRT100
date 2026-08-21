@@ -211,6 +211,7 @@ def render_header(data: dict[str, Any], source_path: Path) -> str:
         "",
         f"#define FLASH_MAP_SCHEMA_VERSION {data['schema_version']}u",
         f"#define FLASH_MAP_VERSION        {data['map_version']}u",
+        f'#define FLASH_MAP_DEPLOYMENT_STATE "{data["deployment_state"]}"',
         f"#define FLASH_GEOMETRY_TOTAL_SIZE_BYTES {hex_u(geometry['total_size'])}",
         f"#define FLASH_GEOMETRY_ERASE_SIZE_BYTES {hex_u(geometry['erase_size'])}",
         f"#define FLASH_GEOMETRY_PROGRAM_SIZE_BYTES {hex_u(geometry['program_size'])}",
@@ -228,11 +229,22 @@ def render_header(data: dict[str, Any], source_path: Path) -> str:
             f"#define {prefix}_OFFSET {hex_u(partition['offset'])}",
             f"#define {prefix}_SIZE {hex_u(partition['size'])}",
             f"#define {prefix}_ALIGNMENT {hex_u(partition['alignment'])}",
+            f"#define {prefix}_EXECUTABLE {1 if partition['executable'] else 0}u",
         ])
         for context in CONTEXTS:
             mask = sum(PERMISSIONS[value] for value in partition["permissions"][context])
             lines.append(f"#define {prefix}_{context.upper()}_PERMISSIONS {hex_u(mask)}")
         lines.append("")
+    lines.append("#define FLASH_MAP_PARTITION_TABLE(X) \\")
+    for index, partition in enumerate(data["partitions"]):
+        prefix = f"FLASH_MAP_{partition['id']}"
+        continuation = " \\" if index + 1 < len(data["partitions"]) else ""
+        lines.append(
+            f"    X({partition['id']}, {prefix}_ID, {prefix}_OFFSET, {prefix}_SIZE, "
+            f"{prefix}_ALIGNMENT, {prefix}_BOOT_PERMISSIONS, {prefix}_APP_PERMISSIONS, "
+            f"{prefix}_FACTORY_PERMISSIONS, {prefix}_EXECUTABLE){continuation}"
+        )
+    lines.append("")
     lines.extend([
         f"#define FLASH_MAP_PARTITION_COUNT {len(data['partitions'])}u",
         "",

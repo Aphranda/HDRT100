@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "flash_map.h"
 #include "resource_arbiter.h"
 #include "scpi_port_internal.h"
 #include "sync_trigger.h"
@@ -109,5 +110,69 @@ scpi_result_t scpi_cmd_resource_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.last_conflict_resources);
     SCPI_ResultText(context, scpi_owner_or_dash(snapshot.last_conflict_owner));
     SCPI_ResultText(context, scpi_owner_or_dash(snapshot.last_conflict_holder));
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_flash_map_q(scpi_t *context)
+{
+    uint32_t partition_id = 0u;
+    if (!SCPI_ParamUInt32(context, &partition_id, TRUE)) {
+        return SCPI_RES_ERR;
+    }
+    const flash_map_partition_t *partition =
+        flash_map_find_by_id(partition_id);
+    if (partition == NULL) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, FLASH_MAP_VERSION);
+    SCPI_ResultText(context, FLASH_MAP_DEPLOYMENT_STATE);
+    SCPI_ResultUInt32(context, FLASH_MAP_PARTITION_COUNT);
+    SCPI_ResultUInt32(context, partition->id);
+    SCPI_ResultUInt32(context, partition->offset);
+    SCPI_ResultUInt32(context, partition->size);
+    SCPI_ResultUInt32(context, partition->alignment);
+    SCPI_ResultUInt32(context, partition->boot_permissions);
+    SCPI_ResultUInt32(context, partition->app_permissions);
+    SCPI_ResultUInt32(context, partition->factory_permissions);
+    SCPI_ResultBool(context, partition->executable ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_flash_access_q(scpi_t *context)
+{
+    uint32_t partition_id = 0u;
+    uint32_t context_id = 0u;
+    uint32_t operation = 0u;
+    uint32_t active_partition_id = 0u;
+    uint32_t scratch_lease = 0u;
+    uint32_t relative_offset = 0u;
+    uint32_t length = 0u;
+    if (!SCPI_ParamUInt32(context, &partition_id, TRUE) ||
+        !SCPI_ParamUInt32(context, &context_id, TRUE) ||
+        !SCPI_ParamUInt32(context, &operation, TRUE) ||
+        !SCPI_ParamUInt32(context, &active_partition_id, TRUE) ||
+        !SCPI_ParamUInt32(context, &scratch_lease, TRUE) ||
+        !SCPI_ParamUInt32(context, &relative_offset, TRUE) ||
+        !SCPI_ParamUInt32(context, &length, TRUE) || scratch_lease > 1u) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t absolute_offset = 0u;
+    const bool is_allowed = flash_map_operation_allowed(
+        &(const flash_map_access_t){
+            .context = (flash_map_context_t)context_id,
+            .active_app_partition_id = active_partition_id,
+            .scratch_lease = scratch_lease != 0u,
+        },
+        partition_id,
+        (flash_map_operation_t)operation,
+        relative_offset,
+        length,
+        &absolute_offset);
+
+    SCPI_ResultBool(context, is_allowed ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, absolute_offset);
+    SCPI_ResultUInt32(context, partition_id);
     return SCPI_RES_OK;
 }

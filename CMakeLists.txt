@@ -219,6 +219,7 @@ set(PROJECT_APP_SOURCES
         boards/rp2350_trig/src/board.c
         third_party/portable_log/src/portable_log.c
         middleware/portable_log_port/src/portable_log_port.c
+        middleware/flash_map/src/flash_map.c
         components/calibration_manager/src/calibration_manager.c
         components/calibration_manager/src/calibration_bidirectional.c
         components/calibration_manager/src/calibration_clk_coded.c
@@ -435,6 +436,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/drivers/external/lcd/inc
         ${CMAKE_CURRENT_LIST_DIR}/drivers/external/sd_card/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/fatfs_port/inc
+        ${CMAKE_CURRENT_LIST_DIR}/middleware/flash_map/inc
         ${PROJECT_FATFS_CONFIGURED_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_log_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
@@ -550,6 +552,7 @@ project_configure_app_target(
 
 add_executable(RP2350_TRIG_BOOT
         bootloader/src/bootloader_main.c
+        middleware/flash_map/src/flash_map.c
         components/ota_manager/src/ota_crc32.c
         components/ota_manager/src/ota_image.c
         components/ota_manager/src/ota_metadata.c
@@ -568,6 +571,7 @@ target_include_directories(RP2350_TRIG_BOOT PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/bootloader/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
+        ${CMAKE_CURRENT_LIST_DIR}/middleware/flash_map/inc
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/flash/inc
         ${CMAKE_CURRENT_LIST_DIR}/config
 )

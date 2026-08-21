@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from tools.flash_map.flash_map import FlashMapError, load_and_validate, validate_map
+from tools.flash_map.flash_map import (
+    FlashMapError,
+    load_and_validate,
+    render_header,
+    validate_map,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,3 +73,14 @@ def test_flash_map_validation_does_not_mutate_source():
     before = copy.deepcopy(source)
     validate_map(source)
     assert source == before
+
+
+def test_generated_header_exposes_single_partition_table():
+    data = load_and_validate(SOURCE)
+    header = render_header(data, Path("config/flash_map_v2.json"))
+    assert '#define FLASH_MAP_DEPLOYMENT_STATE "target_not_deployed"' in header
+    assert "#define FLASH_MAP_PARTITION_TABLE(X)" in header
+    for partition in data["partitions"]:
+        prefix = f"FLASH_MAP_{partition['id']}"
+        assert f"#define {prefix}_EXECUTABLE" in header
+        assert f"X({partition['id']}, {prefix}_ID" in header
