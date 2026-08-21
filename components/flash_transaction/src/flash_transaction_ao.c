@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "board.h"
+#include "diagnostics.h"
 #include "drv_flash_write.h"
 #include "flash_transaction_fb.h"
 #include "resource_arbiter.h"
@@ -14,6 +15,14 @@ static flash_transaction_fb_t s_flash_transaction;
 
 static bool flash_transaction_policy_allows(uint32_t requester)
 {
+    diagnostics_sensor_status_t sensors;
+    diagnostics_get_sensor_status(&sensors);
+    const uint32_t thermal_critical =
+        DIAGNOSTICS_SENSOR_FLAG_BOARD_TEMP_CRITICAL |
+        DIAGNOSTICS_SENSOR_FLAG_CHIP_TEMP_CRITICAL;
+    if (diagnostics_has_fault() || (sensors.flags & thermal_critical) != 0u) {
+        return false;
+    }
     return (requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE ||
             requester == FLASH_TRANSACTION_REQUESTER_OTA_METADATA ||
             requester == FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG) &&
