@@ -59,6 +59,29 @@ Last updated: 2026-08-22
   - 增加可控板端 fault/thermal 注入或安全模拟入口后再做 negative HIL；接入 System/Trigger/
     Calibration/TDMA gate、core1 park owner 上移，再评估 M1-04 退出。
 
+### FLASH-TASK-20260822-011 - Trigger/FAULT/资源 gate 原因细分与 COM8 烧录
+
+- 状态：M1-04 进行中；FlashTransactionAO 已把 trigger activity、FAULT mode 和 Flash resource
+  conflict 映射为独立 policy reason，Calibration/TDMA training 与真正 mode owner 仍待接入。
+- 日期：2026-08-22
+- 完成内容：
+  - admission policy 在 thermal critical、diagnostics fault、非法 requester 之后读取
+    `resource_arbiter_snapshot_t`，分别拒绝 FAULT mode、trigger capture/clock 活动和已有 Flash
+    owner，避免把系统互斥误报为 raw erase/program 失败。
+  - Vector 的 `policy_gate_reason` 与 `last_error` 保持同值；旧 bool policy callback 仍兼容，host
+    fixture 覆盖 trigger/mode reason 且断言 erase 未调用。
+- 验证结果：
+  - FlashTransaction host fixture、release 与 RTOS+双核构建通过；代码提交
+    `094d2cb feat(flash): classify trigger and mode gates` 已推送。
+  - COM8 `839E1AE79EA20F31` 使用 build `20260821175703` 完成 unified package OTA、Boot/commit；
+    最终 `SYST:OTA:STAT?="COMMITTED",1,"NONE",5`、active slot `2`、错误队列为空。最后 Vector
+    为 metadata requester `2`/partition `3`、`256/256` verified/committed、lockout `2/2`；传感器
+    快照板温 `31.069°C`、RP2350 内温 `35.934°C`、current frontend healthy、nominal `69 mA`、
+    未校准。
+- 还需完成：
+  - 由 System/Calibration/TDMA 的真实 owner 发布 mode/training gate；补安全的板端拒绝 HIL，随后
+    才能把 M1-04 从进行中推进到退出评审。
+
 当前 live Bootloader、App linker、factory UF2、OTA partition 和 packager 均从 generated
 `v1_compat` artifact 取得既有低 4 MiB 兼容布局，不再各自手写地址；
 `config/flash_map_v2.json` 的目标分区仍未烧录或部署。App 已通过 OTA 部署 consumer gate 与只读
