@@ -30,12 +30,39 @@ Last updated: 2026-08-22
 | M1-02 permission view | 进行中 | generated X-macro、纯算法服务、版本化 live consumer、host 边界测试、COM8 OTA/只读权限闭环 | 真实 writer 接入、v2 factory 部署与 C11 激活审核。 |
 | M1-03 FlashTransactionAO | 进行中 | one-deep queue/FB/Vector、OTA image 与 Product Config writer、owned page snapshot、host fault tests、COM8 OTA 与 Product NVS 重启闭环 | metadata/Boot writer、异步 completion、lease/refcount、thermal gate 与 durable reset 语义。 |
 
+## 任务记录
+
+### FLASH-TASK-20260822-010 - Policy gate reason/temperature Vector 与 COM8 闭环
+
+- 状态：M1-04 进行中；critical thermal/diagnostics fault 已在 admission 层细分并 fail closed，System/
+  Calibration/TDMA mode policy 与实际 fault injection HIL 仍未完成。
+- 日期：2026-08-22
+- 完成内容：
+  - `FlashTransactionFB` 增加可选 policy-check hook；兼容旧 bool policy，同时把 policy error 和
+    temperature flags 写入 seqlock Vector，避免把 thermal、latched diagnostics fault 混成普通 raw failure。
+  - AO policy 顺序固定为 thermal critical -> diagnostics fault -> requester/resource policy；warning 和
+    current nominal-only 不阻断写入。
+  - host fixture 分别注入 thermal critical 与 diagnostics fault，断言 erase/program/release 计数均为零，
+    且终态 error、policy_gate_reason、temperature_flags 一致。
+- 验证结果：
+  - FlashTransaction host tests、全量 host runner `30/30`、release 与 RTOS+双核构建通过；代码提交
+    `f0efc77 feat(flash): expose thermal policy gate reasons` 已推送。
+  - COM8 `839E1AE79EA20F31` 使用 build `20260821174820` 完成统一 package 与 raw inactive-slot
+    OTA、Boot/commit；`SYST:OTA:STAT?` 为 `COMMITTED`，`SYST:ERRor?` 为 `0,"No error"`。
+    最后传感器快照板温 `31.633°C`、RP2350 内温 `36.403°C`、current frontend healthy、nominal
+    `89 mA`、未校准；最后可读 transaction Vector 为 metadata `requester=2, partition=3,
+    256/256 verified/committed, lockout=2/2`。
+  - 原始闭环记录：`build/flash_policy_COM8/`、`build/flash_policy_raw_COM8/`；一次针对 metadata
+    transaction 的旧 HIL 断言因 requester/partition 预期不匹配而失败，已保留在
+    `build/flash_policy_lockout_COM8/`，不作为通过证据。
+- 还需完成：
+  - 增加可控板端 fault/thermal 注入或安全模拟入口后再做 negative HIL；接入 System/Trigger/
+    Calibration/TDMA gate、core1 park owner 上移，再评估 M1-04 退出。
+
 当前 live Bootloader、App linker、factory UF2、OTA partition 和 packager 均从 generated
 `v1_compat` artifact 取得既有低 4 MiB 兼容布局，不再各自手写地址；
 `config/flash_map_v2.json` 的目标分区仍未烧录或部署。App 已通过 OTA 部署 consumer gate 与只读
 permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootloader 本轮没有重刷。
-
-## 任务记录
 
 ### FLASH-TASK-20260822-006 - OTA metadata App/Boot writer 边界与 COM8 transaction 闭环
 

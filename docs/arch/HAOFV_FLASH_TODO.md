@@ -182,8 +182,11 @@ RTOS+双核构建和 COM8 双次 OTA/Vector HIL 均通过。该项保持进行�
 
 ### M1-04 Mode、温度与双核门禁
 
-- [~] FlashTransactionAO 已接入 Diagnostics fault 与 board/chip thermal critical fail-closed gate；
-  System mode、Calibration/TDMA training gate 和 warning policy 仍待补齐。
+- [~] FlashTransactionAO 已接入 Diagnostics fault 与 board/chip thermal critical fail-closed gate，
+  policy error/temperature flags 已进入 Vector；System mode、Calibration/TDMA training gate 和
+  warning policy 仍待补齐。
+- [x] host negative fixture 覆盖 thermal critical/diagnostics fault admission，断言 raw erase/program
+  未执行；板端 fault/thermal 注入 HIL 仍待安全入口。
 - [ ] RUN/CAL/thermal critical/unknown state 拒绝新写；warning 只按 policy 暂停或降速。
 - [ ] core1 park request/ACK/timeout/release 只由 transaction owner 驱动。
 - [ ] 审计 RAM resident closure：代码、常量、jump table、IRQ path 不依赖 XIP。
