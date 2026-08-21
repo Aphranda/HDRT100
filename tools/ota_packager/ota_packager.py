@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import binascii
 import hashlib
+import json
 import struct
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -17,12 +19,22 @@ PACKAGE_PAYLOAD_ALIGNMENT = 512
 TEXT_FIELD_SIZE = 32
 SLOT_A = 1
 SLOT_B = 2
-SLOT_A_RUN_OFFSET = 0x00040000
-SLOT_B_RUN_OFFSET = 0x001C0000
 DEFAULT_PRODUCT_ID = "RP2350_TRIG"
 DEFAULT_HARDWARE_ID = "rp2350_trig"
 DEFAULT_APP_VERSION = "0.1.0"
 DEFAULT_MIN_BOOTLOADER_VERSION = "0.1.0"
+
+
+@dataclass(frozen=True)
+class AppPartition:
+    offset: int
+    size: int
+
+
+@dataclass(frozen=True)
+class DeploymentLayout:
+    app_a: AppPartition
+    app_b: AppPartition
 
 
 def crc32(data: bytes) -> int:
@@ -33,6 +45,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image-a", required=True, type=Path, help="Slot A linked App .bin")
     parser.add_argument("--image-b", required=True, type=Path, help="Slot B linked App .bin")
+    parser.add_argument("--map-manifest", required=True, type=Path,
+                        help="generated deployed compatibility Flash map manifest")
     parser.add_argument("-o", "--output", required=True, type=Path, help="output unified OTA package")
     parser.add_argument("--product-id", default=DEFAULT_PRODUCT_ID, help="target product id")
     parser.add_argument("--hardware-id", default=DEFAULT_HARDWARE_ID, help="target hardware id")
@@ -67,6 +81,46 @@ def put_image(header: bytearray, index: int, slot: int, offset: int, image: byte
 
 def align_up(value: int, alignment: int) -> int:
     return (value + alignment - 1) & ~(alignment - 1)
+
+
+def load_deployment_layout(path: Path) -> DeploymentLayout:
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read Flash map manifest {path}: {exc}") from exc
+
+    if manifest.get("deployment_state") != "deployed_compatibility":
+        raise ValueError("OTA packaging requires a deployed_compatibility Flash map")
+    partitions = manifest.get("partitions")
+    if not isinstance(partitions, list):
+        raise ValueError("Flash map manifest partitions must be a list")
+
+    by_id: dict[str, dict[str, object]] = {}
+    for partition in partitions:
+        if not isinstance(partition, dict) or not isinstance(partition.get("id"), str):
+            raise ValueError("Flash map manifest contains an invalid partition")
+        partition_id = partition["id"]
+        if partition_id in by_id:
+            raise ValueError(f"Flash map manifest has duplicate partition: {partition_id}")
+        by_id[partition_id] = partition
+
+    def app_partition(partition_id: str) -> AppPartition:
+        partition = by_id.get(partition_id)
+        if partition is None:
+            raise ValueError(f"Flash map manifest is missing {partition_id}")
+        offset = partition.get("offset")
+        size = partition.get("size")
+        if not isinstance(offset, int) or offset < 0 or not isinstance(size, int) or size <= 0:
+            raise ValueError(f"Flash map manifest has invalid {partition_id} offset/size")
+        if partition.get("store_type") != "image" or partition.get("executable") is not True:
+            raise ValueError(f"Flash map manifest {partition_id} is not an executable image partition")
+        return AppPartition(offset=offset, size=size)
+
+    app_a = app_partition("APP_A")
+    app_b = app_partition("APP_B")
+    if app_a.size != app_b.size:
+        raise ValueError("Flash map manifest APP_A and APP_B sizes differ")
+    return DeploymentLayout(app_a=app_a, app_b=app_b)
 
 
 def parse_semver(value: str) -> tuple[int, int, int]:
@@ -109,7 +163,14 @@ def build_package(
     app_version: tuple[int, int, int],
     build_id: str,
     min_bootloader_version: tuple[int, int, int],
+    layout: DeploymentLayout,
 ) -> bytes:
+    if len(image_a) > layout.app_a.size:
+        raise ValueError(
+            f"Slot A image size {len(image_a)} exceeds partition capacity {layout.app_a.size}")
+    if len(image_b) > layout.app_b.size:
+        raise ValueError(
+            f"Slot B image size {len(image_b)} exceeds partition capacity {layout.app_b.size}")
     offset_a = PACKAGE_HEADER_SIZE
     offset_b = align_up(offset_a + len(image_a), PACKAGE_PAYLOAD_ALIGNMENT)
     padding_a = offset_b - (offset_a + len(image_a))
@@ -129,8 +190,8 @@ def build_package(
     put_u32(header, 104, app_version[2])
     put_u32(header, 108, pack_version(min_bootloader_version))
     put_text(header, 112, build_id)
-    put_image(header, 0, SLOT_A, offset_a, image_a, SLOT_A_RUN_OFFSET)
-    put_image(header, 1, SLOT_B, offset_b, image_b, SLOT_B_RUN_OFFSET)
+    put_image(header, 0, SLOT_A, offset_a, image_a, layout.app_a.offset)
+    put_image(header, 1, SLOT_B, offset_b, image_b, layout.app_b.offset)
 
     payload = image_a + bytes([0xFF] * padding_a) + image_b
     header[144:176] = hashlib.sha256(payload).digest()
@@ -144,6 +205,7 @@ def main() -> int:
     app_version = parse_semver(args.app_version)
     min_bootloader_version = parse_semver(args.min_bootloader_version)
     build_id = read_build_id(args)
+    layout = load_deployment_layout(args.map_manifest)
     package = build_package(
         image_a,
         image_b,
@@ -152,6 +214,7 @@ def main() -> int:
         app_version=app_version,
         build_id=build_id,
         min_bootloader_version=min_bootloader_version,
+        layout=layout,
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""Verify live Flash consumers and release artifacts against a generated map."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import struct
+from pathlib import Path
+from typing import Any
+
+
+PACKAGE_MAGIC = 0x474B5054
+PACKAGE_VERSION = 2
+UF2_MAGIC_START0 = 0x0A324655
+UF2_MAGIC_START1 = 0x9E5D5157
+UF2_MAGIC_END = 0x0AB16F30
+UF2_BLOCK_SIZE = 512
+
+
+class FlashConsumerError(ValueError):
+    pass
+
+
+def load_manifest(path: Path) -> dict[str, Any]:
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FlashConsumerError(f"cannot read manifest {path}: {exc}") from exc
+    if manifest.get("deployment_state") != "deployed_compatibility":
+        raise FlashConsumerError("live consumers require deployment_state=deployed_compatibility")
+    if not isinstance(manifest.get("geometry"), dict) or not isinstance(manifest.get("partitions"), list):
+        raise FlashConsumerError("manifest geometry/partitions are invalid")
+    ids = [item.get("id") for item in manifest["partitions"] if isinstance(item, dict)]
+    required = {"BOOTLOADER", "APP_A", "APP_B", "BOOT_CONTROL"}
+    if not required.issubset(ids) or len(ids) != len(set(ids)):
+        raise FlashConsumerError("manifest is missing or duplicates a live partition")
+    return manifest
+
+
+def partitions_by_id(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {item["id"]: item for item in manifest["partitions"]}
+
+
+def require_tokens(path: Path, tokens: tuple[str, ...]) -> None:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise FlashConsumerError(f"cannot read consumer {path}: {exc}") from exc
+    missing = [token for token in tokens if token not in text]
+    if missing:
+        raise FlashConsumerError(f"{path}: missing generated-map tokens {missing}")
+
+
+def check_source_consumers(root: Path) -> None:
+    checks = {
+        "components/ota_manager/inc/ota_partition.h": (
+            "flash_map_gen/flash_map_v1_compat.h",
+            "FLASH_COMPAT_MAP_APP_A_OFFSET",
+            "FLASH_COMPAT_MAP_APP_B_OFFSET",
+            "FLASH_COMPAT_MAP_BOOT_CONTROL_OFFSET",
+        ),
+        "linker/rp2350_bootloader.ld": (
+            "INCLUDE flash_map_v1_compat.ldinc",
+            "FLASH_COMPAT_MAP_BOOTLOADER_ORIGIN",
+            "FLASH_COMPAT_MAP_BOOTLOADER_LENGTH",
+        ),
+        "linker/rp2350_app_slot_a.ld": (
+            "INCLUDE flash_map_v1_compat.ldinc",
+            "FLASH_COMPAT_MAP_APP_A_ORIGIN",
+            "FLASH_COMPAT_MAP_APP_A_LENGTH",
+        ),
+        "linker/rp2350_app_slot_b.ld": (
+            "INCLUDE flash_map_v1_compat.ldinc",
+            "FLASH_COMPAT_MAP_APP_B_ORIGIN",
+            "FLASH_COMPAT_MAP_APP_B_LENGTH",
+        ),
+        "CMakeLists.txt": (
+            "PROJECT_FLASH_DEPLOYMENT_MAP v1_compat",
+            "FLASH_COMPAT_MAP_BOOTLOADER_XIP_ADDRESS",
+            "FLASH_COMPAT_MAP_APP_A_XIP_ADDRESS",
+            "FLASH_COMPAT_MAP_BOOT_CONTROL_XIP_ADDRESS",
+            "--map-manifest",
+        ),
+    }
+    for relative, tokens in checks.items():
+        require_tokens(root / relative, tokens)
+
+
+def parse_flash_memory(path: Path) -> tuple[int, int]:
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r"^FLASH\s+(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s+", text, re.MULTILINE)
+    if match is None:
+        raise FlashConsumerError(f"{path}: FLASH memory row not found")
+    return int(match.group(1), 16), int(match.group(2), 16)
+
+
+def check_link_maps(build_dir: Path, manifest: dict[str, Any]) -> None:
+    xip_base = manifest["geometry"].get("xip_base")
+    if not isinstance(xip_base, int):
+        raise FlashConsumerError("manifest xip_base is invalid")
+    partitions = partitions_by_id(manifest)
+    maps = {
+        "RP2350_TRIG_BOOT.elf.map": "BOOTLOADER",
+        "RP2350_TRIG.elf.map": "APP_A",
+        "RP2350_TRIG_B.elf.map": "APP_B",
+    }
+    for filename, partition_id in maps.items():
+        partition = partitions[partition_id]
+        actual = parse_flash_memory(build_dir / filename)
+        expected = (xip_base + partition["offset"], partition["size"])
+        if actual != expected:
+            raise FlashConsumerError(
+                f"{filename}: FLASH origin/length {actual!r} != manifest {expected!r}")
+
+
+def check_binary_sizes(build_dir: Path, manifest: dict[str, Any]) -> None:
+    partitions = partitions_by_id(manifest)
+    binaries = {
+        "RP2350_TRIG_BOOT.bin": "BOOTLOADER",
+        "RP2350_TRIG.bin": "APP_A",
+        "RP2350_TRIG_B.bin": "APP_B",
+        "ota_metadata_clear.bin": "BOOT_CONTROL",
+    }
+    for filename, partition_id in binaries.items():
+        path = build_dir / filename
+        size = path.stat().st_size
+        capacity = partitions[partition_id]["size"]
+        if size > capacity:
+            raise FlashConsumerError(f"{filename}: size {size} exceeds {partition_id} capacity {capacity}")
+    metadata_size = (build_dir / "ota_metadata_clear.bin").stat().st_size
+    if metadata_size != partitions["BOOT_CONTROL"]["size"]:
+        raise FlashConsumerError("ota_metadata_clear.bin must cover the complete BOOT_CONTROL partition")
+
+
+def check_ota_package(build_dir: Path, manifest: dict[str, Any]) -> None:
+    package = (build_dir / "RP2350_TRIG_UPDATE.pkg").read_bytes()
+    if len(package) < 256:
+        raise FlashConsumerError("OTA package is shorter than its descriptor table")
+    magic, version, _, package_size, _, image_count = struct.unpack_from("<IIIIII", package, 0)
+    if (magic, version, package_size, image_count) != (PACKAGE_MAGIC, PACKAGE_VERSION, len(package), 2):
+        raise FlashConsumerError("OTA package header is invalid")
+    partitions = partitions_by_id(manifest)
+    expected = ((1, "APP_A", "RP2350_TRIG.bin"), (2, "APP_B", "RP2350_TRIG_B.bin"))
+    for index, (expected_slot, partition_id, filename) in enumerate(expected):
+        slot, payload_offset, size, _, run_offset, _ = struct.unpack_from(
+            "<IIIIII", package, 192 + index * 32)
+        partition = partitions[partition_id]
+        if slot != expected_slot or run_offset != partition["offset"]:
+            raise FlashConsumerError(f"OTA {partition_id} descriptor disagrees with manifest")
+        if size != (build_dir / filename).stat().st_size or size > partition["size"]:
+            raise FlashConsumerError(f"OTA {partition_id} descriptor size is invalid")
+        if payload_offset + size > len(package):
+            raise FlashConsumerError(f"OTA {partition_id} payload exceeds package")
+
+
+def uf2_target_addresses(path: Path) -> set[int]:
+    data = path.read_bytes()
+    if not data or len(data) % UF2_BLOCK_SIZE != 0:
+        raise FlashConsumerError(f"{path}: invalid UF2 length")
+    addresses: set[int] = set()
+    for cursor in range(0, len(data), UF2_BLOCK_SIZE):
+        block = data[cursor:cursor + UF2_BLOCK_SIZE]
+        start0, start1, _, address, payload_size = struct.unpack_from("<IIIII", block, 0)
+        end_magic = struct.unpack_from("<I", block, UF2_BLOCK_SIZE - 4)[0]
+        if (start0, start1, end_magic) != (UF2_MAGIC_START0, UF2_MAGIC_START1, UF2_MAGIC_END):
+            raise FlashConsumerError(f"{path}: invalid UF2 block magic")
+        if payload_size != 256:
+            raise FlashConsumerError(f"{path}: invalid UF2 payload size {payload_size}")
+        if address in addresses:
+            raise FlashConsumerError(f"{path}: duplicate UF2 target address 0x{address:08X}")
+        addresses.add(address)
+    return addresses
+
+
+def check_factory_uf2(build_dir: Path, manifest: dict[str, Any]) -> None:
+    xip_base = manifest["geometry"]["xip_base"]
+    partitions = partitions_by_id(manifest)
+    expected_addresses: set[int] = set()
+    inputs = (
+        ("RP2350_TRIG_BOOT.bin", "BOOTLOADER"),
+        ("RP2350_TRIG.bin", "APP_A"),
+        ("ota_metadata_clear.bin", "BOOT_CONTROL"),
+    )
+    for filename, partition_id in inputs:
+        size = (build_dir / filename).stat().st_size
+        start = xip_base + partitions[partition_id]["offset"]
+        expected_addresses.update(range(start, start + size, 256))
+    actual_addresses = uf2_target_addresses(build_dir / "RP2350_TRIG_FACTORY.uf2")
+    if actual_addresses != expected_addresses:
+        extra = sorted(actual_addresses - expected_addresses)
+        missing = sorted(expected_addresses - actual_addresses)
+        raise FlashConsumerError(
+            f"factory UF2 targets drifted: extra={extra[:3]} missing={missing[:3]}")
+
+
+def check_artifacts(build_dir: Path, manifest: dict[str, Any]) -> None:
+    check_link_maps(build_dir, manifest)
+    check_binary_sizes(build_dir, manifest)
+    check_ota_package(build_dir, manifest)
+    check_factory_uf2(build_dir, manifest)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=Path.cwd())
+    parser.add_argument("--manifest", type=Path,
+                        default=Path("config/flash_map_gen/flash_map_v1_compat_manifest.json"))
+    parser.add_argument("--build-dir", type=Path, default=Path("build"))
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    root = args.root.resolve()
+    manifest_path = args.manifest if args.manifest.is_absolute() else root / args.manifest
+    build_dir = args.build_dir if args.build_dir.is_absolute() else root / args.build_dir
+    try:
+        manifest = load_manifest(manifest_path)
+        check_source_consumers(root)
+        check_artifacts(build_dir, manifest)
+    except (FlashConsumerError, OSError, KeyError, TypeError) as exc:
+        print(f"flash_consumer_check=FAILED detail={exc}")
+        return 1
+    print("flash_consumer_check=OK source_consumers=5 artifact_groups=4")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

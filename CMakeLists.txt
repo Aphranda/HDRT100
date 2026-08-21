@@ -33,12 +33,14 @@ set(PROJECT_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat compiler warnings as errors
 set(PROJECT_ENABLE_OTA_FAULT_INJECTION OFF CACHE BOOL "Enable destructive OTA validation SCPI commands")
 set(PROJECT_ENABLE_WATCHDOG_TEST OFF CACHE BOOL "Enable destructive watchdog validation SCPI command")
 set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
+set(PROJECT_FLASH_DEPLOYMENT_MAP v1_compat CACHE STRING "Explicit live Flash map: v1_compat until factory v2 migration")
 set(PROJECT_USE_FREERTOS ON CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
 set(PROJECT_USE_MULTICORE ON CACHE BOOL "Run realtime trigger service on RP2350 core1")
 set(PROJECT_SYNC_IO_INPUT_BASE_PIN 20 CACHE STRING "Product SMA input GPIO base (physical order IN4..IN1)")
 set(PROJECT_SYNC_IO_OUTPUT_BASE_PIN 16 CACHE STRING "Product SMA output GPIO base (OUT1..OUT4)")
 set(PROJECT_TDMA_SPI_BAUD_HZ 10000000 CACHE STRING "Product TDMA PIO-SPI bit rate")
 set_property(CACHE PROJECT_OTA_DEFAULT_BOOT_MODE PROPERTY STRINGS COPY_TO_ACTIVE DIRECT_AB)
+set_property(CACHE PROJECT_FLASH_DEPLOYMENT_MAP PROPERTY STRINGS v1_compat)
 set_property(CACHE PROJECT_USB_DEFAULT_MODE PROPERTY STRINGS CDC USBTMC)
 
 foreach(PROJECT_SYNC_IO_PIN_VAR IN ITEMS PROJECT_SYNC_IO_INPUT_BASE_PIN PROJECT_SYNC_IO_OUTPUT_BASE_PIN)
@@ -99,9 +101,17 @@ pico_sdk_init()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+include(${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.cmake)
+if(NOT PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v1_compat" OR
+   NOT FLASH_COMPAT_MAP_DEPLOYMENT_STATE STREQUAL "deployed_compatibility")
+    message(FATAL_ERROR
+        "Only the generated deployed v1_compat map may drive live consumers; "
+        "v2 requires the audited factory migration gate")
+endif()
+
 set(PROJECT_BUILD_INFO_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.h)
 set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.c)
-set(PROJECT_OTA_METADATA_SIZE 0x010000)
+set(PROJECT_OTA_METADATA_SIZE ${FLASH_COMPAT_MAP_BOOT_CONTROL_SIZE})
 set(PROJECT_FREERTOS_KERNEL_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/freertos/FreeRTOS-Kernel CACHE PATH "FreeRTOS-Kernel source directory")
 set(PROJECT_FATFS_SOURCE_DIR ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source CACHE PATH "FatFs source directory")
 set(PROJECT_FATFS_CONFIGURED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/fatfs)
@@ -166,6 +176,17 @@ add_custom_target(project_build_info
 add_custom_target(project_flash_contract_check
         ALL
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_map.py
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_v1_compat.json
+                --schema ${CMAKE_CURRENT_LIST_DIR}/config/flash_map.schema.json
+                --header ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.h
+                --manifest ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat_manifest.json
+                --cmake ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.cmake
+                --ld ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.ldinc
+                --symbol-prefix FLASH_COMPAT_MAP
+                --header-guard FLASH_MAP_V1_COMPAT_GENERATED_H
+                --expected-geometry ${PICO_FLASH_SIZE_BYTES}
+                --check
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_map.py
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_v2.json
                 --schema ${CMAKE_CURRENT_LIST_DIR}/config/flash_map.schema.json
                 --header ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.h
@@ -182,8 +203,13 @@ add_custom_target(project_flash_contract_check
                 ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_map.py
                 ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_inventory.py
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map.schema.json
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_v1_compat.json
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_v2.json
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_raw_call_allowlist.json
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.h
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat_manifest.json
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.cmake
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.ldinc
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.h
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2_manifest.json
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.cmake
@@ -496,6 +522,13 @@ function(project_configure_app_target target_name app_name linker_script)
 
     target_compile_options(${target_name} PRIVATE ${PROJECT_WARNING_FLAGS})
 
+    target_link_options(${target_name} PRIVATE
+        "-L${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen"
+    )
+    set_property(TARGET ${target_name} APPEND PROPERTY LINK_DEPENDS
+        ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.ldinc
+    )
+
     pico_set_linker_script(${target_name} ${linker_script})
 
     pico_add_dis_output(${target_name})
@@ -588,6 +621,13 @@ target_compile_definitions(RP2350_TRIG_BOOT PRIVATE
 
 target_compile_options(RP2350_TRIG_BOOT PRIVATE ${PROJECT_WARNING_FLAGS})
 
+target_link_options(RP2350_TRIG_BOOT PRIVATE
+        "-L${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen"
+)
+set_property(TARGET RP2350_TRIG_BOOT APPEND PROPERTY LINK_DEPENDS
+        ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.ldinc
+)
+
 add_dependencies(RP2350_TRIG_BOOT project_flash_contract_check)
 
 pico_set_linker_script(RP2350_TRIG_BOOT ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_bootloader.ld)
@@ -608,9 +648,9 @@ add_custom_command(
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_FACTORY.uf2
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
                 ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_FACTORY.uf2
-                ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_BOOT.bin@0x10000000
-                ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG.bin@0x10040000
-                ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin@0x10340000
+                ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_BOOT.bin@${FLASH_COMPAT_MAP_BOOTLOADER_XIP_ADDRESS}
+                ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG.bin@${FLASH_COMPAT_MAP_APP_A_XIP_ADDRESS}
+                ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin@${FLASH_COMPAT_MAP_BOOT_CONTROL_XIP_ADDRESS}
         DEPENDS RP2350_TRIG_BOOT ${PROJECT_NAME} ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
         VERBATIM
 )
@@ -620,11 +660,14 @@ add_custom_command(
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
                 --image-a ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG.bin
                 --image-b ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_B.bin
+                --map-manifest ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat_manifest.json
                 --app-version 0.1.0
                 --build-id-file ${PROJECT_BUILD_INFO_SOURCE}
                 --min-bootloader-version 0.1.0
                 -o ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_UPDATE.pkg
-        DEPENDS ${PROJECT_NAME} RP2350_TRIG_B project_build_info ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
+        DEPENDS ${PROJECT_NAME} RP2350_TRIG_B project_build_info
+                ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat_manifest.json
         VERBATIM
 )
 

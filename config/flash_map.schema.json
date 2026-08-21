@@ -8,7 +8,7 @@
   "properties": {
     "schema_version": {"const": 1},
     "map_version": {"type": "integer", "minimum": 1},
-    "deployment_state": {"enum": ["target_not_deployed", "factory_validation", "deployed"]},
+    "deployment_state": {"enum": ["deployed_compatibility", "target_not_deployed", "factory_validation", "deployed"]},
     "geometry": {
       "type": "object",
       "additionalProperties": false,

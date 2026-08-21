@@ -11,6 +11,7 @@ def test_release_policy_requires_rtos_and_multicore(tmp_path):
                 "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
                 "PROJECT_ENABLE_UART_STDIO": "OFF",
                 "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
+                "PROJECT_FLASH_DEPLOYMENT_MAP": "v1_compat",
                 "PROJECT_USE_FREERTOS": "ON",
                 "PROJECT_USE_MULTICORE": "ON",
             },
@@ -31,6 +32,7 @@ def test_release_policy_rejects_single_core(tmp_path):
                 "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
                 "PROJECT_ENABLE_UART_STDIO": "OFF",
                 "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
+                "PROJECT_FLASH_DEPLOYMENT_MAP": "v1_compat",
                 "PROJECT_USE_FREERTOS": "ON",
                 "PROJECT_USE_MULTICORE": "OFF",
             },
@@ -41,3 +43,22 @@ def test_release_policy_rejects_single_core(tmp_path):
     failures = []
     check_preset(tmp_path, "product", failures)
     assert failures == ["product must set PROJECT_USE_MULTICORE=ON"]
+
+
+def test_release_policy_rejects_unselected_flash_map(tmp_path):
+    presets = {
+        "configurePresets": [{
+            "name": "product",
+            "cacheVariables": {
+                "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
+                "PROJECT_ENABLE_UART_STDIO": "OFF",
+                "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
+                "PROJECT_USE_FREERTOS": "ON",
+                "PROJECT_USE_MULTICORE": "ON",
+            },
+        }],
+    }
+    (tmp_path / "CMakePresets.json").write_text(json.dumps(presets), encoding="utf-8")
+    failures = []
+    check_preset(tmp_path, "product", failures)
+    assert failures == ["product must set PROJECT_FLASH_DEPLOYMENT_MAP=v1_compat"]

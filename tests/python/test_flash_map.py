@@ -14,6 +14,7 @@ from tools.flash_map.flash_map import (
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "config" / "flash_map_v2.json"
+COMPAT_SOURCE = ROOT / "config" / "flash_map_v1_compat.json"
 
 
 def load_source():
@@ -26,6 +27,21 @@ def test_flash_map_v2_golden_source_is_complete():
     assert data["deployment_state"] == "target_not_deployed"
     assert data["geometry"]["total_size"] == 16 * 1024 * 1024
     assert data["partitions"][-1]["offset"] + data["partitions"][-1]["size"] == data["geometry"]["total_size"]
+
+
+def test_flash_map_v1_compatibility_source_preserves_deployed_layout():
+    data = load_and_validate(COMPAT_SOURCE)
+    assert data["map_version"] == 1
+    assert data["deployment_state"] == "deployed_compatibility"
+    assert "RECOVERY" not in {item["id"] for item in data["partitions"]}
+    header = render_header(
+        data,
+        Path("config/flash_map_v1_compat.json"),
+        "FLASH_COMPAT_MAP",
+        "FLASH_MAP_V1_COMPAT_GENERATED_H",
+    )
+    assert "#define FLASH_COMPAT_MAP_APP_A_OFFSET 0x00040000u" in header
+    assert "#define FLASH_COMPAT_GEOMETRY_TOTAL_SIZE_BYTES 0x01000000u" in header
 
 
 def test_flash_map_rejects_overlap():

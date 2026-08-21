@@ -18,6 +18,10 @@ REQUIRED_ARTIFACTS = (
     "RP2350_TRIG_UPDATE.pkg",
     "RP2350_TRIG_BOOT.uf2",
     "RP2350_TRIG.elf.map",
+    "RP2350_TRIG_B.elf.map",
+    "RP2350_TRIG_BOOT.elf.map",
+    "RP2350_TRIG_BOOT.bin",
+    "ota_metadata_clear.bin",
 )
 
 FORBIDDEN_RELEASE_STRINGS = (
@@ -88,6 +92,12 @@ def check_preset(root: Path, preset_name: str, failures: list[str]) -> None:
     else:
         ok(f"{preset_name} defaults OTA boot mode to DIRECT_AB")
 
+    deployment_map = str(cache_variables.get("PROJECT_FLASH_DEPLOYMENT_MAP", ""))
+    if deployment_map != "v1_compat":
+        fail(f"{preset_name} must set PROJECT_FLASH_DEPLOYMENT_MAP=v1_compat", failures)
+    else:
+        ok(f"{preset_name} selects the deployed v1 compatibility map")
+
 
 def find_project_config_define(config_text: str, name: str) -> str | None:
     pattern = re.compile(rf"^\s*#define\s+{re.escape(name)}\s+(.+?)\s*$", re.MULTILINE)
@@ -149,7 +159,7 @@ def check_forbidden_strings(root: Path, build_dir: Path, failures: list[str]) ->
             ok(f"no OTA injection command strings in {path.name}")
 
 
-def check_flash_contracts(root: Path, failures: list[str]) -> None:
+def check_flash_contracts(root: Path, build_dir: Path, failures: list[str]) -> None:
     generated = root / "config" / "flash_map_gen"
     cmake_text = read_text(root / "CMakeLists.txt")
     geometry_match = re.search(r"set\(PICO_FLASH_SIZE_BYTES\s+([0-9]+)\b", cmake_text)
@@ -158,6 +168,20 @@ def check_flash_contracts(root: Path, failures: list[str]) -> None:
         return
     expected_geometry = geometry_match.group(1)
     commands = (
+        [
+            sys.executable,
+            str(root / "tools" / "flash_map" / "flash_map.py"),
+            str(root / "config" / "flash_map_v1_compat.json"),
+            "--schema", str(root / "config" / "flash_map.schema.json"),
+            "--header", str(generated / "flash_map_v1_compat.h"),
+            "--manifest", str(generated / "flash_map_v1_compat_manifest.json"),
+            "--cmake", str(generated / "flash_map_v1_compat.cmake"),
+            "--ld", str(generated / "flash_map_v1_compat.ldinc"),
+            "--symbol-prefix", "FLASH_COMPAT_MAP",
+            "--header-guard", "FLASH_MAP_V1_COMPAT_GENERATED_H",
+            "--expected-geometry", expected_geometry,
+            "--check",
+        ],
         [
             sys.executable,
             str(root / "tools" / "flash_map" / "flash_map.py"),
@@ -176,8 +200,20 @@ def check_flash_contracts(root: Path, failures: list[str]) -> None:
             "--root", str(root),
             "--inventory", str(root / "config" / "flash_raw_call_allowlist.json"),
         ],
+        [
+            sys.executable,
+            str(root / "tools" / "flash_map" / "flash_consumer_check.py"),
+            "--root", str(root),
+            "--manifest", str(generated / "flash_map_v1_compat_manifest.json"),
+            "--build-dir", str(build_dir if build_dir.is_absolute() else root / build_dir),
+        ],
     )
-    labels = ("generated FlashMap artifacts are current", "raw Flash inventory matches source")
+    labels = (
+        "generated v1 compatibility FlashMap artifacts are current",
+        "generated FlashMap artifacts are current",
+        "raw Flash inventory matches source",
+        "live Flash consumers and artifacts match the deployed map",
+    )
     for command, label in zip(commands, labels):
         result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
         if result.returncode != 0:
@@ -194,7 +230,7 @@ def main() -> int:
 
     check_preset(root, args.preset, failures)
     check_project_config(root, failures)
-    check_flash_contracts(root, failures)
+    check_flash_contracts(root, args.build_dir, failures)
     check_artifacts(root, args.build_dir, failures)
     check_forbidden_strings(root, args.build_dir, failures)
 
