@@ -1,0 +1,18 @@
+{
+  "wire_version": 1,
+  "unknown_required_policy": "reject",
+  "unknown_optional_policy": "skip_preserve_length_integrity",
+  "reject_reasons": ["bad_magic", "bad_version", "bad_length", "bad_crc", "unknown_required", "identity_mismatch", "generation_replay", "destination_forbidden", "offset_not_durable", "signature_invalid", "security_counter_rollback"],
+  "contracts": [
+    {"name":"BCB_RECORD","transport":"flash","fields":["schema","map_version","lane","sequence","boot_generation","active_slot","pending_slot","attempts","security_counter","body_crc","commit_marker"],"commit_order":["body","verify","commit_marker"],"selection":"highest_valid_sequence_then_lane","gc":"erase_only_after_new_lane_committed"},
+    {"name":"IMAGE_MANIFEST_TLV","transport":"ota_package","fields":["schema","product_id","hardware_id","build_id","slot","run_offset","image_size","image_crc","image_hash","signature","security_counter","required_flags"],"commit_order":["parse","range_check","hash","signature","security_counter","commit"],"selection":"inactive_slot_only"},
+    {"name":"OTA_STREAM_SESSION","transport":"usb_sd_uart","fields":["identity","generation","object_type","destination","total_size","durable_offset","chunk_size","session_crc","resume_token","state"],"commit_order":["open","accept_chunk","write","verify","durable_offset","close"],"selection":"same_identity_generation_destination"},
+    {"name":"TDMA_OTA_CONTROL","transport":"tdma","fields":["kind","session_id","generation","object_type","destination","offset","length","credit","resume_token","reason","payload_crc"],"kinds":["OPEN","DATA","ACK","CLOSE","ABORT","STATUS"],"commit_order":["OPEN","DATA*","CLOSE"],"selection":"durable_ack_offset_only"}
+  ],
+  "golden_vectors": [
+    {"name":"open_new_session","contract":"OTA_STREAM_SESSION","expected":"accept","state":"OPEN","durable_offset":0},
+    {"name":"replay_generation","contract":"OTA_STREAM_SESSION","expected":"reject","reason":"generation_replay"},
+    {"name":"tdma_unknown_required","contract":"TDMA_OTA_CONTROL","expected":"reject","reason":"unknown_required"},
+    {"name":"manifest_bad_signature","contract":"IMAGE_MANIFEST_TLV","expected":"reject","reason":"signature_invalid"}
+  ]
+}
