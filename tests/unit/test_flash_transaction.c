@@ -376,6 +376,38 @@ static void test_policy_reason_hook_preserves_resource_gates(void)
     assert(s_erase_count == 0u);
 }
 
+static void test_large_payload_is_fail_closed_until_immutable_provider(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    uint8_t payload[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES * 2u] = {0};
+    flash_transaction_request_t request = program_request(payload);
+    request.length = sizeof(payload);
+    flash_transaction_vector_t vector = run_request(&context, &request);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_PROVIDER);
+    assert(s_program_count == 0u);
+    assert(s_erase_count == 0u);
+}
+
+static void test_terminal_completion_is_stable_and_duplicate_abort_is_rejected(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    const flash_transaction_request_t request = erase_request();
+    const flash_transaction_vector_t first = run_request(&context, &request);
+    assert(first.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(!flash_transaction_fb_request_abort(&context, first.job_id));
+    flash_transaction_vector_t second;
+    assert(flash_transaction_fb_get_vector(&context, &second));
+    assert(second.state == first.state);
+    assert(second.last_result == first.last_result);
+    assert(second.transaction_generation == first.transaction_generation);
+}
+
 static flash_transaction_request_t product_config_request(
     uint32_t operation, const uint8_t *data)
 {
@@ -510,6 +542,8 @@ int main(void)
     test_runtime_failures();
     test_thermal_and_diagnostics_gates_are_fail_closed();
     test_policy_reason_hook_preserves_resource_gates();
+    test_large_payload_is_fail_closed_until_immutable_provider();
+    test_terminal_completion_is_stable_and_duplicate_abort_is_rejected();
     test_product_config_policy_and_owned_payload();
     test_metadata_policy();
     test_busy_abort_and_snapshot();

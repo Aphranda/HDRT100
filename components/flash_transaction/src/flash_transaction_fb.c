@@ -143,6 +143,12 @@ static uint32_t flash_transaction_validate(
     } else {
         return FLASH_TRANSACTION_ERROR_PERMISSION;
     }
+    /* Until the immutable multi-page provider lands, never pass an aliased
+       producer buffer to the raw writer. */
+    if (request->operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
+        request->length > sizeof(context->owned_payload)) {
+        return FLASH_TRANSACTION_ERROR_PROVIDER;
+    }
     context->absolute_offset = partition->offset + request->relative_offset;
     return FLASH_TRANSACTION_ERROR_NONE;
 }
