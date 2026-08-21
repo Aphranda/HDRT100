@@ -113,6 +113,8 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return re.fullmatch(r'"[^"]+"', text) is not None
     if header == "*IDN?":
         return text.count(",") >= 3
+    if header in {"SYST:BOARD:NO?", "SYSTEM:BOARD:NO?"}:
+        return re.fullmatch(r"[0-8]", text) is not None
     if header in {"SYST:OTA:SLOT?", "SYSTEM:OTA:SLOT?"}:
         return _csv_uints_match(text, 5)
     if header in {"SYST:OTA:TXN?", "SYSTEM:OTA:TXN?"}:
@@ -148,7 +150,10 @@ def read_scpi_response(ser: serial.Serial,
             continue
         if require_match and not scpi_response_matches_command(command, line):
             continue
-        if is_scpi_query(command) and line in {'"OK"', "OK", "1"}:
+        scalar_one_queries = {"SYST:BOARD:NO?", "SYSTEM:BOARD:NO?"}
+        header = command.strip().split(maxsplit=1)[0].upper()
+        if (is_scpi_query(command) and line in {'"OK"', "OK", "1"} and
+                header not in scalar_one_queries):
             continue
         return line
     return "<timeout>"

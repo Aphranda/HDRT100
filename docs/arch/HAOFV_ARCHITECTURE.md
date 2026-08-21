@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 Version: 3
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -39,7 +39,7 @@ HAOFV Architecture
 - `Domain Vector Tables`：各功能域独立向量表，例如 OTA、Trigger、Storage、UI。
 - `Distributed Vector Blackboard / RefMem Sync Domain`：分布式系统共同事实内部主域，维护 64 KB 反射内存向量表、静态分布式应用模型、slot owner、命令槽、ACK/NACK、stale、CRC 和 sequence。
 - `Virtual Distributed Clock / VDC Domain`：分布式系统共同时间内部主域，维护 `local_tick -> vdc_time` 映射、SYNC DPLL、HOLDOVER/RELOCK、timestamp dictionary、时间质量和预测分发时间基准。
-- `Calibration Domain`：分布式链路测量和校准事实内部主域，维护 CLK/DATA/SYNC 原始 edge evidence、双向时间传递、residence、endpoint bias、path-delay、active/staging generation 和接受门禁。
+- `Calibration Domain`：分布式链路测量和校准事实内部主域，维护有向线序/邻接矩阵、环路顺序、logical slot map、CLK/DATA/SYNC 原始 edge evidence、双向时间传递、residence、endpoint bias、path-delay、active/staging generation 和接受门禁。
 - `TDMA Foundation Domain`：分布式系统确定性通讯骨架内部主域，维护上行/下行 TDMA、window、guard、payload registry、adapter、ring runtime、completion evidence 和质量摘要。
 - `Table-Driven State Machines`：状态转移、命令解析、资源冲突、错误码使用表驱动。
 - `Resource Arbiter`：统一管理 Flash、SPI、PIO、DMA、USB、LCD、SD 等资源互锁。
@@ -120,7 +120,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | Vector Blackboard | 保存事实、摘要、命令槽和版本；字段必须有唯一 writer、值域、生命周期和快照规则。 | `refmem/`、各 Domain Vector |
 | Distributed RefMem | HAOFV 内部基础主域；跨节点动作只能通过反射内存向量表、静态分布式应用模型、命令槽、ACK/NACK、stale、CRC、sequence 和同步帧表达。 | `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`、`docs/arch/RTOS_HAOFV_ARCHITECTURE.md`、`components/distributed_refmem/` |
 | VDC Domain | HAOFV 内部基础主域；形成多节点共同时间事实，维护 local tick 到 VDC 时间映射、SYNC DPLL、HOLDOVER/RELOCK、timestamp dictionary 和时间质量门禁。 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`、`docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`、`components/vdc_domain/` |
-| Calibration Domain | HAOFV 内部基础主域；测量 CLK/DATA/SYNC 链路 delay，维护双向时间传递、residence、endpoint bias、path-delay active/staging、generation/freshness 和校准接受门禁。 | `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`、`components/calibration_manager/` |
+| Calibration Domain | HAOFV 内部基础主域；测量有向线序、邻接矩阵、环路顺序和 CLK/DATA/SYNC 链路 delay，维护 accepted slot map、双向时间传递、residence、endpoint bias、path-delay active/staging、generation/freshness 和校准接受门禁。 | `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`、`components/calibration_manager/` |
 | TDMA Foundation | HAOFV 内部基础主域；形成上行/下行确定性通讯骨架，维护 window、guard、payload registry、adapter、ring runtime、completion evidence 和质量摘要；VDC/RefMem 只能挂载 payload 或消费 evidence。 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`、`components/tdma/` |
 | Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源；Flash/XIP 双核安全是最高优先级硬约束。 | `arch/RTOS_HAOFV_ARCHITECTURE.md` |
 | Hardware Service | 封装 SDK/驱动细节；上层不直接调用板级 API。 | `components/`、`drivers/` |
@@ -384,6 +384,8 @@ CLK/DATA/SYNC physical edge
 
 校准域负责：
 
+- 通过 `*IDN?` 唯一地址和隔离 link probe 生成 directed adjacency，只有单一闭环覆盖全部
+  active 节点时才发布 accepted ring order/slot map；NO 映射是该结果的显示/持久化投影。
 - EtherCAT DC 风格训练状态、质量统计、freshness 和 accepted/rejected 门禁。
 - CLK/DATA/SYNC 双向同时对比、residence、endpoint bias、path-sum、方向不对称性和
   per-link/cumulative delay 的发布边界。
@@ -391,9 +393,9 @@ CLK/DATA/SYNC physical edge
   diagnostic evidence。
 - active/staging calibration、CRC、generation 及 topology/profile 变化后的失效和重训。
 
-TDMA 只负责训练 persona、`TRAIN_PREPARE/ACK/commit`、PIO/SM/DMA/core1 资源、RX/window/
-timeout 和 failure propagation。VDC 只消费 accepted calibration，不把 calibration 测量
-写入自己的 offset/rate writer。
+TDMA 只负责隔离 topology probe 和训练 persona、`TRAIN_PREPARE/ACK/commit`、PIO/SM/DMA/
+core1 资源、RX/window/timeout 和 failure propagation；TDMA START 不测量环序，也不隐式
+改写 NO。VDC 只消费 accepted calibration，不把 calibration 测量写入自己的 offset/rate writer。
 
 ### TDMA Foundation Domain
 

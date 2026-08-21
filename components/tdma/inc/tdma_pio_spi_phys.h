@@ -24,8 +24,8 @@
  * ring (C1 -> C2 -> C3 -> ... -> C1) and the reference receives its own
  * frame back on the RX leg.
  *
- * Measured min-system wiring (tools/tdma_ring_monitor/line_map_check.py):
- *   Cn downlink: CS=21, TX=23, SCK=24 -> Cn+1 uplink: CS=16, RX=18, SCK=19.
+ * Product-board wiring:
+ *   Cn downlink: CS=26, TX=29, SCK=25 -> Cn+1 uplink: CS=27, RX=24, SCK=28.
  * The TX-side CS is a point-to-point frame-sync signal, not a bus chip select.
  *
  * This layer is byte/transport level only: it carries the 4-byte packet

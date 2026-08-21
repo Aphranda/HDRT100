@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
@@ -64,14 +64,16 @@ Last updated: 2026-08-20
 - [ ] P0.5-6：扩展 HIL 脚本为只读监控 TDMA runtime，不通过串口查询参与续窗；5 min 验收必须记录 `up_running=1`、`down_running=1`、`simultaneous_feedback_loop_evidence=1`、`BAD_FRAME=0`、`WINDOW_BOUND` 不作为最终态，并在 `docs/temp/vdc_long_monitor/` 输出 summary + SVG。
 - [ ] P0.5-7：P0.5 闭环通过后，再进入 DPLL 参数、水位和 reject 策略优化；在此之前 DPLL 曲线只能作为 leg/self-test 诊断参考，不能作为产品闭环质量结论。
 - [ ] P0.5-8：细分 `SYSTem:SYNC:VDC:TDMA:PHYS?` 中的 RX 扫描诊断：把当前 `rx_magic_fail_count` 拆成 candidate reject、idle scan miss、real magic miss 或等价字段，避免把“二级 header 拒绝假锁”误读成线路 bit-level 坏帧。
-- [ ] P0.5-9：完成 EtherCAT DC 风格的多板训练闭环，按以下顺序实施；本项全部通过前，
-  默认零 `PATH_DELAY`、空时钟发送成功或 `ring_adapter_started=1` 都不得视为训练有效。
-  - [ ] P0.5-9a：定义 `STOPPED/PREPARED/RX_ARMED/CLOCK_ACQUIRE/CLOCK_CODED/
-    FRAME_MEASURE/CALCULATE/VALID/RELOCKING` 非阻塞状态机，以及 train epoch/seq、当前 master、
-    accepted/rejected、失败原因和 freshness snapshot；TDMA owner 是唯一 writer。
+- [ ] P0.5-9：完成校准训练所需的 TDMA transport/persona 集成；第一阶段测量流程、bracket、
+  四主结果、质量分类和后续缩窗输入统一由校准域文档维护。TDMA 只判断 transport 是否完成，
+  默认零 `PATH_DELAY`、空时钟发送成功或 `ring_adapter_started=1` 都不得视为校准有效。
+  - [ ] P0.5-9a：定义 `STOPPED/PREPARED/RX_ARMED/CAPTURE_ACTIVE/RESTORING/FAILED`
+    transport 非阻塞状态机，以及 train epoch/seq、当前 master、persona、窗口、raw evidence
+    index 和 transport failure snapshot；TDMA owner 是这些执行事实的唯一 writer。
     - 进行中：`SYSTem:TDMA:RING:TRAIN` 已改为 core0 -> core1 原子 command slot，adapter/PIO
       只由 core1 TDMA owner 调用；物理训练结果通过 `clk_train_guard` seqlock snapshot 发布，
-      SCPI 状态查询不阻塞 owner。完整 epoch/freshness/CALCULATE/VALID 状态尚未实现。
+      SCPI 状态查询不阻塞 owner。`CALCULATE/VALID/RELOCKING` 属于 Calibration Domain，
+      不再作为 TDMA transport 状态扩展。
   - [ ] P0.5-9b：实现 PIO/DMA SPI CLK 基础训练模式。所有节点先 ARM 独立 RX CLK；非主
     节点执行 RX CLK -> TX CLK 逐边沿再生；主节点只注入一次 burst 并终止返回 burst；
     增加 pulse count/chunk/gap/limit 与超时保护，禁止阻塞 core1 或形成无限时钟循环。
@@ -79,11 +81,12 @@ Last updated: 2026-08-20
       overlap 顺序判定、pulse limit 和返回超时已完成；START 前会重建普通 DATA/CS persona。
       chunk/gap marker 与返回 pulse count 归 P0.5-9c，尚未完成。
   - [ ] P0.5-9c：完成 TDMA 对校准训练的集成。详细 marker、码本、raw correlation、
-    bias/residence、统计和 HIL 门禁迁移到
+    第一阶段 bracket、四主结果、bias/residence、统计和 HIL 门禁已迁移到
     `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`，TDMA 只跟踪 transport
     acceptance 和资源执行状态。
-    - [x] P0.5-9c-1：保留 `tdma_clk_codebook_eval.py` 的 TDMA 工具入口和测试索引；码本
-      选择、golden vector 与阈值由校准域待办维护。
+    - [x] P0.5-9c-1：码本工具和测试已迁为
+      `tools/calibration_ring_validate/calibration_clk_codebook_eval.py`；TDMA 不再保留同名
+      测量入口，golden vector 与阈值由校准域待办维护。
     - [ ] P0.5-9c-2：实现 coded TX/RX persona 的 PIO/SM/DMA resource claim，并由
       DeploymentGate 校验 channel、DREQ、buffer capacity 和 instruction/SM 使用量。
     - [ ] P0.5-9c-3：实现有界 buffer、RX/TX DMA 预装、FIFO/IRQ 清理和同步启动；发布
@@ -98,8 +101,9 @@ Last updated: 2026-08-20
   - [ ] P0.5-9e：实现短 TRAIN frame 的 TDMA transport，按同一 train seq 关联 bounded
     frame、DMA completion、ACK/commit 和失败原因；第三阶段的 `CLK`/`DATA` 双向同时对比、
     四时间戳方程与校准结果由校准域维护。
-  - [ ] P0.5-9f：实现按唯一板卡地址和 active topology 的四主轮换协调，保存 master sequence、
-    transport counters、窗口命中和 persona 状态；不使用 COM 号作为拓扑键。
+  - [ ] P0.5-9f：按校准域提交的 master sequence 和 active topology 提供四主轮换窗口，
+    保存唯一板卡地址、transport counters、窗口命中和 persona 状态；不使用 COM 号作为
+    拓扑键，也不在 TDMA 内解释跨主 bracket 差异。
   - [ ] P0.5-9g：把校准域的 acquisition/feedback timeout、RX window、guard 和 generation
     接入 TDMA schedule；绑定变化或 freshness 超限必须拒绝运行并回到 RELOCKING/STOPPED。
   - [ ] P0.5-9h：保持 TDMA 的可观测边界，只发布 transport/窗口 evidence；per-link delay、
@@ -107,8 +111,9 @@ Last updated: 2026-08-20
   - [ ] P0.5-9i：固化 host 工具的 TDMA 编排路径：`STOP -> APPLY -> clear -> ARM ->
     TRAIN_PREPARE/ACK/commit -> TRAIN -> publish/restore -> STOP`。工具只编排维护态，
     不用 SCPI 轮询参与实时转发、相关或时间戳生成；后续 START 由调用者显式触发。
-    - 进行中：`tools/tdma_ring_monitor/tdma_clk_train.py` 已固化第一阶段四主轮换、ARM 状态
-      回读重试和 UTF-8 JSON/CSV/summary；详细校准评分迁移至校准域方案。
+    - 进行中：`tools/calibration_ring_validate/calibration_clk_train.py` 已固化第一阶段四主轮换、ARM 状态
+      回读重试和 UTF-8 JSON/CSV/summary；bracket 解释、供电 A/B 快照和校准评分只写入
+      校准域方案与任务记录。
   - [ ] P0.5-9j：增加 TDMA integration/unit/HIL 门禁和故障注入：PIO/DMA resource conflict、
     TX busy、RX stall、DMA overrun、ACK/commit miss、window miss、persona 恢复、master 掉线、
     拓扑/profile/calibration generation 变化和默认零表拒绝；训练失败全环回退最后一个 VALID

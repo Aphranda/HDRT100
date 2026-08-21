@@ -1,6 +1,7 @@
-from tools.tdma_ring_monitor.tdma_ring_autodetect import (
+from tools.calibration_ring_validate.calibration_ring_topology import (
     compact_pair_results,
     counter_delta,
+    counter_regressed,
     render_ring_order,
 )
 
@@ -19,6 +20,12 @@ def test_render_ring_order_rejects_branch_or_open_chain():
 
 def test_counter_delta_wraps():
     assert counter_delta(0xFFFFFFFE, 1) == 3
+    assert not counter_regressed(0xFFFFFFFE, 1)
+
+
+def test_counter_delta_rejects_snapshot_regression():
+    assert counter_delta(100, 99) == 0
+    assert counter_regressed(100, 99)
 
 
 def test_compact_pair_results_keeps_physical_evidence_only():
@@ -41,6 +48,7 @@ def test_compact_pair_results_keeps_physical_evidence_only():
         "receiver": "B",
         "detected": True,
         "rx_frames": 3,
+        "rx_counter_regressed": False,
         "rx_words": 99,
         "rx_edges": 2,
         "magic_fail": 1,

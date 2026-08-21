@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -676,6 +676,11 @@ residence、endpoint bias、path-delay candidate、统计质量、generation/fre
 四板 HIL 证据的 canonical 文档是
 `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`。TDMA 不复制这些公式，也不
 把观察到的 RTT 直接解释为线缆传播延迟。
+
+有向线序、邻接矩阵、单闭环判定、ring order、slot map 和 NO 映射同样属于 Calibration
+Domain。TDMA 可以为每个候选板对提供隔离 TX/RX persona 和 counter/raw evidence，但不能
+根据局部计数自行发布 topology；`tdma_start_ring.py` 只消费 accepted calibration order，
+不得在 START 路径隐式改写 NO。
 
 TDMA 只负责训练 transport/persona 和实时执行编排：
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Evaluate CLK-only TDMA timing markers at raw PIO sample resolution.
+"""Evaluate Calibration CLK timing markers at raw PIO sample resolution.
 
-The evaluator is deliberately transport-only: it compares known binary
+The evaluator is deliberately hardware-agnostic: it compares known binary
 waveforms under integer sample lag and reports how strongly adjacent lag
 hypotheses can be separated.  It does not claim sub-sample hardware accuracy.
 """
@@ -17,6 +17,31 @@ from io import StringIO
 
 
 BARKER_13 = (1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1)
+CALIBRATION_CLK_MARKER_CANDIDATE_VERSION = 0
+CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20 = 0
+CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_40 = 1
+CALIBRATION_CLK_MARKER_LFSR_MASK = 0x8E
+CALIBRATION_CLK_MARKER_LFSR_SEED = 0x01
+CALIBRATION_CLK_MARKER_LOGICAL_BITS = 321
+
+
+@dataclass(frozen=True)
+class MarkerVector:
+    version: int
+    codebook_id: int
+    epoch: int
+    master_slot: int
+    polarity: int
+    header: int
+    header_inverse: int
+    header_crc8: int
+    half_chip_samples: int
+    logical_bits: int
+    raw_samples: int
+    raw_words: int
+    timing_origin_sample: int
+    timing_samples: int
+    raw_sample_fnv1a32: int
 
 
 @dataclass(frozen=True)
@@ -39,6 +64,102 @@ class Evaluation:
     min_wrong_lag_samples: int
     guaranteed_sample_flip_correction: int
     search_radius_samples: int
+
+
+def marker_header(version: int, codebook_id: int, epoch: int,
+                  master_slot: int, polarity: int) -> int:
+    if not 0 <= version <= 3:
+        raise ValueError("version must fit two bits")
+    if codebook_id not in (
+            CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
+            CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_40):
+        raise ValueError("unsupported candidate codebook")
+    if not 0 <= epoch <= 0xFF:
+        raise ValueError("epoch must fit eight bits")
+    if not 0 <= master_slot <= 7:
+        raise ValueError("master_slot must fit three bits")
+    if polarity not in (0, 1):
+        raise ValueError("polarity must fit one bit")
+    return ((version & 0x3) << 14) | ((codebook_id & 0x3) << 12) | \
+        (epoch << 4) | ((master_slot & 0x7) << 1) | polarity
+
+
+def crc8_atm(data: bytes) -> int:
+    crc = 0
+    for value in data:
+        crc ^= value
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x07) & 0xFF \
+                if crc & 0x80 else (crc << 1) & 0xFF
+    return crc
+
+
+def _msb_bits(value: int, width: int) -> list[int]:
+    return [(value >> bit) & 1 for bit in range(width - 1, -1, -1)]
+
+
+def marker_logical_bits(version: int = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+                        codebook_id: int =
+                        CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
+                        epoch: int = 0, master_slot: int = 0,
+                        polarity: int = 0) -> tuple[list[int], int, int]:
+    header = marker_header(
+        version, codebook_id, epoch, master_slot, polarity)
+    header_inverse = header ^ 0xFFFF
+    header_bytes = bytes((header >> 8, header & 0xFF,
+                          header_inverse >> 8, header_inverse & 0xFF))
+    header_crc8 = crc8_atm(header_bytes)
+    timing, selected_mask = msequence(
+        8, CALIBRATION_CLK_MARKER_LFSR_MASK,
+        CALIBRATION_CLK_MARKER_LFSR_SEED)
+    assert selected_mask == CALIBRATION_CLK_MARKER_LFSR_MASK
+    bits = list(BARKER_13)
+    bits.extend(_msb_bits(header, 16))
+    bits.extend(_msb_bits(header_inverse, 16))
+    bits.extend(_msb_bits(header_crc8, 8))
+    bits.extend(timing)
+    bits.extend(1 - bit for bit in BARKER_13)
+    if len(bits) != CALIBRATION_CLK_MARKER_LOGICAL_BITS:
+        raise AssertionError("candidate marker length drift")
+    return bits, header, header_crc8
+
+
+def marker_raw_waveform(
+        version: int = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+        codebook_id: int = CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
+        epoch: int = 0, master_slot: int = 0,
+        polarity: int = 0) -> tuple[list[int], MarkerVector]:
+    half_chip_samples = {
+        CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20: 5,
+        CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_40: 10,
+    }.get(codebook_id)
+    if half_chip_samples is None:
+        raise ValueError("unsupported candidate codebook")
+    bits, header, header_crc8 = marker_logical_bits(
+        version, codebook_id, epoch, master_slot, polarity)
+    raw = encode(bits, "manchester", half_chip_samples)
+    digest = 0x811C9DC5
+    for sample in raw:
+        digest = ((digest ^ sample) * 0x01000193) & 0xFFFFFFFF
+    vector = MarkerVector(
+        version=version,
+        codebook_id=codebook_id,
+        epoch=epoch,
+        master_slot=master_slot,
+        polarity=polarity,
+        header=header,
+        header_inverse=header ^ 0xFFFF,
+        header_crc8=header_crc8,
+        half_chip_samples=half_chip_samples,
+        logical_bits=len(bits),
+        raw_samples=len(raw),
+        raw_words=(len(raw) + 31) // 32,
+        timing_origin_sample=(13 + 16 + 16 + 8) *
+        2 * half_chip_samples,
+        timing_samples=255 * 2 * half_chip_samples,
+        raw_sample_fnv1a32=digest,
+    )
+    return raw, vector
 
 
 def parse_csv_ints(value: str) -> list[int]:

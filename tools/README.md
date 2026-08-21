@@ -90,10 +90,18 @@ Get-Content -Path tools\README.md -Encoding UTF8
   from `*IDN?`, never by COM number. It correlates core1 bitmap scan/hit/drop,
   cross-core FIFO counters, and core0 RefMem mailbox accept/reject counters over
   a fixed window, then writes `summary.json` under `build-validation/`.
-- `tdma_ring_monitor/tdma_clk_codebook_eval.py`: deterministic CLK-only marker
-  evaluator. It generates maximal-length LFSR sequences, applies NRZ/Manchester/
-  differential-Manchester waveform encoding, and compares adjacent/raw-sample
-  lag discrimination inside the coarse RTT search window.
+- `calibration_ring_validate/calibration_ring_topology.py`: Calibration-owned
+  directed link-adjacency and closed-ring-order measurement. It uses TDMA only
+  as the isolated probe transport and can commit/read back NO labels after the
+  topology is accepted.
+- `calibration_ring_validate/calibration_clk_train.py`: Calibration-owned
+  first-stage CLK RTT bracket acquisition across each ring anchor.
+- `calibration_ring_validate/calibration_clk_codebook_eval.py`: deterministic
+  Calibration CLK marker evaluator. It generates maximal-length LFSR sequences,
+  applies NRZ/Manchester/differential-Manchester waveform encoding, and compares
+  adjacent/raw-sample lag discrimination inside the coarse RTT search window.
+- `calibration_ring_validate/calibration_path_delay_probe.py`: read-only active
+  Calibration path-delay and underlying TDMA transport status collector.
 - `vdc_observer_validate/vdc_observer_validate.py`: VDC raw capture observer
   maintenance runner. It opens one or more CDC ports, verifies the safe disable
   path, enables the observer with a minimal explicit config, asserts the 40-field

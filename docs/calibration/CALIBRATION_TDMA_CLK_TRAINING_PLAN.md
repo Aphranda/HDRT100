@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / TDMA Clock Training
 Canonical: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`
 Related: `docs/calibration/README.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 本文档是校准域维护的多板 TDMA SPI CLK 训练事实源。校准域拥有 CLK/DATA/SYNC
 物理测量、双向时间传递、residence、endpoint bias、path-delay candidate、统计质量、
@@ -27,6 +27,51 @@ CLK 往返粗捕获；第二阶段规划使用编码 marker、PIO 过采样和�
 - 上电不得自动注入训练时钟。训练由显式指令触发，失败后统一回到 STOPPED；恢复普通
   DATA/CS PIO persona 后，仍需显式 START 才进入周期 TDMA。
 
+## 校准阶段归属
+
+线序/邻接测量、环路顺序判定、第一阶段粗 RTT bracket、码元边界解释、四主轮换结果、
+质量分类和后续缩窗输入均由校准域维护。本文件是这些内容的唯一事实源；
+[`CALIBRATION_DOMAIN_TODO.md`](CALIBRATION_DOMAIN_TODO.md) 维护未完成项，
+[`CALIBRATION_TASK_PROGRESS.md`](CALIBRATION_TASK_PROGRESS.md) 保存带 build、拓扑和证据目录
+的诊断快照。
+
+TDMA 域只保留第一阶段所需的 transport/persona 契约：PIO/SM/DMA resource claim、CLK
+burst/forward/capture 原语、core1 command slot、STOP/ARM/TRAIN/restore 时序和 raw evidence
+发布。底层 transport 实现仍以 `tdma_*` 命名不代表 TDMA 拥有测量结论；TDMA 不解释
+`N_low/N_high`，也不生成 path-delay、bias、residence 或 VDC/DPLL 可接受结果。
+
+校准域拥有的 host 工具统一放在 `tools/calibration_ring_validate/` 并使用 `calibration_*`
+命名。TDMA 传输辅助函数仍可由这些工具导入，但不得反向取得 topology、NO 映射或测量
+结果的所有权。
+
+## 第零阶段：线序与环路顺序测量
+
+这里的“线序”指产品 TDMA 环中有方向的物理邻接关系，即某块板的 TX 实际进入哪块板的
+RX；“环路顺序”是在邻接矩阵上形成的单一闭环顺序。单独 GPIO pin remap、极性和连接器
+pinout 仍由 Hardware/SYNC_IO profile 提供 raw fact，但它们的测量接受结果作为 topology
+evidence 进入校准域。
+
+校准流程固定为：
+
+1. 枚举当前端点并用 `*IDN?` 唯一地址建立 active board set；COM 号不进入结果主键。
+2. 全部节点进入 STOPPED。按唯一地址对每个有向候选板对执行隔离 probe，一次只允许一个
+   driver 和一个 receiver 进入测试 persona。
+3. TDMA transport 返回 RX frame/word/edge counter、bad-header 和 timeout 等 raw evidence；
+   校准域根据显式 profile 阈值生成 directed adjacency matrix。
+4. 只有每个 active 节点入度和出度均为一、且从 anchor 出发恰好遍历全部 active 节点并
+   回到 anchor 时，才接受为一个 closed ring。开链、分叉、重复节点、自环或多闭环均拒绝。
+5. 接受后将顺序旋转到指定 `anchor_id`，生成 `ring_order` 和 `slot_map`。NO.1–NO.8 只是
+   accepted topology 的操作员显示编号，不是板卡身份。
+6. 只有 accepted topology 才允许通过 `SYSTem:BOARD:NO` 提交 NO 映射；写后读回，要求时
+   重启再读回。TDMA START 不再隐式改写 NO。
+7. 任一板卡集合、邻接、方向、profile 或 wiring 变化都使 topology freshness 失效，并使
+   依赖它的 CLK RTT、path-delay 和 VDC/DPLL calibration generation 进入 stale/retrain。
+
+当前维护入口是
+`tools/calibration_ring_validate/calibration_ring_topology.py`。它输出
+`measurement_domain=calibration`、pair evidence、`adjacency`、`ring_order`、`slot_map`、
+NO 写入读回和可选重启读回；SCPI `SYSTem:TDMA:*` 仅作为隔离 probe 的 transport。
+
 ## 身份、拓扑与本次基线
 
 板卡身份只使用 `*IDN?` 返回的唯一地址。COM 号是可变化的传输端点，不进入 topology、
@@ -35,13 +80,18 @@ calibration key 或报告主键。
 | 逻辑位置 | 唯一板卡地址 |
 |---|---|
 | NO.1 | `0010071E65B5CB38` |
-| NO.2 | `2BD5090FE009FA2A` |
-| NO.3 | `A1E549202D18ED6A` |
-| NO.4 | `FB276192BEF9CCE1` |
+| NO.2 | `FB276192BEF9CCE1` |
+| NO.3 | `2BD5090FE009FA2A` |
+| NO.4 | `A1E549202D18ED6A` |
 
-本次第一阶段结果来自 build `20260820133035`，物理顺序为
+当前第一阶段诊断快照来自 build `20260821021250`，物理顺序为
 `NO.1 -> NO.2 -> NO.3 -> NO.4 -> NO.1`。结果只对该拓扑、接线、收发器、profile 和
 build 有效；其中任一项变化都要求重新训练。
+
+第一阶段默认扫频使用 `tdma_operating_profile.c` 中 level 7、8、9 对应的
+`10 -> 25 -> 30 MHz` 阶梯：10 MHz 是 acquisition/降级基线，25 MHz 是中间交叉检查，
+30 MHz 是当前粗捕获高速档。更高档位不进入第一阶段默认定义，只能显式作为实验 profile
+运行；低于 10 MHz 的兼容档也不作为后续训练的默认起点。
 
 ## HAOFV 执行边界
 
@@ -101,7 +151,7 @@ SYSTem:TDMA:RING:TRAIN:STATus?
 ```
 
 当前 `TRAIN <cycles>` 触发的是板内单个训练 trial，不是完整四主自动校准。完整第一阶段
-仍由 `tools/tdma_ring_monitor/tdma_clk_train.py` 编排，但所有实时动作和 overlap 判定已经
+仍由 `tools/calibration_ring_validate/calibration_clk_train.py` 编排，但所有实时动作和 overlap 判定已经
 驻留板内。
 
 ### 完整训练流程
@@ -160,26 +210,37 @@ mixed points、错误增量和 timestamp flags。
 ARM，使 adapter 重建普通 DATA/CS PIO persona，然后由显式 START 启动。训练脚本本身不
 自动 START。
 
-### 第一阶段四板 HIL 结果
+### 第一阶段四板 HIL 诊断快照
+
+下表是供电入口位于 NO.2 时的 bench 快照，不是通用硬件常量：
 
 | SPI 档位 | NO.1 | NO.2 | NO.3 | NO.4 | 结论 |
 |---|---:|---:|---:|---:|---|
 | 10 MHz | `[400,500) ns` | `[400,500) ns` | `[400,500) ns` | `[400,500) ns` | 四板一致，完成数量级捕获 |
-| 25 MHz | `[400,440) ns` | `[400,440) ns` | `[400,440) ns` | `[440,480) ns` | 有效 pulse group 从 10 个脉冲开始 |
-| 30 MHz | `[400,434) ns` | `[400,434) ns` | `[400,434) ns` | `[400,434) ns` | 单次结果可缩到约一个 SPI 周期 |
-| 35 MHz | `[458,486) ns` | `[400,429) ns` | `[486,515) ns` | `[486,515) ns` | 节点间明显离散，不作为有效精度档 |
+| 25 MHz | `[400,440) ns` | `[440,480) ns` | `[400,440) ns` | `[400,440) ns` | NO.2 落入相邻 40 ns 量化桶 |
+| 30 MHz | `[400,434) ns` | `[434,467) ns` | `[434,467) ns` | `[400,434) ns` | 节点分布跨相邻约 33.3 ns 量化桶 |
 
-30 MHz 在每点重复三次时，NO.1 的 13 脉冲点出现 overlap/non-overlap 混合。这证明
-`[400,434) ns` 是一次 diagnostic bracket，不是稳定的固定 34 ns 测量精度。35 MHz 还受
-主频分频、PIO RX 采样相位和链路裕量影响，第二阶段不得依赖 35 MHz 强行提高精度。
+将供电入口移到 NO.1、保持数据环序和 build 不变后的 A/B 快照为：
+
+| SPI 档位 | NO.1 | NO.2 | NO.3 | NO.4 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 10 MHz | `[400,500) ns` | `[400,500) ns` | `[400,500) ns` | `[400,500) ns` | 与前一供电拓扑一致 |
+| 25 MHz | `[400,440) ns` | `[400,440) ns` | `[440,480) ns` | `[400,440) ns` | 相邻桶没有跟随供电入口移动 |
+| 30 MHz | `[400,434) ns` | `[434,467) ns` | `[400,434) ns` | `[400,434) ns` | 相邻桶仍未跟随供电入口移动 |
+
+两组快照均通过且没有 mixed point。25 MHz 的桶宽来自一个 40 ns 码元，30 MHz 的桶宽
+约为 33.3 ns；当前整圈 RTT 靠近量化边界，小的 launch/capture 相位或门限变化会改变
+`N_high`，不能把相邻桶差值解释为供电入口增加了同等物理传播延时。第一阶段只发布
+`[D(N_low), D(N_high))` 和边界质量，第二阶段再用编码 marker/过采样缩窗。
 
 对应 HIL 证据目录：
 
-- `build-product-release/tdma_clk_train_20260820_213428`
-- `build-product-release/tdma_clk_train_20260820_213819`
-- `build-product-release/tdma_clk_train_20260820_214035`
-- `build-product-release/tdma_clk_train_20260820_214247`
-- `build-product-release/tdma_clk_train_20260820_214604`
+- `build-product-release/tdma_clk_train_four_10m`
+- `build-product-release/tdma_clk_train_four_25m`
+- `build-product-release/tdma_clk_train_four_30m`
+- `build-product-release/tdma_clk_train_four_power_no1_10m`
+- `build-product-release/tdma_clk_train_four_power_no1_25m`
+- `build-product-release/tdma_clk_train_four_power_no1_30m`
 
 所有结果仍为 diagnostic-only。第一阶段的完成标准是“能可靠找到 CLK RTT 粗区间并暴露
 过渡抖动带”，不是“已经得到 path delay 或 DPLL 校准值”。
@@ -239,7 +300,7 @@ hardware resolution。未通过共同时间基准下的 PIO/DMA hardware latch H
 
 ### 编码候选与物理约束
 
-`tools/tdma_ring_monitor/tdma_clk_codebook_eval.py` 已把码本选择固化为可重复计算：生成
+`tools/calibration_ring_validate/calibration_clk_codebook_eval.py` 已把码本选择固化为可重复计算：生成
 最大长度 Galois LFSR 序列，分别进行 NRZ、Manchester 和 differential-Manchester 展开，
 在 4 ns raw-sample 域比较相邻 lag Hamming distance、粗窗内最小错误 lag distance、
 电平游程和 marker 时长。当前 candidate 结果为：
@@ -408,7 +469,7 @@ transfer count 都写入同一 guarded snapshot。
 
 目标产品行为是“训练流程在板卡中，通过指令触发执行”，分两步落地：
 
-1. **最小闭环**：保留 `tdma_clk_train.py` 按唯一地址向各板发准备/触发指令，但每个 trial、
+1. **最小闭环**：保留 `calibration_clk_train.py` 按唯一地址向各板发准备/触发指令，但每个 trial、
    重复统计、相关匹配和 snapshot 全部在板内完成。host 不参与实时判定。
 2. **产品闭环**：只向当前 reference 提交一次训练 intent。reference 在普通 TDMA persona 下
    发送带 epoch/topology/profile/commit sequence 的 TRAIN control，收齐 active-node ACK
@@ -443,7 +504,7 @@ commit sequence 必须在普通 TDMA persona 仍运行时完成。任一 active 
 
 - [ ] P2-1：冻结候选 codebook 生成器和离线自相关测试，覆盖主峰、第二峰、循环移位、反相、
   单 chip 缺失/重复和上一 epoch 残留。
-  - 进行中：`tdma_clk_codebook_eval.py` 已完成最大长度 LFSR、NRZ/Manchester/
+  - 进行中：`calibration_clk_codebook_eval.py` 已完成最大长度 LFSR、NRZ/Manchester/
     differential-Manchester 和 raw-sample lag margin 评估；当前首选 m-sequence 255 +
     Manchester，仍需增加 marker header/CRC golden vector 和缺失/重复 edge 注入。
 - [ ] P2-2：用现有 CLK pulse HIL 扫描 `20/40/60/80 ns` 最窄高低电平，选择 robust chip；
@@ -460,7 +521,7 @@ commit sequence 必须在普通 TDMA persona 仍运行时完成。任一 active 
   schedule CRC、baud、codebook ID、epoch、sample period 和 calibration generation。
 - [ ] P2-8：实现 TRAIN_PREPARE/ACK/commit sequence，先完成工具按唯一 ID 触发的最小闭环，
   再完成 reference 单指令协调全环的产品闭环。
-- [ ] P2-9：扩展 `tdma_clk_train.py` 使用固件返回的相关结果，只做批量触发、UTF-8
+- [ ] P2-9：扩展 `calibration_clk_train.py` 使用固件返回的相关结果，只做批量触发、UTF-8
   JSON/CSV/summary 和评分；禁止 host 自己重算板端实时判定结果作为唯一事实源。
 - [ ] P2-10：增加 unit/HIL 门禁：码元错位、反相、缺失/重复、低 margin、DMA overrun、
   capture truncation、master 掉线、ACK 缺失、commit miss、profile/topology 改变和恢复 persona。

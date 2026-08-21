@@ -1,8 +1,13 @@
-from tools.tdma_ring_monitor.tdma_clk_codebook_eval import (
+from tools.calibration_ring_validate.calibration_clk_codebook_eval import (
+    CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
+    CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+    crc8_atm,
     encode,
     evaluate,
     first_primitive_mask,
     galois_period,
+    marker_header,
+    marker_raw_waveform,
     msequence,
     run_lengths,
 )
@@ -43,3 +48,32 @@ def test_lag_search_reports_nonzero_margin():
     assert result.search_radius_samples == 13
     assert result.min_wrong_lag_distance > 0
     assert abs(result.min_wrong_lag_samples) <= 13
+
+
+def test_candidate_marker_golden_vector():
+    raw, vector = marker_raw_waveform(
+        version=CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+        codebook_id=CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
+        epoch=0x5A,
+        master_slot=3,
+        polarity=0,
+    )
+    assert marker_header(0, 0, 0x5A, 3, 0) == 0x05A6
+    assert vector.header == 0x05A6
+    assert vector.header_inverse == 0xFA59
+    assert vector.header_crc8 == crc8_atm(bytes.fromhex("05 A6 FA 59"))
+    assert vector.logical_bits == 321
+    assert vector.raw_samples == 3210
+    assert vector.raw_words == 101
+    assert vector.timing_origin_sample == 530
+    assert vector.timing_samples == 2550
+    assert len(raw) == vector.raw_samples
+    assert vector.raw_sample_fnv1a32 == 0xD89E1248
+
+
+def test_candidate_marker_fallback_keeps_raw_sample_domain():
+    fast, fast_vector = marker_raw_waveform(codebook_id=0)
+    robust, robust_vector = marker_raw_waveform(codebook_id=1)
+    assert robust_vector.half_chip_samples == 2 * fast_vector.half_chip_samples
+    assert len(robust) == 2 * len(fast)
+    assert robust_vector.logical_bits == fast_vector.logical_bits

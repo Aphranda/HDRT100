@@ -308,9 +308,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reference-id", required=True)
     parser.add_argument("--forward-id", required=True)
     parser.add_argument("--frequency-mhz", action="append", type=int,
-                        help="repeatable frequency filter; default tests the full catalog")
+                        help=("repeatable frequency filter; default tests the "
+                              "validated 10, 25, 30 MHz ladder"))
     parser.add_argument("--level", action="append", type=int,
-                        help="repeatable level filter; default tests the full catalog")
+                        help="repeatable level filter; overrides the default frequency ladder")
     parser.add_argument("--window-s", type=float, default=8.0)
     parser.add_argument("--start-wait", type=float, default=5.0)
     parser.add_argument("--train-cycles", type=int,
@@ -340,8 +341,10 @@ def main() -> int:
         if unknown:
             raise SystemExit(f"levels absent from SCPI catalog: {sorted(unknown)}")
         profiles = [profile for profile in profiles if profile.level in wanted_levels]
-    if args.frequency_mhz:
-        wanted_hz = {value * 1_000_000 for value in args.frequency_mhz}
+    wanted_frequency_mhz = args.frequency_mhz or (
+        None if args.level else [10, 25, 30])
+    if wanted_frequency_mhz:
+        wanted_hz = {value * 1_000_000 for value in wanted_frequency_mhz}
         unknown = wanted_hz - {profile.baud_hz for profile in profiles}
         if unknown:
             raise SystemExit(

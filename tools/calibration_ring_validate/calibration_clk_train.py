@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Acquire the first-stage SPI CLK round-trip bracket on a 2..8-board ring.
+"""Acquire the Calibration first-stage SPI CLK RTT bracket on a board ring.
 
 Boards are discovered and verified exclusively by ``*IDN?`` unique address.
 COM ports are transient transport handles and are never used as board identity.
@@ -56,11 +56,12 @@ RESULT_NO_OVERLAP = 3
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--board-id", action="append", required=True,
-                        help=("exact *IDN? address in physical ring order; "
-                              "repeat for every active board"))
+                        help=("exact *IDN? address in accepted Calibration ring "
+                              "order; repeat for every active board"))
     parser.add_argument("--expected-build")
-    parser.add_argument("--level", type=int, default=19,
-                        help="conservative operating profile applied while stopped")
+    parser.add_argument("--level", type=int, default=7,
+                        help=("operating profile applied while stopped; "
+                              "default level 7 is the 10 MHz / 1 ms baseline"))
     parser.add_argument("--pulse-start", type=int, default=10)
     parser.add_argument("--growth-factor", type=int, default=10)
     parser.add_argument("--pulse-limit", type=int, default=65536)
@@ -400,6 +401,7 @@ def main() -> int:
                 pass
 
     output = {
+        "measurement_domain": "calibration",
         "passed": passed,
         "phase": "spi_clk_round_trip_acquisition_bracket",
         "measurement_semantics": "diagnostic overlap bracket, not DPLL eligible",
@@ -409,7 +411,7 @@ def main() -> int:
     }
     out_dir = args.out_dir or (
         ROOT / "build-product-release" /
-        f"tdma_clk_train_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        f"calibration_clk_train_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "summary.json").write_text(
         json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")

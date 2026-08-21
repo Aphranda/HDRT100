@@ -193,6 +193,8 @@ set(PROJECT_APP_SOURCES
         middleware/portable_log_port/src/portable_log_port.c
         components/calibration_manager/src/calibration_manager.c
         components/calibration_manager/src/calibration_bidirectional.c
+        components/calibration_manager/src/calibration_clk_coded.c
+        components/calibration_manager/src/calibration_clk_marker.c
         components/calibration_manager/src/calibration_pio_loopback.c
         components/board_identity/src/board_identity.c
         components/diagnostics/src/diagnostics.c

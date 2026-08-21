@@ -47,21 +47,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--forward-id",
                         help="legacy two-board forward address")
     parser.add_argument("--expected-build")
-    parser.add_argument("--level", type=int,
-                        help="TDMA operating level applied to every board while stopped")
+    parser.add_argument("--level", type=int, default=7,
+                        help=("TDMA operating level applied to every board while "
+                              "stopped; default level 7 is 10 MHz / 1 ms"))
     parser.add_argument("--cycles", type=int, default=4096)
     parser.add_argument("--train-chunk-cycles", type=int, default=0,
                         help=("split the requested training total into bounded "
-                              "chunks; 0 sends one command (use 128 for the "
-                              "1 MHz bring-up profile)"))
+                              "chunks; 0 sends one command"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--start-wait", type=float, default=2.0)
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--assign-no-only", action="store_true",
-                        help="write NO.1..NO.8 by the supplied *IDN? order and do not start TDMA")
     parser.add_argument("--out-dir", type=Path)
     return parser.parse_args()
 
@@ -132,6 +130,7 @@ def board_command(board: Board, text: str, args: argparse.Namespace) -> str:
             "SYSTEM:TDMA:RING:TOPOLOGY", "SYST:TDMA:RING:TOPOLOGY",
             "SYSTEM:TDMA:RING:ARM", "SYST:TDMA:RING:ARM",
             "SYSTEM:TDMA:RING:START", "SYST:TDMA:RING:START",
+            "SYSTEM:BOOT:RESET", "SYST:BOOT:RESET",
         }
         response = command(
             ser, text, min(args.timeout, 1.0)
@@ -264,7 +263,6 @@ def main() -> int:
         raise SystemExit(
             "train-chunk-cycles must be 0 or an 8-cycle multiple not greater "
             "than cycles")
-
     boards = discover(args)
     missing = set(board_ids) - set(boards)
     if missing:
@@ -297,36 +295,6 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    if args.assign_no_only:
-        assignments = []
-        for slot, board in enumerate(ordered):
-            write_response = board_command(
-                board, f"SYSTem:BOARD:NO {slot + 1}", args)
-            readback = board_command(board, "SYSTem:BOARD:NO?", args)
-            assignments.append({board.address: {
-                "write": write_response,
-                "readback": readback,
-                "expected": str(slot + 1),
-                "passed": readback.strip().strip('"') == str(slot + 1),
-            }})
-        assignments_passed = all(
-            item[next(iter(item))]["passed"] for item in assignments)
-        result.update({"passed": True, "assignments": assignments,
-                       "slot_map": [{"no": slot + 1, "address": board.address}
-                                    for slot, board in enumerate(ordered)]})
-        out_dir = args.out_dir or (
-            ROOT / "build-rtos-multicore-smoke" /
-            f"tdma_assign_no_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / "summary.json").write_text(
-            json.dumps(result, indent=2), encoding="utf-8")
-        print(json.dumps(result, indent=2))
-        print(f"out_dir={out_dir}")
-        result["passed"] = assignments_passed
-        (out_dir / "summary.json").write_text(
-            json.dumps(result, indent=2), encoding="utf-8")
-        return 0 if assignments_passed else 1
-
     acknowledgements: list[dict[str, str]] = []
     for board in ordered:
         acknowledgements.append({board.address: board_command(
@@ -348,11 +316,6 @@ def main() -> int:
             board,
             f"SYSTem:TDMA:RING:TOPology {node_count},{slot},0",
             args)})
-        # Bind the operator-facing NO.1..NO.8 label to the physical ring slot.
-        # The board is still addressed and verified by *IDN? unique address;
-        # COM ports are only transport handles discovered by this tool.
-        acknowledgements.append({board.address: board_command(
-            board, f"SYSTem:BOARD:NO {slot + 1}", args)})
 
     for board in start_order:
         acknowledgements.append({board.address: board_command(

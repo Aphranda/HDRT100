@@ -15,10 +15,78 @@ Last updated: 2026-08-21
 | 任务 | 状态 | 结论 |
 |---|---|---|
 | 校准域职责与 TDMA/VDC 边界 | `[x]` | 校准拥有测量与接受门禁，TDMA 负责传输与编排，VDC/DPLL 消费 accepted snapshot |
+| 线序与环路顺序测量 | `[~]` | host 隔离探测、闭环判定和 NO 提交已迁入 calibration 命名空间；板内 generation/freshness 待实现 |
 | 第一阶段 CLK RTT 粗捕获 | `[x]` | 已完成板内最小实现和四板 HIL，仍为 diagnostic-only |
 | 第二阶段编码 marker/相关测距 | `[~]` | codebook 离线评估已完成，固件、PIO/DMA、相关器和 HIL 待实现 |
 | 第三阶段双向同时对比法 | `[~]` | 公式、reject gate 和单板纯 PIO 闭环已通过；endpoint bias 及双板/四板实测待完成 |
 | VDC/DPLL active calibration gate | `[ ]` | 依赖正式 hardware latch、bias、generation/freshness 和 P3 结果 |
+
+## CAL-TASK-20260821-003 - 线序与环路顺序测量迁入校准域
+
+- 状态：host 工具、命名和文档所有权迁移完成；板内 topology generation/freshness 尚待实现。
+- 日期：2026-08-21。
+- 任务目标：
+  - 将有向线序/邻接矩阵、单闭环判定、anchor 旋转、slot map 和 NO 提交归入校准域。
+  - 校准测量工具统一使用 `calibration_*` 名称；TDMA 只提供隔离 probe transport 和计数证据。
+  - 禁止 TDMA START 根据调用参数隐式写入 NO，避免未校准顺序覆盖已接受 topology。
+- 完成内容：
+  - `tdma_ring_autodetect.py` 迁移为
+    `tools/calibration_ring_validate/calibration_ring_topology.py`，默认报告目录改为
+    `calibration_ring_topology_*`。
+  - 输出增加 `measurement_domain=calibration` 和 measurement phase；保留 directed pair
+    evidence、adjacency、ring order、slot map 和完整 snapshot。
+  - `--anchor-id` 决定 accepted ring 的 NO.1；`--assign-no` 只在单闭环判定通过后提交映射，
+    支持写后读回及 `--reboot-verify-no` 持久化复核。
+  - `tdma_start_ring.py` 删除 NO 分配和启动时隐式 NO 写入；它只消费调用者提供的 accepted
+    calibration order 来配置 TDMA local/reference slot。
+  - 第一阶段和码本工具同步迁移为 `calibration_clk_train.py`、
+    `calibration_clk_codebook_eval.py`，相应 Python 测试也改用 calibration 命名。
+- 当前边界：
+  - 工具已能生成 host 诊断 topology，但固件尚未发布带 CRC、generation、freshness 和
+    accepted/rejected reason 的 `CalibrationTopologySnapshot`。
+  - 本次不新增 wire layout 或阈值冻结契约；阈值仍来自显式工具参数/profile。
+- 四板实测（build `20260821021250`，bench 诊断快照）：
+  - 使用 `calibration_ring_topology.py --level 7 --adjacency-only` 完成全部有向板对隔离扫描，
+    accepted ring 为 `0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A ->
+    A1E549202D18ED6A -> 0010071E65B5CB38`；本轮未写 NO。
+  - 首轮发现 RX counter 普通回退被误算为 32-bit wrap，产生一个无 raw-word/edge 的假分支；
+    工具已限定 wrap 只在 counter 高端到低端时成立，普通回退发布 regression 并按零增量处理。
+  - 修正后 topology PASS；随后 `calibration_clk_train.py` 沿 accepted order 执行 10 MHz
+    四主轮换，四个 master 均得到 `[400,500) ns`，无 mixed point，结果保持 diagnostic-only。
+- 证据目录：
+  - `build-product-release/calibration_ring_topology_four_10m_final`
+  - `build-product-release/calibration_clk_train_four_10m_final`
+
+## CAL-TASK-20260821-002 - 第一阶段归属迁移与供电入口 A/B 复测
+
+- 状态：第一阶段文档归属迁移完成；四板粗捕获复测通过，结果保持 diagnostic-only。
+- 日期：2026-08-21。
+- 任务目标：
+  - 将 CLK RTT 第一阶段流程、bracket 解释、四主结果和质量结论统一迁入校准域。
+  - TDMA 只保留 PIO/SM/DMA、core1 command slot、persona、窗口和 raw evidence transport。
+  - 将默认训练阶梯收敛到 operating profile level 7/8/9 对应的 `10 -> 25 -> 30 MHz`。
+  - 通过把供电入口从 NO.2 移到 NO.1 的 A/B 复测，判断相邻码元桶差异是否跟随供电入口。
+- 固定上下文：
+  - build：`20260821021250`；物理环序：
+    `0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A -> A1E549202D18ED6A -> NO.1`。
+  - 板卡身份来自 `*IDN?` 唯一地址；本轮 COM3/COM5/COM6/COM4 仅为临时传输端点。
+- 验证结果（bench 诊断快照，非通用时序事实源）：
+  - 供电入口 NO.2：10 MHz 四主均为 `[400,500) ns`；25 MHz 仅 NO.2 落入
+    `[440,480) ns`；30 MHz 的 NO.2/NO.3 落入 `[434,467) ns`，其余为相邻低桶。
+  - 供电入口 NO.1：10 MHz 四主仍为 `[400,500) ns`；25 MHz 改为 NO.3 落入
+    `[440,480) ns`；30 MHz 仅 NO.2 落入 `[434,467) ns`。
+  - 全部 trial 通过且没有 mixed point；相邻桶没有跟随供电入口移动。当前现象按码元边界
+    量化解释，不把 40 ns/约 33.3 ns 的桶差声明为真实供电传播延时。
+- 证据目录：
+  - `build-product-release/tdma_clk_train_four_10m`
+  - `build-product-release/tdma_clk_train_four_25m`
+  - `build-product-release/tdma_clk_train_four_30m`
+  - `build-product-release/tdma_clk_train_four_power_no1_10m`
+  - `build-product-release/tdma_clk_train_four_power_no1_25m`
+  - `build-product-release/tdma_clk_train_four_power_no1_30m`
+- 边界：
+  - 第一阶段 bracket 不生成 active path-delay、endpoint bias、feedback timeout 或 DPLL 样本。
+  - 后续由 P2 编码 marker/过采样在 coarse bracket 内缩窗；TDMA 不复制测量公式和评分。
 
 ## CAL-TASK-20260821-001 - 单板回环双向测距预研
 
@@ -182,8 +250,8 @@ Last updated: 2026-08-21
   - `components/tdma/src/tdma_pio_spi_phys.c`
   - `components/tdma/inc/tdma_pio_spi_phys.h`
   - `components/tdma/src/tdma_runtime_owner.c`
-  - `tools/tdma_ring_monitor/tdma_clk_train.py`
-  - `tools/tdma_ring_monitor/tdma_clk_codebook_eval.py`
+  - `tools/calibration_ring_validate/calibration_clk_train.py`
+  - `tools/calibration_ring_validate/calibration_clk_codebook_eval.py`
 - 下一步：
   - 将粗 bracket 作为编码 marker 的有界搜索输入，禁止扩大其含义为 active calibration。
 

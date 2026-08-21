@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe per-board TDMA status and active VDC PATH_DELAY by *IDN? address."""
+"""Probe per-board transport status and active Calibration PATH_DELAY."""
 
 from __future__ import annotations
 
@@ -56,7 +56,12 @@ def main() -> int:
         if wrong:
             raise SystemExit(f"build mismatch: {wrong}")
 
-    result: dict[str, object] = {"boards": {}, "passed": True}
+    result: dict[str, object] = {
+        "measurement_domain": "calibration",
+        "measurement_phase": "active_path_delay_readback",
+        "boards": {},
+        "passed": True,
+    }
     for address in args.board_id:
         board = boards[address]
         tdma_raw = board_command(
@@ -78,7 +83,7 @@ def main() -> int:
             result["passed"] = False
 
     out_dir = args.out_dir or ROOT / "build" / (
-        f"tdma_path_delay_probe_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        f"calibration_path_delay_probe_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "summary.json").write_text(
         json.dumps(result, indent=2), encoding="utf-8")

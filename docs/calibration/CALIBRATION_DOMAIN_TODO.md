@@ -20,6 +20,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 | 阶段 | 目标 | 当前状态 | 交付物 |
 |---|---|---|---|
+| P0T | 线序、邻接矩阵和环路顺序校准 | `[~]` | accepted topology snapshot、slot map 和 freshness |
 | P0 | 硬件 latch、证据 transport 和 owner 边界 | `[~]` | 可关联的 `t1..t4` hardware-latched evidence |
 | P1 | CLK RTT 粗捕获收尾 | `[~]` | diagnostic bracket、过渡抖动和拒绝原因 |
 | P2 | 编码 marker、过采样和相关测距 | `[~]` | accepted/rejected coded RTT snapshot |
@@ -29,7 +30,28 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 当前不能把第一阶段的 CLK RTT bracket、软件 timer 或 diagnostic latch 直接用于 VDC/DPLL。
 正式校准必须同时满足硬件 latch、质量门禁、重复统计、拓扑/profile freshness 和恢复流程。
 
-## 二、P0 基础件与跨域边界
+## 二、P0T 线序与环路顺序校准
+
+- `[x]` 将有向线序/邻接矩阵、单闭环判定、anchor 旋转和 slot map 的 owner 迁入校准域；
+  TDMA 只提供隔离 probe persona、RX/TX counters 和 raw physical evidence。
+- `[x]` 将 host 工具迁移为
+  `tools/calibration_ring_validate/calibration_ring_topology.py`，并把第一阶段及码本工具统一
+  改为 `calibration_*` 命名。
+- `[x]` 按 `*IDN?` 唯一地址生成 directed adjacency；只有全部 active 节点形成一个闭环才
+  允许生成 `ring_order/slot_map`。COM 号不得进入 topology key。
+- `[x]` NO 提交从 TDMA START 中移除；只有 accepted topology 可以写入 NO，且支持写后读回
+  和重启持久化复核。
+- `[ ]` 实现板内 `CalibrationTopologySnapshot`：active board set、predecessor/successor、
+  direction、slot map、topology CRC、generation、freshness、accepted/rejected reason 和
+  raw evidence index。
+- `[ ]` 固化重复 probe 和质量门禁：frame/word/edge evidence、timeout、bad header、误触发、
+  跨轮一致性和 profile identity；阈值冻结前继续由显式参数/profile 提供。
+- `[ ]` 增加开链、分叉、多闭环、反向接线、重复/缺失板卡、probe 串扰和中途掉线故障注入；
+  覆盖直到 `TDMA_RING_NODE_MAX` 的拓扑容量。
+- `[ ]` topology generation 或 wiring/profile freshness 改变时，使 P1/P2/P3 calibration staging
+  失效；旧 active generation 只能按明确 holdover policy 使用，不得静默继承。
+
+## 三、P0 基础件与跨域边界
 
 - `[~]` 将校准测量 owner 从现有 `calibration_manager` 状态壳升级为
   `CalibrationAO / CalibrationFB / CalibrationVector`，保留 guarded snapshot 和
@@ -46,21 +68,25 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 - `[ ]` 定义 active/staging calibration 的 CRC、generation、topology freshness、
   rollback 和 VDC/DPLL 消费门禁。
 
-## 三、P1 第一阶段 CLK RTT 粗捕获
+## 四、P1 第一阶段 CLK RTT 粗捕获
 
+- `[x]` 将第一阶段测量流程、bracket 解释、四主结果和质量门禁从 TDMA 待办收敛到校准域；
+  TDMA 仅保留 transport/persona/resource integration，禁止解释 RTT 或生成 delay/bias。
 - `[x]` 完成 SPI CLK 透明转发、master burst/capture、PIO IRQ 和 guarded snapshot 的
   最小实现。
 - `[x]` 完成四板 HIL 的数量级捕获，并记录各 profile、master、mixed point、错误增量和
   `DIAGNOSTIC_ONLY` 状态。结果详见任务记录和训练方案；该 HIL 结果是 build/topology/
   wiring/profile 快照，不是通用精度事实源。
+- `[x]` 将第一阶段默认阶梯收敛为 operating profile level 7/8/9 对应的
+  `10 -> 25 -> 30 MHz`；更高或更低兼容档仅允许显式实验，不进入默认训练定义。
+- `[x]` 固化四主轮换的唯一板卡地址、logical slot、STOP/ARM/STOP 收尾和恢复普通 persona
+  检查；任一失败不得留下持续 CLK 环。
 - `[ ]` 补齐第一阶段 rejected sample 分类：返回缺失、重复、超时、marker 不完整、
   overlap/mixed 和 topology/profile 变化。
 - `[ ]` 将第一阶段 bracket 作为 P2 有界搜索输入，并禁止其单独生成运行态 feedback
   timeout、VDC delay 或 active per-link calibration。
-- `[ ]` 固化四主轮换的唯一板卡地址、logical slot、STOP/ARM/STOP 收尾和恢复普通 persona
-  检查；任一失败不得留下持续 CLK 环。
 
-## 四、P2 编码 marker 与相关测距
+## 五、P2 编码 marker 与相关测距
 
 - `[~]` 完成候选 codebook 的离线评估；当前评估工具已能比较 LFSR、NRZ/Manchester/
   differential-Manchester 和 raw-sample lag margin。
@@ -81,7 +107,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 - `[ ]` 完成四主重复性和跨主一致性门禁；只有真实 PIO/DMA latch、质量和重复统计通过后，
   才清除对应 `TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY`。
 
-## 五、P3 双向同时对比法
+## 六、P3 双向同时对比法
 
 第三阶段使用相邻板卡反向的 `CLK` 和 `DATA`，`SYNC` 只负责把同一 epoch/sequence 的
 边沿关联起来。对链路 `A -> B`，定义：
@@ -126,7 +152,7 @@ path_sum_AB = (t4 - t1) - residence_B
   resident TDMA，确认 TX/RX 与物理错误计数门禁通过；结果仍为 diagnostic snapshot。
 - `[ ]` 在同一 PIO persona 下完成 endpoint bias/reference loopback 后，才进入双板 P3 HIL。
 
-## 六、P4 VDC/DPLL 集成门禁
+## 七、P4 VDC/DPLL 集成门禁
 
 - `[ ]` 校准域只向 VDC 发布 accepted calibration snapshot，不直接写 DPLL 状态或 VDC time。
 - `[ ]` VDC 消费 path-delay、residence、bias、generation、quality、freshness 和 topology
@@ -139,7 +165,7 @@ path_sum_AB = (t4 - t1) - residence_B
 - `[ ]` 增加 VDC/DPLL 双板和四板 observation window 验证，记录 offset/rate、lock、
   holdover、relock、late、CRC/sequence 和 calibration generation。
 
-## 七、验证、长稳与发布
+## 八、验证、长稳与发布
 
 - `[ ]` 双板 HIL：验证每条 link 的 `t1..t4`、residence、path-sum、bias 和拒绝原因。
 - `[ ]` 四板 HIL：验证轮换 master、逐链路累加、整圈 residual、拓扑 freshness 和恢复。
@@ -150,7 +176,7 @@ path_sum_AB = (t4 - t1) - residence_B
 - `[ ]` 发布前：校准 CRC、版本 bundle、active/staging/rollback、SCPI 查询、SD/OTA 持久化
   和报告字段全部一致；训练失败统一 STOP 并恢复普通 PIO persona。
 
-## 八、阻塞项与完成定义
+## 九、阻塞项与完成定义
 
 当前关键阻塞项：
 
