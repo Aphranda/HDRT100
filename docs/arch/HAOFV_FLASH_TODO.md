@@ -150,8 +150,8 @@ generated permission view、版本化 live consumer 和只读板端验证；M1-0
   geometry fixture 显式 include；通用 `drv_flash.h` 不再声明 erase/program。
 - [x] host tests 覆盖 zero length、last byte、one-byte overflow、integer wrap、unaligned/null/high range。
 
-证据：commit `315dc6f`；`run_drv_flash_geometry_tests.ps1`、release 与 RTOS+双核 smoke 构建通过。
-本项尚未完成，因为 raw write header 可见性必须随 M1-02/M1-03 一起收敛。
+证据：commit `315dc6f`、`9892768`；`run_drv_flash_geometry_tests.ps1`、release 与 RTOS+双核
+smoke 构建通过。raw write header 可见性已收敛；剩余退出项只属于 link-level visibility 审计。
 
 ### M1-02 FlashMap 与 permission view
 
@@ -165,18 +165,18 @@ generated permission view、版本化 live consumer 和只读板端验证；M1-0
 App A/App B 均编译链接同一 `flash_map.c`。COM8 通过只读 SCPI 对 generated v2 target map 和
 permission view 做板端闭环；live linker/factory/packager 则由 generated v1 compatibility map
 保持当前可启动地址。报告见 `HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-002`、
-`FLASH-TASK-20260822-003` 和 `FLASH-TASK-20260822-004`。本项仍为进行中：OTA image writer
-已从可信 metadata active-slot provider 取得上下文，但其他 writer 尚未迁移，板上 v2 分区也没有
-部署或写入，C11 激活审核未开始。
+`FLASH-TASK-20260822-003` 和 `FLASH-TASK-20260822-004`。本项仍为进行中：App OTA image、
+Product Config 与 App metadata writer 已走 intent，Boot metadata 保持独立 BootFlashService；
+板上 v2 分区没有部署或写入，C11 激活审核未开始。
 
 ### M1-03 FlashTransactionAO/FB/Vector
 
 - [~] 已固定首轮 one-deep queue、job/requester/operation/provider generation/completion/cancel；
-  lease 与大 payload provider/refcount 仍待 M1-05。
+  大 payload 在 immutable provider/refcount 落地前 fail closed。
 - [~] 实现 `VALIDATE -> QUIESCE -> ACQUIRE -> PARK -> ERASE/PROGRAM -> VERIFY -> COMMIT ->
   RELEASE -> COMPLETE/FAILED`，每次 service 只推进一个有界步骤。
-- [~] Vector 使用 seqlock；只读查询不触发 Flash IO，并记录 policy/lockout/progress/result/timing；
-  thermal/health gate 尚待 M1-04 接入。
+- [x] Vector 使用 seqlock；只读查询不触发 Flash IO，并记录 policy/lockout/progress/result/timing；
+  thermal/health gate、policy reason 与 temperature flags 已接入。
 - [x] completion 区分 accepted/programmed/verified/committed，OTA 兼容包装只消费 committed。
 
 首轮证据：commit `2a79643`；OTA image erase/program 已从 portable callback 进入

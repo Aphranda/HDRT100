@@ -199,13 +199,25 @@ add_custom_target(project_flash_contract_check
                 --root ${CMAKE_CURRENT_LIST_DIR}
                 --inventory ${CMAKE_CURRENT_LIST_DIR}/config/flash_raw_call_allowlist.json
                 --output ${CMAKE_CURRENT_BINARY_DIR}/flash_inventory.json
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/persistence_schema_check.py
+                ${CMAKE_CURRENT_LIST_DIR}/config/persistence_schema_registry.json
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_migration_check.py
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_migration_policy.json
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_wire_check.py
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_wire_contracts.json
         DEPENDS
                 ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_map.py
                 ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_inventory.py
+                ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/persistence_schema_check.py
+                ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_migration_check.py
+                ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_wire_check.py
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map.schema.json
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_v1_compat.json
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_v2.json
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_raw_call_allowlist.json
+                ${CMAKE_CURRENT_LIST_DIR}/config/persistence_schema_registry.json
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_migration_policy.json
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_wire_contracts.json
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.h
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat_manifest.json
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.cmake
