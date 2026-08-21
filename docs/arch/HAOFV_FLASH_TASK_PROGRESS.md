@@ -86,6 +86,25 @@ permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootl
   - 先补 App metadata transaction 的 negative/power-cut host fixtures，再进入 M2 Store core；
     继续禁止 v2 高地址在线写入。
 
+### FLASH-TASK-20260822-007 - App raw write owner inventory gate
+
+- 状态：M1-05 进行中；App raw erase/program 归属检查已加入 inventory，未宣称所有 buffer/lease
+  与异步语义完成。
+- 日期：2026-08-22
+- 完成内容：
+  - `tools/flash_map/flash_inventory.py` 现在对任何 `contexts` 含 `app` 且包含 raw erase/program
+    的 caller 强制要求 `owner=FlashTransactionAO` 与 `target_api=FlashTransactionAO`。
+  - 新增负向 Python fixture，证明 ProductConfig/FlashNVS 等业务 owner 的 App raw write 会被
+    gate 拒绝；Boot context 的 `BootFlashService` 仍允许作为独立边界。
+- 验证结果：
+  - inventory 当前报告 `6` 个登记 caller；新增 owner gate fixture 与全量 host runner `30/30`
+    通过，代码提交 `55140eb test(flash): gate app raw writes to transaction owner` 已推送。
+  - 该 gate 与 release/consumer scan 一起执行，但仍需补 link-level symbol visibility、producer
+    reset、duplicate completion 和 abort-during-raw-operation fixtures。
+- 下一步：
+  - 为 metadata/Product Config 补 power-cut/duplicate completion host model，再进入 M1-04 thermal
+    gate 与 M2 Store core；继续禁止 v2 高地址在线写入。
+
 ### FLASH-TASK-20260822-005 - Product Config intent 迁移与 COM8 持久化闭环
 
 - 状态：M1-03 进行中；Product Config App writer 已迁移，OTA metadata、Boot writer 和 M2-02
