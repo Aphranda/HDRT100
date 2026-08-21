@@ -99,6 +99,7 @@ docs/
 | BiSS-C | `communication/BISSC_TASK_PROGRESS.md` | BiSS-C 新任务记录写入本文件。 |
 | SYNC_IO | `sync/SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构闭环记录写入本文件。 |
 | RTOS | `arch/RTOS_HAOFV_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
+| Flash | `arch/HAOFV_FLASH_TASK_PROGRESS.md` | FlashMap、事务 owner、store、Boot/OTA 迁移和 HIL checkpoint 写入本文件。 |
 | SCPI | `interface/SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
 | SD | `storage/SD_TASK_PROGRESS.md` | SD / StorageAO / System Pack 新任务记录写入本文件。 |
 | Documentation | `docs/docs/DOCS_MIGRATION_TODO.md` | 文档治理和迁移记录写入本文档体系待办。 |
@@ -174,6 +175,7 @@ docs/
 | `arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层产品架构主文档，阐述组件约束、层次逻辑和约束传播，不直接冻结硬件 pin map。 |
 | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 板载 Flash v2 架构，定义 FlashMap、事务 owner、Boot/Direct A/B、NVS/blob/FCB 与 TDMA 流式 OTA。 |
 | `arch/HAOFV_FLASH_TODO.md` | Flash v2 M0-M6 实施工作板，按依赖组织 Map/owner、Stores、Boot、本地 OTA、TDMA OTA 和量产门禁。 |
+| `arch/HAOFV_FLASH_TASK_PROGRESS.md` | Flash v2 阶段任务进度、提交、验证缺口、板端部署状态和下一 gate。 |
 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | HAOFV 下 T2 预约与分布式时钟分发主线；各 owner 的实现细项分别落入 Trigger、VDC、TDMA、RefMem 和 SYNC_IO。 |
 | `arch/HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，跟踪 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 |
 | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 既有融合架构输入；VDC 主域 canonical 见 `vdc/VDC_DOMAIN_ARCHITECTURE.md`。 |
