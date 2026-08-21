@@ -25,8 +25,8 @@ v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在�
 
 | 基线 | 状态 | 证据 | 仍缺什么 |
 |---|---|---|---|
-| 物理/构建/兼容布局事实已核对 | `[x]` | `CMakeLists.txt`、`drv_flash.h`、`ota_partition.h`、`ARCH_FLASH_CROSS_REVIEW_01.md` | v1 live consumer 尚未迁移到 v2。 |
-| v2 map source/schema 与 geometry gate | `[~]` | `config/flash_map_v2.json`、`config/flash_map_gen/`、commit `315dc6f`/`10fd545` | live linker/factory/packager consumer 与高地址 HIL 尚未迁移。 |
+| 物理/构建/兼容布局事实已核对 | `[x]` | `CMakeLists.txt`、`drv_flash.h`、`ota_partition.h`、`ARCH_FLASH_CROSS_REVIEW_01.md` | live consumer 已同源于 v1 compatibility map；v2 仍需 factory 迁移。 |
+| v2 map source/schema 与 geometry gate | `[~]` | `config/flash_map_v2.json`、`config/flash_map_v1_compat.json`、`config/flash_map_gen/`、commit `315dc6f`/`10fd545`/`a211188` | v2 factory 部署与高地址 HIL 尚未完成。 |
 | Flash v2 owner/map/store/Boot/OTA 语义已形成 canonical | `[x]` | `HAOFV_FLASH_ARCHITECTURE.md` | 7 条目标契约仍为 `pending`。 |
 | Direct A/B 为发布默认 | `[x]` | CMake preset/release check/当前 Bootloader | `COPY_TO_ACTIVE` 兼容分支尚未从 v2 清除。 |
 | core1 Flash park/ACK 基础存在 | `[x]` | `drv_flash_lockout.*` 和既有 HIL | 尚未收敛到唯一 FlashTransactionAO。 |
@@ -49,8 +49,9 @@ M0 契约/迁移输入
 ```
 
 M2 和 M3 可在 M1 稳定后并行，但 M4 必须同时依赖 M2/M3；M5 不得绕过本地 OTA 闭环直接做
-多板分发。首轮已完成 M0-01 和 M1-01 的 geometry/range 子项；M1-02 已完成纯算法、generated
-permission view 和只读板端验证，当前继续收口 M0-02/M1-02 live consumer，再进入 M1-03。
+多板分发。M0-01/M0-02 已完成，M1-01 已完成 geometry/range 子项；M1-02 已完成纯算法、
+generated permission view、版本化 live consumer 和只读板端验证，当前进入 M1-03 transaction
+owner，同时保持 v2 只能由 factory full erase/reflash 部署。
 
 ## 二、里程碑总览
 
@@ -84,14 +85,16 @@ permission view 和只读板端验证，当前继续收口 M0-02/M1-02 live cons
 
 - [x] 定义 geometry/map 机器格式：map version、partition ID、offset/size、alignment、Boot/App/
   factory permission、executable/store type、update policy 和 compatibility。
-- [~] 生成或校验 C header、linker memory、factory address、OTA packager 和文档快照。header、
-  manifest、CMake/linker 常量已生成并有 freshness gate；live factory/packager/linker 尚未消费。
+- [x] 生成或校验 C header、linker memory、factory address、OTA packager 和文档快照。v1
+  compatibility 与 v2 target 分别生成 versioned header/manifest/CMake/linker artifact；live
+  consumer 显式选择 `PROJECT_FLASH_DEPLOYMENT_MAP=v1_compat`，禁止在线误用 v2。
 - [x] 静态断言对齐、无重叠、A/B 等长、bootable range、reserved gap policy 和 map tail。
-- [~] 负向 fixture 覆盖 overlap、overflow、wrong geometry、bad executable permission 和 linker drift。
-  前四项与生成物 stale gate 已有测试；独立 live linker drift fixture 待 consumer 迁移时补齐。
+- [x] 负向 fixture 覆盖 overlap、overflow、wrong geometry、bad executable permission、manifest
+  state/partition、linker/source token、OTA run offset 和 release preset drift。
 
-产物：`config/flash_map_v2.json`、`config/flash_map.schema.json`、`config/flash_map_gen/`、
-`tools/flash_map/flash_map.py`、`tests/python/test_flash_map.py`；证据 commit `315dc6f`。
+产物：`config/flash_map_v1_compat.json`、`config/flash_map_v2.json`、`config/flash_map.schema.json`、
+`config/flash_map_gen/`、`tools/flash_map/flash_map.py`、`tools/flash_map/flash_consumer_check.py`；
+证据 commit `315dc6f`、`a211188`。
 
 ### M0-03 持久化 schema registry
 
@@ -148,13 +151,16 @@ permission view 和只读板端验证，当前继续收口 M0-02/M1-02 live cons
 
 - [x] 实现 `flash_map_find()`、partition-relative range validation 和 operation permission。
 - [x] Boot/App/factory 使用不同的 generated permission view。
-- [ ] linker、factory image、packager、release size gate 消费同一 map artifact。
+- [x] linker、factory image、packager、release size gate 消费显式选择的 deployed map artifact；当前
+  为生成的 v1 compatibility map，v2 target map 不得驱动 live consumer。
 - [x] 测试 active App write 拒绝、cross-partition 拒绝、Scratch lease 和所有 partition 首尾。
 
-证据：commit `10fd545`；`run_flash_map_tests.ps1` 纳入全量 host runner，release/Boot/App A/App B
-均编译链接同一 `flash_map.c`。COM8 通过只读 SCPI 对 generated map 和 permission view 做板端
-闭环，报告见 `HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-002`。本项仍为进行中，
-因为 live linker/factory/packager 尚未切换到生成物，板上 v2 分区也没有部署或写入。
+证据：commit `10fd545`、`a211188`；`run_flash_map_tests.ps1` 纳入全量 host runner，release/Boot/
+App A/App B 均编译链接同一 `flash_map.c`。COM8 通过只读 SCPI 对 generated v2 target map 和
+permission view 做板端闭环；live linker/factory/packager 则由 generated v1 compatibility map
+保持当前可启动地址。报告见 `HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-002` 和
+`FLASH-TASK-20260822-003`。本项仍为进行中，因为生产 writer 尚未通过 M1-03 接入可信
+active-slot provider，板上 v2 分区也没有部署或写入，C11 激活审核未开始。
 
 ### M1-03 FlashTransactionAO/FB/Vector
 

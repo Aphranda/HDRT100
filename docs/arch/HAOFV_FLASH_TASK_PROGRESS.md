@@ -25,16 +25,81 @@ Last updated: 2026-08-22
 | 工作包 | 状态 | 已有证据 | 下一 gate |
 |---|---|---|---|
 | M0-01 implementation inventory | 完成 | raw caller allowlist、旧地址依赖、构建/release scan gate | 后续新增 caller 必须先登记。 |
-| M0-02 FlashMap source/schema | 进行中 | source/schema/header/manifest/CMake/linker 生成物和负向测试 | live linker/factory/packager consumer 与独立 drift fixture。 |
+| M0-02 FlashMap source/schema | 完成 | v1 compatibility/v2 target 双版本 source、生成物、live consumer、artifact/drift gate | 后续 map 变更必须同时通过 freshness 与 consumer gate。 |
 | M1-01 Geometry/Raw HAL | 进行中 | 16 MiB geometry、overflow-safe range、host boundary tests、COM8 v1 OTA/lockout HIL | raw write header 只对 BootFlashService/FlashTransaction target 可见。 |
-| M1-02 permission view | 进行中 | generated X-macro、纯算法服务、host 边界测试、COM8 只读权限闭环 | live linker/factory/packager consumer、真实 writer 接入与 C11 激活审核。 |
+| M1-02 permission view | 进行中 | generated X-macro、纯算法服务、版本化 live consumer、host 边界测试、COM8 OTA/只读权限闭环 | 真实 writer 接入、v2 factory 部署与 C11 激活审核。 |
 | M1-03 FlashTransactionAO | 未开始 | 既有 core1 lockout 可复用 | queue/FB/Vector、唯一 App writer、durable completion。 |
 
-当前 live Bootloader、App linker、factory UF2 和 OTA partition 仍使用 v1 低 4 MiB 兼容布局；
-`config/flash_map_v2.json` 的目标分区尚未烧录或部署。App 已通过 OTA 部署只读 permission
-diagnostic；Boot 构建目标已链接同一服务，但板上 Bootloader 本轮没有重刷。
+当前 live Bootloader、App linker、factory UF2、OTA partition 和 packager 均从 generated
+`v1_compat` artifact 取得既有低 4 MiB 兼容布局，不再各自手写地址；
+`config/flash_map_v2.json` 的目标分区仍未烧录或部署。App 已通过 OTA 部署 consumer gate 与只读
+permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootloader 本轮没有重刷。
 
 ## 任务记录
+
+### FLASH-TASK-20260822-003 - v1 compatibility live consumer 同源与 COM8 闭环
+
+- 状态：完成 M0-02 和 M1-02 的 live consumer 子项；M1-02 总项继续进行中。
+- 日期：2026-08-22
+- 任务目标：
+  - 消除 OTA header、三个 linker、factory UF2 和 OTA packager 中的 v1 地址副本，同时保持当前
+    板卡可启动布局不变。
+  - 明确隔离 deployed v1 compatibility map 与 target-not-deployed v2 map，禁止 App 在线搬迁。
+- 完成内容：
+  - 新增 `config/flash_map_v1_compat.json` 及 namespace 为 `FLASH_COMPAT_MAP_*` 的 generated
+    header/manifest/CMake/linker artifact；生成器支持独立 symbol prefix/header guard。
+  - CMake/preset 显式选择 `PROJECT_FLASH_DEPLOYMENT_MAP=v1_compat`，配置阶段拒绝其他 live map；
+    OTA partition alias、三个 linker、factory UF2 address 和 Boot Control fill size 均消费生成符号。
+  - OTA packager 强制读取 `deployed_compatibility` manifest，从 APP_A/APP_B partition 派生 run
+    offset/capacity，拒绝 map state、partition shape 和 image overflow 异常。
+  - 新增 `flash_consumer_check.py` 并接入 release gate，核对 source token、三份 ELF map、BIN
+    capacity、OTA descriptor 和 factory UF2 block target；raw inventory 改为登记生成符号依赖。
+- HAOFV 边界：
+  - v1 compatibility 只描述当前部署事实，不允许新增 v1 分区功能；v2 仍保持
+    `target_not_deployed`，迁移路径仍是 audited factory full erase/reflash。
+  - FlashMap permission view 继续投影 v2 target policy，live boot/write consumer 使用 v1
+    compatibility artifact；两者以 deployment state 和 symbol namespace 隔离，不能隐式互换。
+  - 本轮真实写入只走既有 OTA inactive-slot owner 和 core1 lockout；未访问旧兼容边界以上区域，
+    未重刷 Bootloader，未新增任意地址 destructive SCPI。
+  - Flash registry 契约继续保持 `pending`；v2 factory migration、唯一 transaction owner、高地址
+    Scratch HIL 和 C11 独立审核仍未满足。
+- 验证结果（以下数值均为本次构建/HIL 快照，非长期事实源）：
+  - generated v1/v2 freshness、raw inventory、`flash_consumer_check.py` 和 release gate 通过；release
+    与 RTOS+双核构建均通过。
+  - 三份 ELF map 的 FLASH origin/length 与 generated manifest 一致：Boot、App A、App B 仍为既有
+    兼容布局；具体数值由 `FLASH_COMPAT_MAP_*_ORIGIN/LENGTH` 和构建 map 文件提供。
+  - host C runner 为 29/29；本轮 Flash/OTA/release 定向 Python 为 29/29；全量 Python 为
+    110/111。唯一失败仍是既有 `test_reflection_report_has_balanced_ladder`，因为本机缺少
+    `build-product-release/tdma_pio_timing_check_reflection_20260821.json`，未伪造报告。
+  - 代码提交 `a2111886f4feb51a8edcf787ce0c961b87feac4f` 已推送；release package build id 为
+    `20260821162722`，package SHA-256 为
+    `5E413A3A8B339C91A0955979D6423E29291A9D11163F402A4C7AC7EB19FC4233`。
+  - COM8 `839E1AE79EA20F31` 从 active slot 2 向 inactive slot 1 完成 OTA、Boot 和 commit；最终
+    slot snapshot 为 active/confirmed 1，错误队列为空。
+  - 写入期间 lockout request/ACK/release 从 2 增长到 929，timeout/release timeout 保持 0，
+    `last_result=1`，写入后临界区快照为 1007 us。
+  - 板端 target map snapshot 为 14/14、permission access 为 260/260；定向 multicore smoke 为
+    5/5，core1 采样窗口增长 2009。
+  - OTA 前板温/RP2350 内温为 31.875/36.871 degC；闭环后为 31.633/36.871 degC。电流前端
+    `healthy=1`，输出 1446520 uV，nominal estimate 为 79 mA，但 `current_calibrated=0`，该估算
+    不能作为计量值。
+- 板端证据与回退：
+  - 原始报告位于 `build/flash_v1_compat_preflight_COM8_20260822.txt`、
+    `build/flash_v1_compat_hil_COM8_20260822/`、`build/flash_v1_compat_map_COM8_20260822/` 和
+    `build/flash_v1_compat_multicore_COM8_20260822/`。
+  - 代码可 revert `a211188`；板端仍使用 v1 Direct A/B 和既有 BOOTSEL factory 恢复路径。
+    M0-05 固定回退 artifact/runbook 未完成，不以本轮 OTA 成功替代该 gate。
+- 提交与推送：
+  - `a211188 feat(flash): derive live consumers from compatibility map`
+  - 代码提交已推送 `origin/feature/rtos-multicore-haofv`；本文档使用独立提交。
+- 还需完成：
+  - 进入 M1-03，建立 FlashTransactionAO/FB/Vector 和唯一 App writer；生产 permission view 从可信
+    active-slot provider 取上下文。
+  - 完成 raw read/write header 可见性收敛、M1-04 mode/thermal gate 和 M1-06 high-address Scratch
+    validation intent。
+  - M0-05 固定 v1 factory 回退 artifact/runbook 后，才能开始 M4 的 v2 factory migration。
+- 下一步：
+  - 实现 M1-03 的 transaction 数据模型、状态机和 host fault fixtures；继续禁止 v2 在线部署。
 
 ### FLASH-TASK-20260822-002 - FlashMap permission view 与 COM8 只读闭环
 
