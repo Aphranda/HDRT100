@@ -37,6 +37,55 @@ permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootl
 
 ## 任务记录
 
+### FLASH-TASK-20260822-006 - OTA metadata App/Boot writer 边界与 COM8 transaction 闭环
+
+- 状态：M1-03 进行中；App metadata erase/program 已接入 FlashTransactionAO，Boot metadata 保留
+  独立 BootFlashService adapter；M3 BootControlStore 和 M2 durable store 仍未完成。
+- 日期：2026-08-22
+- 任务目标：
+  - 拆开 `ota_metadata.c` 的共享语义与物理写后端，避免把 App AO/RTOS 依赖带入 Boot target。
+  - 验证 OTA 的 mark-pending/confirm-active 元数据写入不会被旧 resource lock 自锁，且最终由
+    transaction owner 完成 readback/commit。
+- 完成内容：
+  - 新增 `ota_metadata_flash.h` 边界及 App/Boot/read 三个 adapter；App adapter 将 metadata
+    sector/page intent 交给 `FlashTransactionAO`，Boot adapter 仅调用 `drv_flash`，read adapter
+    保持只读。
+  - `ota_metadata.c` 不再直接调用 raw erase/program；raw inventory 将 Boot write 与 metadata
+    read 分开登记，App raw write 只剩 FlashTransactionAO。
+  - 移除 portable OTA `mark_pending/confirm_active` 外层 Flash resource lock，避免 transaction
+    policy 在 owner 尚未 acquire 前被旧包装占用而自拒绝。
+  - transaction policy 增加 `OTA_METADATA` requester，仅允许 generated Boot Control partition；
+    host fixture 覆盖 metadata sector erase、错误 Product NVS partition 拒绝。
+- HAOFV 边界：
+  - 这是 writer owner/backend split，不是 M3 BootControlStore 完成；metadata 仍是现有双 copy
+    sector rewrite，未引入 append/GC/power-cut matrix 或 durable completion journal。
+  - Boot target 未链接 App `FlashTransactionAO`、resource arbiter 或 RTOS；未重刷 Bootloader，
+    v2 map 仍为 `target_not_deployed`，没有高地址写入或任意地址 SCPI。
+  - registry 中 Flash owner/BootControl 契约继续 `pending`，未进行 C11 状态激活。
+- 验证结果（以下均为本次构建/HIL 快照，非长期事实源）：
+  - 全量 host runner `30/30`、FlashTransaction metadata fixture、raw inventory `6` callers、
+    release check/consumer gate、release 与 RTOS+双核构建通过。
+  - 代码提交 `47c0a8b feat(flash): split app and boot metadata writers` 已推送；package build
+    id `20260821172739`。
+  - COM8 `839E1AE79EA20F31` OTA/Boot/commit 后，transaction Vector 为 requester `2`、partition
+    `3`、operation `2`、`256/256` processed/verified、completion `4` committed、lockout
+    `2/2`、last_error `0`；`SYSTem:OTA:STAT?` 为 `COMMITTED`，`SYSTem:ERRor?` 为 `0,"No error"`。
+  - COM8 multicore smoke 为 `16/17`；core1/VDC/calibration/config/refmem/protection/error queue
+    均通过，唯一失败为既有无合格 timestamp evidence 导致 DPLL `update_seq` stalled，未宣称
+    DPLL 算法闭环。
+- 板端证据与回退：
+  - 原始报告位于 `build/ota_metadata_transaction_hil_COM8/`、
+    `build/ota_metadata_transaction_vector_COM8.txt` 和 `build/ota_metadata_multicore_hil_COM8/`。
+  - 板上保持 v1 Direct A/B、active slot 1、错误队列为空；另一个已验证槽与 BOOTSEL factory
+    recovery 保留。M0-05 固定回退 runbook 仍未完成。
+- 还需完成：
+  - M3 BootControlStore：Boot-only durable backend、BCB lane/GC、fault matrix 和 reset journal。
+  - M1-04 thermal/mode gate、owner 驱动 park handshake；M1-05 大 payload provider/refcount、
+    duplicate completion/abort during raw operation；M2-02 Product NVS atomic store。
+- 下一步：
+  - 先补 App metadata transaction 的 negative/power-cut host fixtures，再进入 M2 Store core；
+    继续禁止 v2 高地址在线写入。
+
 ### FLASH-TASK-20260822-005 - Product Config intent 迁移与 COM8 持久化闭环
 
 - 状态：M1-03 进行中；Product Config App writer 已迁移，OTA metadata、Boot writer 和 M2-02

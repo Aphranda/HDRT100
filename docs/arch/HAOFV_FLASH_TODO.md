@@ -191,8 +191,9 @@ RTOS+双核构建和 COM8 双次 OTA/Vector HIL 均通过。该项保持进行�
 
 - [ ] 小 payload 复制入固定 pool；大 payload 使用 generation/refcount immutable provider。
 - [ ] queue full、producer reset、duplicate completion、abort during page/sector 均有单测。
-- [~] OTA image 与 Product Config 已迁移到 intent API；metadata App writer、Boot writer 和 M2-02
-  Product NVS store 仍待完成。当前 Product Config 仍是 single-sector rewrite，不得视为 atomic NVS。
+- [~] OTA image、Product Config 与 App OTA metadata 已迁移到 intent API；Boot metadata 通过独立
+  BootFlashService adapter 保持 raw owner，M3 BootControlStore 与 M2-02 Product NVS store 仍待完成。
+  当前 Product/OTA metadata 仍是 single-sector rewrite，不得视为 atomic NVS/BCB。
 - [ ] link/scan gate 证明 App raw erase/program 只被 FlashTransaction target 引用。
 
 ### M1-06 高地址 Scratch 验证
