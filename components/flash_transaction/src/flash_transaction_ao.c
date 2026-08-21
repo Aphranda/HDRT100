@@ -72,15 +72,25 @@ static void flash_transaction_release(void)
                                    FLASH_TRANSACTION_OWNER);
 }
 
+static bool flash_transaction_park_core1(void)
+{
+    return drv_flash_write_session_begin();
+}
+
+static bool flash_transaction_release_core1(void)
+{
+    return drv_flash_write_session_end();
+}
+
 static bool flash_transaction_erase(uint32_t offset, uint32_t length)
 {
-    return drv_flash_erase(offset, length);
+    return drv_flash_erase_parked(offset, length);
 }
 
 static bool flash_transaction_program(uint32_t offset, const uint8_t *data,
                                       uint32_t length)
 {
-    return drv_flash_program(offset, data, length);
+    return drv_flash_program_parked(offset, data, length);
 }
 
 static bool flash_transaction_verify_erased(uint32_t offset, uint32_t length)
@@ -119,6 +129,8 @@ bool flash_transaction_ao_init(void)
         .policy_check = flash_transaction_policy_check,
         .acquire_flash = flash_transaction_acquire,
         .release_flash = flash_transaction_release,
+        .park_core1 = flash_transaction_park_core1,
+        .release_core1 = flash_transaction_release_core1,
         .erase = flash_transaction_erase,
         .program = flash_transaction_program,
         .verify_erased = flash_transaction_verify_erased,

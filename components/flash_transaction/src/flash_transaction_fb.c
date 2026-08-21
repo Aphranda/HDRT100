@@ -186,6 +186,7 @@ static bool flash_transaction_platform_valid(
     return platform != NULL && platform->policy_allows != NULL &&
            platform->acquire_flash != NULL &&
            platform->release_flash != NULL && platform->erase != NULL &&
+           platform->park_core1 != NULL && platform->release_core1 != NULL &&
            platform->program != NULL && platform->verify_erased != NULL &&
            platform->verify_programmed != NULL &&
            platform->get_lockout != NULL && platform->now_ms != NULL;
@@ -259,6 +260,7 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
     }
     context->occupied = true;
     context->resource_acquired = false;
+    context->core1_parked = false;
     context->terminal_state = FLASH_TRANSACTION_STATE_COMPLETE;
     uint32_t transaction_generation =
         context->vector.transaction_generation + 1u;
@@ -338,7 +340,10 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
     case FLASH_TRANSACTION_STATE_PARK_CORE1:
         if (context->vector.abort_pending != 0u) {
             flash_transaction_abort(context);
+        } else if (!context->platform.park_core1()) {
+            flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_PARK);
         } else {
+            context->core1_parked = true;
             flash_transaction_set_state(
                 context, FLASH_TRANSACTION_STATE_ERASE_PROGRAM);
         }
@@ -410,11 +415,21 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         flash_transaction_write_end(context);
         break;
     case FLASH_TRANSACTION_STATE_RELEASE:
+        bool release_ok = true;
+        if (context->core1_parked) {
+            release_ok = context->platform.release_core1();
+            context->core1_parked = false;
+        }
         if (context->resource_acquired) {
             context->platform.release_flash();
             context->resource_acquired = false;
         }
         flash_transaction_write_begin(context);
+        if (!release_ok) {
+            context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
+            context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
+            context->vector.last_error = FLASH_TRANSACTION_ERROR_RELEASE;
+        }
         context->vector.state = context->terminal_state;
         context->vector.completed_timestamp_ms = context->platform.now_ms();
         flash_transaction_write_end(context);

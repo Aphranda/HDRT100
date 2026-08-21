@@ -11,4 +11,11 @@
 bool drv_flash_erase(uint32_t flash_offset, size_t length);
 bool drv_flash_program(uint32_t flash_offset, const uint8_t *data, size_t length);
 
+/* FlashTransactionAO owns this session; parked operations fail outside it. */
+bool drv_flash_write_session_begin(void);
+bool drv_flash_write_session_end(void);
+bool drv_flash_erase_parked(uint32_t flash_offset, size_t length);
+bool drv_flash_program_parked(uint32_t flash_offset, const uint8_t *data,
+                              size_t length);
+
 #endif

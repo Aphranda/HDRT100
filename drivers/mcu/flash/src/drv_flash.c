@@ -11,6 +11,7 @@
 #endif
 
 static bool s_lockout_initialized;
+static bool s_write_session_active;
 
 static void drv_flash_ensure_lockout_initialized(void)
 {
@@ -36,15 +37,29 @@ void drv_flash_get_lockout_status(drv_flash_lockout_status_t *status)
     drv_flash_lockout_get_status(status);
 }
 
-static bool drv_flash_begin_write(void)
+bool drv_flash_write_session_begin(void)
 {
+    if (s_write_session_active) {
+        return false;
+    }
     drv_flash_ensure_lockout_initialized();
-    return drv_flash_lockout_begin(DRV_FLASH_LOCKOUT_DEFAULT_WAIT_LOOPS);
+    s_write_session_active =
+        drv_flash_lockout_begin(DRV_FLASH_LOCKOUT_DEFAULT_WAIT_LOOPS);
+    return s_write_session_active;
 }
 
-static void drv_flash_end_write(void)
+bool drv_flash_write_session_end(void)
 {
+    if (!s_write_session_active) {
+        return false;
+    }
     drv_flash_lockout_end(DRV_FLASH_LOCKOUT_DEFAULT_WAIT_LOOPS);
+    s_write_session_active = false;
+    drv_flash_lockout_status_t status;
+    drv_flash_lockout_get_status(&status);
+    return !status.core1_lockout_requested &&
+           !status.core1_lockout_acknowledged &&
+           status.last_result != DRV_FLASH_LOCKOUT_RESULT_RELEASE_TIMEOUT;
 }
 
 void drv_flash_set_lockout_fault_injection(uint32_t flags)
@@ -107,7 +122,7 @@ bool drv_flash_is_erased(uint32_t flash_offset, size_t length)
     return true;
 }
 
-bool drv_flash_erase(uint32_t flash_offset, size_t length)
+bool drv_flash_erase_parked(uint32_t flash_offset, size_t length)
 {
     if (!drv_flash_is_range_valid(flash_offset, length)) {
         return false;
@@ -118,19 +133,18 @@ bool drv_flash_erase(uint32_t flash_offset, size_t length)
         return false;
     }
 
-    if (!drv_flash_begin_write()) {
+    if (!s_write_session_active) {
         return false;
     }
 
     const uint32_t irq_state = save_and_disable_interrupts();
     flash_range_erase(flash_offset, length);
     restore_interrupts(irq_state);
-    drv_flash_end_write();
-
     return drv_flash_is_erased(flash_offset, length);
 }
 
-bool drv_flash_program(uint32_t flash_offset, const uint8_t *data, size_t length)
+bool drv_flash_program_parked(uint32_t flash_offset, const uint8_t *data,
+                              size_t length)
 {
     if (data == NULL || !drv_flash_is_range_valid(flash_offset, length)) {
         return false;
@@ -141,14 +155,30 @@ bool drv_flash_program(uint32_t flash_offset, const uint8_t *data, size_t length
         return false;
     }
 
-    if (!drv_flash_begin_write()) {
+    if (!s_write_session_active) {
         return false;
     }
 
     const uint32_t irq_state = save_and_disable_interrupts();
     flash_range_program(flash_offset, data, length);
     restore_interrupts(irq_state);
-    drv_flash_end_write();
-
     return memcmp(drv_flash_xip_ptr(flash_offset), data, length) == 0;
+}
+
+bool drv_flash_erase(uint32_t flash_offset, size_t length)
+{
+    if (!drv_flash_write_session_begin()) {
+        return false;
+    }
+    const bool ok = drv_flash_erase_parked(flash_offset, length);
+    return drv_flash_write_session_end() && ok;
+}
+
+bool drv_flash_program(uint32_t flash_offset, const uint8_t *data, size_t length)
+{
+    if (!drv_flash_write_session_begin()) {
+        return false;
+    }
+    const bool ok = drv_flash_program_parked(flash_offset, data, length);
+    return drv_flash_write_session_end() && ok;
 }

@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 static int s_failures;
+static uint32_t s_lockout_result;
 
 #define CHECK_TRUE(expression) do { \
     if (!(expression)) { \
@@ -36,7 +37,11 @@ void drv_flash_lockout_core1_poll(void)
 
 void drv_flash_lockout_get_status(drv_flash_lockout_status_t *status)
 {
-    (void)status;
+    if (status != NULL) {
+        status->core1_lockout_requested = false;
+        status->core1_lockout_acknowledged = false;
+        status->last_result = s_lockout_result;
+    }
 }
 
 void drv_flash_lockout_set_fault_injection(uint32_t flags)

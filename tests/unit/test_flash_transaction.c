@@ -11,9 +11,13 @@ static bool s_policy_ok;
 static uint32_t s_policy_error;
 static uint32_t s_policy_temperature_flags;
 static bool s_acquire_ok;
+static bool s_park_ok;
+static bool s_unpark_ok;
 static bool s_raw_ok;
 static bool s_verify_ok;
 static uint32_t s_release_count;
+static uint32_t s_park_count;
+static uint32_t s_unpark_count;
 static uint32_t s_erase_count;
 static uint32_t s_program_count;
 static uint32_t s_last_offset;
@@ -50,6 +54,18 @@ static bool fake_acquire(void)
 static void fake_release(void)
 {
     s_release_count++;
+}
+
+static bool fake_park_core1(void)
+{
+    s_park_count++;
+    return s_park_ok;
+}
+
+static bool fake_release_core1(void)
+{
+    s_unpark_count++;
+    return s_unpark_ok;
 }
 
 static bool fake_erase(uint32_t offset, uint32_t length)
@@ -107,6 +123,8 @@ static flash_transaction_platform_t make_platform(void)
         .policy_check = fake_policy_check,
         .acquire_flash = fake_acquire,
         .release_flash = fake_release,
+        .park_core1 = fake_park_core1,
+        .release_core1 = fake_release_core1,
         .erase = fake_erase,
         .program = fake_program,
         .verify_erased = fake_verify_erased,
@@ -123,9 +141,13 @@ static void reset_fakes(void)
     s_policy_error = FLASH_TRANSACTION_ERROR_NONE;
     s_policy_temperature_flags = 0u;
     s_acquire_ok = true;
+    s_park_ok = true;
+    s_unpark_ok = true;
     s_raw_ok = true;
     s_verify_ok = true;
     s_release_count = 0u;
+    s_park_count = 0u;
+    s_unpark_count = 0u;
     s_erase_count = 0u;
     s_program_count = 0u;
     s_last_offset = 0u;
@@ -234,6 +256,8 @@ static void test_positive_erase_and_program(void)
     assert(s_erase_count == 1u);
     assert(s_program_count == 1u);
     assert(s_release_count == 2u);
+    assert(s_park_count == 2u);
+    assert(s_unpark_count == 2u);
 }
 
 static void test_policy_and_partition_rejections(void)
@@ -310,10 +334,19 @@ static void test_runtime_failures(void)
                   FLASH_TRANSACTION_ERROR_RESOURCE);
     s_acquire_ok = true;
 
+    s_park_ok = false;
+    assert_failed(run_request(&context, &request),
+                  FLASH_TRANSACTION_ERROR_PARK);
+    assert(s_erase_count == 0u);
+    assert(s_unpark_count == 0u);
+    assert(s_release_count == 1u);
+    s_park_ok = true;
+
     s_raw_ok = false;
     assert_failed(run_request(&context, &request),
                   FLASH_TRANSACTION_ERROR_RAW_OPERATION);
-    assert(s_release_count == 1u);
+    assert(s_release_count == 2u);
+    assert(s_unpark_count == 1u);
     s_raw_ok = true;
 
     s_verify_ok = false;
@@ -322,7 +355,25 @@ static void test_runtime_failures(void)
     assert(vector.verify_failure_count == 1u);
     assert(vector.processed_bytes == request.length);
     assert(vector.verified_bytes == 0u);
-    assert(s_release_count == 2u);
+    assert(s_release_count == 3u);
+    assert(s_unpark_count == 2u);
+}
+
+static void test_release_failure_overrides_success(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    const flash_transaction_request_t request = erase_request();
+    s_unpark_ok = false;
+    const flash_transaction_vector_t vector = run_request(&context, &request);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_RELEASE);
+    assert(vector.processed_bytes == request.length);
+    assert(vector.verified_bytes == request.length);
+    assert(s_erase_count == 1u);
+    assert(s_unpark_count == 1u);
+    assert(s_release_count == 1u);
 }
 
 static void test_thermal_and_diagnostics_gates_are_fail_closed(void)
@@ -540,6 +591,7 @@ int main(void)
     test_policy_and_partition_rejections();
     test_range_alignment_and_provider_rejections();
     test_runtime_failures();
+    test_release_failure_overrides_success();
     test_thermal_and_diagnostics_gates_are_fail_closed();
     test_policy_reason_hook_preserves_resource_gates();
     test_large_payload_is_fail_closed_until_immutable_provider();

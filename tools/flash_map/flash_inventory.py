@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
-RAW_REFERENCE = re.compile(r"\bdrv_flash_(read|erase|program|xip_ptr)\b")
+RAW_REFERENCE = re.compile(r"\bdrv_flash_(read|erase|program|xip_ptr)(?:_parked)?\b")
 REQUIRED_CALLER_FIELDS = {
     "file", "owner", "contexts", "core", "modes", "partitions", "operations",
     "write_frequency", "power_cut_semantics", "target_api",

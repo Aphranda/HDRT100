@@ -8,6 +8,8 @@ typedef struct {
     uint32_t (*policy_check)(uint32_t requester, uint32_t *temperature_flags);
     bool (*acquire_flash)(void);
     void (*release_flash)(void);
+    bool (*park_core1)(void);
+    bool (*release_core1)(void);
     bool (*erase)(uint32_t absolute_offset, uint32_t length);
     bool (*program)(uint32_t absolute_offset, const uint8_t *data,
                     uint32_t length);
@@ -30,6 +32,7 @@ typedef struct {
     uint32_t terminal_state;
     bool occupied;
     bool resource_acquired;
+    bool core1_parked;
     bool payload_owned;
 } flash_transaction_fb_t;
 
