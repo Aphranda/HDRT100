@@ -1,4 +1,4 @@
-# HAOFV 板载 Flash 域实施待办
+# HAOFV 板载 Flash 域实施工作板
 
 Status: Active
 Domain: HAOFV / Flash / OTA / Storage
@@ -6,398 +6,475 @@ Canonical: `docs/arch/HAOFV_FLASH_TODO.md`
 Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/storage/SD_TODO.md`
 Last updated: 2026-08-21
 
-本文把 `HAOFV_FLASH_ARCHITECTURE.md` 拆成可提交、可回退、可板测的任务。状态约定：
-`[ ]` 未开始，`[~]` 进行中，`[x]` 有证据完成，`[!]` 阻塞。仅编译通过不能标记 HIL 完成。
+本文只跟踪 Flash v2 的实现、迁移和验证。架构语义以 `HAOFV_FLASH_ARCHITECTURE.md` 为准；
+v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在两个 TODO 中重复标记完成。
 
-## 一、阶段总览
+## 一、工作板规则与当前状态
 
-| 阶段 | 目标 | 进入条件 | 退出证据 |
+### 1.1 状态规则
+
+- `[ ]`：未开始或只有方案，没有可复核产物。
+- `[~]`：正在实现；必须写明当前分支/产物和未完成 gate。
+- `[x]`：代码、测试、HIL、文档和回退证据均满足该项定义。
+- `[!]`：阻塞；必须记录阻塞条件、可继续的旁路工作和解除条件。
+
+“编译通过”“SCPI 有响应”“单次启动成功”都不能单独作为完成证据。契约从 `pending` 改为
+`active` 需要实现、负向测试、相应 HIL 和独立 C11 交叉审核。
+
+### 1.2 已有基线
+
+| 基线 | 状态 | 证据 | 仍缺什么 |
 |---|---|---|---|
-| F0 | 冻结事实与迁移策略 | 架构评审通过 | map/owner/BCB/stream 契约和风险表 |
-| F1 | Geometry/FlashMap 单一来源 | F0 完成 | host 静态检查、生成 linker/tool 地址 |
-| F2 | FlashTransactionAO | F1 完成 | 唯一 writer、core1 lockout、job 单测/HIL |
-| F3 | NVS/blob/FCB stores | F2 完成 | torn write/GC/wear 单测与板测 |
-| F4 | Boot v2 + Direct A/B + Recovery | F1-F3 基础可用 | A/B/revert/recovery/BCB 掉电闭环 |
-| F5 | 本地 OTA 与 factory 迁移 | F4 完成 | USB/SD OTA、factory erase/reflash、高地址验证 |
-| F6 | TDMA 流式 OTA | TDMA reliable bulk 稳定，F5 完成 | 两板再四板 stream/resume/滚动升级闭环 |
-| F7 | 安全、寿命与发布 | F4-F6 完成 | 签名、anti-rollback、wear、release report |
-
-## 二、F0 架构冻结与基线
-
-### F0-01 现状清单
-
-- [ ] 输出机器可读清单：所有 `drv_flash_read/erase/program/xip_ptr` 调用点、所有 offset/size
-  定义、linker ORIGIN、factory image 地址和 host tool 假设。
-- [ ] 为每个调用点标记 owner、core、system mode、partition、写频率、掉电语义和替代 API。
-- [ ] 验收：CI 中保存扫描结果；新增裸写调用会失败。
-
-### F0-02 迁移策略
-
-- [ ] 决策记录明确：开发板采用 factory full erase/reflash，不做在线 v1 -> v2 搬迁。
-- [ ] 定义旧 map/未知 map/空白 Flash 的 Bootloader 行为和用户可见恢复信号。
-- [ ] 备份现有 COM8 的 identity、Product Config、OTA metadata、校准/报告索引；标注哪些可恢复、
-  哪些只是诊断快照。
-- [ ] 回退：保留当前 HEAD 对应 factory UF2 和验证记录，可通过 BOOTSEL 恢复 v1。
-
-### F0-03 分区契约 source of truth
+| 物理/构建/兼容布局事实已核对 | `[x]` | `CMakeLists.txt`、`drv_flash.h`、`ota_partition.h`、`ARCH_FLASH_CROSS_REVIEW_01.md` | 机器可读 v2 map 尚无。 |
+| Flash v2 owner/map/store/Boot/OTA 语义已形成 canonical | `[x]` | `HAOFV_FLASH_ARCHITECTURE.md` | 7 条目标契约仍为 `pending`。 |
+| Direct A/B 为发布默认 | `[x]` | CMake preset/release check/当前 Bootloader | `COPY_TO_ACTIVE` 兼容分支尚未从 v2 清除。 |
+| core1 Flash park/ACK 基础存在 | `[x]` | `drv_flash_lockout.*` 和既有 HIL | 尚未收敛到唯一 FlashTransactionAO。 |
+| USB/SD OTA 基础存在 | `[x]` | `ota_manager`、host tools、历史 OTA 验证 | 尚未共用 v2 stream/journal/Flash sink。 |
+| TDMA reliable bulk 资源基础存在 | `[x]` | `tdma_profile.h`、traffic scheduler | 尚无 OTA wire/session/durable ACK。 |
+| RefMem registry、VDC runtime、PIO persona 基础存在 | `[x]` | 对应组件与域文档 | 尚无生产持久化与签名 PIO catalog。 |
 
-- [ ] 建立 `flash_geometry` 和 `flash_map` 的机器可读定义；数字只在该定义出现一次。
-- [ ] 为每个 partition 定义 ID、offset、size、erase/program alignment、read/write owner、Boot/App/
-  factory permission、executable、store type 和 update policy。
-- [ ] 生成或校验 C header、linker memory、factory image address、package tool 和文档表。
-- [ ] 静态断言：对齐、无重叠、A/B 等长、bootable region 合法、表尾匹配
-  `PICO_FLASH_SIZE_BYTES`。
-- [ ] 验收：故意制造 overlap、gap policy violation、错误容量和 linker 偏移时构建失败。
+这些 `[x]` 只表示“迁移输入可用”，不表示任一 v2 里程碑完成。
 
-### F0-04 BCB/Image Manifest 契约
+### 1.3 当前主线
 
-- [ ] 冻结 BCB v1 record、lane 选择、commit marker、sequence 比较、GC 和 torn-write 规则。
-- [ ] 冻结 Image Manifest v2/TLV、hash/signature/key ID/security counter、slot/link address 和
-  compatibility 规则。
-- [ ] 形成 golden vectors：合法、未知可选 TLV、未知必需 TLV、截断、长度溢出、CRC 错、
-  hash 错、签名错、rollback counter 低。
+```text
+M0 契约/迁移输入
+  -> M1 FlashMap + 唯一事务 owner
+       -> M2 Stores + namespace + PIO catalog
+       -> M3 Boot/镜像信任链
+            -> M4 本地 OTA + factory/COM8 迁移
+                 -> M5 TDMA 流式 OTA
+                      -> M6 量产加固与发布
+```
 
-### F0-05 TDMA stream 契约
+M2 和 M3 可在 M1 稳定后并行，但 M4 必须同时依赖 M2/M3；M5 不得绕过本地 OTA 闭环直接做
+多板分发。当前第一个可执行链是 `M0-01 -> M0-02 -> M1-01 -> M1-02 -> M1-03`。
 
-- [ ] 冻结 capability、session identity、wire version、消息类型、sequence/offset、CRC、durable
-  cumulative ACK、credit、resume token 和 reject reason。
-- [ ] 明确 DSoftBus 理念映射只包括 capability/session/lane/QoS/stream，不包含动态发现和路由。
-- [ ] 明确 `TdmaSchedulerAO`、`OtaAO/OtaDistributionFB`、`FlashTransactionAO` 三个 owner 的
-  command/vector/completion 边界。
-- [ ] 形成 wire golden vectors 和 parser fuzz corpus；未完成前 registry 保持 `pending`。
+## 二、里程碑总览
 
-### F0-06 各主域持久化需求冻结
+| 里程碑 | 目标 | 进入条件 | 退出证据 |
+|---|---|---|---|
+| M0 | 冻结机器可执行输入和迁移边界 | canonical 已评审 | inventory、schema、map source、迁移/回退包 |
+| M1 | 建立 FlashMap 和 App 唯一写事务层 | M0 | host tests、link scan、高地址 Scratch HIL |
+| M2 | 建立 NVS/Blob/FCB 和主域 namespace | M1 | torn/GC/wear tests、域重启负向 HIL |
+| M3 | 建立 BCB、Direct A/B、签名和 Recovery | M1；M2 提供 BCB/store primitives | Boot fault matrix、factory artifact |
+| M4 | 统一 USB/SD/UART stream 并迁移 COM8 | M2 + M3 | 本地 A/B/revert/resume/Recovery 闭环 |
+| M5 | 增加 TDMA stream 和多板滚动升级 | M4 + TDMA reliable bulk 稳定 | 两板、四板、实时性和 resume 报告 |
+| M6 | 掉电、寿命、安全、跨平台和 release 收口 | M4/M5 | release gate、长期报告、技术债删除 |
 
-- [ ] 逐域确认 System/Product、Trigger/Loop、SYNC_IO/PIO、Calibration、TDMA、RefMem、VDC、
-  Communication、Measure、OTA/Boot、Storage、Diagnostics 和 UI 的 persistent/live 边界。
-- [ ] 每个待持久化对象登记 owner、schema/version、compatibility、frequency/endurance、权限、
-  atomicity、rollback、default/factory policy、diagnostic projection 和 SD evidence 去向。
-- [ ] 建立 namespace registry；业务域只能申请 `ProductNVS/CalibrationNVS/VdcNVS/SystemPack/
-  FaultFCB` 中的对象，不得直接申请裸 offset 或建立私有 erase/program 服务。
-- [ ] 对所有 Domain Vector、ECC state、queue/FIFO、lock/counter/cursor 做 negative inventory，
-  证明重启不会把上次 live snapshot 恢复成当前事实。
-- [ ] 把新增容量需求先映射到 store object budget；只有 store 语义无法满足时，才提出新 map
-  version 与 partition 申请，并附 endurance、recovery 和 migration 证据。
+## 三、M0 契约与迁移输入
 
-## 三、F1 Geometry 与 FlashMap
+目标：把文档决策转成可由代码、工具和 CI 消费的输入；本阶段不烧写 v2。
 
-### F1-01 Raw Flash HAL
+### M0-01 当前实现 inventory
 
-- [ ] 将 driver 总容量改为只引用 geometry；删除独立的小容量常量。
-- [ ] `read/xip_ptr/erase/program` 使用溢出安全 range 检查，覆盖 `offset + length` 边界。
-- [ ] 区分 raw HAL 和 policy API；raw erase/program 头文件只对 Boot/FlashTransaction target 可见。
-- [ ] host 单测：零长度、末字节、越界一字节、整数溢出、未对齐、空指针和高地址范围。
+- [ ] 扫描所有 `drv_flash_read/erase/program/xip_ptr` 调用、offset/size、linker ORIGIN、factory
+  address 和 host tool 假设，输出版本化机器可读清单。
+- [ ] 每个调用点记录 owner/core/mode/partition/write frequency/power-cut semantics/目标 API。
+- [ ] CI 保存基线并拒绝新增未登记 raw erase/program 调用。
+- [ ] 对照 `ota_partition.h` 明确下 4 MiB 兼容布局和上 12 MiB 未分配，禁止把物理容量声明
+  当作 v2 已实现。
 
-### F1-02 Partition API
+产物：`flash_inventory` 报告、raw-call allowlist、旧地址依赖清单。
 
-- [ ] 实现 `flash_map_find(id)`、`flash_map_validate_range(id, offset, length, operation)` 和
-  permission 查询，不向业务域暴露可随意组合的裸地址。
-- [ ] 为 Boot/App/factory build 生成不同 permission view。
-- [ ] 单测覆盖所有 partition 的首尾、cross-partition、active-slot write 拒绝和 scratch lease。
+### M0-02 FlashMap source schema
 
-### F1-03 Linker/factory/tool 同源
+- [ ] 定义 geometry/map 机器格式：map version、partition ID、offset/size、alignment、Boot/App/
+  factory permission、executable/store type、update policy 和 compatibility。
+- [ ] 生成或校验 C header、linker memory、factory address、OTA packager 和文档快照。
+- [ ] 静态断言对齐、无重叠、A/B 等长、bootable range、reserved gap policy 和 map tail。
+- [ ] 负向 fixture 覆盖 overlap、overflow、wrong geometry、bad executable permission 和 linker drift。
 
-- [ ] A/B linker ORIGIN/LENGTH 从 map 生成或由 map checker 比对。
-- [ ] factory UF2 输入地址和 metadata/BCB 初始化镜像从 map 生成。
-- [ ] OTA packager 读取 map manifest，校验 A/B 镜像的 vector/reset handler 位于目标 slot。
-- [ ] release gate 比对 ELF map、bin size、package manifest、factory UF2 block address。
+产物：单一 map source、生成器、schema、golden/negative fixtures。
 
-### F1-04 高地址非破坏验证工具
+### M0-03 持久化 schema registry
 
-- [ ] 增加 validation-only SCPI intent 和 host 工具，只租用 scratch test sector。
-- [ ] 流程固定为备份/确认空闲 -> erase -> pattern program -> readback/hash -> erase restore。
-- [ ] 命令需 validation build flag；release 二进制字符串扫描确认不存在。
-- [ ] COM8 验收报告记录 JEDEC/geometry、测试 offset symbol、pattern hash、lockout 和恢复状态。
+- [ ] 为 BCB、Image Manifest、Product NVS、Calibration NVS、VDC NVS、Blob/Deployment Capsule、
+  Fault FCB、OTA Journal 和 PIO Catalog 分配 schema/object type。
+- [ ] 每个对象登记 writer、reader、compatibility、frequency/endurance、atomicity、rollback、
+  factory default、diagnostic projection 和 SD evidence 去向。
+- [ ] 建立 negative inventory：Domain Vector、ECC state、queue/FIFO、lock/counter/cursor、VDC
+  lock、RefMem epoch/ACK、PIO/DMA runtime 均不得作为启动事实恢复。
+- [ ] 未知 required field fail closed；未知 optional field 可跳过但保留长度/完整性检查。
 
-## 四、F2 FlashTransactionAO
+产物：namespace/schema registry、compatibility policy、golden records。
 
-### F2-01 AO/FB/Vector 骨架
+### M0-04 Boot/OTA wire 契约输入
 
-- [ ] 定义 bounded queue、job ID、requester、partition lease、operation、immutable data provider、
-  completion event 和 cancel token。
-- [ ] 实现 ECC：`IDLE/VALIDATE/QUIESCE/ACQUIRE/PARK/ERASE/PROGRAM/VERIFY/COMMIT/RELEASE/
-  COMPLETE/FAILED`。
-- [ ] `FlashTransactionVector` 使用 seqlock；查询不触发 Flash IO。
-- [ ] FB action 每次只做一个受控步骤，budget overrun 进入诊断而非循环追赶。
+- [ ] 冻结 BCB lane/commit/select/GC 和 Image Manifest TLV/hash/signature/security counter 规则。
+- [ ] 冻结 `OtaStreamSession` identity、generation、object/destination 和 durable offset 语义。
+- [ ] 冻结 TDMA OPEN/DATA/ACK/CLOSE/ABORT/STATUS、credit/resume token 和 reject reason。
+- [ ] 形成 parser golden/fuzz corpus；实现完成前相关 registry 项保持 `pending`。
 
-### F2-02 mode/policy gate
+产物：BCB/manifest/stream wire spec 与 corpus。
 
-- [ ] 接入 System mode、Trigger activity、Calibration training、TDMA maintenance gate 和
-  Diagnostics thermal flags。
-- [ ] RUN/CAL/new thermal critical 下拒绝新写；warning 策略可暂停或降低 job service rate。
-- [ ] 定义 policy reason 枚举和 SCPI 文本映射；未知状态默认拒绝。
-
-### F2-03 core1 lockout
-
-- [ ] 将 lockout request/ACK/timeout/release 只放入 transaction owner，不让业务 adapter 重复调用。
-- [ ] 审计 RAM resident closure：调用图、常量、跳转表、IRQ handler 均不依赖 XIP。
-- [ ] HIL：core1 online 正常写、ACK timeout 注入拒绝写、release 后 core1 alive、TDMA/Trigger
-  counter 连续性符合维护模式预期。
+### M0-05 migration/rollback 包
 
-### F2-04 owner 收敛
+- [ ] 固定 v1 最后可恢复 commit、factory UF2、BOOTSEL 流程和工具版本。
+- [ ] 定义 identity/Product Config/OTA metadata/Calibration/report index 的备份、转换和丢弃策略。
+- [ ] 定义 blank/v1/unknown/v2 map 的 Boot 行为和用户可见恢复信号。
+- [ ] 明确样板只走 factory full erase/reflash，不实现 App 在线原地搬迁。
 
-- [ ] 迁移 `portable_ota_port`、`ota_metadata`、`product_config` 的 erase/program 到 intent API。
-- [ ] Bootloader 仅保留 `BootFlashService` raw access；App target 的链接/visibility gate 禁止其他调用。
-- [ ] CI 扫描和 link map 证明 App 裸写符号只被 FlashTransaction 模块引用。
+产物：迁移 runbook、v1 回退 artifact、数据转换表。
 
-### F2-05 buffer 生命周期
+### M0 退出门禁
 
-- [ ] 禁止事件总线跨 tick 保存临时 stack/SCPI buffer 指针。
-- [ ] 小 payload 入队复制；大 payload 使用带 generation/refcount 的 immutable provider 或固定 pool。
-- [ ] completion 前 producer 不复用 buffer；abort/reboot 路径释放 lease。
-- [ ] 压力单测：queue full、producer reset、duplicate completion、abort during page/sector。
+- [ ] inventory 与源码扫描一致；新增 raw caller 能使 CI 失败。
+- [ ] map/schema/wire 具有正向、边界和负向 fixture。
+- [ ] v1 回退 artifact 可由 BOOTSEL 恢复至少一块样板。
+- [ ] 无目标 offset 被写入 linker/driver/tool 之外的第二事实源。
 
-## 五、F3 Stores
+## 四、M1 FlashMap 与唯一事务 owner
 
-### F3-01 BootControlStore
+目标：先获得可验证、可限权、双核安全的基础写层，再接任何业务 store。
 
-- [ ] 实现双 lane append、record validate/select、commit marker、lane GC 和 wear counter。
-- [ ] 每个写入边界做 reset/torn-write 注入，始终保留至少一个有效 record。
-- [ ] 无有效 BCB 不创建“默认可启动”事实，交给 Boot recovery policy。
+### M1-01 Geometry 与 Raw HAL
 
-### F3-02 ProductConfigNVS
+- [ ] `drv_flash` 总容量只引用 geometry；删除独立 4 MiB limit。
+- [ ] `read/xip_ptr/erase/program` 使用 overflow-safe range check 和 alignment check。
+- [ ] raw write header 只对 BootFlashService 和 FlashTransaction target 可见。
+- [ ] host tests 覆盖 zero length、last byte、one-byte overflow、integer wrap、unaligned/null/high range。
 
-- [ ] 为现有 USB mode/board number 定义 versioned keys 和默认值策略。
-- [ ] 迁移单 sector overwrite 为 append journal/sector rotation；同值写不产生新 record。
-- [ ] 导入 v1 配置只允许 factory tool 显式执行；App 不在线猜测旧布局。
-- [ ] HIL：循环写、复位注入、GC、最新有效值、erase 分布和寿命计数。
+### M1-02 FlashMap 与 permission view
 
-### F3-03 CalibrationNVS
+- [ ] 实现 `flash_map_find()`、partition-relative range validation 和 operation permission。
+- [ ] Boot/App/factory 使用不同的 generated permission view。
+- [ ] linker、factory image、packager、release size gate 消费同一 map artifact。
+- [ ] 测试 active App write 拒绝、cross-partition 拒绝、Scratch lease 和所有 partition 首尾。
 
-- [ ] 定义 candidate/accepted/active/previous record 和 atomic active ref。
-- [ ] key 绑定 unique board/link endpoints、topology/profile/schedule CRC、generation/freshness。
-- [ ] `CALibration:SAVE` 只提交 accepted package；diagnostic-only、过期或 CRC 不匹配拒绝。
-- [ ] VDC 只读取 active accepted snapshot；加载失败进入未校准/relock gate，不沿用未知旧值。
+### M1-03 FlashTransactionAO/FB/Vector
 
-### F3-04 VdcNVS
+- [ ] 固定 queue/job/requester/lease/operation/immutable provider/completion/cancel 数据模型。
+- [ ] 实现 `VALIDATE -> QUIESCE -> ACQUIRE -> PARK -> ERASE/PROGRAM -> VERIFY -> COMMIT ->
+  RELEASE -> COMPLETE/FAILED`，每次 service 只推进一个有界步骤。
+- [ ] Vector 使用 seqlock；查询不触发 Flash IO；记录 policy/lockout/progress/result/health/timing。
+- [ ] completion 区分 accepted/programmed/verified/committed，业务域只消费 committed。
 
-- [ ] 定义 servo/holdover/reference/timestamp dictionary/discipline profile namespace，和
-  Calibration NVS 的 link delay/bias source facts 分离。
-- [ ] aging/temperature/wander 只能先写 candidate，经长窗口证据、profile CRC、维护态显式
-  accept 后切 active；RUN 中不得持久化。
-- [ ] boot loader 不读取 VDC NVS；App 启动校验 profile 后仍从 `OFF/CHECKING` 重新锁相。
-- [ ] 单测/HIL 证明保存的 `offset/rate/DCO/LOCK/HOLDOVER/map generation` 不会被恢复为 live fact。
+### M1-04 Mode、温度与双核门禁
 
-### F3-05 BlobStore
+- [ ] 接入 System mode、Trigger activity、Calibration training、TDMA gate 和 Diagnostics thermal flags。
+- [ ] RUN/CAL/thermal critical/unknown state 拒绝新写；warning 只按 policy 暂停或降速。
+- [ ] core1 park request/ACK/timeout/release 只由 transaction owner 驱动。
+- [ ] 审计 RAM resident closure：代码、常量、jump table、IRQ path 不依赖 XIP。
+- [ ] HIL 注入 park timeout，证明 raw operation 未执行；release 后 core1 alive。
 
-- [ ] 定义 immutable object header、chunk bitmap、object hash、manifest 和 atomic ref。
-- [ ] OTA cache、System Pack 子集和 Recovery 更新采用不同 namespace/permission。
-- [ ] 先实现定长 extent + manifest；只有确有目录/小文件需求时再评估 upstream littlefs。
-- [ ] power-cut 单测覆盖 body 完整但 ref 未 commit、ref torn、旧/新 object 同时存在和 GC。
+### M1-05 Buffer 与 owner 收敛
 
-### F3-06 RefMem deployment persistence
+- [ ] 小 payload 复制入固定 pool；大 payload 使用 generation/refcount immutable provider。
+- [ ] queue full、producer reset、duplicate completion、abort during page/sector 均有单测。
+- [ ] 迁移 ota image/metadata、Product Config 等 App raw writer 到 intent API。
+- [ ] link/scan gate 证明 App raw erase/program 只被 FlashTransaction target 引用。
 
-- [ ] `SYSTEM_PACK` blob 保存完整 `.rmtp` package 与 active/previous atomic ref；不保存 live
-  64 KB vector snapshot 作为可直接运行镜像。
-- [ ] 上电只把选中 package 送入 RefMem staging；CRC/schema/owner/resource/DeploymentGate
-  通过后由 `DistributedRefMemAO` 激活，并建立新 epoch。
-- [ ] 明确禁止持久化恢复 dirty、command、ACK/NACK、heartbeat、stale、peer online、in-flight
-  和 RUN completion；peer 在重新同步前必须 stale。
-- [ ] HIL：active package 正常加载、package torn 回退 previous、两份都坏进入 factory profile、
-  重启后旧 ACK/epoch 不能误清新 dirty。
+### M1-06 高地址 Scratch 验证
 
-### F3-07 FaultEventFCB
+- [ ] validation-only SCPI 只提交 Scratch lease intent，不暴露任意 offset 命令。
+- [ ] 流程为 target confirm -> erase -> pattern program -> readback/hash -> erase/restore。
+- [ ] COM8 报告记录 JEDEC/geometry、map symbol、pattern hash、lockout、temperature 和恢复结果。
+- [ ] release binary string scan 证明 destructive command 不存在。
 
-- [ ] 定义 boot/reset/power/Flash/OTA/critical sensor 低频事件 schema。
-- [ ] 环形追加、sector rotation、CRC/torn skip、overflow/high-watermark 统计。
-- [ ] 高频 TDMA/Trigger trace 保持 SD；FCB producer 限速、合并重复事件。
+### M1 退出门禁
 
-### F3-08 wear/health
+- [ ] `ARCH-FLASHMAP-01` 和 `ARCH-FLASHOWNER-01` 的 host/build/HIL 证据齐全。
+- [ ] 所有 App writer 已走 intent；Boot writer 依赖白名单不受 App AO 污染。
+- [ ] 高地址验证只触碰 Scratch，重启后 Boot/identity/当前 App 不变。
 
-- [ ] 每个 store 发布 erase estimate、高水位、GC count、torn record、CRC failure 和 bad region。
-- [ ] 建立 endurance budget：按产品预期写频率计算，不用短台架结果代替寿命分析。
-- [ ] `SYSTem:FLASH:WEAR?` 只读快照；导出到 SD acceptance report。
+## 五、M2 Stores、namespace 与部署对象
 
-### F3-09 主域 namespace 收敛
+目标：所有业务域复用少量 store primitive，不再创建私有 sector/offset 服务。
 
-- [ ] System/Product：迁移 identity、USB mode、capability、permission；验证 live mode/resource
-  lock/command slot 不被恢复。
-- [ ] Trigger/Loop：把 named sequence/recipe/mission 与 safe limit 打包进 Deployment Capsule；
-  禁止持久化 ARM/RUN/cursor/live queue/deadline，任务历史写 SD。
-- [ ] SYNC_IO/PIO：生成只读 `PioProgramCatalog`，System Pack 只选择 ID/resource claim；验证
-  boot 不恢复 SM/FIFO/DMA/IRQ/persona runtime。
-- [ ] TDMA：把 foundation/operating/process-image/payload budget 归并到 System Pack schema；
-  ring runtime、counter、in-flight 和 maintenance gate 始终从 STOPPED/closed 重建。
-- [ ] Communication：adapter/address/role 配置归 System Pack，accepted physical latency 归
-  Calibration NVS；RX/TX live state 与在线状态不得落盘。
-- [ ] Measure：通道/量程/单位/trigger/compression profile 保存为部署对象，raw capture、波形、
-  完整 evidence/report 经 StorageAO 写 SD，不允许采样 callback 触发 Flash write。
-- [ ] Diagnostics/UI：关键低频事件写 FCB、产品必要偏好写 Product NVS；周期传感器流、高频
-  trace、当前页面/光标/未确认编辑值保持 RAM 或 SD。
-- [ ] 为每个 namespace 增加 schema compatibility、unknown-required-field、factory default、
-  downgrade/rollback 和 torn-write 测试，并在 SCPI 仅投影 owner Vector/completion。
+### M2-01 Store core
 
-## 六、F4 Boot v2
+- [ ] 实现 common record envelope、CRC/hash、generation、commit marker 和 version compatibility。
+- [ ] 实现 NVS append/sector rotation、Blob immutable object/atomic ref、FCB append ring/GC。
+- [ ] GC 只能提交 FlashTransaction job；空间不足时返回明确 backpressure/reason。
+- [ ] power-cut fixtures 覆盖 body/commit/ref/GC 各边界，始终选出确定的旧或新事实。
 
-### F4-01 最小 Bootloader 依赖
+### M2-02 Product NVS
 
-- [ ] Boot target 只链接 geometry/map、BCB、image verifier、raw HAL、watchdog/LED/ROM recovery。
-- [ ] 生成依赖白名单；禁止 RTOS、SCPI、TDMA、FatFs、littlefs 和业务组件进入 link map。
-- [ ] Bootloader size gate 使用分区符号计算。
+- [ ] USB mode/board number/identity/capability/permission 使用 versioned key 与默认策略。
+- [ ] 同值写不产生 record；删除固定 sector overwrite。
+- [ ] v1 导入只能由 factory tool 显式执行，App 不猜测旧布局。
+- [ ] 循环写/复位/GC/erase distribution/wear HIL 通过。
 
-### F4-02 Direct A/B 单主线
+### M2-03 Calibration NVS
 
-- [ ] 删除 v2 factory default 的 copy-to-active 选择和运行分支。
-- [ ] pending -> test boot -> explicit confirm；未确认 reset/attempt exhausted -> previous confirmed。
-- [ ] A/B slot-specific 镜像、package selector、vector range 和 hash/signature 验证单测。
-- [ ] 工具与 SCPI 不再把旧 mode 切换当成 v2 capability；历史命令返回明确 unsupported/schema。
+- [ ] 定义 candidate/accepted/active/previous 与 atomic active ref。
+- [ ] key 绑定 unique board/link endpoints、topology/profile/schedule、generation/freshness。
+- [ ] `CALibration:SAVE` 只接受 Calibration Domain accepted package；diagnostic-only/expired/bad CRC 拒绝。
+- [ ] VDC 只读取 active accepted snapshot；缺失或过期进入 uncalibrated/relock gate。
 
-### F4-03 Recovery
+### M2-04 VDC NVS
 
-- [ ] 构建独立 recovery image，功能最小化：诊断 map/BCB、验证 factory package、USB/SD 恢复。
-- [ ] A/B 都无效时验证 Recovery；Recovery 无效时进入 ROM BOOTSEL 可识别状态。
-- [ ] Recovery 普通 OTA 更新需要更高权限/签名策略，不能由任意 TDMA sender 覆盖。
+- [ ] 定义 servo/holdover/reference/timestamp dictionary/discipline profile namespace。
+- [ ] aging/temperature/wander 先进入 candidate，经长窗口 evidence 和维护态 accept 后切 active。
+- [ ] boot 不读取 VDC NVS；App 每次从 `OFF/CHECKING` 重锁。
+- [ ] negative HIL 证明 offset/rate/DCO/LOCK/HOLDOVER/map generation 不恢复为 live fact。
 
-### F4-04 signature/anti-rollback
+### M2-05 System Pack、Blob 与 RefMem
 
-- [ ] 选定签名算法和库，评估 RP2350 ROM/OTP/key storage 能力及 STM32 可移植层。
-- [ ] 定义 dev/release/factory key 分离、key ID、rotation/revocation 和泄露处置。
-- [ ] security counter 更新必须掉电安全；低 counter 镜像即使 CRC 正确也拒绝。
-- [ ] release 工具在离线环境生成签名并输出可审计 manifest/SBOM。
+- [ ] 定义 Deployment Capsule manifest、immutable extent/chunk bitmap/object hash 和 active/previous ref。
+- [ ] 保存 `.rmtp` 与 ApplicationMap/Capability/NodeLoad/FB/Event/DataLink tables，不保存 live vector。
+- [ ] 上电只送 staging；DeploymentGate 通过后激活并建立新 epoch，peer 初始 stale。
+- [ ] torn active ref 回退 previous；两份损坏进入 factory profile，不伪造默认 deployment。
 
-### F4-05 Boot HIL
+### M2-06 Fault FCB 与 wear health
 
-- [ ] Factory boot A。
-- [ ] A -> B 与 B -> A。
-- [ ] pending 未确认回滚。
-- [ ] pending hash/signature/vector 错误回滚。
-- [ ] BCB 单 lane、双 lane 损坏。
-- [ ] A/B 损坏进入 Recovery。
-- [ ] Recovery 损坏进入 ROM/factory 恢复指示。
-- [ ] 每个结果通过 SCPI/SD report/LED evidence 可审计。
+- [ ] 定义 boot/reset/power/Flash/OTA/critical sensor 低频事件；重复事件限速/合并。
+- [ ] 高频 TDMA/Trigger/temperature/current trace 保持 SD，不进入 FCB。
+- [ ] 每个 store 发布 erase estimate/high-watermark/GC/torn/CRC/bad-region health。
+- [ ] 按产品写频率形成 endurance budget，不用短台架结果替代寿命分析。
 
-### F4-06 PIO Program Catalog
+### M2-07 PIO Program Catalog 与域接入
 
-- [ ] 清点所有 `.pio` program/persona，生成 program ID、version/hash、instruction count、PIO/SM/
-  side-set/pin/DMA/resource claim catalog，并纳入签名 App manifest。
-- [ ] System Pack 只选择 catalog ID；DeploymentGate 拒绝未知 ID、版本不兼容、instruction
-  memory 超额、IO/DMA/SM 冲突和 owner mismatch。
-- [ ] persona 切换 HIL 验证 SM/DMA stop -> safe IO -> load -> start -> snapshot；不产生 Flash write。
-- [ ] BlobStore object type gate 拒绝 executable PIO/native object；未来独立 bytecode 更新另立契约。
+- [ ] 清点全部 `.pio`/persona，生成 ID/version/hash/instruction count/PIO/SM/pin/DMA claim catalog。
+- [ ] catalog 纳入签名 App manifest；System Pack 只选择 ID，DeploymentGate 校验 compatibility/resource。
+- [ ] persona HIL 验证 stop SM/DMA -> safe IO -> load -> start -> snapshot，全程无 Flash write。
+- [ ] Blob object type gate 拒绝 executable PIO/native code。
+- [ ] Trigger/Loop、TDMA、Communication、Measure、Diagnostics/UI 配置按架构矩阵归并 namespace。
 
-## 七、F5 本地 OTA 与 factory 迁移
+### M2 退出门禁
 
-### F5-01 OtaStreamSession
+- [ ] `REFMEM-PERSIST-01`、`VDC-PERSIST-01`、`ARCH-PIOCAT-01` 具备重启负向证据。
+- [ ] 所有 store 的 torn/GC/unknown-schema/rollback tests 通过。
+- [ ] 没有业务域拥有 raw offset、私有 GC 或从 Flash 恢复 runtime snapshot。
 
-- [ ] 从 transport callback 中拆出统一 open/write/close/abort/resume API。
-- [ ] session 绑定 package hash、identity、map version、generation 和 destination policy。
-- [ ] USB、VISA、SD adapter 回归使用同一核心，状态/错误/progress 文本保持兼容映射。
+## 六、M3 Boot 与镜像信任链
 
-### F5-02 stage/install policy
+目标：先让单板能够确定地 test/confirm/revert/recover，再允许迁移和网络 OTA。
 
-- [ ] package manifest 与 slot-specific image object 分离；source 根据 receiver active slot/capability
-  只发送目标 inactive slot object。
-- [ ] USB/SD/TDMA 默认直接事务化写 inactive slot；`OTA_STAGE` 只用于 manifest、受控 chunk
-  spill 或未来 delta，不保存完整 A+B package。
-- [ ] direct sink 支持 journal/readback resume；不能因没有完整 cache 返回虚假 durable offset。
-- [ ] host/SD source 保留完整统一 package；目标板不接收、不落盘无关 slot object。
+### M3-01 BootFlashService 与依赖白名单
 
-### F5-03 factory image
+- [ ] Boot target 只链接 geometry/map、BCB、ImageVerifier、Raw HAL、watchdog/LED/ROM recovery。
+- [ ] link gate 拒绝 RTOS、SCPI、TDMA、FatFs、littlefs 和业务组件。
+- [ ] Bootloader size 使用 partition symbol gate，不使用文档硬编码阈值。
 
-- [ ] factory artifact 包含 Bootloader、Slot A、Recovery、初始化 map manifest/BCB 和空 store 基线。
-- [ ] factory 工具执行目标确认、备份可迁移 identity、full erase、program、readback verify。
-- [ ] 禁止把旧 metadata 留在新 BCB 地址；factory report 记录每个 region hash。
+### M3-02 BootControlStore
 
-### F5-04 COM8 迁移闭环
+- [ ] 实现双 lane append/select/commit/GC/wear counter。
+- [ ] 无有效 BCB 不创建默认可启动事实，进入 Recovery policy。
+- [ ] torn-write 注入覆盖 body/readback/commit/lane seal/old lane erase。
 
-- [ ] 记录迁移前 `*IDN?`、build、OTA slot/result、board number 和传感器 snapshot。
-- [ ] BOOTSEL/factory 重刷 v2，确认 USB 重新枚举和 identity 恢复策略。
-- [ ] 执行高地址 scratch HIL、ProductConfigNVS 写读、CalibrationNVS 空/默认门禁。
-- [ ] 执行 USB A->B、B->A、未确认回滚和 Recovery。
-- [ ] 恢复 TDMA/Calibration 单板 persona，确认 Flash 迁移未破坏 PIO/DMA/IO owner。
+### M3-03 Direct A/B 单主线
 
-## 八、F6 TDMA 流式 OTA
+- [ ] pending -> test boot -> explicit confirm；reset/no-confirm/attempt exhausted -> previous confirmed。
+- [ ] A/B slot-specific image、vector/reset handler、hash/signature/compatibility 校验。
+- [ ] v2 删除 `COPY_TO_ACTIVE` 运行分支和可写 mode 命令；历史查询返回明确 legacy/unsupported。
 
-### F6-01 wire/parser
+### M3-04 Manifest、signature 与 anti-rollback
+
+- [ ] 选定算法/库和 RP2350 OTP/key capability；定义 STM32 portable boundary。
+- [ ] dev/release/factory key 分离，定义 key ID、rotation/revocation 和泄露处置。
+- [ ] security counter 掉电安全；低 counter 即使 CRC 正确也拒绝。
+- [ ] 离线 release tool 输出 manifest/hash/signature/build ID/SBOM，不泄露 private key。
+
+### M3-05 Recovery 与 factory artifact
+
+- [ ] Recovery 最小能力：诊断 map/BCB、验证 factory package、受控 USB/SD 恢复。
+- [ ] Recovery 更新使用更高权限，普通 TDMA OTA 无权覆盖。
+- [ ] factory artifact 包含 Bootloader、Slot A、Recovery、map manifest/BCB 和空 store baseline。
+- [ ] factory report 记录每个 region hash，禁止遗留旧 metadata 到新 BCB 地址。
+
+### M3-06 Boot fault matrix
+
+- [ ] Factory boot A；A->B；B->A；pending 未确认回滚。
+- [ ] pending hash/signature/vector/compatibility/security counter 错误回滚。
+- [ ] BCB 单 lane 损坏可恢复，双 lane 无效进入 Recovery。
+- [ ] A/B 损坏进入 Recovery；Recovery 损坏进入 ROM/factory indication。
+- [ ] 每个结果有 SCPI/SD report/LED evidence 和可重复脚本。
+
+### M3 退出门禁
+
+- [ ] `ARCH-BOOTCTRL-01` 的所有 Boot/torn/security case 有确定结果。
+- [ ] Boot dependency/size/map gate 在 CI 中生效。
+- [ ] factory/recovery artifact 可从空白 Flash 恢复样板。
+
+## 七、M4 本地 OTA 与 COM8 迁移
+
+目标：USB/SD/UART 共用一个 transport-neutral session，并在单板完成 v2 迁移闭环。
+
+### M4-01 OtaStreamSession core
+
+- [ ] 从 ingress callback 拆出 open/write/close/abort/resume 状态机。
+- [ ] session 绑定 identity/capability/package/object/map/partition/generation/destination。
+- [ ] package manifest 与 slot-specific object 分离；source 只发送 inactive object。
+- [ ] sink 只向 FlashTransactionAO 提交 intent，verified object 后才写 pending BCB。
+
+### M4-02 Journal 与 durable resume
+
+- [ ] durable offset 只在 program/readback completion 后推进。
+- [ ] checkpoint frequency 由 wear/retransmit profile 定义，不按每 chunk 擦写。
+- [ ] token 绑定 package hash/map/partition/identity/generation；mismatch restart/abort。
+- [ ] reset 后 journal + readback 重建；torn journal 回退最近可信 checkpoint。
+
+### M4-03 Local ingress regression
+
+- [ ] USB/VISA、SD、UART adapter 使用同一 core，兼容状态/error/progress projection。
+- [ ] Stage 只保存 manifest/chunk spill/delta，不缓存完整 A+B package。
+- [ ] 乱序、重复、CRC、truncate、overflow、abort、zero storage、wrong slot/package 全部 fail closed。
+- [ ] USB/SD A->B、B->A、resume、revert、Recovery 回归通过。
+
+### M4-04 COM8 factory migration
+
+- [ ] 迁移前记录 `*IDN?`、build、slot/result、board identity、Product Config、sensor snapshot。
+- [ ] BOOTSEL/factory full erase/reflash v2，确认 USB 重新枚举和 identity 转换策略。
+- [ ] 运行 M1 Scratch、Product NVS、Calibration empty/default、Boot fault subset。
+- [ ] 恢复 TDMA/Calibration 单板 persona，确认 PIO/DMA/IO owner 未被 Flash 重构破坏。
+- [ ] 执行 v1 rollback drill，证明 artifact/runbook 可恢复。
+
+### M4 退出门禁
+
+- [ ] `ARCH-OTASTREAM-01` 的本地 transport、durable offset 和 resume 证据齐全。
+- [ ] COM8 在 v2 上完成 A/B/revert/Recovery 和关键 store 重启验证。
+- [ ] 迁移/回退报告归档，未留下依赖 v1 offset 的隐式工具路径。
+
+## 八、M5 TDMA 流式 OTA
+
+目标：在不影响 VDC/RefMem 硬实时预算的前提下增加可靠批量分发。
+
+### M5-01 Wire/parser
 
 - [ ] 实现 OPEN/ACK/RESUME/DATA/CLOSE/ABORT/STATUS 编解码和 golden vectors。
-- [ ] 所有 length/offset/sequence 运算做溢出检查；未知 required flags fail closed。
-- [ ] fuzz：截断、超长、重复、乱序、交叉 session、identity/hash/generation mismatch。
+- [ ] length/offset/sequence 做 overflow check，未知 required flags fail closed。
+- [ ] fuzz 覆盖 truncate/oversize/duplicate/out-of-order/cross-session/identity/hash/generation mismatch。
 
-### F6-02 capability/session/lane
+### M5-02 Capability、identity 与 lane
 
-- [ ] capability 包含 receiver version、map version、max chunk/credit、security、cache 和 Recovery 状态。
-- [ ] board unique ID + accepted topology 形成 network identity；NO 只作显示/slot，不作安全 identity。
-- [ ] session open 前选择 `TDMA_TRAFFIC_RELIABLE_BULK`；运行中不动态换 lane。
+- [ ] capability 包含 receiver/map/security/max chunk/credit/cache/Recovery state。
+- [ ] board unique ID + accepted topology 形成 network identity；NO 只作显示/slot。
+- [ ] session open 前选择 reliable bulk；运行中不动态换 lane。
 
-### F6-03 credit/backpressure/durable ACK
+### M5-03 Credit、durable ACK 与 resume
 
-- [ ] credit 由固定 RX pool、Flash job depth、journal checkpoint 和 maintenance gate 联合计算。
-- [ ] durable ACK 只在 program/readback 完成后推进；queue accept 不推进 durable offset。
-- [ ] credit=0 可长期暂停而不丢 session；sender 不 busy-loop、不挤占 config/realtime traffic。
+- [ ] credit 联合固定 RX pool、Flash queue、checkpoint budget 和 maintenance gate。
+- [ ] queue accept 只消耗 credit，不推进 ACK；program/readback completion 才推进 cumulative offset。
+- [ ] gate closed/credit zero 可长期暂停，不 busy-loop，不提升优先级。
+- [ ] source/target reset、torn journal 和重复 DATA 可恢复或明确 abort。
 
-### F6-04 resume journal
+### M5-04 DistributionFB
 
-- [ ] checkpoint 粒度按 wear budget 和重传成本选择，由代码 profile 定义。
-- [ ] token 绑定 package hash/map/partition/generation；不匹配时 restart/abort，不拼接旧数据。
-- [ ] 复位后用 journal + readback 重建；journal torn 时退回最近可信 durable checkpoint。
+- [ ] per-node vector 发布 capability/durable offset/verify/pending/boot result/error。
+- [ ] cohort/stage-all/commit policy 明确；单节点 ACK 不代表整组完成。
+- [ ] 先升级非 reference；迁移 reference role/topology generation 后升级原 reference。
+- [ ] 不兼容/失败节点隔离并保留旧固件，禁止降低签名或 anti-rollback 求全成功。
 
-### F6-05 两板 HIL
+### M5-05 两板 HIL
 
-- [ ] 在 accepted topology/profile 上，USB 向源板送 package，源板经 TDMA stage 到目标板。
-- [ ] 注入丢帧、重复、CRC 错、credit=0、目标复位、源复位和 session timeout。
-- [ ] OTA 期间 VDC/RefMem traffic quality 不出现新增 deadline miss/window overrun。
-- [ ] target reboot/confirm/revert 后重新加入 topology，generation/freshness 正确更新。
+- [ ] source 从 USB/SD 读取 package，经 TDMA 向 target inactive slot 流式安装。
+- [ ] 注入 drop/duplicate/CRC/zero credit/source reset/target reset/session timeout。
+- [ ] target boot/confirm/revert 后重新加入 topology，generation/freshness 正确。
+- [ ] OTA 期间 VDC/RefMem 无新增 deadline miss/window overrun。
 
-### F6-06 四板滚动升级
+### M5-06 四板滚动升级
 
-- [ ] OtaDistributionFB 建立 per-node vector：capability、durable offset、verify、pending、result。
-- [ ] 定义 cohort/stage-all/commit policy；单节点 ACK 不代表全组完成。
-- [ ] 先升级非 reference，验证重入；迁移 reference role 后再升级原 reference。
-- [ ] 失败节点隔离并保留旧固件；环网降级/恢复有显式 topology generation 和报告。
-- [ ] 最终报告包含每节点 image hash、security counter、session/retry、boot result 和 timing quality。
+- [ ] stage/verify/commit 每节点可观测；reference role 迁移有明确 fence。
+- [ ] 单节点失败、掉线、回滚和重新加入均有 topology/ring/VDC 降级事实。
+- [ ] 报告包含每节点 image hash/security counter/session/retry/boot result/timing quality。
+- [ ] 完成后所有节点恢复一致 map/capability/deployment generation。
 
-## 九、F7 安全、寿命与发布
+### M5 退出门禁
 
-### F7-01 destructive fault matrix
+- [ ] TDMA wire/session/parser contract 通过 host/fuzz/two-board/four-board gates。
+- [ ] durable ACK 与 journal 在 reset/power-cut 下不越过真实 Flash 内容。
+- [ ] hard realtime traffic 质量没有被 bulk backlog 污染。
 
-- [ ] 自动化复位/掉电注入覆盖 BCB、NVS、blob ref、FCB、OTA cache/journal 和 image install。
-- [ ] 每个注入点定义期望的旧/新事实，不接受“能启动但状态未知”。
-- [ ] 使用可控电源/继电器台架，记录循环数、失败率、Flash health 和原始日志。
+## 九、M6 量产加固与发布
 
-### F7-02 long-run/wear
+目标：把能工作的闭环提升为可长期运行、可审计、可跨平台维护的产品能力。
 
-- [ ] 配置、校准保存、故障事件和 OTA resume 分别做加速寿命测试。
-- [ ] 验证 sector rotation 均匀度、GC 最坏耗时、温度 gate 和看门狗行为。
-- [ ] 根据实测更新写频率 policy，不在 RUN/CAL 放开普通持久化。
+### M6-01 Power-cut 与 destructive fault matrix
 
-### F7-03 release gates
+- [ ] 自动化覆盖 BCB、NVS、Blob ref、FCB、Journal 和 inactive image install 每个 commit 边界。
+- [ ] 每个 injection point 定义旧/新期望，不接受“能启动但状态未知”。
+- [ ] 可控电源台架记录 iteration/failure/Flash health/raw log 和最小复现条件。
 
-- [ ] docs/check、host unit、fuzz corpus、main build、size/map、link dependency、release string scan 全绿。
-- [ ] factory/OTA/recovery artifacts 具有 manifest、hash、signature、build ID、map version 和 SBOM。
-- [ ] private key 不进入仓库/build log/report；dev key 产物不得通过 release gate。
-- [ ] 归档 COM8、两板、四板 HIL 报告并链接 release checklist。
+### M6-02 Wear、温度与长稳
 
-### F7-04 删除技术债
+- [ ] Product/Calibration/VDC/FCB/Journal 分别做加速写入和 sector distribution 测试。
+- [ ] 验证 GC worst-case、temperature pause/resume、watchdog 和最后有效记录。
+- [ ] 根据实测确定 write frequency policy；RUN/CAL 不开放普通持久化。
 
-- [ ] 删除旧 4 MiB driver 上限、重复 offset、W25Q32 当前事实、copy-to-active runtime 分支。
-- [ ] 删除业务组件裸 Flash 写和 Product Config 单 sector overwrite。
-- [ ] 删除 OTA 对整片 Flash 的隐式所有权以及旧 mode 可写 SCPI。
-- [ ] 旧文档转 Deprecated/legacy 并保留历史，不物理删除契约登记。
+### M6-03 Release/security gates
 
-### F7-05 未来产品与跨平台准备
+- [ ] docs、host unit、fuzz、main build、size/map、link dependency、release string scan 全绿。
+- [ ] artifact 含 manifest/hash/signature/build ID/map version/SBOM；private/dev key 不进 release。
+- [ ] COM8、两板、四板 HIL 报告关联具体 commit/artifact/tool version。
+- [ ] registry 逐条从 `pending` 转 `active` 时分别完成 C11 review，不批量无证据改状态。
 
-- [ ] 定义 `DeploymentCapsule` manifest：ApplicationMap、role/persona、profile、mission、
-  calibration ref、capability requirements、schema 和 firmware compatibility。
-- [ ] 明确当前 capsule 只选择静态编译的 AO/FB/persona；验证未知 role、未知 required schema、
-  超容量和资源 claim 冲突均 fail closed。
-- [ ] 为分布式仪表、运动控制、DAQ、ATE 各建立一个 storage usage model，逐项区分
-  critical NVS、active blob、FCB、RAM stream 和 SD evidence。
-- [ ] 建立 geometry capability profile，使 RP2350 reference map 与 STM32H7/i.MX RT 等
-  port 共用 Partition ID/Store API，而不共用硬编码 offset。
-- [ ] host 仿真验证同一 Deployment Capsule 在不同 geometry capability 上的 accept/reject。
-- [ ] 若提出动态原生插件需求，另立 signed module/ABI/MPU/resource claim 架构评审；在该
-  契约完成前，BlobStore 明确拒绝 executable object type。
+### M6-04 技术债清除
 
-## 十、每个任务的统一完成定义
+- [ ] 删除 driver 4 MiB limit、重复 offset、W25Q32 当前事实和 v2 copy-to-active branch。
+- [ ] 删除业务组件 raw Flash write、Product Config fixed-sector overwrite 和 OTA 整片 owner 假设。
+- [ ] Deprecated/legacy 文档保留历史但明确不再是 source of truth，不删除已登记契约。
 
-任务只有同时满足以下条件才可 `[x]`：
+### M6-05 跨平台与未来产品
 
-1. 代码/文档 source of truth 明确，没有新增重复数字或 owner。
-2. host 正向、边界、负向、掉电/torn（适用时）测试通过。
-3. 主工程 release 与 RTOS+双核 validation 构建通过，warnings-as-errors。
-4. 涉及硬件的任务有 COM8/两板/四板对应原始记录，不能用模拟代替。
-5. HAOFV Vector、error reason、generation/freshness、completion evidence 可查询。
-6. 文档四项门禁全绿；跨域契约变更完成 C11 交叉审核。
-7. 代码与文档分离 commit，并推送当前私有分支。
-8. 提供回退 artifact 或明确不可逆步骤及恢复路径。
+- [ ] geometry profile 允许 RP2350、STM32H7、i.MX RT 等共享 Partition ID/Store API 而非 offset。
+- [ ] 为仪表、运动/电机、DAQ、ATE、RF 建 storage usage model 和 capacity admission fixture。
+- [ ] host 验证同一 Deployment Capsule 在不同 geometry/capability 上 accept/reject。
+- [ ] 动态原生插件需求另立 signed module/ABI/MPU/resource/rollback 评审；此前 BlobStore 拒绝执行。
+
+### M6 退出门禁
+
+- [ ] destructive/wear/thermal/security/release 报告齐全并可重放。
+- [ ] 7 条 Flash 目标契约均有独立状态审核，不再存在未解释 v1 地址依赖。
+- [ ] factory、OTA、Recovery 和 rollback artifact 可由另一台环境复现。
+
+## 十、跨域接入索引
+
+本表只指向唯一工作包，不复制任务内容。
+
+| 主域 | 持久化对象 | 禁止恢复 | 工作包 |
+|---|---|---|---|
+| System/Product | identity/config/capability/permission | mode/lock/queue | M2-02 |
+| Trigger/Loop | recipe/mission/safe limit/profile ref | ARM/cursor/live queue | M2-07 |
+| SYNC_IO/PIO | catalog/IO profile/resource claim | IMEM/SM/FIFO/DMA runtime | M2-07 |
+| Calibration | accepted package/generation | diagnostic raw capture | M2-03 |
+| TDMA | profile/payload budget/resource claim | ring/counter/FIFO/gate | M2-07、M5 |
+| RefMem | `.rmtp`/tables/active ref | vector/dirty/ACK/epoch | M2-05 |
+| VDC/DPLL | discipline profile/Calibration ref | lock/offset/rate/DCO | M2-04 |
+| Communication | adapter/address/calibration ref | FIFO/transaction/online | M2-07 |
+| Measure | channel/trigger/compression profile | raw stream/waveform | M2-07 |
+| OTA/Boot | BCB/image/journal | transport queue/uncommitted offset | M3、M4、M5 |
+| Storage | Deployment Capsule/minimal offline object | complete history/user files | M2-05 |
+| Diagnostics/UI | critical event/necessary preference | high-rate trace/page state | M2-06、M2-07 |
+
+## 十一、验证证据矩阵
+
+| 层级 | 必跑证据 | 首次 gate | 发布 gate |
+|---|---|---|---|
+| 文档 | docs_check、doc_regression、pytest、pre-commit | 每个文档 commit | M6-03 |
+| Host unit | map/range/store/BCB/session/parser/compatibility | M0-M5 各包 | 全量 |
+| Static/link | map/linker/tool 同源、raw caller、Boot deps、size/string/key scan | M1/M3 | M6-03 |
+| Main build | release + RTOS/双核 validation，warnings-as-errors | M1 | 每个 artifact |
+| 单板 COM8 | Scratch、store reboot、A/B/revert/Recovery/local resume | M1/M2/M3/M4 | M6-03 |
+| 两板 | TDMA drop/reset/resume + realtime quality | M5-05 | M6-03 |
+| 四板 | cohort/reference migration/failure/rejoin | M5-06 | M6-03 |
+| Long-run | power-cut/wear/thermal/watchdog | M6-01/M6-02 | release 必需 |
+
+所有报告必须包含 commit、artifact hash、map version、tool version、board identity、接线/profile、
+起止时间、原始日志路径和结论。仅粘贴终端最后一行不构成 HIL 证据。
+
+## 十二、回退与风险控制
+
+| 变更面 | 首选回退 | 禁止 |
+|---|---|---|
+| Map/driver | BOOTSEL + v1 factory artifact | App 猜测旧 offset 在线搬迁 |
+| Store schema | 保留 previous ref/old reader，未知 required fail closed | 原地覆盖唯一有效记录 |
+| Boot/BCB | previous confirmed + Recovery | 无有效 BCB 时创建默认成功状态 |
+| OTA session | abort/restart from可信 durable checkpoint | 用 RAM accepted offset 冒充 durable |
+| TDMA cohort | 隔离失败节点、保留旧固件、恢复 topology generation | 单节点 ACK 代表整组成功 |
+| Security counter | 拒绝低版本并进入受控 Recovery | 为恢复方便降低 counter/signature policy |
+| PIO catalog | 保持 STOPPED 和旧 verified persona | 从普通 BlobStore 加载替代字节码 |
+
+## 十三、统一完成定义
+
+一个工作包只有同时满足以下条件才可标 `[x]`：
+
+1. source of truth、owner、schema 和生命周期明确，没有新增重复数字或私有 writer。
+2. 正向、边界、负向、torn/power-cut 测试按适用范围通过。
+3. release 与 RTOS/双核 validation 构建通过，静态/link gate 生效。
+4. 涉及硬件的任务有对应 COM8/两板/四板原始记录，不能用模拟代替。
+5. HAOFV Vector、reason、generation/freshness 和 durable completion 可查询。
+6. 回退 artifact/runbook 已实测；不可逆步骤有 factory/Recovery 路径。
+7. 文档四项门禁全绿；契约状态变化完成独立 C11 交叉审核。
+8. 代码与文档分离 commit，并推送当前私有分支。

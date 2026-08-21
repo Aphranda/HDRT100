@@ -3,80 +3,99 @@
 Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`
 Last updated: 2026-08-21
 
-本文档是 RP2350_TRIG 板载 QSPI Flash 的跨域 canonical。它统一 Bootloader、Direct A/B、
-OTA、Product Config、Calibration、System Pack、故障事件和未来 TDMA 流式 OTA 的分区、
-owner、事务、掉电恢复和验证边界。SD 文件系统仍归 Storage Domain；板载 Flash 只保存
-启动链、关键 KV、低频关键事件和受控 blob，不替代 SD 的高频日志与完整报告。
+本文档是 RP2350_TRIG 板载 QSPI Flash 的跨域 canonical。它定义 FlashMap、App/Boot writer、
+掉电事务、Boot/Direct A/B、OTA、关键配置、Calibration、VDC、System Pack、RefMem package、
+故障事件和动态 PIO catalog 的边界。实施顺序、任务状态和完成证据统一在
+`docs/arch/HAOFV_FLASH_TODO.md` 跟踪。
 
-当前代码仍运行低容量兼容布局。本文定义的 v2 是目标架构；迁移任务、依赖和完成证据见
-`docs/arch/HAOFV_FLASH_TODO.md`。在 v2 的代码符号、Bootloader 和 factory image 同时落地
-之前，下面的目标布局不得被误报为已部署事实。
+## 一、阅读边界与事实优先级
 
-## 一、设计结论
+### 1.1 本文回答什么
 
-1. 物理容量以产品网表中的 `U17/W25Q128JVSIQ` 和构建符号
-   `PICO_FLASH_SIZE_BYTES` 为硬件事实；驱动不得保留独立的小容量上限。
-2. 建立唯一 `FlashMap`，Bootloader、linker、App、factory image、工具和文档全部从同一
-   机器可读定义生成或校验，不再由 OTA 组件私有拥有整片 Flash。
-3. App 运行期只有 core0 `FlashTransactionAO` 可以发起 erase/program；业务 AO 只提交
-   intent。Bootloader 使用最小 `BootFlashService`，不依赖 RTOS、SCPI、FatFs 或 littlefs。
-4. v2 只保留 Direct A/B 的 test/confirm/revert 主线；旧 `COPY_TO_ACTIVE` 只作为迁移期
-   代码清理对象，不进入 v2 的长期运行模式。
-5. 关键 KV 使用 journal/NVS 语义，故障事件使用 FCB 语义，大 blob 使用 blob store；
-   不允许用“擦一个固定 sector 再覆盖”保存频繁变化的配置。
-6. OTA 的 USB、SD、UART 和 TDMA 只是 ingress transport。它们共用 `OtaStreamSession`、
-   镜像验证和 Flash sink，不复制 OTA 状态机，也不能直接调用 Flash driver。
-7. TDMA OTA 只使用已存在的 `TDMA_PAYLOAD_CLASS_OTA_BULK` 和
-   `TDMA_TRAFFIC_RELIABLE_BULK`，受 `maintenance_gate_open`、credit 和背压约束；
-   VDC/RefMem 硬实时窗口永远优先。
-8. 完整统一 package 留在 PC、SD 或 TDMA 分发源；接收板只流式安装目标 slot image，
-   不在板载 Flash 再保存一份完整 A+B package。
-9. PIO program 随签名 firmware 构建并进入只读 program catalog；运行时动态装载 PIO IMEM
-   不需要独立 Flash 分区，System Pack 只能选择 catalog 中已验证的 persona/program ID。
-10. 不执行在线 v1 -> v2 原地搬迁。开发样板与首批产品采用可审计的 factory erase/reflash；
-   Bootloader 遇到未知 map version 时 fail closed，进入恢复入口而不是猜测旧地址。
+本文只回答四类跨域问题：
 
-## 二、当前功能整合
+1. 哪些数据进入板载 Flash，哪些必须留在 RAM、SD 或分发源。
+2. 谁能 erase/program，如何证明写入已经 durable。
+3. Boot、App、factory tool、USB/SD/TDMA OTA 如何共享一个 FlashMap 和镜像信任链。
+4. 如何从当前兼容布局迁移到目标 v2，并验证掉电、回滚、寿命和实时性。
 
-| 当前能力 | 当前实现事实 | v2 归属 | 保留/替换 |
-|---|---|---|---|
-| 物理 Flash | `CMakeLists.txt::PICO_FLASH_SIZE_BYTES` 已按产品器件配置，`drv_flash.h` 仍有较小独立上限。 | `FlashGeometry` | 保留 SDK/XIP 驱动，删除重复容量事实。 |
-| Bootloader | 可校验 Slot、选择 Direct A/B、记录 boot result，也保留 copy-to-active 分支。 | `BootFlashService + BootControlStore` | 保留已验证校验/回滚算法，v2 删除长期双模式。 |
-| OTA session | `portable_ota` 已有 begin/write/end、package 解析、CRC、metadata helper。 | `OtaAO/OtaFB + OtaStreamSession` | 保留平台无关核心，Flash 操作改投递 transaction intent。 |
-| USB/VISA OTA | SCPI block 传输和 host 工具已闭环。 | `UsbOtaIngress` | 作为 transport adapter 保留。 |
-| SD OTA | StorageAO 可读取统一 package。 | `SdOtaIngress` | 只读 package 并喂给统一 stream，不拥有安装逻辑。 |
-| TDMA 能力 | profile 已声明 OTA bulk、reliable bulk、maintenance gate 和背压。 | `TdmaOtaIngress/Egress` | 补 session、chunk、ACK、credit、resume；不新建 TDMA runtime。 |
-| Product Config | 当前固定 sector 擦写，保存 USB mode 和 board number。 | `ProductConfigNVS` | schema 保留，存储机制替换为 journal/NVS。 |
-| Calibration | active/staging/rollback、generation/freshness 尚未形成正式持久化。 | `CalibrationNVS` | 只保存 Calibration Domain accepted package；Flash 不解释测量语义。 |
-| System Pack | 主要由 SD `packs/refs` 管理。 | `SystemPackBlobStore` | 板载只缓存必要子集/恢复最小包，SD 仍是完整包和报告宿主。 |
-| Fault/trace | 高频 trace 与日志走 SD。 | `FaultEventFCB` | 板载只留低频启动/掉电/关键故障摘要。 |
-| 双核安全 | `drv_flash_lockout` 已有 core1 request/ACK/poll。 | `FlashTransactionAO` 的 quiesce 阶段 | 保留机制，禁止每个调用者自行拼接 lockout。 |
-| 温度诊断 | Diagnostics 已发布板温、RP2350 温度和传感器健康。 | `FlashPolicyGate` 输入 | critical/invalid 时拒绝新写事务；阈值仍由 board policy 定义。 |
+各业务域仍解释自己的数据语义。Calibration 决定 delay/bias 是否 accepted，VDC 决定 DPLL
+profile 是否可用，RefMem 决定 deployment package 是否可激活，TDMA 决定实时窗口是否准入；
+Flash Domain 只提供存储、事务、权限和 completion，不成为第二个业务 owner。
 
-## 三、借鉴成熟项目的取舍
+### 1.2 事实优先级
 
-| 来源 | 借鉴 | 本项目不照搬 |
+| 层级 | 事实源 | 本文使用方式 |
 |---|---|---|
-| MCUboot | signed image/TLV、security counter、test/confirm/revert、镜像与传输解耦。 | 不直接引入其完整 trailer/swap 机制；RP2350 v2 使用 Direct A/B 和本项目 Bootloader。 |
-| Zephyr flash map | fixed partition ID、area 边界、统一 open/read/write/erase 语义。 | 不引入 Zephyr device model；用轻量静态表和生成校验。 |
-| Zephyr NVS | append-only KV、CRC、掉电恢复、sector rotation 和 wear leveling。 | 不把大 package 或日志塞进 KV。 |
-| Zephyr FCB | 适合顺序追加、循环回收的低频事件记录。 | 高频 trace 继续写 SD，不用片上 Flash 承担采样流。 |
-| littlefs | 掉电恢复、copy-on-write、适合小型 blob/目录。 | BCB、anti-rollback、校准 critical KV 不用普通文件覆盖；首阶段可先做定长 blob store。 |
-| ESP-IDF OTA | 冗余 boot control、序号选择、新镜像确认前自动回滚。 | 不复制 ESP32 partition/API。 |
-| OpenHarmony DSoftBus | capability、network identity、session、lane/QoS、统一 bytes/stream 传输语义。 | 不引入动态发现、动态路由、IPC 或链路无感切换；工业环网继续使用静态拓扑和确定性 TDMA。 |
+| 物理器件 | 产品网表 `U17/W25Q128JVSIQ` | 确认产品器件容量和硬件兼容性。 |
+| 当前构建 | `CMakeLists.txt::PICO_FLASH_SIZE_BYTES` | 确认 SDK/XIP 构建声明。 |
+| 当前实现 | `drv_flash.h`、`ota_partition.h`、Bootloader、linker 与工具 | 描述 as-is，不用目标文档覆盖现实。 |
+| 目标契约 | 本文 + `docs/check/DOCS_REGISTRY.md` | 定义 v2 owner、map、store 和生命周期。 |
+| 目标数值 | 未来生成的 `FLASH_MAP_*` 符号 | 实现后取代本文布局快照成为数值唯一事实源。 |
 
-## 四、HAOFV 分层与 owner
+本文所有 v2 offset/size 均是“目标快照，非当前代码事实源”。在生成式 FlashMap、Bootloader、
+linker、App 和 factory artifact 同时落地前，不得把目标布局报告为已部署或已烧录。
+
+### 1.3 当前与目标一页对照
+
+| 维度 | 当前实现 | v2 目标 |
+|---|---|---|
+| 物理容量声明 | 构建和 `ota_partition.h` 声明 16 MiB。 | 由统一 `FlashGeometry` 提供。 |
+| 可访问/已分配范围 | `drv_flash.h` 限制 4 MiB；`ota_partition.h` 只分配下 4 MiB 兼容布局，上 12 MiB 未分配。 | 完整 16 MiB 由版本化 `FlashMap` 管理。 |
+| 分区 owner | OTA header、driver、linker 和工具各自携带部分地址知识。 | Boot/linker/App/factory/tool 从同一 map 生成或校验。 |
+| App writer | OTA、metadata、Product Config 等路径直接或间接使用 raw Flash API。 | core0 `FlashTransactionAO` 是 App 唯一 erase/program owner。 |
+| Boot writer | Bootloader 使用自己的最小写路径。 | 保留独立 `BootFlashService`，但与 App 共用 geometry/map/BCB 契约。 |
+| Boot 模式 | Direct A/B 已为发布默认，同时仍保留 `COPY_TO_ACTIVE` 能力。 | 只保留 Direct A/B test/confirm/revert 主线。 |
+| 数据存储 | Product Config 固定 sector；Calibration/VDC/RefMem 无统一生产持久化。 | NVS/blob/FCB + versioned namespace + atomic ref。 |
+| OTA | USB/SD 已闭环；TDMA 有 reliable bulk 资源基础但无 stream session。 | 所有 ingress 共用 `OtaStreamSession` 和 durable Flash sink。 |
+
+## 二、顶层决策与契约索引
+
+### 2.1 不变量
+
+以下约束优先于局部组件便利性：
+
+1. App erase/program 只能由 core0 `FlashTransactionAO` 发起；业务 AO 只提交 intent。
+2. Bootloader 只能依赖 `BootFlashService + FlashMap + BCB + ImageVerifier + Raw HAL`，不链接
+   RTOS、SCPI、TDMA、FatFs 或 littlefs。
+3. 所有 offset/size 由一个机器可读 FlashMap 生成或校验，不能继续散落手写。
+4. Active App 永不被 App 写；OTA 只安装 inactive slot，成功验证后才提交 pending BCB。
+5. 关键 KV 用 append journal/NVS，大对象用 immutable blob + atomic ref，低频事件用 FCB。
+6. “入队成功”不是“保存成功”；只有 program + readback verify + commit 完成才是 durable。
+7. RUN、Calibration training、thermal critical 或 core1 park 未 ACK 时不开始普通写事务。
+8. 完整 A+B package 留在 PC、SD 或 TDMA 分发源；接收板只接收目标 inactive image object。
+9. PIO program 随签名 App image 发布；System Pack 只能选择 catalog ID，不能携带可执行字节码。
+10. v1 -> v2 不做在线原地搬迁；样板和首批产品走可审计 factory erase/reflash。
+
+### 2.2 已登记目标契约
+
+状态以 `docs/check/DOCS_REGISTRY.md` 为唯一事实源。当前均为 `pending`，表示语义已经确定，
+实现和 HIL 尚未完成。
+
+| contract_id | 本文落点 | 核心语义 |
+|---|---|---|
+| `ARCH-FLASHMAP-01` | 第四章 | Boot/linker/App/factory/tool 共用唯一 FlashMap。 |
+| `ARCH-FLASHOWNER-01` | 第三章 | App 只有 core0 FlashTransactionAO 可写；Boot 使用最小服务。 |
+| `ARCH-BOOTCTRL-01` | 第六章 | BCB 双 lane append/commit，Direct A/B test-confirm-revert。 |
+| `ARCH-OTASTREAM-01` | 第七章 | USB/SD/UART/TDMA 共用 session，ACK 只确认 durable offset。 |
+| `REFMEM-PERSIST-01` | 第五章 | 只持久化部署 package/ref；上电建立新 epoch。 |
+| `VDC-PERSIST-01` | 第五章 | 只持久化低频 profile；上电重新锁相。 |
+| `ARCH-PIOCAT-01` | 第五章 | 只装载签名 App catalog program；System Pack 只选择 ID。 |
+
+## 三、HAOFV 组件与事务模型
+
+### 3.1 组件关系
 
 ```text
 SCPI / UI / SD / TDMA / factory tool
               |
-              v intent only
-OtaAO / ConfigAO / CalibrationAO / DiagnosticsAO
+              v intent / immutable provider
+OtaAO / ProductConfigAO / CalibrationAO / VdcAO / StorageAO / DiagnosticsAO
               |
-              v bounded command + immutable data provider
+              v bounded command
 FlashTransactionAO (core0, App 唯一 erase/program owner)
   FlashTransactionFB
     VALIDATE -> QUIESCE -> ACQUIRE -> PARK_CORE1
@@ -95,124 +114,190 @@ Boot context (无 RTOS):
 Bootloader -> BootFlashService -> FlashMap + BCB + ImageVerifier -> Raw Flash HAL
 ```
 
-### 4.1 唯一 writer
+### 3.2 Owner 矩阵
 
-| 事实/动作 | writer | reader | 禁止 |
+| 事实/动作 | 唯一 writer | reader | 禁止 |
 |---|---|---|---|
-| App erase/program | core0 `FlashTransactionAO` | 各业务 AO 读 completion/vector | OTA、Config、Calibration、SCPI 直接调用 `drv_flash_erase/program`。 |
-| Boot erase/program | `BootFlashService` | Bootloader state machine | Bootloader 链接 RTOS、SCPI、FatFs、TDMA 或 App AO。 |
-| Flash map | 生成后的 `flash_map` 静态定义 | linker、Boot、App、tool、release gate | 在 CMake、linker、头文件和脚本重复手写 offset。 |
-| BCB | Bootloader 与 App 通过 `BootControlStore` 的互斥状态转换写入 | Boot/OTA/Diagnostics | 原地覆盖最后有效副本。 |
-| Product Config | `ProductConfigAO` 产生 record，`FlashNVS` 持久化 | System/USB/board identity | 固定 sector 每次整擦。 |
-| Calibration | Calibration Domain 发布 accepted package，`FlashNVS` 持久化 | VDC/TDMA/Diagnostics | Flash 层生成 delay/bias 或接受 diagnostic-only evidence。 |
-| OTA stream state | `OtaAO/OtaStreamSession` | transport adapters/Diagnostics | TDMA adapter 改 pending slot 或写 BCB。 |
-| TDMA schedule/gate | `TdmaSchedulerAO`/core1 | OTA producer 读取 completion/credit | OtaAO 直接打开 maintenance gate 或占 PIO/DMA。 |
+| App erase/program | core0 `FlashTransactionAO` | 业务 AO 读 completion/vector | OTA、Config、Calibration、SCPI 直接调用 raw erase/program。 |
+| Boot erase/program | `BootFlashService` | Bootloader state machine | Bootloader 依赖 App AO 或文件系统。 |
+| Flash map | 生成后的静态 map | Boot/linker/App/factory/tool/release gate | 在多处重复手写 offset。 |
+| BCB | `BootControlStore` 的受控状态转换 | Boot/OtaAO/Diagnostics | 原地覆盖最后有效记录。 |
+| Product Config | ProductConfigAO 产生 record，FlashNVS 持久化 | System/USB/identity | 每次更新整擦一个固定 sector。 |
+| Calibration | Calibration Domain 发布 accepted package | VDC/TDMA/Diagnostics | Flash 层计算或接受 diagnostic-only 校准。 |
+| VDC profile | VDC owner 发布 accepted low-frequency profile | VDC boot/checking path | 恢复 runtime lock/offset/rate。 |
+| OTA session | OtaAO/OtaStreamSession | ingress/Diagnostics | TDMA adapter 写 BCB 或 active slot。 |
+| TDMA schedule/gate | TdmaSchedulerAO/core1 | OTA producer 读 gate/credit | OtaAO 自行打开 maintenance gate。 |
 
-### 4.2 FlashTransactionVector
+### 3.3 FlashTransactionFB
 
-Vector 至少发布以下字段块；由 core0 owner 写，多字段快照使用 seqlock：
+- FB action 每次只推进一个有界步骤，不在 callback 内完成整槽擦除或等待传输。
+- VALIDATE 检查 mode、partition permission、range/alignment、active image、温度和 buffer lease。
+- QUIESCE/ACQUIRE/PARK 固定按 system mode token -> partition lease -> Flash resource -> core1 ACK。
+- RAM resident 临界区覆盖 SDK 调用、数据和 lockout loop；禁止 USB、SD、LCD、格式化日志和
+  任何 XIP 间接访问。
+- `abort` 只设置请求；当前 page/sector 原子操作和读回校验完成后才能退出。
+- COMPLETE 明确区分 accepted、programmed、verified 和 committed；业务域只能把 committed
+  completion 投影为“已保存”。
 
-- `state/job_id/requester/partition_id/operation`
-- `requested_bytes/processed_bytes/verified_bytes`
-- `map_version/store_generation/transaction_generation`
-- `last_result/last_error/retry_count/abort_pending`
-- `lockout_request_seq/lockout_ack_seq/lockout_timeout_count`
-- `erase_count_delta/program_count_delta/verify_failure_count`
-- `temperature_flags/policy_gate_reason`
-- `started_timestamp_ms/completed_timestamp_ms`
+### 3.4 Vector 与 buffer 生命周期
 
-查询命令只读该 Vector，不触发 XIP 扫描、CRC 全盘计算或 Flash 现场访问。
+`FlashTransactionVector` 由 core0 owner 写，多字段快照使用 seqlock，至少包含：
 
-### 4.3 FlashTransactionFB 规则
+- job：`state/job_id/requester/partition_id/operation`；
+- progress：`requested_bytes/processed_bytes/verified_bytes`；
+- version：`map_version/store_generation/transaction_generation`；
+- result：`last_result/last_error/retry_count/abort_pending`；
+- lockout：`lockout_request_seq/lockout_ack_seq/lockout_timeout_count`；
+- health：`erase_count_delta/program_count_delta/verify_failure_count`；
+- policy：`temperature_flags/policy_gate_reason`；
+- timing：`started_timestamp_ms/completed_timestamp_ms`。
 
-- 每个 FB action 只推进一个有界步骤并返回；不得在事件 callback 内完成整槽 erase。
-- erase/program 前依次检查 system mode、partition permission、range/alignment、温度策略、
-  active image 保护、资源锁和 core1 park ACK。
-- erase/program 的 RAM resident 临界区必须包含 SDK 调用所需代码、数据和 lockout loop；
-  临界区禁止 USB、SD、LCD、格式化日志和任何 XIP 间接调用。
-- `abort` 只设置 `abort_pending`；当前不可中断 page/sector 操作完成并验证后再退出。
-- completion 必须包含 durable 边界。业务域只有收到 durable completion 才能发布“已保存”或
-  向 TDMA sender 返回持久化 ACK。
+查询命令只读 Vector，不现场扫描 Flash。小 payload 可复制进固定队列；大 payload 使用 immutable
+provider 或固定 pool，并绑定 generation/refcount。completion 前 producer 不能复用 buffer。
 
-## 五、FlashMap v2
+## 四、FlashMap v2
 
-### 5.1 分区原则
+### 4.1 分区原则
 
-- 所有区域按 erase sector 对齐；可启动镜像还必须满足 linker/XIP 对齐和向量表约束。
-- Bootloader、Boot Control、A、B、Recovery、OTA Cache、Resume Journal、关键 NVS、blob、
-  FCB 和 scratch 分开，避免一个域的 GC 擦除另一个域的事实。
-- A/B 等长，分别构建 slot-specific XIP 镜像；统一 package 可以携带两个目标镜像。
-- Recovery 是独立签名镜像，不等同于 Slot A 的备份，也不被普通 OTA 自动覆盖。
-- OTA Stage 只保存 manifest、小型 chunk/checkpoint spill 或未来受验证 delta，不缓存完整双镜像
-  package。USB/SD/TDMA 从统一 package 中选择目标 slot object，直接事务化写 inactive slot。
-- Scratch 仅由 FlashTransactionAO/GC/验证工具临时租用，不向普通业务域公开固定地址。
+- 所有区域按 erase sector 对齐；bootable image 还满足 linker/XIP/vector 约束。
+- A/B 等长并分别构建 slot-specific XIP image。
+- Recovery 是独立签名镜像，不是 Slot A 的普通备份，也不由普通 OTA 自动覆盖。
+- OTA Stage 只容纳 manifest、受控 chunk spill 或未来 delta，不缓存完整 A+B package。
+- NVS/blob/FCB 分区按事务语义隔离，避免一个 store 的 GC 擦除另一个域事实。
+- Scratch 只允许 FlashTransactionAO、GC、Recovery 或 validation lease 使用。
+- Future Pool 保持未分配；只有新 map version、兼容性评审和迁移路径完成后才能分配。
 
-### 5.2 目标布局快照
+### 4.2 目标布局快照
 
-下表是 `ARCH-FLASHMAP-01` 的 v2 目标快照，当前代码尚未实现，不能作为已烧录事实。
-实现阶段必须把每行生成成 `FLASH_MAP_*` 符号，并由工具验证表尾等于
-`PICO_FLASH_SIZE_BYTES`；从那一刻起代码符号取代本文数字成为唯一数值事实源。
+下表是 `ARCH-FLASHMAP-01` 的目标快照，非当前代码事实源。实现后必须生成对应
+`FLASH_MAP_*` 符号，并验证表尾等于 `PICO_FLASH_SIZE_BYTES`。
 
 | Partition ID | Offset snapshot | Size snapshot | 目标符号 | owner / purpose |
 |---|---:|---:|---|---|
 | `BOOTLOADER` | `0x000000` | 256 KiB | `FLASH_MAP_BOOTLOADER_*` | immutable Bootloader。 |
-| `BOOT_CONTROL` | `0x040000` | 256 KiB | `FLASH_MAP_BOOT_CONTROL_*` | BCB 双 lane、map manifest、security counter。 |
+| `BOOT_CONTROL` | `0x040000` | 256 KiB | `FLASH_MAP_BOOT_CONTROL_*` | BCB lanes、map manifest、security counter。 |
 | `APP_A` | `0x080000` | 2 MiB | `FLASH_MAP_APP_A_*` | Direct A/B slot A。 |
 | `APP_B` | `0x280000` | 2 MiB | `FLASH_MAP_APP_B_*` | Direct A/B slot B。 |
-| `RECOVERY` | `0x480000` | 1 MiB | `FLASH_MAP_RECOVERY_*` | 最小独立签名 recovery image，单独 size gate。 |
-| `OTA_STAGE` | `0x580000` | 1 MiB | `FLASH_MAP_OTA_STAGE_*` | manifest/chunk spill/delta staging，不缓存完整 A+B package。 |
-| `OTA_JOURNAL` | `0x680000` | 256 KiB | `FLASH_MAP_OTA_JOURNAL_*` | stream resume、transaction journal。 |
-| `PRODUCT_NVS` | `0x6C0000` | 256 KiB | `FLASH_MAP_PRODUCT_NVS_*` | board identity、USB mode、产品 KV。 |
-| `CALIBRATION_NVS` | `0x700000` | 1 MiB | `FLASH_MAP_CALIBRATION_NVS_*` | accepted/staging/rollback link/IO calibration records。 |
-| `VDC_NVS` | `0x800000` | 256 KiB | `FLASH_MAP_VDC_NVS_*` | servo/holdover/discipline profile，禁止保存 runtime lock。 |
-| `SYSTEM_PACK` | `0x840000` | 2 MiB | `FLASH_MAP_SYSTEM_PACK_*` | active Deployment Capsule、RefMem package、小型 blob。 |
-| `FAULT_FCB` | `0xA40000` | 1 MiB | `FLASH_MAP_FAULT_FCB_*` | boot/power/critical fault 循环事件。 |
-| `SCRATCH` | `0xB40000` | 1 MiB | `FLASH_MAP_SCRATCH_*` | GC、恢复和 validation lease。 |
-| `FUTURE_POOL` | `0xC40000` | 3.75 MiB | `FLASH_MAP_FUTURE_POOL_*` | 未分配容量；只能通过新 map version 分配。 |
+| `RECOVERY` | `0x480000` | 1 MiB | `FLASH_MAP_RECOVERY_*` | 独立签名 Recovery。 |
+| `OTA_STAGE` | `0x580000` | 1 MiB | `FLASH_MAP_OTA_STAGE_*` | manifest/chunk spill/delta staging。 |
+| `OTA_JOURNAL` | `0x680000` | 256 KiB | `FLASH_MAP_OTA_JOURNAL_*` | stream resume/transaction journal。 |
+| `PRODUCT_NVS` | `0x6C0000` | 256 KiB | `FLASH_MAP_PRODUCT_NVS_*` | identity、USB mode、产品 KV。 |
+| `CALIBRATION_NVS` | `0x700000` | 1 MiB | `FLASH_MAP_CALIBRATION_NVS_*` | accepted/staging/previous calibration。 |
+| `VDC_NVS` | `0x800000` | 256 KiB | `FLASH_MAP_VDC_NVS_*` | servo/holdover/discipline profile。 |
+| `SYSTEM_PACK` | `0x840000` | 2 MiB | `FLASH_MAP_SYSTEM_PACK_*` | Deployment Capsule、RefMem package、小型 blob。 |
+| `FAULT_FCB` | `0xA40000` | 1 MiB | `FLASH_MAP_FAULT_FCB_*` | boot/power/critical fault events。 |
+| `SCRATCH` | `0xB40000` | 1 MiB | `FLASH_MAP_SCRATCH_*` | GC/recovery/validation lease。 |
+| `FUTURE_POOL` | `0xC40000` | 3.75 MiB | `FLASH_MAP_FUTURE_POOL_*` | 未分配。 |
 
-当前 App 镜像约数百 KiB 是 2026-08-21 的构建快照，不是容量事实源。v2 单槽增大主要为
-RTOS、协议、诊断、签名库和后续功能留余量；release gate 仍应以链接产物和符号阈值计算，
-而不是在文档写死百分比。
+A/B、Bootloader、BCB 和 Recovery 是启动安全链，不应全部计作“OTA 缓存”。真正用于临时 OTA
+数据的只有 Stage/Journal，而且 target 不缓存完整 package。App 容量是否足够由 release size
+gate 根据链接产物和分区符号判断，不在文档固定百分比。
 
-该平衡版快照中，Boot/BCB/A/B/Recovery/OTA Stage/Journal 合计约占物理容量四成，且其中
-A/B 是产品必需的可启动冗余，不等同于“OTA 缓存”。`FUTURE_POOL` 不允许被普通 store 当作
-自动扩容空间；只有新 map version、兼容性评审和 factory/recovery 迁移完成后才能分配。
+### 4.3 权限视图
 
-### 5.3 权限矩阵
+| Partition | Boot | App read | App write | factory |
+|---|---|---|---|---|
+| Bootloader | verify/read | metadata only | never | signed factory flow only |
+| Boot Control | constrained read/write | snapshot | store intent only | initialize/recover |
+| Active App | verify/boot | XIP | never | program/verify |
+| Inactive App | verify | bounded verify | OTA intent only | program/verify |
+| Recovery | verify/boot | version/hash | privileged release intent | program/verify |
+| OTA Stage/Journal | resume read | OTA owner | OTA intent only | initialize |
+| NVS/Blob/FCB | minimal recovery read | Store API | namespace intent only | initialize/migrate |
+| Scratch | recovery lease | no raw address | transaction lease only | validation/recovery |
 
-| Partition | Boot read | Boot write | App read | App write | factory write |
-|---|---|---|---|---|---|
-| Bootloader | yes | no | metadata only | no | signed factory flow only |
-| Boot Control | yes | constrained | snapshot | via store intent | yes |
-| Active App | yes | no | XIP | no | yes |
-| Inactive App | yes | no | verify | OTA intent only | yes |
-| Recovery | yes | recovery policy only | version/hash query | release service only | yes |
-| OTA Stage/Journal | manifest/resume read | no | OTA owner | OTA owner intent | yes |
-| NVS/blob/FCB | minimal recovery read | no | store API | partition-specific intent | yes |
-| Scratch | recovery only | recovery only | no direct address | transaction lease only | yes |
+Map manifest 必须携带 map version、geometry profile 和 compatibility。未知 map 不尝试猜测旧地址；
+Boot fail closed 进入 Recovery/ROM，App 不在线重分区。
 
-## 六、Boot Control 与镜像链
+## 五、持久化数据模型
 
-### 6.1 BCB
+### 5.1 数据分类规则
 
-Boot Control Block 使用至少两个独立 erase lane。record 采用 append/commit 语义，包含：
+一个对象只有同时满足以下条件才可进入板载 Flash：跨重启仍成立、有明确 owner 和 schema、
+可独立校验、写频率可预算、掉电后能判定旧/新事实、目标分区权限允许。否则使用 RAM、SD
+或外部分发源。
 
-- `magic/schema/map_version/record_length`
-- `sequence/boot_generation/security_counter`
-- `active_slot/pending_slot/confirmed_slot/previous_slot`
-- `attempt_count/rollback_count/last_boot_result/reset_reason`
-- 每个 bootable image 的 `manifest_hash/image_hash/image_size/version/state`
-- `record_crc/commit_marker`
+| Store | 适用对象 | 事务模型 | 不适用对象 |
+|---|---|---|---|
+| `BootControlStore` | BCB、security counter、image state | redundant lane + append + commit | 普通 KV、日志。 |
+| `FlashNVS` | 小型 versioned KV/record | append + CRC + rotation | package、波形、实时状态。 |
+| `FlashBlobStore` | immutable package/capsule/blob | object hash + manifest + atomic ref | 任意可执行代码、高频追加。 |
+| `FlashFCB` | 低频顺序事件 | append ring + sector GC | 高频 trace、周期传感器流。 |
 
-写入顺序固定为 body -> readback verify -> commit marker。选择规则为 schema/map 合法、CRC 和
-commit marker 有效、sequence 最新；不得仅凭 sequence 选择结构损坏记录。GC 必须先在另一
-lane 写入并 seal 新基线，再回收旧 lane。
+所有 record/object 都必须有 schema、length、generation、CRC/hash 和 commit 状态。reader 跳过
+torn、unknown-required-schema 和未 commit 对象。GC 只能作为 FlashTransactionAO job 执行。
 
-### 6.2 Image Manifest v2
+### 5.2 主域 namespace 矩阵
 
-镜像 manifest 至少覆盖 product/hardware compatibility、slot/link address、image size、
-entry/vector 范围、semantic version、build identity、hash、signature、key ID、security
-counter 和 extensible TLV。CRC 只用于传输/介质误码，不能替代签名和 anti-rollback。
+| 主域 | 持久化事实 | Store | 不持久化/外部存储 |
+|---|---|---|---|
+| System/Product | board identity、USB mode、capability、permission、active capsule ref | Product NVS/System Pack | 当前 mode、resource lock、command queue |
+| Trigger/Loop | named sequence/recipe/mission、safe limit、active profile ref | System Pack | ARM/RUN/PAUSE、cursor、live queue、deadline；历史进 SD |
+| SYNC_IO/PIO/DMA | board IO profile、catalog ID、resource claim | signed App catalog + System Pack selection | IMEM/SM/FIFO/DMA/IRQ/live persona |
+| Calibration | accepted/staging/previous package、generation、topology/profile binding、delay/bias/residence | Calibration NVS | diagnostic-only raw capture；完整 evidence 进 SD |
+| TDMA | foundation/operating/process-image profile、payload whitelist/budget、adapter claim | System Pack | ring state、window cursor、counter、FIFO、in-flight、live gate |
+| RefMem | `.rmtp`、ApplicationMap、Capability/NodeLoad/FB/Event/DataLink tables、active/previous ref | System Pack/BlobStore | live vector、dirty、command/ACK、heartbeat、stale、peer online、epoch |
+| VDC/DPLL | servo/holdover/reference/timestamp dictionary、accepted aging/temperature/wander profile、Calibration ref | VDC NVS/System Pack baseline | offset/rate/phase/DCO、LOCK/HOLDOVER、map generation、sample ring |
+| Communication | adapter/address/role profile、accepted calibration ref | System Pack/Calibration NVS | RX/TX FIFO/counter、transaction、retry、online state |
+| Measure/Capture | channel/range/unit/trigger/compression profile、calibration ref | System Pack | raw sample/waveform/capture ring/report 进 RAM/SD |
+| OTA/Boot | BCB、manifest/hash/signature/counter、slot state、durable journal | Boot Control/App/Recovery/OTA Journal | transport queue、未 checkpoint offset、完整 package |
+| Storage/Deployment | active/previous capsule、最小离线对象和 refs | System Pack/BlobStore | 完整 pack/history/user files 进 SD |
+| Diagnostics/UI | critical event、Flash health、必要低频偏好 | Fault FCB/Product NVS | 高频 trace、周期传感器流、当前页面/编辑瞬态 |
+
+该矩阵不为每个域建立私有分区。只有 endurance、权限、掉电原子性或 Recovery 依赖确实不同，
+才允许提出新 map version。业务域申请 namespace/object，不申请裸 offset。
+
+### 5.3 RefMem
+
+`REFMEM-PERSIST-01` 只允许持久化 deployment input：`.rmtp`、静态表、package hash/schema/
+generation 和 active/previous atomic ref。上电先读入 staging，通过 CRC/schema/owner/resource/
+DeploymentGate 后由 `DistributedRefMemAO` 激活，并建立新 epoch。
+
+live 64 KiB vector、dirty mask、slot sequence、command、ACK/NACK、heartbeat、stale、peer online、
+transport in-flight 和 RUN completion 不能恢复为有效事实。所有 peer mirror 在重新 HELLO/EPOCH/
+full-or-delta sync 前保持 stale。
+
+### 5.4 VDC/DPLL
+
+`VDC-PERSIST-01` 将 Calibration source facts 与 VDC discipline profile 分开：Calibration NVS 保存
+accepted link delay/bias；VDC NVS 保存 servo、holdover、reference priority、timestamp dictionary
+和经维护态 accept 的 aging/temperature/wander model。
+
+`offset/rate/phase_error/DCO/lock_state/HOLDOVER age/map generation/sample ring` 掉电即失去
+freshness。每次启动固定从 `OFF/CHECKING` 开始，绑定 active Calibration 后，用新硬件观测
+重新锁相；不能因 profile 有效而直接发布 `LOCKED`。
+
+### 5.5 PIO Program Catalog
+
+`ARCH-PIOCAT-01` 的目标链为：
+
+```text
+signed App image
+  -> PioProgramCatalog(program_id/version/hash/instruction_count/resource_claim)
+  -> System Pack selects allowed persona/program_id
+  -> PIO owner stops SM/DMA, validates claim, loads IMEM, publishes snapshot
+```
+
+`.pio` program 受 App image 的 hash/signature/rollback 保护，不需要独立 Flash 分区。BlobStore
+拒绝 executable PIO/native object。若未来要求独立 bytecode 更新，必须另立 signed module
+manifest、ABI、静态 verifier、IO/resource sandbox 和 rollback 契约。
+
+## 六、Boot 与镜像信任链
+
+### 6.1 Boot Control Block
+
+BCB 使用至少两个独立 erase lane。record 包含 schema/map、sequence/boot generation/security
+counter、active/pending/confirmed/previous slot、attempt/rollback/result/reset reason、各镜像
+manifest/hash/size/version/state 以及 CRC/commit marker。
+
+写入顺序固定为 body -> readback verify -> commit marker。选择最新记录前先验证 schema/map、
+length、CRC 和 commit；GC 必须先在另一 lane seal 新基线，再回收旧 lane。
+
+### 6.2 Image Manifest
+
+manifest 至少覆盖 product/hardware compatibility、slot/link address、image size、entry/vector
+range、semantic version、build identity、hash、signature、key ID、security counter 和 extensible
+TLV。CRC 只证明介质/传输完整性，不替代签名和 anti-rollback。
 
 ### 6.3 启动状态机
 
@@ -222,265 +307,190 @@ load geometry/map -> select valid BCB -> verify pending/confirmed image
   App self-test + explicit confirm       -> CONFIRMED
   reset/no confirm/verification failure  -> REVERT(previous confirmed)
   A and B unusable                       -> verify and boot RECOVERY
-  map/BCB/recovery all unusable          -> ROM BOOTSEL/factory recovery indication
+  map/BCB/recovery all unusable          -> ROM BOOTSEL/factory indication
 ```
 
-Bootloader 不扫描普通 NVS、littlefs 或 SD，不依赖 TDMA。Recovery image 负责较复杂的 USB/
-SD 恢复 UI；其权限仍受签名和 anti-rollback 约束。
+Recovery image 负责验证 factory package 和受控 USB/SD 恢复。Recovery 更新使用更高权限策略，
+不能由任意 TDMA sender 覆盖。Bootloader 不扫描普通 NVS、littlefs 或 SD 文件系统。
 
-## 七、存储抽象
+## 七、统一 OTA 与 TDMA 分发
 
-| Store | 数据类型 | 事务模型 | 典型消费者 |
-|---|---|---|---|
-| `BootControlStore` | 小、极关键、低频 | redundant append + commit marker | Bootloader/OtaAO |
-| `FlashNVS` | 小 KV、版本化 record | append + CRC + sector rotation | ProductConfig/Calibration |
-| `FlashBlobStore` | package、System Pack、Recovery blob | immutable object + manifest + atomic ref | OTA/Storage |
-| `FlashFCB` | 低频顺序事件 | append ring + sector GC | Diagnostics/System |
+### 7.1 Package 与 receiver 存储策略
 
-所有 record 必须有 schema、length、generation、CRC 和 commit 状态。reader 必须跳过 torn、
-unknown-required-schema 和未 commit record。GC 是 FlashTransactionAO 的 job，不在业务 AO
-callback 内运行。
+统一 package 把 manifest 与 slot-specific image object 分开索引。PC、SD 或 TDMA source 保存
+完整 package；receiver 根据 active slot/capability 只请求 inactive object，并直接事务化写入
+inactive App。无关 slot object 不传输、不进入 OTA Stage。
 
-Calibration NVS 的 key 使用 unique board ID、directed link endpoints、topology CRC、profile
-CRC 和 calibration generation；NO/USB 枚举顺序不能成为主键。只有 Calibration Domain 的
-accepted package 可变为 active，diagnostic-only evidence 只能进 SD report 或 debug blob。
-
-### 7.1 HAOFV 各主域持久化矩阵
-
-Flash 只承接跨重启仍成立、能够独立验证、写频率有界的事实。Domain Vector 的 live snapshot、
-AO/FB ECC 状态、命令队列和硬实时数据面均不得因为“方便恢复”而持久化。各域也不拥有私有
-erase/program 入口；它们只向对应 store 提交 versioned record/blob intent，并在 durable
-completion 后更新自己的“已保存”摘要。
-
-| HAOFV 主域 | 应进入板载 Flash 的事实 | namespace / store | 不得恢复为 live fact 或应留在 SD/RAM |
-|---|---|---|---|
-| System / Product | board identity、USB mode、hardware capability、权限与安全 policy、active Deployment Capsule ref。 | `PRODUCT_NVS` + `SYSTEM_PACK` | 当前 mode、resource lock、command slot、任务/队列状态。 |
-| Trigger / Loop | named sequence/recipe/mission、safe limit、active profile/reference；参数作为 Deployment Capsule 的受版本对象。 | `SYSTEM_PACK`，少量产品偏好进 `PRODUCT_NVS` | ARM/RUN/PAUSE 状态、sequence cursor、live queue、deadline、breakpoint；任务历史和完整报告进 SD。 |
-| SYNC_IO / PIO / DMA | board IO profile、允许的 persona/program catalog ID、resource claim 和 compatibility。 | 签名 App 中只读 `PioProgramCatalog` + `SYSTEM_PACK` 选择项 | PIO IMEM 当前内容、SM PC/FIFO、DMA descriptor/remaining count、IRQ/live persona 状态。 |
-| Calibration | accepted/staging/previous package、active generation/ref、board/link/topology/profile binding、delay/bias/residence 与质量摘要。 | `CALIBRATION_NVS` | diagnostic-only raw capture 不得激活；完整校准 evidence/report 进 SD。 |
-| TDMA Foundation | foundation/operating/process-image profile、payload whitelist、traffic budget、adapter/resource claim；作为部署配置。 | `SYSTEM_PACK` | ring running/armed、window cursor、sequence/counter、FIFO、in-flight frame、maintenance gate live state。 |
-| Distributed RefMem | `.rmtp`、ApplicationMap、BoardCapability、NodeLoad、FB/Event/DataLink tables、active/previous package ref。 | `SYSTEM_PACK` / `FlashBlobStore` | 64 KiB live vector、dirty、command/ACK、heartbeat、stale、peer online、transport in-flight、epoch。 |
-| VDC / DPLL | servo、holdover、reference priority、timestamp dictionary、accepted aging/temperature/wander profile、Calibration ref。 | `VDC_NVS` + `SYSTEM_PACK` baseline | offset/rate/phase error/DCO、LOCK/HOLDOVER、map generation、sample ring；每次上电重新锁相。 |
-| Communication adapters | BiSS/UART/RS485/USB/TDMA adapter profile、addressing/role、accepted static latency/calibration ref。 | `SYSTEM_PACK`；实测 offset 进 `CALIBRATION_NVS` | RX/TX FIFO、counter、active transaction、retry/backoff、last frame 和连接在线状态。 |
-| Measure / Capture | channel/transducer profile、单位/量程、trigger/compression policy、calibration ref。 | `SYSTEM_PACK` + `CALIBRATION_NVS` 引用 | 原始 ADC/edge/waveform 流、capture ring、批量结果；完整数据与报告进 SD。 |
-| OTA / Boot | BCB、image manifest/hash/signature/security counter、pending/confirmed/previous slot、durable resume journal。 | `BOOT_CONTROL` + inactive App/Recovery + `OTA_JOURNAL` | transport RX queue 和未经 durable checkpoint 的 offset；完整 A+B package 留在 source/SD。 |
-| Storage / Deployment | active/previous Deployment Capsule、最小离线运行对象和 atomic refs。 | `SYSTEM_PACK` / `FlashBlobStore` | SD 完整 pack/history、用户文件、波形、截图、报表和高频日志不得复制进板载 Flash。 |
-| Diagnostics / Fault | boot/reset/power/critical fault、Flash health、关键传感器超限摘要和关联 generation。 | `FAULT_FCB` | 周期温度/电流采样、TDMA/Trigger 高频 trace、完整 crash/evidence；持续流写 SD。 |
-| UI / Local preference | 产品确需跨重启的亮度、语言、显示策略等低频偏好，且必须有 schema/default。 | `PRODUCT_NVS` | 当前页面、光标、按键、动画、临时提示和未确认编辑值。 |
-
-这个矩阵不为每个域新建分区。System Pack 是静态部署与参数对象的共同容器，Calibration/VDC
-使用独立 NVS 是因为 acceptance、freshness 和 rollback 语义不同；Boot/OTA、产品身份与故障
-事件则分别使用 BCB、Product NVS 和 FCB。只有 endurance、权限、掉电原子性或 recovery
-依赖确实不同，才允许在下一版 map 中申请新 partition。
-
-### 7.2 RefMem 持久化边界
-
-RefMem 的 64 KB `DistributedVectorTable` 是运行期共同事实，不是 Flash 镜像。Flash 只保存
-部署输入和引用：
-
-| 可持久化 | Store | 上电动作 |
-|---|---|---|
-| `.rmtp` package、ApplicationMap、NodeLoad、FB/Event/DataLink、BoardCapability 等静态表 | `SYSTEM_PACK` blob | 读入 staging，完成 CRC/schema/owner/resource/DeploymentGate 校验后激活。 |
-| active/previous deployment ref、package hash/CRC、schema 和 generation | Blob atomic ref / NVS summary | 只选择候选 package，不直接恢复 live table。 |
-| board unique identity 与基础 capability | `PRODUCT_NVS` | 作为 claim/compatibility 输入，不等于 active slot。 |
-| load/activation/rollback 失败摘要 | `FAULT_FCB` + SD report | 供诊断，不驱动 active fact。 |
-
-禁止持久化后直接恢复为有效运行事实的字段包括 live vector payload、dirty mask、slot/field
-sequence、command slot、ACK/NACK、heartbeat、stale、peer online、transport in-flight、epoch
-和 RUN completion。每次上电/部署激活都建立新 epoch；peer mirror 在重新 HELLO/EPOCH/full or
-delta sync 之前保持 stale。Flash/Storage 不能绕过 `DistributedRefMemAO` 直接写 active image。
-
-### 7.3 VDC/DPLL 持久化边界
-
-VDC 的 Flash namespace 独立于 Calibration record。Calibration NVS 保存链路 delay/bias 的
-accepted source facts；VDC NVS 保存如何使用观测形成共同时间的低频 profile：
-
-| 可持久化 | 条件 | 上电动作 |
-|---|---|---|
-| `VdcServoProfile`、`VdcHoldoverPolicy`、reference priority | signed System Pack 或 accepted NVS profile | schema/sanity/profile CRC 校验后作为 CHECKING 输入。 |
-| `VdcTimestampDictionary` | 与 board/topology/profile compatibility 绑定 | 校验 source/resolution 映射，不声明 sample eligible。 |
-| aging/temperature compensation、wander/error-bound model | 长窗口统计形成 candidate，经维护态显式 accept | 装入 staging/active discipline profile，重新锁相验证。 |
-| active calibration reference/CRC | 指向 Calibration NVS accepted generation | 只建立 binding；calibration 缺失/过期则拒绝锁相。 |
-| servo/holdover/relock 质量报告 | `FAULT_FCB` 摘要 + SD 完整报告 | 仅诊断/验收。 |
-
-严禁把 `offset/rate/phase_error/DCO control/lock_state/HOLDOVER age/map generation/sample ring`
-保存后在下次启动直接恢复为 `LOCKED`。这些字段绑定上一次供电、温度、reference、topology、
-calibration 和实时观测，掉电即失去 freshness。启动固定从 `OFF/CHECKING` 开始，经 active
-calibration、TDMA schedule、timestamp dictionary、initial sync 和 DPLL quality gate 后才能
-重新发布共同时间。
-
-## 八、统一 OTA stream 与 TDMA 扩展
-
-### 8.1 transport-neutral session
+### 7.2 OtaStreamSession
 
 ```text
 UsbOtaIngress / SdOtaIngress / UartOtaIngress / TdmaOtaIngress
                          |
                          v
 OtaStreamSession
-  OPEN -> RECEIVE -> DURABLE_ACK -> VERIFY_PACKAGE -> INSTALL_INACTIVE
-  -> MARK_PENDING -> READY_TO_REBOOT
+  OPEN -> RECEIVE -> DURABLE_ACK -> VERIFY_OBJECT
+  -> INSTALL_INACTIVE -> MARK_PENDING -> READY_TO_REBOOT
                          |
                          v
 FlashTransactionAO / BootControlStore
 ```
 
-session 绑定 source identity、target identity/capability、package identity、manifest hash、
-session generation、total size 和 destination policy。不同 transport 可以在新 session 中续传，
-但同一 session 不允许无证据地切 lane 或改变 package identity。
+session 绑定 source/target identity、capability、package/manifest hash、map version、target
+partition、generation、total size 和 destination policy。transport adapter 只收发 bytes/chunks，
+不能复制 OTA 状态机、写 BCB 或调用 raw Flash。
 
-### 8.2 对 DSoftBus 理念的受控映射
+### 7.3 Durable ACK、credit 与 resume
 
-| DSoftBus 理念 | 本项目映射 | 确定性约束 |
+- ACK 是 cumulative durable offset，仅在 program + readback verify 后推进。
+- receiver credit 由固定 RX pool、Flash job depth、checkpoint budget 和 maintenance gate 决定。
+- credit 为零时 sender 保持 session，不 busy-loop，也不挤占 VDC/RefMem 实时流。
+- 重复 DATA 按 session/offset/hash 幂等；同 offset 冲突数据 fail closed。
+- resume checkpoint 不按每帧擦写；token 绑定 package hash、map、partition、identity 和 generation。
+- reset 后用 journal + Flash readback 重建 durable offset，torn journal 回退最近可信 checkpoint。
+
+### 7.4 TDMA 边界
+
+TDMA OTA 只使用已有 `TDMA_PAYLOAD_CLASS_OTA_BULK` 和 `TDMA_TRAFFIC_RELIABLE_BULK`。
+控制语义为 `OPEN/OPEN_ACK/RESUME_QUERY/DATA/ACK/CLOSE/CLOSE_ACK/ABORT/STATUS`；wire
+contract 和 parser 在实现前保持 registry `pending`。
+
+`TdmaSchedulerAO` 独占 maintenance gate、window 和 adapter；OtaAO 独占 package/session/
+distribution；FlashTransactionAO 独占 durable write。RUN/CAL 或 gate closed 时允许 session
+暂停，禁止以动态优先级绕过 VDC、RefMem、T2 或 Calibration 窗口。
+
+多板分发由 `OtaDistributionFB` 维护 per-node capability、durable offset、verify、pending 和 boot
+result。每个节点独立 ACK；先 stage/verify，再按 cohort policy commit。reference 节点升级前先
+迁移角色和 topology/profile generation，不能在 reboot 期间继续宣称 ring/VDC 有效。
+
+### 7.5 对 DSoftBus 理念的受控借鉴
+
+| 理念 | 本项目映射 | 不采用 |
 |---|---|---|
-| Bus Center / node identity | Calibration accepted topology + board unique ID + capability snapshot | 不做动态发现；身份变化使 session freshness 失效。 |
-| capability publish/discover | `OTA_RECEIVER_V2`、map/image/security capability | 由 RefMem/TDMA config control 发布，只读静态 capability。 |
-| Session/Socket | `OtaStreamSession` | 有界静态 session 数；显式 open/close/abort。 |
-| Lane/QoS | transport 在 session open 前选择；TDMA 映射 reliable bulk | session 中不动态换路；VDC/RefMem 窗口优先。 |
-| bytes/stream/file | 统一 chunk + package manifest | 不传裸任意文件路径；目标是受验证 package/object。 |
+| identity/capability | board unique ID + accepted topology + receiver capability | 动态发现成为安全身份 |
+| session/socket | 有界 `OtaStreamSession` | 无界动态会话 |
+| lane/QoS | open 前选择 transport；TDMA 映射 reliable bulk | session 中无证据切路 |
+| bytes/stream | manifest 约束的 chunk/object | 任意远端文件路径 |
+| distributed bus | 静态 topology + RefMem/TDMA facts | OpenHarmony IPC、动态路由和无感切换 |
 
-### 8.3 TDMA wire 语义
+## 八、运行策略、诊断与验证
 
-目标控制消息为 `OPEN/OPEN_ACK/RESUME_QUERY/DATA/ACK/CLOSE/CLOSE_ACK/ABORT/STATUS`。
-每帧至少携带 wire version、session ID、generation、source/target identity、sequence、offset、
-payload length、flags 和 CRC。OPEN 绑定 package manifest hash；DATA 不重复解释 OTA manifest。
+### 8.1 Mode、温度和资源门禁
 
-ACK 是 durable cumulative ACK：对应范围已经由 receiver 写入目标 store 并 readback 验证。
-receiver 同时返回 credit；sender 的 outstanding 数据不得超过 credit。RAM queue 接收成功不等于
-durable ACK。重复 DATA 按 session/offset/hash 幂等处理；冲突数据必须 fail closed 并终止 session。
-
-resume journal 只按受控 checkpoint 频率持久化，不能每个 TDMA frame 擦写。复位后 receiver
-从 journal 和 Flash readback 重建 durable offset，再返回 resume token。token 必须绑定 package
-hash、map version、target partition 和 session generation。
-
-统一 package v2 应把 manifest 与 slot-specific image object 分开索引。分发源保留完整包，
-根据 receiver 当前 active slot 和 capability 只发送对应 inactive slot object。receiver 在 OPEN
-阶段先验证 manifest/object identity，再直接写 inactive slot；无关 slot object 不经过 TDMA，
-也不落入板载 OTA Stage。
-
-### 8.4 多板滚动 OTA
-
-- 分发协调属于 OTA Domain 的 `OtaDistributionFB`，TDMA 只传输和报告 completion。
-- 同一 package 可以按 target bitmap/cohort 分发，每个节点独立维护 durable offset、验证和
-  pending 状态；不能用一个节点 ACK 代表整组成功。
-- 先 stage/verify 所有目标，再执行显式 commit policy。对 reference 节点升级前必须完成角色
-  迁移和 topology/profile generation 更新；不得在 reference reboot 时假装 ring 仍锁定。
-- 任一节点 map/security/capability 不兼容时从 cohort 排除并报告原因，不允许为追求“全成功”
-  降低签名、anti-rollback 或 Flash 门禁。
-- RUN/CAL 中 gate 关闭时 sender 保持 session 并接受零 credit；不得挤占 VDC、RefMem、T2 或
-  Calibration 窗口，也不得通过提高动态优先级绕过 scheduler。
-
-### 8.5 动态 PIO program
-
-PIO instruction memory 的运行时装载不等于 Flash 动态模块加载。当前目标模型为：
-
-```text
-signed App image
-  -> PioProgramCatalog(program_id/version/hash/instruction_count/resource_claim)
-  -> System Pack selects allowed persona/program_id
-  -> PIO owner stops SM/DMA, validates claim, loads program, publishes snapshot
-```
-
-- `.pio` 源码生成的程序属于 A/B firmware image，受同一 image hash/signature/rollback 保护。
-- catalog 声明 PIO block、instruction count、side-set/pin/DMA/resource compatibility；
-  DeploymentGate 在激活 System Pack 前验证，不能等到 RUN 中才发现 instruction memory 冲突。
-- System Pack/RefMem 只传播 program/persona ID、version、resource claim 和 active evidence，
-  不传播任意 PIO 指令字。
-- persona 切换仍由对应 PIO owner 在 SM/DMA 停止和安全 IO 状态下执行；FlashTransactionAO
-  不参与每次切换，因为程序已经是只读 firmware 的一部分。
-- 若未来确需独立更新 PIO bytecode，必须新增 signed executable-object manifest、ABI、静态
-  verifier、资源/IO sandbox 和 rollback 契约；在此之前 BlobStore 拒绝 executable object。
-
-## 九、模式、温度与资源门禁
-
-| 条件 | read | new erase/program | 当前不可中断操作 |
+| 条件 | read | 新 erase/program | 原子操作中的处理 |
 |---|---|---|---|
-| BOOT | map/BCB/image verify | BootFlashService constrained | 完成当前 Boot record 原子步骤 |
+| BOOT | map/BCB/image verify | BootFlashService constrained | 完成当前 record 原子步骤 |
 | MAINTENANCE/OTA | yes | policy 允许 | 分片完成后可 abort |
-| RUN | bounded XIP/read | no | 完成当前 page/sector 后关闭 gate |
-| CALIBRATION training | evidence read only | no | 完成当前 page/sector 后报告 policy violation |
-| thermal warning | yes | policy 可降速/暂停 | 完成原子步骤 |
-| thermal critical/sensor invalid | yes | no | 完成原子步骤并 fail closed |
-| FAULT | diagnostics read | 仅明确 recovery policy | 不开始普通 GC/OTA/config write |
+| RUN | bounded read/XIP | no | 完成 page/sector 后关闭 gate |
+| Calibration training | evidence read only | no | 完成原子步骤并报告 violation |
+| thermal warning | yes | 降速或暂停 | 完成原子步骤 |
+| thermal critical/sensor invalid | yes | no | 完成原子步骤后 fail closed |
+| FAULT | diagnostics | 仅明确 Recovery policy | 不开始普通 GC/OTA/config write |
 
-资源申请顺序固定，避免锁顺序反转：system mode token -> partition lease -> Flash resource ->
-core1 park -> raw operation。TDMA/SD/USB transport 资源在向 FlashTransactionAO 提交 immutable
-buffer 后应尽快释放，不能在等待 sector erase 时长期持有传输资源。
+资源申请顺序固定为 system mode token -> partition lease -> Flash resource -> core1 park -> raw
+operation。transport 提交 immutable buffer 后应尽快释放 USB/SD/TDMA 资源，不能持锁等待 erase。
 
-## 十、诊断与 SCPI 投影
+### 8.2 SCPI 投影
 
-建议维护命令：
+维护面只读 owner Vector：
 
 ```text
-SYSTem:FLASH:INFO?             # geometry/map/version/capability snapshot
-SYSTem:FLASH:MAP? [partition]  # partition permission and bounds snapshot
-SYSTem:FLASH:JOB?              # FlashTransactionVector
-SYSTem:FLASH:STORE?            # NVS/blob/FCB generation and GC state
-SYSTem:FLASH:WEAR?             # erase high-watermark and bad/torn counters
-SYSTem:OTA:STREAM:STATus?      # session/durable offset/credit/transport
-SYSTem:OTA:STREAM:RESume?      # read-only resume token summary
+SYSTem:FLASH:INFO?
+SYSTem:FLASH:MAP? [partition]
+SYSTem:FLASH:JOB?
+SYSTem:FLASH:STORE?
+SYSTem:FLASH:WEAR?
+SYSTem:OTA:STREAM:STATus?
+SYSTem:OTA:STREAM:RESume?
 ```
 
-release 固件不提供任意 offset erase/program 命令。validation 固件的 destructive HIL 命令必须
-编译隔离、限制在 scratch/test lease，并通过 release gate 确认命令字符串不存在。
+release 固件不提供任意 offset erase/program。validation destructive command 必须编译隔离、
+限制在 Scratch lease，并由 release string scan 证明不存在。
 
-## 十一、验证门禁
+### 8.3 验证矩阵
 
-1. 静态 map：所有分区对齐、不重叠、表尾匹配物理容量；linker/factory/tool 地址由同源生成。
-2. owner：App 中除 FlashTransactionAO/Boot adapter 外，扫描不到裸 erase/program 调用。
-3. 双核：每次 write 都有 core1 park ACK；timeout 不执行 raw operation；恢复后 core1 alive。
-4. 掉电：BCB、NVS、blob ref、FCB、OTA resume 的每个 commit 边界均做断电/复位注入。
-5. 启动：A->B、B->A、未确认回滚、A/B 损坏进 Recovery、BCB 双 lane 损坏 fail closed。
-6. 高地址：在 scratch/test lease 验证超过旧兼容边界的 erase/program/readback，不碰 boot/image/NVS。
-7. stream：乱序、重复、丢帧、CRC 错、credit=0、断点续传、identity/generation/hash mismatch。
-8. TDMA：OTA bulk 不能造成 VDC/RefMem deadline miss、window overrun 或 calibration evidence 污染。
-9. wear：循环配置/校准/事件写入并验证 sector rotation、GC、寿命计数和最后有效记录保留。
-10. release：签名、anti-rollback、factory image、SBOM/key policy、map manifest 和报告归档齐全。
+| Gate | 必须证明 |
+|---|---|
+| Map | 对齐、无重叠、表尾匹配 geometry；linker/factory/tool 同源。 |
+| Owner | App 除 FlashTransactionAO/Boot adapter 外无裸 erase/program 调用。 |
+| Dual-core | 每次写有 park ACK；timeout 不写；release 后 core1 alive。 |
+| Power-cut | BCB/NVS/blob ref/FCB/journal 每个 commit 边界都有旧/新确定结果。 |
+| Boot | A->B、B->A、未确认回滚、A/B 损坏进 Recovery、BCB 损坏 fail closed。 |
+| High address | validation lease 验证超过旧兼容边界的 erase/program/readback，不碰产品区域。 |
+| Stream | 乱序、重复、丢帧、CRC、zero credit、resume、identity/hash/generation mismatch。 |
+| Realtime | OTA bulk 不新增 VDC/RefMem deadline miss、window overrun 或 Calibration 污染。 |
+| Wear | sector rotation、GC、write frequency、温度 policy 和最后有效记录。 |
+| Release | image signature、anti-rollback、factory/recovery artifact、SBOM/key policy 和报告齐全。 |
 
-## 十二、未来产品应用映射
+只有 host test、build/link gate 和相应 COM8/两板/四板 HIL 都具备证据，registry 契约才可从
+`pending` 进入 `active`。状态变化必须另做 C11 交叉审核。
 
-`docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md` 中的应用不会共享一套任意读写目录，而是复用
-稳定的 Store API 和 manifest/schema。RP2350 的 16 MiB v2 只是 reference map；STM32H7、
-i.MX RT、Linux/PRU、FPGA/Zynq 等平台可以使用不同 geometry 和 offset，但必须保持语义
-Partition ID、事务 completion、image trust 和 store record 契约。
+## 九、迁移与发布边界
 
-| 未来场景 | 板载 Flash 保存 | RAM/SD/外部数据面保存 | 关键门禁 |
-|---|---|---|---|
-| 分布式仪表 | 仪器 identity、能力、校准证书摘要、active deployment ref。 | 完整校准报告、波形、截图、长日志。 | 校准证书签名/schema 与硬件 identity 绑定。 |
-| 运动控制 | 轴 identity、安全限制、零点/传感器校准、已验证 active trajectory ref。 | 实时轨迹 buffer、历史曲线、完整任务库。 | Flash 不进入 servo loop；安全限制更新需维护模式和权限。 |
-| 电机控制 | 功率级 profile、传感器/电机参数、保护阈值、固件/算法版本。 | 高频 ADC/PWM trace、示波记录。 | 参数必须有 hardware compatibility 和 rollback。 |
-| 分布式测量/DAQ | 通道 profile、timestamp dictionary schema、压缩/触发配置、故障摘要。 | 原始采样流、批量数据、完整 evidence/report。 | 数据流背压不能诱发实时 Flash 写。 |
-| ATE/产测 | 工站 identity、fixture calibration、权限/许可、active recipe ref、任务断点摘要。 | 批次报告、产品序列明细、附件和审计日志。 | 断点与 recipe/package generation 绑定，禁止跨批次误续。 |
-| 分布式 RF | 阵列/通道校准摘要、active beam/scan profile ref、security counter。 | 大型阵列表、扫描数据、完整质量报告。 | active ref 原子切换，旧固件拒绝未知 required schema。 |
-| 开源 reference | 示例 System Pack、capability manifest、兼容性 golden vectors。 | simulator/visualizer 数据集和构建产物。 | 开发 key 与 release key/产品机密完全分离。 |
+### 9.1 v1 -> v2
 
-### 12.1 Deployment Capsule
+1. 保存当前发布 artifact 和 v1 BOOTSEL 回退路径。
+2. 读取并归档 identity、Product Config、OTA metadata、传感器和校准/报告索引。
+3. 用 factory tool 明确选择目标板，执行 full erase、program、readback verify。
+4. 初始化 map manifest、BCB、Slot A、Recovery 和空 store baseline。
+5. 运行高地址 Scratch、Product NVS、Calibration empty/default、A/B/revert/Recovery 验证。
+6. 恢复 TDMA/Calibration persona，证明新 Flash 路径未破坏 PIO/DMA/IO owner。
 
-板载 `SYSTEM_PACK` 保存“当前节点启动/离线运行所需的最小已验证子集”，称为 Deployment
-Capsule。它可以包含 ApplicationMap、role/persona 选择、profile、mission 索引、calibration
-引用、capability requirements 和 schema，但不保存完整历史库。
+App 不自动识别并搬迁旧 offset；未知 map 进入 Recovery。迁移报告记录每个 region hash、旧/新
+identity、Boot result 和可恢复 artifact。
 
-当前安全模型下，role/persona/AO/FB 的原生代码静态编译进签名 firmware；Deployment
-Capsule 只选择允许的实现和参数。不得从普通 System Pack blob 动态加载任意机器码。若未来
-需要可执行插件，必须另立 signed module ABI、MPU/权限、资源 claim、回滚和安全评审契约，
-不能把数据 blob loader 直接扩成代码 loader。
+### 9.2 发布完成条件
 
-### 12.2 容量与平台 profile
+- FlashMap 数字只有一个机器可读来源。
+- App/Boot writer 和依赖边界可由 link/scan gate 证明。
+- Direct A/B、Recovery、signature、anti-rollback 和 BCB 掉电闭环完成。
+- Product/Calibration/VDC/RefMem/Deployment/Fault store 有 torn/GC/wear 证据。
+- USB/SD 本地 OTA 与 TDMA 两板/四板分发均使用同一 stream 核心。
+- release 固件不含 destructive command、dev key 或 v1 隐式 offset 假设。
 
-- reference map 的 System Pack 区只承载 active capsule；完整 pack/history 继续使用 SD。
-- 大型轨迹、波形、阵列表或模型超出 active capsule 预算时，必须走 SD/外部存储或下一版
-  geometry profile，不能挤占 BCB、Calibration、Fault 或 OTA 安全边界。
-- map manifest 声明 geometry profile 和 store capability。System Pack 在 checkout 前验证
-  required capacity/capability；不足时 fail closed，不做运行时隐式重分区。
-- 跨平台 portable 层保持 `FlashTransactionPort/BootControlStore/FlashNVS/BlobStore/FCB`
-  契约，平台 port 提供 alignment、erase/program、cache/XIP/coherency 和 protection 能力。
+## 十、未来产品与平台扩展
 
-## 十三、明确不做
+### 10.1 Deployment Capsule
 
-- 不在本轮引入完整 OpenHarmony DSoftBus、网络发现、IPC 或动态路由。
+`SYSTEM_PACK` 只保存节点启动和离线运行所需的最小 verified subset：ApplicationMap、role/
+persona、profile、mission index、Calibration ref、capability requirements 和 schema。完整 pack、
+历史、波形和报告留在 SD/外部系统。
+
+AO/FB/persona 原生代码静态编译进签名 firmware；Capsule 只选择实现和参数。动态原生插件必须
+另立 signed module ABI、MPU/permission、resource claim 和 rollback 架构。
+
+### 10.2 应用数据放置
+
+| 场景 | 板载 Flash | RAM/SD/外部数据面 |
+|---|---|---|
+| 分布式仪表 | identity、capability、calibration summary、active deployment ref | 完整校准报告、波形、截图、长日志 |
+| 运动/电机控制 | 安全限制、零点/传感器/功率级 profile、active mission ref | 实时轨迹、ADC/PWM trace、任务库 |
+| DAQ/分布式测量 | channel/timestamp/compression/trigger profile | raw sample、批量数据、完整 evidence |
+| ATE/产测 | station/fixture identity、permission、recipe ref、受控 checkpoint | 批次明细、附件、审计报告 |
+| 分布式 RF | calibration summary、beam/scan ref、security counter | 大型阵列表、扫描数据、质量报告 |
+| 开源 reference | 示例 capsule、capability manifest、golden vectors | simulator dataset 和构建产物 |
+
+### 10.3 跨平台语义
+
+RP2350 16 MiB map 是 reference geometry。STM32H7、i.MX RT、Linux/PRU、FPGA/Zynq 可使用
+不同 offset 和介质，但保持 Partition ID、transaction completion、image trust、Store API 和
+record schema 语义。容量不足时 fail closed 或选择另一 geometry profile，不运行时隐式重分区。
+
+## 十一、参考取舍与明确不做
+
+| 来源 | 借鉴 | 不照搬 |
+|---|---|---|
+| MCUboot | signed image/TLV、security counter、test/confirm/revert | 完整 trailer/swap 机制 |
+| Zephyr flash map/NVS/FCB | 单一分区词汇、append/rotation/torn recovery、循环事件 | Zephyr device model |
+| ESP-IDF OTA | 冗余 boot control、confirm/revert | ESP32 partition/API |
+| littlefs | 仅在确有目录型 blob 需求时评估 | BCB、critical KV、Calibration acceptance |
+| OpenHarmony DSoftBus | capability/session/lane/QoS/stream 理念 | 动态发现、路由、IPC、无感切换 |
+
+明确不做：
+
+- 不让业务域、SCPI 或 transport 绕过 FlashTransactionAO。
 - 不让 littlefs/NVS/FCB 成为 Bootloader 依赖。
-- 不把高频采样、完整 trace、文本日志或用户任意文件长期写入片上 Flash。
-- 不让 OTA/Calibration/Config 为方便而绕过 FlashTransactionAO。
-- 不兼容运行时自动识别并迁移旧分区；迁移由 factory 工具和可恢复步骤完成。
-- 不在没有签名/anti-rollback 设计闭环前把 TDMA 多板 OTA称为量产安全升级。
-- 不让未来应用把 System Pack 数据 blob 当作未经隔离的动态原生插件执行。
+- 不把高频采样、完整 trace、文本日志或用户任意文件写入板载 Flash。
+- 不缓存完整 A+B package 到每个 target。
+- 不在线猜测或迁移未知旧 map。
+- 不在签名、anti-rollback、resume 和多板 HIL 完成前宣称 TDMA OTA 可量产。
+- 不把 System Pack data blob 当作可执行插件。

@@ -13,8 +13,8 @@ Last updated: 2026-08-21
 | 当前路径 | 定位 | 使用规则 |
 |---|---|
 | `HAOFV_ARCHITECTURE.md` | HAOFV 顶层架构入口，定义组件约束、层次逻辑和跨域 owner。 | 最高层架构真相；不写具体 PCB pin map。 |
-| `HAOFV_FLASH_ARCHITECTURE.md` | 16 MiB 板载 Flash、Boot/Direct A/B、NVS/blob/FCB、统一 OTA stream 和 TDMA OTA 的跨域架构。 | Flash map、唯一写 owner、掉电一致性和启动链 canonical；当前 v1 实现不得冒充 v2 已部署。 |
-| `HAOFV_FLASH_TODO.md` | Flash v2 从事实冻结到 COM8、两板、四板 HIL 的实施待办。 | 按依赖、产物、验收、回退和发布门禁推进；不记录无证据的完成状态。 |
+| `HAOFV_FLASH_ARCHITECTURE.md` | 16 MiB 板载 Flash、Boot/Direct A/B、NVS/blob/FCB、统一 OTA stream 和 TDMA OTA 的跨域架构。 | 先区分当前 4 MiB 兼容实现与 v2 目标，再定义 owner、map、数据、Boot、OTA、迁移和验证。 |
+| `HAOFV_FLASH_TODO.md` | Flash v2 M0-M6 依赖工作板。 | Map/owner -> Stores/Boot -> 本地 OTA/COM8 -> TDMA OTA -> 量产门禁；每个里程碑有退出证据。 |
 | `HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，记录 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 | 架构偏差和未建功能域的独立追踪入口；不记录普通开发流水账。 |
 | `ARCH_T2_RESERVATION_ARCHITECTURE.md` | T2 预约与分布式时钟分发跨域主线。 | 定义训练、VDC 映射、预约分发、READY/fence、本地执行和硬件 T2 completion；细项下沉到各主域。 |
 | `../tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA Foundation 内部基础主域架构。 | TDMA 主域 canonical 入口；定义上/下行 runtime、payload registry、adapter、ring completion evidence 和 HAOFV system node 边界。 |

@@ -13,7 +13,7 @@ Last updated: 2026-08-21
 | 当前路径 | 定位 |
 |---|---|
 | `../arch/HAOFV_FLASH_ARCHITECTURE.md` | 板载 Flash、Boot/Direct A/B、统一 OTA stream 和 TDMA OTA 的当前跨域 canonical |
-| `../arch/HAOFV_FLASH_TODO.md` | Flash/OTA v2 迁移、验证和发布待办 |
+| `../arch/HAOFV_FLASH_TODO.md` | Flash/OTA v2 M0-M6 依赖工作板、HIL 证据和发布门禁 |
 | `OTA_SYSTEM_DESIGN.md` | v1 OTA 实现与历史设计参考；不再是 Flash map 事实源 |
 | `OTA_TODO.md` | OTA 产品化待办 |
 | `OTA_AB_SWITCH_DESIGN.md` | Direct A/B 切换设计 |
