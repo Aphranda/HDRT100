@@ -433,13 +433,32 @@ static void test_large_payload_is_fail_closed_until_immutable_provider(void)
     init_context(&context);
     assert(flash_transaction_fb_set_active_app_partition(
         &context, FLASH_COMPAT_MAP_APP_A_ID));
-    uint8_t payload[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES * 2u] = {0};
+    uint8_t payload[FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE +
+                    FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES] = {0};
     flash_transaction_request_t request = program_request(payload);
     request.length = sizeof(payload);
     flash_transaction_vector_t vector = run_request(&context, &request);
     assert_failed(vector, FLASH_TRANSACTION_ERROR_PROVIDER);
     assert(s_program_count == 0u);
     assert(s_erase_count == 0u);
+}
+
+static void test_two_page_ota_payload_is_owned(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    uint8_t payload[FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE];
+    memset(payload, 0x5Au, sizeof(payload));
+    flash_transaction_request_t request = program_request(payload);
+    request.length = sizeof(payload);
+    assert(flash_transaction_fb_submit(&context, &request));
+    payload[0] = 0xE7u;
+    const flash_transaction_vector_t vector = run_to_terminal(&context);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(context.payload_owned);
+    assert(s_last_program_first_byte == 0x5Au);
 }
 
 static void test_terminal_completion_is_stable_and_duplicate_abort_is_rejected(void)
@@ -595,6 +614,7 @@ int main(void)
     test_thermal_and_diagnostics_gates_are_fail_closed();
     test_policy_reason_hook_preserves_resource_gates();
     test_large_payload_is_fail_closed_until_immutable_provider();
+    test_two_page_ota_payload_is_owned();
     test_terminal_completion_is_stable_and_duplicate_abort_is_rejected();
     test_product_config_policy_and_owned_payload();
     test_metadata_policy();

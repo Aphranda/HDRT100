@@ -3,6 +3,9 @@
 
 #include "flash_transaction.h"
 
+#define FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE \
+    (FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES * 2u)
+
 typedef struct {
     bool (*policy_allows)(uint32_t requester);
     uint32_t (*policy_check)(uint32_t requester, uint32_t *temperature_flags);
@@ -24,7 +27,7 @@ typedef struct {
 typedef struct {
     flash_transaction_platform_t platform;
     flash_transaction_request_t request;
-    uint8_t owned_payload[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES];
+    uint8_t owned_payload[FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE];
     flash_transaction_vector_t vector;
     uint32_t active_app_partition_id;
     uint32_t absolute_offset;
