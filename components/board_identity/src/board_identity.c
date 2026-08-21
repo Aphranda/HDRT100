@@ -32,7 +32,7 @@ uint8_t board_identity_get_no(void)
 
 bool board_identity_set_no(uint32_t logical_no)
 {
-    if (logical_no == 0u || logical_no > BOARD_IDENTITY_MAX_NODES) {
+    if (logical_no > BOARD_IDENTITY_MAX_NODES) {
         return false;
     }
     s_logical_no = (uint8_t)logical_no;

@@ -191,7 +191,7 @@ uint8_t product_config_get_board_no(void)
 
 bool product_config_set_board_no(uint32_t board_no)
 {
-    if (board_no == 0u || !product_config_board_no_is_valid(board_no)) {
+    if (!product_config_board_no_is_valid(board_no)) {
         return false;
     }
 
