@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -128,6 +128,7 @@ docs/
 | `tdma/README.md` | TDMA 基础件主域 README。 |
 | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件架构，定义上/下行 TDMA、payload registry、adapter、ring runtime 和 HAOFV 边界。 |
 | `calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` | 校准域维护多板 SPI CLK 训练、双向测量、residence/bias/path-delay 证据和 EtherCAT DC 风格门禁。 |
+| `calibration/CALIBRATION_RING_AUTOCALIBRATION_PLAN.md` | 校准域 P0 环序搜索、P1--P3 板内单指令自校准、SCPI 候选接口、状态机和实施待办。 |
 | `calibration/CALIBRATION_DOMAIN_TODO.md` | 校准域分阶段待办、跨域边界、验收门禁和八节点扩展准备。 |
 | `calibration/CALIBRATION_TASK_PROGRESS.md` | 校准域方案、粗捕获、编码测距和双向测距的任务记录与证据规则。 |
 | `tdma/TDMA_DOMAIN_TODO.md` | TDMA 基础件待办，跟踪 runtime、reliability、system node、adapter 和 HIL 验收。 |
