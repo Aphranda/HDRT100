@@ -28,7 +28,7 @@ Last updated: 2026-08-22
 | M0-02 FlashMap source/schema | 完成 | v1 compatibility/v2 target 双版本 source、生成物、live consumer、artifact/drift gate | 后续 map 变更必须同时通过 freshness 与 consumer gate。 |
 | M1-01 Geometry/Raw HAL | 进行中 | 16 MiB geometry、overflow-safe range、host boundary tests、COM8 v1 OTA/lockout HIL | raw write header 只对 BootFlashService/FlashTransaction target 可见。 |
 | M1-02 permission view | 进行中 | generated X-macro、纯算法服务、版本化 live consumer、host 边界测试、COM8 OTA/只读权限闭环 | 真实 writer 接入、v2 factory 部署与 C11 激活审核。 |
-| M1-03 FlashTransactionAO | 进行中 | one-deep queue/FB/Vector、OTA image 唯一 transaction owner、host fault tests、COM8 双次 OTA HIL | metadata/Product Config/Boot writer、异步 completion、lease/buffer、thermal gate 与 durable reset 语义。 |
+| M1-03 FlashTransactionAO | 进行中 | one-deep queue/FB/Vector、OTA image 与 Product Config writer、owned page snapshot、host fault tests、COM8 OTA 与 Product NVS 重启闭环 | metadata/Boot writer、异步 completion、lease/refcount、thermal gate 与 durable reset 语义。 |
 
 当前 live Bootloader、App linker、factory UF2、OTA partition 和 packager 均从 generated
 `v1_compat` artifact 取得既有低 4 MiB 兼容布局，不再各自手写地址；
@@ -36,6 +36,64 @@ Last updated: 2026-08-22
 permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootloader 本轮没有重刷。
 
 ## 任务记录
+
+### FLASH-TASK-20260822-005 - Product Config intent 迁移与 COM8 持久化闭环
+
+- 状态：M1-03 进行中；Product Config App writer 已迁移，OTA metadata、Boot writer 和 M2-02
+  双副本/NVS 语义仍未完成。
+- 日期：2026-08-22
+- 任务目标：
+  - 在保持 deployed `v1_compat` 与单板回退路径不变的前提下，把 Product Config 的 App
+    erase/program 收敛到 `FlashTransactionAO`，不让业务域直接调用 raw write。
+  - 固定一页小载荷的 provider 生命周期，并用 COM8 的 SCPI 写入、重启和回读证明 Product NVS
+    intent 的 committed completion。
+- 完成内容：
+  - `FlashTransactionFB` 增加固定 program-page owned payload；submit 时复制调用方缓冲区，后续
+    provider 修改不会改变实际写入内容。长度、分区、alignment 和 requester policy 继续 fail closed。
+  - 新增 `PRODUCT_CONFIG` requester policy：只允许 generated
+    `FLASH_COMPAT_MAP_PRODUCT_NVS_ID` 的 sector erase 与 page program；不依赖 active App slot。
+  - `ProductConfigAO` 的 sector erase、page program 均通过 transaction execute API；readback 继续
+    使用 raw read view。raw inventory 已将 Product Config 归类为 read-only reader，写 owner 收敛到
+    `FlashTransactionAO`。
+  - 逻辑板号 `0` 与代码已有的“未分配”默认语义对称：允许 Product Config 和 runtime identity
+    清除板号，便于多板拓扑解绑和验证后恢复用户状态。
+- HAOFV 边界：
+  - 本切片仍是同步迁移桥，不宣称 M2-02 Product NVS 的 append/rotation、双副本、GC、wear 或
+    power-cut atomicity；现有 single-sector rewrite 技术债保留并登记在 TODO。
+  - 没有迁移 OTA metadata；App/Boot 共享 metadata raw writer 仍待独立 App transaction 与
+    BootFlashService 边界，未向 Boot target 引入 App AO/RTOS 依赖。
+  - v2 map 仍为 `target_not_deployed`，未写高地址、未重刷 Bootloader、未新增任意地址 SCPI。
+- 验证结果（以下均为本次构建/HIL 快照，非长期事实源）：
+  - FlashTransaction host tests、全量 host runner `30/30`、Flash inventory、release consumer、
+    release check、RTOS+双核构建和文档门禁通过；定向文档/Flash Python 为 `18/18`。
+  - 代码提交 `6252049 feat(flash): route product config through transaction owner` 和
+    `6878ca9 fix(product): allow clearing logical board number` 已推送；release package build
+    id 为 `20260821171708`。
+  - COM8 `839E1AE79EA20F31` 先由 build `20260821171038` 写入 Product Config `BOARD:NO 7`，
+    transaction Vector 快照为 requester `PRODUCT_CONFIG`、Product NVS partition、program、
+    `256/256` processed/verified、completion committed、error `0`；重启后板号仍为 `7`。
+  - 随后由 build `20260821171708` 完成 OTA/Boot/commit，再写入 `BOARD:NO 0`；transaction
+    Vector 快照仍为 Product Config/Product NVS、`256/256` processed/verified、committed；再次
+    软件重启后 `BOARD:NO?` 返回 `0`，`SYSTem:ERRor?` 清空为 `0,"No error"`。
+  - 最终板端传感器快照：板温 `31.472°C`、RP2350 内温 `36.403°C`、current frontend healthy，
+    nominal current `89 mA`，`current_calibrated=0`；这些是诊断快照，不是校准计量结论。
+- 板端证据与回退：
+  - 原始 transcript/report 位于 `build/product_config_transaction_boot_COM8/`、
+    `build/product_config_transaction_pre_reboot_COM8.txt`、`build/product_config_transaction_post_write_COM8.txt`、
+    `build/product_config_transaction_after_reboot_COM8.txt`、`build/product_config_clear_boot_COM8/`、
+    `build/product_config_clear_write_COM8.txt` 和 `build/product_config_clear_after_reboot_COM8.txt`。
+  - 板上最终保持原先未分配板号 `0`、active slot 1、build `20260821171708`；v1 Direct A/B 与
+    BOOTSEL factory recovery 仍可回退。M0-05 固定回退 runbook 尚未完成。
+- 还需完成：
+  - Product NVS M2-02：versioned key、同值不写、append/rotation、GC、wear/power-cut fixtures
+    和重启 HIL；本切片不把 sector rewrite 标记完成。
+  - OTA metadata App/Boot backend split、BootFlashService、raw write header 可见性 gate；随后
+    才能迁移 metadata writer。
+  - M1-04 thermal/mode gate、真正 owner 驱动的 core1 park、异步 completion、large immutable
+    provider/refcount 与跨 reset durable completion。
+- 下一步：
+  - 先建立 App metadata transaction backend 与 BootFlashService 的最小边界，保持 Boot target
+    不依赖 App FlashTransactionAO；继续禁止 v2 高地址在线写入。
 
 ### FLASH-TASK-20260822-004 - FlashTransactionAO 首轮 OTA writer 与 COM8 双次闭环
 

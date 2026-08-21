@@ -29,7 +29,7 @@ v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在�
 | v2 map source/schema 与 geometry gate | `[~]` | `config/flash_map_v2.json`、`config/flash_map_v1_compat.json`、`config/flash_map_gen/`、commit `315dc6f`/`10fd545`/`a211188` | v2 factory 部署与高地址 HIL 尚未完成。 |
 | Flash v2 owner/map/store/Boot/OTA 语义已形成 canonical | `[x]` | `HAOFV_FLASH_ARCHITECTURE.md` | 7 条目标契约仍为 `pending`。 |
 | Direct A/B 为发布默认 | `[x]` | CMake preset/release check/当前 Bootloader | `COPY_TO_ACTIVE` 兼容分支尚未从 v2 清除。 |
-| core1 Flash park/ACK 基础存在 | `[x]` | `drv_flash_lockout.*`、FlashTransaction HIL | OTA image 已收敛到 FlashTransactionAO；Boot/metadata/Product Config 仍待迁移。 |
+| core1 Flash park/ACK 基础存在 | `[x]` | `drv_flash_lockout.*`、FlashTransaction HIL | OTA image 与 Product Config 已收敛到 FlashTransactionAO；Boot/metadata 仍待迁移。 |
 | USB/SD OTA 基础存在 | `[x]` | `ota_manager`、host tools、历史 OTA 验证 | 尚未共用 v2 stream/journal/Flash sink。 |
 | TDMA reliable bulk 资源基础存在 | `[x]` | `tdma_profile.h`、traffic scheduler | 尚无 OTA wire/session/durable ACK。 |
 | RefMem registry、VDC runtime、PIO persona 基础存在 | `[x]` | 对应组件与域文档 | 尚无生产持久化与签名 PIO catalog。 |
@@ -50,7 +50,7 @@ M0 契约/迁移输入
 
 M2 和 M3 可在 M1 稳定后并行，但 M4 必须同时依赖 M2/M3；M5 不得绕过本地 OTA 闭环直接做
 多板分发。M0-01/M0-02 已完成，M1-01 已完成 geometry/range 子项；M1-02 已完成纯算法、
-generated permission view、版本化 live consumer 和只读板端验证；M1-03 已建立 transaction owner
+generated permission view、版本化 live consumer 和只读板端验证；M1-03 已建立 transaction owner，并已迁移 OTA image 与 Product Config 首个 App writer
 并迁移 OTA image 首个生产 writer，同时保持 v2 只能由 factory full erase/reflash 部署。
 
 ## 二、里程碑总览
@@ -191,7 +191,8 @@ RTOS+双核构建和 COM8 双次 OTA/Vector HIL 均通过。该项保持进行�
 
 - [ ] 小 payload 复制入固定 pool；大 payload 使用 generation/refcount immutable provider。
 - [ ] queue full、producer reset、duplicate completion、abort during page/sector 均有单测。
-- [~] OTA image 已迁移；metadata、Product Config 等 App raw writer 仍待迁移到 intent API。
+- [~] OTA image 与 Product Config 已迁移到 intent API；metadata App writer、Boot writer 和 M2-02
+  Product NVS store 仍待完成。当前 Product Config 仍是 single-sector rewrite，不得视为 atomic NVS。
 - [ ] link/scan gate 证明 App raw erase/program 只被 FlashTransaction target 引用。
 
 ### M1-06 高地址 Scratch 验证
@@ -220,7 +221,8 @@ RTOS+双核构建和 COM8 双次 OTA/Vector HIL 均通过。该项保持进行�
 
 ### M2-02 Product NVS
 
-- [ ] USB mode/board number/identity/capability/permission 使用 versioned key 与默认策略。
+- [~] USB mode/board number 已有 Product Config intent 与默认策略；versioned key/namespace、identity/
+  capability/permission 记录仍待 Store core。
 - [ ] 同值写不产生 record；删除固定 sector overwrite。
 - [ ] v1 导入只能由 factory tool 显式执行，App 不猜测旧布局。
 - [ ] 循环写/复位/GC/erase distribution/wear HIL 通过。
