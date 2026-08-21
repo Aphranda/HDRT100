@@ -93,6 +93,11 @@ def validate_inventory(root: Path, inventory: dict[str, Any]) -> dict[str, Any]:
         operations = sorted(caller["operations"])
         if len(operations) != len(set(operations)) or any(item not in {"read", "erase", "program", "xip_ptr"} for item in operations):
             raise InventoryError(f"{relative} has invalid operations")
+        if "app" in caller["contexts"] and any(
+                item in {"erase", "program"} for item in operations):
+            if caller["owner"] != "FlashTransactionAO" or caller["target_api"] != "FlashTransactionAO":
+                raise InventoryError(
+                    f"App raw write must be owned by FlashTransactionAO: {relative}")
         allowlist[relative] = {**caller, "operations": operations}
 
     missing = sorted(set(allowlist) - set(scanned))

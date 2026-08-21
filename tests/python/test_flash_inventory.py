@@ -47,7 +47,7 @@ def test_inventory_rejects_operation_drift(tmp_path):
     inventory = base_inventory()
     inventory["raw_callers"] = [{
         "file": "application/writer.c",
-        "owner": "OwnerAO",
+        "owner": "FlashTransactionAO",
         "contexts": ["app"],
         "core": "core0",
         "modes": ["idle"],
@@ -58,6 +58,27 @@ def test_inventory_rejects_operation_drift(tmp_path):
         "target_api": "FlashTransactionAO",
     }]
     with pytest.raises(InventoryError, match="operation drift"):
+        validate_inventory(tmp_path, inventory)
+
+
+def test_inventory_rejects_app_raw_write_outside_transaction_owner(tmp_path):
+    source = tmp_path / "application" / "writer.c"
+    source.parent.mkdir(parents=True)
+    source.write_text("void f(void) { drv_flash_program(0, 0, 256); }\n", encoding="utf-8")
+    inventory = base_inventory()
+    inventory["raw_callers"] = [{
+        "file": "application/writer.c",
+        "owner": "ProductConfigAO",
+        "contexts": ["app"],
+        "core": "core0",
+        "modes": ["idle"],
+        "partitions": ["product_nvs"],
+        "operations": ["program"],
+        "write_frequency": "operator_configuration_change",
+        "power_cut_semantics": "rewrite",
+        "target_api": "FlashNVS",
+    }]
+    with pytest.raises(InventoryError, match="App raw write"):
         validate_inventory(tmp_path, inventory)
 
 
