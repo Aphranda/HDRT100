@@ -117,8 +117,11 @@ permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootl
 - 验证结果：
   - geometry host tests、FlashTransaction host tests、release 与 RTOS+双核构建、Flash inventory
     `6` callers、consumer/release gate 均通过；代码提交 `9892768 refactor(flash): hide raw write API behind owner header` 已推送。
-  - 当前无行为变化，COM8 仍使用上一已验证包的 v1 Direct A/B；下一次 OTA 将以新 package 复核
-    owner header 变更后的整机启动和 metadata transaction。
+  - COM8 `839E1AE79EA20F31` 使用新 package build `20260821173547` 完成 OTA/Boot/commit；最终
+    active slot 1、`BOARD:NO?=0`、错误队列为空。metadata transaction Vector 仍为 requester `2`、
+    partition `3`、program、`256/256` verified/committed、lockout `2/2`。
+  - 同次板端诊断快照为板温 `31.633°C`、RP2350 内温 `36.403°C`、current frontend healthy、
+    nominal current `89 mA`、`current_calibrated=0`；仅作为诊断快照。
 - 还需完成：
   - link-level symbol visibility、App metadata/Product Config power-cut fixtures、lease/refcount、
     duplicate completion、abort during raw page/sector 和 M1-04 thermal/mode gate。
