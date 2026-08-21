@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://haofv.local/schema/flash-map-v1.json",
+  "title": "HAOFV FlashMap source",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "map_version", "deployment_state", "geometry", "compatibility", "partitions"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "map_version": {"type": "integer", "minimum": 1},
+    "deployment_state": {"enum": ["target_not_deployed", "factory_validation", "deployed"]},
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "total_size", "erase_size", "program_size", "xip_base"],
+      "properties": {
+        "profile": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+        "total_size": {"$ref": "#/$defs/number"},
+        "erase_size": {"$ref": "#/$defs/number"},
+        "program_size": {"$ref": "#/$defs/number"},
+        "xip_base": {"$ref": "#/$defs/number"}
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["predecessor_map_versions", "migration", "unknown_map_policy", "reserved_gap_policy"],
+      "properties": {
+        "predecessor_map_versions": {"type": "array", "items": {"type": "integer", "minimum": 1}, "uniqueItems": true},
+        "migration": {"type": "string"},
+        "unknown_map_policy": {"const": "fail_closed"},
+        "reserved_gap_policy": {"enum": ["forbid", "explicit_reserved_partition"]}
+      }
+    },
+    "partitions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/partition"}
+    }
+  },
+  "$defs": {
+    "number": {"oneOf": [{"type": "integer", "minimum": 0}, {"type": "string", "pattern": "^0x[0-9A-Fa-f]+$"}]},
+    "permission": {"enum": ["read", "write", "execute"]},
+    "partition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "offset", "size", "alignment", "executable", "store_type", "update_policy", "permissions"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+        "offset": {"$ref": "#/$defs/number"},
+        "size": {"$ref": "#/$defs/number"},
+        "alignment": {"$ref": "#/$defs/number"},
+        "executable": {"type": "boolean"},
+        "store_type": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "update_policy": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "permissions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["boot", "app", "factory"],
+          "properties": {
+            "boot": {"type": "array", "items": {"$ref": "#/$defs/permission"}, "uniqueItems": true},
+            "app": {"type": "array", "items": {"$ref": "#/$defs/permission"}, "uniqueItems": true},
+            "factory": {"type": "array", "items": {"$ref": "#/$defs/permission"}, "uniqueItems": true}
+          }
+        }
+      }
+    }
+  }
+}

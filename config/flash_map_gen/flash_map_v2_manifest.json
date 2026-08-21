@@ -1,0 +1,326 @@
+{
+  "compatibility": {
+    "migration": "factory_full_erase_reflash",
+    "predecessor_map_versions": [
+      1
+    ],
+    "reserved_gap_policy": "forbid",
+    "unknown_map_policy": "fail_closed"
+  },
+  "deployment_state": "target_not_deployed",
+  "geometry": {
+    "erase_size": 4096,
+    "profile": "w25q128jv_16m",
+    "program_size": 256,
+    "total_size": 16777216,
+    "xip_base": 268435456
+  },
+  "map_version": 2,
+  "partitions": [
+    {
+      "alignment": 4096,
+      "executable": true,
+      "id": "BOOTLOADER",
+      "offset": 0,
+      "permissions": {
+        "app": [
+          "read"
+        ],
+        "boot": [
+          "read",
+          "execute"
+        ],
+        "factory": [
+          "read",
+          "write",
+          "execute"
+        ]
+      },
+      "size": 262144,
+      "store_type": "image",
+      "update_policy": "factory_signed_only"
+    },
+    {
+      "alignment": 4096,
+      "executable": false,
+      "id": "BOOT_CONTROL",
+      "offset": 262144,
+      "permissions": {
+        "app": [
+          "read"
+        ],
+        "boot": [
+          "read",
+          "write"
+        ],
+        "factory": [
+          "read",
+          "write"
+        ]
+      },
+      "size": 262144,
+      "store_type": "boot_control",
+      "update_policy": "boot_control_transaction"
+    },
+    {
+      "alignment": 4096,
+      "executable": true,
+      "id": "APP_A",
+      "offset": 524288,
+      "permissions": {
+        "app": [
+          "read",
+          "write",
+          "execute"
+        ],
+        "boot": [
+          "read",
+          "execute"
+        ],
+        "factory": [
+          "read",
+          "write",
+          "execute"
+        ]
+      },
+      "size": 2097152,
+      "store_type": "image",
+      "update_policy": "inactive_slot_only"
+    },
+    {
+      "alignment": 4096,
+      "executable": true,
+      "id": "APP_B",
+      "offset": 2621440,
+      "permissions": {
+        "app": [
+          "read",
+          "write",
+          "execute"
+        ],
+        "boot": [
+          "read",
+          "execute"
+        ],
+        "factory": [
+          "read",
+          "write",
+          "execute"
+        ]
+      },
+      "size": 2097152,
+      "store_type": "image",
+      "update_policy": "inactive_slot_only"
+    },
+    {
+      "alignment": 4096,
+      "executable": true,
+      "id": "RECOVERY",
+      "offset": 4718592,
+      "permissions": {
+        "app": [
+          "read"
+        ],
+        "boot": [
+          "read",
+          "execute"
+        ],
+        "factory": [
+          "read",
+          "write",
+          "execute"
+        ]
+      },
+      "size": 1048576,
+      "store_type": "image",
+      "update_policy": "privileged_release_only"
+    },
+    {
+      "alignment": 4096,
+      "executable": false,
+      "id": "OTA_STAGE",
+      "offset": 5767168,
+      "permissions": {
+        "app": [
+          "read",
+          "write"
+        ],
+        "boot": [
+          "read"
+        ],
+        "factory": [
+          "read",
+          "write"
+        ]
+      },
+      "size": 1048576,
+      "store_type": "blob_stage",
+      "update_policy": "ota_transaction"
+    },
+    {
+      "alignment": 4096,
+      "executable": false,
+      "id": "OTA_JOURNAL",
+      "offset": 6815744,
+      "permissions": {
+        "app": [
+          "read",
+          "write"
+        ],
+        "boot": [
+          "read"
+        ],
+        "factory": [
+          "read",
+          "write"
+        ]
+      },
+      "size": 262144,
+      "store_type": "journal",
+      "update_policy": "ota_transaction"
+    },
+    {
+      "alignment": 4096,
+      "executable": false,
+      "id": "PRODUCT_NVS",
+      "offset": 7077888,
+      "permissions": {
+        "app": [
+          "read",
+          "write"
+        ],
+        "boot": [
+          "read"
+        ],
+        "factory": [
+          "read",
+          "write"
+        ]
+      },
+      "size": 262144,
+      "store_type": "nvs",
+      "update_policy": "namespace_transaction"
+    },
+    {
+      "alignment": 4096,
+      "executable": false,
+      "id": "CALIBRATION_NVS",
+      "offset": 7340032,
+      "permissions": {
+        "app": [
+          "read",
+          "write"
+        ],
+        "boot": [],
+        "factory": [
+          "read",
+          "write"
+        ]
+      },
+      "size": 1048576,
+      "store_type": "nvs",
+      "update_policy": "namespace_transaction"
+    },
+    {
+      "alignment": 4096,
+      "executable": false,
+      "id": "VDC_NVS",
+      "offset": 8388608,
+      "permissions": {
+        "app": [
+          "read",
+          "write"
+        ],
+        "boot": [],
+        "factory": [
+          "read",
+          "write"
+        ]
+      },
+      "size": 262144,
+      "store_type": "nvs",
+      "update_policy": "namespace_transaction"
+    },
+    {
+      "alignment": 4096,
+      "executable": false,
+      "id": "SYSTEM_PACK",
+      "offset": 8650752,
+      "permissions": {
+        "app": [
+          "read",
+          "write"
+        ],
+        "boot": [],
+        "factory": [
+          "read",
+          "write"
+        ]
+      },
+      "size": 2097152,
+      "store_type": "immutable_blob",
+      "update_policy": "atomic_ref_transaction"
+    },
+    {
+      "alignment": 4096,
+      "executable": false,
+      "id": "FAULT_FCB",
+      "offset": 10747904,
+      "permissions": {
+        "app": [
+          "read",
+          "write"
+        ],
+        "boot": [
+          "read",
+          "write"
+        ],
+        "factory": [
+          "read",
+          "write"
+        ]
+      },
+      "size": 1048576,
+      "store_type": "fcb",
+      "update_policy": "append_transaction"
+    },
+    {
+      "alignment": 4096,
+      "executable": false,
+      "id": "SCRATCH",
+      "offset": 11796480,
+      "permissions": {
+        "app": [
+          "read",
+          "write"
+        ],
+        "boot": [
+          "read",
+          "write"
+        ],
+        "factory": [
+          "read",
+          "write"
+        ]
+      },
+      "size": 1048576,
+      "store_type": "scratch",
+      "update_policy": "exclusive_lease"
+    },
+    {
+      "alignment": 4096,
+      "executable": false,
+      "id": "FUTURE_POOL",
+      "offset": 12845056,
+      "permissions": {
+        "app": [],
+        "boot": [],
+        "factory": []
+      },
+      "size": 3932160,
+      "store_type": "reserved",
+      "update_policy": "map_revision_only"
+    }
+  ],
+  "schema_version": 1
+}

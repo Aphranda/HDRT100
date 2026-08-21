@@ -6,11 +6,12 @@
 #include <stdint.h>
 
 #include "drv_flash_lockout.h"
+#include "flash_map_gen/flash_map_v2.h"
 
-#define DRV_FLASH_TOTAL_SIZE_BYTES (4u * 1024u * 1024u)
-#define DRV_FLASH_SECTOR_SIZE      4096u
-#define DRV_FLASH_PAGE_SIZE        256u
-#define DRV_FLASH_XIP_BASE         0x10000000u
+#define DRV_FLASH_TOTAL_SIZE_BYTES FLASH_GEOMETRY_TOTAL_SIZE_BYTES
+#define DRV_FLASH_SECTOR_SIZE      FLASH_GEOMETRY_ERASE_SIZE_BYTES
+#define DRV_FLASH_PAGE_SIZE        FLASH_GEOMETRY_PROGRAM_SIZE_BYTES
+#define DRV_FLASH_XIP_BASE         FLASH_GEOMETRY_XIP_BASE
 
 bool drv_flash_is_range_valid(uint32_t flash_offset, size_t length);
 bool drv_flash_is_erased(uint32_t flash_offset, size_t length);

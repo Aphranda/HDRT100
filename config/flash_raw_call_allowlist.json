@@ -1,0 +1,79 @@
+{
+  "inventory_version": 1,
+  "layout": {
+    "active_map_version": 1,
+    "compat_layout_size": "0x00400000",
+    "physical_geometry_size": "0x01000000",
+    "upper_unallocated_size": "0x00C00000",
+    "migration_state": "v2_target_not_deployed"
+  },
+  "raw_callers": [
+    {
+      "file": "bootloader/src/bootloader_main.c",
+      "owner": "Bootloader",
+      "contexts": ["boot"],
+      "core": "boot_context",
+      "modes": ["boot", "recovery"],
+      "partitions": ["v1_slot_a", "v1_slot_b"],
+      "operations": ["erase", "program", "read", "xip_ptr"],
+      "write_frequency": "firmware_update_or_recovery",
+      "power_cut_semantics": "metadata_selects_only_verified_complete_image",
+      "target_api": "BootFlashService"
+    },
+    {
+      "file": "middleware/portable_ota_port/src/portable_ota_core_port.c",
+      "owner": "OtaAO",
+      "contexts": ["app", "boot_link_image"],
+      "core": "core0_or_boot_context",
+      "modes": ["idle", "maintenance", "boot_recovery"],
+      "partitions": ["v1_inactive_slot"],
+      "operations": ["erase", "program"],
+      "write_frequency": "firmware_update",
+      "power_cut_semantics": "incomplete_image_is_not_committed",
+      "target_api": "FlashTransactionAO"
+    },
+    {
+      "file": "middleware/portable_ota_port/src/portable_ota_image_port.c",
+      "owner": "OtaImageVerifier",
+      "contexts": ["app", "boot"],
+      "core": "core0_or_boot_context",
+      "modes": ["boot", "idle", "maintenance"],
+      "partitions": ["v1_slot_a", "v1_slot_b"],
+      "operations": ["read"],
+      "write_frequency": "read_only",
+      "power_cut_semantics": "read_only",
+      "target_api": "FlashMapReadView"
+    },
+    {
+      "file": "components/ota_manager/src/ota_metadata.c",
+      "owner": "OtaMetadata",
+      "contexts": ["app", "boot"],
+      "core": "core0_or_boot_context",
+      "modes": ["boot", "idle", "maintenance"],
+      "partitions": ["v1_ota_metadata"],
+      "operations": ["erase", "program", "read"],
+      "write_frequency": "boot_state_transition_or_firmware_update",
+      "power_cut_semantics": "redundant_copy_sequence_crc_then_newest_valid",
+      "target_api": "BootControlStore"
+    },
+    {
+      "file": "components/product_config/src/product_config.c",
+      "owner": "ProductConfigAO",
+      "contexts": ["app"],
+      "core": "core0",
+      "modes": ["idle", "maintenance"],
+      "partitions": ["v1_product_config"],
+      "operations": ["erase", "program", "read"],
+      "write_frequency": "operator_configuration_change",
+      "power_cut_semantics": "single_sector_rewrite_currently_not_atomic",
+      "target_api": "FlashNVS"
+    }
+  ],
+  "legacy_address_dependencies": [
+    {"file": "components/ota_manager/inc/ota_partition.h", "expected": ["OTA_COMPAT_LAYOUT_SIZE", "0x400000u", "OTA_SLOT_A_OFFSET", "0x040000u", "OTA_SLOT_B_OFFSET", "0x1C0000u", "OTA_METADATA_OFFSET", "0x340000u"]},
+    {"file": "linker/rp2350_bootloader.ld", "expected": ["ORIGIN = 0x10000000", "LENGTH = 0x040000"]},
+    {"file": "linker/rp2350_app_slot_a.ld", "expected": ["ORIGIN = 0x10040000", "LENGTH = 0x180000"]},
+    {"file": "linker/rp2350_app_slot_b.ld", "expected": ["ORIGIN = 0x101C0000", "LENGTH = 0x180000"]},
+    {"file": "CMakeLists.txt", "expected": ["RP2350_TRIG_BOOT.bin@0x10000000", "RP2350_TRIG.bin@0x10040000", "ota_metadata_clear.bin@0x10340000"]}
+  ]
+}

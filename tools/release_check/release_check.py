@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -148,6 +149,44 @@ def check_forbidden_strings(root: Path, build_dir: Path, failures: list[str]) ->
             ok(f"no OTA injection command strings in {path.name}")
 
 
+def check_flash_contracts(root: Path, failures: list[str]) -> None:
+    generated = root / "config" / "flash_map_gen"
+    cmake_text = read_text(root / "CMakeLists.txt")
+    geometry_match = re.search(r"set\(PICO_FLASH_SIZE_BYTES\s+([0-9]+)\b", cmake_text)
+    if geometry_match is None:
+        fail("cannot read PICO_FLASH_SIZE_BYTES from CMakeLists.txt", failures)
+        return
+    expected_geometry = geometry_match.group(1)
+    commands = (
+        [
+            sys.executable,
+            str(root / "tools" / "flash_map" / "flash_map.py"),
+            str(root / "config" / "flash_map_v2.json"),
+            "--schema", str(root / "config" / "flash_map.schema.json"),
+            "--header", str(generated / "flash_map_v2.h"),
+            "--manifest", str(generated / "flash_map_v2_manifest.json"),
+            "--cmake", str(generated / "flash_map_v2.cmake"),
+            "--ld", str(generated / "flash_map_v2.ldinc"),
+            "--expected-geometry", expected_geometry,
+            "--check",
+        ],
+        [
+            sys.executable,
+            str(root / "tools" / "flash_map" / "flash_inventory.py"),
+            "--root", str(root),
+            "--inventory", str(root / "config" / "flash_raw_call_allowlist.json"),
+        ],
+    )
+    labels = ("generated FlashMap artifacts are current", "raw Flash inventory matches source")
+    for command, label in zip(commands, labels):
+        result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            fail(f"{label}: {detail}", failures)
+        else:
+            ok(label)
+
+
 def main() -> int:
     args = parse_args()
     root = args.root.resolve()
@@ -155,6 +194,7 @@ def main() -> int:
 
     check_preset(root, args.preset, failures)
     check_project_config(root, failures)
+    check_flash_contracts(root, failures)
     check_artifacts(root, args.build_dir, failures)
     check_forbidden_strings(root, args.build_dir, failures)
 

@@ -163,6 +163,34 @@ add_custom_target(project_build_info
         VERBATIM
 )
 
+add_custom_target(project_flash_contract_check
+        ALL
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_map.py
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_v2.json
+                --schema ${CMAKE_CURRENT_LIST_DIR}/config/flash_map.schema.json
+                --header ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.h
+                --manifest ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2_manifest.json
+                --cmake ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.cmake
+                --ld ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.ldinc
+                --expected-geometry ${PICO_FLASH_SIZE_BYTES}
+                --check
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_inventory.py
+                --root ${CMAKE_CURRENT_LIST_DIR}
+                --inventory ${CMAKE_CURRENT_LIST_DIR}/config/flash_raw_call_allowlist.json
+                --output ${CMAKE_CURRENT_BINARY_DIR}/flash_inventory.json
+        DEPENDS
+                ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_map.py
+                ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_inventory.py
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map.schema.json
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_v2.json
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_raw_call_allowlist.json
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.h
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2_manifest.json
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.cmake
+                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.ldinc
+        VERBATIM
+)
+
 add_custom_target(project_scpi_usb_namespace_check
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/checks/check_scpi_usb_namespace.py
                 --root ${CMAKE_CURRENT_LIST_DIR}
@@ -461,6 +489,7 @@ function(project_configure_app_target target_name app_name linker_script)
     )
 
     add_dependencies(${target_name} project_build_info)
+    add_dependencies(${target_name} project_flash_contract_check)
     add_dependencies(${target_name} project_scpi_usb_namespace_check)
 
     target_compile_options(${target_name} PRIVATE ${PROJECT_WARNING_FLAGS})
@@ -554,6 +583,8 @@ target_compile_definitions(RP2350_TRIG_BOOT PRIVATE
 )
 
 target_compile_options(RP2350_TRIG_BOOT PRIVATE ${PROJECT_WARNING_FLAGS})
+
+add_dependencies(RP2350_TRIG_BOOT project_flash_contract_check)
 
 pico_set_linker_script(RP2350_TRIG_BOOT ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_bootloader.ld)
 
