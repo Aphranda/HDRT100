@@ -126,6 +126,27 @@ permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootl
   - link-level symbol visibility、App metadata/Product Config power-cut fixtures、lease/refcount、
     duplicate completion、abort during raw page/sector 和 M1-04 thermal/mode gate。
 
+### FLASH-TASK-20260822-009 - Transaction thermal critical gate 与 COM8 闭环
+
+- 状态：M1-04 进行中；FlashTransactionAO 已接入 diagnostics fault/thermal critical fail-closed
+  gate，尚未接入完整 System/Calibration/TDMA mode policy。
+- 日期：2026-08-22
+- 完成内容：
+  - transaction policy 在新 intent admission 时读取 diagnostics seqlock sensor snapshot；board/chip
+    critical thermal flags 或 latched diagnostics fault 拒绝新写，warning 不阻断。
+  - 不改变 BootFlashService 边界、v1 compatibility map 或 SCPI 地址权限；现有 thermal flags 仍由
+    `SYSTem:DIAGnostic:SENSors?` 只读暴露。
+- 验证结果：
+  - host runner `30/30`、FlashTransaction/geometry tests、release 与 RTOS+双核构建、inventory/
+    consumer/release gates 通过；代码提交 `c0d32ec feat(flash): gate transactions on thermal faults` 已推送。
+  - COM8 `839E1AE79EA20F31` 使用 build `20260821173948` OTA/Boot/commit 成功；最终 sensor flags
+    无 thermal critical，板温 `31.391°C`、RP2350 内温 `36.403°C`、current frontend healthy，
+    nominal current `69 mA`、未校准；transaction Vector 为 metadata requester `2`、partition `3`、
+    `256/256` verified/committed、lockout `2/2`，错误队列为空。
+- 还需完成：
+  - negative HIL 注入 thermal critical/diagnostics fault，证明新 transaction 不执行 raw operation；
+    接入 mode/trigger/calibration/TDMA gate 后再评估 M1-04 退出。
+
 ### FLASH-TASK-20260822-005 - Product Config intent 迁移与 COM8 持久化闭环
 
 - 状态：M1-03 进行中；Product Config App writer 已迁移，OTA metadata、Boot writer 和 M2-02
