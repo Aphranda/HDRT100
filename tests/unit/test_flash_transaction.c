@@ -355,6 +355,27 @@ static void test_thermal_and_diagnostics_gates_are_fail_closed(void)
     assert(s_release_count == 0u);
 }
 
+static void test_policy_reason_hook_preserves_resource_gates(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    const flash_transaction_request_t request = erase_request();
+
+    s_policy_error = FLASH_TRANSACTION_ERROR_TRIGGER_ACTIVE;
+    flash_transaction_vector_t vector = run_request(&context, &request);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_TRIGGER_ACTIVE);
+    assert(vector.policy_gate_reason == FLASH_TRANSACTION_ERROR_TRIGGER_ACTIVE);
+    assert(s_erase_count == 0u);
+
+    s_policy_error = FLASH_TRANSACTION_ERROR_MODE;
+    vector = run_request(&context, &request);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_MODE);
+    assert(vector.policy_gate_reason == FLASH_TRANSACTION_ERROR_MODE);
+    assert(s_erase_count == 0u);
+}
+
 static flash_transaction_request_t product_config_request(
     uint32_t operation, const uint8_t *data)
 {
@@ -488,6 +509,7 @@ int main(void)
     test_range_alignment_and_provider_rejections();
     test_runtime_failures();
     test_thermal_and_diagnostics_gates_are_fail_closed();
+    test_policy_reason_hook_preserves_resource_gates();
     test_product_config_policy_and_owned_payload();
     test_metadata_policy();
     test_busy_abort_and_snapshot();

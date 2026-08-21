@@ -44,6 +44,17 @@ static uint32_t flash_transaction_policy_check(uint32_t requester,
         requester != FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG) {
         return FLASH_TRANSACTION_ERROR_POLICY;
     }
+    resource_arbiter_snapshot_t arbiter;
+    resource_arbiter_get_snapshot(&arbiter);
+    if (arbiter.mode == RESOURCE_ARBITER_MODE_FAULT) {
+        return FLASH_TRANSACTION_ERROR_MODE;
+    }
+    if (arbiter.trigger_capture_running || arbiter.trigger_clock_running) {
+        return FLASH_TRANSACTION_ERROR_TRIGGER_ACTIVE;
+    }
+    if ((arbiter.active_resources & RESOURCE_ARBITER_RESOURCE_FLASH) != 0u) {
+        return FLASH_TRANSACTION_ERROR_RESOURCE;
+    }
     return resource_arbiter_can_begin_ota()
                ? FLASH_TRANSACTION_ERROR_NONE
                : FLASH_TRANSACTION_ERROR_POLICY;
