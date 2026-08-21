@@ -76,6 +76,7 @@ docs/
 | 领域 | 当前 canonical 主文档 | 说明 |
 |---|---|---|
 | ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口，定义组件约束、层次逻辑、Vector/Blackboard 和约束传递。 |
+| ARCH/FLASH | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 16 MiB 板载 Flash、Boot/Direct A/B、NVS/blob/FCB、统一 OTA stream 和 TDMA OTA 跨域 canonical。 |
 | ARCH/T2 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | T2 预约与分布式时钟分发跨域主线，定义训练、VDC 映射、flight 分发、fence、本地执行和 completion。 |
 | VDC | `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间事实、同步 DPLL、HOLDOVER、时间质量和预测分发时间基准。 |
 | ARCH/VDC-DPLL | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | 既有 HAOFV VDC/DPLL 融合架构输入；后续逐步迁入 VDC canonical。 |
@@ -85,7 +86,7 @@ docs/
 | TDMA | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件主域，定义上/下行 TDMA、payload registry、adapter、ring runtime、completion evidence 和 HAOFV system node 边界。 |
 | TRIGGER | `trigger/TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
-| OTA | `OTA_SYSTEM_DESIGN.md` | 历史 OTA 主方案入口；后续迁移方向见 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`。 |
+| OTA | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 当前 Flash/Boot/OTA 跨域主方案；`ota/OTA_SYSTEM_DESIGN.md` 保留为 v1 实现参考。 |
 | SD | `storage/SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
 | LOG | `storage/LOG_SYSTEM_TODO.md` | 日志 core、诊断 trace、持久化和故障证据入口。 |
 | SCPI | `interface/SCPI_COMMANDS.md` | SCPI 命令语义、兼容性和用户可调用接口入口。 |
@@ -118,6 +119,7 @@ docs/
 | `docs/check/DOCS_REGRESSION_REVIEW.md` | 文档自回归体系实施经验总结（问题清单 + 解法 + 维护建议）。 |
 | `docs/check/submissions/README.md` | 核验提交单归档目录说明 + 模板（层间逐级核验，C11 交叉审核）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_01.md` | 首份核验提交单：HAOFV-879 seqlock 偏差（ACCEPT_WITH_DEVIATION，2026-08-19）。 |
+| `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 层间交叉核验：硬件/构建/实现/域文档一致性与当前 v1 偏差。 |
 | `README.md` | 本索引文件，提供当前 `docs/` 文件归属。 |
 | `docs/README.md` | 文档治理域 README。 |
 | `arch/README.md` | 架构域 README。 |
@@ -169,6 +171,8 @@ docs/
 | 文件 | 定位 |
 |---|---|
 | `arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层产品架构主文档，阐述组件约束、层次逻辑和约束传播，不直接冻结硬件 pin map。 |
+| `arch/HAOFV_FLASH_ARCHITECTURE.md` | 板载 Flash v2 架构，定义 FlashMap、事务 owner、Boot/Direct A/B、NVS/blob/FCB 与 TDMA 流式 OTA。 |
+| `arch/HAOFV_FLASH_TODO.md` | Flash v2 精细待办，覆盖架构冻结、实现、掉电、COM8、两板/四板 HIL 和发布门禁。 |
 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | HAOFV 下 T2 预约与分布式时钟分发主线；各 owner 的实现细项分别落入 Trigger、VDC、TDMA、RefMem 和 SYNC_IO。 |
 | `arch/HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，跟踪 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 |
 | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 既有融合架构输入；VDC 主域 canonical 见 `vdc/VDC_DOMAIN_ARCHITECTURE.md`。 |
@@ -225,6 +229,8 @@ docs/
 | 文件 | 定位 |
 |---|---|
 | `ota/OTA_SYSTEM_DESIGN.md` | 现有 OTA 主方案历史文件。后续迁移建议见命名规则文档。 |
+| `arch/HAOFV_FLASH_ARCHITECTURE.md` | 当前板载 Flash/Boot/OTA 跨域 canonical，v2 分区与 owner 以此为准。 |
+| `arch/HAOFV_FLASH_TODO.md` | Flash/OTA/TDMA stream v2 实施待办。 |
 | `ota/OTA_TODO.md` | OTA 产品化待办。 |
 | `ota/OTA_AB_SWITCH_DESIGN.md` | Direct A/B 切换设计。 |
 | `ota/OTA_COPY_TRANSACTION_DESIGN.md` | Copy-to-active 掉电恢复事务设计。 |

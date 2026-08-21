@@ -3,7 +3,7 @@
 Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
-Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
+Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Last updated: 2026-08-21
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
@@ -704,6 +704,28 @@ PIO instruction memory 采用按功能动态装载，不把所有程序永久并
 TX/RX DMA 均停止后执行；旧集合使用 `pio_remove_program()` 精确卸载，禁止 core0/SCPI
 直接改写 PIO。每次切换及失败次数发布到 `tdma_pio_spi_phys_snapshot_t`，训练完成后恢复
 `TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL` 并保持 ring STOPPED。
+
+#### Flash、OTA 与 PIO catalog 边界
+
+TDMA 不拥有板载 Flash，也不把运行中的 PIO instruction memory 当作可持久化状态。目标
+Flash 架构和分区以 `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` 为 canonical：
+
+- foundation/operating/process-image profile、payload whitelist、traffic budget 和 adapter/
+  resource claim 作为 Deployment Capsule 对象进入 `SYSTEM_PACK`；ring runtime、counter、
+  FIFO、in-flight frame 和 `maintenance_gate_open` 不得从 Flash 恢复。
+- `.pio` program 随签名 A/B App image 发布。只读 `PioProgramCatalog` 声明 program ID、
+  version/hash、instruction count 和 PIO/SM/DMA/IO claim；System Pack 只能选择 catalogued ID，
+  不能携带任意 PIO instruction word 或 native code。
+- persona apply 仍由 core1 TDMA owner 在 SM/DMA stop 和 safe IO gate 后完成。catalog 校验或
+  resource claim 失败时保持 STOPPED，不尝试从普通 BlobStore 加载替代字节码。
+- OTA producer 只注册 `TDMA_PAYLOAD_CLASS_OTA_BULK` / `TDMA_TRAFFIC_RELIABLE_BULK`，
+  不能直接打开 maintenance gate、写 inactive slot、修改 BCB 或调用 raw Flash driver。
+- TDMA `ACK` 只在 `OtaStreamSession` 收到 Flash transaction program/readback durable
+  completion 后推进 cumulative offset；RAM queue accept 仅消耗 credit，不构成 durable ACK。
+- credit 由有界 RX pool、Flash job depth、journal checkpoint 和 maintenance gate 联合约束；
+  gate 关闭时允许长期返回零 credit，session 保持可续传且不得挤占 VDC/RefMem 窗口。
+- resume token 绑定 package hash、map version、target partition、identity 和 session generation；
+  TDMA transport 不自行解释、合并或修补 OTA journal。
 
 Calibration Domain 消费 TDMA 提供的原始 edge evidence 和 transport quality，执行
 `CLOCK_ACQUIRE -> CLOCK_CODED -> FRAME_MEASURE -> CALCULATE -> VALID/RELOCKING`，并

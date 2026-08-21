@@ -3,7 +3,7 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
+Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Last updated: 2026-08-21
 Version: 3
 
@@ -43,6 +43,8 @@ HAOFV Architecture
 - `TDMA Foundation Domain`：分布式系统确定性通讯骨架内部主域，维护上行/下行 TDMA、window、guard、payload registry、adapter、ring runtime、completion evidence 和质量摘要。
 - `Table-Driven State Machines`：状态转移、命令解析、资源冲突、错误码使用表驱动。
 - `Resource Arbiter`：统一管理 Flash、SPI、PIO、DMA、USB、LCD、SD 等资源互锁。
+- `Flash Persistence Domain`：用唯一 FlashMap、FlashTransactionAO、BootControlStore、NVS、
+  BlobStore 和 FCB 承接跨重启事实；业务域不能直接 erase/program 或持有裸分区地址。
 - `RTE-like Service Layer`：上层不直接碰硬件，通过驱动和服务层访问外设。
 - `Bootloader/OTA Safety Chain`：App 接收和校验，Bootloader 启动选择、搬运、回滚。
 - `VDC/DPLL Core Infrastructure`：在 HAOFV 下形成共同时间事实、同步锁定、HOLDOVER/RELOCK、预测分发和 T2 质量闭环。
@@ -123,6 +125,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | Calibration Domain | HAOFV 内部基础主域；测量有向线序、邻接矩阵、环路顺序和 CLK/DATA/SYNC 链路 delay，维护 accepted slot map、双向时间传递、residence、endpoint bias、path-delay active/staging、generation/freshness 和校准接受门禁。 | `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`、`components/calibration_manager/` |
 | TDMA Foundation | HAOFV 内部基础主域；形成上行/下行确定性通讯骨架，维护 window、guard、payload registry、adapter、ring runtime、completion evidence 和质量摘要；VDC/RefMem 只能挂载 payload 或消费 evidence。 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`、`components/tdma/` |
 | Resource Arbiter | 管理 Flash、SD、USB、PIO、DMA、LCD、隔离链路等互斥资源；Flash/XIP 双核安全是最高优先级硬约束。 | `arch/RTOS_HAOFV_ARCHITECTURE.md` |
+| Flash Persistence Domain | App 唯一 writer 是 core0 `FlashTransactionAO`；Bootloader 使用无 RTOS 的 `BootFlashService`；各业务域只提交 versioned intent 并读取 durable completion。 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`、`drivers/mcu/flash/`、`components/ota_manager/` |
 | Hardware Service | 封装 SDK/驱动细节；上层不直接调用板级 API。 | `components/`、`drivers/` |
 | PIO/DMA/IRQ | 只执行硬实时动作和最小事实回写；对外维护入口归 `REALtime`，产品业务动作入口仍归 `TRIGger`。 | `sync/`、`trigger/`、board profile |
 
@@ -153,7 +156,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | Metadata failsafe | Bootloader 必须定义 metadata 双副本无效的强制恢复路径，禁止继续启动未知镜像。 |
 | FB 非阻塞 | FB action 必须立即返回；耗时动作返回 `FB_RESULT_BUSY` 且 `next_state=self`，由 AO service 后续 tick 分步推进。 |
 
-## 已冻结域契约登记（2026-08-20）
+## 已冻结域契约登记（2026-08-21）
 
 以下条目只提供顶层可见性；契约内容和版本以 `docs/check/DOCS_REGISTRY.md` 及对应域 canonical 文档为事实源。
 
@@ -165,13 +168,20 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `REFMEM-260B-01` | `critical delta <= 260 B` | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:194` | RefMem 实时短帧容量约束。 |
 | `VDC-DPLL-01` | DPLL 准入要求 `timestamp_resolution_ns <= 100` 且来自硬实时 latch | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:293` | 分布式共同时间证据门禁。 |
 
-登记表中另外两条 TDMA 扩展契约仍为 `pending`，顶层只显示其可见性，不把它们当作已冻结
+登记表中的扩展契约仍为 `pending`，顶层只显示其可见性，不把它们当作已冻结
 硬约束：
 
 | contract_id | 契约 | 域文档位置 | 状态 |
 |---|---|---|---|
-| `TDMA-FLIGHT-BITMAP-01` | SHORT process image 固定 8×32 B，slot 前 8 B 由 core1 生成 RX 位图 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:235,490` | pending |
+| `TDMA-FLIGHTBITMAP-01` | SHORT process image 固定 8×32 B，slot 前 8 B 由 core1 生成 RX 位图 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:235,490` | pending |
 | `TDMA-OPMODE-01` | SPI 速率与 TDMA 周期按离散 operating profile 成对切换，STOP 后生效 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:606-610` | pending |
+| `ARCH-FLASHMAP-01` | FlashMap v2 是 Boot/linker/App/factory/tool 的唯一分区词汇 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
+| `ARCH-FLASHOWNER-01` | App erase/program 仅 core0 FlashTransactionAO；Boot 使用最小 BootFlashService | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
+| `ARCH-BOOTCTRL-01` | BCB 双 lane append/commit 与 Direct A/B test-confirm-revert | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
+| `ARCH-OTASTREAM-01` | USB/SD/UART/TDMA 共用 OtaStreamSession，ACK 只确认 durable offset | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
+| `REFMEM-PERSIST-01` | RefMem 只持久化部署 package/ref，上电建立新 epoch | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
+| `VDC-PERSIST-01` | VDC 只持久化低频 profile，上电从 OFF/CHECKING 重新锁相 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
+| `ARCH-PIOCAT-01` | 动态 PIO 只装载签名 App catalog 中的 program，System Pack 只选择 ID | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 
 ## 分层职责
 

@@ -3,8 +3,8 @@
 Status: Active
 Domain: OTA
 Canonical: `docs/ota/OTA_OPEN_SOURCE_COMPARISON.md`
-Related: `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`, `docs/ota/OTA_LIBRARY_MIGRATION_PLAYBOOK.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`
-Last updated: 2026-07-07
+Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
+Last updated: 2026-08-21
 
 This note compares the current RP2350_TRIG OTA architecture with commonly used
 open-source or vendor-visible OTA stacks. The target scope is intentionally
@@ -12,22 +12,24 @@ limited to RP2350 and STM32 RTOS products.
 
 ## Decision Summary
 
-Keep the current `portable_ota` direction as the product OTA core.
+Keep the current `portable_ota` package/session algorithms, but place them under
+the HAOFV Flash v2 ownership model in `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`.
 
 The current design is smaller and better matched to this project than adopting a
 full OTA framework directly:
 
 - It is transport-agnostic and works with SCPI, UART, USB, CAN, Ethernet, SD
   file, and factory tools.
-- It already supports the validated RP2350 package flow, copy-to-active flow,
-  direct A/B flow, redundant metadata, rollback, and negative-path tests.
+- It already supports the validated RP2350 package flow, direct A/B flow,
+  redundant metadata, rollback, and negative-path tests.
 - It can be adapted to RP2350 RTOS and STM32 RTOS through a narrow flash,
   metadata, cache, watchdog, and task-serialization port layer.
 - It avoids pulling in cloud, Linux, Zephyr-only, or SoC-specific assumptions.
 
-The biggest gaps to close next are security features already proven in mature
-stacks: image signature verification, anti-rollback counters, and a stronger
-metadata/schema migration policy.
+The Flash v2 redesign is broader than the OTA core: it adds a single FlashMap,
+one App write owner, Boot Control, NVS/blob/FCB stores, Recovery, signature and
+anti-rollback. The old copy-to-active mode and whole-package on-board cache are
+not long-term v2 requirements.
 
 ## Comparison Matrix
 
@@ -36,6 +38,9 @@ metadata/schema migration policy.
 | Current `portable_ota` | Small MCU OTA core, product/hardware package checks, dual image package, transport independence, validation closure. | Needs signature verification, anti-rollback, more portable tests, and RTOS adapter examples. | Keep as core. |
 | MCUboot | Secure boot, signed image format, TLV metadata, slot swap/overwrite/direct-XIP strategies, test/revert rollback. | Integration expects MCUboot flash map, image format, trailer semantics, signing tool flow, and bootloader ownership. | Borrow concepts; do not replace current boot path yet. |
 | ESP-IDF OTA | Clean App/Bootloader split, redundant OTA data sectors, rollback confirmation API, anti-rollback references. | ESP32 partition and bootloader model is not portable to RP2350/STM32. | Use as design reference only. |
+| Zephyr flash map/NVS/FCB | Single partition vocabulary, append-only KV, sector rotation, torn-write recovery and circular event records. | Zephyr device model and APIs are not used by this project. | Borrow storage semantics behind HAOFV adapters. |
+| littlefs | Power-loss resilient copy-on-write filesystem for small embedded volumes. | Critical BCB/KV must not depend on a general filesystem; it is unnecessary for fixed extents. | Evaluate only for System Pack/blob needs after a fixed blob store. |
+| OpenHarmony DSoftBus | Capability, node identity, session, lane/QoS and unified bytes/stream/file semantics. | Dynamic discovery/routing/IPC are too nondeterministic and heavy for the static TDMA ring. | Borrow concepts for TDMA OTA session, not implementation. |
 | Mender MCU | Device identity, server integration, inventory, update modules, Zephyr-oriented reference integration. | Much larger product scope; assumes a Mender service workflow and currently emphasizes Zephyr/MCUboot integration. | Consider only when fleet management is required. |
 | STM32 X-CUBE-SBSFU | STM32 secure boot/update reference, authenticity/integrity checks, anti-rollback, STM32 protection examples. | STM32-specific, security-heavy reference package rather than a small cross-platform OTA core. | Use as STM32 security reference. |
 
@@ -140,19 +145,19 @@ the package format, metadata state machine, and validation flow common.
 Use this layered model:
 
 ```text
-Product transport task
-  SCPI / UART / USB / CAN / Ethernet / SD / factory tool
+Product transport adapter
+  SCPI / UART / USB / SD / TDMA reliable bulk / factory tool
 
 portable_ota core
   package parser, CRC/hash, state machine, compatibility checks,
-  metadata helper model, status/error vocabulary
+  status/error vocabulary and transport-neutral stream session
 
-platform adapter
-  RP2350 SDK, RP2350 RTOS, STM32 RTOS flash/cache/watchdog/lock/reset hooks
+HAOFV App owner
+  OtaAO/OtaFB -> FlashTransactionAO -> FlashMap + stores
 
 Bootloader
-  metadata selection, image validation, copy/direct-A-B apply,
-  rollback, result recording, jump
+  minimal BootFlashService + BootControlStore + ImageVerifier,
+  direct A/B test/confirm/revert + Recovery
 ```
 
 Security roadmap:
@@ -165,11 +170,18 @@ Security roadmap:
    change.
 5. Add portable unit tests for package parsing, metadata selection, and failure
    state transitions.
+6. Stream only the receiver's inactive-slot image object; keep the complete
+   package at the PC, SD card, or TDMA distribution source.
 
 ## References
 
 - MCUboot design: https://docs.mcuboot.com/design.html
 - MCUboot repository: https://github.com/mcu-tools/mcuboot
 - ESP-IDF OTA guide: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/ota.html
+- Zephyr flash map: https://docs.zephyrproject.org/latest/services/storage/flash_map/flash_map.html
+- Zephyr NVS: https://docs.zephyrproject.org/latest/services/storage/nvs/nvs.html
+- Zephyr FCB: https://docs.zephyrproject.org/latest/services/storage/fcb/fcb.html
+- littlefs repository: https://github.com/littlefs-project/littlefs
+- OpenHarmony DSoftBus: https://github.com/openharmony/communication_dsoftbus
 - Mender MCU repository: https://github.com/mendersoftware/mender-mcu
 - ST X-CUBE-SBSFU: https://www.st.com/en/embedded-software/x-cube-sbsfu.html

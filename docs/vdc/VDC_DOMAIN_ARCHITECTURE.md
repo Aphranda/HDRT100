@@ -3,8 +3,8 @@
 Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
-Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-08-20
+Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
+Last updated: 2026-08-21
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Virtual Distributed Clock / VDC 内部主域。VDC Domain 不是对外 SCPI 主域，也不是 `SYNC_IO` 的一个普通算法函数，而是整个分布式硬实时系统的核心基础件，负责让多节点形成同一条可验证、可门禁、可报告的共同时间轴。
 
@@ -59,6 +59,20 @@ VDC Domain 不负责：
 - 不维护 RefMem slot 同步协议；RefMem Domain 只保存 VDC 快照。
 - 不传输 OTA payload、日志全文、波形或大 trace。
 - 不建立裸顶级 `VDC:*` 或 `DPLL:*` SCPI 域。
+
+### Flash 持久化边界
+
+VDC 可以持久化 `VdcServoProfile`、`VdcHoldoverPolicy`、reference priority、
+`VdcTimestampDictionary`，以及经过长窗口统计和维护态接受的温度/老化 discipline profile。
+active link delay/bias 的 source fact 仍归 Calibration NVS；VDC 只保存其 accepted generation
+引用和使用 profile。
+
+`offset/rate/phase_error/DCO control/lock_state/HOLDOVER age/map generation/sample ring` 是
+易失运行事实，不得保存后在下一次启动恢复为 `LOCKED`。上电固定从 `OFF/CHECKING` 开始，
+重新验证 calibration、topology、TDMA schedule、timestamp dictionary，完成 initial sync 和
+DPLL quality gate 后才发布 VDC。RUN 中低频驯服环只能形成 candidate，不写 Flash；持久化
+必须经过维护态 `FlashTransactionAO`。分区与 store 规则见
+`docs/arch/HAOFV_FLASH_ARCHITECTURE.md`。
 
 ## HAOFV 层级
 

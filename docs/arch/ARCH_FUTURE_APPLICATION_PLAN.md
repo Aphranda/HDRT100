@@ -3,8 +3,8 @@
 Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`
-Related: `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-08-13
+Related: `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
+Last updated: 2026-08-21
 
 本文档记录 Distributed Hard Real-Time Trigger System 在当前产品完成后的平台化应用规划。它不是当前固件必须立即实现的功能清单，也不替代 `ARCH_PRODUCT_ARCHITECTURE.md`、`RTOS_HAOFV_TODO.md` 或各功能域待办。当前近期目标仍然是完成 DTC100 / RP2350 平台上的分布式触发产品闭环；本文面向后续产品线、产业应用和开源生态扩展。
 
@@ -105,6 +105,31 @@ storage filesystem
 network / sync transport
 board profile
 ```
+
+### 与板载 Flash 的关系
+
+未来应用会复用持久化语义，但不能把板载 Flash 变成任意文件盘或实时数据面。跨平台稳定
+部分是 Partition ID、事务 completion、Boot Control、NVS/blob/FCB record 和 manifest；
+容量、offset、XIP、cache coherency、保护能力由各平台 geometry port 提供。详细架构见
+`docs/arch/HAOFV_FLASH_ARCHITECTURE.md`。
+
+| 应用数据 | 推荐宿主 | 原因 |
+|---|---|---|
+| identity、能力、安全计数、关键配置 | 板载 critical NVS/Boot Control | 小、关键、需掉电一致性。 |
+| accepted calibration、active deployment ref | 板载 NVS/blob | 上电离线可恢复，需 generation/schema/rollback。 |
+| role/persona/profile/mission 最小部署子集 | 签名 Deployment Capsule | 支持离线启动；只选择静态编译实现，不加载任意机器码。 |
+| OTA manifest/stage、TDMA resume | 板载 OTA stage/journal | 完整 package 留在 PC/SD/source，目标只接收 inactive slot object。 |
+| 关键 boot/power/fault 摘要 | 板载 FCB | SD 缺失时仍可追溯。 |
+| 轨迹、波形、原始采样、完整报告和长日志 | RAM + SD/外部数据面 | 体积大、写频高，不能阻塞实时路径或消耗片上 Flash 寿命。 |
+
+RP2350 16 MiB 是 Open Reference 的 reference map，不是所有产品线的固定分区模板。更大
+平台可扩展容量，但不得改变“Boot 与 App 分离、唯一 Flash writer、关键 KV 与 blob/FCB
+分离、实时路径不写 Flash”的 HAOFV 契约。
+
+动态 PIO persona 不需要独立 Flash 分区。PIO program 随签名 firmware 编译，System Pack
+只选择已登记的 program/persona ID；PIO owner 在安全状态下装载 instruction memory。未来若
+需要独立更新 PIO bytecode，应按可执行模块另立签名、ABI、资源 sandbox 和回滚契约，不能
+复用普通数据 blob 的信任模型。
 
 ### 平台映射
 

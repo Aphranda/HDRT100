@@ -1,12 +1,16 @@
 # OTA 升级方案
 
-Status: Active
+Status: Deprecated
 Domain: OTA
 Canonical: `docs/ota/OTA_SYSTEM_DESIGN.md`
-Related: `docs/ota/OTA_TODO.md`, `docs/ota/OTA_AB_SWITCH_DESIGN.md`, `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`, `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`
-Last updated: 2026-07-07
+Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/ota/OTA_PORTABLE_ARCHITECTURE.md`
+Last updated: 2026-08-21
 
 本文档汇总当前硬件条件，并给出 RP2350_TRIG 的 OTA 工程方案。目标是让固件升级从“手动烧录”升级为“可回滚、可校验、可维护”的产品化流程。
+
+> 本文保留 v1 OTA 状态机、SCPI 和历史低容量布局作为实现参考，不再是板载 Flash 容量、
+> 分区或 owner 的事实源。产品器件、Flash v2、Direct A/B、Recovery、NVS/blob/FCB 和 TDMA
+> 流式 OTA 以 `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` 为准。
 
 ## 已确认硬件条件
 

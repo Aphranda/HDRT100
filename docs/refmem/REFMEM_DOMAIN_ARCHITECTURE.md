@@ -3,8 +3,8 @@
 Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`
-Last updated: 2026-08-20
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+Last updated: 2026-08-21
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面。
 
@@ -65,6 +65,19 @@ RefMem Domain 不负责：
 - 不引入完整 IEC 61499 分布式运行时。
 - 不支持运行时动态部署 FB、跨节点 FB 直接调用或动态事件路由。
 - 不计算 VDC offset/rate，也不执行 DPLL；VDC 共同时间由 VDC Domain owner 发布，RefMem 只保存其 snapshot、版本、质量和 evidence。
+
+### Flash 持久化边界
+
+RefMem 持久化的是静态部署 package，不是运行中的共同事实。`.rmtp`、ApplicationMap、
+BoardCapability、NodeLoad、FB/Event/DataLink 和 active/previous package ref 可由 System Pack
+blob 保存；每次启动必须先进入 staging，并由 `DistributedRefMemAO` 完成 CRC、schema、owner、
+resource claim 和 DeploymentGate 校验后激活。
+
+64 KB live vector、dirty、slot/field sequence、command、ACK/NACK、heartbeat、stale、peer
+online、transport in-flight、epoch 和 RUN completion 不得从 Flash 恢复为有效事实。上电或
+package 激活建立新 epoch，所有 peer mirror 在重新同步前保持 stale。Flash/Storage owner
+只交付 immutable package，不直接写 RefMem active image。分区和事务规则见
+`docs/arch/HAOFV_FLASH_ARCHITECTURE.md`。
 
 ## 分布式验证硬约束
 

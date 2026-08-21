@@ -3,7 +3,7 @@
 Status: Active
 Domain: Hardware / Board Bring-up
 Last updated: 2026-08-21
-Related: `docs/storage/SD_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
+Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
 Canonical: `docs/hardware/PRODUCT_BOARD_MIGRATION_PLAN.md`
 Target: RP2350B QFN-80 产品样板
 Source of truth: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
@@ -21,7 +21,8 @@ Source of truth: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
 - `P`：仍待实现或待产品样板验证。
 
 固定测试接口：USB CDC/SCPI 使用 `COM3`，CH343 UART0 调试使用 `COM7`。
-产品 Flash 为 W25Q128JVSIQ 16 MiB；当前 OTA 保持低 4 MiB 兼容布局。
+产品 Flash 为 W25Q128JVSIQ 16 MiB；当前固件仍运行低容量 v1 兼容布局，目标 v2 和 factory
+迁移以 `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` / `HAOFV_FLASH_TODO.md` 为准。
 
 ## 2. GPIO0..47 迁移矩阵
 
@@ -83,7 +84,8 @@ Source of truth: `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
   `SYST:UI:KEYS?` 已证明三键观测命令和左/中/右物理映射在产品样板生效。
 - `SYST:LED:STAT?` 已返回 `NORMAL / HEARTBEAT / OFF / OFF`，配置门、SD 与 core1
   健康位均正常；连续查询捕获到绿灯每秒短亮且红黄保持灭。ARM/事件/故障模式仍待板测。
-- W25Q128JVSIQ 已按 16 MiB 编译并 OTA 运行；高 12 MiB 暂不纳入本轮迁移。
+- W25Q128JVSIQ 已按 16 MiB 编译并 OTA 运行；当前 driver/partition 仍有低容量技术债，
+  v2 不做在线原地迁移，完成 factory erase/reflash 和高地址 HIL 后才能标记全容量已启用。
 - LCD SPI0 与 TF SPI1 已拆分，StorageAO 不再把 SD 与 LCD SPI0 互斥。
 - COM8 在 build `20260820174134` 上完成传感器 snapshot 板测：`BOARD_TEMP1` 与 RP2350
   内部温度读数稳定，ADC8 修正后热告警清除；该次运行中的 `BOARD_CUR1` 只有约

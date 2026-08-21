@@ -3,10 +3,14 @@
 Status: Active
 Domain: OTA
 Canonical: `docs/ota/OTA_TODO.md`
-Related: `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/ota/OTA_AB_SWITCH_DESIGN.md`, `docs/ota/OTA_COPY_TRANSACTION_DESIGN.md`
-Last updated: 2026-07-07
+Related: `docs/arch/HAOFV_FLASH_TODO.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/ota/OTA_AB_SWITCH_DESIGN.md`
+Last updated: 2026-08-21
 
 本文档记录 OTA 从当前验证版推进到工业产品发布版所需的剩余工作。
+
+> 本文件保留 v1 OTA 已完成项和历史验证。Flash v2、唯一写 owner、Direct A/B/Recovery、
+> store、factory 迁移和 TDMA 流式 OTA 的新任务统一在
+> `docs/arch/HAOFV_FLASH_TODO.md` 跟踪，避免两个 TODO 重复标记完成。
 
 ## 验收标准摘要
 
