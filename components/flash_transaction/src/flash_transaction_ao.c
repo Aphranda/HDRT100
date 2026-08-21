@@ -14,7 +14,8 @@ static flash_transaction_fb_t s_flash_transaction;
 
 static bool flash_transaction_policy_allows(uint32_t requester)
 {
-    return requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE &&
+    return (requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE ||
+            requester == FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG) &&
            resource_arbiter_can_begin_ota();
 }
 

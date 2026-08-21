@@ -15,11 +15,14 @@ static uint32_t s_erase_count;
 static uint32_t s_program_count;
 static uint32_t s_last_offset;
 static uint32_t s_last_length;
+static uint8_t s_last_program_first_byte;
 static uint32_t s_now_ms;
 
 static bool fake_policy(uint32_t requester)
 {
-    return s_policy_ok && requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE;
+    return s_policy_ok &&
+           (requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE ||
+            requester == FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG);
 }
 
 static bool fake_acquire(void)
@@ -47,6 +50,7 @@ static bool fake_program(uint32_t offset, const uint8_t *data,
     s_program_count++;
     s_last_offset = offset;
     s_last_length = length;
+    s_last_program_first_byte = data[0];
     return s_raw_ok;
 }
 
@@ -106,6 +110,7 @@ static void reset_fakes(void)
     s_program_count = 0u;
     s_last_offset = 0u;
     s_last_length = 0u;
+    s_last_program_first_byte = 0u;
     s_now_ms = 100u;
 }
 
@@ -300,6 +305,59 @@ static void test_runtime_failures(void)
     assert(s_release_count == 2u);
 }
 
+static flash_transaction_request_t product_config_request(
+    uint32_t operation, const uint8_t *data)
+{
+    const flash_transaction_request_t request = {
+        .requester = FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG,
+        .partition_id = FLASH_COMPAT_MAP_PRODUCT_NVS_ID,
+        .operation = operation,
+        .relative_offset = 0u,
+        .length = operation == FLASH_TRANSACTION_OPERATION_ERASE
+                      ? FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES
+                      : FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES,
+        .data = data,
+        .provider_generation =
+            operation == FLASH_TRANSACTION_OPERATION_PROGRAM ? 5u : 0u,
+        .store_generation = 12u,
+    };
+    return request;
+}
+
+static void test_product_config_policy_and_owned_payload(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+
+    flash_transaction_request_t request =
+        product_config_request(FLASH_TRANSACTION_OPERATION_ERASE, NULL);
+    flash_transaction_vector_t vector = run_request(&context, &request);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(s_last_offset == FLASH_COMPAT_MAP_PRODUCT_NVS_OFFSET);
+
+    uint8_t page[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES];
+    memset(page, 0x3Cu, sizeof(page));
+    request = product_config_request(FLASH_TRANSACTION_OPERATION_PROGRAM,
+                                     page);
+    assert(flash_transaction_fb_submit(&context, &request));
+    page[0] = 0xE7u;
+    vector = run_to_terminal(&context);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(context.payload_owned);
+    assert(s_last_program_first_byte == 0x3Cu);
+
+    request = product_config_request(FLASH_TRANSACTION_OPERATION_ERASE, NULL);
+    request.partition_id = FLASH_COMPAT_MAP_APP_B_ID;
+    assert_failed(run_request(&context, &request),
+                  FLASH_TRANSACTION_ERROR_PERMISSION);
+
+    request = product_config_request(FLASH_TRANSACTION_OPERATION_PROGRAM,
+                                     page);
+    request.length = FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES * 2u;
+    assert_failed(run_request(&context, &request),
+                  FLASH_TRANSACTION_ERROR_PERMISSION);
+}
+
 static void test_busy_abort_and_snapshot(void)
 {
     flash_transaction_fb_t context;
@@ -357,6 +415,7 @@ int main(void)
     test_policy_and_partition_rejections();
     test_range_alignment_and_provider_rejections();
     test_runtime_failures();
+    test_product_config_policy_and_owned_payload();
     test_busy_abort_and_snapshot();
     test_platform_and_range_resolution();
     puts("flash transaction tests passed");

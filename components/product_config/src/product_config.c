@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "drv_flash.h"
+#include "flash_transaction.h"
 #include "ota_crc32.h"
 #include "ota_partition.h"
 #include "project_config.h"
@@ -23,6 +24,38 @@ typedef struct {
 } product_config_record_t;
 
 static product_config_record_t s_product_config;
+static uint32_t s_product_config_provider_generation;
+
+static uint32_t product_config_next_provider_generation(void)
+{
+    s_product_config_provider_generation++;
+    if (s_product_config_provider_generation == 0u) {
+        s_product_config_provider_generation = 1u;
+    }
+    return s_product_config_provider_generation;
+}
+
+static bool product_config_flash_execute(uint32_t operation,
+                                         const uint8_t *data,
+                                         uint32_t length,
+                                         uint32_t store_generation)
+{
+    const flash_transaction_request_t request = {
+        .requester = FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG,
+        .partition_id = FLASH_COMPAT_MAP_PRODUCT_NVS_ID,
+        .operation = operation,
+        .relative_offset = 0u,
+        .length = length,
+        .data = data,
+        .provider_generation =
+            operation == FLASH_TRANSACTION_OPERATION_PROGRAM
+                ? product_config_next_provider_generation()
+                : 0u,
+        .store_generation = store_generation,
+    };
+    flash_transaction_completion_t completion;
+    return flash_transaction_ao_execute(&request, &completion);
+}
 
 static product_config_usb_mode_t product_config_default_usb_mode(void)
 {
@@ -82,8 +115,12 @@ static bool product_config_store(const product_config_record_t *record)
     memset(page, 0xFF, sizeof(page));
     memcpy(page, record, sizeof(*record));
 
-    if (!drv_flash_erase(OTA_PRODUCT_CONFIG_OFFSET, DRV_FLASH_SECTOR_SIZE) ||
-        !drv_flash_program(OTA_PRODUCT_CONFIG_OFFSET, page, sizeof(page))) {
+    if (!product_config_flash_execute(FLASH_TRANSACTION_OPERATION_ERASE,
+                                      NULL, DRV_FLASH_SECTOR_SIZE,
+                                      record->sequence) ||
+        !product_config_flash_execute(FLASH_TRANSACTION_OPERATION_PROGRAM,
+                                      page, sizeof(page),
+                                      record->sequence)) {
         return false;
     }
 

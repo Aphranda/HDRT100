@@ -21,6 +21,7 @@ typedef struct {
 typedef struct {
     flash_transaction_platform_t platform;
     flash_transaction_request_t request;
+    uint8_t owned_payload[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES];
     flash_transaction_vector_t vector;
     uint32_t active_app_partition_id;
     uint32_t absolute_offset;
@@ -28,6 +29,7 @@ typedef struct {
     uint32_t terminal_state;
     bool occupied;
     bool resource_acquired;
+    bool payload_owned;
 } flash_transaction_fb_t;
 
 void flash_transaction_fb_init(flash_transaction_fb_t *context,

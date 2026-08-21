@@ -114,17 +114,29 @@ static uint32_t flash_transaction_validate(
         (request->data == NULL || request->provider_generation == 0u)) {
         return FLASH_TRANSACTION_ERROR_PROVIDER;
     }
-    if (request->requester != FLASH_TRANSACTION_REQUESTER_OTA_IMAGE ||
-        (request->partition_id != FLASH_COMPAT_MAP_APP_A_ID &&
-         request->partition_id != FLASH_COMPAT_MAP_APP_B_ID)) {
+    if (request->requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE) {
+        if (request->partition_id != FLASH_COMPAT_MAP_APP_A_ID &&
+            request->partition_id != FLASH_COMPAT_MAP_APP_B_ID) {
+            return FLASH_TRANSACTION_ERROR_PERMISSION;
+        }
+        if (context->active_app_partition_id != FLASH_COMPAT_MAP_APP_A_ID &&
+            context->active_app_partition_id != FLASH_COMPAT_MAP_APP_B_ID) {
+            return FLASH_TRANSACTION_ERROR_ACTIVE_UNKNOWN;
+        }
+        if (request->partition_id == context->active_app_partition_id) {
+            return FLASH_TRANSACTION_ERROR_ACTIVE_PARTITION;
+        }
+    } else if (request->requester ==
+               FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG) {
+        if (request->partition_id != FLASH_COMPAT_MAP_PRODUCT_NVS_ID ||
+            request->relative_offset != 0u ||
+            (request->operation == FLASH_TRANSACTION_OPERATION_ERASE
+                 ? request->length != FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES
+                 : request->length != FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES)) {
+            return FLASH_TRANSACTION_ERROR_PERMISSION;
+        }
+    } else {
         return FLASH_TRANSACTION_ERROR_PERMISSION;
-    }
-    if (context->active_app_partition_id != FLASH_COMPAT_MAP_APP_A_ID &&
-        context->active_app_partition_id != FLASH_COMPAT_MAP_APP_B_ID) {
-        return FLASH_TRANSACTION_ERROR_ACTIVE_UNKNOWN;
-    }
-    if (request->partition_id == context->active_app_partition_id) {
-        return FLASH_TRANSACTION_ERROR_ACTIVE_PARTITION;
     }
     context->absolute_offset = partition->offset + request->relative_offset;
     return FLASH_TRANSACTION_ERROR_NONE;
@@ -204,6 +216,15 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
         return false;
     }
     context->request = *request;
+    context->payload_owned = false;
+    if (context->request.operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
+        context->request.data != NULL &&
+        context->request.length <= sizeof(context->owned_payload)) {
+        memcpy(context->owned_payload, context->request.data,
+               context->request.length);
+        context->request.data = context->owned_payload;
+        context->payload_owned = true;
+    }
     if (context->request.job_id == 0u) {
         context->request.job_id = context->next_job_id++;
         if (context->next_job_id == 0u) {

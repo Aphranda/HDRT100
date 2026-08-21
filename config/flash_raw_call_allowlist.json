@@ -26,10 +26,10 @@
       "contexts": ["app"],
       "core": "core0",
       "modes": ["idle", "maintenance"],
-      "partitions": ["v1_inactive_slot"],
+      "partitions": ["v1_inactive_slot", "v1_product_config"],
       "operations": ["erase", "program", "xip_ptr"],
-      "write_frequency": "firmware_update",
-      "power_cut_semantics": "incomplete_image_is_not_committed",
+      "write_frequency": "firmware_update_or_operator_configuration_change",
+      "power_cut_semantics": "requester_specific_commit_after_readback_verify",
       "target_api": "FlashTransactionAO"
     },
     {
@@ -58,15 +58,15 @@
     },
     {
       "file": "components/product_config/src/product_config.c",
-      "owner": "ProductConfigAO",
+      "owner": "ProductConfigReadView",
       "contexts": ["app"],
       "core": "core0",
       "modes": ["idle", "maintenance"],
       "partitions": ["v1_product_config"],
-      "operations": ["erase", "program", "read"],
-      "write_frequency": "operator_configuration_change",
-      "power_cut_semantics": "single_sector_rewrite_currently_not_atomic",
-      "target_api": "FlashNVS"
+      "operations": ["read"],
+      "write_frequency": "read_only",
+      "power_cut_semantics": "read_only",
+      "target_api": "FlashMapReadView"
     }
   ],
   "legacy_address_dependencies": [
