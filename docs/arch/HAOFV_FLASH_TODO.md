@@ -29,7 +29,7 @@ v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在�
 | v2 map source/schema 与 geometry gate | `[~]` | `config/flash_map_v2.json`、`config/flash_map_v1_compat.json`、`config/flash_map_gen/`、commit `315dc6f`/`10fd545`/`a211188` | v2 factory 部署与高地址 HIL 尚未完成。 |
 | Flash v2 owner/map/store/Boot/OTA 语义已形成 canonical | `[x]` | `HAOFV_FLASH_ARCHITECTURE.md` | 7 条目标契约仍为 `pending`。 |
 | Direct A/B 为发布默认 | `[x]` | CMake preset/release check/当前 Bootloader | `COPY_TO_ACTIVE` 兼容分支尚未从 v2 清除。 |
-| core1 Flash park/ACK 基础存在 | `[x]` | `drv_flash_lockout.*` 和既有 HIL | 尚未收敛到唯一 FlashTransactionAO。 |
+| core1 Flash park/ACK 基础存在 | `[x]` | `drv_flash_lockout.*`、FlashTransaction HIL | OTA image 已收敛到 FlashTransactionAO；Boot/metadata/Product Config 仍待迁移。 |
 | USB/SD OTA 基础存在 | `[x]` | `ota_manager`、host tools、历史 OTA 验证 | 尚未共用 v2 stream/journal/Flash sink。 |
 | TDMA reliable bulk 资源基础存在 | `[x]` | `tdma_profile.h`、traffic scheduler | 尚无 OTA wire/session/durable ACK。 |
 | RefMem registry、VDC runtime、PIO persona 基础存在 | `[x]` | 对应组件与域文档 | 尚无生产持久化与签名 PIO catalog。 |
@@ -50,8 +50,8 @@ M0 契约/迁移输入
 
 M2 和 M3 可在 M1 稳定后并行，但 M4 必须同时依赖 M2/M3；M5 不得绕过本地 OTA 闭环直接做
 多板分发。M0-01/M0-02 已完成，M1-01 已完成 geometry/range 子项；M1-02 已完成纯算法、
-generated permission view、版本化 live consumer 和只读板端验证，当前进入 M1-03 transaction
-owner，同时保持 v2 只能由 factory full erase/reflash 部署。
+generated permission view、版本化 live consumer 和只读板端验证；M1-03 已建立 transaction owner
+并迁移 OTA image 首个生产 writer，同时保持 v2 只能由 factory full erase/reflash 部署。
 
 ## 二、里程碑总览
 
@@ -158,17 +158,26 @@ owner，同时保持 v2 只能由 factory full erase/reflash 部署。
 证据：commit `10fd545`、`a211188`；`run_flash_map_tests.ps1` 纳入全量 host runner，release/Boot/
 App A/App B 均编译链接同一 `flash_map.c`。COM8 通过只读 SCPI 对 generated v2 target map 和
 permission view 做板端闭环；live linker/factory/packager 则由 generated v1 compatibility map
-保持当前可启动地址。报告见 `HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-002` 和
-`FLASH-TASK-20260822-003`。本项仍为进行中，因为生产 writer 尚未通过 M1-03 接入可信
-active-slot provider，板上 v2 分区也没有部署或写入，C11 激活审核未开始。
+保持当前可启动地址。报告见 `HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-002`、
+`FLASH-TASK-20260822-003` 和 `FLASH-TASK-20260822-004`。本项仍为进行中：OTA image writer
+已从可信 metadata active-slot provider 取得上下文，但其他 writer 尚未迁移，板上 v2 分区也没有
+部署或写入，C11 激活审核未开始。
 
 ### M1-03 FlashTransactionAO/FB/Vector
 
-- [ ] 固定 queue/job/requester/lease/operation/immutable provider/completion/cancel 数据模型。
-- [ ] 实现 `VALIDATE -> QUIESCE -> ACQUIRE -> PARK -> ERASE/PROGRAM -> VERIFY -> COMMIT ->
+- [~] 已固定首轮 one-deep queue、job/requester/operation/provider generation/completion/cancel；
+  lease 与大 payload provider/refcount 仍待 M1-05。
+- [~] 实现 `VALIDATE -> QUIESCE -> ACQUIRE -> PARK -> ERASE/PROGRAM -> VERIFY -> COMMIT ->
   RELEASE -> COMPLETE/FAILED`，每次 service 只推进一个有界步骤。
-- [ ] Vector 使用 seqlock；查询不触发 Flash IO；记录 policy/lockout/progress/result/health/timing。
-- [ ] completion 区分 accepted/programmed/verified/committed，业务域只消费 committed。
+- [~] Vector 使用 seqlock；只读查询不触发 Flash IO，并记录 policy/lockout/progress/result/timing；
+  thermal/health gate 尚待 M1-04 接入。
+- [x] completion 区分 accepted/programmed/verified/committed，OTA 兼容包装只消费 committed。
+
+首轮证据：commit `2a79643`；OTA image erase/program 已从 portable callback 进入
+`FlashTransactionAO/FB`，active slot 未知或写活动槽均 fail closed。host fault fixtures、release、
+RTOS+双核构建和 COM8 双次 OTA/Vector HIL 均通过。该项保持进行中，因为当前仍有同步兼容包装，
+实际 core1 park 仍封装在 Raw HAL，metadata/Product Config/Boot writer、lease/buffer、thermal gate 和
+跨 reset durable completion 尚未收敛。
 
 ### M1-04 Mode、温度与双核门禁
 
@@ -182,7 +191,7 @@ active-slot provider，板上 v2 分区也没有部署或写入，C11 激活审�
 
 - [ ] 小 payload 复制入固定 pool；大 payload 使用 generation/refcount immutable provider。
 - [ ] queue full、producer reset、duplicate completion、abort during page/sector 均有单测。
-- [ ] 迁移 ota image/metadata、Product Config 等 App raw writer 到 intent API。
+- [~] OTA image 已迁移；metadata、Product Config 等 App raw writer 仍待迁移到 intent API。
 - [ ] link/scan gate 证明 App raw erase/program 只被 FlashTransaction target 引用。
 
 ### M1-06 高地址 Scratch 验证

@@ -28,7 +28,7 @@ Last updated: 2026-08-22
 | M0-02 FlashMap source/schema | 完成 | v1 compatibility/v2 target 双版本 source、生成物、live consumer、artifact/drift gate | 后续 map 变更必须同时通过 freshness 与 consumer gate。 |
 | M1-01 Geometry/Raw HAL | 进行中 | 16 MiB geometry、overflow-safe range、host boundary tests、COM8 v1 OTA/lockout HIL | raw write header 只对 BootFlashService/FlashTransaction target 可见。 |
 | M1-02 permission view | 进行中 | generated X-macro、纯算法服务、版本化 live consumer、host 边界测试、COM8 OTA/只读权限闭环 | 真实 writer 接入、v2 factory 部署与 C11 激活审核。 |
-| M1-03 FlashTransactionAO | 未开始 | 既有 core1 lockout 可复用 | queue/FB/Vector、唯一 App writer、durable completion。 |
+| M1-03 FlashTransactionAO | 进行中 | one-deep queue/FB/Vector、OTA image 唯一 transaction owner、host fault tests、COM8 双次 OTA HIL | metadata/Product Config/Boot writer、异步 completion、lease/buffer、thermal gate 与 durable reset 语义。 |
 
 当前 live Bootloader、App linker、factory UF2、OTA partition 和 packager 均从 generated
 `v1_compat` artifact 取得既有低 4 MiB 兼容布局，不再各自手写地址；
@@ -36,6 +36,80 @@ Last updated: 2026-08-22
 permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootloader 本轮没有重刷。
 
 ## 任务记录
+
+### FLASH-TASK-20260822-004 - FlashTransactionAO 首轮 OTA writer 与 COM8 双次闭环
+
+- 状态：M1-03 进行中；完成 OTA image erase/program 首个生产 writer 迁移，未完成整个 App/Boot
+  raw writer 收敛。
+- 日期：2026-08-22
+- 任务目标：
+  - 在不改变 deployed `v1_compat` 地址、不写 v2 高地址的前提下，建立 HAOFV
+    `FlashTransactionAO/FB/Vector`，让 OTA image 不再直接调用 Raw HAL。
+  - 以 host fault fixtures 和 COM8 双次 OTA 证明 active-slot fail-closed、program/readback completion
+    与 core1 lockout 闭环。
+- 完成内容：
+  - 新增 one-deep transaction queue、job/requester/operation/provider generation、abort、分级
+    completion 和 seqlock Vector；FB 每次 service 只推进一个状态，终态统一 release owner。
+  - policy 仅接受 OTA image 写 generated `FLASH_COMPAT_MAP_APP_A_ID/APP_B_ID` 中的非活动槽；
+    active slot 从已校验 metadata 注入，未知状态、活动槽、跨分区、越界、未对齐和 provider 失效均
+    fail closed。
+  - `FlashTransactionAO` 以 owner name 申请 Flash resource，唯一执行 App OTA raw erase/program 和
+    XIP readback verify；raw inventory 已把 portable OTA caller 替换为 transaction owner。
+  - portable OTA 保留同步兼容包装，但只有 committed completion 才向上返回成功；metadata
+    mark-pending/confirm 本轮仍使用既有 raw owner，Boot target 不链接 App transaction 组件。
+  - 新增 `SYSTem:DIAGnostic:FLASh:TRANsaction?` 只读 Vector 查询、host fault runner，并扩展
+    Flash lockout HIL 在 boot 前核对分区、进度、verify、completion、generation 和 lockout snapshot。
+- HAOFV 边界：
+  - 本轮 transaction policy 只消费 generated v1 compatibility partition；v2 继续
+    `target_not_deployed`，没有在线重定位、Bootloader 重刷或高地址写入。
+  - `PARK_CORE1` 是首轮 transaction 可观测状态，实际 park/ACK 仍由已审计 Raw HAL lockout
+    closure 执行；将 park handshake 完全上移和 thermal/mode gate 属于 M1-04。
+  - 当前 queue 为同步迁移桥，尚无 lease、大 payload immutable provider/refcount、跨 reset durable
+    completion；因此 M1-03、M1-04 和 M1-05 均不能标记完成。
+  - Flash registry 契约继续保持 `pending`，未进行 C11 status 变更。
+- 验证结果（以下数字均为本次构建/HIL 快照，非长期事实源）：
+  - FlashTransaction host fault fixtures 通过，覆盖 inactive-slot erase/program、active/unknown active、
+    permission/range/alignment/provider、policy/resource/raw/verify failure、queue busy、abort 和 Vector
+    generation；全量 host runner 为 30/30。
+  - release 与 RTOS+双核构建、generated map freshness、raw inventory、Flash consumer/release gate、
+    SCPI product list 和文档门禁通过。
+  - 全量 Python 为 110/111；唯一失败仍是既有 reflection report 测试缺少
+    `build-product-release/tdma_pio_timing_check_reflection_20260821.json`，未伪造台架产物。
+  - 代码提交 `2a7964352d60b8c3a32bbb9dd16b2b090a55b482` 已推送；release package build id 为
+    `20260821165051`，package SHA-256 为
+    `854F162C761E4C73AC4B2511628D1DCE0DF9FFA5EEDF37D80D77800A435CFE06`。
+  - COM8 `839E1AE79EA20F31` 先由旧 build bootstrap 到新 transaction 固件并 commit 至 slot 2；
+    第二次由新固件向 inactive partition 1 执行 OTA，随后 boot/commit 成功。
+  - 第二次写入期间 lockout request/ACK/release 从 2 同步增长到 937，timeout/release timeout 保持
+    0；boot 前最后一个 transaction 为 OTA requester、APP_A program，256/256 processed/verified，
+    completion=committed、error=none、transaction generation=933。
+  - 板端 target map 为 14/14、permission access 260/260；Flash 定向双核/保护 smoke 为 5/5，
+    core1 采样窗口增长 2011，最终错误队列为空。
+  - 校准 PIO reference loopback 为 3/3，诊断快照 residence/raw path/delay estimate 为
+    980/100/50 ns；该结果边界仍是 `REFERENCE_LOOPBACK + DIAGNOSTIC_ONLY`，不是 active calibration。
+  - 通用 multicore 全项为 16/17；DPLL service 正常但无合格时间戳输入时 `update_seq` 保持 1。
+    额外 VDC observer TX+RX 自检因 no-edge 返回 `last_error=4`，未宣称 DPLL 算法闭环成功；测试后
+    已关闭 observer 并确认错误队列为空。
+  - 板端 FlashMap 验证时板温/RP2350 内温为 31.875/37.339 degC；电流前端
+    `healthy=1`、输出 1446520 uV、nominal estimate 79 mA，但 `current_calibrated=0`，不能作为计量值。
+- 板端证据与回退：
+  - 原始报告位于 `build/flash_transaction_bootstrap_COM8/`、
+    `build/flash_transaction_hil_COM8_20260822/`、`build/flash_map_board_COM8_20260822/`、
+    `build/multicore_flash_smoke_COM8_20260822/` 和 `build/calibration_loopback_COM8_20260822/`。
+  - 代码可 revert `2a79643`；板端仍使用 v1 Direct A/B，另一个已验证镜像槽与既有 BOOTSEL
+    factory 恢复路径保留。M0-05 固定回退 artifact/runbook 仍未完成。
+- 提交与推送：
+  - `2a79643 feat(flash): route OTA writes through transaction owner`
+  - 代码提交已推送 `origin/feature/rtos-multicore-haofv`；本文档使用独立提交。
+- 还需完成：
+  - 把 metadata/Product Config App writer 迁移到 intent API，并为 Boot metadata 建立独立
+    BootFlashService 边界；收敛 raw write header 可见性。
+  - 将同步迁移桥改为 AO 异步 completion，补 lease/buffer/refcount、abort during raw page/sector、
+    duplicate completion 和跨 reset durable completion。
+  - 进入 M1-04，接入 System/Trigger/Calibration/TDMA/thermal gate，并把 park handshake owner
+    边界完全上移；在接线/profile 匹配后单独完成 VDC/DPLL observer 算法 HIL。
+- 下一步：
+  - 优先拆分 App/Boot metadata writer 边界，再迁移 Product Config；继续禁止 v2 高地址写入。
 
 ### FLASH-TASK-20260822-003 - v1 compatibility live consumer 同源与 COM8 闭环
 
