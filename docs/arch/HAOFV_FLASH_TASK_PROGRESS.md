@@ -85,6 +85,23 @@ Last updated: 2026-08-22
 - 还需完成：
   - parser/golden corpus 与 fuzz harness 接入具体 BCB/OTA/TDMA 实现，并完成 M0-04 独立审查。
 
+### FLASH-TASK-20260822-015 - M0 输入 gate 接入构建与 M1 基线复核
+
+- 状态：M0-03 完成；M0-04 进行中；M0-05 进行中；M1-01/M1-02 代码基线可复核，M1 退出仍受
+  BOOTSEL 回退实板证据、link-level visibility、core1 park owner 和 Scratch HIL 阻塞。
+- 日期：2026-08-22
+- 完成内容：
+  - `project_flash_contract_check` 已在 CMake 中强制运行 persistence schema、migration policy 和
+    wire contract checker；任一输入缺失/漂移会阻断 release 与 RTOS+双核构建。
+  - M0-03/M0-04 的 checker 正向/负向 pytest 与全量 host runner `30/30` 通过；release build
+    `pico2-release` 重新配置并通过，构建输出同时报告 `persistence_schema=OK`、
+    `flash_migration=OK`、`flash_wire=OK`。
+  - 保持 HAOFV 边界：v1 compatibility 仍是唯一 live map，v2 target_not_deployed；没有在线搬迁、
+    高地址写入、Bootloader 重刷或 destructive SCPI。
+- 还需完成：
+  - M0-05 生成并校验 factory UF2/BOOTSEL 实板回退报告；M0-04 parser/fuzz corpus；M1-01 link
+    visibility、M1-04 core1 park/mode owner、M1-06 受限 Scratch intent 与 HIL。
+
 ## 任务记录
 
 ### FLASH-TASK-20260822-010 - Policy gate reason/temperature Vector 与 COM8 闭环
