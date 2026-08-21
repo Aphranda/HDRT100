@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md`
 Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 本文记录 Flash v2 迁移已经发生的实现、验证、提交和剩余 gate。架构语义以
 `HAOFV_FLASH_ARCHITECTURE.md` 为准，未完成项和依赖关系以 `HAOFV_FLASH_TODO.md` 为准；
@@ -27,13 +27,81 @@ Last updated: 2026-08-21
 | M0-01 implementation inventory | 完成 | raw caller allowlist、旧地址依赖、构建/release scan gate | 后续新增 caller 必须先登记。 |
 | M0-02 FlashMap source/schema | 进行中 | source/schema/header/manifest/CMake/linker 生成物和负向测试 | live linker/factory/packager consumer 与独立 drift fixture。 |
 | M1-01 Geometry/Raw HAL | 进行中 | 16 MiB geometry、overflow-safe range、host boundary tests、COM8 v1 OTA/lockout HIL | raw write header 只对 BootFlashService/FlashTransaction target 可见。 |
-| M1-02 permission view | 未开始 | generated permission mask 仅作为输入 | `flash_map_find()`、相对范围、context/active-slot/lease 检查。 |
+| M1-02 permission view | 进行中 | generated X-macro、纯算法服务、host 边界测试、COM8 只读权限闭环 | live linker/factory/packager consumer、真实 writer 接入与 C11 激活审核。 |
 | M1-03 FlashTransactionAO | 未开始 | 既有 core1 lockout 可复用 | queue/FB/Vector、唯一 App writer、durable completion。 |
 
 当前 live Bootloader、App linker、factory UF2 和 OTA partition 仍使用 v1 低 4 MiB 兼容布局；
-`config/flash_map_v2.json` 的目标分区尚未烧录或部署。
+`config/flash_map_v2.json` 的目标分区尚未烧录或部署。App 已通过 OTA 部署只读 permission
+diagnostic；Boot 构建目标已链接同一服务，但板上 Bootloader 本轮没有重刷。
 
 ## 任务记录
+
+### FLASH-TASK-20260822-002 - FlashMap permission view 与 COM8 只读闭环
+
+- 状态：进行中。M1-02 的纯算法、generated context view 和测试子项已完成；live consumer 子项
+  未完成。
+- 日期：2026-08-22
+- 任务目标：
+  - 以 `config/flash_map_v2.json` 为唯一分区输入，实现 Boot/App/factory 的静态权限视图和 App
+    active-slot/Scratch lease 动态规则。
+  - 在不写 v2 高地址、不新增任意地址 Flash 命令的前提下，把算法接入固件并由 COM8 闭环验证。
+- 完成内容：
+  - 生成器新增 deployment state、executable flag 和 `FLASH_MAP_PARTITION_TABLE` X-macro；
+    `flash_map.c` 不重复手写分区数字。
+  - 新增 `flash_map_find()`、partition-relative range、operation permission 和 context view；零长度、
+    越界、跨分区、非法 context/operation 均 fail closed。
+  - App 动态规则拒绝活动 App 槽写入，只允许非活动槽写入，只允许活动槽执行；active slot 未知时
+    写/执行均拒绝。Scratch 写入要求 lease，Future Pool 不授予任何权限。
+  - App A/App B 与 Boot 构建目标链接同一 portable service；增加 `SYSTem:DIAGnostic:FLASh:MAP?`
+    和 `SYSTem:DIAGnostic:FLASh:ACCEss?` 两个只读查询。命令不调用 Raw HAL，不执行 read/erase/
+    program。
+  - 新增 host C 测试、runner 和 `flash_map_board_validate.py`；板端工具从同一 JSON 推导期望值，
+    同时保存原始 transcript、温度、电流前端、core1 与错误队列。
+- HAOFV 边界：
+  - FlashMap 仍是 Raw HAL 上方的纯策略服务，不拥有 Flash transaction，不成为业务 AO；实际 writer
+    必须等待 M1-03 的唯一 FlashTransactionAO。
+  - SCPI 的 active partition/context 参数只用于诊断算法矩阵，不是实际写权限来源；后续 writer 必须
+    从可信 Boot/OTA 状态构造 access view。
+  - map state 继续是 `target_not_deployed`；本轮 App OTA 只使用既有 v1 非活动槽，没有访问 v2
+    Scratch/Future Pool，没有重刷 Bootloader。
+  - `ARCH-FLASHMAP-01` 等 Flash 契约继续保持 `pending`，没有触发 C11 status 变更。
+- 验证结果（以下数值均为本次构建/HIL 快照，非长期事实源）：
+  - generated artifact `--check`、Flash inventory、SCPI namespace 和 release gate 通过；release 与
+    RTOS+双核构建均完成 App A/App B/Boot 链接。
+  - `run_host_unit_tests.ps1` 为 29/29；Flash/OTA/release 定向 Python 回归为 29/29。
+  - 全量 Python 回归为 101/102；唯一失败仍是既有
+    `test_reflection_report_has_balanced_ladder`，原因是本机缺少
+    `build-product-release/tdma_pio_timing_check_reflection_20260821.json`，没有为通过测试伪造该
+    TDMA 台架报告。
+  - 代码提交 `10fd545c9d8654f21f7a6a58b6dd7162e9450764` 已推送；release package build id 为
+    `20260821160431`，package SHA-256 为
+    `0B7D94304E658643D2917B5DBBC13D550F0EE3E10E05D98ACCFA79593A57F1CB`。
+  - COM8 `839E1AE79EA20F31` 完成 inactive-slot OTA、Boot 和 commit；active slot 从 1 切换到 2，
+    最终 OTA 状态为 committed，transaction 全零。
+  - 写入期间 lockout request/ACK/release 从 2 增长到 929，timeout/release timeout 均为 0，
+    `last_result=1`，写入后的临界区快照为 1044 us。
+  - 板端 map snapshot 为 14/14，permission access 为 260/260；专项验证覆盖活动/非活动 App、
+    execute、Scratch lease、Future Pool、cross-partition、zero-length 和 unknown-active 拒绝。
+  - 定向 multicore smoke 为 5/5，core1 采样窗口增长 2008，最终错误队列为空。
+  - OTA 前板温/RP2350 内温为 31.553/36.403 degC；算法验证时为 31.633/36.871 degC。
+    sensor flags 只有 current nominal-only；current front-end healthy，current estimate 未校准。
+- 板端证据与回退：
+  - 原始报告位于 `build/flash_map_com8_ota_20260822/`、
+    `build/flash_map_com8_algorithm_20260822/` 和 `build/flash_map_com8_smoke_20260822/`。
+  - 本轮变更为只读策略/诊断接入；代码可 revert `10fd545`，板端仍保留 v1 Direct A/B 与既有
+    BOOTSEL factory 恢复路径。M0-05 要求的固定回退 artifact/runbook 仍未完成，不以本次 OTA
+    成功替代该 gate。
+- 提交与推送：
+  - `10fd545 feat(flash): add generated permission view`
+  - 代码提交已推送 `origin/feature/rtos-multicore-haofv`；本文档证据使用独立提交。
+- 还需完成：
+  - 让 live linker、factory builder、OTA packager 和 release size gate 消费 map artifact，并补独立
+    linker drift fixture。
+  - 为生产 writer 接入可信 active-slot provider；拆分 Raw read/write header，再建立 M1-03
+    FlashTransactionAO/FB/Vector。
+  - M1-03/M1-04 完成后才能增加受限 Scratch intent 和执行 M1-06 高地址破坏性 HIL。
+- 下一步：
+  - 先收口 M0-02/M1-02 live consumer 和 size gate，保持 v1 可回退构建；随后进入 M1-03 owner。
 
 ### FLASH-TASK-20260821-001 - FlashMap 输入、inventory 与 16 MiB Raw HAL 首轮迁移
 
