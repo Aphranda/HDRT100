@@ -5,12 +5,12 @@
     pull block        side 0
     set x, 7         side 0
 bitloop:
-    ; Six PIO cycles per bit: two low, one high, then two low cycles before
-    ; the next bit. This is the validated product-board waveform: DATA changes
-    ; before the rising sampling edge and remains stable through the high phase.
+    ; Six PIO cycles per bit: three low and three high. DATA changes at the
+    ; beginning of the low phase, remains stable for two PIO cycles before the
+    ; rising sampling edge, and stays stable through the complete high phase.
     out pins, 1      side 0 [1]
-    nop              side 1 [1]
-    jmp x-- bitloop  side 0 [2]
+    nop              side 1 [2]
+    jmp x-- bitloop  side 0
 .wrap
 
 .program tdma_pio_spi_rx_byte
@@ -67,6 +67,21 @@ clk_burst_loop:
     wait 1 gpio 0
     irq set 2
     wait 1 irq 3
+.wrap
+
+; Second-stage coded calibration TX. One raw Manchester sample is emitted per
+; clk_sys cycle. The TX DMA supplies packed samples through autopull; core1
+; never feeds individual edges.
+.program tdma_pio_spi_clk_coded_tx
+.wrap_target
+    out pins, 1
+.wrap
+
+; Second-stage coded calibration RX. One returned CLK sample is captured per
+; clk_sys cycle and autopushed in packed 32-sample words to the RX DMA.
+.program tdma_pio_spi_clk_oversample
+.wrap_target
+    in pins, 1
 .wrap
 
 ; Single-board calibration persona. GPIO25..29 map to CLK_TX, SYNC_TX,
@@ -262,6 +277,40 @@ static inline void tdma_pio_spi_clk_capture_program_init(PIO pio,
 
     pio_sm_config c =
         tdma_pio_spi_clk_capture_program_get_default_config(offset);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void tdma_pio_spi_clk_coded_tx_program_init(PIO pio,
+                                                           uint sm,
+                                                           uint offset,
+                                                           uint tx_clk_pin)
+{
+    pio_gpio_init(pio, tx_clk_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_clk_pin, 1u, true);
+    pio_sm_config c =
+        tdma_pio_spi_clk_coded_tx_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, tx_clk_pin, 1u);
+    sm_config_set_out_shift(&c, true, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins(pio, sm, 0u);
+}
+
+static inline void tdma_pio_spi_clk_oversample_program_init(PIO pio,
+                                                             uint sm,
+                                                             uint offset,
+                                                             uint rx_clk_pin)
+{
+    pio_gpio_init(pio, rx_clk_pin);
+    gpio_pull_down(rx_clk_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_clk_pin, 1u, false);
+    pio_sm_config c =
+        tdma_pio_spi_clk_oversample_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, rx_clk_pin);
+    sm_config_set_in_shift(&c, true, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);
 }

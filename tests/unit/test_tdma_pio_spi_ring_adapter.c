@@ -142,6 +142,8 @@ static tdma_ring_runtime_config_t make_valid_config(void)
          * host runtime advancing now_ns by 1 us per service round, the
          * reference node sends every second round. */
         .feedback_timeout_ns = 2000u,
+        .tx_dma_channel_id = TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID,
+        .rx_dma_channel_id = TDMA_PROFILE_DEFAULT_RX_DMA_CHANNEL_ID,
     };
     return config;
 }

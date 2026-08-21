@@ -3,7 +3,10 @@
 #include <string.h>
 
 #include "board.h"
+#include "board_config.h"
+#include "board_identity.h"
 #include "osal.h"
+#include "project_config.h"
 #include "tdma_runtime_owner.h"
 
 #define CALIBRATION_MANAGER_DEFAULT_CRC32 0x10000003u
@@ -12,6 +15,127 @@ static calibration_manager_status_t s_status;
 static bool s_ready;
 static calibration_manager_loopback_snapshot_t s_loopback_snapshot;
 static uint32_t s_loopback_processed_epoch;
+static calibration_clk_coded_store_t s_clk_coded_store;
+static calibration_clk_coded_workspace_t s_clk_coded_workspace;
+static uint32_t s_clk_coded_capture[TDMA_PIO_SPI_CODED_BUFFER_WORDS];
+static volatile bool s_clk_coded_active;
+static uint32_t s_clk_coded_request_sequence;
+
+typedef enum {
+    CALIBRATION_CLK_CODED_INTENT_NONE = 0u,
+    CALIBRATION_CLK_CODED_INTENT_START = 1u,
+    CALIBRATION_CLK_CODED_INTENT_STOP = 2u,
+} calibration_clk_coded_intent_opcode_t;
+
+typedef struct {
+    volatile uint32_t guard;
+    uint32_t sequence;
+    uint32_t opcode;
+    calibration_clk_coded_request_t request;
+    calibration_clk_correlation_gate_t gate;
+} calibration_clk_coded_intent_t;
+
+static calibration_clk_coded_intent_t s_clk_coded_intent;
+static uint32_t s_clk_coded_intent_next_sequence;
+static volatile uint32_t s_clk_coded_intent_consumed_sequence;
+static calibration_clk_coded_request_t s_clk_coded_active_request;
+static calibration_clk_correlation_gate_t s_clk_coded_active_gate;
+
+static bool calibration_manager_parse_hex_u64(const char *text,
+                                              uint64_t *value)
+{
+    uint64_t parsed = 0u;
+    uint32_t digits = 0u;
+    if (text == NULL || value == NULL) return false;
+    while (*text != '\0') {
+        uint32_t nibble;
+        if (*text >= '0' && *text <= '9') {
+            nibble = (uint32_t)(*text - '0');
+        } else if (*text >= 'A' && *text <= 'F') {
+            nibble = (uint32_t)(*text - 'A') + 10u;
+        } else if (*text >= 'a' && *text <= 'f') {
+            nibble = (uint32_t)(*text - 'a') + 10u;
+        } else {
+            return false;
+        }
+        if (digits >= 16u) return false;
+        parsed = (parsed << 4u) | nibble;
+        digits++;
+        text++;
+    }
+    if (digits == 0u) return false;
+    *value = parsed;
+    return true;
+}
+
+static uint64_t calibration_manager_build_id_value(const char *text)
+{
+    uint64_t parsed = 0u;
+    bool decimal = text != NULL && *text != '\0';
+    for (const char *cursor = text; decimal && *cursor != '\0'; cursor++) {
+        if (*cursor < '0' || *cursor > '9') {
+            decimal = false;
+            break;
+        }
+        const uint32_t digit = (uint32_t)(*cursor - '0');
+        if (parsed > (UINT64_MAX - digit) / 10u) {
+            decimal = false;
+            break;
+        }
+        parsed = parsed * 10u + digit;
+    }
+    if (decimal) return parsed;
+
+    /* Development build labels are represented by a stable FNV-1a value;
+     * generated numeric release IDs retain their exact decimal value. */
+    uint64_t hash = UINT64_C(14695981039346656037);
+    while (text != NULL && *text != '\0') {
+        hash ^= (uint8_t)*text++;
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static void calibration_manager_clk_coded_intent_write_begin(void)
+{
+    (void)__atomic_add_fetch(&s_clk_coded_intent.guard,
+                             1u, __ATOMIC_ACQ_REL);
+}
+
+static void calibration_manager_clk_coded_intent_write_end(void)
+{
+    (void)__atomic_add_fetch(&s_clk_coded_intent.guard,
+                             1u, __ATOMIC_RELEASE);
+}
+
+static bool calibration_manager_clk_coded_intent_read(
+    calibration_clk_coded_intent_t *intent)
+{
+    if (intent == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_clk_coded_intent.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        *intent = s_clk_coded_intent;
+        const uint32_t end = __atomic_load_n(
+            &s_clk_coded_intent.guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) return true;
+    }
+    return false;
+}
+
+static void calibration_manager_clk_coded_intent_publish(
+    calibration_clk_coded_intent_opcode_t opcode,
+    const calibration_clk_coded_request_t *request,
+    const calibration_clk_correlation_gate_t *gate)
+{
+    calibration_manager_clk_coded_intent_write_begin();
+    s_clk_coded_intent.sequence = ++s_clk_coded_intent_next_sequence;
+    s_clk_coded_intent.opcode = (uint32_t)opcode;
+    if (request != NULL) s_clk_coded_intent.request = *request;
+    if (gate != NULL) s_clk_coded_intent.gate = *gate;
+    calibration_manager_clk_coded_intent_write_end();
+}
 
 bool calibration_manager_init(void)
 {
@@ -19,6 +143,17 @@ bool calibration_manager_init(void)
 
     memset(&s_status, 0, sizeof(s_status));
     memset(&s_loopback_snapshot, 0, sizeof(s_loopback_snapshot));
+    calibration_clk_coded_store_init(&s_clk_coded_store);
+    memset(&s_clk_coded_workspace, 0, sizeof(s_clk_coded_workspace));
+    memset(s_clk_coded_capture, 0, sizeof(s_clk_coded_capture));
+    memset(&s_clk_coded_intent, 0, sizeof(s_clk_coded_intent));
+    memset(&s_clk_coded_active_request, 0,
+           sizeof(s_clk_coded_active_request));
+    memset(&s_clk_coded_active_gate, 0, sizeof(s_clk_coded_active_gate));
+    __atomic_store_n(&s_clk_coded_active, false, __ATOMIC_RELEASE);
+    s_clk_coded_intent_next_sequence = 0u;
+    s_clk_coded_intent_consumed_sequence = 0u;
+    s_clk_coded_request_sequence = 0u;
     s_loopback_processed_epoch = 0u;
     s_status.last_service_ms = now_ms;
     s_status.command_seq = 1u;
@@ -123,6 +258,115 @@ void calibration_manager_service_core1(void)
     const bool stopped = tdma_runtime_owner_get_ring_snapshot(&ring) &&
                          ring.enabled == 0u;
     calibration_pio_loopback_service_core1(stopped);
+    tdma_runtime_owner_coded_service_core1();
+
+    calibration_clk_coded_intent_t intent;
+    if (calibration_manager_clk_coded_intent_read(&intent) &&
+        intent.sequence != __atomic_load_n(
+            &s_clk_coded_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        if (intent.opcode == CALIBRATION_CLK_CODED_INTENT_STOP) {
+            tdma_runtime_owner_coded_stop_core1();
+            __atomic_store_n(&s_clk_coded_active, false, __ATOMIC_RELEASE);
+            (void)calibration_clk_coded_stop_core1(&s_clk_coded_store);
+        } else if (intent.opcode == CALIBRATION_CLK_CODED_INTENT_START &&
+                   !stopped) {
+            (void)calibration_clk_coded_reject_request_core1(
+                &s_clk_coded_store, &intent.request,
+                CALIBRATION_CLK_CODED_REJECT_BAD_STATE);
+        } else if (intent.opcode == CALIBRATION_CLK_CODED_INTENT_START &&
+                   !__atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) &&
+                   calibration_clk_coded_begin_coarse_core1(
+                       &s_clk_coded_store, &intent.request)) {
+            const calibration_clk_marker_config_t marker_config = {
+                .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+                .codebook_id = (uint8_t)intent.request.codebook_id,
+                .epoch = (uint8_t)intent.request.train_epoch,
+                .master_slot = (uint8_t)intent.request.logical_slot,
+                .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
+            };
+            calibration_clk_marker_descriptor_t marker;
+            if (calibration_clk_marker_build(
+                    &marker_config, s_clk_coded_workspace.expected_words,
+                    CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &marker) &&
+                marker.raw_samples <=
+                    UINT32_MAX - intent.request.coarse_max_sample) {
+                const uint32_t capture_samples =
+                    marker.raw_samples + intent.request.coarse_max_sample;
+                const tdma_pio_spi_coded_request_t raw_request = {
+                    .tx_words = s_clk_coded_workspace.expected_words,
+                    .tx_word_count = marker.raw_words,
+                    .tx_sample_count = marker.raw_samples,
+                    .capture_sample_count = capture_samples,
+                    .timing_field_tx_origin_sample =
+                        marker.timing_origin_sample,
+                    .epoch = intent.request.train_epoch,
+                };
+                if (tdma_runtime_owner_coded_start_core1(&raw_request)) {
+                    s_clk_coded_workspace.marker = marker;
+                    s_clk_coded_active_request = intent.request;
+                    s_clk_coded_active_gate = intent.gate;
+                    __atomic_store_n(&s_clk_coded_active, true,
+                                     __ATOMIC_RELEASE);
+                } else {
+                    (void)calibration_clk_coded_reject_request_core1(
+                        &s_clk_coded_store, &intent.request,
+                        CALIBRATION_CLK_CODED_REJECT_DMA);
+                }
+            } else {
+                (void)calibration_clk_coded_reject_request_core1(
+                    &s_clk_coded_store, &intent.request,
+                    CALIBRATION_CLK_CODED_REJECT_BAD_ARGUMENT);
+            }
+        }
+        __atomic_store_n(&s_clk_coded_intent_consumed_sequence,
+                         intent.sequence, __ATOMIC_RELEASE);
+    }
+
+    if (__atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE)) {
+        tdma_pio_spi_coded_snapshot_t raw;
+        if (tdma_runtime_owner_get_coded_snapshot(&raw) &&
+            (raw.state == TDMA_PIO_SPI_CODED_COMPLETE ||
+             raw.state == TDMA_PIO_SPI_CODED_ERROR)) {
+            size_t capture_words = 0u;
+            memset(s_clk_coded_capture, 0, sizeof(s_clk_coded_capture));
+            const bool copied = raw.state == TDMA_PIO_SPI_CODED_COMPLETE &&
+                tdma_runtime_owner_copy_coded_capture_core1(
+                    s_clk_coded_capture, TDMA_PIO_SPI_CODED_BUFFER_WORDS,
+                    &capture_words);
+            uint32_t flags = 0u;
+            if ((raw.flags & TDMA_PIO_SPI_CODED_FLAG_TX_DMA_COMPLETE) != 0u) {
+                flags |= CALIBRATION_CLK_CODED_FLAG_TX_DMA_COMPLETE;
+            }
+            if (copied &&
+                (raw.flags & TDMA_PIO_SPI_CODED_FLAG_RX_DMA_COMPLETE) != 0u) {
+                flags |= CALIBRATION_CLK_CODED_FLAG_RX_DMA_COMPLETE;
+            }
+            const calibration_clk_coded_evidence_t evidence = {
+                .capture_words = s_clk_coded_capture,
+                .capture_sample_count = raw.capture_sample_count,
+                .capture_origin_tick = raw.capture_origin_tick,
+                .timing_field_tx_origin_sample =
+                    raw.timing_field_tx_origin_sample,
+                .tx_dma_count = raw.tx_word_count - raw.tx_dma_remaining,
+                .rx_dma_count = copied ? (uint32_t)capture_words : 0u,
+                .dma_overrun_count = raw.dma_overrun_count,
+                .pio_stall_count = raw.pio_stall_count,
+                .train_epoch = s_clk_coded_active_request.train_epoch,
+                .train_sequence = s_clk_coded_active_request.train_sequence,
+                .topology_generation =
+                    s_clk_coded_active_request.topology_generation,
+                .topology_crc32 =
+                    s_clk_coded_active_request.topology_crc32,
+                .profile_crc32 = s_clk_coded_active_request.profile_crc32,
+                .schedule_crc32 = s_clk_coded_active_request.schedule_crc32,
+                .flags = flags,
+            };
+            (void)calibration_clk_coded_process_core1(
+                &s_clk_coded_store, &s_clk_coded_workspace, &evidence,
+                &s_clk_coded_active_gate);
+            __atomic_store_n(&s_clk_coded_active, false, __ATOMIC_RELEASE);
+        }
+    }
 }
 
 bool calibration_manager_get_loopback_snapshot(
@@ -136,6 +380,108 @@ bool calibration_manager_get_loopback_snapshot(
     osal_critical_exit();
     snapshot->raw = raw;
     return true;
+}
+
+bool calibration_manager_get_clk_coded_snapshot(
+    calibration_clk_coded_snapshot_t *snapshot)
+{
+    return calibration_clk_coded_get_snapshot(&s_clk_coded_store, snapshot);
+}
+
+bool calibration_manager_start_clk_coded(
+    const calibration_clk_coded_request_t *request,
+    const calibration_clk_correlation_gate_t *gate)
+{
+    calibration_clk_coded_intent_t pending;
+    if (request == NULL || gate == NULL) return false;
+    const calibration_clk_marker_config_t marker_config = {
+        .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+        .codebook_id = (uint8_t)request->codebook_id,
+        .epoch = (uint8_t)request->train_epoch,
+        .master_slot = (uint8_t)request->logical_slot,
+        .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
+    };
+    if (request->logical_slot > 7u ||
+        request->train_epoch > UINT8_MAX || request->codebook_id > UINT8_MAX ||
+        request->sample_period_ns == 0u ||
+        request->coarse_min_sample >= request->coarse_max_sample ||
+        request->coarse_max_sample - request->coarse_min_sample + 1u >
+            CALIBRATION_CLK_CORRELATION_MAX_LAGS ||
+        gate->min_lag_sample != request->coarse_min_sample ||
+        gate->max_lag_sample != request->coarse_max_sample ||
+        !calibration_clk_marker_config_valid(&marker_config) ||
+        __atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) ||
+        !calibration_manager_clk_coded_intent_read(&pending) ||
+        pending.sequence != __atomic_load_n(
+            &s_clk_coded_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        return false;
+    }
+    calibration_manager_clk_coded_intent_publish(
+        CALIBRATION_CLK_CODED_INTENT_START, request, gate);
+    return true;
+}
+
+bool calibration_manager_request_clk_coded(
+    uint32_t codebook_id,
+    uint32_t min_lag_sample,
+    uint32_t max_lag_sample,
+    uint32_t max_best_distance,
+    uint32_t min_margin)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    tdma_service_ring_runtime_config_t staged;
+    uint64_t board_unique_id = 0u;
+    if (BOARD_SYS_CLOCK_HZ == 0u ||
+        (UINT32_C(1000000000) % BOARD_SYS_CLOCK_HZ) != 0u ||
+        !calibration_manager_parse_hex_u64(board_identity_serial(),
+                                           &board_unique_id) ||
+        !tdma_runtime_owner_get_ring_snapshot(&ring) ||
+        ring.enabled != 0u ||
+        !tdma_runtime_owner_get_staged_ring_config(&staged) ||
+        staged.node_count < 2u ||
+        staged.local_slot_id >= staged.node_count ||
+        staged.ring_profile_crc32 == 0u ||
+        staged.operating_profile_crc32 == 0u ||
+        staged.schedule_crc32 == 0u || staged.baud_hz == 0u) {
+        return false;
+    }
+
+    uint32_t sequence = s_clk_coded_request_sequence + 1u;
+    if (sequence == 0u) sequence = 1u;
+    const calibration_clk_coded_request_t request = {
+        .board_unique_id = board_unique_id,
+        .build_id = calibration_manager_build_id_value(g_project_build_id),
+        .logical_slot = staged.local_slot_id,
+        .train_epoch = sequence & UINT8_MAX,
+        .train_sequence = sequence,
+        .calibration_generation = sequence,
+        .topology_generation = ring.config_seq,
+        .topology_crc32 = staged.ring_profile_crc32,
+        .profile_crc32 = staged.operating_profile_crc32,
+        .schedule_crc32 = staged.schedule_crc32,
+        .baud_hz = staged.baud_hz,
+        .codebook_id = codebook_id,
+        .sample_period_ns = UINT32_C(1000000000) / BOARD_SYS_CLOCK_HZ,
+        .coarse_min_sample = min_lag_sample,
+        .coarse_max_sample = max_lag_sample,
+    };
+    const calibration_clk_correlation_gate_t gate = {
+        .min_lag_sample = min_lag_sample,
+        .max_lag_sample = max_lag_sample,
+        .max_best_distance = max_best_distance,
+        .min_margin = min_margin,
+    };
+    if (!calibration_manager_start_clk_coded(&request, &gate)) {
+        return false;
+    }
+    s_clk_coded_request_sequence = sequence;
+    return true;
+}
+
+void calibration_manager_stop_clk_coded(void)
+{
+    calibration_manager_clk_coded_intent_publish(
+        CALIBRATION_CLK_CODED_INTENT_STOP, NULL, NULL);
 }
 
 void calibration_manager_get_status(calibration_manager_status_t *status)

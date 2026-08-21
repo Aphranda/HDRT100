@@ -17,9 +17,142 @@ Last updated: 2026-08-21
 | 校准域职责与 TDMA/VDC 边界 | `[x]` | 校准拥有测量与接受门禁，TDMA 负责传输与编排，VDC/DPLL 消费 accepted snapshot |
 | 线序与环路顺序测量 | `[~]` | host 隔离探测、闭环判定和 NO 提交已迁入 calibration 命名空间；板内 generation/freshness 待实现 |
 | 第一阶段 CLK RTT 粗捕获 | `[x]` | 已完成板内最小实现和四板 HIL，仍为 diagnostic-only |
-| 第二阶段编码 marker/相关测距 | `[~]` | codebook 离线评估已完成，固件、PIO/DMA、相关器和 HIL 待实现 |
+| 第二阶段编码 marker/相关测距 | `[~]` | 动态 persona、固定双 DMA、板端相关和四主最小 HIL 已完成；重复门限及板内多板协调待完成 |
 | 第三阶段双向同时对比法 | `[~]` | 公式、reject gate 和单板纯 PIO 闭环已通过；endpoint bias 及双板/四板实测待完成 |
 | VDC/DPLL active calibration gate | `[ ]` | 依赖正式 hardware latch、bias、generation/freshness 和 P3 结果 |
+
+## CAL-TASK-20260821-006 - P2 重复统计与 TDMA PIO 时序校正
+
+- 状态：P2 重复诊断完成；普通 TDMA TX PIO 时序校正完成；P3 正式准入仍未满足。
+- 日期：2026-08-21。
+- P2 重复 HIL（build `20260821044448`，accepted physical order）使用
+  `tools/calibration_ring_validate/calibration_clk_coded.py`，每个 master 独立执行 10
+  轮，结果目录：
+  - `build-product-release/calibration_clk_coded_p2_four_repeat10_level7`
+  - `build-product-release/calibration_clk_coded_p2_four_repeat10_level8`
+  - `build-product-release/calibration_clk_coded_p2_four_repeat10_level9`
+- 结果摘要：
+  - 10 MHz：40/40 accepted，NO.1/2/4 的 lag span 为 1，NO.3 为 2；各主节点最小
+    margin 为 `22/79/25/57`。
+  - 25 MHz：40/40 accepted，四主 lag span 均为 1；各主节点最小 margin 为 `4/14/26/36`。
+  - 30 MHz：40/40 accepted，NO.1 lag span 为 2，其余为 1；各主节点最小 margin 为
+    `14/42/47/14`。
+  - 三档均无 DMA overrun、PIO stall、marker flag 缺失或 mixed peak；结果仍为
+    `DIAGNOSTIC_ONLY`，不能据此缩短 40 ns robust marker，也不能生成 active delay。
+- 发现并修正普通 TDMA TX PIO 时序偏差：原实现实际为 7 cycles/bit、2:5 高低比，
+  与分频函数声明的 6 cycles/bit 不一致；修正为 6 cycles/bit、3:3 高低比。静态工具
+  `tools/tdma_ring_monitor/tdma_pio_timing_check.py` 及测试
+  `tests/python/test_tdma_pio_timing_check.py` 已通过；报告为
+  `build-product-release/tdma_pio_timing_check_10_25_30_fixed.json`。
+- OTA：四板均使用唯一地址白名单升级到最终 build `20260821061831`；证据目录
+  `build-product-release/ota_final_pio_fix_20260821`。中间 build `20260821061232` 曾试验
+  5 ms command-slot commit guard，但四板 coded START 仍由 guarded snapshot 确认、CDC
+  payload 超时，且一次后续 trial 遇到端点重枚举；该无收益 guard 已从最终源码和固件移除。
+- 最终 build 使用 NO.1 做一次四板 coded smoke 通过：lag=100、distance=89、margin=351，
+  marker flags 完整且 DMA/stall 为零；证据目录
+  `build-product-release/calibration_clk_coded_final_smoke`。该数字仍是 bench 诊断快照。
+- HAOFV 边界：PIO waveform 属于 TDMA transport/persona 实现；Calibration 只消费
+  profile/raw evidence 和 coded correlation 结果，不把静态 timing check 当作硬件 latch
+  或 VDC/DPLL calibration evidence。示波器仍需确认 rise/fall、线缆和收发器影响。
+- 下一步：在修正 waveform 的 build 上重新跑 10/25/30 MHz 的多板 coded HIL；只有在
+  40 ns fallback 的重复统计满足统一 margin/lag gate 后，才逐级评估更短 marker；随后再
+  补 `TRAIN_PREPARE/ACK/commit`、endpoint bias 和真实 `t1..t4` hardware latch，决定是否
+  进入 P3 双板 diagnostic 阶段。
+
+## CAL-TASK-20260821-007 - 码元档位筛选与回环反射时序复核
+
+- 状态：P2 candidate 筛选完成一轮；32 ns 通过，24 ns 退化，20 ns 因板卡暂时未全部
+  重新枚举而未作无效判定；P3 正式准入仍未满足。
+- 日期：2026-08-21。
+- OTA：四板按 `*IDN?` 唯一地址白名单升级到 build `20260821062825`，证据目录为
+  `build-product-release/ota_coded_marker_20260821`；四板 post-commit build 查询均一致。
+- coded marker 单轮筛选使用 `tools/calibration_ring_validate/calibration_clk_coded.py`：
+  `codebook=3`（32 ns）为 4/4 accepted，lag histogram 为 `100/100/101/100`，无
+  DMA overrun、PIO stall 或 mixed peak，最小 margin=133；证据目录
+  `build-product-release/calibration_clk_codebook3_screen`。这些数字是绑定 build、拓扑
+  和接线的 bench/诊断快照，不是产品精度事实源。
+- `codebook=2`（24 ns）仅 NO.1 accepted，NO.2--NO.4 为
+  `correlation_manchester` reject（证据目录 `build-product-release/calibration_clk_codebook2_screen`），
+  因此不能缩短 robust marker；在四板重新枚举后再决定是否补测 20 ns，不能把缺板状态
+  当作 20 ns 结果。
+- 回环反射校准静态复核已扩展 `tools/tdma_ring_monitor/tdma_pio_timing_check.py` 与
+  `tests/python/test_tdma_pio_timing_check.py`：`tdma_pio_spi_clk_burst` 在 10/25/30 MHz
+  的理论占空比均为 50%，频率误差在静态门限内；`tdma_pio_spi_clk_forward` 不使用本地
+  baud divider，频率由上游 RX CLK 决定。报告为
+  `build-product-release/tdma_pio_timing_check_reflection_20260821.json`；电气
+  rise/fall、ISO1452、连接器和线缆影响必须以示波器实测。
+- HAOFV 边界：Calibration 只接受 coded snapshot/raw evidence；PIO waveform、burst、
+  forward 和 DMA 资源仍归 TDMA/core1 owner，core0/SCPI 不进入边沿热路径。
+
+## CAL-TASK-20260821-005 - P2 coded marker 四板最小闭环
+
+- 状态：SCPI/工具最小闭环和四主单轮 HIL 完成；结果保持 diagnostic-only，产品级协调与
+  重复门限未完成。
+- 日期：2026-08-21。
+- 完成内容：
+  - 新增 `CALibration:CLOCk:CODEd:STARt/STOP` 和
+    `READ:CALibration:CLOCk:CODEd?`；core0 只提交 guarded intent，板卡唯一地址、build、slot、
+    topology/profile/schedule CRC、baud 和 generation 由固件自动绑定。
+  - 修复 STOPPED 维护态的 topology metadata 生命周期：Calibration 只读 TDMA service 的
+    last accepted `ring_staged_config`，不改变 `RING:STOP` 清空 live runtime 的既有语义。
+  - 新增 `tools/calibration_ring_validate/calibration_clk_coded.py`，按 `*IDN?` 唯一地址发现、
+    follower 先于 master、四主轮换、guarded snapshot 判定、STOP/IDLE 收尾并输出 UTF-8
+    JSON/CSV；COM 号仅为当次传输端点。
+  - `M255_MANCHESTER_20` 主峰可见但严格字段门禁拒绝；回退
+    `M255_MANCHESTER_40` 后，accepted physical order 的四个 master 单轮全部通过。
+- HIL 快照（build `20260821044448`，10 MHz，非阈值事实源）：
+  - accepted order 为 `0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A ->
+    A1E549202D18ED6A`；四主 best lag 为 `100/100/101/101` raw samples。
+  - best distance 为 `23/152/0/154`，margin 为 `442/184/485/179`；四主 marker flags 全通过，
+    DMA overrun 和 PIO stall 均为零。
+  - 单轮结果仍使用显式宽松 diagnostic gate，不能据此冻结 distance/margin threshold，不能
+    清除 `CALIBRATION_CLK_CODED_FLAG_DIAGNOSTIC_ONLY`。
+- OTA 与证据：
+  - 四板 OTA 完整通过，四个唯一地址均运行 build `20260821044448`；证据目录
+    `build-product-release/ota_coded_p2_20260821_final`。
+  - 四主 HIL 证据目录
+    `build-product-release/calibration_clk_coded_p2_four_accepted_order`。
+  - NO.1 调试 UART COM7 读取 15 秒无 fault/watchdog 日志；UART 不是板卡身份。
+- 遗留：
+  - coded START/STOP 的 CDC action response 在 persona 切换时可能超时；工具仅在 snapshot
+    sequence 和 request metadata 完全匹配时确认接受，产品闭环仍需消除此响应时序问题。
+  - 实现 TRAIN_PREPARE/ACK/commit sequence，并完成四主多次重复、10/25/30 MHz 统计和
+    profile/topology change、掉线、commit miss 故障注入。
+
+## CAL-TASK-20260821-004 - P2 动态 PIO persona 与 coded raw transport
+
+- 状态：固件算法基座、动态 persona、固定双 DMA 和 Calibration core1 最小闭环已完成；
+  板端触发接口、多板协调、硬件 capture-origin HIL 和正式阈值尚未完成。
+- 日期：2026-08-21。
+- HAOFV 边界：
+  - Calibration 生成和解释 marker，执行有界相关、generation 门禁及 accepted/rejected 发布。
+  - TDMA core1 是 PIO/SM/DMA persona 唯一 owner，只搬运 packed TX sample 和 bounded raw capture。
+  - core0 只能向 Calibration guarded command slot 发布 request/gate；SCPI 不直接操作 PIO/DMA。
+- 完成内容：
+  - 实现 candidate M255 Manchester marker 的 C/Python golden vector、header/反码/CRC、正反相
+    相关和旧 epoch、缺失/重复、截断、低 margin 故障注入。
+  - PIO2 改为 `tdma_pio_spi_program_persona_t` 动态装载：`NORMAL`、`CLOCK_COARSE`、
+    `CAL_LOOPBACK`、`CLOCK_CODED` 互斥存在，切换前检查两个 SM 和 TX/RX DMA 均停止；失败
+    尝试恢复上一 persona，完成后恢复普通 persona。
+  - `CLOCK_CODED` master 使用 `TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID` 和
+    `TDMA_PROFILE_DEFAULT_RX_DMA_CHANNEL_ID` 驱动 packed TX 与 oversampling RX 固定窗口；
+    follower 只启用 CLK forwarding，不解析 marker。
+  - DMA resource claim 已从 `TdmaFoundationProfile` 传播到 ring runtime、service 和物理层，
+    profile 声明与硬件实现不一致时拒绝 arm。
+  - Calibration core1 构建 marker、提交 raw request、收割 guarded capture，并调用
+    `calibration_clk_coded_process_core1()`；成功结果继续保留 `DIAGNOSTIC_ONLY`。
+- 验证结果：
+  - `run_calibration_clk_marker_tests.ps1`、TDMA profile/runtime/adapter/service 与 RefMem-TDMA
+    相关主机单测全部通过；Python codebook evaluator 为 6/6 通过。
+  - `cmake --build build-product-release` 完成 A/B 编译和统一包生成；build
+    `20260821041729`，该编号仅为本轮构建快照，非接口事实源。
+  - 当前没有板端 coded HIL，不能把 software `capture_origin_tick` 当作正式 hardware latch，
+    不能清除 `DIAGNOSTIC_ONLY`，也不登记 candidate marker 为冻结跨域契约。
+- 下一步：
+  - 增加最小 SCPI/工具触发闭环并实测 candidate 半码元档位；随后实现
+    `TRAIN_PREPARE/ACK/commit sequence` 和四主轮换。
+  - 以 PIO/DMA hardware capture origin、重复统计、profile/topology freshness 和 persona
+    恢复作为 HIL 放行门禁。
 
 ## CAL-TASK-20260821-003 - 线序与环路顺序测量迁入校准域
 

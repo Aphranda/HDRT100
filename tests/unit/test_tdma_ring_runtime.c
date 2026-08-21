@@ -116,6 +116,8 @@ int main(void)
         .baud_hz = 10000000u,
         .cycle_period_ns = 1000u,
         .feedback_timeout_ns = 10000u,
+        .tx_dma_channel_id = TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID,
+        .rx_dma_channel_id = TDMA_PROFILE_DEFAULT_RX_DMA_CHANNEL_ID,
     };
     tdma_ring_runtime_config_t valid = bad_direction;
     valid.down_group_id = 2u;

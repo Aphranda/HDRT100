@@ -108,6 +108,37 @@ static int test_golden_vector(void)
     return failed;
 }
 
+static int test_intermediate_codebooks(void)
+{
+    calibration_clk_marker_config_t config = make_config();
+    uint32_t marker[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
+    calibration_clk_marker_descriptor_t descriptor;
+    int failed = 0;
+
+    config.codebook_id = CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_24;
+    failed += expect_bool("build 24 ns marker",
+                          calibration_clk_marker_build(
+                              &config, marker,
+                              CALIBRATION_CLK_MARKER_MAX_RAW_WORDS,
+                              &descriptor), true);
+    failed += expect_u32("24 ns half samples", descriptor.half_chip_samples,
+                         CALIBRATION_CLK_MARKER_HALF_CHIP_SAMPLES_24NS);
+    failed += expect_u32("24 ns raw samples", descriptor.raw_samples,
+                         CALIBRATION_CLK_MARKER_LOGICAL_BITS * 12u);
+
+    config.codebook_id = CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32;
+    failed += expect_bool("build 32 ns marker",
+                          calibration_clk_marker_build(
+                              &config, marker,
+                              CALIBRATION_CLK_MARKER_MAX_RAW_WORDS,
+                              &descriptor), true);
+    failed += expect_u32("32 ns half samples", descriptor.half_chip_samples,
+                         CALIBRATION_CLK_MARKER_HALF_CHIP_SAMPLES_32NS);
+    failed += expect_u32("32 ns raw samples", descriptor.raw_samples,
+                         CALIBRATION_CLK_MARKER_LOGICAL_BITS * 16u);
+    return failed;
+}
+
 static int test_bounded_correlation_accepts_exact_lag(void)
 {
     const calibration_clk_marker_config_t config = make_config();
@@ -306,15 +337,181 @@ static int test_coded_snapshot_store(void)
     return failed;
 }
 
+static calibration_clk_coded_request_t make_coded_request(void)
+{
+    const calibration_clk_coded_request_t request = {
+        .board_unique_id = 0x0010071E65B5CB38ull,
+        .build_id = 0x20260821021250ull,
+        .logical_slot = 3u,
+        .train_epoch = 0x5Au,
+        .train_sequence = 11u,
+        .calibration_generation = 4u,
+        .topology_generation = 5u,
+        .topology_crc32 = 0x12345678u,
+        .profile_crc32 = 0x23456789u,
+        .schedule_crc32 = 0x3456789Au,
+        .baud_hz = 10000000u,
+        .codebook_id = CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
+        .sample_period_ns = 4u,
+        .coarse_min_sample = 5u,
+        .coarse_max_sample = 9u,
+    };
+    return request;
+}
+
+static calibration_clk_coded_evidence_t make_coded_evidence(
+    const calibration_clk_coded_request_t *request,
+    const uint32_t *capture,
+    uint32_t capture_samples)
+{
+    const calibration_clk_coded_evidence_t evidence = {
+        .capture_words = capture,
+        .capture_sample_count = capture_samples,
+        .capture_origin_tick = 1000u,
+        .timing_field_tx_origin_sample = 530u,
+        .tx_dma_count = 101u,
+        .rx_dma_count = 103u,
+        .train_epoch = request->train_epoch,
+        .train_sequence = request->train_sequence,
+        .topology_generation = request->topology_generation,
+        .topology_crc32 = request->topology_crc32,
+        .profile_crc32 = request->profile_crc32,
+        .schedule_crc32 = request->schedule_crc32,
+        .flags = CALIBRATION_CLK_CODED_FLAG_TX_DMA_COMPLETE |
+                 CALIBRATION_CLK_CODED_FLAG_RX_DMA_COMPLETE,
+    };
+    return evidence;
+}
+
+static int test_coded_state_machine_accepts_diagnostic_result(void)
+{
+    calibration_clk_coded_store_t store;
+    calibration_clk_coded_workspace_t workspace;
+    calibration_clk_coded_snapshot_t snapshot;
+    const calibration_clk_coded_request_t request = make_coded_request();
+    calibration_clk_marker_descriptor_t descriptor;
+    uint32_t marker[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
+    uint32_t capture[TEST_CAPTURE_WORDS];
+    const calibration_clk_marker_config_t config = make_config();
+    const calibration_clk_correlation_gate_t gate = {
+        .min_lag_sample = 5u,
+        .max_lag_sample = 9u,
+        .max_best_distance = 0u,
+        .min_margin = 1u,
+    };
+    int failed = 0;
+    calibration_clk_coded_store_init(&store);
+    (void)calibration_clk_marker_build(
+        &config, marker, CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &descriptor);
+    make_capture(marker, descriptor.raw_samples, capture,
+                 TEST_CAPTURE_SAMPLES, 7u, false);
+    calibration_clk_coded_evidence_t evidence = make_coded_evidence(
+        &request, capture, TEST_CAPTURE_SAMPLES);
+    failed += expect_bool("begin coded coarse",
+                          calibration_clk_coded_begin_coarse_core1(
+                              &store, &request), true);
+    failed += expect_bool("process coded evidence",
+                          calibration_clk_coded_process_core1(
+                              &store, &workspace, &evidence, &gate), true);
+    failed += expect_bool("get coded accepted",
+                          calibration_clk_coded_get_snapshot(&store, &snapshot),
+                          true);
+    failed += expect_u32("coded accepted state", snapshot.state,
+                         CALIBRATION_CLK_CODED_ACCEPTED);
+    failed += expect_u32("coded accepted lag", snapshot.best_lag_sample, 7u);
+    failed += expect_u32("coded diagnostic retained",
+                         snapshot.flags &
+                             CALIBRATION_CLK_CODED_FLAG_DIAGNOSTIC_ONLY,
+                         CALIBRATION_CLK_CODED_FLAG_DIAGNOSTIC_ONLY);
+    return failed;
+}
+
+static int test_coded_state_machine_rejects_stale_and_dma(void)
+{
+    calibration_clk_coded_store_t store;
+    calibration_clk_coded_workspace_t workspace;
+    calibration_clk_coded_snapshot_t snapshot;
+    const calibration_clk_coded_request_t request = make_coded_request();
+    calibration_clk_marker_descriptor_t descriptor;
+    uint32_t marker[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
+    uint32_t capture[TEST_CAPTURE_WORDS];
+    const calibration_clk_marker_config_t config = make_config();
+    const calibration_clk_correlation_gate_t gate = {
+        .min_lag_sample = 5u,
+        .max_lag_sample = 9u,
+        .max_best_distance = 0u,
+        .min_margin = 1u,
+    };
+    int failed = 0;
+    (void)calibration_clk_marker_build(
+        &config, marker, CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &descriptor);
+    make_capture(marker, descriptor.raw_samples, capture,
+                 TEST_CAPTURE_SAMPLES, 7u, false);
+
+    calibration_clk_coded_store_init(&store);
+    (void)calibration_clk_coded_begin_coarse_core1(&store, &request);
+    calibration_clk_coded_evidence_t evidence = make_coded_evidence(
+        &request, capture, TEST_CAPTURE_SAMPLES);
+    evidence.topology_generation++;
+    failed += expect_bool("process stale evidence",
+                          calibration_clk_coded_process_core1(
+                              &store, &workspace, &evidence, &gate), true);
+    (void)calibration_clk_coded_get_snapshot(&store, &snapshot);
+    failed += expect_u32("stale state", snapshot.state,
+                         CALIBRATION_CLK_CODED_REJECTED);
+    failed += expect_u32("stale reason", snapshot.reject_reason,
+                         CALIBRATION_CLK_CODED_REJECT_GENERATION);
+
+    calibration_clk_coded_store_init(&store);
+    (void)calibration_clk_coded_begin_coarse_core1(&store, &request);
+    evidence = make_coded_evidence(&request, capture, TEST_CAPTURE_SAMPLES);
+    evidence.flags &= ~CALIBRATION_CLK_CODED_FLAG_RX_DMA_COMPLETE;
+    failed += expect_bool("process incomplete dma",
+                          calibration_clk_coded_process_core1(
+                              &store, &workspace, &evidence, &gate), true);
+    (void)calibration_clk_coded_get_snapshot(&store, &snapshot);
+    failed += expect_u32("dma state", snapshot.state,
+                         CALIBRATION_CLK_CODED_REJECTED);
+    failed += expect_u32("dma reason", snapshot.reject_reason,
+                         CALIBRATION_CLK_CODED_REJECT_DMA);
+    return failed;
+}
+
+static int test_coded_request_explicit_reject(void)
+{
+    calibration_clk_coded_store_t store;
+    calibration_clk_coded_snapshot_t snapshot;
+    const calibration_clk_coded_request_t request = make_coded_request();
+    int failed = 0;
+    calibration_clk_coded_store_init(&store);
+    failed += expect_bool("explicit coded reject",
+                          calibration_clk_coded_reject_request_core1(
+                              &store, &request,
+                              CALIBRATION_CLK_CODED_REJECT_BAD_STATE),
+                          true);
+    failed += expect_bool("get explicit coded reject",
+                          calibration_clk_coded_get_snapshot(&store, &snapshot),
+                          true);
+    failed += expect_u32("explicit reject state", snapshot.state,
+                         CALIBRATION_CLK_CODED_REJECTED);
+    failed += expect_u32("explicit reject reason", snapshot.reject_reason,
+                         CALIBRATION_CLK_CODED_REJECT_BAD_STATE);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
     failed += test_golden_vector();
+    failed += test_intermediate_codebooks();
     failed += test_bounded_correlation_accepts_exact_lag();
     failed += test_rejects_inverted_and_stale_marker();
     failed += test_rejects_missing_and_repeated_samples();
     failed += test_capture_and_search_bounds();
     failed += test_coded_snapshot_store();
+    failed += test_coded_state_machine_accepts_diagnostic_result();
+    failed += test_coded_state_machine_rejects_stale_and_dma();
+    failed += test_coded_request_explicit_reject();
     if (failed != 0) return 1;
     puts("calibration_clk_marker tests passed");
     return 0;

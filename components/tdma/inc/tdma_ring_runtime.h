@@ -6,7 +6,7 @@
 
 #include "tdma_profile.h"
 
-#define TDMA_RING_RUNTIME_VERSION 4u
+#define TDMA_RING_RUNTIME_VERSION 5u
 #define TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED 0x00000002u
 
@@ -36,6 +36,8 @@ typedef struct {
     uint32_t baud_hz;
     uint32_t cycle_period_ns;
     uint32_t feedback_timeout_ns;
+    uint32_t tx_dma_channel_id;
+    uint32_t rx_dma_channel_id;
 } tdma_ring_runtime_config_t;
 
 typedef struct {
@@ -95,6 +97,8 @@ typedef struct {
     uint32_t baud_hz;
     uint32_t cycle_period_ns;
     uint32_t feedback_timeout_ns;
+    uint32_t tx_dma_channel_id;
+    uint32_t rx_dma_channel_id;
     uint32_t adapter_started;
     uint32_t adapter_start_count;
     uint32_t adapter_stop_count;
@@ -140,6 +144,8 @@ typedef struct {
     volatile uint32_t baud_hz;
     volatile uint32_t cycle_period_ns;
     volatile uint32_t feedback_timeout_ns;
+    volatile uint32_t tx_dma_channel_id;
+    volatile uint32_t rx_dma_channel_id;
     volatile uint32_t service_seq;
     volatile uint32_t up_configured;
     volatile uint32_t down_configured;

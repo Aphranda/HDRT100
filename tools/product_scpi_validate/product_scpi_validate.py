@@ -160,6 +160,18 @@ def parse_callback_responses(root: Path, *, channel: int) -> dict[str, tuple[Exp
             expected_from_result(kind, expr, channel=channel)
             for kind, expr in result_re.findall(match.group("body"))
         ]
+        # Shared action helpers emit the response field indirectly.  Keep the
+        # generated validation list aligned with the actual SCPI wire result
+        # instead of treating those callbacks as malformed.
+        body = match.group("body")
+        fields.extend(
+            ExpectedField("nonempty")
+            for _ in range(2 * body.count("scpi_calibration_result_u64("))
+        )
+        if not fields and "scpi_port_result_ok" in body:
+            fields = [ExpectedField("exact", "OK")]
+        elif not fields and "scpi_port_result_accepted" in body:
+            fields = [ExpectedField("exact", "1")]
         callbacks[name] = tuple(fields)
     if not callbacks:
         joined = ", ".join(str(path) for path in PRODUCT_SOURCES)

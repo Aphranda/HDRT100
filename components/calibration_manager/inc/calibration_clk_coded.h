@@ -65,6 +65,58 @@ typedef struct {
     calibration_clk_coded_snapshot_t snapshot;
 } calibration_clk_coded_store_t;
 
+typedef enum {
+    CALIBRATION_CLK_CODED_REJECT_NONE = 0u,
+    CALIBRATION_CLK_CODED_REJECT_BAD_ARGUMENT = 1u,
+    CALIBRATION_CLK_CODED_REJECT_BAD_STATE = 2u,
+    CALIBRATION_CLK_CODED_REJECT_GENERATION = 3u,
+    CALIBRATION_CLK_CODED_REJECT_COARSE_BRACKET = 4u,
+    CALIBRATION_CLK_CODED_REJECT_DMA = 5u,
+    CALIBRATION_CLK_CODED_REJECT_PIO_STALL = 6u,
+    CALIBRATION_CLK_CODED_REJECT_CORRELATION_BASE = 0x100u,
+} calibration_clk_coded_reject_reason_t;
+
+typedef struct {
+    uint64_t board_unique_id;
+    uint64_t build_id;
+    uint32_t logical_slot;
+    uint32_t train_epoch;
+    uint32_t train_sequence;
+    uint32_t calibration_generation;
+    uint32_t topology_generation;
+    uint32_t topology_crc32;
+    uint32_t profile_crc32;
+    uint32_t schedule_crc32;
+    uint32_t baud_hz;
+    uint32_t codebook_id;
+    uint32_t sample_period_ns;
+    uint32_t coarse_min_sample;
+    uint32_t coarse_max_sample;
+} calibration_clk_coded_request_t;
+
+typedef struct {
+    const uint32_t *capture_words;
+    uint32_t capture_sample_count;
+    uint64_t capture_origin_tick;
+    uint32_t timing_field_tx_origin_sample;
+    uint32_t tx_dma_count;
+    uint32_t rx_dma_count;
+    uint32_t dma_overrun_count;
+    uint32_t pio_stall_count;
+    uint32_t train_epoch;
+    uint32_t train_sequence;
+    uint32_t topology_generation;
+    uint32_t topology_crc32;
+    uint32_t profile_crc32;
+    uint32_t schedule_crc32;
+    uint32_t flags;
+} calibration_clk_coded_evidence_t;
+
+typedef struct {
+    uint32_t expected_words[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
+    calibration_clk_marker_descriptor_t marker;
+} calibration_clk_coded_workspace_t;
+
 void calibration_clk_coded_store_init(calibration_clk_coded_store_t *store);
 bool calibration_clk_coded_publish_core1(
     calibration_clk_coded_store_t *store,
@@ -72,5 +124,19 @@ bool calibration_clk_coded_publish_core1(
 bool calibration_clk_coded_get_snapshot(
     const calibration_clk_coded_store_t *store,
     calibration_clk_coded_snapshot_t *snapshot);
+bool calibration_clk_coded_begin_coarse_core1(
+    calibration_clk_coded_store_t *store,
+    const calibration_clk_coded_request_t *request);
+bool calibration_clk_coded_reject_request_core1(
+    calibration_clk_coded_store_t *store,
+    const calibration_clk_coded_request_t *request,
+    uint32_t reject_reason);
+bool calibration_clk_coded_stop_core1(
+    calibration_clk_coded_store_t *store);
+bool calibration_clk_coded_process_core1(
+    calibration_clk_coded_store_t *store,
+    calibration_clk_coded_workspace_t *workspace,
+    const calibration_clk_coded_evidence_t *evidence,
+    const calibration_clk_correlation_gate_t *correlation_gate);
 
 #endif

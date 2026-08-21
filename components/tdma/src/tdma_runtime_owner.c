@@ -94,6 +94,9 @@ bool tdma_runtime_owner_init(void)
     if (s_tdma_runtime_owner_initialized) {
         return true;
     }
+    s_tdma_pio_spi_phys.coded.version =
+        TDMA_PIO_SPI_CODED_SNAPSHOT_VERSION;
+    s_tdma_pio_spi_phys.coded.state = TDMA_PIO_SPI_CODED_IDLE;
     tdma_traffic_scheduler_slot_t *slots = NULL;
 #if defined(PROJECT_USE_FREERTOS) && PROJECT_USE_FREERTOS
     slots = pvPortMalloc(sizeof(tdma_traffic_scheduler_slot_t) *
@@ -313,4 +316,58 @@ bool tdma_runtime_owner_get_cal_loopback_snapshot(
     return s_tdma_runtime_owner_initialized &&
            tdma_pio_spi_phys_get_cal_loopback_snapshot(&s_tdma_pio_spi_phys,
                                                        snapshot);
+}
+
+bool tdma_runtime_owner_get_staged_ring_config(
+    tdma_service_ring_runtime_config_t *snapshot)
+{
+    if (!s_tdma_runtime_owner_initialized || snapshot == NULL) {
+        return false;
+    }
+    *snapshot = s_tdma_runtime_owner.ring_staged_config;
+    return snapshot->enabled != 0u;
+}
+
+bool tdma_runtime_owner_coded_start_core1(
+    const tdma_pio_spi_coded_request_t *request)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    return s_tdma_runtime_owner_initialized && request != NULL &&
+           tdma_ring_runtime_get_snapshot(
+               &s_tdma_runtime_owner.ring_runtime, &ring) &&
+           ring.enabled == 0u &&
+           tdma_pio_spi_phys_coded_start(&s_tdma_pio_spi_phys, request);
+}
+
+void tdma_runtime_owner_coded_stop_core1(void)
+{
+    if (s_tdma_runtime_owner_initialized) {
+        tdma_pio_spi_phys_coded_stop(&s_tdma_pio_spi_phys);
+    }
+}
+
+void tdma_runtime_owner_coded_service_core1(void)
+{
+    if (s_tdma_runtime_owner_initialized) {
+        tdma_pio_spi_phys_coded_service(&s_tdma_pio_spi_phys);
+    }
+}
+
+bool tdma_runtime_owner_get_coded_snapshot(
+    tdma_pio_spi_coded_snapshot_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_phys_get_coded_snapshot(
+               &s_tdma_pio_spi_phys, snapshot);
+}
+
+bool tdma_runtime_owner_copy_coded_capture_core1(
+    uint32_t *capture_words,
+    size_t capture_word_capacity,
+    size_t *capture_word_count)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_phys_copy_coded_capture(
+               &s_tdma_pio_spi_phys, capture_words,
+               capture_word_capacity, capture_word_count);
 }

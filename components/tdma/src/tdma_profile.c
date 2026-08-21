@@ -259,8 +259,10 @@ bool tdma_foundation_profile_default_for_topology(
         profile->resource.up_state_machine_id = TDMA_RESOURCE_ID_UNUSED;
         profile->resource.down_state_machine_id = TDMA_RESOURCE_ID_UNUSED;
     }
-    profile->resource.tx_dma_channel_id = 0u;
-    profile->resource.rx_dma_channel_id = 1u;
+    profile->resource.tx_dma_channel_id =
+        TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID;
+    profile->resource.rx_dma_channel_id =
+        TDMA_PROFILE_DEFAULT_RX_DMA_CHANNEL_ID;
     profile->resource.core1_service_id = 1u;
     profile->resource.short_frame_capacity = TDMA_PROFILE_DEFAULT_SHORT_CAPACITY;
     profile->resource.long_frame_capacity = TDMA_PROFILE_DEFAULT_LONG_CAPACITY;

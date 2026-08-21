@@ -6,6 +6,7 @@
 
 #include "calibration_pio_loopback.h"
 #include "calibration_bidirectional.h"
+#include "calibration_clk_coded.h"
 
 typedef struct {
     bool ready;
@@ -35,5 +36,22 @@ bool calibration_manager_start_loopback(uint32_t sample_words);
 void calibration_manager_stop_loopback(void);
 bool calibration_manager_get_loopback_snapshot(
     calibration_manager_loopback_snapshot_t *snapshot);
+bool calibration_manager_get_clk_coded_snapshot(
+    calibration_clk_coded_snapshot_t *snapshot);
+/* Core0 command-slot publication only.  The marker is generated, executed
+ * and correlated later by calibration_manager_service_core1(). */
+bool calibration_manager_start_clk_coded(
+    const calibration_clk_coded_request_t *request,
+    const calibration_clk_correlation_gate_t *gate);
+/* Core0 convenience API: bind the request to the current board identity,
+ * build and stopped TDMA topology, then publish the same guarded command
+ * slot used by calibration_manager_start_clk_coded(). */
+bool calibration_manager_request_clk_coded(
+    uint32_t codebook_id,
+    uint32_t min_lag_sample,
+    uint32_t max_lag_sample,
+    uint32_t max_best_distance,
+    uint32_t min_margin);
+void calibration_manager_stop_clk_coded(void);
 
 #endif

@@ -18,6 +18,11 @@ tdma_pio_spi_ring_adapter_t *tdma_runtime_owner_get_ring_adapter(void);
 /* Read-only ring snapshot for low-frequency maintenance logging on core0
  * (the resident ring itself is driven by the core1 TDMA service). */
 bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *snapshot);
+/* Last accepted ring configuration retained by the TDMA service while the
+ * live runtime is STOPPED.  Calibration may bind maintenance evidence to it,
+ * but may not modify or arm the ring through this snapshot. */
+bool tdma_runtime_owner_get_staged_ring_config(
+    tdma_service_ring_runtime_config_t *snapshot);
 
 /* Read-only physical-layer snapshot (RX capture stall/partial counters and
  * TX timeout counters) for bring-up diagnostics. */
@@ -37,5 +42,19 @@ void tdma_runtime_owner_cal_loopback_stop(void);
 void tdma_runtime_owner_cal_loopback_service(void);
 bool tdma_runtime_owner_get_cal_loopback_snapshot(
     tdma_pio_spi_cal_loopback_snapshot_t *snapshot);
+
+/* Core1-only raw CLOCK_CODED transport.  Calibration owns marker meaning and
+ * correlation; the TDMA owner only switches persona and moves packed samples
+ * through its declared SM/DMA resources. */
+bool tdma_runtime_owner_coded_start_core1(
+    const tdma_pio_spi_coded_request_t *request);
+void tdma_runtime_owner_coded_stop_core1(void);
+void tdma_runtime_owner_coded_service_core1(void);
+bool tdma_runtime_owner_get_coded_snapshot(
+    tdma_pio_spi_coded_snapshot_t *snapshot);
+bool tdma_runtime_owner_copy_coded_capture_core1(
+    uint32_t *capture_words,
+    size_t capture_word_capacity,
+    size_t *capture_word_count);
 
 #endif

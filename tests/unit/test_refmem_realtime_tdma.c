@@ -448,6 +448,8 @@ static int test_common_tdma_ring_runtime_contract(void)
         .baud_hz = 10000000u,
         .cycle_period_ns = 1000000u,
         .feedback_timeout_ns = 10000u,
+        .tx_dma_channel_id = TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID,
+        .rx_dma_channel_id = TDMA_PROFILE_DEFAULT_RX_DMA_CHANNEL_ID,
     };
     const tdma_service_ring_runtime_config_t bad_same_leg = {
         .enabled = 1u,
@@ -463,6 +465,8 @@ static int test_common_tdma_ring_runtime_contract(void)
         .baud_hz = 10000000u,
         .cycle_period_ns = 1000000u,
         .feedback_timeout_ns = 10000u,
+        .tx_dma_channel_id = TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID,
+        .rx_dma_channel_id = TDMA_PROFILE_DEFAULT_RX_DMA_CHANNEL_ID,
     };
 
     failed += expect_bool("common tdma init", tdma_service_init(&service), true);

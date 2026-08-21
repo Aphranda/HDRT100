@@ -1,5 +1,7 @@
 from tools.calibration_ring_validate.calibration_clk_codebook_eval import (
     CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
+    CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_24,
+    CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32,
     CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
     crc8_atm,
     encode,
@@ -77,3 +79,16 @@ def test_candidate_marker_fallback_keeps_raw_sample_domain():
     assert robust_vector.half_chip_samples == 2 * fast_vector.half_chip_samples
     assert len(robust) == 2 * len(fast)
     assert robust_vector.logical_bits == fast_vector.logical_bits
+
+
+def test_candidate_marker_intermediate_half_chips_fit_header_codebook_bits():
+    raw24, vector24 = marker_raw_waveform(
+        codebook_id=CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_24)
+    raw32, vector32 = marker_raw_waveform(
+        codebook_id=CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32)
+    assert vector24.half_chip_samples == 6
+    assert vector32.half_chip_samples == 8
+    assert len(raw24) == 321 * 12
+    assert len(raw32) == 321 * 16
+    assert (vector24.header >> 12) & 0x3 == 2
+    assert (vector32.header >> 12) & 0x3 == 3

@@ -36,17 +36,25 @@ _Static_assert(TDMA_PIO_SPI_RX_RING_WORDS >=
                    3u * TDMA_PIO_SPI_RX_DMA_WORD_MAX,
                "TDMA SPI RX ring must hold three maximum short packets");
 
-static bool s_tdma_pio_spi_programs_loaded;
+static bool s_tdma_pio_spi_sms_claimed;
+static tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
 static uint s_tdma_pio_spi_tx_offset;
 static uint s_tdma_pio_spi_rx_offset;
 static uint s_tdma_pio_spi_clk_forward_offset;
 static uint s_tdma_pio_spi_clk_burst_offset;
 static uint s_tdma_pio_spi_clk_capture_offset;
+static uint s_tdma_pio_spi_clk_coded_tx_offset;
+static uint s_tdma_pio_spi_clk_oversample_offset;
 static uint s_tdma_pio_spi_cal_tx_offset;
 static uint s_tdma_pio_spi_cal_capture_offset;
 static uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
     __attribute__((aligned(4)));
+static uint32_t s_tdma_pio_spi_coded_tx[TDMA_PIO_SPI_CODED_BUFFER_WORDS]
+    __attribute__((aligned(4)));
+static uint32_t s_tdma_pio_spi_coded_rx[TDMA_PIO_SPI_CODED_BUFFER_WORDS]
+    __attribute__((aligned(4)));
 static void tdma_pio_spi_phys_cal_decode(tdma_pio_spi_phys_t *phys);
+static int s_tdma_pio_spi_tx_dma_channel = -1;
 static int s_tdma_pio_spi_rx_dma_channel = -1;
 static uint32_t s_tdma_pio_spi_rx_ring[TDMA_PIO_SPI_RX_RING_WORDS]
     __attribute__((aligned(TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t))));
@@ -103,38 +111,51 @@ static void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys,
     }
 }
 
-static bool tdma_pio_spi_phys_ensure_programs(void)
+static bool tdma_pio_spi_phys_ensure_sms_claimed(void)
 {
-    if (s_tdma_pio_spi_programs_loaded) {
-        return true;
-    }
+    if (s_tdma_pio_spi_sms_claimed) return true;
     if (pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM) ||
         pio_sm_is_claimed(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM)) {
         return false;
     }
+    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
+    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
+    s_tdma_pio_spi_sms_claimed = true;
+    return true;
+}
+
+static bool tdma_pio_spi_phys_load_normal_programs(void)
+{
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_tx_byte_program)) {
-        return false;
-    }
+                             &tdma_pio_spi_tx_byte_program)) return false;
     s_tdma_pio_spi_tx_offset =
         (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
                               &tdma_pio_spi_tx_byte_program);
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
                              &tdma_pio_spi_rx_byte_program)) {
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_tx_byte_program,
+                           s_tdma_pio_spi_tx_offset);
         return false;
     }
     s_tdma_pio_spi_rx_offset =
         (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
                               &tdma_pio_spi_rx_byte_program);
+    return true;
+}
+
+static bool tdma_pio_spi_phys_load_coarse_programs(void)
+{
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_clk_forward_program)) {
-        return false;
-    }
+                             &tdma_pio_spi_clk_forward_program)) return false;
     s_tdma_pio_spi_clk_forward_offset =
         (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
                               &tdma_pio_spi_clk_forward_program);
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
                              &tdma_pio_spi_clk_burst_program)) {
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_forward_program,
+                           s_tdma_pio_spi_clk_forward_offset);
         return false;
     }
     s_tdma_pio_spi_clk_burst_offset =
@@ -142,24 +163,171 @@ static bool tdma_pio_spi_phys_ensure_programs(void)
                               &tdma_pio_spi_clk_burst_program);
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
                              &tdma_pio_spi_clk_capture_program)) {
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_burst_program,
+                           s_tdma_pio_spi_clk_burst_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_forward_program,
+                           s_tdma_pio_spi_clk_forward_offset);
         return false;
     }
     s_tdma_pio_spi_clk_capture_offset =
         (uint)pio_add_program(BOARD_TDMA_SPI_PIO,
                               &tdma_pio_spi_clk_capture_program);
+    return true;
+}
+
+static bool tdma_pio_spi_phys_load_cal_loopback_programs(void)
+{
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_cal_loopback_tx_program) ||
-        !pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_cal_loopback_capture_program)) {
-        return false;
-    }
+                             &tdma_pio_spi_cal_loopback_tx_program)) return false;
     s_tdma_pio_spi_cal_tx_offset = (uint)pio_add_program(
         BOARD_TDMA_SPI_PIO, &tdma_pio_spi_cal_loopback_tx_program);
+    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_cal_loopback_capture_program)) {
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_cal_loopback_tx_program,
+                           s_tdma_pio_spi_cal_tx_offset);
+        return false;
+    }
     s_tdma_pio_spi_cal_capture_offset = (uint)pio_add_program(
         BOARD_TDMA_SPI_PIO, &tdma_pio_spi_cal_loopback_capture_program);
-    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
-    pio_sm_claim(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
-    s_tdma_pio_spi_programs_loaded = true;
+    return true;
+}
+
+static bool tdma_pio_spi_phys_load_coded_programs(void)
+{
+    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_clk_forward_program)) return false;
+    s_tdma_pio_spi_clk_forward_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_clk_forward_program);
+    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_clk_coded_tx_program)) {
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_forward_program,
+                           s_tdma_pio_spi_clk_forward_offset);
+        return false;
+    }
+    s_tdma_pio_spi_clk_coded_tx_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_clk_coded_tx_program);
+    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_clk_oversample_program)) {
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_coded_tx_program,
+                           s_tdma_pio_spi_clk_coded_tx_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_forward_program,
+                           s_tdma_pio_spi_clk_forward_offset);
+        return false;
+    }
+    s_tdma_pio_spi_clk_oversample_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_clk_oversample_program);
+    return true;
+}
+
+static bool tdma_pio_spi_phys_load_programs(
+    tdma_pio_spi_program_persona_t persona)
+{
+    switch (persona) {
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL:
+        return tdma_pio_spi_phys_load_normal_programs();
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_COARSE:
+        return tdma_pio_spi_phys_load_coarse_programs();
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_CAL_LOOPBACK:
+        return tdma_pio_spi_phys_load_cal_loopback_programs();
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_CODED:
+        return tdma_pio_spi_phys_load_coded_programs();
+    default:
+        return false;
+    }
+}
+
+static void tdma_pio_spi_phys_unload_programs(void)
+{
+    switch (s_tdma_pio_spi_program_persona) {
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL:
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_rx_byte_program,
+                           s_tdma_pio_spi_rx_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_tx_byte_program,
+                           s_tdma_pio_spi_tx_offset);
+        break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_COARSE:
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_capture_program,
+                           s_tdma_pio_spi_clk_capture_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_burst_program,
+                           s_tdma_pio_spi_clk_burst_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_forward_program,
+                           s_tdma_pio_spi_clk_forward_offset);
+        break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_CAL_LOOPBACK:
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_cal_loopback_capture_program,
+                           s_tdma_pio_spi_cal_capture_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_cal_loopback_tx_program,
+                           s_tdma_pio_spi_cal_tx_offset);
+        break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_CODED:
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_oversample_program,
+                           s_tdma_pio_spi_clk_oversample_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_coded_tx_program,
+                           s_tdma_pio_spi_clk_coded_tx_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_clk_forward_program,
+                           s_tdma_pio_spi_clk_forward_offset);
+        break;
+    default:
+        break;
+    }
+    s_tdma_pio_spi_program_persona = TDMA_PIO_SPI_PROGRAM_PERSONA_NONE;
+}
+
+bool tdma_pio_spi_phys_select_program_persona(
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_program_persona_t persona)
+{
+    if (phys == NULL || persona <= TDMA_PIO_SPI_PROGRAM_PERSONA_NONE ||
+        persona > TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_CODED ||
+        !tdma_pio_spi_phys_ensure_sms_claimed()) {
+        return false;
+    }
+    const uint32_t sm_mask = (1u << BOARD_TDMA_SPI_MASTER_SM) |
+                             (1u << BOARD_TDMA_SPI_SLAVE_SM);
+    if ((BOARD_TDMA_SPI_PIO->ctrl & sm_mask) != 0u ||
+        (s_tdma_pio_spi_tx_dma_channel >= 0 &&
+         dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) ||
+        (s_tdma_pio_spi_rx_dma_channel >= 0 &&
+         dma_channel_is_busy((uint)s_tdma_pio_spi_rx_dma_channel))) {
+        phys->snapshot.program_switch_fail_count++;
+        return false;
+    }
+    if (s_tdma_pio_spi_program_persona == persona) {
+        phys->snapshot.program_persona = (uint32_t)persona;
+        return true;
+    }
+    const tdma_pio_spi_program_persona_t previous =
+        s_tdma_pio_spi_program_persona;
+    tdma_pio_spi_phys_unload_programs();
+    if (!tdma_pio_spi_phys_load_programs(persona)) {
+        phys->snapshot.program_switch_fail_count++;
+        if (previous != TDMA_PIO_SPI_PROGRAM_PERSONA_NONE &&
+            tdma_pio_spi_phys_load_programs(previous)) {
+            s_tdma_pio_spi_program_persona = previous;
+        }
+        phys->snapshot.program_persona =
+            (uint32_t)s_tdma_pio_spi_program_persona;
+        return false;
+    }
+    s_tdma_pio_spi_program_persona = persona;
+    phys->snapshot.program_persona = (uint32_t)persona;
+    phys->snapshot.program_switch_count++;
     return true;
 }
 
@@ -174,6 +342,8 @@ static void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys)
     phys->snapshot.rx_sck_pin = phys->rx_sck_pin;
     phys->snapshot.rx_csn_pin = phys->rx_csn_pin;
     phys->snapshot.rx_pin = phys->rx_pin;
+    phys->snapshot.program_persona =
+        (uint32_t)s_tdma_pio_spi_program_persona;
 }
 
 static uint64_t tdma_pio_spi_phys_now_us(void)
@@ -216,6 +386,19 @@ static bool tdma_pio_spi_phys_ensure_rx_dma(void)
     }
     dma_channel_claim(TDMA_PIO_SPI_RX_DMA_CHANNEL);
     s_tdma_pio_spi_rx_dma_channel = (int)TDMA_PIO_SPI_RX_DMA_CHANNEL;
+    return true;
+}
+
+static bool tdma_pio_spi_phys_ensure_tx_dma(void)
+{
+    if (s_tdma_pio_spi_tx_dma_channel >= 0) {
+        return true;
+    }
+    if (dma_channel_is_claimed(TDMA_PIO_SPI_TX_DMA_CHANNEL)) {
+        return false;
+    }
+    dma_channel_claim(TDMA_PIO_SPI_TX_DMA_CHANNEL);
+    s_tdma_pio_spi_tx_dma_channel = (int)TDMA_PIO_SPI_TX_DMA_CHANNEL;
     return true;
 }
 
@@ -496,10 +679,13 @@ bool tdma_pio_spi_phys_arm(void *context,
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     if (phys == NULL || config == NULL || config->enabled == 0u ||
         config->node_count < 2u ||
-        config->local_slot_id >= config->node_count) {
+        config->local_slot_id >= config->node_count ||
+        config->tx_dma_channel_id != TDMA_PIO_SPI_TX_DMA_CHANNEL ||
+        config->rx_dma_channel_id != TDMA_PIO_SPI_RX_DMA_CHANNEL) {
         return false;
     }
-    if (!tdma_pio_spi_phys_ensure_programs()) {
+    if (!tdma_pio_spi_phys_select_program_persona(
+            phys, TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL)) {
         return false;
     }
 
@@ -628,6 +814,18 @@ bool tdma_pio_spi_phys_train_clock(void *context, uint32_t cycles)
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
     pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->tx_sm);
     pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    if (!tdma_pio_spi_phys_select_program_persona(
+            phys, TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_COARSE)) {
+        tdma_pio_spi_phys_set_error(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT);
+        tdma_pio_spi_phys_clk_train_write_begin(phys);
+        phys->clk_train.request_seq++;
+        phys->clk_train.state = TDMA_PIO_SPI_CLK_TRAIN_ERROR;
+        phys->clk_train.result = TDMA_PIO_SPI_CLK_TRAIN_RESULT_REJECTED;
+        phys->clk_train.requested_cycles = cycles;
+        tdma_pio_spi_phys_clk_train_write_end(phys);
+        return false;
+    }
     for (uint32_t irq = 0u; irq < 4u; irq++) {
         pio_interrupt_clear(BOARD_TDMA_SPI_PIO, irq);
     }
@@ -774,7 +972,8 @@ bool tdma_pio_spi_phys_cal_loopback_start(tdma_pio_spi_phys_t *phys,
         phys->cal_loopback.armed != 0u) {
         return false;
     }
-    if (!tdma_pio_spi_phys_ensure_programs()) {
+    if (!tdma_pio_spi_phys_select_program_persona(
+            phys, TDMA_PIO_SPI_PROGRAM_PERSONA_CAL_LOOPBACK)) {
         tdma_pio_spi_phys_cal_reject(phys, epoch, 1u);
         return false;
     }
@@ -955,6 +1154,305 @@ bool tdma_pio_spi_phys_get_cal_loopback_snapshot(
         if (begin == end && (end & 1u) == 0u) return true;
     }
     return false;
+}
+
+static void tdma_pio_spi_phys_coded_write_begin(tdma_pio_spi_phys_t *phys)
+{
+    (void)__atomic_add_fetch(&phys->coded_guard, 1u, __ATOMIC_RELEASE);
+}
+
+static void tdma_pio_spi_phys_coded_write_end(tdma_pio_spi_phys_t *phys)
+{
+    (void)__atomic_add_fetch(&phys->coded_guard, 1u, __ATOMIC_RELEASE);
+}
+
+static void tdma_pio_spi_phys_coded_publish_error(
+    tdma_pio_spi_phys_t *phys,
+    uint32_t epoch,
+    tdma_pio_spi_coded_reject_t reason)
+{
+    tdma_pio_spi_phys_coded_write_begin(phys);
+    memset(&phys->coded, 0, sizeof(phys->coded));
+    phys->coded.version = TDMA_PIO_SPI_CODED_SNAPSHOT_VERSION;
+    phys->coded.state = TDMA_PIO_SPI_CODED_ERROR;
+    phys->coded.role = phys->role;
+    phys->coded.flags = TDMA_PIO_SPI_CODED_FLAG_DIAGNOSTIC_ONLY;
+    phys->coded.reject_reason = (uint32_t)reason;
+    phys->coded.epoch = epoch;
+    phys->coded.tx_dma_channel = TDMA_PIO_SPI_TX_DMA_CHANNEL;
+    phys->coded.rx_dma_channel = TDMA_PIO_SPI_RX_DMA_CHANNEL;
+    tdma_pio_spi_phys_coded_write_end(phys);
+}
+
+static void tdma_pio_spi_phys_prepare_maintenance_pins(
+    tdma_pio_spi_phys_t *phys)
+{
+    phys->tx_sm = BOARD_TDMA_SPI_MASTER_SM;
+    phys->rx_sm = BOARD_TDMA_SPI_SLAVE_SM;
+    phys->tx_sck_pin = BOARD_TDMA_SPI_DOWNLINK_SCK_PIN;
+    phys->tx_csn_pin = BOARD_TDMA_SPI_DOWNLINK_CSN_PIN;
+    phys->tx_pin = BOARD_TDMA_SPI_DOWNLINK_TX_PIN;
+    phys->rx_sck_pin = BOARD_TDMA_SPI_UPLINK_SCK_PIN;
+    phys->rx_csn_pin = BOARD_TDMA_SPI_UPLINK_CSN_PIN;
+    phys->rx_pin = BOARD_TDMA_SPI_UPLINK_RX_PIN;
+    phys->armed = true;
+    tdma_pio_spi_phys_set_line_drivers(true);
+}
+
+bool tdma_pio_spi_phys_coded_start(
+    tdma_pio_spi_phys_t *phys,
+    const tdma_pio_spi_coded_request_t *request)
+{
+    if (phys == NULL || request == NULL) {
+        if (phys != NULL) {
+            tdma_pio_spi_phys_coded_publish_error(
+                phys, 0u, TDMA_PIO_SPI_CODED_REJECT_BAD_ARGUMENT);
+        }
+        return false;
+    }
+    /* A rejected overlapping request must not overwrite the guarded facts of
+     * the transfer that still owns both DMA channels. */
+    if (phys->coded.state == TDMA_PIO_SPI_CODED_RUNNING ||
+        phys->coded.state == TDMA_PIO_SPI_CODED_FORWARDING) {
+        return false;
+    }
+    if (phys->role != TDMA_PIO_SPI_ROLE_MASTER &&
+        phys->role != TDMA_PIO_SPI_ROLE_SLAVE) {
+        tdma_pio_spi_phys_coded_publish_error(
+            phys, request->epoch, TDMA_PIO_SPI_CODED_REJECT_BAD_ARGUMENT);
+        return false;
+    }
+
+    const uint32_t capture_words =
+        (request->capture_sample_count + 31u) / 32u;
+    if (phys->role == TDMA_PIO_SPI_ROLE_MASTER &&
+        (request->tx_words == NULL || request->tx_word_count == 0u ||
+         request->tx_word_count > TDMA_PIO_SPI_CODED_BUFFER_WORDS ||
+         request->tx_sample_count == 0u ||
+         request->tx_sample_count > request->tx_word_count * 32u ||
+         request->capture_sample_count < request->tx_sample_count ||
+         capture_words == 0u ||
+         capture_words > TDMA_PIO_SPI_CODED_BUFFER_WORDS)) {
+        tdma_pio_spi_phys_coded_publish_error(
+            phys, request->epoch, TDMA_PIO_SPI_CODED_REJECT_BAD_ARGUMENT);
+        return false;
+    }
+
+    if (s_tdma_pio_spi_tx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
+    }
+    if (s_tdma_pio_spi_rx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+    }
+    phys->rx_capture_active = false;
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM, false);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, false);
+    if (!tdma_pio_spi_phys_select_program_persona(
+            phys, TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_CODED)) {
+        tdma_pio_spi_phys_coded_publish_error(
+            phys, request->epoch, TDMA_PIO_SPI_CODED_REJECT_RESOURCE);
+        return false;
+    }
+
+    if (!phys->armed) {
+        tdma_pio_spi_phys_prepare_maintenance_pins(phys);
+    }
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+
+    tdma_pio_spi_phys_coded_write_begin(phys);
+    memset(&phys->coded, 0, sizeof(phys->coded));
+    phys->coded.version = TDMA_PIO_SPI_CODED_SNAPSHOT_VERSION;
+    phys->coded.role = phys->role;
+    phys->coded.flags = TDMA_PIO_SPI_CODED_FLAG_DIAGNOSTIC_ONLY;
+    phys->coded.epoch = request->epoch;
+    phys->coded.tx_dma_channel = TDMA_PIO_SPI_TX_DMA_CHANNEL;
+    phys->coded.rx_dma_channel = TDMA_PIO_SPI_RX_DMA_CHANNEL;
+    phys->coded.tx_word_count = request->tx_word_count;
+    phys->coded.tx_sample_count = request->tx_sample_count;
+    phys->coded.capture_word_count = capture_words;
+    phys->coded.capture_sample_count = request->capture_sample_count;
+    phys->coded.timing_field_tx_origin_sample =
+        request->timing_field_tx_origin_sample;
+
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
+        tdma_pio_spi_clk_forward_program_init(
+            BOARD_TDMA_SPI_PIO, phys->tx_sm,
+            s_tdma_pio_spi_clk_forward_offset,
+            phys->rx_sck_pin, phys->tx_sck_pin);
+        phys->coded.state = TDMA_PIO_SPI_CODED_FORWARDING;
+        phys->coded.flags |= TDMA_PIO_SPI_CODED_FLAG_FORWARD_ONLY;
+        tdma_pio_spi_phys_coded_write_end(phys);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, true);
+        return true;
+    }
+    tdma_pio_spi_phys_coded_write_end(phys);
+
+    if (!tdma_pio_spi_phys_ensure_tx_dma() ||
+        !tdma_pio_spi_phys_ensure_rx_dma()) {
+        tdma_pio_spi_phys_coded_publish_error(
+            phys, request->epoch, TDMA_PIO_SPI_CODED_REJECT_RESOURCE);
+        tdma_pio_spi_phys_cal_cleanup(phys);
+        return false;
+    }
+
+    memcpy(s_tdma_pio_spi_coded_tx, request->tx_words,
+           request->tx_word_count * sizeof(request->tx_words[0]));
+    memset(s_tdma_pio_spi_coded_rx, 0,
+           capture_words * sizeof(s_tdma_pio_spi_coded_rx[0]));
+    tdma_pio_spi_clk_coded_tx_program_init(
+        BOARD_TDMA_SPI_PIO, phys->tx_sm,
+        s_tdma_pio_spi_clk_coded_tx_offset, phys->tx_sck_pin);
+    tdma_pio_spi_clk_oversample_program_init(
+        BOARD_TDMA_SPI_PIO, phys->rx_sm,
+        s_tdma_pio_spi_clk_oversample_offset, phys->rx_sck_pin);
+
+    dma_channel_config tx_dc = dma_channel_get_default_config(
+        (uint)s_tdma_pio_spi_tx_dma_channel);
+    channel_config_set_transfer_data_size(&tx_dc, DMA_SIZE_32);
+    channel_config_set_read_increment(&tx_dc, true);
+    channel_config_set_write_increment(&tx_dc, false);
+    channel_config_set_dreq(
+        &tx_dc, pio_get_dreq(BOARD_TDMA_SPI_PIO, phys->tx_sm, true));
+    dma_channel_configure((uint)s_tdma_pio_spi_tx_dma_channel, &tx_dc,
+                          &BOARD_TDMA_SPI_PIO->txf[phys->tx_sm],
+                          s_tdma_pio_spi_coded_tx,
+                          request->tx_word_count, false);
+
+    dma_channel_config rx_dc = dma_channel_get_default_config(
+        (uint)s_tdma_pio_spi_rx_dma_channel);
+    channel_config_set_transfer_data_size(&rx_dc, DMA_SIZE_32);
+    channel_config_set_read_increment(&rx_dc, false);
+    channel_config_set_write_increment(&rx_dc, true);
+    channel_config_set_dreq(
+        &rx_dc, pio_get_dreq(BOARD_TDMA_SPI_PIO, phys->rx_sm, false));
+    dma_channel_configure((uint)s_tdma_pio_spi_rx_dma_channel, &rx_dc,
+                          s_tdma_pio_spi_coded_rx,
+                          &BOARD_TDMA_SPI_PIO->rxf[phys->rx_sm],
+                          capture_words, false);
+
+    tdma_pio_spi_phys_coded_write_begin(phys);
+    phys->coded.state = TDMA_PIO_SPI_CODED_RUNNING;
+    phys->coded.capture_origin_tick = vdc_timestamp_clock_now_ns();
+    phys->coded.tx_dma_remaining = request->tx_word_count;
+    phys->coded.rx_dma_remaining = capture_words;
+    tdma_pio_spi_phys_coded_write_end(phys);
+
+    dma_start_channel_mask((1u << (uint)s_tdma_pio_spi_tx_dma_channel) |
+                           (1u << (uint)s_tdma_pio_spi_rx_dma_channel));
+    pio_enable_sm_mask_in_sync(BOARD_TDMA_SPI_PIO,
+                               (1u << phys->tx_sm) | (1u << phys->rx_sm));
+    return true;
+}
+
+void tdma_pio_spi_phys_coded_stop(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return;
+    if (s_tdma_pio_spi_tx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
+    }
+    if (s_tdma_pio_spi_rx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+    }
+    tdma_pio_spi_phys_cal_cleanup(phys);
+    tdma_pio_spi_phys_coded_write_begin(phys);
+    phys->coded.state = TDMA_PIO_SPI_CODED_IDLE;
+    phys->coded.reject_reason = TDMA_PIO_SPI_CODED_REJECT_NONE;
+    phys->coded.tx_dma_remaining = 0u;
+    phys->coded.rx_dma_remaining = 0u;
+    tdma_pio_spi_phys_coded_write_end(phys);
+    (void)tdma_pio_spi_phys_select_program_persona(
+        phys, TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL);
+}
+
+void tdma_pio_spi_phys_coded_service(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || phys->coded.state != TDMA_PIO_SPI_CODED_RUNNING ||
+        s_tdma_pio_spi_tx_dma_channel < 0 ||
+        s_tdma_pio_spi_rx_dma_channel < 0) {
+        return;
+    }
+    const uint32_t tx_remaining =
+        dma_hw->ch[(uint)s_tdma_pio_spi_tx_dma_channel].transfer_count;
+    const uint32_t rx_remaining =
+        dma_hw->ch[(uint)s_tdma_pio_spi_rx_dma_channel].transfer_count;
+    const bool rx_stalled =
+        pio_sm_is_rx_fifo_full(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+
+    tdma_pio_spi_phys_coded_write_begin(phys);
+    phys->coded.tx_dma_remaining = tx_remaining;
+    phys->coded.rx_dma_remaining = rx_remaining;
+    if (tx_remaining == 0u) {
+        phys->coded.flags |= TDMA_PIO_SPI_CODED_FLAG_TX_DMA_COMPLETE;
+    }
+    if (rx_stalled && rx_remaining != 0u) {
+        phys->coded.pio_stall_count++;
+        phys->coded.dma_overrun_count++;
+    }
+    if (rx_remaining == 0u) {
+        phys->coded.flags |= TDMA_PIO_SPI_CODED_FLAG_RX_DMA_COMPLETE;
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, false);
+        if (tx_remaining != 0u) {
+            phys->coded.state = TDMA_PIO_SPI_CODED_ERROR;
+            phys->coded.reject_reason =
+                TDMA_PIO_SPI_CODED_REJECT_CAPTURE_SHORT;
+        } else if (phys->coded.pio_stall_count != 0u) {
+            phys->coded.state = TDMA_PIO_SPI_CODED_ERROR;
+            phys->coded.reject_reason = TDMA_PIO_SPI_CODED_REJECT_PIO_STALL;
+        } else {
+            phys->coded.state = TDMA_PIO_SPI_CODED_COMPLETE;
+            phys->coded.reject_reason = TDMA_PIO_SPI_CODED_REJECT_NONE;
+        }
+    }
+    const bool finished =
+        phys->coded.state == TDMA_PIO_SPI_CODED_COMPLETE ||
+        phys->coded.state == TDMA_PIO_SPI_CODED_ERROR;
+    tdma_pio_spi_phys_coded_write_end(phys);
+    if (finished) {
+        tdma_pio_spi_phys_cal_cleanup(phys);
+        (void)tdma_pio_spi_phys_select_program_persona(
+            phys, TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL);
+    }
+}
+
+bool tdma_pio_spi_phys_get_coded_snapshot(
+    const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_coded_snapshot_t *snapshot)
+{
+    if (phys == NULL || snapshot == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin =
+            __atomic_load_n(&phys->coded_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        *snapshot = phys->coded;
+        const uint32_t end =
+            __atomic_load_n(&phys->coded_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) return true;
+    }
+    return false;
+}
+
+bool tdma_pio_spi_phys_copy_coded_capture(
+    const tdma_pio_spi_phys_t *phys,
+    uint32_t *capture_words,
+    size_t capture_word_capacity,
+    size_t *capture_word_count)
+{
+    tdma_pio_spi_coded_snapshot_t snapshot;
+    if (capture_word_count != NULL) *capture_word_count = 0u;
+    if (phys == NULL || capture_words == NULL || capture_word_count == NULL ||
+        !tdma_pio_spi_phys_get_coded_snapshot(phys, &snapshot) ||
+        snapshot.state != TDMA_PIO_SPI_CODED_COMPLETE ||
+        snapshot.capture_word_count > capture_word_capacity) {
+        return false;
+    }
+    memcpy(capture_words, s_tdma_pio_spi_coded_rx,
+           snapshot.capture_word_count * sizeof(capture_words[0]));
+    *capture_word_count = snapshot.capture_word_count;
+    return true;
 }
 
 bool tdma_pio_spi_phys_get_clk_train_snapshot(

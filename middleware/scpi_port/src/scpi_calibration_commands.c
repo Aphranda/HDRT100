@@ -2,6 +2,12 @@
 
 #include "calibration_manager.h"
 
+static void scpi_calibration_result_u64(scpi_t *context, uint64_t value)
+{
+    SCPI_ResultUInt32(context, (uint32_t)value);
+    SCPI_ResultUInt32(context, (uint32_t)(value >> 32u));
+}
+
 scpi_result_t scpi_calibration_loopback_start(scpi_t *context)
 {
     uint32_t words = 128u;
@@ -44,6 +50,80 @@ scpi_result_t scpi_calibration_loopback_q(scpi_t *context)
     SCPI_ResultUInt32(context, (uint32_t)snapshot.result.raw_path_sum_ns);
     SCPI_ResultInt32(context, (int32_t)snapshot.result.delay_estimate_ns);
     SCPI_ResultBool(context, snapshot.result.active_eligible ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_clk_coded_start(scpi_t *context)
+{
+    uint32_t codebook_id = 0u;
+    uint32_t min_lag_sample = 0u;
+    uint32_t max_lag_sample = 0u;
+    uint32_t max_best_distance = 0u;
+    uint32_t min_margin = 0u;
+    if (SCPI_ParamUInt32(context, &codebook_id, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &min_lag_sample, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &max_lag_sample, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &max_best_distance, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &min_margin, TRUE) != TRUE ||
+        !calibration_manager_request_clk_coded(
+            codebook_id, min_lag_sample, max_lag_sample,
+            max_best_distance, min_margin)) {
+        scpi_port_push_exec_error(context, "CAL_CODED_START_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, codebook_id);
+    SCPI_ResultUInt32(context, min_lag_sample);
+    SCPI_ResultUInt32(context, max_lag_sample);
+    SCPI_ResultUInt32(context, max_best_distance);
+    SCPI_ResultUInt32(context, min_margin);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_clk_coded_stop(scpi_t *context)
+{
+    calibration_manager_stop_clk_coded();
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_clk_coded_q(scpi_t *context)
+{
+    calibration_clk_coded_snapshot_t snapshot;
+    if (!calibration_manager_get_clk_coded_snapshot(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.reject_reason);
+    SCPI_ResultUInt32(context, snapshot.flags);
+    scpi_calibration_result_u64(context, snapshot.board_unique_id);
+    scpi_calibration_result_u64(context, snapshot.build_id);
+    SCPI_ResultUInt32(context, snapshot.logical_slot);
+    SCPI_ResultUInt32(context, snapshot.train_epoch);
+    SCPI_ResultUInt32(context, snapshot.train_sequence);
+    SCPI_ResultUInt32(context, snapshot.calibration_generation);
+    SCPI_ResultUInt32(context, snapshot.topology_generation);
+    SCPI_ResultUInt32(context, snapshot.topology_crc32);
+    SCPI_ResultUInt32(context, snapshot.profile_crc32);
+    SCPI_ResultUInt32(context, snapshot.schedule_crc32);
+    SCPI_ResultUInt32(context, snapshot.baud_hz);
+    SCPI_ResultUInt32(context, snapshot.codebook_id);
+    SCPI_ResultUInt32(context, snapshot.sample_period_ns);
+    SCPI_ResultUInt32(context, snapshot.coarse_min_sample);
+    SCPI_ResultUInt32(context, snapshot.coarse_max_sample);
+    scpi_calibration_result_u64(context, snapshot.capture_origin_tick);
+    SCPI_ResultUInt32(context, snapshot.capture_sample_count);
+    SCPI_ResultUInt32(context, snapshot.timing_field_tx_origin_sample);
+    SCPI_ResultUInt32(context, snapshot.best_lag_sample);
+    SCPI_ResultUInt32(context, snapshot.best_distance);
+    SCPI_ResultUInt32(context, snapshot.second_lag_sample);
+    SCPI_ResultUInt32(context, snapshot.second_distance);
+    SCPI_ResultUInt32(context, snapshot.margin);
+    SCPI_ResultUInt32(context, snapshot.detected_polarity);
+    SCPI_ResultUInt32(context, snapshot.marker_flags);
+    SCPI_ResultUInt32(context, snapshot.tx_dma_count);
+    SCPI_ResultUInt32(context, snapshot.rx_dma_count);
+    SCPI_ResultUInt32(context, snapshot.dma_overrun_count);
+    SCPI_ResultUInt32(context, snapshot.pio_stall_count);
     return SCPI_RES_OK;
 }
 

@@ -454,16 +454,64 @@ core1 相关器只处理固定上限的采样窗口，不动态分配内存，�
 专用 DMA buffer；core0、SCPI、日志和 USB 不得访问正在写入的 buffer。完成后通过 generation
 翻转只读 buffer 或发布压缩 evidence。
 
-当前 PIO2 训练/普通程序约使用 24/32 条 instruction；coded TX 可使用一条
-`out pins,1`，oversampling RX 可使用一条 `in pins,1`，总量约 26/32。master 使用现有两个
-SM 分别 TX/RX，follower 继续只用 forwarding SM。coded TX 和 RX 都需要 DMA：RX 可复用
-训练 persona 当前的 RX DMA ownership，TX DMA 必须加入 `TdmaFoundationProfile` resource
-claim，不能在物理层私自硬编码一个未声明 channel。
+PIO2 不再让普通环路、粗训练、板内回环和编码训练程序同时常驻。`TdmaPioSpiPhys` 只在
+core1 且两个 SM 与 TX/RX DMA 均停止时执行 `tdma_pio_spi_phys_select_program_persona()`：
+用 `pio_remove_program()` 卸载上一组程序，再装载当前功能所需的最小集合；失败时尝试恢复
+上一 persona。禁止 core0/SCPI 直接清空或改写 PIO instruction memory。
+
+下表是 2026-08-21 本地生成头文件的构建快照，非容量事实源；实际占用必须由各
+`*_program.length` 在构建产物中求和：
+
+| persona | 动态程序集合 | generated instruction 快照 |
+|---|---|---:|
+| `NORMAL` | byte TX + byte RX | 9 |
+| `CLOCK_COARSE` | CLK forward + burst + capture | 15 |
+| `CAL_LOOPBACK` | loopback TX + capture | 8 |
+| `CLOCK_CODED` | CLK forward + coded TX + oversample RX | 7 |
+
+master 使用现有两个 SM 分别 TX/RX，follower 只启用 forwarding SM。coded TX 和 RX 都
+使用固定 DMA window：通道来自 `TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID` 和
+`TDMA_PROFILE_DEFAULT_RX_DMA_CHANNEL_ID`，经 `TdmaFoundationProfile`、ring runtime 和
+物理层逐级校验，不能在物理层另行挑选未声明 channel。
 
 master 启动顺序必须是：生成固定 TX buffer 和 expected template、配置 RX DMA、配置 TX DMA
 并预装 FIFO、清 IRQ/FIFO、最后用 `pio_enable_sm_mask_in_sync()` 同时启动 TX/RX SM。leading
 quiet samples 吸收同步启动偏差；`capture_origin`、`timing_field_tx_origin_sample` 和 DMA
 transfer count 都写入同一 guarded snapshot。
+
+### 第二阶段四板最小闭环实测
+
+`CALibration:CLOCk:CODEd:STARt/STOP` 和
+`READ:CALibration:CLOCk:CODEd?` 已接入 Calibration guarded command slot。START 参数只提供
+候选 codebook、coarse lag window 和相关质量门限；固件自行绑定 `board_identity_serial()`、
+build、logical slot、TDMA staged topology/profile/schedule CRC、baud、epoch、sequence 和
+calibration generation。`RING:STOP` 会清空 live runtime，所以 Calibration 读取的是 TDMA
+service 保留的最后一次 accepted `ring_staged_config`；该只读快照不能 arm 或改写 TDMA。
+
+build `20260821044448` 的四板 HIL 是 2026-08-21 bench 快照，非产品阈值事实源。板卡按
+Calibration accepted order
+`0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A -> A1E549202D18ED6A`
+轮流作为 master，工具为
+`tools/calibration_ring_validate/calibration_clk_coded.py`，证据目录为
+`build-product-release/calibration_clk_coded_p2_four_accepted_order`：
+
+| NO | master unique address | best lag sample | best distance | margin | marker/DMA |
+|---:|---|---:|---:|---:|---|
+| 1 | `0010071E65B5CB38` | 100 | 23 | 442 | 全 marker flags；无 overrun/stall |
+| 2 | `FB276192BEF9CCE1` | 100 | 152 | 184 | 全 marker flags；无 overrun/stall |
+| 3 | `2BD5090FE009FA2A` | 101 | 0 | 485 | 全 marker flags；无 overrun/stall |
+| 4 | `A1E549202D18ED6A` | 101 | 154 | 179 | 全 marker flags；无 overrun/stall |
+
+上表是单轮、显式宽松 diagnostic gate 下的快照。raw sample period 来自
+`BOARD_SYS_CLOCK_HZ`，因此本轮峰值对应约 `400~404 ns`；这只是 coded TX/RX 同步 origin 下
+的整圈 RTT，不能解释为单 link delay。`M255_MANCHESTER_20` 在同一硬件上主峰可见但严格
+Manchester 字段拒绝；`M255_MANCHESTER_40` 四主均通过，因此后者暂作为 robust HIL profile，
+前者保留实验档。正式 distance/margin 门限必须由 P2-11 重复统计产生，当前结果继续保留
+`CALIBRATION_CLK_CODED_FLAG_DIAGNOSTIC_ONLY`。
+
+本轮 START/STOP 的 CDC action response 可能在 persona 切换时超时；host 只在 guarded
+snapshot 的 sequence、codebook 和 lag window 与本次 request 完全一致时接受该动作，不能
+把单纯 `<timeout>` 当成成功。该响应时序仍需在产品级 PREPARE/ACK/commit 实现中消除。
 
 ### 板内指令触发闭环
 
@@ -502,28 +550,34 @@ commit sequence 必须在普通 TDMA persona 仍运行时完成。任一 active 
 
 ### 第二阶段实施待办
 
-- [ ] P2-1：冻结候选 codebook 生成器和离线自相关测试，覆盖主峰、第二峰、循环移位、反相、
+- [x] P2-1：冻结候选 codebook 生成器和离线自相关测试，覆盖主峰、第二峰、循环移位、反相、
   单 chip 缺失/重复和上一 epoch 残留。
-  - 进行中：`calibration_clk_codebook_eval.py` 已完成最大长度 LFSR、NRZ/Manchester/
-    differential-Manchester 和 raw-sample lag margin 评估；当前首选 m-sequence 255 +
-    Manchester，仍需增加 marker header/CRC golden vector 和缺失/重复 edge 注入。
-- [ ] P2-2：用现有 CLK pulse HIL 扫描 `20/40/60/80 ns` 最窄高低电平，选择 robust chip；
-  失败自动回退，不用 35 MHz 结果作为精度前提。
-- [ ] P2-3：实现 coded TX PIO。marker、guard、epoch variant 和循环次数从固定 profile/FIFO
-  输入，不由 core1 逐边沿喂数。
-- [ ] P2-4：实现 master RX 过采样 PIO + DMA 固定窗口；TX epoch 和 RX capture 使用同一
+  - 已完成：C/Python 共用 candidate 语义，包含 marker header/反码/CRC、Manchester waveform、
+    golden vector、正反相、缺失/重复 sample、旧 epoch、截断和低 margin 单测；wire layout
+    仍是 candidate，不因此登记为正式跨域契约。
+- [~] P2-2：用现有 CLK pulse HIL 扫描 candidate 最窄高低电平，选择 robust chip；
+  新 build 上 32 ns 四主单轮通过，24 ns 在三个 master 上出现
+  `correlation_manchester` reject，20 ns 仍待四板齐备后筛选；32 ns 作为当前
+  candidate robust 档，尚不能清除 `DIAGNOSTIC_ONLY`。
+- [~] P2-3：coded TX PIO 和固定 FIFO window 已完成，不由 core1 逐边沿喂数；显式 quiet
+  guard/profile 仍待补齐。
+- [x] P2-4：实现 master RX 过采样 PIO + DMA 固定窗口；TX epoch 和 RX capture 使用同一
   `CLK_SYS` 时间基准，并记录真实硬件 capture origin。
-- [ ] P2-5：实现 core1 有界相关状态机，输出 `peak_index/peak_value/second_peak/margin`、
-  Hamming distance、accepted/rejected reason 和重复统计。
-- [ ] P2-6：把 `CLOCK_COARSE -> CLOCK_CODED` 接入 TDMA owner 非阻塞状态机；训练中禁止
+- [~] P2-5：core1 有界相关状态机已输出 peak/second peak、margin、Hamming distance 和
+  accepted/rejected reason；板内重复统计与 histogram 尚待完成。
+- [~] P2-6：把 `CLOCK_COARSE -> CLOCK_CODED` 接入 TDMA owner 非阻塞状态机；训练中禁止
   core0/USB/日志影响 PIO/DMA buffer ownership。
-- [ ] P2-7：扩展 guarded snapshot，绑定唯一板卡地址、logical slot、topology/profile/
+- [x] P2-7：扩展 guarded snapshot，绑定唯一板卡地址、logical slot、topology/profile/
   schedule CRC、baud、codebook ID、epoch、sample period 和 calibration generation。
-- [ ] P2-8：实现 TRAIN_PREPARE/ACK/commit sequence，先完成工具按唯一 ID 触发的最小闭环，
+- [~] P2-8：实现 TRAIN_PREPARE/ACK/commit sequence；工具按唯一 ID 触发的最小四主闭环已
+  完成，reference 单指令协调、ACK bitmap 和 commit sequence 尚待实现，
   再完成 reference 单指令协调全环的产品闭环。
-- [ ] P2-9：扩展 `calibration_clk_train.py` 使用固件返回的相关结果，只做批量触发、UTF-8
+- [x] P2-9：新增 `calibration_clk_coded.py` 使用固件返回的相关结果，只做批量触发、UTF-8
   JSON/CSV/summary 和评分；禁止 host 自己重算板端实时判定结果作为唯一事实源。
-- [ ] P2-10：增加 unit/HIL 门禁：码元错位、反相、缺失/重复、低 margin、DMA overrun、
+- [x] P2-9a：静态复核回环反射校准 persona：`tdma_pio_spi_clk_burst` 的分频、4-cycle
+  周期和 2:2 high/low，以及 `tdma_pio_spi_clk_forward` 的上游边沿再生语义已纳入
+  `tdma_pio_timing_check.py`；输出仅是数字时序门禁，不能替代示波器的电气验证。
+- [~] P2-10：增加 unit/HIL 门禁：码元错位、反相、缺失/重复、低 margin、DMA overrun、
   capture truncation、master 掉线、ACK 缺失、commit miss、profile/topology 改变和恢复 persona。
 - [ ] P2-11：四个 master 每点至少重复 100 次，统计 min/max/mean/p99/stddev、peak margin 和
   混合/拒绝比例；先在 10/25/30 MHz 验证，35 MHz 只保留实验档。

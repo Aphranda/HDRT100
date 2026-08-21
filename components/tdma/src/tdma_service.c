@@ -511,6 +511,8 @@ bool tdma_service_configure_foundation_profile(
         .baud_hz = service->operating_profile.baud_hz,
         .cycle_period_ns = service->operating_profile.cycle_period_ns,
         .feedback_timeout_ns = (uint32_t)feedback_timeout_ns,
+        .tx_dma_channel_id = profile->resource.tx_dma_channel_id,
+        .rx_dma_channel_id = profile->resource.rx_dma_channel_id,
     };
     tdma_service_begin_intent_write(service);
     service->foundation_profile_crc32 = profile->profile_crc32;

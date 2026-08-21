@@ -694,6 +694,16 @@ TDMA 只负责训练 transport/persona 和实时执行编排：
   训练结束恢复普通 DATA/CS persona，并停在 STOPPED，后续 START 仍需显式触发。
 - PIO/DMA 负责边沿生成、透明转发和原始 capture；TDMA 只收割 bounded evidence，不在
   core0 等待边沿，也不在 host 查询时维持实时窗口。
+- `RING:STOP` 清空 live runtime，但 TDMA service 保留最后一次 accepted
+  `ring_staged_config`；Calibration 只能通过 TDMA owner 的只读 snapshot 绑定维护态 evidence，
+  不得借该 snapshot arm、启动或改写 ring。
+
+PIO instruction memory 采用按功能动态装载，不把所有程序永久并存。当前 persona 枚举的
+事实源是 `tdma_pio_spi_program_persona_t`；普通帧、粗 CLK 训练、板内校准回环和编码 CLK
+训练分别选择自己的程序集合。切换只能由 core1 TDMA owner 在两个 SM 关闭、profile 声明的
+TX/RX DMA 均停止后执行；旧集合使用 `pio_remove_program()` 精确卸载，禁止 core0/SCPI
+直接改写 PIO。每次切换及失败次数发布到 `tdma_pio_spi_phys_snapshot_t`，训练完成后恢复
+`TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL` 并保持 ring STOPPED。
 
 Calibration Domain 消费 TDMA 提供的原始 edge evidence 和 transport quality，执行
 `CLOCK_ACQUIRE -> CLOCK_CODED -> FRAME_MEASURE -> CALCULATE -> VALID/RELOCKING`，并

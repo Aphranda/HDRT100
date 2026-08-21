@@ -20,6 +20,8 @@ BARKER_13 = (1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1)
 CALIBRATION_CLK_MARKER_CANDIDATE_VERSION = 0
 CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20 = 0
 CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_40 = 1
+CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_24 = 2
+CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32 = 3
 CALIBRATION_CLK_MARKER_LFSR_MASK = 0x8E
 CALIBRATION_CLK_MARKER_LFSR_SEED = 0x01
 CALIBRATION_CLK_MARKER_LOGICAL_BITS = 321
@@ -71,8 +73,10 @@ def marker_header(version: int, codebook_id: int, epoch: int,
     if not 0 <= version <= 3:
         raise ValueError("version must fit two bits")
     if codebook_id not in (
-            CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
-            CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_40):
+        CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20,
+            CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_40,
+            CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_24,
+            CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32):
         raise ValueError("unsupported candidate codebook")
     if not 0 <= epoch <= 0xFF:
         raise ValueError("epoch must fit eight bits")
@@ -132,6 +136,8 @@ def marker_raw_waveform(
     half_chip_samples = {
         CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_20: 5,
         CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_40: 10,
+        CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_24: 6,
+        CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32: 8,
     }.get(codebook_id)
     if half_chip_samples is None:
         raise ValueError("unsupported candidate codebook")

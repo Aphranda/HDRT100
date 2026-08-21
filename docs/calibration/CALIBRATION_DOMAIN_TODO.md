@@ -88,24 +88,42 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 ## 五、P2 编码 marker 与相关测距
 
-- `[~]` 完成候选 codebook 的离线评估；当前评估工具已能比较 LFSR、NRZ/Manchester/
+- `[x]` 完成候选 codebook 的离线评估；当前评估工具已能比较 LFSR、NRZ/Manchester/
   differential-Manchester 和 raw-sample lag margin。
-- `[ ]` 生成 C/Python golden vector，冻结 header、反码、CRC、bit order、codebook ID、
+- `[x]` 生成 C/Python golden vector，冻结 header、反码、CRC、bit order、codebook ID、
   epoch 字段和 wire waveform；冻结前不得登记为契约。
-- `[ ]` 用现有 CLK HIL 扫描 candidate 半码元档位，确定 robust profile，并验证失败回退。
-- `[ ]` 实现 coded TX PIO、固定 profile/FIFO 输入、quiet guard 和 checked capture size。
-- `[ ]` 实现 master RX oversampling PIO + DMA；记录真实 `capture_origin`、TX/RX count、
+- `[~]` 用现有 CLK HIL 扫描 candidate 半码元档位；新 build `20260821062825` 上 32 ns
+  四主单轮全部 accepted（lag span=1、无 DMA overrun/PIO stall），24 ns 在 NO.2--NO.4
+  出现 `correlation_manchester` reject，因此 32 ns 暂为最短通过档；重复统计仍需完成，
+  结果继续保持 `DIAGNOSTIC_ONLY`。
+- `[~]` 实现 coded TX PIO、固定 FIFO 输入和 checked capture size；显式 quiet guard/profile
+  尚待补齐。
+- `[x]` 实现 master RX oversampling PIO + DMA；记录真实 `capture_origin`、TX/RX count、
   overrun、stall 和 buffer generation。
-- `[ ]` 实现 core1 有界 raw-sample 相关器，输出 `peak`、`second_peak`、`margin`、
-  Hamming distance、极性、accepted/rejected reason 和 lag histogram。
-- `[ ]` 将 `CLOCK_COARSE -> CLOCK_CODED` 接入 TDMA owner 的非阻塞状态机；实现
+- `[~]` 实现 core1 有界 raw-sample 相关器，已输出 `peak`、`second_peak`、`margin`、
+  Hamming distance、极性和 accepted/rejected reason；lag histogram/板内重复统计尚待完成。
+- `[~]` 将 `CLOCK_COARSE -> CLOCK_CODED` 接入 TDMA owner 的非阻塞状态机；实现
   `TRAIN_PREPARE/ACK/commit`，先完成唯一地址工具编排，再完成 reference 单指令全环闭环。
-- `[ ]` 扩展 guarded snapshot，绑定 build/topology/profile/schedule CRC、baud、codebook、
+- `[x]` 扩展 guarded snapshot，绑定 build/topology/profile/schedule CRC、baud、codebook、
   epoch、sample period 和 calibration generation。
-- `[ ]` 增加 unit/HIL 故障注入：错位、反相、缺失/重复、低 margin、DMA overrun、capture
+- `[x]` 完成按 `*IDN?` 唯一地址编排的四主最小 HIL 闭环、JSON/CSV evidence、STOP/IDLE
+  收尾和 persona 恢复；结果仍为单轮 diagnostic snapshot。
+- `[~]` 增加 unit/HIL 故障注入：错位、反相、缺失/重复、低 margin、DMA overrun、capture
   truncation、掉线、ACK 缺失、commit miss、profile/topology 改变和 persona 恢复。
 - `[ ]` 完成四主重复性和跨主一致性门禁；只有真实 PIO/DMA latch、质量和重复统计通过后，
   才清除对应 `TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY`。
+- `[x]` 固化 host 重复统计工具：每主独立 STOP/ARM/coded/STOP，输出 reject 分类、lag
+  histogram、min/max/mean/p99/stddev、margin 和 sequence 一致性；工具仍以 `*IDN?` 唯一
+  地址为主键，COM 只作为临时端点。
+- `[x]` 固化普通 TDMA TX PIO 频率/占空比静态门禁；修正 TX loop 从实际 7 cycles/bit
+  收敛为声明的 6 cycles/bit（3 high + 3 low）。当前 250 MHz `clk_sys` 下，10/25/30 MHz
+  的理论误差分别约为 `-0.031%/-0.078%/-0.125%`，占空比均为 `50%`；电气 rise/fall
+  仍需示波器确认。
+- `[x]` 将回环反射校准的 `tdma_pio_spi_clk_burst` 与
+  `tdma_pio_spi_clk_forward` 纳入同一静态时序工具；burst 以 4-cycle period、2:2
+  high/low 检查频率和占空比，forward 明确为上游 RX 边沿再生且本地 divider=1。报告为
+  `build-product-release/tdma_pio_timing_check_reflection_20260821.json`；收发器和线缆
+  rise/fall 仍须示波器确认。
 
 ## 六、P3 双向同时对比法
 

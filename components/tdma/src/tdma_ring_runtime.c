@@ -122,7 +122,10 @@ bool tdma_ring_runtime_validate_config(
         config->operating_profile_crc32 == 0u ||
         config->baud_hz < 1000000u || config->baud_hz > 50000000u ||
         config->cycle_period_ns == 0u ||
-        config->feedback_timeout_ns == 0u) {
+        config->feedback_timeout_ns == 0u ||
+        config->tx_dma_channel_id == TDMA_RESOURCE_ID_UNUSED ||
+        config->rx_dma_channel_id == TDMA_RESOURCE_ID_UNUSED ||
+        config->tx_dma_channel_id == config->rx_dma_channel_id) {
         tdma_ring_runtime_set_reason(reason,
                                      TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
         return false;
@@ -163,6 +166,8 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->baud_hz = 0u;
         runtime->cycle_period_ns = 0u;
         runtime->feedback_timeout_ns = 0u;
+        runtime->tx_dma_channel_id = TDMA_RESOURCE_ID_UNUSED;
+        runtime->rx_dma_channel_id = TDMA_RESOURCE_ID_UNUSED;
     } else {
         runtime->enabled = 1u;
         runtime->node_count = config->node_count;
@@ -177,6 +182,8 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->baud_hz = config->baud_hz;
         runtime->cycle_period_ns = config->cycle_period_ns;
         runtime->feedback_timeout_ns = config->feedback_timeout_ns;
+        runtime->tx_dma_channel_id = config->tx_dma_channel_id;
+        runtime->rx_dma_channel_id = config->rx_dma_channel_id;
     }
     tdma_ring_runtime_write_guard(&runtime->config_guard);
 
@@ -336,6 +343,8 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
                 .baud_hz = runtime->baud_hz,
                 .cycle_period_ns = runtime->cycle_period_ns,
                 .feedback_timeout_ns = runtime->feedback_timeout_ns,
+                .tx_dma_channel_id = runtime->tx_dma_channel_id,
+                .rx_dma_channel_id = runtime->rx_dma_channel_id,
             };
             if (runtime->adapter_ops->start(runtime->adapter_context,
                                             &config)) {
@@ -493,6 +502,8 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         snapshot->baud_hz = runtime->baud_hz;
         snapshot->cycle_period_ns = runtime->cycle_period_ns;
         snapshot->feedback_timeout_ns = runtime->feedback_timeout_ns;
+        snapshot->tx_dma_channel_id = runtime->tx_dma_channel_id;
+        snapshot->rx_dma_channel_id = runtime->rx_dma_channel_id;
         const uint32_t guard_end =
             tdma_ring_runtime_load(&runtime->config_guard);
         if (guard_begin == guard_end && (guard_end & 1u) == 0u) {

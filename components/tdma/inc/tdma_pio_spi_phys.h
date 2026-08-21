@@ -46,10 +46,15 @@
  * per-frame abort, FIFO clear, or DMA reconfiguration gap. */
 #define TDMA_PIO_SPI_RX_RING_WORDS 1024u
 #define TDMA_PIO_SPI_RX_RING_LOG2 12u
-#define TDMA_PIO_SPI_RX_DMA_CHANNEL 4u
+#define TDMA_PIO_SPI_TX_DMA_CHANNEL \
+    TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID
+#define TDMA_PIO_SPI_RX_DMA_CHANNEL \
+    TDMA_PROFILE_DEFAULT_RX_DMA_CHANNEL_ID
 #define TDMA_PIO_SPI_TRAIN_CLOCK_DEFAULT_CYCLES 4096u
 #define TDMA_PIO_SPI_TRAIN_CLOCK_MAX_CYCLES 65536u
 #define TDMA_PIO_SPI_TRAIN_RETURN_TIMEOUT_NS 100000000ull
+#define TDMA_PIO_SPI_CODED_BUFFER_WORDS 256u
+#define TDMA_PIO_SPI_CODED_SNAPSHOT_VERSION 1u
 #define TDMA_PIO_SPI_CLK_TRAIN_SNAPSHOT_VERSION 1u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS 256u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ 50000000u
@@ -66,6 +71,7 @@ typedef enum {
     TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET = 3u,
     TDMA_PIO_SPI_PHYS_ERROR_PAYLOAD_TOO_LARGE = 4u,
     TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY = 5u,
+    TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT = 6u,
 } tdma_pio_spi_phys_error_t;
 
 typedef enum {
@@ -89,6 +95,66 @@ typedef enum {
     TDMA_PIO_SPI_CLK_TRAIN_RESULT_REJECTED = 4u,
     TDMA_PIO_SPI_CLK_TRAIN_RESULT_RETURN_TIMEOUT = 5u,
 } tdma_pio_spi_clk_train_result_t;
+
+typedef enum {
+    TDMA_PIO_SPI_PROGRAM_PERSONA_NONE = 0u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL = 1u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_COARSE = 2u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_CAL_LOOPBACK = 3u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_CODED = 4u,
+} tdma_pio_spi_program_persona_t;
+
+typedef enum {
+    TDMA_PIO_SPI_CODED_IDLE = 0u,
+    TDMA_PIO_SPI_CODED_FORWARDING = 1u,
+    TDMA_PIO_SPI_CODED_RUNNING = 2u,
+    TDMA_PIO_SPI_CODED_COMPLETE = 3u,
+    TDMA_PIO_SPI_CODED_ERROR = 4u,
+} tdma_pio_spi_coded_state_t;
+
+typedef enum {
+    TDMA_PIO_SPI_CODED_REJECT_NONE = 0u,
+    TDMA_PIO_SPI_CODED_REJECT_BAD_ARGUMENT = 1u,
+    TDMA_PIO_SPI_CODED_REJECT_RESOURCE = 2u,
+    TDMA_PIO_SPI_CODED_REJECT_DMA = 3u,
+    TDMA_PIO_SPI_CODED_REJECT_CAPTURE_SHORT = 4u,
+    TDMA_PIO_SPI_CODED_REJECT_PIO_STALL = 5u,
+} tdma_pio_spi_coded_reject_t;
+
+#define TDMA_PIO_SPI_CODED_FLAG_DIAGNOSTIC_ONLY (1u << 0u)
+#define TDMA_PIO_SPI_CODED_FLAG_TX_DMA_COMPLETE  (1u << 1u)
+#define TDMA_PIO_SPI_CODED_FLAG_RX_DMA_COMPLETE  (1u << 2u)
+#define TDMA_PIO_SPI_CODED_FLAG_FORWARD_ONLY     (1u << 3u)
+
+typedef struct {
+    const uint32_t *tx_words;
+    uint32_t tx_word_count;
+    uint32_t tx_sample_count;
+    uint32_t capture_sample_count;
+    uint32_t timing_field_tx_origin_sample;
+    uint32_t epoch;
+} tdma_pio_spi_coded_request_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t state;
+    uint32_t role;
+    uint32_t flags;
+    uint32_t reject_reason;
+    uint32_t epoch;
+    uint32_t tx_dma_channel;
+    uint32_t rx_dma_channel;
+    uint32_t tx_word_count;
+    uint32_t tx_sample_count;
+    uint32_t capture_word_count;
+    uint32_t capture_sample_count;
+    uint32_t timing_field_tx_origin_sample;
+    uint32_t tx_dma_remaining;
+    uint32_t rx_dma_remaining;
+    uint32_t dma_overrun_count;
+    uint32_t pio_stall_count;
+    uint64_t capture_origin_tick;
+} tdma_pio_spi_coded_snapshot_t;
 
 typedef struct {
     uint32_t version;
@@ -186,6 +252,9 @@ typedef struct {
     uint64_t last_tx_done_timestamp_ns;
     uint64_t last_rx_edge_timestamp_ns;
     uint64_t last_rx_extract_timestamp_ns;
+    uint32_t program_persona;
+    uint32_t program_switch_count;
+    uint32_t program_switch_fail_count;
 } tdma_pio_spi_phys_snapshot_t;
 
 typedef struct {
@@ -219,6 +288,8 @@ typedef struct {
     uint32_t cal_loopback_epoch;
     uint32_t cal_loopback_tx_sm;
     uint32_t cal_loopback_capture_sm;
+    volatile uint32_t coded_guard;
+    tdma_pio_spi_coded_snapshot_t coded;
 } tdma_pio_spi_phys_t;
 
 /* Called by the ring adapter start() once the active ring config is known.
@@ -243,6 +314,29 @@ void tdma_pio_spi_phys_cal_loopback_service(tdma_pio_spi_phys_t *phys);
 bool tdma_pio_spi_phys_get_cal_loopback_snapshot(
     const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_cal_loopback_snapshot_t *snapshot);
+/* CLOCK_CODED is a raw-evidence transport owned by TDMA/core1.  It does not
+ * know marker fields or correlation policy; Calibration supplies packed raw
+ * samples and consumes the completed capture after the guarded snapshot says
+ * both fixed DMA windows completed. */
+bool tdma_pio_spi_phys_coded_start(
+    tdma_pio_spi_phys_t *phys,
+    const tdma_pio_spi_coded_request_t *request);
+void tdma_pio_spi_phys_coded_stop(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_coded_service(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_get_coded_snapshot(
+    const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_coded_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_copy_coded_capture(
+    const tdma_pio_spi_phys_t *phys,
+    uint32_t *capture_words,
+    size_t capture_word_capacity,
+    size_t *capture_word_count);
+/* Core1 TDMA-owner-only persona switch. The caller must first stop both SMs
+ * and DMA. Programs are removed/loaded as a set; no core0/SCPI caller may
+ * write PIO instruction memory directly. */
+bool tdma_pio_spi_phys_select_program_persona(
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_program_persona_t persona);
 bool tdma_pio_spi_phys_get_snapshot(const tdma_pio_spi_phys_t *phys,
                                     tdma_pio_spi_phys_snapshot_t *snapshot);
 
