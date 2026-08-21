@@ -102,7 +102,58 @@ typedef enum {
     TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_COARSE = 2u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_CAL_LOOPBACK = 3u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_CODED = 4u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_P3_INITIATOR = 5u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_P3_RESPONDER = 6u,
 } tdma_pio_spi_program_persona_t;
+
+typedef enum {
+    TDMA_PIO_SPI_P3_IDLE = 0u,
+    TDMA_PIO_SPI_P3_ARMED = 1u,
+    TDMA_PIO_SPI_P3_COMPLETE = 2u,
+    TDMA_PIO_SPI_P3_ERROR = 3u,
+} tdma_pio_spi_p3_state_t;
+
+typedef enum {
+    TDMA_PIO_SPI_P3_ROLE_NONE = 0u,
+    TDMA_PIO_SPI_P3_ROLE_INITIATOR = 1u,
+    TDMA_PIO_SPI_P3_ROLE_RESPONDER = 2u,
+} tdma_pio_spi_p3_role_t;
+
+#define TDMA_PIO_SPI_P3_FLAG_DIAGNOSTIC_ONLY (1u << 0u)
+#define TDMA_PIO_SPI_P3_FLAG_HARDWARE_LATCHED (1u << 1u)
+#define TDMA_PIO_SPI_P3_FLAG_DMA_COMPLETE (1u << 2u)
+#define TDMA_PIO_SPI_P3_FLAG_SYNC_MATCH (1u << 3u)
+
+typedef struct {
+    uint32_t role;
+    uint32_t baud_hz;
+    uint32_t pulse_count;
+    uint32_t capture_words;
+    uint32_t epoch;
+} tdma_pio_spi_p3_request_t;
+
+typedef struct {
+    uint32_t state;
+    uint32_t role;
+    uint32_t flags;
+    uint32_t reject_reason;
+    uint32_t baud_hz;
+    uint32_t epoch;
+    uint32_t sample_period_ns;
+    uint32_t pulse_count;
+    uint32_t requested_words;
+    uint32_t produced_words;
+    uint32_t edge_mask;
+    uint32_t dma_overrun_count;
+    uint32_t pio_stall_count;
+    uint32_t clock_high_ns;
+    uint32_t clock_low_ns;
+    uint32_t data_high_ns;
+    uint64_t t1_clk_tx;
+    uint64_t t2_clk_rx;
+    uint64_t t3_data_tx;
+    uint64_t t4_data_rx;
+} tdma_pio_spi_p3_snapshot_t;
 
 typedef enum {
     TDMA_PIO_SPI_CODED_IDLE = 0u,
@@ -290,6 +341,8 @@ typedef struct {
     uint32_t cal_loopback_capture_sm;
     volatile uint32_t coded_guard;
     tdma_pio_spi_coded_snapshot_t coded;
+    volatile uint32_t p3_guard;
+    tdma_pio_spi_p3_snapshot_t p3;
 } tdma_pio_spi_phys_t;
 
 /* Called by the ring adapter start() once the active ring config is known.
@@ -331,6 +384,12 @@ bool tdma_pio_spi_phys_copy_coded_capture(
     uint32_t *capture_words,
     size_t capture_word_capacity,
     size_t *capture_word_count);
+bool tdma_pio_spi_phys_p3_start(
+    tdma_pio_spi_phys_t *phys, const tdma_pio_spi_p3_request_t *request);
+void tdma_pio_spi_phys_p3_stop(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_p3_service(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_get_p3_snapshot(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_p3_snapshot_t *snapshot);
 /* Core1 TDMA-owner-only persona switch. The caller must first stop both SMs
  * and DMA. Programs are removed/loaded as a set; no core0/SCPI caller may
  * write PIO instruction memory directly. */

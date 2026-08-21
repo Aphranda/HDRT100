@@ -127,6 +127,63 @@ scpi_result_t scpi_calibration_clk_coded_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_calibration_p3_start(scpi_t *context)
+{
+    uint32_t role = 0u, baud_hz = 0u, pulse_count = 0u;
+    uint32_t capture_words = 0u, epoch = 0u;
+    if (SCPI_ParamUInt32(context, &role, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &baud_hz, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &pulse_count, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &capture_words, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &epoch, TRUE) != TRUE ||
+        !calibration_manager_request_p3(
+            role, baud_hz, pulse_count, capture_words, epoch)) {
+        scpi_port_push_exec_error(context, "CAL_P3_START_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, role);
+    SCPI_ResultUInt32(context, baud_hz);
+    SCPI_ResultUInt32(context, pulse_count);
+    SCPI_ResultUInt32(context, capture_words);
+    SCPI_ResultUInt32(context, epoch);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_p3_stop(scpi_t *context)
+{
+    calibration_manager_stop_p3();
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_p3_q(scpi_t *context)
+{
+    calibration_manager_p3_snapshot_t snapshot;
+    if (!calibration_manager_get_p3_snapshot(&snapshot)) return SCPI_RES_ERR;
+    const tdma_pio_spi_p3_snapshot_t *raw = &snapshot.raw;
+    SCPI_ResultUInt32(context, raw->state);
+    SCPI_ResultUInt32(context, raw->role);
+    SCPI_ResultUInt32(context, raw->flags);
+    SCPI_ResultUInt32(context, raw->reject_reason);
+    SCPI_ResultUInt32(context, raw->baud_hz);
+    SCPI_ResultUInt32(context, raw->epoch);
+    SCPI_ResultUInt32(context, raw->sample_period_ns);
+    SCPI_ResultUInt32(context, raw->pulse_count);
+    SCPI_ResultUInt32(context, raw->requested_words);
+    SCPI_ResultUInt32(context, raw->produced_words);
+    SCPI_ResultUInt32(context, raw->edge_mask);
+    SCPI_ResultUInt32(context, raw->dma_overrun_count);
+    SCPI_ResultUInt32(context, raw->pio_stall_count);
+    SCPI_ResultUInt32(context, raw->clock_high_ns);
+    SCPI_ResultUInt32(context, raw->clock_low_ns);
+    SCPI_ResultUInt32(context, raw->data_high_ns);
+    scpi_calibration_result_u64(context, raw->t1_clk_tx);
+    scpi_calibration_result_u64(context, raw->t2_clk_rx);
+    scpi_calibration_result_u64(context, raw->t3_data_tx);
+    scpi_calibration_result_u64(context, raw->t4_data_rx);
+    SCPI_ResultUInt32(context, snapshot.result_valid);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_link_q(scpi_t *context)
 {
     calibration_manager_status_t status;

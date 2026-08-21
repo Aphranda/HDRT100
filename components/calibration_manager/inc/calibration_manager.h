@@ -7,6 +7,7 @@
 #include "calibration_pio_loopback.h"
 #include "calibration_bidirectional.h"
 #include "calibration_clk_coded.h"
+#include "tdma_pio_spi_phys.h"
 
 typedef struct {
     bool ready;
@@ -26,6 +27,11 @@ typedef struct {
     calibration_bidirectional_result_t result;
     uint32_t result_valid;
 } calibration_manager_loopback_snapshot_t;
+
+typedef struct {
+    tdma_pio_spi_p3_snapshot_t raw;
+    uint32_t result_valid;
+} calibration_manager_p3_snapshot_t;
 
 bool calibration_manager_init(void);
 void calibration_manager_set_ready(bool ready);
@@ -53,5 +59,11 @@ bool calibration_manager_request_clk_coded(
     uint32_t max_best_distance,
     uint32_t min_margin);
 void calibration_manager_stop_clk_coded(void);
+bool calibration_manager_request_p3(
+    uint32_t role, uint32_t baud_hz, uint32_t pulse_count,
+    uint32_t capture_words, uint32_t epoch);
+void calibration_manager_stop_p3(void);
+bool calibration_manager_get_p3_snapshot(
+    calibration_manager_p3_snapshot_t *snapshot);
 
 #endif

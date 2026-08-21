@@ -371,3 +371,35 @@ bool tdma_runtime_owner_copy_coded_capture_core1(
                &s_tdma_pio_spi_phys, capture_words,
                capture_word_capacity, capture_word_count);
 }
+
+bool tdma_runtime_owner_p3_start_core1(
+    const tdma_pio_spi_p3_request_t *request)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    return s_tdma_runtime_owner_initialized && request != NULL &&
+           tdma_ring_runtime_get_snapshot(
+               &s_tdma_runtime_owner.ring_runtime, &ring) &&
+           ring.enabled == 0u &&
+           tdma_pio_spi_phys_p3_start(&s_tdma_pio_spi_phys, request);
+}
+
+void tdma_runtime_owner_p3_stop_core1(void)
+{
+    if (s_tdma_runtime_owner_initialized) {
+        tdma_pio_spi_phys_p3_stop(&s_tdma_pio_spi_phys);
+    }
+}
+
+void tdma_runtime_owner_p3_service_core1(void)
+{
+    if (s_tdma_runtime_owner_initialized) {
+        tdma_pio_spi_phys_p3_service(&s_tdma_pio_spi_phys);
+    }
+}
+
+bool tdma_runtime_owner_get_p3_snapshot(
+    tdma_pio_spi_p3_snapshot_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_phys_get_p3_snapshot(&s_tdma_pio_spi_phys, snapshot);
+}

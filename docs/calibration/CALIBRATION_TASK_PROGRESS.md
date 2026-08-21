@@ -18,8 +18,63 @@ Last updated: 2026-08-21
 | 线序与环路顺序测量 | `[~]` | host 隔离探测、闭环判定和 NO 提交已迁入 calibration 命名空间；板内 generation/freshness 待实现 |
 | 第一阶段 CLK RTT 粗捕获 | `[x]` | 已完成板内最小实现和四板 HIL，仍为 diagnostic-only |
 | 第二阶段编码 marker/相关测距 | `[~]` | 动态 persona、固定双 DMA、板端相关和四主最小 HIL 已完成；重复门限及板内多板协调待完成 |
-| 第三阶段双向同时对比法 | `[~]` | 公式、reject gate 和单板纯 PIO 闭环已通过；endpoint bias 及双板/四板实测待完成 |
+| 第三阶段双向同时对比法 | `[~]` | 板间 P3 persona、四时间戳和四板逐段诊断 HIL 已通过；endpoint bias、故障注入、freshness/active gate 待完成 |
 | VDC/DPLL active calibration gate | `[ ]` | 依赖正式 hardware latch、bias、generation/freshness 和 P3 结果 |
+
+## CAL-TASK-20260821-009 - P3 四板逐链路双向测距
+
+- 状态：P3-1/P3-2 和四板逐链路诊断 HIL 完成；结果继续保持 `DIAGNOSTIC_ONLY`，未生成
+  active per-link calibration，未提交给 VDC/DPLL。
+- 日期：2026-08-21。
+- HAOFV 实现边界：
+  - TDMA core1 owner 动态装载 initiator/responder PIO persona，持有 SM、DMA、驱动器方向和
+    4 ns GPIO24..31 采样；core0/SCPI 只发布 guarded intent 和读取 snapshot。
+  - initiator 记录本地 `t1=CLK_TX`、`t4=DATA_RX`，responder 记录本地
+    `t2=CLK_RX`、`t3=DATA_TX`；host 只配对同 epoch evidence 并计算
+    `path_sum=(t4-t1)-(t3-t2)`。
+  - 新增 `CALibration:P3:STARt/STOP`、`READ:CALibration:P3?` 和
+    `tools/calibration_ring_validate/calibration_link_p3.py`；板卡身份只使用 `*IDN?`
+    唯一地址，COM 仅是当次端点。
+- OTA 与 HIL（bench 诊断快照，非校准事实源）：
+  - 四板升级到 build `20260821100236`，证据目录
+    `build-product-release/calibration_p3_ota_20260821`。
+  - 四板物理顺序为 `0010071E65B5CB38 -> FB276192BEF9CCE1 ->
+    2BD5090FE009FA2A -> A1E549202D18ED6A -> 0010071E65B5CB38`。
+  - 先做 10 MHz 四段单轮 smoke，4/4 accepted；完整阶梯再对四段分别执行
+    `10/25/30 MHz`、每级 3 个独立 epoch。基础四边沿、CLK 频率/占空比、DMA/stall 门禁
+    为 36/36 accepted，证据目录为 `build-product-release/calibration_p3_full_20260821`。
+  - 各 link 的单程对称估计均落在 `80..82 ns`；该 2 ns 台阶来自 4 ns RTT 采样量化后
+    除以二。每轮 responder residence 均为 20 ns，DMA overrun 和 PIO stall 均为零。
+  - 采样得到 10 MHz 为 10.000 MHz、source duty 52%；25 MHz 为 25.000 MHz、source
+    duty 50%；30 MHz 多数为约 30.303 MHz、source duty 48.48%。最后一段 responder
+    30 MHz duty 最低为 42.42%，当前在 4 ns 采样诊断容差内，但须由示波器复核电气波形。
+  - 发现基础门禁遗漏返回 DATA pulse width 后，工具已增加 `data_high_ok`（理想半周期
+    量化值允许一个 sample period 误差）。30 MHz 四段各补跑 10 轮，共 39/40 accepted；
+    NO.1→NO.2 第 6 轮的 DATA_RX 高电平只有 8 ns，被 `initiator_data_width` 正确拒绝。
+    证据目录为 `build-product-release/calibration_p3_30m_data_gate_20260821`。因此 25 MHz
+    是当前四段保守稳定档；30 MHz 改为 `LIMITED_RX` 有界诊断接收档，不能进入 active
+    profile。后续每次 P3 验证固定执行
+    `calibration_link_frequency_policy.REQUIRED_FREQUENCY_LADDER_MHZ` 完整阶梯，即使稳定档
+    失败也不跳过 `LIMITED_RX_FREQUENCY_MHZ`；该档任一拒绝记录 `FALLBACK_25MHZ` 并按
+    `LIMITED_RX_FALLBACK_MHZ` 回退，但不使已通过的稳定档总判定失败。
+- 剩余门禁：
+  - 同 persona endpoint bias/reference generation 尚未完成，因此当前 `delay_estimate` 只是
+    对称假设下的 observed value，不是产品单向延迟事实。
+  - 尚未完成缺边沿/乱序/epoch/frequency/asymmetry 故障注入、topology/profile freshness、
+    四段 cumulative 与整圈 residual 对比及长时间温漂统计。
+  - P3 snapshot 尚未形成 active/staging CRC、generation 和 VDC/DPLL consumer gate；不得
+    清除 `TDMA_PIO_SPI_P3_FLAG_DIAGNOSTIC_ONLY`。
+- 验证：
+  - `cmake --build build-product-release -j 4` 通过并生成 A/B 固件、UF2 和 OTA package。
+  - `python -m pytest tests/python/test_calibration_link_p3.py
+    tests/python/test_calibration_link_plan.py -p no:cacheprovider`：10 项通过。
+  - P3 基础 HIL 的 12 个 link/frequency level 全部 3/3 通过；增加 DATA width 门禁后的
+    30 MHz 加严复测为 39/40，详细四时间戳、频率、占空比、脉宽、residence、path-sum
+    和失败门禁见两份 evidence `summary.json`。
+  - `calibration_link_p3.py` 与 `calibration_link_plan.py` 已拒绝不完整频率列表，保证每次
+    验证包含 `LIMITED_RX_FREQUENCY_MHZ`；summary 分离 `STABLE_REQUIRED` 与 `LIMITED_RX`，
+    并按 `LIMITED_RX_FALLBACK_MHZ` 发布 fallback 状态。该策略只改变诊断评分，不放宽
+    DATA/CLK 频率、占空比或脉宽门限。
 
 ## CAL-TASK-20260821-006 - P2 重复统计与 TDMA PIO 时序校正
 
@@ -83,6 +138,30 @@ Last updated: 2026-08-21
   rise/fall、ISO1452、连接器和线缆影响必须以示波器实测。
 - HAOFV 边界：Calibration 只接受 coded snapshot/raw evidence；PIO waveform、burst、
   forward 和 DMA 资源仍归 TDMA/core1 owner，core0/SCPI 不进入边沿热路径。
+
+## CAL-TASK-20260821-008 - P3 逐链路低频推进基线
+
+- 状态：P3 尚未开始正式测量；已完成低频优先策略、在线板卡确认和 active path-delay
+  基线读取，当前 firmware 不具备板间四边沿 persona，故不能生成逐链路结果。
+- 日期：2026-08-21。
+- 四板按 `*IDN?` 唯一地址重新枚举成功，physical order 保持
+  `0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A -> A1E549202D18ED6A`，
+  build 均为 `20260821062825`；证据目录为
+  `build-product-release/inventory_p3_frequency_baseline`。
+- 已用 `tools/calibration_ring_validate/calibration_path_delay_probe.py` 读取四板当前
+  path-delay 与 TDMA 状态；四板均返回 `MISSING`，`ring_enabled=0`，
+  `ring_timestamp_resolution_ns=0`，没有 active per-link calibration；证据目录为
+  `build-product-release/calibration_p3_baseline_path_delay`。
+- 频率/占空比门禁沿用 `10 -> 25 -> 30 MHz`。静态报告
+  `build-product-release/tdma_pio_timing_check_reflection_20260821.json` 已证明 burst
+  在三档为 50% duty，forward 为上游边沿再生；示波器仍需确认电气波形。
+- 下一步必须先完成 P3-1/P3-2：板间 `CLK/DATA/SYNC` 同 epoch marker、四边沿 hardware
+  latch、residence/path-sum snapshot 和逐 link SCPI/工具入口；完成后才能从 NO.1→NO.2
+  的 10 MHz 第一段开始，再依次推进 NO.2→NO.3、NO.3→NO.4、NO.4→NO.1，并逐级提升
+  到 25/30 MHz。
+- 物理方向已复核：同一 BiSS 段为 A.CLK_TX `GPIO25` -> B.CLK_RX `GPIO28`，同时
+  B.DATA_TX `GPIO29` -> A.DATA_RX `GPIO24`，SYNC 使用 `GPIO26/27` 关联 epoch；ISO1452
+  固定方向与 P3 的 `t1/t2/t3/t4` 双向方程一致。
 
 ## CAL-TASK-20260821-005 - P2 coded marker 四板最小闭环
 

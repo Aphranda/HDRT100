@@ -12,7 +12,8 @@ generation/freshness 以及 EtherCAT DC 风格的训练状态和接受门禁；T
 persona、PIO/SM/DMA/core1 资源和窗口编排。第一阶段总结已经实现并完成四板 HIL 的
 CLK 往返粗捕获；第二阶段规划使用编码 marker、PIO 过采样和板内相关匹配，把粗区间继续
 缩小。本文档中的第二阶段 wire 图样、阈值和新增 SCPI 拼写仍是 candidate，必须在实现、
-单元测试和 HIL 形成后再按文档登记流程冻结。
+单元测试和 HIL 形成后再按文档登记流程冻结。第三阶段已形成板间 PIO/DMA 诊断 persona
+和四板逐链路 HIL evidence，但 endpoint bias/freshness 未完成，仍不得进入 active calibration。
 
 ## 结论先行
 
@@ -607,6 +608,12 @@ commit sequence 必须在普通 TDMA persona 仍运行时完成。任一 active 
 `SYNC` 是同一 `train_epoch/sequence` 的事务标记，负责把两条相反方向的边沿锁定在同一
 次测量中；它不是额外的传播延迟假设，也不承担业务 VDC 语义。
 
+### 产品环路的物理方向
+
+同一 BiSS 段为 A.CLK_TX `GPIO25` -> B.CLK_RX `GPIO28`，同时 B.DATA_TX `GPIO29` ->
+A.DATA_RX `GPIO24`；SYNC 使用 `GPIO26/27` 关联 epoch。ISO1452 固定方向已经与下述
+“CLK 正向 + DATA 反向”方程一致，固件不得在 persona 切换时反转驱动器方向。
+
 ### 单链路时间戳方程
 
 对链路 `A -> B`，约定 `CLK` 从 A 到 B，`DATA` 从 B 返回 A。原始 PIO 边沿 latch 记录：
@@ -693,15 +700,30 @@ link 的 `t1..t4` 证据，也不能把整圈 aggregate 平均分摊为 link del
 
 ### 第三阶段实施待办
 
-- [ ] P3-1：为相反方向 CLK/DATA/SYNC 定义同 epoch 的 PIO marker 和四边沿 capture origin。
-- [ ] P3-2：实现 `t1..t4` 证据关联、residence 扣除、path-sum 和 clock-rate error bound。
+- [x] P3-1：为相反方向 CLK/DATA/SYNC 定义同 epoch 的 PIO marker 和四边沿 capture origin。
+- [x] P3-2：实现 `t1..t4` 证据关联、residence 扣除、path-sum 和 clock-rate error bound。
 - [ ] P3-3：完成同一 PIO persona 的板内 endpoint bias/reference loopback 校准。
-- [ ] P3-4：完成双向同时对比的 unit、fault injection 和双板 HIL；覆盖缺边沿、乱序、重复、
+- [~] P3-4：双向计算 unit 和四条相邻段 HIL 已完成；继续补 fault injection，覆盖缺边沿、乱序、重复、
   极性、SYNC/CRC 错、DMA overrun/stall、频率偏差和方向 asymmetry。
-- [ ] P3-5：完成四板逐链路 HIL 与 cumulative/整圈 residual 对比，固化 8 节点扩展前的
-  profile acceptance threshold。
+- [~] P3-5：四板逐链路三档诊断 HIL 已完成；P3 验证入口现已固定
+  `calibration_link_frequency_policy.REQUIRED_FREQUENCY_LADDER_MHZ`，稳定档为
+  `STABLE_REQUIRED`，`LIMITED_RX_FREQUENCY_MHZ` 为每轮必测的 `LIMITED_RX`。继续完成
+  cumulative/整圈 residual 对比，固化 8 节点扩展前的 profile acceptance threshold。
 - [ ] P3-6：只有四时间戳 hardware latch、bias generation、重复统计和拓扑 freshness 全部
   通过后，才生成 active per-link delay，清除对应 diagnostic-only 标志并交给 VDC/DPLL。
+
+P3 HIL bench 快照（非事实源）：build `20260821100236` 上，physical order
+`0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A -> A1E549202D18ED6A`
+的四条相邻链路完成 12 个 link/frequency level、36 个独立 epoch，基础四边沿/CLK 门禁
+全部 accepted；证据目录为 `build-product-release/calibration_p3_full_20260821`。observed
+对称单程估计为 `80..82 ns`，DMA overrun/PIO stall 均为零。增加返回 DATA pulse-width
+门禁后，30 MHz 四段加严复测为 39/40 accepted：NO.1→NO.2 出现一次 8 ns DATA_RX
+高电平并被拒绝，证据目录为 `build-product-release/calibration_p3_30m_data_gate_20260821`。
+因此当前保守稳定档上限来自该 bench 快照；`LIMITED_RX_FREQUENCY_MHZ` 为 `LIMITED_RX`
+有界诊断接收档，每次 P3 验证仍必须执行，不能因低频失败而跳过。该档任一拒绝记录
+`FALLBACK_25MHZ` 并按 `LIMITED_RX_FALLBACK_MHZ` 回退，且不放宽 CLK/DATA 频率、占空比
+或脉宽门限，也不单独使 `STABLE_REQUIRED` 稳定档总判定失败。
+所有结果继续带 `TDMA_PIO_SPI_P3_FLAG_DIAGNOSTIC_ONLY`。
 
 完成编码 CLK RTT 后，下一阶段才是带 DATA/CS/CRC 的短 TRAIN frame、节点 residence 和
 `frame_complete_round_trip_ns`。只有完整帧 RTT 才能生成运行态 RX window、guard 和

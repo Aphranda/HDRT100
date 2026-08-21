@@ -20,6 +20,50 @@ static calibration_clk_coded_workspace_t s_clk_coded_workspace;
 static uint32_t s_clk_coded_capture[TDMA_PIO_SPI_CODED_BUFFER_WORDS];
 static volatile bool s_clk_coded_active;
 static uint32_t s_clk_coded_request_sequence;
+static calibration_manager_p3_snapshot_t s_p3_snapshot;
+
+typedef enum {
+    CALIBRATION_P3_INTENT_NONE = 0u,
+    CALIBRATION_P3_INTENT_START = 1u,
+    CALIBRATION_P3_INTENT_STOP = 2u,
+} calibration_p3_intent_opcode_t;
+
+typedef struct {
+    volatile uint32_t guard;
+    uint32_t sequence;
+    uint32_t opcode;
+    tdma_pio_spi_p3_request_t request;
+} calibration_p3_intent_t;
+
+static calibration_p3_intent_t s_p3_intent;
+static uint32_t s_p3_intent_next_sequence;
+static volatile uint32_t s_p3_intent_consumed_sequence;
+
+static void calibration_manager_p3_publish(
+    calibration_p3_intent_opcode_t opcode,
+    const tdma_pio_spi_p3_request_t *request)
+{
+    (void)__atomic_add_fetch(&s_p3_intent.guard, 1u, __ATOMIC_ACQ_REL);
+    s_p3_intent.sequence = ++s_p3_intent_next_sequence;
+    s_p3_intent.opcode = (uint32_t)opcode;
+    if (request != NULL) s_p3_intent.request = *request;
+    (void)__atomic_add_fetch(&s_p3_intent.guard, 1u, __ATOMIC_RELEASE);
+}
+
+static bool calibration_manager_p3_read(calibration_p3_intent_t *intent)
+{
+    if (intent == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin =
+            __atomic_load_n(&s_p3_intent.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        *intent = s_p3_intent;
+        const uint32_t end =
+            __atomic_load_n(&s_p3_intent.guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) return true;
+    }
+    return false;
+}
 
 typedef enum {
     CALIBRATION_CLK_CODED_INTENT_NONE = 0u,
@@ -147,6 +191,8 @@ bool calibration_manager_init(void)
     memset(&s_clk_coded_workspace, 0, sizeof(s_clk_coded_workspace));
     memset(s_clk_coded_capture, 0, sizeof(s_clk_coded_capture));
     memset(&s_clk_coded_intent, 0, sizeof(s_clk_coded_intent));
+    memset(&s_p3_snapshot, 0, sizeof(s_p3_snapshot));
+    memset(&s_p3_intent, 0, sizeof(s_p3_intent));
     memset(&s_clk_coded_active_request, 0,
            sizeof(s_clk_coded_active_request));
     memset(&s_clk_coded_active_gate, 0, sizeof(s_clk_coded_active_gate));
@@ -154,6 +200,8 @@ bool calibration_manager_init(void)
     s_clk_coded_intent_next_sequence = 0u;
     s_clk_coded_intent_consumed_sequence = 0u;
     s_clk_coded_request_sequence = 0u;
+    s_p3_intent_next_sequence = 0u;
+    s_p3_intent_consumed_sequence = 0u;
     s_loopback_processed_epoch = 0u;
     s_status.last_service_ms = now_ms;
     s_status.command_seq = 1u;
@@ -259,6 +307,21 @@ void calibration_manager_service_core1(void)
                          ring.enabled == 0u;
     calibration_pio_loopback_service_core1(stopped);
     tdma_runtime_owner_coded_service_core1();
+    tdma_runtime_owner_p3_service_core1();
+
+    calibration_p3_intent_t p3_intent;
+    if (calibration_manager_p3_read(&p3_intent) &&
+        p3_intent.sequence != __atomic_load_n(
+            &s_p3_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        if (p3_intent.opcode == CALIBRATION_P3_INTENT_STOP) {
+            tdma_runtime_owner_p3_stop_core1();
+        } else if (p3_intent.opcode == CALIBRATION_P3_INTENT_START &&
+                   stopped) {
+            (void)tdma_runtime_owner_p3_start_core1(&p3_intent.request);
+        }
+        __atomic_store_n(&s_p3_intent_consumed_sequence,
+                         p3_intent.sequence, __ATOMIC_RELEASE);
+    }
 
     calibration_clk_coded_intent_t intent;
     if (calibration_manager_clk_coded_intent_read(&intent) &&
@@ -367,6 +430,14 @@ void calibration_manager_service_core1(void)
             __atomic_store_n(&s_clk_coded_active, false, __ATOMIC_RELEASE);
         }
     }
+    tdma_pio_spi_p3_snapshot_t p3;
+    if (tdma_runtime_owner_get_p3_snapshot(&p3)) {
+        osal_critical_enter();
+        s_p3_snapshot.raw = p3;
+        s_p3_snapshot.result_valid =
+            p3.state == TDMA_PIO_SPI_P3_COMPLETE ? 1u : 0u;
+        osal_critical_exit();
+    }
 }
 
 bool calibration_manager_get_loopback_snapshot(
@@ -386,6 +457,50 @@ bool calibration_manager_get_clk_coded_snapshot(
     calibration_clk_coded_snapshot_t *snapshot)
 {
     return calibration_clk_coded_get_snapshot(&s_clk_coded_store, snapshot);
+}
+
+bool calibration_manager_request_p3(
+    uint32_t role, uint32_t baud_hz, uint32_t pulse_count,
+    uint32_t capture_words, uint32_t epoch)
+{
+    calibration_p3_intent_t pending;
+    tdma_pio_spi_p3_snapshot_t raw;
+    if ((role != TDMA_PIO_SPI_P3_ROLE_INITIATOR &&
+         role != TDMA_PIO_SPI_P3_ROLE_RESPONDER) ||
+        !calibration_manager_p3_read(&pending) ||
+        pending.sequence != __atomic_load_n(
+            &s_p3_intent_consumed_sequence, __ATOMIC_ACQUIRE) ||
+        !tdma_runtime_owner_get_p3_snapshot(&raw) ||
+        raw.state == TDMA_PIO_SPI_P3_ARMED) {
+        return false;
+    }
+    const tdma_pio_spi_p3_request_t request = {
+        .role = role,
+        .baud_hz = baud_hz,
+        .pulse_count = pulse_count,
+        .capture_words = capture_words,
+        .epoch = epoch,
+    };
+    calibration_manager_p3_publish(CALIBRATION_P3_INTENT_START, &request);
+    return true;
+}
+
+void calibration_manager_stop_p3(void)
+{
+    calibration_manager_p3_publish(CALIBRATION_P3_INTENT_STOP, NULL);
+}
+
+bool calibration_manager_get_p3_snapshot(
+    calibration_manager_p3_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) return false;
+    osal_critical_enter();
+    *snapshot = s_p3_snapshot;
+    osal_critical_exit();
+    (void)tdma_runtime_owner_get_p3_snapshot(&snapshot->raw);
+    snapshot->result_valid =
+        snapshot->raw.state == TDMA_PIO_SPI_P3_COMPLETE ? 1u : 0u;
+    return true;
 }
 
 bool calibration_manager_start_clk_coded(

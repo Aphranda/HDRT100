@@ -18,6 +18,9 @@ scpi_result_t scpi_calibration_loopback_q(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_start(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_stop(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_q(scpi_t *context);
+scpi_result_t scpi_calibration_p3_start(scpi_t *context);
+scpi_result_t scpi_calibration_p3_stop(scpi_t *context);
+scpi_result_t scpi_calibration_p3_q(scpi_t *context);
 
 #define SCPI_CALIBRATION_COMMANDS \
     {.pattern = "CONFigure:CALibration:LINK:ADD", .callback = scpi_port_result_accepted}, \
@@ -32,6 +35,9 @@ scpi_result_t scpi_calibration_clk_coded_q(scpi_t *context);
     {.pattern = "CALibration:CLOCk:CODEd:STARt", .callback = scpi_calibration_clk_coded_start}, \
     {.pattern = "CALibration:CLOCk:CODEd:STOP", .callback = scpi_calibration_clk_coded_stop}, \
     {.pattern = "READ:CALibration:CLOCk:CODEd?", .callback = scpi_calibration_clk_coded_q}, \
+    {.pattern = "CALibration:P3:STARt", .callback = scpi_calibration_p3_start}, \
+    {.pattern = "CALibration:P3:STOP", .callback = scpi_calibration_p3_stop}, \
+    {.pattern = "READ:CALibration:P3?", .callback = scpi_calibration_p3_q}, \
     {.pattern = "READ:CALibration:STATe?", .callback = scpi_calibration_result_q}, \
     {.pattern = "READ:CALibration:RESult?", .callback = scpi_calibration_result_q}, \
     {.pattern = "CONFigure:CALibration:PARameter:ADD", .callback = scpi_port_result_accepted}, \

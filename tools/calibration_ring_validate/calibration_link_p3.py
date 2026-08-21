@@ -1,0 +1,436 @@
+#!/usr/bin/env python3
+"""Run Calibration P3 per-link bidirectional ranging on a 2..8 board ring.
+
+Board identity is always the exact ``*IDN?`` unique address. COM names are
+only transient transport endpoints. Each validation runs the complete
+10/25/30 MHz ladder. 30 MHz is bounded diagnostic RX and never a stable
+profile; it is still exercised when a lower stable level fails.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import math
+import statistics
+import sys
+import time
+from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "tools") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tools"))
+if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
+
+from tdma_start_ring import Board, board_command, discover  # noqa: E402
+from calibration_ring_validate.calibration_link_frequency_policy import (  # noqa: E402
+    LIMITED_RX_FALLBACK_MHZ,
+    LIMITED_RX_FREQUENCY_MHZ,
+    validation_frequency_ladder,
+)
+
+
+P3_FIELDS = (
+    "state", "role", "flags", "reject_reason", "baud_hz", "epoch",
+    "sample_period_ns", "pulse_count", "requested_words", "produced_words",
+    "edge_mask", "dma_overrun_count", "pio_stall_count", "clock_high_ns",
+    "clock_low_ns", "data_high_ns", "t1_lo", "t1_hi", "t2_lo", "t2_hi",
+    "t3_lo", "t3_hi", "t4_lo", "t4_hi", "result_valid",
+)
+P3_STATE_IDLE = 0
+P3_STATE_ARMED = 1
+P3_STATE_COMPLETE = 2
+P3_ROLE_INITIATOR = 1
+P3_ROLE_RESPONDER = 2
+P3_FLAGS_REQUIRED = 0x0F
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--board-id", action="append", required=True,
+                        help="exact *IDN? address in physical ring order")
+    parser.add_argument("--expected-build")
+    parser.add_argument("--frequency-mhz", action="append", type=int)
+    parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--pulse-count", type=int, default=32)
+    parser.add_argument("--capture-words", type=int, default=256)
+    parser.add_argument("--baud", type=int, default=115200)
+    parser.add_argument("--timeout", type=float, default=5.0)
+    parser.add_argument("--action-timeout", type=float, default=0.3)
+    parser.add_argument("--capture-timeout", type=float, default=3.0)
+    parser.add_argument("--settle", type=float, default=0.2)
+    parser.add_argument("--gap", type=float, default=0.1)
+    parser.add_argument("--frequency-tolerance-percent", type=float,
+                        default=5.0)
+    parser.add_argument("--duty-tolerance-percent", type=float, default=10.0)
+    parser.add_argument("--out-dir", type=Path)
+    parser.add_argument("--dry-run", action="store_true")
+    return parser.parse_args()
+
+
+def parse_p3_status(raw: str) -> dict[str, int]:
+    row = next(csv.reader([raw]), [])
+    if len(row) != len(P3_FIELDS):
+        raise RuntimeError(
+            f"P3 status field count {len(row)} != {len(P3_FIELDS)}: {raw!r}")
+    values = [int(value.strip().strip('"'), 0) for value in row]
+    result = dict(zip(P3_FIELDS, values))
+    for prefix in ("t1", "t2", "t3", "t4"):
+        result[prefix + "_ns"] = (
+            result[prefix + "_lo"] | (result[prefix + "_hi"] << 32))
+    return result
+
+
+def p3_status(board: Board, args: argparse.Namespace) -> dict[str, int]:
+    return parse_p3_status(
+        board_command(board, "READ:CALibration:P3?", args))
+
+
+def action_args(args: argparse.Namespace) -> argparse.Namespace:
+    fast = argparse.Namespace(**vars(args))
+    fast.timeout = min(args.timeout, args.action_timeout)
+    fast.settle = min(args.settle, 0.05)
+    return fast
+
+
+def stop_p3(boards: list[Board], args: argparse.Namespace) -> None:
+    fast = action_args(args)
+    for board in boards:
+        board_command(board, "CALibration:P3:STOP", fast)
+    deadline = time.monotonic() + args.capture_timeout
+    while time.monotonic() < deadline:
+        if all(p3_status(board, args)["state"] == P3_STATE_IDLE
+               for board in boards):
+            return
+        time.sleep(0.03)
+    raise RuntimeError("P3 STOP did not restore IDLE")
+
+
+def start_p3(board: Board, role: int, frequency_hz: int, epoch: int,
+             args: argparse.Namespace) -> dict[str, int]:
+    fast = action_args(args)
+    command = (
+        f"CALibration:P3:STARt {role},{frequency_hz},"
+        f"{args.pulse_count},{args.capture_words},{epoch}")
+    response = board_command(board, command, fast)
+    deadline = time.monotonic() + args.capture_timeout
+    last: dict[str, int] = {}
+    while time.monotonic() < deadline:
+        last = p3_status(board, args)
+        if (last["epoch"] == epoch and last["role"] == role and
+                last["baud_hz"] == frequency_hz and
+                last["state"] in (P3_STATE_ARMED, P3_STATE_COMPLETE)):
+            last["start_response"] = response
+            return last
+        time.sleep(0.03)
+    raise RuntimeError(
+        f"{board.address}: P3 START not accepted, response={response!r}, "
+        f"snapshot={last}")
+
+
+def wait_complete(board: Board, epoch: int,
+                  args: argparse.Namespace) -> dict[str, int]:
+    deadline = time.monotonic() + args.capture_timeout
+    last = p3_status(board, args)
+    while time.monotonic() < deadline:
+        if last["epoch"] == epoch and last["state"] != P3_STATE_ARMED:
+            return last
+        time.sleep(0.03)
+        last = p3_status(board, args)
+    raise RuntimeError(f"{board.address}: P3 completion timeout: {last}")
+
+
+def timing_metrics(snapshot: dict[str, int], target_hz: int,
+                   frequency_tolerance_percent: float,
+                   duty_tolerance_percent: float) -> dict[str, object]:
+    high_ns = snapshot["clock_high_ns"]
+    low_ns = snapshot["clock_low_ns"]
+    period_ns = high_ns + low_ns
+    actual_hz = 1_000_000_000.0 / period_ns if period_ns > 0 else 0.0
+    duty_percent = 100.0 * high_ns / period_ns if period_ns > 0 else 0.0
+    frequency_error_percent = (
+        100.0 * abs(actual_hz - target_hz) / target_hz)
+    sample_period_ns = max(1, snapshot.get("sample_period_ns", 4))
+    ideal_data_high_ns = 1_000_000_000.0 / (2.0 * target_hz)
+    expected_data_high_ns = round(
+        ideal_data_high_ns / sample_period_ns) * sample_period_ns
+    data_high_error_ns = abs(
+        snapshot["data_high_ns"] - expected_data_high_ns)
+    return {
+        "clock_high_ns": high_ns,
+        "clock_low_ns": low_ns,
+        "actual_hz": actual_hz,
+        "frequency_error_percent": frequency_error_percent,
+        "duty_percent": duty_percent,
+        "data_high_ns": snapshot["data_high_ns"],
+        "expected_data_high_ns": expected_data_high_ns,
+        "data_high_error_ns": data_high_error_ns,
+        "frequency_ok": frequency_error_percent <= frequency_tolerance_percent,
+        "duty_ok": abs(duty_percent - 50.0) <= duty_tolerance_percent,
+        "data_high_ok": data_high_error_ns <= sample_period_ns,
+    }
+
+
+def evaluate_pair(initiator: dict[str, int], responder: dict[str, int],
+                  target_hz: int, args: argparse.Namespace) -> dict[str, object]:
+    source_rtt_ns = initiator["t4_ns"] - initiator["t1_ns"]
+    residence_ns = responder["t3_ns"] - responder["t2_ns"]
+    path_sum_ns = source_rtt_ns - residence_ns
+    source_timing = timing_metrics(
+        initiator, target_hz, args.frequency_tolerance_percent,
+        args.duty_tolerance_percent)
+    responder_timing = timing_metrics(
+        responder, target_hz, args.frequency_tolerance_percent,
+        args.duty_tolerance_percent)
+    failures: list[str] = []
+    for name, snapshot, role, edge_mask in (
+            ("initiator", initiator, P3_ROLE_INITIATOR, 0x09),
+            ("responder", responder, P3_ROLE_RESPONDER, 0x06)):
+        if snapshot["state"] != P3_STATE_COMPLETE:
+            failures.append(name + "_state")
+        if snapshot["role"] != role:
+            failures.append(name + "_role")
+        if snapshot["result_valid"] != 1:
+            failures.append(name + "_result")
+        if (snapshot["flags"] & P3_FLAGS_REQUIRED) != P3_FLAGS_REQUIRED:
+            failures.append(name + "_flags")
+        if (snapshot["edge_mask"] & edge_mask) != edge_mask:
+            failures.append(name + "_edges")
+        if snapshot["dma_overrun_count"] != 0:
+            failures.append(name + "_dma")
+        if snapshot["pio_stall_count"] != 0:
+            failures.append(name + "_pio_stall")
+    if initiator["epoch"] != responder["epoch"]:
+        failures.append("epoch")
+    if source_rtt_ns <= 0:
+        failures.append("rtt")
+    if residence_ns <= 0:
+        failures.append("residence")
+    if path_sum_ns < 0:
+        failures.append("path_sum")
+    if not source_timing["frequency_ok"]:
+        failures.append("initiator_frequency")
+    if not source_timing["duty_ok"]:
+        failures.append("initiator_duty")
+    if not source_timing["data_high_ok"]:
+        failures.append("initiator_data_width")
+    if not responder_timing["frequency_ok"]:
+        failures.append("responder_frequency")
+    if not responder_timing["duty_ok"]:
+        failures.append("responder_duty")
+    if not responder_timing["data_high_ok"]:
+        failures.append("responder_data_width")
+    return {
+        "source_rtt_ns": source_rtt_ns,
+        "residence_ns": residence_ns,
+        "path_sum_ns": path_sum_ns,
+        "delay_estimate_ns": path_sum_ns / 2.0,
+        "initiator_timing": source_timing,
+        "responder_timing": responder_timing,
+        "failures": failures,
+        "passed": not failures,
+    }
+
+
+def run_trial(source: Board, destination: Board, frequency_hz: int,
+              epoch: int, repeat_index: int,
+              args: argparse.Namespace) -> dict[str, object]:
+    stop_p3([source, destination], args)
+    try:
+        responder_start = start_p3(
+            destination, P3_ROLE_RESPONDER, frequency_hz, epoch, args)
+        initiator_start = start_p3(
+            source, P3_ROLE_INITIATOR, frequency_hz, epoch, args)
+        initiator = wait_complete(source, epoch, args)
+        responder = wait_complete(destination, epoch, args)
+        evaluation = evaluate_pair(initiator, responder, frequency_hz, args)
+        return {
+            "source": source.address,
+            "destination": destination.address,
+            "frequency_hz": frequency_hz,
+            "epoch": epoch,
+            "repeat_index": repeat_index,
+            "responder_start": responder_start,
+            "initiator_start": initiator_start,
+            "initiator": initiator,
+            "responder": responder,
+            **evaluation,
+        }
+    finally:
+        stop_p3([source, destination], args)
+
+
+def summarize_trials(trials: list[dict[str, object]]) -> dict[str, object]:
+    accepted = [trial for trial in trials if trial.get("passed")]
+    delays = [float(trial["delay_estimate_ns"]) for trial in accepted]
+    return {
+        "trial_count": len(trials),
+        "accepted_count": len(accepted),
+        "delay_min_ns": min(delays) if delays else None,
+        "delay_max_ns": max(delays) if delays else None,
+        "delay_mean_ns": statistics.fmean(delays) if delays else None,
+        "delay_stddev_ns": statistics.pstdev(delays) if delays else None,
+        "passed": bool(trials) and len(accepted) == len(trials),
+    }
+
+
+def apply_frequency_policy(ladder: list[dict[str, object]]) -> dict[str, object]:
+    """Classify 30 MHz as bounded diagnostic RX, never a stable profile."""
+    stable_rows: list[dict[str, object]] = []
+    limited_rows: list[dict[str, object]] = []
+    for row in ladder:
+        frequency_mhz = int(row["frequency_mhz"])
+        if frequency_mhz == LIMITED_RX_FREQUENCY_MHZ:
+            row["required_for_stable"] = False
+            row["operational_class"] = "LIMITED_RX"
+            row["fallback_frequency_mhz"] = LIMITED_RX_FALLBACK_MHZ
+            row["operational_status"] = (
+                "LIMITED_RX_ACCEPTED" if row.get("passed")
+                else "FALLBACK_25MHZ")
+            limited_rows.append(row)
+        else:
+            row["required_for_stable"] = True
+            row["operational_class"] = "STABLE_REQUIRED"
+            row["fallback_frequency_mhz"] = None
+            row["operational_status"] = (
+                "STABLE_ACCEPTED" if row.get("passed") else "STABLE_REJECTED")
+            stable_rows.append(row)
+    stable_passed = bool(stable_rows) and all(
+        bool(row.get("passed")) for row in stable_rows)
+    stable_frequencies = sorted({
+        int(row["frequency_mhz"]) for row in stable_rows
+    })
+    accepted_stable_frequencies = [
+        frequency for frequency in stable_frequencies
+        if all(bool(row.get("passed")) for row in stable_rows
+               if int(row["frequency_mhz"]) == frequency)
+    ]
+    limited_rx_executed = bool(limited_rows) and all(
+        not bool(row.get("skipped")) for row in limited_rows)
+    limited_rx_passed = limited_rx_executed and all(
+        bool(row.get("passed")) for row in limited_rows)
+    return {
+        "stable_profiles_passed": stable_passed,
+        "highest_stable_frequency_mhz": (
+            max(accepted_stable_frequencies)
+            if accepted_stable_frequencies else None),
+        "limited_rx_frequency_mhz": LIMITED_RX_FREQUENCY_MHZ,
+        "limited_rx_fallback_mhz": LIMITED_RX_FALLBACK_MHZ,
+        "limited_rx_executed": limited_rx_executed,
+        "limited_rx_all_trials_passed": limited_rx_passed,
+        "limited_rx_operational_status": (
+            "LIMITED_RX_ACCEPTED" if limited_rx_passed
+            else "FALLBACK_25MHZ"),
+    }
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        frequencies_mhz = validation_frequency_ladder(args.frequency_mhz)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    if not 2 <= len(args.board_id) <= 8:
+        raise SystemExit("board count must be in [2, 8]")
+    if len(set(args.board_id)) != len(args.board_id):
+        raise SystemExit("board IDs must be unique")
+    if not 1 <= args.repeats <= 1000:
+        raise SystemExit("repeats must be in [1, 1000]")
+    if not 4 <= args.pulse_count <= 1024:
+        raise SystemExit("pulse-count must be in [4, 1024]")
+    if not 1 <= args.capture_words <= 256:
+        raise SystemExit("capture-words must be in [1, 256]")
+    args.board_ids = list(args.board_id)
+    boards = discover(args)
+    missing = sorted(set(args.board_id) - set(boards))
+    if missing:
+        raise SystemExit(f"boards not found by *IDN?: {', '.join(missing)}")
+    ordered = [boards[address] for address in args.board_id]
+    wrong_build = {board.address: board.build for board in ordered
+                   if args.expected_build and board.build != args.expected_build}
+    if wrong_build:
+        raise SystemExit(f"build mismatch: {wrong_build}")
+    plan = {
+        "measurement_domain": "calibration",
+        "phase": "p3_per_link_bidirectional",
+        "diagnostic_only": True,
+        "board_ids_in_physical_order": args.board_id,
+        "boards": {board.address: asdict(board) for board in ordered},
+        "frequency_ladder_mhz": frequencies_mhz,
+        "repeats": args.repeats,
+        "pulse_count": args.pulse_count,
+        "capture_words": args.capture_words,
+    }
+    if args.dry_run:
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        return 0
+    for board in ordered:
+        board_command(board, "SYSTem:TDMA:RING:STOP", args)
+    trials: list[dict[str, object]] = []
+    ladder: list[dict[str, object]] = []
+    epoch = int(time.time()) & 0xFFFFFFFF
+    for link_index, source in enumerate(ordered):
+        destination = ordered[(link_index + 1) % len(ordered)]
+        for frequency_mhz in frequencies_mhz:
+            level_trials: list[dict[str, object]] = []
+            for repeat_index in range(1, args.repeats + 1):
+                epoch = (epoch + 1) & 0xFFFFFFFF
+                try:
+                    trial = run_trial(
+                        source, destination, frequency_mhz * 1_000_000,
+                        epoch, repeat_index, args)
+                except Exception as exc:  # retain evidence and continue gate
+                    trial = {
+                        "source": source.address,
+                        "destination": destination.address,
+                        "frequency_hz": frequency_mhz * 1_000_000,
+                        "epoch": epoch,
+                        "repeat_index": repeat_index,
+                        "passed": False,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                trials.append(trial)
+                level_trials.append(trial)
+                print(json.dumps({"p3_trial": trial}, ensure_ascii=False),
+                      flush=True)
+                time.sleep(args.gap)
+            summary = summarize_trials(level_trials)
+            ladder.append({
+                "link_index": link_index,
+                "source": source.address,
+                "destination": destination.address,
+                "frequency_mhz": frequency_mhz,
+                **summary,
+            })
+    frequency_policy = apply_frequency_policy(ladder)
+    passed = bool(frequency_policy["stable_profiles_passed"])
+    output = {
+        **plan,
+        "passed": passed,
+        "frequency_policy": frequency_policy,
+        "ladder": ladder,
+        "trials": trials,
+    }
+    out_dir = args.out_dir or (ROOT / "build-product-release" /
+        f"calibration_link_p3_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "summary.json").write_text(
+        json.dumps(output, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    (out_dir / "summary.txt").write_text("\n".join(
+        f"{row['source']} -> {row['destination']} {row['frequency_mhz']}MHz "
+        f"accepted={row.get('accepted_count', 0)}/{row.get('trial_count', 0)} "
+        f"delay_mean_ns={row.get('delay_mean_ns')} passed={row['passed']} "
+        f"class={row.get('operational_class')} "
+        f"status={row.get('operational_status')}"
+        for row in ladder) + "\n", encoding="utf-8")
+    print(f"passed={passed} out_dir={out_dir}")
+    return 0 if passed else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

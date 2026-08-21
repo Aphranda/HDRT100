@@ -24,7 +24,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 | P0 | 硬件 latch、证据 transport 和 owner 边界 | `[~]` | 可关联的 `t1..t4` hardware-latched evidence |
 | P1 | CLK RTT 粗捕获收尾 | `[~]` | diagnostic bracket、过渡抖动和拒绝原因 |
 | P2 | 编码 marker、过采样和相关测距 | `[~]` | accepted/rejected coded RTT snapshot |
-| P3 | 双向同时对比、residence 和 per-link delay | `[ ]` | active/staging per-link calibration |
+| P3 | 双向同时对比、residence 和 per-link delay | `[~]` | diagnostic per-link evidence 已形成；active/staging 待 bias/freshness gate |
 | P4 | VDC/DPLL 接入与长时间验证 | `[ ]` | calibration-to-VDC gate evidence |
 
 当前不能把第一阶段的 CLK RTT bracket、软件 timer 或 diagnostic latch 直接用于 VDC/DPLL。
@@ -59,9 +59,10 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 - `[ ]` 冻结 `CalibrationEvidence` 字段：板卡唯一地址、logical slot、link key、
   `train_epoch`、`train_seq`、方向、topology/profile CRC、硬件时间源、分辨率、flags、
   DMA 状态、质量结果、generation 和 freshness。
-- `[ ]` 定义 `t1..t4` 的 latch source、resolution、overrun、window miss、epoch/sequence
-  关联和拒绝原因；CPU timer、DMA 完成时刻和帧解析时刻只能作为诊断证据。
-- `[ ]` 与 SYNC_IO/TDMA 对齐 `CLK/DATA/SYNC` 三线 PIO persona、DMA buffer owner、
+- `[~]` 定义 `t1..t4` 的 latch source、resolution、overrun、window miss、epoch/sequence
+  关联和拒绝原因；板间 P3 已发布 4 ns PIO/DMA 采样和同 epoch 边沿，完整 fault reason、
+  topology/profile generation 仍待补齐。
+- `[x]` 与 SYNC_IO/TDMA 对齐 `CLK/DATA/SYNC` 三线 PIO persona、DMA buffer owner、
   core1 service 入口和 raw evidence 发布方式；core0/USB/日志不得进入边沿热路径。
 - `[ ]` 定义 endpoint bias reference loopback 的 profile、board identity、bias generation
   和失效策略；bias 未生成时只允许发布 observed value。
@@ -127,6 +128,21 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 ## 六、P3 双向同时对比法
 
+当前推进策略：每条相邻 link 固定执行
+`calibration_link_frequency_policy.REQUIRED_FREQUENCY_LADDER_MHZ` 完整验证阶梯。稳定档标为
+`STABLE_REQUIRED`，必须同时满足 PIO burst/forward 的频率与 50% 占空比门禁、同 epoch 的
+`t1..t4` hardware-latched 证据、residence/path-sum 质量和恢复门禁。
+`LIMITED_RX_FREQUENCY_MHZ` 为 `LIMITED_RX` 有界诊断接收档，每次验证都必须实际执行，
+即使低频稳定档失败也不得跳过；该档任一拒绝发布 `FALLBACK_25MHZ` 并按
+`LIMITED_RX_FALLBACK_MHZ` 回退，但不单独使稳定档总判定失败。build
+`20260821100236` 已完成四板逐段三档诊断 HIL；加入 DATA pulse-width 门禁后 30 MHz
+仍有低概率 reject，因此当前保守稳定上限为 25 MHz。endpoint bias、topology/profile
+freshness 和 active/staging gate 尚未完成，结果仍不能作为 active per-link calibration。
+
+物理方向约束：同一 BiSS 段为 A.CLK_TX `GPIO25` -> B.CLK_RX `GPIO28`，同时
+B.DATA_TX `GPIO29` -> A.DATA_RX `GPIO24`，SYNC 使用 `GPIO26/27` 关联 epoch。ISO1452
+固定方向与 P3 的 `t1/t2/t3/t4` 双向方程一致，固件不得反转该方向。
+
 第三阶段使用相邻板卡反向的 `CLK` 和 `DATA`，`SYNC` 只负责把同一 epoch/sequence 的
 边沿关联起来。对链路 `A -> B`，定义：
 
@@ -142,15 +158,18 @@ path_sum_AB = (t4 - t1) - residence_B
 等长差分线缆支持对称性假设，但不替代收发器、GPIO synchronizer、PIO pipeline、连接器
 和方向 endpoint bias 校准。若 asymmetry 超过门禁，只发布 path-sum，不伪造两个单向 delay。
 
-- `[ ]` P3-1：定义 `CLK/DATA/SYNC` 同 epoch marker、四边沿 capture origin 和方向字段。
-- `[ ]` P3-2：实现 `t1..t4` 关联、residence 扣除、path-sum、clock-rate error bound、
+- `[x]` P3-1：定义 `CLK/DATA/SYNC` 同 epoch marker、四边沿 capture origin 和方向字段。
+- `[x]` P3-2：实现 `t1..t4` 关联、residence 扣除、path-sum、clock-rate error bound、
   不确定度和短窗口频率偏差处理。
 - `[ ]` P3-3：完成同一 PIO persona 的板内 endpoint bias/reference loopback，并发布 bias
   generation、质量和失效原因。
-- `[ ]` P3-4：完成双板 HIL 和故障注入，覆盖缺边沿、乱序、重复、极性、SYNC/CRC 错、
+- `[~]` P3-4：四板相邻段的最小 HIL 已完成；继续补故障注入，覆盖缺边沿、乱序、重复、
+  极性、SYNC/CRC 错、
   DMA overrun/stall、频率偏差和方向 asymmetry。
-- `[ ]` P3-5：完成四板逐链路 HIL，比较 per-link path-sum cumulative 与整圈 edge RTT
-  residual；为后续八节点扩展冻结 profile acceptance threshold。
+- `[~]` P3-5：四板逐链路三档重复 HIL 已完成；验证工具已强制每轮包含
+  `LIMITED_RX_FREQUENCY_MHZ`
+  `LIMITED_RX`，并与 10/25 MHz 稳定档分离评分。继续比较 per-link path-sum cumulative
+  与整圈 edge RTT residual；为后续八节点扩展冻结 profile acceptance threshold。
 - `[ ]` P3-6：仅当四时间戳均 hardware-latched、bias generation、重复统计、拓扑 freshness
   和恢复门禁通过时，生成 active per-link delay 并交给 VDC/DPLL。
 
@@ -168,7 +187,8 @@ path_sum_AB = (t4 - t1) - residence_B
   reference-only loopback result、reject reason、latch resolution/flags；host 不传入实时边沿时间戳。
 - `[x]` 完成 COM8 连续 10 epoch 的四边沿/SYNC/公式验证，并在维护 persona STOP 后恢复
   resident TDMA，确认 TX/RX 与物理错误计数门禁通过；结果仍为 diagnostic snapshot。
-- `[ ]` 在同一 PIO persona 下完成 endpoint bias/reference loopback 后，才进入双板 P3 HIL。
+- `[ ]` 在同一 PIO persona 下完成 endpoint bias/reference loopback，才能把已完成的板间 P3
+  diagnostic HIL 提升为 active candidate。
 
 ## 七、P4 VDC/DPLL 集成门禁
 
@@ -185,8 +205,11 @@ path_sum_AB = (t4 - t1) - residence_B
 
 ## 八、验证、长稳与发布
 
-- `[ ]` 双板 HIL：验证每条 link 的 `t1..t4`、residence、path-sum、bias 和拒绝原因。
-- `[ ]` 四板 HIL：验证轮换 master、逐链路累加、整圈 residual、拓扑 freshness 和恢复。
+- `[~]` 双板/逐段 HIL：四条相邻 link 的 `t1..t4`、residence 和 path-sum 已通过；bias 和
+  拒绝故障注入待完成。
+- `[~]` 四板 HIL：逐链路三档重复已执行；10/25 MHz 稳定档通过，30 MHz 加严复测存在一次
+  DATA pulse-width reject，按 `LIMITED_RX -> FALLBACK_25MHZ` 处置。逐链路累加、整圈
+  residual、拓扑 freshness 和恢复长稳待完成。
 - `[ ]` 八节点扩展前：重复 profile/拓扑门禁，确认不把四板 aggregate 平均分摊成 link delay。
 - `[ ]` 长时间验证：记录硬件 latch 计数、accepted/rejected、margin、overrun/stall、
   freshness、generation、VDC/DPLL 状态和 watchdog/fault evidence；结果写入任务记录并引用
@@ -198,7 +221,8 @@ path_sum_AB = (t4 - t1) - residence_B
 
 当前关键阻塞项：
 
-- `[!]` 正式 `t1..t4` 硬件 edge latch 及其 source/resolution 证据尚未成为第三阶段可用接口。
+- `[!]` P3 已有 4 ns PIO/DMA edge evidence 接口，但 endpoint bias、active/staging
+  generation 和 topology/profile freshness 尚未补齐，不能进入正式 active calibration。
 - `[!]` 第二阶段 marker wire layout、CRC、阈值和产品级训练 SCPI 尚未冻结。
 - `[!]` endpoint bias/reference loopback、双向 asymmetry 和 topology freshness 尚未形成
   active calibration gate。
