@@ -35,6 +35,9 @@ def parse_args() -> argparse.Namespace:
                         help="address used as slot0 when rendering ring order")
     parser.add_argument("--expected-build")
     parser.add_argument("--cycles", type=int, default=512)
+    parser.add_argument("--train-chunk-cycles", type=int, default=0,
+                        help=("split clock training into bounded chunks; "
+                              "0 sends one command"))
     parser.add_argument("--pair-wait", type=float, default=1.5)
     parser.add_argument("--min-rx-frames", type=int, default=10)
     parser.add_argument("--min-rx-words", type=int, default=8)
@@ -47,6 +50,9 @@ def parse_args() -> argparse.Namespace:
                         help="print full snapshots; summary.json always keeps them")
     parser.add_argument("--assign-no", action="store_true",
                         help="write NO.1..NO.8 to boards after a valid ring is detected")
+    parser.add_argument("--line-only", action="store_true",
+                        help=("detect physical adjacency with resident TDMA "
+                              "frames only; do not issue clock TRAIN"))
     return parser.parse_args()
 
 
@@ -100,6 +106,13 @@ def main() -> int:
         raise SystemExit("reference-id must be one of the board IDs")
     if args.cycles <= 0 or args.cycles > 65536 or args.cycles % 8:
         raise SystemExit("cycles must be an 8-cycle multiple in [8, 65536]")
+    if (args.train_chunk_cycles < 0 or
+            (args.train_chunk_cycles != 0 and
+             (args.train_chunk_cycles > args.cycles or
+              args.train_chunk_cycles % 8 != 0))):
+        raise SystemExit(
+            "train-chunk-cycles must be 0 or an 8-cycle multiple not greater "
+            "than cycles")
     args.board_ids = board_ids
 
     boards = discover(args)
@@ -132,8 +145,9 @@ def main() -> int:
                 for board in (receiver, driver):
                     _ = board_command(board, "SYSTem:TDMA:RING:ARM", args)
                     _ = wait_started(board, args)
-                for board in (receiver, driver):
-                    _ = train(board, args)
+                if not args.line_only:
+                    for board in (receiver, driver):
+                        _ = train(board, args)
 
                 before = snapshot(receiver, args.timeout)
                 _ = board_command(receiver, "SYSTem:TDMA:RING:START", args)
@@ -202,6 +216,7 @@ def main() -> int:
         "adjacency": adjacency,
         "boards": {address: asdict(boards[address]) for address in board_ids},
         "pair_results": pair_results,
+        "line_only": args.line_only,
     }
     out_dir = args.out_dir or (
         ROOT / "build" /

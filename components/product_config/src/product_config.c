@@ -10,13 +10,15 @@
 
 #define PRODUCT_CONFIG_MAGIC   0x47544346u
 #define PRODUCT_CONFIG_VERSION 1u
+#define PRODUCT_CONFIG_MAX_BOARD_NO 8u
 
 typedef struct {
     uint32_t magic;
     uint32_t version;
     uint32_t sequence;
     uint32_t usb_mode;
-    uint32_t reserved[11];
+    uint32_t board_no;
+    uint32_t reserved[10];
     uint32_t crc32;
 } product_config_record_t;
 
@@ -37,6 +39,12 @@ static bool product_config_usb_mode_is_valid(uint32_t mode)
            mode == (uint32_t)PRODUCT_CONFIG_USB_MODE_USBTMC;
 }
 
+static bool product_config_board_no_is_valid(uint32_t board_no)
+{
+    /* Zero is the backward-compatible value for "not assigned yet". */
+    return board_no <= PRODUCT_CONFIG_MAX_BOARD_NO;
+}
+
 static uint32_t product_config_crc32(const product_config_record_t *record)
 {
     product_config_record_t copy = *record;
@@ -49,7 +57,8 @@ static bool product_config_record_is_valid(const product_config_record_t *record
     if (record == NULL ||
         record->magic != PRODUCT_CONFIG_MAGIC ||
         record->version != PRODUCT_CONFIG_VERSION ||
-        !product_config_usb_mode_is_valid(record->usb_mode)) {
+        !product_config_usb_mode_is_valid(record->usb_mode) ||
+        !product_config_board_no_is_valid(record->board_no)) {
         return false;
     }
 
@@ -63,7 +72,30 @@ static void product_config_set_default(product_config_record_t *record)
     record->version = PRODUCT_CONFIG_VERSION;
     record->sequence = 0u;
     record->usb_mode = (uint32_t)product_config_default_usb_mode();
+    record->board_no = 0u;
     record->crc32 = product_config_crc32(record);
+}
+
+static bool product_config_store(const product_config_record_t *record)
+{
+    uint8_t page[DRV_FLASH_PAGE_SIZE];
+    memset(page, 0xFF, sizeof(page));
+    memcpy(page, record, sizeof(*record));
+
+    if (!drv_flash_erase(OTA_PRODUCT_CONFIG_OFFSET, DRV_FLASH_SECTOR_SIZE) ||
+        !drv_flash_program(OTA_PRODUCT_CONFIG_OFFSET, page, sizeof(page))) {
+        return false;
+    }
+
+    product_config_record_t readback;
+    if (!drv_flash_read(OTA_PRODUCT_CONFIG_OFFSET, &readback, sizeof(readback)) ||
+        !product_config_record_is_valid(&readback) ||
+        readback.sequence != record->sequence) {
+        return false;
+    }
+
+    s_product_config = readback;
+    return true;
 }
 
 bool product_config_init(void)
@@ -108,28 +140,37 @@ bool product_config_set_usb_mode(product_config_usb_mode_t mode)
     record.usb_mode = (uint32_t)mode;
     record.sequence++;
     record.crc32 = product_config_crc32(&record);
+    return product_config_store(&record) &&
+           s_product_config.usb_mode == (uint32_t)mode;
+}
 
-    uint8_t page[DRV_FLASH_PAGE_SIZE];
-    memset(page, 0xFF, sizeof(page));
-    memcpy(page, &record, sizeof(record));
+uint8_t product_config_get_board_no(void)
+{
+    if (!product_config_record_is_valid(&s_product_config)) {
+        product_config_set_default(&s_product_config);
+    }
+    return (uint8_t)s_product_config.board_no;
+}
 
-    if (!drv_flash_erase(OTA_PRODUCT_CONFIG_OFFSET, DRV_FLASH_SECTOR_SIZE)) {
+bool product_config_set_board_no(uint32_t board_no)
+{
+    if (board_no == 0u || !product_config_board_no_is_valid(board_no)) {
         return false;
     }
 
-    if (!drv_flash_program(OTA_PRODUCT_CONFIG_OFFSET, page, sizeof(page))) {
-        return false;
+    product_config_record_t record = s_product_config;
+    if (!product_config_record_is_valid(&record)) {
+        product_config_set_default(&record);
+    }
+    if (record.board_no == board_no) {
+        return true;
     }
 
-    product_config_record_t readback;
-    if (!drv_flash_read(OTA_PRODUCT_CONFIG_OFFSET, &readback, sizeof(readback)) ||
-        !product_config_record_is_valid(&readback) ||
-        readback.usb_mode != (uint32_t)mode) {
-        return false;
-    }
-
-    s_product_config = readback;
-    return true;
+    record.board_no = board_no;
+    record.sequence++;
+    record.crc32 = product_config_crc32(&record);
+    return product_config_store(&record) &&
+           s_product_config.board_no == board_no;
 }
 
 const char *product_config_usb_mode_to_string(product_config_usb_mode_t mode)

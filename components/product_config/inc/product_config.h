@@ -13,6 +13,7 @@ bool product_config_init(void);
 bool product_config_get_usb_mode(product_config_usb_mode_t *mode);
 bool product_config_set_usb_mode(product_config_usb_mode_t mode);
 uint8_t product_config_get_board_no(void);
+bool product_config_set_board_no(uint32_t board_no);
 const char *product_config_usb_mode_to_string(product_config_usb_mode_t mode);
 bool product_config_usb_mode_from_text(const char *text, uint32_t length, product_config_usb_mode_t *mode);
 

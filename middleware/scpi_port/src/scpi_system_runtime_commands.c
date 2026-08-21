@@ -9,6 +9,7 @@
 #include "ota_ao.h"
 #include "project_build_info.h"
 #include "project_config.h"
+#include "product_config.h"
 #include "scpi_port_internal.h"
 #include "storage_manager.h"
 #include "ui_manager.h"
@@ -356,6 +357,7 @@ scpi_result_t scpi_cmd_board_no(scpi_t *context)
 {
     uint32_t logical_no = 0u;
     if (!scpi_port_read_u32(context, &logical_no) ||
+        !product_config_set_board_no(logical_no) ||
         !board_identity_set_no(logical_no)) {
         scpi_port_push_exec_error(context, "BOARD_NO");
         return SCPI_RES_ERR;

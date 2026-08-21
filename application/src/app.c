@@ -37,6 +37,16 @@ bool app_init(void)
         diagnostics_mark_fault("identity", "unique board identity initialization failed");
         return false;
     }
+    if (!product_config_init()) {
+        diagnostics_mark_fault("product_config", "product config initialization failed");
+        return false;
+    }
+    const uint8_t persisted_board_no = product_config_get_board_no();
+    if (persisted_board_no != 0u &&
+        !board_identity_set_no(persisted_board_no)) {
+        diagnostics_mark_fault("identity", "persisted board number is invalid");
+        return false;
+    }
     LOG_INFO("app", "application initialized");
 
     const sync_io_config_t sync_io_config = {
@@ -55,11 +65,6 @@ bool app_init(void)
     }
 
 #if PROJECT_ENABLE_USBTMC || PROJECT_ENABLE_USB_RUNTIME_SWITCH
-    if (!product_config_init()) {
-        diagnostics_mark_fault("product_config", "product config initialization failed");
-        return false;
-    }
-
     if (!usbtmc_scpi_port_init()) {
         diagnostics_mark_fault("usb", "USB SCPI initialization failed");
         return false;
