@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include "board.h"
-#include "drv_flash.h"
+#include "drv_flash_write.h"
 #include "flash_transaction_fb.h"
 #include "resource_arbiter.h"
 

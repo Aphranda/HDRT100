@@ -15,8 +15,6 @@
 
 bool drv_flash_is_range_valid(uint32_t flash_offset, size_t length);
 bool drv_flash_is_erased(uint32_t flash_offset, size_t length);
-bool drv_flash_erase(uint32_t flash_offset, size_t length);
-bool drv_flash_program(uint32_t flash_offset, const uint8_t *data, size_t length);
 bool drv_flash_read(uint32_t flash_offset, void *data, size_t length);
 const uint8_t *drv_flash_xip_ptr(uint32_t flash_offset);
 void drv_flash_core1_lockout_poll(void);

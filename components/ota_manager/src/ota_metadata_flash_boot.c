@@ -1,6 +1,6 @@
 #include "ota_metadata_flash.h"
 
-#include "drv_flash.h"
+#include "drv_flash_write.h"
 
 bool ota_metadata_flash_erase(uint32_t flash_offset, size_t length)
 {

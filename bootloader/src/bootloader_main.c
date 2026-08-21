@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "bootloader_config.h"
-#include "drv_flash.h"
+#include "drv_flash_write.h"
 #include "hardware/structs/scb.h"
 #include "hardware/sync.h"
 #include "ota_crc32.h"
