@@ -67,6 +67,24 @@ Last updated: 2026-08-22
   - generation/refcount immutable provider、producer reset/duplicate completion 持久化语义，以及
     page/sector raw step 可注入的 abort fixture；完成后再评估 M1-03/M1-05 退出。
 
+### FLASH-TASK-20260822-014 - M0-04 Boot/OTA/TDMA wire 输入与 golden vectors
+
+- 状态：M0-04 进行中；字段、提交顺序、durable offset、reject reason 已冻结为机器输入，真实 parser
+  与 fuzz corpus 尚未实现，因此相关契约仍保持 pending。
+- 日期：2026-08-22
+- 完成内容：
+  - `config/flash_wire_contracts.json` 固定 BCB_RECORD、IMAGE_MANIFEST_TLV、OTA_STREAM_SESSION
+    和 TDMA_OTA_CONTROL 四类输入；明确 identity/generation/destination、hash/signature/security
+    counter、credit/resume token 与 OPEN/DATA/ACK/CLOSE/ABORT/STATUS 生命周期。
+  - 注册 bad magic/version/length/CRC、unknown required、identity mismatch、generation replay、
+    destination forbidden、non-durable offset、signature invalid、security counter rollback 等拒绝原因。
+  - 加入 open、generation replay、unknown required、bad signature 四个 golden vector 及 checker/负向
+    pytest；不改变当前 v1 OTA live path。
+- 验证结果：
+  - wire checker 与定向 pytest 通过；文档门禁将在本切片单独提交前运行。
+- 还需完成：
+  - parser/golden corpus 与 fuzz harness 接入具体 BCB/OTA/TDMA 实现，并完成 M0-04 独立审查。
+
 ## 任务记录
 
 ### FLASH-TASK-20260822-010 - Policy gate reason/temperature Vector 与 COM8 闭环

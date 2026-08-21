@@ -111,12 +111,14 @@ generated permission view、版本化 live consumer 和只读板端验证；M1-0
 
 ### M0-04 Boot/OTA wire 契约输入
 
-- [ ] 冻结 BCB lane/commit/select/GC 和 Image Manifest TLV/hash/signature/security counter 规则。
-- [ ] 冻结 `OtaStreamSession` identity、generation、object/destination 和 durable offset 语义。
-- [ ] 冻结 TDMA OPEN/DATA/ACK/CLOSE/ABORT/STATUS、credit/resume token 和 reject reason。
-- [ ] 形成 parser golden/fuzz corpus；实现完成前相关 registry 项保持 `pending`。
+- [x] 冻结 BCB lane/commit/select/GC 和 Image Manifest TLV/hash/signature/security counter 规则。
+- [x] 冻结 `OtaStreamSession` identity、generation、object/destination 和 durable offset 语义。
+- [x] 冻结 TDMA OPEN/DATA/ACK/CLOSE/ABORT/STATUS、credit/resume token 和 reject reason。
+- [~] 形成 parser golden/fuzz corpus；当前已有 4 个 golden vector 和机器检查器，真实 parser/fuzz
+  corpus 尚待 M2/M3 实现接入；相关 registry 项保持 `pending`。
 
-产物：BCB/manifest/stream wire spec 与 corpus。
+产物：`config/flash_wire_contracts.json`、`tools/flash_map/flash_wire_check.py`、
+`tests/python/test_flash_wire_contracts.py`。
 
 ### M0-05 migration/rollback 包
 
@@ -132,7 +134,7 @@ generated permission view、版本化 live consumer 和只读板端验证；M1-0
 ### M0 退出门禁
 
 - [x] inventory 与源码扫描一致；新增 raw caller 能使 CI 失败。
-- [~] map/schema 具有正向、边界和负向 fixture；wire corpus 仍待 M0-04。
+- [~] map/schema/wire 具有正向、边界和负向 fixture；真实 parser/fuzz corpus 仍待 M2/M3。
 - [ ] v1 回退 artifact 可由 BOOTSEL 恢复至少一块样板。
 - [ ] 无目标 offset 被写入 linker/driver/tool 之外的第二事实源。
 
