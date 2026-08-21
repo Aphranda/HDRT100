@@ -105,6 +105,24 @@ permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootl
   - 为 metadata/Product Config 补 power-cut/duplicate completion host model，再进入 M1-04 thermal
     gate 与 M2 Store core；继续禁止 v2 高地址在线写入。
 
+### FLASH-TASK-20260822-008 - Raw write header visibility split
+
+- 状态：M1-01/M1-05 进行中；raw write API 的 include 边界已收紧，运行时 owner/lease gate 仍继续。
+- 日期：2026-08-22
+- 完成内容：
+  - 新增 `drivers/mcu/flash/inc/drv_flash_write.h`，将 `drv_flash_erase/program` 从通用
+    `drv_flash.h` 移出；仅 driver implementation、BootFlashService、FlashTransactionAO 和 geometry
+    fixture 显式 include 写头。
+  - App/Boot release 构建继续通过，编译层面不再让只读业务通过通用 HAL 声明直接拿到 raw write。
+- 验证结果：
+  - geometry host tests、FlashTransaction host tests、release 与 RTOS+双核构建、Flash inventory
+    `6` callers、consumer/release gate 均通过；代码提交 `9892768 refactor(flash): hide raw write API behind owner header` 已推送。
+  - 当前无行为变化，COM8 仍使用上一已验证包的 v1 Direct A/B；下一次 OTA 将以新 package 复核
+    owner header 变更后的整机启动和 metadata transaction。
+- 还需完成：
+  - link-level symbol visibility、App metadata/Product Config power-cut fixtures、lease/refcount、
+    duplicate completion、abort during raw page/sector 和 M1-04 thermal/mode gate。
+
 ### FLASH-TASK-20260822-005 - Product Config intent 迁移与 COM8 持久化闭环
 
 - 状态：M1-03 进行中；Product Config App writer 已迁移，OTA metadata、Boot writer 和 M2-02

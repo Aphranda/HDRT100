@@ -141,7 +141,8 @@ generated permission view、版本化 live consumer 和只读板端验证；M1-0
 
 - [x] `drv_flash` 总容量只引用 geometry；删除独立 4 MiB limit。
 - [x] `read/xip_ptr/erase/program` 使用 overflow-safe range check 和 alignment check。
-- [ ] raw write header 只对 BootFlashService 和 FlashTransaction target 可见。
+- [x] raw write header `drv_flash_write.h` 只由 BootFlashService、FlashTransaction target 和
+  geometry fixture 显式 include；通用 `drv_flash.h` 不再声明 erase/program。
 - [x] host tests 覆盖 zero length、last byte、one-byte overflow、integer wrap、unaligned/null/high range。
 
 证据：commit `315dc6f`；`run_drv_flash_geometry_tests.ps1`、release 与 RTOS+双核 smoke 构建通过。
@@ -194,7 +195,8 @@ RTOS+双核构建和 COM8 双次 OTA/Vector HIL 均通过。该项保持进行�
 - [~] OTA image、Product Config 与 App OTA metadata 已迁移到 intent API；Boot metadata 通过独立
   BootFlashService adapter 保持 raw owner，M3 BootControlStore 与 M2-02 Product NVS store 仍待完成。
   当前 Product/OTA metadata 仍是 single-sector rewrite，不得视为 atomic NVS/BCB。
-- [ ] link/scan gate 证明 App raw erase/program 只被 FlashTransaction target 引用。
+- [x] inventory gate 证明 App raw erase/program caller 必须是 FlashTransactionAO；写 API 头文件
+  进一步从通用 `drv_flash.h` 隐藏。仍待 link-level symbol visibility 与运行时 abort/lease 语义。
 
 ### M1-06 高地址 Scratch 验证
 
