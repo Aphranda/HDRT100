@@ -1,0 +1,40 @@
+{
+  "policy_version": 1,
+  "source_map": "v1_compat",
+  "target_map": "v2",
+  "online_relocation": "forbidden",
+  "factory_migration": {
+    "required": true,
+    "artifact": "build/RP2350_TRIG_FACTORY.uf2",
+    "transport": "BOOTSEL",
+    "erase_policy": "full_erase_before_factory_image",
+    "tool": "picotool",
+    "minimum_recovery_evidence": ["identity", "build_id", "ota_slot", "error_queue_empty"]
+  },
+  "last_recoverable_commit": {
+    "source": "origin/feature/rtos-multicore-haofv",
+    "commit": "315dc6f",
+    "map": "v1_compat",
+    "note": "historical baseline; verify artifact checksum before use"
+  },
+  "data_policy": {
+    "identity": {"action": "backup_then_restore", "format": "scpi_snapshot"},
+    "product_config": {"action": "backup_then_convert", "format": "product_config_record"},
+    "ota_metadata": {"action": "discard_and_reinitialize", "format": "boot_control_factory_default"},
+    "calibration": {"action": "backup_as_candidate_only", "format": "calibration_package"},
+    "report_index": {"action": "discard", "format": "none"}
+  },
+  "boot_behavior": {
+    "blank": "factory_recovery_required",
+    "v1_compat": "boot_direct_ab_and_offer_migration",
+    "unknown": "fail_closed_factory_recovery",
+    "v2": "boot_only_after_manifest_and_bcb_validation",
+    "user_signal": "SYST:ERRor? recovery reason plus BOOTSEL instruction"
+  },
+  "rollback": {
+    "app_update": "inactive_slot_revert",
+    "map_migration": "BOOTSEL_factory_full_erase_reflash",
+    "bootloader_update": "not_in_scope",
+    "destructive_scpi": "forbidden"
+  }
+}

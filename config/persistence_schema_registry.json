@@ -1,0 +1,27 @@
+{
+  "registry_version": 1,
+  "unknown_field_policy": {
+    "required": "fail_closed",
+    "optional": "skip_preserve_length_and_integrity"
+  },
+  "negative_inventory": [
+    "domain_vector",
+    "ecc_state",
+    "queue_fifo",
+    "lock_counter_cursor",
+    "vdc_lock",
+    "refmem_epoch_ack",
+    "pio_dma_runtime"
+  ],
+  "objects": [
+    {"namespace":"boot","object_type":"BCB","type_id":1,"schema_version":1,"writer":"BootFlashService","reader":"Bootloader","compatibility":"older_reader_selects_valid_previous","frequency":"boot_or_update","endurance":"dual_lane_gc","atomicity":"body_verify_commit","rollback":"previous_lane","factory_default":"factory_boot_profile","diagnostic_projection":"SYST:OTA:SLOT?","sd_evidence":"boot/bcb.json"},
+    {"namespace":"ota","object_type":"IMAGE_MANIFEST","type_id":2,"schema_version":1,"writer":"OTAPackager","reader":"Bootloader,App","compatibility":"unknown_required_reject","frequency":"per_image","endurance":"immutable","atomicity":"hash_signature_commit","rollback":"inactive_slot","factory_default":"none","diagnostic_projection":"SYST:OTA:STAT?","sd_evidence":"ota/manifest.json"},
+    {"namespace":"product","object_type":"PRODUCT_NVS","type_id":3,"schema_version":1,"writer":"ProductConfigAO","reader":"App","compatibility":"older_reader_defaults_optional","frequency":"low","endurance":"sector_rotation_required","atomicity":"record_commit","rollback":"previous_record","factory_default":"board_defaults","diagnostic_projection":"SYST:BOARD:NO?","sd_evidence":"product/config.json"},
+    {"namespace":"calibration","object_type":"CALIBRATION_NVS","type_id":4,"schema_version":1,"writer":"CalibrationStoreAO","reader":"CalibrationDomain,VDC","compatibility":"unknown_required_reject","frequency":"maintenance","endurance":"append_gc","atomicity":"candidate_active_ref","rollback":"previous_accepted","factory_default":"uncalibrated","diagnostic_projection":"SYST:CAL:STAT?","sd_evidence":"calibration/accepted.json"},
+    {"namespace":"vdc","object_type":"VDC_NVS","type_id":5,"schema_version":1,"writer":"VdcStoreAO","reader":"VdcDomain","compatibility":"unknown_required_reject","frequency":"maintenance","endurance":"append_gc","atomicity":"candidate_active_ref","rollback":"previous_profile","factory_default":"off_checking","diagnostic_projection":"SYST:VDC:STAT?","sd_evidence":"vdc/profile.json"},
+    {"namespace":"deployment","object_type":"DEPLOYMENT_CAPSULE","type_id":6,"schema_version":1,"writer":"DeploymentStoreAO","reader":"RefMemDeploymentGate","compatibility":"unknown_required_reject","frequency":"per_deployment","endurance":"immutable_blob","atomicity":"blob_hash_active_ref","rollback":"previous_ref","factory_default":"factory_profile","diagnostic_projection":"SYST:REFM:STAT?","sd_evidence":"deployment/manifest.json"},
+    {"namespace":"fault","object_type":"FAULT_FCB","type_id":7,"schema_version":1,"writer":"FaultStoreAO","reader":"Diagnostics","compatibility":"unknown_optional_skip","frequency":"fault_event","endurance":"append_ring","atomicity":"append_crc","rollback":"last_valid_record","factory_default":"empty","diagnostic_projection":"SYST:ERR?","sd_evidence":"fault/events.json"},
+    {"namespace":"ota","object_type":"OTA_JOURNAL","type_id":8,"schema_version":1,"writer":"OtaJournalAO","reader":"App,Bootloader","compatibility":"unknown_required_reject","frequency":"per_stream_chunk","endurance":"append_gc","atomicity":"offset_commit","rollback":"last_durable_offset","factory_default":"empty","diagnostic_projection":"SYST:OTA:TXN?","sd_evidence":"ota/journal.json"},
+    {"namespace":"pio","object_type":"PIO_CATALOG","type_id":9,"schema_version":1,"writer":"PioCatalogStoreAO","reader":"PioPersonaManager","compatibility":"unknown_required_reject","frequency":"per_persona_update","endurance":"immutable_blob","atomicity":"hash_active_ref","rollback":"previous_persona","factory_default":"safe_persona","diagnostic_projection":"SYST:PIO:STAT?","sd_evidence":"pio/catalog.json"}
+  ]
+}
