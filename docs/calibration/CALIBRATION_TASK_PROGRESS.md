@@ -21,6 +21,43 @@ Last updated: 2026-08-21
 | 第三阶段双向同时对比法 | `[~]` | 板间 P3 persona、四时间戳和四板逐段诊断 HIL 已通过；endpoint bias、故障注入、freshness/active gate 待完成 |
 | VDC/DPLL active calibration gate | `[ ]` | 依赖正式 hardware latch、bias、generation/freshness 和 P3 结果 |
 
+## CAL-TASK-20260821-010 - COM8 当前固件重写与单板回环复核
+
+- 状态：当前 HEAD 已通过 OTA 重写并提交到 slot 2；短接线接好后单板双向回环 10/10
+  accepted。结果继续保持 `REFERENCE_LOOPBACK + DIAGNOSTIC_ONLY`，active calibration 仍为
+  `FIELD_DEFAULT`。
+- 日期：2026-08-21。
+- 固件与板卡（bench 诊断快照，非校准事实源）：
+  - 源码 commit 为 `f1e942ee0b4b8057ab7077e17be2755035421d35`，build ID 为
+    `20260821130800`；OTA package 由 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`
+    提供。
+  - COM8 当次对应唯一地址 `839E1AE79EA20F31`；OTA boot/commit 后 slot 2 为 committed，
+    `SYSTem:ERRor?` 返回 `0,"No error"`。证据目录为
+    `build-rtos-multicore-smoke/ota_boot_commit_calibration_current`。
+  - 验证保持 12 V 断开，仅使用 USB 供电，避免已知高侧电流采集前端共模拓扑再次发热。
+- 单板回环（bench 诊断快照，非校准事实源）：
+  - 第一次 10 轮为 0/10，固定只有本地 TX 边沿，随后确认原因是回环线未接；这不是 GPIO、
+    PIO persona 或固件回归证据。
+  - 接好 `CLK_TX -> CLK_RX`、`SYNC_TX -> SYNC_RX`、`DATA_TX -> DATA_RX` 短接线后，同一
+    build 重跑 10 个独立 epoch，10/10 accepted；每轮 `edge_mask=0xF`、latch flags `0x7`、
+    reject reason 为 0，residence 为 960..980 ns、raw path-sum 为 100..120 ns、对称假设下的
+    observed delay estimate 为 50..60 ns。
+  - 证据目录为
+    `build-rtos-multicore-smoke/calibration_loopback_com8_build_20260821130800_rewired`；其中
+    `summary.json` 绑定 build、板卡地址、epoch、四边沿、公式结果和最终错误队列。
+- HAOFV 边界与恢复：
+  - 回环仍由 TDMA core1 owner 持有 PIO/SM/DMA、驱动器方向和四边沿收割；core0/SCPI 只
+    提交 bounded intent 并读取 guarded snapshot，host 未注入实时边沿时间戳。
+  - STOP 后常驻 TDMA service count 持续递增，维护 persona 已退出；单板未形成 accepted
+    topology，因此保持 `ring_enabled=0`、adapter stopped 和 adapter error=0，不强行 START。
+  - `READ:CALibration:CLOCk:CODEd?` 与 `READ:CALibration:P3?` 当前无新运行结果；endpoint
+    bias/reference generation、topology/profile freshness、active/staging CRC 和 VDC/DPLL
+    consumer gate 仍未完成，禁止清除 `DIAGNOSTIC_ONLY`。
+- 传感器（USB-only bench 诊断快照，非器件精度事实源）：
+  - `SYSTem:DIAGnostic:SENSors?` 返回板载温度约 34.0 C、RP2350 内部温度约 39.2 C；电流
+    前端输出约 1.4465 V，frontend plausibility 为 true，未校准 nominal estimate 约 79 mA。
+  - 该结果只说明 12 V 断开时前端处于合理零点附近；在高侧共模拓扑修复前不得恢复 12 V。
+
 ## CAL-TASK-20260821-009 - P3 四板逐链路双向测距
 
 - 状态：P3-1/P3-2 和四板逐链路诊断 HIL 完成；结果继续保持 `DIAGNOSTIC_ONLY`，未生成
