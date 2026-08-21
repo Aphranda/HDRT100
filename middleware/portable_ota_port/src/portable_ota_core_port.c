@@ -1,6 +1,5 @@
 #include "portable_ota_port.h"
 
-#include "drv_flash.h"
 #include "ota_error.h"
 #include "ota_partition.h"
 #include "pota.h"
@@ -20,6 +19,7 @@
 #endif
 
 #if PORTABLE_OTA_PORT_ENABLE_SESSION
+#include "flash_transaction.h"
 #include "resource_arbiter.h"
 #endif
 
@@ -78,6 +78,8 @@ const char *portable_ota_port_boot_result_to_string(uint32_t result)
 #if PORTABLE_OTA_PORT_ENABLE_SESSION
 
 static pota_session_t s_session;
+static uint32_t s_provider_generation;
+static uint32_t s_store_generation;
 
 static const pota_compat_map_entry_t s_product_error_aliases[] = {
     {POTA_ERR_PRODUCT_MISMATCH, OTA_ERR_BOARD_MISMATCH},
@@ -85,26 +87,55 @@ static const pota_compat_map_entry_t s_product_error_aliases[] = {
     {POTA_ERR_BOOTLOADER_TOO_OLD, OTA_ERR_VERSION_REJECTED},
 };
 
-static bool portable_core_flash_erase(uint32_t offset, uint32_t size)
+static uint32_t portable_core_next_provider_generation(void)
 {
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_FLASH)) {
-        return false;
+    s_provider_generation++;
+    if (s_provider_generation == 0u) {
+        s_provider_generation = 1u;
     }
-
-    const bool ok = drv_flash_erase(offset, size);
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_FLASH);
-    return ok;
+    return s_provider_generation;
 }
 
-static bool portable_core_flash_program(uint32_t offset, const void *data, uint32_t size)
+static bool portable_core_flash_execute(uint32_t operation,
+                                        uint32_t offset,
+                                        const uint8_t *data,
+                                        uint32_t size)
 {
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_FLASH)) {
+    uint32_t partition_id = 0u;
+    uint32_t relative_offset = 0u;
+    if (!flash_transaction_ao_resolve_range(offset, size, &partition_id,
+                                            &relative_offset)) {
         return false;
     }
 
-    const bool ok = drv_flash_program(offset, data, size);
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_FLASH);
-    return ok;
+    const flash_transaction_request_t request = {
+        .requester = FLASH_TRANSACTION_REQUESTER_OTA_IMAGE,
+        .partition_id = partition_id,
+        .operation = operation,
+        .relative_offset = relative_offset,
+        .length = size,
+        .data = data,
+        .provider_generation =
+            operation == FLASH_TRANSACTION_OPERATION_PROGRAM
+                ? portable_core_next_provider_generation()
+                : 0u,
+        .store_generation = s_store_generation,
+    };
+    flash_transaction_completion_t completion;
+    return flash_transaction_ao_execute(&request, &completion);
+}
+
+static bool portable_core_flash_erase(uint32_t offset, uint32_t size)
+{
+    return portable_core_flash_execute(FLASH_TRANSACTION_OPERATION_ERASE,
+                                       offset, NULL, size);
+}
+
+static bool portable_core_flash_program(uint32_t offset, const void *data,
+                                        uint32_t size)
+{
+    return portable_core_flash_execute(FLASH_TRANSACTION_OPERATION_PROGRAM,
+                                       offset, data, size);
 }
 
 static bool portable_core_mark_pending(pota_slot_t slot, uint32_t image_size, uint32_t image_crc32)
@@ -211,8 +242,8 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
                 .size = OTA_SLOT_B_SIZE,
                 .run_offset = OTA_SLOT_B_OFFSET,
             },
-            .flash_page_size = DRV_FLASH_PAGE_SIZE,
-            .flash_sector_size = DRV_FLASH_SECTOR_SIZE,
+            .flash_page_size = FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES,
+            .flash_sector_size = FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES,
         },
         .ops = {
             .flash_read = NULL,
@@ -232,6 +263,20 @@ bool portable_ota_port_core_begin(const ota_metadata_t *metadata,
                                   bool package_mode,
                                   ota_vector_t *vector)
 {
+    if (metadata == NULL ||
+        (metadata->active_slot != (uint32_t)OTA_SLOT_A &&
+         metadata->active_slot != (uint32_t)OTA_SLOT_B)) {
+        return false;
+    }
+    const uint32_t active_partition_id =
+        metadata->active_slot == (uint32_t)OTA_SLOT_A
+            ? FLASH_COMPAT_MAP_APP_A_ID
+            : FLASH_COMPAT_MAP_APP_B_ID;
+    if (!flash_transaction_ao_set_active_app_partition(active_partition_id)) {
+        return false;
+    }
+    s_store_generation = metadata->sequence;
+
     const pota_platform_t platform = portable_core_make_platform(metadata);
     if (!pota_session_init(&s_session, &platform)) {
         return false;

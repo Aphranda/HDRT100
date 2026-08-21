@@ -274,6 +274,8 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_vector_table.c
         components/distributed_refmem/src/refmem_vdc_bridge.c
         components/event_bus/src/event_bus.c
+        components/flash_transaction/src/flash_transaction_ao.c
+        components/flash_transaction/src/flash_transaction_fb.c
         components/loop_engine/src/loop_engine.c
         components/led_manager/src/led_manager.c
         components/model_turntable/src/model_turntable.c
@@ -439,6 +441,8 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/components/distributed_config/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/distributed_refmem/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/event_bus/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/flash_transaction/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/flash_transaction/src
         ${CMAKE_CURRENT_LIST_DIR}/components/loop_engine/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/led_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/model_turntable/inc

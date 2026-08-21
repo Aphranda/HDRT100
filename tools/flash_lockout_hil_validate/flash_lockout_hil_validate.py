@@ -19,6 +19,14 @@ except ImportError as exc:  # pragma: no cover - bench dependency
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCKOUT_RESULT_ACKED = 1
+FLASH_TRANSACTION_STATE_COMPLETE = 9
+FLASH_TRANSACTION_REQUESTER_OTA_IMAGE = 1
+FLASH_TRANSACTION_OPERATION_PROGRAM = 2
+FLASH_TRANSACTION_COMPLETION_COMMITTED = 4
+FLASH_TRANSACTION_RESULT_COMMITTED = 1
+FLASH_TRANSACTION_ERROR_NONE = 0
+FLASH_COMPAT_MAP_APP_A_ID = 1
+FLASH_COMPAT_MAP_APP_B_ID = 2
 
 
 def parse_args() -> argparse.Namespace:
@@ -102,6 +110,30 @@ def parse_protection(response: str) -> dict[str, int]:
     }
 
 
+def parse_flash_transaction(response: str) -> dict[str, int]:
+    fields = parse_u32_csv(response)
+    names = (
+        "state", "job_id", "requester", "partition_id", "operation",
+        "requested_bytes", "processed_bytes", "verified_bytes", "map_version",
+        "provider_generation", "store_generation", "transaction_generation",
+        "completion_level", "last_result", "last_error", "retry_count",
+        "abort_pending", "lockout_request_seq", "lockout_ack_seq",
+        "lockout_timeout_count", "erase_count_delta", "program_count_delta",
+        "verify_failure_count", "temperature_flags", "policy_gate_reason",
+        "started_timestamp_ms", "completed_timestamp_ms",
+    )
+    if len(fields) < len(names):
+        raise ValueError(f"FlashTransaction Vector response is incomplete: {response!r}")
+    return dict(zip(names, fields[:len(names)]))
+
+
+def parse_active_slot(response: str) -> int:
+    fields = parse_u32_csv(response)
+    if len(fields) < 1 or fields[0] not in (1, 2):
+        raise ValueError(f"OTA slot response has invalid active slot: {response!r}")
+    return fields[0]
+
+
 def run_step(name: str, command: list[str], out_dir: Path, timeout_s: float) -> tuple[bool, Path]:
     log_path = out_dir / "logs" / f"{name}.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -141,6 +173,17 @@ def main() -> int:
     }
     failures: list[str] = []
 
+    slot_response = query(args.port, "SYSTem:OTA:SLOT?", args.timeout, args.settle)
+    active_slot = parse_active_slot(slot_response)
+    expected_partition = (
+        FLASH_COMPAT_MAP_APP_B_ID
+        if active_slot == FLASH_COMPAT_MAP_APP_A_ID
+        else FLASH_COMPAT_MAP_APP_A_ID
+    )
+    records["active_slot_before"] = active_slot
+    records["expected_transaction_partition"] = expected_partition
+    (out_dir / "before_slot.txt").write_text(slot_response + "\n", encoding="utf-8")
+
     before_response = query(args.port, "SYSTem:PROTection:STATus?", args.timeout, args.settle)
     before = parse_protection(before_response)
     records["before"] = before
@@ -171,6 +214,51 @@ def main() -> int:
     after_write = parse_protection(after_write_response)
     records["after_write"] = after_write
     (out_dir / "after_write_protection.txt").write_text(after_write_response + "\n", encoding="utf-8")
+
+    transaction_response = query(
+        args.port, "SYSTem:DIAGnostic:FLASh:TRANsaction?", args.timeout, args.settle
+    )
+    transaction = parse_flash_transaction(transaction_response)
+    records["flash_transaction"] = transaction
+    (out_dir / "after_write_flash_transaction.txt").write_text(
+        transaction_response + "\n", encoding="utf-8"
+    )
+
+    expected_transaction = {
+        "state": FLASH_TRANSACTION_STATE_COMPLETE,
+        "requester": FLASH_TRANSACTION_REQUESTER_OTA_IMAGE,
+        "partition_id": expected_partition,
+        "operation": FLASH_TRANSACTION_OPERATION_PROGRAM,
+        "map_version": 1,
+        "completion_level": FLASH_TRANSACTION_COMPLETION_COMMITTED,
+        "last_result": FLASH_TRANSACTION_RESULT_COMMITTED,
+        "last_error": FLASH_TRANSACTION_ERROR_NONE,
+        "abort_pending": 0,
+        "erase_count_delta": 0,
+        "program_count_delta": 1,
+        "verify_failure_count": 0,
+    }
+    for field, expected in expected_transaction.items():
+        if transaction[field] != expected:
+            failures.append(
+                f"FlashTransaction {field} {transaction[field]} != {expected}"
+            )
+    if transaction["requested_bytes"] == 0:
+        failures.append("FlashTransaction requested_bytes is zero")
+    if transaction["processed_bytes"] != transaction["requested_bytes"]:
+        failures.append("FlashTransaction processed_bytes does not match request")
+    if transaction["verified_bytes"] != transaction["requested_bytes"]:
+        failures.append("FlashTransaction verified_bytes does not match request")
+    if transaction["provider_generation"] == 0:
+        failures.append("FlashTransaction provider_generation is zero")
+    if transaction["transaction_generation"] == 0:
+        failures.append("FlashTransaction transaction_generation is zero")
+    if transaction["lockout_request_seq"] != transaction["lockout_ack_seq"]:
+        failures.append("FlashTransaction lockout request/ack sequences differ")
+    if transaction["lockout_timeout_count"] != after_write["timeout_count"]:
+        failures.append("FlashTransaction lockout timeout snapshot is inconsistent")
+    if transaction["completed_timestamp_ms"] < transaction["started_timestamp_ms"]:
+        failures.append("FlashTransaction completion timestamp precedes start")
 
     boot_ok, boot_log = run_step(
         "boot_commit",
@@ -230,6 +318,9 @@ def main() -> int:
                 f"release_seq={before['release_seq']}->{after_write['release_seq']}",
                 f"last_result={after_write['last_result']}",
                 f"last_elapsed_us={after_write['last_elapsed_us']}",
+                f"transaction_partition={transaction['partition_id']}",
+                f"transaction_generation={transaction['transaction_generation']}",
+                f"transaction_bytes={transaction['requested_bytes']}",
             ] + [f"failure={failure}" for failure in failures]
         ) + "\n",
         encoding="utf-8",

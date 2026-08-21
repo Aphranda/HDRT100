@@ -21,13 +21,13 @@
       "target_api": "BootFlashService"
     },
     {
-      "file": "middleware/portable_ota_port/src/portable_ota_core_port.c",
-      "owner": "OtaAO",
-      "contexts": ["app", "boot_link_image"],
-      "core": "core0_or_boot_context",
-      "modes": ["idle", "maintenance", "boot_recovery"],
+      "file": "components/flash_transaction/src/flash_transaction_ao.c",
+      "owner": "FlashTransactionAO",
+      "contexts": ["app"],
+      "core": "core0",
+      "modes": ["idle", "maintenance"],
       "partitions": ["v1_inactive_slot"],
-      "operations": ["erase", "program"],
+      "operations": ["erase", "program", "xip_ptr"],
       "write_frequency": "firmware_update",
       "power_cut_semantics": "incomplete_image_is_not_committed",
       "target_api": "FlashTransactionAO"

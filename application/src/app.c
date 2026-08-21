@@ -7,6 +7,7 @@
 #include "distributed_config.h"
 #include "distributed_refmem.h"
 #include "event_bus.h"
+#include "flash_transaction.h"
 #include "loop_engine.h"
 #include "model_turntable.h"
 #include "ota_ao.h"
@@ -76,6 +77,12 @@ bool app_init(void)
 
     if (!resource_arbiter_init()) {
         diagnostics_mark_fault("resource_arbiter", "resource arbiter initialization failed");
+        return false;
+    }
+
+    if (!flash_transaction_ao_init()) {
+        diagnostics_mark_fault("flash_transaction",
+                               "flash transaction initialization failed");
         return false;
     }
 

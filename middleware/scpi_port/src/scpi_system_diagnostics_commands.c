@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "flash_transaction.h"
 #include "flash_map.h"
 #include "resource_arbiter.h"
 #include "scpi_port_internal.h"
@@ -174,5 +175,42 @@ scpi_result_t scpi_cmd_flash_access_q(scpi_t *context)
     SCPI_ResultBool(context, is_allowed ? TRUE : FALSE);
     SCPI_ResultUInt32(context, absolute_offset);
     SCPI_ResultUInt32(context, partition_id);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_flash_transaction_q(scpi_t *context)
+{
+    flash_transaction_vector_t vector;
+    if (!flash_transaction_ao_get_vector(&vector)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, vector.state);
+    SCPI_ResultUInt32(context, vector.job_id);
+    SCPI_ResultUInt32(context, vector.requester);
+    SCPI_ResultUInt32(context, vector.partition_id);
+    SCPI_ResultUInt32(context, vector.operation);
+    SCPI_ResultUInt32(context, vector.requested_bytes);
+    SCPI_ResultUInt32(context, vector.processed_bytes);
+    SCPI_ResultUInt32(context, vector.verified_bytes);
+    SCPI_ResultUInt32(context, vector.map_version);
+    SCPI_ResultUInt32(context, vector.provider_generation);
+    SCPI_ResultUInt32(context, vector.store_generation);
+    SCPI_ResultUInt32(context, vector.transaction_generation);
+    SCPI_ResultUInt32(context, vector.completion_level);
+    SCPI_ResultUInt32(context, vector.last_result);
+    SCPI_ResultUInt32(context, vector.last_error);
+    SCPI_ResultUInt32(context, vector.retry_count);
+    SCPI_ResultUInt32(context, vector.abort_pending);
+    SCPI_ResultUInt32(context, vector.lockout_request_seq);
+    SCPI_ResultUInt32(context, vector.lockout_ack_seq);
+    SCPI_ResultUInt32(context, vector.lockout_timeout_count);
+    SCPI_ResultUInt32(context, vector.erase_count_delta);
+    SCPI_ResultUInt32(context, vector.program_count_delta);
+    SCPI_ResultUInt32(context, vector.verify_failure_count);
+    SCPI_ResultUInt32(context, vector.temperature_flags);
+    SCPI_ResultUInt32(context, vector.policy_gate_reason);
+    SCPI_ResultUInt32(context, vector.started_timestamp_ms);
+    SCPI_ResultUInt32(context, vector.completed_timestamp_ms);
     return SCPI_RES_OK;
 }
