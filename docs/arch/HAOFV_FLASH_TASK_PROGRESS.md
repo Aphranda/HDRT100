@@ -30,6 +30,26 @@ Last updated: 2026-08-22
 | M1-02 permission view | 进行中 | generated X-macro、纯算法服务、版本化 live consumer、host 边界测试、COM8 OTA/只读权限闭环 | 真实 writer 接入、v2 factory 部署与 C11 激活审核。 |
 | M1-03 FlashTransactionAO | 进行中 | one-deep queue/FB/Vector、OTA image 与 Product Config writer、owned page snapshot、host fault tests、COM8 OTA 与 Product NVS 重启闭环 | metadata/Boot writer、异步 completion、lease/refcount、thermal gate 与 durable reset 语义。 |
 
+### FLASH-TASK-20260822-012 - M0 persistence registry 与 migration policy 输入
+
+- 状态：M0-03 完成；M0-05 进行中。新增输入只描述 namespace、兼容和回退边界，不改变当前 v1
+  live map，也不触发 v2 烧录。
+- 日期：2026-08-22
+- 完成内容：
+  - `config/persistence_schema_registry.json` 为 BCB、Image Manifest、Product NVS、Calibration
+    NVS、VDC NVS、Deployment Capsule、Fault FCB、OTA Journal 和 PIO Catalog 分配唯一 type_id，
+    并登记 writer/reader、兼容、寿命、atomicity、rollback、factory default、诊断投影和 SD evidence。
+  - registry 明确 required unknown field fail-closed、optional field skip-but-preserve-integrity，
+    同时列出 Domain Vector/ECC/queue/lock/VDC lock/RefMem ACK/PIO-DMA runtime 的 negative inventory。
+  - `config/flash_migration_policy.json` 固定 v1_compat -> v2 只能走 BOOTSEL full erase/reflash，
+    明确 identity/Product/OTA/Calibration/report 的备份转换策略和 blank/unknown/v2 Boot 行为；在线
+    relocation、destructive SCPI 与 Bootloader 在线更新均禁止。
+  - 新增 `persistence_schema_check.py`、`flash_migration_check.py` 及 Python 正/负向 fixture。
+- 验证结果：
+  - schema/migration checker 与 5 个定向 pytest 通过；文档门禁将在本切片单独提交前运行。
+- 还需完成：
+  - M0-04 wire corpus；M0-05 v1 factory artifact checksum、BOOTSEL 实板恢复和独立回退报告。
+
 ## 任务记录
 
 ### FLASH-TASK-20260822-010 - Policy gate reason/temperature Vector 与 COM8 闭环

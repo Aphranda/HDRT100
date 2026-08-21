@@ -98,15 +98,16 @@ generated permission view、版本化 live consumer 和只读板端验证；M1-0
 
 ### M0-03 持久化 schema registry
 
-- [ ] 为 BCB、Image Manifest、Product NVS、Calibration NVS、VDC NVS、Blob/Deployment Capsule、
+- [x] 为 BCB、Image Manifest、Product NVS、Calibration NVS、VDC NVS、Blob/Deployment Capsule、
   Fault FCB、OTA Journal 和 PIO Catalog 分配 schema/object type。
-- [ ] 每个对象登记 writer、reader、compatibility、frequency/endurance、atomicity、rollback、
+- [x] 每个对象登记 writer、reader、compatibility、frequency/endurance、atomicity、rollback、
   factory default、diagnostic projection 和 SD evidence 去向。
-- [ ] 建立 negative inventory：Domain Vector、ECC state、queue/FIFO、lock/counter/cursor、VDC
+- [x] 建立 negative inventory：Domain Vector、ECC state、queue/FIFO、lock/counter/cursor、VDC
   lock、RefMem epoch/ACK、PIO/DMA runtime 均不得作为启动事实恢复。
-- [ ] 未知 required field fail closed；未知 optional field 可跳过但保留长度/完整性检查。
+- [x] 未知 required field fail closed；未知 optional field 可跳过但保留长度/完整性检查。
 
-产物：namespace/schema registry、compatibility policy、golden records。
+产物：`config/persistence_schema_registry.json`、`tools/flash_map/persistence_schema_check.py`、
+`tests/python/test_persistence_schema.py`；golden records 留待 M2 Store core。
 
 ### M0-04 Boot/OTA wire 契约输入
 
@@ -119,17 +120,19 @@ generated permission view、版本化 live consumer 和只读板端验证；M1-0
 
 ### M0-05 migration/rollback 包
 
-- [ ] 固定 v1 最后可恢复 commit、factory UF2、BOOTSEL 流程和工具版本。
-- [ ] 定义 identity/Product Config/OTA metadata/Calibration/report index 的备份、转换和丢弃策略。
-- [ ] 定义 blank/v1/unknown/v2 map 的 Boot 行为和用户可见恢复信号。
-- [ ] 明确样板只走 factory full erase/reflash，不实现 App 在线原地搬迁。
+- [~] 固定 v1 最后可恢复 commit、factory UF2、BOOTSEL 流程和工具版本；artifact checksum 与实际
+  BOOTSEL 样板恢复仍待完成。
+- [x] 定义 identity/Product Config/OTA metadata/Calibration/report index 的备份、转换和丢弃策略。
+- [x] 定义 blank/v1/unknown/v2 map 的 Boot 行为和用户可见恢复信号。
+- [x] 明确样板只走 factory full erase/reflash，不实现 App 在线原地搬迁。
 
-产物：迁移 runbook、v1 回退 artifact、数据转换表。
+产物：`config/flash_migration_policy.json`、`tools/flash_map/flash_migration_check.py`、
+`tests/python/test_flash_migration_policy.py`；v1 回退 artifact/runbook 的板端恢复证据仍待完成。
 
 ### M0 退出门禁
 
 - [x] inventory 与源码扫描一致；新增 raw caller 能使 CI 失败。
-- [ ] map/schema/wire 具有正向、边界和负向 fixture。
+- [~] map/schema 具有正向、边界和负向 fixture；wire corpus 仍待 M0-04。
 - [ ] v1 回退 artifact 可由 BOOTSEL 恢复至少一块样板。
 - [ ] 无目标 offset 被写入 linker/driver/tool 之外的第二事实源。
 
