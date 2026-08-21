@@ -284,6 +284,8 @@ set(PROJECT_APP_SOURCES
         components/ota_manager/src/ota_crc32.c
         components/ota_manager/src/ota_image.c
         components/ota_manager/src/ota_metadata.c
+        components/ota_manager/src/ota_metadata_flash_app.c
+        components/ota_manager/src/ota_metadata_flash_read.c
         components/ota_manager/src/ota_package.c
         components/product_config/src/product_config.c
         ${PROJECT_PORTABLE_OTA_ADAPTER_SOURCES}
@@ -593,6 +595,8 @@ add_executable(RP2350_TRIG_BOOT
         components/ota_manager/src/ota_crc32.c
         components/ota_manager/src/ota_image.c
         components/ota_manager/src/ota_metadata.c
+        components/ota_manager/src/ota_metadata_flash_boot.c
+        components/ota_manager/src/ota_metadata_flash_read.c
         ${PROJECT_PORTABLE_OTA_ADAPTER_SOURCES}
         drivers/mcu/flash/src/drv_flash.c
         drivers/mcu/flash/src/drv_flash_lockout.c

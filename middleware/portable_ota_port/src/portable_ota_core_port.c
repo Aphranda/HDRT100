@@ -140,24 +140,12 @@ static bool portable_core_flash_program(uint32_t offset, const void *data,
 
 static bool portable_core_mark_pending(pota_slot_t slot, uint32_t image_size, uint32_t image_crc32)
 {
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_FLASH)) {
-        return false;
-    }
-
-    const bool ok = ota_metadata_mark_pending((ota_slot_t)slot, image_size, image_crc32);
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_FLASH);
-    return ok;
+    return ota_metadata_mark_pending((ota_slot_t)slot, image_size, image_crc32);
 }
 
 static bool portable_core_confirm_active(void)
 {
-    if (!resource_arbiter_acquire(RESOURCE_ARBITER_RESOURCE_FLASH)) {
-        return false;
-    }
-
-    const bool ok = ota_metadata_confirm_active();
-    resource_arbiter_release(RESOURCE_ARBITER_RESOURCE_FLASH);
-    return ok;
+    return ota_metadata_confirm_active();
 }
 
 static bool portable_core_validate_vector(uint32_t slot_offset,

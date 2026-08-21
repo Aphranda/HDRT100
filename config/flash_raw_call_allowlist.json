@@ -45,16 +45,28 @@
       "target_api": "FlashMapReadView"
     },
     {
-      "file": "components/ota_manager/src/ota_metadata.c",
-      "owner": "OtaMetadata",
+      "file": "components/ota_manager/src/ota_metadata_flash_boot.c",
+      "owner": "BootFlashService",
+      "contexts": ["boot"],
+      "core": "core0_or_boot_context",
+      "modes": ["boot", "idle", "maintenance"],
+      "partitions": ["v1_ota_metadata"],
+      "operations": ["erase", "program"],
+      "write_frequency": "boot_state_transition_or_firmware_update",
+      "power_cut_semantics": "redundant_copy_sequence_crc_then_newest_valid",
+      "target_api": "BootFlashService"
+    },
+    {
+      "file": "components/ota_manager/src/ota_metadata_flash_read.c",
+      "owner": "OtaMetadataReadView",
       "contexts": ["app", "boot"],
       "core": "core0_or_boot_context",
       "modes": ["boot", "idle", "maintenance"],
       "partitions": ["v1_ota_metadata"],
-      "operations": ["erase", "program", "read"],
-      "write_frequency": "boot_state_transition_or_firmware_update",
-      "power_cut_semantics": "redundant_copy_sequence_crc_then_newest_valid",
-      "target_api": "BootControlStore"
+      "operations": ["read"],
+      "write_frequency": "read_only",
+      "power_cut_semantics": "read_only",
+      "target_api": "FlashMapReadView"
     },
     {
       "file": "components/product_config/src/product_config.c",

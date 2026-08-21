@@ -22,6 +22,7 @@ static bool fake_policy(uint32_t requester)
 {
     return s_policy_ok &&
            (requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE ||
+            requester == FLASH_TRANSACTION_REQUESTER_OTA_METADATA ||
             requester == FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG);
 }
 
@@ -358,6 +359,28 @@ static void test_product_config_policy_and_owned_payload(void)
                   FLASH_TRANSACTION_ERROR_PERMISSION);
 }
 
+static void test_metadata_policy(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    flash_transaction_request_t request = {
+        .requester = FLASH_TRANSACTION_REQUESTER_OTA_METADATA,
+        .partition_id = FLASH_COMPAT_MAP_BOOT_CONTROL_ID,
+        .operation = FLASH_TRANSACTION_OPERATION_ERASE,
+        .relative_offset = 0u,
+        .length = FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES * 16u,
+        .store_generation = 3u,
+    };
+    flash_transaction_vector_t vector = run_request(&context, &request);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(vector.completion_level == FLASH_TRANSACTION_COMPLETION_COMMITTED);
+    assert(s_last_offset == FLASH_COMPAT_MAP_BOOT_CONTROL_OFFSET);
+
+    request.partition_id = FLASH_COMPAT_MAP_PRODUCT_NVS_ID;
+    assert_failed(run_request(&context, &request),
+                  FLASH_TRANSACTION_ERROR_PERMISSION);
+}
+
 static void test_busy_abort_and_snapshot(void)
 {
     flash_transaction_fb_t context;
@@ -416,6 +439,7 @@ int main(void)
     test_range_alignment_and_provider_rejections();
     test_runtime_failures();
     test_product_config_policy_and_owned_payload();
+    test_metadata_policy();
     test_busy_abort_and_snapshot();
     test_platform_and_range_resolution();
     puts("flash transaction tests passed");

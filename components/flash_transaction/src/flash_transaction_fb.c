@@ -135,6 +135,11 @@ static uint32_t flash_transaction_validate(
                  : request->length != FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES)) {
             return FLASH_TRANSACTION_ERROR_PERMISSION;
         }
+    } else if (request->requester ==
+               FLASH_TRANSACTION_REQUESTER_OTA_METADATA) {
+        if (request->partition_id != FLASH_COMPAT_MAP_BOOT_CONTROL_ID) {
+            return FLASH_TRANSACTION_ERROR_PERMISSION;
+        }
     } else {
         return FLASH_TRANSACTION_ERROR_PERMISSION;
     }

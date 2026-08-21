@@ -5,6 +5,7 @@
 
 #include "drv_flash.h"
 #include "ota_crc32.h"
+#include "ota_metadata_flash.h"
 #include "portable_ota_port.h"
 
 #define OTA_METADATA_COPY_SIZE    DRV_FLASH_SECTOR_SIZE
@@ -141,13 +142,13 @@ bool ota_metadata_load(ota_metadata_t *metadata)
     memset(copies, 0, sizeof(copies));
 
     for (uint32_t i = 0u; i < OTA_METADATA_COPY_COUNT; i++) {
-        if (drv_flash_read(ota_metadata_copy_offset(i), &copies[i], sizeof(copies[i]))) {
+        if (ota_metadata_flash_read(ota_metadata_copy_offset(i), &copies[i], sizeof(copies[i]))) {
             valid[i] = ota_metadata_is_valid(&copies[i]);
         }
 
         if (!valid[i]) {
             ota_metadata_v2_t legacy_copy;
-            if (drv_flash_read(ota_metadata_copy_offset(i), &legacy_copy, sizeof(legacy_copy)) &&
+            if (ota_metadata_flash_read(ota_metadata_copy_offset(i), &legacy_copy, sizeof(legacy_copy)) &&
                 ota_metadata_v2_is_valid(&legacy_copy)) {
                 ota_metadata_from_v2(&legacy_copy, &copies[i]);
                 valid[i] = true;
@@ -181,7 +182,7 @@ bool ota_metadata_store(const ota_metadata_t *metadata)
     const uint32_t offset = ota_metadata_copy_offset(copy_index);
     uint8_t page[DRV_FLASH_PAGE_SIZE];
 
-    if (!drv_flash_erase(offset, OTA_METADATA_COPY_SIZE)) {
+    if (!ota_metadata_flash_erase(offset, OTA_METADATA_COPY_SIZE)) {
         return false;
     }
 
@@ -193,14 +194,14 @@ bool ota_metadata_store(const ota_metadata_t *metadata)
                                    sizeof(page) :
                                    (uint32_t)(sizeof(stored_metadata) - written);
         memcpy(page, &src[written], chunk);
-        if (!drv_flash_program(offset + written, page, sizeof(page))) {
+        if (!ota_metadata_flash_program(offset + written, page, sizeof(page))) {
             return false;
         }
         written += sizeof(page);
     }
 
     ota_metadata_t readback;
-    if (!drv_flash_read(offset, &readback, sizeof(readback))) {
+    if (!ota_metadata_flash_read(offset, &readback, sizeof(readback))) {
         return false;
     }
 
@@ -354,7 +355,8 @@ bool ota_metadata_corrupt_copy(uint32_t copy_index)
         return false;
     }
 
-    return drv_flash_erase(ota_metadata_copy_offset(copy_index), OTA_METADATA_COPY_SIZE);
+    return ota_metadata_flash_erase(ota_metadata_copy_offset(copy_index),
+                                    OTA_METADATA_COPY_SIZE);
 }
 
 bool ota_metadata_repair_copies(void)
