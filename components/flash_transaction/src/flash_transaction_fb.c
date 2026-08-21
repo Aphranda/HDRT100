@@ -185,6 +185,21 @@ static bool flash_transaction_platform_valid(
            platform->get_lockout != NULL && platform->now_ms != NULL;
 }
 
+static uint32_t flash_transaction_policy_check(
+    flash_transaction_fb_t *context, uint32_t *temperature_flags)
+{
+    if (context->platform.policy_check != NULL) {
+        return context->platform.policy_check(context->request.requester,
+                                              temperature_flags);
+    }
+    if (temperature_flags != NULL) {
+        *temperature_flags = 0u;
+    }
+    return context->platform.policy_allows(context->request.requester)
+               ? FLASH_TRANSACTION_ERROR_NONE
+               : FLASH_TRANSACTION_ERROR_POLICY;
+}
+
 void flash_transaction_fb_init(flash_transaction_fb_t *context,
                                const flash_transaction_platform_t *platform)
 {
@@ -286,14 +301,21 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
     case FLASH_TRANSACTION_STATE_QUIESCE:
         if (context->vector.abort_pending != 0u) {
             flash_transaction_abort(context);
-        } else if (!context->platform.policy_allows(context->request.requester)) {
-            flash_transaction_write_begin(context);
-            context->vector.policy_gate_reason =
-                FLASH_TRANSACTION_ERROR_POLICY;
-            flash_transaction_write_end(context);
-            flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_POLICY);
         } else {
-            flash_transaction_set_state(context, FLASH_TRANSACTION_STATE_ACQUIRE);
+            uint32_t temperature_flags = 0u;
+            const uint32_t policy_error =
+                flash_transaction_policy_check(context, &temperature_flags);
+            if (policy_error == FLASH_TRANSACTION_ERROR_NONE) {
+                flash_transaction_set_state(context,
+                                            FLASH_TRANSACTION_STATE_ACQUIRE);
+                break;
+            }
+            flash_transaction_write_begin(context);
+            context->vector.temperature_flags = temperature_flags;
+            context->vector.policy_gate_reason =
+                policy_error;
+            flash_transaction_write_end(context);
+            flash_transaction_fail(context, policy_error);
         }
         break;
     case FLASH_TRANSACTION_STATE_ACQUIRE:

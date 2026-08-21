@@ -4,9 +4,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "diagnostics.h"
 #include "flash_transaction_fb.h"
 
 static bool s_policy_ok;
+static uint32_t s_policy_error;
+static uint32_t s_policy_temperature_flags;
 static bool s_acquire_ok;
 static bool s_raw_ok;
 static bool s_verify_ok;
@@ -24,6 +27,19 @@ static bool fake_policy(uint32_t requester)
            (requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE ||
             requester == FLASH_TRANSACTION_REQUESTER_OTA_METADATA ||
             requester == FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG);
+}
+
+static uint32_t fake_policy_check(uint32_t requester,
+                                  uint32_t *temperature_flags)
+{
+    if (temperature_flags != NULL) {
+        *temperature_flags = s_policy_temperature_flags;
+    }
+    if (s_policy_error != FLASH_TRANSACTION_ERROR_NONE) {
+        return s_policy_error;
+    }
+    return fake_policy(requester) ? FLASH_TRANSACTION_ERROR_NONE
+                                  : FLASH_TRANSACTION_ERROR_POLICY;
 }
 
 static bool fake_acquire(void)
@@ -88,6 +104,7 @@ static flash_transaction_platform_t make_platform(void)
 {
     const flash_transaction_platform_t platform = {
         .policy_allows = fake_policy,
+        .policy_check = fake_policy_check,
         .acquire_flash = fake_acquire,
         .release_flash = fake_release,
         .erase = fake_erase,
@@ -103,6 +120,8 @@ static flash_transaction_platform_t make_platform(void)
 static void reset_fakes(void)
 {
     s_policy_ok = true;
+    s_policy_error = FLASH_TRANSACTION_ERROR_NONE;
+    s_policy_temperature_flags = 0u;
     s_acquire_ok = true;
     s_raw_ok = true;
     s_verify_ok = true;
@@ -306,6 +325,36 @@ static void test_runtime_failures(void)
     assert(s_release_count == 2u);
 }
 
+static void test_thermal_and_diagnostics_gates_are_fail_closed(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    const flash_transaction_request_t request = erase_request();
+
+    s_policy_temperature_flags =
+        DIAGNOSTICS_SENSOR_FLAG_BOARD_TEMP_CRITICAL;
+    s_policy_error = FLASH_TRANSACTION_ERROR_THERMAL;
+    flash_transaction_vector_t vector = run_request(&context, &request);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_THERMAL);
+    assert(vector.policy_gate_reason == FLASH_TRANSACTION_ERROR_THERMAL);
+    assert(vector.temperature_flags == s_policy_temperature_flags);
+    assert(s_erase_count == 0u);
+    assert(s_program_count == 0u);
+    assert(s_release_count == 0u);
+
+    s_policy_temperature_flags = 0u;
+    s_policy_error = FLASH_TRANSACTION_ERROR_DIAGNOSTICS_FAULT;
+    vector = run_request(&context, &request);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_DIAGNOSTICS_FAULT);
+    assert(vector.policy_gate_reason == FLASH_TRANSACTION_ERROR_DIAGNOSTICS_FAULT);
+    assert(vector.temperature_flags == 0u);
+    assert(s_erase_count == 0u);
+    assert(s_program_count == 0u);
+    assert(s_release_count == 0u);
+}
+
 static flash_transaction_request_t product_config_request(
     uint32_t operation, const uint8_t *data)
 {
@@ -438,6 +487,7 @@ int main(void)
     test_policy_and_partition_rejections();
     test_range_alignment_and_provider_rejections();
     test_runtime_failures();
+    test_thermal_and_diagnostics_gates_are_fail_closed();
     test_product_config_policy_and_owned_payload();
     test_metadata_policy();
     test_busy_abort_and_snapshot();

@@ -5,6 +5,7 @@
 
 typedef struct {
     bool (*policy_allows)(uint32_t requester);
+    uint32_t (*policy_check)(uint32_t requester, uint32_t *temperature_flags);
     bool (*acquire_flash)(void);
     void (*release_flash)(void);
     bool (*erase)(uint32_t absolute_offset, uint32_t length);

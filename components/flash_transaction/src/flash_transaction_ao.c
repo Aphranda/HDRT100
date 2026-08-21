@@ -13,20 +13,40 @@
 
 static flash_transaction_fb_t s_flash_transaction;
 
+static uint32_t flash_transaction_policy_check(uint32_t requester,
+                                               uint32_t *temperature_flags);
+
 static bool flash_transaction_policy_allows(uint32_t requester)
+{
+    return flash_transaction_policy_check(requester, NULL) ==
+           FLASH_TRANSACTION_ERROR_NONE;
+}
+
+static uint32_t flash_transaction_policy_check(uint32_t requester,
+                                               uint32_t *temperature_flags)
 {
     diagnostics_sensor_status_t sensors;
     diagnostics_get_sensor_status(&sensors);
+    if (temperature_flags != NULL) {
+        *temperature_flags = sensors.flags;
+    }
     const uint32_t thermal_critical =
         DIAGNOSTICS_SENSOR_FLAG_BOARD_TEMP_CRITICAL |
         DIAGNOSTICS_SENSOR_FLAG_CHIP_TEMP_CRITICAL;
-    if (diagnostics_has_fault() || (sensors.flags & thermal_critical) != 0u) {
-        return false;
+    if ((sensors.flags & thermal_critical) != 0u) {
+        return FLASH_TRANSACTION_ERROR_THERMAL;
     }
-    return (requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE ||
-            requester == FLASH_TRANSACTION_REQUESTER_OTA_METADATA ||
-            requester == FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG) &&
-           resource_arbiter_can_begin_ota();
+    if (diagnostics_has_fault()) {
+        return FLASH_TRANSACTION_ERROR_DIAGNOSTICS_FAULT;
+    }
+    if (requester != FLASH_TRANSACTION_REQUESTER_OTA_IMAGE &&
+        requester != FLASH_TRANSACTION_REQUESTER_OTA_METADATA &&
+        requester != FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG) {
+        return FLASH_TRANSACTION_ERROR_POLICY;
+    }
+    return resource_arbiter_can_begin_ota()
+               ? FLASH_TRANSACTION_ERROR_NONE
+               : FLASH_TRANSACTION_ERROR_POLICY;
 }
 
 static bool flash_transaction_acquire(void)
@@ -85,6 +105,7 @@ bool flash_transaction_ao_init(void)
 {
     const flash_transaction_platform_t platform = {
         .policy_allows = flash_transaction_policy_allows,
+        .policy_check = flash_transaction_policy_check,
         .acquire_flash = flash_transaction_acquire,
         .release_flash = flash_transaction_release,
         .erase = flash_transaction_erase,

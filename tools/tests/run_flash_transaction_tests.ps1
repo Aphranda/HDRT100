@@ -11,6 +11,7 @@ $testSource = Join-Path $repo "tests\unit\test_flash_transaction.c"
 $serviceSource = Join-Path $repo "components\flash_transaction\src\flash_transaction_fb.c"
 $publicInclude = Join-Path $repo "components\flash_transaction\inc"
 $privateInclude = Join-Path $repo "components\flash_transaction\src"
+$diagnosticsInclude = Join-Path $repo "components\diagnostics\inc"
 $configInclude = Join-Path $repo "config"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
@@ -31,7 +32,7 @@ if (-not $hostCc) {
 
 $exe = Join-Path $build "test_flash_transaction.exe"
 & $hostCc.Source -std=c11 -Wall -Wextra -Werror `
-    "-I$publicInclude" "-I$privateInclude" "-I$configInclude" `
+    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" `
     $testSource $serviceSource -o $exe
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
