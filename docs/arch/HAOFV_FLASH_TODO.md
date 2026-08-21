@@ -25,7 +25,8 @@ v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在�
 
 | 基线 | 状态 | 证据 | 仍缺什么 |
 |---|---|---|---|
-| 物理/构建/兼容布局事实已核对 | `[x]` | `CMakeLists.txt`、`drv_flash.h`、`ota_partition.h`、`ARCH_FLASH_CROSS_REVIEW_01.md` | 机器可读 v2 map 尚无。 |
+| 物理/构建/兼容布局事实已核对 | `[x]` | `CMakeLists.txt`、`drv_flash.h`、`ota_partition.h`、`ARCH_FLASH_CROSS_REVIEW_01.md` | v1 live consumer 尚未迁移到 v2。 |
+| v2 map source/schema 与 geometry gate | `[~]` | `config/flash_map_v2.json`、`config/flash_map_gen/`、commit `315dc6f` | permission view、live linker/factory/packager 和 HIL 尚未迁移。 |
 | Flash v2 owner/map/store/Boot/OTA 语义已形成 canonical | `[x]` | `HAOFV_FLASH_ARCHITECTURE.md` | 7 条目标契约仍为 `pending`。 |
 | Direct A/B 为发布默认 | `[x]` | CMake preset/release check/当前 Bootloader | `COPY_TO_ACTIVE` 兼容分支尚未从 v2 清除。 |
 | core1 Flash park/ACK 基础存在 | `[x]` | `drv_flash_lockout.*` 和既有 HIL | 尚未收敛到唯一 FlashTransactionAO。 |
@@ -48,7 +49,8 @@ M0 契约/迁移输入
 ```
 
 M2 和 M3 可在 M1 稳定后并行，但 M4 必须同时依赖 M2/M3；M5 不得绕过本地 OTA 闭环直接做
-多板分发。当前第一个可执行链是 `M0-01 -> M0-02 -> M1-01 -> M1-02 -> M1-03`。
+多板分发。首轮已完成 M0-01 和 M1-01 的 geometry/range 子项；当前继续收口 M0-02 consumer、
+M1-02 permission view，再进入 M1-03。
 
 ## 二、里程碑总览
 
@@ -68,24 +70,28 @@ M2 和 M3 可在 M1 稳定后并行，但 M4 必须同时依赖 M2/M3；M5 不�
 
 ### M0-01 当前实现 inventory
 
-- [ ] 扫描所有 `drv_flash_read/erase/program/xip_ptr` 调用、offset/size、linker ORIGIN、factory
+- [x] 扫描所有 `drv_flash_read/erase/program/xip_ptr` 调用、offset/size、linker ORIGIN、factory
   address 和 host tool 假设，输出版本化机器可读清单。
-- [ ] 每个调用点记录 owner/core/mode/partition/write frequency/power-cut semantics/目标 API。
-- [ ] CI 保存基线并拒绝新增未登记 raw erase/program 调用。
-- [ ] 对照 `ota_partition.h` 明确下 4 MiB 兼容布局和上 12 MiB 未分配，禁止把物理容量声明
+- [x] 每个调用点记录 owner/core/mode/partition/write frequency/power-cut semantics/目标 API。
+- [x] CI 保存基线并拒绝新增未登记 raw erase/program 调用。
+- [x] 对照 `ota_partition.h` 明确下 4 MiB 兼容布局和上 12 MiB 未分配，禁止把物理容量声明
   当作 v2 已实现。
 
-产物：`flash_inventory` 报告、raw-call allowlist、旧地址依赖清单。
+产物：`config/flash_raw_call_allowlist.json`、构建目录 `flash_inventory.json`、
+`tools/flash_map/flash_inventory.py`；证据 commit `315dc6f`。
 
 ### M0-02 FlashMap source schema
 
-- [ ] 定义 geometry/map 机器格式：map version、partition ID、offset/size、alignment、Boot/App/
+- [x] 定义 geometry/map 机器格式：map version、partition ID、offset/size、alignment、Boot/App/
   factory permission、executable/store type、update policy 和 compatibility。
-- [ ] 生成或校验 C header、linker memory、factory address、OTA packager 和文档快照。
-- [ ] 静态断言对齐、无重叠、A/B 等长、bootable range、reserved gap policy 和 map tail。
-- [ ] 负向 fixture 覆盖 overlap、overflow、wrong geometry、bad executable permission 和 linker drift。
+- [~] 生成或校验 C header、linker memory、factory address、OTA packager 和文档快照。header、
+  manifest、CMake/linker 常量已生成并有 freshness gate；live factory/packager/linker 尚未消费。
+- [x] 静态断言对齐、无重叠、A/B 等长、bootable range、reserved gap policy 和 map tail。
+- [~] 负向 fixture 覆盖 overlap、overflow、wrong geometry、bad executable permission 和 linker drift。
+  前四项与生成物 stale gate 已有测试；独立 live linker drift fixture 待 consumer 迁移时补齐。
 
-产物：单一 map source、生成器、schema、golden/negative fixtures。
+产物：`config/flash_map_v2.json`、`config/flash_map.schema.json`、`config/flash_map_gen/`、
+`tools/flash_map/flash_map.py`、`tests/python/test_flash_map.py`；证据 commit `315dc6f`。
 
 ### M0-03 持久化 schema registry
 
@@ -119,7 +125,7 @@ M2 和 M3 可在 M1 稳定后并行，但 M4 必须同时依赖 M2/M3；M5 不�
 
 ### M0 退出门禁
 
-- [ ] inventory 与源码扫描一致；新增 raw caller 能使 CI 失败。
+- [x] inventory 与源码扫描一致；新增 raw caller 能使 CI 失败。
 - [ ] map/schema/wire 具有正向、边界和负向 fixture。
 - [ ] v1 回退 artifact 可由 BOOTSEL 恢复至少一块样板。
 - [ ] 无目标 offset 被写入 linker/driver/tool 之外的第二事实源。
@@ -130,10 +136,13 @@ M2 和 M3 可在 M1 稳定后并行，但 M4 必须同时依赖 M2/M3；M5 不�
 
 ### M1-01 Geometry 与 Raw HAL
 
-- [ ] `drv_flash` 总容量只引用 geometry；删除独立 4 MiB limit。
-- [ ] `read/xip_ptr/erase/program` 使用 overflow-safe range check 和 alignment check。
+- [x] `drv_flash` 总容量只引用 geometry；删除独立 4 MiB limit。
+- [x] `read/xip_ptr/erase/program` 使用 overflow-safe range check 和 alignment check。
 - [ ] raw write header 只对 BootFlashService 和 FlashTransaction target 可见。
-- [ ] host tests 覆盖 zero length、last byte、one-byte overflow、integer wrap、unaligned/null/high range。
+- [x] host tests 覆盖 zero length、last byte、one-byte overflow、integer wrap、unaligned/null/high range。
+
+证据：commit `315dc6f`；`run_drv_flash_geometry_tests.ps1`、release 与 RTOS+双核 smoke 构建通过。
+本项尚未完成，因为 raw write header 可见性必须随 M1-02/M1-03 一起收敛。
 
 ### M1-02 FlashMap 与 permission view
 

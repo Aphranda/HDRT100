@@ -34,18 +34,19 @@ Flash Domain 只提供存储、事务、权限和 completion，不成为第二�
 | 当前构建 | `CMakeLists.txt::PICO_FLASH_SIZE_BYTES` | 确认 SDK/XIP 构建声明。 |
 | 当前实现 | `drv_flash.h`、`ota_partition.h`、Bootloader、linker 与工具 | 描述 as-is，不用目标文档覆盖现实。 |
 | 目标契约 | 本文 + `docs/check/DOCS_REGISTRY.md` | 定义 v2 owner、map、store 和生命周期。 |
-| 目标数值 | 未来生成的 `FLASH_MAP_*` 符号 | 实现后取代本文布局快照成为数值唯一事实源。 |
+| 目标数值 | `config/flash_map_v2.json` 及生成的 `FLASH_MAP_*` 符号 | 作为 v2 目标 map 的数值事实源；生成物新鲜度由构建和 release gate 校验。 |
 
-本文所有 v2 offset/size 均是“目标快照，非当前代码事实源”。在生成式 FlashMap、Bootloader、
-linker、App 和 factory artifact 同时落地前，不得把目标布局报告为已部署或已烧录。
+本文表格中的 v2 offset/size 是 `config/flash_map_v2.json` 的评审快照，不是当前已部署布局。
+目标 source/header/manifest 已建立，但 Bootloader、live linker、App 和 factory artifact 仍使用 v1；
+在这些消费者同时迁移并完成 factory/HIL 前，不得把目标布局报告为已部署或已烧录。
 
 ### 1.3 当前与目标一页对照
 
 | 维度 | 当前实现 | v2 目标 |
 |---|---|---|
-| 物理容量声明 | 构建和 `ota_partition.h` 声明 16 MiB。 | 由统一 `FlashGeometry` 提供。 |
-| 可访问/已分配范围 | `drv_flash.h` 限制 4 MiB；`ota_partition.h` 只分配下 4 MiB 兼容布局，上 12 MiB 未分配。 | 完整 16 MiB 由版本化 `FlashMap` 管理。 |
-| 分区 owner | OTA header、driver、linker 和工具各自携带部分地址知识。 | Boot/linker/App/factory/tool 从同一 map 生成或校验。 |
+| 物理容量声明 | 构建和生成式 `FlashGeometry` 声明 16 MiB，并由门禁互校。 | 保持统一 geometry 并增加器件/HIL 证据。 |
+| 可访问/已分配范围 | Raw HAL 可做完整 16 MiB 边界检查；`ota_partition.h` 仍只分配下 4 MiB v1 兼容布局，上 12 MiB 未分配。 | 完整 16 MiB 由版本化 `FlashMap` 限权管理。 |
+| 分区 owner | v2 source 已生成 header/manifest/CMake/linker 常量；live v1 linker、factory 和 OTA header 尚未切换。 | Boot/linker/App/factory/tool 全部消费同一 map artifact。 |
 | App writer | OTA、metadata、Product Config 等路径直接或间接使用 raw Flash API。 | core0 `FlashTransactionAO` 是 App 唯一 erase/program owner。 |
 | Boot writer | Bootloader 使用自己的最小写路径。 | 保留独立 `BootFlashService`，但与 App 共用 geometry/map/BCB 契约。 |
 | Boot 模式 | Direct A/B 已为发布默认，同时仍保留 `COPY_TO_ACTIVE` 能力。 | 只保留 Direct A/B test/confirm/revert 主线。 |
@@ -169,8 +170,9 @@ provider 或固定 pool，并绑定 generation/refcount。completion 前 produce
 
 ### 4.2 目标布局快照
 
-下表是 `ARCH-FLASHMAP-01` 的目标快照，非当前代码事实源。实现后必须生成对应
-`FLASH_MAP_*` 符号，并验证表尾等于 `PICO_FLASH_SIZE_BYTES`。
+下表是 `ARCH-FLASHMAP-01` 的目标评审快照；数值事实源为 `config/flash_map_v2.json`。生成器已
+输出 `FLASH_MAP_*` header、manifest、CMake/linker 常量，并验证对齐、重叠、权限、A/B 等长和
+map tail。由于 live linker/factory/OTA 尚未切换，这仍不是当前烧录布局。
 
 | Partition ID | Offset snapshot | Size snapshot | 目标符号 | owner / purpose |
 |---|---:|---:|---|---|
