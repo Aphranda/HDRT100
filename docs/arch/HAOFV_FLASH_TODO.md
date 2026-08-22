@@ -267,7 +267,9 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
 #### 未完成（关闭 M1-05 前必须完成）
 
 - [ ] **M1-05-G live producer 接入**：将 `OTA_JOURNAL` durable backend 接入实际 OTA image、Product
-  Config 和 App OTA metadata producer，不能只由 host fixture 驱动。
+  Config 和 App OTA metadata producer，不能只由 host fixture 驱动。三个 producer 已接入
+  FlashTransactionAO completion-lease 注入点（`dfa1f02`）；仍缺实际 durable store/backend 配置
+  和跨 reset 证据。
 - [ ] **M1-05-H 跨 reset/power-cut 闭环**：覆盖 body/readback/commit marker/lane seal 各断电点，复位
   后只能得到确定的旧/新 completion，禁止悬挂 accepted 或伪造 committed。
 - [ ] **M1-05-I replay/idempotence**：duplicate completion、重复提交和 provider reset 后重放必须按

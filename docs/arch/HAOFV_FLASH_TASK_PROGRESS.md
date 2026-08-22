@@ -16,6 +16,30 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-003 - live producer completion-lease 注入与 DHRT100 验证
+
+- 状态：M1-05-G 继续进行；OTA image、Product Config、App OTA metadata producer 已统一从
+  FlashTransactionAO 获取可选 completion lease，但当前 v1 compatibility 固件仍未配置
+  OTA_JOURNAL durable backend。
+- 代码提交：`dfa1f02 feat(flash): inject completion lease into live producers`，已推送。
+- 实现边界：
+  - FlashTransactionAO 新增 process-lifetime lease setter/getter；事务运行中禁止替换 lease，
+    lease callback 不完整时 fail closed。
+  - AO submit 在请求未显式提供 lease 时注入 owner 配置的 lease；三个实际 producer 均因此
+    进入同一 completion journal 边界。
+  - 默认 lease 为 NULL，保持当前 deployed v1 compatibility map 不访问未部署的 OTA_JOURNAL
+    高地址；没有伪造 v2 live write 证据。
+- DHRT100 实板验证：
+  - 工件：`build/DHRT100_UPDATE.pkg`，build `20260822161114`，package CRC32 `0xEADA378E`。
+  - 完整闭环：目标槽 1，`READY_TO_REBOOT` → `post_boot_status="IDLE",2,"NONE",0` →
+    `committed_status="COMMITTED",2,"NONE",5`。
+  - USB reset 窗口出现一次 Windows `ClearCommError` 断开提示，工具随后成功重连；最终：
+    `*IDN? = GTS,DHRT100,839E1AE79EA20F31,0.1.0`，`SYST:FW:BUILD? = 20260822161114`，
+    `SYST:OTA:STAT? = "COMMITTED",2,"NONE",5`，`SYST:OTA:SLOT? = 1,0,1,0,0`，
+    `SYST:OTA:TXN? = 0,0,0,0,0,0,0,0`，`SYST:ERR? = 0,"No error"`。
+- 仍未完成：实际 durable journal store/backend 配置、跨 reset/power-cut、provider replay、
+  M1-06 Scratch、M0-05 BOOTSEL full erase/factory recovery、v2 map deployment 和 C11 审核。
+
 ### FLASH-TASK-20260823-002 - 终止 job replay 拒绝与 DHRT100 再次闭环
 
 - 状态：M1-05-I 继续进行；FlashTransactionFB 现在拒绝已终止显式 job ID 的重复提交，
