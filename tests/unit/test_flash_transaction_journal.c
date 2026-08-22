@@ -237,6 +237,15 @@ static void test_duplicate_completion_is_idempotent(void)
                                                     &sequence));
     assert(sequence == 1u);
     assert(memcmp(&recovered, &accepted, sizeof(accepted)) == 0);
+
+    /* Provider/store reset must not turn a replayed terminal completion into
+     * another physical journal write. */
+    flash_transaction_journal_store_t reset_store;
+    assert(flash_transaction_journal_init(&reset_store, &config));
+    const uint32_t program_calls_before_replay = s_program_calls;
+    assert(flash_transaction_journal_append(&reset_store, &accepted));
+    assert(s_program_calls == program_calls_before_replay);
+    assert(reset_store.next_sequence == 2u);
 }
 
 static void test_recovery_falls_back_to_previous_valid_completion(void)
