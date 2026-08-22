@@ -25,6 +25,8 @@ scpi_result_t scpi_cmd_ota_mode(scpi_t *context);
 scpi_result_t scpi_cmd_ota_inject_copy(scpi_t *context);
 scpi_result_t scpi_cmd_ota_inject_clear(scpi_t *context);
 scpi_result_t scpi_cmd_ota_inject_copy_q(scpi_t *context);
+scpi_result_t scpi_cmd_ota_inject_lockout(scpi_t *context);
+scpi_result_t scpi_cmd_ota_inject_lockout_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_inject_metadata_corrupt(scpi_t *context);
 scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context);
 #define SCPI_OTA_FAULT_INJECTION_COMMANDS \
@@ -32,6 +34,8 @@ scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context);
     {.pattern = "SYSTem:OTA:INJect:COPY", .callback = scpi_cmd_ota_inject_copy}, \
     {.pattern = "SYSTem:OTA:INJect:CLEar", .callback = scpi_cmd_ota_inject_clear}, \
     {.pattern = "SYSTem:OTA:INJect:COPY?", .callback = scpi_cmd_ota_inject_copy_q}, \
+    {.pattern = "SYSTem:OTA:INJect:LOCKout", .callback = scpi_cmd_ota_inject_lockout}, \
+    {.pattern = "SYSTem:OTA:INJect:LOCKout?", .callback = scpi_cmd_ota_inject_lockout_q}, \
     {.pattern = "SYSTem:OTA:INJect:MCORrupt", .callback = scpi_cmd_ota_inject_metadata_corrupt}, \
     {.pattern = "SYSTem:OTA:INJect:MREPair", .callback = scpi_cmd_ota_inject_metadata_repair}
 #else

@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "distributed_config.h"
+#include "drv_flash.h"
 #include "ota_ao.h"
 #include "scpi_port_internal.h"
 
@@ -294,7 +295,10 @@ scpi_result_t scpi_cmd_ota_inject_copy(scpi_t *context)
 
 scpi_result_t scpi_cmd_ota_inject_clear(scpi_t *context)
 {
-    return ota_metadata_set_fault_injection(OTA_FAULT_INJECT_NONE) ?
+    const bool metadata_cleared =
+        ota_metadata_set_fault_injection(OTA_FAULT_INJECT_NONE);
+    drv_flash_clear_lockout_fault_injection();
+    return metadata_cleared ?
                scpi_port_result_ok(context) :
                SCPI_RES_ERR;
 }
@@ -307,6 +311,26 @@ scpi_result_t scpi_cmd_ota_inject_copy_q(scpi_t *context)
     }
 
     SCPI_ResultUInt32(context, metadata.fault_injection_flags);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ota_inject_lockout(scpi_t *context)
+{
+    uint32_t flags;
+    const uint32_t allowed = DRV_FLASH_LOCKOUT_FAULT_CORE1_NO_ACK |
+                             DRV_FLASH_LOCKOUT_FAULT_CORE1_RELEASE_STUCK;
+    if (!scpi_port_read_u32(context, &flags) || (flags & ~allowed) != 0u) {
+        return SCPI_RES_ERR;
+    }
+    drv_flash_set_lockout_fault_injection(flags);
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_ota_inject_lockout_q(scpi_t *context)
+{
+    drv_flash_lockout_status_t status;
+    drv_flash_get_lockout_status(&status);
+    SCPI_ResultUInt32(context, status.fault_injection_flags);
     return SCPI_RES_OK;
 }
 
