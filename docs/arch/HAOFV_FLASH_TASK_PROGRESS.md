@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md`
 Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-22
+Last updated: 2026-08-23
 
 本文记录 Flash v2 迁移已经发生的实现、验证、提交和剩余 gate。架构语义以
 `HAOFV_FLASH_ARCHITECTURE.md` 为准，未完成项和依赖关系以 `HAOFV_FLASH_TODO.md` 为准；
@@ -15,6 +15,30 @@ Last updated: 2026-08-22
 本文是实施证据日志，不是架构事实源，也不是工作板。稳定语义回到架构文档，子项状态回到 TODO；
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
+
+### FLASH-TASK-20260823-001 - DHRT100 OTA 两阶段确认工具与实板闭环
+
+- 状态：M1-04/M1-05 继续进行；OTA transport 与 boot/confirm 现在可以由工具显式分阶段验证，
+  仍未宣称 durable journal、v2 部署或整体 Flash 迁移完成。
+- 代码提交：`5a71bdf feat(ota): add staged boot commit validation`，已推送。
+- 工具变更：
+  - `tools/ota_send/ota_send.py` 新增 `--boot-and-commit`；仅在传输状态为
+    `READY_TO_REBOOT` 时执行 BOOT，等待 DHRT100 USB CDC 重枚举并确认 `IDLE`，再发送 COMM。
+  - `--expect-final-state COMMITTED` 现在可验证完整 OTA 闭环，不再把 transport 阶段的
+    `READY_TO_REBOOT` 误判为失败。
+  - `tests/python/test_ota_send.py` 增加 quoted SCPI 状态解析回归；该测试 3/3 通过。
+- DHRT100 实板证据：
+  - 使用 DHRT100 package `build/DHRT100_UPDATE.pkg`，build `20260822155631`、package CRC32
+    `0xCF96B57E`；第一次传输目标槽 1，第二次使用新工具传输目标槽 1 并完成确认。
+  - 新工具完整输出：`READY_TO_REBOOT`, target 1 → `post_boot_status="IDLE",2,"NONE",0`
+    → `committed_status="COMMITTED",2,"NONE",5`。
+  - 最终查询：`*IDN? = GTS,DHRT100,839E1AE79EA20F31,0.1.0`；
+    `SYST:FW:BUILD? = 20260822155631`；`SYST:OTA:STAT? = "COMMITTED",2,"NONE",5`；
+    `SYST:OTA:SLOT? = 1,0,1,0,0`；`SYST:OTA:TXN? = 0,0,0,0,0,0,0,0`；`SYST:ERR? = 0,"No error"`。
+  - `SYST:DIAG:SENS?` 返回板温 22.984 °C、芯片温 33.406 °C、电流 nominal estimate 79 mA，
+    `current_calibrated=0`；这些是诊断快照，不是计量校准结果。
+- 未完成：M1-05-G live OTA_JOURNAL producer、M1-05-H 掉电恢复、M1-05-I provider replay、
+  M1-06 Scratch、M0-05 BOOTSEL full erase/factory recovery、v2 map deployment 和 C11 审核。
 
 ### FLASH-TASK-20260822-036 - DHRT100 journal 幂等修复 OTA 闭环
 

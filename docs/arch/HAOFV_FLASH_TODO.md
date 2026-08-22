@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_TODO.md`
 Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/storage/SD_TODO.md`
-Last updated: 2026-08-22
+Last updated: 2026-08-23
 
 本文只跟踪 Flash v2 的实现、迁移和验证。架构语义以 `HAOFV_FLASH_ARCHITECTURE.md` 为准；
 v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在两个 TODO 中重复标记完成。
