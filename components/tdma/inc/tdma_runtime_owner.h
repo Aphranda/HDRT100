@@ -29,6 +29,8 @@ bool tdma_runtime_owner_get_staged_ring_config(
 bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot);
 bool tdma_runtime_owner_get_clk_train_snapshot(
     tdma_pio_spi_clk_train_snapshot_t *snapshot);
+bool tdma_runtime_owner_train_clock(uint32_t cycles);
+void tdma_runtime_owner_update_training_gate(void);
 bool tdma_runtime_owner_get_operating_profile(
     tdma_operating_profile_manager_t *snapshot);
 bool tdma_runtime_owner_stage_operating_profile(uint32_t level);

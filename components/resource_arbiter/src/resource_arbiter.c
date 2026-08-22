@@ -63,6 +63,26 @@ void resource_arbiter_publish_trigger_activity(bool capture_running, bool clock_
     osal_critical_exit();
 }
 
+void resource_arbiter_publish_calibration_training(bool active)
+{
+    osal_critical_enter();
+    if (!s_resource_arbiter.initialized) {
+        resource_arbiter_reset_locked();
+    }
+    s_resource_arbiter.snapshot.calibration_training_active = active;
+    osal_critical_exit();
+}
+
+void resource_arbiter_publish_tdma_clock_training(bool active)
+{
+    osal_critical_enter();
+    if (!s_resource_arbiter.initialized) {
+        resource_arbiter_reset_locked();
+    }
+    s_resource_arbiter.snapshot.tdma_clock_training_active = active;
+    osal_critical_exit();
+}
+
 void resource_arbiter_publish_training_activity(bool calibration_active,
                                                  bool tdma_clock_training_active)
 {

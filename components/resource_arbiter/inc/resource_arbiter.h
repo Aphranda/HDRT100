@@ -39,6 +39,8 @@ typedef struct {
 
 bool resource_arbiter_init(void);
 void resource_arbiter_publish_trigger_activity(bool capture_running, bool clock_running);
+void resource_arbiter_publish_calibration_training(bool active);
+void resource_arbiter_publish_tdma_clock_training(bool active);
 void resource_arbiter_publish_training_activity(bool calibration_active,
                                                  bool tdma_clock_training_active);
 bool resource_arbiter_can_begin_ota(void);

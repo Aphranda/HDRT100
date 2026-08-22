@@ -3,6 +3,7 @@
 #include "tdma_pio_spi_phys.h"
 #include "tdma_pio_spi_ring_adapter.h"
 #include "vdc_timestamp_clock.h"
+#include "resource_arbiter.h"
 
 #if defined(PROJECT_USE_FREERTOS) && PROJECT_USE_FREERTOS
 #include "FreeRTOS.h"
@@ -203,6 +204,27 @@ bool tdma_runtime_owner_get_clk_train_snapshot(
     }
     return tdma_pio_spi_phys_get_clk_train_snapshot(&s_tdma_pio_spi_phys,
                                                      snapshot);
+}
+
+bool tdma_runtime_owner_train_clock(uint32_t cycles)
+{
+    if (!s_tdma_runtime_owner_initialized || cycles == 0u ||
+        !tdma_service_ring_train_clock(&s_tdma_runtime_owner, cycles)) {
+        return false;
+    }
+    /* Publish before core1 consumes the command to close the admission race. */
+    resource_arbiter_publish_tdma_clock_training(true);
+    return true;
+}
+
+void tdma_runtime_owner_update_training_gate(void)
+{
+    tdma_pio_spi_clk_train_snapshot_t snapshot;
+    const bool active =
+        tdma_runtime_owner_get_clk_train_snapshot(&snapshot) &&
+        (snapshot.state == TDMA_PIO_SPI_CLK_TRAIN_FORWARDING ||
+         snapshot.state == TDMA_PIO_SPI_CLK_TRAIN_MASTER_RUNNING);
+    resource_arbiter_publish_tdma_clock_training(active);
 }
 
 bool tdma_runtime_owner_get_operating_profile(

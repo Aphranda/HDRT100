@@ -2479,9 +2479,7 @@ bool distributed_refmem_tdma_ring_arm(void)
 
 bool distributed_refmem_tdma_ring_train(uint32_t cycles)
 {
-    tdma_service_service_t *owner = tdma_runtime_owner_get();
-    return s_initialized && owner != NULL &&
-           tdma_service_ring_train_clock(owner, cycles);
+    return s_initialized && tdma_runtime_owner_train_clock(cycles);
 }
 
 bool distributed_refmem_tdma_ring_start(void)

@@ -978,6 +978,7 @@ void tdma_component_core1_service(void)
     if (s_vdc_tdma_service != NULL) {
         tdma_service_core1_service(s_vdc_tdma_service);
     }
+    tdma_runtime_owner_update_training_gate();
 }
 
 void vdc_dpll_manager_tdma_core1_service(void)

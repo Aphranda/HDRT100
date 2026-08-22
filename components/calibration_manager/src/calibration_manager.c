@@ -36,17 +36,11 @@ static void calibration_manager_publish_training_activity(void)
     const bool loopback_active =
         calibration_pio_loopback_get_snapshot(&training_loopback) &&
         training_loopback.armed != 0u;
-    tdma_pio_spi_clk_train_snapshot_t clock_training;
-    const bool tdma_training_active =
-        tdma_runtime_owner_get_clk_train_snapshot(&clock_training) &&
-        (clock_training.state == TDMA_PIO_SPI_CLK_TRAIN_FORWARDING ||
-         clock_training.state == TDMA_PIO_SPI_CLK_TRAIN_MASTER_RUNNING);
     const bool calibration_active =
         loopback_active ||
         __atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) ||
         s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
-    resource_arbiter_publish_training_activity(calibration_active,
-                                                tdma_training_active);
+    resource_arbiter_publish_calibration_training(calibration_active);
 }
 
 typedef enum {
@@ -265,8 +259,6 @@ void calibration_manager_service(void)
     s_status.state = 0u;
     osal_critical_exit();
 
-    calibration_manager_publish_training_activity();
-
     calibration_pio_loopback_snapshot_t raw;
     if (calibration_pio_loopback_get_snapshot(&raw) && raw.complete != 0u &&
         raw.epoch != s_loopback_processed_epoch) {
@@ -359,6 +351,7 @@ bool calibration_manager_start_loopback(uint32_t sample_words)
     };
     const bool accepted = calibration_pio_loopback_request_start(&config);
     if (accepted) {
+        resource_arbiter_publish_calibration_training(true);
         osal_critical_enter();
         s_status.command_seq++;
         s_status.state = 1u;
@@ -410,6 +403,7 @@ bool calibration_manager_start_bias(uint32_t expected_path_sum_ns,
         s_bias_active = false;
         return false;
     }
+    resource_arbiter_publish_calibration_training(true);
     return true;
 }
 
@@ -647,6 +641,7 @@ void calibration_manager_service_core1(void)
             p3.state == TDMA_PIO_SPI_P3_COMPLETE ? 1u : 0u;
         osal_critical_exit();
     }
+    calibration_manager_publish_training_activity();
 }
 
 bool calibration_manager_get_loopback_snapshot(
@@ -693,6 +688,7 @@ bool calibration_manager_request_p3(
         .signal_group = signal_group,
     };
     calibration_manager_p3_publish(CALIBRATION_P3_INTENT_START, &request);
+    resource_arbiter_publish_calibration_training(true);
     return true;
 }
 
@@ -745,6 +741,7 @@ bool calibration_manager_start_clk_coded(
     }
     calibration_manager_clk_coded_intent_publish(
         CALIBRATION_CLK_CODED_INTENT_START, request, gate);
+    resource_arbiter_publish_calibration_training(true);
     return true;
 }
 
