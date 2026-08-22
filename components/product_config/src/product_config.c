@@ -14,6 +14,9 @@
 #define PRODUCT_CONFIG_MAX_BOARD_NO 8u
 #define PRODUCT_CONFIG_SLOT_SIZE DRV_FLASH_PAGE_SIZE
 
+_Static_assert((OTA_PRODUCT_CONFIG_SIZE % PRODUCT_CONFIG_SLOT_SIZE) == 0u,
+               "Product Config store must contain whole program-page slots");
+
 typedef struct {
     uint32_t magic;
     uint32_t version;
@@ -264,6 +267,10 @@ bool product_config_set_usb_mode(product_config_usb_mode_t mode)
     product_config_record_t record = s_product_config;
     if (!product_config_record_is_valid(&record)) {
         product_config_set_default(&record);
+    }
+    if (record.usb_mode == (uint32_t)mode) {
+        s_product_config = record;
+        return true;
     }
 
     record.magic = PRODUCT_CONFIG_MAGIC;
