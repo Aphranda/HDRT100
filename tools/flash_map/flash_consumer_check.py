@@ -71,6 +71,8 @@ def check_source_consumers(root: Path) -> None:
             "INCLUDE flash_map_active.ldinc",
             "FLASH_ACTIVE_MAP_BOOTLOADER_ORIGIN",
             "FLASH_ACTIVE_MAP_BOOTLOADER_LENGTH",
+            "FLASH_IMAGE_ORIGIN",
+            "FLASH_IMAGE_LENGTH",
         ),
         "linker/rp2350_app_slot_a.ld": (
             "INCLUDE flash_map_active.ldinc",
@@ -88,6 +90,7 @@ def check_source_consumers(root: Path) -> None:
             "PROJECT_ACTIVE_BOOTLOADER_XIP",
             "PROJECT_ACTIVE_APP_A_XIP",
             "PROJECT_ACTIVE_BOOT_CONTROL_XIP",
+            "PROJECT_ACTIVE_RECOVERY_XIP",
             "--map-manifest",
         ),
     }
@@ -124,21 +127,33 @@ def check_link_maps(build_dir: Path, manifest: dict[str, Any]) -> None:
 
 def check_binary_sizes(build_dir: Path, manifest: dict[str, Any]) -> None:
     partitions = partitions_by_id(manifest)
+    candidate = "RECOVERY" in partitions
     binaries = {
         "DHRT100_BOOT.bin": "BOOTLOADER",
         "DHRT100.bin": "APP_A",
         "DHRT100_B.bin": "APP_B",
-        "ota_metadata_clear.bin": "BOOT_CONTROL",
+        ("factory_boot_control.bin" if candidate
+         else "ota_metadata_clear.bin"): "BOOT_CONTROL",
     }
+    if "RECOVERY" in partitions:
+        binaries["DHRT100_RECOVERY.bin"] = "RECOVERY"
     for filename, partition_id in binaries.items():
         path = build_dir / filename
         size = path.stat().st_size
         capacity = partitions[partition_id]["size"]
         if size > capacity:
             raise FlashConsumerError(f"{filename}: size {size} exceeds {partition_id} capacity {capacity}")
-    metadata_size = (build_dir / "ota_metadata_clear.bin").stat().st_size
+    metadata_name = ("factory_boot_control.bin" if candidate
+                     else "ota_metadata_clear.bin")
+    metadata_size = (build_dir / metadata_name).stat().st_size
     if metadata_size != partitions["BOOT_CONTROL"]["size"]:
-        raise FlashConsumerError("ota_metadata_clear.bin must cover the complete BOOT_CONTROL partition")
+        raise FlashConsumerError(
+            f"{metadata_name} must cover the complete BOOT_CONTROL partition")
+    if candidate:
+        if not (build_dir / "factory_map_manifest.bin").exists() or not (
+                build_dir / "factory_region_report.json").exists():
+            raise FlashConsumerError(
+                "v2 factory baseline manifest/report is missing")
 
 
 def check_ota_package(build_dir: Path, manifest: dict[str, Any],
@@ -187,11 +202,18 @@ def check_factory_uf2(build_dir: Path, manifest: dict[str, Any],
     xip_base = manifest["geometry"]["xip_base"]
     partitions = partitions_by_id(manifest)
     expected_addresses: set[int] = set()
+    candidate = "RECOVERY" in partitions
     inputs = (
         ("DHRT100_BOOT.bin", "BOOTLOADER"),
         ("DHRT100.bin", "APP_A"),
-        ("ota_metadata_clear.bin", "BOOT_CONTROL"),
+        (("factory_boot_control.bin" if candidate
+          else "ota_metadata_clear.bin"), "BOOT_CONTROL"),
     )
+    if candidate:
+        inputs += (
+            ("DHRT100_RECOVERY.bin", "RECOVERY"),
+            ("factory_map_manifest.bin", "OTA_STAGE"),
+        )
     for filename, partition_id in inputs:
         size = (build_dir / filename).stat().st_size
         start = xip_base + partitions[partition_id]["offset"]

@@ -48,7 +48,11 @@ def git_revision(root: Path) -> str:
 def collect_report(root: Path, build_dir: Path) -> dict[str, object]:
     build = build_dir if build_dir.is_absolute() else root / build_dir
     entries: list[dict[str, object]] = []
-    for name, map_name, dis_name, profile in ARTIFACTS:
+    artifacts = list(ARTIFACTS)
+    if (build / "DHRT100_RECOVERY.elf.map").exists():
+        artifacts.append(("recovery", "DHRT100_RECOVERY.elf.map",
+                          "DHRT100_RECOVERY.dis", "recovery"))
+    for name, map_name, dis_name, profile in artifacts:
         map_path = build / map_name
         dis_path = build / dis_name
         entry: dict[str, object] = {

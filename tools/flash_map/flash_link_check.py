@@ -51,6 +51,12 @@ BOOT_RAW_CALLERS = {
     "drv_flash_erase": {"boot_flash_service_erase"},
     "drv_flash_program": {"boot_flash_service_program"},
 }
+RECOVERY_FORBIDDEN_SYMBOL_TOKENS = set(BOOT_FORBIDDEN_SYMBOL_TOKENS) | {
+    "boot_flash_service",
+    "drv_flash_erase",
+    "drv_flash_program",
+    "ota_metadata_store",
+}
 
 MEMORY_RE = re.compile(
     r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s+"
@@ -170,39 +176,60 @@ def validate_link_contract(map_text: str, dis_text: str, profile: str = "app") -
     symbols, sections = parse_map_addresses(map_text)
     callers, bodies = parse_disassembly(dis_text)
 
-    if profile == "boot":
+    if profile in {"boot", "recovery"}:
         flash_region = regions.get("FLASH")
-        boot_origin = (symbols.get("FLASH_ACTIVE_MAP_BOOTLOADER_ORIGIN") or
-                       symbols.get("FLASH_COMPAT_MAP_BOOTLOADER_ORIGIN"))
-        boot_length = (symbols.get("FLASH_ACTIVE_MAP_BOOTLOADER_LENGTH") or
-                       symbols.get("FLASH_COMPAT_MAP_BOOTLOADER_LENGTH"))
+        if profile == "boot":
+            expected_origin = (symbols.get("FLASH_ACTIVE_MAP_BOOTLOADER_ORIGIN") or
+                               symbols.get("FLASH_COMPAT_MAP_BOOTLOADER_ORIGIN"))
+            expected_length = (symbols.get("FLASH_ACTIVE_MAP_BOOTLOADER_LENGTH") or
+                               symbols.get("FLASH_COMPAT_MAP_BOOTLOADER_LENGTH"))
+            image_name = "Bootloader"
+        else:
+            expected_origin = symbols.get("FLASH_ACTIVE_MAP_RECOVERY_ORIGIN")
+            expected_length = symbols.get("FLASH_ACTIVE_MAP_RECOVERY_LENGTH")
+            image_name = "Recovery"
         binary_end = symbols.get("__flash_binary_end")
         if flash_region is None:
-            failures.append("Boot link map has no FLASH memory region")
+            failures.append(f"{image_name} link map has no FLASH memory region")
         else:
             region_origin, region_length, _attributes = flash_region
-            if boot_origin is None or boot_length is None:
+            if expected_origin is None or expected_length is None:
                 failures.append(
-                    "Boot link map is missing generated Bootloader partition symbols"
+                    f"{image_name} link map is missing generated partition symbols"
                 )
             else:
-                if region_origin != boot_origin or region_length != boot_length:
+                if region_origin != expected_origin or region_length != expected_length:
                     failures.append(
-                        "Boot FLASH region disagrees with generated Bootloader partition: "
+                        f"{image_name} FLASH region disagrees with generated partition: "
                         f"region=0x{region_origin:08X}/0x{region_length:X} "
-                        f"symbol=0x{boot_origin:08X}/0x{boot_length:X}"
+                        f"symbol=0x{expected_origin:08X}/0x{expected_length:X}"
                     )
                 if binary_end is None:
-                    failures.append("Boot link map is missing __flash_binary_end")
-                elif binary_end > boot_origin + boot_length:
+                    failures.append(f"{image_name} link map is missing __flash_binary_end")
+                elif binary_end > expected_origin + expected_length:
                     failures.append(
-                        "Bootloader exceeds generated Bootloader partition: "
-                        f"end=0x{binary_end:08X} limit=0x{boot_origin + boot_length:08X}"
+                        f"{image_name} exceeds generated partition: "
+                        f"end=0x{binary_end:08X} "
+                        f"limit=0x{expected_origin + expected_length:08X}"
                     )
         boot_text = (map_text + "\n" + dis_text).lower()
-        for token in BOOT_FORBIDDEN_SYMBOL_TOKENS:
+        forbidden_tokens = (BOOT_FORBIDDEN_SYMBOL_TOKENS if profile == "boot"
+                            else RECOVERY_FORBIDDEN_SYMBOL_TOKENS)
+        for token in forbidden_tokens:
             if token in boot_text:
-                failures.append(f"forbidden Boot dependency linked: token={token}")
+                failures.append(
+                    f"forbidden {image_name} dependency linked: token={token}")
+        if profile == "recovery":
+            for required in (
+                "recovery_get_bcb_health",
+                "pota_bcb_store_init_read_only",
+                "pota_bcb_store_get_health_snapshot",
+                "reset_usb_boot",
+            ):
+                if required not in boot_text:
+                    failures.append(
+                        f"required Recovery dependency symbol missing: {required}")
+            return failures
         for required in (
             "bootloader_validate_slot_direct",
             "ota_metadata_load",
@@ -290,7 +317,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--map", type=Path, required=True, dest="map_path")
     parser.add_argument("--dis", type=Path, required=True, dest="dis_path")
-    parser.add_argument("--profile", choices=("app", "boot"), default="app")
+    parser.add_argument("--profile", choices=("app", "boot", "recovery"),
+                        default="app")
     return parser.parse_args()
 
 

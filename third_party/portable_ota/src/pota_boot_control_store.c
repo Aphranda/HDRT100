@@ -46,9 +46,14 @@ _Static_assert(sizeof(pota_bcb_commit_t) == POTA_BCB_PAGE_SIZE,
 _Static_assert(sizeof(pota_bcb_seal_t) == POTA_BCB_PAGE_SIZE,
                "BCB seal must occupy one program page");
 
-static bool platform_valid(const pota_bcb_store_t *store)
+static bool platform_read_valid(const pota_bcb_store_t *store)
 {
-    return store != NULL && store->platform.read_page != NULL &&
+    return store != NULL && store->platform.read_page != NULL;
+}
+
+static bool platform_write_valid(const pota_bcb_store_t *store)
+{
+    return platform_read_valid(store) &&
            store->platform.program_page != NULL &&
            store->platform.erase_lane != NULL;
 }
@@ -224,12 +229,27 @@ pota_bcb_result_t pota_bcb_store_init(pota_bcb_store_t *store,
                                        uint32_t map_version,
                                        uint32_t lane_page_count)
 {
+    if (platform == NULL || platform->program_page == NULL ||
+        platform->erase_lane == NULL) {
+        return POTA_BCB_RESULT_BAD_ARGUMENT;
+    }
+    return pota_bcb_store_init_read_only(store, platform, schema_version,
+                                         map_version, lane_page_count);
+}
+
+pota_bcb_result_t pota_bcb_store_init_read_only(
+    pota_bcb_store_t *store,
+    const pota_bcb_platform_t *platform,
+    uint32_t schema_version,
+    uint32_t map_version,
+    uint32_t lane_page_count)
+{
     if (store == NULL || platform == NULL || platform->read_page == NULL ||
-        platform->program_page == NULL || platform->erase_lane == NULL ||
         schema_version == 0u || map_version == 0u || lane_page_count < 3u ||
         records_per_lane(&(pota_bcb_store_t){.lane_page_count = lane_page_count}) == 0u) {
         return POTA_BCB_RESULT_BAD_ARGUMENT;
     }
+    (void)memset(store, 0, sizeof(*store));
     store->platform = *platform;
     store->schema_version = schema_version;
     store->map_version = map_version;
@@ -240,7 +260,8 @@ pota_bcb_result_t pota_bcb_store_init(pota_bcb_store_t *store,
 pota_bcb_result_t pota_bcb_store_select_newest(const pota_bcb_store_t *store,
                                                 pota_bcb_view_t *view)
 {
-    if (!platform_valid(store) || view == NULL || store->lane_page_count < 3u) {
+    if (!platform_read_valid(store) || view == NULL ||
+        store->lane_page_count < 3u) {
         return POTA_BCB_RESULT_BAD_ARGUMENT;
     }
 
@@ -366,7 +387,7 @@ pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,
                                          const pota_bcb_update_t *update,
                                          pota_bcb_view_t *view)
 {
-    if (!platform_valid(store) || update == NULL || view == NULL ||
+    if (!platform_write_valid(store) || update == NULL || view == NULL ||
         update->sequence == 0u ||
         update->payload_length > POTA_BCB_BODY_PAYLOAD_SIZE) {
         return POTA_BCB_RESULT_BAD_ARGUMENT;
@@ -424,7 +445,7 @@ pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,
 bool pota_bcb_store_get_wear_snapshot(const pota_bcb_store_t *store,
                                       pota_bcb_wear_snapshot_t *snapshot)
 {
-    if (store == NULL || snapshot == NULL || !platform_valid(store)) {
+    if (store == NULL || snapshot == NULL || !platform_read_valid(store)) {
         return false;
     }
     snapshot->program_page_count = store->program_page_count;
@@ -436,7 +457,7 @@ bool pota_bcb_store_get_health_snapshot(
     const pota_bcb_store_t *store,
     pota_bcb_health_snapshot_t *snapshot)
 {
-    if (!platform_valid(store) || snapshot == NULL ||
+    if (!platform_read_valid(store) || snapshot == NULL ||
         store->lane_page_count < 3u) {
         return false;
     }

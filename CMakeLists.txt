@@ -120,6 +120,9 @@ if(PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v1_compat")
     set(PROJECT_ACTIVE_APP_A_SIZE_HEX ${FLASH_COMPAT_MAP_APP_A_SIZE})
     set(PROJECT_ACTIVE_APP_B_XIP ${FLASH_COMPAT_MAP_APP_B_XIP_ADDRESS})
     set(PROJECT_ACTIVE_APP_B_SIZE_HEX ${FLASH_COMPAT_MAP_APP_B_SIZE})
+    set(PROJECT_ACTIVE_RECOVERY_XIP 0)
+    set(PROJECT_ACTIVE_RECOVERY_SIZE_HEX 0)
+    set(PROJECT_ACTIVE_OTA_STAGE_XIP 0)
     set(PROJECT_ACTIVE_BOOT_CONTROL_XIP ${FLASH_COMPAT_MAP_BOOT_CONTROL_XIP_ADDRESS})
     set(PROJECT_OTA_METADATA_SIZE ${FLASH_COMPAT_MAP_BOOT_CONTROL_SIZE})
     set(PROJECT_FACTORY_ARTIFACT_NAME DHRT100_FACTORY.uf2)
@@ -145,6 +148,9 @@ elseif(PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v2_candidate")
     set(PROJECT_ACTIVE_APP_A_SIZE_HEX ${FLASH_MAP_APP_A_SIZE})
     set(PROJECT_ACTIVE_APP_B_XIP ${FLASH_MAP_APP_B_XIP_ADDRESS})
     set(PROJECT_ACTIVE_APP_B_SIZE_HEX ${FLASH_MAP_APP_B_SIZE})
+    set(PROJECT_ACTIVE_RECOVERY_XIP ${FLASH_MAP_RECOVERY_XIP_ADDRESS})
+    set(PROJECT_ACTIVE_RECOVERY_SIZE_HEX ${FLASH_MAP_RECOVERY_SIZE})
+    set(PROJECT_ACTIVE_OTA_STAGE_XIP ${FLASH_MAP_OTA_STAGE_XIP_ADDRESS})
     set(PROJECT_ACTIVE_BOOT_CONTROL_XIP ${FLASH_MAP_BOOT_CONTROL_XIP_ADDRESS})
     set(PROJECT_OTA_METADATA_SIZE ${FLASH_MAP_BOOT_CONTROL_SIZE})
     set(PROJECT_FACTORY_ARTIFACT_NAME DHRT100_V2_CANDIDATE_FACTORY.uf2)
@@ -727,6 +733,65 @@ pico_set_linker_script(DHRT100_BOOT ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_boot
 
 pico_add_extra_outputs(DHRT100_BOOT)
 
+if(PROJECT_FLASH_DEPLOYMENT_V2)
+    add_executable(DHRT100_RECOVERY
+            bootloader/src/recovery_main.c
+            ${PROJECT_BUILD_INFO_SOURCE}
+            third_party/portable_ota/src/pota_crc32.c
+            third_party/portable_ota/src/pota_boot_control_store.c
+    )
+
+    pico_set_program_name(DHRT100_RECOVERY "DHRT100_RECOVERY")
+    pico_set_program_version(DHRT100_RECOVERY "0.1.0")
+    pico_enable_stdio_uart(DHRT100_RECOVERY OFF)
+    pico_enable_stdio_usb(DHRT100_RECOVERY ON)
+
+    target_include_directories(DHRT100_RECOVERY PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+            ${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include
+            ${CMAKE_CURRENT_LIST_DIR}/config
+    )
+    target_link_libraries(DHRT100_RECOVERY
+            pico_stdlib
+            pico_bootrom
+    )
+    target_compile_definitions(DHRT100_RECOVERY PRIVATE
+            PROJECT_FLASH_DEPLOYMENT_V2=1
+    )
+    target_compile_options(DHRT100_RECOVERY PRIVATE ${PROJECT_WARNING_FLAGS})
+    target_link_options(DHRT100_RECOVERY PRIVATE
+            "-L${CMAKE_CURRENT_BINARY_DIR}"
+            "-L${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen"
+            "-Wl,--defsym=FLASH_IMAGE_ORIGIN=${PROJECT_ACTIVE_RECOVERY_XIP}"
+            "-Wl,--defsym=FLASH_IMAGE_LENGTH=${PROJECT_ACTIVE_RECOVERY_SIZE_HEX}"
+    )
+    set_property(TARGET DHRT100_RECOVERY APPEND PROPERTY LINK_DEPENDS
+            ${CMAKE_CURRENT_BINARY_DIR}/flash_map_active.ldinc
+    )
+    add_dependencies(DHRT100_RECOVERY project_flash_contract_check project_build_info)
+    pico_set_linker_script(DHRT100_RECOVERY
+            ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_bootloader.ld)
+    pico_add_dis_output(DHRT100_RECOVERY)
+    pico_add_bin_output(DHRT100_RECOVERY)
+    pico_add_map_output(DHRT100_RECOVERY)
+
+    set(PROJECT_FACTORY_EXTRA_IMAGES
+            ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_RECOVERY.bin@${PROJECT_ACTIVE_RECOVERY_XIP}
+            ${CMAKE_CURRENT_BINARY_DIR}/factory_map_manifest.bin@${PROJECT_ACTIVE_OTA_STAGE_XIP})
+    set(PROJECT_FACTORY_EXTRA_DEPENDS
+            DHRT100_RECOVERY
+            ${CMAKE_CURRENT_BINARY_DIR}/factory_boot_control.bin
+            ${CMAKE_CURRENT_BINARY_DIR}/factory_map_manifest.bin
+            ${CMAKE_CURRENT_BINARY_DIR}/factory_region_report.json)
+    set(PROJECT_FACTORY_BOOT_CONTROL_IMAGE
+            ${CMAKE_CURRENT_BINARY_DIR}/factory_boot_control.bin)
+else()
+    set(PROJECT_FACTORY_EXTRA_IMAGES)
+    set(PROJECT_FACTORY_EXTRA_DEPENDS)
+    set(PROJECT_FACTORY_BOOT_CONTROL_IMAGE
+            ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin)
+endif()
+
 add_custom_command(
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/make_fill_bin.py
@@ -737,14 +802,43 @@ add_custom_command(
         VERBATIM
 )
 
+if(PROJECT_FLASH_DEPLOYMENT_V2)
+    add_custom_command(
+            OUTPUT
+                    ${CMAKE_CURRENT_BINARY_DIR}/factory_boot_control.bin
+                    ${CMAKE_CURRENT_BINARY_DIR}/factory_map_manifest.bin
+                    ${CMAKE_CURRENT_BINARY_DIR}/factory_region_report.json
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/make_factory_baseline.py
+                    --map-header ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.h
+                    --map-manifest ${PROJECT_ACTIVE_MAP_MANIFEST}
+                    --bcb-header ${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include/pota_boot_control_store.h
+                    --metadata-header ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc/ota_metadata.h
+                    --app-a ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.bin
+                    --boot-control ${CMAKE_CURRENT_BINARY_DIR}/factory_boot_control.bin
+                    --manifest-blob ${CMAKE_CURRENT_BINARY_DIR}/factory_map_manifest.bin
+                    --report ${CMAKE_CURRENT_BINARY_DIR}/factory_region_report.json
+            DEPENDS ${PROJECT_NAME}
+                    ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/make_factory_baseline.py
+                    ${PROJECT_ACTIVE_MAP_MANIFEST}
+                    ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.h
+                    ${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include/pota_boot_control_store.h
+                    ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc/ota_metadata.h
+            VERBATIM
+    )
+endif()
+
 add_custom_command(
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_FACTORY_ARTIFACT_NAME}
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
                 ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_FACTORY_ARTIFACT_NAME}
                 ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_BOOT.bin@${PROJECT_ACTIVE_BOOTLOADER_XIP}
                 ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.bin@${PROJECT_ACTIVE_APP_A_XIP}
-                ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin@${PROJECT_ACTIVE_BOOT_CONTROL_XIP}
-        DEPENDS DHRT100_BOOT ${PROJECT_NAME} ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
+                ${PROJECT_FACTORY_BOOT_CONTROL_IMAGE}@${PROJECT_ACTIVE_BOOT_CONTROL_XIP}
+                ${PROJECT_FACTORY_EXTRA_IMAGES}
+        DEPENDS DHRT100_BOOT ${PROJECT_NAME} ${PROJECT_FACTORY_EXTRA_DEPENDS}
+                ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin
+                ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
         VERBATIM
 )
 
@@ -788,3 +882,15 @@ add_custom_target(project_flash_link_check ALL
                 ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_link_check.py
         VERBATIM
 )
+
+if(PROJECT_FLASH_DEPLOYMENT_V2)
+    add_custom_command(TARGET project_flash_link_check POST_BUILD
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_link_check.py
+                    --profile recovery
+                    --map ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_RECOVERY.elf.map
+                    --dis ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_RECOVERY.dis
+            VERBATIM
+    )
+    add_dependencies(project_flash_link_check DHRT100_RECOVERY)
+endif()

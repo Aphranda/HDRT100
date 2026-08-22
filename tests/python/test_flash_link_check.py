@@ -164,5 +164,36 @@ def test_boot_link_contract_rejects_partition_size_overflow() -> None:
 
     failures = validate_link_contract(bad_map, disassembly, profile="boot")
 
-    assert any("exceeds generated Bootloader partition" in failure
+    assert any("Bootloader exceeds generated partition" in failure
+               for failure in failures)
+
+
+def recovery_map_with_size_symbols() -> str:
+    return valid_map().replace(
+        "0x10000000 FLASH_COMPAT_GEOMETRY_XIP_BASE = 0x10000000",
+        "0x10000000 FLASH_ACTIVE_GEOMETRY_XIP_BASE = 0x10000000\n"
+        "0x10480000 FLASH_ACTIVE_MAP_RECOVERY_ORIGIN = 0x10480000\n"
+        "0x00100000 FLASH_ACTIVE_MAP_RECOVERY_LENGTH = 0x100000\n"
+        "0x10483000 PROVIDE (__flash_binary_end = .)\n"
+        "0x10480100 recovery_get_bcb_health\n"
+        "0x10480200 pota_bcb_store_init_read_only\n"
+        "0x10480300 pota_bcb_store_get_health_snapshot\n"
+        "0x10480400 reset_usb_boot",
+    ).replace(
+        "FLASH            0x101c0000         0x00180000         xr",
+        "FLASH            0x10480000         0x00100000         xr",
+    )
+
+
+def test_recovery_link_contract_accepts_read_only_image() -> None:
+    assert validate_link_contract(
+        recovery_map_with_size_symbols(), "10480000 <main>:\n",
+        profile="recovery") == []
+
+
+def test_recovery_link_contract_rejects_raw_writer() -> None:
+    failures = validate_link_contract(
+        recovery_map_with_size_symbols() + "\n0x10480500 drv_flash_program\n",
+        "10480000 <main>:\n", profile="recovery")
+    assert any("forbidden Recovery dependency" in failure
                for failure in failures)

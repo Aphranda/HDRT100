@@ -85,6 +85,12 @@ pota_bcb_result_t pota_bcb_store_init(pota_bcb_store_t *store,
                                        uint32_t schema_version,
                                        uint32_t map_version,
                                        uint32_t lane_page_count);
+pota_bcb_result_t pota_bcb_store_init_read_only(
+    pota_bcb_store_t *store,
+    const pota_bcb_platform_t *platform,
+    uint32_t schema_version,
+    uint32_t map_version,
+    uint32_t lane_page_count);
 pota_bcb_result_t pota_bcb_store_select_newest(const pota_bcb_store_t *store,
                                                 pota_bcb_view_t *view);
 pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,

@@ -274,6 +274,36 @@ static void test_boot_control_facade_owner_boundary(void)
            POTA_BCB_RESULT_BAD_ARGUMENT);
 }
 
+static void test_read_only_store_reconstructs_without_write_callbacks(void)
+{
+    fake_flash_t flash;
+    fake_init(&flash);
+    pota_bcb_store_t writer = make_store(&flash);
+    pota_bcb_view_t view;
+    pota_bcb_update_t first = update(1u, 0x5Au);
+    assert(pota_bcb_store_append(&writer, &first, &view) ==
+           POTA_BCB_RESULT_OK);
+
+    const pota_bcb_platform_t read_only_platform = {
+        .context = &flash,
+        .read_page = fake_read,
+    };
+    pota_bcb_store_t reader;
+    assert(pota_bcb_store_init_read_only(&reader, &read_only_platform,
+                                         1u, 2u, TEST_LANE_PAGES) ==
+           POTA_BCB_RESULT_OK);
+    assert(pota_bcb_store_select_newest(&reader, &view) ==
+           POTA_BCB_RESULT_OK);
+    assert(view.update.sequence == 1u && view.update.payload[0] == 0x5Au);
+
+    pota_bcb_health_snapshot_t health;
+    assert(pota_bcb_store_get_health_snapshot(&reader, &health));
+    assert(health.valid_lane_count == 1u);
+    assert(health.valid_record_count == 1u);
+    assert(pota_bcb_store_append(&reader, &first, &view) ==
+           POTA_BCB_RESULT_BAD_ARGUMENT);
+}
+
 int main(void)
 {
     test_append_select_and_replay();
@@ -281,6 +311,7 @@ int main(void)
     test_gc_preserves_old_until_new_lane_sealed();
     test_health_snapshot_reconstructs_from_flash();
     test_boot_control_facade_owner_boundary();
+    test_read_only_store_reconstructs_without_write_callbacks();
     puts("portable BCB store tests passed");
     return 0;
 }

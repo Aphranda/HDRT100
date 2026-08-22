@@ -48,10 +48,12 @@ typedef struct {
 static bool ota_metadata_is_valid(const ota_metadata_t *metadata);
 static void ota_metadata_upgrade_if_needed(ota_metadata_t *metadata);
 
+#if !defined(PROJECT_FLASH_DEPLOYMENT_V2) || !PROJECT_FLASH_DEPLOYMENT_V2
 static uint32_t ota_metadata_copy_offset(uint32_t copy_index)
 {
     return (copy_index == 0u) ? OTA_METADATA_COPY_A_OFFSET : OTA_METADATA_COPY_B_OFFSET;
 }
+#endif
 
 static uint32_t ota_metadata_bcb_page_offset(uint32_t lane, uint32_t page)
 {
@@ -148,6 +150,12 @@ static void ota_metadata_update_crc(ota_metadata_t *metadata)
     portable_ota_port_metadata_update_crc(metadata);
 }
 
+static bool ota_metadata_is_valid(const ota_metadata_t *metadata)
+{
+    return portable_ota_port_metadata_is_valid(metadata);
+}
+
+#if !defined(PROJECT_FLASH_DEPLOYMENT_V2) || !PROJECT_FLASH_DEPLOYMENT_V2
 static void ota_metadata_init_extension_defaults(ota_metadata_t *metadata)
 {
     portable_ota_port_metadata_init_extension_defaults(metadata);
@@ -162,11 +170,6 @@ static uint32_t ota_metadata_v2_crc32(const ota_metadata_v2_t *metadata)
     ota_metadata_v2_t copy = *metadata;
     copy.metadata_crc32 = 0u;
     return ota_crc32_compute((const uint8_t *)&copy, sizeof(copy));
-}
-
-static bool ota_metadata_is_valid(const ota_metadata_t *metadata)
-{
-    return portable_ota_port_metadata_is_valid(metadata);
 }
 
 static bool ota_metadata_v2_is_valid(const ota_metadata_v2_t *metadata)
@@ -213,6 +216,7 @@ static void ota_metadata_set_default(ota_metadata_t *metadata)
 {
     portable_ota_port_metadata_set_default(metadata);
 }
+#endif
 
 static void ota_metadata_upgrade_if_needed(ota_metadata_t *metadata)
 {
@@ -228,6 +232,10 @@ bool ota_metadata_load(ota_metadata_t *metadata)
     if (ota_metadata_load_bcb(metadata)) {
         return true;
     }
+
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    return false;
+#else
 
     ota_metadata_t copies[OTA_METADATA_COPY_COUNT];
     bool valid[OTA_METADATA_COPY_COUNT] = {false, false};
@@ -259,6 +267,7 @@ bool ota_metadata_load(ota_metadata_t *metadata)
 
     ota_metadata_set_default(metadata);
     return true;
+#endif
 }
 
 bool ota_metadata_store(const ota_metadata_t *metadata)

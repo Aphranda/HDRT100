@@ -492,6 +492,7 @@ static bool bootloader_app_vector_is_valid(uint32_t vector_offset)
     return (vector[1] & 1u) != 0u;
 }
 
+#if !defined(PROJECT_FLASH_DEPLOYMENT_V2) || !PROJECT_FLASH_DEPLOYMENT_V2
 static bool bootloader_active_app_is_valid(const ota_metadata_t *metadata)
 {
     if (metadata != NULL &&
@@ -504,6 +505,17 @@ static bool bootloader_active_app_is_valid(const ota_metadata_t *metadata)
 
     return bootloader_app_vector_is_valid(BOOTLOADER_APP_VECTOR_OFFSET);
 }
+#endif
+
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+static bool bootloader_recovery_is_valid(void)
+{
+    return ota_image_validate_app_vector(
+        FLASH_DEPLOYMENT_MAP_RECOVERY_OFFSET,
+        FLASH_DEPLOYMENT_MAP_RECOVERY_SIZE,
+        FLASH_DEPLOYMENT_MAP_RECOVERY_OFFSET);
+}
+#endif
 
 static bool bootloader_direct_active_app_is_valid(const ota_metadata_t *metadata)
 {
@@ -550,9 +562,17 @@ int main(void)
         bootloader_jump_to_app(ota_partition_slot_offset((ota_slot_t)metadata.active_slot));
     }
 
+#if !defined(PROJECT_FLASH_DEPLOYMENT_V2) || !PROJECT_FLASH_DEPLOYMENT_V2
     if (bootloader_active_app_is_valid(metadata_loaded ? &metadata : NULL)) {
         bootloader_jump_to_app(BOOTLOADER_APP_VECTOR_OFFSET);
     }
+#endif
+
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    if (bootloader_recovery_is_valid()) {
+        bootloader_jump_to_app(FLASH_DEPLOYMENT_MAP_RECOVERY_OFFSET);
+    }
+#endif
 
     while (true) {
         tight_loop_contents();
