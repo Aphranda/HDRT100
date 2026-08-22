@@ -87,3 +87,23 @@ def test_link_contract_rejects_direct_synchronous_raw_call() -> None:
     failures = validate_link_contract(valid_map(), bad_disassembly)
 
     assert any("synchronous raw caller linked into App" in failure for failure in failures)
+
+
+def test_boot_link_contract_rejects_unapproved_raw_caller() -> None:
+    boot_disassembly = """10000000 <main>:
+ 10000000: bl 10000100 <drv_flash_erase>
+10000100 <drv_flash_erase>:
+ 10000100: bx lr
+10000200 <ota_metadata_flash_erase>:
+ 10000200: bl 10000100 <drv_flash_erase>
+10000300 <ota_metadata_flash_program>:
+ 10000300: bl 10000400 <drv_flash_program>
+10000400 <drv_flash_program>:
+ 10000400: bx lr
+10000500 <legacy_writer>:
+ 10000500: bl 10000100 <drv_flash_erase>
+"""
+
+    failures = validate_link_contract(valid_map(), boot_disassembly, profile="boot")
+
+    assert any("Boot raw caller drift" in failure for failure in failures)

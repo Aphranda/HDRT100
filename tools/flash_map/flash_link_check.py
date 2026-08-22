@@ -47,6 +47,10 @@ BOOT_FORBIDDEN_SYMBOL_TOKENS = (
     "storage_manager",
     "ota_ao",
 )
+BOOT_RAW_CALLERS = {
+    "drv_flash_erase": {"main", "ota_metadata_flash_erase"},
+    "drv_flash_program": {"main", "ota_metadata_flash_program"},
+}
 
 MEMORY_RE = re.compile(
     r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s+"
@@ -173,6 +177,13 @@ def validate_link_contract(map_text: str, dis_text: str, profile: str = "app") -
         ):
             if required not in boot_text:
                 failures.append(f"required Boot dependency symbol missing: {required}")
+        for target, allowed in BOOT_RAW_CALLERS.items():
+            actual = callers[target]
+            if actual != allowed:
+                failures.append(
+                    f"Boot raw caller drift for {target}: "
+                    f"expected={sorted(allowed)} actual={sorted(actual)}"
+                )
         return failures
 
     if "RAM" not in regions:
