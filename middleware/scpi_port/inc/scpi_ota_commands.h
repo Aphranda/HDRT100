@@ -23,6 +23,7 @@ scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context);
 scpi_result_t scpi_cmd_ota_stream_data(scpi_t *context);
 scpi_result_t scpi_cmd_ota_stream_close(scpi_t *context);
 scpi_result_t scpi_cmd_ota_stream_abort(scpi_t *context);
+scpi_result_t scpi_cmd_ota_stream_boot(scpi_t *context);
 scpi_result_t scpi_cmd_ota_stream_status_q(scpi_t *context);
 
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
@@ -68,6 +69,7 @@ scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context);
     {.pattern = "SYSTem:OTA:STReam:DATA", .callback = scpi_cmd_ota_stream_data}, \
     {.pattern = "SYSTem:OTA:STReam:CLOSe", .callback = scpi_cmd_ota_stream_close}, \
     {.pattern = "SYSTem:OTA:STReam:ABORt", .callback = scpi_cmd_ota_stream_abort}, \
+    {.pattern = "SYSTem:OTA:STReam:BOOT", .callback = scpi_cmd_ota_stream_boot}, \
     {.pattern = "SYSTem:OTA:STReam:STATus?", .callback = scpi_cmd_ota_stream_status_q} \
     SCPI_OTA_FAULT_INJECTION_COMMANDS
 

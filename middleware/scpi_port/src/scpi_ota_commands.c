@@ -5,6 +5,7 @@
 
 #include "distributed_config.h"
 #include "drv_flash.h"
+#include "drv_watchdog.h"
 #include "ota_ao.h"
 #include "product_config.h"
 #include "scpi_port_internal.h"
@@ -422,6 +423,22 @@ scpi_result_t scpi_cmd_ota_stream_abort(scpi_t *context)
     return portable_ota_port_stream_abort(source) == POTA_STREAM_INGRESS_OK
                ? scpi_port_result_ok(context)
                : SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_ota_stream_boot(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+    pota_stream_ingress_status_t status;
+    if (!portable_ota_port_stream_get_status(&status) ||
+        status.state != POTA_STREAM_STATE_READY_TO_REBOOT) {
+        return SCPI_RES_ERR;
+    }
+    drv_watchdog_reboot(50u);
+    return scpi_port_result_ok(context);
 }
 
 scpi_result_t scpi_cmd_ota_stream_status_q(scpi_t *context)
