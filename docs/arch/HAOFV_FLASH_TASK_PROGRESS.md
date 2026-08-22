@@ -48,6 +48,8 @@ Last updated: 2026-08-23
   `READY_TO_REBOOT` 而返回非零，但 transcript 已记录最终 `COMMITTED`；这不是板端失败。
 - 额外观察：重复验证流程在已完成确认后得到 `INVALID_STATE`，随后使用独立 boot/commit 工具
   恢复为无错误状态；该负向结果说明 confirm 入口不接受无 pending 状态。
+- 主机回归：`tools/tests/run_host_unit_tests.ps1 -BuildDir build-host-after-bcb` 完成 30/30，
+  其中 portable BCB、FlashTransaction journal、FlashMap、lockout 和 TDMA/RefMem 相关套件均通过。
 - 边界：本次仍是 v1 compatibility map 的 A/B 部署，未写 v2 高地址；未执行双 lane 损坏、
   lane seal/commit/body 掉电注入、空 BCB Recovery、security counter/anti-rollback 或 BOOTSEL。
 
