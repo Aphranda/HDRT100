@@ -51,6 +51,16 @@ Last updated: 2026-08-23
   exhausted/revert、vector/hash/signature/Recovery 验证，M3-03/M3 退出门禁保持未完成。若
   Boot 接入失败可独立 revert portable façade，不影响现有 v1 状态机。
 
+### FLASH-TASK-20260823-029 - DHRT100 hardware probe blocked
+
+- 状态：硬件门禁未完成。系统只枚举到 USB-Enhanced-SERIAL CH343，序列号
+  `5C93186767`；未获得可确认的 DHRT100 `*IDN?` 或固件 build 响应。
+- 操作：只读启动 `tools/flash_map/flash_map_board_validate.py`，使用当前串口探测
+  `*IDN?`、`SYST:FW:BUILD?` 和 FlashMap/传感器查询；在超时且无报告生成后中止。
+  未执行 BOOTSEL、烧录、擦除、掉电、回退或任何写命令。
+- 结论：该串口名称不作为板卡身份；DHRT100 M1/M3/M4 的物理 HIL、烧录和回退证据继续
+  保持未完成，待固件重新枚举且 `*IDN?` 明确返回 DHRT100 后再重试。
+
 ### FLASH-TASK-20260823-025 - signed manifest extension 与 counter gate
 
 - 状态：M3-04 增加固定 manifest extension 的 portable parser/packager boundary；这是信任链
