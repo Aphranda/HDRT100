@@ -209,6 +209,8 @@ typedef struct {
     uint32_t ring_profile_crc32;
     uint32_t ring_schedule_crc32;
     uint32_t ring_feedback_timeout_ns;
+    uint32_t ring_loop_delay_ns;
+    uint32_t ring_loop_delay_tolerance_ns;
     uint32_t ring_adapter_started;
     uint32_t ring_adapter_start_count;
     uint32_t ring_adapter_stop_count;
@@ -428,6 +430,9 @@ bool tdma_service_configure_foundation_profile(
 bool tdma_service_set_operating_profile(
     tdma_service_service_t *service,
     const tdma_operating_profile_t *profile);
+bool tdma_service_set_loop_delay_ns(tdma_service_service_t *service,
+                                    uint32_t loop_delay_ns,
+                                    uint32_t tolerance_ns);
 bool tdma_service_ring_arm(tdma_service_service_t *service);
 bool tdma_service_ring_train_clock(tdma_service_service_t *service,
                                    uint32_t cycles);

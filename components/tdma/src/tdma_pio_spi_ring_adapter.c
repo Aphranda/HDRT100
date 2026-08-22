@@ -228,6 +228,7 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->up_tx_frame_crc32 = 0u;
     adapter->down_rx_frame_crc32 = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
+    adapter->rx_ready_timestamp_ns = 0ull;
     adapter->feedback_rx_timestamp_ns = 0ull;
     adapter->last_rx_service_ns = 0ull;
     adapter->last_rx_packet_size = 0u;
@@ -257,6 +258,7 @@ static void tdma_pio_spi_ring_adapter_stop(void *context)
     adapter->up_tx_frame_crc32 = 0u;
     adapter->down_rx_frame_crc32 = 0u;
     adapter->reference_tx_timestamp_ns = 0ull;
+    adapter->rx_ready_timestamp_ns = 0ull;
     adapter->feedback_rx_timestamp_ns = 0ull;
     adapter->last_rx_service_ns = 0ull;
     adapter->last_rx_packet_size = 0u;
@@ -319,6 +321,19 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
     /* Only a physical-layer timestamp may serve as reference TX evidence.
      * A zero timestamp keeps the correlation gate closed (TIMESTAMP_MISSING). */
     adapter->reference_tx_timestamp_ns = tx_timestamp_ns;
+    if (tx_timestamp_ns != 0ull && adapter->config.loop_delay_ns != 0u) {
+        const uint32_t tolerance = adapter->config.loop_delay_tolerance_ns;
+        const uint32_t lower_bound =
+            adapter->config.loop_delay_ns > tolerance
+                ? adapter->config.loop_delay_ns - tolerance
+                : 0u;
+        adapter->rx_ready_timestamp_ns =
+            UINT64_MAX - tx_timestamp_ns < (uint64_t)lower_bound
+                ? UINT64_MAX
+                : tx_timestamp_ns + (uint64_t)lower_bound;
+    } else {
+        adapter->rx_ready_timestamp_ns = 0ull;
+    }
 
     tdma_transport_frame_view_t view;
     if (tdma_transport_frame_decode(packet,
@@ -562,13 +577,29 @@ static bool tdma_pio_spi_ring_adapter_rx_once(
 #define TDMA_PIO_SPI_RING_ADAPTER_RX_POLLS 4u
 
 static bool tdma_pio_spi_ring_adapter_rx_poll(
-    tdma_pio_spi_ring_adapter_t *adapter)
+    tdma_pio_spi_ring_adapter_t *adapter,
+    uint64_t now_ns)
 {
+    if (adapter == NULL) {
+        return false;
+    }
+    /* The DMA/PIO capture remains armed continuously.  Only reference-node
+     * feedback is held until the calibrated loop-delay lower bound; forward
+     * nodes must consume RX immediately so cut-through forwarding is not
+     * delayed by the full-ring measurement. */
+    if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
+        adapter->rx_ready_timestamp_ns != 0ull &&
+        now_ns < adapter->rx_ready_timestamp_ns) {
+        return false;
+    }
     bool rx_ok = false;
     for (uint32_t i = 0u; i < TDMA_PIO_SPI_RING_ADAPTER_RX_POLLS; i++) {
         if (tdma_pio_spi_ring_adapter_rx_once(adapter)) {
             rx_ok = true;
         }
+    }
+    if (rx_ok && adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE) {
+        adapter->rx_ready_timestamp_ns = 0ull;
     }
     return rx_ok;
 }
@@ -714,7 +745,7 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
         } else {
             tx_ok = true; /* throttled round: keep the UP leg running. */
         }
-        rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter);
+        rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter, now_ns);
     } else {
         /* Follower node (half-duplex ring): receives the frame from the
          * previous board on the uplink RX leg and re-emits it toward the next
@@ -838,6 +869,10 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
         snapshot->schedule_crc32 = adapter->config.schedule_crc32;
         snapshot->ring_profile_crc32 = adapter->config.ring_profile_crc32;
         snapshot->feedback_timeout_ns = adapter->config.feedback_timeout_ns;
+        snapshot->loop_delay_ns = adapter->config.loop_delay_ns;
+        snapshot->loop_delay_tolerance_ns =
+            adapter->config.loop_delay_tolerance_ns;
+        snapshot->rx_ready_timestamp_ns = adapter->rx_ready_timestamp_ns;
         const uint32_t sequence_end =
             __atomic_load_n(&adapter->snapshot_guard, __ATOMIC_ACQUIRE);
         if (sequence_begin == sequence_end && (sequence_end & 1u) == 0u) {

@@ -2420,6 +2420,36 @@ scpi_result_t scpi_cmd_system_tdma_ring_train(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_ring_loop_delay(scpi_t *context)
+{
+    uint32_t loop_delay_ns = 0u;
+    uint32_t tolerance_ns = 0u;
+    if (!scpi_port_read_u32(context, &loop_delay_ns)) {
+        return SCPI_RES_ERR;
+    }
+    (void)scpi_port_read_u32(context, &tolerance_ns);
+    if (!tdma_runtime_owner_set_loop_delay_ns(loop_delay_ns,
+                                              tolerance_ns)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_LOOP_DELAY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, loop_delay_ns);
+    SCPI_ResultUInt32(context, tolerance_ns);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_ring_loop_delay_q(scpi_t *context)
+{
+    tdma_service_ring_runtime_config_t config;
+    if (!tdma_runtime_owner_get_staged_ring_config(&config)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_LOOP_DELAY_QUERY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, config.loop_delay_ns);
+    SCPI_ResultUInt32(context, config.loop_delay_tolerance_ns);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_ring_train_status_q(scpi_t *context)
 {
     tdma_pio_spi_clk_train_snapshot_t train;

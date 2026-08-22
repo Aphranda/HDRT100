@@ -109,6 +109,9 @@ typedef struct {
     uint32_t schedule_crc32;
     uint32_t ring_profile_crc32;
     uint32_t feedback_timeout_ns;
+    uint32_t loop_delay_ns;
+    uint32_t loop_delay_tolerance_ns;
+    uint64_t rx_ready_timestamp_ns;
     uint32_t flight_map_configured;
     uint32_t flight_map_active;
     uint32_t flight_map_crc32;
@@ -159,6 +162,7 @@ typedef struct {
     uint8_t last_rx_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t last_rx_packet_size;
     uint64_t next_tx_deadline_ns;
+    uint64_t rx_ready_timestamp_ns;
     struct {
         uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
         size_t packet_size;

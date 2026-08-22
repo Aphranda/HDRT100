@@ -35,6 +35,12 @@ typedef struct {
     uint32_t operating_profile_crc32;
     uint32_t baud_hz;
     uint32_t cycle_period_ns;
+    /* Measured P1/P2 full-ring return delay.  Zero means no calibrated
+     * minimum is available yet; feedback_timeout_ns remains the hard upper
+     * bound. */
+    uint32_t loop_delay_ns;
+    /* P1/P2 uncertainty budget used around loop_delay_ns. */
+    uint32_t loop_delay_tolerance_ns;
     uint32_t feedback_timeout_ns;
     uint32_t tx_dma_channel_id;
     uint32_t rx_dma_channel_id;
@@ -96,6 +102,8 @@ typedef struct {
     uint32_t operating_profile_crc32;
     uint32_t baud_hz;
     uint32_t cycle_period_ns;
+    uint32_t loop_delay_ns;
+    uint32_t loop_delay_tolerance_ns;
     uint32_t feedback_timeout_ns;
     uint32_t tx_dma_channel_id;
     uint32_t rx_dma_channel_id;
@@ -143,6 +151,8 @@ typedef struct {
     volatile uint32_t operating_profile_crc32;
     volatile uint32_t baud_hz;
     volatile uint32_t cycle_period_ns;
+    volatile uint32_t loop_delay_ns;
+    volatile uint32_t loop_delay_tolerance_ns;
     volatile uint32_t feedback_timeout_ns;
     volatile uint32_t tx_dma_channel_id;
     volatile uint32_t rx_dma_channel_id;

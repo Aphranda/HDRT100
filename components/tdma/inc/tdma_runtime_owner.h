@@ -33,6 +33,10 @@ bool tdma_runtime_owner_get_operating_profile(
     tdma_operating_profile_manager_t *snapshot);
 bool tdma_runtime_owner_stage_operating_profile(uint32_t level);
 bool tdma_runtime_owner_apply_operating_profile(void);
+/* Stage the measured P1/P2 full-ring receive window while the ring is
+ * stopped.  Core1 consumes it on the next ARM/START. */
+bool tdma_runtime_owner_set_loop_delay_ns(uint32_t loop_delay_ns,
+                                          uint32_t tolerance_ns);
 /* Core0-facing guarded intent publication.  Only
  * tdma_runtime_owner_cal_loopback_service() on core1 may touch PIO/SM/DMA. */
 bool tdma_runtime_owner_cal_loopback_start(uint32_t sample_hz,

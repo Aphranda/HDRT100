@@ -115,6 +115,8 @@ int main(void)
         .operating_profile_crc32 = 0x99AABBCCu,
         .baud_hz = 10000000u,
         .cycle_period_ns = 1000u,
+        .loop_delay_ns = 700u,
+        .loop_delay_tolerance_ns = 300u,
         .feedback_timeout_ns = 10000u,
         .tx_dma_channel_id = TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID,
         .rx_dma_channel_id = TDMA_PROFILE_DEFAULT_RX_DMA_CHANNEL_ID,
@@ -205,6 +207,12 @@ int main(void)
     failed += expect_u32("feedback round trip",
                          snapshot.feedback_round_trip_ns,
                          500u);
+    failed += expect_u32("loop delay staged",
+                         snapshot.loop_delay_ns,
+                         700u);
+    failed += expect_u32("loop delay tolerance staged",
+                         snapshot.loop_delay_tolerance_ns,
+                         300u);
     failed += expect_u32("idle tx evidence",
                          snapshot.idle_beacon_tx_count,
                          3u);
@@ -223,6 +231,15 @@ int main(void)
     failed += expect_u32("feedback timeout reason",
                          snapshot.last_reason,
                          TDMA_RING_RUNTIME_REASON_TIMESTAMP_MISSING);
+
+    adapter.status.feedback_rx_timestamp_ns = 1000300ull;
+    adapter.status.up_tx_sequence = 12u;
+    adapter.status.down_rx_sequence = 12u;
+    tdma_ring_runtime_service(&runtime);
+    (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
+    failed += expect_u32("loop delay lower bound rejects early feedback",
+                         snapshot.simultaneous_feedback_loop_evidence,
+                         0u);
 
     adapter.status.feedback_rx_timestamp_ns = 1000500ull;
     adapter.status.up_tx_sequence = 10u;

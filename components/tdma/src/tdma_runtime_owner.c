@@ -318,6 +318,17 @@ bool tdma_runtime_owner_get_cal_loopback_snapshot(
                                                        snapshot);
 }
 
+bool tdma_runtime_owner_set_loop_delay_ns(uint32_t loop_delay_ns,
+                                          uint32_t tolerance_ns)
+{
+    if (!s_tdma_runtime_owner_initialized) {
+        return false;
+    }
+    return tdma_service_set_loop_delay_ns(&s_tdma_runtime_owner,
+                                          loop_delay_ns,
+                                          tolerance_ns);
+}
+
 bool tdma_runtime_owner_get_staged_ring_config(
     tdma_service_ring_runtime_config_t *snapshot)
 {

@@ -510,6 +510,8 @@ bool tdma_service_configure_foundation_profile(
             service->operating_profile.profile_crc32,
         .baud_hz = service->operating_profile.baud_hz,
         .cycle_period_ns = service->operating_profile.cycle_period_ns,
+        .loop_delay_ns = 0u,
+        .loop_delay_tolerance_ns = 0u,
         .feedback_timeout_ns = (uint32_t)feedback_timeout_ns,
         .tx_dma_channel_id = profile->resource.tx_dma_channel_id,
         .rx_dma_channel_id = profile->resource.rx_dma_channel_id,
@@ -576,6 +578,26 @@ bool tdma_service_set_operating_profile(
     }
     service->operating_profile = *profile;
     service->ring_staged_config = staged;
+    return true;
+}
+
+bool tdma_service_set_loop_delay_ns(tdma_service_service_t *service,
+                                    uint32_t loop_delay_ns,
+                                    uint32_t tolerance_ns)
+{
+    tdma_ring_runtime_snapshot_t snapshot;
+    if (service == NULL ||
+        !tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
+        snapshot.enabled != 0u ||
+        service->ring_staged_config.enabled == 0u ||
+        loop_delay_ns > service->ring_staged_config.feedback_timeout_ns) {
+        return false;
+    }
+    if (loop_delay_ns == 0u) {
+        tolerance_ns = 0u;
+    }
+    service->ring_staged_config.loop_delay_ns = loop_delay_ns;
+    service->ring_staged_config.loop_delay_tolerance_ns = tolerance_ns;
     return true;
 }
 
@@ -1139,6 +1161,9 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
     snapshot->ring_profile_crc32 = ring_snapshot.ring_profile_crc32;
     snapshot->ring_schedule_crc32 = ring_snapshot.schedule_crc32;
     snapshot->ring_feedback_timeout_ns = ring_snapshot.feedback_timeout_ns;
+    snapshot->ring_loop_delay_ns = ring_snapshot.loop_delay_ns;
+    snapshot->ring_loop_delay_tolerance_ns =
+        ring_snapshot.loop_delay_tolerance_ns;
     snapshot->ring_adapter_started = ring_snapshot.adapter_started;
     snapshot->ring_adapter_start_count = ring_snapshot.adapter_start_count;
     snapshot->ring_adapter_stop_count = ring_snapshot.adapter_stop_count;

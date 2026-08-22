@@ -80,8 +80,14 @@ static bool tdma_ring_runtime_feedback_correlated(
     }
     const uint64_t delta = status->feedback_rx_timestamp_ns -
                            status->reference_tx_timestamp_ns;
+    const uint32_t loop_delay_lower_bound_ns =
+        runtime->loop_delay_ns > runtime->loop_delay_tolerance_ns
+            ? runtime->loop_delay_ns - runtime->loop_delay_tolerance_ns
+            : 0u;
     if (delta > UINT32_MAX || runtime->feedback_timeout_ns == 0u ||
-        delta > runtime->feedback_timeout_ns) {
+        delta > runtime->feedback_timeout_ns ||
+        (runtime->loop_delay_ns != 0u &&
+         delta < loop_delay_lower_bound_ns)) {
         return false;
     }
     *round_trip_ns = (uint32_t)delta;
@@ -122,6 +128,9 @@ bool tdma_ring_runtime_validate_config(
         config->operating_profile_crc32 == 0u ||
         config->baud_hz < 1000000u || config->baud_hz > 50000000u ||
         config->cycle_period_ns == 0u ||
+        (config->loop_delay_ns != 0u &&
+         config->feedback_timeout_ns != 0u &&
+         config->loop_delay_ns > config->feedback_timeout_ns) ||
         config->feedback_timeout_ns == 0u ||
         config->tx_dma_channel_id == TDMA_RESOURCE_ID_UNUSED ||
         config->rx_dma_channel_id == TDMA_RESOURCE_ID_UNUSED ||
@@ -165,6 +174,8 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->operating_profile_crc32 = 0u;
         runtime->baud_hz = 0u;
         runtime->cycle_period_ns = 0u;
+        runtime->loop_delay_ns = 0u;
+        runtime->loop_delay_tolerance_ns = 0u;
         runtime->feedback_timeout_ns = 0u;
         runtime->tx_dma_channel_id = TDMA_RESOURCE_ID_UNUSED;
         runtime->rx_dma_channel_id = TDMA_RESOURCE_ID_UNUSED;
@@ -181,6 +192,8 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->operating_profile_crc32 = config->operating_profile_crc32;
         runtime->baud_hz = config->baud_hz;
         runtime->cycle_period_ns = config->cycle_period_ns;
+        runtime->loop_delay_ns = config->loop_delay_ns;
+        runtime->loop_delay_tolerance_ns = config->loop_delay_tolerance_ns;
         runtime->feedback_timeout_ns = config->feedback_timeout_ns;
         runtime->tx_dma_channel_id = config->tx_dma_channel_id;
         runtime->rx_dma_channel_id = config->rx_dma_channel_id;
@@ -342,6 +355,8 @@ void tdma_ring_runtime_service(tdma_ring_runtime_t *runtime)
                 .operating_profile_crc32 = runtime->operating_profile_crc32,
                 .baud_hz = runtime->baud_hz,
                 .cycle_period_ns = runtime->cycle_period_ns,
+                .loop_delay_ns = runtime->loop_delay_ns,
+                .loop_delay_tolerance_ns = runtime->loop_delay_tolerance_ns,
                 .feedback_timeout_ns = runtime->feedback_timeout_ns,
                 .tx_dma_channel_id = runtime->tx_dma_channel_id,
                 .rx_dma_channel_id = runtime->rx_dma_channel_id,
@@ -500,8 +515,10 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         snapshot->schedule_crc32 = runtime->schedule_crc32;
         snapshot->operating_profile_crc32 = runtime->operating_profile_crc32;
         snapshot->baud_hz = runtime->baud_hz;
-        snapshot->cycle_period_ns = runtime->cycle_period_ns;
-        snapshot->feedback_timeout_ns = runtime->feedback_timeout_ns;
+    snapshot->cycle_period_ns = runtime->cycle_period_ns;
+    snapshot->loop_delay_ns = runtime->loop_delay_ns;
+    snapshot->loop_delay_tolerance_ns = runtime->loop_delay_tolerance_ns;
+    snapshot->feedback_timeout_ns = runtime->feedback_timeout_ns;
         snapshot->tx_dma_channel_id = runtime->tx_dma_channel_id;
         snapshot->rx_dma_channel_id = runtime->rx_dma_channel_id;
         const uint32_t guard_end =
