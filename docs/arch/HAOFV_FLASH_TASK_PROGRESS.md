@@ -16,6 +16,19 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-006 - 最新 release package DHRT100 闭环
+
+- 状态：最新 release 工件已完成 DHRT100 实板 A/B OTA；不改变 M1-05-G/H/I、M1-06、M0-05
+  和 v2 deployment 的未完成状态。
+- 使用工件：`build/DHRT100_UPDATE.pkg`，build `20260822161521`，package CRC32 `0x6E373F67`。
+- 闭环结果：目标槽 2，`READY_TO_REBOOT` → `post_boot_status="IDLE",1,"NONE",0` →
+  `committed_status="COMMITTED",1,"NONE",5`。USB reset 时的 ClearCommError 断开提示后成功
+  重连，属于 CDC 重枚举窗口，不是 OTA 失败。
+- 最终 DHRT100 查询：`*IDN? = GTS,DHRT100,839E1AE79EA20F31,0.1.0`；
+  `SYST:FW:BUILD? = 20260822161521`；`SYST:OTA:STAT? = "COMMITTED",1,"NONE",5`；
+  `SYST:OTA:SLOT? = 2,0,2,0,0`；`SYST:OTA:TXN? = 0,0,0,0,0,0,0,0`；
+  `SYST:ERR? = 0,"No error"`。
+
 ### FLASH-TASK-20260823-005 - release artifact freshness gate 修复确认
 
 - 状态：构建/release gate 已恢复全绿；本条不新增板端擦写。
