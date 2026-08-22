@@ -22,7 +22,8 @@ Last updated: 2026-08-23
   transport-neutral ingress adapter。两项均为可独立复核的代码切片，尚不等于产品级持久 wear
   store 或真实端口迁移完成。
 - 代码提交：`27601ae feat(ota): unify local stream ingress and BCB wear telemetry`、
-  `c251f7d feat(ota): expose ingress status projection`，均已推送。
+  `c251f7d feat(ota): expose ingress status projection`、`df61fe3 feat(ota): route ingress service
+  through shared adapter`，均已推送。
 - 代码：`pota_bcb_platform_t` 增加可选的 `on_program_page`/`on_erase_lane` 观测钩子，
   `pota_bcb_store_get_wear_snapshot()` 暴露本次运行的物理操作计数；钩子只观测，不得执行
   Flash IO。新增 `pota_stream_ingress`，统一 USB CDC、USBTMC、SD、UART、RS485 的 source
