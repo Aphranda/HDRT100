@@ -35,6 +35,19 @@ static void flash_transaction_write_end(flash_transaction_fb_t *context)
     (void)__atomic_add_fetch(&context->vector.guard, 1u, __ATOMIC_RELEASE);
 }
 
+static bool flash_transaction_provider_reset_is_pending(
+    const flash_transaction_fb_t *context)
+{
+    return __atomic_load_n(&context->provider_reset_pending, __ATOMIC_ACQUIRE);
+}
+
+static void flash_transaction_provider_reset_set(
+    flash_transaction_fb_t *context, bool pending)
+{
+    __atomic_store_n(&context->provider_reset_pending, pending,
+                     __ATOMIC_RELEASE);
+}
+
 static void flash_transaction_set_state(flash_transaction_fb_t *context,
                                         uint32_t state)
 {
@@ -274,7 +287,7 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
     context->occupied = true;
     context->resource_acquired = false;
     context->core1_parked = false;
-    context->provider_reset_pending = false;
+    flash_transaction_provider_reset_set(context, false);
     context->terminal_state = FLASH_TRANSACTION_STATE_COMPLETE;
     uint32_t transaction_generation =
         context->vector.transaction_generation + 1u;
@@ -307,7 +320,7 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         !flash_transaction_platform_valid(&context->platform)) {
         return;
     }
-    if (context->provider_reset_pending &&
+    if (flash_transaction_provider_reset_is_pending(context) &&
         context->vector.state != FLASH_TRANSACTION_STATE_RELEASE &&
         context->vector.state != FLASH_TRANSACTION_STATE_FAILED &&
         context->vector.state != FLASH_TRANSACTION_STATE_ABORTED &&
@@ -392,11 +405,12 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
                 context->request.operation == FLASH_TRANSACTION_OPERATION_ERASE ? 1u : 0u;
             context->vector.program_count_delta =
                 context->request.operation == FLASH_TRANSACTION_OPERATION_PROGRAM ? 1u : 0u;
-            context->vector.state = context->provider_reset_pending ||
+            context->vector.state =
+                                        flash_transaction_provider_reset_is_pending(context) ||
                                             context->vector.abort_pending != 0u
                                         ? FLASH_TRANSACTION_STATE_RELEASE
                                         : FLASH_TRANSACTION_STATE_VERIFY;
-            if (context->provider_reset_pending) {
+            if (flash_transaction_provider_reset_is_pending(context)) {
                 context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
                 context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
                 context->vector.last_error = FLASH_TRANSACTION_ERROR_PROVIDER;
@@ -412,7 +426,7 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         }
         flash_transaction_write_end(context);
         if (!ok) {
-            if (context->provider_reset_pending) {
+            if (flash_transaction_provider_reset_is_pending(context)) {
                 flash_transaction_provider_reset(context);
                 break;
             }
@@ -509,7 +523,7 @@ bool flash_transaction_fb_notify_provider_reset(
         context->request.provider_generation != provider_generation) {
         return false;
     }
-    context->provider_reset_pending = true;
+    flash_transaction_provider_reset_set(context, true);
     return true;
 }
 
