@@ -4,7 +4,7 @@ Status: Active
 Domain: VALIDATION
 Canonical: `docs/validation/README.md`
 Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-15
+Last updated: 2026-08-22
 
 本目录是 HIL、工具验证、任务进度、闭环验证记录和脚本说明的目标入口。
 
@@ -29,8 +29,13 @@ Last updated: 2026-08-15
 
 工具：
 
-- Host GCC：`D:\Embedded\GCC\mingw64\bin\gcc.exe`
+- Host GCC：从环境变量 `PATH` 解析 `gcc.exe`；也可通过 `-HostGccDir` 显式覆盖。
 - 汇总入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1`
+
+2026-08-22：当前环境通过 `PATH` 使用 `D:\Microsoft\MinGW\mingw64\bin\gcc.exe`，完整
+host runner 30/30 通过。NO.1–NO.4 factory/Direct A/B 烧录闭环报告见
+`build/flash_burn_NO1_20260822_positive2/`、`build/flash_burn_NO2_20260822/`、
+`build/flash_burn_NO3_20260822/` 和 `build/flash_burn_NO4_20260822/`。
 
 覆盖：
 

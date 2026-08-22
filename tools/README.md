@@ -163,9 +163,9 @@ python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port
   back to ARM GCC compile/object-build checks and reports that host execution
   was skipped.
 - `tests/run_host_unit_tests.ps1`: host assertion gate for the product C unit
-  tests. It prepends `D:\Embedded\GCC\mingw64\bin` by default, then runs the
-  BiSS, portable LOG/OTA, and RefMem unit test scripts as executable host
-  assertions. Use this gate when the target machine has MinGW GCC installed;
+  tests. It resolves `gcc` from `PATH` by default, then runs the BiSS, portable
+  LOG/OTA, and RefMem unit test scripts as executable host assertions. Use this
+  gate when the target machine has MinGW GCC installed;
   the individual scripts may otherwise fall back to ARM compile-only checks.
 - `tests/run_drv_flash_lockout_tests.ps1`: S0 Flash/Core1 lockout gate. It
   executes the pure C lockout state machine on host, including request/ACK,

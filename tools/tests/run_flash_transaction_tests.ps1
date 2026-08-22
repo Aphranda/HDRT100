@@ -1,6 +1,6 @@
 param(
     [string]$BuildDir = "build-flash-transaction-tests",
-    [string]$HostGccDir = "D:\Embedded\GCC\mingw64\bin"
+    [string]$HostGccDir = ""
 )
 
 $ErrorActionPreference = "Stop"

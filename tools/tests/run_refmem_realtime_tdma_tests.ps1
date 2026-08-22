@@ -37,10 +37,6 @@ function Find-ArmGcc {
     if ($ArmGcc -and (Test-Path $ArmGcc)) {
         return $ArmGcc
     }
-    $candidate = "D:\Embedded\GCC\mingw64\bin\arm-none-eabi-gcc.exe"
-    if (Test-Path $candidate) {
-        return $candidate
-    }
     if ($env:USERPROFILE) {
         $picoCandidate = Join-Path $env:USERPROFILE ".pico-sdk\toolchain\14_2_Rel1\bin\arm-none-eabi-gcc.exe"
         if (Test-Path $picoCandidate) {

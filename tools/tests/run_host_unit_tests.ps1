@@ -1,16 +1,21 @@
 param(
-    [string]$HostGccDir = "D:\Embedded\GCC\mingw64\bin"
+    [string]$HostGccDir = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$gcc = Join-Path $HostGccDir "gcc.exe"
-if (-not (Test-Path $gcc)) {
-    throw "Host GCC not found: $gcc"
+$hostCc = Get-Command gcc -ErrorAction SilentlyContinue
+if (-not $hostCc -and $HostGccDir) {
+    $gcc = Join-Path $HostGccDir "gcc.exe"
+    if (Test-Path $gcc) {
+        $env:PATH = "$HostGccDir;$env:PATH"
+        $hostCc = Get-Command gcc -ErrorAction SilentlyContinue
+    }
 }
-
-$env:PATH = "$HostGccDir;$env:PATH"
+if (-not $hostCc) {
+    throw "Host GCC not found in PATH; pass -HostGccDir to override"
+}
 
 $scripts = @(
     "run_biss_protocol_tests.ps1",
@@ -57,4 +62,4 @@ foreach ($script in $scripts) {
 }
 
 Write-Host "host unit test scripts passed: $passed/$($scripts.Count)"
-Write-Host "host gcc: $gcc"
+Write-Host "host gcc: $($hostCc.Source)"

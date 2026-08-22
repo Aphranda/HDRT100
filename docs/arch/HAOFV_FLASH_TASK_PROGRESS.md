@@ -22,6 +22,20 @@ Last updated: 2026-08-22
 
 ## 当前检查点
 
+### FLASH-TASK-20260822-020 - NO.1 至 NO.4 工厂烧录与 OTA 闭环
+
+- 状态：M0-05/M1 实板验证继续进行；四块板均完成 `build-product-release` factory UF2 烧录，
+  随后完成 Direct A/B 正向 OTA、Boot、commit 和最终安全态检查。
+- 日期：2026-08-22
+- 板卡与报告：
+  - NO.1 `0010071E65B5CB38` / COM3：`build/flash_burn_NO1_20260822_positive2/`，PASS。
+  - NO.2 `FB276192BEF9CCE1` / COM5：`build/flash_burn_NO2_20260822/`，PASS。
+  - NO.3 `2BD5090FE009FA2A` / COM6：`build/flash_burn_NO3_20260822/`，PASS。
+  - NO.4 `A1E549202D18ED6A` / COM4：`build/flash_burn_NO4_20260822/`，PASS。
+- 每块板的 `baseline_query`、`positive_ota`、`boot_commit`、`final_safe_state` 均通过；
+  `SYST:OTA:TXN?` 最终为零活动事务。该证据验证当前 v1 compatibility factory/OTA 路径，
+  不等同于 v2 高地址 Scratch 或 BOOTSEL 物理回退门禁。
+
 | 工作包 | 状态 | 已有证据 | 下一 gate |
 |---|---|---|---|
 | M0-01 implementation inventory | 完成 | raw caller allowlist、旧地址依赖、构建/release scan gate | 后续新增 caller 必须先登记。 |
