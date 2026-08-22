@@ -8,6 +8,7 @@
 #include "ota_package.h"
 #include "ota_metadata.h"
 #include "ota_vector.h"
+#include "pota_direct_ab.h"
 
 bool portable_ota_port_parse_package_header(const uint8_t *data,
                                             uint32_t length,
@@ -79,6 +80,10 @@ bool portable_ota_port_metadata_rollback_direct_ab(ota_metadata_t *metadata,
                                                    ota_slot_t failed_slot,
                                                    ota_slot_t rollback_slot);
 bool portable_ota_port_metadata_increment_boot_attempts(ota_metadata_t *metadata);
+bool portable_ota_port_metadata_direct_ab_decide(
+    const ota_metadata_t *metadata,
+    uint32_t max_boot_attempts,
+    pota_direct_ab_decision_t *decision);
 const ota_metadata_t *portable_ota_port_metadata_select_newest(const ota_metadata_t *copies,
                                                                size_t copy_count);
 

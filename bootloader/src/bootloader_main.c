@@ -365,19 +365,22 @@ static bool bootloader_apply_direct_ab_pending(ota_metadata_t *metadata)
         return false;
     }
 
-    const ota_slot_t pending_slot = (ota_slot_t)metadata->pending_slot;
-    const ota_slot_t active_slot = (ota_slot_t)metadata->active_slot;
-
-    if (!bootloader_slot_is_valid(pending_slot) ||
-        !bootloader_slot_is_valid(active_slot)) {
+    pota_direct_ab_decision_t decision;
+    if (!portable_ota_port_metadata_direct_ab_decide(
+            metadata, BOOTLOADER_MAX_BOOT_ATTEMPTS, &decision)) {
         (void)bootloader_store_result(metadata,
                                       OTA_BOOT_RESULT_NO_PENDING,
-                                      pending_slot,
+                                      (ota_slot_t)metadata->pending_slot,
                                       true);
         return false;
     }
 
-    if (metadata->boot_attempts >= BOOTLOADER_MAX_BOOT_ATTEMPTS) {
+    if (decision.kind == POTA_DIRECT_AB_DECISION_NO_PENDING) {
+        return false;
+    }
+
+    const ota_slot_t pending_slot = (ota_slot_t)decision.pending_slot;
+    if (decision.kind == POTA_DIRECT_AB_DECISION_ROLLBACK) {
         (void)bootloader_store_result(metadata,
                                       OTA_BOOT_RESULT_MAX_ATTEMPTS,
                                       pending_slot,

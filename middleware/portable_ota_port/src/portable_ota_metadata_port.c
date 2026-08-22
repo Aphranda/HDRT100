@@ -217,6 +217,15 @@ bool portable_ota_port_metadata_increment_boot_attempts(ota_metadata_t *metadata
     return pota_metadata_increment_boot_attempts(portable_metadata_mutable(metadata));
 }
 
+bool portable_ota_port_metadata_direct_ab_decide(
+    const ota_metadata_t *metadata,
+    uint32_t max_boot_attempts,
+    pota_direct_ab_decision_t *decision)
+{
+    return pota_direct_ab_decide(portable_metadata_const(metadata),
+                                 max_boot_attempts, decision);
+}
+
 const ota_metadata_t *portable_ota_port_metadata_select_newest(const ota_metadata_t *copies,
                                                                size_t copy_count)
 {
