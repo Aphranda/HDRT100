@@ -75,3 +75,15 @@ def test_link_contract_rejects_xip_literal_in_park_loop() -> None:
     failures = validate_link_contract(valid_map(), bad_disassembly)
 
     assert any("references XIP" in failure for failure in failures)
+
+
+def test_link_contract_rejects_direct_synchronous_raw_call() -> None:
+    bad_disassembly = valid_disassembly() + """10120100 <legacy_writer>:
+ 10120100: bl 10120200 <drv_flash_program>
+10120200 <drv_flash_program>:
+ 10120200: bx lr
+"""
+
+    failures = validate_link_contract(valid_map(), bad_disassembly)
+
+    assert any("synchronous raw caller linked into App" in failure for failure in failures)

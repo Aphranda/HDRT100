@@ -20,6 +20,12 @@ PARKED_CALLERS = {
     "drv_flash_erase_parked": {"flash_transaction_erase"},
     "drv_flash_program_parked": {"flash_transaction_program"},
 }
+# The synchronous raw entry points are intentionally not part of the App
+# image.  Checking only the symbol table is insufficient: dead-code/linker
+# retention can leave a symbol present even when no caller exists, while a
+# direct call can be introduced through an otherwise-allowed wrapper.  Keep
+# this list separate from PARKED_CALLERS so the owner rule is explicit.
+DIRECT_RAW_TARGETS = {"drv_flash_erase", "drv_flash_program"}
 FORBIDDEN_APP_SYMBOLS = {"drv_flash_erase", "drv_flash_program"}
 CORE1_CLOSURE = {
     "drv_flash_core1_lockout_poll",
@@ -122,6 +128,7 @@ def parse_map_addresses(map_text: str) -> tuple[dict[str, int], dict[str, int]]:
 
 def parse_disassembly(dis_text: str) -> tuple[dict[str, set[str]], dict[str, str]]:
     callers = {target: set() for target in PARKED_CALLERS}
+    callers.update({target: set() for target in DIRECT_RAW_TARGETS})
     bodies: dict[str, list[str]] = {symbol: [] for symbol in CORE1_CLOSURE}
     current = ""
     for line in dis_text.splitlines():
@@ -196,6 +203,17 @@ def validate_link_contract(map_text: str, dis_text: str, profile: str = "app") -
     for symbol in sorted(FORBIDDEN_APP_SYMBOLS):
         if symbol in symbols:
             failures.append(f"synchronous raw write linked into App: {symbol}")
+
+    # A symbol-table absence check does not prove ownership.  Reject any
+    # actual App call edge to the synchronous raw API, including calls from
+    # a wrapper that happens to survive link-time garbage collection.
+    for target in sorted(DIRECT_RAW_TARGETS):
+        actual = callers[target]
+        if actual:
+            failures.append(
+                f"synchronous raw caller linked into App for {target}: "
+                f"callers={sorted(actual)}"
+            )
 
     xip_base = symbols.get("FLASH_COMPAT_GEOMETRY_XIP_BASE")
     xip_size = symbols.get("FLASH_COMPAT_GEOMETRY_TOTAL_SIZE")
