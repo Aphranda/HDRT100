@@ -1,6 +1,6 @@
 import pytest
 
-from tools.ota_send.ota_send import parse_flash_transaction_state
+from tools.ota_send.ota_send import parse_flash_transaction_state, parse_ota_state
 
 
 def test_parse_flash_transaction_state_reads_generation() -> None:
@@ -15,3 +15,7 @@ def test_parse_flash_transaction_state_reads_generation() -> None:
 def test_parse_flash_transaction_state_rejects_short_vector() -> None:
     with pytest.raises(ValueError, match="incomplete"):
         parse_flash_transaction_state("9,7,1")
+
+
+def test_parse_ota_state_handles_quoted_scpi_status() -> None:
+    assert parse_ota_state('"READY_TO_REBOOT",2,"NONE",2') == "READY_TO_REBOOT"

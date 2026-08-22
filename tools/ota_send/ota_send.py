@@ -62,6 +62,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--expect-final-state", default="READY_TO_REBOOT", help="expected final OTA state text")
     parser.add_argument("--expect-error", help="expected OTA error text from SYST:OTA:STAT?")
+    parser.add_argument(
+        "--boot-and-commit",
+        action="store_true",
+        help="after READY_TO_REBOOT, reboot the target image and issue OTA:COMM",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print transfer plan without opening the port")
     parser.add_argument("--no-verify-query", action="store_true", help="skip STAT?/PROG? query commands")
     return parser.parse_args()
@@ -298,6 +303,58 @@ def query_final_status(serial_port, delay_s: float = 0.1) -> str:
     return query(serial_port, "SYST:OTA:STAT?")
 
 
+def boot_and_commit(port: str, baud: int, timeout_s: float,
+                    settle_s: float = 4.0) -> str:
+    """Apply a staged image and confirm it after the USB CDC reset.
+
+    BOOT intentionally tears down the serial connection.  Re-opening the
+    port and observing IDLE before COMM makes transport completion distinct
+    from boot/confirmation completion.
+    """
+    try:
+        import serial
+    except ImportError as exc:
+        raise SystemExit("pyserial is required: python -m pip install pyserial") from exc
+
+    try:
+        with serial.Serial(port, baud, timeout=timeout_s,
+                           write_timeout=timeout_s) as ser:
+            ser.reset_input_buffer()
+            write_line(ser, "SYST:OTA:BOOT")
+            print(f"boot_response={read_scpi_line(ser)}")
+    except (OSError, serial.SerialException) as exc:
+        # A reset commonly closes CDC before the textual acknowledgement is
+        # delivered; the re-enumeration below is the authoritative step.
+        print(f"boot_reset={exc}")
+
+    deadline = time.monotonic() + max(timeout_s, settle_s) + 15.0
+    time.sleep(settle_s)
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            with serial.Serial(port, baud, timeout=timeout_s,
+                               write_timeout=timeout_s) as ser:
+                ser.reset_input_buffer()
+                status = query(ser, "SYST:OTA:STAT?")
+                print(f"post_boot_status={status}")
+                if parse_ota_state(status) != "IDLE":
+                    last_error = RuntimeError(
+                        f"target did not return IDLE after BOOT: {status!r}"
+                    )
+                    time.sleep(0.25)
+                    continue
+                write_line(ser, "SYST:OTA:COMM")
+                print(f"commit_response={read_scpi_line(ser)}")
+                final_status = query_final_status(ser)
+                print(f"committed_status={final_status}")
+                return final_status
+        except (OSError, serial.SerialException) as exc:
+            last_error = exc
+        time.sleep(0.25)
+
+    raise TimeoutError(f"DHRT100 did not re-enumerate for BOOT/COMM: {last_error}")
+
+
 def parse_flash_transaction_state(response: str) -> tuple[int, int]:
     fields = [int(field.strip(), 0) for field in response.split(",")]
     if len(fields) <= FLASH_TRANSACTION_GENERATION_INDEX:
@@ -444,6 +501,14 @@ def main() -> int:
         return 0
 
     final_status = send_image(args, image, send_crc, package_mode)
+    if args.boot_and_commit:
+        if parse_ota_state(final_status) != "READY_TO_REBOOT":
+            print(
+                f"boot_and_commit_requires_ready={parse_ota_state(final_status)}",
+                file=sys.stderr,
+            )
+            return 4
+        final_status = boot_and_commit(args.port, args.baud, args.timeout)
     final_state = parse_ota_state(final_status)
     if final_state != args.expect_final_state:
         print(f"unexpected_final_state={final_state}, expected={args.expect_final_state}", file=sys.stderr)
