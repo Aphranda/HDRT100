@@ -21,6 +21,10 @@
 #if PORTABLE_OTA_PORT_ENABLE_SESSION
 #include "flash_transaction.h"
 #include "ota_journal.h"
+#if PROJECT_FLASH_DEPLOYMENT_V2
+#include "portable_ota_crypto.h"
+#include "portable_ota_key_registry.generated.h"
+#endif
 #include "resource_arbiter.h"
 #endif
 
@@ -255,6 +259,12 @@ static void portable_core_copy_status(ota_vector_t *vector)
 
 static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadata)
 {
+#if PROJECT_FLASH_DEPLOYMENT_V2
+    ota_metadata_bcb_health_t health;
+    const uint32_t security_counter = ota_metadata_get_bcb_health(&health)
+        ? health.newest_security_counter
+        : UINT32_MAX;
+#endif
     const pota_platform_t platform = {
         .info = {
             .product_id = PROJECT_PRODUCT_ID,
@@ -277,6 +287,11 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
             },
             .flash_page_size = FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE,
             .flash_sector_size = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
+#if PROJECT_FLASH_DEPLOYMENT_V2
+            .security_counter = security_counter,
+            .require_signature = PORTABLE_OTA_REQUIRE_SIGNATURE != 0,
+            .verify_manifest_signature = portable_ota_crypto_verify_manifest,
+#endif
         },
         .ops = {
             .flash_read = portable_core_flash_read,

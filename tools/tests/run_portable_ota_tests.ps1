@@ -58,6 +58,7 @@ New-Item -ItemType Directory -Force -Path $build | Out-Null
 $commonSources = @(
     (Join-Path $src "pota_crc32.c"),
     (Join-Path $src "pota_package.c"),
+    (Join-Path $src "pota_manifest_verifier.c"),
     (Join-Path $src "pota_metadata.c"),
     (Join-Path $src "pota_direct_ab.c"),
     (Join-Path $src "pota_boot_control_store.c"),
@@ -65,6 +66,10 @@ $commonSources = @(
 )
 
 $testPrograms = @(
+    @{
+        Name = "test_pota_manifest_verifier"
+        Sources = @((Join-Path $tests "test_pota_manifest_verifier.c")) + $commonSources
+    },
     @{
         Name = "test_portable_ota_package"
         Sources = @((Join-Path $tests "test_portable_ota_package.c")) + $commonSources

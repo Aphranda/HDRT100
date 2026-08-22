@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "algorithm": "ecdsa-p256-sha256",
+  "keys": [],
+  "profiles": {
+    "v1_compat": {
+      "require_signature": false,
+      "allowed_roles": ["release"]
+    },
+    "v2_candidate": {
+      "require_signature": true,
+      "allowed_roles": ["release", "factory"]
+    }
+  }
+}

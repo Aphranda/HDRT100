@@ -22,6 +22,9 @@ if (EXISTS ${picoVscode})
 endif()
 # ====================================================================================
 set(PICO_BOARD pico2 CACHE STRING "Board type")
+set(PICO_MBEDTLS_CONFIG_FILE
+    "${CMAKE_CURRENT_LIST_DIR}/config/mbedtls_config.h" CACHE FILEPATH
+    "Verify-only Mbed TLS configuration for OTA manifests")
 set(PICO_FLASH_SIZE_BYTES 16777216 CACHE STRING "Product W25Q128JV flash size (16 MiB)")
 set(PROJECT_ENABLE_USB_STDIO ON CACHE BOOL "Enable stdio over USB CDC")
 set(PROJECT_ENABLE_USBTMC OFF CACHE BOOL "Enable USBTMC/USB488 SCPI device interface")
@@ -128,6 +131,7 @@ if(PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v1_compat")
     set(PROJECT_FACTORY_ARTIFACT_NAME DHRT100_FACTORY.uf2)
     set(PROJECT_UPDATE_ARTIFACT_NAME DHRT100_UPDATE.pkg)
     set(PROJECT_OTA_PACKAGER_MAP_OPTION)
+    set(PROJECT_OTA_KEY_PROFILE v1_compat)
 elseif(PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v2_candidate")
     if(NOT PROJECT_FACTORY_MIGRATION_BUILD)
         message(FATAL_ERROR
@@ -156,8 +160,37 @@ elseif(PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v2_candidate")
     set(PROJECT_FACTORY_ARTIFACT_NAME DHRT100_V2_CANDIDATE_FACTORY.uf2)
     set(PROJECT_UPDATE_ARTIFACT_NAME DHRT100_V2_CANDIDATE_UPDATE.pkg)
     set(PROJECT_OTA_PACKAGER_MAP_OPTION --allow-target-not-deployed)
+    set(PROJECT_OTA_KEY_PROFILE v2_candidate)
 else()
     message(FATAL_ERROR "PROJECT_FLASH_DEPLOYMENT_MAP must be v1_compat or v2_candidate")
+endif()
+
+set(PROJECT_OTA_KEY_REGISTRY_HEADER
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/portable_ota_key_registry.generated.h)
+set(PROJECT_OTA_KEY_REGISTRY_SOURCE
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/portable_ota_key_registry.generated.c)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_LIST_DIR}/config/ota_public_keys.json
+    ${CMAKE_CURRENT_LIST_DIR}/tools/ota_keys/gen_ota_key_registry.py)
+execute_process(
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_LIST_DIR}/tools/ota_keys/gen_ota_key_registry.py
+            --config ${CMAKE_CURRENT_LIST_DIR}/config/ota_public_keys.json
+            --profile ${PROJECT_OTA_KEY_PROFILE}
+            --header ${PROJECT_OTA_KEY_REGISTRY_HEADER}
+            --source ${PROJECT_OTA_KEY_REGISTRY_SOURCE}
+    RESULT_VARIABLE PROJECT_OTA_KEY_REGISTRY_RESULT
+)
+if(NOT PROJECT_OTA_KEY_REGISTRY_RESULT EQUAL 0)
+    message(FATAL_ERROR "failed to generate OTA public key registry")
+endif()
+set(PROJECT_OTA_CRYPTO_SOURCES)
+set(PROJECT_OTA_CRYPTO_LIBS)
+if(PROJECT_FLASH_DEPLOYMENT_V2)
+    list(APPEND PROJECT_OTA_CRYPTO_SOURCES
+         middleware/portable_ota_port/src/portable_ota_crypto_mbedtls.c
+         ${PROJECT_OTA_KEY_REGISTRY_SOURCE})
+    list(APPEND PROJECT_OTA_CRYPTO_LIBS pico_mbedtls_crypto pico_mbedtls_headers)
 endif()
 
 configure_file(
@@ -213,6 +246,7 @@ set(PROJECT_PORTABLE_OTA_ADAPTER_SOURCES
         middleware/portable_ota_port/src/portable_ota_image_port.c
         middleware/portable_ota_port/src/portable_ota_metadata_port.c
         third_party/portable_ota/src/pota_crc32.c
+        third_party/portable_ota/src/pota_manifest_verifier.c
         third_party/portable_ota/src/pota_boot_control_store.c
         third_party/portable_ota/src/pota_boot_control_facade.c
         third_party/portable_ota/src/pota_stream_session.c
@@ -367,6 +401,7 @@ set(PROJECT_APP_SOURCES
         components/ota_manager/src/ota_package.c
         components/product_config/src/product_config.c
         ${PROJECT_PORTABLE_OTA_ADAPTER_SOURCES}
+        ${PROJECT_OTA_CRYPTO_SOURCES}
         middleware/portable_ota_port/src/portable_ota_port.c
         third_party/portable_ota/src/pota_core.c
         third_party/portable_ota/src/pota_operation.c
@@ -575,6 +610,7 @@ function(project_configure_app_target target_name app_name linker_script)
         hardware_pwm
         hardware_clocks
         hardware_flash
+        ${PROJECT_OTA_CRYPTO_LIBS}
         ${PROJECT_APP_EXTRA_LIBS}
     )
 
