@@ -46,7 +46,7 @@ Last updated: 2026-08-22
 | M0-04 wire/parser corpus | 代码验证完成，文档待收口 | golden/truncation/bit-mutation corpus 已绑定 `pota_*` 与 TDMA frame parser；release gate、host runner `30/30` 通过 | 更新本文件与 TODO 的状态描述，完成独立审查后再关闭 M0-04。 |
 | M0-05 migration/rollback | 阻塞 | validation recovery 入口和回退日志已保留；应用态 reboot 未使 RP2350 ROM BOOTSEL 保持可见 | 物理 BOOTSEL full erase、factory UF2 verify、COM8 恢复报告。 |
 | M1-04 mode/thermal/dual-core gate | 进行中 | thermal/diagnostics/trigger/FAULT/resource reason 与 park-timeout HIL 已通过 | Calibration/TDMA owner gate、RUN/CAL/training negative HIL、warning policy 和 COM8 负向证据。 |
-| M1-05 buffer/owner convergence | 进行中 | fixed owned payload、large-payload fail-closed、queue/duplicate terminal 基线、raw-step abort host fixture | immutable provider/refcount、producer reset、completion lease 证据。 |
+| M1-05 buffer/owner convergence | 进行中 | fixed owned payload、large-payload fail-closed、queue/duplicate terminal 基线、raw-step abort、provider-reset host fixture | immutable provider/refcount、completion lease 证据。 |
 | M1-06 high-address Scratch | 未开始 | 仅有 v2 target map/permission 输入，未对板写入 | validation-only Scratch intent、COM8 高地址闭环、恢复与 release string scan。 |
 
 ### FLASH-TASK-20260822-021 - M1-05 原始步骤 abort 负向闭环
@@ -99,6 +99,35 @@ Last updated: 2026-08-22
 - 还需完成：
   - immutable provider/refcount、producer reset、completion lease/durable 语义，以及 M0-05
     BOOTSEL full erase/reflash 和 M1-06 Scratch HIL。
+
+### FLASH-TASK-20260822-023 - M1-05 provider generation reset fail-closed
+
+- 状态：M1-05 继续进行；producer reset 已有显式 AO/FB 通知入口和 host 负向证据，但这不等同于
+  immutable 大 payload provider/refcount 或跨 reset durable completion 已完成。
+- 日期：2026-08-22
+- 完成内容：
+  - 新增 `flash_transaction_fb_notify_provider_reset()` 与
+    `flash_transaction_ao_notify_provider_reset()`；通知必须匹配当前 program request 的
+    `provider_generation`，错误 generation 或终态事务拒绝。
+  - reset 在 raw 步骤前到达时，事务以 `PROVIDER` 失败且不调用 raw writer；reset 在 raw 回调期间
+    到达时保留已处理字节/PROGRAMMED completion，直接 RELEASE/FAILED，跳过 VERIFY/COMMIT，避免把
+    已发生的物理写入伪装成可提交结果。
+  - host fixture 覆盖 generation mismatch、raw 前 reset、raw 期间 reset、无 verify、owner release
+    和终态重复通知拒绝。
+- 验证结果：
+  - `tools/tests/run_flash_transaction_tests.ps1` 通过；全量 30 个 host test scripts 通过。
+  - `pico2-release` 构建、FlashMap/inventory/persistence/migration/wire/link gate 和
+    `release_check.py` 通过；新工件 build id `20260822035034`，位于
+    `build-flash-m1-05-20260822/`。
+  - NO.1 `/` COM3 先烧 factory 后通过 OTA；NO.2/NO.3/NO.4（COM5/COM6/COM4）随后并发 OTA，四块板
+    的 baseline、positive OTA、boot/commit、final safe state 均 PASS，报告分别位于
+    `build/flash_burn_next_NO1_20260822/` 至 `build/flash_burn_next_NO4_20260822/`。
+- 提交与推送：
+  - 代码提交 `85ae5f9 feat(flash): fail closed on provider reset` 已推送
+    `origin/feature/rtos-multicore-haofv`。
+- 还需完成：
+  - immutable provider/refcount、completion lease/durable reset journal；之后再评估 M1-03/M1-05
+    退出和 M1-06 Scratch 进入条件。
 
 ### FLASH-TASK-20260822-019 - Calibration/TDMA training gate 接入 resource_arbiter
 
