@@ -16,6 +16,26 @@ Last updated: 2026-08-22
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260822-033 - App 链接级 raw writer 调用边界收紧
+
+- 状态：M1-05-J 继续进行；本轮只增强静态链接证据，不改变 deployed v1 compatibility map，
+  不执行板端擦写，也不宣称 M1-05 或 v2 部署完成。
+- 代码提交：`47b15a3 fix(flash): enforce linked raw write owner edges`，已推送。
+- 完成内容：
+  - `tools/flash_map/flash_link_check.py` 除了检查同步 raw erase/program 符号是否出现在 App
+    符号表，还解析反汇编调用边；任何 App wrapper 直接调用 `drv_flash_erase` 或
+    `drv_flash_program` 都 fail closed。
+  - 新增 Python 负向夹具，覆盖“符号存在但实际调用边越权”的情况，避免仅依赖源码 inventory
+    或 dead-code/linker 保留状态判断 owner。
+- 验证结果：
+  - `test_flash_link_check.py`：5/5 通过；FlashTransaction host/journal runner 通过。
+  - `DHRT100`、`DHRT100_B`、`DHRT100_BOOT` 构建和 `project_flash_link_check` 通过，三类产物均
+    通过现有 RAM closure、parked owner 与 raw caller 约束。
+  - 本轮没有使用串口、没有烧录 DHRT100，也没有改变串口设备或 v2 map deployment state；
+    M1-05-J 仍缺 Boot/release 独立 raw symbol visibility 证据。
+- 下一步：继续完成 OTA_JOURNAL live producer 接入和跨 reset/power-cut/replay 夹具；板端验证统一
+  使用 DHRT100 型号记录，待实际连接和新工件确认后再执行。
+
 ## 记录规则
 
 - 任务编号使用 `FLASH-TASK-YYYYMMDD-NNN`，最新记录放在顶部。

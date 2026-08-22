@@ -273,7 +273,8 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
 - [ ] **M1-05-I replay/idempotence**：duplicate completion、重复提交和 provider reset 后重放必须按
   generation/job/object 去重，不能重复 program 或重复发布 terminal event。
 - [ ] **M1-05-J link-level visibility**：在 App、Boot、release 三类链接产物上证明 raw erase/program
-  符号只对允许的 owner 可见，不能仅依赖源码 inventory 扫描。
+  符号只对允许的 owner 可见，不能仅依赖源码 inventory 扫描。App 侧现已增加反汇编调用边
+  fail-closed 检查（`47b15a3`）；Boot/release 独立证据仍待补齐。
 - [ ] **M1-05-K atomic store 依赖收敛**：Product/OTA metadata 当前仍是 single-sector rewrite；待
   M2-02 Product NVS、M3-02 BootControlStore 提供 atomic record/BCB primitive 后再替换兼容 adapter。
 - [ ] **M1-05-L 退出评审**：host/build/link/HIL、回退路径和独立 C11 交叉审核齐全后，才允许把
