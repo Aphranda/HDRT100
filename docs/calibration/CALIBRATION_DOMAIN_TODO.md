@@ -3,10 +3,11 @@
 Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
-Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
+Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
 Last updated: 2026-08-22
 
-本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md)
+本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
+[`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
 拆成可执行的校准域任务。校准域拥有物理测量、residence、endpoint bias、path-delay、
 统计质量、generation/freshness 和 active/staging 接受门禁；TDMA 只拥有训练 persona、
 PIO/SM/DMA/core1 资源、窗口编排和 raw evidence transport；VDC/DPLL 只消费 accepted
@@ -29,6 +30,27 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 当前不能把第一阶段的 CLK RTT bracket、软件 timer 或 diagnostic latch 直接用于 VDC/DPLL。
 正式校准必须同时满足硬件 latch、质量门禁、重复统计、拓扑/profile freshness 和恢复流程。
+
+## 训练子域待办：Marker/Data 相对时序
+
+训练子域先解决单跳原始数据可识别性，再接入 TDMA；`active path_delay` 只提供粗窗口和安全预算，不能替代 codeword 收发确认。
+
+| ID | 待办 | 状态 | 退出门禁 |
+|---|---|---|---|
+| TRN-01 | 冻结 marker/data trial 的 epoch、sequence、codebook、CRC、polarity 和 raw evidence 字段 | `[ ]` | host parser、C snapshot 和字段数测试一致 |
+| TRN-02 | 在 TDMA core1 owner 增加独立 marker/data PIO persona，支持同步线选择、DMA capture 和 CS cut-through | `[ ]` | PIO catalog/resource gate、无 cyclic TDMA 并发 |
+| TRN-03 | 实现 Calibration intent 到 core1 的 bounded mailbox，SCPI 不直接触碰 PIO/SM/DMA | `[ ]` | seqlock/sequence、超时和拒绝原因覆盖 |
+| TRN-04 | 实现 codeword 相关、极性、CRC、epoch/sequence 和 margin 判断 | `[ ]` | 正常、错位、反相、截断、重复、旧 epoch 全部有单测 |
+| TRN-05 | 单跳 `NO.1 -> NO.2` 扫描相对 DATA offset，先粗后细收敛 | `[ ]` | 连续 trial accepted，CS 转发延迟有证据，magic fail/overrun/stall 不增长 |
+| TRN-06 | 将单跳结果形成 diagnostic training window，绑定 topology/profile generation 和 CRC | `[ ]` | snapshot 可读，明确 `DIAGNOSTIC_ONLY` |
+| TRN-07 | 沿 accepted topology 完成四条 directed link 训练 | `[ ]` | 四条链路各自 accepted，不允许 aggregate 平均代替 per-link |
+| TRN-08 | 增加 TDMA per-link staging 和 ARM gate，加载 training window/path-delay 粗预算 | `[ ]` | 缺一条链路时 ARM 拒绝，不能 UP_ONLY 启动 |
+| TRN-09 | 恢复 NORMAL persona 后以 marker/data 证据启动 TDMA 短帧闭环 | `[ ]` | 四板 up/down、sequence、CRC、RX/TX 同时增长 |
+| TRN-10 | 训练结果与 P3 path-delay、loop-delay、residence 汇总，形成 active candidate gate | `[ ]` | bias、hardware latch、freshness、CRC、rollback 全部通过 |
+| TRN-11 | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线 | `[ ]` | 失败统一 STOPPED，active generation 不被污染 |
+| TRN-12 | 固化 `calibration_training_*` 工具、证据目录和 SD/Flash 输入格式 | `[ ]` | 工具按 `*IDN?` 地址工作，断开 USB 后证据仍完整 |
+
+实施顺序固定为 `TRN-01 -> TRN-05 -> TRN-07 -> TRN-08 -> TRN-09 -> TRN-10`；在 `TRN-05` 通过前不得继续扩大四板 TDMA 调度或进入 DPLL。
 
 ## 二、P0T 线序与环路顺序校准
 
@@ -203,7 +225,7 @@ path_sum_AB = (t4 - t1) - residence_B
   四边沿由 core1 收割，保留 `DIAGNOSTIC_ONLY`。
 - `[x]` 增加维护态 `CALibration:LOOPback:*` SCPI 触发/只读 snapshot，发布
   reference-only loopback result、reject reason、latch resolution/flags；host 不传入实时边沿时间戳。
-- `[x]` 完成 COM8 连续 10 epoch 的四边沿/SYNC/公式验证，并在维护 persona STOP 后恢复
+- `[x]` 完成 DHRT100 连续 10 epoch 的四边沿/SYNC/公式验证，并在维护 persona STOP 后恢复
   resident TDMA，确认 TX/RX 与物理错误计数门禁通过；结果仍为 diagnostic snapshot。
 - `[ ]` 在同一 PIO persona 下完成 endpoint bias/reference loopback，才能把已完成的板间 P3
   diagnostic HIL 提升为 active candidate。

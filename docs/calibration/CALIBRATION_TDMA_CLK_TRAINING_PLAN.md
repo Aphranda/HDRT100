@@ -3,7 +3,7 @@
 Status: Active
 Domain: CALIBRATION / TDMA Clock Training
 Canonical: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`
-Related: `docs/calibration/README.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
+Related: `docs/calibration/README.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
 Last updated: 2026-08-22
 
 本文档是校准域维护的多板 TDMA SPI CLK 训练事实源。校准域拥有 CLK/DATA/SYNC

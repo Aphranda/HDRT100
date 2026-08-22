@@ -10,6 +10,41 @@ Last updated: 2026-08-22
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260822-007 - P2 分辨率输入下的四板 TDMA 环路运行
+
+- 状态：诊断运行完成但环路未闭合；校准数据仍为 `DIAGNOSTIC_ONLY`，不得进入 active
+  calibration 或 VDC/DPLL。
+- 目标：在 P2 编码 marker 已将 raw 采样细化到 4 ns 的前提下，使用校准结果为 TDMA
+  四板环路提供初始 loop-delay 窗口，并记录运行态证据。
+- 固件与身份：四块板均为 DHRT100 build `20260822111137`；身份只取 `*IDN?` 唯一地址，
+  COM3/COM5/COM6/COM4 仅为本轮临时传输端点。accepted physical order 为
+  `0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A -> A1E549202D18ED6A ->
+  0010071E65B5CB38`。
+- P2 输入：四主节点 level 8 重复结果为 `10/10` accepted，best lag 为 `100/101`
+  个 raw sample，即 `400/404 ns`；单次硬件分辨率按 `sample_period_ns=4 ns` 记录。
+  本轮只将 `402 ns` 和 `8 ns` 容差作为候选窗口，不能视为已经写入板端的正式校准值。
+- TDMA 运行：使用既有
+  `tools/tdma_ring_monitor/tdma_start_ring.py`，按四个唯一地址配置 node count 4、
+  reference slot 0，level 8，训练 `4096` cycles，然后 ARM/START。四板 topology、slot
+  map 和训练命令均完成；证据目录为
+  `build-product-release/tdma_ring_p2_runtime_20260822`。
+- 运行结果：启动快照中四板均为 `ring_node_count=4`、`ring_adapter_started=1`、
+  `ring_up_running=1`，但 `ring_down_running=0`；参考板 TX 增长而 RX 未增长，四板
+  `ring_adapter_rx_bad_count` 未见增长。因此本轮结论为 `UP_ONLY / LOOP_NOT_CLOSED`，
+  不是稳定四板环路通过。
+- 配置边界：对四板查询 `SYSTem:TDMA:RING:LOOP:DELay?` 均未得到响应，不能据此声称
+  `loop_delay_ns=402,tolerance=8` 已生效。需先确认板端 build 已包含该 SCPI/配置路径，
+  在 STOPPED 状态写入并读回，再重新 ARM/START。
+- 只读监控：运行期间使用
+  `tools/tdma_ring_monitor/tdma_ring_monitor.py` 对 NO.1/NO.2 的持久串口端点执行
+  90 秒只读采样；监控证据目录为
+  `build-product-release/tdma_ring_p2_runtime_monitor_20260822`。监控不得替代四板全量
+  运行态证据，结束后必须对全部节点执行 STOP 并关闭串口。
+- 下一步：确认并 OTA 含 loop-delay 配置的统一固件；停止当前环路后四板读回 loop-delay、
+  feedback timeout、up/down 状态，再以 10 MHz/25 MHz 逐级复测。只有四板 `up_running=1`、
+  `down_running=1`、参考节点反馈证据增长、bad/overrun 不增长且重复统计通过，才可进入
+  P3/DPLL 前置门禁。
+
 ## CAL-TASK-20260822-006 - P3 双向测距线角色动态映射
 
 - 状态：代码完成，待四板硬件复测；P3 仍为 `DIAGNOSTIC_ONLY`。
