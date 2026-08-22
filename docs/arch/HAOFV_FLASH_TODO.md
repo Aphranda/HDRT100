@@ -409,7 +409,8 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 - [ ] 选定算法/库和 RP2350 OTP/key capability；定义 STM32 portable boundary。
 - [ ] dev/release/factory key 分离，定义 key ID、rotation/revocation 和泄露处置。
-- [ ] security counter 掉电安全；低 counter 即使 CRC 正确也拒绝。
+- [~] portable BCB primitive 已拒绝低于当前有效记录的 `security_counter`（证据：
+  `FLASH-TASK-20260823-023`）；掉电安全计数、OTP 绑定、签名 manifest 和产品级 counter 来源仍待完成。
 - [ ] 离线 release tool 输出 manifest/hash/signature/build ID/SBOM，不泄露 private key。
 
 ### M3-05 Recovery 与 factory artifact
@@ -452,7 +453,9 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 - [~] portable checkpoint append 只在底层 program/readback verify 成功后提交 durable offset；
   真实 OTA sink 尚未接入该 primitive（证据：`FLASH-TASK-20260823-019`）。
-- [ ] checkpoint frequency 由 wear/retransmit profile 定义，不按每 chunk 擦写。
+- [~] portable policy primitive 已按 monotonic byte interval/final offset 决定 checkpoint，
+  不按每 chunk 擦写（证据：`FLASH-TASK-20260823-022`）；实际 wear/retransmit profile 选择、
+  ingress 调用和 endurance HIL 仍待完成。
 - [~] checkpoint identity 绑定 session/generation/token/object/total/package CRC，并拒绝元数据
   或 token 冲突；跨 ingress 的 restart/abort policy 仍待接入。
 - [~] host primitive 已覆盖 reset recovery、torn body/commit 和 CRC/readback corruption，
