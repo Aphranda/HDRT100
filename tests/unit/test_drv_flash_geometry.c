@@ -5,6 +5,7 @@
 
 static int s_failures;
 static uint32_t s_lockout_result;
+static bool s_lockout_begin_ok;
 
 #define CHECK_TRUE(expression) do { \
     if (!(expression)) { \
@@ -23,7 +24,7 @@ void drv_flash_lockout_init(bool supported)
 bool drv_flash_lockout_begin(uint32_t wait_loop_budget)
 {
     (void)wait_loop_budget;
-    return false;
+    return s_lockout_begin_ok;
 }
 
 void drv_flash_lockout_end(uint32_t wait_loop_budget)
@@ -112,11 +113,28 @@ static void test_pointer_and_invalid_write_boundaries(void)
                                   DRV_FLASH_PAGE_SIZE));
 }
 
+static void test_parked_write_requires_session(void)
+{
+    s_lockout_begin_ok = false;
+    CHECK_FALSE(drv_flash_write_session_begin());
+    CHECK_FALSE(drv_flash_erase_parked(0u, DRV_FLASH_SECTOR_SIZE));
+    CHECK_FALSE(drv_flash_program_parked(0u, (const uint8_t *)1,
+                                         DRV_FLASH_PAGE_SIZE));
+
+    s_lockout_begin_ok = true;
+    s_lockout_result = DRV_FLASH_LOCKOUT_RESULT_ACKED;
+    CHECK_TRUE(drv_flash_write_session_begin());
+    CHECK_FALSE(drv_flash_write_session_begin());
+    CHECK_TRUE(drv_flash_write_session_end());
+    CHECK_FALSE(drv_flash_write_session_end());
+}
+
 int main(void)
 {
     test_geometry_contract();
     test_overflow_safe_ranges();
     test_pointer_and_invalid_write_boundaries();
+    test_parked_write_requires_session();
     if (s_failures != 0) {
         (void)printf("drv_flash geometry tests failed: %d\n", s_failures);
         return 1;

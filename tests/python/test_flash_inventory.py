@@ -82,6 +82,28 @@ def test_inventory_rejects_app_raw_write_outside_transaction_owner(tmp_path):
         validate_inventory(tmp_path, inventory)
 
 
+def test_inventory_rejects_parked_write_outside_transaction_source(tmp_path):
+    source = tmp_path / "application" / "writer.c"
+    source.parent.mkdir(parents=True)
+    source.write_text("void f(void) { drv_flash_erase_parked(0, 4096); }\n",
+                      encoding="utf-8")
+    inventory = base_inventory()
+    inventory["raw_callers"] = [{
+        "file": "application/writer.c",
+        "owner": "FlashTransactionAO",
+        "contexts": ["app"],
+        "core": "core0",
+        "modes": ["maintenance"],
+        "partitions": ["scratch"],
+        "operations": ["erase"],
+        "write_frequency": "validation_only",
+        "power_cut_semantics": "restore_after_test",
+        "target_api": "FlashTransactionAO",
+    }]
+    with pytest.raises(InventoryError, match="parked raw write must be owned"):
+        validate_inventory(tmp_path, inventory)
+
+
 def test_inventory_file_is_valid_json():
     data = json.loads(INVENTORY.read_text(encoding="utf-8"))
     assert data["inventory_version"] == 1

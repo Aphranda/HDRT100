@@ -12,6 +12,7 @@ from typing import Any
 
 
 RAW_REFERENCE = re.compile(r"\bdrv_flash_(read|erase|program|xip_ptr)(?:_parked)?\b")
+PARKED_WRITE_REFERENCE = re.compile(r"\bdrv_flash_(?:erase|program)_parked\b")
 REQUIRED_CALLER_FIELDS = {
     "file", "owner", "contexts", "core", "modes", "partitions", "operations",
     "write_frequency", "power_cut_semantics", "target_api",
@@ -40,6 +41,10 @@ def scan_raw_references(root: Path) -> dict[str, dict[str, Any]]:
         if relative in EXCLUDED_FILES or any(part in EXCLUDED_PARTS or part.startswith("build-") for part in path.parts):
             continue
         text = path.read_text(encoding="utf-8")
+        if (PARKED_WRITE_REFERENCE.search(text) and
+                relative != "components/flash_transaction/src/flash_transaction_ao.c"):
+            raise InventoryError(
+                f"parked raw write must be owned by FlashTransactionAO: {relative}")
         operations: set[str] = set()
         lines: list[int] = []
         for line_number, line in enumerate(text.splitlines(), 1):
