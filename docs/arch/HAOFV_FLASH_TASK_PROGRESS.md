@@ -16,6 +16,19 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-023 - M3-02 BCB security counter monotonic gate
+
+- 状态：portable BCB primitive 新增 security counter 防回退约束；完整 M3-04 签名、OTP、
+  key lifecycle、掉电安全计数和 DHRT100 Boot fault HIL 仍未完成。
+- 代码提交：`5a98377 feat(boot): reject BCB security counter rollback`，已推送。
+  当新 BCB update 的 `security_counter` 低于当前 newest valid record 时返回
+  `POTA_BCB_RESULT_POLICY`，不擦除 lane、不写入新 record；相同或更高 counter 仍受 sequence/
+  CRC/commit/seal 校验约束。新增 portable BCB host 负向测试。
+- 验证：`run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m3-counter` 通过；
+  主工程 App A/App B/Boot、FlashMap/inventory/link gate 和 `release_check=OK` 通过。
+- 边界：当前 `ota_metadata.c` 仍写入占位 `security_counter=0`，所以本条不宣称 anti-rollback
+  产品闭环；未执行 DHRT100 烧录、OTP/key、Recovery 或真实掉电验证。
+
 ### FLASH-TASK-20260823-022 - M4-02 checkpoint frequency policy primitive
 
 - 状态：已提供可独立测试的 monotonic checkpoint frequency decision；实际 wear/retransmit
