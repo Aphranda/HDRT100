@@ -79,6 +79,13 @@ def core1_heartbeat(response: str) -> int:
     return fields[2]
 
 
+def lockout_injection_cleared(response: str) -> bool:
+    try:
+        return int(response.strip(), 0) == 0
+    except ValueError:
+        return False
+
+
 def main() -> int:
     args = parse_args()
     package = args.package if args.package.is_absolute() else ROOT / args.package
@@ -169,7 +176,9 @@ def main() -> int:
     records["clear_response"] = clear_response
     records["cleared_flags"] = cleared
     records["heartbeat"] = [heartbeat_before, heartbeat_after]
-    if "OK" not in clear_response or cleared != "0":
+    # The USB CDC response to the write may be lost while ports are reopened;
+    # the immediate query is the authoritative state confirmation.
+    if not lockout_injection_cleared(cleared):
         failures.append("lockout fault injection did not clear")
     if heartbeat_after <= heartbeat_before:
         failures.append("core1 heartbeat did not recover after clearing injection")
