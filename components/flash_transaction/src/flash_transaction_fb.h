@@ -35,6 +35,8 @@ typedef struct {
     uint32_t absolute_offset;
     uint32_t next_job_id;
     uint32_t terminal_state;
+    uint32_t last_terminal_job_id;
+    bool last_terminal_valid;
     bool occupied;
     bool resource_acquired;
     bool core1_parked;

@@ -769,6 +769,27 @@ static void test_terminal_completion_is_stable_and_duplicate_abort_is_rejected(v
     assert(second.transaction_generation == first.transaction_generation);
 }
 
+static void test_terminal_job_id_replay_is_rejected(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    flash_transaction_request_t request = erase_request();
+    request.job_id = 77u;
+    const flash_transaction_vector_t first = run_request(&context, &request);
+    assert(first.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(context.last_terminal_valid);
+    assert(context.last_terminal_job_id == request.job_id);
+    const uint32_t erase_count = s_erase_count;
+
+    assert(!flash_transaction_fb_submit(&context, &request));
+    assert(s_erase_count == erase_count);
+    flash_transaction_vector_t snapshot;
+    assert(flash_transaction_fb_get_vector(&context, &snapshot));
+    assert(snapshot.transaction_generation == first.transaction_generation);
+}
+
 static flash_transaction_request_t product_config_request(
     uint32_t operation, const uint8_t *data)
 {
@@ -1045,6 +1066,7 @@ int main(void)
     test_completion_journal_failure_is_fail_closed();
     test_two_page_ota_payload_is_owned();
     test_terminal_completion_is_stable_and_duplicate_abort_is_rejected();
+    test_terminal_job_id_replay_is_rejected();
     test_product_config_policy_and_owned_payload();
     test_metadata_policy();
     test_busy_abort_and_snapshot();

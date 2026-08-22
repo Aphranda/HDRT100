@@ -400,6 +400,13 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
         !flash_transaction_platform_valid(&context->platform)) {
         return false;
     }
+    /* A caller may retry a failed operation, but it must allocate a new job
+     * identity. Reusing a terminal explicit job ID would make a replay
+     * indistinguishable from a fresh erase/program request. */
+    if (request->job_id != 0u && context->last_terminal_valid &&
+        request->job_id == context->last_terminal_job_id) {
+        return false;
+    }
     context->request = *request;
     context->payload_owned = false;
     if (context->request.operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
@@ -678,6 +685,8 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         context->vector.state = context->terminal_state;
         context->vector.completed_timestamp_ms = context->platform.now_ms();
         flash_transaction_write_end(context);
+        context->last_terminal_job_id = context->vector.job_id;
+        context->last_terminal_valid = true;
         context->occupied = false;
         break;
     case FLASH_TRANSACTION_STATE_FAILED:
