@@ -20,10 +20,15 @@ static uint32_t s_park_count;
 static uint32_t s_unpark_count;
 static uint32_t s_erase_count;
 static uint32_t s_program_count;
+static uint32_t s_verify_erased_count;
+static uint32_t s_verify_programmed_count;
 static uint32_t s_last_offset;
 static uint32_t s_last_length;
 static uint8_t s_last_program_first_byte;
 static uint32_t s_now_ms;
+static flash_transaction_fb_t *s_abort_context;
+static bool s_abort_during_raw;
+static bool s_abort_request_accepted;
 
 static bool fake_policy(uint32_t requester)
 {
@@ -73,6 +78,11 @@ static bool fake_erase(uint32_t offset, uint32_t length)
     s_erase_count++;
     s_last_offset = offset;
     s_last_length = length;
+    if (s_abort_during_raw) {
+        assert(s_abort_context != NULL);
+        s_abort_request_accepted = flash_transaction_fb_request_abort(
+            s_abort_context, s_abort_context->vector.job_id);
+    }
     return s_raw_ok;
 }
 
@@ -84,11 +94,17 @@ static bool fake_program(uint32_t offset, const uint8_t *data,
     s_last_offset = offset;
     s_last_length = length;
     s_last_program_first_byte = data[0];
+    if (s_abort_during_raw) {
+        assert(s_abort_context != NULL);
+        s_abort_request_accepted = flash_transaction_fb_request_abort(
+            s_abort_context, s_abort_context->vector.job_id);
+    }
     return s_raw_ok;
 }
 
 static bool fake_verify_erased(uint32_t offset, uint32_t length)
 {
+    s_verify_erased_count++;
     assert(offset == s_last_offset);
     assert(length == s_last_length);
     return s_verify_ok;
@@ -97,6 +113,7 @@ static bool fake_verify_erased(uint32_t offset, uint32_t length)
 static bool fake_verify_programmed(uint32_t offset, const uint8_t *data,
                                    uint32_t length)
 {
+    s_verify_programmed_count++;
     assert(data != NULL);
     assert(offset == s_last_offset);
     assert(length == s_last_length);
@@ -150,10 +167,15 @@ static void reset_fakes(void)
     s_unpark_count = 0u;
     s_erase_count = 0u;
     s_program_count = 0u;
+    s_verify_erased_count = 0u;
+    s_verify_programmed_count = 0u;
     s_last_offset = 0u;
     s_last_length = 0u;
     s_last_program_first_byte = 0u;
     s_now_ms = 100u;
+    s_abort_context = NULL;
+    s_abort_during_raw = false;
+    s_abort_request_accepted = false;
 }
 
 static void init_context(flash_transaction_fb_t *context)
@@ -578,6 +600,46 @@ static void test_busy_abort_and_snapshot(void)
     assert(s_release_count == 0u);
 }
 
+static void test_abort_during_raw_operation_skips_verify_and_commit(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    s_abort_context = &context;
+    s_abort_during_raw = true;
+
+    const flash_transaction_request_t erase = erase_request();
+    flash_transaction_vector_t vector = run_request(&context, &erase);
+    assert(s_abort_request_accepted);
+    assert(vector.state == FLASH_TRANSACTION_STATE_ABORTED);
+    assert(vector.last_result == FLASH_TRANSACTION_RESULT_ABORTED);
+    assert(vector.last_error == FLASH_TRANSACTION_ERROR_ABORTED);
+    assert(vector.completion_level == FLASH_TRANSACTION_COMPLETION_PROGRAMMED);
+    assert(vector.processed_bytes == erase.length);
+    assert(vector.verified_bytes == 0u);
+    assert(s_verify_erased_count == 0u);
+    assert(s_release_count == 1u);
+    assert(s_unpark_count == 1u);
+
+    reset_fakes();
+    s_abort_context = &context;
+    s_abort_during_raw = true;
+    uint8_t data[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES] = {0xA5u};
+    const flash_transaction_request_t program = program_request(data);
+    vector = run_request(&context, &program);
+    assert(s_abort_request_accepted);
+    assert(vector.state == FLASH_TRANSACTION_STATE_ABORTED);
+    assert(vector.last_result == FLASH_TRANSACTION_RESULT_ABORTED);
+    assert(vector.last_error == FLASH_TRANSACTION_ERROR_ABORTED);
+    assert(vector.completion_level == FLASH_TRANSACTION_COMPLETION_PROGRAMMED);
+    assert(vector.processed_bytes == program.length);
+    assert(vector.verified_bytes == 0u);
+    assert(s_verify_programmed_count == 0u);
+    assert(s_release_count == 1u);
+    assert(s_unpark_count == 1u);
+}
+
 static void test_platform_and_range_resolution(void)
 {
     flash_transaction_fb_t context;
@@ -619,6 +681,7 @@ int main(void)
     test_product_config_policy_and_owned_payload();
     test_metadata_policy();
     test_busy_abort_and_snapshot();
+    test_abort_during_raw_operation_skips_verify_and_commit();
     test_platform_and_range_resolution();
     puts("flash transaction tests passed");
     return 0;

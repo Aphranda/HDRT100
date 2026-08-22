@@ -370,7 +370,16 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
                 context->request.operation == FLASH_TRANSACTION_OPERATION_ERASE ? 1u : 0u;
             context->vector.program_count_delta =
                 context->request.operation == FLASH_TRANSACTION_OPERATION_PROGRAM ? 1u : 0u;
-            context->vector.state = FLASH_TRANSACTION_STATE_VERIFY;
+            context->vector.state = context->vector.abort_pending != 0u
+                                        ? FLASH_TRANSACTION_STATE_RELEASE
+                                        : FLASH_TRANSACTION_STATE_VERIFY;
+            if (context->vector.abort_pending != 0u) {
+                context->terminal_state = FLASH_TRANSACTION_STATE_ABORTED;
+                context->vector.last_result = FLASH_TRANSACTION_RESULT_ABORTED;
+                context->vector.last_error = FLASH_TRANSACTION_ERROR_ABORTED;
+                context->vector.completed_timestamp_ms =
+                    context->platform.now_ms();
+            }
         }
         flash_transaction_write_end(context);
         if (!ok) {
