@@ -10,6 +10,12 @@ Last updated: 2026-08-22
 `HAOFV_FLASH_ARCHITECTURE.md` 为准，未完成项和依赖关系以 `HAOFV_FLASH_TODO.md` 为准；
 本文不冻结新契约，也不以单次构建结果替代 TODO 完成定义。
 
+### 文档接口
+
+本文是实施证据日志，不是架构事实源，也不是工作板。稳定语义回到架构文档，子项状态回到 TODO；
+本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
+到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
+
 ## 记录规则
 
 - 任务编号使用 `FLASH-TASK-YYYYMMDD-NNN`，最新记录放在顶部。

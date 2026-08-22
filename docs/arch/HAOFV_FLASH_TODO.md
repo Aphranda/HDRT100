@@ -9,6 +9,13 @@ Last updated: 2026-08-22
 本文只跟踪 Flash v2 的实现、迁移和验证。架构语义以 `HAOFV_FLASH_ARCHITECTURE.md` 为准；
 v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在两个 TODO 中重复标记完成。
 
+### 文档接口
+
+- 架构语义、不变量和契约：只看 `HAOFV_FLASH_ARCHITECTURE.md` 与 `docs/check/DOCS_REGISTRY.md`。
+- 里程碑、子项状态和退出门禁：只看本文；`[x]` 必须有可定位的进度证据。
+- 构建号、提交号、板端日志、失败和阻塞：只看 `HAOFV_FLASH_TASK_PROGRESS.md`；本文只保留任务编号
+  或报告路径引用，不复制快照正文。
+
 ## 一、工作板规则与当前状态
 
 ### 1.1 状态规则
@@ -269,33 +276,9 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
 - [ ] **M1-05-L 退出评审**：host/build/link/HIL、回退路径和独立 C11 交叉审核齐全后，才允许把
   M1-05 从 `[~]` 改为 `[x]`，并同步更新 `ARCH-FLASHOWNER-01` 登记状态。
 
-本轮实板快照：`build-flash-m1-05-20260822/` release 工件与全部 host/build/link/inventory gate
-通过，build id `20260822045432`；NO.1–NO.4 的并发 Direct A/B OTA 均通过
-`baseline_query`、`positive_ota`、`boot_commit`、`final_safe_state`，原始报告目录见
-`HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-026`。该证据不关闭 M1-05：
-completion lease、durable reset journal、power-cut/duplicate completion 和跨 reset 证据仍缺失；
-v2 map 仍为 `target_not_deployed`，未执行 Scratch、高地址任意 offset、BOOTSEL full erase 或
-Bootloader 重刷。
-
-本轮后续准入快照（`FLASH-TASK-20260822-029`）：`build-flash-m1-04-gate-20260822/` 的
-firmware build id 为 `20260822061912`；CAL/training host negative fixture、目标槽感知的
-package-negative 工具和 NO.2–NO.4 并发 Direct A/B OTA 均通过。该证据只补齐 host/当前 v1
-compatibility 路径，不改变 M1-04 的板端 HIL/warning 未完成状态，也不改变 M1-05 durable
-journal live producer、跨 reset/power-cut 和 v2 deployment 未完成状态。
-
-本轮代码快照：commit `6fc17cd` 增加可选 `flash_transaction_completion_lease_t`，在最终 release
-成功后才发布 COMMITTED，release failure 保持 FAILED；该合约目前只由 host fixture 驱动，未宣称
-v2 OTA_JOURNAL 已部署或 live producer 已具备 durable reset recovery。完整证据见
-`HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-027`。
-
-本轮继续项（`FLASH-TASK-20260822-028`）：新增 durable journal backend（固定槽、CRC、commit
-marker、readback 与 reset recovery），纳入 CMake 和 transaction host runner；构建
-`build-flash-m1-05-journal-20260822` 的 firmware build id 为 `20260822053750`，package
-SHA-256 为 `A0EA4E14E50400225DD2C6D0748A9CE20FA949F28376CDA5944E1F9F833DD7A4`。NO.1–NO.4
-按 USB serial 定向 factory load，并发完成 Direct A/B OTA、Boot/commit、全部负向矩阵和
-final safe state，原始报告见 `build/flash_burn_journal_backend_NO1_20260822/` 至
-`NO4_20260822/`。本证据仍不关闭 M1-05：backend 尚未接入 live producer，跨 reset/power-cut
-与 v2 OTA_JOURNAL 部署仍待完成；v2 map 继续保持 `target_not_deployed`。
+实施快照、提交号、构建号、板端报告和未完成 gate 统一记录在
+`HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-026`、`027`、`028`、`029`、`031`；本
+TODO 只保留可独立验收的状态项和证据索引。
 
 ### M1-06 高地址 Scratch 验证
 

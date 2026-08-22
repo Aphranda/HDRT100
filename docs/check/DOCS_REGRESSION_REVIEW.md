@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_REVIEW.md`
 Related: `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-08-19
+Last updated: 2026-08-22
 
 > 本文件总结 2026-08-19 实施 T1-T13 过程中发现的全部问题与解法，供后续维护和 skill 复用。
 
@@ -70,3 +70,9 @@ Last updated: 2026-08-19
 2. 每次新增文档 → 过 docs_check 三道关（元数据/索引/命名）
 3. 交叉审核不是可选项：检查器自身也要被审（T12 抓到 4 个真问题）
 4. 逃生门审计（`--log-check`）建议每周跑一次
+
+## 8. 域文档三件套约束
+
+当一个域同时维护架构、实施清单和实施证据时，三份标准文件必须分工明确：Architecture 维护稳定
+语义，TODO 维护状态和退出门禁，Task Progress 维护提交/构建/HIL/阻塞证据。实施快照不能回填到
+Architecture，TODO 只保留证据索引；契约登记仍以 `DOCS_REGISTRY.md` 为唯一事实源。

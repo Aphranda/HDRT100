@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 本文档是 RP2350_TRIG 板载 QSPI Flash 的跨域 canonical。它定义 FlashMap、App/Boot writer、
 掉电事务、Boot/Direct A/B、OTA、关键配置、Calibration、VDC、System Pack、RefMem package、
@@ -12,6 +12,18 @@ Last updated: 2026-08-21
 `docs/arch/HAOFV_FLASH_TODO.md` 跟踪。
 
 ## 一、阅读边界与事实优先级
+
+### 1.0 三份 Flash 文档的接口
+
+- **架构文档（本文）**：只定义跨域稳定语义、owner 边界、状态机、不变量和契约落点；不记录
+  单次构建号、板端日志或临时完成判断。
+- **实施 TODO（`HAOFV_FLASH_TODO.md`）**：只定义里程碑、子项、`[ ]/[~]/[x]/[!]` 状态、进入/退出
+  条件和证据索引；不复制实施快照，不替代架构契约。
+- **任务进度（`HAOFV_FLASH_TASK_PROGRESS.md`）**：只记录已发生的代码提交、构建/HIL、报告路径、
+  失败和阻塞；不得自行冻结契约或把一次性证据写成架构事实。
+
+语义变更先改本文并按需要登记 `DOCS_REGISTRY.md`；状态变更改 TODO；实施证据只追加到任务进度。
+三者通过任务编号和契约 ID 互相引用，不在多个文档复制同一快照。
 
 ### 1.1 本文回答什么
 
@@ -80,6 +92,7 @@ Flash Domain 只提供存储、事务、权限和 completion，不成为第二�
 |---|---|---|
 | `ARCH-FLASHMAP-01` | 第四章 | Boot/linker/App/factory/tool 共用唯一 FlashMap。 |
 | `ARCH-FLASHOWNER-01` | 第三章 | App 只有 core0 FlashTransactionAO 可写；Boot 使用最小服务。 |
+| `DOCS-FLASH-01` | 第一章 1.0 节 | 架构、TODO、任务进度三类文档各自的事实边界与变更接口。 |
 | `ARCH-BOOTCTRL-01` | 第六章 | BCB 双 lane append/commit，Direct A/B test-confirm-revert。 |
 | `ARCH-OTASTREAM-01` | 第七章 | USB/SD/UART/TDMA 共用 session，ACK 只确认 durable offset。 |
 | `REFMEM-PERSIST-01` | 第五章 | 只持久化部署 package/ref；上电建立新 epoch。 |

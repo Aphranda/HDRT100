@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_PLAN.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-08-19
+Last updated: 2026-08-22
 
 > 本文件由工作区 `doc-skill/方案_文档自回归体系.md` 归档而来；执行状态与最终调整见 `docs/check/DOCS_REGRESSION_TODO.md`。
 > 设计依据一句话：需求追溯矩阵思想（契约登记）+ docs-as-code 门禁（commit 拦截）。
@@ -51,6 +51,7 @@ Last updated: 2026-08-19
 | C9 | 可逆 | 每个落地步骤必须可 `git revert`，不产生一次性不可逆改动 | — |
 | C10 | 冲突裁决 | 任何下级文档/代码与本节冲突时，以本节为准并同步修正 | — |
 | C11 | 状态变更需交叉审核 | 登记表 status 变更（新契约登记、VIOLATED→OK）必须由**独立于作者的审核方**确认（agent 交叉 / 文档交叉 / 层间交叉），提交单记录审核方+方式+结论；禁止自审自批 | 提交单字段必填 |
+| C12 | 域文档标准三件套 | 具有架构、实施清单和实施证据的域必须分别维护 Architecture、TODO、Task Progress；语义、状态、证据不得跨文件复制充当事实源 | 文档审查 + DOCS-FLASH-01 |
 
 约束传递方向（单向收敛）：
 
@@ -58,6 +59,16 @@ Last updated: 2026-08-19
 域文档正式冻结契约 ──登记──▶ 登记表（上提）──刷新──▶ 顶层感知
 评审快照/临时备注 ────────✗ 禁止进入登记表
 ```
+
+### 域文档标准三件套
+
+| 文件类型 | 唯一职责 | 禁止内容 |
+|---|---|---|
+| `*_ARCHITECTURE.md` | 稳定语义、不变量、owner 边界、契约落点 | 单次构建号、板端日志、临时完成判断 |
+| `*_TODO.md` | 里程碑、子项状态、进入/退出门禁、证据索引 | 复制任务快照、把一次性证据写成架构事实 |
+| `*_TASK_PROGRESS.md` | 提交、构建/HIL、报告、失败、回退、阻塞 | 冻结新契约、擅自改变 registry status、替代 TODO 状态 |
+
+三件套必须互相引用；语义变更先更新架构并登记，状态变更更新 TODO，实施证据只追加到任务进度。
 
 ## §1 docs/check/DOCS_REGISTRY.md（完整内容）
 

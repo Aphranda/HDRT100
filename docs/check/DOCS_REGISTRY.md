@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGISTRY.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 > 注：本文件必须满足 `tools/docs_check/docs_check.py` 的元数据要求（5 字段齐全），否则自回归门禁自相矛盾。
 
@@ -25,6 +25,7 @@ Last updated: 2026-08-21
 | TDMA-OPMODE-01 | tdma | SPI 速率与 TDMA 周期按离散 operating profile 成对切换，STOP 后生效 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_operating_profile.h | SCPI/状态机/单测比对 | 2026-08-20 | pending |
 | ARCH-FLASHMAP-01 | arch | FlashMap v2 是 Boot/linker/App/factory/tool 的唯一分区词汇 | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | ota_partition.h | 生成表/链接/map/factory 工具比对 | 2026-08-21 | pending |
 | ARCH-FLASHOWNER-01 | arch | App erase/program 仅 core0 FlashTransactionAO，Boot 使用最小 BootFlashService | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | drv_flash_lockout.h | 裸调用扫描/双核 HIL/Boot 依赖审计 | 2026-08-21 | pending |
+| DOCS-FLASH-01 | docs | Flash 域架构、TODO、任务进度三类文档的事实边界与变更接口 | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | doc_regression_check.py | 文档边界/门禁/索引审查 | 2026-08-22 | pending |
 | ARCH-BOOTCTRL-01 | ota | BCB 双 lane append/commit 与 Direct A/B test-confirm-revert | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | ota_metadata.h | torn-write/boot/revert HIL | 2026-08-21 | pending |
 | ARCH-OTASTREAM-01 | ota | USB/SD/UART/TDMA 共用 OtaStreamSession，ACK 只确认 durable offset | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | ota_package.h | transport 回归/parser fuzz/续传 HIL | 2026-08-21 | pending |
 | REFMEM-PERSIST-01 | refmem | 只持久化部署 package/ref，上电建立新 epoch 且 live mirror 保持 stale | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | refmem_table_registry.h | power-cut/reboot/epoch/stale HIL | 2026-08-21 | pending |
