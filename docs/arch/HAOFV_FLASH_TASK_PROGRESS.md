@@ -93,6 +93,25 @@ Last updated: 2026-08-23
   portable BCB 的 torn-write/GC host 证据保持有效，未执行板端写入。删除 façade 文件即可
   回退到同一 primitive API，不改变 Flash map。
 
+### FLASH-TASK-20260823-032 - Direct A/B Boot 状态机接入 façade
+
+- 状态：M3-03 完成 portable decision façade 到 Boot 实际 pending 状态机的接入切片；M3-03
+  总项保持 `[~]`，DHRT100 reset/no-confirm/attempt-exhausted/revert HIL 仍未完成。
+- 代码：`bootloader_apply_direct_ab_pending()` 通过
+  `portable_ota_port_metadata_direct_ab_decide()` 获取纯策略分类结果；`NO_PENDING` 保持
+  原状态，`BOOT_PENDING` 继续执行真实 slot/vector/hash 校验后再 apply，`ROLLBACK` 沿用
+  既有 `MAX_ATTEMPTS` fail-closed 记录路径。portable port 只负责 metadata layout 到
+  `pota_metadata_t` 的 const view，不拥有 Flash 或镜像 IO。
+- 验证：`run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m3-direct-ab-boot`
+  通过；`run_host_unit_tests.ps1` 通过；`cmake --build --preset pico2-release --parallel 4`
+  和 `python tools/release_check/release_check.py --root . --build-dir build` 均通过；App A、
+  App B、Boot link gate 通过。
+- 提交与推送：代码提交 `33d441f feat(boot): route direct ab decision through portable facade`
+  已推送 `origin/feature/rtos-multicore-haofv`；本文档只记录证据，不改变 registry status。
+- 边界与回退：未执行 DHRT100 烧录、掉电、回退或任何写入；删除 wrapper 和调用点即可回退
+  到原 Boot 状态机，Flash map 不变。M3-03 的 slot-specific image/vector/hash/signature
+  校验和 M3 退出门禁仍未满足。
+
 ### FLASH-TASK-20260823-025 - signed manifest extension 与 counter gate
 
 - 状态：M3-04 增加固定 manifest extension 的 portable parser/packager boundary；这是信任链
