@@ -40,7 +40,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 |---|---|---|---|---|
 | `TRN-01` | 环路 marker 捕获与 core1/PIO cut-through | accepted topology、P2 codebook、epoch/sequence | 每跳 capture/forward tick、residence、整圈 marker RTT | 四节点同 epoch 捕获、顺序正确、每跳延迟有界、无 PIO/DMA fault |
 | `TRN-02` | marker 锚定 DATA 码元时隙 | TRN-01 local origin、P3 `path_delay` candidate、PIO sample period | per-link `data_offset`、window、guard、skew、correlation/margin | 单跳和四条 directed link 重复通过，generation/profile 一致 |
-| `TRN-03` | TDMA 短帧/FIFO 闭环接入 | TRN-02 windows、loop-delay/residence、topology/profile CRC | staging/ARM、短帧 TX/RX FIFO、sequence/CRC、active candidate | 四板 up/down 和 FIFO 同时增长；失败统一 STOPPED |
+| `TRN-03` | TDMA 短帧/FIFO 闭环接入 | TRN-02 windows、PIO instruction-cycle profile、loop-delay/residence、topology/profile CRC | staging/ARM、slot/forward budget、短帧 TX/RX FIFO、sequence/CRC、active candidate | 四板 up/down 和 FIFO 同时增长，且周期预算可重放；失败统一 STOPPED |
 
 ### TRN-01：环路 marker 捕获与切通
 
@@ -64,9 +64,9 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
-| TRN-03A | 增加 TDMA per-link staging 和 ARM gate，加载 training window、path-delay 粗预算和 loop-delay | `[ ]` | 缺一条链路、generation/CRC/freshness 不一致时 ARM 拒绝 |
-| TRN-03B | 恢复 NORMAL persona 后启动 TDMA 短帧，验证 core1 TX/RX FIFO 和飞行转发 | `[ ]` | 四板 up/down、sequence、CRC、RX/TX/FIFO 计数同时增长 |
-| TRN-03C | 汇总 per-link path-delay、residence、loop-delay 和 residual，形成 active candidate gate | `[ ]` | bias、hardware latch、freshness、CRC、重复性和 rollback 全部通过 |
+| TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的 `clkdiv`、`clk_sys_hz`、`pio_instruction_period_ns`、`bit_cycles`、`marker_to_data_cycles`、`forward_residence_cycles`、`rx_arm_lead_cycles`、`codeword_cycles`、`guard_cycles`、`slot_budget_cycles` 和 `loop_delay_cycles` | `[ ]` | 缺一条链路、generation/CRC/freshness 不一致或周期预算无法重放时 ARM 拒绝 |
+| TRN-03B | 恢复 NORMAL persona 后启动 TDMA 短帧，按 `slot_budget_cycles` 验证 core1 TX/RX FIFO、飞行转发和 bounded RTOS service | `[ ]` | 四板 up/down、sequence、CRC、RX/TX/FIFO 计数同时增长，且不依赖 core0 调度边沿 |
+| TRN-03C | 汇总 per-link path-delay、residence、loop-delay、PIO 周期预算和 residual，形成 active candidate gate | `[ ]` | bias、hardware latch、freshness、CRC、周期重放、重复性和 rollback 全部通过 |
 | TRN-03D | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线；固化工具和 SD/Flash 输入格式 | `[ ]` | 失败统一 STOPPED，active generation 不被污染，工具按 `*IDN?` 地址工作 |
 
 实施顺序固定为：

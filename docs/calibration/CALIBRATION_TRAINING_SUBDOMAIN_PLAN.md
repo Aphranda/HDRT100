@@ -136,7 +136,7 @@ P1/P2 只限制搜索范围，P3 只提供每跳传播预算；真正决定 DATA
 |---|---|---|---|---|
 | `TRN-01` | Ring Marker Capture & Cut-Through（环路 marker 捕获与切通） | accepted topology、P2 marker codebook、marker line 角色、epoch/sequence | 每个节点的 marker capture/forward tick、cut-through residence、整圈 marker RTT、缺失/重复/乱序原因 | 所有节点捕获同一 marker；顺序正确；每跳 forward residence 有界；reference 捕获返回 marker；PIO/DMA fault 为零 |
 | `TRN-02` | Marker-Anchored DATA Slot Training（marker 锚定 DATA 码元时隙） | TRN-01 marker origin、P3 `path_delay` diagnostic candidate、PIO sample period、DATA codeword | 每条 link 的 `data_offset`、`training_window`、`guard`、`marker_data_skew`、correlation/margin/CRC 证据 | 单跳先通过；四条 directed link 均在同一 generation/profile 下重复通过；窗口达到当前 PIO 分辨率或明确拒绝原因 |
-| `TRN-03` | TDMA Short-Frame/FIFO Closed Loop（TDMA 短帧/FIFO 闭环接入） | TRN-02 per-link window、loop-delay/residence 汇总、topology/profile/schedule CRC | TDMA per-link staging、ARM gate、短帧 TX/RX FIFO 计数、sequence/CRC/feedback evidence、active candidate | 全部链路 accepted 后才能 ARM；四板 up/down、FIFO、sequence/CRC 同时增长；失败统一 STOPPED 并保持旧 active generation |
+| `TRN-03` | TDMA Short-Frame/FIFO Closed Loop（TDMA 短帧/FIFO 闭环接入） | TRN-02 per-link window、PIO instruction-cycle profile、loop-delay/residence 汇总、topology/profile/schedule CRC | TDMA per-link staging、ARM gate、slot/forward budget、短帧 TX/RX FIFO 计数、sequence/CRC/feedback evidence、active candidate | 全部链路 accepted 且指令周期预算可重放后才能 ARM；四板 up/down、FIFO、sequence/CRC 同时增长；失败统一 STOPPED 并保持旧 active generation |
 
 ### TRN-01：环路 marker 捕获与切通
 
@@ -179,13 +179,56 @@ TRN-02 的结果是相对接收窗口，不是新的绝对 `path_delay`。如果
 ### TRN-03：TDMA 短帧/FIFO 闭环接入
 
 第三阶段才恢复 NORMAL persona，把 TRN-02 的 per-link window 绑定到 TDMA adapter，
-并通过显式 `STOP -> stage -> validate -> ARM -> START` 接入短帧和 TX/RX FIFO。core1
+并通过显式 `STOP -> stage -> validate -> ARM -> START` 接入短帧和 TX/RX FIFO。ARM 前
+必须冻结本次 profile 的 PIO 指令周期预算；core1
 负责 PIO/SM/DMA、飞行转发和 FIFO 搬运；core0 只处理已完成帧和 guarded snapshot。
+
+### TRN-03 的 TDMA 指令周期预算
+
+第三阶段的时间基准不是 RTOS 任务执行时间，而是 PIO state machine 的实际指令周期。
+预算必须从代码和 profile 事实源生成并随 staging 一起校验：
+
+```text
+pio_instruction_period_ns = derived from clkdiv and clock_get_hz(clk_sys)
+tdma_bit_period_ns         = bit_cycles * pio_instruction_period_ns
+marker_to_data_cycles  = marker_gap_cycles + local_pipeline_cycles
+forward_residence_cycles = forward_rx_cycles + forward_tx_cycles
+slot_budget_cycles     = rx_arm_lead_cycles
+                         + marker_to_data_cycles
+                         + codeword_cycles
+                         + forward_residence_cycles
+                         + guard_cycles
+loop_delay_cycles      = ceil(loop_delay_ns / pio_instruction_period_ns)
+```
+
+`clkdiv` 必须来自实际装载的 PIO persona：普通 TDMA 使用
+`tdma_pio_spi_clkdiv_for_baud()`，P3/训练 persona 使用
+`tdma_pio_spi_p3_clkdiv_for_baud()` 和对应的
+`tdma_pio_spi_p3_data_high_cycles()`。`clock_get_hz(clk_sys)` 的板级来源是
+`BOARD_SYS_CLOCK_HZ`。`bit_cycles`、marker gap、forward residence 和 codeword cycles
+必须从 PIO 程序/码本派生，不能由 SCPI 或 core0 临时注入。
+
+每个 TRN-03 staging record 至少绑定：
+
+```text
+pio_program/persona_id, clkdiv, clk_sys_hz, pio_instruction_period_ns
+bit_cycles, marker_to_data_cycles, forward_residence_cycles
+rx_arm_lead_cycles, codeword_cycles, guard_cycles, slot_budget_cycles
+loop_delay_ns, loop_delay_tolerance_ns, loop_delay_cycles
+cycle_period_ns, baud_hz, profile_crc32, schedule_crc32
+```
+
+任何 `clkdiv`、PIO persona、`baud_hz`、码本长度或 `cycle_period_ns` 变化都必须使旧
+training window stale 并重新训练。`cycle_period_ns` 是 TDMA 调度周期，不能替代 PIO
+instruction period；core1 的 RTOS service 只允许在已预留的 bounded budget 内搬运 FIFO，
+不能进入 marker、采样边沿或 cut-through 的关键路径。
 
 第三阶段门禁包括：
 
 - 四条 directed link 均有同一 topology/profile/calibration generation 的 accepted window；
 - `loop_delay` 只用于整圈返回预算、反馈窗口和 timeout，不替代 per-link `data_offset`；
+- 每个 slot 的 `slot_budget_cycles`、`rx_arm_lead_cycles`、`forward_residence_cycles` 和
+  `loop_delay_cycles` 均能由当前 PIO persona 重放，不能依赖一次性的 core0/RTOS 调度时刻；
 - 短帧的 TX/RX FIFO、sequence、CRC、up/down 状态同时增长；
 - 任一链路失败、窗口过期或 generation 不一致，ARM 必须拒绝并恢复 STOPPED；
 - 只有通过重复性、freshness、hardware latch、bias 和 rollback 门禁，才可形成 active candidate。
