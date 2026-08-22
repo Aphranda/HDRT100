@@ -77,6 +77,22 @@ Last updated: 2026-08-23
 - 边界与回退：当前仍无真实 Product NVS power-cut 注入、sector seal、wear health 或 DHRT100
   rotation HIL；轮换策略只在旧最新记录所在 sector 之外执行，故不宣称 M2-02/M1-05-K 完成。
 
+### FLASH-TASK-20260823-031 - BootControlStore façade owner boundary
+
+- 状态：M3-02 的独立 BootControlStore façade 子项完成，M3-02 总项保持 `[~]`。Boot/App 的
+  `ota_metadata.c` 不再直接调用 `pota_bcb_store_*`，而通过 `pota_boot_control_facade` 进行
+  init/select/append/wear 查询；façade 不暴露 Flash offset/lane 几何，只转发已验证的
+  platform callback boundary。
+- 代码：新增 `third_party/portable_ota/include/pota_boot_control_facade.h` 和
+  `src/pota_boot_control_facade.c`，App/Boot CMake 均链接；`test_pota_boot_control_store.c`
+  增加 façade 的未初始化拒绝、append/select 和 wear snapshot 测试。
+- 验证：`run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m3-bcb-facade` 通过；
+  `cmake --build --preset pico2-release --parallel 4` 生成 App A/App B/Boot/factory/update，
+  FlashMap/inventory/link gate 和 `release_check=OK` 通过。
+- 边界与回退：façade 不是 v2 deployment、持久 wear health、Recovery 或 DHRT100 BCB HIL；
+  portable BCB 的 torn-write/GC host 证据保持有效，未执行板端写入。删除 façade 文件即可
+  回退到同一 primitive API，不改变 Flash map。
+
 ### FLASH-TASK-20260823-025 - signed manifest extension 与 counter gate
 
 - 状态：M3-04 增加固定 manifest extension 的 portable parser/packager boundary；这是信任链

@@ -393,9 +393,9 @@ TODO 只保留可独立验收的状态项和证据索引。
 ### M3-02 BootControlStore
 
 - [~] portable primitive 已实现双 lane append/select/commit/GC 和 lane generation；v1
-  `ota_metadata.c` 已接入实际 BCB payload 和 BootFlashService/FlashTransactionAO adapter
-  （`FLASH-TASK-20260823-016`），仍待独立 BootControlStore façade、wear counter 和 v2 schema
-  migration。
+  `ota_metadata.c` 已接入实际 BCB payload 和 BootFlashService/FlashTransactionAO adapter，
+  现在再经独立 `pota_boot_control_facade` owner boundary（`FLASH-TASK-20260823-031`）。仍待
+  wear health 持久化、v2 schema migration 和 Recovery policy。
 - [~] primitive 在无有效 lane 时返回 `NO_VALID`，不创建默认记录；DHRT100 已完成
   BCB-backed A/B OTA/reboot/confirm 闭环（`FLASH-TASK-20260823-017`），但 Boot Recovery policy
   接入仍待完成。
