@@ -814,11 +814,13 @@ if(PROJECT_FLASH_DEPLOYMENT_V2)
                     --map-manifest ${PROJECT_ACTIVE_MAP_MANIFEST}
                     --bcb-header ${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include/pota_boot_control_store.h
                     --metadata-header ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc/ota_metadata.h
+                    --bootloader ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_BOOT.bin
                     --app-a ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.bin
+                    --recovery ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_RECOVERY.bin
                     --boot-control ${CMAKE_CURRENT_BINARY_DIR}/factory_boot_control.bin
                     --manifest-blob ${CMAKE_CURRENT_BINARY_DIR}/factory_map_manifest.bin
                     --report ${CMAKE_CURRENT_BINARY_DIR}/factory_region_report.json
-            DEPENDS ${PROJECT_NAME}
+            DEPENDS ${PROJECT_NAME} DHRT100_BOOT DHRT100_RECOVERY
                     ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/make_factory_baseline.py
                     ${PROJECT_ACTIVE_MAP_MANIFEST}
                     ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.h

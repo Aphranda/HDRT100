@@ -8,6 +8,7 @@ import pytest
 
 from tools.flash_map.flash_consumer_check import (
     FlashConsumerError,
+    check_factory_report,
     check_ota_package,
     check_source_consumers,
     load_manifest,
@@ -50,3 +51,20 @@ def test_ota_descriptor_rejects_run_offset_drift(tmp_path: Path) -> None:
     (tmp_path / "DHRT100_UPDATE.pkg").write_bytes(package)
     with pytest.raises(FlashConsumerError, match="APP_A descriptor"):
         check_ota_package(tmp_path, manifest)
+
+
+def test_factory_report_rejects_incomplete_region_coverage(tmp_path: Path) -> None:
+    manifest = json.loads(
+        (ROOT / "config/flash_map_gen/flash_map_v2_manifest.json").read_text(
+            encoding="utf-8"))
+    (tmp_path / "factory_region_report.json").write_text(
+        json.dumps({
+            "deployment_state": "target_not_deployed",
+            "map_version": 2,
+            "full_erase_required": True,
+            "regions": [],
+        }),
+        encoding="utf-8",
+    )
+    with pytest.raises(FlashConsumerError, match="coverage is incomplete"):
+        check_factory_report(tmp_path, manifest)

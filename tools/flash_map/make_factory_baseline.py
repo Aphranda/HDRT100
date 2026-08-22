@@ -23,7 +23,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--map-manifest", type=Path, required=True)
     parser.add_argument("--bcb-header", type=Path, required=True)
     parser.add_argument("--metadata-header", type=Path, required=True)
+    parser.add_argument("--bootloader", type=Path, required=True)
     parser.add_argument("--app-a", type=Path, required=True)
+    parser.add_argument("--recovery", type=Path, required=True)
     parser.add_argument("--boot-control", type=Path, required=True)
     parser.add_argument("--manifest-blob", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
@@ -129,7 +131,9 @@ def main() -> int:
     map_defines = load_defines(args.map_header)
     bcb_defines = load_defines(args.bcb_header)
     metadata_defines = load_defines(args.metadata_header)
+    bootloader = args.bootloader.read_bytes()
     app = args.app_a.read_bytes()
+    recovery = args.recovery.read_bytes()
     manifest_data = json.loads(args.map_manifest.read_text(encoding="utf-8"))
     if manifest_data.get("deployment_state") != "target_not_deployed":
         raise ValueError("factory baseline requires target_not_deployed manifest")
@@ -144,7 +148,9 @@ def main() -> int:
                                       metadata_defines, app)
     partitions = {item["id"]: item for item in manifest_data["partitions"]}
     for partition_id, size in (
+        ("BOOTLOADER", len(bootloader)),
         ("APP_A", len(app)),
+        ("RECOVERY", len(recovery)),
         ("BOOT_CONTROL", len(boot_control)),
         ("OTA_STAGE", len(canonical_manifest)),
     ):
@@ -161,7 +167,11 @@ def main() -> int:
         "map_version": manifest_data["map_version"],
         "full_erase_required": True,
         "regions": [
+            {"partition": "BOOTLOADER", "size": len(bootloader),
+             "sha256": sha256(bootloader)},
             {"partition": "APP_A", "size": len(app), "sha256": sha256(app)},
+            {"partition": "RECOVERY", "size": len(recovery),
+             "sha256": sha256(recovery)},
             {"partition": "BOOT_CONTROL", "size": len(boot_control),
              "sha256": sha256(boot_control), "baseline": "valid_bcb_lane0"},
             {"partition": "OTA_STAGE", "size": len(canonical_manifest),

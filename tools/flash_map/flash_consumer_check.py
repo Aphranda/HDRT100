@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import struct
@@ -156,6 +157,41 @@ def check_binary_sizes(build_dir: Path, manifest: dict[str, Any]) -> None:
                 "v2 factory baseline manifest/report is missing")
 
 
+def check_factory_report(build_dir: Path, manifest: dict[str, Any]) -> None:
+    report_path = build_dir / "factory_region_report.json"
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FlashConsumerError(f"cannot read factory region report: {exc}") from exc
+    if (report.get("deployment_state") != manifest.get("deployment_state") or
+            report.get("map_version") != manifest.get("map_version") or
+            report.get("full_erase_required") is not True):
+        raise FlashConsumerError("factory region report identity/policy is invalid")
+    region_list = report.get("regions")
+    if not isinstance(region_list, list):
+        raise FlashConsumerError("factory region report has no region list")
+    regions = {
+        item.get("partition"): item for item in region_list
+        if isinstance(item, dict) and isinstance(item.get("partition"), str)
+    }
+    expected = {
+        "BOOTLOADER": "DHRT100_BOOT.bin",
+        "APP_A": "DHRT100.bin",
+        "RECOVERY": "DHRT100_RECOVERY.bin",
+        "BOOT_CONTROL": "factory_boot_control.bin",
+        "OTA_STAGE": "factory_map_manifest.bin",
+    }
+    if set(regions) != set(expected):
+        raise FlashConsumerError("factory region report coverage is incomplete")
+    for partition_id, filename in expected.items():
+        data = (build_dir / filename).read_bytes()
+        region = regions[partition_id]
+        if (region.get("size") != len(data) or
+                region.get("sha256") != hashlib.sha256(data).hexdigest()):
+            raise FlashConsumerError(
+                f"factory region report hash drifted for {partition_id}")
+
+
 def check_ota_package(build_dir: Path, manifest: dict[str, Any],
                       package_name: str = "DHRT100_UPDATE.pkg") -> None:
     package = (build_dir / package_name).read_bytes()
@@ -231,6 +267,8 @@ def check_artifacts(build_dir: Path, manifest: dict[str, Any], *,
                     factory_name: str = "DHRT100_FACTORY.uf2") -> None:
     check_link_maps(build_dir, manifest)
     check_binary_sizes(build_dir, manifest)
+    if "RECOVERY" in partitions_by_id(manifest):
+        check_factory_report(build_dir, manifest)
     check_ota_package(build_dir, manifest, package_name)
     check_factory_uf2(build_dir, manifest, factory_name)
 

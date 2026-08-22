@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import struct
 import subprocess
 import sys
@@ -14,6 +15,10 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_factory_baseline_contains_valid_bcb_and_map_manifest(tmp_path: Path) -> None:
     app = tmp_path / "app.bin"
     app.write_bytes(b"factory-app-image")
+    bootloader = tmp_path / "bootloader.bin"
+    bootloader.write_bytes(b"factory-bootloader")
+    recovery = tmp_path / "recovery.bin"
+    recovery.write_bytes(b"factory-recovery")
     boot_control = tmp_path / "boot_control.bin"
     manifest_blob = tmp_path / "manifest.bin"
     report = tmp_path / "report.json"
@@ -25,7 +30,9 @@ def test_factory_baseline_contains_valid_bcb_and_map_manifest(tmp_path: Path) ->
             "--map-manifest", str(ROOT / "config/flash_map_gen/flash_map_v2_manifest.json"),
             "--bcb-header", str(ROOT / "third_party/portable_ota/include/pota_boot_control_store.h"),
             "--metadata-header", str(ROOT / "components/ota_manager/inc/ota_metadata.h"),
+            "--bootloader", str(bootloader),
             "--app-a", str(app),
+            "--recovery", str(recovery),
             "--boot-control", str(boot_control),
             "--manifest-blob", str(manifest_blob),
             "--report", str(report),
@@ -80,3 +87,12 @@ def test_factory_baseline_contains_valid_bcb_and_map_manifest(tmp_path: Path) ->
     report_data = json.loads(report.read_text(encoding="utf-8"))
     assert report_data["full_erase_required"] is True
     assert report_data["deployment_state"] == "target_not_deployed"
+    regions = {item["partition"]: item for item in report_data["regions"]}
+    for partition, path in (
+        ("BOOTLOADER", bootloader),
+        ("APP_A", app),
+        ("RECOVERY", recovery),
+    ):
+        content = path.read_bytes()
+        assert regions[partition]["size"] == len(content)
+        assert regions[partition]["sha256"] == hashlib.sha256(content).hexdigest()
