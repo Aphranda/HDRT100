@@ -6,6 +6,8 @@ import argparse
 import json
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[2]
+
 
 def validate(path: Path) -> list[str]:
     try:
@@ -35,6 +37,44 @@ def validate(path: Path) -> list[str]:
             errors.append(f"contracts[{index}] fields empty")
         if not contract.get("commit_order"):
             errors.append(f"contracts[{index}] commit_order empty")
+    corpus_contracts: set[str] = set()
+    for index, corpus in enumerate(data.get("parser_corpus", [])):
+        contract = corpus.get("contract")
+        if contract not in names:
+            errors.append(f"parser_corpus[{index}] references unknown contract")
+        elif contract in corpus_contracts:
+            errors.append(f"duplicate parser corpus: {contract}")
+        else:
+            corpus_contracts.add(contract)
+        if corpus.get("stage") not in {
+            "deployed_compatibility",
+            "deployed_package_header",
+            "transport_envelope",
+        }:
+            errors.append(f"parser_corpus[{index}] has invalid stage")
+        parser_symbol = corpus.get("parser")
+        if not isinstance(parser_symbol, str) or not parser_symbol:
+            errors.append(f"parser_corpus[{index}] missing parser")
+        for key in ("source", "fixture"):
+            value = corpus.get(key)
+            candidate = ROOT / value if isinstance(value, str) else None
+            if candidate is None or not candidate.is_file():
+                errors.append(f"parser_corpus[{index}] {key} does not exist")
+                continue
+            if parser_symbol and parser_symbol not in candidate.read_text(
+                encoding="utf-8", errors="replace"
+            ):
+                errors.append(
+                    f"parser_corpus[{index}] parser missing from {key}"
+                )
+        mutations = corpus.get("mutations")
+        if not isinstance(mutations, list) or not mutations:
+            errors.append(f"parser_corpus[{index}] mutations empty")
+    missing_corpus = names - corpus_contracts
+    if missing_corpus:
+        errors.append(
+            "parser corpus missing contracts: " + ",".join(sorted(missing_corpus))
+        )
     for index, vector in enumerate(data.get("golden_vectors", [])):
         if vector.get("contract") not in names:
             errors.append(f"golden_vectors[{index}] references unknown contract")
@@ -57,7 +97,11 @@ def main() -> int:
             print(f"FAIL {error}")
         return 1
     data = json.loads(args.contracts.read_text(encoding="utf-8"))
-    print(f"flash_wire=OK contracts={len(data['contracts'])} golden={len(data['golden_vectors'])}")
+    print(
+        f"flash_wire=OK contracts={len(data['contracts'])} "
+        f"corpus={len(data['parser_corpus'])} "
+        f"golden={len(data['golden_vectors'])}"
+    )
     return 0
 
 

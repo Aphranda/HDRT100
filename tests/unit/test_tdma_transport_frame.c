@@ -91,6 +91,35 @@ int main(void)
                          tdma_transport_frame_route(&view, 3u),
                          TDMA_TRANSPORT_ROUTE_FORWARD);
 
+    uint8_t corpus_packet[sizeof(packet)];
+    memcpy(corpus_packet, packet, sizeof(corpus_packet));
+    for (size_t length = 0u; length < packet_size; length++) {
+        failed += expect_bool("reject truncated packet",
+                              tdma_transport_frame_decode(corpus_packet,
+                                                          length,
+                                                          &view,
+                                                          &result),
+                              false);
+    }
+    for (size_t offset = 0u; offset < packet_size; offset++) {
+        for (uint32_t bit = 0u; bit < 8u; bit++) {
+            corpus_packet[offset] ^= (uint8_t)(1u << bit);
+            failed += expect_bool("reject single-bit packet mutation",
+                                  tdma_transport_frame_decode(corpus_packet,
+                                                              packet_size,
+                                                              &view,
+                                                              &result),
+                                  false);
+            corpus_packet[offset] ^= (uint8_t)(1u << bit);
+        }
+    }
+    failed += expect_bool("decode after mutation corpus",
+                          tdma_transport_frame_decode(packet,
+                                                      packet_size,
+                                                      &view,
+                                                      &result),
+                          true);
+
     const uint32_t identity_crc32 = view.identity_crc32;
     const uint32_t transport_crc32 = view.transport_crc32;
     const uint8_t flight_patch[] = {0xA5u, 0x5Au};

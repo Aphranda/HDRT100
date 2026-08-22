@@ -55,6 +55,50 @@ static int expect_error(const char *name, pota_error_t actual, pota_error_t expe
     return 0;
 }
 
+static int run_parser_mutation_corpus(uint8_t *header,
+                                      const pota_package_constraints_t *constraints)
+{
+    pota_package_manifest_t manifest;
+    int failed = 0;
+
+    for (uint32_t length = 0u; length < POTA_PACKAGE_HEADER_SIZE; length++) {
+        if (pota_package_parse_header(header, length, constraints, &manifest) !=
+            POTA_ERR_BAD_ARGUMENT) {
+            (void)printf("truncated header accepted: length=%lu\n",
+                         (unsigned long)length);
+            failed++;
+        }
+    }
+
+    for (uint32_t offset = 0u; offset < POTA_PACKAGE_HEADER_SIZE; offset++) {
+        for (uint32_t bit = 0u; bit < 8u; bit++) {
+            header[offset] ^= (uint8_t)(1u << bit);
+            const pota_error_t first = pota_package_parse_header(
+                header, POTA_PACKAGE_HEADER_SIZE, constraints, &manifest);
+            const pota_error_t second = pota_package_parse_header(
+                header, POTA_PACKAGE_HEADER_SIZE, constraints, &manifest);
+            if (first != second) {
+                (void)printf("non-deterministic parse: offset=%lu bit=%lu\n",
+                             (unsigned long)offset,
+                             (unsigned long)bit);
+                failed++;
+            }
+            if (first == POTA_ERR_NONE) {
+                for (uint32_t i = 0u; i < manifest.image_count; i++) {
+                    const pota_package_image_t *image = &manifest.images[i];
+                    if (image->offset > manifest.package_size ||
+                        image->size > manifest.package_size - image->offset) {
+                        (void)printf("accepted image outside package\n");
+                        failed++;
+                    }
+                }
+            }
+            header[offset] ^= (uint8_t)(1u << bit);
+        }
+    }
+    return failed;
+}
+
 int main(void)
 {
     uint8_t header[POTA_PACKAGE_HEADER_SIZE];
@@ -127,6 +171,9 @@ int main(void)
     failed += expect_error("bootloader too old",
                            pota_package_parse_header(header, sizeof(header), &constraints, &manifest),
                            POTA_ERR_BOOTLOADER_TOO_OLD);
+
+    make_valid_header(header);
+    failed += run_parser_mutation_corpus(header, &constraints);
 
     return failed == 0 ? 0 : 1;
 }

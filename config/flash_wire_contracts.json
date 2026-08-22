@@ -9,6 +9,12 @@
     {"name":"OTA_STREAM_SESSION","transport":"usb_sd_uart","fields":["identity","generation","object_type","destination","total_size","durable_offset","chunk_size","session_crc","resume_token","state"],"commit_order":["open","accept_chunk","write","verify","durable_offset","close"],"selection":"same_identity_generation_destination"},
     {"name":"TDMA_OTA_CONTROL","transport":"tdma","fields":["kind","session_id","generation","object_type","destination","offset","length","credit","resume_token","reason","payload_crc"],"kinds":["OPEN","DATA","ACK","CLOSE","ABORT","STATUS"],"commit_order":["OPEN","DATA*","CLOSE"],"selection":"durable_ack_offset_only"}
   ],
+  "parser_corpus": [
+    {"contract":"BCB_RECORD","stage":"deployed_compatibility","parser":"pota_metadata_is_valid","source":"third_party/portable_ota/src/pota_metadata.c","fixture":"tests/unit/test_portable_ota_metadata.c","mutations":["single_bit_crc","copy_selection","invalid_state"]},
+    {"contract":"IMAGE_MANIFEST_TLV","stage":"deployed_package_header","parser":"pota_package_parse_header","source":"third_party/portable_ota/src/pota_package.c","fixture":"tests/unit/test_portable_ota_package.c","mutations":["truncate","single_bit","length_bounds","identity_mismatch"]},
+    {"contract":"OTA_STREAM_SESSION","stage":"deployed_compatibility","parser":"pota_begin","source":"third_party/portable_ota/src/pota_core.c","fixture":"tests/unit/test_portable_ota_core.c","mutations":["oversize","crc_mismatch","invalid_state","unaligned_chunk"]},
+    {"contract":"TDMA_OTA_CONTROL","stage":"transport_envelope","parser":"tdma_transport_frame_decode","source":"components/tdma/src/tdma_transport_frame.c","fixture":"tests/unit/test_tdma_transport_frame.c","mutations":["truncate","single_bit","oversize","bad_route"]}
+  ],
   "golden_vectors": [
     {"name":"open_new_session","contract":"OTA_STREAM_SESSION","expected":"accept","state":"OPEN","durable_offset":0},
     {"name":"replay_generation","contract":"OTA_STREAM_SESSION","expected":"reject","reason":"generation_replay"},

@@ -59,6 +59,21 @@ int main(void)
 
     failed += expect_true("valid metadata", pota_metadata_is_valid(&copies[0]));
 
+    pota_metadata_t mutation_seed = copies[0];
+    uint8_t *mutation_bytes = (uint8_t *)&mutation_seed;
+    for (size_t offset = 0u; offset < sizeof(mutation_seed); offset++) {
+        for (uint32_t bit = 0u; bit < 8u; bit++) {
+            mutation_bytes[offset] ^= (uint8_t)(1u << bit);
+            if (pota_metadata_is_valid(&mutation_seed)) {
+                (void)printf("single-bit metadata mutation accepted: offset=%lu bit=%lu\n",
+                             (unsigned long)offset,
+                             (unsigned long)bit);
+                failed++;
+            }
+            mutation_bytes[offset] ^= (uint8_t)(1u << bit);
+        }
+    }
+
     pota_metadata_t corrupted = copies[1];
     corrupted.active_slot = (uint32_t)POTA_SLOT_B;
     failed += expect_false("corrupted metadata", pota_metadata_is_valid(&corrupted));
