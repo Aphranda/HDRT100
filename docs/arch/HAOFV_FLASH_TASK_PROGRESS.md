@@ -77,6 +77,26 @@ Last updated: 2026-08-23
 - 边界：M1-05-J 的独立报告与强制 gate 已完成代码侧，Boot 依赖的独立 C11 交叉审核仍未完成；
   不改变 v1 compatibility map、DHRT100 实板状态或 v2 deployment 结论。
 
+### FLASH-TASK-20260823-012 - DHRT100 staged OTA and FlashMap closure
+
+- 状态：DHRT100 当前 v1 compatibility 固件完成真实 inactive-slot staged OTA；本条只证明现有
+  release 路径和 FlashMap 只读诊断，不能关闭 v2 deployment、durable journal 或 BOOTSEL gate。
+- 工件：`build-flash-m1-05h-20260823-release/DHRT100_UPDATE.pkg`，build `20260822162706`，
+  package CRC32 `0x8DC82FF7`；完整原始 transcript：
+  `build/dhrt100_ota_20260823_m1_05j_transcript.txt`。
+- OTA 闭环：`READY_TO_REBOOT`, target 2 → USB CDC 重枚举窗口的 `ClearCommError` →
+  `post_boot_status="IDLE",1,"NONE",0` → `committed_status="COMMITTED",1,"NONE",5`。
+  最终 `SYST:FW:BUILD?="20260822162706"`、`SYST:OTA:SLOT?=2,0,2,0,0`、`SYST:ERR?=0,"No error"`。
+- FlashMap/传感器只读验证：`flash_map_board_validate.py` 通过，`partitions=14/14`、
+  `access_checks=260`；板温 `32.923 °C`、RP2350 内温 `38.276 °C`、current nominal `79 mA`、
+  `current_calibrated=0`、front-end healthy。报告目录：
+  `build/dhrt100_flash_gate_20260823_final/`。
+- 多核回归：8/9 通过；identity、build、core1、loop、VDC、Calibration、config gate、error queue
+  均通过，唯一失败为 `SYST:SYNC:VDC:DPLL:STAT? update_seq STALLED`，作为独立 DPLL 问题保留，
+  不归因于 Flash 变更。原始报告：`build/dhrt100_m1_05j_20260823/`。
+- HAOFV 边界：本次未写入 v2 高地址、未执行 BOOTSEL/full erase、未注入 power-cut；M1-05-G/H/I
+  durable backend/replay、M0-05 和 C11 审核仍未完成。
+
 ### FLASH-TASK-20260823-006 - 最新 release package DHRT100 闭环
 
 - 状态：最新 release 工件已完成 DHRT100 实板 A/B OTA；不改变 M1-05-G/H/I、M1-06、M0-05
