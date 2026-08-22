@@ -67,6 +67,28 @@ def test_ota_package_header_matches_payload_layout() -> None:
     assert package[144:176] == hashlib.sha256(package[ota_packager.PACKAGE_HEADER_SIZE:]).digest()
 
 
+def test_ota_package_can_carry_external_manifest_security_metadata() -> None:
+    signature = bytes(range(64))
+    package = ota_packager.build_package(
+        b"A" * 32,
+        b"B" * 32,
+        product_id="DHRT100",
+        hardware_id="dhrt100",
+        app_version=(1, 2, 3),
+        build_id="signed",
+        min_bootloader_version=(0, 1, 0),
+        layout=_layout(),
+        security_counter=9,
+        key_id=7,
+        signature=signature,
+    )
+    assert struct.unpack_from("<I", package, 256)[0] == ota_packager.MANIFEST_EXTENSION_MAGIC
+    assert struct.unpack_from("<I", package, 268)[0] == 9
+    assert struct.unpack_from("<I", package, 272)[0] == 7
+    assert struct.unpack_from("<I", package, 276)[0] == len(signature)
+    assert package[280:344] == signature
+
+
 @pytest.mark.parametrize("value", ["1.2", "1.2.3.4", "1.2.256", "1.-1.0"])
 def test_parse_semver_rejects_invalid_versions(value: str) -> None:
     with pytest.raises(ValueError):

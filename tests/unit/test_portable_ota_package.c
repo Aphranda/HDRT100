@@ -55,6 +55,35 @@ static int expect_error(const char *name, pota_error_t actual, pota_error_t expe
     return 0;
 }
 
+static void add_signed_extension(uint8_t *header, uint32_t security_counter,
+                                 uint32_t key_id)
+{
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET,
+               POTA_MANIFEST_EXTENSION_MAGIC);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 4u,
+               POTA_MANIFEST_EXTENSION_VERSION);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 8u, 1u);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 12u, security_counter);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 16u, key_id);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 20u,
+               POTA_MANIFEST_SIGNATURE_MAX_SIZE);
+    for (uint32_t index = 0u; index < POTA_MANIFEST_SIGNATURE_MAX_SIZE; index++) {
+        header[POTA_MANIFEST_EXTENSION_OFFSET + 24u + index] = (uint8_t)(index + 1u);
+    }
+}
+
+static bool verify_signature(void *context,
+                             const pota_package_manifest_t *manifest,
+                             const uint8_t *header,
+                             uint32_t header_size)
+{
+    (void)header;
+    (void)header_size;
+    return context != NULL && manifest != NULL && manifest->key_id == 7u &&
+           manifest->signature_length == POTA_MANIFEST_SIGNATURE_MAX_SIZE &&
+           manifest->signature[0] == 1u;
+}
+
 static int run_parser_mutation_corpus(uint8_t *header,
                                       const pota_package_constraints_t *constraints)
 {
@@ -171,6 +200,49 @@ int main(void)
     failed += expect_error("bootloader too old",
                            pota_package_parse_header(header, sizeof(header), &constraints, &manifest),
                            POTA_ERR_BOOTLOADER_TOO_OLD);
+
+    make_valid_header(header);
+    add_signed_extension(header, 8u, 7u);
+    const pota_package_constraints_t signed_constraints = {
+        .product_id = "RP2350_TRIG",
+        .hardware_id = "PICO2",
+        .bootloader_version = POTA_PACK_VERSION(0u, 1u, 0u),
+        .minimum_security_counter = 10u,
+        .require_signature = true,
+        .verify_signature = verify_signature,
+        .verify_context = header,
+    };
+    failed += expect_error("security counter rollback",
+                           pota_package_parse_header(header, sizeof(header),
+                                                     &signed_constraints, &manifest),
+                           POTA_ERR_SECURITY_COUNTER_ROLLBACK);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 12u, 10u);
+    failed += expect_error("signed manifest",
+                           pota_package_parse_header(header, sizeof(header),
+                                                     &signed_constraints, &manifest),
+                           POTA_ERR_NONE);
+    const pota_package_constraints_t missing_verifier = {
+        .product_id = "RP2350_TRIG",
+        .hardware_id = "PICO2",
+        .bootloader_version = POTA_PACK_VERSION(0u, 1u, 0u),
+        .require_signature = true,
+    };
+    failed += expect_error("missing verifier",
+                           pota_package_parse_header(header, sizeof(header),
+                                                     &missing_verifier, &manifest),
+                           POTA_ERR_SIGNATURE_INVALID);
+
+    make_valid_header(header);
+    const pota_package_constraints_t required_signature = {
+        .product_id = "RP2350_TRIG",
+        .hardware_id = "PICO2",
+        .bootloader_version = POTA_PACK_VERSION(0u, 1u, 0u),
+        .require_signature = true,
+    };
+    failed += expect_error("unsigned manifest",
+                           pota_package_parse_header(header, sizeof(header),
+                                                     &required_signature, &manifest),
+                           POTA_ERR_SIGNATURE_INVALID);
 
     make_valid_header(header);
     failed += run_parser_mutation_corpus(header, &constraints);

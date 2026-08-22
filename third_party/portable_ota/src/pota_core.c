@@ -295,6 +295,10 @@ pota_error_t pota_core_write_action(pota_context_t *context, const void *argumen
             .product_id = context->platform.info.product_id,
             .hardware_id = context->platform.info.hardware_id,
             .bootloader_version = context->platform.info.bootloader_version,
+            .minimum_security_counter = context->platform.info.security_counter,
+            .require_signature = context->platform.info.require_signature,
+            .verify_signature = context->platform.info.verify_manifest_signature,
+            .verify_context = context->platform.info.verify_manifest_context,
         };
         pota_error_t error = pota_package_parse_header(data, size, &constraints, &manifest);
         if (error != POTA_ERR_NONE ||

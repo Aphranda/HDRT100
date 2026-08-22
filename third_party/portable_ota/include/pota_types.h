@@ -15,6 +15,11 @@
 #define POTA_SHA256_SIZE             32u
 #define POTA_IMAGE_ENTRY_SIZE        32u
 #define POTA_IMAGE_TABLE_OFFSET      192u
+#define POTA_MANIFEST_EXTENSION_OFFSET 256u
+#define POTA_MANIFEST_EXTENSION_MAGIC 0x4D465458u
+#define POTA_MANIFEST_EXTENSION_VERSION 1u
+#define POTA_MANIFEST_SIGNATURE_MAX_SIZE 64u
+#define POTA_MANIFEST_REQUIRED_SIGNATURE (1u << 0)
 
 #define POTA_PACK_VERSION(major, minor, patch) \
     ((((uint32_t)(major) & 0xFFu) << 16u) | \
@@ -63,6 +68,8 @@ typedef enum {
     POTA_ERR_METADATA,
     POTA_ERR_ABORTED,
     POTA_ERR_BAD_ARGUMENT,
+    POTA_ERR_SIGNATURE_INVALID,
+    POTA_ERR_SECURITY_COUNTER_ROLLBACK,
 } pota_error_t;
 
 typedef enum {

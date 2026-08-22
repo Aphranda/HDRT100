@@ -10,6 +10,12 @@
 #define POTA_PACKAGE_MIN_BOOTLOADER_OFFSET    108u
 #define POTA_PACKAGE_BUILD_ID_OFFSET          112u
 #define POTA_PACKAGE_SHA256_OFFSET            144u
+#define POTA_MANIFEST_EXT_VERSION_OFFSET     (POTA_MANIFEST_EXTENSION_OFFSET + 4u)
+#define POTA_MANIFEST_EXT_FLAGS_OFFSET       (POTA_MANIFEST_EXTENSION_OFFSET + 8u)
+#define POTA_MANIFEST_EXT_COUNTER_OFFSET     (POTA_MANIFEST_EXTENSION_OFFSET + 12u)
+#define POTA_MANIFEST_EXT_KEY_ID_OFFSET      (POTA_MANIFEST_EXTENSION_OFFSET + 16u)
+#define POTA_MANIFEST_EXT_SIG_LENGTH_OFFSET  (POTA_MANIFEST_EXTENSION_OFFSET + 20u)
+#define POTA_MANIFEST_EXT_SIG_OFFSET         (POTA_MANIFEST_EXTENSION_OFFSET + 24u)
 
 static uint32_t pota_read_le32(const uint8_t *data)
 {
@@ -69,6 +75,40 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
            &data[POTA_PACKAGE_SHA256_OFFSET],
            sizeof(manifest->payload_sha256));
 
+    memset(manifest->signature, 0, sizeof(manifest->signature));
+    manifest->extension_version = 0u;
+    manifest->required_flags = 0u;
+    manifest->security_counter = 0u;
+    manifest->key_id = 0u;
+    manifest->signature_length = 0u;
+    const uint32_t extension_magic =
+        pota_read_le32(&data[POTA_MANIFEST_EXTENSION_OFFSET]);
+    if (extension_magic != 0u && extension_magic != 0xFFFFFFFFu) {
+        if (extension_magic != POTA_MANIFEST_EXTENSION_MAGIC) {
+            return POTA_ERR_BAD_HEADER;
+        }
+        manifest->extension_version =
+            pota_read_le32(&data[POTA_MANIFEST_EXT_VERSION_OFFSET]);
+        manifest->required_flags =
+            pota_read_le32(&data[POTA_MANIFEST_EXT_FLAGS_OFFSET]);
+        manifest->security_counter =
+            pota_read_le32(&data[POTA_MANIFEST_EXT_COUNTER_OFFSET]);
+        manifest->key_id =
+            pota_read_le32(&data[POTA_MANIFEST_EXT_KEY_ID_OFFSET]);
+        manifest->signature_length =
+            pota_read_le32(&data[POTA_MANIFEST_EXT_SIG_LENGTH_OFFSET]);
+        if (manifest->extension_version != POTA_MANIFEST_EXTENSION_VERSION ||
+            manifest->signature_length > POTA_MANIFEST_SIGNATURE_MAX_SIZE) {
+            return POTA_ERR_BAD_HEADER;
+        }
+        memcpy(manifest->signature, &data[POTA_MANIFEST_EXT_SIG_OFFSET],
+               manifest->signature_length);
+    }
+
+    if ((manifest->required_flags & POTA_MANIFEST_REQUIRED_SIGNATURE) != 0u &&
+        manifest->signature_length == 0u) {
+        return POTA_ERR_SIGNATURE_INVALID;
+    }
     if (constraints != NULL) {
         if (!pota_text_matches(manifest->product_id, constraints->product_id)) {
             return POTA_ERR_PRODUCT_MISMATCH;
@@ -79,6 +119,22 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
         if (manifest->min_bootloader_version > constraints->bootloader_version) {
             return POTA_ERR_BOOTLOADER_TOO_OLD;
         }
+        if (manifest->security_counter < constraints->minimum_security_counter) {
+            return POTA_ERR_SECURITY_COUNTER_ROLLBACK;
+        }
+        if ((constraints->require_signature ||
+             (manifest->required_flags & POTA_MANIFEST_REQUIRED_SIGNATURE) != 0u) &&
+            manifest->signature_length == 0u) {
+            return POTA_ERR_SIGNATURE_INVALID;
+        }
+    }
+    /* A signed extension is never accepted without an explicit verifier,
+     * even for callers that do not provide product constraints. */
+    if (manifest->signature_length != 0u &&
+        (constraints == NULL || constraints->verify_signature == NULL ||
+         !constraints->verify_signature(constraints->verify_context,
+                                        manifest, data, length))) {
+        return POTA_ERR_SIGNATURE_INVALID;
     }
 
     uint32_t cursor = POTA_IMAGE_TABLE_OFFSET;

@@ -2,6 +2,7 @@
 #define POTA_PLATFORM_H
 
 #include "pota_types.h"
+#include "pota_package.h"
 
 typedef struct {
     uint32_t offset;
@@ -19,6 +20,10 @@ typedef struct {
     pota_partition_t slot_b;
     uint32_t flash_page_size;
     uint32_t flash_sector_size;
+    uint32_t security_counter;
+    bool require_signature;
+    pota_package_signature_verify_fn verify_manifest_signature;
+    void *verify_manifest_context;
 } pota_platform_info_t;
 
 typedef struct {

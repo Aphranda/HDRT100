@@ -12,6 +12,7 @@
 #define OTA_PACKAGE_IMAGE_COUNT 2u
 #define OTA_PACKAGE_TEXT_FIELD_SIZE 32u
 #define OTA_PACKAGE_SHA256_SIZE 32u
+#define OTA_PACKAGE_SIGNATURE_MAX_SIZE 64u
 
 #define OTA_PACKAGE_BOOTLOADER_VERSION(major, minor, patch) \
     ((((uint32_t)(major) & 0xFFu) << 16u) | \
@@ -43,6 +44,12 @@ typedef struct {
     char build_id[OTA_PACKAGE_TEXT_FIELD_SIZE];
     uint8_t payload_sha256[OTA_PACKAGE_SHA256_SIZE];
     ota_package_image_t images[OTA_PACKAGE_IMAGE_COUNT];
+    uint32_t extension_version;
+    uint32_t required_flags;
+    uint32_t security_counter;
+    uint32_t key_id;
+    uint32_t signature_length;
+    uint8_t signature[OTA_PACKAGE_SIGNATURE_MAX_SIZE];
 } ota_package_manifest_t;
 
 bool ota_package_parse_header(const uint8_t *data,

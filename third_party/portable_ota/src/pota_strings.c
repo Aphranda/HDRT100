@@ -65,6 +65,10 @@ const char *pota_error_to_string(pota_error_t error)
         return "ABORTED";
     case POTA_ERR_BAD_ARGUMENT:
         return "BAD_ARGUMENT";
+    case POTA_ERR_SIGNATURE_INVALID:
+        return "SIGNATURE_INVALID";
+    case POTA_ERR_SECURITY_COUNTER_ROLLBACK:
+        return "SECURITY_COUNTER_ROLLBACK";
     default:
         return "UNKNOWN";
     }
