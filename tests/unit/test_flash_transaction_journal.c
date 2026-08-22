@@ -13,16 +13,34 @@
 static uint8_t s_flash[TEST_SLOT_COUNT * TEST_SLOT_SIZE];
 static uint32_t s_program_calls;
 static uint32_t s_fail_program_call;
+static uint32_t s_read_calls;
+static uint32_t s_fail_read_call;
+static bool s_fail_readback;
+static bool s_corrupt_readback;
 
 static bool fake_read(void *context, uint32_t offset, void *data,
                       uint32_t length)
 {
     (void)context;
+    s_read_calls++;
+    if (s_fail_read_call != 0u && s_read_calls == s_fail_read_call) {
+        return false;
+    }
+    if (s_fail_readback && s_program_calls >= 2u &&
+        length == sizeof(flash_transaction_journal_disk_record_t)) {
+        return false;
+    }
     if (data == NULL || offset > sizeof(s_flash) ||
         length > sizeof(s_flash) - offset) {
         return false;
     }
     memcpy(data, &s_flash[offset], length);
+    if (s_corrupt_readback && s_program_calls >= 2u &&
+        length == sizeof(flash_transaction_journal_disk_record_t)) {
+        ((uint8_t *)data)[offsetof(flash_transaction_journal_disk_record_t,
+                                   record)] ^= 1u;
+        s_corrupt_readback = false;
+    }
     return true;
 }
 
@@ -250,6 +268,102 @@ static void test_recovery_falls_back_to_previous_valid_completion(void)
     assert(recovered.job_id == accepted.job_id);
 }
 
+static void test_reset_boundary_matrix(void)
+{
+    const flash_transaction_journal_record_t accepted =
+        make_record(FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED, 41u);
+    const flash_transaction_journal_record_t committed =
+        make_record(FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED, 41u);
+    flash_transaction_journal_config_t config = make_config();
+    flash_transaction_journal_store_t store;
+    flash_transaction_journal_store_t reset_store;
+    flash_transaction_journal_record_t recovered;
+    uint32_t sequence = 0u;
+
+    /* Body write torn: only the previous accepted completion survives. */
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    s_program_calls = 0u;
+    s_fail_program_call = 0u;
+    s_read_calls = 0u;
+    s_fail_read_call = 0u;
+    s_fail_readback = false;
+    s_corrupt_readback = false;
+    assert(flash_transaction_journal_init(&store, &config));
+    assert(flash_transaction_journal_append(&store, &accepted));
+    s_program_calls = 0u;
+    s_fail_program_call = 1u;
+    assert(!flash_transaction_journal_append(&store, &committed));
+    assert(flash_transaction_journal_init(&reset_store, &config));
+    assert(flash_transaction_journal_recover_latest(&reset_store, &recovered,
+                                                    &sequence));
+    assert(recovered.event == FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED);
+    assert(sequence == 1u);
+
+    /* Commit marker torn: the body is not a durable completion. */
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    s_program_calls = 0u;
+    s_fail_program_call = 0u;
+    s_read_calls = 0u;
+    s_fail_read_call = 0u;
+    s_fail_readback = false;
+    s_corrupt_readback = false;
+    assert(flash_transaction_journal_init(&store, &config));
+    assert(flash_transaction_journal_append(&store, &accepted));
+    s_program_calls = 0u;
+    s_fail_program_call = 2u;
+    assert(!flash_transaction_journal_append(&store, &committed));
+    assert(flash_transaction_journal_init(&reset_store, &config));
+    assert(flash_transaction_journal_recover_latest(&reset_store, &recovered,
+                                                    &sequence));
+    assert(recovered.event == FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED);
+    assert(sequence == 1u);
+
+    /* Readback transport failure: the marker is durable even though the
+     * writer cannot verify it; reset therefore selects the new record. */
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    s_program_calls = 0u;
+    s_fail_program_call = 0u;
+    s_read_calls = 0u;
+    s_fail_read_call = 0u;
+    s_fail_readback = false;
+    s_corrupt_readback = false;
+    assert(flash_transaction_journal_init(&store, &config));
+    assert(flash_transaction_journal_append(&store, &accepted));
+    s_program_calls = 0u;
+    s_fail_readback = true;
+    assert(!flash_transaction_journal_append(&store, &committed));
+    s_fail_readback = false;
+    assert(flash_transaction_journal_init(&reset_store, &config));
+    assert(flash_transaction_journal_recover_latest(&reset_store, &recovered,
+                                                    &sequence));
+    assert(recovered.event == FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED);
+    assert(sequence == 2u);
+
+    /* Readback corruption: the marker was already sealed, therefore reset
+     * deterministically selects the new committed completion. */
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    s_program_calls = 0u;
+    s_fail_program_call = 0u;
+    s_read_calls = 0u;
+    s_fail_read_call = 0u;
+    s_fail_readback = false;
+    s_corrupt_readback = false;
+    assert(flash_transaction_journal_init(&store, &config));
+    assert(flash_transaction_journal_append(&store, &accepted));
+    s_program_calls = 0u;
+    s_fail_program_call = 0u;
+    s_corrupt_readback = true;
+    assert(!flash_transaction_journal_append(&store, &committed));
+    s_corrupt_readback = false;
+    assert(flash_transaction_journal_init(&reset_store, &config));
+    assert(flash_transaction_journal_recover_latest(&reset_store, &recovered,
+                                                    &sequence));
+    assert(recovered.event == FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED);
+    assert(sequence == 2u);
+
+    puts("journal reset boundary matrix passed: body=old marker=old readback=new");
+}
+
 int main(void)
 {
     test_append_and_reset_recovery();
@@ -257,6 +371,7 @@ int main(void)
     test_full_journal_fails_closed();
     test_duplicate_completion_is_idempotent();
     test_recovery_falls_back_to_previous_valid_completion();
+    test_reset_boundary_matrix();
     puts("flash transaction journal tests passed");
     return 0;
 }
