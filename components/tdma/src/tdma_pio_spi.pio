@@ -392,7 +392,7 @@ static inline uint32_t tdma_pio_spi_p3_data_high_cycles(uint32_t baud_hz)
 
 static inline void tdma_pio_spi_p3_responder_program_init(
     PIO pio, uint sm, uint offset, uint sync_rx_pin, uint clk_rx_pin,
-    uint data_tx_pin, uint32_t baud_hz)
+    uint data_tx_pin, uint32_t baud_hz, uint32_t signal_group)
 {
     const uint32_t high_cycles =
         tdma_pio_spi_p3_data_high_cycles(baud_hz);
@@ -401,9 +401,13 @@ static inline void tdma_pio_spi_p3_responder_program_init(
     pio->instr_mem[offset + 1u] =
         (uint16_t)pio_encode_wait_gpio(true, sync_rx_pin);
     pio->instr_mem[offset + 2u] =
-        (uint16_t)pio_encode_wait_gpio(false, clk_rx_pin);
+        signal_group == 1u
+            ? (uint16_t)pio_encode_nop()
+            : (uint16_t)pio_encode_wait_gpio(false, clk_rx_pin);
     pio->instr_mem[offset + 3u] =
-        (uint16_t)pio_encode_wait_gpio(true, clk_rx_pin);
+        signal_group == 1u
+            ? (uint16_t)pio_encode_nop()
+            : (uint16_t)pio_encode_wait_gpio(true, clk_rx_pin);
     pio->instr_mem[offset + 4u] =
         (uint16_t)(pio_encode_set(pio_pins, 1u) |
                    pio_encode_delay(high_cycles - 1u));

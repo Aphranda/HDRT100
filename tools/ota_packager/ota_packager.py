@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a unified RP2350_TRIG OTA package containing Slot A and Slot B images."""
+"""Create a unified DHRT100 OTA package containing Slot A and Slot B images."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ PACKAGE_PAYLOAD_ALIGNMENT = 512
 TEXT_FIELD_SIZE = 32
 SLOT_A = 1
 SLOT_B = 2
-DEFAULT_PRODUCT_ID = "RP2350_TRIG"
-DEFAULT_HARDWARE_ID = "rp2350_trig"
+DEFAULT_PRODUCT_ID = "DHRT100"
+DEFAULT_HARDWARE_ID = "dhrt100"
 DEFAULT_APP_VERSION = "0.1.0"
 DEFAULT_MIN_BOOTLOADER_VERSION = "0.1.0"
 

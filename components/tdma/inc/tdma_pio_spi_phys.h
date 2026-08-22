@@ -58,6 +58,7 @@
 #define TDMA_PIO_SPI_CLK_TRAIN_SNAPSHOT_VERSION 1u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS 256u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ 50000000u
+#define TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_WORDS 128u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_PIO_DMA (1u << 0u)
 #define TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_DIAGNOSTIC_ONLY (1u << 1u)
 #define TDMA_PIO_SPI_CAL_LOOPBACK_FLAG_SYNC_MATCH (1u << 2u)
@@ -119,6 +120,12 @@ typedef enum {
     TDMA_PIO_SPI_P3_ROLE_RESPONDER = 2u,
 } tdma_pio_spi_p3_role_t;
 
+/* P3 measures both independent outbound signal paths against DATA. */
+typedef enum {
+    TDMA_PIO_SPI_P3_GROUP_CLK_DATA = 0u,
+    TDMA_PIO_SPI_P3_GROUP_CS_DATA = 1u,
+} tdma_pio_spi_p3_signal_group_t;
+
 #define TDMA_PIO_SPI_P3_FLAG_DIAGNOSTIC_ONLY (1u << 0u)
 #define TDMA_PIO_SPI_P3_FLAG_HARDWARE_LATCHED (1u << 1u)
 #define TDMA_PIO_SPI_P3_FLAG_DMA_COMPLETE (1u << 2u)
@@ -130,11 +137,13 @@ typedef struct {
     uint32_t pulse_count;
     uint32_t capture_words;
     uint32_t epoch;
+    uint32_t signal_group;
 } tdma_pio_spi_p3_request_t;
 
 typedef struct {
     uint32_t state;
     uint32_t role;
+    uint32_t signal_group;
     uint32_t flags;
     uint32_t reject_reason;
     uint32_t baud_hz;

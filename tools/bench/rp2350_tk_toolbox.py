@@ -20,8 +20,8 @@ from tkinter.scrolledtext import ScrolledText
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BUILD_DIR = ROOT / "build"
-DEFAULT_PACKAGE = DEFAULT_BUILD_DIR / "RP2350_TRIG_UPDATE.pkg"
-DEFAULT_FACTORY = DEFAULT_BUILD_DIR / "RP2350_TRIG_FACTORY.uf2"
+DEFAULT_PACKAGE = DEFAULT_BUILD_DIR / "DHRT100_UPDATE.pkg"
+DEFAULT_FACTORY = DEFAULT_BUILD_DIR / "DHRT100_FACTORY.uf2"
 DEFAULT_SD_DIR = DEFAULT_BUILD_DIR / "sdcard"
 PYTHON = sys.executable
 PACKAGE_MAGIC = 0x474B5054
@@ -402,8 +402,8 @@ class ToolboxApp:
         path = filedialog.askdirectory(initialdir=str(ROOT))
         if path:
             self.build_dir_var.set(path)
-            self.package_var.set(str(Path(path) / "RP2350_TRIG_UPDATE.pkg"))
-            self.factory_var.set(str(Path(path) / "RP2350_TRIG_FACTORY.uf2"))
+            self.package_var.set(str(Path(path) / "DHRT100_UPDATE.pkg"))
+            self.factory_var.set(str(Path(path) / "DHRT100_FACTORY.uf2"))
             self.sd_dir_var.set(str(Path(path) / "sdcard"))
 
     def browse_package(self) -> None:
@@ -666,7 +666,7 @@ class ToolboxApp:
             messagebox.showerror(
                 "Invalid OTA package",
                 "OTA operations in this GUI expect the unified package:\n"
-                "RP2350_TRIG_UPDATE.pkg\n\n"
+                "DHRT100_UPDATE.pkg\n\n"
                 f"Selected file is not a unified package:\n{path}",
             )
             return False

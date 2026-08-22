@@ -1115,6 +1115,11 @@ uint32_t vdc_domain_path_delay_table_crc32(
     hash = vdc_domain_hash_u32(hash, table->update_seq);
     hash = vdc_domain_hash_u32(hash, table->entry_count);
     hash = vdc_domain_hash_u32(hash, table->schedule_crc32);
+    hash = vdc_domain_hash_u32(hash, table->calibration_generation);
+    hash = vdc_domain_hash_u32(hash, table->topology_generation);
+    hash = vdc_domain_hash_u32(hash, table->bias_generation);
+    hash = vdc_domain_hash_u32(hash, table->freshness_us);
+    hash = vdc_domain_hash_u32(hash, table->flags);
     for (uint32_t i = 0u; i < VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT; i++) {
         const vdc_path_delay_entry_t *entry = &table->entries[i];
         hash = vdc_domain_hash_u32(hash, entry->valid);
@@ -1141,14 +1146,15 @@ void vdc_domain_default_path_delay_table(
     }
 
     memset(table, 0, sizeof(*table));
-    table->valid = 1u;
+    /* A zero-delay table is a staging placeholder, never DPLL input. */
+    table->valid = 0u;
     table->version = VDC_DOMAIN_PATH_DELAY_TABLE_VERSION;
     table->update_seq = 1u;
-    table->entry_count = VDC_DOMAIN_NODE_COUNT;
+    table->entry_count = 0u;
     table->schedule_crc32 = schedule->schedule_crc32;
     for (uint32_t i = 0u; i < VDC_DOMAIN_NODE_COUNT; i++) {
         vdc_path_delay_entry_t *entry = &table->entries[i];
-        entry->valid = 1u;
+        entry->valid = 0u;
         entry->source_slot_id = i;
         entry->reference_slot_id = schedule->reference_slot_id;
         entry->direction = 0u;
@@ -1172,6 +1178,20 @@ bool vdc_domain_path_delay_table_validate(
         table->version != VDC_DOMAIN_PATH_DELAY_TABLE_VERSION ||
         table->entry_count > VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT ||
         table->schedule_crc32 == 0u ||
+        table->entry_count == 0u ||
+        table->calibration_generation == 0u ||
+        table->topology_generation == 0u ||
+        table->bias_generation == 0u ||
+        table->freshness_us == 0u ||
+        (table->flags & (VDC_PATH_DELAY_FLAG_ACCEPTED |
+                         VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                         VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                         VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH)) !=
+            (VDC_PATH_DELAY_FLAG_ACCEPTED |
+             VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+             VDC_PATH_DELAY_FLAG_BIAS_VALID |
+             VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH) ||
+        (table->flags & VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u ||
         table->table_crc32 != vdc_domain_path_delay_table_crc32(table)) {
         return false;
     }

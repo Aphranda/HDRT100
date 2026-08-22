@@ -1,13 +1,16 @@
 #include "calibration_manager.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "board.h"
 #include "board_config.h"
 #include "board_identity.h"
+#include "ota_crc32.h"
 #include "osal.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
+#include "storage_manager.h"
 #include "tdma_runtime_owner.h"
 
 #define CALIBRATION_MANAGER_DEFAULT_CRC32 0x10000003u
@@ -16,6 +19,10 @@ static calibration_manager_status_t s_status;
 static bool s_ready;
 static calibration_manager_loopback_snapshot_t s_loopback_snapshot;
 static uint32_t s_loopback_processed_epoch;
+static calibration_bias_accumulator_t s_bias_accumulator;
+static calibration_bias_snapshot_t s_bias_snapshot;
+static bool s_bias_active;
+static uint32_t s_bias_next_epoch;
 static calibration_clk_coded_store_t s_clk_coded_store;
 static calibration_clk_coded_workspace_t s_clk_coded_workspace;
 static uint32_t s_clk_coded_capture[TDMA_PIO_SPI_CODED_BUFFER_WORDS];
@@ -207,6 +214,8 @@ bool calibration_manager_init(void)
 
     memset(&s_status, 0, sizeof(s_status));
     memset(&s_loopback_snapshot, 0, sizeof(s_loopback_snapshot));
+    memset(&s_bias_accumulator, 0, sizeof(s_bias_accumulator));
+    memset(&s_bias_snapshot, 0, sizeof(s_bias_snapshot));
     calibration_clk_coded_store_init(&s_clk_coded_store);
     memset(&s_clk_coded_workspace, 0, sizeof(s_clk_coded_workspace));
     memset(s_clk_coded_capture, 0, sizeof(s_clk_coded_capture));
@@ -223,6 +232,8 @@ bool calibration_manager_init(void)
     s_p3_intent_next_sequence = 0u;
     s_p3_intent_consumed_sequence = 0u;
     s_loopback_processed_epoch = 0u;
+    s_bias_active = false;
+    s_bias_next_epoch = 1u;
     s_status.last_service_ms = now_ms;
     s_status.command_seq = 1u;
     s_status.link_count = 1u;
@@ -296,14 +307,54 @@ void calibration_manager_service(void)
         s_status.state = next.result_valid != 0u ? 2u : 3u;
         s_status.last_error = next.result.reject_reason;
         osal_critical_exit();
+
+        if (s_bias_active) {
+            const calibration_bias_sample_t bias_sample = {
+                .raw_path_sum_ns = next.result.raw_path_sum_ns,
+                .clock_error_bound_ns = raw.sample_period_ns,
+                .persona_generation = 1u,
+                .profile_crc32 = 0u,
+                .topology_generation = 0u,
+                .sample_flags = sample.sample_flags,
+                .epoch = raw.epoch,
+                .reference_loopback = true,
+            };
+            (void)calibration_bias_add(&s_bias_accumulator, &bias_sample);
+            const bool reached_limit = s_bias_accumulator.sample_count >=
+                                        s_bias_accumulator.gate.maximum_samples;
+            const bool reached_target = s_bias_accumulator.accepted_count >=
+                                         s_bias_accumulator.gate.minimum_samples;
+            if (reached_target || reached_limit) {
+                calibration_bias_snapshot_t snapshot;
+                const bool finalized = calibration_bias_finalize(
+                    &s_bias_accumulator, &snapshot);
+                osal_critical_enter();
+                s_bias_snapshot = snapshot;
+                s_bias_active = false;
+                osal_critical_exit();
+                calibration_pio_loopback_request_stop();
+                if (!finalized) s_status.last_error = snapshot.reject_reason;
+            } else {
+                s_bias_next_epoch = raw.epoch + 1u;
+                if (s_bias_next_epoch == 0u) s_bias_next_epoch = 1u;
+                (void)calibration_pio_loopback_request_start(
+                    &(calibration_pio_loopback_config_t){
+                        .sample_hz = TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ,
+                        .sample_words = TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_WORDS,
+                        .epoch = s_bias_next_epoch,
+                    });
+            }
+        }
     }
 }
 
 bool calibration_manager_start_loopback(uint32_t sample_words)
 {
     calibration_pio_loopback_config_t config = {
-        .sample_hz = 50000000u,
-        .sample_words = sample_words == 0u ? 128u : sample_words,
+        .sample_hz = TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ,
+        .sample_words = sample_words == 0u ?
+                             TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_WORDS :
+                             sample_words,
         .epoch = s_status.command_seq + 1u,
     };
     const bool accepted = calibration_pio_loopback_request_start(&config);
@@ -319,7 +370,142 @@ bool calibration_manager_start_loopback(uint32_t sample_words)
 
 void calibration_manager_stop_loopback(void)
 {
+    s_bias_active = false;
     calibration_pio_loopback_request_stop();
+}
+
+bool calibration_manager_start_bias(uint32_t expected_path_sum_ns,
+                                    uint32_t minimum_samples,
+                                    uint32_t maximum_samples,
+                                    uint32_t maximum_spread_ns,
+                                    uint32_t maximum_clock_error_ns)
+{
+    if (minimum_samples == 0u || maximum_samples < minimum_samples ||
+        maximum_samples > 1024u || s_bias_active) {
+        return false;
+    }
+    calibration_bias_gate_t gate = {
+        .expected_path_sum_ns = expected_path_sum_ns,
+        .expected_persona_generation = 1u,
+        .minimum_samples = minimum_samples,
+        .maximum_samples = maximum_samples,
+        .maximum_spread_ns = maximum_spread_ns,
+        .maximum_clock_error_ns = maximum_clock_error_ns,
+        .require_hardware_latched = true,
+        .require_sync_match = true,
+    };
+    const uint32_t generation = s_bias_snapshot.generation + 1u;
+    calibration_bias_begin(&s_bias_accumulator, &gate,
+                           generation == 0u ? 1u : generation);
+    memset(&s_bias_snapshot, 0, sizeof(s_bias_snapshot));
+    s_bias_active = true;
+    s_bias_next_epoch = s_loopback_processed_epoch + 1u;
+    if (s_bias_next_epoch == 0u) s_bias_next_epoch = 1u;
+    if (!calibration_pio_loopback_request_start(
+            &(calibration_pio_loopback_config_t){
+                .sample_hz = TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ,
+                .sample_words = TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_WORDS,
+                .epoch = s_bias_next_epoch,
+            })) {
+        s_bias_active = false;
+        return false;
+    }
+    return true;
+}
+
+void calibration_manager_stop_bias(void)
+{
+    if (!s_bias_active) {
+        calibration_pio_loopback_request_stop();
+        return;
+    }
+    calibration_bias_snapshot_t snapshot;
+    (void)calibration_bias_finalize(&s_bias_accumulator, &snapshot);
+    osal_critical_enter();
+    s_bias_snapshot = snapshot;
+    s_bias_active = false;
+    osal_critical_exit();
+    calibration_pio_loopback_request_stop();
+}
+
+bool calibration_manager_get_bias_snapshot(
+    calibration_bias_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) return false;
+    osal_critical_enter();
+    *snapshot = s_bias_snapshot;
+    osal_critical_exit();
+    return true;
+}
+
+bool calibration_manager_save_bias_snapshot(uint32_t *job_id)
+{
+    calibration_bias_snapshot_t snapshot;
+    if (job_id != NULL) *job_id = 0u;
+    if (job_id == NULL || !calibration_manager_get_bias_snapshot(&snapshot) ||
+        !calibration_bias_snapshot_validate(&snapshot)) {
+        return false;
+    }
+
+    char path[96];
+    (void)snprintf(path, sizeof(path),
+                   "/cal/accepted_%s_g%lu.json",
+                   board_identity_serial(),
+                   (unsigned long)snapshot.generation);
+
+    char payload[2048];
+    const int written = snprintf(
+        payload, sizeof(payload),
+        "{\n"
+        "  \"magic\": \"HAOFV_CALIBRATION_EVIDENCE\",\n"
+        "  \"schema\": 1,\n"
+        "  \"state\": \"accepted\",\n"
+        "  \"identity\": \"%s\",\n"
+        "  \"build_id\": \"%s\",\n"
+        "  \"generation\": %lu,\n"
+        "  \"sample_count\": %lu,\n"
+        "  \"accepted_count\": %lu,\n"
+        "  \"rejected_count\": %lu,\n"
+        "  \"persona_generation\": %lu,\n"
+        "  \"profile_crc32\": %lu,\n"
+        "  \"topology_generation\": %lu,\n"
+        "  \"first_epoch\": %lu,\n"
+        "  \"last_epoch\": %lu,\n"
+        "  \"mean_bias_ns\": %lld,\n"
+        "  \"spread_ns\": %lu,\n"
+        "  \"table_crc32\": %lu,\n"
+        "  \"source\": \"calibration_bias_snapshot\",\n"
+        "  \"active\": false\n"
+        "}\n",
+        board_identity_serial(), g_project_build_id,
+        (unsigned long)snapshot.generation,
+        (unsigned long)snapshot.sample_count,
+        (unsigned long)snapshot.accepted_count,
+        (unsigned long)snapshot.rejected_count,
+        (unsigned long)snapshot.persona_generation,
+        (unsigned long)snapshot.profile_crc32,
+        (unsigned long)snapshot.topology_generation,
+        (unsigned long)snapshot.first_epoch,
+        (unsigned long)snapshot.last_epoch,
+        (long long)snapshot.mean_bias_ns,
+        (unsigned long)snapshot.spread_ns,
+        (unsigned long)snapshot.table_crc32);
+    if (written <= 0 || (size_t)written >= sizeof(payload)) return false;
+
+    const uint32_t crc32 = ota_crc32_compute(
+        (const uint8_t *)payload, (size_t)written);
+    uint32_t transaction_id = 0u;
+    if (!storage_manager_begin_file_write(path, (uint32_t)written, crc32,
+                                          &transaction_id) ||
+        !storage_manager_write_file_chunk(transaction_id, 0u,
+                                           (const uint8_t *)payload,
+                                           (size_t)written) ||
+        !storage_manager_commit_file_write(transaction_id, job_id)) {
+        (void)storage_manager_abort_file_write(transaction_id);
+        *job_id = 0u;
+        return false;
+    }
+    return true;
 }
 
 void calibration_manager_service_core1(void)
@@ -484,12 +670,13 @@ bool calibration_manager_get_clk_coded_snapshot(
 
 bool calibration_manager_request_p3(
     uint32_t role, uint32_t baud_hz, uint32_t pulse_count,
-    uint32_t capture_words, uint32_t epoch)
+    uint32_t capture_words, uint32_t epoch, uint32_t signal_group)
 {
     calibration_p3_intent_t pending;
     tdma_pio_spi_p3_snapshot_t raw;
     if ((role != TDMA_PIO_SPI_P3_ROLE_INITIATOR &&
          role != TDMA_PIO_SPI_P3_ROLE_RESPONDER) ||
+        signal_group > TDMA_PIO_SPI_P3_GROUP_CS_DATA ||
         !calibration_manager_p3_read(&pending) ||
         pending.sequence != __atomic_load_n(
             &s_p3_intent_consumed_sequence, __ATOMIC_ACQUIRE) ||
@@ -503,6 +690,7 @@ bool calibration_manager_request_p3(
         .pulse_count = pulse_count,
         .capture_words = capture_words,
         .epoch = epoch,
+        .signal_group = signal_group,
     };
     calibration_manager_p3_publish(CALIBRATION_P3_INTENT_START, &request);
     return true;

@@ -351,7 +351,7 @@ def write_manifest_idx(output_dir: Path,
 
     lines = [
         *common_lines,
-        "default.ota_package=/update/RP2350_TRIG_UPDATE.pkg",
+        "default.ota_package=/update/DHRT100_UPDATE.pkg",
     ]
     for object_type, key in required:
         info = files[key]
@@ -379,11 +379,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, default=DEFAULT_BUILD_DIR, help="firmware build directory")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="SD-card staging directory")
-    parser.add_argument("--package", type=Path, help="unified OTA package, default: <build-dir>/RP2350_TRIG_UPDATE.pkg")
-    parser.add_argument("--factory", type=Path, help="factory UF2, default: <build-dir>/RP2350_TRIG_FACTORY.uf2")
+    parser.add_argument("--package", type=Path, help="unified OTA package, default: <build-dir>/DHRT100_UPDATE.pkg")
+    parser.add_argument("--factory", type=Path, help="factory UF2, default: <build-dir>/DHRT100_FACTORY.uf2")
     parser.add_argument("--no-raw-compat", action="store_true", help="do not include raw .bin compatibility payloads")
     parser.add_argument("--no-reports", action="store_true", help="do not copy latest OTA validation summaries")
-    parser.add_argument("--no-zip", action="store_true", help="do not create RP2350_TRIG_SDCARD.zip")
+    parser.add_argument("--no-zip", action="store_true", help="do not create DHRT100_SDCARD.zip")
     parser.add_argument("--legacy-layout", action="store_true", help="also create legacy /config, /capture, /resource")
     parser.add_argument("--clean", action="store_true", help="remove the output directory before generating it")
     return parser.parse_args()
@@ -393,22 +393,22 @@ def main() -> int:
     args = parse_args()
     build_dir = args.build_dir.resolve()
     output_dir = args.output_dir.resolve()
-    package = (args.package or build_dir / "RP2350_TRIG_UPDATE.pkg").resolve()
-    factory = (args.factory or build_dir / "RP2350_TRIG_FACTORY.uf2").resolve()
+    package = (args.package or build_dir / "DHRT100_UPDATE.pkg").resolve()
+    factory = (args.factory or build_dir / "DHRT100_FACTORY.uf2").resolve()
 
     if args.clean:
         clean_output_dir(output_dir)
     layout = ensure_layout(output_dir, args.legacy_layout)
 
     package_manifest = parse_package(package)
-    copied_package = copy_file(package, output_dir / "update" / "RP2350_TRIG_UPDATE.pkg", output_dir)
-    factory_manifest = copy_file(factory, output_dir / "factory" / "RP2350_TRIG_FACTORY.uf2", output_dir)
+    copied_package = copy_file(package, output_dir / "update" / "DHRT100_UPDATE.pkg", output_dir)
+    factory_manifest = copy_file(factory, output_dir / "factory" / "DHRT100_FACTORY.uf2", output_dir)
     system_files = write_default_system_files(output_dir, package_manifest)
     refmem_package = write_refmem_package(output_dir, package_manifest)
 
     raw_compat: list[dict[str, Any]] = []
     if not args.no_raw_compat:
-        for name in ("RP2350_TRIG.bin", "RP2350_TRIG_B.bin"):
+        for name in ("DHRT100.bin", "DHRT100_B.bin"):
             src = build_dir / name
             if src.exists():
                 raw_compat.append(copy_file(src, output_dir / "update" / "compat" / name, output_dir))
@@ -419,7 +419,7 @@ def main() -> int:
         default_config = {
             "product_id": package_manifest["product_id"],
             "hardware_id": package_manifest["hardware_id"],
-            "ota_default_file": "/update/RP2350_TRIG_UPDATE.pkg",
+            "ota_default_file": "/update/DHRT100_UPDATE.pkg",
             "ota_default_format": "unified_pkg",
             "ota_mode": "DIRECT_AB",
             "raw_bin_compatibility_dir": "/update/compat",
@@ -427,13 +427,13 @@ def main() -> int:
         write_json(output_dir / "config" / "default_config.json", default_config, output_dir)
 
     readme = (
-        "RP2350_TRIG SD card filesystem\n"
+        "DHRT100 SD card filesystem\n"
         "================================\n\n"
         "Copy the contents of this directory to the root of a FAT32 SD card.\n"
         "The firmware-readable index is /manifest.idx; /manifest.json is for tools.\n"
-        "The default offline OTA payload is /update/RP2350_TRIG_UPDATE.pkg.\n"
+        "The default offline OTA payload is /update/DHRT100_UPDATE.pkg.\n"
         "Raw .bin files under /update/compat are kept for compatibility and bench work.\n"
-        "Bootloader recovery still uses /factory/RP2350_TRIG_FACTORY.uf2 through BOOTSEL.\n"
+        "Bootloader recovery still uses /factory/DHRT100_FACTORY.uf2 through BOOTSEL.\n"
     )
     (output_dir / "README.txt").write_text(readme, encoding="utf-8")
     (output_dir / "update" / "last_result.txt").write_text("NO_RESULT\n", encoding="utf-8")
@@ -454,7 +454,7 @@ def main() -> int:
         },
         "ota_default": {
             "format": "unified_pkg",
-            "path": "/update/RP2350_TRIG_UPDATE.pkg",
+            "path": "/update/DHRT100_UPDATE.pkg",
             "mode": "DIRECT_AB",
             "raw_bin_compatibility": not args.no_raw_compat,
         },
@@ -476,16 +476,16 @@ def main() -> int:
         },
     )
 
-    zip_path = build_dir / "RP2350_TRIG_SDCARD.zip"
+    zip_path = build_dir / "DHRT100_SDCARD.zip"
     if not args.no_zip:
         write_zip(output_dir, zip_path)
 
     print(f"sd_output={output_dir}")
-    print("ota_default=/update/RP2350_TRIG_UPDATE.pkg")
+    print("ota_default=/update/DHRT100_UPDATE.pkg")
     print(f"package_size={package_manifest['size']}")
     print(f"package_crc32={package_manifest['crc32']}")
     print(f"build_id={package_manifest['build_id']}")
-    print(f"factory=/factory/RP2350_TRIG_FACTORY.uf2")
+    print(f"factory=/factory/DHRT100_FACTORY.uf2")
     print(f"manifest={output_dir / 'manifest.json'}")
     print(f"manifest_idx={output_dir / 'manifest.idx'}")
     if not args.no_zip:

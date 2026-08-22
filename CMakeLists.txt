@@ -260,6 +260,8 @@ set(PROJECT_APP_SOURCES
         middleware/flash_map/src/flash_map.c
         components/calibration_manager/src/calibration_manager.c
         components/calibration_manager/src/calibration_bidirectional.c
+        components/calibration_manager/src/calibration_bias.c
+        components/calibration_manager/src/calibration_path_snapshot.c
         components/calibration_manager/src/calibration_clk_coded.c
         components/calibration_manager/src/calibration_clk_marker.c
         components/calibration_manager/src/calibration_pio_loopback.c
@@ -711,8 +713,7 @@ add_custom_target(project_flash_link_check ALL
                 --profile boot
                 --map ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_BOOT.elf.map
                 --dis ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_BOOT.dis
-        DEPENDS ${PROJECT_NAME} RP2350_TRIG_B
-                DHRT100_B DHRT100_BOOT
+        DEPENDS ${PROJECT_NAME} DHRT100_B DHRT100_BOOT
                 ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_link_check.py
         VERBATIM
 )

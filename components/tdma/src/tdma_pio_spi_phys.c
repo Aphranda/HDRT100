@@ -1564,8 +1564,12 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
     bool have_clock_fall = false;
     bool have_data_rise = false;
     bool have_data_fall = false;
+    const bool cs_data = phys->p3.signal_group ==
+        TDMA_PIO_SPI_P3_GROUP_CS_DATA;
     const uint32_t clock_mask = phys->p3.role ==
-        TDMA_PIO_SPI_P3_ROLE_INITIATOR ? (1u << 1u) : (1u << 4u);
+        TDMA_PIO_SPI_P3_ROLE_INITIATOR
+            ? (1u << (cs_data ? 2u : 1u))
+            : (1u << (cs_data ? 3u : 4u));
     const uint32_t data_mask = phys->p3.role ==
         TDMA_PIO_SPI_P3_ROLE_INITIATOR ? (1u << 0u) : (1u << 5u);
     const uint32_t period = phys->p3.sample_period_ns;
@@ -1610,7 +1614,8 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
                 have_data_fall = true;
             }
             if (phys->p3.role == TDMA_PIO_SPI_P3_ROLE_INITIATOR) {
-                if ((rising & (1u << 1u)) != 0u && (found & 1u) == 0u) {
+                const uint32_t tx_mask = 1u << (cs_data ? 2u : 1u);
+                if ((rising & tx_mask) != 0u && (found & 1u) == 0u) {
                     times[0] = timestamp;
                     found |= 1u;
                 }
@@ -1619,7 +1624,8 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
                     found |= 8u;
                 }
             } else {
-                if ((rising & (1u << 4u)) != 0u && (found & 2u) == 0u) {
+                const uint32_t rx_mask = 1u << (cs_data ? 3u : 4u);
+                if ((rising & rx_mask) != 0u && (found & 2u) == 0u) {
                     times[1] = timestamp;
                     found |= 2u;
                 }
@@ -1697,7 +1703,8 @@ bool tdma_pio_spi_phys_p3_start(
             BOARD_TDMA_SPI_PIO, tx_sm, s_tdma_pio_spi_p3_responder_offset,
             BOARD_TDMA_SPI_UPLINK_CSN_PIN,
             BOARD_TDMA_SPI_UPLINK_SCK_PIN,
-            BOARD_TDMA_SPI_DOWNLINK_TX_PIN, request->baud_hz);
+            BOARD_TDMA_SPI_DOWNLINK_TX_PIN, request->baud_hz,
+            request->signal_group);
         tdma_pio_spi_p3_responder_capture_program_init(
             BOARD_TDMA_SPI_PIO, capture_sm,
             s_tdma_pio_spi_p3_responder_capture_offset,
@@ -1723,6 +1730,7 @@ bool tdma_pio_spi_phys_p3_start(
     memset(&phys->p3, 0, sizeof(phys->p3));
     phys->p3.state = TDMA_PIO_SPI_P3_ARMED;
     phys->p3.role = request->role;
+    phys->p3.signal_group = request->signal_group;
     phys->p3.flags = TDMA_PIO_SPI_P3_FLAG_DIAGNOSTIC_ONLY;
     phys->p3.baud_hz = request->baud_hz;
     phys->p3.epoch = request->epoch;
@@ -1773,8 +1781,12 @@ void tdma_pio_spi_phys_p3_service(tdma_pio_spi_phys_t *phys)
                       TDMA_PIO_SPI_P3_FLAG_HARDWARE_LATCHED |
                       TDMA_PIO_SPI_P3_FLAG_SYNC_MATCH;
     tdma_pio_spi_phys_p3_decode(phys);
-    const uint32_t expected =
-        phys->p3.role == TDMA_PIO_SPI_P3_ROLE_INITIATOR ? 0x09u : 0x06u;
+    const bool cs_data = phys->p3.signal_group ==
+        TDMA_PIO_SPI_P3_GROUP_CS_DATA;
+    const uint32_t expected = phys->p3.role ==
+        TDMA_PIO_SPI_P3_ROLE_INITIATOR
+            ? 0x09u
+            : 0x06u;
     if ((phys->p3.edge_mask & expected) == expected) {
         phys->p3.state = TDMA_PIO_SPI_P3_COMPLETE;
     } else {

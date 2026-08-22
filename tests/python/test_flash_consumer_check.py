@@ -41,12 +41,12 @@ def test_source_consumer_check_rejects_literal_only_linker(tmp_path: Path) -> No
 
 def test_ota_descriptor_rejects_run_offset_drift(tmp_path: Path) -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    (tmp_path / "RP2350_TRIG.bin").write_bytes(b"A")
-    (tmp_path / "RP2350_TRIG_B.bin").write_bytes(b"B")
+    (tmp_path / "DHRT100.bin").write_bytes(b"A")
+    (tmp_path / "DHRT100_B.bin").write_bytes(b"B")
     package = bytearray(512 + 2)
     struct.pack_into("<IIIIII", package, 0, 0x474B5054, 2, 512, len(package), 0, 2)
     struct.pack_into("<IIIIII", package, 192, 1, 512, 1, 0, 0xDEADBEEF, 0)
     struct.pack_into("<IIIIII", package, 224, 2, 513, 1, 0, 0x001C0000, 0)
-    (tmp_path / "RP2350_TRIG_UPDATE.pkg").write_bytes(package)
+    (tmp_path / "DHRT100_UPDATE.pkg").write_bytes(package)
     with pytest.raises(FlashConsumerError, match="APP_A descriptor"):
         check_ota_package(tmp_path, manifest)

@@ -11,6 +11,7 @@ $build = Join-Path $repo $BuildDir
 $include = Join-Path $repo "components\calibration_manager\inc"
 $testSource = Join-Path $repo "tests\unit\test_calibration_bidirectional.c"
 $source = Join-Path $repo "components\calibration_manager\src\calibration_bidirectional.c"
+$pathSource = Join-Path $repo "components\calibration_manager\src\calibration_path_snapshot.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -25,7 +26,7 @@ if (-not $hostCc) {
 
 if ($hostCc) {
     $exe = Join-Path $build "test_calibration_bidirectional.exe"
-    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$include" $testSource $source -o $exe
+    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$include" $testSource $source $pathSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -58,7 +59,7 @@ if (-not $ArmGcc -or -not (Test-Path $ArmGcc)) {
     throw "No host C compiler or ARM GCC found"
 }
 
-foreach ($file in @($testSource, $source)) {
+foreach ($file in @($testSource, $source, $pathSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $file) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$include" -c $file -o $object
     if ($LASTEXITCODE -ne 0) {

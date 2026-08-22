@@ -15,6 +15,10 @@ scpi_result_t scpi_calibration_limit_q(scpi_t *context);
 scpi_result_t scpi_calibration_loopback_start(scpi_t *context);
 scpi_result_t scpi_calibration_loopback_stop(scpi_t *context);
 scpi_result_t scpi_calibration_loopback_q(scpi_t *context);
+scpi_result_t scpi_calibration_bias_start(scpi_t *context);
+scpi_result_t scpi_calibration_bias_stop(scpi_t *context);
+scpi_result_t scpi_calibration_bias_q(scpi_t *context);
+scpi_result_t scpi_calibration_save(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_start(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_stop(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_q(scpi_t *context);
@@ -32,6 +36,9 @@ scpi_result_t scpi_calibration_p3_q(scpi_t *context);
     {.pattern = "CALibration:LOOPback:STARt", .callback = scpi_calibration_loopback_start}, \
     {.pattern = "CALibration:LOOPback:STOP", .callback = scpi_calibration_loopback_stop}, \
     {.pattern = "READ:CALibration:LOOPback?", .callback = scpi_calibration_loopback_q}, \
+    {.pattern = "CALibration:BIAS:STARt", .callback = scpi_calibration_bias_start}, \
+    {.pattern = "CALibration:BIAS:STOP", .callback = scpi_calibration_bias_stop}, \
+    {.pattern = "READ:CALibration:BIAS?", .callback = scpi_calibration_bias_q}, \
     {.pattern = "CALibration:CLOCk:CODEd:STARt", .callback = scpi_calibration_clk_coded_start}, \
     {.pattern = "CALibration:CLOCk:CODEd:STOP", .callback = scpi_calibration_clk_coded_stop}, \
     {.pattern = "READ:CALibration:CLOCk:CODEd?", .callback = scpi_calibration_clk_coded_q}, \
@@ -44,7 +51,7 @@ scpi_result_t scpi_calibration_p3_q(scpi_t *context);
     {.pattern = "CONFigure:CALibration:PARameter:SET", .callback = scpi_port_result_accepted}, \
     {.pattern = "CONFigure:CALibration:PARameter:DELete", .callback = scpi_port_result_accepted}, \
     {.pattern = "READ:CALibration:PARameter?", .callback = scpi_calibration_parameter_q}, \
-    {.pattern = "CALibration:SAVE", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CALibration:SAVE", .callback = scpi_calibration_save}, \
     {.pattern = "CALibration:STOP", .callback = scpi_port_result_accepted}, \
     {.pattern = "CALibration:LOAD", .callback = scpi_port_result_accepted}, \
     {.pattern = "CALibration:ACTivate", .callback = scpi_port_result_accepted}, \

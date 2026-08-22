@@ -79,6 +79,71 @@ scpi_result_t scpi_calibration_clk_coded_start(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_calibration_bias_start(scpi_t *context)
+{
+    uint32_t expected_path_ns = 0u;
+    uint32_t minimum_samples = 0u;
+    uint32_t maximum_samples = 0u;
+    uint32_t maximum_spread_ns = 0u;
+    uint32_t maximum_clock_error_ns = 0u;
+    if (SCPI_ParamUInt32(context, &expected_path_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &minimum_samples, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &maximum_samples, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &maximum_spread_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &maximum_clock_error_ns, TRUE) != TRUE ||
+        !calibration_manager_start_bias(expected_path_ns, minimum_samples,
+                                         maximum_samples, maximum_spread_ns,
+                                         maximum_clock_error_ns)) {
+        scpi_port_push_exec_error(context, "CAL_BIAS_START_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, expected_path_ns);
+    SCPI_ResultUInt32(context, minimum_samples);
+    SCPI_ResultUInt32(context, maximum_samples);
+    SCPI_ResultUInt32(context, maximum_spread_ns);
+    SCPI_ResultUInt32(context, maximum_clock_error_ns);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_bias_stop(scpi_t *context)
+{
+    calibration_manager_stop_bias();
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_calibration_bias_q(scpi_t *context)
+{
+    calibration_bias_snapshot_t snapshot;
+    if (!calibration_manager_get_bias_snapshot(&snapshot)) return SCPI_RES_ERR;
+    SCPI_ResultUInt32(context, snapshot.valid);
+    SCPI_ResultUInt32(context, snapshot.flags);
+    SCPI_ResultUInt32(context, snapshot.reject_reason);
+    SCPI_ResultUInt32(context, snapshot.generation);
+    SCPI_ResultUInt32(context, snapshot.sample_count);
+    SCPI_ResultUInt32(context, snapshot.accepted_count);
+    SCPI_ResultUInt32(context, snapshot.rejected_count);
+    SCPI_ResultUInt32(context, snapshot.persona_generation);
+    SCPI_ResultUInt32(context, snapshot.profile_crc32);
+    SCPI_ResultUInt32(context, snapshot.topology_generation);
+    SCPI_ResultUInt32(context, snapshot.first_epoch);
+    SCPI_ResultUInt32(context, snapshot.last_epoch);
+    SCPI_ResultInt32(context, (int32_t)snapshot.mean_bias_ns);
+    SCPI_ResultUInt32(context, snapshot.spread_ns);
+    SCPI_ResultUInt32(context, snapshot.table_crc32);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_save(scpi_t *context)
+{
+    uint32_t job_id = 0u;
+    if (!calibration_manager_save_bias_snapshot(&job_id)) {
+        scpi_port_push_exec_error(context, "CAL_SAVE_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, job_id);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_clk_coded_stop(scpi_t *context)
 {
     calibration_manager_stop_clk_coded();
@@ -131,13 +196,18 @@ scpi_result_t scpi_calibration_p3_start(scpi_t *context)
 {
     uint32_t role = 0u, baud_hz = 0u, pulse_count = 0u;
     uint32_t capture_words = 0u, epoch = 0u;
-    if (SCPI_ParamUInt32(context, &role, TRUE) != TRUE ||
-        SCPI_ParamUInt32(context, &baud_hz, TRUE) != TRUE ||
-        SCPI_ParamUInt32(context, &pulse_count, TRUE) != TRUE ||
-        SCPI_ParamUInt32(context, &capture_words, TRUE) != TRUE ||
-        SCPI_ParamUInt32(context, &epoch, TRUE) != TRUE ||
+    uint32_t signal_group = TDMA_PIO_SPI_P3_GROUP_CLK_DATA;
+    const bool required_ok =
+        SCPI_ParamUInt32(context, &role, TRUE) == TRUE &&
+        SCPI_ParamUInt32(context, &baud_hz, TRUE) == TRUE &&
+        SCPI_ParamUInt32(context, &pulse_count, TRUE) == TRUE &&
+        SCPI_ParamUInt32(context, &capture_words, TRUE) == TRUE &&
+        SCPI_ParamUInt32(context, &epoch, TRUE) == TRUE;
+    (void)SCPI_ParamUInt32(context, &signal_group, FALSE);
+    if (!required_ok ||
         !calibration_manager_request_p3(
-            role, baud_hz, pulse_count, capture_words, epoch)) {
+            role, baud_hz, pulse_count, capture_words, epoch,
+            signal_group)) {
         scpi_port_push_exec_error(context, "CAL_P3_START_REJECTED");
         return SCPI_RES_ERR;
     }
@@ -146,6 +216,7 @@ scpi_result_t scpi_calibration_p3_start(scpi_t *context)
     SCPI_ResultUInt32(context, pulse_count);
     SCPI_ResultUInt32(context, capture_words);
     SCPI_ResultUInt32(context, epoch);
+    SCPI_ResultUInt32(context, signal_group);
     return SCPI_RES_OK;
 }
 
@@ -162,6 +233,7 @@ scpi_result_t scpi_calibration_p3_q(scpi_t *context)
     const tdma_pio_spi_p3_snapshot_t *raw = &snapshot.raw;
     SCPI_ResultUInt32(context, raw->state);
     SCPI_ResultUInt32(context, raw->role);
+    SCPI_ResultUInt32(context, raw->signal_group);
     SCPI_ResultUInt32(context, raw->flags);
     SCPI_ResultUInt32(context, raw->reject_reason);
     SCPI_ResultUInt32(context, raw->baud_hz);

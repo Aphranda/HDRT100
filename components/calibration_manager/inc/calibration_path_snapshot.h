@@ -67,6 +67,7 @@ typedef struct {
     uint32_t freshness_us;
     uint32_t max_residual_ns;
     uint32_t max_jitter_ns;
+    uint32_t max_asymmetry_ns;
     bool require_hardware_latch;
     bool require_repeat_statistics;
     bool require_asymmetry_bound;

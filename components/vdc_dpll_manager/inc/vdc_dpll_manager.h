@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "tdma_service.h"
+#include "calibration_path_snapshot.h"
 #include "vdc_domain.h"
 
 #define VDC_DPLL_MANAGER_PLAN_NOW_NS UINT64_MAX
@@ -188,6 +189,10 @@ bool vdc_dpll_manager_set_tdma_ring_topology(uint32_t local_slot_id,
 bool vdc_dpll_manager_publish_timestamp_dictionary(
     const vdc_timestamp_dictionary_t *dictionary,
     uint32_t initial_tick_l32);
+bool vdc_dpll_manager_publish_calibration_path_delay(
+    const vdc_path_delay_table_t *table);
+bool vdc_dpll_manager_publish_calibration_path_snapshot(
+    const calibration_path_snapshot_t *snapshot);
 bool vdc_dpll_manager_submit_compact_observation(
     const vdc_compact_observation_sample_t *compact);
 

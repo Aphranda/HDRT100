@@ -5,7 +5,7 @@
   "online_relocation": "forbidden",
   "factory_migration": {
     "required": true,
-    "artifact": "build/RP2350_TRIG_FACTORY.uf2",
+    "artifact": "build/DHRT100_FACTORY.uf2",
     "transport": "BOOTSEL",
     "erase_policy": "full_erase_before_factory_image",
     "tool": "picotool",

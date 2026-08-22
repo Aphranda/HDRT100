@@ -4,11 +4,113 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20260822-003 - Accepted calibration evidence SD source
+
+- 状态：SD source evidence 已接入；Flash Calibration NVS 仍未实现，不能恢复为 active。
+- `calibration_bias_snapshot_validate()` 通过后，`CALibration:SAVE` 才会提交有界文件写入
+  intent；Storage manager 以临时文件 + 原子 rename 写入 `/cal/accepted_<unique-id>_g<generation>.json`。
+- 文件固定携带 `unique-id`、build、generation、sample/accepted/rejected count、persona/profile/
+  topology generation、mean bias、spread 和 snapshot CRC；`active=false` 明确表示它是后续
+  Flash M2-03 的输入证据，而不是 VDC/DPLL live fact。
+- 当前四块板的 reference-loopback 复测仍为 `edge_mask=0x5`、`result_valid=0`、四边沿时间戳为
+  零，因此没有执行成功的 SAVE；该失败证据保存在
+  `build-dhrt100-p3-dpll-20260822/calibration_bias_reference/COM3..COM6`。
+- 固件 build `20260822095115` 的双镜像、OTA package 和 Flash link gate 通过；四板物理
+  P3 仍保持 `DIAGNOSTIC_ONLY`，不能绕过 bias/freshness gate 写入 accepted source。
+
+## CAL-TASK-20260822-001 - P3 path snapshot admission and VDC bridge
+
+- 状态：代码门禁和四板诊断闭环均完成；当前不清除 `DIAGNOSTIC_ONLY`。
+- 路径快照增加独立 `max_asymmetry_ns` 门限；active 快照必须具备硬件锁存、bias/topology
+  freshness、重复统计和 asymmetry 有效标志，并通过快照 CRC。
+- VDC/DPLL manager 新增 Calibration snapshot 发布入口，逐链路复制 delay/jitter、generation
+  和 freshness，构造 accepted VDC path-delay table；默认零延迟 staging 表仍被拒绝。
+- `calibration_bidirectional` host tests、DHRT100 双核固件构建和 Flash link gate 已通过。
+- 四板已恢复枚举；已先用 `*IDN?` 唯一地址确认环序，再执行完整 10/25/30 MHz 频率阶梯。
+
+## CAL-TASK-20260822-004 - P3 当前固件四板复测
+
+- 状态：当前 DHRT100 build 的四板逐链路 P3 复测完成；所有诊断 trial 通过，但结果仍为
+  `DIAGNOSTIC_ONLY`，未生成 active path-delay，也未提交 VDC/DPLL。
+- 固件与拓扑（bench 诊断快照，非校准事实源）：
+  - 四块板均为 DHRT100 build `20260822095115`；板卡身份由 `*IDN?` 返回的唯一地址确定，
+    COM3/COM5/COM6/COM4 仅作为临时传输端点。
+  - accepted physical order 为
+    `0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A -> A1E549202D18ED6A ->
+    0010071E65B5CB38`。
+- HIL 参数与结果：
+  - 使用 `tools/calibration_ring_validate/calibration_link_p3.py`，每条相邻链路执行
+    10/25/30 MHz、每档 3 次、32 脉冲、256 capture words；证据目录为
+    `build-dhrt100-p3-dpll-20260822/p3_recheck_20260822`。
+  - 36/36 trial accepted；每条链路和每档频率均为 3/3，initiator/responder edge mask
+    为 `9/6`，DMA overrun 和 PIO stall 均为 0。
+  - 10 MHz 实测频率 10 MHz、占空比约 52%；25 MHz 实测频率 25 MHz、占空比约 50%；
+    30 MHz 实测约 30.303 MHz、占空比约 48.485%，保持 `LIMITED_RX`，稳定档最高为 25 MHz。
+  - delay estimate 范围为 80..82 ns；四条链路均值为 80..81.333 ns，重复标准差为
+    0..0.943 ns；responder residence 保持 20 ns。以上均为当前 build/拓扑/线缆/收发器的
+    诊断观测，不是 endpoint bias 扣除后的单向事实。
+- active gate 复核：
+  - `calibration_path_delay_probe.py` 对四块板均返回 `MISSING`，`timestamp_resolution_ns`
+    和 `timestamp_flags` 仍为 0；因此本轮不能发布 active path-delay。
+  - 下一步仍是接入同一 PIO persona 的板内三线 reference loopback，生成有效 bias
+  generation，再补 freshness、asymmetry 和故障注入后运行 active snapshot admission。
+
+## CAL-TASK-20260822-005 - P3-3 板内 reference loopback 复测
+
+- 状态：四块板均完成当前固件的短 reference-loopback 检查；四块板均未形成有效
+  Calibration bias snapshot，P3-3 仍被物理三线回环连接阻塞。
+- 固件与身份：四块板均返回 DHRT100 build `20260822095115`；`*IDN?` 返回的唯一地址为
+  `0010071E65B5CB38`、`FB276192BEF9CCE1`、`2BD5090FE009FA2A`、`A1E549202D18ED6A`。
+  COM3/COM5/COM6/COM4 仅是本轮临时传输端点。
+- 验证命令与证据：使用既有
+  `tools/calibration_loopback_validate/calibration_loopback_validate.py`，每板 64 words、
+  1 次短窗口；证据目录为
+  `build-dhrt100-p3-dpll-20260822/reference_loopback_recheck/<unique-id>`。
+- 结果：四板均为 `runs_passed=0`；固件快照没有有效四边沿，`result_valid=0`，residence、
+  raw path-sum 和 delay estimate 均为 0；`SYST:ERR?` 均为 `0,"No error"`。因此这是
+  reference-loopback 缺失/未闭合的有效拒绝，不是 SCPI、USB 或 PIO 错误。
+- HAOFV 结论：不得用本轮零值生成 bias generation，也不得执行 `CALibration:SAVE`；接好每块
+  板同一 PIO persona 的 `CLK_TX->CLK_RX`、`DATA_TX->DATA_RX`、`SYNC_TX->SYNC_RX` 后，
+  必须重新运行多轮 bias 采样并通过 generation、CRC、freshness 和 accepted-count 门禁。
+
+## CAL-TASK-20260822-002 - P3 四板逐链路三档复测
+
+- 状态：四条相邻链路的 P3 诊断 HIL 完成；结果仍为 `DIAGNOSTIC_ONLY`，未生成 active
+  per-link calibration，未提交给 VDC/DPLL。
+- 日期：2026-08-22。
+- 固件与拓扑（bench 诊断快照，非校准事实源）：
+  - 四板均运行 DHRT100 build `20260822085100`；板卡身份只取 `*IDN?` 唯一地址，临时
+    COM 端点为 COM3/COM5/COM6/COM4。
+  - accepted physical order 为
+    `0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A -> A1E549202D18ED6A ->
+    0010071E65B5CB38`；拓扑证据目录为
+    `build-dhrt100-p3-dpll-20260822/calibration_topology_20260822`。
+- HIL 参数与结果：
+  - 使用 `tools/calibration_ring_validate/calibration_link_p3.py`，每条链路执行
+    10/25/30 MHz、每档 3 次、每次 32 脉冲和 256 capture words；完整证据目录为
+    `build-dhrt100-p3-dpll-20260822/calibration_p3_20260822`。
+  - 36/36 trial accepted；四条链路、三档频率均为 3/3，initiator/responder edge mask
+    分别为 `9/6`，合并四边沿完整，DMA overrun 和 PIO stall 均为 0。
+  - 10 MHz 实际频率为 10.000 MHz、占空比约 52%；25 MHz 为 25.000 MHz、占空比约
+    50%；30 MHz 为约 30.303 MHz、占空比约 48.48%，按策略归类为 `LIMITED_RX`，不进入
+    稳定 profile。
+  - 4 ns PIO/DMA 采样量化下，observed delay estimate 范围为 78..82 ns，单链路重复
+    jitter 为 0..2 ns；responder residence 为 20 ns。该值是当前 build/拓扑/线缆/收发器
+    的对称假设观测值，不是 endpoint bias 扣除后的单向事实。
+- HAOFV 边界与结论：
+  - SCPI/core0 只提交有界 intent；PIO、SM、DMA、方向控制和边沿收割均由 TDMA core1
+    owner 持有，Calibration 只配对同 epoch raw evidence 并执行质量门禁。
+  - 本轮证明四板逐链路 P3 传输、频率/占空比门禁和三档策略可重复通过；不证明 endpoint
+    bias、长时间温漂、四段 cumulative/residual 或 VDC/DPLL active 准入。
+- 下一步：完成 P3-3 板内 endpoint bias/reference loopback，补齐缺边沿/乱序/重复、
+  SYNC/CRC/epoch、频率偏差、asymmetry、DMA/stall 和 topology/profile freshness 故障注入，
+  再以新的 generation 运行 active snapshot admission。
 
 ## 当前任务状态
 
@@ -18,7 +120,7 @@ Last updated: 2026-08-21
 | 线序与环路顺序测量 | `[~]` | host 隔离探测、闭环判定和 NO 提交已迁入 calibration 命名空间；板内 generation/freshness 待实现 |
 | 第一阶段 CLK RTT 粗捕获 | `[x]` | 已完成板内最小实现和四板 HIL，仍为 diagnostic-only |
 | 第二阶段编码 marker/相关测距 | `[~]` | 动态 persona、固定双 DMA、板端相关和四主最小 HIL 已完成；重复门限及板内多板协调待完成 |
-| 第三阶段双向同时对比法 | `[~]` | 板间 P3 persona、四时间戳和四板逐段诊断 HIL 已通过；endpoint bias、故障注入、freshness/active gate 待完成 |
+| 第三阶段双向同时对比法 | `[~]` | 四板四链路 10/25/30 MHz 三档诊断 HIL 已完成 36/36；endpoint bias、故障注入、freshness/active gate 待完成 |
 | VDC/DPLL active calibration gate | `[ ]` | 依赖正式 hardware latch、bias、generation/freshness 和 P3 结果 |
 
 ## CAL-TASK-20260821-010 - COM8 当前固件重写与单板回环复核

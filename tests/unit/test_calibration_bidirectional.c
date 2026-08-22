@@ -1,4 +1,5 @@
 #include "calibration_bidirectional.h"
+#include "calibration_path_snapshot.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -253,6 +254,67 @@ static int test_reject_gate_matrix(void)
     return failed;
 }
 
+static int test_path_snapshot_gate(void)
+{
+    calibration_path_link_evidence_t links[4] = {0};
+    calibration_path_gate_t gate = {
+        .expected_topology_generation = 7u,
+        .expected_bias_generation = 9u,
+        .expected_profile_crc32 = 0x1234u,
+        .calibration_generation = 11u,
+        .freshness_us = 100u,
+        .max_residual_ns = 1u,
+        .max_jitter_ns = 2u,
+        .max_asymmetry_ns = 2u,
+        .require_hardware_latch = true,
+        .require_repeat_statistics = true,
+        .require_asymmetry_bound = true,
+        .require_ring_round_trip = true,
+    };
+    for (uint32_t i = 0u; i < 4u; i++) {
+        links[i].source_slot_id = i;
+        links[i].destination_slot_id = (i + 1u) % 4u;
+        links[i].profile_crc32 = gate.expected_profile_crc32;
+        links[i].topology_generation = gate.expected_topology_generation;
+        links[i].bias_generation = gate.expected_bias_generation;
+        links[i].sample_count = 10u;
+        links[i].accepted_count = 10u;
+        links[i].jitter_ns = 1u;
+        links[i].asymmetry_ns = 1u;
+        links[i].measurement.reference_accepted = true;
+        links[i].measurement.active_eligible = true;
+        links[i].measurement.corrected_path_sum_ns = 20;
+        links[i].measurement.delay_estimate_ns = 10;
+    }
+    calibration_path_snapshot_t snapshot;
+    int failed = 0;
+    failed += expect_bool("path snapshot accepted",
+                          calibration_path_snapshot_build(links, 4u, 40u,
+                                                          &gate, &snapshot),
+                          true);
+    failed += expect_u64("path cumulative delay",
+                         snapshot.cumulative_delay_ns, 40u);
+    failed += expect_u64("path residual", snapshot.residual_ns, 0u);
+    failed += expect_bool("path snapshot valid",
+                          calibration_path_snapshot_validate(&snapshot), true);
+    snapshot.flags &= ~CALIBRATION_PATH_FLAG_HARDWARE_LATCHED;
+    snapshot.table_crc32 = calibration_path_snapshot_crc32(&snapshot);
+    failed += expect_bool("path latch required",
+                          calibration_path_snapshot_validate(&snapshot), false);
+    links[2].bias_generation++;
+    failed += expect_bool("path generation rejected",
+                          calibration_path_snapshot_build(links, 4u, 40u,
+                                                          &gate, &snapshot),
+                          false);
+    links[2].bias_generation--;
+    links[2].asymmetry_ns = gate.max_asymmetry_ns + 1u;
+    failed += expect_bool("path asymmetry rejected",
+                          calibration_path_snapshot_build(links, 4u, 40u,
+                                                          &gate, &snapshot),
+                          false);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -261,6 +323,7 @@ int main(void)
     failed += test_rejects_missing_evidence();
     failed += test_hardware_sample_can_be_active_eligible();
     failed += test_reject_gate_matrix();
+    failed += test_path_snapshot_gate();
     if (failed != 0) {
         return 1;
     }

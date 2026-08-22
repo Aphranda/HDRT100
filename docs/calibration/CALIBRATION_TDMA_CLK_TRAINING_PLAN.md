@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / TDMA Clock Training
 Canonical: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`
 Related: `docs/calibration/README.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 本文档是校准域维护的多板 TDMA SPI CLK 训练事实源。校准域拥有 CLK/DATA/SYNC
 物理测量、双向时间传递、residence、endpoint bias、path-delay candidate、统计质量、
@@ -705,7 +705,7 @@ link 的 `t1..t4` 证据，也不能把整圈 aggregate 平均分摊为 link del
 - [ ] P3-3：完成同一 PIO persona 的板内 endpoint bias/reference loopback 校准。
 - [~] P3-4：双向计算 unit 和四条相邻段 HIL 已完成；继续补 fault injection，覆盖缺边沿、乱序、重复、
   极性、SYNC/CRC 错、DMA overrun/stall、频率偏差和方向 asymmetry。
-- [~] P3-5：四板逐链路三档诊断 HIL 已完成；P3 验证入口现已固定
+- [~] P3-5：四板逐链路三档诊断 HIL 已完成（最新 DHRT100 build 为 36/36 accepted）；P3 验证入口现已固定
   `calibration_link_frequency_policy.REQUIRED_FREQUENCY_LADDER_MHZ`，稳定档为
   `STABLE_REQUIRED`，`LIMITED_RX_FREQUENCY_MHZ` 为每轮必测的 `LIMITED_RX`。继续完成
   cumulative/整圈 residual 对比，固化 8 节点扩展前的 profile acceptance threshold。
@@ -724,6 +724,16 @@ P3 HIL bench 快照（非事实源）：build `20260821100236` 上，physical or
 `FALLBACK_25MHZ` 并按 `LIMITED_RX_FALLBACK_MHZ` 回退，且不放宽 CLK/DATA 频率、占空比
 或脉宽门限，也不单独使 `STABLE_REQUIRED` 稳定档总判定失败。
 所有结果继续带 `TDMA_PIO_SPI_P3_FLAG_DIAGNOSTIC_ONLY`。
+
+最新四板复测（非事实源）：build `20260822085100` 沿
+`0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A -> A1E549202D18ED6A`
+环序执行四条相邻链路的 `10/25/30 MHz`，每档 3 次，共 36/36 accepted；证据目录为
+`build-dhrt100-p3-dpll-20260822/calibration_p3_20260822`，拓扑证据目录为
+`build-dhrt100-p3-dpll-20260822/calibration_topology_20260822`。四边沿合并完整，
+DMA overrun/PIO stall 均为零；observed delay estimate 为 `78..82 ns`，单链路重复
+jitter 为 `0..2 ns`，responder residence 为 `20 ns`。10/25 MHz 分别以约 52%/50%
+占空比通过稳定门禁，30 MHz 实际约 30.303 MHz、约 48.48% 占空比，按 `LIMITED_RX`
+诊断档接受，不改变 active profile，也不清除 diagnostic-only。
 
 完成编码 CLK RTT 后，下一阶段才是带 DATA/CS/CRC 的短 TRAIN frame、节点 residence 和
 `frame_complete_round_trip_ns`。只有完整帧 RTT 才能生成运行态 RX window、guard 和

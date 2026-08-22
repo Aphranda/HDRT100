@@ -53,7 +53,7 @@ CATALOG_COMMANDS = (
 SYSTEM_PACK_FILE_COMMANDS = (
     ("manifest_json", 'MMEM:INFO? "/manifest.json"', "/manifest.json"),
     ("manifest_idx", 'MMEM:INFO? "/manifest.idx"', "/manifest.idx"),
-    ("update_package", 'MMEM:INFO? "/update/RP2350_TRIG_UPDATE.pkg"', "/update/RP2350_TRIG_UPDATE.pkg"),
+    ("update_package", 'MMEM:INFO? "/update/DHRT100_UPDATE.pkg"', "/update/DHRT100_UPDATE.pkg"),
     ("active_profile", 'MMEM:INFO? "/profile/active.json"', "/profile/active.json"),
     ("mission_recipe", 'MMEM:INFO? "/mission/recipe.json"', "/mission/recipe.json"),
     ("mission_node_map", 'MMEM:INFO? "/mission/node_map.json"', "/mission/node_map.json"),
@@ -849,8 +849,8 @@ def main() -> int:
     if len(manifest) >= 7:
         expect(manifest[0] == "OK", system_pack_failures, f"manifest status is {manifest[0]!r}, expected OK")
         expect(manifest[1] == "1", system_pack_failures, f"manifest schema is {manifest[1]!r}, expected 1")
-        expect(manifest[2] == "RP2350_TRIG", system_pack_failures, f"manifest product is {manifest[2]!r}, expected RP2350_TRIG")
-        expect(manifest[3] == "rp2350_trig", system_pack_failures, f"manifest hardware is {manifest[3]!r}, expected rp2350_trig")
+        expect(manifest[2] == "DHRT100", system_pack_failures, f"manifest product is {manifest[2]!r}, expected DHRT100")
+        expect(manifest[3] == "dhrt100", system_pack_failures, f"manifest hardware is {manifest[3]!r}, expected dhrt100")
         expect(manifest[4] not in ("", "<timeout>"), system_pack_failures, "manifest build_id is empty")
         expect(int(manifest[5], 0) >= 4, system_pack_failures, f"manifest required_count is {manifest[5]!r}, expected >= 4")
         expect(manifest[6] == "0", system_pack_failures, f"manifest missing_count is {manifest[6]!r}, expected 0")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate RP2350_TRIG dual-core (RTOS + AMP) smoke on the bench over SCPI USB CDC.
+"""Validate DHRT100 dual-core (RTOS + AMP) smoke on the bench over SCPI USB CDC.
 
 Checks:
 - *IDN?, SYST:FW:BUILD? baseline

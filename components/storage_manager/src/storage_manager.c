@@ -838,11 +838,11 @@ bool storage_manager_initialize_system_pack(void)
                        "default.profile=/profile/active.json\n"
                        "default.mission=/mission/recipe.json\n"
                        "default.calibration=/cal/board_cal.json\n"
-                       "default.ota_package=/update/RP2350_TRIG_UPDATE.pkg\n"
+                       "default.ota_package=/update/DHRT100_UPDATE.pkg\n"
                        "required=/profile/active.json,type=profile,crc32=%08lX\n"
                        "required=/mission/recipe.json,type=mission,crc32=%08lX\n"
                        "required=/cal/board_cal.json,type=calibration,crc32=%08lX\n"
-                       "required=/update/RP2350_TRIG_UPDATE.pkg,type=ota_package,crc32=%08lX\n",
+                       "required=/update/DHRT100_UPDATE.pkg,type=ota_package,crc32=%08lX\n",
                        STORAGE_MANAGER_PRODUCT_ID,
                        STORAGE_MANAGER_HARDWARE_ID,
                        g_project_build_id,
@@ -870,7 +870,7 @@ bool storage_manager_initialize_system_pack(void)
                        "    \"mission\": \"/mission/recipe.json\",\n"
                        "    \"node_map\": \"/mission/node_map.json\",\n"
                        "    \"calibration\": \"/cal/board_cal.json\",\n"
-                       "    \"ota_default\": \"/update/RP2350_TRIG_UPDATE.pkg\"\n"
+                       "    \"ota_default\": \"/update/DHRT100_UPDATE.pkg\"\n"
                        "  },\n"
                        "  \"note\": \"OTA package is a placeholder until replaced by PC tooling.\"\n"
                        "}\n",
@@ -894,8 +894,8 @@ bool storage_manager_initialize_system_pack(void)
         status = storage_write_text_if_missing("/cal/board_cal.json", "/cal/board_cal.tmp", calibration);
     }
     if (status == FATFS_PORT_STATUS_OK) {
-        status = storage_write_text_if_missing("/update/RP2350_TRIG_UPDATE.pkg",
-                                               "/update/RP2350_TRIG_UPDATE.tmp",
+        status = storage_write_text_if_missing("/update/DHRT100_UPDATE.pkg",
+                                               "/update/DHRT100_UPDATE.tmp",
                                                STORAGE_MANAGER_BOOTSTRAP_OTA_TEXT);
     }
     if (status == FATFS_PORT_STATUS_OK) {

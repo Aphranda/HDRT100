@@ -30,6 +30,9 @@ static bool gate_link(const calibration_path_link_evidence_t *link,
     if (!measurement->reference_accepted || !measurement->active_eligible) {
         return false;
     }
+    if (gate->require_hardware_latch && !measurement->active_eligible) {
+        return false;
+    }
     if (gate->expected_topology_generation != 0u &&
         link->topology_generation != gate->expected_topology_generation) {
         return false;
@@ -48,7 +51,8 @@ static bool gate_link(const calibration_path_link_evidence_t *link,
         return false;
     }
     if (gate->require_asymmetry_bound &&
-        link->asymmetry_ns > gate->max_jitter_ns) {
+        gate->max_asymmetry_ns != 0u &&
+        link->asymmetry_ns > gate->max_asymmetry_ns) {
         return false;
     }
     return gate->max_jitter_ns == 0u || link->jitter_ns <= gate->max_jitter_ns;
@@ -176,12 +180,18 @@ bool calibration_path_snapshot_validate(
            snapshot->valid != 0u && snapshot->active != 0u &&
            (snapshot->flags & (CALIBRATION_PATH_FLAG_VALID |
                                CALIBRATION_PATH_FLAG_ACTIVE |
+                               CALIBRATION_PATH_FLAG_HARDWARE_LATCHED |
                                CALIBRATION_PATH_FLAG_BIAS_VALID |
-                               CALIBRATION_PATH_FLAG_TOPOLOGY_FRESH)) ==
+                               CALIBRATION_PATH_FLAG_TOPOLOGY_FRESH |
+                               CALIBRATION_PATH_FLAG_REPEAT_GATE |
+                               CALIBRATION_PATH_FLAG_ASYMMETRY_VALID)) ==
                (CALIBRATION_PATH_FLAG_VALID |
                 CALIBRATION_PATH_FLAG_ACTIVE |
+                CALIBRATION_PATH_FLAG_HARDWARE_LATCHED |
                 CALIBRATION_PATH_FLAG_BIAS_VALID |
-                CALIBRATION_PATH_FLAG_TOPOLOGY_FRESH) &&
+                CALIBRATION_PATH_FLAG_TOPOLOGY_FRESH |
+                CALIBRATION_PATH_FLAG_REPEAT_GATE |
+                CALIBRATION_PATH_FLAG_ASYMMETRY_VALID) &&
            snapshot->link_count >= 2u &&
            snapshot->link_count <= CALIBRATION_PATH_MAX_LINKS &&
            snapshot->topology_generation != 0u &&

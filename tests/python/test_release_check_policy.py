@@ -67,9 +67,9 @@ def test_release_policy_rejects_unselected_flash_map(tmp_path):
 def test_release_artifacts_reject_validation_bootsel_command(tmp_path):
     build = tmp_path / "build"
     build.mkdir()
-    (build / "RP2350_TRIG.bin").write_bytes(b"release")
-    (build / "RP2350_TRIG.elf").write_bytes(b"SYSTem:BOOT:BOOTSel")
-    (build / "RP2350_TRIG_BOOT.elf").write_bytes(b"boot")
+    (build / "DHRT100.bin").write_bytes(b"release")
+    (build / "DHRT100.elf").write_bytes(b"SYSTem:BOOT:BOOTSel")
+    (build / "DHRT100_BOOT.elf").write_bytes(b"boot")
     failures = []
 
     check_forbidden_strings(tmp_path, build, failures)

@@ -102,9 +102,9 @@ def check_link_maps(build_dir: Path, manifest: dict[str, Any]) -> None:
         raise FlashConsumerError("manifest xip_base is invalid")
     partitions = partitions_by_id(manifest)
     maps = {
-        "RP2350_TRIG_BOOT.elf.map": "BOOTLOADER",
-        "RP2350_TRIG.elf.map": "APP_A",
-        "RP2350_TRIG_B.elf.map": "APP_B",
+        "DHRT100_BOOT.elf.map": "BOOTLOADER",
+        "DHRT100.elf.map": "APP_A",
+        "DHRT100_B.elf.map": "APP_B",
     }
     for filename, partition_id in maps.items():
         partition = partitions[partition_id]
@@ -118,9 +118,9 @@ def check_link_maps(build_dir: Path, manifest: dict[str, Any]) -> None:
 def check_binary_sizes(build_dir: Path, manifest: dict[str, Any]) -> None:
     partitions = partitions_by_id(manifest)
     binaries = {
-        "RP2350_TRIG_BOOT.bin": "BOOTLOADER",
-        "RP2350_TRIG.bin": "APP_A",
-        "RP2350_TRIG_B.bin": "APP_B",
+        "DHRT100_BOOT.bin": "BOOTLOADER",
+        "DHRT100.bin": "APP_A",
+        "DHRT100_B.bin": "APP_B",
         "ota_metadata_clear.bin": "BOOT_CONTROL",
     }
     for filename, partition_id in binaries.items():
@@ -135,14 +135,14 @@ def check_binary_sizes(build_dir: Path, manifest: dict[str, Any]) -> None:
 
 
 def check_ota_package(build_dir: Path, manifest: dict[str, Any]) -> None:
-    package = (build_dir / "RP2350_TRIG_UPDATE.pkg").read_bytes()
+    package = (build_dir / "DHRT100_UPDATE.pkg").read_bytes()
     if len(package) < 256:
         raise FlashConsumerError("OTA package is shorter than its descriptor table")
     magic, version, _, package_size, _, image_count = struct.unpack_from("<IIIIII", package, 0)
     if (magic, version, package_size, image_count) != (PACKAGE_MAGIC, PACKAGE_VERSION, len(package), 2):
         raise FlashConsumerError("OTA package header is invalid")
     partitions = partitions_by_id(manifest)
-    expected = ((1, "APP_A", "RP2350_TRIG.bin"), (2, "APP_B", "RP2350_TRIG_B.bin"))
+    expected = ((1, "APP_A", "DHRT100.bin"), (2, "APP_B", "DHRT100_B.bin"))
     for index, (expected_slot, partition_id, filename) in enumerate(expected):
         slot, payload_offset, size, _, run_offset, _ = struct.unpack_from(
             "<IIIIII", package, 192 + index * 32)
@@ -179,15 +179,15 @@ def check_factory_uf2(build_dir: Path, manifest: dict[str, Any]) -> None:
     partitions = partitions_by_id(manifest)
     expected_addresses: set[int] = set()
     inputs = (
-        ("RP2350_TRIG_BOOT.bin", "BOOTLOADER"),
-        ("RP2350_TRIG.bin", "APP_A"),
+        ("DHRT100_BOOT.bin", "BOOTLOADER"),
+        ("DHRT100.bin", "APP_A"),
         ("ota_metadata_clear.bin", "BOOT_CONTROL"),
     )
     for filename, partition_id in inputs:
         size = (build_dir / filename).stat().st_size
         start = xip_base + partitions[partition_id]["offset"]
         expected_addresses.update(range(start, start + size, 256))
-    actual_addresses = uf2_target_addresses(build_dir / "RP2350_TRIG_FACTORY.uf2")
+    actual_addresses = uf2_target_addresses(build_dir / "DHRT100_FACTORY.uf2")
     if actual_addresses != expected_addresses:
         extra = sorted(actual_addresses - expected_addresses)
         missing = sorted(expected_addresses - actual_addresses)

@@ -23,7 +23,7 @@ DEFAULT_DIR = "/logs/scpi_storage_validate"
 DEFAULT_FILE = f"{DEFAULT_DIR}/roundtrip.bin"
 DEFAULT_RENAMED_FILE = f"{DEFAULT_DIR}/roundtrip_renamed.bin"
 DEFAULT_RENAMED_DIR = "/logs/scpi_storage_validate_done"
-DEFAULT_PAYLOAD = b"RP2350_TRIG storage scpi validate\n"
+DEFAULT_PAYLOAD = b"DHRT100 storage scpi validate\n"
 
 
 @dataclass

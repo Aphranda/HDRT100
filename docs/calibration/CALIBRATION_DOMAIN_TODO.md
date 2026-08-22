@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md)
 拆成可执行的校准域任务。校准域拥有物理测量、residence、endpoint bias、path-delay、
@@ -135,8 +135,9 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 `LIMITED_RX_FREQUENCY_MHZ` 为 `LIMITED_RX` 有界诊断接收档，每次验证都必须实际执行，
 即使低频稳定档失败也不得跳过；该档任一拒绝发布 `FALLBACK_25MHZ` 并按
 `LIMITED_RX_FALLBACK_MHZ` 回退，但不单独使稳定档总判定失败。build
-`20260821100236` 已完成四板逐段三档诊断 HIL；加入 DATA pulse-width 门禁后 30 MHz
-仍有低概率 reject，因此当前保守稳定上限为 25 MHz。endpoint bias、topology/profile
+`20260821100236` 已完成四板逐段三档诊断 HIL；最新 DHRT100 build `20260822085100`
+沿 accepted topology 完成四条链路、三档各 3 次（36/36 accepted）。30 MHz 仍按
+`LIMITED_RX` 受限诊断档处理，当前保守稳定上限为 25 MHz。endpoint bias、topology/profile
 freshness 和 active/staging gate 尚未完成，结果仍不能作为 active per-link calibration。
 
 物理方向约束：同一 BiSS 段为 A.CLK_TX `GPIO25` -> B.CLK_RX `GPIO28`，同时
@@ -163,15 +164,21 @@ path_sum_AB = (t4 - t1) - residence_B
   不确定度和短窗口频率偏差处理。
 - `[ ]` P3-3：完成同一 PIO persona 的板内 endpoint bias/reference loopback，并发布 bias
   generation、质量和失效原因。
-- `[~]` P3-4：四板相邻段的最小 HIL 已完成；继续补故障注入，覆盖缺边沿、乱序、重复、
+- `[~]` P3-4：四板相邻段的 10/25/30 MHz 最小 HIL 已完成（最新复测 36/36 accepted）；继续补故障注入，覆盖缺边沿、乱序、重复、
   极性、SYNC/CRC 错、
   DMA overrun/stall、频率偏差和方向 asymmetry。
-- `[~]` P3-5：四板逐链路三档重复 HIL 已完成；验证工具已强制每轮包含
+- `[~]` P3-5：四板逐链路三档重复 HIL 已完成（四链路、每档 3/3）；验证工具已强制每轮包含
   `LIMITED_RX_FREQUENCY_MHZ`
   `LIMITED_RX`，并与 10/25 MHz 稳定档分离评分。继续比较 per-link path-sum cumulative
   与整圈 edge RTT residual；为后续八节点扩展冻结 profile acceptance threshold。
-- `[ ]` P3-6：仅当四时间戳均 hardware-latched、bias generation、重复统计、拓扑 freshness
-  和恢复门禁通过时，生成 active per-link delay 并交给 VDC/DPLL。
+- `[~]` P3-6：已加入路径快照 active/staging CRC、generation/freshness、硬件锁存、重复统计和
+  asymmetry 门禁，并提供 Calibration snapshot -> VDC path-delay bridge；最新四板硬件复测仍为
+  diagnostic-only，必须完成 endpoint bias/reference generation 和 freshness 后才能发布 active
+  per-link delay。
+- `[~]` P3-7：`CALibration:SAVE` 已接入 accepted bias snapshot -> Storage manager -> SD
+  `/cal/accepted_<unique-id>_g<generation>.json` 原子文件；该文件是后续 Calibration NVS 的
+  输入证据，不能被读取为 active calibration。正式 Flash NVS、candidate/active/previous
+  ref 和重启负向验证仍待 HAOFV Flash M2-03。
 
 ### P3 单板回环预研
 
@@ -207,9 +214,10 @@ path_sum_AB = (t4 - t1) - residence_B
 
 - `[~]` 双板/逐段 HIL：四条相邻 link 的 `t1..t4`、residence 和 path-sum 已通过；bias 和
   拒绝故障注入待完成。
-- `[~]` 四板 HIL：逐链路三档重复已执行；10/25 MHz 稳定档通过，30 MHz 加严复测存在一次
-  DATA pulse-width reject，按 `LIMITED_RX -> FALLBACK_25MHZ` 处置。逐链路累加、整圈
-  residual、拓扑 freshness 和恢复长稳待完成。
+- `[~]` 四板 HIL：最新 build `20260822085100` 的四条链路逐链路三档重复为 36/36 accepted；
+  10/25 MHz 稳定档通过，30 MHz 按 `LIMITED_RX -> FALLBACK_25MHZ` 策略保留为受限诊断档。
+  observed delay estimate 为 78..82 ns、单链路 jitter 为 0..2 ns，仍需 endpoint bias、
+  逐链路累加、整圈 residual、拓扑 freshness 和长稳验证。
 - `[ ]` 八节点扩展前：重复 profile/拓扑门禁，确认不把四板 aggregate 平均分摊成 link delay。
 - `[ ]` 长时间验证：记录硬件 latch 计数、accepted/rejected、margin、overrun/stall、
   freshness、generation、VDC/DPLL 状态和 watchdog/fault evidence；结果写入任务记录并引用

@@ -19,8 +19,8 @@ MAGIC = refmem_table_image.MAGIC
 FORMAT_VERSION = refmem_table_image.FORMAT_VERSION
 HEADER_SIZE = refmem_table_image.HEADER_SIZE
 TABLE_COUNT = refmem_table_image.TABLE_COUNT
-PRODUCT_ID = "RP2350_TRIG"
-HARDWARE_ID = "rp2350_trig"
+PRODUCT_ID = "DHRT100"
+HARDWARE_ID = "dhrt100"
 DEFAULT_TABLE_NAMES = refmem_table_image.TABLE_NAMES
 NODE_COUNT = refmem_table_image.NODE_COUNT
 BOARD_CAPABILITY_COUNT = refmem_table_image.BOARD_CAPABILITY_COUNT
@@ -69,6 +69,7 @@ def write_outputs(output_dir: Path) -> None:
     (refmem_dir / "app_model.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     idx = [
+        # Keep the wire magic stable for existing RefMem consumers.
         "magic=RP2350_TRIG_REFMEM",
         f"schema={FORMAT_VERSION}",
         f"product_id={PRODUCT_ID}",

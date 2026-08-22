@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static release gate checks for RP2350_TRIG firmware artifacts."""
+"""Static release gate checks for DHRT100 firmware artifacts."""
 
 from __future__ import annotations
 
@@ -12,17 +12,17 @@ from pathlib import Path
 
 
 REQUIRED_ARTIFACTS = (
-    "RP2350_TRIG_FACTORY.uf2",
-    "RP2350_TRIG.bin",
-    "RP2350_TRIG_B.bin",
-    "RP2350_TRIG_UPDATE.pkg",
-    "RP2350_TRIG_BOOT.uf2",
-    "RP2350_TRIG.elf.map",
-    "RP2350_TRIG_B.elf.map",
-    "RP2350_TRIG.dis",
-    "RP2350_TRIG_B.dis",
-    "RP2350_TRIG_BOOT.elf.map",
-    "RP2350_TRIG_BOOT.bin",
+    "DHRT100_FACTORY.uf2",
+    "DHRT100.bin",
+    "DHRT100_B.bin",
+    "DHRT100_UPDATE.pkg",
+    "DHRT100_BOOT.uf2",
+    "DHRT100.elf.map",
+    "DHRT100_B.elf.map",
+    "DHRT100.dis",
+    "DHRT100_B.dis",
+    "DHRT100_BOOT.elf.map",
+    "DHRT100_BOOT.bin",
     "ota_metadata_clear.bin",
 )
 
@@ -144,9 +144,9 @@ def check_artifacts(root: Path, build_dir: Path, failures: list[str]) -> None:
 def check_forbidden_strings(root: Path, build_dir: Path, failures: list[str]) -> None:
     build_path = build_dir if build_dir.is_absolute() else root / build_dir
     files_to_scan = (
-        build_path / "RP2350_TRIG.bin",
-        build_path / "RP2350_TRIG.elf",
-        build_path / "RP2350_TRIG_BOOT.elf",
+        build_path / "DHRT100.bin",
+        build_path / "DHRT100.elf",
+        build_path / "DHRT100_BOOT.elf",
     )
 
     for path in files_to_scan:
@@ -215,17 +215,17 @@ def check_flash_contracts(root: Path, build_dir: Path, failures: list[str]) -> N
             sys.executable,
             str(root / "tools" / "flash_map" / "flash_link_check.py"),
             "--map", str((build_dir if build_dir.is_absolute() else root / build_dir) /
-                         "RP2350_TRIG.elf.map"),
+                         "DHRT100.elf.map"),
             "--dis", str((build_dir if build_dir.is_absolute() else root / build_dir) /
-                         "RP2350_TRIG.dis"),
+                         "DHRT100.dis"),
         ],
         [
             sys.executable,
             str(root / "tools" / "flash_map" / "flash_link_check.py"),
             "--map", str((build_dir if build_dir.is_absolute() else root / build_dir) /
-                         "RP2350_TRIG_B.elf.map"),
+                         "DHRT100_B.elf.map"),
             "--dis", str((build_dir if build_dir.is_absolute() else root / build_dir) /
-                         "RP2350_TRIG_B.dis"),
+                         "DHRT100_B.dis"),
         ],
     )
     labels = (

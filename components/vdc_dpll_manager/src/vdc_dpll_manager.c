@@ -1,5 +1,6 @@
 #include "vdc_dpll_manager.h"
 
+#include <limits.h>
 #include <string.h>
 
 #include "board.h"
@@ -1123,6 +1124,83 @@ bool vdc_dpll_manager_publish_timestamp_dictionary(
                                                      initial_tick_l32);
     osal_critical_exit();
     return result;
+}
+
+bool vdc_dpll_manager_publish_calibration_path_delay(
+    const vdc_path_delay_table_t *table)
+{
+    if (table == NULL || !vdc_domain_path_delay_table_validate(table)) {
+        return false;
+    }
+    osal_critical_enter();
+    const bool accepted = vdc_domain_publish_path_delay_table(
+        &s_vdc_domain, table);
+    osal_critical_exit();
+    return accepted;
+}
+
+bool vdc_dpll_manager_publish_calibration_path_snapshot(
+    const calibration_path_snapshot_t *snapshot)
+{
+    if (snapshot == NULL || !calibration_path_snapshot_validate(snapshot) ||
+        snapshot->link_count > VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT) {
+        return false;
+    }
+
+    vdc_path_delay_table_t table;
+    memset(&table, 0, sizeof(table));
+
+    osal_critical_enter();
+    const uint32_t node_count = s_vdc_domain.schedule.ring_binding.node_count;
+    if (node_count == 0u || snapshot->link_count != node_count) {
+        osal_critical_exit();
+        return false;
+    }
+
+    table.valid = 1u;
+    table.version = VDC_DOMAIN_PATH_DELAY_TABLE_VERSION;
+    table.update_seq = s_vdc_domain.path_delay.update_seq + 1u;
+    if (table.update_seq == 0u) {
+        table.update_seq = 1u;
+    }
+    table.entry_count = snapshot->link_count;
+    table.schedule_crc32 = s_vdc_domain.schedule.schedule_crc32;
+    table.calibration_generation = snapshot->calibration_generation;
+    table.topology_generation = snapshot->topology_generation;
+    table.bias_generation = snapshot->bias_generation;
+    table.freshness_us = snapshot->freshness_us;
+    table.flags = VDC_PATH_DELAY_FLAG_ACCEPTED |
+                  VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                  VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                  VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH;
+
+    for (uint32_t i = 0u; i < snapshot->link_count; i++) {
+        const calibration_path_link_evidence_t *link = &snapshot->links[i];
+        const int64_t delay_ns = link->measurement.delay_estimate_ns;
+        if (delay_ns < 0 || (uint64_t)delay_ns > UINT32_MAX ||
+            link->source_slot_id >= VDC_DOMAIN_NODE_COUNT ||
+            link->destination_slot_id >= VDC_DOMAIN_NODE_COUNT) {
+            osal_critical_exit();
+            return false;
+        }
+        vdc_path_delay_entry_t *entry = &table.entries[i];
+        entry->valid = 1u;
+        entry->source_slot_id = link->source_slot_id;
+        entry->reference_slot_id = link->destination_slot_id;
+        entry->direction = 0u;
+        entry->delay_ns = (uint32_t)delay_ns;
+        entry->jitter_ns = link->jitter_ns;
+        entry->stddev_ns = link->jitter_ns;
+        entry->cal_crc32 = snapshot->table_crc32;
+        entry->freshness_us = snapshot->freshness_us;
+        entry->writer = link->source_slot_id;
+        entry->update_seq = table.update_seq;
+    }
+    table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
+    const bool accepted = vdc_domain_publish_path_delay_table(
+        &s_vdc_domain, &table);
+    osal_critical_exit();
+    return accepted;
 }
 
 bool vdc_dpll_manager_submit_compact_observation(

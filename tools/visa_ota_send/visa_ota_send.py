@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send a unified OTA package to RP2350_TRIG over USBTMC/VISA."""
+"""Send a unified OTA package to DHRT100 over USBTMC/VISA."""
 
 from __future__ import annotations
 

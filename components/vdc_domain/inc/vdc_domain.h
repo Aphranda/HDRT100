@@ -331,6 +331,12 @@ typedef struct {
     uint32_t holdover_drift_bound_ns_s;
 } vdc_error_budget_t;
 
+#define VDC_PATH_DELAY_FLAG_ACCEPTED (1u << 0u)
+#define VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED (1u << 1u)
+#define VDC_PATH_DELAY_FLAG_BIAS_VALID (1u << 2u)
+#define VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH (1u << 3u)
+#define VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY (1u << 4u)
+
 typedef struct {
     uint32_t valid;
     uint32_t source_slot_id;
@@ -351,6 +357,11 @@ typedef struct {
     uint32_t update_seq;
     uint32_t entry_count;
     uint32_t schedule_crc32;
+    uint32_t calibration_generation;
+    uint32_t topology_generation;
+    uint32_t bias_generation;
+    uint32_t freshness_us;
+    uint32_t flags;
     uint32_t table_crc32;
     vdc_path_delay_entry_t entries[VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT];
 } vdc_path_delay_table_t;

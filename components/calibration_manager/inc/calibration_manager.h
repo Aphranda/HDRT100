@@ -6,6 +6,7 @@
 
 #include "calibration_pio_loopback.h"
 #include "calibration_bidirectional.h"
+#include "calibration_bias.h"
 #include "calibration_clk_coded.h"
 #include "tdma_pio_spi_phys.h"
 
@@ -42,6 +43,18 @@ bool calibration_manager_start_loopback(uint32_t sample_words);
 void calibration_manager_stop_loopback(void);
 bool calibration_manager_get_loopback_snapshot(
     calibration_manager_loopback_snapshot_t *snapshot);
+bool calibration_manager_start_bias(uint32_t expected_path_sum_ns,
+                                    uint32_t minimum_samples,
+                                    uint32_t maximum_samples,
+                                    uint32_t maximum_spread_ns,
+                                    uint32_t maximum_clock_error_ns);
+void calibration_manager_stop_bias(void);
+bool calibration_manager_get_bias_snapshot(
+    calibration_bias_snapshot_t *snapshot);
+/* Queue the validated accepted bias package to the Storage manager for an
+ * atomic SD evidence file.  This is a source artifact for the future
+ * Calibration NVS; it never promotes diagnostic evidence to active state. */
+bool calibration_manager_save_bias_snapshot(uint32_t *job_id);
 bool calibration_manager_get_clk_coded_snapshot(
     calibration_clk_coded_snapshot_t *snapshot);
 /* Core0 command-slot publication only.  The marker is generated, executed
@@ -61,7 +74,7 @@ bool calibration_manager_request_clk_coded(
 void calibration_manager_stop_clk_coded(void);
 bool calibration_manager_request_p3(
     uint32_t role, uint32_t baud_hz, uint32_t pulse_count,
-    uint32_t capture_words, uint32_t epoch);
+    uint32_t capture_words, uint32_t epoch, uint32_t signal_group);
 void calibration_manager_stop_p3(void);
 bool calibration_manager_get_p3_snapshot(
     calibration_manager_p3_snapshot_t *snapshot);

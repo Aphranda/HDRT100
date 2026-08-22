@@ -1,4 +1,4 @@
-"""Run the RP2350_TRIG OTA board validation loop.
+"""Run the DHRT100 OTA board validation loop.
 
 The runner keeps every step output in a validation directory and judges pass/fail
 from those files, so a failed bench run can be reviewed after the serial output
@@ -255,8 +255,8 @@ def append_step(summary: dict, name: str, passed: bool, artifact: Path | None = 
 def main() -> int:
     args = parse_args()
     build_dir = resolve_build_path(args.build_dir)
-    factory = resolve_build_path(args.factory) if args.factory else build_dir / "RP2350_TRIG_FACTORY.uf2"
-    package = resolve_build_path(args.package) if args.package else build_dir / "RP2350_TRIG_UPDATE.pkg"
+    factory = resolve_build_path(args.factory) if args.factory else build_dir / "DHRT100_FACTORY.uf2"
+    package = resolve_build_path(args.package) if args.package else build_dir / "DHRT100_UPDATE.pkg"
     out_dir = (
         resolve_build_path(args.out_dir)
         if args.out_dir

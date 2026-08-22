@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send a raw firmware .bin or unified OTA package to RP2350_TRIG over SCPI USB CDC."""
+"""Send a raw firmware .bin or unified OTA package to DHRT100 over SCPI USB CDC."""
 
 from __future__ import annotations
 

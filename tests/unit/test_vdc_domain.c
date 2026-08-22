@@ -127,6 +127,33 @@ static int expect_i32(const char *name, int32_t actual, int32_t expected)
     return 0;
 }
 
+static bool install_test_path_delay(vdc_domain_context_t *context)
+{
+    vdc_path_delay_table_t table;
+    if (context == NULL) return false;
+    table = context->path_delay;
+    table.valid = 1u;
+    table.entry_count = VDC_DOMAIN_NODE_COUNT;
+    table.calibration_generation = 1u;
+    table.topology_generation = 1u;
+    table.bias_generation = 1u;
+    table.freshness_us = 1u;
+    table.flags = VDC_PATH_DELAY_FLAG_ACCEPTED |
+                  VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                  VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                  VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH;
+    for (uint32_t i = 0u; i < VDC_DOMAIN_NODE_COUNT; i++) {
+        table.entries[i].valid = 1u;
+        table.entries[i].source_slot_id = i;
+        table.entries[i].reference_slot_id = context->schedule.reference_slot_id;
+        table.entries[i].cal_crc32 = table.schedule_crc32;
+        table.entries[i].freshness_us = table.freshness_us;
+        table.entries[i].update_seq = table.update_seq;
+    }
+    table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
+    return vdc_domain_publish_path_delay_table(context, &table);
+}
+
 static vdc_tdma_timestamp_evidence_t make_hardware_sample(
     const vdc_tdma_schedule_profile_t *schedule,
     uint32_t sample_seq,
@@ -728,9 +755,9 @@ static int test_default_timestamp_dictionary_contract(void)
                                                                 &compact),
                           false);
     (void)vdc_domain_get_snapshot(&context, &snapshot);
-    failed += expect_u32("default diagnostic gate",
+    failed += expect_u32("default diagnostic gate rejects missing calibration",
                          snapshot.quality.gate_reject_code,
-                         VDC_DOMAIN_GATE_TIMESTAMP_NOT_ELIGIBLE);
+                         VDC_DOMAIN_GATE_BAD_FRAME);
     return failed;
 }
 
@@ -955,6 +982,8 @@ static int test_context_submits_compact_observation(void)
     failed += expect_bool("compact context init",
                           vdc_domain_init(&context),
                           true);
+    failed += expect_bool("compact path calibration",
+                          install_test_path_delay(&context), true);
     vdc_domain_set_ready(&context, true);
     make_timestamp_dictionary_for_schedule(&context.schedule,
                                            &dictionary,
@@ -1100,21 +1129,36 @@ static int test_path_delay_table_drives_compact_phase(void)
     failed += expect_bool("path table init",
                           vdc_domain_init(&context),
                           true);
-    failed += expect_bool("default path table valid",
+    failed += expect_bool("default path table invalid until calibration",
                           vdc_domain_path_delay_table_validate(
                               &context.path_delay),
-                          true);
-    failed += expect_bool("default path lookup",
+                          false);
+    failed += expect_bool("default path lookup rejected",
                           vdc_domain_path_delay_lookup(&context.path_delay,
                                                        0u,
                                                        0u,
                                                        &entry),
-                          true);
-    failed += expect_u32("default path delay",
-                         entry.delay_ns,
-                         0u);
+                          false);
 
     table = context.path_delay;
+    table.valid = 1u;
+    table.entry_count = VDC_DOMAIN_NODE_COUNT;
+    table.calibration_generation = 1u;
+    table.topology_generation = 1u;
+    table.bias_generation = 1u;
+    table.freshness_us = 1u;
+    table.flags = VDC_PATH_DELAY_FLAG_ACCEPTED |
+                  VDC_PATH_DELAY_FLAG_HARDWARE_LATCHED |
+                  VDC_PATH_DELAY_FLAG_BIAS_VALID |
+                  VDC_PATH_DELAY_FLAG_TOPOLOGY_FRESH;
+    for (uint32_t i = 0u; i < VDC_DOMAIN_NODE_COUNT; i++) {
+        table.entries[i].valid = 1u;
+        table.entries[i].source_slot_id = i;
+        table.entries[i].reference_slot_id = context.schedule.reference_slot_id;
+        table.entries[i].cal_crc32 = table.schedule_crc32;
+        table.entries[i].freshness_us = table.freshness_us;
+        table.entries[i].update_seq = table.update_seq;
+    }
     table.update_seq++;
     table.entries[0].delay_ns = 7u;
     table.entries[0].jitter_ns = 2u;
@@ -1191,6 +1235,8 @@ static int test_sync_io_adapter_to_vdc_submit(void)
     failed += expect_bool("sync io vdc context init",
                           vdc_domain_init(&context),
                           true);
+    failed += expect_bool("sync io path calibration",
+                          install_test_path_delay(&context), true);
     vdc_domain_set_ready(&context, true);
     make_timestamp_dictionary_for_schedule(&context.schedule,
                                            &dictionary,

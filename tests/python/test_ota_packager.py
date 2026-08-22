@@ -29,8 +29,8 @@ def test_ota_package_header_matches_payload_layout() -> None:
     package = ota_packager.build_package(
         image_a,
         image_b,
-        product_id="RP2350_TRIG",
-        hardware_id="rp2350_trig",
+        product_id="DHRT100",
+        hardware_id="dhrt100",
         app_version=(1, 2, 3),
         build_id="202608140001",
         min_bootloader_version=(0, 1, 0),
@@ -43,8 +43,8 @@ def test_ota_package_header_matches_payload_layout() -> None:
     assert header_size == ota_packager.PACKAGE_HEADER_SIZE
     assert package_size == len(package)
     assert image_count == 2
-    assert _read_c_string(package[32:64]) == "RP2350_TRIG"
-    assert _read_c_string(package[64:96]) == "rp2350_trig"
+    assert _read_c_string(package[32:64]) == "DHRT100"
+    assert _read_c_string(package[64:96]) == "dhrt100"
 
     slot_a, offset_a, size_a, crc_a, run_a, _ = struct.unpack_from("<IIIIII", package, 192)
     slot_b, offset_b, size_b, crc_b, run_b, _ = struct.unpack_from("<IIIIII", package, 224)
