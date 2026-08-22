@@ -22,6 +22,39 @@ Last updated: 2026-08-22
 
 ## 当前检查点
 
+### FLASH-TASK-20260822-029 - M1-04 准入负向补齐与四板并发回归
+
+- 状态：M1-04/M1-05 继续进行；本轮补齐 Calibration training 与 TDMA clock-training 的
+  host fail-closed fixture，并修正统一 OTA 负向工具按当前目标槽选择镜像表项；未部署 v2
+  map、未接入 durable journal live producer，也未关闭 M1-04/M1-05。
+- 日期：2026-08-22
+- 代码与工具：
+  - `tests/unit/test_flash_transaction.c` 新增
+    `FLASH_TRANSACTION_ERROR_CALIBRATION_ACTIVE` 和
+    `FLASH_TRANSACTION_ERROR_TDMA_TRAINING_ACTIVE` 负向断言，确认 raw erase/program 计数为零。
+  - `tools/ota_send/ota_send.py` 在 `--package-negative` 前查询 `SYST:OTA:TARG?`，只修改
+    当前目标槽的 package image entry；修复活动槽轮换后 image-crc 负向用例误改 Slot A 的问题。
+  - 代码提交：`0af810d feat(flash): close admission gate host fixtures`，已推送
+    `origin/feature/rtos-multicore-haofv`。
+- 构建与 host gate：
+  - build 目录：`build-flash-m1-04-gate-20260822/`；firmware build id：`20260822061912`。
+  - `pico2-release`、release_check、FlashMap/inventory/persistence/migration/wire/link gate、
+    `run_flash_transaction_tests.ps1`、Python 编译和 diff check 均通过。
+- 板端 HIL：
+  - NO.1 / COM3：`build/flash_burn_m1_04_gate_NO1_20260822/`；NO.2 / COM5：
+    `build/flash_burn_m1_04_gate_NO2_20260822/`；NO.3 / COM6：
+    `build/flash_burn_m1_04_gate_NO3_20260822/`；NO.4 / COM4：
+    `build/flash_burn_m1_04_gate_NO4_20260822/`。
+  - NO.2–NO.4 并发执行；三块板均通过 baseline、positive OTA、boot commit、transport/image/
+    header/slot/run-offset 全部负向项和 final safe state。负向日志记录目标槽为 Slot B，最终
+    `SYST:OTA:TXN?` 为零活动事务。
+  - 本轮只验证当前 v1 compatibility Direct A/B 路径；未执行 Scratch/高地址任意 offset、
+    BOOTSEL full erase 或 Bootloader 重刷，v2 map 仍为 `target_not_deployed`。
+- 还需完成：
+  - M1-04 仍缺板端 CAL/training/thermal/fault 拒绝 HIL 和 warning policy 证据；
+    M1-05 仍缺 durable journal 接入 live OTA/Product Config/App metadata producer、跨 reset/
+    power-cut recovery 和异步 provider/step hook。
+
 ### FLASH-TASK-20260822-028 - durable journal backend 与四板并发 OTA 回归
 
 - 状态：M1-05 继续进行；本轮完成 durable transaction journal source/backend 的 host/build

@@ -220,9 +220,11 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
 - [~] FlashTransactionAO 已接入 Diagnostics fault、board/chip thermal critical、System/FAULT、
   Trigger activity、Calibration training 和 TDMA clock-training fail-closed gate；policy
   error/temperature flags 已进入 Vector，且训练状态由 resource_arbiter snapshot 统一发布/消费。
-  warning policy 与板端 fault/thermal/training negative HIL 仍待补齐。
-- [x] host negative fixture 覆盖 thermal critical/diagnostics fault admission，断言 raw erase/program
-  未执行；板端 fault/thermal 注入 HIL 仍待安全入口。
+  host 负向 fixture 已覆盖 CAL/training admission；warning policy 与板端
+  fault/thermal/training negative HIL 仍待补齐。
+- [x] host negative fixture 覆盖 thermal critical/diagnostics fault、Calibration active 和
+  TDMA training active admission，断言 raw erase/program 未执行；板端 fault/thermal/CAL/training
+  注入 HIL 仍待安全入口。
 - [~] Trigger capture/clock、FAULT mode、Flash resource conflict、Calibration training 和 TDMA
   clock-training 已细分为 policy reason；System owner 发布 gate 已接入，板端拒绝 HIL 和
   warning policy 仍待完成。
@@ -256,6 +258,12 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
 completion lease、durable reset journal、power-cut/duplicate completion 和跨 reset 证据仍缺失；
 v2 map 仍为 `target_not_deployed`，未执行 Scratch、高地址任意 offset、BOOTSEL full erase 或
 Bootloader 重刷。
+
+本轮后续准入快照（`FLASH-TASK-20260822-029`）：`build-flash-m1-04-gate-20260822/` 的
+firmware build id 为 `20260822061912`；CAL/training host negative fixture、目标槽感知的
+package-negative 工具和 NO.2–NO.4 并发 Direct A/B OTA 均通过。该证据只补齐 host/当前 v1
+compatibility 路径，不改变 M1-04 的板端 HIL/warning 未完成状态，也不改变 M1-05 durable
+journal live producer、跨 reset/power-cut 和 v2 deployment 未完成状态。
 
 本轮代码快照：commit `6fc17cd` 增加可选 `flash_transaction_completion_lease_t`，在最终 release
 成功后才发布 COMMITTED，release failure 保持 FAILED；该合约目前只由 host fixture 驱动，未宣称
