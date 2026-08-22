@@ -73,6 +73,33 @@ Last updated: 2026-08-22
   - immutable provider/refcount、producer reset、completion lease/durable 语义；之后再评估 M1-03/
     M1-05 退出和 M1-06 Scratch 进入条件。
 
+### FLASH-TASK-20260822-022 - M1-05 新工件四板烧录与双板并发 OTA
+
+- 状态：M1-05 host/build/HIL 继续进行；本轮使用包含 raw-step abort 修复的新 release 工件完成
+  四块板 factory 烧录与 Direct A/B OTA 闭环，未改变 v2 target map 的 deployed 状态。
+- 日期：2026-08-22
+- 工件与构建：
+  - 构建目录：`build-flash-m1-05-20260822/`；`pico2-release` 配置/构建和
+    `tools/release_check/release_check.py` 均通过。
+  - 工件：`RP2350_TRIG_FACTORY.uf2`、`RP2350_TRIG_UPDATE.pkg`；构建脚本通过 inventory、map、
+    persistence、migration、wire 和 RAM/link closure gates。
+- 板卡与报告：
+  - NO.1 `0010071E65B5CB38` / COM3：`build/flash_burn_M1_05_NO1_20260822/`，PASS。
+  - NO.2 `FB276192BEF9CCE1` / COM5：`build/flash_burn_M1_05_NO2_20260822/`，PASS。
+  - NO.3 `2BD5090FE009FA2A` / COM6：`build/flash_burn_M1_05_NO3_20260822/`，PASS。
+  - NO.4 `A1E549202D18ED6A` / COM4：`build/flash_burn_M1_05_NO4_20260822/`，PASS。
+  - 每块板的 `baseline_query`、`positive_ota`、`boot_commit`、`final_safe_state` 均通过，最终
+    `SYST:OTA:TXN?` 为零活动事务；NO.3/NO.4 的 OTA 流程按要求并发执行并各自完成 commit。
+- 说明：多板烧录期间 USB 地址会在每次重启后重新编号，实际操作以 picotool 输出的 serial 为准；
+  报告中的 COM 与 serial 映射保持不变。该闭环验证当前 v1 compatibility factory/OTA 路径，
+  不等同于 v2 高地址 Scratch 或 BOOTSEL full-erase 回退门禁。
+- 提交与推送：
+  - 代码：`df05507 fix(flash): abort transaction after raw step`。
+  - 工具：`44a007f fix(tools): ignore temporary non-utf8 flash sources`。
+- 还需完成：
+  - immutable provider/refcount、producer reset、completion lease/durable 语义，以及 M0-05
+    BOOTSEL full erase/reflash 和 M1-06 Scratch HIL。
+
 ### FLASH-TASK-20260822-019 - Calibration/TDMA training gate 接入 resource_arbiter
 
 - 状态：M1-04 继续进行；Calibration loopback/CLOCK_CODED/P3 与 TDMA clock-training 的运行态
