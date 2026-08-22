@@ -24,7 +24,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 | P0 | 硬件 latch、证据 transport 和 owner 边界 | `[~]` | 可关联的 `t1..t4` hardware-latched evidence |
 | P1 | CLK RTT 粗捕获收尾 | `[~]` | diagnostic bracket、过渡抖动和拒绝原因 |
 | P2 | 编码 marker、过采样和相关测距 | `[~]` | accepted/rejected coded RTT snapshot |
-| P3 | 双向同时对比、residence 和 per-link delay | `[~]` | diagnostic per-link evidence 已形成；active/staging 待 bias/freshness gate |
+| P3 | 双向同时对比、residence 和 per-link delay | `[~]` | generic forward/return/sync 映射已接入；diagnostic per-link evidence 已形成；active/staging 待 bias/freshness gate |
 | P4 | VDC/DPLL 接入与长时间验证 | `[ ]` | calibration-to-VDC gate evidence |
 
 当前不能把第一阶段的 CLK RTT bracket、软件 timer 或 diagnostic latch 直接用于 VDC/DPLL。
@@ -127,6 +127,17 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
   rise/fall 仍须示波器确认。
 
 ## 六、P3 双向同时对比法
+
+### P3 三线信号组
+
+P3 按动态 PIO persona 分两次执行，不能在同一已装载 persona 内混用：
+
+- `TDMA_PIO_SPI_P3_GROUP_CLK_DATA`：`forward=CLK`、`return=DATA`、`sync=CS`。
+- `TDMA_PIO_SPI_P3_GROUP_CS_DATA`：`forward=CS`、`return=DATA`、`sync=CLK`。
+
+同步线只打开捕获窗口，不进入 `t1/t2/t3/t4` 或 path-sum。两组均使用同一逻辑
+四边沿掩码；每次请求结束后 core1 owner 停止 SM/DMA 并卸载该组 persona，下一组重新从
+catalog 装载。SCPI 的第六参数为 `signal_group`，省略时兼容默认为 `CLK_DATA`。
 
 当前推进策略：每条相邻 link 固定执行
 `calibration_link_frequency_policy.REQUIRED_FREQUENCY_LADDER_MHZ` 完整验证阶梯。稳定档标为

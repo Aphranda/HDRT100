@@ -105,6 +105,8 @@ typedef enum {
     TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_CODED = 4u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_P3_INITIATOR = 5u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_P3_RESPONDER = 6u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_INITIATOR = 7u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_RESPONDER = 8u,
 } tdma_pio_spi_program_persona_t;
 
 typedef enum {
@@ -120,7 +122,9 @@ typedef enum {
     TDMA_PIO_SPI_P3_ROLE_RESPONDER = 2u,
 } tdma_pio_spi_p3_role_t;
 
-/* P3 measures both independent outbound signal paths against DATA. */
+/* P3 measures a selected forward line against the DATA return line.  The
+ * CLK/CS names are physical net labels only; the unselected line is used as
+ * the sync marker for that trial. */
 typedef enum {
     TDMA_PIO_SPI_P3_GROUP_CLK_DATA = 0u,
     TDMA_PIO_SPI_P3_GROUP_CS_DATA = 1u,
@@ -158,6 +162,8 @@ typedef struct {
     uint32_t clock_high_ns;
     uint32_t clock_low_ns;
     uint32_t data_high_ns;
+    /* ABI-compatible names retained for SCPI/tool parsing.  Semantics are
+     * t1=forward TX, t2=forward RX, t3=return(DATA) TX, t4=return RX. */
     uint64_t t1_clk_tx;
     uint64_t t2_clk_rx;
     uint64_t t3_data_tx;

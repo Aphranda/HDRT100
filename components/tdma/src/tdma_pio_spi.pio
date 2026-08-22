@@ -84,8 +84,8 @@ clk_burst_loop:
     in pins, 1
 .wrap
 
-; P3 link initiator. SYNC is asserted for the complete CLK burst. Four PIO
-; cycles form one clock period with two high and two low cycles. The RX SM is
+; P3 link initiator. SYNC is asserted for the complete forward burst. Four PIO
+; cycles form one forward-line period with two high and two low cycles. The RX SM is
 ; enabled in sync with this SM and samples the returned DATA pin at clk_sys.
 .program tdma_pio_spi_p3_initiator
 .side_set 1
@@ -100,10 +100,10 @@ p3_clk_loop:
     irq set 1               side 0
 .wrap
 
-; P3 link responder. The init function patches the two WAIT GPIO operands and
-; the DATA-high delay. t2 is the accepted CLK rising edge; t3 is the following
-; SET DATA instruction, so residence is one clk_sys cycle. DATA high duration
-; is rounded to the closest clk_sys cycle for the requested profile.
+; P3 link responder. The init function patches the sync and forward-line WAIT
+; GPIO operands plus the DATA-high delay. t2 is the accepted forward-line
+; rising edge; t3 is the following SET DATA instruction, so residence is one
+; clk_sys cycle. DATA high duration is rounded to the closest clk_sys cycle.
 .program tdma_pio_spi_p3_responder
 .wrap_target
     wait 0 gpio 0
@@ -363,17 +363,17 @@ static inline float tdma_pio_spi_p3_clkdiv_for_baud(uint32_t baud_hz)
 }
 
 static inline void tdma_pio_spi_p3_initiator_program_init(
-    PIO pio, uint sm, uint offset, uint sync_tx_pin, uint clk_tx_pin,
+    PIO pio, uint sm, uint offset, uint sync_tx_pin, uint forward_tx_pin,
     uint32_t baud_hz)
 {
     pio_gpio_init(pio, sync_tx_pin);
-    pio_gpio_init(pio, clk_tx_pin);
+    pio_gpio_init(pio, forward_tx_pin);
     pio_sm_set_consecutive_pindirs(pio, sm, sync_tx_pin, 1u, true);
-    pio_sm_set_consecutive_pindirs(pio, sm, clk_tx_pin, 1u, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, forward_tx_pin, 1u, true);
     pio_sm_config c =
         tdma_pio_spi_p3_initiator_program_get_default_config(offset);
     sm_config_set_set_pins(&c, sync_tx_pin, 1u);
-    sm_config_set_sideset_pins(&c, clk_tx_pin);
+    sm_config_set_sideset_pins(&c, forward_tx_pin);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
     sm_config_set_clkdiv(&c, tdma_pio_spi_p3_clkdiv_for_baud(baud_hz));
     pio_sm_init(pio, sm, offset, &c);
@@ -391,8 +391,8 @@ static inline uint32_t tdma_pio_spi_p3_data_high_cycles(uint32_t baud_hz)
 }
 
 static inline void tdma_pio_spi_p3_responder_program_init(
-    PIO pio, uint sm, uint offset, uint sync_rx_pin, uint clk_rx_pin,
-    uint data_tx_pin, uint32_t baud_hz, uint32_t signal_group)
+    PIO pio, uint sm, uint offset, uint sync_rx_pin, uint forward_rx_pin,
+    uint data_tx_pin, uint32_t baud_hz)
 {
     const uint32_t high_cycles =
         tdma_pio_spi_p3_data_high_cycles(baud_hz);
@@ -400,24 +400,22 @@ static inline void tdma_pio_spi_p3_responder_program_init(
         (uint16_t)pio_encode_wait_gpio(false, sync_rx_pin);
     pio->instr_mem[offset + 1u] =
         (uint16_t)pio_encode_wait_gpio(true, sync_rx_pin);
+    /* The second input is the selected forward measurement line.  Its
+     * physical label may be CLK or CS; the caller supplies the mapping. */
     pio->instr_mem[offset + 2u] =
-        signal_group == 1u
-            ? (uint16_t)pio_encode_nop()
-            : (uint16_t)pio_encode_wait_gpio(false, clk_rx_pin);
+        (uint16_t)pio_encode_wait_gpio(false, forward_rx_pin);
     pio->instr_mem[offset + 3u] =
-        signal_group == 1u
-            ? (uint16_t)pio_encode_nop()
-            : (uint16_t)pio_encode_wait_gpio(true, clk_rx_pin);
+        (uint16_t)pio_encode_wait_gpio(true, forward_rx_pin);
     pio->instr_mem[offset + 4u] =
         (uint16_t)(pio_encode_set(pio_pins, 1u) |
                    pio_encode_delay(high_cycles - 1u));
     pio_gpio_init(pio, sync_rx_pin);
-    pio_gpio_init(pio, clk_rx_pin);
+    pio_gpio_init(pio, forward_rx_pin);
     pio_gpio_init(pio, data_tx_pin);
     gpio_pull_down(sync_rx_pin);
-    gpio_pull_down(clk_rx_pin);
+    gpio_pull_down(forward_rx_pin);
     pio_sm_set_consecutive_pindirs(pio, sm, sync_rx_pin, 1u, false);
-    pio_sm_set_consecutive_pindirs(pio, sm, clk_rx_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, forward_rx_pin, 1u, false);
     pio_sm_set_consecutive_pindirs(pio, sm, data_tx_pin, 1u, true);
     pio_sm_config c =
         tdma_pio_spi_p3_responder_program_get_default_config(offset);
@@ -430,6 +428,7 @@ static inline void tdma_pio_spi_p3_responder_program_init(
 static inline void tdma_pio_spi_p3_responder_capture_program_init(
     PIO pio, uint sm, uint offset, uint sync_rx_pin)
 {
+    /* Sync only opens the capture window.  It is never a measured edge. */
     pio->instr_mem[offset + 0u] =
         (uint16_t)pio_encode_wait_gpio(false, sync_rx_pin);
     pio->instr_mem[offset + 1u] =

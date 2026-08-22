@@ -4,7 +4,7 @@ Status: Draft
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_RING_AUTOCALIBRATION_PLAN.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 本文档细化“板卡接收一条 SCPI 指令后，在硬件内完成板卡顺序搜索和 P1--P3 path-delay
 训练”的目标架构。板卡顺序搜索定义为 P0，必须先于 CLK RTT 粗捕获、编码 marker 和
@@ -326,16 +326,27 @@ reference loopback 结果本身始终是 reference evidence，不作为 link del
 按 P0 order 对每条 `A -> B` 相邻 link 执行：
 
 ```text
-t1 = A.CLK_TX
-t2 = B.CLK_RX
-t3 = B.DATA_TX
-t4 = A.DATA_RX
+t1 = A.forward_line_TX
+t2 = B.forward_line_RX
+t3 = B.return_line_TX
+t4 = A.return_line_RX
 
 residence_B = t3 - t2
 raw_path_sum_AB = (t4 - t1) - residence_B
 corrected_path_sum_AB = raw_path_sum_AB - endpoint_bias_AB
 delay_AB = corrected_path_sum_AB / 2
 ```
+
+`forward_line`、`return_line` 和可选的 `sync_line` 是本轮 persona 的角色，
+不是固定的物理线名称。当前网线对称链路的两个 P3 配置为：
+
+```text
+CLK_DATA: forward=CLK, return=DATA, sync=CS
+CS_DATA:  forward=CS,  return=DATA, sync=CLK
+```
+
+同步线只用于打开捕获窗口和关联 epoch，不进入 `t1..t4`、residence 或 path-sum。
+两组配置必须分别动态装载和卸载 PIO persona；`BOTH` 只是顺序执行两次独立试验。
 
 initiator/responder 在同一 epoch 下采集各自边沿。host 不拼接不同 epoch，不补造缺失边沿。
 Calibration gate 检查 hardware latch、SYNC match、DMA complete、edge order、bias generation、

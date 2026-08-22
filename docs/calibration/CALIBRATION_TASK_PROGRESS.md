@@ -10,6 +10,23 @@ Last updated: 2026-08-22
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260822-006 - P3 双向测距线角色动态映射
+
+- 状态：代码完成，待四板硬件复测；P3 仍为 `DIAGNOSTIC_ONLY`。
+- 固件新增 `CLK_DATA` 与 `CS_DATA` 两组请求。两组分别选择独立的 PIO catalog persona，
+  core1 在每次请求完成后停止 SM/DMA 并卸载，不能在同一已装载 persona 内切换信号组。
+- P3 以 `forward_line`、`return_line`、`sync_line` 表达角色，不把 CLK/CS/DATA
+  物理名称当成功能。`CLK_DATA` 为 `forward=CLK, return=DATA, sync=CS`；
+  `CS_DATA` 为 `forward=CS, return=DATA, sync=CLK`。同步线只打开捕获窗口，
+  不进入 `t1/t2/t3/t4` 或 path-sum。
+- 两组共用逻辑 `t1/t2/t3/t4` 掩码和 path-sum 方程。当前网线链路按正反向对称处理，
+  `delay_estimate = corrected_path_sum / 2`；`asymmetry_ns` 和对应 gate 保留，
+  后续非对称介质仍可拒绝或降级 active eligibility。
+- SCPI `CALibration:P3:STARt` 保留原 5 参数，第 6 参数 `signal_group` 可选，`0=CLK_DATA`、
+  `1=CS_DATA`；验证工具 `--signal-group BOTH` 会逐组执行并分别记录证据。
+- 本轮验证：主机 P3 测试 8/8、P3 plan 测试 10/10，DHRT100 双核固件和 Flash link gate 通过；
+  尚未在四板上 OTA/复测两组信号，不能据此宣称三线硬件校准完成。
+
 ## CAL-TASK-20260822-003 - Accepted calibration evidence SD source
 
 - 状态：SD source evidence 已接入；Flash Calibration NVS 仍未实现，不能恢复为 active。

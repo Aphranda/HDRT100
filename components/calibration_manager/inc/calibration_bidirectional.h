@@ -5,9 +5,13 @@
 #include <stdint.h>
 
 /* The four edge timestamps are local to the board that captured each edge.
- * For a single-board loopback all four values share one clock domain; for a
- * board-to-board sample t1/t4 belong to A and t2/t3 belong to B. */
+ * They are line-neutral: t1=forward TX, t2=forward RX, t3=return TX and
+ * t4=return RX.  The physical line names (CLK/CS/DATA) are selected by the
+ * P3 persona; a sync marker is not part of this four-edge sample.  For a
+ * single-board loopback all values share one clock domain; for a board-to-
+ * board sample t1/t4 belong to A and t2/t3 belong to B. */
 typedef struct {
+    /* Legacy member names are kept for the existing SCPI/ABI layout. */
     uint64_t t1_clk_tx;
     uint64_t t2_clk_rx;
     uint64_t t3_data_tx;

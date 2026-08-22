@@ -75,7 +75,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--capture-words", type=int, default=256)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=5.0)
-    parser.add_argument("--action-timeout", type=float, default=0.3)
+    parser.add_argument("--action-timeout", type=float, default=1.0,
+                        help=("bounded wait for P3 action acknowledgement; "
+                              "capture completion uses --capture-timeout"))
     parser.add_argument("--capture-timeout", type=float, default=3.0)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--gap", type=float, default=0.1)
@@ -84,6 +86,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--duty-tolerance-percent", type=float, default=10.0)
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     return parser.parse_args()
 
 
@@ -179,7 +183,10 @@ def timing_metrics(snapshot: dict[str, int], target_hz: int,
         ideal_data_high_ns / sample_period_ns) * sample_period_ns
     data_high_error_ns = abs(
         snapshot["data_high_ns"] - expected_data_high_ns)
-    primary_timing_valid = signal_group == P3_GROUP_CLK_DATA
+    # The selected forward line is clock-like in both personas.  CS_DATA
+    # swaps the physical labels and uses CLK only as sync; it still has the
+    # same frequency/duty gate as CLK_DATA.
+    primary_timing_valid = True
     return {
         "clock_high_ns": high_ns,
         "clock_low_ns": low_ns,
@@ -210,8 +217,9 @@ def evaluate_pair(initiator: dict[str, int], responder: dict[str, int],
     responder_timing = timing_metrics(
         responder, target_hz, args.frequency_tolerance_percent,
         args.duty_tolerance_percent, signal_group)
-    required_initiator_edges = 0x05 if signal_group == P3_GROUP_CS_DATA else 0x09
-    required_responder_edges = 0x28 if signal_group == P3_GROUP_CS_DATA else 0x06
+    # edge_mask is the logical t1/t2/t3/t4 mask, independent of GPIO numbers.
+    required_initiator_edges = 0x09
+    required_responder_edges = 0x06
     failures: list[str] = []
     for name, snapshot, role, edge_mask in (
             ("initiator", initiator, P3_ROLE_INITIATOR,
@@ -222,6 +230,8 @@ def evaluate_pair(initiator: dict[str, int], responder: dict[str, int],
             failures.append(name + "_state")
         if snapshot["role"] != role:
             failures.append(name + "_role")
+        if snapshot.get("signal_group", P3_GROUP_CLK_DATA) != signal_group:
+            failures.append(name + "_signal_group")
         if snapshot["result_valid"] != 1:
             failures.append(name + "_result")
         if (snapshot["flags"] & P3_FLAGS_REQUIRED) != P3_FLAGS_REQUIRED:
@@ -378,6 +388,7 @@ def main() -> int:
     if not 1 <= args.capture_words <= 256:
         raise SystemExit("capture-words must be in [1, 256]")
     args.board_ids = list(args.board_id)
+    args.keep_open = not args.short_open
     boards = discover(args)
     missing = sorted(set(args.board_id) - set(boards))
     if missing:
@@ -462,7 +473,9 @@ def main() -> int:
         json.dumps(output, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8")
     (out_dir / "summary.txt").write_text("\n".join(
-        f"{row['source']} -> {row['destination']} {row['frequency_mhz']}MHz "
+        f"{row['source']} -> {row['destination']} "
+        f"group={('CLK_DATA' if row.get('signal_group') == P3_GROUP_CLK_DATA else 'CS_DATA')} "
+        f"{row['frequency_mhz']}MHz "
         f"accepted={row.get('accepted_count', 0)}/{row.get('trial_count', 0)} "
         f"delay_mean_ns={row.get('delay_mean_ns')} passed={row['passed']} "
         f"class={row.get('operational_class')} "

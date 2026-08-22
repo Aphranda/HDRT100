@@ -2,6 +2,7 @@ from argparse import Namespace
 
 from tools.calibration_ring_validate.calibration_link_p3 import (
     P3_FLAGS_REQUIRED,
+    P3_GROUP_CS_DATA,
     apply_frequency_policy,
     evaluate_pair,
     parse_p3_status,
@@ -10,10 +11,11 @@ from tools.calibration_ring_validate.calibration_link_p3 import (
 )
 
 
-def make_snapshot(role: int, edge_mask: int) -> dict[str, int]:
+def make_snapshot(role: int, edge_mask: int, signal_group: int = 0) -> dict[str, int]:
     return {
         "state": 2,
         "role": role,
+        "signal_group": signal_group,
         "flags": P3_FLAGS_REQUIRED,
         "reject_reason": 0,
         "baud_hz": 25_000_000,
@@ -73,6 +75,26 @@ def test_evaluate_pair_subtracts_residence() -> None:
     assert result["path_sum_ns"] == 40
     assert result["delay_estimate_ns"] == 20.0
     assert result["passed"]
+
+
+def test_cs_data_group_keeps_logical_four_edge_gate() -> None:
+    initiator = make_snapshot(1, 0x09, P3_GROUP_CS_DATA)
+    responder = make_snapshot(2, 0x06, P3_GROUP_CS_DATA)
+    args = Namespace(frequency_tolerance_percent=5.0,
+                     duty_tolerance_percent=10.0)
+    result = evaluate_pair(initiator, responder, 25_000_000, args,
+                           P3_GROUP_CS_DATA)
+    assert result["signal_group"] == P3_GROUP_CS_DATA
+    assert result["passed"]
+
+
+def test_cs_data_group_keeps_forward_timing_gate() -> None:
+    snapshot = make_snapshot(1, 0x09, P3_GROUP_CS_DATA)
+    metrics = timing_metrics(snapshot, 25_000_000, 5.0, 10.0,
+                             P3_GROUP_CS_DATA)
+    assert metrics["primary_timing_valid"]
+    assert metrics["frequency_ok"]
+    assert metrics["duty_ok"]
 
 
 def test_30mhz_is_limited_rx_and_falls_back_without_failing_stable() -> None:

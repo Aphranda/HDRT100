@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import csv
 import json
 import sys
@@ -37,6 +38,65 @@ class Board:
     build: str
 
 
+class BoardConnection:
+    """Persistent SCPI connection for one board during a validation run."""
+
+    def __init__(self, board: Board, args: argparse.Namespace) -> None:
+        self.board = board
+        self.args = args
+        self.ser: serial.Serial | None = None
+
+    def open(self) -> "BoardConnection":
+        if self.ser is not None:
+            return self
+        self.ser = serial.Serial(
+            self.board.port, self.args.baud, timeout=0.1,
+            write_timeout=self.args.timeout)
+        time.sleep(self.args.settle)
+        self.ser.reset_input_buffer()
+        self.ser.reset_output_buffer()
+        identity = parse_idn_response(
+            command(self.ser, "*IDN?", self.args.timeout))
+        if identity.address != self.board.address:
+            self.close()
+            raise RuntimeError(
+                f"{self.board.port}: identity changed to {identity.address}, "
+                f"expected {self.board.address}")
+        return self
+
+    def close(self) -> None:
+        if self.ser is None:
+            return
+        try:
+            self.ser.flush()
+        finally:
+            self.ser.close()
+            self.ser = None
+
+    def command(self, text: str) -> str:
+        self.open()
+        assert self.ser is not None
+        identity = parse_idn_response(
+            command(self.ser, "*IDN?", self.args.timeout))
+        if identity.address != self.board.address:
+            raise RuntimeError(
+                f"{self.board.port}: identity changed to {identity.address}, "
+                f"expected {self.board.address}")
+        return _board_command_on_serial(self.board, text, self.args, self.ser)
+
+
+_PERSISTENT_CONNECTIONS: dict[str, BoardConnection] = {}
+
+
+def close_persistent_connections() -> None:
+    for connection in list(_PERSISTENT_CONNECTIONS.values()):
+        connection.close()
+    _PERSISTENT_CONNECTIONS.clear()
+
+
+atexit.register(close_persistent_connections)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--board-id", action="append",
@@ -60,6 +120,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument("--start-wait", type=float, default=2.0)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--short-open", action="store_true",
+                        help="open/close CDC for every command (diagnostic fallback)")
     parser.add_argument("--out-dir", type=Path)
     return parser.parse_args()
 
@@ -112,7 +174,36 @@ def discover(args: argparse.Namespace) -> dict[str, Board]:
     return found
 
 
+def _board_command_on_serial(board: Board, text: str,
+                            args: argparse.Namespace,
+                            ser: serial.Serial) -> str:
+    # Most action commands return a bare OK. The shared reader strips
+    # that acknowledgement to protect query parsing, so represent the
+    # resulting empty response explicitly; state is verified below.
+    action = text.strip().split(maxsplit=1)[0].upper()
+    ack_only_actions = {
+        "SYSTEM:TDMA:RING:STOP", "SYST:TDMA:RING:STOP",
+        "SYSTEM:TDMA:RING:TOPOLOGY", "SYST:TDMA:RING:TOPOLOGY",
+        "SYSTEM:TDMA:RING:ARM", "SYST:TDMA:RING:ARM",
+        "SYSTEM:TDMA:RING:START", "SYST:TDMA:RING:START",
+        "CALIBRATION:P3:START", "CALIBRATION:P3:STOP",
+        "SYSTEM:BOOT:RESET", "SYST:BOOT:RESET",
+    }
+    response = command(
+        ser, text, min(args.timeout, 1.0)
+        if action in ack_only_actions else args.timeout)
+    if response == "<timeout>" and action in ack_only_actions:
+        return "OK(no payload; verified by state readback)"
+    return response
+
+
 def board_command(board: Board, text: str, args: argparse.Namespace) -> str:
+    if getattr(args, "keep_open", False):
+        connection = _PERSISTENT_CONNECTIONS.get(board.address)
+        if connection is None:
+            connection = BoardConnection(board, args)
+            _PERSISTENT_CONNECTIONS[board.address] = connection
+        return connection.command(text)
     with serial.Serial(board.port, args.baud, timeout=0.1,
                        write_timeout=args.timeout) as ser:
         time.sleep(args.settle)
@@ -121,23 +212,7 @@ def board_command(board: Board, text: str, args: argparse.Namespace) -> str:
             raise RuntimeError(
                 f"{board.port}: identity changed to {identity.address}, "
                 f"expected {board.address}")
-        # Most action commands return a bare OK. The shared reader strips
-        # that acknowledgement to protect query parsing, so represent the
-        # resulting empty response explicitly; state is verified below.
-        action = text.strip().split(maxsplit=1)[0].upper()
-        ack_only_actions = {
-            "SYSTEM:TDMA:RING:STOP", "SYST:TDMA:RING:STOP",
-            "SYSTEM:TDMA:RING:TOPOLOGY", "SYST:TDMA:RING:TOPOLOGY",
-            "SYSTEM:TDMA:RING:ARM", "SYST:TDMA:RING:ARM",
-            "SYSTEM:TDMA:RING:START", "SYST:TDMA:RING:START",
-            "SYSTEM:BOOT:RESET", "SYST:BOOT:RESET",
-        }
-        response = command(
-            ser, text, min(args.timeout, 1.0)
-            if action in ack_only_actions else args.timeout)
-        if response == "<timeout>" and action in ack_only_actions:
-            return "OK(no payload; verified by state readback)"
-        return response
+        return _board_command_on_serial(board, text, args, ser)
 
 
 def status(board: Board, args: argparse.Namespace) -> dict[str, int]:

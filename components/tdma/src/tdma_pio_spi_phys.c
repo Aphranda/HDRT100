@@ -282,6 +282,10 @@ static bool tdma_pio_spi_phys_load_programs(
         return tdma_pio_spi_phys_load_p3_initiator_programs();
     case TDMA_PIO_SPI_PROGRAM_PERSONA_P3_RESPONDER:
         return tdma_pio_spi_phys_load_p3_responder_programs();
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_INITIATOR:
+        return tdma_pio_spi_phys_load_p3_initiator_programs();
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_RESPONDER:
+        return tdma_pio_spi_phys_load_p3_responder_programs();
     default:
         return false;
     }
@@ -344,6 +348,22 @@ static void tdma_pio_spi_phys_unload_programs(void)
                            &tdma_pio_spi_p3_responder_program,
                            s_tdma_pio_spi_p3_responder_offset);
         break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_INITIATOR:
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_cal_loopback_capture_program,
+                           s_tdma_pio_spi_p3_capture_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_p3_initiator_program,
+                           s_tdma_pio_spi_p3_initiator_offset);
+        break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_RESPONDER:
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_p3_responder_capture_program,
+                           s_tdma_pio_spi_p3_responder_capture_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_p3_responder_program,
+                           s_tdma_pio_spi_p3_responder_offset);
+        break;
     default:
         break;
     }
@@ -355,7 +375,7 @@ bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_program_persona_t persona)
 {
     if (phys == NULL || persona <= TDMA_PIO_SPI_PROGRAM_PERSONA_NONE ||
-        persona > TDMA_PIO_SPI_PROGRAM_PERSONA_P3_RESPONDER ||
+        persona > TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_RESPONDER ||
         !tdma_pio_spi_phys_ensure_sms_claimed()) {
         return false;
     }
@@ -1564,12 +1584,15 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
     bool have_clock_fall = false;
     bool have_data_rise = false;
     bool have_data_fall = false;
-    const bool cs_data = phys->p3.signal_group ==
+    /* signal_group selects the physical line used for the forward leg.
+     * The return leg is always DATA for the current P3 wiring.  The third
+     * line is only a sync marker and is intentionally absent from t1..t4. */
+    const bool forward_is_cs = phys->p3.signal_group ==
         TDMA_PIO_SPI_P3_GROUP_CS_DATA;
-    const uint32_t clock_mask = phys->p3.role ==
+    const uint32_t forward_mask = phys->p3.role ==
         TDMA_PIO_SPI_P3_ROLE_INITIATOR
-            ? (1u << (cs_data ? 2u : 1u))
-            : (1u << (cs_data ? 3u : 4u));
+            ? (1u << (forward_is_cs ? 2u : 1u))
+            : (1u << (forward_is_cs ? 3u : 4u));
     const uint32_t data_mask = phys->p3.role ==
         TDMA_PIO_SPI_P3_ROLE_INITIATOR ? (1u << 0u) : (1u << 5u);
     const uint32_t period = phys->p3.sample_period_ns;
@@ -1586,7 +1609,7 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
             const uint32_t falling = previous & ~sample;
             const uint64_t timestamp =
                 ((uint64_t)w * 4ull + i) * period;
-            if ((rising & clock_mask) != 0u) {
+            if ((rising & forward_mask) != 0u) {
                 if (!have_clock_rise) {
                     clock_rise = timestamp;
                     have_clock_rise = true;
@@ -1598,7 +1621,7 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
                 }
                 clock_rise = timestamp;
             }
-            if ((falling & clock_mask) != 0u && have_clock_rise) {
+            if ((falling & forward_mask) != 0u && have_clock_rise) {
                 clock_fall = timestamp;
                 have_clock_fall = true;
                 clock_high_sum += timestamp - clock_rise;
@@ -1614,7 +1637,7 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
                 have_data_fall = true;
             }
             if (phys->p3.role == TDMA_PIO_SPI_P3_ROLE_INITIATOR) {
-                const uint32_t tx_mask = 1u << (cs_data ? 2u : 1u);
+                const uint32_t tx_mask = forward_mask;
                 if ((rising & tx_mask) != 0u && (found & 1u) == 0u) {
                     times[0] = timestamp;
                     found |= 1u;
@@ -1624,7 +1647,7 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
                     found |= 8u;
                 }
             } else {
-                const uint32_t rx_mask = 1u << (cs_data ? 3u : 4u);
+                const uint32_t rx_mask = forward_mask;
                 if ((rising & rx_mask) != 0u && (found & 2u) == 0u) {
                     times[1] = timestamp;
                     found |= 2u;
@@ -1638,6 +1661,8 @@ static void tdma_pio_spi_phys_p3_decode(tdma_pio_spi_phys_t *phys)
         }
     }
     phys->p3.edge_mask = found;
+    /* ABI-compatible field names; semantically these are forward/return
+     * edges selected by signal_group, not fixed CLK/DATA functions. */
     phys->p3.t1_clk_tx = times[0];
     phys->p3.t2_clk_rx = times[1];
     phys->p3.t3_data_tx = times[2];
@@ -1661,6 +1686,7 @@ bool tdma_pio_spi_phys_p3_start(
     if (phys == NULL || request == NULL ||
         (request->role != TDMA_PIO_SPI_P3_ROLE_INITIATOR &&
          request->role != TDMA_PIO_SPI_P3_ROLE_RESPONDER) ||
+        request->signal_group > TDMA_PIO_SPI_P3_GROUP_CS_DATA ||
         (request->baud_hz != 10000000u &&
          request->baud_hz != 25000000u &&
          request->baud_hz != 30000000u) ||
@@ -1672,8 +1698,12 @@ bool tdma_pio_spi_phys_p3_start(
     }
     const tdma_pio_spi_program_persona_t persona =
         request->role == TDMA_PIO_SPI_P3_ROLE_INITIATOR
-            ? TDMA_PIO_SPI_PROGRAM_PERSONA_P3_INITIATOR
-            : TDMA_PIO_SPI_PROGRAM_PERSONA_P3_RESPONDER;
+            ? (request->signal_group == TDMA_PIO_SPI_P3_GROUP_CS_DATA
+                   ? TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_INITIATOR
+                   : TDMA_PIO_SPI_PROGRAM_PERSONA_P3_INITIATOR)
+            : (request->signal_group == TDMA_PIO_SPI_P3_GROUP_CS_DATA
+                   ? TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_RESPONDER
+                   : TDMA_PIO_SPI_PROGRAM_PERSONA_P3_RESPONDER);
     if (!tdma_pio_spi_phys_select_program_persona(phys, persona) ||
         !tdma_pio_spi_phys_ensure_rx_dma()) {
         return false;
@@ -1689,26 +1719,39 @@ bool tdma_pio_spi_phys_p3_start(
     pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 1u);
 
     if (request->role == TDMA_PIO_SPI_P3_ROLE_INITIATOR) {
+        const bool forward_is_cs = request->signal_group ==
+            TDMA_PIO_SPI_P3_GROUP_CS_DATA;
+        const uint32_t sync_tx_pin = forward_is_cs
+            ? BOARD_TDMA_SPI_DOWNLINK_SCK_PIN
+            : BOARD_TDMA_SPI_DOWNLINK_CSN_PIN;
+        const uint32_t forward_tx_pin = forward_is_cs
+            ? BOARD_TDMA_SPI_DOWNLINK_CSN_PIN
+            : BOARD_TDMA_SPI_DOWNLINK_SCK_PIN;
         tdma_pio_spi_p3_initiator_program_init(
             BOARD_TDMA_SPI_PIO, tx_sm, s_tdma_pio_spi_p3_initiator_offset,
-            BOARD_TDMA_SPI_DOWNLINK_CSN_PIN,
-            BOARD_TDMA_SPI_DOWNLINK_SCK_PIN, request->baud_hz);
+            sync_tx_pin, forward_tx_pin, request->baud_hz);
         tdma_pio_spi_cal_loopback_capture_program_init(
             BOARD_TDMA_SPI_PIO, capture_sm,
             s_tdma_pio_spi_p3_capture_offset, 250000000u);
         pio_sm_put(BOARD_TDMA_SPI_PIO, tx_sm,
                    request->pulse_count - 1u);
     } else {
+        const bool forward_is_cs = request->signal_group ==
+            TDMA_PIO_SPI_P3_GROUP_CS_DATA;
+        const uint32_t sync_rx_pin = forward_is_cs
+            ? BOARD_TDMA_SPI_UPLINK_SCK_PIN
+            : BOARD_TDMA_SPI_UPLINK_CSN_PIN;
+        const uint32_t forward_rx_pin = forward_is_cs
+            ? BOARD_TDMA_SPI_UPLINK_CSN_PIN
+            : BOARD_TDMA_SPI_UPLINK_SCK_PIN;
         tdma_pio_spi_p3_responder_program_init(
             BOARD_TDMA_SPI_PIO, tx_sm, s_tdma_pio_spi_p3_responder_offset,
-            BOARD_TDMA_SPI_UPLINK_CSN_PIN,
-            BOARD_TDMA_SPI_UPLINK_SCK_PIN,
-            BOARD_TDMA_SPI_DOWNLINK_TX_PIN, request->baud_hz,
-            request->signal_group);
+            sync_rx_pin, forward_rx_pin,
+            BOARD_TDMA_SPI_DOWNLINK_TX_PIN, request->baud_hz);
         tdma_pio_spi_p3_responder_capture_program_init(
             BOARD_TDMA_SPI_PIO, capture_sm,
             s_tdma_pio_spi_p3_responder_capture_offset,
-            BOARD_TDMA_SPI_UPLINK_CSN_PIN);
+            sync_rx_pin);
     }
 
     memset(s_tdma_pio_spi_cal_ring, 0, sizeof(s_tdma_pio_spi_cal_ring));
@@ -1781,8 +1824,6 @@ void tdma_pio_spi_phys_p3_service(tdma_pio_spi_phys_t *phys)
                       TDMA_PIO_SPI_P3_FLAG_HARDWARE_LATCHED |
                       TDMA_PIO_SPI_P3_FLAG_SYNC_MATCH;
     tdma_pio_spi_phys_p3_decode(phys);
-    const bool cs_data = phys->p3.signal_group ==
-        TDMA_PIO_SPI_P3_GROUP_CS_DATA;
     const uint32_t expected = phys->p3.role ==
         TDMA_PIO_SPI_P3_ROLE_INITIATOR
             ? 0x09u
