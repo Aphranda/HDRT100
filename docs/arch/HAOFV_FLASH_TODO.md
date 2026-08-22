@@ -472,9 +472,10 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M4-03 Local ingress regression
 
-- [~] 已新增 `pota_stream_ingress` transport-neutral adapter，统一 USB CDC、USBTMC/VISA、SD、UART、
-  RS485 的 source admission、CRC/帧长和状态错误映射；真实 adapter producer 尚未接入同一 core，
-  兼容状态/error/progress 的板端投影仍待完成。
+- [~] `pota_stream_ingress` 已通过 portable port 接入 App OTA AO 和实际 FlashTransaction owner；
+  USB CDC/USBTMC SCPI 控制面使用固定 little-endian OPEN、每帧 CRC、source admission 和
+  status/BOOT 投影，独立 CDC sender 已完成（证据：`FLASH-TASK-20260823-033`、`034`）。
+  SD/UART/RS485 真实 producer、USBTMC/VISA sender 和五类板端回归仍待完成。
 - [ ] Stage 只保存 manifest/chunk spill/delta，不缓存完整 A+B package。
 - [ ] 乱序、重复、CRC、truncate、overflow、abort、zero storage、wrong slot/package 全部 fail closed。
 - [ ] USB CDC、USBTMC、UART、RS485、SD 的 A->B、B->A、resume、revert、Recovery 回归通过。

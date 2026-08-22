@@ -112,6 +112,48 @@ Last updated: 2026-08-23
   到原 Boot 状态机，Flash map 不变。M3-03 的 slot-specific image/vector/hash/signature
   校验和 M3 退出门禁仍未满足。
 
+### FLASH-TASK-20260823-033 - Local stream ingress 接入 App owner
+
+- 状态：M4-03 完成 USB CDC/USBTMC SCPI 控制面到 `pota_stream_ingress`、
+  `pota_stream_session` 和实际 FlashTransaction owner 的接入切片；M4-03 总项保持 `[~]`，
+  SD/UART/RS485 producer、v2 durable journal 和跨 reset resume 尚未完成。
+- 代码：portable port 持有 target-slot platform callback 和 ingress/session 生命周期，OTA AO 在
+  既有有界 service cadence 中只推进 OPEN/RECEIVING stream；legacy OTA 与 stream 在
+  OPEN/RECEIVING/READY_TO_REBOOT 期间互斥。新增固定 little-endian OPEN decoder，字段长度和
+  offset 由 `POTA_STREAM_OPEN_*` 符号定义，不暴露 C ABI padding 或 `bool` 表示。
+- 接口：新增 `SYSTem:OTA:STReam:OPEN/DATA/CLOSe/ABORt/BOOT/STATus?`；USB source 必须与
+  当前控制面模式匹配，DATA 每帧校验 CRC，状态只报告 session source/state/durable offset/
+  token/result。Boot target 使用 stub，不获得 App writer 能力。
+- 验证：portable OTA host tests、全量 host 30/30、wire contract 4/4、相关 Python 6/6、
+  App A/App B/Boot release build、link gate 和 `release_check=OK` 均通过。代码提交
+  `5b93726`、`9d72b81` 已推送。
+- 边界与回退：当前 durable offset 仅表示底层 program/readback 已成功；尚未绑定真实 v2
+  `OTA_JOURNAL`，所以不能宣称跨 reset durable resume。删除 stream SCPI/port 调用点即可回退，
+  legacy OTA 路径和 deployed v1 map 不变。
+
+### FLASH-TASK-20260823-034 - Local stream 独立发送工具
+
+- 状态：新增 USB CDC stream sender，作为 M4-03 host/tool 证据；未替代五类 transport HIL。
+- 工具：`tools/ota_stream_send/ota_stream_send.py` 先用 `*IDN?` 确认 DHRT100，再查询 inactive
+  target，选择 slot-specific image，构造固定 little-endian OPEN 描述符，按 chunk CRC 发送并
+  查询 durable offset；可执行 stream BOOT、等待 USB 重枚举后 COMMIT。串口名称只作为连接
+  路径，不作为板卡身份。
+- 验证：`tests/python/test_ota_stream_send.py` 覆盖 OPEN wire layout、hash/CRC、SCPI block 和
+  status parser；release build 和 link gate 通过。代码提交 `9d72b81` 已推送。
+- 边界与回退：工具当前仅支持 USB CDC；USBTMC、SD、UART、RS485 必须使用各自真实 transport
+  adapter，不能通过伪造 source 枚举替代。
+
+### FLASH-TASK-20260823-035 - DHRT100 stream HIL probe blocked
+
+- 状态：物理 gate 未完成。系统仅枚举 USB-Enhanced-SERIAL CH343，设备序列号仍为
+  `5C93186767`，本轮连接路径为新的串口枚举名；未获得 DHRT100 `*IDN?`、build、slot、target
+  或 sensor 响应。
+- 操作：执行只读 serial query 和 `flash_map_board_validate.py` 探测；后者无响应且未形成有效报告
+  后中止。未执行 BOOTSEL、烧录、erase/program、掉电、回退或任何 stream DATA。
+- 结论：M1/M3/M4 的 DHRT100 烧录、A/B、回退和跨 reset gate 保持未完成；待连接能由
+  `*IDN?` 明确确认 DHRT100 后，先用 legacy OTA 部署 stream 固件，再用独立 sender 完成下一轮
+  stream A/B/Boot/Commit 闭环。
+
 ### FLASH-TASK-20260823-025 - signed manifest extension 与 counter gate
 
 - 状态：M3-04 增加固定 manifest extension 的 portable parser/packager boundary；这是信任链
