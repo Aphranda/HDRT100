@@ -32,8 +32,17 @@ typedef struct {
     uint32_t source_mask;
     uint32_t max_frame_size;
     pota_stream_ingress_source_t active_source;
+    pota_stream_ingress_result_t last_result;
     bool open;
 } pota_stream_ingress_t;
+
+typedef struct {
+    pota_stream_ingress_source_t source;
+    pota_stream_state_t state;
+    uint32_t durable_offset;
+    uint32_t stream_token;
+    pota_stream_ingress_result_t last_result;
+} pota_stream_ingress_status_t;
 
 bool pota_stream_ingress_init(pota_stream_ingress_t *ingress,
                               pota_stream_session_t *session,
@@ -57,6 +66,8 @@ pota_stream_ingress_result_t pota_stream_ingress_close(
 pota_stream_ingress_result_t pota_stream_ingress_abort(
     pota_stream_ingress_t *ingress,
     pota_stream_ingress_source_t source);
+bool pota_stream_ingress_get_status(const pota_stream_ingress_t *ingress,
+                                    pota_stream_ingress_status_t *status);
 
 #define POTA_STREAM_INGRESS_SOURCE_BIT(source) (1u << (uint32_t)(source))
 
