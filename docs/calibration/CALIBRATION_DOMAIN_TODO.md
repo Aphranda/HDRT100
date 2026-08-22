@@ -31,26 +31,54 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 当前不能把第一阶段的 CLK RTT bracket、软件 timer 或 diagnostic latch 直接用于 VDC/DPLL。
 正式校准必须同时满足硬件 latch、质量门禁、重复统计、拓扑/profile freshness 和恢复流程。
 
-## 训练子域待办：Marker/Data 相对时序
+## 训练子域三阶段待办：Marker/Data/TDMA
 
-训练子域先解决单跳原始数据可识别性，再接入 TDMA；`active path_delay` 只提供粗窗口和安全预算，不能替代 codeword 收发确认。
+训练子域按三个新阶段推进。旧校准 `P1/P2/P3` 只提供粗窗口、marker 基线和
+`path_delay` candidate，不替代下面三个阶段的实际收发门禁。
+
+| 阶段 | 阶段目标 | 主要输入 | 阶段输出 | 进入下一阶段 |
+|---|---|---|---|---|
+| `TRN-01` | 环路 marker 捕获与 core1/PIO cut-through | accepted topology、P2 codebook、epoch/sequence | 每跳 capture/forward tick、residence、整圈 marker RTT | 四节点同 epoch 捕获、顺序正确、每跳延迟有界、无 PIO/DMA fault |
+| `TRN-02` | marker 锚定 DATA 码元时隙 | TRN-01 local origin、P3 `path_delay` candidate、PIO sample period | per-link `data_offset`、window、guard、skew、correlation/margin | 单跳和四条 directed link 重复通过，generation/profile 一致 |
+| `TRN-03` | TDMA 短帧/FIFO 闭环接入 | TRN-02 windows、loop-delay/residence、topology/profile CRC | staging/ARM、短帧 TX/RX FIFO、sequence/CRC、active candidate | 四板 up/down 和 FIFO 同时增长；失败统一 STOPPED |
+
+### TRN-01：环路 marker 捕获与切通
 
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
-| TRN-01 | 冻结 marker/data trial 的 epoch、sequence、codebook、CRC、polarity 和 raw evidence 字段 | `[ ]` | host parser、C snapshot 和字段数测试一致 |
-| TRN-02 | 在 TDMA core1 owner 增加独立 marker/data PIO persona，支持同步线选择、DMA capture 和 CS cut-through | `[ ]` | PIO catalog/resource gate、无 cyclic TDMA 并发 |
-| TRN-03 | 实现 Calibration intent 到 core1 的 bounded mailbox，SCPI 不直接触碰 PIO/SM/DMA | `[ ]` | seqlock/sequence、超时和拒绝原因覆盖 |
-| TRN-04 | 实现 codeword 相关、极性、CRC、epoch/sequence 和 margin 判断 | `[ ]` | 正常、错位、反相、截断、重复、旧 epoch 全部有单测 |
-| TRN-05 | 单跳 `NO.1 -> NO.2` 扫描相对 DATA offset，先粗后细收敛 | `[ ]` | 连续 trial accepted，CS 转发延迟有证据，magic fail/overrun/stall 不增长 |
-| TRN-06 | 将单跳结果形成 diagnostic training window，绑定 topology/profile generation 和 CRC | `[ ]` | snapshot 可读，明确 `DIAGNOSTIC_ONLY` |
-| TRN-07 | 沿 accepted topology 完成四条 directed link 训练 | `[ ]` | 四条链路各自 accepted，不允许 aggregate 平均代替 per-link |
-| TRN-08 | 增加 TDMA per-link staging 和 ARM gate，加载 training window/path-delay 粗预算 | `[ ]` | 缺一条链路时 ARM 拒绝，不能 UP_ONLY 启动 |
-| TRN-09 | 恢复 NORMAL persona 后以 marker/data 证据启动 TDMA 短帧闭环 | `[ ]` | 四板 up/down、sequence、CRC、RX/TX 同时增长 |
-| TRN-10 | 训练结果与 P3 path-delay、loop-delay、residence 汇总，形成 active candidate gate | `[ ]` | bias、hardware latch、freshness、CRC、rollback 全部通过 |
-| TRN-11 | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线 | `[ ]` | 失败统一 STOPPED，active generation 不被污染 |
-| TRN-12 | 固化 `calibration_training_*` 工具、证据目录和 SD/Flash 输入格式 | `[ ]` | 工具按 `*IDN?` 地址工作，断开 USB 后证据仍完整 |
+| TRN-01A | 冻结 marker trial 的 epoch、sequence、marker_id、CRC、polarity、capture/forward tick 和 raw evidence 字段 | `[ ]` | host parser、C snapshot、字段数测试一致 |
+| TRN-01B | 在 TDMA core1 owner 增加独立 marker PIO persona，支持 marker line 选择、固定 cut-through 和 DMA capture | `[ ]` | PIO catalog/resource gate 通过，不能与 cyclic TDMA 并发 |
+| TRN-01C | 实现 Calibration intent 到 core1 的 bounded mailbox/prepare-ack，SCPI 不直接触碰 PIO/SM/DMA | `[ ]` | seqlock/sequence、超时、拒绝原因和 persona recovery 覆盖 |
+| TRN-01D | 完成 `NO.1 -> NO.2 -> NO.3 -> NO.4 -> NO.1` 环路 marker HIL | `[ ]` | 所有节点捕获同一 marker、顺序正确、每跳 residence 有界、返回 marker 可捕获 |
 
-实施顺序固定为 `TRN-01 -> TRN-05 -> TRN-07 -> TRN-08 -> TRN-09 -> TRN-10`；在 `TRN-05` 通过前不得继续扩大四板 TDMA 调度或进入 DPLL。
+### TRN-02：marker 锚定 DATA 码元时隙
+
+| ID | 待办 | 状态 | 退出门禁 |
+|---|---|---|---|
+| TRN-02A | 实现 DATA codeword 相关、极性、CRC、epoch/sequence、best/second peak 和 margin 判断 | `[ ]` | 正常、错位、反相、截断、重复、旧 epoch 全部有单测 |
+| TRN-02B | 单跳 `NO.1 -> NO.2` 使用 P3 candidate 扫描 `marker -> DATA` 相对 offset，先粗后细收敛 | `[ ]` | 连续 trial accepted，marker_data_skew、overrun/stall 和 forward residence 有证据 |
+| TRN-02C | 将单跳结果形成 diagnostic training window，绑定 topology/profile/calibration generation 和 CRC | `[ ]` | snapshot 可读，明确 `DIAGNOSTIC_ONLY`，不得写 active table |
+| TRN-02D | 沿 accepted topology 完成四条 directed link 的 window 训练和 10/25/30 MHz profile 验证 | `[ ]` | 四条链路各自 accepted，不允许 aggregate 平均代替 per-link |
+
+### TRN-03：TDMA 短帧/FIFO 闭环接入
+
+| ID | 待办 | 状态 | 退出门禁 |
+|---|---|---|---|
+| TRN-03A | 增加 TDMA per-link staging 和 ARM gate，加载 training window、path-delay 粗预算和 loop-delay | `[ ]` | 缺一条链路、generation/CRC/freshness 不一致时 ARM 拒绝 |
+| TRN-03B | 恢复 NORMAL persona 后启动 TDMA 短帧，验证 core1 TX/RX FIFO 和飞行转发 | `[ ]` | 四板 up/down、sequence、CRC、RX/TX/FIFO 计数同时增长 |
+| TRN-03C | 汇总 per-link path-delay、residence、loop-delay 和 residual，形成 active candidate gate | `[ ]` | bias、hardware latch、freshness、CRC、重复性和 rollback 全部通过 |
+| TRN-03D | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线；固化工具和 SD/Flash 输入格式 | `[ ]` | 失败统一 STOPPED，active generation 不被污染，工具按 `*IDN?` 地址工作 |
+
+实施顺序固定为：
+
+```text
+TRN-01A..D
+  -> TRN-02A..D
+  -> TRN-03A..D
+```
+
+在 `TRN-01D` 通过前不得开始 DATA 时隙收敛；在 `TRN-02D` 通过前不得 ARM 四板 TDMA；
+在 `TRN-03C` 通过前不得向 VDC/DPLL 发布 active calibration。
 
 ## 二、P0T 线序与环路顺序校准
 

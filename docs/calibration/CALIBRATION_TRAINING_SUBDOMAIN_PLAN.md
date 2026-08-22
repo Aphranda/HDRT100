@@ -126,7 +126,81 @@ P1 [400,500) ns 级整圈 bracket
 
 P1/P2 只限制搜索范围，P3 只提供每跳传播预算；真正决定 DATA 是否被正确识别的是 marker 捕获、cut-through 转发、相对窗口、codeword correlation 和 CRC/sequence 门禁。
 
-## 3. HAOFV owner 分工
+## 3. 三阶段训练主流程
+
+新训练子域按 `TRN-01 -> TRN-02 -> TRN-03` 顺序推进。这里的阶段编号与历史校准
+`P1/P2/P3` 有意分开：P1/P2/P3 是已经获得的测量事实和诊断输入，TRN-01/02/03
+是把这些输入变成可运行链路的训练过程。
+
+| 新阶段 | 名称 | 主要输入 | 主要输出 | 进入下一阶段的门禁 |
+|---|---|---|---|---|
+| `TRN-01` | Ring Marker Capture & Cut-Through（环路 marker 捕获与切通） | accepted topology、P2 marker codebook、marker line 角色、epoch/sequence | 每个节点的 marker capture/forward tick、cut-through residence、整圈 marker RTT、缺失/重复/乱序原因 | 所有节点捕获同一 marker；顺序正确；每跳 forward residence 有界；reference 捕获返回 marker；PIO/DMA fault 为零 |
+| `TRN-02` | Marker-Anchored DATA Slot Training（marker 锚定 DATA 码元时隙） | TRN-01 marker origin、P3 `path_delay` diagnostic candidate、PIO sample period、DATA codeword | 每条 link 的 `data_offset`、`training_window`、`guard`、`marker_data_skew`、correlation/margin/CRC 证据 | 单跳先通过；四条 directed link 均在同一 generation/profile 下重复通过；窗口达到当前 PIO 分辨率或明确拒绝原因 |
+| `TRN-03` | TDMA Short-Frame/FIFO Closed Loop（TDMA 短帧/FIFO 闭环接入） | TRN-02 per-link window、loop-delay/residence 汇总、topology/profile/schedule CRC | TDMA per-link staging、ARM gate、短帧 TX/RX FIFO 计数、sequence/CRC/feedback evidence、active candidate | 全部链路 accepted 后才能 ARM；四板 up/down、FIFO、sequence/CRC 同时增长；失败统一 STOPPED 并保持旧 active generation |
+
+### TRN-01：环路 marker 捕获与切通
+
+第一阶段不解析完整 DATA，也不试图生成运行态 RX window。reference 发出带
+`train_epoch`、`train_sequence` 和最小完整性字段的 marker；每个节点在本地捕获后，
+由 PIO/core1 以固定有界延迟将原始 marker 或已确认的最小 marker token 转发给 successor。
+转发路径不得等待完整 codeword、core0、USB、日志或业务 FIFO。第一阶段验证的是：
+
+```text
+NO.1 marker TX
+  -> NO.2 capture + cut-through
+  -> NO.3 capture + cut-through
+  -> NO.4 capture + cut-through
+  -> NO.1 return capture
+```
+
+TRN-01 的 `SYNC/CS` 是训练 persona 下的 timing marker；普通 TDMA persona 中它仍是
+`frame-sync/CS`，两种语义不能在同一 PIO/SM/DMA epoch 混用。第一阶段通过后，marker
+捕获不再是后续失败判定的主要变量，后续重点转向 marker 后的 DATA 相对时序。
+
+### TRN-02：marker 锚定 DATA 码元时隙
+
+第二阶段在每个本地 marker origin 之后发送/捕获已知 DATA codeword。候选 `N` 由 P3
+path-delay 粗预算、PIO pipeline 和 guard 形成有界搜索区间；实际接收位置通过
+correlation、极性、CRC、sequence 和 margin 确认，而不是把 `81 ns` 写成固定等待值。
+
+实施顺序固定为：
+
+```text
+NO.1 -> NO.2 单跳粗搜
+    -> 单跳细搜/重复统计
+    -> NO.2 -> NO.3、NO.3 -> NO.4、NO.4 -> NO.1
+    -> 四条 directed link 的 window 一致性检查
+```
+
+TRN-02 的结果是相对接收窗口，不是新的绝对 `path_delay`。如果 marker 和 DATA 的物理
+路径不完全相同，`marker_data_skew_ns` 必须单独统计；不能用整圈 RTT 或平均 path-delay
+掩盖该偏差。
+
+### TRN-03：TDMA 短帧/FIFO 闭环接入
+
+第三阶段才恢复 NORMAL persona，把 TRN-02 的 per-link window 绑定到 TDMA adapter，
+并通过显式 `STOP -> stage -> validate -> ARM -> START` 接入短帧和 TX/RX FIFO。core1
+负责 PIO/SM/DMA、飞行转发和 FIFO 搬运；core0 只处理已完成帧和 guarded snapshot。
+
+第三阶段门禁包括：
+
+- 四条 directed link 均有同一 topology/profile/calibration generation 的 accepted window；
+- `loop_delay` 只用于整圈返回预算、反馈窗口和 timeout，不替代 per-link `data_offset`；
+- 短帧的 TX/RX FIFO、sequence、CRC、up/down 状态同时增长；
+- 任一链路失败、窗口过期或 generation 不一致，ARM 必须拒绝并恢复 STOPPED；
+- 只有通过重复性、freshness、hardware latch、bias 和 rollback 门禁，才可形成 active candidate。
+
+三阶段与历史 delay ledger 的关系固定为：
+
+```text
+P1 CLK RTT bracket       -> TRN-01/TRN-02 的数量级 guard
+P2 coded marker RTT      -> TRN-01 的 marker codebook/捕获基线
+P3 per-link ~81 ns       -> TRN-02 的候选 N 初值
+TRN-01 marker origin     -> TRN-02 的相对 DATA 窗口
+TRN-02 accepted window   -> TRN-03 的 TDMA ARM/FIFO 接入
+```
+
+## 4. HAOFV owner 分工
 
 | 层 | 所有权 | 允许动作 | 禁止动作 |
 |---|---|---|---|
@@ -136,7 +210,7 @@ P1/P2 只限制搜索范围，P3 只提供每跳传播预算；真正决定 DATA
 | VDC/DPLL | 消费 accepted calibration | 读取 path-delay、quality、freshness、topology | 消费 `DIAGNOSTIC_ONLY` 或未完成训练结果 |
 | SCPI/Host | 维护态编排和读取 | 提交 bounded command、读取 snapshot、保存证据 | 注入实时时间戳、轮询代替 core1 状态机 |
 
-## 4. 训练状态机
+## 5. 训练状态机
 
 | 状态 | 进入条件 | core1 动作 | 退出条件 |
 |---|---|---|---|
@@ -152,7 +226,7 @@ P1/P2 只限制搜索范围，P3 只提供每跳传播预算；真正决定 DATA
 
 训练不能在 `DATA_RUNNING` 状态直接切入 TDMA cyclic service；必须先完成 persona teardown、DMA abort/clear、PIO FIFO clear 和 NORMAL persona restore，再由显式 `START` 开启 TDMA。
 
-## 5. Codeword 与证据格式
+## 6. Codeword 与证据格式
 
 训练 codeword 由校准域生成，TDMA 只搬运 packed words：
 
@@ -176,7 +250,7 @@ dma_overrun, pio_stall, timeout, accepted, reject_reason
 
 raw evidence 必须保留；Calibration 只在质量门禁完成后发布 candidate/accepted summary，TDMA 不消费 raw buffer 的解释结果。
 
-## 6. 搜索与收敛算法
+## 7. 搜索与收敛算法
 
 1. 使用 P3 path-delay candidate 和 accepted topology 建立有界初始区间，并记录 `DIAGNOSTIC_ONLY` 来源。
 2. 在区间内以 codeword 相关峰搜索 `N` 和采样相位，先保证 marker、DATA、CRC 三者同时通过。
@@ -187,7 +261,7 @@ raw evidence 必须保留；Calibration 只在质量门禁完成后发布 candid
 
 输出的 `data_offset` 是 marker 后的相对采样位置，不是把 `path_delay` 硬编码到接收器等待循环。TDMA 使用它建立本节点 RX 窗口，整圈 `loop_delay` 仍由各段 path-delay、residence 和 guard 汇总得到。
 
-## 7. TDMA 接入顺序
+## 8. TDMA 接入顺序
 
 四板必须按 accepted topology 的相邻链路分别执行：
 
@@ -209,7 +283,7 @@ STOP -> topology/profile readback -> stage per-link training window
 
 如果任一链路缺少 accepted window，ARM 必须拒绝，不能让 NO.1 单独发出 cyclic 数据后把后续节点置于无窗口状态。运行中 marker/data 训练只允许作为显式 maintenance epoch，不能与 cyclic TDMA 共用 PIO/SM/DMA。
 
-## 8. 候选接口与代码落点
+## 9. 候选接口与代码落点
 
 以下接口是实施候选，冻结前必须先有 host test、core1 test 和 HIL evidence：
 
@@ -225,7 +299,7 @@ STOP -> topology/profile readback -> stage per-link training window
 
 当前 `CLOCK_CODED` 接口只描述 CLK coded raw transport，尚未表达 marker/data 相对窗口、CS cut-through、per-link 角色和 TDMA staging generation；应先扩展 snapshot/intent 语义，再复用底层 DMA 资源。
 
-## 9. 验收门禁
+## 10. 验收门禁
 
 ### 单跳门禁
 
@@ -250,20 +324,18 @@ STOP -> topology/profile readback -> stage per-link training window
 - table CRC 正确，且不得带 `DIAGNOSTIC_ONLY`；
 - accepted table 写入 SD/Flash 前保留证据文件和可回滚 generation。
 
-## 10. 回退与交付顺序
+## 11. 回退与交付顺序
 
 marker timeout、低 margin、CRC/sequence/epoch 错、DMA overrun、PIO stall 或掉线均必须停止本轮、清 FIFO/DMA、恢复 NORMAL persona，并保持 active generation 不变。交付顺序固定为：
 
 ```text
-T0 文档/字段冻结候选
-T1 单跳 marker/data PIO persona（含 CS cut-through）
-T2 单跳 raw capture/correlation
-T3 NO.1->NO.2 搜索收敛
-T4 四条 directed link 训练
-T5 TDMA per-link staging/ARM gate
-T6 四板 TDMA 短帧闭环
-T7 path-delay/loop-delay 汇总与 active gate
-T8 长稳、故障注入、SD/Flash 来源固化
+TRN-01-A 文档/字段冻结候选
+TRN-01-B 环路 marker capture/cut-through
+TRN-02-A NO.1->NO.2 DATA offset 粗搜与细搜
+TRN-02-B 四条 directed link window 训练
+TRN-03-A TDMA per-link staging/ARM gate
+TRN-03-B 四板 TDMA 短帧/FIFO 闭环
+TRN-03-C path-delay/loop-delay 汇总、active gate、长稳与持久化
 ```
 
 任何阶段未通过都保持 `DIAGNOSTIC_ONLY`，不得直接进入 DPLL。
