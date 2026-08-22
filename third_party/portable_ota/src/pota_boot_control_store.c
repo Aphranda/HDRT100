@@ -368,6 +368,9 @@ pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,
     bool new_lane = true;
 
     if (selected == POTA_BCB_RESULT_OK) {
+        if (update->security_counter < newest.update.security_counter) {
+            return POTA_BCB_RESULT_POLICY;
+        }
         if (!sequence_newer(update->sequence, newest.update.sequence)) {
             return POTA_BCB_RESULT_REPLAY;
         }
