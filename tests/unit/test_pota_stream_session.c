@@ -121,13 +121,15 @@ int main(void)
 
     const uint8_t first[17] = "0123456789012345";
     const uint8_t second[17] = "6789012345678901";
+    const uint32_t stream_token = pota_stream_session_token(&session);
     failed += !expect("first write", pota_stream_session_write(&session, 0u, first, 16u) == POTA_STREAM_RESULT_OK);
     failed += !expect("offset reject", pota_stream_session_write(&session, 32u, second, 16u) == POTA_STREAM_RESULT_OFFSET);
     failed += !expect("second write", pota_stream_session_write(&session, 16u, second, 16u) == POTA_STREAM_RESULT_OK);
     failed += !expect("duplicate accepted", pota_stream_session_write(&session, 16u, second, 16u) == POTA_STREAM_RESULT_OK);
     failed += !expect("conflict reject", pota_stream_session_write(&session, 16u, first, 16u) == POTA_STREAM_RESULT_CONFLICT);
     failed += !expect("durable offset", pota_stream_session_durable_offset(&session) == 32u);
-    failed += !expect("token", pota_stream_session_token(&session) != 0u);
+    failed += !expect("stable token", stream_token != 0u &&
+                      pota_stream_session_token(&session) == stream_token);
     failed += !expect("close", pota_stream_session_close(&session) == POTA_STREAM_RESULT_OK);
     failed += !expect("pending once", s_pending_count == 1u);
     failed += !expect("abort after close rejected", pota_stream_session_abort(&session) == POTA_STREAM_RESULT_INVALID_STATE);

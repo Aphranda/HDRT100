@@ -200,11 +200,9 @@ uint32_t pota_stream_session_token(const pota_stream_session_t *session)
     if (session == NULL || session->state == POTA_STREAM_STATE_IDLE) {
         return 0u;
     }
-    uint32_t token = pota_crc32_compute((const uint8_t *)&session->open,
-                                        sizeof(session->open));
-    token = pota_crc32_update(token, &session->durable_offset,
-                              sizeof(session->durable_offset));
-    return token;
+    /* The token identifies the opened stream, not its moving durable cursor. */
+    return pota_crc32_compute((const uint8_t *)&session->open,
+                              sizeof(session->open));
 }
 
 uint32_t pota_stream_session_durable_offset(
