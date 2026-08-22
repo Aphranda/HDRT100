@@ -237,20 +237,37 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
 
 ### M1-05 Buffer 与 owner 收敛
 
-- [~] 不超过 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的 payload 在 submit 时复制入固定 pool；更大
-  payload 必须绑定 generation、长度、retain/release 的 immutable buffer lease，缺少合法 lease 时
-  fail closed，禁止把 producer alias 交给 raw writer；OTA、Product Config、App OTA metadata
-  producer 已接入 generation-bound lease，但跨 reset durable lease 语义仍待完成。
-- [~] queue full、producer reset、duplicate completion、abort during page/sector 均有单测；当前已覆盖
-  queue full、duplicate terminal/abort、large payload no-raw，以及 raw erase/program 回调期间触发
-  abort 后跳过 verify/commit，以及 provider generation reset 在 raw 前/期间 fail-closed 的 host fixture；
-  completion lease 的 accepted/programmed/verified/terminal journal 边界和 append fail-closed 已覆盖；
-  OTA_JOURNAL durable backend、torn/power-cut recovery 和跨 reset 语义仍待异步 provider/step hook。
-- [~] OTA image、Product Config 与 App OTA metadata 已迁移到 intent API；Boot metadata 通过独立
-  BootFlashService adapter 保持 raw owner，M3 BootControlStore 与 M2-02 Product NVS store 仍待完成。
-  当前 Product/OTA metadata 仍是 single-sector rewrite，不得视为 atomic NVS/BCB。
-- [x] inventory gate 证明 App raw erase/program caller 必须是 FlashTransactionAO；写 API 头文件
-  进一步从通用 `drv_flash.h` 隐藏。仍待 link-level symbol visibility 与运行时 abort/lease 语义。
+#### 已完成（可独立复核）
+
+- [x] **M1-05-A 固定池 owner**：不超过 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的 payload 在
+  submit 时复制入固定 pool；超过上限且没有合法 lease 的请求 fail closed，raw writer 不接收
+  producer alias。
+- [x] **M1-05-B immutable lease 合约**：大 payload 绑定 generation、长度、retain/release；OTA
+  image、Product Config、App OTA metadata producer 已接入 generation-bound intent/lease 路径。
+- [x] **M1-05-C admission 与 reset 负向**：queue full、provider generation reset（raw 前和 raw
+  期间）、large-payload no-raw 均有 host fixture，验证拒绝时 raw erase/program 计数为零。
+- [x] **M1-05-D 异步边界与 abort**：每次 service 只推进一个有界 step；page/sector erase/program 回调
+  中触发 abort 后跳过 verify/commit，并释放 core1/Flash owner。
+- [x] **M1-05-E completion lease**：accepted/programmed/verified/committed/failed 边界只发布一次；
+  duplicate terminal/abort、append fail-closed 和 lease 释放均有 host 覆盖。
+- [x] **M1-05-F durable journal backend 基础**：固定槽、CRC、commit marker、readback 与 reset
+  recovery backend 已纳入 CMake 和 transaction host runner；inventory gate 证明 App raw
+  erase/program caller 必须是 FlashTransactionAO，写 API 头文件已从通用 `drv_flash.h` 隐藏。
+
+#### 未完成（关闭 M1-05 前必须完成）
+
+- [ ] **M1-05-G live producer 接入**：将 `OTA_JOURNAL` durable backend 接入实际 OTA image、Product
+  Config 和 App OTA metadata producer，不能只由 host fixture 驱动。
+- [ ] **M1-05-H 跨 reset/power-cut 闭环**：覆盖 body/readback/commit marker/lane seal 各断电点，复位
+  后只能得到确定的旧/新 completion，禁止悬挂 accepted 或伪造 committed。
+- [ ] **M1-05-I replay/idempotence**：duplicate completion、重复提交和 provider reset 后重放必须按
+  generation/job/object 去重，不能重复 program 或重复发布 terminal event。
+- [ ] **M1-05-J link-level visibility**：在 App、Boot、release 三类链接产物上证明 raw erase/program
+  符号只对允许的 owner 可见，不能仅依赖源码 inventory 扫描。
+- [ ] **M1-05-K atomic store 依赖收敛**：Product/OTA metadata 当前仍是 single-sector rewrite；待
+  M2-02 Product NVS、M3-02 BootControlStore 提供 atomic record/BCB primitive 后再替换兼容 adapter。
+- [ ] **M1-05-L 退出评审**：host/build/link/HIL、回退路径和独立 C11 交叉审核齐全后，才允许把
+  M1-05 从 `[~]` 改为 `[x]`，并同步更新 `ARCH-FLASHOWNER-01` 登记状态。
 
 本轮实板快照：`build-flash-m1-05-20260822/` release 工件与全部 host/build/link/inventory gate
 通过，build id `20260822045432`；NO.1–NO.4 的并发 Direct A/B OTA 均通过

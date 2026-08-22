@@ -22,6 +22,20 @@ Last updated: 2026-08-22
 
 ## 当前检查点
 
+### FLASH-TASK-20260822-031 - M1-05 子项拆分与当前边界
+
+- 状态：文档整理完成；M1-05 保持 `[~]`。本轮不宣称新的 Flash 迁移完成，也未部署 v2 map。
+- 已独立列为完成的子项：固定池 owner、generation-bound immutable lease、queue/provider-reset
+  负向、异步 bounded-step/abort、completion lease 边界、durable journal backend 基础，以及
+  App raw caller inventory gate。对应代码验证已由 `run_flash_transaction_tests.ps1` 通过，异步
+  provider reset fixture 已在代码提交 `d173d6d` 推送。
+- 仍未完成的子项：OTA_JOURNAL live producer 接入、跨 reset/power-cut/torn recovery、completion
+  replay 去重、App/Boot/release link-level raw symbol visibility、M2/M3 atomic store primitive
+  收敛和 M1-05 独立 C11 退出评审。
+- 证据边界：现有 `build-flash-m1-05-*` 和 NO.1–NO.4 并发 OTA 只证明当前 v1 compatibility 路径
+  的 host/build/HIL 基础，不证明 durable reset recovery、v2 高地址部署、BOOTSEL full erase 或
+  Bootloader 重刷。
+
 ### FLASH-TASK-20260822-030 - 训练态发布修复与四板并发 OTA 回归
 
 - 状态：M1-04/M1-05 继续进行；本轮将训练活动发布 helper 复用到 core0 与 core1 owner
