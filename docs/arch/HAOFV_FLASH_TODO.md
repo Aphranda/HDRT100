@@ -409,6 +409,9 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 - [ ] 选定算法/库和 RP2350 OTP/key capability；定义 STM32 portable boundary。
 - [ ] dev/release/factory key 分离，定义 key ID、rotation/revocation 和泄露处置。
+- [~] 固定 manifest extension parser/packager boundary：支持 security counter、key ID、required
+  signature 和外部 verifier callback；缺少 verifier、签名或 counter 回退时 fail closed。RP2350
+  实际签名算法、OTP/key binding、rotation/revocation 和 product counter 来源仍待完成。
 - [~] portable BCB primitive 已拒绝低于当前有效记录的 `security_counter`（证据：
   `FLASH-TASK-20260823-023`）；掉电安全计数、OTP 绑定、签名 manifest 和产品级 counter 来源仍待完成。
 - [ ] 离线 release tool 输出 manifest/hash/signature/build ID/SBOM，不泄露 private key。

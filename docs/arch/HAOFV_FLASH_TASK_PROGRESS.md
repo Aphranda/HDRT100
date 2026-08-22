@@ -16,6 +16,23 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-025 - signed manifest extension 与 counter gate
+
+- 状态：M3-04 增加固定 manifest extension 的 portable parser/packager boundary；这是信任链
+  的准入切片，不宣称已选定 RP2350 密码算法或完成 OTP/key lifecycle。
+- 代码提交：`a65e988 feat(boot): add signed manifest security gate`，已推送。512-byte package
+  header 的保留区可携带 extension version、required flags、security counter、key ID 和外部
+  signature bytes；parser 在 required signature、minimum counter、签名长度、verifier 缺失或
+  verifier 拒绝时 fail closed，并映射 `SIGNATURE_INVALID`/`SECURITY_COUNTER_ROLLBACK`。platform
+  info 已将 counter/required-signature/verifier 约束传入 package parser；offline packager 只
+  接受外部 `--signature-hex`，不在仓库内伪造签名。
+- 测试：`run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m3-manifest-failclosed`
+  通过；`tests/python/test_ota_packager.py` 10/10 通过；主工程 App A/App B/Boot、FlashMap/
+  inventory/link gate 和 `release_check=OK` 通过，最新 package 重新生成。
+- 边界：当前 DHRT100 live platform 未提供 RP2350 verifier/key source，release 默认仍为
+  unsigned compatibility package；未执行签名烧录、OTP、掉电安全 counter、Recovery 或
+  DHRT100 HIL，M3-04/M3 退出门禁保持未完成。
+
 ### FLASH-TASK-20260823-024 - M3 BCB wear telemetry 与 M4 ingress adapter
 
 - 状态：M3-02 增加 BCB 物理页编程/擦除计数快照 primitive；M4-03 增加五类本地入口共用的
