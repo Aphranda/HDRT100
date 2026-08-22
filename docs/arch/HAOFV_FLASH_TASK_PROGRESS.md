@@ -16,6 +16,33 @@ Last updated: 2026-08-22
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260822-036 - DHRT100 journal 幂等修复 OTA 闭环
+
+- 状态：M1-05-I 继续进行；journal backend 的重复 completion 语义已补齐并完成 DHRT100
+  实际 OTA 验证，但 producer 接入和掉电 replay 仍未关闭。
+- 代码提交：`195b85a fix(flash): make completion journal replay idempotent`，已推送。
+- 代码与主机证据：
+  - 相同 `job_id/transaction_generation/provider_generation/store_generation/event` 且记录内容
+    完全一致时，journal append 返回成功但不重复占用槽位或推进 sequence。
+  - 同一事务/事件身份但 payload 不一致时 fail closed；新增测试覆盖 program call 数、sequence
+    和 latest recovery。
+  - FlashTransaction host/journal runner、DHRT100 A/B/Boot 构建、FlashMap/inventory/schema/
+    migration/wire/link gate 均通过；release package 已重新生成。
+- DHRT100 实际验证：
+  - 目标身份：`GTS,DHRT100,839E1AE79EA20F31,0.1.0`。
+  - 使用 `build/DHRT100_UPDATE.pkg`（build `20260822155631`，package CRC32 `0xCF96B57E`）
+    写入非活动槽；传输完成状态为 `READY_TO_REBOOT`，随后执行 `SYST:OTA:BOOT` 和重连后的
+    `SYST:OTA:COMM`。
+  - 最终：`SYST:FW:BUILD? = 20260822155631`，`SYST:OTA:STAT? = "COMMITTED",1,"NONE",5`，
+    `SYST:OTA:SLOT? = 2,0,2,0,0`，`SYST:OTA:TXN? = 0,0,0,0,0,0,0,0`，`SYST:ERR? = 0,"No error"`。
+  - `SYST:DIAG:SENS?` 返回有效板温/芯片温/电流诊断快照；当前电流仍是 nominal-only，不能
+    当作计量校准值。
+- 工具边界：`ota_send.py --expect-final-state COMMITTED` 对 READY_TO_REBOOT 返回了预期值不匹配，
+  不是擦写失败；人工 BOOT/COMM 后闭环通过。后续工具应把“传输完成”和“重启确认”拆成两个明确
+  阶段，避免把 transport 成功误判为失败。
+- 仍未完成：OTA_JOURNAL live producer 接入、跨 reset/power-cut、provider replay 去重、v2 map
+  部署、M1-06 Scratch 和 BOOTSEL full erase/factory recovery。
+
 ### FLASH-TASK-20260822-035 - DHRT100 release/link 回归确认
 
 - 状态：M1-05-J 继续进行；本条只记录构建与主机证据，不涉及串口或板端擦写。

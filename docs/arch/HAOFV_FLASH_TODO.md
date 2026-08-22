@@ -271,7 +271,9 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
 - [ ] **M1-05-H 跨 reset/power-cut 闭环**：覆盖 body/readback/commit marker/lane seal 各断电点，复位
   后只能得到确定的旧/新 completion，禁止悬挂 accepted 或伪造 committed。
 - [ ] **M1-05-I replay/idempotence**：duplicate completion、重复提交和 provider reset 后重放必须按
-  generation/job/object 去重，不能重复 program 或重复发布 terminal event。
+  generation/job/object 去重，不能重复 program 或重复发布 terminal event。Journal backend 已
+  对相同 completion 实现幂等，对冲突 payload fail closed（`195b85a`）；provider reset、live
+  producer 和板端掉电 replay 仍待完成。
 - [ ] **M1-05-J link-level visibility**：在 App、Boot、release 三类链接产物上证明 raw erase/program
   符号只对允许的 owner 可见，不能仅依赖源码 inventory 扫描。App 侧现已增加反汇编调用边
   fail-closed 检查（`47b15a3`），Boot 侧现已固定允许 caller 集合；release 独立报告和 C11
