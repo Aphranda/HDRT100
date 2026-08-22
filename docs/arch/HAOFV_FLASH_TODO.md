@@ -402,7 +402,9 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M3-03 Direct A/B 单主线
 
-- [ ] pending -> test boot -> explicit confirm；reset/no-confirm/attempt exhausted -> previous confirmed。
+- [~] 新增纯策略 `pota_direct_ab_decide()` façade，明确 no-pending、pending test boot 和
+  attempt-exhausted rollback 的输入/输出；仍待将 Boot 实际状态机接入该 façade，并完成
+  reset/no-confirm/attempt exhausted 的 DHRT100 HIL。
 - [ ] A/B slot-specific image、vector/reset handler、hash/signature/compatibility 校验。
 - [ ] v2 删除 `COPY_TO_ACTIVE` 运行分支和可写 mode 命令；历史查询返回明确 legacy/unsupported。
 

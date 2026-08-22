@@ -35,6 +35,22 @@ Last updated: 2026-08-23
   保留最新已提交记录并返回失败，后续 M2-02 负责 rotation/GC/recovery。M1-05-G/H/I/J/L、
   M3/M4 真实 journal/Recovery/ingress/HIL 仍未完成。
 
+### FLASH-TASK-20260823-028 - Direct A/B decision façade
+
+- 状态：M3-03 增加 portable、无 IO 的 Direct A/B 决策分类器；M3-03 总项保持 `[~]`，Boot
+  真实状态机尚未切换到该 façade。
+- 代码：新增 `third_party/portable_ota/include/pota_direct_ab.h` 与
+  `src/pota_direct_ab.c`，`pota_direct_ab_decide()` 先验证 metadata/Direct A/B mode，
+  再输出 `NO_PENDING`、`BOOT_PENDING` 或 `ROLLBACK`；attempt exhausted 只选择 confirmed/
+  previous 中与失败 slot 不同的合法回退目标，不执行 Flash 或镜像校验。portable OTA 测试
+  增加 pending、attempt exhausted 和 no-pending 三条断言；App/Boot 均链接同一 portable source。
+- 验证：`run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m3-direct-ab` 通过；
+  `cmake --build --preset pico2-release --parallel 4`、App A/App B/Boot link gate 和
+  `release_check=OK` 通过。
+- 边界与回退：未把分类器测试当作 Boot HIL；未执行 DHRT100 reset/no-confirm/attempt
+  exhausted/revert、vector/hash/signature/Recovery 验证，M3-03/M3 退出门禁保持未完成。若
+  Boot 接入失败可独立 revert portable façade，不影响现有 v1 状态机。
+
 ### FLASH-TASK-20260823-025 - signed manifest extension 与 counter gate
 
 - 状态：M3-04 增加固定 manifest extension 的 portable parser/packager boundary；这是信任链
