@@ -191,11 +191,42 @@ static void test_full_journal_fails_closed(void)
     assert(!flash_transaction_journal_append(&store, &extra));
 }
 
+static void test_duplicate_completion_is_idempotent(void)
+{
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    s_program_calls = 0u;
+    s_fail_program_call = 0u;
+    flash_transaction_journal_config_t config = make_config();
+    flash_transaction_journal_store_t store;
+    assert(flash_transaction_journal_init(&store, &config));
+
+    const flash_transaction_journal_record_t accepted =
+        make_record(FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED, 23u);
+    assert(flash_transaction_journal_append(&store, &accepted));
+    assert(s_program_calls == 2u);
+    assert(flash_transaction_journal_append(&store, &accepted));
+    assert(s_program_calls == 2u);
+    assert(store.next_sequence == 2u);
+
+    flash_transaction_journal_record_t conflicting = accepted;
+    conflicting.processed_bytes++;
+    assert(!flash_transaction_journal_append(&store, &conflicting));
+    assert(s_program_calls == 2u);
+
+    flash_transaction_journal_record_t recovered;
+    uint32_t sequence = 0u;
+    assert(flash_transaction_journal_recover_latest(&store, &recovered,
+                                                    &sequence));
+    assert(sequence == 1u);
+    assert(memcmp(&recovered, &accepted, sizeof(accepted)) == 0);
+}
+
 int main(void)
 {
     test_append_and_reset_recovery();
     test_torn_commit_and_crc_are_ignored();
     test_full_journal_fails_closed();
+    test_duplicate_completion_is_idempotent();
     puts("flash transaction journal tests passed");
     return 0;
 }

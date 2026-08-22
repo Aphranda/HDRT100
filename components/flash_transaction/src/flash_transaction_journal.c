@@ -44,6 +44,17 @@ static bool flash_transaction_journal_disk_valid(
                                sizeof(disk->record)) == disk->record_crc32;
 }
 
+static bool flash_transaction_journal_identity_equal(
+    const flash_transaction_journal_record_t *left,
+    const flash_transaction_journal_record_t *right)
+{
+    return left->job_id == right->job_id &&
+           left->transaction_generation == right->transaction_generation &&
+           left->provider_generation == right->provider_generation &&
+           left->store_generation == right->store_generation &&
+           left->event == right->event;
+}
+
 bool flash_transaction_journal_init(
     flash_transaction_journal_store_t *store,
     const flash_transaction_journal_config_t *config)
@@ -76,6 +87,22 @@ bool flash_transaction_journal_append(
     }
 
     flash_transaction_journal_disk_record_t disk;
+    /* Completion replay is idempotent only when the complete record matches.
+     * A conflicting payload for the same transaction/event is ambiguous and
+     * must fail closed instead of consuming another journal slot. */
+    for (uint32_t slot = 0u; slot < store->config.slot_count; slot++) {
+        const uint32_t offset = flash_transaction_journal_slot_offset(store, slot);
+        if (!store->config.read(store->config.context, offset, &disk,
+                                sizeof(disk))) {
+            return false;
+        }
+        if (!flash_transaction_journal_disk_valid(store, &disk) ||
+            !flash_transaction_journal_identity_equal(&disk.record, record)) {
+            continue;
+        }
+        return memcmp(&disk.record, record, sizeof(*record)) == 0;
+    }
+
     for (uint32_t slot = 0u; slot < store->config.slot_count; slot++) {
         const uint32_t offset = flash_transaction_journal_slot_offset(store, slot);
         if (!store->config.read(store->config.context, offset, &disk,
