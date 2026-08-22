@@ -103,6 +103,13 @@ $testPrograms = @(
         )
     },
     @{
+        Name = "test_pota_stream_checkpoint"
+        Sources = @((Join-Path $tests "test_pota_stream_checkpoint.c")) + @(
+            (Join-Path $src "pota_stream_checkpoint.c"),
+            (Join-Path $src "pota_crc32.c")
+        )
+    },
+    @{
         Name = "test_portable_ota_core"
         Sources = @((Join-Path $tests "test_portable_ota_core.c")) + $commonSources + @(
             (Join-Path $src "pota_image.c"),
