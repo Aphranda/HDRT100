@@ -550,7 +550,7 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 - [ ] docs、host unit、fuzz、main build、size/map、link dependency、release string scan 全绿。
 - [ ] artifact 含 manifest/hash/signature/build ID/map version/SBOM；private/dev key 不进 release。
-- [ ] COM8、两板、四板 HIL 报告关联具体 commit/artifact/tool version。
+- [ ] DHRT100、两板、四板 HIL 报告关联具体 commit/artifact/tool version。
 - [ ] registry 逐条从 `pending` 转 `active` 时分别完成 C11 review，不批量无证据改状态。
 
 ### M6-04 技术债清除
@@ -599,7 +599,7 @@ TODO 只保留可独立验收的状态项和证据索引。
 | Host unit | map/range/store/BCB/session/parser/compatibility | M0-M5 各包 | 全量 |
 | Static/link | map/linker/tool 同源、raw caller、Boot deps、size/string/key scan | M1/M3 | M6-03 |
 | Main build | release + RTOS/双核 validation，warnings-as-errors | M1 | 每个 artifact |
-| DHRT100 单板样板（COM8 物理 gate） | Scratch、store reboot、A/B/revert/Recovery/local resume | M1/M2/M3/M4 | M6-03 |
+| DHRT100 单板样板（物理 gate） | Scratch、store reboot、A/B/revert/Recovery/local resume | M1/M2/M3/M4 | M6-03 |
 | 两板 | TDMA drop/reset/resume + realtime quality | M5-05 | M6-03 |
 | 四板 | cohort/reference migration/failure/rejoin | M5-06 | M6-03 |
 | Long-run | power-cut/wear/thermal/watchdog | M6-01/M6-02 | release 必需 |
@@ -626,7 +626,7 @@ TODO 只保留可独立验收的状态项和证据索引。
 1. source of truth、owner、schema 和生命周期明确，没有新增重复数字或私有 writer。
 2. 正向、边界、负向、torn/power-cut 测试按适用范围通过。
 3. release 与 RTOS/双核 validation 构建通过，静态/link gate 生效。
-4. 涉及硬件的任务有对应 COM8/两板/四板原始记录，不能用模拟代替。
+4. 涉及硬件的任务有对应 DHRT100/两板/四板原始记录，不能用模拟代替。
 5. HAOFV Vector、reason、generation/freshness 和 durable completion 可查询。
 6. 回退 artifact/runbook 已实测；不可逆步骤有 factory/Recovery 路径。
 7. 文档四项门禁全绿；契约状态变化完成独立 C11 交叉审核。
