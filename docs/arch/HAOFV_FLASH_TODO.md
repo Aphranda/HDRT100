@@ -285,8 +285,10 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
   fail-closed 检查（`47b15a3`），Boot 侧现已固定允许 caller 集合；独立 JSON 报告工具、
   三 profile 产物快照和 `release_check` 强制 gate 已完成（`FLASH-TASK-20260823-009`、
   `FLASH-TASK-20260823-011`、`FLASH-TASK-20260823-015`），Boot 依赖的 C11 交叉审核仍待补齐。
-- [ ] **M1-05-K atomic store 依赖收敛**：Product/OTA metadata 当前仍是 single-sector rewrite；待
-  M2-02 Product NVS、M3-02 BootControlStore 提供 atomic record/BCB primitive 后再替换兼容 adapter。
+- [ ] **M1-05-K atomic store 依赖收敛**：Product/OTA metadata 当前仍有 single-sector rewrite；待
+  M2-02 Product NVS、M3-02 BootControlStore 提供完整 atomic record/BCB facade、wear 和 recovery
+  policy 后再替换剩余兼容 adapter；Boot metadata 已由 BCB adapter 承载，证据见
+  `FLASH-TASK-20260823-016`。
 - [ ] **M1-05-L 退出评审**：host/build/link/HIL、回退路径和独立 C11 交叉审核齐全后，才允许把
   M1-05 从 `[~]` 改为 `[x]`，并同步更新 `ARCH-FLASHOWNER-01` 登记状态。
 
@@ -392,7 +394,9 @@ TODO 只保留可独立验收的状态项和证据索引。
   `ota_metadata.c` 已接入实际 BCB payload 和 BootFlashService/FlashTransactionAO adapter
   （`FLASH-TASK-20260823-016`），仍待独立 BootControlStore façade、wear counter 和 v2 schema
   migration。
-- [~] primitive 在无有效 lane 时返回 `NO_VALID`，不创建默认记录；Boot Recovery policy 接入仍待完成。
+- [~] primitive 在无有效 lane 时返回 `NO_VALID`，不创建默认记录；DHRT100 已完成
+  BCB-backed A/B OTA/reboot/confirm 闭环（`FLASH-TASK-20260823-017`），但 Boot Recovery policy
+  接入仍待完成。
 - [x] host fault fixture 覆盖 body/readback/commit/lane seal/旧 lane erase，均 fail closed 并保留旧记录。
 
 ### M3-03 Direct A/B 单主线

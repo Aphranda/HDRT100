@@ -35,6 +35,22 @@ Last updated: 2026-08-23
   `release_check.py` 输出 `release_check=OK`。没有把这些 host/build 结果扩展为真实掉电、
   Recovery 或 BOOTSEL 证据。
 
+### FLASH-TASK-20260823-017 - DHRT100 BCB-backed A/B OTA 闭环
+
+- 状态：DHRT100 已用包含 BCB adapter 的新 release 包完成一次真实 inactive-slot staged OTA、
+  reboot 和 explicit commit；本条不关闭 M3-02 的 fault/Recovery/power-cut gate。
+- 工件：`build-flash-m1-05h-20260823-release/DHRT100_UPDATE.pkg`，构建标识
+  `20260822175837`，package CRC32 `0x0965EE9D`；板端身份为 `GTS,DHRT100,839E1AE79EA20F31,0.1.0`。
+- 闭环证据：`build/dhrt100_bcb_ota_20260823_verify/summary.json` 与
+  `build/dhrt100_bcb_ota_20260823_recover/summary.json`；首次包发送记录
+  `READY_TO_REBOOT`，随后重启后 `IDLE`，`COMMit` 后 `COMMITTED`，最终
+  `SYST:ERRor?=0,\"No error\"`。工具第一次因 `--boot-and-commit` 仍期待中间态
+  `READY_TO_REBOOT` 而返回非零，但 transcript 已记录最终 `COMMITTED`；这不是板端失败。
+- 额外观察：重复验证流程在已完成确认后得到 `INVALID_STATE`，随后使用独立 boot/commit 工具
+  恢复为无错误状态；该负向结果说明 confirm 入口不接受无 pending 状态。
+- 边界：本次仍是 v1 compatibility map 的 A/B 部署，未写 v2 高地址；未执行双 lane 损坏、
+  lane seal/commit/body 掉电注入、空 BCB Recovery、security counter/anti-rollback 或 BOOTSEL。
+
 ### FLASH-TASK-20260823-015 - BootFlashService owner boundary
 
 - 状态：M3-01 的 Boot 写入 owner 收敛子项完成；M3-01 总项、M1-05-J 和 M3-02 仍未完成。
