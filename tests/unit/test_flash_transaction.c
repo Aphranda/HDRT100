@@ -524,6 +524,20 @@ static void test_policy_reason_hook_preserves_resource_gates(void)
     assert_failed(vector, FLASH_TRANSACTION_ERROR_MODE);
     assert(vector.policy_gate_reason == FLASH_TRANSACTION_ERROR_MODE);
     assert(s_erase_count == 0u);
+
+    s_policy_error = FLASH_TRANSACTION_ERROR_CALIBRATION_ACTIVE;
+    vector = run_request(&context, &request);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_CALIBRATION_ACTIVE);
+    assert(vector.policy_gate_reason ==
+           FLASH_TRANSACTION_ERROR_CALIBRATION_ACTIVE);
+    assert(s_erase_count == 0u);
+
+    s_policy_error = FLASH_TRANSACTION_ERROR_TDMA_TRAINING_ACTIVE;
+    vector = run_request(&context, &request);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_TDMA_TRAINING_ACTIVE);
+    assert(vector.policy_gate_reason ==
+           FLASH_TRANSACTION_ERROR_TDMA_TRAINING_ACTIVE);
+    assert(s_erase_count == 0u);
 }
 
 static void test_large_payload_is_fail_closed_until_immutable_provider(void)

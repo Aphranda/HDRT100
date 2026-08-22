@@ -226,19 +226,25 @@ def package_image_entry_offset(index: int) -> int:
     return PACKAGE_IMAGE_TABLE_OFFSET + index * PACKAGE_IMAGE_ENTRY_SIZE
 
 
-def selected_package_image_index(package: bytes) -> int:
+def selected_package_image_index(package: bytes, target_slot: int | None = None) -> int:
     image_count = read_u32(package, 20)
     if image_count == 0:
         raise ValueError("package has no image entries")
-    return 0
+    if target_slot is None:
+        return 0
+    for index in range(image_count):
+        image_entry = package_image_entry_offset(index)
+        if read_u32(package, image_entry) == target_slot:
+            return index
+    raise ValueError(f"package has no image entry for target slot {target_slot}")
 
 
-def mutate_package(package: bytes, mutation: str) -> bytes:
+def mutate_package(package: bytes, mutation: str, target_slot: int | None = None) -> bytes:
     if not is_unified_package(package):
         raise ValueError("--package-negative requires a unified OTA package")
 
     data = bytearray(package)
-    image_index = selected_package_image_index(package)
+    image_index = selected_package_image_index(package, target_slot)
     image_entry = package_image_entry_offset(image_index)
     image_offset = read_u32(data, image_entry + 4)
 
@@ -262,6 +268,22 @@ def mutate_package(package: bytes, mutation: str) -> bytes:
         raise ValueError(f"unsupported package mutation: {mutation}")
 
     return bytes(data)
+
+
+def query_target_slot(port: str, baud: int, timeout_s: float) -> int:
+    try:
+        import serial
+    except ImportError as exc:
+        raise SystemExit("pyserial is required: python -m pip install pyserial") from exc
+
+    with serial.Serial(port, baud, timeout=timeout_s, write_timeout=timeout_s) as ser:
+        ser.reset_input_buffer()
+        ser.reset_output_buffer()
+        response = query(ser, "SYST:OTA:TARG?")
+    target_slot = parse_first_uint(response)
+    if target_slot not in (1, 2):
+        raise ValueError(f"unsupported target slot response: {response!r}")
+    return target_slot
 
 
 def is_unified_package(image: bytes) -> bool:
@@ -376,7 +398,11 @@ def main() -> int:
     image = image_path.read_bytes()
     package_mode = is_unified_package(image)
     if args.package_negative:
-        image = mutate_package(image, args.package_negative)
+        target_slot = None
+        if package_mode and not args.dry_run:
+            target_slot = query_target_slot(args.port, args.baud, args.timeout)
+            print(f"package_target_slot={target_slot}")
+        image = mutate_package(image, args.package_negative, target_slot)
         package_mode = True
     if args.corrupt_vector:
         image = corrupt_vector(image)
