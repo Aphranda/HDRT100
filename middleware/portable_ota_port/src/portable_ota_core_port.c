@@ -80,6 +80,7 @@ const char *portable_ota_port_boot_result_to_string(uint32_t result)
 static pota_session_t s_session;
 static uint32_t s_provider_generation;
 static uint32_t s_store_generation;
+static uint32_t s_provider_refs;
 
 static const pota_compat_map_entry_t s_product_error_aliases[] = {
     {POTA_ERR_PRODUCT_MISMATCH, OTA_ERR_BOARD_MISMATCH},
@@ -96,6 +97,24 @@ static uint32_t portable_core_next_provider_generation(void)
     return s_provider_generation;
 }
 
+static bool portable_core_provider_retain(void *context)
+{
+    uint32_t *refs = context;
+    if (refs == NULL || *refs == UINT32_MAX) {
+        return false;
+    }
+    (*refs)++;
+    return true;
+}
+
+static void portable_core_provider_release(void *context)
+{
+    uint32_t *refs = context;
+    if (refs != NULL && *refs != 0u) {
+        (*refs)--;
+    }
+}
+
 static bool portable_core_flash_execute(uint32_t operation,
                                         uint32_t offset,
                                         const uint8_t *data,
@@ -108,6 +127,18 @@ static bool portable_core_flash_execute(uint32_t operation,
         return false;
     }
 
+    const uint32_t provider_generation =
+        operation == FLASH_TRANSACTION_OPERATION_PROGRAM
+            ? portable_core_next_provider_generation()
+            : 0u;
+    const flash_transaction_buffer_lease_t lease = {
+        .data = data,
+        .length = size,
+        .generation = provider_generation,
+        .context = &s_provider_refs,
+        .retain = portable_core_provider_retain,
+        .release = portable_core_provider_release,
+    };
     const flash_transaction_request_t request = {
         .requester = FLASH_TRANSACTION_REQUESTER_OTA_IMAGE,
         .partition_id = partition_id,
@@ -115,11 +146,11 @@ static bool portable_core_flash_execute(uint32_t operation,
         .relative_offset = relative_offset,
         .length = size,
         .data = data,
-        .provider_generation =
-            operation == FLASH_TRANSACTION_OPERATION_PROGRAM
-                ? portable_core_next_provider_generation()
-                : 0u,
+        .provider_generation = provider_generation,
         .store_generation = s_store_generation,
+        .buffer_lease = operation == FLASH_TRANSACTION_OPERATION_PROGRAM
+                            ? &lease
+                            : NULL,
     };
     flash_transaction_completion_t completion;
     return flash_transaction_ao_execute(&request, &completion);

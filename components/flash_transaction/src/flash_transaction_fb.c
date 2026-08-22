@@ -54,7 +54,6 @@ static bool flash_transaction_provider_lease_valid(
     const flash_transaction_request_t *request = &context->request;
     const flash_transaction_buffer_lease_t *lease = request->buffer_lease;
     return request->operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
-           request->length > sizeof(context->owned_payload) &&
            lease != NULL && lease->data != NULL &&
            lease->length >= request->length &&
            lease->generation == request->provider_generation &&
@@ -63,9 +62,11 @@ static bool flash_transaction_provider_lease_valid(
 
 static bool flash_transaction_provider_retain(flash_transaction_fb_t *context)
 {
-    if (context->request.operation != FLASH_TRANSACTION_OPERATION_PROGRAM ||
-        context->request.length <= sizeof(context->owned_payload)) {
+    if (context->request.operation != FLASH_TRANSACTION_OPERATION_PROGRAM) {
         return true;
+    }
+    if (context->request.buffer_lease == NULL) {
+        return context->request.length <= sizeof(context->owned_payload);
     }
     if (!flash_transaction_provider_lease_valid(context) ||
         !context->request.buffer_lease->retain(
@@ -196,12 +197,18 @@ static uint32_t flash_transaction_validate(
         return FLASH_TRANSACTION_ERROR_PERMISSION;
     }
     if (request->operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
+        request->buffer_lease == NULL &&
         request->length <= sizeof(context->owned_payload) &&
         request->data == NULL) {
         return FLASH_TRANSACTION_ERROR_PROVIDER;
     }
     if (request->operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
-        request->length > sizeof(context->owned_payload) &&
+        request->buffer_lease == NULL &&
+        request->length > sizeof(context->owned_payload)) {
+        return FLASH_TRANSACTION_ERROR_PROVIDER;
+    }
+    if (request->operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
+        request->buffer_lease != NULL &&
         !flash_transaction_provider_lease_valid(context)) {
         return FLASH_TRANSACTION_ERROR_PROVIDER;
     }
@@ -317,6 +324,7 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
     context->request = *request;
     context->payload_owned = false;
     if (context->request.operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
+        context->request.buffer_lease == NULL &&
         context->request.data != NULL &&
         context->request.length <= sizeof(context->owned_payload)) {
         memcpy(context->owned_payload, context->request.data,

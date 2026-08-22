@@ -25,6 +25,7 @@ typedef struct {
 
 static product_config_record_t s_product_config;
 static uint32_t s_product_config_provider_generation;
+static uint32_t s_product_config_provider_refs;
 
 static uint32_t product_config_next_provider_generation(void)
 {
@@ -35,11 +36,41 @@ static uint32_t product_config_next_provider_generation(void)
     return s_product_config_provider_generation;
 }
 
+static bool product_config_provider_retain(void *context)
+{
+    uint32_t *refs = context;
+    if (refs == NULL || *refs == UINT32_MAX) {
+        return false;
+    }
+    (*refs)++;
+    return true;
+}
+
+static void product_config_provider_release(void *context)
+{
+    uint32_t *refs = context;
+    if (refs != NULL && *refs != 0u) {
+        (*refs)--;
+    }
+}
+
 static bool product_config_flash_execute(uint32_t operation,
                                          const uint8_t *data,
                                          uint32_t length,
                                          uint32_t store_generation)
 {
+    const uint32_t provider_generation =
+        operation == FLASH_TRANSACTION_OPERATION_PROGRAM
+            ? product_config_next_provider_generation()
+            : 0u;
+    const flash_transaction_buffer_lease_t lease = {
+        .data = data,
+        .length = length,
+        .generation = provider_generation,
+        .context = &s_product_config_provider_refs,
+        .retain = product_config_provider_retain,
+        .release = product_config_provider_release,
+    };
     const flash_transaction_request_t request = {
         .requester = FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG,
         .partition_id = FLASH_COMPAT_MAP_PRODUCT_NVS_ID,
@@ -47,11 +78,11 @@ static bool product_config_flash_execute(uint32_t operation,
         .relative_offset = 0u,
         .length = length,
         .data = data,
-        .provider_generation =
-            operation == FLASH_TRANSACTION_OPERATION_PROGRAM
-                ? product_config_next_provider_generation()
-                : 0u,
+        .provider_generation = provider_generation,
         .store_generation = store_generation,
+        .buffer_lease = operation == FLASH_TRANSACTION_OPERATION_PROGRAM
+                            ? &lease
+                            : NULL,
     };
     flash_transaction_completion_t completion;
     return flash_transaction_ao_execute(&request, &completion);
