@@ -25,7 +25,8 @@ Last updated: 2026-08-23
   `pota_bcb_store_get_wear_snapshot()` 暴露本次运行的物理操作计数；钩子只观测，不得执行
   Flash IO。新增 `pota_stream_ingress`，统一 USB CDC、USBTMC、SD、UART、RS485 的 source
   admission、单一 active source、最大帧长和可选 CRC 校验，再调用同一个
-  `pota_stream_session`，不复制 A/B package 或改变 durable offset 语义。
+  `pota_stream_session`，不复制 A/B package 或改变 durable offset 语义；新增
+  `pota_stream_ingress_get_status()`，投影 source/state/durable offset/token/last result。
 - 测试：`tools/tests/run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m4-ingress-wear`
   通过；新增 ingress 的 CRC/源切换/会话状态测试，并断言 BCB 首次 append、replay 的页编程和
   lane 擦除计数。主工程 `build-flash-m1-05h-20260823-release` 重新配置构建通过，App A/App B/
