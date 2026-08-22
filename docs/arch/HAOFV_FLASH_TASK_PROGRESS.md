@@ -41,6 +41,19 @@ Last updated: 2026-08-23
 - 边界：该证据只覆盖同一 durable backend 内容可见时的幂等 replay；live producer 接入、跨真实
   reset 的 identity 持久化、power-cut/lane-seal HIL 和 C11 审核仍待完成。
 
+### FLASH-TASK-20260823-009 - M1-05-J independent release owner report
+
+- 状态：M1-05-J 继续进行；新增独立报告工具，未改变 App/Boot 写权限。
+- 代码提交：`fd07202 feat(flash): emit independent release owner report`，已推送。
+- 工具：`tools/flash_map/flash_release_report.py` 读取 DHRT100 App A/App B/Boot 的 map/dis，复用
+  `flash_link_check.validate_link_contract()`，输出包含 git revision、map/dis SHA-256、profile、
+  failure 列表和总结果的 JSON；缺失工件 fail closed。新增 Python 正/负测试 2 项。
+- 验证：`test_flash_link_check.py` + `test_flash_release_report.py` 共 8/8；release gate `OK`。
+  当前构建报告为 `build-flash-m1-05h-20260823-release/flash_release_report.json`，App A、App B、
+  Boot 三项均无 failure。
+- 边界：报告已独立落盘但尚未纳入发布流水线强制 gate，Boot 依赖审计的 C11 交叉审核仍待完成；
+  不以该报告替代真实 DHRT100 v2 deployment、BOOTSEL 或 power-cut 证据。
+
 ### FLASH-TASK-20260823-006 - 最新 release package DHRT100 闭环
 
 - 状态：最新 release 工件已完成 DHRT100 实板 A/B OTA；不改变 M1-05-G/H/I、M1-06、M0-05
