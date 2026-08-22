@@ -235,8 +235,9 @@ immutable provider/refcount、运行时 abort/lease 和跨 reset durable complet
 - [x] 不超过 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的 payload 在 submit 时复制入固定 pool；更大
   payload 在 immutable provider/refcount 落地前 fail closed，禁止把 producer alias 交给 raw writer。
 - [~] queue full、producer reset、duplicate completion、abort during page/sector 均有单测；当前已覆盖
-  queue full、duplicate terminal/abort、large payload no-raw，producer reset 与 raw-operation abort
-  仍待异步 provider/step hook。
+  queue full、duplicate terminal/abort、large payload no-raw，以及 raw erase/program 回调期间触发
+  abort 后跳过 verify/commit 的 host fixture；producer reset、immutable provider/refcount 与 completion
+  lease/durable 语义仍待异步 provider/step hook。
 - [~] OTA image、Product Config 与 App OTA metadata 已迁移到 intent API；Boot metadata 通过独立
   BootFlashService adapter 保持 raw owner，M3 BootControlStore 与 M2-02 Product NVS store 仍待完成。
   当前 Product/OTA metadata 仍是 single-sector rewrite，不得视为 atomic NVS/BCB。

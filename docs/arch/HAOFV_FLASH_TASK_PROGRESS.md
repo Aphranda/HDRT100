@@ -46,8 +46,32 @@ Last updated: 2026-08-22
 | M0-04 wire/parser corpus | 代码验证完成，文档待收口 | golden/truncation/bit-mutation corpus 已绑定 `pota_*` 与 TDMA frame parser；release gate、host runner `30/30` 通过 | 更新本文件与 TODO 的状态描述，完成独立审查后再关闭 M0-04。 |
 | M0-05 migration/rollback | 阻塞 | validation recovery 入口和回退日志已保留；应用态 reboot 未使 RP2350 ROM BOOTSEL 保持可见 | 物理 BOOTSEL full erase、factory UF2 verify、COM8 恢复报告。 |
 | M1-04 mode/thermal/dual-core gate | 进行中 | thermal/diagnostics/trigger/FAULT/resource reason 与 park-timeout HIL 已通过 | Calibration/TDMA owner gate、RUN/CAL/training negative HIL、warning policy 和 COM8 负向证据。 |
-| M1-05 buffer/owner convergence | 进行中 | fixed owned payload、large-payload fail-closed、queue/duplicate terminal 基线 | immutable provider/refcount、producer reset、raw-step abort、completion lease 证据。 |
+| M1-05 buffer/owner convergence | 进行中 | fixed owned payload、large-payload fail-closed、queue/duplicate terminal 基线、raw-step abort host fixture | immutable provider/refcount、producer reset、completion lease 证据。 |
 | M1-06 high-address Scratch | 未开始 | 仅有 v2 target map/permission 输入，未对板写入 | validation-only Scratch intent、COM8 高地址闭环、恢复与 release string scan。 |
+
+### FLASH-TASK-20260822-021 - M1-05 原始步骤 abort 负向闭环
+
+- 状态：M1-05 继续进行；固定 owned payload 与大 payload fail-closed 保持不变，本切片补齐同步
+  raw erase/program 步骤的 abort 语义，未宣称 provider/refcount、producer reset 或 durable completion
+  已完成。
+- 日期：2026-08-22
+- 完成内容：
+  - `FlashTransactionFB` 在 raw erase/program 回调返回成功后重新检查 `abort_pending`；若回调期间
+    收到 abort，记录已处理字节和对应 erase/program delta，直接进入 RELEASE 并发布 ABORTED 结果，
+    不执行 VERIFY 或 COMMIT。物理 raw 操作已经发生这一事实不被回滚或伪造为未写入。
+  - host fixture 在 fake erase 与 fake program 回调内部通过 `flash_transaction_fb_request_abort()`
+    注入 abort，断言事务最终为 `ABORTED`、completion level 停留在 `PROGRAMMED`、`verified_bytes=0`，
+    且两类 verify 回调均未被调用；release/unpark 仍各执行一次。
+- 验证结果：
+  - `tools/tests/run_flash_transaction_tests.ps1` 通过。
+  - 全量 `tools/tests/run_host_unit_tests.ps1` 的 30 个脚本通过；执行器分段输出曾在嵌套 PowerShell
+    会话中提前回收，剩余 4 个脚本随后单独复跑并全部通过。
+- 提交与推送：
+  - 代码提交 `df05507 fix(flash): abort transaction after raw step` 已推送
+    `origin/feature/rtos-multicore-haofv`。
+- 还需完成：
+  - immutable provider/refcount、producer reset、completion lease/durable 语义；之后再评估 M1-03/
+    M1-05 退出和 M1-06 Scratch 进入条件。
 
 ### FLASH-TASK-20260822-019 - Calibration/TDMA training gate 接入 resource_arbiter
 
