@@ -16,6 +16,20 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-021 - M4-02 stable stream identity token
+
+- 状态：stream token 已从 moving durable offset 解耦，适合作为 checkpoint identity；resume
+  orchestration 和实际 journal backend 仍未接入。
+- 代码提交：`fd585fc fix(ota): keep stream token stable across checkpoints`，已推送。
+  `pota_stream_session_token()` 现在只对 OPEN descriptor（session/generation/capability/identity/
+  package/map/destination/object）计算 CRC，不随 chunk offset 变化；host 测试断言首尾 token
+  一致。offset 顺序、重复和冲突检查仍由 session cursor 单独执行。
+- 验证：`run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m4-02-token` 通过；
+  主工程 App A/App B/Boot、FlashMap/inventory/link gate 和 `release_check=OK` 通过，最新包
+  仍未成功烧录 DHRT100。
+- 边界：稳定 token 只解决 identity 语义，不等于跨 reset resume；v2 `OTA_JOURNAL`、五类
+  ingress、Recovery/掉电 HIL 仍保持未完成。
+
 ### FLASH-TASK-20260823-020 - M4-02 OTA chunk readback boundary
 
 - 状态：stream write 的 durable boundary 已收敛到 program 后 readback；真实 ingress、v2 journal
