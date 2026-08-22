@@ -262,6 +262,15 @@ Bootloader 重刷。
 v2 OTA_JOURNAL 已部署或 live producer 已具备 durable reset recovery。完整证据见
 `HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-027`。
 
+本轮继续项（`FLASH-TASK-20260822-028`）：新增 durable journal backend（固定槽、CRC、commit
+marker、readback 与 reset recovery），纳入 CMake 和 transaction host runner；构建
+`build-flash-m1-05-journal-20260822` 的 firmware build id 为 `20260822053750`，package
+SHA-256 为 `A0EA4E14E50400225DD2C6D0748A9CE20FA949F28376CDA5944E1F9F833DD7A4`。NO.1–NO.4
+按 USB serial 定向 factory load，并发完成 Direct A/B OTA、Boot/commit、全部负向矩阵和
+final safe state，原始报告见 `build/flash_burn_journal_backend_NO1_20260822/` 至
+`NO4_20260822/`。本证据仍不关闭 M1-05：backend 尚未接入 live producer，跨 reset/power-cut
+与 v2 OTA_JOURNAL 部署仍待完成；v2 map 继续保持 `target_not_deployed`。
+
 ### M1-06 高地址 Scratch 验证
 
 - [ ] validation-only SCPI 只提交 Scratch lease intent，不暴露任意 offset 命令。

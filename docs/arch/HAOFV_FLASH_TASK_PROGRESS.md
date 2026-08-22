@@ -22,6 +22,40 @@ Last updated: 2026-08-22
 
 ## 当前检查点
 
+### FLASH-TASK-20260822-028 - durable journal backend 与四板并发 OTA 回归
+
+- 状态：M1-05 继续进行；本轮完成 durable transaction journal source/backend 的 host/build
+  接入和四板硬件回归，但尚未部署 v2 OTA_JOURNAL，也未把 live producer 接入该 backend。
+- 日期：2026-08-22
+- 完成内容：
+  - 新增 `flash_transaction_journal.h/.c`：固定槽记录、record CRC、commit marker、写后
+    readback、最新有效记录恢复；torn body/commit、CRC 损坏和 journal full 均 fail closed。
+  - 提供 `flash_transaction_journal_make_completion_lease()` adapter；CMake 与既有
+    `run_flash_transaction_tests.ps1` 纳入 journal host fixture。
+  - `test_flash_transaction_journal.c` 覆盖 append/recover、单点损坏、半写、容量耗尽和
+    completion lease 适配；transaction 与 journal host runner 均通过。
+- 构建与工件：
+  - build 目录：`build-flash-m1-05-journal-20260822/`
+  - firmware build id：`20260822053750`
+  - OTA package SHA-256：`A0EA4E14E50400225DD2C6D0748A9CE20FA949F28376CDA5944E1F9F833DD7A4`
+  - `release_check.py`、FlashMap/inventory/persistence/migration/wire/link gates 均通过。
+- 板端 HIL：
+  - NO.1（COM3）先行通过；NO.2（COM5）、NO.3（COM6）、NO.4（COM4）按 USB serial
+    定向 factory load 后并发执行 Direct A/B OTA。
+  - 四板最终均通过 `baseline_query`、`positive_ota`、`boot_commit`、transport/image/header/
+    slot/run-offset 全部负向项和 `final_safe_state`；原始报告目录为
+    `build/flash_burn_journal_backend_NO1_20260822/` 至
+    `build/flash_burn_journal_backend_NO4_20260822/`。
+  - 中途发现 `image-crc` 负向工具固定修改 Slot A 表项；活动槽已轮换到 Slot B 时该用例
+    会误命中未选中的镜像。统一活动槽为 Slot A 后重跑，四板全部通过；这不是 firmware CRC
+    回归，且未修改工具行为。
+  - 最终四板均回到无 pending、安全状态；未执行 Scratch/高地址任意 offset、BOOTSEL full
+    erase 或 Bootloader 重刷，v2 map 仍为 `target_not_deployed`。
+- 还需完成：
+  - 将 durable journal backend 接入 live OTA/Product Config/App metadata producer，并补
+    async provider/step hook 的跨 reset、power-cut/torn journal 证据。
+  - 完成代码提交后再登记本条文档证据；M1-05 不得标记完成。
+
 ### FLASH-TASK-20260822-027 - completion lease/journal 边界与四板回归
 
 - 状态：M1-05 继续进行；本轮建立 completion lease/journal 合约和 transaction 边界 fail-closed
