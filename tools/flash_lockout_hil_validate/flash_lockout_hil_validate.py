@@ -135,6 +135,33 @@ def parse_flash_transaction(response: str) -> dict[str, int]:
     return dict(zip(names, fields[:len(names)]))
 
 
+def lockout_release_complete(status: dict[str, int]) -> bool:
+    return (
+        status["requested"] == 0
+        and status["ack_seq"] == status["request_seq"]
+        and status["release_seq"] >= status["request_seq"]
+    )
+
+
+def wait_for_lockout_release(port: str, timeout_s: float,
+                             settle_s: float) -> tuple[str, dict[str, int]]:
+    deadline = time.monotonic() + timeout_s
+    response = ""
+    status: dict[str, int] = {}
+    while time.monotonic() < deadline:
+        response = query(
+            port,
+            "SYSTem:PROTection:STATus?",
+            timeout_s,
+            min(settle_s, 0.1),
+        )
+        status = parse_protection(response)
+        if lockout_release_complete(status):
+            return response, status
+        time.sleep(0.05)
+    return response, status
+
+
 def parse_flash_transaction_probe(log_path: Path) -> dict[str, int]:
     prefix = "flash_transaction_probe="
     for line in log_path.read_text(encoding="utf-8").splitlines():
@@ -257,8 +284,9 @@ def main() -> int:
         image_transaction = {}
         failures.append(str(exc))
 
-    after_write_response = query(args.port, "SYSTem:PROTection:STATus?", args.timeout, args.settle)
-    after_write = parse_protection(after_write_response)
+    after_write_response, after_write = wait_for_lockout_release(
+        args.port, args.timeout, args.settle
+    )
     records["after_write"] = after_write
     (out_dir / "after_write_protection.txt").write_text(after_write_response + "\n", encoding="utf-8")
 

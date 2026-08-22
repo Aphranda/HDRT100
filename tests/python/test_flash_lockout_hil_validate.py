@@ -4,6 +4,7 @@ import struct
 import pytest
 
 from tools.flash_lockout_hil_validate.flash_lockout_hil_validate import (
+    lockout_release_complete,
     package_probe_block,
     parse_flash_transaction_probe,
 )
@@ -57,3 +58,24 @@ def test_package_probe_block_rejects_missing_slot(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="no image for slot 2"):
         package_probe_block(path, 2)
+
+
+def test_lockout_release_complete_requires_matching_sequences() -> None:
+    assert lockout_release_complete({
+        "requested": 0,
+        "request_seq": 942,
+        "ack_seq": 942,
+        "release_seq": 942,
+    })
+    assert not lockout_release_complete({
+        "requested": 0,
+        "request_seq": 942,
+        "ack_seq": 942,
+        "release_seq": 938,
+    })
+    assert not lockout_release_complete({
+        "requested": 1,
+        "request_seq": 942,
+        "ack_seq": 942,
+        "release_seq": 942,
+    })
