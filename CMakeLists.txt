@@ -160,6 +160,7 @@ set(PROJECT_PORTABLE_OTA_ADAPTER_SOURCES
         middleware/portable_ota_port/src/portable_ota_metadata_port.c
         third_party/portable_ota/src/pota_crc32.c
         third_party/portable_ota/src/pota_boot_control_store.c
+        third_party/portable_ota/src/pota_stream_session.c
         third_party/portable_ota/src/pota_image.c
         third_party/portable_ota/src/pota_metadata.c
         third_party/portable_ota/src/pota_strings.c
@@ -575,6 +576,7 @@ set_source_files_properties(
         third_party/portable_ota/src/pota_package.c
         third_party/portable_ota/src/pota_crc32.c
         third_party/portable_ota/src/pota_boot_control_store.c
+        third_party/portable_ota/src/pota_stream_session.c
         third_party/portable_ota/src/pota_image.c
         third_party/portable_ota/src/pota_metadata.c
         third_party/portable_ota/src/pota_strings.c

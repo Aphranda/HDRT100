@@ -93,6 +93,16 @@ $testPrograms = @(
         )
     },
     @{
+        Name = "test_pota_stream_session"
+        Sources = @((Join-Path $tests "test_pota_stream_session.c")) + $commonSources + @(
+            (Join-Path $src "pota_image.c"),
+            (Join-Path $src "pota_core.c"),
+            (Join-Path $src "pota_operation.c"),
+            (Join-Path $src "pota_session.c"),
+            (Join-Path $src "pota_stream_session.c")
+        )
+    },
+    @{
         Name = "test_portable_ota_core"
         Sources = @((Join-Path $tests "test_portable_ota_core.c")) + $commonSources + @(
             (Join-Path $src "pota_image.c"),
