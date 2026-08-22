@@ -1296,7 +1296,7 @@ static void draw_product_header(u8g2_t *u8g2, const ui_snapshot_t *snapshot)
     const uint8_t breath_radius = (uint8_t)(1u + (triangle / 5u));
 
     u8g2_SetFont(u8g2, u8g2_font_5x8_tr);
-    u8g2_DrawStr(u8g2, 1u, 10u, "DTC100");
+    u8g2_DrawStr(u8g2, 1u, 10u, "DHRT100");
     u8g2_DrawCircle(u8g2, 35u, 6u, 3u, U8G2_DRAW_ALL);
     u8g2_DrawDisc(u8g2, 35u, 6u, breath_radius, U8G2_DRAW_ALL);
     for (uint8_t page = 0u; page < (uint8_t)UI_PAGE_COUNT; page++) {

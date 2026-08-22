@@ -46,7 +46,7 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `SYSTem:OTA:COMMit`.
 - `ota_multi_update/ota_multi_update.py`: multi-board OTA orchestrator. It
   enumerates USB CDC ports, probes `*IDN?` / `SYSTem:FW:BUILD?`, filters online
-  DTC100/RP2350_TRIG boards, then runs `ota_send.py` and `ota_boot_commit.py`
+  DHRT100/RP2350_TRIG boards, then runs `ota_send.py` and `ota_boot_commit.py`
   in parallel with one worker per discovered board by default. Unified package
   build id is read from the package header and used for commit verification.
   Product-ring updates support 1–8 unique addresses; use

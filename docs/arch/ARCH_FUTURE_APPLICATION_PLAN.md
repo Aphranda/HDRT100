@@ -6,7 +6,7 @@ Canonical: `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`
 Related: `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 Last updated: 2026-08-21
 
-本文档记录 Distributed Hard Real-Time Trigger System 在当前产品完成后的平台化应用规划。它不是当前固件必须立即实现的功能清单，也不替代 `ARCH_PRODUCT_ARCHITECTURE.md`、`RTOS_HAOFV_TODO.md` 或各功能域待办。当前近期目标仍然是完成 DTC100 / RP2350 平台上的分布式触发产品闭环；本文面向后续产品线、产业应用和开源生态扩展。
+本文档记录 Distributed Hard Real-Time Trigger System 在当前产品完成后的平台化应用规划。它不是当前固件必须立即实现的功能清单，也不替代 `ARCH_PRODUCT_ARCHITECTURE.md`、`RTOS_HAOFV_TODO.md` 或各功能域待办。当前近期目标仍然是完成 DHRT100 / RP2350 平台上的分布式触发产品闭环；本文面向后续产品线、产业应用和开源生态扩展。
 
 ## 核心判断
 
@@ -191,7 +191,7 @@ RP2350 16 MiB 是 Open Reference 的 reference map，不是所有产品线的固
 
 | 层级 | 目标 | 交付物 |
 |---|---|---|
-| 产品层 | 完成当前 DTC100 / RP2350 分布式触发系统闭环。 | 固件、硬件约束、SCPI 指令表、System Pack、报告和验证工具。 |
+| 产品层 | 完成当前 DHRT100 / RP2350 分布式触发系统闭环。 | 固件、硬件约束、SCPI 指令表、System Pack、报告和验证工具。 |
 | 平台层 | 把 HAOFV、RefMem、VDC/DPLL、AckCommandSlot 和 System Pack 抽象为可复用基础。 | portable refmem、portable command transaction、DPLL toolkit、配置/验证工具。 |
 | 生态层 | 支持仪表、DAQ、运动控制、ATE、RF 和边缘控制示例。 | 示例 persona、仿真器、可视化工具、参考硬件和应用指南。 |
 
@@ -208,7 +208,7 @@ RP2350 16 MiB 是 Open Reference 的 reference map，不是所有产品线的固
 
 | 阶段 | 目标 | 判断标准 |
 |---|---|---|
-| F0 | 当前分布式触发产品闭环。 | DTC100 / RP2350 板端可稳定完成配置、同步、校准、触发、T2、报告和恢复。 |
+| F0 | 当前分布式触发产品闭环。 | DHRT100 / RP2350 板端可稳定完成配置、同步、校准、触发、T2、报告和恢复。 |
 | F1 | 平台基础件抽象。 | RefMem、AckCommandSlot、VDC/DPLL、System Pack 和工具链可在非当前产品中复用。 |
 | F2 | 仪表/DAQ/ATE 示例。 | 至少 2 个非相控阵 demo persona 可通过同一 ApplicationMap 加载运行。 |
 | F3 | 工业同步/运动控制探索。 | 能给出多轴/多执行器同步 demo、错误边界和安全限制。 |

@@ -44,7 +44,7 @@ Last updated: 2026-08-21
 4. `../tdma/TDMA_DOMAIN_ARCHITECTURE.md`：确认上/下行 TDMA、payload registry、adapter 和 ring completion evidence 基础件边界。
 5. `../vdc/VDC_DOMAIN_ARCHITECTURE.md`：再确认 VDC 内部主域、共同时间、SYNC DPLL、HOLDOVER、timestamp 和质量门禁。
 6. `HAOFV_VDC_DPLL_ARCHITECTURE.md`：查看既有 VDC/DPLL 融合架构输入和迁移前细节。
-7. `ARCH_PRODUCT_ARCHITECTURE.md`：确认 DTC100 产品角色、四板运行模型、数据契约和发布门禁。
+7. `ARCH_PRODUCT_ARCHITECTURE.md`：确认 DHRT100 产品角色、四板运行模型、数据契约和发布门禁。
 8. `ARCH_FUTURE_APPLICATION_PLAN.md`：了解当前产品完成后的平台化、跨平台和开源生态方向。
 9. `../refmem/REFMEM_DOMAIN_ARCHITECTURE.md`：确认 Distributed RefMem 内部主域、A0-A7 通用节点、静态分布式模型和 slot 边界。
 10. `RTOS_HAOFV_ARCHITECTURE.md`：确认当前 RTOS task、core0/core1、SCPI 到反射内存再到 owner 状态机的落地路径。

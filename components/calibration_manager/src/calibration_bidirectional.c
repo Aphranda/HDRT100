@@ -82,10 +82,32 @@ bool calibration_bidirectional_evaluate(
         result->reject_reason = CALIBRATION_BIDIRECTIONAL_REJECT_BIAS;
         return false;
     }
+    if (gate->expected_bias_generation != 0u &&
+        sample->bias_generation != gate->expected_bias_generation) {
+        result->reject_reason = CALIBRATION_BIDIRECTIONAL_REJECT_BIAS;
+        return false;
+    }
     if (gate->require_fresh_topology &&
         (sample->topology_generation == 0u ||
          (sample->sample_flags & CALIBRATION_BIDIRECTIONAL_FLAG_TOPOLOGY_FRESH) == 0u)) {
         result->reject_reason = CALIBRATION_BIDIRECTIONAL_REJECT_TOPOLOGY;
+        return false;
+    }
+    if (gate->require_repeat_statistics &&
+        ((sample->sample_flags & CALIBRATION_BIDIRECTIONAL_FLAG_REPEAT_GATE) == 0u ||
+         sample->repeat_count == 0u ||
+         sample->accepted_repeat_count != sample->repeat_count)) {
+        result->reject_reason = CALIBRATION_BIDIRECTIONAL_REJECT_SAMPLE_FLAGS;
+        return false;
+    }
+    if (gate->require_asymmetry_bound &&
+        ((sample->sample_flags & CALIBRATION_BIDIRECTIONAL_FLAG_ASYMMETRY_VALID) == 0u ||
+         sample->asymmetry_ns > gate->max_asymmetry_ns)) {
+        result->reject_reason = CALIBRATION_BIDIRECTIONAL_REJECT_SAMPLE_FLAGS;
+        return false;
+    }
+    if (gate->max_jitter_ns != 0u && sample->jitter_ns > gate->max_jitter_ns) {
+        result->reject_reason = CALIBRATION_BIDIRECTIONAL_REJECT_CLOCK_RATE;
         return false;
     }
     if (sample->dma_status != 0u) {
@@ -123,7 +145,19 @@ bool calibration_bidirectional_evaluate(
     result->active_eligible = !sample->reference_loopback &&
                               (sample->sample_flags &
                                CALIBRATION_BIDIRECTIONAL_FLAG_DIAGNOSTIC_ONLY) == 0u &&
-                              (sample->sample_flags &
-                               CALIBRATION_BIDIRECTIONAL_FLAG_HARDWARE_LATCHED) != 0u;
+                               (sample->sample_flags &
+                                CALIBRATION_BIDIRECTIONAL_FLAG_HARDWARE_LATCHED) != 0u &&
+                               sample->bias_generation != 0u &&
+                               sample->topology_generation != 0u &&
+                               (sample->sample_flags &
+                                CALIBRATION_BIDIRECTIONAL_FLAG_BIAS_VALID) != 0u &&
+                               (sample->sample_flags &
+                                CALIBRATION_BIDIRECTIONAL_FLAG_TOPOLOGY_FRESH) != 0u &&
+                               (!gate->require_repeat_statistics ||
+                                (sample->sample_flags &
+                                 CALIBRATION_BIDIRECTIONAL_FLAG_REPEAT_GATE) != 0u) &&
+                               (!gate->require_asymmetry_bound ||
+                                (sample->sample_flags &
+                                 CALIBRATION_BIDIRECTIONAL_FLAG_ASYMMETRY_VALID) != 0u);
     return true;
 }

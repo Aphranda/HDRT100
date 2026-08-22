@@ -10,19 +10,19 @@
     "0010071E65B5CB38": {
       "port": "COM3",
       "label": "ref_0010071E65B5CB38",
-      "idn": "GTS,DTC100,0010071E65B5CB38,0.1.0"
+      "idn": "GTS,DHRT100,0010071E65B5CB38,0.1.0"
     },
     "A1E549202D18ED6A": {
       "port": "COM4",
       "label": "fwd_A1E549202D18ED6A",
-      "idn": "GTS,DTC100,A1E549202D18ED6A,0.1.0"
+      "idn": "GTS,DHRT100,A1E549202D18ED6A,0.1.0"
     }
   },
   "results": [
     {
       "name": "ref_0010071E65B5CB38",
       "port": "COM3",
-      "idn": "GTS,DTC100,0010071E65B5CB38,0.1.0",
+      "idn": "GTS,DHRT100,0010071E65B5CB38,0.1.0",
       "board_address": "0010071E65B5CB38",
       "build": "20260820012323",
       "reference_board": true,
@@ -48,7 +48,7 @@
     {
       "name": "fwd_A1E549202D18ED6A",
       "port": "COM4",
-      "idn": "GTS,DTC100,A1E549202D18ED6A,0.1.0",
+      "idn": "GTS,DHRT100,A1E549202D18ED6A,0.1.0",
       "board_address": "A1E549202D18ED6A",
       "build": "20260820012323",
       "reference_board": false,

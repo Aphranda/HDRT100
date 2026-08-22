@@ -6,7 +6,7 @@ from tools.ota_bin_info import ota_bin_info
 
 
 def test_crc32_matches_standard_binascii_crc32() -> None:
-    data = b"DTC100-ota-image\x00\x01\x02"
+    data = b"DHRT100-ota-image\x00\x01\x02"
 
     assert ota_bin_info.crc32(data) == (binascii.crc32(data) & 0xFFFFFFFF)
 

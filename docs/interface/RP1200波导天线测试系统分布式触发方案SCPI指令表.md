@@ -8,7 +8,7 @@ Last updated: 2026-08-11
 
 版本：0.11
 日期：2026-08-13
-产品：DTC100 Distributed Trigger
+产品：DHRT100 Distributed Trigger
 接口：USBTMC / USB488
 文档状态：Markdown 源文档，HTML 已同步到 0.11，后续 PDF 由本文同步导出
 
@@ -53,7 +53,7 @@ Last updated: 2026-08-11
 
 ### 1.3 接口边界硬约束
 
-本指令表是 DTC100 对外通讯接口，不是硬件直控接口。上位机通过 SCPI 发送配置、动作意图和查询请求；
+本指令表是 DHRT100 对外通讯接口，不是硬件直控接口。上位机通过 SCPI 发送配置、动作意图和查询请求；
 固件 SCPI 层只负责解析、权限/状态/资源门禁，并通过 owner API 写入 command/config slot、投递 owner event 或读取快照。
 SCPI callback 不直接操作 GPIO、PIO、DMA、ADC、UART、RS485、BiSS、SD、flash 或现场 IO。
 
@@ -101,7 +101,7 @@ SCPI 只允许写 command/config slot；state、summary、ACK/NACK、result、he
 | 项目 | 默认值 | 说明 |
 |---|---|---|
 | 制造商 | `GTS` | `*IDN?` 字段 1 |
-| 型号 | `DTC100` | `*IDN?` 字段 2 |
+| 型号 | `DHRT100` | `*IDN?` 字段 2 |
 | 序列号 | 芯片唯一 ID | `*IDN?` 字段 3，用于区分 A0/A1/A2/A3 节点 |
 | 固件版本 | `0.1.0` | `*IDN?` 字段 4，正式版本以构建系统输出为准 |
 | 外部入口 | `A3` | 上位机只接入 A3，A0/A1/A2 不直接暴露外部控制接口 |
@@ -112,7 +112,7 @@ SCPI 只允许写 command/config slot；state、summary、ACK/NACK、result、he
 
 | 指令 | 参数 | 响应 | 说明 |
 |---|---|---|---|
-| `*IDN?` |  | `GTS,DTC100,<serial>,<fw>` | 查询设备识别码 |
+| `*IDN?` |  | `GTS,DHRT100,<serial>,<fw>` | 查询设备识别码 |
 | `*RST` |  | `1` | 停止触发和同步，恢复运行态配置到安全默认值；不删除已保存配置包 |
 | `*CLS` |  | `1` | 清除 SCPI 状态寄存器和错误队列；不清除锁存硬件故障 |
 | `*TST?` |  | `0` 或错误码 | 执行基础自检并返回结果 |
@@ -604,7 +604,7 @@ SYNC 域按产品框架收敛为四层，避免同一功能在多个前缀下重
 
 ### 9.3 主线挂载关系
 
-SYNC 是 DTC100 主控制面上的一个业务域，不是独立通信主线。挂载关系如下：
+SYNC 是 DHRT100 主控制面上的一个业务域，不是独立通信主线。挂载关系如下：
 
 ```text
 USBTMC / USB488
@@ -617,7 +617,7 @@ USBTMC / USB488
 
 | 层级 | 归属 | 职责 |
 |---|---|---|
-| 物理入口 | USBTMC / USB488 | 承载全部 DTC100 SCPI 指令，不为 SYNC 单独开端口 |
+| 物理入口 | USBTMC / USB488 | 承载全部 DHRT100 SCPI 指令，不为 SYNC 单独开端口 |
 | 解析入口 | `task_scpi` | 解析 `CONFigure:SYNC:*`、`SYNC:*`、`READ:SYNC:*?`、`SYSTem:SYNC:*`，返回 accepted 或读取快照 |
 | 命令挂载 | `scpi_sync_commands.c/.h` | 在主命令表中声明 SYNC 域命令；不持有实时状态事实源 |
 | 执行 owner | `task_vdc_sync` | 消费同步配置/动作事件，维护 VDC lock、offset/rate、holdover、quality |
@@ -1041,7 +1041,7 @@ crc
 已继承的格式和定义：
 
 - 页面结构保留“设备信息、系统指令、业务配置、序列状态定义、运行控制、校准、同步、维护附录”的逻辑分组。
-- 设备信息保留 `GTS,DTC100,<uid>,0.1.0` 的 `*IDN?` 口径。
+- 设备信息保留 `GTS,DHRT100,<uid>,0.1.0` 的 `*IDN?` 口径。
 - 通信约定保留 USBTMC/USB488 成品接口、CDC validation 维护接口、调试权限 profile 和状态策略约束。
 - IEEE 488.2 指令补齐 `*OPC`、`*STB?`、`*ESR?`、`*ESE/*ESE?`、`*SRE/*SRE?`。
 - 系统指令补齐 `SYSTem:FW:BUILD?`、`SYSTem:LOG:STATus?`、`SYSTem:TRACe:LAST?`、`SYSTem:SNAPshot:LAST?`。

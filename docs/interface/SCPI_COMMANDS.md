@@ -9,7 +9,7 @@ Last updated: 2026-08-20
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
 固件使用 `PROJECT_ENABLE_USBTMC` 构建启用 USBTMC/USB488 + SCPI 专业仪表接口。USBTMC 模式复用同一套 SCPI 命令表，当前 USB 描述符按 `bus-powered` 申明；后续成品如确认自供电，再切换为 `self-powered`。USB 描述符、VISA 枚举和供电属性记录见 `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`。
-开发/validation 阶段如需同一份固件在 CDC / USBTMC 间切换，可启用 `PROJECT_ENABLE_USB_RUNTIME_SWITCH`，并通过 `SYSTem:USB:MODE` 写入 Product Config；该切换不作为 DTC100 成品对外接口。这里 `SYST` 是 `SYSTem` 的短写。这个切换不是 OTA A/B 机制，A/B 只保留给升级镜像和回滚。业务层按 `CONFigure` / `READ` / `TRIGger` / `CALibration` / `SYNC` 分域，`SYSTem` 保留系统与基础状态。
+开发/validation 阶段如需同一份固件在 CDC / USBTMC 间切换，可启用 `PROJECT_ENABLE_USB_RUNTIME_SWITCH`，并通过 `SYSTem:USB:MODE` 写入 Product Config；该切换不作为 DHRT100 成品对外接口。这里 `SYST` 是 `SYSTem` 的短写。这个切换不是 OTA A/B 机制，A/B 只保留给升级镜像和回滚。业务层按 `CONFigure` / `READ` / `TRIGger` / `CALibration` / `SYNC` 分域，`SYSTem` 保留系统与基础状态。
 
 ## 标准命令
 
@@ -26,8 +26,8 @@ Last updated: 2026-08-20
 | `SYSTem:FW:BUILD?` | 查询固件 build id，由构建脚本生成 UTC 时间戳，每次构建刷新。 |
 | `SYSTem:BOOT:VERS?` | 查询当前 App 声明的 Bootloader 兼容版本，返回 `major,minor,patch`。 |
 | `SYSTem:BOOT:CAP?` | 查询当前 metadata 中记录的 Bootloader/OTA 能力位，`bit0=COPY_TO_ACTIVE`，`bit1=DIRECT_AB`。 |
-| `SYSTem:USB:MODE?` | 查询当前 USB mode；DTC100 成品固定返回 `"USBTMC"`。 |
-| `SYSTem:USB:MODE <CDC|USBTMC>` | validation 固件维护命令：写入下次启动的 USB mode；DTC100 成品不作为对外配置项。 |
+| `SYSTem:USB:MODE?` | 查询当前 USB mode；DHRT100 成品固定返回 `"USBTMC"`。 |
+| `SYSTem:USB:MODE <CDC|USBTMC>` | validation 固件维护命令：写入下次启动的 USB mode；DHRT100 成品不作为对外配置项。 |
 | `SYSTem:USB:BOOT` | 立即重启，重启后按 Product Config 选择 USB mode。 |
 | `SYSTem:LOG:LEVel <0..3>` | 设置文本日志最小输出等级：`0=DEBUG`、`1=INFO`、`2=WARN`、`3=ERROR`。默认 `INFO`。 |
 | `SYSTem:LOG:LEVel?` | 查询当前文本日志最小输出等级，返回名称和值。 |

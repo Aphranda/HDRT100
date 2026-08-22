@@ -6,7 +6,7 @@ Canonical: `docs/legacy/rp1200/README.md`
 Related: `docs/legacy/README.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
 Last updated: 2026-08-13
 
-本目录保存 RP1200 / DTC100 文档迭代中的历史参考。
+本目录保存 RP1200 / DHRT100 文档迭代中的历史参考。
 
 | 路径 | 定位 |
 |---|---|

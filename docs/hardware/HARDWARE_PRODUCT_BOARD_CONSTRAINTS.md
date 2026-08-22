@@ -195,7 +195,7 @@ Last updated: 2026-08-21
 |---|---|---|
 | 上电前 | GND-FGND 阻值、USB VBUS 隔离、12 V 输入短路、3.3 V/1.1 V 阻值 | 与装配选项一致，无非预期短路。 |
 | 电源 | `PWR_IN/VCC12V/VCC5V/VDDISO_3V3/1V1` 时序和纹波 | 在负载范围内稳定，eFuse 不误触发。 |
-| MCU | SWD、Flash、USB1 枚举、`*IDN?` | 能烧录并查询 DTC100 身份。 |
+| MCU | SWD、Flash、USB1 枚举、`*IDN?` | 能烧录并查询 DHRT100 身份。 |
 | 调试口 | USB2/CH343、UART0、RS485 UART1 | 收发稳定，脚本生命周期受控。 |
 | 存储/UI | TF mount、System Pack、LCD 刷新 | 不阻塞 SCPI 和 core1 heartbeat。 |
 | PIO/SMA | 4 入 4 出物理通道映射 | 每个 SMA 与软件通道一致，GPIO20..23 反序处理正确。 |

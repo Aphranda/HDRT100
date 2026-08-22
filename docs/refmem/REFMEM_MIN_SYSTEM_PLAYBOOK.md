@@ -28,8 +28,8 @@ Board A publishes HELLO / EPOCH / DELTA
 
 | 板卡 | 端口 | 识别信息 |
 |---|---|---|
-| Board A / B0 | `COM3` | `GTS,DTC100,91274BA197662714,0.1.0` |
-| Board B / B1 | `COM4` | `GTS,DTC100,73E940D75B406BCD,0.1.0` |
+| Board A / B0 | `COM3` | `GTS,DHRT100,91274BA197662714,0.1.0` |
+| Board B / B1 | `COM4` | `GTS,DHRT100,73E940D75B406BCD,0.1.0` |
 
 2026-08-14 当前 HIL 端口更新为：
 

@@ -1,6 +1,6 @@
 {
   "port": "COM3",
-  "idn": "GTS,DTC100,0010071E65B5CB38,0.1.0",
+  "idn": "GTS,DHRT100,0010071E65B5CB38,0.1.0",
   "board_address": "0010071E65B5CB38",
   "build": "20260819152706",
   "duration_s": 1800.0,

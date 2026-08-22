@@ -6,7 +6,7 @@ Canonical: `docs/arch/HAOFV_MAINTENANCE_TODO.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
 Last updated: 2026-08-17
 
-本文档用于独立维护 Distributed Hard Real-Time Trigger System 对 HAOFV 架构的符合性待办。`DTC100` 保留为当前设备型号，`RP2350_TRIG` 保留为历史工程和构建产物名。
+本文档用于独立维护 Distributed Hard Real-Time Trigger System 对 HAOFV 架构的符合性待办。`DHRT100` 保留为当前设备型号，`RP2350_TRIG` 保留为历史工程和构建产物名。
 这里不记录普通功能开发流水账，而是记录会影响 owner、层次边界、反射内存事实、
 Active Object / Function Block 划分、资源仲裁和硬实时边界的架构问题。
 
@@ -96,14 +96,14 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 
 - 状态：完成
 - 问题：
-  - 顶层文档过去混用 `DTC100`、`RP2350_TRIG` 和产品/系统名称。
-  - `DTC100` 更适合作为当前设备型号，`RP2350_TRIG` 更适合作为历史工程名和构建产物名。
+  - 顶层文档过去混用 `DHRT100`、`RP2350_TRIG` 和产品/系统名称。
+  - `DHRT100` 更适合作为当前设备型号，`RP2350_TRIG` 更适合作为历史工程名和构建产物名。
 - 影响：
   - 若继续混用，后续 HAOFV、RefMem、RTOS、SCPI、硬件平台和构建产物的边界会不清晰。
 - 完成：
   - [x] 将系统/项目名冻结为 `Distributed Hard Real-Time Trigger System`。
   - [x] 在产品架构总纲中增加命名层级表。
-  - [x] 明确 `DTC100` 保留为当前设备型号和 SCPI `*IDN?` 字段。
+  - [x] 明确 `DHRT100` 保留为当前设备型号和 SCPI `*IDN?` 字段。
   - [x] 明确 `RP2350 / RP2350B` 保留为当前硬件平台。
   - [x] 明确 `RP2350_TRIG` 保留为历史工程名、仓库名、构建产物名和历史验证记录。
   - [x] 更新 README、HAOFV、产品架构、RTOS、RefMem、SCPI 规划和文档治理入口。
@@ -126,7 +126,7 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - Distributed Hard Real-Time Trigger System 的应用边界已经超过当前相控阵/波导天线触发场景，需要单独记录未来规划。
   - 跨平台能力需要明确为“RP2350 是低成本参考实现，不是架构边界”。
 - 影响：
-  - 如果未来规划直接写入当前实现待办，容易冲散 DTC100 / RP2350 当前产品闭环。
+  - 如果未来规划直接写入当前实现待办，容易冲散 DHRT100 / RP2350 当前产品闭环。
   - 如果不记录，后续平台化、开源生态和跨平台移植会缺少共同口径。
 - 完成：
   - [x] 新增 `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`。
@@ -142,7 +142,7 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
   - `docs/README.md`
   - `docs/docs/DOCS_MIGRATION_TODO.md`
 - 下一步：
-  - 当前仍优先完成 DTC100 / RP2350 产品闭环；跨平台 portable boundary 后续单独立项。
+  - 当前仍优先完成 DHRT100 / RP2350 产品闭环；跨平台 portable boundary 后续单独立项。
 
 ### HAOFV-MAINT-20260813-001 - app.c 中心化状态需要拆出主域 owner
 

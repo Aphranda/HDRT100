@@ -12,7 +12,7 @@ Last updated: 2026-08-13
 
 | 当前路径 | 定位 |
 |---|---|
-| `SCPI_COMMAND_PLAN.md` | DTC100 SCPI 主域规划和指令树 |
+| `SCPI_COMMAND_PLAN.md` | DHRT100 SCPI 主域规划和指令树 |
 | `SCPI_COMMANDS.md` | 当前固件 SCPI 命令清单 |
 | `RP1200波导天线测试系统分布式触发方案SCPI指令表.md` | 产品级 SCPI 指令表 Markdown 源文档 |
 | `SCPI_USB_INTERFACE_DESIGN.md` | USB CDC/USBTMC/USB488 接口设计 |

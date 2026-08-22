@@ -38,7 +38,7 @@ Last updated: 2026-08-14
 | 当前路径 | 定位 |
 |---|---|
 | `../arch/HAOFV_ARCHITECTURE.md` | HAOFV 顶层架构，定义 Distributed RefMem 的内部主域地位。 |
-| `../arch/RTOS_HAOFV_ARCHITECTURE.md` | 当前 DTC100 反射内存和 RTOS owner 设计。 |
+| `../arch/RTOS_HAOFV_ARCHITECTURE.md` | 当前 DHRT100 反射内存和 RTOS owner 设计。 |
 | `../vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 共同时间主域；RefMem 只保存 VDC snapshot、版本、质量和证据。 |
 | `../legacy/pinprobe/LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` | PinProbe A1 RAM 反射内存历史方案。 |
 | `../interface/SCPI_COMMAND_PLAN.md` | SCPI 与反射内存边界。 |

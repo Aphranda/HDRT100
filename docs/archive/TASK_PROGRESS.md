@@ -57,7 +57,7 @@ Last updated: 2026-08-10
 - 日期：2026-08-11
 - 任务目标：
   - 同步 `RP1200波导天线测试系统分布式触发方案SCPI指令表.md` 和 HTML 版的版本口径。
-  - 将 RP1200 / DTC100 产品级 SCPI 指令表补入文档索引。
+  - 将 RP1200 / DHRT100 产品级 SCPI 指令表补入文档索引。
   - 固化虚拟 DC 的建立顺序：本地晶振先产生 `local_tick`，BiSS-C/RJ45 提供跨节点观测，DPLL 收敛出 `offset/rate` 和 `LOCKED` 虚拟 DC。
 - 完成内容：
   - Markdown 顶部版本从 `0.5` 修正为 `0.7`，并标注 HTML 已同步到 0.7。

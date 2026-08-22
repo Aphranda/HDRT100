@@ -20,7 +20,7 @@ Last updated: 2026-07-22
 - 后续成品硬件如果确认存在稳定自供电设计，再评估切换为 `self-powered` 描述符属性。
 - USBTMC 是设备类接口，不会像 BOOTSEL/UF2 那样挂载成磁盘；要刷 UF2 仍需进入 BOOTSEL，或先通过可用的重启路径切回 BOOTSEL。
 - `SYST:USB:MODE?` 返回 SCPI 字符串 `"CDC"` 或 `"USBTMC"`，脚本可直接按字符串内容判断当前模式。
-- `*IDN?` 当前格式为 `GTS,DTC100,<SERIAL>,0.1.0`，其中 `SERIAL` 使用板子唯一 ID，避免暴露板级/芯片命名。
+- `*IDN?` 当前格式为 `GTS,DHRT100,<SERIAL>,0.1.0`，其中 `SERIAL` 使用板子唯一 ID，避免暴露板级/芯片命名。
 - 板卡逻辑编号不使用 COM 口绑定。`SYSTem:BOARD:ID?` 返回与 `*IDN?` 第三字段相同的唯一地址；`SYSTem:BOARD:NO?` 查询当前 `NO.1`–`NO.8`；`SYSTem:BOARD:NO <n>` 设置逻辑编号；`SYSTem:BOARD:MAP?` 返回 `<SERIAL>,<NO>` 映射。
 
 ## 统一规则
@@ -68,7 +68,7 @@ cmake --build build-usbtmc
 | VID | `PROJECT_USB_VID`，当前默认 `0xCAFE`，仅适合开发验证 |
 | PID | `PROJECT_USB_PID_USBTMC`，当前默认 `0x4030` |
 | PID (CDC) | `PROJECT_USB_PID_CDC`，当前默认 `0x402F` |
-| Product string | `GTS DTC100` |
+| Product string | `GTS DHRT100` |
 | Serial string | RP2350 unique board ID |
 | Configuration attributes | 当前调试阶段 `bus-powered` |
 | Max power | 100 mA |
@@ -132,7 +132,7 @@ USB0::0xCAFE::0x4030::73E940D75B406BCD::INSTR
 PyVISA 直接打开该资源并查询通过：
 
 ```text
-*IDN? -> GTS,DTC100,<SERIAL>,0.1.0
+*IDN? -> GTS,DHRT100,<SERIAL>,0.1.0
 SYST:ERR? -> 0,"No error"
 SYST:ERR:COUN? -> 0
 ```
@@ -145,7 +145,7 @@ SYST:ERR:COUN? -> 0
 - 烧录后 `PyVISA` 查询返回：
 
 ```text
-*IDN? -> GTS,DTC100,<SERIAL>,0.1.0
+*IDN? -> GTS,DHRT100,<SERIAL>,0.1.0
 SYST:ERR? -> 0,"No error"
 SYST:ERR:COUN? -> 0
 ```
@@ -159,7 +159,7 @@ SYST:ERR:COUN? -> 0
 - 重启后 `PyVISA` smoke 通过：
 
 ```text
-*IDN? -> GTS,DTC100,<SERIAL>,0.1.0
+*IDN? -> GTS,DHRT100,<SERIAL>,0.1.0
 SYST:ERR? -> 0,"No error"
 SYST:ERR:COUN? -> 0
 ```
@@ -168,7 +168,7 @@ SYST:ERR:COUN? -> 0
 
 - 通过 USBTMC 执行 `SYST:USB:MODE CDC`，随后 `SYST:USB:BOOT`。
 - 设备重新枚举为 `COM9`，Windows 识别为 `USB 串行设备`。
-- 串口侧 `*IDN?` 返回 `GTS,DTC100,73E940D75B406BCD,0.1.0`。
+- 串口侧 `*IDN?` 返回 `GTS,DHRT100,73E940D75B406BCD,0.1.0`。
 - 串口侧 `SYST:USB:MODE?` 返回 `"CDC"`。
 - 再通过串口执行 `SYST:USB:MODE USBTMC` 和 `SYST:USB:BOOT`，设备重新回到 USBTMC。
 - 回到 USBTMC 后，PyVISA 资源 `USB0::0xCAFE::0x4030::73E940D75B406BCD::INSTR` 重新可用，`*IDN?` 和 `SYST:USB:MODE?` 正常返回。

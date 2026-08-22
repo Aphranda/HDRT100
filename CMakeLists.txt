@@ -94,7 +94,7 @@ endif()
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(RP2350_TRIG C CXX ASM)
+project(DHRT100 C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
@@ -588,21 +588,21 @@ endif()
 
 project_configure_app_target(
         ${PROJECT_NAME}
-        "RP2350_TRIG"
+        "DHRT100"
         ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_app_slot_a.ld
 )
 
-add_executable(RP2350_TRIG_B
+add_executable(DHRT100_B
         ${PROJECT_APP_SOURCES}
 )
 
 project_configure_app_target(
-        RP2350_TRIG_B
-        "RP2350_TRIG_B"
+        DHRT100_B
+        "DHRT100_B"
         ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_app_slot_b.ld
 )
 
-add_executable(RP2350_TRIG_BOOT
+add_executable(DHRT100_BOOT
         bootloader/src/bootloader_main.c
         middleware/flash_map/src/flash_map.c
         components/ota_manager/src/ota_crc32.c
@@ -615,13 +615,13 @@ add_executable(RP2350_TRIG_BOOT
         drivers/mcu/flash/src/drv_flash_lockout.c
 )
 
-pico_set_program_name(RP2350_TRIG_BOOT "RP2350_TRIG_BOOT")
-pico_set_program_version(RP2350_TRIG_BOOT "0.1.0")
+pico_set_program_name(DHRT100_BOOT "DHRT100_BOOT")
+pico_set_program_version(DHRT100_BOOT "0.1.0")
 
-pico_enable_stdio_uart(RP2350_TRIG_BOOT OFF)
-pico_enable_stdio_usb(RP2350_TRIG_BOOT OFF)
+pico_enable_stdio_uart(DHRT100_BOOT OFF)
+pico_enable_stdio_usb(DHRT100_BOOT OFF)
 
-target_include_directories(RP2350_TRIG_BOOT PRIVATE
+target_include_directories(DHRT100_BOOT PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/bootloader/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
@@ -630,30 +630,30 @@ target_include_directories(RP2350_TRIG_BOOT PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/config
 )
 
-target_link_libraries(RP2350_TRIG_BOOT
+target_link_libraries(DHRT100_BOOT
         pico_stdlib
         hardware_flash
 )
 
-target_compile_definitions(RP2350_TRIG_BOOT PRIVATE
+target_compile_definitions(DHRT100_BOOT PRIVATE
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
         PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>
 )
 
-target_compile_options(RP2350_TRIG_BOOT PRIVATE ${PROJECT_WARNING_FLAGS})
+target_compile_options(DHRT100_BOOT PRIVATE ${PROJECT_WARNING_FLAGS})
 
-target_link_options(RP2350_TRIG_BOOT PRIVATE
+target_link_options(DHRT100_BOOT PRIVATE
         "-L${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen"
 )
-set_property(TARGET RP2350_TRIG_BOOT APPEND PROPERTY LINK_DEPENDS
+set_property(TARGET DHRT100_BOOT APPEND PROPERTY LINK_DEPENDS
         ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.ldinc
 )
 
-add_dependencies(RP2350_TRIG_BOOT project_flash_contract_check)
+add_dependencies(DHRT100_BOOT project_flash_contract_check)
 
-pico_set_linker_script(RP2350_TRIG_BOOT ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_bootloader.ld)
+pico_set_linker_script(DHRT100_BOOT ${CMAKE_CURRENT_LIST_DIR}/linker/rp2350_bootloader.ld)
 
-pico_add_extra_outputs(RP2350_TRIG_BOOT)
+pico_add_extra_outputs(DHRT100_BOOT)
 
 add_custom_command(
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin
@@ -666,53 +666,53 @@ add_custom_command(
 )
 
 add_custom_command(
-        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_FACTORY.uf2
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_FACTORY.uf2
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
-                ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_FACTORY.uf2
-                ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_BOOT.bin@${FLASH_COMPAT_MAP_BOOTLOADER_XIP_ADDRESS}
-                ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG.bin@${FLASH_COMPAT_MAP_APP_A_XIP_ADDRESS}
+                ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_FACTORY.uf2
+                ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_BOOT.bin@${FLASH_COMPAT_MAP_BOOTLOADER_XIP_ADDRESS}
+                ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.bin@${FLASH_COMPAT_MAP_APP_A_XIP_ADDRESS}
                 ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin@${FLASH_COMPAT_MAP_BOOT_CONTROL_XIP_ADDRESS}
-        DEPENDS RP2350_TRIG_BOOT ${PROJECT_NAME} ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
+        DEPENDS DHRT100_BOOT ${PROJECT_NAME} ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
         VERBATIM
 )
 
 add_custom_command(
-        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_UPDATE.pkg
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_UPDATE.pkg
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
-                --image-a ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG.bin
-                --image-b ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_B.bin
+                --image-a ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.bin
+                --image-b ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_B.bin
                 --map-manifest ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat_manifest.json
                 --app-version 0.1.0
                 --build-id-file ${PROJECT_BUILD_INFO_SOURCE}
                 --min-bootloader-version 0.1.0
-                -o ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_UPDATE.pkg
-        DEPENDS ${PROJECT_NAME} RP2350_TRIG_B project_build_info
+                -o ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_UPDATE.pkg
+        DEPENDS ${PROJECT_NAME} DHRT100_B project_build_info
                 ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
                 ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat_manifest.json
         VERBATIM
 )
 
-add_custom_target(RP2350_TRIG_FACTORY ALL
-        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_FACTORY.uf2
+add_custom_target(DHRT100_FACTORY ALL
+        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_FACTORY.uf2
 )
 
-add_custom_target(RP2350_TRIG_UPDATE ALL
-        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_UPDATE.pkg
+add_custom_target(DHRT100_UPDATE ALL
+        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_UPDATE.pkg
 )
 
 add_custom_target(project_flash_link_check ALL
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_link_check.py
-                --map ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG.elf.map
-                --dis ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG.dis
+                --map ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.elf.map
+                --dis ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.dis
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_link_check.py
-                --map ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_B.elf.map
-                --dis ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_B.dis
+                --map ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_B.elf.map
+                --dis ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_B.dis
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_link_check.py
                 --profile boot
-                --map ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_BOOT.elf.map
-                --dis ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_BOOT.dis
+                --map ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_BOOT.elf.map
+                --dis ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_BOOT.dis
         DEPENDS ${PROJECT_NAME} RP2350_TRIG_B
-                RP2350_TRIG_BOOT
+                DHRT100_B DHRT100_BOOT
                 ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_link_check.py
         VERBATIM
 )

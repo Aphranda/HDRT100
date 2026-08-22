@@ -18,7 +18,7 @@ Last updated: 2026-08-13
 | `pinprobe/PinProbe A1控制箱 嵌入式整体方案与架构报告.html` | PinProbe A1 原始 HTML 报告 |
 | `pinprobe/PinProbe A1 箱体控制 SCPI 指令说明20260728.html` | PinProbe A1 SCPI 指令原始参考 |
 | `rp1200/README.md` | RP1200 历史资料入口 |
-| `rp1200/RP1200波导天线测试系统分布式触发方案SCPI指令表最初版.html` | RP1200/DTC100 SCPI 最初版格式参考 |
+| `rp1200/RP1200波导天线测试系统分布式触发方案SCPI指令表最初版.html` | RP1200/DHRT100 SCPI 最初版格式参考 |
 | `external/README.md` | 外部冻结参考资料入口 |
 | `external/通用运动控制器API接口v1.0.0.pdf` | 外部通用运动控制器 API 参考 |
 

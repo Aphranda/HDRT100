@@ -31,7 +31,7 @@ PACKAGE_MAGIC = 0x474B5054
 PACKAGE_HEADER_SIZE = 512
 PACKAGE_BUILD_ID_OFFSET = 112
 PACKAGE_BUILD_ID_SIZE = 32
-DEFAULT_IDN_FILTERS = ("DHRT100", "DTC100", "RP2350_TRIG")
+DEFAULT_IDN_FILTERS = ("DHRT100", "DHRT100", "RP2350_TRIG")
 MAX_BOARD_COUNT = 8
 MAX_OTA_BLOCK_SIZE = 512
 
@@ -82,7 +82,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--boot-wait", type=float, default=3.0)
     parser.add_argument("--block-size", type=int, default=512)
     parser.add_argument("--idn-filter", action="append",
-                        help="substring accepted in *IDN?; may be repeated; default DHRT100/DTC100/RP2350_TRIG")
+                        help="substring accepted in *IDN?; may be repeated; default DHRT100/DHRT100/RP2350_TRIG")
     parser.add_argument("--serial-number", action="append",
                         help="exact *IDN? serial/address whitelist; may be repeated")
     parser.add_argument("--expected-build",

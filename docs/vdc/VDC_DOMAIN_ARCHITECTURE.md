@@ -104,7 +104,7 @@ Measure Domain     -> T2/READY timestamp -> VDC quality/report
 
 ## 外部参考机制
 
-VDC Domain 的参考对象聚焦在“共同时间”和“同步质量”，和 RefMem 的表驱动/RMA/ACK-NACK 参考分开维护。外部项目只提供工程机制，不改变 DTC100 自定义 VDC 协议和 HAOFV owner 边界。
+VDC Domain 的参考对象聚焦在“共同时间”和“同步质量”，和 RefMem 的表驱动/RMA/ACK-NACK 参考分开维护。外部项目只提供工程机制，不改变 DHRT100 自定义 VDC 协议和 HAOFV owner 边界。
 
 | 参考对象 | 可借鉴机制 | VDC 落地方式 | 不采用内容 |
 |---|---|---|---|
@@ -326,7 +326,7 @@ DPLL 的输出不是直接修改本地硬件 timer，而是更新 VDC clock mode
 
 #### RP2350 仿 DC 时钟拆解
 
-参考 EtherCAT DC 的拆法，DTC100 的 RP2350 VDC 不应只理解为一个 PI 算法，而应拆成“本地时间引擎 + reference sync frame + path delay + DPLL servo + TDMA 事件调度”五个可验证层。
+参考 EtherCAT DC 的拆法，DHRT100 的 RP2350 VDC 不应只理解为一个 PI 算法，而应拆成“本地时间引擎 + reference sync frame + path delay + DPLL servo + TDMA 事件调度”五个可验证层。
 
 | DC 机制 | RP2350/VDC 对应项 | 当前状态 | 缺口 |
 |---|---|---|---|

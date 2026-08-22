@@ -22,6 +22,10 @@ typedef struct {
     uint32_t topology_generation;
     int64_t endpoint_bias_ns;
     uint64_t clock_rate_error_bound_ns;
+    uint32_t repeat_count;
+    uint32_t accepted_repeat_count;
+    uint32_t jitter_ns;
+    uint32_t asymmetry_ns;
     bool reference_loopback;
 } calibration_bidirectional_sample_t;
 
@@ -31,8 +35,13 @@ typedef struct {
     uint32_t expected_persona_generation;
     uint32_t expected_topology_generation;
     uint64_t max_clock_rate_error_bound_ns;
+    uint32_t expected_bias_generation;
+    uint32_t max_jitter_ns;
+    uint32_t max_asymmetry_ns;
     bool require_bias_generation;
     bool require_fresh_topology;
+    bool require_repeat_statistics;
+    bool require_asymmetry_bound;
     bool allow_reference_loopback;
 } calibration_bidirectional_gate_t;
 
@@ -72,6 +81,8 @@ typedef struct {
 #define CALIBRATION_BIDIRECTIONAL_FLAG_BIAS_VALID (1u << 4u)
 #define CALIBRATION_BIDIRECTIONAL_FLAG_TOPOLOGY_FRESH (1u << 5u)
 #define CALIBRATION_BIDIRECTIONAL_FLAG_REFERENCE_LOOPBACK (1u << 6u)
+#define CALIBRATION_BIDIRECTIONAL_FLAG_REPEAT_GATE (1u << 7u)
+#define CALIBRATION_BIDIRECTIONAL_FLAG_ASYMMETRY_VALID (1u << 8u)
 
 #define CALIBRATION_BIDIRECTIONAL_EDGE_CLK_TX (1u << 0u)
 #define CALIBRATION_BIDIRECTIONAL_EDGE_CLK_RX (1u << 1u)

@@ -1,7 +1,7 @@
 # Distributed Hard Real-Time Trigger System
 
 Distributed Hard Real-Time Trigger System is the project-level system name for
-this firmware and documentation set. DTC100 is the current device model,
+this firmware and documentation set. DHRT100 is the current device model,
 RP2350 / RP2350B is the current hardware platform, and RP2350_TRIG remains the
 historical engineering and build artifact name until the build system is
 migrated.

@@ -179,7 +179,7 @@ docs/
 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | HAOFV 下 T2 预约与分布式时钟分发主线；各 owner 的实现细项分别落入 Trigger、VDC、TDMA、RefMem 和 SYNC_IO。 |
 | `arch/HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，跟踪 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 |
 | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | HAOFV 下 VDC/DPLL 既有融合架构输入；VDC 主域 canonical 见 `vdc/VDC_DOMAIN_ARCHITECTURE.md`。 |
-| `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构特化，统一 DTC100 产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
+| `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 产品化系统架构特化，统一 DHRT100 产品目标、双核 AMP、Vector/Blackboard、四板分布式、维护域和发布门禁。 |
 | `arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md` | HAOFV 实施补充、示例和历史迁移说明；不作为硬件资源 canonical。 |
 | `arch/HAOFV_PORTABILITY_EVALUATION.md` | HAOFV 可移植性评估快照，用于识别平台耦合和迁移风险。 |
 | `arch/HAOFV_ARCHITECTURE_RISK_EVALUATION.md` | HAOFV 顶层架构独立风险评估快照，记录 S0-S3 分级风险、事实校正和处置去向。 |
@@ -254,9 +254,9 @@ docs/
 | 文件 | 定位 |
 |---|---|
 | `interface/SCPI_COMMANDS.md` | SCPI 命令清单、语义和边界。 |
-| `interface/SCPI_COMMAND_PLAN.md` | DTC100 仪器式 SCPI 指令规划方案，定义主线挂载、SYNC/VDC/DPLL 层级和后续收敛步骤。 |
-| `interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` | RP1200 / DTC100 产品级 SCPI 指令表 Markdown 源文档，面向上位机联调和协议冻结。 |
-| `reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html` | RP1200 / DTC100 产品级 SCPI 指令表 HTML 版，当前与 Markdown 0.7 同步。 |
+| `interface/SCPI_COMMAND_PLAN.md` | DHRT100 仪器式 SCPI 指令规划方案，定义主线挂载、SYNC/VDC/DPLL 层级和后续收敛步骤。 |
+| `interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` | RP1200 / DHRT100 产品级 SCPI 指令表 Markdown 源文档，面向上位机联调和协议冻结。 |
+| `reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html` | RP1200 / DHRT100 产品级 SCPI 指令表 HTML 版，当前与 Markdown 0.7 同步。 |
 | `storage/LOG_SYSTEM_TODO.md` | 日志系统待办和演进方向。 |
 | `interface/SCPI_USB_INTERFACE_DESIGN.md` | USB CDC/USBTMC 接口设计、描述符、bus-powered/self-powered 决策记录。 |
 | `interface/SCPI_TASK_PROGRESS.md` | SCPI 指令框架、接口拆分、USB 验证和产品指令闭环记录。 |

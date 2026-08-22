@@ -119,7 +119,7 @@ def read_board_snapshot(name: str,
     claim0 = parse_ints(query(ser, "SYST:REFMEM:CLAIM? 0", timeout_s))
     claim_evidence0 = parse_ints(query(ser, "SYST:REFMEM:CLAIM:EVIDence? 0", timeout_s))
 
-    expect(idn != "<timeout>" and ("GTS" in idn or "DTC100" in idn or "RP2350_TRIG" in idn),
+    expect(idn != "<timeout>" and ("GTS" in idn or "DHRT100" in idn or "RP2350_TRIG" in idn),
            failures,
            f"{name}: unexpected *IDN? response {idn!r}")
     expect(len(build_id) >= 8, failures, f"{name}: build id is empty or malformed: {build_id!r}")
