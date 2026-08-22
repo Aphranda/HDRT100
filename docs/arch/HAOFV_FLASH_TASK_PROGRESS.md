@@ -29,6 +29,37 @@ Last updated: 2026-08-22
 | M1-01 Geometry/Raw HAL | 完成 | 16 MiB geometry、overflow-safe range、host boundary tests、A/B RAM closure/link ownership gate、COM8 v1 OTA/lockout HIL | 后续新增 raw/link caller 必须先通过 inventory 与 link gate。 |
 | M1-02 permission view | 进行中 | generated X-macro、纯算法服务、版本化 live consumer、host 边界测试、COM8 OTA/只读权限闭环 | 真实 writer 接入、v2 factory 部署与 C11 激活审核。 |
 | M1-03 FlashTransactionAO | 进行中 | one-deep queue/FB/Vector、OTA image/Product Config/App metadata writer、owned two-page snapshot、transaction-owned core1 park、COM8 双向 OTA 闭环 | Boot writer、异步 completion、immutable provider/refcount、运行时 abort 与 durable reset 语义。 |
+| M0-04 wire/parser corpus | 代码验证完成，文档待收口 | golden/truncation/bit-mutation corpus 已绑定 `pota_*` 与 TDMA frame parser；release gate、host runner `30/30` 通过 | 更新本文件与 TODO 的状态描述，完成独立审查后再关闭 M0-04。 |
+| M0-05 migration/rollback | 阻塞 | validation recovery 入口和回退日志已保留；应用态 reboot 未使 RP2350 ROM BOOTSEL 保持可见 | 物理 BOOTSEL full erase、factory UF2 verify、COM8 恢复报告。 |
+| M1-04 mode/thermal/dual-core gate | 进行中 | thermal/diagnostics/trigger/FAULT/resource reason 与 park-timeout HIL 已通过 | Calibration/TDMA owner gate、RUN/CAL/training negative HIL、warning policy 和 COM8 负向证据。 |
+| M1-05 buffer/owner convergence | 进行中 | fixed owned payload、large-payload fail-closed、queue/duplicate terminal 基线 | immutable provider/refcount、producer reset、raw-step abort、completion lease 证据。 |
+| M1-06 high-address Scratch | 未开始 | 仅有 v2 target map/permission 输入，未对板写入 | validation-only Scratch intent、COM8 高地址闭环、恢复与 release string scan。 |
+
+### FLASH-TASK-20260822-018 - 跨电脑交接与 M0-M1 下一步冻结
+
+- 状态：M0-04 的实现和主机验证已完成，但本进度文档尚未把它收口为完成；M0-05 仍受物理
+  BOOTSEL 阻塞；M1-04/M1-05/M1-06 继续进行或未开始。
+- 日期：2026-08-22
+- 已确认事实：
+  - 当前分支为 `feature/rtos-multicore-haofv`，最近代码和文档提交均已推送；工作树交接前应
+    重新执行 `git status --short --branch`，不可依赖旧终端状态。
+  - M1-04 不得通过“RUN 全拒绝 OTA”解决。RUN 是普通运行态，OTA 必须在 trigger、Calibration、
+    TDMA training、thermal critical、FAULT 和资源冲突均无阻断时由 transaction owner 取得 FLASH
+    后进入 OTA；Calibration/TDMA 只能发布 gate，不能直接操作 Flash。
+  - COM8 板卡 `839E1AE79EA20F31` 的应用 OTA、park-timeout 负向和 lockout 正向证据已保留在
+    `build/`；这些证据不替代 ROM BOOTSEL full erase/reflash。
+- 下一台电脑的执行顺序：
+  1. 先实现并测试 `resource_arbiter` 的 Calibration/TDMA training gate 及统一 snapshot 消费，
+     再做 validation-only COM8 负向 HIL；断言 raw erase/program 计数为零、policy reason 可追溯。
+  2. 再完成 immutable provider/refcount、producer reset、duplicate completion 和 raw-step abort，
+     重新跑 host runner、release/RTOS+双核构建及 inventory/link gate。
+  3. 只通过 Scratch lease intent 做 M1-06 高地址验证，完成擦除恢复和 release command string scan。
+  4. 有条件时按住 BOOTSEL 完成 M0-05；保存 full erase、UF2 hash、identity/build/slot/error queue
+     和恢复后的 COM8 原始报告。
+  5. 代码与文档分离提交并推送；文档提交前运行 docs_check、doc_regression、相关 pytest 和
+     `.githooks/pre-commit`。登记表 status 变更必须补 C11 独立交叉审核，不得自审自批。
+- 未完成项不应标记为 `[x]`：M0-05 BOOTSEL、M1-04 owner gate/HIL、M1-05 provider/abort、M1-06
+  Scratch HIL，以及 M1 退出契约的 C11 激活。
 
 ### FLASH-TASK-20260822-017 - RAM closure 与 park-timeout 负向闭环
 

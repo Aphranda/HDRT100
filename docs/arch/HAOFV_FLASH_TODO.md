@@ -53,6 +53,32 @@ M2 和 M3 可在 M1 稳定后并行，但 M4 必须同时依赖 M2/M3；M5 不�
 generated permission view、版本化 live consumer 和只读板端验证；M1-03 已建立 transaction owner，并已迁移 OTA image 与 Product Config 首个 App writer
 并迁移 OTA image 首个生产 writer，同时保持 v2 只能由 factory full erase/reflash 部署。
 
+### 1.4 下一步执行序（跨电脑交接清单）
+
+以下顺序是当前分支的唯一推荐执行路径；每项完成前不得把对应里程碑标记为 `[x]`。
+
+1. **M1-04 统一准入 gate**：以 `resource_arbiter` 为唯一运行态事实源，补充
+   Calibration training 和 TDMA clock-training 的 owner 发布 gate；保留 RUN 下 OTA 的
+   “先检查、后取得 FLASH owner、再进入 OTA”语义，不得直接把 RUN 全部改成拒绝。FlashTransactionAO
+   只消费 snapshot，拒绝 CAL/training/thermal-critical/FAULT/unknown 状态的新写，warning 仅按
+   policy 降速或暂停。补 host negative fixture、validation-only COM8 负向 HIL，并记录零 raw
+   erase/program delta。
+2. **M1-05 owner/buffer 收敛**：实现 immutable provider/refcount 或等价 lease，覆盖 producer
+   reset、duplicate completion、page/sector 执行中 abort 和 lease 释放；保持大于
+   `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的请求 fail-closed，补 host 与构建/inventory gate。
+3. **M1-06 高地址 Scratch**：只增加 validation-only Scratch lease intent；流程固定为 target
+   confirm → erase → pattern program → readback/hash → erase/restore。记录 geometry、map symbol、
+   pattern hash、lockout、温度和恢复结果；release binary 必须不含 destructive validation 命令。
+4. **M0-05 实板回退**：在 COM8 板上物理按住 BOOTSEL 后复位/重新上电，确认 ROM BOOTSEL 可见，
+   再执行 full erase、factory UF2 load/verify 和应用复核；保留 identity、build、slot、错误队列、
+   artifact hash 与原始日志。未获得 ROM BOOTSEL 证据前保持 `[!]`，不得以应用 USB 断开代替。
+5. **退出评审与提交**：代码验证先完成并单独提交/推送；随后更新本文件和
+   `HAOFV_FLASH_TASK_PROGRESS.md`，运行文档门禁；`ARCH-FLASHMAP-01`、`ARCH-FLASHOWNER-01`
+   只有在 host/build/HIL、回退和 C11 独立交叉审核齐全后才可从 `pending` 激活。
+
+跨电脑开始工作时，先执行 `git pull --ff-only`、`git status --short --branch`，并先阅读本节及
+`HAOFV_FLASH_TASK_PROGRESS.md` 顶部的最新任务记录；COM8 物理操作属于不可由主机测试替代的单独 gate。
+
 ## 二、里程碑总览
 
 | 里程碑 | 目标 | 进入条件 | 退出证据 |
