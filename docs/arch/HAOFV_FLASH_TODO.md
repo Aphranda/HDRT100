@@ -72,10 +72,10 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
    region 的 hash/recompute gate 已进入 `pico2-v2-factory-candidate`；下一步实现签名 factory package
    验证、受控 USB/SD restore 和空片恢复 HIL。在这些 gate 齐全前不得烧录候选工件或去掉
    `target_not_deployed` 标记。
-2. **M4-02 durable resume core**：真实 v2 `OTA_JOURNAL` backend 已通过 FlashTransaction owner
-   接入并提供持久 checkpoint 诊断；下一步恢复 stream/package/image cursor、运行中 CRC 和 parser
-   状态，再完成跨 reset replay/idempotence、sector rotation 和 power-cut matrix。不得把仅能查询
-   durable checkpoint 的 backend 解释为 resume 已完成。
+2. **M4-02 durable resume 闭环**：真实 v2 `OTA_JOURNAL` backend 和 raw-image bounded resume core
+   已完成 host/build 接入；下一步补 package parser/image cursor、journal sector rotation、abort/
+   restart policy、真实掉电矩阵和 DHRT100 跨 reset HIL。不得用 raw host 证据替代 package 或实板
+   resume 完成定义。
 3. **M3-04 信任链**：确定 portable verifier、RP2350 key/OTP binding、key ID/counter 来源与离线签名
    工具；签名为空的候选 update package 只能作为布局测试工件，不能进入 factory/HIL。
 4. **M0-05 实板回退**：在 DHRT100 板上物理按住 BOOTSEL 后复位/重新上电，确认 ROM BOOTSEL 可见，
@@ -463,7 +463,8 @@ TODO 只保留可独立验收的状态项和证据索引。
 ### M4-01 OtaStreamSession core
 
 - [~] 已新增 transport-neutral `pota_stream_session` 的 open/write/close/abort 状态骨架，顺序、
-  重复和冲突 chunk 有 host 负向证据；resume 仍待 M4-02 durable journal。
+  重复和冲突 chunk 有 host 负向证据；raw-image resume 已接入 M4-02 durable journal，package
+  parser/image cursor resume 仍未完成。
 - [~] session descriptor 已绑定 identity/capability/package hash/object/map/partition/generation/
   destination，并校验 inactive-write/durable-ACK capability；实际 ingress 尚未统一迁移。
 - [~] descriptor 已区分 object/destination 并拒绝错误 App partition；package manifest parser、
@@ -475,21 +476,26 @@ TODO 只保留可独立验收的状态项和证据索引。
 - [~] `pota_stream_session` 已可配置 `pota_stream_checkpoint_store`，在底层 program/readback
   成功后按 interval/final policy append checkpoint，并在 append/recover 失败时 fail closed；真实
   v2 `OTA_JOURNAL` backend 已通过 FlashTransaction owner 写入并在固件启动时 fail closed 接入，
-  证据见 `FLASH-TASK-20260823-039`。跨 reset resume core 和板端验证仍待完成。
+  raw-image core 已按 descriptor/map/partition/token/CRC 恢复，并由 bounded service 校验 durable
+  prefix、清理未确认尾部后发布 cursor，证据见 `FLASH-TASK-20260823-039`、`040`；package resume
+  和板端验证仍待完成。
 - [~] portable policy primitive 已按 monotonic byte interval/final offset 决定 checkpoint，
-  不按每 chunk 擦写（证据：`FLASH-TASK-20260823-022`）；实际 wear/retransmit profile 选择、
-  ingress 调用和 endurance HIL 仍待完成。
+  raw-image 非最终 checkpoint 进一步约束到活动 Flash erase-sector 边界，不按每 chunk 擦写
+  （证据：`FLASH-TASK-20260823-022`、`040`）；实际 wear/retransmit profile、journal rotation 和
+  endurance HIL 仍待完成。
 - [~] checkpoint identity 绑定 session/generation/token/object/total/package CRC，并拒绝元数据
-  或 token 冲突；跨 ingress 的 restart/abort policy 仍待接入。
+  或 token 冲突；token 已固定为 little-endian OPEN wire CRC，活动 map 与 App partition ID 来自
+  generated deployment map；跨 ingress 的 restart/abort policy 仍待接入。
 - [~] host primitive 与真实 backend adapter 已覆盖重建、torn body/commit、CRC/readback corruption、
-  page 对齐、分区边界和 requester 权限；journal 写满后 fail closed，尚无 GC/sector rotation。
-  checkpoint 可持久查询不等于 session 已恢复，DHRT100 跨 reset durable resume 仍未完成。
+  page/sector 对齐、分区边界、requester 权限、durable prefix 损坏、bounded scan 和尾部清理；journal
+  写满后 fail closed，尚无 GC/sector rotation。DHRT100 跨 reset/power-cut durable resume 仍未完成。
 
 ### M4-03 Local ingress regression
 
 - [~] `pota_stream_ingress` 已通过 portable port 接入 App OTA AO 和实际 FlashTransaction owner；
   USB CDC/USBTMC SCPI 控制面使用固定 little-endian OPEN、每帧 CRC、source admission 和
-  status/BOOT 投影，独立 CDC sender 已完成（证据：`FLASH-TASK-20260823-033`、`034`）。
+  status/BOOT 投影，独立 CDC sender 已支持从 journal 恢复 raw image（证据：
+  `FLASH-TASK-20260823-033`、`034`、`040`）。
   SD/UART/RS485 真实 producer、USBTMC/VISA sender 和五类板端回归仍待完成。
 - [ ] Stage 只保存 manifest/chunk spill/delta，不缓存完整 A+B package。
 - [ ] 乱序、重复、CRC、truncate、overflow、abort、zero storage、wrong slot/package 全部 fail closed。

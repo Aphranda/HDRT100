@@ -16,6 +16,37 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-040 - Raw image durable resume core
+
+- 状态：M4-02 完成 raw-image durable resume 的 host/build 切片；M4-02、M4、M3 和 M1 的退出门禁
+  继续保持未完成，v2 deployment state 仍为 `target_not_deployed`。
+- 代码：checkpoint schema 升级并保存 durable prefix CRC；恢复只接受 session/generation、固定 wire
+  token、object、size、package CRC、活动 map、目标分区和 inactive slot 全匹配的 raw image。
+  package-mode checkpoint 明确 fail closed。恢复校验不在 OPEN 中同步扫描镜像，而由 OTA AO 的
+  bounded service cadence 每次推进不超过 `POTA_MAX_DATA_BLOCK_SIZE`；校验通过后按 Flash erase
+  sector 清理 durable offset 后的未确认尾部，再发布 recovered cursor，避免重复 program 半提交页。
+  非最终 checkpoint 只在活动 Flash geometry 的 erase-sector 边界产生。
+- 工具与诊断：CDC sender 增加 `--resume` 及显式 session/generation 参数；先通过 `*IDN?` 识别
+  DHRT100，再查询活动 map 与 `SYSTem:OTA:JOURnal?`，从 canonical FlashMap 推导 App partition ID，
+  并在 OPEN 前校验 journal token/size/CRC。journal 诊断新增 durable prefix CRC 字段。
+- host 证据：恢复矩阵覆盖 map/token mismatch、损坏 durable prefix、OPEN 零镜像扫描、分块 CRC
+  校验、验证前 DATA 拒绝、durable 前缀保持、未确认尾部 sector 擦除、无重复 prefix program、
+  continuation close 和 pending publish。全量 host runner 为 31/31，Flash/OTA 定向 Python 为
+  52/52；这些计数是本次验证快照，非架构事实源。
+- build/release 证据：`pico2-release` 和 `pico2-v2-factory-candidate` 完整构建通过；v1/v2 consumer、
+  App/Boot/Recovery link contract、独立 Flash owner report 和 `release_check=OK`。v2 候选仍含空
+  signature，只是布局/构建工件，不是可部署 release。
+- 失败与 HIL 边界：一次非门禁全量 Python 探测因系统 pytest 临时目录权限产生 setup errors，且
+  既有 TDMA reflection 报告缺失；改用仓库外独立 basetemp 后本任务定向集合全绿。只读串口扫描
+  只发现 CH343 接口且 SCPI 查询超时，未获得 DHRT100 `*IDN?`，因此未烧录、未写 Flash、未执行
+  reset/power-cut/retransmit HIL。签名、受控 Recovery、固定回退和 v2 部署 gate 齐全前仍禁止烧录
+  `DHRT100_V2_CANDIDATE_FACTORY.uf2`。
+- 提交与推送：`4a594ce feat(ota): resume raw streams from durable checkpoint` 已推送
+  `origin/feature/rtos-multicore-haofv`；Registry 状态未改变。
+- 剩余工作：package parser/image cursor resume、journal GC/sector rotation、abort/restart policy、
+  真实掉电点矩阵和 DHRT100 跨 reset resume/revert HIL 均未完成，不能把本切片解释为 M4-02 或
+  M4 已关闭。
+
 ### FLASH-TASK-20260823-039 - v2 OTA Journal durable store adapter
 
 - 状态：M4-02 增加真实 v2 `OTA_JOURNAL` 持久 backend 与只读诊断切片；M4-02、M4、M3 和 M1
