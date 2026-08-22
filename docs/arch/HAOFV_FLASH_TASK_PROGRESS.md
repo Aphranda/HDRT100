@@ -16,6 +16,27 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-037 - Gated v2 factory-candidate build path
+
+- 状态：M1-02/M3-05/M4-04 增加显式、不可误入普通发布的 v2 工厂候选构建通路；这些总项及
+  M1/M3/M4 退出门禁保持未完成。普通 preset 继续固定 `PROJECT_FLASH_DEPLOYMENT_MAP=v1_compat`；
+  只有同时选择 `v2_candidate` 和 `PROJECT_FACTORY_MIGRATION_BUILD=ON` 才能配置候选构建，缺少
+  factory flag 的负向配置按预期失败。
+- 代码：新增 `flash_deployment_map.h` 作为 C consumer 的构建期活动 map façade，链接脚本消费由
+  CMake 配置的 `flash_map_active.ldinc`；BootFlashService、FlashTransaction、OTA、Product Config
+  和 validation-only Scratch 不再直接绑定 v1 符号。候选工件使用独立名称，packager/consumer
+  只有显式 opt-in 才接受 `target_not_deployed` manifest；标准 release 工件名和 v1 地址保持不变。
+- 验证：`pico2-release` 与 `pico2-v2-factory-candidate` 均完成 App A/App B/Boot 链接，三类
+  Flash link contract 通过；v1/v2 consumer check、`release_check`、定向 Python 29 项和全量 host
+  runner 30/30 通过。候选生成 `DHRT100_V2_CANDIDATE_FACTORY.uf2` 与
+  `DHRT100_V2_CANDIDATE_UPDATE.pkg`，其地址由 `flash_map_v2_manifest.json` 校验。
+- 提交与推送：代码提交 `ed2de4b feat(flash): add gated v2 factory candidate build` 已推送
+  `origin/feature/rtos-multicore-haofv`。
+- 边界与回退：候选 factory 尚未包含 Recovery、map/BCB/空 store baseline，update package 的
+  signature 仍为空，真实 `OTA_JOURNAL` backend、签名/OTP、空片恢复和 DHRT100 HIL 均未完成。
+  本切片没有烧录、擦除或写板，不能视为 v2 deployment；可独立 revert `ed2de4b` 回到 v1-only
+  consumer，Registry 状态未变。
+
 ### FLASH-TASK-20260823-036 - BCB persistent health projection
 
 - 状态：M3-02 完成 BCB 盘上健康事实重建与 App 只读诊断切片；M3-02 总项保持 `[~]`。

@@ -33,7 +33,7 @@ v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在�
 | 基线 | 状态 | 证据 | 仍缺什么 |
 |---|---|---|---|
 | 物理/构建/兼容布局事实已核对 | `[x]` | `CMakeLists.txt`、`drv_flash.h`、`ota_partition.h`、`ARCH_FLASH_CROSS_REVIEW_01.md` | live consumer 已同源于 v1 compatibility map；v2 仍需 factory 迁移。 |
-| v2 map source/schema 与 geometry gate | `[~]` | `config/flash_map_v2.json`、`config/flash_map_v1_compat.json`、`config/flash_map_gen/`、commit `315dc6f`/`10fd545`/`a211188` | v2 factory 部署与高地址 HIL 尚未完成。 |
+| v2 map source/schema 与 geometry gate | `[~]` | `config/flash_map_v2.json`、`config/flash_map_v1_compat.json`、`config/flash_map_gen/`、commit `315dc6f`/`10fd545`/`a211188`/`ed2de4b` | 显式 factory-candidate consumer 已可构建；Recovery、空片部署与高地址 HIL 尚未完成。 |
 | Flash v2 owner/map/store/Boot/OTA 语义已形成 canonical | `[x]` | `HAOFV_FLASH_ARCHITECTURE.md` | 7 条目标契约仍为 `pending`。 |
 | Direct A/B 为发布默认 | `[x]` | CMake preset/release check/当前 Bootloader | `COPY_TO_ACTIVE` 兼容分支尚未从 v2 清除。 |
 | core1 Flash park/ACK 基础存在 | `[x]` | `drv_flash_lockout.*`、FlashTransaction HIL | OTA image 与 Product Config 已收敛到 FlashTransactionAO；Boot/metadata 仍待迁移。 |
@@ -68,21 +68,23 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
 
 以下顺序是当前分支的唯一推荐执行路径；每项完成前不得把对应里程碑标记为 `[x]`。
 
-1. **M1-04 统一准入 gate**：代码侧已由 `a785607` 将 Calibration 与 TDMA clock-training
-   gate 收敛到各自主域 owner，并保留 RUN 下 OTA 的“先检查、后取得 FLASH owner、再进入 OTA”
-   语义；不得直接把 RUN 全部改成拒绝。下一步只剩用新 DHRT100 固件完成 validation-only
-   DHRT100/四板负向 HIL，证明 CAL/training/thermal-critical/FAULT/unknown 状态拒绝新写、raw
-   erase/program delta 为零、policy reason 可追溯；warning 仅按 policy 降速或暂停。
-2. **M1-05 owner/buffer 收敛**：实现 immutable provider/refcount 或等价 lease，覆盖 producer
-   reset、duplicate completion、page/sector 执行中 abort 和 lease 释放；保持大于
-   `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的请求 fail-closed，补 host 与构建/inventory gate。
-3. **M1-06 高地址 Scratch**：只增加 validation-only Scratch lease intent；流程固定为 target
-   confirm → erase → pattern program → readback/hash → erase/restore。记录 geometry、map symbol、
-   pattern hash、lockout、温度和恢复结果；release binary 必须不含 destructive validation 命令。
+1. **M3-05 Recovery/factory 工件**：以 `pico2-v2-factory-candidate` 为隔离构建面，新增独立
+   Recovery target、受限恢复策略、map/BCB/空 store baseline 和 per-region hash report；候选工件
+   在这些内容齐全前不得烧录或去掉 `target_not_deployed` 标记。
+2. **M4-02 真实 OTA Journal**：把 checkpoint/completion backend 放入生成的 `OTA_JOURNAL`
+   分区，通过 FlashTransaction owner 写入，并完成 live producer、跨 reset replay/idempotence 和
+   power-cut host matrix；不得继续只由内存 fixture 证明 resume。
+3. **M3-04 信任链**：确定 portable verifier、RP2350 key/OTP binding、key ID/counter 来源与离线签名
+   工具；签名为空的候选 update package 只能作为布局测试工件，不能进入 factory/HIL。
 4. **M0-05 实板回退**：在 DHRT100 板上物理按住 BOOTSEL 后复位/重新上电，确认 ROM BOOTSEL 可见，
    再执行 full erase、factory UF2 load/verify 和应用复核；保留 identity、build、slot、错误队列、
    artifact hash 与原始日志。未获得 ROM BOOTSEL 证据前保持 `[!]`，不得以应用 USB 断开代替。
-5. **退出评审与提交**：代码验证先完成并单独提交/推送；随后更新本文件和
+5. **M1 板端退出门禁**：使用可确认身份的 DHRT100 完成 CAL/training/thermal-critical/FAULT/
+   unknown admission 负向 HIL、v2 Scratch restore 和 core1 alive 复核；只有 raw write delta、policy
+   reason、温度和重启后身份/应用均有证据，才能关闭 M1。
+6. **M4 样板迁移与本地入口**：Recovery、签名、Journal 和 v1 rollback drill 就绪后，才执行空片
+   factory migration，再依次完成 USB CDC/USBTMC/UART/RS485/SD 的 A/B、resume、revert/Recovery。
+7. **退出评审与提交**：代码验证先完成并单独提交/推送；随后更新本文件和
    `HAOFV_FLASH_TASK_PROGRESS.md`，运行文档门禁；`ARCH-FLASHMAP-01`、`ARCH-FLASHOWNER-01`
    只有在 host/build/HIL、回退和 C11 独立交叉审核齐全后才可从 `pending` 激活。
 
@@ -194,8 +196,9 @@ parked raw caller 和同步 raw write link ownership 执行构建期门禁，M1-
 
 - [x] 实现 `flash_map_find()`、partition-relative range validation 和 operation permission。
 - [x] Boot/App/factory 使用不同的 generated permission view。
-- [x] linker、factory image、packager、release size gate 消费显式选择的 deployed map artifact；当前
-  为生成的 v1 compatibility map，v2 target map 不得驱动 live consumer。
+- [x] linker、factory image、packager、release size gate 消费显式选择的 map artifact；普通构建
+  固定生成的 v1 compatibility map，v2 只能由 factory-candidate preset 与独立命名工件驱动，且
+  manifest 保持 `target_not_deployed`。
 - [x] 测试 active App write 拒绝、cross-partition 拒绝、Scratch lease 和所有 partition 首尾。
 
 证据：commit `10fd545`、`a211188`；`run_flash_map_tests.ps1` 纳入全量 host runner，release/Boot/
@@ -204,7 +207,8 @@ permission view 做板端闭环；live linker/factory/packager 则由 generated 
 保持当前可启动地址。报告见 `HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-002`、
 `FLASH-TASK-20260822-003` 和 `FLASH-TASK-20260822-004`。本项仍为进行中：App OTA image、
 Product Config 与 App metadata writer 已走 intent，Boot metadata 保持独立 BootFlashService；
-板上 v2 分区没有部署或写入，C11 激活审核未开始。
+板上 v2 分区没有部署或写入，C11 激活审核未开始。受控候选构建证据见
+`FLASH-TASK-20260823-037`。
 
 ### M1-03 FlashTransactionAO/FB/Vector
 
@@ -379,16 +383,16 @@ TODO 只保留可独立验收的状态项和证据索引。
 ### M3-01 BootFlashService 与依赖白名单
 
 - [~] Boot target 已独立链接 geometry/map、BCB/metadata、image/vector validator、Raw HAL 和 ROM
-  recovery 相关路径；`BootFlashService` 已成为 v1 App A/App B/Boot Control erase/program 的唯一
-  raw owner（证据：`FLASH-TASK-20260823-015`），但 BCB payload、wear counter、Recovery 和
-  v2 map deployment 仍待 M3-02/M3-04/M3-05。
-- [x] `boot_flash_service_erase/program` 对生成 v1 compatibility map 的可写分区执行
+  recovery 相关路径；`BootFlashService` 已成为活动 map 的 App A/App B/Boot Control erase/program
+  唯一 raw owner（证据：`FLASH-TASK-20260823-015`、`FLASH-TASK-20260823-037`），但 BCB payload、
+  wear counter、Recovery 和 v2 map deployment 仍待 M3-02/M3-04/M3-05。
+- [x] `boot_flash_service_erase/program` 对构建期活动 generated map 的可写分区执行
   sector/page 对齐、长度和分区边界检查；Bootloader 镜像复制与 metadata adapter 均经由该 API，
   raw inventory/link gate 拒绝其它 Boot caller。
 - [x] link gate 已接入 Boot map/dis，拒绝 RTOS、SCPI、TDMA、FatFs、littlefs、FlashTransactionAO、
   resource arbiter、storage manager 和 App OTA AO 符号；当前 build 通过。
-- [x] Bootloader size 使用生成的 partition symbol gate，不使用文档硬编码阈值；`__flash_binary_end`
-  必须落在 `FLASH_COMPAT_MAP_BOOTLOADER_ORIGIN/LENGTH` 界内。
+- [x] Bootloader size 使用生成的活动 partition symbol gate，不使用文档硬编码阈值；
+  `__flash_binary_end` 必须落在 `FLASH_ACTIVE_MAP_BOOTLOADER_ORIGIN/LENGTH` 界内。
 
 ### M3-02 BootControlStore
 
@@ -427,7 +431,9 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 - [ ] Recovery 最小能力：诊断 map/BCB、验证 factory package、受控 USB/SD 恢复。
 - [ ] Recovery 更新使用更高权限，普通 TDMA OTA 无权覆盖。
-- [ ] factory artifact 包含 Bootloader、Slot A、Recovery、map manifest/BCB 和空 store baseline。
+- [~] 已有独立命名且受 factory flag 保护的 v2 candidate artifact；当前只含 Bootloader、Slot A 和
+  Boot Control 擦除基线，仍须加入 Recovery、map manifest/BCB 和全部空 store baseline，证据见
+  `FLASH-TASK-20260823-037`。
 - [ ] factory report 记录每个 region hash，禁止遗留旧 metadata 到新 BCB 地址。
 
 ### M3-06 Boot fault matrix
@@ -484,6 +490,8 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M4-04 DHRT100 样板 factory migration（物理 gate）
 
+- [~] v2 candidate 已能在隔离 preset 下生成并通过布局/链接检查，但保持
+  `target_not_deployed`，尚未获得任何空片、烧录或启动证据。
 - [ ] 迁移前记录 `*IDN?`、build、slot/result、board identity、Product Config、sensor snapshot。
 - [ ] BOOTSEL/factory full erase/reflash v2，确认 USB 重新枚举和 identity 转换策略。
 - [ ] 运行 M1 Scratch、Product NVS、Calibration empty/default、Boot fault subset。
