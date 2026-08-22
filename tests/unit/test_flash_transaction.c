@@ -41,6 +41,10 @@ static uint32_t s_completion_release_count;
 static uint32_t s_completion_append_count;
 static uint32_t s_completion_fail_event;
 static flash_transaction_journal_record_t s_completion_records[8];
+static flash_transaction_fb_t *s_step_hook_context;
+static uint32_t s_step_hook_state;
+static bool s_step_hook_provider_reset;
+static uint32_t s_step_hook_calls;
 
 static bool fake_lease_retain(void *context)
 {
@@ -198,6 +202,21 @@ static uint32_t fake_now_ms(void)
     return ++s_now_ms;
 }
 
+static void fake_step_hook(void *context, uint32_t state)
+{
+    flash_transaction_fb_t *transaction = context;
+    assert(transaction != NULL);
+    if (s_step_hook_context != NULL) {
+        assert(transaction == s_step_hook_context);
+    }
+    s_step_hook_calls++;
+    if (s_step_hook_provider_reset && state == s_step_hook_state) {
+        s_step_hook_provider_reset = false;
+        assert(flash_transaction_fb_notify_provider_reset(
+            transaction, transaction->request.provider_generation));
+    }
+}
+
 static flash_transaction_platform_t make_platform(void)
 {
     const flash_transaction_platform_t platform = {
@@ -213,6 +232,8 @@ static flash_transaction_platform_t make_platform(void)
         .verify_programmed = fake_verify_programmed,
         .get_lockout = fake_get_lockout,
         .now_ms = fake_now_ms,
+        .step_hook = fake_step_hook,
+        .step_hook_context = s_step_hook_context,
     };
     return platform;
 }
@@ -253,6 +274,10 @@ static void reset_fakes(void)
     s_completion_append_count = 0u;
     s_completion_fail_event = 0u;
     memset(s_completion_records, 0, sizeof(s_completion_records));
+    s_step_hook_context = NULL;
+    s_step_hook_state = FLASH_TRANSACTION_STATE_IDLE;
+    s_step_hook_provider_reset = false;
+    s_step_hook_calls = 0u;
 }
 
 static void init_context(flash_transaction_fb_t *context)
@@ -260,6 +285,8 @@ static void init_context(flash_transaction_fb_t *context)
     reset_fakes();
     const flash_transaction_platform_t platform = make_platform();
     flash_transaction_fb_init(context, &platform);
+    s_step_hook_context = context;
+    context->platform.step_hook_context = context;
 }
 
 static flash_transaction_request_t erase_request(void)
@@ -923,6 +950,60 @@ static void test_provider_reset_fails_closed_before_and_during_raw(void)
         &context, request.provider_generation));
 }
 
+static void test_step_hook_provider_reset_is_async_and_journaled(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    uint8_t data[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES] = {0x71u};
+    flash_transaction_request_t request = program_request(data);
+
+    s_step_hook_state = FLASH_TRANSACTION_STATE_PARK_CORE1;
+    s_step_hook_provider_reset = true;
+    flash_transaction_vector_t vector = run_request(&context, &request);
+    assert(s_step_hook_calls != 0u);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_PROVIDER);
+    assert(vector.processed_bytes == 0u);
+    assert(vector.verified_bytes == 0u);
+    assert(s_program_count == 0u);
+    assert(s_verify_programmed_count == 0u);
+    assert(s_park_count == 0u);
+    assert(s_unpark_count == 0u);
+
+    reset_fakes();
+    s_step_hook_context = &context;
+    context.platform.step_hook_context = &context;
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    flash_transaction_completion_lease_t completion_lease = {
+        .context = &s_completion_append_count,
+        .retain = fake_completion_retain,
+        .release = fake_completion_release,
+        .append = fake_completion_append,
+    };
+    request = program_request(data);
+    request.completion_lease = &completion_lease;
+    s_step_hook_state = FLASH_TRANSACTION_STATE_VERIFY;
+    s_step_hook_provider_reset = true;
+    vector = run_request(&context, &request);
+    assert(s_step_hook_calls != 0u);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_PROVIDER);
+    assert(vector.completion_level == FLASH_TRANSACTION_COMPLETION_PROGRAMMED);
+    assert(vector.processed_bytes == request.length);
+    assert(vector.verified_bytes == 0u);
+    assert(s_program_count == 1u);
+    assert(s_verify_programmed_count == 0u);
+    assert(s_completion_append_count == 3u);
+    assert(s_completion_records[0].event ==
+           FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED);
+    assert(s_completion_records[1].event ==
+           FLASH_TRANSACTION_JOURNAL_EVENT_PROGRAMMED);
+    assert(s_completion_records[2].event ==
+           FLASH_TRANSACTION_JOURNAL_EVENT_FAILED);
+    assert(s_completion_records[2].error == FLASH_TRANSACTION_ERROR_PROVIDER);
+}
+
 static void test_platform_and_range_resolution(void)
 {
     flash_transaction_fb_t context;
@@ -969,6 +1050,7 @@ int main(void)
     test_busy_abort_and_snapshot();
     test_abort_during_raw_operation_skips_verify_and_commit();
     test_provider_reset_fails_closed_before_and_during_raw();
+    test_step_hook_provider_reset_is_async_and_journaled();
     test_platform_and_range_resolution();
     puts("flash transaction tests passed");
     return 0;

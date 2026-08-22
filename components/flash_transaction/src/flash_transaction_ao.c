@@ -143,6 +143,8 @@ bool flash_transaction_ao_init(void)
         .verify_programmed = flash_transaction_verify_programmed,
         .get_lockout = flash_transaction_get_lockout,
         .now_ms = flash_transaction_now_ms,
+        .step_hook = NULL,
+        .step_hook_context = NULL,
     };
     flash_transaction_fb_init(&s_flash_transaction, &platform);
     return true;

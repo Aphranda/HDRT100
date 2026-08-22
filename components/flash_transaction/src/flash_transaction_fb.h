@@ -22,6 +22,8 @@ typedef struct {
     void (*get_lockout)(uint32_t *request_seq, uint32_t *ack_seq,
                         uint32_t *timeout_count);
     uint32_t (*now_ms)(void);
+    void (*step_hook)(void *context, uint32_t state);
+    void *step_hook_context;
 } flash_transaction_platform_t;
 
 typedef struct {

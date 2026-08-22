@@ -459,6 +459,10 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         !flash_transaction_platform_valid(&context->platform)) {
         return;
     }
+    if (context->platform.step_hook != NULL) {
+        context->platform.step_hook(context->platform.step_hook_context,
+                                    context->vector.state);
+    }
     if (flash_transaction_provider_reset_is_pending(context) &&
         context->vector.state != FLASH_TRANSACTION_STATE_RELEASE &&
         context->vector.state != FLASH_TRANSACTION_STATE_FAILED &&
