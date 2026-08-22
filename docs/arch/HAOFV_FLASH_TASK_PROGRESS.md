@@ -61,6 +61,22 @@ Last updated: 2026-08-23
 - 结论：该串口名称不作为板卡身份；DHRT100 M1/M3/M4 的物理 HIL、烧录和回退证据继续
   保持未完成，待固件重新枚举且 `*IDN?` 明确返回 DHRT100 后再重试。
 
+### FLASH-TASK-20260823-030 - Product Config sector rotation
+
+- 状态：M1-05-K/M2-02 增加了基本 sector rotation；M1-05-K 总项仍为 `[~]`。当所有
+  program-page slot 已占用时，选择不包含最新有效记录的下一 sector，先通过
+  FlashTransactionAO 擦除该 sector，再从其首个 page append 新记录；如果没有有效锚点、
+  擦除失败或后续 program/readback 失败，保留旧记录并返回失败。
+- 代码：`components/product_config/src/product_config.c` 增加 slot/sector 几何静态断言、
+  最新记录所在 sector 选择和环形轮换；`flash_transaction_fb.c` 允许 Product NVS 内任意
+  sector-aligned erase，但仍限制 requester、分区和整 sector 长度；
+  `test_flash_transaction.c` 增加非首 sector erase owner 边界。
+- 验证：`tools/tests/run_host_unit_tests.ps1` 30/30；`cmake --build --preset pico2-release
+  --parallel 4` 通过并生成 DHRT100 App A/App B/Boot/factory/update 工件；FlashMap、inventory、
+  link gate 和 `release_check=OK` 通过。
+- 边界与回退：当前仍无真实 Product NVS power-cut 注入、sector seal、wear health 或 DHRT100
+  rotation HIL；轮换策略只在旧最新记录所在 sector 之外执行，故不宣称 M2-02/M1-05-K 完成。
+
 ### FLASH-TASK-20260823-025 - signed manifest extension 与 counter gate
 
 - 状态：M3-04 增加固定 manifest extension 的 portable parser/packager boundary；这是信任链
