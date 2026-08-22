@@ -16,6 +16,35 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-039 - v2 OTA Journal durable store adapter
+
+- 状态：M4-02 增加真实 v2 `OTA_JOURNAL` 持久 backend 与只读诊断切片；M4-02、M4、M3 和 M1
+  退出门禁保持未完成，候选 deployment state 继续为 `target_not_deployed`。
+- 代码：新增 `OtaJournal` adapter，将 portable checkpoint 的 body/commit marker 更新合并为完整
+  program page，并经 `FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL` 提交；owner 只接受生成 map 中的
+  `OTA_JOURNAL` 分区、完整 program page 或 erase sector，跨分区、错长度、非对齐和 v1 高地址
+  均 fail closed。该 requester 不继承 FlashTransaction completion journal lease，避免 journal
+  自递归。
+- 启动与诊断：v2 App 初始化 journal/session 失败时拒绝启动 OTA surface；新增只读
+  `SYSTem:OTA:JOURnal?`，投影 valid/result/sequence、session/generation/token/object、durable/
+  total offset 和 package/chunk CRC。持久化 schema 与 DHRT100 OTA 验证工具已切换到独立 journal
+  查询，不改变既有 `SYSTem:OTA:TXN?` 响应。
+- 验证：`run_ota_journal_tests.ps1`、FlashTransaction owner/journal tests、全量 host runner
+  31/31 通过；Flash/OTA 定向 Python 50/50 通过。`pico2-release` 与
+  `pico2-v2-factory-candidate` 完整生成 App A/App B/Boot 及候选 Recovery/factory/update 工件；
+  v1/v2 consumer、App/Boot/Recovery link contract、独立 release report 和 `release_check=OK`
+  均通过。上述计数均为本次验证快照，非架构事实源。
+- 提交与推送：`7912378 feat(ota): add v2 durable checkpoint backend` 已推送
+  `origin/feature/rtos-multicore-haofv`。
+- 边界与回退：本切片只完成 durable store adapter。stream/session/package core 仍从 offset 0
+  初始化，尚不能恢复 received/programmed cursor、运行中 package/image CRC 或 header/parser
+  状态；journal 尚无 GC/sector rotation，写满后 fail closed。未识别、烧录或写入 DHRT100，未做
+  reset/power-cut/retransmit HIL，不宣称跨 reset resume。代码可独立 revert `7912378`；Registry
+  状态未变。
+- 下一步：实现 identity-bound resume API，使 recovered checkpoint 只在 descriptor/map/
+  generation/token/object/size/package CRC 全匹配时恢复 core 状态；补 running CRC state、parser
+  state、重复 chunk 幂等和 mismatch/partial checkpoint 负向矩阵，再进入 DHRT100 烧录闭环。
+
 ### FLASH-TASK-20260823-038 - Read-only Recovery 与 v2 factory baseline
 
 - 状态：M3-05 增加 build-only Recovery/factory baseline 切片；M3-05、M3、M4 和 M1 的退出门禁

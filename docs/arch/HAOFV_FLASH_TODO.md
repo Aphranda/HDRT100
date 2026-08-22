@@ -72,9 +72,10 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
    region 的 hash/recompute gate 已进入 `pico2-v2-factory-candidate`；下一步实现签名 factory package
    验证、受控 USB/SD restore 和空片恢复 HIL。在这些 gate 齐全前不得烧录候选工件或去掉
    `target_not_deployed` 标记。
-2. **M4-02 真实 OTA Journal**：把 checkpoint/completion backend 放入生成的 `OTA_JOURNAL`
-   分区，通过 FlashTransaction owner 写入，并完成 live producer、跨 reset replay/idempotence 和
-   power-cut host matrix；不得继续只由内存 fixture 证明 resume。
+2. **M4-02 durable resume core**：真实 v2 `OTA_JOURNAL` backend 已通过 FlashTransaction owner
+   接入并提供持久 checkpoint 诊断；下一步恢复 stream/package/image cursor、运行中 CRC 和 parser
+   状态，再完成跨 reset replay/idempotence、sector rotation 和 power-cut matrix。不得把仅能查询
+   durable checkpoint 的 backend 解释为 resume 已完成。
 3. **M3-04 信任链**：确定 portable verifier、RP2350 key/OTP binding、key ID/counter 来源与离线签名
    工具；签名为空的候选 update package 只能作为布局测试工件，不能进入 factory/HIL。
 4. **M0-05 实板回退**：在 DHRT100 板上物理按住 BOOTSEL 后复位/重新上电，确认 ROM BOOTSEL 可见，
@@ -473,14 +474,16 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 - [~] `pota_stream_session` 已可配置 `pota_stream_checkpoint_store`，在底层 program/readback
   成功后按 interval/final policy append checkpoint，并在 append/recover 失败时 fail closed；真实
-  v2 `OTA_JOURNAL` Flash backend、live OTA producer 和板端跨 reset 仍待完成。
+  v2 `OTA_JOURNAL` backend 已通过 FlashTransaction owner 写入并在固件启动时 fail closed 接入，
+  证据见 `FLASH-TASK-20260823-039`。跨 reset resume core 和板端验证仍待完成。
 - [~] portable policy primitive 已按 monotonic byte interval/final offset 决定 checkpoint，
   不按每 chunk 擦写（证据：`FLASH-TASK-20260823-022`）；实际 wear/retransmit profile 选择、
   ingress 调用和 endurance HIL 仍待完成。
 - [~] checkpoint identity 绑定 session/generation/token/object/total/package CRC，并拒绝元数据
   或 token 冲突；跨 ingress 的 restart/abort policy 仍待接入。
-- [~] host primitive 已覆盖 reset recovery、torn body/commit 和 CRC/readback corruption，
-  但 v2 `OTA_JOURNAL` 未部署，DHRT100 跨 reset durable resume 仍未完成。
+- [~] host primitive 与真实 backend adapter 已覆盖重建、torn body/commit、CRC/readback corruption、
+  page 对齐、分区边界和 requester 权限；journal 写满后 fail closed，尚无 GC/sector rotation。
+  checkpoint 可持久查询不等于 session 已恢复，DHRT100 跨 reset durable resume 仍未完成。
 
 ### M4-03 Local ingress regression
 
