@@ -59,7 +59,9 @@ $commonSources = @(
     (Join-Path $src "pota_crc32.c"),
     (Join-Path $src "pota_package.c"),
     (Join-Path $src "pota_metadata.c"),
-    (Join-Path $src "pota_direct_ab.c")
+    (Join-Path $src "pota_direct_ab.c"),
+    (Join-Path $src "pota_boot_control_store.c"),
+    (Join-Path $src "pota_boot_control_facade.c")
 )
 
 $testPrograms = @(
@@ -135,6 +137,7 @@ $testPrograms = @(
         Name = "test_pota_boot_control_store"
         Sources = @((Join-Path $tests "test_pota_boot_control_store.c")) + @(
             (Join-Path $src "pota_boot_control_store.c"),
+            (Join-Path $src "pota_boot_control_facade.c"),
             (Join-Path $src "pota_crc32.c")
         )
     }

@@ -1,4 +1,5 @@
 #include "pota_boot_control_store.h"
+#include "pota_boot_control_facade.h"
 
 #include <assert.h>
 #include <stdbool.h>
@@ -200,11 +201,46 @@ static void test_gc_preserves_old_until_new_lane_sealed(void)
     assert(view.update.sequence == 2u);
 }
 
+static void test_boot_control_facade_owner_boundary(void)
+{
+    fake_flash_t flash;
+    fake_init(&flash);
+    const pota_bcb_platform_t platform = {
+        .context = &flash,
+        .read_page = fake_read,
+        .program_page = fake_program,
+        .erase_lane = fake_erase,
+    };
+    pota_boot_control_facade_t facade;
+    pota_bcb_view_t view;
+    pota_bcb_update_t first = update(1u, 0xD4u);
+    assert(pota_boot_control_facade_init(&facade, &platform, 1u, 2u,
+                                         TEST_LANE_PAGES) ==
+           POTA_BCB_RESULT_OK);
+    assert(pota_boot_control_facade_select_newest(&facade, &view) ==
+           POTA_BCB_RESULT_NO_VALID);
+    assert(pota_boot_control_facade_append(&facade, &first, &view) ==
+           POTA_BCB_RESULT_OK);
+    assert(pota_boot_control_facade_select_newest(&facade, &view) ==
+           POTA_BCB_RESULT_OK);
+    assert(view.update.sequence == 1u && view.update.payload[0] == 0xD4u);
+
+    pota_bcb_wear_snapshot_t wear;
+    assert(pota_boot_control_facade_get_wear_snapshot(&facade, &wear));
+    assert(wear.program_page_count != 0u);
+
+    pota_boot_control_facade_t uninitialized;
+    memset(&uninitialized, 0, sizeof(uninitialized));
+    assert(pota_boot_control_facade_select_newest(&uninitialized, &view) ==
+           POTA_BCB_RESULT_BAD_ARGUMENT);
+}
+
 int main(void)
 {
     test_append_select_and_replay();
     test_fault_boundaries_fail_closed();
     test_gc_preserves_old_until_new_lane_sealed();
+    test_boot_control_facade_owner_boundary();
     puts("portable BCB store tests passed");
     return 0;
 }

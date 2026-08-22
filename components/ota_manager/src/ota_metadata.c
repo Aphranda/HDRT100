@@ -6,7 +6,7 @@
 #include "drv_flash.h"
 #include "ota_crc32.h"
 #include "ota_metadata_flash.h"
-#include "pota_boot_control_store.h"
+#include "pota_boot_control_facade.h"
 #include "portable_ota_port.h"
 
 #define OTA_METADATA_COPY_SIZE    DRV_FLASH_SECTOR_SIZE
@@ -95,7 +95,7 @@ static bool ota_metadata_bcb_erase_lane(void *context, uint32_t lane)
                                    OTA_BCB_LANE_SIZE);
 }
 
-static bool ota_metadata_bcb_init(pota_bcb_store_t *store)
+static bool ota_metadata_bcb_init(pota_boot_control_facade_t *store)
 {
     const pota_bcb_platform_t platform = {
         .context = NULL,
@@ -103,18 +103,20 @@ static bool ota_metadata_bcb_init(pota_bcb_store_t *store)
         .program_page = ota_metadata_bcb_program_page,
         .erase_lane = ota_metadata_bcb_erase_lane,
     };
-    return pota_bcb_store_init(store, &platform,
-                               FLASH_COMPAT_MAP_SCHEMA_VERSION,
-                               FLASH_COMPAT_MAP_VERSION,
-                               OTA_BCB_LANE_PAGE_COUNT) == POTA_BCB_RESULT_OK;
+    return pota_boot_control_facade_init(store, &platform,
+                                         FLASH_COMPAT_MAP_SCHEMA_VERSION,
+                                         FLASH_COMPAT_MAP_VERSION,
+                                         OTA_BCB_LANE_PAGE_COUNT) ==
+           POTA_BCB_RESULT_OK;
 }
 
 static bool ota_metadata_load_bcb(ota_metadata_t *metadata)
 {
-    pota_bcb_store_t store;
+    pota_boot_control_facade_t store;
     pota_bcb_view_t view;
     if (metadata == NULL || !ota_metadata_bcb_init(&store) ||
-        pota_bcb_store_select_newest(&store, &view) != POTA_BCB_RESULT_OK ||
+        pota_boot_control_facade_select_newest(&store, &view) !=
+            POTA_BCB_RESULT_OK ||
         view.update.payload_length != sizeof(*metadata)) {
         return false;
     }
@@ -268,7 +270,7 @@ bool ota_metadata_store(const ota_metadata_t *metadata)
     ota_metadata_t stored_metadata = *metadata;
     ota_metadata_update_crc(&stored_metadata);
 
-    pota_bcb_store_t store;
+    pota_boot_control_facade_t store;
     pota_bcb_update_t update;
     pota_bcb_view_t view;
     if (!ota_metadata_bcb_init(&store)) {
@@ -280,7 +282,8 @@ bool ota_metadata_store(const ota_metadata_t *metadata)
     update.security_counter = 0u;
     update.payload_length = sizeof(stored_metadata);
     memcpy(update.payload, &stored_metadata, sizeof(stored_metadata));
-    return pota_bcb_store_append(&store, &update, &view) == POTA_BCB_RESULT_OK;
+    return pota_boot_control_facade_append(&store, &update, &view) ==
+           POTA_BCB_RESULT_OK;
 }
 
 bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size, uint32_t image_crc32)
