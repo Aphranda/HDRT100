@@ -45,6 +45,18 @@
       "target_api": "FlashMapReadView"
     },
     {
+      "file": "middleware/portable_ota_port/src/portable_ota_core_port.c",
+      "owner": "OtaStreamReadView",
+      "contexts": ["app"],
+      "core": "core0",
+      "modes": ["idle", "maintenance"],
+      "partitions": ["v1_inactive_slot"],
+      "operations": ["read"],
+      "write_frequency": "read_only",
+      "power_cut_semantics": "readback_verifies_programmed_chunk",
+      "target_api": "FlashMapReadView"
+    },
+    {
       "file": "bootloader/src/boot_flash_service.c",
       "owner": "BootFlashService",
       "contexts": ["boot"],

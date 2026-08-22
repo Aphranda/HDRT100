@@ -27,6 +27,7 @@ static uint32_t s_pending_crc32;
 static uint32_t s_validate_offset;
 static uint32_t s_validate_size;
 static uint32_t s_validate_run_offset;
+static bool s_corrupt_readback;
 
 static void write_le32(uint8_t *data, uint32_t offset, uint32_t value)
 {
@@ -48,6 +49,10 @@ static bool mock_flash_read(uint32_t offset, void *buffer, uint32_t size)
         return false;
     }
     memcpy(buffer, &s_flash[offset], size);
+    if (s_corrupt_readback && size != 0u) {
+        ((uint8_t *)buffer)[0] ^= 0x01u;
+        s_corrupt_readback = false;
+    }
     return true;
 }
 
@@ -124,6 +129,7 @@ static void reset_mock(void)
     s_validate_offset = 0u;
     s_validate_size = 0u;
     s_validate_run_offset = 0u;
+    s_corrupt_readback = false;
 }
 
 static pota_platform_t make_platform(pota_boot_mode_t boot_mode)
@@ -276,6 +282,30 @@ static int test_raw_positive(void)
         failed++;
     }
 
+    return failed;
+}
+
+static int test_readback_failure(void)
+{
+    reset_mock();
+    uint8_t image[128];
+    fill_image(image, sizeof(image), 0x31u);
+    pota_context_t context;
+    pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
+    int failed = 0;
+    const pota_begin_t begin = {
+        .size = sizeof(image),
+        .crc32 = pota_crc32_compute(image, sizeof(image)),
+        .package_mode = false,
+    };
+    failed += !pota_init(&context, &platform);
+    failed += expect_error("readback begin", pota_begin(&context, &begin), POTA_ERR_NONE);
+    failed += service_until_receiving(&context, "readback service");
+    s_corrupt_readback = true;
+    failed += expect_error("readback reject", pota_write(&context, image, sizeof(image)), POTA_ERR_READBACK);
+    pota_status_t status;
+    pota_get_status(&context, &status);
+    failed += status.programmed_size != 0u;
     return failed;
 }
 
@@ -572,6 +602,7 @@ int main(void)
 {
     int failed = 0;
     failed += test_raw_positive();
+    failed += test_readback_failure();
     failed += test_package_positive_copy_to_active();
     failed += test_crc_failure();
     failed += test_raw_final_block_padding();

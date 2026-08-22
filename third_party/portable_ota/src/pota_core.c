@@ -137,16 +137,6 @@ static pota_error_t pota_program_target(pota_context_t *context,
         return POTA_ERR_BAD_ARGUMENT;
     }
 
-    if (program_size == size) {
-        if (!context->platform.ops.flash_program(context->target_offset + image_offset,
-                                                 data,
-                                                 size)) {
-            pota_core_set_failed(context, POTA_ERR_FLASH_PROGRAM);
-            return POTA_ERR_FLASH_PROGRAM;
-        }
-        return POTA_ERR_NONE;
-    }
-
     uint8_t program_buffer[POTA_MAX_DATA_BLOCK_SIZE + POTA_MAX_FLASH_PAGE_SIZE];
     memset(program_buffer, 0xFF, program_size);
     memcpy(program_buffer, data, size);
@@ -155,6 +145,15 @@ static pota_error_t pota_program_target(pota_context_t *context,
                                              program_size)) {
         pota_core_set_failed(context, POTA_ERR_FLASH_PROGRAM);
         return POTA_ERR_FLASH_PROGRAM;
+    }
+
+    /* A stream ACK is durable only after the programmed bytes are read back. */
+    if (context->platform.ops.flash_read == NULL ||
+        !context->platform.ops.flash_read(context->target_offset + image_offset,
+                                          program_buffer, program_size) ||
+        memcmp(program_buffer, data, size) != 0) {
+        pota_core_set_failed(context, POTA_ERR_READBACK);
+        return POTA_ERR_READBACK;
     }
 
     return POTA_ERR_NONE;

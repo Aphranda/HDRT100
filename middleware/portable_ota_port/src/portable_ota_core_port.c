@@ -4,6 +4,7 @@
 #include "ota_partition.h"
 #include "pota.h"
 #include "project_config.h"
+#include "drv_flash.h"
 
 #define PORTABLE_OTA_BOOTLOADER_VERSION POTA_PACK_VERSION(0u, 1u, 0u)
 
@@ -162,6 +163,11 @@ static bool portable_core_flash_erase(uint32_t offset, uint32_t size)
                                        offset, NULL, size);
 }
 
+static bool portable_core_flash_read(uint32_t offset, void *data, uint32_t size)
+{
+    return drv_flash_read(offset, data, size);
+}
+
 static bool portable_core_flash_program(uint32_t offset, const void *data,
                                         uint32_t size)
 {
@@ -265,7 +271,7 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
             .flash_sector_size = FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES,
         },
         .ops = {
-            .flash_read = NULL,
+            .flash_read = portable_core_flash_read,
             .flash_erase = portable_core_flash_erase,
             .flash_program = portable_core_flash_program,
             .mark_pending = portable_core_mark_pending,
