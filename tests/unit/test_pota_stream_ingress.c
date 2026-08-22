@@ -100,6 +100,9 @@ int main(void)
             .product_id = "DHRT100",
             .hardware_id = "dhrt100",
             .bootloader_version = POTA_PACK_VERSION(0, 1, 0),
+            .map_version = 1u,
+            .slot_a_partition_id = 1u,
+            .slot_b_partition_id = 2u,
             .boot_mode = POTA_BOOT_MODE_DIRECT_AB,
             .active_slot = POTA_SLOT_A,
             .slot_a = {SLOT_A, SLOT_SIZE, 0x10000000u},
@@ -152,7 +155,7 @@ int main(void)
     open.generation = 1u;
     open.capability_mask = POTA_STREAM_CAP_INACTIVE_WRITE | POTA_STREAM_CAP_DURABLE_ACK;
     open.map_version = 1u;
-    open.partition_id = POTA_STREAM_PARTITION_APP_B;
+    open.partition_id = 2u;
     open.destination_slot = POTA_SLOT_B;
     open.object_id = 4u;
     open.total_size = 16u;
@@ -182,6 +185,9 @@ int main(void)
                       decoded.package_crc32 == open.package_crc32 &&
                       decoded.identity[0] == open.identity[0] &&
                       decoded.package_hash[0] == open.package_hash[0]);
+    failed += !expect("wire token is canonical",
+                      pota_stream_open_token(&decoded) ==
+                          pota_crc32_compute(open_wire, sizeof(open_wire)));
     failed += !expect("decode truncated rejected", !pota_stream_open_decode_le(
         open_wire, sizeof(open_wire) - 1u, &decoded));
     open_wire[37] = 1u;

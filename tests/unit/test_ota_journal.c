@@ -96,6 +96,7 @@ static pota_stream_checkpoint_t checkpoint(uint32_t durable_offset,
         .total_size = 16384u,
         .package_crc32 = 55u,
         .chunk_crc32 = chunk_crc32,
+        .durable_crc32 = 66u + durable_offset,
     };
     return value;
 }

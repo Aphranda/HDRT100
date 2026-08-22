@@ -10,11 +10,13 @@ static uint8_t s_flash[MOCK_SLOTS * MOCK_SLOT_SIZE];
 static uint32_t s_program_call;
 static uint32_t s_fail_call;
 static uint32_t s_partial_bytes;
+static bool s_fail_read;
 
 static bool read_flash(void *context, uint32_t offset, void *data, uint32_t length)
 {
     (void)context;
-    if (data == NULL || offset > sizeof(s_flash) || length > sizeof(s_flash) - offset) {
+    if (s_fail_read || data == NULL || offset > sizeof(s_flash) ||
+        length > sizeof(s_flash) - offset) {
         return false;
     }
     memcpy(data, &s_flash[offset], length);
@@ -79,6 +81,7 @@ int main(void)
     s_program_call = 0u;
     s_fail_call = 0u;
     s_partial_bytes = UINT32_MAX;
+    s_fail_read = false;
     const pota_stream_checkpoint_config_t config = {
         .context = s_flash,
         .read = read_flash,
@@ -89,6 +92,12 @@ int main(void)
     pota_stream_checkpoint_store_t store;
     int failed = test_checkpoint_policy();
     failed += !expect("init", pota_stream_checkpoint_init(&store, &config) == POTA_STREAM_CHECKPOINT_OK);
+    s_fail_read = true;
+    pota_stream_checkpoint_store_t failed_store;
+    failed += !expect("init read failure is closed",
+                      pota_stream_checkpoint_init(&failed_store, &config) ==
+                          POTA_STREAM_CHECKPOINT_IO);
+    s_fail_read = false;
     pota_stream_checkpoint_t checkpoint = {
         .session_id = 1u,
         .generation = 2u,
@@ -98,6 +107,7 @@ int main(void)
         .total_size = 512u,
         .package_crc32 = 5u,
         .chunk_crc32 = 6u,
+        .durable_crc32 = 7u,
     };
     failed += !expect("append", pota_stream_checkpoint_append(&store, &checkpoint) == POTA_STREAM_CHECKPOINT_OK);
     failed += !expect("replay idempotent", pota_stream_checkpoint_append(&store, &checkpoint) == POTA_STREAM_CHECKPOINT_OK);

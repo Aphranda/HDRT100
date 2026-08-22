@@ -18,6 +18,18 @@ pota_error_t pota_session_begin(pota_session_t *session, const pota_begin_t *beg
     return pota_begin(&session->core, begin);
 }
 
+pota_error_t pota_session_resume_raw(pota_session_t *session,
+                                     const pota_begin_t *begin,
+                                     uint32_t durable_offset,
+                                     uint32_t durable_crc32)
+{
+    if (session == NULL) {
+        return POTA_ERR_BAD_ARGUMENT;
+    }
+    return pota_resume_raw(&session->core, begin, durable_offset,
+                           durable_crc32);
+}
+
 pota_error_t pota_session_service(pota_session_t *session, uint32_t budget_us)
 {
     if (session == NULL) {

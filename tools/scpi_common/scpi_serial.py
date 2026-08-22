@@ -120,7 +120,7 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
     if header in {"SYST:OTA:TXN?", "SYSTEM:OTA:TXN?"}:
         return _csv_uints_match(text, 8)
     if header in {"SYST:OTA:JOUR?", "SYSTEM:OTA:JOURNAL?"}:
-        return _csv_uints_match(text, 11)
+        return _csv_uints_match(text, 12)
     if header in {"SYST:OTA:STAT?", "SYSTEM:OTA:STAT?"}:
         return re.fullmatch(r'"[^"]+",\s*\d+,\s*"[^"]+",\s*\d+', text) is not None
     if header in {"SYST:OTA:RES?", "SYSTEM:OTA:RES?"}:

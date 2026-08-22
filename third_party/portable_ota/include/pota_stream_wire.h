@@ -13,5 +13,6 @@
 /* Decode the fixed little-endian local-ingress OPEN descriptor. */
 bool pota_stream_open_decode_le(const uint8_t *data, uint32_t size,
                                 pota_stream_open_t *open);
+uint32_t pota_stream_open_token(const pota_stream_open_t *open);
 
 #endif

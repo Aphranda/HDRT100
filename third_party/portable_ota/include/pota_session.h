@@ -9,6 +9,10 @@ typedef struct {
 
 bool pota_session_init(pota_session_t *session, const pota_platform_t *platform);
 pota_error_t pota_session_begin(pota_session_t *session, const pota_begin_t *begin);
+pota_error_t pota_session_resume_raw(pota_session_t *session,
+                                     const pota_begin_t *begin,
+                                     uint32_t durable_offset,
+                                     uint32_t durable_crc32);
 pota_error_t pota_session_service(pota_session_t *session, uint32_t budget_us);
 pota_error_t pota_session_write(pota_session_t *session, const uint8_t *data, uint32_t size);
 pota_error_t pota_session_end(pota_session_t *session);

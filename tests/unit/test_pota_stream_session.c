@@ -12,11 +12,18 @@
 
 static uint8_t s_flash[MOCK_FLASH_SIZE];
 static uint32_t s_pending_count;
+static uint32_t s_erase_count;
+static uint32_t s_program_count;
+static uint32_t s_slot_read_bytes;
 
 static bool flash_read(uint32_t offset, void *buffer, uint32_t size)
 {
     if (buffer == NULL || offset > MOCK_FLASH_SIZE || size > MOCK_FLASH_SIZE - offset) {
         return false;
+    }
+    if (offset >= MOCK_SLOT_B_OFFSET &&
+        offset < MOCK_SLOT_B_OFFSET + MOCK_SLOT_SIZE) {
+        s_slot_read_bytes += size;
     }
     memcpy(buffer, &s_flash[offset], size);
     return true;
@@ -28,6 +35,7 @@ static bool flash_erase(uint32_t offset, uint32_t size)
         (offset % MOCK_SECTOR_SIZE) != 0u || (size % MOCK_SECTOR_SIZE) != 0u) {
         return false;
     }
+    s_erase_count++;
     memset(&s_flash[offset], 0xFF, size);
     return true;
 }
@@ -38,6 +46,7 @@ static bool flash_program(uint32_t offset, const void *data, uint32_t size)
         (offset % MOCK_PAGE_SIZE) != 0u || (size % MOCK_PAGE_SIZE) != 0u) {
         return false;
     }
+    s_program_count++;
     memcpy(&s_flash[offset], data, size);
     return true;
 }
@@ -61,6 +70,25 @@ static bool validate_vector(uint32_t offset, uint32_t size, uint32_t run_offset)
     return offset == MOCK_SLOT_B_OFFSET && size != 0u && run_offset != 0u;
 }
 
+static bool checkpoint_read(void *context, uint32_t offset,
+                            void *data, uint32_t length)
+{
+    (void)context;
+    return flash_read(offset, data, length);
+}
+
+static bool checkpoint_program(void *context, uint32_t offset,
+                               const void *data, uint32_t length)
+{
+    (void)context;
+    if (data == NULL || offset > MOCK_FLASH_SIZE ||
+        length > MOCK_FLASH_SIZE - offset) {
+        return false;
+    }
+    memcpy(&s_flash[offset], data, length);
+    return true;
+}
+
 static bool expect(const char *name, bool condition)
 {
     if (!condition) {
@@ -78,6 +106,9 @@ int main(void)
             .product_id = "DHRT100",
             .hardware_id = "dhrt100",
             .bootloader_version = POTA_PACK_VERSION(0, 1, 0),
+            .map_version = 1u,
+            .slot_a_partition_id = 1u,
+            .slot_b_partition_id = 2u,
             .boot_mode = POTA_BOOT_MODE_DIRECT_AB,
             .active_slot = POTA_SLOT_A,
             .slot_a = {MOCK_SLOT_A_OFFSET, MOCK_SLOT_SIZE, 0x10040000u},
@@ -104,13 +135,18 @@ int main(void)
     open.generation = 3u;
     open.capability_mask = POTA_STREAM_CAP_INACTIVE_WRITE | POTA_STREAM_CAP_DURABLE_ACK;
     open.map_version = 1u;
-    open.partition_id = POTA_STREAM_PARTITION_APP_B;
+    open.partition_id = 2u;
     open.destination_slot = POTA_SLOT_B;
     open.object_id = 11u;
     open.total_size = 32u;
     open.package_crc32 = pota_crc32_compute("01234567890123456789012345678901", 32u);
     open.identity[0] = 0xA5u;
     open.package_hash[0] = 0x5Au;
+    pota_stream_open_t wrong_map = open;
+    wrong_map.map_version = 2u;
+    failed += !expect("map mismatch rejected",
+                      pota_stream_session_open(&session, &wrong_map) ==
+                          POTA_STREAM_RESULT_MISMATCH);
     failed += !expect("open", pota_stream_session_open(&session, &open) == POTA_STREAM_RESULT_OK);
     failed += !expect("wrong state before service",
                       pota_stream_session_write(&session, 0u, (const uint8_t *)"01234567890123456789012345678901", 16u) ==
@@ -133,6 +169,170 @@ int main(void)
     failed += !expect("close", pota_stream_session_close(&session) == POTA_STREAM_RESULT_OK);
     failed += !expect("pending once", s_pending_count == 1u);
     failed += !expect("abort after close rejected", pota_stream_session_abort(&session) == POTA_STREAM_RESULT_INVALID_STATE);
+
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    s_pending_count = 0u;
+    s_erase_count = 0u;
+    s_program_count = 0u;
+    s_slot_read_bytes = 0u;
+    uint8_t resume_image[1536u];
+    for (uint32_t index = 0u; index < sizeof(resume_image); ++index) {
+        resume_image[index] = (uint8_t)(index * 17u + 3u);
+    }
+    pota_stream_open_t resume_open = open;
+    resume_open.total_size = sizeof(resume_image);
+    resume_open.package_crc32 =
+        pota_crc32_compute(resume_image, sizeof(resume_image));
+    resume_open.package_hash[1] = 0x6Bu;
+    const pota_stream_checkpoint_config_t checkpoint_config = {
+        .context = s_flash,
+        .read = checkpoint_read,
+        .program = checkpoint_program,
+        .base_offset = 7168u,
+        .slot_count = 4u,
+        .slot_size = POTA_STREAM_CHECKPOINT_RECORD_SIZE,
+    };
+    const pota_stream_checkpoint_policy_t checkpoint_policy = {
+        .interval_bytes = 512u,
+        .checkpoint_on_final = true,
+    };
+    pota_stream_checkpoint_store_t checkpoint_store;
+    failed += !expect("checkpoint init",
+                      pota_stream_checkpoint_init(&checkpoint_store,
+                                                  &checkpoint_config) ==
+                          POTA_STREAM_CHECKPOINT_OK);
+    failed += !expect("resume session init",
+                      pota_stream_session_init(&session, &platform));
+    failed += !expect("resume checkpoint attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &session, &checkpoint_store, &checkpoint_policy));
+    failed += !expect("resume seed open",
+                      pota_stream_session_open(&session, &resume_open) ==
+                          POTA_STREAM_RESULT_OK);
+    while (pota_stream_session_state(&session) == POTA_STREAM_STATE_OPEN) {
+        failed += !expect("resume seed service",
+                          pota_stream_session_service(&session, 100u) ==
+                              POTA_STREAM_RESULT_OK);
+    }
+    failed += !expect("resume seed write",
+                      pota_stream_session_write(&session, 0u,
+                                                resume_image, 512u) ==
+                          POTA_STREAM_RESULT_OK);
+    failed += !expect("resume seed second write",
+                      pota_stream_session_write(&session, 512u,
+                                                &resume_image[512u], 512u) ==
+                          POTA_STREAM_RESULT_OK);
+    const uint32_t erase_count = s_erase_count;
+    const uint32_t program_count = s_program_count;
+    memset(&s_flash[MOCK_SLOT_B_OFFSET + 1024u], 0x11, 512u);
+
+    pota_stream_checkpoint_store_t recovered_store;
+    failed += !expect("checkpoint rebuild",
+                      pota_stream_checkpoint_init(&recovered_store,
+                                                  &checkpoint_config) ==
+                          POTA_STREAM_CHECKPOINT_OK);
+    pota_stream_session_t recovered_session;
+    failed += !expect("recovered session init",
+                      pota_stream_session_init(&recovered_session, &platform));
+    failed += !expect("recovered checkpoint attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &recovered_session, &recovered_store,
+                          &checkpoint_policy));
+
+    pota_stream_open_t wrong_token = resume_open;
+    wrong_token.package_hash[2] = 1u;
+    failed += !expect("resume token mismatch rejected",
+                      pota_stream_session_open(&recovered_session,
+                                               &wrong_token) ==
+                          POTA_STREAM_RESULT_MISMATCH);
+
+    failed += !expect("recovered session reinit",
+                      pota_stream_session_init(&recovered_session, &platform));
+    failed += !expect("recovered checkpoint reattach",
+                      pota_stream_session_set_checkpoint_store(
+                          &recovered_session, &recovered_store,
+                          &checkpoint_policy));
+    const uint32_t read_bytes_before_corrupt_open = s_slot_read_bytes;
+    s_flash[MOCK_SLOT_B_OFFSET] ^= 1u;
+    failed += !expect("corrupt resume open accepted for bounded validation",
+                      pota_stream_session_open(&recovered_session,
+                                               &resume_open) ==
+                          POTA_STREAM_RESULT_OK);
+    failed += !expect("corrupt resume remains bounded",
+                      pota_stream_session_state(&recovered_session) ==
+                              POTA_STREAM_STATE_OPEN &&
+                          s_slot_read_bytes == read_bytes_before_corrupt_open);
+    failed += !expect("corrupt resume first bounded service",
+                      pota_stream_session_service(&recovered_session, 100u) ==
+                              POTA_STREAM_RESULT_OK &&
+                          s_slot_read_bytes ==
+                              read_bytes_before_corrupt_open + 512u &&
+                          pota_stream_session_state(&recovered_session) ==
+                              POTA_STREAM_STATE_OPEN);
+    failed += !expect("corrupt durable prefix fails during service",
+                      pota_stream_session_service(&recovered_session, 100u) ==
+                          POTA_STREAM_RESULT_CHECKPOINT);
+    s_flash[MOCK_SLOT_B_OFFSET] ^= 1u;
+
+    failed += !expect("recovered session final init",
+                      pota_stream_session_init(&recovered_session, &platform));
+    failed += !expect("recovered checkpoint final attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &recovered_session, &recovered_store,
+                          &checkpoint_policy));
+    failed += !expect("resume open",
+                      pota_stream_session_open(&recovered_session,
+                                               &resume_open) ==
+                          POTA_STREAM_RESULT_OK);
+    const uint32_t read_bytes_before_resume = s_slot_read_bytes;
+    failed += !expect("resume verification remains bounded",
+                      pota_stream_session_state(&recovered_session) ==
+                          POTA_STREAM_STATE_OPEN);
+    failed += !expect("write rejected until resume verified",
+                      pota_stream_session_write(&recovered_session, 1024u,
+                                                &resume_image[1024u], 512u) ==
+                          POTA_STREAM_RESULT_INVALID_STATE);
+    failed += !expect("resume verification first service",
+                      pota_stream_session_service(&recovered_session, 100u) ==
+                              POTA_STREAM_RESULT_OK &&
+                          s_slot_read_bytes == read_bytes_before_resume + 512u &&
+                          pota_stream_session_state(&recovered_session) ==
+                              POTA_STREAM_STATE_OPEN &&
+                          pota_stream_session_durable_offset(
+                              &recovered_session) == 0u);
+    failed += !expect("resume verification second service",
+                      pota_stream_session_service(&recovered_session, 100u) ==
+                              POTA_STREAM_RESULT_OK &&
+                          s_slot_read_bytes == read_bytes_before_resume + 1024u &&
+                          pota_stream_session_state(&recovered_session) ==
+                              POTA_STREAM_STATE_OPEN);
+    while (pota_stream_session_state(&recovered_session) ==
+           POTA_STREAM_STATE_OPEN) {
+        failed += !expect("resume tail erase service",
+                          pota_stream_session_service(&recovered_session,
+                                                      100u) ==
+                              POTA_STREAM_RESULT_OK);
+    }
+    failed += !expect("resume state and offset",
+                      pota_stream_session_state(&recovered_session) ==
+                              POTA_STREAM_STATE_RECEIVING &&
+                          pota_stream_session_durable_offset(
+                              &recovered_session) == 1024u);
+    failed += !expect("resume preserved prefix and erased tail",
+                      s_erase_count == erase_count + 2u &&
+                          s_program_count == program_count &&
+                          memcmp(&s_flash[MOCK_SLOT_B_OFFSET], resume_image,
+                                 1024u) == 0 &&
+                          s_flash[MOCK_SLOT_B_OFFSET + 1024u] == 0xFFu &&
+                          s_flash[MOCK_SLOT_B_OFFSET + 1535u] == 0xFFu);
+    failed += !expect("resume continuation write",
+                      pota_stream_session_write(&recovered_session, 1024u,
+                                                &resume_image[1024u], 512u) ==
+                          POTA_STREAM_RESULT_OK);
+    failed += !expect("resume close",
+                      pota_stream_session_close(&recovered_session) ==
+                          POTA_STREAM_RESULT_OK);
+    failed += !expect("resume pending once", s_pending_count == 1u);
     if (failed != 0) {
         return 1;
     }

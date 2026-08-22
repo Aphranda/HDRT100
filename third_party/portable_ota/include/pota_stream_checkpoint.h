@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define POTA_STREAM_CHECKPOINT_MAGIC 0x50434B54u
-#define POTA_STREAM_CHECKPOINT_SCHEMA_VERSION 1u
+#define POTA_STREAM_CHECKPOINT_SCHEMA_VERSION 2u
 #define POTA_STREAM_CHECKPOINT_COMMIT_MARKER 0xC04D434Bu
 #define POTA_STREAM_CHECKPOINT_RECORD_SIZE 64u
 
@@ -36,6 +36,7 @@ typedef struct {
     uint32_t total_size;
     uint32_t package_crc32;
     uint32_t chunk_crc32;
+    uint32_t durable_crc32;
 } pota_stream_checkpoint_t;
 
 typedef struct {

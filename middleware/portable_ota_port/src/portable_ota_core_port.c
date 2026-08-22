@@ -260,6 +260,9 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
             .product_id = PROJECT_PRODUCT_ID,
             .hardware_id = PROJECT_HARDWARE_ID,
             .bootloader_version = PORTABLE_OTA_BOOTLOADER_VERSION,
+            .map_version = FLASH_DEPLOYMENT_MAP_VERSION,
+            .slot_a_partition_id = FLASH_DEPLOYMENT_MAP_APP_A_ID,
+            .slot_b_partition_id = FLASH_DEPLOYMENT_MAP_APP_B_ID,
             .boot_mode = portable_core_boot_mode_from_metadata(metadata),
             .active_slot = portable_core_active_slot_from_metadata(metadata),
             .slot_a = {

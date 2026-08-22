@@ -319,6 +319,7 @@ scpi_result_t scpi_cmd_ota_journal_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.checkpoint.total_size);
     SCPI_ResultUInt32(context, snapshot.checkpoint.package_crc32);
     SCPI_ResultUInt32(context, snapshot.checkpoint.chunk_crc32);
+    SCPI_ResultUInt32(context, snapshot.checkpoint.durable_crc32);
     return SCPI_RES_OK;
 }
 

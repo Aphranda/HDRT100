@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import binascii
 import hashlib
+import json
 import struct
 import sys
 import time
@@ -25,7 +26,9 @@ STREAM_OPEN_WIRE_SIZE = 88
 STREAM_STATE_OPEN = 1
 STREAM_STATE_RECEIVING = 2
 STREAM_STATE_READY_TO_REBOOT = 3
+STREAM_STATE_FAILED = 5
 DEFAULT_BLOCK_SIZE = 512
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def crc32(data: bytes) -> int:
@@ -68,6 +71,25 @@ def parse_stream_status(response: str) -> tuple[int, int, int, int, int]:
     return tuple(fields)  # type: ignore[return-value]
 
 
+def parse_journal_status(response: str) -> tuple[int, ...]:
+    fields = tuple(int(field.strip(), 0) for field in response.split(","))
+    if len(fields) != 12:
+        raise ValueError(f"invalid journal status: {response!r}")
+    return fields
+
+
+def app_partition_id(map_version: int, target_slot: int) -> int:
+    source = ROOT / "config" / f"flash_map_v{map_version}.json"
+    if map_version == 1:
+        source = ROOT / "config" / "flash_map_v1_compat.json"
+    data = json.loads(source.read_text(encoding="utf-8"))
+    wanted = "APP_A" if target_slot == 1 else "APP_B"
+    for numeric_id, partition in enumerate(data["partitions"]):
+        if partition["id"] == wanted:
+            return numeric_id
+    raise ValueError(f"{wanted} missing from {source}")
+
+
 def wait_stream_state(ser: serial.Serial, wanted: int,
                       timeout_s: float) -> tuple[int, int, int, int, int]:
     deadline = time.monotonic() + timeout_s
@@ -77,25 +99,31 @@ def wait_stream_state(ser: serial.Serial, wanted: int,
         status = parse_stream_status(last)
         if status[1] == wanted:
             return status
+        if status[1] == STREAM_STATE_FAILED:
+            raise RuntimeError(f"stream failed while waiting for {wanted}: {last!r}")
         time.sleep(0.05)
     raise TimeoutError(f"stream state {wanted} timeout, last={last!r}")
 
 
 def encode_open(identity: bytes, image: bytes, target_slot: int,
-                session_id: int, generation: int, source: int) -> bytes:
+                session_id: int, generation: int, map_version: int,
+                partition_id: int,
+                source: int) -> bytes:
     if len(identity) != 16:
         raise ValueError("identity must be 16 bytes")
     if target_slot not in (1, 2):
         raise ValueError("target slot must be 1 or 2")
     if source != SOURCE_USB_CDC:
         raise ValueError("serial stream tool requires USB CDC source")
+    if map_version <= 0:
+        raise ValueError("map version must be positive")
     wire = struct.pack(
         STREAM_OPEN_WIRE_FORMAT,
         session_id,
         generation,
         STREAM_CAPABILITIES,
-        1,
-        target_slot,
+        map_version,
+        partition_id,
         target_slot,
         1,
         len(image),
@@ -174,12 +202,31 @@ def send(args: argparse.Namespace) -> int:
         if not image:
             raise ValueError("image is empty")
         identity = hashlib.sha256(idn.encode("utf-8")).digest()[:16]
-        session_id = int(time.time()) & 0xFFFFFFFF or 1
-        generation = session_id
+        map_version = parse_first_uint(query(
+            ser, "SYST:DIAG:FLASH:MAP? 0", args.timeout))
+        partition_id = app_partition_id(map_version, target_slot)
+        if args.resume:
+            journal = parse_journal_status(query(
+                ser, "SYST:OTA:JOUR?", args.timeout))
+            if journal[0] != 1 or journal[8] != len(image) or \
+                    journal[9] != crc32(image):
+                raise RuntimeError(
+                    "journal does not match the selected image")
+            session_id = journal[3]
+            generation = journal[4]
+        else:
+            session_id = args.session_id or (int(time.time()) & 0xFFFFFFFF or 1)
+            generation = args.generation or session_id
         wire = encode_open(identity, image, target_slot, session_id,
-                           generation, SOURCE_USB_CDC)
+                           generation, map_version, partition_id,
+                           SOURCE_USB_CDC)
+        if args.resume and (journal[6] != 1 or journal[5] != crc32(wire)):
+            raise RuntimeError(
+                "journal identity token does not match the selected image/map")
         print(f"target_slot={target_slot} image={image_path} size={len(image)} "
-              f"crc32=0x{crc32(image):08X}")
+              f"crc32=0x{crc32(image):08X} map_version={map_version} "
+              f"partition_id={partition_id} session_id={session_id} "
+              f"generation={generation}")
         if args.dry_run:
             return 0
 
@@ -191,9 +238,18 @@ def send(args: argparse.Namespace) -> int:
         )
         if "OK" not in response:
             raise RuntimeError(f"stream OPEN rejected: {response!r}")
-        wait_stream_state(ser, STREAM_STATE_RECEIVING, args.begin_timeout)
+        status = wait_stream_state(ser, STREAM_STATE_RECEIVING,
+                                   args.begin_timeout)
+        resume_offset = status[2]
+        if resume_offset > len(image) or (
+                resume_offset != len(image) and
+                resume_offset % args.block_size != 0):
+            raise RuntimeError(
+                f"invalid durable offset {resume_offset} for block size "
+                f"{args.block_size}")
+        print(f"resume_offset={resume_offset}")
 
-        for offset in range(0, len(image), args.block_size):
+        for offset in range(resume_offset, len(image), args.block_size):
             chunk = image[offset:offset + args.block_size]
             response = command(
                 ser,
@@ -246,6 +302,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--begin-timeout", type=float, default=60.0)
     parser.add_argument("--progress-every", type=int, default=16)
+    parser.add_argument("--session-id", type=int,
+                        help="stable nonzero session identity for manual resume")
+    parser.add_argument("--generation", type=int,
+                        help="stable nonzero generation for manual resume")
+    parser.add_argument("--resume", action="store_true",
+                        help="reuse session/generation from SYST:OTA:JOUR?")
     parser.add_argument("--boot-and-commit", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -253,6 +315,12 @@ def parse_args() -> argparse.Namespace:
         parser.error("provide image or both --image-a and --image-b")
     if args.progress_every <= 0:
         parser.error("--progress-every must be positive")
+    if args.resume and (args.session_id is not None or args.generation is not None):
+        parser.error("--resume cannot be combined with explicit session identity")
+    if args.session_id is not None and not 0 < args.session_id <= 0xFFFFFFFF:
+        parser.error("--session-id must fit a nonzero uint32")
+    if args.generation is not None and not 0 < args.generation <= 0xFFFFFFFF:
+        parser.error("--generation must fit a nonzero uint32")
     return args
 
 

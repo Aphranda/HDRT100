@@ -18,8 +18,8 @@ typedef struct {
                      2u * sizeof(uint32_t)];
 } pota_stream_checkpoint_disk_t;
 
-_Static_assert(sizeof(pota_stream_checkpoint_t) == 8u * sizeof(uint32_t),
-               "stream checkpoint payload must be eight words");
+_Static_assert(sizeof(pota_stream_checkpoint_t) == 9u * sizeof(uint32_t),
+               "stream checkpoint payload must be nine words");
 _Static_assert(sizeof(pota_stream_checkpoint_disk_t) ==
                    POTA_STREAM_CHECKPOINT_RECORD_SIZE,
                "stream checkpoint record size mismatch");
@@ -98,12 +98,16 @@ pota_stream_checkpoint_result_t pota_stream_checkpoint_init(
 
     pota_stream_checkpoint_t latest;
     uint32_t sequence = 0u;
-    if (pota_stream_checkpoint_recover_latest(store, &latest, &sequence) ==
-        POTA_STREAM_CHECKPOINT_OK) {
+    const pota_stream_checkpoint_result_t recovered =
+        pota_stream_checkpoint_recover_latest(store, &latest, &sequence);
+    if (recovered == POTA_STREAM_CHECKPOINT_OK) {
         store->next_sequence = sequence + 1u;
         if (store->next_sequence == 0u) {
             store->next_sequence = 1u;
         }
+    } else if (recovered != POTA_STREAM_CHECKPOINT_NO_VALID) {
+        memset(store, 0, sizeof(*store));
+        return recovered;
     }
     return POTA_STREAM_CHECKPOINT_OK;
 }
@@ -165,7 +169,9 @@ pota_stream_checkpoint_result_t pota_stream_checkpoint_append(
                 return POTA_STREAM_CHECKPOINT_CONFLICT;
             }
             if (disk.checkpoint.durable_offset == checkpoint->durable_offset) {
-                return disk.checkpoint.chunk_crc32 == checkpoint->chunk_crc32
+                return disk.checkpoint.chunk_crc32 == checkpoint->chunk_crc32 &&
+                       disk.checkpoint.durable_crc32 ==
+                           checkpoint->durable_crc32
                            ? POTA_STREAM_CHECKPOINT_OK
                            : POTA_STREAM_CHECKPOINT_CONFLICT;
             }

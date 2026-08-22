@@ -14,6 +14,9 @@ typedef struct {
     const char *product_id;
     const char *hardware_id;
     uint32_t bootloader_version;
+    uint32_t map_version;
+    uint32_t slot_a_partition_id;
+    uint32_t slot_b_partition_id;
     pota_boot_mode_t boot_mode;
     pota_slot_t active_slot;
     pota_partition_t slot_a;

@@ -9,9 +9,6 @@
 
 #define POTA_STREAM_IDENTITY_SIZE 16u
 #define POTA_STREAM_PACKAGE_HASH_SIZE 32u
-#define POTA_STREAM_PARTITION_APP_A 1u
-#define POTA_STREAM_PARTITION_APP_B 2u
-
 #define POTA_STREAM_CAP_INACTIVE_WRITE (1u << 0)
 #define POTA_STREAM_CAP_DURABLE_ACK    (1u << 1)
 
@@ -55,6 +52,8 @@ typedef struct {
 
 typedef bool (*pota_stream_checkpoint_append_fn)(
     void *context, const pota_stream_checkpoint_t *checkpoint);
+typedef pota_stream_checkpoint_result_t (*pota_stream_checkpoint_recover_fn)(
+    void *context, pota_stream_checkpoint_t *checkpoint, uint32_t *sequence);
 
 typedef struct {
     pota_session_t core;
@@ -67,8 +66,10 @@ typedef struct {
     bool last_chunk_valid;
     void *checkpoint_context;
     pota_stream_checkpoint_append_fn checkpoint_append;
+    pota_stream_checkpoint_recover_fn checkpoint_recover;
     pota_stream_checkpoint_policy_t checkpoint_policy;
     uint32_t last_checkpoint_offset;
+    bool resume_pending;
 } pota_stream_session_t;
 
 bool pota_stream_session_init(pota_stream_session_t *session,

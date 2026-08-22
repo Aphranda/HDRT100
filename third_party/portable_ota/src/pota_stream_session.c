@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "pota_stream_wire.h"
 #include "pota_types.h"
 
 static bool bytes_any_set(const uint8_t *bytes, uint32_t length)
@@ -21,20 +22,26 @@ static bool destination_valid(const pota_stream_open_t *open)
            open->destination_slot == (uint32_t)POTA_SLOT_B;
 }
 
-static bool partition_matches_destination(const pota_stream_open_t *open)
+static bool partition_matches_destination(const pota_stream_session_t *session,
+                                          const pota_stream_open_t *open)
 {
-    return (open->partition_id == POTA_STREAM_PARTITION_APP_A &&
-            open->destination_slot == (uint32_t)POTA_SLOT_A) ||
-           (open->partition_id == POTA_STREAM_PARTITION_APP_B &&
-            open->destination_slot == (uint32_t)POTA_SLOT_B);
+    return session != NULL &&
+           ((open->partition_id ==
+                 session->core.core.platform.info.slot_a_partition_id &&
+             open->destination_slot == (uint32_t)POTA_SLOT_A) ||
+            (open->partition_id ==
+                 session->core.core.platform.info.slot_b_partition_id &&
+             open->destination_slot == (uint32_t)POTA_SLOT_B));
 }
 
-static bool open_valid(const pota_stream_open_t *open)
+static bool open_valid(const pota_stream_session_t *session,
+                       const pota_stream_open_t *open)
 {
-    return open != NULL && open->session_id != 0u && open->generation != 0u &&
+    return session != NULL && open != NULL && open->session_id != 0u &&
+           open->generation != 0u &&
            open->map_version != 0u && open->object_id != 0u &&
            open->total_size != 0u && destination_valid(open) &&
-           partition_matches_destination(open) &&
+           partition_matches_destination(session, open) &&
            (open->capability_mask & POTA_STREAM_CAP_INACTIVE_WRITE) != 0u &&
            (open->capability_mask & POTA_STREAM_CAP_DURABLE_ACK) != 0u &&
            bytes_any_set(open->identity, POTA_STREAM_IDENTITY_SIZE) &&
@@ -60,7 +67,9 @@ bool pota_stream_session_init(pota_stream_session_t *session,
     session->last_chunk_valid = false;
     session->checkpoint_context = NULL;
     session->checkpoint_append = NULL;
+    session->checkpoint_recover = NULL;
     session->last_checkpoint_offset = 0u;
+    session->resume_pending = false;
     return true;
 }
 
@@ -77,6 +86,7 @@ bool pota_stream_session_set_checkpoint(
     }
     session->checkpoint_context = context;
     session->checkpoint_append = append;
+    session->checkpoint_recover = NULL;
     session->checkpoint_policy = *policy;
     session->last_checkpoint_offset = 0u;
     return true;
@@ -90,6 +100,13 @@ static bool checkpoint_store_append(void *context,
            POTA_STREAM_CHECKPOINT_OK;
 }
 
+static pota_stream_checkpoint_result_t checkpoint_store_recover(
+    void *context, pota_stream_checkpoint_t *checkpoint, uint32_t *sequence)
+{
+    return pota_stream_checkpoint_recover_latest(
+        (pota_stream_checkpoint_store_t *)context, checkpoint, sequence);
+}
+
 bool pota_stream_session_set_checkpoint_store(
     pota_stream_session_t *session,
     pota_stream_checkpoint_store_t *store,
@@ -98,9 +115,13 @@ bool pota_stream_session_set_checkpoint_store(
     if (store == NULL || !store->initialized) {
         return false;
     }
-    return pota_stream_session_set_checkpoint(session, store,
-                                              checkpoint_store_append,
-                                              policy);
+    if (!pota_stream_session_set_checkpoint(session, store,
+                                            checkpoint_store_append,
+                                            policy)) {
+        return false;
+    }
+    session->checkpoint_recover = checkpoint_store_recover;
+    return true;
 }
 
 pota_stream_result_t pota_stream_session_open(
@@ -112,8 +133,13 @@ pota_stream_result_t pota_stream_session_open(
     if (session->state != POTA_STREAM_STATE_IDLE) {
         return POTA_STREAM_RESULT_INVALID_STATE;
     }
-    if (!open_valid(open)) {
+    if (!open_valid(session, open)) {
         return POTA_STREAM_RESULT_CAPABILITY;
+    }
+
+    if (session->core.core.platform.info.map_version == 0u ||
+        open->map_version != session->core.core.platform.info.map_version) {
+        return POTA_STREAM_RESULT_MISMATCH;
     }
 
     const pota_slot_t target = session->core.core.target_slot;
@@ -126,6 +152,48 @@ pota_stream_result_t pota_stream_session_open(
         .crc32 = open->package_crc32,
         .package_mode = open->package_mode,
     };
+
+    if (session->checkpoint_recover != NULL) {
+        pota_stream_checkpoint_t checkpoint;
+        uint32_t sequence = 0u;
+        const pota_stream_checkpoint_result_t recovered =
+            session->checkpoint_recover(session->checkpoint_context,
+                                        &checkpoint, &sequence);
+        if (recovered == POTA_STREAM_CHECKPOINT_OK) {
+            const uint32_t token = pota_stream_open_token(open);
+            const bool same_session =
+                checkpoint.session_id == open->session_id &&
+                checkpoint.generation == open->generation;
+            if (same_session &&
+                !pota_stream_checkpoint_matches(
+                    &checkpoint, open->session_id, open->generation, token,
+                    open->object_id, open->total_size, open->package_crc32)) {
+                return POTA_STREAM_RESULT_MISMATCH;
+            }
+            if (pota_stream_checkpoint_matches(
+                    &checkpoint, open->session_id, open->generation, token,
+                    open->object_id, open->total_size, open->package_crc32)) {
+                if (open->package_mode ||
+                    pota_session_resume_raw(&session->core, &begin,
+                                            checkpoint.durable_offset,
+                                            checkpoint.durable_crc32) !=
+                        POTA_ERR_NONE) {
+                    session->state = POTA_STREAM_STATE_FAILED;
+                    return POTA_STREAM_RESULT_CHECKPOINT;
+                }
+                session->open = *open;
+                session->state = POTA_STREAM_STATE_OPEN;
+                session->durable_offset = 0u;
+                session->last_chunk_valid = false;
+                session->last_checkpoint_offset = checkpoint.durable_offset;
+                session->resume_pending = true;
+                return POTA_STREAM_RESULT_OK;
+            }
+        } else if (recovered != POTA_STREAM_CHECKPOINT_NO_VALID) {
+            return POTA_STREAM_RESULT_CHECKPOINT;
+        }
+    }
+
     if (pota_session_begin(&session->core, &begin) != POTA_ERR_NONE) {
         session->state = POTA_STREAM_STATE_FAILED;
         return POTA_STREAM_RESULT_CORE;
@@ -135,6 +203,7 @@ pota_stream_result_t pota_stream_session_open(
     session->durable_offset = 0u;
     session->last_chunk_valid = false;
     session->last_checkpoint_offset = 0u;
+    session->resume_pending = false;
     return POTA_STREAM_RESULT_OK;
 }
 
@@ -151,10 +220,15 @@ pota_stream_result_t pota_stream_session_service(
     const pota_error_t error = pota_session_service(&session->core, budget_us);
     if (error != POTA_ERR_NONE) {
         session->state = POTA_STREAM_STATE_FAILED;
-        return POTA_STREAM_RESULT_CORE;
+        const bool resume_failed = session->resume_pending;
+        session->resume_pending = false;
+        return resume_failed ? POTA_STREAM_RESULT_CHECKPOINT
+                             : POTA_STREAM_RESULT_CORE;
     }
     if (session->core.core.status.state == (uint32_t)POTA_STATE_RECEIVING) {
         session->state = POTA_STREAM_STATE_RECEIVING;
+        session->durable_offset = session->core.core.status.programmed_size;
+        session->resume_pending = false;
     }
     return POTA_STREAM_RESULT_OK;
 }
@@ -193,7 +267,12 @@ pota_stream_result_t pota_stream_session_write(
         return POTA_STREAM_RESULT_CORE;
     }
     const uint32_t next_offset = session->durable_offset + size;
+    const bool checkpoint_boundary =
+        next_offset == session->open.total_size ||
+        (next_offset % session->core.core.platform.info.flash_sector_size) ==
+            0u;
     if (session->checkpoint_append != NULL &&
+        checkpoint_boundary &&
         pota_stream_checkpoint_should_append(&session->checkpoint_policy,
                                               session->last_checkpoint_offset,
                                               next_offset,
@@ -207,6 +286,7 @@ pota_stream_result_t pota_stream_session_write(
             .total_size = session->open.total_size,
             .package_crc32 = session->open.package_crc32,
             .chunk_crc32 = chunk_crc32,
+            .durable_crc32 = session->core.core.status.crc32_running,
         };
         if (!session->checkpoint_append(session->checkpoint_context,
                                         &checkpoint)) {
@@ -267,8 +347,7 @@ uint32_t pota_stream_session_token(const pota_stream_session_t *session)
         return 0u;
     }
     /* The token identifies the opened stream, not its moving durable cursor. */
-    return pota_crc32_compute((const uint8_t *)&session->open,
-                              sizeof(session->open));
+    return pota_stream_open_token(&session->open);
 }
 
 uint32_t pota_stream_session_durable_offset(
