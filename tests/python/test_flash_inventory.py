@@ -29,7 +29,7 @@ def test_repository_raw_flash_inventory_matches_source():
     report = validate_inventory(ROOT, load_inventory(INVENTORY))
     assert report["layout"]["active_map_version"] == 1
     assert report["layout"]["migration_state"] == "v2_target_not_deployed"
-    assert len(report["raw_callers"]) == 6
+    assert len(report["raw_callers"]) == 9
 
 
 def test_inventory_rejects_unregistered_raw_caller(tmp_path):

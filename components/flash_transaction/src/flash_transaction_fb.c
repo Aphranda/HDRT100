@@ -266,6 +266,15 @@ static uint32_t flash_transaction_validate(
         if (request->partition_id != FLASH_DEPLOYMENT_MAP_BOOT_CONTROL_ID) {
             return FLASH_TRANSACTION_ERROR_PERMISSION;
         }
+    } else if (request->requester ==
+               FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL) {
+        if (FLASH_DEPLOYMENT_MAP_HAS_OTA_JOURNAL == 0u ||
+            request->partition_id != FLASH_DEPLOYMENT_MAP_OTA_JOURNAL_ID ||
+            (request->operation == FLASH_TRANSACTION_OPERATION_ERASE
+                 ? request->length != FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE
+                 : request->length != FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE)) {
+            return FLASH_TRANSACTION_ERROR_PERMISSION;
+        }
     } else if (request->requester == FLASH_TRANSACTION_REQUESTER_VALIDATION) {
 #if PROJECT_ENABLE_FLASH_VALIDATION
         /* Validation is deliberately constrained to the first erase sector of

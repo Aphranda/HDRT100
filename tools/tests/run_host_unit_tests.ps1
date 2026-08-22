@@ -25,6 +25,7 @@ $scripts = @(
     "run_drv_flash_lockout_tests.ps1",
     "run_portable_log_tests.ps1",
     "run_portable_ota_tests.ps1",
+    "run_ota_journal_tests.ps1",
     "run_refmem_application_contract_tests.ps1",
     "run_refmem_command_tests.ps1",
     "run_refmem_node_load_sync_tests.ps1",

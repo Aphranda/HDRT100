@@ -20,6 +20,7 @@
 
 #if PORTABLE_OTA_PORT_ENABLE_SESSION
 #include "flash_transaction.h"
+#include "ota_journal.h"
 #include "resource_arbiter.h"
 #endif
 
@@ -286,6 +287,23 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
     return platform;
 }
 
+static bool portable_core_init_stream_surfaces(void)
+{
+    if (!pota_stream_session_init(&s_stream_session, &s_stream_platform)) {
+        return false;
+    }
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    if (!ota_journal_init() || !ota_journal_attach(&s_stream_session)) {
+        return false;
+    }
+#endif
+    return pota_stream_ingress_init(
+        &s_stream_ingress,
+        &s_stream_session,
+        (1u << (uint32_t)POTA_STREAM_INGRESS_SOURCE_COUNT) - 1u,
+        POTA_MAX_DATA_BLOCK_SIZE);
+}
+
 bool portable_ota_port_stream_init(const ota_metadata_t *metadata)
 {
     s_stream_initialized = false;
@@ -305,12 +323,7 @@ bool portable_ota_port_stream_init(const ota_metadata_t *metadata)
     s_store_generation = metadata->sequence;
 
     s_stream_platform = portable_core_make_platform(metadata);
-    if (!pota_stream_session_init(&s_stream_session, &s_stream_platform) ||
-        !pota_stream_ingress_init(
-            &s_stream_ingress,
-            &s_stream_session,
-            (1u << (uint32_t)POTA_STREAM_INGRESS_SOURCE_COUNT) - 1u,
-            POTA_MAX_DATA_BLOCK_SIZE)) {
+    if (!portable_core_init_stream_surfaces()) {
         return false;
     }
     s_stream_initialized = true;
@@ -328,12 +341,7 @@ pota_stream_ingress_result_t portable_ota_port_stream_open(
         pota_stream_session_state(&s_stream_session);
     if (state == POTA_STREAM_STATE_ABORTED ||
         state == POTA_STREAM_STATE_FAILED) {
-        if (!pota_stream_session_init(&s_stream_session, &s_stream_platform) ||
-            !pota_stream_ingress_init(
-                &s_stream_ingress,
-                &s_stream_session,
-                (1u << (uint32_t)POTA_STREAM_INGRESS_SOURCE_COUNT) - 1u,
-                POTA_MAX_DATA_BLOCK_SIZE)) {
+        if (!portable_core_init_stream_surfaces()) {
             return POTA_STREAM_INGRESS_SESSION;
         }
     }

@@ -36,6 +36,7 @@ QUERY_COMMANDS = [
     "SYST:OTA:SLOT?",
     "SYST:OTA:RES?",
     "SYST:OTA:TXN?",
+    "SYST:OTA:JOUR?",
 ]
 
 
@@ -193,7 +194,7 @@ def run_boot_commit(port: str, output: Path) -> dict[str, str]:
     with serial.Serial(port, 115200, timeout=0.1) as ser:
         time.sleep(1.0)
         ser.reset_input_buffer()
-        for command in ["SYST:FW:BUILD?", "SYST:OTA:RES?", "SYST:OTA:TXN?", "SYST:OTA:STAT?", "SYST:OTA:SLOT?"]:
+        for command in ["SYST:FW:BUILD?", "SYST:OTA:RES?", "SYST:OTA:TXN?", "SYST:OTA:JOUR?", "SYST:OTA:STAT?", "SYST:OTA:SLOT?"]:
             ser.write((command + "\n").encode("utf-8"))
             ser.flush()
             results[command] = read_response(ser)
@@ -204,7 +205,7 @@ def run_boot_commit(port: str, output: Path) -> dict[str, str]:
         results["SYST:OTA:COMM"] = read_response(ser)
         lines.append(f"SYST:OTA:COMM -> {results['SYST:OTA:COMM']}")
         time.sleep(0.2)
-        for command in ["SYST:OTA:STAT?", "SYST:OTA:SLOT?", "SYST:OTA:RES?", "SYST:OTA:TXN?"]:
+        for command in ["SYST:OTA:STAT?", "SYST:OTA:SLOT?", "SYST:OTA:RES?", "SYST:OTA:TXN?", "SYST:OTA:JOUR?"]:
             ser.write((command + "\n").encode("utf-8"))
             ser.flush()
             results[f"after:{command}"] = read_response(ser)
@@ -389,7 +390,7 @@ def main() -> int:
                 return finish(summary, out_dir)
 
     final_path = out_dir / "final.txt"
-    final = query_serial(args.port, ["SYST:FW:BUILD?", "SYST:OTA:STAT?", "SYST:OTA:SLOT?", "SYST:OTA:RES?", "SYST:OTA:TXN?", "SYST:OTA:MODE?"], final_path)
+    final = query_serial(args.port, ["SYST:FW:BUILD?", "SYST:OTA:STAT?", "SYST:OTA:SLOT?", "SYST:OTA:RES?", "SYST:OTA:TXN?", "SYST:OTA:JOUR?", "SYST:OTA:MODE?"], final_path)
     expected_final_stat = (
         f'"FAILED",{expected_next_target},"IMAGE_TOO_LARGE",4'
         if not args.skip_negative

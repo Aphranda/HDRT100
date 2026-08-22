@@ -16,6 +16,7 @@ scpi_result_t scpi_cmd_ota_commit(scpi_t *context);
 scpi_result_t scpi_cmd_ota_slot_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_result_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_transaction_q(scpi_t *context);
+scpi_result_t scpi_cmd_ota_journal_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_mode_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_target_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_capability_q(scpi_t *context);
@@ -63,6 +64,7 @@ scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context);
     {.pattern = "SYSTem:OTA:RESult?", .callback = scpi_cmd_ota_result_q}, \
     {.pattern = "SYSTem:OTA:TXN?", .callback = scpi_cmd_ota_transaction_q}, \
     {.pattern = "SYSTem:OTA:TRANsaction?", .callback = scpi_cmd_ota_transaction_q}, \
+    {.pattern = "SYSTem:OTA:JOURnal?", .callback = scpi_cmd_ota_journal_q}, \
     {.pattern = "SYSTem:OTA:MODE?", .callback = scpi_cmd_ota_mode_q}, \
     {.pattern = "SYSTem:OTA:TARGet?", .callback = scpi_cmd_ota_target_q}, \
     {.pattern = "SYSTem:OTA:CAPability?", .callback = scpi_cmd_ota_capability_q}, \

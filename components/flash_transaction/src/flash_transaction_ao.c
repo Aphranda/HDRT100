@@ -44,6 +44,7 @@ static uint32_t flash_transaction_policy_check(uint32_t requester,
     if (requester != FLASH_TRANSACTION_REQUESTER_OTA_IMAGE &&
         requester != FLASH_TRANSACTION_REQUESTER_OTA_METADATA &&
         requester != FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG &&
+        requester != FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL &&
         !(PROJECT_ENABLE_FLASH_VALIDATION &&
           requester == FLASH_TRANSACTION_REQUESTER_VALIDATION)) {
         return FLASH_TRANSACTION_ERROR_POLICY;
@@ -197,7 +198,8 @@ bool flash_transaction_ao_submit(const flash_transaction_request_t *request)
         return false;
     }
     flash_transaction_request_t effective = *request;
-    if (effective.completion_lease == NULL) {
+    if (effective.completion_lease == NULL &&
+        effective.requester != FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL) {
         effective.completion_lease = s_completion_lease;
     }
     return flash_transaction_fb_submit(&s_flash_transaction, &effective);

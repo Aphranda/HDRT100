@@ -7,6 +7,7 @@
 #include "drv_flash.h"
 #include "drv_watchdog.h"
 #include "ota_ao.h"
+#include "ota_journal.h"
 #include "product_config.h"
 #include "scpi_port_internal.h"
 #include "portable_ota_port.h"
@@ -297,6 +298,27 @@ scpi_result_t scpi_cmd_ota_capability_q(scpi_t *context)
     }
 
     SCPI_ResultUInt32(context, metadata.boot_capabilities);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ota_journal_q(scpi_t *context)
+{
+    ota_journal_snapshot_t snapshot;
+    if (!ota_journal_get_snapshot(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, snapshot.valid ? 1u : 0u);
+    SCPI_ResultUInt32(context, (uint32_t)snapshot.result);
+    SCPI_ResultUInt32(context, snapshot.sequence);
+    SCPI_ResultUInt32(context, snapshot.checkpoint.session_id);
+    SCPI_ResultUInt32(context, snapshot.checkpoint.generation);
+    SCPI_ResultUInt32(context, snapshot.checkpoint.token);
+    SCPI_ResultUInt32(context, snapshot.checkpoint.object_id);
+    SCPI_ResultUInt32(context, snapshot.checkpoint.durable_offset);
+    SCPI_ResultUInt32(context, snapshot.checkpoint.total_size);
+    SCPI_ResultUInt32(context, snapshot.checkpoint.package_crc32);
+    SCPI_ResultUInt32(context, snapshot.checkpoint.chunk_crc32);
     return SCPI_RES_OK;
 }
 

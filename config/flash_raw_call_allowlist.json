@@ -26,7 +26,7 @@
       "contexts": ["app"],
       "core": "core0",
       "modes": ["idle", "maintenance"],
-      "partitions": ["v1_inactive_slot", "v1_product_config"],
+      "partitions": ["active_inactive_slot", "active_product_config", "v2_ota_journal"],
       "operations": ["erase", "program", "xip_ptr"],
       "write_frequency": "firmware_update_or_operator_configuration_change",
       "power_cut_semantics": "requester_specific_commit_after_readback_verify",
@@ -67,6 +67,18 @@
       "write_frequency": "boot_state_transition_or_firmware_update",
       "power_cut_semantics": "redundant_copy_sequence_crc_then_newest_valid",
       "target_api": "BootFlashService"
+    },
+    {
+      "file": "components/ota_manager/src/ota_journal.c",
+      "owner": "OtaJournalReadView",
+      "contexts": ["app"],
+      "core": "core0",
+      "modes": ["idle", "maintenance"],
+      "partitions": ["v2_ota_journal"],
+      "operations": ["read"],
+      "write_frequency": "read_only",
+      "power_cut_semantics": "select_latest_crc_and_commit_valid_checkpoint",
+      "target_api": "FlashMapReadView"
     },
     {
       "file": "components/ota_manager/src/ota_metadata_flash_read.c",

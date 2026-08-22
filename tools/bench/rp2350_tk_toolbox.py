@@ -38,6 +38,7 @@ STATUS_COMMANDS = [
     "SYST:OTA:SLOT?",
     "SYST:OTA:RES?",
     "SYST:OTA:TXN?",
+    "SYST:OTA:JOUR?",
     "SYST:SD:STAT?",
     "SYST:SD:INFO?",
     "STAT:TRIG?",

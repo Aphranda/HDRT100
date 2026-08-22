@@ -66,7 +66,15 @@ bool ota_ao_init(void)
         s_ota_context.vector.expected_size = metadata.slot_b_size;
         s_ota_context.vector.crc32_expected = metadata.slot_b_crc32;
         s_ota_context.vector.boot_flags_summary = metadata.last_boot_result;
-        (void)portable_ota_port_stream_init(&metadata);
+        const bool stream_initialized =
+            portable_ota_port_stream_init(&metadata);
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+        if (!stream_initialized) {
+            return false;
+        }
+#else
+        (void)stream_initialized;
+#endif
     }
 
     s_ota_context.target_offset = ota_partition_slot_offset(s_ota_context.target_slot);

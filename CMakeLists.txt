@@ -360,6 +360,7 @@ set(PROJECT_APP_SOURCES
         components/ota_manager/src/ota_fb.c
         components/ota_manager/src/ota_crc32.c
         components/ota_manager/src/ota_image.c
+        components/ota_manager/src/ota_journal.c
         components/ota_manager/src/ota_metadata.c
         components/ota_manager/src/ota_metadata_flash_app.c
         components/ota_manager/src/ota_metadata_flash_read.c

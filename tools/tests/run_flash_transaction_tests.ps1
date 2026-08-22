@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $build = Join-Path $repo $BuildDir
 $testSource = Join-Path $repo "tests\unit\test_flash_transaction.c"
+$tests = Join-Path $repo "tests\unit"
 $journalTestSource = Join-Path $repo "tests\unit\test_flash_transaction_journal.c"
 $serviceSource = Join-Path $repo "components\flash_transaction\src\flash_transaction_fb.c"
 $journalSource = Join-Path $repo "components\flash_transaction\src\flash_transaction_journal.c"
@@ -58,6 +59,20 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 Write-Host "FlashTransaction validation host unit tests passed"
+
+$otaJournalExe = Join-Path $build "test_flash_transaction_ota_journal.exe"
+& $hostCc.Source -std=c11 -Wall -Wextra -Werror `
+    -DPROJECT_FLASH_DEPLOYMENT_V2=1 `
+    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" `
+    (Join-Path $tests "test_flash_transaction_ota_journal.c") $serviceSource -o $otaJournalExe
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+& $otaJournalExe
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+Write-Host "FlashTransaction OTA journal owner host unit tests passed"
 
 $journalExe = Join-Path $build "test_flash_transaction_journal.exe"
 & $hostCc.Source -std=c11 -Wall -Wextra -Werror `
