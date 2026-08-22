@@ -1,6 +1,10 @@
 import json
 
-from tools.release_check.release_check import check_forbidden_strings, check_preset
+from tools.release_check.release_check import (
+    check_forbidden_strings,
+    check_independent_release_report,
+    check_preset,
+)
 
 
 def test_release_policy_requires_rtos_and_multicore(tmp_path):
@@ -76,3 +80,12 @@ def test_release_artifacts_reject_validation_bootsel_command(tmp_path):
 
     assert len(failures) == 1
     assert "forbidden validation command string" in failures[0]
+
+
+def test_release_policy_requires_independent_flash_owner_report(tmp_path):
+    failures = []
+
+    check_independent_release_report(tmp_path, tmp_path / "missing-build", failures)
+
+    assert len(failures) == 3
+    assert all("independent Flash owner report" in failure for failure in failures)

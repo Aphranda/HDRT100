@@ -10,6 +10,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Keep direct ``python tools/release_check/release_check.py`` invocation
+# equivalent to module execution from the repository root.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.flash_map.flash_release_report import collect_report
+
 
 REQUIRED_ARTIFACTS = (
     "DHRT100_FACTORY.uf2",
@@ -245,6 +253,22 @@ def check_flash_contracts(root: Path, build_dir: Path, failures: list[str]) -> N
             ok(label)
 
 
+def check_independent_release_report(
+    root: Path, build_dir: Path, failures: list[str]
+) -> None:
+    """Re-run the independent App/Boot owner report as a release gate."""
+    report = collect_report(root, build_dir)
+    if not report["ok"]:
+        for entry in report["entries"]:
+            for failure in entry["failures"]:
+                fail(
+                    f"independent Flash owner report {entry['name']}: {failure}",
+                    failures,
+                )
+        return
+    ok("independent App/Boot Flash owner report is valid")
+
+
 def main() -> int:
     args = parse_args()
     root = args.root.resolve()
@@ -253,6 +277,7 @@ def main() -> int:
     check_preset(root, args.preset, failures)
     check_project_config(root, failures)
     check_flash_contracts(root, args.build_dir, failures)
+    check_independent_release_report(root, args.build_dir, failures)
     check_artifacts(root, args.build_dir, failures)
     check_forbidden_strings(root, args.build_dir, failures)
 
