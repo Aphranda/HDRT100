@@ -378,7 +378,8 @@ TODO 只保留可独立验收的状态项和证据索引。
   recovery 相关路径；独立 `BootFlashService` API 与完整最小依赖收敛仍待 M3-02/M3-04。
 - [x] link gate 已接入 Boot map/dis，拒绝 RTOS、SCPI、TDMA、FatFs、littlefs、FlashTransactionAO、
   resource arbiter、storage manager 和 App OTA AO 符号；当前 build 通过。
-- [ ] Bootloader size 使用 partition symbol gate，不使用文档硬编码阈值。
+- [x] Bootloader size 使用生成的 partition symbol gate，不使用文档硬编码阈值；`__flash_binary_end`
+  必须落在 `FLASH_COMPAT_MAP_BOOTLOADER_ORIGIN/LENGTH` 界内。
 
 ### M3-02 BootControlStore
 

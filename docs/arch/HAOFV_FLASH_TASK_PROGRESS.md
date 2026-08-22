@@ -16,6 +16,19 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-013 - M3-01 Bootloader partition size gate
+
+- 状态：M3-01 的 size/map 子项完成；BootFlashService 依赖白名单和完整 M3-01 退出门禁仍未完成。
+- 代码提交：`06c83af feat(boot): gate Bootloader size by FlashMap symbols`，已推送。
+  `flash_link_check.py --profile boot` 现在同时校验 `FLASH` 区域与生成的
+  `FLASH_COMPAT_MAP_BOOTLOADER_ORIGIN/LENGTH`，并拒绝缺失或越界的 `__flash_binary_end`。
+- Host 验证：`tests/python/test_flash_link_check.py` 8/8 通过，新增 partition-size 正向和溢出
+  负向 fixture；现有 Boot raw-caller/dependency 检查保持生效。
+- 构建验证：`build-flash-m1-05h-20260823-release` 重新构建通过，输出
+  `flash_link_contract=OK profile=boot`；`release_check=OK`。
+- 边界：该门禁只证明链接产物不越过生成分区，不能替代空白 Flash recovery、BCB torn-write、
+  signature/anti-rollback 或 DHRT100 Boot fault HIL。
+
 ### FLASH-TASK-20260823-012 - M1-06 Scratch validation-only 闭环
 
 - 状态：M1-06 已完成受限 validation-only 流程；高地址 v2 deployment 和 JEDEC 读数仍明确阻塞，
