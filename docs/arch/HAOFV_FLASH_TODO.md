@@ -454,8 +454,9 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M4-02 Journal 与 durable resume
 
-- [~] portable checkpoint append 只在底层 program/readback verify 成功后提交 durable offset；
-  真实 OTA sink 尚未接入该 primitive（证据：`FLASH-TASK-20260823-019`）。
+- [~] `pota_stream_session` 已可配置 `pota_stream_checkpoint_store`，在底层 program/readback
+  成功后按 interval/final policy append checkpoint，并在 append/recover 失败时 fail closed；真实
+  v2 `OTA_JOURNAL` Flash backend、live OTA producer 和板端跨 reset 仍待完成。
 - [~] portable policy primitive 已按 monotonic byte interval/final offset 决定 checkpoint，
   不按每 chunk 擦写（证据：`FLASH-TASK-20260823-022`）；实际 wear/retransmit profile 选择、
   ingress 调用和 endurance HIL 仍待完成。

@@ -33,6 +33,23 @@ Last updated: 2026-08-23
   unsigned compatibility package；未执行签名烧录、OTP、掉电安全 counter、Recovery 或
   DHRT100 HIL，M3-04/M3 退出门禁保持未完成。
 
+### FLASH-TASK-20260823-026 - stream session checkpoint store wiring
+
+- 状态：M4-02 的 portable session 已从仅有 checkpoint primitive 推进为可配置 store 调用；仍不
+  宣称 v2 `OTA_JOURNAL` 已部署或真实 OTA producer 已迁移。
+- 代码：`pota_stream_session_set_checkpoint_store()` 将 session 绑定到
+  `pota_stream_checkpoint_store`；每次成功的底层 program/readback 后，按 interval/final policy
+  生成包含 session/generation/token/object/offset/total/package/chunk CRC 的 checkpoint，再推进
+  session 的 durable cursor。append 失败将 session 置为 FAILED 并返回 `CHECKPOINT`，不发布成功
+  状态。代码已纳入 portable tests 和主工程。
+- 验证：`tools/tests/run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m4-checkpoint-store`
+  通过；新增 ingress 测试在固定 fake flash checkpoint store 上执行 append + recover，并校验
+  token/object/offset；`build-flash-m1-05h-20260823-release` App A/App B/Boot、FlashMap/
+  inventory/link gate 构建通过。
+- 边界：fake store 只证明 session/store wiring；当前 live map 仍为 v1 compatibility，尚无真实
+  v2 journal address、Flash backend 的 page/sector adapter、掉电注入、跨 reset resume 或 DHRT100
+  HIL，因此 M1-05-G/H、M4-02 和 M4 退出门禁保持未完成。
+
 ### FLASH-TASK-20260823-024 - M3 BCB wear telemetry 与 M4 ingress adapter
 
 - 状态：M3-02 增加 BCB 物理页编程/擦除计数快照 primitive；M4-03 增加五类本地入口共用的
