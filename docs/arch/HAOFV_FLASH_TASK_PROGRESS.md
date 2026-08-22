@@ -28,7 +28,49 @@ Last updated: 2026-08-22
 | M0-02 FlashMap source/schema | 完成 | v1 compatibility/v2 target 双版本 source、生成物、live consumer、artifact/drift gate | 后续 map 变更必须同时通过 freshness 与 consumer gate。 |
 | M1-01 Geometry/Raw HAL | 进行中 | 16 MiB geometry、overflow-safe range、host boundary tests、COM8 v1 OTA/lockout HIL | raw write header 只对 BootFlashService/FlashTransaction target 可见。 |
 | M1-02 permission view | 进行中 | generated X-macro、纯算法服务、版本化 live consumer、host 边界测试、COM8 OTA/只读权限闭环 | 真实 writer 接入、v2 factory 部署与 C11 激活审核。 |
-| M1-03 FlashTransactionAO | 进行中 | one-deep queue/FB/Vector、OTA image 与 Product Config writer、owned page snapshot、host fault tests、COM8 OTA 与 Product NVS 重启闭环 | metadata/Boot writer、异步 completion、lease/refcount、thermal gate 与 durable reset 语义。 |
+| M1-03 FlashTransactionAO | 进行中 | one-deep queue/FB/Vector、OTA image/Product Config/App metadata writer、owned two-page snapshot、transaction-owned core1 park、COM8 双向 OTA 闭环 | Boot writer、异步 completion、immutable provider/refcount、运行时 abort 与 durable reset 语义。 |
+
+### FLASH-TASK-20260822-016 - transaction-owned core1 park 与 512-byte OTA 双向闭环
+
+- 状态：M1-03/M1-04/M1-05 继续进行；App raw write 的 core1 park 会话已收敛到
+  FlashTransaction owner，当前 OTA producer 使用的两页 payload 已由 transaction 固定池持有。
+- 日期：2026-08-22
+- 完成内容：
+  - Raw HAL 拆分 session begin/end 与 parked erase/program；只有 `flash_transaction_ao.c` 可调用
+    parked write，Boot 同步 raw writer 继续使用独立 session，inventory 拒绝其他 owner。
+  - FlashTransaction 在 acquire Flash resource 后请求 park，在释放 Flash resource 前释放 core1；
+    park/release 失败分别进入明确错误，release 失败可覆盖原成功终态。
+  - owned payload pool 扩展到 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE`，覆盖当前 OTA producer 的
+    两页块；更大 payload 继续以 `PROVIDER` fail closed。
+  - OTA HIL 工具从统一包 image table 计算目标槽首个 payload block，在传输中采样 image Vector，
+    并在结束后独立核对 metadata Vector，避免后写 metadata 覆盖 image 快照造成误判。
+- COM8 闭环（以下数字为本轮快照，非长期事实源）：
+  - 目标板 `839E1AE79EA20F31` 原运行 build `20260821234514`。默认统一包和 raw 512-byte 发送在旧
+    256-byte pool 上分别暴露 `INVALID_STATE/PROVIDER`；后续失败与尝试均保留在
+    `build/flash_park_owner_COM8/`，不计为通过证据。
+  - `picotool reboot -f -u` 未让设备保持可访问 BOOTSEL，直接 factory load 后 build 也未改变；
+    因此 M0-05 BOOTSEL 样板恢复仍未完成。恢复实际通过 256-byte raw inactive-slot OTA、Boot/commit
+    完成，串口确认新 build `20260821234933`。
+  - 新 build 使用默认 512-byte unified package 完成 B->A 与 A->B 两次 OTA/Boot/commit；两次 image
+    Vector 分别指向非活动 partition 1/2，均为 512/512/512 programmed/verified/committed；最终
+    metadata Vector 均为 requester 2、partition 3、256/256/256 committed。
+  - 两个方向的 core1 request/ACK/release 均从 2 增长到 938，timeout/release timeout 为 0；最终
+    build 保持 `20260821234933`、identity 不变、错误队列为空。通过报告位于
+    `build/flash_park_owner_COM8/default512_dynamic_probe_closed_loop/` 与
+    `build/flash_park_owner_COM8/default512_dynamic_probe_reverse/`。
+  - 最后传感器快照板温约 31.069 degC、RP2350 内温约 35.934 degC；current frontend healthy、
+    nominal-only，电流估算尚未校准。
+- 验证与提交：
+  - FlashTransaction/Raw HAL fixture 覆盖 park/release failure、无 session parked write、重复
+    begin/end 和 parked caller ownership；全量 host runner `30/30`，HIL parser pytest `4/4`。
+  - 全量 Python 为 `123/124`；唯一失败是缺少既有 TDMA 反射台架报告
+    `build-product-release/tdma_pio_timing_check_reflection_20260821.json`，未伪造该证据。
+  - 代码提交 `bdc744b`、`accdfbc`、`f3d5a96`、`3e48dab` 已推送；factory UF2 SHA-256 为
+    `9DC685494D620D8B9B148F175881F0ED7D19B7B65FF797C416985D5610FD863B`，统一包 SHA-256 为
+    `4DF7A734477A9B0E744322EC35E501A687C8686631B84C6068557CF8AC297A7D`。
+- 还需完成：
+  - M0-05 真实 BOOTSEL full erase/reflash；M1-04 RAM/XIP closure、park-timeout 与 mode 拒绝 HIL；
+    M1-05 immutable provider/refcount、producer reset/raw-operation abort；M1-06 受限 Scratch HIL。
 
 ### FLASH-TASK-20260822-012 - M0 persistence registry 与 migration policy 输入
 

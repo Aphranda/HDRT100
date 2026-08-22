@@ -172,18 +172,19 @@ Product Config 与 App metadata writer 已走 intent，Boot metadata 保持独�
 ### M1-03 FlashTransactionAO/FB/Vector
 
 - [~] 已固定首轮 one-deep queue、job/requester/operation/provider generation/completion/cancel；
-  大 payload 在 immutable provider/refcount 落地前 fail closed。
+  当前 OTA 两页载荷上限由 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 给出，超过该上限的 payload 在
+  immutable provider/refcount 落地前 fail closed。
 - [~] 实现 `VALIDATE -> QUIESCE -> ACQUIRE -> PARK -> ERASE/PROGRAM -> VERIFY -> COMMIT ->
   RELEASE -> COMPLETE/FAILED`，每次 service 只推进一个有界步骤。
 - [x] Vector 使用 seqlock；只读查询不触发 Flash IO，并记录 policy/lockout/progress/result/timing；
   thermal/health gate、policy reason 与 temperature flags 已接入。
 - [x] completion 区分 accepted/programmed/verified/committed，OTA 兼容包装只消费 committed。
 
-首轮证据：commit `2a79643`；OTA image erase/program 已从 portable callback 进入
+首轮证据：commit `2a79643`、`bdc744b`、`accdfbc`、`f3d5a96`；OTA image erase/program 已从 portable callback 进入
 `FlashTransactionAO/FB`，active slot 未知或写活动槽均 fail closed。host fault fixtures、release、
-RTOS+双核构建和 COM8 双次 OTA/Vector HIL 均通过。该项保持进行中，因为当前仍有同步兼容包装，
-实际 core1 park 仍封装在 Raw HAL，metadata/Product Config/Boot writer、lease/buffer、thermal gate 和
-跨 reset durable completion 尚未收敛。
+RTOS+双核构建和 COM8 双向 OTA/Vector HIL 均通过；HIL 工具在目标 image payload 首块和最终
+metadata 提交后分别核对 Vector。该项保持进行中，因为当前仍有同步兼容包装，Boot writer、
+immutable provider/refcount、运行时 abort/lease 和跨 reset durable completion 尚未收敛。
 
 ### M1-04 Mode、温度与双核门禁
 
@@ -195,14 +196,15 @@ RTOS+双核构建和 COM8 双次 OTA/Vector HIL 均通过。该项保持进行�
 - [~] Trigger capture/clock、FAULT mode 和 Flash resource conflict 已细分为 policy reason；真实
   System/Calibration/TDMA owner 发布 gate 与板端拒绝 HIL 仍待完成。
 - [ ] RUN/CAL/thermal critical/unknown state 拒绝新写；warning 只按 policy 暂停或降速。
-- [ ] core1 park request/ACK/timeout/release 只由 transaction owner 驱动。
+- [x] App raw write session 的 core1 park request/ACK/release 只由 transaction owner 驱动；parked raw
+  operation 在无活动 session 时 fail closed，Boot 同步 raw writer 保持独立会话边界。
 - [ ] 审计 RAM resident closure：代码、常量、jump table、IRQ path 不依赖 XIP。
 - [ ] HIL 注入 park timeout，证明 raw operation 未执行；release 后 core1 alive。
 
 ### M1-05 Buffer 与 owner 收敛
 
-- [x] 小 payload 复制入固定 pool；大 payload 在 immutable provider/refcount 落地前 fail closed，禁止
-  把 producer alias 交给 raw writer。
+- [x] 不超过 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的 payload 在 submit 时复制入固定 pool；更大
+  payload 在 immutable provider/refcount 落地前 fail closed，禁止把 producer alias 交给 raw writer。
 - [~] queue full、producer reset、duplicate completion、abort during page/sector 均有单测；当前已覆盖
   queue full、duplicate terminal/abort、large payload no-raw，producer reset 与 raw-operation abort
   仍待异步 provider/step hook。
