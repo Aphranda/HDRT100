@@ -7,6 +7,7 @@
 #include "board_identity.h"
 #include "osal.h"
 #include "project_config.h"
+#include "resource_arbiter.h"
 #include "tdma_runtime_owner.h"
 
 #define CALIBRATION_MANAGER_DEFAULT_CRC32 0x10000003u
@@ -233,6 +234,22 @@ void calibration_manager_service(void)
     s_status.ready = s_ready;
     s_status.state = 0u;
     osal_critical_exit();
+
+    calibration_pio_loopback_snapshot_t training_loopback;
+    const bool loopback_active =
+        calibration_pio_loopback_get_snapshot(&training_loopback) &&
+        training_loopback.armed != 0u;
+    tdma_pio_spi_clk_train_snapshot_t clock_training;
+    const bool tdma_training_active =
+        tdma_runtime_owner_get_clk_train_snapshot(&clock_training) &&
+        (clock_training.state == TDMA_PIO_SPI_CLK_TRAIN_FORWARDING ||
+         clock_training.state == TDMA_PIO_SPI_CLK_TRAIN_MASTER_RUNNING);
+    const bool calibration_active =
+        loopback_active ||
+        __atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) ||
+        s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
+    resource_arbiter_publish_training_activity(calibration_active,
+                                                tdma_training_active);
 
     calibration_pio_loopback_snapshot_t raw;
     if (calibration_pio_loopback_get_snapshot(&raw) && raw.complete != 0u &&
@@ -497,6 +514,7 @@ bool calibration_manager_get_p3_snapshot(
     osal_critical_enter();
     *snapshot = s_p3_snapshot;
     osal_critical_exit();
+
     (void)tdma_runtime_owner_get_p3_snapshot(&snapshot->raw);
     snapshot->result_valid =
         snapshot->raw.state == TDMA_PIO_SPI_P3_COMPLETE ? 1u : 0u;

@@ -33,10 +33,14 @@ typedef struct {
     const char *resource_owners[32];
     bool trigger_capture_running;
     bool trigger_clock_running;
+    bool calibration_training_active;
+    bool tdma_clock_training_active;
 } resource_arbiter_snapshot_t;
 
 bool resource_arbiter_init(void);
 void resource_arbiter_publish_trigger_activity(bool capture_running, bool clock_running);
+void resource_arbiter_publish_training_activity(bool calibration_active,
+                                                 bool tdma_clock_training_active);
 bool resource_arbiter_can_begin_ota(void);
 bool resource_arbiter_acquire(uint32_t resources);
 bool resource_arbiter_acquire_owned(uint32_t resources, const char *owner);

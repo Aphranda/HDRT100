@@ -52,6 +52,12 @@ static uint32_t flash_transaction_policy_check(uint32_t requester,
     if (arbiter.trigger_capture_running || arbiter.trigger_clock_running) {
         return FLASH_TRANSACTION_ERROR_TRIGGER_ACTIVE;
     }
+    if (arbiter.calibration_training_active) {
+        return FLASH_TRANSACTION_ERROR_CALIBRATION_ACTIVE;
+    }
+    if (arbiter.tdma_clock_training_active) {
+        return FLASH_TRANSACTION_ERROR_TDMA_TRAINING_ACTIVE;
+    }
     if ((arbiter.active_resources & RESOURCE_ARBITER_RESOURCE_FLASH) != 0u) {
         return FLASH_TRANSACTION_ERROR_RESOURCE;
     }
