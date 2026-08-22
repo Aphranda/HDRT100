@@ -11,6 +11,7 @@ scpi_result_t scpi_system_diagnostics_count_zero_q(scpi_t *context);
 scpi_result_t scpi_system_diagnostics_statistics_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_debug_q(scpi_t *context);
 scpi_result_t scpi_cmd_resource_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_resource_training_q(scpi_t *context);
 scpi_result_t scpi_cmd_flash_map_q(scpi_t *context);
 scpi_result_t scpi_cmd_flash_access_q(scpi_t *context);
 scpi_result_t scpi_cmd_flash_transaction_q(scpi_t *context);
@@ -26,6 +27,7 @@ scpi_result_t scpi_cmd_flash_transaction_q(scpi_t *context);
     {.pattern = "SYSTem:T2:DATA?", .callback = scpi_system_diagnostics_page_block_q}, \
     {.pattern = "SYSTem:TRIGger:DBG?", .callback = scpi_cmd_trigger_debug_q}, \
     {.pattern = "SYSTem:RESource?", .callback = scpi_cmd_resource_status_q}, \
+    {.pattern = "SYSTem:RESource:TRAINing?", .callback = scpi_cmd_resource_training_q}, \
     {.pattern = "SYSTem:DIAGnostic:FLASh:MAP?", .callback = scpi_cmd_flash_map_q}, \
     {.pattern = "SYSTem:DIAGnostic:FLASh:ACCEss?", .callback = scpi_cmd_flash_access_q}, \
     {.pattern = "SYSTem:DIAGnostic:FLASh:TRANsaction?", .callback = scpi_cmd_flash_transaction_q}, \

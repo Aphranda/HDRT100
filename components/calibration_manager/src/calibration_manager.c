@@ -23,6 +23,25 @@ static volatile bool s_clk_coded_active;
 static uint32_t s_clk_coded_request_sequence;
 static calibration_manager_p3_snapshot_t s_p3_snapshot;
 
+static void calibration_manager_publish_training_activity(void)
+{
+    calibration_pio_loopback_snapshot_t training_loopback;
+    const bool loopback_active =
+        calibration_pio_loopback_get_snapshot(&training_loopback) &&
+        training_loopback.armed != 0u;
+    tdma_pio_spi_clk_train_snapshot_t clock_training;
+    const bool tdma_training_active =
+        tdma_runtime_owner_get_clk_train_snapshot(&clock_training) &&
+        (clock_training.state == TDMA_PIO_SPI_CLK_TRAIN_FORWARDING ||
+         clock_training.state == TDMA_PIO_SPI_CLK_TRAIN_MASTER_RUNNING);
+    const bool calibration_active =
+        loopback_active ||
+        __atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) ||
+        s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
+    resource_arbiter_publish_training_activity(calibration_active,
+                                                tdma_training_active);
+}
+
 typedef enum {
     CALIBRATION_P3_INTENT_NONE = 0u,
     CALIBRATION_P3_INTENT_START = 1u,
@@ -235,21 +254,7 @@ void calibration_manager_service(void)
     s_status.state = 0u;
     osal_critical_exit();
 
-    calibration_pio_loopback_snapshot_t training_loopback;
-    const bool loopback_active =
-        calibration_pio_loopback_get_snapshot(&training_loopback) &&
-        training_loopback.armed != 0u;
-    tdma_pio_spi_clk_train_snapshot_t clock_training;
-    const bool tdma_training_active =
-        tdma_runtime_owner_get_clk_train_snapshot(&clock_training) &&
-        (clock_training.state == TDMA_PIO_SPI_CLK_TRAIN_FORWARDING ||
-         clock_training.state == TDMA_PIO_SPI_CLK_TRAIN_MASTER_RUNNING);
-    const bool calibration_active =
-        loopback_active ||
-        __atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) ||
-        s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
-    resource_arbiter_publish_training_activity(calibration_active,
-                                                tdma_training_active);
+    calibration_manager_publish_training_activity();
 
     calibration_pio_loopback_snapshot_t raw;
     if (calibration_pio_loopback_get_snapshot(&raw) && raw.complete != 0u &&
@@ -325,6 +330,7 @@ void calibration_manager_service_core1(void)
     calibration_pio_loopback_service_core1(stopped);
     tdma_runtime_owner_coded_service_core1();
     tdma_runtime_owner_p3_service_core1();
+    calibration_manager_publish_training_activity();
 
     calibration_p3_intent_t p3_intent;
     if (calibration_manager_p3_read(&p3_intent) &&

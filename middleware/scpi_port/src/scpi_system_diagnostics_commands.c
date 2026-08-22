@@ -114,6 +114,16 @@ scpi_result_t scpi_cmd_resource_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_resource_training_q(scpi_t *context)
+{
+    resource_arbiter_snapshot_t snapshot;
+    resource_arbiter_get_snapshot(&snapshot);
+
+    SCPI_ResultBool(context, snapshot.calibration_training_active ? TRUE : FALSE);
+    SCPI_ResultBool(context, snapshot.tdma_clock_training_active ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_flash_map_q(scpi_t *context)
 {
     uint32_t partition_id = 0u;

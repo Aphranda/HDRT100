@@ -88,6 +88,8 @@ bool resource_arbiter_can_begin_ota(void)
 
     allowed = !s_resource_arbiter.snapshot.trigger_capture_running &&
               !s_resource_arbiter.snapshot.trigger_clock_running &&
+              !s_resource_arbiter.snapshot.calibration_training_active &&
+              !s_resource_arbiter.snapshot.tdma_clock_training_active &&
               ((s_resource_arbiter.snapshot.active_resources &
                 RESOURCE_ARBITER_RESOURCE_FLASH) == 0u) &&
               s_resource_arbiter.snapshot.mode != RESOURCE_ARBITER_MODE_FAULT;
