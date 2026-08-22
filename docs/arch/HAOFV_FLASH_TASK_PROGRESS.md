@@ -31,6 +31,10 @@ Last updated: 2026-08-23
   `release_check=OK` 通过。
 - 边界：当前仍是 v1 compatibility map；没有把 readback 单测解释为真实掉电、Recovery、
   BOOTSEL 或 DHRT100 烧录闭环。
+- DHRT100 硬件尝试：`build/dhrt100_readback_ota_20260823/transcript.txt` 记录已发送
+  `SYST:OTA:PBEGIN` 并进入 `RECEIVING`，随后首个 `SYST:OTA:PROG?` 写入时 USB 设备断开；
+  板卡未重新枚举且 `picotool info -a` 未发现 BOOTSEL 设备。本次不计为成功烧录，需板卡重新
+  枚举后再执行恢复/闭环。
 
 ### FLASH-TASK-20260823-019 - M4-02 durable stream checkpoint primitive
 
