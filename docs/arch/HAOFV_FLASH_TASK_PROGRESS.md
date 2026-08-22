@@ -22,6 +22,34 @@ Last updated: 2026-08-22
 
 ## 当前检查点
 
+### FLASH-TASK-20260822-026 - live producer lease 与四板并发 OTA 证据
+
+- 状态：M1-05 继续进行；OTA、Product Config、App OTA metadata producer 已接入
+  generation-bound immutable buffer lease，并完成当前 v1 Direct A/B 的四板并发 OTA 闭环。
+  completion lease、durable reset journal、power-cut 和跨 reset duplicate completion 仍未完成，
+  因此 M1-05/M1-03 不关闭。
+- 日期：2026-08-22
+- 完成内容：
+  - live producer 在 `flash_transaction_ao_execute()` 生命周期内创建并传递
+    `flash_transaction_buffer_lease_t`；provider reset 使用 acquire/release 原子 pending 语义。
+  - 仍保持大于 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 且无合法 lease 时 fail-closed；当前
+    refcount 是同步轻量生命周期，不宣称跨 reset durable lease。
+- 验证结果（以下为本次构建/HIL 快照，非长期事实源）：
+  - `build-flash-m1-05-20260822/` 的 `pico2-release` 工件、host/build/link/inventory、
+    FlashMap/persistence/migration/wire gate 和 `release_check.py` 均通过；build id 为
+    `20260822045432`。
+  - NO.1 `0010071E65B5CB38` / COM3：`build/flash_burn_livelease_NO1_20260822/`；
+    NO.2 / COM5：`build/flash_burn_livelease_NO2_20260822/`；NO.3 / COM6：
+    `build/flash_burn_livelease_NO3_20260822/`；NO.4 / COM4：
+    `build/flash_burn_livelease_NO4_20260822/`。四块板均通过 `baseline_query`、
+    `positive_ota`、`boot_commit`、`final_safe_state`；NO.2–NO.4 为并发执行。
+  - 本轮仍只验证已部署的 v1 compatibility Direct A/B 路径；v2 map 保持
+    `target_not_deployed`，未执行 Scratch、高地址任意 offset、BOOTSEL full erase 或 Bootloader 重刷。
+- 还需完成：
+  - completion lease/durable reset journal，以及 provider power-cut、duplicate completion 和
+    跨 reset 证据；完成后再复核 M1-05/M1-03 退出门禁。
+  - 不改变 `docs/check/DOCS_REGISTRY.md` 中契约的 `pending` 状态，C11 激活审核尚未触发。
+
 ### FLASH-TASK-20260822-024 - 长期迁移检查点与 M1-05 下一 gate
 
 - 状态：HAOFV Flash 迁移继续按 M0/M1 工作包逐项闭环；当前唯一进行中的实现切片是 M1-05

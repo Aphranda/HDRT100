@@ -211,7 +211,8 @@ Product Config 与 App metadata writer 已走 intent，Boot metadata 保持独�
 `FlashTransactionAO/FB`，active slot 未知或写活动槽均 fail closed。host fault fixtures、release、
 RTOS+双核构建和 COM8 双向 OTA/Vector HIL 均通过；HIL 工具在目标 image payload 首块和最终
 metadata 提交后分别核对 Vector。该项保持进行中，因为当前仍有同步兼容包装，Boot writer、
-immutable provider/refcount、运行时 abort/lease 和跨 reset durable completion 尚未收敛。
+completion lease、运行时 abort/lease 和跨 reset durable completion 尚未收敛；live OTA/Product
+Config/App metadata producer 已接入 generation-bound lease，但尚未形成跨 reset durable lease。
 
 ### M1-04 Mode、温度与双核门禁
 
@@ -234,8 +235,8 @@ immutable provider/refcount、运行时 abort/lease 和跨 reset durable complet
 
 - [~] 不超过 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的 payload 在 submit 时复制入固定 pool；更大
   payload 必须绑定 generation、长度、retain/release 的 immutable buffer lease，缺少合法 lease 时
-  fail closed，禁止把 producer alias 交给 raw writer；live producer 迁移和跨 reset durable lease
-  语义仍待完成。
+  fail closed，禁止把 producer alias 交给 raw writer；OTA、Product Config、App OTA metadata
+  producer 已接入 generation-bound lease，但跨 reset durable lease 语义仍待完成。
 - [~] queue full、producer reset、duplicate completion、abort during page/sector 均有单测；当前已覆盖
   queue full、duplicate terminal/abort、large payload no-raw，以及 raw erase/program 回调期间触发
   abort 后跳过 verify/commit，以及 provider generation reset 在 raw 前/期间 fail-closed 的 host fixture；
@@ -245,6 +246,14 @@ immutable provider/refcount、运行时 abort/lease 和跨 reset durable complet
   当前 Product/OTA metadata 仍是 single-sector rewrite，不得视为 atomic NVS/BCB。
 - [x] inventory gate 证明 App raw erase/program caller 必须是 FlashTransactionAO；写 API 头文件
   进一步从通用 `drv_flash.h` 隐藏。仍待 link-level symbol visibility 与运行时 abort/lease 语义。
+
+本轮实板快照：`build-flash-m1-05-20260822/` release 工件与全部 host/build/link/inventory gate
+通过，build id `20260822045432`；NO.1–NO.4 的并发 Direct A/B OTA 均通过
+`baseline_query`、`positive_ota`、`boot_commit`、`final_safe_state`，原始报告目录见
+`HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-026`。该证据不关闭 M1-05：
+completion lease、durable reset journal、power-cut/duplicate completion 和跨 reset 证据仍缺失；
+v2 map 仍为 `target_not_deployed`，未执行 Scratch、高地址任意 offset、BOOTSEL full erase 或
+Bootloader 重刷。
 
 ### M1-06 高地址 Scratch 验证
 
