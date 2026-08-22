@@ -65,6 +65,18 @@ Last updated: 2026-08-23
 - 影响边界：本次只产生阻塞记录；host journal、release build/link 和文档门禁证据不受影响。M0-05
   BOOTSEL、M1-05-G/H/I durable/power-cut、v2 deployment 和 M1-05-J C11 审核仍未完成。
 
+### FLASH-TASK-20260823-011 - M1-05-J release gate enforcement
+
+- 状态：M1-05-J 继续进行；独立 App/Boot owner 报告已接入 `release_check` 强制门禁。
+- 代码提交：`a648cbd feat(release): enforce Flash owner report gate`，已推送。
+- 实现：release check 现在直接重新运行 `flash_release_report.collect_report()`；任一 App A、App B
+  或 Boot map/dis 缺失、解析失败或 owner contract failure 都 fail closed。新增缺失工件负向测试。
+- 验证：release gate 对 `build-flash-m1-05h-20260823-release` 输出
+  `independent App/Boot Flash owner report is valid` 和 `release_check=OK`；相关 Python 回归
+  13/13 通过。
+- 边界：M1-05-J 的独立报告与强制 gate 已完成代码侧，Boot 依赖的独立 C11 交叉审核仍未完成；
+  不改变 v1 compatibility map、DHRT100 实板状态或 v2 deployment 结论。
+
 ### FLASH-TASK-20260823-006 - 最新 release package DHRT100 闭环
 
 - 状态：最新 release 工件已完成 DHRT100 实板 A/B OTA；不改变 M1-05-G/H/I、M1-06、M0-05
