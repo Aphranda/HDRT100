@@ -119,7 +119,8 @@ int main(void)
     failed += !expect("open USB CDC", pota_stream_ingress_open(
         &ingress, POTA_STREAM_INGRESS_USB_CDC, &open) == POTA_STREAM_INGRESS_OK);
     while (pota_stream_session_state(&session) == POTA_STREAM_STATE_OPEN) {
-        failed += !expect("service", pota_stream_session_service(&session, 100u) == POTA_STREAM_RESULT_OK);
+        failed += !expect("service", pota_stream_ingress_service(
+            &ingress, POTA_STREAM_INGRESS_USB_CDC, 100u) == POTA_STREAM_INGRESS_OK);
     }
     const uint8_t payload[16] = {
         '0', '1', '2', '3', '4', '5', '6', '7',

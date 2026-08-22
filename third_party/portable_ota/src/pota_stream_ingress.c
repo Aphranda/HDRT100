@@ -100,6 +100,19 @@ pota_stream_ingress_result_t pota_stream_ingress_write(
         ingress->session, offset, data, size)));
 }
 
+pota_stream_ingress_result_t pota_stream_ingress_service(
+    pota_stream_ingress_t *ingress,
+    pota_stream_ingress_source_t source,
+    uint32_t budget_us)
+{
+    if (ingress == NULL || !source_allowed(ingress, source) ||
+        !ingress->open || source != ingress->active_source) {
+        return remember(ingress, POTA_STREAM_INGRESS_SOURCE_REJECTED);
+    }
+    return remember(ingress, session_result(
+        pota_stream_session_service(ingress->session, budget_us)));
+}
+
 pota_stream_ingress_result_t pota_stream_ingress_close(
     pota_stream_ingress_t *ingress,
     pota_stream_ingress_source_t source)

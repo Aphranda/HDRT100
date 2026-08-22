@@ -60,6 +60,10 @@ pota_stream_ingress_result_t pota_stream_ingress_write(
     uint32_t size,
     bool has_crc32,
     uint32_t crc32);
+pota_stream_ingress_result_t pota_stream_ingress_service(
+    pota_stream_ingress_t *ingress,
+    pota_stream_ingress_source_t source,
+    uint32_t budget_us);
 pota_stream_ingress_result_t pota_stream_ingress_close(
     pota_stream_ingress_t *ingress,
     pota_stream_ingress_source_t source);
