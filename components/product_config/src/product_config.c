@@ -13,9 +13,16 @@
 #define PRODUCT_CONFIG_VERSION 1u
 #define PRODUCT_CONFIG_MAX_BOARD_NO 8u
 #define PRODUCT_CONFIG_SLOT_SIZE DRV_FLASH_PAGE_SIZE
+#define PRODUCT_CONFIG_SECTOR_SIZE DRV_FLASH_SECTOR_SIZE
+#define PRODUCT_CONFIG_SLOTS_PER_SECTOR \
+    (PRODUCT_CONFIG_SECTOR_SIZE / PRODUCT_CONFIG_SLOT_SIZE)
+#define PRODUCT_CONFIG_SECTOR_COUNT \
+    (OTA_PRODUCT_CONFIG_SIZE / PRODUCT_CONFIG_SECTOR_SIZE)
 
 _Static_assert((OTA_PRODUCT_CONFIG_SIZE % PRODUCT_CONFIG_SLOT_SIZE) == 0u,
                "Product Config store must contain whole program-page slots");
+_Static_assert((OTA_PRODUCT_CONFIG_SIZE % PRODUCT_CONFIG_SECTOR_SIZE) == 0u,
+               "Product Config store must contain whole erase sectors");
 
 typedef struct {
     uint32_t magic;
@@ -202,11 +209,24 @@ static bool product_config_store(const product_config_record_t *record)
     uint32_t latest_slot = UINT32_MAX;
     uint32_t slot = UINT32_MAX;
     (void)product_config_find_latest(&latest, &latest_slot, &slot);
-    (void)latest_slot;
     if (slot == UINT32_MAX) {
-        /* No GC/sector rotation is attempted here: a full store fails closed
-         * and leaves the last committed record intact. */
-        return false;
+        if (latest_slot == UINT32_MAX) {
+            /* No valid anchor means that rotation could destroy the only
+             * recoverable state; fail closed. */
+            return false;
+        }
+
+        const uint32_t latest_sector =
+            latest_slot / PRODUCT_CONFIG_SLOTS_PER_SECTOR;
+        const uint32_t rotate_sector =
+            (latest_sector + 1u) % PRODUCT_CONFIG_SECTOR_COUNT;
+        if (!product_config_flash_execute(FLASH_TRANSACTION_OPERATION_ERASE,
+                                          rotate_sector * PRODUCT_CONFIG_SECTOR_SIZE,
+                                          NULL, PRODUCT_CONFIG_SECTOR_SIZE,
+                                          record->sequence)) {
+            return false;
+        }
+        slot = rotate_sector * PRODUCT_CONFIG_SLOTS_PER_SECTOR;
     }
 
     uint8_t page[PRODUCT_CONFIG_SLOT_SIZE];
