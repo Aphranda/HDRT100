@@ -16,6 +16,23 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-019 - M4-02 durable stream checkpoint primitive
+
+- 状态：M4-02 portable checkpoint 子项完成 host 可复核切片；真实 v2 `OTA_JOURNAL` producer、
+  ingress 接入、checkpoint frequency policy 和 DHRT100 跨 reset HIL 仍未完成，故 M4-02 保持 `[~]`。
+- 代码：新增 `third_party/portable_ota/include/pota_stream_checkpoint.h`、
+  `third_party/portable_ota/src/pota_stream_checkpoint.c` 和
+  `tests/unit/test_pota_stream_checkpoint.c`；固定 64-byte 槽记录，包含 magic/schema/sequence、
+  session identity、durable offset、package/chunk CRC、record CRC 和 commit marker。append 只在
+  program 后 readback 校验通过时推进 sequence；相同 offset/CRC 重放幂等，元数据冲突、旧 offset
+  回放和越界均 fail closed。
+- 测试：`tools/tests/run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m4-02` 通过，
+  覆盖顺序推进、复位恢复、满槽、撕裂 body、撕裂 commit marker、旧 offset 和 CRC 损坏回读。
+- 构建：`build-flash-m1-05h-20260823-release` App A/App B/Boot、FlashMap/inventory/link gate
+  和 `tools/release_check/release_check.py` 均通过；产物为本地 release 快照，尚未烧录 DHRT100。
+- 边界：当前固件仍部署 v1 compatibility map；该 portable primitive 不访问 v2 高地址
+  `OTA_JOURNAL`，不得据此宣称 durable resume、Recovery 或 M4 退出门禁完成。
+
 ### FLASH-TASK-20260823-016 - M3-02 BCB adapter 接入 v1 metadata
 
 - 状态：M3-02 进入真实 adapter 接入阶段；portable primitive 与 `ota_metadata.c` 已连接，

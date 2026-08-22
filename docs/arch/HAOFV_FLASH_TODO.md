@@ -62,7 +62,7 @@ generated permission view、版本化 live consumer 和只读板端验证；M1-0
 
 当前实验资源策略：四板 COM3–COM6 优先用于 VDC、TDMA 和其他实时算法优化；四板 OTA 只保留
 兼容路径回归，不作为当前 Flash v2 destructive HIL 或迁移完成证据。Flash 的 Scratch、factory
-erase/reflash、回退和 v2 deployment 证据统一在单板 COM8 闭环后再执行。
+erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后再执行。
 
 ### 1.4 下一步执行序（跨电脑交接清单）
 
@@ -71,7 +71,7 @@ erase/reflash、回退和 v2 deployment 证据统一在单板 COM8 闭环后再�
 1. **M1-04 统一准入 gate**：代码侧已由 `a785607` 将 Calibration 与 TDMA clock-training
    gate 收敛到各自主域 owner，并保留 RUN 下 OTA 的“先检查、后取得 FLASH owner、再进入 OTA”
    语义；不得直接把 RUN 全部改成拒绝。下一步只剩用新 DHRT100 固件完成 validation-only
-   COM8/四板负向 HIL，证明 CAL/training/thermal-critical/FAULT/unknown 状态拒绝新写、raw
+   DHRT100/四板负向 HIL，证明 CAL/training/thermal-critical/FAULT/unknown 状态拒绝新写、raw
    erase/program delta 为零、policy reason 可追溯；warning 仅按 policy 降速或暂停。
 2. **M1-05 owner/buffer 收敛**：实现 immutable provider/refcount 或等价 lease，覆盖 producer
    reset、duplicate completion、page/sector 执行中 abort 和 lease 释放；保持大于
@@ -79,7 +79,7 @@ erase/reflash、回退和 v2 deployment 证据统一在单板 COM8 闭环后再�
 3. **M1-06 高地址 Scratch**：只增加 validation-only Scratch lease intent；流程固定为 target
    confirm → erase → pattern program → readback/hash → erase/restore。记录 geometry、map symbol、
    pattern hash、lockout、温度和恢复结果；release binary 必须不含 destructive validation 命令。
-4. **M0-05 实板回退**：在 COM8 板上物理按住 BOOTSEL 后复位/重新上电，确认 ROM BOOTSEL 可见，
+4. **M0-05 实板回退**：在 DHRT100 板上物理按住 BOOTSEL 后复位/重新上电，确认 ROM BOOTSEL 可见，
    再执行 full erase、factory UF2 load/verify 和应用复核；保留 identity、build、slot、错误队列、
    artifact hash 与原始日志。未获得 ROM BOOTSEL 证据前保持 `[!]`，不得以应用 USB 断开代替。
 5. **退出评审与提交**：代码验证先完成并单独提交/推送；随后更新本文件和
@@ -87,7 +87,7 @@ erase/reflash、回退和 v2 deployment 证据统一在单板 COM8 闭环后再�
    只有在 host/build/HIL、回退和 C11 独立交叉审核齐全后才可从 `pending` 激活。
 
 跨电脑开始工作时，先执行 `git pull --ff-only`、`git status --short --branch`，并先阅读本节及
-`HAOFV_FLASH_TASK_PROGRESS.md` 顶部的最新任务记录；COM8 物理操作属于不可由主机测试替代的单独 gate。
+`HAOFV_FLASH_TASK_PROGRESS.md` 顶部的最新任务记录；DHRT100 物理操作属于不可由主机测试替代的单独 gate。
 
 ## 二、里程碑总览
 
@@ -199,7 +199,7 @@ parked raw caller 和同步 raw write link ownership 执行构建期门禁，M1-
 - [x] 测试 active App write 拒绝、cross-partition 拒绝、Scratch lease 和所有 partition 首尾。
 
 证据：commit `10fd545`、`a211188`；`run_flash_map_tests.ps1` 纳入全量 host runner，release/Boot/
-App A/App B 均编译链接同一 `flash_map.c`。COM8 通过只读 SCPI 对 generated v2 target map 和
+App A/App B 均编译链接同一 `flash_map.c`。DHRT100 通过只读 SCPI 对 generated v2 target map 和
 permission view 做板端闭环；live linker/factory/packager 则由 generated v1 compatibility map
 保持当前可启动地址。报告见 `HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-002`、
 `FLASH-TASK-20260822-003` 和 `FLASH-TASK-20260822-004`。本项仍为进行中：App OTA image、
@@ -219,7 +219,7 @@ Product Config 与 App metadata writer 已走 intent，Boot metadata 保持独�
 
 首轮证据：commit `2a79643`、`bdc744b`、`accdfbc`、`f3d5a96`；OTA image erase/program 已从 portable callback 进入
 `FlashTransactionAO/FB`，active slot 未知或写活动槽均 fail closed。host fault fixtures、release、
-RTOS+双核构建和 COM8 双向 OTA/Vector HIL 均通过；HIL 工具在目标 image payload 首块和最终
+RTOS+双核构建和 DHRT100 双向 OTA/Vector HIL 均通过；HIL 工具在目标 image payload 首块和最终
 metadata 提交后分别核对 Vector。该项保持进行中，因为当前仍有同步兼容包装，Boot writer、OTA_JOURNAL
 durable backend、运行时 abort/lease 和跨 reset durable completion 尚未收敛；completion lease/journal
 contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/App metadata producer
@@ -436,7 +436,7 @@ TODO 只保留可独立验收的状态项和证据索引。
 ## 七、M4 本地 OTA 与 DHRT100 样板迁移
 
 目标：USB CDC、USBTMC、UART、RS485、SD 共用一个 transport-neutral session，并在 DHRT100 单板
-样板（当前物理验证端口为 COM8）完成 v2 迁移闭环。
+样板（当前物理验证板为 DHRT100）完成 v2 迁移闭环。
 
 ### M4-01 OtaStreamSession core
 
@@ -450,10 +450,13 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M4-02 Journal 与 durable resume
 
-- [ ] durable offset 只在 program/readback completion 后推进。
+- [~] portable checkpoint append 只在底层 program/readback verify 成功后提交 durable offset；
+  真实 OTA sink 尚未接入该 primitive（证据：`FLASH-TASK-20260823-019`）。
 - [ ] checkpoint frequency 由 wear/retransmit profile 定义，不按每 chunk 擦写。
-- [ ] token 绑定 package hash/map/partition/identity/generation；mismatch restart/abort。
-- [ ] reset 后 journal + readback 重建；torn journal 回退最近可信 checkpoint。
+- [~] checkpoint identity 绑定 session/generation/token/object/total/package CRC，并拒绝元数据
+  或 token 冲突；跨 ingress 的 restart/abort policy 仍待接入。
+- [~] host primitive 已覆盖 reset recovery、torn body/commit 和 CRC/readback corruption，
+  但 v2 `OTA_JOURNAL` 未部署，DHRT100 跨 reset durable resume 仍未完成。
 
 ### M4-03 Local ingress regression
 
@@ -463,7 +466,7 @@ TODO 只保留可独立验收的状态项和证据索引。
 - [ ] 乱序、重复、CRC、truncate、overflow、abort、zero storage、wrong slot/package 全部 fail closed。
 - [ ] USB CDC、USBTMC、UART、RS485、SD 的 A->B、B->A、resume、revert、Recovery 回归通过。
 
-### M4-04 DHRT100 样板 factory migration（COM8 物理 gate）
+### M4-04 DHRT100 样板 factory migration（物理 gate）
 
 - [ ] 迁移前记录 `*IDN?`、build、slot/result、board identity、Product Config、sensor snapshot。
 - [ ] BOOTSEL/factory full erase/reflash v2，确认 USB 重新枚举和 identity 转换策略。
@@ -474,7 +477,7 @@ TODO 只保留可独立验收的状态项和证据索引。
 ### M4 退出门禁
 
 - [ ] `ARCH-OTASTREAM-01` 的五类本地 transport、durable offset 和 resume 证据齐全。
-- [ ] COM8 在 v2 上完成 A/B/revert/Recovery 和关键 store 重启验证。
+- [ ] DHRT100 在 v2 上完成 A/B/revert/Recovery 和关键 store 重启验证。
 - [ ] 迁移/回退报告归档，未留下依赖 v1 offset 的隐式工具路径。
 
 ## 八、M5 TDMA 流式 OTA
