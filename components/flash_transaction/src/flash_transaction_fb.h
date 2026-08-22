@@ -37,6 +37,7 @@ typedef struct {
     bool resource_acquired;
     bool core1_parked;
     bool payload_owned;
+    bool provider_reset_pending;
 } flash_transaction_fb_t;
 
 void flash_transaction_fb_init(flash_transaction_fb_t *context,
@@ -52,6 +53,8 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
 void flash_transaction_fb_service(flash_transaction_fb_t *context);
 bool flash_transaction_fb_request_abort(flash_transaction_fb_t *context,
                                         uint32_t job_id);
+bool flash_transaction_fb_notify_provider_reset(
+    flash_transaction_fb_t *context, uint32_t provider_generation);
 bool flash_transaction_fb_get_vector(const flash_transaction_fb_t *context,
                                      flash_transaction_vector_t *vector);
 

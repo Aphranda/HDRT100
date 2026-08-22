@@ -29,6 +29,9 @@ static uint32_t s_now_ms;
 static flash_transaction_fb_t *s_abort_context;
 static bool s_abort_during_raw;
 static bool s_abort_request_accepted;
+static flash_transaction_fb_t *s_provider_reset_context;
+static bool s_provider_reset_during_raw;
+static bool s_provider_reset_request_accepted;
 
 static bool fake_policy(uint32_t requester)
 {
@@ -83,6 +86,13 @@ static bool fake_erase(uint32_t offset, uint32_t length)
         s_abort_request_accepted = flash_transaction_fb_request_abort(
             s_abort_context, s_abort_context->vector.job_id);
     }
+    if (s_provider_reset_during_raw) {
+        assert(s_provider_reset_context != NULL);
+        s_provider_reset_request_accepted =
+            flash_transaction_fb_notify_provider_reset(
+                s_provider_reset_context,
+                s_provider_reset_context->request.provider_generation);
+    }
     return s_raw_ok;
 }
 
@@ -98,6 +108,13 @@ static bool fake_program(uint32_t offset, const uint8_t *data,
         assert(s_abort_context != NULL);
         s_abort_request_accepted = flash_transaction_fb_request_abort(
             s_abort_context, s_abort_context->vector.job_id);
+    }
+    if (s_provider_reset_during_raw) {
+        assert(s_provider_reset_context != NULL);
+        s_provider_reset_request_accepted =
+            flash_transaction_fb_notify_provider_reset(
+                s_provider_reset_context,
+                s_provider_reset_context->request.provider_generation);
     }
     return s_raw_ok;
 }
@@ -176,6 +193,9 @@ static void reset_fakes(void)
     s_abort_context = NULL;
     s_abort_during_raw = false;
     s_abort_request_accepted = false;
+    s_provider_reset_context = NULL;
+    s_provider_reset_during_raw = false;
+    s_provider_reset_request_accepted = false;
 }
 
 static void init_context(flash_transaction_fb_t *context)
@@ -640,6 +660,47 @@ static void test_abort_during_raw_operation_skips_verify_and_commit(void)
     assert(s_unpark_count == 1u);
 }
 
+static void test_provider_reset_fails_closed_before_and_during_raw(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    uint8_t data[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES] = {0x3Cu};
+    flash_transaction_request_t request = program_request(data);
+
+    assert(flash_transaction_fb_submit(&context, &request));
+    assert(!flash_transaction_fb_notify_provider_reset(
+        &context, request.provider_generation + 1u));
+    assert(flash_transaction_fb_notify_provider_reset(
+        &context, request.provider_generation));
+    flash_transaction_vector_t vector = run_to_terminal(&context);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_PROVIDER);
+    assert(vector.processed_bytes == 0u);
+    assert(vector.verified_bytes == 0u);
+    assert(s_program_count == 0u);
+    assert(s_release_count == 0u);
+
+    reset_fakes();
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    s_provider_reset_context = &context;
+    s_provider_reset_during_raw = true;
+    request = program_request(data);
+    vector = run_request(&context, &request);
+    assert(s_provider_reset_request_accepted);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_PROVIDER);
+    assert(vector.completion_level == FLASH_TRANSACTION_COMPLETION_PROGRAMMED);
+    assert(vector.processed_bytes == request.length);
+    assert(vector.verified_bytes == 0u);
+    assert(s_program_count == 1u);
+    assert(s_verify_programmed_count == 0u);
+    assert(s_release_count == 1u);
+    assert(s_unpark_count == 1u);
+    assert(!flash_transaction_fb_notify_provider_reset(
+        &context, request.provider_generation));
+}
+
 static void test_platform_and_range_resolution(void)
 {
     flash_transaction_fb_t context;
@@ -682,6 +743,7 @@ int main(void)
     test_metadata_policy();
     test_busy_abort_and_snapshot();
     test_abort_during_raw_operation_skips_verify_and_commit();
+    test_provider_reset_fails_closed_before_and_during_raw();
     test_platform_and_range_resolution();
     puts("flash transaction tests passed");
     return 0;

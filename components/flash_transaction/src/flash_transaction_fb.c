@@ -180,6 +180,19 @@ static void flash_transaction_abort(flash_transaction_fb_t *context)
     flash_transaction_write_end(context);
 }
 
+static void flash_transaction_provider_reset(flash_transaction_fb_t *context)
+{
+    flash_transaction_write_begin(context);
+    context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
+    context->vector.last_error = FLASH_TRANSACTION_ERROR_PROVIDER;
+    context->vector.completed_timestamp_ms = context->platform.now_ms();
+    context->vector.state = context->resource_acquired
+                                ? FLASH_TRANSACTION_STATE_RELEASE
+                                : FLASH_TRANSACTION_STATE_FAILED;
+    context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
+    flash_transaction_write_end(context);
+}
+
 static bool flash_transaction_platform_valid(
     const flash_transaction_platform_t *platform)
 {
@@ -261,6 +274,7 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
     context->occupied = true;
     context->resource_acquired = false;
     context->core1_parked = false;
+    context->provider_reset_pending = false;
     context->terminal_state = FLASH_TRANSACTION_STATE_COMPLETE;
     uint32_t transaction_generation =
         context->vector.transaction_generation + 1u;
@@ -291,6 +305,14 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
 {
     if (context == NULL || !context->occupied ||
         !flash_transaction_platform_valid(&context->platform)) {
+        return;
+    }
+    if (context->provider_reset_pending &&
+        context->vector.state != FLASH_TRANSACTION_STATE_RELEASE &&
+        context->vector.state != FLASH_TRANSACTION_STATE_FAILED &&
+        context->vector.state != FLASH_TRANSACTION_STATE_ABORTED &&
+        context->vector.state != FLASH_TRANSACTION_STATE_COMPLETE) {
+        flash_transaction_provider_reset(context);
         return;
     }
     switch ((flash_transaction_state_t)context->vector.state) {
@@ -370,10 +392,17 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
                 context->request.operation == FLASH_TRANSACTION_OPERATION_ERASE ? 1u : 0u;
             context->vector.program_count_delta =
                 context->request.operation == FLASH_TRANSACTION_OPERATION_PROGRAM ? 1u : 0u;
-            context->vector.state = context->vector.abort_pending != 0u
+            context->vector.state = context->provider_reset_pending ||
+                                            context->vector.abort_pending != 0u
                                         ? FLASH_TRANSACTION_STATE_RELEASE
                                         : FLASH_TRANSACTION_STATE_VERIFY;
-            if (context->vector.abort_pending != 0u) {
+            if (context->provider_reset_pending) {
+                context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
+                context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
+                context->vector.last_error = FLASH_TRANSACTION_ERROR_PROVIDER;
+                context->vector.completed_timestamp_ms =
+                    context->platform.now_ms();
+            } else if (context->vector.abort_pending != 0u) {
                 context->terminal_state = FLASH_TRANSACTION_STATE_ABORTED;
                 context->vector.last_result = FLASH_TRANSACTION_RESULT_ABORTED;
                 context->vector.last_error = FLASH_TRANSACTION_ERROR_ABORTED;
@@ -383,6 +412,10 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         }
         flash_transaction_write_end(context);
         if (!ok) {
+            if (context->provider_reset_pending) {
+                flash_transaction_provider_reset(context);
+                break;
+            }
             flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_RAW_OPERATION);
         }
         break;
@@ -465,6 +498,18 @@ bool flash_transaction_fb_request_abort(flash_transaction_fb_t *context,
     flash_transaction_write_begin(context);
     context->vector.abort_pending = 1u;
     flash_transaction_write_end(context);
+    return true;
+}
+
+bool flash_transaction_fb_notify_provider_reset(
+    flash_transaction_fb_t *context, uint32_t provider_generation)
+{
+    if (context == NULL || !context->occupied ||
+        context->request.operation != FLASH_TRANSACTION_OPERATION_PROGRAM ||
+        context->request.provider_generation != provider_generation) {
+        return false;
+    }
+    context->provider_reset_pending = true;
     return true;
 }
 

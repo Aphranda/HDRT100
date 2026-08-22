@@ -178,6 +178,12 @@ bool flash_transaction_ao_request_abort(uint32_t job_id)
     return flash_transaction_fb_request_abort(&s_flash_transaction, job_id);
 }
 
+bool flash_transaction_ao_notify_provider_reset(uint32_t provider_generation)
+{
+    return flash_transaction_fb_notify_provider_reset(&s_flash_transaction,
+                                                      provider_generation);
+}
+
 bool flash_transaction_ao_get_vector(flash_transaction_vector_t *vector)
 {
     return flash_transaction_fb_get_vector(&s_flash_transaction, vector);
