@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import struct
 import subprocess
 import sys
 import time
@@ -21,12 +22,19 @@ ROOT = Path(__file__).resolve().parents[2]
 LOCKOUT_RESULT_ACKED = 1
 FLASH_TRANSACTION_STATE_COMPLETE = 9
 FLASH_TRANSACTION_REQUESTER_OTA_IMAGE = 1
+FLASH_TRANSACTION_REQUESTER_OTA_METADATA = 2
 FLASH_TRANSACTION_OPERATION_PROGRAM = 2
 FLASH_TRANSACTION_COMPLETION_COMMITTED = 4
 FLASH_TRANSACTION_RESULT_COMMITTED = 1
 FLASH_TRANSACTION_ERROR_NONE = 0
 FLASH_COMPAT_MAP_APP_A_ID = 1
 FLASH_COMPAT_MAP_APP_B_ID = 2
+FLASH_COMPAT_MAP_BOOT_CONTROL_ID = 3
+OTA_METADATA_RECORD_SIZE = 256
+PACKAGE_IMAGE_COUNT_OFFSET = 20
+PACKAGE_IMAGE_TABLE_OFFSET = 192
+PACKAGE_IMAGE_ENTRY_SIZE = 32
+PACKAGE_BLOCK_SIZE = 512
 
 
 def parse_args() -> argparse.Namespace:
@@ -127,6 +135,34 @@ def parse_flash_transaction(response: str) -> dict[str, int]:
     return dict(zip(names, fields[:len(names)]))
 
 
+def parse_flash_transaction_probe(log_path: Path) -> dict[str, int]:
+    prefix = "flash_transaction_probe="
+    for line in log_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith(prefix):
+            return parse_flash_transaction(line[len(prefix):])
+    raise ValueError(f"FlashTransaction probe missing from {log_path}")
+
+
+def package_probe_block(package_path: Path, target_slot: int) -> int:
+    header = package_path.read_bytes()[:512]
+    if len(header) < 512:
+        raise ValueError(f"OTA package header is incomplete: {package_path}")
+    image_count = struct.unpack_from("<I", header, PACKAGE_IMAGE_COUNT_OFFSET)[0]
+    for index in range(image_count):
+        entry = PACKAGE_IMAGE_TABLE_OFFSET + index * PACKAGE_IMAGE_ENTRY_SIZE
+        if entry + PACKAGE_IMAGE_ENTRY_SIZE > len(header):
+            raise ValueError(f"OTA package image table is truncated: {package_path}")
+        slot, image_offset = struct.unpack_from("<II", header, entry)
+        if slot != target_slot:
+            continue
+        if image_offset % PACKAGE_BLOCK_SIZE != 0:
+            raise ValueError(
+                f"OTA package slot {target_slot} image offset is not block-aligned"
+            )
+        return image_offset // PACKAGE_BLOCK_SIZE + 1
+    raise ValueError(f"OTA package has no image for slot {target_slot}")
+
+
 def parse_active_slot(response: str) -> int:
     fields = parse_u32_csv(response)
     if len(fields) < 1 or fields[0] not in (1, 2):
@@ -182,6 +218,8 @@ def main() -> int:
     )
     records["active_slot_before"] = active_slot
     records["expected_transaction_partition"] = expected_partition
+    probe_block = package_probe_block(package, expected_partition)
+    records["image_probe_block"] = probe_block
     (out_dir / "before_slot.txt").write_text(slot_response + "\n", encoding="utf-8")
 
     before_response = query(args.port, "SYSTem:PROTection:STATus?", args.timeout, args.settle)
@@ -202,6 +240,8 @@ def main() -> int:
             str(args.timeout),
             "--expect-final-state",
             "READY_TO_REBOOT",
+            "--flash-transaction-probe-after-blocks",
+            str(probe_block),
         ],
         out_dir,
         timeout_s=300.0,
@@ -209,6 +249,13 @@ def main() -> int:
     records["steps"].append({"name": "positive_ota", "passed": ota_ok, "log": str(ota_log)})
     if not ota_ok:
         failures.append("positive OTA failed")
+
+    try:
+        image_transaction = parse_flash_transaction_probe(ota_log)
+        records["image_flash_transaction"] = image_transaction
+    except ValueError as exc:
+        image_transaction = {}
+        failures.append(str(exc))
 
     after_write_response = query(args.port, "SYSTem:PROTection:STATus?", args.timeout, args.settle)
     after_write = parse_protection(after_write_response)
@@ -224,7 +271,7 @@ def main() -> int:
         transaction_response + "\n", encoding="utf-8"
     )
 
-    expected_transaction = {
+    expected_image_transaction = {
         "state": FLASH_TRANSACTION_STATE_COMPLETE,
         "requester": FLASH_TRANSACTION_REQUESTER_OTA_IMAGE,
         "partition_id": expected_partition,
@@ -238,27 +285,57 @@ def main() -> int:
         "program_count_delta": 1,
         "verify_failure_count": 0,
     }
-    for field, expected in expected_transaction.items():
+    for field, expected in expected_image_transaction.items():
+        if image_transaction.get(field) != expected:
+            failures.append(
+                f"image FlashTransaction {field} "
+                f"{image_transaction.get(field)} != {expected}"
+            )
+    if image_transaction.get("requested_bytes") != 512:
+        failures.append("image FlashTransaction did not own a 512-byte payload")
+    if image_transaction.get("processed_bytes") != image_transaction.get("requested_bytes"):
+        failures.append("image FlashTransaction processed bytes do not match request")
+    if image_transaction.get("verified_bytes") != image_transaction.get("requested_bytes"):
+        failures.append("image FlashTransaction verified bytes do not match request")
+    if image_transaction.get("provider_generation", 0) == 0:
+        failures.append("image FlashTransaction provider_generation is zero")
+    if image_transaction.get("transaction_generation", 0) == 0:
+        failures.append("image FlashTransaction transaction_generation is zero")
+    if image_transaction.get("lockout_request_seq") != image_transaction.get("lockout_ack_seq"):
+        failures.append("image FlashTransaction lockout request/ack sequences differ")
+
+    expected_metadata_transaction = {
+        "state": FLASH_TRANSACTION_STATE_COMPLETE,
+        "requester": FLASH_TRANSACTION_REQUESTER_OTA_METADATA,
+        "partition_id": FLASH_COMPAT_MAP_BOOT_CONTROL_ID,
+        "operation": FLASH_TRANSACTION_OPERATION_PROGRAM,
+        "requested_bytes": OTA_METADATA_RECORD_SIZE,
+        "processed_bytes": OTA_METADATA_RECORD_SIZE,
+        "verified_bytes": OTA_METADATA_RECORD_SIZE,
+        "map_version": 1,
+        "completion_level": FLASH_TRANSACTION_COMPLETION_COMMITTED,
+        "last_result": FLASH_TRANSACTION_RESULT_COMMITTED,
+        "last_error": FLASH_TRANSACTION_ERROR_NONE,
+        "abort_pending": 0,
+        "erase_count_delta": 0,
+        "program_count_delta": 1,
+        "verify_failure_count": 0,
+    }
+    for field, expected in expected_metadata_transaction.items():
         if transaction[field] != expected:
             failures.append(
-                f"FlashTransaction {field} {transaction[field]} != {expected}"
+                f"metadata FlashTransaction {field} {transaction[field]} != {expected}"
             )
-    if transaction["requested_bytes"] == 0:
-        failures.append("FlashTransaction requested_bytes is zero")
-    if transaction["processed_bytes"] != transaction["requested_bytes"]:
-        failures.append("FlashTransaction processed_bytes does not match request")
-    if transaction["verified_bytes"] != transaction["requested_bytes"]:
-        failures.append("FlashTransaction verified_bytes does not match request")
     if transaction["provider_generation"] == 0:
-        failures.append("FlashTransaction provider_generation is zero")
+        failures.append("metadata FlashTransaction provider_generation is zero")
     if transaction["transaction_generation"] == 0:
-        failures.append("FlashTransaction transaction_generation is zero")
+        failures.append("metadata FlashTransaction transaction_generation is zero")
     if transaction["lockout_request_seq"] != transaction["lockout_ack_seq"]:
-        failures.append("FlashTransaction lockout request/ack sequences differ")
+        failures.append("metadata FlashTransaction lockout request/ack sequences differ")
     if transaction["lockout_timeout_count"] != after_write["timeout_count"]:
-        failures.append("FlashTransaction lockout timeout snapshot is inconsistent")
+        failures.append("metadata FlashTransaction lockout timeout snapshot is inconsistent")
     if transaction["completed_timestamp_ms"] < transaction["started_timestamp_ms"]:
-        failures.append("FlashTransaction completion timestamp precedes start")
+        failures.append("metadata FlashTransaction completion timestamp precedes start")
 
     boot_ok, boot_log = run_step(
         "boot_commit",
@@ -318,9 +395,12 @@ def main() -> int:
                 f"release_seq={before['release_seq']}->{after_write['release_seq']}",
                 f"last_result={after_write['last_result']}",
                 f"last_elapsed_us={after_write['last_elapsed_us']}",
-                f"transaction_partition={transaction['partition_id']}",
-                f"transaction_generation={transaction['transaction_generation']}",
-                f"transaction_bytes={transaction['requested_bytes']}",
+                f"image_transaction_partition={image_transaction.get('partition_id')}",
+                f"image_transaction_generation={image_transaction.get('transaction_generation')}",
+                f"image_transaction_bytes={image_transaction.get('requested_bytes')}",
+                f"metadata_transaction_partition={transaction['partition_id']}",
+                f"metadata_transaction_generation={transaction['transaction_generation']}",
+                f"metadata_transaction_bytes={transaction['requested_bytes']}",
             ] + [f"failure={failure}" for failure in failures]
         ) + "\n",
         encoding="utf-8",

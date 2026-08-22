@@ -50,6 +50,12 @@ def parse_args() -> argparse.Namespace:
         help="mutate a unified OTA package to exercise negative paths",
     )
     parser.add_argument("--abort-after-blocks", type=int, default=0, help="abort after sending this many data blocks")
+    parser.add_argument(
+        "--flash-transaction-probe-after-blocks",
+        type=int,
+        default=0,
+        help="query the read-only FlashTransaction Vector after the selected data block",
+    )
     parser.add_argument("--expect-final-state", default="READY_TO_REBOOT", help="expected final OTA state text")
     parser.add_argument("--expect-error", help="expected OTA error text from SYST:OTA:STAT?")
     parser.add_argument("--dry-run", action="store_true", help="print transfer plan without opening the port")
@@ -297,6 +303,10 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int, package_m
                         wait_for_receiving(ser, args.begin_timeout)
 
             sent_blocks = (offset // args.block_size) + 1
+            if sent_blocks == args.flash_transaction_probe_after_blocks:
+                response = query(ser, "SYST:DIAG:FLASH:TRAN?")
+                print(f"flash_transaction_probe={response}")
+
             if args.abort_after_blocks and sent_blocks >= args.abort_after_blocks:
                 write_line(ser, "SYST:OTA:ABOR")
                 final_status = query_final_status(ser)
@@ -332,6 +342,9 @@ def main() -> int:
     image_crc = crc32(image)
     send_crc = image_crc ^ 0xFFFFFFFF if args.corrupt_crc else image_crc
     block_count = (len(image) + args.block_size - 1) // args.block_size
+    if (args.flash_transaction_probe_after_blocks < 0 or
+            args.flash_transaction_probe_after_blocks > block_count):
+        raise ValueError("flash transaction probe block must be in range 0..block_count")
 
     print(f"port={args.port}")
     print(f"image={image_path}")
@@ -345,6 +358,11 @@ def main() -> int:
         print(f"package_negative={args.package_negative}")
     if args.abort_after_blocks:
         print(f"abort_after_blocks={args.abort_after_blocks}")
+    if args.flash_transaction_probe_after_blocks:
+        print(
+            "flash_transaction_probe_after_blocks="
+            f"{args.flash_transaction_probe_after_blocks}"
+        )
     print(f"block_size={args.block_size}")
     print(f"block_count={block_count}")
     begin_command = "SYST:OTA:PBEGIN" if package_mode else "SYST:OTA:BEGIN"
