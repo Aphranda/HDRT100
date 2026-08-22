@@ -16,6 +16,25 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-016 - M3-02 BCB adapter 接入 v1 metadata
+
+- 状态：M3-02 进入真实 adapter 接入阶段；portable primitive 与 `ota_metadata.c` 已连接，
+  但 DHRT100 BCB/Recovery、掉电和 C11 证据仍未完成。
+- 代码提交：`1e4e27f feat(boot): connect metadata to dual-lane BCB`，已推送。
+  `ota_metadata_load()` 先通过 `pota_bcb_store_select_newest()` 读取双 lane body/commit/seal，
+  校验 payload 中的 metadata CRC 后返回最新事实；`ota_metadata_store()` 将完整 v1 metadata
+  作为 BCB payload，通过 `pota_bcb_store_append()` 执行 verified page、commit marker、lane
+  generation/GC。已有 v1 single-sector copy 只保留为 legacy read/migration fallback；首次从
+  legacy/default 写入会建立 BCB lane。`ota_metadata_corrupt_copy()` 现在按 lane 破坏，供后续
+  BCB fault matrix 使用。
+- 边界：BCB lane 由生成的 `OTA_METADATA_OFFSET/SIZE` 和 `FLASH_COMPAT_MAP_*_VERSION` 派生，
+  未访问 v2 target 高地址；Boot callback 继续落到 BootFlashService，App callback 继续落到
+  FlashTransactionAO。`security_counter` 当前保持占位值，不能解释为 anti-rollback。
+- 验证：`build-flash-m1-05h-20260823-release` App A/App B/Boot 完整构建和三 profile link gate
+  通过；`run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m3-02` 通过；
+  `release_check.py` 输出 `release_check=OK`。没有把这些 host/build 结果扩展为真实掉电、
+  Recovery 或 BOOTSEL 证据。
+
 ### FLASH-TASK-20260823-015 - BootFlashService owner boundary
 
 - 状态：M3-01 的 Boot 写入 owner 收敛子项完成；M3-01 总项、M1-05-J 和 M3-02 仍未完成。

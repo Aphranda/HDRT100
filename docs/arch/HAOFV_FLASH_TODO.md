@@ -388,8 +388,10 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M3-02 BootControlStore
 
-- [~] portable primitive 已实现双 lane append/select/commit/GC 和 lane generation；仍待接入
-  `BootControlStore`/`BootFlashService` 的实际 BCB payload 与 wear counter（`FLASH-TASK-20260823-014`）。
+- [~] portable primitive 已实现双 lane append/select/commit/GC 和 lane generation；v1
+  `ota_metadata.c` 已接入实际 BCB payload 和 BootFlashService/FlashTransactionAO adapter
+  （`FLASH-TASK-20260823-016`），仍待独立 BootControlStore façade、wear counter 和 v2 schema
+  migration。
 - [~] primitive 在无有效 lane 时返回 `NO_VALID`，不创建默认记录；Boot Recovery policy 接入仍待完成。
 - [x] host fault fixture 覆盖 body/readback/commit/lane seal/旧 lane erase，均 fail closed 并保留旧记录。
 
