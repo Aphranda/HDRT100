@@ -16,6 +16,29 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-038 - Read-only Recovery 与 v2 factory baseline
+
+- 状态：M3-05 增加 build-only Recovery/factory baseline 切片；M3-05、M3、M4 和 M1 的退出门禁
+  均保持未完成。候选 deployment state 继续为 `target_not_deployed`，普通 release 继续使用
+  `v1_compat`。
+- 代码：新增独立 `DHRT100_RECOVERY`，只提供 `*IDN?`、Recovery status/map/BCB health 和显式
+  ROM BOOTSEL handoff；BCB store 增加 read-only init，Recovery 不链接 raw Flash writer、App、
+  RTOS、SCPI、TDMA 或存储栈。v2 Boot 在无有效 BCB/可启动 App 时只尝试已验证 Recovery，v1
+  保留原兼容 fallback。
+- 工厂基线：候选 UF2 加入 Recovery、有效 lane0 BCB 和 canonical map manifest；baseline 生成器
+  从 FlashMap、BCB 与 OTA metadata C 头读取 wire 常量并校验容量。region report 覆盖
+  Bootloader、App A、Recovery、Boot Control、OTA Stage 全部已编程区域，consumer 重算 size/
+  SHA-256，并要求 full erase 与 map identity 一致；其余 store 明确列为 erased baseline。
+- 验证：定向 Flash/Recovery Python 测试 15/15、portable OTA、全量 host runner 30/30、
+  `pico2-release`、`pico2-v2-factory-candidate`、v1/v2 consumer、v1 release check、Recovery/App/Boot
+  link gate 和 v2 release report 全部通过；缺少 factory opt-in 的 v2 配置按预期失败。
+- 提交与推送：`ab1aee3 feat(boot): add read-only v2 recovery candidate` 与
+  `9ac6681 feat(flash): verify v2 factory region hashes` 已推送
+  `origin/feature/rtos-multicore-haofv`。
+- 边界与回退：本轮未识别、擦除、烧录或写入 DHRT100；候选 update package 的 signature 仍为空，
+  Recovery 尚无 factory package verifier/SD restore，真实 `OTA_JOURNAL`、OTP/key binding、空片恢复、
+  A/B/revert/Recovery、掉电和 v2 Scratch HIL 均未完成。两个提交可独立 revert，Registry 状态未变。
+
 ### FLASH-TASK-20260823-037 - Gated v2 factory-candidate build path
 
 - 状态：M1-02/M3-05/M4-04 增加显式、不可误入普通发布的 v2 工厂候选构建通路；这些总项及
