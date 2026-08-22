@@ -67,6 +67,7 @@ static bool execute(uint32_t operation, uint32_t flash_offset,
         .buffer_lease = operation == FLASH_TRANSACTION_OPERATION_PROGRAM
                             ? &lease
                             : NULL,
+        .completion_lease = flash_transaction_ao_get_completion_lease(),
     };
     flash_transaction_completion_t completion;
     return flash_transaction_ao_execute(&request, &completion);

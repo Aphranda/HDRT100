@@ -170,6 +170,11 @@ typedef struct {
 } flash_transaction_vector_t;
 
 bool flash_transaction_ao_init(void);
+/* Process-lifetime completion journal lease owned by FlashTransactionAO. */
+bool flash_transaction_ao_set_completion_lease(
+    const flash_transaction_completion_lease_t *lease);
+const flash_transaction_completion_lease_t *
+flash_transaction_ao_get_completion_lease(void);
 bool flash_transaction_ao_set_active_app_partition(uint32_t partition_id);
 bool flash_transaction_ao_resolve_range(uint32_t absolute_offset,
                                         uint32_t length,

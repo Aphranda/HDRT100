@@ -150,6 +150,7 @@ static bool portable_core_flash_execute(uint32_t operation,
         .buffer_lease = operation == FLASH_TRANSACTION_OPERATION_PROGRAM
                             ? &lease
                             : NULL,
+        .completion_lease = flash_transaction_ao_get_completion_lease(),
     };
     flash_transaction_completion_t completion;
     return flash_transaction_ao_execute(&request, &completion);

@@ -12,6 +12,7 @@
 #define FLASH_TRANSACTION_EXECUTE_STEPS 16u
 
 static flash_transaction_fb_t s_flash_transaction;
+static const flash_transaction_completion_lease_t *s_completion_lease;
 
 static uint32_t flash_transaction_policy_check(uint32_t requester,
                                                uint32_t *temperature_flags);
@@ -130,6 +131,7 @@ static uint32_t flash_transaction_now_ms(void)
 
 bool flash_transaction_ao_init(void)
 {
+    s_completion_lease = NULL;
     const flash_transaction_platform_t platform = {
         .policy_allows = flash_transaction_policy_allows,
         .policy_check = flash_transaction_policy_check,
@@ -150,6 +152,27 @@ bool flash_transaction_ao_init(void)
     return true;
 }
 
+bool flash_transaction_ao_set_completion_lease(
+    const flash_transaction_completion_lease_t *lease)
+{
+    if (s_flash_transaction.occupied) {
+        return false;
+    }
+    if (lease != NULL &&
+        (lease->retain == NULL || lease->release == NULL ||
+         lease->append == NULL)) {
+        return false;
+    }
+    s_completion_lease = lease;
+    return true;
+}
+
+const flash_transaction_completion_lease_t *
+flash_transaction_ao_get_completion_lease(void)
+{
+    return s_completion_lease;
+}
+
 bool flash_transaction_ao_set_active_app_partition(uint32_t partition_id)
 {
     return flash_transaction_fb_set_active_app_partition(
@@ -167,7 +190,14 @@ bool flash_transaction_ao_resolve_range(uint32_t absolute_offset,
 
 bool flash_transaction_ao_submit(const flash_transaction_request_t *request)
 {
-    return flash_transaction_fb_submit(&s_flash_transaction, request);
+    if (request == NULL) {
+        return false;
+    }
+    flash_transaction_request_t effective = *request;
+    if (effective.completion_lease == NULL) {
+        effective.completion_lease = s_completion_lease;
+    }
+    return flash_transaction_fb_submit(&s_flash_transaction, &effective);
 }
 
 void flash_transaction_ao_service(void)
