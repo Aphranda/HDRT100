@@ -36,6 +36,15 @@ Last updated: 2026-08-22
 - 下一步：继续完成 OTA_JOURNAL live producer 接入和跨 reset/power-cut/replay 夹具；板端验证统一
   使用 DHRT100 型号记录，待实际连接和新工件确认后再执行。
 
+### FLASH-TASK-20260822-034 - Boot raw writer 调用集合固定
+
+- 状态：M1-05-J 继续进行；在不改动 Boot writer 实现的前提下补充调用集合约束。
+- 代码提交：`7183e46 fix(flash): pin boot raw writer caller set`，已推送；与文档提交保持分离。
+- `--profile boot` 现在要求 `drv_flash_erase` 仅由 `main`/`ota_metadata_flash_erase` 调用，
+  `drv_flash_program` 仅由 `main`/`ota_metadata_flash_program` 调用；新增越权 caller 负向夹具。
+- `test_flash_link_check.py` 6/6 通过；DHRT100 App A/B/Boot 的 `project_flash_link_check` 通过。
+- 仍未执行 DHRT100 板端擦写；M1-05-J 的 release 独立报告和 C11 交叉审核仍待完成。
+
 ## 记录规则
 
 - 任务编号使用 `FLASH-TASK-YYYYMMDD-NNN`，最新记录放在顶部。
