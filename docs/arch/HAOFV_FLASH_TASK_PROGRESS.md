@@ -16,6 +16,18 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-005 - release artifact freshness gate 修复确认
+
+- 状态：构建/release gate 已恢复全绿；本条不新增板端擦写。
+- 现象：completion-lease 注入后首次 release check 发现 `DHRT100_FACTORY.uf2` 仍是旧工件，
+  `flash_consumer_check` 报 factory target 缺失；未将 stale artifact 作为可发布结果。
+- 处理：重新构建 `DHRT100_FACTORY`、`DHRT100_UPDATE` 和 link check；最终
+  `release_check=OK`，factory/update/link 工件与当前 DHRT100 App A/B 构建一致。
+- 新 package 快照：build `20260822161521`，package CRC32 `0x6E373F67`，payload SHA-256
+  `e7e506b998521c7560d1269e291665a01cb5ea96d3f92779422997993218533e`。
+- 边界：本次只刷新工件，没有重新烧录 DHRT100；上一条 `dfa1f02` 工件已完成板端闭环，后续
+  若使用最新 package 必须重新执行 staged OTA 验证。
+
 ### FLASH-TASK-20260823-004 - Journal 最新损坏回退旧 completion
 
 - 状态：M1-05-H 继续进行；补充 host recovery 证据，未执行 DHRT100 擦写。
