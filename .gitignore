@@ -5,6 +5,7 @@ cmake-build-*/
 out/
 .tmp-edge-pdf/
 .tmp/
+.tmp-doc-tests/
 DOC/
 
 # CMake generated files
