@@ -50,6 +50,29 @@ static bool expect(const char *name, bool condition)
     return true;
 }
 
+static int test_checkpoint_policy(void)
+{
+    const pota_stream_checkpoint_policy_t policy = {
+        .interval_bytes = 128u,
+        .checkpoint_on_final = true,
+    };
+    int failed = 0;
+    failed += !expect("policy valid", pota_stream_checkpoint_policy_valid(&policy));
+    failed += !expect("policy below interval",
+                      !pota_stream_checkpoint_should_append(&policy, 0u, 64u, 512u));
+    failed += !expect("policy interval",
+                      pota_stream_checkpoint_should_append(&policy, 0u, 128u, 512u));
+    failed += !expect("policy not every chunk",
+                      !pota_stream_checkpoint_should_append(&policy, 128u, 192u, 512u));
+    failed += !expect("policy final",
+                      pota_stream_checkpoint_should_append(&policy, 128u, 512u, 512u));
+    failed += !expect("policy backwards",
+                      !pota_stream_checkpoint_should_append(&policy, 256u, 128u, 512u));
+    const pota_stream_checkpoint_policy_t invalid = {0u, true};
+    failed += !expect("policy invalid", !pota_stream_checkpoint_policy_valid(&invalid));
+    return failed;
+}
+
 int main(void)
 {
     memset(s_flash, 0xFF, sizeof(s_flash));
@@ -64,7 +87,7 @@ int main(void)
         .slot_size = MOCK_SLOT_SIZE,
     };
     pota_stream_checkpoint_store_t store;
-    int failed = 0;
+    int failed = test_checkpoint_policy();
     failed += !expect("init", pota_stream_checkpoint_init(&store, &config) == POTA_STREAM_CHECKPOINT_OK);
     pota_stream_checkpoint_t checkpoint = {
         .session_id = 1u,

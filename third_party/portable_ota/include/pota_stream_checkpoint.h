@@ -39,6 +39,11 @@ typedef struct {
 } pota_stream_checkpoint_t;
 
 typedef struct {
+    uint32_t interval_bytes;
+    bool checkpoint_on_final;
+} pota_stream_checkpoint_policy_t;
+
+typedef struct {
     pota_stream_checkpoint_config_t config;
     uint32_t next_sequence;
     bool initialized;
@@ -71,5 +76,12 @@ bool pota_stream_checkpoint_matches(const pota_stream_checkpoint_t *checkpoint,
                                     uint32_t object_id,
                                     uint32_t total_size,
                                     uint32_t package_crc32);
+bool pota_stream_checkpoint_policy_valid(
+    const pota_stream_checkpoint_policy_t *policy);
+bool pota_stream_checkpoint_should_append(
+    const pota_stream_checkpoint_policy_t *policy,
+    uint32_t last_checkpoint_offset,
+    uint32_t durable_offset,
+    uint32_t total_size);
 
 #endif

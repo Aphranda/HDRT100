@@ -231,3 +231,28 @@ bool pota_stream_checkpoint_matches(const pota_stream_checkpoint_t *checkpoint,
            checkpoint->package_crc32 == package_crc32 &&
            checkpoint->durable_offset <= checkpoint->total_size;
 }
+
+bool pota_stream_checkpoint_policy_valid(
+    const pota_stream_checkpoint_policy_t *policy)
+{
+    return policy != NULL && policy->interval_bytes != 0u;
+}
+
+bool pota_stream_checkpoint_should_append(
+    const pota_stream_checkpoint_policy_t *policy,
+    uint32_t last_checkpoint_offset,
+    uint32_t durable_offset,
+    uint32_t total_size)
+{
+    if (!pota_stream_checkpoint_policy_valid(policy) || total_size == 0u ||
+        last_checkpoint_offset > durable_offset || durable_offset > total_size) {
+        return false;
+    }
+    if (durable_offset == 0u) {
+        return false;
+    }
+    if (policy->checkpoint_on_final && durable_offset == total_size) {
+        return true;
+    }
+    return durable_offset - last_checkpoint_offset >= policy->interval_bytes;
+}
