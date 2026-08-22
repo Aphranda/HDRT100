@@ -6,12 +6,22 @@
 #include "drv_flash.h"
 #include "ota_crc32.h"
 #include "ota_metadata_flash.h"
+#include "pota_boot_control_store.h"
 #include "portable_ota_port.h"
 
 #define OTA_METADATA_COPY_SIZE    DRV_FLASH_SECTOR_SIZE
 #define OTA_METADATA_COPY_A_OFFSET OTA_METADATA_OFFSET
 #define OTA_METADATA_COPY_B_OFFSET (OTA_METADATA_OFFSET + OTA_METADATA_COPY_SIZE)
 #define OTA_METADATA_VERSION_V2   2u
+#define OTA_BCB_LANE_SIZE (OTA_METADATA_SIZE / POTA_BCB_LANE_COUNT)
+#define OTA_BCB_LANE_PAGE_COUNT (OTA_BCB_LANE_SIZE / POTA_BCB_PAGE_SIZE)
+
+_Static_assert((OTA_METADATA_SIZE % POTA_BCB_LANE_COUNT) == 0u,
+               "Boot Control size must split evenly across BCB lanes");
+_Static_assert((OTA_BCB_LANE_SIZE % POTA_BCB_PAGE_SIZE) == 0u,
+               "BCB lane must be page aligned");
+_Static_assert(sizeof(ota_metadata_t) <= POTA_BCB_BODY_PAYLOAD_SIZE,
+               "OTA metadata must fit one BCB body payload");
 
 typedef struct {
     uint32_t magic;
@@ -35,9 +45,85 @@ typedef struct {
     uint32_t metadata_crc32;
 } ota_metadata_v2_t;
 
+static bool ota_metadata_is_valid(const ota_metadata_t *metadata);
+static void ota_metadata_upgrade_if_needed(ota_metadata_t *metadata);
+
 static uint32_t ota_metadata_copy_offset(uint32_t copy_index)
 {
     return (copy_index == 0u) ? OTA_METADATA_COPY_A_OFFSET : OTA_METADATA_COPY_B_OFFSET;
+}
+
+static uint32_t ota_metadata_bcb_page_offset(uint32_t lane, uint32_t page)
+{
+    return OTA_METADATA_OFFSET + lane * OTA_BCB_LANE_SIZE +
+           page * POTA_BCB_PAGE_SIZE;
+}
+
+static bool ota_metadata_bcb_read_page(void *context, uint32_t lane,
+                                       uint32_t page, uint8_t *data,
+                                       uint32_t length)
+{
+    (void)context;
+    if (lane >= POTA_BCB_LANE_COUNT || page >= OTA_BCB_LANE_PAGE_COUNT ||
+        length != POTA_BCB_PAGE_SIZE || data == NULL) {
+        return false;
+    }
+    return ota_metadata_flash_read(ota_metadata_bcb_page_offset(lane, page),
+                                   data, length);
+}
+
+static bool ota_metadata_bcb_program_page(void *context, uint32_t lane,
+                                           uint32_t page, const uint8_t *data,
+                                           uint32_t length)
+{
+    (void)context;
+    if (lane >= POTA_BCB_LANE_COUNT || page >= OTA_BCB_LANE_PAGE_COUNT ||
+        length != POTA_BCB_PAGE_SIZE || data == NULL) {
+        return false;
+    }
+    return ota_metadata_flash_program(ota_metadata_bcb_page_offset(lane, page),
+                                      data, length);
+}
+
+static bool ota_metadata_bcb_erase_lane(void *context, uint32_t lane)
+{
+    (void)context;
+    if (lane >= POTA_BCB_LANE_COUNT) {
+        return false;
+    }
+    return ota_metadata_flash_erase(ota_metadata_bcb_page_offset(lane, 0u),
+                                   OTA_BCB_LANE_SIZE);
+}
+
+static bool ota_metadata_bcb_init(pota_bcb_store_t *store)
+{
+    const pota_bcb_platform_t platform = {
+        .context = NULL,
+        .read_page = ota_metadata_bcb_read_page,
+        .program_page = ota_metadata_bcb_program_page,
+        .erase_lane = ota_metadata_bcb_erase_lane,
+    };
+    return pota_bcb_store_init(store, &platform,
+                               FLASH_COMPAT_MAP_SCHEMA_VERSION,
+                               FLASH_COMPAT_MAP_VERSION,
+                               OTA_BCB_LANE_PAGE_COUNT) == POTA_BCB_RESULT_OK;
+}
+
+static bool ota_metadata_load_bcb(ota_metadata_t *metadata)
+{
+    pota_bcb_store_t store;
+    pota_bcb_view_t view;
+    if (metadata == NULL || !ota_metadata_bcb_init(&store) ||
+        pota_bcb_store_select_newest(&store, &view) != POTA_BCB_RESULT_OK ||
+        view.update.payload_length != sizeof(*metadata)) {
+        return false;
+    }
+    memcpy(metadata, view.update.payload, sizeof(*metadata));
+    if (!ota_metadata_is_valid(metadata)) {
+        return false;
+    }
+    ota_metadata_upgrade_if_needed(metadata);
+    return true;
 }
 
 uint32_t ota_metadata_crc32(const ota_metadata_t *metadata)
@@ -137,6 +223,10 @@ bool ota_metadata_load(ota_metadata_t *metadata)
         return false;
     }
 
+    if (ota_metadata_load_bcb(metadata)) {
+        return true;
+    }
+
     ota_metadata_t copies[OTA_METADATA_COPY_COUNT];
     bool valid[OTA_METADATA_COPY_COUNT] = {false, false};
     memset(copies, 0, sizeof(copies));
@@ -178,34 +268,19 @@ bool ota_metadata_store(const ota_metadata_t *metadata)
     ota_metadata_t stored_metadata = *metadata;
     ota_metadata_update_crc(&stored_metadata);
 
-    const uint32_t copy_index = stored_metadata.sequence % OTA_METADATA_COPY_COUNT;
-    const uint32_t offset = ota_metadata_copy_offset(copy_index);
-    uint8_t page[DRV_FLASH_PAGE_SIZE];
-
-    if (!ota_metadata_flash_erase(offset, OTA_METADATA_COPY_SIZE)) {
+    pota_bcb_store_t store;
+    pota_bcb_update_t update;
+    pota_bcb_view_t view;
+    if (!ota_metadata_bcb_init(&store)) {
         return false;
     }
-
-    const uint8_t *src = (const uint8_t *)&stored_metadata;
-    uint32_t written = 0u;
-    while (written < sizeof(stored_metadata)) {
-        memset(page, 0xFF, sizeof(page));
-        const uint32_t chunk = ((sizeof(stored_metadata) - written) > sizeof(page)) ?
-                                   sizeof(page) :
-                                   (uint32_t)(sizeof(stored_metadata) - written);
-        memcpy(page, &src[written], chunk);
-        if (!ota_metadata_flash_program(offset + written, page, sizeof(page))) {
-            return false;
-        }
-        written += sizeof(page);
-    }
-
-    ota_metadata_t readback;
-    if (!ota_metadata_flash_read(offset, &readback, sizeof(readback))) {
-        return false;
-    }
-
-    return memcmp(&readback, &stored_metadata, sizeof(stored_metadata)) == 0;
+    (void)memset(&update, 0, sizeof(update));
+    update.sequence = stored_metadata.sequence;
+    update.boot_generation = stored_metadata.boot_generation;
+    update.security_counter = 0u;
+    update.payload_length = sizeof(stored_metadata);
+    memcpy(update.payload, &stored_metadata, sizeof(stored_metadata));
+    return pota_bcb_store_append(&store, &update, &view) == POTA_BCB_RESULT_OK;
 }
 
 bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size, uint32_t image_crc32)
@@ -355,8 +430,7 @@ bool ota_metadata_corrupt_copy(uint32_t copy_index)
         return false;
     }
 
-    return ota_metadata_flash_erase(ota_metadata_copy_offset(copy_index),
-                                    OTA_METADATA_COPY_SIZE);
+    return ota_metadata_bcb_erase_lane(NULL, copy_index);
 }
 
 bool ota_metadata_repair_copies(void)

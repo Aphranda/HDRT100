@@ -496,6 +496,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/config/freertos
         ${CMAKE_CURRENT_LIST_DIR}/third_party/scpi-parser/libscpi/inc
         ${CMAKE_CURRENT_LIST_DIR}/third_party/portable_log/include
+        ${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include
         ${CMAKE_CURRENT_LIST_DIR}/third_party/u8g2/csrc
         ${CMAKE_CURRENT_BINARY_DIR}
         ${CMAKE_CURRENT_BINARY_DIR}/generated
@@ -633,6 +634,7 @@ target_include_directories(DHRT100_BOOT PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/flash_map/inc
+        ${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include
         ${CMAKE_CURRENT_LIST_DIR}/drivers/mcu/flash/inc
         ${CMAKE_CURRENT_LIST_DIR}/config
 )
