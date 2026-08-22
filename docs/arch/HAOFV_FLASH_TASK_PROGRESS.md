@@ -16,6 +16,16 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-004 - Journal 最新损坏回退旧 completion
+
+- 状态：M1-05-H 继续进行；补充 host recovery 证据，未执行 DHRT100 擦写。
+- 测试提交：`1576665 test(flash): cover journal recovery fallback`，已推送。
+- 新增夹具先写入 accepted 与 committed 两条有效记录，再模拟 reset 后最新槽 CRC/正文损坏；
+  recovery 必须选择 sequence 较低但完整有效的 accepted 记录，不能返回损坏 committed 或
+  悬挂状态。FlashTransaction host/journal runner 通过。
+- 边界：当前仍是 host backend 证据；body/readback/commit marker/lane seal 的真实掉电注入、
+  live OTA_JOURNAL producer 和 v2 map 部署尚未完成。
+
 ### FLASH-TASK-20260823-003 - live producer completion-lease 注入与 DHRT100 验证
 
 - 状态：M1-05-G 继续进行；OTA image、Product Config、App OTA metadata producer 已统一从

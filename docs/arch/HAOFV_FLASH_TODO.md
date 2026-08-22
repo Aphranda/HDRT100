@@ -271,7 +271,8 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
   FlashTransactionAO completion-lease 注入点（`dfa1f02`）；仍缺实际 durable store/backend 配置
   和跨 reset 证据。
 - [ ] **M1-05-H 跨 reset/power-cut 闭环**：覆盖 body/readback/commit marker/lane seal 各断电点，复位
-  后只能得到确定的旧/新 completion，禁止悬挂 accepted 或伪造 committed。
+  后只能得到确定的旧/新 completion，禁止悬挂 accepted 或伪造 committed。Host 已覆盖最新
+  completion 损坏时回退上一条有效记录（`1576665`）；真实掉电注入仍待完成。
 - [ ] **M1-05-I replay/idempotence**：duplicate completion、重复提交和 provider reset 后重放必须按
   generation/job/object 去重，不能重复 program 或重复发布 terminal event。Journal backend 已
   对相同 completion 实现幂等，对冲突 payload fail closed（`195b85a`）；provider reset、live
