@@ -16,6 +16,26 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-036 - BCB persistent health projection
+
+- 状态：M3-02 完成 BCB 盘上健康事实重建与 App 只读诊断切片；M3-02 总项保持 `[~]`。
+  该快照从 lane seal 和有效 body/commit record 重新扫描，不依赖本次启动的 RAM 计数，因此
+  store 重新初始化后仍能报告 valid lane/record、最新 lane generation、sequence、security
+  counter 及其 lane/page。
+- 代码：`pota_bcb_store_get_health_snapshot()` 和 façade wrapper 只使用既有 read callback，
+  不执行 erase/program，不改变 BCB wire 格式；`ota_metadata_get_bcb_health()` 将 portable
+  snapshot 投影到产品层；新增 `SYSTem:OTA:BCB:HEALth?` 返回七个无符号字段。host fixture
+  覆盖三次 append、lane rotation、store 重建和最新 commit 损坏后的旧记录选择。
+- 验证：portable OTA tests 和全量 host runner 30/30 通过；`pico2-release` 完整生成 DHRT100
+  App A/App B/Boot/factory/update，FlashMap/inventory/wire/link gates 及 `release_check=OK`。
+  本次构建快照 build id 为 `20260822205422`，App A/App B 大小分别为 438456/438464 bytes；
+  这些数字只属于本次证据，不是架构事实。
+- 提交与推送：代码提交 `68d1ef7 feat(boot): expose persistent bcb health` 已推送
+  `origin/feature/rtos-multicore-haofv`。
+- 边界与回退：lane generation 是已提交 lane 擦除的持久下界，不等同于 Flash 芯片完整寿命
+  计数；尚无失败擦写持久统计、产品阈值、v2 migration/Recovery policy 或 DHRT100 板端查询
+  证据。本切片未烧录、未写板、未改 deployed v1 map；可独立 revert `68d1ef7`。
+
 ### FLASH-TASK-20260823-027 - Product Config append-only record primitive
 
 - 状态：M1-05-K 完成 Product Config 运行时 single-sector rewrite 的替换切片，M1-05-K
