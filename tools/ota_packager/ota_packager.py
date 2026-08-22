@@ -50,6 +50,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-b", required=True, type=Path, help="Slot B linked App .bin")
     parser.add_argument("--map-manifest", required=True, type=Path,
                         help="generated deployed compatibility Flash map manifest")
+    parser.add_argument(
+        "--allow-target-not-deployed", action="store_true",
+        help="allow an explicitly named factory-migration candidate map",
+    )
     parser.add_argument("-o", "--output", required=True, type=Path, help="output unified OTA package")
     parser.add_argument("--product-id", default=DEFAULT_PRODUCT_ID, help="target product id")
     parser.add_argument("--hardware-id", default=DEFAULT_HARDWARE_ID, help="target hardware id")
@@ -96,14 +100,22 @@ def align_up(value: int, alignment: int) -> int:
     return (value + alignment - 1) & ~(alignment - 1)
 
 
-def load_deployment_layout(path: Path) -> DeploymentLayout:
+def load_deployment_layout(
+    path: Path, *, allow_target_not_deployed: bool = False
+) -> DeploymentLayout:
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"cannot read Flash map manifest {path}: {exc}") from exc
 
-    if manifest.get("deployment_state") != "deployed_compatibility":
-        raise ValueError("OTA packaging requires a deployed_compatibility Flash map")
+    state = manifest.get("deployment_state")
+    allowed_states = {"deployed_compatibility"}
+    if allow_target_not_deployed:
+        allowed_states.add("target_not_deployed")
+    if state not in allowed_states:
+        raise ValueError(
+            "OTA packaging requires deployed_compatibility, or an explicit "
+            "target_not_deployed factory-migration candidate")
     partitions = manifest.get("partitions")
     if not isinstance(partitions, list):
         raise ValueError("Flash map manifest partitions must be a list")
@@ -240,7 +252,10 @@ def main() -> int:
         signature = bytes.fromhex(args.signature_hex) if args.signature_hex else b""
     except ValueError as exc:
         raise SystemExit(f"invalid --signature-hex: {exc}") from exc
-    layout = load_deployment_layout(args.map_manifest)
+    layout = load_deployment_layout(
+        args.map_manifest,
+        allow_target_not_deployed=args.allow_target_not_deployed,
+    )
     package = build_package(
         image_a,
         image_b,

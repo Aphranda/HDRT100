@@ -172,8 +172,10 @@ def validate_link_contract(map_text: str, dis_text: str, profile: str = "app") -
 
     if profile == "boot":
         flash_region = regions.get("FLASH")
-        boot_origin = symbols.get("FLASH_COMPAT_MAP_BOOTLOADER_ORIGIN")
-        boot_length = symbols.get("FLASH_COMPAT_MAP_BOOTLOADER_LENGTH")
+        boot_origin = (symbols.get("FLASH_ACTIVE_MAP_BOOTLOADER_ORIGIN") or
+                       symbols.get("FLASH_COMPAT_MAP_BOOTLOADER_ORIGIN"))
+        boot_length = (symbols.get("FLASH_ACTIVE_MAP_BOOTLOADER_LENGTH") or
+                       symbols.get("FLASH_COMPAT_MAP_BOOTLOADER_LENGTH"))
         binary_end = symbols.get("__flash_binary_end")
         if flash_region is None:
             failures.append("Boot link map has no FLASH memory region")
@@ -259,8 +261,10 @@ def validate_link_contract(map_text: str, dis_text: str, profile: str = "app") -
                 f"callers={sorted(actual)}"
             )
 
-    xip_base = symbols.get("FLASH_COMPAT_GEOMETRY_XIP_BASE")
-    xip_size = symbols.get("FLASH_COMPAT_GEOMETRY_TOTAL_SIZE")
+    xip_base = (symbols.get("FLASH_ACTIVE_GEOMETRY_XIP_BASE") or
+                symbols.get("FLASH_COMPAT_GEOMETRY_XIP_BASE"))
+    xip_size = (symbols.get("FLASH_ACTIVE_GEOMETRY_TOTAL_SIZE") or
+                symbols.get("FLASH_COMPAT_GEOMETRY_TOTAL_SIZE"))
     if xip_base is None or xip_size is None:
         failures.append("link map is missing generated Flash geometry symbols")
     else:

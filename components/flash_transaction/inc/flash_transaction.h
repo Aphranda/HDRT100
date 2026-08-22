@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "flash_map_gen/flash_map_v1_compat.h"
+#include "flash_deployment_map.h"
 
 typedef enum {
     FLASH_TRANSACTION_REQUESTER_NONE = 0,

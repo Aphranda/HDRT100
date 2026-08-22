@@ -104,8 +104,8 @@ static bool ota_metadata_bcb_init(pota_boot_control_facade_t *store)
         .erase_lane = ota_metadata_bcb_erase_lane,
     };
     return pota_boot_control_facade_init(store, &platform,
-                                         FLASH_COMPAT_MAP_SCHEMA_VERSION,
-                                         FLASH_COMPAT_MAP_VERSION,
+                                         FLASH_DEPLOYMENT_MAP_SCHEMA_VERSION,
+                                         FLASH_DEPLOYMENT_MAP_VERSION,
                                          OTA_BCB_LANE_PAGE_COUNT) ==
            POTA_BCB_RESULT_OK;
 }

@@ -36,7 +36,7 @@ def test_source_consumer_check_rejects_literal_only_linker(tmp_path: Path) -> No
     linker.parent.mkdir(parents=True)
     linker.write_text("FLASH ORIGIN = 0x10000000", encoding="utf-8")
     with pytest.raises(FlashConsumerError, match="generated-map tokens"):
-        require_tokens(linker, ("INCLUDE flash_map_v1_compat.ldinc",))
+        require_tokens(linker, ("INCLUDE flash_map_active.ldinc",))
 
 
 def test_ota_descriptor_rejects_run_offset_drift(tmp_path: Path) -> None:

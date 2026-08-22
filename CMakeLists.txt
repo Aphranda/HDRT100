@@ -35,13 +35,14 @@ set(PROJECT_ENABLE_WATCHDOG_TEST OFF CACHE BOOL "Enable destructive watchdog val
 set(PROJECT_ENABLE_FLASH_VALIDATION OFF CACHE BOOL "Enable validation-only Scratch SCPI command")
 set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
 set(PROJECT_FLASH_DEPLOYMENT_MAP v1_compat CACHE STRING "Explicit live Flash map: v1_compat until factory v2 migration")
+set(PROJECT_FACTORY_MIGRATION_BUILD OFF CACHE BOOL "Build an explicit non-release v2 factory migration candidate")
 set(PROJECT_USE_FREERTOS ON CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
 set(PROJECT_USE_MULTICORE ON CACHE BOOL "Run realtime trigger service on RP2350 core1")
 set(PROJECT_SYNC_IO_INPUT_BASE_PIN 20 CACHE STRING "Product SMA input GPIO base (physical order IN4..IN1)")
 set(PROJECT_SYNC_IO_OUTPUT_BASE_PIN 16 CACHE STRING "Product SMA output GPIO base (OUT1..OUT4)")
 set(PROJECT_TDMA_SPI_BAUD_HZ 10000000 CACHE STRING "Product TDMA PIO-SPI bit rate")
 set_property(CACHE PROJECT_OTA_DEFAULT_BOOT_MODE PROPERTY STRINGS COPY_TO_ACTIVE DIRECT_AB)
-set_property(CACHE PROJECT_FLASH_DEPLOYMENT_MAP PROPERTY STRINGS v1_compat)
+set_property(CACHE PROJECT_FLASH_DEPLOYMENT_MAP PROPERTY STRINGS v1_compat v2_candidate)
 set_property(CACHE PROJECT_USB_DEFAULT_MODE PROPERTY STRINGS CDC USBTMC)
 
 foreach(PROJECT_SYNC_IO_PIN_VAR IN ITEMS PROJECT_SYNC_IO_INPUT_BASE_PIN PROJECT_SYNC_IO_OUTPUT_BASE_PIN)
@@ -103,16 +104,63 @@ pico_sdk_init()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 include(${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.cmake)
-if(NOT PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v1_compat" OR
-   NOT FLASH_COMPAT_MAP_DEPLOYMENT_STATE STREQUAL "deployed_compatibility")
-    message(FATAL_ERROR
-        "Only the generated deployed v1_compat map may drive live consumers; "
-        "v2 requires the audited factory migration gate")
+include(${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2.cmake)
+if(PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v1_compat")
+    if(NOT FLASH_COMPAT_MAP_DEPLOYMENT_STATE STREQUAL "deployed_compatibility")
+        message(FATAL_ERROR "v1_compat must remain the deployed compatibility map")
+    endif()
+    set(PROJECT_FLASH_DEPLOYMENT_V2 OFF)
+    set(PROJECT_ACTIVE_MAP_MANIFEST
+        ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat_manifest.json)
+    set(PROJECT_ACTIVE_BOOTLOADER_XIP ${FLASH_COMPAT_MAP_BOOTLOADER_XIP_ADDRESS})
+    set(PROJECT_ACTIVE_GEOMETRY_XIP_BASE ${FLASH_COMPAT_GEOMETRY_XIP_BASE})
+    set(PROJECT_ACTIVE_GEOMETRY_TOTAL_SIZE ${FLASH_COMPAT_GEOMETRY_TOTAL_SIZE_BYTES})
+    set(PROJECT_ACTIVE_BOOTLOADER_SIZE_HEX ${FLASH_COMPAT_MAP_BOOTLOADER_SIZE})
+    set(PROJECT_ACTIVE_APP_A_XIP ${FLASH_COMPAT_MAP_APP_A_XIP_ADDRESS})
+    set(PROJECT_ACTIVE_APP_A_SIZE_HEX ${FLASH_COMPAT_MAP_APP_A_SIZE})
+    set(PROJECT_ACTIVE_APP_B_XIP ${FLASH_COMPAT_MAP_APP_B_XIP_ADDRESS})
+    set(PROJECT_ACTIVE_APP_B_SIZE_HEX ${FLASH_COMPAT_MAP_APP_B_SIZE})
+    set(PROJECT_ACTIVE_BOOT_CONTROL_XIP ${FLASH_COMPAT_MAP_BOOT_CONTROL_XIP_ADDRESS})
+    set(PROJECT_OTA_METADATA_SIZE ${FLASH_COMPAT_MAP_BOOT_CONTROL_SIZE})
+    set(PROJECT_FACTORY_ARTIFACT_NAME DHRT100_FACTORY.uf2)
+    set(PROJECT_UPDATE_ARTIFACT_NAME DHRT100_UPDATE.pkg)
+    set(PROJECT_OTA_PACKAGER_MAP_OPTION)
+elseif(PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v2_candidate")
+    if(NOT PROJECT_FACTORY_MIGRATION_BUILD)
+        message(FATAL_ERROR
+            "v2_candidate requires PROJECT_FACTORY_MIGRATION_BUILD=ON; "
+            "ordinary release/live builds must remain on v1_compat")
+    endif()
+    if(NOT FLASH_MAP_DEPLOYMENT_STATE STREQUAL "target_not_deployed")
+        message(FATAL_ERROR "v2 candidate source must remain target_not_deployed until HIL promotion")
+    endif()
+    set(PROJECT_FLASH_DEPLOYMENT_V2 ON)
+    set(PROJECT_ACTIVE_MAP_MANIFEST
+        ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2_manifest.json)
+    set(PROJECT_ACTIVE_BOOTLOADER_XIP ${FLASH_MAP_BOOTLOADER_XIP_ADDRESS})
+    set(PROJECT_ACTIVE_GEOMETRY_XIP_BASE ${FLASH_GEOMETRY_XIP_BASE})
+    set(PROJECT_ACTIVE_GEOMETRY_TOTAL_SIZE ${FLASH_GEOMETRY_TOTAL_SIZE_BYTES})
+    set(PROJECT_ACTIVE_BOOTLOADER_SIZE_HEX ${FLASH_MAP_BOOTLOADER_SIZE})
+    set(PROJECT_ACTIVE_APP_A_XIP ${FLASH_MAP_APP_A_XIP_ADDRESS})
+    set(PROJECT_ACTIVE_APP_A_SIZE_HEX ${FLASH_MAP_APP_A_SIZE})
+    set(PROJECT_ACTIVE_APP_B_XIP ${FLASH_MAP_APP_B_XIP_ADDRESS})
+    set(PROJECT_ACTIVE_APP_B_SIZE_HEX ${FLASH_MAP_APP_B_SIZE})
+    set(PROJECT_ACTIVE_BOOT_CONTROL_XIP ${FLASH_MAP_BOOT_CONTROL_XIP_ADDRESS})
+    set(PROJECT_OTA_METADATA_SIZE ${FLASH_MAP_BOOT_CONTROL_SIZE})
+    set(PROJECT_FACTORY_ARTIFACT_NAME DHRT100_V2_CANDIDATE_FACTORY.uf2)
+    set(PROJECT_UPDATE_ARTIFACT_NAME DHRT100_V2_CANDIDATE_UPDATE.pkg)
+    set(PROJECT_OTA_PACKAGER_MAP_OPTION --allow-target-not-deployed)
+else()
+    message(FATAL_ERROR "PROJECT_FLASH_DEPLOYMENT_MAP must be v1_compat or v2_candidate")
 endif()
+
+configure_file(
+    ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_active.ldinc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/flash_map_active.ldinc
+    @ONLY)
 
 set(PROJECT_BUILD_INFO_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.h)
 set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.c)
-set(PROJECT_OTA_METADATA_SIZE ${FLASH_COMPAT_MAP_BOOT_CONTROL_SIZE})
 set(PROJECT_FREERTOS_KERNEL_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/freertos/FreeRTOS-Kernel CACHE PATH "FreeRTOS-Kernel source directory")
 set(PROJECT_FATFS_SOURCE_DIR ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source CACHE PATH "FatFs source directory")
 set(PROJECT_FATFS_CONFIGURED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/fatfs)
@@ -534,6 +582,7 @@ function(project_configure_app_target target_name app_name linker_script)
         PROJECT_ENABLE_WATCHDOG_TEST=$<BOOL:${PROJECT_ENABLE_WATCHDOG_TEST}>
         PROJECT_ENABLE_FLASH_VALIDATION=$<BOOL:${PROJECT_ENABLE_FLASH_VALIDATION}>
         PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>
+        PROJECT_FLASH_DEPLOYMENT_V2=$<BOOL:${PROJECT_FLASH_DEPLOYMENT_V2}>
         PROJECT_USE_FREERTOS=$<BOOL:${PROJECT_USE_FREERTOS}>
         PROJECT_USE_MULTICORE=$<BOOL:${PROJECT_USE_MULTICORE}>
         PROJECT_SYNC_IO_INPUT_BASE_PIN=${PROJECT_SYNC_IO_INPUT_BASE_PIN}
@@ -554,10 +603,11 @@ function(project_configure_app_target target_name app_name linker_script)
     target_compile_options(${target_name} PRIVATE ${PROJECT_WARNING_FLAGS})
 
     target_link_options(${target_name} PRIVATE
+        "-L${CMAKE_CURRENT_BINARY_DIR}"
         "-L${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen"
     )
     set_property(TARGET ${target_name} APPEND PROPERTY LINK_DEPENDS
-        ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.ldinc
+        ${CMAKE_CURRENT_BINARY_DIR}/flash_map_active.ldinc
     )
 
     pico_set_linker_script(${target_name} ${linker_script})
@@ -658,15 +708,17 @@ target_link_libraries(DHRT100_BOOT
 target_compile_definitions(DHRT100_BOOT PRIVATE
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
         PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>
+        PROJECT_FLASH_DEPLOYMENT_V2=$<BOOL:${PROJECT_FLASH_DEPLOYMENT_V2}>
 )
 
 target_compile_options(DHRT100_BOOT PRIVATE ${PROJECT_WARNING_FLAGS})
 
 target_link_options(DHRT100_BOOT PRIVATE
+        "-L${CMAKE_CURRENT_BINARY_DIR}"
         "-L${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen"
 )
 set_property(TARGET DHRT100_BOOT APPEND PROPERTY LINK_DEPENDS
-        ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat.ldinc
+        ${CMAKE_CURRENT_BINARY_DIR}/flash_map_active.ldinc
 )
 
 add_dependencies(DHRT100_BOOT project_flash_contract_check)
@@ -686,38 +738,39 @@ add_custom_command(
 )
 
 add_custom_command(
-        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_FACTORY.uf2
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_FACTORY_ARTIFACT_NAME}
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
-                ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_FACTORY.uf2
-                ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_BOOT.bin@${FLASH_COMPAT_MAP_BOOTLOADER_XIP_ADDRESS}
-                ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.bin@${FLASH_COMPAT_MAP_APP_A_XIP_ADDRESS}
-                ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin@${FLASH_COMPAT_MAP_BOOT_CONTROL_XIP_ADDRESS}
+                ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_FACTORY_ARTIFACT_NAME}
+                ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_BOOT.bin@${PROJECT_ACTIVE_BOOTLOADER_XIP}
+                ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.bin@${PROJECT_ACTIVE_APP_A_XIP}
+                ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin@${PROJECT_ACTIVE_BOOT_CONTROL_XIP}
         DEPENDS DHRT100_BOOT ${PROJECT_NAME} ${CMAKE_CURRENT_BINARY_DIR}/ota_metadata_clear.bin ${CMAKE_CURRENT_LIST_DIR}/tools/uf2_join/uf2_join.py
         VERBATIM
 )
 
 add_custom_command(
-        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_UPDATE.pkg
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME}
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
                 --image-a ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.bin
                 --image-b ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_B.bin
-                --map-manifest ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat_manifest.json
+                --map-manifest ${PROJECT_ACTIVE_MAP_MANIFEST}
+                ${PROJECT_OTA_PACKAGER_MAP_OPTION}
                 --app-version 0.1.0
                 --build-id-file ${PROJECT_BUILD_INFO_SOURCE}
                 --min-bootloader-version 0.1.0
-                -o ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_UPDATE.pkg
+                -o ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME}
         DEPENDS ${PROJECT_NAME} DHRT100_B project_build_info
                 ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
-                ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v1_compat_manifest.json
+                ${PROJECT_ACTIVE_MAP_MANIFEST}
         VERBATIM
 )
 
 add_custom_target(DHRT100_FACTORY ALL
-        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_FACTORY.uf2
+        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_FACTORY_ARTIFACT_NAME}
 )
 
 add_custom_target(DHRT100_UPDATE ALL
-        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_UPDATE.pkg
+        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME}
 )
 
 add_custom_target(project_flash_link_check ALL

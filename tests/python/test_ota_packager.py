@@ -129,3 +129,14 @@ def test_manifest_rejects_non_live_or_missing_app_partitions(
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match=message):
         ota_packager.load_deployment_layout(path)
+
+
+def test_v2_candidate_manifest_requires_explicit_opt_in() -> None:
+    manifest = ROOT / "config" / "flash_map_gen" / "flash_map_v2_manifest.json"
+    with pytest.raises(ValueError, match="explicit"):
+        ota_packager.load_deployment_layout(manifest)
+    layout = ota_packager.load_deployment_layout(
+        manifest, allow_target_not_deployed=True
+    )
+    assert layout.app_a.offset == 0x00080000
+    assert layout.app_b.offset == 0x00280000

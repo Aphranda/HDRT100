@@ -4,7 +4,7 @@
 #include "flash_transaction.h"
 
 #define FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE \
-    (FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES * 2u)
+    (FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE * 2u)
 
 typedef struct {
     bool (*policy_allows)(uint32_t requester);

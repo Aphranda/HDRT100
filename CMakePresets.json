@@ -40,6 +40,27 @@
       }
     },
     {
+      "name": "pico2-v2-factory-candidate",
+      "displayName": "Pico 2 V2 Factory Migration Candidate",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-v2-factory-candidate",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PICO_BOARD": "pico2",
+        "PROJECT_ENABLE_USB_STDIO": "ON",
+        "PROJECT_ENABLE_UART_STDIO": "OFF",
+        "PROJECT_ENABLE_LOG_UART_OUTPUT": "ON",
+        "PROJECT_WARNINGS_AS_ERRORS": "ON",
+        "PROJECT_ENABLE_OTA_FAULT_INJECTION": "OFF",
+        "PROJECT_ENABLE_FLASH_VALIDATION": "ON",
+        "PROJECT_OTA_DEFAULT_BOOT_MODE": "DIRECT_AB",
+        "PROJECT_FLASH_DEPLOYMENT_MAP": "v2_candidate",
+        "PROJECT_FACTORY_MIGRATION_BUILD": "ON",
+        "PROJECT_USE_FREERTOS": "ON",
+        "PROJECT_USE_MULTICORE": "ON"
+      }
+    },
+    {
       "name": "pico2-debug-uart",
       "displayName": "Pico 2 Debug UART",
       "generator": "Ninja",
@@ -124,6 +145,10 @@
     {
       "name": "pico2-validation",
       "configurePreset": "pico2-validation"
+    },
+    {
+      "name": "pico2-v2-factory-candidate",
+      "configurePreset": "pico2-v2-factory-candidate"
     },
     {
       "name": "pico2-debug-uart",

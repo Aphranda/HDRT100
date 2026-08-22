@@ -249,7 +249,7 @@ scpi_result_t scpi_cmd_flash_scratch_validate(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    static uint8_t pattern[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES];
+    static uint8_t pattern[FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE];
     for (uint32_t index = 0u; index < sizeof(pattern); index++) {
         pattern[index] = pattern_id == 0u ? 0xA5u : 0x5Au;
     }
@@ -261,10 +261,10 @@ scpi_result_t scpi_cmd_flash_scratch_validate(scpi_t *context)
         /* Let FlashTransactionAO allocate a fresh identity on every run. */
         .job_id = 0u,
         .requester = FLASH_TRANSACTION_REQUESTER_VALIDATION,
-        .partition_id = FLASH_COMPAT_MAP_SCRATCH_ID,
+        .partition_id = FLASH_DEPLOYMENT_MAP_SCRATCH_ID,
         .operation = FLASH_TRANSACTION_OPERATION_ERASE,
         .relative_offset = 0u,
-        .length = FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES,
+        .length = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
         .store_generation = 1u,
     };
     const bool erase_ok = flash_transaction_ao_execute(&erase, &completion);
@@ -277,7 +277,7 @@ scpi_result_t scpi_cmd_flash_scratch_validate(scpi_t *context)
         const flash_transaction_request_t program = {
             .job_id = 0u,
             .requester = FLASH_TRANSACTION_REQUESTER_VALIDATION,
-            .partition_id = FLASH_COMPAT_MAP_SCRATCH_ID,
+            .partition_id = FLASH_DEPLOYMENT_MAP_SCRATCH_ID,
             .operation = FLASH_TRANSACTION_OPERATION_PROGRAM,
             .relative_offset = 0u,
             .length = sizeof(pattern),
@@ -287,7 +287,7 @@ scpi_result_t scpi_cmd_flash_scratch_validate(scpi_t *context)
         };
         program_ok = flash_transaction_ao_execute(&program, &completion);
         const uint8_t *readback = drv_flash_xip_ptr(
-            FLASH_COMPAT_MAP_SCRATCH_OFFSET);
+            FLASH_DEPLOYMENT_MAP_SCRATCH_OFFSET);
         if (program_ok && readback != NULL) {
             readback_hash = scpi_flash_validation_hash(readback,
                                                         sizeof(pattern));
@@ -297,19 +297,19 @@ scpi_result_t scpi_cmd_flash_scratch_validate(scpi_t *context)
         const flash_transaction_request_t restore = {
             .job_id = 0u,
             .requester = FLASH_TRANSACTION_REQUESTER_VALIDATION,
-            .partition_id = FLASH_COMPAT_MAP_SCRATCH_ID,
+            .partition_id = FLASH_DEPLOYMENT_MAP_SCRATCH_ID,
             .operation = FLASH_TRANSACTION_OPERATION_ERASE,
             .relative_offset = 0u,
-            .length = FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES,
+            .length = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
             .store_generation = 1u,
         };
         restore_ok = flash_transaction_ao_execute(&restore, &completion);
         const uint8_t *restored = drv_flash_xip_ptr(
-            FLASH_COMPAT_MAP_SCRATCH_OFFSET);
+            FLASH_DEPLOYMENT_MAP_SCRATCH_OFFSET);
         if (restore_ok && restored != NULL) {
             erased_ok = true;
             for (uint32_t index = 0u;
-                 index < FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES; index++) {
+                 index < FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE; index++) {
                 if (restored[index] != 0xFFu) {
                     erased_ok = false;
                     break;

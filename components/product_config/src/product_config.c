@@ -85,7 +85,7 @@ static bool product_config_flash_execute(uint32_t operation,
     };
     const flash_transaction_request_t request = {
         .requester = FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG,
-        .partition_id = FLASH_COMPAT_MAP_PRODUCT_NVS_ID,
+        .partition_id = FLASH_DEPLOYMENT_MAP_PRODUCT_NVS_ID,
         .operation = operation,
         .relative_offset = relative_offset,
         .length = length,

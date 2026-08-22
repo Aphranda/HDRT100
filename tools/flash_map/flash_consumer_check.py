@@ -23,13 +23,19 @@ class FlashConsumerError(ValueError):
     pass
 
 
-def load_manifest(path: Path) -> dict[str, Any]:
+def load_manifest(path: Path, *, allow_target_not_deployed: bool = False) -> dict[str, Any]:
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise FlashConsumerError(f"cannot read manifest {path}: {exc}") from exc
-    if manifest.get("deployment_state") != "deployed_compatibility":
-        raise FlashConsumerError("live consumers require deployment_state=deployed_compatibility")
+    state = manifest.get("deployment_state")
+    allowed_states = {"deployed_compatibility"}
+    if allow_target_not_deployed:
+        allowed_states.add("target_not_deployed")
+    if state not in allowed_states:
+        raise FlashConsumerError(
+            "live consumers require deployed_compatibility; only an explicit "
+            "factory-migration check may accept target_not_deployed")
     if not isinstance(manifest.get("geometry"), dict) or not isinstance(manifest.get("partitions"), list):
         raise FlashConsumerError("manifest geometry/partitions are invalid")
     ids = [item.get("id") for item in manifest["partitions"] if isinstance(item, dict)]
@@ -56,31 +62,32 @@ def require_tokens(path: Path, tokens: tuple[str, ...]) -> None:
 def check_source_consumers(root: Path) -> None:
     checks = {
         "components/ota_manager/inc/ota_partition.h": (
-            "flash_map_gen/flash_map_v1_compat.h",
-            "FLASH_COMPAT_MAP_APP_A_OFFSET",
-            "FLASH_COMPAT_MAP_APP_B_OFFSET",
-            "FLASH_COMPAT_MAP_BOOT_CONTROL_OFFSET",
+            "flash_deployment_map.h",
+            "FLASH_DEPLOYMENT_MAP_APP_A_OFFSET",
+            "FLASH_DEPLOYMENT_MAP_APP_B_OFFSET",
+            "FLASH_DEPLOYMENT_MAP_BOOT_CONTROL_OFFSET",
         ),
         "linker/rp2350_bootloader.ld": (
-            "INCLUDE flash_map_v1_compat.ldinc",
-            "FLASH_COMPAT_MAP_BOOTLOADER_ORIGIN",
-            "FLASH_COMPAT_MAP_BOOTLOADER_LENGTH",
+            "INCLUDE flash_map_active.ldinc",
+            "FLASH_ACTIVE_MAP_BOOTLOADER_ORIGIN",
+            "FLASH_ACTIVE_MAP_BOOTLOADER_LENGTH",
         ),
         "linker/rp2350_app_slot_a.ld": (
-            "INCLUDE flash_map_v1_compat.ldinc",
-            "FLASH_COMPAT_MAP_APP_A_ORIGIN",
-            "FLASH_COMPAT_MAP_APP_A_LENGTH",
+            "INCLUDE flash_map_active.ldinc",
+            "FLASH_ACTIVE_MAP_APP_A_ORIGIN",
+            "FLASH_ACTIVE_MAP_APP_A_LENGTH",
         ),
         "linker/rp2350_app_slot_b.ld": (
-            "INCLUDE flash_map_v1_compat.ldinc",
-            "FLASH_COMPAT_MAP_APP_B_ORIGIN",
-            "FLASH_COMPAT_MAP_APP_B_LENGTH",
+            "INCLUDE flash_map_active.ldinc",
+            "FLASH_ACTIVE_MAP_APP_B_ORIGIN",
+            "FLASH_ACTIVE_MAP_APP_B_LENGTH",
         ),
         "CMakeLists.txt": (
             "PROJECT_FLASH_DEPLOYMENT_MAP v1_compat",
-            "FLASH_COMPAT_MAP_BOOTLOADER_XIP_ADDRESS",
-            "FLASH_COMPAT_MAP_APP_A_XIP_ADDRESS",
-            "FLASH_COMPAT_MAP_BOOT_CONTROL_XIP_ADDRESS",
+            "PROJECT_FACTORY_MIGRATION_BUILD",
+            "PROJECT_ACTIVE_BOOTLOADER_XIP",
+            "PROJECT_ACTIVE_APP_A_XIP",
+            "PROJECT_ACTIVE_BOOT_CONTROL_XIP",
             "--map-manifest",
         ),
     }
@@ -134,8 +141,9 @@ def check_binary_sizes(build_dir: Path, manifest: dict[str, Any]) -> None:
         raise FlashConsumerError("ota_metadata_clear.bin must cover the complete BOOT_CONTROL partition")
 
 
-def check_ota_package(build_dir: Path, manifest: dict[str, Any]) -> None:
-    package = (build_dir / "DHRT100_UPDATE.pkg").read_bytes()
+def check_ota_package(build_dir: Path, manifest: dict[str, Any],
+                      package_name: str = "DHRT100_UPDATE.pkg") -> None:
+    package = (build_dir / package_name).read_bytes()
     if len(package) < 256:
         raise FlashConsumerError("OTA package is shorter than its descriptor table")
     magic, version, _, package_size, _, image_count = struct.unpack_from("<IIIIII", package, 0)
@@ -174,7 +182,8 @@ def uf2_target_addresses(path: Path) -> set[int]:
     return addresses
 
 
-def check_factory_uf2(build_dir: Path, manifest: dict[str, Any]) -> None:
+def check_factory_uf2(build_dir: Path, manifest: dict[str, Any],
+                      factory_name: str = "DHRT100_FACTORY.uf2") -> None:
     xip_base = manifest["geometry"]["xip_base"]
     partitions = partitions_by_id(manifest)
     expected_addresses: set[int] = set()
@@ -187,7 +196,7 @@ def check_factory_uf2(build_dir: Path, manifest: dict[str, Any]) -> None:
         size = (build_dir / filename).stat().st_size
         start = xip_base + partitions[partition_id]["offset"]
         expected_addresses.update(range(start, start + size, 256))
-    actual_addresses = uf2_target_addresses(build_dir / "DHRT100_FACTORY.uf2")
+    actual_addresses = uf2_target_addresses(build_dir / factory_name)
     if actual_addresses != expected_addresses:
         extra = sorted(actual_addresses - expected_addresses)
         missing = sorted(expected_addresses - actual_addresses)
@@ -195,11 +204,13 @@ def check_factory_uf2(build_dir: Path, manifest: dict[str, Any]) -> None:
             f"factory UF2 targets drifted: extra={extra[:3]} missing={missing[:3]}")
 
 
-def check_artifacts(build_dir: Path, manifest: dict[str, Any]) -> None:
+def check_artifacts(build_dir: Path, manifest: dict[str, Any], *,
+                    package_name: str = "DHRT100_UPDATE.pkg",
+                    factory_name: str = "DHRT100_FACTORY.uf2") -> None:
     check_link_maps(build_dir, manifest)
     check_binary_sizes(build_dir, manifest)
-    check_ota_package(build_dir, manifest)
-    check_factory_uf2(build_dir, manifest)
+    check_ota_package(build_dir, manifest, package_name)
+    check_factory_uf2(build_dir, manifest, factory_name)
 
 
 def parse_args() -> argparse.Namespace:
@@ -208,6 +219,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path,
                         default=Path("config/flash_map_gen/flash_map_v1_compat_manifest.json"))
     parser.add_argument("--build-dir", type=Path, default=Path("build"))
+    parser.add_argument("--allow-target-not-deployed", action="store_true")
     return parser.parse_args()
 
 
@@ -217,9 +229,20 @@ def main() -> int:
     manifest_path = args.manifest if args.manifest.is_absolute() else root / args.manifest
     build_dir = args.build_dir if args.build_dir.is_absolute() else root / args.build_dir
     try:
-        manifest = load_manifest(manifest_path)
+        manifest = load_manifest(
+            manifest_path,
+            allow_target_not_deployed=args.allow_target_not_deployed,
+        )
         check_source_consumers(root)
-        check_artifacts(build_dir, manifest)
+        candidate = manifest.get("deployment_state") == "target_not_deployed"
+        check_artifacts(
+            build_dir,
+            manifest,
+            package_name=("DHRT100_V2_CANDIDATE_UPDATE.pkg" if candidate
+                          else "DHRT100_UPDATE.pkg"),
+            factory_name=("DHRT100_V2_CANDIDATE_FACTORY.uf2" if candidate
+                          else "DHRT100_FACTORY.uf2"),
+        )
     except (FlashConsumerError, OSError, KeyError, TypeError) as exc:
         print(f"flash_consumer_check=FAILED detail={exc}")
         return 1

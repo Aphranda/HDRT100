@@ -106,10 +106,10 @@
     }
   ],
   "legacy_address_dependencies": [
-    {"file": "components/ota_manager/inc/ota_partition.h", "expected": ["flash_map_gen/flash_map_v1_compat.h", "FLASH_COMPAT_MAP_APP_A_OFFSET", "FLASH_COMPAT_MAP_APP_B_OFFSET", "FLASH_COMPAT_MAP_BOOT_CONTROL_OFFSET"]},
-    {"file": "linker/rp2350_bootloader.ld", "expected": ["INCLUDE flash_map_v1_compat.ldinc", "FLASH_COMPAT_MAP_BOOTLOADER_ORIGIN", "FLASH_COMPAT_MAP_BOOTLOADER_LENGTH"]},
-    {"file": "linker/rp2350_app_slot_a.ld", "expected": ["INCLUDE flash_map_v1_compat.ldinc", "FLASH_COMPAT_MAP_APP_A_ORIGIN", "FLASH_COMPAT_MAP_APP_A_LENGTH"]},
-    {"file": "linker/rp2350_app_slot_b.ld", "expected": ["INCLUDE flash_map_v1_compat.ldinc", "FLASH_COMPAT_MAP_APP_B_ORIGIN", "FLASH_COMPAT_MAP_APP_B_LENGTH"]},
-    {"file": "CMakeLists.txt", "expected": ["PROJECT_FLASH_DEPLOYMENT_MAP v1_compat", "FLASH_COMPAT_MAP_BOOTLOADER_XIP_ADDRESS", "FLASH_COMPAT_MAP_APP_A_XIP_ADDRESS", "FLASH_COMPAT_MAP_BOOT_CONTROL_XIP_ADDRESS", "--map-manifest"]}
+    {"file": "components/ota_manager/inc/ota_partition.h", "expected": ["flash_deployment_map.h", "FLASH_DEPLOYMENT_MAP_APP_A_OFFSET", "FLASH_DEPLOYMENT_MAP_APP_B_OFFSET", "FLASH_DEPLOYMENT_MAP_BOOT_CONTROL_OFFSET"]},
+    {"file": "linker/rp2350_bootloader.ld", "expected": ["INCLUDE flash_map_active.ldinc", "FLASH_ACTIVE_MAP_BOOTLOADER_ORIGIN", "FLASH_ACTIVE_MAP_BOOTLOADER_LENGTH"]},
+    {"file": "linker/rp2350_app_slot_a.ld", "expected": ["INCLUDE flash_map_active.ldinc", "FLASH_ACTIVE_MAP_APP_A_ORIGIN", "FLASH_ACTIVE_MAP_APP_A_LENGTH"]},
+    {"file": "linker/rp2350_app_slot_b.ld", "expected": ["INCLUDE flash_map_active.ldinc", "FLASH_ACTIVE_MAP_APP_B_ORIGIN", "FLASH_ACTIVE_MAP_APP_B_LENGTH"]},
+    {"file": "CMakeLists.txt", "expected": ["PROJECT_FLASH_DEPLOYMENT_MAP v1_compat", "PROJECT_FACTORY_MIGRATION_BUILD", "PROJECT_ACTIVE_BOOTLOADER_XIP", "PROJECT_ACTIVE_APP_A_XIP", "PROJECT_ACTIVE_BOOT_CONTROL_XIP", "--map-manifest"]}
   ]
 }

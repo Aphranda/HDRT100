@@ -271,8 +271,8 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
                 .size = OTA_SLOT_B_SIZE,
                 .run_offset = OTA_SLOT_B_OFFSET,
             },
-            .flash_page_size = FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES,
-            .flash_sector_size = FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES,
+            .flash_page_size = FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE,
+            .flash_sector_size = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
         },
         .ops = {
             .flash_read = portable_core_flash_read,
@@ -297,8 +297,8 @@ bool portable_ota_port_stream_init(const ota_metadata_t *metadata)
 
     const uint32_t active_partition_id =
         metadata->active_slot == (uint32_t)OTA_SLOT_A
-            ? FLASH_COMPAT_MAP_APP_A_ID
-            : FLASH_COMPAT_MAP_APP_B_ID;
+            ? FLASH_DEPLOYMENT_MAP_APP_A_ID
+            : FLASH_DEPLOYMENT_MAP_APP_B_ID;
     if (!flash_transaction_ao_set_active_app_partition(active_partition_id)) {
         return false;
     }
@@ -418,8 +418,8 @@ bool portable_ota_port_core_begin(const ota_metadata_t *metadata,
     }
     const uint32_t active_partition_id =
         metadata->active_slot == (uint32_t)OTA_SLOT_A
-            ? FLASH_COMPAT_MAP_APP_A_ID
-            : FLASH_COMPAT_MAP_APP_B_ID;
+            ? FLASH_DEPLOYMENT_MAP_APP_A_ID
+            : FLASH_DEPLOYMENT_MAP_APP_B_ID;
     if (!flash_transaction_ao_set_active_app_partition(active_partition_id)) {
         return false;
     }

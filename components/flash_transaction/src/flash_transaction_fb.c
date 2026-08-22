@@ -18,14 +18,14 @@ typedef struct {
     {id, offset, size, app},
 
 static const flash_transaction_partition_t s_partitions[] = {
-    FLASH_COMPAT_MAP_PARTITION_TABLE(FLASH_TRANSACTION_PARTITION)
+    FLASH_DEPLOYMENT_MAP_PARTITION_TABLE(FLASH_TRANSACTION_PARTITION)
 };
 
 #undef FLASH_TRANSACTION_PARTITION
 
 _Static_assert((sizeof(s_partitions) / sizeof(s_partitions[0])) ==
-                   FLASH_COMPAT_MAP_PARTITION_COUNT,
-               "compatibility partition table mismatch");
+                   FLASH_DEPLOYMENT_MAP_PARTITION_COUNT,
+               "deployment partition table mismatch");
 
 static void flash_transaction_write_begin(flash_transaction_fb_t *context)
 {
@@ -173,7 +173,7 @@ static void flash_transaction_set_state(flash_transaction_fb_t *context,
 static const flash_transaction_partition_t *flash_transaction_partition(
     uint32_t partition_id)
 {
-    for (uint32_t index = 0u; index < FLASH_COMPAT_MAP_PARTITION_COUNT;
+    for (uint32_t index = 0u; index < FLASH_DEPLOYMENT_MAP_PARTITION_COUNT;
          index++) {
         if (s_partitions[index].id == partition_id) {
             return &s_partitions[index];
@@ -190,7 +190,7 @@ bool flash_transaction_fb_resolve_range(uint32_t absolute_offset,
     if (length == 0u || partition_id == NULL || relative_offset == NULL) {
         return false;
     }
-    for (uint32_t index = 0u; index < FLASH_COMPAT_MAP_PARTITION_COUNT;
+    for (uint32_t index = 0u; index < FLASH_DEPLOYMENT_MAP_PARTITION_COUNT;
          index++) {
         const flash_transaction_partition_t *partition = &s_partitions[index];
         if (absolute_offset < partition->offset) {
@@ -222,7 +222,7 @@ static uint32_t flash_transaction_validate(
         request->length == 0u) {
         return FLASH_TRANSACTION_ERROR_BAD_ARGUMENT;
     }
-    if ((partition->app_permissions & FLASH_COMPAT_MAP_PERMISSION_WRITE) == 0u) {
+    if ((partition->app_permissions & FLASH_DEPLOYMENT_PERMISSION_WRITE) == 0u) {
         return FLASH_TRANSACTION_ERROR_PERMISSION;
     }
     if (request->relative_offset >= partition->size ||
@@ -231,8 +231,8 @@ static uint32_t flash_transaction_validate(
     }
     const uint32_t alignment =
         request->operation == FLASH_TRANSACTION_OPERATION_ERASE
-            ? FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES
-            : FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES;
+            ? FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE
+            : FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE;
     if ((request->relative_offset % alignment) != 0u ||
         (request->length % alignment) != 0u) {
         return FLASH_TRANSACTION_ERROR_ALIGNMENT;
@@ -242,12 +242,12 @@ static uint32_t flash_transaction_validate(
         return FLASH_TRANSACTION_ERROR_PROVIDER;
     }
     if (request->requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE) {
-        if (request->partition_id != FLASH_COMPAT_MAP_APP_A_ID &&
-            request->partition_id != FLASH_COMPAT_MAP_APP_B_ID) {
+        if (request->partition_id != FLASH_DEPLOYMENT_MAP_APP_A_ID &&
+            request->partition_id != FLASH_DEPLOYMENT_MAP_APP_B_ID) {
             return FLASH_TRANSACTION_ERROR_PERMISSION;
         }
-        if (context->active_app_partition_id != FLASH_COMPAT_MAP_APP_A_ID &&
-            context->active_app_partition_id != FLASH_COMPAT_MAP_APP_B_ID) {
+        if (context->active_app_partition_id != FLASH_DEPLOYMENT_MAP_APP_A_ID &&
+            context->active_app_partition_id != FLASH_DEPLOYMENT_MAP_APP_B_ID) {
             return FLASH_TRANSACTION_ERROR_ACTIVE_UNKNOWN;
         }
         if (request->partition_id == context->active_app_partition_id) {
@@ -255,15 +255,15 @@ static uint32_t flash_transaction_validate(
         }
     } else if (request->requester ==
                FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG) {
-        if (request->partition_id != FLASH_COMPAT_MAP_PRODUCT_NVS_ID ||
+        if (request->partition_id != FLASH_DEPLOYMENT_MAP_PRODUCT_NVS_ID ||
             (request->operation == FLASH_TRANSACTION_OPERATION_ERASE
-                 ? (request->length != FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES)
-                 : (request->length != FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES))) {
+                 ? (request->length != FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE)
+                 : (request->length != FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE))) {
             return FLASH_TRANSACTION_ERROR_PERMISSION;
         }
     } else if (request->requester ==
                FLASH_TRANSACTION_REQUESTER_OTA_METADATA) {
-        if (request->partition_id != FLASH_COMPAT_MAP_BOOT_CONTROL_ID) {
+        if (request->partition_id != FLASH_DEPLOYMENT_MAP_BOOT_CONTROL_ID) {
             return FLASH_TRANSACTION_ERROR_PERMISSION;
         }
     } else if (request->requester == FLASH_TRANSACTION_REQUESTER_VALIDATION) {
@@ -271,11 +271,11 @@ static uint32_t flash_transaction_validate(
         /* Validation is deliberately constrained to the first erase sector of
          * Scratch.  No arbitrary offset or other partition can enter the
          * transaction owner through this requester. */
-        if (request->partition_id != FLASH_COMPAT_MAP_SCRATCH_ID ||
+        if (request->partition_id != FLASH_DEPLOYMENT_MAP_SCRATCH_ID ||
             request->relative_offset != 0u ||
             (request->operation == FLASH_TRANSACTION_OPERATION_ERASE
-                 ? request->length != FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES
-                 : request->length != FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES)) {
+                 ? request->length != FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE
+                 : request->length != FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE)) {
             return FLASH_TRANSACTION_ERROR_PERMISSION;
         }
 #else
@@ -394,15 +394,15 @@ void flash_transaction_fb_init(flash_transaction_fb_t *context,
     context->active_app_partition_id = FLASH_TRANSACTION_INVALID_PARTITION;
     context->next_job_id = 1u;
     context->vector.state = FLASH_TRANSACTION_STATE_IDLE;
-    context->vector.map_version = FLASH_COMPAT_MAP_VERSION;
+    context->vector.map_version = FLASH_DEPLOYMENT_MAP_VERSION;
 }
 
 bool flash_transaction_fb_set_active_app_partition(
     flash_transaction_fb_t *context, uint32_t partition_id)
 {
     if (context == NULL ||
-        (partition_id != FLASH_COMPAT_MAP_APP_A_ID &&
-         partition_id != FLASH_COMPAT_MAP_APP_B_ID)) {
+        (partition_id != FLASH_DEPLOYMENT_MAP_APP_A_ID &&
+         partition_id != FLASH_DEPLOYMENT_MAP_APP_B_ID)) {
         return false;
     }
     context->active_app_partition_id = partition_id;
@@ -466,7 +466,7 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
     context->vector.partition_id = context->request.partition_id;
     context->vector.operation = context->request.operation;
     context->vector.requested_bytes = context->request.length;
-    context->vector.map_version = FLASH_COMPAT_MAP_VERSION;
+    context->vector.map_version = FLASH_DEPLOYMENT_MAP_VERSION;
     context->vector.provider_generation =
         context->request.provider_generation;
     context->vector.store_generation = context->request.store_generation;
