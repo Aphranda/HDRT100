@@ -54,6 +54,17 @@ Last updated: 2026-08-23
 - 边界：报告已独立落盘但尚未纳入发布流水线强制 gate，Boot 依赖审计的 C11 交叉审核仍待完成；
   不以该报告替代真实 DHRT100 v2 deployment、BOOTSEL 或 power-cut 证据。
 
+### FLASH-TASK-20260823-010 - DHRT100 staged OTA retry blocked
+
+- 状态：未完成；使用 `build-flash-m1-05h-20260823-release/DHRT100_UPDATE.pkg` 尝试对 DHRT100
+  执行 inactive-slot staged OTA（BOOT/COMM），工具在超时窗口内没有得到任何串口 transcript，已
+  中止进程。
+- 结论：没有 `READY_TO_REBOOT`、重枚举、`IDLE` 或 `COMMITTED` 原始证据，本轮不烧录成功、不更新
+  板端状态，也不把该尝试当作 HIL 失败矩阵。待 DHRT100 重新枚举且端口可复核后，重新执行并保存
+  完整 transcript、identity、slot/result、sensor snapshot。
+- 影响边界：本次只产生阻塞记录；host journal、release build/link 和文档门禁证据不受影响。M0-05
+  BOOTSEL、M1-05-G/H/I durable/power-cut、v2 deployment 和 M1-05-J C11 审核仍未完成。
+
 ### FLASH-TASK-20260823-006 - 最新 release package DHRT100 闭环
 
 - 状态：最新 release 工件已完成 DHRT100 实板 A/B OTA；不改变 M1-05-G/H/I、M1-06、M0-05
