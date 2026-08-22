@@ -16,6 +16,25 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-027 - Product Config append-only record primitive
+
+- 状态：M1-05-K 完成 Product Config 运行时 single-sector rewrite 的替换切片，M1-05-K
+  总项保持 `[~]`。旧 v1 首页记录仍可读取；新写入按擦除页 append，记录含 sequence/CRC，
+  同值更新不写；扫描只选择 CRC 有效且 sequence 最新的记录，遇到 partial/invalid record
+  跳过。Product NVS 满槽时 fail closed，不执行隐式 GC 或 sector rotation。
+- 代码：`components/product_config/src/product_config.c` 改为固定
+  `DRV_FLASH_PAGE_SIZE` slot 的 append/read-latest/store-readback；
+  `components/flash_transaction/src/flash_transaction_fb.c` 允许 Product Config 在
+  Product NVS 内按 program-page 对齐的非零 relative offset 写入，同时继续把 erase 限制在
+  首个 sector；`tests/unit/test_flash_transaction.c` 增加第二页 append 的 owner 负向边界。
+- 验证：`tools/tests/run_host_unit_tests.ps1` 30/30；
+  `cmake --build --preset pico2-release --parallel 4` 完整生成 DHRT100 App A/App B/Boot、
+  factory UF2 和 update package；FlashMap/inventory/wire/link gates 及
+  `python tools/release_check/release_check.py --root . --build-dir build` 均通过。
+- 边界与回退：本切片未改变 deployed v1 map、未执行 DHRT100 烧录/掉电/回退 HIL；满槽时
+  保留最新已提交记录并返回失败，后续 M2-02 负责 rotation/GC/recovery。M1-05-G/H/I/J/L、
+  M3/M4 真实 journal/Recovery/ingress/HIL 仍未完成。
+
 ### FLASH-TASK-20260823-025 - signed manifest extension 与 counter gate
 
 - 状态：M3-04 增加固定 manifest extension 的 portable parser/packager boundary；这是信任链

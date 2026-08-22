@@ -285,10 +285,11 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
   fail-closed 检查（`47b15a3`），Boot 侧现已固定允许 caller 集合；独立 JSON 报告工具、
   三 profile 产物快照和 `release_check` 强制 gate 已完成（`FLASH-TASK-20260823-009`、
   `FLASH-TASK-20260823-011`、`FLASH-TASK-20260823-015`），Boot 依赖的 C11 交叉审核仍待补齐。
-- [ ] **M1-05-K atomic store 依赖收敛**：Product/OTA metadata 当前仍有 single-sector rewrite；待
-  M2-02 Product NVS、M3-02 BootControlStore 提供完整 atomic record/BCB facade、wear 和 recovery
-  policy 后再替换剩余兼容 adapter；Boot metadata 已由 BCB adapter 承载，证据见
-  `FLASH-TASK-20260823-016`。
+- [~] **M1-05-K atomic store 依赖收敛**：Product Config 已迁移到固定页 append-only record
+  primitive，兼容读取旧首记录；每次更新只 program 下一个擦除页，同值不写，满槽时
+  fail closed，不执行运行时 single-sector rewrite。OTA metadata 已由 BCB adapter 承载，证据见
+  `FLASH-TASK-20260823-016`；仍待 M2-02 Product NVS 的 sector rotation/GC、M3-02
+  BootControlStore 完整 facade、wear health 和 recovery policy，之后才能关闭本项。
 - [ ] **M1-05-L 退出评审**：host/build/link/HIL、回退路径和独立 C11 交叉审核齐全后，才允许把
   M1-05 从 `[~]` 改为 `[x]`，并同步更新 `ARCH-FLASHOWNER-01` 登记状态。
 
