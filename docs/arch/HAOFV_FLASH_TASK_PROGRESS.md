@@ -16,6 +16,20 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-022 - M4-02 checkpoint frequency policy primitive
+
+- 状态：已提供可独立测试的 monotonic checkpoint frequency decision；实际 wear/retransmit
+  profile 选择和 stream ingress 调用仍未完成。
+- 代码提交：`cb73d76 feat(ota): add checkpoint frequency policy`，已推送。新增
+  `pota_stream_checkpoint_policy_t`、policy validity 和 `should_append()`；只有 durable offset
+  单调前进且达到 interval，或按策略到达 final offset 时才建议 append，拒绝 offset 回退、越界、
+  zero interval 和 zero offset。该 primitive 不执行 Flash 写入，避免把每 chunk 当成持久化策略。
+- 验证：`run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m4-02-policy` 通过；
+  主工程 App A/App B/Boot、FlashMap/inventory/link gate 和 `release_check=OK` 通过，产物已更新
+  但尚未成功烧录 DHRT100。
+- 边界：仍未关闭 M1-05-G 的 live `OTA_JOURNAL`、真实掉电/Recovery、五类 ingress 或
+  DHRT100 HIL；policy profile 需结合 endurance/retransmit 实测后冻结。
+
 ### FLASH-TASK-20260823-021 - M4-02 stable stream identity token
 
 - 状态：stream token 已从 moving durable offset 解耦，适合作为 checkpoint identity；resume
