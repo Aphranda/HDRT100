@@ -39,6 +39,24 @@ static bool program_flash(uint32_t offset, const void *data, uint32_t size)
     return true;
 }
 
+static bool checkpoint_read(void *context, uint32_t offset,
+                            void *data, uint32_t length)
+{
+    (void)context;
+    return read_flash(offset, data, length);
+}
+
+static bool checkpoint_program(void *context, uint32_t offset,
+                               const void *data, uint32_t length)
+{
+    (void)context;
+    if (data == NULL || offset > FLASH_SIZE || length > FLASH_SIZE - offset) {
+        return false;
+    }
+    memcpy(&s_flash[offset], data, length);
+    return true;
+}
+
 static bool mark_pending(pota_slot_t slot, uint32_t size, uint32_t crc32)
 {
     (void)slot;
@@ -93,6 +111,23 @@ int main(void)
     pota_stream_ingress_t ingress;
     int failed = 0;
     failed += !expect("session init", pota_stream_session_init(&session, &platform));
+    const pota_stream_checkpoint_policy_t checkpoint_policy = {
+        .interval_bytes = 16u,
+        .checkpoint_on_final = true,
+    };
+    pota_stream_checkpoint_store_t checkpoint_store;
+    const pota_stream_checkpoint_config_t checkpoint_config = {
+        .context = s_flash,
+        .read = checkpoint_read,
+        .program = checkpoint_program,
+        .base_offset = 3072u,
+        .slot_count = 4u,
+        .slot_size = POTA_STREAM_CHECKPOINT_RECORD_SIZE,
+    };
+    failed += !expect("checkpoint store init", pota_stream_checkpoint_init(
+        &checkpoint_store, &checkpoint_config) == POTA_STREAM_CHECKPOINT_OK);
+    failed += !expect("checkpoint config", pota_stream_session_set_checkpoint_store(
+        &session, &checkpoint_store, &checkpoint_policy));
     failed += !expect("ingress init", pota_stream_ingress_init(
         &ingress, &session,
         POTA_STREAM_INGRESS_SOURCE_BIT(POTA_STREAM_INGRESS_USB_CDC) |
@@ -146,6 +181,15 @@ int main(void)
                       status.durable_offset == sizeof(payload) &&
                       status.stream_token != 0u &&
                       status.last_result == POTA_STREAM_INGRESS_OK);
+    pota_stream_checkpoint_t recovered_checkpoint;
+    uint32_t checkpoint_sequence = 0u;
+    failed += !expect("checkpoint recovered", pota_stream_checkpoint_recover_latest(
+        &checkpoint_store, &recovered_checkpoint, &checkpoint_sequence) ==
+                      POTA_STREAM_CHECKPOINT_OK &&
+                      recovered_checkpoint.durable_offset == sizeof(payload) &&
+                      recovered_checkpoint.object_id == open.object_id &&
+                      recovered_checkpoint.token == status.stream_token &&
+                      checkpoint_sequence != 0u);
 
     if (failed != 0) {
         return 1;

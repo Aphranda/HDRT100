@@ -99,7 +99,8 @@ $testPrograms = @(
             (Join-Path $src "pota_core.c"),
             (Join-Path $src "pota_operation.c"),
             (Join-Path $src "pota_session.c"),
-            (Join-Path $src "pota_stream_session.c")
+            (Join-Path $src "pota_stream_session.c"),
+            (Join-Path $src "pota_stream_checkpoint.c")
         )
     },
     @{
@@ -110,6 +111,7 @@ $testPrograms = @(
             (Join-Path $src "pota_operation.c"),
             (Join-Path $src "pota_session.c"),
             (Join-Path $src "pota_stream_session.c"),
+            (Join-Path $src "pota_stream_checkpoint.c"),
             (Join-Path $src "pota_stream_ingress.c")
         )
     },

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "pota_session.h"
+#include "pota_stream_checkpoint.h"
 
 #define POTA_STREAM_IDENTITY_SIZE 16u
 #define POTA_STREAM_PACKAGE_HASH_SIZE 32u
@@ -33,6 +34,7 @@ typedef enum {
     POTA_STREAM_RESULT_MISMATCH,
     POTA_STREAM_RESULT_OFFSET,
     POTA_STREAM_RESULT_CONFLICT,
+    POTA_STREAM_RESULT_CHECKPOINT,
     POTA_STREAM_RESULT_CORE,
 } pota_stream_result_t;
 
@@ -51,6 +53,9 @@ typedef struct {
     uint8_t package_hash[POTA_STREAM_PACKAGE_HASH_SIZE];
 } pota_stream_open_t;
 
+typedef bool (*pota_stream_checkpoint_append_fn)(
+    void *context, const pota_stream_checkpoint_t *checkpoint);
+
 typedef struct {
     pota_session_t core;
     pota_stream_open_t open;
@@ -60,10 +65,23 @@ typedef struct {
     uint32_t last_chunk_size;
     uint32_t last_chunk_crc32;
     bool last_chunk_valid;
+    void *checkpoint_context;
+    pota_stream_checkpoint_append_fn checkpoint_append;
+    pota_stream_checkpoint_policy_t checkpoint_policy;
+    uint32_t last_checkpoint_offset;
 } pota_stream_session_t;
 
 bool pota_stream_session_init(pota_stream_session_t *session,
                               const pota_platform_t *platform);
+bool pota_stream_session_set_checkpoint(
+    pota_stream_session_t *session,
+    void *context,
+    pota_stream_checkpoint_append_fn append,
+    const pota_stream_checkpoint_policy_t *policy);
+bool pota_stream_session_set_checkpoint_store(
+    pota_stream_session_t *session,
+    pota_stream_checkpoint_store_t *store,
+    const pota_stream_checkpoint_policy_t *policy);
 pota_stream_result_t pota_stream_session_open(
     pota_stream_session_t *session, const pota_stream_open_t *open);
 pota_stream_result_t pota_stream_session_service(
