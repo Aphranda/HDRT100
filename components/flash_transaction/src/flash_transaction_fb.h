@@ -40,6 +40,10 @@ typedef struct {
     bool provider_reset_pending;
     const flash_transaction_buffer_lease_t *buffer_lease;
     bool provider_retained;
+    const flash_transaction_completion_lease_t *completion_lease;
+    bool completion_retained;
+    bool completion_terminal_published;
+    bool completion_journal_failed;
 } flash_transaction_fb_t;
 
 void flash_transaction_fb_init(flash_transaction_fb_t *context,

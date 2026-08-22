@@ -88,6 +88,78 @@ static void flash_transaction_provider_release(flash_transaction_fb_t *context)
     context->buffer_lease = NULL;
 }
 
+static bool flash_transaction_completion_lease_valid(
+    const flash_transaction_fb_t *context)
+{
+    const flash_transaction_completion_lease_t *lease =
+        context->request.completion_lease;
+    return lease != NULL && lease->retain != NULL && lease->release != NULL &&
+           lease->append != NULL;
+}
+
+static bool flash_transaction_completion_retain(flash_transaction_fb_t *context)
+{
+    const flash_transaction_completion_lease_t *lease =
+        context->request.completion_lease;
+    if (lease == NULL) {
+        return true;
+    }
+    if (!flash_transaction_completion_lease_valid(context) ||
+        !lease->retain(lease->context)) {
+        return false;
+    }
+    context->completion_lease = lease;
+    context->completion_retained = true;
+    context->completion_terminal_published = false;
+    context->completion_journal_failed = false;
+    return true;
+}
+
+static bool flash_transaction_completion_append(
+    flash_transaction_fb_t *context, uint32_t event)
+{
+    if (!context->completion_retained ||
+        context->completion_lease == NULL ||
+        context->completion_journal_failed) {
+        return !context->completion_journal_failed;
+    }
+    const flash_transaction_journal_record_t record = {
+        .job_id = context->vector.job_id,
+        .transaction_generation = context->vector.transaction_generation,
+        .provider_generation = context->vector.provider_generation,
+        .store_generation = context->vector.store_generation,
+        .event = event,
+        .result = event == FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED
+                      ? FLASH_TRANSACTION_RESULT_COMMITTED
+                      : context->vector.last_result,
+        .error = event == FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED
+                     ? FLASH_TRANSACTION_ERROR_NONE
+                     : context->vector.last_error,
+        .processed_bytes = context->vector.processed_bytes,
+        .verified_bytes = context->vector.verified_bytes,
+    };
+    if (!context->completion_lease->append(context->completion_lease->context,
+                                          &record)) {
+        context->completion_journal_failed = true;
+        return false;
+    }
+    if (event == FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED ||
+        event == FLASH_TRANSACTION_JOURNAL_EVENT_FAILED ||
+        event == FLASH_TRANSACTION_JOURNAL_EVENT_ABORTED) {
+        context->completion_terminal_published = true;
+    }
+    return true;
+}
+
+static void flash_transaction_completion_release(flash_transaction_fb_t *context)
+{
+    if (context->completion_retained && context->completion_lease != NULL) {
+        context->completion_lease->release(context->completion_lease->context);
+    }
+    context->completion_retained = false;
+    context->completion_lease = NULL;
+}
+
 static void flash_transaction_set_state(flash_transaction_fb_t *context,
                                         uint32_t state)
 {
@@ -212,6 +284,10 @@ static uint32_t flash_transaction_validate(
         !flash_transaction_provider_lease_valid(context)) {
         return FLASH_TRANSACTION_ERROR_PROVIDER;
     }
+    if (request->completion_lease != NULL &&
+        !flash_transaction_completion_lease_valid(context)) {
+        return FLASH_TRANSACTION_ERROR_COMPLETION;
+    }
     context->absolute_offset = partition->offset + request->relative_offset;
     return FLASH_TRANSACTION_ERROR_NONE;
 }
@@ -224,7 +300,8 @@ static void flash_transaction_fail(flash_transaction_fb_t *context,
     context->vector.last_error = error;
     context->vector.completed_timestamp_ms = context->platform.now_ms();
     context->vector.state = context->resource_acquired ||
-                                    context->provider_retained
+                                    context->provider_retained ||
+                                    context->completion_retained
                                 ? FLASH_TRANSACTION_STATE_RELEASE
                                 : FLASH_TRANSACTION_STATE_FAILED;
     context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
@@ -238,7 +315,8 @@ static void flash_transaction_abort(flash_transaction_fb_t *context)
     context->vector.last_error = FLASH_TRANSACTION_ERROR_ABORTED;
     context->vector.completed_timestamp_ms = context->platform.now_ms();
     context->vector.state = context->resource_acquired ||
-                                    context->provider_retained
+                                    context->provider_retained ||
+                                    context->completion_retained
                                 ? FLASH_TRANSACTION_STATE_RELEASE
                                 : FLASH_TRANSACTION_STATE_ABORTED;
     context->terminal_state = FLASH_TRANSACTION_STATE_ABORTED;
@@ -252,7 +330,8 @@ static void flash_transaction_provider_reset(flash_transaction_fb_t *context)
     context->vector.last_error = FLASH_TRANSACTION_ERROR_PROVIDER;
     context->vector.completed_timestamp_ms = context->platform.now_ms();
     context->vector.state = context->resource_acquired ||
-                                    context->provider_retained
+                                    context->provider_retained ||
+                                    context->completion_retained
                                 ? FLASH_TRANSACTION_STATE_RELEASE
                                 : FLASH_TRANSACTION_STATE_FAILED;
     context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
@@ -344,6 +423,10 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
     flash_transaction_provider_reset_set(context, false);
     context->buffer_lease = NULL;
     context->provider_retained = false;
+    context->completion_lease = NULL;
+    context->completion_retained = false;
+    context->completion_terminal_published = false;
+    context->completion_journal_failed = false;
     context->terminal_state = FLASH_TRANSACTION_STATE_COMPLETE;
     uint32_t transaction_generation =
         context->vector.transaction_generation + 1u;
@@ -395,10 +478,18 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
             flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_PROVIDER);
             break;
         }
+        if (!flash_transaction_completion_retain(context)) {
+            flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_COMPLETION);
+            break;
+        }
         flash_transaction_write_begin(context);
         context->vector.completion_level = FLASH_TRANSACTION_COMPLETION_ACCEPTED;
         context->vector.state = FLASH_TRANSACTION_STATE_QUIESCE;
         flash_transaction_write_end(context);
+        if (!flash_transaction_completion_append(
+                context, FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED)) {
+            flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_COMPLETION);
+        }
         break;
     }
     case FLASH_TRANSACTION_STATE_QUIESCE:
@@ -485,6 +576,10 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
             }
         }
         flash_transaction_write_end(context);
+        if (ok && !flash_transaction_completion_append(
+                       context, FLASH_TRANSACTION_JOURNAL_EVENT_PROGRAMMED)) {
+            flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_COMPLETION);
+        }
         if (!ok) {
             if (flash_transaction_provider_reset_is_pending(context)) {
                 flash_transaction_provider_reset(context);
@@ -520,6 +615,10 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
             context->vector.last_error = FLASH_TRANSACTION_ERROR_ABORTED;
         }
         flash_transaction_write_end(context);
+        if (ok && !flash_transaction_completion_append(
+                       context, FLASH_TRANSACTION_JOURNAL_EVENT_VERIFIED)) {
+            flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_COMPLETION);
+        }
         break;
     }
     case FLASH_TRANSACTION_STATE_COMMIT:
@@ -540,13 +639,38 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
             context->platform.release_flash();
             context->resource_acquired = false;
         }
-        flash_transaction_provider_release(context);
-        flash_transaction_write_begin(context);
         if (!release_ok) {
             context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
+            flash_transaction_write_begin(context);
             context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
             context->vector.last_error = FLASH_TRANSACTION_ERROR_RELEASE;
+            flash_transaction_write_end(context);
         }
+        if (context->completion_retained &&
+            !context->completion_terminal_published &&
+            (context->terminal_state == FLASH_TRANSACTION_STATE_COMPLETE ||
+             context->terminal_state == FLASH_TRANSACTION_STATE_FAILED ||
+             context->terminal_state == FLASH_TRANSACTION_STATE_ABORTED)) {
+            uint32_t event = FLASH_TRANSACTION_JOURNAL_EVENT_FAILED;
+            if (context->terminal_state == FLASH_TRANSACTION_STATE_COMPLETE) {
+                event = FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED;
+            } else if (context->terminal_state ==
+                       FLASH_TRANSACTION_STATE_ABORTED) {
+                event = FLASH_TRANSACTION_JOURNAL_EVENT_ABORTED;
+            }
+            if (!flash_transaction_completion_append(context, event)) {
+                context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
+                flash_transaction_write_begin(context);
+                context->vector.last_result =
+                    FLASH_TRANSACTION_RESULT_FAILED;
+                context->vector.last_error =
+                    FLASH_TRANSACTION_ERROR_COMPLETION;
+                flash_transaction_write_end(context);
+            }
+        }
+        flash_transaction_provider_release(context);
+        flash_transaction_completion_release(context);
+        flash_transaction_write_begin(context);
         context->vector.state = context->terminal_state;
         context->vector.completed_timestamp_ms = context->platform.now_ms();
         flash_transaction_write_end(context);

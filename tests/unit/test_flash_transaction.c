@@ -35,6 +35,12 @@ static bool s_provider_reset_request_accepted;
 static bool s_lease_retain_ok;
 static uint32_t s_lease_retain_count;
 static uint32_t s_lease_release_count;
+static bool s_completion_retain_ok;
+static uint32_t s_completion_retain_count;
+static uint32_t s_completion_release_count;
+static uint32_t s_completion_append_count;
+static uint32_t s_completion_fail_event;
+static flash_transaction_journal_record_t s_completion_records[8];
 
 static bool fake_lease_retain(void *context)
 {
@@ -47,6 +53,32 @@ static void fake_lease_release(void *context)
 {
     assert(context != NULL);
     s_lease_release_count++;
+}
+
+static bool fake_completion_retain(void *context)
+{
+    assert(context != NULL);
+    s_completion_retain_count++;
+    return s_completion_retain_ok;
+}
+
+static void fake_completion_release(void *context)
+{
+    assert(context != NULL);
+    s_completion_release_count++;
+}
+
+static bool fake_completion_append(
+    void *context, const flash_transaction_journal_record_t *record)
+{
+    assert(context != NULL);
+    assert(record != NULL);
+    if (s_completion_append_count <
+        (sizeof(s_completion_records) / sizeof(s_completion_records[0]))) {
+        s_completion_records[s_completion_append_count] = *record;
+    }
+    s_completion_append_count++;
+    return record->event != s_completion_fail_event;
 }
 
 static bool fake_policy(uint32_t requester)
@@ -215,6 +247,12 @@ static void reset_fakes(void)
     s_lease_retain_ok = true;
     s_lease_retain_count = 0u;
     s_lease_release_count = 0u;
+    s_completion_retain_ok = true;
+    s_completion_retain_count = 0u;
+    s_completion_release_count = 0u;
+    s_completion_append_count = 0u;
+    s_completion_fail_event = 0u;
+    memset(s_completion_records, 0, sizeof(s_completion_records));
 }
 
 static void init_context(flash_transaction_fb_t *context)
@@ -554,6 +592,107 @@ static void test_large_payload_immutable_lease_lifecycle(void)
     assert(s_program_count == 0u);
 }
 
+static void test_completion_lease_publishes_each_boundary_once(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    uint8_t data[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES] = {0x4Du};
+    flash_transaction_completion_lease_t completion_lease = {
+        .context = &s_completion_append_count,
+        .retain = fake_completion_retain,
+        .release = fake_completion_release,
+        .append = fake_completion_append,
+    };
+    flash_transaction_request_t request = program_request(data);
+    request.completion_lease = &completion_lease;
+
+    const flash_transaction_vector_t vector = run_request(&context, &request);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(vector.completion_level == FLASH_TRANSACTION_COMPLETION_COMMITTED);
+    assert(s_completion_retain_count == 1u);
+    assert(s_completion_release_count == 1u);
+    assert(s_completion_append_count == 4u);
+    assert(s_completion_records[0].event ==
+           FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED);
+    assert(s_completion_records[1].event ==
+           FLASH_TRANSACTION_JOURNAL_EVENT_PROGRAMMED);
+    assert(s_completion_records[2].event ==
+           FLASH_TRANSACTION_JOURNAL_EVENT_VERIFIED);
+    assert(s_completion_records[3].event ==
+           FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED);
+    assert(s_completion_records[3].result == FLASH_TRANSACTION_RESULT_COMMITTED);
+    assert(s_completion_records[3].error == FLASH_TRANSACTION_ERROR_NONE);
+    assert(s_completion_records[3].transaction_generation ==
+           vector.transaction_generation);
+
+    flash_transaction_fb_service(&context);
+    assert(s_completion_append_count == 4u);
+}
+
+static void test_completion_journal_failure_is_fail_closed(void)
+{
+    const uint32_t failure_events[] = {
+        FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED,
+        FLASH_TRANSACTION_JOURNAL_EVENT_PROGRAMMED,
+        FLASH_TRANSACTION_JOURNAL_EVENT_VERIFIED,
+        FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED,
+    };
+    for (uint32_t index = 0u;
+         index < (sizeof(failure_events) / sizeof(failure_events[0]));
+         index++) {
+        flash_transaction_fb_t context;
+        init_context(&context);
+        assert(flash_transaction_fb_set_active_app_partition(
+            &context, FLASH_COMPAT_MAP_APP_A_ID));
+        uint8_t data[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES] = {0x91u};
+        flash_transaction_completion_lease_t completion_lease = {
+            .context = &s_completion_append_count,
+            .retain = fake_completion_retain,
+            .release = fake_completion_release,
+            .append = fake_completion_append,
+        };
+        flash_transaction_request_t request = program_request(data);
+        request.completion_lease = &completion_lease;
+        s_completion_fail_event = failure_events[index];
+
+        const flash_transaction_vector_t vector =
+            run_request(&context, &request);
+        assert_failed(vector, FLASH_TRANSACTION_ERROR_COMPLETION);
+        assert(s_completion_retain_count == 1u);
+        assert(s_completion_release_count == 1u);
+        assert(s_completion_append_count == index + 1u);
+        assert(s_program_count == (index >= 1u ? 1u : 0u));
+        assert(s_verify_programmed_count == (index >= 2u ? 1u : 0u));
+        assert(s_completion_append_count <=
+               (sizeof(s_completion_records) /
+                sizeof(s_completion_records[0])));
+    }
+
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    uint8_t data[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES] = {0xA2u};
+    flash_transaction_completion_lease_t completion_lease = {
+        .context = &s_completion_append_count,
+        .retain = fake_completion_retain,
+        .release = fake_completion_release,
+        .append = fake_completion_append,
+    };
+    flash_transaction_request_t request = program_request(data);
+    request.completion_lease = &completion_lease;
+    s_unpark_ok = false;
+    const flash_transaction_vector_t release_failure =
+        run_request(&context, &request);
+    assert_failed(release_failure, FLASH_TRANSACTION_ERROR_RELEASE);
+    assert(s_completion_append_count == 4u);
+    assert(s_completion_records[3].event ==
+           FLASH_TRANSACTION_JOURNAL_EVENT_FAILED);
+    assert(s_completion_records[3].error == FLASH_TRANSACTION_ERROR_RELEASE);
+}
+
 static void test_two_page_ota_payload_is_owned(void)
 {
     flash_transaction_fb_t context;
@@ -807,6 +946,8 @@ int main(void)
     test_policy_reason_hook_preserves_resource_gates();
     test_large_payload_is_fail_closed_until_immutable_provider();
     test_large_payload_immutable_lease_lifecycle();
+    test_completion_lease_publishes_each_boundary_once();
+    test_completion_journal_failure_is_fail_closed();
     test_two_page_ota_payload_is_owned();
     test_terminal_completion_is_stable_and_duplicate_abort_is_rejected();
     test_product_config_policy_and_owned_payload();

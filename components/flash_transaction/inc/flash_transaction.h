@@ -73,6 +73,7 @@ typedef enum {
     FLASH_TRANSACTION_ERROR_RELEASE,
     FLASH_TRANSACTION_ERROR_CALIBRATION_ACTIVE,
     FLASH_TRANSACTION_ERROR_TDMA_TRAINING_ACTIVE,
+    FLASH_TRANSACTION_ERROR_COMPLETION,
 } flash_transaction_error_t;
 
 typedef struct {
@@ -83,6 +84,35 @@ typedef struct {
     bool (*retain)(void *context);
     void (*release)(void *context);
 } flash_transaction_buffer_lease_t;
+
+typedef enum {
+    FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED = 1,
+    FLASH_TRANSACTION_JOURNAL_EVENT_PROGRAMMED,
+    FLASH_TRANSACTION_JOURNAL_EVENT_VERIFIED,
+    FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED,
+    FLASH_TRANSACTION_JOURNAL_EVENT_FAILED,
+    FLASH_TRANSACTION_JOURNAL_EVENT_ABORTED,
+} flash_transaction_journal_event_t;
+
+typedef struct {
+    uint32_t job_id;
+    uint32_t transaction_generation;
+    uint32_t provider_generation;
+    uint32_t store_generation;
+    uint32_t event;
+    uint32_t result;
+    uint32_t error;
+    uint32_t processed_bytes;
+    uint32_t verified_bytes;
+} flash_transaction_journal_record_t;
+
+typedef struct {
+    void *context;
+    bool (*retain)(void *context);
+    void (*release)(void *context);
+    bool (*append)(void *context,
+                   const flash_transaction_journal_record_t *record);
+} flash_transaction_completion_lease_t;
 
 typedef struct {
     uint32_t job_id;
@@ -95,6 +125,7 @@ typedef struct {
     uint32_t provider_generation;
     uint32_t store_generation;
     const flash_transaction_buffer_lease_t *buffer_lease;
+    const flash_transaction_completion_lease_t *completion_lease;
 } flash_transaction_request_t;
 
 typedef struct {
