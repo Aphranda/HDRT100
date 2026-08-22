@@ -26,9 +26,38 @@ Last updated: 2026-08-22
 |---|---|---|---|
 | M0-01 implementation inventory | 完成 | raw caller allowlist、旧地址依赖、构建/release scan gate | 后续新增 caller 必须先登记。 |
 | M0-02 FlashMap source/schema | 完成 | v1 compatibility/v2 target 双版本 source、生成物、live consumer、artifact/drift gate | 后续 map 变更必须同时通过 freshness 与 consumer gate。 |
-| M1-01 Geometry/Raw HAL | 进行中 | 16 MiB geometry、overflow-safe range、host boundary tests、COM8 v1 OTA/lockout HIL | raw write header 只对 BootFlashService/FlashTransaction target 可见。 |
+| M1-01 Geometry/Raw HAL | 完成 | 16 MiB geometry、overflow-safe range、host boundary tests、A/B RAM closure/link ownership gate、COM8 v1 OTA/lockout HIL | 后续新增 raw/link caller 必须先通过 inventory 与 link gate。 |
 | M1-02 permission view | 进行中 | generated X-macro、纯算法服务、版本化 live consumer、host 边界测试、COM8 OTA/只读权限闭环 | 真实 writer 接入、v2 factory 部署与 C11 激活审核。 |
 | M1-03 FlashTransactionAO | 进行中 | one-deep queue/FB/Vector、OTA image/Product Config/App metadata writer、owned two-page snapshot、transaction-owned core1 park、COM8 双向 OTA 闭环 | Boot writer、异步 completion、immutable provider/refcount、运行时 abort 与 durable reset 语义。 |
+
+### FLASH-TASK-20260822-017 - RAM closure 与 park-timeout 负向闭环
+
+- 状态：M1-01 完成；M1-04 继续进行。App A/B 构建已强制检查 Flash critical RAM closure，
+  core1 no-ACK 注入已证明 raw erase/program 不会执行且清除后 core1 恢复运行。
+- 日期：2026-08-22
+- 完成内容：
+  - `flash_link_check.py` 检查 A/B RAM-resident symbol closure、XIP 引用、IRQ disable/restore 指令、
+    parked raw caller ownership，并拒绝同步 raw erase/program 链入 App；检查已进入普通构建和 release gate。
+  - validation-only SCPI 增加已有 lockout fault flag 的设置/查询；release 构建继续由 string gate 证明
+    不包含 `SYSTem:OTA:INJect` 命令。
+  - 新增 no-ACK HIL：核对 FlashTransaction requester/operation/error、零 processed/verified、零 raw
+    erase/program delta、timeout 单次增长、注入读回清零和 core1 heartbeat 恢复。
+- COM8 闭环（以下数字为本轮快照，非长期事实源）：
+  - 目标板 `839E1AE79EA20F31` 从 release build `20260822003017` 正向 OTA 到 validation build
+    `20260822004135`；安装报告位于 `build/flash_park_timeout_COM8/install_validation/`。
+  - 首次负向运行的核心断言全部成立，但 USB CDC 丢失 clear 命令 ACK，旧工具误判失败；原始证据保留
+    在 `build/flash_park_timeout_COM8/no_ack_negative/`。修正为以立即读回为权威后，复跑报告
+    `no_ack_negative_rerun/` 通过：timeout `2->3`、transaction error `PARK(18)`、raw erase/program
+    delta 均为零、core1 heartbeat `94018->95028`。
+  - 最终用 release package 做 A/B OTA/Boot/commit，build `20260822004128`、活动槽 A、identity 不变；
+    通过报告位于 `build/flash_park_timeout_COM8/release_closed_loop_rerun/`，request/ACK/release 均为
+    `2->938`，镜像事务为 512-byte、metadata 事务为 256-byte，均 verified/committed。
+- 验证与提交：
+  - release 与 validation A/B 构建、link gate、release string scan、host runner `30/30`、定向 Python
+    均通过；代码提交 `8ae4296`、`1efc77b`、`b193d43` 已推送。
+- 还需完成：
+  - M0-04 parser/fuzz、M0-05 BOOTSEL；M1-04 mode/Calibration/TDMA/thermal 负向 HIL；M1-05
+    immutable provider/abort；M1-06 v2 Scratch HIL。
 
 ### FLASH-TASK-20260822-016 - transaction-owned core1 park 与 512-byte OTA 双向闭环
 

@@ -150,8 +150,9 @@ generated permission view、版本化 live consumer 和只读板端验证；M1-0
   geometry fixture 显式 include；通用 `drv_flash.h` 不再声明 erase/program。
 - [x] host tests 覆盖 zero length、last byte、one-byte overflow、integer wrap、unaligned/null/high range。
 
-证据：commit `315dc6f`、`9892768`；`run_drv_flash_geometry_tests.ps1`、release 与 RTOS+双核
-smoke 构建通过。raw write header 可见性已收敛；剩余退出项只属于 link-level visibility 审计。
+证据：commit `315dc6f`、`9892768`、`cc9bd80`；`run_drv_flash_geometry_tests.ps1`、release 与
+RTOS+双核 smoke 构建通过。`flash_link_check.py` 对 App A/B 的 RAM closure、IRQ 屏蔽/恢复、
+parked raw caller 和同步 raw write link ownership 执行构建期门禁，M1-01 已完成。
 
 ### M1-02 FlashMap 与 permission view
 
@@ -198,8 +199,8 @@ immutable provider/refcount、运行时 abort/lease 和跨 reset durable complet
 - [ ] RUN/CAL/thermal critical/unknown state 拒绝新写；warning 只按 policy 暂停或降速。
 - [x] App raw write session 的 core1 park request/ACK/release 只由 transaction owner 驱动；parked raw
   operation 在无活动 session 时 fail closed，Boot 同步 raw writer 保持独立会话边界。
-- [ ] 审计 RAM resident closure：代码、常量、jump table、IRQ path 不依赖 XIP。
-- [ ] HIL 注入 park timeout，证明 raw operation 未执行；release 后 core1 alive。
+- [x] 审计 RAM resident closure：代码、常量、jump table、IRQ path 不依赖 XIP。
+- [x] HIL 注入 park timeout，证明 raw operation 未执行；release 后 core1 alive。
 
 ### M1-05 Buffer 与 owner 收敛
 
