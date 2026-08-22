@@ -17,6 +17,10 @@ PACKAGE_HEADER_SIZE = 512
 PACKAGE_VERSION = 2
 PACKAGE_IMAGE_TABLE_OFFSET = 192
 PACKAGE_IMAGE_ENTRY_SIZE = 32
+FLASH_TRANSACTION_STATE_COMPLETE = 9
+FLASH_TRANSACTION_STATE_FAILED = 10
+FLASH_TRANSACTION_STATE_ABORTED = 11
+FLASH_TRANSACTION_GENERATION_INDEX = 11
 
 
 def crc32(data: bytes) -> int:
@@ -272,6 +276,37 @@ def query_final_status(serial_port, delay_s: float = 0.1) -> str:
     return query(serial_port, "SYST:OTA:STAT?")
 
 
+def parse_flash_transaction_state(response: str) -> tuple[int, int]:
+    fields = [int(field.strip(), 0) for field in response.split(",")]
+    if len(fields) <= FLASH_TRANSACTION_GENERATION_INDEX:
+        raise ValueError(f"incomplete FlashTransaction Vector: {response!r}")
+    return fields[0], fields[FLASH_TRANSACTION_GENERATION_INDEX]
+
+
+def wait_for_flash_transaction_probe(serial_port, baseline: str,
+                                     timeout_s: float) -> str:
+    _, baseline_generation = parse_flash_transaction_state(baseline)
+    deadline = time.monotonic() + timeout_s
+    last_response = ""
+    while time.monotonic() < deadline:
+        response = query(serial_port, "SYST:DIAG:FLASH:TRAN?")
+        if response:
+            last_response = response
+            state, generation = parse_flash_transaction_state(response)
+            if (generation != baseline_generation and
+                    state in {
+                        FLASH_TRANSACTION_STATE_COMPLETE,
+                        FLASH_TRANSACTION_STATE_FAILED,
+                        FLASH_TRANSACTION_STATE_ABORTED,
+                    }):
+                return response
+        time.sleep(0.01)
+    raise TimeoutError(
+        "FlashTransaction probe did not reach a new terminal generation, "
+        f"last response: {last_response}"
+    )
+
+
 def send_image(args: argparse.Namespace, image: bytes, image_crc: int, package_mode: bool) -> str:
     try:
         import serial
@@ -287,6 +322,12 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int, package_m
         wait_for_receiving(ser, args.begin_timeout)
 
         for offset in range(0, len(image), args.block_size):
+            sent_blocks = (offset // args.block_size) + 1
+            probe_baseline = ""
+            if sent_blocks == args.flash_transaction_probe_after_blocks:
+                probe_baseline = query(ser, "SYST:DIAG:FLASH:TRAN?")
+                parse_flash_transaction_state(probe_baseline)
+
             chunk = image[offset : offset + args.block_size]
             ser.write(b"SYST:OTA:DATA ")
             ser.write(scpi_block(chunk))
@@ -302,9 +343,10 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int, package_m
                     if "RECEIVING" not in first_block_status:
                         wait_for_receiving(ser, args.begin_timeout)
 
-            sent_blocks = (offset // args.block_size) + 1
             if sent_blocks == args.flash_transaction_probe_after_blocks:
-                response = query(ser, "SYST:DIAG:FLASH:TRAN?")
+                response = wait_for_flash_transaction_probe(
+                    ser, probe_baseline, args.timeout
+                )
                 print(f"flash_transaction_probe={response}")
 
             if args.abort_after_blocks and sent_blocks >= args.abort_after_blocks:

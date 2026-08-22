@@ -1,0 +1,17 @@
+import pytest
+
+from tools.ota_send.ota_send import parse_flash_transaction_state
+
+
+def test_parse_flash_transaction_state_reads_generation() -> None:
+    state, generation = parse_flash_transaction_state(
+        "9,7,1,2,2,512,512,512,1,3,0,42,4,1,0,0,0,7,7,0,0,1,0,0,0,10,11"
+    )
+
+    assert state == 9
+    assert generation == 42
+
+
+def test_parse_flash_transaction_state_rejects_short_vector() -> None:
+    with pytest.raises(ValueError, match="incomplete"):
+        parse_flash_transaction_state("9,7,1")
