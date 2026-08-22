@@ -16,6 +16,22 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-015 - BootFlashService owner boundary
+
+- 状态：M3-01 的 Boot 写入 owner 收敛子项完成；M3-01 总项、M1-05-J 和 M3-02 仍未完成。
+- 代码提交：`0fe881c feat(boot): route writes through BootFlashService`，已推送。
+  新增 `boot_flash_service.h/.c`；Bootloader 的镜像复制和 OTA metadata adapter 均通过
+  `boot_flash_service_erase/program`，Bootloader 不再直接调用 raw erase/program。服务只接受
+  生成 v1 compatibility map 中的 App A、App B 和 Boot Control 范围，并执行 sector/page 对齐、
+  长度和分区边界检查；v2 target map 未部署地址仍被拒绝。
+- Host/build 验证：`tests/python/test_flash_link_check.py` 8/8；
+  `build-flash-m1-05h-20260823-release` 通过 FlashMap/inventory/wire/schema/migration、App A/B
+  与 Boot link contract；`tools/release_check/release_check.py` 输出 `release_check=OK`。
+- 证据边界：raw inventory 现在登记 `bootloader/src/boot_flash_service.c` 为唯一 Boot 写 owner，
+  link gate 只允许 `boot_flash_service_erase/program` 作为 raw caller。该切片没有接入 portable
+  BCB primitive、没有实现 wear counter/Recovery，也没有进行 BOOTSEL、掉电或 v2 高地址 HIL；
+  因此不得把 M3-01/M3-02、M0-05 或 C11 审核标记为完成。
+
 ### FLASH-TASK-20260823-014 - M3-02 portable BCB dual-lane primitive
 
 - 状态：M3-02 进入实现中；portable primitive 已具备，尚未接替现有 `ota_metadata.c` 的实际

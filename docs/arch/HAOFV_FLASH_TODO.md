@@ -284,7 +284,7 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
   符号只对允许的 owner 可见，不能仅依赖源码 inventory 扫描。App 侧现已增加反汇编调用边
   fail-closed 检查（`47b15a3`），Boot 侧现已固定允许 caller 集合；独立 JSON 报告工具、
   三 profile 产物快照和 `release_check` 强制 gate 已完成（`FLASH-TASK-20260823-009`、
-  `FLASH-TASK-20260823-011`），Boot 依赖的 C11 交叉审核仍待补齐。
+  `FLASH-TASK-20260823-011`、`FLASH-TASK-20260823-015`），Boot 依赖的 C11 交叉审核仍待补齐。
 - [ ] **M1-05-K atomic store 依赖收敛**：Product/OTA metadata 当前仍是 single-sector rewrite；待
   M2-02 Product NVS、M3-02 BootControlStore 提供 atomic record/BCB primitive 后再替换兼容 adapter。
 - [ ] **M1-05-L 退出评审**：host/build/link/HIL、回退路径和独立 C11 交叉审核齐全后，才允许把
@@ -375,7 +375,12 @@ TODO 只保留可独立验收的状态项和证据索引。
 ### M3-01 BootFlashService 与依赖白名单
 
 - [~] Boot target 已独立链接 geometry/map、BCB/metadata、image/vector validator、Raw HAL 和 ROM
-  recovery 相关路径；独立 `BootFlashService` API 与完整最小依赖收敛仍待 M3-02/M3-04。
+  recovery 相关路径；`BootFlashService` 已成为 v1 App A/App B/Boot Control erase/program 的唯一
+  raw owner（证据：`FLASH-TASK-20260823-015`），但 BCB payload、wear counter、Recovery 和
+  v2 map deployment 仍待 M3-02/M3-04/M3-05。
+- [x] `boot_flash_service_erase/program` 对生成 v1 compatibility map 的可写分区执行
+  sector/page 对齐、长度和分区边界检查；Bootloader 镜像复制与 metadata adapter 均经由该 API，
+  raw inventory/link gate 拒绝其它 Boot caller。
 - [x] link gate 已接入 Boot map/dis，拒绝 RTOS、SCPI、TDMA、FatFs、littlefs、FlashTransactionAO、
   resource arbiter、storage manager 和 App OTA AO 符号；当前 build 通过。
 - [x] Bootloader size 使用生成的 partition symbol gate，不使用文档硬编码阈值；`__flash_binary_end`
@@ -384,7 +389,7 @@ TODO 只保留可独立验收的状态项和证据索引。
 ### M3-02 BootControlStore
 
 - [~] portable primitive 已实现双 lane append/select/commit/GC 和 lane generation；仍待接入
-  BootControlStore/BootFlashService 的实际 BCB payload 与 wear counter。
+  `BootControlStore`/`BootFlashService` 的实际 BCB payload 与 wear counter（`FLASH-TASK-20260823-014`）。
 - [~] primitive 在无有效 lane 时返回 `NO_VALID`，不创建默认记录；Boot Recovery policy 接入仍待完成。
 - [x] host fault fixture 覆盖 body/readback/commit/lane seal/旧 lane erase，均 fail closed 并保留旧记录。
 
