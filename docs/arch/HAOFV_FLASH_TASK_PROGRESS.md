@@ -29,6 +29,18 @@ Last updated: 2026-08-23
   不把 host fault fixture 当作真实 power-cut/lane-seal HIL；M1-05-G/H/I、M1-06、M0-05 和 v2
   deployment 仍未完成。
 
+### FLASH-TASK-20260823-008 - M1-05-I journal replay after store reset
+
+- 状态：M1-05-I 继续进行；补齐 host 端 provider/store reset 后重复 terminal completion 的幂等
+  证据，未执行 DHRT100 掉电或 v2 journal 写入。
+- 代码提交：`f288860 test(flash): cover journal replay after reset`，已推送。
+- 测试：先写入 accepted completion，再重新初始化 journal store 模拟 provider reset，重放完全
+  相同的 completion；断言 append 成功但 `program` 调用数不增加、`next_sequence` 不推进，且
+  latest recovery 仍返回原记录。`run_flash_transaction_tests.ps1 -BuildDir
+  build-flash-m1-05i-20260823` 通过。
+- 边界：该证据只覆盖同一 durable backend 内容可见时的幂等 replay；live producer 接入、跨真实
+  reset 的 identity 持久化、power-cut/lane-seal HIL 和 C11 审核仍待完成。
+
 ### FLASH-TASK-20260823-006 - 最新 release package DHRT100 闭环
 
 - 状态：最新 release 工件已完成 DHRT100 实板 A/B OTA；不改变 M1-05-G/H/I、M1-06、M0-05
