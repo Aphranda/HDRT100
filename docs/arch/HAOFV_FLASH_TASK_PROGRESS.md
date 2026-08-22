@@ -16,6 +16,19 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-007 - M1-05-H host reset boundary matrix
+
+- 状态：M1-05-H 继续进行；主机端已覆盖当前 journal 实现可注入的 body、commit marker、
+  readback transport failure 和 readback corruption 四个边界；未执行 DHRT100 掉电注入。
+- 代码变更：`tests/unit/test_flash_transaction_journal.c` 增加确定性 fault fixture，并在每个故障后
+  重新初始化 store 模拟 reset，验证恢复结果只能是明确的旧 accepted 或新 committed：
+  body=old、marker=old、readback failure/new、readback corruption/new。
+- 验证：`tools/tests/run_flash_transaction_tests.ps1 -BuildDir build-flash-m1-05h-20260823`
+  通过；输出包含 `journal reset boundary matrix passed`，transaction 与 journal runner 均成功。
+- HAOFV 边界：本轮只加强 host recovery 证据，不配置 v1 固件访问未部署的 v2 `OTA_JOURNAL` 高地址，
+  不把 host fault fixture 当作真实 power-cut/lane-seal HIL；M1-05-G/H/I、M1-06、M0-05 和 v2
+  deployment 仍未完成。
+
 ### FLASH-TASK-20260823-006 - 最新 release package DHRT100 闭环
 
 - 状态：最新 release 工件已完成 DHRT100 实板 A/B OTA；不改变 M1-05-G/H/I、M1-06、M0-05
