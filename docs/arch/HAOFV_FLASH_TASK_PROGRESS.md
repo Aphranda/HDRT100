@@ -22,6 +22,36 @@ Last updated: 2026-08-22
 
 ## 当前检查点
 
+### FLASH-TASK-20260822-030 - 训练态发布修复与四板并发 OTA 回归
+
+- 状态：M1-04/M1-05 继续进行；本轮将训练活动发布 helper 复用到 core0 与 core1 owner
+  service，并保留 `SYSTem:RESource:TRAINing?` 只读诊断命令。代码已推送，v2 map 仍未部署。
+- 代码与构建：
+  - 代码提交：`808f825 fix(flash): publish training gate from realtime owner`，已推送
+    `origin/feature/rtos-multicore-haofv`。
+  - 构建目录：`build-flash-m1-04-hil-20260822/`；firmware build id：`20260822071237`。
+  - OTA package SHA-256：`CB24BAA5AD38123AEA1E747F40010F5870585E2ADE045711574F3D69B44D44DE`。
+  - `pico2-release`、release_check、FlashMap/inventory/persistence/migration/wire/link gate、
+    FlashTransaction/portable OTA/FlashMap host tests 均通过；release binary 未包含 Scratch
+    validation 命令。
+- 板端 HIL：
+  - NO.1 / COM3 先行 OTA、boot、commit；随后 NO.2 / COM5、NO.3 / COM6、NO.4 / COM4
+    并发 OTA、boot、commit。四板最终均为 build `20260822071237`、`COMMITTED`、
+    `SYST:OTA:TXN? = 0,0,0,0,0,0,0,0`、`SYST:ERROR? = 0,"No error"`，训练安全态为 `0,0`。
+  - 训练负向 HIL 未通过：四板 topology/ARM 后，NO.1 的
+    `SYST:TDMA:RING:TRAIN:STATus?` 可见 `state=FORWARDING`，但
+    `SYST:RESOURCE:TRAINing?` 仍为 `0,0`；随后训练命令返回 timeout/error。该差异作为下一项
+    调试入口保留，未记录为 admission rejection，也未宣称 raw erase/program delta 为零。
+  - 原始报告：`build/flash_m1_04_com3_status_20260822.txt`、
+    `build/flash_m1_04_com3_boot_20260822/`、`build/flash_m1_04_COM4_boot_20260822/`、
+    `build/flash_m1_04_COM5_boot_20260822/`、`build/flash_m1_04_COM6_boot_20260822/` 和
+    `build/flash_m1_04_COM[3-6]_final_20260822.txt`。
+- 仍缺：
+  - M1-04 板端 CAL/training/thermal/fault 拒绝 HIL 与 warning policy；当前首要问题是解释
+    `CLKTRAIN` snapshot 与 arbiter training snapshot 的不一致。
+  - M1-05 durable journal live producer、跨 reset/power-cut recovery 和 v2 deployment；未执行
+    Scratch/高地址任意 offset、BOOTSEL full erase 或 Bootloader 重刷。
+
 ### FLASH-TASK-20260822-029 - M1-04 准入负向补齐与四板并发回归
 
 - 状态：M1-04/M1-05 继续进行；本轮补齐 Calibration training 与 TDMA clock-training 的

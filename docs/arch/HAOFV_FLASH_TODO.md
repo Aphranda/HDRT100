@@ -219,9 +219,10 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
 
 - [~] FlashTransactionAO 已接入 Diagnostics fault、board/chip thermal critical、System/FAULT、
   Trigger activity、Calibration training 和 TDMA clock-training fail-closed gate；policy
-  error/temperature flags 已进入 Vector，且训练状态由 resource_arbiter snapshot 统一发布/消费。
-  host 负向 fixture 已覆盖 CAL/training admission；warning policy 与板端
-  fault/thermal/training negative HIL 仍待补齐。
+  error/temperature flags 已进入 Vector，训练状态由 resource_arbiter snapshot 统一发布/消费，
+  core0/core1 owner 发布 helper 已在 `808f825` 收敛。host 负向 fixture 已覆盖 CAL/training
+  admission；warning policy 与板端 fault/thermal/training negative HIL 仍待补齐，当前
+  `CLKTRAIN state=FORWARDING` 与 arbiter snapshot 不一致。
 - [x] host negative fixture 覆盖 thermal critical/diagnostics fault、Calibration active 和
   TDMA training active admission，断言 raw erase/program 未执行；板端 fault/thermal/CAL/training
   注入 HIL 仍待安全入口。
