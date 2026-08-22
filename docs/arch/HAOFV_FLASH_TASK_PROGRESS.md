@@ -16,6 +16,26 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-002 - 终止 job replay 拒绝与 DHRT100 再次闭环
+
+- 状态：M1-05-I 继续进行；FlashTransactionFB 现在拒绝已终止显式 job ID 的重复提交，
+  但 provider reset 后重放、live producer 和掉电恢复仍未完成。
+- 代码提交：`29585e9 fix(flash): reject terminal job replay`，已推送。
+- 实现与测试：
+  - FB 记录最近一次 terminal job ID；相同非零 job ID 再提交直接 fail closed，不执行 raw
+    erase/program，也不推进 transaction generation。
+  - 新增 host 负向夹具验证 terminal snapshot 稳定、raw erase 计数不增加；FlashTransaction
+    host/journal runner 通过。
+- DHRT100 实板验证：
+  - 工件：`build/DHRT100_UPDATE.pkg`，build `20260822160424`，package CRC32 `0xE54787DF`。
+  - 完整输出：目标槽 2，`READY_TO_REBOOT` → `post_boot_status="IDLE",1,"NONE",0` →
+    `committed_status="COMMITTED",1,"NONE",5`。
+  - 最终：`*IDN? = GTS,DHRT100,839E1AE79EA20F31,0.1.0`；`SYST:FW:BUILD? = 20260822160424`；
+    `SYST:OTA:STAT? = "COMMITTED",1,"NONE",5`；`SYST:OTA:SLOT? = 2,0,2,0,0`；
+    `SYST:OTA:TXN? = 0,0,0,0,0,0,0,0`；`SYST:ERR? = 0,"No error"`。
+- 仍未完成：M1-05-G/H/I 的 durable/live producer 及掉电 replay 部分、M1-06 Scratch、M0-05
+  BOOTSEL full erase/factory recovery、v2 map deployment 和 C11 交叉审核。
+
 ### FLASH-TASK-20260823-001 - DHRT100 OTA 两阶段确认工具与实板闭环
 
 - 状态：M1-04/M1-05 继续进行；OTA transport 与 boot/confirm 现在可以由工具显式分阶段验证，
