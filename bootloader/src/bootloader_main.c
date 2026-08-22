@@ -5,6 +5,7 @@
 
 #include "bootloader_config.h"
 #include "drv_flash_write.h"
+#include "boot_flash_service.h"
 #include "hardware/structs/scb.h"
 #include "hardware/sync.h"
 #include "ota_crc32.h"
@@ -182,7 +183,7 @@ static bool bootloader_copy_slot(ota_metadata_t *metadata,
 
     const uint32_t erase_size = (image_size + DRV_FLASH_SECTOR_SIZE - 1u) &
                                 ~(DRV_FLASH_SECTOR_SIZE - 1u);
-    if (!drv_flash_erase(dst_offset, erase_size)) {
+    if (!boot_flash_service_erase(dst_offset, erase_size)) {
         return false;
     }
 
@@ -212,7 +213,7 @@ static bool bootloader_copy_slot(ota_metadata_t *metadata,
         memset(page, 0xFF, sizeof(page));
         memcpy(page, drv_flash_xip_ptr(src_offset + copied), chunk);
 
-        if (!drv_flash_program(dst_offset + copied, page, program_size)) {
+        if (!boot_flash_service_program(dst_offset + copied, page, program_size)) {
             return false;
         }
 

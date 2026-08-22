@@ -610,6 +610,7 @@ project_configure_app_target(
 
 add_executable(DHRT100_BOOT
         bootloader/src/bootloader_main.c
+        bootloader/src/boot_flash_service.c
         middleware/flash_map/src/flash_map.c
         components/ota_manager/src/ota_crc32.c
         components/ota_manager/src/ota_image.c

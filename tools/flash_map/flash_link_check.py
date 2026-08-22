@@ -48,8 +48,8 @@ BOOT_FORBIDDEN_SYMBOL_TOKENS = (
     "ota_ao",
 )
 BOOT_RAW_CALLERS = {
-    "drv_flash_erase": {"main", "ota_metadata_flash_erase"},
-    "drv_flash_program": {"main", "ota_metadata_flash_program"},
+    "drv_flash_erase": {"boot_flash_service_erase"},
+    "drv_flash_program": {"boot_flash_service_program"},
 }
 
 MEMORY_RE = re.compile(

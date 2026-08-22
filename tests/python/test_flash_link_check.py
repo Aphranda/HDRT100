@@ -129,13 +129,13 @@ def boot_map_with_size_symbols() -> str:
 
 def test_boot_link_contract_accepts_generated_partition_size_gate() -> None:
     disassembly = """10000000 <main>:
- 10000000: bl 10000100 <drv_flash_erase>
- 10000004: bl 10000400 <drv_flash_program>
+ 10000000: bl 10000100 <boot_flash_service_erase>
+ 10000004: bl 10000400 <boot_flash_service_program>
 10000100 <drv_flash_erase>:
  10000100: bx lr
-10000200 <ota_metadata_flash_erase>:
+10000200 <boot_flash_service_erase>:
  10000200: bl 10000100 <drv_flash_erase>
-10000300 <ota_metadata_flash_program>:
+10000300 <boot_flash_service_program>:
  10000300: bl 10000400 <drv_flash_program>
 10000400 <drv_flash_program>:
  10000400: bx lr
@@ -154,9 +154,9 @@ def test_boot_link_contract_rejects_partition_size_overflow() -> None:
  10000000: bl 10000100 <drv_flash_erase>
 10000100 <drv_flash_erase>:
  10000100: bx lr
-10000200 <ota_metadata_flash_erase>:
+10000200 <boot_flash_service_erase>:
  10000200: bl 10000100 <drv_flash_erase>
-10000300 <ota_metadata_flash_program>:
+10000300 <boot_flash_service_program>:
  10000300: bl 10000400 <drv_flash_program>
 10000400 <drv_flash_program>:
  10000400: bx lr
