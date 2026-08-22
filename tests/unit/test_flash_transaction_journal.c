@@ -221,12 +221,42 @@ static void test_duplicate_completion_is_idempotent(void)
     assert(memcmp(&recovered, &accepted, sizeof(accepted)) == 0);
 }
 
+static void test_recovery_falls_back_to_previous_valid_completion(void)
+{
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    s_program_calls = 0u;
+    s_fail_program_call = 0u;
+    flash_transaction_journal_config_t config = make_config();
+    flash_transaction_journal_store_t store;
+    assert(flash_transaction_journal_init(&store, &config));
+
+    const flash_transaction_journal_record_t accepted =
+        make_record(FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED, 31u);
+    const flash_transaction_journal_record_t committed =
+        make_record(FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED, 31u);
+    assert(flash_transaction_journal_append(&store, &accepted));
+    assert(flash_transaction_journal_append(&store, &committed));
+
+    /* Simulate reset after a torn/corrupted newest slot. The previous
+     * accepted record is still a valid fact and must be selected. */
+    s_flash[TEST_SLOT_SIZE +
+            offsetof(flash_transaction_journal_disk_record_t, record)] ^= 1u;
+    flash_transaction_journal_record_t recovered;
+    uint32_t sequence = 0u;
+    assert(flash_transaction_journal_recover_latest(&store, &recovered,
+                                                    &sequence));
+    assert(sequence == 1u);
+    assert(recovered.event == FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED);
+    assert(recovered.job_id == accepted.job_id);
+}
+
 int main(void)
 {
     test_append_and_reset_recovery();
     test_torn_commit_and_crc_are_ignored();
     test_full_journal_fails_closed();
     test_duplicate_completion_is_idempotent();
+    test_recovery_falls_back_to_previous_valid_completion();
     puts("flash transaction journal tests passed");
     return 0;
 }
