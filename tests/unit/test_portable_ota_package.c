@@ -77,9 +77,17 @@ static bool verify_signature(void *context,
                              const uint8_t *header,
                              uint32_t header_size)
 {
-    (void)header;
-    (void)header_size;
-    return context != NULL && manifest != NULL && manifest->key_id == 7u &&
+    uint8_t transcript[POTA_MANIFEST_SIGNING_TRANSCRIPT_SIZE];
+    if (context == NULL || manifest == NULL ||
+        !pota_package_build_signing_transcript(header, header_size, transcript)) {
+        return false;
+    }
+    return manifest->images[0].slot == (uint32_t)POTA_SLOT_A &&
+           manifest->images[1].slot == (uint32_t)POTA_SLOT_B &&
+           transcript[16] == 0u && transcript[17] == 0u &&
+           transcript[POTA_MANIFEST_EXTENSION_OFFSET + 24u] == 0u &&
+           pota_crc32_compute(transcript, sizeof(transcript)) == 0xAAE9D0F3u &&
+           manifest->key_id == 7u &&
            manifest->signature_length == POTA_MANIFEST_SIGNATURE_MAX_SIZE &&
            manifest->signature[0] == 1u;
 }
@@ -221,6 +229,12 @@ int main(void)
                            pota_package_parse_header(header, sizeof(header),
                                                      &signed_constraints, &manifest),
                            POTA_ERR_NONE);
+    header[POTA_MANIFEST_EXTENSION_OFFSET + 24u] ^= 0x80u;
+    failed += expect_error("bad signature",
+                           pota_package_parse_header(header, sizeof(header),
+                                                     &signed_constraints, &manifest),
+                           POTA_ERR_SIGNATURE_INVALID);
+    header[POTA_MANIFEST_EXTENSION_OFFSET + 24u] ^= 0x80u;
     const pota_package_constraints_t missing_verifier = {
         .product_id = "RP2350_TRIG",
         .hardware_id = "PICO2",
@@ -231,6 +245,29 @@ int main(void)
                            pota_package_parse_header(header, sizeof(header),
                                                      &missing_verifier, &manifest),
                            POTA_ERR_SIGNATURE_INVALID);
+
+    make_valid_header(header);
+    add_signed_extension(header, 10u, 0u);
+    failed += expect_error("zero key id",
+                           pota_package_parse_header(header, sizeof(header),
+                                                     &signed_constraints, &manifest),
+                           POTA_ERR_SIGNATURE_INVALID);
+
+    make_valid_header(header);
+    add_signed_extension(header, 10u, 7u);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 8u, 2u);
+    failed += expect_error("unknown required flag",
+                           pota_package_parse_header(header, sizeof(header),
+                                                     &signed_constraints, &manifest),
+                           POTA_ERR_BAD_HEADER);
+
+    make_valid_header(header);
+    add_signed_extension(header, 10u, 7u);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 20u, 63u);
+    failed += expect_error("partial raw signature",
+                           pota_package_parse_header(header, sizeof(header),
+                                                     &signed_constraints, &manifest),
+                           POTA_ERR_BAD_HEADER);
 
     make_valid_header(header);
     const pota_package_constraints_t required_signature = {

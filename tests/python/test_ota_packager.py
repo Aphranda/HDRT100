@@ -89,6 +89,67 @@ def test_ota_package_can_carry_external_manifest_security_metadata() -> None:
     assert package[280:344] == signature
 
 
+def test_signing_transcript_is_canonical_and_signature_independent() -> None:
+    layout = ota_packager.DeploymentLayout(
+        app_a=ota_packager.AppPartition(offset=0x40000, size=0x180000),
+        app_b=ota_packager.AppPartition(offset=0x1C0000, size=0x180000),
+    )
+    kwargs = dict(
+        product_id="DHRT100",
+        hardware_id="dhrt100",
+        app_version=(1, 2, 3),
+        build_id="golden-vector",
+        min_bootloader_version=(0, 1, 0),
+        layout=layout,
+        security_counter=9,
+        key_id=7,
+    )
+    request = ota_packager.build_package(
+        b"slot-a", b"slot-b", prepare_signing=True, **kwargs)
+    signed = ota_packager.build_package(
+        b"slot-a", b"slot-b", signature=bytes(range(64)), **kwargs)
+    request_transcript = ota_packager.build_signing_transcript(request)
+    signed_transcript = ota_packager.build_signing_transcript(signed)
+
+    assert request_transcript == signed_transcript
+    assert request_transcript[16:20] == bytes(4)
+    assert request_transcript[280:344] == bytes(64)
+    assert hashlib.sha256(request_transcript).hexdigest() == (
+        "bbf4a80004fbd2bf2d2149c7813ca583bbc17189d4bc49d67c597e8c494a865b"
+    )
+
+
+@pytest.mark.parametrize(
+    ("security_counter", "key_id", "signature"),
+    [
+        (1, 0, bytes(64)),
+        (0, 1, bytes(64)),
+        (1, 1, bytes(63)),
+    ],
+)
+def test_signed_manifest_metadata_fails_closed(
+    security_counter: int, key_id: int, signature: bytes
+) -> None:
+    layout = ota_packager.DeploymentLayout(
+        app_a=ota_packager.AppPartition(offset=0x40000, size=0x180000),
+        app_b=ota_packager.AppPartition(offset=0x1C0000, size=0x180000),
+    )
+    with pytest.raises(ValueError):
+        ota_packager.build_package(
+            b"a",
+            b"b",
+            product_id="DHRT100",
+            hardware_id="dhrt100",
+            app_version=(1, 0, 0),
+            build_id="negative",
+            min_bootloader_version=(0, 1, 0),
+            layout=layout,
+            security_counter=security_counter,
+            key_id=key_id,
+            signature=signature,
+        )
+
+
 @pytest.mark.parametrize("value", ["1.2", "1.2.3.4", "1.2.256", "1.-1.0"])
 def test_parse_semver_rejects_invalid_versions(value: str) -> None:
     with pytest.raises(ValueError):

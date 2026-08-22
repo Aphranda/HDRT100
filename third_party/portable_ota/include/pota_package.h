@@ -58,6 +58,10 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
                                        uint32_t length,
                                        const pota_package_constraints_t *constraints,
                                        pota_package_manifest_t *manifest);
+bool pota_package_build_signing_transcript(
+    const uint8_t *header,
+    uint32_t header_size,
+    uint8_t transcript[POTA_MANIFEST_SIGNING_TRANSCRIPT_SIZE]);
 const pota_package_image_t *pota_package_find_image(const pota_package_manifest_t *manifest,
                                                     pota_slot_t slot);
 bool pota_package_find_image_index(const pota_package_manifest_t *manifest,

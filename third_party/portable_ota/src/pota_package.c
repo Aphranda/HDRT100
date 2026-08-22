@@ -10,6 +10,7 @@
 #define POTA_PACKAGE_MIN_BOOTLOADER_OFFSET    108u
 #define POTA_PACKAGE_BUILD_ID_OFFSET          112u
 #define POTA_PACKAGE_SHA256_OFFSET            144u
+#define POTA_PACKAGE_CRC32_OFFSET             16u
 #define POTA_MANIFEST_EXT_VERSION_OFFSET     (POTA_MANIFEST_EXTENSION_OFFSET + 4u)
 #define POTA_MANIFEST_EXT_FLAGS_OFFSET       (POTA_MANIFEST_EXTENSION_OFFSET + 8u)
 #define POTA_MANIFEST_EXT_COUNTER_OFFSET     (POTA_MANIFEST_EXTENSION_OFFSET + 12u)
@@ -37,6 +38,23 @@ static bool pota_text_matches(const char *field, const char *expected)
         return true;
     }
     return strncmp(field, expected, POTA_TEXT_FIELD_SIZE) == 0;
+}
+
+bool pota_package_build_signing_transcript(
+    const uint8_t *header,
+    uint32_t header_size,
+    uint8_t transcript[POTA_MANIFEST_SIGNING_TRANSCRIPT_SIZE])
+{
+    if (header == NULL || transcript == NULL ||
+        header_size < POTA_PACKAGE_HEADER_SIZE) {
+        return false;
+    }
+
+    memcpy(transcript, header, POTA_MANIFEST_SIGNING_TRANSCRIPT_SIZE);
+    memset(&transcript[POTA_PACKAGE_CRC32_OFFSET], 0, sizeof(uint32_t));
+    memset(&transcript[POTA_MANIFEST_EXT_SIG_OFFSET], 0,
+           POTA_MANIFEST_SIGNATURE_MAX_SIZE);
+    return true;
 }
 
 pota_error_t pota_package_parse_header(const uint8_t *data,
@@ -98,15 +116,21 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
         manifest->signature_length =
             pota_read_le32(&data[POTA_MANIFEST_EXT_SIG_LENGTH_OFFSET]);
         if (manifest->extension_version != POTA_MANIFEST_EXTENSION_VERSION ||
-            manifest->signature_length > POTA_MANIFEST_SIGNATURE_MAX_SIZE) {
+            (manifest->required_flags & ~POTA_MANIFEST_REQUIRED_SIGNATURE) != 0u ||
+            (manifest->signature_length != 0u &&
+             manifest->signature_length != POTA_MANIFEST_SIGNATURE_MAX_SIZE)) {
             return POTA_ERR_BAD_HEADER;
         }
         memcpy(manifest->signature, &data[POTA_MANIFEST_EXT_SIG_OFFSET],
                manifest->signature_length);
     }
 
-    if ((manifest->required_flags & POTA_MANIFEST_REQUIRED_SIGNATURE) != 0u &&
-        manifest->signature_length == 0u) {
+    if (((manifest->required_flags & POTA_MANIFEST_REQUIRED_SIGNATURE) != 0u ||
+         manifest->security_counter != 0u || manifest->key_id != 0u) &&
+        manifest->signature_length != POTA_MANIFEST_SIGNATURE_MAX_SIZE) {
+        return POTA_ERR_SIGNATURE_INVALID;
+    }
+    if (manifest->signature_length != 0u && manifest->key_id == 0u) {
         return POTA_ERR_SIGNATURE_INVALID;
     }
     if (constraints != NULL) {
@@ -128,15 +152,6 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
             return POTA_ERR_SIGNATURE_INVALID;
         }
     }
-    /* A signed extension is never accepted without an explicit verifier,
-     * even for callers that do not provide product constraints. */
-    if (manifest->signature_length != 0u &&
-        (constraints == NULL || constraints->verify_signature == NULL ||
-         !constraints->verify_signature(constraints->verify_context,
-                                        manifest, data, length))) {
-        return POTA_ERR_SIGNATURE_INVALID;
-    }
-
     uint32_t cursor = POTA_IMAGE_TABLE_OFFSET;
     for (uint32_t i = 0u; i < POTA_PACKAGE_MAX_IMAGES; i++) {
         pota_package_image_t *image = &manifest->images[i];
@@ -159,6 +174,15 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
             image->size > (manifest->package_size - image->offset)) {
             return POTA_ERR_BAD_HEADER;
         }
+    }
+
+    /* The verifier must observe a fully parsed and range-checked manifest.
+     * A signed extension is never accepted without an explicit verifier. */
+    if (manifest->signature_length != 0u &&
+        (constraints == NULL || constraints->verify_signature == NULL ||
+         !constraints->verify_signature(constraints->verify_context,
+                                        manifest, data, length))) {
+        return POTA_ERR_SIGNATURE_INVALID;
     }
 
     return POTA_ERR_NONE;
