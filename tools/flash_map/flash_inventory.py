@@ -17,7 +17,7 @@ REQUIRED_CALLER_FIELDS = {
     "file", "owner", "contexts", "core", "modes", "partitions", "operations",
     "write_frequency", "power_cut_semantics", "target_api",
 }
-EXCLUDED_PARTS = {".git", "build", "build-validation", "build-debug", "build-rtos-smoke",
+EXCLUDED_PARTS = {".git", ".tmp", "build", "build-validation", "build-debug", "build-rtos-smoke",
                   "build-multicore-smoke", "build-rtos-multicore-smoke", "tests", "tools",
                   "third_party"}
 EXCLUDED_FILES = {
