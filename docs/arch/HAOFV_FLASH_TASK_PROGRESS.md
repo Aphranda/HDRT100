@@ -22,6 +22,22 @@ Last updated: 2026-08-22
 
 ## 当前检查点
 
+### FLASH-TASK-20260822-024 - 长期迁移检查点与 M1-05 下一 gate
+
+- 状态：HAOFV Flash 迁移继续按 M0/M1 工作包逐项闭环；当前唯一进行中的实现切片是 M1-05
+  buffer/owner convergence。M1-02、M1-03、M1-04、M0-05 和 M1-06 均保持各自未完成状态，
+  不因一次构建或一次四板 OTA 而提前关闭。
+- 当前已闭环证据：fixed owned payload、large-payload fail-closed、queue/duplicate terminal、
+  raw-step abort、provider generation reset fail-closed；对应 host、release/build/link/inventory
+  和四板 Direct A/B OTA 报告均已记录在本文件后续条目。
+- 下一项且仅下一项：设计并实现 immutable provider/refcount 或等价 buffer lease；完成前继续保持
+  超出 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的请求 fail-closed，不进入 v2 Scratch 写入。
+- 退出条件：provider 生命周期正向/负向 host fixture、producer reset/duplicate completion 语义、
+  release 与 inventory/link gate、必要的板端报告、代码/文档分离提交和文档四项门禁全部具备；
+  之后才评估 M1-05/M1-03 退出和 M1-06 validation-only Scratch lease。
+- 约束复核：v2 target map 仍为 `target_not_deployed`；未执行任意 offset 命令、BOOTSEL full erase
+  或高地址 Scratch 破坏性验证；契约登记表未发生状态变更，不需要 C11 激活审核。
+
 ### FLASH-TASK-20260822-020 - NO.1 至 NO.4 工厂烧录与 OTA 闭环
 
 - 状态：M0-05/M1 实板验证继续进行；四块板均完成 `build-product-release` factory UF2 烧录，
