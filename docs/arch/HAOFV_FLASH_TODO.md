@@ -215,13 +215,15 @@ immutable provider/refcount、运行时 abort/lease 和跨 reset durable complet
 
 ### M1-04 Mode、温度与双核门禁
 
-- [~] FlashTransactionAO 已接入 Diagnostics fault 与 board/chip thermal critical fail-closed gate，
-  policy error/temperature flags 已进入 Vector；System mode、Calibration/TDMA training gate 和
-  warning policy 仍待补齐。
+- [~] FlashTransactionAO 已接入 Diagnostics fault、board/chip thermal critical、System/FAULT、
+  Trigger activity、Calibration training 和 TDMA clock-training fail-closed gate；policy
+  error/temperature flags 已进入 Vector，且训练状态由 resource_arbiter snapshot 统一发布/消费。
+  warning policy 与板端 fault/thermal/training negative HIL 仍待补齐。
 - [x] host negative fixture 覆盖 thermal critical/diagnostics fault admission，断言 raw erase/program
   未执行；板端 fault/thermal 注入 HIL 仍待安全入口。
-- [~] Trigger capture/clock、FAULT mode 和 Flash resource conflict 已细分为 policy reason；真实
-  System/Calibration/TDMA owner 发布 gate 与板端拒绝 HIL 仍待完成。
+- [~] Trigger capture/clock、FAULT mode、Flash resource conflict、Calibration training 和 TDMA
+  clock-training 已细分为 policy reason；System owner 发布 gate 已接入，板端拒绝 HIL 和
+  warning policy 仍待完成。
 - [ ] RUN/CAL/thermal critical/unknown state 拒绝新写；warning 只按 policy 暂停或降速。
 - [x] App raw write session 的 core1 park request/ACK/release 只由 transaction owner 驱动；parked raw
   operation 在无活动 session 时 fail closed，Boot 同步 raw writer 保持独立会话边界。

@@ -35,6 +35,23 @@ Last updated: 2026-08-22
 | M1-05 buffer/owner convergence | 进行中 | fixed owned payload、large-payload fail-closed、queue/duplicate terminal 基线 | immutable provider/refcount、producer reset、raw-step abort、completion lease 证据。 |
 | M1-06 high-address Scratch | 未开始 | 仅有 v2 target map/permission 输入，未对板写入 | validation-only Scratch intent、COM8 高地址闭环、恢复与 release string scan。 |
 
+### FLASH-TASK-20260822-019 - Calibration/TDMA training gate 接入 resource_arbiter
+
+- 状态：M1-04 继续进行；Calibration loopback/CLOCK_CODED/P3 与 TDMA clock-training 的运行态
+  由 owner snapshot 发布到 `resource_arbiter`，FlashTransactionAO 在 QUIESCE 阶段统一消费并
+  以独立 policy reason 拒绝新写；未改变 RUN 下“先检查、再取得 FLASH owner”的语义。
+- 日期：2026-08-22
+- 完成内容：
+  - `resource_arbiter_snapshot_t` 增加 calibration-training 和 TDMA clock-training 活动事实，
+    由 `calibration_manager_service()` 读取已有 Calibration/TDMA owner snapshot 后发布。
+  - FlashTransaction 新增 `CALIBRATION_ACTIVE`、`TDMA_TRAINING_ACTIVE` reason；状态进入
+    Vector 的 `policy_gate_reason/last_error`，不会执行 raw erase/program。
+  - host FlashTransaction runner `30/30` 通过；release 构建尝试被既有
+    `flash_inventory.py` UTF-8 扫描问题阻断，未伪造构建通过证据。
+- 仍需完成：
+  - 增加针对真实 owner gate 的 host fixture/板端 validation-only negative HIL，补 warning
+    pause/de-rate policy；随后再收敛 M1-05 provider/abort 和 M1-06 Scratch。
+
 ### FLASH-TASK-20260822-018 - 跨电脑交接与 M0-M1 下一步冻结
 
 - 状态：M0-04 的实现和主机验证已完成，但本进度文档尚未把它收口为完成；M0-05 仍受物理
