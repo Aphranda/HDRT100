@@ -72,6 +72,9 @@ SECTION_NAME_RE = re.compile(r"^\s+\.(?P<name>[A-Za-z0-9_.$]+)\s*$")
 SECTION_ADDRESS_RE = re.compile(
     r"^\s+(?P<address>0x[0-9A-Fa-f]+)\s+0x[0-9A-Fa-f]+(?:\s|$)"
 )
+PROVIDE_SYMBOL_RE = re.compile(
+    r"^\s*(?P<address>0x[0-9A-Fa-f]+)\s+PROVIDE\s+\((?P<name>[A-Za-z_][A-Za-z0-9_.$]*)\s*=\s*\.\)"
+)
 FUNCTION_RE = re.compile(r"^\s*[0-9A-Fa-f]+\s+<(?P<name>[^>]+)>:\s*$")
 REFERENCE_RE = re.compile(r"<(?P<name>[A-Za-z_][A-Za-z0-9_.$]*)(?:\+0x[0-9A-Fa-f]+)?>")
 HEX_RE = re.compile(r"\b(?:0x)?(?P<value>[0-9A-Fa-f]{8})\b")
@@ -108,6 +111,10 @@ def parse_map_addresses(map_text: str) -> tuple[dict[str, int], dict[str, int]]:
     sections: dict[str, int] = {}
     pending_section: str | None = None
     for line in map_text.splitlines():
+        provided = PROVIDE_SYMBOL_RE.match(line)
+        if provided is not None:
+            symbols[provided.group("name")] = int(provided.group("address"), 16)
+            continue
         symbol = SYMBOL_RE.match(line)
         if symbol is not None:
             address = int(symbol.group("address"), 16)
@@ -164,6 +171,32 @@ def validate_link_contract(map_text: str, dis_text: str, profile: str = "app") -
     callers, bodies = parse_disassembly(dis_text)
 
     if profile == "boot":
+        flash_region = regions.get("FLASH")
+        boot_origin = symbols.get("FLASH_COMPAT_MAP_BOOTLOADER_ORIGIN")
+        boot_length = symbols.get("FLASH_COMPAT_MAP_BOOTLOADER_LENGTH")
+        binary_end = symbols.get("__flash_binary_end")
+        if flash_region is None:
+            failures.append("Boot link map has no FLASH memory region")
+        else:
+            region_origin, region_length, _attributes = flash_region
+            if boot_origin is None or boot_length is None:
+                failures.append(
+                    "Boot link map is missing generated Bootloader partition symbols"
+                )
+            else:
+                if region_origin != boot_origin or region_length != boot_length:
+                    failures.append(
+                        "Boot FLASH region disagrees with generated Bootloader partition: "
+                        f"region=0x{region_origin:08X}/0x{region_length:X} "
+                        f"symbol=0x{boot_origin:08X}/0x{boot_length:X}"
+                    )
+                if binary_end is None:
+                    failures.append("Boot link map is missing __flash_binary_end")
+                elif binary_end > boot_origin + boot_length:
+                    failures.append(
+                        "Bootloader exceeds generated Bootloader partition: "
+                        f"end=0x{binary_end:08X} limit=0x{boot_origin + boot_length:08X}"
+                    )
         boot_text = (map_text + "\n" + dis_text).lower()
         for token in BOOT_FORBIDDEN_SYMBOL_TOKENS:
             if token in boot_text:
