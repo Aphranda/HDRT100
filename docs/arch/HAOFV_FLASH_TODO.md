@@ -199,8 +199,8 @@ Product Config 与 App metadata writer 已走 intent，Boot metadata 保持独�
 ### M1-03 FlashTransactionAO/FB/Vector
 
 - [~] 已固定首轮 one-deep queue、job/requester/operation/provider generation/completion/cancel；
-  当前 OTA 两页载荷上限由 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 给出，超过该上限的 payload 在
-  immutable provider/refcount 落地前 fail closed。
+  当前 OTA 两页载荷继续走 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 固定池，超过该上限的请求可使用
+  generation-bound immutable buffer lease，缺少合法 lease 时仍 fail closed。
 - [~] 实现 `VALIDATE -> QUIESCE -> ACQUIRE -> PARK -> ERASE/PROGRAM -> VERIFY -> COMMIT ->
   RELEASE -> COMPLETE/FAILED`，每次 service 只推进一个有界步骤。
 - [x] Vector 使用 seqlock；只读查询不触发 Flash IO，并记录 policy/lockout/progress/result/timing；
@@ -232,12 +232,14 @@ immutable provider/refcount、运行时 abort/lease 和跨 reset durable complet
 
 ### M1-05 Buffer 与 owner 收敛
 
-- [x] 不超过 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的 payload 在 submit 时复制入固定 pool；更大
-  payload 在 immutable provider/refcount 落地前 fail closed，禁止把 producer alias 交给 raw writer。
+- [~] 不超过 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的 payload 在 submit 时复制入固定 pool；更大
+  payload 必须绑定 generation、长度、retain/release 的 immutable buffer lease，缺少合法 lease 时
+  fail closed，禁止把 producer alias 交给 raw writer；live producer 迁移和跨 reset durable lease
+  语义仍待完成。
 - [~] queue full、producer reset、duplicate completion、abort during page/sector 均有单测；当前已覆盖
   queue full、duplicate terminal/abort、large payload no-raw，以及 raw erase/program 回调期间触发
   abort 后跳过 verify/commit，以及 provider generation reset 在 raw 前/期间 fail-closed 的 host fixture；
-  immutable provider/refcount 与 completion lease/durable 语义仍待异步 provider/step hook。
+  completion lease/durable 语义仍待异步 provider/step hook。
 - [~] OTA image、Product Config 与 App OTA metadata 已迁移到 intent API；Boot metadata 通过独立
   BootFlashService adapter 保持 raw owner，M3 BootControlStore 与 M2-02 Product NVS store 仍待完成。
   当前 Product/OTA metadata 仍是 single-sector rewrite，不得视为 atomic NVS/BCB。

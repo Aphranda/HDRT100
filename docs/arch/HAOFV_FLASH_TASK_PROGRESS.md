@@ -30,13 +30,42 @@ Last updated: 2026-08-22
 - 当前已闭环证据：fixed owned payload、large-payload fail-closed、queue/duplicate terminal、
   raw-step abort、provider generation reset fail-closed；对应 host、release/build/link/inventory
   和四板 Direct A/B OTA 报告均已记录在本文件后续条目。
-- 下一项且仅下一项：设计并实现 immutable provider/refcount 或等价 buffer lease；完成前继续保持
-  超出 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的请求 fail-closed，不进入 v2 Scratch 写入。
+- 下一项且仅下一项：将 generation-bound immutable buffer lease 接入 live producer，并补齐 completion
+  lease/durable reset 语义；在此之前不进入 v2 Scratch 写入。
 - 退出条件：provider 生命周期正向/负向 host fixture、producer reset/duplicate completion 语义、
   release 与 inventory/link gate、必要的板端报告、代码/文档分离提交和文档四项门禁全部具备；
   之后才评估 M1-05/M1-03 退出和 M1-06 validation-only Scratch lease。
 - 约束复核：v2 target map 仍为 `target_not_deployed`；未执行任意 offset 命令、BOOTSEL full erase
   或高地址 Scratch 破坏性验证；契约登记表未发生状态变更，不需要 C11 激活审核。
+
+### FLASH-TASK-20260822-025 - M1-05 immutable buffer lease 生命周期
+
+- 状态：M1-05 继续进行；generation-bound immutable buffer lease 已在 FlashTransactionFB/AO
+  建立最小生命周期实现，live producer 仍默认使用固定 pool，completion lease/durable reset
+  journal 尚未完成。
+- 日期：2026-08-22
+- 完成内容：
+  - 新增 `flash_transaction_buffer_lease_t`，大于 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的
+    program request 必须提供匹配 provider generation、长度、immutable data、retain/release
+    回调；request 在 VALIDATE 后取得 lease，raw/verify 使用 lease data，终态 RELEASE 释放一次。
+  - 无 lease、长度不足、generation mismatch 或 retain 失败均在 raw writer 前返回 `PROVIDER`；
+    小 payload 仍保持 submit-time fixed-pool snapshot，未改变当前 OTA producer 默认路径。
+  - host fixture 覆盖大 payload lease 正向 retain/program/verify/release、generation mismatch、
+    retain failure、已有 large-payload no-raw、producer reset 和 raw-step abort 语义。
+- 验证结果：
+  - FlashTransaction 专项测试和全量 30 个 host test scripts 通过。
+  - `pico2-release` 构建、FlashMap/inventory/persistence/migration/wire/link gate 与
+    `release_check.py` 通过；工件目录 `build-flash-m1-05-20260822/`，本轮 build id 为
+    `20260822044323`。
+  - NO.1 `0010071E65B5CB38` / COM3 先完成 factory 烧录和 OTA；NO.2/NO.3/NO.4（COM5/COM6/COM4）
+    随后并发 OTA，四块板 baseline、positive OTA、boot/commit、final safe state 全部 PASS，原始
+    报告位于 `build/flash_burn_provider_NO1_20260822/` 至 `build/flash_burn_provider_NO4_20260822/`。
+- 提交与推送：
+  - 代码提交 `852fd48 feat(flash): add immutable buffer lease provider` 已推送
+    `origin/feature/rtos-multicore-haofv`。
+- 还需完成：
+  - live OTA/Product/metadata producer 接入 lease、completion lease/durable reset journal、
+    provider power-cut/duplicate completion 证据；完成后再评估 M1-05/M1-03 退出。
 
 ### FLASH-TASK-20260822-020 - NO.1 至 NO.4 工厂烧录与 OTA 闭环
 
@@ -62,7 +91,7 @@ Last updated: 2026-08-22
 | M0-04 wire/parser corpus | 代码验证完成，文档待收口 | golden/truncation/bit-mutation corpus 已绑定 `pota_*` 与 TDMA frame parser；release gate、host runner `30/30` 通过 | 更新本文件与 TODO 的状态描述，完成独立审查后再关闭 M0-04。 |
 | M0-05 migration/rollback | 阻塞 | validation recovery 入口和回退日志已保留；应用态 reboot 未使 RP2350 ROM BOOTSEL 保持可见 | 物理 BOOTSEL full erase、factory UF2 verify、COM8 恢复报告。 |
 | M1-04 mode/thermal/dual-core gate | 进行中 | thermal/diagnostics/trigger/FAULT/resource reason 与 park-timeout HIL 已通过 | Calibration/TDMA owner gate、RUN/CAL/training negative HIL、warning policy 和 COM8 负向证据。 |
-| M1-05 buffer/owner convergence | 进行中 | fixed owned payload、large-payload fail-closed、queue/duplicate terminal 基线、raw-step abort、provider-reset host fixture | immutable provider/refcount、completion lease 证据。 |
+| M1-05 buffer/owner convergence | 进行中 | fixed owned payload、large-payload fail-closed、generation-bound immutable lease、queue/duplicate terminal、raw-step abort、provider-reset host fixture | live producer lease 接入、completion lease/durable 证据。 |
 | M1-06 high-address Scratch | 未开始 | 仅有 v2 target map/permission 输入，未对板写入 | validation-only Scratch intent、COM8 高地址闭环、恢复与 release string scan。 |
 
 ### FLASH-TASK-20260822-021 - M1-05 原始步骤 abort 负向闭环
