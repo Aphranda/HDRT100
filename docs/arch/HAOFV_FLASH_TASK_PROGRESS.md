@@ -53,6 +53,23 @@ Last updated: 2026-08-23
 - 边界：本次仍是 v1 compatibility map 的 A/B 部署，未写 v2 高地址；未执行双 lane 损坏、
   lane seal/commit/body 掉电注入、空 BCB Recovery、security counter/anti-rollback 或 BOOTSEL。
 
+### FLASH-TASK-20260823-018 - M4-01 identity-bound stream session core
+
+- 状态：M4-01 的 transport-neutral session 骨架和 host 负向语义已实现；没有把进程内 offset
+  解释为 durable resume，也未改变现有 USB/SD/UART/RS485 ingress 的调用路径。
+- 代码提交：`64110cd feat(ota): add identity-bound stream session core`，已推送。
+  新增 `pota_stream_session.h/.c`：OPEN descriptor 绑定 session/generation/capability、identity、
+  map version、App partition、destination slot、object、total size、package CRC/hash；要求
+  inactive-write 与 durable-ACK capability。WRITE 只接受当前 durable-cursor 的顺序 chunk，
+  同 offset 同 CRC 的重复 chunk 幂等，冲突/跳跃 offset fail closed；CLOSE 只在完整接收后进入
+  `READY_TO_REBOOT`，底层仍经 `pota_session` 的现有 Flash sink。
+- Host 验证：`run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m4-01-final` 通过，
+  新增测试覆盖 capability/identity/destination gate、service 前拒写、乱序、重复、冲突、token、
+  close/abort 状态；portable BCB 与原有 OTA 测试均通过。
+- 构建验证：`build-flash-m1-05h-20260823-release` App A/App B/Boot、FlashMap/inventory/link
+  gate 和 `release_check=OK` 通过；M4-02 journal/resume、五类 ingress 接入、manifest parser/
+  signature 和 DHRT100 session HIL 仍未完成。
+
 ### FLASH-TASK-20260823-015 - BootFlashService owner boundary
 
 - 状态：M3-01 的 Boot 写入 owner 收敛子项完成；M3-01 总项、M1-05-J 和 M3-02 仍未完成。

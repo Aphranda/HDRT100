@@ -440,9 +440,12 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M4-01 OtaStreamSession core
 
-- [ ] 从 ingress callback 拆出 open/write/close/abort/resume 状态机。
-- [ ] session 绑定 identity/capability/package/object/map/partition/generation/destination。
-- [ ] package manifest 与 slot-specific object 分离；source 只发送 inactive object。
+- [~] 已新增 transport-neutral `pota_stream_session` 的 open/write/close/abort 状态骨架，顺序、
+  重复和冲突 chunk 有 host 负向证据；resume 仍待 M4-02 durable journal。
+- [~] session descriptor 已绑定 identity/capability/package hash/object/map/partition/generation/
+  destination，并校验 inactive-write/durable-ACK capability；实际 ingress 尚未统一迁移。
+- [~] descriptor 已区分 object/destination 并拒绝错误 App partition；package manifest parser、
+  slot-specific object source 和 source 只发送 inactive object 仍待接入。
 - [ ] sink 只向 FlashTransactionAO 提交 intent，verified object 后才写 pending BCB。
 
 ### M4-02 Journal 与 durable resume
