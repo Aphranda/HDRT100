@@ -22,6 +22,42 @@ Last updated: 2026-08-22
 
 ## 当前检查点
 
+### FLASH-TASK-20260822-027 - completion lease/journal 边界与四板回归
+
+- 状态：M1-05 继续进行；本轮建立 completion lease/journal 合约和 transaction 边界 fail-closed
+  语义，但尚未部署 v2 OTA_JOURNAL，也未把 live producer 接入 durable completion backend。
+- 日期：2026-08-22
+- 完成内容：
+  - `flash_transaction_completion_lease_t` 绑定 retain/release/append 生命周期；事务在
+    accepted、programmed、verified 和最终 terminal 边界发布带 job/transaction/provider/store
+    generation 的 journal record。
+  - journal append 失败立即阻止后续 verify/commit；completion lease 在终态释放一次，重复 service
+    不重复发布 terminal record。COMMITTED 只在 core1/resource release 成功后发布，release failure
+    不会被 durable record 伪装成 committed。
+  - host fixture 覆盖四个边界的 journal failure、release failure、lease retain/release 和
+    duplicate terminal service；已验证物理 raw 已发生时仍保持 fail-closed，不伪造回滚。
+- 验证结果（以下为本次构建/HIL 快照，非长期事实源）：
+  - `tools/tests/run_flash_transaction_tests.ps1` 和全量
+    `tools/tests/run_host_unit_tests.ps1` 均通过，host runner 为 30/30。
+  - `build-flash-m1-05-completion-20260822/` 的 `pico2-release` 构建、FlashMap/inventory/
+    persistence/migration/wire/link gate 和 `release_check.py` 均通过；build id 为
+    `20260822052715`，package payload SHA-256 为
+    `e9fb9ef5ed911f9c49709f786bbf9270da74f0c4e02ea4c1f639d1655521ab0d`。
+  - NO.1 / COM3：`build/flash_burn_completionlease_release_NO1_20260822/`；NO.2 / COM5：
+    `build/flash_burn_completionlease_release_NO2_20260822/`；NO.3 / COM6：
+    `build/flash_burn_completionlease_release_NO3_20260822/`；NO.4 / COM4：
+    `build/flash_burn_completionlease_release_NO4_20260822/`。四块板均通过
+    `baseline_query`、`positive_ota`、`boot_commit`、`final_safe_state`；NO.2–NO.4 为并发执行。
+  - 本轮 live OTA 仍使用 v1 compatibility Direct A/B，completion lease 未接入 v2 durable store；
+    v2 map 保持 `target_not_deployed`，未执行 Scratch、高地址任意 offset、BOOTSEL full erase
+    或 Bootloader 重刷。
+- 提交与推送：
+  - 代码提交 `6fc17cd feat(flash): add completion journal lease boundaries` 已推送
+    `origin/feature/rtos-multicore-haofv`；文档使用独立提交。
+- 还需完成：
+  - 实现 OTA_JOURNAL 的 durable backend、reset recovery/torn-record 选择和 live OTA/Product/
+    metadata producer wiring；补 power-cut 与跨 reset HIL，再复核 M1-05/M1-03 退出门禁。
+
 ### FLASH-TASK-20260822-026 - live producer lease 与四板并发 OTA 证据
 
 - 状态：M1-05 继续进行；OTA、Product Config、App OTA metadata producer 已接入

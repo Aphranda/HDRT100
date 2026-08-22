@@ -210,9 +210,10 @@ Product Config 与 App metadata writer 已走 intent，Boot metadata 保持独�
 首轮证据：commit `2a79643`、`bdc744b`、`accdfbc`、`f3d5a96`；OTA image erase/program 已从 portable callback 进入
 `FlashTransactionAO/FB`，active slot 未知或写活动槽均 fail closed。host fault fixtures、release、
 RTOS+双核构建和 COM8 双向 OTA/Vector HIL 均通过；HIL 工具在目标 image payload 首块和最终
-metadata 提交后分别核对 Vector。该项保持进行中，因为当前仍有同步兼容包装，Boot writer、
-completion lease、运行时 abort/lease 和跨 reset durable completion 尚未收敛；live OTA/Product
-Config/App metadata producer 已接入 generation-bound lease，但尚未形成跨 reset durable lease。
+metadata 提交后分别核对 Vector。该项保持进行中，因为当前仍有同步兼容包装，Boot writer、OTA_JOURNAL
+durable backend、运行时 abort/lease 和跨 reset durable completion 尚未收敛；completion lease/journal
+contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/App metadata producer
+尚未接入 v2 durable completion backend。
 
 ### M1-04 Mode、温度与双核门禁
 
@@ -240,7 +241,8 @@ Config/App metadata producer 已接入 generation-bound lease，但尚未形成�
 - [~] queue full、producer reset、duplicate completion、abort during page/sector 均有单测；当前已覆盖
   queue full、duplicate terminal/abort、large payload no-raw，以及 raw erase/program 回调期间触发
   abort 后跳过 verify/commit，以及 provider generation reset 在 raw 前/期间 fail-closed 的 host fixture；
-  completion lease/durable 语义仍待异步 provider/step hook。
+  completion lease 的 accepted/programmed/verified/terminal journal 边界和 append fail-closed 已覆盖；
+  OTA_JOURNAL durable backend、torn/power-cut recovery 和跨 reset 语义仍待异步 provider/step hook。
 - [~] OTA image、Product Config 与 App OTA metadata 已迁移到 intent API；Boot metadata 通过独立
   BootFlashService adapter 保持 raw owner，M3 BootControlStore 与 M2-02 Product NVS store 仍待完成。
   当前 Product/OTA metadata 仍是 single-sector rewrite，不得视为 atomic NVS/BCB。
@@ -254,6 +256,11 @@ Config/App metadata producer 已接入 generation-bound lease，但尚未形成�
 completion lease、durable reset journal、power-cut/duplicate completion 和跨 reset 证据仍缺失；
 v2 map 仍为 `target_not_deployed`，未执行 Scratch、高地址任意 offset、BOOTSEL full erase 或
 Bootloader 重刷。
+
+本轮代码快照：commit `6fc17cd` 增加可选 `flash_transaction_completion_lease_t`，在最终 release
+成功后才发布 COMMITTED，release failure 保持 FAILED；该合约目前只由 host fixture 驱动，未宣称
+v2 OTA_JOURNAL 已部署或 live producer 已具备 durable reset recovery。完整证据见
+`HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-027`。
 
 ### M1-06 高地址 Scratch 验证
 
