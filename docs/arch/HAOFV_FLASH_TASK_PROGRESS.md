@@ -16,6 +16,24 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-024 - M3 BCB wear telemetry 与 M4 ingress adapter
+
+- 状态：M3-02 增加 BCB 物理页编程/擦除计数快照 primitive；M4-03 增加五类本地入口共用的
+  transport-neutral ingress adapter。两项均为可独立复核的代码切片，尚不等于产品级持久 wear
+  store 或真实端口迁移完成。
+- 代码：`pota_bcb_platform_t` 增加可选的 `on_program_page`/`on_erase_lane` 观测钩子，
+  `pota_bcb_store_get_wear_snapshot()` 暴露本次运行的物理操作计数；钩子只观测，不得执行
+  Flash IO。新增 `pota_stream_ingress`，统一 USB CDC、USBTMC、SD、UART、RS485 的 source
+  admission、单一 active source、最大帧长和可选 CRC 校验，再调用同一个
+  `pota_stream_session`，不复制 A/B package 或改变 durable offset 语义。
+- 测试：`tools/tests/run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m4-ingress-wear`
+  通过；新增 ingress 的 CRC/源切换/会话状态测试，并断言 BCB 首次 append、replay 的页编程和
+  lane 擦除计数。主工程 `build-flash-m1-05h-20260823-release` 重新配置构建通过，App A/App B/
+  Boot 的 `flash_link_contract=OK`。
+- 边界：当前 adapter 尚未接入 USB CDC/USBTMC/SD/UART/RS485 的生产 producer；BCB wear 计数
+  尚未写入持久 health namespace；v2 `OTA_JOURNAL`、跨 reset/power-cut、Recovery、签名/OTP
+  anti-rollback 和 DHRT100 物理烧录闭环仍未完成，不更新 M1/M3/M4 退出门禁。
+
 ### FLASH-TASK-20260823-023 - M3-02 BCB security counter monotonic gate
 
 - 状态：portable BCB primitive 新增 security counter 防回退约束；完整 M3-04 签名、OTP、
