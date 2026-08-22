@@ -29,6 +29,8 @@ REQUIRED_ARTIFACTS = (
 FORBIDDEN_RELEASE_STRINGS = (
     b"SYSTem:OTA:INJect",
     b"SYST:OTA:INJ",
+    b"SYSTem:BOOT:BOOTSel",
+    b"SYST:BOOT:BOOTS",
 )
 
 
@@ -155,10 +157,10 @@ def check_forbidden_strings(root: Path, build_dir: Path, failures: list[str]) ->
         data = path.read_bytes()
         for needle in FORBIDDEN_RELEASE_STRINGS:
             if needle in data:
-                fail(f"forbidden OTA injection string found in {path}: {needle.decode('ascii')}", failures)
+                fail(f"forbidden validation command string found in {path}: {needle.decode('ascii')}", failures)
                 break
         else:
-            ok(f"no OTA injection command strings in {path.name}")
+            ok(f"no validation command strings in {path.name}")
 
 
 def check_flash_contracts(root: Path, build_dir: Path, failures: list[str]) -> None:

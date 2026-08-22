@@ -1,6 +1,6 @@
 import json
 
-from tools.release_check.release_check import check_preset
+from tools.release_check.release_check import check_forbidden_strings, check_preset
 
 
 def test_release_policy_requires_rtos_and_multicore(tmp_path):
@@ -62,3 +62,17 @@ def test_release_policy_rejects_unselected_flash_map(tmp_path):
     failures = []
     check_preset(tmp_path, "product", failures)
     assert failures == ["product must set PROJECT_FLASH_DEPLOYMENT_MAP=v1_compat"]
+
+
+def test_release_artifacts_reject_validation_bootsel_command(tmp_path):
+    build = tmp_path / "build"
+    build.mkdir()
+    (build / "RP2350_TRIG.bin").write_bytes(b"release")
+    (build / "RP2350_TRIG.elf").write_bytes(b"SYSTem:BOOT:BOOTSel")
+    (build / "RP2350_TRIG_BOOT.elf").write_bytes(b"boot")
+    failures = []
+
+    check_forbidden_strings(tmp_path, build, failures)
+
+    assert len(failures) == 1
+    assert "forbidden validation command string" in failures[0]

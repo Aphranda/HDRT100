@@ -13,6 +13,9 @@
 #include "pico/error.h"
 #include "pico/stdio.h"
 #include "project_config.h"
+#if PROJECT_ENABLE_OTA_FAULT_INJECTION
+#include "pico/bootrom.h"
+#endif
 #include "scpi_calibration_commands.h"
 #include "scpi_communication_biss_commands.h"
 #include "scpi_communication_uart_commands.h"
@@ -240,6 +243,13 @@ static scpi_result_t scpi_cmd_boot_reset(scpi_t *context)
     drv_watchdog_reboot(50u);
     return result;
 }
+
+static scpi_result_t scpi_cmd_boot_bootsel(scpi_t *context)
+{
+    (void)scpi_port_result_ok(context);
+    scpi_port_flush_now();
+    reset_usb_boot(0u, 0u);
+}
 #endif
 
 static const scpi_command_t s_scpi_commands[] = {
@@ -266,6 +276,7 @@ static const scpi_command_t s_scpi_commands[] = {
     SCPI_LOOP_ENGINE_COMMANDS,
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
     {.pattern = "SYSTem:BOOT:RESet", .callback = scpi_cmd_boot_reset},
+    {.pattern = "SYSTem:BOOT:BOOTSel", .callback = scpi_cmd_boot_bootsel},
 #endif
     SCPI_CONFIG_COMMANDS,
     SCPI_SYSTEM_DIAGNOSTICS_READ_COMMANDS,
