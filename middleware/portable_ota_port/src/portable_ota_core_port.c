@@ -78,6 +78,10 @@ const char *portable_ota_port_boot_result_to_string(uint32_t result)
 #if PORTABLE_OTA_PORT_ENABLE_SESSION
 
 static pota_session_t s_session;
+static pota_stream_session_t s_stream_session;
+static pota_stream_ingress_t s_stream_ingress;
+static pota_platform_t s_stream_platform;
+static bool s_stream_initialized;
 static uint32_t s_provider_generation;
 static uint32_t s_store_generation;
 static uint32_t s_provider_refs;
@@ -282,13 +286,132 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
     return platform;
 }
 
+bool portable_ota_port_stream_init(const ota_metadata_t *metadata)
+{
+    s_stream_initialized = false;
+    if (metadata == NULL ||
+        (metadata->active_slot != (uint32_t)OTA_SLOT_A &&
+         metadata->active_slot != (uint32_t)OTA_SLOT_B)) {
+        return false;
+    }
+
+    const uint32_t active_partition_id =
+        metadata->active_slot == (uint32_t)OTA_SLOT_A
+            ? FLASH_COMPAT_MAP_APP_A_ID
+            : FLASH_COMPAT_MAP_APP_B_ID;
+    if (!flash_transaction_ao_set_active_app_partition(active_partition_id)) {
+        return false;
+    }
+    s_store_generation = metadata->sequence;
+
+    s_stream_platform = portable_core_make_platform(metadata);
+    if (!pota_stream_session_init(&s_stream_session, &s_stream_platform) ||
+        !pota_stream_ingress_init(
+            &s_stream_ingress,
+            &s_stream_session,
+            (1u << (uint32_t)POTA_STREAM_INGRESS_SOURCE_COUNT) - 1u,
+            POTA_MAX_DATA_BLOCK_SIZE)) {
+        return false;
+    }
+    s_stream_initialized = true;
+    return true;
+}
+
+pota_stream_ingress_result_t portable_ota_port_stream_open(
+    pota_stream_ingress_source_t source,
+    const pota_stream_open_t *open)
+{
+    if (!s_stream_initialized) {
+        return POTA_STREAM_INGRESS_SESSION;
+    }
+    const pota_stream_state_t state =
+        pota_stream_session_state(&s_stream_session);
+    if (state == POTA_STREAM_STATE_ABORTED ||
+        state == POTA_STREAM_STATE_FAILED) {
+        if (!pota_stream_session_init(&s_stream_session, &s_stream_platform) ||
+            !pota_stream_ingress_init(
+                &s_stream_ingress,
+                &s_stream_session,
+                (1u << (uint32_t)POTA_STREAM_INGRESS_SOURCE_COUNT) - 1u,
+                POTA_MAX_DATA_BLOCK_SIZE)) {
+            return POTA_STREAM_INGRESS_SESSION;
+        }
+    }
+    return pota_stream_ingress_open(&s_stream_ingress, source, open);
+}
+
+pota_stream_ingress_result_t portable_ota_port_stream_write(
+    pota_stream_ingress_source_t source,
+    uint32_t offset,
+    const uint8_t *data,
+    uint32_t size,
+    bool has_crc32,
+    uint32_t crc32)
+{
+    if (!s_stream_initialized) {
+        return POTA_STREAM_INGRESS_SESSION;
+    }
+    return pota_stream_ingress_write(&s_stream_ingress, source, offset, data,
+                                     size, has_crc32, crc32);
+}
+
+pota_stream_ingress_result_t portable_ota_port_stream_service(uint32_t budget_us)
+{
+    if (!s_stream_initialized) {
+        return POTA_STREAM_INGRESS_SESSION;
+    }
+    pota_stream_ingress_status_t status;
+    if (!pota_stream_ingress_get_status(&s_stream_ingress, &status) ||
+        status.source >= POTA_STREAM_INGRESS_SOURCE_COUNT) {
+        return POTA_STREAM_INGRESS_SESSION;
+    }
+    return pota_stream_ingress_service(&s_stream_ingress, status.source,
+                                       budget_us);
+}
+
+pota_stream_ingress_result_t portable_ota_port_stream_close(
+    pota_stream_ingress_source_t source)
+{
+    if (!s_stream_initialized) {
+        return POTA_STREAM_INGRESS_SESSION;
+    }
+    return pota_stream_ingress_close(&s_stream_ingress, source);
+}
+
+pota_stream_ingress_result_t portable_ota_port_stream_abort(
+    pota_stream_ingress_source_t source)
+{
+    if (!s_stream_initialized) {
+        return POTA_STREAM_INGRESS_SESSION;
+    }
+    return pota_stream_ingress_abort(&s_stream_ingress, source);
+}
+
+bool portable_ota_port_stream_is_active(void)
+{
+    if (!s_stream_initialized) {
+        return false;
+    }
+    const pota_stream_state_t state =
+        pota_stream_session_state(&s_stream_session);
+    return state == POTA_STREAM_STATE_OPEN ||
+           state == POTA_STREAM_STATE_RECEIVING ||
+           state == POTA_STREAM_STATE_READY_TO_REBOOT;
+}
+
+bool portable_ota_port_stream_get_status(pota_stream_ingress_status_t *status)
+{
+    return s_stream_initialized &&
+           pota_stream_ingress_get_status(&s_stream_ingress, status);
+}
+
 bool portable_ota_port_core_begin(const ota_metadata_t *metadata,
                                   uint32_t size,
                                   uint32_t crc32,
                                   bool package_mode,
                                   ota_vector_t *vector)
 {
-    if (metadata == NULL ||
+    if (portable_ota_port_stream_is_active() || metadata == NULL ||
         (metadata->active_slot != (uint32_t)OTA_SLOT_A &&
          metadata->active_slot != (uint32_t)OTA_SLOT_B)) {
         return false;
@@ -346,4 +469,64 @@ bool portable_ota_port_core_abort(ota_vector_t *vector)
     return error == POTA_ERR_NONE;
 }
 
+#endif
+
+#if !PORTABLE_OTA_PORT_ENABLE_SESSION
+bool portable_ota_port_stream_init(const ota_metadata_t *metadata)
+{
+    (void)metadata;
+    return false;
+}
+
+pota_stream_ingress_result_t portable_ota_port_stream_open(
+    pota_stream_ingress_source_t source, const pota_stream_open_t *open)
+{
+    (void)source;
+    (void)open;
+    return POTA_STREAM_INGRESS_SESSION;
+}
+
+pota_stream_ingress_result_t portable_ota_port_stream_write(
+    pota_stream_ingress_source_t source, uint32_t offset, const uint8_t *data,
+    uint32_t size, bool has_crc32, uint32_t crc32)
+{
+    (void)source;
+    (void)offset;
+    (void)data;
+    (void)size;
+    (void)has_crc32;
+    (void)crc32;
+    return POTA_STREAM_INGRESS_SESSION;
+}
+
+pota_stream_ingress_result_t portable_ota_port_stream_service(uint32_t budget_us)
+{
+    (void)budget_us;
+    return POTA_STREAM_INGRESS_SESSION;
+}
+
+pota_stream_ingress_result_t portable_ota_port_stream_close(
+    pota_stream_ingress_source_t source)
+{
+    (void)source;
+    return POTA_STREAM_INGRESS_SESSION;
+}
+
+pota_stream_ingress_result_t portable_ota_port_stream_abort(
+    pota_stream_ingress_source_t source)
+{
+    (void)source;
+    return POTA_STREAM_INGRESS_SESSION;
+}
+
+bool portable_ota_port_stream_is_active(void)
+{
+    return false;
+}
+
+bool portable_ota_port_stream_get_status(pota_stream_ingress_status_t *status)
+{
+    (void)status;
+    return false;
+}
 #endif

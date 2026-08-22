@@ -6,7 +6,9 @@
 #include "distributed_config.h"
 #include "drv_flash.h"
 #include "ota_ao.h"
+#include "product_config.h"
 #include "scpi_port_internal.h"
+#include "portable_ota_port.h"
 
 scpi_result_t scpi_cmd_ota_status_q(scpi_t *context)
 {
@@ -36,6 +38,9 @@ scpi_result_t scpi_cmd_ota_begin(scpi_t *context)
             DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
         return SCPI_RES_ERR;
     }
+    if (portable_ota_port_stream_is_active()) {
+        return SCPI_RES_ERR;
+    }
 
     uint32_t size;
     uint32_t crc32;
@@ -63,6 +68,9 @@ scpi_result_t scpi_cmd_ota_package_begin(scpi_t *context)
             DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
         return SCPI_RES_ERR;
     }
+    if (portable_ota_port_stream_is_active()) {
+        return SCPI_RES_ERR;
+    }
 
     uint32_t size;
     uint32_t crc32;
@@ -88,6 +96,9 @@ scpi_result_t scpi_cmd_ota_data(scpi_t *context)
     if (scpi_port_reject_if_run_forbidden(
             context,
             DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+    if (portable_ota_port_stream_is_active()) {
         return SCPI_RES_ERR;
     }
 
@@ -118,6 +129,9 @@ static scpi_result_t scpi_cmd_ota_simple_event_ack(scpi_t *context, ota_event_ty
     if (scpi_port_reject_if_run_forbidden(
             context,
             DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+    if (portable_ota_port_stream_is_active()) {
         return SCPI_RES_ERR;
     }
 
@@ -282,6 +296,145 @@ scpi_result_t scpi_cmd_ota_capability_q(scpi_t *context)
     }
 
     SCPI_ResultUInt32(context, metadata.boot_capabilities);
+    return SCPI_RES_OK;
+}
+
+static bool scpi_ota_stream_source_read(scpi_t *context,
+                                        pota_stream_ingress_source_t *source)
+{
+    uint32_t value;
+    if (source == NULL || !scpi_port_read_u32(context, &value) ||
+        value >= (uint32_t)POTA_STREAM_INGRESS_SOURCE_COUNT) {
+        return false;
+    }
+    *source = (pota_stream_ingress_source_t)value;
+    return true;
+}
+
+static bool scpi_ota_stream_source_matches_control_plane(
+    pota_stream_ingress_source_t source)
+{
+#if PROJECT_ENABLE_USB_RUNTIME_SWITCH
+    product_config_usb_mode_t mode;
+    if (!product_config_get_usb_mode(&mode)) {
+        return false;
+    }
+    return (mode == PRODUCT_CONFIG_USB_MODE_CDC &&
+            source == POTA_STREAM_INGRESS_USB_CDC) ||
+           (mode == PRODUCT_CONFIG_USB_MODE_USBTMC &&
+            source == POTA_STREAM_INGRESS_USBTMC);
+#elif PROJECT_ENABLE_USBTMC
+    return source == POTA_STREAM_INGRESS_USBTMC;
+#else
+    return source == POTA_STREAM_INGRESS_USB_CDC;
+#endif
+}
+
+scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT) ||
+        ota_ao_is_active()) {
+        return SCPI_RES_ERR;
+    }
+
+    pota_stream_ingress_source_t source;
+    const char *data = NULL;
+    size_t length = 0u;
+    if (!scpi_ota_stream_source_read(context, &source) ||
+        !scpi_ota_stream_source_matches_control_plane(source) ||
+        SCPI_ParamArbitraryBlock(context, &data, &length, TRUE) != TRUE ||
+        length > UINT32_MAX) {
+        return SCPI_RES_ERR;
+    }
+
+    pota_stream_open_t open;
+    if (!pota_stream_open_decode_le((const uint8_t *)data,
+                                    (uint32_t)length, &open)) {
+        return SCPI_RES_ERR;
+    }
+
+    return portable_ota_port_stream_open(source, &open) ==
+                   POTA_STREAM_INGRESS_OK
+               ? scpi_port_result_ok(context)
+               : SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_ota_stream_data(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+
+    pota_stream_ingress_source_t source;
+    uint32_t offset;
+    uint32_t crc32;
+    const char *data = NULL;
+    size_t length = 0u;
+    if (!scpi_ota_stream_source_read(context, &source) ||
+        !scpi_ota_stream_source_matches_control_plane(source) ||
+        !scpi_port_read_u32(context, &offset) ||
+        !scpi_port_read_u32(context, &crc32) ||
+        SCPI_ParamArbitraryBlock(context, &data, &length, TRUE) != TRUE ||
+        length == 0u || length > UINT32_MAX) {
+        return SCPI_RES_ERR;
+    }
+
+    return portable_ota_port_stream_write(
+               source, offset, (const uint8_t *)data, (uint32_t)length,
+               true, crc32) == POTA_STREAM_INGRESS_OK
+               ? scpi_port_result_ok(context)
+               : SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_ota_stream_close(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+    pota_stream_ingress_source_t source;
+    if (!scpi_ota_stream_source_read(context, &source) ||
+        !scpi_ota_stream_source_matches_control_plane(source)) {
+        return SCPI_RES_ERR;
+    }
+    return portable_ota_port_stream_close(source) == POTA_STREAM_INGRESS_OK
+               ? scpi_port_result_ok(context)
+               : SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_ota_stream_abort(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
+        return SCPI_RES_ERR;
+    }
+    pota_stream_ingress_source_t source;
+    if (!scpi_ota_stream_source_read(context, &source) ||
+        !scpi_ota_stream_source_matches_control_plane(source)) {
+        return SCPI_RES_ERR;
+    }
+    return portable_ota_port_stream_abort(source) == POTA_STREAM_INGRESS_OK
+               ? scpi_port_result_ok(context)
+               : SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_ota_stream_status_q(scpi_t *context)
+{
+    pota_stream_ingress_status_t status;
+    if (!portable_ota_port_stream_get_status(&status)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, (uint32_t)status.source);
+    SCPI_ResultUInt32(context, (uint32_t)status.state);
+    SCPI_ResultUInt32(context, status.durable_offset);
+    SCPI_ResultUInt32(context, status.stream_token);
+    SCPI_ResultUInt32(context, (uint32_t)status.last_result);
     return SCPI_RES_OK;
 }
 

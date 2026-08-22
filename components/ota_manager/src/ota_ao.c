@@ -66,6 +66,7 @@ bool ota_ao_init(void)
         s_ota_context.vector.expected_size = metadata.slot_b_size;
         s_ota_context.vector.crc32_expected = metadata.slot_b_crc32;
         s_ota_context.vector.boot_flags_summary = metadata.last_boot_result;
+        (void)portable_ota_port_stream_init(&metadata);
     }
 
     s_ota_context.target_offset = ota_partition_slot_offset(s_ota_context.target_slot);
@@ -95,6 +96,19 @@ void ota_ao_service(uint32_t budget_us)
     ota_event_t event;
     if (event_bus_try_recv_ota_event(&event)) {
         ota_fb_execute(&s_ota_context, &event);
+        return;
+    }
+
+    /* Stream ingress shares the same bounded AO service cadence as the legacy
+     * event path.  Only one path advances a session per tick; the stream port
+     * itself owns the FlashTransaction intent and readback boundary. */
+    if (portable_ota_port_stream_is_active()) {
+        pota_stream_ingress_status_t status;
+        if (portable_ota_port_stream_get_status(&status) &&
+            (status.state == POTA_STREAM_STATE_OPEN ||
+             status.state == POTA_STREAM_STATE_RECEIVING)) {
+            (void)portable_ota_port_stream_service(budget_us);
+        }
         return;
     }
 

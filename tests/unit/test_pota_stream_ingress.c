@@ -1,4 +1,5 @@
 #include "pota_stream_ingress.h"
+#include "pota_stream_wire.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -83,6 +84,14 @@ static bool expect(const char *name, bool value)
     return value;
 }
 
+static void write_le32(uint8_t *data, uint32_t value)
+{
+    data[0] = (uint8_t)value;
+    data[1] = (uint8_t)(value >> 8u);
+    data[2] = (uint8_t)(value >> 16u);
+    data[3] = (uint8_t)(value >> 24u);
+}
+
 int main(void)
 {
     memset(s_flash, 0xFF, sizeof(s_flash));
@@ -150,6 +159,35 @@ int main(void)
     open.package_crc32 = pota_crc32_compute("0123456789abcdef", 16u);
     open.identity[0] = 1u;
     open.package_hash[0] = 2u;
+
+    uint8_t open_wire[POTA_STREAM_OPEN_WIRE_SIZE] = {0};
+    write_le32(&open_wire[0], open.session_id);
+    write_le32(&open_wire[4], open.generation);
+    write_le32(&open_wire[8], open.capability_mask);
+    write_le32(&open_wire[12], open.map_version);
+    write_le32(&open_wire[16], open.partition_id);
+    write_le32(&open_wire[20], open.destination_slot);
+    write_le32(&open_wire[24], open.object_id);
+    write_le32(&open_wire[28], open.total_size);
+    write_le32(&open_wire[32], open.package_crc32);
+    memcpy(&open_wire[POTA_STREAM_OPEN_IDENTITY_OFFSET], open.identity,
+           sizeof(open.identity));
+    memcpy(&open_wire[POTA_STREAM_OPEN_PACKAGE_HASH_OFFSET], open.package_hash,
+           sizeof(open.package_hash));
+    pota_stream_open_t decoded;
+    failed += !expect("decode open wire", pota_stream_open_decode_le(
+        open_wire, sizeof(open_wire), &decoded));
+    failed += !expect("decode open fields",
+                      decoded.session_id == open.session_id &&
+                      decoded.package_crc32 == open.package_crc32 &&
+                      decoded.identity[0] == open.identity[0] &&
+                      decoded.package_hash[0] == open.package_hash[0]);
+    failed += !expect("decode truncated rejected", !pota_stream_open_decode_le(
+        open_wire, sizeof(open_wire) - 1u, &decoded));
+    open_wire[37] = 1u;
+    failed += !expect("decode reserved rejected", !pota_stream_open_decode_le(
+        open_wire, sizeof(open_wire), &decoded));
+    open_wire[37] = 0u;
 
     failed += !expect("open USB CDC", pota_stream_ingress_open(
         &ingress, POTA_STREAM_INGRESS_USB_CDC, &open) == POTA_STREAM_INGRESS_OK);

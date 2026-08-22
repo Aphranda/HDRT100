@@ -19,6 +19,11 @@ scpi_result_t scpi_cmd_ota_transaction_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_mode_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_target_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_capability_q(scpi_t *context);
+scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context);
+scpi_result_t scpi_cmd_ota_stream_data(scpi_t *context);
+scpi_result_t scpi_cmd_ota_stream_close(scpi_t *context);
+scpi_result_t scpi_cmd_ota_stream_abort(scpi_t *context);
+scpi_result_t scpi_cmd_ota_stream_status_q(scpi_t *context);
 
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
 scpi_result_t scpi_cmd_ota_mode(scpi_t *context);
@@ -58,7 +63,12 @@ scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context);
     {.pattern = "SYSTem:OTA:TRANsaction?", .callback = scpi_cmd_ota_transaction_q}, \
     {.pattern = "SYSTem:OTA:MODE?", .callback = scpi_cmd_ota_mode_q}, \
     {.pattern = "SYSTem:OTA:TARGet?", .callback = scpi_cmd_ota_target_q}, \
-    {.pattern = "SYSTem:OTA:CAPability?", .callback = scpi_cmd_ota_capability_q} \
+    {.pattern = "SYSTem:OTA:CAPability?", .callback = scpi_cmd_ota_capability_q}, \
+    {.pattern = "SYSTem:OTA:STReam:OPEN", .callback = scpi_cmd_ota_stream_open}, \
+    {.pattern = "SYSTem:OTA:STReam:DATA", .callback = scpi_cmd_ota_stream_data}, \
+    {.pattern = "SYSTem:OTA:STReam:CLOSe", .callback = scpi_cmd_ota_stream_close}, \
+    {.pattern = "SYSTem:OTA:STReam:ABORt", .callback = scpi_cmd_ota_stream_abort}, \
+    {.pattern = "SYSTem:OTA:STReam:STATus?", .callback = scpi_cmd_ota_stream_status_q} \
     SCPI_OTA_FAULT_INJECTION_COMMANDS
 
 #endif

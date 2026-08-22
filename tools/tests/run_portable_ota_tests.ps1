@@ -115,7 +115,8 @@ $testPrograms = @(
             (Join-Path $src "pota_session.c"),
             (Join-Path $src "pota_stream_session.c"),
             (Join-Path $src "pota_stream_checkpoint.c"),
-            (Join-Path $src "pota_stream_ingress.c")
+            (Join-Path $src "pota_stream_ingress.c"),
+            (Join-Path $src "pota_stream_wire.c")
         )
     },
     @{
