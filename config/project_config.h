@@ -9,11 +9,11 @@
 static const char g_project_build_id[] = "dev";
 #endif
 
-#define PROJECT_NAME "RP2350_TRIG"
-#define PROJECT_PRODUCT_ID "RP2350_TRIG"
-#define PROJECT_HARDWARE_ID "rp2350_trig"
+#define PROJECT_NAME "DHRT100"
+#define PROJECT_PRODUCT_ID "DHRT100"
+#define PROJECT_HARDWARE_ID "dhrt100"
 #define PROJECT_VENDOR_NAME "GTS"
-#define PROJECT_MODEL_NAME "DTC100"
+#define PROJECT_MODEL_NAME "DHRT100"
 #define PROJECT_MODEL_SHORT_NAME PROJECT_MODEL_NAME
 #define PROJECT_MODEL_DESCRIPTION "Distributed Trigger Controller"
 #define PROJECT_VERSION_MAJOR 0u

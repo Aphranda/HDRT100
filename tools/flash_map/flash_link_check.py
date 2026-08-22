@@ -25,6 +25,22 @@ CORE1_CLOSURE = {
     "drv_flash_core1_lockout_poll",
     "drv_flash_lockout_core1_poll",
 }
+BOOT_FORBIDDEN_SYMBOL_TOKENS = (
+    "freertos",
+    "xtask",
+    "vtask",
+    "pvport",
+    "xqueue",
+    "xsemaphore",
+    "scpi",
+    "tdma",
+    "fatfs",
+    "littlefs",
+    "flash_transaction",
+    "resource_arbiter",
+    "storage_manager",
+    "ota_ao",
+)
 
 MEMORY_RE = re.compile(
     r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s+"
@@ -130,11 +146,27 @@ def address_in_ram(address: int, regions: dict[str, tuple[int, int, str]]) -> bo
     return False
 
 
-def validate_link_contract(map_text: str, dis_text: str) -> list[str]:
+def validate_link_contract(map_text: str, dis_text: str, profile: str = "app") -> list[str]:
     failures: list[str] = []
     regions = parse_memory_regions(map_text)
     symbols, sections = parse_map_addresses(map_text)
     callers, bodies = parse_disassembly(dis_text)
+
+    if profile == "boot":
+        boot_text = (map_text + "\n" + dis_text).lower()
+        for token in BOOT_FORBIDDEN_SYMBOL_TOKENS:
+            if token in boot_text:
+                failures.append(f"forbidden Boot dependency linked: token={token}")
+        for required in (
+            "bootloader_validate_slot_direct",
+            "ota_metadata_load",
+            "ota_metadata_store",
+            "drv_flash_erase",
+            "drv_flash_program",
+        ):
+            if required not in boot_text:
+                failures.append(f"required Boot dependency symbol missing: {required}")
+        return failures
 
     if "RAM" not in regions:
         failures.append("link map has no RAM memory region")
@@ -192,6 +224,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--map", type=Path, required=True, dest="map_path")
     parser.add_argument("--dis", type=Path, required=True, dest="dis_path")
+    parser.add_argument("--profile", choices=("app", "boot"), default="app")
     return parser.parse_args()
 
 
@@ -201,6 +234,7 @@ def main() -> int:
         failures = validate_link_contract(
             args.map_path.read_text(encoding="utf-8", errors="replace"),
             args.dis_path.read_text(encoding="utf-8", errors="replace"),
+            args.profile,
         )
     except OSError as exc:
         print(f"flash_link_contract=FAILED: {exc}", file=sys.stderr)
@@ -209,7 +243,10 @@ def main() -> int:
         for failure in failures:
             print(f"flash_link_contract=FAILED: {failure}", file=sys.stderr)
         return 1
-    print(f"flash_link_contract=OK map={args.map_path.name} dis={args.dis_path.name}")
+    print(
+        f"flash_link_contract=OK profile={args.profile} "
+        f"map={args.map_path.name} dis={args.dis_path.name}"
+    )
     return 0
 
 

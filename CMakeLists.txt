@@ -707,7 +707,12 @@ add_custom_target(project_flash_link_check ALL
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_link_check.py
                 --map ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_B.elf.map
                 --dis ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_B.dis
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_link_check.py
+                --profile boot
+                --map ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_BOOT.elf.map
+                --dis ${CMAKE_CURRENT_BINARY_DIR}/RP2350_TRIG_BOOT.dis
         DEPENDS ${PROJECT_NAME} RP2350_TRIG_B
+                RP2350_TRIG_BOOT
                 ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_link_check.py
         VERBATIM
 )

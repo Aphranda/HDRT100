@@ -3,9 +3,8 @@
 #include "ota_error.h"
 #include "ota_partition.h"
 #include "pota.h"
+#include "project_config.h"
 
-#define PORTABLE_OTA_PRODUCT_ID "RP2350_TRIG"
-#define PORTABLE_OTA_HARDWARE_ID "rp2350_trig"
 #define PORTABLE_OTA_BOOTLOADER_VERSION POTA_PACK_VERSION(0u, 1u, 0u)
 
 /*
@@ -246,8 +245,8 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
 {
     const pota_platform_t platform = {
         .info = {
-            .product_id = PORTABLE_OTA_PRODUCT_ID,
-            .hardware_id = PORTABLE_OTA_HARDWARE_ID,
+            .product_id = PROJECT_PRODUCT_ID,
+            .hardware_id = PROJECT_HARDWARE_ID,
             .bootloader_version = PORTABLE_OTA_BOOTLOADER_VERSION,
             .boot_mode = portable_core_boot_mode_from_metadata(metadata),
             .active_slot = portable_core_active_slot_from_metadata(metadata),

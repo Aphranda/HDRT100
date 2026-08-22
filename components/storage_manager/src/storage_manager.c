@@ -46,9 +46,9 @@
 #define STORAGE_MANAGER_TRACE_MAGIC 0x43525452u
 #define STORAGE_MANAGER_TRACE_SCHEMA 1u
 #define STORAGE_MANAGER_TRACE_TICK_HZ 1000u
-#define STORAGE_MANAGER_PRODUCT_ID "RP2350_TRIG"
-#define STORAGE_MANAGER_HARDWARE_ID "rp2350_trig"
-#define STORAGE_MANAGER_BOOTSTRAP_OTA_TEXT "RP2350_TRIG placeholder OTA package. Replace with a release package before offline OTA.\n"
+#define STORAGE_MANAGER_PRODUCT_ID PROJECT_PRODUCT_ID
+#define STORAGE_MANAGER_HARDWARE_ID PROJECT_HARDWARE_ID
+#define STORAGE_MANAGER_BOOTSTRAP_OTA_TEXT "DHRT100 placeholder OTA package. Replace with a release package before offline OTA.\n"
 
 typedef struct __attribute__((packed)) {
     uint32_t timestamp_ms;
