@@ -125,6 +125,8 @@ Last updated: 2026-08-22
 - 提交与推送：
   - 代码提交 `85ae5f9 feat(flash): fail closed on provider reset` 已推送
     `origin/feature/rtos-multicore-haofv`。
+  - 后续提交 `ff15761 fix(flash): publish provider reset atomically` 将 reset pending 标志改为
+    acquire/release 原子发布，覆盖 producer/FlashTransaction 跨执行上下文的可见性；已推送。
 - 还需完成：
   - immutable provider/refcount、completion lease/durable reset journal；之后再评估 M1-03/M1-05
     退出和 M1-06 Scratch 进入条件。
