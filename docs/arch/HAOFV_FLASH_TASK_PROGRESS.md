@@ -16,6 +16,23 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-014 - M3-02 portable BCB dual-lane primitive
+
+- 状态：M3-02 进入实现中；portable primitive 已具备，尚未接替现有 `ota_metadata.c` 的实际
+  BCB 持久化，也未执行 DHRT100 BCB/Recovery HIL。
+- 代码提交：`572dd65 feat(boot): add portable dual-lane BCB primitive`，已推送。
+  `pota_boot_control_store` 使用 body page -> verified readback -> commit page，并为每个 lane
+  保留 seal page；写满 lane 后擦除另一 lane、建立新 generation，再由 selector 只接受 schema/map、
+  payload CRC、body CRC、commit marker 和 lane seal 均有效的记录。
+- Host 验证：`tools/tests/run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m3-02`
+  通过；新增测试覆盖首次 append/select、sequence replay、body/program/readback/commit/seal
+  故障、lane GC 和旧 lane erase 失败。
+- 构建验证：`build-flash-m1-05h-20260823-release` 重新配置并构建 App A/App B/Boot，
+  `flash_link_contract=OK`；primitive 已纳入 App/Boot 编译目标但当前没有业务调用者。
+- 边界：当前 v1 compatibility BCB 仍由 `ota_metadata.c` 双 copy single-sector rewrite 提供；
+  在 payload 适配、BootFlashService 调用点、wear counter、空 BCB Recovery 和真实掉电证据完成前，
+  不标记 M3-02 或 `ARCH-BOOTCTRL-01` 完成。
+
 ### FLASH-TASK-20260823-013 - M3-01 Bootloader partition size gate
 
 - 状态：M3-01 的 size/map 子项完成；BootFlashService 依赖白名单和完整 M3-01 退出门禁仍未完成。

@@ -383,9 +383,10 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M3-02 BootControlStore
 
-- [ ] 实现双 lane append/select/commit/GC/wear counter。
-- [ ] 无有效 BCB 不创建默认可启动事实，进入 Recovery policy。
-- [ ] torn-write 注入覆盖 body/readback/commit/lane seal/old lane erase。
+- [~] portable primitive 已实现双 lane append/select/commit/GC 和 lane generation；仍待接入
+  BootControlStore/BootFlashService 的实际 BCB payload 与 wear counter。
+- [~] primitive 在无有效 lane 时返回 `NO_VALID`，不创建默认记录；Boot Recovery policy 接入仍待完成。
+- [x] host fault fixture 覆盖 body/readback/commit/lane seal/旧 lane erase，均 fail closed 并保留旧记录。
 
 ### M3-03 Direct A/B 单主线
 
