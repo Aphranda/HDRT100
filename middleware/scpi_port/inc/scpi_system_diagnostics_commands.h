@@ -3,6 +3,7 @@
 
 #include "scpi/scpi.h"
 #include "scpi_port_internal.h"
+#include "project_config.h"
 
 scpi_result_t scpi_system_diagnostics_run_last_q(scpi_t *context);
 scpi_result_t scpi_system_diagnostics_run_summary_q(scpi_t *context);
@@ -15,6 +16,13 @@ scpi_result_t scpi_cmd_resource_training_q(scpi_t *context);
 scpi_result_t scpi_cmd_flash_map_q(scpi_t *context);
 scpi_result_t scpi_cmd_flash_access_q(scpi_t *context);
 scpi_result_t scpi_cmd_flash_transaction_q(scpi_t *context);
+#if PROJECT_ENABLE_FLASH_VALIDATION
+scpi_result_t scpi_cmd_flash_scratch_validate(scpi_t *context);
+#define SCPI_SYSTEM_DIAGNOSTICS_FLASH_VALIDATION_COMMAND \
+    {.pattern = "SYSTem:DIAGnostic:FLASh:VALidate", .callback = scpi_cmd_flash_scratch_validate},
+#else
+#define SCPI_SYSTEM_DIAGNOSTICS_FLASH_VALIDATION_COMMAND
+#endif
 
 #define SCPI_SYSTEM_DIAGNOSTICS_COMMANDS \
     {.pattern = "SYSTem:RUN:LAST?", .callback = scpi_system_diagnostics_run_last_q}, \
@@ -31,6 +39,7 @@ scpi_result_t scpi_cmd_flash_transaction_q(scpi_t *context);
     {.pattern = "SYSTem:DIAGnostic:FLASh:MAP?", .callback = scpi_cmd_flash_map_q}, \
     {.pattern = "SYSTem:DIAGnostic:FLASh:ACCEss?", .callback = scpi_cmd_flash_access_q}, \
     {.pattern = "SYSTem:DIAGnostic:FLASh:TRANsaction?", .callback = scpi_cmd_flash_transaction_q}, \
+    SCPI_SYSTEM_DIAGNOSTICS_FLASH_VALIDATION_COMMAND \
     {.pattern = "SYSTem:FAULT:CLEAr", .callback = scpi_port_result_accepted}
 
 #define SCPI_SYSTEM_DIAGNOSTICS_READ_COMMANDS \

@@ -90,7 +90,11 @@ static bool fake_policy(uint32_t requester)
     return s_policy_ok &&
            (requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE ||
             requester == FLASH_TRANSACTION_REQUESTER_OTA_METADATA ||
-            requester == FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG);
+            requester == FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG
+#if PROJECT_ENABLE_FLASH_VALIDATION
+            || requester == FLASH_TRANSACTION_REQUESTER_VALIDATION
+#endif
+           );
 }
 
 static uint32_t fake_policy_check(uint32_t requester,
@@ -843,6 +847,67 @@ static void test_product_config_policy_and_owned_payload(void)
                   FLASH_TRANSACTION_ERROR_PERMISSION);
 }
 
+#if PROJECT_ENABLE_FLASH_VALIDATION
+static flash_transaction_request_t validation_request(uint32_t operation,
+                                                       const uint8_t *data)
+{
+    const flash_transaction_request_t request = {
+        .requester = FLASH_TRANSACTION_REQUESTER_VALIDATION,
+        .partition_id = FLASH_COMPAT_MAP_SCRATCH_ID,
+        .operation = operation,
+        .relative_offset = 0u,
+        .length = operation == FLASH_TRANSACTION_OPERATION_ERASE
+                      ? FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES
+                      : FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES,
+        .data = data,
+        .provider_generation =
+            operation == FLASH_TRANSACTION_OPERATION_PROGRAM ? 1u : 0u,
+        .store_generation = 1u,
+    };
+    return request;
+}
+
+static void test_validation_is_scratch_only(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+
+    uint8_t page[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES];
+    memset(page, 0xA5u, sizeof(page));
+    flash_transaction_request_t request =
+        validation_request(FLASH_TRANSACTION_OPERATION_ERASE, NULL);
+    flash_transaction_vector_t vector = run_request(&context, &request);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(s_last_offset == FLASH_COMPAT_MAP_SCRATCH_OFFSET);
+    assert(s_last_length == FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES);
+
+    request = validation_request(FLASH_TRANSACTION_OPERATION_PROGRAM, page);
+    vector = run_request(&context, &request);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(s_last_offset == FLASH_COMPAT_MAP_SCRATCH_OFFSET);
+    assert(s_last_length == FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES);
+    const uint32_t program_count = s_program_count;
+    const uint32_t erase_count = s_erase_count;
+
+    request.partition_id = FLASH_COMPAT_MAP_APP_A_ID;
+    assert_failed(run_request(&context, &request),
+                  FLASH_TRANSACTION_ERROR_PERMISSION);
+    assert(s_program_count == program_count);
+
+    request = validation_request(FLASH_TRANSACTION_OPERATION_PROGRAM, page);
+    request.relative_offset = FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES;
+    assert_failed(run_request(&context, &request),
+                  FLASH_TRANSACTION_ERROR_PERMISSION);
+    assert(s_program_count == program_count);
+
+    request = validation_request(FLASH_TRANSACTION_OPERATION_ERASE, NULL);
+    request.length = FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES * 2u;
+    assert_failed(run_request(&context, &request),
+                  FLASH_TRANSACTION_ERROR_PERMISSION);
+    assert(s_erase_count == erase_count);
+}
+#endif
+
 static void test_metadata_policy(void)
 {
     flash_transaction_fb_t context;
@@ -1068,6 +1133,9 @@ int main(void)
     test_terminal_completion_is_stable_and_duplicate_abort_is_rejected();
     test_terminal_job_id_replay_is_rejected();
     test_product_config_policy_and_owned_payload();
+#if PROJECT_ENABLE_FLASH_VALIDATION
+    test_validation_is_scratch_only();
+#endif
     test_metadata_policy();
     test_busy_abort_and_snapshot();
     test_abort_during_raw_operation_skips_verify_and_commit();

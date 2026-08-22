@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "project_config.h"
+
 #define FLASH_TRANSACTION_INVALID_PARTITION UINT32_MAX
 
 typedef struct {
@@ -265,6 +267,21 @@ static uint32_t flash_transaction_validate(
         if (request->partition_id != FLASH_COMPAT_MAP_BOOT_CONTROL_ID) {
             return FLASH_TRANSACTION_ERROR_PERMISSION;
         }
+    } else if (request->requester == FLASH_TRANSACTION_REQUESTER_VALIDATION) {
+#if PROJECT_ENABLE_FLASH_VALIDATION
+        /* Validation is deliberately constrained to the first erase sector of
+         * Scratch.  No arbitrary offset or other partition can enter the
+         * transaction owner through this requester. */
+        if (request->partition_id != FLASH_COMPAT_MAP_SCRATCH_ID ||
+            request->relative_offset != 0u ||
+            (request->operation == FLASH_TRANSACTION_OPERATION_ERASE
+                 ? request->length != FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES
+                 : request->length != FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES)) {
+            return FLASH_TRANSACTION_ERROR_PERMISSION;
+        }
+#else
+        return FLASH_TRANSACTION_ERROR_POLICY;
+#endif
     } else {
         return FLASH_TRANSACTION_ERROR_PERMISSION;
     }

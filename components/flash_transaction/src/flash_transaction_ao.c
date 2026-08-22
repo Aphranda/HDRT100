@@ -6,6 +6,7 @@
 #include "diagnostics.h"
 #include "drv_flash_write.h"
 #include "flash_transaction_fb.h"
+#include "project_config.h"
 #include "resource_arbiter.h"
 
 #define FLASH_TRANSACTION_OWNER "FlashTransactionAO"
@@ -42,7 +43,9 @@ static uint32_t flash_transaction_policy_check(uint32_t requester,
     }
     if (requester != FLASH_TRANSACTION_REQUESTER_OTA_IMAGE &&
         requester != FLASH_TRANSACTION_REQUESTER_OTA_METADATA &&
-        requester != FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG) {
+        requester != FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG &&
+        !(PROJECT_ENABLE_FLASH_VALIDATION &&
+          requester == FLASH_TRANSACTION_REQUESTER_VALIDATION)) {
         return FLASH_TRANSACTION_ERROR_POLICY;
     }
     resource_arbiter_snapshot_t arbiter;

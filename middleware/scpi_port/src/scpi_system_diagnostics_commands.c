@@ -4,6 +4,8 @@
 
 #include "flash_transaction.h"
 #include "flash_map.h"
+#include "drv_flash.h"
+#include "project_config.h"
 #include "resource_arbiter.h"
 #include "scpi_port_internal.h"
 #include "sync_trigger.h"
@@ -224,3 +226,105 @@ scpi_result_t scpi_cmd_flash_transaction_q(scpi_t *context)
     SCPI_ResultUInt32(context, vector.completed_timestamp_ms);
     return SCPI_RES_OK;
 }
+
+#if PROJECT_ENABLE_FLASH_VALIDATION
+static uint32_t scpi_flash_validation_hash(const uint8_t *data,
+                                            uint32_t length)
+{
+    uint32_t hash = 2166136261u;
+    for (uint32_t index = 0u; index < length; index++) {
+        hash ^= data[index];
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+scpi_result_t scpi_cmd_flash_scratch_validate(scpi_t *context)
+{
+    uint32_t confirm = 0u;
+    uint32_t pattern_id = 0u;
+    if (!SCPI_ParamUInt32(context, &confirm, TRUE) ||
+        !SCPI_ParamUInt32(context, &pattern_id, TRUE) ||
+        confirm != 0x53435254u || pattern_id > 1u) {
+        return SCPI_RES_ERR;
+    }
+
+    static uint8_t pattern[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES];
+    for (uint32_t index = 0u; index < sizeof(pattern); index++) {
+        pattern[index] = pattern_id == 0u ? 0xA5u : 0x5Au;
+    }
+    const uint32_t expected_hash =
+        scpi_flash_validation_hash(pattern, sizeof(pattern));
+
+    flash_transaction_completion_t completion;
+    const flash_transaction_request_t erase = {
+        /* Let FlashTransactionAO allocate a fresh identity on every run. */
+        .job_id = 0u,
+        .requester = FLASH_TRANSACTION_REQUESTER_VALIDATION,
+        .partition_id = FLASH_COMPAT_MAP_SCRATCH_ID,
+        .operation = FLASH_TRANSACTION_OPERATION_ERASE,
+        .relative_offset = 0u,
+        .length = FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES,
+        .store_generation = 1u,
+    };
+    const bool erase_ok = flash_transaction_ao_execute(&erase, &completion);
+    bool program_ok = false;
+    uint32_t readback_hash = 0u;
+    bool restore_ok = false;
+    bool hash_match = false;
+    bool erased_ok = false;
+    if (erase_ok) {
+        const flash_transaction_request_t program = {
+            .job_id = 0u,
+            .requester = FLASH_TRANSACTION_REQUESTER_VALIDATION,
+            .partition_id = FLASH_COMPAT_MAP_SCRATCH_ID,
+            .operation = FLASH_TRANSACTION_OPERATION_PROGRAM,
+            .relative_offset = 0u,
+            .length = sizeof(pattern),
+            .data = pattern,
+            .provider_generation = 1u,
+            .store_generation = 1u,
+        };
+        program_ok = flash_transaction_ao_execute(&program, &completion);
+        const uint8_t *readback = drv_flash_xip_ptr(
+            FLASH_COMPAT_MAP_SCRATCH_OFFSET);
+        if (program_ok && readback != NULL) {
+            readback_hash = scpi_flash_validation_hash(readback,
+                                                        sizeof(pattern));
+            hash_match = readback_hash == expected_hash;
+        }
+
+        const flash_transaction_request_t restore = {
+            .job_id = 0u,
+            .requester = FLASH_TRANSACTION_REQUESTER_VALIDATION,
+            .partition_id = FLASH_COMPAT_MAP_SCRATCH_ID,
+            .operation = FLASH_TRANSACTION_OPERATION_ERASE,
+            .relative_offset = 0u,
+            .length = FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES,
+            .store_generation = 1u,
+        };
+        restore_ok = flash_transaction_ao_execute(&restore, &completion);
+        const uint8_t *restored = drv_flash_xip_ptr(
+            FLASH_COMPAT_MAP_SCRATCH_OFFSET);
+        if (restore_ok && restored != NULL) {
+            erased_ok = true;
+            for (uint32_t index = 0u;
+                 index < FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES; index++) {
+                if (restored[index] != 0xFFu) {
+                    erased_ok = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    SCPI_ResultBool(context, erase_ok ? TRUE : FALSE);
+    SCPI_ResultBool(context, program_ok ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, expected_hash);
+    SCPI_ResultUInt32(context, readback_hash);
+    SCPI_ResultBool(context, hash_match ? TRUE : FALSE);
+    SCPI_ResultBool(context, restore_ok ? TRUE : FALSE);
+    SCPI_ResultBool(context, erased_ok ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+#endif

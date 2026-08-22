@@ -39,6 +39,7 @@ FORBIDDEN_RELEASE_STRINGS = (
     b"SYST:OTA:INJ",
     b"SYSTem:BOOT:BOOTSel",
     b"SYST:BOOT:BOOTS",
+    b"SYSTem:DIAGnostic:FLASh:VALidate",
 )
 
 

@@ -45,6 +45,20 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "FlashTransaction host unit tests passed"
 
+$validationExe = Join-Path $build "test_flash_transaction_validation.exe"
+& $hostCc.Source -std=c11 -Wall -Wextra -Werror `
+    -DPROJECT_ENABLE_FLASH_VALIDATION=1 `
+    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" `
+    $testSource $serviceSource -o $validationExe
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+& $validationExe
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+Write-Host "FlashTransaction validation host unit tests passed"
+
 $journalExe = Join-Path $build "test_flash_transaction_journal.exe"
 & $hostCc.Source -std=c11 -Wall -Wextra -Werror `
     "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" `

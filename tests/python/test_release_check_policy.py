@@ -82,6 +82,21 @@ def test_release_artifacts_reject_validation_bootsel_command(tmp_path):
     assert "forbidden validation command string" in failures[0]
 
 
+def test_release_artifacts_reject_flash_validation_command(tmp_path):
+    build = tmp_path / "build"
+    build.mkdir()
+    (build / "DHRT100.bin").write_bytes(
+        b"SYSTem:DIAGnostic:FLASh:VALidate")
+    (build / "DHRT100.elf").write_bytes(b"release")
+    (build / "DHRT100_BOOT.elf").write_bytes(b"boot")
+    failures = []
+
+    check_forbidden_strings(tmp_path, build, failures)
+
+    assert len(failures) == 1
+    assert "FLASh:VALidate" in failures[0]
+
+
 def test_release_policy_requires_independent_flash_owner_report(tmp_path):
     failures = []
 

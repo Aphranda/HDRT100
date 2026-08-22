@@ -79,6 +79,18 @@
       "write_frequency": "read_only",
       "power_cut_semantics": "read_only",
       "target_api": "FlashMapReadView"
+    },
+    {
+      "file": "middleware/scpi_port/src/scpi_system_diagnostics_commands.c",
+      "owner": "FlashValidationService",
+      "contexts": ["app"],
+      "core": "core0",
+      "modes": ["maintenance"],
+      "partitions": ["scratch"],
+      "operations": ["xip_ptr"],
+      "write_frequency": "operator_validation_only",
+      "power_cut_semantics": "validation_must_restore_scratch_before_success",
+      "target_api": "FlashTransactionAO"
     }
   ],
   "legacy_address_dependencies": [
