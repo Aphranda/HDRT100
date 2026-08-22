@@ -117,6 +117,11 @@ static void test_append_select_and_replay(void)
     assert(pota_bcb_store_select_newest(&store, &view) == POTA_BCB_RESULT_OK);
     assert(view.update.sequence == 2u && view.update.payload[0] == 0xB2u);
 
+    pota_bcb_wear_snapshot_t wear;
+    assert(pota_bcb_store_get_wear_snapshot(&store, &wear));
+    assert(wear.program_page_count == 5u);
+    assert(wear.erase_lane_count == 1u);
+
     pota_bcb_update_t rollback = update(3u, 0xC3u);
     rollback.security_counter = 1u;
     assert(pota_bcb_store_append(&store, &rollback, &view) == POTA_BCB_RESULT_POLICY);

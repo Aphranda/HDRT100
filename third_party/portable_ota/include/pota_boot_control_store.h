@@ -35,6 +35,10 @@ typedef struct {
     bool (*program_page)(void *context, uint32_t lane, uint32_t page,
                          const uint8_t *data, uint32_t length);
     bool (*erase_lane)(void *context, uint32_t lane);
+    /* Optional telemetry hooks. They observe physical operations and must not
+     * perform Flash IO or mutate the BCB decision. */
+    void (*on_program_page)(void *context, uint32_t lane, uint32_t page);
+    void (*on_erase_lane)(void *context, uint32_t lane);
 } pota_bcb_platform_t;
 
 typedef struct {
@@ -57,7 +61,14 @@ typedef struct {
     uint32_t schema_version;
     uint32_t map_version;
     uint32_t lane_page_count;
+    uint32_t program_page_count;
+    uint32_t erase_lane_count;
 } pota_bcb_store_t;
+
+typedef struct {
+    uint32_t program_page_count;
+    uint32_t erase_lane_count;
+} pota_bcb_wear_snapshot_t;
 
 pota_bcb_result_t pota_bcb_store_init(pota_bcb_store_t *store,
                                        const pota_bcb_platform_t *platform,
@@ -69,5 +80,7 @@ pota_bcb_result_t pota_bcb_store_select_newest(const pota_bcb_store_t *store,
 pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,
                                          const pota_bcb_update_t *update,
                                          pota_bcb_view_t *view);
+bool pota_bcb_store_get_wear_snapshot(const pota_bcb_store_t *store,
+                                      pota_bcb_wear_snapshot_t *snapshot);
 
 #endif

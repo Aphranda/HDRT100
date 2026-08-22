@@ -87,12 +87,25 @@ static bool program_page_verified(const pota_bcb_store_t *store,
                                   const uint8_t *data)
 {
     uint8_t readback[POTA_BCB_PAGE_SIZE];
+    ((pota_bcb_store_t *)store)->program_page_count++;
+    if (store->platform.on_program_page != NULL) {
+        store->platform.on_program_page(store->platform.context, lane, page);
+    }
     if (!store->platform.program_page(store->platform.context, lane, page,
                                        data, POTA_BCB_PAGE_SIZE) ||
         !read_page(store, lane, page, readback)) {
         return false;
     }
     return memcmp(data, readback, sizeof(readback)) == 0;
+}
+
+static bool erase_lane(const pota_bcb_store_t *store, uint32_t lane)
+{
+    ((pota_bcb_store_t *)store)->erase_lane_count++;
+    if (store->platform.on_erase_lane != NULL) {
+        store->platform.on_erase_lane(store->platform.context, lane);
+    }
+    return store->platform.erase_lane(store->platform.context, lane);
 }
 
 static uint32_t body_crc32(const pota_bcb_body_t *body)
@@ -381,7 +394,7 @@ pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,
         } else {
             lane = (lane + 1u) % POTA_BCB_LANE_COUNT;
             lane_generation = next_generation(newest_lane_generation(store));
-            if (!store->platform.erase_lane(store->platform.context, lane)) {
+            if (!erase_lane(store, lane)) {
                 return POTA_BCB_RESULT_IO;
             }
         }
@@ -389,7 +402,7 @@ pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,
         return selected;
     } else {
         lane_generation = next_generation(newest_lane_generation(store));
-        if (!store->platform.erase_lane(store->platform.context, lane)) {
+        if (!erase_lane(store, lane)) {
             return POTA_BCB_RESULT_IO;
         }
     }
@@ -406,4 +419,15 @@ pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,
     view->lane_generation = lane_generation;
     view->update = *update;
     return POTA_BCB_RESULT_OK;
+}
+
+bool pota_bcb_store_get_wear_snapshot(const pota_bcb_store_t *store,
+                                      pota_bcb_wear_snapshot_t *snapshot)
+{
+    if (store == NULL || snapshot == NULL || !platform_valid(store)) {
+        return false;
+    }
+    snapshot->program_page_count = store->program_page_count;
+    snapshot->erase_lane_count = store->erase_lane_count;
+    return true;
 }
