@@ -300,6 +300,23 @@ scpi_result_t scpi_cmd_ota_capability_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_ota_bcb_health_q(scpi_t *context)
+{
+    ota_metadata_bcb_health_t health;
+    if (!ota_metadata_get_bcb_health(&health)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, health.valid_lane_count);
+    SCPI_ResultUInt32(context, health.valid_record_count);
+    SCPI_ResultUInt32(context, health.newest_lane_generation);
+    SCPI_ResultUInt32(context, health.newest_sequence);
+    SCPI_ResultUInt32(context, health.newest_security_counter);
+    SCPI_ResultUInt32(context, health.newest_lane);
+    SCPI_ResultUInt32(context, health.newest_record_page);
+    return SCPI_RES_OK;
+}
+
 static bool scpi_ota_stream_source_read(scpi_t *context,
                                         pota_stream_ingress_source_t *source)
 {

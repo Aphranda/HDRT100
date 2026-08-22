@@ -201,6 +201,45 @@ static void test_gc_preserves_old_until_new_lane_sealed(void)
     assert(view.update.sequence == 2u);
 }
 
+static void test_health_snapshot_reconstructs_from_flash(void)
+{
+    fake_flash_t flash;
+    fake_init(&flash);
+    pota_bcb_store_t store = make_store(&flash);
+    pota_bcb_view_t view;
+
+    for (uint32_t sequence = 1u; sequence <= 3u; sequence++) {
+        pota_bcb_update_t next = update(sequence, (uint8_t)sequence);
+        assert(pota_bcb_store_append(&store, &next, &view) ==
+               POTA_BCB_RESULT_OK);
+    }
+
+    pota_bcb_health_snapshot_t health;
+    assert(pota_bcb_store_get_health_snapshot(&store, &health));
+    assert(health.valid_lane_count == 2u);
+    assert(health.valid_record_count == 3u);
+    assert(health.newest_lane_generation == 2u);
+    assert(health.newest_sequence == 3u);
+    assert(health.newest_security_counter == 3u);
+    assert(health.newest_lane == 1u);
+    assert(health.newest_record_page == 0u);
+
+    pota_bcb_store_t restored = make_store(&flash);
+    assert(pota_bcb_store_get_health_snapshot(&restored, &health));
+    assert(health.valid_lane_count == 2u);
+    assert(health.valid_record_count == 3u);
+    assert(health.newest_lane_generation == 2u);
+    assert(health.newest_sequence == 3u);
+
+    flash.pages[1u][1u][0u] ^= 0x01u;
+    restored = make_store(&flash);
+    assert(pota_bcb_store_get_health_snapshot(&restored, &health));
+    assert(health.valid_lane_count == 2u);
+    assert(health.valid_record_count == 2u);
+    assert(health.newest_sequence == 2u);
+    assert(health.newest_lane == 0u);
+}
+
 static void test_boot_control_facade_owner_boundary(void)
 {
     fake_flash_t flash;
@@ -240,6 +279,7 @@ int main(void)
     test_append_select_and_replay();
     test_fault_boundaries_fail_closed();
     test_gc_preserves_old_until_new_lane_sealed();
+    test_health_snapshot_reconstructs_from_flash();
     test_boot_control_facade_owner_boundary();
     puts("portable BCB store tests passed");
     return 0;

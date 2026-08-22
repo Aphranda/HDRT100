@@ -454,6 +454,25 @@ bool ota_metadata_repair_copies(void)
     return ota_metadata_store(&metadata);
 }
 
+bool ota_metadata_get_bcb_health(ota_metadata_bcb_health_t *health)
+{
+    pota_boot_control_facade_t store;
+    pota_bcb_health_snapshot_t snapshot;
+    if (health == NULL || !ota_metadata_bcb_init(&store) ||
+        !pota_boot_control_facade_get_health_snapshot(&store, &snapshot)) {
+        return false;
+    }
+
+    health->valid_lane_count = snapshot.valid_lane_count;
+    health->valid_record_count = snapshot.valid_record_count;
+    health->newest_lane_generation = snapshot.newest_lane_generation;
+    health->newest_sequence = snapshot.newest_sequence;
+    health->newest_security_counter = snapshot.newest_security_counter;
+    health->newest_lane = snapshot.newest_lane;
+    health->newest_record_page = snapshot.newest_record_page;
+    return true;
+}
+
 const char *ota_metadata_boot_result_to_string(uint32_t result)
 {
     return portable_ota_port_boot_result_to_string(result);

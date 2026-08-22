@@ -55,3 +55,13 @@ bool pota_boot_control_facade_get_wear_snapshot(
     }
     return pota_bcb_store_get_wear_snapshot(&facade->store, snapshot);
 }
+
+bool pota_boot_control_facade_get_health_snapshot(
+    const pota_boot_control_facade_t *facade,
+    pota_bcb_health_snapshot_t *snapshot)
+{
+    if (facade == NULL || !facade->initialized) {
+        return false;
+    }
+    return pota_bcb_store_get_health_snapshot(&facade->store, snapshot);
+}

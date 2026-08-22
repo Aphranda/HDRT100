@@ -30,5 +30,8 @@ pota_bcb_result_t pota_boot_control_facade_append(
 bool pota_boot_control_facade_get_wear_snapshot(
     const pota_boot_control_facade_t *facade,
     pota_bcb_wear_snapshot_t *snapshot);
+bool pota_boot_control_facade_get_health_snapshot(
+    const pota_boot_control_facade_t *facade,
+    pota_bcb_health_snapshot_t *snapshot);
 
 #endif

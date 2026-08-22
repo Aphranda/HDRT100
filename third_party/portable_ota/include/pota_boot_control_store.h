@@ -70,6 +70,16 @@ typedef struct {
     uint32_t erase_lane_count;
 } pota_bcb_wear_snapshot_t;
 
+typedef struct {
+    uint32_t valid_lane_count;
+    uint32_t valid_record_count;
+    uint32_t newest_lane_generation;
+    uint32_t newest_sequence;
+    uint32_t newest_security_counter;
+    uint32_t newest_lane;
+    uint32_t newest_record_page;
+} pota_bcb_health_snapshot_t;
+
 pota_bcb_result_t pota_bcb_store_init(pota_bcb_store_t *store,
                                        const pota_bcb_platform_t *platform,
                                        uint32_t schema_version,
@@ -82,5 +92,8 @@ pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,
                                          pota_bcb_view_t *view);
 bool pota_bcb_store_get_wear_snapshot(const pota_bcb_store_t *store,
                                       pota_bcb_wear_snapshot_t *snapshot);
+bool pota_bcb_store_get_health_snapshot(
+    const pota_bcb_store_t *store,
+    pota_bcb_health_snapshot_t *snapshot);
 
 #endif

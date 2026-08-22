@@ -78,6 +78,16 @@ typedef struct {
     uint32_t metadata_ab_crc32;
 } ota_metadata_t;
 
+typedef struct {
+    uint32_t valid_lane_count;
+    uint32_t valid_record_count;
+    uint32_t newest_lane_generation;
+    uint32_t newest_sequence;
+    uint32_t newest_security_counter;
+    uint32_t newest_lane;
+    uint32_t newest_record_page;
+} ota_metadata_bcb_health_t;
+
 bool ota_metadata_load(ota_metadata_t *metadata);
 bool ota_metadata_store(const ota_metadata_t *metadata);
 bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size, uint32_t image_crc32);
@@ -96,6 +106,7 @@ bool ota_metadata_fail_copy_transaction(uint32_t last_error);
 bool ota_metadata_clear_copy_transaction(void);
 bool ota_metadata_corrupt_copy(uint32_t copy_index);
 bool ota_metadata_repair_copies(void);
+bool ota_metadata_get_bcb_health(ota_metadata_bcb_health_t *health);
 const char *ota_metadata_boot_result_to_string(uint32_t result);
 uint32_t ota_metadata_crc32(const ota_metadata_t *metadata);
 uint32_t ota_metadata_ext_crc32(const ota_metadata_t *metadata);

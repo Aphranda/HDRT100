@@ -431,3 +431,47 @@ bool pota_bcb_store_get_wear_snapshot(const pota_bcb_store_t *store,
     snapshot->erase_lane_count = store->erase_lane_count;
     return true;
 }
+
+bool pota_bcb_store_get_health_snapshot(
+    const pota_bcb_store_t *store,
+    pota_bcb_health_snapshot_t *snapshot)
+{
+    if (!platform_valid(store) || snapshot == NULL ||
+        store->lane_page_count < 3u) {
+        return false;
+    }
+
+    (void)memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->newest_lane = UINT32_MAX;
+    snapshot->newest_record_page = UINT32_MAX;
+
+    bool found = false;
+    for (uint32_t lane = 0u; lane < POTA_BCB_LANE_COUNT; lane++) {
+        pota_bcb_seal_t seal;
+        if (!read_seal(store, lane, &seal) || !seal_valid(store, &seal)) {
+            continue;
+        }
+        snapshot->valid_lane_count++;
+        if (seal.lane_generation > snapshot->newest_lane_generation) {
+            snapshot->newest_lane_generation = seal.lane_generation;
+        }
+
+        for (uint32_t slot = 0u; slot < records_per_lane(store); slot++) {
+            const uint32_t page = slot * 2u;
+            pota_bcb_body_t body;
+            if (!read_record(store, lane, page, seal.lane_generation, &body)) {
+                continue;
+            }
+            snapshot->valid_record_count++;
+            if (!found || sequence_newer(body.sequence,
+                                         snapshot->newest_sequence)) {
+                snapshot->newest_sequence = body.sequence;
+                snapshot->newest_security_counter = body.security_counter;
+                snapshot->newest_lane = lane;
+                snapshot->newest_record_page = page;
+                found = true;
+            }
+        }
+    }
+    return true;
+}
