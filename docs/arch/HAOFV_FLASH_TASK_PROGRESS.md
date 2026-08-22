@@ -16,6 +16,22 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-020 - M4-02 OTA chunk readback boundary
+
+- 状态：stream write 的 durable boundary 已收敛到 program 后 readback；真实 ingress、v2 journal
+  和 DHRT100 跨 reset 证据仍待完成。
+- 代码提交：`3b36dd5 feat(ota): verify streamed chunks by readback`，已推送。portable OTA core
+  通过 `portable_core_flash_read()` 使用 `drv_flash_read` 回读每个 program buffer；缺少 read API
+  或内容不一致时返回 `POTA_ERR_READBACK`，状态进入 FAILED，`programmed_size` 不推进。该 read
+  caller 已加入 `config/flash_raw_call_allowlist.json`，owner 为 `OtaStreamReadView`，只读且仅
+  面向 v1 inactive slot。
+- 验证：`run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m4-02-readback` 通过；
+  `run_host_unit_tests.ps1 -BuildDir build-host-m4-readback-2` 通过 30/30，新增 readback corruption
+  负向用例。`build-flash-m1-05h-20260823-release` 主工程、Flash inventory/link gate 和
+  `release_check=OK` 通过。
+- 边界：当前仍是 v1 compatibility map；没有把 readback 单测解释为真实掉电、Recovery、
+  BOOTSEL 或 DHRT100 烧录闭环。
+
 ### FLASH-TASK-20260823-019 - M4-02 durable stream checkpoint primitive
 
 - 状态：M4-02 portable checkpoint 子项完成 host 可复核切片；真实 v2 `OTA_JOURNAL` producer、
