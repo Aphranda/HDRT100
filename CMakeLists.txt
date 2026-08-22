@@ -165,6 +165,7 @@ set(PROJECT_PORTABLE_OTA_ADAPTER_SOURCES
         third_party/portable_ota/src/pota_stream_checkpoint.c
         third_party/portable_ota/src/pota_image.c
         third_party/portable_ota/src/pota_metadata.c
+        third_party/portable_ota/src/pota_direct_ab.c
         third_party/portable_ota/src/pota_strings.c
         third_party/portable_ota/src/pota_compat.c
 )
@@ -582,6 +583,7 @@ set_source_files_properties(
         third_party/portable_ota/src/pota_stream_checkpoint.c
         third_party/portable_ota/src/pota_image.c
         third_party/portable_ota/src/pota_metadata.c
+        third_party/portable_ota/src/pota_direct_ab.c
         third_party/portable_ota/src/pota_strings.c
         third_party/portable_ota/src/pota_compat.c
         PROPERTIES

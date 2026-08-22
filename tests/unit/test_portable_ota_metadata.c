@@ -1,4 +1,5 @@
 #include "pota_metadata.h"
+#include "pota_direct_ab.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -247,6 +248,39 @@ int main(void)
     failed += expect_u32("rollback attempts", direct.boot_attempts, 0u);
     failed += expect_u32("rollback count", direct.rollback_count, 1u);
     failed += expect_u32("rollback result", direct.last_boot_result, (uint32_t)POTA_BOOT_RESULT_MAX_ATTEMPTS);
+
+    pota_direct_ab_decision_t decision;
+    direct.pending_slot = (uint32_t)POTA_SLOT_B;
+    direct.boot_attempts = 1u;
+    pota_metadata_update_crc(&direct);
+    failed += expect_true("direct decision boot pending",
+                          pota_direct_ab_decide(&direct, 3u, &decision));
+    failed += expect_u32("direct decision kind",
+                         decision.kind,
+                         POTA_DIRECT_AB_DECISION_BOOT_PENDING);
+    failed += expect_u32("direct decision slot",
+                         decision.pending_slot,
+                         (uint32_t)POTA_SLOT_B);
+
+    direct.boot_attempts = 3u;
+    pota_metadata_update_crc(&direct);
+    failed += expect_true("direct decision rollback",
+                          pota_direct_ab_decide(&direct, 3u, &decision));
+    failed += expect_u32("direct rollback decision kind",
+                         decision.kind,
+                         POTA_DIRECT_AB_DECISION_ROLLBACK);
+    failed += expect_u32("direct rollback decision slot",
+                         decision.rollback_slot,
+                         (uint32_t)POTA_SLOT_A);
+
+    direct.pending_slot = (uint32_t)POTA_SLOT_NONE;
+    direct.boot_attempts = 0u;
+    pota_metadata_update_crc(&direct);
+    failed += expect_true("direct decision no pending",
+                          pota_direct_ab_decide(&direct, 3u, &decision));
+    failed += expect_u32("direct no pending kind",
+                         decision.kind,
+                         POTA_DIRECT_AB_DECISION_NO_PENDING);
 
     failed += expect_true("record boot result clear pending",
                           pota_metadata_record_boot_result(&direct,

@@ -58,7 +58,8 @@ New-Item -ItemType Directory -Force -Path $build | Out-Null
 $commonSources = @(
     (Join-Path $src "pota_crc32.c"),
     (Join-Path $src "pota_package.c"),
-    (Join-Path $src "pota_metadata.c")
+    (Join-Path $src "pota_metadata.c"),
+    (Join-Path $src "pota_direct_ab.c")
 )
 
 $testPrograms = @(
