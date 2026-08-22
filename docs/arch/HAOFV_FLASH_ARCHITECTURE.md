@@ -31,7 +31,8 @@ Last updated: 2026-08-22
 
 1. 哪些数据进入板载 Flash，哪些必须留在 RAM、SD 或分发源。
 2. 谁能 erase/program，如何证明写入已经 durable。
-3. Boot、App、factory tool、USB/SD/TDMA OTA 如何共享一个 FlashMap 和镜像信任链。
+3. Boot、App、factory tool、USB CDC、USBTMC、UART、RS485、SD 和 TDMA OTA 如何共享一个 FlashMap
+   和镜像信任链。
 4. 如何从当前兼容布局迁移到目标 v2，并验证掉电、回滚、寿命和实时性。
 
 各业务域仍解释自己的数据语义。Calibration 决定 delay/bias 是否 accepted，VDC 决定 DPLL
@@ -63,7 +64,8 @@ Flash Domain 只提供存储、事务、权限和 completion，不成为第二�
 | Boot writer | Bootloader 使用自己的最小写路径。 | 保留独立 `BootFlashService`，但与 App 共用 geometry/map/BCB 契约。 |
 | Boot 模式 | Direct A/B 已为发布默认，同时仍保留 `COPY_TO_ACTIVE` 能力。 | 只保留 Direct A/B test/confirm/revert 主线。 |
 | 数据存储 | Product Config 固定 sector；Calibration/VDC/RefMem 无统一生产持久化。 | NVS/blob/FCB + versioned namespace + atomic ref。 |
-| OTA | USB/SD 已闭环；TDMA 有 reliable bulk 资源基础但无 stream session。 | 所有 ingress 共用 `OtaStreamSession` 和 durable Flash sink。 |
+| OTA | USB CDC/USBTMC/SD 已有入口；UART/RS485 有通信资源基础；TDMA 有 reliable bulk 资源基础但无
+  stream session。 | 五类本地 ingress 共用 `OtaStreamSession` 和 durable Flash sink，TDMA 在 M5 接入。 |
 
 ## 二、顶层决策与契约索引
 
@@ -94,7 +96,7 @@ Flash Domain 只提供存储、事务、权限和 completion，不成为第二�
 | `ARCH-FLASHOWNER-01` | 第三章 | App 只有 core0 FlashTransactionAO 可写；Boot 使用最小服务。 |
 | `DOCS-FLASH-01` | 第一章 1.0 节 | 架构、TODO、任务进度三类文档各自的事实边界与变更接口。 |
 | `ARCH-BOOTCTRL-01` | 第六章 | BCB 双 lane append/commit，Direct A/B test-confirm-revert。 |
-| `ARCH-OTASTREAM-01` | 第七章 | USB/SD/UART/TDMA 共用 session，ACK 只确认 durable offset。 |
+| `ARCH-OTASTREAM-01` | 第七章 | USB CDC/USBTMC/UART/RS485/SD/TDMA 共用 session，ACK 只确认 durable offset。 |
 | `REFMEM-PERSIST-01` | 第五章 | 只持久化部署 package/ref；上电建立新 epoch。 |
 | `VDC-PERSIST-01` | 第五章 | 只持久化低频 profile；上电重新锁相。 |
 | `ARCH-PIOCAT-01` | 第五章 | 只装载签名 App catalog program；System Pack 只选择 ID。 |
@@ -437,7 +439,9 @@ release 固件不提供任意 offset erase/program。validation destructive comm
 | Release | image signature、anti-rollback、factory/recovery artifact、SBOM/key policy 和报告齐全。 |
 
 只有 host test、build/link gate 和相应 COM8/两板/四板 HIL 都具备证据，registry 契约才可从
-`pending` 进入 `active`。状态变化必须另做 C11 交叉审核。
+`pending` 进入 `active`。状态变化必须另做 C11 交叉审核。M4 的系统对象名为 `DHRT100`；`COM8`
+仅表示当前物理验证端口，不能作为产品或系统名称；历史 `RP2350_TRIG_*` 构建产物名保留到回退
+迁移完成。
 
 ## 九、迁移与发布边界
 
@@ -459,7 +463,7 @@ identity、Boot result 和可恢复 artifact。
 - App/Boot writer 和依赖边界可由 link/scan gate 证明。
 - Direct A/B、Recovery、signature、anti-rollback 和 BCB 掉电闭环完成。
 - Product/Calibration/VDC/RefMem/Deployment/Fault store 有 torn/GC/wear 证据。
-- USB/SD 本地 OTA 与 TDMA 两板/四板分发均使用同一 stream 核心。
+- USB CDC、USBTMC、UART、RS485、SD 本地 OTA 与 TDMA 两板/四板分发均使用同一 stream 核心。
 - release 固件不含 destructive command、dev key 或 v1 隐式 offset 假设。
 
 ## 十、未来产品与平台扩展

@@ -37,7 +37,7 @@ v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在�
 | Flash v2 owner/map/store/Boot/OTA 语义已形成 canonical | `[x]` | `HAOFV_FLASH_ARCHITECTURE.md` | 7 条目标契约仍为 `pending`。 |
 | Direct A/B 为发布默认 | `[x]` | CMake preset/release check/当前 Bootloader | `COPY_TO_ACTIVE` 兼容分支尚未从 v2 清除。 |
 | core1 Flash park/ACK 基础存在 | `[x]` | `drv_flash_lockout.*`、FlashTransaction HIL | OTA image 与 Product Config 已收敛到 FlashTransactionAO；Boot/metadata 仍待迁移。 |
-| USB/SD OTA 基础存在 | `[x]` | `ota_manager`、host tools、历史 OTA 验证 | 尚未共用 v2 stream/journal/Flash sink。 |
+| USB CDC/USBTMC/SD OTA 基础存在 | `[x]` | `ota_manager`、host tools、历史 OTA 验证 | UART/RS485 adapter 尚未接入统一 v2 stream/journal/Flash sink。 |
 | TDMA reliable bulk 资源基础存在 | `[x]` | `tdma_profile.h`、traffic scheduler | 尚无 OTA wire/session/durable ACK。 |
 | RefMem registry、VDC runtime、PIO persona 基础存在 | `[x]` | 对应组件与域文档 | 尚无生产持久化与签名 PIO catalog。 |
 
@@ -50,7 +50,7 @@ M0 契约/迁移输入
   -> M1 FlashMap + 唯一事务 owner
        -> M2 Stores + namespace + PIO catalog
        -> M3 Boot/镜像信任链
-            -> M4 本地 OTA + factory/COM8 迁移
+            -> M4 本地 OTA + DHRT100 样板迁移
                  -> M5 TDMA 流式 OTA
                       -> M6 量产加固与发布
 ```
@@ -59,6 +59,10 @@ M2 和 M3 可在 M1 稳定后并行，但 M4 必须同时依赖 M2/M3；M5 不�
 多板分发。M0-01/M0-02 已完成，M1-01 已完成 geometry/range 子项；M1-02 已完成纯算法、
 generated permission view、版本化 live consumer 和只读板端验证；M1-03 已建立 transaction owner，并已迁移 OTA image 与 Product Config 首个 App writer
 并迁移 OTA image 首个生产 writer，同时保持 v2 只能由 factory full erase/reflash 部署。
+
+当前实验资源策略：四板 COM3–COM6 优先用于 VDC、TDMA 和其他实时算法优化；四板 OTA 只保留
+兼容路径回归，不作为当前 Flash v2 destructive HIL 或迁移完成证据。Flash 的 Scratch、factory
+erase/reflash、回退和 v2 deployment 证据统一在单板 COM8 闭环后再执行。
 
 ### 1.4 下一步执行序（跨电脑交接清单）
 
@@ -94,7 +98,7 @@ generated permission view、版本化 live consumer 和只读板端验证；M1-0
 | M1 | 建立 FlashMap 和 App 唯一写事务层 | M0 | host tests、link scan、高地址 Scratch HIL |
 | M2 | 建立 NVS/Blob/FCB 和主域 namespace | M1 | torn/GC/wear tests、域重启负向 HIL |
 | M3 | 建立 BCB、Direct A/B、签名和 Recovery | M1；M2 提供 BCB/store primitives | Boot fault matrix、factory artifact |
-| M4 | 统一 USB/SD/UART stream 并迁移 COM8 | M2 + M3 | 本地 A/B/revert/resume/Recovery 闭环 |
+| M4 | 统一 USB CDC/USBTMC/UART/RS485/SD stream 并迁移 DHRT100 样板 | M2 + M3 | 本地 A/B/revert/resume/Recovery 闭环 |
 | M5 | 增加 TDMA stream 和多板滚动升级 | M4 + TDMA reliable bulk 稳定 | 两板、四板、实时性和 resume 报告 |
 | M6 | 掉电、寿命、安全、跨平台和 release 收口 | M4/M5 | release gate、长期报告、技术债删除 |
 
@@ -360,8 +364,10 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M3-01 BootFlashService 与依赖白名单
 
-- [ ] Boot target 只链接 geometry/map、BCB、ImageVerifier、Raw HAL、watchdog/LED/ROM recovery。
-- [ ] link gate 拒绝 RTOS、SCPI、TDMA、FatFs、littlefs 和业务组件。
+- [~] Boot target 已独立链接 geometry/map、BCB/metadata、image/vector validator、Raw HAL 和 ROM
+  recovery 相关路径；独立 `BootFlashService` API 与完整最小依赖收敛仍待 M3-02/M3-04。
+- [x] link gate 已接入 Boot map/dis，拒绝 RTOS、SCPI、TDMA、FatFs、littlefs、FlashTransactionAO、
+  resource arbiter、storage manager 和 App OTA AO 符号；当前 build 通过。
 - [ ] Bootloader size 使用 partition symbol gate，不使用文档硬编码阈值。
 
 ### M3-02 BootControlStore
@@ -404,9 +410,10 @@ TODO 只保留可独立验收的状态项和证据索引。
 - [ ] Boot dependency/size/map gate 在 CI 中生效。
 - [ ] factory/recovery artifact 可从空白 Flash 恢复样板。
 
-## 七、M4 本地 OTA 与 COM8 迁移
+## 七、M4 本地 OTA 与 DHRT100 样板迁移
 
-目标：USB/SD/UART 共用一个 transport-neutral session，并在单板完成 v2 迁移闭环。
+目标：USB CDC、USBTMC、UART、RS485、SD 共用一个 transport-neutral session，并在 DHRT100 单板
+样板（当前物理验证端口为 COM8）完成 v2 迁移闭环。
 
 ### M4-01 OtaStreamSession core
 
@@ -424,12 +431,13 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M4-03 Local ingress regression
 
-- [ ] USB/VISA、SD、UART adapter 使用同一 core，兼容状态/error/progress projection。
+- [ ] USB CDC、USBTMC/VISA、SD、UART、RS485 adapter 使用同一 core，兼容状态/error/progress
+  projection。
 - [ ] Stage 只保存 manifest/chunk spill/delta，不缓存完整 A+B package。
 - [ ] 乱序、重复、CRC、truncate、overflow、abort、zero storage、wrong slot/package 全部 fail closed。
-- [ ] USB/SD A->B、B->A、resume、revert、Recovery 回归通过。
+- [ ] USB CDC、USBTMC、UART、RS485、SD 的 A->B、B->A、resume、revert、Recovery 回归通过。
 
-### M4-04 COM8 factory migration
+### M4-04 DHRT100 样板 factory migration（COM8 物理 gate）
 
 - [ ] 迁移前记录 `*IDN?`、build、slot/result、board identity、Product Config、sensor snapshot。
 - [ ] BOOTSEL/factory full erase/reflash v2，确认 USB 重新枚举和 identity 转换策略。
@@ -439,7 +447,7 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M4 退出门禁
 
-- [ ] `ARCH-OTASTREAM-01` 的本地 transport、durable offset 和 resume 证据齐全。
+- [ ] `ARCH-OTASTREAM-01` 的五类本地 transport、durable offset 和 resume 证据齐全。
 - [ ] COM8 在 v2 上完成 A/B/revert/Recovery 和关键 store 重启验证。
 - [ ] 迁移/回退报告归档，未留下依赖 v1 offset 的隐式工具路径。
 
@@ -562,7 +570,7 @@ TODO 只保留可独立验收的状态项和证据索引。
 | Host unit | map/range/store/BCB/session/parser/compatibility | M0-M5 各包 | 全量 |
 | Static/link | map/linker/tool 同源、raw caller、Boot deps、size/string/key scan | M1/M3 | M6-03 |
 | Main build | release + RTOS/双核 validation，warnings-as-errors | M1 | 每个 artifact |
-| 单板 COM8 | Scratch、store reboot、A/B/revert/Recovery/local resume | M1/M2/M3/M4 | M6-03 |
+| DHRT100 单板样板（COM8 物理 gate） | Scratch、store reboot、A/B/revert/Recovery/local resume | M1/M2/M3/M4 | M6-03 |
 | 两板 | TDMA drop/reset/resume + realtime quality | M5-05 | M6-03 |
 | 四板 | cohort/reference migration/failure/rejoin | M5-06 | M6-03 |
 | Long-run | power-cut/wear/thermal/watchdog | M6-01/M6-02 | release 必需 |

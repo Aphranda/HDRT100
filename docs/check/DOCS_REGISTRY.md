@@ -27,7 +27,7 @@ Last updated: 2026-08-22
 | ARCH-FLASHOWNER-01 | arch | App erase/program 仅 core0 FlashTransactionAO，Boot 使用最小 BootFlashService | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | drv_flash_lockout.h | 裸调用扫描/双核 HIL/Boot 依赖审计 | 2026-08-21 | pending |
 | DOCS-FLASH-01 | docs | Flash 域架构、TODO、任务进度三类文档的事实边界与变更接口 | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | doc_regression_check.py | 文档边界/门禁/索引审查 | 2026-08-22 | pending |
 | ARCH-BOOTCTRL-01 | ota | BCB 双 lane append/commit 与 Direct A/B test-confirm-revert | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | ota_metadata.h | torn-write/boot/revert HIL | 2026-08-21 | pending |
-| ARCH-OTASTREAM-01 | ota | USB/SD/UART/TDMA 共用 OtaStreamSession，ACK 只确认 durable offset | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | ota_package.h | transport 回归/parser fuzz/续传 HIL | 2026-08-21 | pending |
+| ARCH-OTASTREAM-01 | ota | USB CDC/USBTMC/UART/RS485/SD/TDMA 共用 OtaStreamSession，ACK 只确认 durable offset | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | ota_package.h | transport 回归/parser fuzz/续传 HIL | 2026-08-21 | pending |
 | REFMEM-PERSIST-01 | refmem | 只持久化部署 package/ref，上电建立新 epoch 且 live mirror 保持 stale | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | refmem_table_registry.h | power-cut/reboot/epoch/stale HIL | 2026-08-21 | pending |
 | VDC-PERSIST-01 | vdc | 只持久化低频 profile，上电从 OFF/CHECKING 基于新观测重新锁相 | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | vdc_domain.h | reboot/negative restore/DPLL HIL | 2026-08-21 | pending |
 | ARCH-PIOCAT-01 | arch | 动态 PIO 只装载签名 App catalog program，System Pack 只选择 ID | 1 | docs/arch/HAOFV_FLASH_ARCHITECTURE.md | tdma_pio_spi_phys.h | catalog/resource/deployment/persona HIL | 2026-08-21 | pending |
