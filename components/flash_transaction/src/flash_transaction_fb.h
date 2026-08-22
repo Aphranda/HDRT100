@@ -38,6 +38,8 @@ typedef struct {
     bool core1_parked;
     bool payload_owned;
     bool provider_reset_pending;
+    const flash_transaction_buffer_lease_t *buffer_lease;
+    bool provider_retained;
 } flash_transaction_fb_t;
 
 void flash_transaction_fb_init(flash_transaction_fb_t *context,

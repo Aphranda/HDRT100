@@ -32,6 +32,22 @@ static bool s_abort_request_accepted;
 static flash_transaction_fb_t *s_provider_reset_context;
 static bool s_provider_reset_during_raw;
 static bool s_provider_reset_request_accepted;
+static bool s_lease_retain_ok;
+static uint32_t s_lease_retain_count;
+static uint32_t s_lease_release_count;
+
+static bool fake_lease_retain(void *context)
+{
+    assert(context != NULL);
+    s_lease_retain_count++;
+    return s_lease_retain_ok;
+}
+
+static void fake_lease_release(void *context)
+{
+    assert(context != NULL);
+    s_lease_release_count++;
+}
 
 static bool fake_policy(uint32_t requester)
 {
@@ -196,6 +212,9 @@ static void reset_fakes(void)
     s_provider_reset_context = NULL;
     s_provider_reset_during_raw = false;
     s_provider_reset_request_accepted = false;
+    s_lease_retain_ok = true;
+    s_lease_retain_count = 0u;
+    s_lease_release_count = 0u;
 }
 
 static void init_context(flash_transaction_fb_t *context)
@@ -485,6 +504,56 @@ static void test_large_payload_is_fail_closed_until_immutable_provider(void)
     assert(s_erase_count == 0u);
 }
 
+static void test_large_payload_immutable_lease_lifecycle(void)
+{
+    flash_transaction_fb_t context;
+    init_context(&context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &context, FLASH_COMPAT_MAP_APP_A_ID));
+    uint8_t payload[FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE +
+                    FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES];
+    memset(payload, 0x6Bu, sizeof(payload));
+    flash_transaction_buffer_lease_t lease = {
+        .data = payload,
+        .length = sizeof(payload),
+        .generation = 4u,
+        .context = payload,
+        .retain = fake_lease_retain,
+        .release = fake_lease_release,
+    };
+    flash_transaction_request_t request = program_request(NULL);
+    request.length = sizeof(payload);
+    request.buffer_lease = &lease;
+
+    flash_transaction_vector_t vector = run_request(&context, &request);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(vector.completion_level == FLASH_TRANSACTION_COMPLETION_COMMITTED);
+    assert(vector.processed_bytes == sizeof(payload));
+    assert(vector.verified_bytes == sizeof(payload));
+    assert(s_lease_retain_count == 1u);
+    assert(s_lease_release_count == 1u);
+    assert(s_program_count == 1u);
+    assert(s_last_program_first_byte == 0x6Bu);
+    assert(!context.provider_retained);
+
+    reset_fakes();
+    lease.generation++;
+    vector = run_request(&context, &request);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_PROVIDER);
+    assert(s_lease_retain_count == 0u);
+    assert(s_lease_release_count == 0u);
+    assert(s_program_count == 0u);
+
+    reset_fakes();
+    lease.generation = request.provider_generation;
+    s_lease_retain_ok = false;
+    vector = run_request(&context, &request);
+    assert_failed(vector, FLASH_TRANSACTION_ERROR_PROVIDER);
+    assert(s_lease_retain_count == 1u);
+    assert(s_lease_release_count == 0u);
+    assert(s_program_count == 0u);
+}
+
 static void test_two_page_ota_payload_is_owned(void)
 {
     flash_transaction_fb_t context;
@@ -737,6 +806,7 @@ int main(void)
     test_thermal_and_diagnostics_gates_are_fail_closed();
     test_policy_reason_hook_preserves_resource_gates();
     test_large_payload_is_fail_closed_until_immutable_provider();
+    test_large_payload_immutable_lease_lifecycle();
     test_two_page_ota_payload_is_owned();
     test_terminal_completion_is_stable_and_duplicate_abort_is_rejected();
     test_product_config_policy_and_owned_payload();

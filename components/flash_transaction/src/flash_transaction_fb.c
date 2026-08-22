@@ -48,6 +48,45 @@ static void flash_transaction_provider_reset_set(
                      __ATOMIC_RELEASE);
 }
 
+static bool flash_transaction_provider_lease_valid(
+    const flash_transaction_fb_t *context)
+{
+    const flash_transaction_request_t *request = &context->request;
+    const flash_transaction_buffer_lease_t *lease = request->buffer_lease;
+    return request->operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
+           request->length > sizeof(context->owned_payload) &&
+           lease != NULL && lease->data != NULL &&
+           lease->length >= request->length &&
+           lease->generation == request->provider_generation &&
+           lease->retain != NULL && lease->release != NULL;
+}
+
+static bool flash_transaction_provider_retain(flash_transaction_fb_t *context)
+{
+    if (context->request.operation != FLASH_TRANSACTION_OPERATION_PROGRAM ||
+        context->request.length <= sizeof(context->owned_payload)) {
+        return true;
+    }
+    if (!flash_transaction_provider_lease_valid(context) ||
+        !context->request.buffer_lease->retain(
+            context->request.buffer_lease->context)) {
+        return false;
+    }
+    context->buffer_lease = context->request.buffer_lease;
+    context->provider_retained = true;
+    context->request.data = context->buffer_lease->data;
+    return true;
+}
+
+static void flash_transaction_provider_release(flash_transaction_fb_t *context)
+{
+    if (context->provider_retained && context->buffer_lease != NULL) {
+        context->buffer_lease->release(context->buffer_lease->context);
+    }
+    context->provider_retained = false;
+    context->buffer_lease = NULL;
+}
+
 static void flash_transaction_set_state(flash_transaction_fb_t *context,
                                         uint32_t state)
 {
@@ -124,7 +163,7 @@ static uint32_t flash_transaction_validate(
         return FLASH_TRANSACTION_ERROR_ALIGNMENT;
     }
     if (request->operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
-        (request->data == NULL || request->provider_generation == 0u)) {
+        request->provider_generation == 0u) {
         return FLASH_TRANSACTION_ERROR_PROVIDER;
     }
     if (request->requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE) {
@@ -156,10 +195,14 @@ static uint32_t flash_transaction_validate(
     } else {
         return FLASH_TRANSACTION_ERROR_PERMISSION;
     }
-    /* Until the immutable multi-page provider lands, never pass an aliased
-       producer buffer to the raw writer. */
     if (request->operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
-        request->length > sizeof(context->owned_payload)) {
+        request->length <= sizeof(context->owned_payload) &&
+        request->data == NULL) {
+        return FLASH_TRANSACTION_ERROR_PROVIDER;
+    }
+    if (request->operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
+        request->length > sizeof(context->owned_payload) &&
+        !flash_transaction_provider_lease_valid(context)) {
         return FLASH_TRANSACTION_ERROR_PROVIDER;
     }
     context->absolute_offset = partition->offset + request->relative_offset;
@@ -173,7 +216,8 @@ static void flash_transaction_fail(flash_transaction_fb_t *context,
     context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
     context->vector.last_error = error;
     context->vector.completed_timestamp_ms = context->platform.now_ms();
-    context->vector.state = context->resource_acquired
+    context->vector.state = context->resource_acquired ||
+                                    context->provider_retained
                                 ? FLASH_TRANSACTION_STATE_RELEASE
                                 : FLASH_TRANSACTION_STATE_FAILED;
     context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
@@ -186,7 +230,8 @@ static void flash_transaction_abort(flash_transaction_fb_t *context)
     context->vector.last_result = FLASH_TRANSACTION_RESULT_ABORTED;
     context->vector.last_error = FLASH_TRANSACTION_ERROR_ABORTED;
     context->vector.completed_timestamp_ms = context->platform.now_ms();
-    context->vector.state = context->resource_acquired
+    context->vector.state = context->resource_acquired ||
+                                    context->provider_retained
                                 ? FLASH_TRANSACTION_STATE_RELEASE
                                 : FLASH_TRANSACTION_STATE_ABORTED;
     context->terminal_state = FLASH_TRANSACTION_STATE_ABORTED;
@@ -199,7 +244,8 @@ static void flash_transaction_provider_reset(flash_transaction_fb_t *context)
     context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
     context->vector.last_error = FLASH_TRANSACTION_ERROR_PROVIDER;
     context->vector.completed_timestamp_ms = context->platform.now_ms();
-    context->vector.state = context->resource_acquired
+    context->vector.state = context->resource_acquired ||
+                                    context->provider_retained
                                 ? FLASH_TRANSACTION_STATE_RELEASE
                                 : FLASH_TRANSACTION_STATE_FAILED;
     context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
@@ -288,6 +334,8 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
     context->resource_acquired = false;
     context->core1_parked = false;
     flash_transaction_provider_reset_set(context, false);
+    context->buffer_lease = NULL;
+    context->provider_retained = false;
     context->terminal_state = FLASH_TRANSACTION_STATE_COMPLETE;
     uint32_t transaction_generation =
         context->vector.transaction_generation + 1u;
@@ -333,6 +381,10 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         const uint32_t error = flash_transaction_validate(context);
         if (error != FLASH_TRANSACTION_ERROR_NONE) {
             flash_transaction_fail(context, error);
+            break;
+        }
+        if (!flash_transaction_provider_retain(context)) {
+            flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_PROVIDER);
             break;
         }
         flash_transaction_write_begin(context);
@@ -480,6 +532,7 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
             context->platform.release_flash();
             context->resource_acquired = false;
         }
+        flash_transaction_provider_release(context);
         flash_transaction_write_begin(context);
         if (!release_ok) {
             context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;

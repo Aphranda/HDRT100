@@ -76,6 +76,15 @@ typedef enum {
 } flash_transaction_error_t;
 
 typedef struct {
+    const uint8_t *data;
+    uint32_t length;
+    uint32_t generation;
+    void *context;
+    bool (*retain)(void *context);
+    void (*release)(void *context);
+} flash_transaction_buffer_lease_t;
+
+typedef struct {
     uint32_t job_id;
     uint32_t requester;
     uint32_t partition_id;
@@ -85,6 +94,7 @@ typedef struct {
     const uint8_t *data;
     uint32_t provider_generation;
     uint32_t store_generation;
+    const flash_transaction_buffer_lease_t *buffer_lease;
 } flash_transaction_request_t;
 
 typedef struct {
