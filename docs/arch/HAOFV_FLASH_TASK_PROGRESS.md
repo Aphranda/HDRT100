@@ -16,6 +16,29 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-012 - M1-06 Scratch validation-only 闭环
+
+- 状态：M1-06 已完成受限 validation-only 流程；高地址 v2 deployment 和 JEDEC 读数仍明确阻塞，
+  因而 TODO 保持 `[~]`，不宣称 M1 或 v2 迁移完成。
+- 代码提交：`1914e42 feat(flash): add validation-only Scratch closed-loop path`，已推送。
+  `PROJECT_ENABLE_FLASH_VALIDATION` 默认关闭；开启时命令只允许 Scratch 首个 sector/page，
+  每次 AO 事务由 `job_id=0` 分配新 identity，恢复擦除和 `0xFF` 检查纳入结果字段。
+- 主机验证：`tools/tests/run_flash_transaction_tests.ps1 -BuildDir
+  build-flash-transaction-tests-m1-06` 通过 OFF/ON 两套 FlashTransactionFB 测试；新增
+  `tests/python/test_flash_scratch_validate.py` 3/3 通过。
+- 构建验证：validation build `build-flash-m1-06-validation-20260823` 通过 map/inventory/link
+  gates，产物 build `20260822172110`；正常 release build
+  `build-flash-m1-05h-20260823-release` 通过 `release_check=OK`，App/Boot 均无
+  `SYSTem:DIAGnostic:FLASh:VALidate` 字符串。
+- DHRT100 HIL：`build/dhrt100_flash_scratch_hil_20260823/flash_scratch_validation.json`
+  记录 identity/build、target map symbol/geometry、lockout、温度/电流和前后 slot/error；
+  validation 返回 `erase=1, program=1, hash_match=1, restore=1, erased=1`，
+  `SYSTem:ERRor?` 为 `0,"No error"`。随后使用正常 release package 回滚，
+  `build/dhrt100_flash_scratch_restore_20260823/` 记录 build `20260822170901`、
+  confirmed slot 和无错误。
+- 边界：当前 firmware 仍运行 v1 compatibility map；工具只读取 v2 map symbol 作为诊断，
+  未向 v2 高地址写入；驱动没有 JEDEC ID API，因此 JEDEC 字段尚未闭合。
+
 ### FLASH-TASK-20260823-007 - M1-05-H host reset boundary matrix
 
 - 状态：M1-05-H 继续进行；主机端已覆盖当前 journal 实现可注入的 body、commit marker、

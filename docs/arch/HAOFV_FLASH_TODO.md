@@ -296,10 +296,10 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M1-06 高地址 Scratch 验证
 
-- [ ] validation-only SCPI 只提交 Scratch lease intent，不暴露任意 offset 命令。
-- [ ] 流程为 target confirm -> erase -> pattern program -> readback/hash -> erase/restore。
-- [ ] COM8 报告记录 JEDEC/geometry、map symbol、pattern hash、lockout、temperature 和恢复结果。
-- [ ] release binary string scan 证明 destructive command 不存在。
+- [x] validation-only SCPI 只提交 Scratch lease intent；FlashTransactionFB 拒绝其它分区、非零 offset、跨多 sector/page 请求。
+- [x] 流程固定为 confirm token -> erase -> pattern program -> readback/hash -> erase/restore；哈希匹配和恢复擦除均进入返回证据。
+- [~] DHRT100 报告已记录 identity/build、v2 map symbol/geometry、lockout、温度/电流和恢复结果；底层 JEDEC ID 尚无驱动/SCPI 来源，且当前部署仍是 v1 compatibility map，v2 高地址写入保持禁止。
+- [x] release binary string scan 证明 destructive validation command 不在正常 release App/Boot 工件中。
 
 ### M1 退出门禁
 
