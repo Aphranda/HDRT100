@@ -16,6 +16,19 @@ Last updated: 2026-08-22
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260822-035 - DHRT100 release/link 回归确认
+
+- 状态：M1-05-J 继续进行；本条只记录构建与主机证据，不涉及串口或板端擦写。
+- 验证结果：
+  - `tools/release_check/release_check.py --preset pico2-release --build-dir build` 返回
+    `release_check=OK`，DHRT100 factory/update/Boot 工件齐全，release binary 未包含 validation
+    destructive command 字符串。
+  - FlashTransaction host/journal runner 通过；Flash 定向 Python 回归 31/31 通过。
+  - 默认临时目录受 Windows 权限限制导致一次 pytest setup error，改用隔离的
+    `D:/Temp/dhrt100-flash-tests-20260822-1` 重跑后全绿；源码和工作树未受测试临时文件影响。
+- 边界：仍未烧录 DHRT100，未部署 v2 map，未完成 OTA_JOURNAL live producer、掉电恢复、replay
+  和 C11 交叉审核；不能将本条当作 M1-05 退出证据。
+
 ### FLASH-TASK-20260822-033 - App 链接级 raw writer 调用边界收紧
 
 - 状态：M1-05-J 继续进行；本轮只增强静态链接证据，不改变 deployed v1 compatibility map，
