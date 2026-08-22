@@ -12,6 +12,7 @@
 #define PRODUCT_CONFIG_MAGIC   0x47544346u
 #define PRODUCT_CONFIG_VERSION 1u
 #define PRODUCT_CONFIG_MAX_BOARD_NO 8u
+#define PRODUCT_CONFIG_SLOT_SIZE DRV_FLASH_PAGE_SIZE
 
 typedef struct {
     uint32_t magic;
@@ -55,6 +56,7 @@ static void product_config_provider_release(void *context)
 }
 
 static bool product_config_flash_execute(uint32_t operation,
+                                         uint32_t relative_offset,
                                          const uint8_t *data,
                                          uint32_t length,
                                          uint32_t store_generation)
@@ -75,7 +77,7 @@ static bool product_config_flash_execute(uint32_t operation,
         .requester = FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG,
         .partition_id = FLASH_COMPAT_MAP_PRODUCT_NVS_ID,
         .operation = operation,
-        .relative_offset = 0u,
+        .relative_offset = relative_offset,
         .length = length,
         .data = data,
         .provider_generation = provider_generation,
@@ -141,23 +143,84 @@ static void product_config_set_default(product_config_record_t *record)
     record->crc32 = product_config_crc32(record);
 }
 
+static bool product_config_slot_is_erased(uint32_t slot)
+{
+    uint8_t page[PRODUCT_CONFIG_SLOT_SIZE];
+    return drv_flash_read(OTA_PRODUCT_CONFIG_OFFSET +
+                              slot * PRODUCT_CONFIG_SLOT_SIZE,
+                          page, sizeof(page)) &&
+           drv_flash_is_erased(OTA_PRODUCT_CONFIG_OFFSET +
+                                   slot * PRODUCT_CONFIG_SLOT_SIZE,
+                               sizeof(page));
+}
+
+static bool product_config_find_latest(product_config_record_t *latest,
+                                       uint32_t *latest_slot,
+                                       uint32_t *next_slot)
+{
+    bool found = false;
+    uint32_t found_slot = 0u;
+    uint32_t first_erased = UINT32_MAX;
+    const uint32_t slot_count = OTA_PRODUCT_CONFIG_SIZE / PRODUCT_CONFIG_SLOT_SIZE;
+    for (uint32_t slot = 0u; slot < slot_count; slot++) {
+        product_config_record_t candidate;
+        if (!drv_flash_read(OTA_PRODUCT_CONFIG_OFFSET +
+                                 slot * PRODUCT_CONFIG_SLOT_SIZE,
+                             &candidate, sizeof(candidate))) {
+            return false;
+        }
+        if (product_config_slot_is_erased(slot)) {
+            if (first_erased == UINT32_MAX) {
+                first_erased = slot;
+            }
+            continue;
+        }
+        if (!product_config_record_is_valid(&candidate)) {
+            continue;
+        }
+        if (!found || (int32_t)(candidate.sequence - latest->sequence) > 0) {
+            *latest = candidate;
+            found = true;
+            found_slot = slot;
+        }
+    }
+    if (latest_slot != NULL) {
+        *latest_slot = found ? found_slot : UINT32_MAX;
+    }
+    if (next_slot != NULL) {
+        *next_slot = first_erased;
+    }
+    return found;
+}
+
 static bool product_config_store(const product_config_record_t *record)
 {
-    uint8_t page[DRV_FLASH_PAGE_SIZE];
+    product_config_record_t latest;
+    uint32_t latest_slot = UINT32_MAX;
+    uint32_t slot = UINT32_MAX;
+    (void)product_config_find_latest(&latest, &latest_slot, &slot);
+    (void)latest_slot;
+    if (slot == UINT32_MAX) {
+        /* No GC/sector rotation is attempted here: a full store fails closed
+         * and leaves the last committed record intact. */
+        return false;
+    }
+
+    uint8_t page[PRODUCT_CONFIG_SLOT_SIZE];
     memset(page, 0xFF, sizeof(page));
     memcpy(page, record, sizeof(*record));
 
-    if (!product_config_flash_execute(FLASH_TRANSACTION_OPERATION_ERASE,
-                                      NULL, DRV_FLASH_SECTOR_SIZE,
-                                      record->sequence) ||
-        !product_config_flash_execute(FLASH_TRANSACTION_OPERATION_PROGRAM,
+    if (!product_config_flash_execute(FLASH_TRANSACTION_OPERATION_PROGRAM,
+                                      slot * PRODUCT_CONFIG_SLOT_SIZE,
                                       page, sizeof(page),
                                       record->sequence)) {
         return false;
     }
 
     product_config_record_t readback;
-    if (!drv_flash_read(OTA_PRODUCT_CONFIG_OFFSET, &readback, sizeof(readback)) ||
+    if (!drv_flash_read(OTA_PRODUCT_CONFIG_OFFSET +
+                            slot * PRODUCT_CONFIG_SLOT_SIZE,
+                        &readback, sizeof(readback)) ||
         !product_config_record_is_valid(&readback) ||
         readback.sequence != record->sequence) {
         return false;
@@ -169,10 +232,9 @@ static bool product_config_store(const product_config_record_t *record)
 
 bool product_config_init(void)
 {
-    product_config_record_t record;
-    if (drv_flash_read(OTA_PRODUCT_CONFIG_OFFSET, &record, sizeof(record)) &&
-        product_config_record_is_valid(&record)) {
-        s_product_config = record;
+    product_config_record_t latest;
+    if (product_config_find_latest(&latest, NULL, NULL)) {
+        s_product_config = latest;
         return true;
     }
 

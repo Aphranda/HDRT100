@@ -835,6 +835,15 @@ static void test_product_config_policy_and_owned_payload(void)
     assert(context.payload_owned);
     assert(s_last_program_first_byte == 0x3Cu);
 
+    /* Product Config records append at page boundaries; the transaction
+     * owner must not force every update back to the first page. */
+    request = product_config_request(FLASH_TRANSACTION_OPERATION_PROGRAM,
+                                     page);
+    request.relative_offset = FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES;
+    assert(flash_transaction_fb_submit(&context, &request));
+    vector = run_to_terminal(&context);
+    assert(vector.state == FLASH_TRANSACTION_STATE_COMPLETE);
+
     request = product_config_request(FLASH_TRANSACTION_OPERATION_ERASE, NULL);
     request.partition_id = FLASH_COMPAT_MAP_APP_B_ID;
     assert_failed(run_request(&context, &request),

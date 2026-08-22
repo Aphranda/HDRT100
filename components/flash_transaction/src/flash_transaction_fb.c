@@ -256,10 +256,10 @@ static uint32_t flash_transaction_validate(
     } else if (request->requester ==
                FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG) {
         if (request->partition_id != FLASH_COMPAT_MAP_PRODUCT_NVS_ID ||
-            request->relative_offset != 0u ||
             (request->operation == FLASH_TRANSACTION_OPERATION_ERASE
-                 ? request->length != FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES
-                 : request->length != FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES)) {
+                 ? (request->relative_offset != 0u ||
+                    request->length != FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES)
+                 : (request->length != FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES))) {
             return FLASH_TRANSACTION_ERROR_PERMISSION;
         }
     } else if (request->requester ==
