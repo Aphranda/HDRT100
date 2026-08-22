@@ -288,6 +288,7 @@ set(PROJECT_APP_SOURCES
         components/event_bus/src/event_bus.c
         components/flash_transaction/src/flash_transaction_ao.c
         components/flash_transaction/src/flash_transaction_fb.c
+        components/flash_transaction/src/flash_transaction_journal.c
         components/loop_engine/src/loop_engine.c
         components/led_manager/src/led_manager.c
         components/model_turntable/src/model_turntable.c

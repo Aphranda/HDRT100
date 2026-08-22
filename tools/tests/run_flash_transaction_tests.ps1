@@ -8,7 +8,9 @@ $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $build = Join-Path $repo $BuildDir
 $testSource = Join-Path $repo "tests\unit\test_flash_transaction.c"
+$journalTestSource = Join-Path $repo "tests\unit\test_flash_transaction_journal.c"
 $serviceSource = Join-Path $repo "components\flash_transaction\src\flash_transaction_fb.c"
+$journalSource = Join-Path $repo "components\flash_transaction\src\flash_transaction_journal.c"
 $publicInclude = Join-Path $repo "components\flash_transaction\inc"
 $privateInclude = Join-Path $repo "components\flash_transaction\src"
 $diagnosticsInclude = Join-Path $repo "components\diagnostics\inc"
@@ -42,3 +44,16 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 Write-Host "FlashTransaction host unit tests passed"
+
+$journalExe = Join-Path $build "test_flash_transaction_journal.exe"
+& $hostCc.Source -std=c11 -Wall -Wextra -Werror `
+    "-I$publicInclude" "-I$privateInclude" "-I$diagnosticsInclude" "-I$configInclude" `
+    $journalTestSource $journalSource -o $journalExe
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+& $journalExe
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+Write-Host "FlashTransaction journal host unit tests passed"
