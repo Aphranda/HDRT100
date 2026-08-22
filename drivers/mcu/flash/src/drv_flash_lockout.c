@@ -11,11 +11,16 @@
 #endif
 
 #if DRV_FLASH_LOCKOUT_PICO_RAM
+#include "hardware/sync.h"
 #include "pico.h"
 #define DRV_FLASH_LOCKOUT_CORE1_POLL_DEF \
     void __not_in_flash_func(drv_flash_lockout_core1_poll)(void)
+#define DRV_FLASH_LOCKOUT_SAVE_INTERRUPTS() save_and_disable_interrupts()
+#define DRV_FLASH_LOCKOUT_RESTORE_INTERRUPTS(state) restore_interrupts(state)
 #else
 #define DRV_FLASH_LOCKOUT_CORE1_POLL_DEF void drv_flash_lockout_core1_poll(void)
+#define DRV_FLASH_LOCKOUT_SAVE_INTERRUPTS() 0u
+#define DRV_FLASH_LOCKOUT_RESTORE_INTERRUPTS(state) ((void)(state))
 #endif
 
 #ifndef DRV_FLASH_LOCKOUT_WAIT_INSTRUCTION
@@ -118,6 +123,7 @@ DRV_FLASH_LOCKOUT_CORE1_POLL_DEF
         return;
     }
 
+    const uint32_t irq_state = DRV_FLASH_LOCKOUT_SAVE_INTERRUPTS();
     s_lockout.acknowledged = true;
     s_lockout.ack_seq = s_lockout.request_seq;
     s_lockout.park_state = DRV_FLASH_LOCKOUT_PARK_PARKED;
@@ -136,6 +142,7 @@ DRV_FLASH_LOCKOUT_CORE1_POLL_DEF
     s_lockout.release_seq++;
     s_lockout.park_state = DRV_FLASH_LOCKOUT_PARK_IDLE;
     DRV_FLASH_LOCKOUT_WAKE_INSTRUCTION();
+    DRV_FLASH_LOCKOUT_RESTORE_INTERRUPTS(irq_state);
 }
 
 bool drv_flash_lockout_begin(uint32_t wait_loop_budget)

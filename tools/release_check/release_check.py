@@ -19,6 +19,8 @@ REQUIRED_ARTIFACTS = (
     "RP2350_TRIG_BOOT.uf2",
     "RP2350_TRIG.elf.map",
     "RP2350_TRIG_B.elf.map",
+    "RP2350_TRIG.dis",
+    "RP2350_TRIG_B.dis",
     "RP2350_TRIG_BOOT.elf.map",
     "RP2350_TRIG_BOOT.bin",
     "ota_metadata_clear.bin",
@@ -207,12 +209,30 @@ def check_flash_contracts(root: Path, build_dir: Path, failures: list[str]) -> N
             "--manifest", str(generated / "flash_map_v1_compat_manifest.json"),
             "--build-dir", str(build_dir if build_dir.is_absolute() else root / build_dir),
         ],
+        [
+            sys.executable,
+            str(root / "tools" / "flash_map" / "flash_link_check.py"),
+            "--map", str((build_dir if build_dir.is_absolute() else root / build_dir) /
+                         "RP2350_TRIG.elf.map"),
+            "--dis", str((build_dir if build_dir.is_absolute() else root / build_dir) /
+                         "RP2350_TRIG.dis"),
+        ],
+        [
+            sys.executable,
+            str(root / "tools" / "flash_map" / "flash_link_check.py"),
+            "--map", str((build_dir if build_dir.is_absolute() else root / build_dir) /
+                         "RP2350_TRIG_B.elf.map"),
+            "--dis", str((build_dir if build_dir.is_absolute() else root / build_dir) /
+                         "RP2350_TRIG_B.dis"),
+        ],
     )
     labels = (
         "generated v1 compatibility FlashMap artifacts are current",
         "generated FlashMap artifacts are current",
         "raw Flash inventory matches source",
         "live Flash consumers and artifacts match the deployed map",
+        "Slot A Flash link ownership and RAM closure are valid",
+        "Slot B Flash link ownership and RAM closure are valid",
     )
     for command, label in zip(commands, labels):
         result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
