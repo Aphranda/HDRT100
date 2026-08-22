@@ -35,7 +35,8 @@ Last updated: 2026-08-23
   validation 返回 `erase=1, program=1, hash_match=1, restore=1, erased=1`，
   `SYSTem:ERRor?` 为 `0,"No error"`。随后使用正常 release package 回滚，
   `build/dhrt100_flash_scratch_restore_20260823/` 记录 build `20260822170901`、
-  confirmed slot 和无错误。
+  confirmed slot 和无错误；回滚后重新发送 validation 命令得到 `-113,"Undefined header"`，
+  证明 destructive command 未注册到正常运行镜像。
 - 边界：当前 firmware 仍运行 v1 compatibility map；工具只读取 v2 map symbol 作为诊断，
   未向 v2 高地址写入；驱动没有 JEDEC ID API，因此 JEDEC 字段尚未闭合。
 
