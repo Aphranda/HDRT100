@@ -68,12 +68,11 @@ erase/reflash、回退和 v2 deployment 证据统一在单板 COM8 闭环后再�
 
 以下顺序是当前分支的唯一推荐执行路径；每项完成前不得把对应里程碑标记为 `[x]`。
 
-1. **M1-04 统一准入 gate**：以 `resource_arbiter` 为唯一运行态事实源，补充
-   Calibration training 和 TDMA clock-training 的 owner 发布 gate；保留 RUN 下 OTA 的
-   “先检查、后取得 FLASH owner、再进入 OTA”语义，不得直接把 RUN 全部改成拒绝。FlashTransactionAO
-   只消费 snapshot，拒绝 CAL/training/thermal-critical/FAULT/unknown 状态的新写，warning 仅按
-   policy 降速或暂停。补 host negative fixture、validation-only COM8 负向 HIL，并记录零 raw
-   erase/program delta。
+1. **M1-04 统一准入 gate**：代码侧已由 `a785607` 将 Calibration 与 TDMA clock-training
+   gate 收敛到各自主域 owner，并保留 RUN 下 OTA 的“先检查、后取得 FLASH owner、再进入 OTA”
+   语义；不得直接把 RUN 全部改成拒绝。下一步只剩用新 DHRT100 固件完成 validation-only
+   COM8/四板负向 HIL，证明 CAL/training/thermal-critical/FAULT/unknown 状态拒绝新写、raw
+   erase/program delta 为零、policy reason 可追溯；warning 仅按 policy 降速或暂停。
 2. **M1-05 owner/buffer 收敛**：实现 immutable provider/refcount 或等价 lease，覆盖 producer
    reset、duplicate completion、page/sector 执行中 abort 和 lease 释放；保持大于
    `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的请求 fail-closed，补 host 与构建/inventory gate。
@@ -281,7 +280,7 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
   M1-05 从 `[~]` 改为 `[x]`，并同步更新 `ARCH-FLASHOWNER-01` 登记状态。
 
 实施快照、提交号、构建号、板端报告和未完成 gate 统一记录在
-`HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-026`、`027`、`028`、`029`、`031`；本
+`HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260822-026`、`027`、`028`、`029`、`031`、`032`；本
 TODO 只保留可独立验收的状态项和证据索引。
 
 ### M1-06 高地址 Scratch 验证

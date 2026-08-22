@@ -26,6 +26,32 @@ Last updated: 2026-08-22
   `active`。
 - 代码与文档提交分开记录；失败、跳过和环境依赖与通过项同等保留。
 
+### FLASH-TASK-20260822-032 - 训练 gate owner 修复与 DHRT100 构建闭环
+
+- 状态：M1-04 继续进行；训练 gate 的代码 owner/时序缺陷已修复，板端负向 HIL 尚未重跑，
+  因此不关闭 M1-04，也不宣称 COM8 迁移完成。
+- 代码提交：`a785607 fix(flash): bind training gates to domain owners`，已推送。
+- 修复内容：
+  - `resource_arbiter` 提供独立 Calibration 与 TDMA clock-training 发布接口，避免 Calibration
+    helper 用旧快照覆盖 TDMA owner 的 gate。
+  - Calibration start intent 在 core0 发布时立即置 gate；core1 完成 PIO/SM/DMA 状态消费后再由
+    Calibration owner 清除，覆盖命令发布与实时执行之间的窗口。
+  - TDMA owner 在训练请求接受时立即置 gate，并在 core1 服务后依据真实 CLKTRAIN snapshot
+    清除；`distributed_refmem_tdma_ring_train()` 不再绕过 TDMA owner 直接提交 service intent。
+  - 新增 `resource_arbiter` host fixture，验证两个 owner 独立更新时 gate 不互相清除。
+- 验证结果：
+  - `run_resource_arbiter_tests.ps1`、FlashTransaction host tests、TDMA ring runtime/journal
+    tests 通过。
+  - DHRT100、DHRT100_B、DHRT100_BOOT 构建通过；`DHRT100_FACTORY.uf2` 与 `DHRT100_UPDATE.pkg`
+    已生成。release_check、A/B/Boot `flash_link_check`、FlashMap/inventory/schema/migration/wire
+    gates 全部通过；release binary 未包含 validation Scratch 命令。
+  - 本轮未烧录 COM8；四板既有报告中的 `CLKTRAIN=FORWARDING`/arbiter `0,0` 差异需用新固件
+    重跑，且仍需记录 raw erase/program 零增量、拒绝原因和恢复后的安全态。
+- 未完成：
+  - M1-04 板端 Calibration/TDMA/thermal/fault negative HIL 与 warning policy；
+  - M1-05 OTA_JOURNAL live producer、跨 reset/power-cut recovery、replay/idempotence；
+  - M1-06 Scratch 高地址 HIL；M0-05 BOOTSEL full erase/factory recovery；v2 map deployment。
+
 ## 当前检查点
 
 ### FLASH-TASK-20260822-031 - M1-05 子项拆分与当前边界
