@@ -443,8 +443,11 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M3-05 Recovery 与 factory artifact
 
-- [~] Recovery 已具备只读 map/BCB health 诊断和显式 ROM BOOTSEL handoff；factory package 验证、
-  受控 USB/SD restore 尚未实现，证据见 `FLASH-TASK-20260823-038`。
+- [~] Recovery 已具备只读 map/BCB health 诊断和显式 ROM BOOTSEL handoff；新增
+  `tools/factory_package/factory_package.py` 对 signed factory baseline 做确定性 region/hash/
+  full-erase/key-profile fail-closed 验证，证据见 `FLASH-TASK-20260823-058`；Recovery 运行时
+  factory package 验证、受控 USB/SD restore 尚未实现，仍需保留 `FLASH-TASK-20260823-038` 的
+  只读 Recovery 边界。
 - [~] Recovery 分区在 v2 map 中保持 factory-only 写权限，Recovery 镜像本身不链接 raw Flash writer；
   更新授权、签名验证和实际覆盖负向 HIL 尚未完成。
 - [~] 独立命名且受 factory flag 保护的 v2 candidate artifact 已包含 Bootloader、Slot A、Recovery、

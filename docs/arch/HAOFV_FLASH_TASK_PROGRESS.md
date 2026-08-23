@@ -16,6 +16,22 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-058 - Signed factory package host gate
+
+- 状态：M3-05 的工件验证代码切片完成；Recovery 运行时 USB/SD restore、空片 full-erase/reflash、
+  Recovery/Boot fault HIL 和独立 C11 审核仍未完成，M3-05/M3/M4 继续保持未完成。
+- 实现：新增 `tools/factory_package/factory_package.py`，将 factory baseline report 的
+  BOOTLOADER、APP_A、RECOVERY、BOOT_CONTROL、OTA_STAGE region 以确定性 descriptor/payload
+  封装；header 固定 map version、key id、CRC、region offset/size/hash 和
+  `full_erase_required`，签名只接受外部 low-S P-256 raw `r || s`，私钥不由工具读取或保存。
+  公钥验证复用角色化 OTA key registry，并在 region 集合、map/report identity、容量、CRC、签名或
+  payload hash 任一不一致时 fail closed。
+- Host：`tests/python/test_factory_package.py` 覆盖签名 round-trip、payload 篡改和缺失
+  full-erase policy；提交 `6e4c8a1` 已推送。该工具输出 signing transcript/request，只有外部
+  factory signer 提供签名后才生成可验证 package。
+- 边界：本条没有改变 `target_not_deployed`，没有写入 DHRT100，也没有把 host verifier 当作
+  Recovery restore 或空片恢复证据；下一步是 Recovery 受控接收/写入接口和真实 HIL。
+
 ### FLASH-TASK-20260823-055 - Completion journal 自重入修复
 
 - 状态：代码、host、构建和 DHRT100 OTA 闭环通过；M1/M3/M4 总体退出门禁仍按 TODO 保持未完成。
