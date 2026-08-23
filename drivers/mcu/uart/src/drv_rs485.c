@@ -7,7 +7,7 @@
 #include "hardware/irq.h"
 #include "pico/time.h"
 
-#define RS485_ECHO_IDLE_US 20000u
+#define RS485_ECHO_IDLE_US 2000u
 #define RS485_DMA_BUFFER_SIZE 256u
 
 static drv_rs485_config_t s_config;
@@ -29,6 +29,8 @@ static volatile uint8_t s_dma_ready_mask;
 static volatile uint32_t s_dma_overrun_count;
 static uint32_t s_dma_read_index;
 static uint32_t s_dma_read_offset;
+static uint32_t s_dma_last_produced[2];
+static uint64_t s_dma_last_activity_us;
 static bool s_dma_enabled;
 
 static void rs485_dma_irq_handler(void)
@@ -87,8 +89,36 @@ static bool rs485_dma_init(void)
     s_dma_overrun_count = 0u;
     s_dma_read_index = 0u;
     s_dma_read_offset = 0u;
+    s_dma_last_produced[0] = 0u;
+    s_dma_last_produced[1] = 0u;
+    s_dma_last_activity_us = time_us_64();
     s_dma_enabled = true;
     return true;
+}
+
+static uint32_t rs485_dma_partial_limit(uint32_t index)
+{
+    if (!s_dma_enabled || index > 1u ||
+        (s_dma_ready_mask & (uint8_t)(1u << index)) != 0u) {
+        return 0u;
+    }
+    const uintptr_t base = (uintptr_t)s_dma_rx[index];
+    const uintptr_t address = dma_channel_hw_addr(
+        (uint)s_dma_channel[index])->write_addr;
+    if (address < base || address > base + RS485_DMA_BUFFER_SIZE) {
+        return 0u;
+    }
+    const uint32_t produced = (uint32_t)(address - base);
+    if (produced != s_dma_last_produced[index]) {
+        s_dma_last_produced[index] = produced;
+        s_dma_last_activity_us = time_us_64();
+        return 0u;
+    }
+    if (produced <= s_dma_read_offset ||
+        time_us_64() - s_dma_last_activity_us < RS485_ECHO_IDLE_US) {
+        return 0u;
+    }
+    return produced;
 }
 
 static uint32_t rs485_process_rx_byte(uint8_t byte, uint8_t *buffer,
@@ -136,7 +166,10 @@ uint32_t drv_rs485_read(uint8_t *buffer, uint32_t capacity)
         if (s_dma_enabled) {
             const uint8_t ready = s_dma_ready_mask;
             if ((ready & (uint8_t)(1u << s_dma_read_index)) == 0u) {
-                break;
+                const uint32_t partial = rs485_dma_partial_limit(s_dma_read_index);
+                if (partial <= s_dma_read_offset) {
+                    break;
+                }
             }
             const uint8_t byte = s_dma_rx[s_dma_read_index][s_dma_read_offset++];
             ++s_rx_count;
@@ -145,6 +178,7 @@ uint32_t drv_rs485_read(uint8_t *buffer, uint32_t capacity)
             if (s_dma_read_offset == RS485_DMA_BUFFER_SIZE) {
                 s_dma_ready_mask &= (uint8_t)~(1u << s_dma_read_index);
                 s_dma_read_offset = 0u;
+                s_dma_last_produced[s_dma_read_index] = 0u;
                 s_dma_read_index ^= 1u;
             }
             continue;
@@ -235,6 +269,9 @@ bool drv_rs485_init(const drv_rs485_config_t *config)
     s_dma_ready_mask = 0u;
     s_dma_read_index = 0u;
     s_dma_read_offset = 0u;
+    s_dma_last_produced[0] = 0u;
+    s_dma_last_produced[1] = 0u;
+    s_dma_last_activity_us = time_us_64();
     s_ready = true;
     (void)rs485_dma_init();
     return true;

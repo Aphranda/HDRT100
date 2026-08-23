@@ -52,6 +52,8 @@ def test_rs485_driver_owns_direction_and_bounded_test_frame():
     assert "RS485_DMA_BUFFER_SIZE" in source
     assert "DMA_IRQ_1" in source
     assert "dma_channel_configure" in source
+    assert "rs485_dma_partial_limit" in source
+    assert "s_dma_last_activity_us" in source
 
 
 def test_scpi_query_filters_printable_rs485_loopback_payload_before_ack():
