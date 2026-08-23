@@ -16,6 +16,24 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-051 - Completion journal rotation policy
+
+- 状态：portable rotation、v2 wiring、host/build 回归通过；真实 DHRT100 掉电/复位、长期
+  endurance 和独立 C11 审核仍未完成，M1-05-G/H/I/L 及 M1 退出门禁保持未完成。
+- 实现：`flash_transaction_journal_config_t` 增加可选 erase callback/geometry。journal 满槽时
+  扫描最新有效 sequence，选择不包含最新记录的下一个 erase block；erase 成功后逐槽确认
+  erased，再从该 block 的首槽追加。未提供 erase callback 的既有用户仍返回 FULL/fail closed。
+  v2 `OTA_JOURNAL` completion region 绑定已有 FlashTransaction `OTA_JOURNAL` requester，
+  不绕过唯一 Flash owner。
+- Host：扩展 `test_flash_transaction_journal.c` 覆盖 rotation、最新记录保留和 sequence 连续性；
+  `run_flash_transaction_tests.ps1`、`run_ota_journal_tests.ps1`、portable OTA runner 和定向
+  Python policy/consumer/picotool 测试均通过。
+- 构建：v1 `build` 与 v2 `build-v2-debug-ninja3` 通过 App A/B、Boot、Recovery、FlashMap/
+  schema/wire/link gates；调试 key 7 的 v2 candidate transcript 因本轮固件变更重新签名，
+  package 重新生成并由 public-only verifier 通过。
+- 边界：rotation 只证明 host/backend 的确定性旧/新选择，尚未证明真实 power-cut、sector
+  wear 分布或 DHRT100 跨 reset resume；板端不可见时不改变任何 HIL checkbox。
+
 ### FLASH-TASK-20260823-050 - M1-05-G live completion journal wiring
 
 - 状态：v2 真实 producer wiring、host/build 回归通过；DHRT100 跨 reset/power-cut、journal

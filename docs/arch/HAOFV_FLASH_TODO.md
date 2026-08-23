@@ -277,8 +277,10 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
 - [~] **M1-05-G live producer 接入**：将 `OTA_JOURNAL` durable backend 接入实际 OTA image、Product
   Config 和 App OTA metadata producer，不能只由 host fixture 驱动。三个 producer 已接入
   FlashTransactionAO completion-lease 注入点（`dfa1f02`）；v2 启动路径现在建立真实 completion
-  journal lease，并与 stream checkpoint 使用同一 partition 的互不重叠 region。仍缺真实
-  DHRT100 跨 reset/power-cut 证据、journal rotation/endurance 和 completion store 的长期容量策略。
+  journal lease，并与 stream checkpoint 使用同一 partition 的互不重叠 region；completion
+  journal 已支持保留最新 block 的受控 rotation，未配置 erase callback 的 portable store 仍
+  fail closed。仍缺真实 DHRT100 跨 reset/power-cut 证据、rotation/endurance HIL 和 completion
+  store 的长期容量预算。
 - [ ] **M1-05-H 跨 reset/power-cut 闭环**：覆盖 body/readback/commit marker/lane seal 各断电点，复位
   后只能得到确定的旧/新 completion，禁止悬挂 accepted 或伪造 committed。Host reset boundary
   matrix 已覆盖 body/marker/readback transport failure/readback corruption，并证明旧/新选择确定
