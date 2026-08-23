@@ -3,6 +3,7 @@
 #include "board_config.h"
 #include "diagnostics.h"
 #include "drv_i2c.h"
+#include "drv_rs485.h"
 #include "drv_spi.h"
 #include "drv_watchdog.h"
 #include "hardware/clocks.h"
@@ -143,6 +144,18 @@ static bool board_init_uart(void)
 #endif
 }
 
+static bool board_init_rs485(void)
+{
+    const drv_rs485_config_t config = {
+        .instance = BOARD_RS485_UART_PORT,
+        .tx_pin = BOARD_RS485_UART_TX_PIN,
+        .rx_pin = BOARD_RS485_UART_RX_PIN,
+        .de_pin = BOARD_UART_DE_PIN,
+        .baud_hz = BOARD_UART_BAUD_HZ,
+    };
+    return drv_rs485_init(&config);
+}
+
 static bool board_init_lcd(void)
 {
     board_prepare_lcd_spi();
@@ -195,7 +208,8 @@ bool board_init(void)
                     board_init_keys() &&
                     board_init_spi() &&
                     board_init_i2c() &&
-                    board_init_lcd();
+                    board_init_lcd() &&
+                    board_init_rs485();
     board_init_uart();
 
     if (!ok) {

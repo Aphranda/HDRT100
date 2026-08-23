@@ -510,6 +510,7 @@ set(PROJECT_APP_SOURCES
         drivers/mcu/spi/src/drv_spi.c
         drivers/mcu/i2c/src/drv_i2c.c
         drivers/mcu/uart/src/drv_uart.c
+        drivers/mcu/uart/src/drv_rs485.c
         drivers/mcu/flash/src/drv_flash.c
         drivers/mcu/flash/src/drv_flash_lockout.c
         drivers/mcu/watchdog/src/drv_watchdog.c

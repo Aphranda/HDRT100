@@ -3,6 +3,8 @@
 #include <ctype.h>
 #include <string.h>
 
+#include "drv_rs485.h"
+
 typedef enum {
     SCPI_UART_MODE_SCPI = 0u,
     SCPI_UART_MODE_MODBUS = 1u,
@@ -29,6 +31,11 @@ static bool scpi_uart_text_equal(const char *value, size_t length,
 static const char *scpi_uart_mode_text(void)
 {
     return s_uart_mode == SCPI_UART_MODE_MODBUS ? "MODBUS" : "SCPI";
+}
+
+bool scpi_uart_mode_is_scpi(void)
+{
+    return s_uart_mode == SCPI_UART_MODE_SCPI;
 }
 
 static uint32_t scpi_uart_channel(scpi_t *context)
@@ -61,7 +68,7 @@ scpi_result_t scpi_cmd_uart_mode(scpi_t *context)
     } else {
         return SCPI_RES_ERR;
     }
-    return SCPI_RES_OK;
+    return scpi_port_result_accepted(context);
 }
 
 scpi_result_t scpi_cmd_uart_mode_q(scpi_t *context)
@@ -98,30 +105,49 @@ scpi_result_t scpi_cmd_uart_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, 1u);
     SCPI_ResultUInt32(context, 0u);
     SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultText(context, "PENDING_BACKEND");
+    SCPI_ResultText(context,
+                    s_uart_mode == SCPI_UART_MODE_SCPI && drv_rs485_ready()
+                        ? "READY"
+                        : "PENDING_BACKEND");
     return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_cmd_uart_tx_test_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, scpi_uart_channel(context));
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultText(context, "PENDING_BACKEND");
+    SCPI_ResultUInt32(context, drv_rs485_tx_count());
+    SCPI_ResultText(context, drv_rs485_ready() ? "READY" : "PENDING_BACKEND");
     return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_uart_tx_test(scpi_t *context)
+{
+    uint32_t count = 0u;
+    uint32_t pattern = 0x55u;
+    if (SCPI_ParamUInt32(context, &count, TRUE) != TRUE) {
+        return SCPI_RES_ERR;
+    }
+    (void)SCPI_ParamUInt32(context, &pattern, FALSE);
+    if (pattern > 0xffu || scpi_uart_channel(context) != 1u ||
+        s_uart_mode != SCPI_UART_MODE_SCPI ||
+        !drv_rs485_write_test(count, (uint8_t)pattern)) {
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_accepted(context);
 }
 
 scpi_result_t scpi_cmd_uart_rx_count_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, scpi_uart_channel(context));
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
+    SCPI_ResultUInt32(context, drv_rs485_rx_count());
+    SCPI_ResultUInt32(context, drv_rs485_error_count());
     return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_cmd_uart_error_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, scpi_uart_channel(context));
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultText(context, "NONE");
+    SCPI_ResultUInt32(context, drv_rs485_error_count());
+    SCPI_ResultText(context, drv_rs485_ready() ? "NONE" : "PENDING_BACKEND");
     return SCPI_RES_OK;
 }
