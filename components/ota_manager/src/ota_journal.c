@@ -65,6 +65,22 @@ static bool ota_journal_default_program_page(void *context, uint32_t offset,
     return flash_transaction_ao_execute(&request, &completion);
 }
 
+static bool ota_journal_default_erase_sector(void *context, uint32_t offset,
+                                             uint32_t length)
+{
+    (void)context;
+    const flash_transaction_request_t request = {
+        .requester = FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL,
+        .partition_id = FLASH_DEPLOYMENT_MAP_OTA_JOURNAL_ID,
+        .operation = FLASH_TRANSACTION_OPERATION_ERASE,
+        .relative_offset = offset,
+        .length = length,
+        .store_generation = FLASH_DEPLOYMENT_MAP_VERSION,
+    };
+    flash_transaction_completion_t completion;
+    return flash_transaction_ao_execute(&request, &completion);
+}
+
 static bool ota_journal_read(void *context, uint32_t offset, void *data,
                              uint32_t length)
 {
@@ -104,11 +120,22 @@ static bool ota_journal_program(void *context, uint32_t offset,
                                   sizeof(page));
 }
 
+static bool ota_journal_erase(void *context, uint32_t offset,
+                              uint32_t length)
+{
+    const ota_journal_platform_t *platform = context;
+    return ota_journal_range_valid(offset, length) &&
+           (offset % FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE) == 0u &&
+           length == FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE &&
+           platform != NULL && platform->erase_sector != NULL &&
+           platform->erase_sector(platform->context, offset, length);
+}
+
 bool ota_journal_init_with_platform(const ota_journal_platform_t *platform)
 {
     s_initialized = false;
     if (platform == NULL || platform->read == NULL ||
-        platform->program_page == NULL) {
+        platform->program_page == NULL || platform->erase_sector == NULL) {
         return false;
     }
     s_platform = *platform;
@@ -116,9 +143,11 @@ bool ota_journal_init_with_platform(const ota_journal_platform_t *platform)
         .context = &s_platform,
         .read = ota_journal_read,
         .program = ota_journal_program,
+        .erase = ota_journal_erase,
         .base_offset = 0u,
         .slot_count = OTA_JOURNAL_SLOT_COUNT,
         .slot_size = OTA_JOURNAL_SLOT_SIZE,
+        .erase_size = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
     };
     s_initialized =
         pota_stream_checkpoint_init(&s_checkpoint_store, &config) ==
@@ -131,6 +160,7 @@ bool ota_journal_init(void)
     const ota_journal_platform_t platform = {
         .read = ota_journal_default_read,
         .program_page = ota_journal_default_program_page,
+        .erase_sector = ota_journal_default_erase_sector,
     };
     return ota_journal_init_with_platform(&platform);
 }

@@ -12,6 +12,7 @@ typedef struct {
     bool (*read)(void *context, uint32_t offset, void *data, uint32_t length);
     bool (*program_page)(void *context, uint32_t offset,
                          const uint8_t *data, uint32_t length);
+    bool (*erase_sector)(void *context, uint32_t offset, uint32_t length);
 } ota_journal_platform_t;
 
 typedef struct {

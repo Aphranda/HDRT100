@@ -26,9 +26,21 @@ _Static_assert(sizeof(pota_stream_checkpoint_disk_t) ==
 
 static bool config_valid(const pota_stream_checkpoint_config_t *config)
 {
-    return config != NULL && config->context != NULL && config->read != NULL &&
-           config->program != NULL && config->slot_count != 0u &&
-           config->slot_size >= sizeof(pota_stream_checkpoint_disk_t);
+    if (config == NULL || config->context == NULL || config->read == NULL ||
+        config->program == NULL || config->slot_count == 0u ||
+        config->slot_size < sizeof(pota_stream_checkpoint_disk_t) ||
+        config->slot_count > UINT32_MAX / config->slot_size) {
+        return false;
+    }
+    if (config->erase == NULL) {
+        return config->erase_size == 0u;
+    }
+    return config->erase_size >= config->slot_size &&
+           (config->erase_size % config->slot_size) == 0u &&
+           (config->base_offset % config->erase_size) == 0u &&
+           ((config->slot_count * config->slot_size) %
+            config->erase_size) == 0u &&
+           config->slot_count * config->slot_size / config->erase_size >= 2u;
 }
 
 static uint32_t slot_offset(const pota_stream_checkpoint_store_t *store,
@@ -82,6 +94,42 @@ static bool stream_metadata_equal(const pota_stream_checkpoint_t *left,
     return identity_equal(left, right) &&
            left->total_size == right->total_size &&
            left->package_crc32 == right->package_crc32;
+}
+
+static pota_stream_checkpoint_result_t write_checkpoint_at_slot(
+    pota_stream_checkpoint_store_t *store,
+    const pota_stream_checkpoint_t *checkpoint,
+    uint32_t slot)
+{
+    const uint32_t offset = slot_offset(store, slot);
+    pota_stream_checkpoint_disk_t disk;
+    memset(&disk, 0xFF, sizeof(disk));
+    disk.magic = POTA_STREAM_CHECKPOINT_MAGIC;
+    disk.schema_version = POTA_STREAM_CHECKPOINT_SCHEMA_VERSION;
+    disk.sequence = store->next_sequence;
+    disk.checkpoint = *checkpoint;
+    disk.record_crc32 = record_crc32(&disk);
+    disk.commit_marker = 0xFFFFFFFFu;
+    if (!store->config.program(store->config.context, offset, &disk,
+                               sizeof(disk))) {
+        return POTA_STREAM_CHECKPOINT_IO;
+    }
+    const uint32_t marker = POTA_STREAM_CHECKPOINT_COMMIT_MARKER;
+    const uint32_t marker_offset = offset +
+        (uint32_t)offsetof(pota_stream_checkpoint_disk_t, commit_marker);
+    if (!store->config.program(store->config.context, marker_offset,
+                               &marker, sizeof(marker))) {
+        return POTA_STREAM_CHECKPOINT_IO;
+    }
+    if (!store->config.read(store->config.context, offset, &disk,
+                            sizeof(disk)) || !disk_valid(&disk)) {
+        return POTA_STREAM_CHECKPOINT_VERIFY;
+    }
+    store->next_sequence++;
+    if (store->next_sequence == 0u) {
+        store->next_sequence = 1u;
+    }
+    return POTA_STREAM_CHECKPOINT_OK;
 }
 
 pota_stream_checkpoint_result_t pota_stream_checkpoint_init(
@@ -159,10 +207,21 @@ pota_stream_checkpoint_result_t pota_stream_checkpoint_append(
     }
 
     pota_stream_checkpoint_disk_t disk;
+    bool newest_found = false;
+    uint32_t newest_sequence = 0u;
+    uint32_t newest_slot = 0u;
     for (uint32_t slot = 0u; slot < store->config.slot_count; ++slot) {
         if (!store->config.read(store->config.context, slot_offset(store, slot),
                                 &disk, sizeof(disk))) {
             return POTA_STREAM_CHECKPOINT_IO;
+        }
+        if (disk_valid(&disk)) {
+            if (!newest_found ||
+                (int32_t)(disk.sequence - newest_sequence) > 0) {
+                newest_found = true;
+                newest_sequence = disk.sequence;
+                newest_slot = slot;
+            }
         }
         if (disk_valid(&disk) && identity_equal(&disk.checkpoint, checkpoint)) {
             if (!stream_metadata_equal(&disk.checkpoint, checkpoint)) {
@@ -191,35 +250,32 @@ pota_stream_checkpoint_result_t pota_stream_checkpoint_append(
         if (!disk_blank(&disk)) {
             continue;
         }
-        memset(&disk, 0xFF, sizeof(disk));
-        disk.magic = POTA_STREAM_CHECKPOINT_MAGIC;
-        disk.schema_version = POTA_STREAM_CHECKPOINT_SCHEMA_VERSION;
-        disk.sequence = store->next_sequence;
-        disk.checkpoint = *checkpoint;
-        disk.record_crc32 = record_crc32(&disk);
-        disk.commit_marker = 0xFFFFFFFFu;
-        if (!store->config.program(store->config.context, offset, &disk,
-                                   sizeof(disk))) {
-            return POTA_STREAM_CHECKPOINT_IO;
-        }
-        const uint32_t marker = POTA_STREAM_CHECKPOINT_COMMIT_MARKER;
-        const uint32_t marker_offset = offset +
-            (uint32_t)offsetof(pota_stream_checkpoint_disk_t, commit_marker);
-        if (!store->config.program(store->config.context, marker_offset,
-                                   &marker, sizeof(marker))) {
-            return POTA_STREAM_CHECKPOINT_IO;
-        }
-        if (!store->config.read(store->config.context, offset, &disk,
-                                sizeof(disk)) || !disk_valid(&disk)) {
+        return write_checkpoint_at_slot(store, checkpoint, slot);
+    }
+
+    if (store->config.erase == NULL || !newest_found) {
+        return POTA_STREAM_CHECKPOINT_FULL;
+    }
+    const uint32_t slots_per_erase =
+        store->config.erase_size / store->config.slot_size;
+    const uint32_t erase_block_count =
+        store->config.slot_count / slots_per_erase;
+    const uint32_t newest_block = newest_slot / slots_per_erase;
+    const uint32_t erase_block = (newest_block + 1u) % erase_block_count;
+    const uint32_t erase_slot = erase_block * slots_per_erase;
+    const uint32_t erase_offset = slot_offset(store, erase_slot);
+    if (!store->config.erase(store->config.context, erase_offset,
+                             store->config.erase_size)) {
+        return POTA_STREAM_CHECKPOINT_IO;
+    }
+    for (uint32_t slot = erase_slot;
+         slot < erase_slot + slots_per_erase; ++slot) {
+        if (!store->config.read(store->config.context, slot_offset(store, slot),
+                                &disk, sizeof(disk)) || !disk_blank(&disk)) {
             return POTA_STREAM_CHECKPOINT_VERIFY;
         }
-        store->next_sequence++;
-        if (store->next_sequence == 0u) {
-            store->next_sequence = 1u;
-        }
-        return POTA_STREAM_CHECKPOINT_OK;
     }
-    return POTA_STREAM_CHECKPOINT_FULL;
+    return write_checkpoint_at_slot(store, checkpoint, erase_slot);
 }
 
 bool pota_stream_checkpoint_matches(const pota_stream_checkpoint_t *checkpoint,

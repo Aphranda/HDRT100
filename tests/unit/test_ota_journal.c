@@ -15,6 +15,7 @@ static uint32_t s_program_calls;
 static uint32_t s_fail_program_call;
 static bool s_program_alignment_valid;
 static bool s_program_one_to_zero_valid;
+static uint32_t s_erase_calls;
 
 bool drv_flash_read(uint32_t flash_offset, void *data, size_t length)
 {
@@ -84,6 +85,19 @@ static bool fake_program_page(void *context, uint32_t offset,
     return true;
 }
 
+static bool fake_erase_sector(void *context, uint32_t offset, uint32_t length)
+{
+    (void)context;
+    if (offset > sizeof(s_flash) || length > sizeof(s_flash) - offset ||
+        offset % FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE != 0u ||
+        length != FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE) {
+        return false;
+    }
+    s_erase_calls++;
+    memset(&s_flash[offset], 0xFF, length);
+    return true;
+}
+
 static pota_stream_checkpoint_t checkpoint(uint32_t durable_offset,
                                            uint32_t chunk_crc32)
 {
@@ -109,6 +123,7 @@ int main(void)
     const ota_journal_platform_t platform = {
         .read = fake_read,
         .program_page = fake_program_page,
+        .erase_sector = fake_erase_sector,
     };
 
     assert(ota_journal_init_with_platform(&platform));
@@ -147,12 +162,16 @@ int main(void)
     assert(snapshot.checkpoint.durable_offset == second.durable_offset);
     assert(!ota_journal_get_snapshot(NULL));
 
+    ota_journal_platform_t missing_erase = platform;
+    missing_erase.erase_sector = NULL;
+    assert(!ota_journal_init_with_platform(&missing_erase));
     assert(!ota_journal_init_with_platform(NULL));
     assert(ota_journal_recover_latest(&recovered, &sequence) ==
            POTA_STREAM_CHECKPOINT_BAD_ARGUMENT);
     assert(ota_journal_get_snapshot(&snapshot));
     assert(!snapshot.valid &&
            snapshot.result == POTA_STREAM_CHECKPOINT_BAD_ARGUMENT);
+    assert(s_erase_calls == 0u);
 
     puts("ota journal adapter tests passed");
     return 0;

@@ -17,14 +17,19 @@ typedef bool (*pota_stream_checkpoint_program_fn)(void *context,
                                                    uint32_t offset,
                                                    const void *data,
                                                    uint32_t length);
+typedef bool (*pota_stream_checkpoint_erase_fn)(void *context,
+                                                uint32_t offset,
+                                                uint32_t length);
 
 typedef struct {
     void *context;
     pota_stream_checkpoint_read_fn read;
     pota_stream_checkpoint_program_fn program;
+    pota_stream_checkpoint_erase_fn erase;
     uint32_t base_offset;
     uint32_t slot_count;
     uint32_t slot_size;
+    uint32_t erase_size;
 } pota_stream_checkpoint_config_t;
 
 typedef struct {

@@ -11,6 +11,8 @@ static uint32_t s_program_call;
 static uint32_t s_fail_call;
 static uint32_t s_partial_bytes;
 static bool s_fail_read;
+static bool s_fail_erase;
+static uint32_t s_erase_calls;
 
 static bool read_flash(void *context, uint32_t offset, void *data, uint32_t length)
 {
@@ -40,6 +42,18 @@ static bool program_flash(void *context, uint32_t offset, const void *data, uint
         return false;
     }
     memcpy(&s_flash[offset], data, length);
+    return true;
+}
+
+static bool erase_flash(void *context, uint32_t offset, uint32_t length)
+{
+    (void)context;
+    s_erase_calls++;
+    if (s_fail_erase || offset > sizeof(s_flash) ||
+        length > sizeof(s_flash) - offset) {
+        return false;
+    }
+    memset(&s_flash[offset], 0xFF, length);
     return true;
 }
 
@@ -82,6 +96,8 @@ int main(void)
     s_fail_call = 0u;
     s_partial_bytes = UINT32_MAX;
     s_fail_read = false;
+    s_fail_erase = false;
+    s_erase_calls = 0u;
     const pota_stream_checkpoint_config_t config = {
         .context = s_flash,
         .read = read_flash,
@@ -137,10 +153,42 @@ int main(void)
     failed += !expect("full init", pota_stream_checkpoint_init(&full_store, &full_config) == POTA_STREAM_CHECKPOINT_OK);
     failed += !expect("full fails closed", pota_stream_checkpoint_append(&full_store, &checkpoint) == POTA_STREAM_CHECKPOINT_FULL);
 
+    /* GC erases only a block that does not contain the newest record. */
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    const pota_stream_checkpoint_config_t gc_config = {
+        .context = s_flash,
+        .read = read_flash,
+        .program = program_flash,
+        .erase = erase_flash,
+        .slot_count = MOCK_SLOTS,
+        .slot_size = MOCK_SLOT_SIZE,
+        .erase_size = 4u * MOCK_SLOT_SIZE,
+    };
+    pota_stream_checkpoint_store_t gc_store;
+    failed += !expect("gc init", pota_stream_checkpoint_init(&gc_store, &gc_config) == POTA_STREAM_CHECKPOINT_OK);
+    pota_stream_checkpoint_config_t one_block_config = gc_config;
+    one_block_config.erase_size = sizeof(s_flash);
+    failed += !expect("gc requires two erase blocks", pota_stream_checkpoint_init(&failed_store, &one_block_config) == POTA_STREAM_CHECKPOINT_BAD_ARGUMENT);
+    for (uint32_t index = 0u; index < MOCK_SLOTS; ++index) {
+        checkpoint.session_id = 100u + index;
+        checkpoint.generation = 1u;
+        checkpoint.durable_offset = index + 1u;
+        checkpoint.total_size = MOCK_SLOTS + 1u;
+        failed += !expect("gc seed append", pota_stream_checkpoint_append(&gc_store, &checkpoint) == POTA_STREAM_CHECKPOINT_OK);
+    }
+    checkpoint.session_id++;
+    checkpoint.durable_offset++;
+    s_fail_erase = true;
+    failed += !expect("gc erase failure preserves store", pota_stream_checkpoint_append(&gc_store, &checkpoint) == POTA_STREAM_CHECKPOINT_IO);
+    failed += !expect("gc latest survives erase failure", pota_stream_checkpoint_recover_latest(&gc_store, &recovered, &sequence) == POTA_STREAM_CHECKPOINT_OK && sequence == MOCK_SLOTS);
+    s_fail_erase = false;
+    failed += !expect("gc append after rotation", pota_stream_checkpoint_append(&gc_store, &checkpoint) == POTA_STREAM_CHECKPOINT_OK);
+    failed += !expect("gc newest recovered", pota_stream_checkpoint_recover_latest(&gc_store, &recovered, &sequence) == POTA_STREAM_CHECKPOINT_OK && sequence == MOCK_SLOTS + 1u && recovered.session_id == checkpoint.session_id && s_erase_calls == 2u);
+
     /* A reset reconstructs the next sequence from the durable records. */
     pota_stream_checkpoint_store_t reset_store;
     failed += !expect("reset init", pota_stream_checkpoint_init(&reset_store, &config) == POTA_STREAM_CHECKPOINT_OK);
-    failed += !expect("reset recover", pota_stream_checkpoint_recover_latest(&reset_store, &recovered, &sequence) == POTA_STREAM_CHECKPOINT_OK && sequence == 4u && recovered.durable_offset == 512u);
+    failed += !expect("reset recover", pota_stream_checkpoint_recover_latest(&reset_store, &recovered, &sequence) == POTA_STREAM_CHECKPOINT_OK && sequence == MOCK_SLOTS + 1u && recovered.durable_offset == MOCK_SLOTS + 1u);
 
     /* A torn body and a torn commit marker are ignored, then the next slot is used. */
     memset(s_flash, 0xFF, sizeof(s_flash));
