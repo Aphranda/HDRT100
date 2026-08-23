@@ -2,8 +2,7 @@
 build/
 build-*/
 cmake-build-*/
-out/
-!out/
+out/*
 !out/.gitkeep
 .tmp-edge-pdf/
 .tmp/
