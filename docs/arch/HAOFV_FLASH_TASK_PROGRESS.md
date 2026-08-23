@@ -16,6 +16,28 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-050 - M1-05-G live completion journal wiring
+
+- 状态：v2 真实 producer wiring、host/build 回归通过；DHRT100 跨 reset/power-cut、journal
+  rotation/endurance 和独立 C11 owner 审核仍未完成，M1-05-G、M1-05 和 M1 继续保持未完成。
+- 实现：`components/ota_manager/src/ota_journal.c` 将 v2 `OTA_JOURNAL` partition 划分为
+  completion journal 与 stream checkpoint 两个由 partition size/geometry 推导的 region，
+  两者通过 region wrapper 共享同一 `ota_journal_platform_t`，禁止跨 region 读写。启动时
+  初始化 `flash_transaction_journal_store_t`，构造 process-lifetime completion lease，并
+  注册到 `FlashTransactionAO`；`portable_ota_port_durable_init()` 在 BCB metadata 读取前
+  建立该 backend，因此空/损坏 BCB 也不会留下未配置的 completion owner。Product Config、
+  OTA metadata 和 OTA image 的既有 completion lease 注入点因此获得真实持久化 backend。v1
+  compatibility 继续不编译 v2 journal。
+- Host：`test_ota_journal.c` 现在验证 lease 注册、completion append/recover 与 checkpoint
+  互不覆盖；`run_ota_journal_tests.ps1` 固化链接 `flash_transaction_journal.c`；新增 v2
+  durable-wiring 静态回归覆盖空 metadata 初始化顺序。上述测试与 FlashTransaction owner/
+  journal reset matrix 均通过。
+- 构建：`build` 和 `build-v2-debug-ninja3` 通过 App A/B、Boot、Recovery、FlashMap/schema/
+  wire/link gates；v2 调试 key 7 的 signing transcript 因固件变更重新签名后，candidate
+  package 重新生成并通过 public-only verifier。
+- 边界：completion journal 当前是固定 region、满槽后 fail closed，尚未具备真实板端
+  rotation/endurance；DHRT100 仍未重新枚举，不能把 host store recovery 当作板端掉电证据。
+
 ### FLASH-TASK-20260823-049 - M3-03 v2 Direct A/B 单主线收敛
 
 - 状态：代码、host 静态回归和 v1/v2 build 通过；M3-03 要求的 DHRT100
