@@ -5,7 +5,7 @@
       "name": "pico2-release",
       "displayName": "Pico 2 Release",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/out/build/pico2-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "PICO_BOARD": "pico2",
@@ -24,7 +24,7 @@
       "name": "pico2-validation",
       "displayName": "Pico 2 Validation",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build-validation",
+      "binaryDir": "${sourceDir}/out/build/pico2-validation",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "PICO_BOARD": "pico2",
@@ -43,7 +43,7 @@
       "name": "pico2-v2-factory-candidate",
       "displayName": "Pico 2 V2 Factory Migration Candidate",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build-v2-factory-candidate",
+      "binaryDir": "${sourceDir}/out/build/pico2-v2-factory-candidate",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "PICO_BOARD": "pico2",
@@ -64,7 +64,7 @@
       "name": "pico2-debug-uart",
       "displayName": "Pico 2 Debug UART",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build-debug",
+      "binaryDir": "${sourceDir}/out/build/pico2-debug-uart",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "PICO_BOARD": "pico2",
@@ -83,7 +83,7 @@
       "name": "pico2-rtos-smoke",
       "displayName": "Pico 2 FreeRTOS Smoke",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build-rtos-smoke",
+      "binaryDir": "${sourceDir}/out/build/pico2-rtos-smoke",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "PICO_BOARD": "pico2",
@@ -102,7 +102,7 @@
       "name": "pico2-multicore-smoke",
       "displayName": "Pico 2 Multicore Smoke",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build-multicore-smoke",
+      "binaryDir": "${sourceDir}/out/build/pico2-multicore-smoke",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "PICO_BOARD": "pico2",
@@ -121,7 +121,7 @@
       "name": "pico2-rtos-multicore-smoke",
       "displayName": "Pico 2 FreeRTOS + Multicore AMP Smoke",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build-rtos-multicore-smoke",
+      "binaryDir": "${sourceDir}/out/build/pico2-rtos-multicore-smoke",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "PICO_BOARD": "pico2",

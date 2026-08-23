@@ -3,6 +3,8 @@ build/
 build-*/
 cmake-build-*/
 out/
+!out/
+!out/.gitkeep
 .tmp-edge-pdf/
 .tmp/
 .tmp-doc-tests/

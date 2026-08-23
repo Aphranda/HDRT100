@@ -19,7 +19,7 @@ from tkinter.scrolledtext import ScrolledText
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_BUILD_DIR = ROOT / "build"
+DEFAULT_BUILD_DIR = ROOT / "out" / "build" / "pico2-release"
 DEFAULT_PACKAGE = DEFAULT_BUILD_DIR / "DHRT100_UPDATE.pkg"
 DEFAULT_FACTORY = DEFAULT_BUILD_DIR / "DHRT100_FACTORY.uf2"
 DEFAULT_SD_DIR = DEFAULT_BUILD_DIR / "sdcard"
