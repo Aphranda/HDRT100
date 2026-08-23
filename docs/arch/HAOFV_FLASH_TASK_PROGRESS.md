@@ -24,6 +24,8 @@ Last updated: 2026-08-23
   `resource_arbiter` 的 OTA admission；FlashTransaction-owned vector/manifest/BCB 有界步骤完成并
   投影 `READY_TO_REBOOT` 后，`SYST:OTA:STReam:BOOT` 才释放 admission 并触发受控重启。CLOSE 失败只在
   session 已进入 `FAILED/ABORTED` 时释放；ABORT 仅在成功后释放，避免错误请求清除其它 owner 的 lease。
+  OTA AO 还会在 CLOSE 已确认后观察到异步 service 失败时释放 admission，覆盖 END 子步骤的
+  Flash/readback/metadata failure。
 - 验证：`tools/tests/run_portable_ota_tests.ps1`（portable OTA、stream session/ingress、checkpoint、
   BCB）通过；`cmake --build out/build/pico2-v2-factory-candidate --parallel 4` 通过，包含
   FlashMap/persistence/migration/wire/link gates。尚未进行真实断电或破坏性 DHRT100 验证。
