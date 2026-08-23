@@ -1,15 +1,33 @@
 {
   "schema_version": 1,
   "algorithm": "ecdsa-p256-sha256",
-  "keys": [],
+  "keys": [
+    {
+      "key_id": 3506438145,
+      "role": "dev",
+      "revoked": false,
+      "public_key_hex": "04c42415385c3ba3ffde89a8b69cc4350aad6e46377a0245cb10a30f86d20f7b160ce0542ad54b62c41c83545c723e2b2047a529e4ca0c1fd58d16e3be73b6fb3d"
+    }
+  ],
   "profiles": {
     "v1_compat": {
       "require_signature": false,
-      "allowed_roles": ["release"]
+      "allowed_roles": [
+        "release"
+      ]
     },
     "v2_candidate": {
       "require_signature": true,
-      "allowed_roles": ["release", "factory"]
+      "allowed_roles": [
+        "release",
+        "factory"
+      ]
+    },
+    "v2_debug": {
+      "require_signature": true,
+      "allowed_roles": [
+        "dev"
+      ]
     }
   }
 }

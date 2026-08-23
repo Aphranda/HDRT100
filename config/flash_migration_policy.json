@@ -5,7 +5,10 @@
   "online_relocation": "forbidden",
   "factory_migration": {
     "required": true,
-    "artifact": "build/DHRT100_FACTORY.uf2",
+    "artifact": "out/build/pico2-release/DHRT100_FACTORY.uf2",
+    "artifact_size": 1051648,
+    "artifact_sha256": "71aaba8decace3c5d3bce3ca0e87ecb1335f6060b38fa1e27e32afdb965c4313",
+    "artifact_source_commit": "315dc6f",
     "transport": "BOOTSEL",
     "erase_policy": "full_erase_before_factory_image",
     "tool": "picotool",

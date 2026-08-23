@@ -24,6 +24,7 @@ def test_full_erase_option_is_explicit(monkeypatch) -> None:
     args = parse_args()
     assert args.full_erase is True
     assert args.retries == 3
+    assert args.command_timeout == 180.0
 
 
 def test_full_erase_range_uses_flash_geometry() -> None:

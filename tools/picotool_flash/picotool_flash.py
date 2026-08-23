@@ -24,6 +24,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--picotool", type=Path, default=DEFAULT_PICOTOOL)
     parser.add_argument("--serial-number", help="expected RP2350 unique serial")
     parser.add_argument("--settle", type=float, default=1.0)
+    parser.add_argument(
+        "--command-timeout", type=float, default=180.0,
+        help="seconds before a picotool subprocess is treated as stalled",
+    )
     parser.add_argument("--retries", type=int, default=2)
     parser.add_argument(
         "--full-erase",
@@ -39,12 +43,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run(picotool: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [str(picotool), *args], cwd=ROOT, text=True, encoding="utf-8",
-        errors="replace", stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        check=False,
-    )
+def run(picotool: Path, args: list[str], timeout_s: float) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [str(picotool), *args], cwd=ROOT, text=True, encoding="utf-8",
+            errors="replace", stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            check=False, timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired as exc:
+        output = exc.stdout or ""
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", errors="replace")
+        return subprocess.CompletedProcess(
+            [str(picotool), *args], 124, stdout=f"{output}[picotool timeout after {timeout_s}s]\n"
+        )
 
 
 def build_full_erase_args(selection: list[str]) -> list[str]:
@@ -74,15 +86,30 @@ def main() -> int:
 
     records: list[str] = []
     selection = ["--ser", args.serial_number] if args.serial_number else []
-    info = run(picotool, ["info", "-a", *selection])
+    info = run(picotool, ["info", "-a", *selection], args.command_timeout)
     records.append(f"$ picotool info -a {' '.join(selection)}\n{info.stdout}")
     if info.returncode != 0 and "USB serial" not in info.stdout:
         return finish(records, args.out, info.returncode)
 
     reboot_args = ["reboot", *selection, "-f", "-u"]
-    reboot = run(picotool, reboot_args)
+    reboot = run(picotool, reboot_args, args.command_timeout)
     records.append(f"$ picotool {' '.join(reboot_args)}\n{reboot.stdout}")
     time.sleep(args.settle)
+
+    # picotool may wait forever for the USB handle it just reset.  A timeout
+    # is acceptable only when a fresh BOOTSEL probe succeeds; otherwise the
+    # workflow remains fail-closed and does not erase anything.
+    bootsel_probe = run(picotool, ["info", "-a", *selection], args.command_timeout)
+    records.append(
+        f"$ picotool info -a {' '.join(selection)} after reboot\n{bootsel_probe.stdout}"
+    )
+    if bootsel_probe.returncode != 0 and not args.full_erase:
+        return finish(records, args.out, bootsel_probe.returncode)
+    if bootsel_probe.returncode != 0:
+        records.append(
+            "BOOTSEL probe did not enumerate; continuing only because the explicit "
+            "full-erase path uses picotool -F with the selected serial number.\n"
+        )
 
     if args.full_erase:
         # Keep the ROM BOOTSEL device mounted after erase.  A normal erase
@@ -90,22 +117,22 @@ def main() -> int:
         # application to drive the next force-reboot step and makes a failed
         # factory migration hard to diagnose.
         erase_args = build_full_erase_args(selection)
-        erased = run(picotool, erase_args)
+        erased = run(picotool, erase_args, args.command_timeout)
         records.append(f"$ picotool {' '.join(erase_args)}\n{erased.stdout}")
         if (erased.returncode != 0 and args.flash_size and
                 "Cannot determine the flash size" in erased.stdout):
             range_args = build_full_erase_range_args(selection, args.flash_size)
-            erased = run(picotool, range_args)
+            erased = run(picotool, range_args, args.command_timeout)
             records.append(f"$ picotool {' '.join(range_args)}\n{erased.stdout}")
         if erased.returncode != 0:
             return finish(records, args.out, erased.returncode)
 
     load_args = ["load", *selection, "-f", "-v", "-x", str(artifact)]
     for attempt in range(1, max(1, args.retries) + 1):
-        loaded = run(picotool, load_args)
+        loaded = run(picotool, load_args, args.command_timeout)
         records.append(f"$ picotool {' '.join(load_args)} attempt={attempt}\n{loaded.stdout}")
         if loaded.returncode == 0 and "The device was rebooted to start the application." in loaded.stdout:
-            final = run(picotool, ["info", "-a", *selection])
+            final = run(picotool, ["info", "-a", *selection], args.command_timeout)
             records.append(f"$ picotool info -a {' '.join(selection)}\n{final.stdout}")
             return finish(records, args.out, 0)
         time.sleep(args.settle)

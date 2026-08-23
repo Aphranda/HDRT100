@@ -67,6 +67,12 @@ Get-Content -Path tools\README.md -Encoding UTF8
 - `factory_restore/factory_restore.py`: read-only by default; verifies the
   signed package against UF2 target addresses and only calls the existing
   full-erase picotool workflow when `--execute` is explicitly supplied.
+- `artifact_checksum/artifact_checksum.py`: generates and verifies a
+  deterministic SHA-256/size manifest for a factory or recovery artifact; it
+  never writes firmware.
+- `ota_keys/generate_ota_key.py`: creates a local-only P-256 debug signing key
+  and registers only its public key/profile entry; release builds must select a
+  separate release profile and never package the private key.
 - `docs_check/docs_check.py`: documentation gate. It checks Markdown metadata,
   `docs/README.md` index coverage, conflict markers, broken `docs/*.md`
   references, and filename conformance. Existing legacy names warn by default;

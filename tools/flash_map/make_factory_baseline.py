@@ -8,8 +8,16 @@ import hashlib
 import json
 import re
 import struct
+import sys
 import zlib
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.ota_keys.sign_ota_signature import sign_transcript
+from tools.ota_packager import ota_packager
 
 
 DEFINE_RE = re.compile(r"^#define\s+(?P<name>[A-Z0-9_]+)\s+(?P<value>0x[0-9A-Fa-f]+|[0-9]+)u?$")
@@ -25,10 +33,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--metadata-header", type=Path, required=True)
     parser.add_argument("--bootloader", type=Path, required=True)
     parser.add_argument("--app-a", type=Path, required=True)
+    parser.add_argument("--app-b", type=Path, required=True)
+    parser.add_argument("--build-id-file", type=Path, required=True)
     parser.add_argument("--recovery", type=Path, required=True)
     parser.add_argument("--boot-control", type=Path, required=True)
     parser.add_argument("--manifest-blob", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--signing-key", type=Path, required=True)
+    parser.add_argument("--key-id", type=int, required=True)
+    parser.add_argument("--security-counter", type=int, required=True)
     return parser.parse_args()
 
 
@@ -126,6 +139,51 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def build_signed_slot_manifest(map_manifest: Path, app_a: bytes, app_b: bytes,
+                               build_id_file: Path, signing_key: Path,
+                               key_id: int, security_counter: int,
+                               map_defines: dict[str, int]) -> bytes:
+    layout = ota_packager.load_deployment_layout(
+        map_manifest, allow_target_not_deployed=True)
+    build_id = ota_packager.read_build_id(
+        argparse.Namespace(build_id_file=build_id_file, build_id=""))
+    common = dict(
+        product_id="DHRT100", hardware_id="dhrt100",
+        app_version=(0, 1, 0), build_id=build_id,
+        min_bootloader_version=(0, 1, 0), layout=layout,
+        security_counter=security_counter, key_id=key_id,
+    )
+    unsigned = ota_packager.build_package(app_a, app_b, **common,
+                                           prepare_signing=True)
+    transcript = ota_packager.build_signing_transcript(unsigned)
+    signature = sign_transcript(signing_key.read_bytes(), transcript)
+    package = ota_packager.build_package(app_a, app_b, **common,
+                                         signature=signature)
+    header = package[:ota_packager.PACKAGE_HEADER_SIZE]
+    if len(header) != 512:
+        raise ValueError("signed package header size drifted")
+
+    page_size = map_defines["FLASH_GEOMETRY_PROGRAM_SIZE_BYTES"]
+    erase_size = map_defines["FLASH_GEOMETRY_ERASE_SIZE_BYTES"]
+    if page_size != 256 or erase_size != 4096:
+        raise ValueError("unsupported v2 manifest geometry")
+    body = bytearray(b"\xFF" * 768)
+    struct.pack_into("<6I", body, 0, 0x534D4244, 1,
+                     map_defines["FLASH_MAP_VERSION"], 1, 1, 512)
+    body[24:24 + 4] = struct.pack("<I", crc32(header))
+    body[32:32 + len(header)] = header
+    body_crc = crc32(bytes(body[:28] + b"\x00\x00\x00\x00" + body[32:]))
+    struct.pack_into("<I", body, 28, body_crc)
+    commit = bytearray(b"\xFF" * 256)
+    struct.pack_into("<7I", commit, 0, 0x534D434D, 1,
+                     map_defines["FLASH_MAP_VERSION"], 1, 1, body_crc,
+                     0x51A7C04D ^ 1)
+    lane = bytearray(b"\xFF" * erase_size)
+    lane[:768] = body
+    lane[768:1024] = commit
+    return bytes(lane)
+
+
 def main() -> int:
     args = parse_args()
     map_defines = load_defines(args.map_header)
@@ -133,6 +191,7 @@ def main() -> int:
     metadata_defines = load_defines(args.metadata_header)
     bootloader = args.bootloader.read_bytes()
     app = args.app_a.read_bytes()
+    app_b = args.app_b.read_bytes()
     recovery = args.recovery.read_bytes()
     manifest_data = json.loads(args.map_manifest.read_text(encoding="utf-8"))
     if manifest_data.get("deployment_state") != "target_not_deployed":
@@ -144,9 +203,20 @@ def main() -> int:
         raise ValueError("map header and manifest versions disagree")
 
     canonical_manifest = (json.dumps(manifest_data, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    slot_manifest = build_signed_slot_manifest(
+        args.map_manifest, app, app_b, args.build_id_file, args.signing_key,
+        args.key_id, args.security_counter, map_defines)
+    partitions = {item["id"]: item for item in manifest_data["partitions"]}
+    ota_stage_size = partitions["OTA_STAGE"]["size"]
+    if len(canonical_manifest) + len(slot_manifest) > ota_stage_size:
+        raise ValueError("factory OTA_STAGE content exceeds partition capacity")
+    ota_stage = bytearray(b"\xFF" * ota_stage_size)
+    ota_stage[:len(canonical_manifest)] = canonical_manifest
+    slot_offset = ota_stage_size - 4 * map_defines["FLASH_GEOMETRY_ERASE_SIZE_BYTES"]
+    ota_stage[slot_offset:slot_offset + len(slot_manifest)] = slot_manifest
+    canonical_manifest = bytes(ota_stage)
     boot_control = build_boot_control(map_defines, bcb_defines,
                                       metadata_defines, app)
-    partitions = {item["id"]: item for item in manifest_data["partitions"]}
     for partition_id, size in (
         ("BOOTLOADER", len(bootloader)),
         ("APP_A", len(app)),
