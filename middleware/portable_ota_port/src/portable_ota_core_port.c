@@ -20,7 +20,6 @@
 #endif
 
 #if PORTABLE_OTA_PORT_ENABLE_SESSION
-#include "drv_watchdog.h"
 #include "flash_transaction.h"
 #include "ota_journal.h"
 #if PROJECT_FLASH_DEPLOYMENT_V2
@@ -199,13 +198,11 @@ static bool portable_core_mark_pending(pota_slot_t slot, uint32_t image_size,
                                        uint32_t image_crc32,
                                        uint32_t security_counter)
 {
-    /* BCB lane rotation is a bounded maintenance transaction but can exceed
-     * the normal 3 s runtime watchdog on a cold external-flash lane. */
-    drv_watchdog_enable(30000u);
-    const bool ok = ota_metadata_mark_pending((ota_slot_t)slot, image_size,
-                                              image_crc32, security_counter);
-    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
-    return ok;
+    /* Compatibility path only.  The hardware watchdog is exclusively owned
+     * by WatchdogSupervisorAO; this synchronous callback must never widen or
+     * otherwise reconfigure the watchdog window. */
+    return ota_metadata_mark_pending((ota_slot_t)slot, image_size,
+                                     image_crc32, security_counter);
 }
 
 static pota_platform_step_result_t portable_core_mark_pending_step(
@@ -290,10 +287,8 @@ static bool portable_core_commit_slot_manifest(pota_slot_t slot,
         POTA_SLOT_MANIFEST_OK) {
         return false;
     }
-    drv_watchdog_enable(30000u);
     const bool ok = pota_slot_manifest_append(&s_slot_manifest_store, header, NULL) ==
                     POTA_SLOT_MANIFEST_OK;
-    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
     return ok;
 }
 
@@ -578,15 +573,6 @@ pota_stream_ingress_result_t portable_ota_port_stream_service(uint32_t budget_us
     const pota_stream_ingress_result_t result =
         pota_stream_ingress_service(&s_stream_ingress, status.source,
                                     budget_us);
-    /* Stream END is advanced from the AO tick, not from CLOSE itself.  Keep
-     * the debug maintenance window across all VERIFYING/MARK_PENDING ticks,
-     * then restore the normal watchdog once the stream reaches a terminal
-     * state. */
-    const pota_stream_state_t session_state =
-        pota_stream_session_state(&s_stream_session);
-    if (session_state != POTA_STREAM_STATE_ENDING) {
-        drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
-    }
     return result;
 }
 
@@ -596,10 +582,6 @@ pota_stream_ingress_result_t portable_ota_port_stream_close(
     if (!s_stream_initialized) {
         return POTA_STREAM_INGRESS_SESSION;
     }
-    /* CLOSE only queues END work.  The actual metadata FlashTransactions run
-     * on subsequent AO service ticks, so the debug maintenance window must
-     * remain active until stream_service observes READY_TO_REBOOT/FAILED. */
-    drv_watchdog_enable(60000u);
     return pota_stream_ingress_close(&s_stream_ingress, source);
 }
 
@@ -611,7 +593,6 @@ pota_stream_ingress_result_t portable_ota_port_stream_abort(
     }
     const pota_stream_ingress_result_t result =
         pota_stream_ingress_abort(&s_stream_ingress, source);
-    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
     return result;
 }
 
