@@ -4,7 +4,6 @@
 
 #include "hardware/flash.h"
 #include "hardware/sync.h"
-#include "hardware/watchdog.h"
 #include "pico/platform.h"
 
 #ifndef PROJECT_USE_MULTICORE
@@ -149,7 +148,6 @@ bool drv_flash_erase_parked(uint32_t flash_offset, size_t length)
         const uint32_t irq_state = save_and_disable_interrupts();
         flash_range_erase(flash_offset, DRV_FLASH_SECTOR_SIZE);
         restore_interrupts(irq_state);
-        watchdog_update();
     }
     return drv_flash_is_erased(start_offset, length);
 }
@@ -177,7 +175,6 @@ bool drv_flash_program_parked(uint32_t flash_offset, const uint8_t *data,
         const uint32_t irq_state = save_and_disable_interrupts();
         flash_range_program(flash_offset, data, DRV_FLASH_PAGE_SIZE);
         restore_interrupts(irq_state);
-        watchdog_update();
     }
     flash_offset -= (uint32_t)length;
     data -= length;
