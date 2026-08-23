@@ -328,6 +328,22 @@ static const char *ota_boot_result_to_short_label(uint32_t result)
         return "COPY";
     case OTA_BOOT_RESULT_ACTIVE_VALIDATE_FAILED:
         return "ACTVAL";
+    case OTA_BOOT_RESULT_SLOT_RANGE_INVALID:
+        return "RANGE";
+    case OTA_BOOT_RESULT_VECTOR_INVALID:
+        return "VECTOR";
+    case OTA_BOOT_RESULT_IMAGE_CRC_INVALID:
+        return "CRC";
+    case OTA_BOOT_RESULT_IMAGE_HASH_INVALID:
+        return "HASH";
+    case OTA_BOOT_RESULT_SIGNATURE_INVALID:
+        return "SIGN";
+    case OTA_BOOT_RESULT_COMPATIBILITY_INVALID:
+        return "COMPAT";
+    case OTA_BOOT_RESULT_RECOVERY_UNAVAILABLE:
+        return "RECOV";
+    case OTA_BOOT_RESULT_SLOT_EMPTY:
+        return "EMPTY";
     default:
         return "UNK";
     }

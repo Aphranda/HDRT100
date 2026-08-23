@@ -847,6 +847,12 @@ if(PROJECT_FLASH_DEPLOYMENT_V2)
             ${PROJECT_BUILD_INFO_SOURCE}
             third_party/portable_ota/src/pota_crc32.c
             third_party/portable_ota/src/pota_boot_control_store.c
+            third_party/portable_ota/src/pota_metadata.c
+            third_party/portable_ota/src/pota_image.c
+            third_party/portable_ota/src/pota_slot_manifest.c
+            third_party/portable_ota/src/pota_package.c
+            third_party/portable_ota/src/pota_manifest_verifier.c
+            ${PROJECT_OTA_CRYPTO_SOURCES}
     )
 
     pico_set_program_name(DHRT100_RECOVERY "DHRT100_RECOVERY")
@@ -857,11 +863,14 @@ if(PROJECT_FLASH_DEPLOYMENT_V2)
     target_include_directories(DHRT100_RECOVERY PRIVATE
             ${CMAKE_CURRENT_BINARY_DIR}/generated
             ${CMAKE_CURRENT_LIST_DIR}/third_party/portable_ota/include
+            ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
+            ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
             ${CMAKE_CURRENT_LIST_DIR}/config
     )
     target_link_libraries(DHRT100_RECOVERY
             pico_stdlib
             pico_bootrom
+            ${PROJECT_OTA_CRYPTO_LIBS}
     )
     target_compile_definitions(DHRT100_RECOVERY PRIVATE
             PROJECT_FLASH_DEPLOYMENT_V2=1

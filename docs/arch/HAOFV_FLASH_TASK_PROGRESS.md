@@ -16,6 +16,24 @@ Last updated: 2026-08-24
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260824-083 - Direct A/B fault matrix 与 Recovery C11 核验
+
+- 状态：M3-03 的代码/host/build 子项完成；不改变 v2 `target_not_deployed` 或 Registry 契约
+  status。真实 DHRT100 破坏性注入、BCB 双 lane/power-cut 和空片 Recovery restore 仍归 M3-05/
+  M3-06 独立物理 gate。
+- Boot：Direct A/B 现在把 slot 空、范围、vector/reset、CRC、镜像 SHA-256、manifest signature
+  和 product/hardware/bootloader/security/slot compatibility 分别投影为稳定的
+  `OTA_BOOT_RESULT_*`；Recovery 不可用时记录 `RECOVERY_UNAVAILABLE` 到 BCB，避免与 A/B
+  校验失败混淆。
+- Recovery：`SYST:RECOVERY:AB:STATUS?` 对 A/B 分别执行 metadata、vector、durable slot-manifest、
+  signature/compatibility、CRC 和 SHA-256 只读验证；Recovery target 链接同一 portable verifier、
+  debug key registry 和 Mbed TLS，但没有 program/erase/raw writer。
+- 验证：`tests/python/test_direct_ab_fault_matrix.py` 与 `test_v2_direct_ab_policy.py` 通过；
+  `tools/tests/run_portable_ota_tests.ps1` 通过；v1 release 与 v2 factory-candidate 构建、
+  Boot/App A/App B/Recovery link gates 全部通过。
+- C11：独立核验单 `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_03.md`，结论
+  `PASS_WITH_NOTE`；仅关闭本子项的代码/Recovery 矩阵，不替代 M3-06 真实板端 fault HIL。
+
 ### FLASH-TASK-20260824-082 - BCB payload/wear、Recovery 投影与 v2 deployment gate
 
 - 状态：代码依赖收敛完成；不改变 v2 `target_not_deployed`、Registry/C11 或 Recovery runtime

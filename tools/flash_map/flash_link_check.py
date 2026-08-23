@@ -226,6 +226,9 @@ def validate_link_contract(map_text: str, dis_text: str, profile: str = "app") -
                 "pota_bcb_store_init_read_only",
                 "pota_bcb_store_get_health_snapshot",
                 "pota_bcb_store_get_wear_snapshot",
+                "pota_metadata_is_valid",
+                "pota_image_validate_app_vector",
+                "pota_crc32_update",
                 "reset_usb_boot",
             ):
                 if required not in boot_text:

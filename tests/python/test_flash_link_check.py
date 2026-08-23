@@ -180,6 +180,9 @@ def recovery_map_with_size_symbols() -> str:
         "0x10480200 pota_bcb_store_init_read_only\n"
         "0x10480300 pota_bcb_store_get_health_snapshot\n"
         "0x10480380 pota_bcb_store_get_wear_snapshot\n"
+        "0x104803A0 pota_metadata_is_valid\n"
+        "0x104803C0 pota_image_validate_app_vector\n"
+        "0x104803E0 pota_crc32_update\n"
         "0x10480400 reset_usb_boot",
     ).replace(
         "FLASH            0x101c0000         0x00180000         xr",

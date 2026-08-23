@@ -111,6 +111,22 @@ const char *pota_boot_result_to_string(pota_boot_result_t result)
         return "COPY_FAILED";
     case POTA_BOOT_RESULT_ACTIVE_VALIDATE_FAILED:
         return "ACTIVE_VALIDATE_FAILED";
+    case POTA_BOOT_RESULT_SLOT_RANGE_INVALID:
+        return "SLOT_RANGE_INVALID";
+    case POTA_BOOT_RESULT_VECTOR_INVALID:
+        return "VECTOR_INVALID";
+    case POTA_BOOT_RESULT_IMAGE_CRC_INVALID:
+        return "IMAGE_CRC_INVALID";
+    case POTA_BOOT_RESULT_IMAGE_HASH_INVALID:
+        return "IMAGE_HASH_INVALID";
+    case POTA_BOOT_RESULT_SIGNATURE_INVALID:
+        return "SIGNATURE_INVALID";
+    case POTA_BOOT_RESULT_COMPATIBILITY_INVALID:
+        return "COMPATIBILITY_INVALID";
+    case POTA_BOOT_RESULT_RECOVERY_UNAVAILABLE:
+        return "RECOVERY_UNAVAILABLE";
+    case POTA_BOOT_RESULT_SLOT_EMPTY:
+        return "SLOT_EMPTY";
     default:
         return "UNKNOWN";
     }

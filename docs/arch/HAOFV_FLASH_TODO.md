@@ -515,8 +515,10 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 #### 未完成部分
 
-- [ ] 完成 A/B slot-specific image、vector/reset handler、hash/signature/compatibility 全 fault matrix，
-  并接入 Recovery 与独立 C11 审核。
+- [x] 完成 A/B slot-specific image、vector/reset handler、hash/signature/compatibility 全 fault matrix，
+  并接入 Recovery 只读 `SYST:RECOVERY:AB:STATUS?` 与独立 C11 审核；证据：
+  `ARCH_FLASH_CROSS_REVIEW_03.md`、`FLASH-TASK-20260824-083`。真实 DHRT100 破坏性注入仍归
+  M3-06，不在本子项重复计数。
 - [ ] v2 删除 `COPY_TO_ACTIVE` 运行分支和可写 mode 命令；历史查询返回明确 legacy/unsupported。
 
 ### M3-04 Manifest、signature 与 anti-rollback
