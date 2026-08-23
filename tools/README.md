@@ -64,6 +64,9 @@ Get-Content -Path tools\README.md -Encoding UTF8
   signed factory-recovery package from the v2 baseline report and verifies its
   map identity, full-erase policy, region hashes, CRC, and role-bound P-256
   signature. It never reads or generates private keys.
+- `factory_restore/factory_restore.py`: read-only by default; verifies the
+  signed package against UF2 target addresses and only calls the existing
+  full-erase picotool workflow when `--execute` is explicitly supplied.
 - `docs_check/docs_check.py`: documentation gate. It checks Markdown metadata,
   `docs/README.md` index coverage, conflict markers, broken `docs/*.md`
   references, and filename conformance. Existing legacy names warn by default;

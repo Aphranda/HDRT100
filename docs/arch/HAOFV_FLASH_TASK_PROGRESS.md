@@ -16,6 +16,19 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-059 - Controlled USB factory restore gate
+
+- 状态：M3-05 的 host restore gate 完成；Recovery 运行时 USB/SD restore、空片
+  full-erase/reflash、Recovery/Boot fault HIL 和独立 C11 审核仍未完成，M3-05/M3/M4 保持未完成。
+- 实现：新增 `tools/factory_restore/factory_restore.py`。默认只读验证 signed factory package
+  与 UF2 target address 集合、map version、key id、region 数量和 full-erase policy；只有显式
+  `--execute` 才调用固化 `tools/picotool_flash/picotool_flash.py --full-erase`，并保留命令与输出
+  报告，避免未验证工件触发破坏性写入。
+- Host：`tests/python/test_factory_restore.py` 覆盖正确地址集合和地址漂移拒绝；与
+  `tests/python/test_factory_package.py` 一起通过，代码提交 `519c4bb` 已推送。
+- 边界：本条没有执行 `--execute`、没有进入 BOOTSEL、没有写入 DHRT100，也没有把 host plan
+  当作板端 restore 或 Recovery 证据；实际恢复必须在 M3-05 签名/Recovery gate 齐备后进行。
+
 ### FLASH-TASK-20260823-058 - Signed factory package host gate
 
 - 状态：M3-05 的工件验证代码切片完成；Recovery 运行时 USB/SD restore、空片 full-erase/reflash、

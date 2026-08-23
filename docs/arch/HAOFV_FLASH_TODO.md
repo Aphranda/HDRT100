@@ -445,7 +445,8 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 - [~] Recovery 已具备只读 map/BCB health 诊断和显式 ROM BOOTSEL handoff；新增
   `tools/factory_package/factory_package.py` 对 signed factory baseline 做确定性 region/hash/
-  full-erase/key-profile fail-closed 验证，证据见 `FLASH-TASK-20260823-058`；Recovery 运行时
+  full-erase/key-profile fail-closed 验证，并由 `tools/factory_restore/factory_restore.py` 在
+  显式执行前校验 UF2 地址集合，证据见 `FLASH-TASK-20260823-058`、`059`；Recovery 运行时
   factory package 验证、受控 USB/SD restore 尚未实现，仍需保留 `FLASH-TASK-20260823-038` 的
   只读 Recovery 边界。
 - [~] Recovery 分区在 v2 map 中保持 factory-only 写权限，Recovery 镜像本身不链接 raw Flash writer；
