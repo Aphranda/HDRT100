@@ -16,6 +16,25 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-063 - OTA 错误码映射修复与 DHRT100 V2 闭环复验
+
+- 状态：代码修复、V1/V2 构建、portable OTA host gate 和 DHRT100 非断电 OTA
+  `RECEIVING → READY_TO_REBOOT → BOOT → COMM → COMMITTED` 均通过；真实断电、Recovery
+  runtime、Boot fault matrix、负向矩阵剩余五类 HIL 及 C11 独立审核仍未完成。
+- 修复：`ota_error_t` 追加 `OTA_ERR_SIGNATURE_INVALID` 与
+  `OTA_ERR_SECURITY_COUNTER_ROLLBACK`（保留既有数值）；portable OTA product adapter
+  补齐已知 POTA 错误别名和文本，避免产品 SCPI 将已知失败显示为 `UNKNOWN`。
+- 构建/host：`cmake --build build-v2-debug-ninja3 --parallel 4`、`cmake --build build --parallel 4`
+  通过，FlashMap/persistence/migration/wire/link gates 与签名校验通过；
+  `tools/tests/run_portable_ota_tests.ps1` 的 stream/session/checkpoint、BCB、core 测试通过。
+- DHRT100 读回：`SYST:OTA:STAT?="COMMITTED",1,"NONE",5`，
+  `SYST:OTA:RES?=5,"NONE","APPLIED",2,477424,1341293075`，
+  `SYST:OTA:TXN?=0,0,0,0,0,0,0`，`SYST:OTA:JOUR?=0,2,0,0,0,0,0,0,0,0,0,0,0`，
+  `SYST:WATCH:LOG?` 为 `SOFTWARE_REBOOT`，`SYST:ERRor?=0,"No error"`。
+  原始记录：`build-v2-debug-ninja3/dhrt100_v2_ota_revalidation.txt`。
+- 签名：transcript 由固化 `tools/ota_keys/sign_ota_signature.py` 使用调试 key 7 重新签名；
+  未执行真实断电或 BOOTSEL full erase。
+
 ### FLASH-TASK-20260823-062 - V2 SCPI legacy fail-closed 与 DHRT100 非断电复验
 
 - 状态：代码修复、V1/V2 build、host policy 测试和 DHRT100 非断电 OTA 闭环通过；真实
