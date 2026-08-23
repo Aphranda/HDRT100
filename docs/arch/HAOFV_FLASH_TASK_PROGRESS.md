@@ -16,6 +16,30 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-062 - V2 SCPI legacy fail-closed 与 DHRT100 非断电复验
+
+- 状态：代码修复、V1/V2 build、host policy 测试和 DHRT100 非断电 OTA 闭环通过；真实
+  power-cut、Recovery runtime、Boot fault matrix、五类 ingress HIL 及 C11 独立审核仍未完成，
+  不关闭 M1/M3/M4 总体门禁。
+- 修复：提交 `62c6af8`（已推送）使 V2 SCPI 诊断面不再把 legacy `COPY_TO_ACTIVE` 暴露为可执行
+  目标：`SYST:OTA:MODE?` 返回 `LEGACY_UNSUPPORTED`/`UINT32_MAX`，目标槽返回 `OTA_SLOT_NONE`，
+  capability 仅在 `DIRECT_AB` 下报告 `OTA_BOOT_CAP_DIRECT_AB`；V1 compatibility 行为保持不变。
+- 验证：`tests/python/test_v2_direct_ab_policy.py` 5/5；V1 `build` 和 V2
+  `build-v2-debug-ninja3` 的 FlashMap、persistence、migration、wire、App/Boot/Recovery link gate
+  全部通过。使用固化 key 7 签名的 `DHRT100_V2_CANDIDATE_UPDATE.pkg`（build id
+  `20260823180734`，955432 B）完成 DHRT100
+  `RECEIVING → READY_TO_REBOOT → BOOT → COMM → COMMITTED`。
+- 板端读回：`SYST:OTA:STAT?="COMMITTED",2,"NONE",5`，`SYST:OTA:SLOT?=1,0,1,0,0`，
+  `SYST:OTA:RES?=5,"NONE","APPLIED",1,477216,418440215`，`SYST:OTA:TXN?` 全零，
+  `SYST:OTA:JOUR?` 无未完成项，`SYST:WATCH:LOG?` 为 `SOFTWARE_REBOOT/NONE` 且 core0/core1
+  心跳完整。原始 SCPI 记录：
+  `build-v2-debug-ninja3/dhrt100_postfix_scpi.txt`、
+  `build-v2-debug-ninja3/dhrt100_postfix_after_ready.txt`、
+  `build-v2-debug-ninja3/dhrt100_postfix_final_scpi.txt`；BOOT/COMMIT 工具摘要：
+  `build-v2-debug-ninja3/dhrt100_postfix_boot_commit/summary.json`。
+- 边界：本轮未执行真实断电或 BOOTSEL full erase；COM9 当前未枚举，故没有新增 UART 原始日志，
+  不把 USB CDC 复验替代 COM9/断电证据。
+
 ### FLASH-TASK-20260823-061 - Durable replay 终态去重与最新 V2 OTA 闭环
 
 - 状态：代码修复和 DHRT100 非断电闭环通过；power-cut、Recovery runtime、Boot fault matrix、
