@@ -16,6 +16,20 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-074 - DHRT100 read-only progress and sensor snapshot
+
+- 状态：DHRT100 兼容固件只读回归通过；不作为 v2 deployment、M1/M3/M4 物理完成证据。
+- 证据：固化 `tools/scpi_query/scpi_query.py` 单次串口生命周期读取 `*IDN?`、
+  `SYSTem:DIAGnostic:SENSors?`、`SYSTem:OTA:MODE?`、`SYSTem:OTA:STATus?` 和
+  `SYSTem:OTA:TXN?`，原始记录为 `out/flash_hil/dhrt100_progress_readonly.txt`。身份为 DHRT100；
+  OTA 模式仍为 `DIRECT_AB`，事务 Vector 全零；状态中的 `IMAGE_TOO_LARGE` 是此前负向 PBEGIN
+  检查的保留结果，未观察到新的 Flash transaction。传感器快照显示 board/RP2350 温度、ADC 电流
+  输出和 plausibility/health 字段均可读，电流当前标记为 nominal-only，未将其当作校准电流。
+- 附加检查：错误队列返回 `0,"No error"`；资源训练查询返回空闲状态。一次非注册的资源状态查询
+  超时，未作为通过证据记录。
+- 边界：未执行任何写入、BOOTSEL、full erase、Recovery restore 或真实断电；板端 fault/thermal/
+  unknown admission、v2 Scratch 和本地 resume 仍保持未完成。
+
 ### FLASH-TASK-20260823-073 - Package slot identity ambiguity fail-closed
 
 - 状态：M3-03 manifest parser 的 host 子项完成；slot-specific offset/vector、hash/signature/
