@@ -49,6 +49,9 @@ def test_rs485_driver_owns_direction_and_bounded_test_frame():
     assert "time_us_64" in source
     assert "drv_rs485_write_internal" in source
     assert "s_response_echo" in source
+    assert "RS485_DMA_BUFFER_SIZE" in source
+    assert "DMA_IRQ_1" in source
+    assert "dma_channel_configure" in source
 
 
 def test_scpi_query_filters_printable_rs485_loopback_payload_before_ack():

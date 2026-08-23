@@ -2,10 +2,13 @@
 
 #include <string.h>
 
+#include "hardware/dma.h"
 #include "hardware/gpio.h"
+#include "hardware/irq.h"
 #include "pico/time.h"
 
 #define RS485_ECHO_IDLE_US 20000u
+#define RS485_DMA_BUFFER_SIZE 256u
 
 static drv_rs485_config_t s_config;
 static bool s_ready;
@@ -20,6 +23,107 @@ static uint32_t s_echo_candidate_len;
 static uint8_t s_response_echo[256];
 static uint32_t s_response_echo_len;
 static uint32_t s_response_echo_pos;
+static uint8_t s_dma_rx[2][RS485_DMA_BUFFER_SIZE];
+static int s_dma_channel[2] = {-1, -1};
+static volatile uint8_t s_dma_ready_mask;
+static volatile uint32_t s_dma_overrun_count;
+static uint32_t s_dma_read_index;
+static uint32_t s_dma_read_offset;
+static bool s_dma_enabled;
+
+static void rs485_dma_irq_handler(void)
+{
+    const uint32_t interrupts = dma_hw->ints1;
+    dma_hw->ints1 = interrupts;
+    for (uint32_t index = 0u; index < 2u; ++index) {
+        const uint32_t channel = (uint32_t)s_dma_channel[index];
+        const uint32_t bit = 1u << channel;
+        if ((interrupts & bit) == 0u) {
+            continue;
+        }
+        const uint8_t mask = (uint8_t)(1u << index);
+        if ((s_dma_ready_mask & mask) != 0u) {
+            ++s_dma_overrun_count;
+        }
+        s_dma_ready_mask |= mask;
+    }
+}
+
+static bool rs485_dma_init(void)
+{
+    s_dma_channel[0] = (int)dma_claim_unused_channel(false);
+    s_dma_channel[1] = (int)dma_claim_unused_channel(false);
+    if (s_dma_channel[0] < 0 || s_dma_channel[1] < 0) {
+        if (s_dma_channel[0] >= 0) {
+            dma_channel_unclaim((uint)s_dma_channel[0]);
+        }
+        if (s_dma_channel[1] >= 0) {
+            dma_channel_unclaim((uint)s_dma_channel[1]);
+        }
+        s_dma_channel[0] = -1;
+        s_dma_channel[1] = -1;
+        return false;
+    }
+
+    irq_add_shared_handler(DMA_IRQ_1, rs485_dma_irq_handler,
+                           PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);
+    irq_set_enabled(DMA_IRQ_1, true);
+    for (uint32_t index = 0u; index < 2u; ++index) {
+        const uint32_t channel = (uint32_t)s_dma_channel[index];
+        dma_channel_config config = dma_channel_get_default_config(channel);
+        channel_config_set_transfer_data_size(&config, DMA_SIZE_8);
+        channel_config_set_read_increment(&config, false);
+        channel_config_set_write_increment(&config, true);
+        channel_config_set_dreq(&config, uart_get_dreq(s_config.instance, false));
+        channel_config_set_chain_to(&config,
+                                    (uint)s_dma_channel[(index + 1u) & 1u]);
+        dma_channel_configure(channel, &config, s_dma_rx[index],
+                              &uart_get_hw(s_config.instance)->dr,
+                              RS485_DMA_BUFFER_SIZE, false);
+        dma_channel_set_irq1_enabled(channel, true);
+    }
+    dma_start_channel_mask(1u << (uint)s_dma_channel[0]);
+    s_dma_ready_mask = 0u;
+    s_dma_overrun_count = 0u;
+    s_dma_read_index = 0u;
+    s_dma_read_offset = 0u;
+    s_dma_enabled = true;
+    return true;
+}
+
+static uint32_t rs485_process_rx_byte(uint8_t byte, uint8_t *buffer,
+                                      uint32_t count, uint32_t capacity)
+{
+    if (s_response_echo_pos < s_response_echo_len) {
+        if (byte == s_response_echo[s_response_echo_pos]) {
+            ++s_response_echo_pos;
+            if (s_response_echo_pos == s_response_echo_len) {
+                s_response_echo_len = 0u;
+                s_response_echo_pos = 0u;
+            }
+            return count;
+        }
+        s_response_echo_pos = 0u;
+    }
+    if (s_echo_remaining > 0u && byte == s_echo_pattern) {
+        ++s_echo_candidate_len;
+        if (s_echo_candidate_len >= s_echo_remaining) {
+            s_echo_remaining = 0u;
+            s_echo_candidate_len = 0u;
+            s_echo_discard = false;
+        }
+        return count;
+    }
+    while (s_echo_candidate_len > 0u && count < capacity) {
+        buffer[count++] = s_echo_pattern;
+        --s_echo_candidate_len;
+    }
+    if (s_echo_candidate_len != 0u || count >= capacity) {
+        return count;
+    }
+    buffer[count++] = byte;
+    return count;
+}
 
 uint32_t drv_rs485_read(uint8_t *buffer, uint32_t capacity)
 {
@@ -28,45 +132,30 @@ uint32_t drv_rs485_read(uint8_t *buffer, uint32_t capacity)
     }
     uint32_t count = 0u;
     bool saw_byte = false;
-    while (uart_is_readable(s_config.instance)) {
-        const uint8_t byte = uart_getc(s_config.instance);
-        ++s_rx_count;
-        saw_byte = true;
-        if (s_response_echo_pos < s_response_echo_len) {
-            if (byte == s_response_echo[s_response_echo_pos]) {
-                ++s_response_echo_pos;
-                if (s_response_echo_pos == s_response_echo_len) {
-                    s_response_echo_len = 0u;
-                    s_response_echo_pos = 0u;
-                }
-                continue;
+    while (count < capacity) {
+        if (s_dma_enabled) {
+            const uint8_t ready = s_dma_ready_mask;
+            if ((ready & (uint8_t)(1u << s_dma_read_index)) == 0u) {
+                break;
             }
-            /* A host command can overtake a delayed local echo.  Keep the
-             * expected response frame pending and parse this byte normally. */
-            s_response_echo_pos = 0u;
-        }
-        if (s_echo_remaining > 0u && byte == s_echo_pattern) {
-            /* Hold a possible echo run until the next byte proves it is not
-             * contiguous.  This avoids dropping an isolated pattern byte in
-             * a real SCPI command such as UART1 while removing 8x0x55. */
-            ++s_echo_candidate_len;
-            if (s_echo_candidate_len >= s_echo_remaining) {
-                s_echo_remaining = 0u;
-                s_echo_candidate_len = 0u;
-                s_echo_discard = false;
+            const uint8_t byte = s_dma_rx[s_dma_read_index][s_dma_read_offset++];
+            ++s_rx_count;
+            saw_byte = true;
+            count = rs485_process_rx_byte(byte, buffer, count, capacity);
+            if (s_dma_read_offset == RS485_DMA_BUFFER_SIZE) {
+                s_dma_ready_mask &= (uint8_t)~(1u << s_dma_read_index);
+                s_dma_read_offset = 0u;
+                s_dma_read_index ^= 1u;
             }
             continue;
         }
-        while (s_echo_candidate_len > 0u && count < capacity) {
-            buffer[count++] = s_echo_pattern;
-            --s_echo_candidate_len;
-        }
-        if (s_echo_candidate_len != 0u) {
+        if (!uart_is_readable(s_config.instance)) {
             break;
         }
-        if (count < capacity) {
-            buffer[count++] = byte;
-        }
+        const uint8_t byte = uart_getc(s_config.instance);
+        ++s_rx_count;
+        saw_byte = true;
+        count = rs485_process_rx_byte(byte, buffer, count, capacity);
     }
     if (s_echo_candidate_len > 0u && !saw_byte &&
         time_us_64() - s_echo_last_rx_us >= RS485_ECHO_IDLE_US) {
@@ -142,7 +231,12 @@ bool drv_rs485_init(const drv_rs485_config_t *config)
     s_echo_candidate_len = 0u;
     s_response_echo_len = 0u;
     s_response_echo_pos = 0u;
+    s_dma_enabled = false;
+    s_dma_ready_mask = 0u;
+    s_dma_read_index = 0u;
+    s_dma_read_offset = 0u;
     s_ready = true;
+    (void)rs485_dma_init();
     return true;
 }
 
