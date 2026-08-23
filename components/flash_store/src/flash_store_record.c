@@ -33,6 +33,16 @@ static uint32_t read_le32(const uint8_t *data)
            ((uint32_t)data[3] << 24u);
 }
 
+static bool all_erased(const uint8_t *data, size_t length)
+{
+    for (size_t index = 0u; index < length; index++) {
+        if (data[index] != 0xFFu) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static uint32_t commit_marker(uint32_t generation, uint32_t sequence)
 {
     return FLASH_STORE_RECORD_COMMIT_MARKER ^ generation ^ sequence;
@@ -137,10 +147,12 @@ flash_store_record_result_t flash_store_record_decode(
     if ((header->flags & ~known_flags_mask) != 0u) {
         return FLASH_STORE_RECORD_FLAGS;
     }
+    const size_t encoded_size = FLASH_STORE_RECORD_HEADER_SIZE +
+                                 (size_t)header->payload_length;
     if (header->payload_length >
             record_size - FLASH_STORE_RECORD_HEADER_SIZE ||
-        record_size != FLASH_STORE_RECORD_HEADER_SIZE +
-                           (size_t)header->payload_length ||
+        (record_size > encoded_size &&
+         !all_erased(&record[encoded_size], record_size - encoded_size)) ||
         header->payload_length > payload_capacity ||
         (header->payload_length != 0u && payload == NULL)) {
         return FLASH_STORE_RECORD_RANGE;

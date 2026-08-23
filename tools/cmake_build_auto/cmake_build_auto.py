@@ -19,7 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT, help="project root")
     parser.add_argument("--preset", default="pico2-release", help="configure preset to mirror")
-    parser.add_argument("--build-dir", type=Path, default=Path("build"), help="CMake build directory")
+    parser.add_argument("--build-dir", type=Path, default=Path("out/build/default"), help="CMake build directory")
     parser.add_argument("--force-configure", action="store_true", help="run cmake configure even if cache matches")
     parser.add_argument("--no-build", action="store_true", help="only configure, do not run cmake --build")
     return parser.parse_args()

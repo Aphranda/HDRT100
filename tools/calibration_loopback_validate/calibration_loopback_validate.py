@@ -169,7 +169,7 @@ def main() -> int:
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout-s", type=float, default=2.0)
     parser.add_argument("--settle-s", type=float, default=1.0)
-    parser.add_argument("--out-dir", default="build-calibration-loopback")
+    parser.add_argument("--out-dir", default="out/pytest/build-calibration-loopback")
     args = parser.parse_args()
     if args.words <= 0 or args.runs <= 0 or args.inter_run_s < 0:
         parser.error("--words/--runs must be positive and --inter-run-s non-negative")

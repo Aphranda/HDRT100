@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--preset", default="pico2-release")
-    parser.add_argument("--build-dir", type=Path, default=Path("build"))
+    parser.add_argument("--build-dir", type=Path, default=Path("out/build/default"))
     return parser.parse_args()
 
 

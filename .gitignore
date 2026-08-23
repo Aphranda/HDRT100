@@ -74,6 +74,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest*
+.pytest-basetemp-docs-fix/
 .pytest-basetemp/
 .pytest-basetemp-current/
 .pytest-basetemp-final/
