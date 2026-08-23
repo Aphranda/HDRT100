@@ -16,6 +16,22 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-072 - Image vector window overflow hardening
+
+- 状态：M3-03 镜像边界校验的 host/build 子项完成；slot-specific map、hash/signature/vector/compatibility
+  全 fault matrix、Boot 侧重验、Recovery 和 DHRT100 HIL 仍未完成。
+- 代码：`pota_image_validate_app_vector()` 在计算 XIP base/end 前拒绝 `xip_base + run_offset`
+  及 image window 的 32 位溢出，避免恶意 manifest 通过地址回绕把其它区域的 reset handler 当作合法
+  启动向量。`test_portable_ota_image.c` 新增两项溢出负向断言。
+- 测试/构建：`tools/tests/run_portable_ota_tests.ps1`（含 image/vector、stream、checkpoint、BCB）和
+  `tools/tests/run_flash_transaction_tests.ps1`（含 replay/journal matrix）通过；
+  `cmake --build out/build/pico2-v2-factory-candidate --parallel 4` 与
+  `cmake --build out/build/pico2-release --parallel 4` 通过，FlashMap/persistence/migration/wire/link
+  gates 全绿。修正了 replay host fixture 在 reset 后错误断言旧 append 计数的问题，重放确认不会追加
+  duplicate terminal record。
+- 边界：本项未改变 v1 compatibility map，也未执行 BOOTSEL、full erase、Recovery restore、真实掉电或
+  DHRT100 物理 HIL；这些门禁继续保持未完成。
+
 ### FLASH-TASK-20260823-071 - Host test output hierarchy completion
 
 - 状态：输出目录治理的 host-test 子项完成；历史根目录生成物不追溯搬迁，部署/Recovery 产物仍按
