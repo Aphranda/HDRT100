@@ -17,6 +17,7 @@ static uint32_t s_read_calls;
 static uint32_t s_fail_read_call;
 static bool s_fail_readback;
 static bool s_corrupt_readback;
+static uint32_t s_erase_calls;
 
 static bool fake_read(void *context, uint32_t offset, void *data,
                       uint32_t length)
@@ -78,6 +79,18 @@ static uint32_t fake_crc32(const uint8_t *data, uint32_t length)
         }
     }
     return ~crc;
+}
+
+static bool fake_erase(void *context, uint32_t offset, uint32_t length)
+{
+    (void)context;
+    if (offset > sizeof(s_flash) || length > sizeof(s_flash) - offset ||
+        length != 2u * TEST_SLOT_SIZE || offset % length != 0u) {
+        return false;
+    }
+    s_erase_calls++;
+    memset(&s_flash[offset], 0xFF, length);
+    return true;
 }
 
 static flash_transaction_journal_config_t make_config(void)
@@ -207,6 +220,36 @@ static void test_full_journal_fails_closed(void)
     const flash_transaction_journal_record_t extra =
         make_record(FLASH_TRANSACTION_JOURNAL_EVENT_FAILED, 99u);
     assert(!flash_transaction_journal_append(&store, &extra));
+}
+
+static void test_journal_rotates_to_next_erase_block(void)
+{
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    s_program_calls = 0u;
+    s_fail_program_call = 0u;
+    s_erase_calls = 0u;
+    flash_transaction_journal_config_t config = make_config();
+    config.erase = fake_erase;
+    config.erase_size = 2u * TEST_SLOT_SIZE;
+    flash_transaction_journal_store_t store;
+    assert(flash_transaction_journal_init(&store, &config));
+    for (uint32_t index = 0u; index < TEST_SLOT_COUNT; index++) {
+        const flash_transaction_journal_record_t record =
+            make_record(FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED, index + 1u);
+        assert(flash_transaction_journal_append(&store, &record));
+    }
+    const flash_transaction_journal_record_t rotated =
+        make_record(FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED, 100u);
+    assert(flash_transaction_journal_append(&store, &rotated));
+    assert(s_erase_calls == 1u);
+
+    flash_transaction_journal_record_t recovered;
+    uint32_t sequence = 0u;
+    assert(flash_transaction_journal_recover_latest(&store, &recovered,
+                                                    &sequence));
+    assert(sequence == TEST_SLOT_COUNT + 1u &&
+           recovered.job_id == rotated.job_id &&
+           recovered.event == rotated.event);
 }
 
 static void test_duplicate_completion_is_idempotent(void)
@@ -378,6 +421,7 @@ int main(void)
     test_append_and_reset_recovery();
     test_torn_commit_and_crc_are_ignored();
     test_full_journal_fails_closed();
+    test_journal_rotates_to_next_erase_block();
     test_duplicate_completion_is_idempotent();
     test_recovery_falls_back_to_previous_valid_completion();
     test_reset_boundary_matrix();

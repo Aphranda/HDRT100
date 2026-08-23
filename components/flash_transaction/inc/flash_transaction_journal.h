@@ -18,6 +18,9 @@ typedef bool (*flash_transaction_journal_program_fn)(void *context,
                                                       uint32_t offset,
                                                       const void *data,
                                                       uint32_t length);
+typedef bool (*flash_transaction_journal_erase_fn)(void *context,
+                                                    uint32_t offset,
+                                                    uint32_t length);
 typedef uint32_t (*flash_transaction_journal_crc32_fn)(const uint8_t *data,
                                                        uint32_t length);
 
@@ -25,10 +28,12 @@ typedef struct {
     void *context;
     flash_transaction_journal_read_fn read;
     flash_transaction_journal_program_fn program;
+    flash_transaction_journal_erase_fn erase;
     flash_transaction_journal_crc32_fn crc32;
     uint32_t base_offset;
     uint32_t slot_count;
     uint32_t slot_size;
+    uint32_t erase_size;
 } flash_transaction_journal_config_t;
 
 typedef struct {

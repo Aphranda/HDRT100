@@ -6,10 +6,21 @@
 static bool flash_transaction_journal_config_valid(
     const flash_transaction_journal_config_t *config)
 {
-    return config != NULL && config->context != NULL && config->read != NULL &&
-           config->program != NULL && config->crc32 != NULL &&
-           config->slot_count != 0u &&
-           config->slot_size >= sizeof(flash_transaction_journal_disk_record_t);
+    if (config == NULL || config->context == NULL || config->read == NULL ||
+        config->program == NULL || config->crc32 == NULL ||
+        config->slot_count == 0u ||
+        config->slot_size < sizeof(flash_transaction_journal_disk_record_t) ||
+        config->slot_count > UINT32_MAX / config->slot_size) {
+        return false;
+    }
+    if (config->erase == NULL) {
+        return config->erase_size == 0u;
+    }
+    return config->erase_size >= config->slot_size &&
+           (config->erase_size % config->slot_size) == 0u &&
+           (config->base_offset % config->erase_size) == 0u &&
+           ((config->slot_count * config->slot_size) % config->erase_size) == 0u &&
+           config->slot_count * config->slot_size / config->erase_size >= 2u;
 }
 
 static uint32_t flash_transaction_journal_slot_offset(
@@ -55,6 +66,47 @@ static bool flash_transaction_journal_identity_equal(
            left->event == right->event;
 }
 
+static bool flash_transaction_journal_write_at_slot(
+    flash_transaction_journal_store_t *store,
+    const flash_transaction_journal_record_t *record,
+    uint32_t slot)
+{
+    const uint32_t offset = flash_transaction_journal_slot_offset(store, slot);
+    flash_transaction_journal_disk_record_t disk;
+    memset(&disk, 0xFF, sizeof(disk));
+    disk.magic = FLASH_TRANSACTION_JOURNAL_MAGIC;
+    disk.schema_version = FLASH_TRANSACTION_JOURNAL_SCHEMA_VERSION;
+    disk.sequence = store->next_sequence;
+    disk.record_length = sizeof(disk.record);
+    disk.record = *record;
+    disk.record_crc32 = store->config.crc32(
+        (const uint8_t *)&disk.record, sizeof(disk.record));
+    disk.commit_marker = 0xFFFFFFFFu;
+    if (!store->config.program(store->config.context, offset, &disk,
+                               sizeof(disk))) {
+        return false;
+    }
+
+    const uint32_t commit_offset =
+        offset + (uint32_t)offsetof(flash_transaction_journal_disk_record_t,
+                                   commit_marker);
+    const uint32_t marker = FLASH_TRANSACTION_JOURNAL_COMMIT_MARKER;
+    if (!store->config.program(store->config.context, commit_offset,
+                               &marker, sizeof(marker))) {
+        return false;
+    }
+    if (!store->config.read(store->config.context, offset, &disk,
+                            sizeof(disk)) ||
+        !flash_transaction_journal_disk_valid(store, &disk)) {
+        return false;
+    }
+    store->next_sequence++;
+    if (store->next_sequence == 0u) {
+        store->next_sequence = 1u;
+    }
+    return true;
+}
+
 bool flash_transaction_journal_init(
     flash_transaction_journal_store_t *store,
     const flash_transaction_journal_config_t *config)
@@ -87,6 +139,9 @@ bool flash_transaction_journal_append(
     }
 
     flash_transaction_journal_disk_record_t disk;
+    bool newest_found = false;
+    uint32_t newest_sequence = 0u;
+    uint32_t newest_slot = 0u;
     /* Completion replay is idempotent only when the complete record matches.
      * A conflicting payload for the same transaction/event is ambiguous and
      * must fail closed instead of consuming another journal slot. */
@@ -96,11 +151,17 @@ bool flash_transaction_journal_append(
                                 sizeof(disk))) {
             return false;
         }
-        if (!flash_transaction_journal_disk_valid(store, &disk) ||
-            !flash_transaction_journal_identity_equal(&disk.record, record)) {
+        if (!flash_transaction_journal_disk_valid(store, &disk)) {
             continue;
         }
-        return memcmp(&disk.record, record, sizeof(*record)) == 0;
+        if (!newest_found || (int32_t)(disk.sequence - newest_sequence) > 0) {
+            newest_found = true;
+            newest_sequence = disk.sequence;
+            newest_slot = slot;
+        }
+        if (flash_transaction_journal_identity_equal(&disk.record, record)) {
+            return memcmp(&disk.record, record, sizeof(*record)) == 0;
+        }
     }
 
     for (uint32_t slot = 0u; slot < store->config.slot_count; slot++) {
@@ -109,44 +170,38 @@ bool flash_transaction_journal_append(
                                 sizeof(disk))) {
             return false;
         }
-        if (!flash_transaction_journal_is_erased(&disk)) {
-            continue;
+        if (flash_transaction_journal_is_erased(&disk)) {
+            return flash_transaction_journal_write_at_slot(store, record, slot);
         }
-
-        memset(&disk, 0xFF, sizeof(disk));
-        disk.magic = FLASH_TRANSACTION_JOURNAL_MAGIC;
-        disk.schema_version = FLASH_TRANSACTION_JOURNAL_SCHEMA_VERSION;
-        disk.sequence = store->next_sequence;
-        disk.record_length = sizeof(disk.record);
-        disk.record = *record;
-        disk.record_crc32 = store->config.crc32(
-            (const uint8_t *)&disk.record, sizeof(disk.record));
-        disk.commit_marker = 0xFFFFFFFFu;
-        if (!store->config.program(store->config.context, offset, &disk,
-                                   sizeof(disk))) {
-            return false;
-        }
-
-        const uint32_t commit_offset =
-            offset + (uint32_t)offsetof(flash_transaction_journal_disk_record_t,
-                                        commit_marker);
-        const uint32_t marker = FLASH_TRANSACTION_JOURNAL_COMMIT_MARKER;
-        if (!store->config.program(store->config.context, commit_offset,
-                                   &marker, sizeof(marker))) {
-            return false;
-        }
-        if (!store->config.read(store->config.context, offset, &disk,
-                                sizeof(disk)) ||
-            !flash_transaction_journal_disk_valid(store, &disk)) {
-            return false;
-        }
-        store->next_sequence++;
-        if (store->next_sequence == 0u) {
-            store->next_sequence = 1u;
-        }
-        return true;
     }
-    return false;
+
+    if (store->config.erase == NULL || !newest_found) {
+        return false;
+    }
+    const uint32_t slots_per_erase =
+        store->config.erase_size / store->config.slot_size;
+    const uint32_t erase_block_count =
+        store->config.slot_count / slots_per_erase;
+    const uint32_t newest_block = newest_slot / slots_per_erase;
+    const uint32_t erase_block = (newest_block + 1u) % erase_block_count;
+    const uint32_t erase_slot = erase_block * slots_per_erase;
+    const uint32_t erase_offset =
+        flash_transaction_journal_slot_offset(store, erase_slot);
+    if (!store->config.erase(store->config.context, erase_offset,
+                             store->config.erase_size)) {
+        return false;
+    }
+    for (uint32_t slot = erase_slot;
+         slot < erase_slot + slots_per_erase; slot++) {
+        if (!store->config.read(
+                store->config.context,
+                flash_transaction_journal_slot_offset(store, slot), &disk,
+                sizeof(disk)) ||
+            !flash_transaction_journal_is_erased(&disk)) {
+            return false;
+        }
+    }
+    return flash_transaction_journal_write_at_slot(store, record, erase_slot);
 }
 
 bool flash_transaction_journal_recover_latest(

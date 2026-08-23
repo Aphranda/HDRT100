@@ -225,10 +225,12 @@ bool ota_journal_init_with_platform(const ota_journal_platform_t *platform)
         .context = &s_completion_region,
         .read = ota_journal_region_read,
         .program = ota_journal_completion_program,
+        .erase = ota_journal_region_erase,
         .crc32 = ota_journal_completion_crc32,
         .base_offset = 0u,
         .slot_count = OTA_JOURNAL_COMPLETION_SLOT_COUNT,
         .slot_size = OTA_JOURNAL_SLOT_SIZE,
+        .erase_size = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
     };
     if (pota_stream_checkpoint_init(&s_checkpoint_store, &config) !=
             POTA_STREAM_CHECKPOINT_OK ||
