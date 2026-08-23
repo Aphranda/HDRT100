@@ -26,6 +26,21 @@ Last updated: 2026-08-23
   FlashMap/persistence/migration/wire/link gates。
 - 边界：本项不替代 M4-03 全部乱序/重复/transport 和 DHRT100 HIL，也不宣称 v2 已部署。
 
+### FLASH-TASK-20260823-078 - DHRT100 read-only OTA/diagnostics probe
+
+- 状态：非破坏性板端探测完成；未进入 BOOTSEL、未擦除、未烧录、未断电。
+- 对象：DHRT100（通过当前 USB CDC 端口执行固定 `scpi_query.py` 生命周期）。`*IDN?` 返回
+  型号 DHRT100、版本 `0.1.0`；OTA mode 为 `DIRECT_AB`；capability、BCB health、slot/result、
+  stream status 和 FlashTransaction vector 均可读取。
+- 传感器：`SYST:DIAG:SENSors?` 返回 snapshot version/valid/flags、板温、RP2350 内温、电流输出
+  与 nominal-only 标记；本次板温约 `33.0 °C`、RP2350 内温约 `38.7 °C`、电流输出约 `1.447 V`、
+  名义估算约 `89 mA`，前端 healthy 且未标 calibrated。原有 `IMAGE_TOO_LARGE` 为历史负向测试
+  结果，本次未产生新事务。
+- 原始记录：`out/flash_hil/dhrt100_progress_readonly_20260823.txt`、
+  `out/flash_hil/dhrt100_progress_readonly_20260823_b.txt`。
+- 边界：当前仍是 v1 compatibility deployment；v2 factory migration、跨 reset/power-cut、
+  A/B/revert/Recovery 和真实烧录闭环保持未完成。
+
 ### FLASH-TASK-20260823-076 - NVS append planner
 
 - 状态：M2-01 的 NVS append/scan planner 子项完成；sector rotation、实际 Store adapter、
