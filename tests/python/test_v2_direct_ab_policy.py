@@ -47,3 +47,12 @@ def test_v2_fault_injection_does_not_register_writable_mode_command():
     assert "SYSTem:OTA:MODE\", .callback = scpi_cmd_ota_mode" in header
     assert "PROJECT_ENABLE_OTA_FAULT_INJECTION &&" in source
     assert "!defined(PROJECT_FLASH_DEPLOYMENT_V2) || !PROJECT_FLASH_DEPLOYMENT_V2" in source
+
+
+def test_v2_diagnostic_projection_does_not_advertise_legacy_mode_target():
+    source = (ROOT / "middleware/scpi_port/src/scpi_ota_commands.c").read_text(
+        encoding="utf-8"
+    )
+    assert 'return "LEGACY_UNSUPPORTED";' in source
+    assert "return (uint32_t)OTA_SLOT_NONE;" in source
+    assert "OTA_BOOT_CAP_DIRECT_AB" in source

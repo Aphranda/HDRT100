@@ -221,6 +221,13 @@ scpi_result_t scpi_cmd_ota_transaction_q(scpi_t *context)
 
 static const char *scpi_ota_boot_mode_to_string(uint32_t mode)
 {
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    /* v2 has no COPY_TO_ACTIVE runtime path. Keep legacy metadata visible,
+     * but never present it as an executable capability. */
+    if (mode == (uint32_t)OTA_BOOT_MODE_COPY_TO_ACTIVE) {
+        return "LEGACY_UNSUPPORTED";
+    }
+#endif
     switch ((ota_boot_mode_t)mode) {
     case OTA_BOOT_MODE_COPY_TO_ACTIVE:
         return "COPY_TO_ACTIVE";
@@ -238,7 +245,11 @@ static uint32_t scpi_ota_next_target_slot(const ota_metadata_t *metadata)
     }
 
     if (metadata->boot_mode != (uint32_t)OTA_BOOT_MODE_DIRECT_AB) {
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+        return (uint32_t)OTA_SLOT_NONE;
+#else
         return (uint32_t)OTA_SLOT_B;
+#endif
     }
 
     if (metadata->active_slot == (uint32_t)OTA_SLOT_A) {
@@ -260,7 +271,15 @@ scpi_result_t scpi_cmd_ota_mode_q(scpi_t *context)
     }
 
     SCPI_ResultText(context, scpi_ota_boot_mode_to_string(metadata.boot_mode));
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    SCPI_ResultUInt32(
+        context,
+        metadata.boot_mode == (uint32_t)OTA_BOOT_MODE_DIRECT_AB
+            ? (uint32_t)OTA_BOOT_MODE_DIRECT_AB
+            : UINT32_MAX);
+#else
     SCPI_ResultUInt32(context, metadata.boot_mode);
+#endif
     return SCPI_RES_OK;
 }
 
@@ -298,7 +317,15 @@ scpi_result_t scpi_cmd_ota_capability_q(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    SCPI_ResultUInt32(
+        context,
+        metadata.boot_mode == (uint32_t)OTA_BOOT_MODE_DIRECT_AB
+            ? (uint32_t)OTA_BOOT_CAP_DIRECT_AB
+            : 0u);
+#else
     SCPI_ResultUInt32(context, metadata.boot_capabilities);
+#endif
     return SCPI_RES_OK;
 }
 
