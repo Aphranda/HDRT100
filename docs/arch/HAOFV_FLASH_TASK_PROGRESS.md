@@ -16,6 +16,32 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-061 - Durable replay 终态去重与最新 V2 OTA 闭环
+
+- 状态：代码修复和 DHRT100 非断电闭环通过；power-cut、Recovery runtime、Boot fault matrix、
+  五类 ingress HIL 与 C11 独立审核仍未完成，不能据此把 M1/M3/M4 标记完成。
+- 根因/修复：durable `COMMITTED` replay 在预检中已恢复终态，但随后 `RELEASE` 仍会重复追加
+  `COMMITTED` journal record，造成 journal 无意义消耗。`flash_transaction_fb` 现将 replay 标记为
+  `completion_terminal_published`，从而保持终态幂等；host 回归断言确认 replay 不执行 raw
+  program/verify/park 且不追加重复终态。
+- 代码验证：`build-v2-debug-ninja3/flash_transaction_tests_factory` 的 FlashTransaction、journal、
+  OTA journal owner、validation 和 portable OTA host tests 全部通过；v1 `build` 与 v2
+  `build-v2-debug-ninja3` 的 FlashMap、persistence、migration、wire、link gate 均通过。
+- 签名/构建：修复导致旧调试签名 transcript 失效，使用固化
+  `tools/ota_keys/sign_ota_signature.py` 和调试 key 7 重新签名；生成最新
+  `DHRT100_V2_CANDIDATE_UPDATE.pkg`，build id `20260823180734`，包大小 954872 B。
+- DHRT100 闭环：使用固化 `tools/ota_send/ota_send.py` 完成
+  `RECEIVING → READY_TO_REBOOT → BOOT → COMM → COMMITTED`；最终
+  `committed_status="COMMITTED",1,"NONE",5`，原始记录见
+  `build-v2-debug-ninja3/dhrt100_ota_replay_fix_closed_loop.txt`。随后 SCPI 查询确认
+  `SYST:OTA:STAT?="IDLE",2,"NONE",0`、FlashTransaction Vector 全零，watchdog 为
+  `POWER_OR_EXTERNAL/NONE`，未出现新的 supervisor stall。
+- 诊断快照：`SYST:DIAG:SENS?` 已可读板温、RP2350 内温、电流输出与 flags；本次读回为
+  version 2、valid mask 7、flags 16（current nominal-only，无温度 critical）。
+- 主机 pytest 备注：定向 factory/restore 测试曾被系统临时目录 `WinError 5` 阻断；仓库已有
+  `build-v2-debug-ninja3/pytest-basetemp-*` 可写 basetemp，picotool 定向测试 3/3 通过。该问题是
+  主机环境权限，不是固件回归。
+
 ### FLASH-TASK-20260823-060 - Completion journal 自重入修复的 DHRT100 复验
 
 - 状态：旧固件失败原因已定位并由 `bdaa750` 修复；修复后的 V2 OTA 在 DHRT100 上完成一轮
