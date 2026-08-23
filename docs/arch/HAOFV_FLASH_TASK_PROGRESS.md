@@ -16,6 +16,16 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-071 - Host test output hierarchy completion
+
+- 状态：输出目录治理的 host-test 子项完成；历史根目录生成物不追溯搬迁，部署/Recovery 产物仍按
+  各自构建目录管理。
+- 工具：`tools/tests/*.ps1` 的默认 `BuildDir` 统一改为 `out/pytest/build-<test-name>`，显式传入
+  `-BuildDir` 的调用保持兼容；pytest 自身仍使用 `out/pytest/runs` 与 `out/pytest/cache`，
+  `.pytest*` 临时目录继续由 `.gitignore` 忽略。
+- 验证：默认运行 `run_resource_arbiter_tests.ps1` 与 `run_portable_ota_tests.ps1` 均通过，输出均
+  落在 `out/pytest`；pre-commit 文档门禁通过。
+
 ### FLASH-TASK-20260823-070 - ResourceArbiter unknown mode fail-closed
 
 - 状态：M1-04 的 host/构建子项完成；板端 unknown-state 注入、warning policy、完整 fault/thermal
