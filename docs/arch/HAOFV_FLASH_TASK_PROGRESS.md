@@ -16,6 +16,20 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-067 - Stream END admission 生命周期修正
+
+- 状态：M4-03 的 admission 生命周期子项完成；五类 transport、跨 reset/power-cut 和 DHRT100
+  真实 END 闭环仍未完成。
+- 代码：`SYST:OTA:STReam:CLOSe` 只确认 END 已排队，不再提前释放
+  `resource_arbiter` 的 OTA admission；FlashTransaction-owned vector/manifest/BCB 有界步骤完成并
+  投影 `READY_TO_REBOOT` 后，`SYST:OTA:STReam:BOOT` 才释放 admission 并触发受控重启。CLOSE 失败只在
+  session 已进入 `FAILED/ABORTED` 时释放；ABORT 仅在成功后释放，避免错误请求清除其它 owner 的 lease。
+- 验证：`tools/tests/run_portable_ota_tests.ps1`（portable OTA、stream session/ingress、checkpoint、
+  BCB）通过；`cmake --build out/build/pico2-v2-factory-candidate --parallel 4` 通过，包含
+  FlashMap/persistence/migration/wire/link gates。尚未进行真实断电或破坏性 DHRT100 验证。
+- 边界：本项只修正控制面 admission 生命周期，不改变 stream 的缓存策略；package 模式仍按 chunk
+  直接写 inactive object，session 只保留 manifest/header、cursor 和 bounded checkpoint 状态。
+
 ### FLASH-TASK-20260823-066 - 显式 OTA maintenance admission owner
 
 - 状态：M1-04 的代码边界子项完成并通过 V2 factory candidate 构建；DHRT100 实板烧录/闭环、
