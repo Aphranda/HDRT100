@@ -29,6 +29,12 @@ Last updated: 2026-08-23
   --parallel 4` 通过，FlashMap/persistence/migration/wire/link gates 全绿。
 - 边界：本项没有把 RUN 全局拒绝 OTA；普通 RUN 只有在显式 maintenance admission 成功后才允许
   FlashTransaction intent，符合 HAOFV 单一 owner 约束。尚未宣称板端 admission 负向 HIL 完成。
+- DHRT100 非破坏性验证：使用固化 `tools/picotool_flash/picotool_flash.py` 烧录
+  `out/build/pico2-release/DHRT100_FACTORY.uf2`（未使用 `--full-erase`），读回身份
+  `GTS,DHRT100,839E1AE79EA20F31,0.1.0`；随后发送非法 `SYST:OTA:PBEGIN 0,0`，设备返回
+  `FAILED/IMAGE_TOO_LARGE`，`TXN` 全零、`MODE?` 保持 `DIRECT_AB,1`、错误队列为空，证明失败
+  路径释放 admission 且未进入 Flash 写事务。原始记录：
+  `out/build/pico2-release/dhrt100_v1_admission_negative.txt`。
 
 ### FLASH-TASK-20260823-065 - pytest/build 输出目录收敛与 V2 factory 构建复验
 
