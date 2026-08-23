@@ -58,6 +58,20 @@ Last updated: 2026-08-24
   `out/flash_hil/dhrt100_rs485_com11_idn_after_service_20260824.txt`；这表示外部线路/协议
   回环尚未建立，不把单板 TX 成功误判为双端闭环。
 
+## COMM-RS485-20260824-004 - COM11 本地回显处理与烧录证据
+
+- 主工程 `pico2-v2-factory-candidate`、RS485 Python 回归和 FlashMap/link gate 均通过；固化
+  工件为 `out/build/pico2-v2-factory-candidate/DHRT100_V2_CANDIDATE_FACTORY.uf2`。
+- `drv_rs485` 增加 bounded TX echo candidate、SCPI 响应 echo frame 和 idle-gap 状态；
+  `scpi_query.py` 增加 `TX:TEST` 可打印回环前缀过滤和 `--inter-command-delay`，避免把
+  `0x55` 回环字节与 SCPI ACK 粘连误判。相应 Python 测试 5 项全通过。
+- DHRT100 曾完成 picotool load/verify，COM11 仍观察到 `TX:TEST 8,85 => 1`，但随后板端
+  `SYST:ERR?` 仍出现 `-101,"Invalid character"`；因此本项不宣称闭环完成。
+- 最后一轮 picotool 在 98% verify 时 USB 连接中断，当前 DHRT100 未重新枚举（需要重新
+  进入 BOOTSEL 后再做恢复烧录）。未执行 full erase 或断电。
+- 下一步：按硬件 DE/RE 共控约束迁移到 UART RX idle event + DMA ping-pong buffer，先在 host
+  做 frame/idle 回归，再重新取得 DHRT100 COM11 的 `SYST:ERR?=0,"No error"` 证据。
+
 ## 证据索引
 
 | 证据 | 状态 | 说明 |
