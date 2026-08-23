@@ -16,6 +16,41 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-047 - END 可调度 FlashTransaction 子步骤
+
+- 状态：代码、host 回归、DHRT100 烧录和 OTA 闭环均完成；本条不改变 M1/M3/M4 总体退出状态。
+- 实现：`pota_end()` 现在只做接收长度/CRC/package cursor 检查并进入 `VERIFYING`；后续由
+  `pota_service()` 每次推进一个有界步骤：向量校验、slot manifest append、BCB `mark_pending`，
+  最后才发布 `READY_TO_REBOOT`。`POTA_OPERATION_SERVICE` 已允许 `VERIFYING/MARK_PENDING`，
+  所有 Flash 写入仍经平台 owner/FlashTransaction callback。
+- 调度贯通：stream 新增 `ENDING` 状态；CLOSE ACK 只表示 END 请求已接受，AO tick 继续 service，
+  达到 `READY_TO_REBOOT` 后才释放 ingress lease。legacy OTA AO 同样在 VERIFYING/MARK_PENDING
+  tick 中推进；`tools/ota_send/ota_send.py` 已等待明确 READY，而不是把 END 后一次回读/CDC
+  断开当作成功。
+- 验证：V2 debug 主工程 App A/B、Boot、Recovery、link contract 构建通过；portable OTA host
+  runner（含 core/stream/ingress）通过；新 package 由 key 7 离线签名并通过 public-only verifier，
+  package size/build 记录见 `build-v2-debug-ninja3/DHRT100_V2_CANDIDATE_UPDATE.pkg`。
+- 验证：`build-v2-debug-ninja3` 主工程全量 Ninja、FlashMap/schema/wire/link gates 和
+  `run_portable_ota_tests.ps1` 均通过。固化 `picotool_flash.py` 对 DHRT100（
+  `GTS,DHRT100,839E1AE79EA20F31,0.1.0`）烧录/Flash verify/reboot 通过；随后
+  `ota_send.py --boot-and-commit --expect-final-state COMMITTED` 返回 0，SCPI 读回
+  `SYST:OTA:STAT? = "COMMITTED",1,"NONE",5`、`SYST:OTA:RES? =
+  5,"NONE","APPLIED",2,474824,4110326733`、`SYST:OTA:TXN? = 0,0,0,0,0,0,0,0`。
+  COM9 UART 记录到 software reboot、DHRT100 boot、application initialized 和 OTA AO
+  initialized，未出现 `CORE0_SUPERVISOR_STALL`。
+
+### FLASH-TASK-20260823-048 - Bootloader manifest lane geometry 修正
+
+- 状态：完成；修正 Bootloader 只读 manifest validator 仍使用双 lane 总 footprint 的问题。
+  `lane_size` 现在与 App writer 一致，使用单 lane `OTA_SLOT_MANIFEST_LANE_SIZE`；该错误曾在
+  OTA 已完成接收并重启后触发 `STAGE_VALIDATE_FAILED`。
+- 验证：重新构建并使用 `tools/picotool_flash/picotool_flash.py` 烧录 DHRT100，Flash verify
+  全部通过；同一签名 package 再次 OTA 后达到 `COMMITTED/APPLIED`，证明
+  `READY_TO_REBOOT → BOOT → COMM → COMMITTED` 闭环恢复。原始报告：
+  `build-v2-debug-ninja3/picotool_flash_boot_manifest_fix.txt`、
+  `build-v2-debug-ninja3/ota_boot_manifest_fix.txt`、
+  `build-v2-debug-ninja3/after_boot_manifest_fix.json` 和 COM9 UART transcript。
+
 ### FLASH-TASK-20260823-046 - V2 debug OTA watchdog HIL
 
 - 状态：进行中；factory 烧录闭环通过，signed package 数据接收达到完整长度，但 `END` 阶段
