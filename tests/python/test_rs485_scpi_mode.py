@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tools.scpi_query.scpi_query import strip_rs485_test_echo
+
 
 ROOT = Path(__file__).resolve().parents[2]
 HEADER = ROOT / "middleware/scpi_port/inc/scpi_communication_uart_commands.h"
@@ -42,3 +44,18 @@ def test_rs485_driver_owns_direction_and_bounded_test_frame():
     assert "uart_tx_wait_blocking" in source
     assert "gpio_put(s_config.de_pin, 0u)" in source
     assert "size > 256u" in source
+    assert "RS485_ECHO_IDLE_US" in source
+    assert "s_echo_discard" in source
+    assert "time_us_64" in source
+    assert "drv_rs485_write_internal" in source
+    assert "s_response_echo" in source
+
+
+def test_scpi_query_filters_printable_rs485_loopback_payload_before_ack():
+    command = "COMMunication:SERial:UART1:TX:TEST 8,85"
+    assert strip_rs485_test_echo(command, "UUUUUUUU1") == "1"
+    assert strip_rs485_test_echo(command, "1") == "1"
+    # Binary payloads are intentionally left untouched by the line helper.
+    assert strip_rs485_test_echo(
+        "COMMunication:SERial:UART1:TX:TEST 2,255", "��1"
+    ) == "��1"

@@ -28,6 +28,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baud", type=int, default=115200, help="ignored by USB CDC on most hosts")
     parser.add_argument("--timeout", type=float, default=2.0, help="per-command response timeout")
     parser.add_argument("--settle", type=float, default=0.5, help="seconds to wait after opening the port")
+    parser.add_argument("--inter-command-delay", type=float, default=0.0,
+                        help="seconds to wait after each response before the next command")
     parser.add_argument("--cmd-file", type=Path,
                         help="UTF-8 text file with one SCPI command per line; # starts a comment")
     parser.add_argument("--out", type=Path, help="write a UTF-8 transcript")
@@ -71,6 +73,36 @@ def strip_leading_ack(line: str) -> str:
     return line
 
 
+_RS485_TEST_RE = re.compile(
+    r"^COMMUNICATION:SERIAL:UART1:TX:TEST\s+"
+    r"(?P<count>\d+)(?:\s*,\s*(?P<pattern>\d+))?\s*$",
+    re.IGNORECASE,
+)
+
+
+def strip_rs485_test_echo(command: str, line: str) -> str:
+    """Remove the printable local-loopback prefix from a TX:TEST response.
+
+    A two-wire RS485 loopback necessarily returns the test payload before the
+    SCPI acknowledgement.  The generic line reader sees both as one line
+    (for example ``UUUUUUUU1`` for eight ``0x55`` bytes).  Restrict this
+    normalization to the fixed diagnostic command and printable payloads;
+    arbitrary binary RS485 frames must use a byte-framed validator instead of
+    the line-oriented SCPI helper.
+    """
+    match = _RS485_TEST_RE.fullmatch(command.strip())
+    if match is None:
+        return line
+    count = int(match.group("count"))
+    pattern = int(match.group("pattern") or "85")
+    if count <= 0 or count > 256 or pattern < 0 or pattern > 0xFF:
+        return line
+    if pattern in (0x0A, 0x0D) or not (0x20 <= pattern <= 0x7E):
+        return line
+    prefix = chr(pattern) * count
+    return line[len(prefix):] if line.startswith(prefix) else line
+
+
 def read_serial_line(ser: serial.Serial, deadline: float) -> str | None:
     line = read_serial_line_idle(ser, deadline)
     return None if line is None else normalize_line(line)
@@ -99,6 +131,9 @@ def read_response(ser: serial.Serial, command: str, timeout_s: float) -> str:
                 continue
             return line
 
+        line = strip_rs485_test_echo(command, line)
+        if not line:
+            continue
         if line.startswith('"OK"') or line.startswith('OK"') or line.startswith('"OK[') or line.startswith('OK['):
             return '"OK"'
         return line
@@ -136,6 +171,8 @@ def main() -> int:
                 print(json.dumps(record, ensure_ascii=False))
             else:
                 print(f"{command} => {response}")
+            if args.inter_command_delay > 0.0:
+                time.sleep(args.inter_command_delay)
 
     if args.out is not None:
         write_transcript(args.out, records)
