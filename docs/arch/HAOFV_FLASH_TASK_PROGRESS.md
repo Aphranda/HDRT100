@@ -2562,3 +2562,31 @@ permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootl
   - 完成 M0-03 schema registry、M0-05 v1 回退 artifact/runbook，之后才具备 factory/HIL 迁移条件。
 - 下一步：
   - 优先实现 M1-02 的只读 map table、context permission 和 host tests；不修改 live linker 地址。
+
+### FLASH-TASK-20260823-060 - OTA journal owner backend 与 durable identity 收敛
+
+- 状态：代码与 host/build gate 完成；真实 DHRT100 掉电、Boot C11 交叉审核仍未完成。
+- 日期：2026-08-23
+- 目标：移除 `ota_journal.c` 对通用同步 Flash execute facade 的依赖，统一 completion/checkpoint
+  物理写入 owner，并使跨 reset completion identity 不依赖 RAM-local generation。
+- 实现：
+  - 新增 `flash_transaction_ao_journal_program/erase()`，active transaction 内走 nested bounded
+    operation，checkpoint 位于事务之间时走同一 AO 的 journal intent/service；不创建第二个 raw writer。
+  - `ota_journal_default_program_page/erase_sector` 改为 owner-scoped backend；生产 journal 源码不再
+    调用 `flash_transaction_ao_execute()`。
+  - 非零 `request_fingerprint` 优先作为 durable identity，跨 reset 时允许 job、transaction、provider
+    和 store generation 重建；相同 fingerprint/event 幂等，冲突 payload 仍 fail closed。
+  - abort pending 在 nested journal 物理操作前检查，拒绝继续写入并返回 ABORTED，lease 仍由外层
+    FlashTransactionFB 统一释放。
+- 验证：
+  - `cmake --preset pico2-v2-factory-candidate` 与对应 build 通过，DHRT100/DHRT100_B、Boot、recovery
+    link contract 全绿；signed v2 debug package 重新生成并验证。
+  - `tools/tests/run_flash_transaction_tests.ps1`、`run_ota_journal_tests.ps1`、
+    `run_portable_ota_tests.ps1` 通过；新增 fingerprint runtime-generation host fixture。
+  - `tests/python/test_v2_durable_journal_wiring.py` 通过，静态断言生产 OTA journal 不再调用通用
+    synchronous execute。
+- 未完成/风险：
+  - stream checkpoint API 仍是 bool callback，尚未拆成 producer-visible PENDING/DONE 异步协议；当前
+    AO backend 的 standalone journal intent 是有界 service loop，后续需在 M4-02 完成全异步边界。
+  - 尚未执行真实 power-cut、rotation endurance 或 DHRT100 烧录；这些验证放在 host/build 和代码提交后。
+- 回退：回退本提交即可恢复上一版 journal callback；不触碰 BootFlashService 独立 owner。

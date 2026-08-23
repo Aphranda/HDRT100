@@ -263,8 +263,10 @@ Product Config 与 App metadata writer 已走 intent，Boot metadata 保持独�
 
 #### 未完成部分
 
-- [ ] 移除仍存在的同步兼容包装，完成 Boot writer、OTA_JOURNAL durable backend、运行时 abort/lease
-  与跨 reset durable completion 的统一 owner 收敛。
+- [~] 移除仍存在的同步兼容包装，完成 Boot writer、OTA_JOURNAL durable backend、运行时 abort/lease
+  与跨 reset durable completion 的统一 owner 收敛：OTA_JOURNAL 默认 program/erase 已改为
+  `FlashTransactionAO` owner-scoped backend，禁止直接调用通用同步 execute；remaining work 是
+  Boot C11 交叉审核、真实板端掉电和 runtime producer 的全异步 checkpoint boundary。
 
 首轮证据：commit `2a79643`、`bdc744b`、`accdfbc`、`f3d5a96`；OTA image erase/program 已从 portable callback 进入
 `FlashTransactionAO/FB`，active slot 未知或写活动槽均 fail closed。host fault fixtures、release、
@@ -326,6 +328,9 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
   journal lease，并与 stream checkpoint 使用同一 partition 的互不重叠 region；completion
   journal 已支持保留最新 block 的受控 rotation，未配置 erase callback 的 portable store 仍
   fail closed。
+- [x] **M1-05-G owner backend 收敛**：completion nested journal 与 stream checkpoint journal 均通过
+  `flash_transaction_ao_journal_program/erase()` 进入唯一 FlashTransactionAO；生产 `ota_journal.c`
+  不再调用通用 `flash_transaction_ao_execute()`。
 - [ ] **M1-05-G 剩余**：完成真实 DHRT100 跨 reset/power-cut 证据、rotation/endurance HIL 和
   completion store 长期容量预算。
 - [ ] **M1-05-H 跨 reset/power-cut 闭环**：覆盖 body/readback/commit marker/lane seal 各断电点，复位
@@ -338,6 +343,9 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
   producer 和板端掉电 replay 仍待完成。Host 已补 store reset 后重复 completion 不占新槽的矩阵
   （`FLASH-TASK-20260823-008`）。FlashTransactionFB 现在拒绝最近 terminal 显式 job ID 的
   重复提交（`29585e9`），跨 reset 的 durable identity 仍待完成。
+- [x] **M1-05-I host identity bridge**：非零 request fingerprint 现在优先于 RAM-local job/
+  transaction/provider/store generation，用于 reset 后 completion find/append 幂等；冲突 payload
+  仍 fail closed，并由新增 host fixture 覆盖。
 - [ ] **M1-05-J link-level visibility**：在 App、Boot、release 三类链接产物上证明 raw erase/program
   符号只对允许的 owner 可见，不能仅依赖源码 inventory 扫描。App 侧现已增加反汇编调用边
   fail-closed 检查（`47b15a3`），Boot 侧现已固定允许 caller 集合；独立 JSON 报告工具、
