@@ -328,7 +328,8 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M2-01 Store core
 
-- [ ] 实现 common record envelope、CRC/hash、generation、commit marker 和 version compatibility。
+- [~] common record envelope、CRC/hash、generation、commit marker 和 version compatibility 已落地；
+  NVS append/sector rotation、Blob immutable object/atomic ref、FCB append ring/GC 仍待完成。
 - [ ] 实现 NVS append/sector rotation、Blob immutable object/atomic ref、FCB append ring/GC。
 - [ ] GC 只能提交 FlashTransaction job；空间不足时返回明确 backpressure/reason。
 - [ ] power-cut fixtures 覆盖 body/commit/ref/GC 各边界，始终选出确定的旧或新事实。

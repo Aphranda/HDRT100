@@ -16,6 +16,18 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-076 - NVS append planner
+
+- 状态：M2-01 的 NVS append/scan planner 子项完成；sector rotation、实际 Store adapter、
+  FlashTransactionAO durable writer、GC/wear 与物理 power-cut 仍未完成。
+- 代码：新增 `flash_store_nvs`，对 envelope 做只读扫描、最新 generation/sequence 选择、
+  program-alignment span 计算和 append buffer 规划；未知 schema/object/flags fail closed，
+  torn tail 只保留旧的有效前缀并要求上层决定 rotation。该模块不执行任何 Flash IO。
+- 验证：`tools/tests/run_flash_store_nvs_tests.ps1` 与 record tests 通过；V2 factory-candidate、
+  release 构建通过 FlashMap/persistence/migration/wire/link gates。
+- 边界：尚未接入 Product/Calibration/VDC namespace，也没有宣称 M2 Store 或 DHRT100 v2
+  部署完成。
+
 ### FLASH-TASK-20260823-075 - Common persistence record envelope
 
 - 状态：M2-01 的通用 envelope 代码/host/build 子项完成；NVS/Blob/FCB store、FlashTransaction
