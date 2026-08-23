@@ -72,6 +72,16 @@ Last updated: 2026-08-24
 - 下一步：按硬件 DE/RE 共控约束迁移到 UART RX idle event + DMA ping-pong buffer，先在 host
   做 frame/idle 回归，再重新取得 DHRT100 COM11 的 `SYST:ERR?=0,"No error"` 证据。
 
+## COMM-RS485-20260824-005 - UART1 DMA 双缓冲骨架
+
+- `drv_rs485` 已加入两块固定大小 RX DMA buffer、DMA 链式切换和 `DMA_IRQ_1` 完成事件；
+  `DMA_IRQ_0` 保留给 SYNC_IO，不改变 HAOFV 实时 owner。无可用 DMA 通道时自动回退到 UART
+  FIFO polling。
+- RX service 只消费已完成 buffer，echo candidate/response frame 过滤仍在 driver owner 内，
+  不向 SCPI handler 暴露 DMA/Flash 细节；主工程和 link gate 已通过。
+- 当前仅有 host/build 证据，DHRT100 尚未重新枚举，尚未宣称 DMA 双缓冲板端闭环；恢复
+  BOOTSEL 后必须重新取得 COM11 transcript、`SYST:ERR?` 清零和 DMA overrun 统计证据。
+
 ## 证据索引
 
 | 证据 | 状态 | 说明 |
