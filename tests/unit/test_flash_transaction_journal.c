@@ -327,6 +327,31 @@ static void test_find_identity_survives_store_reset(void)
     assert(!flash_transaction_journal_find(&reset_store, &identity, &found));
 }
 
+static void test_fingerprint_identity_survives_runtime_generations(void)
+{
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    s_program_calls = 0u;
+    s_fail_program_call = 0u;
+    flash_transaction_journal_config_t config = make_config();
+    flash_transaction_journal_store_t store;
+    assert(flash_transaction_journal_init(&store, &config));
+
+    flash_transaction_journal_record_t committed =
+        make_record(FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED, 41u);
+    committed.request_fingerprint = 0xA11CE001u;
+    assert(flash_transaction_journal_append(&store, &committed));
+
+    flash_transaction_journal_record_t identity = committed;
+    identity.job_id = 1u;
+    identity.transaction_generation = 1u;
+    identity.provider_generation = 1u;
+    identity.store_generation = 2u;
+    identity.event = 0u;
+    flash_transaction_journal_record_t found;
+    assert(flash_transaction_journal_find(&store, &identity, &found));
+    assert(found.request_fingerprint == committed.request_fingerprint);
+}
+
 static void test_recovery_falls_back_to_previous_valid_completion(void)
 {
     memset(s_flash, 0xFF, sizeof(s_flash));
@@ -460,6 +485,7 @@ int main(void)
     test_journal_rotates_to_next_erase_block();
     test_duplicate_completion_is_idempotent();
     test_find_identity_survives_store_reset();
+    test_fingerprint_identity_survives_runtime_generations();
     test_recovery_falls_back_to_previous_valid_completion();
     test_reset_boundary_matrix();
     puts("flash transaction journal tests passed");

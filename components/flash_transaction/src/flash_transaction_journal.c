@@ -59,10 +59,17 @@ static bool flash_transaction_journal_identity_equal(
     const flash_transaction_journal_record_t *left,
     const flash_transaction_journal_record_t *right)
 {
-    return left->job_id == right->job_id &&
-           left->transaction_generation == right->transaction_generation &&
-           left->provider_generation == right->provider_generation &&
-           left->store_generation == right->store_generation &&
+    const bool durable_identity = left->request_fingerprint != 0u &&
+                                  right->request_fingerprint != 0u &&
+                                  left->request_fingerprint ==
+                                      right->request_fingerprint;
+    return (durable_identity || left->job_id == right->job_id) &&
+           (durable_identity ||
+            left->transaction_generation == right->transaction_generation) &&
+           (durable_identity ||
+            left->provider_generation == right->provider_generation) &&
+           (durable_identity ||
+            left->store_generation == right->store_generation) &&
            (left->request_fingerprint == 0u ||
             right->request_fingerprint == 0u ||
             left->request_fingerprint == right->request_fingerprint) &&
@@ -73,10 +80,21 @@ static bool flash_transaction_journal_transaction_equal(
     const flash_transaction_journal_record_t *left,
     const flash_transaction_journal_record_t *right)
 {
-    return left->job_id == right->job_id &&
-           left->transaction_generation == right->transaction_generation &&
-           left->provider_generation == right->provider_generation &&
-           left->store_generation == right->store_generation &&
+    /* transaction_generation is RAM-local and restarts after reset.  Once a
+     * non-zero request fingerprint is present, it is the durable identity
+     * boundary and safely bridges that reset; conflicting payloads still
+     * fail closed because the fingerprint must match. */
+    const bool durable_identity = left->request_fingerprint != 0u &&
+                                  right->request_fingerprint != 0u &&
+                                  left->request_fingerprint ==
+                                      right->request_fingerprint;
+    return (durable_identity || left->job_id == right->job_id) &&
+           (durable_identity ||
+            left->transaction_generation == right->transaction_generation) &&
+           (durable_identity ||
+            left->provider_generation == right->provider_generation) &&
+           (durable_identity ||
+            left->store_generation == right->store_generation) &&
            (left->request_fingerprint == 0u ||
             right->request_fingerprint == 0u ||
             left->request_fingerprint == right->request_fingerprint);

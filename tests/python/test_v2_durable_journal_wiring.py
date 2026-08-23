@@ -14,6 +14,9 @@ def test_v2_journal_uses_disjoint_completion_and_checkpoint_regions():
     assert "ota_journal_region_range_valid" in source
     assert "flash_transaction_journal_init(&s_completion_store" in source
     assert "flash_transaction_ao_set_completion_lease(&s_completion_lease)" in source
+    assert "flash_transaction_ao_journal_program" in source
+    assert "flash_transaction_ao_journal_erase" in source
+    assert "flash_transaction_ao_execute(" not in source
 
 
 def test_v2_durable_init_precedes_metadata_dependent_stream_open():

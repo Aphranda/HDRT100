@@ -14,10 +14,12 @@ static uint32_t flash_transaction_request_fingerprint(
         return 0u;
     }
     uint32_t hash = 2166136261u;
+    /* provider/store generations are runtime leases and may legitimately be
+     * re-created after reset; durable identity must remain stable across that
+     * boundary.  Geometry/requester/operation/payload are the stable object. */
     const uint32_t fields[] = {
         request->requester, request->partition_id, request->operation,
-        request->relative_offset, request->length, request->provider_generation,
-        request->store_generation,
+        request->relative_offset, request->length,
     };
     const uint8_t *bytes = (const uint8_t *)fields;
     for (uint32_t i = 0u; i < sizeof(fields); ++i) {

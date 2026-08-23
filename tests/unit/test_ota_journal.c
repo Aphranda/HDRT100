@@ -36,6 +36,28 @@ bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
     return false;
 }
 
+/* Production journal defaults are owner-scoped child operations.  The unit
+ * fixture injects its own platform, but still provides the AO symbols so the
+ * production translation unit can be linked without restoring a synchronous
+ * compatibility writer. */
+bool flash_transaction_ao_journal_program(uint32_t relative_offset,
+                                          const uint8_t *data,
+                                          uint32_t length)
+{
+    (void)relative_offset;
+    (void)data;
+    (void)length;
+    return false;
+}
+
+bool flash_transaction_ao_journal_erase(uint32_t relative_offset,
+                                        uint32_t length)
+{
+    (void)relative_offset;
+    (void)length;
+    return false;
+}
+
 bool flash_transaction_ao_set_completion_lease(
     const flash_transaction_completion_lease_t *lease)
 {

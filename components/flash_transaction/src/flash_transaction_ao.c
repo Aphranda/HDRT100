@@ -15,6 +15,7 @@
 
 static flash_transaction_fb_t s_flash_transaction;
 static const flash_transaction_completion_lease_t *s_completion_lease;
+static uint32_t s_journal_provider_generation;
 
 static uint32_t flash_transaction_policy_check(uint32_t requester,
                                                uint32_t *temperature_flags);
@@ -148,6 +149,7 @@ static uint32_t flash_transaction_now_ms(void)
 bool flash_transaction_ao_init(void)
 {
     s_completion_lease = NULL;
+    s_journal_provider_generation = 0u;
     const flash_transaction_platform_t platform = {
         .policy_allows = flash_transaction_policy_allows,
         .policy_check = flash_transaction_policy_check,
@@ -256,6 +258,18 @@ static __attribute__((noinline)) bool flash_transaction_ao_execute_nested_journa
         return false;
     }
 
+    /* Abort is an owner decision, not a backend-local best effort.  Do not
+     * touch the journal once a producer has revoked its lease. */
+    if (s_flash_transaction.vector.abort_pending != 0u) {
+        (void)memset(completion, 0, sizeof(*completion));
+        completion->job_id = s_flash_transaction.vector.job_id;
+        completion->transaction_generation =
+            s_flash_transaction.vector.transaction_generation;
+        completion->result = FLASH_TRANSACTION_RESULT_ABORTED;
+        completion->error = FLASH_TRANSACTION_ERROR_ABORTED;
+        return false;
+    }
+
     uint32_t absolute_offset = 0u;
     const flash_map_access_t access = {
         .context = FLASH_MAP_CONTEXT_APP,
@@ -273,17 +287,21 @@ static __attribute__((noinline)) bool flash_transaction_ao_execute_nested_journa
     }
 
     diagnostics_watchdog_flash_transaction_progress();
+
     bool ok = false;
-    if (request->operation == FLASH_TRANSACTION_OPERATION_ERASE) {
-        ok = flash_transaction_erase(absolute_offset, request->length) &&
-             flash_transaction_verify_erased(absolute_offset, request->length);
-    } else {
-        ok = request->data != NULL &&
-             flash_transaction_program(absolute_offset, request->data,
-                                        request->length) &&
-             flash_transaction_verify_programmed(absolute_offset,
-                                                 request->data,
+    if (s_flash_transaction.vector.abort_pending == 0u) {
+        if (request->operation == FLASH_TRANSACTION_OPERATION_ERASE) {
+            ok = flash_transaction_erase(absolute_offset, request->length) &&
+                 flash_transaction_verify_erased(absolute_offset,
                                                  request->length);
+        } else {
+            ok = request->data != NULL &&
+                 flash_transaction_program(absolute_offset, request->data,
+                                            request->length) &&
+                 flash_transaction_verify_programmed(absolute_offset,
+                                                     request->data,
+                                                     request->length);
+        }
     }
     diagnostics_watchdog_flash_transaction_progress();
 
@@ -298,8 +316,82 @@ static __attribute__((noinline)) bool flash_transaction_ao_execute_nested_journa
     completion->result = ok ? FLASH_TRANSACTION_RESULT_COMMITTED
                             : FLASH_TRANSACTION_RESULT_FAILED;
     completion->error = ok ? FLASH_TRANSACTION_ERROR_NONE
-                           : FLASH_TRANSACTION_ERROR_RAW_OPERATION;
+                           : (s_flash_transaction.vector.abort_pending != 0u
+                                  ? FLASH_TRANSACTION_ERROR_ABORTED
+                                  : FLASH_TRANSACTION_ERROR_RAW_OPERATION);
     return ok;
+}
+
+static uint32_t flash_transaction_ao_next_journal_generation(void)
+{
+    s_journal_provider_generation++;
+    if (s_journal_provider_generation == 0u) {
+        s_journal_provider_generation = 1u;
+    }
+    return s_journal_provider_generation;
+}
+
+static bool flash_transaction_ao_journal_operation(
+    flash_transaction_operation_t operation, uint32_t relative_offset,
+    const uint8_t *data, uint32_t length)
+{
+    const flash_transaction_request_t request = {
+        .requester = FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL,
+        .partition_id = FLASH_DEPLOYMENT_MAP_OTA_JOURNAL_ID,
+        .operation = operation,
+        .relative_offset = relative_offset,
+        .length = length,
+        .data = data,
+        .provider_generation = operation == FLASH_TRANSACTION_OPERATION_PROGRAM
+                                   ? flash_transaction_ao_next_journal_generation()
+                                   : 0u,
+        .store_generation = FLASH_DEPLOYMENT_MAP_VERSION,
+    };
+    flash_transaction_completion_t completion;
+    if (s_flash_transaction.occupied) {
+        return flash_transaction_ao_execute_nested_journal(&request,
+                                                           &completion);
+    }
+
+    /* A checkpoint append is initiated between image transactions.  It still
+     * belongs to this AO owner, so submit it as an ordinary journal intent and
+     * service only its bounded state machine here.  No generic execute
+     * compatibility path or second writer is exposed to the caller. */
+    if (!flash_transaction_ao_submit(&request)) {
+        return false;
+    }
+    for (uint32_t step = 0u; step < FLASH_TRANSACTION_EXECUTE_STEPS; ++step) {
+        flash_transaction_ao_service();
+        flash_transaction_vector_t vector;
+        if (!flash_transaction_ao_get_vector(&vector)) {
+            continue;
+        }
+        if (vector.state == FLASH_TRANSACTION_STATE_COMPLETE ||
+            vector.state == FLASH_TRANSACTION_STATE_FAILED ||
+            vector.state == FLASH_TRANSACTION_STATE_ABORTED) {
+            completion.result = vector.last_result;
+            completion.error = vector.last_error;
+            return vector.state == FLASH_TRANSACTION_STATE_COMPLETE &&
+                   vector.completion_level ==
+                       FLASH_TRANSACTION_COMPLETION_COMMITTED;
+        }
+    }
+    return false;
+}
+
+bool flash_transaction_ao_journal_program(uint32_t relative_offset,
+                                          const uint8_t *data,
+                                          uint32_t length)
+{
+    return flash_transaction_ao_journal_operation(
+        FLASH_TRANSACTION_OPERATION_PROGRAM, relative_offset, data, length);
+}
+
+bool flash_transaction_ao_journal_erase(uint32_t relative_offset,
+                                        uint32_t length)
+{
+    return flash_transaction_ao_journal_operation(
+        FLASH_TRANSACTION_OPERATION_ERASE, relative_offset, NULL, length);
 }
 
 bool flash_transaction_ao_execute(const flash_transaction_request_t *request,

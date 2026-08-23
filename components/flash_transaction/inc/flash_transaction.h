@@ -199,6 +199,16 @@ bool flash_transaction_ao_request_abort(uint32_t job_id);
 bool flash_transaction_ao_notify_provider_reset(uint32_t provider_generation);
 bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
                                   flash_transaction_completion_t *completion);
+
+/* Execute one bounded OTA_JOURNAL physical operation inside the already
+ * active FlashTransactionAO owner session.  These are the only journal
+ * backend entry points; callers must not construct a second raw writer or
+ * invoke the synchronous compatibility facade while the owner is parked. */
+bool flash_transaction_ao_journal_program(uint32_t relative_offset,
+                                          const uint8_t *data,
+                                          uint32_t length);
+bool flash_transaction_ao_journal_erase(uint32_t relative_offset,
+                                        uint32_t length);
 bool flash_transaction_ao_get_vector(flash_transaction_vector_t *vector);
 
 #endif

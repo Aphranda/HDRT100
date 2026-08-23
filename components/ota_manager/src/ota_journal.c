@@ -56,7 +56,6 @@ static flash_transaction_completion_lease_t s_completion_lease;
 static ota_journal_platform_t s_platform;
 static ota_journal_region_t s_checkpoint_region;
 static ota_journal_region_t s_completion_region;
-static uint32_t s_provider_generation;
 static bool s_initialized;
 
 static bool ota_journal_range_valid(uint32_t offset, uint32_t length)
@@ -79,38 +78,17 @@ static bool ota_journal_default_program_page(void *context, uint32_t offset,
                                              uint32_t length)
 {
     (void)context;
-    s_provider_generation++;
-    if (s_provider_generation == 0u) {
-        s_provider_generation = 1u;
-    }
-    const flash_transaction_request_t request = {
-        .requester = FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL,
-        .partition_id = FLASH_DEPLOYMENT_MAP_OTA_JOURNAL_ID,
-        .operation = FLASH_TRANSACTION_OPERATION_PROGRAM,
-        .relative_offset = offset,
-        .length = length,
-        .data = data,
-        .provider_generation = s_provider_generation,
-        .store_generation = FLASH_DEPLOYMENT_MAP_VERSION,
-    };
-    flash_transaction_completion_t completion;
-    return flash_transaction_ao_execute(&request, &completion);
+    /* The journal is a child operation of the active FlashTransactionAO
+     * session.  It must use the owner-scoped backend, never submit a second
+     * transaction or enter the synchronous compatibility facade. */
+    return flash_transaction_ao_journal_program(offset, data, length);
 }
 
 static bool ota_journal_default_erase_sector(void *context, uint32_t offset,
                                              uint32_t length)
 {
     (void)context;
-    const flash_transaction_request_t request = {
-        .requester = FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL,
-        .partition_id = FLASH_DEPLOYMENT_MAP_OTA_JOURNAL_ID,
-        .operation = FLASH_TRANSACTION_OPERATION_ERASE,
-        .relative_offset = offset,
-        .length = length,
-        .store_generation = FLASH_DEPLOYMENT_MAP_VERSION,
-    };
-    flash_transaction_completion_t completion;
-    return flash_transaction_ao_execute(&request, &completion);
+    return flash_transaction_ao_journal_erase(offset, length);
 }
 
 static bool ota_journal_region_range_valid(
