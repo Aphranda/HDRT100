@@ -314,3 +314,19 @@ uint32_t drv_rs485_error_count(void)
 {
     return s_error_count;
 }
+
+bool drv_rs485_dma_enabled(void)
+{
+    return s_dma_enabled;
+}
+
+uint32_t drv_rs485_dma_overrun_count(void)
+{
+    return s_dma_overrun_count;
+}
+
+uint32_t drv_rs485_echo_pending_count(void)
+{
+    return s_echo_remaining + s_echo_candidate_len +
+           (s_response_echo_len - s_response_echo_pos);
+}

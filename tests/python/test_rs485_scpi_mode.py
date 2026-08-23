@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HEADER = ROOT / "middleware/scpi_port/inc/scpi_communication_uart_commands.h"
 SOURCE = ROOT / "middleware/scpi_port/src/scpi_communication_uart_commands.c"
 DRIVER = ROOT / "drivers/mcu/uart/src/drv_rs485.c"
+COMMANDS = ROOT / "docs/interface/SCPI_COMMANDS.md"
 
 
 def test_usb_scpi_mode_commands_are_registered_for_uart_rs485_channel():
@@ -25,6 +26,16 @@ def test_mode_selection_is_explicit_and_defaults_to_scpi():
     assert 'scpi_uart_text_equal(value, length, "MODBUS")' in source
     assert 'scpi_uart_text_equal(value, length, "SCPI")' in source
     assert 'SCPI_ResultText(context, scpi_uart_mode_text())' in source
+
+
+def test_rx_status_projects_dma_backend_and_echo_health():
+    header = HEADER.read_text(encoding="utf-8")
+    source = SOURCE.read_text(encoding="utf-8")
+    docs = COMMANDS.read_text(encoding="utf-8")
+    assert '"COMMunication:SERial:UART#:RX:STATus?"' in header
+    assert "scpi_cmd_uart_rx_status_q" in source
+    assert '"DMA_PINGPONG"' in source
+    assert "DMA overrun" in docs
 
 
 def test_mode_does_not_claim_backend_ready():

@@ -13,6 +13,7 @@ scpi_result_t scpi_cmd_uart_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_uart_tx_test(scpi_t *context);
 scpi_result_t scpi_cmd_uart_tx_test_q(scpi_t *context);
 scpi_result_t scpi_cmd_uart_rx_count_q(scpi_t *context);
+scpi_result_t scpi_cmd_uart_rx_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_uart_error_q(scpi_t *context);
 bool scpi_uart_mode_is_scpi(void);
 
@@ -29,6 +30,7 @@ bool scpi_uart_mode_is_scpi(void);
     {.pattern = "COMMunication:SERial:UART#:TX:TEST", .callback = scpi_cmd_uart_tx_test}, \
     {.pattern = "COMMunication:SERial:UART#:TX:TEST?", .callback = scpi_cmd_uart_tx_test_q}, \
     {.pattern = "COMMunication:SERial:UART#:RX:COUNt?", .callback = scpi_cmd_uart_rx_count_q}, \
+    {.pattern = "COMMunication:SERial:UART#:RX:STATus?", .callback = scpi_cmd_uart_rx_status_q}, \
     {.pattern = "COMMunication:SERial:UART#:ERRor?", .callback = scpi_cmd_uart_error_q}
 
 #endif

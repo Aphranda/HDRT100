@@ -144,6 +144,17 @@ scpi_result_t scpi_cmd_uart_rx_count_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_uart_rx_status_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, scpi_uart_channel(context));
+    SCPI_ResultText(context, drv_rs485_dma_enabled() ? "DMA_PINGPONG" :
+                    "UART_FIFO");
+    SCPI_ResultUInt32(context, drv_rs485_rx_count());
+    SCPI_ResultUInt32(context, drv_rs485_dma_overrun_count());
+    SCPI_ResultUInt32(context, drv_rs485_echo_pending_count());
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_uart_error_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, scpi_uart_channel(context));

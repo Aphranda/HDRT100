@@ -22,5 +22,8 @@ bool drv_rs485_write_test(uint32_t count, uint8_t pattern);
 uint32_t drv_rs485_rx_count(void);
 uint32_t drv_rs485_tx_count(void);
 uint32_t drv_rs485_error_count(void);
+bool drv_rs485_dma_enabled(void);
+uint32_t drv_rs485_dma_overrun_count(void);
+uint32_t drv_rs485_echo_pending_count(void);
 
 #endif
