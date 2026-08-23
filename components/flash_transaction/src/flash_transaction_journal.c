@@ -68,8 +68,7 @@ static bool flash_transaction_journal_identity_equal(
             left->transaction_generation == right->transaction_generation) &&
            (durable_identity ||
             left->provider_generation == right->provider_generation) &&
-           (durable_identity ||
-            left->store_generation == right->store_generation) &&
+           left->store_generation == right->store_generation &&
            (left->request_fingerprint == 0u ||
             right->request_fingerprint == 0u ||
             left->request_fingerprint == right->request_fingerprint) &&
@@ -93,8 +92,7 @@ static bool flash_transaction_journal_transaction_equal(
             left->transaction_generation == right->transaction_generation) &&
            (durable_identity ||
             left->provider_generation == right->provider_generation) &&
-           (durable_identity ||
-            left->store_generation == right->store_generation) &&
+           left->store_generation == right->store_generation &&
            (left->request_fingerprint == 0u ||
             right->request_fingerprint == 0u ||
             left->request_fingerprint == right->request_fingerprint);

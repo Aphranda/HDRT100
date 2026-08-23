@@ -345,11 +345,14 @@ static void test_fingerprint_identity_survives_runtime_generations(void)
     identity.job_id = 1u;
     identity.transaction_generation = 1u;
     identity.provider_generation = 1u;
-    identity.store_generation = 2u;
+    identity.store_generation = committed.store_generation;
     identity.event = 0u;
     flash_transaction_journal_record_t found;
     assert(flash_transaction_journal_find(&store, &identity, &found));
     assert(found.request_fingerprint == committed.request_fingerprint);
+
+    identity.store_generation++;
+    assert(!flash_transaction_journal_find(&store, &identity, &found));
 }
 
 static void test_recovery_falls_back_to_previous_valid_completion(void)
