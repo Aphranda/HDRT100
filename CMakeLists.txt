@@ -230,6 +230,11 @@ configure_file(
 
 set(PROJECT_BUILD_INFO_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.h)
 set(PROJECT_BUILD_INFO_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/generated/project_build_info.c)
+set(PROJECT_BUILD_ID "" CACHE STRING
+    "Stable firmware build id (UTC YYYYMMDDHHMMSS) for this build tree")
+if(PROJECT_BUILD_ID STREQUAL "")
+    string(TIMESTAMP PROJECT_BUILD_ID "%Y%m%d%H%M%S" UTC)
+endif()
 set(PROJECT_FREERTOS_KERNEL_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/freertos/FreeRTOS-Kernel CACHE PATH "FreeRTOS-Kernel source directory")
 set(PROJECT_FATFS_SOURCE_DIR ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source CACHE PATH "FatFs source directory")
 set(PROJECT_FATFS_CONFIGURED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/fatfs)
@@ -291,13 +296,18 @@ set(PROJECT_PORTABLE_OTA_ADAPTER_SOURCES
         third_party/portable_ota/src/pota_slot_manifest.c
 )
 
-add_custom_target(project_build_info
-        ALL
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/build_info/gen_build_info.py
+add_custom_command(
+        OUTPUT ${PROJECT_BUILD_INFO_HEADER} ${PROJECT_BUILD_INFO_SOURCE}
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_LIST_DIR}/tools/build_info/gen_build_info.py
                 ${PROJECT_BUILD_INFO_HEADER}
                 ${PROJECT_BUILD_INFO_SOURCE}
-        BYPRODUCTS ${PROJECT_BUILD_INFO_HEADER} ${PROJECT_BUILD_INFO_SOURCE}
+                --build-id ${PROJECT_BUILD_ID}
+        DEPENDS ${CMAKE_CURRENT_LIST_DIR}/tools/build_info/gen_build_info.py
         VERBATIM
+)
+add_custom_target(project_build_info ALL
+        DEPENDS ${PROJECT_BUILD_INFO_HEADER} ${PROJECT_BUILD_INFO_SOURCE}
 )
 
 add_custom_target(project_flash_contract_check

@@ -15,6 +15,7 @@
 #define OTA_METADATA_VERSION_V2   2u
 #define OTA_BCB_LANE_SIZE (OTA_METADATA_SIZE / POTA_BCB_LANE_COUNT)
 #define OTA_BCB_LANE_PAGE_COUNT (OTA_BCB_LANE_SIZE / POTA_BCB_PAGE_SIZE)
+#define OTA_BCB_ERASE_SECTOR_COUNT (OTA_BCB_LANE_SIZE / DRV_FLASH_SECTOR_SIZE)
 
 _Static_assert((OTA_METADATA_SIZE % POTA_BCB_LANE_COUNT) == 0u,
                "Boot Control size must split evenly across BCB lanes");
@@ -97,6 +98,28 @@ static bool ota_metadata_bcb_erase_lane(void *context, uint32_t lane)
                                    OTA_BCB_LANE_SIZE);
 }
 
+static bool ota_metadata_bcb_erase_sector(void *context, uint32_t lane,
+                                          uint32_t sector_index)
+{
+    (void)context;
+    if (lane >= POTA_BCB_LANE_COUNT ||
+        sector_index >= OTA_BCB_ERASE_SECTOR_COUNT) {
+        return false;
+    }
+    return ota_metadata_flash_erase(
+        ota_metadata_bcb_page_offset(lane, 0u) +
+            sector_index * DRV_FLASH_SECTOR_SIZE,
+        DRV_FLASH_SECTOR_SIZE);
+}
+
+static void ota_metadata_bcb_service(void *context)
+{
+    (void)context;
+    /* Observation hook only.  The watchdog supervisor owns the health gate
+     * and hardware feed; this callback must never turn a long BCB scan into an
+     * unconditional keep-alive path. */
+}
+
 static bool ota_metadata_bcb_init(pota_boot_control_facade_t *store)
 {
     const pota_bcb_platform_t platform = {
@@ -104,6 +127,9 @@ static bool ota_metadata_bcb_init(pota_boot_control_facade_t *store)
         .read_page = ota_metadata_bcb_read_page,
         .program_page = ota_metadata_bcb_program_page,
         .erase_lane = ota_metadata_bcb_erase_lane,
+        .erase_lane_sector = ota_metadata_bcb_erase_sector,
+        .erase_sector_count = OTA_BCB_ERASE_SECTOR_COUNT,
+        .service = ota_metadata_bcb_service,
     };
     return pota_boot_control_facade_init(store, &platform,
                                          FLASH_DEPLOYMENT_MAP_SCHEMA_VERSION,
@@ -467,6 +493,66 @@ bool ota_metadata_corrupt_copy(uint32_t copy_index)
     }
 
     return ota_metadata_bcb_erase_lane(NULL, copy_index);
+}
+
+static pota_boot_control_facade_t s_mark_pending_store;
+static pota_bcb_txn_t s_mark_pending_txn;
+static bool s_mark_pending_active;
+
+pota_platform_step_result_t ota_metadata_mark_pending_step(
+    ota_slot_t slot, uint32_t image_size, uint32_t image_crc32,
+    uint32_t security_counter)
+{
+    if (!s_mark_pending_active) {
+        ota_metadata_t metadata;
+        if (!ota_metadata_load(&metadata) ||
+            !portable_ota_port_metadata_mark_pending(&metadata, slot,
+                                                     image_size,
+                                                     image_crc32) ||
+            !ota_metadata_bcb_init(&s_mark_pending_store)) {
+            return POTA_PLATFORM_STEP_FAILED;
+        }
+
+        pota_bcb_view_t view;
+        const pota_bcb_result_t selected =
+            pota_boot_control_facade_select_newest(&s_mark_pending_store,
+                                                   &view);
+        if (selected == POTA_BCB_RESULT_OK &&
+            security_counter < view.update.security_counter) {
+            return POTA_PLATFORM_STEP_FAILED;
+        }
+        if (selected != POTA_BCB_RESULT_OK &&
+            selected != POTA_BCB_RESULT_NO_VALID) {
+            return POTA_PLATFORM_STEP_FAILED;
+        }
+
+        ota_metadata_update_crc(&metadata);
+        pota_bcb_update_t update;
+        (void)memset(&update, 0, sizeof(update));
+        update.sequence = metadata.sequence;
+        update.boot_generation = metadata.boot_generation;
+        update.security_counter = security_counter;
+        update.payload_length = sizeof(metadata);
+        (void)memcpy(update.payload, &metadata, sizeof(metadata));
+        const pota_bcb_result_t begin = pota_bcb_txn_begin(
+            &s_mark_pending_txn, &s_mark_pending_store.store, &update);
+        if (begin != POTA_BCB_RESULT_OK) {
+            return POTA_PLATFORM_STEP_FAILED;
+        }
+        s_mark_pending_active = true;
+    }
+
+    const pota_bcb_step_result_t step =
+        pota_bcb_txn_step(&s_mark_pending_txn);
+    if (step == POTA_BCB_STEP_DONE) {
+        s_mark_pending_active = false;
+        return POTA_PLATFORM_STEP_DONE;
+    }
+    if (step == POTA_BCB_STEP_FAILED) {
+        s_mark_pending_active = false;
+        return POTA_PLATFORM_STEP_FAILED;
+    }
+    return POTA_PLATFORM_STEP_PENDING;
 }
 
 bool ota_metadata_repair_copies(void)

@@ -34,7 +34,7 @@
       "executable": false,
       "store_type": "boot_control",
       "update_policy": "boot_control_transaction",
-      "permissions": {"boot": ["read", "write"], "app": ["read"], "factory": ["read", "write"]}
+      "permissions": {"boot": ["read", "write"], "app": ["read", "write"], "factory": ["read", "write"]}
     },
     {
       "id": "APP_A",

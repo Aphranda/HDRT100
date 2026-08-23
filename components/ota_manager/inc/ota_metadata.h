@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "ota_partition.h"
+#include "pota_platform.h"
 
 #define OTA_METADATA_MAGIC   0x4F544D44u
 #define OTA_METADATA_VERSION 3u
@@ -93,6 +94,9 @@ bool ota_metadata_store(const ota_metadata_t *metadata);
 bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size,
                                uint32_t image_crc32,
                                uint32_t security_counter);
+pota_platform_step_result_t ota_metadata_mark_pending_step(
+    ota_slot_t slot, uint32_t image_size, uint32_t image_crc32,
+    uint32_t security_counter);
 bool ota_metadata_confirm_active(void);
 bool ota_metadata_set_boot_mode(ota_boot_mode_t mode);
 bool ota_metadata_set_fault_injection(uint32_t flags);

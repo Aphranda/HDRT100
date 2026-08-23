@@ -312,6 +312,23 @@ def query_final_status(serial_port, delay_s: float = 0.1) -> str:
     return query(serial_port, "SYST:OTA:STAT?")
 
 
+def wait_for_ready_to_reboot(serial_port, timeout_s: float) -> str:
+    """Wait for the schedulable END transaction to reach its durable terminal state."""
+    deadline = time.monotonic() + timeout_s
+    last_status = ""
+    while time.monotonic() < deadline:
+        status = query(serial_port, "SYST:OTA:STAT?")
+        if status:
+            last_status = status
+            state = parse_ota_state(status)
+            if state == "READY_TO_REBOOT" or state in {"FAILED", "ABORTED"}:
+                return status
+        time.sleep(0.05)
+    raise TimeoutError(
+        f"device did not reach READY_TO_REBOOT after END; last status: {last_status!r}"
+    )
+
+
 def wait_for_received_offset(serial_port, expected_offset: int,
                              timeout_s: float) -> str:
     """Wait until the asynchronous OTA AO consumes one DATA block."""
@@ -493,7 +510,9 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int, package_m
 
         write_line(ser, "SYST:OTA:END")
         try:
-            final_status = query_final_status(ser)
+            final_status = wait_for_ready_to_reboot(
+                ser, max(args.timeout, args.begin_timeout)
+            )
         except Exception as exc:
             # END may legitimately reset/re-enumerate the CDC device.  Close
             # the stale handle and obtain the authoritative post-END state
@@ -508,9 +527,10 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int, package_m
                                        timeout=args.timeout,
                                        write_timeout=args.timeout) as reopened:
                         reopened.reset_input_buffer()
-                        final_status = query(reopened, "SYST:OTA:STAT?")
-                        if final_status:
-                            break
+                        final_status = wait_for_ready_to_reboot(
+                            reopened, max(args.timeout, args.begin_timeout)
+                        )
+                        break
                 except (OSError, serial.SerialException):
                     time.sleep(0.25)
         if not args.no_verify_query:

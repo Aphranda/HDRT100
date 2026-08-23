@@ -224,7 +224,8 @@ pota_stream_result_t pota_stream_session_service(
         return POTA_STREAM_RESULT_BAD_ARGUMENT;
     }
     if (session->state != POTA_STREAM_STATE_OPEN &&
-        session->state != POTA_STREAM_STATE_RECEIVING) {
+        session->state != POTA_STREAM_STATE_RECEIVING &&
+        session->state != POTA_STREAM_STATE_ENDING) {
         return POTA_STREAM_RESULT_INVALID_STATE;
     }
     if (session->resume_header_pending) {
@@ -247,6 +248,15 @@ pota_stream_result_t pota_stream_session_service(
                       ? session->core.core.status.received_size
                       : session->core.core.status.programmed_size;
         session->resume_pending = false;
+    } else if (session->state == POTA_STREAM_STATE_ENDING) {
+        if (session->core.core.status.state ==
+            (uint32_t)POTA_STATE_READY_TO_REBOOT) {
+            session->state = POTA_STREAM_STATE_READY_TO_REBOOT;
+        } else if (session->core.core.status.state ==
+                   (uint32_t)POTA_STATE_FAILED) {
+            session->state = POTA_STREAM_STATE_FAILED;
+            return POTA_STREAM_RESULT_CORE;
+        }
     }
     return POTA_STREAM_RESULT_OK;
 }
@@ -371,7 +381,9 @@ pota_stream_result_t pota_stream_session_close(
     const pota_stream_result_t result =
         core_result(pota_session_end(&session->core));
     if (result == POTA_STREAM_RESULT_OK) {
-        session->state = POTA_STREAM_STATE_READY_TO_REBOOT;
+        /* END only queues the core state machine.  FlashTransaction-owned
+         * validation/manifest/BCB work is advanced by service(). */
+        session->state = POTA_STREAM_STATE_ENDING;
     } else {
         session->state = POTA_STREAM_STATE_FAILED;
     }

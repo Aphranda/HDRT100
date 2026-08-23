@@ -39,7 +39,25 @@ static void task_system(void *context)
         app_diag_service();
         drv_watchdog_mark_progress(0u, APP_PROGRESS(1u, 4u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_SYSTEM);
+        osal_task_delay_ms(1u);
+    }
+}
+
+/*
+ * WatchdogSupervisorAO is deliberately separate from the system/diagnostics
+ * maintenance task.  It only evaluates the health vector and the controlled
+ * core1 lockout lease; it must not perform Flash IO, SCPI work, logging, or
+ * other potentially blocking operations.  The hardware watchdog remains the
+ * final independent reset mechanism.
+ */
+static void task_watchdog_supervisor(void *context)
+{
+    (void)context;
+
+    while (true) {
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(11u, 1u));
         diagnostics_watchdog_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(11u, 2u));
         osal_task_delay_ms(1u);
     }
 }
@@ -221,6 +239,7 @@ static bool app_tasks_create_one(const osal_task_config_t *config)
 bool app_tasks_create_all(void)
 {
     static const osal_task_config_t task_table[] = {
+        {.name = "watchdog_supervisor", .entry = task_watchdog_supervisor, .context = NULL, .stack_words = 1024u, .priority = 6u},
         {.name = "system", .entry = task_system, .context = NULL, .stack_words = 2048u, .priority = 4u},
         {.name = "usb_device", .entry = task_usb_device, .context = NULL, .stack_words = 1536u, .priority = 4u},
         {.name = "scpi", .entry = task_scpi, .context = NULL, .stack_words = 3072u, .priority = 3u},

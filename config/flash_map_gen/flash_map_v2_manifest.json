@@ -47,7 +47,8 @@
       "offset": 262144,
       "permissions": {
         "app": [
-          "read"
+          "read",
+          "write"
         ],
         "boot": [
           "read",

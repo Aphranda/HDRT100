@@ -109,8 +109,14 @@ pota_stream_ingress_result_t pota_stream_ingress_service(
         !ingress->open || source != ingress->active_source) {
         return remember(ingress, POTA_STREAM_INGRESS_SOURCE_REJECTED);
     }
-    return remember(ingress, session_result(
-        pota_stream_session_service(ingress->session, budget_us)));
+    const pota_stream_ingress_result_t result = session_result(
+        pota_stream_session_service(ingress->session, budget_us));
+    if (result == POTA_STREAM_INGRESS_OK &&
+        pota_stream_session_state(ingress->session) ==
+            POTA_STREAM_STATE_READY_TO_REBOOT) {
+        ingress->open = false;
+    }
+    return remember(ingress, result);
 }
 
 pota_stream_ingress_result_t pota_stream_ingress_close(
@@ -123,9 +129,8 @@ pota_stream_ingress_result_t pota_stream_ingress_close(
     }
     const pota_stream_ingress_result_t result =
         session_result(pota_stream_session_close(ingress->session));
-    if (result == POTA_STREAM_INGRESS_OK) {
-        ingress->open = false;
-    }
+    /* Keep the ingress lease until the END state machine reaches READY; the
+     * AO must continue servicing FlashTransaction substeps after CLOSE ACK. */
     return remember(ingress, result);
 }
 

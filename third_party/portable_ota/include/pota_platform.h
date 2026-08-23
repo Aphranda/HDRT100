@@ -10,6 +10,17 @@ typedef struct {
     uint32_t run_offset;
 } pota_partition_t;
 
+/* Optional asynchronous metadata boundary used by App-side AO adapters.
+ * PENDING means that exactly one bounded FlashTransaction/read decision was
+ * accepted and the caller must invoke the callback again from a later
+ * service tick.  DONE advances the portable END state machine; FAILED is
+ * fail-closed and must not publish READY_TO_REBOOT. */
+typedef enum {
+    POTA_PLATFORM_STEP_FAILED = 0,
+    POTA_PLATFORM_STEP_PENDING,
+    POTA_PLATFORM_STEP_DONE,
+} pota_platform_step_result_t;
+
 typedef struct {
     const char *product_id;
     const char *hardware_id;
@@ -36,9 +47,14 @@ typedef struct {
     bool (*flash_program)(uint32_t offset, const void *data, uint32_t size);
     bool (*mark_pending)(pota_slot_t slot, uint32_t image_size,
                          uint32_t image_crc32, uint32_t security_counter);
+    pota_platform_step_result_t (*mark_pending_step)(
+        pota_slot_t slot, uint32_t image_size, uint32_t image_crc32,
+        uint32_t security_counter);
     bool (*commit_slot_manifest)(pota_slot_t slot,
                                  const uint8_t *header,
                                  uint32_t header_size);
+    pota_platform_step_result_t (*commit_slot_manifest_step)(
+        pota_slot_t slot, const uint8_t *header, uint32_t header_size);
     bool (*confirm_active)(void);
     bool (*validate_vector)(uint32_t slot_offset, uint32_t image_size, uint32_t run_offset);
     void (*ota_lock)(void);

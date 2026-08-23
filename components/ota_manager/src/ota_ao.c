@@ -129,7 +129,8 @@ void ota_ao_service(uint32_t budget_us)
         pota_stream_ingress_status_t status;
         if (portable_ota_port_stream_get_status(&status) &&
             (status.state == POTA_STREAM_STATE_OPEN ||
-             status.state == POTA_STREAM_STATE_RECEIVING)) {
+             status.state == POTA_STREAM_STATE_RECEIVING ||
+             status.state == POTA_STREAM_STATE_ENDING)) {
             (void)portable_ota_port_stream_service(budget_us);
         }
         return;

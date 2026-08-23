@@ -4,6 +4,13 @@
 #include "pota_package.h"
 #include "pota_platform.h"
 
+typedef enum {
+    POTA_END_STEP_IDLE = 0,
+    POTA_END_STEP_VERIFY_VECTOR,
+    POTA_END_STEP_COMMIT_MANIFEST,
+    POTA_END_STEP_MARK_PENDING,
+} pota_end_step_t;
+
 typedef struct {
     pota_platform_t platform;
     pota_status_t status;
@@ -31,6 +38,9 @@ typedef struct {
     uint32_t resume_image_crc32;
     uint32_t raw_resume_scan_offset;
     uint32_t raw_resume_scan_crc32;
+    /* END is an AO-owned state machine.  Each service call advances at most
+     * one validation/metadata transaction and then yields to the scheduler. */
+    pota_end_step_t end_step;
 } pota_context_t;
 
 typedef struct {

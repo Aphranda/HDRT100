@@ -39,6 +39,15 @@ typedef struct {
      * perform Flash IO or mutate the BCB decision. */
     void (*on_program_page)(void *context, uint32_t lane, uint32_t page);
     void (*on_erase_lane)(void *context, uint32_t lane);
+    /* Called between bounded read/program decisions.  The hook is telemetry/
+     * watchdog servicing only; it must not perform Flash IO. */
+    void (*service)(void *context);
+    /* Optional bounded GC primitive.  One invocation must erase exactly one
+     * physical erase unit from the selected lane.  Legacy platforms may omit
+     * it and use erase_lane() as a compatibility fallback. */
+    bool (*erase_lane_sector)(void *context, uint32_t lane,
+                              uint32_t sector_index);
+    uint32_t erase_sector_count;
 } pota_bcb_platform_t;
 
 typedef struct {
@@ -80,6 +89,34 @@ typedef struct {
     uint32_t newest_record_page;
 } pota_bcb_health_snapshot_t;
 
+typedef enum {
+    POTA_BCB_STEP_FAILED = 0,
+    POTA_BCB_STEP_PENDING,
+    POTA_BCB_STEP_DONE,
+} pota_bcb_step_result_t;
+
+typedef struct {
+    pota_bcb_platform_t platform;
+    uint32_t schema_version;
+    uint32_t map_version;
+    uint32_t lane_page_count;
+    pota_bcb_update_t update;
+    uint8_t body[ POTA_BCB_PAGE_SIZE ];
+    uint8_t commit[ POTA_BCB_PAGE_SIZE ];
+    uint8_t seal[ POTA_BCB_PAGE_SIZE ];
+    uint8_t readback[ POTA_BCB_PAGE_SIZE ];
+    uint32_t lane;
+    uint32_t slot;
+    uint32_t lane_generation;
+    uint32_t erase_sector;
+    uint32_t program_page;
+    uint32_t *program_page_count;
+    uint32_t *erase_lane_count;
+    uint32_t state;
+    bool new_lane;
+    bool active;
+} pota_bcb_txn_t;
+
 pota_bcb_result_t pota_bcb_store_init(pota_bcb_store_t *store,
                                        const pota_bcb_platform_t *platform,
                                        uint32_t schema_version,
@@ -101,5 +138,11 @@ bool pota_bcb_store_get_wear_snapshot(const pota_bcb_store_t *store,
 bool pota_bcb_store_get_health_snapshot(
     const pota_bcb_store_t *store,
     pota_bcb_health_snapshot_t *snapshot);
+
+pota_bcb_result_t pota_bcb_txn_begin(
+    pota_bcb_txn_t *txn,
+    const pota_bcb_store_t *store,
+    const pota_bcb_update_t *update);
+pota_bcb_step_result_t pota_bcb_txn_step(pota_bcb_txn_t *txn);
 
 #endif

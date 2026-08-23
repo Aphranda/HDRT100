@@ -221,6 +221,10 @@ int main(void)
         pota_crc32_compute(payload, sizeof(payload))) == POTA_STREAM_INGRESS_OK);
     failed += !expect("close", pota_stream_ingress_close(
         &ingress, POTA_STREAM_INGRESS_USB_CDC) == POTA_STREAM_INGRESS_OK);
+    while (pota_stream_session_state(&session) == POTA_STREAM_STATE_ENDING) {
+        failed += !expect("end service", pota_stream_ingress_service(
+            &ingress, POTA_STREAM_INGRESS_USB_CDC, 100u) == POTA_STREAM_INGRESS_OK);
+    }
     pota_stream_ingress_status_t status;
     failed += !expect("status", pota_stream_ingress_get_status(&ingress, &status));
     failed += !expect("status state", status.state == POTA_STREAM_STATE_READY_TO_REBOOT &&

@@ -12,12 +12,19 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("header", type=Path, help="output project_build_info.h path")
     parser.add_argument("source", type=Path, help="output project_build_info.c path")
+    parser.add_argument(
+        "--build-id",
+        default=None,
+        help="stable build id (YYYYMMDDHHMMSS); defaults to current UTC time",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    build_id = dt.datetime.now(dt.UTC).strftime("%Y%m%d%H%M%S")
+    build_id = args.build_id or dt.datetime.now(dt.UTC).strftime("%Y%m%d%H%M%S")
+    if len(build_id) != 14 or not build_id.isdigit():
+        raise SystemExit("--build-id must be a 14-digit UTC timestamp")
     header = """#ifndef PROJECT_BUILD_INFO_H
 #define PROJECT_BUILD_INFO_H
 

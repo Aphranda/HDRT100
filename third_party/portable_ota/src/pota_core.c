@@ -45,6 +45,7 @@ void pota_core_set_failed(pota_context_t *context, pota_error_t error)
 {
     context->raw_resume_active = false;
     context->raw_resume_erasing_tail = false;
+    context->end_step = POTA_END_STEP_IDLE;
     context->status.state = POTA_STATE_FAILED;
     context->status.error_code = (uint32_t)error;
     context->status.last_result = (uint32_t)POTA_RESULT_FAILED;
@@ -321,6 +322,7 @@ pota_error_t pota_resume_raw(pota_context_t *context,
     context->resume_image_crc32 = durable_crc32;
     context->raw_resume_scan_offset = 0u;
     context->raw_resume_scan_crc32 = 0u;
+    context->end_step = POTA_END_STEP_IDLE;
 
     context->status.state = (uint32_t)POTA_STATE_CHECK_PERMISSION;
     context->status.target_slot = (uint32_t)context->target_slot;
@@ -399,6 +401,7 @@ pota_error_t pota_resume_package(pota_context_t *context,
     context->resume_image_crc32 = image_crc32;
     context->raw_resume_scan_offset = 0u;
     context->raw_resume_scan_crc32 = 0u;
+    context->end_step = POTA_END_STEP_IDLE;
     context->status.state = (uint32_t)POTA_STATE_CHECK_PERMISSION;
     context->status.received_size = 0u;
     context->status.programmed_size = 0u;
@@ -456,6 +459,7 @@ pota_error_t pota_core_begin_action(pota_context_t *context, const void *argumen
                                      pota_align_up(begin->size, context->platform.info.flash_sector_size);
 
     context->target_erase_offset = 0u;
+    context->end_step = POTA_END_STEP_IDLE;
     context->status.state = begin->package_mode ?
                                 (uint32_t)POTA_STATE_RECEIVING :
                                 (uint32_t)POTA_STATE_CHECK_PERMISSION;
@@ -551,6 +555,88 @@ pota_error_t pota_core_service_action(pota_context_t *context, const void *argum
 
     case POTA_STATE_ERASE_SLOT:
         return pota_erase_one_step(context);
+
+    case POTA_STATE_VERIFYING:
+        /* Vector validation is deliberately one service step.  It may touch
+         * XIP/flash and must not be chained with metadata writes in END. */
+        if (context->end_step != POTA_END_STEP_VERIFY_VECTOR) {
+            return POTA_ERR_INVALID_STATE;
+        }
+        pota_feed_watchdog(context);
+        if (!context->platform.ops.validate_vector(
+                context->target_offset, context->selected_image_size,
+                context->target_run_offset)) {
+            pota_core_set_failed(context, POTA_ERR_VECTOR);
+            return POTA_ERR_VECTOR;
+        }
+        context->end_step = (context->package_mode &&
+                             context->platform.info.require_image_hashes &&
+                             context->platform.ops.commit_slot_manifest != NULL)
+                                ? POTA_END_STEP_COMMIT_MANIFEST
+                                : POTA_END_STEP_MARK_PENDING;
+        context->status.state = (uint32_t)POTA_STATE_MARK_PENDING;
+        pota_yield_or_delay(context);
+        return POTA_ERR_NONE;
+
+    case POTA_STATE_MARK_PENDING:
+        if (context->end_step == POTA_END_STEP_COMMIT_MANIFEST) {
+            pota_feed_watchdog(context);
+            pota_platform_step_result_t step_result =
+                POTA_PLATFORM_STEP_FAILED;
+            if (context->platform.ops.commit_slot_manifest_step != NULL) {
+                step_result = context->platform.ops.commit_slot_manifest_step(
+                    context->target_slot, context->selected_manifest_header,
+                    sizeof(context->selected_manifest_header));
+            } else if (context->platform.ops.commit_slot_manifest != NULL &&
+                       context->platform.ops.commit_slot_manifest(
+                           context->target_slot,
+                           context->selected_manifest_header,
+                           sizeof(context->selected_manifest_header))) {
+                step_result = POTA_PLATFORM_STEP_DONE;
+            }
+            if (step_result == POTA_PLATFORM_STEP_PENDING) {
+                pota_yield_or_delay(context);
+                return POTA_ERR_NONE;
+            }
+            if (step_result != POTA_PLATFORM_STEP_DONE) {
+                pota_core_set_failed(context, POTA_ERR_METADATA);
+                return POTA_ERR_METADATA;
+            }
+            context->end_step = POTA_END_STEP_MARK_PENDING;
+            pota_yield_or_delay(context);
+            return POTA_ERR_NONE;
+        }
+        if (context->end_step == POTA_END_STEP_MARK_PENDING) {
+            pota_feed_watchdog(context);
+            pota_platform_step_result_t step_result =
+                POTA_PLATFORM_STEP_FAILED;
+            if (context->platform.ops.mark_pending_step != NULL) {
+                step_result = context->platform.ops.mark_pending_step(
+                    context->target_slot, context->selected_image_size,
+                    context->selected_image_crc32,
+                    context->selected_security_counter);
+            } else if (context->platform.ops.mark_pending != NULL &&
+                       context->platform.ops.mark_pending(
+                           context->target_slot, context->selected_image_size,
+                           context->selected_image_crc32,
+                           context->selected_security_counter)) {
+                step_result = POTA_PLATFORM_STEP_DONE;
+            }
+            if (step_result == POTA_PLATFORM_STEP_PENDING) {
+                pota_yield_or_delay(context);
+                return POTA_ERR_NONE;
+            }
+            if (step_result != POTA_PLATFORM_STEP_DONE) {
+                pota_core_set_failed(context, POTA_ERR_METADATA);
+                return POTA_ERR_METADATA;
+            }
+            context->end_step = POTA_END_STEP_IDLE;
+            context->status.state = (uint32_t)POTA_STATE_READY_TO_REBOOT;
+            context->status.last_result = (uint32_t)POTA_RESULT_IMAGE_STAGED;
+            pota_yield_or_delay(context);
+            return POTA_ERR_NONE;
+        }
+        return POTA_ERR_INVALID_STATE;
 
     default:
         return POTA_ERR_NONE;
@@ -696,36 +782,9 @@ pota_error_t pota_core_end_action(pota_context_t *context, const void *argument)
         }
     }
 
+    context->end_step = POTA_END_STEP_VERIFY_VECTOR;
     context->status.state = (uint32_t)POTA_STATE_VERIFYING;
     pota_feed_watchdog(context);
-    if (!context->platform.ops.validate_vector(context->target_offset,
-                                               context->selected_image_size,
-                                               context->target_run_offset)) {
-        pota_core_set_failed(context, POTA_ERR_VECTOR);
-        return POTA_ERR_VECTOR;
-    }
-
-    context->status.state = (uint32_t)POTA_STATE_MARK_PENDING;
-    pota_feed_watchdog(context);
-    if (context->package_mode && context->platform.info.require_image_hashes &&
-        (context->platform.ops.commit_slot_manifest == NULL ||
-         !context->platform.ops.commit_slot_manifest(
-             context->target_slot, context->selected_manifest_header,
-             sizeof(context->selected_manifest_header)))) {
-        pota_core_set_failed(context, POTA_ERR_METADATA);
-        return POTA_ERR_METADATA;
-    }
-    pota_feed_watchdog(context);
-    if (!context->platform.ops.mark_pending(context->target_slot,
-                                            context->selected_image_size,
-                                            context->selected_image_crc32,
-                                            context->selected_security_counter)) {
-        pota_core_set_failed(context, POTA_ERR_METADATA);
-        return POTA_ERR_METADATA;
-    }
-
-    context->status.state = (uint32_t)POTA_STATE_READY_TO_REBOOT;
-    context->status.last_result = (uint32_t)POTA_RESULT_IMAGE_STAGED;
     return POTA_ERR_NONE;
 }
 
@@ -745,6 +804,7 @@ pota_error_t pota_core_abort_action(pota_context_t *context, const void *argumen
     }
     context->raw_resume_active = false;
     context->raw_resume_erasing_tail = false;
+    context->end_step = POTA_END_STEP_IDLE;
     context->status.state = (uint32_t)POTA_STATE_ABORTED;
     context->status.error_code = (uint32_t)POTA_ERR_ABORTED;
     context->status.last_result = (uint32_t)POTA_RESULT_ABORTED;

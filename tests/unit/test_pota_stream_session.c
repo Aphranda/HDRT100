@@ -17,6 +17,24 @@ static uint32_t s_program_count;
 static uint32_t s_slot_read_bytes;
 static uint32_t s_signature_verify_count;
 
+static int service_stream_to_ready(pota_stream_session_t *session)
+{
+    for (uint32_t i = 0u; i < 8u; i++) {
+        if (pota_stream_session_state(session) ==
+            POTA_STREAM_STATE_READY_TO_REBOOT) {
+            return 0;
+        }
+        if (pota_stream_session_service(session, 100u) !=
+            POTA_STREAM_RESULT_OK) {
+            return 1;
+        }
+    }
+    return pota_stream_session_state(session) ==
+                   POTA_STREAM_STATE_READY_TO_REBOOT
+               ? 0
+               : 1;
+}
+
 static bool flash_read(uint32_t offset, void *buffer, uint32_t size)
 {
     if (buffer == NULL || offset > MOCK_FLASH_SIZE || size > MOCK_FLASH_SIZE - offset) {
@@ -253,6 +271,7 @@ int main(void)
     failed += !expect("stable token", stream_token != 0u &&
                       pota_stream_session_token(&session) == stream_token);
     failed += !expect("close", pota_stream_session_close(&session) == POTA_STREAM_RESULT_OK);
+    failed += !expect("end service", service_stream_to_ready(&session) == 0);
     failed += !expect("pending once", s_pending_count == 1u);
     failed += !expect("abort after close rejected", pota_stream_session_abort(&session) == POTA_STREAM_RESULT_INVALID_STATE);
 
@@ -419,6 +438,8 @@ int main(void)
     failed += !expect("resume close",
                       pota_stream_session_close(&recovered_session) ==
                           POTA_STREAM_RESULT_OK);
+    failed += !expect("resume end service",
+                      service_stream_to_ready(&recovered_session) == 0);
     failed += !expect("resume pending once", s_pending_count == 1u);
 
     pota_stream_open_t abort_open = resume_open;
@@ -669,6 +690,8 @@ int main(void)
     failed += !expect("package close",
                       pota_stream_session_close(&package_recovered) ==
                           POTA_STREAM_RESULT_OK);
+    failed += !expect("package end service",
+                      service_stream_to_ready(&package_recovered) == 0);
     failed += !expect("package pending once", s_pending_count == 1u);
     failed += !expect("package manifest reverified",
                       s_signature_verify_count == 4u);

@@ -39,6 +39,18 @@ typedef struct {
     uint8_t reserved[POTA_BCB_PAGE_SIZE - 6u * sizeof(uint32_t)];
 } pota_bcb_seal_t;
 
+enum {
+    BCB_TXN_STATE_ERASE = 1u,
+    BCB_TXN_STATE_PROGRAM_BODY,
+    BCB_TXN_STATE_VERIFY_BODY,
+    BCB_TXN_STATE_PROGRAM_COMMIT,
+    BCB_TXN_STATE_VERIFY_COMMIT,
+    BCB_TXN_STATE_PROGRAM_SEAL,
+    BCB_TXN_STATE_VERIFY_SEAL,
+    BCB_TXN_STATE_DONE,
+    BCB_TXN_STATE_FAILED,
+};
+
 _Static_assert(sizeof(pota_bcb_body_t) == POTA_BCB_PAGE_SIZE,
                "BCB body must occupy one program page");
 _Static_assert(sizeof(pota_bcb_commit_t) == POTA_BCB_PAGE_SIZE,
@@ -55,7 +67,9 @@ static bool platform_write_valid(const pota_bcb_store_t *store)
 {
     return platform_read_valid(store) &&
            store->platform.program_page != NULL &&
-           store->platform.erase_lane != NULL;
+           (store->platform.erase_lane != NULL ||
+            (store->platform.erase_lane_sector != NULL &&
+             store->platform.erase_sector_count != 0u));
 }
 
 static bool is_blank(const uint8_t *page)
@@ -87,6 +101,8 @@ static bool read_page(const pota_bcb_store_t *store, uint32_t lane,
                                       data, POTA_BCB_PAGE_SIZE);
 }
 
+static void bcb_service(const pota_bcb_store_t *store);
+
 static bool program_page_verified(const pota_bcb_store_t *store,
                                   uint32_t lane, uint32_t page,
                                   const uint8_t *data)
@@ -110,7 +126,22 @@ static bool erase_lane(const pota_bcb_store_t *store, uint32_t lane)
     if (store->platform.on_erase_lane != NULL) {
         store->platform.on_erase_lane(store->platform.context, lane);
     }
-    return store->platform.erase_lane(store->platform.context, lane);
+    if (store->platform.erase_lane != NULL) {
+        return store->platform.erase_lane(store->platform.context, lane);
+    }
+    if (store->platform.erase_lane_sector == NULL ||
+        store->platform.erase_sector_count == 0u) {
+        return false;
+    }
+    for (uint32_t sector = 0u;
+         sector < store->platform.erase_sector_count; sector++) {
+        if (!store->platform.erase_lane_sector(store->platform.context,
+                                                lane, sector)) {
+            return false;
+        }
+        bcb_service(store);
+    }
+    return true;
 }
 
 static uint32_t body_crc32(const pota_bcb_body_t *body)
@@ -223,6 +254,13 @@ static uint32_t records_per_lane(const pota_bcb_store_t *store)
     return (store->lane_page_count - 1u) / 2u;
 }
 
+static void bcb_service(const pota_bcb_store_t *store)
+{
+    if (store != NULL && store->platform.service != NULL) {
+        store->platform.service(store->platform.context);
+    }
+}
+
 pota_bcb_result_t pota_bcb_store_init(pota_bcb_store_t *store,
                                        const pota_bcb_platform_t *platform,
                                        uint32_t schema_version,
@@ -230,7 +268,9 @@ pota_bcb_result_t pota_bcb_store_init(pota_bcb_store_t *store,
                                        uint32_t lane_page_count)
 {
     if (platform == NULL || platform->program_page == NULL ||
-        platform->erase_lane == NULL) {
+        (platform->erase_lane == NULL &&
+         (platform->erase_lane_sector == NULL ||
+          platform->erase_sector_count == 0u))) {
         return POTA_BCB_RESULT_BAD_ARGUMENT;
     }
     return pota_bcb_store_init_read_only(store, platform, schema_version,
@@ -286,6 +326,7 @@ pota_bcb_result_t pota_bcb_store_select_newest(const pota_bcb_store_t *store,
                 newest = candidate;
                 found = true;
             }
+            bcb_service(store);
         }
     }
     if (!found) {
@@ -314,8 +355,10 @@ static bool find_free_slot(const pota_bcb_store_t *store, uint32_t lane,
         }
         pota_bcb_body_t body;
         if (read_record(store, lane, page, lane_generation, &body)) {
+            bcb_service(store);
             continue;
         }
+        bcb_service(store);
     }
     return false;
 }
@@ -440,6 +483,259 @@ pota_bcb_result_t pota_bcb_store_append(pota_bcb_store_t *store,
     view->lane_generation = lane_generation;
     view->update = *update;
     return POTA_BCB_RESULT_OK;
+}
+
+static pota_bcb_result_t bcb_txn_fail(pota_bcb_txn_t *txn,
+                                      pota_bcb_result_t result)
+{
+    if (txn != NULL) {
+        txn->state = BCB_TXN_STATE_FAILED;
+        txn->active = true;
+    }
+    return result;
+}
+
+static bool bcb_txn_read_page(const pota_bcb_txn_t *txn, uint32_t lane,
+                              uint32_t page, uint8_t *data)
+{
+    return txn != NULL && txn->platform.read_page != NULL &&
+           txn->platform.read_page(txn->platform.context, lane, page, data,
+                                   POTA_BCB_PAGE_SIZE);
+}
+
+static void bcb_txn_service(const pota_bcb_txn_t *txn)
+{
+    if (txn != NULL && txn->platform.service != NULL) {
+        txn->platform.service(txn->platform.context);
+    }
+}
+
+static bool bcb_txn_program_page(pota_bcb_txn_t *txn, uint32_t page,
+                                 const uint8_t *data)
+{
+    if (txn == NULL || txn->platform.program_page == NULL || data == NULL) {
+        return false;
+    }
+    if (txn->platform.on_program_page != NULL) {
+        txn->platform.on_program_page(txn->platform.context, txn->lane, page);
+    }
+    if (txn->program_page_count != NULL) {
+        (*txn->program_page_count)++;
+    }
+    const bool ok = txn->platform.program_page(
+        txn->platform.context, txn->lane, page, data, POTA_BCB_PAGE_SIZE);
+    bcb_txn_service(txn);
+    return ok;
+}
+
+pota_bcb_result_t pota_bcb_txn_begin(
+    pota_bcb_txn_t *txn,
+    const pota_bcb_store_t *store,
+    const pota_bcb_update_t *update)
+{
+    if (txn == NULL || !platform_write_valid(store) || update == NULL ||
+        update->sequence == 0u ||
+        update->payload_length > POTA_BCB_BODY_PAYLOAD_SIZE) {
+        return POTA_BCB_RESULT_BAD_ARGUMENT;
+    }
+    (void)memset(txn, 0, sizeof(*txn));
+    txn->platform = store->platform;
+    txn->schema_version = store->schema_version;
+    txn->map_version = store->map_version;
+    txn->lane_page_count = store->lane_page_count;
+    txn->program_page_count = &((pota_bcb_store_t *)store)->program_page_count;
+    txn->erase_lane_count = &((pota_bcb_store_t *)store)->erase_lane_count;
+    txn->update = *update;
+
+    pota_bcb_view_t newest;
+    const pota_bcb_result_t selected =
+        pota_bcb_store_select_newest(store, &newest);
+    txn->lane = 0u;
+    txn->lane_generation = next_generation(newest_lane_generation(store));
+    txn->slot = 0u;
+    txn->new_lane = true;
+    if (selected == POTA_BCB_RESULT_OK) {
+        if (update->security_counter < newest.update.security_counter) {
+            return bcb_txn_fail(txn, POTA_BCB_RESULT_POLICY);
+        }
+        if (!sequence_newer(update->sequence, newest.update.sequence)) {
+            return bcb_txn_fail(txn, POTA_BCB_RESULT_REPLAY);
+        }
+        txn->lane = newest.lane;
+        txn->lane_generation = newest.lane_generation;
+        if (find_free_slot(store, txn->lane, txn->lane_generation,
+                           &txn->slot)) {
+            txn->new_lane = false;
+        } else {
+            txn->lane = (txn->lane + 1u) % POTA_BCB_LANE_COUNT;
+            txn->lane_generation = next_generation(
+                newest_lane_generation(store));
+        }
+    } else if (selected != POTA_BCB_RESULT_NO_VALID) {
+        return bcb_txn_fail(txn, selected);
+    }
+
+    pota_bcb_body_t body;
+    (void)memset(&body, 0xFF, sizeof(body));
+    body.magic = POTA_BCB_BODY_MAGIC;
+    body.schema_version = store->schema_version;
+    body.map_version = store->map_version;
+    body.sequence = update->sequence;
+    body.boot_generation = update->boot_generation;
+    body.security_counter = update->security_counter;
+    body.payload_length = update->payload_length;
+    (void)memcpy(body.payload, update->payload, sizeof(body.payload));
+    body.payload_crc32 = pota_crc32_compute(body.payload, body.payload_length);
+    body.body_crc32 = body_crc32(&body);
+    (void)memcpy(txn->body, &body, sizeof(body));
+
+    pota_bcb_commit_t commit;
+    (void)memset(&commit, 0xFF, sizeof(commit));
+    commit.magic = POTA_BCB_COMMIT_MAGIC;
+    commit.schema_version = store->schema_version;
+    commit.map_version = store->map_version;
+    commit.lane_generation = txn->lane_generation;
+    commit.sequence = body.sequence;
+    commit.body_crc32 = body.body_crc32;
+    commit.commit_marker = POTA_BCB_COMMIT_MARKER ^ body.sequence;
+    (void)memcpy(txn->commit, &commit, sizeof(commit));
+
+    pota_bcb_seal_t seal;
+    (void)memset(&seal, 0xFF, sizeof(seal));
+    seal.magic = POTA_BCB_SEAL_MAGIC;
+    seal.schema_version = store->schema_version;
+    seal.map_version = store->map_version;
+    seal.lane_generation = txn->lane_generation;
+    seal.seal_marker = POTA_BCB_SEAL_MARKER ^ txn->lane_generation;
+    seal.seal_crc32 = seal_crc32(&seal);
+    (void)memcpy(txn->seal, &seal, sizeof(seal));
+
+    txn->state = txn->new_lane ? BCB_TXN_STATE_ERASE
+                               : BCB_TXN_STATE_PROGRAM_BODY;
+    txn->active = true;
+    return POTA_BCB_RESULT_OK;
+}
+
+pota_bcb_step_result_t pota_bcb_txn_step(pota_bcb_txn_t *txn)
+{
+    if (txn == NULL || !txn->active) {
+        return POTA_BCB_STEP_FAILED;
+    }
+    if (txn->state == BCB_TXN_STATE_DONE) {
+        return POTA_BCB_STEP_DONE;
+    }
+    if (txn->state == BCB_TXN_STATE_FAILED) {
+        return POTA_BCB_STEP_FAILED;
+    }
+
+    switch (txn->state) {
+    case BCB_TXN_STATE_ERASE:
+        if (txn->platform.erase_lane_sector != NULL &&
+            txn->platform.erase_sector_count != 0u) {
+            if (txn->erase_sector < txn->platform.erase_sector_count) {
+                if (txn->erase_sector == 0u &&
+                    txn->platform.on_erase_lane != NULL) {
+                    txn->platform.on_erase_lane(txn->platform.context,
+                                                txn->lane);
+                }
+                if (txn->erase_sector == 0u &&
+                    txn->erase_lane_count != NULL) {
+                    (*txn->erase_lane_count)++;
+                }
+                if (!txn->platform.erase_lane_sector(
+                        txn->platform.context, txn->lane,
+                        txn->erase_sector++)) {
+                    txn->state = BCB_TXN_STATE_FAILED;
+                    return POTA_BCB_STEP_FAILED;
+                }
+                bcb_txn_service(txn);
+                return POTA_BCB_STEP_PENDING;
+            }
+        } else if (txn->erase_sector == 0u) {
+            if (txn->platform.on_erase_lane != NULL) {
+                txn->platform.on_erase_lane(txn->platform.context, txn->lane);
+            }
+            if (txn->erase_lane_count != NULL) {
+                (*txn->erase_lane_count)++;
+            }
+            if (txn->platform.erase_lane == NULL ||
+                !txn->platform.erase_lane(txn->platform.context, txn->lane)) {
+                txn->state = BCB_TXN_STATE_FAILED;
+                return POTA_BCB_STEP_FAILED;
+            }
+            txn->erase_sector = 1u;
+            bcb_txn_service(txn);
+            return POTA_BCB_STEP_PENDING;
+        }
+        txn->state = BCB_TXN_STATE_PROGRAM_BODY;
+        return POTA_BCB_STEP_PENDING;
+
+    case BCB_TXN_STATE_PROGRAM_BODY:
+        if (!bcb_txn_program_page(txn, txn->slot * 2u, txn->body)) {
+            txn->state = BCB_TXN_STATE_FAILED;
+            return POTA_BCB_STEP_FAILED;
+        }
+        txn->state = BCB_TXN_STATE_VERIFY_BODY;
+        return POTA_BCB_STEP_PENDING;
+
+    case BCB_TXN_STATE_VERIFY_BODY:
+        if (!bcb_txn_read_page(txn, txn->lane, txn->slot * 2u,
+                               txn->readback) ||
+            memcmp(txn->readback, txn->body, POTA_BCB_PAGE_SIZE) != 0) {
+            txn->state = BCB_TXN_STATE_FAILED;
+            return POTA_BCB_STEP_FAILED;
+        }
+        bcb_txn_service(txn);
+        txn->state = BCB_TXN_STATE_PROGRAM_COMMIT;
+        return POTA_BCB_STEP_PENDING;
+
+    case BCB_TXN_STATE_PROGRAM_COMMIT:
+        if (!bcb_txn_program_page(txn, txn->slot * 2u + 1u,
+                                  txn->commit)) {
+            txn->state = BCB_TXN_STATE_FAILED;
+            return POTA_BCB_STEP_FAILED;
+        }
+        txn->state = BCB_TXN_STATE_VERIFY_COMMIT;
+        return POTA_BCB_STEP_PENDING;
+
+    case BCB_TXN_STATE_VERIFY_COMMIT:
+        if (!bcb_txn_read_page(txn, txn->lane, txn->slot * 2u + 1u,
+                               txn->readback) ||
+            memcmp(txn->readback, txn->commit, POTA_BCB_PAGE_SIZE) != 0) {
+            txn->state = BCB_TXN_STATE_FAILED;
+            return POTA_BCB_STEP_FAILED;
+        }
+        bcb_txn_service(txn);
+        txn->state = txn->new_lane ? BCB_TXN_STATE_PROGRAM_SEAL
+                                   : BCB_TXN_STATE_DONE;
+        return txn->state == BCB_TXN_STATE_DONE
+                   ? POTA_BCB_STEP_DONE
+                   : POTA_BCB_STEP_PENDING;
+
+    case BCB_TXN_STATE_PROGRAM_SEAL:
+        if (!bcb_txn_program_page(txn, txn->lane_page_count - 1u,
+                                  txn->seal)) {
+            txn->state = BCB_TXN_STATE_FAILED;
+            return POTA_BCB_STEP_FAILED;
+        }
+        txn->state = BCB_TXN_STATE_VERIFY_SEAL;
+        return POTA_BCB_STEP_PENDING;
+
+    case BCB_TXN_STATE_VERIFY_SEAL:
+        if (!bcb_txn_read_page(txn, txn->lane,
+                               txn->lane_page_count - 1u, txn->readback) ||
+            memcmp(txn->readback, txn->seal, POTA_BCB_PAGE_SIZE) != 0) {
+            txn->state = BCB_TXN_STATE_FAILED;
+            return POTA_BCB_STEP_FAILED;
+        }
+        bcb_txn_service(txn);
+        txn->state = BCB_TXN_STATE_DONE;
+        return POTA_BCB_STEP_DONE;
+
+    default:
+        txn->state = BCB_TXN_STATE_FAILED;
+        return POTA_BCB_STEP_FAILED;
+    }
 }
 
 bool pota_bcb_store_get_wear_snapshot(const pota_bcb_store_t *store,

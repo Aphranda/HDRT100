@@ -94,6 +94,8 @@ static uint32_t s_store_generation;
 static uint32_t s_provider_refs;
 #if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
 static pota_slot_manifest_store_t s_slot_manifest_store;
+static pota_slot_manifest_txn_t s_slot_manifest_txn;
+static bool s_slot_manifest_txn_active;
 static uint32_t s_slot_manifest_base;
 #endif
 
@@ -203,6 +205,15 @@ static bool portable_core_mark_pending(pota_slot_t slot, uint32_t image_size,
     return ok;
 }
 
+static pota_platform_step_result_t portable_core_mark_pending_step(
+    pota_slot_t slot, uint32_t image_size, uint32_t image_crc32,
+    uint32_t security_counter)
+{
+    return ota_metadata_mark_pending_step((ota_slot_t)slot, image_size,
+                                          image_crc32,
+                                          security_counter);
+}
+
 #if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
 static bool portable_core_manifest_read(void *context, uint32_t offset,
                                         void *data, uint32_t length)
@@ -264,7 +275,9 @@ static bool portable_core_commit_slot_manifest(pota_slot_t slot,
         .program = portable_core_manifest_program,
         .erase = portable_core_manifest_erase,
         .base_offset = 0u,
-        .lane_size = OTA_SLOT_MANIFEST_LANE_BYTES,
+        /* The manifest store has two lanes; config.lane_size is one lane,
+         * while OTA_SLOT_MANIFEST_LANE_BYTES is the combined footprint. */
+        .lane_size = OTA_SLOT_MANIFEST_LANE_SIZE,
         .page_size = FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE,
         .erase_size = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
         .map_version = FLASH_DEPLOYMENT_MAP_VERSION,
@@ -279,6 +292,50 @@ static bool portable_core_commit_slot_manifest(pota_slot_t slot,
                     POTA_SLOT_MANIFEST_OK;
     drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
     return ok;
+}
+
+static pota_platform_step_result_t portable_core_commit_slot_manifest_step(
+    pota_slot_t slot, const uint8_t *header, uint32_t header_size)
+{
+    if (header == NULL || header_size != POTA_PACKAGE_HEADER_SIZE ||
+        (slot != POTA_SLOT_A && slot != POTA_SLOT_B)) {
+        return POTA_PLATFORM_STEP_FAILED;
+    }
+    if (!s_slot_manifest_txn_active) {
+        s_slot_manifest_base = OTA_SLOT_MANIFEST_BASE_OFFSET((ota_slot_t)slot);
+        const pota_slot_manifest_config_t config = {
+            .context = NULL,
+            .read = portable_core_manifest_read,
+            .program = portable_core_manifest_program,
+            .erase = portable_core_manifest_erase,
+            .base_offset = 0u,
+            .lane_size = OTA_SLOT_MANIFEST_LANE_SIZE,
+            .page_size = FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE,
+            .erase_size = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
+            .map_version = FLASH_DEPLOYMENT_MAP_VERSION,
+            .slot = slot,
+        };
+        if (pota_slot_manifest_init(&s_slot_manifest_store, &config) !=
+                POTA_SLOT_MANIFEST_OK ||
+            pota_slot_manifest_txn_begin(&s_slot_manifest_txn,
+                                         &s_slot_manifest_store, header) !=
+                POTA_SLOT_MANIFEST_OK) {
+            return POTA_PLATFORM_STEP_FAILED;
+        }
+        s_slot_manifest_txn_active = true;
+    }
+
+    const pota_slot_manifest_step_result_t result =
+        pota_slot_manifest_txn_step(&s_slot_manifest_txn);
+    if (result == POTA_SLOT_MANIFEST_STEP_DONE) {
+        s_slot_manifest_txn_active = false;
+        return POTA_PLATFORM_STEP_DONE;
+    }
+    if (result == POTA_SLOT_MANIFEST_STEP_FAILED) {
+        s_slot_manifest_txn_active = false;
+        return POTA_PLATFORM_STEP_FAILED;
+    }
+    return POTA_PLATFORM_STEP_PENDING;
 }
 #endif
 
@@ -392,10 +449,13 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
             .flash_erase = portable_core_flash_erase,
             .flash_program = portable_core_flash_program,
             .mark_pending = portable_core_mark_pending,
+            .mark_pending_step = portable_core_mark_pending_step,
             .confirm_active = portable_core_confirm_active,
             .validate_vector = portable_core_validate_vector,
 #if PROJECT_FLASH_DEPLOYMENT_V2
             .commit_slot_manifest = portable_core_commit_slot_manifest,
+            .commit_slot_manifest_step =
+                portable_core_commit_slot_manifest_step,
 #endif
         },
     };
@@ -488,8 +548,19 @@ pota_stream_ingress_result_t portable_ota_port_stream_service(uint32_t budget_us
         status.source >= POTA_STREAM_INGRESS_SOURCE_COUNT) {
         return POTA_STREAM_INGRESS_SESSION;
     }
-    return pota_stream_ingress_service(&s_stream_ingress, status.source,
-                                       budget_us);
+    const pota_stream_ingress_result_t result =
+        pota_stream_ingress_service(&s_stream_ingress, status.source,
+                                    budget_us);
+    /* Stream END is advanced from the AO tick, not from CLOSE itself.  Keep
+     * the debug maintenance window across all VERIFYING/MARK_PENDING ticks,
+     * then restore the normal watchdog once the stream reaches a terminal
+     * state. */
+    const pota_stream_state_t session_state =
+        pota_stream_session_state(&s_stream_session);
+    if (session_state != POTA_STREAM_STATE_ENDING) {
+        drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
+    }
+    return result;
 }
 
 pota_stream_ingress_result_t portable_ota_port_stream_close(
@@ -498,6 +569,10 @@ pota_stream_ingress_result_t portable_ota_port_stream_close(
     if (!s_stream_initialized) {
         return POTA_STREAM_INGRESS_SESSION;
     }
+    /* CLOSE only queues END work.  The actual metadata FlashTransactions run
+     * on subsequent AO service ticks, so the debug maintenance window must
+     * remain active until stream_service observes READY_TO_REBOOT/FAILED. */
+    drv_watchdog_enable(60000u);
     return pota_stream_ingress_close(&s_stream_ingress, source);
 }
 
@@ -507,7 +582,10 @@ pota_stream_ingress_result_t portable_ota_port_stream_abort(
     if (!s_stream_initialized) {
         return POTA_STREAM_INGRESS_SESSION;
     }
-    return pota_stream_ingress_abort(&s_stream_ingress, source);
+    const pota_stream_ingress_result_t result =
+        pota_stream_ingress_abort(&s_stream_ingress, source);
+    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
+    return result;
 }
 
 bool portable_ota_port_stream_is_active(void)
@@ -519,6 +597,7 @@ bool portable_ota_port_stream_is_active(void)
         pota_stream_session_state(&s_stream_session);
     return state == POTA_STREAM_STATE_OPEN ||
            state == POTA_STREAM_STATE_RECEIVING ||
+           state == POTA_STREAM_STATE_ENDING ||
            state == POTA_STREAM_STATE_READY_TO_REBOOT;
 }
 

@@ -101,12 +101,23 @@ static void ota_fb_handle_begin(struct ota_ao_context *context, const ota_event_
 static void ota_fb_handle_tick(struct ota_ao_context *context)
 {
     if (context->vector.state != (uint32_t)OTA_STATE_CHECK_PERMISSION &&
-        context->vector.state != (uint32_t)OTA_STATE_ERASE_SLOT) {
+        context->vector.state != (uint32_t)OTA_STATE_ERASE_SLOT &&
+        context->vector.state != (uint32_t)OTA_STATE_VERIFYING &&
+        context->vector.state != (uint32_t)OTA_STATE_MARK_PENDING) {
         return;
     }
 
     const bool ok = portable_ota_port_core_service(0u, &context->vector);
     ota_fb_sync_portable_status(context, ok);
+
+    /* END metadata work is serviced on later AO ticks.  Keep the temporary
+     * debug maintenance window until the state machine has either published
+     * READY_TO_REBOOT or failed; restoring it here avoids cutting the window
+     * immediately after the END request itself. */
+    if (context->vector.state != (uint32_t)OTA_STATE_VERIFYING &&
+        context->vector.state != (uint32_t)OTA_STATE_MARK_PENDING) {
+        drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
+    }
 }
 
 static void ota_fb_handle_data(struct ota_ao_context *context, const ota_event_t *event)
@@ -126,9 +137,12 @@ static void ota_fb_handle_data(struct ota_ao_context *context, const ota_event_t
 
 static void ota_fb_handle_end(struct ota_ao_context *context)
 {
+    /* END now only enqueues VERIFYING/MARK_PENDING work, but the metadata
+     * owner may still span several FlashTransaction jobs.  Keep the debug
+     * maintenance window active until the AO publishes READY_TO_REBOOT. */
+    drv_watchdog_enable(60000u);
     const bool ok = portable_ota_port_core_end(&context->vector);
     ota_fb_sync_portable_status(context, ok);
-    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
 }
 
 static void ota_fb_handle_abort(struct ota_ao_context *context)

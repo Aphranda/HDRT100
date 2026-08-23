@@ -18,6 +18,10 @@ typedef struct {
     uint32_t corrupt_lane;
     uint32_t corrupt_page;
     bool corrupt_once;
+    uint32_t program_calls;
+    uint32_t erase_calls;
+    uint32_t sector_erase_calls;
+    uint32_t service_calls;
 } fake_flash_t;
 
 static bool fake_read(void *context, uint32_t lane, uint32_t page,
@@ -42,6 +46,7 @@ static bool fake_program(void *context, uint32_t lane, uint32_t page,
 {
     fake_flash_t *flash = context;
     assert(flash != NULL && data != NULL && length == POTA_BCB_PAGE_SIZE);
+    flash->program_calls++;
     if (lane >= POTA_BCB_LANE_COUNT || page >= TEST_LANE_PAGES ||
         (flash->fail_program && lane == flash->fail_lane &&
          page == flash->fail_page)) {
@@ -58,8 +63,31 @@ static bool fake_erase(void *context, uint32_t lane)
     if (lane >= POTA_BCB_LANE_COUNT || (flash->fail_erase && lane == flash->fail_lane)) {
         return false;
     }
+    flash->erase_calls++;
     memset(flash->pages[lane], 0xFF, sizeof(flash->pages[lane]));
     return true;
+}
+
+static bool fake_erase_sector(void *context, uint32_t lane,
+                              uint32_t sector_index)
+{
+    fake_flash_t *flash = context;
+    assert(flash != NULL);
+    if (lane >= POTA_BCB_LANE_COUNT || sector_index >= TEST_LANE_PAGES ||
+        (flash->fail_erase && lane == flash->fail_lane)) {
+        return false;
+    }
+    flash->sector_erase_calls++;
+    memset(flash->pages[lane][sector_index], 0xFF,
+           sizeof(flash->pages[lane][sector_index]));
+    return true;
+}
+
+static void fake_service(void *context)
+{
+    fake_flash_t *flash = context;
+    assert(flash != NULL);
+    flash->service_calls++;
 }
 
 static void fake_init(fake_flash_t *flash)
@@ -79,6 +107,22 @@ static pota_bcb_store_t make_store(fake_flash_t *flash)
         .read_page = fake_read,
         .program_page = fake_program,
         .erase_lane = fake_erase,
+    };
+    pota_bcb_store_t store;
+    assert(pota_bcb_store_init(&store, &platform, 1u, 2u,
+                               TEST_LANE_PAGES) == POTA_BCB_RESULT_OK);
+    return store;
+}
+
+static pota_bcb_store_t make_sector_store(fake_flash_t *flash)
+{
+    const pota_bcb_platform_t platform = {
+        .context = flash,
+        .read_page = fake_read,
+        .program_page = fake_program,
+        .erase_lane_sector = fake_erase_sector,
+        .erase_sector_count = TEST_LANE_PAGES,
+        .service = fake_service,
     };
     pota_bcb_store_t store;
     assert(pota_bcb_store_init(&store, &platform, 1u, 2u,
@@ -304,6 +348,75 @@ static void test_read_only_store_reconstructs_without_write_callbacks(void)
            POTA_BCB_RESULT_BAD_ARGUMENT);
 }
 
+static void test_async_transaction_is_bounded_and_preserves_telemetry(void)
+{
+    fake_flash_t flash;
+    fake_init(&flash);
+    pota_bcb_store_t store = make_sector_store(&flash);
+    pota_bcb_update_t first = update(1u, 0x71u);
+    pota_bcb_txn_t txn;
+    assert(pota_bcb_txn_begin(&txn, &store, &first) == POTA_BCB_RESULT_OK);
+
+    uint32_t previous_physical = 0u;
+    pota_bcb_step_result_t result = POTA_BCB_STEP_PENDING;
+    for (uint32_t step = 0u; step < 32u && result == POTA_BCB_STEP_PENDING;
+         step++) {
+        result = pota_bcb_txn_step(&txn);
+        const uint32_t physical = flash.program_calls +
+                                   flash.sector_erase_calls;
+        assert(physical <= previous_physical + 1u);
+        previous_physical = physical;
+    }
+    assert(result == POTA_BCB_STEP_DONE);
+    assert(flash.sector_erase_calls == TEST_LANE_PAGES);
+    assert(flash.program_calls == 3u);
+    assert(flash.service_calls != 0u);
+    assert(store.program_page_count == 3u);
+    assert(store.erase_lane_count == 1u);
+
+    pota_bcb_view_t view;
+    assert(pota_bcb_store_select_newest(&store, &view) == POTA_BCB_RESULT_OK);
+    assert(view.update.sequence == 1u && view.update.payload[0] == 0x71u);
+
+    pota_bcb_update_t second = update(2u, 0x72u);
+    assert(pota_bcb_txn_begin(&txn, &store, &second) == POTA_BCB_RESULT_OK);
+    result = POTA_BCB_STEP_PENDING;
+    for (uint32_t step = 0u; step < 16u && result == POTA_BCB_STEP_PENDING;
+         step++) {
+        result = pota_bcb_txn_step(&txn);
+    }
+    assert(result == POTA_BCB_STEP_DONE);
+    assert(store.program_page_count == 5u);
+    assert(store.erase_lane_count == 1u);
+    assert(pota_bcb_store_select_newest(&store, &view) == POTA_BCB_RESULT_OK);
+    assert(view.update.sequence == 2u && view.update.payload[0] == 0x72u);
+}
+
+static void test_async_transaction_failure_does_not_publish_commit(void)
+{
+    fake_flash_t flash;
+    fake_init(&flash);
+    flash.fail_program = true;
+    flash.fail_lane = 0u;
+    flash.fail_page = 0u;
+    pota_bcb_store_t store = make_sector_store(&flash);
+    pota_bcb_update_t first = update(1u, 0x81u);
+    pota_bcb_txn_t txn;
+    assert(pota_bcb_txn_begin(&txn, &store, &first) == POTA_BCB_RESULT_OK);
+
+    pota_bcb_step_result_t result = POTA_BCB_STEP_PENDING;
+    for (uint32_t step = 0u; step < 32u && result == POTA_BCB_STEP_PENDING;
+         step++) {
+        result = pota_bcb_txn_step(&txn);
+    }
+    assert(result == POTA_BCB_STEP_FAILED);
+    assert(flash.program_calls == 1u);
+    assert(flash.pages[0u][1u][0] == 0xFFu);
+    pota_bcb_view_t view;
+    assert(pota_bcb_store_select_newest(&store, &view) ==
+           POTA_BCB_RESULT_NO_VALID);
+}
+
 int main(void)
 {
     test_append_select_and_replay();
@@ -312,6 +425,8 @@ int main(void)
     test_health_snapshot_reconstructs_from_flash();
     test_boot_control_facade_owner_boundary();
     test_read_only_store_reconstructs_without_write_callbacks();
+    test_async_transaction_is_bounded_and_preserves_telemetry();
+    test_async_transaction_failure_does_not_publish_commit();
     puts("portable BCB store tests passed");
     return 0;
 }

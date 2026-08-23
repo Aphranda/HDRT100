@@ -273,6 +273,22 @@ static int service_until_receiving(pota_context_t *context, const char *name)
     return 1;
 }
 
+static pota_error_t service_until_end(pota_context_t *context)
+{
+    for (uint32_t i = 0u; i < 8u; i++) {
+        if (context->status.state == (uint32_t)POTA_STATE_READY_TO_REBOOT) {
+            return POTA_ERR_NONE;
+        }
+        const pota_error_t error = pota_service(context, 0u);
+        if (error != POTA_ERR_NONE) {
+            return error;
+        }
+    }
+    return context->status.state == (uint32_t)POTA_STATE_READY_TO_REBOOT
+               ? POTA_ERR_NONE
+               : POTA_ERR_INVALID_STATE;
+}
+
 static int test_raw_positive(void)
 {
     reset_mock();
@@ -300,6 +316,7 @@ static int test_raw_positive(void)
     failed += service_until_receiving(&context, "raw service");
     failed += expect_error("raw write", pota_write(&context, image, sizeof(image)), POTA_ERR_NONE);
     failed += expect_error("raw end", pota_end(&context), POTA_ERR_NONE);
+    failed += expect_error("raw end service", service_until_end(&context), POTA_ERR_NONE);
 
     if (memcmp(&s_flash[MOCK_SLOT_B_OFFSET], image, sizeof(image)) != 0 ||
         s_pending_slot != POTA_SLOT_B ||
@@ -380,6 +397,7 @@ static int test_package_positive_copy_to_active(void)
                                       sizeof(package) - POTA_PACKAGE_HEADER_SIZE),
                            POTA_ERR_NONE);
     failed += expect_error("package end", pota_end(&context), POTA_ERR_NONE);
+    failed += expect_error("package end service", service_until_end(&context), POTA_ERR_NONE);
 
     if (memcmp(&s_flash[MOCK_SLOT_B_OFFSET], image_a, sizeof(image_a)) != 0 ||
         s_pending_slot != POTA_SLOT_B ||
@@ -429,6 +447,8 @@ static int test_signed_package_counter_propagates(void)
                                       sizeof(package) - POTA_PACKAGE_HEADER_SIZE),
                            POTA_ERR_NONE);
     failed += expect_error("signed package end", pota_end(&context),
+                           POTA_ERR_NONE);
+    failed += expect_error("signed package end service", service_until_end(&context),
                            POTA_ERR_NONE);
     if (s_pending_security_counter != 10u) {
         (void)printf("signed package counter was not propagated\n");
@@ -520,6 +540,7 @@ static int test_raw_final_block_padding(void)
     failed += service_until_receiving(&context, "padding service");
     failed += expect_error("padding write", pota_write(&context, image, sizeof(image)), POTA_ERR_NONE);
     failed += expect_error("padding end", pota_end(&context), POTA_ERR_NONE);
+    failed += expect_error("padding end service", service_until_end(&context), POTA_ERR_NONE);
 
     if (s_last_program_offset != MOCK_SLOT_B_OFFSET ||
         s_last_program_size != 32u ||
@@ -590,7 +611,8 @@ static int test_vector_failure(void)
     failed += expect_error("vector begin", pota_begin(&context, &begin), POTA_ERR_NONE);
     failed += service_until_receiving(&context, "vector service");
     failed += expect_error("vector write", pota_write(&context, image, sizeof(image)), POTA_ERR_NONE);
-    failed += expect_error("vector end", pota_end(&context), POTA_ERR_VECTOR);
+    failed += expect_error("vector end", pota_end(&context), POTA_ERR_NONE);
+    failed += expect_error("vector end service", service_until_end(&context), POTA_ERR_VECTOR);
 
     if (s_pending_slot != POTA_SLOT_NONE) {
         (void)printf("vector failure marked pending unexpectedly\n");
@@ -621,7 +643,8 @@ static int test_metadata_failure(void)
     failed += expect_error("metadata begin", pota_begin(&context, &begin), POTA_ERR_NONE);
     failed += service_until_receiving(&context, "metadata service");
     failed += expect_error("metadata write", pota_write(&context, image, sizeof(image)), POTA_ERR_NONE);
-    failed += expect_error("metadata end", pota_end(&context), POTA_ERR_METADATA);
+    failed += expect_error("metadata end", pota_end(&context), POTA_ERR_NONE);
+    failed += expect_error("metadata end service", service_until_end(&context), POTA_ERR_METADATA);
 
     return failed;
 }

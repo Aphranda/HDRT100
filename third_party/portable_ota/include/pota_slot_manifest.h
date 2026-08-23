@@ -50,6 +50,31 @@ typedef struct {
     uint8_t header[POTA_PACKAGE_HEADER_SIZE];
 } pota_slot_manifest_t;
 
+typedef enum {
+    POTA_SLOT_MANIFEST_STEP_FAILED = 0,
+    POTA_SLOT_MANIFEST_STEP_PENDING,
+    POTA_SLOT_MANIFEST_STEP_DONE,
+} pota_slot_manifest_step_result_t;
+
+/* AO-owned append context.  The byte arrays intentionally keep the wire
+ * layout private to the implementation while allowing one bounded physical
+ * operation per service call. */
+typedef struct {
+    pota_slot_manifest_config_t config;
+    pota_slot_manifest_step_result_t terminal;
+    uint8_t header[POTA_PACKAGE_HEADER_SIZE];
+    uint8_t body[POTA_SLOT_MANIFEST_BODY_SIZE];
+    uint8_t commit[POTA_SLOT_MANIFEST_COMMIT_SIZE];
+    uint8_t readback[POTA_SLOT_MANIFEST_BODY_SIZE];
+    uint32_t sequence;
+    uint32_t target_lane;
+    uint32_t target_offset;
+    uint32_t erase_cursor;
+    uint32_t program_cursor;
+    uint32_t state;
+    bool active;
+} pota_slot_manifest_txn_t;
+
 pota_slot_manifest_result_t pota_slot_manifest_init(
     pota_slot_manifest_store_t *store,
     const pota_slot_manifest_config_t *config);
@@ -60,5 +85,12 @@ pota_slot_manifest_result_t pota_slot_manifest_append(
     pota_slot_manifest_store_t *store,
     const uint8_t header[POTA_PACKAGE_HEADER_SIZE],
     pota_slot_manifest_t *committed);
+
+pota_slot_manifest_result_t pota_slot_manifest_txn_begin(
+    pota_slot_manifest_txn_t *txn,
+    const pota_slot_manifest_store_t *store,
+    const uint8_t header[POTA_PACKAGE_HEADER_SIZE]);
+pota_slot_manifest_step_result_t pota_slot_manifest_txn_step(
+    pota_slot_manifest_txn_t *txn);
 
 #endif

@@ -71,7 +71,10 @@ static bool bootloader_slot_manifest_is_valid(const ota_metadata_t *metadata,
         .program = NULL,
         .erase = NULL,
         .base_offset = 0u,
-        .lane_size = OTA_SLOT_MANIFEST_LANE_BYTES,
+        /* lane_size describes one manifest lane.  The two-lane footprint is
+         * OTA_SLOT_MANIFEST_LANE_BYTES; passing that combined size makes the
+         * read-only boot validator address the second lane past its record. */
+        .lane_size = OTA_SLOT_MANIFEST_LANE_SIZE,
         .page_size = FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE,
         .erase_size = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
         .map_version = FLASH_DEPLOYMENT_MAP_VERSION,
