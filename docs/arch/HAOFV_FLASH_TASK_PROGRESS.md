@@ -2575,8 +2575,9 @@ permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootl
     operation，checkpoint 位于事务之间时走同一 AO 的 journal intent/service；不创建第二个 raw writer。
   - `ota_journal_default_program_page/erase_sector` 改为 owner-scoped backend；生产 journal 源码不再
     调用 `flash_transaction_ao_execute()`。
-  - 非零 `request_fingerprint` 优先作为 durable identity，跨 reset 时允许 job、transaction、provider
-    和 store generation 重建；相同 fingerprint/event 幂等，冲突 payload 仍 fail closed。
+  - 非零 `request_fingerprint` 优先作为 durable identity，跨 reset 时允许 RAM-local job、transaction
+    和 provider lease generation 重建；durable store generation 必须匹配，相同 fingerprint/event
+    幂等，冲突 payload 仍 fail closed。
   - abort pending 在 nested journal 物理操作前检查，拒绝继续写入并返回 ABORTED，lease 仍由外层
     FlashTransactionFB 统一释放。
 - 验证：
@@ -2592,6 +2593,10 @@ permission diagnostic；Boot 构建目标已链接同一服务，但板上 Bootl
   - 烧录流程补齐 selected application-device fallback：当 `reboot -f -u` 后同一序列号立即回到 App
     时，只允许 `load -f` 对该显式 serial 自行切 BOOTSEL；OTA sender 的 `--boot-and-commit` 默认终态
     修正为 `COMMITTED`，对应 Python 定向测试 8/8 通过。
+  - 后续将 durable identity 收紧为必须匹配 store generation；host/build 再次通过，但包含该最终
+    修正的 factory 重刷在第二个 UF2 region 约 2% 遇到 `picoboot::connection_error`，重试后 RP2350
+    USB 不再枚举，UART bridge 仍在线但 SCPI 无响应。此前 owner backend 版本的 factory/OTA 闭环
+    有效，最终 store-epoch 修正仍待 DHRT100 重新进入稳定 BOOTSEL 后重刷确认，不能以 host 结果替代。
 - 未完成/风险：
   - stream checkpoint API 仍是 bool callback，尚未拆成 producer-visible PENDING/DONE 异步协议；当前
     AO backend 的 standalone journal intent 是有界 service loop，后续需在 M4-02 完成全异步边界。

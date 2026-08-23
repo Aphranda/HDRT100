@@ -344,8 +344,8 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
   （`FLASH-TASK-20260823-008`）。FlashTransactionFB 现在拒绝最近 terminal 显式 job ID 的
   重复提交（`29585e9`），跨 reset 的 durable identity 仍待完成。
 - [x] **M1-05-I host identity bridge**：非零 request fingerprint 现在优先于 RAM-local job/
-  transaction/provider/store generation，用于 reset 后 completion find/append 幂等；冲突 payload
-  仍 fail closed，并由新增 host fixture 覆盖。
+  transaction/provider lease generation，用于 reset 后 completion find/append 幂等；durable store
+  generation 仍必须匹配，冲突 payload 仍 fail closed，并由新增 host fixture 覆盖。
 - [ ] **M1-05-J link-level visibility**：在 App、Boot、release 三类链接产物上证明 raw erase/program
   符号只对允许的 owner 可见，不能仅依赖源码 inventory 扫描。App 侧现已增加反汇编调用边
   fail-closed 检查（`47b15a3`），Boot 侧现已固定允许 caller 集合；独立 JSON 报告工具、
