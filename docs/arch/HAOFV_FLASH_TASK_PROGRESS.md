@@ -32,6 +32,10 @@ Last updated: 2026-08-23
 - 板端：当前 COM9 UART 监视窗口未收到日志，尚未宣称新固件在 DHRT100 上完成烧录/闭环；下一步
   使用固化 `picotool_flash.py` 和 `ota_send.py`，并保存 UART transcript 及
   `READY_TO_REBOOT → BOOT → COMM → COMMITTED` 查询证据。
+- 本轮烧录尝试：`build-v2-debug-ninja3/dhrt100_post_fix_flash_attempt.txt`。DHRT100 在
+  `load` 进度约 33% 时报告 `picoboot::connection_error`，重试时已不再枚举 BOOTSEL；这属于
+  板端连接/供电恢复阻塞，不作为固件闭环失败归因。恢复前需重新插拔或按住 BOOTSEL 让板卡
+  重新枚举，再用同一固化工具重刷并继续 UART/OTA 验证。
 
 ### FLASH-TASK-20260823-047 - END 可调度 FlashTransaction 子步骤
 
