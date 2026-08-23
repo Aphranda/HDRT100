@@ -213,7 +213,13 @@ bool flash_transaction_ao_submit(const flash_transaction_request_t *request)
     }
     flash_transaction_request_t effective = *request;
     if (effective.completion_lease == NULL &&
-        effective.requester != FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL) {
+        effective.requester != FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL &&
+        effective.requester != FLASH_TRANSACTION_REQUESTER_VALIDATION) {
+        /* Validation Scratch is deliberately self-restoring and has no
+         * durable object identity.  Attaching the production completion
+         * journal would make the final erase share the first erase's stable
+         * fingerprint and replay COMMITTED without executing physical IO.
+         * It still runs through this AO owner, policy, park and verify path. */
         effective.completion_lease = s_completion_lease;
     }
     return flash_transaction_fb_submit(&s_flash_transaction, &effective);

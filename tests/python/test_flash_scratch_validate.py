@@ -61,3 +61,11 @@ def test_jedec_scpi_is_sourced_from_bottom_flash_driver():
     assert "flash_do_cmd(tx, rx, sizeof(tx))" in driver
     assert "drv_flash_read_jedec_id(&jedec)" in scpi
     assert "SYSTem:DIAGnostic:FLASh:JEDEC?" in commands
+
+
+def test_validation_scratch_does_not_replay_production_durable_completion():
+    root = Path(__file__).resolve().parents[2]
+    owner = (
+        root / "components/flash_transaction/src/flash_transaction_ao.c"
+    ).read_text(encoding="utf-8")
+    assert "effective.requester != FLASH_TRANSACTION_REQUESTER_VALIDATION" in owner
