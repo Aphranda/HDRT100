@@ -16,6 +16,22 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-068 - Stream durable-ACK 与 stage 边界 fail-closed
+
+- 状态：M4-03 的 host 可验证子项完成；五类 transport、跨 reset/power-cut、journal endurance 和
+  DHRT100 v2 stream HIL 仍未完成。
+- 代码：`pota_stream_session_open()` 现在要求声明 `POTA_STREAM_CAP_DURABLE_ACK` 的 session 已
+  绑定有效 checkpoint sink/policy；未配置 storage 的 OPEN 在任何 Flash IO 前返回
+  `POTA_STREAM_RESULT_CHECKPOINT`。package object stream 继续只接收 manifest header + 目标
+  inactive image object；完整 A+B package 在 header acceptance 阶段拒绝，不触发 erase/program。
+- 测试：`tests/unit/test_pota_stream_session.c` 新增 zero-storage durable OPEN、完整 A+B package
+  rejection 和 raw IO counter 保持不变的断言；`tools/tests/run_portable_ota_tests.ps1` 全部通过。
+  `cmake --build out/build/pico2-v2-factory-candidate --parallel 4` 与
+  `cmake --build out/build/pico2-release --parallel 4` 均通过，包含 FlashMap/persistence/
+  migration/wire/link gates，未将 host 结果冒充 DHRT100 v2 硬件证据。
+- 边界：本项只证明 session 不把 RAM ACK 或完整 A+B package 当作 durable stage；实际 SD/UART/
+  RS485/USBTMC producer、掉电和五类入口回归仍按 M4-03 保持未完成。
+
 ### FLASH-TASK-20260823-067 - Stream END admission 生命周期修正
 
 - 状态：M4-03 的 admission 生命周期子项完成；五类 transport、跨 reset/power-cut 和 DHRT100

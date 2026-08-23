@@ -520,7 +520,10 @@ TODO 只保留可独立验收的状态项和证据索引。
   status/BOOT 投影，独立 CDC sender 已支持从 journal 恢复 raw image 和签名 inactive package
   object（证据：`FLASH-TASK-20260823-033`、`034`、`040`、`044`）。
   SD/UART/RS485 真实 producer、USBTMC/VISA sender 和五类板端回归仍待完成。
-- [ ] Stage 只保存 manifest/chunk spill/delta，不缓存完整 A+B package。
+- [~] Session 已在 OPEN 阶段拒绝未绑定 checkpoint storage 的 `DURABLE_ACK`，并在 header
+  acceptance 阶段拒绝完整 A+B package，host 断言 erase/program 计数不增加；当前实现直接将
+  manifest header + inactive image object 交给 FlashTransaction sink，未建立独立完整 package
+  cache。证据：`FLASH-TASK-20260823-068`；真实 Stage/SD/UART/RS485 producer 和板端验证仍待完成。
 - [ ] 乱序、重复、CRC、truncate、overflow、abort、zero storage、wrong slot/package 全部 fail closed。
 - [ ] USB CDC、USBTMC、UART、RS485、SD 的 A->B、B->A、resume、revert、Recovery 回归通过。
 
