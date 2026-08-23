@@ -16,6 +16,20 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-066 - 显式 OTA maintenance admission owner
+
+- 状态：M1-04 的代码边界子项完成并通过 V2 factory candidate 构建；DHRT100 实板烧录/闭环、
+  Calibration/TDMA/thermal/fault 全矩阵 HIL、真实断电和 C11 审核仍未完成。
+- 代码：ResourceArbiter 新增显式 `request_ota_admission`、`release_ota_admission` 和查询接口；
+  FlashTransactionAO 仅对 OTA image/metadata/manifest/journal requester 消费有效 admission，
+  由系统/SCPI 控制面创建，避免 OTA AO 自行把 RUN 改成 OTA。触发、CAL、TDMA training、FAULT、
+  Flash 冲突仍 fail-closed；ABORT、失败、COMMIT、stream open/close/abort 的异常路径释放 admission。
+- 测试：`tests/unit/test_resource_arbiter.c` 增加 admission 生命周期断言；host test 输出
+  `resource_arbiter host tests passed`。`cmake --build out/build/pico2-v2-factory-candidate
+  --parallel 4` 通过，FlashMap/persistence/migration/wire/link gates 全绿。
+- 边界：本项没有把 RUN 全局拒绝 OTA；普通 RUN 只有在显式 maintenance admission 成功后才允许
+  FlashTransaction intent，符合 HAOFV 单一 owner 约束。尚未宣称板端 admission 负向 HIL 完成。
+
 ### FLASH-TASK-20260823-065 - pytest/build 输出目录收敛与 V2 factory 构建复验
 
 - 状态：输出目录治理和构建门禁修复已完成并推送；M1/M3/M4 的真实断电、Recovery runtime、
