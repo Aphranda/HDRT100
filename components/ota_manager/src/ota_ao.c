@@ -11,6 +11,7 @@
 #include "ota_metadata.h"
 #include "ota_partition.h"
 #include "portable_ota_port.h"
+#include "resource_arbiter.h"
 
 static struct ota_ao_context s_ota_context;
 
@@ -139,7 +140,20 @@ void ota_ao_service(uint32_t budget_us)
             (status.state == POTA_STREAM_STATE_OPEN ||
              status.state == POTA_STREAM_STATE_RECEIVING ||
              status.state == POTA_STREAM_STATE_ENDING)) {
-            (void)portable_ota_port_stream_service(budget_us);
+            const pota_stream_ingress_result_t stream_result =
+                portable_ota_port_stream_service(budget_us);
+            /* END is intentionally serviced after CLOSE.  If a bounded
+             * FlashTransaction step fails asynchronously, release the
+             * maintenance lease here; otherwise the board would remain
+             * permanently admitted to OTA with no recoverable session. */
+            if (stream_result != POTA_STREAM_INGRESS_OK) {
+                pota_stream_ingress_status_t failed_status;
+                if (portable_ota_port_stream_get_status(&failed_status) &&
+                    (failed_status.state == POTA_STREAM_STATE_FAILED ||
+                     failed_status.state == POTA_STREAM_STATE_ABORTED)) {
+                    resource_arbiter_release_ota_admission();
+                }
+            }
         }
         return;
     }
