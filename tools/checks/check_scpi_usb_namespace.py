@@ -23,7 +23,7 @@ SCAN_SUFFIXES = {
     ".s",
     ".md",
 }
-SKIP_DIRS = {"build", ".git", "third_party", "docs"}
+SKIP_DIRS = {"build", "out", ".git", "third_party", "docs"}
 
 
 def iter_files(root: pathlib.Path):
@@ -31,7 +31,8 @@ def iter_files(root: pathlib.Path):
         if not path.is_file():
             continue
         rel = path.relative_to(root)
-        if any(part in SKIP_DIRS for part in rel.parts):
+        if any(part in SKIP_DIRS or part.startswith(".pytest")
+               for part in rel.parts):
             continue
         if path.suffix not in SCAN_SUFFIXES:
             continue
