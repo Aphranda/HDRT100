@@ -16,6 +16,26 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-060 - Completion journal 自重入修复的 DHRT100 复验
+
+- 状态：旧固件失败原因已定位并由 `bdaa750` 修复；修复后的 V2 OTA 在 DHRT100 上完成一轮
+  `READY_TO_REBOOT → BOOT → COMM → COMMITTED` 闭环。M1/M3/M4 其它退出 gate 仍按 TODO 保持未完成。
+- 失败证据：旧 build `20260823053113` 在首个 `APP_B` erase transaction 的 Vector 中报告
+  `state=FAILED`、`requester=OTA_IMAGE`、`completion=ACCEPTED`、`last_error=22`
+  (`FLASH_TRANSACTION_ERROR_COMPLETION`)，宿主状态被映射为 `FLASH_ERASE`；原因是
+  `ACCEPTED` completion journal append 对仍占用的 Flash owner 发生自重入。
+- 修复复验：`flash_transaction_fb` 对未进入 core1 park 的 `ACCEPTED` 只发布 RAM Vector；终态
+  journal physical step 在已有 owner/park lease 内执行。使用 `build-v2-debug-ninja3`、build
+  `20260823174500` 和调试 key 7 重新签名 package，原始传输记录为
+  `build-v2-debug-ninja3/ota_completion_fix_hil.txt`。
+- DHRT100 读回：`SYST:OTA:STAT? = "COMMITTED",2,"NONE",5`、`SYST:OTA:SLOT? =
+  1,0,1,0,2`、`SYST:OTA:TXN? = 0,0,0,0,0,0,0,0`；最终 FlashTransaction Vector 为
+  `state=COMPLETE`、`completion=COMMITTED`、`last_error=NONE`，watchdog log 为
+  `SOFTWARE_REBOOT/NONE`，未出现 `CORE0_SUPERVISOR_STALL`。完整查询保存在
+  `build-v2-debug-ninja3/ota_completion_fix_final_state.txt`。
+- 边界：本条只证明修复后的本地 USB CDC OTA 正向闭环；未关闭 durable resume、Recovery、
+  factory full-erase、power-cut/endurance、五类入口或 C11 独立审核。
+
 ### FLASH-TASK-20260823-059 - Controlled USB factory restore gate
 
 - 状态：M3-05 的 host restore gate 完成；Recovery 运行时 USB/SD restore、空片
