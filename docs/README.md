@@ -228,6 +228,9 @@ docs/
 | `communication/BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C 相关硬件和 SYNC_IO 外围电路约束。 |
 | `communication/BISSC_IMPLEMENTATION_TODO.md` | BiSS-C 实现待办，按 P0/P1/P2 细分。 |
 | `communication/BISSC_TASK_PROGRESS.md` | BiSS-C 任务进度、闭环验证和决策记录。 |
+| `communication/COMMUNICATION_RS485_ARCHITECTURE.md` | RS485 owner、半双工生命周期和 OTA ingress 架构。 |
+| `communication/COMMUNICATION_RS485_TODO.md` | RS485 host、固件和 DHRT100 联调待办。 |
+| `communication/COMMUNICATION_RS485_TASK_PROGRESS.md` | RS485 提交、构建、COM11 和 DHRT100 证据。 |
 
 ## 05 OTA 与启动
 

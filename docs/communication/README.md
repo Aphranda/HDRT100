@@ -4,7 +4,7 @@ Status: Active
 Domain: BISSC
 Canonical: `docs/communication/README.md`
 Related: `docs/README.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-13
+Last updated: 2026-08-24
 
 本目录是 BiSS-C、UART、RS485、RJ45 后端维护和通信 validation 的目标入口。
 
@@ -18,6 +18,9 @@ Last updated: 2026-08-13
 | `BISSC_NETWORK_LOOPBACK_PLAYBOOK.md` | BiSS 组网 preflight 和跨电脑交接 |
 | `BISSC_SYNC_IO_PERIPHERAL_CIRCUIT_DESIGN.md` | BiSS-C 与 SYNC_IO 外围电路约束 |
 | `BISSC_SYNC_IO_HARDWARE_ARCHITECTURE.html` | BiSS-C / SYNC_IO 硬件架构图 HTML |
+| `COMMUNICATION_RS485_ARCHITECTURE.md` | RS485 owner、半双工生命周期和 OTA ingress 架构 |
+| `COMMUNICATION_RS485_TODO.md` | RS485 host、固件和 DHRT100 联调待办 |
+| `COMMUNICATION_RS485_TASK_PROGRESS.md` | RS485 提交、构建、COM11 和 DHRT100 证据 |
 
 ## 边界
 
