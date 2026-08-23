@@ -472,11 +472,13 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 - [~] 已新增 transport-neutral `pota_stream_session` 的 open/write/close/abort 状态骨架，顺序、
   重复和冲突 chunk 有 host 负向证据；raw-image resume 与 durable abort tombstone 已接入 M4-02
-  journal，package parser/image cursor resume 仍未完成。
+  journal，签名 package parser/image cursor resume 已完成 host/build 接入，证据见
+  `FLASH-TASK-20260823-044`；跨 ingress 与板端闭环仍未完成。
 - [~] session descriptor 已绑定 identity/capability/package hash/object/map/partition/generation/
   destination，并校验 inactive-write/durable-ACK capability；实际 ingress 尚未统一迁移。
-- [~] descriptor 已区分 object/destination 并拒绝错误 App partition；package manifest parser、
-  slot-specific object source 和 source 只发送 inactive object 仍待接入。
+- [~] descriptor 已区分 object/destination 并拒绝错误 App partition；CDC source 已从完整签名
+  package 只发送原始 manifest header + inactive image object，无关 slot image 不传输，证据见
+  `FLASH-TASK-20260823-044`；其余 ingress source 仍待接入。
 - [ ] sink 只向 FlashTransactionAO 提交 intent，verified object 后才写 pending BCB。
 
 ### M4-02 Journal 与 durable resume
@@ -485,8 +487,9 @@ TODO 只保留可独立验收的状态项和证据索引。
   成功后按 interval/final policy append checkpoint，并在 append/recover 失败时 fail closed；真实
   v2 `OTA_JOURNAL` backend 已通过 FlashTransaction owner 写入并在固件启动时 fail closed 接入，
   raw-image core 已按 descriptor/map/partition/token/CRC 恢复，并由 bounded service 校验 durable
-  prefix、清理未确认尾部后发布 cursor，证据见 `FLASH-TASK-20260823-039`、`040`；package resume
-  和板端验证仍待完成。
+  prefix、清理未确认尾部后发布 cursor；package core 会在恢复前重验 manifest/signature/counter，
+  再校验 inactive image 前缀并恢复紧凑对象 cursor，证据见 `FLASH-TASK-20260823-039`、`040`、
+  `044`；板端验证仍待完成。
 - [~] portable policy primitive 已按 monotonic byte interval/final offset 决定 checkpoint，
   raw-image 非最终 checkpoint 进一步约束到活动 Flash erase-sector 边界，不按每 chunk 擦写
   （证据：`FLASH-TASK-20260823-022`、`040`）；实际 wear/retransmit profile、journal rotation 和
@@ -506,8 +509,8 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 - [~] `pota_stream_ingress` 已通过 portable port 接入 App OTA AO 和实际 FlashTransaction owner；
   USB CDC/USBTMC SCPI 控制面使用固定 little-endian OPEN、每帧 CRC、source admission 和
-  status/BOOT 投影，独立 CDC sender 已支持从 journal 恢复 raw image（证据：
-  `FLASH-TASK-20260823-033`、`034`、`040`）。
+  status/BOOT 投影，独立 CDC sender 已支持从 journal 恢复 raw image 和签名 inactive package
+  object（证据：`FLASH-TASK-20260823-033`、`034`、`040`、`044`）。
   SD/UART/RS485 真实 producer、USBTMC/VISA sender 和五类板端回归仍待完成。
 - [ ] Stage 只保存 manifest/chunk spill/delta，不缓存完整 A+B package。
 - [ ] 乱序、重复、CRC、truncate、overflow、abort、zero storage、wrong slot/package 全部 fail closed。

@@ -16,6 +16,34 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-044 - Verified package object durable resume
+
+- 状态：M4-01/M4-02 完成签名 package 的 inactive-object source 与 durable resume host/build
+  切片；M4、M3 和 M1 的退出门禁继续保持未完成，v2 deployment state 保持
+  `target_not_deployed`。
+- receiver：checkpoint schema 保存 package cursor、package prefix CRC 和目标镜像前缀 CRC。
+  package resume OPEN 后先要求 source 重传 manifest header，重新执行 product/hardware/map、目标
+  slot/run offset、signature/key role 和 security counter 校验；通过后才按有界 service 扫描已写
+  inactive image 前缀，CRC 不符时在续写前 fail closed，并从首个未确认 sector 擦除尾部后发布
+  recovered cursor。
+- source：CDC sender 从完整签名 package 只提取原始 manifest header 和当前 inactive slot image，
+  OPEN 的 size/CRC/hash/checkpoint 全部绑定该紧凑对象；无关 slot image 和 package padding 不传输、
+  不进入 OTA Stage。分块在 header 和 image 边界处分割，避免目标镜像首块跨越源 package 的非对齐
+  object 边界。旧 PBEGIN 完整 package 兼容路径不变。
+- 负向证据：resume 前续写、篡改签名、损坏目标镜像前缀、错误 map/token/object/cursor、非对齐
+  package object 范围均拒绝；正向覆盖 manifest 重验、有界 readback、尾部擦除、cursor continuation、
+  image/package CRC 和单次 pending publish。
+- 验证：portable OTA、定向 Python 和全量 host runner 通过，后者为本次快照 `31/31`；当前构建
+  package 的 sender 投影确认只形成 manifest + inactive image object。DHRT100 v1 release 与 v2
+  factory-candidate 完整构建通过，App A/B、Boot、Recovery link contract 通过，v1
+  `release_check=OK`。
+- 提交与推送：`9ed91c7 feat(ota): resume verified package streams`、
+  `be7ea0c feat(ota): stream only inactive package objects` 已推送
+  `origin/feature/rtos-multicore-haofv`；Registry 状态未改变。
+- 边界：本轮没有烧录或写入 DHRT100。真实 reset/power-cut、journal rotation 交叉点、长期
+  endurance、USB CDC/USBTMC/UART/RS485/SD 五入口和 Recovery HIL 仍未完成；生产 key registry
+  仍为空，v2 factory-candidate 继续禁止部署，不能据此关闭 M4-02 或 M4。
+
 ### FLASH-TASK-20260823-043 - OTA stream durable abort tombstone
 
 - 状态：M4-02 完成 portable durable abort/restart policy 的 host/build 切片；M4-02、M4、M3 和
