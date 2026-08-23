@@ -30,16 +30,16 @@ v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在�
 
 ### 1.2 已有基线
 
-| 基线 | 状态 | 证据 | 仍缺什么 |
+| 基线 | 已完成部分 | 未完成部分 |
 |---|---|---|---|
-| 物理/构建/兼容布局事实已核对 | `[x]` | `CMakeLists.txt`、`drv_flash.h`、`ota_partition.h`、`ARCH_FLASH_CROSS_REVIEW_01.md` | live consumer 已同源于 v1 compatibility map；v2 仍需 factory 迁移。 |
-| v2 map source/schema 与 geometry gate | `[~]` | `config/flash_map_v2.json`、`config/flash_map_v1_compat.json`、`config/flash_map_gen/`、commit `315dc6f`/`10fd545`/`a211188`/`ed2de4b`/`ab1aee3`/`9ac6681` | 显式 factory-candidate 已包含只读 Recovery、BCB/map baseline 和 region hash gate；受控恢复、空片部署与高地址 HIL 尚未完成。 |
-| Flash v2 owner/map/store/Boot/OTA 语义已形成 canonical | `[x]` | `HAOFV_FLASH_ARCHITECTURE.md` | 7 条目标契约仍为 `pending`。 |
-| Direct A/B 为发布默认 | `[x]` | CMake preset/release check/当前 Bootloader | `COPY_TO_ACTIVE` 兼容分支尚未从 v2 清除。 |
-| core1 Flash park/ACK 基础存在 | `[x]` | `drv_flash_lockout.*`、FlashTransaction HIL | OTA image 与 Product Config 已收敛到 FlashTransactionAO；Boot/metadata 仍待迁移。 |
-| USB CDC/USBTMC/SD OTA 基础存在 | `[x]` | `ota_manager`、host tools、历史 OTA 验证 | UART/RS485 adapter 尚未接入统一 v2 stream/journal/Flash sink。 |
-| TDMA reliable bulk 资源基础存在 | `[x]` | `tdma_profile.h`、traffic scheduler | 尚无 OTA wire/session/durable ACK。 |
-| RefMem registry、VDC runtime、PIO persona 基础存在 | `[x]` | 对应组件与域文档 | 尚无生产持久化与签名 PIO catalog。 |
+| 物理/构建/兼容布局事实已核对 | `[x]` `CMakeLists.txt`、`drv_flash.h`、`ota_partition.h`、`ARCH_FLASH_CROSS_REVIEW_01.md`；live consumer 同源于 v1 compatibility map。 | `[ ]` v2 factory 迁移。 |
+| v2 map source/schema 与 geometry gate | `[x]` `config/flash_map_v2.json`、`config/flash_map_gen/`、factory-candidate Recovery/BCB/map baseline 和 region hash gate。 | `[ ]` 受控恢复、空片部署与高地址 HIL。 |
+| Flash v2 owner/map/store/Boot/OTA 语义已形成 canonical | `[x]` `HAOFV_FLASH_ARCHITECTURE.md`。 | `[ ]` 7 条目标契约仍为 `pending`。 |
+| Direct A/B 为发布默认 | `[x]` CMake preset、release check、当前 Bootloader。 | `[ ]` 从 v2 清除 `COPY_TO_ACTIVE` 兼容分支，并完成历史查询语义。 |
+| core1 Flash park/ACK 基础存在 | `[x]` `drv_flash_lockout.*`、FlashTransaction HIL、OTA image/Product Config intent。 | `[ ]` Boot/metadata 迁移与跨 reset durable owner 闭环。 |
+| USB CDC/USBTMC/SD OTA 基础存在 | `[x]` `ota_manager`、host tools、历史 OTA 验证。 | `[ ]` UART/RS485 adapter 接入统一 v2 stream/journal/Flash sink。 |
+| TDMA reliable bulk 资源基础存在 | `[x]` `tdma_profile.h`、traffic scheduler。 | `[ ]` OTA wire/session/durable ACK。 |
+| RefMem registry、VDC runtime、PIO persona 基础存在 | `[x]` 对应组件与域文档。 | `[ ]` 生产持久化与签名 PIO catalog。 |
 
 这些 `[x]` 只表示“迁移输入可用”，不表示任一 v2 里程碑完成。
 
@@ -153,30 +153,45 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
 
 ### M0-04 Boot/OTA wire 契约输入
 
+#### 已完成部分
+
 - [x] 冻结 BCB lane/commit/select/GC 和 Image Manifest TLV/hash/signature/security counter 规则。
 - [x] 冻结 `OtaStreamSession` identity、generation、object/destination 和 durable offset 语义。
 - [x] 冻结 TDMA OPEN/DATA/ACK/CLOSE/ABORT/STATUS、credit/resume token 和 reject reason。
-- [~] 形成 parser golden/fuzz corpus；当前已有 4 个 golden vector 和机器检查器，真实 parser/fuzz
-  corpus 尚待 M2/M3 实现接入；相关 registry 项保持 `pending`。
+
+#### 未完成部分
+
+- [ ] 扩充 parser golden/fuzz corpus，并将真实 parser/fuzz 接入 M2/M3；当前已有 4 个 golden
+  vector 和机器检查器，相关 registry 项保持 `pending`。
 
 产物：`config/flash_wire_contracts.json`、`tools/flash_map/flash_wire_check.py`、
 `tests/python/test_flash_wire_contracts.py`。
 
 ### M0-05 migration/rollback 包
 
-- [~] 固定 v1 最后可恢复 commit、factory UF2、BOOTSEL 流程和工具版本；artifact checksum 与实际
-  BOOTSEL 样板恢复仍待完成。
+#### 已完成部分
+
+- [x] 固定 v1 最后可恢复 commit、factory UF2、BOOTSEL 流程和工具版本。
 - [x] 定义 identity/Product Config/OTA metadata/Calibration/report index 的备份、转换和丢弃策略。
 - [x] 定义 blank/v1/unknown/v2 map 的 Boot 行为和用户可见恢复信号。
 - [x] 明确样板只走 factory full erase/reflash，不实现 App 在线原地搬迁。
+
+#### 未完成部分
+
+- [ ] 生成并核对 artifact checksum，完成至少一块样板的 BOOTSEL 恢复证据。
 
 产物：`config/flash_migration_policy.json`、`tools/flash_map/flash_migration_check.py`、
 `tests/python/test_flash_migration_policy.py`；v1 回退 artifact/runbook 的板端恢复证据仍待完成。
 
 ### M0 退出门禁
 
+#### 已完成部分
+
 - [x] inventory 与源码扫描一致；新增 raw caller 能使 CI 失败。
-- [~] map/schema/wire 具有正向、边界和负向 fixture；真实 parser/fuzz corpus 仍待 M2/M3。
+
+#### 未完成部分
+
+- [ ] 补齐 map/schema/wire 的真实 parser/fuzz corpus（当前正向、边界和负向 fixture 已存在）。
 - [ ] v1 回退 artifact 可由 BOOTSEL 恢复至少一块样板。
 - [ ] 无目标 offset 被写入 linker/driver/tool 之外的第二事实源。
 
@@ -198,6 +213,8 @@ parked raw caller 和同步 raw write link ownership 执行构建期门禁，M1-
 
 ### M1-02 FlashMap 与 permission view
 
+#### 已完成部分
+
 - [x] 实现 `flash_map_find()`、partition-relative range validation 和 operation permission。
 - [x] Boot/App/factory 使用不同的 generated permission view。
 - [x] linker、factory image、packager、release size gate 消费显式选择的 map artifact；普通构建
@@ -205,6 +222,11 @@ parked raw caller 和同步 raw write link ownership 执行构建期门禁，M1-
   manifest 保持 `target_not_deployed`。
 - [x] 测试 active App write 拒绝、cross-partition 拒绝、Scratch lease 和所有 partition 首尾。
 
+#### 未完成部分
+
+- [ ] 在 DHRT100 上部署并验证 v2 分区，完成 C11 激活审核；当前板端仍保持 v1 compatibility map。
+- [ ] 将 App OTA image、Product Config、App metadata writer 的 intent 证据与 Boot 独立 writer
+  的依赖审计闭环归档。
 证据：commit `10fd545`、`a211188`；`run_flash_map_tests.ps1` 纳入全量 host runner，release/Boot/
 App A/App B 均编译链接同一 `flash_map.c`。DHRT100 通过只读 SCPI 对 generated v2 target map 和
 permission view 做板端闭环；live linker/factory/packager 则由 generated v1 compatibility map
@@ -216,14 +238,21 @@ Product Config 与 App metadata writer 已走 intent，Boot metadata 保持独�
 
 ### M1-03 FlashTransactionAO/FB/Vector
 
-- [~] 已固定首轮 one-deep queue、job/requester/operation/provider generation/completion/cancel；
+#### 已完成部分
+
+- [x] 已固定首轮 one-deep queue、job/requester/operation/provider generation/completion/cancel；
   当前 OTA 两页载荷继续走 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 固定池，超过该上限的请求可使用
   generation-bound immutable buffer lease，缺少合法 lease 时仍 fail closed。
-- [~] 实现 `VALIDATE -> QUIESCE -> ACQUIRE -> PARK -> ERASE/PROGRAM -> VERIFY -> COMMIT ->
+- [x] 实现 `VALIDATE -> QUIESCE -> ACQUIRE -> PARK -> ERASE/PROGRAM -> VERIFY -> COMMIT ->
   RELEASE -> COMPLETE/FAILED`，每次 service 只推进一个有界步骤。
 - [x] Vector 使用 seqlock；只读查询不触发 Flash IO，并记录 policy/lockout/progress/result/timing；
   thermal/health gate、policy reason 与 temperature flags 已接入。
 - [x] completion 区分 accepted/programmed/verified/committed，OTA 兼容包装只消费 committed。
+
+#### 未完成部分
+
+- [ ] 移除仍存在的同步兼容包装，完成 Boot writer、OTA_JOURNAL durable backend、运行时 abort/lease
+  与跨 reset durable completion 的统一 owner 收敛。
 
 首轮证据：commit `2a79643`、`bdc744b`、`accdfbc`、`f3d5a96`；OTA image erase/program 已从 portable callback 进入
 `FlashTransactionAO/FB`，active slot 未知或写活动槽均 fail closed。host fault fixtures、release、
@@ -235,27 +264,32 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
 
 ### M1-04 Mode、温度与双核门禁
 
-- [~] FlashTransactionAO 已接入 Diagnostics fault、board/chip thermal critical、System/FAULT、
+#### 已完成部分
+
+- [x] FlashTransactionAO 已接入 Diagnostics fault、board/chip thermal critical、System/FAULT、
   Trigger activity、Calibration training 和 TDMA clock-training fail-closed gate；policy
   error/temperature flags 已进入 Vector，训练状态由 resource_arbiter snapshot 统一发布/消费，
   core0/core1 owner 发布 helper 已在 `808f825` 收敛。host 负向 fixture 已覆盖 CAL/training
-  admission；warning policy 与板端 fault/thermal/training negative HIL 仍待补齐，当前
-  `CLKTRAIN state=FORWARDING` 与 arbiter snapshot 不一致。
+  admission。
 - [x] host negative fixture 覆盖 thermal critical/diagnostics fault、Calibration active 和
-  TDMA training active admission，断言 raw erase/program 未执行；板端 fault/thermal/CAL/training
-  注入 HIL 仍待安全入口。
-- [~] Trigger capture/clock、FAULT mode、Flash resource conflict、Calibration training 和 TDMA
-  clock-training 已细分为 policy reason；System owner 发布 gate 已接入，板端拒绝 HIL 和
-  warning policy 仍待完成。
-- [ ] RUN/CAL/thermal critical/unknown state 拒绝新写；warning 只按 policy 暂停或降速。
+  TDMA training active admission，断言 raw erase/program 未执行。
+- [x] Trigger capture/clock、FAULT mode、Flash resource conflict、Calibration training 和 TDMA
+  clock-training 已细分为 policy reason；System owner 发布 gate 已接入。
 - [x] App raw write session 的 core1 park request/ACK/release 只由 transaction owner 驱动；parked raw
   operation 在无活动 session 时 fail closed，Boot 同步 raw writer 保持独立会话边界。
 - [x] 审计 RAM resident closure：代码、常量、jump table、IRQ path 不依赖 XIP。
 - [x] HIL 注入 park timeout，证明 raw operation 未执行；release 后 core1 alive。
 
+#### 未完成部分
+
+- [ ] 补齐 RUN/CAL/thermal critical/unknown state 的板端拒绝入口；warning 只按 policy 暂停或降速，
+  不能被误当成 critical fail-open。
+- [ ] 修正 `CLKTRAIN state=FORWARDING` 与 arbiter snapshot 不一致，并完成 board/fault/thermal/
+  CAL/training negative HIL。
+
 ### M1-05 Buffer 与 owner 收敛
 
-#### 已完成（可独立复核）
+#### 已完成部分
 
 - [x] **M1-05-A 固定池 owner**：不超过 `FLASH_TRANSACTION_OWNED_PAYLOAD_SIZE` 的 payload 在
   submit 时复制入固定 pool；超过上限且没有合法 lease 的请求 fail closed，raw writer 不接收
@@ -272,15 +306,16 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
   recovery backend 已纳入 CMake 和 transaction host runner；inventory gate 证明 App raw
   erase/program caller 必须是 FlashTransactionAO，写 API 头文件已从通用 `drv_flash.h` 隐藏。
 
-#### 未完成（关闭 M1-05 前必须完成）
+#### 未完成部分（关闭 M1-05 前必须完成）
 
-- [~] **M1-05-G live producer 接入**：将 `OTA_JOURNAL` durable backend 接入实际 OTA image、Product
+- [x] **M1-05-G live producer 接入（基础）**：将 `OTA_JOURNAL` durable backend 接入实际 OTA image、Product
   Config 和 App OTA metadata producer，不能只由 host fixture 驱动。三个 producer 已接入
   FlashTransactionAO completion-lease 注入点（`dfa1f02`）；v2 启动路径现在建立真实 completion
   journal lease，并与 stream checkpoint 使用同一 partition 的互不重叠 region；completion
   journal 已支持保留最新 block 的受控 rotation，未配置 erase callback 的 portable store 仍
-  fail closed。仍缺真实 DHRT100 跨 reset/power-cut 证据、rotation/endurance HIL 和 completion
-  store 的长期容量预算。
+  fail closed。
+- [ ] **M1-05-G 剩余**：完成真实 DHRT100 跨 reset/power-cut 证据、rotation/endurance HIL 和
+  completion store 长期容量预算。
 - [ ] **M1-05-H 跨 reset/power-cut 闭环**：覆盖 body/readback/commit marker/lane seal 各断电点，复位
   后只能得到确定的旧/新 completion，禁止悬挂 accepted 或伪造 committed。Host reset boundary
   matrix 已覆盖 body/marker/readback transport failure/readback corruption，并证明旧/新选择确定
@@ -296,12 +331,13 @@ contract 已建立并有 host fail-closed 证据，但 live OTA/Product Config/A
   fail-closed 检查（`47b15a3`），Boot 侧现已固定允许 caller 集合；独立 JSON 报告工具、
   三 profile 产物快照和 `release_check` 强制 gate 已完成（`FLASH-TASK-20260823-009`、
   `FLASH-TASK-20260823-011`、`FLASH-TASK-20260823-015`），Boot 依赖的 C11 交叉审核仍待补齐。
-- [~] **M1-05-K atomic store 依赖收敛**：Product Config 已迁移到固定页 append-only record
+- [x] **M1-05-K atomic store 依赖收敛（基础）**：Product Config 已迁移到固定页 append-only record
   primitive，兼容读取旧首记录；每次更新只 program 下一个擦除页，同值不写，满槽时
   先擦除不包含最新记录的下一 sector 再追加，擦除/写入失败均 fail closed，不执行首扇区
   rewrite。OTA metadata 已由 BCB adapter 和 `pota_boot_control_facade` 承载，证据见
-  `FLASH-TASK-20260823-016`、`FLASH-TASK-20260823-031`；仍待 M2-02 的完整 GC/wear
-  health、跨 reset recovery 和独立 C11 raw visibility 审核，之后才能关闭本项。
+  `FLASH-TASK-20260823-016`、`FLASH-TASK-20260823-031`。
+- [ ] **M1-05-K 剩余**：完成 M2-02 的完整 GC/wear health、跨 reset recovery 和独立 C11 raw
+  visibility 审核，之后才能关闭本项。
 - [ ] **M1-05-L 退出评审**：host/build/link/HIL、回退路径和独立 C11 交叉审核齐全后，才允许把
   M1-05 从 `[~]` 改为 `[x]`，并同步更新 `ARCH-FLASHOWNER-01` 登记状态。
 
@@ -311,10 +347,17 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M1-06 高地址 Scratch 验证
 
+#### 已完成部分
+
 - [x] validation-only SCPI 只提交 Scratch lease intent；FlashTransactionFB 拒绝其它分区、非零 offset、跨多 sector/page 请求。
 - [x] 流程固定为 confirm token -> erase -> pattern program -> readback/hash -> erase/restore；哈希匹配和恢复擦除均进入返回证据。
-- [~] DHRT100 报告已记录 identity/build、v2 map symbol/geometry、lockout、温度/电流和恢复结果；底层 JEDEC ID 尚无驱动/SCPI 来源，且当前部署仍是 v1 compatibility map，v2 高地址写入保持禁止。
+- [x] DHRT100 报告已记录 identity/build、v2 map symbol/geometry、lockout、温度/电流和恢复结果；
+  当前部署仍是 v1 compatibility map，v2 高地址写入保持禁止。
 - [x] release binary string scan 证明 destructive validation command 不在正常 release App/Boot 工件中。
+
+#### 未完成部分
+
+- [ ] 增加底层 JEDEC ID 的驱动/SCPI 来源，并在允许的 v2 物理验证窗口完成高地址 Scratch 证据。
 
 ### M1 退出门禁
 
@@ -328,16 +371,27 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M2-01 Store core
 
-- [~] common record envelope、CRC/hash、generation、commit marker 和 version compatibility 已落地；
-  NVS append/sector rotation、Blob immutable object/atomic ref、FCB append ring/GC 仍待完成。
-- [ ] 实现 NVS append/sector rotation、Blob immutable object/atomic ref、FCB append ring/GC。
+#### 已完成部分
+
+- [x] common record envelope、CRC/hash、generation、commit marker 和 version compatibility 已落地。
+- [x] NVS append/scan planner 已落地，负责 aligned span、最新记录选择和 torn tail 识别；不执行
+  Flash IO，实际写入仍由 FlashTransactionAO owner 负责。
+
+#### 未完成部分
+
+- [ ] 实现 NVS sector rotation、Blob immutable object/atomic ref、FCB append ring/GC。
 - [ ] GC 只能提交 FlashTransaction job；空间不足时返回明确 backpressure/reason。
 - [ ] power-cut fixtures 覆盖 body/commit/ref/GC 各边界，始终选出确定的旧或新事实。
 
 ### M2-02 Product NVS
 
-- [~] USB mode/board number 已有 Product Config intent 与默认策略；versioned key/namespace、identity/
-  capability/permission 记录仍待 Store core。
+#### 已完成部分
+
+- [x] USB mode/board number 已有 Product Config intent 与默认策略。
+
+#### 未完成部分
+
+- [ ] 将 versioned key/namespace、identity/capability/permission 记录接入 Store core。
 - [ ] 同值写不产生 record；删除固定 sector overwrite。
 - [ ] v1 导入只能由 factory tool 显式执行，App 不猜测旧布局。
 - [ ] 循环写/复位/GC/erase distribution/wear HIL 通过。
@@ -390,10 +444,11 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M3-01 BootFlashService 与依赖白名单
 
-- [~] Boot target 已独立链接 geometry/map、BCB/metadata、image/vector validator、Raw HAL 和 ROM
+#### 已完成部分
+
+- [x] Boot target 已独立链接 geometry/map、BCB/metadata、image/vector validator、Raw HAL 和 ROM
   recovery 相关路径；`BootFlashService` 已成为活动 map 的 App A/App B/Boot Control erase/program
-  唯一 raw owner（证据：`FLASH-TASK-20260823-015`、`FLASH-TASK-20260823-037`），但 BCB payload、
-  wear counter、Recovery 和 v2 map deployment 仍待 M3-02/M3-04/M3-05。
+  唯一 raw owner（证据：`FLASH-TASK-20260823-015`、`FLASH-TASK-20260823-037`）。
 - [x] `boot_flash_service_erase/program` 对构建期活动 generated map 的可写分区执行
   sector/page 对齐、长度和分区边界检查；Bootloader 镜像复制与 metadata adapter 均经由该 API，
   raw inventory/link gate 拒绝其它 Boot caller。
@@ -402,61 +457,83 @@ TODO 只保留可独立验收的状态项和证据索引。
 - [x] Bootloader size 使用生成的活动 partition symbol gate，不使用文档硬编码阈值；
   `__flash_binary_end` 必须落在 `FLASH_ACTIVE_MAP_BOOTLOADER_ORIGIN/LENGTH` 界内。
 
+#### 未完成部分
+
+- [ ] 补齐 BCB payload、wear counter、Recovery 和 v2 map deployment 的最终依赖收敛。
+
 ### M3-02 BootControlStore
 
-- [~] portable primitive 已实现双 lane append/select/commit/GC 和 lane generation；v1
+- [x] portable primitive 已实现双 lane append/select/commit/GC 和 lane generation；v1
   `ota_metadata.c` 已接入实际 BCB payload 和 BootFlashService/FlashTransactionAO adapter，
   现在再经独立 `pota_boot_control_facade` owner boundary（`FLASH-TASK-20260823-031`）。盘上
   seal/record 可重建 valid lane/record、最新 lane generation/sequence/security counter，并通过
-  只读 SCPI 投影（`FLASH-TASK-20260823-036`）；仍待产品寿命阈值/累计失败统计、v2 schema
-  migration 和 Recovery policy。
-- [~] primitive 在无有效 lane 时返回 `NO_VALID`，不创建默认记录；DHRT100 已完成
-  BCB-backed A/B OTA/reboot/confirm 闭环（`FLASH-TASK-20260823-017`），但 Boot Recovery policy
-  接入仍待完成。
+  只读 SCPI 投影（`FLASH-TASK-20260823-036`）。
+- [x] primitive 在无有效 lane 时返回 `NO_VALID`，不创建默认记录；DHRT100 已完成
+  BCB-backed A/B OTA/reboot/confirm 闭环（`FLASH-TASK-20260823-017`）。
 - [x] host fault fixture 覆盖 body/readback/commit/lane seal/旧 lane erase，均 fail closed 并保留旧记录。
+
+#### 未完成部分
+
+- [ ] 完成产品寿命阈值/累计失败统计、v2 schema migration 和 Boot Recovery policy 接入。
 
 ### M3-03 Direct A/B 单主线
 
-- [~] 新增纯策略 `pota_direct_ab_decide()` façade，明确 no-pending、pending test boot 和
+#### 已完成部分
+
+- [x] 新增纯策略 `pota_direct_ab_decide()` façade，明确 no-pending、pending test boot 和
   attempt-exhausted rollback 的输入/输出，并已接入 Boot 实际 pending 状态机（证据：
   `FLASH-TASK-20260823-028`、`FLASH-TASK-20260823-032`）；DHRT100 已完成 no-confirm、
-  attempt increment 和 attempt-exhausted rollback HIL（`FLASH-TASK-20260823-057`），仍待
-  slot-specific/hash/signature 全 fault matrix、Recovery 和独立 C11 审核。
-- [ ] A/B slot-specific image、vector/reset handler、hash/signature/compatibility 校验。
+  attempt increment 和 attempt-exhausted rollback HIL（`FLASH-TASK-20260823-057`）。
+
+#### 未完成部分
+
+- [ ] 完成 A/B slot-specific image、vector/reset handler、hash/signature/compatibility 全 fault matrix，
+  并接入 Recovery 与独立 C11 审核。
 - [ ] v2 删除 `COPY_TO_ACTIVE` 运行分支和可写 mode 命令；历史查询返回明确 legacy/unsupported。
 
 ### M3-04 Manifest、signature 与 anti-rollback
 
-- [~] 已选定 Mbed TLS SHA-256 + ECDSA P-256，portable verifier 通过 crypto callback 与平台解耦；
-  RP2350 OTP binding、STM32 实际 crypto port 和产品 counter source 尚未完成。
-- [~] key registry 已分离 dev/release/factory role，并拒绝未知、重复、撤销和角色不允许的 key；
-  生产 key 表保持空表 fail closed，rotation ceremony、OTP 灌装和泄露处置 runbook 尚未完成。
-- [~] 固定 manifest extension parser/packager boundary：支持 security counter、key ID、required
+- [x] 已选定 Mbed TLS SHA-256 + ECDSA P-256，portable verifier 通过 crypto callback 与平台解耦。
+- [x] key registry 已分离 dev/release/factory role，并拒绝未知、重复、撤销和角色不允许的 key；
+  生产 key 表保持空表时 fail closed。
+- [x] 固定 manifest extension parser/packager boundary：支持 security counter、key ID、required
   signature 和外部 verifier callback；RP2350 已接入 low-S P-256 verifier，缺少 verifier、签名或
   counter 回退时 fail closed。验签后的 counter 已传入 pending BCB；v2 签名策略拒绝 raw begin/
-  resume。Boot 可重验 slot manifest、OTP/key binding 和 product counter 来源仍待完成。
-- [~] portable BCB primitive 已拒绝低于当前有效记录的 `security_counter`（证据：
+  resume。
+- [x] portable BCB primitive 已拒绝低于当前有效记录的 `security_counter`（证据：
   `FLASH-TASK-20260823-023`）；metadata pending 写入已保存 verified counter，confirm/copy/repair 继承
-  最新 counter，证据见 `FLASH-TASK-20260823-041`。掉电矩阵、OTP 绑定和产品 counter 来源仍待完成。
-- [~] 离线工具可输出 canonical signing transcript/request，并只接受外部 raw P-256 签名；私钥不
-  生成、不读取、不入库，未配置 counter/key 时不生成 v2 package。SBOM、release ceremony 和
-  工厂签名流水线尚未完成。
+  最新 counter，证据见 `FLASH-TASK-20260823-041`。
+- [x] 离线工具可输出 canonical signing transcript/request，并只接受外部 raw P-256 签名；私钥不
+  生成、不读取、不入库，未配置 counter/key 时不生成 v2 package。
+
+#### 未完成部分
+
+- [ ] 完成 RP2350 OTP binding、STM32 实际 crypto port、产品 counter source、OTP 灌装、rotation
+  ceremony、泄露处置 runbook、SBOM、release/factory signing ceremony。
+- [ ] Boot 重新验证 slot manifest、OTP/key binding 和产品 counter 来源，并补齐掉电矩阵。
 
 ### M3-05 Recovery 与 factory artifact
 
-- [~] Recovery 已具备只读 map/BCB health 诊断和显式 ROM BOOTSEL handoff；新增
+#### 已完成部分
+
+- [x] Recovery 已具备只读 map/BCB health 诊断和显式 ROM BOOTSEL handoff；新增
   `tools/factory_package/factory_package.py` 对 signed factory baseline 做确定性 region/hash/
   full-erase/key-profile fail-closed 验证，并由 `tools/factory_restore/factory_restore.py` 在
-  显式执行前校验 UF2 地址集合，证据见 `FLASH-TASK-20260823-058`、`059`；Recovery 运行时
-  factory package 验证、受控 USB/SD restore 尚未实现，仍需保留 `FLASH-TASK-20260823-038` 的
-  只读 Recovery 边界。
-- [~] Recovery 分区在 v2 map 中保持 factory-only 写权限，Recovery 镜像本身不链接 raw Flash writer；
-  更新授权、签名验证和实际覆盖负向 HIL 尚未完成。
-- [~] 独立命名且受 factory flag 保护的 v2 candidate artifact 已包含 Bootloader、Slot A、Recovery、
-  有效 lane0 BCB、canonical map manifest，并声明其余 store 必须在 full erase 后保持 erased；仍未执行
-  空片恢复，证据见 `FLASH-TASK-20260823-037`、`FLASH-TASK-20260823-038`。
-- [~] factory report 已覆盖并由 consumer 重算全部已编程 region 的 size/SHA-256，同时要求
-  `full_erase_required=true`；实际 full erase 后无旧 metadata 残留的 DHRT100 证据仍未完成。
+  显式执行前校验 UF2 地址集合，证据见 `FLASH-TASK-20260823-058`、`059`；只读 Recovery
+  边界证据见 `FLASH-TASK-20260823-038`。
+- [x] Recovery 分区在 v2 map 中保持 factory-only 写权限，Recovery 镜像本身不链接 raw Flash writer；
+  Recovery 镜像本身不链接 raw Flash writer。
+- [x] 独立命名且受 factory flag 保护的 v2 candidate artifact 已包含 Bootloader、Slot A、Recovery、
+  有效 lane0 BCB、canonical map manifest，并声明其余 store 必须在 full erase 后保持 erased；证据见
+  `FLASH-TASK-20260823-037`、`FLASH-TASK-20260823-038`。
+- [x] factory report 已覆盖并由 consumer 重算全部已编程 region 的 size/SHA-256，同时要求
+  `full_erase_required=true`。
+
+#### 未完成部分
+
+- [ ] 实现 Recovery 运行时 factory package 验证、受控 USB/SD restore、更新授权/签名验证和实际
+  覆盖负向 HIL。
+- [ ] 执行空片恢复，取得 full erase 后无旧 metadata 残留的 DHRT100 证据。
 
 ### M3-06 Boot fault matrix
 
@@ -479,59 +556,81 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M4-01 OtaStreamSession core
 
-- [~] 已新增 transport-neutral `pota_stream_session` 的 open/write/close/abort 状态骨架，顺序、
+#### 已完成部分
+
+- [x] 已新增 transport-neutral `pota_stream_session` 的 open/write/close/abort 状态骨架，顺序、
   重复和冲突 chunk 有 host 负向证据；raw-image resume 与 durable abort tombstone 已接入 M4-02
   journal，签名 package parser/image cursor resume 已完成 host/build 接入，证据见
-  `FLASH-TASK-20260823-044`；跨 ingress 与板端闭环仍未完成。
-- [~] session descriptor 已绑定 identity/capability/package hash/object/map/partition/generation/
-  destination，并校验 inactive-write/durable-ACK capability；实际 ingress 尚未统一迁移。
-- [~] descriptor 已区分 object/destination 并拒绝错误 App partition；CDC source 已从完整签名
+  `FLASH-TASK-20260823-044`。
+- [x] session descriptor 已绑定 identity/capability/package hash/object/map/partition/generation/
+  destination，并校验 inactive-write/durable-ACK capability。
+- [x] descriptor 已区分 object/destination 并拒绝错误 App partition；CDC source 已从完整签名
   package 只发送原始 manifest header + inactive image object，无关 slot image 不传输，证据见
-  `FLASH-TASK-20260823-044`；其余 ingress source 仍待接入。
-- [ ] sink 只向 FlashTransactionAO 提交 intent，verified object 后才写 pending BCB。
+  `FLASH-TASK-20260823-044`。
+#### 未完成部分
+
+- [ ] 统一跨 ingress 接入，并让 sink 只向 FlashTransactionAO 提交 intent，verified object 后才写
+  pending BCB。
 
 ### M4-02 Journal 与 durable resume
 
-- [~] `pota_stream_session` 已可配置 `pota_stream_checkpoint_store`，在底层 program/readback
+#### 已完成部分
+
+- [x] `pota_stream_session` 已可配置 `pota_stream_checkpoint_store`，在底层 program/readback
   成功后按 interval/final policy append checkpoint，并在 append/recover 失败时 fail closed；真实
   v2 `OTA_JOURNAL` backend 已通过 FlashTransaction owner 写入并在固件启动时 fail closed 接入，
   raw-image core 已按 descriptor/map/partition/token/CRC 恢复，并由 bounded service 校验 durable
   prefix、清理未确认尾部后发布 cursor；package core 会在恢复前重验 manifest/signature/counter，
   再校验 inactive image 前缀并恢复紧凑对象 cursor，证据见 `FLASH-TASK-20260823-039`、`040`、
-  `044`；板端验证仍待完成。
-- [~] portable policy primitive 已按 monotonic byte interval/final offset 决定 checkpoint，
+  `044`。
+- [x] portable policy primitive 已按 monotonic byte interval/final offset 决定 checkpoint，
   raw-image 非最终 checkpoint 进一步约束到活动 Flash erase-sector 边界，不按每 chunk 擦写
-  （证据：`FLASH-TASK-20260823-022`、`040`）；实际 wear/retransmit profile、journal rotation 和
-  endurance HIL 仍待完成。
-- [~] checkpoint identity 绑定 session/generation/token/object/total/package CRC，并拒绝元数据
+  （证据：`FLASH-TASK-20260823-022`、`040`）。
+- [x] checkpoint identity 绑定 session/generation/token/object/total/package CRC，并拒绝元数据
   或 token 冲突；token 已固定为 little-endian OPEN wire CRC，活动 map 与 App partition ID 来自
   generated deployment map；abort 会持久化 tombstone，同 session/generation 重启被拒绝且提升
-  generation 后只能从 offset 0 开始，证据见 `FLASH-TASK-20260823-043`；该策略的跨 ingress
-  producer 接入与板端 reset/power-cut HIL 仍待完成。
-- [~] host primitive 与真实 backend adapter 已覆盖重建、torn body/commit、CRC/readback corruption、
+  generation 后只能从 offset 0 开始，证据见 `FLASH-TASK-20260823-043`。
+- [x] host primitive 与真实 backend adapter 已覆盖重建、torn body/commit、CRC/readback corruption、
   page/sector 对齐、分区边界、requester 权限、durable prefix 损坏、bounded scan 和尾部清理；journal
   写满后只擦除不含最新有效 checkpoint 的下一 erase block，erase/verify 失败时保留旧最新记录并
-  fail closed，证据见 `FLASH-TASK-20260823-042`。wear profile、DHRT100 跨 reset/power-cut durable
-  resume 和 endurance HIL 仍未完成。
+  fail closed，证据见 `FLASH-TASK-20260823-042`。
+
+#### 未完成部分
+
+- [ ] 完成板端跨 reset/power-cut durable resume、跨 ingress producer 接入、wear/retransmit profile、
+  journal rotation 和 endurance HIL。
 
 ### M4-03 Local ingress regression
 
-- [~] `pota_stream_ingress` 已通过 portable port 接入 App OTA AO 和实际 FlashTransaction owner；
+#### 已完成部分
+
+- [x] `pota_stream_ingress` 已通过 portable port 接入 App OTA AO 和实际 FlashTransaction owner；
   USB CDC/USBTMC SCPI 控制面使用固定 little-endian OPEN、每帧 CRC、source admission 和
   status/BOOT 投影，独立 CDC sender 已支持从 journal 恢复 raw image 和签名 inactive package
   object（证据：`FLASH-TASK-20260823-033`、`034`、`040`、`044`）。
-  SD/UART/RS485 真实 producer、USBTMC/VISA sender 和五类板端回归仍待完成。
-- [~] Session 已在 OPEN 阶段拒绝未绑定 checkpoint storage 的 `DURABLE_ACK`，并在 header
+- [x] Session 已在 OPEN 阶段拒绝未绑定 checkpoint storage 的 `DURABLE_ACK`，并在 header
   acceptance 阶段拒绝完整 A+B package，host 断言 erase/program 计数不增加；当前实现直接将
   manifest header + inactive image object 交给 FlashTransaction sink，未建立独立完整 package
-  cache。证据：`FLASH-TASK-20260823-068`；真实 Stage/SD/UART/RS485 producer 和板端验证仍待完成。
-- [ ] 乱序、重复、CRC、truncate、overflow、abort、zero storage、wrong slot/package 全部 fail closed。
+  cache。证据：`FLASH-TASK-20260823-068`。
+
+#### 未完成部分
+
+- [ ] 接入 SD/UART/RS485 真实 producer、USBTMC/VISA sender，并完成五类板端回归。
+- [ ] 完成乱序、重复、CRC、truncate、overflow、abort、zero storage、wrong slot/package 的全量
+  fail-closed matrix。
 - [ ] USB CDC、USBTMC、UART、RS485、SD 的 A->B、B->A、resume、revert、Recovery 回归通过。
 
 ### M4-04 DHRT100 样板 factory migration（物理 gate）
 
-- [~] v2 candidate 已能在隔离 preset 下生成并通过布局/链接检查，但保持
-  `target_not_deployed`，尚未获得任何空片、烧录或启动证据。
+#### 已完成部分
+
+- [x] v2 candidate 已能在隔离 preset 下生成并通过布局/链接检查；factory artifact 保持
+  `target_not_deployed`。
+
+#### 未完成部分
+
+- [ ] DHRT100 尚未取得 v2 空片、烧录和启动证据；物理 gate 必须按迁移前快照、BOOTSEL/full erase、
+  启动复核和回退顺序执行。
 - [ ] 迁移前记录 `*IDN?`、build、slot/result、board identity、Product Config、sensor snapshot。
 - [ ] BOOTSEL/factory full erase/reflash v2，确认 USB 重新枚举和 identity 转换策略。
 - [ ] 运行 M1 Scratch、Product NVS、Calibration empty/default、Boot fault subset。
