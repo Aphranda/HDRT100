@@ -75,6 +75,15 @@ def build_full_erase_range_args(selection: list[str], flash_size: int) -> list[s
     ]
 
 
+def selected_application_device_visible(output: str, serial_number: str | None) -> bool:
+    """Accept forced load fallback only for an explicitly selected device."""
+    return bool(
+        serial_number and
+        "appears to have a USB serial" in output and
+        "No accessible RP-series devices" in output
+    )
+
+
 def main() -> int:
     args = parse_args()
     artifact = args.artifact if args.artifact.is_absolute() else ROOT / args.artifact
@@ -103,13 +112,19 @@ def main() -> int:
     records.append(
         f"$ picotool info -a {' '.join(selection)} after reboot\n{bootsel_probe.stdout}"
     )
-    if bootsel_probe.returncode != 0 and not args.full_erase:
+    app_fallback = selected_application_device_visible(
+        bootsel_probe.stdout, args.serial_number
+    )
+    if bootsel_probe.returncode != 0 and not args.full_erase and not app_fallback:
         return finish(records, args.out, bootsel_probe.returncode)
     if bootsel_probe.returncode != 0:
-        records.append(
-            "BOOTSEL probe did not enumerate; continuing only because the explicit "
-            "full-erase path uses picotool -F with the selected serial number.\n"
+        reason = (
+            "the selected application device is still visible and load -f will "
+            "perform the forced BOOTSEL transition"
+            if app_fallback else
+            "the explicit full-erase path uses picotool -F with the selected serial number"
         )
+        records.append(f"BOOTSEL probe did not enumerate; continuing because {reason}.\n")
 
     if args.full_erase:
         # Keep the ROM BOOTSEL device mounted after erase.  A normal erase

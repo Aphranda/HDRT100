@@ -1,6 +1,10 @@
 import pytest
 
-from tools.ota_send.ota_send import parse_flash_transaction_state, parse_ota_state
+from tools.ota_send.ota_send import (
+    closed_loop_expected_state,
+    parse_flash_transaction_state,
+    parse_ota_state,
+)
 
 
 def test_parse_flash_transaction_state_reads_generation() -> None:
@@ -19,3 +23,9 @@ def test_parse_flash_transaction_state_rejects_short_vector() -> None:
 
 def test_parse_ota_state_handles_quoted_scpi_status() -> None:
     assert parse_ota_state('"READY_TO_REBOOT",2,"NONE",2') == "READY_TO_REBOOT"
+
+
+def test_closed_loop_default_expects_committed_terminal() -> None:
+    assert closed_loop_expected_state("READY_TO_REBOOT", True) == "COMMITTED"
+    assert closed_loop_expected_state("FAILED", True) == "FAILED"
+    assert closed_loop_expected_state("READY_TO_REBOOT", False) == "READY_TO_REBOOT"

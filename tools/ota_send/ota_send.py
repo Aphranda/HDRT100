@@ -72,6 +72,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def closed_loop_expected_state(expected: str, boot_and_commit_enabled: bool) -> str:
+    if boot_and_commit_enabled and expected == "READY_TO_REBOOT":
+        return "COMMITTED"
+    return expected
+
+
 def scpi_block(data: bytes) -> bytes:
     length = str(len(data)).encode("ascii")
     return b"#" + str(len(length)).encode("ascii") + length + data
@@ -592,6 +598,9 @@ def main() -> int:
         return 0
 
     final_status = send_image(args, image, send_crc, package_mode)
+    expected_final_state = closed_loop_expected_state(
+        args.expect_final_state, args.boot_and_commit
+    )
     if args.boot_and_commit:
         if parse_ota_state(final_status) != "READY_TO_REBOOT":
             print(
@@ -601,8 +610,8 @@ def main() -> int:
             return 4
         final_status = boot_and_commit(args.port, args.baud, args.timeout)
     final_state = parse_ota_state(final_status)
-    if final_state != args.expect_final_state:
-        print(f"unexpected_final_state={final_state}, expected={args.expect_final_state}", file=sys.stderr)
+    if final_state != expected_final_state:
+        print(f"unexpected_final_state={final_state}, expected={expected_final_state}", file=sys.stderr)
         return 2
     if args.expect_error:
         final_error = parse_ota_error(final_status)

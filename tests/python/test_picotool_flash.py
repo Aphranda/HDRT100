@@ -6,6 +6,7 @@ from tools.picotool_flash.picotool_flash import (
     build_full_erase_args,
     build_full_erase_range_args,
     parse_args,
+    selected_application_device_visible,
 )
 
 
@@ -31,3 +32,13 @@ def test_full_erase_range_uses_flash_geometry() -> None:
     assert build_full_erase_range_args(["--ser", "abc"], 0x01000000) == [
         "erase", "-r", "0x10000000", "0x11000000", "--ser", "abc", "-F"
     ]
+
+
+def test_forced_load_fallback_requires_selected_application_device() -> None:
+    output = (
+        "No accessible RP-series devices in BOOTSEL mode were found\n"
+        "RP2350 device appears to have a USB serial connection, not in BOOTSEL mode.\n"
+    )
+    assert selected_application_device_visible(output, "839E1AE79EA20F31")
+    assert not selected_application_device_visible(output, None)
+    assert not selected_application_device_visible("unrelated failure", "serial")
