@@ -35,6 +35,21 @@ Last updated: 2026-08-23
 - 签名：transcript 由固化 `tools/ota_keys/sign_ota_signature.py` 使用调试 key 7 重新签名；
   未执行真实断电或 BOOTSEL full erase。
 
+### FLASH-TASK-20260823-064 - 负向签名错误映射与软件重启恢复
+
+- 状态：M3-03 仅完成一项非断电负向样本；其余 header/slot/CRC/vector 矩阵、真实断电、
+  Recovery runtime 和 C11 独立审核仍未完成。
+- HIL：使用固化 `tools/ota_send/ota_send.py` 的 `--package-negative header-size` 发送变异包；
+  固件拒绝变异 transcript 并返回 `FAILED/ SIGNATURE_INVALID`，不再显示 `UNKNOWN`。
+  由于该变异破坏签名，工具非零退出属于预期负向结果，原始输出见
+  `build-v2-debug-ninja3/dhrt100_v2_negative_header_size.txt`。
+- 安全读回：失败后 `SYST:OTA:RES?` 保持 `APPLIED` 的上一份有效镜像，
+  `SYST:OTA:TXN?` 全零、journal 无未完成项、错误队列为空。随后使用固化
+  `tools/picotool_reboot/picotool_reboot.py`（不进入 BOOTSEL、不擦除 Flash）建立软件启动边界，
+  板端恢复为 `SYST:OTA:STAT?="IDLE",1,"NONE",0`；完整记录见
+  `build-v2-debug-ninja3/dhrt100_v2_negative_post_reboot.txt` 和
+  `dhrt100_v2_negative_reboot.txt`。
+
 ### FLASH-TASK-20260823-062 - V2 SCPI legacy fail-closed 与 DHRT100 非断电复验
 
 - 状态：代码修复、V1/V2 build、host policy 测试和 DHRT100 非断电 OTA 闭环通过；真实
