@@ -196,6 +196,11 @@ int main(void)
     failed += !expect("decode reserved rejected", !pota_stream_open_decode_le(
         open_wire, sizeof(open_wire), &decoded));
     open_wire[37] = 0u;
+    write_le32(&open_wire[8], open.capability_mask | 0x80000000u);
+    failed += !expect("decode unknown capability rejected",
+                      !pota_stream_open_decode_le(open_wire, sizeof(open_wire),
+                                                  &decoded));
+    write_le32(&open_wire[8], open.capability_mask);
 
     failed += !expect("open USB CDC", pota_stream_ingress_open(
         &ingress, POTA_STREAM_INGRESS_USB_CDC, &open) == POTA_STREAM_INGRESS_OK);

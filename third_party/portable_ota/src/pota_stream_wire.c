@@ -21,8 +21,13 @@ static void write_le32(uint8_t *data, uint32_t value)
 bool pota_stream_open_decode_le(const uint8_t *data, uint32_t size,
                                 pota_stream_open_t *open)
 {
+    const uint32_t known_capabilities =
+        POTA_STREAM_CAP_INACTIVE_WRITE | POTA_STREAM_CAP_DURABLE_ACK;
     if (data == NULL || open == NULL || size != POTA_STREAM_OPEN_WIRE_SIZE ||
         data[36] > 1u || data[37] != 0u || data[38] != 0u || data[39] != 0u) {
+        return false;
+    }
+    if ((read_le32(&data[8]) & ~known_capabilities) != 0u) {
         return false;
     }
 
