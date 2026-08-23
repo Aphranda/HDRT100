@@ -32,6 +32,18 @@ Last updated: 2026-08-23
 - 边界：本项只证明 session 不把 RAM ACK 或完整 A+B package 当作 durable stage；实际 SD/UART/
   RS485/USBTMC producer、掉电和五类入口回归仍按 M4-03 保持未完成。
 
+### FLASH-TASK-20260823-069 - DHRT100 非破坏性兼容回归
+
+- 状态：本轮代码变更后的 v1 compatibility 固件只读/负向回归通过；不作为 v2 deployment、
+  stream resume、Recovery 或真实断电证据。
+- 证据：使用固化 `tools/scpi_query/scpi_query.py` 打开一次 USB CDC 生命周期，DHRT100
+  `GTS,DHRT100,839E1AE79EA20F31,0.1.0` 返回正常，`SYST:OTA:MODE?` 为 `DIRECT_AB,1`，基线
+  `SYST:OTA:STAT?` 为 `IDLE`、`SYST:OTA:TXN?` 全零、错误队列为空；随后发送
+  `SYST:OTA:PBEGIN 0,0`，设备保持无 Flash transaction 并返回 `FAILED/IMAGE_TOO_LARGE`。
+- 原始报告：`out/flash_hil/dhrt100_stream_boundary_baseline.txt`、
+  `out/flash_hil/dhrt100_stream_boundary_negative.txt`。未执行 `--full-erase`、BOOTSEL 或真实
+  断电；M4-04 与 M4-03 板端硬件门禁继续未完成。
+
 ### FLASH-TASK-20260823-067 - Stream END admission 生命周期修正
 
 - 状态：M4-03 的 admission 生命周期子项完成；五类 transport、跨 reset/power-cut 和 DHRT100
