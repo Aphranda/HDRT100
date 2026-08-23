@@ -16,6 +16,27 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-042 - OTA Journal sector rotation
+
+- 状态：M4-02 完成 durable checkpoint journal 的 host/build rotation 切片；M4-02、M4、M3 和 M1
+  的退出门禁继续保持未完成，v2 deployment state 保持 `target_not_deployed`。
+- 代码：portable checkpoint config 增加可选 erase callback/geometry。store 全满时扫描最新有效
+  sequence，只选择不含该最新记录的下一 erase block；erase 成功并逐槽验证为空后才写入新 body/
+  commit。未配置 erase callback 的 portable 用户保持原有 `FULL` fail-closed 语义。DHRT100 v2
+  adapter 将 sector erase 作为 `FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL` intent 提交，不绕过 App
+  唯一 Flash owner。
+- 负向证据：配置只有一个 erase block 或缺少 erase callback 时拒绝初始化；erase 失败返回 IO，
+  旧最新 checkpoint 仍可恢复；重试成功后 sequence 单调推进。torn body/marker、readback corruption、
+  replay/conflict 和未启用 GC 的 full 行为继续通过既有测试。
+- 验证：portable OTA、OTA journal adapter 和全量 host runner 通过，后者为本次快照 `31/31`；
+  DHRT100 v1 release 与 v2 factory-candidate 完整构建通过，App A/B、Boot、Recovery link contract
+  通过，v1 `release_check=OK`。
+- 提交与推送：`5140dc0 feat(ota): rotate durable checkpoint journal` 已推送
+  `origin/feature/rtos-multicore-haofv`；Registry 状态未改变。
+- 边界：本轮没有烧录或写入 DHRT100。rotation 尚无真实 power-cut、长期 wear/endurance、跨 reset
+  resume 或 retransmit HIL；package parser/image cursor 与 abort/restart policy 仍未完成，不能据此
+  关闭 M4-02 或 M4。
+
 ### FLASH-TASK-20260823-041 - RP2350 manifest verifier 与 verified counter 闭环
 
 - 状态：M3-04 完成 RP2350 软件验签、角色化公钥 registry、离线签名工件和 verified counter 到

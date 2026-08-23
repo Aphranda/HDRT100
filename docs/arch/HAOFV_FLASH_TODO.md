@@ -72,10 +72,10 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
    region 的 hash/recompute gate 已进入 `pico2-v2-factory-candidate`；下一步实现签名 factory package
    验证、受控 USB/SD restore 和空片恢复 HIL。在这些 gate 齐全前不得烧录候选工件或去掉
    `target_not_deployed` 标记。
-2. **M4-02 durable resume 闭环**：真实 v2 `OTA_JOURNAL` backend 和 raw-image bounded resume core
-   已完成 host/build 接入；下一步补 package parser/image cursor、journal sector rotation、abort/
-   restart policy、真实掉电矩阵和 DHRT100 跨 reset HIL。不得用 raw host 证据替代 package 或实板
-   resume 完成定义。
+2. **M4-02 durable resume 闭环**：真实 v2 `OTA_JOURNAL` backend、raw-image bounded resume core 和
+   保留最新 checkpoint 的 sector rotation 已完成 host/build 接入；下一步补 package parser/image
+   cursor、abort/restart policy、真实掉电/endurance 矩阵和 DHRT100 跨 reset HIL。不得用 raw host
+   证据替代 package 或实板 resume 完成定义。
 3. **M3-04 信任链**：portable verifier、RP2350 软件验签、角色化 key registry、离线签名请求和
    verified counter 到 BCB 的传递已完成；下一步建立 Boot 可重验的 slot manifest，补 OTP/key
    binding、产品 counter 来源与泄露处置。生产 key 表为空时所有 v2 update 必须 fail closed，不能
@@ -496,7 +496,9 @@ TODO 只保留可独立验收的状态项和证据索引。
   generated deployment map；跨 ingress 的 restart/abort policy 仍待接入。
 - [~] host primitive 与真实 backend adapter 已覆盖重建、torn body/commit、CRC/readback corruption、
   page/sector 对齐、分区边界、requester 权限、durable prefix 损坏、bounded scan 和尾部清理；journal
-  写满后 fail closed，尚无 GC/sector rotation。DHRT100 跨 reset/power-cut durable resume 仍未完成。
+  写满后只擦除不含最新有效 checkpoint 的下一 erase block，erase/verify 失败时保留旧最新记录并
+  fail closed，证据见 `FLASH-TASK-20260823-042`。wear profile、DHRT100 跨 reset/power-cut durable
+  resume 和 endurance HIL 仍未完成。
 
 ### M4-03 Local ingress regression
 
