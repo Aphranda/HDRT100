@@ -19,9 +19,9 @@ Last updated: 2026-08-23
 ### FLASH-TASK-20260823-077 - Reject unknown stream capabilities
 
 - 状态：M4-03 wire/session fail-closed 子项完成；五类真实 ingress、板端回归和物理迁移仍未完成。
-- 代码：`pota_stream_session` 现在只接受已定义的 `INACTIVE_WRITE` 与 `DURABLE_ACK` capability
-  位；未知位在 `OPEN`、任何 Flash 操作之前拒绝。补充 host 负向测试覆盖未知 capability 的
-  session/ingress 路径。
+- 代码：`pota_stream_session` 与固定 little-endian OPEN wire decoder 现在只接受已定义的
+  `INACTIVE_WRITE` 与 `DURABLE_ACK` capability 位；未知位在进入 session、任何 Flash 操作之前
+  拒绝。补充 host 负向测试覆盖 wire/session/ingress 三层路径。
 - 验证：`tools/tests/run_portable_ota_tests.ps1` 通过；V2 factory-candidate 与 release 构建通过
   FlashMap/persistence/migration/wire/link gates。
 - 边界：本项不替代 M4-03 全部乱序/重复/transport 和 DHRT100 HIL，也不宣称 v2 已部署。
