@@ -16,6 +16,22 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-048 - Supervisor feed ownership and BCB readback context fix
+
+- 状态：代码与 host/build 回归通过；DHRT100 新固件烧录/OTA 闭环待本轮板端窗口完成，不能把本条
+  作为 M1/M3/M4 退出证据。
+- 修复：移除 `FlashTransactionAO` 同步执行器中的直接 `drv_watchdog_feed()`，改为只发布有界
+  transaction progress telemetry；硬件 watchdog 继续只由独立 `WatchdogSupervisorAO` 的健康门喂狗，
+  避免 END metadata 卡住时被 owner 路径掩盖。BCB transaction readback 显式使用事务保存的
+  `platform.read_page(platform.context, ...)`，并拒绝任何将 transaction context 强转为 store 的实现。
+- 验证：`test_picotool_flash.py`、`test_flash_consumer_check.py` 共 9 项通过；portable BCB store
+  async transaction、portable OTA core/session 可执行文件通过；`build-v2-debug-ninja3` 的
+  DHRT100 App A/B、Boot、Recovery、FlashMap/schema/wire/link gates 通过。完整 package 重新用
+  调试 key 7 签名并生成，记录见 `build-v2-debug-ninja3/DHRT100_V2_CANDIDATE_UPDATE.pkg`。
+- 板端：当前 COM9 UART 监视窗口未收到日志，尚未宣称新固件在 DHRT100 上完成烧录/闭环；下一步
+  使用固化 `picotool_flash.py` 和 `ota_send.py`，并保存 UART transcript 及
+  `READY_TO_REBOOT → BOOT → COMM → COMMITTED` 查询证据。
+
 ### FLASH-TASK-20260823-047 - END 可调度 FlashTransaction 子步骤
 
 - 状态：代码、host 回归、DHRT100 烧录和 OTA 闭环均完成；本条不改变 M1/M3/M4 总体退出状态。
