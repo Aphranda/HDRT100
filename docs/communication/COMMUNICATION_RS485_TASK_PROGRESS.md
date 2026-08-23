@@ -15,6 +15,9 @@ Last updated: 2026-08-24
 - 当前输入：`pota_stream_ingress` 已包含 `POTA_STREAM_INGRESS_RS485` source，现有
   `tools/ota_stream_send/ota_stream_send.py` 的 stream wire/SCPI 控制面仍固定为 USB CDC，
   因此本任务下一步是增加 transport profile，而不是复制一套 OTA session。
+- 协议决策：RS485 当前优先 Modbus RTU；SCPI 通过 USB 配置 `COMMunication:SERial:UART#:MODE`
+  在 `SCPI`/`MODBUS` 间选择。默认保持 SCPI 兼容，Modbus adapter 接入前状态仍为
+  `PENDING_BACKEND`。
 - 联调资源：COM11 仅表示 RS485 通讯器端口；联调脚本必须先确认 `*IDN?` 或明确的 RS485
   adapter identity，再开始数据帧验证。
 - 代码/构建边界：未新增 raw Flash caller，未改变 V2 Direct A/B、FlashMap 或 journal owner。

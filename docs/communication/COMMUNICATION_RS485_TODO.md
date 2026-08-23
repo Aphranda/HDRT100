@@ -17,6 +17,7 @@ Last updated: 2026-08-24
 | Transport/协议边界 | `[x]` | source=RS485、session/journal/Flash owner 边界已与 Flash 域一致 |
 | Host COM11 联调工具 | `[~]` | 固化 serial lifecycle、frame/ACK transcript 和负向用例 |
 | 固件 RS485 adapter | `[ ]` | UART/DMA ring、DE/RE lease、bounded service、错误统计接入 |
+| USB 模式配置 | `[~]` | `COMMunication:SERial:UART#:MODE` 选择 SCPI/MODBUS，切换后状态可查询 |
 | V2 OTA ingress | `[ ]` | OPEN/DATA/CLOSE/ABORT 通过 RS485 到 durable offset |
 | DHRT100 单板验证 | `[ ]` | `*IDN?`、短帧 loopback、stream、abort/restart、错误队列 |
 | 五类 ingress 总体验证 | `[ ]` | USB CDC/USBTMC/UART/RS485/SD 一致性和 C11 审核 |
@@ -32,6 +33,8 @@ Last updated: 2026-08-24
 
 ### R485-02 固件 adapter
 
+- [~] 通过 USB SCPI 配置 `MODE=SCPI|MODBUS`；默认 SCPI，Modbus adapter 未 ready 前状态保持
+  `PENDING_BACKEND`。
 - [ ] 明确实际 UART、DMA、DE/RE GPIO 和电气 profile，全部从 board 配置读取。
 - [ ] 实现 bounded RX ring、TX queue、half-duplex direction lease 和 idle timeout。
 - [ ] 将 adapter 接到 `pota_stream_ingress` 的 `POTA_STREAM_INGRESS_RS485`，禁止 raw Flash 调用。
@@ -39,7 +42,8 @@ Last updated: 2026-08-24
 
 ### R485-03 V2 OTA
 
-- [ ] 实现 RS485 OPEN/DATA/CLOSE/ABORT 的固定 wire framing 和 durable ACK。
+- [ ] 在 `MODE=SCPI` 且 adapter ready 后实现 RS485 OPEN/DATA/CLOSE/ABORT 的固定 wire framing
+  和 durable ACK；当前阶段先完成 `MODE=MODBUS` 的 RTU 读写验证。
 - [ ] 验证 journal resume 只从 durable offset 继续，未确认尾部不得被 ACK。
 - [ ] 验证错误 source、token、target slot、package hash 和 security counter fail closed。
 

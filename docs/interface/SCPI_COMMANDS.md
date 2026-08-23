@@ -102,6 +102,7 @@ UART/RS485/BiSS-C 等外部或板间通信能力统一归入 `COMMunication:*`�
 | 命令 | 说明 |
 |---|---|
 | `COMMunication:SERial:UART#:BAUD <baud>` / `BAUD?` | 设置或查询 UART# 波特率；当前 UART 后端待接入，查询返回默认配置。 |
+| `COMMunication:SERial:UART#:MODE <SCPI|MODBUS>` / `MODE?` | 通过 USB SCPI 选择 RS485/UART# 维护面协议；默认 `SCPI`，切换为 `MODBUS` 后由 Modbus RTU adapter 接管数据面。当前固件先持久化选择并报告，实际 adapter 接入前保持 `PENDING_BACKEND`。 |
 | `COMMunication:SERial:UART#:FORMat <data_bits>,<parity>,<stop_bits>` / `FORMat?` | 设置或查询 UART# 帧格式，`parity=NONE/EVEN/ODD`。 |
 | `COMMunication:SERial:UART#:STATe <0|1>` / `STATe?` | 使能或关闭 UART# 维护端口。 |
 | `COMMunication:SERial:UART#:STATus?` | 查询 UART# ready、配置、收发计数和后端接入状态。 |
