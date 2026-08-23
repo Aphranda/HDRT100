@@ -25,6 +25,8 @@ Last updated: 2026-08-23
   避免 END metadata 卡住时被 owner 路径掩盖。BCB transaction readback 显式使用事务保存的
   `platform.read_page(platform.context, ...)`；事务 API 现在接收可写 store owner，计数器更新不再
   通过 const store 强转，也拒绝任何将 transaction context 强转为 store 的实现。
+- 同步清理：`drv_flash_erase_parked()/program_parked()` 不再在 sector/page 循环中直接
+  `watchdog_update()`；FlashTransaction 的硬件 watchdog 喂狗责任保持在 Supervisor 健康门。
 - 验证：`test_picotool_flash.py`、`test_flash_consumer_check.py` 共 9 项通过；portable BCB store
   async transaction、portable OTA core/session 可执行文件通过；`build-v2-debug-ninja3` 的
   DHRT100 App A/B、Boot、Recovery、FlashMap/schema/wire/link gates 通过。完整 package 重新用
