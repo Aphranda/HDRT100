@@ -16,6 +16,22 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-065 - pytest/build 输出目录收敛与 V2 factory 构建复验
+
+- 状态：输出目录治理和构建门禁修复已完成并推送；M1/M3/M4 的真实断电、Recovery runtime、
+  BOOTSEL/full erase、完整 fault matrix 与 C11 审核仍按 TODO 保持未完成。
+- 目录：CMake preset 的活动构建统一使用 `out/build/<preset>/`；pytest 临时目录和缓存统一
+  使用 `out/pytest/runs`、`out/pytest/cache`；历史 `.pytest-*` 树归档到 `out/pytest/legacy*`，
+  根目录生成物由 `.gitignore` 忽略。当前锁定的旧 `.pytest_cache` 未删除，仅保持归档并不再作为
+  工具输入。
+- 门禁修复：`tools/checks/check_scpi_usb_namespace.py` 跳过 `out` 和 `.pytest*`，避免扫描生成
+  物或被 Windows 锁定的 pytest 缓存；这符合源码命名空间检查只消费 live source 的边界。
+- 验证：`python -m pytest tests/python/test_doc_regression.py tests/python/test_docs_check.py
+  -p no:cacheprovider` 为 14 passed；`cmake --preset pico2-v2-factory-candidate` 与
+  `cmake --build out/build/pico2-v2-factory-candidate --parallel 4` 通过，包含
+  FlashMap/persistence/migration/wire/link gates，生成 DHRT100/Boot/Recovery factory artifacts。
+- 提交：目录治理 `4a0b705`，namespace scanner `b150ee6`，均已推送。
+
 ### FLASH-TASK-20260823-063 - OTA 错误码映射修复与 DHRT100 V2 闭环复验
 
 - 状态：代码修复、V1/V2 构建、portable OTA host gate 和 DHRT100 非断电 OTA
