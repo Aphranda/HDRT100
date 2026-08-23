@@ -536,7 +536,7 @@ static bool bcb_txn_program_page(pota_bcb_txn_t *txn, uint32_t page,
 
 pota_bcb_result_t pota_bcb_txn_begin(
     pota_bcb_txn_t *txn,
-    const pota_bcb_store_t *store,
+    pota_bcb_store_t *store,
     const pota_bcb_update_t *update)
 {
     if (txn == NULL || !platform_write_valid(store) || update == NULL ||
@@ -549,8 +549,8 @@ pota_bcb_result_t pota_bcb_txn_begin(
     txn->schema_version = store->schema_version;
     txn->map_version = store->map_version;
     txn->lane_page_count = store->lane_page_count;
-    txn->program_page_count = &((pota_bcb_store_t *)store)->program_page_count;
-    txn->erase_lane_count = &((pota_bcb_store_t *)store)->erase_lane_count;
+    txn->program_page_count = &store->program_page_count;
+    txn->erase_lane_count = &store->erase_lane_count;
     txn->update = *update;
 
     pota_bcb_view_t newest;

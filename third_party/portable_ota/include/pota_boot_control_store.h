@@ -141,7 +141,7 @@ bool pota_bcb_store_get_health_snapshot(
 
 pota_bcb_result_t pota_bcb_txn_begin(
     pota_bcb_txn_t *txn,
-    const pota_bcb_store_t *store,
+    pota_bcb_store_t *store,
     const pota_bcb_update_t *update);
 pota_bcb_step_result_t pota_bcb_txn_step(pota_bcb_txn_t *txn);
 
