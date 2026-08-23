@@ -11,6 +11,11 @@ typedef enum {
     RESOURCE_ARBITER_MODE_FAULT,
 } resource_arbiter_mode_t;
 
+/* Validate a mode value before using it as an admission or ownership policy.
+ * Values can be corrupted at a reset/diagnostic boundary; callers must treat
+ * an invalid value as unsafe rather than accidentally accepting it. */
+bool resource_arbiter_mode_is_valid(resource_arbiter_mode_t mode);
+
 typedef enum {
     RESOURCE_ARBITER_RESOURCE_FLASH = 1u << 0,
     RESOURCE_ARBITER_RESOURCE_SPI0 = 1u << 1,

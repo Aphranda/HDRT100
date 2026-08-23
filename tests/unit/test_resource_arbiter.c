@@ -20,6 +20,12 @@ static void expect_snapshot(bool calibration, bool tdma)
 
 int main(void)
 {
+    assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_BOOT));
+    assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_RUN));
+    assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_OTA));
+    assert(resource_arbiter_mode_is_valid(RESOURCE_ARBITER_MODE_FAULT));
+    assert(!resource_arbiter_mode_is_valid((resource_arbiter_mode_t)99));
+
     assert(resource_arbiter_init());
     expect_snapshot(false, false);
     assert(resource_arbiter_can_begin_ota());

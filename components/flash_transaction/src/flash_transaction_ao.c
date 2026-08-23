@@ -53,7 +53,8 @@ static uint32_t flash_transaction_policy_check(uint32_t requester,
     }
     resource_arbiter_snapshot_t arbiter;
     resource_arbiter_get_snapshot(&arbiter);
-    if (arbiter.mode == RESOURCE_ARBITER_MODE_FAULT) {
+    if (!resource_arbiter_mode_is_valid(arbiter.mode) ||
+        arbiter.mode == RESOURCE_ARBITER_MODE_FAULT) {
         return FLASH_TRANSACTION_ERROR_MODE;
     }
     const bool ota_requester =

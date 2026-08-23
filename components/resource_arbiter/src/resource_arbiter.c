@@ -12,6 +12,19 @@ typedef struct {
 
 static resource_arbiter_context_t s_resource_arbiter;
 
+bool resource_arbiter_mode_is_valid(resource_arbiter_mode_t mode)
+{
+    switch (mode) {
+    case RESOURCE_ARBITER_MODE_BOOT:
+    case RESOURCE_ARBITER_MODE_RUN:
+    case RESOURCE_ARBITER_MODE_OTA:
+    case RESOURCE_ARBITER_MODE_FAULT:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static bool resource_arbiter_owner_matches(const char *expected,
                                            const char *actual)
 {
@@ -107,7 +120,8 @@ bool resource_arbiter_can_begin_ota(void)
         resource_arbiter_reset_locked();
     }
 
-    allowed = !s_resource_arbiter.snapshot.trigger_capture_running &&
+    allowed = resource_arbiter_mode_is_valid(s_resource_arbiter.snapshot.mode) &&
+              !s_resource_arbiter.snapshot.trigger_capture_running &&
               !s_resource_arbiter.snapshot.trigger_clock_running &&
               !s_resource_arbiter.snapshot.calibration_training_active &&
               !s_resource_arbiter.snapshot.tdma_clock_training_active &&
@@ -130,7 +144,8 @@ bool resource_arbiter_request_ota_admission(void)
 
     const resource_arbiter_snapshot_t *snapshot =
         &s_resource_arbiter.snapshot;
-    allowed = !snapshot->trigger_capture_running &&
+    allowed = resource_arbiter_mode_is_valid(snapshot->mode) &&
+              !snapshot->trigger_capture_running &&
               !snapshot->trigger_clock_running &&
               !snapshot->calibration_training_active &&
               !snapshot->tdma_clock_training_active &&
