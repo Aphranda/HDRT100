@@ -262,6 +262,12 @@ int main(void)
                            POTA_ERR_BAD_HEADER);
 
     make_valid_header(header);
+    write_le32(header, 224u, (uint32_t)POTA_SLOT_A);
+    failed += expect_error("duplicate slot",
+                           pota_package_parse_header(header, sizeof(header), &constraints, &manifest),
+                           POTA_ERR_BAD_HEADER);
+
+    make_valid_header(header);
     add_signed_extension(header, 10u, 7u);
     write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 20u, 63u);
     failed += expect_error("partial raw signature",

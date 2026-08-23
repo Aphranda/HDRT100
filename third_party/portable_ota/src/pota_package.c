@@ -200,6 +200,14 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
             image->size > (manifest->package_size - image->offset)) {
             return POTA_ERR_BAD_HEADER;
         }
+        /* A package image is selected by slot.  Duplicate slot entries would
+         * make selection order-dependent and could cause the verifier to
+         * approve one image while the installer consumes another. */
+        for (uint32_t previous = 0u; previous < i; previous++) {
+            if (manifest->images[previous].slot == image->slot) {
+                return POTA_ERR_BAD_HEADER;
+            }
+        }
         if ((manifest->required_flags &
              POTA_MANIFEST_REQUIRED_IMAGE_HASHES) != 0u) {
             uint8_t hash_or = 0u;
