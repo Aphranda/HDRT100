@@ -33,9 +33,9 @@ v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在�
 | 基线 | 已完成部分 | 未完成部分 |
 |---|---|---|---|
 | 物理/构建/兼容布局事实已核对 | `[x]` `CMakeLists.txt`、`drv_flash.h`、`ota_partition.h`、`ARCH_FLASH_CROSS_REVIEW_01.md`；live consumer 同源于 v1 compatibility map。 | `[ ]` v2 factory 迁移。 |
-| v2 map source/schema 与 geometry gate | `[x]` `config/flash_map_v2.json`、`config/flash_map_gen/`、factory-candidate Recovery/BCB/map baseline 和 region hash gate。 | `[ ]` 受控恢复、空片部署与高地址 HIL。 |
+| v2 map source/schema 与 geometry gate | `[x]` `config/flash_map_v2.json`、`config/flash_map_gen/`、factory-candidate Recovery/BCB/map baseline、region hash gate，以及 DHRT100 空片 full-erase/load/verify 和高地址 Scratch HIL。 | `[ ]` Recovery runtime restore 与 M3 C11 激活。 |
 | Flash v2 owner/map/store/Boot/OTA 语义已形成 canonical | `[x]` `HAOFV_FLASH_ARCHITECTURE.md`。 | `[ ]` 7 条目标契约仍为 `pending`。 |
-| Direct A/B 为发布默认 | `[x]` CMake preset、release check、当前 Bootloader。 | `[ ]` 从 v2 清除 `COPY_TO_ACTIVE` 兼容分支，并完成历史查询语义。 |
+| Direct A/B 为发布默认 | `[x]` CMake preset、release check、当前 Bootloader；V2 已清除 `COPY_TO_ACTIVE` 运行分支并完成历史查询语义，证据见 `FLASH-TASK-20260824-084`。 | `[ ]` C11 独立激活审核与真实 fault/power-cut gate。 |
 | core1 Flash park/ACK 基础存在 | `[x]` `drv_flash_lockout.*`、FlashTransaction HIL、OTA image/Product Config intent。 | `[ ]` Boot/metadata 迁移与跨 reset durable owner 闭环。 |
 | USB CDC/USBTMC/SD OTA 基础存在 | `[x]` `ota_manager`、host tools、历史 OTA 验证。 | `[ ]` UART/RS485 adapter 接入统一 v2 stream/journal/Flash sink。 |
 | TDMA reliable bulk 资源基础存在 | `[x]` `tdma_profile.h`、traffic scheduler。 | `[ ]` OTA wire/session/durable ACK。 |
@@ -519,7 +519,9 @@ TODO 只保留可独立验收的状态项和证据索引。
   并接入 Recovery 只读 `SYST:RECOVERY:AB:STATUS?` 与独立 C11 审核；证据：
   `ARCH_FLASH_CROSS_REVIEW_03.md`、`FLASH-TASK-20260824-083`。真实 DHRT100 破坏性注入仍归
   M3-06，不在本子项重复计数。
-- [ ] v2 删除 `COPY_TO_ACTIVE` 运行分支和可写 mode 命令；历史查询返回明确 legacy/unsupported。
+- [x] v2 删除 `COPY_TO_ACTIVE` 运行分支和可写 mode 命令；历史查询返回明确
+  `LEGACY_UNSUPPORTED`/`UNSUPPORTED`，目标与能力查询不再伪装 copy-to-active；证据：
+  `FLASH-TASK-20260824-084`。
 
 ### M3-04 Manifest、signature 与 anti-rollback
 
@@ -561,12 +563,14 @@ TODO 只保留可独立验收的状态项和证据索引。
 - [x] factory package verify 现在再次强制 `target_not_deployed`、`full_erase_required`、Flash
   geometry 和 `BOOTLOADER/APP_A/RECOVERY/BOOT_CONTROL/OTA_STAGE` 精确 region 集合，避免签名包
   在部署状态或恢复依赖漂移时被接受。
+- [x] 已执行 DHRT100 空片恢复，取得 full erase 后无旧 metadata 残留的板端证据；证据见
+  `FLASH-TASK-20260824-085`（full-erase/load/verify transcript、BOOTSEL metadata probe 和恢复后
+  SCPI BCB/slot 基线）。
 
 #### 未完成部分
 
 - [ ] 实现 Recovery 运行时 factory package 验证、受控 USB/SD restore、更新授权/签名验证和实际
   覆盖负向 HIL。
-- [ ] 执行空片恢复，取得 full erase 后无旧 metadata 残留的 DHRT100 证据。
 
 ### M3-06 Boot fault matrix
 
@@ -659,13 +663,15 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 - [x] v2 candidate 已能在隔离 preset 下生成并通过布局/链接检查；factory artifact 保持
   `target_not_deployed`。
+- [x] DHRT100 已取得 v2 空片、full erase、factory candidate 烧录/verify 和恢复后启动证据；物理
+  transcript 见 `FLASH-TASK-20260824-085`。该证据只关闭空片部署子项，不替代后续 store、Recovery
+  runtime、A/B/revert 和 v1 rollback drill。
 
 #### 未完成部分
 
-- [ ] DHRT100 尚未取得 v2 空片、烧录和启动证据；物理 gate 必须按迁移前快照、BOOTSEL/full erase、
-  启动复核和回退顺序执行。
 - [ ] 迁移前记录 `*IDN?`、build、slot/result、board identity、Product Config、sensor snapshot。
-- [ ] BOOTSEL/factory full erase/reflash v2，确认 USB 重新枚举和 identity 转换策略。
+- [ ] 复核 BOOTSEL/factory full erase/reflash 后的 USB 重新枚举和 identity 转换策略（full erase、
+  load/verify 和应用启动已由 `FLASH-TASK-20260824-085` 关闭）。
 - [ ] 运行 M1 Scratch、Product NVS、Calibration empty/default、Boot fault subset。
 - [ ] 恢复 TDMA/Calibration 单板 persona，确认 PIO/DMA/IO owner 未被 Flash 重构破坏。
 - [ ] 执行 v1 rollback drill，证明 artifact/runbook 可恢复。

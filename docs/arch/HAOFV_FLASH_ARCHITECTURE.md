@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`
-Last updated: 2026-08-22
+Last updated: 2026-08-24
 
 本文档是 RP2350_TRIG 板载 QSPI Flash 的跨域 canonical。它定义 FlashMap、App/Boot writer、
 掉电事务、Boot/Direct A/B、OTA、关键配置、Calibration、VDC、System Pack、RefMem package、
@@ -62,7 +62,7 @@ Flash Domain 只提供存储、事务、权限和 completion，不成为第二�
 | 分区 owner | v2 source 已生成 header/manifest/CMake/linker 常量；live v1 linker、factory 和 OTA header 尚未切换。 | Boot/linker/App/factory/tool 全部消费同一 map artifact。 |
 | App writer | OTA、metadata、Product Config 等路径直接或间接使用 raw Flash API。 | core0 `FlashTransactionAO` 是 App 唯一 erase/program owner。 |
 | Boot writer | Bootloader 使用自己的最小写路径。 | 保留独立 `BootFlashService`，但与 App 共用 geometry/map/BCB 契约。 |
-| Boot 模式 | Direct A/B 已为发布默认，同时仍保留 `COPY_TO_ACTIVE` 能力。 | 只保留 Direct A/B test/confirm/revert 主线。 |
+| Boot 模式 | v1 compatibility 保留 `COPY_TO_ACTIVE` 仅用于历史回归；V2 不编译该运行分支。 | 只保留 Direct A/B test/confirm/revert 主线；历史 mode 只读返回 `LEGACY_UNSUPPORTED` 或 `UNSUPPORTED`。 |
 | 数据存储 | Product Config 固定 sector；Calibration/VDC/RefMem 无统一生产持久化。 | NVS/blob/FCB + versioned namespace + atomic ref。 |
 | OTA | USB CDC/USBTMC/SD 已有入口；UART/RS485 有通信资源基础；TDMA 有 reliable bulk 资源基础但无
   stream session。 | 五类本地 ingress 共用 `OtaStreamSession` 和 durable Flash sink，TDMA 在 M5 接入。 |
@@ -438,7 +438,7 @@ release 固件不提供任意 offset erase/program。validation destructive comm
 | Wear | sector rotation、GC、write frequency、温度 policy 和最后有效记录。 |
 | Release | image signature、anti-rollback、factory/recovery artifact、SBOM/key policy 和报告齐全。 |
 
-只有 host test、build/link gate 和相应 COM8/两板/四板 HIL 都具备证据，registry 契约才可从
+只有 host test、build/link gate 和相应 DHRT100/两板/四板 HIL 都具备证据，registry 契约才可从
 `pending` 进入 `active`。状态变化必须另做 C11 交叉审核。M4 的系统对象名为 `DHRT100`；`COM8`
 仅表示当前物理验证端口，不能作为产品或系统名称；历史 `RP2350_TRIG_*` 构建产物名保留到回退
 迁移完成。

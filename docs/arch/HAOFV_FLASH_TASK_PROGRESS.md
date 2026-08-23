@@ -16,6 +16,39 @@ Last updated: 2026-08-24
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260824-085 - DHRT100 v2 空片 full-erase 恢复证据
+
+- 状态：M3-05 的空片恢复子项和 M4-04 的 v2 空片部署子项完成；不改变
+  `ARCH-BOOTCTRL-01`/`ARCH-FLASHMAP-01`/`ARCH-FLASHOWNER-01` 的 Registry 状态，也不宣称
+  Recovery runtime、BCB power-cut、A/B/revert 或 C11 总体 gate 已完成。
+- 板端：DHRT100（serial `839E1AE79EA20F31`）执行 BOOTSEL/full erase，擦除报告为
+  `16777216 bytes`，随后加载 `DHRT100_V2_CANDIDATE_FACTORY.uf2` 并完成 load/verify；原始记录见
+  `out/flash_hil/dhrt100_v2_signed_debug_restore_final_20260823.txt`。
+- 空片/metadata 证据：BOOTSEL `Metadata Blocks: none` 记录见
+  `out/flash_hil/dhrt100_m005_bootsel_restore_20260823_final.txt`；恢复后的 v2 SCPI 基线为
+  `IDLE`、无 pending、无 boot error，见
+  `out/flash_hil/dhrt100_v2_signed_debug_post_restore_final_20260823.txt`。三份记录共同作为
+  full-erase 后未继承旧 metadata 的 DHRT100 恢复证据；原始日志保持只读归档。
+- 边界：本项没有执行真实断电或 Recovery runtime USB/SD restore；后续 M3-05 运行时验证、M3-06
+  fault matrix 和 M4 本地 OTA/revert 仍按 TODO 保持未完成。
+
+### FLASH-TASK-20260824-084 - V2 Direct A/B mode surface 收敛
+
+- 状态：V2 代码/host/build 子项完成；V1 compatibility 的 copy-to-active 仅保留在独立编译条件
+  下用于历史回归，V1 不作为本次验证目标。
+- 运行时：V2 的 portable OTA/Boot 只构造 Direct A/B platform；Bootloader 的 copy-to-active
+  transaction/apply 函数继续由非 V2 编译 guard 排除。V2 不注册可写 `SYSTem:OTA:MODE`。
+- 历史查询：`SYSTem:OTA:MODE?` 对 legacy mode 返回 `LEGACY_UNSUPPORTED,4294967295`，未知
+  mode 返回 `UNSUPPORTED,4294967295`；`TARG?` 返回 `OTA_SLOT_NONE`，`CAP?` 只报告
+  `OTA_BOOT_CAP_DIRECT_AB`。
+- 验证：`tests/python/test_v2_direct_ab_policy.py`（新增 legacy/unknown projection 断言）与
+  Direct A/B 回归通过；V2 factory-candidate 的 FlashMap、persistence、migration、wire、
+  Boot/App A/App B/Recovery link gates 通过；另外以
+  `out/build/pico2-v2-fault-injection` 构建确认 V2 fault-injection 开关打开时仍不注册可写
+  mode 命令，Recovery/Boot link gates 同样通过。
+- 边界：未改变 V1 compatibility 行为；V2 真实板端 mode/history 查询复核沿用既有 DHRT100
+  非断电证据，尚不宣称新的 power-cut gate。
+
 ### FLASH-TASK-20260824-083 - Direct A/B fault matrix 与 Recovery C11 核验
 
 - 状态：M3-03 的代码/host/build 子项完成；不改变 v2 `target_not_deployed` 或 Registry 契约

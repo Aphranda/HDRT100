@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_SYSTEM_DESIGN.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-08-20
+Last updated: 2026-08-24
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -329,10 +329,10 @@ OTA 命令遵循 `docs/ota/OTA_SYSTEM_DESIGN.md` 中的 `OtaAO + OtaFB + OtaVect
 | `SYSTem:OTA:COMM` | App 自检通过后确认当前固件，写入 confirmed metadata；该命令会触发 flash 写入，执行时必须先由 core1 进入 lockout/poll，接受后返回 `"OK"`。 |
 | `SYSTem:OTA:SLOT?` | 查询 `active,pending,confirmed,boot_attempts,rollback_count`。 |
 | `SYSTem:OTA:RES?` | 查询 `app_result,app_error,boot_result,boot_source_slot,boot_size,boot_crc32`。 |
-| `SYSTem:OTA:TXN?` | 查询 Bootloader copy transaction：`state,source,destination,size,crc32,written,attempts,last_error`。 |
-| `SYSTem:OTA:MODE?` | 查询当前 OTA 启动模式：`"COPY_TO_ACTIVE",0` 或 `"DIRECT_AB",1`。 |
-| `SYSTem:OTA:TARG?` | 查询下一次 OTA 写入目标 slot，当前 copy-to-active 默认返回 `2`。 |
-| `SYSTem:OTA:CAP?` | 查询当前固件声明的 OTA 能力位，`bit0=COPY_TO_ACTIVE`，`bit1=DIRECT_AB`。 |
+| `SYSTem:OTA:TXN?` | 查询兼容层 transaction 投影：`state,source,destination,size,crc32,written,attempts,last_error`；V2 不执行 copy transaction。 |
+| `SYSTem:OTA:MODE?` | v1 返回 `"COPY_TO_ACTIVE",0` 或 `"DIRECT_AB",1`；V2 历史值返回 `"LEGACY_UNSUPPORTED",4294967295`，未知值返回 `"UNSUPPORTED",4294967295`。 |
+| `SYSTem:OTA:TARG?` | 查询下一次 OTA 写入目标 slot；V2 的 legacy/unsupported mode 返回 `OTA_SLOT_NONE`。 |
+| `SYSTem:OTA:CAP?` | v1 返回兼容能力位；V2 只报告 `DIRECT_AB`，不报告 `COPY_TO_ACTIVE`。 |
 
 统一 OTA package 由 `tools/ota_packager/ota_packager.py` 生成，`tools/ota_send/ota_send.py` 会自动识别包头并发送 `SYSTem:OTA:PBEGIN`。package 首部固定 512 B，包含产品型号、硬件版本、App 版本、build id、payload SHA-256、最小 Bootloader 版本、每个镜像的 slot/offset/size/CRC32/run offset。payload 中 Slot A/Slot B 镜像按 512 B 对齐，保证流式写入时满足 Flash page 编程约束。设备在擦除目标 slot 前会拒绝产品型号、硬件版本和最小 Bootloader 版本不匹配的 package。
 
@@ -362,7 +362,7 @@ OTA 命令遵循 `docs/ota/OTA_SYSTEM_DESIGN.md` 中的 `OtaAO + OtaFB + OtaVect
 | `SYSTem:OTA:INJ:CLEAR` | 清除 OTA 故障注入标志。 |
 | `SYSTem:OTA:INJ:MCOR <0|1>` | 擦除指定 metadata 副本，用于验证双副本容错。 |
 | `SYSTem:OTA:INJ:MREP` | 从当前有效 metadata 重新写入双副本，用于恢复 metadata 冗余。 |
-| `SYSTem:OTA:MODE <0|1>` | 切换 OTA 启动模式，`0=COPY_TO_ACTIVE`，`1=DIRECT_AB`。仅用于 direct A/B 台架验证。 |
+| `SYSTem:OTA:MODE <0|1>` | 仅 v1 validation 构建注册，用于兼容台架；V2 不注册可写 mode 命令。 |
 | `SYSTem:BOOT:RES` | 通过 watchdog 触发系统复位。仅用于 validation 固件验证 Bootloader 回滚路径。 |
 
 复制失败注入的期望结果：OTA payload 已进入 `READY_TO_REBOOT` 后发送 `SYSTem:OTA:BOOT`，Bootloader 应记录 `COPY_FAILED`，清除 pending，保留旧 App 运行，`rollback_count` 增加。

@@ -42,11 +42,22 @@ SHA-256、manifest signature、product/hardware/bootloader/security compatibilit
 - 审核结论：PASS_WITH_NOTE。
 - 审核日期：2026-08-24。
 - NOTE：本单关闭的是代码/host/build fault matrix 和 Recovery read-only projection；
-  真实 DHRT100 破坏性注入、BCB 双 lane/power-cut 和空片 Recovery restore 仍由 M3-05/M3-06
-  的独立物理 gate 管理，不以本单替代。
+  DHRT100 空片 full-erase/load/verify 已由 `FLASH-TASK-20260824-085` 归档，但真实
+  Boot fault 注入、BCB 双 lane/power-cut、Recovery runtime restore 和 M3-06 总体退出仍由
+  独立物理 gate 管理，不以本单替代。
 
 ## 处置
 
 - M3-03 的 slot-specific/vector/hash/signature/compatibility 子项可标记完成；
   M3-06 的真实 Boot fault HIL 与 M3 总体退出门禁保持未完成。
 - Registry 中现有 Flash 契约不改变 status，不触发自审自批；本提交单作为 C11 证据归档。
+
+## C11 follow-up：V2 mode surface
+
+- 审核范围：`bootloader_main.c`、`portable_ota_core_port.c`、SCPI mode/target/capability
+  projection、V2 CMake guard。
+- 独立结论：PASS。V2 不编译 copy-to-active transaction/apply 分支，不注册可写
+  `SYSTem:OTA:MODE`；legacy history 明确返回 `LEGACY_UNSUPPORTED`，未知值返回
+  `UNSUPPORTED`，并以无效数值与 `OTA_SLOT_NONE` fail closed。
+- 审核方/方式：独立 AI 评审；层间交叉（编译 guard ↔ SCPI 注册表 ↔ canonical SCPI 文档）。
+- 审核日期：2026-08-24。
