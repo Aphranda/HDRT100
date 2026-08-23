@@ -4,5 +4,6 @@ COMMunication:SERial:UART1:MODE SCPI
 COMMunication:SERial:UART1:TX:TEST 8,85
 COMMunication:SERial:UART1:TX:TEST?
 COMMunication:SERial:UART1:RX:COUNt?
+COMMunication:SERial:UART1:RX:STATus?
 COMMunication:SERial:UART1:ERRor?
 SYSTem:ERRor?

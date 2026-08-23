@@ -10,6 +10,7 @@ HEADER = ROOT / "middleware/scpi_port/inc/scpi_communication_uart_commands.h"
 SOURCE = ROOT / "middleware/scpi_port/src/scpi_communication_uart_commands.c"
 DRIVER = ROOT / "drivers/mcu/uart/src/drv_rs485.c"
 COMMANDS = ROOT / "docs/interface/SCPI_COMMANDS.md"
+PROBE = ROOT / "tools/scpi_query/rs485_scpi_loopback_probe.scpi"
 
 
 def test_usb_scpi_mode_commands_are_registered_for_uart_rs485_channel():
@@ -36,6 +37,7 @@ def test_rx_status_projects_dma_backend_and_echo_health():
     assert "scpi_cmd_uart_rx_status_q" in source
     assert '"DMA_PINGPONG"' in source
     assert "DMA overrun" in docs
+    assert "UART1:RX:STATus?" in PROBE.read_text(encoding="utf-8")
 
 
 def test_mode_does_not_claim_backend_ready():
