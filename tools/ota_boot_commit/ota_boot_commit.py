@@ -32,6 +32,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reopen-timeout", type=float, default=30.0)
     parser.add_argument("--boot-wait", type=float, default=3.0)
     parser.add_argument("--skip-boot", action="store_true", help="only query and commit an already booted pending image")
+    parser.add_argument(
+        "--no-commit",
+        action="store_true",
+        help="boot and reconnect without issuing OTA:COMM (for no-confirm rollback HIL)",
+    )
     parser.add_argument("--expected-build", help="expected SYSTem:FW:BUILD? text without quotes")
     parser.add_argument("--out-dir", type=Path, help="validation output directory")
     return parser.parse_args()
@@ -80,13 +85,11 @@ def run(args: argparse.Namespace) -> int:
         time.sleep(args.boot_wait)
 
     with open_port(args.port, args.baud, args.reopen_timeout, args.settle, args.timeout) as ser:
-        for text in (
-            "SYSTem:FW:BUILD?",
-            "SYSTem:OTA:SLOT?",
-            "SYSTem:OTA:COMMit",
-            "SYSTem:OTA:SLOT?",
-            "SYSTem:ERRor?",
-        ):
+        commands = ["SYSTem:FW:BUILD?", "SYSTem:OTA:SLOT?"]
+        if not args.no_commit:
+            commands.append("SYSTem:OTA:COMMit")
+        commands.extend(["SYSTem:OTA:SLOT?", "SYSTem:ERRor?"])
+        for text in commands:
             response = command(ser, text, args.timeout, require_match=True)
             records.append({"command": text, "response": response})
             print(f"{text} => {response}")
@@ -98,9 +101,9 @@ def run(args: argparse.Namespace) -> int:
     failures: list[str] = []
     if args.expected_build and build.strip('"') != args.expected_build:
         failures.append(f"build {build!r} != {args.expected_build!r}")
-    if "0," not in final_slot:
+    if not args.no_commit and "0," not in final_slot:
         failures.append(f"final slot does not look committed: {final_slot!r}")
-    if final_error != '0,"No error"':
+    if not args.no_commit and final_error != '0,"No error"':
         failures.append(f"final error is {final_error!r}")
 
     out_dir = args.out_dir or (ROOT / "build" / f"ota_boot_commit_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
