@@ -261,12 +261,16 @@ scpi_result_t scpi_cmd_ota_transaction_q(scpi_t *context)
 static const char *scpi_ota_boot_mode_to_string(uint32_t mode)
 {
 #if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
-    /* v2 has no COPY_TO_ACTIVE runtime path. Keep legacy metadata visible,
-     * but never present it as an executable capability. */
+    /* v2 has no COPY_TO_ACTIVE runtime branch. A legacy value can still be
+     * observed in imported/history metadata, but it is never executable. */
     if (mode == (uint32_t)OTA_BOOT_MODE_COPY_TO_ACTIVE) {
         return "LEGACY_UNSUPPORTED";
     }
-#endif
+    if (mode == (uint32_t)OTA_BOOT_MODE_DIRECT_AB) {
+        return "DIRECT_AB";
+    }
+    return "UNSUPPORTED";
+#else
     switch ((ota_boot_mode_t)mode) {
     case OTA_BOOT_MODE_COPY_TO_ACTIVE:
         return "COPY_TO_ACTIVE";
@@ -275,6 +279,7 @@ static const char *scpi_ota_boot_mode_to_string(uint32_t mode)
     default:
         return "UNKNOWN";
     }
+#endif
 }
 
 static uint32_t scpi_ota_next_target_slot(const ota_metadata_t *metadata)
