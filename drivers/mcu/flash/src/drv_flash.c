@@ -139,8 +139,9 @@ bool drv_flash_erase_parked(uint32_t flash_offset, size_t length)
 
     /* Keep each critical section to one sector.  Metadata/manifest sectors
      * can be large enough to exceed the supervisor watchdog if erased as one
-     * XIP-disabled operation; feeding between sectors preserves the HAOFV
-     * flash-owner boundary while keeping the operation synchronous. */
+     * XIP-disabled operation; returning between sectors preserves the HAOFV
+     * flash-owner boundary and gives the independent supervisor a scheduling
+     * point while keeping the operation synchronous. */
     const uint32_t start_offset = flash_offset;
     for (size_t remaining = length; remaining != 0u;
          remaining -= DRV_FLASH_SECTOR_SIZE,
