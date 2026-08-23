@@ -22,7 +22,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
             {
                 "deployment_state": "target_not_deployed",
                 "map_version": 2,
-                "geometry": {"xip_base": 0x10000000},
+                "geometry": {"xip_base": 0x10000000, "total_size": 0x01000000},
                 "partitions": [
                     {"id": item, "offset": index * 0x1000, "size": 0x1000}
                     for index, item in enumerate(
@@ -118,6 +118,7 @@ def test_factory_restore_validates_package_and_uf2(tmp_path: Path) -> None:
     assert plan["full_erase_required"] is True
     assert plan["region_count"] == 5
     assert plan["uf2_block_count"] == 9
+    assert plan["flash_size"] == 0x01000000
 
 
 def test_factory_restore_rejects_uf2_address_drift(tmp_path: Path) -> None:

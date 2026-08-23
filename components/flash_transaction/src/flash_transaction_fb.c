@@ -7,6 +7,34 @@
 
 #define FLASH_TRANSACTION_INVALID_PARTITION UINT32_MAX
 
+static uint32_t flash_transaction_request_fingerprint(
+    const flash_transaction_request_t *request)
+{
+    if (request == NULL) {
+        return 0u;
+    }
+    uint32_t hash = 2166136261u;
+    const uint32_t fields[] = {
+        request->requester, request->partition_id, request->operation,
+        request->relative_offset, request->length, request->provider_generation,
+        request->store_generation,
+    };
+    const uint8_t *bytes = (const uint8_t *)fields;
+    for (uint32_t i = 0u; i < sizeof(fields); ++i) {
+        hash ^= bytes[i];
+        hash *= 16777619u;
+    }
+    if (request->operation == FLASH_TRANSACTION_OPERATION_PROGRAM &&
+        request->data != NULL) {
+        bytes = request->data;
+        for (uint32_t i = 0u; i < request->length; ++i) {
+            hash ^= bytes[i];
+            hash *= 16777619u;
+        }
+    }
+    return hash == 0u ? 1u : hash;
+}
+
 typedef struct {
     uint32_t id;
     uint32_t offset;
@@ -99,6 +127,24 @@ static bool flash_transaction_completion_lease_valid(
            lease->append != NULL;
 }
 
+static bool flash_transaction_completion_find(
+    flash_transaction_fb_t *context,
+    flash_transaction_journal_record_t *record)
+{
+    const flash_transaction_completion_lease_t *lease =
+        context->request.completion_lease;
+    if (lease == NULL || lease->find == NULL) {
+        return false;
+    }
+    flash_transaction_journal_record_t identity = {0};
+    identity.job_id = context->vector.job_id;
+    identity.transaction_generation = context->vector.transaction_generation;
+    identity.provider_generation = context->vector.provider_generation;
+    identity.store_generation = context->vector.store_generation;
+    identity.request_fingerprint = context->request_fingerprint;
+    return lease->find(lease->context, &identity, record);
+}
+
 static bool flash_transaction_completion_retain(flash_transaction_fb_t *context)
 {
     const flash_transaction_completion_lease_t *lease =
@@ -139,6 +185,7 @@ static bool flash_transaction_completion_append(
         .transaction_generation = context->vector.transaction_generation,
         .provider_generation = context->vector.provider_generation,
         .store_generation = context->vector.store_generation,
+        .request_fingerprint = context->request_fingerprint,
         .event = event,
         .result = event == FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED
                       ? FLASH_TRANSACTION_RESULT_COMMITTED
@@ -159,6 +206,47 @@ static bool flash_transaction_completion_append(
         event == FLASH_TRANSACTION_JOURNAL_EVENT_ABORTED) {
         context->completion_terminal_published = true;
     }
+    return true;
+}
+
+static bool flash_transaction_replay_terminal(
+    flash_transaction_fb_t *context)
+{
+    if (!context->completion_retained ||
+        context->request.completion_lease == NULL ||
+        context->request.completion_lease->find == NULL) {
+        return false;
+    }
+    flash_transaction_journal_record_t record;
+    if (!flash_transaction_completion_find(context, &record)) {
+        return false;
+    }
+    /* A durable identity already has a result.  Do not execute raw IO again;
+     * expose the committed terminal as a replayed no-op, and reject any
+     * non-terminal/failed history conservatively. */
+    if (record.event != FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED) {
+        flash_transaction_write_begin(context);
+        context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
+        context->vector.last_error = FLASH_TRANSACTION_ERROR_COMPLETION;
+        context->vector.state = FLASH_TRANSACTION_STATE_RELEASE;
+        flash_transaction_write_end(context);
+        context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
+        return true;
+    }
+    flash_transaction_write_begin(context);
+    context->vector.completion_level = FLASH_TRANSACTION_COMPLETION_COMMITTED;
+    context->vector.last_result = FLASH_TRANSACTION_RESULT_COMMITTED;
+    context->vector.last_error = FLASH_TRANSACTION_ERROR_NONE;
+    context->vector.processed_bytes = record.processed_bytes;
+    context->vector.verified_bytes = record.verified_bytes;
+    context->vector.state = FLASH_TRANSACTION_STATE_RELEASE;
+    flash_transaction_write_end(context);
+    context->terminal_state = FLASH_TRANSACTION_STATE_COMPLETE;
+    /* The durable record already contains the terminal boundary.  Mark it
+     * published so RELEASE does not append a duplicate COMMITTED record after
+     * a reset replay. */
+    context->completion_terminal_published = true;
+    context->durable_replay = true;
     return true;
 }
 
@@ -467,6 +555,8 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
             context->next_job_id = 1u;
         }
     }
+    context->request_fingerprint =
+        flash_transaction_request_fingerprint(&context->request);
     context->occupied = true;
     context->resource_acquired = false;
     context->core1_parked = false;
@@ -477,6 +567,7 @@ bool flash_transaction_fb_submit(flash_transaction_fb_t *context,
     context->completion_retained = false;
     context->completion_terminal_published = false;
     context->completion_journal_failed = false;
+    context->durable_replay = false;
     context->terminal_state = FLASH_TRANSACTION_STATE_COMPLETE;
     uint32_t transaction_generation =
         context->vector.transaction_generation + 1u;
@@ -534,6 +625,9 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         }
         if (!flash_transaction_completion_retain(context)) {
             flash_transaction_fail(context, FLASH_TRANSACTION_ERROR_COMPLETION);
+            break;
+        }
+        if (flash_transaction_replay_terminal(context)) {
             break;
         }
         flash_transaction_write_begin(context);

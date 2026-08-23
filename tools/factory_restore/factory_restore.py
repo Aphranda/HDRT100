@@ -92,6 +92,8 @@ def validate_factory_artifacts(
         "factory_uf2": str(factory_uf2),
         "package_sha256": summary["package_sha256"],
         "map_version": summary["map_version"],
+        "xip_base": summary["xip_base"],
+        "flash_size": summary["flash_size"],
         "key_id": summary["key_id"],
         "region_count": summary["region_count"],
         "uf2_block_count": len(actual),
@@ -131,6 +133,9 @@ def main() -> int:
                 str(args.picotool),
                 "--full-erase",
             ]
+            flash_size = plan.get("flash_size")
+            if isinstance(flash_size, int) and flash_size > 0:
+                command.extend(["--flash-size", hex(flash_size)])
             if args.serial_number:
                 command.extend(["--serial-number", args.serial_number])
             completed = subprocess.run(
@@ -164,4 +169,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -63,7 +63,23 @@ static bool flash_transaction_journal_identity_equal(
            left->transaction_generation == right->transaction_generation &&
            left->provider_generation == right->provider_generation &&
            left->store_generation == right->store_generation &&
+           (left->request_fingerprint == 0u ||
+            right->request_fingerprint == 0u ||
+            left->request_fingerprint == right->request_fingerprint) &&
            left->event == right->event;
+}
+
+static bool flash_transaction_journal_transaction_equal(
+    const flash_transaction_journal_record_t *left,
+    const flash_transaction_journal_record_t *right)
+{
+    return left->job_id == right->job_id &&
+           left->transaction_generation == right->transaction_generation &&
+           left->provider_generation == right->provider_generation &&
+           left->store_generation == right->store_generation &&
+           (left->request_fingerprint == 0u ||
+            right->request_fingerprint == 0u ||
+            left->request_fingerprint == right->request_fingerprint);
 }
 
 static bool flash_transaction_journal_write_at_slot(
@@ -239,6 +255,40 @@ bool flash_transaction_journal_recover_latest(
     return true;
 }
 
+bool flash_transaction_journal_find(
+    const flash_transaction_journal_store_t *store,
+    const flash_transaction_journal_record_t *identity,
+    flash_transaction_journal_record_t *record)
+{
+    if (store == NULL || identity == NULL || record == NULL ||
+        !store->initialized || identity->job_id == 0u ||
+        identity->transaction_generation == 0u) {
+        return false;
+    }
+
+    bool found = false;
+    uint32_t newest_sequence = 0u;
+    flash_transaction_journal_disk_record_t disk;
+    for (uint32_t slot = 0u; slot < store->config.slot_count; slot++) {
+        const uint32_t offset = flash_transaction_journal_slot_offset(store, slot);
+        if (!store->config.read(store->config.context, offset, &disk,
+                                sizeof(disk))) {
+            return false;
+        }
+        if (!flash_transaction_journal_disk_valid(store, &disk) ||
+            !flash_transaction_journal_transaction_equal(&disk.record,
+                                                          identity)) {
+            continue;
+        }
+        if (!found || (int32_t)(disk.sequence - newest_sequence) > 0) {
+            found = true;
+            newest_sequence = disk.sequence;
+            *record = disk.record;
+        }
+    }
+    return found;
+}
+
 bool flash_transaction_journal_completion_retain(void *context)
 {
     flash_transaction_journal_store_t *store = context;
@@ -264,6 +314,14 @@ bool flash_transaction_journal_completion_append(
     return flash_transaction_journal_append(context, record);
 }
 
+static bool flash_transaction_journal_completion_find(
+    void *context, const flash_transaction_journal_record_t *identity,
+    flash_transaction_journal_record_t *record)
+{
+    return flash_transaction_journal_find(
+        (const flash_transaction_journal_store_t *)context, identity, record);
+}
+
 bool flash_transaction_journal_make_completion_lease(
     flash_transaction_journal_store_t *store,
     flash_transaction_completion_lease_t *lease)
@@ -275,5 +333,6 @@ bool flash_transaction_journal_make_completion_lease(
     lease->retain = flash_transaction_journal_completion_retain;
     lease->release = flash_transaction_journal_completion_release;
     lease->append = flash_transaction_journal_completion_append;
+    lease->find = flash_transaction_journal_completion_find;
     return true;
 }

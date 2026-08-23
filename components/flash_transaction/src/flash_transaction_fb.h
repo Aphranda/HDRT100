@@ -35,6 +35,7 @@ typedef struct {
     uint32_t absolute_offset;
     uint32_t next_job_id;
     uint32_t terminal_state;
+    uint32_t request_fingerprint;
     uint32_t last_terminal_job_id;
     bool last_terminal_valid;
     bool occupied;
@@ -48,6 +49,7 @@ typedef struct {
     bool completion_retained;
     bool completion_terminal_published;
     bool completion_journal_failed;
+    bool durable_replay;
 } flash_transaction_fb_t;
 
 void flash_transaction_fb_init(flash_transaction_fb_t *context,

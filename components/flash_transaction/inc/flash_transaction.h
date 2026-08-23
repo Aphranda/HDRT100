@@ -101,6 +101,9 @@ typedef struct {
     uint32_t transaction_generation;
     uint32_t provider_generation;
     uint32_t store_generation;
+    /* Stable request/object identity. Zero is reserved for legacy host
+     * fixtures; nonzero records cannot alias a different request after reset. */
+    uint32_t request_fingerprint;
     uint32_t event;
     uint32_t result;
     uint32_t error;
@@ -114,6 +117,14 @@ typedef struct {
     void (*release)(void *context);
     bool (*append)(void *context,
                    const flash_transaction_journal_record_t *record);
+    /* Optional durable lookup used before raw IO.  It must return the latest
+     * record for the transaction identity (job + transaction/provider/store
+     * generations), regardless of event.  A false return means no matching
+     * record or an unreadable store; callers therefore fail closed when the
+     * lookup is present. */
+    bool (*find)(void *context,
+                 const flash_transaction_journal_record_t *identity,
+                 flash_transaction_journal_record_t *record);
 } flash_transaction_completion_lease_t;
 
 typedef struct {

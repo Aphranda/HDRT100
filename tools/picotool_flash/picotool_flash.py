@@ -30,6 +30,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="erase the complete external flash and keep BOOTSEL mounted before load",
     )
+    parser.add_argument(
+        "--flash-size",
+        type=lambda value: int(value, 0),
+        help="known external flash size in bytes; fallback for picotool -a size probe",
+    )
     parser.add_argument("--out", type=Path, help="UTF-8 transcript path")
     return parser.parse_args()
 
@@ -45,6 +50,17 @@ def run(picotool: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
 def build_full_erase_args(selection: list[str]) -> list[str]:
     """Return the destructive erase command used by the factory workflow."""
     return ["erase", "-a", "-F", *selection]
+
+
+def build_full_erase_range_args(selection: list[str], flash_size: int) -> list[str]:
+    """Return a geometry-bound erase fallback when JEDEC size is unavailable."""
+    if flash_size <= 0:
+        raise ValueError("flash_size must be positive")
+    xip_base = 0x10000000
+    return [
+        "erase", "-r", f"0x{xip_base:X}",
+        f"0x{xip_base + flash_size:X}", *selection, "-F",
+    ]
 
 
 def main() -> int:
@@ -76,6 +92,11 @@ def main() -> int:
         erase_args = build_full_erase_args(selection)
         erased = run(picotool, erase_args)
         records.append(f"$ picotool {' '.join(erase_args)}\n{erased.stdout}")
+        if (erased.returncode != 0 and args.flash_size and
+                "Cannot determine the flash size" in erased.stdout):
+            range_args = build_full_erase_range_args(selection, args.flash_size)
+            erased = run(picotool, range_args)
+            records.append(f"$ picotool {' '.join(range_args)}\n{erased.stdout}")
         if erased.returncode != 0:
             return finish(records, args.out, erased.returncode)
 

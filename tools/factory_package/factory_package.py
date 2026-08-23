@@ -221,6 +221,10 @@ def build_factory_package(
         "xip_base": _u32(
             (manifest.get("geometry") or {}).get("xip_base"), "geometry.xip_base"
         ),
+        "flash_size": _u32(
+            (manifest.get("geometry") or {}).get("total_size"),
+            "geometry.total_size",
+        ),
         "deployment_state": manifest["deployment_state"],
         "full_erase_required": True,
         "erased_store_partitions": report.get("erased_store_partitions", []),
@@ -335,6 +339,7 @@ def verify_factory_package(
         "product": descriptor.get("product"),
         "map_version": header[8],
         "xip_base": descriptor.get("xip_base"),
+        "flash_size": descriptor.get("flash_size"),
         "key_id": key_id,
         "region_count": len(regions),
         "package_size": len(package),

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import sys
 
-from tools.picotool_flash.picotool_flash import build_full_erase_args, parse_args
+from tools.picotool_flash.picotool_flash import (
+    build_full_erase_args,
+    build_full_erase_range_args,
+    parse_args,
+)
 
 
 def test_full_erase_keeps_bootsel_mounted() -> None:
@@ -20,3 +24,9 @@ def test_full_erase_option_is_explicit(monkeypatch) -> None:
     args = parse_args()
     assert args.full_erase is True
     assert args.retries == 3
+
+
+def test_full_erase_range_uses_flash_geometry() -> None:
+    assert build_full_erase_range_args(["--ser", "abc"], 0x01000000) == [
+        "erase", "-r", "0x10000000", "0x11000000", "--ser", "abc", "-F"
+    ]

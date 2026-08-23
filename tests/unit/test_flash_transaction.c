@@ -41,6 +41,8 @@ static uint32_t s_completion_release_count;
 static uint32_t s_completion_append_count;
 static uint32_t s_completion_fail_event;
 static flash_transaction_journal_record_t s_completion_records[8];
+static bool s_completion_find_enabled;
+static flash_transaction_journal_record_t s_completion_find_record;
 static flash_transaction_fb_t *s_step_hook_context;
 static uint32_t s_step_hook_state;
 static bool s_step_hook_provider_reset;
@@ -83,6 +85,29 @@ static bool fake_completion_append(
     }
     s_completion_append_count++;
     return record->event != s_completion_fail_event;
+}
+
+static bool fake_completion_find(
+    void *context, const flash_transaction_journal_record_t *identity,
+    flash_transaction_journal_record_t *record)
+{
+    assert(context != NULL);
+    assert(identity != NULL);
+    assert(record != NULL);
+    if (!s_completion_find_enabled ||
+        identity->job_id != s_completion_find_record.job_id ||
+        identity->transaction_generation !=
+            s_completion_find_record.transaction_generation ||
+        identity->provider_generation !=
+            s_completion_find_record.provider_generation ||
+        identity->store_generation != s_completion_find_record.store_generation ||
+        (identity->request_fingerprint != 0u &&
+         identity->request_fingerprint !=
+             s_completion_find_record.request_fingerprint)) {
+        return false;
+    }
+    *record = s_completion_find_record;
+    return true;
 }
 
 static bool fake_policy(uint32_t requester)
@@ -278,6 +303,8 @@ static void reset_fakes(void)
     s_completion_append_count = 0u;
     s_completion_fail_event = 0u;
     memset(s_completion_records, 0, sizeof(s_completion_records));
+    s_completion_find_enabled = false;
+    memset(&s_completion_find_record, 0, sizeof(s_completion_find_record));
     s_step_hook_context = NULL;
     s_step_hook_state = FLASH_TRANSACTION_STATE_IDLE;
     s_step_hook_provider_reset = false;
@@ -775,6 +802,56 @@ static void test_terminal_completion_is_stable_and_duplicate_abort_is_rejected(v
     assert(second.transaction_generation == first.transaction_generation);
 }
 
+static void test_durable_terminal_replay_skips_raw_io(void)
+{
+    flash_transaction_fb_t first_context;
+    init_context(&first_context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &first_context, FLASH_COMPAT_MAP_APP_A_ID));
+    uint8_t data[FLASH_COMPAT_GEOMETRY_PROGRAM_SIZE_BYTES] = {0x6Cu};
+    flash_transaction_completion_lease_t first_lease = {
+        .context = &s_completion_append_count,
+        .retain = fake_completion_retain,
+        .release = fake_completion_release,
+        .append = fake_completion_append,
+    };
+    flash_transaction_request_t first_request = program_request(data);
+    first_request.completion_lease = &first_lease;
+    const flash_transaction_vector_t first =
+        run_request(&first_context, &first_request);
+    assert(first.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(s_completion_append_count >= 3u);
+    const flash_transaction_journal_record_t committed =
+        s_completion_records[s_completion_append_count - 1u];
+    assert(committed.event == FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED);
+
+    flash_transaction_fb_t reset_context;
+    init_context(&reset_context);
+    assert(flash_transaction_fb_set_active_app_partition(
+        &reset_context, FLASH_COMPAT_MAP_APP_A_ID));
+    s_completion_find_enabled = true;
+    s_completion_find_record = committed;
+    flash_transaction_completion_lease_t reset_lease = {
+        .context = &s_completion_append_count,
+        .retain = fake_completion_retain,
+        .release = fake_completion_release,
+        .append = fake_completion_append,
+        .find = fake_completion_find,
+    };
+    flash_transaction_request_t reset_request = program_request(data);
+    reset_request.job_id = first.job_id;
+    reset_request.completion_lease = &reset_lease;
+    const flash_transaction_vector_t replay =
+        run_request(&reset_context, &reset_request);
+    assert(replay.state == FLASH_TRANSACTION_STATE_COMPLETE);
+    assert(replay.completion_level == FLASH_TRANSACTION_COMPLETION_COMMITTED);
+    assert(replay.last_error == FLASH_TRANSACTION_ERROR_NONE);
+    assert(s_program_count == 0u);
+    assert(s_verify_programmed_count == 0u);
+    assert(s_park_count == 0u);
+    assert(s_completion_append_count == 3u);
+}
+
 static void test_terminal_job_id_replay_is_rejected(void)
 {
     flash_transaction_fb_t context;
@@ -1144,6 +1221,7 @@ int main(void)
     test_large_payload_immutable_lease_lifecycle();
     test_completion_lease_publishes_each_boundary_once();
     test_completion_journal_failure_is_fail_closed();
+    test_durable_terminal_replay_skips_raw_io();
     test_two_page_ota_payload_is_owned();
     test_terminal_completion_is_stable_and_duplicate_abort_is_rejected();
     test_terminal_job_id_replay_is_rejected();

@@ -21,7 +21,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, Path]]:
             {
                 "deployment_state": "target_not_deployed",
                 "map_version": 2,
-                "geometry": {"xip_base": 0x10000000},
+                "geometry": {"xip_base": 0x10000000, "total_size": 0x01000000},
                 "partitions": [
                     {"id": item, "offset": index * 0x1000, "size": 0x2000}
                     for index, item in enumerate(
@@ -126,6 +126,7 @@ def test_signed_factory_package_round_trip(tmp_path: Path) -> None:
     assert summary["map_version"] == 2
     assert summary["key_id"] == 7
     assert summary["region_count"] == 5
+    assert summary["flash_size"] == 0x01000000
 
 
 def test_factory_package_rejects_payload_tamper(tmp_path: Path) -> None:

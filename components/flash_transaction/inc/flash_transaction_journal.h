@@ -64,6 +64,10 @@ bool flash_transaction_journal_recover_latest(
     const flash_transaction_journal_store_t *store,
     flash_transaction_journal_record_t *record,
     uint32_t *sequence);
+bool flash_transaction_journal_find(
+    const flash_transaction_journal_store_t *store,
+    const flash_transaction_journal_record_t *identity,
+    flash_transaction_journal_record_t *record);
 
 bool flash_transaction_journal_completion_retain(void *context);
 void flash_transaction_journal_completion_release(void *context);

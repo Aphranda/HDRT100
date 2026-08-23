@@ -291,6 +291,42 @@ static void test_duplicate_completion_is_idempotent(void)
     assert(reset_store.next_sequence == 2u);
 }
 
+static void test_find_identity_survives_store_reset(void)
+{
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    s_program_calls = 0u;
+    s_fail_program_call = 0u;
+    flash_transaction_journal_config_t config = make_config();
+    flash_transaction_journal_store_t store;
+    flash_transaction_journal_store_t reset_store;
+    assert(flash_transaction_journal_init(&store, &config));
+
+    const flash_transaction_journal_record_t accepted =
+        make_record(FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED, 77u);
+    const flash_transaction_journal_record_t committed =
+        make_record(FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED, 77u);
+    assert(flash_transaction_journal_append(&store, &accepted));
+    assert(flash_transaction_journal_append(&store, &committed));
+
+    flash_transaction_journal_record_t identity = {0};
+    identity.job_id = committed.job_id;
+    identity.transaction_generation = committed.transaction_generation;
+    identity.provider_generation = committed.provider_generation;
+    identity.store_generation = committed.store_generation;
+    flash_transaction_journal_record_t found;
+    assert(flash_transaction_journal_find(&store, &identity, &found));
+    assert(found.event == FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED);
+    assert(found.processed_bytes == committed.processed_bytes);
+
+    assert(flash_transaction_journal_init(&reset_store, &config));
+    memset(&found, 0, sizeof(found));
+    assert(flash_transaction_journal_find(&reset_store, &identity, &found));
+    assert(found.event == FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED);
+
+    identity.job_id++;
+    assert(!flash_transaction_journal_find(&reset_store, &identity, &found));
+}
+
 static void test_recovery_falls_back_to_previous_valid_completion(void)
 {
     memset(s_flash, 0xFF, sizeof(s_flash));
@@ -423,6 +459,7 @@ int main(void)
     test_full_journal_fails_closed();
     test_journal_rotates_to_next_erase_block();
     test_duplicate_completion_is_idempotent();
+    test_find_identity_survives_store_reset();
     test_recovery_falls_back_to_previous_valid_completion();
     test_reset_boundary_matrix();
     puts("flash transaction journal tests passed");
