@@ -6,6 +6,7 @@
 static int s_failures;
 static uint32_t s_lockout_result;
 static bool s_lockout_begin_ok;
+static uint8_t s_jedec_response[4] = {0u, 0xEFu, 0x40u, 0x18u};
 
 void watchdog_update(void)
 {
@@ -81,6 +82,19 @@ void flash_range_program(uint32_t flash_offset, const uint8_t *data, size_t leng
     (void)length;
 }
 
+void flash_do_cmd(const uint8_t *txbuf, uint8_t *rxbuf, size_t count)
+{
+    CHECK_TRUE(txbuf != NULL);
+    CHECK_TRUE(rxbuf != NULL);
+    CHECK_TRUE(count == sizeof(s_jedec_response));
+    CHECK_TRUE(txbuf[0] == DRV_FLASH_JEDEC_RDID_COMMAND);
+    if (rxbuf != NULL && count == sizeof(s_jedec_response)) {
+        for (size_t index = 0u; index < count; ++index) {
+            rxbuf[index] = s_jedec_response[index];
+        }
+    }
+}
+
 static void test_geometry_contract(void)
 {
     CHECK_TRUE(DRV_FLASH_TOTAL_SIZE_BYTES == 16u * 1024u * 1024u);
@@ -133,12 +147,45 @@ static void test_parked_write_requires_session(void)
     CHECK_FALSE(drv_flash_write_session_end());
 }
 
+static void test_jedec_id_uses_lockout_and_matches_geometry(void)
+{
+    drv_flash_jedec_id_t jedec = {
+        .raw_id = UINT32_MAX,
+        .capacity_bytes = UINT32_MAX,
+        .manufacturer_id = UINT8_MAX,
+        .memory_type = UINT8_MAX,
+        .capacity_code = UINT8_MAX,
+        .capacity_matches_geometry = true,
+    };
+    s_lockout_begin_ok = false;
+    CHECK_FALSE(drv_flash_read_jedec_id(&jedec));
+    CHECK_TRUE(jedec.raw_id == 0u);
+    CHECK_TRUE(jedec.capacity_bytes == 0u);
+    CHECK_FALSE(jedec.capacity_matches_geometry);
+
+    s_lockout_begin_ok = true;
+    s_lockout_result = DRV_FLASH_LOCKOUT_RESULT_ACKED;
+    CHECK_TRUE(drv_flash_read_jedec_id(&jedec));
+    CHECK_TRUE(jedec.raw_id == 0x00EF4018u);
+    CHECK_TRUE(jedec.manufacturer_id == 0xEFu);
+    CHECK_TRUE(jedec.memory_type == 0x40u);
+    CHECK_TRUE(jedec.capacity_code == 0x18u);
+    CHECK_TRUE(jedec.capacity_bytes == DRV_FLASH_TOTAL_SIZE_BYTES);
+    CHECK_TRUE(jedec.capacity_matches_geometry);
+
+    s_jedec_response[1] = 0xFFu;
+    s_jedec_response[2] = 0xFFu;
+    s_jedec_response[3] = 0xFFu;
+    CHECK_FALSE(drv_flash_read_jedec_id(&jedec));
+}
+
 int main(void)
 {
     test_geometry_contract();
     test_overflow_safe_ranges();
     test_pointer_and_invalid_write_boundaries();
     test_parked_write_requires_session();
+    test_jedec_id_uses_lockout_and_matches_geometry();
     if (s_failures != 0) {
         (void)printf("drv_flash geometry tests failed: %d\n", s_failures);
         return 1;

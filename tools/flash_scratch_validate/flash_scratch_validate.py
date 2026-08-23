@@ -24,9 +24,29 @@ except ImportError as exc:  # pragma: no cover - bench dependency
 
 
 BOARD = "DHRT100"
+ROOT = Path(__file__).resolve().parents[2]
 USB_VID = 0x2E8A
 USB_PID = 0x0009
 CONFIRM_TOKEN = 0x53435254
+
+
+def v2_scratch_contract() -> dict[str, int | str]:
+    manifest = json.loads(
+        (ROOT / "config/flash_map_gen/flash_map_v2_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    partitions = manifest["partitions"]
+    for partition_id, partition in enumerate(partitions):
+        if partition["id"] == "SCRATCH":
+            return {
+                "map_version": manifest["map_version"],
+                "deployment_state": manifest["deployment_state"],
+                "partition_id": partition_id,
+                "offset": partition["offset"],
+                "size": partition["size"],
+            }
+    raise ValueError("v2 manifest has no SCRATCH partition")
 
 
 def discover_port() -> str:
@@ -102,6 +122,39 @@ def parse_validation(response: str) -> dict[str, int | str]:
     return dict(zip(names, parsed, strict=True)) | {"raw": response}
 
 
+def parse_flash_map(response: str) -> dict[str, int | str]:
+    values = [part.strip().strip('"') for part in response.split(",")]
+    if len(values) != 11:
+        raise ValueError(f"flash map response has {len(values)} fields: {response!r}")
+    return {
+        "map_version": int(values[0], 0),
+        "deployment_state": values[1],
+        "partition_count": int(values[2], 0),
+        "partition_id": int(values[3], 0),
+        "offset": int(values[4], 0),
+        "size": int(values[5], 0),
+        "raw": response,
+    }
+
+
+def parse_jedec(response: str) -> dict[str, int | str]:
+    values = [part.strip().strip('"') for part in response.split(",")]
+    if len(values) != 9:
+        raise ValueError(f"JEDEC response has {len(values)} fields: {response!r}")
+    return {
+        "valid": int(values[0], 0),
+        "source": values[1],
+        "raw_id": int(values[2], 0),
+        "manufacturer_id": int(values[3], 0),
+        "memory_type": int(values[4], 0),
+        "capacity_code": int(values[5], 0),
+        "capacity_bytes": int(values[6], 0),
+        "configured_bytes": int(values[7], 0),
+        "capacity_matches_geometry": int(values[8], 0),
+        "raw": response,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--board", default=BOARD, choices=[BOARD])
@@ -116,6 +169,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     port = args.port or discover_port()
+    scratch = v2_scratch_contract()
     out_dir = args.out_dir or Path("build") / (
         "dhrt100_flash_scratch_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     )
@@ -128,8 +182,15 @@ def main() -> int:
         # Diagnostics expose the generated target-map symbol; the destructive
         # transaction remains constrained to that selected deployment map by
         # FlashTransactionFB.
-        "flash_map": "SYSTem:DIAGnostic:FLASh:MAP? 12",
-        "flash_access": "SYSTem:DIAGnostic:FLASh:ACCEss? 12,1,1,1,1,0,4096",
+        "flash_jedec": "SYSTem:DIAGnostic:FLASh:JEDEC?",
+        "flash_map": (
+            "SYSTem:DIAGnostic:FLASh:MAP? "
+            f"{scratch['partition_id']}"
+        ),
+        "flash_access": (
+            "SYSTem:DIAGnostic:FLASh:ACCEss? "
+            f"{scratch['partition_id']},1,1,1,1,0,4096"
+        ),
         "sensors_before": "SYSTem:DIAGnostic:SENSors?",
     }
     responses: dict[str, str] = {}
@@ -141,6 +202,25 @@ def main() -> int:
                 responses[name] = issue(ser, command, args.timeout)
             except TimeoutError as exc:
                 raise TimeoutError(f"{name} ({command}) response timeout") from exc
+        flash_map = parse_flash_map(responses["flash_map"])
+        jedec = parse_jedec(responses["flash_jedec"])
+        high_address_end = int(scratch["offset"]) + 4096
+        if (
+            flash_map["map_version"] != scratch["map_version"]
+            or flash_map["deployment_state"] != scratch["deployment_state"]
+            or flash_map["partition_id"] != scratch["partition_id"]
+            or flash_map["offset"] != scratch["offset"]
+            or flash_map["size"] != scratch["size"]
+            or int(scratch["size"]) < 4096
+            or jedec["valid"] != 1
+            or jedec["source"] != "JEDEC_RDID_9F"
+            or jedec["capacity_matches_geometry"] != 1
+            or int(jedec["capacity_bytes"]) < high_address_end
+            or responses["flash_access"].split(",", 1)[0].strip() != "1"
+        ):
+            raise RuntimeError(
+                "v2 physical Scratch window rejected by map/JEDEC/access preflight"
+            )
         validation_command = (
             f"SYSTem:DIAGnostic:FLASh:VALidate {CONFIRM_TOKEN},{args.pattern}"
         )
@@ -165,6 +245,9 @@ def main() -> int:
         "commands": commands | {"validation": validation_command},
         "responses": responses,
         "validation": validation,
+        "v2_scratch_contract": scratch,
+        "flash_map": flash_map,
+        "jedec": jedec,
         "success": success,
         "notes": [
             "Scratch uses the selected deployment map; v2 candidate validation covers the high-address target_not_deployed map.",

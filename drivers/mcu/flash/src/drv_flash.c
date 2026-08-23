@@ -106,6 +106,41 @@ bool drv_flash_read(uint32_t flash_offset, void *data, size_t length)
     return true;
 }
 
+bool drv_flash_read_jedec_id(drv_flash_jedec_id_t *jedec)
+{
+    if (jedec == NULL) {
+        return false;
+    }
+    memset(jedec, 0, sizeof(*jedec));
+    if (!drv_flash_write_session_begin()) {
+        return false;
+    }
+
+    const uint8_t tx[4] = {DRV_FLASH_JEDEC_RDID_COMMAND, 0u, 0u, 0u};
+    uint8_t rx[sizeof(tx)] = {0u};
+    const uint32_t irq_state = save_and_disable_interrupts();
+    flash_do_cmd(tx, rx, sizeof(tx));
+    restore_interrupts(irq_state);
+    const bool release_ok = drv_flash_write_session_end();
+
+    jedec->manufacturer_id = rx[1];
+    jedec->memory_type = rx[2];
+    jedec->capacity_code = rx[3];
+    jedec->raw_id = ((uint32_t)rx[1] << 16u) |
+                    ((uint32_t)rx[2] << 8u) | (uint32_t)rx[3];
+    if (rx[3] < 32u) {
+        jedec->capacity_bytes = 1u << rx[3];
+    }
+    jedec->capacity_matches_geometry =
+        jedec->capacity_bytes == DRV_FLASH_TOTAL_SIZE_BYTES;
+
+    const bool id_valid = jedec->raw_id != 0u &&
+                          jedec->raw_id != 0x00FFFFFFu &&
+                          jedec->manufacturer_id != 0u &&
+                          jedec->manufacturer_id != 0xFFu;
+    return release_ok && id_valid;
+}
+
 bool drv_flash_is_erased(uint32_t flash_offset, size_t length)
 {
     if (!drv_flash_is_range_valid(flash_offset, length)) {

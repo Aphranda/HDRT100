@@ -227,6 +227,24 @@ scpi_result_t scpi_cmd_flash_transaction_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_flash_jedec_q(scpi_t *context)
+{
+    drv_flash_jedec_id_t jedec;
+    const bool valid = drv_flash_read_jedec_id(&jedec);
+
+    SCPI_ResultBool(context, valid ? TRUE : FALSE);
+    SCPI_ResultText(context, "JEDEC_RDID_9F");
+    SCPI_ResultUInt32(context, jedec.raw_id);
+    SCPI_ResultUInt32(context, jedec.manufacturer_id);
+    SCPI_ResultUInt32(context, jedec.memory_type);
+    SCPI_ResultUInt32(context, jedec.capacity_code);
+    SCPI_ResultUInt32(context, jedec.capacity_bytes);
+    SCPI_ResultUInt32(context, DRV_FLASH_TOTAL_SIZE_BYTES);
+    SCPI_ResultBool(context,
+                    jedec.capacity_matches_geometry ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
 #if PROJECT_ENABLE_FLASH_VALIDATION
 static uint32_t scpi_flash_validation_hash(const uint8_t *data,
                                             uint32_t length)

@@ -16,6 +16,7 @@ scpi_result_t scpi_cmd_resource_training_q(scpi_t *context);
 scpi_result_t scpi_cmd_flash_map_q(scpi_t *context);
 scpi_result_t scpi_cmd_flash_access_q(scpi_t *context);
 scpi_result_t scpi_cmd_flash_transaction_q(scpi_t *context);
+scpi_result_t scpi_cmd_flash_jedec_q(scpi_t *context);
 #if PROJECT_ENABLE_FLASH_VALIDATION
 scpi_result_t scpi_cmd_flash_scratch_validate(scpi_t *context);
 #define SCPI_SYSTEM_DIAGNOSTICS_FLASH_VALIDATION_COMMAND \
@@ -39,6 +40,7 @@ scpi_result_t scpi_cmd_flash_scratch_validate(scpi_t *context);
     {.pattern = "SYSTem:DIAGnostic:FLASh:MAP?", .callback = scpi_cmd_flash_map_q}, \
     {.pattern = "SYSTem:DIAGnostic:FLASh:ACCEss?", .callback = scpi_cmd_flash_access_q}, \
     {.pattern = "SYSTem:DIAGnostic:FLASh:TRANsaction?", .callback = scpi_cmd_flash_transaction_q}, \
+    {.pattern = "SYSTem:DIAGnostic:FLASh:JEDEC?", .callback = scpi_cmd_flash_jedec_q}, \
     SCPI_SYSTEM_DIAGNOSTICS_FLASH_VALIDATION_COMMAND \
     {.pattern = "SYSTem:FAULT:CLEAr", .callback = scpi_port_result_accepted}
 
