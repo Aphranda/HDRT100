@@ -201,7 +201,7 @@ int main(void)
         .read = checkpoint_read,
         .program = checkpoint_program,
         .base_offset = 7168u,
-        .slot_count = 4u,
+        .slot_count = 8u,
         .slot_size = POTA_STREAM_CHECKPOINT_RECORD_SIZE,
     };
     const pota_stream_checkpoint_policy_t checkpoint_policy = {
@@ -345,6 +345,63 @@ int main(void)
                       pota_stream_session_close(&recovered_session) ==
                           POTA_STREAM_RESULT_OK);
     failed += !expect("resume pending once", s_pending_count == 1u);
+
+    pota_stream_open_t abort_open = resume_open;
+    abort_open.session_id++;
+    abort_open.generation++;
+    abort_open.package_hash[3] = 0x7Cu;
+    failed += !expect("abort session init",
+                      pota_stream_session_init(&session, &platform));
+    failed += !expect("abort checkpoint attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &session, &recovered_store, &checkpoint_policy));
+    failed += !expect("abort stream open",
+                      pota_stream_session_open(&session, &abort_open) ==
+                          POTA_STREAM_RESULT_OK);
+    while (pota_stream_session_state(&session) == POTA_STREAM_STATE_OPEN) {
+        failed += !expect("abort stream service",
+                          pota_stream_session_service(&session, 100u) ==
+                              POTA_STREAM_RESULT_OK);
+    }
+    failed += !expect("abort stream write",
+                      pota_stream_session_write(&session, 0u,
+                                                resume_image, 512u) ==
+                          POTA_STREAM_RESULT_OK);
+    failed += !expect("durable abort",
+                      pota_stream_session_abort(&session) ==
+                              POTA_STREAM_RESULT_OK &&
+                          pota_stream_session_state(&session) ==
+                              POTA_STREAM_STATE_ABORTED);
+
+    pota_stream_checkpoint_store_t aborted_store;
+    failed += !expect("aborted checkpoint rebuild",
+                      pota_stream_checkpoint_init(&aborted_store,
+                                                  &checkpoint_config) ==
+                          POTA_STREAM_CHECKPOINT_OK);
+    pota_stream_session_t restarted_session;
+    failed += !expect("aborted session rebuild",
+                      pota_stream_session_init(&restarted_session, &platform));
+    failed += !expect("aborted checkpoint reattach",
+                      pota_stream_session_set_checkpoint_store(
+                          &restarted_session, &aborted_store,
+                          &checkpoint_policy));
+    failed += !expect("same generation rejected after abort",
+                      pota_stream_session_open(&restarted_session,
+                                               &abort_open) ==
+                          POTA_STREAM_RESULT_MISMATCH);
+    failed += !expect("new generation session init",
+                      pota_stream_session_init(&restarted_session, &platform));
+    failed += !expect("new generation checkpoint attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &restarted_session, &aborted_store,
+                          &checkpoint_policy));
+    abort_open.generation++;
+    failed += !expect("new generation restarts from zero",
+                      pota_stream_session_open(&restarted_session,
+                                               &abort_open) ==
+                              POTA_STREAM_RESULT_OK &&
+                          pota_stream_session_durable_offset(
+                              &restarted_session) == 0u);
     if (failed != 0) {
         return 1;
     }

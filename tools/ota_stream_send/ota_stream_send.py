@@ -73,7 +73,7 @@ def parse_stream_status(response: str) -> tuple[int, int, int, int, int]:
 
 def parse_journal_status(response: str) -> tuple[int, ...]:
     fields = tuple(int(field.strip(), 0) for field in response.split(","))
-    if len(fields) != 12:
+    if len(fields) != 13:
         raise ValueError(f"invalid journal status: {response!r}")
     return fields
 
@@ -209,7 +209,7 @@ def send(args: argparse.Namespace) -> int:
             journal = parse_journal_status(query(
                 ser, "SYST:OTA:JOUR?", args.timeout))
             if journal[0] != 1 or journal[8] != len(image) or \
-                    journal[9] != crc32(image):
+                    journal[9] != crc32(image) or journal[12] != 0:
                 raise RuntimeError(
                     "journal does not match the selected image")
             session_id = journal[3]

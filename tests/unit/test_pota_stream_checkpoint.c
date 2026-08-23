@@ -139,6 +139,16 @@ int main(void)
     failed += !expect("append third", pota_stream_checkpoint_append(&store, &checkpoint) == POTA_STREAM_CHECKPOINT_OK);
     checkpoint.durable_offset = 512u;
     failed += !expect("append fourth", pota_stream_checkpoint_append(&store, &checkpoint) == POTA_STREAM_CHECKPOINT_OK);
+    pota_stream_checkpoint_t tombstone = checkpoint;
+    tombstone.flags = POTA_STREAM_CHECKPOINT_FLAG_ABORTED;
+    failed += !expect("append abort tombstone", pota_stream_checkpoint_append(&store, &tombstone) == POTA_STREAM_CHECKPOINT_OK);
+    failed += !expect("abort tombstone idempotent", pota_stream_checkpoint_append(&store, &tombstone) == POTA_STREAM_CHECKPOINT_OK);
+    failed += !expect("aborted generation cannot resume", pota_stream_checkpoint_append(&store, &checkpoint) == POTA_STREAM_CHECKPOINT_CONFLICT);
+    failed += !expect("abort tombstone does not match resume", !pota_stream_checkpoint_matches(&tombstone, 1u, 2u, 3u, 4u, 512u, 5u));
+    pota_stream_checkpoint_t invalid_flags = checkpoint;
+    invalid_flags.session_id = 8u;
+    invalid_flags.flags = 2u;
+    failed += !expect("unknown checkpoint flags rejected", pota_stream_checkpoint_append(&store, &invalid_flags) == POTA_STREAM_CHECKPOINT_BAD_ARGUMENT);
     checkpoint.durable_offset = 0u;
     failed += !expect("stale replay rejected", pota_stream_checkpoint_append(&store, &checkpoint) == POTA_STREAM_CHECKPOINT_CONFLICT);
     checkpoint.session_id = 9u;

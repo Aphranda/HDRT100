@@ -34,6 +34,7 @@ def test_ota_journal_query_projects_stable_owner_fields() -> None:
         "snapshot.checkpoint.package_crc32",
         "snapshot.checkpoint.chunk_crc32",
         "snapshot.checkpoint.durable_crc32",
+        "snapshot.checkpoint.flags",
     ]
     positions = [body.index(field) for field in fields]
     assert positions == sorted(positions)
@@ -48,4 +49,4 @@ def test_ota_journal_query_is_wired_into_schema_and_hil_tools() -> None:
     assert '"diagnostic_projection":"SYST:OTA:JOUR?"' in schema
     assert '"SYST:OTA:JOUR?"' in board_validator
     assert '"SYST:OTA:JOUR?"' in scpi_serial
-    assert "_csv_uints_match(text, 12)" in scpi_serial
+    assert "_csv_uints_match(text, 13)" in scpi_serial

@@ -18,8 +18,8 @@ typedef struct {
                      2u * sizeof(uint32_t)];
 } pota_stream_checkpoint_disk_t;
 
-_Static_assert(sizeof(pota_stream_checkpoint_t) == 9u * sizeof(uint32_t),
-               "stream checkpoint payload must be nine words");
+_Static_assert(sizeof(pota_stream_checkpoint_t) == 10u * sizeof(uint32_t),
+               "stream checkpoint payload must be ten words");
 _Static_assert(sizeof(pota_stream_checkpoint_disk_t) ==
                    POTA_STREAM_CHECKPOINT_RECORD_SIZE,
                "stream checkpoint record size mismatch");
@@ -94,6 +94,11 @@ static bool stream_metadata_equal(const pota_stream_checkpoint_t *left,
     return identity_equal(left, right) &&
            left->total_size == right->total_size &&
            left->package_crc32 == right->package_crc32;
+}
+
+static bool checkpoint_flags_valid(uint32_t flags)
+{
+    return (flags & ~POTA_STREAM_CHECKPOINT_FLAG_ABORTED) == 0u;
 }
 
 static pota_stream_checkpoint_result_t write_checkpoint_at_slot(
@@ -202,6 +207,7 @@ pota_stream_checkpoint_result_t pota_stream_checkpoint_append(
         checkpoint->session_id == 0u || checkpoint->generation == 0u ||
         checkpoint->token == 0u || checkpoint->object_id == 0u ||
         checkpoint->total_size == 0u ||
+        !checkpoint_flags_valid(checkpoint->flags) ||
         checkpoint->durable_offset > checkpoint->total_size) {
         return POTA_STREAM_CHECKPOINT_BAD_ARGUMENT;
     }
@@ -210,6 +216,9 @@ pota_stream_checkpoint_result_t pota_stream_checkpoint_append(
     bool newest_found = false;
     uint32_t newest_sequence = 0u;
     uint32_t newest_slot = 0u;
+    bool identity_found = false;
+    uint32_t identity_sequence = 0u;
+    pota_stream_checkpoint_t identity_checkpoint;
     for (uint32_t slot = 0u; slot < store->config.slot_count; ++slot) {
         if (!store->config.read(store->config.context, slot_offset(store, slot),
                                 &disk, sizeof(disk))) {
@@ -227,17 +236,42 @@ pota_stream_checkpoint_result_t pota_stream_checkpoint_append(
             if (!stream_metadata_equal(&disk.checkpoint, checkpoint)) {
                 return POTA_STREAM_CHECKPOINT_CONFLICT;
             }
-            if (disk.checkpoint.durable_offset == checkpoint->durable_offset) {
-                return disk.checkpoint.chunk_crc32 == checkpoint->chunk_crc32 &&
-                       disk.checkpoint.durable_crc32 ==
-                           checkpoint->durable_crc32
-                           ? POTA_STREAM_CHECKPOINT_OK
-                           : POTA_STREAM_CHECKPOINT_CONFLICT;
+            if (!identity_found ||
+                (int32_t)(disk.sequence - identity_sequence) > 0) {
+                identity_found = true;
+                identity_sequence = disk.sequence;
+                identity_checkpoint = disk.checkpoint;
             }
-            if (checkpoint->durable_offset < disk.checkpoint.durable_offset) {
-                /* A replay older than the durable cursor must never roll it back. */
+        }
+    }
+
+    if (identity_found) {
+        if ((identity_checkpoint.flags &
+             POTA_STREAM_CHECKPOINT_FLAG_ABORTED) != 0u) {
+            return identity_checkpoint.flags == checkpoint->flags &&
+                           identity_checkpoint.durable_offset ==
+                               checkpoint->durable_offset &&
+                           identity_checkpoint.durable_crc32 ==
+                               checkpoint->durable_crc32
+                       ? POTA_STREAM_CHECKPOINT_OK
+                       : POTA_STREAM_CHECKPOINT_CONFLICT;
+        }
+        if ((checkpoint->flags & POTA_STREAM_CHECKPOINT_FLAG_ABORTED) != 0u) {
+            if (checkpoint->durable_offset <
+                identity_checkpoint.durable_offset) {
                 return POTA_STREAM_CHECKPOINT_CONFLICT;
             }
+        } else if (identity_checkpoint.durable_offset ==
+                   checkpoint->durable_offset) {
+            return identity_checkpoint.chunk_crc32 == checkpoint->chunk_crc32 &&
+                           identity_checkpoint.durable_crc32 ==
+                               checkpoint->durable_crc32
+                       ? POTA_STREAM_CHECKPOINT_OK
+                       : POTA_STREAM_CHECKPOINT_CONFLICT;
+        } else if (checkpoint->durable_offset <
+                   identity_checkpoint.durable_offset) {
+            /* A replay older than the durable cursor must never roll it back. */
+            return POTA_STREAM_CHECKPOINT_CONFLICT;
         }
     }
 
@@ -286,7 +320,8 @@ bool pota_stream_checkpoint_matches(const pota_stream_checkpoint_t *checkpoint,
                                     uint32_t total_size,
                                     uint32_t package_crc32)
 {
-    return checkpoint != NULL && checkpoint->session_id == session_id &&
+    return checkpoint != NULL && checkpoint->flags == 0u &&
+           checkpoint->session_id == session_id &&
            checkpoint->generation == generation && checkpoint->token == token &&
            checkpoint->object_id == object_id &&
            checkpoint->total_size == total_size &&

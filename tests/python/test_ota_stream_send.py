@@ -43,8 +43,8 @@ def test_encode_open_uses_fixed_little_endian_layout() -> None:
 def test_scpi_block_and_status_parser() -> None:
     assert scpi_block(b"abc") == b"#13abc"
     assert parse_stream_status("0,2,512,42,0") == (0, 2, 512, 42, 0)
-    assert parse_journal_status("1,0,2,3,4,5,6,512,1024,7,8,9") == (
-        1, 0, 2, 3, 4, 5, 6, 512, 1024, 7, 8, 9)
+    assert parse_journal_status("1,0,2,3,4,5,6,512,1024,7,8,9,0") == (
+        1, 0, 2, 3, 4, 5, 6, 512, 1024, 7, 8, 9, 0)
 
 
 def test_partition_id_comes_from_canonical_map() -> None:

@@ -337,6 +337,24 @@ pota_stream_result_t pota_stream_session_abort(
         session->state = POTA_STREAM_STATE_FAILED;
         return POTA_STREAM_RESULT_CORE;
     }
+    if (session->checkpoint_append != NULL) {
+        const pota_stream_checkpoint_t tombstone = {
+            .session_id = session->open.session_id,
+            .generation = session->open.generation,
+            .token = pota_stream_session_token(session),
+            .object_id = session->open.object_id,
+            .durable_offset = session->durable_offset,
+            .total_size = session->open.total_size,
+            .package_crc32 = session->open.package_crc32,
+            .durable_crc32 = session->core.core.status.crc32_running,
+            .flags = POTA_STREAM_CHECKPOINT_FLAG_ABORTED,
+        };
+        if (!session->checkpoint_append(session->checkpoint_context,
+                                        &tombstone)) {
+            session->state = POTA_STREAM_STATE_FAILED;
+            return POTA_STREAM_RESULT_CHECKPOINT;
+        }
+    }
     session->state = POTA_STREAM_STATE_ABORTED;
     return POTA_STREAM_RESULT_OK;
 }
