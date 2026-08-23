@@ -1,0 +1,7 @@
+# USB SCPI configuration/query for RS485/UART# mode.
+*IDN?
+COMMunication:SERial:UART1:MODE?
+COMMunication:SERial:UART1:MODE SCPI
+COMMunication:SERial:UART1:MODE?
+COMMunication:SERial:UART1:STATus?
+SYSTem:ERRor?
