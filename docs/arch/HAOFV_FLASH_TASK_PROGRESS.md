@@ -16,6 +16,22 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-052 - Remove OTA-owner watchdog reconfiguration
+
+- 状态：代码与 host/build 回归通过；DHRT100 烧录、COM9 UART、`READY_TO_REBOOT → BOOT →
+  COMM → COMMITTED` 和 power-cut HIL 仍待硬件窗口，不能作为 M1/M3/M4 退出证据。
+- 修复：移除 `portable_ota_core_port.c` 和 `ota_fb.c` 中 OTA/metadata owner 对
+  `drv_watchdog_enable(30s/60s)` 的临时维护窗口。硬件 watchdog 超时和喂狗现在只由
+  `WatchdogSupervisorAO` 的健康门控制；END 的 manifest/BCB step 继续每次只推进一个有界
+  FlashTransaction 子步骤，Supervisor stall 不再被 owner 路径重配置掩盖。
+- 验证：V2 `cmake --build build-v2-debug-ninja3` 通过（含 FlashMap/schema/wire/inventory、
+  App A/B、Boot/Recovery link gate）；`tools/run_portable_ota_tests.ps1` 的 stream、ingress、
+  checkpoint、BCB 和 portable core 测试全部通过。构建后使用固化签名工具重新生成 key 7
+  debug signature，candidate package 生成成功。
+- 边界：当前没有可用的 DHRT100/COM9 枚举，未执行本轮烧录、UART 原始日志或闭环；不得把
+  host/build 结果替代板端验证。恢复板卡后必须使用 `tools/picotool_flash/picotool_flash.py`
+  和现有 OTA 工具，并保存 watchdog 状态、UART transcript 及最终状态链。
+
 ### FLASH-TASK-20260823-051 - Completion journal rotation policy
 
 - 状态：portable rotation、v2 wiring、host/build 回归通过；真实 DHRT100 掉电/复位、长期
