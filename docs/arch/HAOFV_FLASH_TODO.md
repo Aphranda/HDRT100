@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_TODO.md`
 Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/storage/SD_TODO.md`
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 本文只跟踪 Flash v2 的实现、迁移和验证。架构语义以 `HAOFV_FLASH_ARCHITECTURE.md` 为准；
 v1 OTA 已完成项和历史报告仍留在 `docs/ota/OTA_TODO.md`，不得在两个 TODO 中重复标记完成。
@@ -372,12 +372,14 @@ TODO 只保留可独立验收的状态项和证据索引。
 - [x] validation-only SCPI 只提交 Scratch lease intent；FlashTransactionFB 拒绝其它分区、非零 offset、跨多 sector/page 请求。
 - [x] 流程固定为 confirm token -> erase -> pattern program -> readback/hash -> erase/restore；哈希匹配和恢复擦除均进入返回证据。
 - [x] DHRT100 报告已记录 identity/build、v2 map symbol/geometry、lockout、温度/电流和恢复结果；
-  当前部署仍是 v1 compatibility map，v2 高地址写入保持禁止。
+  v2 candidate 验证窗口使用生成式 v2 map，仍保持 `target_not_deployed`，不代表在线部署完成。
 - [x] release binary string scan 证明 destructive validation command 不在正常 release App/Boot 工件中。
 
 #### 未完成部分
 
-- [ ] 增加底层 JEDEC ID 的驱动/SCPI 来源，并在允许的 v2 物理验证窗口完成高地址 Scratch 证据。
+- [x] 增加底层 JEDEC ID 的 `0x9F` 驱动/SCPI 来源，并在允许的 v2 candidate 物理验证窗口完成
+  高地址 Scratch 证据；两次不同 pattern 均完成 erase/program/hash/restore/erased 闭环，证据见
+  `FLASH-TASK-20260824-081`。该项不改变 v2 `target_not_deployed` 或任何 Registry/C11 状态。
 
 ### M1 退出门禁
 

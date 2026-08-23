@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md`
 Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 本文记录 Flash v2 迁移已经发生的实现、验证、提交和剩余 gate。架构语义以
 `HAOFV_FLASH_ARCHITECTURE.md` 为准，未完成项和依赖关系以 `HAOFV_FLASH_TODO.md` 为准；
@@ -15,6 +15,43 @@ Last updated: 2026-08-23
 本文是实施证据日志，不是架构事实源，也不是工作板。稳定语义回到架构文档，子项状态回到 TODO；
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
+
+### FLASH-TASK-20260824-081 - JEDEC source 与 v2 高地址 Scratch 闭环
+
+- 状态：M1-06 的 JEDEC/高地址物理验证子项完成；不改变 v2 `target_not_deployed`、
+  `ARCH-FLASHMAP-01`/`ARCH-FLASHOWNER-01` 或 Registry/C11 状态。真实 power-cut、Boot C11
+  交叉审核和 M1 总体退出门禁仍未完成。
+- 实现：`drv_flash_read_jedec_id()` 通过底层 `flash_do_cmd()` 发出 `0x9F` RDID，使用
+  core1 lockout 与中断临界区；`SYSTem:DIAGnostic:FLASh:JEDEC?` 直接投影 raw ID、容量推导和
+  generated geometry match。`flash_scratch_validate.py` 从 v2 manifest 取得 Scratch contract，
+  在 destructive intent 前校验 map/deployment/partition/JEDEC/access/容量；工具未使用串口名
+  作为板卡身份。
+- 首次失败证据：`out/flash_hil/dhrt100_v2_high_scratch_20260824/flash_scratch_validation.json`
+  中 erase/program/hash/restore 均成功但 `erased_ok=0`。根因是 validation 请求错误继承了生产
+  durable completion lease：首个 erase 与 restore erase 共享同一 stable fingerprint，restore 被
+  replay 为 committed 而未执行物理 IO。
+- 修复：`6bece6a fix(flash): prevent Scratch restore replay` 让
+  `FLASH_TRANSACTION_REQUESTER_VALIDATION` 不绑定生产 completion journal；它仍完整经过
+  `FlashTransactionAO` 的 policy、core1 park、raw IO 和 verify owner。host FlashTransaction、
+  durable journal、Scratch Python 回归及 v2 candidate build/link gates 全部通过；修复提交已推送。
+- 工件：修复后 v2 candidate factory UF2 SHA-256 快照为
+  `39CC9B1F9351913F9FF153660F5A5F7CA5782F7BE6F03A36E1C52A5B737B1C39`，构建输出为
+  `out/build/pico2-v2-factory-candidate/DHRT100_V2_CANDIDATE_FACTORY.uf2`；picotool transcript
+  `out/flash_hil/dhrt100_scratch_replay_fix_flash_20260824.txt` 显示 load/verify 全部完成。
+- 板端身份：DHRT100 serial `839E1AE79EA20F31`，主固件 `GTS,DHRT100,...,0.1.0`；v2 map/JEDEC
+  preflight 与恢复后 SCPI transcript 为 `out/flash_hil/dhrt100_jedec_scratch_preflight_20260824.txt`。
+  JEDEC 来源为 `JEDEC_RDID_9F`，容量与 generated geometry 匹配，Flash map 返回 v2
+  `target_not_deployed`，Scratch access allow，错误队列为 `0,"No error"`。
+- HIL 成功证据：
+  - `out/flash_hil/dhrt100_v2_high_scratch_replay_fix_20260824/flash_scratch_validation.json`
+    使用 pattern 0，erase/program/hash/restore/erased 全部为 1，最终错误队列清零。
+  - `out/flash_hil/dhrt100_v2_high_scratch_repeat_20260824/flash_scratch_validation.json`
+    使用 pattern 1，全部为 1；随后 Vector transcript 为
+    `out/flash_hil/dhrt100_v2_high_scratch_repeat_20260824/postflight.txt`，显示物理
+    `erase_count_delta=1`、JEDEC 有效、错误队列清零。传感器快照无 critical thermal flag。
+- 回退/边界：只使用 v2 candidate 与 validation-only SCPI 的 Scratch 首扇区，未执行 full erase，
+  未访问 v1 Scratch 伪造 v2 证据；可通过既有 M0-05 v1 factory artifact/runbook 回退。下一步仍是
+  M1-05 跨 reset/power-cut、Boot C11 和 M1 总体退出门禁。
 
 ### FLASH-TASK-20260823-080 - V2 debug candidate full-erase/load 与 App 启动
 
