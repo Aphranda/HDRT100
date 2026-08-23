@@ -80,9 +80,9 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
    专用 debug profile、Boot slot-manifest 重验和 verified counter 到 BCB 的传递已完成；下一步
    补 OTP/key binding、产品 counter 来源与泄露处置。生产 profile 仍须独立 release key，debug
    key 不进入发布镜像；unsigned bypass 保持关闭。
-4. **M0-05 实板回退**：在 DHRT100 板上物理按住 BOOTSEL 后复位/重新上电，确认 ROM BOOTSEL 可见，
-   再执行 full erase、factory UF2 load/verify 和应用复核；保留 identity、build、slot、错误队列、
-   artifact hash 与原始日志。未获得 ROM BOOTSEL 证据前保持 `[!]`，不得以应用 USB 断开代替。
+4. **M0-05 实板回退（已完成）**：DHRT100 已取得 ROM BOOTSEL、full erase、factory UF2
+   load/verify、应用复核、identity/build/slot/错误队列、artifact hash 与原始日志证据；保留该
+   v1 工件作为后续 V2 调试阶段的恢复基线。
 5. **M1 板端退出门禁**：使用可确认身份的 DHRT100 完成 CAL/training/thermal-critical/FAULT/
    unknown admission 负向 HIL、v2 Scratch restore 和 core1 alive 复核；只有 raw write delta、policy
    reason、温度和重启后身份/应用均有证据，才能关闭 M1。
@@ -168,6 +168,9 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
 `tests/python/test_flash_wire_contracts.py`。
 
 ### M0-05 migration/rollback 包
+
+状态：`[x]` 已完成。v1 回退工件、checksum 和至少一块 DHRT100 样板 BOOTSEL/full-erase
+恢复 gate 均已闭环；后续 V2 迁移不得把本项重新标为进行中。
 
 #### 已完成部分
 
