@@ -521,8 +521,19 @@ scpi_result_t scpi_cmd_ota_stream_close(scpi_t *context)
     const pota_stream_ingress_result_t result =
         portable_ota_port_stream_close(source);
     if (result == POTA_STREAM_INGRESS_OK) {
-        resource_arbiter_release_ota_admission();
+        /* CLOSE only queues the bounded END transaction.  Keep the OTA
+         * admission lease until FlashTransaction-owned verification,
+         * manifest append and pending-BCB commit reach READY_TO_REBOOT;
+         * releasing here would let RUN owners race the remaining steps. */
         return scpi_port_result_ok(context);
+    }
+    /* A failed close leaves no valid transaction to service.  Release the
+     * lease so a subsequent OPEN is not permanently blocked. */
+    pota_stream_ingress_status_t status;
+    if (portable_ota_port_stream_get_status(&status) &&
+        (status.state == POTA_STREAM_STATE_FAILED ||
+         status.state == POTA_STREAM_STATE_ABORTED)) {
+        resource_arbiter_release_ota_admission();
     }
     return SCPI_RES_ERR;
 }
@@ -541,7 +552,9 @@ scpi_result_t scpi_cmd_ota_stream_abort(scpi_t *context)
     }
     const pota_stream_ingress_result_t result =
         portable_ota_port_stream_abort(source);
-    resource_arbiter_release_ota_admission();
+    if (result == POTA_STREAM_INGRESS_OK) {
+        resource_arbiter_release_ota_admission();
+    }
     return result == POTA_STREAM_INGRESS_OK ? scpi_port_result_ok(context)
                                             : SCPI_RES_ERR;
 }
@@ -558,6 +571,7 @@ scpi_result_t scpi_cmd_ota_stream_boot(scpi_t *context)
         status.state != POTA_STREAM_STATE_READY_TO_REBOOT) {
         return SCPI_RES_ERR;
     }
+    resource_arbiter_release_ota_admission();
     drv_watchdog_reboot(50u);
     return scpi_port_result_ok(context);
 }
