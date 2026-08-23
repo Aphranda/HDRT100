@@ -16,6 +16,23 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-070 - ResourceArbiter unknown mode fail-closed
+
+- 状态：M1-04 的 host/构建子项完成；板端 unknown-state 注入、warning policy、完整 fault/thermal
+  矩阵和 C11 审核仍未完成。
+- 代码：新增 `resource_arbiter_mode_is_valid()`，`can_begin_ota()`、
+  `request_ota_admission()` 和 FlashTransactionAO policy 在 mode 值不属于已定义枚举时统一拒绝，
+  防止损坏的诊断/复位快照被当作 RUN 或 OTA 放行。资源仲裁 host 测试覆盖四个合法 mode 与非法值。
+- 验证：`tools/tests/run_resource_arbiter_tests.ps1 -BuildDir out/pytest/resource-arbiter-tests` 通过；
+  `cmake --build out/build/pico2-v2-factory-candidate --parallel 4` 和
+  `cmake --build out/build/pico2-release --parallel 4` 通过，FlashMap/persistence/migration/wire/link
+  gates 全绿。`run_flash_transaction_tests.ps1` 在基线同一回放测试中仍于
+  `test_durable_terminal_replay_skips_raw_io` 断言失败（测试重置 append 计数后仍断言旧值），未将其
+  误记为本修复回归；全量 pytest 为 206 passed、1 failed，唯一失败是仓库未生成的
+  `build-product-release/tdma_pio_timing_check_reflection_20260821.json` 固定产物缺失。
+- 边界：未执行 BOOTSEL、`--full-erase` 或真实断电；DHRT100 v2 deployment 与 unknown-state HIL
+  仍保持未完成。
+
 ### FLASH-TASK-20260823-068 - Stream durable-ACK 与 stage 边界 fail-closed
 
 - 状态：M4-03 的 host 可验证子项完成；五类 transport、跨 reset/power-cut、journal endurance 和
