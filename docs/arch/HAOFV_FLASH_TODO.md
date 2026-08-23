@@ -375,7 +375,7 @@ TODO 只保留可独立验收的状态项和证据索引。
   v2 candidate 验证窗口使用生成式 v2 map，仍保持 `target_not_deployed`，不代表在线部署完成。
 - [x] release binary string scan 证明 destructive validation command 不在正常 release App/Boot 工件中。
 
-#### 未完成部分
+#### 本次补充完成部分
 
 - [x] 增加底层 JEDEC ID 的 `0x9F` 驱动/SCPI 来源，并在允许的 v2 candidate 物理验证窗口完成
   高地址 Scratch 证据；两次不同 pattern 均完成 erase/program/hash/restore/erased 闭环，证据见
@@ -478,10 +478,13 @@ TODO 只保留可独立验收的状态项和证据索引。
   resource arbiter、storage manager 和 App OTA AO 符号；当前 build 通过。
 - [x] Bootloader size 使用生成的活动 partition symbol gate，不使用文档硬编码阈值；
   `__flash_binary_end` 必须落在 `FLASH_ACTIVE_MAP_BOOTLOADER_ORIGIN/LENGTH` 界内。
+- [x] BCB payload 的 exact length/CRC 仍由 `BootControlStore` owner 校验；App/Recovery 统一投影
+  BCB wear telemetry，factory package verify 阶段 fail-closed 检查 v2 map 状态与必需 region 集合。
 
 #### 未完成部分
 
-- [ ] 补齐 BCB payload、wear counter、Recovery 和 v2 map deployment 的最终依赖收敛。
+- [ ] Recovery 运行时 package parser/restore、产品寿命阈值和跨 reset durable wear ledger 仍待独立
+  实现；不能用当前 process-lifetime telemetry 冒充产品寿命事实。
 
 ### M3-02 BootControlStore
 
@@ -493,6 +496,9 @@ TODO 只保留可独立验收的状态项和证据索引。
 - [x] primitive 在无有效 lane 时返回 `NO_VALID`，不创建默认记录；DHRT100 已完成
   BCB-backed A/B OTA/reboot/confirm 闭环（`FLASH-TASK-20260823-017`）。
 - [x] host fault fixture 覆盖 body/readback/commit/lane seal/旧 lane erase，均 fail closed 并保留旧记录。
+- [x] BCB payload exact length/CRC、schema/map identity 和 monotonic security counter 继续由
+  portable primitive 收敛；新增 `SYSTem:OTA:BCB:WEAR?` 投影当前进程物理 program/erase 计数，
+  与 Recovery `SYST:RECOVERY:BCB:WEAR?` 使用相同 read-only primitive。
 
 #### 未完成部分
 
@@ -550,6 +556,9 @@ TODO 只保留可独立验收的状态项和证据索引。
   `FLASH-TASK-20260823-037`、`FLASH-TASK-20260823-038`。
 - [x] factory report 已覆盖并由 consumer 重算全部已编程 region 的 size/SHA-256，同时要求
   `full_erase_required=true`。
+- [x] factory package verify 现在再次强制 `target_not_deployed`、`full_erase_required`、Flash
+  geometry 和 `BOOTLOADER/APP_A/RECOVERY/BOOT_CONTROL/OTA_STAGE` 精确 region 集合，避免签名包
+  在部署状态或恢复依赖漂移时被接受。
 
 #### 未完成部分
 

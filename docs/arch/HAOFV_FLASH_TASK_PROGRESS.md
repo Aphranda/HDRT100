@@ -16,6 +16,24 @@ Last updated: 2026-08-24
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260824-082 - BCB payload/wear、Recovery 投影与 v2 deployment gate
+
+- 状态：代码依赖收敛完成；不改变 v2 `target_not_deployed`、Registry/C11 或 Recovery runtime
+  restore 未完成状态。
+- 实现：`ota_metadata.c` 保持 BCB payload exact-length/CRC/schema/map/security-counter 由
+  `BootControlStore` 校验，并增加 process-lifetime physical program/erase telemetry；App 新增
+  `SYSTem:OTA:BCB:WEAR?`，Recovery 新增只读 `SYST:RECOVERY:BCB:WEAR?`，Recovery 仍无写回路径。
+- 部署 gate：`factory_package.verify_factory_package()` 在签名验证后再次拒绝非
+  `target_not_deployed`、缺少 full erase、越界 geometry、重复 region 或缺少 Bootloader/App A/
+  Recovery/Boot Control/OTA Stage 的 package；`flash_link_check` 同步要求 Recovery 的 wear
+  symbols，保持唯一 owner 边界。
+- 验证：`tests/python/test_factory_package.py`、`tests/python/test_flash_link_check.py` 共
+  `13/13`；`run_portable_ota_tests.ps1` 的 stream/BCB/portable host tests 全部通过；
+  `cmake --build --preset pico2-v2-factory-candidate -j 4` 通过，Boot/Recovery/App link gate
+  均报告 OK。
+- 保留 gate：当前 wear 是进程生命周期诊断，不是跨 reset 产品寿命预算；Recovery runtime
+  package parser/受控 restore、空片 full-erase HIL、durable wear ledger 和 C11 仍未完成。
+
 ### FLASH-TASK-20260824-081 - JEDEC source 与 v2 高地址 Scratch 闭环
 
 - 状态：M1-06 的 JEDEC/高地址物理验证子项完成；不改变 v2 `target_not_deployed`、
