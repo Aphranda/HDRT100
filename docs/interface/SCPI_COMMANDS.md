@@ -108,6 +108,7 @@ UART/RS485/BiSS-C 等外部或板间通信能力统一归入 `COMMunication:*`�
 | `COMMunication:SERial:UART#:STATus?` | 查询 UART# ready、配置、收发计数和后端接入状态。 |
 | `COMMunication:SERial:UART#:TX:TEST <count>[,<pattern>]` / `TX:TEST?` | 发送测试帧或读取最近一次发送测试摘要。 |
 | `COMMunication:SERial:UART#:RX:COUNt?` | 查询 UART# 接收字节计数和帧计数。 |
+| `COMMunication:SERial:UART#:RX:STATus?` | 查询 UART# RX backend（`DMA_PINGPONG`/`UART_FIFO`）、接收计数、DMA overrun 和待处理回显字节。 |
 | `COMMunication:SERial:UART#:ERRor?` | 查询 UART# 错误计数和最近错误文本。 |
 
 ## 实时 IO 维护域
