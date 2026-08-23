@@ -14,6 +14,9 @@ from typing import Any
 
 PACKAGE_MAGIC = 0x474B5054
 PACKAGE_VERSION = 2
+MANIFEST_EXTENSION_MAGIC = 0x4D465458
+MANIFEST_EXTENSION_VERSION_SLOT_HASHES = 2
+MANIFEST_REQUIRED_SIGNATURE_AND_HASHES = 3
 UF2_MAGIC_START0 = 0x0A324655
 UF2_MAGIC_START1 = 0x9E5D5157
 UF2_MAGIC_END = 0x0AB16F30
@@ -205,8 +208,10 @@ def check_ota_package(build_dir: Path, manifest: dict[str, Any],
         extension_magic, extension_version, required_flags, counter, key_id, signature_size = (
             struct.unpack_from("<IIIIII", package, 256))
         signature = package[280:344]
-        if (extension_magic != 0x4D465458 or extension_version != 1 or
-                required_flags != 1 or counter == 0 or key_id == 0 or
+        if (extension_magic != MANIFEST_EXTENSION_MAGIC or
+                extension_version != MANIFEST_EXTENSION_VERSION_SLOT_HASHES or
+                    required_flags != MANIFEST_REQUIRED_SIGNATURE_AND_HASHES or
+                    counter == 0 or key_id == 0 or
                 signature_size != 64 or len(signature) != 64 or not any(signature)):
             raise FlashConsumerError("v2 candidate OTA package is not fully signed")
     partitions = partitions_by_id(manifest)

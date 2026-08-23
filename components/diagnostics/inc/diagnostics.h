@@ -123,6 +123,10 @@ void diagnostics_get_sensor_status(diagnostics_sensor_status_t *status);
 void diagnostics_watchdog_configure(uint32_t expected_mask);
 void diagnostics_watchdog_enable(uint32_t timeout_ms);
 void diagnostics_watchdog_task_heartbeat(diagnostics_watchdog_task_t task);
+/* Report bounded FlashTransaction progress to the independent Supervisor.
+ * This is telemetry only; it never feeds or reconfigures the hardware
+ * watchdog from the transaction owner. */
+void diagnostics_watchdog_flash_transaction_progress(void);
 void diagnostics_watchdog_service(void);
 void diagnostics_watchdog_request_test_stall(void);
 void diagnostics_get_watchdog_status(diagnostics_watchdog_status_t *status);

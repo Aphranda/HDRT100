@@ -5,7 +5,6 @@
 #include "board.h"
 #include "diagnostics.h"
 #include "drv_flash_write.h"
-#include "drv_watchdog.h"
 #include "flash_transaction_fb.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
@@ -237,13 +236,13 @@ bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
     }
     flash_transaction_vector_t vector;
     for (uint32_t step = 0u; step < FLASH_TRANSACTION_EXECUTE_STEPS; step++) {
-        /* Synchronous callers (OTA END/metadata) can temporarily occupy the
-         * OTA task while the supervisor is arbitrating the flash owner.  Feed
-         * the hardware watchdog at the AO service boundary as well as inside
-         * the raw erase/program primitive. */
-        drv_watchdog_feed();
+        /* The transaction owner only publishes bounded progress.  The
+         * independent WatchdogSupervisorAO decides whether the hardware
+         * watchdog may be fed; direct feeding here would hide a stalled END
+         * callback or a deadlocked FlashTransaction. */
+        diagnostics_watchdog_flash_transaction_progress();
         flash_transaction_ao_service();
-        drv_watchdog_feed();
+        diagnostics_watchdog_flash_transaction_progress();
         if (!flash_transaction_ao_get_vector(&vector)) {
             continue;
         }

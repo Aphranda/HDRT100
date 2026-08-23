@@ -126,8 +126,8 @@ def main() -> int:
         "build": "SYST:FW:BUILD?",
         "slot": "SYST:OTA:SLOT?",
         # Diagnostics expose the generated target-map symbol; the destructive
-        # transaction itself remains constrained to the deployed compatibility
-        # Scratch intent in FlashTransactionFB.
+        # transaction remains constrained to that selected deployment map by
+        # FlashTransactionFB.
         "flash_map": "SYSTem:DIAGnostic:FLASh:MAP? 12",
         "flash_access": "SYSTem:DIAGnostic:FLASh:ACCEss? 12,1,1,1,1,0,4096",
         "sensors_before": "SYSTem:DIAGnostic:SENSors?",
@@ -167,7 +167,7 @@ def main() -> int:
         "validation": validation,
         "success": success,
         "notes": [
-            "Scratch uses the deployed compatibility map; no v2 high-address write is attempted.",
+            "Scratch uses the selected deployment map; v2 candidate validation covers the high-address target_not_deployed map.",
             "success requires hash_match and erased_ok after restore.",
         ],
     }

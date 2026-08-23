@@ -1,0 +1,22 @@
+from __future__ import annotations
+
+import sys
+
+from tools.picotool_flash.picotool_flash import build_full_erase_args, parse_args
+
+
+def test_full_erase_keeps_bootsel_mounted() -> None:
+    assert build_full_erase_args(["--ser", "839E1AE79EA20F31"]) == [
+        "erase", "-a", "-F", "--ser", "839E1AE79EA20F31"
+    ]
+
+
+def test_full_erase_option_is_explicit(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["picotool_flash.py", "candidate.uf2", "--full-erase", "--retries", "3"],
+    )
+    args = parse_args()
+    assert args.full_erase is True
+    assert args.retries == 3

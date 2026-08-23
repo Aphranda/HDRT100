@@ -25,6 +25,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--serial-number", help="expected RP2350 unique serial")
     parser.add_argument("--settle", type=float, default=1.0)
     parser.add_argument("--retries", type=int, default=2)
+    parser.add_argument(
+        "--full-erase",
+        action="store_true",
+        help="erase the complete external flash and keep BOOTSEL mounted before load",
+    )
     parser.add_argument("--out", type=Path, help="UTF-8 transcript path")
     return parser.parse_args()
 
@@ -35,6 +40,11 @@ def run(picotool: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
         errors="replace", stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         check=False,
     )
+
+
+def build_full_erase_args(selection: list[str]) -> list[str]:
+    """Return the destructive erase command used by the factory workflow."""
+    return ["erase", "-a", "-F", *selection]
 
 
 def main() -> int:
@@ -57,6 +67,17 @@ def main() -> int:
     reboot = run(picotool, reboot_args)
     records.append(f"$ picotool {' '.join(reboot_args)}\n{reboot.stdout}")
     time.sleep(args.settle)
+
+    if args.full_erase:
+        # Keep the ROM BOOTSEL device mounted after erase.  A normal erase
+        # reboots immediately; that would leave a blank device with no
+        # application to drive the next force-reboot step and makes a failed
+        # factory migration hard to diagnose.
+        erase_args = build_full_erase_args(selection)
+        erased = run(picotool, erase_args)
+        records.append(f"$ picotool {' '.join(erase_args)}\n{erased.stdout}")
+        if erased.returncode != 0:
+            return finish(records, args.out, erased.returncode)
 
     load_args = ["load", *selection, "-f", "-v", "-x", str(artifact)]
     for attempt in range(1, max(1, args.retries) + 1):

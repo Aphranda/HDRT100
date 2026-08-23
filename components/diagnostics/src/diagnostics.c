@@ -27,6 +27,7 @@ static volatile uint32_t s_watchdog_seen_mask;
 static uint32_t s_watchdog_expected_mask;
 static uint32_t s_watchdog_required_mask;
 static uint32_t s_watchdog_last_service_ms;
+static volatile uint32_t s_watchdog_flash_progress;
 static volatile bool s_watchdog_test_stall;
 static bool s_watchdog_stale_logged;
 static volatile uint32_t s_watchdog_status_sequence;
@@ -439,11 +440,18 @@ void diagnostics_watchdog_configure(uint32_t expected_mask)
                                (1u << DIAGNOSTICS_WATCHDOG_TASK_CORE1);
     s_watchdog_seen_mask = 0u;
     s_watchdog_last_service_ms = to_ms_since_boot(get_absolute_time());
+    __atomic_store_n(&s_watchdog_flash_progress, 0u, __ATOMIC_RELEASE);
     diagnostics_watchdog_status_write_begin();
     s_watchdog_status.last_seen_mask = 0u;
     s_watchdog_status.last_stale_mask = expected_mask;
     s_watchdog_status.gate_required_mask = s_watchdog_required_mask;
     diagnostics_watchdog_status_write_end();
+}
+
+void diagnostics_watchdog_flash_transaction_progress(void)
+{
+    (void)__atomic_fetch_add(&s_watchdog_flash_progress, 1u,
+                             __ATOMIC_RELAXED);
 }
 
 void diagnostics_watchdog_enable(uint32_t timeout_ms)

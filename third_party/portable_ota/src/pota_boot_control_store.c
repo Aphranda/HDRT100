@@ -498,8 +498,14 @@ static pota_bcb_result_t bcb_txn_fail(pota_bcb_txn_t *txn,
 static bool bcb_txn_read_page(const pota_bcb_txn_t *txn, uint32_t lane,
                               uint32_t page, uint8_t *data)
 {
-    return txn != NULL && txn->platform.read_page != NULL &&
-           txn->platform.read_page(txn->platform.context, lane, page, data,
+    /* A transaction owns a snapshot of the platform callbacks.  Readback
+     * must go through that callback/context pair; txn->platform.context is
+     * intentionally not a pota_bcb_store_t and must never be reconstructed
+     * by casting the transaction object. */
+    if (txn == NULL || txn->platform.read_page == NULL || data == NULL) {
+        return false;
+    }
+    return txn->platform.read_page(txn->platform.context, lane, page, data,
                                    POTA_BCB_PAGE_SIZE);
 }
 

@@ -19,6 +19,7 @@ compile_commands.json
 *.ninja
 .ninja_*
 
+
 # Pico SDK / embedded firmware outputs
 *.elf
 *.uf2
@@ -72,6 +73,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest-basetemp/
+.pytest-basetemp-current/
+.pytest-basetemp-final/
+.pytest-basetemp-ota/
 .mypy_cache/
 .ruff_cache/
 
