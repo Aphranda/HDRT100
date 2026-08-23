@@ -68,18 +68,18 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
 
 以下顺序是当前分支的唯一推荐执行路径；每项完成前不得把对应里程碑标记为 `[x]`。
 
-1. **M3-05 Recovery/factory 工件**：独立只读 Recovery、map/BCB/空 store baseline 和全部已编程
-   region 的 hash/recompute gate 已进入 `pico2-v2-factory-candidate`；下一步实现签名 factory package
-   验证、受控 USB/SD restore 和空片恢复 HIL。在这些 gate 齐全前不得烧录候选工件或去掉
-   `target_not_deployed` 标记。
+1. **M3-05 Recovery/factory 工件**：signed debug slot manifest、factory UF2 checksum、Recovery/
+   map/BCB baseline、受控 full erase/load/verify 和 DHRT100 空片恢复 HIL 已完成；下一步是
+   Recovery runtime factory package 验证、受控 USB/SD restore 和 C11 激活。在这些 gate 齐全前
+   继续保持 `target_not_deployed` 标记。
 2. **M4-02 durable resume 闭环**：真实 v2 `OTA_JOURNAL` backend、raw-image bounded resume core 和
    保留最新 checkpoint 的 sector rotation 已完成 host/build 接入；下一步补 package parser/image
    cursor、abort/restart policy、真实掉电/endurance 矩阵和 DHRT100 跨 reset HIL。不得用 raw host
    证据替代 package 或实板 resume 完成定义。
-3. **M3-04 信任链**：portable verifier、RP2350 软件验签、角色化 key registry、离线签名请求和
-   verified counter 到 BCB 的传递已完成；下一步建立 Boot 可重验的 slot manifest，补 OTP/key
-   binding、产品 counter 来源与泄露处置。生产 key 表为空时所有 v2 update 必须 fail closed，不能
-   进入 factory/HIL。
+3. **M3-04 信任链**：portable verifier、RP2350 软件验签、角色化 key registry、离线签名请求、
+   专用 debug profile、Boot slot-manifest 重验和 verified counter 到 BCB 的传递已完成；下一步
+   补 OTP/key binding、产品 counter 来源与泄露处置。生产 profile 仍须独立 release key，debug
+   key 不进入发布镜像；unsigned bypass 保持关闭。
 4. **M0-05 实板回退**：在 DHRT100 板上物理按住 BOOTSEL 后复位/重新上电，确认 ROM BOOTSEL 可见，
    再执行 full erase、factory UF2 load/verify 和应用复核；保留 identity、build、slot、错误队列、
    artifact hash 与原始日志。未获得 ROM BOOTSEL 证据前保持 `[!]`，不得以应用 USB 断开代替。
@@ -175,13 +175,21 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
 - [x] 定义 identity/Product Config/OTA metadata/Calibration/report index 的备份、转换和丢弃策略。
 - [x] 定义 blank/v1/unknown/v2 map 的 Boot 行为和用户可见恢复信号。
 - [x] 明确样板只走 factory full erase/reflash，不实现 App 在线原地搬迁。
+- [x] 通过固化 `tools/artifact_checksum/artifact_checksum.py` 生成并核对 v1 factory UF2 清单；
+  `size=1051648`、SHA-256=`71aaba8d...5c4313`，完整值与报告见
+  `out/flash_hil/dhrt100_v1_factory_checksum_20260823.json`。
+- [x] DHRT100 已完成 BOOTSEL/full erase/factory UF2 load/verify；恢复后 `*IDN?`、build、
+  OTA slot/result、BCB health、sensor snapshot 和 `SYST:ERR?` 均有原始记录，报告见
+  `out/flash_hil/dhrt100_m005_bootsel_restore_20260823_final.txt`、
+  `out/flash_hil/dhrt100_m005_post_restore_20260823.txt`。
 
 #### 未完成部分
 
-- [ ] 生成并核对 artifact checksum，完成至少一块样板的 BOOTSEL 恢复证据。
+- 无；M0-05 的 v1 回退工件和至少一块 DHRT100 样板恢复 gate 已完成。
 
 产物：`config/flash_migration_policy.json`、`tools/flash_map/flash_migration_check.py`、
-`tests/python/test_flash_migration_policy.py`；v1 回退 artifact/runbook 的板端恢复证据仍待完成。
+`tests/python/test_flash_migration_policy.py`；板端原始恢复记录追加在
+`HAOFV_FLASH_TASK_PROGRESS.md` 的 `FLASH-TASK-20260823-079`。
 
 ### M0 退出门禁
 
@@ -192,7 +200,8 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
 #### 未完成部分
 
 - [ ] 补齐 map/schema/wire 的真实 parser/fuzz corpus（当前正向、边界和负向 fixture 已存在）。
-- [ ] v1 回退 artifact 可由 BOOTSEL 恢复至少一块样板。
+- [x] v1 回退 artifact 可由 BOOTSEL 恢复至少一块样板（DHRT100，证据：
+  `FLASH-TASK-20260823-079`）。
 - [ ] 无目标 offset 被写入 linker/driver/tool 之外的第二事实源。
 
 ## 四、M1 FlashMap 与唯一事务 owner

@@ -16,6 +16,49 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-080 - V2 debug candidate full-erase/load 与 App 启动
+
+- 状态：早期 unsigned candidate 仅用于定位并保留为失败证据；最终 V2 debug factory 已改为
+  专用 P-256 debug key 签名，`PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY=OFF`，Boot 可重验后启动。
+  V1 继续只作为恢复/回退基线，主线转 V2。
+- 构建：新增 `tools/ota_keys/generate_ota_key.py` 固化 debug key 生成，`v2_debug` profile
+  只允许 `dev` 角色；candidate preset 默认由 CMake 自动生成并验证 signature，不依赖后续手工补签。
+  signed slot manifest header 写入 OTA_STAGE 末尾 lane，保留 map JSON 和双 lane geometry。
+- 工件：最终 V2 debug factory UF2 checksum 清单为
+  `out/flash_hil/dhrt100_v2_debug_signed_factory_checksum_20260823.json`，size=`3734528`，
+  SHA-256=`fd49081e7bef94d2991fe92ff59ea6696f9dc5565355da84e55fc200a38ad29e`；
+  `flash_consumer_check.py --allow-target-not-deployed`、build/link gates 全部通过。
+- 板端：DHRT100 完成 full erase、UF2 load 和逐区域 verify，记录为
+  `out/flash_hil/dhrt100_v2_signed_debug_restore_final_20260823.txt`；恢复后
+  `*IDN?`=`GTS,DHRT100,839E1AE79EA20F31,0.1.0`，build=`20260823145219`，
+  `SYST:OTA:STAT?`=`IDLE,2,NONE,0`，BCB health=`1,1,1,1,0,0,0`，错误队列为空。
+- OTA 闭环：同一 debug key 签名 package 在 DHRT100 上返回
+  `READY_TO_REBOOT -> BOOT -> COMMITTED`；最终 `SYST:OTA:STAT?`=`COMMITTED,1,NONE,5`，
+  `SYST:OTA:RES?`=`5,NONE,APPLIED,2,478600,3044213228`，事务/journal 无残留，证据为
+  `out/flash_hil/dhrt100_v2_signed_debug_post_ota_20260823.txt`。
+- 边界：生产 profile 仍需独立 release key、OTP/key binding 和 C11 激活；debug key 仅随
+  调试 profile 编译，发布时选择 release profile 即移除，不修改验签机制。
+
+### FLASH-TASK-20260823-079 - M0-05 v1 factory checksum 与 DHRT100 BOOTSEL 恢复
+
+- 状态：M0-05 migration/rollback 包完成；至少一块 DHRT100 已取得 BOOTSEL/full erase/factory
+  UF2 恢复证据。M0 其它 parser/fuzz 和第二事实源门禁仍按 TODO 保持未完成。
+- 工件：`out/build/pico2-release/DHRT100_FACTORY.uf2` 通过 release、FlashMap consumer、
+  migration policy gate；固化 `tools/artifact_checksum/artifact_checksum.py` 生成并验证清单，
+  `size=1051648`，SHA-256=`71aaba8decace3c5d3bce3ca0e87ecb1335f6060b38fa1e27e32afdb965c4313`，
+  `source_commit=315dc6f`，报告为 `out/flash_hil/dhrt100_v1_factory_checksum_20260823.json`。
+- 板端前置：DHRT100 `839E1AE79EA20F31` 恢复前 `*IDN?` 正常、build=`20260823115246`、
+  `SYST:ERR?`=`0,"No error"`，原始基线为 `out/flash_hil/dhrt100_m005_pre_restore_20260823.txt`。
+- 恢复：固化 `tools/picotool_flash/picotool_flash.py` 执行 `--full-erase --flash-size 0x1000000`，
+  记录 16777216 bytes 擦除、UF2 load 与三段 verify 均 `OK`；完整命令/输出为
+  `out/flash_hil/dhrt100_m005_bootsel_restore_20260823_final.txt`。
+- 板端后置：DHRT100 重新枚举，`*IDN?`=`GTS,DHRT100,839E1AE79EA20F31,0.1.0`，
+  build=`20260823130830`，`SYST:OTA:MODE?`=`DIRECT_AB,1`，BCB health=`0,0,0,0,0,4294967295,4294967295`，
+  result=`NONE`，slot=`1,0,1,0,0`，stream idle，`SYST:ERR?`=`0,"No error"`；完整报告为
+  `out/flash_hil/dhrt100_m005_post_restore_20260823.txt`。
+- 工具修复：picotool 子进程增加超时和 BOOTSEL probe；full-erase 且唯一 serial 已锁定时，允许
+  `erase -F` 自行切入 BOOTSEL，避免 V2 debug 应用不响应 `reboot -f -u` 时误报或并发写入。
+
 ### FLASH-TASK-20260823-077 - Reject unknown stream capabilities
 
 - 状态：M4-03 wire/session fail-closed 子项完成；五类真实 ingress、板端回归和物理迁移仍未完成。
