@@ -5,6 +5,7 @@
 #include "board.h"
 #include "diagnostics.h"
 #include "drv_flash_write.h"
+#include "flash_map.h"
 #include "flash_transaction_fb.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
@@ -94,13 +95,14 @@ static bool flash_transaction_release_core1(void)
     return drv_flash_write_session_end();
 }
 
-static bool flash_transaction_erase(uint32_t offset, uint32_t length)
+static __attribute__((noinline)) bool flash_transaction_erase(uint32_t offset,
+                                                              uint32_t length)
 {
     return drv_flash_erase_parked(offset, length);
 }
 
-static bool flash_transaction_program(uint32_t offset, const uint8_t *data,
-                                      uint32_t length)
+static __attribute__((noinline)) bool flash_transaction_program(
+    uint32_t offset, const uint8_t *data, uint32_t length)
 {
     return drv_flash_program_parked(offset, data, length);
 }
@@ -227,11 +229,80 @@ bool flash_transaction_ao_get_vector(flash_transaction_vector_t *vector)
     return flash_transaction_fb_get_vector(&s_flash_transaction, vector);
 }
 
+/* Completion journaling is owned by FlashTransactionAO as well.  A journal
+ * append is requested from inside the active transaction's completion lease;
+ * submitting it back through flash_transaction_fb would therefore be a
+ * re-entrant submit and fail with COMPLETION while the owner is still busy.
+ * Execute only the journal's bounded physical page/sector operation inside
+ * the already parked owner session.  No second owner, lockout lease, or
+ * completion lease is created here. */
+static __attribute__((noinline)) bool flash_transaction_ao_execute_nested_journal(
+    const flash_transaction_request_t *request,
+    flash_transaction_completion_t *completion)
+{
+    if (request == NULL || completion == NULL ||
+        request->requester != FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL ||
+        !s_flash_transaction.occupied || !s_flash_transaction.core1_parked ||
+        request->completion_lease != NULL) {
+        return false;
+    }
+
+    uint32_t absolute_offset = 0u;
+    const flash_map_access_t access = {
+        .context = FLASH_MAP_CONTEXT_APP,
+        .active_app_partition_id =
+            s_flash_transaction.active_app_partition_id,
+        .scratch_lease = false,
+    };
+    const flash_map_operation_t map_operation = FLASH_MAP_OPERATION_WRITE;
+    if ((request->operation != FLASH_TRANSACTION_OPERATION_ERASE &&
+         request->operation != FLASH_TRANSACTION_OPERATION_PROGRAM) ||
+        !flash_map_operation_allowed(&access, request->partition_id,
+                                     map_operation, request->relative_offset,
+                                     request->length, &absolute_offset)) {
+        return false;
+    }
+
+    diagnostics_watchdog_flash_transaction_progress();
+    bool ok = false;
+    if (request->operation == FLASH_TRANSACTION_OPERATION_ERASE) {
+        ok = flash_transaction_erase(absolute_offset, request->length) &&
+             flash_transaction_verify_erased(absolute_offset, request->length);
+    } else {
+        ok = request->data != NULL &&
+             flash_transaction_program(absolute_offset, request->data,
+                                        request->length) &&
+             flash_transaction_verify_programmed(absolute_offset,
+                                                 request->data,
+                                                 request->length);
+    }
+    diagnostics_watchdog_flash_transaction_progress();
+
+    (void)memset(completion, 0, sizeof(*completion));
+    completion->job_id = s_flash_transaction.vector.job_id;
+    completion->transaction_generation =
+        s_flash_transaction.vector.transaction_generation;
+    completion->processed_bytes = ok ? request->length : 0u;
+    completion->verified_bytes = ok ? request->length : 0u;
+    completion->level = ok ? FLASH_TRANSACTION_COMPLETION_COMMITTED
+                           : FLASH_TRANSACTION_COMPLETION_NONE;
+    completion->result = ok ? FLASH_TRANSACTION_RESULT_COMMITTED
+                            : FLASH_TRANSACTION_RESULT_FAILED;
+    completion->error = ok ? FLASH_TRANSACTION_ERROR_NONE
+                           : FLASH_TRANSACTION_ERROR_RAW_OPERATION;
+    return ok;
+}
+
 bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
                                   flash_transaction_completion_t *completion)
 {
-    if (request == NULL || completion == NULL ||
-        !flash_transaction_ao_submit(request)) {
+    if (request == NULL || completion == NULL) {
+        return false;
+    }
+    if (flash_transaction_ao_execute_nested_journal(request, completion)) {
+        return true;
+    }
+    if (!flash_transaction_ao_submit(request)) {
         return false;
     }
     flash_transaction_vector_t vector;

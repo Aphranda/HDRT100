@@ -125,6 +125,15 @@ static bool flash_transaction_completion_append(
         context->completion_journal_failed) {
         return !context->completion_journal_failed;
     }
+    /* ACCEPTED is published before the transaction has acquired the Flash
+     * owner and parked core1.  Persisting it through OTA_JOURNAL at this
+     * point would recurse into the still-occupied owner and falsely fail the
+     * real operation with COMPLETION.  The accepted Vector is authoritative;
+     * durable journal events begin once the owner session is active. */
+    if (event == FLASH_TRANSACTION_JOURNAL_EVENT_ACCEPTED &&
+        !context->core1_parked) {
+        return true;
+    }
     const flash_transaction_journal_record_t record = {
         .job_id = context->vector.job_id,
         .transaction_generation = context->vector.transaction_generation,
@@ -676,21 +685,13 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
         break;
     case FLASH_TRANSACTION_STATE_RELEASE:
         bool release_ok = true;
-        if (context->core1_parked) {
-            release_ok = context->platform.release_core1();
-            context->core1_parked = false;
-        }
-        if (context->resource_acquired) {
-            context->platform.release_flash();
-            context->resource_acquired = false;
-        }
-        if (!release_ok) {
-            context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
-            flash_transaction_write_begin(context);
-            context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
-            context->vector.last_error = FLASH_TRANSACTION_ERROR_RELEASE;
-            flash_transaction_write_end(context);
-        }
+
+        /* The completion journal is itself a FlashTransaction operation.  It
+         * must be appended while this transaction still owns the Flash and
+         * core1 remains parked; releasing the session first makes the nested
+         * journal path reject the append as a self-reentrant operation and
+         * incorrectly converts an otherwise successful transaction into
+         * FLASH_TRANSACTION_ERROR_COMPLETION. */
         if (context->completion_retained &&
             !context->completion_terminal_published &&
             (context->terminal_state == FLASH_TRANSACTION_STATE_COMPLETE ||
@@ -712,6 +713,43 @@ void flash_transaction_fb_service(flash_transaction_fb_t *context)
                     FLASH_TRANSACTION_ERROR_COMPLETION;
                 flash_transaction_write_end(context);
             }
+        }
+
+        if (context->core1_parked) {
+            release_ok = context->platform.release_core1();
+            if (release_ok) {
+                context->core1_parked = false;
+            }
+        }
+        if (!release_ok) {
+            context->terminal_state = FLASH_TRANSACTION_STATE_FAILED;
+            flash_transaction_write_begin(context);
+            context->vector.last_result = FLASH_TRANSACTION_RESULT_FAILED;
+            context->vector.last_error = FLASH_TRANSACTION_ERROR_RELEASE;
+            flash_transaction_write_end(context);
+
+            /* A committed record may already have been written while the
+             * owner/core1 session was valid.  Publish a corrective FAILED
+             * record before finally dropping the lease so recovery observes
+             * the release error rather than a false committed terminal. */
+            if (context->completion_retained &&
+                context->completion_terminal_published) {
+                context->completion_terminal_published = false;
+                (void)flash_transaction_completion_append(
+                    context, FLASH_TRANSACTION_JOURNAL_EVENT_FAILED);
+            }
+
+            /* Retry the release once after journaling.  A failed first
+             * attempt may have left core1 parked; do not silently discard the
+             * lease state while the corrective record is being written. */
+            if (context->core1_parked &&
+                context->platform.release_core1()) {
+                context->core1_parked = false;
+            }
+        }
+        if (context->resource_acquired) {
+            context->platform.release_flash();
+            context->resource_acquired = false;
         }
         flash_transaction_provider_release(context);
         flash_transaction_completion_release(context);
