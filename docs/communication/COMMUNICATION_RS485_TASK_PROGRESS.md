@@ -81,6 +81,8 @@ Last updated: 2026-08-24
   不向 SCPI handler 暴露 DMA/Flash 细节；主工程和 link gate 已通过。
 - 当前仅有 host/build 证据，DHRT100 尚未重新枚举，尚未宣称 DMA 双缓冲板端闭环；恢复
   BOOTSEL 后必须重新取得 COM11 transcript、`SYST:ERR?` 清零和 DMA overrun 统计证据。
+- 已补充未满 DMA buffer 的 idle-gap partial drain；短 SCPI 行不再等待整块 buffer 完成，
+  仍由 `drv_rs485_read()` 的有界 service 消费，避免 DMA 接入后控制面无响应。
 
 ## 证据索引
 
