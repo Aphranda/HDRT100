@@ -487,6 +487,7 @@ int main(void)
     uint8_t image_b[512u];
     uint8_t package[POTA_PACKAGE_HEADER_SIZE + sizeof(image_a) +
                     sizeof(image_b)];
+    uint8_t stream_package[POTA_PACKAGE_HEADER_SIZE + sizeof(image_b)];
     for (uint32_t index = 0u; index < sizeof(image_a); ++index) {
         image_a[index] = (uint8_t)(index + 0x21u);
     }
@@ -495,12 +496,16 @@ int main(void)
     }
     make_package(package, image_a, sizeof(image_a), image_b,
                  sizeof(image_b));
+    memcpy(stream_package, package, POTA_PACKAGE_HEADER_SIZE);
+    memcpy(&stream_package[POTA_PACKAGE_HEADER_SIZE], image_b,
+           sizeof(image_b));
     pota_stream_open_t package_open = open;
     package_open.session_id = 40u;
     package_open.generation = 1u;
     package_open.object_id = 21u;
-    package_open.total_size = sizeof(package);
-    package_open.package_crc32 = pota_crc32_compute(package, sizeof(package));
+    package_open.total_size = sizeof(stream_package);
+    package_open.package_crc32 =
+        pota_crc32_compute(stream_package, sizeof(stream_package));
     package_open.package_mode = true;
     package_open.package_hash[4] = 0x91u;
     pota_platform_t package_platform = platform;
@@ -538,15 +543,10 @@ int main(void)
     failed += !expect("package erase completed",
                       session.core.core.status.state ==
                           (uint32_t)POTA_STATE_RECEIVING);
-    failed += !expect("package skip A",
-                      pota_stream_session_write(
-                          &session, POTA_PACKAGE_HEADER_SIZE,
-                          &package[POTA_PACKAGE_HEADER_SIZE],
-                          sizeof(image_a)) == POTA_STREAM_RESULT_OK);
     failed += !expect("package B prefix",
                       pota_stream_session_write(
-                          &session, POTA_PACKAGE_HEADER_SIZE + sizeof(image_a),
-                          &package[POTA_PACKAGE_HEADER_SIZE + sizeof(image_a)],
+                          &session, POTA_PACKAGE_HEADER_SIZE,
+                          &stream_package[POTA_PACKAGE_HEADER_SIZE],
                           MOCK_SECTOR_SIZE) == POTA_STREAM_RESULT_OK);
     pota_stream_checkpoint_t package_checkpoint;
     uint32_t package_sequence = 0u;
@@ -555,8 +555,7 @@ int main(void)
                           &package_store, &package_checkpoint,
                           &package_sequence) == POTA_STREAM_CHECKPOINT_OK &&
                           package_checkpoint.durable_offset ==
-                              POTA_PACKAGE_HEADER_SIZE + sizeof(image_a) +
-                                  MOCK_SECTOR_SIZE &&
+                              POTA_PACKAGE_HEADER_SIZE + MOCK_SECTOR_SIZE &&
                           package_checkpoint.image_crc32 ==
                               pota_crc32_compute(image_b, MOCK_SECTOR_SIZE));
 
@@ -583,7 +582,7 @@ int main(void)
                       pota_stream_session_write(
                           &package_recovered,
                           package_checkpoint.durable_offset,
-                          &package[package_checkpoint.durable_offset],
+                          &stream_package[package_checkpoint.durable_offset],
                           MOCK_SECTOR_SIZE) ==
                           POTA_STREAM_RESULT_INVALID_STATE);
     uint8_t bad_header[POTA_PACKAGE_HEADER_SIZE];
@@ -665,7 +664,7 @@ int main(void)
                       pota_stream_session_write(
                           &package_recovered,
                           package_checkpoint.durable_offset,
-                          &package[package_checkpoint.durable_offset],
+                          &stream_package[package_checkpoint.durable_offset],
                           MOCK_SECTOR_SIZE) == POTA_STREAM_RESULT_OK);
     failed += !expect("package close",
                       pota_stream_session_close(&package_recovered) ==

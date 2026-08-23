@@ -14,6 +14,7 @@ from tools.ota_stream_send.ota_stream_send import (
     parse_journal_status,
     parse_stream_status,
     scpi_block,
+    selected_package_object,
     stream_chunks,
 )
 
@@ -54,15 +55,19 @@ def test_scpi_block_and_status_parser() -> None:
 
 def test_package_chunks_split_at_unaligned_image_boundaries() -> None:
     package = bytearray(512 + 400 + 528)
+    struct.pack_into("<4I", package, 0, 0x474B5054, 2, 512, len(package))
     struct.pack_into("<I", package, 20, 2)
     struct.pack_into("<6I", package, 192, 1, 512, 400, 1, 2, 0)
     struct.pack_into("<6I", package, 224, 2, 912, 528, 3, 4, 0)
-    chunks = stream_chunks(bytes(package), 0, 512, True)
+    selected = selected_package_object(bytes(package), 2)
+    assert len(selected) == 512 + 528
+    assert selected[512:] == package[912:]
+    chunks = stream_chunks(selected, 0, 512, True)
     assert [(offset, len(chunk)) for offset, chunk in chunks] == [
-        (0, 512), (512, 400), (912, 512), (1424, 16)]
-    resumed = stream_chunks(bytes(package), 912, 256, True)
+        (0, 512), (512, 512), (1024, 16)]
+    resumed = stream_chunks(selected, 512, 256, True)
     assert [(offset, len(chunk)) for offset, chunk in resumed] == [
-        (912, 256), (1168, 256), (1424, 16)]
+        (512, 256), (768, 256), (1024, 16)]
 
 
 def test_partition_id_comes_from_canonical_map() -> None:

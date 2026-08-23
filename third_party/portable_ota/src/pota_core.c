@@ -125,8 +125,10 @@ static pota_error_t pota_accept_package_header(
     };
     pota_error_t error =
         pota_package_parse_header(data, size, &constraints, &manifest);
-    if (error != POTA_ERR_NONE || manifest.package_size != begin->size ||
-        (manifest.package_crc32 != 0u &&
+    if (error != POTA_ERR_NONE ||
+        (!begin->selected_object_mode &&
+         manifest.package_size != begin->size) ||
+        (!begin->selected_object_mode && manifest.package_crc32 != 0u &&
          manifest.package_crc32 != begin->crc32)) {
         return error == POTA_ERR_NONE ? POTA_ERR_BAD_HEADER : error;
     }
@@ -144,7 +146,13 @@ static pota_error_t pota_accept_package_header(
         return image == NULL ? POTA_ERR_BAD_HEADER : POTA_ERR_IMAGE_TOO_LARGE;
     }
 
-    context->selected_image_offset = image->offset;
+    if (begin->selected_object_mode &&
+        begin->size != POTA_PACKAGE_HEADER_SIZE + image->size) {
+        return POTA_ERR_BAD_HEADER;
+    }
+    context->selected_image_offset = begin->selected_object_mode
+                                         ? POTA_PACKAGE_HEADER_SIZE
+                                         : image->offset;
     context->selected_image_size = image->size;
     context->selected_image_crc32 = image->crc32;
     context->selected_security_counter = manifest.security_counter;
@@ -277,6 +285,7 @@ pota_error_t pota_resume_raw(pota_context_t *context,
     }
 
     context->package_mode = false;
+    context->selected_object_mode = false;
     context->package_header_received = false;
     context->target_slot = pota_select_target_slot(context);
     const pota_partition_t *partition =
@@ -331,6 +340,7 @@ pota_error_t pota_resume_package(pota_context_t *context,
 {
     if (context == NULL || begin == NULL || header == NULL ||
         begin->size == 0u || !begin->package_mode ||
+        !begin->selected_object_mode ||
         header_size != POTA_PACKAGE_HEADER_SIZE ||
         durable_offset < POTA_PACKAGE_HEADER_SIZE ||
         durable_offset > begin->size ||
@@ -409,6 +419,7 @@ pota_error_t pota_core_begin_action(pota_context_t *context, const void *argumen
     }
 
     context->package_mode = begin->package_mode;
+    context->selected_object_mode = begin->selected_object_mode;
     context->package_header_received = false;
     context->raw_resume_active = false;
     context->raw_resume_erasing_tail = false;
@@ -571,6 +582,7 @@ pota_error_t pota_core_write_action(pota_context_t *context, const void *argumen
             .size = context->status.expected_size,
             .crc32 = context->status.crc32_expected,
             .package_mode = true,
+            .selected_object_mode = context->selected_object_mode,
         };
         const pota_error_t error =
             pota_accept_package_header(context, &begin, data, size);

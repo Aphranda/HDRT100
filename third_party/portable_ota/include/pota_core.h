@@ -8,6 +8,7 @@ typedef struct {
     pota_platform_t platform;
     pota_status_t status;
     bool package_mode;
+    bool selected_object_mode;
     bool package_header_received;
     pota_slot_t target_slot;
     uint32_t target_offset;
@@ -34,6 +35,7 @@ typedef struct {
     uint32_t size;
     uint32_t crc32;
     bool package_mode;
+    bool selected_object_mode;
 } pota_begin_t;
 
 typedef struct {

@@ -29,6 +29,8 @@ STREAM_STATE_READY_TO_REBOOT = 3
 STREAM_STATE_FAILED = 5
 DEFAULT_BLOCK_SIZE = 512
 PACKAGE_HEADER_SIZE = 512
+PACKAGE_MAGIC = 0x474B5054
+PACKAGE_VERSION = 2
 PACKAGE_IMAGE_TABLE_OFFSET = 192
 PACKAGE_IMAGE_ENTRY_SIZE = 32
 PACKAGE_MAX_IMAGES = 2
@@ -52,19 +54,7 @@ def stream_chunks(data: bytes, start: int, block_size: int,
     if package_mode:
         if len(data) < PACKAGE_HEADER_SIZE:
             raise ValueError("package is smaller than its manifest header")
-        image_count = struct.unpack_from("<I", data, 20)[0]
-        if image_count == 0 or image_count > PACKAGE_MAX_IMAGES:
-            raise ValueError("invalid package image count")
         boundaries.add(PACKAGE_HEADER_SIZE)
-        for index in range(image_count):
-            cursor = PACKAGE_IMAGE_TABLE_OFFSET + index * PACKAGE_IMAGE_ENTRY_SIZE
-            image_offset, image_size = struct.unpack_from("<2I", data,
-                                                          cursor + 4)
-            image_end = image_offset + image_size
-            if image_offset < PACKAGE_HEADER_SIZE or image_end > len(data):
-                raise ValueError("invalid package image range")
-            boundaries.add(image_offset)
-            boundaries.add(image_end)
     ordered = sorted(boundary for boundary in boundaries if boundary >= start)
     chunks: list[tuple[int, bytes]] = []
     offset = start
@@ -74,6 +64,33 @@ def stream_chunks(data: bytes, start: int, block_size: int,
             chunks.append((offset, data[offset:end]))
             offset = end
     return chunks
+
+
+def selected_package_object(package: bytes, target_slot: int) -> bytes:
+    if len(package) < PACKAGE_HEADER_SIZE or target_slot not in (1, 2):
+        raise ValueError("invalid package or target slot")
+    magic, version, header_size, package_size, _, image_count = \
+        struct.unpack_from("<6I", package, 0)
+    if magic != PACKAGE_MAGIC or version != PACKAGE_VERSION or \
+            header_size != PACKAGE_HEADER_SIZE or package_size != len(package) or \
+            image_count == 0 or image_count > PACKAGE_MAX_IMAGES:
+        raise ValueError("invalid package header")
+    selected: bytes | None = None
+    for index in range(image_count):
+        cursor = PACKAGE_IMAGE_TABLE_OFFSET + index * PACKAGE_IMAGE_ENTRY_SIZE
+        slot, image_offset, image_size = struct.unpack_from("<3I", package,
+                                                            cursor)
+        image_end = image_offset + image_size
+        if slot not in (1, 2) or image_size == 0 or \
+                image_offset < PACKAGE_HEADER_SIZE or image_end > len(package):
+            raise ValueError("invalid package image range")
+        if slot == target_slot:
+            if selected is not None:
+                raise ValueError("duplicate target image")
+            selected = package[image_offset:image_end]
+    if selected is None:
+        raise ValueError("target image missing from package")
+    return package[:PACKAGE_HEADER_SIZE] + selected
 
 
 def read_line(ser: serial.Serial, timeout_s: float) -> str:
@@ -234,9 +251,11 @@ def send(args: argparse.Namespace) -> int:
             image_path = args.image_a if target_slot == 1 else args.image_b
         if image_path is None:
             raise ValueError("no image selected")
-        image = image_path.read_bytes()
-        if not image:
+        source_image = image_path.read_bytes()
+        if not source_image:
             raise ValueError("image is empty")
+        image = selected_package_object(source_image, target_slot) \
+            if args.package else source_image
         identity = hashlib.sha256(idn.encode("utf-8")).digest()[:16]
         map_version = parse_first_uint(query(
             ser, "SYST:DIAG:FLASH:MAP? 0", args.timeout))

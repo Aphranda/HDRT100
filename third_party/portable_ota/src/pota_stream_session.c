@@ -154,6 +154,7 @@ pota_stream_result_t pota_stream_session_open(
         .size = open->total_size,
         .crc32 = open->package_crc32,
         .package_mode = open->package_mode,
+        .selected_object_mode = open->package_mode,
     };
 
     if (session->checkpoint_recover != NULL) {
@@ -268,6 +269,7 @@ pota_stream_result_t pota_stream_session_write(
             .size = session->open.total_size,
             .crc32 = session->open.package_crc32,
             .package_mode = true,
+            .selected_object_mode = true,
         };
         if (pota_session_resume_package(
                 &session->core, &begin, data, size,
@@ -314,10 +316,11 @@ pota_stream_result_t pota_stream_session_write(
         const uint32_t image_size =
             session->core.core.selected_image_received_size;
         image_crc32 = session->core.core.selected_image_crc32_running;
-        checkpoint_boundary = checkpoint_boundary || image_size == 0u ||
-            image_size == session->core.core.selected_image_size ||
-            (image_size %
-             session->core.core.platform.info.flash_sector_size) == 0u;
+        checkpoint_boundary = checkpoint_boundary ||
+            (image_size != 0u &&
+             (image_size == session->core.core.selected_image_size ||
+              (image_size %
+               session->core.core.platform.info.flash_sector_size) == 0u));
     } else {
         checkpoint_boundary = checkpoint_boundary ||
             (next_offset %
