@@ -16,6 +16,34 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-041 - RP2350 manifest verifier 与 verified counter 闭环
+
+- 状态：M3-04 完成 RP2350 软件验签、角色化公钥 registry、离线签名工件和 verified counter 到
+  pending BCB 的 host/build 切片；M3-04、M3、M4 和 M1 的退出门禁继续保持未完成，v2 deployment
+  state 保持 `target_not_deployed`。
+- 代码：新增 Mbed TLS SHA-256 + ECDSA P-256 verifier，接受 uncompressed SEC1 公钥与 raw
+  `r || s` 签名并强制 low-S；registry 按 dev/release/factory role 选择 key，未知、重复、撤销和
+  role mismatch 均 fail closed。portable core 只在 package header 完成 identity/range/counter/
+  signature 验证后保存 manifest counter，并在 mark-pending 时传入 BCB；普通 metadata 更新继承
+  最新 counter，避免 confirm/copy/repair 写回占位值。启用 `require_signature` 后 raw begin、raw
+  resume 和 stream raw OPEN 均在任何擦写前拒绝。
+- 离线工件：v2 默认不生成空签名 package；只有显式 counter/key ID 且 key 已登记、未撤销、角色
+  允许时才生成 canonical transcript 与 signing request，外部签名通过登记公钥复验后才生成
+  package。仓库不生成、不读取或保存私钥；生产 registry 当前为空，因此 v2 update 默认拒绝。
+- 验证：portable OTA runner 和全量 host runner 通过，后者为本次快照 `31/31`；DHRT100 v1 release
+  与 v2 factory-candidate 完整构建通过，App A/B、Boot、Recovery link contract 通过，v1
+  `release_check=OK`。v2 默认构建确认不产生 unsigned update package。固定 golden vector 仅含
+  公钥/签名，不含私钥。
+- 提交与推送：`355e3ee`、`7c2ac80`、`7c6386a` 和 `3750aeb` 已推送
+  `origin/feature/rtos-multicore-haofv`；Registry 状态未改变。
+- Boot 审计边界：Boot 当前只消费 slot vector 与 CRC；metadata 中预留的 slot SHA-256 尚无 staging
+  writer，签名 manifest 也未作为 Boot 可重验对象持久化。因此本切片不能解释为 Boot image trust
+  chain 完成。下一步先建立 slot manifest 的 durable owner/schema，再让 Boot 在切换 active slot 前
+  重验 identity、run offset、image hash、signature、key role 和 BCB counter。
+- HIL 边界：本轮没有烧录或写入 DHRT100，且禁止烧录
+  `DHRT100_V2_CANDIDATE_FACTORY.uf2`；OTP/key binding、受控 Recovery、BOOTSEL rollback 和
+  DHRT100 空片/A-B/revert HIL 齐全前不得改变该限制。
+
 ### FLASH-TASK-20260823-040 - Raw image durable resume core
 
 - 状态：M4-02 完成 raw-image durable resume 的 host/build 切片；M4-02、M4、M3 和 M1 的退出门禁

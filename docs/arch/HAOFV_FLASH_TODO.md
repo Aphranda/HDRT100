@@ -76,8 +76,10 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
    已完成 host/build 接入；下一步补 package parser/image cursor、journal sector rotation、abort/
    restart policy、真实掉电矩阵和 DHRT100 跨 reset HIL。不得用 raw host 证据替代 package 或实板
    resume 完成定义。
-3. **M3-04 信任链**：确定 portable verifier、RP2350 key/OTP binding、key ID/counter 来源与离线签名
-   工具；签名为空的候选 update package 只能作为布局测试工件，不能进入 factory/HIL。
+3. **M3-04 信任链**：portable verifier、RP2350 软件验签、角色化 key registry、离线签名请求和
+   verified counter 到 BCB 的传递已完成；下一步建立 Boot 可重验的 slot manifest，补 OTP/key
+   binding、产品 counter 来源与泄露处置。生产 key 表为空时所有 v2 update 必须 fail closed，不能
+   进入 factory/HIL。
 4. **M0-05 实板回退**：在 DHRT100 板上物理按住 BOOTSEL 后复位/重新上电，确认 ROM BOOTSEL 可见，
    再执行 full erase、factory UF2 load/verify 和应用复核；保留 identity、build、slot、错误队列、
    artifact hash 与原始日志。未获得 ROM BOOTSEL 证据前保持 `[!]`，不得以应用 USB 断开代替。
@@ -420,14 +422,20 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 ### M3-04 Manifest、signature 与 anti-rollback
 
-- [ ] 选定算法/库和 RP2350 OTP/key capability；定义 STM32 portable boundary。
-- [ ] dev/release/factory key 分离，定义 key ID、rotation/revocation 和泄露处置。
+- [~] 已选定 Mbed TLS SHA-256 + ECDSA P-256，portable verifier 通过 crypto callback 与平台解耦；
+  RP2350 OTP binding、STM32 实际 crypto port 和产品 counter source 尚未完成。
+- [~] key registry 已分离 dev/release/factory role，并拒绝未知、重复、撤销和角色不允许的 key；
+  生产 key 表保持空表 fail closed，rotation ceremony、OTP 灌装和泄露处置 runbook 尚未完成。
 - [~] 固定 manifest extension parser/packager boundary：支持 security counter、key ID、required
-  signature 和外部 verifier callback；缺少 verifier、签名或 counter 回退时 fail closed。RP2350
-  实际签名算法、OTP/key binding、rotation/revocation 和 product counter 来源仍待完成。
+  signature 和外部 verifier callback；RP2350 已接入 low-S P-256 verifier，缺少 verifier、签名或
+  counter 回退时 fail closed。验签后的 counter 已传入 pending BCB；v2 签名策略拒绝 raw begin/
+  resume。Boot 可重验 slot manifest、OTP/key binding 和 product counter 来源仍待完成。
 - [~] portable BCB primitive 已拒绝低于当前有效记录的 `security_counter`（证据：
-  `FLASH-TASK-20260823-023`）；掉电安全计数、OTP 绑定、签名 manifest 和产品级 counter 来源仍待完成。
-- [ ] 离线 release tool 输出 manifest/hash/signature/build ID/SBOM，不泄露 private key。
+  `FLASH-TASK-20260823-023`）；metadata pending 写入已保存 verified counter，confirm/copy/repair 继承
+  最新 counter，证据见 `FLASH-TASK-20260823-041`。掉电矩阵、OTP 绑定和产品 counter 来源仍待完成。
+- [~] 离线工具可输出 canonical signing transcript/request，并只接受外部 raw P-256 签名；私钥不
+  生成、不读取、不入库，未配置 counter/key 时不生成 v2 package。SBOM、release ceremony 和
+  工厂签名流水线尚未完成。
 
 ### M3-05 Recovery 与 factory artifact
 
