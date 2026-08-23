@@ -78,6 +78,13 @@ int main(void)
     failed += expect_true("run offset vector",
                           pota_image_validate_app_vector(0u, 0x200u, 0x10000u, &constraints));
 
+    failed += expect_false("xip base arithmetic overflow",
+                           pota_image_validate_app_vector(
+                               0u, 0x200u, UINT32_MAX, &constraints));
+    failed += expect_false("image window arithmetic overflow",
+                           pota_image_validate_app_vector(
+                               0u, UINT32_MAX, 0u, &constraints));
+
     failed += expect_false("null constraints",
                            pota_image_validate_app_vector(0u, 0x200u, 0u, NULL));
 

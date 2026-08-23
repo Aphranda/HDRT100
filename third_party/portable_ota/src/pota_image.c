@@ -12,6 +12,14 @@ bool pota_image_validate_app_vector(uint32_t image_offset,
         return false;
     }
 
+    /* Treat all address arithmetic as a trust boundary.  A malformed
+     * manifest must not wrap the XIP window and accidentally make a reset
+     * vector from another region appear valid. */
+    if (run_offset > UINT32_MAX - constraints->xip_base ||
+        image_size > UINT32_MAX - (constraints->xip_base + run_offset)) {
+        return false;
+    }
+
     uint32_t vector[2];
     if (!constraints->flash_read(image_offset, vector, sizeof(vector))) {
         return false;

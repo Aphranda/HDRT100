@@ -849,7 +849,10 @@ static void test_durable_terminal_replay_skips_raw_io(void)
     assert(s_program_count == 0u);
     assert(s_verify_programmed_count == 0u);
     assert(s_park_count == 0u);
-    assert(s_completion_append_count == 3u);
+    /* init_context() models a process/reset boundary and clears the host
+     * journal counters.  A committed replay is a no-op: it must not append a
+     * duplicate terminal record after reset. */
+    assert(s_completion_append_count == 0u);
 }
 
 static void test_terminal_job_id_replay_is_rejected(void)
