@@ -21,6 +21,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, Path]]:
             {
                 "deployment_state": "target_not_deployed",
                 "map_version": 2,
+                "geometry": {"xip_base": 0x10000000},
                 "partitions": [
                     {"id": item, "offset": index * 0x1000, "size": 0x2000}
                     for index, item in enumerate(
@@ -166,4 +167,3 @@ def test_factory_package_requires_full_erase_and_all_regions(tmp_path: Path) -> 
             region_paths=payloads,
             key_id=7,
         )
-

@@ -218,6 +218,9 @@ def build_factory_package(
         "schema_version": 1,
         "product": product,
         "map_version": _u32(manifest.get("map_version"), "map_version"),
+        "xip_base": _u32(
+            (manifest.get("geometry") or {}).get("xip_base"), "geometry.xip_base"
+        ),
         "deployment_state": manifest["deployment_state"],
         "full_erase_required": True,
         "erased_store_partitions": report.get("erased_store_partitions", []),
@@ -331,10 +334,12 @@ def verify_factory_package(
     return {
         "product": descriptor.get("product"),
         "map_version": header[8],
+        "xip_base": descriptor.get("xip_base"),
         "key_id": key_id,
         "region_count": len(regions),
         "package_size": len(package),
         "package_sha256": hashlib.sha256(package).hexdigest(),
+        "regions": regions,
     }
 
 
