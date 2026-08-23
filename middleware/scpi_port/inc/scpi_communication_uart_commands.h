@@ -5,6 +5,8 @@
 #include "scpi_port_internal.h"
 
 scpi_result_t scpi_cmd_uart_baud_q(scpi_t *context);
+scpi_result_t scpi_cmd_uart_mode(scpi_t *context);
+scpi_result_t scpi_cmd_uart_mode_q(scpi_t *context);
 scpi_result_t scpi_cmd_uart_format_q(scpi_t *context);
 scpi_result_t scpi_cmd_uart_state_q(scpi_t *context);
 scpi_result_t scpi_cmd_uart_status_q(scpi_t *context);
@@ -15,6 +17,8 @@ scpi_result_t scpi_cmd_uart_error_q(scpi_t *context);
 #define SCPI_COMMUNICATION_UART_COMMANDS \
     {.pattern = "COMMunication:SERial:UART#:BAUD", .callback = scpi_port_result_accepted}, \
     {.pattern = "COMMunication:SERial:UART#:BAUD?", .callback = scpi_cmd_uart_baud_q}, \
+    {.pattern = "COMMunication:SERial:UART#:MODE", .callback = scpi_cmd_uart_mode}, \
+    {.pattern = "COMMunication:SERial:UART#:MODE?", .callback = scpi_cmd_uart_mode_q}, \
     {.pattern = "COMMunication:SERial:UART#:FORMat", .callback = scpi_port_result_accepted}, \
     {.pattern = "COMMunication:SERial:UART#:FORMat?", .callback = scpi_cmd_uart_format_q}, \
     {.pattern = "COMMunication:SERial:UART#:STATe", .callback = scpi_port_result_accepted}, \
