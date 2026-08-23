@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-tdma-pio-spi-ring-adapter-tests",
+    [string]$BuildDir = "out/pytest/build-tdma-pio-spi-ring-adapter-tests",
     [string]$HostGccDir = "",
     [string]$ArmGcc = ""
 )

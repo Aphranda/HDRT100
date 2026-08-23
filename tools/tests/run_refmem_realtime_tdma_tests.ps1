@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-refmem-realtime-tdma-tests",
+    [string]$BuildDir = "out/pytest/build-refmem-realtime-tdma-tests",
     [string]$ArmGcc = ""
 )
 

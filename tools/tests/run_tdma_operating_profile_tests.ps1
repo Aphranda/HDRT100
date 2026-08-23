@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-tdma-operating-profile-tests",
+    [string]$BuildDir = "out/pytest/build-tdma-operating-profile-tests",
     [string]$HostGccDir = ""
 )
 

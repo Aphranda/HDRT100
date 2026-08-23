@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-flash-transaction-tests",
+    [string]$BuildDir = "out/pytest/build-flash-transaction-tests",
     [string]$HostGccDir = ""
 )
 

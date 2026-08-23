@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-refmem-slot-claim-tests",
+    [string]$BuildDir = "out/pytest/build-refmem-slot-claim-tests",
     [string]$ArmGcc = ""
 )
 

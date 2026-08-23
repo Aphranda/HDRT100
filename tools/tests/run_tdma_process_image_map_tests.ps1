@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-tdma-process-image-map-tests",
+    [string]$BuildDir = "out/pytest/build-tdma-process-image-map-tests",
     [string]$HostGccDir = "",
     [string]$ArmGcc = ""
 )

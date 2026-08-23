@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-vdc-domain-tests",
+    [string]$BuildDir = "out/pytest/build-vdc-domain-tests",
     [string]$HostGccDir = "",
     [string]$ArmGcc = ""
 )

@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-refmem-command-tests",
+    [string]$BuildDir = "out/pytest/build-refmem-command-tests",
     [string]$ArmGcc = ""
 )
 

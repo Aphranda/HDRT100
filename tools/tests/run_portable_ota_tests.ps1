@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-portable-ota-tests",
+    [string]$BuildDir = "out/pytest/build-portable-ota-tests",
     [string]$ArmGcc = ""
 )
 

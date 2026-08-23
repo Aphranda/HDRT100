@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-drv-flash-lockout-tests",
+    [string]$BuildDir = "out/pytest/build-drv-flash-lockout-tests",
     [string]$ArmGcc = ""
 )
 

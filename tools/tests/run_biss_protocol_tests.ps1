@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-biss-protocol-tests",
+    [string]$BuildDir = "out/pytest/build-biss-protocol-tests",
     [string]$ArmGcc = ""
 )
 

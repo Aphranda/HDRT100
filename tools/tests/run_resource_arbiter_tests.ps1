@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-resource-arbiter-tests",
+    [string]$BuildDir = "out/pytest/build-resource-arbiter-tests",
     [string]$HostGccDir = "D:\Embedded\GCC\mingw64\bin"
 )
 

@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-drv-flash-geometry-tests",
+    [string]$BuildDir = "out/pytest/build-drv-flash-geometry-tests",
     [string]$HostGccDir = ""
 )
 

@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-ota-journal-tests",
+    [string]$BuildDir = "out/pytest/build-ota-journal-tests",
     [string]$HostGccDir = ""
 )
 

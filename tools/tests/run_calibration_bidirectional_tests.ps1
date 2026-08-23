@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build-calibration-bidirectional-tests",
+    [string]$BuildDir = "out/pytest/build-calibration-bidirectional-tests",
     [string]$HostGccDir = "",
     [string]$ArmGcc = ""
 )
