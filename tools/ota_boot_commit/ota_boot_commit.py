@@ -85,7 +85,14 @@ def run(args: argparse.Namespace) -> int:
         time.sleep(args.boot_wait)
 
     with open_port(args.port, args.baud, args.reopen_timeout, args.settle, args.timeout) as ser:
-        commands = ["SYSTem:FW:BUILD?", "SYSTem:OTA:SLOT?"]
+        commands = [
+            "SYSTem:FW:BUILD?",
+            "SYSTem:OTA:SLOT?",
+            "SYSTem:OTA:RES?",
+            "SYSTem:OTA:TXN?",
+            "SYSTem:OTA:JOUR?",
+            "SYSTem:OTA:STAT?",
+        ]
         if not args.no_commit:
             commands.append("SYSTem:OTA:COMMit")
         commands.extend(["SYSTem:OTA:SLOT?", "SYSTem:ERRor?"])
