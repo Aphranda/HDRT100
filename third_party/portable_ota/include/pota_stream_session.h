@@ -70,6 +70,8 @@ typedef struct {
     pota_stream_checkpoint_policy_t checkpoint_policy;
     uint32_t last_checkpoint_offset;
     bool resume_pending;
+    bool resume_header_pending;
+    pota_stream_checkpoint_t resume_checkpoint;
 } pota_stream_session_t;
 
 bool pota_stream_session_init(pota_stream_session_t *session,

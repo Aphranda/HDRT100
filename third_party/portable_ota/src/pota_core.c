@@ -96,9 +96,62 @@ static void pota_finish_raw_resume(pota_context_t *context)
     context->raw_resume_erasing_tail = false;
     context->status.state = (uint32_t)POTA_STATE_RECEIVING;
     context->status.received_size = context->raw_resume_durable_offset;
-    context->status.programmed_size = context->raw_resume_durable_offset;
-    context->status.crc32_running = context->raw_resume_scan_crc32;
+    context->status.programmed_size = context->package_mode
+                                          ? context->selected_image_received_size
+                                          : context->raw_resume_durable_offset;
+    context->status.crc32_running = context->raw_resume_durable_crc32;
     pota_update_progress(context);
+}
+
+static pota_error_t pota_accept_package_header(
+    pota_context_t *context,
+    const pota_begin_t *begin,
+    const uint8_t *data,
+    uint32_t size)
+{
+    if (context == NULL || begin == NULL || data == NULL ||
+        size != POTA_PACKAGE_HEADER_SIZE) {
+        return POTA_ERR_BAD_ARGUMENT;
+    }
+    pota_package_manifest_t manifest;
+    const pota_package_constraints_t constraints = {
+        .product_id = context->platform.info.product_id,
+        .hardware_id = context->platform.info.hardware_id,
+        .bootloader_version = context->platform.info.bootloader_version,
+        .minimum_security_counter = context->platform.info.security_counter,
+        .require_signature = context->platform.info.require_signature,
+        .verify_signature = context->platform.info.verify_manifest_signature,
+        .verify_context = context->platform.info.verify_manifest_context,
+    };
+    pota_error_t error =
+        pota_package_parse_header(data, size, &constraints, &manifest);
+    if (error != POTA_ERR_NONE || manifest.package_size != begin->size ||
+        (manifest.package_crc32 != 0u &&
+         manifest.package_crc32 != begin->crc32)) {
+        return error == POTA_ERR_NONE ? POTA_ERR_BAD_HEADER : error;
+    }
+
+    const pota_slot_t image_slot =
+        context->target_run_offset == context->platform.info.slot_a.run_offset
+            ? POTA_SLOT_A
+            : context->target_slot;
+    const pota_package_image_t *image =
+        pota_package_find_image(&manifest, image_slot);
+    const pota_partition_t *partition =
+        pota_partition_for_slot(context, context->target_slot);
+    if (image == NULL || partition == NULL || image->size > partition->size ||
+        image->run_offset != context->target_run_offset) {
+        return image == NULL ? POTA_ERR_BAD_HEADER : POTA_ERR_IMAGE_TOO_LARGE;
+    }
+
+    context->selected_image_offset = image->offset;
+    context->selected_image_size = image->size;
+    context->selected_image_crc32 = image->crc32;
+    context->selected_security_counter = manifest.security_counter;
+    context->target_erase_size =
+        pota_align_up(image->size, context->platform.info.flash_sector_size);
+    context->package_header_received = true;
+    return POTA_ERR_NONE;
 }
 
 static pota_error_t pota_erase_one_step(pota_context_t *context)
@@ -250,6 +303,8 @@ pota_error_t pota_resume_raw(pota_context_t *context,
     context->raw_resume_erasing_tail = false;
     context->raw_resume_durable_offset = durable_offset;
     context->raw_resume_durable_crc32 = durable_crc32;
+    context->resume_image_durable_size = durable_offset;
+    context->resume_image_crc32 = durable_crc32;
     context->raw_resume_scan_offset = 0u;
     context->raw_resume_scan_crc32 = 0u;
 
@@ -262,6 +317,77 @@ pota_error_t pota_resume_raw(pota_context_t *context,
     context->status.crc32_running = 0u;
     context->status.error_code = (uint32_t)POTA_ERR_NONE;
     context->status.last_result = (uint32_t)POTA_RESULT_ACCEPTED;
+    pota_update_progress(context);
+    return POTA_ERR_NONE;
+}
+
+pota_error_t pota_resume_package(pota_context_t *context,
+                                 const pota_begin_t *begin,
+                                 const uint8_t *header,
+                                 uint32_t header_size,
+                                 uint32_t durable_offset,
+                                 uint32_t durable_crc32,
+                                 uint32_t image_crc32)
+{
+    if (context == NULL || begin == NULL || header == NULL ||
+        begin->size == 0u || !begin->package_mode ||
+        header_size != POTA_PACKAGE_HEADER_SIZE ||
+        durable_offset < POTA_PACKAGE_HEADER_SIZE ||
+        durable_offset > begin->size ||
+        (pota_state_t)context->status.state != POTA_STATE_IDLE) {
+        return POTA_ERR_BAD_ARGUMENT;
+    }
+    if (!pota_required_ops_are_present(context) ||
+        context->platform.ops.flash_read == NULL ||
+        !pota_flash_geometry_is_valid(context)) {
+        pota_core_set_failed(context, POTA_ERR_BAD_ARGUMENT);
+        return POTA_ERR_BAD_ARGUMENT;
+    }
+
+    pota_error_t error = pota_core_begin_action(context, begin);
+    if (error != POTA_ERR_NONE) {
+        return error;
+    }
+    error = pota_accept_package_header(context, begin, header, header_size);
+    if (error != POTA_ERR_NONE) {
+        pota_core_set_failed(context, error);
+        return error;
+    }
+
+    uint32_t image_durable_size = 0u;
+    if (durable_offset > context->selected_image_offset) {
+        image_durable_size = durable_offset - context->selected_image_offset;
+        if (image_durable_size > context->selected_image_size) {
+            image_durable_size = context->selected_image_size;
+        }
+    }
+    if ((image_durable_size == 0u && image_crc32 != 0u) ||
+        (image_durable_size != 0u &&
+         image_durable_size != context->selected_image_size &&
+         (image_durable_size % context->platform.info.flash_sector_size) !=
+             0u)) {
+        pota_core_set_failed(context, POTA_ERR_BAD_ARGUMENT);
+        return POTA_ERR_BAD_ARGUMENT;
+    }
+
+    context->selected_image_received_size = image_durable_size;
+    context->selected_image_crc32_running = 0u;
+    context->target_erase_offset =
+        image_durable_size == context->selected_image_size
+            ? context->target_erase_size
+            : image_durable_size;
+    context->raw_resume_active = true;
+    context->raw_resume_erasing_tail = false;
+    context->raw_resume_durable_offset = durable_offset;
+    context->raw_resume_durable_crc32 = durable_crc32;
+    context->resume_image_durable_size = image_durable_size;
+    context->resume_image_crc32 = image_crc32;
+    context->raw_resume_scan_offset = 0u;
+    context->raw_resume_scan_crc32 = 0u;
+    context->status.state = (uint32_t)POTA_STATE_CHECK_PERMISSION;
+    context->status.received_size = 0u;
+    context->status.programmed_size = 0u;
+    context->status.crc32_running = 0u;
     pota_update_progress(context);
     return POTA_ERR_NONE;
 }
@@ -341,14 +467,30 @@ pota_error_t pota_core_service_action(pota_context_t *context, const void *argum
     }
 
     if (context->raw_resume_active) {
-        const uint32_t remaining = context->raw_resume_durable_offset -
+        const uint32_t remaining = context->resume_image_durable_size -
                                    context->raw_resume_scan_offset;
         const uint32_t chunk = remaining > POTA_MAX_DATA_BLOCK_SIZE
                                    ? POTA_MAX_DATA_BLOCK_SIZE
                                    : remaining;
+        if (chunk == 0u) {
+            context->raw_resume_active = false;
+            if (context->raw_resume_scan_crc32 !=
+                context->resume_image_crc32) {
+                pota_core_set_failed(context, POTA_ERR_CRC);
+                return POTA_ERR_CRC;
+            }
+            context->selected_image_crc32_running =
+                context->raw_resume_scan_crc32;
+            if (context->target_erase_offset < context->target_erase_size) {
+                context->raw_resume_erasing_tail = true;
+                context->status.state = (uint32_t)POTA_STATE_ERASE_SLOT;
+            } else {
+                pota_finish_raw_resume(context);
+            }
+            return POTA_ERR_NONE;
+        }
         uint8_t buffer[POTA_MAX_DATA_BLOCK_SIZE];
-        if (chunk == 0u ||
-            !context->platform.ops.flash_read(
+        if (!context->platform.ops.flash_read(
                 context->target_offset + context->raw_resume_scan_offset,
                 buffer, chunk)) {
             context->raw_resume_active = false;
@@ -363,13 +505,15 @@ pota_error_t pota_core_service_action(pota_context_t *context, const void *argum
         pota_yield_or_delay(context);
 
         if (context->raw_resume_scan_offset ==
-            context->raw_resume_durable_offset) {
+            context->resume_image_durable_size) {
             context->raw_resume_active = false;
             if (context->raw_resume_scan_crc32 !=
-                context->raw_resume_durable_crc32) {
+                context->resume_image_crc32) {
                 pota_core_set_failed(context, POTA_ERR_CRC);
                 return POTA_ERR_CRC;
             }
+            context->selected_image_crc32_running =
+                context->raw_resume_scan_crc32;
             if (context->target_erase_offset < context->target_erase_size) {
                 context->raw_resume_erasing_tail = true;
                 context->status.state = (uint32_t)POTA_STATE_ERASE_SLOT;
@@ -423,45 +567,18 @@ pota_error_t pota_core_write_action(pota_context_t *context, const void *argumen
             pota_core_set_failed(context, POTA_ERR_BAD_HEADER);
             return POTA_ERR_BAD_HEADER;
         }
-        pota_package_manifest_t manifest;
-        const pota_package_constraints_t constraints = {
-            .product_id = context->platform.info.product_id,
-            .hardware_id = context->platform.info.hardware_id,
-            .bootloader_version = context->platform.info.bootloader_version,
-            .minimum_security_counter = context->platform.info.security_counter,
-            .require_signature = context->platform.info.require_signature,
-            .verify_signature = context->platform.info.verify_manifest_signature,
-            .verify_context = context->platform.info.verify_manifest_context,
+        const pota_begin_t begin = {
+            .size = context->status.expected_size,
+            .crc32 = context->status.crc32_expected,
+            .package_mode = true,
         };
-        pota_error_t error = pota_package_parse_header(data, size, &constraints, &manifest);
-        if (error != POTA_ERR_NONE ||
-            manifest.package_size != context->status.expected_size ||
-            (manifest.package_crc32 != 0u &&
-             manifest.package_crc32 != context->status.crc32_expected)) {
-            pota_core_set_failed(context, error == POTA_ERR_NONE ? POTA_ERR_BAD_HEADER : error);
-            return (pota_error_t)context->status.error_code;
+        const pota_error_t error =
+            pota_accept_package_header(context, &begin, data, size);
+        if (error != POTA_ERR_NONE) {
+            pota_core_set_failed(context, error);
+            return error;
         }
-
-        const pota_slot_t image_slot =
-            context->target_run_offset == context->platform.info.slot_a.run_offset ?
-                POTA_SLOT_A :
-                context->target_slot;
-        const pota_package_image_t *image = pota_package_find_image(&manifest, image_slot);
-        const pota_partition_t *partition = pota_partition_for_slot(context, context->target_slot);
-        if (image == NULL || partition == NULL ||
-            image->size > partition->size ||
-            image->run_offset != context->target_run_offset) {
-            pota_core_set_failed(context, image == NULL ? POTA_ERR_BAD_HEADER : POTA_ERR_IMAGE_TOO_LARGE);
-            return (pota_error_t)context->status.error_code;
-        }
-
-        context->selected_image_offset = image->offset;
-        context->selected_image_size = image->size;
-        context->selected_image_crc32 = image->crc32;
-        context->selected_security_counter = manifest.security_counter;
-        context->target_erase_size = pota_align_up(image->size, context->platform.info.flash_sector_size);
         context->target_erase_offset = 0u;
-        context->package_header_received = true;
         pota_schedule_erase(context);
     }
 

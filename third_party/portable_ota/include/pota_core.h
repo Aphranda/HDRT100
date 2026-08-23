@@ -24,6 +24,8 @@ typedef struct {
     bool raw_resume_erasing_tail;
     uint32_t raw_resume_durable_offset;
     uint32_t raw_resume_durable_crc32;
+    uint32_t resume_image_durable_size;
+    uint32_t resume_image_crc32;
     uint32_t raw_resume_scan_offset;
     uint32_t raw_resume_scan_crc32;
 } pota_context_t;
@@ -45,6 +47,13 @@ pota_error_t pota_resume_raw(pota_context_t *context,
                              const pota_begin_t *begin,
                              uint32_t durable_offset,
                              uint32_t durable_crc32);
+pota_error_t pota_resume_package(pota_context_t *context,
+                                 const pota_begin_t *begin,
+                                 const uint8_t *header,
+                                 uint32_t header_size,
+                                 uint32_t durable_offset,
+                                 uint32_t durable_crc32,
+                                 uint32_t image_crc32);
 pota_error_t pota_service(pota_context_t *context, uint32_t budget_us);
 pota_error_t pota_write(pota_context_t *context, const uint8_t *data, uint32_t size);
 pota_error_t pota_end(pota_context_t *context);

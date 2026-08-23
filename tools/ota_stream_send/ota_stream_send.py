@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send a slot-specific DHRT100 image through the HAOFV local stream ingress."""
+"""Send a DHRT100 image or package through the HAOFV local stream ingress."""
 
 from __future__ import annotations
 
@@ -28,6 +28,10 @@ STREAM_STATE_RECEIVING = 2
 STREAM_STATE_READY_TO_REBOOT = 3
 STREAM_STATE_FAILED = 5
 DEFAULT_BLOCK_SIZE = 512
+PACKAGE_HEADER_SIZE = 512
+PACKAGE_IMAGE_TABLE_OFFSET = 192
+PACKAGE_IMAGE_ENTRY_SIZE = 32
+PACKAGE_MAX_IMAGES = 2
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -38,6 +42,38 @@ def crc32(data: bytes) -> int:
 def scpi_block(data: bytes) -> bytes:
     length = str(len(data)).encode("ascii")
     return b"#" + str(len(length)).encode("ascii") + length + data
+
+
+def stream_chunks(data: bytes, start: int, block_size: int,
+                  package_mode: bool) -> list[tuple[int, bytes]]:
+    if start < 0 or start > len(data) or block_size <= 0:
+        raise ValueError("invalid stream chunk range")
+    boundaries = {start, len(data)}
+    if package_mode:
+        if len(data) < PACKAGE_HEADER_SIZE:
+            raise ValueError("package is smaller than its manifest header")
+        image_count = struct.unpack_from("<I", data, 20)[0]
+        if image_count == 0 or image_count > PACKAGE_MAX_IMAGES:
+            raise ValueError("invalid package image count")
+        boundaries.add(PACKAGE_HEADER_SIZE)
+        for index in range(image_count):
+            cursor = PACKAGE_IMAGE_TABLE_OFFSET + index * PACKAGE_IMAGE_ENTRY_SIZE
+            image_offset, image_size = struct.unpack_from("<2I", data,
+                                                          cursor + 4)
+            image_end = image_offset + image_size
+            if image_offset < PACKAGE_HEADER_SIZE or image_end > len(data):
+                raise ValueError("invalid package image range")
+            boundaries.add(image_offset)
+            boundaries.add(image_end)
+    ordered = sorted(boundary for boundary in boundaries if boundary >= start)
+    chunks: list[tuple[int, bytes]] = []
+    offset = start
+    for boundary in ordered:
+        while offset < boundary:
+            end = min(offset + block_size, boundary)
+            chunks.append((offset, data[offset:end]))
+            offset = end
+    return chunks
 
 
 def read_line(ser: serial.Serial, timeout_s: float) -> str:
@@ -108,7 +144,7 @@ def wait_stream_state(ser: serial.Serial, wanted: int,
 def encode_open(identity: bytes, image: bytes, target_slot: int,
                 session_id: int, generation: int, map_version: int,
                 partition_id: int,
-                source: int) -> bytes:
+                source: int, package_mode: bool = False) -> bytes:
     if len(identity) != 16:
         raise ValueError("identity must be 16 bytes")
     if target_slot not in (1, 2):
@@ -128,7 +164,7 @@ def encode_open(identity: bytes, image: bytes, target_slot: int,
         1,
         len(image),
         crc32(image),
-        0,
+        int(package_mode),
         identity,
         hashlib.sha256(image).digest(),
     )
@@ -194,7 +230,7 @@ def send(args: argparse.Namespace) -> int:
         if target_slot not in (1, 2):
             raise ValueError(f"unsupported target slot {target_slot}")
         image_path = args.image
-        if args.image_a is not None and args.image_b is not None:
+        if not args.package and args.image_a is not None and args.image_b is not None:
             image_path = args.image_a if target_slot == 1 else args.image_b
         if image_path is None:
             raise ValueError("no image selected")
@@ -219,7 +255,7 @@ def send(args: argparse.Namespace) -> int:
             generation = args.generation or session_id
         wire = encode_open(identity, image, target_slot, session_id,
                            generation, map_version, partition_id,
-                           SOURCE_USB_CDC)
+                           SOURCE_USB_CDC, args.package)
         if args.resume and (journal[6] != 1 or journal[5] != crc32(wire)):
             raise RuntimeError(
                 "journal identity token does not match the selected image/map")
@@ -238,6 +274,19 @@ def send(args: argparse.Namespace) -> int:
         )
         if "OK" not in response:
             raise RuntimeError(f"stream OPEN rejected: {response!r}")
+        if args.package and args.resume:
+            header = image[:PACKAGE_HEADER_SIZE]
+            if len(header) != PACKAGE_HEADER_SIZE:
+                raise ValueError("package is smaller than its manifest header")
+            response = command(
+                ser,
+                (f"SYST:OTA:STREAM:DATA {SOURCE_USB_CDC},0,"
+                 f"{crc32(header)},").encode("ascii") + scpi_block(header),
+                args.timeout,
+            )
+            if "OK" not in response:
+                raise RuntimeError(
+                    f"package resume header rejected: {response!r}")
         status = wait_stream_state(ser, STREAM_STATE_RECEIVING,
                                    args.begin_timeout)
         resume_offset = status[2]
@@ -249,8 +298,8 @@ def send(args: argparse.Namespace) -> int:
                 f"{args.block_size}")
         print(f"resume_offset={resume_offset}")
 
-        for offset in range(resume_offset, len(image), args.block_size):
-            chunk = image[offset:offset + args.block_size]
+        for offset, chunk in stream_chunks(image, resume_offset,
+                                           args.block_size, args.package):
             response = command(
                 ser,
                 (f"SYST:OTA:STREAM:DATA {SOURCE_USB_CDC},{offset},"
@@ -308,11 +357,17 @@ def parse_args() -> argparse.Namespace:
                         help="stable nonzero generation for manual resume")
     parser.add_argument("--resume", action="store_true",
                         help="reuse session/generation from SYST:OTA:JOUR?")
+    parser.add_argument("--package", action="store_true",
+                        help="input is a complete signed OTA package")
     parser.add_argument("--boot-and-commit", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if args.image is None and (args.image_a is None or args.image_b is None):
         parser.error("provide image or both --image-a and --image-b")
+    if args.package and args.image is None:
+        parser.error("--package requires the positional package path")
+    if args.package and (args.image_a is not None or args.image_b is not None):
+        parser.error("--package cannot be combined with slot artifacts")
     if args.progress_every <= 0:
         parser.error("--progress-every must be positive")
     if args.resume and (args.session_id is not None or args.generation is not None):

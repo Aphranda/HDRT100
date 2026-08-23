@@ -32,7 +32,7 @@ def test_ota_journal_query_projects_stable_owner_fields() -> None:
         "snapshot.checkpoint.durable_offset",
         "snapshot.checkpoint.total_size",
         "snapshot.checkpoint.package_crc32",
-        "snapshot.checkpoint.chunk_crc32",
+        "snapshot.checkpoint.image_crc32",
         "snapshot.checkpoint.durable_crc32",
         "snapshot.checkpoint.flags",
     ]

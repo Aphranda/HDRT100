@@ -70,6 +70,9 @@ bool pota_stream_session_init(pota_stream_session_t *session,
     session->checkpoint_recover = NULL;
     session->last_checkpoint_offset = 0u;
     session->resume_pending = false;
+    session->resume_header_pending = false;
+    memset(&session->resume_checkpoint, 0,
+           sizeof(session->resume_checkpoint));
     return true;
 }
 
@@ -173,7 +176,7 @@ pota_stream_result_t pota_stream_session_open(
             if (pota_stream_checkpoint_matches(
                     &checkpoint, open->session_id, open->generation, token,
                     open->object_id, open->total_size, open->package_crc32)) {
-                if (open->package_mode ||
+                if (!open->package_mode &&
                     pota_session_resume_raw(&session->core, &begin,
                                             checkpoint.durable_offset,
                                             checkpoint.durable_crc32) !=
@@ -187,6 +190,8 @@ pota_stream_result_t pota_stream_session_open(
                 session->last_chunk_valid = false;
                 session->last_checkpoint_offset = checkpoint.durable_offset;
                 session->resume_pending = true;
+                session->resume_header_pending = open->package_mode;
+                session->resume_checkpoint = checkpoint;
                 return POTA_STREAM_RESULT_OK;
             }
         } else if (recovered != POTA_STREAM_CHECKPOINT_NO_VALID) {
@@ -199,11 +204,15 @@ pota_stream_result_t pota_stream_session_open(
         return POTA_STREAM_RESULT_CORE;
     }
     session->open = *open;
-    session->state = POTA_STREAM_STATE_OPEN;
+    session->state = session->core.core.status.state ==
+                             (uint32_t)POTA_STATE_RECEIVING
+                         ? POTA_STREAM_STATE_RECEIVING
+                         : POTA_STREAM_STATE_OPEN;
     session->durable_offset = 0u;
     session->last_chunk_valid = false;
     session->last_checkpoint_offset = 0u;
     session->resume_pending = false;
+    session->resume_header_pending = false;
     return POTA_STREAM_RESULT_OK;
 }
 
@@ -217,6 +226,9 @@ pota_stream_result_t pota_stream_session_service(
         session->state != POTA_STREAM_STATE_RECEIVING) {
         return POTA_STREAM_RESULT_INVALID_STATE;
     }
+    if (session->resume_header_pending) {
+        return POTA_STREAM_RESULT_OK;
+    }
     const pota_error_t error = pota_session_service(&session->core, budget_us);
     if (error != POTA_ERR_NONE) {
         session->state = POTA_STREAM_STATE_FAILED;
@@ -227,7 +239,12 @@ pota_stream_result_t pota_stream_session_service(
     }
     if (session->core.core.status.state == (uint32_t)POTA_STATE_RECEIVING) {
         session->state = POTA_STREAM_STATE_RECEIVING;
-        session->durable_offset = session->core.core.status.programmed_size;
+        session->durable_offset =
+            session->resume_pending
+                ? session->resume_checkpoint.durable_offset
+                : session->open.package_mode
+                      ? session->core.core.status.received_size
+                      : session->core.core.status.programmed_size;
         session->resume_pending = false;
     }
     return POTA_STREAM_RESULT_OK;
@@ -240,6 +257,30 @@ pota_stream_result_t pota_stream_session_write(
     if (session == NULL || data == NULL || size == 0u ||
         size > POTA_MAX_DATA_BLOCK_SIZE) {
         return POTA_STREAM_RESULT_BAD_ARGUMENT;
+    }
+    if (session->resume_header_pending) {
+        if (session->state != POTA_STREAM_STATE_OPEN ||
+            !session->open.package_mode || offset != 0u ||
+            size != POTA_PACKAGE_HEADER_SIZE) {
+            return POTA_STREAM_RESULT_INVALID_STATE;
+        }
+        const pota_begin_t begin = {
+            .size = session->open.total_size,
+            .crc32 = session->open.package_crc32,
+            .package_mode = true,
+        };
+        if (pota_session_resume_package(
+                &session->core, &begin, data, size,
+                session->resume_checkpoint.durable_offset,
+                session->resume_checkpoint.durable_crc32,
+                session->resume_checkpoint.image_crc32) != POTA_ERR_NONE) {
+            session->state = POTA_STREAM_STATE_FAILED;
+            session->resume_header_pending = false;
+            session->resume_pending = false;
+            return POTA_STREAM_RESULT_CHECKPOINT;
+        }
+        session->resume_header_pending = false;
+        return POTA_STREAM_RESULT_OK;
     }
     if (session->state != POTA_STREAM_STATE_RECEIVING) {
         return POTA_STREAM_RESULT_INVALID_STATE;
@@ -267,10 +308,21 @@ pota_stream_result_t pota_stream_session_write(
         return POTA_STREAM_RESULT_CORE;
     }
     const uint32_t next_offset = session->durable_offset + size;
-    const bool checkpoint_boundary =
-        next_offset == session->open.total_size ||
-        (next_offset % session->core.core.platform.info.flash_sector_size) ==
-            0u;
+    bool checkpoint_boundary = next_offset == session->open.total_size;
+    uint32_t image_crc32 = session->core.core.status.crc32_running;
+    if (session->open.package_mode) {
+        const uint32_t image_size =
+            session->core.core.selected_image_received_size;
+        image_crc32 = session->core.core.selected_image_crc32_running;
+        checkpoint_boundary = checkpoint_boundary || image_size == 0u ||
+            image_size == session->core.core.selected_image_size ||
+            (image_size %
+             session->core.core.platform.info.flash_sector_size) == 0u;
+    } else {
+        checkpoint_boundary = checkpoint_boundary ||
+            (next_offset %
+             session->core.core.platform.info.flash_sector_size) == 0u;
+    }
     if (session->checkpoint_append != NULL &&
         checkpoint_boundary &&
         pota_stream_checkpoint_should_append(&session->checkpoint_policy,
@@ -285,7 +337,7 @@ pota_stream_result_t pota_stream_session_write(
             .durable_offset = next_offset,
             .total_size = session->open.total_size,
             .package_crc32 = session->open.package_crc32,
-            .chunk_crc32 = chunk_crc32,
+            .image_crc32 = image_crc32,
             .durable_crc32 = session->core.core.status.crc32_running,
         };
         if (!session->checkpoint_append(session->checkpoint_context,
@@ -347,6 +399,9 @@ pota_stream_result_t pota_stream_session_abort(
             .total_size = session->open.total_size,
             .package_crc32 = session->open.package_crc32,
             .durable_crc32 = session->core.core.status.crc32_running,
+            .image_crc32 = session->open.package_mode
+                               ? session->core.core.selected_image_crc32_running
+                               : session->core.core.status.crc32_running,
             .flags = POTA_STREAM_CHECKPOINT_FLAG_ABORTED,
         };
         if (!session->checkpoint_append(session->checkpoint_context,

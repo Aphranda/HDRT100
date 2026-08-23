@@ -99,7 +99,7 @@ static bool fake_erase_sector(void *context, uint32_t offset, uint32_t length)
 }
 
 static pota_stream_checkpoint_t checkpoint(uint32_t durable_offset,
-                                           uint32_t chunk_crc32)
+                                           uint32_t image_crc32)
 {
     const pota_stream_checkpoint_t value = {
         .session_id = 11u,
@@ -109,7 +109,7 @@ static pota_stream_checkpoint_t checkpoint(uint32_t durable_offset,
         .durable_offset = durable_offset,
         .total_size = 16384u,
         .package_crc32 = 55u,
-        .chunk_crc32 = chunk_crc32,
+        .image_crc32 = image_crc32,
         .durable_crc32 = 66u + durable_offset,
     };
     return value;
@@ -152,7 +152,8 @@ int main(void)
     assert(ota_journal_init_with_platform(&platform));
     assert(ota_journal_recover_latest(&recovered, &sequence) ==
            POTA_STREAM_CHECKPOINT_OK);
-    assert(sequence == 2u && recovered.durable_offset == second.durable_offset);
+    assert(sequence == 2u && recovered.durable_offset == second.durable_offset &&
+           recovered.image_crc32 == second.image_crc32);
     assert(s_program_alignment_valid && s_program_one_to_zero_valid);
 
     ota_journal_snapshot_t snapshot;

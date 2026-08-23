@@ -263,7 +263,7 @@ pota_stream_checkpoint_result_t pota_stream_checkpoint_append(
             }
         } else if (identity_checkpoint.durable_offset ==
                    checkpoint->durable_offset) {
-            return identity_checkpoint.chunk_crc32 == checkpoint->chunk_crc32 &&
+            return identity_checkpoint.image_crc32 == checkpoint->image_crc32 &&
                            identity_checkpoint.durable_crc32 ==
                                checkpoint->durable_crc32
                        ? POTA_STREAM_CHECKPOINT_OK

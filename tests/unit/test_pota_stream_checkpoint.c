@@ -122,7 +122,7 @@ int main(void)
         .durable_offset = 128u,
         .total_size = 512u,
         .package_crc32 = 5u,
-        .chunk_crc32 = 6u,
+        .image_crc32 = 6u,
         .durable_crc32 = 7u,
     };
     failed += !expect("append", pota_stream_checkpoint_append(&store, &checkpoint) == POTA_STREAM_CHECKPOINT_OK);

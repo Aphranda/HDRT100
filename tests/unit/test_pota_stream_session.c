@@ -15,6 +15,7 @@ static uint32_t s_pending_count;
 static uint32_t s_erase_count;
 static uint32_t s_program_count;
 static uint32_t s_slot_read_bytes;
+static uint32_t s_signature_verify_count;
 
 static bool flash_read(uint32_t offset, void *buffer, uint32_t size)
 {
@@ -72,6 +73,20 @@ static bool validate_vector(uint32_t offset, uint32_t size, uint32_t run_offset)
     return offset == MOCK_SLOT_B_OFFSET && size != 0u && run_offset != 0u;
 }
 
+static bool verify_signature(void *context,
+                             const pota_package_manifest_t *manifest,
+                             const uint8_t *header,
+                             uint32_t header_size)
+{
+    (void)context;
+    s_signature_verify_count++;
+    return manifest != NULL && header != NULL &&
+           header_size == POTA_PACKAGE_HEADER_SIZE &&
+           manifest->security_counter == 10u && manifest->key_id == 7u &&
+           manifest->signature_length == POTA_MANIFEST_SIGNATURE_MAX_SIZE &&
+           manifest->signature[0] == 0x5Au;
+}
+
 static bool checkpoint_read(void *context, uint32_t offset,
                             void *data, uint32_t length)
 {
@@ -98,6 +113,65 @@ static bool expect(const char *name, bool condition)
         return false;
     }
     return true;
+}
+
+static void write_le32(uint8_t *data, uint32_t offset, uint32_t value)
+{
+    data[offset + 0u] = (uint8_t)value;
+    data[offset + 1u] = (uint8_t)(value >> 8u);
+    data[offset + 2u] = (uint8_t)(value >> 16u);
+    data[offset + 3u] = (uint8_t)(value >> 24u);
+}
+
+static void fill_text(uint8_t *data, uint32_t offset, const char *text)
+{
+    memset(&data[offset], 0, POTA_TEXT_FIELD_SIZE);
+    (void)snprintf((char *)&data[offset], POTA_TEXT_FIELD_SIZE, "%s", text);
+}
+
+static void make_package(uint8_t *package,
+                         const uint8_t *image_a,
+                         uint32_t image_a_size,
+                         const uint8_t *image_b,
+                         uint32_t image_b_size)
+{
+    const uint32_t image_a_offset = POTA_PACKAGE_HEADER_SIZE;
+    const uint32_t image_b_offset = image_a_offset + image_a_size;
+    const uint32_t package_size = image_b_offset + image_b_size;
+    memset(package, 0, package_size);
+    write_le32(package, 0u, POTA_PACKAGE_MAGIC);
+    write_le32(package, 4u, POTA_PACKAGE_VERSION);
+    write_le32(package, 8u, POTA_PACKAGE_HEADER_SIZE);
+    write_le32(package, 12u, package_size);
+    write_le32(package, 20u, 2u);
+    fill_text(package, 32u, "DHRT100");
+    fill_text(package, 64u, "dhrt100");
+    write_le32(package, 108u, POTA_PACK_VERSION(0, 1, 0));
+    fill_text(package, 112u, "stream-resume");
+    write_le32(package, 192u, (uint32_t)POTA_SLOT_A);
+    write_le32(package, 196u, image_a_offset);
+    write_le32(package, 200u, image_a_size);
+    write_le32(package, 204u, pota_crc32_compute(image_a, image_a_size));
+    write_le32(package, 208u, 0x10040000u);
+    write_le32(package, 224u, (uint32_t)POTA_SLOT_B);
+    write_le32(package, 228u, image_b_offset);
+    write_le32(package, 232u, image_b_size);
+    write_le32(package, 236u, pota_crc32_compute(image_b, image_b_size));
+    write_le32(package, 240u, 0x101C0000u);
+    write_le32(package, POTA_MANIFEST_EXTENSION_OFFSET,
+               POTA_MANIFEST_EXTENSION_MAGIC);
+    write_le32(package, POTA_MANIFEST_EXTENSION_OFFSET + 4u,
+               POTA_MANIFEST_EXTENSION_VERSION);
+    write_le32(package, POTA_MANIFEST_EXTENSION_OFFSET + 8u,
+               POTA_MANIFEST_REQUIRED_SIGNATURE);
+    write_le32(package, POTA_MANIFEST_EXTENSION_OFFSET + 12u, 10u);
+    write_le32(package, POTA_MANIFEST_EXTENSION_OFFSET + 16u, 7u);
+    write_le32(package, POTA_MANIFEST_EXTENSION_OFFSET + 20u,
+               POTA_MANIFEST_SIGNATURE_MAX_SIZE);
+    memset(&package[POTA_MANIFEST_EXTENSION_OFFSET + 24u], 0x5Au,
+           POTA_MANIFEST_SIGNATURE_MAX_SIZE);
+    memcpy(&package[image_a_offset], image_a, image_a_size);
+    memcpy(&package[image_b_offset], image_b, image_b_size);
 }
 
 int main(void)
@@ -187,6 +261,7 @@ int main(void)
     s_erase_count = 0u;
     s_program_count = 0u;
     s_slot_read_bytes = 0u;
+    s_signature_verify_count = 0u;
     uint8_t resume_image[1536u];
     for (uint32_t index = 0u; index < sizeof(resume_image); ++index) {
         resume_image[index] = (uint8_t)(index * 17u + 3u);
@@ -402,6 +477,202 @@ int main(void)
                               POTA_STREAM_RESULT_OK &&
                           pota_stream_session_durable_offset(
                               &restarted_session) == 0u);
+
+    memset(s_flash, 0xFF, sizeof(s_flash));
+    s_pending_count = 0u;
+    s_erase_count = 0u;
+    s_program_count = 0u;
+    s_slot_read_bytes = 0u;
+    uint8_t image_a[256u];
+    uint8_t image_b[512u];
+    uint8_t package[POTA_PACKAGE_HEADER_SIZE + sizeof(image_a) +
+                    sizeof(image_b)];
+    for (uint32_t index = 0u; index < sizeof(image_a); ++index) {
+        image_a[index] = (uint8_t)(index + 0x21u);
+    }
+    for (uint32_t index = 0u; index < sizeof(image_b); ++index) {
+        image_b[index] = (uint8_t)(index * 5u + 0x63u);
+    }
+    make_package(package, image_a, sizeof(image_a), image_b,
+                 sizeof(image_b));
+    pota_stream_open_t package_open = open;
+    package_open.session_id = 40u;
+    package_open.generation = 1u;
+    package_open.object_id = 21u;
+    package_open.total_size = sizeof(package);
+    package_open.package_crc32 = pota_crc32_compute(package, sizeof(package));
+    package_open.package_mode = true;
+    package_open.package_hash[4] = 0x91u;
+    pota_platform_t package_platform = platform;
+    package_platform.info.security_counter = 9u;
+    package_platform.info.require_signature = true;
+    package_platform.info.verify_manifest_signature = verify_signature;
+    pota_stream_checkpoint_store_t package_store;
+    failed += !expect("package checkpoint init",
+                      pota_stream_checkpoint_init(&package_store,
+                                                  &checkpoint_config) ==
+                          POTA_STREAM_CHECKPOINT_OK);
+    failed += !expect("package session init",
+                      pota_stream_session_init(&session, &package_platform));
+    failed += !expect("package checkpoint attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &session, &package_store, &checkpoint_policy));
+    failed += !expect("package seed open",
+                      pota_stream_session_open(&session, &package_open) ==
+                          POTA_STREAM_RESULT_OK);
+    failed += !expect("package seed receiving",
+                      pota_stream_session_state(&session) ==
+                          POTA_STREAM_STATE_RECEIVING);
+    failed += !expect("package header",
+                      pota_stream_session_write(
+                          &session, 0u, package,
+                          POTA_PACKAGE_HEADER_SIZE) == POTA_STREAM_RESULT_OK);
+    for (uint32_t step = 0u;
+         session.core.core.status.state != (uint32_t)POTA_STATE_RECEIVING &&
+         step < 16u;
+         ++step) {
+        failed += !expect("package erase service",
+                          pota_stream_session_service(&session, 100u) ==
+                              POTA_STREAM_RESULT_OK);
+    }
+    failed += !expect("package erase completed",
+                      session.core.core.status.state ==
+                          (uint32_t)POTA_STATE_RECEIVING);
+    failed += !expect("package skip A",
+                      pota_stream_session_write(
+                          &session, POTA_PACKAGE_HEADER_SIZE,
+                          &package[POTA_PACKAGE_HEADER_SIZE],
+                          sizeof(image_a)) == POTA_STREAM_RESULT_OK);
+    failed += !expect("package B prefix",
+                      pota_stream_session_write(
+                          &session, POTA_PACKAGE_HEADER_SIZE + sizeof(image_a),
+                          &package[POTA_PACKAGE_HEADER_SIZE + sizeof(image_a)],
+                          MOCK_SECTOR_SIZE) == POTA_STREAM_RESULT_OK);
+    pota_stream_checkpoint_t package_checkpoint;
+    uint32_t package_sequence = 0u;
+    failed += !expect("package prefix checkpoint",
+                      pota_stream_checkpoint_recover_latest(
+                          &package_store, &package_checkpoint,
+                          &package_sequence) == POTA_STREAM_CHECKPOINT_OK &&
+                          package_checkpoint.durable_offset ==
+                              POTA_PACKAGE_HEADER_SIZE + sizeof(image_a) +
+                                  MOCK_SECTOR_SIZE &&
+                          package_checkpoint.image_crc32 ==
+                              pota_crc32_compute(image_b, MOCK_SECTOR_SIZE));
+
+    memset(&s_flash[MOCK_SLOT_B_OFFSET + MOCK_SECTOR_SIZE], 0x11,
+           MOCK_SECTOR_SIZE);
+    pota_stream_checkpoint_store_t package_recovered_store;
+    failed += !expect("package store rebuild",
+                      pota_stream_checkpoint_init(
+                          &package_recovered_store, &checkpoint_config) ==
+                          POTA_STREAM_CHECKPOINT_OK);
+    pota_stream_session_t package_recovered;
+    failed += !expect("package recovered init",
+                      pota_stream_session_init(&package_recovered,
+                                               &package_platform));
+    failed += !expect("package recovered attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &package_recovered, &package_recovered_store,
+                          &checkpoint_policy));
+    failed += !expect("package resume open",
+                      pota_stream_session_open(&package_recovered,
+                                               &package_open) ==
+                          POTA_STREAM_RESULT_OK);
+    failed += !expect("package continuation blocked before header",
+                      pota_stream_session_write(
+                          &package_recovered,
+                          package_checkpoint.durable_offset,
+                          &package[package_checkpoint.durable_offset],
+                          MOCK_SECTOR_SIZE) ==
+                          POTA_STREAM_RESULT_INVALID_STATE);
+    uint8_t bad_header[POTA_PACKAGE_HEADER_SIZE];
+    memcpy(bad_header, package, sizeof(bad_header));
+    bad_header[POTA_MANIFEST_EXTENSION_OFFSET + 24u] ^= 1u;
+    pota_stream_session_t bad_package_resume;
+    failed += !expect("bad package resume init",
+                      pota_stream_session_init(&bad_package_resume,
+                                               &package_platform));
+    failed += !expect("bad package resume attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &bad_package_resume, &package_recovered_store,
+                          &checkpoint_policy));
+    failed += !expect("bad package resume open",
+                      pota_stream_session_open(&bad_package_resume,
+                                               &package_open) ==
+                          POTA_STREAM_RESULT_OK);
+    failed += !expect("tampered resume header rejected",
+                      pota_stream_session_write(
+                          &bad_package_resume, 0u, bad_header,
+                          sizeof(bad_header)) ==
+                          POTA_STREAM_RESULT_CHECKPOINT);
+    s_flash[MOCK_SLOT_B_OFFSET] ^= 1u;
+    pota_stream_session_t corrupt_package_resume;
+    failed += !expect("corrupt package resume init",
+                      pota_stream_session_init(&corrupt_package_resume,
+                                               &package_platform));
+    failed += !expect("corrupt package resume attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &corrupt_package_resume, &package_recovered_store,
+                          &checkpoint_policy));
+    failed += !expect("corrupt package resume open",
+                      pota_stream_session_open(&corrupt_package_resume,
+                                               &package_open) ==
+                          POTA_STREAM_RESULT_OK);
+    failed += !expect("corrupt package resume header",
+                      pota_stream_session_write(
+                          &corrupt_package_resume, 0u, package,
+                          POTA_PACKAGE_HEADER_SIZE) == POTA_STREAM_RESULT_OK);
+    failed += !expect("corrupt package prefix rejected",
+                      pota_stream_session_service(&corrupt_package_resume,
+                                                  100u) ==
+                          POTA_STREAM_RESULT_CHECKPOINT);
+    s_flash[MOCK_SLOT_B_OFFSET] ^= 1u;
+    failed += !expect("package resume header",
+                      pota_stream_session_write(
+                          &package_recovered, 0u, package,
+                          POTA_PACKAGE_HEADER_SIZE) == POTA_STREAM_RESULT_OK);
+    const uint32_t reads_before_package_scan = s_slot_read_bytes;
+    failed += !expect("package prefix scan bounded",
+                      pota_stream_session_service(&package_recovered,
+                                                  100u) ==
+                              POTA_STREAM_RESULT_OK &&
+                          s_slot_read_bytes ==
+                              reads_before_package_scan + MOCK_SECTOR_SIZE);
+    for (uint32_t step = 0u;
+         pota_stream_session_state(&package_recovered) ==
+             POTA_STREAM_STATE_OPEN &&
+         step < 16u;
+         ++step) {
+        failed += !expect("package resume tail erase",
+                          pota_stream_session_service(&package_recovered,
+                                                      100u) ==
+                              POTA_STREAM_RESULT_OK);
+    }
+    failed += !expect("package resume erase completed",
+                      pota_stream_session_state(&package_recovered) ==
+                          POTA_STREAM_STATE_RECEIVING);
+    failed += !expect("package cursor restored",
+                      pota_stream_session_durable_offset(
+                          &package_recovered) ==
+                          package_checkpoint.durable_offset);
+    failed += !expect("package prefix preserved and tail erased",
+                      memcmp(&s_flash[MOCK_SLOT_B_OFFSET], image_b,
+                             MOCK_SECTOR_SIZE) == 0 &&
+                          s_flash[MOCK_SLOT_B_OFFSET + MOCK_SECTOR_SIZE] ==
+                              0xFFu);
+    failed += !expect("package continuation",
+                      pota_stream_session_write(
+                          &package_recovered,
+                          package_checkpoint.durable_offset,
+                          &package[package_checkpoint.durable_offset],
+                          MOCK_SECTOR_SIZE) == POTA_STREAM_RESULT_OK);
+    failed += !expect("package close",
+                      pota_stream_session_close(&package_recovered) ==
+                          POTA_STREAM_RESULT_OK);
+    failed += !expect("package pending once", s_pending_count == 1u);
+    failed += !expect("package manifest reverified",
+                      s_signature_verify_count == 4u);
     if (failed != 0) {
         return 1;
     }
