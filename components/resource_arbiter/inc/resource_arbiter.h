@@ -44,6 +44,11 @@ void resource_arbiter_publish_tdma_clock_training(bool active);
 void resource_arbiter_publish_training_activity(bool calibration_active,
                                                  bool tdma_clock_training_active);
 bool resource_arbiter_can_begin_ota(void);
+/* Explicit maintenance admission owned by the system/control plane.  OTA AO
+ * and FlashTransactionAO may consume the admission but must not create it. */
+bool resource_arbiter_request_ota_admission(void);
+void resource_arbiter_release_ota_admission(void);
+bool resource_arbiter_ota_admission_active(void);
 bool resource_arbiter_acquire(uint32_t resources);
 bool resource_arbiter_acquire_owned(uint32_t resources, const char *owner);
 void resource_arbiter_release(uint32_t resources);

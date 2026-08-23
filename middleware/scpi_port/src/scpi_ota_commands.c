@@ -11,6 +11,17 @@
 #include "product_config.h"
 #include "scpi_port_internal.h"
 #include "portable_ota_port.h"
+#include "resource_arbiter.h"
+
+static bool scpi_ota_request_admission(scpi_t *context)
+{
+    if (resource_arbiter_ota_admission_active() ||
+        resource_arbiter_request_ota_admission()) {
+        return true;
+    }
+    scpi_port_push_exec_error(context, "OTA_ADMISSION_DENIED");
+    return false;
+}
 
 scpi_result_t scpi_cmd_ota_status_q(scpi_t *context)
 {
@@ -40,13 +51,18 @@ scpi_result_t scpi_cmd_ota_begin(scpi_t *context)
             DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
         return SCPI_RES_ERR;
     }
+    if (!scpi_ota_request_admission(context)) {
+        return SCPI_RES_ERR;
+    }
     if (portable_ota_port_stream_is_active()) {
+        resource_arbiter_release_ota_admission();
         return SCPI_RES_ERR;
     }
 
     uint32_t size;
     uint32_t crc32;
     if (!scpi_port_read_u32(context, &size) || !scpi_port_read_u32(context, &crc32)) {
+        resource_arbiter_release_ota_admission();
         return SCPI_RES_ERR;
     }
 
@@ -60,7 +76,11 @@ scpi_result_t scpi_cmd_ota_begin(scpi_t *context)
         },
     };
 
-    return ota_ao_post_event(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+    if (!ota_ao_post_event(&event)) {
+        resource_arbiter_release_ota_admission();
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
 }
 
 scpi_result_t scpi_cmd_ota_package_begin(scpi_t *context)
@@ -70,13 +90,18 @@ scpi_result_t scpi_cmd_ota_package_begin(scpi_t *context)
             DISTRIBUTED_CONFIG_SCPI_CLASS_OTA_MAINT)) {
         return SCPI_RES_ERR;
     }
+    if (!scpi_ota_request_admission(context)) {
+        return SCPI_RES_ERR;
+    }
     if (portable_ota_port_stream_is_active()) {
+        resource_arbiter_release_ota_admission();
         return SCPI_RES_ERR;
     }
 
     uint32_t size;
     uint32_t crc32;
     if (!scpi_port_read_u32(context, &size) || !scpi_port_read_u32(context, &crc32)) {
+        resource_arbiter_release_ota_admission();
         return SCPI_RES_ERR;
     }
 
@@ -90,7 +115,11 @@ scpi_result_t scpi_cmd_ota_package_begin(scpi_t *context)
         },
     };
 
-    return ota_ao_post_event(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+    if (!ota_ao_post_event(&event)) {
+        resource_arbiter_release_ota_admission();
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
 }
 
 scpi_result_t scpi_cmd_ota_data(scpi_t *context)
@@ -136,12 +165,22 @@ static scpi_result_t scpi_cmd_ota_simple_event_ack(scpi_t *context, ota_event_ty
     if (portable_ota_port_stream_is_active()) {
         return SCPI_RES_ERR;
     }
+    if (type != OTA_EVENT_ABORT &&
+        !scpi_ota_request_admission(context)) {
+        return SCPI_RES_ERR;
+    }
 
     const ota_event_t event = {
         .type = type,
     };
 
-    return ota_ao_post_event(&event) ? scpi_port_result_ok(context) : SCPI_RES_ERR;
+    if (!ota_ao_post_event(&event)) {
+        if (type != OTA_EVENT_ABORT) {
+            resource_arbiter_release_ota_admission();
+        }
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
 }
 
 scpi_result_t scpi_cmd_ota_end(scpi_t *context)
@@ -408,6 +447,9 @@ scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context)
         ota_ao_is_active()) {
         return SCPI_RES_ERR;
     }
+    if (!scpi_ota_request_admission(context)) {
+        return SCPI_RES_ERR;
+    }
 
     pota_stream_ingress_source_t source;
     const char *data = NULL;
@@ -416,19 +458,23 @@ scpi_result_t scpi_cmd_ota_stream_open(scpi_t *context)
         !scpi_ota_stream_source_matches_control_plane(source) ||
         SCPI_ParamArbitraryBlock(context, &data, &length, TRUE) != TRUE ||
         length > UINT32_MAX) {
+        resource_arbiter_release_ota_admission();
         return SCPI_RES_ERR;
     }
 
     pota_stream_open_t open;
     if (!pota_stream_open_decode_le((const uint8_t *)data,
                                     (uint32_t)length, &open)) {
+        resource_arbiter_release_ota_admission();
         return SCPI_RES_ERR;
     }
 
-    return portable_ota_port_stream_open(source, &open) ==
-                   POTA_STREAM_INGRESS_OK
-               ? scpi_port_result_ok(context)
-               : SCPI_RES_ERR;
+    if (portable_ota_port_stream_open(source, &open) !=
+        POTA_STREAM_INGRESS_OK) {
+        resource_arbiter_release_ota_admission();
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
 }
 
 scpi_result_t scpi_cmd_ota_stream_data(scpi_t *context)
@@ -472,9 +518,13 @@ scpi_result_t scpi_cmd_ota_stream_close(scpi_t *context)
         !scpi_ota_stream_source_matches_control_plane(source)) {
         return SCPI_RES_ERR;
     }
-    return portable_ota_port_stream_close(source) == POTA_STREAM_INGRESS_OK
-               ? scpi_port_result_ok(context)
-               : SCPI_RES_ERR;
+    const pota_stream_ingress_result_t result =
+        portable_ota_port_stream_close(source);
+    if (result == POTA_STREAM_INGRESS_OK) {
+        resource_arbiter_release_ota_admission();
+        return scpi_port_result_ok(context);
+    }
+    return SCPI_RES_ERR;
 }
 
 scpi_result_t scpi_cmd_ota_stream_abort(scpi_t *context)
@@ -489,9 +539,11 @@ scpi_result_t scpi_cmd_ota_stream_abort(scpi_t *context)
         !scpi_ota_stream_source_matches_control_plane(source)) {
         return SCPI_RES_ERR;
     }
-    return portable_ota_port_stream_abort(source) == POTA_STREAM_INGRESS_OK
-               ? scpi_port_result_ok(context)
-               : SCPI_RES_ERR;
+    const pota_stream_ingress_result_t result =
+        portable_ota_port_stream_abort(source);
+    resource_arbiter_release_ota_admission();
+    return result == POTA_STREAM_INGRESS_OK ? scpi_port_result_ok(context)
+                                            : SCPI_RES_ERR;
 }
 
 scpi_result_t scpi_cmd_ota_stream_boot(scpi_t *context)

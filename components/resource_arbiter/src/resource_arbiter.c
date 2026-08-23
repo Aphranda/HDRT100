@@ -6,6 +6,7 @@
 
 typedef struct {
     bool initialized;
+    bool ota_admission_active;
     resource_arbiter_snapshot_t snapshot;
 } resource_arbiter_context_t;
 
@@ -116,6 +117,59 @@ bool resource_arbiter_can_begin_ota(void)
     osal_critical_exit();
 
     return allowed;
+}
+
+bool resource_arbiter_request_ota_admission(void)
+{
+    bool allowed = false;
+
+    osal_critical_enter();
+    if (!s_resource_arbiter.initialized) {
+        resource_arbiter_reset_locked();
+    }
+
+    const resource_arbiter_snapshot_t *snapshot =
+        &s_resource_arbiter.snapshot;
+    allowed = !snapshot->trigger_capture_running &&
+              !snapshot->trigger_clock_running &&
+              !snapshot->calibration_training_active &&
+              !snapshot->tdma_clock_training_active &&
+              snapshot->mode != RESOURCE_ARBITER_MODE_FAULT &&
+              (snapshot->active_resources & RESOURCE_ARBITER_RESOURCE_FLASH) == 0u;
+    if (allowed) {
+        s_resource_arbiter.ota_admission_active = true;
+        s_resource_arbiter.snapshot.mode = RESOURCE_ARBITER_MODE_OTA;
+    }
+    osal_critical_exit();
+    return allowed;
+}
+
+void resource_arbiter_release_ota_admission(void)
+{
+    osal_critical_enter();
+    if (!s_resource_arbiter.initialized) {
+        resource_arbiter_reset_locked();
+    }
+    s_resource_arbiter.ota_admission_active = false;
+    if ((s_resource_arbiter.snapshot.active_resources &
+         RESOURCE_ARBITER_RESOURCE_FLASH) == 0u &&
+        s_resource_arbiter.snapshot.mode == RESOURCE_ARBITER_MODE_OTA &&
+        !s_resource_arbiter.ota_admission_active) {
+        s_resource_arbiter.snapshot.mode = RESOURCE_ARBITER_MODE_RUN;
+    }
+    osal_critical_exit();
+}
+
+bool resource_arbiter_ota_admission_active(void)
+{
+    bool active;
+    osal_critical_enter();
+    if (!s_resource_arbiter.initialized) {
+        resource_arbiter_reset_locked();
+    }
+    active = s_resource_arbiter.ota_admission_active;
+    osal_critical_exit();
+    return active;
 }
 
 bool resource_arbiter_acquire(uint32_t resources)

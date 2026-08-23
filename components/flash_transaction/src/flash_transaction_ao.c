@@ -56,6 +56,14 @@ static uint32_t flash_transaction_policy_check(uint32_t requester,
     if (arbiter.mode == RESOURCE_ARBITER_MODE_FAULT) {
         return FLASH_TRANSACTION_ERROR_MODE;
     }
+    const bool ota_requester =
+        requester == FLASH_TRANSACTION_REQUESTER_OTA_IMAGE ||
+        requester == FLASH_TRANSACTION_REQUESTER_OTA_METADATA ||
+        requester == FLASH_TRANSACTION_REQUESTER_OTA_MANIFEST ||
+        requester == FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL;
+    if (ota_requester && !resource_arbiter_ota_admission_active()) {
+        return FLASH_TRANSACTION_ERROR_MODE;
+    }
     if (arbiter.trigger_capture_running || arbiter.trigger_clock_running) {
         return FLASH_TRANSACTION_ERROR_TRIGGER_ACTIVE;
     }

@@ -41,11 +41,15 @@ int main(void)
     resource_arbiter_publish_trigger_activity(false, true);
     assert(!resource_arbiter_can_begin_ota());
     resource_arbiter_publish_trigger_activity(false, false);
+    assert(resource_arbiter_request_ota_admission());
+    assert(resource_arbiter_ota_admission_active());
     assert(resource_arbiter_acquire_owned(RESOURCE_ARBITER_RESOURCE_FLASH,
                                           "host"));
     assert(!resource_arbiter_can_begin_ota());
     resource_arbiter_release_owned(RESOURCE_ARBITER_RESOURCE_FLASH, "host");
     assert(resource_arbiter_can_begin_ota());
+    resource_arbiter_release_ota_admission();
+    assert(!resource_arbiter_ota_admission_active());
 
     puts("resource_arbiter host tests passed");
     return 0;

@@ -24,6 +24,7 @@ static void ota_fb_set_state(struct ota_ao_context *context, ota_state_t state)
 
 static void ota_fb_set_error(struct ota_ao_context *context, ota_error_t error)
 {
+    resource_arbiter_release_ota_admission();
     context->vector.error_code = (uint32_t)error;
     context->vector.last_result = (uint32_t)OTA_RESULT_FAILED;
     ota_fb_set_state(context, OTA_STATE_FAILED);
@@ -134,6 +135,7 @@ static void ota_fb_handle_end(struct ota_ao_context *context)
 static void ota_fb_handle_abort(struct ota_ao_context *context)
 {
     const bool ok = portable_ota_port_core_abort(&context->vector);
+    resource_arbiter_release_ota_admission();
     ota_fb_sync_portable_status(context, ok);
 }
 
@@ -166,6 +168,7 @@ static void ota_fb_handle_commit(struct ota_ao_context *context)
     }
 
     context->vector.last_result = (uint32_t)OTA_RESULT_COMMITTED;
+    resource_arbiter_release_ota_admission();
     ota_fb_set_state(context, OTA_STATE_COMMITTED);
 }
 
