@@ -5,14 +5,27 @@
 #include "drv_flash.h"
 #include "flash_deployment_map.h"
 #include "flash_transaction.h"
+#include "flash_transaction_journal.h"
+#include "pota_types.h"
 
 #if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
 
 #define OTA_JOURNAL_SLOT_SIZE FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE
-#define OTA_JOURNAL_SLOT_COUNT \
-    (FLASH_DEPLOYMENT_MAP_OTA_JOURNAL_SIZE / OTA_JOURNAL_SLOT_SIZE)
 #define OTA_JOURNAL_CHECKPOINT_INTERVAL \
     (2u * FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE)
+#define OTA_JOURNAL_COMPLETION_REGION_SIZE \
+    (FLASH_DEPLOYMENT_MAP_OTA_JOURNAL_SIZE / 2u)
+#define OTA_JOURNAL_CHECKPOINT_REGION_OFFSET \
+    OTA_JOURNAL_COMPLETION_REGION_SIZE
+#define OTA_JOURNAL_CHECKPOINT_REGION_SIZE \
+    (FLASH_DEPLOYMENT_MAP_OTA_JOURNAL_SIZE - \
+     OTA_JOURNAL_CHECKPOINT_REGION_OFFSET)
+#define OTA_JOURNAL_COMPLETION_SLOT_COUNT \
+    (OTA_JOURNAL_COMPLETION_REGION_SIZE / \
+     FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE)
+#define OTA_JOURNAL_CHECKPOINT_SLOT_COUNT \
+    (OTA_JOURNAL_CHECKPOINT_REGION_SIZE / \
+     FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE)
 
 _Static_assert(FLASH_DEPLOYMENT_MAP_HAS_OTA_JOURNAL == 1u,
                "v2 journal requires an OTA_JOURNAL partition");
@@ -21,9 +34,28 @@ _Static_assert((FLASH_DEPLOYMENT_MAP_OTA_JOURNAL_SIZE %
                "OTA journal must contain complete program pages");
 _Static_assert(POTA_STREAM_CHECKPOINT_RECORD_SIZE <= OTA_JOURNAL_SLOT_SIZE,
                "checkpoint record must fit one journal slot");
+_Static_assert((OTA_JOURNAL_COMPLETION_REGION_SIZE %
+                FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE) == 0u,
+               "completion journal region must be erase aligned");
+_Static_assert((OTA_JOURNAL_CHECKPOINT_REGION_SIZE %
+                FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE) == 0u,
+               "checkpoint journal region must be erase aligned");
+_Static_assert(OTA_JOURNAL_COMPLETION_SLOT_COUNT != 0u &&
+                   OTA_JOURNAL_CHECKPOINT_SLOT_COUNT != 0u,
+               "OTA journal regions must contain complete program pages");
+
+typedef struct {
+    const ota_journal_platform_t *platform;
+    uint32_t base_offset;
+    uint32_t size;
+} ota_journal_region_t;
 
 static pota_stream_checkpoint_store_t s_checkpoint_store;
+static flash_transaction_journal_store_t s_completion_store;
+static flash_transaction_completion_lease_t s_completion_lease;
 static ota_journal_platform_t s_platform;
+static ota_journal_region_t s_checkpoint_region;
+static ota_journal_region_t s_completion_region;
 static uint32_t s_provider_generation;
 static bool s_initialized;
 
@@ -81,22 +113,33 @@ static bool ota_journal_default_erase_sector(void *context, uint32_t offset,
     return flash_transaction_ao_execute(&request, &completion);
 }
 
-static bool ota_journal_read(void *context, uint32_t offset, void *data,
-                             uint32_t length)
+static bool ota_journal_region_range_valid(
+    const ota_journal_region_t *region, uint32_t offset, uint32_t length)
 {
-    const ota_journal_platform_t *platform = context;
-    return data != NULL && ota_journal_range_valid(offset, length) &&
-           platform != NULL && platform->read != NULL &&
-           platform->read(platform->context, offset, data, length);
+    return region != NULL && length != 0u && offset < region->size &&
+           length <= region->size - offset;
 }
 
-static bool ota_journal_program(void *context, uint32_t offset,
-                                const void *data, uint32_t length)
+static bool ota_journal_region_read(void *context, uint32_t offset,
+                                    void *data, uint32_t length)
 {
-    const ota_journal_platform_t *platform = context;
-    if (data == NULL || !ota_journal_range_valid(offset, length)) {
+    const ota_journal_region_t *region = context;
+    return data != NULL && ota_journal_region_range_valid(region, offset, length) &&
+           region->platform != NULL && region->platform->read != NULL &&
+           region->platform->read(region->platform->context,
+                                  region->base_offset + offset,
+                                  data, length);
+}
+
+static bool ota_journal_region_program(void *context, uint32_t offset,
+                                       const uint8_t *data, uint32_t length)
+{
+    const ota_journal_region_t *region = context;
+    if (data == NULL || !ota_journal_region_range_valid(region, offset, length) ||
+        region->platform == NULL || region->platform->program_page == NULL) {
         return false;
     }
+
     const uint32_t page_size = FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE;
     const uint32_t page_offset = offset - (offset % page_size);
     const uint32_t within_page = offset - page_offset;
@@ -105,30 +148,49 @@ static bool ota_journal_program(void *context, uint32_t offset,
     }
 
     uint8_t page[FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE];
-    if (!ota_journal_read(context, page_offset, page, sizeof(page))) {
+    if (!ota_journal_region_read(context, page_offset, page, sizeof(page))) {
         return false;
     }
-    const uint8_t *incoming = data;
     for (uint32_t index = 0u; index < length; index++) {
-        if ((page[within_page + index] & incoming[index]) != incoming[index]) {
+        if ((page[within_page + index] & data[index]) != data[index]) {
             return false;
         }
-        page[within_page + index] = incoming[index];
+        page[within_page + index] = data[index];
     }
-    return platform != NULL && platform->program_page != NULL &&
-           platform->program_page(platform->context, page_offset, page,
-                                  sizeof(page));
+    return region->platform->program_page(
+        region->platform->context, region->base_offset + page_offset,
+        page, sizeof(page));
 }
 
-static bool ota_journal_erase(void *context, uint32_t offset,
-                              uint32_t length)
+static bool ota_journal_region_program_adapter(void *context, uint32_t offset,
+                                               const void *data,
+                                               uint32_t length)
 {
-    const ota_journal_platform_t *platform = context;
-    return ota_journal_range_valid(offset, length) &&
+    return ota_journal_region_program(context, offset, data, length);
+}
+
+static bool ota_journal_region_erase(void *context, uint32_t offset,
+                                     uint32_t length)
+{
+    const ota_journal_region_t *region = context;
+    return ota_journal_region_range_valid(region, offset, length) &&
            (offset % FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE) == 0u &&
            length == FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE &&
-           platform != NULL && platform->erase_sector != NULL &&
-           platform->erase_sector(platform->context, offset, length);
+           region->platform != NULL && region->platform->erase_sector != NULL &&
+           region->platform->erase_sector(
+               region->platform->context, region->base_offset + offset, length);
+}
+
+static bool ota_journal_completion_program(
+    void *context, uint32_t offset, const void *data, uint32_t length)
+{
+    return ota_journal_region_program(context, offset, data, length);
+}
+
+static uint32_t ota_journal_completion_crc32(const uint8_t *data,
+                                             uint32_t length)
+{
+    return pota_crc32_compute(data, length);
 }
 
 bool ota_journal_init_with_platform(const ota_journal_platform_t *platform)
@@ -139,19 +201,45 @@ bool ota_journal_init_with_platform(const ota_journal_platform_t *platform)
         return false;
     }
     s_platform = *platform;
-    const pota_stream_checkpoint_config_t config = {
-        .context = &s_platform,
-        .read = ota_journal_read,
-        .program = ota_journal_program,
-        .erase = ota_journal_erase,
+    s_completion_region = (ota_journal_region_t){
+        .platform = &s_platform,
         .base_offset = 0u,
-        .slot_count = OTA_JOURNAL_SLOT_COUNT,
+        .size = OTA_JOURNAL_COMPLETION_REGION_SIZE,
+    };
+    s_checkpoint_region = (ota_journal_region_t){
+        .platform = &s_platform,
+        .base_offset = OTA_JOURNAL_CHECKPOINT_REGION_OFFSET,
+        .size = OTA_JOURNAL_CHECKPOINT_REGION_SIZE,
+    };
+    const pota_stream_checkpoint_config_t config = {
+        .context = &s_checkpoint_region,
+        .read = ota_journal_region_read,
+        .program = ota_journal_region_program_adapter,
+        .erase = ota_journal_region_erase,
+        .base_offset = 0u,
+        .slot_count = OTA_JOURNAL_CHECKPOINT_SLOT_COUNT,
         .slot_size = OTA_JOURNAL_SLOT_SIZE,
         .erase_size = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
     };
-    s_initialized =
-        pota_stream_checkpoint_init(&s_checkpoint_store, &config) ==
-        POTA_STREAM_CHECKPOINT_OK;
+    const flash_transaction_journal_config_t completion_config = {
+        .context = &s_completion_region,
+        .read = ota_journal_region_read,
+        .program = ota_journal_completion_program,
+        .crc32 = ota_journal_completion_crc32,
+        .base_offset = 0u,
+        .slot_count = OTA_JOURNAL_COMPLETION_SLOT_COUNT,
+        .slot_size = OTA_JOURNAL_SLOT_SIZE,
+    };
+    if (pota_stream_checkpoint_init(&s_checkpoint_store, &config) !=
+            POTA_STREAM_CHECKPOINT_OK ||
+        !flash_transaction_journal_init(&s_completion_store,
+                                        &completion_config) ||
+        !flash_transaction_journal_make_completion_lease(
+            &s_completion_store, &s_completion_lease) ||
+        !flash_transaction_ao_set_completion_lease(&s_completion_lease)) {
+        return false;
+    }
+    s_initialized = true;
     return s_initialized;
 }
 

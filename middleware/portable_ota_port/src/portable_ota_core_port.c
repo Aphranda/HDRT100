@@ -89,6 +89,9 @@ static pota_stream_session_t s_stream_session;
 static pota_stream_ingress_t s_stream_ingress;
 static pota_platform_t s_stream_platform;
 static bool s_stream_initialized;
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+static bool s_durable_initialized;
+#endif
 static uint32_t s_provider_generation;
 static uint32_t s_store_generation;
 static uint32_t s_provider_refs;
@@ -467,13 +470,27 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
     return platform;
 }
 
+bool portable_ota_port_durable_init(void)
+{
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    if (s_durable_initialized) {
+        return true;
+    }
+    s_durable_initialized = ota_journal_init();
+    return s_durable_initialized;
+#else
+    return true;
+#endif
+}
+
 static bool portable_core_init_stream_surfaces(void)
 {
     if (!pota_stream_session_init(&s_stream_session, &s_stream_platform)) {
         return false;
     }
 #if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
-    if (!ota_journal_init() || !ota_journal_attach(&s_stream_session)) {
+    if (!portable_ota_port_durable_init() ||
+        !ota_journal_attach(&s_stream_session)) {
         return false;
     }
 #endif
@@ -487,6 +504,11 @@ static bool portable_core_init_stream_surfaces(void)
 bool portable_ota_port_stream_init(const ota_metadata_t *metadata)
 {
     s_stream_initialized = false;
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    if (!portable_ota_port_durable_init()) {
+        return false;
+    }
+#endif
     if (metadata == NULL ||
         (metadata->active_slot != (uint32_t)OTA_SLOT_A &&
          metadata->active_slot != (uint32_t)OTA_SLOT_B)) {
@@ -679,6 +701,11 @@ bool portable_ota_port_core_abort(ota_vector_t *vector)
 #endif
 
 #if !PORTABLE_OTA_PORT_ENABLE_SESSION
+bool portable_ota_port_durable_init(void)
+{
+    return true;
+}
+
 bool portable_ota_port_stream_init(const ota_metadata_t *metadata)
 {
     (void)metadata;

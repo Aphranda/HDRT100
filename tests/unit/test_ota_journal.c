@@ -9,6 +9,7 @@
 #include "drv_flash.h"
 #include "flash_deployment_map.h"
 #include "flash_transaction.h"
+#include "flash_transaction_journal.h"
 
 static uint8_t s_flash[FLASH_DEPLOYMENT_MAP_OTA_JOURNAL_SIZE];
 static uint32_t s_program_calls;
@@ -16,6 +17,8 @@ static uint32_t s_fail_program_call;
 static bool s_program_alignment_valid;
 static bool s_program_one_to_zero_valid;
 static uint32_t s_erase_calls;
+static flash_transaction_completion_lease_t s_completion_lease;
+static bool s_completion_lease_set;
 
 bool drv_flash_read(uint32_t flash_offset, void *data, size_t length)
 {
@@ -31,6 +34,19 @@ bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
     (void)request;
     (void)completion;
     return false;
+}
+
+bool flash_transaction_ao_set_completion_lease(
+    const flash_transaction_completion_lease_t *lease)
+{
+    if (lease == NULL) {
+        s_completion_lease_set = false;
+        memset(&s_completion_lease, 0, sizeof(s_completion_lease));
+        return true;
+    }
+    s_completion_lease = *lease;
+    s_completion_lease_set = true;
+    return true;
 }
 
 bool pota_stream_session_set_checkpoint_store(
@@ -127,6 +143,7 @@ int main(void)
     };
 
     assert(ota_journal_init_with_platform(&platform));
+    assert(s_completion_lease_set);
     const pota_stream_checkpoint_t first = checkpoint(8192u, 0x11111111u);
     assert(ota_journal_append(&first) == POTA_STREAM_CHECKPOINT_OK);
     assert(s_program_calls == 2u);
@@ -173,6 +190,28 @@ int main(void)
     assert(!snapshot.valid &&
            snapshot.result == POTA_STREAM_CHECKPOINT_BAD_ARGUMENT);
     assert(s_erase_calls == 0u);
+
+    const flash_transaction_journal_record_t completion = {
+        .job_id = 77u,
+        .transaction_generation = 3u,
+        .provider_generation = 4u,
+        .store_generation = 5u,
+        .event = FLASH_TRANSACTION_JOURNAL_EVENT_COMMITTED,
+        .result = FLASH_TRANSACTION_RESULT_COMMITTED,
+        .error = FLASH_TRANSACTION_ERROR_NONE,
+        .processed_bytes = 256u,
+        .verified_bytes = 256u,
+    };
+    assert(s_completion_lease.append(s_completion_lease.context, &completion));
+    flash_transaction_journal_record_t recovered_completion;
+    uint32_t completion_sequence = 0u;
+    assert(flash_transaction_journal_recover_latest(
+               (const flash_transaction_journal_store_t *)
+                   s_completion_lease.context,
+               &recovered_completion, &completion_sequence));
+    assert(completion_sequence == 1u &&
+           recovered_completion.job_id == completion.job_id &&
+           recovered_completion.event == completion.event);
 
     puts("ota journal adapter tests passed");
     return 0;

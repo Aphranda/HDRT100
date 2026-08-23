@@ -32,6 +32,7 @@ $exe = Join-Path $build "test_ota_journal.exe"
     "-I$(Join-Path $repo 'config')" `
     (Join-Path $repo "tests\unit\test_ota_journal.c") `
     (Join-Path $repo "components\ota_manager\src\ota_journal.c") `
+    (Join-Path $repo "components\flash_transaction\src\flash_transaction_journal.c") `
     (Join-Path $repo "third_party\portable_ota\src\pota_stream_checkpoint.c") `
     (Join-Path $repo "third_party\portable_ota\src\pota_crc32.c") `
     -o $exe

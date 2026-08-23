@@ -31,6 +31,10 @@ bool portable_ota_port_core_service(uint32_t budget_us, ota_vector_t *vector);
 bool portable_ota_port_core_write(const uint8_t *data, uint32_t length, ota_vector_t *vector);
 bool portable_ota_port_core_end(ota_vector_t *vector);
 bool portable_ota_port_core_abort(ota_vector_t *vector);
+/* Initialize v2 durable OTA/completion stores independently of the current
+ * BCB/active-slot state.  Factory/empty metadata must not leave the real
+ * FlashTransaction completion lease unconfigured. */
+bool portable_ota_port_durable_init(void);
 /* App-side transport-neutral stream boundary.  The port owns the platform
  * callbacks and target-slot context; callers only provide stream metadata and
  * transport frames.  Boot builds return false/zero and never expose this

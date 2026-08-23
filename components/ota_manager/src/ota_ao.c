@@ -57,6 +57,14 @@ bool ota_ao_init(void)
     s_ota_context.vector.error_code = (uint32_t)OTA_ERR_NONE;
     s_ota_context.target_slot = OTA_SLOT_B;
 
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    /* Completion durability must be established even when BCB metadata is
+     * absent/corrupt and the stream session cannot be opened yet. */
+    if (!portable_ota_port_durable_init()) {
+        return false;
+    }
+#endif
+
     ota_metadata_t metadata;
     if (ota_metadata_load(&metadata)) {
         s_ota_context.target_slot = ota_ao_target_slot_from_metadata(&metadata);
