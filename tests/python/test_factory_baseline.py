@@ -8,6 +8,9 @@ import sys
 import zlib
 from pathlib import Path
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -15,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_factory_baseline_contains_valid_bcb_and_map_manifest(tmp_path: Path) -> None:
     app = tmp_path / "app.bin"
     app.write_bytes(b"factory-app-image")
+    app_b = tmp_path / "app_b.bin"
+    app_b.write_bytes(b"factory-app-image-b")
     bootloader = tmp_path / "bootloader.bin"
     bootloader.write_bytes(b"factory-bootloader")
     recovery = tmp_path / "recovery.bin"
@@ -22,6 +27,19 @@ def test_factory_baseline_contains_valid_bcb_and_map_manifest(tmp_path: Path) ->
     boot_control = tmp_path / "boot_control.bin"
     manifest_blob = tmp_path / "manifest.bin"
     report = tmp_path / "report.json"
+    build_id = tmp_path / "build_id.txt"
+    build_id.write_text(
+        'const char g_project_build_id[] = "factory-test-build";\n',
+        encoding="utf-8",
+    )
+    signing_key = tmp_path / "signing-key.bin"
+    signing_key.write_bytes(
+        ec.derive_private_key(1, ec.SECP256R1()).private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
     subprocess.run(
         [
             sys.executable,
@@ -32,10 +50,15 @@ def test_factory_baseline_contains_valid_bcb_and_map_manifest(tmp_path: Path) ->
             "--metadata-header", str(ROOT / "components/ota_manager/inc/ota_metadata.h"),
             "--bootloader", str(bootloader),
             "--app-a", str(app),
+            "--app-b", str(app_b),
+            "--build-id-file", str(build_id),
             "--recovery", str(recovery),
             "--boot-control", str(boot_control),
             "--manifest-blob", str(manifest_blob),
             "--report", str(report),
+            "--signing-key", str(signing_key),
+            "--key-id", "7",
+            "--security-counter", "1",
         ],
         check=True,
         capture_output=True,
@@ -83,7 +106,8 @@ def test_factory_baseline_contains_valid_bcb_and_map_manifest(tmp_path: Path) ->
     lane_pages = (len(data) // 2) // 256
     seal_offset = (lane_pages - 1) * 256
     assert struct.unpack_from("<I", data, seal_offset)[0] == 0x42434253
-    assert json.loads(manifest_blob.read_text(encoding="utf-8"))["map_version"] == 2
+    manifest_text = manifest_blob.read_bytes().split(b"\xff", 1)[0].decode("utf-8")
+    assert json.loads(manifest_text)["map_version"] == 2
     report_data = json.loads(report.read_text(encoding="utf-8"))
     assert report_data["full_erase_required"] is True
     assert report_data["deployment_state"] == "target_not_deployed"
