@@ -222,8 +222,10 @@ def validate_link_contract(map_text: str, dis_text: str, profile: str = "app") -
         if profile == "recovery":
             for required in (
                 "recovery_get_bcb_health",
+                "recovery_get_bcb_wear",
                 "pota_bcb_store_init_read_only",
                 "pota_bcb_store_get_health_snapshot",
+                "pota_bcb_store_get_wear_snapshot",
                 "reset_usb_boot",
             ):
                 if required not in boot_text:

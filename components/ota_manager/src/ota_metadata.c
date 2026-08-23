@@ -112,6 +112,28 @@ static bool ota_metadata_bcb_erase_sector(void *context, uint32_t lane,
         DRV_FLASH_SECTOR_SIZE);
 }
 
+/* Process-lifetime telemetry used by the diagnostics projection.  It is
+ * intentionally volatile runtime state; durable endurance accounting belongs
+ * to a separately budgeted store and is not inferred from this counter. */
+static uint32_t s_bcb_program_page_count;
+static uint32_t s_bcb_erase_lane_count;
+
+static void ota_metadata_bcb_on_program_page(void *context, uint32_t lane,
+                                             uint32_t page)
+{
+    (void)context;
+    (void)lane;
+    (void)page;
+    s_bcb_program_page_count++;
+}
+
+static void ota_metadata_bcb_on_erase_lane(void *context, uint32_t lane)
+{
+    (void)context;
+    (void)lane;
+    s_bcb_erase_lane_count++;
+}
+
 static void ota_metadata_bcb_service(void *context)
 {
     (void)context;
@@ -129,6 +151,8 @@ static bool ota_metadata_bcb_init(pota_boot_control_facade_t *store)
         .erase_lane = ota_metadata_bcb_erase_lane,
         .erase_lane_sector = ota_metadata_bcb_erase_sector,
         .erase_sector_count = OTA_BCB_ERASE_SECTOR_COUNT,
+        .on_program_page = ota_metadata_bcb_on_program_page,
+        .on_erase_lane = ota_metadata_bcb_on_erase_lane,
         .service = ota_metadata_bcb_service,
     };
     return pota_boot_control_facade_init(store, &platform,
@@ -589,6 +613,17 @@ bool ota_metadata_get_bcb_health(ota_metadata_bcb_health_t *health)
     health->newest_security_counter = snapshot.newest_security_counter;
     health->newest_lane = snapshot.newest_lane;
     health->newest_record_page = snapshot.newest_record_page;
+    return true;
+}
+
+bool ota_metadata_get_bcb_wear(ota_metadata_bcb_wear_t *wear)
+{
+    if (wear == NULL) {
+        return false;
+    }
+
+    wear->program_page_count = s_bcb_program_page_count;
+    wear->erase_lane_count = s_bcb_erase_lane_count;
     return true;
 }
 

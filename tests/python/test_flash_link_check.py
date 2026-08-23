@@ -176,8 +176,10 @@ def recovery_map_with_size_symbols() -> str:
         "0x00100000 FLASH_ACTIVE_MAP_RECOVERY_LENGTH = 0x100000\n"
         "0x10483000 PROVIDE (__flash_binary_end = .)\n"
         "0x10480100 recovery_get_bcb_health\n"
+        "0x10480180 recovery_get_bcb_wear\n"
         "0x10480200 pota_bcb_store_init_read_only\n"
         "0x10480300 pota_bcb_store_get_health_snapshot\n"
+        "0x10480380 pota_bcb_store_get_wear_snapshot\n"
         "0x10480400 reset_usb_boot",
     ).replace(
         "FLASH            0x101c0000         0x00180000         xr",

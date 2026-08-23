@@ -408,6 +408,18 @@ scpi_result_t scpi_cmd_ota_bcb_health_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_ota_bcb_wear_q(scpi_t *context)
+{
+    ota_metadata_bcb_wear_t wear;
+    if (!ota_metadata_get_bcb_wear(&wear)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, wear.program_page_count);
+    SCPI_ResultUInt32(context, wear.erase_lane_count);
+    return SCPI_RES_OK;
+}
+
 static bool scpi_ota_stream_source_read(scpi_t *context,
                                         pota_stream_ingress_source_t *source)
 {

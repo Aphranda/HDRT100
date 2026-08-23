@@ -76,6 +76,22 @@ __attribute__((noinline)) bool recovery_get_bcb_health(
            pota_bcb_store_get_health_snapshot(&store, health);
 }
 
+__attribute__((noinline)) bool recovery_get_bcb_wear(
+    pota_bcb_wear_snapshot_t *wear)
+{
+    const pota_bcb_platform_t platform = {
+        .read_page = recovery_bcb_read_page,
+    };
+    pota_bcb_store_t store;
+    return wear != NULL &&
+           pota_bcb_store_init_read_only(
+               &store, &platform,
+               FLASH_DEPLOYMENT_MAP_SCHEMA_VERSION,
+               FLASH_DEPLOYMENT_MAP_VERSION,
+               RECOVERY_BCB_LANE_PAGE_COUNT) == POTA_BCB_RESULT_OK &&
+           pota_bcb_store_get_wear_snapshot(&store, wear);
+}
+
 static void recovery_print_map(void)
 {
     for (uint32_t index = 0u;
@@ -111,6 +127,18 @@ static void recovery_print_bcb_health(void)
            (unsigned long)health.newest_record_page);
 }
 
+static void recovery_print_bcb_wear(void)
+{
+    pota_bcb_wear_snapshot_t wear;
+    if (!recovery_get_bcb_wear(&wear)) {
+        puts("ERR,BCB_READ\r");
+        return;
+    }
+    printf("%lu,%lu\r\n",
+           (unsigned long)wear.program_page_count,
+           (unsigned long)wear.erase_lane_count);
+}
+
 static void recovery_process_command(const char *command)
 {
     if (strcmp(command, "*IDN?") == 0) {
@@ -123,6 +151,8 @@ static void recovery_process_command(const char *command)
         recovery_print_map();
     } else if (strcmp(command, "SYST:RECOVERY:BCB:HEALTH?") == 0) {
         recovery_print_bcb_health();
+    } else if (strcmp(command, "SYST:RECOVERY:BCB:WEAR?") == 0) {
+        recovery_print_bcb_wear();
     } else if (strcmp(command, "SYST:RECOVERY:BOOTSEL DHRT100") == 0) {
         puts("OK,BOOTSEL\r");
         stdio_flush();

@@ -89,6 +89,14 @@ typedef struct {
     uint32_t newest_record_page;
 } ota_metadata_bcb_health_t;
 
+/* Physical BCB operation counters for the current store instance.  These are
+ * diagnostic telemetry, not a cross-reset lifetime budget; a durable
+ * endurance ledger remains a separate store concern. */
+typedef struct {
+    uint32_t program_page_count;
+    uint32_t erase_lane_count;
+} ota_metadata_bcb_wear_t;
+
 bool ota_metadata_load(ota_metadata_t *metadata);
 bool ota_metadata_store(const ota_metadata_t *metadata);
 bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size,
@@ -113,6 +121,7 @@ bool ota_metadata_clear_copy_transaction(void);
 bool ota_metadata_corrupt_copy(uint32_t copy_index);
 bool ota_metadata_repair_copies(void);
 bool ota_metadata_get_bcb_health(ota_metadata_bcb_health_t *health);
+bool ota_metadata_get_bcb_wear(ota_metadata_bcb_wear_t *wear);
 const char *ota_metadata_boot_result_to_string(uint32_t result);
 uint32_t ota_metadata_crc32(const ota_metadata_t *metadata);
 uint32_t ota_metadata_ext_crc32(const ota_metadata_t *metadata);

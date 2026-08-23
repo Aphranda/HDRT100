@@ -297,7 +297,9 @@ def _parse_package(package: bytes) -> tuple[tuple[int, ...], dict[str, Any], byt
         raise FactoryPackageError(f"factory descriptor is invalid: {exc}") from exc
     if not isinstance(descriptor, dict):
         raise FactoryPackageError("factory descriptor must be an object")
-    if descriptor.get("map_version") != map_version or descriptor.get("full_erase_required") is not True:
+    if (descriptor.get("map_version") != map_version or
+            descriptor.get("deployment_state") != "target_not_deployed" or
+            descriptor.get("full_erase_required") is not True):
         raise FactoryPackageError("factory descriptor/header identity mismatch")
     return header, descriptor, package[payload_offset:signature_offset], package[signature_offset:], package[:signature_offset]
 
@@ -324,9 +326,20 @@ def verify_factory_package(
     regions = descriptor.get("regions")
     if not isinstance(regions, list) or not regions:
         raise FactoryPackageError("factory descriptor has no regions")
+    required_regions = {"BOOTLOADER", "APP_A", "RECOVERY", "BOOT_CONTROL", "OTA_STAGE"}
+    seen_regions: set[str] = set()
+    flash_size = _u32(descriptor.get("flash_size"), "flash_size")
     for region in regions:
         if not isinstance(region, dict):
             raise FactoryPackageError("factory descriptor contains invalid region")
+        partition = region.get("partition")
+        if not isinstance(partition, str) or partition in seen_regions:
+            raise FactoryPackageError("factory descriptor has duplicate/invalid region")
+        seen_regions.add(partition)
+        physical_offset = _u32(region.get("offset"), f"{partition}.offset")
+        physical_size = _u32(region.get("size"), f"{partition}.size")
+        if physical_size == 0 or physical_offset + physical_size > flash_size:
+            raise FactoryPackageError(f"factory region geometry is invalid: {partition}")
         offset = _u32(region.get("payload_offset"), "region.payload_offset")
         size = _u32(region.get("payload_size"), "region.payload_size")
         if offset + size > len(payload):
@@ -335,11 +348,17 @@ def verify_factory_package(
             raise FactoryPackageError(f"factory region hash mismatch: {region.get('partition')}")
         if region.get("size") != size:
             raise FactoryPackageError(f"factory region size mismatch: {region.get('partition')}")
+    if seen_regions != required_regions:
+        raise FactoryPackageError(
+            f"factory descriptor region set must be {sorted(required_regions)}, "
+            f"got {sorted(seen_regions)}"
+        )
     return {
         "product": descriptor.get("product"),
         "map_version": header[8],
         "xip_base": descriptor.get("xip_base"),
         "flash_size": descriptor.get("flash_size"),
+        "deployment_state": descriptor.get("deployment_state"),
         "key_id": key_id,
         "region_count": len(regions),
         "package_size": len(package),
