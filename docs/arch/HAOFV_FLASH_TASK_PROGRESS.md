@@ -16,6 +16,21 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-075 - Common persistence record envelope
+
+- 状态：M2-01 的通用 envelope 代码/host/build 子项完成；NVS/Blob/FCB store、FlashTransaction
+  writer adapter、GC/wear、跨 reset/power-cut 和业务 namespace 接入仍未完成。
+- 代码：新增 `components/flash_store/` 的 `flash_store_record` primitive，采用显式 little-endian
+  编码，统一 magic、schema/object type、generation/sequence、flags、payload length/CRC、header
+  CRC 和 commit marker；decode 对 schema/object/未知 flags、generation、长度、header/payload CRC
+  与 commit marker 全部 fail closed；generation/sequence 提供 serial-number newer 比较。该 primitive
+  不直接执行 Flash IO，仍由 FlashTransactionAO owner 负责写入。
+- 验证：`tools/tests/run_flash_store_record_tests.ps1` 通过，覆盖 round-trip、schema/object/flags、
+  truncate、payload/header/commit corruption 和 generation wrap；V2 factory-candidate 与 release
+  构建均通过，包含 FlashMap/persistence/migration/wire/link gates；portable OTA host tests 通过。
+- 边界：本项尚未替换 BCB/Journal 的专用格式，也没有宣称 M2-01 或任何物理断电门禁完成；DHRT100
+  v2 仍为 `target_not_deployed`。
+
 ### FLASH-TASK-20260823-074 - DHRT100 read-only progress and sensor snapshot
 
 - 状态：DHRT100 兼容固件只读回归通过；不作为 v2 deployment、M1/M3/M4 物理完成证据。
