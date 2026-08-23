@@ -51,11 +51,13 @@ static bool flash_program(uint32_t offset, const void *data, uint32_t size)
     return true;
 }
 
-static bool mark_pending(pota_slot_t slot, uint32_t size, uint32_t crc32)
+static bool mark_pending(pota_slot_t slot, uint32_t size, uint32_t crc32,
+                         uint32_t security_counter)
 {
     (void)slot;
     (void)size;
     (void)crc32;
+    (void)security_counter;
     s_pending_count++;
     return true;
 }
@@ -142,6 +144,16 @@ int main(void)
     open.package_crc32 = pota_crc32_compute("01234567890123456789012345678901", 32u);
     open.identity[0] = 0xA5u;
     open.package_hash[0] = 0x5Au;
+    pota_platform_t signed_platform = platform;
+    signed_platform.info.require_signature = true;
+    pota_stream_session_t signed_session;
+    failed += !expect("signed stream init",
+                      pota_stream_session_init(&signed_session,
+                                               &signed_platform));
+    failed += !expect("signed stream rejects raw open",
+                      pota_stream_session_open(&signed_session, &open) ==
+                          POTA_STREAM_RESULT_CORE &&
+                          s_erase_count == 0u && s_program_count == 0u);
     pota_stream_open_t wrong_map = open;
     wrong_map.map_version = 2u;
     failed += !expect("map mismatch rejected",

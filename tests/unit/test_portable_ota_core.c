@@ -24,6 +24,7 @@ static uint32_t s_yield_count;
 static pota_slot_t s_pending_slot;
 static uint32_t s_pending_size;
 static uint32_t s_pending_crc32;
+static uint32_t s_pending_security_counter;
 static uint32_t s_validate_offset;
 static uint32_t s_validate_size;
 static uint32_t s_validate_run_offset;
@@ -78,7 +79,9 @@ static bool mock_flash_program(uint32_t offset, const void *data, uint32_t size)
     return true;
 }
 
-static bool mock_mark_pending(pota_slot_t slot, uint32_t image_size, uint32_t image_crc32)
+static bool mock_mark_pending(pota_slot_t slot, uint32_t image_size,
+                              uint32_t image_crc32,
+                              uint32_t security_counter)
 {
     if (!s_mark_pending_result) {
         return false;
@@ -86,6 +89,7 @@ static bool mock_mark_pending(pota_slot_t slot, uint32_t image_size, uint32_t im
     s_pending_slot = slot;
     s_pending_size = image_size;
     s_pending_crc32 = image_crc32;
+    s_pending_security_counter = security_counter;
     return true;
 }
 
@@ -126,10 +130,40 @@ static void reset_mock(void)
     s_pending_slot = POTA_SLOT_NONE;
     s_pending_size = 0u;
     s_pending_crc32 = 0u;
+    s_pending_security_counter = 0u;
     s_validate_offset = 0u;
     s_validate_size = 0u;
     s_validate_run_offset = 0u;
     s_corrupt_readback = false;
+}
+
+static void add_signed_extension(uint8_t *header,
+                                 uint32_t security_counter,
+                                 uint32_t key_id)
+{
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET,
+               POTA_MANIFEST_EXTENSION_MAGIC);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 4u,
+               POTA_MANIFEST_EXTENSION_VERSION);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 8u, 1u);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 12u,
+               security_counter);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 16u, key_id);
+    write_le32(header, POTA_MANIFEST_EXTENSION_OFFSET + 20u,
+               POTA_MANIFEST_SIGNATURE_MAX_SIZE);
+    memset(&header[POTA_MANIFEST_EXTENSION_OFFSET + 24u], 0x5Au,
+           POTA_MANIFEST_SIGNATURE_MAX_SIZE);
+}
+
+static bool mock_verify_signature(void *context,
+                                  const pota_package_manifest_t *manifest,
+                                  const uint8_t *header,
+                                  uint32_t header_size)
+{
+    (void)context;
+    (void)header;
+    return header_size == POTA_PACKAGE_HEADER_SIZE && manifest != NULL &&
+           manifest->security_counter == 10u && manifest->key_id == 7u;
 }
 
 static pota_platform_t make_platform(pota_boot_mode_t boot_mode)
@@ -356,6 +390,81 @@ static int test_package_positive_copy_to_active(void)
         failed++;
     }
 
+    return failed;
+}
+
+static int test_signed_package_counter_propagates(void)
+{
+    reset_mock();
+
+    uint8_t image_a[128];
+    uint8_t image_b[128];
+    uint8_t package[POTA_PACKAGE_HEADER_SIZE + sizeof(image_a) + sizeof(image_b)];
+    fill_image(image_a, sizeof(image_a), 0x21u);
+    fill_image(image_b, sizeof(image_b), 0x81u);
+    make_package(package, image_a, sizeof(image_a), image_b, sizeof(image_b));
+    add_signed_extension(package, 10u, 7u);
+
+    pota_context_t context;
+    pota_platform_t platform = make_platform(POTA_BOOT_MODE_COPY_TO_ACTIVE);
+    platform.info.security_counter = 9u;
+    platform.info.require_signature = true;
+    platform.info.verify_manifest_signature = mock_verify_signature;
+    const pota_begin_t begin = {
+        .size = sizeof(package),
+        .crc32 = pota_crc32_compute(package, sizeof(package)),
+        .package_mode = true,
+    };
+    int failed = !pota_init(&context, &platform);
+    failed += expect_error("signed package begin", pota_begin(&context, &begin),
+                           POTA_ERR_NONE);
+    failed += expect_error("signed package header",
+                           pota_write(&context, package,
+                                      POTA_PACKAGE_HEADER_SIZE),
+                           POTA_ERR_NONE);
+    failed += service_until_receiving(&context, "signed package service");
+    failed += expect_error("signed package payload",
+                           pota_write(&context,
+                                      &package[POTA_PACKAGE_HEADER_SIZE],
+                                      sizeof(package) - POTA_PACKAGE_HEADER_SIZE),
+                           POTA_ERR_NONE);
+    failed += expect_error("signed package end", pota_end(&context),
+                           POTA_ERR_NONE);
+    if (s_pending_security_counter != 10u) {
+        (void)printf("signed package counter was not propagated\n");
+        failed++;
+    }
+    return failed;
+}
+
+static int test_signature_policy_rejects_raw(void)
+{
+    reset_mock();
+    uint8_t image[64];
+    fill_image(image, sizeof(image), 0x42u);
+    const pota_begin_t begin = {
+        .size = sizeof(image),
+        .crc32 = pota_crc32_compute(image, sizeof(image)),
+        .package_mode = false,
+    };
+    pota_platform_t platform = make_platform(POTA_BOOT_MODE_DIRECT_AB);
+    platform.info.require_signature = true;
+    pota_context_t context;
+    int failed = !pota_init(&context, &platform);
+    failed += expect_error("signed policy raw begin",
+                           pota_begin(&context, &begin),
+                           POTA_ERR_SIGNATURE_INVALID);
+
+    failed += !pota_init(&context, &platform);
+    failed += expect_error("signed policy raw resume",
+                           pota_resume_raw(&context, &begin, sizeof(image),
+                                           begin.crc32),
+                           POTA_ERR_SIGNATURE_INVALID);
+    if (s_erase_count != 0u || s_program_count != 0u ||
+        s_pending_slot != POTA_SLOT_NONE) {
+        (void)printf("signed raw rejection had side effects\n");
+        failed++;
+    }
     return failed;
 }
 
@@ -604,6 +713,8 @@ int main(void)
     failed += test_raw_positive();
     failed += test_readback_failure();
     failed += test_package_positive_copy_to_active();
+    failed += test_signed_package_counter_propagates();
+    failed += test_signature_policy_rejects_raw();
     failed += test_crc_failure();
     failed += test_raw_final_block_padding();
     failed += test_raw_unaligned_nonfinal_rejected();

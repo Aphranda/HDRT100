@@ -17,6 +17,7 @@ typedef struct {
     uint32_t selected_image_offset;
     uint32_t selected_image_size;
     uint32_t selected_image_crc32;
+    uint32_t selected_security_counter;
     uint32_t selected_image_crc32_running;
     uint32_t selected_image_received_size;
     bool raw_resume_active;

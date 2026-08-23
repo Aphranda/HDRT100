@@ -212,6 +212,10 @@ pota_error_t pota_resume_raw(pota_context_t *context,
         (pota_state_t)context->status.state != POTA_STATE_IDLE) {
         return POTA_ERR_BAD_ARGUMENT;
     }
+    if (context->platform.info.require_signature) {
+        pota_core_set_failed(context, POTA_ERR_SIGNATURE_INVALID);
+        return POTA_ERR_SIGNATURE_INVALID;
+    }
     if (!pota_required_ops_are_present(context) ||
         context->platform.ops.flash_read == NULL ||
         !pota_flash_geometry_is_valid(context)) {
@@ -238,6 +242,7 @@ pota_error_t pota_resume_raw(pota_context_t *context,
             : context->platform.info.slot_a.run_offset;
     context->selected_image_size = begin->size;
     context->selected_image_crc32 = begin->crc32;
+    context->selected_security_counter = 0u;
     context->target_erase_size =
         pota_align_up(begin->size, context->platform.info.flash_sector_size);
     context->target_erase_offset = durable_offset;
@@ -272,6 +277,10 @@ pota_error_t pota_core_begin_action(pota_context_t *context, const void *argumen
         pota_core_set_failed(context, POTA_ERR_BAD_ARGUMENT);
         return POTA_ERR_BAD_ARGUMENT;
     }
+    if (context->platform.info.require_signature && !begin->package_mode) {
+        pota_core_set_failed(context, POTA_ERR_SIGNATURE_INVALID);
+        return POTA_ERR_SIGNATURE_INVALID;
+    }
 
     context->package_mode = begin->package_mode;
     context->package_header_received = false;
@@ -296,6 +305,7 @@ pota_error_t pota_core_begin_action(pota_context_t *context, const void *argumen
             context->platform.info.slot_a.run_offset;
     context->selected_image_size = begin->package_mode ? 0u : begin->size;
     context->selected_image_crc32 = begin->package_mode ? 0u : begin->crc32;
+    context->selected_security_counter = 0u;
     context->target_erase_size = begin->package_mode ? 0u :
                                      pota_align_up(begin->size, context->platform.info.flash_sector_size);
 
@@ -448,6 +458,7 @@ pota_error_t pota_core_write_action(pota_context_t *context, const void *argumen
         context->selected_image_offset = image->offset;
         context->selected_image_size = image->size;
         context->selected_image_crc32 = image->crc32;
+        context->selected_security_counter = manifest.security_counter;
         context->target_erase_size = pota_align_up(image->size, context->platform.info.flash_sector_size);
         context->target_erase_offset = 0u;
         context->package_header_received = true;
@@ -558,7 +569,8 @@ pota_error_t pota_core_end_action(pota_context_t *context, const void *argument)
     context->status.state = (uint32_t)POTA_STATE_MARK_PENDING;
     if (!context->platform.ops.mark_pending(context->target_slot,
                                             context->selected_image_size,
-                                            context->selected_image_crc32)) {
+                                            context->selected_image_crc32,
+                                            context->selected_security_counter)) {
         pota_core_set_failed(context, POTA_ERR_METADATA);
         return POTA_ERR_METADATA;
     }

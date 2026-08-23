@@ -270,7 +270,9 @@ bool ota_metadata_load(ota_metadata_t *metadata)
 #endif
 }
 
-bool ota_metadata_store(const ota_metadata_t *metadata)
+static bool ota_metadata_store_with_security_counter(
+    const ota_metadata_t *metadata, uint32_t security_counter,
+    bool allow_counter_advance)
 {
     if (metadata == NULL) {
         return false;
@@ -285,17 +287,38 @@ bool ota_metadata_store(const ota_metadata_t *metadata)
     if (!ota_metadata_bcb_init(&store)) {
         return false;
     }
+    const pota_bcb_result_t selected =
+        pota_boot_control_facade_select_newest(&store, &view);
+    if (selected == POTA_BCB_RESULT_OK) {
+        const uint32_t current_counter = view.update.security_counter;
+        if (allow_counter_advance) {
+            if (security_counter < current_counter) {
+                return false;
+            }
+        } else {
+            security_counter = current_counter;
+        }
+    } else if (selected != POTA_BCB_RESULT_NO_VALID) {
+        return false;
+    }
     (void)memset(&update, 0, sizeof(update));
     update.sequence = stored_metadata.sequence;
     update.boot_generation = stored_metadata.boot_generation;
-    update.security_counter = 0u;
+    update.security_counter = security_counter;
     update.payload_length = sizeof(stored_metadata);
     memcpy(update.payload, &stored_metadata, sizeof(stored_metadata));
     return pota_boot_control_facade_append(&store, &update, &view) ==
            POTA_BCB_RESULT_OK;
 }
 
-bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size, uint32_t image_crc32)
+bool ota_metadata_store(const ota_metadata_t *metadata)
+{
+    return ota_metadata_store_with_security_counter(metadata, 0u, false);
+}
+
+bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size,
+                               uint32_t image_crc32,
+                               uint32_t security_counter)
 {
     ota_metadata_t metadata;
     if (!ota_metadata_load(&metadata)) {
@@ -309,7 +332,8 @@ bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size, uint32_t im
         return false;
     }
 
-    return ota_metadata_store(&metadata);
+    return ota_metadata_store_with_security_counter(&metadata,
+                                                     security_counter, true);
 }
 
 bool ota_metadata_confirm_active(void)

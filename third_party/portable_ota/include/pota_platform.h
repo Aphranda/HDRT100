@@ -33,7 +33,8 @@ typedef struct {
     bool (*flash_read)(uint32_t offset, void *buffer, uint32_t size);
     bool (*flash_erase)(uint32_t offset, uint32_t size);
     bool (*flash_program)(uint32_t offset, const void *data, uint32_t size);
-    bool (*mark_pending)(pota_slot_t slot, uint32_t image_size, uint32_t image_crc32);
+    bool (*mark_pending)(pota_slot_t slot, uint32_t image_size,
+                         uint32_t image_crc32, uint32_t security_counter);
     bool (*confirm_active)(void);
     bool (*validate_vector)(uint32_t slot_offset, uint32_t image_size, uint32_t run_offset);
     void (*ota_lock)(void);

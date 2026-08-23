@@ -90,7 +90,9 @@ typedef struct {
 
 bool ota_metadata_load(ota_metadata_t *metadata);
 bool ota_metadata_store(const ota_metadata_t *metadata);
-bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size, uint32_t image_crc32);
+bool ota_metadata_mark_pending(ota_slot_t slot, uint32_t image_size,
+                               uint32_t image_crc32,
+                               uint32_t security_counter);
 bool ota_metadata_confirm_active(void);
 bool ota_metadata_set_boot_mode(ota_boot_mode_t mode);
 bool ota_metadata_set_fault_injection(uint32_t flags);

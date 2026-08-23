@@ -184,9 +184,12 @@ static bool portable_core_flash_program(uint32_t offset, const void *data,
                                        offset, data, size);
 }
 
-static bool portable_core_mark_pending(pota_slot_t slot, uint32_t image_size, uint32_t image_crc32)
+static bool portable_core_mark_pending(pota_slot_t slot, uint32_t image_size,
+                                       uint32_t image_crc32,
+                                       uint32_t security_counter)
 {
-    return ota_metadata_mark_pending((ota_slot_t)slot, image_size, image_crc32);
+    return ota_metadata_mark_pending((ota_slot_t)slot, image_size,
+                                     image_crc32, security_counter);
 }
 
 static bool portable_core_confirm_active(void)

@@ -58,11 +58,13 @@ static bool checkpoint_program(void *context, uint32_t offset,
     return true;
 }
 
-static bool mark_pending(pota_slot_t slot, uint32_t size, uint32_t crc32)
+static bool mark_pending(pota_slot_t slot, uint32_t size, uint32_t crc32,
+                         uint32_t security_counter)
 {
     (void)slot;
     (void)size;
     (void)crc32;
+    (void)security_counter;
     return true;
 }
 
