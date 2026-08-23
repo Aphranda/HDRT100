@@ -430,6 +430,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_vdc_bridge.c
         components/event_bus/src/event_bus.c
         components/flash_store/src/flash_store_record.c
+        components/flash_store/src/flash_store_nvs.c
         components/flash_transaction/src/flash_transaction_ao.c
         components/flash_transaction/src/flash_transaction_fb.c
         components/flash_transaction/src/flash_transaction_journal.c
