@@ -37,11 +37,14 @@ static bool partition_matches_destination(const pota_stream_session_t *session,
 static bool open_valid(const pota_stream_session_t *session,
                        const pota_stream_open_t *open)
 {
+    const uint32_t known_capabilities =
+        POTA_STREAM_CAP_INACTIVE_WRITE | POTA_STREAM_CAP_DURABLE_ACK;
     return session != NULL && open != NULL && open->session_id != 0u &&
            open->generation != 0u &&
            open->map_version != 0u && open->object_id != 0u &&
            open->total_size != 0u && destination_valid(open) &&
            partition_matches_destination(session, open) &&
+           (open->capability_mask & ~known_capabilities) == 0u &&
            (open->capability_mask & POTA_STREAM_CAP_INACTIVE_WRITE) != 0u &&
            (open->capability_mask & POTA_STREAM_CAP_DURABLE_ACK) != 0u &&
            bytes_any_set(open->identity, POTA_STREAM_IDENTITY_SIZE) &&

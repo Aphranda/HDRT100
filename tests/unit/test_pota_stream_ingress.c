@@ -241,6 +241,24 @@ int main(void)
                       recovered_checkpoint.token == status.stream_token &&
                       checkpoint_sequence != 0u);
 
+    /* Unknown capability bits are required flags, not forward-compatible
+     * hints.  A fresh session must reject them before any Flash operation. */
+    memset(&s_flash[3072u], 0xFF, sizeof(s_flash) - 3072u);
+    failed += !expect("reinit for unknown capability",
+                      pota_stream_session_init(&session, &platform));
+    failed += !expect("reinit ingress for unknown capability",
+                      pota_stream_ingress_init(&ingress, &session,
+                          POTA_STREAM_INGRESS_SOURCE_BIT(POTA_STREAM_INGRESS_USB_CDC),
+                          32u));
+    failed += !expect("rebind checkpoint for unknown capability",
+                      pota_stream_session_set_checkpoint_store(
+                          &session, &checkpoint_store, &checkpoint_policy));
+    open.capability_mask |= 0x80000000u;
+    failed += !expect("unknown capability rejected",
+                      pota_stream_ingress_open(&ingress,
+                          POTA_STREAM_INGRESS_USB_CDC, &open) ==
+                          POTA_STREAM_INGRESS_SESSION);
+
     if (failed != 0) {
         return 1;
     }
