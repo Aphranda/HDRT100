@@ -16,6 +16,28 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-049 - M3-03 v2 Direct A/B 单主线收敛
+
+- 状态：代码、host 静态回归和 v1/v2 build 通过；M3-03 要求的 DHRT100
+  no-confirm/attempt-exhausted/revert HIL、回退证据和独立 C11 审核仍未完成，不能关闭
+  M3-03 或 M3。
+- 代码：`v2_candidate` CMake 配置现在强制
+  `PROJECT_OTA_DEFAULT_BOOT_MODE=DIRECT_AB`；v2 portable OTA 不再从 metadata 选择
+  `COPY_TO_ACTIVE`；v2 Bootloader 将 legacy boot mode metadata fail closed 并进入 Recovery，
+  不编译固定地址 copy transaction/apply 路径。v1 compatibility 保留原兼容路径。
+- SCPI：fault-injection 构建的 v2 不注册可写 `SYSTem:OTA:MODE`，只保留只读
+  `SYSTem:OTA:MODE?` 与其他注入查询；v1 compatibility 继续保留 legacy mode 命令，便于
+  回归与恢复验证。
+- 验证：新增 `tests/python/test_v2_direct_ab_policy.py`（4 项通过）；`build` 和
+  `build-v2-debug-ninja3` 均通过 App A/B、Boot、Recovery、FlashMap/schema/wire/link gates，
+  v2 调试 key 7 的签名 package 重新生成并通过 public-only verifier。构建结果仅证明代码与
+  工件一致，不替代板端 HIL。
+- 板端阻塞：前一轮 DHRT100 烧录在 `build-v2-debug-ninja3/dhrt100_post_fix_flash_attempt.txt`
+  的 load 中途出现 `picoboot::connection_error`，当前仍需重新插拔或按住 BOOTSEL 让 DHRT100
+  重新枚举；恢复后使用固化 `tools/picotool_flash/picotool_flash.py` 重刷，并通过 COM9
+  UART 保存 no-confirm、attempt-exhausted、revert 及
+  `READY_TO_REBOOT → BOOT → COMM → COMMITTED` 原始 transcript。
+
 ### FLASH-TASK-20260823-048 - Supervisor feed ownership and BCB readback context fix
 
 - 状态：代码与 host/build 回归通过；DHRT100 新固件烧录/OTA 闭环待本轮板端窗口完成，不能把本条
