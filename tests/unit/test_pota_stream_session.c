@@ -223,6 +223,24 @@ int main(void)
     int failed = 0;
     failed += !expect("init", pota_stream_session_init(&session, &platform));
 
+    const pota_stream_checkpoint_config_t checkpoint_config = {
+        .context = s_flash,
+        .read = checkpoint_read,
+        .program = checkpoint_program,
+        .base_offset = 7168u,
+        .slot_count = 8u,
+        .slot_size = POTA_STREAM_CHECKPOINT_RECORD_SIZE,
+    };
+    const pota_stream_checkpoint_policy_t checkpoint_policy = {
+        .interval_bytes = 512u,
+        .checkpoint_on_final = true,
+    };
+    pota_stream_checkpoint_store_t checkpoint_store;
+    failed += !expect("checkpoint init",
+                      pota_stream_checkpoint_init(&checkpoint_store,
+                                                  &checkpoint_config) ==
+                          POTA_STREAM_CHECKPOINT_OK);
+
     pota_stream_open_t open;
     memset(&open, 0, sizeof(open));
     open.session_id = 7u;
@@ -242,15 +260,29 @@ int main(void)
     failed += !expect("signed stream init",
                       pota_stream_session_init(&signed_session,
                                                &signed_platform));
+    failed += !expect("signed checkpoint attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &signed_session, &checkpoint_store,
+                          &checkpoint_policy));
     failed += !expect("signed stream rejects raw open",
                       pota_stream_session_open(&signed_session, &open) ==
                           POTA_STREAM_RESULT_CORE &&
+                          s_erase_count == 0u && s_program_count == 0u);
+    pota_stream_session_t no_store_session;
+    failed += !expect("zero-storage session init",
+                      pota_stream_session_init(&no_store_session, &platform));
+    failed += !expect("zero-storage durable open rejected",
+                      pota_stream_session_open(&no_store_session, &open) ==
+                          POTA_STREAM_RESULT_CHECKPOINT &&
                           s_erase_count == 0u && s_program_count == 0u);
     pota_stream_open_t wrong_map = open;
     wrong_map.map_version = 2u;
     failed += !expect("map mismatch rejected",
                       pota_stream_session_open(&session, &wrong_map) ==
                           POTA_STREAM_RESULT_MISMATCH);
+    failed += !expect("checkpoint attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &session, &checkpoint_store, &checkpoint_policy));
     failed += !expect("open", pota_stream_session_open(&session, &open) == POTA_STREAM_RESULT_OK);
     failed += !expect("wrong state before service",
                       pota_stream_session_write(&session, 0u, (const uint8_t *)"01234567890123456789012345678901", 16u) ==
@@ -290,23 +322,6 @@ int main(void)
     resume_open.package_crc32 =
         pota_crc32_compute(resume_image, sizeof(resume_image));
     resume_open.package_hash[1] = 0x6Bu;
-    const pota_stream_checkpoint_config_t checkpoint_config = {
-        .context = s_flash,
-        .read = checkpoint_read,
-        .program = checkpoint_program,
-        .base_offset = 7168u,
-        .slot_count = 8u,
-        .slot_size = POTA_STREAM_CHECKPOINT_RECORD_SIZE,
-    };
-    const pota_stream_checkpoint_policy_t checkpoint_policy = {
-        .interval_bytes = 512u,
-        .checkpoint_on_final = true,
-    };
-    pota_stream_checkpoint_store_t checkpoint_store;
-    failed += !expect("checkpoint init",
-                      pota_stream_checkpoint_init(&checkpoint_store,
-                                                  &checkpoint_config) ==
-                          POTA_STREAM_CHECKPOINT_OK);
     failed += !expect("resume session init",
                       pota_stream_session_init(&session, &platform));
     failed += !expect("resume checkpoint attach",
@@ -533,6 +548,39 @@ int main(void)
     package_platform.info.security_counter = 9u;
     package_platform.info.require_signature = true;
     package_platform.info.verify_manifest_signature = verify_signature;
+    pota_stream_open_t full_package_open = package_open;
+    full_package_open.session_id = 41u;
+    full_package_open.object_id = 22u;
+    full_package_open.total_size = sizeof(package);
+    full_package_open.package_crc32 =
+        pota_crc32_compute(package, sizeof(package));
+    pota_stream_checkpoint_store_t full_package_store;
+    failed += !expect("full package checkpoint init",
+                      pota_stream_checkpoint_init(&full_package_store,
+                                                  &checkpoint_config) ==
+                          POTA_STREAM_CHECKPOINT_OK);
+    pota_stream_session_t full_package_session;
+    failed += !expect("full package session init",
+                      pota_stream_session_init(&full_package_session,
+                                               &package_platform));
+    failed += !expect("full package checkpoint attach",
+                      pota_stream_session_set_checkpoint_store(
+                          &full_package_session, &full_package_store,
+                          &checkpoint_policy));
+    failed += !expect("full package object open",
+                      pota_stream_session_open(&full_package_session,
+                                               &full_package_open) ==
+                          POTA_STREAM_RESULT_OK);
+    const uint32_t erase_before_full_package = s_erase_count;
+    const uint32_t program_before_full_package = s_program_count;
+    failed += !expect("full A+B package rejected",
+                      pota_stream_session_write(
+                          &full_package_session, 0u, package,
+                          POTA_PACKAGE_HEADER_SIZE) == POTA_STREAM_RESULT_CORE &&
+                          pota_stream_session_state(&full_package_session) ==
+                              POTA_STREAM_STATE_FAILED &&
+                          s_erase_count == erase_before_full_package &&
+                          s_program_count == program_before_full_package);
     pota_stream_checkpoint_store_t package_store;
     failed += !expect("package checkpoint init",
                       pota_stream_checkpoint_init(&package_store,
@@ -694,7 +742,7 @@ int main(void)
                       service_stream_to_ready(&package_recovered) == 0);
     failed += !expect("package pending once", s_pending_count == 1u);
     failed += !expect("package manifest reverified",
-                      s_signature_verify_count == 4u);
+                      s_signature_verify_count == 5u);
     if (failed != 0) {
         return 1;
     }

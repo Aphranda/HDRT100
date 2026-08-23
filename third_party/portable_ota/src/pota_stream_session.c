@@ -150,6 +150,16 @@ pota_stream_result_t pota_stream_session_open(
         return POTA_STREAM_RESULT_DESTINATION;
     }
 
+    /* DURABLE_ACK is an explicit wire capability, not an in-RAM promise.
+     * Refuse OPEN before pota_session_begin when no checkpoint sink is
+     * attached; otherwise a zero-storage producer could receive ACKs for
+     * bytes that cannot survive reset. */
+    if ((open->capability_mask & POTA_STREAM_CAP_DURABLE_ACK) != 0u &&
+        (session->checkpoint_append == NULL ||
+         !pota_stream_checkpoint_policy_valid(&session->checkpoint_policy))) {
+        return POTA_STREAM_RESULT_CHECKPOINT;
+    }
+
     const pota_begin_t begin = {
         .size = open->total_size,
         .crc32 = open->package_crc32,
