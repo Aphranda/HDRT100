@@ -418,8 +418,9 @@ TODO 只保留可独立验收的状态项和证据索引。
 
 - [~] 新增纯策略 `pota_direct_ab_decide()` façade，明确 no-pending、pending test boot 和
   attempt-exhausted rollback 的输入/输出，并已接入 Boot 实际 pending 状态机（证据：
-  `FLASH-TASK-20260823-028`、`FLASH-TASK-20260823-032`）；仍待完成 reset/no-confirm/
-  attempt exhausted 的 DHRT100 HIL。
+  `FLASH-TASK-20260823-028`、`FLASH-TASK-20260823-032`）；DHRT100 已完成 no-confirm、
+  attempt increment 和 attempt-exhausted rollback HIL（`FLASH-TASK-20260823-057`），仍待
+  slot-specific/hash/signature 全 fault matrix、Recovery 和独立 C11 审核。
 - [ ] A/B slot-specific image、vector/reset handler、hash/signature/compatibility 校验。
 - [ ] v2 删除 `COPY_TO_ACTIVE` 运行分支和可写 mode 命令；历史查询返回明确 legacy/unsupported。
 

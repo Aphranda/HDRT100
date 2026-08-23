@@ -16,6 +16,48 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-055 - Completion journal 自重入修复
+
+- 状态：代码、host、构建和 DHRT100 OTA 闭环通过；M1/M3/M4 总体退出门禁仍按 TODO 保持未完成。
+- 根因：终态 completion journal append 原先发生在 Flash owner/core1 park 会话释放之后，嵌套
+  `OTA_JOURNAL` transaction 被误判为 busy/completion failure，已完成擦除/校验的 OTA 被报为
+  `FLASH_ERASE` 失败。
+- 修复：在已有 owner/park 会话内执行有界 journal physical step；`ACCEPTED` 仅发布 RAM Vector；
+  terminal append 提前到 release 前；释放异常追加 corrective `FAILED` record 并重试 core1 release。
+  临时 `E001/E002/E003` 诊断标记已移除。
+- 验证：`tools/tests/run_flash_transaction_tests.ps1`、`tools/run_portable_ota_tests.ps1`、
+  `cmake --build build-v2-debug-ninja3` 全部通过；DHRT100 使用固化 picotool/OTA 工具完成
+  `READY_TO_REBOOT → BOOT → COMM → COMMITTED`，原始记录为
+  `build-v2-debug-ninja3/picotool_flash_ota_fix_final.txt` 与
+  `build-v2-debug-ninja3/ota_ota_fix_final.txt`。代码提交 `bdaa750` 已推送。
+
+### FLASH-TASK-20260823-056 - M4 USB CDC 正向 A/B 验证
+
+- 状态：M4-01/M4-03 的 USB CDC 正向路径取得 DHRT100 证据；USBTMC/UART/RS485/SD、resume、
+  revert/Recovery 仍未完成，不能关闭 M4。
+- 验证：固化 `tools/ota_board_validate/ota_board_validate.py` 在现有 v2 DHRT100 上完成
+  baseline、正向 OTA、BOOT/COMMIT 和最终安全状态，报告为
+  `build-v2-debug-ninja3/ota_board_validate_m4_positive_latest/summary.json`，结果
+  `passed=true`；只读 FlashMap 板端检查为 14/14 分区、260 项权限检查通过，报告目录为
+  `build-v2-debug-ninja3/flash_map_board_validate_current`。
+- 边界：本条未执行 factory full erase 或五类 transport，未改变 `target_not_deployed` 和任何
+  M4 退出 checkbox。
+
+### FLASH-TASK-20260823-057 - M3 Direct A/B no-confirm/attempt-exhausted 回退 HIL
+
+- 状态：M3-03 的 DHRT100 no-confirm、attempt increment、attempt-exhausted rollback 已取得
+  可复核原始记录；slot-specific/hash/signature 全 fault matrix 和 Recovery 仍未完成。
+- 工具：`tools/ota_boot_commit/ota_boot_commit.py --no-commit` 固化只 BOOT 不确认路径；新增
+  `tools/picotool_reboot/picotool_reboot.py`，只执行一次应用 reset，并轮询 USB 重枚举，禁止
+  验证工具因暂时不可见重复 reset。工具提交 `7954070`、重枚举修复 `21d6ab2` 已推送。
+- 证据：`ota_m3_no_confirm_boot_clean.txt` 读回 `2,0,1,1,1`；随后三次独立
+  `picotool_reboot_no_confirm_clean_{1,2,3}.txt` 后，状态依次为
+  `2,0,1,2,1`、`2,0,1,3,1`、`1,0,1,0,2`。最终
+  `ota_m3_no_confirm_final_state.txt` 读回 `SYST:OTA:RES? =
+  0,"NONE","MAX_ATTEMPTS",2,...`、transaction 清零且 `ERRor?` 无错误。
+- 回退：confirmed Slot A 保持活动，pending 清零，rollback_count 从 1 增至 2；未执行
+  `OTA:COMM`，因此该记录是 no-confirm 回退而非成功确认路径。
+
 ### FLASH-TASK-20260823-052 - Remove OTA-owner watchdog reconfiguration
 
 - 状态：代码与 host/build 回归通过；DHRT100 烧录、COM9 UART、`READY_TO_REBOOT → BOOT →
