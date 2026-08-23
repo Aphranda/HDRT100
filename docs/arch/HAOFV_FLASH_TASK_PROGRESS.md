@@ -16,6 +16,19 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-073 - Package slot identity ambiguity fail-closed
+
+- 状态：M3-03 manifest parser 的 host 子项完成；slot-specific offset/vector、hash/signature/
+  compatibility fault matrix、Boot 可重验和 Recovery/DHRT100 HIL 仍未完成。
+- 代码：`pota_package_parse_header()` 现在拒绝同一 slot 出现多次的 image entry，避免
+  `pota_package_find_image()` 依赖 entry 顺序而使签名验证对象与实际安装对象不一致；新增 duplicate
+  slot 负向测试。
+- 验证：`tools/tests/run_portable_ota_tests.ps1` 通过；此前 `pota_image_validate_app_vector()` 溢出
+  防护、FlashTransaction replay host fixture 修正及两套 release/factory-candidate 构建证据分别见
+  `FLASH-TASK-20260823-072`，均未把 host 结果当作 DHRT100 部署证据。
+- 边界：未执行 BOOTSEL、full erase、Recovery restore、真实掉电或 DHRT100 物理 HIL；v2
+  `target_not_deployed` 和 M3/M4 未完成状态保持不变。
+
 ### FLASH-TASK-20260823-072 - Image vector window overflow hardening
 
 - 状态：M3-03 镜像边界校验的 host/build 子项完成；slot-specific map、hash/signature/vector/compatibility
