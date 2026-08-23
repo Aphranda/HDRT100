@@ -264,7 +264,8 @@ scpi_result_t scpi_cmd_ota_mode_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-#if PROJECT_ENABLE_OTA_FAULT_INJECTION
+#if PROJECT_ENABLE_OTA_FAULT_INJECTION && \
+    (!defined(PROJECT_FLASH_DEPLOYMENT_V2) || !PROJECT_FLASH_DEPLOYMENT_V2)
 scpi_result_t scpi_cmd_ota_mode(scpi_t *context)
 {
     uint32_t mode;

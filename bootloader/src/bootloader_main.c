@@ -194,6 +194,7 @@ static bool bootloader_validate_slot_at_run_offset(ota_slot_t slot,
     return ota_crc32_compute(image, image_size) == image_crc32;
 }
 
+#if !defined(PROJECT_FLASH_DEPLOYMENT_V2) || !PROJECT_FLASH_DEPLOYMENT_V2
 static bool bootloader_validate_slot_as_slot_a(ota_slot_t slot,
                                                uint32_t image_size,
                                                uint32_t image_crc32)
@@ -203,6 +204,7 @@ static bool bootloader_validate_slot_as_slot_a(ota_slot_t slot,
                                                   image_crc32,
                                                   OTA_SLOT_A_OFFSET);
 }
+#endif
 
 static bool bootloader_validate_slot_direct(const ota_metadata_t *metadata, ota_slot_t slot)
 {
@@ -242,6 +244,7 @@ static bool bootloader_direct_slot_is_bootable(const ota_metadata_t *metadata, o
     return bootloader_app_vector_is_valid(ota_partition_slot_offset(slot));
 }
 
+#if !defined(PROJECT_FLASH_DEPLOYMENT_V2) || !PROJECT_FLASH_DEPLOYMENT_V2
 static bool bootloader_copy_transaction_matches(const ota_metadata_t *metadata)
 {
     if (metadata == NULL) {
@@ -488,6 +491,24 @@ static bool bootloader_apply_pending_image(ota_metadata_t *metadata)
     }
     return ota_metadata_store(metadata);
 }
+#endif
+
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+static bool bootloader_store_result(ota_metadata_t *metadata,
+                                    ota_boot_result_t result,
+                                    ota_slot_t source_slot,
+                                    bool clear_pending)
+{
+    if (!portable_ota_port_metadata_record_boot_result(metadata,
+                                                       result,
+                                                       source_slot,
+                                                       clear_pending)) {
+        return false;
+    }
+
+    return ota_metadata_store(metadata);
+}
+#endif
 
 static bool bootloader_apply_direct_ab_pending(ota_metadata_t *metadata)
 {
@@ -679,11 +700,22 @@ int main(void)
     bool direct_pending_applied = false;
     if (ota_metadata_load(&metadata)) {
         metadata_loaded = true;
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+        /* v2 has no fixed-address copy path.  A legacy mode record is not a
+         * migration hint; it is invalid state and must fall through to the
+         * recovery image instead of copying into the active slot. */
+        if (metadata.boot_mode != (uint32_t)OTA_BOOT_MODE_DIRECT_AB) {
+            metadata_loaded = false;
+        } else {
+            direct_pending_applied = bootloader_apply_direct_ab_pending(&metadata);
+        }
+#else
         if (metadata.boot_mode == (uint32_t)OTA_BOOT_MODE_DIRECT_AB) {
             direct_pending_applied = bootloader_apply_direct_ab_pending(&metadata);
         } else {
             (void)bootloader_apply_pending_image(&metadata);
         }
+#endif
     }
 
     if (metadata_loaded &&

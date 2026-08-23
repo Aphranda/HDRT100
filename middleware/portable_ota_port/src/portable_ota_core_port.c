@@ -370,12 +370,17 @@ static uint32_t portable_core_map_result(uint32_t result)
 
 static pota_boot_mode_t portable_core_boot_mode_from_metadata(const ota_metadata_t *metadata)
 {
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    (void)metadata;
+    return POTA_BOOT_MODE_DIRECT_AB;
+#else
     if (metadata != NULL &&
         metadata->boot_mode == (uint32_t)OTA_BOOT_MODE_DIRECT_AB) {
         return POTA_BOOT_MODE_DIRECT_AB;
     }
 
     return POTA_BOOT_MODE_COPY_TO_ACTIVE;
+#endif
 }
 
 static pota_slot_t portable_core_active_slot_from_metadata(const ota_metadata_t *metadata)

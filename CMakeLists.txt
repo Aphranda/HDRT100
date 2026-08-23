@@ -149,6 +149,10 @@ elseif(PROJECT_FLASH_DEPLOYMENT_MAP STREQUAL "v2_candidate")
     if(NOT FLASH_MAP_DEPLOYMENT_STATE STREQUAL "target_not_deployed")
         message(FATAL_ERROR "v2 candidate source must remain target_not_deployed until HIL promotion")
     endif()
+    if(NOT PROJECT_OTA_DEFAULT_BOOT_MODE STREQUAL "DIRECT_AB")
+        message(FATAL_ERROR
+            "v2_candidate only supports PROJECT_OTA_DEFAULT_BOOT_MODE=DIRECT_AB")
+    endif()
     set(PROJECT_FLASH_DEPLOYMENT_V2 ON)
     set(PROJECT_ACTIVE_MAP_MANIFEST
         ${CMAKE_CURRENT_LIST_DIR}/config/flash_map_gen/flash_map_v2_manifest.json)

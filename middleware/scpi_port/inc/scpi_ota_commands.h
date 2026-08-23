@@ -29,7 +29,13 @@ scpi_result_t scpi_cmd_ota_stream_boot(scpi_t *context);
 scpi_result_t scpi_cmd_ota_stream_status_q(scpi_t *context);
 
 #if PROJECT_ENABLE_OTA_FAULT_INJECTION
+#if !defined(PROJECT_FLASH_DEPLOYMENT_V2) || !PROJECT_FLASH_DEPLOYMENT_V2
 scpi_result_t scpi_cmd_ota_mode(scpi_t *context);
+#define SCPI_OTA_MODE_COMMAND \
+    , {.pattern = "SYSTem:OTA:MODE", .callback = scpi_cmd_ota_mode},
+#else
+#define SCPI_OTA_MODE_COMMAND ,
+#endif
 scpi_result_t scpi_cmd_ota_inject_copy(scpi_t *context);
 scpi_result_t scpi_cmd_ota_inject_clear(scpi_t *context);
 scpi_result_t scpi_cmd_ota_inject_copy_q(scpi_t *context);
@@ -38,7 +44,7 @@ scpi_result_t scpi_cmd_ota_inject_lockout_q(scpi_t *context);
 scpi_result_t scpi_cmd_ota_inject_metadata_corrupt(scpi_t *context);
 scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context);
 #define SCPI_OTA_FAULT_INJECTION_COMMANDS \
-    , {.pattern = "SYSTem:OTA:MODE", .callback = scpi_cmd_ota_mode}, \
+    SCPI_OTA_MODE_COMMAND \
     {.pattern = "SYSTem:OTA:INJect:COPY", .callback = scpi_cmd_ota_inject_copy}, \
     {.pattern = "SYSTem:OTA:INJect:CLEar", .callback = scpi_cmd_ota_inject_clear}, \
     {.pattern = "SYSTem:OTA:INJect:COPY?", .callback = scpi_cmd_ota_inject_copy_q}, \
@@ -47,6 +53,7 @@ scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context);
     {.pattern = "SYSTem:OTA:INJect:MCORrupt", .callback = scpi_cmd_ota_inject_metadata_corrupt}, \
     {.pattern = "SYSTem:OTA:INJect:MREPair", .callback = scpi_cmd_ota_inject_metadata_repair}
 #else
+#define SCPI_OTA_MODE_COMMAND
 #define SCPI_OTA_FAULT_INJECTION_COMMANDS
 #endif
 
