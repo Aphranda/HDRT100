@@ -76,3 +76,21 @@ def test_registry_generator_rejects_duplicate_allowed_roles(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="duplicate role"):
         gen_ota_key_registry.load_registry(config, "candidate")
+
+
+def test_signing_key_must_be_registered_active_and_allowed(tmp_path: Path) -> None:
+    config = tmp_path / "keys.json"
+    write_config(config, [{
+        "key_id": 7,
+        "role": "factory",
+        "revoked": False,
+        "public_key_hex": PUBLIC_KEY,
+    }])
+    keys, allowed_mask, _ = gen_ota_key_registry.load_registry(config, "candidate")
+    gen_ota_key_registry.require_signing_key(keys, allowed_mask, 7)
+
+    with pytest.raises(ValueError, match="not registered"):
+        gen_ota_key_registry.require_signing_key(keys, allowed_mask, 8)
+    keys[0]["flags"] = 1
+    with pytest.raises(ValueError, match="revoked"):
+        gen_ota_key_registry.require_signing_key(keys, allowed_mask, 7)

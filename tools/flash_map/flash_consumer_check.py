@@ -193,13 +193,22 @@ def check_factory_report(build_dir: Path, manifest: dict[str, Any]) -> None:
 
 
 def check_ota_package(build_dir: Path, manifest: dict[str, Any],
-                      package_name: str = "DHRT100_UPDATE.pkg") -> None:
+                      package_name: str = "DHRT100_UPDATE.pkg", *,
+                      require_signature: bool = False) -> None:
     package = (build_dir / package_name).read_bytes()
     if len(package) < 256:
         raise FlashConsumerError("OTA package is shorter than its descriptor table")
     magic, version, _, package_size, _, image_count = struct.unpack_from("<IIIIII", package, 0)
     if (magic, version, package_size, image_count) != (PACKAGE_MAGIC, PACKAGE_VERSION, len(package), 2):
         raise FlashConsumerError("OTA package header is invalid")
+    if require_signature:
+        extension_magic, extension_version, required_flags, counter, key_id, signature_size = (
+            struct.unpack_from("<IIIIII", package, 256))
+        signature = package[280:344]
+        if (extension_magic != 0x4D465458 or extension_version != 1 or
+                required_flags != 1 or counter == 0 or key_id == 0 or
+                signature_size != 64 or len(signature) != 64 or not any(signature)):
+            raise FlashConsumerError("v2 candidate OTA package is not fully signed")
     partitions = partitions_by_id(manifest)
     expected = ((1, "APP_A", "DHRT100.bin"), (2, "APP_B", "DHRT100_B.bin"))
     for index, (expected_slot, partition_id, filename) in enumerate(expected):
@@ -264,12 +273,17 @@ def check_factory_uf2(build_dir: Path, manifest: dict[str, Any],
 
 def check_artifacts(build_dir: Path, manifest: dict[str, Any], *,
                     package_name: str = "DHRT100_UPDATE.pkg",
-                    factory_name: str = "DHRT100_FACTORY.uf2") -> None:
+                    factory_name: str = "DHRT100_FACTORY.uf2",
+                    package_optional: bool = False,
+                    require_signed_package: bool = False) -> None:
     check_link_maps(build_dir, manifest)
     check_binary_sizes(build_dir, manifest)
     if "RECOVERY" in partitions_by_id(manifest):
         check_factory_report(build_dir, manifest)
-    check_ota_package(build_dir, manifest, package_name)
+    if not package_optional or (build_dir / package_name).exists():
+        check_ota_package(
+            build_dir, manifest, package_name,
+            require_signature=require_signed_package)
     check_factory_uf2(build_dir, manifest, factory_name)
 
 
@@ -302,6 +316,8 @@ def main() -> int:
                           else "DHRT100_UPDATE.pkg"),
             factory_name=("DHRT100_V2_CANDIDATE_FACTORY.uf2" if candidate
                           else "DHRT100_FACTORY.uf2"),
+            package_optional=candidate,
+            require_signed_package=candidate,
         )
     except (FlashConsumerError, OSError, KeyError, TypeError) as exc:
         print(f"flash_consumer_check=FAILED detail={exc}")

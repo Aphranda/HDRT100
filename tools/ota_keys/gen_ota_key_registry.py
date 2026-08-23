@@ -17,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--profile", required=True)
     parser.add_argument("--header", required=True, type=Path)
     parser.add_argument("--source", required=True, type=Path)
+    parser.add_argument("--require-key-id", type=int)
     return parser.parse_args()
 
 
@@ -86,6 +87,23 @@ def load_registry(path: Path, profile_name: str) -> tuple[list[dict[str, object]
     return keys, allowed_mask, profile["require_signature"]
 
 
+def require_signing_key(
+    keys: list[dict[str, object]], allowed_mask: int, key_id: int
+) -> None:
+    for key in keys:
+        if key["key_id"] != key_id:
+            continue
+        if key["flags"] != 0:
+            raise ValueError(f"OTA signing key_id {key_id} is revoked")
+        role_mask = key["role_mask"]
+        assert isinstance(role_mask, int)
+        if (role_mask & allowed_mask) == 0:
+            raise ValueError(
+                f"OTA signing key_id {key_id} role is not allowed by this profile")
+        return
+    raise ValueError(f"OTA signing key_id {key_id} is not registered")
+
+
 def render_header(require_signature: bool) -> str:
     return (
         "#ifndef PORTABLE_OTA_KEY_REGISTRY_GENERATED_H\n"
@@ -135,6 +153,8 @@ def main() -> int:
     args = parse_args()
     try:
         keys, allowed_mask, require_signature = load_registry(args.config, args.profile)
+        if args.require_key_id is not None:
+            require_signing_key(keys, allowed_mask, args.require_key_id)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     args.header.parent.mkdir(parents=True, exist_ok=True)

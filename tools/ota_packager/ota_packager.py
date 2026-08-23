@@ -85,7 +85,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--signing-transcript-output", type=Path,
-        help="write the canonical unsigned manifest transcript and do not emit a package",
+        help="write the canonical manifest transcript; without a signature do not emit a package",
+    )
+    parser.add_argument(
+        "--signing-request-output", type=Path,
+        help="write public signing metadata as JSON; requires --signing-transcript-output",
     )
     return parser.parse_args()
 
@@ -121,6 +125,41 @@ def build_signing_transcript(header_or_package: bytes) -> bytes:
                MANIFEST_SIGNATURE_OFFSET + MANIFEST_SIGNATURE_SIZE] = bytes(
                    MANIFEST_SIGNATURE_SIZE)
     return bytes(transcript)
+
+
+def build_signing_request(
+    transcript: bytes,
+    *,
+    transcript_path: Path,
+    product_id: str,
+    hardware_id: str,
+    app_version: str,
+    build_id: str,
+    min_bootloader_version: str,
+    security_counter: int,
+    key_id: int,
+    image_a: bytes,
+    image_b: bytes,
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "algorithm": "ecdsa-p256-sha256",
+        "signature_format": "raw-r-s-64",
+        "transcript_file": transcript_path.name,
+        "transcript_size": len(transcript),
+        "transcript_sha256": hashlib.sha256(transcript).hexdigest(),
+        "product_id": product_id,
+        "hardware_id": hardware_id,
+        "app_version": app_version,
+        "build_id": build_id,
+        "min_bootloader_version": min_bootloader_version,
+        "security_counter": security_counter,
+        "key_id": key_id,
+        "images": [
+            {"slot": "A", "size": len(image_a), "crc32": crc32(image_a)},
+            {"slot": "B", "size": len(image_b), "crc32": crc32(image_b)},
+        ],
+    }
 
 
 def load_deployment_layout(
@@ -272,6 +311,8 @@ def build_package(
 
 def main() -> int:
     args = parse_args()
+    if args.signing_request_output is not None and args.signing_transcript_output is None:
+        raise SystemExit("--signing-request-output requires --signing-transcript-output")
     if args.output is None and args.signing_transcript_output is None:
         raise SystemExit("--output is required unless only exporting a signing transcript")
     image_a = args.image_a.read_bytes()
@@ -311,6 +352,24 @@ def main() -> int:
         transcript = build_signing_transcript(package)
         args.signing_transcript_output.parent.mkdir(parents=True, exist_ok=True)
         args.signing_transcript_output.write_bytes(transcript)
+        if args.signing_request_output is not None:
+            request = build_signing_request(
+                transcript,
+                transcript_path=args.signing_transcript_output,
+                product_id=args.product_id,
+                hardware_id=args.hardware_id,
+                app_version=args.app_version,
+                build_id=build_id,
+                min_bootloader_version=args.min_bootloader_version,
+                security_counter=args.security_counter,
+                key_id=args.key_id,
+                image_a=image_a,
+                image_b=image_b,
+            )
+            args.signing_request_output.parent.mkdir(parents=True, exist_ok=True)
+            args.signing_request_output.write_text(
+                json.dumps(request, indent=2) + "\n", encoding="utf-8")
+            print(f"signing_request={args.signing_request_output}")
         print(f"signing_transcript={args.signing_transcript_output}")
         print(f"signing_transcript_size={len(transcript)}")
         print(f"signing_transcript_sha256={hashlib.sha256(transcript).hexdigest()}")

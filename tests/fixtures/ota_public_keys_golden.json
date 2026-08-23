@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "algorithm": "ecdsa-p256-sha256",
+  "keys": [
+    {
+      "key_id": 7,
+      "role": "factory",
+      "revoked": false,
+      "public_key_hex": "04d54c4dfde2e3b7c6dbfb90bd3451f99deca87d5a5f45137f5ba53613c0beecec9dd13a9a3c3ecf241482d809eb87be02941219cb6dcdad5b36f1ead5946fa67f"
+    }
+  ],
+  "profiles": {
+    "v1_compat": {
+      "require_signature": false,
+      "allowed_roles": ["release"]
+    },
+    "v2_candidate": {
+      "require_signature": true,
+      "allowed_roles": ["release", "factory"]
+    }
+  }
+}

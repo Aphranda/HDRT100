@@ -6,6 +6,9 @@ import struct
 from pathlib import Path
 
 import pytest
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec, utils
 
 from tools.ota_packager import ota_packager
 
@@ -117,6 +120,66 @@ def test_signing_transcript_is_canonical_and_signature_independent() -> None:
     assert hashlib.sha256(request_transcript).hexdigest() == (
         "bbf4a80004fbd2bf2d2149c7813ca583bbc17189d4bc49d67c597e8c494a865b"
     )
+
+
+def test_manifest_p256_low_s_golden_vector() -> None:
+    public_key = bytes.fromhex(
+        "04d54c4dfde2e3b7c6dbfb90bd3451f99deca87d5a5f45137f5ba53613c0beecec"
+        "9dd13a9a3c3ecf241482d809eb87be02941219cb6dcdad5b36f1ead5946fa67f")
+    signature = bytes.fromhex(
+        "fcc3492e3e42d20e8eaeec2777f6c70fc02ad8d9ca9bdcfb25e1391d4023308d"
+        "789ea6b962102aa92ae7b1803540a7b79e6901cef80d12fac0fefc768e3dcff7")
+    request = ota_packager.build_package(
+        b"slot-a", b"slot-b",
+        product_id="DHRT100",
+        hardware_id="dhrt100",
+        app_version=(1, 2, 3),
+        build_id="golden-vector",
+        min_bootloader_version=(0, 1, 0),
+        layout=ota_packager.DeploymentLayout(
+            app_a=ota_packager.AppPartition(offset=0x40000, size=0x180000),
+            app_b=ota_packager.AppPartition(offset=0x1C0000, size=0x180000)),
+        security_counter=9,
+        key_id=7,
+        prepare_signing=True,
+    )
+    transcript = ota_packager.build_signing_transcript(request)
+    r = int.from_bytes(signature[:32], "big")
+    s = int.from_bytes(signature[32:], "big")
+    p256_order = int(
+        "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16)
+    assert 0 < r < p256_order
+    assert 0 < s <= p256_order // 2
+
+    verifier = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), public_key)
+    verifier.verify(
+        utils.encode_dss_signature(r, s), transcript, ec.ECDSA(hashes.SHA256()))
+
+    bad_signature = utils.encode_dss_signature(r ^ 1, s)
+    with pytest.raises(InvalidSignature):
+        verifier.verify(bad_signature, transcript, ec.ECDSA(hashes.SHA256()))
+
+
+def test_signing_request_contains_only_public_release_metadata() -> None:
+    transcript = bytes(range(256)) * 2
+    request = ota_packager.build_signing_request(
+        transcript,
+        transcript_path=Path("candidate.transcript.bin"),
+        product_id="DHRT100",
+        hardware_id="dhrt100",
+        app_version="1.2.3",
+        build_id="build",
+        min_bootloader_version="0.1.0",
+        security_counter=9,
+        key_id=7,
+        image_a=b"a",
+        image_b=b"bb",
+    )
+    encoded = json.dumps(request)
+    assert request["algorithm"] == "ecdsa-p256-sha256"
+    assert request["signature_format"] == "raw-r-s-64"
+    assert request["transcript_sha256"] == hashlib.sha256(transcript).hexdigest()
+    assert "private" not in encoded.lower()
 
 
 @pytest.mark.parametrize(

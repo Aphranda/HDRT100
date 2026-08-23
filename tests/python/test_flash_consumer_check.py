@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tools.ota_packager import ota_packager
 from tools.flash_map.flash_consumer_check import (
     FlashConsumerError,
     check_factory_report,
@@ -51,6 +52,48 @@ def test_ota_descriptor_rejects_run_offset_drift(tmp_path: Path) -> None:
     (tmp_path / "DHRT100_UPDATE.pkg").write_bytes(package)
     with pytest.raises(FlashConsumerError, match="APP_A descriptor"):
         check_ota_package(tmp_path, manifest)
+
+
+def test_v2_candidate_rejects_unsigned_update_package(tmp_path: Path) -> None:
+    manifest = json.loads(
+        (ROOT / "config" / "flash_map_gen" / "flash_map_v2_manifest.json").read_text(
+            encoding="utf-8"))
+    (tmp_path / "DHRT100.bin").write_bytes(b"A")
+    (tmp_path / "DHRT100_B.bin").write_bytes(b"B")
+    package = bytearray(514)
+    struct.pack_into("<IIIIII", package, 0, 0x474B5054, 2, 512, len(package), 0, 2)
+    (tmp_path / "candidate.pkg").write_bytes(package)
+
+    with pytest.raises(FlashConsumerError, match="not fully signed"):
+        check_ota_package(
+            tmp_path, manifest, "candidate.pkg", require_signature=True)
+
+
+def test_v2_candidate_accepts_structurally_signed_update_package(tmp_path: Path) -> None:
+    manifest_path = ROOT / "config" / "flash_map_gen" / "flash_map_v2_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    image_a = b"A"
+    image_b = b"B"
+    (tmp_path / "DHRT100.bin").write_bytes(image_a)
+    (tmp_path / "DHRT100_B.bin").write_bytes(image_b)
+    package = ota_packager.build_package(
+        image_a,
+        image_b,
+        product_id="DHRT100",
+        hardware_id="dhrt100",
+        app_version=(1, 0, 0),
+        build_id="candidate",
+        min_bootloader_version=(0, 1, 0),
+        layout=ota_packager.load_deployment_layout(
+            manifest_path, allow_target_not_deployed=True),
+        security_counter=9,
+        key_id=7,
+        signature=bytes(range(64)),
+    )
+    (tmp_path / "candidate.pkg").write_bytes(package)
+
+    check_ota_package(
+        tmp_path, manifest, "candidate.pkg", require_signature=True)
 
 
 def test_factory_report_rejects_incomplete_region_coverage(tmp_path: Path) -> None:

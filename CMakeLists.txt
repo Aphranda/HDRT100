@@ -39,6 +39,12 @@ set(PROJECT_ENABLE_FLASH_VALIDATION OFF CACHE BOOL "Enable validation-only Scrat
 set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
 set(PROJECT_FLASH_DEPLOYMENT_MAP v1_compat CACHE STRING "Explicit live Flash map: v1_compat until factory v2 migration")
 set(PROJECT_FACTORY_MIGRATION_BUILD OFF CACHE BOOL "Build an explicit non-release v2 factory migration candidate")
+set(PROJECT_OTA_SECURITY_COUNTER 0 CACHE STRING "Externally assigned monotonic counter for a signed v2 update")
+set(PROJECT_OTA_SIGNING_KEY_ID 0 CACHE STRING "Registered public key ID for a signed v2 update")
+set(PROJECT_OTA_SIGNATURE_FILE "" CACHE FILEPATH "External raw P-256 signature file for a v2 update")
+set(PROJECT_OTA_KEY_CONFIG
+    "${CMAKE_CURRENT_LIST_DIR}/config/ota_public_keys.json" CACHE FILEPATH
+    "Public-only OTA key registry configuration")
 set(PROJECT_USE_FREERTOS ON CACHE BOOL "Build the App firmware with the FreeRTOS OSAL port")
 set(PROJECT_USE_MULTICORE ON CACHE BOOL "Run realtime trigger service on RP2350 core1")
 set(PROJECT_SYNC_IO_INPUT_BASE_PIN 20 CACHE STRING "Product SMA input GPIO base (physical order IN4..IN1)")
@@ -165,20 +171,42 @@ else()
     message(FATAL_ERROR "PROJECT_FLASH_DEPLOYMENT_MAP must be v1_compat or v2_candidate")
 endif()
 
+foreach(PROJECT_OTA_INTEGER_VAR IN ITEMS PROJECT_OTA_SECURITY_COUNTER PROJECT_OTA_SIGNING_KEY_ID)
+    if(NOT "${${PROJECT_OTA_INTEGER_VAR}}" MATCHES "^[0-9]+$")
+        message(FATAL_ERROR "${PROJECT_OTA_INTEGER_VAR} must be an unsigned integer")
+    endif()
+endforeach()
+if((PROJECT_OTA_SECURITY_COUNTER GREATER 0 AND PROJECT_OTA_SIGNING_KEY_ID EQUAL 0) OR
+   (PROJECT_OTA_SECURITY_COUNTER EQUAL 0 AND PROJECT_OTA_SIGNING_KEY_ID GREATER 0))
+    message(FATAL_ERROR
+            "PROJECT_OTA_SECURITY_COUNTER and PROJECT_OTA_SIGNING_KEY_ID must be configured together")
+endif()
+if(PROJECT_OTA_SIGNATURE_FILE AND
+   (PROJECT_OTA_SECURITY_COUNTER EQUAL 0 OR PROJECT_OTA_SIGNING_KEY_ID EQUAL 0))
+    message(FATAL_ERROR
+            "PROJECT_OTA_SIGNATURE_FILE requires non-zero counter and key ID")
+endif()
+
 set(PROJECT_OTA_KEY_REGISTRY_HEADER
     ${CMAKE_CURRENT_BINARY_DIR}/generated/portable_ota_key_registry.generated.h)
 set(PROJECT_OTA_KEY_REGISTRY_SOURCE
     ${CMAKE_CURRENT_BINARY_DIR}/generated/portable_ota_key_registry.generated.c)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    ${CMAKE_CURRENT_LIST_DIR}/config/ota_public_keys.json
+    ${PROJECT_OTA_KEY_CONFIG}
     ${CMAKE_CURRENT_LIST_DIR}/tools/ota_keys/gen_ota_key_registry.py)
+set(PROJECT_OTA_KEY_GENERATOR_ARGS)
+if(PROJECT_OTA_SIGNING_KEY_ID GREATER 0)
+    list(APPEND PROJECT_OTA_KEY_GENERATOR_ARGS
+         --require-key-id ${PROJECT_OTA_SIGNING_KEY_ID})
+endif()
 execute_process(
     COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_LIST_DIR}/tools/ota_keys/gen_ota_key_registry.py
-            --config ${CMAKE_CURRENT_LIST_DIR}/config/ota_public_keys.json
+            --config ${PROJECT_OTA_KEY_CONFIG}
             --profile ${PROJECT_OTA_KEY_PROFILE}
             --header ${PROJECT_OTA_KEY_REGISTRY_HEADER}
             --source ${PROJECT_OTA_KEY_REGISTRY_SOURCE}
+            ${PROJECT_OTA_KEY_GENERATOR_ARGS}
     RESULT_VARIABLE PROJECT_OTA_KEY_REGISTRY_RESULT
 )
 if(NOT PROJECT_OTA_KEY_REGISTRY_RESULT EQUAL 0)
@@ -881,30 +909,94 @@ add_custom_command(
         VERBATIM
 )
 
-add_custom_command(
-        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME}
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
-                --image-a ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.bin
-                --image-b ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_B.bin
-                --map-manifest ${PROJECT_ACTIVE_MAP_MANIFEST}
-                ${PROJECT_OTA_PACKAGER_MAP_OPTION}
-                --app-version 0.1.0
-                --build-id-file ${PROJECT_BUILD_INFO_SOURCE}
-                --min-bootloader-version 0.1.0
-                -o ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME}
-        DEPENDS ${PROJECT_NAME} DHRT100_B project_build_info
-                ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
-                ${PROJECT_ACTIVE_MAP_MANIFEST}
-        VERBATIM
-)
-
 add_custom_target(DHRT100_FACTORY ALL
         DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_FACTORY_ARTIFACT_NAME}
 )
 
-add_custom_target(DHRT100_UPDATE ALL
-        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME}
-)
+set(PROJECT_OTA_PACKAGER_COMMON_ARGS
+        --image-a ${CMAKE_CURRENT_BINARY_DIR}/DHRT100.bin
+        --image-b ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_B.bin
+        --map-manifest ${PROJECT_ACTIVE_MAP_MANIFEST}
+        ${PROJECT_OTA_PACKAGER_MAP_OPTION}
+        --app-version 0.1.0
+        --build-id-file ${PROJECT_BUILD_INFO_SOURCE}
+        --min-bootloader-version 0.1.0)
+set(PROJECT_OTA_PACKAGER_COMMON_DEPENDS
+        ${PROJECT_NAME} DHRT100_B project_build_info
+        ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
+        ${PROJECT_ACTIVE_MAP_MANIFEST})
+
+if(PROJECT_FLASH_DEPLOYMENT_V2)
+    if(PROJECT_OTA_SECURITY_COUNTER GREATER 0 AND PROJECT_OTA_SIGNING_KEY_ID GREATER 0)
+        set(PROJECT_OTA_SIGNING_TRANSCRIPT
+                ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_V2_CANDIDATE_UPDATE.transcript.bin)
+        set(PROJECT_OTA_SIGNING_REQUEST
+                ${CMAKE_CURRENT_BINARY_DIR}/DHRT100_V2_CANDIDATE_UPDATE.signing-request.json)
+        set(PROJECT_OTA_SIGNING_OUTPUTS
+                ${PROJECT_OTA_SIGNING_TRANSCRIPT}
+                ${PROJECT_OTA_SIGNING_REQUEST})
+        add_custom_command(
+                OUTPUT ${PROJECT_OTA_SIGNING_OUTPUTS}
+                COMMAND ${Python3_EXECUTABLE}
+                        ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
+                        ${PROJECT_OTA_PACKAGER_COMMON_ARGS}
+                        --security-counter ${PROJECT_OTA_SECURITY_COUNTER}
+                        --key-id ${PROJECT_OTA_SIGNING_KEY_ID}
+                        --signing-transcript-output ${PROJECT_OTA_SIGNING_TRANSCRIPT}
+                        --signing-request-output ${PROJECT_OTA_SIGNING_REQUEST}
+                DEPENDS ${PROJECT_OTA_PACKAGER_COMMON_DEPENDS}
+                VERBATIM
+        )
+        add_custom_target(DHRT100_UPDATE_SIGNING_REQUEST ALL
+                DEPENDS ${PROJECT_OTA_SIGNING_TRANSCRIPT} ${PROJECT_OTA_SIGNING_REQUEST})
+        if(PROJECT_OTA_SIGNATURE_FILE)
+            if(NOT EXISTS "${PROJECT_OTA_SIGNATURE_FILE}")
+                message(FATAL_ERROR
+                        "PROJECT_OTA_SIGNATURE_FILE does not exist: ${PROJECT_OTA_SIGNATURE_FILE}")
+            endif()
+            add_custom_command(
+                    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME}
+                    COMMAND ${Python3_EXECUTABLE}
+                            ${CMAKE_CURRENT_LIST_DIR}/tools/ota_keys/verify_ota_signature.py
+                            --config ${PROJECT_OTA_KEY_CONFIG}
+                            --profile ${PROJECT_OTA_KEY_PROFILE}
+                            --key-id ${PROJECT_OTA_SIGNING_KEY_ID}
+                            --transcript ${PROJECT_OTA_SIGNING_TRANSCRIPT}
+                            --signature-file ${PROJECT_OTA_SIGNATURE_FILE}
+                    COMMAND ${Python3_EXECUTABLE}
+                            ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
+                            ${PROJECT_OTA_PACKAGER_COMMON_ARGS}
+                            --security-counter ${PROJECT_OTA_SECURITY_COUNTER}
+                            --key-id ${PROJECT_OTA_SIGNING_KEY_ID}
+                            --signature-file ${PROJECT_OTA_SIGNATURE_FILE}
+                            -o ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME}
+                    DEPENDS ${PROJECT_OTA_SIGNING_TRANSCRIPT}
+                            ${PROJECT_OTA_SIGNING_REQUEST}
+                            ${PROJECT_OTA_SIGNATURE_FILE}
+                            ${PROJECT_OTA_KEY_CONFIG}
+                            ${CMAKE_CURRENT_LIST_DIR}/tools/ota_keys/verify_ota_signature.py
+                    VERBATIM
+            )
+            add_custom_target(DHRT100_UPDATE ALL
+                    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME})
+        endif()
+    else()
+        message(STATUS
+                "v2 update artifact disabled: set non-zero PROJECT_OTA_SECURITY_COUNTER and PROJECT_OTA_SIGNING_KEY_ID to generate a signing request")
+    endif()
+else()
+    add_custom_command(
+            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME}
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_LIST_DIR}/tools/ota_packager/ota_packager.py
+                    ${PROJECT_OTA_PACKAGER_COMMON_ARGS}
+                    -o ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME}
+            DEPENDS ${PROJECT_OTA_PACKAGER_COMMON_DEPENDS}
+            VERBATIM
+    )
+    add_custom_target(DHRT100_UPDATE ALL
+            DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_UPDATE_ARTIFACT_NAME})
+endif()
 
 add_custom_target(project_flash_link_check ALL
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tools/flash_map/flash_link_check.py
