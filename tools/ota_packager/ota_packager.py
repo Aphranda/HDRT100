@@ -17,11 +17,13 @@ PACKAGE_VERSION = 2
 PACKAGE_HEADER_SIZE = 512
 MANIFEST_EXTENSION_OFFSET = 256
 MANIFEST_EXTENSION_MAGIC = 0x4D465458
-MANIFEST_EXTENSION_VERSION = 1
+MANIFEST_EXTENSION_VERSION = 2
 MANIFEST_REQUIRED_SIGNATURE = 1
+MANIFEST_REQUIRED_IMAGE_HASHES = 2
 MANIFEST_SIGNATURE_SIZE = 64
 PACKAGE_CRC32_OFFSET = 16
 MANIFEST_SIGNATURE_OFFSET = MANIFEST_EXTENSION_OFFSET + 24
+MANIFEST_IMAGE_HASH_OFFSET = MANIFEST_SIGNATURE_OFFSET + MANIFEST_SIGNATURE_SIZE
 PACKAGE_PAYLOAD_ALIGNMENT = 512
 TEXT_FIELD_SIZE = 32
 SLOT_A = 1
@@ -156,8 +158,10 @@ def build_signing_request(
         "security_counter": security_counter,
         "key_id": key_id,
         "images": [
-            {"slot": "A", "size": len(image_a), "crc32": crc32(image_a)},
-            {"slot": "B", "size": len(image_b), "crc32": crc32(image_b)},
+            {"slot": "A", "size": len(image_a), "crc32": crc32(image_a),
+             "sha256": hashlib.sha256(image_a).hexdigest()},
+            {"slot": "B", "size": len(image_b), "crc32": crc32(image_b),
+             "sha256": hashlib.sha256(image_b).hexdigest()},
         ],
     }
 
@@ -298,11 +302,19 @@ def build_package(
     if signing_metadata:
         put_u32(header, MANIFEST_EXTENSION_OFFSET, MANIFEST_EXTENSION_MAGIC)
         put_u32(header, MANIFEST_EXTENSION_OFFSET + 4, MANIFEST_EXTENSION_VERSION)
-        put_u32(header, MANIFEST_EXTENSION_OFFSET + 8, MANIFEST_REQUIRED_SIGNATURE)
+        put_u32(
+            header,
+            MANIFEST_EXTENSION_OFFSET + 8,
+            MANIFEST_REQUIRED_SIGNATURE | MANIFEST_REQUIRED_IMAGE_HASHES,
+        )
         put_u32(header, MANIFEST_EXTENSION_OFFSET + 12, security_counter)
         put_u32(header, MANIFEST_EXTENSION_OFFSET + 16, key_id)
         put_u32(header, MANIFEST_EXTENSION_OFFSET + 20, MANIFEST_SIGNATURE_SIZE)
         header[MANIFEST_EXTENSION_OFFSET + 24:MANIFEST_EXTENSION_OFFSET + 24 + len(signature)] = signature
+        header[MANIFEST_IMAGE_HASH_OFFSET:
+               MANIFEST_IMAGE_HASH_OFFSET + 32] = hashlib.sha256(image_a).digest()
+        header[MANIFEST_IMAGE_HASH_OFFSET + 32:
+               MANIFEST_IMAGE_HASH_OFFSET + 64] = hashlib.sha256(image_b).digest()
 
     payload = image_a + bytes([0xFF] * padding_a) + image_b
     header[144:176] = hashlib.sha256(payload).digest()

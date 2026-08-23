@@ -4,6 +4,7 @@
 
 #include "hardware/flash.h"
 #include "hardware/sync.h"
+#include "hardware/watchdog.h"
 #include "pico/platform.h"
 
 #ifndef PROJECT_USE_MULTICORE
@@ -137,10 +138,20 @@ bool drv_flash_erase_parked(uint32_t flash_offset, size_t length)
         return false;
     }
 
-    const uint32_t irq_state = save_and_disable_interrupts();
-    flash_range_erase(flash_offset, length);
-    restore_interrupts(irq_state);
-    return drv_flash_is_erased(flash_offset, length);
+    /* Keep each critical section to one sector.  Metadata/manifest sectors
+     * can be large enough to exceed the supervisor watchdog if erased as one
+     * XIP-disabled operation; feeding between sectors preserves the HAOFV
+     * flash-owner boundary while keeping the operation synchronous. */
+    const uint32_t start_offset = flash_offset;
+    for (size_t remaining = length; remaining != 0u;
+         remaining -= DRV_FLASH_SECTOR_SIZE,
+         flash_offset += DRV_FLASH_SECTOR_SIZE) {
+        const uint32_t irq_state = save_and_disable_interrupts();
+        flash_range_erase(flash_offset, DRV_FLASH_SECTOR_SIZE);
+        restore_interrupts(irq_state);
+        watchdog_update();
+    }
+    return drv_flash_is_erased(start_offset, length);
 }
 
 bool drv_flash_program_parked(uint32_t flash_offset, const uint8_t *data,
@@ -159,9 +170,17 @@ bool drv_flash_program_parked(uint32_t flash_offset, const uint8_t *data,
         return false;
     }
 
-    const uint32_t irq_state = save_and_disable_interrupts();
-    flash_range_program(flash_offset, data, length);
-    restore_interrupts(irq_state);
+    for (size_t remaining = length; remaining != 0u;
+         remaining -= DRV_FLASH_PAGE_SIZE,
+         flash_offset += DRV_FLASH_PAGE_SIZE,
+         data += DRV_FLASH_PAGE_SIZE) {
+        const uint32_t irq_state = save_and_disable_interrupts();
+        flash_range_program(flash_offset, data, DRV_FLASH_PAGE_SIZE);
+        restore_interrupts(irq_state);
+        watchdog_update();
+    }
+    flash_offset -= (uint32_t)length;
+    data -= length;
     return memcmp(drv_flash_xip_ptr(flash_offset), data, length) == 0;
 }
 

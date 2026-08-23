@@ -17,6 +17,8 @@
 #define POTA_MANIFEST_EXT_KEY_ID_OFFSET      (POTA_MANIFEST_EXTENSION_OFFSET + 16u)
 #define POTA_MANIFEST_EXT_SIG_LENGTH_OFFSET  (POTA_MANIFEST_EXTENSION_OFFSET + 20u)
 #define POTA_MANIFEST_EXT_SIG_OFFSET         (POTA_MANIFEST_EXTENSION_OFFSET + 24u)
+#define POTA_MANIFEST_EXT_IMAGE_HASH_OFFSET  \
+    (POTA_MANIFEST_EXT_SIG_OFFSET + POTA_MANIFEST_SIGNATURE_MAX_SIZE)
 
 static uint32_t pota_read_le32(const uint8_t *data)
 {
@@ -115,8 +117,17 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
             pota_read_le32(&data[POTA_MANIFEST_EXT_KEY_ID_OFFSET]);
         manifest->signature_length =
             pota_read_le32(&data[POTA_MANIFEST_EXT_SIG_LENGTH_OFFSET]);
-        if (manifest->extension_version != POTA_MANIFEST_EXTENSION_VERSION ||
-            (manifest->required_flags & ~POTA_MANIFEST_REQUIRED_SIGNATURE) != 0u ||
+        if ((manifest->extension_version !=
+                 POTA_MANIFEST_EXTENSION_VERSION &&
+             manifest->extension_version !=
+                 POTA_MANIFEST_EXTENSION_VERSION_SLOT_HASHES) ||
+            (manifest->required_flags &
+             ~(POTA_MANIFEST_REQUIRED_SIGNATURE |
+               POTA_MANIFEST_REQUIRED_IMAGE_HASHES)) != 0u ||
+            (manifest->extension_version ==
+                 POTA_MANIFEST_EXTENSION_VERSION &&
+             (manifest->required_flags &
+              POTA_MANIFEST_REQUIRED_IMAGE_HASHES) != 0u) ||
             (manifest->signature_length != 0u &&
              manifest->signature_length != POTA_MANIFEST_SIGNATURE_MAX_SIZE)) {
             return POTA_ERR_BAD_HEADER;
@@ -151,6 +162,13 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
             manifest->signature_length == 0u) {
             return POTA_ERR_SIGNATURE_INVALID;
         }
+        if (constraints->require_image_hashes &&
+            (manifest->extension_version !=
+                 POTA_MANIFEST_EXTENSION_VERSION_SLOT_HASHES ||
+             (manifest->required_flags &
+              POTA_MANIFEST_REQUIRED_IMAGE_HASHES) == 0u)) {
+            return POTA_ERR_BAD_HEADER;
+        }
     }
     uint32_t cursor = POTA_IMAGE_TABLE_OFFSET;
     for (uint32_t i = 0u; i < POTA_PACKAGE_MAX_IMAGES; i++) {
@@ -161,6 +179,14 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
         image->crc32 = pota_read_le32(&data[cursor + 12u]);
         image->run_offset = pota_read_le32(&data[cursor + 16u]);
         image->flags = pota_read_le32(&data[cursor + 20u]);
+        memset(image->sha256, 0, sizeof(image->sha256));
+        if (manifest->extension_version ==
+            POTA_MANIFEST_EXTENSION_VERSION_SLOT_HASHES) {
+            memcpy(image->sha256,
+                   &data[POTA_MANIFEST_EXT_IMAGE_HASH_OFFSET +
+                         i * POTA_SHA256_SIZE],
+                   sizeof(image->sha256));
+        }
         cursor += POTA_IMAGE_ENTRY_SIZE;
     }
 
@@ -173,6 +199,16 @@ pota_error_t pota_package_parse_header(const uint8_t *data,
             image->offset > manifest->package_size ||
             image->size > (manifest->package_size - image->offset)) {
             return POTA_ERR_BAD_HEADER;
+        }
+        if ((manifest->required_flags &
+             POTA_MANIFEST_REQUIRED_IMAGE_HASHES) != 0u) {
+            uint8_t hash_or = 0u;
+            for (uint32_t byte = 0u; byte < POTA_SHA256_SIZE; byte++) {
+                hash_or |= image->sha256[byte];
+            }
+            if (hash_or == 0u) {
+                return POTA_ERR_BAD_HEADER;
+            }
         }
     }
 

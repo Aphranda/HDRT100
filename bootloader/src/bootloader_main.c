@@ -14,6 +14,9 @@
 #include "ota_partition.h"
 #include "pico/stdlib.h"
 #include "portable_ota_port.h"
+#include "portable_ota_crypto.h"
+#include "pota_slot_manifest.h"
+#include "project_config.h"
 
 #define RP2350_SRAM_BASE 0x20000000u
 #define RP2350_SRAM_END  0x20082000u
@@ -26,6 +29,116 @@ static bool bootloader_store_result(ota_metadata_t *metadata,
                                     ota_slot_t source_slot,
                                     bool clear_pending);
 static bool bootloader_app_vector_is_valid(uint32_t vector_offset);
+static bool bootloader_slot_is_valid(ota_slot_t slot);
+static uint32_t bootloader_metadata_slot_size(const ota_metadata_t *metadata,
+                                              ota_slot_t slot);
+static uint32_t bootloader_metadata_slot_crc32(const ota_metadata_t *metadata,
+                                               ota_slot_t slot);
+
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+typedef struct {
+    uint32_t base;
+} bootloader_manifest_flash_context_t;
+
+static bool bootloader_manifest_read(void *context, uint32_t offset,
+                                     void *data, uint32_t length)
+{
+    const bootloader_manifest_flash_context_t *flash = context;
+    return flash != NULL && data != NULL &&
+           drv_flash_read(flash->base + offset, data, length);
+}
+
+static bool bootloader_hash_read(void *context, uint32_t offset,
+                                 void *data, uint32_t length)
+{
+    (void)context;
+    return drv_flash_read(offset, data, length);
+}
+
+static bool bootloader_slot_manifest_is_valid(const ota_metadata_t *metadata,
+                                              ota_slot_t slot)
+{
+    if (metadata == NULL || !bootloader_slot_is_valid(slot)) {
+        return false;
+    }
+    bootloader_manifest_flash_context_t flash = {
+        .base = OTA_SLOT_MANIFEST_BASE_OFFSET(slot),
+    };
+    pota_slot_manifest_store_t store;
+    const pota_slot_manifest_config_t config = {
+        .context = &flash,
+        .read = bootloader_manifest_read,
+        .program = NULL,
+        .erase = NULL,
+        .base_offset = 0u,
+        .lane_size = OTA_SLOT_MANIFEST_LANE_BYTES,
+        .page_size = FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE,
+        .erase_size = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
+        .map_version = FLASH_DEPLOYMENT_MAP_VERSION,
+        .slot = (pota_slot_t)slot,
+    };
+    /* The portable store validates the durable body and commit marker.  Boot
+     * never provides mutating callbacks, so the same lane cannot be altered. */
+    if (pota_slot_manifest_init(&store, &config) !=
+        POTA_SLOT_MANIFEST_OK) {
+        return false;
+    }
+    pota_slot_manifest_t durable;
+    if (pota_slot_manifest_load(&store, &durable) != POTA_SLOT_MANIFEST_OK) {
+        return false;
+    }
+    ota_metadata_bcb_health_t health;
+    if (!ota_metadata_get_bcb_health(&health)) {
+        return false;
+    }
+    const pota_package_constraints_t constraints = {
+        .product_id = PROJECT_PRODUCT_ID,
+        .hardware_id = PROJECT_HARDWARE_ID,
+        .bootloader_version = POTA_PACK_VERSION(
+            PROJECT_BOOTLOADER_VERSION_MAJOR,
+            PROJECT_BOOTLOADER_VERSION_MINOR,
+            PROJECT_BOOTLOADER_VERSION_PATCH),
+        .minimum_security_counter = health.newest_security_counter,
+        .require_signature = true,
+        .require_image_hashes = true,
+        .verify_signature = portable_ota_crypto_verify_manifest,
+    };
+    pota_package_manifest_t manifest;
+    if (pota_package_parse_header(durable.header,
+                                 sizeof(durable.header),
+                                 &constraints, &manifest) != POTA_ERR_NONE) {
+        return false;
+    }
+    const pota_package_image_t *image =
+        pota_package_find_image(&manifest, (pota_slot_t)slot);
+    const uint32_t image_size = bootloader_metadata_slot_size(metadata, slot);
+    const uint32_t image_crc32 = bootloader_metadata_slot_crc32(metadata, slot);
+    if (image == NULL || image->size != image_size ||
+        image->run_offset != ota_partition_slot_offset(slot) ||
+        image->crc32 != image_crc32) {
+        return false;
+    }
+    uint8_t digest[POTA_SHA256_SIZE];
+    if (!portable_ota_crypto_sha256_flash(
+            bootloader_hash_read, NULL,
+            ota_partition_slot_offset(slot), image_size, digest) ||
+        memcmp(digest, image->sha256, sizeof(digest)) != 0) {
+        return false;
+    }
+    return true;
+}
+
+#if defined(PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY) && \
+    PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY
+static bool bootloader_slot_manifest_region_is_erased(ota_slot_t slot)
+{
+    uint32_t magic = 0u;
+    return bootloader_slot_is_valid(slot) &&
+           drv_flash_read(OTA_SLOT_MANIFEST_BASE_OFFSET(slot), &magic,
+                          sizeof(magic)) && magic == 0xFFFFFFFFu;
+}
+#endif
+#endif
 
 static bool bootloader_slot_is_valid(ota_slot_t slot)
 {
@@ -92,6 +205,21 @@ static bool bootloader_validate_slot_direct(const ota_metadata_t *metadata, ota_
 {
     const uint32_t image_size = bootloader_metadata_slot_size(metadata, slot);
     const uint32_t image_crc32 = bootloader_metadata_slot_crc32(metadata, slot);
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+    if (!bootloader_slot_manifest_is_valid(metadata, slot)) {
+#if defined(PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY) && \
+    PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY
+        /* Debug migration images may boot once from factory metadata before
+         * the first signed OTA commit creates the durable slot manifest.
+         * Never bypass a non-erased/corrupt manifest. */
+        if (!bootloader_slot_manifest_region_is_erased(slot)) {
+            return false;
+        }
+#else
+        return false;
+#endif
+    }
+#endif
     return bootloader_validate_slot_at_run_offset(slot,
                                                   image_size,
                                                   image_crc32,

@@ -3,16 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 
 from tools.ota_keys import gen_ota_key_registry, verify_ota_signature
+from tools.ota_keys import sign_ota_signature
 from tools.ota_packager import ota_packager
 
 
 ROOT = Path(__file__).resolve().parents[2]
 KEY_CONFIG = ROOT / "tests" / "fixtures" / "ota_public_keys_golden.json"
 GOLDEN_SIGNATURE = bytes.fromhex(
-    "fcc3492e3e42d20e8eaeec2777f6c70fc02ad8d9ca9bdcfb25e1391d4023308d"
-    "789ea6b962102aa92ae7b1803540a7b79e6901cef80d12fac0fefc768e3dcff7")
+    "abef1f482becbdd51ab888af79c0d7a8d2f5610bb5514968628b6386eb90cdf1"
+    "476dd6ac634ebb6f3c7239c04b907ed7e413e5a35e303a8bea01d5f285995c38")
 
 
 def golden_transcript() -> bytes:
@@ -61,3 +64,23 @@ def test_external_ota_signature_rejects_mutation_and_high_s() -> None:
     with pytest.raises(ValueError, match="low-S"):
         verify_ota_signature.verify_signature(
             golden_public_key(), golden_transcript(), high_s_signature)
+
+
+def test_local_signer_emits_verifiable_low_s_signature() -> None:
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    pem = private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    transcript = golden_transcript()
+    signature = sign_ota_signature.sign_transcript(pem, transcript)
+    assert len(signature) == 64
+    verify_ota_signature.verify_signature(
+        private_key.public_key().public_bytes(
+            serialization.Encoding.X962,
+            serialization.PublicFormat.UncompressedPoint,
+        ),
+        transcript,
+        signature,
+    )

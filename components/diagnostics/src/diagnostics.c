@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "drv_flash_lockout.h"
 #include "drv_watchdog.h"
 #include "hardware/adc.h"
 #include "portable_log_port.h"
@@ -477,7 +478,19 @@ void diagnostics_watchdog_service(void)
     s_watchdog_last_service_ms = now_ms;
 
     const uint32_t seen_mask = __atomic_exchange_n(&s_watchdog_seen_mask, 0u, __ATOMIC_ACQ_REL);
-    uint32_t stale_mask = s_watchdog_expected_mask & ~seen_mask;
+    uint32_t effective_seen_mask = seen_mask;
+    /* FlashTransactionAO may deliberately park core1 while it owns the
+     * XIP-disabled flash critical section.  That is a controlled HAOFV
+     * owner transition, not a realtime-core failure; keep the watchdog
+     * health gate alive for the duration of the lockout. */
+    drv_flash_lockout_status_t lockout;
+    drv_flash_lockout_get_status(&lockout);
+    if (lockout.core1_lockout_requested ||
+        lockout.core1_lockout_acknowledged ||
+        lockout.park_state == (uint32_t)DRV_FLASH_LOCKOUT_PARK_RELEASING) {
+        effective_seen_mask |= 1u << DIAGNOSTICS_WATCHDOG_TASK_CORE1;
+    }
+    uint32_t stale_mask = s_watchdog_expected_mask & ~effective_seen_mask;
     if (s_watchdog_test_stall) {
         /* Validation-only path: leave a deterministic core1 marker in the
          * retained evidence, then let the hardware watchdog expire. */
@@ -487,12 +500,12 @@ void diagnostics_watchdog_service(void)
     diagnostics_get_core_status(&core);
     drv_watchdog_write_evidence(DIAGNOSTICS_WATCHDOG_EVIDENCE_MAGIC,
                                 s_watchdog_expected_mask,
-                                seen_mask,
+                                effective_seen_mask,
                                 stale_mask,
                                 core.core0_loop_count,
                                 core.core1_loop_count);
     diagnostics_watchdog_status_write_begin();
-    s_watchdog_status.last_seen_mask = seen_mask;
+    s_watchdog_status.last_seen_mask = effective_seen_mask;
     s_watchdog_status.last_stale_mask = stale_mask;
     s_watchdog_status.supervisor_count++;
     diagnostics_watchdog_status_write_end();

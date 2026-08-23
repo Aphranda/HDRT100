@@ -39,6 +39,8 @@ set(PROJECT_ENABLE_FLASH_VALIDATION OFF CACHE BOOL "Enable validation-only Scrat
 set(PROJECT_OTA_DEFAULT_BOOT_MODE DIRECT_AB CACHE STRING "Default OTA boot mode for blank factory metadata: COPY_TO_ACTIVE or DIRECT_AB")
 set(PROJECT_FLASH_DEPLOYMENT_MAP v1_compat CACHE STRING "Explicit live Flash map: v1_compat until factory v2 migration")
 set(PROJECT_FACTORY_MIGRATION_BUILD OFF CACHE BOOL "Build an explicit non-release v2 factory migration candidate")
+set(PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY OFF CACHE BOOL
+    "Debug-only: allow an erased v2 slot-manifest region to boot factory metadata")
 set(PROJECT_OTA_SECURITY_COUNTER 0 CACHE STRING "Externally assigned monotonic counter for a signed v2 update")
 set(PROJECT_OTA_SIGNING_KEY_ID 0 CACHE STRING "Registered public key ID for a signed v2 update")
 set(PROJECT_OTA_SIGNATURE_FILE "" CACHE FILEPATH "External raw P-256 signature file for a v2 update")
@@ -286,6 +288,7 @@ set(PROJECT_PORTABLE_OTA_ADAPTER_SOURCES
         third_party/portable_ota/src/pota_direct_ab.c
         third_party/portable_ota/src/pota_strings.c
         third_party/portable_ota/src/pota_compat.c
+        third_party/portable_ota/src/pota_slot_manifest.c
 )
 
 add_custom_target(project_build_info
@@ -654,6 +657,7 @@ function(project_configure_app_target target_name app_name linker_script)
         PROJECT_ENABLE_FLASH_VALIDATION=$<BOOL:${PROJECT_ENABLE_FLASH_VALIDATION}>
         PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>
         PROJECT_FLASH_DEPLOYMENT_V2=$<BOOL:${PROJECT_FLASH_DEPLOYMENT_V2}>
+        PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY=$<BOOL:${PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY}>
         PROJECT_USE_FREERTOS=$<BOOL:${PROJECT_USE_FREERTOS}>
         PROJECT_USE_MULTICORE=$<BOOL:${PROJECT_USE_MULTICORE}>
         PROJECT_SYNC_IO_INPUT_BASE_PIN=${PROJECT_SYNC_IO_INPUT_BASE_PIN}
@@ -750,6 +754,9 @@ add_executable(DHRT100_BOOT
         components/ota_manager/src/ota_metadata.c
         components/ota_manager/src/ota_metadata_flash_boot.c
         components/ota_manager/src/ota_metadata_flash_read.c
+        third_party/portable_ota/src/pota_slot_manifest.c
+        third_party/portable_ota/src/pota_package.c
+        ${PROJECT_OTA_CRYPTO_SOURCES}
         ${PROJECT_PORTABLE_OTA_ADAPTER_SOURCES}
         drivers/mcu/flash/src/drv_flash.c
         drivers/mcu/flash/src/drv_flash_lockout.c
@@ -762,6 +769,7 @@ pico_enable_stdio_uart(DHRT100_BOOT OFF)
 pico_enable_stdio_usb(DHRT100_BOOT OFF)
 
 target_include_directories(DHRT100_BOOT PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
         ${CMAKE_CURRENT_LIST_DIR}/bootloader/inc
         ${CMAKE_CURRENT_LIST_DIR}/components/ota_manager/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
@@ -774,12 +782,14 @@ target_include_directories(DHRT100_BOOT PRIVATE
 target_link_libraries(DHRT100_BOOT
         pico_stdlib
         hardware_flash
+        ${PROJECT_OTA_CRYPTO_LIBS}
 )
 
 target_compile_definitions(DHRT100_BOOT PRIVATE
         PROJECT_ENABLE_OTA_FAULT_INJECTION=$<BOOL:${PROJECT_ENABLE_OTA_FAULT_INJECTION}>
         PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB=$<BOOL:${PROJECT_OTA_DEFAULT_BOOT_MODE_DIRECT_AB}>
         PROJECT_FLASH_DEPLOYMENT_V2=$<BOOL:${PROJECT_FLASH_DEPLOYMENT_V2}>
+        PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY=$<BOOL:${PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY}>
 )
 
 target_compile_options(DHRT100_BOOT PRIVATE ${PROJECT_WARNING_FLAGS})

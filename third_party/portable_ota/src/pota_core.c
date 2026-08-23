@@ -120,6 +120,7 @@ static pota_error_t pota_accept_package_header(
         .bootloader_version = context->platform.info.bootloader_version,
         .minimum_security_counter = context->platform.info.security_counter,
         .require_signature = context->platform.info.require_signature,
+        .require_image_hashes = context->platform.info.require_image_hashes,
         .verify_signature = context->platform.info.verify_manifest_signature,
         .verify_context = context->platform.info.verify_manifest_context,
     };
@@ -156,6 +157,10 @@ static pota_error_t pota_accept_package_header(
     context->selected_image_size = image->size;
     context->selected_image_crc32 = image->crc32;
     context->selected_security_counter = manifest.security_counter;
+    memcpy(context->selected_image_sha256, image->sha256,
+           sizeof(context->selected_image_sha256));
+    memcpy(context->selected_manifest_header, data,
+           sizeof(context->selected_manifest_header));
     context->target_erase_size =
         pota_align_up(image->size, context->platform.info.flash_sector_size);
     context->package_header_received = true;
@@ -443,6 +448,10 @@ pota_error_t pota_core_begin_action(pota_context_t *context, const void *argumen
     context->selected_image_size = begin->package_mode ? 0u : begin->size;
     context->selected_image_crc32 = begin->package_mode ? 0u : begin->crc32;
     context->selected_security_counter = 0u;
+    memset(context->selected_image_sha256, 0,
+           sizeof(context->selected_image_sha256));
+    memset(context->selected_manifest_header, 0,
+           sizeof(context->selected_manifest_header));
     context->target_erase_size = begin->package_mode ? 0u :
                                      pota_align_up(begin->size, context->platform.info.flash_sector_size);
 
@@ -688,6 +697,7 @@ pota_error_t pota_core_end_action(pota_context_t *context, const void *argument)
     }
 
     context->status.state = (uint32_t)POTA_STATE_VERIFYING;
+    pota_feed_watchdog(context);
     if (!context->platform.ops.validate_vector(context->target_offset,
                                                context->selected_image_size,
                                                context->target_run_offset)) {
@@ -696,6 +706,16 @@ pota_error_t pota_core_end_action(pota_context_t *context, const void *argument)
     }
 
     context->status.state = (uint32_t)POTA_STATE_MARK_PENDING;
+    pota_feed_watchdog(context);
+    if (context->package_mode && context->platform.info.require_image_hashes &&
+        (context->platform.ops.commit_slot_manifest == NULL ||
+         !context->platform.ops.commit_slot_manifest(
+             context->target_slot, context->selected_manifest_header,
+             sizeof(context->selected_manifest_header)))) {
+        pota_core_set_failed(context, POTA_ERR_METADATA);
+        return POTA_ERR_METADATA;
+    }
+    pota_feed_watchdog(context);
     if (!context->platform.ops.mark_pending(context->target_slot,
                                             context->selected_image_size,
                                             context->selected_image_crc32,

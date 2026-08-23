@@ -10,6 +10,7 @@ typedef struct {
     uint32_t crc32;
     uint32_t run_offset;
     uint32_t flags;
+    uint8_t sha256[POTA_SHA256_SIZE];
 } pota_package_image_t;
 
 typedef struct pota_package_manifest pota_package_manifest_t;
@@ -50,6 +51,7 @@ typedef struct {
     uint32_t bootloader_version;
     uint32_t minimum_security_counter;
     bool require_signature;
+    bool require_image_hashes;
     pota_package_signature_verify_fn verify_signature;
     void *verify_context;
 } pota_package_constraints_t;

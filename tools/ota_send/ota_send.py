@@ -155,6 +155,7 @@ def select_image_path(args: argparse.Namespace) -> Path:
 def wait_for_receiving(serial_port, timeout_s: float) -> None:
     deadline = time.monotonic() + timeout_s
     last_response = ""
+    terminal_seen = 0
 
     while time.monotonic() < deadline:
         response = query(serial_port, "SYST:OTA:STAT?")
@@ -164,7 +165,15 @@ def wait_for_receiving(serial_port, timeout_s: float) -> None:
             if "RECEIVING" in response:
                 return
             if "FAILED" in response or "ABORTED" in response:
-                return
+                # BEGIN is asynchronous.  A single terminal snapshot can be
+                # the previous session before OTA AO consumes the new BEGIN;
+                # require consecutive terminal observations before failing.
+                terminal_seen += 1
+                if terminal_seen >= 3:
+                    raise RuntimeError(
+                        f"device entered terminal OTA state while waiting: {response!r}")
+            else:
+                terminal_seen = 0
         time.sleep(0.1)
 
     raise TimeoutError(f"device did not enter RECEIVING state, last response: {last_response}")
@@ -303,6 +312,33 @@ def query_final_status(serial_port, delay_s: float = 0.1) -> str:
     return query(serial_port, "SYST:OTA:STAT?")
 
 
+def wait_for_received_offset(serial_port, expected_offset: int,
+                             timeout_s: float) -> str:
+    """Wait until the asynchronous OTA AO consumes one DATA block."""
+    deadline = time.monotonic() + timeout_s
+    last_status = ""
+    while time.monotonic() < deadline:
+        progress = query(serial_port, "SYST:OTA:PROG?")
+        if progress:
+            try:
+                received = int(progress.split(",", 1)[0].strip(), 0)
+            except ValueError:
+                received = -1
+            if received >= expected_offset:
+                return progress
+        status = query(serial_port, "SYST:OTA:STAT?")
+        if status:
+            last_status = status
+            if "FAILED" in status or "ABORTED" in status:
+                raise RuntimeError(
+                    f"device entered terminal OTA state while waiting for offset "
+                    f"{expected_offset}: {status!r}")
+        time.sleep(0.01)
+    raise TimeoutError(
+        f"device did not consume DATA through offset {expected_offset}; "
+        f"last status: {last_status!r}")
+
+
 def boot_and_commit(port: str, baud: int, timeout_s: float,
                     settle_s: float = 4.0) -> str:
     """Apply a staged image and confirm it after the USB CDC reset.
@@ -402,6 +438,17 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int, package_m
 
         for offset in range(0, len(image), args.block_size):
             sent_blocks = (offset // args.block_size) + 1
+            # DATA is posted to the OTA AO asynchronously.  In package mode
+            # the first header block starts a bounded erase service; wait for
+            # the AO to return to RECEIVING before queueing the next block so
+            # a full USB burst cannot starve that service or turn into
+            # INVALID_STATE events.
+            if package_mode and offset != 0:
+                # The first package block also starts erasing the inactive
+                # image.  Sector erase is deliberately bounded and may take
+                # substantially longer than one USB round trip.
+                time.sleep(5.0 if offset == args.block_size else 0.02)
+                wait_for_receiving(ser, args.begin_timeout)
             probe_baseline = ""
             if sent_blocks == args.flash_transaction_probe_after_blocks:
                 probe_baseline = query(ser, "SYST:DIAG:FLASH:TRAN?")
@@ -422,6 +469,10 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int, package_m
                     if "RECEIVING" not in first_block_status:
                         wait_for_receiving(ser, args.begin_timeout)
 
+            # DATA is asynchronous; apply sender-side back-pressure so the
+            # following block (or END) cannot overtake the AO.
+            wait_for_received_offset(ser, offset + len(chunk), args.begin_timeout)
+
             if sent_blocks == args.flash_transaction_probe_after_blocks:
                 response = wait_for_flash_transaction_probe(
                     ser, probe_baseline, args.timeout
@@ -441,7 +492,27 @@ def send_image(args: argparse.Namespace, image: bytes, image_crc: int, package_m
                     print(f"progress={response}")
 
         write_line(ser, "SYST:OTA:END")
-        final_status = query_final_status(ser)
+        try:
+            final_status = query_final_status(ser)
+        except Exception as exc:
+            # END may legitimately reset/re-enumerate the CDC device.  Close
+            # the stale handle and obtain the authoritative post-END state
+            # through a fresh lifetime instead of leaking the port object or
+            # reporting an opaque Win32 ClearCommError.
+            print(f"end_transport_reset={exc}")
+            final_status = ""
+            deadline = time.monotonic() + max(args.timeout, args.begin_timeout)
+            while time.monotonic() < deadline:
+                try:
+                    with serial.Serial(args.port, args.baud,
+                                       timeout=args.timeout,
+                                       write_timeout=args.timeout) as reopened:
+                        reopened.reset_input_buffer()
+                        final_status = query(reopened, "SYST:OTA:STAT?")
+                        if final_status:
+                            break
+                except (OSError, serial.SerialException):
+                    time.sleep(0.25)
         if not args.no_verify_query:
             print(final_status)
         return final_status

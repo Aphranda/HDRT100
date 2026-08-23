@@ -71,6 +71,12 @@ $testPrograms = @(
         Sources = @((Join-Path $tests "test_pota_manifest_verifier.c")) + $commonSources
     },
     @{
+        Name = "test_pota_slot_manifest"
+        Sources = @((Join-Path $tests "test_pota_slot_manifest.c"),
+            (Join-Path $src "pota_slot_manifest.c"),
+            (Join-Path $src "pota_crc32.c"))
+    },
+    @{
         Name = "test_portable_ota_package"
         Sources = @((Join-Path $tests "test_portable_ota_package.c")) + $commonSources
     },

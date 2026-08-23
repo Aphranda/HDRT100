@@ -17,6 +17,47 @@ static bool portable_ota_sha256(void *context, const uint8_t *data,
            mbedtls_sha256(data, size, digest, 0) == 0;
 }
 
+bool portable_ota_crypto_sha256(
+    const uint8_t *data,
+    uint32_t size,
+    uint8_t digest[POTA_SHA256_SIZE])
+{
+    return portable_ota_sha256(NULL, data, size, digest);
+}
+
+bool portable_ota_crypto_sha256_flash(
+    portable_ota_flash_read_fn read,
+    void *context,
+    uint32_t offset,
+    uint32_t size,
+    uint8_t digest[POTA_SHA256_SIZE])
+{
+    if (read == NULL || digest == NULL || size == 0u) {
+        return false;
+    }
+    mbedtls_sha256_context hash;
+    uint8_t buffer[256];
+    mbedtls_sha256_init(&hash);
+    int result = mbedtls_sha256_starts(&hash, 0);
+    uint32_t cursor = 0u;
+    while (result == 0 && cursor < size) {
+        const uint32_t chunk = (size - cursor) > sizeof(buffer)
+                                   ? (uint32_t)sizeof(buffer)
+                                   : size - cursor;
+        if (!read(context, offset + cursor, buffer, chunk)) {
+            result = -1;
+            break;
+        }
+        result = mbedtls_sha256_update(&hash, buffer, chunk);
+        cursor += chunk;
+    }
+    if (result == 0) {
+        result = mbedtls_sha256_finish(&hash, digest);
+    }
+    mbedtls_sha256_free(&hash);
+    return result == 0;
+}
+
 static bool portable_ota_verify_p256(
     void *context,
     const uint8_t public_key[POTA_PUBLIC_KEY_P256_SIZE],

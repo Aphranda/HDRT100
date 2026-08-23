@@ -5,6 +5,7 @@
 #include "board.h"
 #include "diagnostics.h"
 #include "drv_flash_write.h"
+#include "drv_watchdog.h"
 #include "flash_transaction_fb.h"
 #include "project_config.h"
 #include "resource_arbiter.h"
@@ -45,6 +46,7 @@ static uint32_t flash_transaction_policy_check(uint32_t requester,
         requester != FLASH_TRANSACTION_REQUESTER_OTA_METADATA &&
         requester != FLASH_TRANSACTION_REQUESTER_PRODUCT_CONFIG &&
         requester != FLASH_TRANSACTION_REQUESTER_OTA_JOURNAL &&
+        requester != FLASH_TRANSACTION_REQUESTER_OTA_MANIFEST &&
         !(PROJECT_ENABLE_FLASH_VALIDATION &&
           requester == FLASH_TRANSACTION_REQUESTER_VALIDATION)) {
         return FLASH_TRANSACTION_ERROR_POLICY;
@@ -235,7 +237,13 @@ bool flash_transaction_ao_execute(const flash_transaction_request_t *request,
     }
     flash_transaction_vector_t vector;
     for (uint32_t step = 0u; step < FLASH_TRANSACTION_EXECUTE_STEPS; step++) {
+        /* Synchronous callers (OTA END/metadata) can temporarily occupy the
+         * OTA task while the supervisor is arbitrating the flash owner.  Feed
+         * the hardware watchdog at the AO service boundary as well as inside
+         * the raw erase/program primitive. */
+        drv_watchdog_feed();
         flash_transaction_ao_service();
+        drv_watchdog_feed();
         if (!flash_transaction_ao_get_vector(&vector)) {
             continue;
         }

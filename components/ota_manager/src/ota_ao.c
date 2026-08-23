@@ -101,10 +101,25 @@ void ota_ao_service(uint32_t budget_us)
 
     s_ota_context.vector.timestamp_ms = board_uptime_ms();
 
+    /* Service bounded permission/erase work before consuming DATA.  SCPI
+     * producers can queue a DATA block while the inactive slot is still
+     * erasing; consuming it early converts normal back-pressure into
+     * INVALID_STATE and eventually QUEUE_FULL. */
+    const ota_event_t tick = {
+        .type = OTA_EVENT_TICK,
+    };
+    if (s_ota_context.vector.state == (uint32_t)OTA_STATE_CHECK_PERMISSION ||
+        s_ota_context.vector.state == (uint32_t)OTA_STATE_ERASE_SLOT) {
+        ota_fb_execute(&s_ota_context, &tick);
+        if (s_ota_context.vector.state == (uint32_t)OTA_STATE_CHECK_PERMISSION ||
+            s_ota_context.vector.state == (uint32_t)OTA_STATE_ERASE_SLOT) {
+            return;
+        }
+    }
+
     ota_event_t event;
     if (event_bus_try_recv_ota_event(&event)) {
         ota_fb_execute(&s_ota_context, &event);
-        return;
     }
 
     /* Stream ingress shares the same bounded AO service cadence as the legacy
@@ -120,9 +135,6 @@ void ota_ao_service(uint32_t budget_us)
         return;
     }
 
-    const ota_event_t tick = {
-        .type = OTA_EVENT_TICK,
-    };
     ota_fb_execute(&s_ota_context, &tick);
 }
 

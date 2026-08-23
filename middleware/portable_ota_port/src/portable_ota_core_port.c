@@ -2,6 +2,7 @@
 
 #include "ota_error.h"
 #include "ota_partition.h"
+#include "pota_slot_manifest.h"
 #include "pota.h"
 #include "project_config.h"
 #include "drv_flash.h"
@@ -19,6 +20,7 @@
 #endif
 
 #if PORTABLE_OTA_PORT_ENABLE_SESSION
+#include "drv_watchdog.h"
 #include "flash_transaction.h"
 #include "ota_journal.h"
 #if PROJECT_FLASH_DEPLOYMENT_V2
@@ -90,6 +92,10 @@ static bool s_stream_initialized;
 static uint32_t s_provider_generation;
 static uint32_t s_store_generation;
 static uint32_t s_provider_refs;
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+static pota_slot_manifest_store_t s_slot_manifest_store;
+static uint32_t s_slot_manifest_base;
+#endif
 
 static const pota_compat_map_entry_t s_product_error_aliases[] = {
     {POTA_ERR_PRODUCT_MISMATCH, OTA_ERR_BOARD_MISMATCH},
@@ -188,9 +194,93 @@ static bool portable_core_mark_pending(pota_slot_t slot, uint32_t image_size,
                                        uint32_t image_crc32,
                                        uint32_t security_counter)
 {
-    return ota_metadata_mark_pending((ota_slot_t)slot, image_size,
-                                     image_crc32, security_counter);
+    /* BCB lane rotation is a bounded maintenance transaction but can exceed
+     * the normal 3 s runtime watchdog on a cold external-flash lane. */
+    drv_watchdog_enable(30000u);
+    const bool ok = ota_metadata_mark_pending((ota_slot_t)slot, image_size,
+                                              image_crc32, security_counter);
+    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
+    return ok;
 }
+
+#if defined(PROJECT_FLASH_DEPLOYMENT_V2) && PROJECT_FLASH_DEPLOYMENT_V2
+static bool portable_core_manifest_read(void *context, uint32_t offset,
+                                        void *data, uint32_t length)
+{
+    (void)context;
+    return data != NULL && drv_flash_read(s_slot_manifest_base + offset,
+                                          data, length);
+}
+
+static bool portable_core_manifest_program(void *context, uint32_t offset,
+                                           const void *data, uint32_t length)
+{
+    (void)context;
+    const flash_transaction_request_t request = {
+        .requester = FLASH_TRANSACTION_REQUESTER_OTA_MANIFEST,
+        .partition_id = FLASH_DEPLOYMENT_MAP_OTA_STAGE_ID,
+        .operation = FLASH_TRANSACTION_OPERATION_PROGRAM,
+        .relative_offset = (s_slot_manifest_base -
+                            FLASH_DEPLOYMENT_MAP_OTA_STAGE_OFFSET) + offset,
+        .length = length,
+        .data = data,
+        .provider_generation = portable_core_next_provider_generation(),
+        .store_generation = s_store_generation,
+    };
+    flash_transaction_completion_t completion;
+    return flash_transaction_ao_execute(&request, &completion);
+}
+
+static bool portable_core_manifest_erase(void *context, uint32_t offset,
+                                         uint32_t length)
+{
+    (void)context;
+    const flash_transaction_request_t request = {
+        .requester = FLASH_TRANSACTION_REQUESTER_OTA_MANIFEST,
+        .partition_id = FLASH_DEPLOYMENT_MAP_OTA_STAGE_ID,
+        .operation = FLASH_TRANSACTION_OPERATION_ERASE,
+        .relative_offset = (s_slot_manifest_base -
+                            FLASH_DEPLOYMENT_MAP_OTA_STAGE_OFFSET) + offset,
+        .length = length,
+        .store_generation = s_store_generation,
+    };
+    flash_transaction_completion_t completion;
+    return flash_transaction_ao_execute(&request, &completion);
+}
+
+static bool portable_core_commit_slot_manifest(pota_slot_t slot,
+                                               const uint8_t *header,
+                                               uint32_t header_size)
+{
+    if (header == NULL || header_size != POTA_PACKAGE_HEADER_SIZE ||
+        (slot != POTA_SLOT_A && slot != POTA_SLOT_B)) {
+        return false;
+    }
+    const ota_slot_t ota_slot = (ota_slot_t)slot;
+    s_slot_manifest_base = OTA_SLOT_MANIFEST_BASE_OFFSET(ota_slot);
+    const pota_slot_manifest_config_t config = {
+        .context = NULL,
+        .read = portable_core_manifest_read,
+        .program = portable_core_manifest_program,
+        .erase = portable_core_manifest_erase,
+        .base_offset = 0u,
+        .lane_size = OTA_SLOT_MANIFEST_LANE_BYTES,
+        .page_size = FLASH_DEPLOYMENT_GEOMETRY_PROGRAM_SIZE,
+        .erase_size = FLASH_DEPLOYMENT_GEOMETRY_ERASE_SIZE,
+        .map_version = FLASH_DEPLOYMENT_MAP_VERSION,
+        .slot = slot,
+    };
+    if (pota_slot_manifest_init(&s_slot_manifest_store, &config) !=
+        POTA_SLOT_MANIFEST_OK) {
+        return false;
+    }
+    drv_watchdog_enable(30000u);
+    const bool ok = pota_slot_manifest_append(&s_slot_manifest_store, header, NULL) ==
+                    POTA_SLOT_MANIFEST_OK;
+    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
+    return ok;
+}
+#endif
 
 static bool portable_core_confirm_active(void)
 {
@@ -293,6 +383,7 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
 #if PROJECT_FLASH_DEPLOYMENT_V2
             .security_counter = security_counter,
             .require_signature = PORTABLE_OTA_REQUIRE_SIGNATURE != 0,
+            .require_image_hashes = true,
             .verify_manifest_signature = portable_ota_crypto_verify_manifest,
 #endif
         },
@@ -303,6 +394,9 @@ static pota_platform_t portable_core_make_platform(const ota_metadata_t *metadat
             .mark_pending = portable_core_mark_pending,
             .confirm_active = portable_core_confirm_active,
             .validate_vector = portable_core_validate_vector,
+#if PROJECT_FLASH_DEPLOYMENT_V2
+            .commit_slot_manifest = portable_core_commit_slot_manifest,
+#endif
         },
     };
     return platform;

@@ -16,6 +16,74 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-046 - V2 debug OTA watchdog HIL
+
+- 状态：进行中；factory 烧录闭环通过，signed package 数据接收达到完整长度，但 `END` 阶段
+  仍触发硬件 watchdog 复位，未达到 `READY_TO_REBOOT`，因此不得宣称 OTA/BOOT/COMM 完成。
+- 证据：V2 debug build `20260823033844` 由 `tools/picotool_flash/picotool_flash.py` 写入
+  DHRT100，picotool Flash verify 全部通过；key 7 签名与 package 生成通过，package 大小为
+  943232 B。`tools/ota_send/ota_send.py` 收包达到 `943232/943232` 后 CDC 重置；重枚举
+  `SYSTem:WATCH:LOG?` 为 `WATCHDOG_TIMEOUT,CORE0_SUPERVISOR_STALL`，slot/BCB 未变化。
+- 根因分析：FlashTransaction 合法停驻 core1 时，诊断 supervisor 需要识别受控 lockout；同时
+  OTA END 的同步 metadata/manifest owner 路径仍可能让高优先级控制任务长时间占用。已加入
+  lockout-aware heartbeat、AO 边界 feed、擦除/编程分段 feed 和 debug maintenance watchdog
+  window，尚未完成板端回归闭环，不能作为生产方案。
+- 原始报告：`build-v2-debug-ninja3/picotool_flash_final_60000.txt` 及本次终端 transcript；
+  当前板卡保持可启动的 V2 debug factory，OTA 状态为 `IDLE`，未修改部署状态。
+- 下一步：提高 END 路径为可调度的分步事务并在 DHRT100 上重新执行 signed OTA；确认无新
+  watchdog、状态 `READY_TO_REBOOT → COMMITTED`、active slot 更新和 transaction/journal 清零后，
+  再移除临时 debug watchdog window 并单独提交代码与文档。
+
+### FLASH-TASK-20260823-045 - V2 slot manifest/hash verifier baseline
+
+- 状态：完成 V2 slot-manifest durable owner/schema、Boot 切换前的 manifest/header/签名/计数器和
+  A/B 镜像 SHA-256 重验的代码与 host/build 切片；M1、M3、M4 退出门禁继续保持未完成，V2
+  `deployment_state=target_not_deployed` 未改变。
+- 代码：`pota_slot_manifest` 提供双 lane body/commit、幂等 append、旧 lane 回退和损坏最新
+  lane 选择；V2 Boot 只读加载活动 slot manifest，经 portable package parser、角色化公钥
+  registry、BCB verified counter 和 Flash SHA-256 校验后才允许跳转；OTA adapter 在 pending
+  前持久化同一 header。V1 编译路径不链接该验证状态。
+- host/构建：slot manifest 单元测试覆盖空 store、首条 append、重复 header、双 lane sequence、
+  torn commit、旧 lane rollback、损坏 newest lane 和非法 geometry；V1 主工程与 V2
+  factory-candidate 的 App A/B、Boot、Recovery、link contract 均构建通过；portable OTA runner
+  通过，全量 host runner 快照为 `31/31`，V1 `release_check=OK`。
+- 协议向量：manifest extension 从 version 1 升为带 A/B SHA-256 的 version 2，旧 signing
+  transcript hash/signature golden vector 已替换为新公开 key/signature；仓库只保留公开材料，
+  不生成、不读取或提交私钥。
+- V1 回归与 V2 闭环边界：DHRT100 当前仍运行旧 V1 build；已用板卡身份查询确认
+  `GTS,DHRT100,839E1AE79EA20F31,0.1.0`，但 V1 烧录/OTA 仅可作为回归，不计入本任务 V2
+  闭环。V2 candidate package 因生产 key registry 为空而按预期被 consumer gate 拒绝；未将
+  `target_not_deployed` 改为 deployed，也未用 V1 工件冒充 V2 验证。当前尚未对 DHRT100 烧录
+  V2 candidate；真实签名/部署批准、factory baseline 的可启动 manifest、full-erase/reflash、
+  reset/power-cut、A/B/revert/Recovery HIL 仍是阻塞项。
+- 失败/阻塞原始证据：直接运行 pytest 时系统临时目录权限导致 2 个 `tmp_path` setup error；
+  改用仓库内独立 `--basetemp` 后 OTA packager/signature/FlashMap 定向集合 `28/28` 通过。
+  V2 consumer 预期失败：`flash_consumer_check=FAILED detail=v2 candidate OTA package is not
+  fully signed`。
+- 提交与推送：本条目对应代码和测试修改尚未提交；文档门禁通过后按约定与文档分离提交并推送。
+
+### FLASH-TASK-20260823-046 - DHRT100 debug V2 deployment and OTA failure evidence
+
+- 调试 key：为本次本地 candidate 临时生成 P-256 factory key，公钥（key_id=7）为
+  `043a3268ac707d46b33b933f950d5d79e7f6e80767880d0d5811d77af58571939d59d9a73add45f52f15230d32b2268739373f67f8e13f958b47c0eb5697222e00`；
+  私钥仅留在工作区外的临时调试文件，不入库、不用于生产。当前 package transcript SHA-256
+  为 `3dfb77affcde55b2cbc0d81385451fe554f584e3f7f77f1b9b09487cebfd1a0d`，对应 low-S 签名已由
+  public-only verifier 复验。
+- 烧录：使用 `DHRT100_V2_CANDIDATE_FACTORY.uf2` 对 DHRT100（board identity
+  `GTS,DHRT100,839E1AE79EA20F31,0.1.0`）执行 BOOTSEL/reflash，picotool load/verify/reboot
+  全部成功。V2 debug build `20260823020451` 启动，`DIRECT_AB`、BCB health 和 erased
+  slot-manifest debug bootstrap 均可查询；COM9 仅是调试串口，未作为板卡身份。
+- OTA HIL：对同一 signed package 执行 legacy `SYST:OTA:PBEGIN/DATA`，首次连续发送在
+  header 后触发 `INVALID_STATE`/`QUEUE_FULL`；证实 OTA AO 擦除 service 被 DATA 事件饿死。
+  host sender 已增加 package block pacing、等待 `RECEIVING` 和异步 BEGIN terminal snapshot
+  过滤；重新烧录后可完成 inactive image 接收过程，但本次运行在 END/状态回读处未得到
+  `READY_TO_REBOOT`，板上最终回到 `IDLE`，slot/BCB 未改变。stream ingress 也因上一失败会话
+  留下 `SYST:OTA:STREAM:STAT? = 0,5,0,3137263498,5` 而未完成 CLOSE/BOOT。
+- 结论：这是真实 V2 debug deployment 证据，不是 V1 替代，也不是 M4 闭环；发现的 legacy
+  OTA AO fairness、event queue back-pressure、END 状态持久化问题进入下一待办。候选仍保持
+  `target_not_deployed`，production key registry 仍为空，M1/M3/M4 退出门禁不变。回退路径为
+  已验证的 V1 DHRT100 factory UF2；在修复并重新 build 后必须再次烧录 DHRT100 验证。
+
 ### FLASH-TASK-20260823-044 - Verified package object durable resume
 
 - 状态：M4-01/M4-02 完成签名 package 的 inactive-object source 与 durable resume host/build

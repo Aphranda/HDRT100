@@ -7,6 +7,10 @@ static int s_failures;
 static uint32_t s_lockout_result;
 static bool s_lockout_begin_ok;
 
+void watchdog_update(void)
+{
+}
+
 #define CHECK_TRUE(expression) do { \
     if (!(expression)) { \
         (void)printf("FAIL line %d: %s\n", __LINE__, #expression); \

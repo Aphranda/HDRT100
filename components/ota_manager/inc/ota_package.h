@@ -26,6 +26,7 @@ typedef struct {
     uint32_t crc32;
     uint32_t run_offset;
     uint32_t flags;
+    uint8_t sha256[OTA_PACKAGE_SHA256_SIZE];
 } ota_package_image_t;
 
 typedef struct {

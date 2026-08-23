@@ -19,6 +19,8 @@ typedef struct {
     uint32_t selected_image_size;
     uint32_t selected_image_crc32;
     uint32_t selected_security_counter;
+    uint8_t selected_image_sha256[POTA_SHA256_SIZE];
+    uint8_t selected_manifest_header[POTA_PACKAGE_HEADER_SIZE];
     uint32_t selected_image_crc32_running;
     uint32_t selected_image_received_size;
     bool raw_resume_active;

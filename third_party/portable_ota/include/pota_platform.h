@@ -25,6 +25,7 @@ typedef struct {
     uint32_t flash_sector_size;
     uint32_t security_counter;
     bool require_signature;
+    bool require_image_hashes;
     pota_package_signature_verify_fn verify_manifest_signature;
     void *verify_manifest_context;
 } pota_platform_info_t;
@@ -35,6 +36,9 @@ typedef struct {
     bool (*flash_program)(uint32_t offset, const void *data, uint32_t size);
     bool (*mark_pending)(pota_slot_t slot, uint32_t image_size,
                          uint32_t image_crc32, uint32_t security_counter);
+    bool (*commit_slot_manifest)(pota_slot_t slot,
+                                 const uint8_t *header,
+                                 uint32_t header_size);
     bool (*confirm_active)(void);
     bool (*validate_vector)(uint32_t slot_offset, uint32_t image_size, uint32_t run_offset);
     void (*ota_lock)(void);

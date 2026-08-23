@@ -7,6 +7,7 @@
 #include "ota_package.h"
 #include "ota_partition.h"
 #include "portable_ota_port.h"
+#include "project_config.h"
 #include "resource_arbiter.h"
 #include "sync_io.h"
 
@@ -53,6 +54,8 @@ static void ota_fb_sync_portable_status(struct ota_ao_context *context, bool ok)
 
 static void ota_fb_handle_begin(struct ota_ao_context *context, const ota_event_t *event)
 {
+    /* Debug maintenance window for bounded BCB/manifest rotation. */
+    drv_watchdog_enable(60000u);
     if (!ota_fb_state_accepts_begin(context)) {
         ota_fb_set_error(context, OTA_ERR_INVALID_STATE);
         return;
@@ -125,12 +128,14 @@ static void ota_fb_handle_end(struct ota_ao_context *context)
 {
     const bool ok = portable_ota_port_core_end(&context->vector);
     ota_fb_sync_portable_status(context, ok);
+    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
 }
 
 static void ota_fb_handle_abort(struct ota_ao_context *context)
 {
     const bool ok = portable_ota_port_core_abort(&context->vector);
     ota_fb_sync_portable_status(context, ok);
+    drv_watchdog_enable(PROJECT_WATCHDOG_TIMEOUT_MS);
 }
 
 static void ota_fb_handle_boot(struct ota_ao_context *context)

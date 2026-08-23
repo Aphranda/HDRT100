@@ -118,17 +118,17 @@ def test_signing_transcript_is_canonical_and_signature_independent() -> None:
     assert request_transcript[16:20] == bytes(4)
     assert request_transcript[280:344] == bytes(64)
     assert hashlib.sha256(request_transcript).hexdigest() == (
-        "bbf4a80004fbd2bf2d2149c7813ca583bbc17189d4bc49d67c597e8c494a865b"
+        "eaa19ad67536ec7b5a92338c5a1d430638d18608102ba9f2fb357a3f11f9abc2"
     )
 
 
 def test_manifest_p256_low_s_golden_vector() -> None:
     public_key = bytes.fromhex(
-        "04d54c4dfde2e3b7c6dbfb90bd3451f99deca87d5a5f45137f5ba53613c0beecec"
-        "9dd13a9a3c3ecf241482d809eb87be02941219cb6dcdad5b36f1ead5946fa67f")
+        "04eaa51429baed113ebf528a230f84d416c10f131447f2558d8255ef54b95c3293"
+        "4dacf992313c7924e901251ffbb3961582efab524919bdfe77862ee2b66ce4b3")
     signature = bytes.fromhex(
-        "fcc3492e3e42d20e8eaeec2777f6c70fc02ad8d9ca9bdcfb25e1391d4023308d"
-        "789ea6b962102aa92ae7b1803540a7b79e6901cef80d12fac0fefc768e3dcff7")
+        "abef1f482becbdd51ab888af79c0d7a8d2f5610bb5514968628b6386eb90cdf1"
+        "476dd6ac634ebb6f3c7239c04b907ed7e413e5a35e303a8bea01d5f285995c38")
     request = ota_packager.build_package(
         b"slot-a", b"slot-b",
         product_id="DHRT100",
