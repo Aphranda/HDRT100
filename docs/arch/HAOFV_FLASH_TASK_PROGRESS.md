@@ -16,6 +16,26 @@ Last updated: 2026-08-23
 本文件只追加任务编号、代码提交、构建/HIL 原始报告、失败、跳过、回退和阻塞，并通过任务编号回链
 到 TODO。不得在本文件自行把契约状态从 `pending` 改成 `active`。
 
+### FLASH-TASK-20260823-043 - OTA stream durable abort tombstone
+
+- 状态：M4-02 完成 portable durable abort/restart policy 的 host/build 切片；M4-02、M4、M3 和
+  M1 的退出门禁继续保持未完成，v2 deployment state 保持 `target_not_deployed`。
+- 代码：checkpoint schema 增加 flags 并定义 durable abort tombstone。session 只有在底层 abort
+  成功且 tombstone 经既有 checkpoint backend 提交后才报告 `ABORTED`；重建 store 后，同一
+  session/generation 的 OPEN 被拒绝，source 必须提升 generation 并从 offset 0 重新开始。checkpoint
+  replay 改为先选择同一 identity 的最新 sequence，再判断幂等、回退或 tombstone 冲突，避免旧记录
+  遮蔽最新终止事实。
+- 工具与诊断：`SYSTem:OTA:JOURnal?` 追加 flags 投影；CDC sender 的 `--resume` 只接受 flags 为零的
+  checkpoint，abort tombstone 不会被当成可续传 cursor。未知 flags 在写入前 fail closed。
+- 验证：portable OTA runner、定向 Python 和全量 host runner 通过，后者为本次快照 `31/31`；
+  DHRT100 v1 release 与 v2 factory-candidate 完整构建通过，App A/B、Boot、Recovery link contract
+  通过，v1 `release_check=OK`。
+- 提交与推送：`93ff7fe feat(ota): persist stream abort tombstones` 已推送
+  `origin/feature/rtos-multicore-haofv`；Registry 状态未改变。
+- 边界：本轮没有烧录或写入 DHRT100。tombstone 尚无真实 reset/power-cut、journal sector rotation
+  交叉点、跨 ingress retransmit 或 endurance HIL；package parser/image cursor resume 也未完成，
+  不能据此关闭 M4-02 或 M4。v2 factory-candidate 仍禁止部署。
+
 ### FLASH-TASK-20260823-042 - OTA Journal sector rotation
 
 - 状态：M4-02 完成 durable checkpoint journal 的 host/build rotation 切片；M4-02、M4、M3 和 M1

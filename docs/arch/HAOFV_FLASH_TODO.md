@@ -471,8 +471,8 @@ TODO 只保留可独立验收的状态项和证据索引。
 ### M4-01 OtaStreamSession core
 
 - [~] 已新增 transport-neutral `pota_stream_session` 的 open/write/close/abort 状态骨架，顺序、
-  重复和冲突 chunk 有 host 负向证据；raw-image resume 已接入 M4-02 durable journal，package
-  parser/image cursor resume 仍未完成。
+  重复和冲突 chunk 有 host 负向证据；raw-image resume 与 durable abort tombstone 已接入 M4-02
+  journal，package parser/image cursor resume 仍未完成。
 - [~] session descriptor 已绑定 identity/capability/package hash/object/map/partition/generation/
   destination，并校验 inactive-write/durable-ACK capability；实际 ingress 尚未统一迁移。
 - [~] descriptor 已区分 object/destination 并拒绝错误 App partition；package manifest parser、
@@ -493,7 +493,9 @@ TODO 只保留可独立验收的状态项和证据索引。
   endurance HIL 仍待完成。
 - [~] checkpoint identity 绑定 session/generation/token/object/total/package CRC，并拒绝元数据
   或 token 冲突；token 已固定为 little-endian OPEN wire CRC，活动 map 与 App partition ID 来自
-  generated deployment map；跨 ingress 的 restart/abort policy 仍待接入。
+  generated deployment map；abort 会持久化 tombstone，同 session/generation 重启被拒绝且提升
+  generation 后只能从 offset 0 开始，证据见 `FLASH-TASK-20260823-043`；该策略的跨 ingress
+  producer 接入与板端 reset/power-cut HIL 仍待完成。
 - [~] host primitive 与真实 backend adapter 已覆盖重建、torn body/commit、CRC/readback corruption、
   page/sector 对齐、分区边界、requester 权限、durable prefix 损坏、bounded scan 和尾部清理；journal
   写满后只擦除不含最新有效 checkpoint 的下一 erase block，erase/verify 失败时保留旧最新记录并
