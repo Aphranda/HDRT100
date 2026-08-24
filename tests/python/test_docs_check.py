@@ -37,3 +37,33 @@ def test_docs_check_detects_broken_markdown_reference(tmp_path: Path) -> None:
     assert result.failures == [
         f"{doc}: broken docs reference: docs/missing/MISSING_DOC.md",
     ]
+
+
+def test_docs_check_rejects_invalid_last_updated_date(tmp_path: Path) -> None:
+    """P3-10: malformed/impossible Last updated dates must FAIL (G4)."""
+    docs_dir = tmp_path / "docs"
+    doc = docs_dir / "tdma" / "TDMA_BAD_DATE.md"
+    doc.parent.mkdir(parents=True)
+    text = (
+        "# T\n"
+        "\n"
+        "Status: Active\n"
+        "Domain: tdma\n"
+        "Canonical: `docs/tdma/TDMA_BAD_DATE.md`\n"
+        "Related: x\n"
+        "Last updated: 2026-13-99\n"
+    )
+    doc.write_text(text, encoding="utf-8")
+    result = docs_check.CheckResult(failures=[], warnings=[])
+    docs_check.check_metadata(doc, docs_dir, text, result)
+    assert any("Last updated" in f for f in result.failures)
+
+
+def test_docs_check_reads_non_utf8_without_crash(tmp_path: Path) -> None:
+    """P3-9: GBK/non-UTF-8 files must not crash docs_check (G4)."""
+    docs_dir = tmp_path / "docs"
+    doc = docs_dir / "tdma" / "TDMA_GBK.md"
+    doc.parent.mkdir(parents=True)
+    # GBK-encoded Chinese text (cannot be decoded as UTF-8)
+    doc.write_bytes("Last updated: 2026-08-19\n中文内容".encode("gbk"))
+    assert "Last updated" in docs_check.read_text(doc)

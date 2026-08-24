@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import re
 import sys
 from dataclasses import dataclass
@@ -97,7 +98,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    # P3-9: tolerate non-UTF-8 files (GBK etc.) instead of crashing (G4).
+    return path.read_text(encoding="utf-8", errors="ignore")
 
 
 def is_allowed_name(name: str) -> bool:
@@ -155,6 +157,20 @@ def check_metadata(path: Path, docs_dir: Path, text: str, result: CheckResult) -
         expected = f"`docs/{rel}`"
         if expected not in canonical_line:
             result.fail(f"{path}: Canonical must include {expected}")
+
+    # Last updated must be a legal YYYY-MM-DD date (G4/P3-10: malformed dates
+    # used to be silently ignored by the freshness scan).
+    date_line = next((line for line in header_window if line.startswith("Last updated:")), None)
+    if date_line:
+        value = date_line.split(":", 1)[1].strip()
+        m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", value)
+        if not m:
+            result.fail(f"{path}: Last updated must be YYYY-MM-DD, got: {value}")
+        else:
+            try:
+                datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except ValueError:
+                result.fail(f"{path}: invalid Last updated date: {value}")
 
 
 def check_index_coverage(docs_files: list[Path], docs_dir: Path, docs_index: Path, result: CheckResult) -> None:

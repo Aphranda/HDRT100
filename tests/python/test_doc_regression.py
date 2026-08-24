@@ -68,6 +68,18 @@ def test_registry_rejects_missing_code_anchor(tmp_path: Path) -> None:
     assert any("code_anchor" in f for f in result.failures)
 
 
+def test_registry_warns_nonconforming_row_id(tmp_path: Path) -> None:
+    """P3-8: a row that looks like a contract row but does not match ROW_RE
+    (e.g. double-segment id TDMA-FLIGHT-BITMAP-01) must be WARNed, not
+    silently skipped from counting/validation."""
+    _make_registry_tree(tmp_path)
+    row = VALID_ROW.replace("TDMA-REASON-01", "TDMA-FLIGHT-BITMAP-01")
+    (tmp_path / "docs" / "check" / "DOCS_REGISTRY.md").write_text(row, encoding="utf-8")
+    result = Result(failures=[], warnings=[])
+    check_registry(tmp_path, result)
+    assert any("does not match ROW_RE" in w for w in result.warnings)
+
+
 def test_freshness_rejects_stale_top_doc(tmp_path: Path) -> None:
     (tmp_path / "docs" / "arch").mkdir(parents=True)
     (tmp_path / "docs" / "tdma").mkdir(parents=True)

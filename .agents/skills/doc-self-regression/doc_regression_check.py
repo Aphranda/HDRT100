@@ -158,6 +158,24 @@ def check_registry(root: Path, result: Result) -> None:
         result.fail(f"{REGISTRY_REL} missing (create it per spec)")
         return
     text = read_text(reg)
+
+    # P3: rows that look like contract rows but do not match ROW_RE (e.g. a
+    # double-segment id like TDMA-FLIGHT-BITMAP-01) are silently skipped by
+    # registry_rows; surface them as WARN instead of silently ignoring.
+    for ln in text.splitlines():
+        if not ln.lstrip().startswith("|") or ROW_RE.match(ln):
+            continue
+        cells = [c.strip() for c in ln.split("|")]
+        if len(cells) < 10:
+            continue
+        cid = cells[1]
+        if cid in ("contract_id", "---"):
+            continue
+        result.warn(
+            f"{REGISTRY_REL}: row id '{cid}' does not match ROW_RE "
+            "(not counted/validated; check id format)"
+        )
+
     rows = registry_rows(text)
     if not rows:
         result.fail(f"{REGISTRY_REL}: no contract rows found")
@@ -389,7 +407,11 @@ def check_skill_sync(root: Path, result: Result) -> None:
 
 def sync_skill_plugin(root: Path, result: Result) -> None:
     """Copy live script + registry template into project skill dir, then mirror
-    the whole plugin dir to the harness copy."""
+    the whole plugin dir to the harness copy.
+
+    The harness copy is only written when the harness plugin dir already exists
+    or DOC_SKILL_HARNESS_DIR is explicitly set; otherwise it is skipped so we
+    never create phantom directories at a stale default path."""
     live = root / "tools" / "doc_regression_check.py"
     proj = root / PLUGIN_DIR_REL
     proj.mkdir(parents=True, exist_ok=True)
@@ -399,14 +421,21 @@ def sync_skill_plugin(root: Path, result: Result) -> None:
     if reg.exists():
         shutil.copy2(reg, proj / "DOCS_REGISTRY.template.md")
 
-    HARNESS_PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
-    for name in PLUGIN_FILES:
-        src = proj / name
-        if src.exists():
-            shutil.copy2(src, HARNESS_PLUGIN_DIR / name)
-    result.ok(
-        f"skill-sync: synced to {proj.relative_to(root)} and {HARNESS_PLUGIN_DIR}"
-    )
+    harness_configured = "DOC_SKILL_HARNESS_DIR" in os.environ
+    if HARNESS_PLUGIN_DIR.exists() or harness_configured:
+        HARNESS_PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
+        for name in PLUGIN_FILES:
+            src = proj / name
+            if src.exists():
+                shutil.copy2(src, HARNESS_PLUGIN_DIR / name)
+        result.ok(
+            f"skill-sync: synced to {proj.relative_to(root)} and {HARNESS_PLUGIN_DIR}"
+        )
+    else:
+        result.ok(
+            f"skill-sync: synced to {proj.relative_to(root)}; "
+            "harness dir not present and DOC_SKILL_HARNESS_DIR unset (skipped)"
+        )
 
 
 def main() -> int:
