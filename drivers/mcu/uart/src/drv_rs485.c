@@ -148,6 +148,15 @@ static uint32_t rs485_process_rx_byte(uint8_t byte, uint8_t *buffer,
         }
         return count;
     }
+    if (s_echo_discard) {
+        /* A diagnostic echo may straddle the bounded guard window.  Do not
+         * replay a partial candidate into the SCPI parser when the next
+         * command arrives; discard the incomplete echo and resume at the
+         * current byte. */
+        s_echo_remaining = 0u;
+        s_echo_candidate_len = 0u;
+        s_echo_discard = false;
+    }
     while (s_echo_candidate_len > 0u && count < capacity) {
         buffer[count++] = s_echo_pattern;
         --s_echo_candidate_len;
@@ -182,9 +191,23 @@ static bool rs485_tx_echo_guard_active(void)
     s_tx_echo_guard_until_us = 0u;
     s_echo_remaining = 0u;
     s_echo_candidate_len = 0u;
+    s_echo_discard = false;
     s_response_echo_len = 0u;
     s_response_echo_pos = 0u;
     return false;
+}
+
+static void rs485_consume_guard_byte(uint8_t byte)
+{
+    if (!s_echo_discard || s_echo_remaining == 0u ||
+        byte != s_echo_pattern) {
+        return;
+    }
+    --s_echo_remaining;
+    if (s_echo_remaining == 0u) {
+        s_echo_candidate_len = 0u;
+        s_echo_discard = false;
+    }
 }
 
 uint32_t drv_rs485_read(uint8_t *buffer, uint32_t capacity)
@@ -207,6 +230,7 @@ uint32_t drv_rs485_read(uint8_t *buffer, uint32_t capacity)
             ++s_rx_count;
             saw_byte = true;
             if (rs485_tx_echo_guard_active()) {
+                rs485_consume_guard_byte(byte);
                 ++s_tx_echo_guard_dropped;
                 if (s_dma_read_offset == RS485_DMA_BUFFER_SIZE) {
                     s_dma_ready_mask &= (uint8_t)~(1u << s_dma_read_index);
@@ -232,6 +256,7 @@ uint32_t drv_rs485_read(uint8_t *buffer, uint32_t capacity)
         ++s_rx_count;
         saw_byte = true;
         if (rs485_tx_echo_guard_active()) {
+            rs485_consume_guard_byte(byte);
             ++s_tx_echo_guard_dropped;
             continue;
         }
@@ -381,6 +406,13 @@ uint32_t drv_rs485_dma_overrun_count(void)
 
 uint32_t drv_rs485_echo_pending_count(void)
 {
-    return s_echo_remaining + s_echo_candidate_len +
-           (s_response_echo_len - s_response_echo_pos);
+    uint32_t pending = s_echo_remaining + s_echo_candidate_len;
+    /* The response matcher is cleared independently when its bounded guard
+     * expires.  Never subtract an old cursor from the cleared length: that
+     * would wrap the diagnostic projection to a large unsigned value and
+     * make a healthy receiver look wedged. */
+    if (s_response_echo_pos < s_response_echo_len) {
+        pending += s_response_echo_len - s_response_echo_pos;
+    }
+    return pending;
 }
