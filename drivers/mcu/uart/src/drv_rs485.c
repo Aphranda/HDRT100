@@ -9,6 +9,8 @@
 
 #define RS485_ECHO_IDLE_US 2000u
 #define RS485_DMA_BUFFER_SIZE 256u
+#define RS485_FRAME_BITS 10u
+#define RS485_ECHO_GUARD_MARGIN_US 4000u
 
 static drv_rs485_config_t s_config;
 static bool s_ready;
@@ -23,6 +25,8 @@ static uint32_t s_echo_candidate_len;
 static uint8_t s_response_echo[256];
 static uint32_t s_response_echo_len;
 static uint32_t s_response_echo_pos;
+static uint64_t s_tx_echo_guard_until_us;
+static uint32_t s_tx_echo_guard_dropped;
 static uint8_t s_dma_rx[2][RS485_DMA_BUFFER_SIZE];
 static int s_dma_channel[2] = {-1, -1};
 static volatile uint8_t s_dma_ready_mask;
@@ -155,6 +159,34 @@ static uint32_t rs485_process_rx_byte(uint8_t byte, uint8_t *buffer,
     return count;
 }
 
+static void rs485_start_tx_echo_guard(uint32_t size)
+{
+    /* A two-wire loopback can return the local TX frame through RX after DE
+     * is released.  A byte matcher is vulnerable to DMA chunking and
+     * scheduler gaps, so discard only the bounded, baud-derived echo window. */
+    const uint64_t baud = s_config.baud_hz != 0u ? s_config.baud_hz : 1u;
+    const uint64_t frame_us =
+        ((uint64_t)size * RS485_FRAME_BITS * 1000000u + baud - 1u) / baud;
+    s_tx_echo_guard_until_us = time_us_64() + frame_us +
+                               RS485_ECHO_GUARD_MARGIN_US;
+}
+
+static bool rs485_tx_echo_guard_active(void)
+{
+    if (s_tx_echo_guard_until_us == 0u) {
+        return false;
+    }
+    if (time_us_64() < s_tx_echo_guard_until_us) {
+        return true;
+    }
+    s_tx_echo_guard_until_us = 0u;
+    s_echo_remaining = 0u;
+    s_echo_candidate_len = 0u;
+    s_response_echo_len = 0u;
+    s_response_echo_pos = 0u;
+    return false;
+}
+
 uint32_t drv_rs485_read(uint8_t *buffer, uint32_t capacity)
 {
     if (!s_ready || buffer == NULL || capacity == 0u) {
@@ -174,6 +206,16 @@ uint32_t drv_rs485_read(uint8_t *buffer, uint32_t capacity)
             const uint8_t byte = s_dma_rx[s_dma_read_index][s_dma_read_offset++];
             ++s_rx_count;
             saw_byte = true;
+            if (rs485_tx_echo_guard_active()) {
+                ++s_tx_echo_guard_dropped;
+                if (s_dma_read_offset == RS485_DMA_BUFFER_SIZE) {
+                    s_dma_ready_mask &= (uint8_t)~(1u << s_dma_read_index);
+                    s_dma_read_offset = 0u;
+                    s_dma_last_produced[s_dma_read_index] = 0u;
+                    s_dma_read_index ^= 1u;
+                }
+                continue;
+            }
             count = rs485_process_rx_byte(byte, buffer, count, capacity);
             if (s_dma_read_offset == RS485_DMA_BUFFER_SIZE) {
                 s_dma_ready_mask &= (uint8_t)~(1u << s_dma_read_index);
@@ -189,6 +231,10 @@ uint32_t drv_rs485_read(uint8_t *buffer, uint32_t capacity)
         const uint8_t byte = uart_getc(s_config.instance);
         ++s_rx_count;
         saw_byte = true;
+        if (rs485_tx_echo_guard_active()) {
+            ++s_tx_echo_guard_dropped;
+            continue;
+        }
         count = rs485_process_rx_byte(byte, buffer, count, capacity);
     }
     if (s_echo_candidate_len > 0u && !saw_byte &&
@@ -208,6 +254,7 @@ static bool drv_rs485_write_internal(const uint8_t *data, uint32_t size,
         ++s_error_count;
         return false;
     }
+    rs485_start_tx_echo_guard(size);
     if (discard_echo) {
         /* Only the explicit loopback diagnostic needs an idle-gap receive
          * guard.  Normal SCPI/Modbus replies must not suppress the next host
@@ -230,6 +277,11 @@ static bool drv_rs485_write_internal(const uint8_t *data, uint32_t size,
          * of TX; otherwise a long diagnostic frame can age out its own echo
          * guard before the receiver sees the first returned byte. */
         s_echo_last_rx_us = time_us_64();
+    } else {
+        /* The baud-derived guard is authoritative for normal replies; do not
+         * leave a stale response matcher armed after the guard expires. */
+        s_response_echo_len = 0u;
+        s_response_echo_pos = 0u;
     }
     s_tx_count += size;
     return true;
@@ -265,6 +317,8 @@ bool drv_rs485_init(const drv_rs485_config_t *config)
     s_echo_candidate_len = 0u;
     s_response_echo_len = 0u;
     s_response_echo_pos = 0u;
+    s_tx_echo_guard_until_us = 0u;
+    s_tx_echo_guard_dropped = 0u;
     s_dma_enabled = false;
     s_dma_ready_mask = 0u;
     s_dma_read_index = 0u;
