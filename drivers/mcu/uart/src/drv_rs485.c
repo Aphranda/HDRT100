@@ -10,7 +10,7 @@
 #define RS485_ECHO_IDLE_US 2000u
 #define RS485_DMA_BUFFER_SIZE 256u
 #define RS485_FRAME_BITS 10u
-#define RS485_ECHO_GUARD_MARGIN_US 4000u
+#define RS485_ECHO_GUARD_MARGIN_US 20000u
 
 static drv_rs485_config_t s_config;
 static bool s_ready;
