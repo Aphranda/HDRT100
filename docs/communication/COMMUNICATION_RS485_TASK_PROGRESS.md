@@ -84,6 +84,26 @@ Last updated: 2026-08-24
 - 已补充未满 DMA buffer 的 idle-gap partial drain；短 SCPI 行不再等待整块 buffer 完成，
   仍由 `drv_rs485_read()` 的有界 service 消费，避免 DMA 接入后控制面无响应。
 
+## COMM-RS485-20260824-006 - DHRT100 电源更换后回显修复闭环
+
+- 修复 `drv_rs485` 的 diagnostic TX echo 生命周期：DMA/FIFO guard 丢弃自身回显时同步
+  消费 pattern 剩余计数；guard 跨越帧边界时不再把残留 `0x55` 候选重新注入 SCPI parser；
+  `RX:STATus?` 的 echo pending 投影也防止 matcher 清除后的无符号下溢。
+- 构建：`cmake --build --preset pico2-v2-factory-candidate -j 4` 通过，FlashMap、
+  persistence、wire、Boot/App A/App B/Recovery link gates 和签名工件均通过；Python
+  `tests/python/test_rs485_scpi_mode.py` 6 项通过。
+- DHRT100：使用固化 `tools/picotool_flash/picotool_flash.py` load/verify，未执行 full
+  erase；原始烧录记录为
+  `out/flash_hil/dhrt100_rs485_echo_consume_flash_20260824.txt`。
+- COM11 固化探针闭环通过：`*IDN?` 返回 DHRT100 身份，`MODE SCPI`、`TX:TEST 8,85`、
+  `TX:TEST?`、`RX:COUNt?`、`RX:STATus?`、`UART1:ERRor?` 和 `SYSTem:ERRor?` 均有响应；
+  最终为 `DMA_PINGPONG`、overrun `0`、UART error `0`、echo pending `0`、系统错误
+  `0,"No error"`。原始记录为
+  `out/flash_hil/dhrt100_power_change_rs485_probe_echo_fix_success_20260824.txt`。
+- 电源更换后的烧录与运行期间没有观察到 watchdog timeout；一次受控 picotool reboot
+  的 reset evidence 单独保留，不作为故障证据。Modbus adapter、RS485 OTA 数据面和
+  真实断电验证仍未完成。
+
 ## 证据索引
 
 | 证据 | 状态 | 说明 |
@@ -91,7 +111,7 @@ Last updated: 2026-08-24
 | `tools/ota_stream_send/ota_stream_send.py` | 基线 | 现有 USB CDC stream sender，待增加 RS485 profile |
 | `third_party/portable_ota/include/pota_stream_ingress.h` | 基线 | 已定义 RS485 ingress source enum |
 | `tools/scpi_query/rs485_mode_probe.scpi` | 已固化 | 通过 USB SCPI 选择/查询 UART1 的 SCPI 模式并读取 backend 状态 |
-| COM11 transcript | 未开始 | 等待 RS485 adapter/工具固化后产生 |
+| `out/flash_hil/dhrt100_power_change_rs485_probe_echo_fix_success_20260824.txt` | 通过 | DHRT100 COM11 SCPI 回环、DMA、错误队列和 echo guard 闭环 |
 | DHRT100 V2 RS485 OTA | 未开始 | 必须在 host/build gate 后执行 |
 
 ## 回退与边界
