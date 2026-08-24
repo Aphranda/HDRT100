@@ -120,6 +120,24 @@ Last updated: 2026-08-25
   `out/flash_hil/dhrt100_rs485_baud_owner_probe_20260825.txt`、
   `out/flash_hil/dhrt100_rs485_baud_owner_restore_20260825.txt`。
 
+## COMM-RS485-20260825-008 - Modbus 主站诊断与 peer 工具帧完整性修复
+
+- 工具修复：`rs485_modbus_validate.py --peer` 对主站请求使用固定 8 字节读取，不再把
+  请求的地址高字节误当成 `0x03` 响应 byte-count；响应写入使用 `write_all()`、t3.5 等待和
+  完整响应 wire-time 保持，避免 USB-RS485 适配器短写/提前关闭造成首字节截断。
+- 固件：新增 `COMMunication:SERial:UART#:MODBus:MASTER:DIAGnostic?`，由 communication
+  component owner 投影最近帧长度、期望长度、CRC/协议/超时计数和帧前缀，不暴露 Flash 或
+  DMA 内部可写状态。
+- 构建/烧录：V2 factory candidate、签名、FlashMap/link gate 通过；使用固化
+  `tools/picotool_flash/picotool_flash.py` load/verify，未执行 full erase。证据：
+  `out/flash_hil/dhrt100_rs485_diag_prefix_flash_20260825.txt`。
+- DHRT100：peer 工具已确认收到完整请求并生成合法 CRC 响应，但板端诊断仍显示
+  `last_frame_length=1`、`expected_length=9`、`last_frame_prefix=0`、CRC 错误递增；将该
+  结果定性为 RS485 回传方向/电气链路未把完整 peer 响应送入 DHRT100，不把工具或 parser
+  误判为闭环通过。原始证据：
+  `out/flash_hil/dhrt100_modbus_master_peer_writeall_20260825.json`、
+  `out/flash_hil/dhrt100_modbus_master_prefix2ms_read_20260825.txt`。
+
 ## 证据索引
 
 | 证据 | 状态 | 说明 |

@@ -15,7 +15,7 @@ Last updated: 2026-08-25
 | 子项 | 状态 | 退出门禁 |
 |---|---|---|
 | Transport/协议边界 | `[x]` | source=RS485、session/journal/Flash owner 边界已与 Flash 域一致 |
-| Host COM11 联调工具 | `[~]` | 固化 serial lifecycle、frame/ACK transcript 和负向用例 |
+| Host COM11 联调工具 | `[~]` | 固化 serial lifecycle、定长 request、response 保持发送和负向用例 |
 | 固件 RS485 adapter | `[~]` | UART/DMA ring、DE/RE lease、bounded service、错误统计接入；已完成 SCPI 短帧 TX/RX 基础 |
 | 运行时波特率配置 | `[x]` | `BAUD <rate>` 由 communication owner 串行化；启动默认来自 `BOARD_UART_BAUD_HZ`（代码事实源为 `config/project_config.h`）；Modbus outstanding transaction 或 TX lease 活跃时拒绝修改 |
 | USB 模式配置 | `[x]` | `COMMunication:SERial:UART#:MODE` 选择 SCPI/MODBUS，切换后状态可查询；DHRT100 证据见 `COMM-RS485-20260824-002` |
@@ -42,7 +42,8 @@ Last updated: 2026-08-25
 - [ ] 实现 bounded RX ring、TX queue、half-duplex direction lease 和 idle timeout。
 - [~] 将 adapter 接到 `POTA_STREAM_INGRESS_RS485` 前先完成 SCPI 短帧路径；当前已接入 UART1、
   bounded polling、DE/RE lease 和状态计数，禁止 raw Flash 调用。
-- [ ] 诊断投影 source/state/rx/tx/crc/timeout/de/RE reason，并接入 SCPI 只读查询。
+- [x] 诊断投影 source/state/rx/tx/crc/timeout/de/RE reason，并接入 SCPI 只读查询；Modbus
+  master 帧边界诊断命令已加入，电气方向证据仍由 DHRT100 HIL 提供。
 
 ### R485-03 V2 OTA
 
