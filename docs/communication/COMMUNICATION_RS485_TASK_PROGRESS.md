@@ -4,7 +4,7 @@ Status: Active
 Domain: Communication / RS485
 Canonical: `docs/communication/COMMUNICATION_RS485_TASK_PROGRESS.md`
 Related: `docs/communication/COMMUNICATION_RS485_ARCHITECTURE.md`, `docs/communication/COMMUNICATION_RS485_TODO.md`, `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md`
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 本文只追加 RS485 的提交、构建、host/HIL 原始证据、失败、回退和阻塞记录；不在此冻结新契约，
 也不替代 Architecture/TODO 的事实边界。
@@ -103,6 +103,22 @@ Last updated: 2026-08-24
 - 电源更换后的烧录与运行期间没有观察到 watchdog timeout；一次受控 picotool reboot
   的 reset evidence 单独保留，不作为故障证据。Modbus adapter、RS485 OTA 数据面和
   真实断电验证仍未完成。
+
+## COMM-RS485-20260825-007 - 波特率配置收敛到 communication owner
+
+- 代码：新增 `rs485_communication_set_baud_hz()` / `rs485_communication_baud_hz()`，SCPI
+  `COMMunication:SERial:UART#:BAUD` 不再直接调用 UART driver。owner 在 Modbus master
+  outstanding transaction 或 TX lease 活跃时拒绝改速率；driver 同时拒绝 active TX，避免
+  修改 divisor 时破坏半双工帧。
+- 默认：board 配置符号 `BOARD_UART_BAUD_HZ` 继续作为启动默认值（当前代码值见
+  `config/project_config.h`）；查询返回 SDK 实际分频后的波特率。
+- 计算链：字符时间、Modbus 3.5 字符间隔、主站 wire timeout 和 DE release deadline 都读取
+  同一 driver 当前值，避免 setter 后残留旧时序。
+- 验证：`tests/python/test_rs485_scpi_mode.py` 增加 owner/default 静态门禁；V2 主工程构建、
+  文档门禁和 DHRT100 闭环 transcript：
+  `out/flash_hil/dhrt100_rs485_baud_owner_flash_20260825.txt`、
+  `out/flash_hil/dhrt100_rs485_baud_owner_probe_20260825.txt`、
+  `out/flash_hil/dhrt100_rs485_baud_owner_restore_20260825.txt`。
 
 ## 证据索引
 
