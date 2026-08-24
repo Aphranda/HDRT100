@@ -263,7 +263,19 @@ static bool service_send_request(void)
         ++s_service.master_errors;
         return false;
     }
-    s_service.deadline_us = time_us_64() + s_service.config.response_timeout_us;
+    const uint32_t baud = drv_rs485_baud_hz();
+    const size_t response_length = s_service.response_function ==
+        MODBUS_FUNC_READ_HOLDING ?
+        5u + (size_t)s_service.response_quantity * 2u : 8u;
+    const uint64_t wire_bits =
+        ((uint64_t)s_service.request_length + response_length) * 10u;
+    const uint64_t wire_us = baud != 0u ?
+        (wire_bits * 1000000u + baud - 1u) / baud : 0u;
+    const uint64_t protocol_timeout = wire_us +
+        (uint64_t)drv_rs485_modbus_frame_gap_us() * 2u + 5000u;
+    const uint64_t timeout_us = protocol_timeout > s_service.config.response_timeout_us ?
+        protocol_timeout : s_service.config.response_timeout_us;
+    s_service.deadline_us = time_us_64() + timeout_us;
     s_service.master_state = RS485_MODBUS_MASTER_WAITING;
     return true;
 }

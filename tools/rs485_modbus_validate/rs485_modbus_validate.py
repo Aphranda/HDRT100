@@ -104,6 +104,31 @@ def run_peer(args: argparse.Namespace) -> list[dict[str, object]]:
     return records
 
 
+def run_inject(args: argparse.Namespace) -> list[dict[str, object]]:
+    """Inject a valid peer response repeatedly for a DHRT100 master test."""
+    quantity = args.inject_read
+    payload = bytes((args.unit, 0x03, quantity * 2))
+    for index in range(quantity):
+        payload += (0x6000 + index).to_bytes(2, "big")
+    response = frame(payload)
+    records: list[dict[str, object]] = []
+    with serial.Serial(args.port, args.baud, bytesize=8, parity="N", stopbits=1,
+                       timeout=0.02, write_timeout=args.timeout) as port:
+        if args.inject_once:
+            time.sleep(0.1)
+            port.write(response)
+            port.flush()
+        else:
+            deadline = time.monotonic() + args.timeout
+            while time.monotonic() < deadline:
+                port.write(response)
+                port.flush()
+                time.sleep(0.005)
+        records.append({"case": "injected_peer_read", "response": response.hex(),
+                        "crc_ok": valid_frame(response)})
+    return records
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", required=True, help="RS485 adapter port, e.g. COM11")
@@ -111,9 +136,18 @@ def main() -> int:
     parser.add_argument("--unit", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=1.0)
     parser.add_argument("--peer", action="store_true", help="answer a DHRT100 master request")
+    parser.add_argument("--inject-read", type=int,
+                        help="inject a valid read response repeatedly for master HIL")
+    parser.add_argument("--inject-once", action="store_true",
+                        help="send one delayed valid peer response")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    records = run_peer(args) if args.peer else run_slave(args)
+    if args.inject_read is not None:
+        if not 1 <= args.inject_read <= 32:
+            raise SystemExit("--inject-read must be between 1 and 32")
+        records = run_inject(args)
+    else:
+        records = run_peer(args) if args.peer else run_slave(args)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps({"port": args.port, "baud": args.baud,
                                     "records": records}, indent=2) + "\n",
