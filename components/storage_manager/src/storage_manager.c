@@ -1747,7 +1747,6 @@ bool storage_manager_commit_file_write(uint32_t txn_id, uint32_t *job_id)
         s_next_job_id = 1u;
     }
     s_storage_job.result.type = STORAGE_MANAGER_JOB_TYPE_FILE_WRITE;
-    s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_QUEUED;
     s_storage_job.result.error = STORAGE_MANAGER_ERROR_NONE;
     s_storage_job.result.size = s_write_snapshot.expected_size;
     s_storage_job.result.is_dir = false;
@@ -1755,7 +1754,12 @@ bool storage_manager_commit_file_write(uint32_t txn_id, uint32_t *job_id)
                        sizeof(s_storage_job.result.path),
                        s_write_snapshot.path);
     s_storage_job.result.path_hash = s_write_snapshot.path_hash;
+    /* Publish the write transaction before making its job runnable.  The
+     * storage service may execute on another task/core as soon as it observes
+     * QUEUED; exposing the job first lets it see the preceding READY state and
+     * reject an otherwise valid transaction as a sequence error. */
     s_write_snapshot.state = STORAGE_MANAGER_WRITE_STATE_QUEUED;
+    s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_QUEUED;
     storage_publish_job_result();
     if (job_id != NULL) {
         *job_id = s_storage_job.result.id;
@@ -1856,12 +1860,12 @@ bool storage_manager_post_file_info_job(const char *path, uint32_t *job_id)
         return true;
     }
 
-    s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_QUEUED;
     s_storage_job.result.error = STORAGE_MANAGER_ERROR_NONE;
     storage_copy_field(s_storage_job.result.path,
                        sizeof(s_storage_job.result.path),
                        normalized_path);
     s_storage_job.result.path_hash = storage_hash_path(normalized_path);
+    s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_QUEUED;
     storage_publish_job_result();
     if (job_id != NULL) {
         *job_id = s_storage_job.result.id;
@@ -1922,12 +1926,14 @@ bool storage_manager_post_file_read_job(const char *path,
         return true;
     }
 
-    s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_QUEUED;
     s_storage_job.result.error = STORAGE_MANAGER_ERROR_NONE;
     storage_copy_field(s_storage_job.result.path,
                        sizeof(s_storage_job.result.path),
                        normalized_path);
     s_storage_job.result.path_hash = storage_hash_path(normalized_path);
+    /* As with FILE_WRITE, QUEUED is the cross-task publication point.  Keep it
+     * last so the service cannot observe a runnable read with an empty path. */
+    s_storage_job.result.state = STORAGE_MANAGER_JOB_STATE_QUEUED;
     storage_publish_job_result();
     if (job_id != NULL) {
         *job_id = s_storage_job.result.id;

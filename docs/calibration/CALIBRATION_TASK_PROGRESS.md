@@ -3,12 +3,33 @@
 Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
-Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-08-22
+Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
+Last updated: 2026-08-24
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20260824-001 - TRN-01 字段基座与四板 marker 基线
+
+- 状态：`TRN-01A` 进行中；C snapshot、seqlock store、拒绝矩阵和 host evidence parser
+  已建立，尚未接入 core1 marker persona 或板端 SCPI，因此不得声称 `TRN-01` 环路通过。
+- 四板基线（本轮诊断快照，非事实源）：使用现有固化工具
+  `tools/calibration_ring_validate/calibration_clk_coded.py`，按 accepted physical order 在统一
+  旧固件上执行四主 coded-marker trial，四个 master 均 accepted，marker 完整性、DMA 和
+  PIO fault 门禁通过。证据位于 `out/training/p2_marker_baseline_20260824/`；该结果仍是 P2
+  coded RTT，不包含每个 follower 的 marker capture/forward tick，不能替代 `TRN-01D`。
+- 实现：新增 `calibration_training_marker` request/evidence/snapshot 模型，覆盖 identity、slot、
+  epoch/sequence、marker/codebook/CRC/polarity、generation/CRC bundle、硬件 capture/forward tick、
+  residence、DMA/PIO/timeout 和 `DIAGNOSTIC_ONLY`；新增
+  `tools/calibration_ring_validate/calibration_marker_train.py`，只校验固件导出的硬件证据，
+  不允许 host 生成或修正边沿时间戳。
+- 验证（本轮构建/测试快照，非事实源）：C marker 单测通过；校准相关 Python 回归通过；
+  Release 固件在 `out/build/trn01-marker/` 完成编译和 Flash link gate，构建产物尚未部署到
+  四板。pytest 和 C host-test 临时产物均位于 `out/pytest/`。
+- 下一步：实现 `TRN-01B/C` 的 core1 PIO marker capture/cut-through persona 与 bounded
+  intent/prepare-ack，增加板端 `MARKERTRN` 状态查询；只有四板同 epoch 的 capture/forward
+  evidence 经 host 工具验证后，才把 `TRN-01A` 和 `TRN-01D` 关闭。
 
 ## CAL-TASK-20260822-007 - P2 分辨率输入下的四板 TDMA 环路运行
 

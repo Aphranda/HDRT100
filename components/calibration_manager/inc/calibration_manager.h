@@ -2,12 +2,14 @@
 #define CALIBRATION_MANAGER_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "calibration_pio_loopback.h"
 #include "calibration_bidirectional.h"
 #include "calibration_bias.h"
 #include "calibration_clk_coded.h"
+#include "calibration_training_marker.h"
 #include "tdma_pio_spi_phys.h"
 
 typedef struct {
@@ -72,6 +74,18 @@ bool calibration_manager_request_clk_coded(
     uint32_t max_best_distance,
     uint32_t min_margin);
 void calibration_manager_stop_clk_coded(void);
+bool calibration_manager_request_marker_training(
+    uint32_t codebook_id,
+    uint32_t train_epoch,
+    uint32_t train_sequence,
+    uint32_t marker_id,
+    uint32_t calibration_generation,
+    int32_t offset_sample_count);
+void calibration_manager_stop_marker_training(void);
+bool calibration_manager_get_marker_training_snapshot(
+    calibration_training_marker_snapshot_t *snapshot);
+bool calibration_manager_save_marker_capture(
+    uint32_t *job_id, char *path, size_t path_size);
 bool calibration_manager_request_p3(
     uint32_t role, uint32_t baud_hz, uint32_t pulse_count,
     uint32_t capture_words, uint32_t epoch, uint32_t signal_group);

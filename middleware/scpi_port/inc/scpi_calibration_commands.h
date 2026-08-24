@@ -22,6 +22,10 @@ scpi_result_t scpi_calibration_save(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_start(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_stop(scpi_t *context);
 scpi_result_t scpi_calibration_clk_coded_q(scpi_t *context);
+scpi_result_t scpi_calibration_marker_start(scpi_t *context);
+scpi_result_t scpi_calibration_marker_stop(scpi_t *context);
+scpi_result_t scpi_calibration_marker_q(scpi_t *context);
+scpi_result_t scpi_calibration_marker_capture_save(scpi_t *context);
 scpi_result_t scpi_calibration_p3_start(scpi_t *context);
 scpi_result_t scpi_calibration_p3_stop(scpi_t *context);
 scpi_result_t scpi_calibration_p3_q(scpi_t *context);
@@ -42,6 +46,10 @@ scpi_result_t scpi_calibration_p3_q(scpi_t *context);
     {.pattern = "CALibration:CLOCk:CODEd:STARt", .callback = scpi_calibration_clk_coded_start}, \
     {.pattern = "CALibration:CLOCk:CODEd:STOP", .callback = scpi_calibration_clk_coded_stop}, \
     {.pattern = "READ:CALibration:CLOCk:CODEd?", .callback = scpi_calibration_clk_coded_q}, \
+    {.pattern = "CALibration:MARKer:STARt", .callback = scpi_calibration_marker_start}, \
+    {.pattern = "CALibration:MARKer:STOP", .callback = scpi_calibration_marker_stop}, \
+    {.pattern = "READ:CALibration:MARKer?", .callback = scpi_calibration_marker_q}, \
+    {.pattern = "CALibration:MARKer:CAPTure:SAVE", .callback = scpi_calibration_marker_capture_save}, \
     {.pattern = "CALibration:P3:STARt", .callback = scpi_calibration_p3_start}, \
     {.pattern = "CALibration:P3:STOP", .callback = scpi_calibration_p3_stop}, \
     {.pattern = "READ:CALibration:P3?", .callback = scpi_calibration_p3_q}, \

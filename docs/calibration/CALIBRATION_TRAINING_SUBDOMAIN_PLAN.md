@@ -3,8 +3,8 @@
 Status: Active
 Domain: CALIBRATION / TRAINING
 Canonical: `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`
-Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-08-22
+Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
+Last updated: 2026-08-24
 
 本文档把“先发送同步 marker，再按本地 PIO 周期发送编码 DATA，并在接收端按 marker 建立相对时间基准”的方案收敛为校准域下的独立训练子域。本文档是实施方案和待冻结候选接口，不把当前诊断值直接提升为 active calibration，也不允许训练子域绕过 TDMA core1 owner 直接操作 PIO、SM 或 DMA。
 
@@ -32,29 +32,158 @@ SYNC/CS marker -> N 个 PIO instruction cycles -> DATA codeword -> CRC/EOM
 接收节点执行：
 
 ```text
-捕获 CS marker
-    -> 锁存本地 capture_origin
-    -> 校验 marker epoch/sequence/CRC
-    -> 立即将原始 CS marker 通过 TX PIO 转发给下一个节点
-    -> 按 N 和本地 PIO 时钟建立 DATA search window
+硬件检测 CS marker 首边沿
+    -> 锁存本地 capture_origin，并立即由 TX PIO 转发给下一个节点
+    -> DMA 继续捕获 marker/codeword，后处理校验 epoch/sequence/CRC
+    -> 按 T_base + offset_link 建立 DATA search window
     -> 采集 DATA raw bits
     -> codeword correlation + polarity + CRC + sequence 校验
     -> 发布 accepted/rejected evidence
 ```
 
-CS 的 cut-through 转发只允许使用 core1 持有的 PIO/SM/DMA 原语；转发路径不得等待 core0、USB、日志、完整帧解析或业务 FIFO。转发失败必须记录链路级 reason，并停止当前训练 epoch，防止后续节点把缺失 marker 当作无数据。
+CS 的 cut-through 转发只允许使用 core1 持有的 PIO/SM/DMA 原语；转发路径不得等待
+core0、USB、日志、完整 marker/codeword 解析或业务 FIFO。首边沿是转发资格，完整性校验是同一
+trial 的后处理门禁；后处理失败必须记录链路级 reason，并停止当前训练 epoch，不能倒推首边沿
+不存在，也不能把相关器在低质量波形上的 `polarity` 猜测直接解释成物理反相。
 
 `N` 是训练变量，不是固定产品常量。候选初值来自当前有效 PIO 时钟周期和已测 path-delay 的粗窗口；每次缩小搜索范围必须绑定 profile、topology、epoch 和 codebook。当前第三阶段约 `81 ns` 的观测值只能作为诊断输入快照，不能写成训练算法的硬编码事实。
 
 marker 与 DATA 走公共传播路径时，接收端使用相对间隔而非绝对延迟：
 
 ```text
-DATA_expected = marker_capture + N * PIO_CYCLE_NS + local_pipeline_bias
+T_sample(link)
+    = marker_capture(link)
+    + T_base(codebook/profile)
+    + offset_link
 ```
+
+当前 40 ns half-chip 是一个 codebook/profile 基准快照，不能作为所有 profile 的硬编码常量。
+对当前 profile，训练的核心产物是每条 directed link 的 `offset_link`：它由已知 DATA codeword
+在 4 ns raw sample 网格上的相关峰产生，先保存 `offset_sample_count`，再由
+`offset_ns = offset_sample_count * sample_period_ns` 派生。边沿恰好落在采样周期附近时可能量化到
+相邻 sample，因此质量门必须保留 best/second peak、margin、重复分布和 PWD，而不能把单次
+±1 sample 变化提升为新的线路事实。
+
+`offset_link` 是 marker 锚定后的相对接收窗口修正，不等于纯线缆传播延迟，也不等于把
+ISO1452 的 driver/receiver delay 再加到 40 ns。每个节点使用自己的本地 marker capture 和本段
+offset；四段 offset 是四个独立状态量，分别训练、分别绑定 source/destination board identity、
+build、topology/profile/schedule/calibration generation 和节点当前 persona/state。任一节点状态、
+PIO persona、时钟、收发器使能序列或链路条件改变，只使关联 directed link 的旧 offset stale，
+随后由整圈完整性门决定是否要求其他链路一起重训；禁止先取四段平均值再回填每段。
 
 若 marker 与 DATA 走不同收发器或不同物理对，则额外输出 `marker_data_skew_ns`；该 skew 必须单独统计和设门，不能被 path-delay 平均值掩盖。
 
-## 2.1 专业术语与 EtherCAT 对照
+## 2.1 收发驱动器时序预算与去嵌入
+
+当前产品板的训练 marker 经 ISO1452 全双工隔离收发器传输。训练必须按明确的测量端点拆分
+一跳路径，不能把“线路延迟”和“板间端到端延迟”混为一项：
+
+```text
+t_link_observed
+    = t_driver_propagation
+    + t_line_propagation
+    + t_receiver_propagation
+    + t_capture_quantization
+```
+
+其中 `t_link_observed` 的端点是发送板的 RP2350 输出 GPIO 到下一板的 RP2350 输入 GPIO；
+因此它已经包含发送端驱动器传播、线缆/连接器传播和接收端接收器传播。已经由 P3 或后续
+marker 训练得到的端到端一跳观测值，不能再叠加驱动器或接收器数据手册传播时间。
+
+PIO cut-through residence 的端点不同：它从本板接收 GPIO 的已观测边沿开始，到本板发送
+GPIO 的输出边沿结束，只描述 PIO/SM 本地转发路径。接收器传播发生在 residence 起点之前，
+驱动器传播发生在 residence 终点之后，因此两者不进入 `forward_residence`，而进入相邻的
+`t_link_observed`。任何 evidence 都必须携带 `measurement_endpoint` 或等价枚举，禁止把这两类
+时延直接相加后再次计入整圈预算。
+
+当前产品板网表映射如下（网表快照，非器件或布线事实源；事实源为
+`docs/hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel` 和实际装配/线束核验）：
+
+```text
+GPIO26 / RJ45_FWD_OUT
+  -> ISO1452 U12 D
+  -> U12 Y/Z
+  -> RJ2 TRIG_OUT_P/N
+  -> cable
+  -> RJ1 TRIG_IN_P/N
+  -> U12 A/B
+  -> U12 R
+  -> GPIO27 / RJ45_FWD_IN
+```
+
+`D -> Y/Z` 是发送驱动器路径，`A/B -> R` 是接收器路径；`DE` 为高有效驱动使能，
+`/RE` 为低有效接收使能。ISO1452 数据手册的全双工真值关系是：`D=H` 时 `Y=H/Z=L`，
+`D=L` 时 `Y=L/Z=H`；`A-B` 为正时 `R=H`，为负时 `R=L`。因此 `Y -> P -> A`、
+`Z -> N -> B` 的直通连接保持 `D -> R` 同相。P/N、Y/Z、A/B 或线束极性必须作为原始 evidence 检查，相关器检测到
+反相时必须记录 `polarity` 并拒绝未声明的 active candidate，不能静默翻转后把它报告为正常链路。
+
+当前网表把输入 P/N 分别连接到 U12 A/B、输出 P/N 分别连接到 U12 Y/Z，RJ1/RJ2 的
+TRIG 对使用相同 pin 编号。配合 pin-to-pin 直通网线时，架构预期是每跳逻辑同相，不存在
+“每经过一板固定反相”的设计语义。P2P 只约束连接拓扑，不能替代 pin-to-pin 连通和器件真值表
+核验；但在线缆确认同 pin 直通后，训练中出现奇数跳反相、偶数跳同相时，应先归类为
+“极性路径不一致”诊断：依次核对 ISO1452 `D -> Y/Z`、`A/B -> R` 真值、实际焊接/
+连接器 pin map、PIO cut-through 输出电平和相关器 raw-bit 定义。在这些证据闭环前，不得增加
+默认软件反相，也不得把交替极性发布为正常 active profile。
+
+下表是当前 ISO1452 数据手册的诊断预算快照（快照，非事实源）。正式 active gate 必须绑定
+实际 BOM 料号、datasheet revision、硬件版本、温度、供电、端接和线缆条件，并以
+`docs/hardware/外围硬件手册/iso1452.pdf` 或更新后的受控器件资料复核：
+
+| 路径参数 | 典型值快照 | 最大值快照 | 训练中的用途 |
+|---|---:|---:|---|
+| 驱动器 propagation delay | `19 ns` | `41 ns` | 端到端一跳延迟的发送端组成；只在没有实测端到端值时参与粗窗口预算 |
+| 接收器 propagation delay | `36 ns` | `60 ns` | 端到端一跳延迟的接收端组成；只在没有实测端到端值时参与粗窗口预算 |
+| 驱动器 pulse-width distortion | `1 ns` | `6 ns` | 侵蚀码元低/高脉宽和相关眼宽，不作为公共传播平移重复相加 |
+| 接收器 pulse-width distortion | `2 ns` | `6 ns` | 与驱动器 PWD 合并形成最坏脉宽/眼宽预算 |
+| 驱动器 enable delay | `32 ns` | `78 ns` | `DE` 打开后的 maintenance/ARM 建稳 guard，不进入稳态逐边沿 propagation |
+| 驱动器 disable delay | `25 ns` | `46 ns` | persona teardown/三态切换 guard，不进入稳态逐边沿 propagation |
+| 接收器 enable delay | `5 ns` | `20 ns` | `/RE` 打开后的 maintenance/ARM 建稳 guard，不进入稳态逐边沿 propagation |
+| 接收器 disable delay | `9 ns` | `30 ns` | persona teardown/三态切换 guard，不进入稳态逐边沿 propagation |
+| 驱动器差分上升/下降时间（5 V 总线侧测试条件） | `4.7 ns` | `6 ns` | 边沿带宽、码元眼宽和采样量化预算 |
+| 接收器输出上升/下降时间 | `1 ns` | `4 ns` | GPIO 端边沿、码元眼宽和采样量化预算 |
+
+这些参数必须按用途分开处理：
+
+1. **传播延迟**整体平移波形。已有 `t_link_observed` 时，只保留为 datasheet plausibility 和
+   温漂/批差 guard，不能再加到观测值，也不能从 codebook half-chip 中扣除。
+2. **PWD**改变高、低脉宽并侵蚀眼宽。最坏预算可保守使用
+   `driver_pwd_max_ns + receiver_pwd_max_ns`，但必须由实际相关峰、占空比和 margin 再验证。
+3. **enable delay**只约束驱动器/接收器使能后的启动 guard。训练必须先建立输出 idle latch、
+   方向和 RX capture，再等待使能建稳；teardown 时还要覆盖 disable delay。enable/disable delay
+   都不是每个 bit 重复发生的延迟。
+4. **纯线路去嵌入**只允许生成 diagnostic 派生量：
+
+   ```text
+   t_line_diagnostic
+       = t_link_observed
+       - t_driver_propagation_estimate
+       - t_receiver_propagation_estimate
+   ```
+
+   典型值只能形成典型线路估计；最大值是安全上界，不能机械地从单次观测中相减并把负数当作
+   线路事实。TDMA/Calibration 的运行补偿仍使用端到端 `t_link_observed`，不使用去嵌入后的
+   `t_line_diagnostic` 替代真实一跳路径。
+
+训练工具的物理预算 evidence 至少保存：
+
+```text
+observed_link_delay_ns
+driver_propagation_typ_ns, driver_propagation_max_ns
+receiver_propagation_typ_ns, receiver_propagation_max_ns
+driver_pwd_max_ns, receiver_pwd_max_ns
+driver_enable_max_ns, receiver_enable_max_ns
+observed_link_delay_includes_driver_line_and_receiver
+observed_link_delay_is_end_to_end_training_delay
+do_not_add_component_propagation_to_observed_delay
+component_propagation_deembedding_is_line_diagnostic_only
+```
+
+这些字段的当前代码落点是
+`tools/calibration_ring_validate/calibration_marker_train.py::physical_timing_budget()`。它们属于
+诊断 provenance，不得由 SCPI 写入 active path-delay table，也不能替代每轮的 raw capture、
+相关峰、CRC、极性和 generation/freshness 证据。
+
+## 2.2 专业术语与 EtherCAT 对照
 
 本方案建议采用以下术语，避免把不同层次都称为 `delay`：
 
@@ -99,7 +228,7 @@ CRC/sequence      -> frame validity / working-counter 类门禁
 
 差异也必须保留：EtherCAT 的 ESC 和 Ethernet PHY 提供专用硬件转发、时间戳和双向端口模型；当前 SPI/PIO 产品链路没有这些现成机制，因此 marker 转发、DMA 捕获、相关匹配和故障状态必须由 TDMA core1 owner 明确实现。`active path_delay table` 仍是校准事实源，不能因为采用 marker training 就被省略。
 
-## 2.2 历史实测 delay ledger
+## 2.3 历史实测 delay ledger
 
 以下数值来自校准域已有 bench/HIL 记录，仅用于训练初始窗口、算法回归和结果交叉检查；它们不是未经 active gate 的产品常量。不同阶段的测量对象不同，禁止直接相加或互相替代。
 
@@ -159,9 +288,10 @@ TRN-01 的 `SYNC/CS` 是训练 persona 下的 timing marker；普通 TDMA person
 
 ### TRN-02：marker 锚定 DATA 码元时隙
 
-第二阶段在每个本地 marker origin 之后发送/捕获已知 DATA codeword。候选 `N` 由 P3
-path-delay 粗预算、PIO pipeline 和 guard 形成有界搜索区间；实际接收位置通过
-correlation、极性、CRC、sequence 和 margin 确认，而不是把 `81 ns` 写成固定等待值。
+第二阶段在每个本地 marker origin 之后发送/捕获已知 DATA codeword。候选区间以当前
+codebook/profile 的 `T_base` 为中心，由 P3 path-delay 粗预算、PIO pipeline 和 guard 形成有界
+`offset_link` 搜索区间；实际接收位置通过 correlation、极性、CRC、sequence 和 margin 确认，
+而不是把 `81 ns` 写成固定等待值，也不是把收发器数据手册延迟重复加到 `T_base`。
 
 实施顺序固定为：
 
@@ -172,7 +302,9 @@ NO.1 -> NO.2 单跳粗搜
     -> 四条 directed link 的 window 一致性检查
 ```
 
-TRN-02 的结果是相对接收窗口，不是新的绝对 `path_delay`。如果 marker 和 DATA 的物理
+TRN-02 的结果按 `T_base + offset_link` 表达为相对接收窗口，不是新的绝对 `path_delay`。
+staging 必须同时保存 `base_half_chip_ns`、`offset_sample_count`、`sample_period_ns`、
+`offset_ns` 和最终 window/guard，禁止只保存相加后的单个数字而丢失量化来源。如果 marker 和 DATA 的物理
 路径不完全相同，`marker_data_skew_ns` 必须单独统计；不能用整圈 RTT 或平均 path-delay
 掩盖该偏差。
 
@@ -298,9 +430,13 @@ raw evidence 必须保留；Calibration 只在质量门禁完成后发布 candid
 1. 使用 P3 path-delay candidate 和 accepted topology 建立有界初始区间，并记录 `DIAGNOSTIC_ONLY` 来源。
 2. 在区间内以 codeword 相关峰搜索 `N` 和采样相位，先保证 marker、DATA、CRC 三者同时通过。
 3. 对通过点重复 trial，统计 best lag、second peak、margin、skew、DMA/stall 和频率/占空比。
-4. 以 accepted peak 为中心缩小下一轮区间；margin 下降、峰值混合、skew 超限或 CRC 失败时回退上一轮。
-5. 达到当前 profile 的 PIO/DMA 分辨率后停止缩小，生成 `training_window_start/end`、`data_offset` 和 `guard`。
-6. 只有 topology/profile/bias/generation/freshness/CRC 全部满足，才允许提交 active candidate；否则只保留 diagnostic staging。
+4. 每个失败点也是有效训练 evidence，必须保存搜索区间、best/second lag、normal/inverted distance、
+   polarity、marker flags、reject reason 和节点状态。`SEARCH_RANGE/CAPTURE_TRUNCATED` 用于扩大或
+   平移下一轮区间，`DISTANCE/MARGIN/MANCHESTER` 用于调整采样相位、guard 或码本，
+   `POLARITY/CRC/HEADER` 用于转入物理路径或状态一致性诊断；禁止只保留 accepted trial。
+5. 以 accepted peak 为中心缩小下一轮区间；margin 下降、峰值混合、skew 超限或 CRC 失败时回退上一轮。
+6. 达到当前 profile 的 PIO/DMA 分辨率后停止缩小，生成 `training_window_start/end`、`data_offset` 和 `guard`。
+7. 只有 topology/profile/bias/generation/freshness/CRC 全部满足，才允许提交 active candidate；否则只保留 diagnostic staging。
 
 输出的 `data_offset` 是 marker 后的相对采样位置，不是把 `path_delay` 硬编码到接收器等待循环。TDMA 使用它建立本节点 RX 窗口，整圈 `loop_delay` 仍由各段 path-delay、residence 和 guard 汇总得到。
 

@@ -55,6 +55,11 @@
 #define TDMA_PIO_SPI_TRAIN_RETURN_TIMEOUT_NS 100000000ull
 #define TDMA_PIO_SPI_CODED_BUFFER_WORDS 256u
 #define TDMA_PIO_SPI_CODED_SNAPSHOT_VERSION 1u
+#define TDMA_PIO_SPI_MARKER_BUFFER_WORDS 512u
+#define TDMA_PIO_SPI_MARKER_SAMPLES_PER_WORD 16u
+#define TDMA_PIO_SPI_MARKER_SNAPSHOT_VERSION 1u
+#define TDMA_PIO_SPI_MARKER_RETURN_GUARD_SAMPLES 256u
+#define TDMA_PIO_SPI_MARKER_TIMEOUT_NS 3000000000ull
 #define TDMA_PIO_SPI_CLK_TRAIN_SNAPSHOT_VERSION 1u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS 256u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ 50000000u
@@ -107,7 +112,72 @@ typedef enum {
     TDMA_PIO_SPI_PROGRAM_PERSONA_P3_RESPONDER = 6u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_INITIATOR = 7u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_RESPONDER = 8u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_MARKER = 9u,
 } tdma_pio_spi_program_persona_t;
+
+typedef enum {
+    TDMA_PIO_SPI_MARKER_IDLE = 0u,
+    TDMA_PIO_SPI_MARKER_ARMED = 1u,
+    TDMA_PIO_SPI_MARKER_RUNNING = 2u,
+    TDMA_PIO_SPI_MARKER_COMPLETE = 3u,
+    TDMA_PIO_SPI_MARKER_ERROR = 4u,
+} tdma_pio_spi_marker_state_t;
+
+typedef enum {
+    TDMA_PIO_SPI_MARKER_ROLE_NONE = 0u,
+    TDMA_PIO_SPI_MARKER_ROLE_ORIGINATOR = 1u,
+    TDMA_PIO_SPI_MARKER_ROLE_FOLLOWER = 2u,
+} tdma_pio_spi_marker_role_t;
+
+typedef enum {
+    TDMA_PIO_SPI_MARKER_REJECT_NONE = 0u,
+    TDMA_PIO_SPI_MARKER_REJECT_BAD_ARGUMENT = 1u,
+    TDMA_PIO_SPI_MARKER_REJECT_RESOURCE = 2u,
+    TDMA_PIO_SPI_MARKER_REJECT_DMA = 3u,
+    TDMA_PIO_SPI_MARKER_REJECT_CAPTURE_SHORT = 4u,
+    TDMA_PIO_SPI_MARKER_REJECT_PIO_STALL = 5u,
+    TDMA_PIO_SPI_MARKER_REJECT_TIMEOUT = 6u,
+    TDMA_PIO_SPI_MARKER_REJECT_EDGE_MISSING = 7u,
+} tdma_pio_spi_marker_reject_t;
+
+#define TDMA_PIO_SPI_MARKER_FLAG_DIAGNOSTIC_ONLY (1u << 0u)
+#define TDMA_PIO_SPI_MARKER_FLAG_TX_DMA_COMPLETE (1u << 1u)
+#define TDMA_PIO_SPI_MARKER_FLAG_RX_DMA_COMPLETE (1u << 2u)
+#define TDMA_PIO_SPI_MARKER_FLAG_HARDWARE_CAPTURE (1u << 3u)
+#define TDMA_PIO_SPI_MARKER_FLAG_INPUT_EDGE (1u << 4u)
+#define TDMA_PIO_SPI_MARKER_FLAG_OUTPUT_EDGE (1u << 5u)
+#define TDMA_PIO_SPI_MARKER_FLAG_RETURN_EDGE (1u << 6u)
+
+typedef struct {
+    uint32_t role;
+    const uint32_t *tx_words;
+    uint32_t tx_word_count;
+    uint32_t marker_sample_count;
+    uint32_t capture_sample_count;
+    uint32_t epoch;
+    int32_t offset_sample_count;
+} tdma_pio_spi_marker_request_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t state;
+    uint32_t role;
+    uint32_t flags;
+    uint32_t reject_reason;
+    uint32_t epoch;
+    uint32_t tx_word_count;
+    uint32_t marker_sample_count;
+    uint32_t capture_word_count;
+    uint32_t capture_sample_count;
+    uint32_t tx_dma_remaining;
+    uint32_t rx_dma_remaining;
+    uint32_t dma_overrun_count;
+    uint32_t pio_stall_count;
+    uint32_t timeout_count;
+    uint64_t marker_capture_tick;
+    uint64_t marker_forward_tick;
+    uint64_t marker_return_tick;
+} tdma_pio_spi_marker_snapshot_t;
 
 typedef enum {
     TDMA_PIO_SPI_P3_IDLE = 0u,
@@ -358,6 +428,9 @@ typedef struct {
     tdma_pio_spi_coded_snapshot_t coded;
     volatile uint32_t p3_guard;
     tdma_pio_spi_p3_snapshot_t p3;
+    volatile uint32_t marker_guard;
+    tdma_pio_spi_marker_snapshot_t marker;
+    uint64_t marker_deadline_ns;
 } tdma_pio_spi_phys_t;
 
 /* Called by the ring adapter start() once the active ring config is known.
@@ -395,6 +468,19 @@ bool tdma_pio_spi_phys_get_coded_snapshot(
     const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_coded_snapshot_t *snapshot);
 bool tdma_pio_spi_phys_copy_coded_capture(
+    const tdma_pio_spi_phys_t *phys,
+    uint32_t *capture_words,
+    size_t capture_word_capacity,
+    size_t *capture_word_count);
+bool tdma_pio_spi_phys_marker_start(
+    tdma_pio_spi_phys_t *phys,
+    const tdma_pio_spi_marker_request_t *request);
+void tdma_pio_spi_phys_marker_stop(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_marker_service(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_get_marker_snapshot(
+    const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_marker_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_copy_marker_capture(
     const tdma_pio_spi_phys_t *phys,
     uint32_t *capture_words,
     size_t capture_word_capacity,

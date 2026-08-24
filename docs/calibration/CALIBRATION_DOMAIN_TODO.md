@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-22
+Last updated: 2026-08-24
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
 [`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
@@ -13,7 +13,7 @@ Last updated: 2026-08-22
 PIO/SM/DMA/core1 资源、窗口编排和 raw evidence transport；VDC/DPLL 只消费 accepted
 calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
-状态标记：`[x]` 已完成，`[~]` 进行中，`[ ]` 待办，`[!]` 阻塞。本文档是任务分解，
+状态标记：[x] 已完成，`[~]` 进行中，[ ] 待办，`[!]` 阻塞。本文档是任务分解，
 不是新的跨域冻结契约；候选 wire layout、阈值和 SCPI 拼写仍以训练方案中的 candidate
 状态为准，冻结时遵循文档登记流程。
 
@@ -26,7 +26,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 | P1 | CLK RTT 粗捕获收尾 | `[~]` | diagnostic bracket、过渡抖动和拒绝原因 |
 | P2 | 编码 marker、过采样和相关测距 | `[~]` | accepted/rejected coded RTT snapshot |
 | P3 | 双向同时对比、residence 和 per-link delay | `[~]` | generic forward/return/sync 映射已接入；diagnostic per-link evidence 已形成；active/staging 待 bias/freshness gate |
-| P4 | VDC/DPLL 接入与长时间验证 | `[ ]` | calibration-to-VDC gate evidence |
+| P4 | VDC/DPLL 接入与长时间验证 | [ ] | calibration-to-VDC gate evidence |
 
 当前不能把第一阶段的 CLK RTT bracket、软件 timer 或 diagnostic latch 直接用于 VDC/DPLL。
 正式校准必须同时满足硬件 latch、质量门禁、重复统计、拓扑/profile freshness 和恢复流程。
@@ -46,28 +46,28 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
-| TRN-01A | 冻结 marker trial 的 epoch、sequence、marker_id、CRC、polarity、capture/forward tick 和 raw evidence 字段 | `[ ]` | host parser、C snapshot、字段数测试一致 |
-| TRN-01B | 在 TDMA core1 owner 增加独立 marker PIO persona，支持 marker line 选择、固定 cut-through 和 DMA capture | `[ ]` | PIO catalog/resource gate 通过，不能与 cyclic TDMA 并发 |
-| TRN-01C | 实现 Calibration intent 到 core1 的 bounded mailbox/prepare-ack，SCPI 不直接触碰 PIO/SM/DMA | `[ ]` | seqlock/sequence、超时、拒绝原因和 persona recovery 覆盖 |
-| TRN-01D | 完成 `NO.1 -> NO.2 -> NO.3 -> NO.4 -> NO.1` 环路 marker HIL | `[ ]` | 所有节点捕获同一 marker、顺序正确、每跳 residence 有界、返回 marker 可捕获 |
+| TRN-01A | 冻结 marker trial 的 epoch、sequence、marker_id、CRC、polarity、capture/forward tick 和 raw evidence 字段 | `[~]` | C snapshot、host parser 和字段数测试已建立；待接入固件状态查询后完成端到端字段一致性门禁 |
+| TRN-01B | 在 TDMA core1 owner 增加独立 marker PIO persona，支持 marker line 选择、固定 cut-through 和 DMA capture | [ ] | PIO catalog/resource gate 通过，不能与 cyclic TDMA 并发 |
+| TRN-01C | 实现 Calibration intent 到 core1 的 bounded mailbox/prepare-ack，SCPI 不直接触碰 PIO/SM/DMA | [ ] | seqlock/sequence、超时、拒绝原因和 persona recovery 覆盖 |
+| TRN-01D | 完成 `NO.1 -> NO.2 -> NO.3 -> NO.4 -> NO.1` 环路 marker HIL | [ ] | 所有节点捕获同一 marker、顺序正确、每跳 residence 有界、返回 marker 可捕获 |
 
 ### TRN-02：marker 锚定 DATA 码元时隙
 
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
-| TRN-02A | 实现 DATA codeword 相关、极性、CRC、epoch/sequence、best/second peak 和 margin 判断 | `[ ]` | 正常、错位、反相、截断、重复、旧 epoch 全部有单测 |
-| TRN-02B | 单跳 `NO.1 -> NO.2` 使用 P3 candidate 扫描 `marker -> DATA` 相对 offset，先粗后细收敛 | `[ ]` | 连续 trial accepted，marker_data_skew、overrun/stall 和 forward residence 有证据 |
-| TRN-02C | 将单跳结果形成 diagnostic training window，绑定 topology/profile/calibration generation 和 CRC | `[ ]` | snapshot 可读，明确 `DIAGNOSTIC_ONLY`，不得写 active table |
-| TRN-02D | 沿 accepted topology 完成四条 directed link 的 window 训练和 10/25/30 MHz profile 验证 | `[ ]` | 四条链路各自 accepted，不允许 aggregate 平均代替 per-link |
+| TRN-02A | 实现 DATA codeword 相关、极性、CRC、epoch/sequence、best/second peak 和 margin 判断 | [ ] | 正常、错位、反相、截断、重复、旧 epoch 全部有单测 |
+| TRN-02B | 单跳 `NO.1 -> NO.2` 使用 P3 candidate 扫描 `marker -> DATA` 相对 offset，先粗后细收敛 | [ ] | 连续 trial accepted，marker_data_skew、overrun/stall 和 forward residence 有证据 |
+| TRN-02C | 将单跳结果形成 diagnostic training window，绑定 topology/profile/calibration generation 和 CRC | [ ] | snapshot 可读，明确 `DIAGNOSTIC_ONLY`，不得写 active table |
+| TRN-02D | 沿 accepted topology 完成四条 directed link 的 window 训练和 10/25/30 MHz profile 验证 | [ ] | 四条链路各自 accepted，不允许 aggregate 平均代替 per-link |
 
 ### TRN-03：TDMA 短帧/FIFO 闭环接入
 
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
-| TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的 `clkdiv`、`clk_sys_hz`、`pio_instruction_period_ns`、`bit_cycles`、`marker_to_data_cycles`、`forward_residence_cycles`、`rx_arm_lead_cycles`、`codeword_cycles`、`guard_cycles`、`slot_budget_cycles` 和 `loop_delay_cycles` | `[ ]` | 缺一条链路、generation/CRC/freshness 不一致或周期预算无法重放时 ARM 拒绝 |
-| TRN-03B | 恢复 NORMAL persona 后启动 TDMA 短帧，按 `slot_budget_cycles` 验证 core1 TX/RX FIFO、飞行转发和 bounded RTOS service | `[ ]` | 四板 up/down、sequence、CRC、RX/TX/FIFO 计数同时增长，且不依赖 core0 调度边沿 |
-| TRN-03C | 汇总 per-link path-delay、residence、loop-delay、PIO 周期预算和 residual，形成 active candidate gate | `[ ]` | bias、hardware latch、freshness、CRC、周期重放、重复性和 rollback 全部通过 |
-| TRN-03D | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线；固化工具和 SD/Flash 输入格式 | `[ ]` | 失败统一 STOPPED，active generation 不被污染，工具按 `*IDN?` 地址工作 |
+| TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的 `clkdiv`、`clk_sys_hz`、`pio_instruction_period_ns`、`bit_cycles`、`marker_to_data_cycles`、`forward_residence_cycles`、`rx_arm_lead_cycles`、`codeword_cycles`、`guard_cycles`、`slot_budget_cycles` 和 `loop_delay_cycles` | [ ] | 缺一条链路、generation/CRC/freshness 不一致或周期预算无法重放时 ARM 拒绝 |
+| TRN-03B | 恢复 NORMAL persona 后启动 TDMA 短帧，按 `slot_budget_cycles` 验证 core1 TX/RX FIFO、飞行转发和 bounded RTOS service | [ ] | 四板 up/down、sequence、CRC、RX/TX/FIFO 计数同时增长，且不依赖 core0 调度边沿 |
+| TRN-03C | 汇总 per-link path-delay、residence、loop-delay、PIO 周期预算和 residual，形成 active candidate gate | [ ] | bias、hardware latch、freshness、CRC、周期重放、重复性和 rollback 全部通过 |
+| TRN-03D | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线；固化工具和 SD/Flash 输入格式 | [ ] | 失败统一 STOPPED，active generation 不被污染，工具按 `*IDN?` 地址工作 |
 
 实施顺序固定为：
 
@@ -82,23 +82,23 @@ TRN-01A..D
 
 ## 二、P0T 线序与环路顺序校准
 
-- `[x]` 将有向线序/邻接矩阵、单闭环判定、anchor 旋转和 slot map 的 owner 迁入校准域；
+- [x] 将有向线序/邻接矩阵、单闭环判定、anchor 旋转和 slot map 的 owner 迁入校准域；
   TDMA 只提供隔离 probe persona、RX/TX counters 和 raw physical evidence。
-- `[x]` 将 host 工具迁移为
+- [x] 将 host 工具迁移为
   `tools/calibration_ring_validate/calibration_ring_topology.py`，并把第一阶段及码本工具统一
   改为 `calibration_*` 命名。
-- `[x]` 按 `*IDN?` 唯一地址生成 directed adjacency；只有全部 active 节点形成一个闭环才
+- [x] 按 `*IDN?` 唯一地址生成 directed adjacency；只有全部 active 节点形成一个闭环才
   允许生成 `ring_order/slot_map`。COM 号不得进入 topology key。
-- `[x]` NO 提交从 TDMA START 中移除；只有 accepted topology 可以写入 NO，且支持写后读回
+- [x] NO 提交从 TDMA START 中移除；只有 accepted topology 可以写入 NO，且支持写后读回
   和重启持久化复核。
-- `[ ]` 实现板内 `CalibrationTopologySnapshot`：active board set、predecessor/successor、
+- [ ] 实现板内 `CalibrationTopologySnapshot`：active board set、predecessor/successor、
   direction、slot map、topology CRC、generation、freshness、accepted/rejected reason 和
   raw evidence index。
-- `[ ]` 固化重复 probe 和质量门禁：frame/word/edge evidence、timeout、bad header、误触发、
+- [ ] 固化重复 probe 和质量门禁：frame/word/edge evidence、timeout、bad header、误触发、
   跨轮一致性和 profile identity；阈值冻结前继续由显式参数/profile 提供。
-- `[ ]` 增加开链、分叉、多闭环、反向接线、重复/缺失板卡、probe 串扰和中途掉线故障注入；
+- [ ] 增加开链、分叉、多闭环、反向接线、重复/缺失板卡、probe 串扰和中途掉线故障注入；
   覆盖直到 `TDMA_RING_NODE_MAX` 的拓扑容量。
-- `[ ]` topology generation 或 wiring/profile freshness 改变时，使 P1/P2/P3 calibration staging
+- [ ] topology generation 或 wiring/profile freshness 改变时，使 P1/P2/P3 calibration staging
   失效；旧 active generation 只能按明确 holdover policy 使用，不得静默继承。
 
 ## 三、P0 基础件与跨域边界
@@ -106,42 +106,42 @@ TRN-01A..D
 - `[~]` 将校准测量 owner 从现有 `calibration_manager` 状态壳升级为
   `CalibrationAO / CalibrationFB / CalibrationVector`，保留 guarded snapshot 和
   active/staging/rollback 语义。
-- `[ ]` 冻结 `CalibrationEvidence` 字段：板卡唯一地址、logical slot、link key、
+- [ ] 冻结 `CalibrationEvidence` 字段：板卡唯一地址、logical slot、link key、
   `train_epoch`、`train_seq`、方向、topology/profile CRC、硬件时间源、分辨率、flags、
   DMA 状态、质量结果、generation 和 freshness。
 - `[~]` 定义 `t1..t4` 的 latch source、resolution、overrun、window miss、epoch/sequence
   关联和拒绝原因；板间 P3 已发布 4 ns PIO/DMA 采样和同 epoch 边沿，完整 fault reason、
   topology/profile generation 仍待补齐。
-- `[x]` 与 SYNC_IO/TDMA 对齐 `CLK/DATA/SYNC` 三线 PIO persona、DMA buffer owner、
+- [x] 与 SYNC_IO/TDMA 对齐 `CLK/DATA/SYNC` 三线 PIO persona、DMA buffer owner、
   core1 service 入口和 raw evidence 发布方式；core0/USB/日志不得进入边沿热路径。
-- `[ ]` 定义 endpoint bias reference loopback 的 profile、board identity、bias generation
+- [ ] 定义 endpoint bias reference loopback 的 profile、board identity、bias generation
   和失效策略；bias 未生成时只允许发布 observed value。
-- `[ ]` 定义 active/staging calibration 的 CRC、generation、topology freshness、
+- [ ] 定义 active/staging calibration 的 CRC、generation、topology freshness、
   rollback 和 VDC/DPLL 消费门禁。
 
 ## 四、P1 第一阶段 CLK RTT 粗捕获
 
-- `[x]` 将第一阶段测量流程、bracket 解释、四主结果和质量门禁从 TDMA 待办收敛到校准域；
+- [x] 将第一阶段测量流程、bracket 解释、四主结果和质量门禁从 TDMA 待办收敛到校准域；
   TDMA 仅保留 transport/persona/resource integration，禁止解释 RTT 或生成 delay/bias。
-- `[x]` 完成 SPI CLK 透明转发、master burst/capture、PIO IRQ 和 guarded snapshot 的
+- [x] 完成 SPI CLK 透明转发、master burst/capture、PIO IRQ 和 guarded snapshot 的
   最小实现。
-- `[x]` 完成四板 HIL 的数量级捕获，并记录各 profile、master、mixed point、错误增量和
+- [x] 完成四板 HIL 的数量级捕获，并记录各 profile、master、mixed point、错误增量和
   `DIAGNOSTIC_ONLY` 状态。结果详见任务记录和训练方案；该 HIL 结果是 build/topology/
   wiring/profile 快照，不是通用精度事实源。
-- `[x]` 将第一阶段默认阶梯收敛为 operating profile level 7/8/9 对应的
+- [x] 将第一阶段默认阶梯收敛为 operating profile level 7/8/9 对应的
   `10 -> 25 -> 30 MHz`；更高或更低兼容档仅允许显式实验，不进入默认训练定义。
-- `[x]` 固化四主轮换的唯一板卡地址、logical slot、STOP/ARM/STOP 收尾和恢复普通 persona
+- [x] 固化四主轮换的唯一板卡地址、logical slot、STOP/ARM/STOP 收尾和恢复普通 persona
   检查；任一失败不得留下持续 CLK 环。
-- `[ ]` 补齐第一阶段 rejected sample 分类：返回缺失、重复、超时、marker 不完整、
+- [ ] 补齐第一阶段 rejected sample 分类：返回缺失、重复、超时、marker 不完整、
   overlap/mixed 和 topology/profile 变化。
-- `[ ]` 将第一阶段 bracket 作为 P2 有界搜索输入，并禁止其单独生成运行态 feedback
+- [ ] 将第一阶段 bracket 作为 P2 有界搜索输入，并禁止其单独生成运行态 feedback
   timeout、VDC delay 或 active per-link calibration。
 
 ## 五、P2 编码 marker 与相关测距
 
-- `[x]` 完成候选 codebook 的离线评估；当前评估工具已能比较 LFSR、NRZ/Manchester/
+- [x] 完成候选 codebook 的离线评估；当前评估工具已能比较 LFSR、NRZ/Manchester/
   differential-Manchester 和 raw-sample lag margin。
-- `[x]` 生成 C/Python golden vector，冻结 header、反码、CRC、bit order、codebook ID、
+- [x] 生成 C/Python golden vector，冻结 header、反码、CRC、bit order、codebook ID、
   epoch 字段和 wire waveform；冻结前不得登记为契约。
 - `[~]` 用现有 CLK HIL 扫描 candidate 半码元档位；新 build `20260821062825` 上 32 ns
   四主单轮全部 accepted（lag span=1、无 DMA overrun/PIO stall），24 ns 在 NO.2--NO.4
@@ -149,28 +149,28 @@ TRN-01A..D
   结果继续保持 `DIAGNOSTIC_ONLY`。
 - `[~]` 实现 coded TX PIO、固定 FIFO 输入和 checked capture size；显式 quiet guard/profile
   尚待补齐。
-- `[x]` 实现 master RX oversampling PIO + DMA；记录真实 `capture_origin`、TX/RX count、
+- [x] 实现 master RX oversampling PIO + DMA；记录真实 `capture_origin`、TX/RX count、
   overrun、stall 和 buffer generation。
 - `[~]` 实现 core1 有界 raw-sample 相关器，已输出 `peak`、`second_peak`、`margin`、
   Hamming distance、极性和 accepted/rejected reason；lag histogram/板内重复统计尚待完成。
 - `[~]` 将 `CLOCK_COARSE -> CLOCK_CODED` 接入 TDMA owner 的非阻塞状态机；实现
   `TRAIN_PREPARE/ACK/commit`，先完成唯一地址工具编排，再完成 reference 单指令全环闭环。
-- `[x]` 扩展 guarded snapshot，绑定 build/topology/profile/schedule CRC、baud、codebook、
+- [x] 扩展 guarded snapshot，绑定 build/topology/profile/schedule CRC、baud、codebook、
   epoch、sample period 和 calibration generation。
-- `[x]` 完成按 `*IDN?` 唯一地址编排的四主最小 HIL 闭环、JSON/CSV evidence、STOP/IDLE
+- [x] 完成按 `*IDN?` 唯一地址编排的四主最小 HIL 闭环、JSON/CSV evidence、STOP/IDLE
   收尾和 persona 恢复；结果仍为单轮 diagnostic snapshot。
 - `[~]` 增加 unit/HIL 故障注入：错位、反相、缺失/重复、低 margin、DMA overrun、capture
   truncation、掉线、ACK 缺失、commit miss、profile/topology 改变和 persona 恢复。
-- `[ ]` 完成四主重复性和跨主一致性门禁；只有真实 PIO/DMA latch、质量和重复统计通过后，
+- [ ] 完成四主重复性和跨主一致性门禁；只有真实 PIO/DMA latch、质量和重复统计通过后，
   才清除对应 `TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY`。
-- `[x]` 固化 host 重复统计工具：每主独立 STOP/ARM/coded/STOP，输出 reject 分类、lag
+- [x] 固化 host 重复统计工具：每主独立 STOP/ARM/coded/STOP，输出 reject 分类、lag
   histogram、min/max/mean/p99/stddev、margin 和 sequence 一致性；工具仍以 `*IDN?` 唯一
   地址为主键，COM 只作为临时端点。
-- `[x]` 固化普通 TDMA TX PIO 频率/占空比静态门禁；修正 TX loop 从实际 7 cycles/bit
+- [x] 固化普通 TDMA TX PIO 频率/占空比静态门禁；修正 TX loop 从实际 7 cycles/bit
   收敛为声明的 6 cycles/bit（3 high + 3 low）。当前 250 MHz `clk_sys` 下，10/25/30 MHz
   的理论误差分别约为 `-0.031%/-0.078%/-0.125%`，占空比均为 `50%`；电气 rise/fall
   仍需示波器确认。
-- `[x]` 将回环反射校准的 `tdma_pio_spi_clk_burst` 与
+- [x] 将回环反射校准的 `tdma_pio_spi_clk_burst` 与
   `tdma_pio_spi_clk_forward` 纳入同一静态时序工具；burst 以 4-cycle period、2:2
   high/low 检查频率和占空比，forward 明确为上游 RX 边沿再生且本地 divider=1。报告为
   `build-product-release/tdma_pio_timing_check_reflection_20260821.json`；收发器和线缆
@@ -220,10 +220,10 @@ path_sum_AB = (t4 - t1) - residence_B
 等长差分线缆支持对称性假设，但不替代收发器、GPIO synchronizer、PIO pipeline、连接器
 和方向 endpoint bias 校准。若 asymmetry 超过门禁，只发布 path-sum，不伪造两个单向 delay。
 
-- `[x]` P3-1：定义 `CLK/DATA/SYNC` 同 epoch marker、四边沿 capture origin 和方向字段。
-- `[x]` P3-2：实现 `t1..t4` 关联、residence 扣除、path-sum、clock-rate error bound、
+- [x] P3-1：定义 `CLK/DATA/SYNC` 同 epoch marker、四边沿 capture origin 和方向字段。
+- [x] P3-2：实现 `t1..t4` 关联、residence 扣除、path-sum、clock-rate error bound、
   不确定度和短窗口频率偏差处理。
-- `[ ]` P3-3：完成同一 PIO persona 的板内 endpoint bias/reference loopback，并发布 bias
+- [ ] P3-3：完成同一 PIO persona 的板内 endpoint bias/reference loopback，并发布 bias
   generation、质量和失效原因。
 - `[~]` P3-4：四板相邻段的 10/25/30 MHz 最小 HIL 已完成（最新复测 36/36 accepted）；继续补故障注入，覆盖缺边沿、乱序、重复、
   极性、SYNC/CRC 错、
@@ -243,32 +243,32 @@ path_sum_AB = (t4 - t1) - residence_B
 
 ### P3 单板回环预研
 
-- `[x]` 复用产品板 TX/RX 三线回环，确认单板维护态可以稳定进入 `STOP -> LOCAL -> ARM ->
+- [x] 复用产品板 TX/RX 三线回环，确认单板维护态可以稳定进入 `STOP -> LOCAL -> ARM ->
   TRAIN -> START`，并持续产生 TX/RX 物理层数据。
-- `[x]` 新增 `calibration_bidirectional` 纯 C 计算/门禁模块和 Vivado/GCC host 单测，验证
+- [x] 新增 `calibration_bidirectional` 纯 C 计算/门禁模块和 Vivado/GCC host 单测，验证
   同板参考样本的 residence、raw path-sum、endpoint bias 扣除、delay estimate、坏顺序和
   缺证据拒绝。
-- `[x]` 将单板回环结果接入 TDMA owner 持有的 `BOARD_TDMA_SPI_PIO`、既有 TX/RX SM 和
+- [x] 将单板回环结果接入 TDMA owner 持有的 `BOARD_TDMA_SPI_PIO`、既有 TX/RX SM 和
   `TDMA_PIO_SPI_RX_DMA_CHANNEL` edge-latch evidence；
   四边沿由 core1 收割，保留 `DIAGNOSTIC_ONLY`。
-- `[x]` 增加维护态 `CALibration:LOOPback:*` SCPI 触发/只读 snapshot，发布
+- [x] 增加维护态 `CALibration:LOOPback:*` SCPI 触发/只读 snapshot，发布
   reference-only loopback result、reject reason、latch resolution/flags；host 不传入实时边沿时间戳。
-- `[x]` 完成 DHRT100 连续 10 epoch 的四边沿/SYNC/公式验证，并在维护 persona STOP 后恢复
+- [x] 完成 DHRT100 连续 10 epoch 的四边沿/SYNC/公式验证，并在维护 persona STOP 后恢复
   resident TDMA，确认 TX/RX 与物理错误计数门禁通过；结果仍为 diagnostic snapshot。
-- `[ ]` 在同一 PIO persona 下完成 endpoint bias/reference loopback，才能把已完成的板间 P3
+- [ ] 在同一 PIO persona 下完成 endpoint bias/reference loopback，才能把已完成的板间 P3
   diagnostic HIL 提升为 active candidate。
 
 ## 七、P4 VDC/DPLL 集成门禁
 
-- `[ ]` 校准域只向 VDC 发布 accepted calibration snapshot，不直接写 DPLL 状态或 VDC time。
-- `[ ]` VDC 消费 path-delay、residence、bias、generation、quality、freshness 和 topology
+- [ ] 校准域只向 VDC 发布 accepted calibration snapshot，不直接写 DPLL 状态或 VDC time。
+- [ ] VDC 消费 path-delay、residence、bias、generation、quality、freshness 和 topology
   CRC，建立 `local_tick_raw <-> vdc_time` 映射；DPLL 的 LOCKED/HOLDOVER/RELOCK 仍由 VDC
   owner 决策。
-- `[ ]` 验证未 hardware-latched、`DIAGNOSTIC_ONLY`、stale、CRC 错、generation 不一致、
+- [ ] 验证未 hardware-latched、`DIAGNOSTIC_ONLY`、stale、CRC 错、generation 不一致、
   topology 变化和 rejected sample 都会阻止 calibration 进入 active/VDC。
-- `[ ]` 验证重新训练后必须显式提交/激活新 generation，旧 active calibration 在新证据未
+- [ ] 验证重新训练后必须显式提交/激活新 generation，旧 active calibration 在新证据未
   接受前继续可回滚使用或明确失效，不发生半更新。
-- `[ ]` 增加 VDC/DPLL 双板和四板 observation window 验证，记录 offset/rate、lock、
+- [ ] 增加 VDC/DPLL 双板和四板 observation window 验证，记录 offset/rate、lock、
   holdover、relock、late、CRC/sequence 和 calibration generation。
 
 ## 八、验证、长稳与发布
@@ -279,11 +279,11 @@ path_sum_AB = (t4 - t1) - residence_B
   10/25 MHz 稳定档通过，30 MHz 按 `LIMITED_RX -> FALLBACK_25MHZ` 策略保留为受限诊断档。
   observed delay estimate 为 78..82 ns、单链路 jitter 为 0..2 ns，仍需 endpoint bias、
   逐链路累加、整圈 residual、拓扑 freshness 和长稳验证。
-- `[ ]` 八节点扩展前：重复 profile/拓扑门禁，确认不把四板 aggregate 平均分摊成 link delay。
-- `[ ]` 长时间验证：记录硬件 latch 计数、accepted/rejected、margin、overrun/stall、
+- [ ] 八节点扩展前：重复 profile/拓扑门禁，确认不把四板 aggregate 平均分摊成 link delay。
+- [ ] 长时间验证：记录硬件 latch 计数、accepted/rejected、margin、overrun/stall、
   freshness、generation、VDC/DPLL 状态和 watchdog/fault evidence；结果写入任务记录并引用
   具体 build、拓扑、线缆和证据目录。
-- `[ ]` 发布前：校准 CRC、版本 bundle、active/staging/rollback、SCPI 查询、SD/OTA 持久化
+- [ ] 发布前：校准 CRC、版本 bundle、active/staging/rollback、SCPI 查询、SD/OTA 持久化
   和报告字段全部一致；训练失败统一 STOP 并恢复普通 PIO persona。
 
 ## 九、阻塞项与完成定义

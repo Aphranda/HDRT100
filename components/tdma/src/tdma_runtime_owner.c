@@ -98,6 +98,11 @@ bool tdma_runtime_owner_init(void)
     s_tdma_pio_spi_phys.coded.version =
         TDMA_PIO_SPI_CODED_SNAPSHOT_VERSION;
     s_tdma_pio_spi_phys.coded.state = TDMA_PIO_SPI_CODED_IDLE;
+    s_tdma_pio_spi_phys.marker.version =
+        TDMA_PIO_SPI_MARKER_SNAPSHOT_VERSION;
+    s_tdma_pio_spi_phys.marker.state = TDMA_PIO_SPI_MARKER_IDLE;
+    s_tdma_pio_spi_phys.marker.flags =
+        TDMA_PIO_SPI_MARKER_FLAG_DIAGNOSTIC_ONLY;
     tdma_traffic_scheduler_slot_t *slots = NULL;
 #if defined(PROJECT_USE_FREERTOS) && PROJECT_USE_FREERTOS
     slots = pvPortMalloc(sizeof(tdma_traffic_scheduler_slot_t) *
@@ -401,6 +406,50 @@ bool tdma_runtime_owner_copy_coded_capture_core1(
 {
     return s_tdma_runtime_owner_initialized &&
            tdma_pio_spi_phys_copy_coded_capture(
+               &s_tdma_pio_spi_phys, capture_words,
+               capture_word_capacity, capture_word_count);
+}
+
+bool tdma_runtime_owner_marker_start_core1(
+    const tdma_pio_spi_marker_request_t *request)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    return s_tdma_runtime_owner_initialized && request != NULL &&
+           tdma_ring_runtime_get_snapshot(
+               &s_tdma_runtime_owner.ring_runtime, &ring) &&
+           ring.enabled == 0u &&
+           tdma_pio_spi_phys_marker_start(&s_tdma_pio_spi_phys, request);
+}
+
+void tdma_runtime_owner_marker_stop_core1(void)
+{
+    if (s_tdma_runtime_owner_initialized) {
+        tdma_pio_spi_phys_marker_stop(&s_tdma_pio_spi_phys);
+    }
+}
+
+void tdma_runtime_owner_marker_service_core1(void)
+{
+    if (s_tdma_runtime_owner_initialized) {
+        tdma_pio_spi_phys_marker_service(&s_tdma_pio_spi_phys);
+    }
+}
+
+bool tdma_runtime_owner_get_marker_snapshot(
+    tdma_pio_spi_marker_snapshot_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_phys_get_marker_snapshot(
+               &s_tdma_pio_spi_phys, snapshot);
+}
+
+bool tdma_runtime_owner_copy_marker_capture_core1(
+    uint32_t *capture_words,
+    size_t capture_word_capacity,
+    size_t *capture_word_count)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_phys_copy_marker_capture(
                &s_tdma_pio_spi_phys, capture_words,
                capture_word_capacity, capture_word_count);
 }

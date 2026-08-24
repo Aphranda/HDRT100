@@ -14,6 +14,17 @@ except ImportError as exc:  # pragma: no cover - bench dependency
     raise SystemExit("pyserial is required: python -m pip install pyserial") from exc
 
 
+COMPOSITE_ACK_HEADERS = {
+    "CAL:MARK:CAPT:SAVE", "CALIBRATION:MARKER:CAPTURE:SAVE",
+    "SYST:STOR:FILE:READ?", "SYSTEM:STORAGE:FILE:READ?",
+    "SYST:STOR:FILE:INFO?", "SYSTEM:STORAGE:FILE:INFO?",
+}
+MARKER_CAPTURE_SAVE_HEADERS = {
+    "CAL:MARK:CAPT:SAVE", "CALIBRATION:MARKER:CAPTURE:SAVE",
+}
+STORAGE_COMPOSITE_QUERY_HEADERS = COMPOSITE_ACK_HEADERS - MARKER_CAPTURE_SAVE_HEADERS
+
+
 @contextmanager
 def open_serial_port(port: str,
                      baud: int,
@@ -105,7 +116,9 @@ def _csv_uints_match(line: str, count: int) -> bool:
 def scpi_response_matches_command(command: str, line: str) -> bool:
     """Screen obvious boot logs and stale responses for command-sensitive tools."""
     header = command.strip().split(maxsplit=1)[0].upper()
-    text = strip_scpi_ack_prefix(trim_embedded_scpi_log(line))
+    text = trim_embedded_scpi_log(line)
+    if header not in COMPOSITE_ACK_HEADERS:
+        text = strip_scpi_ack_prefix(text)
     if not text or is_scpi_log_line(text):
         return False
 
@@ -125,6 +138,10 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return re.fullmatch(r'"[^"]+",\s*\d+,\s*"[^"]+",\s*\d+', text) is not None
     if header in {"SYST:OTA:RES?", "SYSTEM:OTA:RES?"}:
         return re.fullmatch(r'\d+,\s*"[^"]+",\s*"[^"]+",\s*\d+,\s*\d+,\s*\d+', text) is not None
+    if header in MARKER_CAPTURE_SAVE_HEADERS:
+        return re.fullmatch(r'"?OK"?,\s*\d+,\s*"/[^"]+"', text) is not None
+    if header in STORAGE_COMPOSITE_QUERY_HEADERS:
+        return re.match(r'^"?OK"?,', text) is not None
     if header in {"SYST:ERR?", "SYSTEM:ERR?", "SYST:ERROR?", "SYSTEM:ERROR?"}:
         return re.fullmatch(r'-?\d+(?:,.*)?', text) is not None
     if is_scpi_query(command):
@@ -143,17 +160,25 @@ def read_scpi_response(ser: serial.Serial,
                        require_match: bool = False) -> str:
     """Read a command response while filtering startup logs on the CDC stream."""
     deadline = time.monotonic() + timeout_s
+    header = command.strip().split(maxsplit=1)[0].upper()
+    preserve_composite_ack = header in COMPOSITE_ACK_HEADERS
     while time.monotonic() < deadline:
         line = read_serial_line_idle(ser, deadline)
         if line is None or is_scpi_log_line(line):
             continue
-        line = strip_scpi_ack_prefix(trim_embedded_scpi_log(line))
+        line = trim_embedded_scpi_log(line)
+        if not preserve_composite_ack:
+            line = strip_scpi_ack_prefix(line)
         if not line:
             continue
-        if require_match and not scpi_response_matches_command(command, line):
+        # Composite responses are command-specific result tuples whose first
+        # field is itself "OK".  The input buffer was cleared immediately
+        # before the command, so preserve and return the complete tuple rather
+        # than treating its first field as a standalone acknowledgement.
+        if (require_match and not preserve_composite_ack and
+                not scpi_response_matches_command(command, line)):
             continue
         scalar_one_queries = {"SYST:BOARD:NO?", "SYSTEM:BOARD:NO?"}
-        header = command.strip().split(maxsplit=1)[0].upper()
         if (is_scpi_query(command) and line in {'"OK"', "OK", "1"} and
                 header not in scalar_one_queries):
             continue

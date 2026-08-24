@@ -29,6 +29,59 @@ static uint32_t s_clk_coded_capture[TDMA_PIO_SPI_CODED_BUFFER_WORDS];
 static volatile bool s_clk_coded_active;
 static uint32_t s_clk_coded_request_sequence;
 static calibration_manager_p3_snapshot_t s_p3_snapshot;
+static calibration_training_marker_store_t s_marker_store;
+static calibration_clk_coded_workspace_t s_marker_workspace;
+static uint32_t s_marker_raw_capture[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
+static uint32_t s_marker_bit_capture[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
+static volatile uint32_t s_marker_raw_word_count;
+static volatile uint32_t s_marker_raw_sample_count;
+static char s_marker_capture_payload[8192];
+static volatile bool s_marker_active;
+
+typedef enum {
+    CALIBRATION_MARKER_INTENT_NONE = 0u,
+    CALIBRATION_MARKER_INTENT_START = 1u,
+    CALIBRATION_MARKER_INTENT_STOP = 2u,
+} calibration_marker_intent_opcode_t;
+
+typedef struct {
+    volatile uint32_t guard;
+    uint32_t sequence;
+    uint32_t opcode;
+    calibration_training_marker_request_t request;
+} calibration_marker_intent_t;
+
+static calibration_marker_intent_t s_marker_intent;
+static uint32_t s_marker_intent_next_sequence;
+static volatile uint32_t s_marker_intent_consumed_sequence;
+static calibration_training_marker_request_t s_marker_active_request;
+
+static void calibration_manager_marker_publish(
+    calibration_marker_intent_opcode_t opcode,
+    const calibration_training_marker_request_t *request)
+{
+    (void)__atomic_add_fetch(&s_marker_intent.guard, 1u, __ATOMIC_ACQ_REL);
+    s_marker_intent.sequence = ++s_marker_intent_next_sequence;
+    s_marker_intent.opcode = (uint32_t)opcode;
+    if (request != NULL) s_marker_intent.request = *request;
+    (void)__atomic_add_fetch(&s_marker_intent.guard, 1u, __ATOMIC_RELEASE);
+}
+
+static bool calibration_manager_marker_read(
+    calibration_marker_intent_t *intent)
+{
+    if (intent == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin =
+            __atomic_load_n(&s_marker_intent.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        *intent = s_marker_intent;
+        const uint32_t end =
+            __atomic_load_n(&s_marker_intent.guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) return true;
+    }
+    return false;
+}
 
 static void calibration_manager_publish_training_activity(void)
 {
@@ -38,6 +91,7 @@ static void calibration_manager_publish_training_activity(void)
         training_loopback.armed != 0u;
     const bool calibration_active =
         loopback_active ||
+        __atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE) ||
         __atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) ||
         s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
     resource_arbiter_publish_calibration_training(calibration_active);
@@ -216,6 +270,17 @@ bool calibration_manager_init(void)
     memset(&s_clk_coded_intent, 0, sizeof(s_clk_coded_intent));
     memset(&s_p3_snapshot, 0, sizeof(s_p3_snapshot));
     memset(&s_p3_intent, 0, sizeof(s_p3_intent));
+    calibration_training_marker_store_init(&s_marker_store);
+    memset(&s_marker_workspace, 0, sizeof(s_marker_workspace));
+    memset(s_marker_raw_capture, 0, sizeof(s_marker_raw_capture));
+    memset(s_marker_bit_capture, 0, sizeof(s_marker_bit_capture));
+    __atomic_store_n(&s_marker_raw_word_count, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_marker_raw_sample_count, 0u, __ATOMIC_RELEASE);
+    memset(&s_marker_intent, 0, sizeof(s_marker_intent));
+    memset(&s_marker_active_request, 0, sizeof(s_marker_active_request));
+    __atomic_store_n(&s_marker_active, false, __ATOMIC_RELEASE);
+    s_marker_intent_next_sequence = 0u;
+    s_marker_intent_consumed_sequence = 0u;
     memset(&s_clk_coded_active_request, 0,
            sizeof(s_clk_coded_active_request));
     memset(&s_clk_coded_active_gate, 0, sizeof(s_clk_coded_active_gate));
@@ -502,6 +567,156 @@ bool calibration_manager_save_bias_snapshot(uint32_t *job_id)
     return true;
 }
 
+static void calibration_manager_marker_set_bit(uint32_t *words,
+                                               uint32_t index,
+                                               uint32_t value)
+{
+    if (value != 0u) words[index >> 5u] |= 1u << (index & 31u);
+}
+
+static uint32_t calibration_manager_marker_extract_rx(
+    const tdma_pio_spi_marker_snapshot_t *raw,
+    const uint32_t *interleaved,
+    uint32_t *packed,
+    int32_t offset_sample_count)
+{
+    const uint32_t high_prefix =
+        raw->role == TDMA_PIO_SPI_MARKER_ROLE_FOLLOWER
+            ? s_marker_workspace.marker.half_chip_samples
+            : 0u;
+    const uint32_t phase_delay_cycles =
+        (uint32_t)(offset_sample_count + 1);
+    const uint32_t prefix = high_prefix == 0u
+        ? 0u
+        : high_prefix + 1u + phase_delay_cycles;
+    const uint32_t sample_count = raw->capture_sample_count + prefix;
+    memset(packed, 0,
+           ((sample_count + 31u) / 32u) * sizeof(packed[0]));
+    if (high_prefix != 0u) {
+        /* CS is idle high, so the first observable marker event is the first
+         * Manchester falling edge. Rebuild only the known leading high
+         * half-chip; WAIT 0 GPIO supplies the following low sample. */
+        for (uint32_t index = 0u; index < high_prefix; index++) {
+            calibration_manager_marker_set_bit(packed, index, 1u);
+        }
+    }
+    for (uint32_t index = 0u; index < raw->capture_sample_count; index++) {
+        const uint32_t pair =
+            (interleaved[index / 16u] >> ((index & 15u) * 2u)) & 0x3u;
+        calibration_manager_marker_set_bit(
+            packed, index + prefix, (pair >> 1u) & 1u);
+    }
+    return sample_count;
+}
+
+static void calibration_manager_marker_finish_core1(
+    const tdma_pio_spi_marker_snapshot_t *raw)
+{
+    size_t raw_words = 0u;
+    memset(s_marker_raw_capture, 0, sizeof(s_marker_raw_capture));
+    memset(s_marker_bit_capture, 0, sizeof(s_marker_bit_capture));
+    const bool copied =
+        (raw->state == TDMA_PIO_SPI_MARKER_COMPLETE ||
+         raw->state == TDMA_PIO_SPI_MARKER_ERROR) &&
+        tdma_runtime_owner_copy_marker_capture_core1(
+            s_marker_raw_capture, TDMA_PIO_SPI_MARKER_BUFFER_WORDS,
+            &raw_words);
+    uint32_t marker_flags = 0u;
+    calibration_clk_correlation_result_t correlation;
+    memset(&correlation, 0, sizeof(correlation));
+    bool correlated = false;
+    if (copied) {
+        const uint32_t sample_count = calibration_manager_marker_extract_rx(
+            raw, s_marker_raw_capture, s_marker_bit_capture,
+            s_marker_active_request.offset_sample_count);
+        const uint32_t available_lag =
+            sample_count >= s_marker_workspace.marker.raw_samples
+                ? sample_count - s_marker_workspace.marker.raw_samples
+                : 0u;
+        const calibration_clk_correlation_gate_t gate = {
+            .min_lag_sample = 0u,
+            .max_lag_sample = available_lag <
+                                      CALIBRATION_CLK_CORRELATION_MAX_LAGS
+                                  ? available_lag
+                                  : CALIBRATION_CLK_CORRELATION_MAX_LAGS - 1u,
+            .max_best_distance = 512u,
+            .min_margin = 0u,
+        };
+        correlated = gate.max_lag_sample > gate.min_lag_sample &&
+            calibration_clk_marker_correlate(
+                &(calibration_clk_marker_config_t){
+                    .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+                    .codebook_id = (uint8_t)
+                        s_marker_active_request.marker_codebook_id,
+                    .epoch = (uint8_t)s_marker_active_request.train_epoch,
+                    .master_slot =
+                        (uint8_t)s_marker_active_request.reference_slot,
+                    .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
+                },
+                s_marker_workspace.expected_words,
+                s_marker_workspace.marker.raw_samples,
+                s_marker_bit_capture, sample_count, &gate, &correlation) &&
+            correlation.accepted != 0u;
+        marker_flags = correlation.marker_flags;
+    }
+
+    uint32_t flags = CALIBRATION_TRAINING_MARKER_FLAG_DIAGNOSTIC_ONLY;
+    if ((raw->flags & TDMA_PIO_SPI_MARKER_FLAG_HARDWARE_CAPTURE) != 0u) {
+        flags |= CALIBRATION_TRAINING_MARKER_FLAG_HARDWARE_LATCHED;
+    }
+    if ((raw->flags & TDMA_PIO_SPI_MARKER_FLAG_OUTPUT_EDGE) != 0u) {
+        flags |= CALIBRATION_TRAINING_MARKER_FLAG_FORWARD_VALID;
+    }
+    if ((raw->flags & TDMA_PIO_SPI_MARKER_FLAG_RX_DMA_COMPLETE) != 0u &&
+        copied) {
+        flags |= CALIBRATION_TRAINING_MARKER_FLAG_DMA_COMPLETE;
+    }
+    if (correlated && marker_flags == CALIBRATION_CLK_MARKER_FLAG_ALL) {
+        flags |= CALIBRATION_TRAINING_MARKER_FLAG_CAPTURE_VALID |
+                 CALIBRATION_TRAINING_MARKER_FLAG_CRC_VALID |
+                 CALIBRATION_TRAINING_MARKER_FLAG_EPOCH_VALID |
+                 CALIBRATION_TRAINING_MARKER_FLAG_SEQUENCE_VALID |
+                 CALIBRATION_TRAINING_MARKER_FLAG_POLARITY_VALID;
+    }
+    const calibration_training_marker_evidence_t evidence = {
+        .train_epoch = s_marker_active_request.train_epoch,
+        .train_sequence = s_marker_active_request.train_sequence,
+        .marker_id = s_marker_active_request.marker_id,
+        .observed_crc32 = correlated
+                              ? s_marker_active_request.marker_crc32
+                              : 0u,
+        .polarity = correlation.detected_polarity,
+        .marker_flags = marker_flags,
+        .correlation_reject_reason = correlation.reject_reason,
+        .best_lag_sample = correlation.best_lag_sample,
+        .best_distance = correlation.best_distance,
+        .calibration_generation =
+            s_marker_active_request.calibration_generation,
+        .topology_generation = s_marker_active_request.topology_generation,
+        .topology_crc32 = s_marker_active_request.topology_crc32,
+        .profile_crc32 = s_marker_active_request.profile_crc32,
+        .schedule_crc32 = s_marker_active_request.schedule_crc32,
+        .flags = flags,
+        .marker_capture_tick = raw->marker_capture_tick,
+        .marker_forward_tick = raw->marker_forward_tick,
+        .marker_return_tick = raw->marker_return_tick,
+        .dma_capture_count = copied ? (uint32_t)raw_words : 0u,
+        .dma_overrun_count = raw->dma_overrun_count,
+        .pio_stall_count = raw->pio_stall_count,
+        .timeout_count = raw->timeout_count,
+        .offset_sample_count = s_marker_active_request.offset_sample_count,
+    };
+    (void)calibration_training_marker_evaluate_core1(
+        &s_marker_store, &s_marker_active_request, &evidence);
+    __atomic_store_n(&s_marker_raw_word_count,
+                     copied ? (uint32_t)raw_words : 0u,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&s_marker_raw_sample_count,
+                     copied ? raw->capture_sample_count : 0u,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&s_marker_active, false, __ATOMIC_RELEASE);
+}
+
 void calibration_manager_service_core1(void)
 {
     tdma_ring_runtime_snapshot_t ring;
@@ -510,7 +725,84 @@ void calibration_manager_service_core1(void)
     calibration_pio_loopback_service_core1(stopped);
     tdma_runtime_owner_coded_service_core1();
     tdma_runtime_owner_p3_service_core1();
+    tdma_runtime_owner_marker_service_core1();
     calibration_manager_publish_training_activity();
+
+    calibration_marker_intent_t marker_intent;
+    if (calibration_manager_marker_read(&marker_intent) &&
+        marker_intent.sequence != __atomic_load_n(
+            &s_marker_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        if (marker_intent.opcode == CALIBRATION_MARKER_INTENT_STOP) {
+            tdma_runtime_owner_marker_stop_core1();
+            __atomic_store_n(&s_marker_active, false, __ATOMIC_RELEASE);
+            calibration_training_marker_snapshot_t idle;
+            memset(&idle, 0, sizeof(idle));
+            idle.version = CALIBRATION_TRAINING_MARKER_SNAPSHOT_VERSION;
+            idle.state = CALIBRATION_TRAINING_MARKER_IDLE;
+            idle.flags = CALIBRATION_TRAINING_MARKER_FLAG_DIAGNOSTIC_ONLY;
+            (void)calibration_training_marker_publish_core1(
+                &s_marker_store, &idle);
+        } else if (marker_intent.opcode == CALIBRATION_MARKER_INTENT_START &&
+                   stopped &&
+                   !__atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE)) {
+            const calibration_clk_marker_config_t marker_config = {
+                .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+                .codebook_id = (uint8_t)
+                    marker_intent.request.marker_codebook_id,
+                .epoch = (uint8_t)marker_intent.request.train_epoch,
+                .master_slot = (uint8_t)marker_intent.request.reference_slot,
+                .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
+            };
+            calibration_clk_marker_descriptor_t descriptor;
+            if (calibration_clk_marker_build(
+                    &marker_config, s_marker_workspace.expected_words,
+                    CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &descriptor) &&
+                calibration_training_marker_prepare_core1(
+                    &s_marker_store, &marker_intent.request)) {
+                s_marker_workspace.marker = descriptor;
+                const tdma_pio_spi_marker_request_t raw_request = {
+                    .role = marker_intent.request.role ==
+                                    CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR
+                                ? TDMA_PIO_SPI_MARKER_ROLE_ORIGINATOR
+                                : TDMA_PIO_SPI_MARKER_ROLE_FOLLOWER,
+                    .tx_words = s_marker_workspace.expected_words,
+                    .tx_word_count = descriptor.raw_words,
+                    .marker_sample_count = descriptor.raw_samples,
+                    .capture_sample_count = descriptor.raw_samples +
+                        (marker_intent.request.role ==
+                                 CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR
+                             ? TDMA_PIO_SPI_MARKER_RETURN_GUARD_SAMPLES
+                             : 8u),
+                    .epoch = marker_intent.request.train_epoch,
+                    .offset_sample_count =
+                        marker_intent.request.offset_sample_count,
+                };
+                if (tdma_runtime_owner_marker_start_core1(&raw_request)) {
+                    s_marker_active_request = marker_intent.request;
+                    __atomic_store_n(&s_marker_active, true,
+                                     __ATOMIC_RELEASE);
+                    calibration_training_marker_snapshot_t running;
+                    if (calibration_training_marker_get_snapshot(
+                            &s_marker_store, &running)) {
+                        running.state = CALIBRATION_TRAINING_MARKER_RUNNING;
+                        (void)calibration_training_marker_publish_core1(
+                            &s_marker_store, &running);
+                    }
+                }
+            }
+        }
+        __atomic_store_n(&s_marker_intent_consumed_sequence,
+                         marker_intent.sequence, __ATOMIC_RELEASE);
+    }
+
+    if (__atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE)) {
+        tdma_pio_spi_marker_snapshot_t raw;
+        if (tdma_runtime_owner_get_marker_snapshot(&raw) &&
+            (raw.state == TDMA_PIO_SPI_MARKER_COMPLETE ||
+             raw.state == TDMA_PIO_SPI_MARKER_ERROR)) {
+            calibration_manager_marker_finish_core1(&raw);
+        }
+    }
 
     calibration_p3_intent_t p3_intent;
     if (calibration_manager_p3_read(&p3_intent) &&
@@ -708,6 +1000,213 @@ bool calibration_manager_get_p3_snapshot(
     (void)tdma_runtime_owner_get_p3_snapshot(&snapshot->raw);
     snapshot->result_valid =
         snapshot->raw.state == TDMA_PIO_SPI_P3_COMPLETE ? 1u : 0u;
+    return true;
+}
+
+bool calibration_manager_request_marker_training(
+    uint32_t codebook_id,
+    uint32_t train_epoch,
+    uint32_t train_sequence,
+    uint32_t marker_id,
+    uint32_t calibration_generation,
+    int32_t offset_sample_count)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    tdma_service_ring_runtime_config_t staged;
+    calibration_marker_intent_t pending;
+    uint64_t board_unique_id = 0u;
+    if (codebook_id > CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32 ||
+        train_epoch == 0u || train_epoch > UINT8_MAX ||
+        train_sequence != train_epoch || marker_id != train_epoch ||
+        offset_sample_count <
+            -CALIBRATION_TRAINING_MARKER_MAX_ABS_OFFSET_SAMPLES ||
+        offset_sample_count >
+            CALIBRATION_TRAINING_MARKER_MAX_ABS_OFFSET_SAMPLES ||
+        calibration_generation == 0u || BOARD_SYS_CLOCK_HZ == 0u ||
+        (UINT32_C(1000000000) % BOARD_SYS_CLOCK_HZ) != 0u ||
+        !calibration_manager_parse_hex_u64(board_identity_serial(),
+                                           &board_unique_id) ||
+        !tdma_runtime_owner_get_ring_snapshot(&ring) ||
+        ring.enabled != 0u ||
+        !tdma_runtime_owner_get_staged_ring_config(&staged) ||
+        staged.node_count < 2u ||
+        staged.node_count > CALIBRATION_TRAINING_MARKER_MAX_SLOTS ||
+        staged.local_slot_id >= staged.node_count ||
+        staged.reference_slot_id >= staged.node_count ||
+        staged.ring_profile_crc32 == 0u ||
+        staged.operating_profile_crc32 == 0u ||
+        staged.schedule_crc32 == 0u ||
+        __atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE) ||
+        !calibration_manager_marker_read(&pending) ||
+        pending.sequence != __atomic_load_n(
+            &s_marker_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        return false;
+    }
+
+    uint32_t marker_words[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
+    calibration_clk_marker_descriptor_t marker;
+    const calibration_clk_marker_config_t marker_config = {
+        .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+        .codebook_id = (uint8_t)codebook_id,
+        .epoch = (uint8_t)train_epoch,
+        .master_slot = (uint8_t)staged.reference_slot_id,
+        .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
+    };
+    if (!calibration_clk_marker_build(
+            &marker_config, marker_words,
+            CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &marker)) {
+        return false;
+    }
+    const calibration_training_marker_request_t request = {
+        .board_unique_id = board_unique_id,
+        .build_id = calibration_manager_build_id_value(g_project_build_id),
+        .role = staged.local_slot_id == staged.reference_slot_id
+                    ? CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR
+                    : CALIBRATION_TRAINING_MARKER_ROLE_FOLLOWER,
+        .logical_slot = staged.local_slot_id,
+        .reference_slot = staged.reference_slot_id,
+        .predecessor_slot = (staged.local_slot_id + staged.node_count - 1u) %
+                            staged.node_count,
+        .successor_slot = (staged.local_slot_id + 1u) % staged.node_count,
+        .train_epoch = train_epoch,
+        .train_sequence = train_sequence,
+        .marker_id = marker_id,
+        .marker_codebook_id = codebook_id,
+        .marker_crc32 = ota_crc32_compute(
+            (const uint8_t *)marker_words,
+            marker.raw_words * sizeof(marker_words[0])),
+        .calibration_generation = calibration_generation,
+        .topology_generation = ring.config_seq,
+        .topology_crc32 = staged.ring_profile_crc32,
+        .profile_crc32 = staged.operating_profile_crc32,
+        .schedule_crc32 = staged.schedule_crc32,
+        .tick_resolution_ns = UINT32_C(1000000000) / BOARD_SYS_CLOCK_HZ,
+        .offset_sample_count = offset_sample_count,
+    };
+    calibration_manager_marker_publish(CALIBRATION_MARKER_INTENT_START,
+                                       &request);
+    resource_arbiter_publish_calibration_training(true);
+    return true;
+}
+
+void calibration_manager_stop_marker_training(void)
+{
+    calibration_manager_marker_publish(CALIBRATION_MARKER_INTENT_STOP, NULL);
+}
+
+bool calibration_manager_get_marker_training_snapshot(
+    calibration_training_marker_snapshot_t *snapshot)
+{
+    return calibration_training_marker_get_snapshot(&s_marker_store, snapshot);
+}
+
+bool calibration_manager_save_marker_capture(
+    uint32_t *job_id, char *path, size_t path_size)
+{
+    if (job_id == NULL || path == NULL || path_size == 0u ||
+        __atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE)) {
+        return false;
+    }
+    *job_id = 0u;
+    path[0] = '\0';
+    calibration_training_marker_snapshot_t snapshot;
+    const uint32_t raw_word_count = __atomic_load_n(
+        &s_marker_raw_word_count, __ATOMIC_ACQUIRE);
+    const uint32_t raw_sample_count = __atomic_load_n(
+        &s_marker_raw_sample_count, __ATOMIC_ACQUIRE);
+    if (!calibration_training_marker_get_snapshot(&s_marker_store, &snapshot) ||
+        (snapshot.state != CALIBRATION_TRAINING_MARKER_ACCEPTED &&
+         snapshot.state != CALIBRATION_TRAINING_MARKER_REJECTED) ||
+        raw_word_count == 0u ||
+        raw_word_count > TDMA_PIO_SPI_MARKER_BUFFER_WORDS ||
+        raw_sample_count == 0u ||
+        raw_sample_count > raw_word_count * 16u ||
+        raw_word_count != snapshot.dma_capture_count) {
+        return false;
+    }
+    const uint32_t incoming_link = snapshot.predecessor_slot;
+    const int path_written = snapshot.role ==
+            CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR
+        ? snprintf(path, path_size,
+                   "/cal/marker_node%lu_loop_g%lu_e%lu.json",
+                   (unsigned long)snapshot.logical_slot,
+                   (unsigned long)snapshot.calibration_generation,
+                   (unsigned long)snapshot.train_epoch)
+        : snprintf(path, path_size,
+                   "/cal/marker_node%lu_link%lu_g%lu_e%lu.json",
+                   (unsigned long)snapshot.logical_slot,
+                   (unsigned long)incoming_link,
+                   (unsigned long)snapshot.calibration_generation,
+                   (unsigned long)snapshot.train_epoch);
+    if (path_written <= 0 || (size_t)path_written >= path_size) return false;
+
+    int written = snprintf(
+        s_marker_capture_payload, sizeof(s_marker_capture_payload),
+        "{\n"
+        "  \"schema\": \"HAOFV_MARKER_CAPTURE_V1\",\n"
+        "  \"node\": %lu,\n"
+        "  \"incoming_link\": %lu,\n"
+        "  \"incoming_link_source_node\": %lu,\n"
+        "  \"incoming_link_destination_node\": %lu,\n"
+        "  \"build_id\": %llu,\n"
+        "  \"calibration_generation\": %lu,\n"
+        "  \"epoch\": %lu,\n"
+        "  \"offset_sample_count\": %ld,\n"
+        "  \"tick_resolution_ns\": %lu,\n"
+        "  \"raw_interleaved_word_count\": %lu,\n"
+        "  \"raw_interleaved_sample_count\": %lu,\n"
+        "  \"raw_interleaved_sample_capacity\": %lu,\n"
+        "  \"channel_0\": \"forward_output\",\n"
+        "  \"channel_1\": \"incoming_link\",\n"
+        "  \"link_delay_model\": \"source_node_driver_delay + link_path_delay + destination_node_receiver_delay + link_capture_quantization\",\n"
+        "  \"raw_interleaved_words\": [",
+        (unsigned long)snapshot.logical_slot,
+        (unsigned long)incoming_link,
+        (unsigned long)snapshot.predecessor_slot,
+        (unsigned long)snapshot.logical_slot,
+        (unsigned long long)snapshot.build_id,
+        (unsigned long)snapshot.calibration_generation,
+        (unsigned long)snapshot.train_epoch,
+        (long)snapshot.offset_sample_count,
+        (unsigned long)snapshot.tick_resolution_ns,
+        (unsigned long)raw_word_count,
+        (unsigned long)raw_sample_count,
+        (unsigned long)(raw_word_count * 16u));
+    if (written <= 0 || (size_t)written >= sizeof(s_marker_capture_payload)) {
+        return false;
+    }
+    size_t used = (size_t)written;
+    for (uint32_t index = 0u; index < raw_word_count; index++) {
+        written = snprintf(s_marker_capture_payload + used,
+                           sizeof(s_marker_capture_payload) - used,
+                           "%s%lu", index == 0u ? "" : ",",
+                           (unsigned long)s_marker_raw_capture[index]);
+        if (written <= 0 || (size_t)written >=
+                sizeof(s_marker_capture_payload) - used) {
+            return false;
+        }
+        used += (size_t)written;
+    }
+    written = snprintf(s_marker_capture_payload + used,
+                       sizeof(s_marker_capture_payload) - used, "]\n}\n");
+    if (written <= 0 || (size_t)written >=
+            sizeof(s_marker_capture_payload) - used) {
+        return false;
+    }
+    used += (size_t)written;
+    const uint32_t crc32 = ota_crc32_compute(
+        (const uint8_t *)s_marker_capture_payload, used);
+    uint32_t transaction_id = 0u;
+    if (!storage_manager_begin_file_write(path, (uint32_t)used, crc32,
+                                          &transaction_id) ||
+        !storage_manager_write_file_chunk(
+            transaction_id, 0u,
+            (const uint8_t *)s_marker_capture_payload, used) ||
+        !storage_manager_commit_file_write(transaction_id, job_id)) {
+        (void)storage_manager_abort_file_write(transaction_id);
+        *job_id = 0u;
+        return false;
+    }
     return true;
 }
 
