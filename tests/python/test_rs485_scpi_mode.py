@@ -10,6 +10,8 @@ HEADER = ROOT / "middleware/scpi_port/inc/scpi_communication_uart_commands.h"
 SOURCE = ROOT / "middleware/scpi_port/src/scpi_communication_uart_commands.c"
 DRIVER = ROOT / "drivers/mcu/uart/src/drv_rs485.c"
 MODBUS_COMPONENT = ROOT / "components/communication/rs485_modbus"
+COMMUNICATION_HEADER = MODBUS_COMPONENT / "inc/rs485_communication.h"
+COMMUNICATION_SOURCE = MODBUS_COMPONENT / "src/rs485_communication.c"
 COMMANDS = ROOT / "docs/interface/SCPI_COMMANDS.md"
 PROBE = ROOT / "tools/scpi_query/rs485_scpi_loopback_probe.scpi"
 
@@ -20,6 +22,18 @@ def test_usb_scpi_mode_commands_are_registered_for_uart_rs485_channel():
     assert '"COMMunication:SERial:UART#:MODE?"' in header
     assert '"COMMunication:SERial:UART#:BAUD"' in header
     assert "scpi_cmd_uart_mode" in header
+
+
+def test_baud_configuration_is_owned_by_communication_component():
+    header = COMMUNICATION_HEADER.read_text(encoding="utf-8")
+    source = COMMUNICATION_SOURCE.read_text(encoding="utf-8")
+    scpi = SOURCE.read_text(encoding="utf-8")
+    board_config = (ROOT / "config/project_config.h").read_text(encoding="utf-8")
+    assert "rs485_communication_set_baud_hz" in header
+    assert "rs485_communication_baud_hz" in header
+    assert "RS485_MODBUS_MASTER_WAITING" in source
+    assert "rs485_communication_set_baud_hz(baud)" in scpi
+    assert "#define BOARD_UART_BAUD_HZ 115200u" in board_config
 
 
 def test_mode_selection_is_explicit_and_defaults_to_scpi():
@@ -42,7 +56,7 @@ def test_rx_status_projects_dma_backend_and_echo_health():
     assert "UART1:RX:STATus?" in PROBE.read_text(encoding="utf-8")
 
 
-def test_mode_does_not_claim_backend_ready():
+def test_mode_readiness_is_distinct_from_ota_readiness():
     docs = (ROOT / "docs/communication/COMMUNICATION_RS485_ARCHITECTURE.md").read_text(
         encoding="utf-8"
     )
@@ -50,7 +64,8 @@ def test_mode_does_not_claim_backend_ready():
         encoding="utf-8"
     )
     assert "不得宣称 RS485 数据面已 ready" in docs
-    assert "PENDING_BACKEND" in todo
+    assert "V2 OTA ingress" in todo
+    assert "`[ ]`" in todo
 
 
 def test_modbus_protocol_and_service_live_in_communication_component():

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "drv_rs485.h"
+#include "rs485_communication.h"
 #include "rs485_modbus.h"
 
 typedef enum {
@@ -56,7 +57,7 @@ static uint32_t scpi_uart_channel(scpi_t *context)
 scpi_result_t scpi_cmd_uart_baud_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, scpi_uart_channel(context));
-    SCPI_ResultUInt32(context, drv_rs485_baud_hz());
+    SCPI_ResultUInt32(context, rs485_communication_baud_hz());
     return SCPI_RES_OK;
 }
 
@@ -65,7 +66,7 @@ scpi_result_t scpi_cmd_uart_baud(scpi_t *context)
     uint32_t baud = 0u;
     if (scpi_uart_channel(context) != 1u ||
         SCPI_ParamUInt32(context, &baud, TRUE) != TRUE ||
-        !drv_rs485_set_baud_hz(baud)) {
+        !rs485_communication_set_baud_hz(baud)) {
         return SCPI_RES_ERR;
     }
     return scpi_port_result_accepted(context);

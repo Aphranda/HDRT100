@@ -452,6 +452,7 @@ bool drv_rs485_ready(void)
 bool drv_rs485_set_baud_hz(uint32_t baud_hz)
 {
     if (!s_ready || baud_hz == 0u || baud_hz > 4000000u ||
+        s_tx_active ||
         (uart_get_hw(s_config.instance)->fr & UART_UARTFR_BUSY_BITS) != 0u) {
         ++s_error_count;
         return false;

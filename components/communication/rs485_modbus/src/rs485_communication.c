@@ -15,6 +15,23 @@ bool rs485_communication_init(void)
     return rs485_modbus_device_init();
 }
 
+bool rs485_communication_set_baud_hz(uint32_t baud_hz)
+{
+    /* Do not retime a live transaction.  The Modbus owner has to return to
+     * IDLE first so its frame-gap and response deadline are derived from one
+     * coherent baud value.  The driver separately guards an active TX lease. */
+    if (!rs485_modbus_service_ready() ||
+        rs485_modbus_master_state() == RS485_MODBUS_MASTER_WAITING) {
+        return false;
+    }
+    return drv_rs485_set_baud_hz(baud_hz);
+}
+
+uint32_t rs485_communication_baud_hz(void)
+{
+    return drv_rs485_baud_hz();
+}
+
 static void rs485_scpi_service(void)
 {
     if (!scpi_uart_mode_is_scpi()) {
