@@ -52,6 +52,10 @@ Last updated: 2026-08-24
 | T21 | 项目↔harness 插件同步规则：SKILL.md 更新后同步到 harness 副本的命令/约定 | 插件安装引出 | done（2026-08-19） | 实现为 `--skill-sync`：live 脚本+模板→项目 skill→harness skill 三级镜像；全量检查自动含 skill-sync 自检（自我指涉门禁）；pytest 26 通过 |
 | T22 | **skill 副本同步机制**（自我指涉）：`--skill-sync` 一键同步 + 全量检查含 skill-sync 自检 | 三副本漂移风险 | done（2026-08-19） | 漂移实测：篡改 harness 快照 → FAIL 拦截 → --skill-sync 恢复 → 全绿 |
 | T23 | **域文档标准三件套**：Architecture/TODO/Task Progress 事实边界、互相引用和禁止复制规则 | DOCS-FLASH-01 / 用户域内约束 | done（2026-08-22） | 已写入 DOCS_REGRESSION_PLAN C12、REVIEW §8，并在 Flash 三份域文档落点；registry 新增契约并保持 pending |
+| T24 | registry 条款落点表 module 列校正：HAOFV-137/143/146 改真实代码符号（drv_flash_write + flash_transaction_ao / trigger_vector / trigger_fb）；检查器补条款表 module 列存在性校验（现为盲区） | 2026-08-24 二次审查 P2 | pending | — |
+| T25 | 外部绝对路径清理：`D:\Work\ADS_AUTO_SIM\docs` 3 处（docs/README.md:18、docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md:11、docs/docs/DOCS_MIGRATION_TODO.md:107）改相对/仓库根 | 2026-08-24 二次审查 P2 | pending | — |
+| T26 | docs/README.md:166 过期描述：temp/HAOFV_REFRESH_PLAN.md「8-26 截止」→ 已闭环（T18 08-24 done） | 2026-08-24 二次审查 P3 | pending | — |
+| T27 | docs/arch/HAOFV_MAINTENANCE_TODO.md:423 硬数字「约 190 条」补代码符号/快照标注（对照 RISK_EVALUATION 的 s_ecc_table[] 证据） | 2026-08-24 二次审查 P3 | pending | — |
 
 ## 每步反馈记录
 
