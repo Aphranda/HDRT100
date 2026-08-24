@@ -524,6 +524,8 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_calibration_commands.c
         middleware/scpi_port/src/scpi_communication_biss_commands.c
         middleware/scpi_port/src/scpi_communication_uart_commands.c
+        components/communication/rs485_modbus/src/rs485_modbus.c
+        components/communication/rs485_modbus/src/rs485_communication.c
         middleware/scpi_port/src/scpi_config_commands.c
         middleware/scpi_port/src/scpi_port.c
         middleware/scpi_port/src/scpi_loop_engine_commands.c
@@ -651,6 +653,7 @@ function(project_configure_app_target target_name app_name linker_script)
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_log_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/portable_ota_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/middleware/scpi_port/inc
+        ${CMAKE_CURRENT_LIST_DIR}/components/communication/rs485_modbus/inc
         $<$<OR:$<BOOL:${PROJECT_ENABLE_USBTMC}>,$<BOOL:${PROJECT_ENABLE_USB_RUNTIME_SWITCH}>>:${CMAKE_CURRENT_LIST_DIR}/middleware/usbtmc_scpi_port/inc>
         ${CMAKE_CURRENT_LIST_DIR}/middleware/u8g2_port/inc
         ${CMAKE_CURRENT_LIST_DIR}/osal/inc
