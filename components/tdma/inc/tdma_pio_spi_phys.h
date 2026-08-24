@@ -64,6 +64,11 @@
 #define TDMA_PIO_SPI_MARKER_FORWARD_DELAY_CYCLES 1u
 #define TDMA_PIO_SPI_MARKER_MAX_CAPTURE_DELAY_CYCLES 31u
 #define TDMA_PIO_SPI_MARKER_TIMEOUT_NS 3000000000ull
+#define TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS 256u
+#define TDMA_PIO_SPI_DATA_TRAIN_SNAPSHOT_VERSION 1u
+#define TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES 32u
+#define TDMA_PIO_SPI_DATA_TRAIN_MAX_DELAY_CYCLES 1000000u
+#define TDMA_PIO_SPI_DATA_TRAIN_TIMEOUT_NS 3000000000ull
 #define TDMA_PIO_SPI_CLK_TRAIN_SNAPSHOT_VERSION 1u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS 256u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_DEFAULT_HZ 50000000u
@@ -117,7 +122,79 @@ typedef enum {
     TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_INITIATOR = 7u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_RESPONDER = 8u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_MARKER = 9u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_TRAIN = 10u,
 } tdma_pio_spi_program_persona_t;
+
+typedef enum {
+    TDMA_PIO_SPI_DATA_TRAIN_IDLE = 0u,
+    TDMA_PIO_SPI_DATA_TRAIN_ARMED = 1u,
+    TDMA_PIO_SPI_DATA_TRAIN_RUNNING = 2u,
+    TDMA_PIO_SPI_DATA_TRAIN_COMPLETE = 3u,
+    TDMA_PIO_SPI_DATA_TRAIN_ERROR = 4u,
+} tdma_pio_spi_data_train_state_t;
+
+typedef enum {
+    TDMA_PIO_SPI_DATA_TRAIN_ROLE_NONE = 0u,
+    /* The initiator emits CS/marker downstream and captures the DATA return. */
+    TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR = 1u,
+    /* The responder waits for incoming CS and emits DATA upstream. */
+    TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER = 2u,
+} tdma_pio_spi_data_train_role_t;
+
+typedef enum {
+    TDMA_PIO_SPI_DATA_TRAIN_REJECT_NONE = 0u,
+    TDMA_PIO_SPI_DATA_TRAIN_REJECT_BAD_ARGUMENT = 1u,
+    TDMA_PIO_SPI_DATA_TRAIN_REJECT_RESOURCE = 2u,
+    TDMA_PIO_SPI_DATA_TRAIN_REJECT_DMA = 3u,
+    TDMA_PIO_SPI_DATA_TRAIN_REJECT_CAPTURE_SHORT = 4u,
+    TDMA_PIO_SPI_DATA_TRAIN_REJECT_PIO_STALL = 5u,
+    TDMA_PIO_SPI_DATA_TRAIN_REJECT_TIMEOUT = 6u,
+} tdma_pio_spi_data_train_reject_t;
+
+#define TDMA_PIO_SPI_DATA_TRAIN_FLAG_DIAGNOSTIC_ONLY (1u << 0u)
+#define TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_MARKER (1u << 1u)
+#define TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_DATA (1u << 2u)
+#define TDMA_PIO_SPI_DATA_TRAIN_FLAG_MARKER_DMA_COMPLETE (1u << 3u)
+#define TDMA_PIO_SPI_DATA_TRAIN_FLAG_DATA_DMA_COMPLETE (1u << 4u)
+#define TDMA_PIO_SPI_DATA_TRAIN_FLAG_SOURCE_IRQ (1u << 5u)
+
+typedef struct {
+    uint32_t role;
+    const uint32_t *marker_words;
+    uint32_t marker_word_count;
+    const uint32_t *data_words;
+    uint32_t data_word_count;
+    uint32_t data_sample_count;
+    uint32_t capture_sample_count;
+    uint32_t marker_to_data_delay_cycles;
+    uint32_t source_phase_delay_cycles;
+    uint32_t phase_delay_cycles;
+    uint32_t epoch;
+} tdma_pio_spi_data_train_request_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t state;
+    uint32_t role;
+    uint32_t flags;
+    uint32_t reject_reason;
+    uint32_t epoch;
+    uint32_t marker_word_count;
+    uint32_t data_word_count;
+    uint32_t data_sample_count;
+    uint32_t capture_word_count;
+    uint32_t capture_sample_count;
+    uint32_t marker_to_data_delay_cycles;
+    uint32_t source_phase_delay_cycles;
+    uint32_t phase_delay_cycles;
+    uint32_t marker_dma_remaining;
+    uint32_t data_dma_remaining;
+    uint32_t dma_overrun_count;
+    uint32_t pio_stall_count;
+    uint32_t timeout_count;
+    uint64_t marker_capture_tick;
+    uint64_t data_capture_tick;
+} tdma_pio_spi_data_train_snapshot_t;
 
 typedef enum {
     TDMA_PIO_SPI_MARKER_IDLE = 0u,
@@ -436,6 +513,9 @@ typedef struct {
     volatile uint32_t marker_guard;
     tdma_pio_spi_marker_snapshot_t marker;
     uint64_t marker_deadline_ns;
+    volatile uint32_t data_train_guard;
+    tdma_pio_spi_data_train_snapshot_t data_train;
+    uint64_t data_train_deadline_ns;
 } tdma_pio_spi_phys_t;
 
 /* Called by the ring adapter start() once the active ring config is known.
@@ -487,6 +567,20 @@ bool tdma_pio_spi_phys_get_marker_snapshot(
     const tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_marker_snapshot_t *snapshot);
 bool tdma_pio_spi_phys_copy_marker_capture(
+    const tdma_pio_spi_phys_t *phys,
+    uint32_t *capture_words,
+    size_t capture_word_capacity,
+    size_t *capture_word_count);
+bool tdma_pio_spi_phys_data_train_arm(
+    tdma_pio_spi_phys_t *phys,
+    const tdma_pio_spi_data_train_request_t *request);
+bool tdma_pio_spi_phys_data_train_inject(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_data_train_stop(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_data_train_service(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_get_data_train_snapshot(
+    const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_data_train_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_copy_data_train_capture(
     const tdma_pio_spi_phys_t *phys,
     uint32_t *capture_words,
     size_t capture_word_capacity,

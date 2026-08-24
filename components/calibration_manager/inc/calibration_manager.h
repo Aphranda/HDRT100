@@ -10,6 +10,7 @@
 #include "calibration_bias.h"
 #include "calibration_clk_coded.h"
 #include "calibration_training_marker.h"
+#include "calibration_training_data.h"
 #include "tdma_pio_spi_phys.h"
 
 typedef struct {
@@ -86,6 +87,28 @@ void calibration_manager_stop_marker_training(void);
 bool calibration_manager_get_marker_training_snapshot(
     calibration_training_marker_snapshot_t *snapshot);
 bool calibration_manager_save_marker_capture(
+    uint32_t *job_id, char *path, size_t path_size);
+bool calibration_manager_request_data_training(
+    uint32_t source_node,
+    uint32_t destination_node,
+    uint32_t codebook_id,
+    uint32_t train_epoch,
+    uint32_t train_sequence,
+    uint32_t calibration_generation,
+    uint32_t marker_to_data_samples,
+    uint32_t base_delay_ns,
+    int32_t marker_offset_sample_count,
+    int32_t configured_data_offset_sample_count,
+    int32_t search_start_offset_sample,
+    int32_t search_end_offset_sample,
+    uint32_t guard_sample_count,
+    uint32_t max_best_distance,
+    uint32_t min_margin);
+bool calibration_manager_inject_data_training(void);
+void calibration_manager_stop_data_training(void);
+bool calibration_manager_get_data_training_snapshot(
+    calibration_training_data_snapshot_t *snapshot);
+bool calibration_manager_save_data_capture(
     uint32_t *job_id, char *path, size_t path_size);
 bool calibration_manager_request_p3(
     uint32_t role, uint32_t baud_hz, uint32_t pulse_count,

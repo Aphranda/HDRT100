@@ -37,6 +37,58 @@ static volatile uint32_t s_marker_raw_word_count;
 static volatile uint32_t s_marker_raw_sample_count;
 static char s_marker_capture_payload[8192];
 static volatile bool s_marker_active;
+static calibration_training_data_store_t s_data_store;
+static calibration_clk_coded_workspace_t s_data_workspace;
+static uint32_t s_data_capture[TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS];
+static volatile uint32_t s_data_capture_word_count;
+static volatile uint32_t s_data_capture_sample_count;
+static char s_data_capture_payload[8192];
+static volatile bool s_data_active;
+
+typedef enum {
+    CALIBRATION_DATA_INTENT_NONE = 0u,
+    CALIBRATION_DATA_INTENT_ARM = 1u,
+    CALIBRATION_DATA_INTENT_INJECT = 2u,
+    CALIBRATION_DATA_INTENT_STOP = 3u,
+} calibration_data_intent_opcode_t;
+
+typedef struct {
+    volatile uint32_t guard;
+    uint32_t sequence;
+    uint32_t opcode;
+    calibration_training_data_request_t request;
+} calibration_data_intent_t;
+
+static calibration_data_intent_t s_data_intent;
+static uint32_t s_data_intent_next_sequence;
+static volatile uint32_t s_data_intent_consumed_sequence;
+static calibration_training_data_request_t s_data_active_request;
+
+static void calibration_manager_data_publish(
+    calibration_data_intent_opcode_t opcode,
+    const calibration_training_data_request_t *request)
+{
+    (void)__atomic_add_fetch(&s_data_intent.guard, 1u, __ATOMIC_ACQ_REL);
+    s_data_intent.sequence = ++s_data_intent_next_sequence;
+    s_data_intent.opcode = (uint32_t)opcode;
+    if (request != NULL) s_data_intent.request = *request;
+    (void)__atomic_add_fetch(&s_data_intent.guard, 1u, __ATOMIC_RELEASE);
+}
+
+static bool calibration_manager_data_read(calibration_data_intent_t *intent)
+{
+    if (intent == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin =
+            __atomic_load_n(&s_data_intent.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        *intent = s_data_intent;
+        const uint32_t end =
+            __atomic_load_n(&s_data_intent.guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) return true;
+    }
+    return false;
+}
 
 typedef enum {
     CALIBRATION_MARKER_INTENT_NONE = 0u,
@@ -92,6 +144,7 @@ static void calibration_manager_publish_training_activity(void)
         training_loopback.armed != 0u;
     const bool calibration_active =
         loopback_active ||
+        __atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE) ||
         __atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE) ||
         __atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) ||
         s_p3_snapshot.raw.state == TDMA_PIO_SPI_P3_ARMED;
@@ -282,6 +335,16 @@ bool calibration_manager_init(void)
     __atomic_store_n(&s_marker_active, false, __ATOMIC_RELEASE);
     s_marker_intent_next_sequence = 0u;
     s_marker_intent_consumed_sequence = 0u;
+    calibration_training_data_store_init(&s_data_store);
+    memset(&s_data_workspace, 0, sizeof(s_data_workspace));
+    memset(s_data_capture, 0, sizeof(s_data_capture));
+    __atomic_store_n(&s_data_capture_word_count, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_data_capture_sample_count, 0u, __ATOMIC_RELEASE);
+    memset(&s_data_intent, 0, sizeof(s_data_intent));
+    memset(&s_data_active_request, 0, sizeof(s_data_active_request));
+    __atomic_store_n(&s_data_active, false, __ATOMIC_RELEASE);
+    s_data_intent_next_sequence = 0u;
+    s_data_intent_consumed_sequence = 0u;
     memset(&s_clk_coded_active_request, 0,
            sizeof(s_clk_coded_active_request));
     memset(&s_clk_coded_active_gate, 0, sizeof(s_clk_coded_active_gate));
@@ -716,6 +779,135 @@ static void calibration_manager_marker_finish_core1(
     __atomic_store_n(&s_marker_active, false, __ATOMIC_RELEASE);
 }
 
+static void calibration_manager_data_finish_core1(
+    const tdma_pio_spi_data_train_snapshot_t *raw)
+{
+    const bool initiator =
+        raw->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR;
+    if (!initiator) {
+        __atomic_store_n(&s_data_capture_word_count, 0u, __ATOMIC_RELEASE);
+        __atomic_store_n(&s_data_capture_sample_count, 0u, __ATOMIC_RELEASE);
+        calibration_training_data_snapshot_t snapshot;
+        if (calibration_training_data_get_snapshot(&s_data_store, &snapshot)) {
+            snapshot.state = raw->state == TDMA_PIO_SPI_DATA_TRAIN_COMPLETE
+                                 ? CALIBRATION_TRAINING_DATA_ACCEPTED
+                                 : CALIBRATION_TRAINING_DATA_REJECTED;
+            snapshot.reject_reason =
+                raw->state == TDMA_PIO_SPI_DATA_TRAIN_COMPLETE
+                    ? CALIBRATION_TRAINING_DATA_REJECT_NONE
+                    : CALIBRATION_TRAINING_DATA_REJECT_DMA;
+            snapshot.flags |=
+                CALIBRATION_TRAINING_DATA_FLAG_HARDWARE_MARKER;
+            if ((raw->flags &
+                 TDMA_PIO_SPI_DATA_TRAIN_FLAG_DATA_DMA_COMPLETE) != 0u &&
+                (raw->flags &
+                 TDMA_PIO_SPI_DATA_TRAIN_FLAG_MARKER_DMA_COMPLETE) != 0u) {
+                snapshot.flags |= CALIBRATION_TRAINING_DATA_FLAG_DMA_COMPLETE;
+            }
+            snapshot.dma_overrun_count = raw->dma_overrun_count;
+            snapshot.pio_stall_count = raw->pio_stall_count;
+            snapshot.timeout_count = raw->timeout_count;
+            snapshot.marker_capture_tick = raw->marker_capture_tick;
+            snapshot.data_capture_tick = raw->data_capture_tick;
+            (void)calibration_training_data_publish_core1(
+                &s_data_store, &snapshot);
+        }
+        __atomic_store_n(&s_data_active, false, __ATOMIC_RELEASE);
+        return;
+    }
+
+    size_t capture_words = 0u;
+    memset(s_data_capture, 0, sizeof(s_data_capture));
+    const bool copied = raw->state == TDMA_PIO_SPI_DATA_TRAIN_COMPLETE &&
+        tdma_runtime_owner_copy_data_train_capture_core1(
+            s_data_capture, TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS,
+            &capture_words);
+    const uint32_t search_samples = (uint32_t)(
+        s_data_active_request.search_end_offset_sample -
+        s_data_active_request.search_start_offset_sample + 1);
+    const calibration_clk_marker_config_t config = {
+        .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+        .codebook_id = (uint8_t)s_data_active_request.data_codebook_id,
+        .epoch = (uint8_t)s_data_active_request.train_epoch,
+        .master_slot = (uint8_t)s_data_active_request.source_node,
+        .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
+    };
+    const calibration_clk_correlation_gate_t gate = {
+        .min_lag_sample = 0u,
+        .max_lag_sample = search_samples - 1u,
+        .max_best_distance = s_data_active_request.max_best_distance,
+        .min_margin = s_data_active_request.min_margin,
+    };
+    calibration_clk_correlation_result_t correlation;
+    memset(&correlation, 0, sizeof(correlation));
+    const bool correlated = copied && calibration_clk_marker_correlate(
+        &config, s_data_workspace.expected_words,
+        s_data_workspace.marker.raw_samples,
+        s_data_capture, raw->capture_sample_count, &gate, &correlation);
+
+    uint32_t flags = CALIBRATION_TRAINING_DATA_FLAG_DIAGNOSTIC_ONLY;
+    if ((raw->flags & TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_MARKER) != 0u) {
+        flags |= CALIBRATION_TRAINING_DATA_FLAG_HARDWARE_MARKER;
+    }
+    if ((raw->flags & TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_DATA) != 0u) {
+        flags |= CALIBRATION_TRAINING_DATA_FLAG_HARDWARE_DATA_CAPTURE;
+    }
+    if (copied &&
+        (raw->flags & TDMA_PIO_SPI_DATA_TRAIN_FLAG_DATA_DMA_COMPLETE) != 0u) {
+        flags |= CALIBRATION_TRAINING_DATA_FLAG_DMA_COMPLETE;
+    }
+    if (correlated && correlation.accepted != 0u &&
+        correlation.marker_flags == CALIBRATION_CLK_MARKER_FLAG_ALL) {
+        flags |= CALIBRATION_TRAINING_DATA_FLAG_CRC_VALID |
+                 CALIBRATION_TRAINING_DATA_FLAG_EPOCH_VALID |
+                 CALIBRATION_TRAINING_DATA_FLAG_SEQUENCE_VALID;
+        if (correlation.detected_polarity ==
+            s_data_active_request.expected_polarity) {
+            flags |= CALIBRATION_TRAINING_DATA_FLAG_POLARITY_VALID;
+        }
+    }
+    const calibration_training_data_evidence_t evidence = {
+        .train_epoch = s_data_active_request.train_epoch,
+        .train_sequence = s_data_active_request.train_sequence,
+        .observed_crc32 = correlated && correlation.accepted != 0u
+                              ? s_data_active_request.data_crc32
+                              : 0u,
+        .calibration_generation =
+            s_data_active_request.calibration_generation,
+        .topology_generation = s_data_active_request.topology_generation,
+        .topology_crc32 = s_data_active_request.topology_crc32,
+        .profile_crc32 = s_data_active_request.profile_crc32,
+        .schedule_crc32 = s_data_active_request.schedule_crc32,
+        .flags = flags,
+        .polarity = correlation.detected_polarity,
+        .correlation_reject_reason = correlated
+                                         ? correlation.reject_reason
+                                         : CALIBRATION_CLK_CORRELATION_REJECT_BAD_ARGUMENT,
+        .best_lag_sample = correlation.best_lag_sample,
+        .best_distance = correlation.best_distance,
+        .second_lag_sample = correlation.second_lag_sample,
+        .second_distance = correlation.second_distance,
+        .margin = correlation.margin,
+        .captured_sample_count = copied ? raw->capture_sample_count : 0u,
+        .expected_sample_count = s_data_workspace.marker.raw_samples,
+        .dma_overrun_count = raw->dma_overrun_count,
+        .pio_stall_count = raw->pio_stall_count,
+        .timeout_count = raw->timeout_count,
+        .marker_capture_tick = raw->marker_capture_tick,
+        .data_capture_tick = raw->data_capture_tick +
+                             correlation.best_lag_sample,
+    };
+    (void)calibration_training_data_evaluate_core1(
+        &s_data_store, &s_data_active_request, &evidence);
+    __atomic_store_n(&s_data_capture_word_count,
+                     copied ? (uint32_t)capture_words : 0u,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&s_data_capture_sample_count,
+                     copied ? raw->capture_sample_count : 0u,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&s_data_active, false, __ATOMIC_RELEASE);
+}
+
 void calibration_manager_service_core1(void)
 {
     tdma_ring_runtime_snapshot_t ring;
@@ -725,7 +917,134 @@ void calibration_manager_service_core1(void)
     tdma_runtime_owner_coded_service_core1();
     tdma_runtime_owner_p3_service_core1();
     tdma_runtime_owner_marker_service_core1();
+    tdma_runtime_owner_data_train_service_core1();
     calibration_manager_publish_training_activity();
+
+    calibration_data_intent_t data_intent;
+    if (calibration_manager_data_read(&data_intent) &&
+        data_intent.sequence != __atomic_load_n(
+            &s_data_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        if (data_intent.opcode == CALIBRATION_DATA_INTENT_STOP) {
+            tdma_runtime_owner_data_train_stop_core1();
+            __atomic_store_n(&s_data_active, false, __ATOMIC_RELEASE);
+            calibration_training_data_snapshot_t idle;
+            memset(&idle, 0, sizeof(idle));
+            idle.version = CALIBRATION_TRAINING_DATA_SNAPSHOT_VERSION;
+            idle.state = CALIBRATION_TRAINING_DATA_IDLE;
+            idle.flags = CALIBRATION_TRAINING_DATA_FLAG_DIAGNOSTIC_ONLY;
+            (void)calibration_training_data_publish_core1(
+                &s_data_store, &idle);
+        } else if (data_intent.opcode == CALIBRATION_DATA_INTENT_ARM &&
+                   stopped &&
+                   !__atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE)) {
+            const calibration_clk_marker_config_t config = {
+                .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+                .codebook_id =
+                    (uint8_t)data_intent.request.data_codebook_id,
+                .epoch = (uint8_t)data_intent.request.train_epoch,
+                .master_slot = (uint8_t)data_intent.request.source_node,
+                .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
+            };
+            calibration_clk_marker_descriptor_t descriptor;
+            if (calibration_clk_marker_build(
+                    &config, s_data_workspace.expected_words,
+                    CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &descriptor)) {
+                tdma_service_ring_runtime_config_t staged;
+                if (tdma_runtime_owner_get_staged_ring_config(&staged)) {
+                    const bool local_initiator = staged.local_slot_id ==
+                                                 data_intent.request.source_node;
+                    const uint32_t base_samples =
+                        data_intent.request.base_delay_ns /
+                        data_intent.request.sample_period_ns;
+                    /* The DATA response traverses two physical links after
+                     * the locally generated marker: CS source->responder,
+                     * then DATA responder->initiator.  base_delay is one
+                     * half-link baseline, so the complete round trip is
+                     * 4 * base_samples.  Keep the dynamic phase within the
+                     * PIO instruction's 5-bit delay field and place the
+                     * additional 2 * base_samples in the initiator's PIO
+                     * long-wait counter. */
+                    const uint32_t initiator_wait_samples =
+                        data_intent.request.marker_to_data_samples +
+                        2u * base_samples;
+                    const int32_t marker_phase =
+                        (int32_t)descriptor.half_chip_samples +
+                        data_intent.request.marker_offset_sample_count;
+                    const int32_t initiator_capture_phase =
+                        marker_phase +
+                        (int32_t)(2u * base_samples) +
+                        data_intent.request.
+                            configured_data_offset_sample_count +
+                        data_intent.request.search_start_offset_sample;
+                    const uint32_t search_samples = (uint32_t)(
+                        data_intent.request.search_end_offset_sample -
+                        data_intent.request.search_start_offset_sample + 1);
+                    const tdma_pio_spi_data_train_request_t raw_request = {
+                        .role = local_initiator
+                                    ? TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR
+                                    : TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER,
+                        .marker_words = local_initiator
+                                            ? s_data_workspace.expected_words
+                                            : NULL,
+                        .marker_word_count = local_initiator
+                                                 ? descriptor.raw_words : 0u,
+                        .data_words = local_initiator
+                                          ? NULL
+                                          : s_data_workspace.expected_words,
+                        .data_word_count = local_initiator
+                                               ? 0u : descriptor.raw_words,
+                        .data_sample_count = descriptor.raw_samples,
+                        .capture_sample_count = local_initiator
+                                                    ? descriptor.raw_samples +
+                                                          search_samples - 1u
+                                                    : 0u,
+                        .marker_to_data_delay_cycles =
+                            local_initiator
+                                ? initiator_wait_samples
+                                : data_intent.request.marker_to_data_samples,
+                        .source_phase_delay_cycles =
+                            (uint32_t)marker_phase,
+                        .phase_delay_cycles = local_initiator
+                                                  ? (uint32_t)
+                                                        initiator_capture_phase
+                                                  : (uint32_t)marker_phase,
+                        .epoch = data_intent.request.train_epoch,
+                    };
+                    s_data_workspace.marker = descriptor;
+                    if (calibration_training_data_prepare_core1(
+                            &s_data_store, &data_intent.request) &&
+                        tdma_runtime_owner_data_train_arm_core1(
+                            &raw_request)) {
+                        s_data_active_request = data_intent.request;
+                        __atomic_store_n(&s_data_active, true,
+                                         __ATOMIC_RELEASE);
+                    }
+                }
+            }
+        } else if (data_intent.opcode == CALIBRATION_DATA_INTENT_INJECT &&
+                   stopped &&
+                   __atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE) &&
+                   tdma_runtime_owner_data_train_inject_core1()) {
+            calibration_training_data_snapshot_t running;
+            if (calibration_training_data_get_snapshot(
+                    &s_data_store, &running)) {
+                running.state = CALIBRATION_TRAINING_DATA_RUNNING;
+                (void)calibration_training_data_publish_core1(
+                    &s_data_store, &running);
+            }
+        }
+        __atomic_store_n(&s_data_intent_consumed_sequence,
+                         data_intent.sequence, __ATOMIC_RELEASE);
+    }
+
+    if (__atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE)) {
+        tdma_pio_spi_data_train_snapshot_t raw;
+        if (tdma_runtime_owner_get_data_train_snapshot(&raw) &&
+            (raw.state == TDMA_PIO_SPI_DATA_TRAIN_COMPLETE ||
+             raw.state == TDMA_PIO_SPI_DATA_TRAIN_ERROR)) {
+            calibration_manager_data_finish_core1(&raw);
+        }
+    }
 
     calibration_marker_intent_t marker_intent;
     if (calibration_manager_marker_read(&marker_intent) &&
@@ -1133,6 +1452,295 @@ bool calibration_manager_get_marker_training_snapshot(
     calibration_training_marker_snapshot_t *snapshot)
 {
     return calibration_training_marker_get_snapshot(&s_marker_store, snapshot);
+}
+
+bool calibration_manager_request_data_training(
+    uint32_t source_node,
+    uint32_t destination_node,
+    uint32_t codebook_id,
+    uint32_t train_epoch,
+    uint32_t train_sequence,
+    uint32_t calibration_generation,
+    uint32_t marker_to_data_samples,
+    uint32_t base_delay_ns,
+    int32_t marker_offset_sample_count,
+    int32_t configured_data_offset_sample_count,
+    int32_t search_start_offset_sample,
+    int32_t search_end_offset_sample,
+    uint32_t guard_sample_count,
+    uint32_t max_best_distance,
+    uint32_t min_margin)
+{
+    tdma_ring_runtime_snapshot_t ring;
+    tdma_service_ring_runtime_config_t staged;
+    calibration_data_intent_t pending;
+    uint64_t board_unique_id = 0u;
+    if (codebook_id > CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32 ||
+        train_epoch == 0u || train_epoch > UINT8_MAX ||
+        train_sequence == 0u || calibration_generation == 0u ||
+        marker_to_data_samples == 0u ||
+        marker_to_data_samples > TDMA_PIO_SPI_DATA_TRAIN_MAX_DELAY_CYCLES ||
+        base_delay_ns == 0u || BOARD_SYS_CLOCK_HZ == 0u ||
+        (UINT32_C(1000000000) % BOARD_SYS_CLOCK_HZ) != 0u ||
+        search_start_offset_sample <
+            CALIBRATION_TRAINING_DATA_MIN_OFFSET_SAMPLES ||
+        search_end_offset_sample >
+            CALIBRATION_TRAINING_DATA_MAX_OFFSET_SAMPLES ||
+        configured_data_offset_sample_count <
+            CALIBRATION_TRAINING_DATA_MIN_OFFSET_SAMPLES ||
+        configured_data_offset_sample_count >
+            CALIBRATION_TRAINING_DATA_MAX_OFFSET_SAMPLES ||
+        search_start_offset_sample > search_end_offset_sample ||
+        guard_sample_count > CALIBRATION_TRAINING_DATA_MAX_GUARD_SAMPLES ||
+        !calibration_manager_parse_hex_u64(board_identity_serial(),
+                                           &board_unique_id) ||
+        !tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled != 0u ||
+        !tdma_runtime_owner_get_staged_ring_config(&staged) ||
+        staged.node_count < 2u ||
+        staged.node_count > CALIBRATION_TRAINING_DATA_MAX_NODES ||
+        source_node >= staged.node_count ||
+        destination_node >= staged.node_count ||
+        (destination_node != (source_node + 1u) % staged.node_count &&
+         source_node != (destination_node + 1u) % staged.node_count) ||
+        (staged.local_slot_id != source_node &&
+         staged.local_slot_id != destination_node) ||
+        staged.ring_profile_crc32 == 0u ||
+        staged.operating_profile_crc32 == 0u ||
+        staged.schedule_crc32 == 0u ||
+        __atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) ||
+        !calibration_manager_data_read(&pending) ||
+        pending.sequence != __atomic_load_n(
+            &s_data_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        return false;
+    }
+    const uint32_t sample_period_ns =
+        UINT32_C(1000000000) / BOARD_SYS_CLOCK_HZ;
+    if (base_delay_ns % sample_period_ns != 0u) return false;
+    const uint32_t base_samples = base_delay_ns / sample_period_ns;
+    if ((uint64_t)marker_to_data_samples + 2ull * base_samples >
+        TDMA_PIO_SPI_DATA_TRAIN_MAX_DELAY_CYCLES) {
+        return false;
+    }
+
+    uint32_t data_words[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
+    calibration_clk_marker_descriptor_t descriptor;
+    const calibration_clk_marker_config_t config = {
+        .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+        .codebook_id = (uint8_t)codebook_id,
+        .epoch = (uint8_t)train_epoch,
+        .master_slot = (uint8_t)source_node,
+        .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
+    };
+    if (!calibration_clk_marker_build(
+            &config, data_words, CALIBRATION_CLK_MARKER_MAX_RAW_WORDS,
+            &descriptor)) {
+        return false;
+    }
+    const int32_t initiator_capture_phase =
+        (int32_t)descriptor.half_chip_samples +
+        marker_offset_sample_count +
+        (int32_t)(2u * base_samples) +
+        configured_data_offset_sample_count +
+        search_start_offset_sample;
+    const int32_t marker_phase =
+        (int32_t)descriptor.half_chip_samples + marker_offset_sample_count;
+    if (marker_offset_sample_count <
+            CALIBRATION_TRAINING_DATA_MIN_OFFSET_SAMPLES ||
+        marker_offset_sample_count >
+            CALIBRATION_TRAINING_DATA_MAX_OFFSET_SAMPLES ||
+        marker_phase <= 0 ||
+        marker_phase > (int32_t)TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES ||
+        initiator_capture_phase < marker_phase ||
+        initiator_capture_phase <= 0 ||
+        initiator_capture_phase >
+            (int32_t)TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES) {
+        return false;
+    }
+
+    const calibration_training_data_request_t request = {
+        .board_unique_id = board_unique_id,
+        .build_id = calibration_manager_build_id_value(g_project_build_id),
+        .source_node = source_node,
+        .destination_node = destination_node,
+        .train_epoch = train_epoch,
+        .train_sequence = train_sequence,
+        .data_codebook_id = codebook_id,
+        .data_crc32 = ota_crc32_compute(
+            (const uint8_t *)data_words,
+            descriptor.raw_words * sizeof(data_words[0])),
+        .calibration_generation = calibration_generation,
+        .topology_generation = ring.config_seq,
+        .topology_crc32 = staged.ring_profile_crc32,
+        .profile_crc32 = staged.operating_profile_crc32,
+        .schedule_crc32 = staged.schedule_crc32,
+        .sample_period_ns = sample_period_ns,
+        .marker_to_data_samples = marker_to_data_samples,
+        .base_delay_ns = base_delay_ns,
+        .marker_offset_sample_count = marker_offset_sample_count,
+        .configured_data_offset_sample_count =
+            configured_data_offset_sample_count,
+        .search_start_offset_sample = search_start_offset_sample,
+        .search_end_offset_sample = search_end_offset_sample,
+        .guard_sample_count = guard_sample_count,
+        .expected_polarity = CALIBRATION_CLK_POLARITY_NORMAL,
+        .max_best_distance = max_best_distance,
+        .min_margin = min_margin,
+    };
+    calibration_training_data_store_t validation_store;
+    calibration_training_data_store_init(&validation_store);
+    if (!calibration_training_data_prepare_core1(
+            &validation_store, &request)) {
+        return false;
+    }
+    calibration_manager_data_publish(CALIBRATION_DATA_INTENT_ARM, &request);
+    resource_arbiter_publish_calibration_training(true);
+    return true;
+}
+
+bool calibration_manager_inject_data_training(void)
+{
+    calibration_data_intent_t pending;
+    tdma_service_ring_runtime_config_t staged;
+    if (!__atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE) ||
+        !tdma_runtime_owner_get_staged_ring_config(&staged) ||
+        staged.local_slot_id != s_data_active_request.source_node ||
+        !calibration_manager_data_read(&pending) ||
+        pending.sequence != __atomic_load_n(
+            &s_data_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        return false;
+    }
+    calibration_manager_data_publish(CALIBRATION_DATA_INTENT_INJECT, NULL);
+    return true;
+}
+
+void calibration_manager_stop_data_training(void)
+{
+    calibration_manager_data_publish(CALIBRATION_DATA_INTENT_STOP, NULL);
+}
+
+bool calibration_manager_get_data_training_snapshot(
+    calibration_training_data_snapshot_t *snapshot)
+{
+    return calibration_training_data_get_snapshot(&s_data_store, snapshot);
+}
+
+bool calibration_manager_save_data_capture(
+    uint32_t *job_id, char *path, size_t path_size)
+{
+    if (job_id == NULL || path == NULL || path_size == 0u ||
+        __atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE)) {
+        return false;
+    }
+    *job_id = 0u;
+    path[0] = '\0';
+    calibration_training_data_snapshot_t snapshot;
+    const uint32_t word_count = __atomic_load_n(
+        &s_data_capture_word_count, __ATOMIC_ACQUIRE);
+    const uint32_t sample_count = __atomic_load_n(
+        &s_data_capture_sample_count, __ATOMIC_ACQUIRE);
+    if (!calibration_training_data_get_snapshot(&s_data_store, &snapshot) ||
+        (snapshot.state != CALIBRATION_TRAINING_DATA_ACCEPTED &&
+         snapshot.state != CALIBRATION_TRAINING_DATA_REJECTED) ||
+        word_count == 0u ||
+        word_count > TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS ||
+        sample_count == 0u || sample_count > word_count * 32u) {
+        return false;
+    }
+    const int path_written = snprintf(
+        path, path_size, "/cal/data_node%lu_link%lu_g%lu_e%lu.json",
+        (unsigned long)snapshot.source_node,
+        (unsigned long)snapshot.source_node,
+        (unsigned long)snapshot.calibration_generation,
+        (unsigned long)snapshot.train_epoch);
+    if (path_written <= 0 || (size_t)path_written >= path_size) return false;
+
+    int written = snprintf(
+        s_data_capture_payload, sizeof(s_data_capture_payload),
+        "{\n"
+        "  \"schema\": \"HAOFV_DATA_TRAIN_CAPTURE_V1\",\n"
+        "  \"source_node\": %lu,\n"
+        "  \"destination_node\": %lu,\n"
+        "  \"marker_source_node\": %lu,\n"
+        "  \"marker_destination_node\": %lu,\n"
+        "  \"data_source_node\": %lu,\n"
+        "  \"data_destination_node\": %lu,\n"
+        "  \"measurement_direction\": \"marker_forward_data_return\",\n"
+        "  \"build_id\": %llu,\n"
+        "  \"calibration_generation\": %lu,\n"
+        "  \"epoch\": %lu,\n"
+        "  \"data_codebook_id\": %lu,\n"
+        "  \"sample_period_ns\": %lu,\n"
+        "  \"marker_to_data_samples\": %lu,\n"
+        "  \"base_delay_ns\": %lu,\n"
+        "  \"marker_offset_sample_count\": %ld,\n"
+        "  \"configured_data_offset_sample_count\": %ld,\n"
+        "  \"search_start_offset_sample\": %ld,\n"
+        "  \"search_end_offset_sample\": %ld,\n"
+        "  \"resolved_offset_sample_count\": %ld,\n"
+        "  \"resolved_offset_ns\": %ld,\n"
+        "  \"capture_anchor\": \"physical_rx_csn_falling_edge_pio_delay\",\n"
+        "  \"data_input\": \"physical_rx_data\",\n"
+        "  \"raw_word_count\": %lu,\n"
+        "  \"raw_sample_count\": %lu,\n"
+        "  \"raw_words\": [",
+        (unsigned long)snapshot.source_node,
+        (unsigned long)snapshot.destination_node,
+        (unsigned long)snapshot.source_node,
+        (unsigned long)snapshot.destination_node,
+        (unsigned long)snapshot.destination_node,
+        (unsigned long)snapshot.source_node,
+        (unsigned long long)snapshot.build_id,
+        (unsigned long)snapshot.calibration_generation,
+        (unsigned long)snapshot.train_epoch,
+        (unsigned long)snapshot.data_codebook_id,
+        (unsigned long)snapshot.sample_period_ns,
+        (unsigned long)snapshot.marker_to_data_samples,
+        (unsigned long)snapshot.base_delay_ns,
+        (long)snapshot.marker_offset_sample_count,
+        (long)snapshot.configured_data_offset_sample_count,
+        (long)snapshot.search_start_offset_sample,
+        (long)snapshot.search_end_offset_sample,
+        (long)snapshot.resolved_offset_sample_count,
+        (long)snapshot.resolved_offset_ns,
+        (unsigned long)word_count,
+        (unsigned long)sample_count);
+    if (written <= 0 ||
+        (size_t)written >= sizeof(s_data_capture_payload)) return false;
+    size_t used = (size_t)written;
+    for (uint32_t index = 0u; index < word_count; index++) {
+        written = snprintf(s_data_capture_payload + used,
+                           sizeof(s_data_capture_payload) - used,
+                           "%s%lu", index == 0u ? "" : ",",
+                           (unsigned long)s_data_capture[index]);
+        if (written <= 0 ||
+            (size_t)written >= sizeof(s_data_capture_payload) - used) {
+            return false;
+        }
+        used += (size_t)written;
+    }
+    written = snprintf(s_data_capture_payload + used,
+                       sizeof(s_data_capture_payload) - used, "]\n}\n");
+    if (written <= 0 ||
+        (size_t)written >= sizeof(s_data_capture_payload) - used) {
+        return false;
+    }
+    used += (size_t)written;
+    const uint32_t crc32 = ota_crc32_compute(
+        (const uint8_t *)s_data_capture_payload, used);
+    uint32_t transaction_id = 0u;
+    if (!storage_manager_begin_file_write(path, (uint32_t)used, crc32,
+                                          &transaction_id) ||
+        !storage_manager_write_file_chunk(
+            transaction_id, 0u,
+            (const uint8_t *)s_data_capture_payload, used) ||
+        !storage_manager_commit_file_write(transaction_id, job_id)) {
+        (void)storage_manager_abort_file_write(transaction_id);
+        *job_id = 0u;
+        return false;
+    }
+    return true;
 }
 
 bool calibration_manager_save_marker_capture(

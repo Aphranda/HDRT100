@@ -49,6 +49,8 @@ static uint s_tdma_pio_spi_clk_coded_tx_offset;
 static uint s_tdma_pio_spi_clk_oversample_offset;
 static uint s_tdma_pio_spi_marker_origin_offset;
 static uint s_tdma_pio_spi_marker_capture_offset;
+static uint s_tdma_pio_spi_data_train_source_offset;
+static uint s_tdma_pio_spi_data_train_sink_offset;
 static uint s_tdma_pio_spi_cal_tx_offset;
 static uint s_tdma_pio_spi_cal_capture_offset;
 static uint s_tdma_pio_spi_p3_initiator_offset;
@@ -65,6 +67,10 @@ static uint32_t s_tdma_pio_spi_marker_tx[TDMA_PIO_SPI_MARKER_BUFFER_WORDS]
     __attribute__((aligned(4)));
 static uint32_t s_tdma_pio_spi_marker_rx[TDMA_PIO_SPI_MARKER_BUFFER_WORDS]
     __attribute__((aligned(4)));
+static uint32_t s_tdma_pio_spi_data_train_tx[
+    TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS] __attribute__((aligned(4)));
+static uint32_t s_tdma_pio_spi_data_train_rx[
+    TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS] __attribute__((aligned(4)));
 static void tdma_pio_spi_phys_cal_decode(tdma_pio_spi_phys_t *phys);
 static int s_tdma_pio_spi_tx_dma_channel = -1;
 static int s_tdma_pio_spi_rx_dma_channel = -1;
@@ -267,6 +273,36 @@ static bool tdma_pio_spi_phys_load_marker_programs(void)
     return true;
 }
 
+static bool tdma_pio_spi_phys_load_data_train_programs(void)
+{
+    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_marker_origin_program)) return false;
+    s_tdma_pio_spi_marker_origin_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_marker_origin_program);
+    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_data_train_source_program)) {
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_marker_origin_program,
+                           s_tdma_pio_spi_marker_origin_offset);
+        return false;
+    }
+    s_tdma_pio_spi_data_train_source_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_data_train_source_program);
+    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_data_train_sink_program)) {
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_data_train_source_program,
+                           s_tdma_pio_spi_data_train_source_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_marker_origin_program,
+                           s_tdma_pio_spi_marker_origin_offset);
+        return false;
+    }
+    s_tdma_pio_spi_data_train_sink_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_data_train_sink_program);
+    return true;
+}
+
 static bool tdma_pio_spi_phys_load_p3_initiator_programs(void)
 {
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
@@ -325,6 +361,8 @@ static bool tdma_pio_spi_phys_load_programs(
         return tdma_pio_spi_phys_load_p3_responder_programs();
     case TDMA_PIO_SPI_PROGRAM_PERSONA_MARKER:
         return tdma_pio_spi_phys_load_marker_programs();
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_TRAIN:
+        return tdma_pio_spi_phys_load_data_train_programs();
     default:
         return false;
     }
@@ -414,6 +452,17 @@ static void tdma_pio_spi_phys_unload_programs(void)
                            &tdma_pio_spi_marker_forward_program,
                            s_tdma_pio_spi_marker_forward_offset);
         break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_TRAIN:
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_data_train_sink_program,
+                           s_tdma_pio_spi_data_train_sink_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_data_train_source_program,
+                           s_tdma_pio_spi_data_train_source_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_marker_origin_program,
+                           s_tdma_pio_spi_marker_origin_offset);
+        break;
     default:
         break;
     }
@@ -425,7 +474,7 @@ bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_program_persona_t persona)
 {
     if (phys == NULL || persona <= TDMA_PIO_SPI_PROGRAM_PERSONA_NONE ||
-        persona > TDMA_PIO_SPI_PROGRAM_PERSONA_MARKER ||
+        persona > TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_TRAIN ||
         !tdma_pio_spi_phys_ensure_sms_claimed()) {
         return false;
     }
@@ -1994,6 +2043,418 @@ bool tdma_pio_spi_phys_copy_marker_capture(
         return false;
     }
     memcpy(capture_words, s_tdma_pio_spi_marker_rx,
+           snapshot.capture_word_count * sizeof(capture_words[0]));
+    *capture_word_count = snapshot.capture_word_count;
+    return true;
+}
+
+static void tdma_pio_spi_phys_data_train_write_begin(
+    tdma_pio_spi_phys_t *phys)
+{
+    (void)__atomic_add_fetch(&phys->data_train_guard, 1u, __ATOMIC_RELEASE);
+}
+
+static void tdma_pio_spi_phys_data_train_write_end(
+    tdma_pio_spi_phys_t *phys)
+{
+    (void)__atomic_add_fetch(&phys->data_train_guard, 1u, __ATOMIC_RELEASE);
+}
+
+static void tdma_pio_spi_phys_data_train_publish_error(
+    tdma_pio_spi_phys_t *phys, uint32_t epoch,
+    tdma_pio_spi_data_train_reject_t reason)
+{
+    tdma_pio_spi_phys_data_train_write_begin(phys);
+    memset(&phys->data_train, 0, sizeof(phys->data_train));
+    phys->data_train.version = TDMA_PIO_SPI_DATA_TRAIN_SNAPSHOT_VERSION;
+    phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_ERROR;
+    phys->data_train.flags =
+        TDMA_PIO_SPI_DATA_TRAIN_FLAG_DIAGNOSTIC_ONLY;
+    phys->data_train.reject_reason = (uint32_t)reason;
+    phys->data_train.epoch = epoch;
+    tdma_pio_spi_phys_data_train_write_end(phys);
+}
+
+static void tdma_pio_spi_phys_data_train_set_drivers(uint32_t role)
+{
+    /* DATA0_OUT returns toward the link initiator through the upstream
+     * transceiver. The initiator drives only the downstream TRIG marker. */
+    gpio_put(BOARD_UP_BISS_DE_PIN,
+             role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER);
+    gpio_put(BOARD_DN_BISS_DE_PIN, false);
+    gpio_put(BOARD_TRIG_DE_PIN,
+             role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR);
+}
+
+bool tdma_pio_spi_phys_data_train_arm(
+    tdma_pio_spi_phys_t *phys,
+    const tdma_pio_spi_data_train_request_t *request)
+{
+    if (phys == NULL || request == NULL ||
+        (request->role != TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR &&
+         request->role != TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER) ||
+        request->marker_to_data_delay_cycles == 0u ||
+        request->marker_to_data_delay_cycles >
+            TDMA_PIO_SPI_DATA_TRAIN_MAX_DELAY_CYCLES ||
+        request->source_phase_delay_cycles == 0u ||
+        request->source_phase_delay_cycles >
+            TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES ||
+        request->phase_delay_cycles == 0u ||
+        request->phase_delay_cycles >
+            TDMA_PIO_SPI_DATA_TRAIN_MAX_PHASE_CYCLES ||
+        request->phase_delay_cycles < request->source_phase_delay_cycles ||
+        request->data_sample_count == 0u ||
+        (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR &&
+         (request->marker_words == NULL ||
+          request->marker_word_count == 0u ||
+          request->marker_word_count > TDMA_PIO_SPI_MARKER_BUFFER_WORDS ||
+          request->capture_sample_count < request->data_sample_count ||
+          request->capture_sample_count == 0u ||
+          request->capture_sample_count >
+              TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS * 32u)) ||
+        (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER &&
+         (request->data_words == NULL || request->data_word_count == 0u ||
+          request->data_word_count > TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS ||
+          request->data_sample_count > request->data_word_count * 32u))) {
+        if (phys != NULL) {
+            tdma_pio_spi_phys_data_train_publish_error(
+                phys, request == NULL ? 0u : request->epoch,
+                TDMA_PIO_SPI_DATA_TRAIN_REJECT_BAD_ARGUMENT);
+        }
+        return false;
+    }
+    if (phys->data_train.state == TDMA_PIO_SPI_DATA_TRAIN_ARMED ||
+        phys->data_train.state == TDMA_PIO_SPI_DATA_TRAIN_RUNNING ||
+        phys->marker.state == TDMA_PIO_SPI_MARKER_ARMED ||
+        phys->marker.state == TDMA_PIO_SPI_MARKER_RUNNING ||
+        phys->coded.state == TDMA_PIO_SPI_CODED_RUNNING ||
+        phys->coded.state == TDMA_PIO_SPI_CODED_FORWARDING ||
+        phys->p3.state == TDMA_PIO_SPI_P3_ARMED ||
+        phys->cal_loopback.armed != 0u) {
+        return false;
+    }
+
+    if (s_tdma_pio_spi_tx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
+    }
+    if (s_tdma_pio_spi_rx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+    }
+    phys->rx_capture_active = false;
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM, false);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, false);
+    tdma_pio_spi_phys_prepare_maintenance_mapping(phys);
+    if (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER) {
+        gpio_set_outover(phys->tx_csn_pin, GPIO_OVERRIDE_HIGH);
+        gpio_set_outover(phys->tx_pin, GPIO_OVERRIDE_LOW);
+    }
+    tdma_pio_spi_phys_data_train_set_drivers(
+        TDMA_PIO_SPI_DATA_TRAIN_ROLE_NONE);
+    if (!tdma_pio_spi_phys_select_program_persona(
+            phys, TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_TRAIN) ||
+        !tdma_pio_spi_phys_ensure_rx_dma() ||
+        (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR &&
+         !tdma_pio_spi_phys_ensure_tx_dma())) {
+        gpio_set_outover(phys->tx_csn_pin, GPIO_OVERRIDE_NORMAL);
+        gpio_set_outover(phys->tx_pin, GPIO_OVERRIDE_NORMAL);
+        tdma_pio_spi_phys_data_train_publish_error(
+            phys, request->epoch, TDMA_PIO_SPI_DATA_TRAIN_REJECT_RESOURCE);
+        return false;
+    }
+
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 4u);
+    BOARD_TDMA_SPI_PIO->fdebug =
+        1u << (PIO_FDEBUG_TXSTALL_LSB + phys->rx_sm);
+
+    const uint32_t capture_words =
+        (request->capture_sample_count + 31u) / 32u;
+    if (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR) {
+        memcpy(s_tdma_pio_spi_marker_tx, request->marker_words,
+               request->marker_word_count * sizeof(request->marker_words[0]));
+        tdma_pio_spi_marker_origin_program_init(
+            BOARD_TDMA_SPI_PIO, phys->tx_sm,
+            s_tdma_pio_spi_marker_origin_offset, phys->tx_csn_pin);
+        tdma_pio_spi_data_train_sink_program_init(
+            BOARD_TDMA_SPI_PIO, phys->rx_sm,
+            s_tdma_pio_spi_data_train_sink_offset,
+            phys->tx_csn_pin, phys->rx_pin, request->phase_delay_cycles);
+        pio_sm_put(BOARD_TDMA_SPI_PIO, phys->rx_sm,
+                   request->marker_to_data_delay_cycles - 1u);
+
+        dma_channel_config marker_dc = dma_channel_get_default_config(
+            (uint)s_tdma_pio_spi_tx_dma_channel);
+        channel_config_set_transfer_data_size(&marker_dc, DMA_SIZE_32);
+        channel_config_set_read_increment(&marker_dc, true);
+        channel_config_set_write_increment(&marker_dc, false);
+        channel_config_set_dreq(
+            &marker_dc,
+            pio_get_dreq(BOARD_TDMA_SPI_PIO, phys->tx_sm, true));
+        dma_channel_configure((uint)s_tdma_pio_spi_tx_dma_channel,
+                              &marker_dc,
+                              &BOARD_TDMA_SPI_PIO->txf[phys->tx_sm],
+                              s_tdma_pio_spi_marker_tx,
+                              request->marker_word_count, false);
+
+        memset(s_tdma_pio_spi_data_train_rx, 0,
+               capture_words * sizeof(s_tdma_pio_spi_data_train_rx[0]));
+        dma_channel_config capture_dc = dma_channel_get_default_config(
+            (uint)s_tdma_pio_spi_rx_dma_channel);
+        channel_config_set_transfer_data_size(&capture_dc, DMA_SIZE_32);
+        channel_config_set_read_increment(&capture_dc, false);
+        channel_config_set_write_increment(&capture_dc, true);
+        channel_config_set_dreq(
+            &capture_dc,
+            pio_get_dreq(BOARD_TDMA_SPI_PIO, phys->rx_sm, false));
+        dma_channel_configure((uint)s_tdma_pio_spi_rx_dma_channel,
+                              &capture_dc, s_tdma_pio_spi_data_train_rx,
+                              &BOARD_TDMA_SPI_PIO->rxf[phys->rx_sm],
+                              capture_words, false);
+    } else {
+        memcpy(s_tdma_pio_spi_data_train_tx, request->data_words,
+               request->data_word_count * sizeof(request->data_words[0]));
+        tdma_pio_spi_data_train_source_program_init(
+            BOARD_TDMA_SPI_PIO, phys->rx_sm,
+            s_tdma_pio_spi_data_train_source_offset,
+            phys->rx_csn_pin, phys->tx_pin, request->phase_delay_cycles);
+        pio_sm_put(BOARD_TDMA_SPI_PIO, phys->rx_sm,
+                   request->marker_to_data_delay_cycles - 1u);
+
+        dma_channel_config data_dc = dma_channel_get_default_config(
+            (uint)s_tdma_pio_spi_rx_dma_channel);
+        channel_config_set_transfer_data_size(&data_dc, DMA_SIZE_32);
+        channel_config_set_read_increment(&data_dc, true);
+        channel_config_set_write_increment(&data_dc, false);
+        channel_config_set_dreq(
+            &data_dc,
+            pio_get_dreq(BOARD_TDMA_SPI_PIO, phys->rx_sm, true));
+        dma_channel_configure((uint)s_tdma_pio_spi_rx_dma_channel, &data_dc,
+                              &BOARD_TDMA_SPI_PIO->txf[phys->rx_sm],
+                              s_tdma_pio_spi_data_train_tx,
+                              request->data_word_count, false);
+    }
+
+    tdma_pio_spi_phys_data_train_write_begin(phys);
+    memset(&phys->data_train, 0, sizeof(phys->data_train));
+    phys->data_train.version = TDMA_PIO_SPI_DATA_TRAIN_SNAPSHOT_VERSION;
+    phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_ARMED;
+    phys->data_train.role = request->role;
+    phys->data_train.flags =
+        TDMA_PIO_SPI_DATA_TRAIN_FLAG_DIAGNOSTIC_ONLY |
+        TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_MARKER |
+        TDMA_PIO_SPI_DATA_TRAIN_FLAG_HARDWARE_DATA;
+    phys->data_train.epoch = request->epoch;
+    phys->data_train.marker_word_count = request->marker_word_count;
+    phys->data_train.data_word_count = request->data_word_count;
+    phys->data_train.data_sample_count = request->data_sample_count;
+    phys->data_train.capture_word_count = capture_words;
+    phys->data_train.capture_sample_count = request->capture_sample_count;
+    phys->data_train.marker_to_data_delay_cycles =
+        request->marker_to_data_delay_cycles;
+    phys->data_train.source_phase_delay_cycles =
+        request->source_phase_delay_cycles;
+    phys->data_train.phase_delay_cycles = request->phase_delay_cycles;
+    phys->data_train.marker_dma_remaining = request->marker_word_count;
+    phys->data_train.data_dma_remaining =
+        request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_RESPONDER
+            ? request->data_word_count : capture_words;
+    /* A destination may be armed several seconds before the source while
+     * four USB CDC endpoints are configured sequentially.  Like the TRN-01
+     * follower, it starts its transfer timeout only after RX DMA proves that
+     * the physical marker gate opened and DATA capture actually began. */
+    phys->data_train_deadline_ns = 0u;
+    tdma_pio_spi_phys_data_train_write_end(phys);
+
+    dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_rx_dma_channel);
+    tdma_pio_spi_phys_data_train_set_drivers(request->role);
+    if (request->role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR) {
+        pio_enable_sm_mask_in_sync(BOARD_TDMA_SPI_PIO,
+                                   (1u << phys->tx_sm) |
+                                   (1u << phys->rx_sm));
+        gpio_set_outover(phys->tx_csn_pin, GPIO_OVERRIDE_NORMAL);
+    } else {
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, true);
+        gpio_set_outover(phys->tx_pin, GPIO_OVERRIDE_NORMAL);
+        gpio_set_outover(phys->tx_csn_pin, GPIO_OVERRIDE_NORMAL);
+    }
+    return true;
+}
+
+bool tdma_pio_spi_phys_data_train_inject(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL ||
+        phys->data_train.state != TDMA_PIO_SPI_DATA_TRAIN_ARMED ||
+        phys->data_train.role != TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR ||
+        s_tdma_pio_spi_tx_dma_channel < 0 ||
+        dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) {
+        return false;
+    }
+    tdma_pio_spi_phys_data_train_write_begin(phys);
+    phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_RUNNING;
+    phys->data_train.marker_capture_tick = 1ull;
+    phys->data_train.data_capture_tick =
+        1ull + phys->data_train.marker_to_data_delay_cycles +
+        phys->data_train.phase_delay_cycles -
+        phys->data_train.source_phase_delay_cycles;
+    phys->data_train_deadline_ns = vdc_timestamp_clock_now_ns() +
+                                   TDMA_PIO_SPI_DATA_TRAIN_TIMEOUT_NS;
+    tdma_pio_spi_phys_data_train_write_end(phys);
+    dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_tx_dma_channel);
+    return true;
+}
+
+void tdma_pio_spi_phys_data_train_stop(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return;
+    if (s_tdma_pio_spi_tx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
+    }
+    if (s_tdma_pio_spi_rx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+    }
+    pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 4u);
+    tdma_pio_spi_phys_cal_cleanup(phys);
+    tdma_pio_spi_phys_data_train_write_begin(phys);
+    phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_IDLE;
+    phys->data_train.reject_reason = TDMA_PIO_SPI_DATA_TRAIN_REJECT_NONE;
+    phys->data_train.marker_dma_remaining = 0u;
+    phys->data_train.data_dma_remaining = 0u;
+    tdma_pio_spi_phys_data_train_write_end(phys);
+    (void)tdma_pio_spi_phys_select_program_persona(
+        phys, TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL);
+}
+
+void tdma_pio_spi_phys_data_train_service(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL ||
+        (phys->data_train.state != TDMA_PIO_SPI_DATA_TRAIN_ARMED &&
+         phys->data_train.state != TDMA_PIO_SPI_DATA_TRAIN_RUNNING) ||
+        s_tdma_pio_spi_rx_dma_channel < 0) {
+        return;
+    }
+    const bool initiator =
+        phys->data_train.role == TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR;
+    const uint32_t marker_remaining =
+        initiator && s_tdma_pio_spi_tx_dma_channel >= 0
+            ? dma_hw->ch[(uint)s_tdma_pio_spi_tx_dma_channel].transfer_count
+            : 0u;
+    const uint32_t data_remaining =
+        dma_hw->ch[(uint)s_tdma_pio_spi_rx_dma_channel].transfer_count;
+    const uint32_t responder_stall_mask =
+        1u << (PIO_FDEBUG_TXSTALL_LSB + phys->rx_sm);
+    const bool responder_done = !initiator &&
+        (BOARD_TDMA_SPI_PIO->fdebug & responder_stall_mask) != 0u;
+    /* A full responder TX FIFO is expected DMA backpressure while the SM waits
+     * for CS. Only an undrained initiator RX FIFO represents capture loss. */
+    const bool stalled = initiator &&
+        pio_sm_is_rx_fifo_full(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    const bool capture_started = initiator &&
+        data_remaining < phys->data_train.capture_word_count;
+    const bool timed_out = phys->data_train_deadline_ns != 0u &&
+        vdc_timestamp_clock_now_ns() >= phys->data_train_deadline_ns &&
+        ((initiator && data_remaining != 0u) ||
+         (!initiator && !responder_done));
+
+    tdma_pio_spi_phys_data_train_write_begin(phys);
+    phys->data_train.marker_dma_remaining = marker_remaining;
+    phys->data_train.data_dma_remaining = data_remaining;
+    if (initiator && phys->data_train.state == TDMA_PIO_SPI_DATA_TRAIN_RUNNING &&
+        capture_started) {
+        phys->data_train.marker_capture_tick = 1ull;
+        phys->data_train.data_capture_tick =
+            1ull + phys->data_train.marker_to_data_delay_cycles +
+            phys->data_train.phase_delay_cycles -
+            phys->data_train.source_phase_delay_cycles;
+    }
+    if (marker_remaining == 0u) {
+        phys->data_train.flags |=
+            TDMA_PIO_SPI_DATA_TRAIN_FLAG_MARKER_DMA_COMPLETE;
+    }
+    if (data_remaining == 0u) {
+        phys->data_train.flags |=
+            TDMA_PIO_SPI_DATA_TRAIN_FLAG_DATA_DMA_COMPLETE;
+    }
+    if (responder_done) {
+        phys->data_train.flags |= TDMA_PIO_SPI_DATA_TRAIN_FLAG_SOURCE_IRQ;
+    }
+    if (stalled && data_remaining != 0u) {
+        phys->data_train.pio_stall_count++;
+        phys->data_train.dma_overrun_count++;
+    }
+    if (timed_out) {
+        phys->data_train.timeout_count++;
+        phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_ERROR;
+        phys->data_train.reject_reason =
+            TDMA_PIO_SPI_DATA_TRAIN_REJECT_TIMEOUT;
+    } else if ((initiator && marker_remaining == 0u &&
+                data_remaining == 0u) ||
+               (!initiator && responder_done && data_remaining == 0u)) {
+        if (phys->data_train.pio_stall_count != 0u) {
+            phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_ERROR;
+            phys->data_train.reject_reason =
+                TDMA_PIO_SPI_DATA_TRAIN_REJECT_PIO_STALL;
+        } else {
+            phys->data_train.state = TDMA_PIO_SPI_DATA_TRAIN_COMPLETE;
+            phys->data_train.reject_reason =
+                TDMA_PIO_SPI_DATA_TRAIN_REJECT_NONE;
+        }
+    }
+    const bool finished =
+        phys->data_train.state == TDMA_PIO_SPI_DATA_TRAIN_COMPLETE ||
+        phys->data_train.state == TDMA_PIO_SPI_DATA_TRAIN_ERROR;
+    tdma_pio_spi_phys_data_train_write_end(phys);
+    if (finished) {
+        if (s_tdma_pio_spi_tx_dma_channel >= 0 &&
+            dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) {
+            dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
+        }
+        if (s_tdma_pio_spi_rx_dma_channel >= 0 &&
+            dma_channel_is_busy((uint)s_tdma_pio_spi_rx_dma_channel)) {
+            dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+        }
+        pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 4u);
+        tdma_pio_spi_phys_cal_cleanup(phys);
+        (void)tdma_pio_spi_phys_select_program_persona(
+            phys, TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL);
+    }
+}
+
+bool tdma_pio_spi_phys_get_data_train_snapshot(
+    const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_data_train_snapshot_t *snapshot)
+{
+    if (phys == NULL || snapshot == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin =
+            __atomic_load_n(&phys->data_train_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        *snapshot = phys->data_train;
+        const uint32_t end =
+            __atomic_load_n(&phys->data_train_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) return true;
+    }
+    return false;
+}
+
+bool tdma_pio_spi_phys_copy_data_train_capture(
+    const tdma_pio_spi_phys_t *phys,
+    uint32_t *capture_words,
+    size_t capture_word_capacity,
+    size_t *capture_word_count)
+{
+    tdma_pio_spi_data_train_snapshot_t snapshot;
+    if (capture_word_count != NULL) *capture_word_count = 0u;
+    if (phys == NULL || capture_words == NULL || capture_word_count == NULL ||
+        !tdma_pio_spi_phys_get_data_train_snapshot(phys, &snapshot) ||
+        snapshot.role != TDMA_PIO_SPI_DATA_TRAIN_ROLE_INITIATOR ||
+        snapshot.state != TDMA_PIO_SPI_DATA_TRAIN_COMPLETE ||
+        snapshot.capture_word_count > capture_word_capacity) {
+        return false;
+    }
+    memcpy(capture_words, s_tdma_pio_spi_data_train_rx,
            snapshot.capture_word_count * sizeof(capture_words[0]));
     *capture_word_count = snapshot.capture_word_count;
     return true;

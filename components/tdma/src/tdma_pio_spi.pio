@@ -118,6 +118,44 @@ clk_burst_loop:
     in pins, 2
 .wrap
 
+; TRN-02 DATA responder. Core1 preloads the marker-to-DATA delay cycles minus
+; one before starting the DATA DMA. OUT is the one-instruction wrap body, so
+; every raw DATA bit occupies exactly one clk_sys cycle. After the final DMA
+; word, autopull stalls on the empty FIFO and the sticky TXSTALL bit proves
+; that the last physical bit has left the OSR.
+; The SM waits for the incoming RX CS falling edge, holds the DATA output at its
+; low idle level for the complete PIO-owned delay, then emits one raw sample
+; per clk_sys cycle.
+.program tdma_pio_spi_data_train_source
+    pull block
+    mov x, osr
+    out null, 32
+    wait 1 gpio 0
+    wait 0 gpio 0
+data_train_source_wait:
+    jmp x-- data_train_source_wait
+    nop
+.wrap_target
+data_train_source_samples:
+    out pins, 1
+.wrap
+
+; TRN-02 DATA initiator capture. Core1 preloads the same long delay used by the
+; responder. The patched NOP adds the round-trip link baseline plus the dynamic
+; search-window start. The initiator's local TX CS falling edge opens the gate;
+; RX DMA then records the returning DATA without software timing in the path.
+.program tdma_pio_spi_data_train_sink
+    pull block
+    mov x, osr
+    wait 1 gpio 0
+    wait 0 gpio 0
+data_train_sink_wait:
+    jmp x-- data_train_sink_wait
+    nop
+.wrap_target
+    in pins, 1
+.wrap
+
 ; P3 link initiator. SYNC is asserted for the complete forward burst. Four PIO
 ; cycles form one forward-line period with two high and two low cycles. The RX SM is
 ; enabled in sync with this SM and samples the returned DATA pin at clk_sys.
@@ -466,6 +504,59 @@ static inline void tdma_pio_spi_marker_capture_program_init(
     sm_config_set_in_pins(&c, tx_csn_pin);
     sm_config_set_in_shift(&c, true, true, 32u);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void tdma_pio_spi_data_train_source_program_init(
+    PIO pio, uint sm, uint offset, uint32_t tx_csn_pin,
+    uint32_t tx_data_pin, uint32_t phase_delay_cycles)
+{
+    pio->instr_mem[offset + 3u] =
+        (uint16_t)pio_encode_wait_gpio(true, tx_csn_pin);
+    pio->instr_mem[offset + 4u] =
+        (uint16_t)pio_encode_wait_gpio(false, tx_csn_pin);
+    pio->instr_mem[offset + 6u] = (uint16_t)(
+        pio_encode_nop() | pio_encode_delay(phase_delay_cycles - 1u));
+    pio_sm_set_pins_with_mask64(pio, sm, 0ull, 1ull << tx_data_pin);
+    pio_gpio_init(pio, tx_csn_pin);
+    pio_gpio_init(pio, tx_data_pin);
+    gpio_pull_up(tx_csn_pin);
+    /* PIO pin directions are shared by the block.  tx_sm already owns CS as
+     * an output; marking it input from this SM would suppress the physical
+     * marker edge.  WAIT may observe the pad without changing its direction. */
+    pio_sm_config c =
+        tdma_pio_spi_data_train_source_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, tx_data_pin, 1u);
+    sm_config_set_out_shift(&c, true, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins_with_mask64(pio, sm, 0ull, 1ull << tx_data_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_data_pin, 1u, true);
+}
+
+static inline void tdma_pio_spi_data_train_sink_program_init(
+    PIO pio, uint sm, uint offset, uint32_t rx_csn_pin,
+    uint32_t rx_data_pin, uint32_t phase_delay_cycles)
+{
+    pio->instr_mem[offset + 2u] =
+        (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
+    pio->instr_mem[offset + 3u] =
+        (uint16_t)pio_encode_wait_gpio(false, rx_csn_pin);
+    pio->instr_mem[offset + 5u] = (uint16_t)(
+        pio_encode_nop() | pio_encode_delay(phase_delay_cycles - 1u));
+    pio_gpio_init(pio, rx_csn_pin);
+    pio_gpio_init(pio, rx_data_pin);
+    gpio_pull_up(rx_csn_pin);
+    gpio_pull_down(rx_data_pin);
+    /* The initiator sink observes its local TX CS marker. tx_sm owns that
+     * pin as an output, so this SM must not overwrite the shared PIO OE. */
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_data_pin, 1u, false);
+    pio_sm_config c =
+        tdma_pio_spi_data_train_sink_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, rx_data_pin);
+    sm_config_set_in_shift(&c, true, true, 32u);
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);
 }

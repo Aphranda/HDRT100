@@ -188,6 +188,7 @@ def _board_command_on_serial(board: Board, text: str,
         "SYSTEM:TDMA:RING:START", "SYST:TDMA:RING:START",
         "CALIBRATION:P3:START", "CALIBRATION:P3:STOP",
         "CALIBRATION:MARKER:INJECT", "CALIBRATION:MARKER:STOP",
+        "CALIBRATION:DATA:INJECT", "CALIBRATION:DATA:STOP",
         "SYSTEM:BOOT:RESET", "SYST:BOOT:RESET",
     }
     response = command(

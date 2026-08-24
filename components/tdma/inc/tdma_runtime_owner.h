@@ -81,6 +81,17 @@ bool tdma_runtime_owner_copy_marker_capture_core1(
     uint32_t *capture_words,
     size_t capture_word_capacity,
     size_t *capture_word_count);
+bool tdma_runtime_owner_data_train_arm_core1(
+    const tdma_pio_spi_data_train_request_t *request);
+bool tdma_runtime_owner_data_train_inject_core1(void);
+void tdma_runtime_owner_data_train_stop_core1(void);
+void tdma_runtime_owner_data_train_service_core1(void);
+bool tdma_runtime_owner_get_data_train_snapshot(
+    tdma_pio_spi_data_train_snapshot_t *snapshot);
+bool tdma_runtime_owner_copy_data_train_capture_core1(
+    uint32_t *capture_words,
+    size_t capture_word_capacity,
+    size_t *capture_word_count);
 bool tdma_runtime_owner_p3_start_core1(
     const tdma_pio_spi_p3_request_t *request);
 void tdma_runtime_owner_p3_stop_core1(void);
