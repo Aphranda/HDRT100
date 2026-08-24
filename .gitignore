@@ -5,6 +5,7 @@ cmake-build-*/
 out/*
 !out/.gitkeep
 .tmp-edge-pdf/
+.tmp_audit/
 .tmp/
 .tmp-doc-tests/
 DOC/
