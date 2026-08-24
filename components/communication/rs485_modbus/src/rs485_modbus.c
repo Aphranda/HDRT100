@@ -34,6 +34,7 @@ typedef struct {
     uint64_t deadline_us;
     rs485_modbus_master_state_t master_state;
     uint32_t master_errors;
+    rs485_modbus_diagnostics_t diagnostics;
     uint16_t result[RS485_MODBUS_MAX_REGISTERS];
     size_t result_count;
     bool result_pending;
@@ -256,6 +257,14 @@ static void service_reset_frame(void)
     s_service.last_byte_us = 0u;
 }
 
+static uint16_t service_expected_response_length(void)
+{
+    if (s_service.response_function == MODBUS_FUNC_READ_HOLDING) {
+        return (uint16_t)(5u + (size_t)s_service.response_quantity * 2u);
+    }
+    return s_service.response_function == MODBUS_FUNC_WRITE_SINGLE ? 8u : 0u;
+}
+
 static bool service_send_request(void)
 {
     if (!drv_rs485_ready() || s_service.request_length == 0u ||
@@ -263,6 +272,7 @@ static bool service_send_request(void)
         ++s_service.master_errors;
         return false;
     }
+    ++s_service.diagnostics.tx_frame_count;
     const uint32_t baud = drv_rs485_baud_hz();
     const size_t response_length = s_service.response_function ==
         MODBUS_FUNC_READ_HOLDING ?
@@ -293,6 +303,20 @@ static void service_retry_or_fail(rs485_modbus_master_state_t terminal)
 
 static void service_process_master_frame(void)
 {
+    s_service.diagnostics.last_frame_length = (uint16_t)s_service.rx_length;
+    s_service.diagnostics.last_expected_length = service_expected_response_length();
+    s_service.diagnostics.last_frame_prefix = 0u;
+    for (size_t index = 0u; index < s_service.rx_length && index < 4u; ++index) {
+        s_service.diagnostics.last_frame_prefix =
+            (s_service.diagnostics.last_frame_prefix << 8u) |
+            s_service.rx_frame[index];
+    }
+    s_service.diagnostics.last_frame_crc_ok =
+        valid_crc(s_service.rx_frame, s_service.rx_length);
+    ++s_service.diagnostics.rx_frame_count;
+    if (!s_service.diagnostics.last_frame_crc_ok) {
+        ++s_service.diagnostics.crc_error_count;
+    }
     bool ok = false;
     if (s_service.response_function == MODBUS_FUNC_READ_HOLDING) {
         ok = rs485_modbus_parse_read_response(
@@ -313,6 +337,7 @@ static void service_process_master_frame(void)
         s_service.master_state = RS485_MODBUS_MASTER_SUCCESS;
         s_service.result_pending = true;
     } else {
+        ++s_service.diagnostics.protocol_error_count;
         service_retry_or_fail(RS485_MODBUS_MASTER_PROTOCOL_ERROR);
     }
 }
@@ -331,7 +356,9 @@ static void service_process_slave_frame(void)
         response, sizeof(response));
     service_reset_frame();
     if (response_length > 0u) {
-        (void)drv_rs485_write(response, (uint32_t)response_length);
+        if (drv_rs485_write(response, (uint32_t)response_length)) {
+            ++s_service.diagnostics.tx_frame_count;
+        }
     }
 }
 
@@ -442,6 +469,7 @@ void rs485_modbus_service_poll(void)
         s_service.master_state == RS485_MODBUS_MASTER_WAITING &&
         now >= s_service.deadline_us) {
         service_reset_frame();
+        ++s_service.diagnostics.timeout_count;
         service_retry_or_fail(RS485_MODBUS_MASTER_TIMEOUT);
     }
     if (s_service.role == RS485_MODBUS_ROLE_MASTER &&
@@ -568,4 +596,12 @@ bool rs485_modbus_master_take_result(uint16_t *values, size_t value_capacity,
     s_service.result_pending = false;
     s_service.master_state = RS485_MODBUS_MASTER_IDLE;
     return true;
+}
+
+void rs485_modbus_service_get_diagnostics(rs485_modbus_diagnostics_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+    *snapshot = s_service.diagnostics;
 }

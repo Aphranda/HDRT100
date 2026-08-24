@@ -38,6 +38,18 @@ typedef enum {
 } rs485_modbus_master_state_t;
 
 typedef struct {
+    uint32_t rx_frame_count;
+    uint32_t tx_frame_count;
+    uint32_t crc_error_count;
+    uint32_t protocol_error_count;
+    uint32_t timeout_count;
+    uint16_t last_frame_length;
+    uint16_t last_expected_length;
+    uint32_t last_frame_prefix;
+    bool last_frame_crc_ok;
+} rs485_modbus_diagnostics_t;
+
+typedef struct {
     uint8_t unit_id;
     rs485_modbus_read_register_fn read_register;
     rs485_modbus_write_register_fn write_register;
@@ -85,5 +97,6 @@ uint8_t rs485_modbus_master_retries_used(void);
 uint32_t rs485_modbus_master_error_count(void);
 bool rs485_modbus_master_take_result(uint16_t *values, size_t value_capacity,
                                      size_t *value_count);
+void rs485_modbus_service_get_diagnostics(rs485_modbus_diagnostics_t *snapshot);
 
 #endif

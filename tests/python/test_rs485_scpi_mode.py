@@ -14,6 +14,7 @@ COMMUNICATION_HEADER = MODBUS_COMPONENT / "inc/rs485_communication.h"
 COMMUNICATION_SOURCE = MODBUS_COMPONENT / "src/rs485_communication.c"
 COMMANDS = ROOT / "docs/interface/SCPI_COMMANDS.md"
 PROBE = ROOT / "tools/scpi_query/rs485_scpi_loopback_probe.scpi"
+VALIDATOR = ROOT / "tools/rs485_modbus_validate/rs485_modbus_validate.py"
 
 
 def test_usb_scpi_mode_commands_are_registered_for_uart_rs485_channel():
@@ -54,6 +55,27 @@ def test_rx_status_projects_dma_backend_and_echo_health():
     assert '"DMA_PINGPONG"' in source
     assert "DMA overrun" in docs
     assert "UART1:RX:STATus?" in PROBE.read_text(encoding="utf-8")
+
+
+def test_modbus_master_diagnostics_projects_frame_boundary_reasons():
+    header = (ROOT / "middleware/scpi_port/inc/scpi_communication_uart_commands.h").read_text(
+        encoding="utf-8"
+    )
+    source = (ROOT / "middleware/scpi_port/src/scpi_communication_uart_commands.c").read_text(
+        encoding="utf-8"
+    )
+    modbus = (MODBUS_COMPONENT / "inc/rs485_modbus.h").read_text(encoding="utf-8")
+    assert '"COMMunication:SERial:UART#:MODBus:MASTER:DIAGnostic?"' in header
+    assert "scpi_cmd_uart_modbus_master_diagnostics_q" in source
+    assert "last_frame_length" in modbus
+    assert "last_frame_prefix" in modbus
+
+
+def test_modbus_peer_validator_keeps_binary_frames_intact():
+    tool = VALIDATOR.read_text(encoding="utf-8")
+    assert "expected_length=8" in tool
+    assert "response_hold_s" in tool
+    assert "def write_all" in tool
 
 
 def test_mode_readiness_is_distinct_from_ota_readiness():

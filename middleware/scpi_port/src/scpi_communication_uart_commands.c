@@ -277,3 +277,20 @@ scpi_result_t scpi_cmd_uart_modbus_master_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, rs485_modbus_master_error_count());
     return SCPI_RES_OK;
 }
+
+scpi_result_t scpi_cmd_uart_modbus_master_diagnostics_q(scpi_t *context)
+{
+    rs485_modbus_diagnostics_t diagnostics;
+    rs485_modbus_service_get_diagnostics(&diagnostics);
+    SCPI_ResultUInt32(context, scpi_uart_channel(context));
+    SCPI_ResultUInt32(context, diagnostics.rx_frame_count);
+    SCPI_ResultUInt32(context, diagnostics.tx_frame_count);
+    SCPI_ResultUInt32(context, diagnostics.crc_error_count);
+    SCPI_ResultUInt32(context, diagnostics.protocol_error_count);
+    SCPI_ResultUInt32(context, diagnostics.timeout_count);
+    SCPI_ResultUInt32(context, diagnostics.last_frame_length);
+    SCPI_ResultUInt32(context, diagnostics.last_expected_length);
+    SCPI_ResultUInt32(context, diagnostics.last_frame_prefix);
+    SCPI_ResultUInt32(context, diagnostics.last_frame_crc_ok ? 1u : 0u);
+    return SCPI_RES_OK;
+}

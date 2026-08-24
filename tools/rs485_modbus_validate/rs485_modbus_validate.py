@@ -29,15 +29,19 @@ def valid_frame(data: bytes) -> bool:
     return len(data) >= 4 and crc16(data[:-2]) == int.from_bytes(data[-2:], "little")
 
 
-def read_frame(port: serial.Serial, timeout: float) -> bytes:
+def read_frame(port: serial.Serial, timeout: float,
+               expected_length: int | None = None) -> bytes:
     deadline = time.monotonic() + timeout
     result = bytearray()
     while time.monotonic() < deadline:
         chunk = port.read(64)
         if chunk:
             result.extend(chunk)
+            if expected_length is not None:
+                if len(result) >= expected_length:
+                    return bytes(result[:expected_length])
             # Function 03 response length is byte-count + 5; function 06 is 8.
-            if len(result) >= 3:
+            elif len(result) >= 3:
                 expected = 8 if result[1] == 0x06 else 5 + result[2]
                 if len(result) >= expected:
                     return bytes(result[:expected])
@@ -48,10 +52,21 @@ def read_frame(port: serial.Serial, timeout: float) -> bytes:
 
 def transact(port: serial.Serial, request: bytes, timeout: float) -> tuple[bytes, bool]:
     port.reset_input_buffer()
-    port.write(request)
+    write_all(port, request)
     port.flush()
     response = read_frame(port, timeout)
     return response, valid_frame(response)
+
+
+def write_all(port: serial.Serial, payload: bytes) -> int:
+    """Write a binary RTU frame even when a USB bridge short-writes."""
+    offset = 0
+    while offset < len(payload):
+        written = port.write(payload[offset:])
+        if written <= 0:
+            raise RuntimeError("serial write made no progress")
+        offset += written
+    return offset
 
 
 def run_slave(args: argparse.Namespace) -> list[dict[str, object]]:
@@ -84,7 +99,10 @@ def run_peer(args: argparse.Namespace) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     with serial.Serial(args.port, args.baud, bytesize=8, parity="N", stopbits=1,
                        timeout=0.02, write_timeout=args.timeout) as port:
-        request = read_frame(port, args.timeout)
+        # Both read-holding and write-single requests are fixed eight-byte
+        # RTU frames.  Do not apply the response 0x03 byte-count rule here:
+        # request byte 2 is the address high byte and is commonly zero.
+        request = read_frame(port, args.timeout, expected_length=8)
         if len(request) != 8 or not valid_frame(request):
             raise RuntimeError(f"invalid master request: {request.hex()}")
         if request[1] == 0x03:
@@ -97,10 +115,24 @@ def run_peer(args: argparse.Namespace) -> list[dict[str, object]]:
             response = frame(request[:6])
         else:
             raise RuntimeError(f"unsupported master function: {request[1]:02x}")
-        port.write(response)
+        # Modbus RTU requires an inter-frame silence before the peer replies.
+        # Waiting for t3.5 also gives the DHRT100 DE lease time to release on
+        # short USB-RS485 adapters whose turnaround is not instantaneous.
+        peer_gap = (35.0 / args.baud) if args.peer_delay is None else args.peer_delay
+        time.sleep(max(0.0, peer_gap))
+        write_count = write_all(port, response)
         port.flush()
+        # pyserial.flush() drains the host write buffer, not necessarily the
+        # USB-RS485 adapter's shift register.  Keep the port open through the
+        # complete response wire time plus one character so closing the
+        # handle cannot truncate the response to its first byte.
+        response_wire_time = len(response) * 10.0 / args.baud
+        time.sleep(response_wire_time + (10.0 / args.baud))
         records.append({"case": "master_peer_response", "request": request.hex(),
-                        "response": response.hex(), "crc_ok": valid_frame(response)})
+                        "response": response.hex(), "crc_ok": valid_frame(response),
+                        "write_count": write_count,
+                        "peer_gap_s": peer_gap,
+                        "response_hold_s": response_wire_time + (10.0 / args.baud)})
     return records
 
 
@@ -116,13 +148,13 @@ def run_inject(args: argparse.Namespace) -> list[dict[str, object]]:
                        timeout=0.02, write_timeout=args.timeout) as port:
         if args.inject_once:
             time.sleep(args.inject_delay)
-            port.write(response)
+            write_all(port, response)
             port.flush()
             time.sleep(max(0.0, args.timeout - args.inject_delay))
         else:
             deadline = time.monotonic() + args.timeout
             while time.monotonic() < deadline:
-                port.write(response)
+                write_all(port, response)
                 port.flush()
                 time.sleep(0.005)
         records.append({"case": "injected_peer_read", "response": response.hex(),
@@ -137,6 +169,8 @@ def main() -> int:
     parser.add_argument("--unit", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=1.0)
     parser.add_argument("--peer", action="store_true", help="answer a DHRT100 master request")
+    parser.add_argument("--peer-delay", type=float,
+                        help="override peer response silence in seconds; default is Modbus t3.5")
     parser.add_argument("--inject-read", type=int,
                         help="inject a valid read response repeatedly for master HIL")
     parser.add_argument("--inject-once", action="store_true",
