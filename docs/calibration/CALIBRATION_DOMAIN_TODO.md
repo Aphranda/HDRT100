@@ -46,19 +46,19 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
-| TRN-01A | 冻结 marker trial 的 epoch、sequence、marker_id、CRC、polarity、capture/forward tick 和 raw evidence 字段 | `[~]` | C snapshot、host parser 和字段数测试已建立；待接入固件状态查询后完成端到端字段一致性门禁 |
-| TRN-01B | 在 TDMA core1 owner 增加独立 marker PIO persona，支持 marker line 选择、固定 cut-through 和 DMA capture | [ ] | PIO catalog/resource gate 通过，不能与 cyclic TDMA 并发 |
-| TRN-01C | 实现 Calibration intent 到 core1 的 bounded mailbox/prepare-ack，SCPI 不直接触碰 PIO/SM/DMA | [ ] | seqlock/sequence、超时、拒绝原因和 persona recovery 覆盖 |
-| TRN-01D | 完成 `NO.1 -> NO.2 -> NO.3 -> NO.4 -> NO.1` 环路 marker HIL | [ ] | 所有节点捕获同一 marker、顺序正确、每跳 residence 有界、返回 marker 可捕获 |
+| TRN-01A | 冻结 marker trial 的 epoch、sequence、marker_id、CRC、polarity、capture/forward tick 和 raw evidence 字段 | [x] | C snapshot、板端查询、host parser、字段数测试和 SD raw capture 已完成端到端一致性验证 |
+| TRN-01B | 在 TDMA core1 owner 增加独立 marker PIO persona，支持 marker line 选择、固定 cut-through 和 DMA capture | [x] | PIO catalog/resource gate 和四板 HIL 通过；训练前显式 STOP，未与 cyclic TDMA 并发 |
+| TRN-01C | 实现 Calibration intent 到 core1 的 bounded mailbox/prepare-ack，SCPI 不直接触碰 PIO/SM/DMA | [x] | ARM/INJECT 两阶段 mailbox、guarded snapshot、超时/拒绝矩阵、persona recovery 和 core1 owner 边界已覆盖 |
+| TRN-01D | 完成 `NO.1 -> NO.2 -> NO.3 -> NO.4 -> NO.1` 环路 marker HIL | [x] | 当前 build 的零 offset 基线及一拍复核均为四节点 accepted；同 epoch/CRC、返回 marker、DMA/PIO fault 门禁通过，证据见任务记录 |
 
 ### TRN-02：marker 锚定 DATA 码元时隙
 
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
-| TRN-02A | 实现 DATA codeword 相关、极性、CRC、epoch/sequence、best/second peak 和 margin 判断 | [ ] | 正常、错位、反相、截断、重复、旧 epoch 全部有单测 |
-| TRN-02B | 单跳 `NO.1 -> NO.2` 使用 P3 candidate 扫描 `marker -> DATA` 相对 offset，先粗后细收敛 | [ ] | 连续 trial accepted，marker_data_skew、overrun/stall 和 forward residence 有证据 |
-| TRN-02C | 将单跳结果形成 diagnostic training window，绑定 topology/profile/calibration generation 和 CRC | [ ] | snapshot 可读，明确 `DIAGNOSTIC_ONLY`，不得写 active table |
-| TRN-02D | 沿 accepted topology 完成四条 directed link 的 window 训练和 10/25/30 MHz profile 验证 | [ ] | 四条链路各自 accepted，不允许 aggregate 平均代替 per-link |
+| TRN-02A | 实现 DATA codeword 相关、极性、CRC、epoch/sequence、best/second peak 和 margin 判断 | [x] | DATA evaluator、marker-to-DATA PIO capture、板端 guarded snapshot、SCPI、SD raw capture 和正反用例回归已完成 |
+| TRN-02B | 单跳 `NO.1 -> NO.2` 使用 P3 candidate 扫描 `marker -> DATA` 相对 offset，先粗后细收敛 | `[~]` | 单跳及四条 directed link 已在当前 profile accepted；仍需多次独立 repeat，并把 forward residence 与同一 generation 证据绑定 |
+| TRN-02C | 将单跳结果形成 diagnostic training window，绑定 topology/profile/calibration generation 和 CRC | [x] | snapshot/SD capture 可读，topology/profile/schedule/calibration generation 已绑定，并保持 `DIAGNOSTIC_ONLY` |
+| TRN-02D | 沿 accepted topology 完成四条 directed link 的 window 训练和 10/25/30 MHz profile 验证 | `[~]` | 当前 profile 的四链路单次矩阵已通过；仍需固定阶梯全 profile 和多次重复门禁，证据见任务记录 |
 
 ### TRN-03：TDMA 短帧/FIFO 闭环接入
 

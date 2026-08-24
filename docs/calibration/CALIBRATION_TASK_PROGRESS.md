@@ -10,6 +10,86 @@ Last updated: 2026-08-24
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260824-003 - TRN-02 四链路单 profile 收敛与 TRN-03 入口审计
+
+- 状态：`TRN-02A` 和 `TRN-02C` 已完成；`TRN-02B` 和 `TRN-02D` 仍为进行中。当前
+  四链路单 profile 矩阵通过，但尚未满足多次独立 repeat 和固定频率阶梯全 profile
+  验证，因此不得进入四板 TRN-03 ARM/START。
+- 固件与拓扑（bench 诊断快照，非事实源）：四板均运行 build `20260824125459`；
+  accepted physical order 为 `0010071E65B5CB38 -> FB276192BEF9CCE1 ->
+  2BD5090FE009FA2A -> A1E549202D18ED6A -> 0010071E65B5CB38`。
+- 运行时训练参数（本轮快照）：MARK 方向为 forward，DATA 方向为 reverse；
+  MARK per-Node offset 为 `[+1,-1,0,+1]` 拍，DATA per-Node configured offset 为
+  `[+5,+5,+5,+5]` 拍；采样周期为 `4 ns`，逻辑基准 delay 为 `40 ns`。方向和 offset
+  均由 host 按现场拓扑动态提交，未写死到 PIO 程序。
+- HIL 结果（本轮快照）：calibration generation `87`，epoch `126..129`，四条
+  directed link 全部 accepted；topology/profile/schedule CRC 和 sample period 在矩阵内一致，
+  DMA overrun、PIO stall 和 timeout 均未增长。残差为 `[-1,-1,0,0]` 拍，故校准后
+  逻辑 delay 为 `[36,36,40,40] ns`，均在 `40 ns ± 1` 拍内。
+- delay 语义：校准后逻辑 delay 按 `base_delay + residual` 计算；物理捕获中心按
+  `base_delay + configured_offset + residual` 计算。DATA configured offset 只调整 initiator
+  capture phase，不并入同时参与长等待的 `base_delay_ns`，避免重复补偿。
+- 证据目录：`out/training/trn02d_data_offsets_5555_e126_g87_20260824/`；根
+  `summary.json` 记录 `TRN-02D_REPEAT_MATRIX`、`repeats=1`、四链路各自判定和统一
+  identity bundle；每条链路目录保存 SD capture 下载、离线 replay JSON 和 `1 us` SVG。
+- 构建与部署证据（本轮快照）：固件位于 `out/build/trn02-configured-data-offset/`；
+  四板异步 OTA 证据位于 `out/ota/trn02-configured-data-offset_20260824/`；配置 offset 与
+  delay 标签回归报告位于 `out/pytest/calibration_configured_offset.xml` 和
+  `out/pytest/calibration_delay_label.xml`。
+- TRN-03 入口审计：现有矩阵只含一个 profile CRC，且每条链路只有一次最终
+  repeat；`TRN-02B` 要求的 forward residence 仍需与同一 generation 证据绑定。下一步
+  使用已固化的 `tools/calibration_ring_validate/calibration_data_train.py` 跑完 operating
+  profile 固定阶梯的四链路多次独立 repeat；所有 profile 通过后才关闭
+  `TRN-02B/D` 并开始 `TRN-03A`。
+- 回退点：任一 profile/link/repeat 失败均保留 raw evidence，整环保持 STOPPED，
+  不修改 active calibration generation，不向 VDC/DPLL 发布本轮 diagnostic window。
+
+## CAL-TASK-20260824-002 - TRN-01 退出与 TRN-02 入口准备
+
+- 状态：`TRN-01A..D` 已按当前 build/拓扑的 diagnostic 门禁收口；`TRN-02A` 进入实现期，
+  尚未开始独立 DATA 码元训练，不得把 CS marker offset 提升为 DATA window 或 active calibration。
+- 固件与拓扑（bench 诊断快照，非事实源）：四板均运行 build `20260824090429`；accepted
+  physical order 为 `0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A ->
+  A1E549202D18ED6A -> 0010071E65B5CB38`。板卡身份只使用 `*IDN?` 唯一地址，COM 号仅为
+  本轮临时传输端点。
+- TRN-01 退出证据：
+  - 零 offset 基线使用 epoch `90`、calibration generation `60`，四节点全部 accepted；ARM
+    阶段四节点均为 PREPARED 且 `dma_capture_count=0`，证明 INJECT 前不存在假 marker 边沿。
+  - 依据离线全局重叠方向动态加载 `[+1,-1,0,+1]` 个 sample 的四节点 offset；一拍为
+    当前 capture 的 `4 ns` 采样周期。本轮 epoch `91`、calibration generation `61`，四节点
+    仍全部 accepted，firmware distance 为 `9/7/8/9`，离线最佳残差均为 `0 ns`。
+  - 两轮均满足同一 epoch/sequence/marker CRC、normal polarity、完整 marker flags、node0
+    返回 marker、DMA overrun/stall/timeout 为零；训练结束恢复 NORMAL persona。
+  - 一拍结果只说明当前 CS marker capture window 在该 build、topology、codebook 和节点状态下
+    收敛；它不是独立 DATA offset，也不清除 `DIAGNOSTIC_ONLY`。
+- 证据目录：
+  - 零 offset：`out/training/trn01_arm_inject_marker_latch_baseline_e90_0000_20260824/`；
+  - 一拍复核：`out/training/trn01_arm_inject_one_sample_p1m1p0p1_e91_g61_20260824/`；
+  - 两个目录均包含 `summary.json`；一拍目录额外保存四节点 SD capture、离线 replay JSON 和
+    参考/原始/最佳对齐三行的 `1 us` SVG。
+- TRN-02 入口审计：
+  - 当前 marker persona 在 CS 输入/输出线上生成、转发和捕获 coded marker；现有相关器、
+    golden vector、CRC/epoch/polarity/best/second peak/margin 基础逻辑可以复用。
+  - 当前尚无独立的 marker 后 DATA TX/RX PIO 路径，也没有 `marker_data_skew`、DATA
+    best/second peak、training window/guard staging。因此 marker HIL 不能替代 `TRN-02A/B`。
+  - 下一硬件入口固定为 `node0 -> node1` 单链路：先由 PIO 在 marker 后发送已知 DATA
+    codeword，再以 P3 per-link diagnostic candidate 形成有界搜索窗口；只有单链路连续 trial
+    accepted 后才轮换其余 directed link。
+- TRN-02A 软件门禁基座：
+  - 新增 `calibration_training_data` guarded request/evidence/snapshot，独立保存 source/destination、
+    epoch/sequence、codebook/CRC、generation/CRC bundle、sample period、marker-to-DATA 间隔、
+    base delay、搜索区间、guard、best/second peak、margin、polarity、window 和 skew。
+  - evaluator 覆盖 generation、旧 epoch、sequence、CRC、evidence flags、相关器拒绝、反相、
+    capture truncation、DMA/stall/timeout、distance、margin、search range 和 edge order；接受结果
+    始终保留 `DIAGNOSTIC_ONLY`。
+  - 固化 `tools/tests/run_calibration_training_data_tests.ps1`；host C 测试覆盖正常、单拍错位、
+    反相、截断、重复峰、旧 epoch、越界搜索、DMA fault 和非法窗口。
+  - 固件 A/B/Boot 在 `out/build/calibration-marker-arm-inject-marker-latch/` 完成构建，Flash map、
+    persistence、wire、SCPI namespace 和三镜像 link gate 通过；本轮未 OTA，因为独立 DATA PIO
+    和板端 SCPI 尚未接入。
+- 回退点：TRN-02 任一失败只停止 training persona、保留本任务的 TRN-01 diagnostic evidence
+  和旧 active generation；不得 ARM 四板 TDMA，不得向 VDC/DPLL 发布结果。
+
 ## CAL-TASK-20260824-001 - TRN-01 字段基座与四板 marker 基线
 
 - 状态：`TRN-01A` 进行中；C snapshot、seqlock store、拒绝矩阵和 host evidence parser
