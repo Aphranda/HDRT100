@@ -118,6 +118,7 @@ def run_inject(args: argparse.Namespace) -> list[dict[str, object]]:
             time.sleep(0.1)
             port.write(response)
             port.flush()
+            time.sleep(max(0.0, args.timeout - 0.1))
         else:
             deadline = time.monotonic() + args.timeout
             while time.monotonic() < deadline:
