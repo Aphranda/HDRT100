@@ -137,6 +137,9 @@ Last updated: 2026-08-25
   误判为闭环通过。原始证据：
   `out/flash_hil/dhrt100_modbus_master_peer_writeall_20260825.json`、
   `out/flash_hil/dhrt100_modbus_master_prefix2ms_read_20260825.txt`。
+- 回归：同一工件切回 Modbus slave 后，read/write、CRC reject 均通过；证据：
+  `out/flash_hil/dhrt100_modbus_slave_postdiag_20260825.json`。DHRT100 已恢复为 SCPI
+  maintenance mode，`SYSTem:ERRor?` 保持无错误。
 
 ## 证据索引
 
