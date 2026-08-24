@@ -4,8 +4,8 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-21
-Version: 3
+Last updated: 2026-08-24
+Version: 4
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
 
@@ -162,11 +162,11 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 
 | contract_id | 契约 | 域文档位置 | 顶层相关性 |
 |---|---|---|---|
-| `TDMA-REASON-01` | ring reason code 9 项冻结 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:805-819` | 错误码空间 TDMA 段。 |
-| `TDMA-SEQLOCK-01` | runtime snapshot 必须使用 seqlock | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:797` | 跨核共享事实的实现要求。 |
+| `TDMA-REASON-01` | ring reason code 9 项冻结 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:842-856` | 错误码空间 TDMA 段。 |
+| `TDMA-SEQLOCK-01` | runtime snapshot 必须使用 seqlock | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:834` | 跨核共享事实的实现要求。 |
 | `TDMA-HOP-01` | `hop_limit` 归属 ring profile | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:196` | 分布式确定性通讯约束。 |
 | `REFMEM-260B-01` | `critical delta <= 260 B` | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:194` | RefMem 实时短帧容量约束。 |
-| `VDC-DPLL-01` | DPLL 准入要求 `timestamp_resolution_ns <= 100` 且来自硬实时 latch | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:293` | 分布式共同时间证据门禁。 |
+| `VDC-DPLL-01` | DPLL 准入要求 `timestamp_resolution_ns <= 100` 且来自硬实时 latch | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:301-308` | 分布式共同时间证据门禁。 |
 
 登记表中的扩展契约仍为 `pending`，顶层只显示其可见性，不把它们当作已冻结
 硬约束：
@@ -182,6 +182,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `REFMEM-PERSIST-01` | RefMem 只持久化部署 package/ref，上电建立新 epoch | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 | `VDC-PERSIST-01` | VDC 只持久化低频 profile，上电从 OFF/CHECKING 重新锁相 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 | `ARCH-PIOCAT-01` | 动态 PIO 只装载签名 App catalog 中的 program，System Pack 只选择 ID | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
+| `DOCS-FLASH-01` | Flash 域架构、TODO、任务进度三类文档的事实边界与变更接口 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 
 ## 分层职责
 

@@ -5,7 +5,7 @@ description: Use when maintaining the HAOFV docs corpus — registering a frozen
 
 # Doc Self-Regression
 
-适用于 `D:\Work\PICO\RP2350_TRIG\docs` 的 HAOFV 文档体系。约定 + 轻量检查 + pre-commit 硬门禁。
+适用于本仓库（以 `AGENTS.md` 所在目录为仓库根）`docs/` 的 HAOFV 文档体系。约定 + 轻量检查 + pre-commit 硬门禁。
 实施过程与经验见 `docs/check/DOCS_REGRESSION_REVIEW.md`。
 
 ## 触发时机

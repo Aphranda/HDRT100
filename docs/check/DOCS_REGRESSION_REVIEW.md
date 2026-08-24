@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_REVIEW.md`
 Related: `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-08-22
+Last updated: 2026-08-24
 
 > 本文件总结 2026-08-19 实施 T1-T13 过程中发现的全部问题与解法，供后续维护和 skill 复用。
 
@@ -56,6 +56,8 @@ Last updated: 2026-08-22
 | Windows 控制台 GBK 输出中文乱码 | `sys.stdout.reconfigure(encoding="utf-8", errors="replace")` |
 | git index 出现 `AD` 残留（IDE/先前暂存 + 文件改名） | `git reset` 规范化（只清暂存区，不动工作区） |
 | pre-commit 钩子 Windows 执行 | `#!bin/sh` + 无 BOM + LF 行尾；`git config core.hooksPath .githooks` |
+| **迁移/clone 后门禁静默失效** | hooksPath 是**本地配置**（`git config core.hooksPath .githooks`），随仓库迁移/clone 丢失；迁移后必须重配。曾发生：HDRT100 仓库门禁未接线，`--log-check` 报 OK 是假象（marker 由手动 `sh .githooks/pre-commit` 写入、比最后 commit 新）——配置完用 `git config core.hooksPath` 核对，必要时手动跑一次钩子刷新 marker |
+| `--constants` 对 legacy 文档报 WARN（unverifiable） | 属预期：legacy 文档引用已不存在的代码符号，无法验证；WARN 不阻断，仅提示 |
 
 ## 6. 流程经验（对方案的反哺）
 

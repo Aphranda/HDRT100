@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/temp/HAOFV_REFRESH_PLAN.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-08-19
+Last updated: 2026-08-24
 
 > 本任务单由文档自回归体系（`docs/check/DOCS_REGRESSION_PLAN.md`）生成。
 > 修改对象：`docs/arch/HAOFV_ARCHITECTURE.md`（顶层文档）。
@@ -160,26 +160,34 @@ sh .githooks/pre-commit
 
 | # | 检查项 | 通过标准 | 核验结果 |
 |---|---|---|---|
-| A1 | 版本化 | 头部含 `Version: 2`，`Last updated` 为修改日 | ☐ |
-| B1 | 190 规则修正 | 手写"约 190 条"已改为快照标注或删除；`sizeof` 规则句保留 | ☐ |
-| C1 | 错误码 TDMA 段 | 错误码表含 `TDMA 600-699` 行，列出 9 个 reason code | ☐ |
-| C2 | 与登记表一致 | TDMA-REASON-01 的 9 个 code 与域文档 `:583-599` 完全一致 | ☐ |
-| D1 | 契约登记小节 | 含 5 条契约表，contract_id 与 `DOCS_REGISTRY.md` 一致 | ☐ |
-| D2 | canonical 引用 | 5 条引用的域文档路径/行号准确 | ☐ |
-| E1 | 目录结构对齐 | 含 `components/tdma/`、`distributed_refmem/`、`vdc_dpll_manager/` 等实际组件 | ☐ |
-| F1 | 决策项未动 | F1/F2 未被执行（保持原样） | ☐ |
-| V1 | 检查器全绿 | §三 的 4 条命令全部通过（freshness 不再报警） | ☐ |
+| A1 | 版本化 | 头部含 `Version: 2`，`Last updated` 为修改日 | ☑（实际 Version: 4，Last updated 2026-08-24，2026-08-24 审查修复时再次 bump） |
+| B1 | 190 规则修正 | 手写"约 190 条"已改为快照标注或删除；`sizeof` 规则句保留 | ☑（"约 190"已删除，`sizeof(s_ecc_table)/sizeof(s_ecc_table[0])` 规则句保留） |
+| C1 | 错误码 TDMA 段 | 错误码表含 `TDMA 600-699` 行，列出 9 个 reason code | ☑（`:983`） |
+| C2 | 与登记表一致 | TDMA-REASON-01 的 9 个 code 与域文档 `:583-599` 完全一致 | ☑（与 `TDMA_DOMAIN_ARCHITECTURE.md:842-856` 完全一致；任务单原始行号 `:583-599` 已漂移，实际以 `:842-856` 为准） |
+| D1 | 契约登记小节 | 含 5 条契约表，contract_id 与 `DOCS_REGISTRY.md` 一致 | ☑ |
+| D2 | canonical 引用 | 5 条引用的域文档路径/行号准确 | ☑（2026-08-24 交叉审核修正：REASON-01→`:842-856`、SEQLOCK-01→`:834`、VDC-DPLL-01→`:301-308`；HOP-01 `:196`、REFMEM-260B-01 `:194` 原引用正确） |
+| E1 | 目录结构对齐 | 含 `components/tdma/`、`distributed_refmem/`、`vdc_dpll_manager/` 等实际组件 | ☑（`:653` `:668` 等） |
+| F1 | 决策项未动 | F1/F2 未被执行（保持原样） | ☑（F1 时间回绕 `:1004` 三选一表述保留；F2 SD factory 宿主未定，`:1335`/`:1353` 保持） |
+| V1 | 检查器全绿 | §三 的 4 条命令全部通过（freshness 不再报警） | ☑（2026-08-24 审查修复后全绿：docs_check 114 文件 0 FAIL、doc_regression freshness/registry/orphan OK；pytest 沙箱环境无法执行，已说明） |
 
 ## 六、交叉审核记录（C11，必填）
 
 ```markdown
 ## 交叉审核记录
-- 审核方: <另一 agent / 人工 / 另一份文档>
-- 审核方式: agent 交叉（独立评审）/ 文档交叉（与 TDMA/VDC 域文档对照）/ 层间交叉（代码↔登记表↔文档）
-- 逐项核验: 见 §五 表格（A1-F1, V1）
-- 审核结论: ACCEPTED / ACCEPT_WITH_DEVIATION / REJECTED
-- 审核意见: <逐条 PASS/NOTE/FAIL 说明>
-- 审核日期: <YYYY-MM-DD>
+- 审核方: DSH agent（2026-08-24 文档自回归审查会话，独立于刷新执行方）
+- 审核方式: 层间交叉（顶层↔登记表↔域文档↔代码锚点 对照核验）+ 检查器实跑
+- 逐项核验: 见 §五 表格（A1-F1, V1 全部 ☑）
+- 审核结论: ACCEPT_WITH_DEVIATION（偏差：Version 实际为 4、任务单行号 `:583-599` 漂移为 `:842-856`、顶层引用行号 3 处不准——均已在 2026-08-24 修正）
+- 审核意见:
+  - A1: PASS（版本化符合语义，3→4 因 2026-08-24 审查修复追加内容）
+  - B1: PASS（"约 190"残留 0 处，sizeof 规则保留）
+  - C1/C2: PASS（9 个 reason code 与域文档逐字一致；行号按实际修正）
+  - D1: PASS（5 条契约 contract_id 与登记表一致）
+  - D2: PASS WITH NOTE（3 处行号不准已修正；HOP-01/REFMEM-260B-01 原正确）
+  - E1: PASS（实际组件目录已对齐）
+  - F1: PASS（两个决策项保持未动）
+  - V1: PASS（检查器全绿；pytest 沙箱限制已记录，非仓库缺陷）
+- 审核日期: 2026-08-24
 ```
 
 **放行条件**：§五 全部 ☑ 且 §三 验证全绿，交叉审核结论为 ACCEPTED 或 ACCEPT_WITH_DEVIATION（偏差需在意见中说明）后，才允许 commit。

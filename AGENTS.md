@@ -53,14 +53,17 @@ python tools/docs_check/docs_check.py --strict-names
 python tools/doc_regression_check.py
 python -m pytest tests/python/test_doc_regression.py tests/python/test_docs_check.py -p no:cacheprovider
 sh .githooks/pre-commit
+python tools/doc_regression_check.py --log-check   # 逃生门审计（建议每周）
 ```
+
+> **门禁接线**：pre-commit 依赖 `git config core.hooksPath .githooks`（本地配置，clone/迁移后**必须重配**，否则 commit 不触发检查器）。`sh .githooks/pre-commit` 可手动验证。
 
 ## 6. 当前状态与进行中任务
 
-- 已冻结契约：5 条（TDMA-REASON-01 / TDMA-SEQLOCK-01 / TDMA-HOP-01 / REFMEM-260B-01 / VDC-DPLL-01）
+- 已登记契约：16 行（5 active + 10 pending + 1 superseded，见 `docs/check/DOCS_REGISTRY.md`）
 - 条款落点：10 条顶层硬约束全覆盖（1 条 VIOLATED：HAOFV-879 seqlock）
-- **进行中**：顶层 `docs/arch/HAOFV_ARCHITECTURE.md` 刷新任务 → `docs/temp/HAOFV_REFRESH_PLAN.md`（**2026-08-26 截止**，执行前先读该任务单）
-- 下一期：环3 数字单一来源检查、verify-doc-crosscheck（见 TODO T16-T17）
+- **已完成**：顶层 `docs/arch/HAOFV_ARCHITECTURE.md` 刷新（v3，2026-08-21）；2026-08-24 审查修复（门禁接线 / 路径修正 / T18 闭环 / 顶层补 DOCS-FLASH-01）
+- 下一期：verify-doc-crosscheck 自动化强化（见 TODO）
 
 ## 7. 提交约定
 

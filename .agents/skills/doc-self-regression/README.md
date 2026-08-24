@@ -4,11 +4,13 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `.agents/skills/doc-self-regression/README.md`
 Related: `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/check/DOCS_REGRESSION_REVIEW.md`
-Last updated: 2026-08-19
+Last updated: 2026-08-24
 
 > 本目录是「文档自回归 skill 插件」的完整形态：一个自包含、可复用的文档治理包。
 
 ## 插件组成
+
+本目录（插件本体）共 4 个文件：
 
 | 文件 | 角色 |
 |---|---|
@@ -16,6 +18,11 @@ Last updated: 2026-08-19
 | `README.md` | 本说明（插件清单 + 安装 + 使用） |
 | `doc_regression_check.py` | 检查器：环1 新鲜度 + 环2 登记/孤儿条款 + C3 逃生门审计（纯 stdlib，**插件自包含副本**） |
 | `DOCS_REGISTRY.template.md` | 契约登记表模板（插件自包含副本） |
+
+插件运行依赖的仓库文件：
+
+| 文件 | 角色 |
+|---|---|
 | `tools/docs_check/docs_check.py` | 既有检查器（元数据/索引/链接/命名/冲突标记），被插件引用 |
 | `docs/check/DOCS_REGISTRY.md` | 契约登记表 + 条款落点表（唯一事实源，**live 版**） |
 | `docs/check/DOCS_REGRESSION_TODO.md` | 实施待办（执行跟踪） |
@@ -31,8 +38,8 @@ Last updated: 2026-08-19
 ## 安装（一次性）
 
 ```bash
-cd D:\Work\PICO\RP2350_TRIG
-git config core.hooksPath .githooks     # 激活 pre-commit 门禁
+cd <仓库根>                            # AGENTS.md 所在目录
+git config core.hooksPath .githooks    # 激活 pre-commit 门禁（clone/迁移后必须重配）
 ```
 
 ## 使用

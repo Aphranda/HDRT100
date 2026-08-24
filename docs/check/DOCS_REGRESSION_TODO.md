@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_TODO.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-08-22
+Last updated: 2026-08-24
 
 > 方案: `doc-skill/方案_文档自回归体系.md`（工作区，T13 归档入本项目）
 > 工作流: 方案审核 → 待办 → 逐条执行 + 每步反馈
@@ -42,11 +42,11 @@ Last updated: 2026-08-22
 
 ## 下一期（2026-08-19 补建，未纳入本次 T1-T15）
 
-| # | 待办 | 来源 | 截止 |
-|---|---|---|---|
+| # | 待办 | 来源 | 状态 | 反馈 |
+|---|---|---|---|---|
 | T16 | 环3 数字单一来源检查：文档代码块 `#define X N` vs 代码实际值 | 方案 §6"下一期" | done（2026-08-19） | 实现 `--constants`（opt-in，快照标注豁免）；实测扫出 legacy 文档未验证 WARN（合理）；2 测试 |
 | T17 | verify-doc-crosscheck：登记契约"域文档描述 vs code_anchor 实际值"自动比对 | 方案 §6"下一期" | done（2026-08-19） | 实现 `--crosscheck`（关键字在锚点文件出现，WARN 级启发式）；5 契约全过；1 测试 |
-| T18 | 顶层 `HAOFV_ARCHITECTURE.md` 刷新：bump 版本 + 错误码表补 TDMA 段 + 修"190 规则"残留 + 5 契约在顶层可见 | C8 硬约束 | **Codex 任务**（任务单 `docs/temp/HAOFV_REFRESH_PLAN.md`，含验收检查表 §五 + 交叉审核 §六） | ⚠️ 2026-08-26（7 天窗口） |
+| T18 | 顶层 `HAOFV_ARCHITECTURE.md` 刷新：bump 版本 + 错误码表补 TDMA 段 + 修"190 规则"残留 + 5 契约在顶层可见 | C8 硬约束 | done（2026-08-24） | 刷新内容 2026-08-21 完成（v3，后 bump 至 4）；2026-08-24 审查修复闭环：验收表 §五 全 ☑ + 交叉审核 §六 ACCEPT_WITH_DEVIATION（修正 3 处顶层引用行号 + 补 DOCS-FLASH-01 pending 可见性 + V1 全绿） |
 | T19 | 逐级核验流程首次实操：首份提交单 demo + 结论回写登记表 | 用户"逐级往上提交核验" | done（2026-08-19） | 首份提交单 `TDMA_CROSS_REVIEW_01.md`（HAOFV-879 seqlock 偏差，ACCEPT_WITH_DEVIATION + 交叉审核 PASS_WITH_NOTE）；命名规范修正：提交单支持数字序号后缀（is_allowed_name 容错 + 测试） |
 | T20 | docs_check 白名单变更补测试：PRODUCT/REGISTRY/REVIEW 加入后 test_docs_check 补断言（C5 三同步） | 执行中发现遗漏 | done（2026-08-19） | 新增 `test_docs_check_accepts_added_allowlist_names`，4 测试过 |
 | T21 | 项目↔harness 插件同步规则：SKILL.md 更新后同步到 harness 副本的命令/约定 | 插件安装引出 | done（2026-08-19） | 实现为 `--skill-sync`：live 脚本+模板→项目 skill→harness skill 三级镜像；全量检查自动含 skill-sync 自检（自我指涉门禁）；pytest 26 通过 |

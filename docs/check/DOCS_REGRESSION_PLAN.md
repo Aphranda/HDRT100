@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_PLAN.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-08-22
+Last updated: 2026-08-24
 
 > 本文件由工作区 `doc-skill/方案_文档自回归体系.md` 归档而来；执行状态与最终调整见 `docs/check/DOCS_REGRESSION_TODO.md`。
 > 设计依据一句话：需求追溯矩阵思想（契约登记）+ docs-as-code 门禁（commit 拦截）。
@@ -410,7 +410,7 @@ exit 0
 
 ```powershell
 # 安装（一次性）
-cd D:\Work\PICO\RP2350_TRIG
+cd <仓库根>                    # AGENTS.md 所在目录
 git config core.hooksPath .githooks
 
 # 验收 1：检查器（预期环1 报顶层过期 = 准绳，非失败）
