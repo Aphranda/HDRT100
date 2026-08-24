@@ -32,6 +32,7 @@ static uint8_t s_tx_frame[256];
 static uint32_t s_tx_frame_len;
 static uint32_t s_tx_frame_pos;
 static bool s_tx_active;
+static uint64_t s_tx_release_at_us;
 static uint8_t s_dma_rx[2][RS485_DMA_BUFFER_SIZE];
 static int s_dma_channel[2] = {-1, -1};
 static volatile uint8_t s_dma_ready_mask;
@@ -148,9 +149,9 @@ static uint32_t rs485_dma_partial_limit(uint32_t index, bool idle_event)
         s_dma_last_activity_us = time_us_64();
         return 0u;
     }
+    (void)idle_event;
     if (produced <= s_dma_read_offset ||
-        (!idle_event && time_us_64() - s_dma_last_activity_us <
-         rs485_char_time_us())) {
+        time_us_64() - s_dma_last_activity_us < rs485_char_time_us()) {
         return 0u;
     }
     return produced;
@@ -233,7 +234,7 @@ void drv_rs485_service(void)
         uart_putc_raw(s_config.instance, s_tx_frame[s_tx_frame_pos++]);
         --budget;
     }
-    if (s_tx_frame_pos == s_tx_frame_len &&
+    if (s_tx_frame_pos == s_tx_frame_len && time_us_64() >= s_tx_release_at_us &&
         (uart_get_hw(s_config.instance)->fr & UART_UARTFR_BUSY_BITS) == 0u) {
         gpio_put(s_config.de_pin, 0u);
         s_tx_active = false;
@@ -353,6 +354,10 @@ static bool drv_rs485_write_internal(const uint8_t *data, uint32_t size,
     s_tx_frame_len = size;
     s_tx_frame_pos = 0u;
     s_tx_active = true;
+    const uint64_t baud = s_config.baud_hz != 0u ? s_config.baud_hz : 1u;
+    const uint64_t frame_us =
+        ((uint64_t)size * RS485_FRAME_BITS * 1000000u + baud - 1u) / baud;
+    s_tx_release_at_us = time_us_64() + frame_us;
     if (discard_echo) {
         rs485_start_tx_echo_guard(size);
         /* Only the explicit loopback diagnostic needs an idle-gap receive
@@ -416,6 +421,7 @@ bool drv_rs485_init(const drv_rs485_config_t *config)
     s_tx_frame_len = 0u;
     s_tx_frame_pos = 0u;
     s_tx_active = false;
+    s_tx_release_at_us = 0u;
     s_dma_enabled = false;
     s_dma_ready_mask = 0u;
     s_uart_idle_events = 0u;
