@@ -46,7 +46,23 @@ core0、USB、日志、完整 marker/codeword 解析或业务 FIFO。首边沿�
 trial 的后处理门禁；后处理失败必须记录链路级 reason，并停止当前训练 epoch，不能倒推首边沿
 不存在，也不能把相关器在低质量波形上的 `polarity` 猜测直接解释成物理反相。
 
-`N` 是训练变量，不是固定产品常量。候选初值来自当前有效 PIO 时钟周期和已测 path-delay 的粗窗口；每次缩小搜索范围必须绑定 profile、topology、epoch 和 codebook。当前第三阶段约 `81 ns` 的观测值只能作为诊断输入快照，不能写成训练算法的硬编码事实。
+这里的 `N` 只调节接收 capture window，marker forward 的 PIO delay 固定引用
+`TDMA_PIO_SPI_MARKER_FORWARD_DELAY_CYCLES`，不参与 offset 训练。capture 的动态加载关系为：
+
+```text
+link_i_base_delay = link_i_delay / 2
+offset_link = measured_window_delay - link_i_base_delay
+capture_delay_cycles = half_chip_samples(codebook) + offset_sample_count
+```
+
+因此 offset 为负表示把接收窗口向前挪，为正表示向后挪。候选初值来自当前有效 PIO 时钟周期
+和每条 link 独立测得的粗窗口；不同线长必须分别计算 `link_i_base_delay`，不能复用全环平均值。
+每次缩小搜索范围必须绑定 profile、topology、epoch 和 codebook。当前训练范围引用
+`CALIBRATION_TRAINING_MARKER_MIN_OFFSET_SAMPLES` 和
+`CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES`；最终 `capture_delay_cycles` 还必须满足
+`CALIBRATION_TRAINING_MARKER_MAX_CAPTURE_DELAY_CYCLES`，所以范围是当前 profile 的搜索能力，
+不是所有 codebook 都能无条件加载的范围。当前第三阶段约 `81 ns` 的观测值只能作为诊断输入
+快照，不能写成训练算法的硬编码事实。
 
 marker 与 DATA 走公共传播路径时，接收端使用相对间隔而非绝对延迟：
 
@@ -73,7 +89,46 @@ PIO persona、时钟、收发器使能序列或链路条件改变，只使关联
 
 若 marker 与 DATA 走不同收发器或不同物理对，则额外输出 `marker_data_skew_ns`；该 skew 必须单独统计和设门，不能被 path-delay 平均值掩盖。
 
-## 2.1 收发驱动器时序预算与去嵌入
+## 2.1 Node/link/loop 命名与四维 offset 矩阵
+
+物理拓扑只使用 `node`、`link` 和 `loop`：`node_i` 是第 `i` 个物理节点，`link_i` 是
+`node_i -> node_(i+1 mod node_count)` 的有向物理链路，`node_i_loop` 是以 `node_i` 为
+origin、经过全部 link 后返回该节点的完整环路。`slot` 只允许表示 TDMA 调度或 wire 字段，
+不得用来命名物理测量对象。
+
+每条有向链路的延迟分解固定为：
+
+```text
+link_i_delay
+    = node_i_driver_delay
+    + link_i_path_delay
+    + node_(i+1)_receiver_delay
+    + link_i_capture_quantization
+```
+
+整圈结果命名为 `node_i_loop_delay`。它是从 `node_i` 出发的全部 link delay、各中继节点
+forward residence 和 guard 的组合，不得替代任何单条 `link_i_delay`。例如 `node0 -> node1`
+的接收端组成应命名为 `node1_receiver_delay`；禁止把 receiver delay 归到 source node，或把
+driver/receiver datasheet delay 在端到端实测值上重复相加。
+
+当前训练 offset 是按 source node 装载到 PIO capture 相位的独立状态量；forward delay 保持
+固定。矩阵必须保留
+所有节点维度的笛卡尔积；当前代码事实源为
+`tools/calibration_ring_validate/calibration_marker_train.py::build_offset_matrix()`。筛选参数只决定
+本轮执行哪些矩阵行，不能从输出中删除未执行行或把固定为零的维度降掉。每行至少保存：
+
+```text
+offset_sample_counts_by_node[node]
+offset_ns_by_node[node]
+executed, accepted_nodes, reject_reason_by_node
+normal/inverted distance, marker flags, raw capture reference
+```
+
+固定一个 origin 的单次多节点 trial，直接得到 successor 方向的若干 `link` capture 和该 origin
+的一个 `loop` capture；它不是“全部 link 都已独立测量”。要完成全量 directed-link 判断，必须
+轮换 reference/origin，使每条 `link_i` 至少一次成为可直接与本地期望 marker 对照的测量对象。
+
+## 2.2 收发驱动器时序预算与去嵌入
 
 当前产品板的训练 marker 经 ISO1452 全双工隔离收发器传输。训练必须按明确的测量端点拆分
 一跳路径，不能把“线路延迟”和“板间端到端延迟”混为一项：
@@ -183,7 +238,7 @@ component_propagation_deembedding_is_line_diagnostic_only
 诊断 provenance，不得由 SCPI 写入 active path-delay table，也不能替代每轮的 raw capture、
 相关峰、CRC、极性和 generation/freshness 证据。
 
-## 2.2 专业术语与 EtherCAT 对照
+## 2.3 专业术语与 EtherCAT 对照
 
 本方案建议采用以下术语，避免把不同层次都称为 `delay`：
 
@@ -228,7 +283,7 @@ CRC/sequence      -> frame validity / working-counter 类门禁
 
 差异也必须保留：EtherCAT 的 ESC 和 Ethernet PHY 提供专用硬件转发、时间戳和双向端口模型；当前 SPI/PIO 产品链路没有这些现成机制，因此 marker 转发、DMA 捕获、相关匹配和故障状态必须由 TDMA core1 owner 明确实现。`active path_delay table` 仍是校准事实源，不能因为采用 marker training 就被省略。
 
-## 2.3 历史实测 delay ledger
+## 2.4 历史实测 delay ledger
 
 以下数值来自校准域已有 bench/HIL 记录，仅用于训练初始窗口、算法回归和结果交叉检查；它们不是未经 active gate 的产品常量。不同阶段的测量对象不同，禁止直接相加或互相替代。
 

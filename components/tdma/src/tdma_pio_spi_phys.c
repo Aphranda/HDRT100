@@ -47,6 +47,7 @@ static uint s_tdma_pio_spi_clk_burst_offset;
 static uint s_tdma_pio_spi_clk_capture_offset;
 static uint s_tdma_pio_spi_clk_coded_tx_offset;
 static uint s_tdma_pio_spi_clk_oversample_offset;
+static uint s_tdma_pio_spi_marker_origin_offset;
 static uint s_tdma_pio_spi_marker_capture_offset;
 static uint s_tdma_pio_spi_cal_tx_offset;
 static uint s_tdma_pio_spi_cal_capture_offset;
@@ -243,19 +244,19 @@ static bool tdma_pio_spi_phys_load_marker_programs(void)
     s_tdma_pio_spi_marker_forward_offset = (uint)pio_add_program(
         BOARD_TDMA_SPI_PIO, &tdma_pio_spi_marker_forward_program);
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
-                             &tdma_pio_spi_clk_coded_tx_program)) {
+                             &tdma_pio_spi_marker_origin_program)) {
         pio_remove_program(BOARD_TDMA_SPI_PIO,
                            &tdma_pio_spi_marker_forward_program,
                            s_tdma_pio_spi_marker_forward_offset);
         return false;
     }
-    s_tdma_pio_spi_clk_coded_tx_offset = (uint)pio_add_program(
-        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_clk_coded_tx_program);
+    s_tdma_pio_spi_marker_origin_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_marker_origin_program);
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
                              &tdma_pio_spi_marker_capture_program)) {
         pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_clk_coded_tx_program,
-                           s_tdma_pio_spi_clk_coded_tx_offset);
+                           &tdma_pio_spi_marker_origin_program,
+                           s_tdma_pio_spi_marker_origin_offset);
         pio_remove_program(BOARD_TDMA_SPI_PIO,
                            &tdma_pio_spi_marker_forward_program,
                            s_tdma_pio_spi_marker_forward_offset);
@@ -407,8 +408,8 @@ static void tdma_pio_spi_phys_unload_programs(void)
                            &tdma_pio_spi_marker_capture_program,
                            s_tdma_pio_spi_marker_capture_offset);
         pio_remove_program(BOARD_TDMA_SPI_PIO,
-                           &tdma_pio_spi_clk_coded_tx_program,
-                           s_tdma_pio_spi_clk_coded_tx_offset);
+                           &tdma_pio_spi_marker_origin_program,
+                           s_tdma_pio_spi_marker_origin_offset);
         pio_remove_program(BOARD_TDMA_SPI_PIO,
                            &tdma_pio_spi_marker_forward_program,
                            s_tdma_pio_spi_marker_forward_offset);
@@ -1675,7 +1676,7 @@ static void tdma_pio_spi_phys_marker_decode_edges(
     }
 }
 
-bool tdma_pio_spi_phys_marker_start(
+bool tdma_pio_spi_phys_marker_arm(
     tdma_pio_spi_phys_t *phys,
     const tdma_pio_spi_marker_request_t *request)
 {
@@ -1683,8 +1684,10 @@ bool tdma_pio_spi_phys_marker_start(
         (request->role != TDMA_PIO_SPI_MARKER_ROLE_ORIGINATOR &&
          request->role != TDMA_PIO_SPI_MARKER_ROLE_FOLLOWER) ||
         request->marker_sample_count == 0u ||
-        request->offset_sample_count < -1 ||
-        request->offset_sample_count > 1 ||
+        request->offset_sample_count < TDMA_PIO_SPI_MARKER_MIN_OFFSET_SAMPLES ||
+        request->offset_sample_count > TDMA_PIO_SPI_MARKER_MAX_OFFSET_SAMPLES ||
+        request->capture_phase_delay_cycles >
+            TDMA_PIO_SPI_MARKER_MAX_CAPTURE_DELAY_CYCLES ||
         request->capture_sample_count < request->marker_sample_count ||
         request->capture_sample_count >
             TDMA_PIO_SPI_MARKER_BUFFER_WORDS *
@@ -1717,11 +1720,29 @@ bool tdma_pio_spi_phys_marker_start(
     phys->rx_capture_active = false;
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM, false);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, false);
+    /* Hardware-pad guard: hold the downstream marker pin high throughout
+     * program unload/load and GPIO mux changes.  This is the ARM invariant;
+     * only marker injection or physical upstream forwarding may create a
+     * falling edge after the override is released. */
+    gpio_set_outover(phys->tx_csn_pin, GPIO_OVERRIDE_HIGH);
+    /* Keep persona switching invisible on an already armed physical link.
+     * Dropping DE here creates a real falling edge through ISO1452 and can
+     * release a downstream follower before the origin is injected.  The
+     * maintenance-only path has no active link, so it may still use the
+     * traditional disable/restore guard. */
+    const bool drivers_were_enabled = phys->armed;
+    if (!drivers_were_enabled) {
+        gpio_put(BOARD_TRIG_DE_PIN, false);
+    }
     if (!tdma_pio_spi_phys_select_program_persona(
             phys, TDMA_PIO_SPI_PROGRAM_PERSONA_MARKER) ||
         !tdma_pio_spi_phys_ensure_rx_dma() ||
         (request->role == TDMA_PIO_SPI_MARKER_ROLE_ORIGINATOR &&
          !tdma_pio_spi_phys_ensure_tx_dma())) {
+        if (!drivers_were_enabled) {
+            gpio_put(BOARD_TRIG_DE_PIN, true);
+        }
+        gpio_set_outover(phys->tx_csn_pin, GPIO_OVERRIDE_NORMAL);
         tdma_pio_spi_phys_marker_publish_error(
             phys, request->epoch, TDMA_PIO_SPI_MARKER_REJECT_RESOURCE);
         return false;
@@ -1740,22 +1761,21 @@ bool tdma_pio_spi_phys_marker_start(
     pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->tx_sm);
     pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
     if (request->role == TDMA_PIO_SPI_MARKER_ROLE_ORIGINATOR) {
-        tdma_pio_spi_clk_coded_tx_program_init(
+        tdma_pio_spi_marker_origin_program_init(
             BOARD_TDMA_SPI_PIO, phys->tx_sm,
-            s_tdma_pio_spi_clk_coded_tx_offset, phys->tx_csn_pin, true);
+            s_tdma_pio_spi_marker_origin_offset, phys->tx_csn_pin);
     } else {
         tdma_pio_spi_marker_forward_program_init(
             BOARD_TDMA_SPI_PIO, phys->tx_sm,
             s_tdma_pio_spi_marker_forward_offset,
             phys->rx_csn_pin, phys->tx_csn_pin,
-            (uint32_t)(request->offset_sample_count + 1));
+            TDMA_PIO_SPI_MARKER_FORWARD_DELAY_CYCLES);
     }
     tdma_pio_spi_marker_capture_program_init(
         BOARD_TDMA_SPI_PIO, phys->rx_sm,
         s_tdma_pio_spi_marker_capture_offset,
         phys->tx_csn_pin, phys->rx_csn_pin,
-        request->role == TDMA_PIO_SPI_MARKER_ROLE_FOLLOWER,
-        (uint32_t)(request->offset_sample_count + 1));
+        request->capture_phase_delay_cycles);
 
     const uint32_t capture_words =
         (request->capture_sample_count + 15u) / 16u;
@@ -1795,9 +1815,7 @@ bool tdma_pio_spi_phys_marker_start(
     tdma_pio_spi_phys_marker_write_begin(phys);
     memset(&phys->marker, 0, sizeof(phys->marker));
     phys->marker.version = TDMA_PIO_SPI_MARKER_SNAPSHOT_VERSION;
-    phys->marker.state = request->role == TDMA_PIO_SPI_MARKER_ROLE_ORIGINATOR
-                             ? TDMA_PIO_SPI_MARKER_RUNNING
-                             : TDMA_PIO_SPI_MARKER_ARMED;
+    phys->marker.state = TDMA_PIO_SPI_MARKER_ARMED;
     phys->marker.role = request->role;
     phys->marker.flags = TDMA_PIO_SPI_MARKER_FLAG_DIAGNOSTIC_ONLY |
                          TDMA_PIO_SPI_MARKER_FLAG_HARDWARE_CAPTURE;
@@ -1808,19 +1826,36 @@ bool tdma_pio_spi_phys_marker_start(
     phys->marker.capture_sample_count = request->capture_sample_count;
     phys->marker.tx_dma_remaining = request->tx_word_count;
     phys->marker.rx_dma_remaining = capture_words;
+    phys->marker_deadline_ns = 0u;
+    tdma_pio_spi_phys_marker_write_end(phys);
+
+    dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_rx_dma_channel);
+    gpio_put(BOARD_TRIG_DE_PIN, true);
+    pio_enable_sm_mask_in_sync(BOARD_TDMA_SPI_PIO,
+                               (1u << phys->tx_sm) | (1u << phys->rx_sm));
+    gpio_set_outover(phys->tx_csn_pin, GPIO_OVERRIDE_NORMAL);
+    return true;
+}
+
+bool tdma_pio_spi_phys_marker_inject(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL ||
+        phys->marker.state != TDMA_PIO_SPI_MARKER_ARMED ||
+        phys->marker.role != TDMA_PIO_SPI_MARKER_ROLE_ORIGINATOR ||
+        s_tdma_pio_spi_tx_dma_channel < 0 ||
+        dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) {
+        return false;
+    }
+
+    tdma_pio_spi_phys_marker_write_begin(phys);
+    phys->marker.state = TDMA_PIO_SPI_MARKER_RUNNING;
     phys->marker_deadline_ns = vdc_timestamp_clock_now_ns() +
                                TDMA_PIO_SPI_MARKER_TIMEOUT_NS;
     tdma_pio_spi_phys_marker_write_end(phys);
 
-    if (enable_drivers_after_setup) {
-        tdma_pio_spi_phys_set_line_drivers(true);
-    }
-    dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_rx_dma_channel);
-    if (request->role == TDMA_PIO_SPI_MARKER_ROLE_ORIGINATOR) {
-        dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_tx_dma_channel);
-    }
-    pio_enable_sm_mask_in_sync(BOARD_TDMA_SPI_PIO,
-                               (1u << phys->tx_sm) | (1u << phys->rx_sm));
+    /* The first DMA word releases marker_origin's pull block.  The physical
+     * falling edge and all subsequent samples remain entirely in PIO. */
+    dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_tx_dma_channel);
     return true;
 }
 
@@ -1861,12 +1896,20 @@ void tdma_pio_spi_phys_marker_service(tdma_pio_spi_phys_t *phys)
             : 0u;
     const bool stalled =
         pio_sm_is_rx_fifo_full(BOARD_TDMA_SPI_PIO, phys->rx_sm);
-    const bool timed_out = rx_remaining != 0u &&
+    const bool timed_out = phys->marker.state == TDMA_PIO_SPI_MARKER_RUNNING &&
+        rx_remaining != 0u &&
         vdc_timestamp_clock_now_ns() >= phys->marker_deadline_ns;
 
     tdma_pio_spi_phys_marker_write_begin(phys);
     phys->marker.rx_dma_remaining = rx_remaining;
     phys->marker.tx_dma_remaining = tx_remaining;
+    if (phys->marker.role == TDMA_PIO_SPI_MARKER_ROLE_FOLLOWER &&
+        phys->marker.state == TDMA_PIO_SPI_MARKER_ARMED &&
+        rx_remaining < phys->marker.capture_word_count) {
+        phys->marker.state = TDMA_PIO_SPI_MARKER_RUNNING;
+        phys->marker_deadline_ns = vdc_timestamp_clock_now_ns() +
+                                   TDMA_PIO_SPI_MARKER_TIMEOUT_NS;
+    }
     if (tx_remaining == 0u) {
         phys->marker.flags |= TDMA_PIO_SPI_MARKER_FLAG_TX_DMA_COMPLETE;
     }

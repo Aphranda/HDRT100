@@ -14,11 +14,64 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.calibration_ring_validate.calibration_marker_train import (
+    MAX_OFFSET_SAMPLES,
+    MIN_OFFSET_SAMPLES,
     derive_link_offset_candidates,
 )
 
 
-DEFAULT_OFFSET_SWEEP_SAMPLES = tuple(range(-4, 5))
+DEFAULT_OFFSET_SWEEP_SAMPLES = tuple(
+    range(MIN_OFFSET_SAMPLES, MAX_OFFSET_SAMPLES + 1))
+
+
+def derive_link_delay_offset_plan(
+        link_delays_ns: list[float], measured_delays_ns: list[float],
+        sample_period_ns: float = 4.0) -> dict[str, object]:
+    """Quantize per-link (measured_delay - link_delay / 2) for PIO loading."""
+    if (not link_delays_ns or
+            len(link_delays_ns) != len(measured_delays_ns)):
+        raise ValueError(
+            "link-delay and measured-delay vectors must have equal non-zero length")
+    if sample_period_ns <= 0:
+        raise ValueError("sample period must be positive")
+
+    links: list[dict[str, object]] = []
+    for link, (link_delay_ns, measured_delay_ns) in enumerate(
+            zip(link_delays_ns, measured_delays_ns)):
+        if link_delay_ns < 0 or measured_delay_ns < 0:
+            raise ValueError("link and measured delays must be non-negative")
+        base_ns = link_delay_ns / 2.0
+        requested_offset_ns = measured_delay_ns - base_ns
+        offset_samples = round(requested_offset_ns / sample_period_ns)
+        applied_offset_ns = offset_samples * sample_period_ns
+        links.append({
+            "link": link,
+            "link_delay_ns": link_delay_ns,
+            "link_base_delay_ns": base_ns,
+            "measured_delay_ns": measured_delay_ns,
+            "requested_offset_ns": requested_offset_ns,
+            "offset_sample_count": offset_samples,
+            "applied_offset_ns": applied_offset_ns,
+            "quantization_residual_ns": requested_offset_ns - applied_offset_ns,
+            "resolved_window_delay_ns": base_ns + applied_offset_ns,
+            "pio_loadable": (
+                MIN_OFFSET_SAMPLES <= offset_samples <= MAX_OFFSET_SAMPLES),
+        })
+    return {
+        "phase": "TRN-01_PER_LINK_OFFSET_LOAD_PLAN",
+        "diagnostic_only": True,
+        "base_model": "link_i_base_delay_ns = link_i_delay_ns / 2",
+        "offset_model": (
+            "offset_sample_count = round((measured_delay_ns - "
+            "link_i_base_delay_ns) / sample_period_ns)"),
+        "sample_period_ns": sample_period_ns,
+        "pio_offset_sample_range": [MIN_OFFSET_SAMPLES, MAX_OFFSET_SAMPLES],
+        "links": links,
+        "offset_sample_counts_by_link": [
+            int(link["offset_sample_count"]) for link in links],
+        "all_offsets_pio_loadable": all(
+            bool(link["pio_loadable"]) for link in links),
+    }
 
 
 def aggregate_matrix_summary(summary: dict[str, object]) -> dict[str, object]:
@@ -332,22 +385,41 @@ def aggregate_pair_summaries(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--summary", type=Path, action="append", required=True)
+    parser.add_argument("--summary", type=Path, action="append")
     parser.add_argument(
         "--ring-board-id", action="append",
         help="physical ring board order; selects directed two-board aggregation")
+    parser.add_argument(
+        "--link-delay-ns", type=float, action="append",
+        help="end-to-end link delay; repeat once per directed link")
+    parser.add_argument(
+        "--measured-delay-ns", type=float, action="append",
+        help="measured node/link delay to compensate; repeat in link order")
+    parser.add_argument("--sample-period-ns", type=float, default=4.0)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    summaries = [json.loads(path.read_text(encoding="utf-8"))
-                 for path in args.summary]
-    if (len(summaries) == 1 and
-            summaries[0].get("phase") == "TRN-01_FOUR_NODE_OFFSET_MATRIX" and
-            not args.ring_board_id):
-        result = aggregate_matrix_summary(summaries[0])
-    elif args.ring_board_id:
-        result = aggregate_pair_summaries(summaries, args.ring_board_id)
+    if args.link_delay_ns is not None or args.measured_delay_ns is not None:
+        if args.summary or args.ring_board_id:
+            raise SystemExit(
+                "per-link offset planning cannot be combined with summaries")
+        result = derive_link_delay_offset_plan(
+            list(args.link_delay_ns or []),
+            list(args.measured_delay_ns or []),
+            args.sample_period_ns)
     else:
-        result = aggregate_summaries(summaries)
+        if not args.summary:
+            raise SystemExit(
+                "provide --summary inputs or per-link delay vectors")
+        summaries = [json.loads(path.read_text(encoding="utf-8"))
+                     for path in args.summary]
+        if (len(summaries) == 1 and
+                summaries[0].get("phase") == "TRN-01_FOUR_NODE_OFFSET_MATRIX" and
+                not args.ring_board_id):
+            result = aggregate_matrix_summary(summaries[0])
+        elif args.ring_board_id:
+            result = aggregate_pair_summaries(summaries, args.ring_board_id)
+        else:
+            result = aggregate_summaries(summaries)
     encoded = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(encoded, encoding="utf-8")

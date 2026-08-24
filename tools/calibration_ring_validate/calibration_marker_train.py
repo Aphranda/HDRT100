@@ -54,6 +54,7 @@ MARKER_FIELDS = (
 )
 
 STATE_ACCEPTED = 3
+STATE_PREPARED = 1
 ROLE_ORIGINATOR = 1
 ROLE_FOLLOWER = 2
 FLAG_DIAGNOSTIC_ONLY = 1 << 0
@@ -71,12 +72,34 @@ REQUIRED_FLAGS = (
     FLAG_POLARITY_VALID | FLAG_DMA_COMPLETE
 )
 HALF_CHIP_NS_BY_CODEBOOK = {0: 20, 1: 40, 2: 24, 3: 32}
+SAMPLE_PERIOD_NS = 4
+MIN_OFFSET_SAMPLES = -10
+MAX_OFFSET_SAMPLES = 10
+MAX_CAPTURE_DELAY_CYCLES = 31
+DEFAULT_MATRIX_OFFSET_VALUES = tuple(
+    range(MIN_OFFSET_SAMPLES, MAX_OFFSET_SAMPLES + 1))
 CORRELATION_REJECT_NAMES = {
     0: "NONE", 1: "BAD_ARGUMENT", 2: "SEARCH_RANGE",
     3: "CAPTURE_TRUNCATED", 4: "POLARITY", 5: "SOF",
     6: "MANCHESTER", 7: "HEADER_INVERSE", 8: "HEADER_CRC",
     9: "HEADER_MISMATCH", 10: "EOF", 11: "DISTANCE", 12: "MARGIN",
 }
+
+
+def capture_phase_delay_cycles(codebook: int, offset_samples: int) -> int:
+    if codebook not in HALF_CHIP_NS_BY_CODEBOOK:
+        raise ValueError("codebook must be 0..3")
+    if not MIN_OFFSET_SAMPLES <= offset_samples <= MAX_OFFSET_SAMPLES:
+        raise ValueError(
+            f"offset_sample_count is outside [{MIN_OFFSET_SAMPLES}, "
+            f"{MAX_OFFSET_SAMPLES}]")
+    delay = HALF_CHIP_NS_BY_CODEBOOK[codebook] // SAMPLE_PERIOD_NS + offset_samples
+    if not 0 <= delay <= MAX_CAPTURE_DELAY_CYCLES:
+        raise ValueError(
+            f"codebook {codebook} with offset {offset_samples} requires "
+            f"capture delay {delay}, outside PIO delay [0, "
+            f"{MAX_CAPTURE_DELAY_CYCLES}]")
+    return delay
 
 
 def derive_link_offset_candidates(
@@ -266,15 +289,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generation", type=int, default=1)
     parser.add_argument(
         "--node-offset-samples", type=int, action="append",
-        help="one -1/0/+1 marker-window offset per board in physical order")
+        help="one -10..+10 marker-window offset per board in physical order")
     parser.add_argument(
         "--offset-matrix", action="store_true",
-        help="traverse the full {-1,0,+1}^N matrix, optionally filtered")
+        help="traverse the configured offset matrix, optionally filtered")
+    parser.add_argument(
+        "--matrix-offset-value", type=int, action="append",
+        help="matrix value to retain; repeat as needed (default: every -10..+10)")
     parser.add_argument(
         "--matrix-filter-node-offset", "--matrix-filter-offset",
         dest="matrix_filter_node_offset", action="append", default=[],
         help="select a current matrix subset as NODE=OFFSET; full matrix is retained")
     parser.add_argument("--matrix-epoch-start", type=int)
+    parser.add_argument(
+        "--matrix-fixed-epoch", action="store_true",
+        help=("hold epoch/codeword constant across matrix rows and increment "
+              "calibration generation for unique SD captures"))
+    parser.add_argument("--matrix-generation-start", type=int)
     parser.add_argument("--observed-link-delay-ns", type=float)
     parser.add_argument("--driver-propagation-typ-ns", type=float)
     parser.add_argument("--driver-propagation-max-ns", type=float)
@@ -425,9 +456,9 @@ def marker_action_args(args: argparse.Namespace) -> argparse.Namespace:
     return action
 
 
-def start_marker(board: Board, args: argparse.Namespace,
-                 offset_sample_count: int) -> str:
-    command = (f"CALibration:MARKer:STARt {args.codebook},{args.epoch},"
+def arm_marker(board: Board, args: argparse.Namespace,
+               offset_sample_count: int) -> str:
+    command = (f"CALibration:MARKer:ARM {args.codebook},{args.epoch},"
                f"{args.epoch},{args.epoch},{args.generation},"
                f"{offset_sample_count}")
     response = board_command(board, command, marker_action_args(args))
@@ -443,8 +474,30 @@ def start_marker(board: Board, args: argparse.Namespace,
         if (int(snapshot["state"]) == 0 or
                 int(snapshot["train_epoch"]) != args.epoch):
             raise RuntimeError(
-                f"{board.address}: marker START rejected: {response!r}, "
+                f"{board.address}: marker ARM rejected: {response!r}, "
                 f"snapshot={snapshot}")
+    return response
+
+
+def wait_marker_armed(ordered: list[Board], args: argparse.Namespace) -> list[dict[str, int | str]]:
+    deadline = time.monotonic() + args.marker_timeout
+    last = [marker_status(board, args) for board in ordered]
+    while time.monotonic() < deadline:
+        if all(int(snapshot["state"]) == STATE_PREPARED and
+               int(snapshot["train_epoch"]) == args.epoch
+               for snapshot in last):
+            return last
+        time.sleep(0.05)
+        last = [marker_status(board, args) for board in ordered]
+    raise RuntimeError(f"marker ARM readiness timeout: {last}")
+
+
+def inject_marker(board: Board, args: argparse.Namespace) -> str:
+    response = board_command(
+        board, "CALibration:MARKer:INJect", marker_action_args(args))
+    if not response.startswith("OK"):
+        raise RuntimeError(
+            f"{board.address}: marker INJECT rejected: {response!r}")
     return response
 
 
@@ -514,10 +567,17 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     if not 0 <= args.codebook <= 3 or not 1 <= args.epoch <= 255:
         raise SystemExit("codebook must be 0..3 and epoch must be 1..255")
     offsets = list(args.node_offset_samples or [0] * len(board_ids))
-    if len(offsets) != len(board_ids) or any(offset not in (-1, 0, 1)
-                                             for offset in offsets):
+    if len(offsets) != len(board_ids) or any(
+            not MIN_OFFSET_SAMPLES <= offset <= MAX_OFFSET_SAMPLES
+            for offset in offsets):
         raise SystemExit(
-            "node-offset-samples must provide one -1/0/+1 value per board")
+            "node-offset-samples must provide one -10..+10 value per board")
+    half_chip_samples = HALF_CHIP_NS_BY_CODEBOOK[args.codebook] // SAMPLE_PERIOD_NS
+    try:
+        capture_delays = [capture_phase_delay_cycles(args.codebook, offset)
+                          for offset in offsets]
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     timing_budget = physical_timing_budget(args)
     if (timing_budget.get("provided") and
             float(timing_budget["half_chip_after_transceiver_pwd_ns"]) <= 0):
@@ -543,9 +603,11 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
         "epoch": args.epoch,
         "generation": args.generation,
         "node_offset_samples": offsets,
-        "node_offset_ns": [offset * 4 for offset in offsets],
-        "offset_application": "PIO_CAPTURE_AND_SYMMETRIC_FORWARD_PHASE_DELAY",
-        "pio_phase_delay_cycles": [offset + 1 for offset in offsets],
+        "node_offset_ns": [offset * SAMPLE_PERIOD_NS for offset in offsets],
+        "offset_application": "PIO_CAPTURE_PHASE_DELAY_ONLY_FORWARD_FIXED",
+        "base_half_chip_ns": HALF_CHIP_NS_BY_CODEBOOK[args.codebook],
+        "pio_forward_phase_delay_cycles": [1 for _ in offsets],
+        "pio_capture_phase_delay_cycles": capture_delays,
         "physical_timing_budget": timing_budget,
         "boards": {board.address: asdict(board) for board in ordered},
     }
@@ -558,42 +620,49 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     ]
     followers = [ordered[slot] for slot in follower_slots]
     originator = ordered[args.reference_slot]
-    starts: list[dict[str, str]] = []
+    arms: list[dict[str, str | int]] = []
     try:
-        # Arm in directed ring order.  A follower's output-driver transition
-        # cannot release its downstream WAIT gate because that board has not
-        # been armed yet.  The originator is always last and emits the only
-        # marker edge admitted into the complete armed ring.
+        # Every node first arms RX DMA and its physical rx_csn WAIT gate.  The
+        # originator TX SM also remains blocked on an empty PIO TX FIFO.
         for board in followers:
             slot = ordered.index(board)
-            starts.append({"board": board.address,
-                           "offset_sample_count": offsets[slot],
-                           "response": start_marker(
-                               board, args, offsets[slot])})
-        time.sleep(0.05)
-        starts.append({"board": originator.address,
-                       "offset_sample_count": offsets[args.reference_slot],
-                       "response": start_marker(
-                           originator, args, offsets[args.reference_slot])})
+            arms.append({"board": board.address,
+                         "offset_sample_count": offsets[slot],
+                         "response": arm_marker(
+                             board, args, offsets[slot])})
+        arms.append({"board": originator.address,
+                     "offset_sample_count": offsets[args.reference_slot],
+                     "response": arm_marker(
+                         originator, args, offsets[args.reference_slot])})
+        armed = wait_marker_armed(ordered, args)
+        injection = {
+            "board": originator.address,
+            "response": inject_marker(originator, args),
+        }
         records = wait_marker(ordered, args)
         validation = validate_ring(records)
         capture_files = [save_marker_capture(board, args) for board in ordered]
     finally:
         stop_marker(ordered, args)
-    return {**plan, **validation, "actions": actions, "starts": starts,
+    return {**plan, **validation, "actions": actions, "arms": arms,
+            "armed": armed, "injection": injection,
             "capture_files": capture_files}
 
 
-def build_offset_matrix(node_count: int) -> list[dict[str, object]]:
+def build_offset_matrix(
+        node_count: int,
+        values: tuple[int, ...] = DEFAULT_MATRIX_OFFSET_VALUES,
+) -> list[dict[str, object]]:
     return [{
         "row_id": row_id,
         "offset_sample_counts_by_node": list(offsets),
-        "offset_ns_by_node": [offset * 4 for offset in offsets],
+        "offset_ns_by_node": [offset * SAMPLE_PERIOD_NS for offset in offsets],
     } for row_id, offsets in enumerate(
-        itertools.product((-1, 0, 1), repeat=node_count))]
+        itertools.product(values, repeat=node_count))]
 
 
-def parse_matrix_filters(raw_filters: list[str], node_count: int) -> dict[int, int]:
+def parse_matrix_filters(raw_filters: list[str], node_count: int,
+                         values: tuple[int, ...]) -> dict[int, int]:
     filters: dict[int, int] = {}
     for raw in raw_filters:
         try:
@@ -601,26 +670,53 @@ def parse_matrix_filters(raw_filters: list[str], node_count: int) -> dict[int, i
             node = int(node_text, 0)
             offset = int(offset_text, 0)
         except (ValueError, TypeError) as exc:
-            raise SystemExit(f"invalid matrix filter {raw!r}; expected SLOT=OFFSET") from exc
-        if not 0 <= node < node_count or offset not in (-1, 0, 1):
+            raise SystemExit(
+                f"invalid matrix filter {raw!r}; expected NODE=OFFSET") from exc
+        if not 0 <= node < node_count or offset not in values:
             raise SystemExit(f"matrix filter outside node/offset range: {raw!r}")
         filters[node] = offset
     return filters
+
+
+def matrix_trial_identity(*, trial_index: int, epoch_start: int,
+                          generation_start: int,
+                          fixed_epoch: bool) -> tuple[int, int]:
+    if trial_index < 0 or epoch_start < 1 or generation_start < 1:
+        raise ValueError("matrix trial identity inputs must be positive")
+    return ((epoch_start if fixed_epoch else epoch_start + trial_index),
+            generation_start + trial_index if fixed_epoch else generation_start)
 
 
 def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
     board_ids = list(args.board_id or [])
     if len(board_ids) < 2:
         raise SystemExit("offset matrix requires board-id inputs")
-    full_matrix = build_offset_matrix(len(board_ids))
+    raw_values = args.matrix_offset_value or DEFAULT_MATRIX_OFFSET_VALUES
+    matrix_values = tuple(dict.fromkeys(int(value) for value in raw_values))
+    if not matrix_values or any(
+            not MIN_OFFSET_SAMPLES <= value <= MAX_OFFSET_SAMPLES
+            for value in matrix_values):
+        raise SystemExit("matrix-offset-value must be within -10..+10")
+    full_matrix = build_offset_matrix(len(board_ids), matrix_values)
     filters = parse_matrix_filters(
-        args.matrix_filter_node_offset, len(board_ids))
+        args.matrix_filter_node_offset, len(board_ids), matrix_values)
     selected = [row for row in full_matrix if all(
         row["offset_sample_counts_by_node"][node] == offset
         for node, offset in filters.items())]
+    try:
+        for row in selected:
+            for offset in row["offset_sample_counts_by_node"]:
+                capture_phase_delay_cycles(args.codebook, int(offset))
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     epoch_start = args.matrix_epoch_start or args.epoch
-    if epoch_start < 1 or epoch_start + len(selected) - 1 > 255:
+    generation_start = args.matrix_generation_start or args.generation
+    if (epoch_start < 1 or
+            (not args.matrix_fixed_epoch and
+             epoch_start + len(selected) - 1 > 255)):
         raise SystemExit("selected matrix rows exceed the marker epoch range")
+    if generation_start < 1:
+        raise SystemExit("matrix generation start must be positive")
     matrix_out = args.out_dir or (
         ROOT / "out" / "training" /
         f"trn01_marker_matrix_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
@@ -629,7 +725,11 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
     for trial_index, row in enumerate(selected):
         trial_args = argparse.Namespace(**vars(args))
         trial_args.offset_matrix = False
-        trial_args.epoch = epoch_start + trial_index
+        trial_args.epoch, trial_args.generation = matrix_trial_identity(
+            trial_index=trial_index,
+            epoch_start=epoch_start,
+            generation_start=generation_start,
+            fixed_epoch=args.matrix_fixed_epoch)
         trial_args.node_offset_samples = list(
             row["offset_sample_counts_by_node"])
         trial_args.out_dir = matrix_out / f"row_{int(row['row_id']):03d}"
@@ -641,6 +741,7 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
         trial_results.append({
             **row,
             "epoch": trial_args.epoch,
+            "generation": trial_args.generation,
             "passed": bool(result.get("passed")),
             "accepted_nodes": [int(record["logical_slot"]) for record in records
                                if int(record["state"]) == STATE_ACCEPTED],
@@ -664,11 +765,16 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
     return {
         "phase": "TRN-01_FOUR_NODE_OFFSET_MATRIX",
         "diagnostic_only": True,
-        "offset_model": "marker_capture + 40ns + per_node_offset_samples*4ns",
-        "offset_application": "PIO_CAPTURE_AND_SYMMETRIC_FORWARD_PHASE_DELAY",
-        "pio_phase_delay_mapping": {"-1": 0, "0": 1, "1": 2},
+        "offset_model": "marker_capture + base_half_chip + per_node_offset_samples*4ns",
+        "offset_application": "PIO_CAPTURE_PHASE_DELAY_ONLY_FORWARD_FIXED",
+        "base_half_chip_ns": HALF_CHIP_NS_BY_CODEBOOK[args.codebook],
+        "pio_capture_phase_delay_mapping": {
+            str(value): capture_phase_delay_cycles(args.codebook, value)
+            for value in matrix_values
+        },
+        "pio_forward_phase_delay_cycles": 1,
         "node_ids_in_loop_order": board_ids,
-        "matrix_values": [-1, 0, 1],
+        "matrix_values": list(matrix_values),
         "full_matrix_row_count": len(full_matrix),
         "full_matrix": full_matrix,
         "selection_filters_by_node": {
@@ -676,7 +782,9 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
         "selected_row_ids": [row["row_id"] for row in selected],
         "selected_row_count": len(selected),
         "generation": args.generation,
+        "matrix_fixed_epoch": bool(args.matrix_fixed_epoch),
         "epoch_start": epoch_start,
+        "generation_start": generation_start,
         "trial_results": trial_results,
         "passed_row_ids": passed_rows,
         "passed": bool(passed_rows),

@@ -207,6 +207,47 @@ static int test_rejects_invalid_request(void)
     failed += expect_bool("invalid evaluate",
                           calibration_training_marker_evaluate_core1(
                               &store, &request, &evidence), false);
+
+    request = make_request();
+    request.offset_sample_count =
+        CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES;
+    failed += expect_bool("max positive offset prepare",
+                          calibration_training_marker_prepare_core1(
+                              &store, &request), true);
+    request.offset_sample_count =
+        CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES + 1;
+    failed += expect_bool("positive offset overflow rejected",
+                          calibration_training_marker_prepare_core1(
+                              &store, &request), false);
+    request.offset_sample_count =
+        CALIBRATION_TRAINING_MARKER_MIN_OFFSET_SAMPLES - 1;
+    failed += expect_bool("negative offset underflow rejected",
+                          calibration_training_marker_prepare_core1(
+                              &store, &request), false);
+    return failed;
+}
+
+static int test_capture_delay_cycle_bounds(void)
+{
+    uint32_t delay = UINT32_MAX;
+    int failed = 0;
+    failed += expect_bool(
+        "40 ns base accepts -10",
+        calibration_training_marker_capture_delay_cycles(10u, -10, &delay),
+        true);
+    failed += expect_u32("40 ns base -10 maps to zero", delay, 0u);
+    failed += expect_bool(
+        "20 ns base rejects -10",
+        calibration_training_marker_capture_delay_cycles(5u, -10, &delay),
+        false);
+    failed += expect_bool(
+        "capture delay above instruction field rejected",
+        calibration_training_marker_capture_delay_cycles(24u, 8, &delay),
+        false);
+    failed += expect_bool(
+        "null capture delay rejected",
+        calibration_training_marker_capture_delay_cycles(10u, 0, NULL),
+        false);
     return failed;
 }
 
@@ -243,6 +284,7 @@ int main(void)
     failed += test_prepare_and_accept();
     failed += test_reject_matrix();
     failed += test_rejects_invalid_request();
+    failed += test_capture_delay_cycle_bounds();
     failed += test_originator_return_order();
     if (failed != 0) {
         (void)printf("calibration_training_marker tests failed: %d\n", failed);

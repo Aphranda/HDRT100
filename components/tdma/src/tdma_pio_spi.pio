@@ -96,12 +96,21 @@ clk_burst_loop:
     set pins, 1
 .wrap
 
+; Node0 marker injection. The first TX FIFO word is the one-shot virtual
+; rx_csn event that starts an idle ring. The output remains at its configured
+; high-idle latch until that word is available. Node0 RX still waits for the
+; real upstream rx_csn after the marker traverses the complete loop.
+.program tdma_pio_spi_marker_origin
+    pull block
+.wrap_target
+    out pins, 1
+.wrap
+
 ; TRN-01 marker capture.  Two adjacent pins are sampled per clk_sys cycle:
 ; bit 0 is downstream CS (GPIO26), bit 1 is upstream CS (GPIO27).  Followers
-; wait for the first upstream falling edge so they may be armed indefinitely;
-; the reference patches both WAIT instructions to NOP and starts capture in
-; sync with its marker TX SM.  DMA therefore records the physical input and
-; cut-through output waveforms without a core timestamp in the edge path.
+; wait for the first upstream falling edge; the originator waits for its local
+; TX falling edge.  DMA therefore records every node from a PIO-owned marker
+; edge without a core timestamp in the edge path.
 .program tdma_pio_spi_marker_capture
     wait 1 gpio 0
     wait 0 gpio 0
@@ -370,6 +379,28 @@ static inline void tdma_pio_spi_clk_coded_tx_program_init(PIO pio,
     pio_sm_set_consecutive_pindirs(pio, sm, tx_clk_pin, 1u, true);
 }
 
+static inline void tdma_pio_spi_marker_origin_program_init(PIO pio,
+                                                            uint sm,
+                                                            uint offset,
+                                                            uint tx_csn_pin)
+{
+    /* Preserve high-idle across the SIO -> PIO mux handoff.  Preload the PIO
+     * output latch before pio_gpio_init exposes it to the enabled driver. */
+    pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
+                                1ull << tx_csn_pin);
+    pio_gpio_init(pio, tx_csn_pin);
+    pio_sm_config c =
+        tdma_pio_spi_marker_origin_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, tx_csn_pin, 1u);
+    sm_config_set_out_shift(&c, true, true, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
+                                1ull << tx_csn_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_csn_pin, 1u, true);
+}
+
 static inline void tdma_pio_spi_clk_oversample_program_init(PIO pio,
                                                              uint sm,
                                                              uint offset,
@@ -399,6 +430,9 @@ static inline void tdma_pio_spi_marker_forward_program_init(
     pio->instr_mem[offset + 3u] = (uint16_t)(
         pio_encode_wait_gpio(true, rx_csn_pin) |
         pio_encode_delay(phase_delay_cycles));
+    /* As above, preload high before muxing the driven pin to PIO. */
+    pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
+                                1ull << tx_csn_pin);
     pio_gpio_init(pio, rx_csn_pin);
     pio_gpio_init(pio, tx_csn_pin);
     gpio_pull_up(rx_csn_pin);
@@ -409,20 +443,20 @@ static inline void tdma_pio_spi_marker_forward_program_init(
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);
     /* Preserve high-idle CS while arming; the latch must be high before OE. */
-    pio_sm_set_pins(pio, sm, 1u);
+    pio_sm_set_pins_with_mask64(pio, sm, 1ull << tx_csn_pin,
+                                1ull << tx_csn_pin);
     pio_sm_set_consecutive_pindirs(pio, sm, tx_csn_pin, 1u, true);
 }
 
 static inline void tdma_pio_spi_marker_capture_program_init(
     PIO pio, uint sm, uint offset, uint tx_csn_pin, uint rx_csn_pin,
-    bool wait_for_marker, uint32_t phase_delay_cycles)
+    uint32_t phase_delay_cycles)
 {
-    pio->instr_mem[offset + 0u] = wait_for_marker
-        ? (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin)
-        : (uint16_t)pio_encode_nop();
-    pio->instr_mem[offset + 1u] = (uint16_t)((wait_for_marker
-        ? pio_encode_wait_gpio(false, rx_csn_pin)
-        : pio_encode_nop()) | pio_encode_delay(phase_delay_cycles));
+    pio->instr_mem[offset + 0u] =
+        (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
+    pio->instr_mem[offset + 1u] = (uint16_t)(
+        pio_encode_wait_gpio(false, rx_csn_pin) |
+        pio_encode_delay(phase_delay_cycles));
     pio_gpio_init(pio, tx_csn_pin);
     pio_gpio_init(pio, rx_csn_pin);
     gpio_pull_up(rx_csn_pin);

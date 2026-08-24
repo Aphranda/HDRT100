@@ -15,6 +15,14 @@ tdma_service_service_t *tdma_runtime_owner_get(void);
 tdma_traffic_scheduler_t *tdma_runtime_owner_get_scheduler(void);
 tdma_pio_spi_ring_adapter_t *tdma_runtime_owner_get_ring_adapter(void);
 
+/* Core0 data-plane facade.  These functions only access the cross-core
+ * software FIFO.  Core1 remains the sole PIO/SM/DMA and hardware-FIFO owner. */
+bool tdma_runtime_owner_core0_publish_ring_tx(
+    const uint8_t *data, size_t data_size, uint32_t generation,
+    uint32_t sequence, uint32_t segment_mask);
+bool tdma_runtime_owner_core0_acquire_ring_rx(tdma_flight_rx_view_t *view);
+bool tdma_runtime_owner_core0_release_ring_rx(uint32_t slot_index);
+
 /* Read-only ring snapshot for low-frequency maintenance logging on core0
  * (the resident ring itself is driven by the core1 TDMA service). */
 bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *snapshot);
@@ -62,8 +70,9 @@ bool tdma_runtime_owner_copy_coded_capture_core1(
     uint32_t *capture_words,
     size_t capture_word_capacity,
     size_t *capture_word_count);
-bool tdma_runtime_owner_marker_start_core1(
+bool tdma_runtime_owner_marker_arm_core1(
     const tdma_pio_spi_marker_request_t *request);
+bool tdma_runtime_owner_marker_inject_core1(void);
 void tdma_runtime_owner_marker_stop_core1(void);
 void tdma_runtime_owner_marker_service_core1(void);
 bool tdma_runtime_owner_get_marker_snapshot(

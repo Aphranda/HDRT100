@@ -410,7 +410,29 @@ bool tdma_runtime_owner_copy_coded_capture_core1(
                capture_word_capacity, capture_word_count);
 }
 
-bool tdma_runtime_owner_marker_start_core1(
+bool tdma_runtime_owner_core0_publish_ring_tx(
+    const uint8_t *data, size_t data_size, uint32_t generation,
+    uint32_t sequence, uint32_t segment_mask)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_service_publish_flight_tx(&s_tdma_runtime_owner, data,
+                                          data_size, generation, sequence,
+                                          segment_mask);
+}
+
+bool tdma_runtime_owner_core0_acquire_ring_rx(tdma_flight_rx_view_t *view)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_service_acquire_flight_rx(&s_tdma_runtime_owner, view);
+}
+
+bool tdma_runtime_owner_core0_release_ring_rx(uint32_t slot_index)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_service_release_flight_rx(&s_tdma_runtime_owner, slot_index);
+}
+
+bool tdma_runtime_owner_marker_arm_core1(
     const tdma_pio_spi_marker_request_t *request)
 {
     tdma_ring_runtime_snapshot_t ring;
@@ -418,7 +440,13 @@ bool tdma_runtime_owner_marker_start_core1(
            tdma_ring_runtime_get_snapshot(
                &s_tdma_runtime_owner.ring_runtime, &ring) &&
            ring.enabled == 0u &&
-           tdma_pio_spi_phys_marker_start(&s_tdma_pio_spi_phys, request);
+           tdma_pio_spi_phys_marker_arm(&s_tdma_pio_spi_phys, request);
+}
+
+bool tdma_runtime_owner_marker_inject_core1(void)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_phys_marker_inject(&s_tdma_pio_spi_phys);
 }
 
 void tdma_runtime_owner_marker_stop_core1(void)

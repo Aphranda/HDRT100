@@ -79,7 +79,7 @@ scpi_result_t scpi_calibration_clk_coded_start(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_calibration_marker_start(scpi_t *context)
+scpi_result_t scpi_calibration_marker_arm(scpi_t *context)
 {
     uint32_t codebook_id = 0u;
     uint32_t train_epoch = 0u;
@@ -96,7 +96,7 @@ scpi_result_t scpi_calibration_marker_start(scpi_t *context)
         !calibration_manager_request_marker_training(
             codebook_id, train_epoch, train_sequence, marker_id,
             calibration_generation, offset_sample_count)) {
-        scpi_port_push_exec_error(context, "CAL_MARKER_START_REJECTED");
+        scpi_port_push_exec_error(context, "CAL_MARKER_ARM_REJECTED");
         return SCPI_RES_ERR;
     }
     SCPI_ResultUInt32(context, codebook_id);
@@ -106,6 +106,15 @@ scpi_result_t scpi_calibration_marker_start(scpi_t *context)
     SCPI_ResultUInt32(context, calibration_generation);
     SCPI_ResultInt32(context, offset_sample_count);
     return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_marker_inject(scpi_t *context)
+{
+    if (!calibration_manager_inject_marker_training()) {
+        scpi_port_push_exec_error(context, "CAL_MARKER_INJECT_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
 }
 
 scpi_result_t scpi_calibration_marker_stop(scpi_t *context)

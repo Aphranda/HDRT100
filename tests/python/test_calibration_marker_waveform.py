@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import argparse
+
 from tools.calibration_ring_validate.calibration_marker_waveform import (
     analysis_console_summary,
+    correlate_capture,
     expand_zero_order_hold,
     firmware_correlate,
     firmware_rx_samples,
@@ -104,8 +107,8 @@ def _capture_from_incoming(samples: list[int], *, offset: int = 0) -> dict[str, 
 def test_firmware_replay_accepts_follower_marker_and_flags() -> None:
     expected, vector = marker_raw_waveform(
         codebook_id=1, epoch=68, master_slot=0)
-    offset = 1
-    prefix = vector.half_chip_samples + 1 + offset + 1
+    offset = -3
+    prefix = vector.half_chip_samples + 1 + vector.half_chip_samples + offset
     capture = _capture_from_incoming(expected[prefix:] + [0] * 32,
                                      offset=offset)
     observed, actual_prefix = firmware_rx_samples(
@@ -148,6 +151,69 @@ def test_svg_contains_reference_comparison_and_best_in_1us_window() -> None:
         window_duration_ns=1000,
         title="row70 link comparison")
     assert "candidate comparison (raw)" in svg
-    assert "candidate best delay +20 ns" in svg
+    assert "candidate moved -20 ns" in svg
     assert "window 1 us" in svg
     assert "red = mismatch" in svg
+
+
+def test_firmware_replay_svg_uses_capture_offset_and_firmware_lag(tmp_path) -> None:
+    expected, vector = marker_raw_waveform(
+        codebook_id=1, epoch=68, master_slot=0)
+    offset = -3
+    prefix = vector.half_chip_samples + 1 + vector.half_chip_samples + offset
+    capture = _capture_from_incoming(expected[prefix:] + [0] * 32,
+                                     offset=offset)
+    capture_path = tmp_path / "capture.json"
+    capture_path.write_text(__import__("json").dumps(capture), encoding="utf-8")
+    svg_path = tmp_path / "replay.svg"
+    result = correlate_capture(argparse.Namespace(
+        capture=capture_path,
+        channel="incoming_link",
+        codebook_id=1,
+        master_node=0,
+        epoch=68,
+        role="follower",
+        max_best_distance=512,
+        min_margin=0,
+        svg=svg_path,
+        svg_window_start_ns=None,
+        svg_window_duration_ns=1000,
+    ))
+    assert result["svg"]["comparison"] == (
+        "expected_marker_vs_firmware_reconstructed_capture")
+    assert result["svg"]["offset_sample_count"] == -3
+    assert result["svg"]["firmware_best_delay_ns"] == 0
+    assert result["svg"]["global_waveform_move_candidate_by_ns"] == 0
+    assert result["global_alignment"]["best"][
+        "recommended_offset_sample_count"] == -3
+    assert "expected marker vs reconstructed incoming_link" in (
+        svg_path.read_text(encoding="utf-8"))
+
+
+def test_global_replay_finds_signed_overlap_beyond_firmware_window(tmp_path) -> None:
+    expected, _ = marker_raw_waveform(
+        codebook_id=1, epoch=68, master_slot=0)
+    delayed = [0] * 420 + expected[:-420]
+    capture = _capture_from_incoming(delayed)
+    capture["raw_interleaved_sample_count"] = len(delayed)
+    capture_path = tmp_path / "delayed_capture.json"
+    capture_path.write_text(__import__("json").dumps(capture), encoding="utf-8")
+    result = correlate_capture(argparse.Namespace(
+        capture=capture_path,
+        channel="incoming_link",
+        codebook_id=1,
+        master_node=0,
+        epoch=68,
+        role="origin",
+        max_best_distance=512,
+        min_margin=0,
+        global_shift_limit_ns=2048,
+        svg=None,
+        svg_window_start_ns=None,
+        svg_window_duration_ns=1000,
+    ))
+    best = result["global_alignment"]["best"]
+    assert best["candidate_delay_ns"] == 1680
+    assert best["waveform_move_candidate_by_ns"] == -1680
+    assert best["recommended_offset_sample_count"] is None
+    assert best["distance"] == 0

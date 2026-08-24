@@ -81,6 +81,7 @@ bool calibration_manager_request_marker_training(
     uint32_t marker_id,
     uint32_t calibration_generation,
     int32_t offset_sample_count);
+bool calibration_manager_inject_marker_training(void);
 void calibration_manager_stop_marker_training(void);
 bool calibration_manager_get_marker_training_snapshot(
     calibration_training_marker_snapshot_t *snapshot);

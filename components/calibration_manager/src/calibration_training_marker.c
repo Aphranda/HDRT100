@@ -2,6 +2,23 @@
 
 #include <string.h>
 
+bool calibration_training_marker_capture_delay_cycles(
+    uint32_t half_chip_samples,
+    int32_t offset_sample_count,
+    uint32_t *capture_delay_cycles)
+{
+    if (capture_delay_cycles == NULL) {
+        return false;
+    }
+    const int64_t delay = (int64_t)half_chip_samples + offset_sample_count;
+    if (delay < 0 ||
+        delay > CALIBRATION_TRAINING_MARKER_MAX_CAPTURE_DELAY_CYCLES) {
+        return false;
+    }
+    *capture_delay_cycles = (uint32_t)delay;
+    return true;
+}
+
 static bool calibration_training_marker_request_valid(
     const calibration_training_marker_request_t *request)
 {
@@ -22,9 +39,9 @@ static bool calibration_training_marker_request_valid(
            request->train_epoch != 0u && request->train_sequence != 0u &&
            request->marker_id != 0u &&
            request->offset_sample_count >=
-               -CALIBRATION_TRAINING_MARKER_MAX_ABS_OFFSET_SAMPLES &&
+               CALIBRATION_TRAINING_MARKER_MIN_OFFSET_SAMPLES &&
            request->offset_sample_count <=
-               CALIBRATION_TRAINING_MARKER_MAX_ABS_OFFSET_SAMPLES &&
+               CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES &&
            request->calibration_generation != 0u &&
            request->topology_generation != 0u &&
            request->topology_crc32 != 0u && request->profile_crc32 != 0u &&

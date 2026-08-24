@@ -69,6 +69,8 @@ CORRELATION_REJECT_NAMES = {
     12: "MARGIN",
 }
 CORRELATION_MAX_LAGS = 256
+DEFAULT_GLOBAL_SHIFT_LIMIT_NS = 2048
+DEFAULT_SVG_WINDOW_NS = 1000
 
 
 def _csv(raw: str) -> list[str]:
@@ -320,14 +322,17 @@ def firmware_rx_samples(capture: dict[str, object], channel: str, *,
                         half_chip_samples: int, role: str) -> tuple[list[int], int]:
     """Reproduce calibration_manager_marker_extract_rx on saved raw samples."""
     samples = unpack_channels(capture)[CHANNEL_INDEX[channel]]
-    if role == "origin":
-        return samples, 0
-    if role != "follower":
+    if role not in ("origin", "follower"):
         raise ValueError("role must be origin or follower")
+    if (role == "origin" and
+            capture.get("capture_anchor") != "physical_rx_csn_falling_edge"):
+        return samples, 0
     offset = int(capture.get("offset_sample_count", 0))
-    if offset not in (-1, 0, 1):
-        raise ValueError("capture offset_sample_count is outside [-1, 1]")
-    phase_delay_cycles = offset + 1
+    if not -10 <= offset <= 10:
+        raise ValueError("capture offset_sample_count is outside [-10, 10]")
+    phase_delay_cycles = half_chip_samples + offset
+    if not 0 <= phase_delay_cycles <= 31:
+        raise ValueError("capture phase delay is outside the PIO [0, 31] range")
     prefix = half_chip_samples + 1 + phase_delay_cycles
     return ([1] * half_chip_samples +
             [0] * (prefix - half_chip_samples) + samples), prefix
@@ -523,9 +528,46 @@ def correlate_capture(args: argparse.Namespace) -> dict[str, object]:
         correlation["accepted"] = reason == 0
 
     tick_ns = int(capture["tick_resolution_ns"])
+    requested_global_limit_ns = int(getattr(
+        args, "global_shift_limit_ns", DEFAULT_GLOBAL_SHIFT_LIMIT_NS))
+    if requested_global_limit_ns <= 0:
+        raise ValueError("global-shift-limit-ns must be positive")
+    global_limit_ns = min(
+        requested_global_limit_ns,
+        ((min(len(expected), len(observed)) - 1) // 2) * tick_ns)
+    global_limit_ns -= global_limit_ns % tick_ns
+    if global_limit_ns <= 0:
+        raise ValueError("capture is too short for signed global alignment")
+    global_alignment = scan_alignment(
+        expected, observed,
+        shift_min_ns=-global_limit_ns,
+        shift_max_ns=global_limit_ns,
+        step_ns=tick_ns)
+    global_best = global_alignment["best"]
+    assert isinstance(global_best, dict)
+    global_best["waveform_move_candidate_by_ns"] = int(
+        global_best["move_candidate_by_ns"])
+    global_best["waveform_move_candidate_by_samples"] = (
+        int(global_best["move_candidate_by_ns"]) // tick_ns)
+    current_offset = int(capture.get("offset_sample_count", 0))
+    if role == "follower":
+        offset_delta = int(global_best["move_candidate_by_ns"]) // tick_ns
+        recommended_offset = current_offset + offset_delta
+        global_best["recommended_offset_delta_samples"] = offset_delta
+        global_best["recommended_offset_sample_count"] = recommended_offset
+        global_best["recommended_offset_within_current_range"] = (
+            -10 <= recommended_offset <= 10)
+        global_best["offset_direction_model"] = (
+            "increasing offset adds reconstructed prefix samples and moves "
+            "the candidate waveform right")
+    else:
+        global_best["recommended_offset_delta_samples"] = None
+        global_best["recommended_offset_sample_count"] = None
+        global_best["recommended_offset_within_current_range"] = None
+
     best_lag = correlation.get("best_lag_sample")
     marker_start_raw = best_lag - prefix if isinstance(best_lag, int) else None
-    return {
+    result: dict[str, object] = {
         "schema": "HAOFV_MARKER_FIRMWARE_REPLAY_V1",
         "capture": str(args.capture),
         "capture_node": node,
@@ -535,7 +577,7 @@ def correlate_capture(args: argparse.Namespace) -> dict[str, object]:
         "codebook_id": args.codebook_id,
         "master_node": args.master_node,
         "measured_tick_resolution_ns": tick_ns,
-        "offset_sample_count": int(capture.get("offset_sample_count", 0)),
+        "offset_sample_count": current_offset,
         "raw_interleaved_sample_count": int(
             replay_capture["raw_interleaved_sample_count"]),
         "raw_interleaved_sample_count_source": sample_count_source,
@@ -557,21 +599,55 @@ def correlate_capture(args: argparse.Namespace) -> dict[str, object]:
             "min_margin": args.min_margin,
         },
         "correlation": correlation,
+        "global_alignment": global_alignment,
     }
+    if args.svg is not None:
+        reference_1ns = expand_zero_order_hold(expected, tick_ns, 1)
+        observed_1ns = expand_zero_order_hold(observed, tick_ns, 1)
+        best_delay_ns = int(global_best["candidate_delay_ns"])
+        svg = render_alignment_svg(
+            reference_1ns, observed_1ns,
+            step_ns=1,
+            measured_tick_ns=tick_ns,
+            best_delay_ns=best_delay_ns,
+            window_start_ns=args.svg_window_start_ns,
+            window_duration_ns=args.svg_window_duration_ns,
+            title=(f"node{node} capture replay: expected marker vs "
+                   f"reconstructed {args.channel}; offset "
+                   f"{int(capture.get('offset_sample_count', 0)):+d} samples"))
+        args.svg.parent.mkdir(parents=True, exist_ok=True)
+        args.svg.write_text(svg, encoding="utf-8")
+        result["svg"] = {
+            "path": str(args.svg),
+            "comparison": "expected_marker_vs_firmware_reconstructed_capture",
+            "offset_sample_count": int(capture.get("offset_sample_count", 0)),
+            "firmware_best_lag_sample": int(correlation["best_lag_sample"]),
+            "firmware_best_delay_ns": int(correlation["best_lag_sample"]) * tick_ns,
+            "global_best_candidate_delay_ns": best_delay_ns,
+            "global_waveform_move_candidate_by_ns": int(
+                global_best["move_candidate_by_ns"]),
+            "window_start_ns": args.svg_window_start_ns,
+            "window_duration_ns": args.svg_window_duration_ns,
+        }
+    return result
 
 
 def correlation_console_summary(result: dict[str, object], out: Path) -> dict[str, object]:
     correlation = result["correlation"]
     assert isinstance(correlation, dict)
     compact = {key: value for key, value in correlation.items() if key != "scan"}
-    return {
+    summary = {
         "schema": result["schema"],
         "out": str(out),
         "capture_node": result["capture_node"],
         "role": result["role"],
         "marker_window": result["marker_window"],
         "correlation": compact,
+        "global_best": result["global_alignment"]["best"],
     }
+    if "svg" in result:
+        summary["svg"] = result["svg"]
+    return summary
 
 
 def analyze_capture(args: argparse.Namespace) -> dict[str, object]:
@@ -647,7 +723,8 @@ def analyze_capture(args: argparse.Namespace) -> dict[str, object]:
             best_delay_ns=int(best["candidate_delay_ns"]),
             window_start_ns=args.svg_window_start_ns,
             window_duration_ns=args.svg_window_duration_ns,
-            title=(f"marker waveform: {args.reference_channel} vs "
+            title=(f"node{int(candidate_capture['node'])} marker waveform: "
+                   f"{args.reference_channel} vs "
                    f"{args.candidate_channel}"))
         args.svg.parent.mkdir(parents=True, exist_ok=True)
         args.svg.write_text(svg, encoding="utf-8")
@@ -759,7 +836,7 @@ def render_alignment_svg(reference: Sequence[int], candidate: Sequence[int], *,
         ("reference", reference, 0, 120.0, "reference"),
         ("candidate comparison (raw)", candidate,
          0, 250.0, "comparison"),
-        (f"candidate best delay {best_delay_ns:+d} ns", candidate,
+        (f"candidate moved {-best_delay_ns:+d} ns", candidate,
          best_lag, 380.0, "best"),
     )
     paths = []
@@ -830,7 +907,8 @@ def parse_args() -> argparse.Namespace:
     analyze.add_argument("--svg", type=Path,
                          help="write a waveform comparison SVG")
     analyze.add_argument("--svg-window-start-ns", type=int)
-    analyze.add_argument("--svg-window-duration-ns", type=int, default=1000)
+    analyze.add_argument("--svg-window-duration-ns", type=int,
+                         default=DEFAULT_SVG_WINDOW_NS)
     analyze.add_argument("--out", required=True, type=Path)
 
     correlate = sub.add_parser(
@@ -846,6 +924,16 @@ def parse_args() -> argparse.Namespace:
                            default="auto")
     correlate.add_argument("--max-best-distance", type=int, default=512)
     correlate.add_argument("--min-margin", type=int, default=0)
+    correlate.add_argument(
+        "--global-shift-limit-ns", type=int,
+        default=DEFAULT_GLOBAL_SHIFT_LIMIT_NS,
+        help="signed offline overlap search limit (default: 2048 ns)")
+    correlate.add_argument(
+        "--svg", type=Path,
+        help="write expected-marker versus reconstructed-capture SVG")
+    correlate.add_argument("--svg-window-start-ns", type=int)
+    correlate.add_argument("--svg-window-duration-ns", type=int,
+                           default=DEFAULT_SVG_WINDOW_NS)
     correlate.add_argument("--out", required=True, type=Path)
     return parser.parse_args()
 

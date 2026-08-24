@@ -40,8 +40,9 @@ static volatile bool s_marker_active;
 
 typedef enum {
     CALIBRATION_MARKER_INTENT_NONE = 0u,
-    CALIBRATION_MARKER_INTENT_START = 1u,
-    CALIBRATION_MARKER_INTENT_STOP = 2u,
+    CALIBRATION_MARKER_INTENT_ARM = 1u,
+    CALIBRATION_MARKER_INTENT_INJECT = 2u,
+    CALIBRATION_MARKER_INTENT_STOP = 3u,
 } calibration_marker_intent_opcode_t;
 
 typedef struct {
@@ -581,24 +582,22 @@ static uint32_t calibration_manager_marker_extract_rx(
     int32_t offset_sample_count)
 {
     const uint32_t high_prefix =
-        raw->role == TDMA_PIO_SPI_MARKER_ROLE_FOLLOWER
-            ? s_marker_workspace.marker.half_chip_samples
-            : 0u;
-    const uint32_t phase_delay_cycles =
-        (uint32_t)(offset_sample_count + 1);
-    const uint32_t prefix = high_prefix == 0u
-        ? 0u
-        : high_prefix + 1u + phase_delay_cycles;
+        s_marker_workspace.marker.half_chip_samples;
+    uint32_t phase_delay_cycles = 0u;
+    if (!calibration_training_marker_capture_delay_cycles(
+            s_marker_workspace.marker.half_chip_samples,
+            offset_sample_count, &phase_delay_cycles)) {
+        return 0u;
+    }
+    const uint32_t prefix = high_prefix + 1u + phase_delay_cycles;
     const uint32_t sample_count = raw->capture_sample_count + prefix;
     memset(packed, 0,
            ((sample_count + 31u) / 32u) * sizeof(packed[0]));
-    if (high_prefix != 0u) {
-        /* CS is idle high, so the first observable marker event is the first
-         * Manchester falling edge. Rebuild only the known leading high
-         * half-chip; WAIT 0 GPIO supplies the following low sample. */
-        for (uint32_t index = 0u; index < high_prefix; index++) {
-            calibration_manager_marker_set_bit(packed, index, 1u);
-        }
+    /* CS is idle high, so the first observable marker event is the first
+     * Manchester falling edge on every node. Rebuild the known leading high
+     * half-chip; WAIT 0 GPIO and its phase delay supply the following low. */
+    for (uint32_t index = 0u; index < high_prefix; index++) {
+        calibration_manager_marker_set_bit(packed, index, 1u);
     }
     for (uint32_t index = 0u; index < raw->capture_sample_count; index++) {
         const uint32_t pair =
@@ -742,7 +741,7 @@ void calibration_manager_service_core1(void)
             idle.flags = CALIBRATION_TRAINING_MARKER_FLAG_DIAGNOSTIC_ONLY;
             (void)calibration_training_marker_publish_core1(
                 &s_marker_store, &idle);
-        } else if (marker_intent.opcode == CALIBRATION_MARKER_INTENT_START &&
+        } else if (marker_intent.opcode == CALIBRATION_MARKER_INTENT_ARM &&
                    stopped &&
                    !__atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE)) {
             const calibration_clk_marker_config_t marker_config = {
@@ -754,9 +753,14 @@ void calibration_manager_service_core1(void)
                 .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
             };
             calibration_clk_marker_descriptor_t descriptor;
+            uint32_t capture_phase_delay_cycles = 0u;
             if (calibration_clk_marker_build(
                     &marker_config, s_marker_workspace.expected_words,
                     CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &descriptor) &&
+                calibration_training_marker_capture_delay_cycles(
+                    descriptor.half_chip_samples,
+                    marker_intent.request.offset_sample_count,
+                    &capture_phase_delay_cycles) &&
                 calibration_training_marker_prepare_core1(
                     &s_marker_store, &marker_intent.request)) {
                 s_marker_workspace.marker = descriptor;
@@ -776,19 +780,34 @@ void calibration_manager_service_core1(void)
                     .epoch = marker_intent.request.train_epoch,
                     .offset_sample_count =
                         marker_intent.request.offset_sample_count,
+                    .capture_phase_delay_cycles = capture_phase_delay_cycles,
                 };
-                if (tdma_runtime_owner_marker_start_core1(&raw_request)) {
+                if (tdma_runtime_owner_marker_arm_core1(&raw_request)) {
                     s_marker_active_request = marker_intent.request;
                     __atomic_store_n(&s_marker_active, true,
                                      __ATOMIC_RELEASE);
-                    calibration_training_marker_snapshot_t running;
+                    calibration_training_marker_snapshot_t prepared;
                     if (calibration_training_marker_get_snapshot(
-                            &s_marker_store, &running)) {
-                        running.state = CALIBRATION_TRAINING_MARKER_RUNNING;
+                            &s_marker_store, &prepared)) {
+                        prepared.state = CALIBRATION_TRAINING_MARKER_PREPARED;
                         (void)calibration_training_marker_publish_core1(
-                            &s_marker_store, &running);
+                            &s_marker_store, &prepared);
                     }
                 }
+            }
+        } else if (marker_intent.opcode ==
+                       CALIBRATION_MARKER_INTENT_INJECT &&
+                   stopped &&
+                   __atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE) &&
+                   s_marker_active_request.role ==
+                       CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR &&
+                   tdma_runtime_owner_marker_inject_core1()) {
+            calibration_training_marker_snapshot_t running;
+            if (calibration_training_marker_get_snapshot(
+                    &s_marker_store, &running)) {
+                running.state = CALIBRATION_TRAINING_MARKER_RUNNING;
+                (void)calibration_training_marker_publish_core1(
+                    &s_marker_store, &running);
             }
         }
         __atomic_store_n(&s_marker_intent_consumed_sequence,
@@ -1019,9 +1038,9 @@ bool calibration_manager_request_marker_training(
         train_epoch == 0u || train_epoch > UINT8_MAX ||
         train_sequence != train_epoch || marker_id != train_epoch ||
         offset_sample_count <
-            -CALIBRATION_TRAINING_MARKER_MAX_ABS_OFFSET_SAMPLES ||
+            CALIBRATION_TRAINING_MARKER_MIN_OFFSET_SAMPLES ||
         offset_sample_count >
-            CALIBRATION_TRAINING_MARKER_MAX_ABS_OFFSET_SAMPLES ||
+            CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES ||
         calibration_generation == 0u || BOARD_SYS_CLOCK_HZ == 0u ||
         (UINT32_C(1000000000) % BOARD_SYS_CLOCK_HZ) != 0u ||
         !calibration_manager_parse_hex_u64(board_identity_serial(),
@@ -1083,9 +1102,25 @@ bool calibration_manager_request_marker_training(
         .tick_resolution_ns = UINT32_C(1000000000) / BOARD_SYS_CLOCK_HZ,
         .offset_sample_count = offset_sample_count,
     };
-    calibration_manager_marker_publish(CALIBRATION_MARKER_INTENT_START,
+    calibration_manager_marker_publish(CALIBRATION_MARKER_INTENT_ARM,
                                        &request);
     resource_arbiter_publish_calibration_training(true);
+    return true;
+}
+
+bool calibration_manager_inject_marker_training(void)
+{
+    calibration_marker_intent_t pending;
+    if (!__atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE) ||
+        s_marker_active_request.role !=
+            CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR ||
+        !calibration_manager_marker_read(&pending) ||
+        pending.sequence != __atomic_load_n(
+            &s_marker_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        return false;
+    }
+    calibration_manager_marker_publish(CALIBRATION_MARKER_INTENT_INJECT,
+                                       NULL);
     return true;
 }
 
@@ -1152,6 +1187,8 @@ bool calibration_manager_save_marker_capture(
         "  \"calibration_generation\": %lu,\n"
         "  \"epoch\": %lu,\n"
         "  \"offset_sample_count\": %ld,\n"
+        "  \"marker_start_model\": \"tx_fifo_virtual_rx_csn\",\n"
+        "  \"capture_anchor\": \"physical_rx_csn_falling_edge\",\n"
         "  \"tick_resolution_ns\": %lu,\n"
         "  \"raw_interleaved_word_count\": %lu,\n"
         "  \"raw_interleaved_sample_count\": %lu,\n"

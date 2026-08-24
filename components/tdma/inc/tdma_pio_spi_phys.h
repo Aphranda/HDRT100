@@ -59,6 +59,10 @@
 #define TDMA_PIO_SPI_MARKER_SAMPLES_PER_WORD 16u
 #define TDMA_PIO_SPI_MARKER_SNAPSHOT_VERSION 1u
 #define TDMA_PIO_SPI_MARKER_RETURN_GUARD_SAMPLES 256u
+#define TDMA_PIO_SPI_MARKER_MIN_OFFSET_SAMPLES (-10)
+#define TDMA_PIO_SPI_MARKER_MAX_OFFSET_SAMPLES 10
+#define TDMA_PIO_SPI_MARKER_FORWARD_DELAY_CYCLES 1u
+#define TDMA_PIO_SPI_MARKER_MAX_CAPTURE_DELAY_CYCLES 31u
 #define TDMA_PIO_SPI_MARKER_TIMEOUT_NS 3000000000ull
 #define TDMA_PIO_SPI_CLK_TRAIN_SNAPSHOT_VERSION 1u
 #define TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS 256u
@@ -156,6 +160,7 @@ typedef struct {
     uint32_t capture_sample_count;
     uint32_t epoch;
     int32_t offset_sample_count;
+    uint32_t capture_phase_delay_cycles;
 } tdma_pio_spi_marker_request_t;
 
 typedef struct {
@@ -472,9 +477,10 @@ bool tdma_pio_spi_phys_copy_coded_capture(
     uint32_t *capture_words,
     size_t capture_word_capacity,
     size_t *capture_word_count);
-bool tdma_pio_spi_phys_marker_start(
+bool tdma_pio_spi_phys_marker_arm(
     tdma_pio_spi_phys_t *phys,
     const tdma_pio_spi_marker_request_t *request);
+bool tdma_pio_spi_phys_marker_inject(tdma_pio_spi_phys_t *phys);
 void tdma_pio_spi_phys_marker_stop(tdma_pio_spi_phys_t *phys);
 void tdma_pio_spi_phys_marker_service(tdma_pio_spi_phys_t *phys);
 bool tdma_pio_spi_phys_get_marker_snapshot(

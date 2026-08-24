@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 import pytest
 
@@ -9,7 +10,9 @@ from tools.calibration_ring_validate.calibration_marker_train import (
     MARKER_FIELDS,
     REQUIRED_FLAGS,
     build_offset_matrix,
+    capture_phase_delay_cycles,
     derive_link_offset_candidates,
+    matrix_trial_identity,
     parse_marker_status,
     physical_timing_budget,
     topology_matches,
@@ -19,6 +22,7 @@ from tools.calibration_ring_validate.calibration_marker_offsets import (
     aggregate_matrix_summary,
     aggregate_pair_summaries,
     aggregate_summaries,
+    derive_link_delay_offset_plan,
 )
 from tools.scpi_common.scpi_serial import scpi_response_matches_command
 
@@ -91,6 +95,14 @@ def test_marker_capture_save_accepts_composite_scpi_response() -> None:
         "CALibration:MARKer:CAPTure:SAVE", response) is True
 
 
+def test_marker_control_uses_calibration_inject_not_business_trigger() -> None:
+    source = (Path("tools/calibration_ring_validate") /
+              "calibration_marker_train.py").read_text(encoding="utf-8")
+    assert "CALibration:MARKer:ARM" in source
+    assert "CALibration:MARKer:INJect" in source
+    assert "CALibration:MARKer:TRIGger" not in source
+
+
 def test_validate_ring_accepts_common_epoch_and_order() -> None:
     result = validate_ring([parse_marker_status(marker_row(slot))
                             for slot in range(4)])
@@ -123,14 +135,60 @@ def test_link_offset_candidate_rejects_uncorrelated_lag() -> None:
 
 def test_full_four_node_offset_matrix_is_retained() -> None:
     matrix = build_offset_matrix(4)
-    assert len(matrix) == 81
-    assert matrix[0]["offset_sample_counts_by_node"] == [-1, -1, -1, -1]
-    assert matrix[-1]["offset_sample_counts_by_node"] == [1, 1, 1, 1]
+    assert len(matrix) == 194481
+    assert matrix[0]["offset_sample_counts_by_node"] == [-10, -10, -10, -10]
+    assert matrix[-1]["offset_sample_counts_by_node"] == [10, 10, 10, 10]
     current_subset = [row for row in matrix
                       if row["offset_sample_counts_by_node"][0] == 0
                       and row["offset_sample_counts_by_node"][2] == 0]
-    assert len(current_subset) == 9
+    assert len(current_subset) == 441
     assert all(len(row["offset_sample_counts_by_node"]) == 4 for row in matrix)
+
+
+def test_offset_matrix_can_retain_sparse_execution_values() -> None:
+    matrix = build_offset_matrix(4, (-5, 0, 5))
+    assert len(matrix) == 81
+    assert matrix[0]["offset_ns_by_node"] == [-20, -20, -20, -20]
+    assert matrix[-1]["offset_ns_by_node"] == [20, 20, 20, 20]
+
+
+def test_capture_delay_mapping_checks_codebook_specific_pio_bounds() -> None:
+    assert capture_phase_delay_cycles(1, -10) == 0
+    assert capture_phase_delay_cycles(1, 10) == 20
+    with pytest.raises(ValueError, match="outside PIO delay"):
+        capture_phase_delay_cycles(0, -10)
+
+
+def test_fixed_epoch_matrix_changes_only_generation_identity() -> None:
+    assert [matrix_trial_identity(
+        trial_index=index, epoch_start=79, generation_start=40,
+        fixed_epoch=True) for index in range(3)] == [
+            (79, 40), (79, 41), (79, 42)]
+    assert [matrix_trial_identity(
+        trial_index=index, epoch_start=79, generation_start=40,
+        fixed_epoch=False) for index in range(3)] == [
+            (79, 40), (80, 40), (81, 40)]
+
+
+def test_per_link_base_is_half_of_each_independent_link_delay() -> None:
+    plan = derive_link_delay_offset_plan(
+        [80.0, 80.0, 80.0], [28.0, 24.0, 28.0])
+    assert plan["offset_sample_counts_by_link"] == [-3, -4, -3]
+    assert [link["link_base_delay_ns"] for link in plan["links"]] == [
+        40.0, 40.0, 40.0]
+    assert all(link["resolved_window_delay_ns"] in (28.0, 24.0)
+               for link in plan["links"])
+    assert plan["all_offsets_pio_loadable"] is True
+
+
+def test_per_link_base_preserves_quantization_residual() -> None:
+    plan = derive_link_delay_offset_plan([82.0], [28.0])
+    link = plan["links"][0]
+    assert link["link_base_delay_ns"] == 41.0
+    assert link["offset_sample_count"] == -3
+    assert link["applied_offset_ns"] == -12.0
+    assert link["quantization_residual_ns"] == -1.0
+    assert link["resolved_window_delay_ns"] == 29.0
 
 
 def test_matrix_aggregate_groups_incoming_link_by_source_node_offset() -> None:
@@ -225,10 +283,10 @@ def test_aggregate_pair_trials_keeps_four_offsets_independent() -> None:
     assert result["accepted_offset_link_count"] == 0
     assert result["offsets_are_independent_per_directed_link_and_node_state"] is True
     assert len(result["links"]) == 4
-    assert all(link["next_offset_sweep_samples"] == list(range(-4, 5))
+    assert all(link["next_offset_sweep_samples"] == list(range(-10, 11))
                for link in result["links"])
     assert all(link["next_sample_anchors_after_marker_ns"] ==
-               list(range(24, 57, 4)) for link in result["links"])
+               list(range(0, 81, 4)) for link in result["links"])
     assert [link["rejected_evidence"][0]["observed_best_lag_sample"]
             for link in result["links"]] == [0, 5, 10, 15]
     assert all(link["failed_correlation_lag_is_not_offset"] is True
