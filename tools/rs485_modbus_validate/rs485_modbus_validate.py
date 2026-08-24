@@ -115,10 +115,10 @@ def run_inject(args: argparse.Namespace) -> list[dict[str, object]]:
     with serial.Serial(args.port, args.baud, bytesize=8, parity="N", stopbits=1,
                        timeout=0.02, write_timeout=args.timeout) as port:
         if args.inject_once:
-            time.sleep(0.1)
+            time.sleep(args.inject_delay)
             port.write(response)
             port.flush()
-            time.sleep(max(0.0, args.timeout - 0.1))
+            time.sleep(max(0.0, args.timeout - args.inject_delay))
         else:
             deadline = time.monotonic() + args.timeout
             while time.monotonic() < deadline:
@@ -141,6 +141,7 @@ def main() -> int:
                         help="inject a valid read response repeatedly for master HIL")
     parser.add_argument("--inject-once", action="store_true",
                         help="send one delayed valid peer response")
+    parser.add_argument("--inject-delay", type=float, default=0.5)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     if args.inject_read is not None:
