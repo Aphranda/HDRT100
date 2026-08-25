@@ -198,7 +198,8 @@ def validate_ring(records: list[dict[str, int | str]]) -> dict[str, object]:
     common_fields = (
         "reference_node", "train_epoch", "train_sequence", "marker_id",
         "marker_codebook_id", "marker_crc32", "calibration_generation",
-        "profile_crc32", "schedule_crc32", "tick_resolution_ns",
+        "topology_generation", "profile_crc32", "schedule_crc32",
+        "tick_resolution_ns",
     )
     for field in common_fields:
         if len({int(record[field]) for record in records}) != 1:
@@ -284,6 +285,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-build")
     parser.add_argument("--level", type=int, default=7)
     parser.add_argument("--reference-node", type=int, default=0)
+    parser.add_argument(
+        "--origin-node", type=int,
+        help=("marker injection node; defaults to reference-node but may "
+              "rotate without changing the TDMA topology identity"))
+    parser.add_argument(
+        "--residence-matrix", action="store_true",
+        help=("run one marker trial per origin node under one unchanged "
+              "topology identity and assemble every physical link residence"))
+    parser.add_argument(
+        "--reuse-ring-identity", action="store_true",
+        help="reuse the already staged stopped ring without topology writes")
     parser.add_argument("--codebook", type=int, default=0)
     parser.add_argument("--epoch", type=int, default=1)
     parser.add_argument("--generation", type=int, default=1)
@@ -335,6 +347,7 @@ def marker_status(board: Board, args: argparse.Namespace) -> dict[str, int | str
 
 def topology_matches(status: dict[str, int], node_count: int, node: int,
                      reference_node: int) -> bool:
+    """Map TDMA/RefMem slot-ID readback to Calibration node indices."""
     return (
         status.get("ring_enabled") == 1 and
         status.get("ring_adapter_started") == 1 and
@@ -387,6 +400,20 @@ def physical_timing_budget(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def active_operating_level(board: Board, args: argparse.Namespace) -> int:
+    raw = board_command(board, "SYSTem:TDMA:OPMode?", args)
+    values = next(csv.reader([raw]), [])
+    if not values:
+        raise RuntimeError(
+            f"{board.address}: empty TDMA operating-profile response")
+    try:
+        return int(values[0].strip().strip('"'), 0)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{board.address}: invalid TDMA operating-profile response "
+            f"{raw!r}") from exc
+
+
 def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[str, object]]:
     actions: list[dict[str, object]] = []
     node_count = len(ordered)
@@ -400,12 +427,21 @@ def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[st
         actions.append({"board": board.address, "command": "STOP",
                         "response": board_command(
                             board, "SYSTem:TDMA:RING:STOP", args)})
-        actions.append({"board": board.address, "command": "OPMODE",
-                        "response": board_command(
-                            board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)})
-        actions.append({"board": board.address, "command": "OPMODE_APPLY",
-                        "response": board_command(
-                            board, "SYSTem:TDMA:OPMode:APPLy", args)})
+        active_level = active_operating_level(board, args)
+        if active_level == args.level:
+            actions.append({"board": board.address,
+                            "command": "OPMODE_REUSE",
+                            "active_level": active_level})
+        else:
+            actions.append({"board": board.address, "command": "OPMODE",
+                            "response": board_command(
+                                board,
+                                f"SYSTem:TDMA:OPMode:STAGe {args.level}",
+                                args)})
+            actions.append({"board": board.address,
+                            "command": "OPMODE_APPLY",
+                            "response": board_command(
+                                board, "SYSTem:TDMA:OPMode:APPLy", args)})
     for node, board in enumerate(ordered):
         actions.append({"board": board.address, "command": "TOPOLOGY",
                         "response": board_command(
@@ -460,10 +496,10 @@ def arm_marker(board: Board, args: argparse.Namespace,
                offset_sample_count: int) -> str:
     command = (f"CALibration:MARKer:ARM {args.codebook},{args.epoch},"
                f"{args.epoch},{args.epoch},{args.generation},"
-               f"{offset_sample_count}")
+               f"{offset_sample_count},{args.origin_node}")
     response = board_command(board, command, marker_action_args(args))
     expected = [args.codebook, args.epoch, args.epoch, args.epoch,
-                args.generation, offset_sample_count]
+                args.generation, offset_sample_count, args.origin_node]
     try:
         actual = [int(value.strip().strip('"'), 0)
                   for value in next(csv.reader([response]), [])]
@@ -564,6 +600,10 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
         raise SystemExit("board IDs must contain 2..8 unique entries")
     if not 0 <= args.reference_node < len(board_ids):
         raise SystemExit("reference-node outside board order")
+    if args.origin_node is None:
+        args.origin_node = args.reference_node
+    if not 0 <= args.origin_node < len(board_ids):
+        raise SystemExit("origin-node outside board order")
     if not 0 <= args.codebook <= 3 or not 1 <= args.epoch <= 255:
         raise SystemExit("codebook must be 0..3 and epoch must be 1..255")
     offsets = list(args.node_offset_samples or [0] * len(board_ids))
@@ -599,6 +639,8 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
         "diagnostic_only": True,
         "node_ids_in_loop_order": board_ids,
         "reference_node": args.reference_node,
+        "topology_reference_node": args.reference_node,
+        "origin_node": args.origin_node,
         "codebook": args.codebook,
         "epoch": args.epoch,
         "generation": args.generation,
@@ -613,13 +655,13 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
     }
     if args.dry_run:
         return {**plan, "passed": False, "dry_run": True}
-    actions = prepare_ring(ordered, args)
+    actions = [] if args.reuse_ring_identity else prepare_ring(ordered, args)
     follower_nodes = [
-        (args.reference_node + offset) % len(ordered)
+        (args.origin_node + offset) % len(ordered)
         for offset in range(1, len(ordered))
     ]
     followers = [ordered[node] for node in follower_nodes]
-    originator = ordered[args.reference_node]
+    originator = ordered[args.origin_node]
     arms: list[dict[str, str | int]] = []
     try:
         # Every node first arms RX DMA and its physical rx_csn WAIT gate.  The
@@ -631,9 +673,9 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
                          "response": arm_marker(
                              board, args, offsets[node])})
         arms.append({"board": originator.address,
-                     "offset_sample_count": offsets[args.reference_node],
+                     "offset_sample_count": offsets[args.origin_node],
                      "response": arm_marker(
-                         originator, args, offsets[args.reference_node])})
+                         originator, args, offsets[args.origin_node])})
         armed = wait_marker_armed(ordered, args)
         injection = {
             "board": originator.address,
@@ -791,10 +833,157 @@ def run_offset_matrix(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def summarize_residence_matrix(
+        trials: list[dict[str, object]],
+        node_count: int,
+) -> dict[str, object]:
+    identity_fields = (
+        "calibration_generation", "topology_generation", "topology_crc32",
+        "profile_crc32", "schedule_crc32", "tick_resolution_ns",
+    )
+    identity = {field: set() for field in identity_fields}
+    residence_by_node: dict[int, list[int]] = {
+        node: [] for node in range(node_count)}
+    loop_delay_by_node: dict[int, list[int]] = {
+        node: [] for node in range(node_count)}
+    failures: list[str] = []
+    trial_diagnostics: list[dict[str, object]] = []
+    if len(trials) != node_count:
+        failures.append("trial_count")
+    for trial_index, trial in enumerate(trials):
+        trial_diagnostics.append({
+            "trial_index": trial_index,
+            "origin_node": trial.get("origin_node"),
+            "full_ring_marker_passed": bool(trial.get("passed")),
+            "error": trial.get("error", ""),
+        })
+        records = trial.get("records", [])
+        if not isinstance(records, list) or len(records) != node_count:
+            failures.append(f"trial_{trial_index}_records")
+            continue
+        for record in records:
+            if not isinstance(record, dict):
+                failures.append(f"trial_{trial_index}_record_type")
+                continue
+            for field in identity_fields:
+                identity[field].add(int(record[field]))
+            node = int(record["local_node"])
+            if int(record["role"]) == ROLE_FOLLOWER:
+                if (int(record["state"]) != STATE_ACCEPTED or
+                        int(record["reject_reason"]) != 0 or
+                        (int(record["flags"]) & REQUIRED_FLAGS) !=
+                        REQUIRED_FLAGS):
+                    failures.append(
+                        f"trial_{trial_index}_node_{node}_follower")
+                residence_by_node.setdefault(node, []).append(
+                    int(record["forward_residence_ticks"]))
+            elif int(record["role"]) == ROLE_ORIGINATOR:
+                loop_delay_by_node.setdefault(node, []).append(
+                    int(record["loop_rtt_ticks"]))
+    identity_summary = {
+        field: sorted(values) for field, values in identity.items()}
+    for field, values in identity.items():
+        if len(values) != 1 or 0 in values:
+            failures.append(field)
+
+    links: list[dict[str, object]] = []
+    expected_residence_count = max(1, node_count - 1)
+    for destination_node in range(node_count):
+        values = residence_by_node.get(destination_node, [])
+        valid_values = [value for value in values if value > 0]
+        span = max(valid_values) - min(valid_values) if valid_values else None
+        passed = (
+            len(values) == expected_residence_count and
+            len(valid_values) == len(values) and span is not None and span <= 1)
+        if not passed:
+            failures.append(f"node_{destination_node}_forward_residence")
+        links.append({
+            "link_index": (destination_node - 1) % node_count,
+            "source_node": (destination_node - 1) % node_count,
+            "destination_node": destination_node,
+            "forward_residence_ticks": values,
+            "forward_residence_span_ticks": span,
+            "selected_forward_residence_ticks": (
+                sorted(valid_values)[len(valid_values) // 2]
+                if valid_values else None),
+            "repeat_count": len(values),
+            "passed": passed,
+        })
+    links.sort(key=lambda row: int(row["link_index"]))
+    loops = [{
+        "node": node,
+        "loop_delay_ticks": loop_delay_by_node.get(node, []),
+    } for node in range(node_count)]
+    return {
+        "identity": identity_summary,
+        "links": links,
+        "loops": loops,
+        "trial_diagnostics": trial_diagnostics,
+        "full_ring_marker_passed_count": sum(
+            bool(row["full_ring_marker_passed"])
+            for row in trial_diagnostics),
+        "failures": failures,
+        "passed": not failures,
+    }
+
+
+def run_residence_matrix(args: argparse.Namespace) -> dict[str, object]:
+    board_ids = list(args.board_id or [])
+    node_count = len(board_ids)
+    if not 2 <= node_count <= 8 or len(set(board_ids)) != node_count:
+        raise SystemExit("board IDs must contain 2..8 unique entries")
+    if args.epoch + node_count - 1 > 255:
+        raise SystemExit("residence matrix exceeds uint8 training epoch range")
+    trials: list[dict[str, object]] = []
+    for origin_node in range(node_count):
+        trial_args = argparse.Namespace(**vars(args))
+        trial_args.residence_matrix = False
+        trial_args.offset_matrix = False
+        trial_args.origin_node = origin_node
+        trial_args.epoch = args.epoch + origin_node
+        trial_args.reuse_ring_identity = origin_node != 0
+        try:
+            trial = run_hil(trial_args)
+        except Exception as exc:  # retain failed physical evidence
+            trial = {
+                "phase": "TRN-01",
+                "origin_node": origin_node,
+                "epoch": trial_args.epoch,
+                "passed": False,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        trials.append(trial)
+        print(json.dumps({
+            "origin_node": origin_node,
+            "epoch": trial_args.epoch,
+            "passed": bool(trial.get("passed")),
+            "error": trial.get("error", ""),
+        }, ensure_ascii=False), flush=True)
+        time.sleep(args.gap)
+    matrix = summarize_residence_matrix(trials, node_count)
+    return {
+        "measurement_domain": "calibration",
+        "phase": "TRN-01_RESIDENCE_MATRIX",
+        "diagnostic_only": True,
+        "node_ids_in_loop_order": board_ids,
+        "topology_reference_node": args.reference_node,
+        "calibration_generation": args.generation,
+        "initial_epoch": args.epoch,
+        "trial_count": len(trials),
+        "matrix": matrix,
+        "trials": trials,
+        "passed": bool(matrix["passed"]),
+    }
+
+
 def main() -> int:
     args = parse_args()
     if args.board_id is not None:
-        result = run_offset_matrix(args) if args.offset_matrix else run_hil(args)
+        if args.residence_matrix and args.offset_matrix:
+            raise SystemExit("residence-matrix and offset-matrix are exclusive")
+        result = (run_residence_matrix(args) if args.residence_matrix else
+                  run_offset_matrix(args) if args.offset_matrix else
+                  run_hil(args))
         encoded = json.dumps(result, ensure_ascii=False, indent=2)
         print(encoded)
         out_dir = args.out_dir or (

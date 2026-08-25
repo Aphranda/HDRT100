@@ -86,16 +86,23 @@ scpi_result_t scpi_calibration_marker_arm(scpi_t *context)
     uint32_t train_sequence = 0u;
     uint32_t marker_id = 0u;
     uint32_t calibration_generation = 0u;
+    uint32_t origin_node = UINT32_MAX;
     int32_t offset_sample_count = 0;
     if (SCPI_ParamUInt32(context, &codebook_id, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &train_epoch, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &train_sequence, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &marker_id, TRUE) != TRUE ||
         SCPI_ParamUInt32(context, &calibration_generation, TRUE) != TRUE ||
-        SCPI_ParamInt32(context, &offset_sample_count, TRUE) != TRUE ||
+        SCPI_ParamInt32(context, &offset_sample_count, TRUE) != TRUE) {
+        scpi_port_push_exec_error(context, "CAL_MARKER_ARM_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    const bool origin_node_provided =
+        SCPI_ParamUInt32(context, &origin_node, FALSE) == TRUE;
+    if (
         !calibration_manager_request_marker_training(
             codebook_id, train_epoch, train_sequence, marker_id,
-            calibration_generation, offset_sample_count)) {
+            calibration_generation, offset_sample_count, origin_node)) {
         scpi_port_push_exec_error(context, "CAL_MARKER_ARM_REJECTED");
         return SCPI_RES_ERR;
     }
@@ -105,6 +112,9 @@ scpi_result_t scpi_calibration_marker_arm(scpi_t *context)
     SCPI_ResultUInt32(context, marker_id);
     SCPI_ResultUInt32(context, calibration_generation);
     SCPI_ResultInt32(context, offset_sample_count);
+    if (origin_node_provided) {
+        SCPI_ResultUInt32(context, origin_node);
+    }
     return SCPI_RES_OK;
 }
 
@@ -315,6 +325,133 @@ scpi_result_t scpi_calibration_data_capture_save(scpi_t *context)
     SCPI_ResultUInt32(context, job_id);
     SCPI_ResultText(context, path);
     return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_training_stage_begin(scpi_t *context)
+{
+    uint32_t node_count = 0u;
+    uint32_t evidence_flags = 0u;
+    uint32_t calibration_generation = 0u;
+    uint32_t topology_generation = 0u;
+    uint32_t topology_crc32 = 0u;
+    uint32_t profile_crc32 = 0u;
+    uint32_t schedule_crc32 = 0u;
+    if (SCPI_ParamUInt32(context, &node_count, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &evidence_flags, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &calibration_generation, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &topology_generation, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &topology_crc32, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &profile_crc32, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &schedule_crc32, TRUE) != TRUE ||
+        !calibration_manager_begin_training_stage(
+            node_count, evidence_flags, calibration_generation,
+            topology_generation,
+            topology_crc32, profile_crc32, schedule_crc32)) {
+        scpi_port_push_exec_error(context, "CAL_TRAIN_STAGE_BEGIN_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, node_count);
+    SCPI_ResultUInt32(context, evidence_flags);
+    SCPI_ResultUInt32(context, calibration_generation);
+    SCPI_ResultUInt32(context, topology_generation);
+    SCPI_ResultUInt32(context, topology_crc32);
+    SCPI_ResultUInt32(context, profile_crc32);
+    SCPI_ResultUInt32(context, schedule_crc32);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
+{
+    uint32_t values[14] = {0u};
+    for (uint32_t i = 0u; i < 14u; i++) {
+        if (SCPI_ParamUInt32(context, &values[i], TRUE) != TRUE) {
+            return SCPI_RES_ERR;
+        }
+    }
+    if (!calibration_manager_stage_training_link(
+            values[0], values[1], values[2], values[3], values[4],
+            values[5], values[6], values[7], values[8], values[9],
+            values[10], values[11], values[12], values[13])) {
+        scpi_port_push_exec_error(context, "CAL_TRAIN_STAGE_LINK_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, values[0]);
+    SCPI_ResultUInt32(context, values[12]);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_training_stage_q(scpi_t *context)
+{
+    tdma_ring_calibration_stage_t stage;
+    bool complete = false;
+    if (!calibration_manager_get_training_stage(&stage, &complete)) {
+        SCPI_ResultText(context, "EMPTY");
+        return SCPI_RES_OK;
+    }
+    uint32_t valid_link_bitmap = 0u;
+    for (uint32_t link = 0u; link < stage.node_count; link++) {
+        if (stage.links[link].valid != 0u) {
+            valid_link_bitmap |= 1u << link;
+        }
+    }
+    SCPI_ResultText(context, "TRN03STG");
+    SCPI_ResultUInt32(context, stage.enabled);
+    SCPI_ResultUInt32(context, stage.node_count);
+    SCPI_ResultUInt32(context, stage.evidence_flags);
+    SCPI_ResultBool(context, complete ? TRUE : FALSE);
+    SCPI_ResultUInt32(context, stage.calibration_generation);
+    SCPI_ResultUInt32(context, stage.topology_generation);
+    SCPI_ResultUInt32(context, stage.topology_crc32);
+    SCPI_ResultUInt32(context, stage.profile_crc32);
+    SCPI_ResultUInt32(context, stage.schedule_crc32);
+    SCPI_ResultUInt32(context, valid_link_bitmap);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_training_stage_link_q(scpi_t *context)
+{
+    uint32_t link_index = 0u;
+    tdma_ring_calibration_stage_t stage;
+    bool complete = false;
+    if (SCPI_ParamUInt32(context, &link_index, TRUE) != TRUE ||
+        !calibration_manager_get_training_stage(&stage, &complete) ||
+        link_index >= stage.node_count) {
+        scpi_port_push_exec_error(context, "CAL_TRAIN_STAGE_LINK_QUERY");
+        return SCPI_RES_ERR;
+    }
+    (void)complete;
+    const tdma_ring_calibration_link_t *link = &stage.links[link_index];
+    SCPI_ResultText(context, "TRN03LNK");
+    SCPI_ResultUInt32(context, link->valid);
+    SCPI_ResultUInt32(context, link->link_index);
+    SCPI_ResultUInt32(context, link->evidence_flags);
+    SCPI_ResultUInt32(context, link->calibration_generation);
+    SCPI_ResultUInt32(context, link->topology_generation);
+    SCPI_ResultUInt32(context, link->topology_crc32);
+    SCPI_ResultUInt32(context, link->profile_crc32);
+    SCPI_ResultUInt32(context, link->schedule_crc32);
+    SCPI_ResultUInt32(context, link->pio_persona);
+    SCPI_ResultUInt32(context, link->clkdiv_q16);
+    SCPI_ResultUInt32(context, link->clk_sys_hz);
+    SCPI_ResultUInt32(context, link->instruction_period_ns);
+    SCPI_ResultUInt32(context, link->bit_cycles);
+    SCPI_ResultUInt32(context, link->marker_to_data_cycles);
+    SCPI_ResultUInt32(context, link->forward_residence_cycles);
+    SCPI_ResultUInt32(context, link->rx_arm_lead_cycles);
+    SCPI_ResultUInt32(context, link->codeword_cycles);
+    SCPI_ResultUInt32(context, link->guard_cycles);
+    SCPI_ResultUInt32(context, link->link_budget_cycles);
+    SCPI_ResultUInt32(context, link->loop_delay_cycles);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_training_stage_clear(scpi_t *context)
+{
+    if (!calibration_manager_clear_training_stage()) {
+        scpi_port_push_exec_error(context, "CAL_TRAIN_STAGE_CLEAR_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
 }
 
 scpi_result_t scpi_calibration_bias_start(scpi_t *context)

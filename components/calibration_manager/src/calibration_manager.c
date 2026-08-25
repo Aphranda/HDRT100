@@ -1293,6 +1293,88 @@ bool calibration_manager_get_clk_coded_snapshot(
     return calibration_clk_coded_get_snapshot(&s_clk_coded_store, snapshot);
 }
 
+bool calibration_manager_begin_training_stage(
+    uint32_t node_count,
+    uint32_t evidence_flags,
+    uint32_t calibration_generation,
+    uint32_t topology_generation,
+    uint32_t topology_crc32,
+    uint32_t profile_crc32,
+    uint32_t schedule_crc32)
+{
+    const tdma_ring_calibration_stage_t header = {
+        .enabled = 1u,
+        .node_count = node_count,
+        .evidence_flags = evidence_flags,
+        .calibration_generation = calibration_generation,
+        .topology_generation = topology_generation,
+        .topology_crc32 = topology_crc32,
+        .profile_crc32 = profile_crc32,
+        .schedule_crc32 = schedule_crc32,
+    };
+    return tdma_runtime_owner_begin_calibration_stage(&header);
+}
+
+bool calibration_manager_stage_training_link(
+    uint32_t link_index,
+    uint32_t evidence_flags,
+    uint32_t pio_persona,
+    uint32_t clkdiv_q16,
+    uint32_t clk_sys_hz,
+    uint32_t instruction_period_ns,
+    uint32_t bit_cycles,
+    uint32_t marker_to_data_cycles,
+    uint32_t forward_residence_cycles,
+    uint32_t rx_arm_lead_cycles,
+    uint32_t codeword_cycles,
+    uint32_t guard_cycles,
+    uint32_t link_budget_cycles,
+    uint32_t loop_delay_cycles)
+{
+    tdma_ring_calibration_stage_t stage;
+    bool complete = false;
+    if (!tdma_runtime_owner_get_calibration_stage(&stage, &complete) ||
+        link_index >= stage.node_count) {
+        return false;
+    }
+    (void)complete;
+    const tdma_ring_calibration_link_t link = {
+        .valid = 1u,
+        .link_index = link_index,
+        .evidence_flags = evidence_flags,
+        .calibration_generation = stage.calibration_generation,
+        .topology_generation = stage.topology_generation,
+        .topology_crc32 = stage.topology_crc32,
+        .profile_crc32 = stage.profile_crc32,
+        .schedule_crc32 = stage.schedule_crc32,
+        .pio_persona = pio_persona,
+        .clkdiv_q16 = clkdiv_q16,
+        .clk_sys_hz = clk_sys_hz,
+        .instruction_period_ns = instruction_period_ns,
+        .bit_cycles = bit_cycles,
+        .marker_to_data_cycles = marker_to_data_cycles,
+        .forward_residence_cycles = forward_residence_cycles,
+        .rx_arm_lead_cycles = rx_arm_lead_cycles,
+        .codeword_cycles = codeword_cycles,
+        .guard_cycles = guard_cycles,
+        .link_budget_cycles = link_budget_cycles,
+        .loop_delay_cycles = loop_delay_cycles,
+    };
+    return tdma_runtime_owner_stage_calibration_link(&link);
+}
+
+bool calibration_manager_get_training_stage(
+    tdma_ring_calibration_stage_t *stage,
+    bool *complete)
+{
+    return tdma_runtime_owner_get_calibration_stage(stage, complete);
+}
+
+bool calibration_manager_clear_training_stage(void)
+{
+    return tdma_runtime_owner_clear_calibration_stage();
+}
+
 bool calibration_manager_request_p3(
     uint32_t role, uint32_t baud_hz, uint32_t pulse_count,
     uint32_t capture_words, uint32_t epoch, uint32_t signal_group)
@@ -1347,7 +1429,8 @@ bool calibration_manager_request_marker_training(
     uint32_t train_sequence,
     uint32_t marker_id,
     uint32_t calibration_generation,
-    int32_t offset_sample_count)
+    int32_t offset_sample_count,
+    uint32_t origin_node)
 {
     tdma_ring_runtime_snapshot_t ring;
     tdma_service_ring_runtime_config_t staged;
@@ -1381,13 +1464,20 @@ bool calibration_manager_request_marker_training(
         return false;
     }
 
+    if (origin_node == UINT32_MAX) {
+        origin_node = staged.reference_slot_id;
+    }
+    if (origin_node >= staged.node_count) {
+        return false;
+    }
+
     uint32_t marker_words[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
     calibration_clk_marker_descriptor_t marker;
     const calibration_clk_marker_config_t marker_config = {
         .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
         .codebook_id = (uint8_t)codebook_id,
         .epoch = (uint8_t)train_epoch,
-        .source_node = (uint8_t)staged.reference_slot_id,
+        .source_node = (uint8_t)origin_node,
         .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
     };
     if (!calibration_clk_marker_build(
@@ -1398,12 +1488,15 @@ bool calibration_manager_request_marker_training(
     const calibration_training_marker_request_t request = {
         .board_unique_id = board_unique_id,
         .build_id = calibration_manager_build_id_value(g_project_build_id),
-        .role = staged.local_slot_id == staged.reference_slot_id
+        .role = staged.local_slot_id == origin_node
                     ? CALIBRATION_TRAINING_MARKER_ROLE_ORIGINATOR
                     : CALIBRATION_TRAINING_MARKER_ROLE_FOLLOWER,
         /* Explicit TDMA slot -> training node boundary mapping. */
         .local_node = staged.local_slot_id,
-        .reference_node = staged.reference_slot_id,
+        /* Marker origin is independent from the TDMA topology reference.
+         * This permits every physical node's follower residence to be
+         * measured without changing the bound topology identity. */
+        .reference_node = origin_node,
         .predecessor_node = (staged.local_slot_id + staged.node_count - 1u) %
                             staged.node_count,
         .successor_node = (staged.local_slot_id + 1u) % staged.node_count,

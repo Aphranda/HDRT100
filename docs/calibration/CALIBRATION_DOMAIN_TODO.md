@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
 [`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
@@ -56,15 +56,15 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
 | TRN-02A | 实现 DATA codeword 相关、极性、CRC、epoch/sequence、best/second peak 和 margin 判断 | [x] | DATA evaluator、marker-to-DATA PIO capture、板端 guarded snapshot、SCPI、SD raw capture 和正反用例回归已完成 |
-| TRN-02B | 单跳 `NO.1 -> NO.2` 使用 P3 candidate 扫描 `marker -> DATA` 相对 offset，先粗后细收敛 | `[~]` | 单跳及四条 directed link 已在当前 profile accepted；仍需多次独立 repeat，并把 forward residence 与同一 generation 证据绑定 |
+| TRN-02B | 单跳 `NO.1 -> NO.2` 使用 P3 candidate 扫描 `marker -> DATA` 相对 offset，先粗后细收敛 | [x] | 固定阶梯各 profile 的四条 directed link 均完成多次 repeat；每档 DATA 与 forward residence 使用同一 identity，固化 profile gate 全绿 |
 | TRN-02C | 将单跳结果形成 diagnostic training window，绑定 topology/profile/calibration generation 和 CRC | [x] | snapshot/SD capture 可读，topology/profile/schedule/calibration generation 已绑定，并保持 `DIAGNOSTIC_ONLY` |
-| TRN-02D | 沿 accepted topology 完成四条 directed link 的 window 训练和 10/25/30 MHz profile 验证 | `[~]` | 当前 profile 的四链路单次矩阵已通过；仍需固定阶梯全 profile 和多次重复门禁，证据见任务记录 |
+| TRN-02D | 沿 accepted topology 完成四条 directed link 的 window 训练和固定 operating-profile 阶梯验证 | [x] | 固定阶梯全部完成完整 link 集、多次 repeat、跨度、identity、residence 和 fault-counter 门禁；证据见任务记录 |
 
 ### TRN-03：TDMA 短帧/FIFO 闭环接入
 
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
-| TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的 `clkdiv`、`clk_sys_hz`、`pio_instruction_period_ns`、`bit_cycles`、`marker_to_data_cycles`、`forward_residence_cycles`、`rx_arm_lead_cycles`、`codeword_cycles`、`guard_cycles`、`link_budget_cycles` 和 `loop_delay_cycles` | [ ] | 缺一条链路、generation/CRC/freshness 不一致或周期预算无法重放时 ARM 拒绝 |
+| TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的 `clkdiv`、`clk_sys_hz`、`pio_instruction_period_ns`、`bit_cycles`、`marker_to_data_cycles`、`forward_residence_cycles`、`rx_arm_lead_cycles`、`codeword_cycles`、`guard_cycles`、`link_budget_cycles` 和 `loop_delay_cycles` | [x] | 成对 evidence 自动生成完整 matrix；缺 link、diagnostic-only 和预算过期均拒绝；四板 staging 写后读回、ARM 状态读回及 STOPPED 回退通过 |
 | TRN-03B | 恢复 NORMAL persona 后启动 TDMA 短帧，按 `link_budget_cycles` 验证 core1 TX/RX FIFO、飞行转发和 bounded RTOS service | [ ] | 四板 up/down、sequence、CRC、RX/TX/FIFO 计数同时增长，且不依赖 core0 调度边沿 |
 | TRN-03C | 汇总 per-link path-delay、residence、loop-delay、PIO 周期预算和 residual，形成 active candidate gate | [ ] | bias、hardware latch、freshness、CRC、周期重放、重复性和 rollback 全部通过 |
 | TRN-03D | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线；固化工具和 SD/Flash 输入格式 | [ ] | 失败统一 STOPPED，active generation 不被污染，工具按 `*IDN?` 地址工作 |

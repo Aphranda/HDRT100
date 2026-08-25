@@ -272,8 +272,8 @@ static int test_path_snapshot_gate(void)
         .require_ring_round_trip = true,
     };
     for (uint32_t i = 0u; i < 4u; i++) {
-        links[i].source_slot_id = i;
-        links[i].destination_slot_id = (i + 1u) % 4u;
+        links[i].source_node = i;
+        links[i].destination_node = (i + 1u) % 4u;
         links[i].profile_crc32 = gate.expected_profile_crc32;
         links[i].topology_generation = gate.expected_topology_generation;
         links[i].bias_generation = gate.expected_bias_generation;

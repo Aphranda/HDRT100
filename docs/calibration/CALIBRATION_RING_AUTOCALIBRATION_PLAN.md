@@ -4,7 +4,7 @@ Status: Draft
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_RING_AUTOCALIBRATION_PLAN.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-08-22
+Last updated: 2026-08-25
 
 本文档细化“板卡接收一条 SCPI 指令后，在硬件内完成板卡顺序搜索和 P1--P3 path-delay
 训练”的目标架构。板卡顺序搜索定义为 P0，必须先于 CLK RTT 粗捕获、编码 marker 和
@@ -21,7 +21,7 @@ Last updated: 2026-08-22
 
 1. 任意一块板收到一次自动校准 SCPI intent 后，板内协调器完成 P0--P3。
 2. 板卡身份只使用 `*IDN?` 对应的唯一地址；COM、USB 枚举顺序和旧 NO 不参与身份判断。
-3. P0 自动发现有向物理环序，接受后生成 NO、slot map、topology CRC 和 generation。
+3. P0 自动发现有向物理环序，接受后生成 NO、node map、topology CRC 和 generation。
 4. P1--P3 复用现有 PIO/DMA persona 和计算原语，逐级形成可追溯 raw evidence。
 5. 成功结果只写 staging；显式 `SAVE` 和 `ACTivate` 后才允许影响 VDC/DPLL。
 6. 任一阶段失败都关闭训练时钟、恢复普通 TDMA persona，并保留旧 active calibration。
@@ -48,14 +48,14 @@ Last updated: 2026-08-22
 | 产品 SCPI | 对外文档已有 `CALibration:STARt/STOP/SAVE/ACTivate` 生命周期 | 当前 `CALibration:STARt` 仍映射到查询 callback，`STOP/SAVE/ACTivate/ROLLback` 仍为 accepted stub |
 
 现有 P1/P2/P3 SCPI 保留为工程诊断入口。产品自动校准不得在这些 callback 上继续叠加同步
-等待，而应新增一个统一 command slot 和板内非阻塞协调器。
+等待，而应新增一个统一 command mailbox 和板内非阻塞协调器。
 
 ## 3. HAOFV 所有权与执行边界
 
 ```text
 USB CDC / USBTMC / UART SCPI
   -> core0: 参数解析、权限和系统状态检查
-  -> CalibrationAutoCommandSlot（guarded intent）
+  -> CalibrationAutoCommandMailbox（guarded intent）
   -> CalibrationAutoAO：事务、阶段、统计、质量和 staging owner
   -> TdmaSchedulerAO / core1：persona、PIO、DMA、driver direction owner
   -> CalibrationAutoFB / core1 bounded worker：相关、边沿配对和固定上限统计
@@ -68,7 +68,7 @@ USB CDC / USBTMC / UART SCPI
 ### 3.1 core0 允许做的工作
 
 - 校验 SCPI 参数、权限和 `SystemMode=IDLE/CAL`。
-- 把单个 request 写入有界 command slot，并立即返回 accepted/epoch。
+- 把单个 request 写入有界 command mailbox，并立即返回 accepted/epoch。
 - 低频读取 guarded snapshot，格式化 SCPI 响应。
 - 在训练完全停止且 core1 park/lockout 门禁通过后执行 flash/storage 操作。
 
@@ -82,7 +82,7 @@ USB CDC / USBTMC / UART SCPI
 
 ### 3.3 Calibration 域拥有的工作
 
-- topology、NO/slot map、path-delay、residence、endpoint bias 的解释和接受门禁。
+- topology、NO/node map、path-delay、residence、endpoint bias 的解释和接受门禁。
 - epoch、generation、CRC、freshness、ACK/NACK bitmap 和 staging/active 生命周期。
 - 对 raw TDMA evidence 做质量判断；TDMA 域不得生成 active calibration。
 
@@ -127,7 +127,7 @@ completion/deadline。每次状态转换递增 transaction sequence，并发布�
 - 本机 immutable unique ID；
 - 固定的 CLK/DATA/SYNC 物理方向；
 - `TDMA_RING_NODE_MAX` 容量；
-- 一个不依赖 slot map 的 bootstrap discovery persona。
+- 一个不依赖 node map 的 bootstrap discovery persona。
 
 旧 NO 只可作为 UI 显示缓存，不能作为发现输入。若 P0 失败，旧 NO 不得被改写。
 
@@ -152,16 +152,16 @@ DiscoveryHeader
   epoch / nonce
   anchor_uid
   operation = DISCOVER | VERIFY | COMMIT | ABORT
-  next_slot
+  next_node
   hop_limit
   topology_candidate_crc
 
-DiscoverySlot[TDMA_RING_NODE_MAX]
+DiscoveryNodeEntry[TDMA_RING_NODE_MAX]
   node_uid
   predecessor_uid
   local_rx_quality
   claim_flags
-  slot_crc
+  node_map_crc
 
 DiscoveryTrailer
   ack_bitmap
@@ -174,18 +174,18 @@ DiscoveryTrailer
 
 ### 5.4 飞行发现算法
 
-1. anchor 在首个 slot 写入自己的 UID，生成新的 epoch/nonce，并发送 `DISCOVER`。
-2. 每个节点第一次看到该 epoch 时，只检查固定 header 和已占用 slot：
-   - 若本 UID 未出现，则写入 `slot[next_slot]`；
-   - `predecessor_uid` 取上一个已占用 slot 的 UID；
-   - 记录本地 RX quality，更新 slot CRC 和 `next_slot`；
+1. anchor 在首个 node entry 写入自己的 UID，生成新的 epoch/nonce，并发送 `DISCOVER`。
+2. 每个节点第一次看到该 epoch 时，只检查固定 header 和已占用 node entry：
+   - 若本 UID 未出现，则写入 `node_entry[next_node]`；
+   - `predecessor_uid` 取上一个已占用 node entry 的 UID；
+   - 记录本地 RX quality，更新 node-map CRC 和 `next_node`；
    - 立即向下游转发，不等待 core0。
-3. 已经 claim 的节点再次看到同 epoch 时透明转发，不重复占 slot。
+3. 已经 claim 的节点再次看到同 epoch 时透明转发，不重复占 node entry。
 4. anchor 收到相同 nonce 的返回 frame 后停止该 frame，禁止再次进入环路。
-5. 未在 deadline 内返回视为开链；slot 溢出、重复 UID、hop limit、CRC 或方向错误均拒绝。
+5. 未在 deadline 内返回视为开链；node entry 溢出、重复 UID、hop limit、CRC 或方向错误均拒绝。
 
 discovery 飞行写入只处理固定 offset，不实现通用 SCPI 或通用 frame parser。其资源由 TDMA
-foundation profile 声明，Calibration 只解释返回 slot 和质量。
+foundation profile 声明，Calibration 只解释返回 node entry 和质量。
 
 ### 5.5 邻接验证
 
@@ -212,7 +212,7 @@ node_count
 ordered_uid[]
 predecessor_uid[] / successor_uid[]
 directed_adjacency
-slot_map
+node_map
 topology_crc32
 topology_generation
 quality_summary
@@ -220,7 +220,7 @@ accepted / reject_reason
 ```
 
 只有 accepted snapshot 才进入 `P0_TOPOLOGY_COMMIT`。全节点收到相同 topology CRC 后返回
-ACK；anchor 收齐 active-node ACK bitmap 才更新 staging NO/slot map。持久化留给显式
+ACK；anchor 收齐 active-node ACK bitmap 才更新 staging NO/node map。持久化留给显式
 `CALibration:SAVE`，P0 不直接擦写 flash。
 
 ## 6. 分布式 PREPARE/ACK/COMMIT
@@ -390,7 +390,7 @@ profile 和可解释 edge definition 的 evidence 才进入 residual gate。resi
 - node set、order、adjacency 和 anchor 多轮一致；
 - topology CRC/generation 在 P0--P3 全事务内保持不变；
 - ACK bitmap 覆盖全部 active nodes；
-- unique ID、NO 和 slot map 一一对应。
+- unique ID、NO 和 node map 一一对应。
 
 ### 10.2 transport gate
 
@@ -429,7 +429,7 @@ profile 和可解释 edge definition 的 evidence 才进入 residual gate。resi
 | `CALibration:RING:STOP` | 无 | accepted | 请求安全中止和 persona 恢复 |
 | `READ:CALibration:RING:STATe?` | 无 | 固定 state block | 查询阶段、进度、ACK/NACK 和错误 |
 | `READ:CALibration:RING:RESult?` | 无 | 固定 summary block | 查询 topology、质量、stable/limited 状态和 staging 摘要 |
-| `READ:CALibration:RING:NODE?` | slot index | node block | 按 accepted slot 读取 unique ID 和节点质量 |
+| `READ:CALibration:RING:NODE?` | node index | node block | 按 accepted node 读取 unique ID 和节点质量 |
 | `READ:CALibration:RING:LINK?` | link index | link block | 按相邻 link 读取 delay/residence/bias/质量 |
 
 `STARt` callback 不等待 P0/P1/P2/P3 完成。USB CDC、USBTMC 和 UART 使用同一 SCPI handler；
@@ -504,7 +504,7 @@ staging CRC
 
 ```text
 source_uid / destination_uid
-source_slot / destination_slot
+source_node / destination_node
 topology/profile/bias generation
 accepted frequency profile
 t1..t4 evidence reference
@@ -562,7 +562,7 @@ AUTO CAL DONE
   -> SYNC:CHECk / DPLL relock
 ```
 
-P0 接受后可更新 RAM 中的 NO/slot staging，但只有 SAVE 才持久化。flash erase/program 必须由
+P0 接受后可更新 RAM 中的 NO/node staging，但只有 SAVE 才持久化。flash erase/program 必须由
 core0 storage owner 执行，并先获得 core1 park/lockout ACK。校准热路径不访问 XIP 写操作。
 
 ## 15. 实施待办
@@ -570,7 +570,7 @@ core0 storage owner 执行，并先获得 core1 park/lockout ACK。校准热路�
 ### A0：统一 transaction 基础件
 
 - [ ] 定义 candidate `CalibrationAutoRequest/Snapshot/LinkResult` 和 reject category。
-- [ ] 建立 core0 command slot、core1 completion slot 和 seqlock/guarded snapshot 单测。
+- [ ] 建立 core0 command mailbox、core1 completion mailbox 和 seqlock/guarded snapshot 单测。
 - [ ] 增加 `CalibrationAutoAO/FB/Vector`，停止在 `calibration_manager_service()` 每轮清零状态。
 - [ ] 接入系统 IDLE/CAL、Trigger RUN、TDMA stopped 和资源 owner 门禁。
 - [ ] 实现统一 ABORT/restore，不依赖具体 PIO persona 的成功路径。
@@ -578,9 +578,9 @@ core0 storage owner 执行，并先获得 core1 park/lockout ACK。校准热路�
 ### A1：P0 板内 topology discovery
 
 - [ ] 定义 bootstrap discovery persona 的 PIO/SM/DMA/profile resource claim。
-- [ ] 实现固定 discovery slot 飞行 claim、anchor return stop 和 hop/deadline gate。
+- [ ] 实现固定 discovery node-entry 飞行 claim、anchor return stop 和 hop/deadline gate。
 - [ ] 实现 directed adjacency VERIFY、重复一致性和 topology quality。
-- [ ] 发布 `CalibrationTopologySnapshot`，按 unique ID 生成 NO/slot staging。
+- [ ] 发布 `CalibrationTopologySnapshot`，按 unique ID 生成 NO/node staging。
 - [ ] 完成从最小双板到 `TDMA_RING_NODE_MAX` 的模拟、主机单测和 HIL。
 
 ### A2：分布式 PREPARE/ACK/COMMIT

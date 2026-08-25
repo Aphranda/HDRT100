@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate TRN-02 profile evidence without manually interpreting reports."""
+"""Aggregate profile-bound TRN-02 DATA and residence evidence."""
 
 from __future__ import annotations
 
@@ -9,103 +9,239 @@ from pathlib import Path
 from typing import Any
 
 
-def _load(path: Path) -> dict[str, Any]:
+IDENTITY_FIELDS = (
+    "calibration_generation",
+    "topology_generation",
+    "topology_crc32",
+    "profile_crc32",
+    "schedule_crc32",
+)
+
+
+def load_summary(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError(f"{path}: summary must be an object")
     return value
 
 
-def _identity(summary: dict[str, Any]) -> dict[str, int]:
+def singleton_identity(summary: dict[str, Any], *, residence: bool = False
+                       ) -> dict[str, int]:
     matrix = summary.get("matrix", {})
     identity = matrix.get("identity", {})
     result: dict[str, int] = {}
-    for field in ("calibration_generation", "topology_generation",
-                  "topology_crc32", "profile_crc32", "schedule_crc32",
-                  "sample_period_ns"):
+    for field in IDENTITY_FIELDS:
         values = identity.get(field, [])
         if not isinstance(values, list) or len(values) != 1:
             raise ValueError(f"{field}: expected one identity value")
         result[field] = int(values[0])
+    resolution_field = "tick_resolution_ns" if residence else "sample_period_ns"
+    values = identity.get(resolution_field, [])
+    if not isinstance(values, list) or len(values) != 1:
+        raise ValueError(f"{resolution_field}: expected one identity value")
+    result["sample_period_ns"] = int(values[0])
     return result
 
 
-def _check_residence(path: Path, expected: dict[str, int]) -> list[str]:
-    summary = _load(path)
+def node_order(summary: dict[str, Any]) -> list[str]:
+    value = summary.get("node_ids_in_loop_order")
+    if (not isinstance(value, list) or not 2 <= len(value) <= 8 or
+            any(not isinstance(item, str) or not item for item in value) or
+            len(set(value)) != len(value)):
+        raise ValueError("node_ids_in_loop_order must contain 2..8 unique IDs")
+    return list(value)
+
+
+def validate_data_summary(summary: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    records = summary.get("records", [])
-    if not isinstance(records, list) or len(records) == 0:
-        return ["residence_records_missing"]
-    for index, record in enumerate(records):
-        if not isinstance(record, dict):
-            errors.append(f"residence_record_{index}_invalid")
-            continue
-        for field in ("topology_generation", "topology_crc32", "profile_crc32",
-                      "schedule_crc32", "calibration_generation"):
-            if field in expected and int(record.get(field, -1)) != expected[field]:
-                errors.append(f"residence_{field}_mismatch")
-        if int(record.get("forward_residence_ticks", 0)) < 0:
-            errors.append("residence_negative")
+    matrix = summary.get("matrix", {})
+    try:
+        count = len(node_order(summary))
+    except ValueError:
+        return ["data_node_order"]
+    if summary.get("phase") != "TRN-02D_REPEAT_MATRIX":
+        errors.append("data_phase")
+    if not bool(summary.get("passed")) or not isinstance(matrix, dict) or \
+            not bool(matrix.get("passed")):
+        errors.append("data_summary_not_passed")
+    repeats = int(summary.get("repeats", 0))
+    expected = count * repeats
+    if repeats < 3:
+        errors.append("data_repeat_count")
+    if (int(matrix.get("expected_trial_count", -1)) != expected or
+            int(matrix.get("trial_count", -1)) != expected or
+            int(matrix.get("accepted_count", -1)) != expected):
+        errors.append("data_accepted_count")
+    if matrix.get("identity_failures"):
+        errors.append("data_identity_failures")
+    if matrix.get("gate_failures"):
+        errors.append("data_gate_failures")
+    links = matrix.get("links", [])
+    if not isinstance(links, list) or len(links) != count:
+        errors.append("data_links")
+    else:
+        indices = []
+        for link in links:
+            if not isinstance(link, dict):
+                errors.append("data_link_invalid")
+                continue
+            index = int(link.get("link", -1))
+            indices.append(index)
+            if (not bool(link.get("passed")) or
+                    int(link.get("trial_count", -1)) != repeats or
+                    int(link.get("accepted_count", -1)) != repeats or
+                    int(link.get("offset_span_sample", 999)) >
+                    int(summary.get("max_offset_span_sample", -1)) or
+                    link.get("gate_failures")):
+                errors.append(f"data_link{index}")
+        if sorted(indices) != list(range(count)):
+            errors.append("data_link_indices")
     return sorted(set(errors))
 
 
-def aggregate(profiles: list[tuple[int, Path]], residence: Path | None) -> dict[str, Any]:
+def validate_residence_summary(summary: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    matrix = summary.get("matrix", {})
+    try:
+        count = len(node_order(summary))
+    except ValueError:
+        return ["residence_node_order"]
+    if summary.get("phase") != "TRN-01_RESIDENCE_MATRIX":
+        errors.append("residence_phase")
+    if not bool(summary.get("passed")) or not isinstance(matrix, dict) or \
+            not bool(matrix.get("passed")):
+        errors.append("residence_summary_not_passed")
+    if int(summary.get("trial_count", -1)) != count:
+        errors.append("residence_trial_count")
+    if matrix.get("failures"):
+        errors.append("residence_failures")
+    links = matrix.get("links", [])
+    expected_repeats = count - 1
+    if not isinstance(links, list) or len(links) != count:
+        errors.append("residence_links")
+    else:
+        indices = []
+        for link in links:
+            if not isinstance(link, dict):
+                errors.append("residence_link_invalid")
+                continue
+            index = int(link.get("link_index", -1))
+            indices.append(index)
+            values = link.get("forward_residence_ticks", [])
+            if (not bool(link.get("passed")) or
+                    not isinstance(values, list) or
+                    len(values) != expected_repeats or
+                    int(link.get("repeat_count", -1)) != expected_repeats or
+                    int(link.get("forward_residence_span_ticks", 999)) > 1 or
+                    int(link.get("selected_forward_residence_ticks", -1)) < 0):
+                errors.append(f"residence_link{index}")
+        if sorted(indices) != list(range(count)):
+            errors.append("residence_link_indices")
+    loops = matrix.get("loops", [])
+    if not isinstance(loops, list) or len(loops) != count:
+        errors.append("residence_loops")
+    else:
+        loop_nodes = []
+        for loop in loops:
+            if not isinstance(loop, dict):
+                errors.append("residence_loop_invalid")
+                continue
+            node = int(loop.get("node", -1))
+            loop_nodes.append(node)
+            values = loop.get("loop_delay_ticks", [])
+            if (not isinstance(values, list) or not values or
+                    any(int(value) <= 0 for value in values)):
+                errors.append(f"residence_loop{node}")
+        if sorted(loop_nodes) != list(range(count)):
+            errors.append("residence_loop_indices")
+    return sorted(set(errors))
+
+
+def validate_profile_pair(data: dict[str, Any], residence: dict[str, Any]
+                          ) -> tuple[dict[str, int], list[str]]:
+    errors = validate_data_summary(data) + validate_residence_summary(residence)
+    data_identity = singleton_identity(data)
+    residence_identity = singleton_identity(residence, residence=True)
+    for field in (*IDENTITY_FIELDS, "sample_period_ns"):
+        if data_identity[field] != residence_identity[field]:
+            errors.append(f"residence_{field}_mismatch")
+    if node_order(data) != node_order(residence):
+        errors.append("residence_node_order_mismatch")
+    return data_identity, sorted(set(errors))
+
+
+def aggregate(profiles: list[tuple[int, Path]],
+              residences: list[tuple[int, Path]]) -> dict[str, Any]:
     errors: list[str] = []
     reports: list[dict[str, Any]] = []
-    identities: list[dict[str, int]] = []
-    for level, path in profiles:
-        summary = _load(path)
-        matrix = summary.get("matrix", {})
-        if summary.get("phase") != "TRN-02D_REPEAT_MATRIX":
-            errors.append(f"level{level}:phase")
-        if not bool(summary.get("passed")) or not bool(matrix.get("passed")):
-            errors.append(f"level{level}:summary_not_passed")
-        if int(matrix.get("expected_trial_count", -1)) != 12 or \
-                int(matrix.get("accepted_count", -1)) != 12:
-            errors.append(f"level{level}:accepted_count")
-        identity = _identity(summary)
-        identities.append(identity)
-        reports.append({"level": level, "path": str(path), "identity": identity,
-                        "matrix": matrix})
+    profile_paths = dict(profiles)
+    residence_paths = dict(residences)
+    if len(profile_paths) != len(profiles):
+        errors.append("duplicate_profile_level")
+    if len(residence_paths) != len(residences):
+        errors.append("duplicate_residence_level")
+    if set(profile_paths) != set(residence_paths):
+        errors.append("profile_residence_level_mismatch")
 
-    if len({item["profile_crc32"] for item in identities}) != len(identities):
+    identities: list[dict[str, int]] = []
+    for level in sorted(set(profile_paths) & set(residence_paths)):
+        data = load_summary(profile_paths[level])
+        residence = load_summary(residence_paths[level])
+        identity, pair_errors = validate_profile_pair(data, residence)
+        identities.append(identity)
+        errors.extend(f"level{level}:{error}" for error in pair_errors)
+        reports.append({
+            "level": level,
+            "data_path": str(profile_paths[level]),
+            "residence_path": str(residence_paths[level]),
+            "identity": identity,
+            "node_count": len(node_order(data)),
+            "passed": not pair_errors,
+            "gate_failures": pair_errors,
+        })
+
+    if len(identities) != 3:
+        errors.append("profile_count")
+    if identities and len({item["profile_crc32"] for item in identities}) != \
+            len(identities):
         errors.append("profile_crc_not_distinct")
     for field in ("topology_crc32", "sample_period_ns"):
-        if len({item[field] for item in identities}) != 1:
+        if identities and len({item[field] for item in identities}) != 1:
             errors.append(f"mixed_{field}")
+    return {
+        "phase": "TRN-02_PROFILE_GATE",
+        "profile_count": len(reports),
+        "profiles": reports,
+        "gate_failures": sorted(set(errors)),
+        "passed": not errors,
+    }
 
-    residence_result: dict[str, Any]
-    if residence is None:
-        errors.append("forward_residence_evidence_missing")
-        residence_result = {"path": None, "passed": False, "errors":
-                            ["forward_residence_evidence_missing"]}
-    else:
-        residence_errors: list[str] = []
-        for identity in identities:
-            residence_errors.extend(_check_residence(residence, identity))
-        residence_result = {"path": str(residence), "passed": not residence_errors,
-                            "errors": sorted(set(residence_errors))}
-        errors.extend(residence_result["errors"])
 
-    return {"phase": "TRN-02_PROFILE_GATE", "profile_count": len(profiles),
-            "profiles": reports, "residence": residence_result,
-            "gate_failures": sorted(set(errors)), "passed": not errors}
+def parse_level_path(items: list[str], option: str) -> list[tuple[int, Path]]:
+    result: list[tuple[int, Path]] = []
+    for item in items:
+        level_text, separator, path_text = item.partition("=")
+        if not separator:
+            raise ValueError(f"{option} requires LEVEL=SUMMARY_JSON")
+        result.append((int(level_text), Path(path_text)))
+    return result
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", action="append", required=True,
                         metavar="LEVEL=SUMMARY_JSON")
-    parser.add_argument("--residence", type=Path)
+    parser.add_argument("--residence", action="append", required=True,
+                        metavar="LEVEL=RESIDENCE_SUMMARY_JSON")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
-    profiles: list[tuple[int, Path]] = []
-    for item in args.profile:
-        level_text, separator, path_text = item.partition("=")
-        if not separator:
-            parser.error("--profile requires LEVEL=SUMMARY_JSON")
-        profiles.append((int(level_text), Path(path_text)))
-    result = aggregate(profiles, args.residence)
+    try:
+        result = aggregate(
+            parse_level_path(args.profile, "--profile"),
+            parse_level_path(args.residence, "--residence"),
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     encoded = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     print(encoded, end="")
     if args.out:

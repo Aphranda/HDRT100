@@ -41,8 +41,8 @@ def test_parse_coded_snapshot_rejects_wrong_field_count() -> None:
 def make_trial(sequence: int, lag: int, distance: int, margin: int,
                *, state: int = 3, reason: int = 0) -> dict[str, object]:
     return {
-        "master_slot": 0,
-        "master_id": "0010071E65B5CB38",
+        "reference_node": 0,
+        "reference_node_id": "0010071E65B5CB38",
         "snapshot": {
             "state": state,
             "reject_reason": reason,

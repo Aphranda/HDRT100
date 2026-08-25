@@ -387,6 +387,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-offset-span", type=int, default=1,
                         help="maximum accepted repeat span in raw samples")
     parser.add_argument("--level", type=int, default=7)
+    parser.add_argument(
+        "--reuse-ring-identity", action="store_true",
+        help=("reuse a stopped ring prepared by same-generation TRN-01; "
+              "do not rewrite topology or operating profile"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--action-timeout", type=float, default=0.1)
@@ -610,6 +614,7 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
         "marker_direction": args.marker_direction,
         "data_direction": args.data_direction,
         "measurement_direction": "configured_bidirectional_link",
+        "reused_ring_identity": bool(args.reuse_ring_identity),
         "nominal_base_delay_ns": args.base_delay_ns,
         "configured_window_center_ns": args.configured_window_center_ns,
         "sample_period_ns": args.sample_period_ns,
@@ -671,7 +676,8 @@ def run_link_trial(args: argparse.Namespace, ordered: list[Board],
 def run_hil(args: argparse.Namespace) -> dict[str, object]:
     board_ids = validate_hil_args(args)
     ordered = discover_ordered(args, board_ids)
-    return run_link_trial(args, ordered, prepare=True)
+    return run_link_trial(
+        args, ordered, prepare=not args.reuse_ring_identity)
 
 
 def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
@@ -696,7 +702,8 @@ def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
             "dry_run": True,
         }
 
-    actions = prepare_ring(ordered, args)
+    actions = ([] if args.reuse_ring_identity else
+               prepare_ring(ordered, args))
     trials: list[dict[str, object]] = []
     trial_index = 0
     for link in range(node_count):
@@ -762,6 +769,7 @@ def run_repeat_matrix(args: argparse.Namespace) -> dict[str, object]:
         "repeats": args.repeats,
         "max_offset_span_sample": args.max_offset_span,
         "calibration_generation": args.generation,
+        "reused_ring_identity": bool(args.reuse_ring_identity),
         "training_parameters": {
             "marker_direction": args.marker_direction,
             "data_direction": args.data_direction,

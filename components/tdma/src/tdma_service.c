@@ -610,6 +610,9 @@ bool tdma_service_stage_calibration(
     if (service == NULL || stage == NULL ||
         !tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
         snapshot.enabled != 0u ||
+        stage->profile_crc32 !=
+            service->ring_staged_config.operating_profile_crc32 ||
+        stage->schedule_crc32 != service->ring_staged_config.schedule_crc32 ||
         !tdma_ring_runtime_validate_calibration_stage(
             stage, service->ring_staged_config.node_count, &reason)) {
         return false;
@@ -617,6 +620,119 @@ bool tdma_service_stage_calibration(
     service->calibration_stage = *stage;
     service->calibration_gate_required = 1u;
     return true;
+}
+
+static bool tdma_service_calibration_stage_is_stopped(
+    const tdma_service_service_t *service)
+{
+    tdma_ring_runtime_snapshot_t snapshot;
+    return service != NULL &&
+           tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) &&
+           snapshot.enabled == 0u;
+}
+
+static bool tdma_service_calibration_header_is_valid(
+    const tdma_service_service_t *service,
+    const tdma_ring_calibration_stage_t *header)
+{
+    return service != NULL && header != NULL && header->enabled != 0u &&
+           header->node_count >= 2u &&
+           header->node_count <= TDMA_RING_CALIBRATION_LINK_MAX &&
+           header->node_count == service->ring_staged_config.node_count &&
+           (header->evidence_flags &
+            TDMA_RING_CALIBRATION_REQUIRED_FLAGS) ==
+               TDMA_RING_CALIBRATION_REQUIRED_FLAGS &&
+           (header->evidence_flags &
+            TDMA_RING_CALIBRATION_FLAG_DIAGNOSTIC_ONLY) == 0u &&
+           header->profile_crc32 ==
+               service->ring_staged_config.operating_profile_crc32 &&
+           header->schedule_crc32 ==
+               service->ring_staged_config.schedule_crc32 &&
+           header->calibration_generation != 0u &&
+           header->topology_generation != 0u &&
+           header->topology_crc32 != 0u && header->profile_crc32 != 0u &&
+           header->schedule_crc32 != 0u;
+}
+
+bool tdma_service_begin_calibration_stage(
+    tdma_service_service_t *service,
+    const tdma_ring_calibration_stage_t *header)
+{
+    if (!tdma_service_calibration_stage_is_stopped(service) ||
+        !tdma_service_calibration_header_is_valid(service, header)) {
+        return false;
+    }
+    memset(&service->calibration_stage, 0,
+           sizeof(service->calibration_stage));
+    service->calibration_stage.enabled = 1u;
+    service->calibration_stage.node_count = header->node_count;
+    service->calibration_stage.evidence_flags = header->evidence_flags;
+    service->calibration_stage.calibration_generation =
+        header->calibration_generation;
+    service->calibration_stage.topology_generation =
+        header->topology_generation;
+    service->calibration_stage.topology_crc32 = header->topology_crc32;
+    service->calibration_stage.profile_crc32 = header->profile_crc32;
+    service->calibration_stage.schedule_crc32 = header->schedule_crc32;
+    /* BEGIN closes ARM immediately.  ARM remains rejected until every
+     * physical link has a valid replay budget. */
+    service->calibration_gate_required = 1u;
+    return true;
+}
+
+bool tdma_service_stage_calibration_link(
+    tdma_service_service_t *service,
+    const tdma_ring_calibration_link_t *link)
+{
+    if (!tdma_service_calibration_stage_is_stopped(service) || link == NULL ||
+        service->calibration_gate_required == 0u ||
+        service->calibration_stage.enabled == 0u ||
+        link->valid == 0u ||
+        (link->evidence_flags & TDMA_RING_CALIBRATION_REQUIRED_FLAGS) !=
+            TDMA_RING_CALIBRATION_REQUIRED_FLAGS ||
+        (link->evidence_flags &
+         TDMA_RING_CALIBRATION_FLAG_DIAGNOSTIC_ONLY) != 0u ||
+        link->link_index >= service->calibration_stage.node_count ||
+        link->calibration_generation !=
+            service->calibration_stage.calibration_generation ||
+        link->topology_generation !=
+            service->calibration_stage.topology_generation ||
+        link->topology_crc32 != service->calibration_stage.topology_crc32 ||
+        link->profile_crc32 != service->calibration_stage.profile_crc32 ||
+        link->schedule_crc32 != service->calibration_stage.schedule_crc32 ||
+        link->pio_persona == 0u || link->clkdiv_q16 == 0u ||
+        link->clk_sys_hz == 0u || link->instruction_period_ns == 0u ||
+        link->bit_cycles == 0u || link->marker_to_data_cycles == 0u ||
+        link->codeword_cycles == 0u || link->link_budget_cycles == 0u) {
+        return false;
+    }
+    const uint64_t required_cycles =
+        (uint64_t)link->marker_to_data_cycles +
+        link->forward_residence_cycles + link->rx_arm_lead_cycles +
+        link->codeword_cycles + link->guard_cycles +
+        link->loop_delay_cycles;
+    if (required_cycles > link->link_budget_cycles) {
+        return false;
+    }
+    service->calibration_stage.links[link->link_index] = *link;
+    return true;
+}
+
+bool tdma_service_get_calibration_stage(
+    const tdma_service_service_t *service,
+    tdma_ring_calibration_stage_t *stage,
+    bool *complete)
+{
+    if (service == NULL || stage == NULL) {
+        return false;
+    }
+    *stage = service->calibration_stage;
+    if (complete != NULL) {
+        *complete = service->calibration_gate_required != 0u &&
+                    tdma_ring_runtime_validate_calibration_stage(
+                        stage, service->ring_staged_config.node_count, NULL);
+    }
+    return stage->enabled != 0u;
 }
 
 bool tdma_service_clear_calibration_stage(tdma_service_service_t *service)
@@ -639,9 +755,13 @@ bool tdma_service_ring_arm(tdma_service_service_t *service)
         return false;
     }
     if (service->calibration_gate_required != 0u &&
-        !tdma_ring_runtime_validate_calibration_stage(
-            &service->calibration_stage,
-            service->ring_staged_config.node_count, NULL)) {
+        (service->calibration_stage.profile_crc32 !=
+             service->ring_staged_config.operating_profile_crc32 ||
+         service->calibration_stage.schedule_crc32 !=
+             service->ring_staged_config.schedule_crc32 ||
+         !tdma_ring_runtime_validate_calibration_stage(
+             &service->calibration_stage,
+             service->ring_staged_config.node_count, NULL))) {
         return false;
     }
     return

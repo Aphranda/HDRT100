@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / TRAINING
 Canonical: `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 本文档把“先发送同步 marker，再按本地 PIO 周期发送编码 DATA，并在接收端按 marker 建立相对时间基准”的方案收敛为校准域下的独立训练子域。本文档是实施方案和待冻结候选接口，不把当前诊断值直接提升为 active calibration，也不允许训练子域绕过 TDMA core1 owner 直接操作 PIO、SM 或 DMA。
 
@@ -369,6 +369,20 @@ staging 必须同时保存 `base_half_chip_ns`、`offset_sample_count`、`sample
 并通过显式 `STOP -> stage -> validate -> ARM -> START` 接入短帧和 TX/RX FIFO。ARM 前
 必须冻结本次 profile 的 PIO 指令周期预算；core1
 负责 PIO/SM/DMA、飞行转发和 FIFO 搬运；core0 只处理已完成帧和 guarded snapshot。
+
+TRN-03 replay matrix 必须由固化工具
+`tools/calibration_ring_validate/trn03_matrix.py` 从同一 operating profile 下成对的
+TRN-02 DATA repeat matrix 和 TRN-01 residence matrix 生成。生成器必须先验证
+calibration/topology/profile/schedule identity、完整 link 集、重复跨度、hardware-latched
+DATA、forward residence 和 loop delay，再从证据派生每条 link 的周期预算；禁止人工填写
+`forward_residence_cycles` 或用另一 generation/profile 的 residence 补齐矩阵。
+`tools/calibration_ring_validate/trn02_profile_gate.py` 负责固定阶梯的成对证据门禁，
+`tools/calibration_ring_validate/trn03_stage.py` 负责完整 matrix 写后读回、ARM 状态读回和
+STOPPED 回退验证。
+
+训练层输入、派生矩阵和报告只使用 `node/link/loop`。读取 TDMA/RefMem 既有插槽状态时，
+工具只在边界做 `node_index <-> slot_id` 映射，对训练层输出重新暴露为 node 字段；不得把
+`slot` 作为新的训练层索引或时序概念。
 
 ### TRN-03 的 TDMA 指令周期预算
 

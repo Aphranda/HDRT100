@@ -46,7 +46,7 @@ TRAIN_FIELDS = (
 )
 
 STATE_FORWARDING = 1
-STATE_MASTER_COMPLETE = 3
+STATE_REFERENCE_COMPLETE = 3
 STATE_ERROR = 4
 RESULT_FORWARD_ARMED = 1
 RESULT_RETURN_OVERLAP = 2
@@ -131,7 +131,7 @@ def wait_train(board, previous_seq: int, terminal_states: set[int],
         f"{board.address}: training state timeout, last={last}")
 
 
-def arm_training_persona(ordered, master_slot: int,
+def arm_training_persona(ordered, reference_node: int,
                          args: argparse.Namespace) -> list[dict[str, object]]:
     actions: list[dict[str, object]] = []
     node_count = len(ordered)
@@ -140,16 +140,18 @@ def arm_training_persona(ordered, master_slot: int,
                         "response": board_command(
                             board, "SYSTem:TDMA:RING:STOP", args)})
     time.sleep(args.gap)
-    for slot, board in enumerate(ordered):
-        command = f"SYSTem:TDMA:RING:TOPology {node_count},{slot},{master_slot}"
+    for node, board in enumerate(ordered):
+        command = (
+            f"SYSTem:TDMA:RING:TOPology "
+            f"{node_count},{node},{reference_node}")
         actions.append({"board": board.address, "command": command,
                         "response": board_command(board, command, args)})
 
-    followers = [board for slot, board in enumerate(ordered)
-                 if slot != master_slot]
-    master = ordered[master_slot]
-    for board in followers + [master]:
-        slot = ordered.index(board)
+    followers = [board for node, board in enumerate(ordered)
+                 if node != reference_node]
+    reference = ordered[reference_node]
+    for board in followers + [reference]:
+        node = ordered.index(board)
         arm_error = ""
         for attempt in range(1, 4):
             response = board_command(
@@ -157,8 +159,10 @@ def arm_training_persona(ordered, master_slot: int,
             try:
                 readback = wait_started(board, args)
                 if (readback["ring_node_count"] != node_count or
-                        readback["ring_local_slot_id"] != slot or
-                        readback["ring_reference_slot_id"] != master_slot):
+                        # TDMA reports RefMem/TDMA slot IDs at this boundary;
+                        # map them explicitly to Calibration node indices.
+                        readback["ring_local_slot_id"] != node or
+                        readback["ring_reference_slot_id"] != reference_node):
                     raise RuntimeError(f"topology readback mismatch: {readback}")
                 actions.append({"board": board.address, "command": "ARM",
                                 "attempt": attempt, "response": response,
@@ -173,7 +177,7 @@ def arm_training_persona(ordered, master_slot: int,
                 time.sleep(args.gap)
                 topology = (
                     f"SYSTem:TDMA:RING:TOPology "
-                    f"{node_count},{slot},{master_slot}")
+                    f"{node_count},{node},{reference_node}")
                 board_command(board, topology, args)
                 time.sleep(args.gap)
         else:
@@ -194,18 +198,18 @@ def arm_training_persona(ordered, master_slot: int,
     return actions
 
 
-def measure_burst(master, cycles: int,
+def measure_burst(reference, cycles: int,
                   args: argparse.Namespace) -> dict[str, object]:
     trials: list[dict[str, object]] = []
     for repeat_index in range(args.repeats):
-        before = train_status(master, args)
-        response = submit_train(master, cycles, args)
-        snapshot = wait_train(master, int(before["request_seq"]),
-                              {STATE_MASTER_COMPLETE, STATE_ERROR}, args)
+        before = train_status(reference, args)
+        response = submit_train(reference, cycles, args)
+        snapshot = wait_train(reference, int(before["request_seq"]),
+                              {STATE_REFERENCE_COMPLETE, STATE_ERROR}, args)
         result = int(snapshot["result"])
         if result not in (RESULT_RETURN_OVERLAP, RESULT_NO_OVERLAP):
             raise RuntimeError(
-                f"{master.address}: burst {cycles} failed: {snapshot}")
+                f"{reference.address}: burst {cycles} failed: {snapshot}")
         trials.append({
             "repeat_index": repeat_index,
             "command_response": response,
@@ -229,17 +233,17 @@ def measure_burst(master, cycles: int,
     }
 
 
-def acquire_master(ordered, master_slot: int,
-                   args: argparse.Namespace) -> dict[str, object]:
-    master = ordered[master_slot]
-    actions = arm_training_persona(ordered, master_slot, args)
+def acquire_reference_node(ordered, reference_node: int,
+                           args: argparse.Namespace) -> dict[str, object]:
+    reference = ordered[reference_node]
+    actions = arm_training_persona(ordered, reference_node, args)
     samples: list[dict[str, object]] = []
     n_low = 0
     n_high = 0
     mixed_cycles: list[int] = []
     cycles = args.pulse_start
     while cycles <= args.pulse_limit:
-        sample = measure_burst(master, cycles, args)
+        sample = measure_burst(reference, cycles, args)
         samples.append(sample)
         if sample["classification"] == "MIXED":
             mixed_cycles.append(cycles)
@@ -255,7 +259,7 @@ def acquire_master(ordered, master_slot: int,
 
     if n_high == 0:
         raise RuntimeError(
-            f"{master.address}: no overlap through {args.pulse_limit} pulses")
+            f"{reference.address}: no overlap through {args.pulse_limit} pulses")
 
     if args.repeats > 1 and n_low + 1 < n_high:
         sampled_cycles = {int(sample["cycles"]) for sample in samples}
@@ -264,7 +268,7 @@ def acquire_master(ordered, master_slot: int,
                 sample = next(item for item in samples
                               if int(item["cycles"]) == candidate)
             else:
-                sample = measure_burst(master, candidate, args)
+                sample = measure_burst(reference, candidate, args)
                 samples.append(sample)
             if sample["classification"] == "ALL_NON_OVERLAP":
                 n_low = candidate
@@ -276,7 +280,7 @@ def acquire_master(ordered, master_slot: int,
     elif args.binary_refine and n_low + 1 < n_high:
         while n_low + 1 < n_high:
             midpoint = (n_low + n_high) // 2
-            sample = measure_burst(master, midpoint, args)
+            sample = measure_burst(reference, midpoint, args)
             samples.append(sample)
             if sample["classification"] == "MIXED":
                 mixed_cycles.append(midpoint)
@@ -296,9 +300,9 @@ def acquire_master(ordered, master_slot: int,
             high_duration_ns = duration
 
     return {
-        "master_slot": master_slot,
-        "master_no": master_slot + 1,
-        "master_id": master.address,
+        "reference_node": reference_node,
+        "reference_node_no": reference_node + 1,
+        "reference_node_id": reference.address,
         "baud_hz": int(samples[-1]["snapshot"]["baud_hz"]),
         "n_low": n_low,
         "n_high": n_high,
@@ -312,16 +316,19 @@ def acquire_master(ordered, master_slot: int,
     }
 
 
-def write_csv(path: Path, masters: list[dict[str, object]]) -> None:
+def write_csv(path: Path,
+              reference_nodes: list[dict[str, object]]) -> None:
     with path.open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.writer(handle)
-        writer.writerow(("master_no", "master_slot", "master_id", "baud_hz",
+        writer.writerow(("reference_node_no", "reference_node",
+                         "reference_node_id", "baud_hz",
                          "n_low", "n_high", "burst_duration_low_ns",
                          "burst_duration_high_ns", "mixed_cycles",
                          "dpll_eligible"))
-        for item in masters:
-            writer.writerow((item["master_no"], item["master_slot"],
-                             item["master_id"], item["baud_hz"],
+        for item in reference_nodes:
+            writer.writerow((item["reference_node_no"],
+                             item["reference_node"],
+                             item["reference_node_id"], item["baud_hz"],
                              item["n_low"], item["n_high"],
                              item["burst_duration_low_ns"],
                              item["burst_duration_high_ns"],
@@ -377,20 +384,21 @@ def main() -> int:
                       f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
         board_command(board, "SYSTem:TDMA:OPMode:APPLy", args)
 
-    masters: list[dict[str, object]] = []
+    reference_nodes: list[dict[str, object]] = []
     passed = False
     error = ""
     try:
-        for master_slot in range(len(ordered)):
-            result = acquire_master(ordered, master_slot, args)
-            masters.append(result)
-            print(json.dumps({"master_complete": {
+        for reference_node in range(len(ordered)):
+            result = acquire_reference_node(ordered, reference_node, args)
+            reference_nodes.append(result)
+            print(json.dumps({"reference_node_complete": {
                 key: result[key] for key in (
-                    "master_no", "master_id", "baud_hz", "n_low", "n_high",
+                    "reference_node_no", "reference_node_id", "baud_hz",
+                    "n_low", "n_high",
                     "burst_duration_low_ns", "burst_duration_high_ns",
                     "mixed_cycles")
             }}, ensure_ascii=False))
-        passed = len(masters) == len(ordered)
+        passed = len(reference_nodes) == len(ordered)
     except Exception as exc:  # noqa: BLE001 - persist partial HIL evidence
         error = f"{type(exc).__name__}: {exc}"
     finally:
@@ -406,34 +414,36 @@ def main() -> int:
         "phase": "spi_clk_round_trip_acquisition_bracket",
         "measurement_semantics": "diagnostic overlap bracket, not DPLL eligible",
         "plan": plan,
-        "masters": masters,
+        "reference_nodes": reference_nodes,
         "error": error,
     }
     out_dir = args.out_dir or (
-        ROOT / "build-product-release" /
+        ROOT / "out" / "training" /
         f"calibration_clk_train_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "summary.json").write_text(
         json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
-    write_csv(out_dir / "summary.csv", masters)
+    write_csv(out_dir / "summary.csv", reference_nodes)
     (out_dir / "summary.txt").write_text(
         "\n".join(
-            f"NO.{item['master_no']} {item['master_id']}: "
+            f"Node{item['reference_node_no'] - 1} "
+            f"{item['reference_node_id']}: "
             f"N_low={item['n_low']} N_high={item['n_high']} "
             f"duration_ns=[{item['burst_duration_low_ns']},"
             f"{item['burst_duration_high_ns']})"
-            for item in masters) + "\n",
+            for item in reference_nodes) + "\n",
         encoding="utf-8")
     print(json.dumps({
         "passed": passed,
         "error": error,
-        "master_count": len(masters),
+        "reference_node_count": len(reference_nodes),
         "summary": [
             {key: item[key] for key in (
-                "master_no", "master_id", "baud_hz", "n_low", "n_high",
+                "reference_node_no", "reference_node_id", "baud_hz",
+                "n_low", "n_high",
                 "burst_duration_low_ns", "burst_duration_high_ns",
                 "mixed_cycles")}
-            for item in masters
+            for item in reference_nodes
         ],
     }, ensure_ascii=False, indent=2))
     print(f"out_dir={out_dir}")

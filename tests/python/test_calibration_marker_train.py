@@ -15,6 +15,7 @@ from tools.calibration_ring_validate.calibration_marker_train import (
     matrix_trial_identity,
     parse_marker_status,
     physical_timing_budget,
+    summarize_residence_matrix,
     topology_matches,
     validate_ring,
 )
@@ -118,6 +119,44 @@ def test_validate_ring_accepts_common_epoch_and_order() -> None:
     assert offsets[0]["offset_ns"] == 0
     assert offsets[0]["sample_anchor_after_marker_ns"] == 40
     assert offsets[0]["observed_best_lag_sample"] == 18
+
+
+def test_residence_matrix_covers_all_four_physical_links() -> None:
+    trials = []
+    for origin in range(4):
+        records = [parse_marker_status(marker_row(node)) for node in range(4)]
+        for record in records:
+            node = int(record["local_node"])
+            record["reference_node"] = origin
+            if node == origin:
+                record["role"] = 1
+                record["marker_capture_tick"] = 1400
+                record["marker_forward_tick"] = 1000
+                record["marker_return_tick"] = 1400
+                record["forward_residence_ticks"] = 0
+                record["loop_rtt_ticks"] = 400
+            else:
+                record["role"] = 2
+                record["marker_capture_tick"] = 1000
+                record["marker_forward_tick"] = 1012
+                record["marker_return_tick"] = 0
+                record["forward_residence_ticks"] = 12
+                record["loop_rtt_ticks"] = 0
+        trials.append({
+            "passed": False,
+            "origin_node": origin,
+            "records": records,
+        })
+    result = summarize_residence_matrix(trials, 4)
+    assert result["passed"] is True
+    assert [(link["source_node"], link["destination_node"])
+            for link in result["links"]] == [
+                (0, 1), (1, 2), (2, 3), (3, 0)]
+    assert all(link["forward_residence_ticks"] == [12, 12, 12]
+               for link in result["links"])
+    assert all(link["selected_forward_residence_ticks"] == 12
+               for link in result["links"])
+    assert result["full_ring_marker_passed_count"] == 0
 
 
 def test_link_offset_candidate_rejects_uncorrelated_lag() -> None:
@@ -294,7 +333,7 @@ def test_aggregate_pair_trials_keeps_four_offsets_independent() -> None:
 
 
 def test_validate_ring_rejects_sequence_and_flags() -> None:
-    records = [parse_marker_status(marker_row(slot)) for slot in range(4)]
+    records = [parse_marker_status(marker_row(node)) for node in range(4)]
     records[2] = parse_marker_status(marker_row(2, sequence=12))
     records[3] = parse_marker_status(marker_row(
         3, flags=REQUIRED_FLAGS & ~(1 << 1)))
@@ -306,7 +345,7 @@ def test_validate_ring_rejects_sequence_and_flags() -> None:
 
 def test_validate_ring_rejects_premature_active_evidence() -> None:
     records = [parse_marker_status(marker_row(
-        slot, flags=REQUIRED_FLAGS)) for slot in range(4)]
+        node, flags=REQUIRED_FLAGS)) for node in range(4)]
     result = validate_ring(records)
     assert result["passed"] is False
     assert result["diagnostic_only"] is False
@@ -314,6 +353,8 @@ def test_validate_ring_rejects_premature_active_evidence() -> None:
 
 
 def test_topology_readback_requires_exact_mapping() -> None:
+    # Existing TDMA/RefMem slot IDs are mapped to Calibration node indices
+    # only at this boundary.
     status = {
         "ring_enabled": 1,
         "ring_adapter_started": 1,

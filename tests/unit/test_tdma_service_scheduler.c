@@ -244,6 +244,86 @@ int main(void)
                                      &service, &operating_profile),
                          1u);
 
+    /* TRN-03A: BEGIN closes ARM, each physical link is staged separately,
+     * and ARM opens only after the full same-identity matrix is replayable. */
+    {
+        tdma_ring_calibration_stage_t stage_header = {
+            .enabled = 1u,
+            .node_count = service.ring_staged_config.node_count,
+            .evidence_flags = TDMA_RING_CALIBRATION_REQUIRED_FLAGS,
+            .calibration_generation = 21u,
+            .topology_generation = 22u,
+            .topology_crc32 = 0x2301u,
+            .profile_crc32 = service.ring_staged_config.operating_profile_crc32,
+            .schedule_crc32 = service.ring_staged_config.schedule_crc32,
+        };
+        tdma_ring_calibration_link_t link = {
+            .valid = 1u,
+            .evidence_flags = TDMA_RING_CALIBRATION_REQUIRED_FLAGS,
+            .calibration_generation = stage_header.calibration_generation,
+            .topology_generation = stage_header.topology_generation,
+            .topology_crc32 = stage_header.topology_crc32,
+            .profile_crc32 = stage_header.profile_crc32,
+            .schedule_crc32 = stage_header.schedule_crc32,
+            .pio_persona = 1u,
+            .clkdiv_q16 = 1u << 16u,
+            .clk_sys_hz = 150000000u,
+            .instruction_period_ns = 4u,
+            .bit_cycles = 25u,
+            .marker_to_data_cycles = 10u,
+            .forward_residence_cycles = 5u,
+            .rx_arm_lead_cycles = 2u,
+            .codeword_cycles = 20u,
+            .guard_cycles = 2u,
+            .link_budget_cycles = 48u,
+            .loop_delay_cycles = 8u,
+        };
+        tdma_ring_calibration_stage_t readback;
+        bool complete = true;
+        failed += expect_u32("begin calibration matrix",
+                             tdma_service_begin_calibration_stage(
+                                 &service, &stage_header),
+                             1u);
+        failed += expect_u32("incomplete matrix blocks arm",
+                             tdma_service_ring_arm(&service), 0u);
+        link.link_index = 0u;
+        failed += expect_u32("stage link0",
+                             tdma_service_stage_calibration_link(
+                                 &service, &link),
+                             1u);
+        failed += expect_u32("partial matrix still blocks arm",
+                             tdma_service_ring_arm(&service), 0u);
+        link.link_index = 1u;
+        link.profile_crc32++;
+        failed += expect_u32("mixed link identity rejected",
+                             tdma_service_stage_calibration_link(
+                                 &service, &link),
+                             0u);
+        link.profile_crc32--;
+        link.link_budget_cycles = 1u;
+        failed += expect_u32("expired link budget rejected",
+                             tdma_service_stage_calibration_link(
+                                 &service, &link),
+                             0u);
+        link.link_budget_cycles = 48u;
+        failed += expect_u32("stage link1",
+                             tdma_service_stage_calibration_link(
+                                 &service, &link),
+                             1u);
+        failed += expect_u32("complete matrix query",
+                             tdma_service_get_calibration_stage(
+                                 &service, &readback, &complete),
+                             1u);
+        failed += expect_u32("complete matrix accepted", complete, 1u);
+        failed += expect_u32("complete matrix permits arm",
+                             tdma_service_ring_arm(&service), 1u);
+        failed += expect_u32("stop staged ring",
+                             tdma_service_ring_stop(&service), 1u);
+        failed += expect_u32("clear calibration matrix",
+                             tdma_service_clear_calibration_stage(&service),
+                             1u);
+    }
+
     tdma_service_intent_config_t config = make_intent(
         TDMA_PAYLOAD_CLASS_CONFIG_CONTROL, config_frame);
     tdma_service_intent_config_t refmem = make_intent(

@@ -156,6 +156,10 @@ bool tdma_ring_runtime_validate_calibration_stage(
     if (expected_node_count < 2u ||
         expected_node_count > TDMA_RING_CALIBRATION_LINK_MAX ||
         stage->node_count != expected_node_count ||
+        (stage->evidence_flags & TDMA_RING_CALIBRATION_REQUIRED_FLAGS) !=
+            TDMA_RING_CALIBRATION_REQUIRED_FLAGS ||
+        (stage->evidence_flags &
+         TDMA_RING_CALIBRATION_FLAG_DIAGNOSTIC_ONLY) != 0u ||
         stage->calibration_generation == 0u ||
         stage->topology_generation == 0u || stage->topology_crc32 == 0u ||
         stage->profile_crc32 == 0u || stage->schedule_crc32 == 0u) {
@@ -170,6 +174,11 @@ bool tdma_ring_runtime_validate_calibration_stage(
             link->codeword_cycles + link->guard_cycles +
             link->loop_delay_cycles;
         if (link->valid == 0u || link->link_index != i ||
+            (link->evidence_flags &
+             TDMA_RING_CALIBRATION_REQUIRED_FLAGS) !=
+                TDMA_RING_CALIBRATION_REQUIRED_FLAGS ||
+            (link->evidence_flags &
+             TDMA_RING_CALIBRATION_FLAG_DIAGNOSTIC_ONLY) != 0u ||
             link->calibration_generation != stage->calibration_generation ||
             link->topology_generation != stage->topology_generation ||
             link->topology_crc32 != stage->topology_crc32 ||

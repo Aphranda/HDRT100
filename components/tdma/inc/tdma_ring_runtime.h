@@ -8,6 +8,18 @@
 
 #define TDMA_RING_RUNTIME_VERSION 5u
 #define TDMA_RING_CALIBRATION_LINK_MAX 8u
+#define TDMA_RING_CALIBRATION_FLAG_ACCEPTED (1u << 0u)
+#define TDMA_RING_CALIBRATION_FLAG_HARDWARE_LATCHED (1u << 1u)
+#define TDMA_RING_CALIBRATION_FLAG_PROFILE_BOUND (1u << 2u)
+#define TDMA_RING_CALIBRATION_FLAG_REPEAT_GATE (1u << 3u)
+#define TDMA_RING_CALIBRATION_FLAG_FORWARD_RESIDENCE_VALID (1u << 4u)
+#define TDMA_RING_CALIBRATION_FLAG_DIAGNOSTIC_ONLY (1u << 31u)
+#define TDMA_RING_CALIBRATION_REQUIRED_FLAGS \
+    (TDMA_RING_CALIBRATION_FLAG_ACCEPTED | \
+     TDMA_RING_CALIBRATION_FLAG_HARDWARE_LATCHED | \
+     TDMA_RING_CALIBRATION_FLAG_PROFILE_BOUND | \
+     TDMA_RING_CALIBRATION_FLAG_REPEAT_GATE | \
+     TDMA_RING_CALIBRATION_FLAG_FORWARD_RESIDENCE_VALID)
 #define TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED 0x00000002u
 
@@ -26,6 +38,7 @@ typedef enum {
 typedef struct {
     uint32_t valid;
     uint32_t link_index;
+    uint32_t evidence_flags;
     uint32_t calibration_generation;
     uint32_t topology_generation;
     uint32_t topology_crc32;
@@ -48,6 +61,7 @@ typedef struct {
 typedef struct {
     uint32_t enabled;
     uint32_t node_count;
+    uint32_t evidence_flags;
     uint32_t calibration_generation;
     uint32_t topology_generation;
     uint32_t topology_crc32;

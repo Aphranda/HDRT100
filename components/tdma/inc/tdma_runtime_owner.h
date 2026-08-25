@@ -47,6 +47,14 @@ bool tdma_runtime_owner_apply_operating_profile(void);
  * stopped.  Core1 consumes it on the next ARM/START. */
 bool tdma_runtime_owner_set_loop_delay_ns(uint32_t loop_delay_ns,
                                           uint32_t tolerance_ns);
+bool tdma_runtime_owner_begin_calibration_stage(
+    const tdma_ring_calibration_stage_t *header);
+bool tdma_runtime_owner_stage_calibration_link(
+    const tdma_ring_calibration_link_t *link);
+bool tdma_runtime_owner_get_calibration_stage(
+    tdma_ring_calibration_stage_t *stage,
+    bool *complete);
+bool tdma_runtime_owner_clear_calibration_stage(void);
 /* Core0-facing guarded intent publication.  Only
  * tdma_runtime_owner_cal_loopback_service() on core1 may touch PIO/SM/DMA. */
 bool tdma_runtime_owner_cal_loopback_start(uint32_t sample_hz,

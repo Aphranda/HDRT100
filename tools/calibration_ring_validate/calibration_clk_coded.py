@@ -38,7 +38,7 @@ from tdma_start_ring import (  # noqa: E402
 
 CODED_FIELDS = (
     "version", "state", "reject_reason", "flags", "board_id_lo",
-    "board_id_hi", "build_id_lo", "build_id_hi", "logical_slot",
+    "board_id_hi", "build_id_lo", "build_id_hi", "local_node",
     "train_epoch", "train_sequence", "calibration_generation",
     "topology_generation", "topology_crc32", "profile_crc32",
     "schedule_crc32", "baud_hz", "codebook_id", "sample_period_ns",
@@ -94,14 +94,17 @@ def parse_args() -> argparse.Namespace:
                         help="diagnostic scan gate; tighten only from repeats")
     parser.add_argument("--min-margin", type=int, default=0,
                         help="diagnostic scan gate; tighten only from repeats")
-    parser.add_argument("--master-slot", type=int, action="append",
-                        help="master slot to run; repeat as needed, default all")
+    parser.add_argument("--reference-node", type=int, action="append",
+                        help=("reference node to run; repeat as needed, "
+                              "default all nodes"))
     parser.add_argument("--repeats", type=int, default=1,
-                        help="independent STOP/ARM/coded/STOP trials per master")
+                        help=("independent STOP/ARM/coded/STOP trials per "
+                              "reference node"))
     parser.add_argument("--max-reject-ratio", type=float, default=0.0,
                         help="diagnostic repeat gate, in [0,1]; default requires all trials")
     parser.add_argument("--max-lag-span", type=int,
-                        help="optional per-master accepted lag span gate in raw samples")
+                        help=("optional per-reference-node accepted lag span "
+                              "gate in raw samples"))
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--action-timeout", type=float, default=0.25,
@@ -241,19 +244,19 @@ def summarize_trials(trials: list[dict[str, object]],
     }
 
 
-def summarize_by_master(trials: list[dict[str, object]],
-                        max_reject_ratio: float,
-                        max_lag_span: int | None) -> dict[str, object]:
+def summarize_by_reference_node(trials: list[dict[str, object]],
+                                max_reject_ratio: float,
+                                max_lag_span: int | None) -> dict[str, object]:
     grouped: dict[int, list[dict[str, object]]] = {}
     for trial in trials:
-        grouped.setdefault(int(trial["master_slot"]), []).append(trial)
+        grouped.setdefault(int(trial["reference_node"]), []).append(trial)
     return {
-        str(master_slot): {
-            "master_no": master_slot + 1,
-            "master_id": group[0]["master_id"],
+        str(reference_node): {
+            "reference_node_no": reference_node + 1,
+            "reference_node_id": group[0]["reference_node_id"],
             **summarize_trials(group, max_reject_ratio, max_lag_span),
         }
-        for master_slot, group in sorted(grouped.items())
+        for reference_node, group in sorted(grouped.items())
     }
 
 
@@ -302,13 +305,13 @@ def start_coded(board: Board, args: argparse.Namespace) -> str:
     return response
 
 
-def prepare_ring(ordered: list[Board], master_slot: int,
+def prepare_ring(ordered: list[Board], reference_node: int,
                  args: argparse.Namespace) -> list[dict[str, object]]:
     actions: list[dict[str, object]] = []
     node_count = len(ordered)
-    master = ordered[master_slot]
-    start_order = [board for slot, board in enumerate(ordered)
-                   if slot != master_slot] + [master]
+    reference = ordered[reference_node]
+    start_order = [board for node, board in enumerate(ordered)
+                   if node != reference_node] + [reference]
     for board in ordered:
         actions.append({"board": board.address, "command": "STOP",
                         "response": board_command(board, "SYSTem:TDMA:RING:STOP", args)})
@@ -317,15 +320,15 @@ def prepare_ring(ordered: list[Board], master_slot: int,
                             f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)})
         actions.append({"board": board.address, "command": "OPMODE_APPLY",
                         "response": board_command(board, "SYSTem:TDMA:OPMode:APPLy", args)})
-    for slot, board in enumerate(ordered):
+    for node, board in enumerate(ordered):
         actions.append({"board": board.address, "command": "TOPOLOGY",
                         "response": board_command(
                             board,
                             f"SYSTem:TDMA:RING:TOPology "
-                            f"{node_count},{slot},{master_slot}",
+                            f"{node_count},{node},{reference_node}",
                             args)})
     for board in start_order:
-        slot = ordered.index(board)
+        node = ordered.index(board)
         last_error = ""
         for attempt in range(1, 4):
             response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
@@ -344,7 +347,7 @@ def prepare_ring(ordered: list[Board], master_slot: int,
                 board_command(
                     board,
                     f"SYSTem:TDMA:RING:TOPology "
-                    f"{node_count},{slot},{master_slot}", args)
+                    f"{node_count},{node},{reference_node}", args)
                 time.sleep(args.gap)
         else:
             raise RuntimeError(
@@ -356,7 +359,8 @@ def prepare_ring(ordered: list[Board], master_slot: int,
     return actions
 
 
-def wait_master(board: Board, args: argparse.Namespace) -> dict[str, int]:
+def wait_reference_node(board: Board,
+                        args: argparse.Namespace) -> dict[str, int]:
     deadline = time.monotonic() + args.coded_timeout
     last = coded_status(board, args)
     while time.monotonic() < deadline:
@@ -379,11 +383,13 @@ def stop_coded(ordered: list[Board], args: argparse.Namespace) -> None:
     raise RuntimeError("coded STOP did not restore IDLE on every board")
 
 
-def run_master(ordered: list[Board], master_slot: int, repeat_index: int,
-               prepare: bool, args: argparse.Namespace) -> dict[str, object]:
-    actions = prepare_ring(ordered, master_slot, args) if prepare else []
-    master = ordered[master_slot]
-    followers = [board for index, board in enumerate(ordered) if index != master_slot]
+def run_reference_node(ordered: list[Board], reference_node: int,
+                       repeat_index: int, prepare: bool,
+                       args: argparse.Namespace) -> dict[str, object]:
+    actions = prepare_ring(ordered, reference_node, args) if prepare else []
+    reference = ordered[reference_node]
+    followers = [board for node, board in enumerate(ordered)
+                 if node != reference_node]
     started: list[dict[str, object]] = []
     try:
         for board in followers:
@@ -393,18 +399,18 @@ def run_master(ordered: list[Board], master_slot: int, repeat_index: int,
             started.append({"board": board.address, "role": "follower",
                             "response": response,
                             "snapshot": coded_status(board, args)})
-        response = start_coded(master, args)
-        print(json.dumps({"coded_start": {"board": master.address,
-              "role": "master", "response": response}}), flush=True)
-        started.append({"board": master.address, "role": "master",
+        response = start_coded(reference, args)
+        print(json.dumps({"coded_start": {"board": reference.address,
+              "role": "reference", "response": response}}), flush=True)
+        started.append({"board": reference.address, "role": "reference",
                         "response": response})
-        master_snapshot = wait_master(master, args)
+        reference_snapshot = wait_reference_node(reference, args)
         result = {
-            "master_slot": master_slot,
-            "master_no": master_slot + 1,
-            "master_id": master.address,
+            "reference_node": reference_node,
+            "reference_node_no": reference_node + 1,
+            "reference_node_id": reference.address,
             "repeat_index": repeat_index,
-            "snapshot": master_snapshot,
+            "snapshot": reference_snapshot,
             "started": started,
             "actions": actions,
         }
@@ -418,13 +424,15 @@ def run_master(ordered: list[Board], master_slot: int, repeat_index: int,
 def write_csv(path: Path, trials: list[dict[str, object]]) -> None:
     with path.open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.writer(handle)
-        writer.writerow(("master_no", "master_id", "repeat_index", "accepted",
+        writer.writerow(("reference_node_no", "reference_node_id",
+                         "repeat_index", "accepted",
                          "reject_category", "state",
                          "reject_reason", "best_lag_sample", "best_distance",
                          "second_distance", "margin", "flags", "error"))
         for item in trials:
             snapshot = item.get("snapshot", {})
-            writer.writerow((item["master_no"], item["master_id"],
+            writer.writerow((item["reference_node_no"],
+                             item["reference_node_id"],
                              item["repeat_index"], int(bool(item["accepted"])),
                              item["reject_category"], snapshot.get("state", ""),
                              snapshot.get("reject_reason", ""),
@@ -487,31 +495,34 @@ def main() -> int:
             "coded_action_timeout_s": args.action_timeout,
             "settle_s": args.settle,
             "independent_coded_stop_each_trial": True,
-            "ring_prepare_once_per_master": True,
+            "ring_prepare_once_per_reference_node": True,
         },
         "boards": {board.address: asdict(board) for board in ordered},
     }
     print(json.dumps(plan, ensure_ascii=False, indent=2))
     if args.dry_run:
         return 0
-    master_slots = (list(args.master_slot) if args.master_slot is not None
-                    else list(range(len(ordered))))
-    if (not master_slots or len(set(master_slots)) != len(master_slots) or
-            any(slot < 0 or slot >= len(ordered) for slot in master_slots)):
-        raise SystemExit("master-slot must select unique active slots")
+    reference_nodes = (list(args.reference_node)
+                       if args.reference_node is not None
+                       else list(range(len(ordered))))
+    if (not reference_nodes or
+            len(set(reference_nodes)) != len(reference_nodes) or
+            any(node < 0 or node >= len(ordered)
+                for node in reference_nodes)):
+        raise SystemExit("reference-node must select unique active nodes")
     trials: list[dict[str, object]] = []
-    for master_slot in master_slots:
+    for reference_node in reference_nodes:
         for repeat_index in range(1, args.repeats + 1):
             try:
-                result = run_master(
-                    ordered, master_slot, repeat_index,
+                result = run_reference_node(
+                    ordered, reference_node, repeat_index,
                     prepare=repeat_index == 1, args=args)
             except Exception as exc:  # noqa: BLE001 - retain all repeat evidence
                 error = f"{type(exc).__name__}: {exc}"
                 result = {
-                    "master_slot": master_slot,
-                    "master_no": master_slot + 1,
-                    "master_id": ordered[master_slot].address,
+                    "reference_node": reference_node,
+                    "reference_node_no": reference_node + 1,
+                    "reference_node_id": ordered[reference_node].address,
                     "repeat_index": repeat_index,
                     "accepted": False,
                     "snapshot": {},
@@ -527,30 +538,31 @@ def main() -> int:
                         f"{type(stop_exc).__name__}: {stop_exc}")
             trials.append(result)
             print(json.dumps({"trial_complete": {
-                "master_no": result["master_no"],
-                "master_id": result["master_id"],
+                "reference_node_no": result["reference_node_no"],
+                "reference_node_id": result["reference_node_id"],
                 "repeat_index": result["repeat_index"],
                 "accepted": result["accepted"],
                 "reject_category": result["reject_category"],
                 "snapshot": result["snapshot"],
                 "error": result.get("error", ""),
             }}, ensure_ascii=False), flush=True)
-    by_master = summarize_by_master(
+    by_reference_node = summarize_by_reference_node(
         trials, args.max_reject_ratio, args.max_lag_span)
     overall = summarize_trials(
         trials, args.max_reject_ratio, max_lag_span=None)
-    expected_trial_count = len(master_slots) * args.repeats
+    expected_trial_count = len(reference_nodes) * args.repeats
     passed = (len(trials) == expected_trial_count and
-              all(bool(summary["passed"]) for summary in by_master.values()))
+              all(bool(summary["passed"])
+                  for summary in by_reference_node.values()))
     output = {
         **plan,
         "passed": passed,
         "expected_trial_count": expected_trial_count,
         "trials": trials,
-        "statistics_by_master": by_master,
+        "statistics_by_reference_node": by_reference_node,
         "statistics_overall": overall,
     }
-    out_dir = args.out_dir or (ROOT / "build-product-release" /
+    out_dir = args.out_dir or (ROOT / "out" / "training" /
                                f"calibration_clk_coded_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "summary.json").write_text(
@@ -558,7 +570,8 @@ def main() -> int:
     write_csv(out_dir / "summary.csv", trials)
     (out_dir / "summary.txt").write_text(
         "\n".join(
-            f"NO.{summary['master_no']} {summary['master_id']}: "
+            f"Node{summary['reference_node_no'] - 1} "
+            f"{summary['reference_node_id']}: "
             f"accepted={summary['accepted_count']}/{summary['trial_count']} "
             f"reject_ratio={summary['reject_ratio']:.6f} "
             f"lag_histogram={summary['lag_histogram']} "
@@ -566,7 +579,7 @@ def main() -> int:
             f"distance_mean={summary['best_distance']['mean']} "
             f"margin_min={summary['margin']['min']} "
             f"passed={summary['passed']}"
-            for summary in by_master.values()) + "\n",
+            for summary in by_reference_node.values()) + "\n",
         encoding="utf-8")
     print(f"passed={passed} out_dir={out_dir}")
     return 0 if passed else 1

@@ -361,6 +361,36 @@ bool tdma_runtime_owner_set_loop_delay_ns(uint32_t loop_delay_ns,
                                           tolerance_ns);
 }
 
+bool tdma_runtime_owner_begin_calibration_stage(
+    const tdma_ring_calibration_stage_t *header)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_service_begin_calibration_stage(&s_tdma_runtime_owner,
+                                                header);
+}
+
+bool tdma_runtime_owner_stage_calibration_link(
+    const tdma_ring_calibration_link_t *link)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_service_stage_calibration_link(&s_tdma_runtime_owner, link);
+}
+
+bool tdma_runtime_owner_get_calibration_stage(
+    tdma_ring_calibration_stage_t *stage,
+    bool *complete)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_service_get_calibration_stage(&s_tdma_runtime_owner,
+                                              stage, complete);
+}
+
+bool tdma_runtime_owner_clear_calibration_stage(void)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_service_clear_calibration_stage(&s_tdma_runtime_owner);
+}
+
 bool tdma_runtime_owner_get_staged_ring_config(
     tdma_service_ring_runtime_config_t *snapshot)
 {

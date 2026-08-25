@@ -130,6 +130,7 @@ int main(void)
     failed += expect_bool("init", tdma_ring_runtime_init(&runtime), true);
     calibration.enabled = 1u;
     calibration.node_count = 4u;
+    calibration.evidence_flags = TDMA_RING_CALIBRATION_REQUIRED_FLAGS;
     calibration.calibration_generation = 61u;
     calibration.topology_generation = 13u;
     calibration.topology_crc32 = 0x11223344u;
@@ -138,6 +139,8 @@ int main(void)
     for (uint32_t i = 0u; i < calibration.node_count; i++) {
         calibration.links[i].valid = 1u;
         calibration.links[i].link_index = i;
+        calibration.links[i].evidence_flags =
+            TDMA_RING_CALIBRATION_REQUIRED_FLAGS;
         calibration.links[i].calibration_generation =
             calibration.calibration_generation;
         calibration.links[i].topology_generation =

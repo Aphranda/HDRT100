@@ -1,10 +1,8 @@
-import json
-from pathlib import Path
-
 from tools.calibration_ring_validate.calibration_link_plan import (
     make_links,
     validation_frequency_ladder,
 )
+from tools.tdma_ring_monitor.tdma_pio_timing_check import audit
 
 
 def test_make_links_wraps_ring() -> None:
@@ -15,9 +13,12 @@ def test_make_links_wraps_ring() -> None:
 
 
 def test_reflection_report_has_balanced_ladder() -> None:
-    report = json.loads(Path(
-        "build-product-release/tdma_pio_timing_check_reflection_20260821.json"
-    ).read_text(encoding="utf-8"))
+    report = audit(
+        [10_000_000, 25_000_000, 30_000_000],
+        expected_duty_percent=50.0,
+        frequency_tolerance_percent=1.0,
+        duty_tolerance_percent=1.0,
+    )
     rows = report["reflection_calibration"]["burst_profiles"]
     assert [row["target_hz"] for row in rows] == [10_000_000, 25_000_000, 30_000_000]
     assert all(row["duty_percent"] == 50.0 for row in rows)

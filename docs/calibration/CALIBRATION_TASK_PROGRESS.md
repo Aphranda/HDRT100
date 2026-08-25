@@ -4,11 +4,49 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20260825-005 - TRN-02 固定阶梯退出与 TRN-03A 四板 ARM
+
+- 状态：`TRN-02B/D` 已完成固定 operating-profile 阶梯的四 link 多次重复门禁，
+  `TRN-03A` 已完成完整 replay matrix 的自动生成、四板 staging、ARM 状态读回和
+  STOPPED 回退。`TRN-03B/C/D` 尚未完成，当前结果不发布为 active calibration，
+  也不向 VDC/DPLL 提交。
+- 固件与拓扑（bench 诊断快照，非事实源）：四板 build 为 `20260825023511`，物理 node
+  顺序为 `0010071E65B5CB38 -> FB276192BEF9CCE1 -> 2BD5090FE009FA2A ->
+  A1E549202D18ED6A -> 0010071E65B5CB38`。MARK 使用 codebook 1 和 node offset
+  `[+1,-1,0,+1]` 拍；DATA 使用 codebook 0、reverse 方向和 configured offset
+  `[+5,+5,+5,+5]` 拍；以上均为本轮训练配置，不是固件写死值。
+- TRN-02 正向证据（本轮快照）：level 7/8/9 分别绑定 calibration generation
+  `101/102/103`。每档 residence 的四条 link 均为三次 `1` 拍且 span 为 `0`；每档 DATA
+  均为 `12/12` accepted，四 link repeat span 不超过工具参数
+  `max_offset_span_sample`。三档 profile gate 的 identity、完整 link 集、DMA/PIO/timeout
+  和 residence 配对检查全部通过。
+- 固化工具：`trn02_profile_gate.py` 改为按 level 接受 DATA/residence 成对 summary，拒绝
+  缺档或混合 identity；新增 `trn03_matrix.py`，从 paired evidence 自动派生 NORMAL PIO
+  周期、DATA window、codeword、forward residence、loop delay 和 link budget。生成器通过
+  源码锚点测试约束 persona、系统时钟、bit cycles 与 operating-profile 表，并先按 RP2350
+  PIO 16.8 分频器量化 `clkdiv` 后再派生各 cycle，禁止人工填写 residence。
+  `trn03_stage.py` 增加 stage/link 全字段写后比对、逐 node ARM 状态读回和
+  STOPPED 回退读回；训练报告不复用 `slot` 名称。
+- TRN-03A HIL（本轮快照）：level 9 generation 103 的完整四 link matrix 在四板均读回
+  `complete=1`、valid bitmap `15`；ARM 后四板均为 ring enabled、adapter started 且 local
+  node 为 `0..3`，随后 STOP 后均恢复 disabled/stopped。此前空矩阵、缺 link、
+  diagnostic-only 和预算过期的四板负向门禁继续作为拒绝证据。
+- 证据索引：profile gate 为
+  `out/training/trn02_profile_gate_g101_g103_20260825.json`；三档 matrix 为
+  `out/training/trn03_matrix_level7_g101_20260825.json`、
+  `out/training/trn03_matrix_level8_g102_20260825.json`、
+  `out/training/trn03_matrix_level9_g103_20260825.json`；正式 ARM 为
+  `out/training/trn03a_level9_g103_arm_quantized_20260825/summary.json`；负向门禁为
+  `out/training/trn03a_negative_gates_final_20260825/summary.json`；Python 固化回归为
+  `out/pytest/calibration_trn03_final_20260825.xml`。
+- 下一步：进入 `TRN-03B`，恢复 NORMAL persona 并启动四板短帧/FIFO 闭环，要求
+  up/down、TX/RX/FIFO、sequence 和 CRC 同时增长；失败必须保持当前 STOPPED 回退语义。
 
 ## CAL-TASK-20260824-004 - TRN-02 profile gate、offset 故障注入与 TRN-03A staging
 
@@ -117,7 +155,7 @@ Last updated: 2026-08-24
   旧固件上执行四主 coded-marker trial，四个 master 均 accepted，marker 完整性、DMA 和
   PIO fault 门禁通过。证据位于 `out/training/p2_marker_baseline_20260824/`；该结果仍是 P2
   coded RTT，不包含每个 follower 的 marker capture/forward tick，不能替代 `TRN-01D`。
-- 实现：新增 `calibration_training_marker` request/evidence/snapshot 模型，覆盖 identity、slot、
+- 实现：新增 `calibration_training_marker` request/evidence/snapshot 模型，覆盖 identity、node、
   epoch/sequence、marker/codebook/CRC/polarity、generation/CRC bundle、硬件 capture/forward tick、
   residence、DMA/PIO/timeout 和 `DIAGNOSTIC_ONLY`；新增
   `tools/calibration_ring_validate/calibration_marker_train.py`，只校验固件导出的硬件证据，
@@ -144,7 +182,7 @@ Last updated: 2026-08-24
   本轮只将 `402 ns` 和 `8 ns` 容差作为候选窗口，不能视为已经写入板端的正式校准值。
 - TDMA 运行：使用既有
   `tools/tdma_ring_monitor/tdma_start_ring.py`，按四个唯一地址配置 node count 4、
-  reference slot 0，level 8，训练 `4096` cycles，然后 ARM/START。四板 topology、slot
+  reference node 0，level 8，训练 `4096` cycles，然后 ARM/START。四板 topology、node
   map 和训练命令均完成；证据目录为
   `build-product-release/tdma_ring_p2_runtime_20260822`。
 - 运行结果：启动快照中四板均为 `ring_node_count=4`、`ring_adapter_started=1`、
@@ -411,7 +449,7 @@ Last updated: 2026-08-24
   `build-product-release/tdma_pio_timing_check_10_25_30_fixed.json`。
 - OTA：四板均使用唯一地址白名单升级到最终 build `20260821061831`；证据目录
   `build-product-release/ota_final_pio_fix_20260821`。中间 build `20260821061232` 曾试验
-  5 ms command-slot commit guard，但四板 coded START 仍由 guarded snapshot 确认、CDC
+  5 ms command-mailbox commit guard，但四板 coded START 仍由 guarded snapshot 确认、CDC
   payload 超时，且一次后续 trial 遇到端点重枚举；该无收益 guard 已从最终源码和固件移除。
 - 最终 build 使用 NO.1 做一次四板 coded smoke 通过：lag=100、distance=89、margin=351，
   marker flags 完整且 DMA/stall 为零；证据目录
@@ -480,7 +518,7 @@ Last updated: 2026-08-24
 - 日期：2026-08-21。
 - 完成内容：
   - 新增 `CALibration:CLOCk:CODEd:STARt/STOP` 和
-    `READ:CALibration:CLOCk:CODEd?`；core0 只提交 guarded intent，板卡唯一地址、build、slot、
+    `READ:CALibration:CLOCk:CODEd?`；core0 只提交 guarded intent，板卡唯一地址、build、node、
     topology/profile/schedule CRC、baud 和 generation 由固件自动绑定。
   - 修复 STOPPED 维护态的 topology metadata 生命周期：Calibration 只读 TDMA service 的
     last accepted `ring_staged_config`，不改变 `RING:STOP` 清空 live runtime 的既有语义。
@@ -516,7 +554,7 @@ Last updated: 2026-08-24
 - HAOFV 边界：
   - Calibration 生成和解释 marker，执行有界相关、generation 门禁及 accepted/rejected 发布。
   - TDMA core1 是 PIO/SM/DMA persona 唯一 owner，只搬运 packed TX sample 和 bounded raw capture。
-  - core0 只能向 Calibration guarded command slot 发布 request/gate；SCPI 不直接操作 PIO/DMA。
+  - core0 只能向 Calibration guarded command mailbox 发布 request/gate；SCPI 不直接操作 PIO/DMA。
 - 完成内容：
   - 实现 candidate M255 Manchester marker 的 C/Python golden vector、header/反码/CRC、正反相
     相关和旧 epoch、缺失/重复、截断、低 margin 故障注入。
@@ -548,7 +586,7 @@ Last updated: 2026-08-24
 - 状态：host 工具、命名和文档所有权迁移完成；板内 topology generation/freshness 尚待实现。
 - 日期：2026-08-21。
 - 任务目标：
-  - 将有向线序/邻接矩阵、单闭环判定、anchor 旋转、slot map 和 NO 提交归入校准域。
+  - 将有向线序/邻接矩阵、单闭环判定、anchor 旋转、node map 和 NO 提交归入校准域。
   - 校准测量工具统一使用 `calibration_*` 名称；TDMA 只提供隔离 probe transport 和计数证据。
   - 禁止 TDMA START 根据调用参数隐式写入 NO，避免未校准顺序覆盖已接受 topology。
 - 完成内容：
@@ -556,11 +594,11 @@ Last updated: 2026-08-24
     `tools/calibration_ring_validate/calibration_ring_topology.py`，默认报告目录改为
     `calibration_ring_topology_*`。
   - 输出增加 `measurement_domain=calibration` 和 measurement phase；保留 directed pair
-    evidence、adjacency、ring order、slot map 和完整 snapshot。
+    evidence、adjacency、ring order、node map 和完整 snapshot。
   - `--anchor-id` 决定 accepted ring 的 NO.1；`--assign-no` 只在单闭环判定通过后提交映射，
     支持写后读回及 `--reboot-verify-no` 持久化复核。
   - `tdma_start_ring.py` 删除 NO 分配和启动时隐式 NO 写入；它只消费调用者提供的 accepted
-    calibration order 来配置 TDMA local/reference slot。
+    calibration order 显式映射到 TDMA/RefMem 边界的 local/reference slot ID。
   - 第一阶段和码本工具同步迁移为 `calibration_clk_train.py`、
     `calibration_clk_codebook_eval.py`，相应 Python 测试也改用 calibration 命名。
 - 当前边界：
@@ -585,7 +623,7 @@ Last updated: 2026-08-24
 - 日期：2026-08-21。
 - 任务目标：
   - 将 CLK RTT 第一阶段流程、bracket 解释、四主结果和质量结论统一迁入校准域。
-  - TDMA 只保留 PIO/SM/DMA、core1 command slot、persona、窗口和 raw evidence transport。
+  - TDMA 只保留 PIO/SM/DMA、core1 command mailbox、persona、窗口和 raw evidence transport。
   - 将默认训练阶梯收敛到 operating profile level 7/8/9 对应的 `10 -> 25 -> 30 MHz`。
   - 通过把供电入口从 NO.2 移到 NO.1 的 A/B 复测，判断相邻码元桶差异是否跟随供电入口。
 - 固定上下文：
@@ -782,7 +820,7 @@ Last updated: 2026-08-24
 后续每次代码或板端验证追加一条任务记录，至少包含：
 
 - 任务编号、日期、状态、目标和实际完成内容；
-- build ID、固件/工具版本、板卡唯一地址、logical slot、拓扑、线缆/收发器和 profile CRC；
+- build ID、固件/工具版本、板卡唯一地址、local node、拓扑、线缆/收发器和 profile CRC；
 - 训练 epoch/sequence、accepted/rejected、硬件 latch source/resolution/flags、DMA overrun/
   stall、margin、residence、path-sum、bias generation、calibration generation 和 freshness；
 - 执行的 host unit、HIL、烧录、SCPI smoke 或长稳命令，以及证据目录；

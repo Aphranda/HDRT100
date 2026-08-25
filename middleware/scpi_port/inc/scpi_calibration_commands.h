@@ -32,6 +32,11 @@ scpi_result_t scpi_calibration_data_inject(scpi_t *context);
 scpi_result_t scpi_calibration_data_stop(scpi_t *context);
 scpi_result_t scpi_calibration_data_q(scpi_t *context);
 scpi_result_t scpi_calibration_data_capture_save(scpi_t *context);
+scpi_result_t scpi_calibration_training_stage_begin(scpi_t *context);
+scpi_result_t scpi_calibration_training_stage_link(scpi_t *context);
+scpi_result_t scpi_calibration_training_stage_q(scpi_t *context);
+scpi_result_t scpi_calibration_training_stage_link_q(scpi_t *context);
+scpi_result_t scpi_calibration_training_stage_clear(scpi_t *context);
 scpi_result_t scpi_calibration_p3_start(scpi_t *context);
 scpi_result_t scpi_calibration_p3_stop(scpi_t *context);
 scpi_result_t scpi_calibration_p3_q(scpi_t *context);
@@ -63,6 +68,11 @@ scpi_result_t scpi_calibration_p3_q(scpi_t *context);
     {.pattern = "CALibration:DATA:STOP", .callback = scpi_calibration_data_stop}, \
     {.pattern = "READ:CALibration:DATA?", .callback = scpi_calibration_data_q}, \
     {.pattern = "CALibration:DATA:CAPTure:SAVE", .callback = scpi_calibration_data_capture_save}, \
+    {.pattern = "CALibration:TRAINing:STAGe:BEGin", .callback = scpi_calibration_training_stage_begin}, \
+    {.pattern = "CALibration:TRAINing:STAGe:LINK", .callback = scpi_calibration_training_stage_link}, \
+    {.pattern = "READ:CALibration:TRAINing:STAGe?", .callback = scpi_calibration_training_stage_q}, \
+    {.pattern = "READ:CALibration:TRAINing:STAGe:LINK?", .callback = scpi_calibration_training_stage_link_q}, \
+    {.pattern = "CALibration:TRAINing:STAGe:CLEar", .callback = scpi_calibration_training_stage_clear}, \
     {.pattern = "CALibration:P3:STARt", .callback = scpi_calibration_p3_start}, \
     {.pattern = "CALibration:P3:STOP", .callback = scpi_calibration_p3_stop}, \
     {.pattern = "READ:CALibration:P3?", .callback = scpi_calibration_p3_q}, \

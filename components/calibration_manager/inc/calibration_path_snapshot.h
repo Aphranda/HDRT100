@@ -28,8 +28,8 @@ typedef enum {
 #define CALIBRATION_PATH_FLAG_DIAGNOSTIC_ONLY (1u << 7u)
 
 typedef struct {
-    uint32_t source_slot_id;
-    uint32_t destination_slot_id;
+    uint32_t source_node;
+    uint32_t destination_node;
     uint32_t profile_crc32;
     uint32_t topology_generation;
     uint32_t bias_generation;

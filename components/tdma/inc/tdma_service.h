@@ -438,6 +438,16 @@ bool tdma_service_set_loop_delay_ns(tdma_service_service_t *service,
 bool tdma_service_stage_calibration(
     tdma_service_service_t *service,
     const tdma_ring_calibration_stage_t *stage);
+bool tdma_service_begin_calibration_stage(
+    tdma_service_service_t *service,
+    const tdma_ring_calibration_stage_t *header);
+bool tdma_service_stage_calibration_link(
+    tdma_service_service_t *service,
+    const tdma_ring_calibration_link_t *link);
+bool tdma_service_get_calibration_stage(
+    const tdma_service_service_t *service,
+    tdma_ring_calibration_stage_t *stage,
+    bool *complete);
 bool tdma_service_clear_calibration_stage(tdma_service_service_t *service);
 bool tdma_service_ring_arm(tdma_service_service_t *service);
 bool tdma_service_ring_train_clock(tdma_service_service_t *service,

@@ -4,10 +4,10 @@ Status: Draft
 Domain: CALIBRATION
 Canonical: `docs/calibration/README.md`
 Related: `docs/README.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_RING_AUTOCALIBRATION_PLAN.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-08-21
+Last updated: 2026-08-25
 
 本目录是 CAL link、物理 topology、delay、校准参数、active/staging、版本和质量管理的
-目标入口。有向线序/邻接矩阵、环路顺序、slot map、训练物理测量与接受门禁属于本域；
+目标入口。有向线序/邻接矩阵、环路顺序、node map、训练物理测量与接受门禁属于本域；
 TDMA 只承载隔离 probe/训练 persona 和实时资源编排。
 
 ## 当前状态
@@ -15,7 +15,7 @@ TDMA 只承载隔离 probe/训练 persona 和实时资源编排。
 | 当前路径 | 定位 |
 |---|---|
 | `../interface/SCPI_COMMAND_PLAN.md` | 当前 CALibration 指令和边界定义 |
-| `../arch/RTOS_HAOFV_ARCHITECTURE.md` | `task_calibration` owner、slot 和 ACK/NACK 闭环 |
+| `../arch/RTOS_HAOFV_ARCHITECTURE.md` | `task_calibration` owner、command mailbox 和 ACK/NACK 闭环 |
 | `../interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md` | 对外 CALibration 指令表 |
 | `CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` | 多板 TDMA SPI CLK 训练、双向时间传递、residence/bias/path-delay 证据和 EtherCAT DC 风格门禁。 |
 | `CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` | Marker/Data 相对时序训练子域：CS cut-through、codeword 相关、单跳收敛、TDMA staging 和验收门禁。 |

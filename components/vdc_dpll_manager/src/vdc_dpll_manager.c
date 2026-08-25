@@ -1178,23 +1178,27 @@ bool vdc_dpll_manager_publish_calibration_path_snapshot(
     for (uint32_t i = 0u; i < snapshot->link_count; i++) {
         const calibration_path_link_evidence_t *link = &snapshot->links[i];
         const int64_t delay_ns = link->measurement.delay_estimate_ns;
+        /* Calibration owns physical node/link terminology.  VDC/RefMem keeps
+         * its existing slot-ID contract, so map only at this domain edge. */
+        const uint32_t source_slot_id = link->source_node;
+        const uint32_t reference_slot_id = link->destination_node;
         if (delay_ns < 0 || (uint64_t)delay_ns > UINT32_MAX ||
-            link->source_slot_id >= VDC_DOMAIN_NODE_COUNT ||
-            link->destination_slot_id >= VDC_DOMAIN_NODE_COUNT) {
+            source_slot_id >= VDC_DOMAIN_NODE_COUNT ||
+            reference_slot_id >= VDC_DOMAIN_NODE_COUNT) {
             osal_critical_exit();
             return false;
         }
         vdc_path_delay_entry_t *entry = &table.entries[i];
         entry->valid = 1u;
-        entry->source_slot_id = link->source_slot_id;
-        entry->reference_slot_id = link->destination_slot_id;
+        entry->source_slot_id = source_slot_id;
+        entry->reference_slot_id = reference_slot_id;
         entry->direction = 0u;
         entry->delay_ns = (uint32_t)delay_ns;
         entry->jitter_ns = link->jitter_ns;
         entry->stddev_ns = link->jitter_ns;
         entry->cal_crc32 = snapshot->table_crc32;
         entry->freshness_us = snapshot->freshness_us;
-        entry->writer = link->source_slot_id;
+        entry->writer = source_slot_id;
         entry->update_seq = table.update_seq;
     }
     table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);

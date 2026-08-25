@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
                               "a single closed ring"))
     parser.add_argument("--reboot-verify-no", action="store_true",
                         help=("with --assign-no, reboot all boards and verify "
-                              "the persisted Calibration slot map"))
+                              "the persisted Calibration node map"))
     parser.add_argument("--reboot-wait", type=float, default=3.0)
     parser.add_argument("--adjacency-only", "--line-only",
                         dest="adjacency_only", action="store_true",
@@ -294,7 +294,8 @@ def main() -> int:
         "passed": passed,
         "anchor_id": anchor,
         "ring_order": ring_order,
-        "slot_map": [{"no": index + 1, "address": address}
+        "node_map": [{"node": index, "no": index + 1,
+                      "address": address}
                      for index, address in enumerate(ring_order)],
         "assignments": assignments,
         "reboot_readback": reboot_readback,
@@ -304,7 +305,7 @@ def main() -> int:
         "adjacency_only": args.adjacency_only,
     }
     out_dir = args.out_dir or (
-        ROOT / "build" /
+        ROOT / "out" / "training" /
         f"calibration_ring_topology_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "summary.json").write_text(

@@ -78,8 +78,8 @@ uint32_t calibration_path_snapshot_crc32(
     hash = hash_u64(hash, snapshot->residual_ns);
     for (uint32_t i = 0u; i < CALIBRATION_PATH_MAX_LINKS; i++) {
         const calibration_path_link_evidence_t *link = &snapshot->links[i];
-        hash = hash_u32(hash, link->source_slot_id);
-        hash = hash_u32(hash, link->destination_slot_id);
+        hash = hash_u32(hash, link->source_node);
+        hash = hash_u32(hash, link->destination_node);
         hash = hash_u32(hash, link->profile_crc32);
         hash = hash_u32(hash, link->topology_generation);
         hash = hash_u32(hash, link->bias_generation);
@@ -112,8 +112,8 @@ bool calibration_path_snapshot_build(
     snapshot->calibration_generation = gate->calibration_generation;
     for (uint32_t i = 0u; i < link_count; i++) {
         const calibration_path_link_evidence_t *link = &links[i];
-        if (link->source_slot_id >= link_count ||
-            link->destination_slot_id != ((link->source_slot_id + 1u) % link_count) ||
+        if (link->source_node >= link_count ||
+            link->destination_node != ((link->source_node + 1u) % link_count) ||
             !gate_link(link, gate) ||
             link->measurement.corrected_path_sum_ns < 0 ||
             link->measurement.delay_estimate_ns < 0) {

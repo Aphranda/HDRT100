@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / TDMA Clock Training
 Canonical: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`
 Related: `docs/calibration/README.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-22
+Last updated: 2026-08-25
 
 本文档是校准域维护的多板 TDMA SPI CLK 训练事实源。校准域拥有 CLK/DATA/SYNC
 物理测量、双向时间传递、residence、endpoint bias、path-delay candidate、统计质量、
@@ -37,7 +37,7 @@ CLK 往返粗捕获；第二阶段规划使用编码 marker、PIO 过采样和�
 的诊断快照。
 
 TDMA 域只保留第一阶段所需的 transport/persona 契约：PIO/SM/DMA resource claim、CLK
-burst/forward/capture 原语、core1 command slot、STOP/ARM/TRAIN/restore 时序和 raw evidence
+burst/forward/capture 原语、core1 command mailbox、STOP/ARM/TRAIN/restore 时序和 raw evidence
 发布。底层 transport 实现仍以 `tdma_*` 命名不代表 TDMA 拥有测量结论；TDMA 不解释
 `N_low/N_high`，也不生成 path-delay、bias、residence 或 VDC/DPLL 可接受结果。
 
@@ -61,7 +61,7 @@ evidence 进入校准域。
    校准域根据显式 profile 阈值生成 directed adjacency matrix。
 4. 只有每个 active 节点入度和出度均为一、且从 anchor 出发恰好遍历全部 active 节点并
    回到 anchor 时，才接受为一个 closed ring。开链、分叉、重复节点、自环或多闭环均拒绝。
-5. 接受后将顺序旋转到指定 `anchor_id`，生成 `ring_order` 和 `slot_map`。NO.1–NO.8 只是
+5. 接受后将顺序旋转到指定 `anchor_id`，生成 `ring_order` 和 `node_map`。NO.1–NO.8 只是
    accepted topology 的操作员显示编号，不是板卡身份。
 6. 只有 accepted topology 才允许通过 `SYSTem:BOARD:NO` 提交 NO 映射；写后读回，要求时
    重启再读回。TDMA START 不再隐式改写 NO。
@@ -70,7 +70,7 @@ evidence 进入校准域。
 
 当前维护入口是
 `tools/calibration_ring_validate/calibration_ring_topology.py`。它输出
-`measurement_domain=calibration`、pair evidence、`adjacency`、`ring_order`、`slot_map`、
+`measurement_domain=calibration`、pair evidence、`adjacency`、`ring_order`、`node_map`、
 NO 写入读回和可选重启读回；SCPI `SYSTem:TDMA:*` 仅作为隔离 probe 的 transport。
 
 ## 身份、拓扑与本次基线
@@ -98,7 +98,7 @@ build 有效；其中任一项变化都要求重新训练。
 
 ```text
 SCPI/core0
-  -> 有界原子 command slot
+  -> 有界原子 command mailbox
   -> TdmaSchedulerAO / core1 transport owner
   -> TDMA adapter
   -> PIO TX / PIO forwarding / PIO RX + DMA
@@ -141,7 +141,7 @@ DATA、CS/frame-sync、完整帧 CRC、飞行替换、帧队列和 RTOS 解析�
 - `tdma_pio_spi_clk_capture`：master 捕获返回首边沿并设置 PIO IRQ。
 - burst PIO 在完成点读取返回 IRQ，以硬件顺序判断返回发生在 TX done 之前还是之后。
 - `tdma_pio_spi_phys_train_clock_service()` 只收割完成、超时和 snapshot，不参与边沿判定。
-- `TdmaRingRuntime` 通过 command slot 接收训练请求；训练 snapshot 由
+- `TdmaRingRuntime` 通过 command mailbox 接收训练请求；训练 snapshot 由
   `tdma_pio_spi_phys_get_clk_train_snapshot()` guarded 读取。
 
 当前指令面：
@@ -162,7 +162,8 @@ SYSTem:TDMA:RING:TRAIN:STATus?
 1. 工具枚举串口，但只接受与调用参数中唯一板卡地址完全匹配的 `*IDN?` 结果。
 2. 对全部 active 节点执行 `RING:STOP`。
 3. 在 STOPPED 状态给全部节点 staging/apply 同一个 operating profile。
-4. 写入相同 node count，并按物理顺序设置每个节点的 local slot 和当前 master slot。
+4. 写入相同 node count，并按物理顺序设置每个节点的 local node 和当前 reference node；
+   仅在 TDMA/RefMem 既有接口边界执行 `node_index <-> slot_id` 显式映射。
 5. 清除上一 epoch 的 RX/IRQ/FIFO/DMA 残留，生成新的 request sequence。
 
 #### 2. 建立一个 master 的训练 persona
@@ -201,7 +202,7 @@ D(N_low) <= spi_clk_round_trip_ns < D(N_high)
 
 #### 5. 四主轮换
 
-依次让每个逻辑 slot 成为 master，其他节点保持 follower。每一轮都重新写 topology、重建
+依次让每个 reference node 成为 originator，其他节点保持 follower。每一轮都重新写 topology、重建
 训练 persona，并保存唯一板卡地址、profile、baud、`N_low/N_high`、duration bracket、
 mixed points、错误增量和 timestamp flags。
 
@@ -356,7 +357,7 @@ lag 上比较。20 ns 半码元下，50 ns 粗窗覆盖 2.5 个半码元和 12.5
 ```text
 QUIET_LOW
   -> SOF = Barker-13
-  -> HEADER16(version2, codebook2, epoch8, master_slot3, polarity1)
+  -> HEADER16(version2, codebook2, epoch8, source_node3, polarity1)
   -> HEADER16_INV
   -> HEADER_CRC8
   -> TIMING = m-sequence 255
@@ -483,9 +484,9 @@ transfer count 都写入同一 guarded snapshot。
 ### 第二阶段四板最小闭环实测
 
 `CALibration:CLOCk:CODEd:STARt/STOP` 和
-`READ:CALibration:CLOCk:CODEd?` 已接入 Calibration guarded command slot。START 参数只提供
+`READ:CALibration:CLOCk:CODEd?` 已接入 Calibration guarded command mailbox。START 参数只提供
 候选 codebook、coarse lag window 和相关质量门限；固件自行绑定 `board_identity_serial()`、
-build、logical slot、TDMA staged topology/profile/schedule CRC、baud、epoch、sequence 和
+build、local node、TDMA staged topology/profile/schedule CRC、baud、epoch、sequence 和
 calibration generation。`RING:STOP` 会清空 live runtime，所以 Calibration 读取的是 TDMA
 service 保留的最后一次 accepted `ring_staged_config`；该只读快照不能 arm 或改写 TDMA。
 
@@ -529,7 +530,7 @@ snapshot 的 sequence、codebook 和 lag window 与本次 request 完全一致�
 
 ```text
 显式 SCPI intent
-  -> core0 command slot
+  -> core0 command mailbox
   -> core1 校验 STOPPED/maintenance gate
   -> TRAIN_PREPARE(epoch, topology/profile CRC, commit_seq)
   -> 收齐 active-node ACK bitmap
@@ -547,7 +548,7 @@ commit sequence 必须在普通 TDMA persona 仍运行时完成。任一 active 
 
 现有 `SYSTem:TDMA:RING:TRAIN <cycles>` 保留第一阶段单 trial 诊断语义。产品级“一条指令
 触发完整训练”的 SCPI 拼写、参数和状态字段在代码/测试完成前不在本文冻结；但它必须复用
-上述 command-slot 和 snapshot 边界，不能新增同步直达 PIO 的旁路。
+上述 command-mailbox 和 snapshot 边界，不能新增同步直达 PIO 的旁路。
 
 ### 第二阶段实施待办
 
@@ -568,7 +569,7 @@ commit sequence 必须在普通 TDMA persona 仍运行时完成。任一 active 
   accepted/rejected reason；板内重复统计与 histogram 尚待完成。
 - [~] P2-6：把 `CLOCK_COARSE -> CLOCK_CODED` 接入 TDMA owner 非阻塞状态机；训练中禁止
   core0/USB/日志影响 PIO/DMA buffer ownership。
-- [x] P2-7：扩展 guarded snapshot，绑定唯一板卡地址、logical slot、topology/profile/
+- [x] P2-7：扩展 guarded snapshot，绑定唯一板卡地址、local node、topology/profile/
   schedule CRC、baud、codebook ID、epoch、sample period 和 calibration generation。
 - [~] P2-8：实现 TRAIN_PREPARE/ACK/commit sequence；工具按唯一 ID 触发的最小四主闭环已
   完成，reference 单指令协调、ACK bitmap 和 commit sequence 尚待实现，
@@ -592,12 +593,12 @@ commit sequence 必须在普通 TDMA persona 仍运行时完成。任一 active 
 
 | 门禁 | 要求 |
 |---|---|
-| 身份 | 报告和 calibration key 只使用唯一板卡地址 + logical slot |
+| 身份 | 报告和 calibration key 只使用唯一板卡地址 + local node |
 | 协调 | 所有 active 节点同一 epoch、topology/profile CRC、commit sequence |
 | 实时边界 | TX/RX/forward/capture 在 PIO/DMA；core1 只做有界状态机和相关 |
 | 码元定位 | 主峰唯一，主峰/第二峰 margin 达到冻结阈值，无 epoch 歧义 |
 | 时间证据 | 同一硬件时间基准，sample period 和 latch flags 明确 |
-| 重复性 | 四主多次重复无系统性 slot 偏移，mixed/reject 比例低于冻结阈值 |
+| 重复性 | 四个 reference node 多次重复无系统性 node 偏移，mixed/reject 比例低于冻结阈值 |
 | 故障恢复 | 任一失败统一 STOP，普通 persona 可重建，不形成无限 CLK 环 |
 | DPLL 门禁 | 未满足 hardware-latched、非 diagnostic-only 前，VDC/DPLL 必须拒绝 |
 
@@ -656,7 +657,7 @@ endpoint bias 校准、重复 epoch 统计和方向性校验共同形成 `asymme
 三根线的原始 PIO persona 必须同时 arm `CLK_RX`、`CLK_TX`、`DATA_TX`、`DATA_RX` 和
 `SYNC` capture。一次 accepted sample 必须带有：
 
-- `train_epoch`、`train_seq`、`source_board_id`、`destination_board_id`、logical slot 和
+- `train_epoch`、`train_seq`、`source_board_id`、`destination_board_id`、local node 和
   direction；
 - `t1/t2/t3/t4` 的硬件 latch index、各自 source/resolution/flags、DMA count 和 overrun；
 - `residence_B`、`path_sum_AB`、`delay_mean/stddev/p99`、`asymmetry_bound`、endpoint bias
