@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the TRN-03B NORMAL-persona short-frame/FIFO closed-loop gate."""
+"""Run TRN-03B raw-flight or process-image short-frame closed-loop gates."""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-for tool_path in (ROOT / "tools", ROOT / "tools" / "tdma_ring_monitor"):
+for tool_path in (ROOT / "tools", ROOT / "tools" / "tdma_ring_monitor",
+                  ROOT / "tools" / "calibration_ring_validate"):
     if str(tool_path) not in sys.path:
         sys.path.insert(0, str(tool_path))
 
@@ -31,7 +32,18 @@ from flight_bitmap_validate import (  # noqa: E402
     PROCESS_FIELDS,
 )
 from tdma_frequency_sweep import PHYS_FIELDS  # noqa: E402
-from trn03_stage import load_config, stage_board  # noqa: E402
+from trn03_stage import (  # noqa: E402
+    checked_action,
+    drain_errors,
+    error_is_clear,
+    load_config,
+    stage_board,
+)
+from trn03_waveform import (  # noqa: E402
+    analyze_capture_set,
+    download_ring_capture,
+    save_ring_capture,
+)
 
 
 RUNTIME_FIELDS = (
@@ -68,12 +80,23 @@ def parse_args() -> argparse.Namespace:
                         help="operating-profile level; defaults to config")
     parser.add_argument("--cycles", type=int, default=4096)
     parser.add_argument("--train-chunk-cycles", type=int, default=0)
+    parser.add_argument(
+        "--clock-train", action="store_true",
+        help=("run the optional coarse CLK burst before cyclic START; "
+              "default keeps the already armed flight persona intact"))
     parser.add_argument("--window-s", type=float, default=3.0)
     parser.add_argument("--start-wait", type=float, default=1.0)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
+    parser.add_argument("--capture-timeout", type=float, default=10.0)
+    parser.add_argument("--capture-latch-retries", type=int, default=1)
+    parser.add_argument("--waveform-window-ns", type=int, default=1000)
+    parser.add_argument(
+        "--stage", choices=("raw-flight", "process-image"),
+        default="process-image",
+        help="raw PIO cut-through proof or final FIFO/process-image gate")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--out-dir", type=Path)
     return parser.parse_args()
@@ -103,6 +126,39 @@ def parse_active_profile(raw: str, label: str) -> dict[str, int]:
             f"{label}: profile field count {len(values)}, expected at least "
             f"{len(fields)}")
     return dict(zip(fields, values[:len(fields)]))
+
+
+def arm_with_evidence(board: Board, args: argparse.Namespace) -> dict[str, Any]:
+    """ARM one Node and prove that an ACK timeout did not hide rejection."""
+    drained = drain_errors(board, args)
+    response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
+    status_raw = board_command(
+        board, "SYSTem:TDMA:RING:ARM:STATus?", args).strip().strip('"')
+    error_after = board_command(board, "SYSTem:ERR?", args)
+    try:
+        arm_result = int(status_raw, 0)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{board.address}: invalid ARM status {status_raw!r}") from exc
+    evidence = {
+        "node": board.address,
+        "action": "ARM",
+        "response": response,
+        "arm_result": arm_result,
+        "errors_drained_before": drained,
+        "error_after": error_after,
+    }
+    if arm_result != 1 or not error_is_clear(error_after):
+        raise RuntimeError(
+            f"{board.address}: ARM rejected, arm_result={arm_result}, "
+            f"error={error_after!r}")
+    return evidence
+
+
+def checked_ring_action(board: Board, action: str, command: str,
+                        args: argparse.Namespace) -> dict[str, Any]:
+    evidence = checked_action(board, command, args)
+    return {"node": board.address, "action": action, **evidence}
 
 
 def runtime_snapshot(board: Board, args: argparse.Namespace,
@@ -164,12 +220,34 @@ def counter_deltas(before: dict[str, int], after: dict[str, int],
     return {field: u32_delta(before[field], after[field]) for field in fields}
 
 
-def validate_node(node_index: int, node_count: int,
-                  runtime_before: dict[str, int],
-                  runtime_after: dict[str, int],
-                  flight_before: dict[str, Any],
-                  flight_after: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+def validate_tx_seed(flight_before: dict[str, Any],
+                     flight_after: dict[str, Any]
+                     ) -> tuple[list[str], dict[str, int]]:
+    """Validate the one-shot Core0 TX publication before ring service starts."""
+    fields = ("tx_publish_count", "tx_publish_reject_count")
+    deltas = counter_deltas(
+        flight_before["fifo"], flight_after["fifo"], fields)
     errors: list[str] = []
+    if deltas["tx_publish_count"] == 0:
+        errors.append("fifo_tx_not_published")
+    if deltas["tx_publish_reject_count"] != 0:
+        errors.append("fifo_tx_seed_rejected")
+    return errors, deltas
+
+
+def validate_node(node_index: int, node_count: int,
+                   runtime_before: dict[str, int],
+                   runtime_after: dict[str, int],
+                   flight_before: dict[str, Any],
+                   flight_after: dict[str, Any],
+                   seed_errors: list[str] | None = None,
+                   seed_deltas: dict[str, int] | None = None,
+                   *, require_process_image: bool = True,
+                   physical_after: dict[str, int] | None = None
+                   ) -> tuple[list[str], dict[str, Any]]:
+    errors: list[str] = []
+    if seed_errors:
+        errors.extend(seed_errors)
     runtime_delta_fields = (
         "ring_seq", "ring_adapter_service_count", "ring_up_tx_sequence",
         "ring_down_rx_sequence", "ring_idle_beacon_tx_count",
@@ -188,7 +266,7 @@ def validate_node(node_index: int, node_count: int,
         "tx_publish_count", "tx_publish_reject_count", "tx_acquire_count",
         "tx_image_stale_count", "tx_reuse_count", "tx_release_count",
         "rx_publish_count", "rx_mirror_drop_count", "rx_publish_drop_count",
-        "rx_acquire_count", "rx_release_count", "rx_parse_count",
+        "rx_acquire_count", "rx_release_count",
     )
     process_deltas = counter_deltas(
         flight_before["process"], flight_after["process"],
@@ -196,7 +274,7 @@ def validate_node(node_index: int, node_count: int,
     fifo_deltas = counter_deltas(
         flight_before["fifo"], flight_after["fifo"], fifo_delta_fields)
 
-    checks = (
+    checks = [
         (runtime_after["ring_enabled"] == 1, "ring_not_enabled"),
         (runtime_after["ring_adapter_started"] == 1,
          "adapter_not_started"),
@@ -229,42 +307,68 @@ def validate_node(node_index: int, node_count: int,
          runtime_after["ring_down_rx_frame_crc32"], "crc_mismatch"),
         (runtime_after["ring_adapter_last_error"] == 0,
          "adapter_error"),
-        (flight_after["process"]["configured"] == 1,
-         "flight_map_not_configured"),
-        (flight_after["process"]["active"] == 1,
-         "flight_map_not_active"),
-        (flight_after["process"]["local_node"] == node_index,
-         "flight_local_node_mismatch"),
-        (fifo_deltas["tx_publish_count"] > 0,
-         "fifo_tx_not_published"),
-        (fifo_deltas["tx_acquire_count"] > 0,
-         "fifo_tx_not_acquired"),
-        (fifo_deltas["tx_release_count"] > 0,
-         "fifo_tx_not_released"),
-        (fifo_deltas["rx_publish_count"] > 0,
-         "fifo_rx_not_published"),
-        (fifo_deltas["rx_parse_count"] > 0,
-         "fifo_rx_not_parsed"),
-        (fifo_deltas["tx_publish_reject_count"] == 0,
-         "fifo_tx_reject_grew"),
-        (fifo_deltas["rx_mirror_drop_count"] == 0,
-         "fifo_rx_mirror_drop_grew"),
-        (fifo_deltas["rx_publish_drop_count"] == 0,
-         "fifo_rx_publish_drop_grew"),
-        (process_deltas["map_reject_count"] == 0,
-         "flight_map_reject_grew"),
-        (process_deltas["length_reject_count"] == 0,
-         "flight_length_reject_grew"),
-    )
+    ]
+    if require_process_image:
+        checks.extend((
+            (flight_after["process"]["configured"] == 1,
+             "flight_map_not_configured"),
+            (flight_after["process"]["active"] == 1,
+             "flight_map_not_active"),
+            (flight_after["process"]["local_node"] == node_index,
+             "flight_local_node_mismatch"),
+            (fifo_deltas["tx_publish_reject_count"] == 0,
+             "fifo_tx_reject_grew"),
+            (fifo_deltas["rx_mirror_drop_count"] == 0,
+             "fifo_rx_mirror_drop_grew"),
+            (fifo_deltas["rx_publish_drop_count"] == 0,
+             "fifo_rx_publish_drop_grew"),
+            (process_deltas["map_reject_count"] == 0,
+             "flight_map_reject_grew"),
+            (process_deltas["length_reject_count"] == 0,
+             "flight_length_reject_grew"),
+            (fifo_deltas["tx_acquire_count"] > 0,
+             "fifo_tx_not_acquired"),
+            (fifo_deltas["rx_publish_count"] > 0,
+             "fifo_rx_not_published"),
+            (fifo_deltas["rx_acquire_count"] > 0,
+             "fifo_rx_not_acquired"),
+            (fifo_deltas["rx_release_count"] > 0,
+             "fifo_rx_not_released"),
+        ))
+    if physical_after is not None:
+        expected_persona = 11 if node_index == 0 else 12
+        checks.append((
+            physical_after.get("program_persona") == expected_persona,
+            "physical_flight_persona_mismatch"))
     for passed, reason in checks:
         if not passed:
             errors.append(reason)
-    if node_index != 0 and process_deltas["map_apply_count"] == 0:
+    if (require_process_image and node_index != 0 and
+            process_deltas["map_apply_count"] == 0):
         errors.append("flight_map_not_applied")
     return errors, {
         "runtime": runtime_deltas,
         "process": process_deltas,
         "fifo": fifo_deltas,
+        "fifo_seed": seed_deltas or {},
+        "fifo_gauges": {
+            "before": {
+                "tx_ready_count": flight_before["fifo"]["tx_ready_count"],
+                "tx_active_buffer": flight_before["fifo"]["tx_active_buffer"],
+                "tx_active_generation":
+                    flight_before["fifo"]["tx_active_generation"],
+                "rx_queued_count": flight_before["fifo"]["rx_queued_count"],
+                "rx_parse_count": flight_before["fifo"]["rx_parse_count"],
+            },
+            "after": {
+                "tx_ready_count": flight_after["fifo"]["tx_ready_count"],
+                "tx_active_buffer": flight_after["fifo"]["tx_active_buffer"],
+                "tx_active_generation":
+                    flight_after["fifo"]["tx_active_generation"],
+                "rx_queued_count": flight_after["fifo"]["rx_queued_count"],
+                "rx_parse_count": flight_after["fifo"]["rx_parse_count"],
+            },
+        },
     }
 
 
@@ -275,6 +379,38 @@ def stopped_snapshot(board: Board, args: argparse.Namespace,
         snapshot["ring_enabled"] == 0 and
         snapshot["ring_adapter_started"] == 0)
     return snapshot
+
+
+def capture_ring_waveforms(
+        ordered: list[Board], args: argparse.Namespace, *,
+        calibration_generation: int, capture_epoch: int,
+        out_dir: Path, config: dict[str, Any]) -> dict[str, Any]:
+    capture_dir = out_dir / "captures"
+    with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
+        saved = list(pool.map(
+            lambda board: save_ring_capture(
+                board, args,
+                calibration_generation=calibration_generation,
+                capture_epoch=capture_epoch),
+            ordered))
+    with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
+        futures = [
+            pool.submit(
+                download_ring_capture, board, capture_file, args,
+                capture_dir / f"node{node_index}_ring_capture.json")
+            for node_index, (board, capture_file) in
+            enumerate(zip(ordered, saved))
+        ]
+        downloaded = [future.result() for future in futures]
+    analysis = analyze_capture_set(
+        config,
+        [Path(str(row["local_path"])) for row in downloaded],
+        out_dir / "analysis", args.waveform_window_ns)
+    return {"capture_epoch": capture_epoch, "saved": saved,
+            "downloaded": [
+                {key: value for key, value in row.items() if key != "capture"}
+                for row in downloaded],
+            "analysis": analysis}
 
 
 def main() -> int:
@@ -289,7 +425,9 @@ def main() -> int:
         raise SystemExit("profile level is required in config or --level")
     if args.cycles <= 0 or args.cycles > 65536 or args.cycles % 8:
         raise SystemExit("cycles must be an 8-cycle multiple in [8, 65536]")
-    if args.window_s <= 0 or args.start_wait < 0:
+    if (args.window_s <= 0 or args.start_wait < 0 or
+            args.capture_timeout <= 0 or args.capture_latch_retries < 0 or
+            args.waveform_window_ns <= 0):
         raise SystemExit("window-s must be positive and start-wait non-negative")
     args.board_ids = board_ids
     plan = {
@@ -299,11 +437,18 @@ def main() -> int:
         "config": str(args.config),
         "calibration_generation": config["calibration_generation"],
         "cycles": args.cycles,
+        "clock_train": args.clock_train,
         "window_s": args.window_s,
+        "waveform_window_ns": args.waveform_window_ns,
+        "stage": args.stage,
     }
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
+
+    out_dir = args.out_dir or (
+        ROOT / "out" / "training" /
+        f"trn03b_closed_loop_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
 
     boards = discover(args)
     missing = set(board_ids) - set(boards)
@@ -319,7 +464,11 @@ def main() -> int:
     actions: list[dict[str, Any]] = []
     stage_results: list[dict[str, Any]] = []
     nodes: dict[str, Any] = {}
+    fifo_seed: dict[str, Any] = {}
     stopped: dict[str, Any] = {}
+    ring_capture: dict[str, Any] = {}
+    capture_error = ""
+    capture_attempted = False
     error = ""
     try:
         for board in ordered:
@@ -327,44 +476,59 @@ def main() -> int:
                             "response": board_command(
                                 board, "SYSTem:TDMA:RING:STOP", args)})
         for node_index, board in enumerate(ordered):
-            actions.append({"node": board.address, "action": "PROFILE_STAGE",
-                            "response": board_command(
-                                board, f"SYSTem:TDMA:OPMode:STAGe {level}", args)})
-            actions.append({"node": board.address, "action": "PROFILE_APPLY",
-                            "response": board_command(
-                                board, "SYSTem:TDMA:OPMode:APPLy", args)})
+            actions.append(checked_ring_action(
+                board, "PROFILE_STAGE",
+                f"SYSTem:TDMA:OPMode:STAGe {level}", args))
+            actions.append(checked_ring_action(
+                board, "PROFILE_APPLY", "SYSTem:TDMA:OPMode:APPLy", args))
             active = parse_active_profile(
                 board_command(board, "SYSTem:TDMA:OPMode?", args),
                 f"{board.address}:profile")
             if active["level"] != level or active["profile_crc32"] != config["profile_crc32"]:
                 raise RuntimeError(f"{board.address}: profile mismatch {active}")
-            actions.append({"node": board.address, "action": "TOPOLOGY",
-                            "response": board_command(
-                                board,
-                                f"SYSTem:TDMA:RING:TOPology {len(ordered)},{node_index},0",
-                                args)})
+            actions.append(checked_ring_action(
+                board, "TOPOLOGY",
+                f"SYSTem:TDMA:RING:TOPology {len(ordered)},{node_index},0",
+                args))
         stage_results = [stage_board(board, config, args) for board in ordered]
         if not all(result["passed"] for result in stage_results):
             raise RuntimeError("matrix write/readback failed")
+        for node_index, board in enumerate(ordered):
+            if args.stage == "process-image":
+                seed = 0x40 + node_index * 0x10
+                seed_before = flight_snapshot(board, args)
+                actions.append({
+                    "node": board.address,
+                    "action": "FIFO_TX",
+                    "response": board_command(
+                        board,
+                        f"SYSTem:TDMA:FLIGHT:TX 32,{seed},{config['calibration_generation']},{node_index + 1},1",
+                        args),
+                })
+                seed_after = flight_snapshot(board, args)
+                seed_errors, seed_deltas = validate_tx_seed(
+                    seed_before, seed_after)
+                fifo_seed[board.address] = {
+                    "passed": not seed_errors,
+                    "errors": seed_errors,
+                    "deltas": seed_deltas,
+                    "before": seed_before,
+                    "after": seed_after,
+                }
+            else:
+                fifo_seed[board.address] = {
+                    "passed": True, "errors": [], "deltas": {}}
         for board in start_order:
-            actions.append({"node": board.address, "action": "ARM",
-                            "response": board_command(
-                                board, "SYSTem:TDMA:RING:ARM", args)})
+            actions.append(arm_with_evidence(board, args))
         for board in start_order:
             wait_started(board, args)
-        for board in start_order:
-            actions.append({"node": board.address, "action": "CLOCK_TRAIN",
-                            "response": train(board, args)})
-        for node_index, board in enumerate(ordered):
-            seed = 0x40 + node_index * 0x10
-            actions.append({
-                "node": board.address,
-                "action": "FIFO_TX",
-                "response": board_command(
-                    board,
-                    f"SYSTem:TDMA:FLIGHT:TX 32,{seed},{config['calibration_generation']},{node_index + 1},1",
-                    args),
-            })
+        if args.clock_train:
+            for board in start_order:
+                actions.append({
+                    "node": board.address,
+                    "action": "CLOCK_TRAIN",
+                    "response": train(board, args),
+                })
         for board in start_order:
             actions.append({"node": board.address, "action": "START",
                             "response": board_command(
@@ -378,7 +542,11 @@ def main() -> int:
                 node_index, len(ordered), before[board.address]["runtime"],
                 after[board.address]["runtime"],
                 before[board.address]["flight"],
-                after[board.address]["flight"])
+                after[board.address]["flight"],
+                fifo_seed[board.address]["errors"],
+                fifo_seed[board.address]["deltas"],
+                require_process_image=args.stage == "process-image",
+                physical_after=after[board.address]["physical"])
             nodes[board.address] = {
                 "node_index": node_index,
                 "passed": not node_errors,
@@ -391,9 +559,27 @@ def main() -> int:
                 "physical_before": before[board.address]["physical"],
                 "physical_after": after[board.address]["physical"],
             }
+        capture_attempted = True
+        try:
+            ring_capture = capture_ring_waveforms(
+                ordered, args,
+                calibration_generation=config["calibration_generation"],
+                capture_epoch=int(time.time()) & 0xFFFFFFFF,
+                out_dir=out_dir, config=raw_config)
+        except Exception as exc:  # noqa: BLE001 - retain gate evidence
+            capture_error = f"{type(exc).__name__}: {exc}"
     except Exception as exc:  # noqa: BLE001 - preserve partial HIL evidence
         error = f"{type(exc).__name__}: {exc}"
     finally:
+        if not capture_attempted:
+            try:
+                ring_capture = capture_ring_waveforms(
+                    ordered, args,
+                    calibration_generation=config["calibration_generation"],
+                    capture_epoch=int(time.time()) & 0xFFFFFFFF,
+                    out_dir=out_dir, config=raw_config)
+            except Exception as exc:  # noqa: BLE001 - STOP still mandatory
+                capture_error = f"{type(exc).__name__}: {exc}"
         for board in ordered:
             try:
                 actions.append({"node": board.address, "action": "STOP_FINAL",
@@ -407,7 +593,7 @@ def main() -> int:
                     "error": f"{type(exc).__name__}: {exc}",
                 }
     passed = (
-        not error and len(nodes) == len(ordered) and
+        not error and not capture_error and len(nodes) == len(ordered) and
         all(node["passed"] for node in nodes.values()) and
         all(bool(item.get("passed")) for item in stopped.values())
     )
@@ -417,13 +603,13 @@ def main() -> int:
         "error": error,
         "boards": {board.address: asdict(board) for board in ordered},
         "stage_results": stage_results,
+        "fifo_seed": fifo_seed,
         "nodes": nodes,
+        "ring_capture": ring_capture,
+        "ring_capture_error": capture_error,
         "stopped": stopped,
         "actions": actions,
     }
-    out_dir = args.out_dir or (
-        ROOT / "out" / "training" /
-        f"trn03b_closed_loop_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "summary.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")

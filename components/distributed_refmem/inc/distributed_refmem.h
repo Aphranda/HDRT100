@@ -80,6 +80,18 @@ typedef enum {
 } distributed_refmem_node_type_t;
 
 typedef enum {
+    DISTRIBUTED_REFMEM_TDMA_ARM_NOT_ATTEMPTED = 0u,
+    DISTRIBUTED_REFMEM_TDMA_ARM_OK = 1u,
+    DISTRIBUTED_REFMEM_TDMA_ARM_OWNER_UNAVAILABLE = 2u,
+    DISTRIBUTED_REFMEM_TDMA_ARM_SNAPSHOT_UNAVAILABLE = 3u,
+    DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_ACTIVE = 4u,
+    DISTRIBUTED_REFMEM_TDMA_ARM_FLIGHT_MAP_REJECTED = 5u,
+    DISTRIBUTED_REFMEM_TDMA_ARM_STAGED_CONFIG_MISSING = 6u,
+    DISTRIBUTED_REFMEM_TDMA_ARM_CALIBRATION_GATE_REJECTED = 7u,
+    DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED = 8u,
+} distributed_refmem_tdma_arm_result_t;
+
+typedef enum {
     DISTRIBUTED_REFMEM_INIT_STAGE_UNINIT = 0u,
     DISTRIBUTED_REFMEM_INIT_STAGE_APP_MODEL = 1u,
     DISTRIBUTED_REFMEM_INIT_STAGE_TDMA_OWNER = 2u,
@@ -329,6 +341,8 @@ bool distributed_refmem_set_tdma_ring_topology(uint32_t local_slot_id,
                                                uint32_t reference_slot_id,
                                                uint32_t node_count);
 bool distributed_refmem_tdma_ring_arm(void);
+distributed_refmem_tdma_arm_result_t
+distributed_refmem_tdma_ring_arm_last_result(void);
 bool distributed_refmem_tdma_ring_train(uint32_t cycles);
 bool distributed_refmem_tdma_ring_start(void);
 bool distributed_refmem_tdma_ring_stop(void);

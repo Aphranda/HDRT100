@@ -10,6 +10,72 @@ Last updated: 2026-08-25
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
 
+## CAL-TASK-20260825-007 - TRN-03B 原始短帧飞行 persona 接通
+
+- 状态：完成 raw byte-level flight 的代码、工具分级、host 单测和固件构建；尚未刷入四板，
+  `raw-flight` HIL 未通过前不得进入 `process-image`，TRN-03B 保持进行中。
+- 完成内容：
+  - reference 在 TDMA ARM 时选择 `TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN`，follower 选择
+    `TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER`；reference 预装 DATA DMA 并产生有界 CS/SCK
+    burst，返回流由独立 RX capture 接收。
+  - follower PIO 在同一 wire pass 中再生 SCK、反向流水 DATA 并捕获 RX；修复 `push` 清空 ISR
+    导致转发字节为零的问题。ring adapter 的 `PHYSICAL_FLIGHT` 模式不再执行完整 RX 后的
+    第二次 software TX，产品 runtime 固定选择该模式，host fake phys 保留 store-forward 测试模式。
+  - RX scanner 支持 bit-shift 恢复 packet magic；历史 `copy_normal_capture` API 兼容 NORMAL 与
+    两种 flight persona，保留既有 SCPI、SD capture 和 SVG 工具链。
+  - `trn03_closed_loop.py` 增加 `raw-flight` 与 `process-image` 两级门禁；前者验证 persona、
+    sequence、CRC 和物理计数，后者才要求 TX/RX FIFO 与 map apply 增长。
+- 验证结果：
+  - `tools/tests/run_tdma_pio_spi_ring_adapter_tests.ps1` 通过，构建目录为
+    `out/pytest/build-tdma-flight-ring-adapter`。
+  - TRN-03 定向 Python 回归通过，临时目录为 `out/pytest/trn03-flight-runtime-temp`。
+  - `tools/cmake_build_auto/cmake_build_auto.py --preset pico2-release` 构建通过，产物目录为
+    `out/build/trn03-flight-runtime`；具体 package size/CRC 属本轮构建快照，以目录内产物为准。
+- 未完成边界：当前 follower 是透明 byte pipeline，尚未在本 node 的固定 segment 到达时从
+  active TX image 替换内容；飞行修改后的 WKC、尾部 transport CRC、segment 完整性以及四板
+  SD capture/SVG 证据均未完成，不能宣称 EtherCAT-style process-image flight 已闭环。
+- 下一步：使用现有多板异步 OTA 工具刷入本轮 package，只执行
+  `trn03_closed_loop.py --stage raw-flight`。若失败，优先核对 persona、bit-shift magic、DMA
+  produced words、timeout/stall、训练 offset 和 tail budget，并保存全部 node 的 SD capture/SVG。
+
+## CAL-TASK-20260825-006 - TRN-03B NORMAL 波形闭环与捕获消费恢复
+
+- 状态：TRN-03B 的板端 NORMAL RX/TX 捕获、Core1 latch、SD 保存、四板并行下载和逐 node
+  SVG 已形成可重复诊断闭环；捕获请求不再因一次未消费而永久停在 `PENDING`。TDMA 短帧环路
+  本身仍未通过，因此 TRN-03B 保持进行中，不发布 active calibration。
+- 已确认原因：旧请求入口把 `PENDING` 当作不可覆盖状态。若某次 core0 发布恰好未被 Core1
+  及时消费，所有后续 latch 都被拒绝，偶发 park/stall 或观察窗口错过会被放大为永久不消费。
+  修复后 mailbox 采用 latest-wins，新 sequence 可覆盖旧 pending；generation、capture epoch
+  和 guarded snapshot 仍阻止保存旧证据。host 默认进行有界重试，并记录 `latch_attempts`。
+- 诊断边界：旧固件首次停顿发生时尚无阶段计数，因此不能从既有证据严格区分 Core1 瞬时
+  park/stall 与 intent 未观察。新固件增加 `core1_service_count`、
+  `intent_read_fail_count`、`last_seen_sequence`、`copy_attempt_count`、
+  `copy_fail_count` 和 `consumed_sequence`。本轮最终四板 HIL 中，每个 node 首次 latch 即被
+  消费，intent 读取与物理快照复制均无失败；这证明恢复路径和复制路径有效，但不倒推旧瞬态
+  的唯一成因。
+- 波形语义修正：RX 保存 SCK 上升沿原始采样流；TX 保存最近一个完整短帧，而不是连续历史
+  尾部。捕获容量和版本引用 `TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES` 与
+  `TDMA_PIO_SPI_NORMAL_CAPTURE_VERSION`。旧数据长度可由完整帧长度整除，历史工具截取的
+  尾部恰为零填充，因此旧 SVG 的全零 TX 不是内存破坏。V2 分析器找不到完整 RX 帧头时发布
+  `N/A` 和原因，不再误报零 shift。
+- 固化工具：`tools/calibration_ring_validate/trn03_waveform.py` 负责 V1/V2 读取、完整帧校验、
+  方向矩阵对比和 SVG；`trn03_closed_loop.py` 负责 Core1 latch、SD save、四板并行下载、分析
+  及 finally STOP；`trn03_matrix.py` 把 capture 元数据纳入 TRN-03 配置。训练层仅使用
+  node/link/loop 术语。
+- 构建与 HIL（本轮 bench 快照，非事实源）：Release 产物位于
+  `out/build/trn03b_capture_retry`，build `20260825051259`；四板异步 OTA 证据为
+  `out/ota/trn03b_capture_retry_20260825/summary.json`。最终运行证据位于
+  `out/training/trn03b_capture_retry_final_20260825/summary.json`，各 node 的 SD 保存、下载、
+  消费诊断和 STOPPED 回退均成功。
+- SVG 证据：`out/training/trn03b_capture_retry_final_20260825/analysis/` 下的
+  `node0_ring_capture_1us.svg` 至 `node3_ring_capture_1us.svg`。本轮波形显示 node0 发送完整帧，
+  node1 在 node0 marker/SCK 下只捕获到 idle-low DATA，node2/node3 未形成后续 TX；这与
+  “完整帧 RX 后才 TX”的环形等待一致。下一步必须实现 PIO cyclic/cut-through 数据转发，
+  不能靠继续调整 offset 解除该等待。
+- 回归证据：定向 Python 测试结果为
+  `out/pytest/trn03b_capture_retry_20260825.xml`；本条中的通过数、build 和计数均仅代表本轮
+  evidence snapshot，不是接口常量。
+
 ## CAL-TASK-20260825-005 - TRN-02 固定阶梯退出与 TRN-03A 四板 ARM
 
 - 状态：`TRN-02B/D` 已完成固定 operating-profile 阶梯的四 link 多次重复门禁，
@@ -45,8 +111,9 @@ Last updated: 2026-08-25
   `out/training/trn03a_level9_g103_arm_quantized_20260825/summary.json`；负向门禁为
   `out/training/trn03a_negative_gates_final_20260825/summary.json`；Python 固化回归为
   `out/pytest/calibration_trn03_final_20260825.xml`。
-- 下一步：进入 `TRN-03B`，恢复 NORMAL persona 并启动四板短帧/FIFO 闭环，要求
-  up/down、TX/RX/FIFO、sequence 和 CRC 同时增长；失败必须保持当前 STOPPED 回退语义。
+- 下一步：进入 `TRN-03B`，按 ring role 装载产品 flight persona 并先执行四板
+  `raw-flight`；通过后再要求 TX/RX FIFO、segment replacement 和 map apply 同时增长。
+  失败必须保持当前 STOPPED 回退语义。
 
 ## CAL-TASK-20260824-004 - TRN-02 profile gate、offset 故障注入与 TRN-03A staging
 

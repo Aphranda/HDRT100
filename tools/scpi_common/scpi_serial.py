@@ -17,12 +17,14 @@ except ImportError as exc:  # pragma: no cover - bench dependency
 COMPOSITE_ACK_HEADERS = {
     "CAL:MARK:CAPT:SAVE", "CALIBRATION:MARKER:CAPTURE:SAVE",
     "CAL:DATA:CAPT:SAVE", "CALIBRATION:DATA:CAPTURE:SAVE",
+    "CAL:RING:CAPT:SAVE", "CALIBRATION:RING:CAPTURE:SAVE",
     "SYST:STOR:FILE:READ?", "SYSTEM:STORAGE:FILE:READ?",
     "SYST:STOR:FILE:INFO?", "SYSTEM:STORAGE:FILE:INFO?",
 }
 MARKER_CAPTURE_SAVE_HEADERS = {
     "CAL:MARK:CAPT:SAVE", "CALIBRATION:MARKER:CAPTURE:SAVE",
     "CAL:DATA:CAPT:SAVE", "CALIBRATION:DATA:CAPTURE:SAVE",
+    "CAL:RING:CAPT:SAVE", "CALIBRATION:RING:CAPTURE:SAVE",
 }
 STORAGE_COMPOSITE_QUERY_HEADERS = COMPOSITE_ACK_HEADERS - MARKER_CAPTURE_SAVE_HEADERS
 
@@ -142,6 +144,9 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return re.fullmatch(r'\d+,\s*"[^"]+",\s*"[^"]+",\s*\d+,\s*\d+,\s*\d+', text) is not None
     if header in MARKER_CAPTURE_SAVE_HEADERS:
         return re.fullmatch(r'"?OK"?,\s*\d+,\s*"/[^"]+"', text) is not None
+    if header in {
+            "CAL:RING:CAPT:LATC", "CALIBRATION:RING:CAPTURE:LATCH"}:
+        return _csv_uints_match(text, 2)
     if header in STORAGE_COMPOSITE_QUERY_HEADERS:
         return re.match(r'^"?OK"?,', text) is not None
     if header in {"SYST:ERR?", "SYSTEM:ERR?", "SYST:ERROR?", "SYSTEM:ERROR?"}:

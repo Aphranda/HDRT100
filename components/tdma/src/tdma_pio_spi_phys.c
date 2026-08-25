@@ -36,6 +36,9 @@
 _Static_assert(TDMA_PIO_SPI_RX_RING_WORDS >=
                    3u * TDMA_PIO_SPI_RX_DMA_WORD_MAX,
                "TDMA SPI RX ring must hold three maximum short packets");
+_Static_assert(TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES >=
+                   TDMA_PIO_SPI_RX_DMA_WORD_MAX,
+               "TRN-03B TX capture must hold one maximum short packet");
 
 static bool s_tdma_pio_spi_sms_claimed;
 static tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
@@ -57,6 +60,9 @@ static uint s_tdma_pio_spi_p3_initiator_offset;
 static uint s_tdma_pio_spi_p3_responder_offset;
 static uint s_tdma_pio_spi_p3_capture_offset;
 static uint s_tdma_pio_spi_p3_responder_capture_offset;
+static uint s_tdma_pio_spi_flight_origin_clock_offset;
+static uint s_tdma_pio_spi_flight_origin_data_offset;
+static uint s_tdma_pio_spi_flight_follower_offset;
 static uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
     __attribute__((aligned(4)));
 static uint32_t s_tdma_pio_spi_coded_tx[TDMA_PIO_SPI_CODED_BUFFER_WORDS]
@@ -76,12 +82,23 @@ static int s_tdma_pio_spi_tx_dma_channel = -1;
 static int s_tdma_pio_spi_rx_dma_channel = -1;
 static uint32_t s_tdma_pio_spi_rx_ring[TDMA_PIO_SPI_RX_RING_WORDS]
     __attribute__((aligned(TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t))));
+static uint32_t s_tdma_pio_spi_flight_tx_words[TDMA_PIO_SPI_RX_DMA_WORD_MAX]
+    __attribute__((aligned(4)));
+static uint32_t s_tdma_pio_spi_tx_last_frame[
+    TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES]
+    __attribute__((aligned(4)));
+static volatile uint32_t s_tdma_pio_spi_tx_history_produced;
+static volatile uint32_t s_tdma_pio_spi_tx_history_guard;
+static volatile uint32_t s_tdma_pio_spi_tx_last_frame_bytes;
+static volatile uint32_t s_tdma_pio_spi_tx_complete_frame_count;
 static uint32_t s_tdma_pio_spi_rx_scan_produced;
 static uint32_t s_tdma_pio_spi_rx_produced_seq;
 static uint32_t s_tdma_pio_spi_rx_last_write_index;
 static bool s_tdma_pio_spi_rx_write_index_valid;
 /* Assembled frame (magic-aligned) copied out of the continuous DMA ring. */
 static uint32_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX];
+
+static void tdma_pio_spi_phys_reset_normal_capture(void);
 
 static void tdma_pio_spi_phys_clk_train_write_begin(
     tdma_pio_spi_phys_t *phys)
@@ -303,6 +320,49 @@ static bool tdma_pio_spi_phys_load_data_train_programs(void)
     return true;
 }
 
+static bool tdma_pio_spi_phys_load_flight_origin_programs(void)
+{
+    if (!pio_can_add_program(
+            BOARD_TDMA_SPI_PIO,
+            &tdma_pio_spi_flight_origin_clock_rx_program)) {
+        return false;
+    }
+    s_tdma_pio_spi_flight_origin_clock_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_flight_origin_clock_rx_program);
+    if (!pio_can_add_program(
+            BOARD_TDMA_SPI_PIO,
+            &tdma_pio_spi_flight_origin_data_tx_program)) {
+        pio_remove_program(
+            BOARD_TDMA_SPI_PIO,
+            &tdma_pio_spi_flight_origin_clock_rx_program,
+            s_tdma_pio_spi_flight_origin_clock_offset);
+        return false;
+    }
+    s_tdma_pio_spi_flight_origin_data_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_flight_origin_data_tx_program);
+    return true;
+}
+
+static bool tdma_pio_spi_phys_load_flight_follower_programs(void)
+{
+    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_marker_forward_program)) {
+        return false;
+    }
+    s_tdma_pio_spi_marker_forward_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_marker_forward_program);
+    if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
+                             &tdma_pio_spi_flight_follower_program)) {
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_marker_forward_program,
+                           s_tdma_pio_spi_marker_forward_offset);
+        return false;
+    }
+    s_tdma_pio_spi_flight_follower_offset = (uint)pio_add_program(
+        BOARD_TDMA_SPI_PIO, &tdma_pio_spi_flight_follower_program);
+    return true;
+}
+
 static bool tdma_pio_spi_phys_load_p3_initiator_programs(void)
 {
     if (!pio_can_add_program(BOARD_TDMA_SPI_PIO,
@@ -363,6 +423,10 @@ static bool tdma_pio_spi_phys_load_programs(
         return tdma_pio_spi_phys_load_marker_programs();
     case TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_TRAIN:
         return tdma_pio_spi_phys_load_data_train_programs();
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN:
+        return tdma_pio_spi_phys_load_flight_origin_programs();
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER:
+        return tdma_pio_spi_phys_load_flight_follower_programs();
     default:
         return false;
     }
@@ -463,6 +527,24 @@ static void tdma_pio_spi_phys_unload_programs(void)
                            &tdma_pio_spi_marker_origin_program,
                            s_tdma_pio_spi_marker_origin_offset);
         break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN:
+        pio_remove_program(
+            BOARD_TDMA_SPI_PIO,
+            &tdma_pio_spi_flight_origin_data_tx_program,
+            s_tdma_pio_spi_flight_origin_data_offset);
+        pio_remove_program(
+            BOARD_TDMA_SPI_PIO,
+            &tdma_pio_spi_flight_origin_clock_rx_program,
+            s_tdma_pio_spi_flight_origin_clock_offset);
+        break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER:
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_flight_follower_program,
+                           s_tdma_pio_spi_flight_follower_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_marker_forward_program,
+                           s_tdma_pio_spi_marker_forward_offset);
+        break;
     default:
         break;
     }
@@ -474,7 +556,7 @@ bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_program_persona_t persona)
 {
     if (phys == NULL || persona <= TDMA_PIO_SPI_PROGRAM_PERSONA_NONE ||
-        persona > TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_TRAIN ||
+        persona > TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER ||
         !tdma_pio_spi_phys_ensure_sms_claimed()) {
         return false;
     }
@@ -591,7 +673,8 @@ static void tdma_pio_spi_phys_rx_prepare(tdma_pio_spi_phys_t *phys)
 
 /* Product-board SPI persona. Pin direction and PIO ownership are frozen in
  * board_config.h; CS remains the point-to-point frame-sync signal. */
-static void tdma_pio_spi_phys_configure(tdma_pio_spi_phys_t *phys)
+static void __attribute__((unused)) tdma_pio_spi_phys_configure(
+    tdma_pio_spi_phys_t *phys)
 {
     phys->tx_sm = BOARD_TDMA_SPI_MASTER_SM;
     phys->tx_pin = BOARD_TDMA_SPI_DOWNLINK_TX_PIN;
@@ -623,6 +706,136 @@ static void tdma_pio_spi_phys_configure(tdma_pio_spi_phys_t *phys)
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
     pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, true);
+}
+
+static uint32_t tdma_pio_spi_phys_flight_tail_bytes(
+    const tdma_ring_runtime_config_t *config)
+{
+    if (config == NULL || config->node_count < 2u || config->baud_hz == 0u) {
+        return 0u;
+    }
+    const uint64_t loop_bits =
+        ((uint64_t)config->loop_delay_ns * config->baud_hz +
+         999999999ull) /
+        1000000000ull;
+    const uint32_t loop_bytes = (uint32_t)((loop_bits + 7ull) / 8ull);
+    /* One elastic byte per follower, plus two guard bytes for the returned
+     * CS/SCK phase and the final DATA propagation. */
+    return (config->node_count - 1u) + loop_bytes + 2u;
+}
+
+static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
+{
+    const uint32_t sm_mask = (1u << phys->tx_sm) | (1u << phys->rx_sm);
+    pio_set_sm_mask_enabled(BOARD_TDMA_SPI_PIO, sm_mask, false);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    const uint32_t capture_sm =
+        s_tdma_pio_spi_program_persona ==
+                TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN
+            ? phys->tx_sm
+            : phys->rx_sm;
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, capture_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+}
+
+static void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys)
+{
+    const uint32_t sm_mask = (1u << phys->tx_sm) | (1u << phys->rx_sm);
+    pio_enable_sm_mask_in_sync(BOARD_TDMA_SPI_PIO, sm_mask);
+}
+
+static uint32_t tdma_pio_spi_phys_txstall_mask(uint32_t sm)
+{
+    return 1u << (PIO_FDEBUG_TXSTALL_LSB + sm);
+}
+
+static void tdma_pio_spi_phys_flight_origin_recover(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) {
+        return;
+    }
+    if (s_tdma_pio_spi_tx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
+    }
+    gpio_put(phys->tx_csn_pin, true);
+    const uint32_t sm_mask = (1u << phys->tx_sm) | (1u << phys->rx_sm);
+    pio_set_sm_mask_enabled(BOARD_TDMA_SPI_PIO, sm_mask, false);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 1u);
+    BOARD_TDMA_SPI_PIO->fdebug =
+        tdma_pio_spi_phys_txstall_mask(phys->rx_sm);
+    pio_enable_sm_mask_in_sync(BOARD_TDMA_SPI_PIO, sm_mask);
+    phys->snapshot.origin_recovery_count++;
+}
+
+static bool tdma_pio_spi_phys_configure_flight(
+    tdma_pio_spi_phys_t *phys,
+    const tdma_ring_runtime_config_t *config)
+{
+    if (phys == NULL || config == NULL) {
+        return false;
+    }
+    phys->tx_pin = BOARD_TDMA_SPI_DOWNLINK_TX_PIN;
+    phys->tx_sck_pin = BOARD_TDMA_SPI_DOWNLINK_SCK_PIN;
+    phys->tx_csn_pin = BOARD_TDMA_SPI_DOWNLINK_CSN_PIN;
+    phys->rx_pin = BOARD_TDMA_SPI_UPLINK_RX_PIN;
+    phys->rx_sck_pin = BOARD_TDMA_SPI_UPLINK_SCK_PIN;
+    phys->rx_csn_pin = BOARD_TDMA_SPI_UPLINK_CSN_PIN;
+
+    if (phys->role == TDMA_PIO_SPI_ROLE_MASTER) {
+        /* rx_sm owns the generated forward clock and returned-DATA RX FIFO;
+         * tx_sm owns the reverse DATA stream supplied by TX DMA. */
+        phys->rx_sm = BOARD_TDMA_SPI_MASTER_SM;
+        phys->tx_sm = BOARD_TDMA_SPI_SLAVE_SM;
+        tdma_pio_spi_flight_origin_clock_rx_program_init(
+            BOARD_TDMA_SPI_PIO,
+            phys->rx_sm,
+            s_tdma_pio_spi_flight_origin_clock_offset,
+            phys->rx_pin,
+            phys->tx_sck_pin,
+            phys->baud_hz);
+        tdma_pio_spi_flight_origin_data_tx_program_init(
+            BOARD_TDMA_SPI_PIO,
+            phys->tx_sm,
+            s_tdma_pio_spi_flight_origin_data_offset,
+            phys->tx_pin,
+            phys->rx_pin,
+            phys->rx_csn_pin,
+            phys->rx_sck_pin);
+        gpio_init(phys->tx_csn_pin);
+        gpio_set_dir(phys->tx_csn_pin, GPIO_OUT);
+        gpio_put(phys->tx_csn_pin, true);
+        if (!tdma_pio_spi_phys_ensure_tx_dma()) {
+            return false;
+        }
+    } else {
+        /* rx_sm performs DATA capture/reverse forwarding and forward SCK;
+         * tx_sm independently regenerates the forward CS marker. */
+        phys->rx_sm = BOARD_TDMA_SPI_MASTER_SM;
+        phys->tx_sm = BOARD_TDMA_SPI_SLAVE_SM;
+        tdma_pio_spi_flight_follower_program_init(
+            BOARD_TDMA_SPI_PIO,
+            phys->rx_sm,
+            s_tdma_pio_spi_flight_follower_offset,
+            phys->rx_pin,
+            phys->tx_pin,
+            phys->rx_sck_pin,
+            phys->tx_sck_pin);
+        tdma_pio_spi_marker_forward_program_init(
+            BOARD_TDMA_SPI_PIO,
+            phys->tx_sm,
+            s_tdma_pio_spi_marker_forward_offset,
+            phys->rx_csn_pin,
+            phys->tx_csn_pin,
+            TDMA_PIO_SPI_MARKER_FORWARD_DELAY_CYCLES);
+    }
+    tdma_pio_spi_phys_prepare_sm_pair(phys);
+    return true;
 }
 
 static void tdma_pio_spi_phys_set_line_drivers(bool enabled)
@@ -678,15 +891,20 @@ static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
     channel_config_set_read_increment(&dma_cfg, false);
     channel_config_set_write_increment(&dma_cfg, true);
     channel_config_set_ring(&dma_cfg, true, TDMA_PIO_SPI_RX_RING_LOG2);
+    const uint32_t capture_sm =
+        s_tdma_pio_spi_program_persona ==
+                TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN
+            ? phys->tx_sm
+            : phys->rx_sm;
     channel_config_set_dreq(&dma_cfg,
                             pio_get_dreq(BOARD_TDMA_SPI_PIO,
-                                         phys->rx_sm,
+                                         capture_sm,
                                          false));
     dma_channel_configure(
         (uint)s_tdma_pio_spi_rx_dma_channel,
         &dma_cfg,
         s_tdma_pio_spi_rx_ring,
-        &BOARD_TDMA_SPI_PIO->rxf[phys->rx_sm],
+        &BOARD_TDMA_SPI_PIO->rxf[capture_sm],
         UINT32_MAX,
         false);
     dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_rx_dma_channel);
@@ -736,28 +954,49 @@ static uint8_t tdma_pio_spi_phys_rx_ring_byte(uint32_t produced)
     return (uint8_t)(tdma_pio_spi_phys_rx_ring_word(produced) & 0xFFu);
 }
 
-static bool tdma_pio_spi_phys_transport_header_matches(uint32_t packet_start,
-                                                       uint16_t frame_size)
+static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint32_t produced,
+                                                      uint32_t bit_shift)
+{
+    const uint8_t first = tdma_pio_spi_phys_rx_ring_byte(produced);
+    if (bit_shift == 0u) {
+        return first;
+    }
+    const uint8_t second = tdma_pio_spi_phys_rx_ring_byte(produced + 1u);
+    return (uint8_t)(((uint32_t)first << bit_shift) |
+                     ((uint32_t)second >> (8u - bit_shift)));
+}
+
+static bool tdma_pio_spi_phys_transport_header_matches(
+    uint32_t packet_start,
+    uint32_t bit_shift,
+    uint16_t frame_size)
 {
     if (frame_size < TDMA_TRANSPORT_FRAME_HEADER_SIZE) {
         return false;
     }
     const uint16_t transport_magic =
-        (uint16_t)tdma_pio_spi_phys_rx_ring_byte(packet_start) |
-        ((uint16_t)tdma_pio_spi_phys_rx_ring_byte(packet_start + 1u) << 8u);
+        (uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+            packet_start, bit_shift) |
+        ((uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+             packet_start + 1u, bit_shift) << 8u);
     const uint16_t transport_size =
-        (uint16_t)tdma_pio_spi_phys_rx_ring_byte(packet_start + 4u) |
-        ((uint16_t)tdma_pio_spi_phys_rx_ring_byte(packet_start + 5u) << 8u);
+        (uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+            packet_start + 4u, bit_shift) |
+        ((uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+             packet_start + 5u, bit_shift) << 8u);
     const uint8_t frame_class =
-        tdma_pio_spi_phys_rx_ring_byte(packet_start + 3u);
+        tdma_pio_spi_phys_rx_ring_aligned_byte(
+            packet_start + 3u, bit_shift);
 
     return transport_magic == TDMA_TRANSPORT_FRAME_MAGIC &&
-           tdma_pio_spi_phys_rx_ring_byte(packet_start + 2u) ==
+           tdma_pio_spi_phys_rx_ring_aligned_byte(
+               packet_start + 2u, bit_shift) ==
                TDMA_TRANSPORT_FRAME_VERSION &&
            (frame_class == TDMA_TRANSPORT_FRAME_CLASS_SHORT ||
             frame_class == TDMA_TRANSPORT_FRAME_CLASS_LONG) &&
            transport_size == frame_size &&
-           tdma_pio_spi_phys_rx_ring_byte(packet_start + 6u) ==
+           tdma_pio_spi_phys_rx_ring_aligned_byte(
+               packet_start + 6u, bit_shift) ==
                TDMA_TRANSPORT_FRAME_HEADER_SIZE;
 }
 
@@ -791,52 +1030,63 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
 
     uint32_t candidate = s_tdma_pio_spi_rx_scan_produced;
     while (candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE <= produced) {
-        if ((tdma_pio_spi_phys_rx_ring_word(candidate) &
-             0xFFu) == TDMA_PIO_SPI_PACKET_MAGIC0 &&
-            (tdma_pio_spi_phys_rx_ring_word(candidate + 1u) &
-             0xFFu) == TDMA_PIO_SPI_PACKET_MAGIC1) {
+        for (uint32_t bit_shift = 0u; bit_shift < 8u; bit_shift++) {
+            const uint32_t alignment_extra = bit_shift == 0u ? 0u : 1u;
+            if (candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE +
+                    alignment_extra > produced ||
+                tdma_pio_spi_phys_rx_ring_aligned_byte(
+                    candidate, bit_shift) != TDMA_PIO_SPI_PACKET_MAGIC0 ||
+                tdma_pio_spi_phys_rx_ring_aligned_byte(
+                    candidate + 1u, bit_shift) !=
+                    TDMA_PIO_SPI_PACKET_MAGIC1) {
+                continue;
+            }
             const uint16_t frame_size =
-                (uint16_t)(tdma_pio_spi_phys_rx_ring_word(candidate + 2u) &
-                           0xFFu) |
-                (uint16_t)((tdma_pio_spi_phys_rx_ring_word(candidate + 3u) &
-                            0xFFu)
-                           << 8u);
+                (uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+                    candidate + 2u, bit_shift) |
+                ((uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+                     candidate + 3u, bit_shift) << 8u);
             const uint32_t total_words =
                 TDMA_PIO_SPI_PACKET_HEADER_SIZE + frame_size;
             if (frame_size == 0u || total_words > max_words) {
-                candidate++;
                 continue;
             }
             if (candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE +
-                    TDMA_TRANSPORT_FRAME_HEADER_SIZE >
+                    TDMA_TRANSPORT_FRAME_HEADER_SIZE + alignment_extra >
                 produced) {
                 s_tdma_pio_spi_rx_scan_produced = candidate;
                 return false;
             }
             if (!tdma_pio_spi_phys_transport_header_matches(
                     candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE,
+                    bit_shift,
                     frame_size)) {
-                candidate++;
                 continue;
             }
-            if (candidate + total_words > produced) {
+            if (candidate + total_words + alignment_extra > produced) {
                 /* Header is valid, but the last bytes are still on the wire. */
                 s_tdma_pio_spi_rx_scan_produced = candidate;
                 return false;
             }
             for (uint32_t i = 0u; i < total_words; i++) {
-                s_tdma_pio_spi_rx_frame[i] =
-                    tdma_pio_spi_phys_rx_ring_word(candidate + i);
+                s_tdma_pio_spi_rx_frame[i] = (uint32_t)
+                    tdma_pio_spi_phys_rx_ring_aligned_byte(
+                        candidate + i, bit_shift);
             }
-            s_tdma_pio_spi_rx_scan_produced = candidate + total_words;
-            phys->snapshot.rx_magic_at_zero++;
+            s_tdma_pio_spi_rx_scan_produced =
+                candidate + total_words + alignment_extra;
+            if (bit_shift == 0u) {
+                phys->snapshot.rx_magic_at_zero++;
+            } else {
+                phys->snapshot.rx_magic_at_shift++;
+            }
             *received_words = total_words;
             return true;
         }
         candidate++;
     }
-    /* Keep one trailing word so a split magic header can be completed by the
-     * next DMA sample. */
+    /* Keep two trailing raw bytes so a shifted two-byte magic can be
+     * completed by the next DMA sample. */
     const uint32_t bad_start = s_tdma_pio_spi_rx_scan_produced;
     const uint32_t bad_available = produced - bad_start;
     phys->snapshot.last_bad_header0 =
@@ -849,7 +1099,7 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
         bad_available > 3u ? tdma_pio_spi_phys_rx_ring_word(bad_start + 3u) : 0u;
     phys->snapshot.last_bad_words = bad_available;
     phys->snapshot.rx_magic_fail_count++;
-    s_tdma_pio_spi_rx_scan_produced = produced > 0u ? produced - 1u : 0u;
+    s_tdma_pio_spi_rx_scan_produced = produced > 2u ? produced - 2u : 0u;
     return false;
 }
 
@@ -864,22 +1114,28 @@ bool tdma_pio_spi_phys_arm(void *context,
         config->rx_dma_channel_id != TDMA_PIO_SPI_RX_DMA_CHANNEL) {
         return false;
     }
-    if (!tdma_pio_spi_phys_select_program_persona(
-            phys, TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL)) {
-        return false;
-    }
-
     phys->role = (config->local_slot_id == config->reference_slot_id)
                      ? TDMA_PIO_SPI_ROLE_MASTER
                      : TDMA_PIO_SPI_ROLE_SLAVE;
     phys->baud_hz = config->baud_hz;
-    tdma_pio_spi_phys_configure(phys);
+    phys->node_count = config->node_count;
+    phys->flight_tail_bytes = tdma_pio_spi_phys_flight_tail_bytes(config);
+    const tdma_pio_spi_program_persona_t flight_persona =
+        phys->role == TDMA_PIO_SPI_ROLE_MASTER
+            ? TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN
+            : TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER;
+    if (!tdma_pio_spi_phys_select_program_persona(phys, flight_persona) ||
+        !tdma_pio_spi_phys_configure_flight(phys, config)) {
+        return false;
+    }
     tdma_pio_spi_phys_set_line_drivers(true);
     if (!tdma_pio_spi_phys_rx_arm(phys)) {
         tdma_pio_spi_phys_set_line_drivers(false);
         return false;
     }
+    tdma_pio_spi_phys_enable_sm_pair(phys);
 
+    tdma_pio_spi_phys_reset_normal_capture();
     phys->armed = true;
     phys->snapshot.tx_count = 0u;
     phys->snapshot.rx_count = 0u;
@@ -903,6 +1159,11 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->snapshot.last_tx_done_timestamp_ns = 0ull;
     phys->snapshot.last_rx_edge_timestamp_ns = 0ull;
     phys->snapshot.last_rx_extract_timestamp_ns = 0ull;
+    phys->snapshot.origin_done_irq_count = 0u;
+    phys->snapshot.origin_done_txstall_count = 0u;
+    phys->snapshot.origin_clock_timeout_count = 0u;
+    phys->snapshot.origin_data_timeout_count = 0u;
+    phys->snapshot.origin_recovery_count = 0u;
     phys->snapshot.rx_busy_word0 = 0u;
     phys->snapshot.rx_busy_word1 = 0u;
     phys->snapshot.rx_busy_word2 = 0u;
@@ -1378,6 +1639,47 @@ static void tdma_pio_spi_phys_prepare_maintenance_mapping(
     phys->rx_csn_pin = BOARD_TDMA_SPI_UPLINK_CSN_PIN;
     phys->rx_pin = BOARD_TDMA_SPI_UPLINK_RX_PIN;
     phys->armed = true;
+}
+
+static void tdma_pio_spi_phys_reset_normal_capture(void)
+{
+    (void)__atomic_add_fetch(&s_tdma_pio_spi_tx_history_guard,
+                             1u, __ATOMIC_ACQ_REL);
+    memset(s_tdma_pio_spi_tx_last_frame, 0,
+           sizeof(s_tdma_pio_spi_tx_last_frame));
+    s_tdma_pio_spi_tx_history_produced = 0u;
+    s_tdma_pio_spi_tx_last_frame_bytes = 0u;
+    s_tdma_pio_spi_tx_complete_frame_count = 0u;
+    (void)__atomic_add_fetch(&s_tdma_pio_spi_tx_history_guard,
+                             1u, __ATOMIC_RELEASE);
+}
+
+static void tdma_pio_spi_phys_record_complete_tx_frame(
+    const uint8_t *header,
+    const uint8_t *packet,
+    size_t packet_size)
+{
+    const uint32_t frame_bytes =
+        (uint32_t)packet_size + TDMA_PIO_SPI_PACKET_HEADER_SIZE;
+    if (header == NULL || packet == NULL ||
+        frame_bytes > TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES) {
+        return;
+    }
+    (void)__atomic_add_fetch(&s_tdma_pio_spi_tx_history_guard,
+                             1u, __ATOMIC_ACQ_REL);
+    for (uint32_t index = 0u;
+         index < TDMA_PIO_SPI_PACKET_HEADER_SIZE; index++) {
+        s_tdma_pio_spi_tx_last_frame[index] = header[index];
+    }
+    for (uint32_t index = 0u; index < (uint32_t)packet_size; index++) {
+        s_tdma_pio_spi_tx_last_frame[
+            TDMA_PIO_SPI_PACKET_HEADER_SIZE + index] = packet[index];
+    }
+    s_tdma_pio_spi_tx_last_frame_bytes = frame_bytes;
+    s_tdma_pio_spi_tx_history_produced += frame_bytes;
+    s_tdma_pio_spi_tx_complete_frame_count++;
+    (void)__atomic_add_fetch(&s_tdma_pio_spi_tx_history_guard,
+                             1u, __ATOMIC_RELEASE);
 }
 
 static void tdma_pio_spi_phys_prepare_maintenance_pins(
@@ -2805,6 +3107,131 @@ bool tdma_pio_spi_phys_get_clk_train_snapshot(
     return false;
 }
 
+static bool tdma_pio_spi_phys_flight_origin_tx(
+    tdma_pio_spi_phys_t *phys,
+    const uint8_t *packet,
+    size_t packet_size,
+    uint64_t *tx_timestamp_ns)
+{
+    if (phys == NULL || packet == NULL || packet_size == 0u ||
+        packet_size > TDMA_TRANSPORT_SHORT_PACKET_MAX ||
+        phys->role != TDMA_PIO_SPI_ROLE_MASTER ||
+        s_tdma_pio_spi_program_persona !=
+            TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
+        s_tdma_pio_spi_tx_dma_channel < 0) {
+        return false;
+    }
+    if (dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) {
+        tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
+        phys->snapshot.tx_busy_count++;
+        return false;
+    }
+    if (!pio_sm_is_tx_fifo_empty(BOARD_TDMA_SPI_PIO, phys->tx_sm)) {
+        /* A failed prior burst must not leave the cyclic path permanently
+         * TX_BUSY.  No successful call returns while this FIFO is occupied. */
+        tdma_pio_spi_phys_flight_origin_recover(phys);
+    }
+
+    const uint8_t header[TDMA_PIO_SPI_PACKET_HEADER_SIZE] = {
+        TDMA_PIO_SPI_PACKET_MAGIC0,
+        TDMA_PIO_SPI_PACKET_MAGIC1,
+        (uint8_t)(packet_size & 0xFFu),
+        (uint8_t)(packet_size >> 8u),
+    };
+    const uint32_t wire_bytes =
+        (uint32_t)packet_size + TDMA_PIO_SPI_PACKET_HEADER_SIZE;
+    for (uint32_t index = 0u; index < wire_bytes; index++) {
+        const uint8_t value = index < TDMA_PIO_SPI_PACKET_HEADER_SIZE
+            ? header[index]
+            : packet[index - TDMA_PIO_SPI_PACKET_HEADER_SIZE];
+        s_tdma_pio_spi_flight_tx_words[index] = ((uint32_t)value) << 24u;
+    }
+
+    dma_channel_config dma_cfg = dma_channel_get_default_config(
+        (uint)s_tdma_pio_spi_tx_dma_channel);
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&dma_cfg, true);
+    channel_config_set_write_increment(&dma_cfg, false);
+    channel_config_set_dreq(
+        &dma_cfg,
+        pio_get_dreq(BOARD_TDMA_SPI_PIO, phys->tx_sm, true));
+    dma_channel_configure(
+        (uint)s_tdma_pio_spi_tx_dma_channel,
+        &dma_cfg,
+        &BOARD_TDMA_SPI_PIO->txf[phys->tx_sm],
+        s_tdma_pio_spi_flight_tx_words,
+        wire_bytes,
+        false);
+
+    const uint32_t clock_bytes = wire_bytes + phys->flight_tail_bytes;
+    const uint32_t clock_bits = clock_bytes * 8u;
+    if (clock_bits == 0u) {
+        return false;
+    }
+    const uint32_t clock_txstall_mask =
+        tdma_pio_spi_phys_txstall_mask(phys->rx_sm);
+    pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 1u);
+    dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_tx_dma_channel);
+    const uint64_t tx_edge_timestamp_ns = vdc_timestamp_clock_now_ns();
+    gpio_put(phys->tx_csn_pin, false);
+    pio_sm_put(BOARD_TDMA_SPI_PIO, phys->rx_sm, clock_bits - 1u);
+    /* The clock SM was parked at its blocking PULL before the word above.
+     * Clear that old sticky TXSTALL only after releasing the PULL. */
+    BOARD_TDMA_SPI_PIO->fdebug = clock_txstall_mask;
+
+    const uint64_t nominal_us =
+        ((uint64_t)clock_bits * 1000000ull + phys->baud_hz - 1ull) /
+        phys->baud_hz;
+    const uint64_t wait_start_us = tdma_pio_spi_phys_now_us();
+    const uint64_t expected_done_us = wait_start_us + nominal_us;
+    const uint64_t deadline_us = expected_done_us + 1000ull;
+    bool clock_done_irq = false;
+    bool clock_done_txstall = false;
+    while (!clock_done_irq && !clock_done_txstall) {
+        clock_done_irq = pio_interrupt_get(BOARD_TDMA_SPI_PIO, 1u);
+        const uint64_t now_us = tdma_pio_spi_phys_now_us();
+        clock_done_txstall = now_us >= expected_done_us &&
+            (BOARD_TDMA_SPI_PIO->fdebug & clock_txstall_mask) != 0u;
+        if (now_us >= deadline_us) {
+            phys->snapshot.tx_timeout_count++;
+            phys->snapshot.origin_clock_timeout_count++;
+            tdma_pio_spi_phys_set_error(
+                phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
+            tdma_pio_spi_phys_flight_origin_recover(phys);
+            return false;
+        }
+    }
+    if (clock_done_irq) {
+        phys->snapshot.origin_done_irq_count++;
+    } else {
+        phys->snapshot.origin_done_txstall_count++;
+    }
+    pio_interrupt_clear(BOARD_TDMA_SPI_PIO, 1u);
+    BOARD_TDMA_SPI_PIO->fdebug = clock_txstall_mask;
+    gpio_put(phys->tx_csn_pin, true);
+    if (dma_channel_is_busy((uint)s_tdma_pio_spi_tx_dma_channel)) {
+        phys->snapshot.tx_timeout_count++;
+        phys->snapshot.origin_data_timeout_count++;
+        tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY);
+        tdma_pio_spi_phys_flight_origin_recover(phys);
+        return false;
+    }
+
+    const uint64_t tx_done_timestamp_ns = vdc_timestamp_clock_now_ns();
+    tdma_pio_spi_phys_record_complete_tx_frame(header, packet, packet_size);
+    phys->snapshot.tx_count++;
+    phys->snapshot.tx_edge_count++;
+    phys->snapshot.last_tx_size = (uint32_t)packet_size;
+    phys->snapshot.last_tx_edge_timestamp_ns = tx_edge_timestamp_ns;
+    phys->snapshot.last_tx_done_timestamp_ns = tx_done_timestamp_ns;
+    phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_NONE;
+    if (tx_timestamp_ns != NULL) {
+        *tx_timestamp_ns = tx_edge_timestamp_ns;
+    }
+    tdma_pio_spi_phys_fill_static_snapshot(phys);
+    return true;
+}
+
 bool tdma_pio_spi_phys_tx(void *context,
                           const uint8_t *packet,
                           size_t packet_size,
@@ -2817,6 +3244,16 @@ bool tdma_pio_spi_phys_tx(void *context,
             tdma_pio_spi_phys_set_error(phys,
                                         TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT);
         }
+        return false;
+    }
+    if (s_tdma_pio_spi_program_persona ==
+        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN) {
+        return tdma_pio_spi_phys_flight_origin_tx(
+            phys, packet, packet_size, tx_timestamp_ns);
+    }
+    if (s_tdma_pio_spi_program_persona !=
+        TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL) {
+        tdma_pio_spi_phys_set_error(phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_ROLE);
         return false;
     }
     if (!pio_sm_is_tx_fifo_empty(BOARD_TDMA_SPI_PIO, phys->tx_sm)) {
@@ -2852,6 +3289,7 @@ bool tdma_pio_spi_phys_tx(void *context,
     busy_wait_us_32(tdma_pio_spi_phys_frame_tail_us(phys, packet_size));
     gpio_put(phys->tx_csn_pin, true);
     const uint64_t tx_done_timestamp_ns = vdc_timestamp_clock_now_ns();
+    tdma_pio_spi_phys_record_complete_tx_frame(header, packet, packet_size);
 
     phys->snapshot.tx_count++;
     phys->snapshot.tx_edge_count++;
@@ -2962,5 +3400,91 @@ bool tdma_pio_spi_phys_get_snapshot(const tdma_pio_spi_phys_t *phys,
         return false;
     }
     *snapshot = phys->snapshot;
+    snapshot->pio_irq_flags = BOARD_TDMA_SPI_PIO->irq;
+    snapshot->pio_fdebug = BOARD_TDMA_SPI_PIO->fdebug;
+    snapshot->tx_sm_pc = pio_sm_get_pc(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    snapshot->rx_sm_pc = pio_sm_get_pc(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    snapshot->tx_sm_tx_fifo_level =
+        pio_sm_get_tx_fifo_level(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    snapshot->tx_sm_rx_fifo_level =
+        pio_sm_get_rx_fifo_level(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    snapshot->rx_sm_tx_fifo_level =
+        pio_sm_get_tx_fifo_level(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    snapshot->rx_sm_rx_fifo_level =
+        pio_sm_get_rx_fifo_level(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    snapshot->gpio_input_levels =
+        (gpio_get(phys->tx_sck_pin) ? (1u << 0u) : 0u) |
+        (gpio_get(phys->tx_csn_pin) ? (1u << 1u) : 0u) |
+        (gpio_get(phys->tx_pin) ? (1u << 2u) : 0u) |
+        (gpio_get(phys->rx_sck_pin) ? (1u << 3u) : 0u) |
+        (gpio_get(phys->rx_csn_pin) ? (1u << 4u) : 0u) |
+        (gpio_get(phys->rx_pin) ? (1u << 5u) : 0u);
     return true;
+}
+
+bool tdma_pio_spi_phys_copy_normal_capture(
+    tdma_pio_spi_phys_t *phys,
+    uint32_t *rx_bytes,
+    size_t rx_capacity,
+    uint32_t *tx_bytes,
+    size_t tx_capacity,
+    tdma_pio_spi_normal_capture_snapshot_t *snapshot)
+{
+    if (phys == NULL || rx_bytes == NULL || tx_bytes == NULL ||
+        snapshot == NULL || rx_capacity == 0u || tx_capacity == 0u ||
+        rx_capacity > TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES ||
+        tx_capacity > TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES ||
+        !phys->armed || !phys->rx_capture_active ||
+        (s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL &&
+         s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN &&
+         s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER)) {
+        return false;
+    }
+
+    memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->version = TDMA_PIO_SPI_NORMAL_CAPTURE_VERSION;
+    snapshot->baud_hz = phys->baud_hz;
+    snapshot->bit_period_ns = phys->baud_hz == 0u
+        ? 0u
+        : (uint32_t)((1000000000ull + phys->baud_hz / 2u) /
+                     phys->baud_hz);
+
+    const uint32_t rx_produced = tdma_pio_spi_phys_rx_produced_words();
+    const uint32_t rx_count = rx_produced < rx_capacity
+        ? rx_produced
+        : (uint32_t)rx_capacity;
+    const uint32_t rx_start = rx_produced - rx_count;
+    for (uint32_t index = 0u; index < rx_count; index++) {
+        rx_bytes[index] = tdma_pio_spi_phys_rx_ring_byte(rx_start + index);
+    }
+    snapshot->rx_byte_count = rx_count;
+    snapshot->rx_produced_bytes = rx_produced;
+
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_tdma_pio_spi_tx_history_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        const uint32_t tx_count = __atomic_load_n(
+            &s_tdma_pio_spi_tx_last_frame_bytes, __ATOMIC_RELAXED);
+        const uint32_t tx_produced = __atomic_load_n(
+            &s_tdma_pio_spi_tx_history_produced, __ATOMIC_RELAXED);
+        const uint32_t tx_frames = __atomic_load_n(
+            &s_tdma_pio_spi_tx_complete_frame_count, __ATOMIC_RELAXED);
+        if (tx_count > tx_capacity) return false;
+        for (uint32_t index = 0u; index < tx_count; index++) {
+            tx_bytes[index] = s_tdma_pio_spi_tx_last_frame[index];
+        }
+        const uint32_t end = __atomic_load_n(
+            &s_tdma_pio_spi_tx_history_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            snapshot->tx_byte_count = tx_count;
+            snapshot->tx_produced_bytes = tx_produced;
+            snapshot->tx_complete_frame_count = tx_frames;
+            return true;
+        }
+    }
+    return false;
 }

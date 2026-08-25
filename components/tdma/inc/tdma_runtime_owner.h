@@ -35,6 +35,14 @@ bool tdma_runtime_owner_get_staged_ring_config(
 /* Read-only physical-layer snapshot (RX capture stall/partial counters and
  * TX timeout counters) for bring-up diagnostics. */
 bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot);
+/* Core1-only copy from the live NORMAL PIO/DMA history into a caller-owned
+ * cross-core evidence buffer. */
+bool tdma_runtime_owner_copy_normal_capture_core1(
+    uint32_t *rx_bytes,
+    size_t rx_capacity,
+    uint32_t *tx_bytes,
+    size_t tx_capacity,
+    tdma_pio_spi_normal_capture_snapshot_t *snapshot);
 bool tdma_runtime_owner_get_clk_train_snapshot(
     tdma_pio_spi_clk_train_snapshot_t *snapshot);
 bool tdma_runtime_owner_train_clock(uint32_t cycles);

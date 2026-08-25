@@ -77,6 +77,65 @@ clk_burst_loop:
     out pins, 1
 .wrap
 
+; Product cyclic follower for the actual three-line wiring: CS/SCK travel
+; toward the next node while DATA returns toward the previous node.  The SM
+; forwards SCK with side-set, captures the downstream DATA byte into RX FIFO,
+; and emits the previously captured byte on the upstream DATA driver.  The
+; one-byte elastic delay preserves byte alignment and removes core service
+; from the wire path.  A separate marker_forward SM owns CS forwarding.
+.program tdma_pio_spi_flight_follower
+.side_set 1
+    set y, 0             side 0
+    mov osr, y           side 0
+    out null, 24         side 0
+.wrap_target
+    set x, 7             side 0
+flight_follower_bit:
+    wait 1 gpio 0        side 0
+    nop                  side 1
+    wait 0 gpio 0        side 1
+    in pins, 1           side 0
+    out pins, 1          side 0
+    jmp x-- flight_follower_bit side 0
+    mov osr, isr         side 0
+    push noblock         side 0
+    out null, 24         side 0
+    mov isr, null        side 0
+.wrap
+
+; Cyclic reference clock source. Core1 supplies the total clock-bit count
+; minus one. Returned DATA is captured by origin_data_tx against the real
+; returned CS/SCK, so the byte boundary does not depend on local loop phase.
+.program tdma_pio_spi_flight_origin_clock_rx
+.side_set 1
+.wrap_target
+    pull block           side 0
+    mov x, osr           side 0
+flight_origin_clock_bit:
+    nop                  side 0 [1]
+    nop                  side 1 [2]
+    jmp x-- flight_origin_clock_bit side 0
+    irq set 1            side 0
+.wrap
+
+; Cyclic reference DATA source.  The complete frame is preloaded by DMA.  The
+; SM waits for the real CS/SCK that has traversed the forward loop, then emits
+; DATA in the electrically correct reverse direction without a core1 edge in
+; the timing path.
+.program tdma_pio_spi_flight_origin_data_tx
+.wrap_target
+    wait 1 gpio 0
+    wait 0 gpio 0
+    pull block
+    set x, 7
+flight_origin_data_bit:
+    wait 0 gpio 1
+    out pins, 1
+    wait 1 gpio 1
+    in pins, 1
+    jmp x-- flight_origin_data_bit
+.wrap
+
 ; Second-stage coded calibration RX. One returned CLK sample is captured per
 ; clk_sys cycle and autopushed in packed 32-sample words to the RX DMA.
 .program tdma_pio_spi_clk_oversample
@@ -454,6 +513,94 @@ static inline void tdma_pio_spi_clk_oversample_program_init(PIO pio,
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void tdma_pio_spi_flight_follower_program_init(
+    PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_data_pin,
+    uint rx_sck_pin, uint tx_sck_pin)
+{
+    pio->instr_mem[offset + 4u] =
+        (uint16_t)pio_encode_wait_gpio(true, rx_sck_pin);
+    pio->instr_mem[offset + 6u] =
+        (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
+    pio_gpio_init(pio, rx_data_pin);
+    pio_gpio_init(pio, tx_data_pin);
+    pio_gpio_init(pio, rx_sck_pin);
+    pio_gpio_init(pio, tx_sck_pin);
+    gpio_pull_down(rx_data_pin);
+    gpio_pull_down(rx_sck_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_data_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_sck_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_data_pin, 1u, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_sck_pin, 1u, true);
+
+    pio_sm_config c =
+        tdma_pio_spi_flight_follower_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, rx_data_pin);
+    sm_config_set_out_pins(&c, tx_data_pin, 1u);
+    sm_config_set_sideset_pins(&c, tx_sck_pin);
+    sm_config_set_in_shift(&c, false, false, 32u);
+    sm_config_set_out_shift(&c, false, false, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins_with_mask64(
+        pio, sm, 0ull,
+        (1ull << tx_data_pin) | (1ull << tx_sck_pin));
+}
+
+static inline void tdma_pio_spi_flight_origin_clock_rx_program_init(
+    PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_sck_pin,
+    uint32_t baud_hz)
+{
+    pio_gpio_init(pio, rx_data_pin);
+    pio_gpio_init(pio, tx_sck_pin);
+    gpio_pull_down(rx_data_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_data_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_sck_pin, 1u, true);
+
+    pio_sm_config c =
+        tdma_pio_spi_flight_origin_clock_rx_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, rx_data_pin);
+    sm_config_set_sideset_pins(&c, tx_sck_pin);
+    sm_config_set_in_shift(&c, false, true, 8u);
+    sm_config_set_clkdiv(&c, tdma_pio_spi_clkdiv_for_baud(baud_hz));
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins_with_mask64(pio, sm, 0ull, 1ull << tx_sck_pin);
+}
+
+static inline void tdma_pio_spi_flight_origin_data_tx_program_init(
+    PIO pio, uint sm, uint offset, uint tx_data_pin, uint rx_data_pin,
+    uint rx_csn_pin, uint rx_sck_pin)
+{
+    pio->instr_mem[offset + 0u] =
+        (uint16_t)pio_encode_wait_gpio(true, rx_csn_pin);
+    pio->instr_mem[offset + 1u] =
+        (uint16_t)pio_encode_wait_gpio(false, rx_csn_pin);
+    pio->instr_mem[offset + 4u] =
+        (uint16_t)pio_encode_wait_gpio(false, rx_sck_pin);
+    pio->instr_mem[offset + 6u] =
+        (uint16_t)pio_encode_wait_gpio(true, rx_sck_pin);
+    pio_gpio_init(pio, tx_data_pin);
+    pio_gpio_init(pio, rx_data_pin);
+    pio_gpio_init(pio, rx_csn_pin);
+    pio_gpio_init(pio, rx_sck_pin);
+    gpio_pull_up(rx_csn_pin);
+    gpio_pull_down(rx_sck_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_data_pin, 1u, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_data_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_csn_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_sck_pin, 1u, false);
+
+    pio_sm_config c =
+        tdma_pio_spi_flight_origin_data_tx_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, tx_data_pin, 1u);
+    sm_config_set_in_pins(&c, rx_data_pin);
+    sm_config_set_out_shift(&c, false, false, 32u);
+    sm_config_set_in_shift(&c, false, true, 8u);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins_with_mask64(pio, sm, 0ull, 1ull << tx_data_pin);
 }
 
 static inline void tdma_pio_spi_marker_forward_program_init(

@@ -152,6 +152,18 @@ void tdma_pio_spi_ring_adapter_set_flight_engine(
     adapter->flight_engine = engine;
 }
 
+bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_forwarding_mode_t mode)
+{
+    if (adapter == NULL || adapter->started != 0u ||
+        mode > TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT) {
+        return false;
+    }
+    adapter->forwarding_mode = mode;
+    return true;
+}
+
 bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
                                          const uint8_t *packet,
                                          size_t packet_size,
@@ -375,6 +387,8 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
     if (view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
         adapter->flight_fifo != NULL &&
         (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE ||
+         adapter->forwarding_mode ==
+             TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT ||
          adapter->flight_engine == NULL ||
          !tdma_flight_engine_is_active(adapter->flight_engine))) {
         uint32_t input_mask = 0u;
@@ -755,7 +769,22 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
          * foreign placeholder beacon would race the reference frame around
          * the ring and corrupt the reference's feedback correlation. The TX
          * leg stays ready (up_running=1). */
-        tx_ok = tdma_pio_spi_ring_adapter_forward_poll(adapter, &rx_ok);
+        if (adapter->forwarding_mode ==
+            TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT) {
+            /* CS/SCK/DATA forwarding has already happened in PIO by the time
+             * the complete captured frame reaches this parser. Re-emitting
+             * here would create a second frame and destroy cut-through. */
+            rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter, now_ns);
+            tx_ok = true;
+            if (rx_ok) {
+                adapter->up_sequence = adapter->down_rx_sequence;
+                adapter->up_tx_frame_crc32 = adapter->down_rx_frame_crc32;
+                adapter->forward_count++;
+                adapter->tx_count++;
+            }
+        } else {
+            tx_ok = tdma_pio_spi_ring_adapter_forward_poll(adapter, &rx_ok);
+        }
     }
     if (!tx_ok) {
         return false;
@@ -848,6 +877,7 @@ bool tdma_pio_spi_ring_adapter_get_snapshot(
         snapshot->started = adapter->started;
         snapshot->service_count = adapter->service_count;
         snapshot->role = (uint32_t)adapter->role;
+        snapshot->forwarding_mode = (uint32_t)adapter->forwarding_mode;
         snapshot->forward_count = adapter->forward_count;
         snapshot->up_sequence = adapter->up_sequence;
         snapshot->down_rx_sequence = adapter->down_rx_sequence;

@@ -44,6 +44,27 @@ static volatile uint32_t s_data_capture_word_count;
 static volatile uint32_t s_data_capture_sample_count;
 static char s_data_capture_payload[8192];
 static volatile bool s_data_active;
+static uint32_t s_ring_capture_rx[TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES];
+static uint32_t s_ring_capture_tx[TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES];
+static char s_ring_capture_payload[8192];
+
+typedef struct {
+    volatile uint32_t guard;
+    uint32_t sequence;
+    uint32_t calibration_generation;
+    uint32_t capture_epoch;
+} calibration_ring_capture_intent_t;
+
+static calibration_ring_capture_intent_t s_ring_capture_intent;
+static volatile uint32_t s_ring_capture_consumed_sequence;
+static uint32_t s_ring_capture_next_sequence;
+static volatile uint32_t s_ring_capture_snapshot_guard;
+static calibration_ring_capture_snapshot_t s_ring_capture_snapshot;
+static volatile uint32_t s_ring_capture_core1_service_count;
+static volatile uint32_t s_ring_capture_intent_read_fail_count;
+static volatile uint32_t s_ring_capture_last_seen_sequence;
+static volatile uint32_t s_ring_capture_copy_attempt_count;
+static volatile uint32_t s_ring_capture_copy_fail_count;
 
 typedef enum {
     CALIBRATION_DATA_INTENT_NONE = 0u,
@@ -63,6 +84,32 @@ static calibration_data_intent_t s_data_intent;
 static uint32_t s_data_intent_next_sequence;
 static volatile uint32_t s_data_intent_consumed_sequence;
 static calibration_training_data_request_t s_data_active_request;
+
+static void calibration_manager_ring_capture_publish(
+    const calibration_ring_capture_snapshot_t *snapshot)
+{
+    (void)__atomic_add_fetch(&s_ring_capture_snapshot_guard,
+                             1u, __ATOMIC_ACQ_REL);
+    s_ring_capture_snapshot = *snapshot;
+    (void)__atomic_add_fetch(&s_ring_capture_snapshot_guard,
+                             1u, __ATOMIC_RELEASE);
+}
+
+static bool calibration_manager_ring_capture_intent_read(
+    calibration_ring_capture_intent_t *intent)
+{
+    if (intent == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_ring_capture_intent.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        *intent = s_ring_capture_intent;
+        const uint32_t end = __atomic_load_n(
+            &s_ring_capture_intent.guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) return true;
+    }
+    return false;
+}
 
 static void calibration_manager_data_publish(
     calibration_data_intent_opcode_t opcode,
@@ -345,6 +392,25 @@ bool calibration_manager_init(void)
     __atomic_store_n(&s_data_active, false, __ATOMIC_RELEASE);
     s_data_intent_next_sequence = 0u;
     s_data_intent_consumed_sequence = 0u;
+    memset(s_ring_capture_rx, 0, sizeof(s_ring_capture_rx));
+    memset(s_ring_capture_tx, 0, sizeof(s_ring_capture_tx));
+    memset(&s_ring_capture_intent, 0, sizeof(s_ring_capture_intent));
+    memset(&s_ring_capture_snapshot, 0, sizeof(s_ring_capture_snapshot));
+    s_ring_capture_next_sequence = 0u;
+    __atomic_store_n(&s_ring_capture_consumed_sequence,
+                     0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_ring_capture_snapshot_guard,
+                     0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_ring_capture_core1_service_count,
+                     0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_ring_capture_intent_read_fail_count,
+                     0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_ring_capture_last_seen_sequence,
+                     0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_ring_capture_copy_attempt_count,
+                     0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_ring_capture_copy_fail_count,
+                     0u, __ATOMIC_RELEASE);
     memset(&s_clk_coded_active_request, 0,
            sizeof(s_clk_coded_active_request));
     memset(&s_clk_coded_active_gate, 0, sizeof(s_clk_coded_active_gate));
@@ -908,11 +974,126 @@ static void calibration_manager_data_finish_core1(
     __atomic_store_n(&s_data_active, false, __ATOMIC_RELEASE);
 }
 
+bool calibration_manager_request_ring_capture(
+    uint32_t calibration_generation,
+    uint32_t capture_epoch)
+{
+    if (calibration_generation == 0u || capture_epoch == 0u) {
+        return false;
+    }
+    /* Latest request wins. A diagnostic capture must not become permanently
+     * wedged when a previous core0 publication was not consumed (for example
+     * while core1 was parked). The sequence lets core1 distinguish retries;
+     * generation/epoch still protect SAVE from accepting stale evidence. */
+    (void)__atomic_add_fetch(&s_ring_capture_intent.guard,
+                             1u, __ATOMIC_ACQ_REL);
+    s_ring_capture_intent.sequence = ++s_ring_capture_next_sequence;
+    s_ring_capture_intent.calibration_generation = calibration_generation;
+    s_ring_capture_intent.capture_epoch = capture_epoch;
+    (void)__atomic_add_fetch(&s_ring_capture_intent.guard,
+                             1u, __ATOMIC_RELEASE);
+
+    calibration_ring_capture_snapshot_t pending;
+    memset(&pending, 0, sizeof(pending));
+    pending.state = CALIBRATION_RING_CAPTURE_PENDING;
+    pending.sequence = s_ring_capture_next_sequence;
+    pending.calibration_generation = calibration_generation;
+    pending.capture_epoch = capture_epoch;
+    calibration_manager_ring_capture_publish(&pending);
+    return true;
+}
+
+bool calibration_manager_get_ring_capture_snapshot(
+    calibration_ring_capture_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_ring_capture_snapshot_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        *snapshot = s_ring_capture_snapshot;
+        const uint32_t end = __atomic_load_n(
+            &s_ring_capture_snapshot_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) return true;
+    }
+    return false;
+}
+
+void calibration_manager_get_ring_capture_debug(
+    calibration_ring_capture_debug_t *debug)
+{
+    if (debug == NULL) return;
+    debug->core1_service_count = __atomic_load_n(
+        &s_ring_capture_core1_service_count, __ATOMIC_ACQUIRE);
+    debug->intent_read_fail_count = __atomic_load_n(
+        &s_ring_capture_intent_read_fail_count, __ATOMIC_ACQUIRE);
+    debug->last_seen_sequence = __atomic_load_n(
+        &s_ring_capture_last_seen_sequence, __ATOMIC_ACQUIRE);
+    debug->copy_attempt_count = __atomic_load_n(
+        &s_ring_capture_copy_attempt_count, __ATOMIC_ACQUIRE);
+    debug->copy_fail_count = __atomic_load_n(
+        &s_ring_capture_copy_fail_count, __ATOMIC_ACQUIRE);
+    debug->consumed_sequence = __atomic_load_n(
+        &s_ring_capture_consumed_sequence, __ATOMIC_ACQUIRE);
+}
+
 void calibration_manager_service_core1(void)
 {
+    (void)__atomic_add_fetch(&s_ring_capture_core1_service_count,
+                             1u, __ATOMIC_RELAXED);
     tdma_ring_runtime_snapshot_t ring;
     const bool stopped = tdma_runtime_owner_get_ring_snapshot(&ring) &&
                          ring.enabled == 0u;
+    calibration_ring_capture_intent_t ring_capture_intent;
+    const bool ring_capture_intent_valid =
+        calibration_manager_ring_capture_intent_read(&ring_capture_intent);
+    if (!ring_capture_intent_valid) {
+        (void)__atomic_add_fetch(&s_ring_capture_intent_read_fail_count,
+                                 1u, __ATOMIC_RELAXED);
+    } else {
+        __atomic_store_n(&s_ring_capture_last_seen_sequence,
+                         ring_capture_intent.sequence, __ATOMIC_RELEASE);
+    }
+    if (ring_capture_intent_valid &&
+        ring_capture_intent.sequence != __atomic_load_n(
+            &s_ring_capture_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        calibration_ring_capture_snapshot_t captured;
+        memset(&captured, 0, sizeof(captured));
+        captured.state = CALIBRATION_RING_CAPTURE_REJECTED;
+        captured.sequence = ring_capture_intent.sequence;
+        captured.calibration_generation =
+            ring_capture_intent.calibration_generation;
+        captured.capture_epoch = ring_capture_intent.capture_epoch;
+        tdma_ring_calibration_stage_t stage;
+        bool complete = false;
+        const bool capture_eligible = !stopped && ring.node_count >= 2u &&
+            ring.node_count <= TDMA_RING_CALIBRATION_LINK_MAX &&
+            ring.local_slot_id < ring.node_count &&
+            tdma_runtime_owner_get_calibration_stage(&stage, &complete) &&
+            complete && stage.calibration_generation ==
+                ring_capture_intent.calibration_generation;
+        bool copied = false;
+        if (capture_eligible) {
+            (void)__atomic_add_fetch(&s_ring_capture_copy_attempt_count,
+                                     1u, __ATOMIC_RELAXED);
+            copied = tdma_runtime_owner_copy_normal_capture_core1(
+                s_ring_capture_rx, TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES,
+                s_ring_capture_tx, TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES,
+                &captured.physical);
+            if (!copied) {
+                (void)__atomic_add_fetch(&s_ring_capture_copy_fail_count,
+                                         1u, __ATOMIC_RELAXED);
+            }
+        }
+        if (capture_eligible && copied) {
+            captured.node = ring.local_slot_id;
+            captured.node_count = ring.node_count;
+            captured.state = CALIBRATION_RING_CAPTURE_READY;
+        }
+        calibration_manager_ring_capture_publish(&captured);
+        __atomic_store_n(&s_ring_capture_consumed_sequence,
+                         ring_capture_intent.sequence, __ATOMIC_RELEASE);
+    }
     calibration_pio_loopback_service_core1(stopped);
     tdma_runtime_owner_coded_service_core1();
     tdma_runtime_owner_p3_service_core1();
@@ -1829,6 +2010,135 @@ bool calibration_manager_save_data_capture(
         !storage_manager_write_file_chunk(
             transaction_id, 0u,
             (const uint8_t *)s_data_capture_payload, used) ||
+        !storage_manager_commit_file_write(transaction_id, job_id)) {
+        (void)storage_manager_abort_file_write(transaction_id);
+        *job_id = 0u;
+        return false;
+    }
+    return true;
+}
+
+bool calibration_manager_save_ring_capture(
+    uint32_t calibration_generation,
+    uint32_t capture_epoch,
+    uint32_t *job_id,
+    char *path,
+    size_t path_size)
+{
+    if (calibration_generation == 0u || capture_epoch == 0u ||
+        job_id == NULL || path == NULL || path_size == 0u) {
+        return false;
+    }
+    *job_id = 0u;
+    path[0] = '\0';
+
+    calibration_ring_capture_snapshot_t snapshot;
+    if (!calibration_manager_get_ring_capture_snapshot(&snapshot) ||
+        snapshot.state != CALIBRATION_RING_CAPTURE_READY ||
+        snapshot.calibration_generation != calibration_generation ||
+        snapshot.capture_epoch != capture_epoch) {
+        return false;
+    }
+    const tdma_pio_spi_normal_capture_snapshot_t capture = snapshot.physical;
+
+    const int path_written = snprintf(
+        path, path_size, "/cal/trn03b_node%lu_g%lu_e%lu.json",
+        (unsigned long)snapshot.node,
+        (unsigned long)calibration_generation,
+        (unsigned long)capture_epoch);
+    if (path_written <= 0 || (size_t)path_written >= path_size) {
+        return false;
+    }
+
+    int written = snprintf(
+        s_ring_capture_payload, sizeof(s_ring_capture_payload),
+        "{\n"
+        "  \"schema\": \"HAOFV_TRN03_RING_CAPTURE_V2\",\n"
+        "  \"node\": %lu,\n"
+        "  \"node_count\": %lu,\n"
+        "  \"build_id\": \"%s\",\n"
+        "  \"calibration_generation\": %lu,\n"
+        "  \"capture_epoch\": %lu,\n"
+        "  \"capture_version\": %lu,\n"
+        "  \"baud_hz\": %lu,\n"
+        "  \"bit_period_ns\": %lu,\n"
+        "  \"capture_anchor\": \"normal_rx_sck_rising_edge\",\n"
+        "  \"rx_data_semantics\": \"physical_rx_data_sampled_by_rx_sck\",\n"
+        "  \"tx_data_semantics\": \"newest_complete_frame_accepted_by_local_tx_fifo\",\n"
+        "  \"rx_produced_bytes\": %lu,\n"
+        "  \"tx_produced_bytes\": %lu,\n"
+        "  \"tx_complete_frame_count\": %lu,\n"
+        "  \"rx_byte_count\": %lu,\n"
+        "  \"tx_byte_count\": %lu,\n"
+        "  \"rx_bytes\": [",
+        (unsigned long)snapshot.node,
+        (unsigned long)snapshot.node_count,
+        g_project_build_id,
+        (unsigned long)calibration_generation,
+        (unsigned long)capture_epoch,
+        (unsigned long)capture.version,
+        (unsigned long)capture.baud_hz,
+        (unsigned long)capture.bit_period_ns,
+        (unsigned long)capture.rx_produced_bytes,
+        (unsigned long)capture.tx_produced_bytes,
+        (unsigned long)capture.tx_complete_frame_count,
+        (unsigned long)capture.rx_byte_count,
+        (unsigned long)capture.tx_byte_count);
+    if (written <= 0 ||
+        (size_t)written >= sizeof(s_ring_capture_payload)) {
+        return false;
+    }
+    size_t used = (size_t)written;
+    for (uint32_t index = 0u; index < capture.rx_byte_count; index++) {
+        written = snprintf(
+            s_ring_capture_payload + used,
+            sizeof(s_ring_capture_payload) - used,
+            "%s%lu", index == 0u ? "" : ",",
+            (unsigned long)s_ring_capture_rx[index]);
+        if (written <= 0 ||
+            (size_t)written >= sizeof(s_ring_capture_payload) - used) {
+            return false;
+        }
+        used += (size_t)written;
+    }
+    written = snprintf(
+        s_ring_capture_payload + used,
+        sizeof(s_ring_capture_payload) - used,
+        "],\n  \"tx_bytes\": [");
+    if (written <= 0 ||
+        (size_t)written >= sizeof(s_ring_capture_payload) - used) {
+        return false;
+    }
+    used += (size_t)written;
+    for (uint32_t index = 0u; index < capture.tx_byte_count; index++) {
+        written = snprintf(
+            s_ring_capture_payload + used,
+            sizeof(s_ring_capture_payload) - used,
+            "%s%lu", index == 0u ? "" : ",",
+            (unsigned long)s_ring_capture_tx[index]);
+        if (written <= 0 ||
+            (size_t)written >= sizeof(s_ring_capture_payload) - used) {
+            return false;
+        }
+        used += (size_t)written;
+    }
+    written = snprintf(
+        s_ring_capture_payload + used,
+        sizeof(s_ring_capture_payload) - used, "]\n}\n");
+    if (written <= 0 ||
+        (size_t)written >= sizeof(s_ring_capture_payload) - used) {
+        return false;
+    }
+    used += (size_t)written;
+
+    const uint32_t crc32 = ota_crc32_compute(
+        (const uint8_t *)s_ring_capture_payload, used);
+    uint32_t transaction_id = 0u;
+    if (!storage_manager_begin_file_write(path, (uint32_t)used, crc32,
+                                          &transaction_id) ||
+        !storage_manager_write_file_chunk(
+            transaction_id, 0u,
+            (const uint8_t *)s_ring_capture_payload, used) ||
         !storage_manager_commit_file_write(transaction_id, job_id)) {
         (void)storage_manager_abort_file_write(transaction_id);
         *job_id = 0u;

@@ -130,6 +130,8 @@ typedef struct {
 } distributed_refmem_tdma_flight_sync_t;
 
 static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;
+static volatile uint32_t s_tdma_ring_arm_last_result =
+    DISTRIBUTED_REFMEM_TDMA_ARM_NOT_ATTEMPTED;
 
 static uint32_t distributed_refmem_flight_input_offset_for_slot(uint32_t slot)
 {
@@ -2467,14 +2469,69 @@ bool distributed_refmem_tdma_ring_arm(void)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
     if (!s_initialized || owner == NULL) {
+        __atomic_store_n(&s_tdma_ring_arm_last_result,
+                         DISTRIBUTED_REFMEM_TDMA_ARM_OWNER_UNAVAILABLE,
+                         __ATOMIC_RELEASE);
+        return false;
+    }
+    tdma_ring_runtime_snapshot_t ring;
+    if (!tdma_ring_runtime_get_snapshot(&owner->ring_runtime, &ring)) {
+        __atomic_store_n(&s_tdma_ring_arm_last_result,
+                         DISTRIBUTED_REFMEM_TDMA_ARM_SNAPSHOT_UNAVAILABLE,
+                         __ATOMIC_RELEASE);
+        return false;
+    }
+    if (ring.enabled != 0u || ring.adapter_started != 0u) {
+        __atomic_store_n(&s_tdma_ring_arm_last_result,
+                         DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_ACTIVE,
+                         __ATOMIC_RELEASE);
         return false;
     }
     const tdma_process_image_map_t map =
         distributed_refmem_default_flight_map();
     if (!tdma_service_configure_flight_map(owner, &map)) {
+        __atomic_store_n(&s_tdma_ring_arm_last_result,
+                         DISTRIBUTED_REFMEM_TDMA_ARM_FLIGHT_MAP_REJECTED,
+                         __ATOMIC_RELEASE);
         return false;
     }
-    return tdma_service_ring_arm(owner);
+    if (owner->ring_staged_config.enabled == 0u) {
+        __atomic_store_n(&s_tdma_ring_arm_last_result,
+                         DISTRIBUTED_REFMEM_TDMA_ARM_STAGED_CONFIG_MISSING,
+                         __ATOMIC_RELEASE);
+        return false;
+    }
+    if (owner->calibration_gate_required != 0u &&
+        (owner->calibration_stage.profile_crc32 !=
+             owner->ring_staged_config.operating_profile_crc32 ||
+         owner->calibration_stage.schedule_crc32 !=
+             owner->ring_staged_config.schedule_crc32 ||
+         !tdma_ring_runtime_validate_calibration_stage(
+             &owner->calibration_stage,
+             owner->ring_staged_config.node_count,
+             NULL))) {
+        __atomic_store_n(&s_tdma_ring_arm_last_result,
+                         DISTRIBUTED_REFMEM_TDMA_ARM_CALIBRATION_GATE_REJECTED,
+                         __ATOMIC_RELEASE);
+        return false;
+    }
+    if (!tdma_service_ring_arm(owner)) {
+        __atomic_store_n(&s_tdma_ring_arm_last_result,
+                         DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED,
+                         __ATOMIC_RELEASE);
+        return false;
+    }
+    __atomic_store_n(&s_tdma_ring_arm_last_result,
+                     DISTRIBUTED_REFMEM_TDMA_ARM_OK,
+                     __ATOMIC_RELEASE);
+    return true;
+}
+
+distributed_refmem_tdma_arm_result_t
+distributed_refmem_tdma_ring_arm_last_result(void)
+{
+    return (distributed_refmem_tdma_arm_result_t)__atomic_load_n(
+        &s_tdma_ring_arm_last_result, __ATOMIC_ACQUIRE);
 }
 
 bool distributed_refmem_tdma_ring_train(uint32_t cycles)

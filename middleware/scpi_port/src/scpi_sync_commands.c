@@ -496,6 +496,23 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     scpi_sync_result_u64_parts(context, snapshot.last_tx_done_timestamp_ns);
     scpi_sync_result_u64_parts(context, snapshot.last_rx_edge_timestamp_ns);
     scpi_sync_result_u64_parts(context, snapshot.last_rx_extract_timestamp_ns);
+    SCPI_ResultUInt32(context, snapshot.program_persona);
+    SCPI_ResultUInt32(context, snapshot.program_switch_count);
+    SCPI_ResultUInt32(context, snapshot.program_switch_fail_count);
+    SCPI_ResultUInt32(context, snapshot.pio_irq_flags);
+    SCPI_ResultUInt32(context, snapshot.pio_fdebug);
+    SCPI_ResultUInt32(context, snapshot.tx_sm_pc);
+    SCPI_ResultUInt32(context, snapshot.rx_sm_pc);
+    SCPI_ResultUInt32(context, snapshot.tx_sm_tx_fifo_level);
+    SCPI_ResultUInt32(context, snapshot.tx_sm_rx_fifo_level);
+    SCPI_ResultUInt32(context, snapshot.rx_sm_tx_fifo_level);
+    SCPI_ResultUInt32(context, snapshot.rx_sm_rx_fifo_level);
+    SCPI_ResultUInt32(context, snapshot.gpio_input_levels);
+    SCPI_ResultUInt32(context, snapshot.origin_done_irq_count);
+    SCPI_ResultUInt32(context, snapshot.origin_done_txstall_count);
+    SCPI_ResultUInt32(context, snapshot.origin_clock_timeout_count);
+    SCPI_ResultUInt32(context, snapshot.origin_data_timeout_count);
+    SCPI_ResultUInt32(context, snapshot.origin_recovery_count);
     return SCPI_RES_OK;
 }
 

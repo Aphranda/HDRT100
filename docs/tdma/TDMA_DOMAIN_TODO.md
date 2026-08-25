@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-08-21
+Last updated: 2026-08-25
 
 本文档维护 TDMA foundation 的独立待办。这里记录影响上/下行 TDMA、ring runtime、payload registry、adapter、completion、quality、HAOFV system node 和 HIL 验收的事项。
 
@@ -178,7 +178,10 @@ Last updated: 2026-08-21
   core0/Trigger domain 只能发布下一 generation 的 opaque segment；core1 在 cycle boundary 原子切换，
   READY/fence/completion 只允许对应 owner slot 写固定 slice，禁止业务代码改 active image。
 - [ ] core1 TDMA runtime 同时服务 `TDMA_UP_LEG` 和 `TDMA_DOWN_LEG`。
-  - 进行中：ring runtime 双向 service 和 PIO SPI physical callback 已接入；V1 完整帧 forward 已支持 active map 固定 offset input mirror/output replace、hop 和 transport CRC 更新。PIO/DMA RX/TX byte-level overlap 尚未实现。
+  - 进行中：ring runtime 双向 service 和 PIO SPI physical callback 已接入；role-specific flight persona
+    已实现 reference DMA/burst 与 follower PIO 透明 byte pipeline，ring adapter 不再执行 follower
+    的第二次 software TX。四板 raw-flight HIL、固定 segment 在线替换、WKC/尾部 CRC 和
+    process-image FIFO/map apply 闭环尚未完成。
 - [ ] 空闲无业务 payload 时持续发送/接收 `IDLE_BEACON` 或等价 freshness 帧。
   - 进行中：`tdma_pio_spi_ring_adapter` 已在每次 service 构建/发送 `IDLE_BEACON` 短帧并解析 RX（含 beacon 计数）；板端物理 TX/RX 钩子待接入（P0.5-3）。
 - [x] runtime snapshot 暴露 `up_running/down_running/ring_seq/last_error`、adapter lifecycle、idle beacon 计数和反馈相关字段；running 来自 adapter，但不单独等同于硬件闭环 evidence。
@@ -218,7 +221,9 @@ Last updated: 2026-08-21
   两板长时间 HIL 与环境裕量验证通过后，才允许提高产品档位上限。
 - [x] PIO SPI adapter 只解析 `TdmaTransportFrame`，不得再校验或假设 `refmem_sync_frame`；VDC、RefMem、OTA、SD、LOG 内帧由各域自行验证。
   - 完成：`tdma_pio_spi_ring_adapter` 只编解码 `TdmaTransportFrame`（IDLE_BEACON 短帧），不接触 RefMem/VDC 内帧。
-- [ ] PIO SPI adapter 实现 RX/TX 重叠的 byte/block cut-through：只修改本节点获授权 segment，测量每 hop pipeline delay；未取得实测证据前仍标记 store-and-forward bring-up。
+- [ ] PIO SPI adapter 完成两级 flight 门禁：raw byte-level cut-through 的代码路径已接通，待四板
+  HIL 测量每 hop pipeline delay；随后只修改本节点获授权 segment，并验证 WKC、尾部 CRC、
+  FIFO/map apply 和 core0 拥塞隔离。后一级未通过前不得标记 process-image flight 完成。
 - [ ] BISS-C adapter 作为后续类 IP 核，提供编码/解码、timestamp、CRC 和 quality。
 - [ ] UART / RS485 adapter 明确 MTU、latency、timeout 和降级质量语义。
 - [ ] 所有 adapter 复用同一 TDMA payload/window/completion contract。

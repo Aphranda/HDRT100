@@ -4,9 +4,35 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-08-20
+Last updated: 2026-08-25
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
+
+### TDMA-TASK-20260825-001 - PIO-SPI raw-flight persona 运行路径
+
+- 状态：完成代码接通、host 验证和固件构建；四板 raw-flight HIL 与 process-image replacement 未完成。
+- 日期：2026-08-25
+- 任务目标：把 follower 的短帧 wire forwarding 从“完整 RX 后由 core1 再发一次”迁到
+  role-specific PIO/DMA flight persona，并保持现有 capture/SCPI 工具可诊断。
+- 完成内容：
+  - `tdma_pio_spi_phys_arm()` 按 reference/follower 选择 flight persona；reference 使用 DMA
+    DATA、有限 CS/SCK burst 和回环 RX capture，follower 在 PIO 内执行 SCK 再生、DATA 流水与 RX capture。
+  - adapter 增加 store-forward/physical-flight 模式；产品 runtime 使用 physical-flight，host
+    fake phys 保留 store-forward，follower 不再产生重复 software TX。
+  - 物理 RX scanner 增加 bit-shift magic recovery；PHYS 查询追加 persona 和 program switch 证据。
+  - TRN-03B 工具拆分 `raw-flight` 与 `process-image`，避免透明 wire flight 被误报为完整
+    process-image flight。
+- 验证结果：ring adapter host 单测、TRN-03 Python 定向回归和 pico2 release 固件构建通过；
+  输出分别位于 `out/pytest/build-tdma-flight-ring-adapter`、
+  `out/pytest/trn03-flight-runtime-temp` 与 `out/build/trn03-flight-runtime`。
+- 还需完成：四板异步 OTA 后先执行 raw-flight 门禁并保存 SD capture/SVG；通过后再设计
+  fixed segment 在线替换、elastic buffering、WKC 和尾部 CRC。
+- 关联文件：
+  - `components/tdma/src/tdma_pio_spi.pio`
+  - `components/tdma/src/tdma_pio_spi_phys.c`
+  - `components/tdma/src/tdma_pio_spi_ring_adapter.c`
+  - `tools/calibration_ring_validate/trn03_closed_loop.py`
+- 下一步：只运行 `trn03_closed_loop.py --stage raw-flight`，不提前宣称 process-image 完成。
 
 ### TDMA-TASK-20260820-001 - 八槽 RX 位图快路径
 

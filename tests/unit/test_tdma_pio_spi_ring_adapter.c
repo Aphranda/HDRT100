@@ -730,6 +730,88 @@ int main(void)
                              fwd_view.transport_sequence, 7u);
     }
 
+    /* --- Product follower: PIO has already forwarded the bytes before the
+     * complete RX frame is parsed. The service path must not call phys_tx and
+     * create a duplicate store-and-forward frame. --- */
+    {
+        tdma_ring_runtime_t runtime;
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_pio_spi_ring_adapter_snapshot_t adapter_snapshot;
+        loopback_phys_t phys;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        config.local_slot_id = 1u;
+        config.reference_slot_id = 0u;
+
+        memset(&phys, 0, sizeof(phys));
+        phys.suppress_echo = true;
+        tdma_ring_runtime_init(&runtime);
+        tdma_ring_runtime_configure(&runtime, &config);
+        tdma_pio_spi_ring_adapter_init(&adapter);
+        failed += expect_bool(
+            "select physical flight forwarding",
+            tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                &adapter,
+                TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT),
+            true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        tdma_ring_runtime_bind_adapter(&runtime,
+                                       tdma_pio_spi_ring_adapter_ops(),
+                                       &adapter);
+        start_ring_data(&runtime);
+
+        uint8_t beacon[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        size_t beacon_size = 0u;
+        const tdma_transport_frame_build_t build = {
+            .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
+            .origin_slot_id = 0u,
+            .transport_sequence = 11u,
+            .payload_class = TDMA_PAYLOAD_CLASS_IDLE_BEACON,
+            .flags = TDMA_TRANSPORT_FLAG_IDLE_BEACON,
+            .schedule_crc32 = config.schedule_crc32,
+            .ring_profile_crc32 = config.ring_profile_crc32,
+            .hop_limit = 4u,
+        };
+        tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+        failed += expect_bool(
+            "encode physical flight beacon",
+            tdma_transport_frame_encode(&build,
+                                        beacon,
+                                        sizeof(beacon),
+                                        &beacon_size,
+                                        &result),
+            true);
+        failed += expect_bool(
+            "inject physical flight capture",
+            tdma_pio_spi_ring_adapter_inject_rx(
+                &adapter, beacon, beacon_size, 2000000ull),
+            true);
+        tdma_ring_runtime_service(&runtime);
+        failed += expect_u32("physical flight skips phys_tx",
+                             phys.tx_calls, 0u);
+        failed += expect_u32("physical flight forward count",
+                             adapter.forward_count, 1u);
+        failed += expect_u32("physical flight physical tx evidence",
+                             adapter.tx_count, 1u);
+        failed += expect_bool(
+            "physical flight adapter snapshot",
+            tdma_pio_spi_ring_adapter_get_snapshot(&adapter,
+                                                    &adapter_snapshot),
+            true);
+        failed += expect_u32(
+            "physical flight mode snapshot",
+            adapter_snapshot.forwarding_mode,
+            TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT);
+        failed += expect_bool(
+            "cannot switch flight mode while started",
+            tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                &adapter,
+                TDMA_PIO_SPI_RING_FORWARDING_STORE_FORWARD),
+            false);
+    }
+
     /* --- phys_ctrl: arm/disarm callbacks driven by adapter start/stop. --- */
     {
         tdma_ring_runtime_t runtime;

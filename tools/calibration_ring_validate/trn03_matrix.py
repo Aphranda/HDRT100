@@ -219,6 +219,16 @@ def build_matrix(level: int, data: dict[str, Any],
             **cycles,
             "source_node": int(residence_link["source_node"]),
             "destination_node": int(residence_link["destination_node"]),
+            # Keep the measured signal directions in the replay matrix.  A
+            # later installation may wire DATA differently, so TRN-03B must
+            # not infer these endpoints from the marker direction.
+            "marker_source_node": int(data_link["marker_source_node"]),
+            "marker_destination_node": int(
+                data_link["marker_destination_node"]),
+            "data_source_node": int(data_link["data_source_node"]),
+            "data_destination_node": int(data_link["data_destination_node"]),
+            "marker_direction": str(data_link["marker_direction"]),
+            "data_direction": str(data_link["data_direction"]),
             "source_evidence": {
                 "data_offset_histogram": data_link.get("offset_histogram", {}),
                 "data_window_start_ns": window_starts,

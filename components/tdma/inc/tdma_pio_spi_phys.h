@@ -8,25 +8,20 @@
 #include "tdma_ring_runtime.h"
 #include "tdma_transport_frame.h"
 
-/* TDMA PIO SPI resident physical layer (bring-up, half-duplex ring).
+/* TDMA PIO SPI resident physical layer.
  *
- * P0.5-3 topology (ring + half duplex, one RX leg + one TX leg per board):
- * every board carries two independent PIO SMs:
- *   - TX leg (SPI master, downlink): drives frame-sync/CS + SCK + data out
- *     toward the next board in the ring (C_n -> C_{n+1}). One TX direction
- *     only.
- *   - RX leg (SPI slave, uplink): follows the frame-sync/CS and SCK driven by
- *     the previous board and samples the data coming from it (C_{n-1} -> C_n).
- *     One RX direction only.
- * The reference board (slot == reference_slot) originates one IDLE_BEACON per
- * TDMA cycle on its TX leg; every follower receives on its RX leg, advances
- * the hop and re-emits on its TX leg, so the frame travels once around the
- * ring (C1 -> C2 -> C3 -> ... -> C1) and the reference receives its own
- * frame back on the RX leg.
+ * Product cyclic traffic uses the actual three-line direction: CS/SCK travel
+ * from Node n to Node n+1 while DATA travels from Node n+1 back to Node n.
+ * The reference produces a bounded CS/SCK burst and injects DATA when the
+ * returned CS/SCK reaches it. Followers regenerate CS/SCK forward and DATA
+ * backward in PIO, with a one-byte elastic stage; core service is not in the
+ * wire forwarding path. The legacy NORMAL persona remains available for
+ * calibration diagnostics and host/store-forward tests.
  *
  * Product-board wiring:
- *   Cn downlink: CS=26, TX=29, SCK=25 -> Cn+1 uplink: CS=27, RX=24, SCK=28.
- * The TX-side CS is a point-to-point frame-sync signal, not a bus chip select.
+ *   forward: Cn CS=26/SCK=25 -> Cn+1 CS=27/SCK=28
+ *   reverse: Cn+1 DATA=29 -> Cn DATA=24
+ * CS is a point-to-point frame-sync signal, not a bus chip select.
  *
  * This layer is byte/transport level only: it carries the 4-byte packet
  * header (magic + length) plus the TdmaTransportFrame body and never parses
@@ -46,6 +41,12 @@
  * per-frame abort, FIFO clear, or DMA reconfiguration gap. */
 #define TDMA_PIO_SPI_RX_RING_WORDS 1024u
 #define TDMA_PIO_SPI_RX_RING_LOG2 12u
+/* Bounded NORMAL-persona diagnostic evidence copied to SD by TRN-03B. RX is
+ * the newest raw stream sampled on RX SCK rising edges. TX is the newest
+ * complete frame accepted by the local TX FIFO, including its packet header.
+ * The buffer is larger than a maximum short packet so TX keeps its boundary. */
+#define TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES 512u
+#define TDMA_PIO_SPI_NORMAL_CAPTURE_VERSION 2u
 #define TDMA_PIO_SPI_TX_DMA_CHANNEL \
     TDMA_PROFILE_DEFAULT_TX_DMA_CHANNEL_ID
 #define TDMA_PIO_SPI_RX_DMA_CHANNEL \
@@ -123,6 +124,8 @@ typedef enum {
     TDMA_PIO_SPI_PROGRAM_PERSONA_P3_CS_RESPONDER = 8u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_MARKER = 9u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_TRAIN = 10u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN = 11u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER = 12u,
 } tdma_pio_spi_program_persona_t;
 
 typedef enum {
@@ -473,18 +476,50 @@ typedef struct {
     uint32_t program_persona;
     uint32_t program_switch_count;
     uint32_t program_switch_fail_count;
+    /* Live PIO diagnostics for TRN-03B flight bring-up.  tx_sm/rx_sm keep
+     * their role-dependent meanings from tdma_pio_spi_phys_t; the raw PC,
+     * FIFO, IRQ and pin values make a stopped clock/data pipeline observable
+     * without changing the wire path. */
+    uint32_t pio_irq_flags;
+    uint32_t pio_fdebug;
+    uint32_t tx_sm_pc;
+    uint32_t rx_sm_pc;
+    uint32_t tx_sm_tx_fifo_level;
+    uint32_t tx_sm_rx_fifo_level;
+    uint32_t rx_sm_tx_fifo_level;
+    uint32_t rx_sm_rx_fifo_level;
+    uint32_t gpio_input_levels;
+    uint32_t origin_done_irq_count;
+    uint32_t origin_done_txstall_count;
+    uint32_t origin_clock_timeout_count;
+    uint32_t origin_data_timeout_count;
+    uint32_t origin_recovery_count;
 } tdma_pio_spi_phys_snapshot_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t baud_hz;
+    uint32_t bit_period_ns;
+    uint32_t rx_byte_count;
+    uint32_t tx_byte_count;
+    uint32_t rx_produced_bytes;
+    uint32_t tx_produced_bytes;
+    uint32_t tx_complete_frame_count;
+} tdma_pio_spi_normal_capture_snapshot_t;
 
 typedef struct {
     bool armed;
     uint32_t role;
     uint32_t baud_hz;
-    /* Downlink TX leg (SPI master, drives CS + SCK + data toward next board). */
+    uint32_t node_count;
+    uint32_t flight_tail_bytes;
+    /* Physical output pins. CS/SCK are forward; DATA is reverse. */
     uint32_t tx_sm;
     uint32_t tx_sck_pin;
     uint32_t tx_csn_pin;
     uint32_t tx_pin;
-    /* Uplink RX leg (SPI slave, follows previous board's CS + SCK). */
+    /* Physical input pins. CS/SCK are from the previous Node; DATA is from
+     * the next Node. In flight persona rx_sm names the SM feeding RX DMA. */
     uint32_t rx_sm;
     uint32_t rx_sck_pin;
     uint32_t rx_csn_pin;
@@ -599,6 +634,17 @@ bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_program_persona_t persona);
 bool tdma_pio_spi_phys_get_snapshot(const tdma_pio_spi_phys_t *phys,
                                     tdma_pio_spi_phys_snapshot_t *snapshot);
+/* Copy bounded wire evidence without stopping PIO or DMA. The historical
+ * function name is retained for SCPI/tool compatibility; NORMAL and both
+ * FLIGHT personas are accepted. RX bytes are the newest physical DATA
+ * samples, while TX is the newest complete origin frame when available. */
+bool tdma_pio_spi_phys_copy_normal_capture(
+    tdma_pio_spi_phys_t *phys,
+    uint32_t *rx_bytes,
+    size_t rx_capacity,
+    uint32_t *tx_bytes,
+    size_t tx_capacity,
+    tdma_pio_spi_normal_capture_snapshot_t *snapshot);
 
 /* phys_tx: push one complete packet (header + TdmaTransportFrame) into the TX
  * leg FIFO. The downlink SM shifts it out on the TX pin toward the next board

@@ -181,16 +181,51 @@ def parse_query(raw: str, fields: tuple[str, ...], tag: str) -> dict[str, Any]:
     return result
 
 
+def error_is_clear(raw: str) -> bool:
+    row = next(csv.reader([raw]), [])
+    if not row:
+        return False
+    try:
+        return int(row[0].strip().strip('"'), 0) == 0
+    except ValueError:
+        return False
+
+
+def drain_errors(board: Board, args: argparse.Namespace) -> list[str]:
+    errors: list[str] = []
+    for _ in range(16):
+        raw = board_command(board, "SYSTem:ERR?", args)
+        errors.append(raw)
+        if error_is_clear(raw):
+            return errors
+    raise RuntimeError(f"{board.address}: SCPI error queue did not drain")
+
+
+def checked_action(board: Board, command: str,
+                   args: argparse.Namespace) -> dict[str, Any]:
+    drained = drain_errors(board, args)
+    response = board_command(board, command, args)
+    error_after = board_command(board, "SYSTem:ERR?", args)
+    evidence = {
+        "command": command,
+        "response": response,
+        "errors_drained_before": drained,
+        "error_after": error_after,
+    }
+    if not error_is_clear(error_after):
+        raise RuntimeError(
+            f"{board.address}: {command} rejected: {error_after!r}")
+    return evidence
+
+
 def stage_board(board: Board, config: dict[str, Any],
                 args: argparse.Namespace) -> dict[str, Any]:
-    actions: list[dict[str, str]] = []
+    actions: list[dict[str, Any]] = []
     begin = stage_begin_command(config)
-    actions.append({"command": begin,
-                    "response": board_command(board, begin, args)})
+    actions.append(checked_action(board, begin, args))
     for link in config["links"]:
         command = stage_link_command(link)
-        actions.append({"command": command,
-                        "response": board_command(board, command, args)})
+        actions.append(checked_action(board, command, args))
     stage = parse_query(
         board_command(board, "READ:CALibration:TRAINing:STAGe?", args),
         STAGE_QUERY_FIELDS, "TRN03STG")

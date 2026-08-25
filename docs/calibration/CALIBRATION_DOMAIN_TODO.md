@@ -65,7 +65,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
 | TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的 `clkdiv`、`clk_sys_hz`、`pio_instruction_period_ns`、`bit_cycles`、`marker_to_data_cycles`、`forward_residence_cycles`、`rx_arm_lead_cycles`、`codeword_cycles`、`guard_cycles`、`link_budget_cycles` 和 `loop_delay_cycles` | [x] | 成对 evidence 自动生成完整 matrix；缺 link、diagnostic-only 和预算过期均拒绝；四板 staging 写后读回、ARM 状态读回及 STOPPED 回退通过 |
-| TRN-03B | 恢复 NORMAL persona 后启动 TDMA 短帧，按 `link_budget_cycles` 验证 core1 TX/RX FIFO、飞行转发和 bounded RTOS service | [ ] | 四板 up/down、sequence、CRC、RX/TX/FIFO 计数同时增长，且不依赖 core0 调度边沿 |
+| TRN-03B | 按 ring role 装载产品 flight persona 后启动 TDMA 短帧；先过 `raw-flight`，再过 `process-image` | `[~]` | wire capture、Core1 消费诊断、SD 保存、host 下载和逐 node SVG 已固化；raw PIO cut-through 代码与工具门禁已接通但尚无四板 HIL，固定 segment 替换、WKC/尾部完整性和 FIFO/map apply 闭环仍待实现 |
 | TRN-03C | 汇总 per-link path-delay、residence、loop-delay、PIO 周期预算和 residual，形成 active candidate gate | [ ] | bias、hardware latch、freshness、CRC、周期重放、重复性和 rollback 全部通过 |
 | TRN-03D | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线；固化工具和 SD/Flash 输入格式 | [ ] | 失败统一 STOPPED，active generation 不被污染，工具按 `*IDN?` 地址工作 |
 

@@ -37,6 +37,32 @@ typedef struct {
     uint32_t result_valid;
 } calibration_manager_p3_snapshot_t;
 
+typedef enum {
+    CALIBRATION_RING_CAPTURE_IDLE = 0u,
+    CALIBRATION_RING_CAPTURE_PENDING = 1u,
+    CALIBRATION_RING_CAPTURE_READY = 2u,
+    CALIBRATION_RING_CAPTURE_REJECTED = 3u,
+} calibration_ring_capture_state_t;
+
+typedef struct {
+    uint32_t state;
+    uint32_t sequence;
+    uint32_t calibration_generation;
+    uint32_t capture_epoch;
+    uint32_t node;
+    uint32_t node_count;
+    tdma_pio_spi_normal_capture_snapshot_t physical;
+} calibration_ring_capture_snapshot_t;
+
+typedef struct {
+    uint32_t core1_service_count;
+    uint32_t intent_read_fail_count;
+    uint32_t last_seen_sequence;
+    uint32_t copy_attempt_count;
+    uint32_t copy_fail_count;
+    uint32_t consumed_sequence;
+} calibration_ring_capture_debug_t;
+
 bool calibration_manager_init(void);
 void calibration_manager_set_ready(bool ready);
 void calibration_manager_service(void);
@@ -111,6 +137,21 @@ bool calibration_manager_get_data_training_snapshot(
     calibration_training_data_snapshot_t *snapshot);
 bool calibration_manager_save_data_capture(
     uint32_t *job_id, char *path, size_t path_size);
+/* Freeze the bounded NORMAL-persona RX/TX byte history and queue it to SD for
+ * TRN-03B offline waveform reconstruction. The ring remains running. */
+bool calibration_manager_save_ring_capture(
+    uint32_t calibration_generation,
+    uint32_t capture_epoch,
+    uint32_t *job_id,
+    char *path,
+    size_t path_size);
+bool calibration_manager_request_ring_capture(
+    uint32_t calibration_generation,
+    uint32_t capture_epoch);
+bool calibration_manager_get_ring_capture_snapshot(
+    calibration_ring_capture_snapshot_t *snapshot);
+void calibration_manager_get_ring_capture_debug(
+    calibration_ring_capture_debug_t *debug);
 bool calibration_manager_begin_training_stage(
     uint32_t node_count,
     uint32_t evidence_flags,

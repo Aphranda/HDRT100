@@ -327,6 +327,71 @@ scpi_result_t scpi_calibration_data_capture_save(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_calibration_ring_capture_save(scpi_t *context)
+{
+    uint32_t calibration_generation = 0u;
+    uint32_t capture_epoch = 0u;
+    uint32_t job_id = 0u;
+    char path[96];
+    if (SCPI_ParamUInt32(
+            context, &calibration_generation, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &capture_epoch, TRUE) != TRUE ||
+        !calibration_manager_save_ring_capture(
+            calibration_generation, capture_epoch,
+            &job_id, path, sizeof(path))) {
+        scpi_port_push_exec_error(context, "CAL_RING_CAPTURE_SAVE_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, job_id);
+    SCPI_ResultText(context, path);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_ring_capture_latch(scpi_t *context)
+{
+    uint32_t calibration_generation = 0u;
+    uint32_t capture_epoch = 0u;
+    if (SCPI_ParamUInt32(
+            context, &calibration_generation, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &capture_epoch, TRUE) != TRUE ||
+        !calibration_manager_request_ring_capture(
+            calibration_generation, capture_epoch)) {
+        scpi_port_push_exec_error(context, "CAL_RING_CAPTURE_LATCH_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, calibration_generation);
+    SCPI_ResultUInt32(context, capture_epoch);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_ring_capture_q(scpi_t *context)
+{
+    calibration_ring_capture_snapshot_t snapshot;
+    calibration_ring_capture_debug_t debug;
+    if (!calibration_manager_get_ring_capture_snapshot(&snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    calibration_manager_get_ring_capture_debug(&debug);
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.sequence);
+    SCPI_ResultUInt32(context, snapshot.calibration_generation);
+    SCPI_ResultUInt32(context, snapshot.capture_epoch);
+    SCPI_ResultUInt32(context, snapshot.node);
+    SCPI_ResultUInt32(context, snapshot.node_count);
+    SCPI_ResultUInt32(context, snapshot.physical.rx_byte_count);
+    SCPI_ResultUInt32(context, snapshot.physical.tx_byte_count);
+    SCPI_ResultUInt32(context, snapshot.physical.rx_produced_bytes);
+    SCPI_ResultUInt32(context, snapshot.physical.tx_produced_bytes);
+    SCPI_ResultUInt32(context, debug.core1_service_count);
+    SCPI_ResultUInt32(context, debug.intent_read_fail_count);
+    SCPI_ResultUInt32(context, debug.last_seen_sequence);
+    SCPI_ResultUInt32(context, debug.copy_attempt_count);
+    SCPI_ResultUInt32(context, debug.copy_fail_count);
+    SCPI_ResultUInt32(context, debug.consumed_sequence);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_training_stage_begin(scpi_t *context)
 {
     uint32_t node_count = 0u;

@@ -2406,6 +2406,13 @@ scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context)
     return scpi_port_result_ok(context);
 }
 
+scpi_result_t scpi_cmd_system_tdma_ring_arm_status_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(
+        context, (uint32_t)distributed_refmem_tdma_ring_arm_last_result());
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_ring_train(scpi_t *context)
 {
     uint32_t cycles = 0u;

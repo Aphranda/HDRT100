@@ -30,6 +30,12 @@ def evidence(level: int = 9) -> tuple[dict, dict]:
     }
     data_links = [{
         "link": link,
+        "marker_source_node": link,
+        "marker_destination_node": (link + 1) % 4,
+        "data_source_node": (link + 1) % 4,
+        "data_destination_node": link,
+        "marker_direction": "forward",
+        "data_direction": "reverse",
         "trial_count": 3,
         "accepted_count": 3,
         "offset_histogram": {"0": 3},
@@ -110,6 +116,10 @@ def test_build_matrix_derives_residence_and_budget(tmp_path: Path) -> None:
     assert link0["guard_cycles"] == 0
     assert link0["loop_delay_cycles"] == 8
     assert link0["link_budget_cycles"] == 3049
+    assert link0["marker_source_node"] == 0
+    assert link0["marker_destination_node"] == 1
+    assert link0["data_source_node"] == 1
+    assert link0["data_destination_node"] == 0
     assert link0["source_evidence"]["forward_residence_ticks"] == [1, 1, 1]
     path = tmp_path / "matrix.json"
     path.write_text(__import__("json").dumps(matrix), encoding="utf-8")

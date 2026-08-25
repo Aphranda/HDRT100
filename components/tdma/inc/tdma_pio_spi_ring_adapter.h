@@ -56,6 +56,13 @@ typedef enum {
     TDMA_PIO_SPI_RING_ROLE_FORWARD = 1u,
 } tdma_pio_spi_ring_role_t;
 
+typedef enum {
+    /* Host fake physical layers and maintenance compatibility path. */
+    TDMA_PIO_SPI_RING_FORWARDING_STORE_FORWARD = 0u,
+    /* Product short-frame path: the PIO forwards while bytes are arriving. */
+    TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT = 1u,
+} tdma_pio_spi_ring_forwarding_mode_t;
+
 /* Optional resident physical-layer control. When set, start() arms the
  * physical layer with the active ring config and stop() disarms it. */
 typedef bool (*tdma_pio_spi_ring_phys_arm_fn)(
@@ -88,6 +95,7 @@ typedef struct {
     uint32_t started;
     uint32_t service_count;
     uint32_t role;
+    uint32_t forwarding_mode;
     uint32_t forward_count;
     uint32_t up_sequence;
     uint32_t down_rx_sequence;
@@ -140,6 +148,7 @@ typedef struct {
     tdma_flight_engine_t *flight_engine;
     volatile uint32_t snapshot_guard;
     tdma_pio_spi_ring_role_t role;
+    tdma_pio_spi_ring_forwarding_mode_t forwarding_mode;
     uint32_t started;
     uint32_t service_count;
     uint32_t forward_count;
@@ -195,6 +204,9 @@ void tdma_pio_spi_ring_adapter_set_flight_fifo(
 void tdma_pio_spi_ring_adapter_set_flight_engine(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_flight_engine_t *engine);
+bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_forwarding_mode_t mode);
 bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
                                          const uint8_t *packet,
                                          size_t packet_size,

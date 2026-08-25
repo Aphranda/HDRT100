@@ -365,7 +365,7 @@ staging 必须同时保存 `base_half_chip_ns`、`offset_sample_count`、`sample
 
 ### TRN-03：TDMA 短帧/FIFO 闭环接入
 
-第三阶段才恢复 NORMAL persona，把 TRN-02 的 per-link window 绑定到 TDMA adapter，
+第三阶段才装载按 ring role 配置的产品 cyclic flight persona，把 TRN-02 的 per-link window 绑定到 TDMA adapter，
 并通过显式 `STOP -> stage -> validate -> ARM -> START` 接入短帧和 TX/RX FIFO。ARM 前
 必须冻结本次 profile 的 PIO 指令周期预算；core1
 负责 PIO/SM/DMA、飞行转发和 FIFO 搬运；core0 只处理已完成帧和 guarded snapshot。
@@ -424,15 +424,44 @@ training window stale 并重新训练。`cycle_period_ns` 是 TDMA 调度周期�
 instruction period；core1 的 RTOS service 只允许在已预留的 bounded budget 内搬运 FIFO，
 不能进入 marker、采样边沿或 cut-through 的关键路径。
 
-第三阶段门禁包括：
+第三阶段门禁分为两个连续层级：
+
+- `raw-flight`：只验证原始短帧已经脱离“完整 RX 后由 core1 再次发送”的热路径；reference
+  使用 `TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN`，其余 node 使用
+  `TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER`。本层要求 PIO/DMA 的 DATA、CS/SCK、
+  sequence、CRC 和物理计数形成整圈证据，但不要求本节点 process-image segment 已被替换；
+- `process-image`：在 `raw-flight` 通过后，进一步验证 active TX image、固定 segment 替换、
+  RX mirror/FIFO、map apply、WKC/尾部完整性和 core0 拥塞隔离。透明 byte pipeline 不能作为
+  本层通过证据。
+
+两个层级共同要求：
 
 - 四条 directed link 均有同一 topology/profile/calibration generation 的 accepted window；
 - `loop_delay` 只用于整圈返回预算、反馈窗口和 timeout，不替代 per-link `data_offset`；
 - 每条 link 的 `link_budget_cycles`、`rx_arm_lead_cycles`、`forward_residence_cycles` 和
   `loop_delay_cycles` 均能由当前 PIO persona 重放，不能依赖一次性的 core0/RTOS 调度时刻；
-- 短帧的 TX/RX FIFO、sequence、CRC、up/down 状态同时增长；
+- `raw-flight` 的 sequence、CRC、物理 RX/TX 和 up/down 状态同时增长；`process-image` 再要求
+  TX/RX FIFO、segment replacement 和 map apply 同时增长；
 - 任一链路失败、窗口过期或 generation 不一致，ARM 必须拒绝并恢复 STOPPED；
 - 只有通过重复性、freshness、hardware latch、bias 和 rollback 门禁，才可形成 active candidate。
+
+TRN-03B 的失败分析必须复用板端 wire capture 闭环，而不能只依据运行计数器猜测。历史
+`copy_normal_capture` API 名称为兼容接口，不代表运行 persona 必须是 NORMAL；它同时允许
+NORMAL、`FLIGHT_ORIGIN` 和 `FLIGHT_FOLLOWER` 的可诊断 wire capture。TDMA core1 owner
+保存最近的 RX SCK 上升沿采样流以及最近一个完整 TX 帧；容量和格式
+分别引用 `TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES`、
+`TDMA_PIO_SPI_NORMAL_CAPTURE_VERSION`。Calibration 通过 guarded intent 请求 core1 锁存，
+随后由 core0 storage owner 写入 SD；host 再并行下载各 node 证据，按训练配置中的 marker/data
+方向矩阵生成每节点 SVG。分析窗口由 host 参数提供；当前 HIL 使用的 `1 us` 仅是本轮证据
+快照，不是协议常量。
+
+捕获 intent 使用 sequence 区分重试并采用 latest-wins：新的诊断请求可以覆盖仍处于
+`PENDING` 的旧请求，generation/epoch 继续阻止旧 snapshot 被保存。查询必须同时发布
+`core1_service_count`、`intent_read_fail_count`、`last_seen_sequence`、
+`copy_attempt_count`、`copy_fail_count` 和 `consumed_sequence`，从而区分 core1 未运行、
+intent 未读到、物理快照复制失败和已经消费但保存身份不匹配。host 允许有界自动重试，
+最终无论闭环或捕获是否通过都必须执行 STOP。该诊断闭环只解释 TRN-03B 失败，不改变
+active calibration，也不允许 SD/SCPI 进入 PIO 边沿热路径。
 
 三阶段与历史 delay ledger 的关系固定为：
 
@@ -465,10 +494,12 @@ TRN-02 accepted window   -> TRN-03 的 TDMA ARM/FIFO 接入
 | `DATA_RUNNING` | marker 已捕获且转发已提交 | 按候选 `N` 发/收 codeword，DMA 连续采样 | TX/RX DMA 完成或 stall |
 | `CORRELATING` | raw capture 完整 | 计算 codeword、极性、CRC、margin、skew | accepted 或 rejected |
 | `REFINING` | accepted 但窗口仍可缩小 | 更新下一轮 bounded search interval | 达到 profile resolution 或最大轮数 |
-| `ACCEPTED` | 重复性、CRC、generation/freshness 通过 | 发布 guarded evidence，准备恢复 NORMAL persona | 明确提交 staging 或 STOP |
-| `REJECTED` | 缺 marker、坏 CRC、低 margin、DMA/stall、epoch 不匹配 | 记录 reason，停止训练并恢复 persona | 新请求或 STOP |
+| `ACCEPTED` | 重复性、CRC、generation/freshness 通过 | 发布 guarded evidence，准备切换到当前产品 cyclic persona | 明确提交 staging 或 STOP |
+| `REJECTED` | 缺 marker、坏 CRC、低 margin、DMA/stall、epoch 不匹配 | 记录 reason，停止训练并恢复已配置 persona | 新请求或 STOP |
 
-训练不能在 `DATA_RUNNING` 状态直接切入 TDMA cyclic service；必须先完成 persona teardown、DMA abort/clear、PIO FIFO clear 和 NORMAL persona restore，再由显式 `START` 开启 TDMA。
+训练不能在 `DATA_RUNNING` 状态直接切入 TDMA cyclic service；必须先完成 persona teardown、
+DMA abort/clear、PIO FIFO clear，并按 ring role 装载当前产品 cyclic persona，再由显式 `START`
+开启 TDMA。当前 PIO-SPI 产品路径对应 `FLIGHT_ORIGIN/FLIGHT_FOLLOWER`，不得写死为 NORMAL。
 
 ## 6. Codeword 与证据格式
 
@@ -526,7 +557,8 @@ NO.4 -> NO.1
 STOP -> topology/profile readback -> stage per-link training window
      -> validate generation/CRC/freshness -> ARM
      -> optional CLK coarse training -> marker/data evidence check
-     -> restore NORMAL persona -> explicit START
+     -> load configured cyclic flight persona -> explicit START
+     -> raw-flight gate -> process-image gate
 ```
 
 如果任一链路缺少 accepted window，ARM 必须拒绝，不能让 NO.1 单独发出 cyclic 数据后把后续节点置于无窗口状态。运行中 marker/data 训练只允许作为显式 maintenance epoch，不能与 cyclic TDMA 共用 PIO/SM/DMA。
@@ -557,12 +589,20 @@ STOP -> topology/profile readback -> stage per-link training window
 - best lag 重复范围、margin、marker/data skew 和占空比满足 operating profile；
 - NO.1 -> NO.2 先通过，再扩展到其他三条链路。
 
-### 四板门禁
+### 四板 raw-flight 门禁
 
 - 四条 directed link 都有同一 topology/profile generation 下的 accepted evidence；
-- 每个节点都能在 marker 相对窗口内解析 DATA，并立即转发 CS marker；
-- 四板 TDMA 的 `up_running/down_running`、adapter RX/TX、反馈 sequence/CRC 同时增长；
+- 每个 node 按 ring role 装载正确 flight persona，follower 不产生第二次 software TX；
+- 四板 TDMA 的 `up_running/down_running`、物理 RX/TX、反馈 sequence/CRC 同时增长；
+- bit-shift scanner 可解释非字节对齐返回流，坏帧、timeout、stall 和 overrun 不增长；
 - 任一链路训练失败都使整圈回到 STOPPED，不允许部分启动。
+
+### 四板 process-image 门禁
+
+- `raw-flight` 已在相同 topology/profile/calibration generation 下通过；
+- 每个 node 在固定 offset 到达时只替换自己拥有的 segment，其余 byte 保持流水；
+- active TX image generation、RX mirror/FIFO、segment bitmap、map apply、WKC 和尾部完整性证据一致；
+- core0 延迟或 RX FIFO 拥塞不能停止 wire forwarding，失败仍统一回到 STOPPED。
 
 ### active calibration 门禁
 
@@ -574,7 +614,8 @@ STOP -> topology/profile readback -> stage per-link training window
 
 ## 11. 回退与交付顺序
 
-marker timeout、低 margin、CRC/sequence/epoch 错、DMA overrun、PIO stall 或掉线均必须停止本轮、清 FIFO/DMA、恢复 NORMAL persona，并保持 active generation 不变。交付顺序固定为：
+marker timeout、低 margin、CRC/sequence/epoch 错、DMA overrun、PIO stall 或掉线均必须停止本轮、
+清 FIFO/DMA、恢复已配置的产品 cyclic persona，并保持 active generation 不变。交付顺序固定为：
 
 ```text
 TRN-01-A 文档/字段冻结候选
@@ -582,7 +623,8 @@ TRN-01-B 环路 marker capture/cut-through
 TRN-02-A NO.1->NO.2 DATA offset 粗搜与细搜
 TRN-02-B 四条 directed link window 训练
 TRN-03-A TDMA per-link staging/ARM gate
-TRN-03-B 四板 TDMA 短帧/FIFO 闭环
+TRN-03-B1 四板 TDMA raw-flight 闭环
+TRN-03-B2 四板 TDMA process-image/FIFO 闭环
 TRN-03-C path-delay/loop-delay 汇总、active gate、长稳与持久化
 ```
 

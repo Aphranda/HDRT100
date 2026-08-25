@@ -32,6 +32,9 @@ scpi_result_t scpi_calibration_data_inject(scpi_t *context);
 scpi_result_t scpi_calibration_data_stop(scpi_t *context);
 scpi_result_t scpi_calibration_data_q(scpi_t *context);
 scpi_result_t scpi_calibration_data_capture_save(scpi_t *context);
+scpi_result_t scpi_calibration_ring_capture_save(scpi_t *context);
+scpi_result_t scpi_calibration_ring_capture_latch(scpi_t *context);
+scpi_result_t scpi_calibration_ring_capture_q(scpi_t *context);
 scpi_result_t scpi_calibration_training_stage_begin(scpi_t *context);
 scpi_result_t scpi_calibration_training_stage_link(scpi_t *context);
 scpi_result_t scpi_calibration_training_stage_q(scpi_t *context);
@@ -68,6 +71,9 @@ scpi_result_t scpi_calibration_p3_q(scpi_t *context);
     {.pattern = "CALibration:DATA:STOP", .callback = scpi_calibration_data_stop}, \
     {.pattern = "READ:CALibration:DATA?", .callback = scpi_calibration_data_q}, \
     {.pattern = "CALibration:DATA:CAPTure:SAVE", .callback = scpi_calibration_data_capture_save}, \
+    {.pattern = "CALibration:RING:CAPTure:SAVE", .callback = scpi_calibration_ring_capture_save}, \
+    {.pattern = "CALibration:RING:CAPTure:LATCh", .callback = scpi_calibration_ring_capture_latch}, \
+    {.pattern = "READ:CALibration:RING:CAPTure?", .callback = scpi_calibration_ring_capture_q}, \
     {.pattern = "CALibration:TRAINing:STAGe:BEGin", .callback = scpi_calibration_training_stage_begin}, \
     {.pattern = "CALibration:TRAINing:STAGe:LINK", .callback = scpi_calibration_training_stage_link}, \
     {.pattern = "READ:CALibration:TRAINing:STAGe?", .callback = scpi_calibration_training_stage_q}, \

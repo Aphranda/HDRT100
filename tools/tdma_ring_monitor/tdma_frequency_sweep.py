@@ -44,6 +44,13 @@ PHYS_FIELDS = (
     "last_tx_done_timestamp_ns_lo", "last_tx_done_timestamp_ns_hi",
     "last_rx_edge_timestamp_ns_lo", "last_rx_edge_timestamp_ns_hi",
     "last_rx_extract_timestamp_ns_lo", "last_rx_extract_timestamp_ns_hi",
+    "program_persona", "program_switch_count", "program_switch_fail_count",
+    "pio_irq_flags", "pio_fdebug", "tx_sm_pc", "rx_sm_pc",
+    "tx_sm_tx_fifo_level", "tx_sm_rx_fifo_level",
+    "rx_sm_tx_fifo_level", "rx_sm_rx_fifo_level", "gpio_input_levels",
+    "origin_done_irq_count", "origin_done_txstall_count",
+    "origin_clock_timeout_count", "origin_data_timeout_count",
+    "origin_recovery_count",
 )
 
 PROFILE_FIELD_COUNT = 6

@@ -132,6 +132,9 @@ bool tdma_runtime_owner_init(void)
         tdma_service_bind_traffic_scheduler(&s_tdma_runtime_owner,
                                             &s_tdma_traffic_scheduler) &&
         tdma_pio_spi_ring_adapter_init(&s_tdma_pio_spi_ring_adapter) &&
+        tdma_pio_spi_ring_adapter_set_forwarding_mode(
+            &s_tdma_pio_spi_ring_adapter,
+            TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT) &&
         tdma_service_register_adapter_impl(
             &s_tdma_runtime_owner,
             TDMA_ADAPTER_PIO_SPI,
@@ -204,6 +207,19 @@ bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot
         return false;
     }
     return tdma_pio_spi_phys_get_snapshot(&s_tdma_pio_spi_phys, snapshot);
+}
+
+bool tdma_runtime_owner_copy_normal_capture_core1(
+    uint32_t *rx_bytes,
+    size_t rx_capacity,
+    uint32_t *tx_bytes,
+    size_t tx_capacity,
+    tdma_pio_spi_normal_capture_snapshot_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_pio_spi_phys_copy_normal_capture(
+               &s_tdma_pio_spi_phys, rx_bytes, rx_capacity,
+               tx_bytes, tx_capacity, snapshot);
 }
 
 bool tdma_runtime_owner_get_clk_train_snapshot(
