@@ -41,6 +41,18 @@ def test_registry_accepts_valid_contract_rows(tmp_path: Path) -> None:
     assert result.failures == []
 
 
+def test_registry_validates_calibration_contract_rows(tmp_path: Path) -> None:
+    _make_registry_tree(tmp_path)
+    row = VALID_ROW.replace("TDMA-REASON-01", "CALIBRATION-PHASE-01")
+    (tmp_path / "docs" / "check" / "DOCS_REGISTRY.md").write_text(
+        row, encoding="utf-8")
+    result = Result(failures=[], warnings=[])
+    check_registry(tmp_path, result)
+    assert result.failures == []
+    assert not any("CALIBRATION-PHASE-01" in warning
+                   for warning in result.warnings)
+
+
 def test_registry_rejects_duplicate_ids(tmp_path: Path) -> None:
     _make_registry_tree(tmp_path)
     dup = (

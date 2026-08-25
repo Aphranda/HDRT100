@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
 [`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
@@ -60,19 +60,21 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 | TRN-02C | 将单跳结果形成 diagnostic training window，绑定 topology/profile/calibration generation 和 CRC | [x] | snapshot/SD capture 可读，topology/profile/schedule/calibration generation 已绑定，并保持 `DIAGNOSTIC_ONLY` |
 | TRN-02D | 沿 accepted topology 完成四条 directed link 的 window 训练和固定 operating-profile 阶梯验证 | [x] | 固定阶梯全部完成完整 link 集、多次 repeat、跨度、identity、residence 和 fault-counter 门禁；证据见任务记录 |
 
-### SCK 独立训练支线
+### 统一相位训练路径
 
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
-| SCK-TRN-01 | 使用 SCK 自身 PIO 启动、已知 burst 和 raw capture 完成独立环路捕获，不引用 MARK offset 计算相位 | `[~]` | 当前固件/工具已有 SCK request、snapshot、搜索和矩阵骨架，但仍引用 `source_marker_offset_sample_count`、`destination_marker_offset_sample_count` 与 `marker_to_sck_samples`；完成解耦及 host 回归前不得退出 |
-| SCK-TRN-02 | 沿 accepted topology 对每个 destination node 执行独立 STOP/ARM/inject repeat，生成全量 SCK offset matrix | [ ] | 每条 directed link 均有 SCK 自身 capture origin、拍差直方图、众数/中位数、拒绝比例、raw capture 和重复性门禁，容量引用 `TDMA_RING_NODE_MAX` |
+| PHASE-TRN-BASE | MARK、SCK、DATA 共用 `link_base_delay = measured_link_delay / 2` 与 `base_samples + node_offset`，codebook half-chip 仅用于波形编码 | `[x]` | C 共用原语、host 共用计划 schema 和 MARK/SCK/DATA 专项回归通过；范围和容量引用 `CALIBRATION_TRAINING_PHASE_*` |
+| PHASE-TRN-MATRIX | 三种信号共用零 offset 基线、SD raw capture、离线相关/SVG、全量 Node 笛卡尔矩阵、动态加载和 residual repeat gate | `[~]` | 共用矩阵生成器和 DATA/SCK observed matrix 已接入；四板 SCK/DATA 新固件 HIL 尚待执行，失败 trial 必须保留 |
+| SCK-TRN-01 | 使用 SCK 自身 PIO 启动、已知 burst 和 raw capture 完成独立环路捕获，不引用 MARK offset 计算相位 | `[x]` | request/snapshot/SCPI/PIO/host 已移除 MARK phase 输入，SCK 使用自身 origin、per-link base 和 Node offset |
+| SCK-TRN-02 | 沿 accepted topology 对每个 destination node 执行独立 STOP/ARM/inject repeat，生成全量 SCK offset matrix | `[~]` | 固件和工具已具备 raw capture、SVG、直方图、众数/中位数和全量矩阵；等待四板基线与 repeat HIL |
 | SCK-TRN-GATE | 在 MARK 与 SCK 分别 accepted 后验证 `mark_sck_skew` | [ ] | skew 只进入产品 guard/window 验收，不回写任一物理 offset；generation/profile/topology/stale 与 rollback 门禁通过 |
 
 ### TRN-03：TDMA 短帧/FIFO 闭环接入
 
 | ID | 待办 | 状态 | 退出门禁 |
 |---|---|---|---|
-| TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的 `clkdiv`、`clk_sys_hz`、`pio_instruction_period_ns`、`bit_cycles`、`marker_to_data_cycles`、`forward_residence_cycles`、`rx_arm_lead_cycles`、`codeword_cycles`、`guard_cycles`、`link_budget_cycles` 和 `loop_delay_cycles` | `[~]` | DATA/residence 成对 evidence 已能生成完整 matrix，缺 link、diagnostic-only 和预算过期均拒绝，四板 staging/ARM/STOPPED 回退已通过；新增独立 SCK matrix 后必须补齐 staging schema、写后读回和拒绝门禁复验 |
+| TRN-03A | 增加 TDMA per-link staging 和 ARM gate，绑定实际 PIO persona 的周期预算以及 MARK/SCK/DATA 统一相位字段 | `[~]` | staging 已携带 `link_base_delay_ns` 与三种 `*_phase_delay_cycles`，缺 link、diagnostic-only、矩阵或预算过期均拒绝；等待四板写后读回和拒绝门禁复验 |
 | TRN-03B | 按 ring role 装载产品 flight persona 后启动 TDMA 短帧；先过 `raw-flight`，再过 `process-image` | `[~]` | wire capture、Core1 消费诊断、SD 保存、host 下载和逐 node SVG 已固化；raw PIO cut-through 代码与工具门禁已接通但尚无四板 HIL，固定 segment 替换、WKC/尾部完整性和 FIFO/map apply 闭环仍待实现 |
 | TRN-03C | 汇总 per-link path-delay、residence、loop-delay、PIO 周期预算和 residual，形成 active candidate gate | [ ] | bias、hardware latch、freshness、CRC、周期重放、重复性和 rollback 全部通过 |
 | TRN-03D | 故障注入与长稳：marker timeout、低 margin、CRC/epoch 错、DMA overrun、PIO stall、掉线；固化工具和 SD/Flash 输入格式 | [ ] | 失败统一 STOPPED，active generation 不被污染，工具按 `*IDN?` 地址工作 |
@@ -298,8 +300,8 @@ path_sum_AB = (t4 - t1) - residence_B
 
 当前关键阻塞项：
 
-- `[!]` SCK 当前仍使用 MARK offset 参与期望相位计算；必须先改为 SCK 自身 capture origin，
-  完成全量 per-node offset matrix 和四板 repeat，才能重新完成 TRN-03A 并进入 raw-flight。
+- `[!]` 统一相位代码路径已形成，但新固件尚未进行四板 MARK/SCK/DATA 零 offset 基线、矩阵
+  动态加载与 residual repeat；HIL 通过前不能把 host 推荐矩阵提升为 active calibration。
 - `[!]` P3 已有 4 ns PIO/DMA edge evidence 接口，但 endpoint bias、active/staging
   generation 和 topology/profile freshness 尚未补齐，不能进入正式 active calibration。
 - `[!]` 第二阶段 marker wire layout、CRC、阈值和产品级训练 SCPI 尚未冻结。

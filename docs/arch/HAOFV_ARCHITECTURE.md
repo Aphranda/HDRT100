@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-24
+Last updated: 2026-08-26
 Version: 4
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -397,6 +397,10 @@ CLK/DATA/SYNC physical edge
 
 - 通过 `*IDN?` 唯一地址和隔离 link probe 生成 directed adjacency，只有单一闭环覆盖全部
   active 节点时才发布 accepted ring order/slot map；NO 映射是该结果的显示/持久化投影。
+- MARK/CS、SCK、DATA 统一使用 per-link `measured_link_delay / 2` 物理 base 与 per-destination
+  Node offset；三者共用 PIO origin、raw capture、SD evidence、离线相关/SVG、零 offset 基线、
+  全量矩阵、动态加载和 residual gate，信号 persona 不得另造校准算法。代码契约见
+  `calibration_training_phase.h`。
 - EtherCAT DC 风格训练状态、质量统计、freshness 和 accepted/rejected 门禁。
 - CLK/DATA/SYNC 双向同时对比、residence、endpoint bias、path-sum、方向不对称性和
   per-link/cumulative delay 的发布边界。

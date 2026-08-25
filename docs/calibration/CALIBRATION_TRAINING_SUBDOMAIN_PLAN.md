@@ -1,10 +1,10 @@
-# 校准训练子域：Marker/Data 对齐与 TDMA 接入方案
+# 校准训练子域：统一相位训练与 TDMA 接入方案
 
 Status: Active
 Domain: CALIBRATION / TRAINING
 Canonical: `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 
 本文档把“先发送同步 marker，再按本地 PIO 周期发送编码 DATA，并在接收端按 marker 建立相对时间基准”的方案收敛为校准域下的独立训练子域。本文档是实施方案和待冻结候选接口，不把当前诊断值直接提升为 active calibration，也不允许训练子域绕过 TDMA core1 owner 直接操作 PIO、SM 或 DMA。
 
@@ -47,21 +47,24 @@ core0、USB、日志、完整 marker/codeword 解析或业务 FIFO。首边沿�
 trial 的后处理门禁；后处理失败必须记录链路级 reason，并停止当前训练 epoch，不能倒推首边沿
 不存在，也不能把相关器在低质量波形上的 `polarity` 猜测直接解释成物理反相。
 
-这里的 `N` 只调节接收 capture window，marker forward 的 PIO delay 固定引用
-`TDMA_PIO_SPI_MARKER_FORWARD_DELAY_CYCLES`，不参与 offset 训练。capture 的动态加载关系为：
+MARK/CS、SCK 和 DATA 必须使用同一套物理相位模型；各信号只允许在引脚、PIO persona、
+codeword 和起始边沿适配层不同，不得另造 base、offset、矩阵或证据算法。代码事实源为
+`calibration_training_phase.h` 和 `tools/calibration_ring_validate/calibration_phase.py`。
+动态加载关系固定为：
 
 ```text
 link_i_base_delay = link_i_delay / 2
-offset_link = measured_window_delay - link_i_base_delay
-capture_delay_cycles = half_chip_samples(codebook) + offset_sample_count
+base_samples = round(link_i_base_delay / sample_period_ns)
+effective_phase_delay_samples = base_samples + node_offset_sample_count
 ```
 
 因此 offset 为负表示把接收窗口向前挪，为正表示向后挪。候选初值来自当前有效 PIO 时钟周期
 和每条 link 独立测得的粗窗口；不同线长必须分别计算 `link_i_base_delay`，不能复用全环平均值。
 每次缩小搜索范围必须绑定 profile、topology、epoch 和 codebook。当前训练范围引用
-`CALIBRATION_TRAINING_MARKER_MIN_OFFSET_SAMPLES` 和
-`CALIBRATION_TRAINING_MARKER_MAX_OFFSET_SAMPLES`；最终 `capture_delay_cycles` 还必须满足
-`CALIBRATION_TRAINING_MARKER_MAX_CAPTURE_DELAY_CYCLES`，所以范围是当前 profile 的搜索能力，
+`CALIBRATION_TRAINING_PHASE_MIN_OFFSET_SAMPLES` 和
+`CALIBRATION_TRAINING_PHASE_MAX_OFFSET_SAMPLES`；最终相位值还必须满足各 PIO persona 的
+动态延迟约束，例如 MARK 使用 `CALIBRATION_TRAINING_MARKER_MAX_CAPTURE_DELAY_CYCLES`，
+所以范围是当前 profile 的搜索能力，
 不是所有 codebook 都能无条件加载的范围。当前第三阶段约 `81 ns` 的观测值只能作为诊断输入
 快照，不能写成训练算法的硬编码事实。
 
@@ -70,12 +73,12 @@ marker 与 DATA 走公共传播路径时，接收端使用相对间隔而非绝�
 ```text
 T_sample(link)
     = marker_capture(link)
-    + T_base(codebook/profile)
-    + offset_link
+    + link_base_delay(link)
+    + node_offset(destination)
 ```
 
-当前 40 ns half-chip 是一个 codebook/profile 基准快照，不能作为所有 profile 的硬编码常量。
-对当前 profile，训练的核心产物是每条 directed link 的 `offset_link`：它由已知 DATA codeword
+`half_chip_samples` 只描述训练波形的编码/解码，不参与物理 base 计算。对当前 profile，训练的
+核心产物是每个 destination node 的 offset：它由已知信号 codeword
 在 4 ns raw sample 网格上的相关峰产生，先保存 `offset_sample_count`，再由
 `offset_ns = offset_sample_count * sample_period_ns` 派生。边沿恰好落在采样周期附近时可能量化到
 相邻 sample，因此质量门必须保留 best/second peak、margin、重复分布和 PWD，而不能把单次
@@ -112,10 +115,10 @@ forward residence 和 guard 的组合，不得替代任何单条 `link_i_delay`�
 的接收端组成应命名为 `node1_receiver_delay`；禁止把 receiver delay 归到 source node，或把
 driver/receiver datasheet delay 在端到端实测值上重复相加。
 
-当前训练 offset 是按 destination node 装载到该节点 PIO capture 相位的独立状态量；forward
-delay 保持固定。矩阵必须保留
+当前训练 offset 是按 destination node 装载到该节点 PIO 相位原语的独立状态量；MARK、SCK、
+DATA 各自拥有矩阵，但矩阵结构和生成算法相同。矩阵必须保留
 所有节点维度的笛卡尔积；当前代码事实源为
-`tools/calibration_ring_validate/calibration_marker_train.py::build_offset_matrix()`。筛选参数只决定
+`tools/calibration_ring_validate/calibration_phase.py::build_offset_rows()`。筛选参数只决定
 本轮执行哪些矩阵行，不能从输出中删除未执行行或把固定为零的维度降掉。每行至少保存：
 
 ```text
@@ -129,7 +132,7 @@ normal/inverted distance, marker flags, raw capture reference
 的一个 `loop` capture；它不是“全部 link 都已独立测量”。要完成全量 directed-link 判断，必须
 轮换 reference/origin，使每条 `link_i` 至少一次成为可直接与本地期望 marker 对照的测量对象。
 
-### 2.1.1 MARK 与 SCK 独立 offset 矩阵
+### 2.1.1 MARK、SCK 与 DATA 的统一训练路径
 
 MARK/CS 和 SCK 是两条独立物理信号路径。二者可以共享 accepted topology、profile identity、
 epoch 分配和证据格式，但不能共享采样相位事实。MARK 训练通过只表示 MARK 自身可识别，并为
@@ -143,16 +146,21 @@ SCK-TRN-01: PIO 内部启动已知 SCK burst -> 各 node 原始捕获/cut-throug
 SCK-TRN-02: 以 SCK 自身 capture origin 搜索相位 -> 重复统计 -> per-node SCK offset 矩阵
 ```
 
+MARK、SCK 和 DATA 均按 `PHASE_TRAINING_STAGES` 定义的顺序执行：PIO 自身起始边沿、raw
+capture、SD 原始证据、离线相关和 SVG、零 offset 基线、全量 Node offset 矩阵、动态装载、
+residual repeat gate。失败 trial 和未接受矩阵行也是训练证据，禁止丢弃。SCK 不引用 MARK
+offset；DATA 可以使用已训练 MARK 控制启停，但 DATA 的 `link_base_delay` 和 Node offset 仍由
+统一模型独立保存，不能把 MARK offset 折算进 DATA offset。
+
 每个 node 的 `sck_offset_sample_count` 必须从 SCK 自身的相关峰、拍差直方图、众数/中位数和
 拒绝比例产生；容量引用 `TDMA_RING_NODE_MAX`。单张 SVG 只用于解释候选方向和搜索区间，
 不能直接替代重复门禁。每次 repeat 必须是独立的 `STOP -> ARM -> inject -> capture`，因为
 重新 ARM 后环路可能落入相邻 raw sample 相位状态。
 
 MARK 与 SCK 均 accepted 后才计算 `mark_sck_skew`。该值只用于产品 persona 的 guard/window
-验收和 stale 检查，不得回写为 MARK 或 SCK 的物理 offset。当前实现中的
-`source_marker_offset_sample_count`、`destination_marker_offset_sample_count` 和
-`marker_to_sck_samples` 仍把 MARK offset 代入 SCK 期望相位；在替换为 SCK 自身原点并完成
-四板重复 HIL 前，相关结果只能保持 `DIAGNOSTIC_ONLY`，不得进入 TRN-03 active staging。
+验收和 stale 检查，不得回写为 MARK 或 SCK 的物理 offset。当前实现已使用 SCK 自身 PIO
+origin、per-link base 和独立 Node offset；在完成四板重复 HIL 前，相关结果仍只能保持
+`DIAGNOSTIC_ONLY`，不得进入 TRN-03 active staging。
 
 ## 2.2 收发驱动器时序预算与去嵌入
 
@@ -370,7 +378,7 @@ TRN-01 的 `SYNC/CS` 是训练 persona 下的 timing marker；普通 TDMA person
 ### TRN-02：marker 锚定 DATA 码元时隙
 
 第二阶段在每个本地 marker origin 之后发送/捕获已知 DATA codeword。候选区间以当前
-codebook/profile 的 `T_base` 为中心，由 P3 path-delay 粗预算、PIO pipeline 和 guard 形成有界
+link 的 `link_base_delay` 为中心，由 P3 path-delay 粗预算、PIO pipeline 和 guard 形成有界
 `offset_link` 搜索区间；实际接收位置通过 correlation、极性、CRC、sequence 和 margin 确认，
 而不是把 `81 ns` 写成固定等待值，也不是把收发器数据手册延迟重复加到 `T_base`。
 
@@ -383,8 +391,8 @@ NO.1 -> NO.2 单跳粗搜
     -> 四条 directed link 的 window 一致性检查
 ```
 
-TRN-02 的结果按 `T_base + offset_link` 表达为相对接收窗口，不是新的绝对 `path_delay`。
-staging 必须同时保存 `base_half_chip_ns`、`offset_sample_count`、`sample_period_ns`、
+TRN-02 的结果按 `link_base_delay + node_offset` 表达为相对接收窗口，不是新的绝对
+`path_delay`。staging 必须同时保存 `link_base_delay_ns`、`offset_sample_count`、`sample_period_ns`、
 `offset_ns` 和最终 window/guard，禁止只保存相加后的单个数字而丢失量化来源。如果 marker 和 DATA 的物理
 路径不完全相同，`marker_data_skew_ns` 必须单独统计；不能用整圈 RTT 或平均 path-delay
 掩盖该偏差。

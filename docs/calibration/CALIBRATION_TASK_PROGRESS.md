@@ -4,11 +4,32 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20260826-009 - MARK/SCK/DATA 统一相位训练路径
+
+- 状态：已完成代码与 host 工具收敛；尚未进行本 build 的四板 OTA/HIL，因此保持
+  `DIAGNOSTIC_ONLY`，不发布 active calibration。
+- 统一模型：代码事实源为 `calibration_training_phase.h` 与 `calibration_phase.py`；MARK、
+  SCK、DATA 均按 `link_base_delay = measured_link_delay / 2`、`effective_phase =
+  round(link_base_delay / sample_period) + node_offset` 计算。codebook half-chip 只参与波形
+  编解码，不再作为物理链路 base。
+- 统一阶段：三种信号均输出 `HAOFV_UNIFIED_PHASE_TRAINING_V1`，按 PIO 起始边沿、raw capture、
+  SD 保存、离线相关/SVG、零 offset 基线、全量 Node offset 矩阵、动态加载和 residual repeat
+  gate 执行；电气引脚和 PIO persona 只作为 adapter 差异。
+- 统一矩阵：`build_offset_rows()` 是全量 Node 笛卡尔积唯一生成器；MARK 调用该生成器，SCK
+  和 DATA 通过 `build_observed_offset_matrix()` 生成相同通用 row，并保留信号专用兼容字段。
+  offset 范围与 Node 容量引用 `CALIBRATION_TRAINING_PHASE_*`，不在各训练项目重复定义。
+- 固件构建：`out/build/sck-independent/DHRT100_UPDATE.pkg` 已成功生成；本次诊断快照的
+  `payload_sha256` 为 `b3006a96e61e0495174421b3c5dd6ee4ff721c4cd8dd28c5609f35542c4e57ad`。
+- 回归：公共路径及 MARK/DATA/SCK/TRN-03 定向 Python 测试通过；MARK、DATA、SCK C host
+  单测通过。测试数量属于本次运行快照，事实源为 `out/pytest/` 和构建日志。
+- 下一步：使用该 package 四板异步 OTA，依次采集 MARK、SCK、DATA 的零 offset 基线和逐 Node
+  SVG，生成矩阵后动态加载并做 residual repeat；随后复验 TRN-03 staging 写后读回与 raw-flight。
 
 ## CAL-TASK-20260825-008 - MARK 扩样检查点与 SCK 独立训练决策
 
