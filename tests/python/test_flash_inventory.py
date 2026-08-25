@@ -40,6 +40,17 @@ def test_inventory_rejects_unregistered_raw_caller(tmp_path):
         validate_inventory(tmp_path, base_inventory())
 
 
+def test_inventory_ignores_generated_out_tree(tmp_path):
+    source = tmp_path / "out" / "pytest" / "application" / "writer.c"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "void f(void) { drv_flash_erase_parked(0, 4096); }\n",
+        encoding="utf-8",
+    )
+    report = validate_inventory(tmp_path, base_inventory())
+    assert report["raw_callers"] == []
+
+
 def test_inventory_rejects_operation_drift(tmp_path):
     source = tmp_path / "application" / "writer.c"
     source.parent.mkdir(parents=True)

@@ -19,7 +19,7 @@ REQUIRED_CALLER_FIELDS = {
 }
 EXCLUDED_PARTS = {".git", ".tmp", "build", "build-validation", "build-debug", "build-rtos-smoke",
                   "build-multicore-smoke", "build-rtos-multicore-smoke", "tests", "tools",
-                  "third_party"}
+                  "third_party", "out"}
 EXCLUDED_FILES = {
     "drivers/mcu/flash/src/drv_flash.c",
     "drivers/mcu/flash/inc/drv_flash.h",
@@ -37,8 +37,11 @@ def normalize(path: Path) -> str:
 def scan_raw_references(root: Path) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for path in sorted(root.rglob("*.c")):
-        relative = normalize(path.relative_to(root))
-        if relative in EXCLUDED_FILES or any(part in EXCLUDED_PARTS or part.startswith("build-") for part in path.parts):
+        relative_path = path.relative_to(root)
+        relative = normalize(relative_path)
+        if relative in EXCLUDED_FILES or any(
+                part in EXCLUDED_PARTS or part.startswith("build-")
+                for part in relative_path.parts):
             continue
         text = path.read_text(encoding="utf-8")
         if (PARKED_WRITE_REFERENCE.search(text) and
