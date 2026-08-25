@@ -12,7 +12,8 @@ Last updated: 2026-08-26
 
 ## CAL-TASK-20260826-009 - MARK/SCK/DATA 统一相位训练路径
 
-- 状态：已完成代码与 host 工具收敛；尚未进行本 build 的四板 OTA/HIL，因此保持
+- 状态：已完成代码与 host 工具收敛，并完成本 build 的四板 OTA、SCK 零 offset 基线及
+  推荐矩阵动态加载复验；MARK/DATA 的统一路径复验和 TRN-03 staging 尚未完成，因此保持
   `DIAGNOSTIC_ONLY`，不发布 active calibration。
 - 统一模型：代码事实源为 `calibration_training_phase.h` 与 `calibration_phase.py`；MARK、
   SCK、DATA 均按 `link_base_delay = measured_link_delay / 2`、`effective_phase =
@@ -26,10 +27,20 @@ Last updated: 2026-08-26
   offset 范围与 Node 容量引用 `CALIBRATION_TRAINING_PHASE_*`，不在各训练项目重复定义。
 - 固件构建：`out/build/sck-independent/DHRT100_UPDATE.pkg` 已成功生成；本次诊断快照的
   `payload_sha256` 为 `b3006a96e61e0495174421b3c5dd6ee4ff721c4cd8dd28c5609f35542c4e57ad`。
+- 四板 OTA（诊断快照）：`out/ota/unified-phase-20260826/summary.json` 记录全部目标 Node 更新
+  成功并读回 package build；板卡身份、端口、旧/新 build 和逐板日志均保存在该目录。
+- SCK 零 offset 基线（诊断快照）：证据目录
+  `out/training/sck_unified_baseline_0000_20260826/`。全环独立 repeat 全部 accepted；各 link
+  的最终 offset 众数均为 `+1` sample，生成的推荐矩阵为 `[+1,+1,+1,+1]`。全部 SD raw
+  capture 均生成对应的 `node*_link*_sck_capture_replay_1us.svg`。
+- SCK 动态加载复验（诊断快照）：证据目录
+  `out/training/sck_unified_offset_p1p1p1p1_20260826/`。推荐矩阵加载后全环 repeat 全部
+  accepted 且无 gate failure；residual 以零拍为众数，少量 trial 落在相邻的负一拍，最终
+  推荐矩阵保持 `[+1,+1,+1,+1]`。这属于原始采样网格的量化分布，不再回写第二套算法。
 - 回归：公共路径及 MARK/DATA/SCK/TRN-03 定向 Python 测试通过；MARK、DATA、SCK C host
   单测通过。测试数量属于本次运行快照，事实源为 `out/pytest/` 和构建日志。
-- 下一步：使用该 package 四板异步 OTA，依次采集 MARK、SCK、DATA 的零 offset 基线和逐 Node
-  SVG，生成矩阵后动态加载并做 residual repeat；随后复验 TRN-03 staging 写后读回与 raw-flight。
+- 下一步：用同一 package 和统一工具复验 MARK、DATA 的零 offset 基线、逐 Node SVG、矩阵
+  动态加载及 residual repeat；三类矩阵均 accepted 后复验 TRN-03 staging 写后读回与 raw-flight。
 
 ## CAL-TASK-20260825-008 - MARK 扩样检查点与 SCK 独立训练决策
 

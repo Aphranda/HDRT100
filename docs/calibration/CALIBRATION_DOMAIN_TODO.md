@@ -67,7 +67,7 @@ calibration 并建立 `local_tick_raw <-> vdc_time` 映射。
 | PHASE-TRN-BASE | MARK、SCK、DATA 共用 `link_base_delay = measured_link_delay / 2` 与 `base_samples + node_offset`，codebook half-chip 仅用于波形编码 | `[x]` | C 共用原语、host 共用计划 schema 和 MARK/SCK/DATA 专项回归通过；范围和容量引用 `CALIBRATION_TRAINING_PHASE_*` |
 | PHASE-TRN-MATRIX | 三种信号共用零 offset 基线、SD raw capture、离线相关/SVG、全量 Node 笛卡尔矩阵、动态加载和 residual repeat gate | `[~]` | 共用矩阵生成器和 DATA/SCK observed matrix 已接入；四板 SCK/DATA 新固件 HIL 尚待执行，失败 trial 必须保留 |
 | SCK-TRN-01 | 使用 SCK 自身 PIO 启动、已知 burst 和 raw capture 完成独立环路捕获，不引用 MARK offset 计算相位 | `[x]` | request/snapshot/SCPI/PIO/host 已移除 MARK phase 输入，SCK 使用自身 origin、per-link base 和 Node offset |
-| SCK-TRN-02 | 沿 accepted topology 对每个 destination node 执行独立 STOP/ARM/inject repeat，生成全量 SCK offset matrix | `[~]` | 固件和工具已具备 raw capture、SVG、直方图、众数/中位数和全量矩阵；等待四板基线与 repeat HIL |
+| SCK-TRN-02 | 沿 accepted topology 对每个 destination node 执行独立 STOP/ARM/inject repeat，生成全量 SCK offset matrix | `[x]` | 四板零 offset 基线与推荐矩阵动态加载均完成独立 repeat；raw capture、逐 Node SVG、直方图、众数/中位数和 residual 门禁见任务记录 |
 | SCK-TRN-GATE | 在 MARK 与 SCK 分别 accepted 后验证 `mark_sck_skew` | [ ] | skew 只进入产品 guard/window 验收，不回写任一物理 offset；generation/profile/topology/stale 与 rollback 门禁通过 |
 
 ### TRN-03：TDMA 短帧/FIFO 闭环接入
