@@ -101,7 +101,9 @@ int main(void)
                                                           &result),
                               false);
     }
-    for (size_t offset = 0u; offset < packet_size; offset++) {
+    for (size_t offset = 0u;
+         offset < TDMA_TRANSPORT_FRAME_HEADER_SIZE;
+         offset++) {
         for (uint32_t bit = 0u; bit < 8u; bit++) {
             corpus_packet[offset] ^= (uint8_t)(1u << bit);
             failed += expect_bool("reject single-bit packet mutation",
@@ -113,6 +115,14 @@ int main(void)
             corpus_packet[offset] ^= (uint8_t)(1u << bit);
         }
     }
+    corpus_packet[TDMA_TRANSPORT_FRAME_HEADER_SIZE] ^= 0x01u;
+    failed += expect_bool("accept mutable payload mutation in flight",
+                          tdma_transport_frame_decode(corpus_packet,
+                                                      packet_size,
+                                                      &view,
+                                                      &result),
+                          true);
+    corpus_packet[TDMA_TRANSPORT_FRAME_HEADER_SIZE] ^= 0x01u;
     failed += expect_bool("decode after mutation corpus",
                           tdma_transport_frame_decode(packet,
                                                       packet_size,
@@ -141,9 +151,9 @@ int main(void)
     failed += expect_u32("flight identity stable",
                          view.identity_crc32,
                          identity_crc32);
-    failed += expect_bool("flight transport crc changes",
-                          view.transport_crc32 != transport_crc32,
-                          true);
+    failed += expect_u32("flight transport crc stable",
+                         view.transport_crc32,
+                         transport_crc32);
     failed += expect_u32("flight payload byte 1", view.payload[1], 0xA5u);
     failed += expect_u32("flight payload byte 2", view.payload[2], 0x5Au);
     const uint32_t patched_transport_crc32 = view.transport_crc32;
@@ -198,15 +208,15 @@ int main(void)
     uint8_t corrupted[sizeof(packet)];
     memcpy(corrupted, packet, sizeof(corrupted));
     corrupted[TDMA_TRANSPORT_FRAME_HEADER_SIZE] ^= 0x01u;
-    failed += expect_bool("reject corrupt packet",
+    failed += expect_bool("accept later mutable payload overlay",
                           tdma_transport_frame_decode(corrupted,
                                                       sizeof(corrupted),
                                                       &view,
                                                       &result),
-                          false);
-    failed += expect_u32("corrupt transport result",
+                          true);
+    failed += expect_u32("mutable overlay transport result",
                          result,
-                         TDMA_TRANSPORT_CRC_MISMATCH);
+                         TDMA_TRANSPORT_OK);
 
     uint8_t idle_packet[TDMA_TRANSPORT_FRAME_HEADER_SIZE];
     const tdma_transport_frame_build_t idle = {

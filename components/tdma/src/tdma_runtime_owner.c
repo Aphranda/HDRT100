@@ -41,6 +41,38 @@ static tdma_traffic_scheduler_slot_t
 #endif
 static bool s_tdma_runtime_owner_initialized;
 
+static bool tdma_runtime_owner_flight_phys_arm(
+    void *context,
+    const tdma_ring_runtime_config_t *config)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    const tdma_ring_calibration_stage_t *stage =
+        &s_tdma_runtime_owner.calibration_stage;
+    if (phys == NULL || config == NULL || stage->enabled == 0u ||
+        stage->node_count != config->node_count ||
+        config->local_slot_id >= stage->node_count) {
+        return false;
+    }
+    /* At the TDMA boundary local_slot_id maps explicitly to the physical
+     * Node index. Marker arrives on the previous forward link, while reverse
+     * DATA arrives on the link whose marker source is this Node. */
+    const uint32_t node = config->local_slot_id;
+    const uint32_t marker_link =
+        (node + stage->node_count - 1u) % stage->node_count;
+    const tdma_ring_calibration_link_t *marker =
+        &stage->links[marker_link];
+    const tdma_ring_calibration_link_t *data = &stage->links[node];
+    if (marker->valid == 0u || data->valid == 0u ||
+        !tdma_pio_spi_phys_set_flight_offsets(
+            phys,
+            marker->marker_offset_sample_count,
+            data->data_offset_sample_count,
+            data->data_phase_delay_cycles)) {
+        return false;
+    }
+    return tdma_pio_spi_phys_arm(context, config);
+}
+
 static void tdma_runtime_owner_cal_intent_write_begin(void)
 {
     (void)__atomic_add_fetch(&s_tdma_cal_loopback_intent.guard,
@@ -142,7 +174,7 @@ bool tdma_runtime_owner_init(void)
             &s_tdma_pio_spi_ring_adapter)) {
         tdma_pio_spi_ring_adapter_set_phys_ctrl(
             &s_tdma_pio_spi_ring_adapter,
-            tdma_pio_spi_phys_arm,
+            tdma_runtime_owner_flight_phys_arm,
             tdma_pio_spi_phys_disarm,
             tdma_pio_spi_phys_train_clock,
             tdma_pio_spi_phys_train_clock_service,
@@ -152,6 +184,9 @@ bool tdma_runtime_owner_init(void)
             tdma_pio_spi_phys_tx,
             tdma_pio_spi_phys_rx,
             &s_tdma_pio_spi_phys);
+        tdma_pio_spi_ring_adapter_set_phys_overlay(
+            &s_tdma_pio_spi_ring_adapter,
+            tdma_pio_spi_phys_prepare_process_overlay);
         tdma_pio_spi_ring_adapter_set_flight_fifo(
             &s_tdma_pio_spi_ring_adapter,
             &s_tdma_runtime_owner.flight_fifo);
@@ -207,6 +242,40 @@ bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot
         return false;
     }
     return tdma_pio_spi_phys_get_snapshot(&s_tdma_pio_spi_phys, snapshot);
+}
+
+bool tdma_runtime_owner_set_flight_process_image_mode(bool enabled)
+{
+    if (!s_tdma_runtime_owner_initialized) {
+        return false;
+    }
+    tdma_ring_runtime_snapshot_t ring;
+    tdma_flight_engine_snapshot_t engine;
+    if (!tdma_ring_runtime_get_snapshot(&s_tdma_runtime_owner.ring_runtime,
+                                        &ring) ||
+        !tdma_flight_engine_get_snapshot(&s_tdma_runtime_owner.flight_engine,
+                                         &engine) ||
+        ring.enabled != 0u || ring.adapter_started != 0u) {
+        return false;
+    }
+    const uint32_t payload_size =
+        engine.configured != 0u && engine.payload_size != 0u
+            ? engine.payload_size
+            : TDMA_FLIGHT_SHORT_PAYLOAD_SIZE;
+    const tdma_pio_spi_ring_forwarding_mode_t mode = enabled
+        ? TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE
+        : TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT;
+    if (!tdma_pio_spi_phys_set_process_image_mode(
+            &s_tdma_pio_spi_phys, enabled, payload_size)) {
+        return false;
+    }
+    if (!tdma_pio_spi_ring_adapter_set_forwarding_mode(
+            &s_tdma_pio_spi_ring_adapter, mode)) {
+        (void)tdma_pio_spi_phys_set_process_image_mode(
+            &s_tdma_pio_spi_phys, false, 0u);
+        return false;
+    }
+    return true;
 }
 
 bool tdma_runtime_owner_copy_normal_capture_core1(

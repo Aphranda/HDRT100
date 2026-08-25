@@ -33,7 +33,18 @@
 #define TDMA_PIO_SPI_PACKET_HEADER_SIZE 4u
 #define TDMA_PIO_SPI_RX_DMA_WORD_MAX \
     (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_SHORT_PACKET_MAX)
+#define TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS \
+    (TDMA_PIO_SPI_RX_DMA_WORD_MAX + \
+     TDMA_TRANSPORT_FRAME_MAX_SLOT_COUNT + 4u)
 #define TDMA_PIO_SPI_RX_STABLE_US 1000u
+
+typedef enum {
+    TDMA_PIO_SPI_OVERLAY_ERROR_NONE = 0,
+    TDMA_PIO_SPI_OVERLAY_ERROR_BAD_STATE = 1,
+    TDMA_PIO_SPI_OVERLAY_ERROR_BUILD_FAILED = 2,
+    TDMA_PIO_SPI_OVERLAY_ERROR_DMA_BUSY_TIMEOUT = 3,
+    TDMA_PIO_SPI_OVERLAY_ERROR_DMA_START_INVALID = 4,
+} tdma_pio_spi_overlay_error_t;
 
 /* Continuous RX capture ring (EtherCAT-style): the DMA stays armed for the
  * entire session and wraps its write address in SRAM. The CPU only scans
@@ -126,6 +137,7 @@ typedef enum {
     TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_TRAIN = 10u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN = 11u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER = 12u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER = 13u,
 } tdma_pio_spi_program_persona_t;
 
 typedef enum {
@@ -476,6 +488,9 @@ typedef struct {
     uint32_t program_persona;
     uint32_t program_switch_count;
     uint32_t program_switch_fail_count;
+    int32_t flight_marker_offset_sample_count;
+    int32_t flight_data_offset_sample_count;
+    uint32_t flight_data_phase_delay_cycles;
     /* Live PIO diagnostics for TRN-03B flight bring-up.  tx_sm/rx_sm keep
      * their role-dependent meanings from tdma_pio_spi_phys_t; the raw PC,
      * FIFO, IRQ and pin values make a stopped clock/data pipeline observable
@@ -494,6 +509,29 @@ typedef struct {
     uint32_t origin_clock_timeout_count;
     uint32_t origin_data_timeout_count;
     uint32_t origin_recovery_count;
+    uint32_t overlay_prepare_count;
+    uint32_t overlay_prepare_fail_count;
+    uint32_t overlay_replacement_byte_count;
+    uint32_t overlay_alignment_byte_shift;
+    uint32_t overlay_alignment_bit_shift;
+    uint32_t overlay_physical_byte_count;
+    /* Last overlay rearm outcome. DMA fields are captured at the decision
+     * point so a script-build failure can be distinguished from a previous
+     * script that has not drained through the PIO TX FIFO. */
+    uint32_t overlay_last_error;
+    uint32_t overlay_tx_dma_remaining;
+    uint32_t overlay_tx_dma_busy;
+    uint32_t overlay_tx_fifo_level_at_fail;
+    uint32_t overlay_prepare_wait_us;
+    uint32_t overlay_program_offset;
+    uint32_t overlay_tx_dma_read_index;
+    uint32_t overlay_tx_dma_ctrl;
+    uint32_t overlay_sm_shiftctrl;
+    uint32_t overlay_sm_execctrl;
+    uint32_t overlay_sm_pc_at_fail;
+    uint32_t overlay_pio_ctrl_at_fail;
+    uint32_t overlay_pio_fstat_at_fail;
+    uint32_t overlay_pio_fdebug_at_fail;
 } tdma_pio_spi_phys_snapshot_t;
 
 typedef struct {
@@ -513,6 +551,14 @@ typedef struct {
     uint32_t baud_hz;
     uint32_t node_count;
     uint32_t flight_tail_bytes;
+    bool process_image_enabled;
+    uint32_t process_image_payload_size;
+    uint32_t flight_physical_byte_count;
+    uint32_t flight_alignment_byte_shift;
+    uint32_t flight_alignment_bit_shift;
+    int32_t flight_marker_offset_sample_count;
+    int32_t flight_data_offset_sample_count;
+    uint32_t flight_data_phase_delay_cycles;
     /* Physical output pins. CS/SCK are forward; DATA is reverse. */
     uint32_t tx_sm;
     uint32_t tx_sck_pin;
@@ -558,6 +604,20 @@ typedef struct {
 bool tdma_pio_spi_phys_arm(void *context,
                            const tdma_ring_runtime_config_t *config);
 void tdma_pio_spi_phys_disarm(void *context);
+bool tdma_pio_spi_phys_set_process_image_mode(
+    tdma_pio_spi_phys_t *phys,
+    bool enabled,
+    uint32_t payload_size);
+bool tdma_pio_spi_phys_set_flight_offsets(
+    tdma_pio_spi_phys_t *phys,
+    int32_t marker_offset_sample_count,
+    int32_t data_offset_sample_count,
+    uint32_t data_phase_delay_cycles);
+bool tdma_pio_spi_phys_prepare_process_overlay(
+    void *context,
+    const uint8_t *incoming_packet,
+    const uint8_t *processed_packet,
+    size_t packet_size);
 /* Submit first-stage SPI CLK training on the TDMA owner/core1 path. A forward
  * node enters RX-CLK -> TX-CLK regeneration. The reference node starts an
  * autonomous CLK burst and return-edge overlap detector. */

@@ -428,15 +428,27 @@ scpi_result_t scpi_calibration_training_stage_begin(scpi_t *context)
 scpi_result_t scpi_calibration_training_stage_link(scpi_t *context)
 {
     uint32_t values[14] = {0u};
+    int32_t marker_offset_sample_count = 0;
+    int32_t data_offset_sample_count = 0;
+    uint32_t sample_period_ns = 0u;
+    uint32_t data_phase_delay_cycles = 0u;
     for (uint32_t i = 0u; i < 14u; i++) {
         if (SCPI_ParamUInt32(context, &values[i], TRUE) != TRUE) {
             return SCPI_RES_ERR;
         }
     }
+    if (SCPI_ParamInt32(context, &marker_offset_sample_count, TRUE) != TRUE ||
+        SCPI_ParamInt32(context, &data_offset_sample_count, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &sample_period_ns, TRUE) != TRUE ||
+        SCPI_ParamUInt32(context, &data_phase_delay_cycles, TRUE) != TRUE) {
+        return SCPI_RES_ERR;
+    }
     if (!calibration_manager_stage_training_link(
             values[0], values[1], values[2], values[3], values[4],
             values[5], values[6], values[7], values[8], values[9],
-            values[10], values[11], values[12], values[13])) {
+            values[10], values[11], values[12], values[13],
+            marker_offset_sample_count, data_offset_sample_count,
+            sample_period_ns, data_phase_delay_cycles)) {
         scpi_port_push_exec_error(context, "CAL_TRAIN_STAGE_LINK_REJECTED");
         return SCPI_RES_ERR;
     }
@@ -507,6 +519,10 @@ scpi_result_t scpi_calibration_training_stage_link_q(scpi_t *context)
     SCPI_ResultUInt32(context, link->guard_cycles);
     SCPI_ResultUInt32(context, link->link_budget_cycles);
     SCPI_ResultUInt32(context, link->loop_delay_cycles);
+    SCPI_ResultInt32(context, link->marker_offset_sample_count);
+    SCPI_ResultInt32(context, link->data_offset_sample_count);
+    SCPI_ResultUInt32(context, link->sample_period_ns);
+    SCPI_ResultUInt32(context, link->data_phase_delay_cycles);
     return SCPI_RES_OK;
 }
 

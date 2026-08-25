@@ -27,6 +27,27 @@ static uint16_t tdma_flight_engine_get_le16(const uint8_t *src)
     return (uint16_t)(((uint16_t)src[0]) | ((uint16_t)src[1] << 8u));
 }
 
+void tdma_flight_engine_fill_alignment_symbols(uint8_t *payload,
+                                               size_t payload_size)
+{
+    if (payload == NULL) {
+        return;
+    }
+    uint8_t state = TDMA_FLIGHT_ALIGNMENT_LFSR_SEED;
+    for (size_t byte_index = 0u; byte_index < payload_size; byte_index++) {
+        uint8_t value = 0u;
+        for (uint32_t bit_index = 0u; bit_index < 8u; bit_index++) {
+            const uint8_t symbol = state & 1u;
+            value |= (uint8_t)(symbol << (7u - bit_index));
+            state >>= 1u;
+            if (symbol != 0u) {
+                state ^= TDMA_FLIGHT_ALIGNMENT_LFSR_MASK;
+            }
+        }
+        payload[byte_index] = value;
+    }
+}
+
 static bool tdma_flight_engine_fast_mailbox_header(
     const uint8_t *payload,
     const tdma_process_image_segment_t *segment,
@@ -321,8 +342,21 @@ bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
             continue;
         }
         if ((segment->flags & TDMA_PROCESS_SEGMENT_FLAG_FLIGHT_WRITE) != 0u) {
-            if (tx_view == NULL || tx_view->data == NULL ||
-                tx_view->data_size < map.payload_size) {
+            const uint8_t *segment_data = NULL;
+            if (tx_view != NULL && tx_view->data != NULL) {
+                if (tx_view->data_size == segment->byte_length) {
+                    /* Core0 may publish only its local mailbox. This is the
+                     * normal on-device FIFO form; the engine expands it into
+                     * the fixed eight-mailbox wire image. */
+                    segment_data = tx_view->data;
+                } else if (tx_view->data_size >=
+                           segment->byte_offset + segment->byte_length) {
+                    /* A full process image remains supported for host and
+                     * replay producers. */
+                    segment_data = tx_view->data + segment->byte_offset;
+                }
+            }
+            if (segment_data == NULL) {
                 tdma_flight_engine_counter_inc(
                     &engine->tx_unavailable_count);
                 /* No active image is a bounded bring-up condition. Preserve
@@ -334,7 +368,7 @@ bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
                 continue;
             }
             memcpy(output + segment->byte_offset,
-                   tx_view->data + segment->byte_offset,
+                   segment_data,
                    segment->byte_length);
             if (applied != NULL) {
                 applied->output_segment_mask |= segment_mask;

@@ -61,6 +61,8 @@ typedef enum {
     TDMA_PIO_SPI_RING_FORWARDING_STORE_FORWARD = 0u,
     /* Product short-frame path: the PIO forwards while bytes are arriving. */
     TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT = 1u,
+    /* Product process image: PIO overlays local bytes while forwarding. */
+    TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE = 2u,
 } tdma_pio_spi_ring_forwarding_mode_t;
 
 /* Optional resident physical-layer control. When set, start() arms the
@@ -73,6 +75,11 @@ typedef bool (*tdma_pio_spi_ring_phys_train_fn)(void *context,
                                                 uint32_t cycles);
 typedef void (*tdma_pio_spi_ring_phys_train_service_fn)(void *context,
                                                         uint64_t now_ns);
+typedef bool (*tdma_pio_spi_ring_phys_overlay_fn)(
+    void *context,
+    const uint8_t *incoming_packet,
+    const uint8_t *processed_packet,
+    size_t packet_size);
 
 /* phys_tx pushes one complete packet onto the wire. On success it may fill
  * *tx_timestamp_ns with the hardware latch timestamp (0 means no hardware
@@ -143,6 +150,7 @@ typedef struct {
     tdma_pio_spi_ring_phys_disarm_fn phys_disarm;
     tdma_pio_spi_ring_phys_train_fn phys_train;
     tdma_pio_spi_ring_phys_train_service_fn phys_train_service;
+    tdma_pio_spi_ring_phys_overlay_fn phys_prepare_overlay;
     void *phys_ctrl_context;
     tdma_flight_fifo_t *flight_fifo;
     tdma_flight_engine_t *flight_engine;
@@ -194,6 +202,9 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     tdma_pio_spi_ring_phys_train_fn train,
     tdma_pio_spi_ring_phys_train_service_fn train_service,
     void *phys_ctrl_context);
+void tdma_pio_spi_ring_adapter_set_phys_overlay(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_overlay_fn prepare_overlay);
 void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
     tdma_pio_spi_ring_adapter_t *adapter,
     uint32_t resolution_ns,

@@ -57,6 +57,10 @@ LINK_FIELDS = (
     "guard_cycles",
     "link_budget_cycles",
     "loop_delay_cycles",
+    "marker_offset_sample_count",
+    "data_offset_sample_count",
+    "sample_period_ns",
+    "data_phase_delay_cycles",
 )
 STAGE_QUERY_FIELDS = (
     "tag",
@@ -116,7 +120,16 @@ def integer_field(source: dict[str, Any], field: str) -> int:
     return value
 
 
-def load_config(path: Path) -> dict[str, Any]:
+def signed_integer_field(source: dict[str, Any], field: str) -> int:
+    value = source.get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field} must be an integer")
+    if value < -0x80000000 or value > 0x7FFFFFFF:
+        raise ValueError(f"{field} is outside int32")
+    return value
+
+
+def load_config(path: Path, offset_row_id: int | None = None) -> dict[str, Any]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError("config root must be an object")
@@ -133,12 +146,58 @@ def load_config(path: Path) -> dict[str, Any]:
     raw_links = raw.get("links")
     if not isinstance(raw_links, list) or len(raw_links) != node_count:
         raise ValueError("links must contain exactly node_count entries")
+    matrix = raw.get("offset_matrix")
+    if not isinstance(matrix, dict):
+        raise ValueError("offset_matrix is required for TRN-03")
+    rows = matrix.get("rows")
+    if (not isinstance(rows, list) or not rows or
+            int(matrix.get("full_matrix_row_count", -1)) != len(rows)):
+        raise ValueError("offset_matrix rows are incomplete")
+    selected_row_id = (int(matrix.get("active_row_id", -1))
+                       if offset_row_id is None else offset_row_id)
+    matches = [row for row in rows if isinstance(row, dict) and
+               int(row.get("row_id", -1)) == selected_row_id]
+    if len(matches) != 1:
+        raise ValueError(f"offset matrix row {selected_row_id} is unavailable")
+    selected_row = matches[0]
+    marker_offsets = selected_row.get(
+        "marker_offset_sample_counts_by_node")
+    data_offsets = selected_row.get("data_offset_sample_counts_by_node")
+    if (not isinstance(marker_offsets, list) or
+            not isinstance(data_offsets, list) or
+            len(marker_offsets) != node_count or
+            len(data_offsets) != node_count or
+            any(isinstance(value, bool) or not isinstance(value, int)
+                for value in marker_offsets + data_offsets)):
+        raise ValueError("offset matrix row dimensions are invalid")
+
     links: list[dict[str, int]] = []
     for raw_link in raw_links:
         if not isinstance(raw_link, dict):
             raise ValueError("every link must be an object")
-        link = {field: integer_field(raw_link, field)
-                for field in LINK_FIELDS}
+        link = {
+            field: (signed_integer_field(raw_link, field)
+                    if field in ("marker_offset_sample_count",
+                                 "data_offset_sample_count")
+                    else integer_field(raw_link, field))
+            for field in LINK_FIELDS
+        }
+        marker_destination = integer_field(
+            raw_link, "marker_destination_node")
+        data_destination = integer_field(raw_link, "data_destination_node")
+        if marker_destination >= node_count or data_destination >= node_count:
+            raise ValueError("offset matrix destination node is invalid")
+        link["marker_offset_sample_count"] = int(
+            marker_offsets[marker_destination])
+        link["data_offset_sample_count"] = int(
+            data_offsets[data_destination])
+        offset_ns = (link["data_offset_sample_count"] *
+                     link["sample_period_ns"])
+        if offset_ns < 0:
+            raise ValueError("negative DATA offset cannot map to delay-only PIO")
+        link["data_phase_delay_cycles"] = (
+            offset_ns + link["instruction_period_ns"] // 2
+        ) // link["instruction_period_ns"]
         if ((link["evidence_flags"] & REQUIRED_EVIDENCE_FLAGS) !=
                 REQUIRED_EVIDENCE_FLAGS or
                 link["evidence_flags"] & DIAGNOSTIC_ONLY_FLAG):
@@ -155,10 +214,19 @@ def load_config(path: Path) -> dict[str, Any]:
         if link["link_budget_cycles"] < required_cycles:
             raise ValueError(
                 f"link{link['link_index']} budget expires before replay")
+        if link["sample_period_ns"] == 0 or \
+                link["data_phase_delay_cycles"] > 31:
+            raise ValueError(
+                f"link{link['link_index']} PIO phase mapping is invalid")
         links.append(link)
     if sorted(link["link_index"] for link in links) != list(range(node_count)):
         raise ValueError("link_index must cover [0, node_count) exactly")
-    return {**header, "links": sorted(links, key=lambda item: item["link_index"])}
+    return {
+        **header,
+        "offset_row_id": selected_row_id,
+        "offset_row": selected_row,
+        "links": sorted(links, key=lambda item: item["link_index"]),
+    }
 
 
 def stage_begin_command(config: dict[str, Any]) -> str:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 from pathlib import Path
 from typing import Any
@@ -157,6 +158,9 @@ def build_matrix(level: int, data: dict[str, Any],
     clkdiv_q16 = facts["clkdiv_q16"]
     sample_period_ns = identity["sample_period_ns"]
     links: list[dict[str, Any]] = []
+    marker_offsets_by_node = [0] * count
+    data_offset_candidates_by_node: list[list[int]] = [[] for _ in range(count)]
+    selected_data_offsets_by_node = [0] * count
     for index in range(count):
         data_link = data_links[index]
         residence_link = residence_links[index]
@@ -170,6 +174,8 @@ def build_matrix(level: int, data: dict[str, Any],
         marker_to_data_samples: list[int] = []
         codeword_samples: list[int] = []
         guard_samples: list[int] = []
+        marker_offsets: list[int] = []
+        calibrated_data_offsets: list[int] = []
         for trial in link_trials:
             source = trial.get("source")
             if not isinstance(source, dict) or not bool(trial.get("passed")):
@@ -179,13 +185,39 @@ def build_matrix(level: int, data: dict[str, Any],
             marker_to_data_samples.append(int(source["marker_to_data_samples"]))
             codeword_samples.append(int(source["expected_sample_count"]))
             guard_samples.append(int(source["guard_sample_count"]))
+            marker_offsets.append(int(trial["link_marker_offset_sample"]))
+            calibrated_data_offsets.append(int(
+                trial["calibrated_data_offset_sample_count"]))
         if (min(window_starts) <= 0 or
                 any(end < start for start, end in
                     zip(window_starts, window_ends)) or
                 len(set(marker_to_data_samples)) != 1 or
                 len(set(codeword_samples)) != 1 or
-                len(set(guard_samples)) != 1):
+                len(set(guard_samples)) != 1 or
+                len(set(marker_offsets)) != 1):
             raise ValueError(f"link{index} DATA timing fields are inconsistent")
+
+        # Repeated TRN-02 results may straddle one 4 ns sample bucket. Select
+        # the deterministic median while preserving every observed value in
+        # source_evidence. The profile mapping below converts that training
+        # quantization into the currently loaded PIO instruction period.
+        selected_data_offset = sorted(calibrated_data_offsets)[
+            len(calibrated_data_offsets) // 2]
+        data_offset_ns = selected_data_offset * sample_period_ns
+        if data_offset_ns < 0:
+            raise ValueError(
+                f"link{index} DATA phase cannot be represented by delay-only PIO")
+        data_phase_delay_cycles = (
+            data_offset_ns + facts["instruction_period_ns"] // 2
+        ) // facts["instruction_period_ns"]
+        if data_phase_delay_cycles > 31:
+            raise ValueError(f"link{index} DATA phase exceeds PIO delay field")
+        marker_destination = int(data_link["marker_destination_node"])
+        data_destination = int(data_link["data_destination_node"])
+        marker_offsets_by_node[marker_destination] = marker_offsets[0]
+        data_offset_candidates_by_node[data_destination] = sorted(
+            set(calibrated_data_offsets))
+        selected_data_offsets_by_node[data_destination] = selected_data_offset
 
         residence_ticks = int(
             residence_link["selected_forward_residence_ticks"])
@@ -217,6 +249,10 @@ def build_matrix(level: int, data: dict[str, Any],
                 "pio_persona", "clkdiv_q16", "clk_sys_hz",
                 "instruction_period_ns", "bit_cycles")},
             **cycles,
+            "marker_offset_sample_count": marker_offsets[0],
+            "data_offset_sample_count": selected_data_offset,
+            "sample_period_ns": sample_period_ns,
+            "data_phase_delay_cycles": data_phase_delay_cycles,
             "source_node": int(residence_link["source_node"]),
             "destination_node": int(residence_link["destination_node"]),
             # Keep the measured signal directions in the replay matrix.  A
@@ -231,6 +267,9 @@ def build_matrix(level: int, data: dict[str, Any],
             "data_direction": str(data_link["data_direction"]),
             "source_evidence": {
                 "data_offset_histogram": data_link.get("offset_histogram", {}),
+                "marker_offset_sample_counts": marker_offsets,
+                "calibrated_data_offset_sample_counts":
+                    calibrated_data_offsets,
                 "data_window_start_ns": window_starts,
                 "data_window_end_ns": window_ends,
                 "marker_to_data_samples": marker_to_data_samples[0],
@@ -243,6 +282,26 @@ def build_matrix(level: int, data: dict[str, Any],
             },
         })
 
+    offset_rows = []
+    active_row_id = -1
+    for row_id, data_offsets in enumerate(itertools.product(
+            *data_offset_candidates_by_node)):
+        row = {
+            "row_id": row_id,
+            "marker_offset_sample_counts_by_node":
+                list(marker_offsets_by_node),
+            "data_offset_sample_counts_by_node": list(data_offsets),
+            "marker_offset_ns_by_node": [
+                value * sample_period_ns for value in marker_offsets_by_node],
+            "data_offset_ns_by_node": [
+                value * sample_period_ns for value in data_offsets],
+        }
+        if list(data_offsets) == selected_data_offsets_by_node:
+            active_row_id = row_id
+        offset_rows.append(row)
+    if active_row_id < 0:
+        raise ValueError("selected TRN-03 offset row is absent from full matrix")
+
     return {
         "schema": MATRIX_SCHEMA,
         "node_count": count,
@@ -251,6 +310,12 @@ def build_matrix(level: int, data: dict[str, Any],
             "calibration_generation", "topology_generation",
             "topology_crc32", "profile_crc32", "schedule_crc32")},
         "links": links,
+        "offset_matrix": {
+            "sample_period_ns": sample_period_ns,
+            "full_matrix_row_count": len(offset_rows),
+            "active_row_id": active_row_id,
+            "rows": offset_rows,
+        },
         "profile_level": level,
         "baud_hz": facts["baud_hz"],
         "cycle_period_ns": facts["cycle_period_ns"],

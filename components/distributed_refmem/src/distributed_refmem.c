@@ -431,6 +431,7 @@ static void distributed_refmem_tdma_flight_sync_publish(
     if (owner == NULL || ring == NULL ||
         ring->enabled == 0u ||
         ring->adapter_started == 0u ||
+        ring->data_enabled == 0u ||
         ring->node_count == 0u ||
         ring->node_count > DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT ||
         ring->local_slot_id >= ring->node_count) {
@@ -438,8 +439,13 @@ static void distributed_refmem_tdma_flight_sync_publish(
     }
 
     const uint32_t now_ms = osal_tick_ms();
-    if (now_ms - s_tdma_flight_sync.last_publish_ms <
-        s_tdma_flight_sync.publish_interval_ms) {
+    uint32_t publish_interval_ms = s_tdma_flight_sync.publish_interval_ms;
+    const uint32_t ring_interval_ms =
+        (ring->feedback_timeout_ns + 999999u) / 1000000u;
+    if (ring_interval_ms > publish_interval_ms) {
+        publish_interval_ms = ring_interval_ms;
+    }
+    if (now_ms - s_tdma_flight_sync.last_publish_ms < publish_interval_ms) {
         return;
     }
     s_tdma_flight_sync.last_publish_ms = now_ms;

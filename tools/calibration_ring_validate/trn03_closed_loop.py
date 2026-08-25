@@ -73,6 +73,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--board-id", action="append", required=True,
                         help="exact *IDN? address in physical node order")
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument(
+        "--offset-row-id", type=int,
+        help="TRN-03 logical offset-matrix row; defaults to active_row_id")
     parser.add_argument("--expected-build")
     parser.add_argument("--level", type=int,
                         help="operating-profile level; defaults to config")
@@ -379,10 +382,20 @@ def validate_node(node_index: int, node_count: int,
              "fifo_rx_not_released"),
         ))
     if physical_after is not None:
-        expected_persona = 11 if node_index == 0 else 12
+        expected_persona = (
+            11 if node_index == 0 else (13 if require_process_image else 12))
         checks.append((
             physical_after.get("program_persona") == expected_persona,
             "physical_flight_persona_mismatch"))
+        if require_process_image and node_index != 0:
+            checks.extend((
+                (physical_after.get("overlay_prepare_count", 0) > 0,
+                 "physical_overlay_not_prepared"),
+                (physical_after.get("overlay_prepare_fail_count", 0) == 0,
+                 "physical_overlay_prepare_failed"),
+                (physical_after.get("overlay_replacement_byte_count", 0) > 0,
+                 "physical_overlay_not_replaced"),
+            ))
     for passed, reason in checks:
         if not passed:
             errors.append(reason)
@@ -434,7 +447,7 @@ def stopped_snapshot(board: Board, args: argparse.Namespace,
 def capture_ring_waveforms(
         ordered: list[Board], args: argparse.Namespace, *,
         calibration_generation: int, capture_epoch: int,
-        out_dir: Path, config: dict[str, Any]) -> dict[str, Any]:
+        out_dir: Path) -> dict[str, Any]:
     capture_dir = out_dir / "captures"
     with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
         saved = list(pool.map(
@@ -452,21 +465,33 @@ def capture_ring_waveforms(
             enumerate(zip(ordered, saved))
         ]
         downloaded = [future.result() for future in futures]
-    analysis = analyze_capture_set(
+    return {
+        "capture_epoch": capture_epoch,
+        "capture_completed": True,
+        "saved": saved,
+        "downloaded": [
+            {key: value for key, value in row.items() if key != "capture"}
+            for row in downloaded],
+    }
+
+
+def analyze_ring_waveforms(capture: dict[str, Any], config: dict[str, Any],
+                           args: argparse.Namespace, out_dir: Path
+                           ) -> dict[str, Any]:
+    """Analyze only after every node's raw capture has been downloaded."""
+    downloaded = capture.get("downloaded", [])
+    if not capture.get("capture_completed") or not isinstance(downloaded, list):
+        raise ValueError("raw ring capture is incomplete")
+    return analyze_capture_set(
         config,
         [Path(str(row["local_path"])) for row in downloaded],
         out_dir / "analysis", args.waveform_window_ns)
-    return {"capture_epoch": capture_epoch, "saved": saved,
-            "downloaded": [
-                {key: value for key, value in row.items() if key != "capture"}
-                for row in downloaded],
-            "analysis": analysis}
 
 
 def main() -> int:
     args = parse_args()
     raw_config = json.loads(args.config.read_text(encoding="utf-8"))
-    config = load_config(args.config)
+    config = load_config(args.config, args.offset_row_id)
     board_ids = list(args.board_id)
     if len(board_ids) != config["node_count"] or len(set(board_ids)) != len(board_ids):
         raise SystemExit("board IDs must be unique and match config node_count")
@@ -486,6 +511,8 @@ def main() -> int:
         "profile_level": level,
         "config": str(args.config),
         "calibration_generation": config["calibration_generation"],
+        "offset_row_id": config["offset_row_id"],
+        "offset_row": config["offset_row"],
         "cycles": args.cycles,
         "clock_train": args.clock_train,
         "window_s": args.window_s,
@@ -518,7 +545,9 @@ def main() -> int:
     fifo_seed: dict[str, Any] = {}
     stopped: dict[str, Any] = {}
     ring_capture: dict[str, Any] = {}
+    ring_analysis: dict[str, Any] = {}
     capture_error = ""
+    analysis_error = ""
     capture_attempted = False
     error = ""
     try:
@@ -526,6 +555,28 @@ def main() -> int:
             actions.append({"node": board.address, "action": "STOP",
                             "response": board_command(
                                 board, "SYSTem:TDMA:RING:STOP", args)})
+        expected_mode = 2 if args.stage == "process-image" else 1
+        for board in ordered:
+            response = board_command(
+                board,
+                f"SYSTem:TDMA:FLIGHT:MODE {1 if args.stage == 'process-image' else 0}",
+                args)
+            mode_raw = board_command(
+                board, "SYSTem:TDMA:FLIGHT:MODE?", args).strip().strip('"')
+            try:
+                mode = int(mode_raw, 0)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"{board.address}: invalid flight mode {mode_raw!r}") from exc
+            actions.append({
+                "node": board.address,
+                "action": "FLIGHT_MODE",
+                "response": response,
+                "mode": mode,
+            })
+            if mode != expected_mode:
+                raise RuntimeError(
+                    f"{board.address}: flight mode {mode}, expected {expected_mode}")
         if args.stage == "process-image":
             for board in ordered:
                 response = board_command(
@@ -635,9 +686,15 @@ def main() -> int:
                 ordered, args,
                 calibration_generation=config["calibration_generation"],
                 capture_epoch=int(time.time()) & 0xFFFFFFFF,
-                out_dir=out_dir, config=raw_config)
+                out_dir=out_dir)
         except Exception as exc:  # noqa: BLE001 - retain gate evidence
             capture_error = f"{type(exc).__name__}: {exc}"
+        if ring_capture.get("capture_completed"):
+            try:
+                ring_analysis = analyze_ring_waveforms(
+                    ring_capture, raw_config, args, out_dir)
+            except Exception as exc:  # noqa: BLE001 - capture stays valid
+                analysis_error = f"{type(exc).__name__}: {exc}"
     except Exception as exc:  # noqa: BLE001 - preserve partial HIL evidence
         error = f"{type(exc).__name__}: {exc}"
     finally:
@@ -647,9 +704,15 @@ def main() -> int:
                     ordered, args,
                     calibration_generation=config["calibration_generation"],
                     capture_epoch=int(time.time()) & 0xFFFFFFFF,
-                    out_dir=out_dir, config=raw_config)
+                    out_dir=out_dir)
             except Exception as exc:  # noqa: BLE001 - STOP still mandatory
                 capture_error = f"{type(exc).__name__}: {exc}"
+            if ring_capture.get("capture_completed"):
+                try:
+                    ring_analysis = analyze_ring_waveforms(
+                        ring_capture, raw_config, args, out_dir)
+                except Exception as exc:  # noqa: BLE001 - capture stays valid
+                    analysis_error = f"{type(exc).__name__}: {exc}"
         for board in ordered:
             try:
                 actions.append({"node": board.address, "action": "STOP_FINAL",
@@ -678,6 +741,8 @@ def main() -> int:
         "nodes": nodes,
         "ring_capture": ring_capture,
         "ring_capture_error": capture_error,
+        "ring_analysis": ring_analysis,
+        "ring_analysis_error": analysis_error,
         "stopped": stopped,
         "actions": actions,
     }

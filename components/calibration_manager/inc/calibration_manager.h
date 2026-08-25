@@ -174,7 +174,11 @@ bool calibration_manager_stage_training_link(
     uint32_t codeword_cycles,
     uint32_t guard_cycles,
     uint32_t link_budget_cycles,
-    uint32_t loop_delay_cycles);
+    uint32_t loop_delay_cycles,
+    int32_t marker_offset_sample_count,
+    int32_t data_offset_sample_count,
+    uint32_t sample_period_ns,
+    uint32_t data_phase_delay_cycles);
 bool calibration_manager_get_training_stage(
     tdma_ring_calibration_stage_t *stage,
     bool *complete);

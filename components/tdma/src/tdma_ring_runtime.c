@@ -188,6 +188,8 @@ bool tdma_ring_runtime_validate_calibration_stage(
             link->clk_sys_hz == 0u || link->instruction_period_ns == 0u ||
             link->bit_cycles == 0u || link->marker_to_data_cycles == 0u ||
             link->codeword_cycles == 0u || link->link_budget_cycles == 0u ||
+            link->sample_period_ns == 0u ||
+            link->data_phase_delay_cycles > 31u ||
             budget > link->link_budget_cycles) {
             tdma_ring_runtime_set_reason(
                 reason, TDMA_RING_RUNTIME_REASON_BAD_CONFIG);
@@ -606,6 +608,8 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
         snapshot->simultaneous_feedback_loop_evidence =
             runtime->simultaneous_feedback_loop_evidence;
         snapshot->adapter_started = runtime->adapter_started;
+        snapshot->data_enabled =
+            tdma_ring_runtime_load(&runtime->data_enabled);
         snapshot->adapter_start_count = runtime->adapter_start_count;
         snapshot->adapter_stop_count = runtime->adapter_stop_count;
         snapshot->adapter_service_count = runtime->adapter_service_count;

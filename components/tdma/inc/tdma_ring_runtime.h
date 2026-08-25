@@ -56,6 +56,10 @@ typedef struct {
     uint32_t guard_cycles;
     uint32_t link_budget_cycles;
     uint32_t loop_delay_cycles;
+    int32_t marker_offset_sample_count;
+    int32_t data_offset_sample_count;
+    uint32_t sample_period_ns;
+    uint32_t data_phase_delay_cycles;
 } tdma_ring_calibration_link_t;
 
 typedef struct {
@@ -156,6 +160,7 @@ typedef struct {
     uint32_t tx_dma_channel_id;
     uint32_t rx_dma_channel_id;
     uint32_t adapter_started;
+    uint32_t data_enabled;
     uint32_t adapter_start_count;
     uint32_t adapter_stop_count;
     uint32_t adapter_service_count;

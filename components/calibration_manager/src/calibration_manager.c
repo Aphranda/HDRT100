@@ -1510,7 +1510,11 @@ bool calibration_manager_stage_training_link(
     uint32_t codeword_cycles,
     uint32_t guard_cycles,
     uint32_t link_budget_cycles,
-    uint32_t loop_delay_cycles)
+    uint32_t loop_delay_cycles,
+    int32_t marker_offset_sample_count,
+    int32_t data_offset_sample_count,
+    uint32_t sample_period_ns,
+    uint32_t data_phase_delay_cycles)
 {
     tdma_ring_calibration_stage_t stage;
     bool complete = false;
@@ -1540,6 +1544,10 @@ bool calibration_manager_stage_training_link(
         .guard_cycles = guard_cycles,
         .link_budget_cycles = link_budget_cycles,
         .loop_delay_cycles = loop_delay_cycles,
+        .marker_offset_sample_count = marker_offset_sample_count,
+        .data_offset_sample_count = data_offset_sample_count,
+        .sample_period_ns = sample_period_ns,
+        .data_phase_delay_cycles = data_phase_delay_cycles,
     };
     return tdma_runtime_owner_stage_calibration_link(&link);
 }
@@ -2062,8 +2070,9 @@ bool calibration_manager_save_ring_capture(
         "  \"capture_version\": %lu,\n"
         "  \"baud_hz\": %lu,\n"
         "  \"bit_period_ns\": %lu,\n"
-        "  \"capture_anchor\": \"normal_rx_sck_rising_edge\",\n"
-        "  \"rx_data_semantics\": \"physical_rx_data_sampled_by_rx_sck\",\n"
+        "  \"capture_anchor\": \"pio_rx_sck_rising_edge\",\n"
+        "  \"capture_scope\": \"raw_physical_loop_input_window\",\n"
+        "  \"rx_data_semantics\": \"unparsed_physical_rx_data_sampled_by_rx_sck\",\n"
         "  \"tx_data_semantics\": \"newest_complete_frame_accepted_by_local_tx_fifo\",\n"
         "  \"rx_produced_bytes\": %lu,\n"
         "  \"tx_produced_bytes\": %lu,\n"

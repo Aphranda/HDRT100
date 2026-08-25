@@ -45,6 +45,8 @@ scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_flight_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_fifo_reset(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_flight_mode(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_flight_mode_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_tx(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_rx_q(scpi_t *context);
@@ -130,6 +132,8 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:SYNC:FLIGHT?", .callback = scpi_cmd_refmem_sync_flight_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:FIFO?", .callback = scpi_cmd_system_tdma_flight_fifo_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:FIFO:RESet", .callback = scpi_cmd_system_tdma_flight_fifo_reset}, \
+    {.pattern = "SYSTem:TDMA:FLIGHT:MODE?", .callback = scpi_cmd_system_tdma_flight_mode_q}, \
+    {.pattern = "SYSTem:TDMA:FLIGHT:MODE", .callback = scpi_cmd_system_tdma_flight_mode}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:PROCess?", .callback = scpi_cmd_system_tdma_flight_process_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:TX", .callback = scpi_cmd_system_tdma_flight_tx}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:RX?", .callback = scpi_cmd_system_tdma_flight_rx_q}, \

@@ -144,6 +144,14 @@ static uint32_t tdma_transport_packet_crc32(const uint8_t *packet,
         packet,
         TDMA_TRANSPORT_OFFSET_TRANSPORT_CRC);
     crc = tdma_transport_crc32_update(crc, zero_crc, sizeof(zero_crc));
+    if ((packet[TDMA_TRANSPORT_OFFSET_FLAGS] &
+         TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE) != 0u) {
+        /* Mutable process-image bytes are replaced by several Nodes while
+         * the frame is physically in flight. Their mailbox-level CRC owns
+         * payload integrity; the transport CRC protects the stable routing
+         * header and therefore remains valid between overlay points. */
+        return ~crc;
+    }
     crc = tdma_transport_crc32_update(
         crc,
         packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE,

@@ -2253,6 +2253,33 @@ scpi_result_t scpi_cmd_system_tdma_flight_fifo_reset(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_flight_mode(scpi_t *context)
+{
+    uint32_t process_image = 0u;
+    if (!scpi_port_read_u32(context, &process_image) || process_image > 1u ||
+        !tdma_runtime_owner_set_flight_process_image_mode(
+            process_image != 0u)) {
+        scpi_port_push_exec_error(context, "TDMA_FLIGHT_MODE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, process_image);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_flight_mode_q(scpi_t *context)
+{
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+    if (adapter == NULL ||
+        !tdma_pio_spi_ring_adapter_get_snapshot(adapter, &snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.forwarding_mode);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_flight_process_q(scpi_t *context)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();

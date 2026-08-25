@@ -108,6 +108,16 @@ void tdma_pio_spi_ring_adapter_set_phys_ctrl(
     adapter->phys_ctrl_context = phys_ctrl_context;
 }
 
+void tdma_pio_spi_ring_adapter_set_phys_overlay(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_pio_spi_ring_phys_overlay_fn prepare_overlay)
+{
+    if (adapter == NULL || adapter->started != 0u) {
+        return;
+    }
+    adapter->phys_prepare_overlay = prepare_overlay;
+}
+
 void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
     tdma_pio_spi_ring_adapter_t *adapter,
     uint32_t resolution_ns,
@@ -157,7 +167,7 @@ bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
     tdma_pio_spi_ring_forwarding_mode_t mode)
 {
     if (adapter == NULL || adapter->started != 0u ||
-        mode > TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT) {
+        mode > TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE) {
         return false;
     }
     adapter->forwarding_mode = mode;
@@ -286,6 +296,49 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
     const bool has_flight_tx =
         adapter->flight_fifo != NULL &&
         tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx_view);
+    uint8_t empty_process_payload[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
+    uint8_t process_payload[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
+    const uint8_t *wire_payload = has_flight_tx ? tx_view.data : NULL;
+    size_t wire_payload_size = has_flight_tx ? tx_view.data_size : 0u;
+    if (has_flight_tx &&
+        adapter->forwarding_mode ==
+            TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
+        adapter->flight_engine != NULL &&
+        tdma_flight_engine_is_active(adapter->flight_engine)) {
+        tdma_flight_engine_snapshot_t engine_snapshot;
+        tdma_flight_engine_apply_t applied;
+        tdma_flight_engine_result_t engine_result =
+            TDMA_FLIGHT_ENGINE_BAD_ARGUMENT;
+        if (!tdma_flight_engine_get_snapshot(adapter->flight_engine,
+                                             &engine_snapshot) ||
+            engine_snapshot.payload_size == 0u ||
+            engine_snapshot.payload_size > sizeof(process_payload)) {
+            tdma_pio_spi_ring_adapter_set_error(
+                adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
+            return false;
+        }
+        /* Seed every physical DATA symbol with the same transition-rich
+         * alignment codeword. Each node then overlays only its owned mailbox.
+         * A zero-filled image would keep the frame long enough for PIO, but
+         * would provide no useful edges for raw-loop alignment analysis. */
+        tdma_flight_engine_fill_alignment_symbols(
+            empty_process_payload, engine_snapshot.payload_size);
+        if (!tdma_flight_engine_apply(adapter->flight_engine,
+                                      empty_process_payload,
+                                      engine_snapshot.payload_size,
+                                      &tx_view,
+                                      process_payload,
+                                      sizeof(process_payload),
+                                      &applied,
+                                      &engine_result) ||
+            applied.output_segment_mask == 0u) {
+            tdma_pio_spi_ring_adapter_set_error(
+                adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
+            return false;
+        }
+        wire_payload = process_payload;
+        wire_payload_size = engine_snapshot.payload_size;
+    }
     const uint32_t sequence = adapter->up_sequence + 1u;
     const tdma_transport_frame_build_t build = {
         .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
@@ -301,8 +354,8 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
         .schedule_crc32 = adapter->config.schedule_crc32,
         .ring_profile_crc32 = adapter->config.ring_profile_crc32,
         .hop_limit = adapter->config.node_count - 1u,
-        .payload = has_flight_tx ? tx_view.data : NULL,
-        .payload_size = has_flight_tx ? tx_view.data_size : 0u,
+        .payload = wire_payload,
+        .payload_size = wire_payload_size,
     };
     uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t packet_size = 0u;
@@ -389,6 +442,8 @@ static bool tdma_pio_spi_ring_adapter_process_rx(
         (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE ||
          adapter->forwarding_mode ==
              TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT ||
+         adapter->forwarding_mode ==
+             TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE ||
          adapter->flight_engine == NULL ||
          !tdma_flight_engine_is_active(adapter->flight_engine))) {
         uint32_t input_mask = 0u;
@@ -665,6 +720,65 @@ static bool tdma_pio_spi_ring_adapter_forward_poll(
     return true;
 }
 
+static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    if (adapter == NULL || adapter->last_rx_packet_size == 0u ||
+        adapter->phys_prepare_overlay == NULL) {
+        return false;
+    }
+    tdma_transport_frame_view_t view;
+    tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+    if (!tdma_transport_frame_decode(adapter->last_rx_packet,
+                                     adapter->last_rx_packet_size,
+                                     &view,
+                                     &result)) {
+        return false;
+    }
+
+    uint8_t processed_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    memcpy(processed_packet,
+           adapter->last_rx_packet,
+           adapter->last_rx_packet_size);
+    bool applied_ok = false;
+    if (adapter->flight_engine != NULL &&
+        tdma_flight_engine_is_active(adapter->flight_engine) &&
+        view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
+        (view.flags & TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE) != 0u) {
+        tdma_flight_tx_view_t tx_view;
+        const bool has_tx = adapter->flight_fifo != NULL &&
+            tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx_view);
+        uint8_t processed_payload[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
+        tdma_flight_engine_apply_t applied;
+        tdma_flight_engine_result_t engine_result =
+            TDMA_FLIGHT_ENGINE_BAD_ARGUMENT;
+        applied_ok = tdma_flight_engine_apply(
+            adapter->flight_engine,
+            view.payload,
+            view.payload_size,
+            has_tx ? &tx_view : NULL,
+            processed_payload,
+            sizeof(processed_payload),
+            &applied,
+            &engine_result);
+        if (applied_ok) {
+            memcpy(processed_packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE,
+                   processed_payload,
+                   view.payload_size);
+        }
+    }
+    const bool prepared = adapter->phys_prepare_overlay(
+        adapter->phys_ctrl_context,
+        adapter->last_rx_packet,
+        processed_packet,
+        adapter->last_rx_packet_size);
+    if (!prepared || !applied_ok) {
+        tdma_pio_spi_ring_adapter_set_error(
+            adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_FLIGHT_MAP_REJECT);
+    }
+    return prepared;
+}
+
 static bool tdma_pio_spi_ring_adapter_service_impl(
     void *context,
     uint64_t now_ns,
@@ -770,13 +884,21 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
          * the ring and corrupt the reference's feedback correlation. The TX
          * leg stays ready (up_running=1). */
         if (adapter->forwarding_mode ==
-            TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT) {
+                TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT ||
+            adapter->forwarding_mode ==
+                TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE) {
             /* CS/SCK/DATA forwarding has already happened in PIO by the time
              * the complete captured frame reaches this parser. Re-emitting
              * here would create a second frame and destroy cut-through. */
             rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter, now_ns);
             tx_ok = true;
             if (rx_ok) {
+                if (adapter->forwarding_mode ==
+                        TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
+                    !tdma_pio_spi_ring_adapter_prepare_process_overlay(
+                        adapter)) {
+                    return false;
+                }
                 adapter->up_sequence = adapter->down_rx_sequence;
                 adapter->up_tx_frame_crc32 = adapter->down_rx_frame_crc32;
                 adapter->forward_count++;

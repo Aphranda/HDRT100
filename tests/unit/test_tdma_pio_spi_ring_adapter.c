@@ -976,6 +976,106 @@ int main(void)
         }
     }
 
+    /* Process-image origin expands one local 32-byte FIFO mailbox into the
+     * fixed map-sized wire image before the first PIO flight cycle. */
+    {
+        tdma_ring_runtime_t runtime;
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_flight_fifo_t fifo;
+        tdma_flight_engine_t engine;
+        loopback_phys_t phys;
+        const tdma_ring_runtime_config_t config = make_valid_config();
+        tdma_process_image_map_t map = make_flight_map();
+        uint8_t mailbox[32];
+        tdma_transport_frame_view_t view;
+        tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+
+        memset(&phys, 0, sizeof(phys));
+        memset(mailbox, 0x5Au, sizeof(mailbox));
+        phys.tx_timestamp_ns = 3100000ull;
+        phys.rx_timestamp_ns = 3100500ull;
+
+        failed += expect_bool("process origin runtime init",
+                              tdma_ring_runtime_init(&runtime), true);
+        failed += expect_bool("process origin runtime config",
+                              tdma_ring_runtime_configure(&runtime, &config),
+                              true);
+        failed += expect_bool("process origin adapter init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        failed += expect_bool("process origin fifo init",
+                              tdma_flight_fifo_init(&fifo), true);
+        failed += expect_bool("process origin engine init",
+                              tdma_flight_engine_init(&engine), true);
+        failed += expect_bool("process origin map config",
+                              tdma_flight_engine_configure(&engine, &map), true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter,
+                                           loopback_tx,
+                                           loopback_rx,
+                                           &phys);
+        tdma_pio_spi_ring_adapter_set_flight_fifo(&adapter, &fifo);
+        tdma_pio_spi_ring_adapter_set_flight_engine(&adapter, &engine);
+        failed += expect_bool(
+            "process origin forwarding mode",
+            tdma_pio_spi_ring_adapter_set_forwarding_mode(
+                &adapter,
+                TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE),
+            true);
+        failed += expect_bool("process origin bind",
+                              tdma_ring_runtime_bind_adapter(
+                                  &runtime,
+                                  tdma_pio_spi_ring_adapter_ops(),
+                                  &adapter),
+                              true);
+        failed += expect_bool("process origin start",
+                              start_ring_data(&runtime), true);
+        failed += expect_bool("process origin mailbox publish",
+                              tdma_flight_fifo_core0_publish_tx(
+                                  &fifo,
+                                  mailbox,
+                                  sizeof(mailbox),
+                                  10u,
+                                  78u,
+                                  1u),
+                              true);
+        tdma_ring_runtime_service(&runtime);
+        tdma_ring_runtime_service(&runtime);
+        failed += expect_bool("process origin decode",
+                              tdma_transport_frame_decode(
+                                  phys.last_tx,
+                                  phys.last_tx_size,
+                                  &view,
+                                  &result),
+                              true);
+        failed += expect_u32("process origin fixed payload size",
+                             (uint32_t)view.payload_size, 64u);
+        failed += expect_bool("process origin local mailbox expanded",
+                              memcmp(view.payload, mailbox,
+                                     sizeof(mailbox)) == 0,
+                              true);
+        uint8_t alignment_payload[64];
+        tdma_flight_engine_fill_alignment_symbols(alignment_payload,
+                                                  sizeof(alignment_payload));
+        failed += expect_bool("process origin remote alignment symbols",
+                              memcmp(view.payload + 32u,
+                                     alignment_payload + 32u,
+                                     32u) == 0,
+                              true);
+        uint32_t transition_count = 0u;
+        for (uint32_t bit = 257u; bit < 512u; bit++) {
+            const uint32_t previous = bit - 1u;
+            const uint8_t previous_symbol =
+                (alignment_payload[previous >> 3u] >>
+                 (7u - (previous & 7u))) & 1u;
+            const uint8_t symbol =
+                (alignment_payload[bit >> 3u] >>
+                 (7u - (bit & 7u))) & 1u;
+            transition_count += previous_symbol != symbol ? 1u : 0u;
+        }
+        failed += expect_bool("process origin alignment symbols transition",
+                              transition_count > 64u,
+                              true);
+    }
+
     /* A writer that dies while holding the map seqlock must not spin core1
      * forever. All readers fail closed after the bounded retry budget. */
     {
@@ -1118,7 +1218,7 @@ int main(void)
         tdma_ring_runtime_config_t config = make_valid_config();
         tdma_process_image_map_t map = make_flight_map();
         uint8_t incoming[64];
-        uint8_t tx_image[64];
+        uint8_t tx_mailbox[32];
         uint8_t incoming_packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
         size_t incoming_packet_size = 0u;
         tdma_transport_result_t transport_result = TDMA_TRANSPORT_OK;
@@ -1126,7 +1226,7 @@ int main(void)
 
         memset(&phys, 0, sizeof(phys));
         memset(incoming, 0x10, sizeof(incoming));
-        memset(tx_image, 0x80, sizeof(tx_image));
+        memset(tx_mailbox, 0x80, sizeof(tx_mailbox));
         incoming[0] = 0x52u;
         incoming[1] = 0x46u;
         incoming[2] = 1u;
@@ -1192,8 +1292,8 @@ int main(void)
         failed += expect_bool("flight tx image publish",
                               tdma_flight_fifo_core0_publish_tx(
                                   &fifo,
-                                  tx_image,
-                                  sizeof(tx_image),
+                                  tx_mailbox,
+                                  sizeof(tx_mailbox),
                                   7u,
                                   40u,
                                   1u << 1u),
@@ -1226,7 +1326,7 @@ int main(void)
                               true);
         failed += expect_bool("flight local slot replaced",
                               memcmp(forwarded_view.payload + 32u,
-                                     tx_image + 32u,
+                                     tx_mailbox,
                                      32u) == 0,
                               true);
         if (tdma_flight_fifo_core0_acquire_rx(&fifo, &rx_view)) {

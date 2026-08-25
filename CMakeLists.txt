@@ -492,6 +492,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_profile.c
         components/tdma/src/tdma_payload_registry.c
         components/tdma/src/tdma_flight_fifo.c
+        components/tdma/src/tdma_flight_overlay.c
         components/tdma/src/tdma_flight_engine.c
         components/tdma/src/tdma_pio_spi_phys.c
         components/tdma/src/tdma_pio_spi_ring_adapter.c

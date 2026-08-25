@@ -22,6 +22,8 @@
 #define TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET 4u
 #define TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET 5u
 #define TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET 6u
+#define TDMA_FLIGHT_ALIGNMENT_LFSR_SEED 0x01u
+#define TDMA_FLIGHT_ALIGNMENT_LFSR_MASK 0x8Eu
 
 typedef enum {
     TDMA_FLIGHT_ENGINE_OK = 0u,
@@ -88,6 +90,8 @@ bool tdma_flight_engine_activate(tdma_flight_engine_t *engine,
 void tdma_flight_engine_deactivate(tdma_flight_engine_t *engine);
 bool tdma_flight_engine_is_configured(const tdma_flight_engine_t *engine);
 bool tdma_flight_engine_is_active(const tdma_flight_engine_t *engine);
+void tdma_flight_engine_fill_alignment_symbols(uint8_t *payload,
+                                               size_t payload_size);
 bool tdma_flight_engine_apply(tdma_flight_engine_t *engine,
                               const uint8_t *incoming,
                               size_t incoming_size,

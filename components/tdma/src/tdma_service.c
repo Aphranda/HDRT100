@@ -703,7 +703,9 @@ bool tdma_service_stage_calibration_link(
         link->pio_persona == 0u || link->clkdiv_q16 == 0u ||
         link->clk_sys_hz == 0u || link->instruction_period_ns == 0u ||
         link->bit_cycles == 0u || link->marker_to_data_cycles == 0u ||
-        link->codeword_cycles == 0u || link->link_budget_cycles == 0u) {
+        link->codeword_cycles == 0u || link->link_budget_cycles == 0u ||
+        link->sample_period_ns == 0u ||
+        link->data_phase_delay_cycles > 31u) {
         return false;
     }
     const uint64_t required_cycles =

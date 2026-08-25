@@ -499,6 +499,9 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.program_persona);
     SCPI_ResultUInt32(context, snapshot.program_switch_count);
     SCPI_ResultUInt32(context, snapshot.program_switch_fail_count);
+    SCPI_ResultInt32(context, snapshot.flight_marker_offset_sample_count);
+    SCPI_ResultInt32(context, snapshot.flight_data_offset_sample_count);
+    SCPI_ResultUInt32(context, snapshot.flight_data_phase_delay_cycles);
     SCPI_ResultUInt32(context, snapshot.pio_irq_flags);
     SCPI_ResultUInt32(context, snapshot.pio_fdebug);
     SCPI_ResultUInt32(context, snapshot.tx_sm_pc);
@@ -513,6 +516,26 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.origin_clock_timeout_count);
     SCPI_ResultUInt32(context, snapshot.origin_data_timeout_count);
     SCPI_ResultUInt32(context, snapshot.origin_recovery_count);
+    SCPI_ResultUInt32(context, snapshot.overlay_prepare_count);
+    SCPI_ResultUInt32(context, snapshot.overlay_prepare_fail_count);
+    SCPI_ResultUInt32(context, snapshot.overlay_replacement_byte_count);
+    SCPI_ResultUInt32(context, snapshot.overlay_alignment_byte_shift);
+    SCPI_ResultUInt32(context, snapshot.overlay_alignment_bit_shift);
+    SCPI_ResultUInt32(context, snapshot.overlay_physical_byte_count);
+    SCPI_ResultUInt32(context, snapshot.overlay_last_error);
+    SCPI_ResultUInt32(context, snapshot.overlay_tx_dma_remaining);
+    SCPI_ResultUInt32(context, snapshot.overlay_tx_dma_busy);
+    SCPI_ResultUInt32(context, snapshot.overlay_tx_fifo_level_at_fail);
+    SCPI_ResultUInt32(context, snapshot.overlay_prepare_wait_us);
+    SCPI_ResultUInt32(context, snapshot.overlay_program_offset);
+    SCPI_ResultUInt32(context, snapshot.overlay_tx_dma_read_index);
+    SCPI_ResultUInt32(context, snapshot.overlay_tx_dma_ctrl);
+    SCPI_ResultUInt32(context, snapshot.overlay_sm_shiftctrl);
+    SCPI_ResultUInt32(context, snapshot.overlay_sm_execctrl);
+    SCPI_ResultUInt32(context, snapshot.overlay_sm_pc_at_fail);
+    SCPI_ResultUInt32(context, snapshot.overlay_pio_ctrl_at_fail);
+    SCPI_ResultUInt32(context, snapshot.overlay_pio_fstat_at_fail);
+    SCPI_ResultUInt32(context, snapshot.overlay_pio_fdebug_at_fail);
     return SCPI_RES_OK;
 }
 

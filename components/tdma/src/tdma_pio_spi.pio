@@ -103,6 +103,49 @@ flight_follower_bit:
     mov isr, null        side 0
 .wrap
 
+; Process-image follower. TX DMA supplies one command word per physical byte:
+; bit31 END, bit30 REPLACE, bits29..22 replacement data. PASS keeps the
+; existing one-byte elastic forwarding behavior. END is consumed after the
+; final tail byte and holds the SM at the next CS boundary until the following
+; frame script is ready; core1 never services an individual wire edge.
+.program tdma_pio_spi_flight_process_follower
+.side_set 1
+    set y, 0             side 0
+    mov osr, y           side 0
+    out null, 24         side 0
+.wrap_target
+flight_process_command:
+    pull block           side 0
+    out x, 1             side 0
+    jmp !x flight_process_data side 0
+    wait 1 gpio 0        side 0
+    wait 0 gpio 0        side 0
+    jmp flight_process_command side 0
+flight_process_data:
+    out x, 1             side 0
+    jmp !x flight_process_pass side 0
+    jmp flight_process_byte side 0
+flight_process_pass:
+    ; Y retains the byte captured during the preceding command. PUSH does not
+    ; provide storage for the next PASS command, because ISR must be cleared
+    ; before sampling the current byte.
+    mov osr, y           side 0
+    out null, 24         side 0
+flight_process_byte:
+    set y, 7             side 0
+flight_process_bit:
+    wait 1 gpio 1        side 0
+    nop                  side 1
+    in pins, 1           side 1
+    wait 0 gpio 1        side 1
+    out pins, 1          side 0
+    jmp y-- flight_process_bit side 0
+    mov y, isr           side 0
+    push noblock         side 0
+    mov isr, null        side 0
+    jmp flight_process_command side 0
+.wrap
+
 ; Cyclic reference clock source. Core1 supplies the total clock-bit count
 ; minus one. Returned DATA is captured by origin_data_tx against the real
 ; returned CS/SCK, so the byte boundary does not depend on local loop phase.
@@ -523,8 +566,12 @@ static inline void tdma_pio_spi_clk_oversample_program_init(PIO pio,
 
 static inline void tdma_pio_spi_flight_follower_program_init(
     PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_data_pin,
-    uint rx_sck_pin, uint tx_sck_pin)
+    uint rx_sck_pin, uint tx_sck_pin, uint32_t data_phase_delay_cycles)
 {
+    pio->instr_mem[offset + 5u] =
+        (uint16_t)(pio_encode_nop() |
+                   pio_encode_sideset(1u, 1u) |
+                   pio_encode_delay(data_phase_delay_cycles));
     pio->instr_mem[offset + 4u] =
         (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
                    pio_encode_sideset(1u, 0u));
@@ -550,6 +597,56 @@ static inline void tdma_pio_spi_flight_follower_program_init(
     sm_config_set_in_shift(&c, false, false, 32u);
     sm_config_set_out_shift(&c, false, false, 32u);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    sm_config_set_clkdiv(&c, 1.0f);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins_with_mask64(
+        pio, sm, 0ull,
+        (1ull << tx_data_pin) | (1ull << tx_sck_pin));
+}
+
+static inline void tdma_pio_spi_flight_process_follower_program_init(
+    PIO pio, uint sm, uint offset, uint rx_data_pin, uint tx_data_pin,
+    uint rx_csn_pin, uint rx_sck_pin, uint tx_sck_pin,
+    uint32_t data_phase_delay_cycles)
+{
+    pio->instr_mem[offset + 16u] =
+        (uint16_t)(pio_encode_nop() |
+                   pio_encode_sideset(1u, 1u) |
+                   pio_encode_delay(data_phase_delay_cycles));
+    pio->instr_mem[offset + 6u] =
+        (uint16_t)(pio_encode_wait_gpio(true, rx_csn_pin) |
+                   pio_encode_sideset(1u, 0u));
+    pio->instr_mem[offset + 7u] =
+        (uint16_t)(pio_encode_wait_gpio(false, rx_csn_pin) |
+                   pio_encode_sideset(1u, 0u));
+    pio->instr_mem[offset + 15u] =
+        (uint16_t)(pio_encode_wait_gpio(true, rx_sck_pin) |
+                   pio_encode_sideset(1u, 0u));
+    pio->instr_mem[offset + 18u] =
+        (uint16_t)(pio_encode_wait_gpio(false, rx_sck_pin) |
+                   pio_encode_sideset(1u, 1u));
+    pio_gpio_init(pio, rx_data_pin);
+    pio_gpio_init(pio, tx_data_pin);
+    pio_gpio_init(pio, rx_csn_pin);
+    pio_gpio_init(pio, rx_sck_pin);
+    pio_gpio_init(pio, tx_sck_pin);
+    gpio_pull_down(rx_data_pin);
+    gpio_pull_up(rx_csn_pin);
+    gpio_pull_down(rx_sck_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_data_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_csn_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, rx_sck_pin, 1u, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_data_pin, 1u, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, tx_sck_pin, 1u, true);
+
+    pio_sm_config c =
+        tdma_pio_spi_flight_process_follower_program_get_default_config(
+            offset);
+    sm_config_set_in_pins(&c, rx_data_pin);
+    sm_config_set_out_pins(&c, tx_data_pin, 1u);
+    sm_config_set_sideset_pins(&c, tx_sck_pin);
+    sm_config_set_in_shift(&c, false, false, 32u);
+    sm_config_set_out_shift(&c, false, false, 32u);
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_pins_with_mask64(

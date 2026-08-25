@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Save, download, and compare TRN-03B NORMAL-persona ring captures."""
+"""Save raw TRN-03B captures first, then analyze independent copies."""
 
 from __future__ import annotations
 
@@ -42,6 +42,8 @@ def _transport_identity_crc32(transport: bytes | bytearray) -> int:
 def _transport_packet_crc32(transport: bytes | bytearray) -> int:
     crc_input = bytearray(transport)
     crc_input[28:32] = b"\0\0\0\0"
+    if len(crc_input) >= 32 and (crc_input[13] & 0x04) != 0:
+        crc_input = crc_input[:32]
     return zlib.crc32(crc_input) & 0xFFFFFFFF
 
 
@@ -82,14 +84,12 @@ def validate_capture(value: object) -> dict[str, Any]:
             int(value.get("rx_produced_bytes", -1)) < len(rx_bytes) or
             int(value.get("tx_produced_bytes", -1)) < len(tx_bytes)):
         raise ValueError("invalid TRN-03B capture metadata")
-    if int(value.get("capture_version", 0)) >= 2:
-        tx_frames = int(value.get("tx_complete_frame_count", -1))
-        if ((tx_bytes and
-             (len(tx_bytes) < 4 or tx_bytes[:2] != [0x54, 0x44] or
-              len(tx_bytes) != 4 + tx_bytes[2] + (tx_bytes[3] << 8) or
-              tx_frames <= 0)) or
-                (not tx_bytes and tx_frames != 0)):
-            raise ValueError("invalid complete TX frame evidence")
+    # Capture validation is deliberately structural only. Raw waveform files
+    # remain valid even when no frame magic, length or CRC can be decoded;
+    # protocol interpretation belongs to the later analysis pass.
+    if (int(value.get("capture_version", 0)) >= 2 and
+            int(value.get("tx_complete_frame_count", -1)) < 0):
+        raise ValueError("invalid TX capture counter")
     return value
 
 
@@ -326,13 +326,9 @@ def decode_transport_evidence(
 
 
 def _display_bits(values: Sequence[int], window_bits: int) -> list[int]:
-    packet = latest_complete_packet(values)
-    bits = byte_bits(packet if packet is not None else values)
-    if packet is not None:
-        shown = bits[:window_bits]
-        return shown + [0] * (window_bits - len(shown))
-    shown = bits[-window_bits:]
-    return [0] * (window_bits - len(shown)) + shown
+    """Return the first raw samples without searching for a frame boundary."""
+    shown = byte_bits(values)[:window_bits]
+    return shown + [0] * (window_bits - len(shown))
 
 
 def best_alignment(reference: Sequence[int], candidate: Sequence[int],
@@ -406,17 +402,23 @@ def render_node_svg(config: dict[str, Any],
     bit_period_ns = int(local["bit_period_ns"])
     window_bits = max(1, window_duration_ns // bit_period_ns)
     observed_raw = local["rx_bytes"]
-    logical_raw = captures[marker_source]["tx_bytes"]
-    physical_raw = captures[data_source]["tx_bytes"]
+    # The four RX streams are the raw loop-traffic observations. Do not use
+    # the optional TX history as a capture source: that history is a software
+    # frame record and may legitimately be absent on PIO flight followers.
+    logical_raw = captures[marker_source]["rx_bytes"]
+    physical_raw = captures[data_source]["rx_bytes"]
     observed_packet = latest_complete_packet(observed_raw)
     logical_packet = latest_complete_packet(logical_raw)
     physical_packet = latest_complete_packet(physical_raw)
     observed_transport = decode_transport_evidence(observed_packet)
     logical_transport = decode_transport_evidence(logical_packet)
     physical_transport = decode_transport_evidence(physical_packet)
-    observed = byte_bits(observed_packet) if observed_packet is not None else []
-    logical = byte_bits(logical_packet) if logical_packet is not None else []
-    physical = byte_bits(physical_packet) if physical_packet is not None else []
+    # Alignment operates on the captured streams exactly as stored. Complete
+    # frame decoding below is supplementary protocol evidence and never
+    # changes the samples rendered or compared.
+    observed = byte_bits(observed_raw)
+    logical = byte_bits(logical_raw)
+    physical = byte_bits(physical_raw)
     logical_alignment = best_alignment(logical, observed)
     physical_alignment = best_alignment(physical, observed)
 
@@ -424,9 +426,9 @@ def render_node_svg(config: dict[str, Any],
     x0, plot_width = 250.0, 1100.0
     bit_width = plot_width / window_bits
     tracks = [
-        (f"node{marker_source} TX logical reference", logical_raw, "#3465a4"),
-        (f"node{data_source} TX physical DATA source", physical_raw, "#75507b"),
-        (f"node{node} RX sampled DATA", observed_raw, "#4e9a06"),
+        (f"node{marker_source} raw loop RX observation", logical_raw, "#3465a4"),
+        (f"node{data_source} raw loop RX observation", physical_raw, "#75507b"),
+        (f"node{node} raw loop RX observation", observed_raw, "#4e9a06"),
     ]
     paths: list[str] = []
     for index, (label, bits, color) in enumerate(tracks):
@@ -454,12 +456,11 @@ def render_node_svg(config: dict[str, Any],
                      logical_alignment["lag_bits"] * bit_period_ns)
     physical_delay = (None if physical_alignment is None else
                       physical_alignment["lag_bits"] * bit_period_ns)
-    status = ("RX has no SCK-clocked samples" if not observed_raw else
-              "physical DATA source has no complete TX frame; idle-low is expected"
-              if not physical else
-              "RX samples captured but no complete 0x54,0x44 frame was found"
+    status = ("local raw RX window has no SCK-clocked samples"
+              if not observed_raw else
+              "raw loop windows captured; no complete frame found in local window"
               if observed_packet is None else
-              "complete RX and source frames captured")
+              "raw loop windows captured; local frame decoding available")
     if observed_transport is not None and not observed_transport["valid"]:
         status += f'; RX transport {observed_transport["result"]}'
     svg = (
@@ -469,13 +470,13 @@ def render_node_svg(config: dict[str, Any],
         '.tick{font:12px monospace;text-anchor:middle}.grid{stroke:#ddd;stroke-width:1}'
         '.missing{font:700 18px monospace;fill:#c00}</style>\n'
         f'<text x="20" y="30" class="title">TRN-03B node{node}: '
-        f'link{marker_link} marker input vs physical DATA input</text>\n'
+        f'raw loop traffic analysis at link{marker_link}</text>\n'
         f'<text x="20" y="58" class="note">window {window_duration_ns / 1000:g} us; '
         f'bit period {bit_period_ns} ns; marker source node{marker_source}; '
         f'DATA source node{data_source}</text>\n'
-        f'<text x="20" y="83" class="note">logical best bit-sequence shift '
+        f'<text x="20" y="83" class="note">marker-source raw shift '
         f'{logical_delay if logical_delay is not None else "N/A"} ns; '
-        f'physical best bit-sequence shift '
+        f'DATA-source raw shift '
         f'{physical_delay if physical_delay is not None else "N/A"} ns; '
         f'{html.escape(status)}</text>\n'
         + "".join(ticks) + "".join(paths) +

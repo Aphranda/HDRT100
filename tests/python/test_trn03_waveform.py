@@ -67,21 +67,17 @@ def test_validate_capture_accepts_empty_rx_evidence() -> None:
     assert validate_capture(capture(1, [], [0x54]))["node"] == 1
 
 
-def test_v2_capture_requires_one_complete_tx_frame() -> None:
+def test_v2_capture_accepts_raw_tx_without_frame_judgment() -> None:
     value = capture(0, [], [0x12, 0x34])
     value.update({
         "schema": "HAOFV_TRN03_RING_CAPTURE_V2",
         "capture_version": 2,
         "tx_complete_frame_count": 17,
     })
-    assert validate_capture(value)["tx_bytes"][:2] == [0x54, 0x44]
+    assert validate_capture(value)["tx_bytes"] == [0x54, 0x44, 2, 0,
+                                                     0x12, 0x34]
     value["tx_bytes"] = [0, 0, 0, 0, 0, 0]
-    try:
-        validate_capture(value)
-    except ValueError as exc:
-        assert "complete TX frame" in str(exc)
-    else:
-        raise AssertionError("V2 capture accepted TX evidence without header")
+    assert validate_capture(value)["tx_bytes"] == [0, 0, 0, 0, 0, 0]
 
 
 def test_latest_complete_packet_uses_newest_frame_boundary() -> None:
@@ -109,6 +105,8 @@ def transport_packet() -> list[int]:
     transport[32:36] = b"data"
     transport_crc_input = bytearray(transport)
     transport_crc_input[28:32] = b"\0\0\0\0"
+    if (transport_crc_input[13] & 0x04) != 0:
+        transport_crc_input = transport_crc_input[:32]
     transport[28:32] = zlib.crc32(transport_crc_input).to_bytes(4, "little")
     return [0x54, 0x44, len(transport), 0, *transport]
 
